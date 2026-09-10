@@ -854,8 +854,10 @@
   margin: 0 0 10px;
 }
 
+/* 不确定进度轨：与概览状态条轨（.boc-reading-ov-track）同一档粗细 4px、同一
+ * 条 boc-asr-pulse 动画——同一面板的两个 loading 指示器不该两个粗细。 */
 .boc-reading-asr-track {
-  height: 6px;
+  height: 4px;
   background: var(--boc-reader-track, rgba(0, 0, 0, 0.08));
   border-radius: 99px;
   overflow: hidden;
