@@ -3,6 +3,10 @@
 // ASR 平台行（options-asr-rows.js）共用。点击 toggle 从 baseUrl 拉取可用
 // 模型列表，选中写回输入框；手输模型或选中选项时收起下拉。
 //
+// 拉取前先申请 baseUrl 所在域名的 host 权限：未授权时那条 GET 只会以 CORS
+// 失败，而保存链的权限申请又要求先有模型名——「先点箭头看有哪些模型」是打破
+// 这个死锁的唯一手势（保存链的申请原样保留，已授权时静默通过）。
+//
 // DOM 契约沿用 AI 侧既有类名（ai-provider-model-wrapper / -toggle /
 // -dropdown / -option / -message / -error / -loading / -count），reader.css
 // 样式与 settings-panel 的全局收起逻辑（点外部关闭 .ai-provider-model-dropdown）
@@ -11,6 +15,7 @@
 // asr-provider-model），供收集/探针逻辑按行型取值。
 
 import { escapeHtml } from "../shared/string-utils.js";
+import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import type { ProviderRowElement, ProviderRowShowStatus } from "./provider-row.js";
 
 export interface ModelPickerFieldOptions {
@@ -90,6 +95,17 @@ export function wireModelPicker(
     dropdown.appendChild(loadingLi);
 
     try {
+      // 手势同步链：本次点击直达代申请（此前零 await，见 tests/ui/
+      // options-save-gesture.test.js 的调用方扫描），拒绝则只在下拉内提示。
+      const permission = await requestProviderOriginsViaBackground([baseUrl]);
+      if (!permission.ok) {
+        dropdown.innerHTML = "";
+        const li = document.createElement("li");
+        li.className = "ai-provider-model-message ai-provider-model-error";
+        li.textContent = permission.error || "未取得该平台域名权限，无法拉取模型列表";
+        dropdown.appendChild(li);
+        return;
+      }
       const resp = await fetchModels({
         baseUrl,
         apiKey,

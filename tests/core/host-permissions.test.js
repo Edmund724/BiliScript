@@ -100,7 +100,7 @@ describe("requestProviderOrigins（保存手势链上的批量申请）", () => 
     expect(resp.ok).toBe(false);
     expect(resp.error).toContain("未授权");
     expect(resp.error).toContain("https://api.openai.com");
-    expect(resp.error).toContain("保存已中止");
+    expect(resp.error).toContain("操作已中止");
   });
 
   it("request 抛错 → { ok: false, error } 兜底", async () => {

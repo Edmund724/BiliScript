@@ -84,7 +84,7 @@ export async function requestProviderOrigins(
   if (!granted) {
     return {
       ok: false,
-      error: `未授权 ${origins.join("、")}，保存已中止：请重新点击「保存设置」并在弹窗中选择允许`,
+      error: `未授权 ${origins.join("、")}，操作已中止：请在权限弹窗中选择允许后重试`,
       origins
     };
   }

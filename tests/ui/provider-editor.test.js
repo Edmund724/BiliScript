@@ -567,6 +567,67 @@ describe("provider-editor：预设切换（Modal 内不代申请权限）", () =
   });
 });
 
+// 未保存的新平台没有模型名就存不下去，而没授权时模型列表请求只会 CORS 失败：
+// 点箭头「先看看有哪些模型」是唯一能打破死锁的手势——权限申请落在这次点击上。
+describe("provider-editor：模型下拉箭头先申请域名权限（没保存也能拉模型）", () => {
+  it("AI：点箭头 → 先申请 baseUrl 域名权限，再拉模型列表并渲染选项", async () => {
+    const { sent, host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini", "gpt-4o"] })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://token.sensenova.cn/v1";
+    dialog.querySelector(".provider-editor-apikey").value = "sk-test";
+
+    fireClick(dialog.querySelector(".ai-provider-model-toggle"));
+
+    await vi.waitFor(() => {
+      expect(dialog.querySelectorAll(".ai-provider-model-option")).toHaveLength(2);
+    });
+    const types = messageTypes(sent);
+    expect(types.indexOf("request-provider-origins")).toBeLessThan(types.indexOf("ai-providers-models"));
+    expect(sent.find((message) => message.type === "request-provider-origins").baseUrls).toEqual(["https://token.sensenova.cn/v1"]);
+
+    // 选中写回输入框并收起下拉：模型名就位后保存链校验通过
+    fireClick(dialog.querySelector(".ai-provider-model-option"));
+    expect(dialog.querySelector(".provider-editor-model").value).toBe("gpt-4o-mini");
+    expect(dialog.querySelector(".ai-provider-model-dropdown").hidden).toBe(true);
+  });
+
+  it("AI：权限被拒 → 下拉内给可操作报错，不发注定 CORS 失败的模型请求，仍可手填", async () => {
+    const { sent, host } = await mountPanel({
+      "request-provider-origins": () => ({ ok: false, error: "未授权 https://token.sensenova.cn/*，操作已中止：请在权限弹窗中选择允许后重试" })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://token.sensenova.cn/v1";
+    fireClick(dialog.querySelector(".ai-provider-model-toggle"));
+
+    await vi.waitFor(() => {
+      expect(dialog.querySelector(".ai-provider-model-dropdown .ai-provider-model-error")).toBeTruthy();
+    });
+    expect(dialog.querySelector(".ai-provider-model-error").textContent).toContain("未授权");
+    expect(sent.some((message) => message.type === "ai-providers-models")).toBe(false);
+    expect(dialog.querySelector(".provider-editor-model").value).toBe("");
+  });
+
+  it("ASR：同一控件同样先申请权限再调 listAsrModels", async () => {
+    const { listAsrModels } = await import("../../extension/asr/provider-models.js");
+    listAsrModels.mockResolvedValueOnce({ ok: true, models: ["whisper-1"] });
+    const { sent, host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAsrProviderBtn");
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://asr.example.com/v1";
+    fireClick(dialog.querySelector(".ai-provider-model-toggle"));
+
+    await vi.waitFor(() => {
+      expect(dialog.querySelector('.ai-provider-model-option[data-model="whisper-1"]')).toBeTruthy();
+    });
+    expect(sent.some((message) => message.type === "request-provider-origins")).toBe(true);
+    expect(listAsrModels).toHaveBeenCalled();
+  });
+});
+
 // M9 校验态现代化：字段级错误态不再走手写 input-error 类，改为原生约束
 //（required / pattern）+ reader-settings.css 的 :user-invalid/:user-valid
 // CSS 校验态——浏览器只在用户提交过值（blur）或尝试提交后才进入
