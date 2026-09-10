@@ -266,8 +266,14 @@
   display: grid;
   grid-template-rows: auto auto auto 1fr;
   /* 显式单列：不写的话自动放置会把标签区排到第 2 列去避让跨行的抽屉
-   *（网格项不重叠），重叠语义随之失效。 */
-  grid-template-columns: 1fr;
+   *（网格项不重叠），重叠语义随之失效。
+   * 列宽必须写 minmax(0, 1fr) 而不是 1fr：1fr 隐含的 auto 下限 = min-content，
+   * 对话 tab 的 header（上下文 chip 是 white-space:nowrap 的超长单行，即便自带
+   * min-width:0 + ellipsis 也仍向 grid 列贡献 min-content）会把整列撑到
+   * 700px+，面板宽度是定死的 → 整列内容向右溢出后被 overflow:hidden 裁掉
+   *（tab 栏、模型选择行、输入框右缘一起被切）。minmax(0, …) 抹掉这个下限，
+   * 列宽严格等于面板宽，各元素自己的 ellipsis/收缩规则才生效。 */
+  grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
   /* content-box 下 width:100% + 1px 边框两侧各溢 1px，贴栏态固定定位的
    * 溢出会顶出页面级横向滚动条（Modal 出现前的既有 2px 残留，一并收口） */
