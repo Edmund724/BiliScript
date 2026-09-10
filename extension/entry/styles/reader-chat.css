@@ -146,7 +146,7 @@
   flex-basis: 100%;
   padding: 0 2px;
   color: var(--boc-reader-muted, #6f675c);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.4;
 }
 
@@ -156,8 +156,8 @@
 
 .boc-reading-chat .chat-icon-btn {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -353,11 +353,11 @@
 }
 
 .boc-reading-chat .chat-msg-copy-btn {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--boc-reader-card, #ffffff);
   color: var(--boc-reader-muted, #6f675c);
   cursor: pointer;
@@ -661,7 +661,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 28px;
+  height: 32px;
   padding: 0 8px;
   border: 0;
   border-radius: 999px;
@@ -924,25 +924,25 @@
 .boc-reading-chat .chat-preset-input {
   flex: 1;
   min-width: 0;
-  height: 30px;
+  height: 32px;
   padding: 0 10px;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
   border-radius: 999px;
   background: var(--boc-reader-surface, #fdfbf7);
   color: var(--boc-reader-text, #2b2620);
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .boc-reading-chat .chat-preset-add-btn {
-  height: 30px;
+  height: 32px;
   padding: 0 12px;
   border: 0;
   border-radius: 999px;
   background: var(--boc-reader-surface-2, #f0e9df);
   color: var(--boc-reader-text, #2b2620);
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
   cursor: pointer;
 }
 
@@ -981,14 +981,14 @@
   right: 10px;
   bottom: 10px;
   z-index: 1;
-  height: 34px;
+  height: 32px;
   padding: 0 12px;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
   border-radius: 999px;
   background: var(--boc-reader-card, #ffffff);
   color: var(--boc-reader-muted, #6f675c);
   font: inherit;
-  font-size: 14.5px;
+  font-size: 15px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }

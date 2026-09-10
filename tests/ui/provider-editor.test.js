@@ -638,3 +638,34 @@ describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验�
     expect(dialog.querySelector(".provider-editor-save").getAttribute("aria-invalid")).toBeNull();
   });
 });
+
+// ADR-0007（设置页下拉统一下拉组件）覆盖 AI 与 ASR 两侧：AI 侧曾漏接，
+// 原生 select 在三方站点上由浏览器绘制弹层（直角 + 系统高亮），与 Modal 内
+// 其余 8px 框割裂——用户报告的正是这一处。
+describe("provider-editor：平台预设走 custom-select（AI/ASR 两侧）", () => {
+  it.each([
+    ["AI", "#addAiProviderBtn", "ollama", "http://localhost:11434/v1"],
+    ["ASR", "#addAsrProviderBtn", "local-whisper", "http://localhost:8000/v1"]
+  ])("%s：原生 select 被组件接管，选项点击写回值并派生 change", async (_label, button, optionValue, expectedBaseUrl) => {
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, button);
+
+    const select = dialog.querySelector(".provider-editor-preset");
+    const wrapper = select.closest(".custom-select-wrapper");
+    expect(wrapper).toBeTruthy();
+    expect(select.dataset.customSelectInitialized).toBe("1");
+    expect(select.classList.contains("custom-select-hidden")).toBe(true);
+    expect(select.closest(".provider-editor-host")).toBeTruthy();
+
+    const trigger = wrapper.querySelector(".custom-select-trigger");
+    const option = wrapper.querySelector(`.custom-select-option[data-value="${optionValue}"]`);
+    expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
+    expect(option).toBeTruthy();
+
+    fireClick(option);
+    expect(select.value).toBe(optionValue);
+    expect(trigger.querySelector(".custom-select-value").textContent).toBe(option.textContent);
+    // change 由组件派生：预设切换的既有接线（baseUrl/名称/Key 跟随）照常生效
+    expect(dialog.querySelector(".provider-editor-baseurl").value).toBe(expectedBaseUrl);
+  });
+});

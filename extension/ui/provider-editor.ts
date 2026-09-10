@@ -540,9 +540,9 @@ function wireDialog(options: ProviderEditorOpenOptions): void {
   });
   if (presetSelect) {
     presetSelect.dataset.previousPresetId = presetSelect.value;
-    if (options.kind === "asr") {
-      initCustomSelect(presetSelect, "custom-select-wrapper provider-editor-preset-wrapper");
-    }
+    // AI / ASR 一律接管（ADR-0007）：原生 select 的弹层由浏览器绘制，圆角与
+    // 高亮都是系统外观，与 Modal 内其余 8px 框/12px 弹层割裂。
+    initCustomSelect(presetSelect, "custom-select-wrapper provider-editor-preset-wrapper");
   }
 
   // 输入即清错误状态行（修正输入即清错）；字段级校验态由 :user-invalid CSS

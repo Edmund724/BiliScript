@@ -42,8 +42,8 @@ body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-digest-float="1"] {
   right: 16px;
   bottom: 16px;
   height: min(76vh, 860px);
-  border-radius: 18px;
-  box-shadow: 0 28px 60px rgba(15, 23, 42, 0.16);
+  border-radius: 14px;
+  box-shadow: var(--boc-reader-shadow);
   background: var(--boc-reader-surface, #fff);
   pointer-events: auto;
 }
@@ -101,6 +101,9 @@ body[data-boc-reader-mode="1"],
   --boc-reader-accent-ink: #ffffff;
   --boc-reader-pill-bg: #f0e9df;
   --boc-reader-highlight: #fdeeda;
+  /* 进度轨底色（转写横幅 / 概览不确定进度条）：黑色半透明在深色面上不可见，
+   * 两主题各给一份。 */
+  --boc-reader-track: rgba(0, 0, 0, 0.08);
   --boc-reader-shadow: 0 18px 40px rgba(112, 93, 64, 0.1);
   --boc-reader-subtitle-font-size: 16px;
   --boc-reader-subtitle-line-height: 1.5;
@@ -134,6 +137,7 @@ body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
   --boc-reader-accent-ink: #2b1220;
   --boc-reader-pill-bg: #1a2a46;
   --boc-reader-highlight: rgba(253, 238, 218, 0.1);
+  --boc-reader-track: rgba(226, 232, 240, 0.18);
   --boc-reader-shadow: 0 18px 42px rgba(2, 6, 23, 0.42);
   --boc-reader-header-bg: rgba(15, 23, 42, 0.72);
   --boc-reader-overlay-bg: rgba(15, 23, 42, 0.8);
