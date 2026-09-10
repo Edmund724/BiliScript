@@ -532,7 +532,8 @@
 }
 
 /* 时间戳 pill：贯穿字幕行 / 章节 / 金句 / AI 引用的视觉母题
- *（prototype/direction-approved.md）——等宽字体 + accent-soft 底 + accent 字。 */
+ *（prototype/direction-approved.md）——等宽字体 + accent-soft 底 + accent 字。
+ * 母题自称 pill，形状就是 pill（999px，与同底的 .boc-reading-ov-badge 同款）。 */
 .boc-reading-time {
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   font-size: 14px;
@@ -540,7 +541,7 @@
   line-height: 1.5;
   color: var(--boc-reader-accent, #fb7299);
   background: var(--boc-reader-accent-soft, #fce0ea);
-  border-radius: 6px;
+  border-radius: 999px;
   padding: 1px 7px;
   white-space: nowrap;
   justify-self: start;
