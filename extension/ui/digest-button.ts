@@ -67,9 +67,13 @@ const PLAYER_SELECTORS = [
   "#playerWrap"
 ];
 
+// 造型对齐 B 站顶栏「投稿」按钮（kimi-webbridge 实测现行站点：90×34、
+// border-radius 8px、14px/500 白字、内容居中）。此前的 999px 全胶囊在同一条
+// 工具栏里比站点按钮圆得多，观感突兀。
 const BUTTON_BASE_STYLE =
-  "display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border:none;" +
-  "border-radius:999px;cursor:pointer;font-size:14px;line-height:1.4;color:#fff;white-space:nowrap;";
+  "display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;" +
+  "height:34px;padding:0 20px;border:none;border-radius:8px;cursor:pointer;" +
+  "font-size:14px;font-weight:500;line-height:20px;color:#fff;white-space:nowrap;";
 
 // ===== 模块求值即启动生命周期（content.ts init() 直接触发装载） =====
 //
