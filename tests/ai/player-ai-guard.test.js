@@ -28,6 +28,25 @@ async function getPlayerAiState() {
 
 const storageChangeListeners = new Set();
 
+// 帧内快车道用例的手推 rAF 队列：jsdom 的 rAF 在 fake 时钟下按 16ms 拍触发，
+// 逐帧重试与预算耗尽的边界要确定就得自己推帧（见 installRafQueue/flushRafQueue）。
+let rafQueue = [];
+let rafHandle = 0;
+function installRafQueue() {
+  rafQueue = [];
+  rafHandle = 0;
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+    rafQueue.push(cb);
+    rafHandle += 1;
+    return rafHandle;
+  });
+}
+function flushRafQueue() {
+  const pending = rafQueue;
+  rafQueue = [];
+  pending.forEach((cb) => cb());
+}
+
 // 当前用例的内存设置引用：stubChrome 写入，emitStorageChange 更新并派发。
 let activeSettingsRef = null;
 // deferGetSettings 模式下挂起的 get-settings 回包回调（模拟 SW 冷启动未回包）。
@@ -133,8 +152,11 @@ async function loadContentScript(settings) {
   const { loadDigestButton } = await import("../../extension/ui/lazy-digest-button.js");
   await loadDigestButton();
   await flushMicrotasks();
-  await getPlayerAiState();
-  return (await import("../../extension/core/state.js")).state;
+  // 模块级 playerAiState 经 getPlayerAiState() 绑定到本用例注册表的实例；
+  // 用例要读状态槽位请用这里返回的对象，不要再次 getPlayerAiState()——再次
+  // 调用会重置模块注册表并给出另一个实例，读到的槽位与生产代码写的不是同一个。
+  const aiState = await getPlayerAiState();
+  return { state: (await import("../../extension/core/state.js")).state, playerAiState: aiState };
 }
 
 function makePlayerDom() {
@@ -147,6 +169,13 @@ function makePlayerDom() {
 
 beforeEach(() => {
   storageChangeListeners.clear();
+  // 上一用例注册表可能留有已排的帧内快车道 rAF：resetModules() 换注册表后
+  // 该帧仍会在本用例的 fake 时钟里开火，用旧注册表的设置对当前 DOM 挂按钮。
+  // 模块把它挂到 window 上正是为了这里能按 id 取消（见 player-ai.ts 调度器）。
+  if (window.__bocPlayerAiSyncRaf !== undefined) {
+    window.cancelAnimationFrame(window.__bocPlayerAiSyncRaf);
+    delete window.__bocPlayerAiSyncRaf;
+  }
   resetModuleState();
   // resetModuleState 内部的 useRealTimers 复位后，本文件统一挂 fake 时钟
   vi.useFakeTimers();
@@ -161,7 +190,7 @@ afterEach(() => {
 describe("player-ai 启停守卫", () => {
   it("设置关闭 → 不挂 observer、不绑 window layout 监听", async () => {
     const windowAddSpy = vi.spyOn(window, "addEventListener");
-    const state = await loadContentScript({ enablePlayerAiQuickAction: false });
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: false });
 
     expect(playerAiState.playerAiQuickActionObserver).toBeNull();
     expect(playerAiState.playerAiQuickActionLayoutBound).toBe(false);
@@ -172,7 +201,7 @@ describe("player-ai 启停守卫", () => {
   it("设置开启 → observe 被调、layout 监听挂上", async () => {
     const windowAddSpy = vi.spyOn(window, "addEventListener");
     const documentAddSpy = vi.spyOn(document, "addEventListener");
-    const state = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
 
     expect(playerAiState.playerAiQuickActionObserver).not.toBeNull();
     expect(playerAiState.playerAiQuickActionLayoutBound).toBe(true);
@@ -189,7 +218,7 @@ describe("player-ai 启停守卫", () => {
     expect(DEFAULT_SETTINGS.enablePlayerAiQuickAction).toBe(true);
 
     const windowAddSpy = vi.spyOn(window, "addEventListener");
-    const state = await loadContentScript({});
+    const { state } = await loadContentScript({});
     // 未预热路径：start 经 loadPlayerAi().then 异步执行，显式等模块在位
     const { loadPlayerAi } = await import("../../extension/ai/lazy-player-ai.js");
     await loadPlayerAi();
@@ -202,7 +231,7 @@ describe("player-ai 启停守卫", () => {
   });
 
   it("start 幂等：重复调用不重复绑 observer 与监听", async () => {
-    const state = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
     // loadContentScript 的 preload 与这里的 import 为同一模块实例；vitest 对
     // 已加载模块的重复 import 返回缓存（诊断实测），此处拿真实命名空间（非
     // doMock 产物，后者的依赖图会被 doMock 的 import 拦截带偏）
@@ -222,12 +251,16 @@ describe("player-ai 启停守卫", () => {
     // 否则初始挂载的游标绑定会逃过捕获
     const hostAddSpy = vi.spyOn(host, "addEventListener");
     const hostRemoveSpy = vi.spyOn(host, "removeEventListener");
-    const state = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
     const { schedulePlayerAiQuickActionSync, stopPlayerAiQuickAction } = await import("../../extension/ai/player-ai.js");
 
+    // 装载期的 sync 帧全部作废，只留「手动排一帧」这一条路径，绑定数才可数。
+    // 真实 rAF 在 fake 时钟下按 16ms 拍触发、时序不受控（观察器补 sync 会在同
+    // 一窗口内再挂一次），手推队列让挂载精确到一次。
+    vi.clearAllTimers();
+    installRafQueue();
     schedulePlayerAiQuickActionSync(0);
-    // fake 时钟显式推进：跑掉 0ms sync 定时器，等价旧真实 10ms 等待但确定
-    await vi.advanceTimersByTimeAsync(10);
+    flushRafQueue();
 
     const button = document.getElementById("boc-player-ai-quick-action");
     expect(button).not.toBeNull();
@@ -255,18 +288,18 @@ describe("player-ai 启停守卫", () => {
   it("游标监听防重挂守卫：同一 host 不重复绑", async () => {
     const host = makePlayerDom();
     const hostAddSpy = vi.spyOn(host, "addEventListener");
-    const state = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
 
     schedulePlayerAiQuickActionSync(0);
-    // fake 时钟显式推进：跑掉 0ms sync 定时器，等价旧真实 10ms 等待但确定
-    await vi.advanceTimersByTimeAsync(10);
+    // fake 时钟显式推进：0 → 帧内快车道（rAF），推进一帧即执行 sync
+    await vi.advanceTimersByTimeAsync(20);
     expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
 
     // 再次 sync（按钮已挂载路径）：不应重复绑游标监听
     schedulePlayerAiQuickActionSync(0);
-    // fake 时钟显式推进：跑掉 0ms sync 定时器，等价旧真实 10ms 等待但确定
-    await vi.advanceTimersByTimeAsync(10);
+    // fake 时钟显式推进：0 → 帧内快车道（rAF），推进一帧即执行 sync
+    await vi.advanceTimersByTimeAsync(20);
 
     const mousemoveBinds = hostAddSpy.mock.calls.filter(([type]) => type === "mousemove");
     expect(mousemoveBinds.length).toBe(1);
@@ -276,7 +309,7 @@ describe("player-ai 启停守卫", () => {
   it("stop → retry 定时器清理，stop 后不再触发挂载", async () => {
     // 只有容器、无字幕控件 → sync 挂载失败进入 retry 退避
     document.body.innerHTML = `<div class="bpx-player-container"></div>`;
-    const state = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
     const { schedulePlayerAiQuickActionSync, stopPlayerAiQuickAction } = await import("../../extension/ai/player-ai.js");
 
     // 手动 sync 会 clear 掉 start 的初始 120ms 定时器并立即执行一次 sync
@@ -333,7 +366,7 @@ describe("player-ai 启停守卫", () => {
   it("storage.onChanged：enablePlayerAiQuickAction true→false→true 正确启停", async () => {
     const windowAddSpy = vi.spyOn(window, "addEventListener");
     const windowRemoveSpy = vi.spyOn(window, "removeEventListener");
-    const state = await loadContentScript({ enablePlayerAiQuickAction: false });
+    const { state } = await loadContentScript({ enablePlayerAiQuickAction: false });
     // 关闭态未预热：首次开启会触发真实动态 import，用例内要显式等加载完成
     const { loadPlayerAi } = await import("../../extension/ai/lazy-player-ai.js");
 
@@ -373,31 +406,78 @@ describe("player-ai 启停守卫", () => {
   });
 });
 
-describe("player-ai 重试退避节奏与注入耗时观测（工单 button-injection-stability/01）", () => {
-  it("退避加密：首拍 100ms、步进 +100ms、封顶 1s（原 260ms 起步 / 2.5s 封顶）", async () => {
+describe("player-ai 重试退避节奏与注入耗时观测（工单 button-injection-stability/01、03）", () => {
+  it("首挂载走帧内快车道（rAF），不等 120ms 定时器", async () => {
+    // 工单 03：首挂载的 120ms 防抖定时器在首载负载下会被拖到 200-400ms，
+    // 改走 requestAnimationFrame——模块装载后一帧内即执行首次 sync 尝试。
+    makePlayerDom();
+    // rAF 换成手推队列（真实 rAF 的返回值不是数字句柄，调度器按数值句柄取消）；
+    // 队列非空本身就说明首挂载走的是帧快车道。
+    installRafQueue();
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    const { playerAiState: state } = await loadContentScript({ enablePlayerAiQuickAction: true });
+
+    // 初始 sync 走帧内快车道：排的是 rAF（setTimeout 句柄恒为正，槽位符号即来源），
+    // 且没有 sync 的 120ms 防抖定时器——这正是工单 03 要干掉的等待。
+    expect(rafQueue.length).toBeGreaterThan(0);
+    expect(state.playerAiQuickActionSyncTimer).toBeLessThan(0);
+    expect(setTimeoutSpy.mock.calls.find(([, ms]) => ms === 120)).toBeUndefined();
+
+    // 挂载本身照常：推一帧 + 微任务后按钮在位
+    flushRafQueue();
+    await flushMicrotasks();
+    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+  });
+
+  it("retry 快车道：先逐帧重试，预算耗尽后回落 100ms 起步退避", async () => {
     // 字幕控件门语义保留：只有容器、无字幕控件 → 挂载失败走 retry。
+    // rAF 换成手推队列，并把装载期残留的帧/定时器清掉，边界必须确定，不依赖
+    // jsdom 的帧拍，也不受容器观察器那条 sync 链路的干扰。
+    installRafQueue();
     document.body.innerHTML = `<div class="bpx-player-container"></div>`;
-    await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { playerAiState: state } = await loadContentScript({ enablePlayerAiQuickAction: true });
+    vi.clearAllTimers();
+    rafQueue = [];
     const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
 
-    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    // 快车道阶段：手排一次 sync，逐帧排空。帧内 retry 的句柄槽位恒为负（rAF），
+    // 预算 20 帧。
     schedulePlayerAiQuickActionSync(0);
-    await vi.advanceTimersByTimeAsync(1);
+    let drained = 0;
+    while (rafQueue.length > 0 && drained < 20) {
+      flushRafQueue();
+      drained += 1;
+      expect(state.playerAiQuickActionSyncTimer).toBeLessThan(0);
+    }
+    expect(drained).toBe(20);
+    // 预算耗尽前不得出现退避定时器（正句柄）：这一帧之后才是退避拍
+    expect(rafQueue.length).toBe(1);
 
-    // 每轮读取最新一个 setTimeout 延迟（= 当前 retry 退避拍），推到拍点触发
-    // 下一轮。中途无其他定时器来源（按钮未挂载，游标/显隐定时器不存在）。
-    const delays = [];
-    for (let i = 0; i < 12; i += 1) {
-      const [, ms] = setTimeoutSpy.mock.calls.at(-1);
-      delays.push(ms);
+    // 预算耗尽（20 帧）：第 21 帧再失败即落到退避定时器——rAF 不再续排（队列
+    // 停在 0），并排出 100ms 起步的退避拍（毫秒数从 globalThis.setTimeout 的
+    // 实参读：那才是 fake 时钟那一层，window.setTimeout 上挂着 Node 的真实定时器）。
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    flushRafQueue();
+    expect(rafQueue.length).toBe(0);
+    expect(setTimeoutSpy.mock.calls.at(-1)[1]).toBe(100);
+
+    // 退避节奏：预算耗尽后每一拍都是「定时器到点 → 重新吃满 20 帧 → 落回下一
+    // 拍」，所以每观察一拍就整轮推进一次（20 帧 + 该拍毫秒数）。
+    const stepOnce = async () => {
+      const ms = setTimeoutSpy.mock.calls.at(-1)[1];
+      for (let i = 0; i < 20; i += 1) {
+        flushRafQueue();
+      }
       await vi.advanceTimersByTimeAsync(ms);
+      return ms;
+    };
+    const delays = [await stepOnce()];
+    for (let i = 0; i < 12; i += 1) {
+      delays.push(await stepOnce());
     }
-    expect(delays[0]).toBe(100);
-    for (let i = 1; i <= 8; i += 1) {
-      expect(delays[i]).toBe(delays[i - 1] + 100);
-    }
+    expect(delays.slice(0, 10)).toEqual([100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]);
     // 封顶 1s 并维持，不再增长
-    expect(delays.slice(9)).toEqual([1000, 1000, 1000]);
+    expect(delays.slice(10)).toEqual([1000, 1000, 1000]);
   });
 
   it("首次挂载打注入耗时日志（默认开启）", async () => {

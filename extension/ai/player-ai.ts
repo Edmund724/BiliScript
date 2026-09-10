@@ -31,7 +31,12 @@ import { ensurePlayerAiStyles, removePlayerAiStyles } from "../shared/style-inje
 // Map 防重复挂。
 ensurePlayerAiStyles();
 
+// 帧内快车道剩余帧数（工单 button-injection-stability/03）：首挂载前的 retry
+// 走 requestAnimationFrame 而不是退避定时器——播放器容器已出现但尚未完成
+// 布局/被显隐门挡住的窗口只有几帧，定时器路径要等满 100ms 起步的退避拍。
+const PLAYER_AI_FRAME_RETRY_BUDGET = 20;
 let playerAiQuickActionRetryCount = 0;
+let playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
 
 // 注入耗时观测（工单 button-injection-stability/01 可观测，默认开启）：模块
 // 求值到 AI 键首次挂载的耗时，只记一次。
@@ -52,6 +57,7 @@ let playerAiQuickActionCursorSync: CursorSync | null = null;
 
 export function resetPlayerAiQuickActionRetryCount(): void {
   playerAiQuickActionRetryCount = 0;
+  playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
 }
 
 const PLAYER_CONTAINER_SELECTOR = ".bpx-player-container, #bilibili-player";
@@ -61,9 +67,10 @@ const PLAYER_CONTAINER_SELECTOR = ".bpx-player-container, #bilibili-player";
 export function startPlayerAiQuickAction(): void {
   bindPlayerAiQuickActionLayoutEvents();
   startPlayerAiQuickActionObserver();
-  // observer 只在 DOM 变化时回调，初始挂载需要主动 sync 一次（与搬迁前
-  // content.js 在 startObserver 后立即 sync 的行为一致）。
-  schedulePlayerAiQuickActionSync();
+  // observer 只在 DOM 变化时回调，初始挂载需要主动 sync 一次。走帧内快车道
+  // （delayMs=0 → rAF）而不是 120ms 定时器：播放器容器通常已就绪，差的是它
+  // 完成布局的那一帧——等一帧即挂，定时器路径在首载负载下会被拖到 200ms+。
+  schedulePlayerAiQuickActionSync(0);
 }
 
 // 显式停止入口：断开 observer、摘除全部本模块监听（含挂在宿主元素上的游标
@@ -80,11 +87,9 @@ export function stopPlayerAiQuickAction(): void {
   unbindPlayerAiQuickActionLayoutEvents();
   unbindPlayerAiQuickActionCursorSync();
   // retry 复用 sync 定时器（schedulePlayerAiQuickActionRetry → scheduleSync），
-  // 清掉定时器与计数，避免 stop 后残留回调再次尝试挂按钮。
-  if (playerAiState.playerAiQuickActionSyncTimer) {
-    window.clearTimeout(playerAiState.playerAiQuickActionSyncTimer);
-    playerAiState.setSyncTimer(0);
-  }
+  // 清掉挂起句柄（rAF 或定时器，见 cancelPlayerAiQuickActionSync）与计数，
+  // 避免 stop 后残留回调再次尝试挂按钮。
+  cancelPlayerAiQuickActionSync();
   resetPlayerAiQuickActionRetryCount();
   removePlayerAiQuickActionButton();
 }
@@ -95,7 +100,8 @@ export function startPlayerAiQuickActionObserver(): void {
   }
 
   const sync = () => {
-    schedulePlayerAiQuickActionSync();
+    // 0 → 帧内快车道（rAF）：DOM 变化后等一帧让 rect 落定即挂，避免 120ms 防抖
+    schedulePlayerAiQuickActionSync(0);
   };
   const observer = new MutationObserver(sync);
 
@@ -167,9 +173,24 @@ function unbindPlayerAiQuickActionLayoutEvents(): void {
   playerAiState.setLayoutBound(false);
 }
 
+// 挂载同步的调度器（delayMs === 0 走帧内快车道）：0 用 requestAnimationFrame，
+// 其余用 setTimeout。为什么快车道必要：首挂载必须等播放器完成布局，而合成帧
+// 之后就能拿到正确 rect，比任何 ≥100ms 的退避拍都快一个量级；实测首挂载的
+// setTimeout(120) 在页面首载负载下会被拖到 200–400ms。同步槽位以符号区分两种
+// 句柄（正数 = setTimeout id，负数 = rAF id），保持 state 单一槽位不变。
 export function schedulePlayerAiQuickActionSync(delayMs = 120): void {
-  if (playerAiState.playerAiQuickActionSyncTimer) {
-    window.clearTimeout(playerAiState.playerAiQuickActionSyncTimer);
+  cancelPlayerAiQuickActionSync();
+  if (delayMs === 0) {
+    // rAF 句柄另挂到 window 上：用例间 vi.resetModules() 换注册表后，上一注册表
+    // 排的帧仍会在下一用例的 fake 时钟里开火（本文件头注记的残留时钟问题），
+    // beforeEach 需要能按 id 取消上一注册表的帧。
+    const rafId = window.requestAnimationFrame(() => {
+      playerAiState.setSyncTimer(0);
+      syncPlayerAiQuickActionButton();
+    });
+    (window as Window).__bocPlayerAiSyncRaf = rafId;
+    playerAiState.setSyncTimer(-rafId);
+    return;
   }
   playerAiState.setSyncTimer(window.setTimeout(() => {
     playerAiState.setSyncTimer(0);
@@ -177,7 +198,28 @@ export function schedulePlayerAiQuickActionSync(delayMs = 120): void {
   }, delayMs));
 }
 
+function cancelPlayerAiQuickActionSync(): void {
+  const handle = playerAiState.playerAiQuickActionSyncTimer;
+  if (!handle) {
+    return;
+  }
+  if (handle < 0) {
+    window.cancelAnimationFrame(-handle);
+  } else {
+    window.clearTimeout(handle);
+  }
+  playerAiState.setSyncTimer(0);
+}
+
 function schedulePlayerAiQuickActionRetry(): void {
+  // 帧内快车道（工单 button-injection-stability/03）：宿主控件/播放器容器的
+  // 就绪窗口只有几帧，先用 rAF 逐帧重试（预算 20 帧 ≈330ms），预算耗尽再回落到
+  // 退避定时器，避免长时间不可见时逐帧空转。
+  if (playerAiQuickActionFrameRetriesLeft > 0) {
+    playerAiQuickActionFrameRetriesLeft -= 1;
+    schedulePlayerAiQuickActionSync(0);
+    return;
+  }
   // 退避节奏加密（工单 button-injection-stability/01）：首拍 100ms、步进
   // +100ms、封顶 1s（原 260ms 起步 / 2.5s 封顶——视频已出而字幕控件未渲染时
   // 按钮最坏以 2.5s 步长干等）。字幕控件门语义不变，只加密重试节拍。
@@ -236,6 +278,9 @@ function syncPlayerAiQuickActionButton(): void {
   bindPlayerAiQuickActionCursorSync(wrap);
   syncPlayerAiQuickActionVisuals(button);
   playerAiQuickActionRetryCount = 0;
+  // 挂载成功即补满帧内快车道预算：下次「宿主重新就绪」（SPA 换片、阅读模式
+  // 进出后的重挂）同样从逐帧重试开始，不用等退避拍。
+  playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
   if (!mountTimingLogged) {
     mountTimingLogged = true;
     logInfoAlways(
