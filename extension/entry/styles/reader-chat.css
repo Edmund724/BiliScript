@@ -249,6 +249,9 @@
   border-color: var(--boc-reader-surface-3, #e7dfd4);
 }
 
+/* 气泡是「内容排版域」的形状与字号档：正文 16px（与字幕正文的
+ * --boc-reader-subtitle-font-size 默认档同值），圆角 14px 与气泡尾巴 6px 是
+ * 聊天语义的独立形状，不并进卡片的 10px 档。 */
 .boc-reading-chat .chat-msg {
   max-width: 94%;
   white-space: pre-wrap;
@@ -256,7 +259,7 @@
   padding: 7px 11px;
   border-radius: 14px;
   line-height: 1.45;
-  font-size: 15.5px;
+  font-size: 16px;
 }
 
 .boc-reading-chat .chat-msg-user {
@@ -410,9 +413,11 @@
   line-height: 1.4;
 }
 
-.boc-reading-chat .chat-msg-assistant h3 { font-size: 16.5px; }
-.boc-reading-chat .chat-msg-assistant h4 { font-size: 15.5px; }
-.boc-reading-chat .chat-msg-assistant h5 { font-size: 15.5px; }
+/* 标题档随正文 16px 上移，保持「正文之上」的层级：两级（h3 / h4=h5）不变，
+ * 三个半像素值（16.5/15.5/15.5）并为整数。 */
+.boc-reading-chat .chat-msg-assistant h3 { font-size: 17px; }
+.boc-reading-chat .chat-msg-assistant h4 { font-size: 16px; }
+.boc-reading-chat .chat-msg-assistant h5 { font-size: 16px; }
 
 .boc-reading-chat .chat-msg-assistant ul,
 .boc-reading-chat .chat-msg-assistant ol {
@@ -511,7 +516,7 @@
 /* 长回复屏外段落跳过渲染（M13，defer-rendering-heavy-content 指南）：
  * renderMarkdown 的块级输出（p/标题/列表/表格/代码块）逐块 content-visibility:
  * auto——只跳过滚动容器 .chat-messages 视口外的块，长回复的流式渲染与滚动
- * 开销只随可见块数走。占位高度按各块单行内容估算（15.5px × 1.45 行高
+ * 开销只随可见块数走。占位高度按各块单行内容估算（16px × 1.45 行高
  * ≈ 23px 一行），auto 让浏览器记住首次绘制后的实际尺寸，回滚到已渲染块
  * 零跳动；宽度不占位（none：块宽由容器拉伸决定，与内容无关）。不支持的
  * 引擎（Chrome <108）忽略整组声明按原样渲染——c-v:auto 无需 fallback（指
