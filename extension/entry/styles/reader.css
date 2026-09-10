@@ -211,27 +211,45 @@
   color: var(--boc-reader-accent, #2563eb);
 }
 
+/* 下拉框单一 box（语言下拉/工具栏 select 共用）：8px 框 + 自绘 chevron，
+ * 与设置页下拉（.boc-set-select / 自定义下拉组件）同形；此前两条规则各写
+ * 一半（padding 2 值、原生箭头）靠源序取胜。 */
+.boc-reading-select,
 .boc-reading-select-sm {
+  width: auto;
   height: 32px;
-  padding: 0 6px;
-  font-size: 15px;
+  min-height: 32px;
+  margin: 0;
+  padding: 0 26px 0 12px;
+  border: 1px solid var(--boc-reader-border, #e7dfd4);
   border-radius: 8px;
-  border: 1px solid var(--boc-reader-border, #e5e7eb);
-  background: var(--boc-reader-surface, #fff);
-  color: var(--boc-reader-text, #1f2937);
+  background-color: var(--boc-reader-card, #ffffff);
+  color: var(--boc-reader-text, #2b2620);
+  font: inherit;
+  font-size: 15px;
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint, #a39a8d) 50%),
+    linear-gradient(135deg, var(--boc-reader-faint, #a39a8d) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) calc(50% - 1px),
+    calc(100% - 10px) calc(50% - 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
 }
 
+.boc-reading-select:focus,
 .boc-reading-select-sm:focus {
   outline: none;
-  border-color: var(--boc-reader-accent, #2563eb);
-  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft, rgba(37, 99, 235, 0.1));
+  border-color: var(--boc-reader-accent, #fb7299);
+  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft, #fce0ea);
 }
 
-.boc-reading-subtitle {
-  min-height: 0;
-  overflow: auto;
-}
+/* .boc-reading-subtitle 的几何在下方基础段单份声明（width/box-sizing/flex/
+ * padding/overflow），此处不留空壳。 */
 
 /* ===== 统一 Digest 面板（PR2）：右侧面板壳 + 三标签 =====
  * 视口定位（fixed 右侧、全高卡片）在 reader-gate.css 门控段；这里只定义
@@ -316,12 +334,12 @@
   background: none;
   cursor: pointer;
   padding: 7px 0;
-  border-radius: 9px;
-  font-size: 15.5px;
+  border-radius: 8px;
+  font-size: 15px;
   font-weight: 600;
   font-family: inherit;
   color: var(--boc-reader-muted, #6f675c);
-  transition: background 0.18s ease, color 0.18s ease, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .boc-reading-tab:active {
@@ -390,7 +408,7 @@
 }
 
 .boc-reading-placeholder-copy {
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--boc-reader-muted, #6f675c);
   margin: 0;
@@ -476,22 +494,19 @@
 }
 .boc-reading-item {
   width: 100%;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
   border: 0;
   background: transparent;
-  border-radius: 14px;
+  border-radius: 10px;
+  padding: 10px 12px;
   text-align: left;
+  color: var(--boc-reader-text, #111827);
   cursor: pointer;
   user-select: text;
   -webkit-user-select: text;
-}
-
-.boc-reading-item {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-  padding: 6px 8px;
-  color: var(--boc-reader-text, #111827);
   position: relative;
   transition: transform 100ms ease-out;
   /* 视口外条目跳过布局（defer-rendering-heavy-content 指南模式）：估计高度
@@ -516,7 +531,7 @@
  *（prototype/direction-approved.md）——等宽字体 + accent-soft 底 + accent 字。 */
 .boc-reading-time {
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
   color: var(--boc-reader-accent, #fb7299);
@@ -530,7 +545,7 @@
 
 .boc-reading-item.is-active .boc-reading-text {
   text-decoration-line: underline;
-  text-decoration-color: #22c55e;
+  text-decoration-color: var(--boc-reader-success);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
@@ -543,7 +558,7 @@
 
 .boc-reading-empty {
   padding: 12px 4px;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--boc-reader-faint, #94a3b8);
 }
 
@@ -613,19 +628,9 @@
   border-radius: 8px;
 }
 
-#boc-reading-view .boc-reading-actions button.is-active,
-#boc-reading-view .boc-reading-select:focus {
+#boc-reading-view .boc-reading-actions button.is-active {
   background: var(--boc-reader-accent-soft);
   color: var(--boc-reader-accent);
-}
-
-#boc-reading-view .boc-reading-select {
-  min-height: 32px;
-  border-radius: 8px;
-  padding: 0 12px;
-  font-size: 15px;
-  width: auto;
-  margin: 0;
 }
 
 /* 字幕 tab 工具条内的语言下拉（三开关退役后自设置面板移入，2026-09）：
@@ -634,7 +639,8 @@
  * 行内对齐由 flex 工具条的 align-items:center 保证。 */
 #boc-reading-view .boc-reading-sub-toolbar .boc-reading-select-sm {
   border-color: var(--boc-reader-border);
-  background: var(--boc-reader-card);
+  /* 长写：background 简写会把基础段的自绘 chevron（background-image）一起清掉 */
+  background-color: var(--boc-reader-card);
   color: var(--boc-reader-muted);
   max-width: 130px;
 }
@@ -655,18 +661,6 @@
 
 #boc-reading-view .boc-reading-main {
   justify-content: stretch;
-  background: transparent;
-}
-
-#boc-reading-view .boc-reading-subtitle {
-  width: 100%;
-}
-
-#boc-reading-view .boc-reading-item {
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 18px;
   background: transparent;
 }
 
@@ -756,7 +750,7 @@
 
 .boc-reading-search-count {
   flex: 0 0 auto;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--boc-reader-faint, #a39a8d);
   white-space: nowrap;
 }
@@ -836,20 +830,20 @@
   flex: 0 0 auto;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
   background: var(--boc-reader-highlight, #fdeeda);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 10px;
 }
 
 .boc-reading-asr-title {
-  font-size: 15.5px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--boc-reader-text, #2b2620);
   margin-bottom: 4px;
 }
 
 .boc-reading-asr-copy {
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--boc-reader-muted, #6f675c);
   margin: 0 0 10px;
@@ -888,13 +882,13 @@
 .boc-reading-asr-foot {
   display: flex;
   justify-content: space-between;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--boc-reader-faint, #a39a8d);
   margin-top: 6px;
 }
 
 .boc-reading-main {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s var(--boc-reader-ease-spring, ease);
 }
 
 .boc-reading-tab-body.is-transcribing .boc-reading-main {
@@ -1015,7 +1009,7 @@
 }
 
 .boc-reading-explain-card-title {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--boc-reader-accent, #fb7299);
 }
@@ -1177,11 +1171,11 @@
 
 .boc-reading-chat-intent-cancel {
   margin-left: auto;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--boc-reader-faint, #a39a8d);
   font: inherit;
@@ -1229,7 +1223,7 @@
 .boc-reading-ov-h {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1239,7 +1233,7 @@
 
 /* 「AI 生成 / AI 精选」小标注：accent 软底 pill，仅在 AI 分章/金句标头出现 */
 .boc-reading-ov-badge {
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0;
   color: var(--boc-reader-accent, #fb7299);
@@ -1249,7 +1243,7 @@
 }
 
 .boc-reading-ov-empty {
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--boc-reader-faint, #a39a8d);
 }
@@ -1264,7 +1258,7 @@
   align-items: start;
   border: 0;
   background: var(--boc-reader-surface-2, #f0e9df);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 9px 10px;
   margin-bottom: 8px;
   text-align: left;
@@ -1365,7 +1359,7 @@
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 9px 12px;
   margin-bottom: 12px;
 }
@@ -1381,14 +1375,14 @@
 }
 
 .boc-reading-ov-strip-text {
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--boc-reader-text, #2b2620);
 }
 
 .boc-reading-ov-progress {
   flex: 0 0 auto;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--boc-reader-muted, #6f675c);
   white-space: nowrap;
 }

@@ -104,6 +104,11 @@ body[data-boc-reader-mode="1"],
   /* 进度轨底色（转写横幅 / 概览不确定进度条）：黑色半透明在深色面上不可见，
    * 两主题各给一份。 */
   --boc-reader-track: rgba(0, 0, 0, 0.08);
+  /* 语义色（Key 状态点 / 校验通过 / 删除警示 / 朗读高亮）：两主题各一份，
+   * 深色用更亮的绿红保证对比。 */
+  --boc-reader-success: #3fb950;
+  --boc-reader-danger: #d93025;
+  --boc-reader-danger-soft: rgba(217, 48, 37, 0.14);
   --boc-reader-shadow: 0 18px 40px rgba(112, 93, 64, 0.1);
   --boc-reader-subtitle-font-size: 16px;
   --boc-reader-subtitle-line-height: 1.5;
@@ -138,6 +143,9 @@ body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
   --boc-reader-pill-bg: #1a2a46;
   --boc-reader-highlight: rgba(253, 238, 218, 0.1);
   --boc-reader-track: rgba(226, 232, 240, 0.18);
+  --boc-reader-success: #3fb950;
+  --boc-reader-danger: #f2555a;
+  --boc-reader-danger-soft: rgba(242, 85, 90, 0.2);
   --boc-reader-shadow: 0 18px 42px rgba(2, 6, 23, 0.42);
   --boc-reader-header-bg: rgba(15, 23, 42, 0.72);
   --boc-reader-overlay-bg: rgba(15, 23, 42, 0.8);

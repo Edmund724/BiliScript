@@ -69,7 +69,7 @@ const PLAYER_SELECTORS = [
 
 const BUTTON_BASE_STYLE =
   "display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border:none;" +
-  "border-radius:6px;cursor:pointer;font-size:14px;line-height:1.4;color:#fff;white-space:nowrap;";
+  "border-radius:999px;cursor:pointer;font-size:14px;line-height:1.4;color:#fff;white-space:nowrap;";
 
 // ===== 模块求值即启动生命周期（content.ts init() 直接触发装载） =====
 //

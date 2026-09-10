@@ -51,7 +51,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .boc-reading-chat .chat-context-chip:active {
@@ -123,7 +123,7 @@
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .boc-reading-chat .chat-thinking-btn:active {
@@ -183,8 +183,10 @@
   stroke-linejoin: round;
 }
 
+/* 转圈时长与解释卡的细环转圈对齐（0.8s linear）：同一面板里两个 loading
+ * 指示器不该两个转速。 */
 .boc-reading-chat .chat-icon-btn.is-loading svg {
-  animation: boc-chat-icon-rotate 0.95s linear infinite;
+  animation: boc-chat-icon-rotate 0.8s linear infinite;
 }
 
 .boc-reading-chat .chat-icon-btn + .chat-icon-btn {
@@ -230,7 +232,7 @@
   text-align: left;
   padding: 10px 12px;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--boc-reader-surface, #fdfbf7);
   color: var(--boc-reader-text, #2b2620);
   font: inherit;
@@ -364,7 +366,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .boc-reading-chat .chat-msg-copy-btn:active {
@@ -760,10 +762,11 @@
   background: transparent;
   color: var(--boc-reader-faint, #a39a8d);
   font: inherit;
-  font-size: 14px;
+  font-size: 15px;
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
   transition: transform 100ms ease-out;
 }
 
@@ -782,7 +785,7 @@
   gap: 6px;
   align-items: center;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--boc-reader-surface, #fdfbf7);
   padding: 4px;
   max-width: 100%;
@@ -837,11 +840,11 @@
   flex: 0 0 auto;
   white-space: nowrap;
   color: var(--boc-reader-muted, #6f675c);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .boc-reading-chat .chat-history-meta {
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.3;
   color: var(--boc-reader-muted, #6f675c);
   white-space: nowrap;
@@ -956,11 +959,11 @@
   max-height: 320px;
   padding: 10px 12px;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 16px;
+  border-radius: 8px;
   background: var(--boc-reader-surface, #fdfbf7);
   color: var(--boc-reader-text, #2b2620);
   font: inherit;
-  font-size: 15.5px;
+  font-size: 15px;
   line-height: 1.45;
   resize: none;
   outline: none;
@@ -971,6 +974,7 @@
 }
 
 .boc-reading-chat #boc-reading-chat-input:focus {
+  outline: none;
   border-color: var(--boc-reader-accent, #fb7299);
   box-shadow: 0 0 0 2px var(--boc-reader-accent-soft, #fce0ea);
 }
@@ -990,7 +994,7 @@
   font: inherit;
   font-size: 15px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out;
 }
 
 .boc-reading-chat .chat-stop-btn:hover {
