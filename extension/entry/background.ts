@@ -23,6 +23,10 @@ import {
 import { asrProviderStore } from "../asr/asr-provider-store.js";
 // 模型列表探测（fetch 原语）归 ai 域（arch-slim-2/09）；纯存储仍在 core/。
 import { handleAiProvidersModels as fetchAiProviderModels } from "../ai/provider-models.js";
+// 平台请求代发（AI 探针传输层）：content script 的跨域 fetch 服从网页 CORS，
+// 不支持浏览器预检的平台（OPTIONS 无 Access-Control-Allow-*）只能报
+// 「Failed to fetch」——代发让探针与模型列表同源路径（core/provider-http.ts）。
+import { handleProviderHttpRequest } from "../core/provider-http.js";
 import {
   createProviderMessageHandlers,
   createAsrRuntimeConfigHandler,
@@ -221,10 +225,10 @@ function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sen
 
 // Provider CRUD 消息：AI / ASR 两个家族形状相同，统一由
 // core/provider-handlers.js 的工厂装配。响应负载与消息名保持不变，
-// 路由表只换处理器指向。AI / ASR 的连通性测试（ai-providers-test /
-// asr-providers-test）均已移出 SW：options 页分别直调 ai/provider-test.js 与
-// asr/provider-test.js（host_permissions 对扩展页面同样生效），探针的 completion /
-// wav-encode 链不再进 SW 图（候选 04 拆链），故本工厂不再注入 probe。
+// 路由表只换处理器指向。连通性测试均不在 SW 静态图里跑探针本体：AI 探针的
+// 请求构造仍在 content 侧 ai/provider-test.js（completion 链不进 SW，候选 04
+// 拆链），只有传输经 provider-http 代发；ASR 探针（asr/provider-test.js）仍在
+// content 侧直调，wav-encode 链同样不进 SW。故本工厂不注入 probe。
 const aiProviderHandlers = createProviderMessageHandlers({
   loadProviders: aiProviderStore.loadProviders,
   saveProviders: aiProviderStore.saveProviders,
@@ -256,6 +260,23 @@ function handleAiProvidersModels(message: Msg<"ai-providers-models">, _sender: M
       baseUrl,
       apiKey: String(message.apiKey || "").trim(),
       providerId: String(message.providerId || "").trim()
+    }),
+    sendResponse,
+    (error) => (error as Error | undefined)?.message || String(error)
+  );
+  return true;
+}
+
+// 平台请求代发（AI 探针传输层）：URL 合法性与 host 权限判定收口在
+// core/provider-http.ts；代发结果（含 HTTP 状态与响应体文本）原样回给
+// content 侧合成的 Response，探针的错误文案仍由 completion 链统一拼装。
+function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSender, sendResponse: SendResponse): boolean {
+  withOkResponse(
+    handleProviderHttpRequest({
+      url: message.url,
+      method: message.method,
+      headers: message.headers,
+      body: message.body
     }),
     sendResponse,
     (error) => (error as Error | undefined)?.message || String(error)
@@ -354,6 +375,7 @@ const messageHandlerTable = {
   "ai-providers-save": aiProviderHandlers.save,
   "ai-providers-delete": aiProviderHandlers.remove,
   "ai-providers-models": handleAiProvidersModels,
+  "provider-http": handleProviderHttp,
   "resolve-ai-provider": aiResolvedProviderHandler,
   "asr-presets-list": handleAsrPresetsList,
   "asr-providers-list": asrProviderHandlers.list,

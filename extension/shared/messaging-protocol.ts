@@ -201,6 +201,24 @@ export type AiProvidersModelsResponse = {
   models?: string[];
   error?: string;
 };
+// 平台请求代发（AI 探针的传输层）：content script 的跨域 fetch 服从**网页**
+// CORS——平台网关不支持浏览器预检时（OPTIONS 无 Access-Control-Allow-*），带
+// Authorization 的请求一律以 Failed to fetch 失败，而模型列表能跑通只是因为它
+// 由 SW 发出（SW fetch 只受 host 权限约束）。探针请求经本通道同样交给 SW。
+export type ProviderHttpMessage = {
+  type: "provider-http";
+  url?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+};
+// 响应锚点：core/provider-http.ts handleProviderHttpRequest。
+export type ProviderHttpResponse = {
+  ok: boolean;
+  status?: number;
+  body?: string;
+  error?: string;
+};
 // arch-slim-3/09：「激活平台」单趟解析——offscreen 聊天链与 content 侧概览/
 // 选区解释共用（CONTEXT.md 域词条「激活平台」）。providerId 给定 = 精确匹配
 //（offscreen 语义）；缺省 = 设置 defaultModel → 首个启用平台回落（content
@@ -337,6 +355,7 @@ export type BackgroundMessage =
   | AiProvidersSaveMessage
   | AiProvidersDeleteMessage
   | AiProvidersModelsMessage
+  | ProviderHttpMessage
   | ResolveAiProviderMessage
   | AsrPresetsListMessage
   | AsrProvidersListMessage
@@ -430,6 +449,7 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends AiProvidersSaveMessage ? AiProvidersSaveResponse
   : M extends AiProvidersDeleteMessage ? AiProvidersDeleteResponse
   : M extends AiProvidersModelsMessage ? AiProvidersModelsResponse
+  : M extends ProviderHttpMessage ? ProviderHttpResponse
   : M extends ResolveAiProviderMessage ? ResolveAiProviderResponse
   : M extends AsrPresetsListMessage ? AsrPresetsListResponse
   : M extends AsrProvidersListMessage ? AsrProvidersListResponse

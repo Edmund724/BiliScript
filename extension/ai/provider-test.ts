@@ -3,14 +3,21 @@
 // 从 core/ai-provider-store.js 移出：探针依赖 ai/completion.js（→ sse-parser.js），
 // 留在 ai-provider-store 里会把整条 completion 链拖进 Service Worker 静态图，
 // 而 SW 并不需要它（ADR-0003：平台禁止动态 import()，只能拆静态边）。
-// 连通性测试真正需要的上下文是「扩展页面」：options 页直接 import 本模块调用，
-// host_permissions 对扩展页面同样生效，跨域 fetch 无需经过 SW 消息往返。
+// 连通性测试需要的上下文是「扩展语境」：本模块在 content script 侧跑请求构造
+//（completion 链不进 SW）。
+//
+// 传输层：content script 的跨域 fetch 服从**网页** CORS，平台网关不支持浏览器
+// 预检时（OPTIONS 无 Access-Control-Allow-*）带 Authorization 的请求一律以
+//「无法连接：Failed to fetch」失败——而模型列表能跑通只是因为它由 SW 发出。
+// 故探针经 core/provider-http.js 的 providerFetchViaBackground 走 SW 代发（请求
+// 构造与错误文案仍在本模块与 completion 链单源，只有传输换路）。
 //
 // 职责边界：本模块只负责探针的输入预检、Key 代查与错误形状包装；Provider
 // 列表 CRUD/归一化仍归 core/ai-provider-store.js（SW 出于消息路由仍要加载它，
-// 但不再经它拖入 completion 链）。本模块只在 options 页 context 加载，不进 SW 图。
+// 但不再经它拖入 completion 链）。
 
 import { chatCompletion } from "./completion.js";
+import { providerFetchViaBackground } from "../core/provider-http.js";
 import { formatProbeConnectionError } from "../core/provider-store.js";
 import { aiProviderStore } from "../core/ai-provider-store.js";
 import { HOST_PERMISSION_HINT, hasHostPermission } from "../core/host-permissions.js";
@@ -81,7 +88,11 @@ export async function probeAiChatCompletion({ baseUrl, apiKey, model, presetId, 
       messages: [{ role: "user", content: "ping" }],
       probe: true,
       headers: requestHeaders,
-      retries: 0
+      retries: 0,
+      // 传输层换路：经 SW 代发（content script 直连受网页 CORS 约束，见文件头）。
+      // 请求构造（思考档位 / token 上限规则）与错误文案仍单源在本模块与
+      // completion 链，只有「谁来发这一跳」不同。
+      fetchImpl: providerFetchViaBackground
     });
     return { ok: true };
   } catch (error) {
