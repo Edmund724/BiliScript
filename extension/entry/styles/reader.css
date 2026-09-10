@@ -253,7 +253,8 @@
 
 /* ===== 统一 Digest 面板（PR2）：右侧面板壳 + 三标签 =====
  * 视口定位（fixed 右侧、全高卡片）在 reader-gate.css 门控段；这里只定义
- * 面板内部结构：header → tabs（pill 分段控件）→ tab-body。色值全部走
+ * 面板内部结构：header → tabs（凹槽 + 卡片分段控件，12px 槽 / 8px 项）→
+ * tab-body。色值全部走
  * --boc-reader-* 主题 token（gate 段两主题定义），暗色主题自动跟随。 */
 .boc-reading-digest-panel {
   min-height: 0;
@@ -317,6 +318,9 @@
   line-height: 1.4;
 }
 
+/* 分段控件母题：凹槽（12px 圆角）+ 卡片项（8px 圆角，同心 = 12 − 4px 内边距）。
+ * 对话 tab 的思考档位分段控件镜像同一套语言，槽内边距 2px 故取 10px 项，仍是
+ * 同一母题。 */
 .boc-reading-tabs {
   grid-row: 3;
   grid-column: 1;

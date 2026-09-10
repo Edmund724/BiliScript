@@ -101,6 +101,9 @@
   background-repeat: no-repeat;
 }
 
+/* 思考档位分段控件：与面板主导航 .boc-reading-tabs 同一套「凹槽 + 卡片」语言
+ * （槽 12px / 项 10px，同心圆角 = 12 − 2px 内边距），不再自成一套胶囊。高度
+ * 28/22 与 13px 字号是紧凑工具栏档，保持不变。 */
 .boc-reading-chat .chat-thinking-toggle {
   flex: 0 0 auto;
   display: inline-flex;
@@ -108,7 +111,7 @@
   height: 28px;
   padding: 2px;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 999px;
+  border-radius: 12px;
   background: var(--boc-reader-surface-2, #f0e9df);
 }
 
@@ -116,7 +119,7 @@
   height: 22px;
   padding: 0 8px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 10px;
   background: transparent;
   color: var(--boc-reader-muted, #6f675c);
   font: inherit;

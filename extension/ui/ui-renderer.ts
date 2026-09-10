@@ -89,7 +89,7 @@ export function buildUiHtml(): string {
               </section>
             </section>
 
-            <!-- 标签页 pill 分段控件（active 态 = accent 实底，见 prototype/direction-approved.md） -->
+            <!-- 标签页分段控件（凹槽 + 卡片，12px 槽 / 8px 项；active 态 = accent 实底，见 prototype/direction-approved.md） -->
             <div class="boc-reading-tabs" role="tablist" aria-label="Digest 标签">
               <button id="${ids.readingTabSubtitle}" type="button" class="boc-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
               <button id="${ids.readingTabOverview}" type="button" class="boc-reading-tab" role="tab" aria-selected="false">概览</button>
