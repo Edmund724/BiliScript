@@ -71,6 +71,18 @@ export interface ProviderPrefs {
   getStoredSelectedProviderId: () => string;
 }
 
+// 下拉选项文案：平台名/模型名（同名平台的同名模型靠前缀区分）。任一侧缺失
+// 时退化为另一侧（自定义平台可能没填模型名，早退路径的 p.name 也可能缺省），
+// 两侧都空则给空串——与旧行为一致，不放假文案。
+function formatProviderLabel(provider: { name?: string; model?: unknown }): string {
+  const name = String(provider.name || "").trim();
+  const model = String(provider.model || "").trim();
+  if (name && model) {
+    return `${name}/${model}`;
+  }
+  return model || name;
+}
+
 export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPrefs {
   const { modelSelect, thinkingBtns, widthEls } = deps;
   const storage =
@@ -153,8 +165,7 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
 
     modelSelect.innerHTML = chatSessionState.providers
       .map((p) => {
-        const label = String(p.model || p.name || "").trim();
-        return `<option value="${escapeHtml(p.id)}">${escapeHtml(label)}</option>`;
+        return `<option value="${escapeHtml(p.id)}">${escapeHtml(formatProviderLabel(p))}</option>`;
       })
       .join("");
 

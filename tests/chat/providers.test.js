@@ -183,6 +183,25 @@ describe("renderModelSelect", () => {
     expect(modelSelect.innerHTML).toContain("未配置平台");
   });
 
+  it("选项文案为「平台名/模型名」，任一侧缺失时退化为另一侧", () => {
+    chatSessionState.providers = [
+      { id: "p1", name: "DeepSeek", model: "deepseek-v4-flash", enabled: true },
+      { id: "p2", name: "无模型平台", enabled: true },
+      { id: "p3", model: "裸模型", enabled: true }
+    ];
+    const { modelSelect, providerPrefs } = makeHarness();
+
+    providerPrefs.renderModelSelect();
+
+    expect(Array.from(modelSelect.options).map((opt) => opt.textContent)).toEqual([
+      "DeepSeek/deepseek-v4-flash",
+      "无模型平台",
+      "裸模型"
+    ]);
+    // 文案只影响显示，value 仍是平台 id（选中写回契约不变）
+    expect(Array.from(modelSelect.options).map((opt) => opt.value)).toEqual(["p1", "p2", "p3"]);
+  });
+
   it("preferredProviderId 优先于 aiPrefs.defaultModel 与 chrome.storage 选中", () => {
     chatSessionState.providers = [
       { id: "p1", name: "平台一", enabled: true },
