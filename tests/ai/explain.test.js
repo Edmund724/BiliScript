@@ -108,6 +108,22 @@ describe("explainSelection", () => {
     expect(args.messages[1].content).toContain("传递信息的工具");
   });
 
+  // 解释在 content script 里发起：直连 fetch 服从网页 CORS，平台网关不支持
+  // 浏览器预检时必然「Failed to fetch」。传输层必须走 SW 代发（与探针同路），
+  // 请求构造仍留在 completion 链。
+  it("传输层注入 providerFetchViaBackground（经 SW 代发，绕开网页 CORS）", async () => {
+    const { providerFetchViaBackground } = await import("../../extension/core/provider-http.js");
+
+    await explain.explainSelection({
+      provider: { baseUrl: "https://api.test/v1", apiKey: "sk", model: "m" },
+      selection: "词",
+      line: "句",
+      from: 0
+    });
+
+    expect(completionMock.chatCompletion.mock.calls[0][0].fetchImpl).toBe(providerFetchViaBackground);
+  });
+
   it("provider 原样透传 chatCompletion：presetId（preset 词表键）不丢，请求构造单缝据此优先识别平台", async () => {
     const provider = { baseUrl: "https://thinking-proxy.example.com/v1", apiKey: "sk", model: "qwen3-max", presetId: "qwen" };
     await explain.explainSelection({

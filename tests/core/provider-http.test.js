@@ -32,7 +32,8 @@ function installProxyBus(next) {
 function stubChrome(overrides = {}) {
   const previous = globalThis.chrome;
   vi.stubGlobal("chrome", { ...previous, ...overrides });
-  installProxyBus(responder);
+  // 复位为默认回包：不继承上一条用例 installProxyBus 设过的 responder
+  installProxyBus();
 }
 
 beforeEach(() => {
@@ -156,5 +157,50 @@ describe("providerFetchViaBackground（content 侧 fetch 兼容实现）", () =>
     await expect(providerFetchViaBackground("https://api.example.com/v1/models")).rejects.toThrow(
       "该平台域名未授权，请在保存时允许权限"
     );
+  });
+
+  // 解释卡片换选区/关闭时 abort 上一请求（reader/explain-card 的 controller）：
+  // 中止必须以 AbortError 名字拒绝，completion 才能转 makeAbortedError 让调用方
+  // 静默丢弃，而不是把中止报成错误态。
+  it("init.signal 已中止 → 同步以 AbortError 拒绝，不发消息", async () => {
+    const { providerFetchViaBackground } = await loadModule();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      providerFetchViaBackground("https://api.example.com/v1/chat/completions", {
+        method: "POST",
+        signal: controller.signal
+      })
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(sent).toHaveLength(0);
+  });
+
+  it("等待中中止 → 以 AbortError 拒绝（在飞请求无法撤回，只结束本端等待）", async () => {
+    // 代发永不回包：模拟慢请求
+    installProxyBus(() => undefined);
+    const { providerFetchViaBackground } = await loadModule();
+    const controller = new AbortController();
+
+    const pending = providerFetchViaBackground("https://api.example.com/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal
+    });
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("未中止的 signal 不干扰正常回包（落定后摘监听，无悬挂）", async () => {
+    const { providerFetchViaBackground } = await loadModule();
+    const controller = new AbortController();
+
+    const resp = await providerFetchViaBackground("https://api.example.com/v1/models", {
+      signal: controller.signal
+    });
+
+    expect(resp.ok).toBe(true);
+    // 落定后 abort 不再有监听可触发（不应抛未处理拒绝）
+    controller.abort();
   });
 });

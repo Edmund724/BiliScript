@@ -65,10 +65,13 @@ export async function handleProviderHttpRequest({
 
 // ===== 发送端（content script 域）：fetch 兼容实现 =====
 
-// 供 ai/provider-test 作为 chatCompletion 的 fetchImpl 注入；只覆盖探针用到的
-// 面——非流式一次性请求 + 响应 status/text/json（探针判 response.ok，不读流；
-// init.signal 不过通道，取消只作用于本地等待）。流式请求
-//（response.body.getReader）不适用本实现。
+// 供 ai/provider-test 与 ai/explain 作为 chatCompletion 的 fetchImpl 注入；只
+// 覆盖两者用到的面——非流式一次性请求 + 响应 status/text/json（探针判
+// response.ok 不读流；解释读 json）。流式请求（response.body.getReader）不适用。
+//
+// 取消语义：init.signal 中止时以 AbortError 名字拒绝，completion 据此转
+// makeAbortedError（解释卡片换选区/关闭时的中止路径）。已在飞的 SW 请求无法
+// 撤回（消息无取消通道），取消只作用于本端等待——请求会安静跑完并被丢弃。
 export async function providerFetchViaBackground(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const url =
     typeof input === "string" ? input : input instanceof URL ? input.href : String(input?.url || "");
@@ -76,17 +79,46 @@ export async function providerFetchViaBackground(input: RequestInfo | URL, init?
   new Headers(init?.headers).forEach((value, key) => {
     headers[key] = value;
   });
-  const resp = await sendRuntimeMessage({
-    type: "provider-http",
-    url,
-    method: String(init?.method || "GET"),
-    headers,
-    body: typeof init?.body === "string" ? init.body : undefined
-  });
+  // 已中止时不发消息（中止意味着调用方已不关心结果，白跑一趟 SW 无意义）
+  if (init?.signal?.aborted) {
+    throw makeAbortError();
+  }
+  const resp = await raceWithAbort(
+    sendRuntimeMessage({
+      type: "provider-http",
+      url,
+      method: String(init?.method || "GET"),
+      headers,
+      body: typeof init?.body === "string" ? init.body : undefined
+    }),
+    init?.signal
+  );
   if (!resp?.ok) {
     // 抛出的 message 经 completion 的网络错误包装后落到探针的
     //「无法连接：<message>」文案（与本地 fetch 抛错同形）。
     throw new Error(resp?.error || "请求失败");
   }
   return new Response(resp.body ?? "", { status: Number(resp.status) || 200 });
+}
+
+// 中止即拒绝（name="AbortError"，与浏览器 fetch 的中止形状一致）：已中止的
+// signal 同步拒绝，进行中的挂监听、落定后摘除（不留悬挂监听）。
+function raceWithAbort<T>(pending: Promise<T>, signal?: AbortSignal | null): Promise<T> {
+  if (!signal) {
+    return pending;
+  }
+  if (signal.aborted) {
+    return Promise.reject(makeAbortError());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(makeAbortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+function makeAbortError(): Error {
+  const error = new Error("请求已中止");
+  error.name = "AbortError";
+  return error;
 }

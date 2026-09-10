@@ -10,6 +10,7 @@
 // 还是一句观点，而不必回读整片字幕。整片字幕既贵又没必要（解释只需要局部语境）。
 
 import { chatCompletion } from "./completion.js";
+import { providerFetchViaBackground } from "../core/provider-http.js";
 import { formatClock, shouldUseHours, shouldUseHoursForRange } from "../shared/clock-text.js";
 import type { AiProvider, ChatMessage } from "./types.js";
 
@@ -115,6 +116,12 @@ export function buildExplainMessages({
  * 不发任何字段。「不要思考过程」的措辞留在系统提示词里做第二道闸。
  * 中止（signal）与网络/HTTP 失败按 ai/completion.js 的错误模型上抛，由调用方
  * 落 error 态展示；空回复按错误处理（模型没给东西不算成功）。
+ *
+ * 传输层经 SW 代发（core/provider-http.js）：本函数在 content script 里跑，
+ * 而 content script 的跨域 fetch 服从**网页** CORS——平台网关不支持浏览器预检
+ * 时（OPTIONS 无 Access-Control-Allow-*）带 Authorization 的请求一律
+ *「Failed to fetch」，与配置无关。请求构造与错误文案仍单源在 completion 链，
+ * 只有「谁来发这一跳」不同。
  */
 export async function explainSelection({
   provider,
@@ -134,7 +141,8 @@ export async function explainSelection({
     thinkingLevel: "off",
     signal,
     maxTokens: EXPLAIN_MAX_TOKENS,
-    retries: 1
+    retries: 1,
+    fetchImpl: providerFetchViaBackground
   });
   const text = typeof result === "string" ? result.trim() : "";
   if (!text) {
