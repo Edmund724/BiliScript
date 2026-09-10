@@ -410,17 +410,20 @@
 
 .boc-reading-chat .chat-msg-assistant h3,
 .boc-reading-chat .chat-msg-assistant h4,
-.boc-reading-chat .chat-msg-assistant h5 {
+.boc-reading-chat .chat-msg-assistant h5,
+.boc-reading-chat .chat-msg-assistant h6 {
   margin: 11px 0 5px;
   font-weight: 700;
   line-height: 1.4;
 }
 
 /* 标题档随正文 16px 上移，保持「正文之上」的层级：两级（h3 / h4=h5）不变，
- * 三个半像素值（16.5/15.5/15.5）并为整数。 */
+ * 三个半像素值（16.5/15.5/15.5）并为整数。h6 是最深档（markdown #### 及以
+ * 上夹到这里），下面没有更浅档可让，落到正文 16px 之下作子标签档。 */
 .boc-reading-chat .chat-msg-assistant h3 { font-size: 17px; }
 .boc-reading-chat .chat-msg-assistant h4 { font-size: 16px; }
 .boc-reading-chat .chat-msg-assistant h5 { font-size: 16px; }
+.boc-reading-chat .chat-msg-assistant h6 { font-size: 15px; }
 
 .boc-reading-chat .chat-msg-assistant ul,
 .boc-reading-chat .chat-msg-assistant ol {
@@ -536,7 +539,8 @@
 
 .boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h3,
 .boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h4,
-.boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h5 {
+.boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h5,
+.boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h6 {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 40px;
 }

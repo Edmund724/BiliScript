@@ -109,11 +109,13 @@ export function renderMarkdown(text: string): string {
       continue;
     }
 
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    // ATX 标题 1–6 级：面板自身占用 h1/h2，正文标题整体下移两档；4 级及以上
+    //（#### 起）已无更深档可让，一律夹到最深档 h6。
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       flushPara();
       closeList();
-      const level = heading[1].length + 2;
+      const level = Math.min(heading[1].length + 2, 6);
       out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
       continue;
     }

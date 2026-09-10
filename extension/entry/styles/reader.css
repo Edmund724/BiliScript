@@ -1093,7 +1093,8 @@
 
 .boc-reading-explain-card-answer h3,
 .boc-reading-explain-card-answer h4,
-.boc-reading-explain-card-answer h5 {
+.boc-reading-explain-card-answer h5,
+.boc-reading-explain-card-answer h6 {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 56px;
 }
