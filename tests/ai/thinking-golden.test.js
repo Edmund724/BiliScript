@@ -356,7 +356,7 @@ const PLATFORMS = [
     ]
   },
   {
-    name: "AMD Radeon Cloud（developer.amd.com.cn，无 AI preset：host 别名识别，override 整域 effort 词汇）",
+    name: "AMD Radeon Cloud（developer.amd.com.cn，override 整域 effort 词汇）",
     baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
     cases: [
       {
@@ -369,6 +369,26 @@ const PLATFORMS = [
       {
         kind: "托管的 qwen 血统模型同样被 override（任何模型不走血统表）",
         model: "Qwen3.8-Flash-Next",
+        off: { reasoning_effort: "none" },
+        low: { reasoning_effort: "low" },
+        high: { reasoning_effort: "high" }
+      }
+    ]
+  },
+  {
+    name: "SenseNova 商汤（token.sensenova.cn，override：托管 deepseek-v4-flash 文档化 effort 词表）",
+    baseUrl: "https://token.sensenova.cn/v1",
+    cases: [
+      {
+        kind: "托管 deepseek-v4-flash（off=effort none；发 thinking 开关无效）",
+        model: "deepseek-v4-flash",
+        off: { reasoning_effort: "none" },
+        low: { reasoning_effort: "low" },
+        high: { reasoning_effort: "high" }
+      },
+      {
+        kind: "原生 sensenova-6.7-flash-lite（无已文档化思考控制参数，随 override 照发）",
+        model: "sensenova-6.7-flash-lite",
         off: { reasoning_effort: "none" },
         low: { reasoning_effort: "low" },
         high: { reasoning_effort: "high" }

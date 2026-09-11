@@ -292,8 +292,8 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
 // ===== PROVIDERS：平台规则（键 = core/presets.ts 的 AI preset id）=====
 // unknownClass 分工（spec）：词汇平台无关的（Ollama/SiliconFlow/ModelScope/Mimo）
 // 给 provider 级默认；按模型定协议的（OpenAI/DeepSeek/Qwen/GLM/Kimi/MiniMax/
-// StepFun）不给，未知模型落 unknown 哨兵。override 型：OpenRouter 与 AMD（严格
-// 400 未知字段、整域只认 effort 词汇的网关）。
+// StepFun）不给，未知模型落 unknown 哨兵。override 型：OpenRouter / AMD /
+// SenseNova（严格拒收 thinking 开关、整域只认 effort 词汇的网关）。
 // Opencode Go（api.doubao.com）域名已死（NXDOMAIN）：不写规则，落 unknown（Q16）。
 export const PROVIDERS: Record<string, ProviderRule> = {
   openai_compat: {}, // 严格 400（developers.openai.com），未列模型宁可不发
@@ -320,12 +320,27 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   modelscope: { unknownClass: "qwen-hybrid-switch" }, // 托管模型用原生 enable_thinking（modelscope.cn）
   ollama: { unknownClass: "ollama-effort" },
   siliconflow: { unknownClass: "siliconflow-switch" },
-  // AMD Radeon Cloud（developer.amd.com.cn）：AI preset 表没有它（同 SiliconFlow，
-  // 用户手填 custom 平台），靠下方 host 别名命中。网关对未知字段严格 400——发
-  // thinking 直接报错并提示改用 reasoning_effort 控制思考（实测 2026-09）→
-  // override 型：整域只认 effort 词汇，任何模型（含托管的 qwen/deepseek 血统）
-  // 不走血统表，避免 taxonomy 命中 deepseek-v4 后发出网关拒收的 thinking 开关。
+  // AMD Radeon Cloud（developer.amd.com.cn，免费模型 API；AI preset 已收录，识别
+  // 走 presetId 或 host 索引）：网关对未知字段严格 400——发 thinking 直接报错并
+  // 提示改用 reasoning_effort 控制思考（实测 2026-09）→ override 型：整域只认
+  // effort 词汇，任何模型（含托管的 qwen/deepseek 血统）不走血统表，避免 taxonomy
+  // 命中 deepseek-v4 后发出网关拒收的 thinking 开关。
   amd: {
+    override: {
+      thinkingClass: "hybrid",
+      levels: {
+        off: { fields: { reasoning_effort: "none" } },
+        low: { fields: { reasoning_effort: "low" } },
+        high: { fields: { reasoning_effort: "high" } }
+      }
+    }
+  },
+  // SenseNova 商汤 Token Plan（token.sensenova.cn/v1，OpenAI 兼容；免费额度）：
+  // 托管的 deepseek-v4-flash 官方文档化 reasoning_effort 词表 none/low/medium/high
+  // （openhanako issue #1998/#1682；发 thinking 开关无效）→ override 型同 AMD。
+  // 原生 sensenova-6.7-flash-lite 无已文档化的思考控制参数：effort 字段是否被
+  // 静默忽略未见 400 报告，随 override 照发（软失败优于硬 400）。
+  sensenova: {
     override: {
       thinkingClass: "hybrid",
       levels: {
@@ -362,9 +377,6 @@ for (const preset of PRESETS) {
 // AI preset 表没有它，但它是思考适配收录的平台（enable_thinking 系）——
 // 用户手填其 baseUrl 作 custom 平台时靠这条命中。表数据仍不复制 baseUrl。
 PRESET_HOST_INDEX.set("api.siliconflow.cn", "siliconflow");
-// AMD Radeon Cloud 同理：只以免费模型 API 形式存在（developer.amd.com.cn），
-// 无 AI preset，custom 平台手填其 baseUrl 时经这条命中 override 规则。
-PRESET_HOST_INDEX.set("developer.amd.com.cn", "amd");
 
 // ===== resolver =====
 
