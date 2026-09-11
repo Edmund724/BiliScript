@@ -67,6 +67,11 @@ export interface Settings {
   downloadFormat: string;
   includeDateInFilename: boolean;
   includeHotCommentsInNote: boolean;
+  // 笔记正文顶部的 B 站播放器 <iframe>：默认开（Obsidian 等渲染内联 HTML 的
+  // 编辑器可用），关闭后正文不再输出该行——MarkText 等按 GFM tagfilter 剥掉
+  // iframe 的编辑器会把它渲染成一个空的 "Empty HTML Block" 占位块。仅影响
+  // 笔记输出，不影响阅读面板内的播放。
+  includePlayerEmbedInNote: boolean;
   enablePlayerAiQuickAction: boolean;
   // AI 键默认开迁移旗标（entry/settings-migration.ts）：true 表示存量显式
   // false 已随迁移改写回默认 true 一次，此后用户显式关闭的值不再被安装/更新
@@ -98,6 +103,7 @@ export const DEFAULT_SETTINGS: Settings = {
   downloadFormat: "srt",
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
+  includePlayerEmbedInNote: true,
   // 2026-09 起默认开启：AI 键与 digest 按钮一样进视频页即可见可点（此前默认
   // false，按钮对未手动开启的用户从不出现——设置门控挂载语义本身不变，见
   // content.ts 的启停接线与 ai/player-ai.ts 的 sync 门控）。存量显式 false 由

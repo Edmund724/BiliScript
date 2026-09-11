@@ -282,6 +282,34 @@ describe("buildMarkdown", () => {
     expect(indexOf("## 章节")).toBeLessThan(indexOf("## 字幕"));
   });
 
+  it("播放器嵌入：includePlayerEmbedInNote 缺省或 true 时输出 iframe 行", () => {
+    setLocationUrl("https://www.bilibili.com/video/BV1abcDEFghi/");
+    const body1 = body([{ from: 0, content: "第一句" }]);
+
+    // 缺省（存量设置对象里没有该键）：与加入开关前一致，仍输出
+    expect(buildMarkdown(fullMeta, body1, baseSettings)).toContain("<iframe");
+    // 显式 true
+    expect(
+      buildMarkdown(fullMeta, body1, { ...baseSettings, includePlayerEmbedInNote: true })
+    ).toContain("<iframe");
+  });
+
+  it("播放器嵌入：includePlayerEmbedInNote=false 时不输出 iframe，其余段落结构不变", () => {
+    setLocationUrl("https://www.bilibili.com/video/BV1abcDEFghi/");
+    const lines = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), {
+      ...baseSettings,
+      includePlayerEmbedInNote: false
+    }).split("\n");
+
+    expect(lines.some((line) => line.includes("<iframe"))).toBe(false);
+    // 不留空占位行：frontmatter 闭合行紧接 `## 简介`
+    expect(lines[lines.indexOf("---", 1) + 1]).toBe("");
+    expect(lines[lines.indexOf("---", 1) + 2]).toBe("## 简介");
+    // 其余结构原样
+    expect(lines).toContain("## 章节");
+    expect(lines).toContain("## 字幕");
+  });
+
   it("评论节：includeHotCommentsInNote=true 时输出「## 评论」，编号 + 点赞 + 内容", () => {
     const md = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), {
       ...baseSettings,

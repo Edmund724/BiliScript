@@ -65,6 +65,21 @@ describe("normalizeSettings 纯函数", () => {
     expect(input.downloadFormat).toBe("vtt");
     expect(out.tags).toBe("clippings,custom");
   });
+
+  // includePlayerEmbedInNote 是默认 true 的布尔档（同 asrAutoFallback）：存量存储
+  // 里没有该键，读取必须回落到 true，否则老用户升级后会静默丢掉笔记里的播放器。
+  it("includePlayerEmbedInNote：缺失/非法值回落 true，仅显式 false 关闭", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: undefined }).includePlayerEmbedInNote).toBe(true);
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: "no" }).includePlayerEmbedInNote).toBe(true);
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: false }).includePlayerEmbedInNote).toBe(false);
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: true }).includePlayerEmbedInNote).toBe(true);
+
+    // 键不在对象里（模拟存量存储合并前的原始 map）同样回落 true
+    const withoutKey = { ...DEFAULT_SETTINGS };
+    delete withoutKey.includePlayerEmbedInNote;
+    expect(normalizeSettings(withoutKey).includePlayerEmbedInNote).toBe(true);
+  });
 });
 
 describe("normalizeSettings 是唯一归一化路径", () => {

@@ -16,6 +16,7 @@ import { withTimeout } from "../shared/error-helpers.js";
 import {
   normalizeDownloadFormat,
   normalizeIncludeHotCommentsInNote,
+  normalizeIncludePlayerEmbedInNote,
   normalizeEnablePlayerAiQuickAction,
   normalizePlayerAiQuickPrompt,
   normalizeReaderTheme,
@@ -42,6 +43,7 @@ type NormalizerStep = [string, (m: Record<string, unknown>) => unknown];
 const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   ["downloadFormat", (m) => normalizeDownloadFormat(m.downloadFormat)],
   ["includeHotCommentsInNote", (m) => normalizeIncludeHotCommentsInNote(m.includeHotCommentsInNote)],
+  ["includePlayerEmbedInNote", (m) => normalizeIncludePlayerEmbedInNote(m.includePlayerEmbedInNote)],
   ["enablePlayerAiQuickAction", (m) => normalizeEnablePlayerAiQuickAction(m.enablePlayerAiQuickAction)],
   ["playerAiQuickPrompt", (m) => normalizePlayerAiQuickPrompt(m.playerAiQuickPrompt)],
   ["readerTheme", (m) => normalizeReaderTheme(m.readerTheme)],

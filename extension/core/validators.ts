@@ -35,6 +35,12 @@ export function normalizeIncludeHotCommentsInNote(value: unknown): boolean {
   return value === true;
 }
 
+// 默认 true 的布尔档（同 asrAutoFallback）：只有显式 false 关闭，缺失/非法值
+// 都回落到「输出」——存量存储里没有该键，必须保持与加入开关前一致的行为。
+export function normalizeIncludePlayerEmbedInNote(value: unknown): boolean {
+  return value !== false;
+}
+
 export function normalizeEnablePlayerAiQuickAction(value: unknown): boolean {
   return value === true;
 }

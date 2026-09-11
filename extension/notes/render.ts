@@ -152,7 +152,9 @@ export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | nu
   const frontMatter = buildFrontMatter(m, settings, created, tagsCsv, tagsYaml);
 
   const page = extractPageIndex(location.href);
-  const embedIframe = buildBilibiliEmbedIframe(m, page);
+  // 播放器嵌入默认输出（settings 缺失该键时同理，见 validators 的同名归一化）；
+  // 关闭后正文不出现 <iframe> 行，其余段落结构不变。
+  const embedIframe = settings?.includePlayerEmbedInNote !== false ? buildBilibiliEmbedIframe(m, page) : "";
   const intro = String(m.description || "").trim();
   const noteSectionContext = buildNotePlaceholderTemplateContext(m, intro);
   const noteSections = groupNotePlaceholderSections(settings, noteSectionContext);
@@ -161,7 +163,9 @@ export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | nu
   if (frontMatter) {
     lines.push(frontMatter, "");
   }
-  lines.push(embedIframe, "");
+  if (embedIframe) {
+    lines.push(embedIframe, "");
+  }
   pushOptionalLines(lines, noteSections.before_intro);
 
   if (intro) {

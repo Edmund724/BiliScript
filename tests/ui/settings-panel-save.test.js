@@ -177,6 +177,9 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     // 收集段：改表单若干值（含 trim / 布尔 / 复选组 / 数组截断口径）
     host.querySelector("#tags").value = "  clip, test  ";
     host.querySelector("#includeHotCommentsInNote").checked = true;
+    // 默认开的布尔档：取消勾选必须落盘为 false（false 是有效值，不能被
+    // 「值为 undefined 才剔除」的边界吞掉）
+    host.querySelector("#includePlayerEmbedInNote").checked = false;
     host.querySelector("#enableDebugLogs").checked = true;
     host.querySelector("#aiSystemPrompt").value = "  自定义系统提示词  ";
     host.querySelector('input[name="frontmatterField"][value="author"]').checked = false;
@@ -201,6 +204,7 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
       downloadFormat: "srt",
       includeDateInFilename: true,
       includeHotCommentsInNote: true,
+      includePlayerEmbedInNote: false,
       enableDebugLogs: true,
       aiSystemPrompt: "自定义系统提示词",
       frontmatterFields: expect.not.arrayContaining(["author"])

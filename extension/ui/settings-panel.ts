@@ -84,6 +84,7 @@ interface SettingsFormPayload {
   downloadFormat: string;
   includeDateInFilename: boolean;
   includeHotCommentsInNote: boolean;
+  includePlayerEmbedInNote: boolean;
   enablePlayerAiQuickAction: boolean;
   playerAiQuickPrompt: string;
   includeTimestampInBody: boolean;
@@ -186,6 +187,10 @@ function buildSettingsHtml(): string {
         导出前 20 条热门评论
       </label>
       <label class="boc-set-check">
+        <input id="includePlayerEmbedInNote" type="checkbox" />
+        在笔记正文嵌入 B 站播放器（MarkText 等不渲染 iframe 的编辑器可关闭）
+      </label>
+      <label class="boc-set-check">
         <input id="includeTimestampInBody" type="checkbox" />
         在字幕正文中保留时间戳
       </label>
@@ -264,6 +269,7 @@ function collectElements(host: HTMLElement) {
     downloadFormat: byIdIn<HTMLSelectElement>("downloadFormat"),
     includeDateInFilename: byIdIn<HTMLInputElement>("includeDateInFilename"),
     includeHotCommentsInNote: byIdIn<HTMLInputElement>("includeHotCommentsInNote"),
+    includePlayerEmbedInNote: byIdIn<HTMLInputElement>("includePlayerEmbedInNote"),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>("enablePlayerAiQuickAction"),
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>("playerAiQuickPrompt"),
     includeTimestampInBody: byIdIn<HTMLInputElement>("includeTimestampInBody"),
@@ -383,6 +389,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.includeHotCommentsInNote.checked = Boolean(settings.includeHotCommentsInNote);
+  elements.includePlayerEmbedInNote.checked = settings.includePlayerEmbedInNote !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
@@ -576,6 +583,7 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
     includeHotCommentsInNote: elements.includeHotCommentsInNote.checked,
+    includePlayerEmbedInNote: elements.includePlayerEmbedInNote.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
