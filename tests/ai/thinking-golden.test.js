@@ -354,6 +354,26 @@ const PLATFORMS = [
         high: { enable_thinking: true }
       }
     ]
+  },
+  {
+    name: "AMD Radeon Cloud（developer.amd.com.cn，无 AI preset：host 别名识别，override 整域 effort 词汇）",
+    baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
+    cases: [
+      {
+        kind: "deepseek 血统模型也走 override（off=effort none，不发网关 400 的 thinking 开关）",
+        model: "DeepSeek-V4-Flash",
+        off: { reasoning_effort: "none" },
+        low: { reasoning_effort: "low" },
+        high: { reasoning_effort: "high" }
+      },
+      {
+        kind: "托管的 qwen 血统模型同样被 override（任何模型不走血统表）",
+        model: "Qwen3.8-Flash-Next",
+        off: { reasoning_effort: "none" },
+        low: { reasoning_effort: "low" },
+        high: { reasoning_effort: "high" }
+      }
+    ]
   }
 ];
 

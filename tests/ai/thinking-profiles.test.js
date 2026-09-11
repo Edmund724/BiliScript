@@ -26,6 +26,7 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1";
 const MODELSCOPE_URL = "https://api-inference.modelscope.cn/v1";
 const OLLAMA_URL = "http://localhost:11434/v1";
 const SILICONFLOW_URL = "https://api.siliconflow.cn/v1";
+const AMD_URL = "https://developer.amd.com.cn/radeon/api/v1";
 
 const resolve = (overrides) => resolveThinkingProfile({ model: "m", level: "off", stream: false, ...overrides });
 
@@ -254,6 +255,25 @@ describe("provider override 型（OpenRouter 对任何模型整体替换 class �
     const r = resolve({ baseUrl: OPENROUTER_URL, model: "kimi-k2-instruct", level: "off" });
     expect(r.fields).toEqual({ reasoning_effort: "none" });
     expect(r.thinkingClass).toBe("hybrid");
+  });
+});
+
+describe("provider override 型（AMD Radeon Cloud：host 别名识别，严格 400 未知字段）", () => {
+  it("无 AI preset，custom 平台手填 baseUrl 经 host 别名命中：deepseek 血统模型也走 effort 词汇（不发网关拒收的 thinking 开关）", () => {
+    const r = resolve({ baseUrl: AMD_URL, model: "DeepSeek-V4-Flash", level: "off" });
+    expect(r.fields).toEqual({ reasoning_effort: "none" });
+    expect(r.thinkingClass).toBe("hybrid");
+  });
+
+  it("托管的 qwen 血统模型同样被 override（任何模型不走血统表）", () => {
+    expect(resolve({ baseUrl: AMD_URL, model: "Qwen3.8-Flash-Next", level: "low" }).fields).toEqual({
+      reasoning_effort: "low"
+    });
+  });
+
+  it("presetId='custom' 未命中 PROVIDERS → 回落 host 别名仍命中 AMD override", () => {
+    const r = resolve({ presetId: "custom", baseUrl: AMD_URL, model: "DeepSeek-V4-Flash", level: "high" });
+    expect(r.fields).toEqual({ reasoning_effort: "high" });
   });
 });
 

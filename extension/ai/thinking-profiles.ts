@@ -292,7 +292,8 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
 // ===== PROVIDERS：平台规则（键 = core/presets.ts 的 AI preset id）=====
 // unknownClass 分工（spec）：词汇平台无关的（Ollama/SiliconFlow/ModelScope/Mimo）
 // 给 provider 级默认；按模型定协议的（OpenAI/DeepSeek/Qwen/GLM/Kimi/MiniMax/
-// StepFun）不给，未知模型落 unknown 哨兵。OpenRouter 是唯一 override 型。
+// StepFun）不给，未知模型落 unknown 哨兵。override 型：OpenRouter 与 AMD（严格
+// 400 未知字段、整域只认 effort 词汇的网关）。
 // Opencode Go（api.doubao.com）域名已死（NXDOMAIN）：不写规则，落 unknown（Q16）。
 export const PROVIDERS: Record<string, ProviderRule> = {
   openai_compat: {}, // 严格 400（developers.openai.com），未列模型宁可不发
@@ -318,7 +319,22 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   stepfun: {}, // step_plan 订阅端点（platform.stepfun.ai），模型族已覆盖 taxonomy
   modelscope: { unknownClass: "qwen-hybrid-switch" }, // 托管模型用原生 enable_thinking（modelscope.cn）
   ollama: { unknownClass: "ollama-effort" },
-  siliconflow: { unknownClass: "siliconflow-switch" }
+  siliconflow: { unknownClass: "siliconflow-switch" },
+  // AMD Radeon Cloud（developer.amd.com.cn）：AI preset 表没有它（同 SiliconFlow，
+  // 用户手填 custom 平台），靠下方 host 别名命中。网关对未知字段严格 400——发
+  // thinking 直接报错并提示改用 reasoning_effort 控制思考（实测 2026-09）→
+  // override 型：整域只认 effort 词汇，任何模型（含托管的 qwen/deepseek 血统）
+  // 不走血统表，避免 taxonomy 命中 deepseek-v4 后发出网关拒收的 thinking 开关。
+  amd: {
+    override: {
+      thinkingClass: "hybrid",
+      levels: {
+        off: { fields: { reasoning_effort: "none" } },
+        low: { fields: { reasoning_effort: "low" } },
+        high: { fields: { reasoning_effort: "high" } }
+      }
+    }
+  }
 };
 
 // ===== host 索引：从 core/presets.ts 派生（baseUrl 数据不在此复制）=====
@@ -342,10 +358,13 @@ for (const preset of PRESETS) {
     PRESET_HOST_INDEX.set(host, preset.id);
   }
 }
-// 唯一的手工别名：SiliconFlow 只存在于 ASR preset（core/presets 的音频表），
+// 手工别名：SiliconFlow 只存在于 ASR preset（core/presets 的音频表），
 // AI preset 表没有它，但它是思考适配收录的平台（enable_thinking 系）——
 // 用户手填其 baseUrl 作 custom 平台时靠这条命中。表数据仍不复制 baseUrl。
 PRESET_HOST_INDEX.set("api.siliconflow.cn", "siliconflow");
+// AMD Radeon Cloud 同理：只以免费模型 API 形式存在（developer.amd.com.cn），
+// 无 AI preset，custom 平台手填其 baseUrl 时经这条命中 override 规则。
+PRESET_HOST_INDEX.set("developer.amd.com.cn", "amd");
 
 // ===== resolver =====
 
