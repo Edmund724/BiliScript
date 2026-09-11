@@ -40,3 +40,17 @@
    * 会破坏聊天气泡透明底与解释卡的宿主表面，这里恢复透明。 */
   background-color: transparent;
 }
+
+/* 列表 marker 必须在 li 上夺回：宿主页面（bilibili.com）的站点 reset 直接给
+ * li 设 list-style-type: none（2026-09 探针实测），marker 取 li 自身的
+ * list-style-type——在 ul/ol 上设 disc 继承不进去，基线不含 li 级规则，
+ * 表现就是真页面上所有列表项既无子弹也无缩进（独立复现页无宿主 CSS，
+ * 复现不出）。:not(.task-list-item) 保住基线任务列表的去子弹规则。
+ * 特异性 1-2-2（id+class+:not 类+两元素）压过宿主元素级 reset。 */
+#boc-reading-view .markdown-body ul > li:not(.task-list-item) {
+  list-style-type: disc;
+}
+
+#boc-reading-view .markdown-body ol > li:not(.task-list-item) {
+  list-style-type: decimal;
+}
