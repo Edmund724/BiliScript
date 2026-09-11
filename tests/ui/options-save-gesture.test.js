@@ -10,9 +10,11 @@
 // requestProviderOriginsViaBackground（content script 语境无 chrome.permissions
 // API，经 request-provider-origins 消息由 SW 代为申请；扩展页面语境直调）。
 // 手势链条上的每一环都必须零先行 await，本文件锁定三段：
-// 1. 全部调用方闭包：调用单一实现的文件恰好是设置面板单平台保存链与模型下拉
-//    箭头（model-picker：拉取模型列表前申请域名权限）两处——新调用方出现时
-//    必须把它的手势链断言加进本文件；
+// 1. 全部调用方闭包：调用单一实现的文件恰好是模型下拉箭头（model-picker：
+//    ASR Modal 拉模型列表前申请域名权限）、平台编辑 Modal 的「获取可用模型」
+//    （provider-editor：multi-model-catalog 阶段2 起 AI 拉模型列表前申请域名
+//    权限）与设置面板单平台保存链（settings-panel）三处——新调用方出现时必须
+//    把它的手势链断言加进本文件；
 // 2. 每个调用方：从手势函数入口到代申请调用之间零先行 await（保存链的调用
 //    被直接 await；模型下拉箭头同样直接 await，拒绝只在下拉内提示）；
 // 3. SW 处理器（handleRequestProviderOrigins）：从入口到
@@ -85,7 +87,7 @@ describe("host 权限代申请：单一实现与调用方闭包", () => {
     }
   });
 
-  it("调用方闭包：恰好是模型下拉箭头（model-picker）与设置面板（settings-panel：整表链退役后只剩 saveProviderSingle 的单平台保存）", () => {
+  it("调用方闭包：恰好是模型下拉箭头（model-picker，ASR Modal 消费）、平台编辑 Modal「获取可用模型」（provider-editor：拉模型列表前申请域名权限）与设置面板（settings-panel：整表链退役后只剩 saveProviderSingle 的单平台保存）", () => {
     const callers = listExtensionSources()
       .filter((file) => !file.endsWith("/core/host-permissions.ts") && !file.endsWith("/core/host-permissions.js"))
       .filter((file) => /requestProviderOriginsViaBackground\s*\(/.test(readFileSync(file, "utf8")))
@@ -93,6 +95,7 @@ describe("host 权限代申请：单一实现与调用方闭包", () => {
       .sort();
     expect(callers).toEqual([
       "extension/ui/model-picker.ts",
+      "extension/ui/provider-editor.ts",
       "extension/ui/settings-panel.ts"
     ]);
   });
@@ -123,6 +126,22 @@ describe("调用方手势同步链（调用前零先行 await）", () => {
 
     // 箭头点击即用户手势本体：申请之前垫任何 await（哪怕读一次 DOM 之外的
     // 异步值）都会让 Chrome 以「缺少用户手势」拒掉授权弹窗，必须红。
+    const prefix = source.slice(start, request);
+    expect(/(?:^|[\s(=])await\s*$/.test(prefix), "requestProviderOriginsViaBackground 应被直接 await").toBe(true);
+    const before = prefix.replace(/\s*await\s*$/, "");
+    expect(before.match(/\bawait\b/g) || [], "申请权限之前不得有先行 await").toEqual([]);
+  });
+
+  it("provider-editor「获取可用模型」openFetchDialog：函数体开头到权限申请调用之间没有先行 await", () => {
+    const source = readSource("../../extension/ui/provider-editor.js");
+    const start = source.indexOf("async function openFetchDialog(");
+    const request = source.indexOf("requestProviderOriginsViaBackground(", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(request).toBeGreaterThan(start);
+
+    // 「获取可用模型」点击即用户手势本体（multi-model-catalog 拍板 Q5：host
+    // 权限申请保持在点击同步链）：弹骨架等动作全是同步 DOM 操作，申请之前垫
+    // 任何 await 都会让 Chrome 以「缺少用户手势」拒掉授权弹窗，必须红。
     const prefix = source.slice(start, request);
     expect(/(?:^|[\s(=])await\s*$/.test(prefix), "requestProviderOriginsViaBackground 应被直接 await").toBe(true);
     const before = prefix.replace(/\s*await\s*$/, "");

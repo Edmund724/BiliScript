@@ -393,6 +393,8 @@ export type DebugLogGateChangedBroadcast = {
 export type OffscreenChatMessage = {
   action: "chat";
   providerId?: string;
+  // 选中模型 id（multi-model-catalog）：缺省回落解析平台记录的目录首项
+  model?: string;
   subtitleBody?: unknown;
   [key: string]: unknown;
 };

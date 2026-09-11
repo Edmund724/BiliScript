@@ -33,7 +33,13 @@ export type ChatSessionContextSnapshot = AiContext;
 export interface ChatSessionProvider {
   id: string;
   name?: string;
+  // 历史单模型字段：ai-providers-list 载荷逐字段透传；新载荷走 models，旧载荷/
+  // 测试字面量经 providers.ts 归一进 models 后此处仍保留原值（思考提示等
+  // 回落读取）。
   model?: string;
+  // 模型目录（multi-model-catalog）：chat 模型选择器按平台 optgroup 分组渲染，
+  // 每个模型一个 option；选模型即隐式选定平台（拍板 Q8）。
+  models?: string[];
   // 平台请求地址 / preset 词表键（ai-providers-list 载荷透传，不参与渲染）：
   // 思考档位「关不掉」提示的 resolver 识别入参（工单 03，判定在
   // reader/chat-tab.ts；presetId 是主路径，baseUrl 供 custom 场景 host 兜底）。

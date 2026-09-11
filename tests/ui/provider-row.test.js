@@ -166,6 +166,22 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
     expect(allRows[1].querySelector(".provider-row-model")).toBeNull();
   });
 
+  it("模型名副行：models 目录多个时「首项 等 N 个」，单模型只显示模型名（拍板 Q15）", async () => {
+    const rows = await loadAiRows();
+    const { listNode, emptyNode } = makeContainer();
+    rows.renderAiProviders(listNode, emptyNode, [
+      { id: "p1", presetId: "openai_compat", name: "我的端点", baseUrl: "https://api.example.com/v1", models: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-reasoner"] },
+      { id: "p2", presetId: "ollama", baseUrl: "http://localhost:11434/v1", models: ["llama3"] },
+      { id: "p3", presetId: "custom", name: "旧数据", baseUrl: "", model: "gpt-4o-mini" }
+    ], { presets: AI_PRESETS });
+
+    const allRows = listNode.querySelectorAll(".ai-provider-row");
+    expect(allRows[0].querySelector(".provider-row-model").textContent).toBe("deepseek-v4-flash 等 3 个");
+    expect(allRows[1].querySelector(".provider-row-model").textContent).toBe("llama3");
+    // 历史单模型记录（无 models）回落 model 字段
+    expect(allRows[2].querySelector(".provider-row-model").textContent).toBe("gpt-4o-mini");
+  });
+
   it("渲染空列表时显示空态", async () => {
     const rows = await loadAiRows();
     const { listNode, emptyNode } = makeContainer();

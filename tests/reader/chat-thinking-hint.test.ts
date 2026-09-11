@@ -123,12 +123,16 @@ let state: TestState;
 let ids: typeof import("../../extension/reader/state.js").ids;
 let lazyChat: typeof import("../../extension/reader/lazy-chat-tab.js");
 let statusBus: typeof import("../../extension/shared/subtitle-status-bus.js");
+// 复合选项值编码单源（multi-model-catalog）：modelSelect 选项值为
+// 「平台 id\u0001模型 id」，测试里切模型须用与渲染相同的编码。
+let modelOptionValue: typeof import("../../extension/chat/providers.js").buildModelOptionValue;
 
 async function loadShell() {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   ids = (await import("../../extension/reader/state.js")).ids;
   statusBus = await import("../../extension/shared/subtitle-status-bus.js");
+  modelOptionValue = (await import("../../extension/chat/providers.js")).buildModelOptionValue;
   const uiRenderer = await import("../../extension/ui/ui-renderer.js");
   lazyChat = await import("../../extension/reader/lazy-chat-tab.js");
   uiRenderer.ensureUiReady({ forceRecreate: true });
@@ -225,11 +229,11 @@ describe("静默分支：never 模型与 off 正常可用模型均无提示", ()
 
     const select = getModelSelect();
     // 切到 deepseek-chat（同为 never）：仍静默。
-    select.value = "p2";
+    select.value = modelOptionValue("p2", "deepseek-chat");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(hint.hidden).toBe(true);
     // 切到 glm-4.6（off 正常可用）：不误报。
-    select.value = "p3";
+    select.value = modelOptionValue("p3", "glm-4.6");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(hint.hidden).toBe(true);
     expect(hint.textContent).toBe("");
@@ -250,12 +254,12 @@ describe("实时刷新：提示随模型切换与档位点击即时显隐", () =
     expect(hint.textContent).toBe(HINT_UNAVAILABLE);
 
     const select = getModelSelect();
-    select.value = "p2";
+    select.value = modelOptionValue("p2", "glm-4.6");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(hint.hidden).toBe(true);
     expect(hint.textContent).toBe("");
 
-    select.value = "p1";
+    select.value = modelOptionValue("p1", "kimi-k2.7-code");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(hint.hidden).toBe(false);
     expect(hint.textContent).toBe(HINT_UNAVAILABLE);

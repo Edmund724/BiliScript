@@ -96,6 +96,10 @@ export interface CreateChatRuntimeDeps {
   // ---- context/transport helpers (AI domain, chat local) ----
   ensureCurrentContextForSend: () => Promise<boolean | string>;
   getProviderId: () => string;
+  // 选中模型 id（multi-model-catalog）：chat 模型选择器一模型一选项后随
+  // port 消息下发，offscreen 以它覆盖解析平台的目录首项。可选——未注入的
+  // 旧组合根（测试）不发该字段，offscreen 回落平台目录首项。
+  getSelectedModel?: () => string;
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -417,6 +421,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       port.postMessage({
         action: "chat",
         providerId,
+        // 选中模型（multi-model-catalog）：offscreen 解析平台后以它覆盖目录首项
+        model: deps.getSelectedModel?.() || "",
         thinkingLevel: chatSessionState.aiThinkingLevel,
         context,
         contextKey,

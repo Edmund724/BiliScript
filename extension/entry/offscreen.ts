@@ -222,7 +222,14 @@ chrome.runtime.onConnect.addListener((port) => {
       await runLadderChat(
         {
           msg: msg as ChatMsg,
-          provider: { ...provider, apiKey },
+          // 选中模型覆盖（multi-model-catalog）：chat 模型选择器一模型一选项，
+          // 消息携带具体模型 id；未携带（旧宿主）回落解析平台记录的目录首项
+          // （resolveProviderWithKey 回包已归一化）。
+          provider: {
+            ...provider,
+            apiKey,
+            ...(msg.model ? { model: String(msg.model) } : {})
+          },
           port: ackedPort,
           signal: activeAbortController.signal
         },

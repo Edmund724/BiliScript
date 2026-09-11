@@ -25,10 +25,14 @@ export async function resolveActiveProvider(): Promise<AiProvider> {
   if (!resp?.ok) {
     throw new Error(String(resp?.error || "解析 AI 平台配置失败"));
   }
+  const models = Array.isArray(resp.provider?.models) ? resp.provider.models : [];
+  const legacyModel = String(resp.provider?.model || "").trim();
   return {
     baseUrl: String(resp.provider?.baseUrl || "").trim(),
     apiKey: String(resp.apiKey || "").trim(),
-    model: String(resp.provider?.model || "").trim(),
+    // 模型目录取首项（概览/选区解释无模型选择器）；旧单模型记录回落 model
+    // 字段（multi-model-catalog 无感迁移的消费端镜像）。
+    model: String(models[0] ?? "").trim() || legacyModel,
     // presetId 穿线（provider 记录随带）：解释链下游 thinking-profiles 查表的
     // 主识别路径，反代 baseUrl 无 host 规则时是唯一线索。缺失归一为空串
     //（resolver 端回落 host/模型名识别，不臆造平台）。

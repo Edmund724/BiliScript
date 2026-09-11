@@ -6,12 +6,16 @@
 // 覆盖：
 // - 新增保存链（拍板 Q2/Q4）：权限代申请 → 现查权威列表 → upsert 追加 →
 //   整列表落盘（协议零改动）→ Modal 关闭 + 列表重渲；
-// - 编辑预填（拍板 Q3）：按 id 现查列表项，Key 占位「已保存」，保存按原 id
-//   替换非追加；
+// - 编辑预填（拍板 Q3）：按 id 现查列表项，Key 占位「已保存」，模型目录全量
+//   预填为行；保存按原 id 替换非追加；
+// - 模型目录（multi-model-catalog 阶段2，拍板 Q3/Q7/Q9/Q10/Q13）：行增删只改
+//   草稿（加行即脏），收集 trim/去空行/去重，空目录合法有空态提示；
+// - 行级连通测试（拍板 Q4/Q12）：行内 spinner→✓/✕，多行并发、同行重复点击
+//   忽略前一个，测试不落盘（绝无保存与权限消息）；ASR 平台级测试保留；
+// - 「获取可用模型」弹窗（拍板 Q5/Q11）：地址/Key 前置校验、权限在点击同步
+//   链（先于模型请求）、搜索/全选、已添加置灰、失败原位重试、Esc 逐层退出；
 // - dirty 保护（拍板 Q6）：有改动 confirm 拦截，无改动直接关；Esc / 点遮罩
 //   同走此保护；
-// - 测试只验证连通性：成功也不落盘（不发保存消息），状态行「连接成功」、
-//   Modal 不关；失败的状态行与 Modal 存活；
 // - 面板外点击 capture 拦截：只关 Modal，bubble 委托（抽屉外点关闭）收不到；
 // - 抽屉收起联动：settingsPanel hidden → 强制关闭（丢改动不 confirm）。
 //
@@ -117,7 +121,7 @@ beforeEach(() => {
 
 describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
   it("AI 新增：权限代申请 → 现查列表 → upsert 追加 → 整列表落盘，成功后关 Modal 并重渲列表", async () => {
-    const savedList = [{ id: "p_new1", presetId: "custom", name: "自定义", baseUrl: "https://api.example.com/v1", model: "gpt-4o-mini", requiresKey: true, enabled: true, hasSavedKey: true }];
+    const savedList = [{ id: "p_new1", presetId: "custom", name: "自定义", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true }];
     const { sent, host } = await mountPanel({
       "ai-providers-save": () => ({ ok: true, providers: savedList })
     });
@@ -131,7 +135,9 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
     dialog.querySelector(".provider-editor-apikey").value = "sk-test";
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o-mini";
+    // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    dialog.querySelector(".provider-editor-model-id").value = "gpt-4o-mini";
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -154,7 +160,7 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
       presetId: "custom",
       name: "自定义",
       baseUrl: "https://api.example.com/v1",
-      model: "gpt-4o-mini",
+      models: ["gpt-4o-mini"],
       requiresKey: true,
       enabled: true,
       apiKey: "sk-test"
@@ -203,7 +209,8 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o-mini";
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    dialog.querySelector(".provider-editor-model-id").value = "gpt-4o-mini";
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -223,7 +230,9 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
     dialog.querySelector(".provider-editor-apikey").value = "sk-test";
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o-mini";
+    // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    dialog.querySelector(".provider-editor-model-id").value = "gpt-4o-mini";
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -242,7 +251,9 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
     dialog.querySelector(".provider-editor-apikey").value = "sk-test";
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o-mini";
+    // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    dialog.querySelector(".provider-editor-model-id").value = "gpt-4o-mini";
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -255,27 +266,29 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
 });
 
 describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () => {
-  const aiItem = { id: "p1", presetId: "custom", name: "我的端点", baseUrl: "https://api.example.com/v1", model: "gpt-4o-mini", requiresKey: true, enabled: true, hasSavedKey: true };
+  const aiItem = { id: "p1", presetId: "custom", name: "我的端点", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini", "gpt-4o"], requiresKey: true, enabled: true, hasSavedKey: true };
 
-  it("按 id 现查权威列表项预填；Key 占位「已保存」；保存按原 id 替换非追加", async () => {
+  it("按 id 现查权威列表项预填（模型目录全量预填行）；Key 占位「已保存」；保存按原 id 替换非追加", async () => {
     const { sent, host } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: [aiItem] }),
-      "ai-providers-save": () => ({ ok: true, providers: [{ ...aiItem, model: "gpt-4o" }] })
+      "ai-providers-save": () => ({ ok: true, providers: [{ ...aiItem, models: ["gpt-4o"] }] })
     });
 
     const row = host.querySelector("#aiProvidersList .ai-provider-row");
     const { dialog } = await openEditor(host, row.querySelector(".provider-row-edit"));
 
-    // 预填：presetId/baseUrl/model 来自列表项；Key 不回传（占位「已保存」）
+    // 预填：presetId/baseUrl 来自列表项；模型目录全部预填为行；Key 不回传（占位「已保存」）
     expect(dialog.querySelector(".provider-editor-preset").value).toBe("custom");
     expect(dialog.querySelector(".provider-editor-baseurl").value).toBe("https://api.example.com/v1");
-    expect(dialog.querySelector(".provider-editor-model").value).toBe("gpt-4o-mini");
+    expect(
+      Array.from(dialog.querySelectorAll(".provider-editor-model-id")).map((input) => input.value)
+    ).toEqual(["gpt-4o-mini", "gpt-4o"]);
     expect(dialog.querySelector(".provider-editor-apikey").value).toBe("");
     expect(dialog.querySelector(".provider-editor-apikey").placeholder).toBe("已保存");
     // AI 自定义名称（≠预设名）回填实值
     expect(dialog.querySelector(".provider-editor-name").value).toBe("我的端点");
 
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o";
+    dialog.querySelector(".provider-editor-model-id").value = "gpt-4";
     fireClick(dialog.querySelector(".provider-editor-save"));
 
     await vi.waitFor(() => {
@@ -284,7 +297,7 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
 
     const saveMessage = sent.find((message) => message.type === "ai-providers-save");
     expect(saveMessage.providers).toHaveLength(1);
-    expect(saveMessage.providers[0]).toMatchObject({ id: "p1", name: "我的端点", model: "gpt-4o", baseUrl: "https://api.example.com/v1" });
+    expect(saveMessage.providers[0]).toMatchObject({ id: "p1", name: "我的端点", models: ["gpt-4", "gpt-4o"], baseUrl: "https://api.example.com/v1" });
     expect(editorGone()).toBe(true);
   });
 
@@ -297,7 +310,8 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
     // 留空 → 预设名「自定义」
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
     dialog.querySelector(".provider-editor-apikey").value = "sk-test";
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o-mini";
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    dialog.querySelector(".provider-editor-model-id").value = "gpt-4o-mini";
     fireClick(dialog.querySelector(".provider-editor-save"));
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
@@ -307,7 +321,7 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
 });
 
 describe("provider-editor：头部删除按钮（用户拍板：× 改警示删除，编辑态提供）", () => {
-  const aiItem = { id: "p1", presetId: "custom", name: "自定义", baseUrl: "https://api.example.com/v1", model: "gpt-4o-mini", requiresKey: true, enabled: true, hasSavedKey: true };
+  const aiItem = { id: "p1", presetId: "custom", name: "自定义", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
 
   it("编辑态：头部显示删除按钮；confirm 后发删除消息 + 权限回收现查 + 重渲 + 关 Modal", async () => {
     const { sent, host } = await mountPanel({
@@ -387,7 +401,8 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
     dialog.querySelector(".provider-editor-apikey").value = "sk-test";
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o-mini";
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    dialog.querySelector(".provider-editor-model-id").value = "gpt-4o-mini";
     fireClick(dialog.querySelector(".provider-editor-save"));
 
     await vi.waitFor(() => expect(editorGone()).toBe(true));
@@ -395,19 +410,107 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
   });
 });
 
-describe("provider-editor：测试连接只验证连通性，不落盘", () => {
-  it("测试成功：状态行「连接成功」，不发保存消息、不申请权限，Modal 不关", async () => {
-    const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
+// 拍板 Q10 推论：目录行增删只改草稿——加一行即脏，取消先 confirm
+describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", () => {
+  it("「+ 添加模型」加空白行、行内删除即移除，全部只改草稿", async () => {
     const { sent, host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    // 新增态 0 行：空态提示可见（Q13）
+    const empty = dialog.querySelector(".provider-editor-catalog-empty");
+    expect(empty.hidden).toBe(false);
+
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    expect(dialog.querySelectorAll(".provider-editor-model-row")).toHaveLength(1);
+    expect(dialog.querySelector(".provider-editor-catalog-empty").hidden).toBe(true);
+
+    // 加行即脏：取消先 confirm（草稿语义只改 DOM，无任何消息）
+    confirmMock.mockReturnValueOnce(false);
+    fireClick(dialog.querySelector(".provider-editor-cancel"));
+    expect(confirmMock).toHaveBeenCalledWith("未保存的更改将丢失，确定关闭？");
+    expect(editorGone()).toBe(false);
+    expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
+
+    fireClick(dialog.querySelector(".provider-editor-model-remove"));
+    expect(dialog.querySelectorAll(".provider-editor-model-row")).toHaveLength(0);
+    expect(dialog.querySelector(".provider-editor-catalog-empty").hidden).toBe(false);
+
+    // 删回 0 行后与快照一致：取消直接关
+    fireClick(dialog.querySelector(".provider-editor-cancel"));
+    expect(editorGone()).toBe(true);
+  });
+
+  it("收集时 trim / 去空行 / 去重（Q7）", async () => {
+    const { sent, host } = await mountPanel({
+      "ai-providers-save": () => ({ ok: true, providers: [] })
+    });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
     dialog.querySelector(".provider-editor-apikey").value = "sk-test";
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o-mini";
+    // 三行：带空白、重复 ID、纯空行
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    const inputs = dialog.querySelectorAll(".provider-editor-model-id");
+    inputs[0].value = "  gpt-4o-mini ";
+    inputs[1].value = "gpt-4o-mini";
+    inputs[2].value = "   ";
 
-    fireClick(dialog.querySelector(".provider-editor-test"));
+    fireClick(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
+    });
+    expect(sent.find((message) => message.type === "ai-providers-save").providers[0].models).toEqual(["gpt-4o-mini"]);
+  });
 
-    // 探针直调（新增 id 为空 → providerId 空串，Key 随参数携带）
+  it("空目录合法：0 行保存落盘 models: []（Q13）", async () => {
+    const { sent, host } = await mountPanel({
+      "ai-providers-save": () => ({ ok: true, providers: [] })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
+    dialog.querySelector(".provider-editor-apikey").value = "sk-test";
+
+    fireClick(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
+    });
+    expect(sent.find((message) => message.type === "ai-providers-save").providers[0].models).toEqual([]);
+    expect(editorGone()).toBe(true);
+  });
+});
+
+// 行级连通测试（拍板 Q4/Q12）：每行用该行输入框当前的模型 ID 发 ping（复用
+// testAiProviderConnection 探针路径），行内原地反馈（spinner → ✓/✕，失败原因
+// 在 title）；多行并发、同行重复点击忽略前一个；测试不落盘（8a5f249 语义保持：
+// 绝无保存与权限消息）。平台级测试按钮已被行级替代（AI 侧不渲染）。
+describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通性不落盘）", () => {
+  function addModelRowWithValue(dialog, value) {
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    const row = dialog.querySelector(".provider-editor-model-row:last-child");
+    row.querySelector(".provider-editor-model-id").value = value;
+    return row;
+  }
+
+  it("AI 不渲染平台级测试按钮；行级测试成功：spinner→✓、探针直调、不落盘", async () => {
+    const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
+    const { sent, host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    expect(dialog.querySelector(".provider-editor-test")).toBeNull();
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
+    dialog.querySelector(".provider-editor-apikey").value = "sk-test";
+    const row = addModelRowWithValue(dialog, "gpt-4o-mini");
+
+    fireClick(row.querySelector(".provider-editor-model-test"));
+    // 在飞：loading 态 + 按钮禁用
+    expect(row.querySelector(".provider-editor-model-result").dataset.state).toBe("loading");
+    expect(row.querySelector(".provider-editor-model-test").disabled).toBe(true);
+
+    // 探针直调（新增 id 为空 → providerId 空串，Key 随参数携带），模型取行内值
     await vi.waitFor(() => {
       expect(testAiProviderConnection).toHaveBeenCalledWith({
         providerId: "",
@@ -416,47 +519,124 @@ describe("provider-editor：测试连接只验证连通性，不落盘", () => {
         model: "gpt-4o-mini"
       });
     });
-    // 测试成功不写设置：绝无保存与权限消息
+    await vi.waitFor(() => {
+      expect(row.querySelector(".provider-editor-model-result").dataset.state).toBe("ok");
+    });
+    // 测试成功不写设置：绝无保存与权限消息，Modal 不关
     expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
     expect(sent.some((message) => message.type === "request-provider-origins")).toBe(false);
-
-    const status = dialog.querySelector(".provider-editor-status");
-    expect(status.textContent).toBe("连接成功");
-    expect(status.dataset.error).toBe("false");
     expect(editorGone()).toBe(false);
-    expect(dialog.querySelector(".provider-editor-test").disabled).toBe(false);
+    expect(row.querySelector(".provider-editor-model-test").disabled).toBe(false);
   });
 
-  it("测试失败：状态行报错，不落盘", async () => {
+  it("行级测试失败：行内 ✕ + title 原因，不落盘", async () => {
     const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
     testAiProviderConnection.mockImplementationOnce(async () => ({ ok: false, error: "quota exceeded" }));
     const { sent, host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
-    dialog.querySelector(".provider-editor-model").value = "gpt-4o-mini";
+    const row = addModelRowWithValue(dialog, "gpt-4o-mini");
 
-    fireClick(dialog.querySelector(".provider-editor-test"));
+    fireClick(row.querySelector(".provider-editor-model-test"));
 
     await vi.waitFor(() => {
-      expect(dialog.querySelector(".provider-editor-status").textContent).toBe("失败：quota exceeded");
+      expect(row.querySelector(".provider-editor-model-result").dataset.state).toBe("error");
     });
+    expect(row.querySelector(".provider-editor-model-result").title).toBe("失败：quota exceeded");
     expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
-    expect(dialog.querySelector(".provider-editor-test").disabled).toBe(false);
+    expect(row.querySelector(".provider-editor-model-test").disabled).toBe(false);
   });
 
-  it("缺 baseUrl / 缺模型名：直接提示且不调探针", async () => {
+  it("缺模型 ID / 缺 API 地址：行内提示且不调探针", async () => {
     const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    fireClick(dialog.querySelector(".provider-editor-test"));
-    expect(dialog.querySelector(".provider-editor-status").textContent).toBe("请填写 baseUrl");
+    const row = addModelRowWithValue(dialog, "");
+    fireClick(row.querySelector(".provider-editor-model-test"));
+    expect(row.querySelector(".provider-editor-model-result").dataset.state).toBe("error");
+    expect(row.querySelector(".provider-editor-model-result").title).toBe("请先填写模型 ID");
+
+    row.querySelector(".provider-editor-model-id").value = "gpt-4o-mini";
+    fireClick(row.querySelector(".provider-editor-model-test"));
+    expect(row.querySelector(".provider-editor-model-result").title).toBe("请先填写 API 地址");
+    expect(testAiProviderConnection).not.toHaveBeenCalled();
+  });
+
+  it("多行并发测试互不阻塞，各行用自己的模型 ID", async () => {
+    const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
+    let resolveFirst;
+    testAiProviderConnection
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(async () => ({ ok: true }));
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
+    const rowA = addModelRowWithValue(dialog, "gpt-4o-mini");
+    const rowB = addModelRowWithValue(dialog, "gpt-4o");
+
+    fireClick(rowA.querySelector(".provider-editor-model-test"));
+    fireClick(rowB.querySelector(".provider-editor-model-test"));
+
+    // B 后点先到终点：多行并发，A 的在飞不阻塞 B
+    await vi.waitFor(() => {
+      expect(rowB.querySelector(".provider-editor-model-result").dataset.state).toBe("ok");
+    });
+    expect(rowA.querySelector(".provider-editor-model-result").dataset.state).toBe("loading");
+    expect(testAiProviderConnection).toHaveBeenCalledTimes(2);
+
+    resolveFirst({ ok: true });
+    await vi.waitFor(() => {
+      expect(rowA.querySelector(".provider-editor-model-result").dataset.state).toBe("ok");
+    });
+  });
+
+  it("同一行重复点击：忽略前一个（后点者的结果落定）", async () => {
+    const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
+    let resolveFirst;
+    testAiProviderConnection
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(async () => ({ ok: false, error: "model not found" }));
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
+    const row = addModelRowWithValue(dialog, "gpt-4o-mini");
+
+    fireClick(row.querySelector(".provider-editor-model-test"));
+    // 在飞中重复点击：发第二次探针（行内当前值），前一个结果随后被忽略
+    row.querySelector(".provider-editor-model-id").value = "gpt-4o";
+    fireClick(row.querySelector(".provider-editor-model-test"));
+    expect(testAiProviderConnection).toHaveBeenCalledTimes(2);
+
+    // 第一次探针慢返回成功，但已被忽略；行内落定的是第二次的 ✕
+    resolveFirst({ ok: true });
+    await vi.waitFor(() => {
+      expect(row.querySelector(".provider-editor-model-result").dataset.state).toBe("error");
+    });
+    expect(row.querySelector(".provider-editor-model-result").title).toBe("失败：model not found");
+  });
+
+  it("ASR 保留平台级测试按钮且行为不变（ASR 侧不动）", async () => {
+    const { testAsrConnection } = await import("../../extension/asr/provider-test.js");
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAsrProviderBtn");
+
+    expect(dialog.querySelector(".provider-editor-test")).not.toBeNull();
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://asr.example.com/v1";
+    dialog.querySelector(".provider-editor-model").value = "whisper-1";
+
     fireClick(dialog.querySelector(".provider-editor-test"));
-    expect(dialog.querySelector(".provider-editor-status").textContent).toBe("请填写模型名");
-    expect(testAiProviderConnection).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => {
+      expect(testAsrConnection).toHaveBeenCalled();
+    });
+    await vi.waitFor(() => {
+      expect(dialog.querySelector(".provider-editor-status").textContent).toBe("连接成功");
+    });
   });
 });
 
@@ -494,11 +674,11 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     }
   });
 
-  it("Modal 内点下拉组件外收起模型下拉（settings-panel 文档级委托收不到不外传的点击，语义在 Modal 内自持）", async () => {
+  it("Modal 内点下拉组件外收起模型下拉（ASR；settings-panel 文档级委托收不到不外传的点击，语义在 Modal 内自持）", async () => {
     const { host } = await mountPanel();
-    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+    const { dialog } = await openEditor(host, "#addAsrProviderBtn");
 
-    dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
+    dialog.querySelector(".provider-editor-baseurl").value = "https://asr.example.com/v1";
     // 模型下拉已在 DOM（hidden），置开再点组件外空白验证收起
     const dropdown = dialog.querySelector(".ai-provider-model-dropdown");
     dropdown.hidden = false;
@@ -563,50 +743,160 @@ describe("provider-editor：预设切换（Modal 内不代申请权限）", () =
 });
 
 // 未保存的新平台没有模型名就存不下去，而没授权时模型列表请求只会 CORS 失败：
-// 点箭头「先看看有哪些模型」是唯一能打破死锁的手势——权限申请落在这次点击上。
-describe("provider-editor：模型下拉箭头先申请域名权限（没保存也能拉模型）", () => {
-  it("AI：点箭头 → 先申请 baseUrl 域名权限，再拉模型列表并渲染选项", async () => {
+// 「获取可用模型」的「先看看有哪些模型」是打破死锁的手势——权限申请落在这次
+// 点击上（multi-model-catalog 阶段2，AI 侧弹窗取代了下拉箭头；ASR 仍走
+// model-picker 箭头）。
+describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", () => {
+  it("地址/Key 未填：目录区行内红字提示，不申请权限、不发模型请求", async () => {
+    const { sent, host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+
+    const error = dialog.querySelector(".provider-editor-catalog-error");
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe("请先填写 API 地址和 Key");
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(sent.some((message) => message.type === "request-provider-origins")).toBe(false);
+    expect(sent.some((message) => message.type === "ai-providers-models")).toBe(false);
+  });
+
+  it("拉取成功：权限先于模型请求；搜索过滤；全选；勾选追加为目录行（草稿，不落盘）", async () => {
     const { sent, host } = await mountPanel({
-      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini", "gpt-4o"] })
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini", "gpt-4o", "o1-mini"] })
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://token.sensenova.cn/v1";
     dialog.querySelector(".provider-editor-apikey").value = "sk-test";
 
-    fireClick(dialog.querySelector(".ai-provider-model-toggle"));
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
 
     await vi.waitFor(() => {
-      expect(dialog.querySelectorAll(".ai-provider-model-option")).toHaveLength(2);
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(3);
     });
     const types = messageTypes(sent);
     expect(types.indexOf("request-provider-origins")).toBeLessThan(types.indexOf("ai-providers-models"));
     expect(sent.find((message) => message.type === "request-provider-origins").baseUrls).toEqual(["https://token.sensenova.cn/v1"]);
 
-    // 选中写回输入框并收起下拉：模型名就位后保存链校验通过
-    fireClick(dialog.querySelector(".ai-provider-model-option"));
-    expect(dialog.querySelector(".provider-editor-model").value).toBe("gpt-4o-mini");
-    expect(dialog.querySelector(".ai-provider-model-dropdown").hidden).toBe(true);
+    // 搜索过滤
+    const search = document.querySelector(".provider-editor-fetch-search");
+    search.value = "gpt";
+    search.dispatchEvent(new Event("input"));
+    expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
+    search.value = "";
+    search.dispatchEvent(new Event("input"));
+    expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(3);
+
+    // 全选 → 计数同步 → 确认追加（草稿态：绝无保存消息）
+    fireClick(document.querySelector(".provider-editor-fetch-all"));
+    const confirmBtn = document.querySelector(".provider-editor-fetch-confirm");
+    expect(confirmBtn.textContent).toBe("添加所选 (3)");
+    fireClick(confirmBtn);
+
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(
+      Array.from(dialog.querySelectorAll(".provider-editor-model-id")).map((input) => input.value)
+    ).toEqual(["gpt-4o-mini", "gpt-4o", "o1-mini"]);
+    expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
   });
 
-  it("AI：权限被拒 → 下拉内给可操作报错，不发注定 CORS 失败的模型请求，仍可手填", async () => {
+  it("已在目录中的模型置灰标注「已添加」，不可勾选", async () => {
+    const aiItem = { id: "p1", presetId: "custom", name: "自定义", baseUrl: "https://token.sensenova.cn/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
+    const { host } = await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [aiItem] }),
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini", "gpt-4o"] })
+    });
+    const row = host.querySelector("#aiProvidersList .ai-provider-row");
+    const { dialog } = await openEditor(host, row.querySelector(".provider-row-edit"));
+
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
+    });
+    const addedCheck = document.querySelector('.provider-editor-fetch-check[value="gpt-4o-mini"]');
+    expect(addedCheck.disabled).toBe(true);
+    expect(addedCheck.closest(".provider-editor-fetch-item").textContent).toContain("已添加");
+
+    // 全选不覆盖置灰项：只剩目录外 1 个可勾
+    fireClick(document.querySelector(".provider-editor-fetch-all"));
+    expect(document.querySelectorAll(".provider-editor-fetch-check:checked")).toHaveLength(1);
+    fireClick(document.querySelector(".provider-editor-fetch-confirm"));
+    expect(
+      Array.from(dialog.querySelectorAll(".provider-editor-model-id")).map((input) => input.value)
+    ).toEqual(["gpt-4o-mini", "gpt-4o"]);
+  });
+
+  it("拉取失败：弹窗原位报错可重试；重试成功渲染列表", async () => {
+    let modelsResponder = () => ({ ok: false, error: "HTTP 401: unauthorized" });
+    const { host } = await mountPanel({
+      "ai-providers-models": (message) => modelsResponder(message)
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://token.sensenova.cn/v1";
+    dialog.querySelector(".provider-editor-apikey").value = "sk-test";
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".provider-editor-fetch-error").hidden).toBe(false);
+    });
+    expect(document.querySelector(".provider-editor-fetch-error").textContent).toContain("HTTP 401");
+
+    modelsResponder = () => ({ ok: true, models: ["gpt-4o-mini"] });
+    fireClick(document.querySelector(".provider-editor-fetch-retry"));
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
+    });
+    expect(document.querySelector(".provider-editor-fetch-error").hidden).toBe(true);
+  });
+
+  it("权限被拒：弹窗原位报错且不发注定 CORS 失败的模型请求", async () => {
     const { sent, host } = await mountPanel({
       "request-provider-origins": () => ({ ok: false, error: "未授权 https://token.sensenova.cn/*，操作已中止：请在权限弹窗中选择允许后重试" })
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://token.sensenova.cn/v1";
-    fireClick(dialog.querySelector(".ai-provider-model-toggle"));
+    dialog.querySelector(".provider-editor-apikey").value = "sk-test";
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
 
     await vi.waitFor(() => {
-      expect(dialog.querySelector(".ai-provider-model-dropdown .ai-provider-model-error")).toBeTruthy();
+      expect(document.querySelector(".provider-editor-fetch-error").textContent).toContain("未授权");
     });
-    expect(dialog.querySelector(".ai-provider-model-error").textContent).toContain("未授权");
     expect(sent.some((message) => message.type === "ai-providers-models")).toBe(false);
-    expect(dialog.querySelector(".provider-editor-model").value).toBe("");
+    // 取消关弹窗不关 Modal
+    fireClick(document.querySelector(".provider-editor-fetch-cancel"));
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(editorGone()).toBe(false);
   });
 
-  it("ASR：同一控件同样先申请权限再调 listAsrModels", async () => {
+  it("Esc 逐层退出：先关弹窗不关 Modal，再关 Modal", async () => {
+    const { host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini"] })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://token.sensenova.cn/v1";
+    dialog.querySelector(".provider-editor-apikey").value = "sk-test";
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
+    });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
+    expect(editorGone()).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(editorGone()).toBe(true);
+  });
+});
+
+describe("provider-editor：ASR 模型下拉箭头先申请域名权限（model-picker，ASR 侧保留）", () => {
+  it("ASR：点箭头 → 先申请权限再调 listAsrModels", async () => {
     const { listAsrModels } = await import("../../extension/asr/provider-models.js");
     listAsrModels.mockResolvedValueOnce({ ok: true, models: ["whisper-1"] });
     const { sent, host } = await mountPanel();
@@ -629,14 +919,14 @@ describe("provider-editor：模型下拉箭头先申请域名权限（没保存�
 // :user-invalid，天然满足「仅在用户交互后展示错误」。这里锁定属性面：
 // 保存链报文语义与校验口径零改动（JS validators 仍是权威，上方用例覆盖）。
 describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验态的属性面）", () => {
-  it("新增 AI（custom 预设）：baseUrl required+pattern、模型名 required、Key required", async () => {
+  it("新增 AI（custom 预设）：baseUrl required+pattern、Key required；模型目录行无原生必填（空目录合法 Q13）", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     const baseUrl = dialog.querySelector(".provider-editor-baseurl");
     expect(baseUrl.required).toBe(true);
     expect(baseUrl.getAttribute("pattern")).toBe("https?://.+");
-    expect(dialog.querySelector(".provider-editor-model").required).toBe(true);
+    expect(dialog.querySelector(".provider-editor-model")).toBeNull();
     expect(dialog.querySelector(".provider-editor-apikey").required).toBe(true);
   });
 
@@ -656,7 +946,7 @@ describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验�
   });
 
   it("编辑已存 Key 的平台：Key 不 required（空值沿用已存 Key）", async () => {
-    const aiItem = { id: "p1", presetId: "custom", name: "自定义", baseUrl: "https://api.example.com/v1", model: "gpt-4o-mini", requiresKey: true, enabled: true, hasSavedKey: true };
+    const aiItem = { id: "p1", presetId: "custom", name: "自定义", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
     const { host } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: [aiItem] })
     });

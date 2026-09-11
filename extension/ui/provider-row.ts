@@ -41,6 +41,9 @@ export interface ProviderRowItem {
   name?: string;
   baseUrl?: string;
   model?: string;
+  // AI 模型目录（multi-model-catalog）：多模型时副行显示「首项 等 N 个」；
+  // ASR 无此字段。缺省时回落 model（历史单模型数据/测试字面量）。
+  models?: string[];
   type?: string;
   requiresKey?: boolean;
   enabled?: boolean;
@@ -85,7 +88,8 @@ export interface CreateProviderRowConfig {
   resolvePreset: (presets: readonly ProviderRowPreset[], presetId: string) => ProviderRowPreset | null;
   // 显示名：AI=自定义名回落预设名（拍板 Q7）；ASR=名称回落预设名/自定义
   displayName: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
-  // 显示模型名：AI=item.model；ASR=item.model ?? preset.model。空串不渲染副行
+  // 显示模型名：AI=item.models（多个时「首项 等 N 个」，拍板 Q15）或历史
+  // item.model；ASR=item.model ?? preset.model。空串不渲染副行
   displayModel: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
   // （仅 ASR）选用 radio：change 即时持久化 activeAsrProviderId（平铺形态同款语义）
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;

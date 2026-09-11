@@ -23,7 +23,8 @@
 //   - 状态 getter：clip / settings（进程内装配链两条路的运行时输入，与
 //     core/context-assembly 的注入口径一致）；
 //   - runtime 传输/AI 回调：ensureCurrentContextForSend / getProviderId /
-//     getTimestampNavDeps / normalizeMarkdownForSectionPaste / connectPort
+//     getSelectedModel（multi-model-catalog 起，可选）/ getTimestampNavDeps /
+//     normalizeMarkdownForSectionPaste / connectPort
 //    （闭包连着组合根的页面级状态与 DOM，留在 chat-tab）。
 //
 // 门面 re-exports：组合根仍需的 chat 域零散出口（chatSessionState、
@@ -63,7 +64,7 @@ export { CONTEXT_READ_FAILED_MESSAGE, isPinnedContextTruthy } from "./context-po
 // offscreen 聊天端口名单源（chat/protocol.ts，ticket 08，原裸写字面量收口）。
 export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
 export { createPresetPrompts } from "./presets.js";
-export { createProviderPrefs } from "./providers.js";
+export { createProviderPrefs, parseModelOptionValue } from "./providers.js";
 
 export interface CreateChatTabDomainDeps {
   // ---- DOM 元素（reader/chat-tab 模块级 `els` 的壳三件）----
@@ -89,6 +90,8 @@ export interface CreateChatTabDomainDeps {
   // ---- chat-runtime 传输/AI 回调（组合根闭包）----
   ensureCurrentContextForSend: () => Promise<boolean | string>;
   getProviderId: () => string;
+  // 选中模型 id（multi-model-catalog，可选）：chat-runtime 透传进 chat 消息
+  getSelectedModel?: () => string;
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -156,6 +159,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     // ---- AI 域 / 上下文 / 传输辅助 ----
     ensureCurrentContextForSend: deps.ensureCurrentContextForSend,
     getProviderId: deps.getProviderId,
+    getSelectedModel: deps.getSelectedModel,
     getTimestampNavDeps: deps.getTimestampNavDeps,
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort

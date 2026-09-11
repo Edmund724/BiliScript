@@ -74,6 +74,7 @@ import {
   isContextPending,
   isNoSubtitleEmptyContext,
   isPinnedContextTruthy,
+  parseModelOptionValue,
   type NoSubtitleReason
 } from "../chat/tab-domain.js";
 import { scheduleModelSelectWidthUpdate, updateModelSelectWidth } from "../chat/model-select-width.js";
@@ -382,7 +383,10 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad } = createCh
   clip: () => state.clip,
   settings: () => state.settings,
   ensureCurrentContextForSend,
-  getProviderId: () => els.modelSelect.value,
+  getProviderId: () => parseModelOptionValue(els.modelSelect.value).providerId,
+  // 选中模型 id（multi-model-catalog）：随 chat 消息下发，offscreen 覆盖平台
+  // 目录首项；复合值编码见 chat/providers.ts 的 MODEL_OPTION_SEPARATOR。
+  getSelectedModel: () => parseModelOptionValue(els.modelSelect.value).model,
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,
   // 发送前 ensure offscreen 文档再连端口：文档死亡后自愈重建（ensure 失败
@@ -479,14 +483,16 @@ function updateThinkingHint(): void {
   }
   // 识别入参：baseUrl / presetId 沿 loadProvidersAndPrefs 已拉的
   // ai-providers-list 载荷（providers.ts 已透传进 chatSessionState.providers，
-  // 不开新消息链）；模型名取选中平台记录的 model（modelSelect 选项文案同源）。
+  // 不开新消息链）；模型名取选中项的模型 id（multi-model-catalog：选项值是
+  // 「平台 id\u0001模型 id」复合值，解析后取模型段，平台记录仅作回落）。
   // stream 传 true：对话请求是流式，streamOnly 关闭规则（如 qwen3-235b 的
   // enable_thinking:false）在对话里正常可用，不误报提示。
-  const provider = chatSessionState.providers.find((item) => item.id === els.modelSelect.value);
+  const selected = parseModelOptionValue(els.modelSelect.value);
+  const provider = chatSessionState.providers.find((item) => item.id === selected.providerId);
   const resolution = resolveThinkingProfile({
     presetId: String(provider?.presetId || ""),
     baseUrl: String(provider?.baseUrl || ""),
-    model: String(provider?.model || ""),
+    model: selected.model || String(provider?.model || ""),
     level: "off",
     stream: true
   });
@@ -793,11 +799,14 @@ function bindEvents(): void {
     }
   });
   els.modelSelect.addEventListener("change", () => {
-    const providerId = els.modelSelect.value;
+    // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的
+    // 持久化 = 复合值进 chrome.storage.local（providers 模块的 setSelectedProvider，
+    // renderModelSelect 的选中回落直接消费）；sync settings 的 defaultModel 仍是
+    // 裸平台 id（SW 激活平台解析的消费口径不变）。
+    const selected = parseModelOptionValue(els.modelSelect.value);
+    const providerId = selected.providerId;
     if (providerId) {
-      // 选中平台的持久化通道 = chrome.storage.local（providers 模块的
-      // setSelectedProvider）；sync settings 的 defaultModel 双写与 sidepanel 一致。
-      providerPrefs.setSelectedProvider(providerId);
+      providerPrefs.setSelectedProvider(els.modelSelect.value);
       chatSessionState.aiPrefs.defaultModel = providerId;
       chrome.storage.sync.set({ defaultModel: providerId }).catch(() => {});
     } else {

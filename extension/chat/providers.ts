@@ -38,6 +38,29 @@ import type { ModelSelectWidthEls } from "./model-select-width.js";
 export const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
 export const THINKING_LEVEL_KEY = "boc_ai_thinking_level";
 
+// 模型选项复合值分隔符（multi-model-catalog 拍板 Q8）：chat 模型选择器改成
+// 「按平台 optgroup 分组、一模型一选项」后，option value 需要同时携带平台 id
+// 与模型 id（选模型即隐式选定平台）；该控制字符不出现在平台 id/模型名中。
+export const MODEL_OPTION_SEPARATOR = String.fromCharCode(1);
+
+// 复合值编解码的单源：chat-tab（change 监听/思考提示/deps getter）与
+// providers.ts（渲染/选中回落）共用，禁止两侧手拆。
+export function buildModelOptionValue(providerId: string, model: string): string {
+  return `${String(providerId || "").trim()}${MODEL_OPTION_SEPARATOR}${String(model || "").trim()}`;
+}
+
+export function parseModelOptionValue(value: unknown): { providerId: string; model: string } {
+  const raw = String(value || "");
+  const idx = raw.indexOf(MODEL_OPTION_SEPARATOR);
+  if (idx === -1) {
+    return { providerId: raw.trim(), model: "" };
+  }
+  return {
+    providerId: raw.slice(0, idx).trim(),
+    model: raw.slice(idx + MODEL_OPTION_SEPARATOR.length).trim()
+  };
+}
+
 // chrome.storage.local 的窄视图（conversation-store 的 StorageArea 同型；
 // 缺省取全局 chrome.storage.local，测试注入 fake）。
 export interface ProviderPrefsStorage {
@@ -62,25 +85,44 @@ export interface ProviderPrefs {
   loadProvidersAndPrefs: (opts?: { preferredProviderId?: string }) => Promise<void>;
   renderModelSelect: (preferredProviderId?: string) => void;
   setThinkingLevel: (level: string) => Promise<void>;
-  // 选中平台写入 chrome.storage.local（原 sidepanel.ts modelSelect change
+  // 选中项写入 chrome.storage.local（原 sidepanel.ts modelSelect change
   // 监听里的 localStorage.setItem 换通道）；闭包缓存同步更新供
-  // renderModelSelect 的同步回退读取。
+  // renderModelSelect 的同步回退读取。multi-model-catalog 起写入的是复合值
+  // （"pid\u0001model"，见 buildModelOptionValue），旧裸平台 id 读路径由
+  // renderModelSelect 的选中回落兼容。
   setSelectedProvider: (providerId: string) => void;
   // 最近一次读到的 chrome.storage 选中平台（组合根在外部变更刷新时取
   // previousProviderId 用——原 localStorage.getItem 的替代）。
   getStoredSelectedProviderId: () => string;
 }
 
-// 下拉选项文案：平台名/模型名（同名平台的同名模型靠前缀区分）。任一侧缺失
-// 时退化为另一侧（自定义平台可能没填模型名，早退路径的 p.name 也可能缺省），
-// 两侧都空则给空串——与旧行为一致，不放假文案。
+// 平台条目 → 模型目录：新载荷读 models（trim/去空/去重，与存储归一化同口径）；
+// 旧单模型载荷/测试字面量回落 model 包单元素。零模型平台返回空数组——
+// 聊天选择器中不显示（拍板 Q13：目录外 ID 仍可直接发送）。
+function normalizeProviderModels(provider: { models?: unknown; model?: unknown }): string[] {
+  if (Array.isArray(provider?.models)) {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const entry of provider.models) {
+      const id = String(entry ?? "").trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      result.push(id);
+    }
+    return result;
+  }
+  const legacy = String(provider?.model || "").trim();
+  return legacy ? [legacy] : [];
+}
+
+// 组标题文案：平台名，缺省回落模型名（旧「name/model」合并文案的退化链），
+// 都空给空串——与旧行为一致，不放假文案。
 function formatProviderLabel(provider: { name?: string; model?: unknown }): string {
   const name = String(provider.name || "").trim();
-  const model = String(provider.model || "").trim();
-  if (name && model) {
-    return `${name}/${model}`;
+  if (name) {
+    return name;
   }
-  return model || name;
+  return String(provider.model || "").trim();
 }
 
 export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPrefs {
@@ -129,6 +171,8 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
         // name 不在 AiProvider 显式字段里（走索引签名，unknown），按串收窄
         name: typeof p.name === "string" ? p.name : undefined,
         model: p.model,
+        // 模型目录（multi-model-catalog）：渲染分组选项与选中回落的口径来源
+        models: normalizeProviderModels(p),
         // baseUrl / presetId 透传（AiProvider 显式字段）：思考档位「关不掉」提示的
         // resolver 识别入参（工单 03，沿本消息链读取、不开新链）。presetId 是
         // 识别主路径（02 票纪律），baseUrl 供 custom/反代场景的 host 兜底。
@@ -155,23 +199,68 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     deps.renderPresetPrompts();
   }
 
+  // 选中值回落：依次尝试传入优先值 / settings defaultModel / storage 选中值。
+  // 每个候选都接受新复合值（buildModelOptionValue 产物）与旧裸平台 id 两种
+  // 形态；裸 id 命中平台时回落该平台首个模型（旧选中记录向前兼容）。全部
+  // 不命中则首选项。
+  function resolveOptionValue(
+    saved: string,
+    groups: Array<{ provider: (typeof chatSessionState.providers)[number]; models: string[] }>,
+    optionValues: Set<string>
+  ): string {
+    if (!saved) return "";
+    if (optionValues.has(saved)) return saved;
+    const group = groups.find((g) => String(g.provider.id) === saved);
+    if (group && group.models.length) {
+      return buildModelOptionValue(String(group.provider.id), group.models[0]);
+    }
+    return "";
+  }
+
   function renderModelSelect(preferredProviderId = ""): void {
-    if (!chatSessionState.providers.length) {
+    // 按平台 optgroup 分组、一模型一选项（multi-model-catalog 拍板 Q8）。
+    // 零模型平台不进选择器（拍板 Q13）；所有平台都没有模型时等同未配置。
+    const groups = chatSessionState.providers
+      .map((provider) => ({ provider, models: normalizeProviderModels(provider) }))
+      .filter((group) => group.models.length > 0);
+    if (!groups.length) {
       modelSelect.innerHTML = '<option value="">未配置平台</option>';
       modelSelect.disabled = true;
       modelSelect.style.width = "96px";
       return;
     }
 
-    modelSelect.innerHTML = chatSessionState.providers
-      .map((p) => {
-        return `<option value="${escapeHtml(p.id)}">${escapeHtml(formatProviderLabel(p))}</option>`;
+    modelSelect.innerHTML = groups
+      .map((group) => {
+        const providerId = String(group.provider.id || "");
+        const options = group.models
+          .map(
+            (model) =>
+              `<option value="${escapeHtml(buildModelOptionValue(providerId, model))}">${escapeHtml(model)}</option>`
+          )
+          .join("");
+        return `<optgroup label="${escapeHtml(formatProviderLabel(group.provider))}">${options}</optgroup>`;
       })
       .join("");
 
-    const savedProviderId = String(preferredProviderId || chatSessionState.aiPrefs.defaultModel || storedSelectedProviderId || "").trim();
-    const matchedProvider = chatSessionState.providers.find((item) => item.id === savedProviderId) || chatSessionState.providers[0];
-    modelSelect.value = matchedProvider?.id || "";
+    const optionValues = new Set(
+      groups.flatMap((group) =>
+        group.models.map((model) => buildModelOptionValue(String(group.provider.id), model))
+      )
+    );
+    const firstValue = buildModelOptionValue(String(groups[0].provider.id), groups[0].models[0]);
+
+    const candidates = [
+      preferredProviderId,
+      chatSessionState.aiPrefs.defaultModel || "",
+      storedSelectedProviderId
+    ];
+    let matched = "";
+    for (const candidate of candidates) {
+      matched = resolveOptionValue(String(candidate || "").trim(), groups, optionValues);
+      if (matched) break;
+    }
+    modelSelect.value = matched || firstValue;
     modelSelect.disabled = false;
     updateModelSelectWidth(widthEls);
   }

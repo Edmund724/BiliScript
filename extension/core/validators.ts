@@ -229,7 +229,7 @@ interface AiProviderValidationInput {
   requiresKey?: unknown;
   apiKey?: unknown;
   hasSavedKey?: unknown;
-  model?: unknown;
+  models?: unknown;
   id?: unknown;
   name?: unknown;
 }
@@ -253,9 +253,8 @@ export function validateAiProviders(items: unknown[]): ValidationResult {
     if (item.requiresKey && !item.apiKey && !item.hasSavedKey) {
       return { ok: false, message: "平台「" + item.name + "」需要填写 API Key" };
     }
-    if (!item.model) {
-      return { ok: false, message: "平台「" + item.name + "」需要填写模型名" };
-    }
+    // 模型目录允许为空（multi-model-catalog 拍板 Q13）：空目录平台只是不出现在
+    // 聊天模型选择器，目录外 ID 仍可直接发送；不再强制至少一个模型。
     if (seenIds.has(String(item.id))) {
       return { ok: false, message: "平台 id 重复，请刷新页面后重试" };
     }

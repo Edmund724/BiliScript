@@ -179,7 +179,8 @@ describe("组合根装配与懒加载边界", () => {
     // - 平台列表加载（stub 提供一个启用平台）→ 模型选择器可用且选中
     const modelSelect = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
     expect(modelSelect.disabled).toBe(false);
-    expect(modelSelect.value).toBe("p1");
+    // multi-model-catalog：选项值为「平台 id\u0001模型 id」复合值（选中回落首平台首模型）
+    expect(modelSelect.value).toBe("p1\u0001模型一");
     // - 上下文加载（进程内直读 state.clip）→ context chip 显示视频标题
     const chip = document.getElementById(ids.readingChatContextChip) as HTMLButtonElement;
     expect(chip.textContent).toContain("测试视频");

@@ -16,7 +16,9 @@ export interface AiProvider {
   presetId: string;
   name: string;
   baseUrl: string;
-  model: string;
+  // 模型目录（multi-model-catalog 拍板 Q7：纯 ID 数组，删除即移除，无启停
+  // 开关；允许空数组——空目录平台在聊天选择器中不显示任何模型）。
+  models: string[];
   requiresKey: boolean;
   enabled: boolean;
   hasSavedKey?: boolean;
@@ -31,17 +33,34 @@ export interface AiProvider {
 
 const AI_PROVIDER_KEYS_STORAGE = "aiProviderKeys";
 
+function normalizeModelsField(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of list) {
+    const id = String(entry ?? "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 function normalizeAiProvider(item: unknown): AiProvider | null {
   if (!item || typeof item !== "object") return null;
-  const raw = item as Partial<AiProvider>;
+  const raw = item as Partial<AiProvider> & { model?: unknown };
   const id = String(raw.id || "").trim();
   if (!id) return null;
+  // 无感迁移（拍板 Q2）：旧单模型记录读时包成单元素目录。trim/去空/去重由
+  // normalizeModelsField 收口（拍板 Q7 校验口径）。
+  const legacyModel = String(raw.model ?? "").trim();
+  const models = normalizeModelsField(raw.models);
   return {
     id,
     presetId: String(raw.presetId || "custom"),
     name: String(raw.name || "自定义").trim() || "自定义",
     baseUrl: String(raw.baseUrl || "").trim().replace(/\/+$/, ""),
-    model: String(raw.model || "").trim(),
+    models: models.length ? models : legacyModel ? [legacyModel] : [],
     requiresKey: raw.requiresKey !== false,
     enabled: raw.enabled !== false
   };
