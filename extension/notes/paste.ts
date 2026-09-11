@@ -31,14 +31,18 @@ export function normalizeMarkdownForSectionPaste(raw: unknown, baseLevel: number
     }
 
     const pasteLine = unwrapTimestampInlineCode(line);
-    const headingMatch = pasteLine.match(/^(\s*)(#{1,3})(\s+.*)$/);
+    // ATX headings 1-6 (same ceiling as ui/markdown.js); the shifted level is
+    // clamped to 6 so a deep heading never overflows into 7+ hashes, which
+    // markdown would render as literal text instead of a heading.
+    const headingMatch = pasteLine.match(/^(\s*)(#{1,6})(\s+.*)$/);
     if (!headingMatch) {
       normalized.push(pasteLine);
       return;
     }
 
     const [, indent, hashes, suffix] = headingMatch;
-    normalized.push(`${indent}${"#".repeat(hashes.length + shift)}${suffix}`);
+    const level = Math.min(hashes.length + shift, 6);
+    normalized.push(`${indent}${"#".repeat(level)}${suffix}`);
   });
 
   return normalized.join("\n");
