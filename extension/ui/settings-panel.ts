@@ -6,8 +6,9 @@
 //   - 装载（get-settings）→ 渲染三类行（固定属性/笔记段落/AI/ASR 平台）；
 //   - 保存（先同步收集与校验，再申请 host 权限，最后分三路落盘：
 //     settings / AI 平台 / ASR 平台）。行构建与验证本体复用
-//     ../ui/options-rows.ts、../ui/options-asr-rows.ts、../core/validators.ts；
-//   - 平台测试（AI/ASR 探针）成功后自动落盘（requestPermissions: false）。
+//     ../ui/options-rows.ts、../ui/options-asr-rows.ts、../core/validators.ts。
+//   - 平台测试（AI/ASR 探针）只验证连通性，不落盘——保存只发生在 Modal 的
+//     保存按钮链路上。
 // 与 options 页的唯一实现差异：content script 语境没有 chrome.permissions
 // API（Chromium 仅扩展自有页面/SW 可用），host 权限申请改走
 // "request-provider-origins" 消息由 background SW 代为申请（手势随一次
@@ -118,7 +119,7 @@ function buildSettingsHtml(): string {
   return `
     <section class="boc-set-group">
       <div class="boc-set-h">AI 模型平台</div>
-      <p class="boc-set-hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / Qwen / GLM / Kimi / MiniMax / Ollama 等）。在下方点击 + 添加平台，填写名称、API Base URL、API Key 与模型名称，测试连接成功后会自动保存。</p>
+      <p class="boc-set-hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / Qwen / GLM / Kimi / MiniMax / Ollama 等）。在下方点击 + 添加平台，填写名称、API Base URL、API Key 与模型名称，点「测试」可验证连通性，点「保存」后才会写入设置。</p>
       <div id="aiProvidersList" class="ai-providers-list"></div>
       <p id="aiProvidersEmpty" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
       <button id="addAiProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
@@ -446,14 +447,13 @@ async function loadAsrProviders(): Promise<ProviderRowItem[]> {
 // 编辑不混入；upsert 按 id 替换 / 追加后发整列表消息（ai-providers-save /
 // asr-providers-save 本就是整列表替换语义，SW 协议零改动）。API Key 仍单独落
 // chrome.storage.local（saveProviders 后台语义：空输入沿用已存 Key 不清除）。
-// 手势不变式：requestPermissions 分支的权限申请前零先行 await——baseUrl 由
-// upsert 参数直供，无需先查列表（tests/ui/options-save-gesture.test.js 锁定）。
+// 手势不变式：权限申请前零先行 await——baseUrl 由 upsert 参数直供，无需先
+// 查列表（tests/ui/options-save-gesture.test.js 锁定）。
 async function saveProviderSingle(
   kind: ProviderEditorKind,
-  upsert: ProviderRowItem,
-  { requestPermissions = true }: { requestPermissions?: boolean } = {}
+  upsert: ProviderRowItem
 ): Promise<{ ok: boolean; error?: string; providers?: ProviderRowItem[] }> {
-  if (requestPermissions && upsert.baseUrl) {
+  if (upsert.baseUrl) {
     const permission = await requestProviderOriginsViaBackground([String(upsert.baseUrl)]);
     if (!permission.ok) {
       return { ok: false, error: permission.error };
@@ -504,10 +504,9 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
 // 显示（不走抽屉状态条——保存的是单个平台，Modal 自身就是错误语境）。
 async function saveFromEditor(
   kind: ProviderEditorKind,
-  upsert: ProviderRowItem,
-  options: { requestPermissions: boolean }
+  upsert: ProviderRowItem
 ): Promise<{ ok: boolean; error?: string }> {
-  const result = await saveProviderSingle(kind, upsert, options);
+  const result = await saveProviderSingle(kind, upsert);
   if (result.ok && result.providers) {
     rerenderProviderList(kind, result.providers);
   }

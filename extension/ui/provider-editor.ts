@@ -10,9 +10,9 @@
 //
 // 关闭语义（拍板 Q6）：打开时快照字段，取消 / Esc / 点遮罩 / 面板外点击先做
 // dirty 对比，有改动 confirm「未保存的更改将丢失」，无改动直接关；保存成功
-// 直接关。测试成功自动保存该平台（拍板 Q2 附带：能连通即说明 origin 已授权，
-// 保存走 requestPermissions: false）。设置抽屉收起（hidden）时强制关闭
-// （MutationObserver 自治监听，ui-renderer 无需知道本模块存在）。
+// 直接关。测试只验证连通性，成功也不落盘——只有点「保存」才真正保存。
+// 设置抽屉收起（hidden）时强制关闭（MutationObserver 自治监听，ui-renderer
+// 无需知道本模块存在）。
 //
 // 模型字段复用 ui/model-picker（wrapper / toggle / dropdown 类名契约不变，
 // settings-panel 的文档级外点关闭委托对 Modal 内下拉同样生效）。
@@ -30,13 +30,12 @@ import type { ProviderRowElement, ProviderRowItem, ProviderRowPreset } from "./p
 
 export type ProviderEditorKind = "ai" | "asr";
 
-// 保存回调（settings-panel 注入）：requestPermissions 区分两条来路——保存按钮
-// 在手势同步链上（true，权限申请可弹窗）；测试成功后的自动保存手势已被探针的
-// await 用掉（false，能连通即已授权）。返回 error 时 Modal 内状态行显示、不关。
+// 保存回调（settings-panel 注入）：权限申请与整列表落盘收口在
+// settings-panel.saveProviderSingle，本模块不触碰权限。返回 error 时 Modal
+// 内状态行显示、不关。
 export type ProviderEditorSave = (
   kind: ProviderEditorKind,
-  upsert: ProviderRowItem,
-  options: { requestPermissions: boolean }
+  upsert: ProviderRowItem
 ) => Promise<{ ok: boolean; error?: string }>;
 
 // 删除回调（settings-panel 注入，仅编辑态提供）：回收 orphan origin + 删除
@@ -237,7 +236,7 @@ async function save(): Promise<void> {
   showStatus("正在保存...");
   const generation = state.generation;
   try {
-    const result = await state.onSave(state.kind, upsert, { requestPermissions: true });
+    const result = await state.onSave(state.kind, upsert);
     if (generation !== state.generation || !state.open) {
       return; // Modal 已关/已重开：过期回执丢弃
     }
@@ -282,7 +281,7 @@ async function deleteActive(): Promise<void> {
   }
 }
 
-// ===== 测试连接（拍板 Q2 附带：成功即自动保存该平台） =====
+// ===== 测试连接（只验证连通性，成功也不落盘；保存只在点「保存」时发生） =====
 
 async function runTest(): Promise<void> {
   const baseUrl = readField(".provider-editor-baseurl");
@@ -322,15 +321,9 @@ async function runTest(): Promise<void> {
     showStatus(`失败：${resp?.error || "未知错误"}`, true);
     return;
   }
-  // 测试成功自动保存该平台：手势已被探针 await 用掉，requestPermissions: false
-  //（连通即已授权）；校验失败不拦——探针都连通了没有再拦保存的道理。
-  const { upsert } = collectUpsert();
-  const saveResult = await state.onSave(state.kind, upsert, { requestPermissions: false });
-  if (generation !== state.generation || !state.open) {
-    return;
-  }
+  // 测试成功：只回报连通性，不写设置——用户显式点「保存」才落盘
   setBusy(false);
-  showStatus(saveResult.ok ? "连接成功" : `连接成功，但保存失败：${saveResult.error || "未知错误"}`, !saveResult.ok);
+  showStatus("连接成功");
 }
 
 // ===== 模板 =====

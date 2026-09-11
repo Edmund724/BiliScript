@@ -10,8 +10,8 @@
 //   替换非追加；
 // - dirty 保护（拍板 Q6）：有改动 confirm 拦截，无改动直接关；Esc / 点遮罩
 //   同走此保护；
-// - 测试成功自动保存该平台（拍板 Q2 附带：requestPermissions=false 语义，
-//   绝不发权限代申请），失败/保存失败/权限被拒的状态行与 Modal 存活；
+// - 测试只验证连通性：成功也不落盘（不发保存消息），状态行「连接成功」、
+//   Modal 不关；失败的状态行与 Modal 存活；
 // - 面板外点击 capture 拦截：只关 Modal，bubble 委托（抽屉外点关闭）收不到；
 // - 抽屉收起联动：settingsPanel hidden → 强制关闭（丢改动不 confirm）。
 //
@@ -395,8 +395,8 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
   });
 });
 
-describe("provider-editor：测试连接与自动保存（拍板 Q2 附带）", () => {
-  it("测试成功：自动单平台保存（requestPermissions=false 语义，绝无权限代申请），状态行「连接成功」，Modal 不关", async () => {
+describe("provider-editor：测试连接只验证连通性，不落盘", () => {
+  it("测试成功：状态行「连接成功」，不发保存消息、不申请权限，Modal 不关", async () => {
     const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
     const { sent, host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
@@ -407,29 +407,24 @@ describe("provider-editor：测试连接与自动保存（拍板 Q2 附带）", 
 
     fireClick(dialog.querySelector(".provider-editor-test"));
 
-    await vi.waitFor(() => {
-      expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
-    });
-
     // 探针直调（新增 id 为空 → providerId 空串，Key 随参数携带）
-    expect(testAiProviderConnection).toHaveBeenCalledWith({
-      providerId: "",
-      baseUrl: "https://api.example.com/v1",
-      apiKey: "sk-test",
-      model: "gpt-4o-mini"
+    await vi.waitFor(() => {
+      expect(testAiProviderConnection).toHaveBeenCalledWith({
+        providerId: "",
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "sk-test",
+        model: "gpt-4o-mini"
+      });
     });
-    // 自动保存路径不申请权限（能连通即已授权）
+    // 测试成功不写设置：绝无保存与权限消息
+    expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
     expect(sent.some((message) => message.type === "request-provider-origins")).toBe(false);
-    expect(sent.find((message) => message.type === "ai-providers-save").providers[0]).toMatchObject({
-      baseUrl: "https://api.example.com/v1",
-      apiKey: "sk-test",
-      model: "gpt-4o-mini"
-    });
 
     const status = dialog.querySelector(".provider-editor-status");
     expect(status.textContent).toBe("连接成功");
     expect(status.dataset.error).toBe("false");
     expect(editorGone()).toBe(false);
+    expect(dialog.querySelector(".provider-editor-test").disabled).toBe(false);
   });
 
   it("测试失败：状态行报错，不落盘", async () => {
