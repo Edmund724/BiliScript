@@ -27,6 +27,7 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 - 播放器内 AI 快捷按钮默认开启，一键生成视频摘要（可在设置中关闭）
 - 选中字幕后弹出「解释」卡片，可一键发到对话栏继续追问
 - AI 回答中的时间戳同样可点击跳转
+- AI 回答里的 ` ```mermaid ` 代码块渲染成图表（浅色/深色跟随面板；语法有误时保留源码并提示）
 
 ## 功能图片演示
 
@@ -286,6 +287,8 @@ extension/
 ```
 
 > `extension/entry/content-bootstrap.iife.js`、`entry/content-main.mjs` 与 `entry/chunks/` 是构建产物，由 `npm run build` 生成（content 部分由 scripts/build-content.js 产出），已加入 `.gitignore`，请勿手动编辑。
+>
+> mermaid（AI 回答里图表的渲染库，见 `extension/ui/mermaid-render.ts`）是唯一的运行时依赖：它被切成独立的懒加载 chunk，只有会话里真的出现图表时才请求，常驻包不受影响；图表类型（流程图/时序图等）按需二级加载。
 
 ## 二次开发与个性化
 

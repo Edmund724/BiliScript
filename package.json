@@ -35,5 +35,8 @@
     "jsdom": "^30.0.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "mermaid": "^11.17.2"
   }
 }

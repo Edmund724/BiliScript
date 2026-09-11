@@ -14,15 +14,17 @@
 // 摘要/简介」区块删除）：
 // 本层与 ui-renderer 的相关回调一律经 ensureReaderDomain() 装载后调用，避免为
 // 一次面板交互在常驻侧保留体积。
-// 函数体迁自原文件对应分节（apply 尾部另汇 header 主题按钮刷新）。依赖全部为轻叶子
-//（core/state、core/validators、shared/dom-utils、shared/string-utils、./ids、
-// ui/theme-button）。
+// 函数体迁自原文件对应分节（apply 尾部另汇 header 主题按钮刷新与 mermaid 图表
+// 重着色）。依赖全部为轻叶子（core/state、core/validators、shared/dom-utils、
+// shared/string-utils、./ids、ui/theme-button、ui/lazy-mermaid——后者只含懒加载器，
+// mermaid 本体在其动态 import 的独立 chunk 里）。
 import { state } from "../core/state.js";
 import { type Settings } from "../core/defaults.js";
 import { getReaderElement } from "../shared/dom-utils.js";
 import { normalizeReaderTheme } from "../core/validators.js";
 import { ids } from "./state.js";
 import { refreshThemeButton } from "../ui/theme-button.js";
+import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { READER_APPLY_FIELDS } from "./presentation-fields.js";
 
 // ===== 状态栏文案（自 player-host.js 迁入；sync/lifecycle 域内继续经本模块取用） =====
@@ -97,6 +99,10 @@ export function applyReadingViewPresentation() {
   // header 主题按钮（太阳/月亮）随之刷新：所有改主题路径（点击循环、进入阅读
   // 模式、storage 跨页同步 watcher）都收敛到本函数，按钮单点跟随不另接线。
   refreshThemeButton();
+  // 已渲染的 mermaid 图表同样跟着换色（缓存按「主题 + 源码」分键，force 只对
+  // 「渲染时主题 ≠ 当前主题」的块生效，本函数在进入阅读模式/字幕重渲等路径上
+  // 重复调用是无害空转）。没有图表时懒入口内早退，不会为此拉起 mermaid 懒 chunk。
+  hydrateMermaid(readingView, { force: true });
 }
 
 // updateReaderPreferences / persistReaderSettings / renderReaderPanels 已移回

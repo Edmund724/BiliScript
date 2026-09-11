@@ -14,6 +14,23 @@ import { escapeHtml } from "../shared/string-utils.js";
 export const TIMESTAMP_PATTERN = /\b\d{1,3}:\d{2}(?::\d{2})?\b/g;
 const TIMESTAMP_INLINE_CODE_REST_PATTERN = /^[\s,，、;；:：\-–—~～至到]+$/;
 
+// mermaid 围栏（```mermaid）的占位标记与选择器单源：renderMarkdown（产出占位）
+// 与 ui/lazy-mermaid、ui/mermaid-render（异步水合成图表）共用，避免 data 属性
+// 名/类名在三处各写一份。markdown 是纯模块——只产出占位 DOM，不做异步渲染。
+export const MERMAID_BLOCK_ATTR = "data-boc-mermaid";
+export const MERMAID_BLOCK_SELECTOR = `[${MERMAID_BLOCK_ATTR}]`;
+// 源码 <pre>：渲染成功后由 CSS 按 done 状态隐藏，渲染前/失败时就是一块普通代码块
+const MERMAID_SOURCE_CLASS = "boc-md-mermaid-src";
+export const MERMAID_SOURCE_SELECTOR = `.${MERMAID_SOURCE_CLASS}`;
+const MERMAID_FENCE_LANG = "mermaid";
+
+// 代码围栏的解析结果：info string（语言）与正文分列。旧实现把 info string 一并
+// 当正文，```mermaid 的语言名会被当代码首行显示出来。
+interface CodeFence {
+  lang: string;
+  code: string;
+}
+
 export function isTimestampOnlyInlineCode(value: unknown): boolean {
   const text = String(value || "").trim();
   if (!text) {
@@ -32,11 +49,21 @@ export function isTimestampOnlyInlineCode(value: unknown): boolean {
 
 export function renderMarkdown(text: string): string {
   let escaped = escapeHtml(stripThinkBlocks(text));
-  const codeBlocks: string[] = [];
-  escaped = escaped.replace(/```([\s\S]*?)```/g, (_, code: string) => {
-    codeBlocks.push(code);
-    return `\u0001BOC_CODE_${codeBlocks.length - 1}\u0001`;
-  });
+  const codeBlocks: CodeFence[] = [];
+  // info string 单列捕获（不含换行与反引号，因而不会跨行吃掉围栏正文）+ 其后
+  // 可选的换行。没有换行说明 ``` 与正文同行（`` ```js alert(1)``` ``），此时
+  // 整段按正文处理、语言为空——与旧实现一致，不然语言判定会把正文吃掉。
+  escaped = escaped.replace(
+    /```([^\n`]*)(\r?\n)?([\s\S]*?)```/g,
+    (_, info: string, newline: string | undefined, code: string) => {
+      const sameLine = newline === undefined;
+      codeBlocks.push({
+        lang: sameLine ? "" : info.trim().toLowerCase(),
+        code: sameLine ? info + code : code
+      });
+      return `\u0001BOC_CODE_${codeBlocks.length - 1}\u0001`;
+    }
+  );
 
   const lines = escaped.split("\n");
   const out: string[] = [];
@@ -105,7 +132,18 @@ export function renderMarkdown(text: string): string {
     if (codeMatch) {
       flushPara();
       closeList();
-      out.push(`<pre><code>${codeBlocks[Number(codeMatch[1])]}</code></pre>`);
+      const fence = codeBlocks[Number(codeMatch[1])];
+      if (fence.lang === MERMAID_FENCE_LANG) {
+        // 图表占位：源码留在 <pre><code> 里（渲染前/渲染失败时就是一块普通代码
+        // 块，不需要额外的加载态样式），真正的 SVG 由 ui/lazy-mermaid 在节点插入
+        // DOM 后异步换入（见 MERMAID_BLOCK_ATTR 的状态机 pending/done/error）。
+        out.push(
+          `<div class="boc-md-mermaid" ${MERMAID_BLOCK_ATTR}="pending">` +
+            `<pre class="${MERMAID_SOURCE_CLASS}"><code>${fence.code}</code></pre></div>`
+        );
+        continue;
+      }
+      out.push(`<pre><code>${fence.code}</code></pre>`);
       continue;
     }
 
@@ -190,9 +228,9 @@ export function renderMarkdown(text: string): string {
 //      只增不减、不会因尾随空行出现又消失而来回抖动；取满足条件的最后一个
 //      切点（最后一个空行边界）。
 //   2. 切点之前围栏必须闭合。围栏开合判定与 renderMarkdown 的 ``` 成对摘出
-//      （/```([\s\S]*?)```/g 按出现顺序两两配对）一致：``` 每出现一次开/闭
-//      一次，前缀内累计出现奇数次即处于未闭合围栏中（escapeHtml 不改写
-//      反引号，转义前后计数一致）。
+//      （``` 按出现顺序两两配对）一致：``` 每出现一次开/闭一次，前缀内累计
+//      出现奇数次即处于未闭合围栏中（escapeHtml 不改写反引号，转义前后计数
+//      一致）。
 //   3. 找不到满足条件的切点（全文无空行，或所有空行边界都落在未闭合围栏内）
 //      时安全退化：stableText 为空串、tailText 为全文，等价于全量渲染。
 // 切点落在空行上，而 markdown 的块级结构（标题/表格/列表/段落）都以空行或

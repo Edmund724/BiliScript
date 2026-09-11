@@ -1154,6 +1154,36 @@
   padding: 0 14px 14px;
 }
 
+/* ===== markdown mermaid 图表块（ui/markdown 产出占位，ui/mermaid-render 水合） =====
+ * 规则收在 reader 基表而非分区表：图块同时出现在选区解释卡
+ *（.boc-reading-explain-card-answer）与对话消息（.chat-msg-assistant-body，样式在
+ * 按需挂载的 reader-chat.css），两处共用同一套 .boc-md-mermaid* 类名；reader 基表
+ * 在阅读视图内恒在场，故只此一份。渲染前/失败时的源码 <pre> 外观由各自分区的 pre
+ * 规则负责，这里只补「渲染成功后隐藏源码」、SVG 容器与失败提示。 */
+.boc-md-mermaid[data-boc-mermaid="done"] .boc-md-mermaid-src {
+  display: none;
+}
+
+.boc-md-mermaid-svg {
+  margin: 6px 0;
+  overflow-x: auto;
+}
+
+/* mermaid 默认 useMaxWidth：渲染出的 SVG 自带 width=100% + 内联 max-width + viewBox。
+ * 这里只兜「随面板宽度缩放、按 viewBox 比例保持高度、窄面板横向滚动」。 */
+.boc-md-mermaid-svg svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.boc-md-mermaid-fallback {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--boc-reader-faint, #a39a8d);
+}
+
 /* AI 对话 tab 的待解释意图引用卡（PR3 引入，PR5 起由对话组合根渲染/消费）：
  * 时间戳 pill 母题（.boc-reading-time）+ 引用句 + 取消按钮；发送成功即隐藏。 */
 .boc-reading-chat-intent {

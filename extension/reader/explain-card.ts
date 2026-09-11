@@ -22,6 +22,7 @@ import { state } from "../core/state.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { renderMarkdown } from "../ui/markdown.js";
+import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { logWarn } from "../shared/logging.js";
 import { ids } from "./state.js";
@@ -121,6 +122,10 @@ function renderCard(): void {
       </footer>
     </section>
   `;
+
+  // 作答块里的 mermaid 图表（renderMarkdown 只产出占位）：卡片每次整卡重建，
+  // 水合随时机同走一次；loading/error 态没有占位，判定在懒入口内早退。
+  hydrateMermaid(root);
 
   // 焦点进对话框：键盘用户点完「解释」后 Esc/Tab 立即可用（选区已清，不再需要
   // 页面焦点；jsdom 无布局但 focus() 可调，守卫存在性即可）。

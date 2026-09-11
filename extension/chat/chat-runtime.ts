@@ -35,6 +35,9 @@
 // scope) — unlike sidepanel.js, this module evaluates cleanly under a Node test
 // harness without a DOM shim.
 import { renderMarkdown, splitMarkdownTail, stripThinkBlocks } from "../ui/markdown.js";
+// mermaid 图表：renderMarkdown 只产出占位 DOM，SVG 由这里在节点插入之后异步水合
+//（懒 chunk，见 ui/lazy-mermaid 头注）。
+import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
 import type { ConversationStore } from "./conversation-store.js";
 import { chatSessionState } from "./chat-state.js";
@@ -777,6 +780,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         }
         state.stableText = stableText;
         state.stableEl!.innerHTML = renderMarkdown(stableText);
+        // stable 只在增长时重渲染一次，其内的 mermaid 占位在此水合（整体重建
+        // 会换掉节点，但 SVG 有「主题 + 源码」缓存兜底，重入只是字符串替换）。
+        hydrateMermaid(state.stableEl!);
       }
       if (performance.now() >= deadline) {
         await yieldToMain();
@@ -787,6 +793,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
       // 先取光标引用再重写 tail（innerHTML 赋值会清掉 tail 内的旧光标）
       const cursor = node.querySelector(".chat-msg-cursor");
+      // tail 每帧整体重建，且未闭合的围栏本就整段留在 tail——不对它水合
+      //（每帧重渲染一遍图表既慢又闪）；围栏闭合进入 stable 后自然渲染，流收口
+      // 的整渲染再兜一次。
       state.tailEl!.innerHTML = renderMarkdown(tailText);
       if (cursor) {
         state.tailEl!.appendChild(cursor);
@@ -996,6 +1005,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     content.className = "chat-msg-assistant-body";
     content.innerHTML = renderMarkdown(cleanedRaw);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
+    // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里
+    // 的图表源码不会被它改写；水合换入的 SVG 里也不该再长出时间戳按钮。
+    hydrateMermaid(content);
     node.appendChild(content);
 
     const actions = document.createElement("div");

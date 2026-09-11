@@ -69,6 +69,11 @@ const lazyTargets = [
   { name: "pipeline", source: "asr/pipeline.ts" },
   { name: "fallback", source: "asr/fallback.ts" },
   { name: "analysis", source: "ai/analysis.ts" },
+  // mermaid 图表渲染（ui/lazy-mermaid 的动态 import 落点）：mermaid 全量包是
+  // MB 级，独立成懒 chunk；它自带的各图表类型本就按 import() 分包，轮 B 的
+  // splitting 直接沿用该边界——只有真出现某类图表时才加载那一类（其余约 3MB
+  // 产物不进请求）。
+  { name: "mermaid-render", source: "ui/mermaid-render.ts" },
 ];
 // 轮 A 的 external 路径表：源文件绝对路径 → 轮 B 产物相对 content-main.mjs
 // 的路径（主包在 entry/、轮 B 产物在 entry/chunks/）。
@@ -106,15 +111,20 @@ if (!versionTsVersion || versionTsVersion !== manifestVersion) {
 const REQUIRED_MARKER = "__BOC_CONTENT_SCRIPT_LOADED__";
 const MAIN_MODULE_BASENAME = "content-main.mjs";
 
-// Guard: every resolved local (`./`/`../`) import must stay inside extension/.
-// Absolute and external (package) imports are left untouched. The guard lives
-// on the build object via esbuild's onResolve so it never rewrites paths, only
-// validates them as esbuild resolves them.
+// Guard: every resolved local (`./`/`../`) import **from extension/ source** must
+// stay inside extension/. Absolute and external (package) imports are left
+// untouched. The guard lives on the build object via esbuild's onResolve so it
+// never rewrites paths, only validates them as esbuild resolves them.
+//
+// 只查 extension/ 内的导入方：第三方包（mermaid 及其 d3-*/es-toolkit 等依赖）
+// 内部也满是相对导入，那类不越界概念——它们由 esbuild 正常解析并打包进产物，
+// 拦下来只会让任何运行时依赖都无法引入。
 const EXTENSION_ROOT = path.resolve(extensionRoot) + path.sep;
 const localImportGuard = {
   name: "extension-local-import-guard",
   setup(build) {
     build.onResolve({ filter: /^\.\.?\// }, (args) => {
+      if (!path.resolve(args.importer).startsWith(EXTENSION_ROOT)) return undefined;
       const resolved = path.resolve(args.resolveDir, args.path);
       if (resolved.startsWith(EXTENSION_ROOT)) return undefined;
       const relFromExtension = path.relative(extensionRoot, resolved);
