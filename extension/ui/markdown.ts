@@ -265,7 +265,13 @@ export function renderMarkdown(text: string): string {
     if (ol) {
       flushPara();
       const orderNumber = Number(ol[1]) || 1;
-      openList("ol", orderNumber);
+      // 已处于 <ol> 中即续进（CommonMark 口径：后续项的源编号不影响渲染，
+      // marker 由 start 起自动递增，1. 1. / 3. 7. 都归一成连续编号）；只有
+      // 不在 ol 中时才以该项编号开新列表。流式切分跨切点的 tail 重开列表时，
+      // start 取该项源编号，堆叠渲染编号仍连续。
+      if (listType !== "ol") {
+        openList("ol", orderNumber);
+      }
       out.push(`<li>${renderInline(ol[2])}</li>`);
       continue;
     }

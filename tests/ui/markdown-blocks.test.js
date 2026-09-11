@@ -62,6 +62,29 @@ describe("renderMarkdown 任务列表", () => {
   });
 });
 
+describe("renderMarkdown 有序列表（CommonMark 续进口径）", () => {
+  it("连续编号共享一个 <ol>，不再每条重开", () => {
+    const html = renderMarkdown("1. 甲\n2. 乙\n3. 丙");
+    expect(html).toBe("<ol><li>甲</li><li>乙</li><li>丙</li></ol>");
+  });
+
+  it("首项编号非 1 时 start 传递，后续乱序编号归一为连续递增", () => {
+    const html = renderMarkdown("3. 甲\n7. 乙");
+    expect(html).toBe('<ol start="3"><li>甲</li><li>乙</li></ol>');
+    expect(renderMarkdown("1. 甲\n1. 乙")).toBe("<ol><li>甲</li><li>乙</li></ol>");
+  });
+
+  it("空行相隔的 ol 项续进同一列表", () => {
+    const html = renderMarkdown("1. 甲\n\n2. 乙");
+    expect(html).toBe("<ol><li>甲</li><li>乙</li></ol>");
+  });
+
+  it("ol 与 ul 互相切换时各自重开", () => {
+    const html = renderMarkdown("1. 甲\n- 乙\n2. 丙");
+    expect(html).toBe("<ol><li>甲</li></ol><ul><li>乙</li></ul><ol start=\"2\"><li>丙</li></ol>");
+  });
+});
+
 describe("renderMarkdown 分割线", () => {
   it("--- / *** / ___ 独占行产 <hr>，正文紧邻时先行 flush", () => {
     for (const marker of ["---", "***", "___", "----"]) {
