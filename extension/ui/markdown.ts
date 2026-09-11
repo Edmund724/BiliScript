@@ -69,6 +69,9 @@ export function renderMarkdown(text: string): string {
   const out: string[] = [];
   let listType = "";
   let listStartNumber = 1;
+  // 任务列表（- [ ]） flavor：当前 ul 是否 contains-task-list 档。同类型列表
+  // flavor 不同也重开（两种缩进契约不同：基线 checkbox 负边距配 2em 缩进）。
+  let listTaskFlavor = false;
   let paraBuf: string[] = [];
 
   const flushPara = () => {
@@ -83,17 +86,23 @@ export function renderMarkdown(text: string): string {
     }
     out.push(listType === "ul" ? "</ul>" : "</ol>");
     listType = "";
+    listTaskFlavor = false;
     listStartNumber = 1;
   };
-  const openList = (nextType: string, startNumber = 1) => {
-    if (listType === nextType && (nextType !== "ol" || listStartNumber === startNumber)) {
+  const openList = (nextType: string, startNumber = 1, taskFlavor = false) => {
+    if (
+      listType === nextType &&
+      listTaskFlavor === taskFlavor &&
+      (nextType !== "ol" || listStartNumber === startNumber)
+    ) {
       return;
     }
     closeList();
     listType = nextType;
+    listTaskFlavor = taskFlavor;
     listStartNumber = nextType === "ol" ? startNumber : 1;
     if (nextType === "ul") {
-      out.push("<ul>");
+      out.push(taskFlavor ? `<ul class="contains-task-list">` : "<ul>");
       return;
     }
     out.push(startNumber > 1 ? `<ol start="${startNumber}">` : "<ol>");
@@ -155,6 +164,65 @@ export function renderMarkdown(text: string): string {
       closeList();
       const level = Math.min(heading[1].length + 2, 6);
       out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    // 分割线：- / * / _ 三种独占行（3 个及以上）。本 parser 无 setext 标题
+    // 概念，段落紧接的 --- 按分割线处理（段落先行 flush）。
+    if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(line)) {
+      flushPara();
+      closeList();
+      out.push("<hr>");
+      continue;
+    }
+
+    // 引用块：连续 > 行收集成一块，裸 >（空内容）保持引用不断开；块内按空
+    // 内容行分组，每组一个 <p>。嵌套 >（>> ）不展开，内层 > 作为字面文本
+    // 留在行内——AI 摘要场景的引用一层即够用。注意匹配 &gt;：解析全程在
+    // escapeHtml 之后的文本上进行，> 已被转义。
+    const bq = line.match(/^&gt;\s?(.*)$/);
+    if (bq) {
+      flushPara();
+      closeList();
+      const inner: string[] = [bq[1]];
+      while (index + 1 < lines.length) {
+        const nextBq = lines[index + 1].trim().match(/^&gt;\s?(.*)$/);
+        if (!nextBq) {
+          break;
+        }
+        index += 1;
+        inner.push(nextBq[1]);
+      }
+      const quoteParas: string[][] = [[]];
+      for (const text of inner) {
+        if (!text.trim()) {
+          quoteParas.push([]);
+          continue;
+        }
+        quoteParas[quoteParas.length - 1].push(text);
+      }
+      out.push(
+        `<blockquote>${quoteParas
+          .filter((para) => para.length)
+          .map((para) => `<p>${renderInline(para.join(" "))}</p>`)
+          .join("")}</blockquote>`
+      );
+      continue;
+    }
+
+    // 任务列表项：- [ ] / - [x]（*、+ 同样）。契约对齐 github-markdown-css
+    // 基线（.contains-task-list / .task-list-item / .task-list-item-checkbox），
+    // disabled 复选框只表达状态不可交互。
+    const task = line.match(/^[-*+]\s+\[([ xX])\]\s*(.*)$/);
+    if (task) {
+      flushPara();
+      openList("ul", 1, true);
+      const checkbox =
+        `<input class="task-list-item-checkbox" type="checkbox" disabled` +
+        `${task[1] === " " ? "" : " checked"}>`;
+      out.push(
+        `<li class="task-list-item">${checkbox}${task[2] ? ` ${renderInline(task[2])}` : ""}</li>`
+      );
       continue;
     }
 
@@ -233,9 +301,10 @@ export function renderMarkdown(text: string): string {
 //      一致）。
 //   3. 找不到满足条件的切点（全文无空行，或所有空行边界都落在未闭合围栏内）
 //      时安全退化：stableText 为空串、tailText 为全文，等价于全量渲染。
-// 切点落在空行上，而 markdown 的块级结构（标题/表格/列表/段落）都以空行或
-// 单换行为界且不跨空行延续成块，因此 renderMarkdown(stable) 与
-// renderMarkdown(tail) 堆叠渲染与 renderMarkdown(全文) 等价。
+// 切点落在空行上，而 markdown 的块级结构（标题/表格/列表/段落/引用块/分割线/
+// 任务列表）都以空行或单换行为界且不跨空行延续成块，因此
+// renderMarkdown(stable) 与 renderMarkdown(tail) 堆叠渲染与 renderMarkdown(全文)
+// 等价。
 export function splitMarkdownTail(text: unknown): { stableText: string; tailText: string } {
   const source = String(text || "");
   const lines = source.split("\n");
@@ -276,6 +345,7 @@ function renderInline(text: string): string {
     .replace(/`([^`]+)`/g, (_, c: string) => (isTimestampOnlyInlineCode(c) ? c : `<code>${c}</code>`))
     .replace(/\*\*([^*\n]+)\*\*/g, (_, c: string) => `<strong>${c}</strong>`)
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, (_, pre: string, c: string) => `${pre}<em>${c}</em>`)
+    .replace(/~~([^~\n]+)~~/g, "<del>$1</del>")
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t: string, u: string) => {
       const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
       return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;

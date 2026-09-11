@@ -431,6 +431,13 @@
   padding-left: 20px;
 }
 
+/* 任务列表（parser 产 contains-task-list，勾框/去符样式走 github-markdown-css
+ * 基线）：基线 checkbox 用 -1.4em 负边距把勾框挂到列表符位，须配基线的 2em
+ * 缩进才不挤出气泡；站内 ul 紧凑缩进 20px 对它不够，任务列表单独回 2em。 */
+.boc-reading-chat .chat-msg-assistant ul.contains-task-list {
+  padding-left: 2em;
+}
+
 .boc-reading-chat .chat-msg-assistant code {
   padding: 1px 5px;
   background: var(--boc-reader-surface-2, #f0e9df);
@@ -517,6 +524,16 @@
 .boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) table {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 48px;
+}
+
+.boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) blockquote {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 46px;
+}
+
+.boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) hr {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 44px;
 }
 
 .boc-reading-chat .chat-msg-cursor {

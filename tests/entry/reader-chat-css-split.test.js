@@ -86,7 +86,7 @@ describe("对话分区 CSS 拆分（arch-slim-4/07）", () => {
 // 记忆形式（滚动条跳动回归）时这里红。
 describe("长回复屏外段落跳过渲染（M13）", () => {
   // renderMarkdown 块级目标集（块内结构标签 li/tr/td 等不适用——随父块整体跳过）
-  const BLOCKS = ["p", "h3", "h4", "h5", "h6", "ul", "ol", "pre", "table"];
+  const BLOCKS = ["p", "h3", "h4", "h5", "h6", "ul", "ol", "pre", "table", "blockquote", "hr"];
 
   // 顶层规则抽取：先剥注释（避免注释黏进 selector 片段），再取上个 } 到下个
   // { 之间的文本为 selector 部（c-v 规则不嵌套在 at-rule 内），按逗号拆开精
