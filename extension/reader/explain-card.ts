@@ -106,7 +106,7 @@ function renderCard(): void {
           <div class="boc-reading-explain-card-state is-error">${escapeHtml(card.error || "解释失败")}</div>
           <button type="button" class="boc-reading-mini-btn" data-explain-card-action="retry">重试</button>
         `
-        : `<div class="boc-reading-explain-card-answer">${renderMarkdown(card.text)}</div>`;
+        : `<div class="boc-reading-explain-card-answer markdown-body">${renderMarkdown(card.text)}</div>`;
 
   root.innerHTML = `
     <div class="boc-reading-explain-card-mask" data-explain-card-action="close"></div>

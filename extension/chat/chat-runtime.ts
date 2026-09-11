@@ -693,9 +693,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       return;
     }
     const stableEl = document.createElement("div");
-    stableEl.className = "chat-stream-stable";
+    stableEl.className = "chat-stream-stable markdown-body";
     const tailEl = document.createElement("div");
-    tailEl.className = "chat-stream-tail";
+    tailEl.className = "chat-stream-tail markdown-body";
     node.appendChild(stableEl);
     node.appendChild(tailEl);
     state.stableEl = stableEl;
@@ -1002,7 +1002,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     const pasteReadyRaw = deps.normalizeMarkdownForSectionPaste(cleanedRaw);
 
     const content = document.createElement("div");
-    content.className = "chat-msg-assistant-body";
+    // markdown-body：启用 github-markdown-css 排版基线（样式随对话分区表挂载，
+    // 变量由 github-markdown-theme.css 桥接到 --boc-reader-*）。
+    content.className = "chat-msg-assistant-body markdown-body";
     content.innerHTML = renderMarkdown(cleanedRaw);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
     // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里

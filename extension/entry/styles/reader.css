@@ -1071,11 +1071,14 @@
   word-break: break-word;
 }
 
-.boc-reading-explain-card-answer p {
+/* 答案区带 .markdown-body（github-markdown-css 基线，随对话分区表挂载、
+ * 晚于本表加载）：.markdown-body p 与这里的特异性同级（0-1-1）但靠后胜出，
+ * 挂上 .markdown-body 抬到 0-2-1 保住紧凑 8px 档。 */
+.boc-reading-explain-card-answer.markdown-body p {
   margin: 0 0 8px;
 }
 
-.boc-reading-explain-card-answer p:last-child {
+.boc-reading-explain-card-answer.markdown-body p:last-child {
   margin-bottom: 0;
 }
 

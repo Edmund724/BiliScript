@@ -105,12 +105,26 @@ export function whenReaderSettingsStylesReady(): Promise<void> {
 // 的 chat 分支同步 ensure（盖住 tab 点击/解释卡/快捷动作全部入口），reader/
 // chat-tab.ts 模块顶层兜底（盖住未来入口）。与设置表同口径：exitReaderShell
 // 不摘除，数据留在浏览器样式缓存，二进宫免闪变。
+//
+// 三层栈（顺序即级联顺序，后续层覆盖前者）：
+//   1. github-markdown.css：AI 回复 markdown 排版基线（vendored，选择器
+//      特异性低，作底座）；
+//   2. github-markdown-theme.css：primer --fgColor-*/--bgColor-* 变量映射到
+//      --boc-reader-*（含 data-theme 暗色档），并复位字体/字号/背景为宿主值；
+//   3. reader-chat.css：站内有意为之的覆盖层（气泡紧凑间距、标题字号阶梯、
+//      时间戳 pill、content-visibility），特异性 0-2-x 且排在最后，稳赢基线。
+const READER_CHAT_STYLE_PATHS = [
+  "entry/styles/github-markdown.css",
+  "entry/styles/github-markdown-theme.css",
+  "entry/styles/reader-chat.css"
+];
+
 export function ensureReaderChatStyles(): void {
-  mountStyleLink("entry/styles/reader-chat.css");
+  READER_CHAT_STYLE_PATHS.forEach((path) => mountStyleLink(path));
 }
 
 export function removeReaderChatStyles(): void {
-  unmountStyleLink("entry/styles/reader-chat.css");
+  READER_CHAT_STYLE_PATHS.forEach((path) => unmountStyleLink(path));
 }
 
 export function isReaderChatStylesMounted(): boolean {

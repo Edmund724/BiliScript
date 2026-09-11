@@ -431,39 +431,6 @@
   padding-left: 20px;
 }
 
-.boc-reading-chat .chat-msg-assistant table {
-  width: 100%;
-  margin: 6px 0 8px;
-  border-collapse: collapse;
-  font-size: 14.5px;
-}
-
-.boc-reading-chat .chat-msg-assistant th,
-.boc-reading-chat .chat-msg-assistant td {
-  padding: 6px 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  text-align: left;
-  vertical-align: top;
-}
-
-.boc-reading-chat .chat-msg-assistant th {
-  background: var(--boc-reader-surface-2, #f0e9df);
-  font-weight: 700;
-}
-
-.boc-reading-chat .chat-msg-assistant li {
-  margin: 2px 0;
-}
-
-.boc-reading-chat .chat-msg-assistant strong {
-  font-weight: 700;
-  color: var(--boc-reader-text, #2b2620);
-}
-
-.boc-reading-chat .chat-msg-assistant em {
-  font-style: italic;
-}
-
 .boc-reading-chat .chat-msg-assistant code {
   padding: 1px 5px;
   background: var(--boc-reader-surface-2, #f0e9df);
@@ -508,15 +475,6 @@
   border: 0;
   font-size: 14px;
   white-space: pre;
-}
-
-.boc-reading-chat .chat-msg-assistant a {
-  color: var(--boc-reader-accent, #fb7299);
-  text-decoration: none;
-}
-
-.boc-reading-chat .chat-msg-assistant a:hover {
-  text-decoration: underline;
 }
 
 /* 长回复屏外段落跳过渲染（M13，defer-rendering-heavy-content 指南）：

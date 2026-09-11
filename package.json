@@ -32,6 +32,7 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",
+    "github-markdown-css": "^5.9.0",
     "jsdom": "^30.0.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"

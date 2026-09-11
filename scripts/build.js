@@ -76,6 +76,12 @@ const cssEntries = [
   // 对话分区表（arch-slim-4/07）：随对话域首次激活按需挂载
   //（shared/style-injector ensureReaderChatStyles），独立入口 minify。
   "entry/styles/reader-chat.css",
+  // AI 回复 markdown 排版基线（github-markdown-css v5.9.0 vendored）与其
+  // 站内主题桥接层（--fgColor-* 等映射到 --boc-reader-*）：随对话分区表同
+  // 时机挂载，二者必须排在 reader-chat.css 之前（覆盖层在注入顺序与特异性
+  // 上都占优）。
+  "entry/styles/github-markdown.css",
+  "entry/styles/github-markdown-theme.css",
 ];
 
 // 原样拷贝的文件（产物路径与源路径一致 → html/manifest 零改写）。
