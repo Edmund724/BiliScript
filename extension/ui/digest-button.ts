@@ -228,8 +228,26 @@ function logMountTiming(target: string): void {
   logAnchor(`按钮已挂载（${target}），装载→挂载耗时 ${Date.now() - MODULE_BOOT_AT}ms`);
 }
 
+// 就位席位（零扫描早退的唯一判据）：①档挂载时记下按钮紧邻左侧的举报节点。
+// 席位引用仍在、按钮仍是它的前一个兄弟 ⇒ 按钮就在①位（当前应处的锚点位置），
+// 本拍无需寻锚。降④（浮动层）时置 null——④是降级位，每拍仍要寻锚，为的是
+// 发现①回来时升回①位。
+let anchorSeat: HTMLElement | null = null;
+
 export function injectDigestButton(): void {
   const existing = document.getElementById(DIGEST_BUTTON_ID);
+  // 零扫描早退（性能；健康态 800ms 一拍 × 每页每小时约 4500 拍）：按钮挂着且
+  // 席位未变即返回，不跑 findComplaintNode 的全量扫描。豁免范围严格限于「挂
+  // 着且席位没变」这一种状态——席位节点被页面重渲染换掉/摘走（引用不等）、
+  // 按钮被摘走或挪走（isConnected 假、或后一个兄弟不再是席位）都落到下方全
+  // 量路径，失同步自愈与降级语义不变。
+  if (existing?.isConnected && anchorSeat && existing.nextElementSibling === anchorSeat) {
+    // 相位归位：与下方全量路径命中①时同款维护（纯赋值，零 DOM 查询）。
+    anchorPhase = "anchor";
+    anchorGraceBeats = 0;
+    anchorGraceWaitLogged = false;
+    return;
+  }
   const complaint = findComplaintNode();
 
   if (complaint && complaint.parentElement) {
@@ -245,11 +263,13 @@ export function injectDigestButton(): void {
     anchorGraceWaitLogged = false;
     // 幂等：已在①位（按钮后一个兄弟就是举报节点）即不动。
     if (existing?.isConnected && existing.nextElementSibling === complaint) {
+      anchorSeat = complaint;
       return;
     }
     const button = existing?.isConnected ? existing : createDigestButton();
     styleDigestButton(button, { floating: false });
     complaint.parentElement.insertBefore(button, complaint);
+    anchorSeat = complaint;
     logMountTiming("锚点①「稿件举报」左侧");
     // 从④升回时把空了的浮动层一并收走（④只服务本按钮，不残留空壳）。
     const overlay = document.getElementById(DIGEST_OVERLAY_ID);
@@ -290,6 +310,8 @@ export function injectDigestButton(): void {
   if (!overlay) {
     return;
   }
+  // 降级位：席位作废，说明本拍结果不是①—下拍仍要寻锚升回。
+  anchorSeat = null;
   if (existing?.isConnected && existing.parentElement === overlay) {
     return;
   }
@@ -323,7 +345,8 @@ export function removeDigestButton(): void {
 //（aria-label/title/data-text/textContent 聚合命中「稿件举报|投诉」）任一
 // 命中即候选，双信号命中的优先。搜索范围：新版播放页宿主 #arc_toolbar_report
 // 与列表页形态 .video-toolbar-container（稍后再看等列表播放页无前者）内的
-// 全体元素，落空退全局类名查询。
+// 全体元素，落空退全局类名查询。语义文本信号里 textContent 只对候选读
+//（出于热路径成本考虑，见 consider 内注）。
 const COMPLAINT_CLASS_SIGNAL = /complaint/i;
 const COMPLAINT_TEXT_SIGNAL = /稿件举报|投诉/;
 
@@ -341,15 +364,21 @@ function findComplaintNode(): HTMLElement | null {
     const classHit = COMPLAINT_CLASS_SIGNAL.test(
       typeof node.className === "string" ? node.className : ""
     );
-    const text = [
+    // textContent 会把整棵子树拼成一个字符串：对工具栏全体节点都读即
+    // O(N·子树)。属性串短，照旧全节点读，命中即 textHit 成立、无需再读文本；
+    // 否则只在「类名命中或叶子节点」的候选上读 textContent——无类名又非叶子的
+    // 中间容器即便子树里有信号，也有更靠内的节点接住，不必在此拼字符串。
+    const attrText = [
       node.getAttribute("aria-label"),
       node.getAttribute("title"),
-      node.getAttribute("data-text"),
-      node.textContent
+      node.getAttribute("data-text")
     ]
       .filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
       .join(" ");
-    const textHit = COMPLAINT_TEXT_SIGNAL.test(text);
+    const textHit =
+      COMPLAINT_TEXT_SIGNAL.test(attrText) ||
+      ((classHit || node.firstElementChild === null) &&
+        COMPLAINT_TEXT_SIGNAL.test(node.textContent ?? ""));
     if ((!classHit && !textHit) || (requireBoth && !(classHit && textHit))) {
       return;
     }

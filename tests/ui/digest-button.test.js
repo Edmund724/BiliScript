@@ -338,4 +338,40 @@ describe("digest-button 幂等与自查", () => {
     await vi.advanceTimersByTimeAsync(801);
     expect(document.getElementById("boc-digest-button")).not.toBeNull();
   });
+
+  it("健康态自查零扫描：按钮就位时一拍只 getElementById 一次，不寻锚", async () => {
+    // 性能红线（与 reader/digest-host 的「一拍一搜」同款锁法）：健康态 800ms
+    // 一拍、每页每小时约 4500 拍，寻锚全量扫描（工具栏宿主全体 querySelectorAll
+    // + 逐节点文本求和）不能留在热路径上。零扫描早退的判据是「按钮挂着 + 后一
+    // 个兄弟仍是上次记下的举报节点」，故这里只该剩 getElementById(DIGEST_BUTTON_ID)。
+    document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
+
+    await loadModule();
+
+    const byId = vi.spyOn(document, "getElementById");
+    const docAll = vi.spyOn(document, "querySelectorAll");
+    const elementAll = vi.spyOn(Element.prototype, "querySelectorAll");
+    await vi.advanceTimersByTimeAsync(801);
+
+    expect(byId.mock.calls.map((args) => args[0])).toEqual(["boc-digest-button"]);
+    expect(docAll).not.toHaveBeenCalled();
+    expect(elementAll).not.toHaveBeenCalled();
+  });
+
+  it("零扫描早退不豁免失同步：按钮被挪走或席位被换掉的那一拍仍补回①位", async () => {
+    // 早退只认「挂着且席位没变」：按钮被挪到工具栏尾部（仍 connected 但后一
+    // 个兄弟不再是席位）时必须落到全量路径把它搬回①位，否则 B 站重渲染带来的
+    // 挪位会永久留在错误位置。
+    document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
+
+    await loadModule();
+
+    const right = document.querySelector(".video-toolbar-right");
+    const button = document.getElementById("boc-digest-button");
+    right.appendChild(button);
+
+    await vi.advanceTimersByTimeAsync(801);
+
+    expect(button.nextElementSibling.className).toBe("video-complaint");
+  });
 });
