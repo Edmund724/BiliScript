@@ -188,7 +188,16 @@ chrome.runtime.onConnect.addListener((port) => {
       abortActiveRequest();
       activeAbortController = new AbortController();
 
-      const resolved = await resolveProviderWithKey(ackedPort, msg.providerId);
+      // 候选04/10-6：首次聊天并行拉取两件互不依赖的前置——provider 解析
+      //（resolve-ai-provider 单趟往返）与 AI 半边动态装载（ladderLoader.load，
+      // 拉 ../ai/ladder.js）。串行会多等一轮「往返 + module 解析」，改
+      // Promise.all 并行。任一侧失败照旧走原分支：装载失败抛错进下方既有
+      // catch 通道回报（{ type: "error" }），语义与 runLadderChat 抛错一致，
+      // 不崩文档；provider 解析出错短路并清理活动请求态。
+      const [resolved, runLadderChat] = await Promise.all([
+        resolveProviderWithKey(ackedPort, msg.providerId),
+        ladderLoader.load()
+      ]);
       if (resolved.error) {
         clearActiveRequestState();
         return;
@@ -196,12 +205,6 @@ chrome.runtime.onConnect.addListener((port) => {
       const { provider, apiKey } = resolved;
 
       armIdleTimeout(activeAbortController, ackedPort);
-
-      // 候选04：首次聊天在此动态装载 AI 半边。装载失败抛错走下方既有 catch
-      // 通道回报（{ type: "error" }），语义与 runLadderChat 抛错一致，不崩
-      // 文档；装载期间空闲超时照常计时（超时 abort 后即使装载完成，
-      // runLadderChat 收到已 abort 的 signal 也会退出）。
-      const runLadderChat = await ladderLoader.load();
 
       // 核数打点（调试日志门默认关，门关时连计数都跳过）：素材字符数与 budgeter
       // totalChars 同口径（trim 后非空 content），供长视频「单发/分段」路径核数
