@@ -605,17 +605,23 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   requireShell();
   bindEvents();
   bindGlobalTriggers();
-  // 创建 Offscreen Document（经 background 委托），把 SSE 流式请求移到隐藏页面。
-  // 与每次聊天发送前（connectPort）复用：文档意外死亡后下一封消息自动重建，
-  // 聊天不再静默坏到面板重开。ensure 失败不阻断 init（catch 吞掉）。
-  await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
-  await loadProvidersAndPrefs();
-  // 平台列表/档位落定后：首判「关不掉」提示（此后由模型切换/档位点击/外部刷新续判）
-  // + 模型 chip 首渲（providers 的 renderModelSelect 已把选中项写进 select）。
-  updateThinkingHint();
-  modelPanel.renderChip();
-  await conversationStore.loadAll();
-  await loadContextState();
+  // 四路互不依赖的初始化并行起跑（opt-backlog-2026-09/05）——原先 offscreen
+  // 确保 → 平台列表 → 会话存档 → 上下文装配四连串行 await，总等待为各路之和
+  // （会话存档还曾随 loadAll 对至多 12 条历史会话各发一次串行视频元数据请求，
+  // 现已收敛到 restoreLatest 命中项单条）；并行后总等待 = 最慢一路。offscreen
+  // 失败不阻断 init（catch 吞掉，与每次发送前的 ensure 复用同一自愈路径）。
+  await Promise.all([
+    sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null),
+    loadProvidersAndPrefs().then(() => {
+      // 平台列表/档位落定后：首判「关不掉」提示（此后由模型切换/档位点击/
+      // 外部刷新续判）+ 模型 chip 首渲（renderModelSelect 已把选中项写进 select）。
+      updateThinkingHint();
+      modelPanel.renderChip();
+    }),
+    conversationStore.loadAll(),
+    loadContextState()
+  ]);
+  // 会话恢复依赖存档（loadAll）与上下文（loadContextState）双双落定。
   await conversationStore.restoreLatest();
   renderInitialState();
   autosizeInput();

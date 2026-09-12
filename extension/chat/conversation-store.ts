@@ -15,8 +15,11 @@
 //   - onConversationChanged(change)：会话相关状态已写入后发出；历史列表恒随
 //     事件重渲，change 标志（refreshContextChip / historyCleared / resetView）
 //     声明其余需要刷新的呈现面。发火点与反转前各渲染回调的位点逐一对齐：
-//     loadAll/save（仅列表）、hydratePages/apply/hydratePinned 成功（列表+chip）、
+//     loadAll/save（仅列表）、apply/hydratePinned 成功（列表+chip）、
 //     applyById/删当前/清空（列表+chip+视图重建；清空另收 popover）。
+//     分页补水（hydrateConversationPage，opt-backlog-2026-09/05 自 hydratePages
+//     收敛）只在 restoreLatest 命中项上发起：变更经 save 落盘（列表）+ apply
+//     （chip）。
 //   - onStreamInterrupted()：当前会话被拆除（恢复无匹配 / 删当前会话 / 清空
 //     全部 / 新会话重启经 detachForRestart）时同步发出——必须先于任何 await
 //     落盘（原 stopActiveChat dep 的承重时序：流式身份守卫在 id 清空前依赖
@@ -157,6 +160,8 @@ export interface CreateConversationStoreDeps {
 // 工单 arch-slim-2/07 接口收窄 11→8：apply / resolveContext / hydratePages 三键
 // 摘除（全仓无外部消费方，仅 store 内部互调；实现保留为工厂内私有函数）。
 // 另有工单 D 授权的公开窄方法 detachForRestart（「拆除会话」出口四）。
+// opt-backlog-2026-09/05：私有 hydratePages 进一步收敛为 hydrateConversationPage
+// （单条，只服务 restoreLatest 命中项；loadAll 不再批量发起分页补水）。
 export interface ConversationStore {
   loadAll: () => Promise<void>;
   isCurrent: (id: string) => boolean;
@@ -270,90 +275,66 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       .catch(() => ({}) as Record<string, unknown>);
     commitSaved(normalizeConversations(data?.[conversationsStorageKey]));
     emitChange({});
-    void hydratePages();
+    // opt-backlog-2026-09/05：分页补水不再随 loadAll 对全部候选（至多 12 条）各发
+    // 一次串行视频元数据请求——首开等待从「12 次串行网络往返」降到 0；补水收敛
+    // 到 restoreLatest 命中项（见 hydrateConversationPage）。
   }
 
-  async function hydratePages(): Promise<void> {
-    const conversations = saved();
-    const candidates = conversations.filter((item) => needsConversationPageHydration(item)).slice(0, 12);
-    if (!candidates.length) {
-      return;
+  // 单条会话的分页补水（自原 hydratePages 循环体抽出，opt-backlog-2026-09/05）：
+  // 拉原视频分页元数据（bvid+cid → 第几 P / 分 P 标题），就地更新会话的
+  // title/contextUrl/contextKey/contextRef。返回是否有字段变化（变化才需落盘）。
+  async function hydrateConversationPage(conversation: Conversation): Promise<boolean> {
+    const contextRef = conversation.contextRef || null;
+    if (!contextRef?.bvid || !contextRef?.cid) {
+      return false;
+    }
+    let response: { ok?: boolean; payload?: unknown; error?: string } = { ok: false };
+    try {
+      const payload = await resolveAiConversationRef(contextRef, "page");
+      response = { ok: true, payload };
+    } catch (error: unknown) {
+      response = { ok: false, error: (error as Error)?.message || String(error || "") };
+    }
+    if (!response.ok || !response.payload) {
+      return false;
     }
 
-    let changed = false;
-    for (const conversation of candidates) {
-      const contextRef = conversation.contextRef || null;
-      if (!contextRef?.bvid || !contextRef?.cid) {
-        continue;
-      }
-      let response: { ok?: boolean; payload?: unknown; error?: string } = { ok: false };
-      try {
-        const payload = await resolveAiConversationRef(contextRef, "page");
-        response = { ok: true, payload };
-      } catch (error: unknown) {
-        response = { ok: false, error: (error as Error)?.message || String(error || "") };
-      }
-      if (!response.ok || !response.payload) {
-        continue;
-      }
-
-      const payload = response.payload as {
-        pageIndex?: number;
-        url?: string;
-        cid?: string;
-        pageTitle?: string;
-      };
-      const nextPageIndex = Number(payload.pageIndex) > 0 ? Number(payload.pageIndex) : 1;
-      const nextUrl = String(payload.url || conversation.contextUrl || contextRef.url || "").trim();
-      const nextContextRef: AiContext = {
-        ...contextRef,
-        url: nextUrl,
-        cid: String(payload.cid || contextRef.cid || "").trim(),
-        pageIndex: nextPageIndex,
-        pageTitle: String(payload.pageTitle || contextRef.pageTitle || "").trim()
-      };
-      const nextTitle = normalizeConversationTitle(
-        conversation.title,
-        conversation.contextTitle,
-        nextContextRef,
-        nextUrl
-      );
-      const nextContextKey = resolveConversationStorageKey(conversation.contextKey, nextContextRef, nextUrl);
-      if (
-        nextTitle === conversation.title &&
-        nextUrl === conversation.contextUrl &&
-        nextContextKey === conversation.contextKey &&
-        Number(conversation.contextRef?.pageIndex || 1) === nextPageIndex
-      ) {
-        continue;
-      }
-
-      conversation.title = nextTitle;
-      conversation.contextUrl = nextUrl;
-      conversation.contextKey = nextContextKey;
-      conversation.contextRef = nextContextRef;
-      changed = true;
+    const payload = response.payload as {
+      pageIndex?: number;
+      url?: string;
+      cid?: string;
+      pageTitle?: string;
+    };
+    const nextPageIndex = Number(payload.pageIndex) > 0 ? Number(payload.pageIndex) : 1;
+    const nextUrl = String(payload.url || conversation.contextUrl || contextRef.url || "").trim();
+    const nextContextRef: AiContext = {
+      ...contextRef,
+      url: nextUrl,
+      cid: String(payload.cid || contextRef.cid || "").trim(),
+      pageIndex: nextPageIndex,
+      pageTitle: String(payload.pageTitle || contextRef.pageTitle || "").trim()
+    };
+    const nextTitle = normalizeConversationTitle(
+      conversation.title,
+      conversation.contextTitle,
+      nextContextRef,
+      nextUrl
+    );
+    const nextContextKey = resolveConversationStorageKey(conversation.contextKey, nextContextRef, nextUrl);
+    if (
+      nextTitle === conversation.title &&
+      nextUrl === conversation.contextUrl &&
+      nextContextKey === conversation.contextKey &&
+      Number(conversation.contextRef?.pageIndex || 1) === nextPageIndex
+    ) {
+      return false;
     }
 
-    if (!changed) {
-      return;
-    }
-
-    const currentId = chatSessionState.currentConversationId;
-    if (currentId) {
-      const activeConversation = conversations.find((item) => item.id === currentId);
-      if (activeConversation) {
-        chatSessionState.currentConversationMeta = {
-          ...chatSessionState.currentConversationMeta,
-          title: activeConversation.title,
-          contextKey: activeConversation.contextKey,
-          contextUrl: activeConversation.contextUrl,
-          contextRef: activeConversation.contextRef
-        } as ConversationMeta;
-      }
-    }
-    emitChange({ refreshContextChip: true });
-    await saveConversations();
+    conversation.title = nextTitle;
+    conversation.contextUrl = nextUrl;
+    conversation.contextKey = nextContextKey;
+    conversation.contextRef = nextContextRef;
+    return true;
   }
 
   async function saveConversations(): Promise<void> {
@@ -375,6 +356,13 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       // 无 live 回填——原编排此处不重渲列表/chip/视图）。
       detachCurrent();
       return false;
+    }
+    // opt-backlog-2026-09/05：分页补水收敛到命中项单条——首开对话 tab 不再为
+    // 至多 12 条历史会话各发一次串行视频元数据请求（恢复逻辑只消费命中项，
+    // 其余列表项保持存档原样）。补水有变更先落盘（历史列表重渲），apply 随后
+    // 重渲 chip/视图；无变更则保持原编排的单次 chip change。
+    if (needsConversationPageHydration(latest) && (await hydrateConversationPage(latest))) {
+      await saveConversations();
     }
     apply(latest);
     return true;

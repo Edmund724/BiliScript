@@ -13,8 +13,11 @@
 //   - onContextNotice(notice)        上下文补水提示生命周期(pending/clear/error)。
 //
 // 本文件逐操作锁定事件序列与 detail 形状,与反转前 caller 编排逐一对齐:
-//   - loadAll:            change({})                     —— 不触 chip(无上下文写入)
-//   - hydratePages 变更:  change({refreshContextChip}) → change({})
+//   - loadAll:            change({})                     —— 不触 chip(无上下文写入)，
+//                         也不再发起分页补水（opt-backlog-2026-09/05 起收敛到
+//                         restoreLatest 命中项）
+//   - 命中项补水变更:      change({}) → change({refreshContextChip})
+//                         （补水落盘 + apply）
 //   - persistCurrent:     change({})                     —— 不触 chip
 //   - restoreLatest 匹配: change({refreshContextChip})   —— 无断流
 //   - restoreLatest 无匹: onStreamInterrupted 恰一次;change/notice 零次
@@ -28,8 +31,8 @@
 //   - hydratePinned 成功: change({refreshContextChip}) → notice clear
 //   - hydratePinned 失败: notice clear → notice error(非 silent;silent 不展示)
 //
-// 同时锁定解析单接缝的 purpose 分途:hydratePages 用 "page",hydratePinned 用
-// "context"(组合根在该用途接工单 04 的进程内短路复合适配器)。
+// 同时锁定解析单接缝的 purpose 分途:restoreLatest 命中项分页补水用 "page",
+// hydratePinned 用 "context"(组合根在该用途接工单 04 的进程内短路复合适配器)。
 //
 // 模块纪元注意:chatSessionState 是模块级单例,beforeEach resetModules 后与被测
 // 模块同纪元导入并手动重置字段。
@@ -143,7 +146,7 @@ afterEach(() => {
 // ===========================================================================
 // loadAll / hydratePages / persistCurrent:历史列表面的 change 时序
 // ===========================================================================
-describe("loadAll / hydratePages / persistCurrent 的 change 时序", () => {
+describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
   it("loadAll:change 恰一次且 detail 为空(不触 chip——无上下文写入)", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
@@ -154,27 +157,35 @@ describe("loadAll / hydratePages / persistCurrent 的 change 时序", () => {
     expect(deps.onConversationChanged).toHaveBeenCalledTimes(1);
     expect(deps.onConversationChanged).toHaveBeenCalledWith({});
     expect(log).toEqual([["change", {}]]);
-    // 无分页补水候选:hydratePages 不追加事件
+    // 无分页补水:loadAll 不再发起视频元数据请求(opt-backlog-2026-09/05)
+    expect(deps.resolveAiConversationRef).not.toHaveBeenCalled();
   });
 
-  it("hydratePages 分页补水变更:change 序列 = [{refreshContextChip}, {}],pageRef 解析走 purpose=page", async () => {
-    const { store, deps, storage } = makeHarness({
+  it("restoreLatest 命中项分页补水:仅命中项一条请求(purpose=page),change 序列 = [{}, {refreshContextChip}]", async () => {
+    const { store, deps } = makeHarness({
       resolveAiConversationRef: vi.fn(async (ref, purpose) => {
         expect(purpose).toBe("page");
         return { pageIndex: 2, url: `${URL_A}?p=2`, cid: "2", pageTitle: "第二P" };
       })
     });
     const log = makeOrderLog(deps);
-    // loadAll 以 storage 为真值源覆盖内存镜像:存档经 storage 播种
-    await storage.set({ boc_ai_conversations_v1: [makeConversation("c1")] });
+    // 两条候选:补水只落命中项,非命中项零请求
+    chatSessionState.savedConversations = [
+      makeConversation("c1"),
+      makeConversation("c2", { url: "https://www.bilibili.com/video/BVother" })
+    ];
+    chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
+    chatSessionState.liveContextKey = "k-1";
 
-    await store.loadAll();
-    // loadAll 的 change({}) 先落;hydratePages 异步补水后追加 {chip} 与 save 的 {}
-    await vi.waitFor(() => expect(deps.onConversationChanged.mock.calls.length).toBeGreaterThanOrEqual(3));
+    const result = await store.restoreLatest();
 
+    expect(result).toBe(true);
+    // 首开网络请求数从「至多 12 次串行」收敛到「仅命中项 1 次」
+    expect(deps.resolveAiConversationRef).toHaveBeenCalledTimes(1);
+    // 补水落盘(列表重渲)在前,apply 的 chip 刷新在后
+    expect(deps.onConversationChanged).toHaveBeenNthCalledWith(1, {});
     expect(deps.onConversationChanged).toHaveBeenNthCalledWith(2, { refreshContextChip: true });
-    expect(deps.onConversationChanged).toHaveBeenNthCalledWith(3, {});
-    expect(log.map(([kind]) => kind)).toEqual(["change", "change", "change"]);
+    expect(log.map(([kind]) => kind)).toEqual(["change", "change"]);
   });
 
   it("persistCurrent:change 恰一次且 detail 为空(不触 chip——元信息重写不改上下文绑定呈现)", async () => {
@@ -199,16 +210,21 @@ describe("loadAll / hydratePages / persistCurrent 的 change 时序", () => {
 // restoreLatest / applyById:恢复与应用面
 // ===========================================================================
 describe("restoreLatest / applyById 的 change 时序", () => {
-  it("restoreLatest 有匹配:change 恰一次 {refreshContextChip},无断流", async () => {
+  it("restoreLatest 有匹配:change 恰一次 {refreshContextChip},无断流(命中项无需分页补水时)", async () => {
     const { store, deps } = makeHarness();
     makeOrderLog(deps);
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    const conversation = makeConversation("c1");
+    // 标题已带 -P 分 P 后缀:needsConversationPageHydration 早退,补水零请求,
+    // 保持「单次 chip change」的最小恢复面。
+    conversation.title = "视频A-P1";
+    chatSessionState.savedConversations = [conversation];
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionState.liveContextKey = "k-1";
 
     const result = await store.restoreLatest();
 
     expect(result).toBe(true);
+    expect(deps.resolveAiConversationRef).not.toHaveBeenCalled();
     expect(deps.onConversationChanged).toHaveBeenCalledTimes(1);
     expect(deps.onConversationChanged).toHaveBeenCalledWith({ refreshContextChip: true });
     expect(deps.onStreamInterrupted).not.toHaveBeenCalled();

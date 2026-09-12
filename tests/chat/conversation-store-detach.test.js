@@ -11,9 +11,10 @@
 //   - 断流先于落盘(先于一切 storage.set / await)
 //   - 各出口的 live 回填与 change 面逐字保持(行为零变化,与 events 测试互补)
 //
-// 接口收窄 11→8:apply / resolveContext / hydratePages 三键摘除(实现保留为
-// 工厂内私有函数,内部调用点零变化);另含工单 D 授权的公开窄方法 detachForRestart,
-// 终面 = 收窄 8 键 + 1。
+// 接口收窄 11→8:apply / resolveContext / hydratePages 三键摘除;另含工单 D 授权的
+// 公开窄方法 detachForRestart,终面 = 收窄 8 键 + 1。opt-backlog-2026-09/05:
+// hydratePages 进一步收敛为 hydrateConversationPage(单条,只服务 restoreLatest
+// 命中项),loadAll 不再批量发起分页补水——本文件的补水用例已按新入口改写。
 //
 // 模块纪元注意:chatSessionState 是模块级单例,beforeEach resetModules 后与被测
 // 模块同纪元导入并手动重置字段(与 events 测试同款)。
@@ -401,18 +402,22 @@ describe("公开接口面", () => {
     expect(chatSessionState.currentContextKey).toBe("k-1");
   });
 
-  it("内部 hydratePages 经 loadAll 存活:分页补水变更追加 chip change 与 save", async () => {
+  it("分页补水收敛到 restoreLatest 命中项:loadAll 零请求,命中项一条(purpose=page),变更追加 save 的 {} 与 apply 的 {chip}", async () => {
     const { store, deps, storage } = makeHarness({
       resolveAiConversationRef: vi.fn(async () => ({ pageIndex: 2, url: `${URL_A}?p=2`, cid: "2", pageTitle: "第二P" }))
     });
     await storage.set({ boc_ai_conversations_v1: [makeConversation("c1")] });
+    chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
+    chatSessionState.liveContextKey = "k-1";
 
     await store.loadAll();
-    await vi.waitFor(() => expect(deps.onConversationChanged.mock.calls.length).toBe(3));
+    // opt-backlog-2026-09/05:loadAll 不再批量发起分页补水
+    expect(deps.resolveAiConversationRef).not.toHaveBeenCalled();
+    await store.restoreLatest();
 
-    // 次序:loadAll 的 {} → 补水变更的 {chip} → save 的 {}
-    expect(deps.onConversationChanged).toHaveBeenNthCalledWith(2, { refreshContextChip: true });
-    expect(deps.onConversationChanged).toHaveBeenNthCalledWith(3, {});
+    // 次序:loadAll 的 {} → 补水落盘的 {} → apply 的 {chip}
+    expect(deps.onConversationChanged).toHaveBeenNthCalledWith(2, {});
+    expect(deps.onConversationChanged).toHaveBeenNthCalledWith(3, { refreshContextChip: true });
     expect(deps.resolveAiConversationRef).toHaveBeenCalledTimes(1);
   });
 });
