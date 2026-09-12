@@ -12,7 +12,9 @@
 //
 // 与 player-ai 的有意差异：工具栏按钮场景用定时自查而非 MutationObserver——
 // 观察 body 时弹幕每飘一条都是变更事件，白烧 CPU 且防抖等不到空档；定时器
-// 顺带覆盖 SPA 换页（不触发事件）。
+// 顺带覆盖 SPA 换页（不触发事件）。（收窄版观察器见 bindToolbarObserver：
+// 只观察工具栏宿主子树，弹幕/播放器变更不入观——宿主在位后「稿件举报」
+// 的插入经它同步感知，按钮与它同拍落位，不再等下一拍。）
 //
 // 点击行为：不发 background 消息。直接构造 reader-enter 消息交给
 // content 侧处理器（entry/message-handler.ts 已实现的阅读模式进入路径，
@@ -263,6 +265,9 @@ export function injectDigestButton(): void {
     return;
   }
   const complaint = findComplaintNode();
+  // 全量路径（本来就扫过宿主）顺带重建观察器绑定：宿主在位后「稿件举报」的
+  // 插入不再等自查节拍（见 bindToolbarObserver 注）。
+  bindToolbarObserver();
 
   if (complaint && complaint.parentElement) {
     if (anchorPhase !== "anchor") {
@@ -357,8 +362,52 @@ function createDigestButton(): HTMLButtonElement {
 }
 
 export function removeDigestButton(): void {
+  unbindToolbarObserver();
   document.getElementById(DIGEST_BUTTON_ID)?.remove();
   document.getElementById(DIGEST_OVERLAY_ID)?.remove();
+}
+
+// ===== 工具栏宿主即时注入观察器 =====
+//
+// 200ms 自查只兜底「工具栏宿主尚未出现」（宿主插入是低频一次性事件，tick
+// 探到即可）；宿主在位后，「稿件举报」由 Vue 水合/重渲染插进工具栏的时刻经
+// MutationObserver 微任务级同步感知——按钮与它同拍落位。观察范围刻意收窄到
+// 工具栏宿主子树：观察 body 会被弹幕打爆（见文件头「与 player-ai 的有意
+// 差异」注），工具栏自身变更是低频事件，零防抖直调自查也无压力。
+//
+// 回调走完整自查而非直接注入：视图接管（按钮恒摘除）、失同步自愈等守卫口径
+// 全部收口在 syncDigestButton，观察器不自带第二套判定。
+//
+// 重绑时机：只在注入全量路径（本来就扫过宿主）里重建绑定，健康态零扫描早退
+// 不触碰；宿主被整棵换掉后旧观察器自然失活，下一次全量路径（≤200ms 的自查
+// 兜底）换绑新宿主。
+const TOOLBAR_HOST_SELECTOR = "#arc_toolbar_report, .video-toolbar-container";
+let toolbarObserver: MutationObserver | null = null;
+
+function onToolbarMutation(): void {
+  syncDigestButton();
+}
+
+function bindToolbarObserver(): void {
+  if (typeof MutationObserver === "undefined") {
+    return;
+  }
+  if (!toolbarObserver) {
+    toolbarObserver = new MutationObserver(onToolbarMutation);
+  }
+  toolbarObserver.disconnect();
+  const hosts = document.querySelectorAll(TOOLBAR_HOST_SELECTOR);
+  if (hosts.length === 0) {
+    return;
+  }
+  for (const host of hosts) {
+    toolbarObserver.observe(host, { childList: true, subtree: true });
+  }
+}
+
+function unbindToolbarObserver(): void {
+  toolbarObserver?.disconnect();
+  toolbarObserver = null;
 }
 
 // 「稿件举报」多信号判定（02 加固；kimi-webbridge 2026-09-09 实地：现行 DOM

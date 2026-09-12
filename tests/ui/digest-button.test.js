@@ -12,6 +12,9 @@
 //   留守；降④后①恢复则升回①位；
 // - 首载等待窗：init 相位（首载/新开页）①未就绪时暂不注入（等工具栏渲染，
 //   不闪在视频右上角），窗耗尽（~10s）才降④兜底；期间①就绪则直接落①位；
+// - 宿主即时观察器：工具栏宿主在位后，「稿件举报」插入经 MutationObserver
+//   微任务级落位（按钮与它同拍出现），不等 200ms 自查节拍；节拍退为宿主
+//   发现的兜底；
 // - 幂等（重复注入不重复插按钮）；
 // - 非 /video/ 页自查主动移除按钮、回到 /video/ 页补回。
 //
@@ -234,17 +237,16 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     let button = document.getElementById("boc-digest-button");
     expect(button.parentElement).toBe(right);
 
-    // B 站重渲染：举报节点（连带按钮）被换掉
+    // B 站重渲染：举报节点（连带按钮）被换掉。移除变更本身经观察器微任务
+    // 触发一轮自查（进入宽限，beats 2→1），先冲掉微任务再走节拍。
     button.remove();
     document.querySelector(".video-complaint").remove();
+    await vi.advanceTimersByTimeAsync(0);
 
-    // 第 1 拍：失配进入宽限，不降级（节拍 200ms，201 跨一拍）
+    // 第 1 拍：宽限中，不降级
     await vi.advanceTimersByTimeAsync(201);
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
-    // 第 2 拍：宽限中，仍不降级
-    await vi.advanceTimersByTimeAsync(201);
-    expect(document.getElementById("boc-digest-overlay")).toBeNull();
-    // 第 3 拍：宽限耗尽，降级④浮动层
+    // 第 2 拍：宽限耗尽，降级④浮动层
     await vi.advanceTimersByTimeAsync(201);
     const overlay = document.getElementById("boc-digest-overlay");
     expect(overlay).not.toBeNull();
@@ -274,6 +276,29 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
+  });
+
+  it("宿主在位后「稿件举报」插入：观察器微任务落位，不等 200ms 节拍", async () => {
+    // 工具栏宿主先渲染、「稿件举报」由 Vue 水合后插入：bindToolbarObserver
+    // 的 MutationObserver 应同步感知，按钮与稿件举报同拍出现（推进 0ms，
+    // 200ms 自查 tick 未到）。
+    document.body.innerHTML = `${makeToolbarHtml({ withComplaint: false })}${makePlayerHtml()}<video src="blob:test"></video>`;
+
+    await loadModule();
+
+    expect(document.getElementById("boc-digest-button")).toBeNull();
+    const right = document.querySelector(".video-toolbar-right");
+    const complaint = document.createElement("div");
+    complaint.className = "video-complaint";
+    complaint.textContent = "稿件举报";
+    right.insertBefore(complaint, right.firstElementChild);
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    const button = document.getElementById("boc-digest-button");
+    expect(button).not.toBeNull();
+    expect(button.parentElement).toBe(right);
+    expect(button.nextElementSibling).toBe(complaint);
   });
 
   it("宽限期内 complaint 恢复：按钮留在工具栏①位，不降级", async () => {
