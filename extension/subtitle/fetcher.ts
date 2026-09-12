@@ -13,7 +13,7 @@ import {
   isRetryableNetworkError,
   retryAsync
 } from "../shared/error-helpers.js";
-import { logInfo, logWarn } from "../shared/logging.js";
+import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
 // isReaderViewOpen 位于 reader 状态微模块（候选04 结构归并）：纯 state 读取，
 // 不再经 reader/index.js facade 静态转发（否则整条 reader 域会被拖进本链闭包）。
 import { isReaderViewOpen } from "../reader/state.js";
@@ -214,23 +214,28 @@ export async function refreshClip(): Promise<void> {
     ensureRunActive(runId, state.clip.fetchRunId);
     clipState.setSubtitles(normalizeSubtitleTracks(subtitleBundle.tracks) as unknown as SubtitleOption[]);
     clipState.setChapters(normalizeChapters(subtitleBundle.chapters) as import("../core/state.js").ChapterItem[]);
-    logInfo(
-      "[BOC] chapters",
-      state.clip.chapters.map((item) => ({
-        from: item.from,
-        to: item.to,
-        title: item.title
-      }))
-    );
-    logInfo(
-      "[BOC] subtitle tracks",
-      state.clip.subtitles.map((item) => ({
-        id: item.id,
-        lan: item.lan,
-        lanDoc: item.lanDoc,
-        url: item.subtitleUrl
-      }))
-    );
+    // 惰性求值（10-9）：logInfo 内部按调试门过滤，但 .map() 作为实参会先于门
+    // 判定无条件执行、为每条章节/字幕各分配一个数组——门关闭时零收益纯浪费。
+    // 改在门外先判 shouldDebugLog()，门关时跳过整套 map 分配。
+    if (shouldDebugLog()) {
+      logInfo(
+        "[BOC] chapters",
+        state.clip.chapters.map((item) => ({
+          from: item.from,
+          to: item.to,
+          title: item.title
+        }))
+      );
+      logInfo(
+        "[BOC] subtitle tracks",
+        state.clip.subtitles.map((item) => ({
+          id: item.id,
+          lan: item.lan,
+          lanDoc: item.lanDoc,
+          url: item.subtitleUrl
+        }))
+      );
+    }
 
     // 显式点击“刷新抓取”时默认走网络，避免命中历史缓存导致字幕错位。
     const forceRefresh = true;
