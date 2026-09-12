@@ -82,6 +82,10 @@ const BUTTON_BASE_STYLE =
 //（表现为视频加载两遍）；评审决议（工单 button-injection-stability/01）接受
 // 快路径与水合窗口的竞争——锚点未就绪时注入自然失败，偶发被水合推倒的按钮由
 // 800ms 自查立即补回，代价是最坏闪一次，收益是按钮与视频同步出现。
+//
+// 首载等待窗（用户实测反馈：加载中工具栏未渲染，按钮闪现在视频右上角）：init
+// 相位①未就绪时不再直达④浮动层，暂不注入并等 INIT_FALLBACK_DELAY_MS——
+// 工具栏渲染出来就落在①位；窗口耗尽（疑似改版①永久失配）才降④兜底。
 
 // 注入耗时观测（01 可观测，默认开启）：模块求值到首个按钮挂载的耗时。
 const MODULE_BOOT_AT = Date.now();
@@ -147,6 +151,7 @@ function syncDigestButton(): void {
     // 锚点阶段一并复位：非视频页无①可言，回视频页按首载口径重新寻锚。
     anchorPhase = "init";
     anchorGraceBeats = 0;
+    initWaitLogged = false;
     setTickInterval(REINJECT_INTERVAL_MS);
     removeDigestButton();
     return;
@@ -196,7 +201,8 @@ function syncDigestButton(): void {
 //
 // 锚点层级（工单 button-injection-stability/02 收拢）：只剩两级——
 //   ①「稿件举报」节点左侧（多信号判定，见 findComplaintNode）；
-//   ④播放器浮动层（位置自控、语义安全的兜底位）。
+//   ④播放器浮动层（位置自控、语义安全的兜底位；首载等待窗内不落，见
+//     INIT_FALLBACK_DELAY_MS 注）。
 // 旧②（.video-toolbar-right 尾部）与③（旧版 .video-toolbar-left-main）退役：
 // ②正是「漂到视频下方最右」的事故现场——①失配静默落到②尾部即用户看到的
 // 漂移，宁可落④也不收留。失配/宽限/降级全程 console 日志（工单决议：默认
@@ -214,6 +220,13 @@ let anchorGraceWaitLogged = false;
 // 1.6s）让重渲染恢复，连失配当拍约 2.4s——挡掉 B 站工具栏重渲染间隙的闪漂，
 // 又不至让降级久等。
 const ANCHOR_GRACE_BEATS = 2;
+
+// 首载等待窗：init 相位（首载/新开页）①未就绪时暂不注入的时长（自模块装载
+// 起算）。窗内等工具栏渲染，按钮宁可晚出现也不闪在视频右上角；耗尽才降④——
+// 保证①永久失配（改版）时按钮仍兜底出现。
+const INIT_FALLBACK_DELAY_MS = 10000;
+// 「首载暂不注入」只说一遍的标志。
+let initWaitLogged = false;
 
 function logAnchor(message: string): void {
   logInfoAlways(`[BOC] digest-button: ${message}`);
@@ -279,14 +292,23 @@ export function injectDigestButton(): void {
     return;
   }
 
-  // ①失配：命中过（anchor）先宽限等重渲染恢复；未命中过（init）与已降级
-  //（fallback）直达④。宽限期内已挂载的按钮不动——重渲染若只换掉举报节点
-  // 而按钮还在，原地保留；按钮也没了就暂不注入，等①回来原地归位。
+  // ①失配：命中过（anchor）先宽限等重渲染恢复；未命中过（init）在首载等待窗
+  // 内暂不注入（页面加载中工具栏未渲染，此时落④会让按钮闪现在视频右上角），
+  // 窗口耗尽与已降级（fallback）直达④。宽限期内已挂载的按钮不动——重渲染若
+  // 只换掉举报节点而按钮还在，原地保留；按钮也没了就暂不注入，等①回来原地
+  // 归位。
   if (anchorPhase === "anchor") {
     anchorPhase = "grace";
     anchorGraceBeats = ANCHOR_GRACE_BEATS;
     anchorGraceWaitLogged = false;
     logAnchor("锚点①失配（「稿件举报」节点消失），进入宽限等待重渲染恢复");
+  }
+  if (anchorPhase === "init" && Date.now() - MODULE_BOOT_AT < INIT_FALLBACK_DELAY_MS) {
+    if (!initWaitLogged) {
+      initWaitLogged = true;
+      logAnchor("首载①未就绪，暂不注入（等工具栏渲染，超时才降浮动层）");
+    }
+    return;
   }
   if (anchorPhase === "grace") {
     if (anchorGraceBeats > 0) {

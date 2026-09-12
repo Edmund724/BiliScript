@@ -10,6 +10,8 @@
 // - 短暂失配宽限：命中过①的页面，①失配后宽限 2 拍（~1.6s）不降级、已挂载
 //   按钮不动（挡掉 B 站重渲染间隙的闪漂），宽限耗尽才降④；期间①恢复则原地
 //   留守；降④后①恢复则升回①位；
+// - 首载等待窗：init 相位（首载/新开页）①未就绪时暂不注入（等工具栏渲染，
+//   不闪在视频右上角），窗耗尽（~10s）才降④兜底；期间①就绪则直接落①位；
 // - 幂等（重复注入不重复插按钮）；
 // - 非 /video/ 页自查主动移除按钮、回到 /video/ 页补回。
 //
@@ -164,16 +166,25 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
     expect(button.nextElementSibling).toBe(complaint);
   });
 
-  it("锚点①落空直达④：②③在场也不得收留，按钮挂播放器浮动层", async () => {
+  it("锚点①落空：首载等待窗内不注入，窗耗尽才降④（②③在场也不得收留）", async () => {
     // 02 层级收拢：.video-toolbar-right（旧②）与 .video-toolbar-left-main
     //（旧③）在 DOM 里存在也不能当锚点——它们正是「漂到视频下方最右」的
     // 事故现场，①失配一律落④浮动层（位置自控，语义安全）。
+    // 首载等待窗：init 相位①未就绪时暂不注入（页面加载中，浮动按钮会闪现在
+    // 视频右上角），窗耗尽才降④。
     document.body.innerHTML = `${makeToolbarHtml({ withComplaint: false })}${makePlayerHtml()}<video src="blob:test"></video>`;
     const right = document.querySelector(".video-toolbar-right");
     const leftMain = document.querySelector(".video-toolbar-left-main");
 
     await loadModule();
 
+    // 等待窗内：宁可按钮缺席也不闪在浮动层
+    expect(document.getElementById("boc-digest-button")).toBeNull();
+    expect(document.getElementById("boc-digest-overlay")).toBeNull();
+
+    // 窗口耗尽：降④浮动层兜底（推进量需跨过 10000ms 窗口后的下一个
+    // 800ms 自查拍，首个落在窗外的 tick 是 ~10400ms）
+    await vi.advanceTimersByTimeAsync(11200);
     const button = document.getElementById("boc-digest-button");
     expect(button).not.toBeNull();
     expect(right.contains(button)).toBe(false);
@@ -195,6 +206,7 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
       .appendChild(Object.assign(document.createElement("video"), { src: "blob:test" }));
 
     await loadModule();
+    await vi.advanceTimersByTimeAsync(11200);
 
     const overlay = document.getElementById("boc-digest-overlay");
     expect(overlay).not.toBeNull();
@@ -243,6 +255,27 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     expect(infoSpy.mock.calls.some((args) => args.join(" ").includes("digest"))).toBe(true);
   });
 
+  it("首载等待窗内工具栏渲染完成：按钮直接落①位，不落浮动层", async () => {
+    document.body.innerHTML = `${makeToolbarHtml({ withComplaint: false })}${makePlayerHtml()}<video src="blob:test"></video>`;
+
+    await loadModule();
+
+    // 页面加载中：工具栏先出壳、举报节点后渲染（用户看到的正是这个间隙里
+    // 按钮闪现在视频右上角）
+    expect(document.getElementById("boc-digest-button")).toBeNull();
+    const right = document.querySelector(".video-toolbar-right");
+    const complaint = document.createElement("div");
+    complaint.className = "video-complaint";
+    complaint.textContent = "稿件举报";
+    right.insertBefore(complaint, right.firstElementChild);
+    await vi.advanceTimersByTimeAsync(801);
+
+    const button = document.getElementById("boc-digest-button");
+    expect(button.parentElement).toBe(right);
+    expect(button.nextElementSibling).toBe(complaint);
+    expect(document.getElementById("boc-digest-overlay")).toBeNull();
+  });
+
   it("宽限期内 complaint 恢复：按钮留在工具栏①位，不降级", async () => {
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
 
@@ -272,7 +305,10 @@ describe("digest-button 失配宽限与升降级（02）", () => {
 
     await loadModule();
 
-    // 首载①未就绪 → 已在④
+    // 首载①未就绪 → 等待窗内不注入，窗耗尽降④（推进量需跨过窗口后的
+    // 下一个 800ms 自查拍）
+    expect(document.getElementById("boc-digest-button")).toBeNull();
+    await vi.advanceTimersByTimeAsync(11200);
     let button = document.getElementById("boc-digest-button");
     expect(document.getElementById("boc-digest-overlay").contains(button)).toBe(true);
 
