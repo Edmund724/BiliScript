@@ -1,5 +1,5 @@
 import { state } from "../core/state.js";
-import { BOC_VERSION } from "../core/defaults.js";
+import { BOC_VERSION, DEFAULT_SETTINGS } from "../core/defaults.js";
 
 import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
@@ -72,6 +72,11 @@ globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 // 播放器 AI 开关监听只注册一次：init 在模块加载时同步执行，声明必须位于
 // 其之前（避免 TDZ），标志兜底防重复注入。
 let playerAiSettingsWatcherBound = false;
+// 10-10：enablePlayerAiQuickAction 启动决策是否已由快路径（content 直连
+// storage.sync 单键读）决出。真 = 快路径读成功并完成启停，getSettings 水合
+// 路径跳过对同一键的重复读/决策；假 = 快路径读失败，由 getSettings 水合值
+// 兜底启停。把「同键双读」收口为快路径一次决策 + 水合异常兜底。
+let quickActionStartupDecided = false;
 
 init();
 
@@ -164,36 +169,42 @@ function init(): void {
   });
   // 快路径门控：按钮启停只依赖 enablePlayerAiQuickAction 单键。直连
   // chrome.storage.sync 读取（content 脚本本就有 storage 权限），绕开
-  // getSettings 的 SW 往返——SW 冷启动唤醒是按钮出现慢的主因之一。读为
-  // true 时先把该键同步进 state.settings（sync 门控读它，与
-  // bindPlayerAiSettingsWatcher 同款写法）再启动；完整设置仍由下方
-  // getSettings 水合覆盖，读失败静默回退到慢路径。
+  // getSettings 的 SW 往返——SW 冷启动唤醒是按钮出现慢的主因之一。10-10
+  // 收口：直连读与 getSettings 同口径（storage 未显式存该键时回落默认值），
+  // 使快路径成为启动启停的唯一读/决策点，getSettings 路径不再对同一键二次
+  // 读/启停；读失败（quickActionStartupDecided 保持 false）时静默回退慢路径，
+  // 由 getSettings 水合兜底。完整设置仍由下方 getSettings 水合覆盖。
   (async () => {
     try {
       const data = await chrome.storage.sync.get("enablePlayerAiQuickAction");
-      if (Boolean((data as { enablePlayerAiQuickAction?: unknown })?.enablePlayerAiQuickAction)) {
-        if (state.settings) {
-          state.settings.enablePlayerAiQuickAction = true;
-        }
+      quickActionStartupDecided = true;
+      const raw = (data as { enablePlayerAiQuickAction?: unknown })?.enablePlayerAiQuickAction;
+      const enabled = raw === undefined ? DEFAULT_SETTINGS.enablePlayerAiQuickAction : Boolean(raw);
+      if (state.settings) {
+        state.settings.enablePlayerAiQuickAction = enabled;
+      }
+      if (enabled) {
         startPlayerAiQuickActionLazy();
       }
     } catch {
-      // 读失败静默回退到慢路径（getSettings 水合兜底）
+      // 读失败：维持 quickActionStartupDecided = false，交给 getSettings 兜底
     }
   })();
   (async () => {
     try {
       const settings = await getSettings();
       state.setSettings(settings);
-      // 按设置显式启停：默认开启（2026-09 起，core/defaults.js
-      // enablePlayerAiQuickAction: true），进视频页即挂按钮；关闭态不绑 layout
-      // 监听、不挂 observer，避免关闭态每帧空转 no-op。
-      // 懒加载语义：开启才触发模块加载；关闭时模块未加载即无任何残留可清理，
-      // 加载过（isPlayerAiLoaded）才需要走 stop 收尾。
-      if (settings.enablePlayerAiQuickAction) {
-        startPlayerAiQuickActionLazy();
-      } else {
-        stopPlayerAiQuickActionLazy();
+      // 10-10 收口：快路径已按同一键直连读决策过（正常路径），这里不再对
+      // enablePlayerAiQuickAction 做第二次读/启停——同键双读收口为一次。仅当
+      // 快路径读失败（quickActionStartupDecided 仍为 false）时，才由本水合值
+      // 兜底启停（回退慢路径）。懒加载语义：开启才触发模块加载；关闭时模块
+      // 未加载即无任何残留可清理，加载过（isPlayerAiLoaded）才需要走 stop 收尾。
+      if (!quickActionStartupDecided) {
+        if (settings.enablePlayerAiQuickAction) {
+          startPlayerAiQuickActionLazy();
+        } else {
+          stopPlayerAiQuickActionLazy();
+        }
       }
       if (shouldEnterReaderMode) {
         // 候选03：阅读模式直达链接才惰性装载 UI 壳 + reader 呈现层，再进入重域。
