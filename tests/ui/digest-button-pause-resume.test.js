@@ -6,7 +6,7 @@
 //   isReaderShellIntact 的 DOM 查询 → interval 降频至暂停档（2s 兜底，而非
 //   全停——恢复事件丢失时按钮最迟一个兜底 tick 补回）；
 // - 壳关闭（exitReaderShell 派发 READER_CLOSED_EVENT 窗口事件）：恢复常速
-//   （800ms 单源 shared/self-heal.js）并首拍立即补回按钮；
+//   （200ms 单源 shared/self-heal.js）并首拍立即补回按钮；
 // - 暂停期壳失整：自查恢复常速，brokenTicks 三连拍确认后派发 reader-restore
 //   自愈（失同步链路行为与收口前一致，只是首拍发现最多延迟一个兜底 tick）。
 //
@@ -84,7 +84,7 @@ async function startHealthy() {
 async function enterPausedState(setIntervalSpy) {
   mocks.isReaderViewOpen.mockReturnValue(true);
   mocks.isReaderShellIntact.mockReturnValue(true);
-  await vi.advanceTimersByTimeAsync(801);
+  await vi.advanceTimersByTimeAsync(201);
   expect(document.getElementById("boc-digest-button")).toBeNull();
   expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 2000)).toBe(true);
 }
@@ -109,12 +109,12 @@ describe("digest-button 自查 interval 暂停/恢复（arch-slim-2/09）", () =
     mocks.isReaderViewOpen.mockReturnValue(false);
     window.dispatchEvent(new CustomEvent(READER_CLOSED_EVENT));
 
-    // 首拍：不推进任何定时器即补回按钮，interval 恢复 800ms 常速。
+    // 首拍：不推进任何定时器即补回按钮，interval 恢复 200ms 常速。
     expect(document.getElementById("boc-digest-button")).not.toBeNull();
-    expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 800)).toBe(true);
+    expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 200)).toBe(true);
 
     // 常速自查维持健康态（不重复注入、不再摘除）。
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
     expect(document.getElementById("boc-digest-button")).not.toBeNull();
   });
 
@@ -125,10 +125,11 @@ describe("digest-button 自查 interval 暂停/恢复（arch-slim-2/09）", () =
     // 壳失整：暂停档兜底 tick（≤2s 窗口）发现后恢复常速。
     mocks.isReaderShellIntact.mockReturnValue(false);
     await vi.advanceTimersByTimeAsync(2000);
-    expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 800)).toBe(true);
+    expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 200)).toBe(true);
 
-    // brokenTicks 连击确认（RESTORE_CONFIRM_TICKS=3，常速 800ms/拍）后派发。
-    await vi.advanceTimersByTimeAsync(2 * 801);
+    // brokenTicks 连击确认（RESTORE_CONFIRM_TICKS=3，常速 200ms/拍；暂停档
+    // 兜底 tick 已计 1 拍）后派发。
+    await vi.advanceTimersByTimeAsync(2 * 201);
     expect(mocks.dispatchContentScriptMessage).toHaveBeenCalledTimes(1);
     expect(mocks.dispatchContentScriptMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "reader-restore" }),

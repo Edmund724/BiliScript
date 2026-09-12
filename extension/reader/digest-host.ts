@@ -24,7 +24,7 @@
 // 为什么不用 MutationObserver：弹幕每飘一条都是变更事件，白烧 CPU（见
 // ui/digest-button.ts 头注）；SPA 换页换掉锚点节点的场景由 2s 定时自查
 // 覆盖（节拍与拆单源的理由见 REANCHOR_INTERVAL_MS 处注释，与 digest-button
-// 的按钮自愈相互独立，不复用 shared/self-heal.js 的 800ms 常量）。
+// 的按钮自愈相互独立，不复用 shared/self-heal.js 的 200ms 常量）。
 
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
 // #boc-reading-view 的 id 单源（arch-slim-2/03）：reader/state.js 的 id 表就是
@@ -57,7 +57,7 @@ const PINNED_MIN_HEIGHT = 240;
 // 右栏折叠断点校准后再定）。
 const FLOAT_VIEWPORT_MIN_WIDTH = 1000;
 // 定时自查间隔：SPA 换页把锚点节点换掉后靠它重锚（不用 MutationObserver，
-// 理由见文件头注）。有意不再沿用 shared/self-heal.js 的 800ms（按钮自愈
+// 理由见文件头注）。有意不再沿用 shared/self-heal.js 的 200ms（按钮自愈
 // 节拍，仍是其唯一消费者）：面板跑位是「降级表现」，滚动/resize 的 rAF
 // 合帧与 ResizeObserver 自带重锚（applyDigestRect 每拍比对换锚），此拍只在
 // 「用户完全不动 + 无 observer 事件」期间兜底自愈，与按钮「功能失效恢复」

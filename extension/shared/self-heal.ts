@@ -14,6 +14,6 @@
 // 监听它恢复常速自查并立即补回按钮——这是「视图关闭后补回按钮」的恢复触发点。
 // 有意不走静态 import 边（digest-button 不 import reader/shell）：两侧只共享
 // 本事件名字符串，派发方/监听方谁也不进谁的模块图。
-export const SELF_HEAL_INTERVAL_MS = 800;
+export const SELF_HEAL_INTERVAL_MS = 200;
 
 export const READER_CLOSED_EVENT = "boc:reader-closed";

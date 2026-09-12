@@ -15,7 +15,7 @@
 // - 幂等（重复注入不重复插按钮）；
 // - 非 /video/ 页自查主动移除按钮、回到 /video/ 页补回。
 //
-// 定时器全文件 fake：模块生命周期含 800ms 自查 interval，真实时钟下用例间
+// 定时器全文件 fake：模块生命周期含 200ms 自查 interval，真实时钟下用例间
 // 残留 interval 会在下一用例的时间窗开火（与
 // player-ai-guard.test.js 同一环境问题），fake 后未触发的回调随 afterEach 的
 // useRealTimers 一并丢弃。点击消息路径断言拆到 digest-button-click.test.js
@@ -61,7 +61,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// 模块求值即启动生命周期（01 快路径）：装载即首轮注入并挂 800ms 自查
+// 模块求值即启动生命周期（01 快路径）：装载即首轮注入并挂 200ms 自查
 // interval，无需推进 settle 定时器。
 
 describe("digest-button 快路径（01）", () => {
@@ -182,8 +182,8 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
     expect(document.getElementById("boc-digest-button")).toBeNull();
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
 
-    // 窗口耗尽：降④浮动层兜底（推进量需跨过 10000ms 窗口后的下一个
-    // 800ms 自查拍，首个落在窗外的 tick 是 ~10400ms）
+    // 窗口耗尽：降④浮动层兜底（推进量需跨过 10000ms 首载等待窗，200ms
+    // 节拍下窗后首个 tick 即 ~10000ms）
     await vi.advanceTimersByTimeAsync(11200);
     const button = document.getElementById("boc-digest-button");
     expect(button).not.toBeNull();
@@ -238,14 +238,14 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     button.remove();
     document.querySelector(".video-complaint").remove();
 
-    // 第 1 拍：失配进入宽限，不降级
-    await vi.advanceTimersByTimeAsync(801);
+    // 第 1 拍：失配进入宽限，不降级（节拍 200ms，201 跨一拍）
+    await vi.advanceTimersByTimeAsync(201);
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
     // 第 2 拍：宽限中，仍不降级
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
     // 第 3 拍：宽限耗尽，降级④浮动层
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
     const overlay = document.getElementById("boc-digest-overlay");
     expect(overlay).not.toBeNull();
     button = document.getElementById("boc-digest-button");
@@ -268,7 +268,7 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     complaint.className = "video-complaint";
     complaint.textContent = "稿件举报";
     right.insertBefore(complaint, right.firstElementChild);
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
 
     const button = document.getElementById("boc-digest-button");
     expect(button.parentElement).toBe(right);
@@ -284,14 +284,14 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     // 重渲染：举报节点短暂消失一拍后回来（Vue 重渲染换新节点）
     document.getElementById("boc-digest-button").remove();
     document.querySelector(".video-complaint").remove();
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
     const complaint = document.createElement("div");
     complaint.className = "video-complaint";
     complaint.textContent = "稿件举报";
     const right = document.querySelector(".video-toolbar-right");
     right.insertBefore(complaint, right.firstElementChild);
 
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
 
     const button = document.getElementById("boc-digest-button");
     expect(button).not.toBeNull();
@@ -305,8 +305,8 @@ describe("digest-button 失配宽限与升降级（02）", () => {
 
     await loadModule();
 
-    // 首载①未就绪 → 等待窗内不注入，窗耗尽降④（推进量需跨过窗口后的
-    // 下一个 800ms 自查拍）
+    // 首载①未就绪 → 等待窗内不注入，窗耗尽降④（推进量需跨过 10000ms 窗口，
+    // 200ms 节拍下窗后首个 tick 即 ~10000ms）
     expect(document.getElementById("boc-digest-button")).toBeNull();
     await vi.advanceTimersByTimeAsync(11200);
     let button = document.getElementById("boc-digest-button");
@@ -318,7 +318,7 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     complaint.className = "video-complaint";
     complaint.textContent = "稿件举报";
     right.insertBefore(complaint, right.firstElementChild);
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
 
     button = document.getElementById("boc-digest-button");
     expect(button.parentElement).toBe(right);
@@ -350,13 +350,13 @@ describe("digest-button 幂等与自查", () => {
 
     // SPA 换到非 /video/ 页：下一个自查周期摘除按钮
     setLocationUrl("https://www.bilibili.com/");
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
     expect(document.getElementById("boc-digest-button")).toBeNull();
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
 
     // 换回播放页：按钮补回（幂等注入）
     setLocationUrl(NORMAL_PAGE_URL);
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
     expect(document.getElementById("boc-digest-button")).not.toBeNull();
   });
 
@@ -371,13 +371,13 @@ describe("digest-button 幂等与自查", () => {
 
     expect(document.getElementById("boc-digest-button")).not.toBeNull();
 
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
     expect(document.getElementById("boc-digest-button")).not.toBeNull();
   });
 
   it("健康态自查零扫描：按钮就位时一拍只 getElementById 一次，不寻锚", async () => {
-    // 性能红线（与 reader/digest-host 的「一拍一搜」同款锁法）：健康态 800ms
-    // 一拍、每页每小时约 4500 拍，寻锚全量扫描（工具栏宿主全体 querySelectorAll
+    // 性能红线（与 reader/digest-host 的「一拍一搜」同款锁法）：健康态 200ms
+    // 一拍、每页每小时约 18000 拍，寻锚全量扫描（工具栏宿主全体 querySelectorAll
     // + 逐节点文本求和）不能留在热路径上。零扫描早退的判据是「按钮挂着 + 后一
     // 个兄弟仍是上次记下的举报节点」，故这里只该剩 getElementById(DIGEST_BUTTON_ID)。
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
@@ -387,7 +387,7 @@ describe("digest-button 幂等与自查", () => {
     const byId = vi.spyOn(document, "getElementById");
     const docAll = vi.spyOn(document, "querySelectorAll");
     const elementAll = vi.spyOn(Element.prototype, "querySelectorAll");
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
 
     expect(byId.mock.calls.map((args) => args[0])).toEqual(["boc-digest-button"]);
     expect(docAll).not.toHaveBeenCalled();
@@ -406,7 +406,7 @@ describe("digest-button 幂等与自查", () => {
     const button = document.getElementById("boc-digest-button");
     right.appendChild(button);
 
-    await vi.advanceTimersByTimeAsync(801);
+    await vi.advanceTimersByTimeAsync(201);
 
     expect(button.nextElementSibling.className).toBe("video-complaint");
   });

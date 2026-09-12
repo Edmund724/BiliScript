@@ -42,7 +42,7 @@ export type ReaderCloseMessage = {
 // 失败带可读 error。
 export type ReaderCloseResponse = { ok: boolean; error?: string };
 
-// 阅读视图自愈恢复（ui/digest-button.ts 的 800ms 自查在失同步时派发）：
+// 阅读视图自愈恢复（ui/digest-button.ts 的 200ms 自查在失同步时派发）：
 // URL 带 boc_reader=1 而视图没开（直达进入失败）、或状态开着而壳被页面重渲染
 // 摘掉（状态-DOM 失同步）时，按 DOM 实况收敛状态后重走进入链。readerUrl 语义
 // 同 reader-enter。仅 content 页内源使用（dispatchContentScriptMessage）。

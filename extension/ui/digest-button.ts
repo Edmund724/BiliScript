@@ -24,7 +24,7 @@
 // 后监听器与按钮共用同一条处理器路径。失同步自愈同理：自查派发 reader-restore
 //（阅读壳 restore 档先按 DOM 实况收敛失同步状态，再走与点击完全相同的进入链）。
 //
-// 自愈调度（arch-slim-2/09 收口）：自查节拍 800ms 单源 shared/self-heal.js 的
+// 自愈调度（arch-slim-2/09 收口）：自查节拍 200ms 单源 shared/self-heal.js 的
 // SELF_HEAL_INTERVAL_MS。阅读壳打开
 // 且完好期间按钮恒被守卫摘除、自查只会空跑 isReaderShellIntact 的 DOM 查询，
 // interval 降频至 PAUSED_INTERVAL_MS 兜底（恢复事件丢失时按钮延迟上限 2s）；
@@ -81,7 +81,8 @@ const BUTTON_BASE_STYLE =
 // 等 hydration 稳定是怕 SSR + Vue 水合期间向 Vue 管的容器插节点触发整树重渲染
 //（表现为视频加载两遍）；评审决议（工单 button-injection-stability/01）接受
 // 快路径与水合窗口的竞争——锚点未就绪时注入自然失败，偶发被水合推倒的按钮由
-// 800ms 自查立即补回，代价是最坏闪一次，收益是按钮与视频同步出现。
+// 800ms 自查立即补回，代价是最坏闪一次，收益是按钮与视频同步出现。（节拍后
+// 调快为 200ms——首载等待窗内用户等按钮落位，800ms 一拍体感偏慢。）
 //
 // 首载等待窗（用户实测反馈：加载中工具栏未渲染，按钮闪现在视频右上角）：init
 // 相位①未就绪时不再直达④浮动层，暂不注入并等 INIT_FALLBACK_DELAY_MS——
@@ -113,7 +114,7 @@ window.addEventListener(READER_CLOSED_EVENT, () => {
 // ===== 自查节拍（arch-slim-2/09 暂停/恢复收口） =====
 //
 // 单一 interval 句柄 + 档位切换：常速 REINJECT_INTERVAL_MS（按钮在场 / 失同步
-// 自愈中，需要 800ms 级节奏）与暂停档 PAUSED_INTERVAL_MS（阅读壳打开且完好，
+// 自愈中，需要 200ms 级节奏）与暂停档 PAUSED_INTERVAL_MS（阅读壳打开且完好，
 // 自查空跑）之间按每轮自查的结论切换。setInterval 回调持有人不变，换档只换
 // 周期，已挂出的定时器整体重建（幂等：同档不重建）。
 let tickTimer = 0;
@@ -135,7 +136,7 @@ function setTickInterval(ms: number): void {
 // 失同步恢复的节奏控制：连续 RESTORE_CONFIRM_TICKS 个自查周期都处于失同步态才
 // 派发恢复（点击路径上「URL 已改写、enterReaderMode 未完成」「状态已置开、
 // .open 未挂上」的亚秒瞬态不触发）；两次恢复派发之间至少隔 RESTORE_RETRY_BACKOFF_MS
-// （进入链自身失败时退避，不每 800ms 空转重试）。
+// （进入链自身失败时退避，不每 200ms 空转重试）。
 const RESTORE_CONFIRM_TICKS = 3;
 const RESTORE_RETRY_BACKOFF_MS = 4000;
 let brokenTicks = 0;
@@ -216,8 +217,8 @@ let anchorPhase: AnchorPhase = "init";
 let anchorGraceBeats = 0;
 // 「宽限期内暂不注入」只说一遍的标志（每次进入宽限时复位）。
 let anchorGraceWaitLogged = false;
-// 宽限拍数 2：命中过①的页面，失配后至多再等 2 个自查拍（800ms 节拍，约
-// 1.6s）让重渲染恢复，连失配当拍约 2.4s——挡掉 B 站工具栏重渲染间隙的闪漂，
+// 宽限拍数 2：命中过①的页面，失配后至多再等 2 个自查拍（200ms 节拍，约
+// 0.4s）让重渲染恢复，连失配当拍约 0.6s——挡掉 B 站工具栏重渲染间隙的闪漂，
 // 又不至让降级久等。
 const ANCHOR_GRACE_BEATS = 2;
 
@@ -249,7 +250,7 @@ let anchorSeat: HTMLElement | null = null;
 
 export function injectDigestButton(): void {
   const existing = document.getElementById(DIGEST_BUTTON_ID);
-  // 零扫描早退（性能；健康态 800ms 一拍 × 每页每小时约 4500 拍）：按钮挂着且
+  // 零扫描早退（性能；健康态 200ms 一拍 × 每页每小时约 18000 拍）：按钮挂着且
   // 席位未变即返回，不跑 findComplaintNode 的全量扫描。豁免范围严格限于「挂
   // 着且席位没变」这一种状态——席位节点被页面重渲染换掉/摘走（引用不等）、
   // 按钮被摘走或挪走（isConnected 假、或后一个兄弟不再是席位）都落到下方全
