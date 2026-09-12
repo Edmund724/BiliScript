@@ -36,6 +36,9 @@ import {
 // offscreen 段缓存消息族 SW 端 handler（offscreen 文档无 chrome.storage，
 // 段缓存读写经消息直调 ai/segment-cache 单源——arch-review-2026-09/05）
 import { createSegmentCacheHandler } from "../ai/segment-cache-handler.js";
+// 08 票 SW 保活：Map-Reduce/流式运行期间 offscreen 持长连端口钉住 SW
+// （防 30s 空闲回收反复冷启动），SW 端接受持有即生效
+import { isSwKeepalivePort } from "../ai/sw-keepalive.js";
 // SW 静态图只进传输叶（arch-slim-2/04）：bgFetchJson/isBiliUrl 拆至 gateway-core，
 // 不经 gateway 拖入 state/video-probe/selection→cache 链。
 import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
@@ -458,6 +461,15 @@ chrome.action?.onClicked?.addListener(
 );
 
 // ===== 入口监听 =====
+
+// 08 票 SW 保活：接受 offscreen 运行期间的长连端口（MV3：SW 生命周期与活动
+// 端口绑定，接受持有即钉住，无消息往来）；可选链与 chrome.action 先例一致，
+// 测试桩无需提供 onConnect。端口断开（运行结束 / SW 重载）由 runtime 回收。
+chrome.runtime.onConnect?.addListener?.((port) => {
+  if (isSwKeepalivePort(port)) {
+    // 保活端口无消息往来：接受持有即生效。
+  }
+});
 
 // 调试日志门：SW 自读 storage（此前门读 state.settings，SW 里恒为缺省关，
 // 用户开的调试日志在 SW 静默）。

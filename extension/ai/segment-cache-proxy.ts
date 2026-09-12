@@ -8,9 +8,12 @@ import type { SegmentCacheMessage, SegmentCacheResponse } from "../shared/messag
 
 export interface SegmentCacheOps {
   loadSummary(input: { context?: Record<string, unknown>; segmentIndex?: number | string; budgetScale?: unknown }): Promise<string | null>;
+  // 08 票批量读：一次消息取 N 段小结（与 segmentIndexes 按序对齐，未命中为 null）
+  loadSummaries(input: { context?: Record<string, unknown>; segmentIndexes?: Array<number | string>; budgetScale?: unknown }): Promise<(string | null)[]>;
   saveSummary(input: { context?: Record<string, unknown>; segmentIndex?: number | string; budgetScale?: unknown; summary: string }): Promise<{ ok: boolean; error?: unknown }>;
   saveRaw(input: { context?: Record<string, unknown>; segmentIndex?: number | string; budgetScale?: unknown; segments: unknown[] }): Promise<{ ok: boolean; error?: unknown }>;
-  loadStoredRaw(input: { context?: Record<string, unknown> }): Promise<unknown[]>;
+  // userPrompt 非空时 SW 侧预过滤，只回传命中段的 items（08 票）；缺省整篇回传
+  loadStoredRaw(input: { context?: Record<string, unknown>; userPrompt?: unknown }): Promise<unknown[]>;
 }
 
 async function segmentCacheRequest(
@@ -35,6 +38,13 @@ export const segmentCacheProxy: SegmentCacheOps = {
     }
     return typeof response.summary === "string" ? response.summary : null;
   },
+  async loadSummaries({ context, segmentIndexes, budgetScale }) {
+    const response = await segmentCacheRequest("load-summaries", { context, segmentIndexes, budgetScale });
+    if (!response.ok || !Array.isArray(response.summaries)) {
+      return [];
+    }
+    return response.summaries;
+  },
   async saveSummary({ context, segmentIndex, budgetScale, summary }) {
     const response = await segmentCacheRequest("save-summary", { context, segmentIndex, budgetScale, summary });
     return response.ok ? { ok: true } : { ok: false, error: response.error };
@@ -43,8 +53,9 @@ export const segmentCacheProxy: SegmentCacheOps = {
     const response = await segmentCacheRequest("save-raw", { context, segmentIndex, budgetScale, segments });
     return response.ok ? { ok: true } : { ok: false, error: response.error };
   },
-  async loadStoredRaw({ context }) {
-    const response = await segmentCacheRequest("load-stored-raw", { context });
+  async loadStoredRaw({ context, userPrompt }) {
+    const prompt = typeof userPrompt === "string" && userPrompt.trim() ? userPrompt : undefined;
+    const response = await segmentCacheRequest("load-stored-raw", { context, prompt });
     if (!response.ok || !Array.isArray(response.storedSegments)) {
       return [];
     }

@@ -245,11 +245,17 @@ export type ResolveAiProviderResponse = {
 // 直调 segment-cache 单源（键位装配也在 SW 完成，消息只带 context 字段）。
 export type SegmentCacheMessage = {
   type: "segment-cache";
-  op: "load-summary" | "save-summary" | "save-raw" | "load-stored-raw";
+  op: "load-summary" | "load-summaries" | "save-summary" | "save-raw" | "load-stored-raw";
   // context 形字段（bvid/cid/selectedSubtitleId/selectedSubtitleUrl/subtitleLang），
   // SW 端经 segmentCacheKeyFields 归一为键位字段
   context?: Record<string, unknown>;
   segmentIndex?: number | string;
+  // load-summaries 批量（08 票）：段序号清单，一次消息读 N 个键（追问 N 段 = N 次
+  // 往返 → 常数级），SW 端按序装配键位
+  segmentIndexes?: Array<number | string>;
+  // load-stored-raw 命中段过滤（08 票）：携带时 SW 侧用同一检索规则预过滤，
+  // 非命中段剥离 items 再回传（整篇数 MB → 仅命中段过线）；缺省整篇回传（行为不变）
+  prompt?: string;
   // unknown 透传：budgetScaleSuffix 的 Number() 归一在 SW 的 segment-cache 单源
   // 完成，与迁移前直连调用的口径逐字一致
   budgetScale?: unknown;
@@ -261,7 +267,10 @@ export type SegmentCacheResponse = {
   ok: boolean;
   // load-summary 回包：小结文本（未命中为 null）
   summary?: string | null;
-  // load-stored-raw 回包：按段序排列的落盘原始段（无命中为空数组）
+  // load-summaries 回包：与 segmentIndexes 按序对齐的小结（未命中为 null）
+  summaries?: (string | null)[];
+  // load-stored-raw 回包：按段序排列的落盘原始段（无命中为空数组；带 prompt 时
+  // 非命中段 items 已被剥离，段元数据 index/from/to 保留）
   storedSegments?: unknown[];
   error?: string;
 };

@@ -11,6 +11,7 @@ import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
 import { resolveFollowupContext as _resolveFollowupContext } from "./followup-router.js";
 import { trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
 import { buildCostGuardNotice as _buildCostGuardNotice } from "./cost-guard.js";
+import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } from "./sw-keepalive.js";
 
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -112,6 +113,9 @@ export interface RunLadderChatDeps {
   askCostGuard: (port: ChatPort, message: string) => Promise<unknown>;
   onActivity?: () => void;
   pauseIdleTimeout?: () => void;
+  // 08 票 SW 保活缝：运行期间持有 offscreen → SW 长连端口防冷启动，
+  // 缺省真实 acquire（无 chrome 环境返回 null，跳过保活）。
+  acquireSwKeepalive?: () => SwKeepaliveHandle | null;
 }
 
 /**
@@ -139,6 +143,54 @@ export async function runLadderChat(
   const trimRecentTurns: TrimRecentTurnsFn = deps.trimRecentTurns ?? (_trimRecentTurns as unknown as TrimRecentTurnsFn);
   const { askCostGuard, onActivity, pauseIdleTimeout } = deps;
 
+  // 08 票 SW 保活：本次运行（单次流式 / Map-Reduce / 追问压缩）全程持有
+  // offscreen → SW 长连端口，防段缓存消息反复冷启动 SW（30s 空闲回收）；
+  // 覆盖成本护栏等待与追问小结加载，结束/异常经 finally 释放。
+  const keepalive = (deps.acquireSwKeepalive ?? _acquireSwKeepalive)();
+  try {
+    await runLadderChatDispatch({ msg, provider, port, signal }, {
+      streamChat,
+      orchestrateMapReduce,
+      resolveFollowupContext,
+      buildBudgetPlan,
+      buildCostGuardNotice,
+      trimRecentTurns,
+      askCostGuard,
+      onActivity,
+      pauseIdleTimeout
+    });
+  } finally {
+    keepalive?.release();
+  }
+}
+
+interface LadderDispatchDeps {
+  streamChat: StreamChatFn;
+  orchestrateMapReduce: OrchestrateMapReduceFn;
+  resolveFollowupContext: ResolveFollowupContextFn;
+  buildBudgetPlan: BuildBudgetPlanFn;
+  buildCostGuardNotice: BuildCostGuardNoticeFn;
+  trimRecentTurns: TrimRecentTurnsFn;
+  askCostGuard: (port: ChatPort, message: string) => Promise<unknown>;
+  onActivity?: () => void;
+  pauseIdleTimeout?: () => void;
+}
+
+// 阶梯分派本体：与保活生命周期解耦，runLadderChat 统一 try/finally 释放端口。
+async function runLadderChatDispatch(
+  { msg, provider, port, signal }: RunLadderChatArgs,
+  {
+    streamChat,
+    orchestrateMapReduce,
+    resolveFollowupContext,
+    buildBudgetPlan,
+    buildCostGuardNotice,
+    trimRecentTurns,
+    askCostGuard,
+    onActivity,
+    pauseIdleTimeout
+  }: LadderDispatchDeps
+): Promise<void> {
   // 阶梯分派：预算内（≤200k 字符）走单次流式；超预算走 Map-Reduce 分段编排。
   const plan = buildBudgetPlan({
     body: Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : [],

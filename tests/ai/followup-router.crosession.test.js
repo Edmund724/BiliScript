@@ -10,6 +10,7 @@ import { resetModuleState } from "../setup.js";
 let storage;
 let segCache;
 let router;
+let sendMessageMock;
 
 // 内存 Map 实现的 chrome.storage.local：get 需支持 null（全量枚举）。
 function createMemoryStorage() {
@@ -51,16 +52,15 @@ async function importModules() {
   resetModuleState();
   storage = createMemoryStorage();
   const handler = (await import("../../extension/ai/segment-cache-handler.js")).createSegmentCacheHandler();
+  sendMessageMock = vi.fn((message) => {
+    if (message?.type === "segment-cache") {
+      return new Promise((resolve) => handler(message, null, resolve));
+    }
+    return Promise.resolve({ ok: true });
+  });
   vi.stubGlobal("chrome", {
     storage: { local: storage.local },
-    runtime: {
-      sendMessage: vi.fn((message) => {
-        if (message?.type === "segment-cache") {
-          return new Promise((resolve) => handler(message, null, resolve));
-        }
-        return Promise.resolve({ ok: true });
-      })
-    }
+    runtime: { sendMessage: sendMessageMock }
   });
   segCache = await import("../../extension/ai/segment-cache.js");
   router = await import("../../extension/ai/followup-router.js");
@@ -171,6 +171,87 @@ describe("跨会话回退：plan.segments 为空时从段缓存恢复", () => {
     expect(
       await segCache.loadStoredRawSegments({ bvid: context.bvid, cid: context.cid, subtitleId: "sub-other" })
     ).toEqual([]);
+  });
+});
+
+describe("08 票：追问段缓存批量与命中段传输", () => {
+  it("N 段追问的小结加载一次批量往返（load-summaries），不再逐段 load-summary", async () => {
+    await seedVideoCache({ bvid: context.bvid, cid: context.cid, subtitleId: context.selectedSubtitleId, segments: storedSegments });
+    sendMessageMock.mockClear();
+
+    const result = await router.resolveFollowupContext({
+      context,
+      plan: { mode: "map-reduce", segments: [] },
+      history,
+      userPrompt: "09:00 那里讲了什么" // 540s → 命中第 2 段
+    });
+
+    expect(result).not.toBeNull();
+    const cacheMessages = sendMessageMock.mock.calls.map(([m]) => m).filter((m) => m?.type === "segment-cache");
+    // 小结：恰一条批量 op（3 段 1 次往返），无逐段 op
+    const batchOps = cacheMessages.filter((m) => m.op === "load-summaries");
+    expect(batchOps).toHaveLength(1);
+    expect(batchOps[0].segmentIndexes).toEqual([1, 2, 3]);
+    expect(cacheMessages.filter((m) => m.op === "load-summary")).toHaveLength(0);
+    // 压缩摘要仍含全部 3 段小结（批量返回按段序对齐，行为不变）
+    expect(result.compressedSummaryMarkdown).toContain("小结1：第1段摘要。");
+    expect(result.compressedSummaryMarkdown).toContain("小结3：第3段摘要。");
+    expect(result.compressedSummaryMarkdown).toContain("后续内容DEF");
+  });
+
+  it("load-stored-raw 带 prompt：非命中段 items 不回传（传输量下降），命中段保留、注入结果不变", async () => {
+    await seedVideoCache({ bvid: context.bvid, cid: context.cid, subtitleId: context.selectedSubtitleId, segments: storedSegments });
+
+    const result = await router.resolveFollowupContext({
+      context,
+      plan: { mode: "map-reduce", segments: [] },
+      history,
+      userPrompt: "09:00 那里讲了什么" // 540s → 命中第 2 段
+    });
+
+    expect(result).not.toBeNull();
+    // 定位 load-stored-raw 的响应
+    const callIndex = sendMessageMock.mock.calls.findIndex(([m]) => m?.type === "segment-cache" && m?.op === "load-stored-raw");
+    expect(callIndex).toBeGreaterThanOrEqual(0);
+    const request = sendMessageMock.mock.calls[callIndex][0];
+    expect(request.prompt).toBe("09:00 那里讲了什么");
+    const response = await sendMessageMock.mock.results[callIndex].value;
+    expect(response.ok).toBe(true);
+    const byIndex = new Map(response.storedSegments.map((seg) => [seg.index, seg]));
+    // 非命中段 items 被剥离（数 MB 整篇 → 仅命中段过线），命中段原样
+    expect(byIndex.get(1).items).toEqual([]);
+    expect(byIndex.get(3).items).toEqual([]);
+    expect(byIndex.get(2).items).toEqual([{ from: 500, to: 1000, content: "后续内容DEF" }]);
+    // 段元数据（index/from/to）保留 → 分段小结枚举与检索结果与整篇回传逐字节一致
+    expect(byIndex.get(1)).toMatchObject({ index: 1, from: 0, to: 500 });
+    expect(result.compressedSummaryMarkdown).toContain("## 相关原始字幕段");
+    expect(result.compressedSummaryMarkdown).toContain("后续内容DEF");
+    expect(result.compressedSummaryMarkdown).toContain("小结1：第1段摘要。");
+    expect(result.compressedSummaryMarkdown).toContain("小结3：第3段摘要。");
+  });
+
+  it("空 prompt 追问：load-stored-raw 不带 prompt → 回退整篇（行为与旧一致）", async () => {
+    await seedVideoCache({ bvid: context.bvid, cid: context.cid, subtitleId: context.selectedSubtitleId, segments: storedSegments });
+
+    const result = await router.resolveFollowupContext({
+      context,
+      plan: { mode: "map-reduce", segments: [] },
+      history,
+      userPrompt: ""
+    });
+
+    const callIndex = sendMessageMock.mock.calls.findIndex(([m]) => m?.type === "segment-cache" && m?.op === "load-stored-raw");
+    const request = sendMessageMock.mock.calls[callIndex][0];
+    expect(request.prompt).toBeUndefined();
+    const response = await sendMessageMock.mock.results[callIndex].value;
+    // 整篇回传：全部段的 items 保留
+    for (const seg of response.storedSegments) {
+      expect(seg.items.length).toBeGreaterThan(0);
+    }
+    // 无命中 → 无注入，但压缩摘要成立
+    expect(result).not.toBeNull();
+    expect(result.compressedSummaryMarkdown).not.toContain("## 相关原始字幕段");
+    expect(result.compressedSummaryMarkdown).toContain("小结1：第1段摘要。");
   });
 });
 

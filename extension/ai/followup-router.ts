@@ -15,29 +15,44 @@ import type { BudgetPlan, BudgetPlanSegment } from "./types.js";
 interface LoadSegmentSummariesInput {
   context?: Record<string, unknown>;
   plan?: { segments?: BudgetPlanSegment[] } | null;
-  // 小结读取缝（arch-review-2026-09/05）：缺省经 segmentCacheProxy 消息到 SW
-  // （段缓存宿主），测试注入可控桩。
+  // 逐段读取缝（arch-review-2026-09/05）：注入时保持逐段语义（测试可控桩）；
+  // 与批量缝二选一，缺省走批量。
   loadSummary?: (input: { context?: Record<string, unknown>; segmentIndex?: number | string }) => Promise<string | null>;
+  // 批量读取缝（08 票）：一次消息取 N 段小结，缺省经 segmentCacheProxy 到 SW。
+  loadSummaries?: (input: { context?: Record<string, unknown>; segmentIndexes?: Array<number | string> }) => Promise<(string | null)[]>;
+}
+
+function keepSummary(summary: unknown): summary is string {
+  return typeof summary === "string" && summary.trim().length > 0;
 }
 
 /**
  * 从段缓存按段顺序加载全部分段小结（跳过 null/空，保持段序）。
- * loader 可注入以便单测；缺省用段缓存消息代理（宿主 SW，键位在 SW 装配）。
+ * 缺省一次批量往返（08 票：N 段 = 1 次消息 + 1 次批量 storage.get）；
+ * 注入逐段 loader 时保持原逐段语义。
  */
 export async function loadSegmentSummaries({
   context = {},
   plan = null,
-  loadSummary = (input) => segmentCacheProxy.loadSummary(input)
+  loadSummary,
+  loadSummaries = (input) => segmentCacheProxy.loadSummaries(input)
 }: LoadSegmentSummariesInput = {}): Promise<string[]> {
   const segments = Array.isArray(plan?.segments) ? plan.segments : [];
-  const out: string[] = [];
-  for (const segment of segments) {
-    const summary = await loadSummary({ context, segmentIndex: segment?.index });
-    if (typeof summary === "string" && summary.trim().length > 0) {
-      out.push(summary);
+  if (typeof loadSummary === "function") {
+    const out: string[] = [];
+    for (const segment of segments) {
+      const summary = await loadSummary({ context, segmentIndex: segment?.index });
+      if (keepSummary(summary)) {
+        out.push(summary);
+      }
     }
+    return out;
   }
-  return out;
+  const indexes = segments
+    .map((segment) => segment?.index)
+    .filter((index) => index !== undefined && index !== null);
+  const summaries = await loadSummaries({ context, segmentIndexes: indexes });
+  return (Array.isArray(summaries) ? summaries : []).filter(keepSummary);
 }
 
 // 单条命中的原始段渲染成注入文本块：逐条字幕项按 [起点-终点] 内容 拼行。
@@ -93,8 +108,8 @@ interface ResolveFollowupContextInput {
   userPrompt?: string;
   loadSummaries?: typeof loadSegmentSummaries;
   // 跨会话原始段读取缝（arch-review-2026-09/05）：缺省经 segmentCacheProxy
-  // 消息到 SW，测试注入可控桩。
-  loadStoredSegments?: (input: { context?: Record<string, unknown> }) => Promise<unknown[]>;
+  // 消息到 SW，测试注入可控桩。userPrompt 非空时 SW 只回传命中段的 items（08 票）。
+  loadStoredSegments?: (input: { context?: Record<string, unknown>; userPrompt?: unknown }) => Promise<unknown[]>;
 }
 
 /**
@@ -129,11 +144,12 @@ export async function resolveFollowupContext({
     return null;
   }
 
-  // 段来源：内存优先，空缺时跨会话回退（仅此处触达段缓存，经消息代理到 SW）。
+  // 段来源：内存优先，空缺时跨会话回退（仅此处触达段缓存，经消息代理到 SW；
+  // userPrompt 一并下发，SW 侧预过滤后只回传命中段的 items——08 票）。
   const inMemorySegments = Array.isArray(plan?.segments) ? plan.segments : [];
   let segments: BudgetPlanSegment[] = inMemorySegments;
   if (segments.length === 0) {
-    const stored = await loadStoredSegments({ context });
+    const stored = await loadStoredSegments({ context, userPrompt });
     if (Array.isArray(stored) && stored.length > 0) {
       segments = stored as BudgetPlanSegment[];
     }

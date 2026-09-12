@@ -122,6 +122,26 @@ export async function loadSegmentSummary(key: string): Promise<string | null> {
   return summaryFamily.load(key);
 }
 
+/**
+ * 批量读取分段小结（08 票）：一次 storage.get 取 N 键，返回与 keys 按序对齐的
+ * 数组（未命中/读失败为 null）。容错语义同 loadSegmentSummary（静默、不抛）。
+ */
+export async function loadSegmentSummaries(keys: string[]): Promise<(string | null)[]> {
+  const list = (Array.isArray(keys) ? keys : []).filter((key) => typeof key === "string" && Boolean(key));
+  if (list.length === 0) {
+    return [];
+  }
+  try {
+    const all = await chrome.storage.local.get(list);
+    return list.map((key) => {
+      const value = (all[key] as Record<string, unknown> | undefined)?.summary;
+      return value == null ? null : (value as string);
+    });
+  } catch {
+    return list.map(() => null);
+  }
+}
+
 type SaveResult = EvictionResult | EvictionFailure;
 
 /**

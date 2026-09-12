@@ -155,3 +155,76 @@ describe("runLadderChat 分派", () => {
     ]);
   });
 });
+
+describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", () => {
+  function makeKeepaliveSpy() {
+    const events = [];
+    const handle = {
+      release: vi.fn(() => {
+        events.push("release");
+      })
+    };
+    const acquireSwKeepalive = vi.fn(() => {
+      events.push("acquire");
+      return handle;
+    });
+    return { acquireSwKeepalive, handle, events };
+  }
+
+  it("单次流式路径：先 acquire（在任何分派之前），运行结束 release", async () => {
+    const port = makePort();
+    const { deps } = makeDeps();
+    const { acquireSwKeepalive, handle, events } = makeKeepaliveSpy();
+    deps.acquireSwKeepalive = acquireSwKeepalive;
+
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+
+    expect(acquireSwKeepalive).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(["acquire", "release"]);
+    expect(handle.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("Map-Reduce 主路径（含成本护栏等待）全程持有，结束 release", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      resolveFollowupContext: vi.fn(async () => null),
+      buildCostGuardNotice: () => ({ shouldPrompt: true, message: "确认？" }),
+      askCostGuard: vi.fn(async () => true)
+    });
+    const { acquireSwKeepalive, events } = makeKeepaliveSpy();
+    deps.acquireSwKeepalive = acquireSwKeepalive;
+
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+
+    expect(calls.mapReduce).toHaveLength(1);
+    expect(events).toEqual(["acquire", "release"]);
+  });
+
+  it("streamChat 抛非 overflow 错误（运行失败）→ 仍 release，异常继续上抛", async () => {
+    const port = makePort();
+    const { deps } = makeDeps({
+      streamChat: vi.fn(async () => {
+        throw new Error("boom");
+      })
+    });
+    const { acquireSwKeepalive, handle } = makeKeepaliveSpy();
+    deps.acquireSwKeepalive = acquireSwKeepalive;
+
+    await expect(
+      runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps)
+    ).rejects.toThrow("boom");
+    expect(handle.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("acquire 返回 null（无 chrome 环境）→ 运行不受影响", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps({
+      acquireSwKeepalive: vi.fn(() => null)
+    });
+
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+
+    expect(calls.streamChat).toHaveLength(1);
+  });
+});
