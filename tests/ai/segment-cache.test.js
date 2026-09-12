@@ -97,8 +97,8 @@ describe("原始字幕段落盘读写（命中/未命中）", () => {
   });
 });
 
-describe("loadStoredRawSegments：索引驱动批量读取（代替 get(null) 全库扫描）", () => {
-  it("索引含该 bvid 的 keys → 单次批量定点读取（无逐键往返），返回形状不变", async () => {
+describe("loadStoredRawSegments：索引驱动批量读取", () => {
+  it("索引含该 bvid 条目 → 索引枚举 1 次 + 数据键单次批量 get 1 次，返回形状不变", async () => {
     const keys = [0, 1, 2].map((i) =>
       mod.getRawSegmentKey({ bvid: "BV1a", cid: "1", subtitleId: "sub-1", segmentIndex: i })
     );
@@ -110,9 +110,10 @@ describe("loadStoredRawSegments：索引驱动批量读取（代替 get(null) �
     const restored = await mod.loadStoredRawSegments({ bvid: "BV1a", cid: "1", subtitleId: "sub-1" });
     expect(restored.map((seg) => seg.index)).toEqual([0, 1, 2]);
     expect(restored[1]).toMatchObject({ index: 1, from: 5, to: 10, items: [{ from: 5, to: 10, content: "段1" }] });
-    // 往返数：索引定点读 1 次 + 数据键单次批量 get 1 次（原实现为 get(null) + 逐键串行）
+    // 往返数：readFamilyKeys 索引枚举（get(null) 快照）1 次 + 数据键单次批量 get 1 次
+    // （11 票分键布局：索引枚举即全量快照过滤，无逐键串行）
     expect(storage.local.get.mock.calls.map(([k]) => k)).toEqual([
-      "boc_cache_lru_index",
+      null,
       expect.arrayContaining(keys)
     ]);
   });

@@ -63,24 +63,22 @@ afterEach(() => {
 });
 
 describe("readFamilyKeys：索引驱动取该族该 bvid 的缓存键（读端原语）", () => {
-  it("索引条目含 keys → 定点返回（按 keyPrefix 过滤），不触发 get(null)", async () => {
-    const familyEntry = {
-      BV1a: {
-        ts: 100,
-        keys: ["boc_lvs_raw_BV1a_1_a_1", "boc_lvs_raw_BV1a_1_b_2", "boc_lvs_raw_BV1a_9_z_9"]
-      }
-    };
-    await storage.local.set({ boc_cache_lru_index: { boc_lvs_raw_: familyEntry } });
+  it("分键索引含该 bvid 条目 → 返回其缓存键清单（按 keyPrefix 过滤）", async () => {
+    const dataKeys = [
+      "boc_lvs_raw_BV1a_1_a_1",
+      "boc_lvs_raw_BV1a_1_b_2",
+      "boc_lvs_raw_BV1a_9_z_9"
+    ];
+    const items = {};
+    for (const key of dataKeys) {
+      items[`boc_cache_lru_index:boc_lvs_raw_:BV1a:${key}`] = { ts: 100 };
+    }
+    await storage.local.set(items);
 
     const keys = await mod.readFamilyKeys("boc_lvs_raw_", "BV1a", "boc_lvs_raw_BV1a_1_");
     expect(keys).toEqual(["boc_lvs_raw_BV1a_1_a_1", "boc_lvs_raw_BV1a_1_b_2"]);
     // 省略 keyPrefix → 返回该 bvid 的全部索引键
-    expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1a")).toEqual([
-      "boc_lvs_raw_BV1a_1_a_1",
-      "boc_lvs_raw_BV1a_1_b_2",
-      "boc_lvs_raw_BV1a_9_z_9"
-    ]);
-    expect(storage.local.get.mock.calls.some(([k]) => k === null)).toBe(false);
+    expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1a")).toEqual(dataKeys);
   });
 
   it("条目缺失 / 旧格式（数值 ts 无 keys）→ 回退 null（消费方 get(null) 前缀扫描）", async () => {
@@ -161,19 +159,22 @@ describe("索引记录（family → bvid → { ts, keys }）", () => {
 });
 
 describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
-  // 直写索引（显式 ts 保证排名确定，绕过 writeWithEviction 以免种子写入提前触发
-  // 淘汰）+ 每视频两条数据键（模拟 raw/summary 的多段、字幕缓存的平台+ASR 轨）。
+  // 直写分键索引 + 清单（显式 ts 保证排名确定，绕过 writeWithEviction 以免种子
+  // 写入提前触发淘汰）+ 每视频两条数据键（模拟 raw/summary 的多段、字幕缓存的平台+ASR 轨）。
   async function seedFamily(family, bvids) {
-    const familyEntry = {};
+    const lruKey = "boc_cache_lru_index";
+    const currentManifest = (await storage.local.get(lruKey))[lruKey] || {};
+    const familyManifest = {};
     const items = {};
     for (const [bvid, ts] of bvids) {
-      familyEntry[bvid] = { ts, keys: [`${family}${bvid}_1_a_1`, `${family}${bvid}_1_b_2`] };
-      items[`${family}${bvid}_1_a_1`] = { v: `${bvid}-1` };
-      items[`${family}${bvid}_1_b_2`] = { v: `${bvid}-2` };
+      familyManifest[bvid] = ts;
+      for (const suffix of ["1_a_1", "1_b_2"]) {
+        const key = `${family}${bvid}_${suffix}`;
+        items[key] = { v: `${bvid}-${suffix}` };
+        items[`boc_cache_lru_index:${family}:${bvid}:${key}`] = { ts };
+      }
     }
-    const indexKey = "boc_cache_lru_index";
-    const currentIndex = (await storage.local.get(indexKey))[indexKey] || {};
-    items[indexKey] = { ...currentIndex, [family]: familyEntry };
+    items[lruKey] = { ...currentManifest, [family]: familyManifest };
     await storage.local.set(items);
   }
 
@@ -239,25 +240,24 @@ describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
   });
 });
 
-// 直接以字面量索引键写索引与数据键（绕过 writeWithEviction 便于精确控制 keys）。
+// 直接以字面量分键索引 + 清单写索引与数据键（绕过 writeWithEviction 便于精确控制键面）。
 async function seedNewFormatIndex(family, entries) {
-  const familyEntry = {};
-  const dataKeys = [];
+  const lruKey = "boc_cache_lru_index";
+  const currentManifest = (await storage.local.get(lruKey))[lruKey] || {};
+  const familyManifest = {};
+  const items = { [lruKey]: { ...currentManifest, [family]: familyManifest } };
   for (const [bvid, ts, keys] of entries) {
-    familyEntry[bvid] = { ts, keys };
-    dataKeys.push(...keys);
-  }
-  const indexKey = "boc_cache_lru_index";
-  const currentIndex = (await storage.local.get(indexKey))[indexKey] || {};
-  const items = { [indexKey]: { ...currentIndex, [family]: familyEntry } };
-  for (const key of dataKeys) {
-    items[key] = { v: key };
+    familyManifest[bvid] = ts;
+    for (const key of keys) {
+      items[key] = { v: key };
+      items[`boc_cache_lru_index:${family}:${bvid}:${key}`] = { ts };
+    }
   }
   await storage.local.set(items);
 }
 
-describe("索引驱动淘汰：索引含 keys 时不做 get(null) 全量扫描", () => {
-  it("索引健康时淘汰全程不调 get(null)，结果与扫描路径等价", async () => {
+describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键布局）", () => {
+  it("索引健康时淘汰恰做一次全量快照，结果与扫描路径等价", async () => {
     await seedNewFormatIndex("boc_lvs_raw_", [
       ["BV1old", 10, ["boc_lvs_raw_BV1old_1_a_1", "boc_lvs_raw_BV1old_1_b_2"]],
       ["BV1a", 100, ["boc_lvs_raw_BV1a_1_a_1"]],
@@ -266,9 +266,10 @@ describe("索引驱动淘汰：索引含 keys 时不做 get(null) 全量扫描",
     ]);
 
     const removed = await mod.pruneToRecentVideos(["boc_lvs_raw_"]);
-    // 全程未触发全量枚举（索引键的定点 get 不算）
+    // 分键布局：prune 单次快照枚举（读端 readFamilyKeys 亦走同一快照机制，
+    // 全程恰一次 get(null)，无第二次全量枚举）
     const nullScans = storage.local.get.mock.calls.filter(([keys]) => keys === null);
-    expect(nullScans).toHaveLength(0);
+    expect(nullScans).toHaveLength(1);
     expect(removed.boc_lvs_raw_).toEqual(
       expect.arrayContaining(["boc_lvs_raw_BV1old_1_a_1", "boc_lvs_raw_BV1old_1_b_2"])
     );
@@ -279,8 +280,8 @@ describe("索引驱动淘汰：索引含 keys 时不做 get(null) 全量扫描",
     expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1old")).toBeNull();
   });
 
-  it("writeWithEviction 传 keys：正常写入路径不再触发 get(null)", async () => {
-    // 三族索引均健康（有条目且有 keys），写路径全程走索引驱动淘汰
+  it("writeWithEviction 传 keys：越界写入触发一次 prune（单快照），淘汰最旧视频", async () => {
+    // 三族索引均健康（有条目），写路径清单显示 raw 族已越界 → 触发一次淘汰
     await seedNewFormatIndex("boc_lvs_raw_", [
       ["BV1old", 10, ["boc_lvs_raw_BV1old_1_a_1"]],
       ["BV1a", 100, ["boc_lvs_raw_BV1a_1_a_1"]],
@@ -298,8 +299,8 @@ describe("索引驱动淘汰：索引含 keys 时不做 get(null) 全量扫描",
     });
 
     expect(result).toEqual({ ok: true });
-    // 索引健康：写入与两次 prune 均未全量扫描
-    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(0);
+    // 越界写入触发一次 prune：恰一次全量快照（清单读不算）
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(1);
     expect(storage.map.has("boc_lvs_raw_BV1old_1_a_1")).toBe(false); // 最旧被淘汰
     expect(storage.map.has("boc_lvs_raw_BV1a_1_a_1")).toBe(false); // 次旧同样超出 keep=3
     expect(storage.map.has("boc_lvs_raw_BV1new_1_a_1")).toBe(true);
@@ -358,6 +359,99 @@ describe("索引驱动淘汰：索引含 keys 时不做 get(null) 全量扫描",
   });
 });
 
+describe("并发写入竞态（11 票回归）：索引分键后并发写互不覆盖", () => {
+  it("同 bvid 3 段并发 writeWithEviction：索引无丢键（readFamilyKeys 全量读回）", async () => {
+    await Promise.all(
+      [1, 2, 3].map((i) =>
+        mod.writeWithEviction({
+          family: "boc_lvs_raw_",
+          bvid: "BV1race",
+          keys: [`boc_lvs_raw_BV1race_1_a_${i}`],
+          write: async () => storage.local.set({ [`boc_lvs_raw_BV1race_1_a_${i}`]: { v: i } })
+        })
+      )
+    );
+    expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1race")).toEqual([
+      "boc_lvs_raw_BV1race_1_a_1",
+      "boc_lvs_raw_BV1race_1_a_2",
+      "boc_lvs_raw_BV1race_1_a_3"
+    ]);
+    // 数据键也在
+    for (const i of [1, 2, 3]) {
+      expect(storage.map.has(`boc_lvs_raw_BV1race_1_a_${i}`)).toBe(true);
+    }
+  });
+
+  it("并发 3 段经真实 segment-cache 路径（saveRawSegments）：索引无丢键", async () => {
+    const seg = await import("../../extension/ai/segment-cache.js");
+    await Promise.all(
+      [0, 1, 2].map((i) =>
+        seg.saveRawSegments(
+          seg.getRawSegmentKey({ bvid: "BV1seg", cid: "1", subtitleId: "s", segmentIndex: i }),
+          [{ from: i * 5, to: i * 5 + 5, content: `段${i}` }]
+        )
+      )
+    );
+    expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1seg")).toHaveLength(3);
+  });
+
+  it("并发跨族写入（raw × summary × subtitle）：各族索引互不干扰", async () => {
+    const seg = await import("../../extension/ai/segment-cache.js");
+    await Promise.all([
+      seg.saveRawSegments(seg.getRawSegmentKey({ bvid: "BV1x", cid: "1", subtitleId: "s", segmentIndex: 0 }), []),
+      seg.saveSegmentSummary(seg.getSegmentSummaryKey({ bvid: "BV1x", cid: "1", subtitleId: "s", segmentIndex: 0 }), "小"),
+      mod.writeWithEviction({
+        family: "boc_subtitle_cache_",
+        bvid: "BV1x",
+        keys: ["boc_subtitle_cache_BV1x_1_id_x"],
+        write: async () => storage.local.set({ boc_subtitle_cache_BV1x_1_id_x: { v: "s" } })
+      })
+    ]);
+    expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1x")).toEqual(["boc_lvs_raw_BV1x_1_id_s_0"]);
+    expect(await mod.readFamilyKeys("boc_lvs_summary_", "BV1x")).toEqual(["boc_lvs_summary_BV1x_1_id_s_0"]);
+    expect(await mod.readFamilyKeys("boc_subtitle_cache_", "BV1x")).toEqual(["boc_subtitle_cache_BV1x_1_id_x"]);
+  });
+
+  it("并发写入后淘汰行为不变：第 4 个视频写入后最旧视频整族被淘汰", async () => {
+    vi.useFakeTimers();
+    try {
+      let now = 1000;
+      for (const bvid of ["BV1c1", "BV1c2", "BV1c3"]) {
+        now += 1000;
+        vi.setSystemTime(now);
+        // 每个视频 3 段并发写入（真实竞态面）
+        await Promise.all(
+          [0, 1, 2].map((i) =>
+            mod.writeWithEviction({
+              family: "boc_lvs_raw_",
+              bvid,
+              keys: [`boc_lvs_raw_${bvid}_1_a_${i}`],
+              write: async () => storage.local.set({ [`boc_lvs_raw_${bvid}_1_a_${i}`]: { v: i } })
+            })
+          )
+        );
+      }
+      now += 1000;
+      vi.setSystemTime(now);
+      await mod.writeWithEviction({
+        family: "boc_lvs_raw_",
+        bvid: "BV1c4",
+        keys: ["boc_lvs_raw_BV1c4_1_a_0"],
+        write: async () => storage.local.set({ boc_lvs_raw_BV1c4_1_a_0: { v: 0 } })
+      });
+
+      // 最旧的 BV1c1 整族（3 段数据键 + 索引）被淘汰，新视频保留
+      for (const i of [0, 1, 2]) {
+        expect(storage.map.has(`boc_lvs_raw_BV1c1_1_a_${i}`)).toBe(false);
+      }
+      expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1c1")).toBeNull();
+      expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1c4")).toEqual(["boc_lvs_raw_BV1c4_1_a_0"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
   it("首次成功：写一次、更新索引、并维持每族最近 3 个视频", async () => {
     // 直写索引（显式 ts）+ 数据键：BV1old 最旧，写入目标 BV1new 由 write 内部记录
@@ -378,10 +472,10 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
     expect(storage.map.has("boc_lvs_raw_BV1new_1_a_1")).toBe(true);
     // 刚写入的 bvid 是最近写入 → 保留；最旧的 BV1old 被淘汰
     expect(storage.map.has("boc_lvs_raw_BV1old_1_a_1")).toBe(false);
-    // write 未传 keys → BV1new 条目仅记录 ts（readFamilyKeys 会因无 keys 回退，
-    // 故此处直读索引）
-    const index = (await storage.local.get("boc_cache_lru_index")).boc_cache_lru_index;
-    expect(index.boc_lvs_raw_.BV1new.ts).toEqual(expect.any(Number));
+    // write 未传 keys → BV1new 仅在清单记录 ts（无分键索引条目，readFamilyKeys
+    // 会回退，故此处直读清单）
+    const manifest = (await storage.local.get("boc_cache_lru_index")).boc_cache_lru_index;
+    expect(manifest.boc_lvs_raw_.BV1new).toEqual(expect.any(Number));
   });
 
   it("写入失败 → 先淘汰再重试一次，重试成功返回 { ok:true }", async () => {
@@ -478,9 +572,9 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
 
     expect(result).toEqual({ ok: true });
     expect(storage.local.remove).not.toHaveBeenCalled();
-    // 索引读取恰 2 次（写入内的记录 + 短路检查）；跑完整 prune 会再多一次
+    // 清单读取恰 1 次（attempt 内快照，兼作短路检查）；跑完整 prune 会再多一次全量快照
     const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === "boc_cache_lru_index").length;
-    expect(indexReads).toBe(2);
+    expect(indexReads).toBe(1);
   });
 
   it("旧格式条目（数值 ts）同样计数：族条目超 keep 时不短路、照常淘汰", async () => {

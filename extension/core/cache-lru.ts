@@ -1,24 +1,29 @@
-// 「缓存 LRU 淘汰」模块：为 chrome.storage.local 上的两族缓存键提供统一的
-// 「最近写入视频」索引与淘汰机制（一次机制覆盖两族）：
+// 「缓存 LRU 淘汰」模块：为 chrome.storage.local 上的缓存族键提供统一的
+// 「最近写入视频」索引与淘汰机制（一次机制覆盖全部注册族）：
 //   - boc_lvs_raw_* / boc_lvs_summary_*：ai/segment-cache.js 的原始字幕段 / 分段小结；
 //   - boc_subtitle_cache_*：subtitle/cache.js 的整篇字幕正文（值 { body, timestamp }）。
 // 设计决策（与产品确认）：
 //   - 每族只保留最近写入的 keep（默认 3）个视频（按 bvid），LRU 以 lastWriteTimestamp
 //     排序，无字节上限；
-//   - 索引键 boc_cache_lru_index：{ [family]: { [bvid]: { ts, keys: string[] } } }，
-//     ts 为该视频最近一次写入时间戳，keys 为该 bvid 在该族下的全部缓存键
-//     （每次记录写入时合并去重更新）。旧格式条目（数值 ts，无 keys）在读端归一化
-//     兼容，无需迁移；
-//   - 读端原语 readFamilyKeys(family, bvid, keyPrefix)：消费方按索引定点取该族该
-//     bvid 的缓存键清单，条目缺失/无 keys/旧格式时回退 get(null) 全库前缀扫描，
-//     一次性 logWarn（跨消费方共享标志）与回退语义单源在原语内；存储读取本身
-//     留在消费方（segment-cache 拼段序 / subtitle 孤儿清理，读后处理各异）；
-//   - 淘汰候选键优先取索引键清单（不做 storage 存在性检查）；仅当索引整体缺失
-//     （LRU_INDEX_KEY 不存在/损坏 → 全族回退 get(null) 前缀扫描自愈）、或某族
-//     有条目但存在无 keys 的条目（旧格式/混合状态，键面不全 → 该族回退）时才
-//     扫描兜底；索引健康时「无条目的族」（注册但从未写入，如新注册族）直接跳过。
-//     索引指向已删键的幽灵条目随淘汰被垃圾回收出索引
-//     （storage.remove 对不存在键是 no-op，索引收缩步骤顺带清掉条目）；
+//   - 索引按「族 + bvid + 缓存键」分键落盘（11 票，消并发覆盖竞态）：每个缓存键对应
+//     一条索引键 boc_cache_lru_index:{family}:{bvid}:{cacheKey}（值 { ts }），写入是
+//     各自键上的原子 set——map-reduce 并发 3 段写同一 bvid 时互相不再覆盖（旧实现
+//     整键读-改-写 boc_cache_lru_index，并发写丢 keys，段缓存不可枚举导致重复请求）。
+//     chrome.storage 没有原子追加，「单键一索引项」是唯一无竞态布局；
+//   - 另有汇总清单键 boc_cache_lru_index：{ [family]: { [bvid]: ts } }，仅供
+//     writeWithEviction 的「各族 ≤ keep」短路检查与淘汰排名参考（读-改-写仍可能丢
+//     并发新增，但只影响「是否提前触发淘汰」，不丢索引键面；prune 以分键索引为准
+//     顺手重写清单自愈）。旧格式条目（数值 ts，或 { ts, keys } 对象）读端归一兼容，
+//     无需迁移；
+//   - 读端原语 readFamilyKeys(family, bvid, keyPrefix)：chrome.storage 无前缀查询，
+//     按 bvid 枚举 = get(null) 全量扫描过滤（索引分键后淘汰/读取走同一扫描，prune 本身
+//     低频：仅新视频写入越界或写失败重试时触发）。条目缺失（该 bvid 无分键索引）→
+//     返回 null + 一次性 logWarn（跨消费方共享标志），消费方回退 get(null) 前缀扫描
+//     自愈；存储读取本身留在消费方（segment-cache 拼段序 / subtitle 孤儿清理）；
+//   - 淘汰候选键 = 分键索引并集 ∪ 族前缀数据扫描（同一 get(null) 快照里过滤，零额外
+//     往返；数据键有、索引缺失的遗留 bvid 以清单 ts 排名、缺清单按最旧）；解析不出
+//     bvid 的畸形键按垃圾回收。索引指向已删键的幽灵条目随淘汰被垃圾回收
+//     （storage.remove 对不存在键是 no-op）；
 //   - 淘汰本身静默运行、不提示；仅当「淘汰后重试仍失败」时由调用方把 distinct
 //     失败（CacheWriteError）上浮到各自的 UI 通道（content 状态栏 / offscreen port notice）。
 // chrome.* 访问与既有测试模式一致：直接使用全局 chrome.storage.local，
@@ -26,8 +31,12 @@
 
 import { logWarn } from "../shared/logging.js";
 
-// LRU 索引键（模块私有；测试以字面量直读写索引键做 arrange/断言）。
+// LRU 汇总清单键（模块私有；测试以字面量直读写做 arrange/断言）。
 const LRU_INDEX_KEY = "boc_cache_lru_index";
+// 分键索引条目前缀：完整索引键为 `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:${cacheKey}`。
+// 冒号不在任何数据键中出现（数据键只含 [A-Za-z0-9_] 及 source key 内的少量符号），
+// 前缀与清单键、数据键互不撞车。
+const LRU_INDEX_ENTRY_PREFIX = "boc_cache_lru_index:";
 // 参与统一淘汰的缓存族前缀（全仓唯一注册处，arch-slim-2/08 起 analysis 两族
 // 收进注册、不再由 ai/analysis.ts 自行扩展名单）：
 //   - boc_lvs_raw_* / boc_lvs_summary_*：ai/segment-cache.ts 的原始字幕段 / 分段小结；
@@ -47,12 +56,9 @@ export const CACHE_FAMILIES = [
 // 每族保留的最近视频数（模块私有；evictLruByCount 的 keep 缺省值）。
 const LRU_KEEP_VIDEOS = 3;
 
-interface LruIndexEntry {
-  ts: number;
-  keys: string[];
-}
-
-type LruIndex = Record<string, Record<string, LruIndexEntry | number | unknown>>;
+// 汇总清单：{ [family]: { [bvid]: ts } }。只是短路/排名用的启发式元数据，
+// 不是键面的真相来源（真相是分键索引）。
+type LruManifest = Record<string, Record<string, number>>;
 
 export interface EvictionResult {
   ok: true;
@@ -93,32 +99,63 @@ function requireStorageLocal(): chrome.storage.StorageArea {
   return globalThis.chrome.storage.local;
 }
 
-// 读 LRU 索引：缺失 / 损坏 / 读失败 → {}（索引只是淘汰启发式元数据，允许丢）。
-async function readLruIndex(): Promise<LruIndex> {
+// 归一清单/索引条目的时间戳：数值、{ ts }、旧格式 { ts, keys } 均可取 ts；
+// 取不出有限数值 → null（调用方忽略该条目）。
+function normalizeEntryTs(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (value && typeof value === "object") {
+    const ts = Number((value as { ts?: unknown }).ts);
+    if (Number.isFinite(ts)) {
+      return ts;
+    }
+  }
+  return null;
+}
+
+// 读汇总清单：缺失 / 损坏 / 读失败 → {}（清单只是淘汰启发式元数据，允许丢）。
+// 旧格式值（数值 ts、{ ts, keys } 对象）逐条归一兼容，混合清单也照计。
+async function readManifest(): Promise<LruManifest> {
   try {
     const result = await requireStorageLocal().get(LRU_INDEX_KEY);
-    const index = result?.[LRU_INDEX_KEY];
-    return index && typeof index === "object" ? (index as LruIndex) : {};
+    return normalizeManifest(result?.[LRU_INDEX_KEY]);
   } catch {
     return {};
   }
 }
 
-// 索引条目归一化：旧格式（数值 ts）→ { ts, keys: [] }；畸形值 → null（调用方忽略）。
-function normalizeIndexEntry(value: unknown): LruIndexEntry | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return { ts: value, keys: [] };
+function normalizeManifest(raw: unknown): LruManifest {
+  if (!raw || typeof raw !== "object") {
+    return {};
   }
-  if (value && typeof value === "object" && Number.isFinite(Number((value as { ts?: unknown }).ts))) {
-    const rawKeys = (value as { keys?: unknown }).keys;
-    return {
-      ts: Number((value as { ts?: unknown }).ts),
-      keys: Array.isArray(rawKeys)
-        ? rawKeys.filter((k: unknown): k is string => typeof k === "string" && Boolean(k))
-        : []
-    };
+  const manifest: LruManifest = {};
+  for (const [family, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const bvids: Record<string, number> = {};
+    for (const [bvid, value] of Object.entries(entry as Record<string, unknown>)) {
+      const ts = normalizeEntryTs(value);
+      if (ts !== null) {
+        bvids[bvid] = ts;
+      }
+    }
+    manifest[family] = bvids;
   }
-  return null;
+  return manifest;
+}
+
+// 在清单快照上合并「本次写入」：短路检查以此判断本次写入是否可能造成越界
+// （stored 清单读于写入之前，快照里还没有本次 bvid）。
+function mergeManifestWrite(manifest: LruManifest, family: string, bvid: string, ts: number): LruManifest {
+  return {
+    ...manifest,
+    [family]: {
+      ...(manifest[family] || {}),
+      [bvid]: ts
+    }
+  };
 }
 
 // 索引退化回退的一次性告警标志（模块级，跨消费方共享）：回退路径可能被每次追问
@@ -126,19 +163,21 @@ function normalizeIndexEntry(value: unknown): LruIndexEntry | null {
 let indexFallbackWarned = false;
 
 /**
- * 读端原语：按 LRU 索引取该族该 bvid 的缓存键清单（keyPrefix 可选过滤），供消费方
- * 定点批量读取（存储读取本身留在消费方，读后处理各异）。索引格式（family → bvid →
- * {ts, keys} 二级结构 + 旧格式 normalize 兼容）的知识单源在本模块：条目缺失 / 无
- * keys / 旧格式（normalize 后 keys 为空）时返回 null，消费方回退 get(null) 全库
- * 前缀扫描自愈；回退时一次性 logWarn（跨消费方共享标志，防刷屏）。索引读失败按
- * 缺失同路回退（索引是启发式元数据，允许丢）。
+ * 读端原语：按分键索引取该族该 bvid 的缓存键清单（keyPrefix 可选过滤），供消费方
+ * 定点批量读取（存储读取本身留在消费方，读后处理各异）。chrome.storage 无前缀查询，
+ * 枚举 = get(null) 全量扫描过滤（见模块头注释）。该 bvid 无任何分键索引条目 →
+ * 返回 null + 一次性 logWarn（跨消费方共享标志），消费方回退 get(null) 前缀扫描
+ * 自愈；索引读失败按缺失同路回退（索引是启发式元数据，允许丢）。
  */
 export async function readFamilyKeys(family: string, bvid: string, keyPrefix = ""): Promise<string[] | null> {
   let keys: string[];
   try {
-    const index = await readLruIndex();
-    const familyEntry = index[family] && typeof index[family] === "object" ? index[family] : {};
-    keys = normalizeIndexEntry((familyEntry as Record<string, unknown>)[bvid])?.keys || [];
+    const all = await requireStorageLocal().get(null);
+    const entryPrefix = `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:`;
+    keys = Object.keys(all || {})
+      .filter((storageKey) => storageKey.startsWith(entryPrefix))
+      .map((storageKey) => storageKey.slice(entryPrefix.length))
+      .sort();
   } catch {
     keys = [];
   }
@@ -153,51 +192,60 @@ export async function readFamilyKeys(family: string, bvid: string, keyPrefix = "
   return keys.filter((key) => !prefix || key.startsWith(prefix));
 }
 
-// 记录一次写入：family → bvid → { ts, keys }。cacheKeys 是本次写入的缓存键清单，
-// 合并（去重）进该 bvid 条目的 keys。失败上抛，由 writeWithEviction 统一处理。
+// 记录一次写入（纯原子写，无读-改-写竞态）：
+//   1. 分键索引：本次每个缓存键各写一条 `${prefix}${family}:${bvid}:${cacheKey}` → { ts }，
+//      并发写互不覆盖（11 票核心）；
+//   2. 汇总清单：在调用方给的快照上合并本 bvid 后整键覆盖——并发新增可能互相覆盖，
+//      仅影响短路/排名启发，不丢键面，prune 会顺手重写清单自愈。
+// 失败上抛，由 writeWithEviction 统一处理。
 async function recordCacheWrite(
   family: string,
   bvid: string,
   timestamp = Date.now(),
-  cacheKeys: string[] = []
+  cacheKeys: string[] = [],
+  manifestSnapshot: LruManifest = {}
 ): Promise<void> {
   const storage = requireStorageLocal();
-  const index = await readLruIndex();
-  const previous = normalizeIndexEntry((index[family] || {})[bvid]);
-  const mergedKeys = [
-    ...new Set([...(previous?.keys || []), ...(Array.isArray(cacheKeys) ? cacheKeys : [])])
-  ];
-  const familyEntry = { ...(index[family] || {}), [bvid]: { ts: timestamp, keys: mergedKeys } };
-  await storage.set({ [LRU_INDEX_KEY]: { ...index, [family]: familyEntry } });
-}
-
-// 族内 bvid 按最近写入排序（新→旧）：索引时间戳优先（兼容数值旧格式与 {ts,keys}）；
-// 键里存在但索引缺失的 bvid（历史遗留）视为最旧（时间戳 0），优先淘汰。
-function rankBvidsInFamily(
-  family: string,
-  indexEntry: Record<string, LruIndexEntry | number | unknown> | undefined,
-  familyKeys: string[]
-): Array<[string, number]> {
-  const timestamps = new Map<string, number>();
-  const entry = indexEntry && typeof indexEntry === "object" ? indexEntry : {};
-  for (const [bvid, value] of Object.entries(entry)) {
-    timestamps.set(bvid, Number(typeof value === "number" ? value : (value as { ts?: unknown })?.ts) || 0);
-  }
-  for (const key of familyKeys) {
-    const bvid = parseBvidFromCacheKey(key, family);
-    if (bvid && !timestamps.has(bvid)) {
-      timestamps.set(bvid, 0);
+  const entries: Record<string, { ts: number }> = {};
+  for (const key of new Set(Array.isArray(cacheKeys) ? cacheKeys : [])) {
+    if (key) {
+      entries[`${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:${key}`] = { ts: timestamp };
     }
   }
-  return [...timestamps.entries()].sort((a, b) => b[1] - a[1]);
+  const items: Record<string, unknown> = { ...entries };
+  if (family && bvid) {
+    items[LRU_INDEX_KEY] = mergeManifestWrite(manifestSnapshot, family, bvid, timestamp);
+  }
+  await storage.set(items);
+}
+
+// 从分键索引存储键解析 { family, bvid, cacheKey }；冒号可能出现在 cacheKey
+// （source key 含 URL）里，bvid 段取第二个冒号前、cacheKey 取其余全部。
+function parseIndexEntryKey(
+  storageKey: string
+): { family: string; bvid: string; cacheKey: string } | null {
+  const rest = storageKey.slice(LRU_INDEX_ENTRY_PREFIX.length);
+  const familyEnd = rest.indexOf(":");
+  if (familyEnd <= 0) {
+    return null;
+  }
+  const bvidEnd = rest.indexOf(":", familyEnd + 1);
+  if (bvidEnd <= familyEnd + 1) {
+    return null;
+  }
+  return {
+    family: rest.slice(0, familyEnd),
+    bvid: rest.slice(familyEnd + 1, bvidEnd),
+    cacheKey: rest.slice(bvidEnd + 1)
+  };
 }
 
 /**
- * 淘汰到每族最近 keep 个视频：候选键优先取索引里记录的各族键清单（无存在性检查），
- * 索引整体缺失或某族有条目但缺 keys 时回退前缀扫描（见上）；bvid 不在最近 keep
- * 名内的整键删除——索引有、
- * storage 无的幽灵键也在其列（storage.remove 对其为 no-op，其索引条目随收缩清出）。
- * 返回 { [family]: string[] }（清理出的键，可能含已不存在的键）；淘汰本身静默：
+ * 淘汰到每族最近 keep 个视频：单次 get(null) 快照内取候选（分键索引并集 ∪ 族前缀
+ * 数据键——「索引有、storage 无」的幽灵键照常流入淘汰清单，「storage 有、索引缺失」
+ * 的遗留 bvid 按清单 ts 排名、缺清单视为最旧），bvid 不在最近 keep 名内的整键删除
+ * （数据键 + 该 bvid 的分键索引条目一并移除），并把被清理族的重写回清单（自愈）。
+ * 返回 { [family]: string[] }（清理出的数据键，可能含已不存在的键）；淘汰本身静默：
  * 任何失败吞掉并返回 {}。
  */
 export async function pruneToRecentVideos(
@@ -214,71 +262,107 @@ export async function pruneToRecentVideos(
       return {};
     }
 
-    // 索引驱动路径：各族先按索引取候选键。回退 get(null) 前缀扫描仅两种情形：
-    // 索引整体缺失（自愈）或某族有条目但缺 keys（旧格式/混合状态）。索引健康时
-    // 「无条目的族」（注册但从未写入，如 arch-slim-2/08 收进注册的 analysis 两族）
-    // 视为空族跳过——否则每个未使用注册族都会让所有 prune 触发全量扫描。
-    const index = await readLruIndex();
-    const indexEmpty = Object.keys(index).length === 0;
-    const indexDrivenKeys = new Map<string, string[]>(); // family → 索引 keys 并集
-    const fallbackFamilies: string[] = [];
-    for (const family of familyList) {
-      const entry = index[family] && typeof index[family] === "object" ? index[family] : {};
-      const bvids = Object.keys(entry);
-      const complete =
-        bvids.length > 0 &&
-        bvids.every((bvid) => (normalizeIndexEntry(entry[bvid])?.keys || []).length > 0);
-      if (complete) {
-        const keys = new Set<string>();
-        for (const bvid of bvids) {
-          for (const key of normalizeIndexEntry(entry[bvid])!.keys) {
-            keys.add(key);
-          }
-        }
-        indexDrivenKeys.set(family, [...keys]);
-      } else if (indexEmpty || bvids.length > 0) {
-        fallbackFamilies.push(family);
+    const all = await storage.get(null);
+    const manifest = normalizeManifest(all?.[LRU_INDEX_KEY]);
+
+    // 分键索引按 族 → bvid → { ts(取最大), keys } 归并。
+    const indexed = new Map<string, Map<string, { ts: number; keys: Set<string> }>>();
+    for (const storageKey of Object.keys(all || {})) {
+      if (!storageKey.startsWith(LRU_INDEX_ENTRY_PREFIX)) {
+        continue;
       }
+      const parsed = parseIndexEntryKey(storageKey);
+      const ts = normalizeEntryTs((all as Record<string, unknown>)[storageKey]);
+      if (!parsed || ts === null) {
+        continue;
+      }
+      let familyMap = indexed.get(parsed.family);
+      if (!familyMap) {
+        familyMap = new Map();
+        indexed.set(parsed.family, familyMap);
+      }
+      let entry = familyMap.get(parsed.bvid);
+      if (!entry) {
+        entry = { ts, keys: new Set() };
+        familyMap.set(parsed.bvid, entry);
+      }
+      entry.ts = Math.max(entry.ts, ts);
+      entry.keys.add(parsed.cacheKey);
     }
 
-    const all = fallbackFamilies.length > 0 ? await storage.get(null) : null;
     const keysToRemove: string[] = [];
     const removed: Record<string, string[]> = {};
+    // 被清理族的重写清单（ survivors = 保留 bvid → 排名 ts ）。
+    const manifestRewrite: Record<string, Record<string, number>> = {};
     for (const family of familyList) {
-      // 候选键：索引驱动族直接用索引 keys 并集（不做存在性检查，「索引有、storage
-      // 无」的幽灵键照常流入下方淘汰清单，由 storage.remove no-op + 索引收缩自愈）；
-      // 回退族按前缀扫描。畸形键（解析不出 bvid）按垃圾回收。
-      const familyKeys = indexDrivenKeys.has(family)
-        ? indexDrivenKeys.get(family)!
-        : Object.keys(all || {}).filter((key) => key.startsWith(family));
-      const ranked = rankBvidsInFamily(family, index[family], familyKeys);
+      const familyIndexed = indexed.get(family);
+      const familyManifest = manifest[family] || {};
+      // 族内 bvid → 排名 ts：分键索引优先，清单兜底，都没有（纯遗留数据键）→ 0 最旧。
+      const timestamps = new Map<string, number>();
+      if (familyIndexed) {
+        for (const [bvid, entry] of familyIndexed) {
+          timestamps.set(bvid, Math.max(entry.ts, familyManifest[bvid] ?? 0));
+        }
+      }
+      // 候选键：分键索引并集 ∪ 族前缀数据键（同一份快照过滤，覆盖「索引丢过键 /
+      // 索引缺失」的遗留面，zero 额外往返）。
+      const candidateKeys = new Set<string>();
+      if (familyIndexed) {
+        for (const entry of familyIndexed.values()) {
+          for (const key of entry.keys) {
+            candidateKeys.add(key);
+          }
+        }
+      }
+      for (const key of Object.keys(all || {})) {
+        if (key.startsWith(family)) {
+          candidateKeys.add(key);
+          const bvid = parseBvidFromCacheKey(key, family);
+          if (bvid && !timestamps.has(bvid)) {
+            timestamps.set(bvid, familyManifest[bvid] ?? 0);
+          }
+        }
+      }
+      // 「注册但从未写入」的族（无索引、无清单、无数据键）：跳过。
+      if (candidateKeys.size === 0 && Object.keys(familyManifest).length === 0) {
+        continue;
+      }
+
+      const ranked = [...timestamps.entries()].sort((a, b) => b[1] - a[1]);
       const keepSet = new Set(ranked.slice(0, safeKeep).map(([bvid]) => bvid));
-      const familyRemoved = familyKeys.filter((key) => {
+      const familyRemoved = [...candidateKeys].filter((key) => {
         const bvid = parseBvidFromCacheKey(key, family);
         // 解析不出 bvid 的畸形键按垃圾一并回收。
         return !bvid || !keepSet.has(bvid);
       });
-      if (familyRemoved.length > 0) {
-        keysToRemove.push(...familyRemoved);
-        removed[family] = familyRemoved;
+      manifestRewrite[family] = Object.fromEntries(ranked.filter(([bvid]) => keepSet.has(bvid)));
+      if (familyRemoved.length === 0) {
+        continue;
+      }
+      removed[family] = familyRemoved;
+      keysToRemove.push(...familyRemoved);
+      // 被淘汰 bvid 的分键索引条目一并移除。
+      for (const [bvid] of ranked) {
+        if (keepSet.has(bvid)) {
+          continue;
+        }
+        const entryPrefix = `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:`;
+        for (const storageKey of Object.keys(all || {})) {
+          if (storageKey.startsWith(entryPrefix)) {
+            keysToRemove.push(storageKey);
+          }
+        }
       }
     }
 
     if (keysToRemove.length > 0) {
       await storage.remove(keysToRemove);
-      // 索引同步收缩：被淘汰 bvid 的条目一并移除（未参与淘汰的族原样保留）。
-      const nextIndex: LruIndex = { ...index };
-      for (const family of Object.keys(removed)) {
-        const familyEntry: Record<string, LruIndexEntry | number | unknown> = { ...(nextIndex[family] || {}) };
-        for (const key of removed[family]) {
-          delete familyEntry[parseBvidFromCacheKey(key, family)];
-        }
-        nextIndex[family] = familyEntry;
-      }
+      // 清单重写（仅被清理族；未参与淘汰的族原样保留）：被淘汰 bvid 条目移除，
+      // survivors 以排名 ts 落盘。失败不影响已删除的数据键（下次 prune 会再收）。
       try {
-        await storage.set({ [LRU_INDEX_KEY]: nextIndex });
+        await storage.set({ [LRU_INDEX_KEY]: { ...manifest, ...manifestRewrite } });
       } catch {
-        // 索引收缩失败不影响已删除的数据键（下次 prune 会再收）。
+        // 清单重写失败静默（启发式元数据，允许丢）。
       }
     }
     return removed;
@@ -287,24 +371,14 @@ export async function pruneToRecentVideos(
   }
 }
 
-// prune 短路检查：各族索引条目的 bvid 数（旧格式条目 normalizeIndexEntry 后照计，
-// 畸形条目不计）都 ≤ keep → true。各族的淘汰只会在自己的写入路径上越界，别的族
-// 不可能因本次写入超限，此时完整 prune 必无事可做，可跳过。
-function familiesWithinKeep(index: LruIndex, families: string[], keep: number): boolean {
+// prune 短路检查：各族清单条目的 bvid 数都 ≤ keep → true。清单只是启发式——
+// 并发新增互相覆盖只会少计（多留旧视频），不会多计；少计方向由 prune 的真枚举兜底。
+function familiesWithinKeep(manifest: LruManifest, families: string[], keep: number): boolean {
   const safeKeep = Math.max(1, Math.floor(Number(keep)) || LRU_KEEP_VIDEOS);
   const familyList = (Array.isArray(families) ? families : []).filter(
     (f): f is string => typeof f === "string" && Boolean(f)
   );
-  return familyList.every((family) => {
-    const entry = index[family] && typeof index[family] === "object" ? index[family] : {};
-    let count = 0;
-    for (const value of Object.values(entry)) {
-      if (normalizeIndexEntry(value)) {
-        count += 1;
-      }
-    }
-    return count <= safeKeep;
-  });
+  return familyList.every((family) => Object.keys(manifest[family] || {}).length <= safeKeep);
 }
 
 interface WriteWithEvictionOptions {
@@ -317,8 +391,9 @@ interface WriteWithEvictionOptions {
 }
 
 /**
- * 带 LRU 淘汰的写入：记录索引 → 写入 → 每次成功写入后维持「每族仅保留最近 keep
- * 个视频」的不变量（先读索引短路：各族条目 bvid 数都 ≤ keep 时跳过完整 prune）；
+ * 带 LRU 淘汰的写入：记录索引（原子分键写，无并发竞态）→ 写入 → 每次成功写入后
+ * 维持「每族仅保留最近 keep 个视频」的不变量（先读清单短路：快照合并本次 bvid 后
+ * 各族条目数都 ≤ keep 时跳过完整 prune；清单少计只导致多留，prune 真枚举兜底）；
  * 写入失败时先淘汰（静默）再重试一次，仍失败返回
  * { ok:false, error: CacheWriteError }（distinct 失败，由调用方决定是否上浮 UI）。
  * 从不抛出；返回 { ok:true } 或 { ok:false, error }。
@@ -335,19 +410,24 @@ export async function writeWithEviction({
     return { ok: false, error: new CacheWriteError("writeWithEviction：write 必须是函数") };
   }
 
+  const timestamp = Date.now();
+  // 每次 attempt 现读清单快照：重试路径拿到的是淘汰后的新清单。
   const attempt = async () => {
-    await recordCacheWrite(family, bvid, Date.now(), keys);
+    const manifestSnapshot = await readManifest();
+    await recordCacheWrite(family, bvid, timestamp, keys, manifestSnapshot);
     await write();
+    return manifestSnapshot;
   };
 
+  let manifestSnapshot: LruManifest;
   try {
-    await attempt();
+    manifestSnapshot = await attempt();
   } catch (firstError) {
     // 写入失败：先淘汰（失败静默）再重试一次；当前 bvid 刚记录过时间戳，
     // 在族内排名最新，不会被本次淘汰误删。
     await pruneToRecentVideos(pruneFamilies, keep);
     try {
-      await attempt();
+      manifestSnapshot = await attempt();
     } catch (retryError) {
       return {
         ok: false,
@@ -359,10 +439,9 @@ export async function writeWithEviction({
     }
   }
 
-  // 维持 LRU 不变量：每次成功写入后收缩到每族最近 keep 个视频。先读一次索引
-  // （单个小键、便宜）短路：各族条目 bvid 数都 ≤ keep 时本次写入不可能造成越界，
-  // 跳过完整 prune。
-  if (!familiesWithinKeep(await readLruIndex(), pruneFamilies, keep)) {
+  // 维持 LRU 不变量：每次成功写入后收缩到每族最近 keep 个视频。清单快照（合并
+  // 本次写入）各族 bvid 数都 ≤ keep 时本次写入不可能造成越界，跳过完整 prune。
+  if (!familiesWithinKeep(mergeManifestWrite(manifestSnapshot, family, bvid, timestamp), pruneFamilies, keep)) {
     await pruneToRecentVideos(pruneFamilies, keep);
   }
   return { ok: true };
@@ -442,7 +521,7 @@ export function createCacheFamily<TValue>(options: CacheFamilyOptions<TValue>): 
       const result = await writeWithEviction({
         family: prefix,
         bvid: parseBvidFromCacheKey(key, prefix),
-        keys: [key], // 本次写入的缓存键，记录进 LRU 索引供淘汰时免全量扫描
+        keys: [key], // 本次写入的缓存键，落一条分键索引条目供枚举/淘汰
         write: () =>
           requireStorageLocal().set({
             [key]: {

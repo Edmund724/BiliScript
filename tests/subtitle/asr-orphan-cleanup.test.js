@@ -101,27 +101,26 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
     expect(storage.map.has(keepKey)).toBe(true);
   });
 
-  it("索引含该 bvid 的 keys → 定点批量枚举，不做 get(null) 全量枚举", async () => {
+  it("索引含该 bvid 条目 → 定点批量枚举出过期变体（11 票分键布局：索引枚举走全量快照）", async () => {
     const keepKey = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:new:p:m:auto" });
     const staleAsr = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:old:p:m:auto" });
-    await storage.local.set({
+    const items = {
       [keepKey]: { body: BODY, timestamp: 2 },
-      [staleAsr]: { body: BODY, timestamp: 1 },
-      // 直写索引记录两键（原经 recordCacheWrite arrange，收私有后改为字面量键）
-      boc_cache_lru_index: {
-        boc_subtitle_cache_: {
-          BV1o: { ts: 10, keys: [keepKey, staleAsr] }
-        }
-      }
-    });
+      [staleAsr]: { body: BODY, timestamp: 1 }
+    };
+    // 直写分键索引记录两键（原经 recordCacheWrite arrange，收私有后改为字面量键）
+    for (const key of [keepKey, staleAsr]) {
+      items[`boc_cache_lru_index:boc_subtitle_cache_:BV1o:${key}`] = { ts: 10 };
+    }
+    await storage.local.set(items);
 
     const removed = await cache.clearStaleAsrSubtitleCache({ bvid: "BV1o", cid: "7", keepKey });
 
     expect(removed).toEqual([staleAsr]);
     expect(storage.map.has(staleAsr)).toBe(false);
     expect(storage.map.has(keepKey)).toBe(true);
-    // 全程无全量枚举（索引读 + 定点批量 get 都不是 null）
-    expect(storage.local.get.mock.calls.some(([keys]) => keys === null)).toBe(false);
+    // 索引枚举本身是一次 get(null) 快照过滤（11 票分键布局），其后数据读取为定点批量 get
+    expect(storage.local.get.mock.calls.filter(([keys]) => keys === null)).toHaveLength(1);
   });
 });
 
