@@ -9,7 +9,8 @@ import {
   shouldReduce,
   buildReduceGroups,
   buildReducePrompt,
-  reduceSummaries
+  reduceSummaries,
+  REDUCE_CONCURRENCY
 } from "../../extension/ai/reduce.js";
 import { REDUCE_GROUP_INPUT_CHARS } from "../../extension/ai/budgeter.js";
 
@@ -182,6 +183,80 @@ describe("reduceSummaries 多层归并收敛", () => {
     const result = await reduceSummaries({ summaries: [], title: "t", runPrompts });
     expect(result).toEqual({ merged: [], levels: 0 });
     expect(runPrompts).not.toHaveBeenCalled();
+  });
+});
+
+describe("reduceSummaries 归并层并发（06 票）", () => {
+  it("组间并发有上界：在飞 runPrompts 数不超过 REDUCE_CONCURRENCY，且确实并发（>1）", async () => {
+    // 30 条 × 10k = 300k → 第一层 3 组；组内 runPrompts 挂起时统计在飞数。
+    const summaries = makeSummaries(30, 10000);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const runPrompts = vi.fn(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return "组合并结果";
+    });
+
+    const result = await reduceSummaries({ summaries, title: "测试视频", runPrompts });
+
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(REDUCE_CONCURRENCY);
+    expect(result.levels).toBe(1);
+  });
+
+  it("进度回吐按完成序（不按提交序），merged 仍按原始组序", async () => {
+    // 30 条 × 10k → 3 组；组 2 最快、组 3 次之、组 1 最慢（提交序 1→2→3）。
+    const summaries = makeSummaries(30, 10000);
+    const delays = [30, 1, 10];
+    const runPrompts = vi.fn(async ({ prompt }) => {
+      const m = String(prompt || "").match(/第 (\d+)\/3 组/);
+      const idx = m ? Number(m[1]) - 1 : 0;
+      await new Promise((resolve) => setTimeout(resolve, delays[idx]));
+      return `结果${idx + 1}`;
+    });
+    const notices = [];
+    const result = await reduceSummaries({
+      summaries,
+      title: "测试视频",
+      runPrompts,
+      onProgress: (notice) => notices.push(notice)
+    });
+
+    expect(notices).toEqual([
+      "正在归并第 1 层 2/3 组",
+      "正在归并第 1 层 3/3 组",
+      "正在归并第 1 层 1/3 组"
+    ]);
+    // 结果写回位置按原始下标，不按完成序
+    expect(result.merged).toEqual(["结果1", "结果2", "结果3"]);
+  });
+
+  it("单组失败仍整层 reject（错误语义与串行期一致：不外吞、不产出部分 merged）", async () => {
+    const summaries = makeSummaries(30, 10000);
+    const runPrompts = vi.fn(async ({ prompt }) => {
+      if (String(prompt || "").includes("第 2/3 组")) {
+        throw new Error("组 2 模型调用失败");
+      }
+      return "组合并结果";
+    });
+
+    await expect(
+      reduceSummaries({ summaries, title: "测试视频", runPrompts })
+    ).rejects.toThrow("组 2 模型调用失败");
+  });
+
+  it("归并层 overflow 错误不重试直接 rethrow（供编排层放宽预算重跑）", async () => {
+    const summaries = makeSummaries(30, 10000);
+    const runPrompts = vi.fn(async () => {
+      throw Object.assign(new Error("maximum context length exceeded"), { overflow: true });
+    });
+
+    await expect(
+      reduceSummaries({ summaries, title: "测试视频", runPrompts })
+    ).rejects.toMatchObject({ overflow: true });
   });
 });
 
