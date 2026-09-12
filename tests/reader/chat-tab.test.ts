@@ -492,14 +492,15 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     await waitFor(() => ports.length === 1);
 
-    const stopBtn = document.getElementById(ids.readingChatStopBtn) as HTMLButtonElement;
-    expect(stopBtn.hidden).toBe(false);
+    // 流式中：发送键切换为停止键形态（is-stop），输入框禁用
+    const sendBtn = document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement;
+    expect(sendBtn.classList.contains("is-stop")).toBe(true);
     expect(input.disabled).toBe(true);
 
     chat.closeChatSession();
 
     expect(ports[0].disconnect).toHaveBeenCalledTimes(1);
-    expect(stopBtn.hidden).toBe(true);
+    expect(sendBtn.classList.contains("is-stop")).toBe(false);
     expect(input.disabled).toBe(false);
 
     // 关闭后发送不再放行（不做后台续跑）：subtitle-wait 轮询闸住，无新 port
@@ -733,21 +734,22 @@ describe("resize 合帧（P2-3：model-select 宽度重算走 rAF 而非同步�
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
 
-    const modelSelect = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
-    modelSelect.style.width = "";
+    // 宽度写在模型 chip 上（隐藏 select 只是值源）：清空后触发 resize 合帧重算
+    const chip = document.getElementById(ids.readingChatModelChip) as HTMLElement;
+    chip.style.width = "";
 
     window.dispatchEvent(new Event("resize"));
     window.dispatchEvent(new Event("resize"));
     window.dispatchEvent(new Event("resize"));
 
     // 合帧：帧回调执行前不写宽度（旧同步实现此处已是 92px）。
-    expect(modelSelect.style.width).toBe("");
+    expect(chip.style.width).toBe("");
 
-    await waitFor(() => modelSelect.style.width !== "");
-    // jsdom 无布局：toolbar 存在但 clientWidth 恒 0 → 上限触底 92，与直接
+    await waitFor(() => chip.style.width !== "");
+    // jsdom 无布局：inputBar clientWidth 恒 0 → 40% 上限触底 92，与直接
     // 调用 updateModelSelectWidth 同结果（tests/ui/model-select-width.test.js
     // 另锁「一帧至多一帧」的合帧计数）。
-    expect(modelSelect.style.width).toBe("92px");
+    expect(chip.style.width).toBe("92px");
   });
 });
 

@@ -1,23 +1,27 @@
-// reader/chat-popovers.ts — 对话 tab 预设/历史两个 popover 的开合与文档级外点
-// 关闭（PR5 自 extension/pages/sidepanel-popovers.ts 重建；原 sidepanel 孪生
-// 模块已随侧边栏形态删除，本文件是唯一实现，toggle/hide 与 handleDocumentClick
-// 的判定逻辑不再与孪生同步，行为契约由 tests/reader/chat-popovers.test.js 钉住）。
+// reader/chat-popovers.ts — 对话 tab 预设/历史/模型面板三个弹层的开合、互斥与
+// 文档级外点关闭（PR5 自 extension/pages/sidepanel-popovers.ts 重建；发送框重构
+// 起预设触发键移进发送框左下角「+」，模型 + 思考档位面板并入本协调器：
+// 任一弹层打开先关其余两个，Esc 全关，外点全关）。
 //
 // 两处换壳（盘点报告 §1.1 popovers 判定行 + 风险 6 决议，历史定案）：
 //   1. 外点关闭的 id 选择器换 reader 的 readingChat* id（原 #sp* 硬编码）；
 //   2. handleDocumentClick 不再自挂 document 监听——经 reader/chat-tab-bridge.ts
 //      的注册槽并入 ui-renderer 的单一文档级委托（防双监听互踩）。本模块只暴露
-//      handleDocumentClick 供组合根注册（组合根负责注册/摘除时机）。
+//      handleDocumentClick 供组合根注册（组合根负责注册/摘除时机）；Esc 关闭经
+//      handleEscapeKey 由组合根的 window keydown 监听调用（同一注册/摘除时机）。
 import { ids } from "./state.js";
 
 export interface CreateReaderChatPopoversDeps {
   presetPopover: HTMLElement;
   historyPopover: HTMLElement;
+  modelPanel: HTMLElement;
   presetBtn: HTMLElement;
   historyBtn: HTMLElement;
+  modelChipBtn: HTMLElement;
   presetInput: HTMLInputElement;
   renderPresetPrompts: () => void;
   renderHistoryList: () => void;
+  renderModelPanel: () => void;
 }
 
 export interface ReaderChatPopovers {
@@ -25,15 +29,27 @@ export interface ReaderChatPopovers {
   hidePresetPopover: () => void;
   toggleHistoryPopover: (event?: Event) => void;
   hideHistoryPopover: () => void;
+  toggleModelPanel: (event?: Event) => void;
+  hideModelPanel: () => void;
   handleDocumentClick: (event: MouseEvent) => void;
+  handleEscapeKey: (event: KeyboardEvent) => void;
 }
 
 export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): ReaderChatPopovers {
-  const { presetPopover, historyPopover, presetInput } = deps;
+  const { presetPopover, historyPopover, modelPanel, presetInput } = deps;
+
+  // 互斥基准：任一弹层打开前先关其余两个（同一时刻至多一层浮在发送框上）。
+  function hideOthers(except: HTMLElement): void {
+    for (const popover of [presetPopover, historyPopover, modelPanel]) {
+      if (popover !== except) {
+        popover.hidden = true;
+      }
+    }
+  }
 
   function togglePresetPopover(event?: Event): void {
     event?.stopPropagation();
-    hideHistoryPopover();
+    hideOthers(presetPopover);
     const willShow = presetPopover.hidden;
     presetPopover.hidden = !willShow;
     if (willShow) {
@@ -49,7 +65,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
 
   function toggleHistoryPopover(event?: Event): void {
     event?.stopPropagation();
-    hidePresetPopover();
+    hideOthers(historyPopover);
     const willShow = historyPopover.hidden;
     historyPopover.hidden = !willShow;
     if (willShow) {
@@ -61,15 +77,30 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     historyPopover.hidden = true;
   }
 
+  function toggleModelPanel(event?: Event): void {
+    event?.stopPropagation();
+    hideOthers(modelPanel);
+    const willShow = modelPanel.hidden;
+    modelPanel.hidden = !willShow;
+    if (willShow) {
+      deps.renderModelPanel();
+    }
+  }
+
+  function hideModelPanel(): void {
+    modelPanel.hidden = true;
+  }
+
   // 外点关闭（由组合根经 chat-tab-bridge 注册进 ui-renderer 的单一文档级委托）：
   // 判定分支与 sidepanel 孪生逐字一致，仅 id 选择器换 readingChat* 前缀。
   function handleDocumentClick(event: MouseEvent): void {
-    if (presetPopover.hidden && historyPopover.hidden) {
+    if (presetPopover.hidden && historyPopover.hidden && modelPanel.hidden) {
       return;
     }
     if (!(event.target instanceof Element)) {
       hidePresetPopover();
       hideHistoryPopover();
+      hideModelPanel();
       return;
     }
     if (event.target.closest(`#${ids.readingChatPresetPopover}`) || event.target.closest(`#${ids.readingChatPresetBtn}`)) {
@@ -78,8 +109,22 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (event.target.closest(`#${ids.readingChatHistoryPopover}`) || event.target.closest(`#${ids.readingChatHistoryBtn}`)) {
       return;
     }
+    if (event.target.closest(`#${ids.readingChatModelPanel}`) || event.target.closest(`#${ids.readingChatModelChip}`)) {
+      return;
+    }
     hidePresetPopover();
     hideHistoryPopover();
+    hideModelPanel();
+  }
+
+  // Esc 全关（发送框重构新增；组合根的 window keydown 监听调用）。
+  function handleEscapeKey(event: KeyboardEvent): void {
+    if (event.key !== "Escape") {
+      return;
+    }
+    hidePresetPopover();
+    hideHistoryPopover();
+    hideModelPanel();
   }
 
   return {
@@ -87,6 +132,9 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     hidePresetPopover,
     toggleHistoryPopover,
     hideHistoryPopover,
-    handleDocumentClick
+    toggleModelPanel,
+    hideModelPanel,
+    handleDocumentClick,
+    handleEscapeKey
   };
 }

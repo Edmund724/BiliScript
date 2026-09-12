@@ -30,7 +30,7 @@ const CHAT_MARKERS = [
   "chat-history-",
   "chat-center-error",
   "chat-timestamp-link",
-  "chat-stop-btn"
+  "chat-send-btn"
 ];
 
 describe("对话分区 CSS 拆分（arch-slim-4/07）", () => {

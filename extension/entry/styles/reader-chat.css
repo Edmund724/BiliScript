@@ -73,34 +73,6 @@
   opacity: 0.72;
 }
 
-/* 工具条剩余宽度全部让给模型下拉（flex-grow）：内联 width（model-select-width
- * 度量结果）只作 flex-basis 下限，不再被 232px 硬上限截断。 */
-.boc-reading-chat .chat-model-select {
-  width: auto;
-  height: 32px;
-  flex: 1 1 auto;
-  min-width: 92px;
-  max-width: 100%;
-  padding: 0 28px 0 12px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
-  font: inherit;
-  font-size: 15px;
-  color: var(--boc-reader-text, #2b2620);
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint, #a39a8d) 50%),
-    linear-gradient(135deg, var(--boc-reader-faint, #a39a8d) 50%, transparent 50%);
-  background-position:
-    calc(100% - 14px) calc(50% - 1px),
-    calc(100% - 10px) calc(50% - 1px);
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-}
-
 /* 思考档位分段控件：与面板主导航 .boc-reading-tabs 同一套「凹槽 + 卡片」语言
  * （槽 12px / 项 10px，同心圆角 = 12 − 2px 内边距），不再自成一套胶囊。高度
  * 28/22 与 13px 字号是紧凑工具栏档，保持不变。 */
@@ -636,16 +608,6 @@
   position: relative;
 }
 
-/* 窄容器（面板 300–460px）：模型/思考档/预设一行放不下时折行 */
-.boc-reading-chat .chat-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  position: relative;
-}
-
 .boc-reading-chat .chat-toolbar-btn {
   display: inline-flex;
   align-items: center;
@@ -682,19 +644,175 @@
   line-height: 1;
 }
 
-.boc-reading-chat .chat-input-row {
-  position: relative;
+/* 发送卡片：上方输入区 + 下方控件行（+ / 模型 chip / 发送键），整体一个圆角
+ * 卡片，聚焦态写在卡片上（textarea 自身无边框无底色）。 */
+.boc-reading-chat .chat-input-card {
   display: flex;
-  align-items: stretch;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 8px;
+  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border-radius: 14px;
+  background: var(--boc-reader-surface, #fdfbf7);
+}
+
+.boc-reading-chat .chat-input-card:focus-within {
+  border-color: var(--boc-reader-accent, #fb7299);
+  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft, #fce0ea);
+}
+
+/* 底部控件行：+ 在左，模型 chip 与发送键在右（chip margin-left:auto 顶开）。 */
+.boc-reading-chat .chat-input-bar {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
+.boc-reading-chat .chat-add-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-reader-muted, #6f675c);
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
+}
+
+.boc-reading-chat .chat-add-btn:hover {
+  background: var(--boc-reader-surface-2, #f0e9df);
+  color: var(--boc-reader-text, #2b2620);
+}
+
+.boc-reading-chat .chat-add-btn:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+.boc-reading-chat .chat-add-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* 模型 chip：隐藏 select 的展示层。内联 width（model-select-width 度量结果），
+ * 超出省略号截断；右侧 chevron 固定不被压缩。 */
+.boc-reading-chat .chat-model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  margin-left: auto;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-surface-2, #f0e9df);
+  color: var(--boc-reader-text, #2b2620);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: background 0.15s ease-out, transform 100ms ease-out;
+}
+
+.boc-reading-chat .chat-model-chip:hover {
+  background: var(--boc-reader-surface-3, #e7dfd4);
+}
+
+.boc-reading-chat .chat-model-chip:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+.boc-reading-chat .chat-model-chip:disabled {
+  cursor: default;
+  color: var(--boc-reader-muted, #6f675c);
+}
+
+.boc-reading-chat .chat-model-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boc-reading-chat .chat-model-chip svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 发送键：空闲 = ↑（accent 圆键，空输入禁用置灰）；流式中同键变停止键
+ * （.is-stop 换方块图标），点击走同一条 abort 链。 */
+.boc-reading-chat .chat-send-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-accent, #fb7299);
+  color: #ffffff;
+  cursor: pointer;
+  transition: opacity 0.15s ease-out, transform 100ms ease-out;
+}
+
+.boc-reading-chat .chat-send-btn:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+.boc-reading-chat .chat-send-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.boc-reading-chat .chat-send-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.boc-reading-chat .chat-send-btn .chat-stop-icon {
+  display: none;
+}
+
+.boc-reading-chat .chat-send-btn.is-stop .chat-send-icon {
+  display: none;
+}
+
+.boc-reading-chat .chat-send-btn.is-stop .chat-stop-icon {
+  display: block;
+}
+
+/* 三个弹层（预设 / 历史 / 模型面板）：锚在 footer 顶边之上（bottom: calc(100%+4px)
+ * 相对 .chat-footer——footer 高度即发送卡片高度，不再随输入框行高硬编码）。 */
 .boc-reading-chat .chat-preset-popover,
-.boc-reading-chat .chat-history-popover {
+.boc-reading-chat .chat-history-popover,
+.boc-reading-chat .chat-model-panel {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 128px;
+  bottom: calc(100% + 4px);
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -709,7 +827,8 @@
 }
 
 .boc-reading-chat .chat-preset-popover[hidden],
-.boc-reading-chat .chat-history-popover[hidden] {
+.boc-reading-chat .chat-history-popover[hidden],
+.boc-reading-chat .chat-model-panel[hidden] {
   display: none !important;
 }
 
@@ -739,9 +858,73 @@
 }
 
 .boc-reading-chat .chat-preset-empty,
-.boc-reading-chat .chat-history-empty {
+.boc-reading-chat .chat-history-empty,
+.boc-reading-chat .chat-model-empty {
   color: var(--boc-reader-faint, #a39a8d);
   font-size: 14px;
+}
+
+/* 模型 + 思考档位面板：上部分组模型列表（滚动），底部固定思考档位行 + 提示行。 */
+.boc-reading-chat .chat-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(40vh, 300px);
+  overflow-y: auto;
+}
+
+.boc-reading-chat .chat-model-group {
+  padding: 6px 8px 2px;
+  color: var(--boc-reader-faint, #a39a8d);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.boc-reading-chat .chat-model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--boc-reader-text, #2b2620);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease-out;
+}
+
+.boc-reading-chat .chat-model-option:hover {
+  background: var(--boc-reader-surface-2, #f0e9df);
+}
+
+.boc-reading-chat .chat-model-option.is-selected {
+  background: var(--boc-reader-accent-soft, #fce0ea);
+  color: var(--boc-reader-accent, #fb7299);
+}
+
+.boc-reading-chat .chat-model-option-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boc-reading-chat .chat-model-check {
+  flex: 0 0 auto;
+}
+
+.boc-reading-chat .chat-model-panel-foot {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--boc-reader-border, #e7dfd4);
 }
 
 .boc-reading-chat .chat-history-clear-btn {
@@ -944,10 +1127,9 @@
   flex: 1;
   min-height: 76px;
   max-height: 320px;
-  padding: 10px 12px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 8px;
-  background: var(--boc-reader-surface, #fdfbf7);
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
   color: var(--boc-reader-text, #2b2620);
   font: inherit;
   font-size: 15px;
@@ -960,37 +1142,3 @@
   min-height: 60px;
 }
 
-.boc-reading-chat #boc-reading-chat-input:focus {
-  outline: none;
-  border-color: var(--boc-reader-accent, #fb7299);
-  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft, #fce0ea);
-}
-
-/* 停止按钮定位在输入框内部的右下角：流式期间输入框已清空且禁用，不会压住文字 */
-.boc-reading-chat .chat-stop-btn {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  z-index: 1;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 999px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-muted, #6f675c);
-  font: inherit;
-  font-size: 15px;
-  cursor: pointer;
-  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out;
-}
-
-.boc-reading-chat .chat-stop-btn:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
-  border-color: var(--boc-reader-surface-3, #e7dfd4);
-}
-
-.boc-reading-chat .chat-stop-btn:disabled {
-  cursor: default;
-  opacity: 0.7;
-}

@@ -77,7 +77,7 @@ import {
   parseModelOptionValue,
   type NoSubtitleReason
 } from "../chat/tab-domain.js";
-import { scheduleModelSelectWidthUpdate, updateModelSelectWidth } from "../chat/model-select-width.js";
+import { scheduleModelSelectWidthUpdate, updateModelSelectWidth, type ModelSelectWidthEls } from "../chat/model-select-width.js";
 // reader 触发源与进程内相位（content script 收不到自己的 runtime 广播）。
 import { BOC_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
@@ -89,9 +89,10 @@ import {
   consumePendingExplainIntent,
   clearPendingExplainIntent
 } from "./explain-intent.js";
-// 壳三件（重建于 reader 域）+ 外点关闭桥接槽 + tab 定位 + reader ids。
+// 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + 外点关闭桥接槽 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
+import { createReaderChatModelPanel } from "./chat-model-panel.js";
 import { createReaderChatPopovers } from "./chat-popovers.js";
 import { setChatTabOutsideClickHandler } from "./chat-tab-bridge.js";
 // 壳命令通道（arch-review-2026-09/10 依赖反转）：快捷动作定位对话 tab 与空态
@@ -120,6 +121,9 @@ const els = {
   contextChip: document.getElementById(ids.readingChatContextChip) as HTMLButtonElement,
   refreshBtn: document.getElementById(ids.readingChatRefreshBtn) as HTMLButtonElement,
   modelSelect: document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement,
+  modelChip: document.getElementById(ids.readingChatModelChip) as HTMLButtonElement,
+  modelPanel: document.getElementById(ids.readingChatModelPanel) as HTMLElement,
+  modelPanelList: document.getElementById(ids.readingChatModelList) as HTMLElement,
   thinkingToggle: document.getElementById(ids.readingChatThinkingToggle) as HTMLElement,
   thinkingBtns: document.querySelectorAll<HTMLElement>(`#${ids.readingChatThinkingToggle} .chat-thinking-btn`),
   // 思考档位「关不掉」提示行（工单 03，模板默认 hidden）
@@ -127,7 +131,6 @@ const els = {
   newChatBtn: document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement,
   presetBtn: document.getElementById(ids.readingChatPresetBtn) as HTMLButtonElement,
   historyBtn: document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement,
-  toolbar: document.querySelector<HTMLElement>(`#${ids.readingChatRoot} .chat-toolbar`),
   presetPopover: document.getElementById(ids.readingChatPresetPopover) as HTMLElement,
   presetList: document.getElementById(ids.readingChatPresetList) as HTMLElement,
   presetInput: document.getElementById(ids.readingChatPresetInput) as HTMLInputElement,
@@ -137,7 +140,8 @@ const els = {
   historyClearBtn: document.getElementById(ids.readingChatHistoryClearBtn) as HTMLButtonElement | null,
   messages: document.getElementById(ids.readingChatMessages) as HTMLElement,
   input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
-  stopBtn: document.getElementById(ids.readingChatStopBtn) as HTMLButtonElement | null,
+  inputBar: document.getElementById(ids.readingChatInputBar) as HTMLElement,
+  sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null
 };
@@ -423,17 +427,40 @@ const lists = createReaderChatLists({
   hideHistoryPopover: () => popovers.hideHistoryPopover()
 });
 
-// 预设/历史 popover 开合；文档级外点关闭经 chat-tab-bridge 并入 ui-renderer 的
-// 单一 document click 委托（组合根在激活/收尾时注册/摘除，见 bindGlobalTriggers）。
+// 预设/历史/模型面板三个弹层的开合与互斥；文档级外点关闭经 chat-tab-bridge 并入
+// ui-renderer 的单一 document click 委托（组合根在激活/收尾时注册/摘除，见
+// bindGlobalTriggers）；Esc 关闭走组合根的 window keydown 监听（同一时机挂载）。
 const popovers = createReaderChatPopovers({
   presetPopover: els.presetPopover,
   historyPopover: els.historyPopover,
+  modelPanel: els.modelPanel,
   presetBtn: els.presetBtn,
   historyBtn: els.historyBtn,
+  modelChipBtn: els.modelChip,
   presetInput: els.presetInput,
   renderPresetPrompts: () => lists.renderPresetPrompts(),
-  renderHistoryList: () => lists.renderHistoryList()
+  renderHistoryList: () => lists.renderHistoryList(),
+  renderModelPanel: () => modelPanel.renderPanel()
 });
+
+// 模型 chip + 面板的渲染（chip 是隐藏 select 的展示层）；hidePanel 惰性互引
+// popovers 实例（回调执行时实例已存在）。
+const modelPanel = createReaderChatModelPanel({
+  modelSelect: els.modelSelect,
+  chip: els.modelChip,
+  chipLabel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-label") as HTMLElement,
+  panelList: els.modelPanelList,
+  inputBar: els.inputBar,
+  hidePanel: () => popovers.hideModelPanel()
+});
+
+// 宽度度量专用 els 引用包（model-select-width 的契约键名 chip/chipLabel/inputBar；
+// 模块级 els 用 readingChat* 语义键名，二者在此显式对齐）。
+const widthEls: ModelSelectWidthEls = {
+  chip: els.modelChip,
+  chipLabel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-label") as HTMLElement,
+  inputBar: els.inputBar
+};
 
 // 上下文状态加载编排壳（../chat/context-load.ts）与 chat 流状态机
 //（../chat/chat-runtime.ts）均已收进上面的 createChatTabDomain 组装；本文件
@@ -446,14 +473,15 @@ const presets = createPresetPrompts({
   renderPresetPrompts: () => lists.renderPresetPrompts()
 });
 
-// AI 平台加载渲染 + 思考档位（widthEls 即本文件模块级 `els`，含度量所需的
-// toolbar/thinkingToggle/presetBtn）；persistAiPresetPrompts 惰性互引 presets。
+// AI 平台加载渲染 + 思考档位（widthEls 见上：度量对象是从键对齐出来的
+// chip/chipLabel/inputBar 引用包；providers 内部的 updateModelSelectWidth
+// 调用随 select 渲染刷新 chip 宽度）；persistAiPresetPrompts 惰性互引 presets。
 // 思考档位「关不掉」提示（工单 03）的 DOM 与判定在本文件（updateThinkingHint），
 // baseUrl 识别入参由 providers 模块自 ai-providers-list 载荷透传。
 const providerPrefs = createProviderPrefs({
   modelSelect: els.modelSelect,
   thinkingBtns: els.thinkingBtns,
-  widthEls: els,
+  widthEls,
   renderPresetPrompts: () => lists.renderPresetPrompts(),
   persistAiPresetPrompts: () => presets.persistAiPresetPrompts()
 });
@@ -558,6 +586,8 @@ function bindGlobalTriggers(): void {
   bindStorageWatcher();
   // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（chat-tab-bridge）。
   setChatTabOutsideClickHandler(popovers.handleDocumentClick);
+  // Esc 关闭三个弹层（window 级监听，与文档级 click 委托不同事件，不互踩）。
+  window.addEventListener("keydown", onWindowEscapeKey);
 }
 
 function unbindGlobalTriggers(): void {
@@ -565,6 +595,11 @@ function unbindGlobalTriggers(): void {
   unbindUrlChangeTrigger();
   unbindStorageWatcher();
   setChatTabOutsideClickHandler(null);
+  window.removeEventListener("keydown", onWindowEscapeKey);
+}
+
+function onWindowEscapeKey(event: KeyboardEvent): void {
+  popovers.handleEscapeKey(event);
 }
 
 async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promise<void> {
@@ -576,8 +611,10 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   // 聊天不再静默坏到面板重开。ensure 失败不阻断 init（catch 吞掉）。
   await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
   await loadProvidersAndPrefs();
-  // 平台列表/档位落定后首判「关不掉」提示（此后由模型切换/档位点击/外部刷新续判）。
+  // 平台列表/档位落定后：首判「关不掉」提示（此后由模型切换/档位点击/外部刷新续判）
+  // + 模型 chip 首渲（providers 的 renderModelSelect 已把选中项写进 select）。
   updateThinkingHint();
+  modelPanel.renderChip();
   await conversationStore.loadAll();
   await loadContextState();
   await conversationStore.restoreLatest();
@@ -640,6 +677,7 @@ export function closeChatSession(): void {
   subtitleWaiter.kick();
   popovers.hidePresetPopover();
   popovers.hideHistoryPopover();
+  popovers.hideModelPanel();
   removeConversationContextNotice();
   updateAsrNotice();
   // 会话收尾（意图已被 lifecycle.clearPendingExplainIntent 清掉）：引用卡随之
@@ -772,7 +810,10 @@ function bindEvents(): void {
       void sendFromUi();
     }
   });
-  els.input.addEventListener("input", autosizeInput);
+  els.input.addEventListener("input", () => {
+    autosizeInput();
+    updateSendBtnState();
+  });
   els.messages.addEventListener("scroll", () => {
     chatRuntime.setAutoScroll(isMessagesNearBottom());
   });
@@ -788,8 +829,15 @@ function bindEvents(): void {
   els.historyClearBtn?.addEventListener("click", () => {
     void conversationStore.clearAll();
   });
-  els.stopBtn?.addEventListener("click", () => {
-    chatRuntime.stopActiveStream();
+  // 模型 chip：点开模型 + 思考档位面板。
+  els.modelChip.addEventListener("click", popovers.toggleModelPanel);
+  // 发送键：空闲走与回车同一发送路径；流式中同键变停止键（圆形 + 方块图标）。
+  els.sendBtn.addEventListener("click", () => {
+    if (els.sendBtn.classList.contains("is-stop")) {
+      chatRuntime.stopActiveStream();
+      return;
+    }
+    void sendFromUi();
   });
   els.presetAddBtn.addEventListener("click", () => presets.addPresetPrompt());
   els.presetInput.addEventListener("keydown", (e) => {
@@ -813,8 +861,10 @@ function bindEvents(): void {
       chatSessionState.aiPrefs.defaultModel = "";
       chrome.storage.sync.set({ defaultModel: "" }).catch(() => {});
     }
-    updateModelSelectWidth(els);
-    // 模型选择变化即重判提示（含从「关不掉」模型切回可关模型时消失）。
+    updateModelSelectWidth(widthEls);
+    // 模型选择变化：重渲 chip 文案（模型名）+ 重判提示（含从「关不掉」模型
+    // 切回可关模型时消失）。
+    modelPanel.renderChip();
     updateThinkingHint();
   });
   els.thinkingBtns.forEach((btn) => {
@@ -822,6 +872,8 @@ function bindEvents(): void {
       // setThinkingLevel 首行同步写 chatSessionState.aiThinkingLevel，紧随的
       // 重判读到的是新档位（档位切走即收提示，切回 Off 再现）。
       void setThinkingLevel(btn.dataset.level || "off");
+      // chip 上的档位文案随新档位重渲。
+      modelPanel.renderChip();
       updateThinkingHint();
     });
   });
@@ -855,7 +907,7 @@ function bindEvents(): void {
 
 function onWindowResize(): void {
   // resize 路径读写交错（P2-3）：经 rAF 合帧，一帧至多跑一次「读布局 → 写宽度」。
-  scheduleModelSelectWidthUpdate(els);
+  scheduleModelSelectWidthUpdate(widthEls);
 }
 
 // chip 点击的 reader 适配（sidepanel 版为 openCurrentContextUrl：chrome.tabs.update
@@ -881,15 +933,30 @@ function autosizeInput(): void {
   const next = Math.min(els.input.scrollHeight, 320);
   const minHeight = els.root.classList.contains("chat-non-video-context") ? 72 : 94;
   els.input.style.height = `${Math.max(next, minHeight)}px`;
+  // 发送受理/重启会话等路径是程序化清输入框（不触发 input 事件），发送键禁用
+  // 态统一在每次自适应时同步（autosizeInput 是所有这些路径的公共尾部）。
+  updateSendBtnState();
+}
+
+// 发送键禁用态：流式中（停止键形态）仅「停止中」禁用；空闲时空输入禁用置灰。
+let stopInFlight = false;
+
+function updateSendBtnState(): void {
+  if (els.sendBtn.classList.contains("is-stop")) {
+    els.sendBtn.disabled = stopInFlight;
+    return;
+  }
+  els.sendBtn.disabled = !els.input.value.trim();
 }
 
 function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
   els.input.disabled = isStreaming;
-  if (els.stopBtn) {
-    els.stopBtn.hidden = !isStreaming;
-    els.stopBtn.disabled = stopping;
-    els.stopBtn.textContent = stopping ? "停止中..." : "停止";
-  }
+  stopInFlight = stopping;
+  // 同键双形态：空闲 = ↑ 发送键（空输入禁用）；流式中 = 停止键（圆形 + 方块
+  // 图标，点击 abort 同一条 stopActiveStream 链），停止中禁用防连点。
+  els.sendBtn.classList.toggle("is-stop", isStreaming);
+  els.sendBtn.setAttribute("aria-label", isStreaming ? "停止" : "发送");
+  els.sendBtn.disabled = isStreaming ? stopping : !els.input.value.trim();
 }
 
 // AI 平台 / 预设：实现在 ../chat/providers.ts，本文件只组装 deps 并保留「外部
@@ -898,7 +965,8 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   // 选中平台回退取 providers 模块的 storage 闭包缓存。
   const previousProviderId = String(els.modelSelect?.value || providerPrefs.getStoredSelectedProviderId() || "").trim();
   await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
-  // 外部变更可能整体替换平台列表/选中平台/档位：与 init 同口径重判提示。
+  // 外部变更可能整体替换平台列表/选中平台/档位：与 init 同口径重渲 chip + 重判提示。
+  modelPanel.renderChip();
   updateThinkingHint();
   if (chatRuntime.isStreaming()) {
     return;
@@ -1028,6 +1096,7 @@ function setRefreshing(isRefreshing: boolean): void {
 async function startNewConversation(): Promise<void> {
   popovers.hidePresetPopover();
   popovers.hideHistoryPopover();
+  popovers.hideModelPanel();
   setRefreshing(true);
   try {
     await loadContextState({ forceRefresh: true, silent: true });

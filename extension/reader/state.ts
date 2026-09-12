@@ -60,7 +60,7 @@ export const ids = {
   readingChatIntent: "boc-reading-chat-intent",
   // PR5 AI 对话 tab（readingChat* 前缀，不用 sp 前缀）：对话区全部元素 id。
   // 结构与 sidepanel.html 的 sp* 树一一对应（context chip / 刷新 / 设置 / 新对话、
-  // 转写提示行、消息区、模型/思考档/预设/历史、输入框、停止按钮），逻辑内核
+  // 转写提示行、消息区、模型/思考档/预设/历史、输入卡片），逻辑内核
   // 在 reader/chat-tab.ts（组合根）+ reader/chat-{lists,notices,popovers}.ts
   //（重建壳）+ ../chat/*（内核）。
   readingChatRoot: "boc-reading-chat",
@@ -73,8 +73,13 @@ export const ids = {
   readingChatMessages: "boc-reading-chat-messages",
   readingChatSuggestions: "boc-reading-chat-suggestions",
   readingChatModelSelect: "boc-reading-chat-model-select",
+  // 模型 + 思考档位面板（发送框底部 chip 弹出）：分组模型列表 + 底部固定
+  // 思考档位行与「关不掉」提示行；chip 是隐藏 select 的展示层。
+  readingChatModelChip: "boc-reading-chat-model-chip",
+  readingChatModelPanel: "boc-reading-chat-model-panel",
+  readingChatModelList: "boc-reading-chat-model-list",
   readingChatThinkingToggle: "boc-reading-chat-thinking-toggle",
-  // 思考档位「关不掉」提示行（工单 03）：档位切换区内 Off/Low/High 之后，
+  // 思考档位「关不掉」提示行（工单 03）：档位行之后（面板底部固定区），
   // 默认 hidden，对话组合根（reader/chat-tab.ts）按 resolver 判定显隐。
   readingChatThinkingHint: "boc-reading-chat-thinking-hint",
   readingChatPresetBtn: "boc-reading-chat-preset-btn",
@@ -86,7 +91,9 @@ export const ids = {
   readingChatHistoryList: "boc-reading-chat-history-list",
   readingChatHistoryClearBtn: "boc-reading-chat-history-clear-btn",
   readingChatInput: "boc-reading-chat-input",
-  readingChatStopBtn: "boc-reading-chat-stop-btn"
+  readingChatInputBar: "boc-reading-chat-input-bar",
+  // 发送按钮：空闲为 ↑（空输入禁用），流式中切换为停止键（圆形 + 方块图标）。
+  readingChatSendBtn: "boc-reading-chat-send-btn"
 };
 
 // ===== 类选择器契约表（arch-slim-2/03）=====

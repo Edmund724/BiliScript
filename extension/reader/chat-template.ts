@@ -53,20 +53,6 @@ export function buildChatTabBodyHtml(): string {
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>
         </main>
         <footer class="chat-footer">
-          <div class="chat-toolbar">
-            <select id="${ids.readingChatModelSelect}" class="chat-model-select" aria-label="选择模型平台"></select>
-            <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-toggle" role="group" aria-label="思考档位">
-              <button type="button" class="chat-thinking-btn" data-level="off">Off</button>
-              <button type="button" class="chat-thinking-btn" data-level="low">Low</button>
-              <button type="button" class="chat-thinking-btn" data-level="high">High</button>
-            </div>
-            <!-- 思考档位「关不掉」提示（工单 03）：独占折行（flex-basis:100%），
-                 默认隐藏，对话组合根按 resolver 判定写文案并显隐 -->
-            <div id="${ids.readingChatThinkingHint}" class="chat-thinking-hint" role="note" hidden></div>
-            <button id="${ids.readingChatPresetBtn}" type="button" class="chat-toolbar-btn" title="预设提示词">
-              <span>预设提示词</span>
-            </button>
-          </div>
           <div id="${ids.readingChatPresetPopover}" class="chat-preset-popover" hidden>
             <div id="${ids.readingChatPresetList}" class="chat-preset-list"></div>
             <div class="chat-preset-editor">
@@ -81,14 +67,54 @@ export function buildChatTabBodyHtml(): string {
             </div>
             <div id="${ids.readingChatHistoryList}" class="chat-history-list"></div>
           </div>
-          <div class="chat-input-row">
+          <!-- 模型 + 思考档位面板：点发送框底部模型 chip 弹出。上部分组模型列表
+               （滚动），底部固定思考档位行 + 「关不掉」提示行（工单 03）。 -->
+          <div id="${ids.readingChatModelPanel}" class="chat-model-panel" hidden>
+            <div id="${ids.readingChatModelList}" class="chat-model-list"></div>
+            <div class="chat-model-panel-foot">
+              <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-toggle" role="group" aria-label="思考档位">
+                <button type="button" class="chat-thinking-btn" data-level="off">Off</button>
+                <button type="button" class="chat-thinking-btn" data-level="low">Low</button>
+                <button type="button" class="chat-thinking-btn" data-level="high">High</button>
+              </div>
+              <div id="${ids.readingChatThinkingHint}" class="chat-thinking-hint" role="note" hidden></div>
+            </div>
+          </div>
+          <!-- 发送卡片：上方输入区 + 下方控件行（+ / 模型 chip / 发送键），整体一个
+               圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
+          <div class="chat-input-card">
             <textarea
               id="${ids.readingChatInput}"
               rows="2"
               placeholder="回车发送，Shift+Enter 换行"
               autocomplete="off"
             ></textarea>
-            <button id="${ids.readingChatStopBtn}" type="button" class="chat-stop-btn" hidden>停止</button>
+            <div id="${ids.readingChatInputBar}" class="chat-input-bar">
+              <button id="${ids.readingChatPresetBtn}" type="button" class="chat-add-btn" title="预设提示词" aria-label="预设提示词">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 5v14"></path>
+                  <path d="M5 12h14"></path>
+                </svg>
+              </button>
+              <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位">
+                <span class="chat-model-chip-label">未配置平台</span>
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6"></path>
+                </svg>
+              </button>
+              <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn" disabled aria-label="发送">
+                <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 19V5"></path>
+                  <path d="m5 12 7-7 7 7"></path>
+                </svg>
+                <svg class="chat-stop-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <rect x="7" y="7" width="10" height="10" rx="1.5"></rect>
+                </svg>
+              </button>
+            </div>
+            <!-- 模型选择值源（chip 的展示对象）：视觉上隐藏，providers 渲染选项、
+                 change 持久化链不变 -->
+            <select id="${ids.readingChatModelSelect}" class="chat-model-select" aria-label="选择模型平台" hidden></select>
           </div>
         </footer>
       </div>

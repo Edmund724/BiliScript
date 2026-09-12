@@ -111,7 +111,7 @@ describe("统一 Digest 面板三标签", () => {
     expect(document.getElementById(ids.readingChatModelSelect)).not.toBe(null);
     expect(document.getElementById(ids.readingChatPresetBtn)).not.toBe(null);
     expect(document.getElementById(ids.readingChatHistoryBtn)).not.toBe(null);
-    expect(document.getElementById(ids.readingChatStopBtn)).not.toBe(null);
+    expect(document.getElementById(ids.readingChatSendBtn)).not.toBe(null);
     const chatMessages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(chatMessages.querySelectorAll(".chat-msg, .chat-center-error").length).toBe(0);
     expect((chatMessages.querySelector(".chat-suggestions") as HTMLElement).innerHTML).toBe("");

@@ -71,7 +71,8 @@ export interface ProviderPrefsStorage {
 export interface CreateProviderPrefsDeps {
   modelSelect: HTMLSelectElement;
   thinkingBtns: NodeListOf<HTMLElement>;
-  // updateModelSelectWidth 的 els 引用包（含 toolbar/thinkingToggle/presetBtn）
+  // updateModelSelectWidth 的 els 引用包（含 chip/chipLabel/inputBar——发送框
+  // 重构起度量对象是模型 chip 而非 select）
   widthEls: ModelSelectWidthEls;
   renderPresetPrompts: () => void;
   // 惰性互引（组装点以箭头函数接线，回调执行时 presets 实例已存在）

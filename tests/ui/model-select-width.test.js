@@ -2,15 +2,18 @@
 // model-select-width.js（候选09 自 sidepanel.js 迁出的纯 UI 度量叶子）的小
 // 契约测试。工单 arch-review-2026-09/10 起模块自 ui/ 搬入 chat/（断 chat → ui
 // 最后一条逻辑边），本测试留守 tests/ui/ 不随迁（scope 之外），仅改 import。
+// 发送框重构起度量对象从原生 select 换成模型 chip：宽度写在 chip 上，文本源
+// 是 chip 内的 label 节点，上限从「toolbar 剩余宽度」改为「输入控件行宽 40%」
+// （无 inputBar 时回退旧硬上限 232）。
 // jsdom 不带 canvas npm 包，HTMLCanvasElement.getContext 返回 null
 // （已实测：打印 "Not implemented" 通知但不抛错），恰好覆盖模块内既有的
 // 降级路径（!ctx → 每字符 8px 估算），据此守住三个关键不变量：
 // - 降级测宽下的期望宽度算式（文本 8px/字符 + "000" 24 + 36 装饰余量）；
 // - [92, maxWidth] 区间夹取（短文案触底 92、长文案被上限截断）；
-// - 选中项缺失时回落「未配置平台」文案参与测量。
+// - 文案缺失时回落「未配置平台」参与测量。
 // getContext 显式 mock 为 null：不依赖 jsdom 版本的 canvas 行为，也消除
-// "Not implemented" 的控制台噪音； maxWidth 分支经 toolbar=null（232 默认上限）
-// 驱动（jsdom 无布局，clientWidth 恒 0，真实 toolbar 路径无可观测差异）。
+// "Not implemented" 的控制台噪音；maxWidth 分支经 inputBar=null（232 默认上限）
+// 驱动，inputBar 在 jsdom 无布局（clientWidth 恒 0）走 40% 上限触底 92。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -27,22 +30,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function makeSelect(optionText) {
-  const select = document.createElement("select");
+function makeChip(optionText) {
+  const chip = document.createElement("button");
+  const chipLabel = document.createElement("span");
   if (optionText !== undefined) {
-    const option = document.createElement("option");
-    option.textContent = optionText;
-    select.appendChild(option);
-    select.selectedIndex = 0;
+    chipLabel.textContent = optionText;
   }
-  return select;
+  chip.appendChild(chipLabel);
+  return { chip, chipLabel };
 }
 
 function makeEls(optionText) {
-  // toolbar/thinkingToggle/presetBtn 传 null：getModelSelectMaxWidth 走
-  // 「toolbar 缺失 → 默认上限 232」分支，jsdom 下该分支外的计算（clientWidth
-  // 恒 0）无可观测行为。
-  return { modelSelect: makeSelect(optionText), toolbar: null, thinkingToggle: null, presetBtn: null };
+  // inputBar 传 null：getModelChipMaxWidth 走「inputBar 缺失 → 默认上限 232」
+  // 分支；jsdom 下 inputBar 分支（clientWidth 恒 0 → 40% 触底 92）单独用例覆盖。
+  const { chip, chipLabel } = makeChip(optionText);
+  return { chip, chipLabel, inputBar: null };
 }
 
 describe("model-select-width", () => {
@@ -51,27 +53,34 @@ describe("model-select-width", () => {
     expect(measureTextWidth("", { fontSize: "11px" })).toBe(0);
   });
 
-  it("updateModelSelectWidth：modelSelect 缺失时直接返回，不写样式", () => {
-    const els = { modelSelect: null, toolbar: null, thinkingToggle: null, presetBtn: null };
+  it("updateModelSelectWidth：chip 缺失时直接返回，不写样式", () => {
+    const els = { chip: null, chipLabel: null, inputBar: null };
     expect(() => updateModelSelectWidth(els)).not.toThrow();
   });
 
   it("updateModelSelectWidth：短文案 desired 低于下限时触底 92px", () => {
     const els = makeEls("AI"); // 2×8 + 3×8 + 36 = 76 < 92
     updateModelSelectWidth(els);
-    expect(els.modelSelect.style.width).toBe("92px");
+    expect(els.chip.style.width).toBe("92px");
   });
 
   it("updateModelSelectWidth：长文案 desired 超过默认上限 232 时被截断", () => {
     const els = makeEls("x".repeat(30)); // 30×8 + 24 + 36 = 300 > 232
     updateModelSelectWidth(els);
-    expect(els.modelSelect.style.width).toBe("232px");
+    expect(els.chip.style.width).toBe("232px");
   });
 
-  it("updateModelSelectWidth：无选中项时回落「未配置平台」参与测量", () => {
+  it("updateModelSelectWidth：有 inputBar 时上限为控件行宽 40%（jsdom 无布局触底 92）", () => {
+    const els = makeEls("x".repeat(30));
+    els.inputBar = document.createElement("div"); // clientWidth 恒 0 → 上限 92
+    updateModelSelectWidth(els);
+    expect(els.chip.style.width).toBe("92px");
+  });
+
+  it("updateModelSelectWidth：chip 文案缺失时回落「未配置平台」参与测量", () => {
     const els = makeEls(); // 5×8 + 24 + 36 = 100
     updateModelSelectWidth(els);
-    expect(els.modelSelect.style.width).toBe("100px");
+    expect(els.chip.style.width).toBe("100px");
   });
 });
 
@@ -113,10 +122,10 @@ describe("scheduleModelSelectWidthUpdate（rAF 合帧）", () => {
       scheduleModelSelectWidthUpdate(els);
       scheduleModelSelectWidthUpdate(els);
       expect(raf.pending.size).toBe(1);
-      expect(els.modelSelect.style.width).toBe(""); // 合帧期内不写
+      expect(els.chip.style.width).toBe(""); // 合帧期内不写
 
       raf.flush();
-      expect(els.modelSelect.style.width).toBe("92px"); // 与同步调用同结果
+      expect(els.chip.style.width).toBe("92px"); // 与同步调用同结果
     } finally {
       raf.restore();
     }
@@ -131,8 +140,8 @@ describe("scheduleModelSelectWidthUpdate（rAF 合帧）", () => {
       scheduleModelSelectWidthUpdate(second);
       raf.flush();
 
-      expect(first.modelSelect.style.width).toBe("");
-      expect(second.modelSelect.style.width).toBe("232px");
+      expect(first.chip.style.width).toBe("");
+      expect(second.chip.style.width).toBe("232px");
     } finally {
       raf.restore();
     }
