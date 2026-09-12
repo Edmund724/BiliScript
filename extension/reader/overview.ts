@@ -37,6 +37,7 @@ import { resolveActiveProvider } from "../ai/active-provider.js";
 import { buildSubtitleSignature } from "../subtitle/cache.js";
 import type { AnalysisChapter, AnalysisQuote, OverviewAnalysis } from "../ai/analysis.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
+import { confirmDialog } from "../ui/confirm-dialog.js";
 import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
 import { jumpReadingTarget } from "./sync.js";
@@ -227,9 +228,10 @@ async function startOverviewRun(clipKey: string, forceRefresh: boolean): Promise
           overview.progressText = String(notice || "");
           renderIfOpen();
         },
-        // 成本护栏（分段路径预估 ≥5 次调用时）：页内 confirm，与
-        // sidepanel-chat-runtime 的护栏确认同款手法；拒绝以 err.cancelled 上翻。
-        askCostGuard: (message) => Promise.resolve(window.confirm(message))
+        // 成本护栏（分段路径预估 ≥5 次调用时）：面板内确认弹层
+        //（ui/confirm-dialog.js；原生 confirm 绘制在浏览器窗口正中央，面板
+        // 停靠右侧时可能看不到），管线内 await 回执；拒绝以 err.cancelled 上翻。
+        askCostGuard: (message) => confirmDialog({ message, confirmText: "继续" })
       }
     );
     if (overview.generatedFor !== clipKey) {

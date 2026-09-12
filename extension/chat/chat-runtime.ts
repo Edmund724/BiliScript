@@ -17,9 +17,9 @@
 // 9 个 sidepanel 消费方法 + handleChatPortMessage，内部步骤全部私有化。
 //
 // PR5 改造（宿主解耦补齐）：cost-guard 的确认通道经 deps.confirmCostGuard
-// 注入，缺省仍为 window.confirm（sidepanel 过渡期行为不变；reader 壳任务再
-// 注入面板内确认 UI）。endStream 的输入框聚焦（deps.input.focus()）本就经
-// deps 注入，无需改动。
+// 注入，缺省为面板内确认弹层（ui/confirm-dialog.js；原生 confirm 绘制在浏
+// 览器窗口正中央，面板停靠右侧时可能看不到）。endStream 的输入框聚焦
+//（deps.input.focus()）本就经 deps 注入，无需改动。
 //
 // Boundary: this module does NOT touch sidepanel module-level layout variables
 // or the surrounding chrome (header/popovers/context chip). Conversation state
@@ -39,6 +39,9 @@ import { renderMarkdown, splitMarkdownTail, stripThinkBlocks } from "../ui/markd
 //（懒 chunk，见 ui/lazy-mermaid 头注）。
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
+// 成本护栏缺省确认通道：面板内弹层（ui/confirm-dialog.js）——原生 confirm
+// 绘制在浏览器窗口正中央，面板停靠右侧时可能落在可视区外。
+import { confirmDialog } from "../ui/confirm-dialog.js";
 import type { ConversationStore } from "./conversation-store.js";
 import { chatSessionState } from "./chat-state.js";
 // offscreen → 宿主的出向 port 消息联合（ticket 08 单源，原本处手抄八分派）。
@@ -104,9 +107,9 @@ export interface CreateChatRuntimeDeps {
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
   // cost-guard 确认通道（offscreen 发起 Map-Reduce 前的成本护栏）。缺省
-  // window.confirm——sidepanel 过渡期行为不变；reader 壳任务注入面板内
-  // 确认 UI（window.confirm 在页面语境下不可用/体验不符）。
-  confirmCostGuard?: (message: string) => boolean;
+  // 面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也合法（注入桩/
+  // 旧组合根），回执统一走 Promise 归一。
+  confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
 }
 
 // 流式 token 累加器（按节点存放在 WeakMap）：base = 已 flush 的全量文本，
@@ -168,7 +171,7 @@ interface ThinkingDisplayState {
  *     getTimestampNavDeps,               // () => timestamp-nav deps object
  *     normalizeMarkdownForSectionPaste,  // (raw, baseLevel) => string
    *     connectPort,                       // () => Promise<chrome.runtime.Port> (name OFFSCREEN_CHAT_PORT_NAME 即 "offscreen-chat"; 先 ensure offscreen 文档)
-   *     confirmCostGuard,                  // (message) => boolean（可选；缺省 window.confirm。cost-guard 确认通道）
+   *     confirmCostGuard,                  // (message) => boolean | Promise<boolean>（可选；缺省面板内确认弹层 ui/confirm-dialog.js。cost-guard 确认通道）
    *   }
  *
  * @returns {object} method set (all closures; stream state only via the
@@ -319,10 +322,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.showConversationContextNotice(msg.data, 4000);
     } else if (msg.type === "cost-guard") {
       // offscreen 发起 Map-Reduce 前弹成本护栏，等待确认后回执。确认通道经
-      // deps 注入（缺省 window.confirm，sidepanel 过渡期行为不变）。
-      const confirmCostGuard = deps.confirmCostGuard || ((message: string) => window.confirm(message));
-      const ok = confirmCostGuard(String(msg.data?.message || "预计会有多次调用，是否继续？"));
-      port!.postMessage({ action: "cost-guard-confirm", ok });
+      // deps 注入（缺省面板内确认弹层）；弹层是异步的，回执挂在 Promise 上，
+      // 期间端口若已断开（用户停止/换片）则回执无接收方，丢弃。
+      const confirmCostGuard = deps.confirmCostGuard || ((message: string) => confirmDialog({ message, confirmText: "继续" }));
+      const replyPort = port;
+      void Promise.resolve(confirmCostGuard(String(msg.data?.message || "预计会有多次调用，是否继续？"))).then((ok) => {
+        try {
+          replyPort?.postMessage({ action: "cost-guard-confirm", ok: Boolean(ok) });
+        } catch {
+          // 弹层挂起期间流已停止/重置，端口断开：回执无接收方
+        }
+      });
     }
   }
 

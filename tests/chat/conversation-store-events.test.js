@@ -311,8 +311,9 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
   it("clearAll:onStreamInterrupted 在先,尾次 change = {refreshContextChip, historyCleared, resetView}", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
-    // 缺省确认通道用例：不注入 confirmClearAll，stub window.confirm 锁定缺省路径
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    // 缺省确认通道用例：不注入 confirmClearAll——确认走面板内弹层
+    //（ui/confirm-dialog.js），须挂 #boc-reading-view 供其挂载
+    document.body.innerHTML = '<div id="boc-reading-view"></div>';
     chatSessionState.savedConversations = [makeConversation("c1")];
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionState.liveContextKey = "k-1";
@@ -320,7 +321,12 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
     deps.onConversationChanged.mockClear();
     log.length = 0;
 
-    await store.clearAll();
+    const pending = store.clearAll();
+    const confirmBtn = document.querySelector(".confirm-dialog-confirm");
+    expect(confirmBtn, "清空确认弹层应已打开").not.toBeNull();
+    expect(confirmBtn.textContent).toBe("清空");
+    confirmBtn.click();
+    await pending;
 
     expect(deps.onStreamInterrupted).toHaveBeenCalledTimes(1);
     expect(log[0]).toEqual(["interrupt"]);

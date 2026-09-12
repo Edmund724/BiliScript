@@ -42,6 +42,7 @@ import {
 } from "../ai/conversation.js";
 import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
 import type { AiContext } from "../ai/types.js";
+import { confirmDialog } from "../ui/confirm-dialog.js";
 import { chatSessionState as _chatSessionState, type ChatSessionMessage } from "./chat-state.js";
 
 // ---------------------------------------------------------------------------
@@ -148,8 +149,9 @@ export interface CreateConversationStoreDeps {
   // ---- 存储（可选；测试注入，缺省 chrome.storage.local） ----
   storage?: StorageArea;
   // 清空全部历史对话前的确认通道（惯用法同 chat-runtime 的 confirmCostGuard）。
-  // 可选注入，缺省 window.confirm；Node 测试注入桩函数。
-  confirmClearAll?: (message: string) => boolean;
+  // 可选注入，缺省面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也
+  // 合法（Node 测试注入桩函数），clearAll 统一 await 归一。
+  confirmClearAll?: (message: string) => boolean | Promise<boolean>;
 }
 
 // 工单 arch-slim-2/07 接口收窄 11→8：apply / resolveContext / hydratePages 三键
@@ -216,8 +218,9 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
   const { loadContextState, resolveAiConversationRef, onConversationChanged, onStreamInterrupted, onContextNotice } = deps;
   const storage = deps.storage || (typeof chrome !== "undefined" && chrome?.storage?.local) || undefined;
-  // deps 注入（缺省 window.confirm，Node 测试注入桩；惯用法同 chat-runtime 的 confirmCostGuard）。
-  const confirmClearAll = deps.confirmClearAll || ((message: string) => window.confirm(message));
+  // deps 注入（缺省面板内确认弹层 ui/confirm-dialog.js；Node 测试注入桩；
+  // 惯用法同 chat-runtime 的 confirmCostGuard）。
+  const confirmClearAll = deps.confirmClearAll || ((message: string) => confirmDialog({ message, confirmText: "清空", danger: true }));
   const conversationsStorageKey = CONVERSATIONS_STORAGE_KEY;
   const maxSavedConversations = MAX_SAVED_CONVERSATIONS;
 
@@ -453,7 +456,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     if (!saved().length) {
       return;
     }
-    if (!confirmClearAll("确定要清空全部历史对话吗？")) {
+    if (!(await confirmClearAll("确定要清空全部历史对话吗？"))) {
       return;
     }
     commitSaved([]);

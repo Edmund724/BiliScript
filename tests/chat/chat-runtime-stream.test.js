@@ -561,20 +561,30 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
     expect(runtime.isStreaming()).toBe(true);
   });
 
-  it("cost-guard：confirm 确认 → 回执 ok:true；取消/缺省文案 → ok:false，流不终止", async () => {
+  it("cost-guard：面板内确认弹层确认 → 回执 ok:true；取消/缺省文案 → ok:false，流不终止", async () => {
     const { runtime, session } = await makeRuntime();
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    // 缺省确认通道用例：不注入 confirmCostGuard——确认走面板内弹层
+    //（ui/confirm-dialog.js），须挂 #boc-reading-view 供其挂载
+    document.body.innerHTML = '<div id="boc-reading-view"></div>';
 
     // 确认路径：文案取 msg.data.message
     feed(runtime, { type: "cost-guard", data: { message: "预计 3 次调用" } });
-    expect(confirmSpy).toHaveBeenCalledWith("预计 3 次调用");
-    expect(session.port.postMessage).toHaveBeenCalledWith({ action: "cost-guard-confirm", ok: true });
+    let confirmBtn = document.querySelector(".confirm-dialog-confirm");
+    expect(confirmBtn, "成本护栏确认弹层应已打开").not.toBeNull();
+    expect(confirmBtn.textContent).toBe("继续");
+    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("预计 3 次调用");
+    confirmBtn.click();
+    await vi.waitFor(() => {
+      expect(session.port.postMessage).toHaveBeenCalledWith({ action: "cost-guard-confirm", ok: true });
+    });
 
     // 取消路径：data 缺省时用兜底文案
-    confirmSpy.mockReturnValue(false);
     feed(runtime, { type: "cost-guard" });
-    expect(confirmSpy).toHaveBeenLastCalledWith("预计会有多次调用，是否继续？");
-    expect(session.port.postMessage).toHaveBeenLastCalledWith({ action: "cost-guard-confirm", ok: false });
+    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("预计会有多次调用，是否继续？");
+    document.querySelector(".confirm-dialog-cancel").click();
+    await vi.waitFor(() => {
+      expect(session.port.postMessage).toHaveBeenLastCalledWith({ action: "cost-guard-confirm", ok: false });
+    });
 
     expect(runtime.isStreaming()).toBe(true);
   });
