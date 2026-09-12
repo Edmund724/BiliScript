@@ -38,6 +38,15 @@ const { build, context } = require("esbuild");
 const watchMode = process.argv.includes("--watch");
 
 const extensionRoot = path.join(__dirname, "..", "extension");
+const vendorMermaidSlimScript = path.join(__dirname, "vendor-mermaid-slim.mjs");
+const slimMermaidEntry = path.join(
+  __dirname,
+  "..",
+  "node_modules",
+  "mermaid",
+  "dist",
+  "mermaid.boc.mjs"
+);
 const entry = path.join(extensionRoot, "entry", "content.ts");
 const bootstrapEntry = path.join(extensionRoot, "entry", "content-bootstrap.ts");
 const outDir = path.join(extensionRoot, "entry");
@@ -69,10 +78,9 @@ const lazyTargets = [
   { name: "pipeline", source: "asr/pipeline.ts" },
   { name: "fallback", source: "asr/fallback.ts" },
   { name: "analysis", source: "ai/analysis.ts" },
-  // mermaid 图表渲染（ui/lazy-mermaid 的动态 import 落点）：mermaid 全量包是
-  // MB 级，独立成懒 chunk；它自带的各图表类型本就按 import() 分包，轮 B 的
-  // splitting 直接沿用该边界——只有真出现某类图表时才加载那一类（其余约 3MB
-  // 产物不进请求）。
+  // mermaid 图表渲染（ui/lazy-mermaid 的动态 import 落点）：运行时只支持已保留的
+  // 图表类型，精简入口独立成懒 chunk；各类型继续按 import() 分包，只有真出现
+  // 某类图表时才加载对应的二级 chunk。
   { name: "mermaid-render", source: "ui/mermaid-render.ts" },
 ];
 // 轮 A 的 external 路径表：源文件绝对路径 → 轮 B 产物相对 content-main.mjs
@@ -136,6 +144,22 @@ const localImportGuard = {
           },
         ],
       };
+    });
+  },
+};
+
+// 轮 B 专用 alias：只有 mermaid-render.ts 的精确 import "mermaid" 落到生成好的
+// 精简入口；其他轮次及其他入口不经过这个重定向。
+const mermaidSlimAlias = {
+  name: "mermaid-slim-round-b-only",
+  setup(buildApi) {
+    buildApi.onResolve({ filter: /^mermaid$/ }, (args) => {
+      const importer = path.resolve(args.importer);
+      const mermaidRenderSource = path.join(extensionRoot, "ui", "mermaid-render.ts");
+      if (args.path !== "mermaid" || importer !== mermaidRenderSource) {
+        return undefined;
+      }
+      return { path: slimMermaidEntry };
     });
   },
 };
@@ -209,7 +233,7 @@ const lazyChunkOptions = {
   sourcemap: true,
   metafile: true,
   target: "chrome120",
-  plugins: [localImportGuard],
+  plugins: [localImportGuard, mermaidSlimAlias],
 };
 
 // 轮 A（常驻区）：entry/content.ts 单独一轮 splitting:false——常驻图整体
@@ -262,6 +286,7 @@ const watchRebuildLog = {
 };
 
 async function main() {
+  execFileSync(process.execPath, [vendorMermaidSlimScript], { stdio: "inherit" });
   cleanPreviousOutput();
   if (!watchMode) {
     // 先跑轮 B（懒加载区），再跑轮 A（常驻区 external 指向轮 B 产物路径——

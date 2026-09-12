@@ -1,8 +1,8 @@
 // ui/lazy-mermaid.ts — mermaid 图表水合的窄入口 + 懒加载器（常驻轻模块）。
 //
-// 为什么惰性：ui/mermaid-render 连着 mermaid 全量包（MB 级，见其头注）。多数
-// 对话里没有图表，装载挂在「root 里真有 [data-boc-mermaid] 占位」这一判定之后，
-// 没有图表的会话连这个脏 chunk 都不请求。
+// 为什么惰性：ui/mermaid-render 连着 Mermaid 及已保留图表类型的 MB 级依赖。
+// 多数对话里没有图表，装载挂在「root 里真有 [data-boc-mermaid] 占位」这一判定
+// 之后，没有图表的会话连这个脏 chunk 都不请求。
 //
 // 主题在这里读（state.reader.readingTheme），不在各调用点——调用点只表达「这里
 // 有节点需要水合」，主题是渲染细节。core/state 与 shared/logging 都是轻叶子
@@ -25,6 +25,15 @@ const loader = createLazyLoader<MermaidRenderModule>(() => import("./mermaid-ren
 // 落日志——调用点在渲染主路径上，不能被图表失败带崩（单张图的失败已在
 // mermaid-render 内部降级为「保留源码」）。
 // force：已渲染的块也重渲染（主题切换用）。
+async function hydrateMermaidNow(root: ParentNode, force: boolean): Promise<void> {
+  try {
+    const module = await loader.load();
+    await module.hydrateMermaidPlaceholders(root, { theme: state.reader.readingTheme === "dark" ? "dark" : "light", force });
+  } catch (error) {
+    logWarnAlways("[BOC] mermaid 懒加载失败：", error);
+  }
+}
+
 export function hydrateMermaid(
   root: ParentNode | null | undefined,
   { force = false }: { force?: boolean } = {}
@@ -32,11 +41,5 @@ export function hydrateMermaid(
   if (!root || !root.querySelector(MERMAID_BLOCK_SELECTOR)) {
     return;
   }
-  const theme = state.reader.readingTheme === "dark" ? "dark" : "light";
-  loader
-    .load()
-    .then((module) => module.hydrateMermaidPlaceholders(root, { theme, force }))
-    .catch((error: unknown) => {
-      logWarnAlways("[BOC] mermaid 懒加载失败：", error);
-    });
+  void hydrateMermaidNow(root, force);
 }

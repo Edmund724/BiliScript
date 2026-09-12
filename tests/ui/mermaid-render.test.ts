@@ -1,6 +1,6 @@
 // ui/mermaid-render 水合单测：mock 掉 mermaid 本体（真渲染需要布局引擎，jsdom
-// 里跑不了），只钉住本模块自己的契约——状态机（pending → done / error）、源码
-// 保留、插入时换新 id、缓存命中不重渲染、主题切换才重渲染。
+// 里跑不了），只钉住本模块自己的契约——状态机（pending → done / error /
+// unsupported）、源码保留、插入时换新 id、缓存命中不重渲染、主题切换才重渲染。
 //
 // 模块内（svgCache / pendingRenders / idSeq / configuredTheme）是模块级状态，
 // 每条用例 resetModules 后重新动态导入，拿到干净实例。
@@ -12,12 +12,19 @@ const mermaidMock = vi.hoisted(() => {
   return {
     initialize: vi.fn(),
     render,
+    detectType: vi.fn(),
     // mermaid.render(id, source) 的实际入参（断言换新 id / 源码透传用）
     calls: [] as Array<{ id: string; source: string }>
   };
 });
 
-vi.mock("mermaid", () => ({ default: { initialize: mermaidMock.initialize, render: mermaidMock.render } }));
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: mermaidMock.initialize,
+    render: mermaidMock.render,
+    detectType: mermaidMock.detectType
+  }
+}));
 
 type RenderModule = typeof import("../../extension/ui/mermaid-render.js");
 
@@ -41,7 +48,9 @@ function svgFor(id: string): string {
 beforeEach(() => {
   mermaidMock.initialize.mockReset();
   mermaidMock.render.mockReset();
+  mermaidMock.detectType.mockReset();
   mermaidMock.calls.length = 0;
+  mermaidMock.detectType.mockImplementation(() => "flowchart");
   mermaidMock.render.mockImplementation(async (id: string, source: string) => {
     mermaidMock.calls.push({ id, source });
     return { svg: svgFor(id) };
@@ -99,6 +108,38 @@ describe("hydrateMermaidPlaceholders", () => {
     expect(bad.querySelector(".boc-md-mermaid-fallback")!.textContent).toContain("图表渲染失败");
     expect(bad.querySelector(".boc-md-mermaid-src")!.textContent).toContain("bad");
     expect(good.getAttribute("data-boc-mermaid")).toBe("done");
+  });
+
+  it("不支持类型：显示精确源码降级文案，不影响后续图，换主题后可重新检测", async () => {
+    const { hydrateMermaidPlaceholders } = await loadModule();
+    const unsupportedSource = "pie title Pets\n  \"Dogs\" : 3";
+    let unsupportedDetected = true;
+    mermaidMock.detectType.mockImplementation((source: string) => {
+      if (unsupportedDetected && source === unsupportedSource) {
+        throw new Error("No diagram type detected");
+      }
+      return "flowchart";
+    });
+    document.body.innerHTML =
+      `<div class="boc-md-mermaid" data-boc-mermaid="pending"><pre class="boc-md-mermaid-src"><code>${unsupportedSource}</code></pre></div>` +
+      `<div class="boc-md-mermaid" data-boc-mermaid="pending"><pre class="boc-md-mermaid-src"><code>graph TD\nA --> B</code></pre></div>`;
+
+    await hydrateMermaidPlaceholders(document.body, { theme: "light" });
+
+    const [unsupported, following] = Array.from(document.querySelectorAll(".boc-md-mermaid"));
+    expect(unsupported.getAttribute("data-boc-mermaid")).toBe("unsupported");
+    expect(unsupported.getAttribute("data-boc-mermaid")).not.toBe("error");
+    expect(unsupported.querySelector(".boc-md-mermaid-fallback")!.textContent).toBe("不支持的图表类型，已显示源码");
+    expect(unsupported.querySelector(".boc-md-mermaid-src code")!.textContent).toBe(unsupportedSource);
+    expect(unsupported.querySelector(".boc-md-mermaid-svg")).toBeNull();
+    expect(following.getAttribute("data-boc-mermaid")).toBe("done");
+    expect(mermaidMock.render).toHaveBeenCalledTimes(1);
+
+    unsupportedDetected = false;
+    await hydrateMermaidPlaceholders(document.body, { theme: "dark", force: true });
+    expect(unsupported.getAttribute("data-boc-mermaid")).toBe("done");
+    expect(unsupported.querySelector(".boc-md-mermaid-fallback")).toBeNull();
+    expect(mermaidMock.render).toHaveBeenCalledTimes(3);
   });
 
   it("空源码占位不调用 mermaid，状态保持 pending", async () => {

@@ -1,11 +1,11 @@
 // ui/mermaid-render.ts — mermaid 图表占位（ui/markdown 产出的 [data-boc-mermaid]）
 // 的异步水合实现。
 //
-// 为什么是独立模块 + 懒 chunk：mermaid 全量（核心 + 各图表类型）是 MB 级的包，
-// 常驻图与对话/阅读域的 chunk 都不该背。本模块只经 ui/lazy-mermaid 的动态
-// import 触达，esbuild 把它切成 chunks/mermaid-render.mjs（见
-// scripts/build-content.js 的 lazyTargets）；mermaid 自身的图表类型再按需拆成
-// 二级动态 chunk，只有真正出现某类图表时才加载那一类。
+// 为什么是独立模块 + 懒 chunk：mermaid 及其图表类型仍是 MB 级依赖，常驻图与
+// 对话/阅读域的 chunk 都不该背。本模块只经 ui/lazy-mermaid 的动态 import 触达，
+// esbuild 把它切成 chunks/mermaid-render.mjs（见 scripts/build-content.js 的
+// lazyTargets），并把仅保留类型的精简入口作为轮 B 专属依赖；已保留类型继续
+// 按需拆成二级动态 chunk，只有真正出现某类图表时才加载对应的渲染代码。
 //
 // 渲染触发面（本模块不做 DOM 扫描与观察器）：调用方在**节点插入 DOM 之后**显式
 // 调用 hydrateMermaidPlaceholders——chat-runtime 的流式 stable 容器与终态整渲染、
@@ -22,7 +22,7 @@ import { MERMAID_BLOCK_ATTR, MERMAID_BLOCK_SELECTOR, MERMAID_SOURCE_SELECTOR } f
 export interface HydrateMermaidOptions {
   // "light" / "dark"（reader 面板主题），映射到 mermaid 的 default / dark 主题。
   theme?: string;
-  // 已渲染的块（done / error）是否也纳入考虑：主题切换时用。真正重做的只有
+  // 已渲染的块（done / error / unsupported）是否也纳入考虑：主题切换时用。真正重做的只有
   // 「渲染时主题 ≠ 目标主题」的块（见 MERMAID_THEME_ATTR），因此调用点可以在
   // 每次重渲时无脑传 true。
   force?: boolean;
@@ -39,6 +39,7 @@ interface RenderedDiagram {
 // applyReadingViewPresentation 在进入阅读模式、字幕重渲等路径上同样会跑，只看
 // 状态位会无差别重挂 SVG（白闪一次）。
 const MERMAID_THEME_ATTR = "data-boc-mermaid-theme";
+const MERMAID_UNSUPPORTED_MESSAGE = "不支持的图表类型，已显示源码";
 
 // 面板字体栈（reader.css 的面板族）。mermaid 默认栈是 "trebuchet ms, verdana,
 // arial"，与面板字体不搭，显式对齐。
@@ -128,9 +129,19 @@ function mountDiagram(block: Element, diagram: RenderedDiagram, theme: string): 
   holder.className = "boc-md-mermaid-svg";
   holder.innerHTML = diagram.id === freshId ? diagram.svg : diagram.svg.split(diagram.id).join(freshId);
   block.querySelector(".boc-md-mermaid-svg")?.remove();
+  block.querySelector(".boc-md-mermaid-fallback")?.remove();
   block.appendChild(holder);
   block.setAttribute(MERMAID_BLOCK_ATTR, "done");
   block.setAttribute(MERMAID_THEME_ATTR, theme);
+}
+
+function setFallback(block: Element, message: string): void {
+  block.querySelector(".boc-md-mermaid-svg")?.remove();
+  block.querySelector(".boc-md-mermaid-fallback")?.remove();
+  const note = document.createElement("div");
+  note.className = "boc-md-mermaid-fallback";
+  note.textContent = message;
+  block.appendChild(note);
 }
 
 // 失败降级：源码 <pre> 一直在（渲染成功时才被 CSS 隐藏），这里只需把状态翻到
@@ -140,21 +151,22 @@ function markError(block: Element, theme: string): void {
   block.setAttribute(MERMAID_BLOCK_ATTR, "error");
   // 记下失败时的主题：同样的语法错误换个主题重试没有意义，主题变了才值得再试。
   block.setAttribute(MERMAID_THEME_ATTR, theme);
-  block.querySelector(".boc-md-mermaid-svg")?.remove();
-  if (!block.querySelector(".boc-md-mermaid-fallback")) {
-    const note = document.createElement("div");
-    note.className = "boc-md-mermaid-fallback";
-    note.textContent = "图表渲染失败，已显示源码";
-    block.appendChild(note);
-  }
+  setFallback(block, "图表渲染失败，已显示源码");
+}
+
+// 未保留的 Mermaid 类型不是 error；保留源码并留待主题或能力变化后重新检测。
+function markUnsupported(block: Element, theme: string): void {
+  block.setAttribute(MERMAID_BLOCK_ATTR, "unsupported");
+  block.setAttribute(MERMAID_THEME_ATTR, theme);
+  setFallback(block, MERMAID_UNSUPPORTED_MESSAGE);
 }
 
 function readSource(block: Element): string {
   return block.querySelector(MERMAID_SOURCE_SELECTOR + " code")?.textContent ?? "";
 }
 
-// 水合 root 内的全部图表占位。单张图失败不影响其余（逐张 try/catch），失败块
-// 保留源码并置 error 状态。
+// 水合 root 内的全部图表占位。先逐张确认类型；不支持与渲染失败是不同状态，
+// 任一情况都不影响后续图表（逐张捕获），两类失败都保留源码。
 export async function hydrateMermaidPlaceholders(
   root: ParentNode,
   options: HydrateMermaidOptions = {}
@@ -169,6 +181,12 @@ export async function hydrateMermaidPlaceholders(
   for (const block of blocks) {
     const source = readSource(block);
     if (!source.trim()) {
+      continue;
+    }
+    try {
+      mermaid.detectType(source);
+    } catch {
+      markUnsupported(block, theme);
       continue;
     }
     try {
