@@ -55,6 +55,75 @@ interface CursorSync {
 }
 let playerAiQuickActionCursorSync: CursorSync | null = null;
 
+// 已挂载就位记录（性能工单）：sync 挂载成功时记下 (wrap, host)。
+// 背景：播放中 B 站进度条 width 与弹幕持续改动播放器子树，回调排 rAF 后 sync
+// 每帧都要全量跑字幕控件门（多个 querySelectorAll，逐候选读 aria-label /
+// title / data-text / textContent / className，候选可达数百）。按钮已挂载且
+// 宿主未变时该门结果稳定，跳过它——这份记录就是跳过的依据。
+let playerAiQuickActionMountedWrap: HTMLElement | null = null;
+let playerAiQuickActionMountedHost: HTMLElement | null = null;
+
+// 样式常量提升到模块级：挂载时写入与「是否已在位」的幂等探测共用同一组值。
+// 三个值都是常量，不随全屏/宽屏等播放器状态变化（现状也是每次写同一组字面量）；
+// 写在 wrap/button 自身的 inline style 上，特异性高于祖先的继承值。
+const PLAYER_AI_HIT_SIZE_PX = 36;
+const PLAYER_AI_ICON_SIZE_PX = 24;
+const PLAYER_AI_BASE_COLOR = "#f6f7f8";
+
+// 「已就位」：按钮与 wrap 仍在记录的原位，且宿主判定结果仍是记录的那个。
+// 宿主用现有 findPlayerAiQuickActionHost() 复判而非另设近似——锚点判定语义是
+// 红线，只有原判定说「还是它」才允许跳过。宿主切换（全屏/宽屏换容器）时复判
+// 结果变化，落回全量路径重挂到新宿主，按钮样式按现状跟着重同步。
+// 任一不成立都落回全量路径——按钮被 B 站重渲染摘掉、宿主被替换、wrap 被移走
+// 都是失同步，必须走原 rAF / 退避兜底补回。
+function isPlayerAiQuickActionMountedStable(): boolean {
+  const wrap = playerAiQuickActionMountedWrap;
+  const host = playerAiQuickActionMountedHost;
+  const button = wrap?.firstElementChild;
+  if (!(wrap instanceof HTMLElement) || !(host instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) {
+    return false;
+  }
+  return wrap.isConnected && host.isConnected && wrap.parentElement === host && findPlayerAiQuickActionHost() === host;
+}
+
+// 按钮内联变量是否已在位：逐值读取比值写入便宜，稳定态零写入；被外部抹掉时
+// 抹除本身就是属性变更（观察记录），下一拍探测到缺失即补回，视觉不漂移。
+// 只探测三个变量里对视觉影响最大的两个尺寸/色值+命中区，覆盖「内联被清空」
+// 这一现实场景；逐像素等价不是本路径的目标（漏判最多是一次多余的幂等写）。
+function isPlayerAiQuickActionVisualsCurrent(button: HTMLElement): boolean {
+  const wrap = button.parentElement;
+  if (button.style.getPropertyValue("--boc-player-ai-action-icon-size") !== `${PLAYER_AI_ICON_SIZE_PX}px`) {
+    return false;
+  }
+  if (!(wrap instanceof HTMLElement)) {
+    return true;
+  }
+  return (
+    wrap.style.getPropertyValue("--boc-player-ai-action-hit-size") === `${PLAYER_AI_HIT_SIZE_PX}px` &&
+    wrap.style.getPropertyValue("--boc-player-ai-action-color") === PLAYER_AI_BASE_COLOR
+  );
+}
+
+// 属性记录（进度条 width / class 抖动）与全量 sync 的共用入口：已就位就只
+// 校准按钮样式（幂等探测，值在位时零写入），不碰字幕门、挂载结构与新建节点；
+// 返回 false 表示未就位，调用方按各自口径落回全量路径（观察器侧排一次帧内
+// 快车道，sync 侧继续往下走完整流程）——装载窗口的行为与短路前一致。
+function tryRefreshPlayerAiQuickActionVisuals(): boolean {
+  if (!isPlayerAiQuickActionMountedStable()) {
+    return false;
+  }
+  const button = playerAiQuickActionMountedWrap?.firstElementChild;
+  if (button instanceof HTMLButtonElement && !isPlayerAiQuickActionVisualsCurrent(button)) {
+    syncPlayerAiQuickActionVisuals(button);
+  }
+  return true;
+}
+
+function clearPlayerAiQuickActionMountRecord(): void {
+  playerAiQuickActionMountedWrap = null;
+  playerAiQuickActionMountedHost = null;
+}
+
 export function resetPlayerAiQuickActionRetryCount(): void {
   playerAiQuickActionRetryCount = 0;
   playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
@@ -99,7 +168,14 @@ export function startPlayerAiQuickActionObserver(): void {
     return;
   }
 
-  const sync = () => {
+  // 记录分流（性能工单）：childList 用于挂载/摘除与结构变化的发现，必须走
+  // 全量 sync（delayMs=0 的帧内快车道）；纯属性记录（播放中进度条 width、
+  // 弹幕、B 站自己的 class 抖动都落在 subtree 的 style/class 上）在按钮已就位
+  // 时走轻量路径，未就位（装载窗口）仍落回全量 sync，行为与短路前一致。
+  const sync = (records: MutationRecord[] = []) => {
+    if (!records.some((record) => record.type === "childList") && tryRefreshPlayerAiQuickActionVisuals()) {
+      return;
+    }
     // 0 → 帧内快车道（rAF）：DOM 变化后等一帧让 rect 落定即挂，避免 120ms 防抖
     schedulePlayerAiQuickActionSync(0);
   };
@@ -229,14 +305,28 @@ function schedulePlayerAiQuickActionRetry(): void {
 }
 
 function syncPlayerAiQuickActionButton(): void {
-  const existing = document.getElementById("boc-player-ai-quick-action");
-  const existingWrap = existing?.closest(".boc-player-ai-wrap");
+  // 设置门控先于一切：关闭态仍要摘按钮（含清就位记录）。
   if (!state.settings?.enablePlayerAiQuickAction) {
     // 工单 08 决议 2：按钮常驻（阅读模式内/外都显示），仅设置开关门控挂载。
     removePlayerAiQuickActionButton();
     return;
   }
 
+  // 已就位短路（性能工单）：按钮在原位且宿主判定仍是它时，跳过字幕控件扫描
+  // （多个 querySelectorAll + 逐候选读属性）——播放中每帧回调的主要开销。只留
+  // 幂等的视觉校准（值已在位则零写入）。失同步自愈不受影响：按钮被 B 站摘掉后
+  // wrap.isConnected / 宿主记录即失效，本短路不成立，落到下方原有路径走
+  // rAF / 退避重试补回。
+  if (tryRefreshPlayerAiQuickActionVisuals()) {
+    // 与下方挂载成功同一条不变量：成功即在位，重置重试计数并补满帧内快车道
+    // 预算（下次「宿主重新就绪」仍从逐帧重试开始）。
+    playerAiQuickActionRetryCount = 0;
+    playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
+    return;
+  }
+
+  const existing = document.getElementById("boc-player-ai-quick-action");
+  const existingWrap = existing?.closest(".boc-player-ai-wrap");
   if (!hasPlayerSubtitleControl()) {
     removePlayerAiQuickActionButton();
     schedulePlayerAiQuickActionRetry();
@@ -247,6 +337,7 @@ function syncPlayerAiQuickActionButton(): void {
   if (!playerHost) {
     existingWrap?.remove();
     existing?.remove();
+    clearPlayerAiQuickActionMountRecord();
     schedulePlayerAiQuickActionRetry();
     return;
   }
@@ -277,6 +368,9 @@ function syncPlayerAiQuickActionButton(): void {
   }
   bindPlayerAiQuickActionCursorSync(wrap);
   syncPlayerAiQuickActionVisuals(button);
+  // 就位记录（性能工单）：下一次 sync 走短路，只校准样式。
+  playerAiQuickActionMountedWrap = wrap;
+  playerAiQuickActionMountedHost = playerHost;
   playerAiQuickActionRetryCount = 0;
   // 挂载成功即补满帧内快车道预算：下次「宿主重新就绪」（SPA 换片、阅读模式
   // 进出后的重挂）同样从逐帧重试开始，不用等退避拍。
@@ -290,6 +384,8 @@ function syncPlayerAiQuickActionButton(): void {
 }
 
 export function removePlayerAiQuickActionButton(): void {
+  // 就位记录同步清空：按钮已摘，下次 sync 必须重跑完整路径才能补回。
+  clearPlayerAiQuickActionMountRecord();
   if (playerAiState.playerAiQuickActionRevealTimer) {
     window.clearTimeout(playerAiState.playerAiQuickActionRevealTimer);
     playerAiState.setRevealTimer(0);
@@ -445,15 +541,12 @@ function syncPlayerAiQuickActionVisuals(button: HTMLElement): void {
     return;
   }
   const wrap = button.parentElement instanceof HTMLElement ? button.parentElement : null;
-  const hitSize = 36;
-  const iconSize = 24;
-  const baseColor = "#f6f7f8";
   [wrap, button].filter((node): node is HTMLElement => Boolean(node)).forEach((node) => {
-    node.style.setProperty("--boc-player-ai-action-hit-size", `${hitSize}px`);
-    node.style.setProperty("--boc-player-ai-action-color", baseColor);
-    node.style.setProperty("--boc-player-ai-action-hover-color", baseColor);
+    node.style.setProperty("--boc-player-ai-action-hit-size", `${PLAYER_AI_HIT_SIZE_PX}px`);
+    node.style.setProperty("--boc-player-ai-action-color", PLAYER_AI_BASE_COLOR);
+    node.style.setProperty("--boc-player-ai-action-hover-color", PLAYER_AI_BASE_COLOR);
   });
-  button.style.setProperty("--boc-player-ai-action-icon-size", `${iconSize}px`);
+  button.style.setProperty("--boc-player-ai-action-icon-size", `${PLAYER_AI_ICON_SIZE_PX}px`);
 }
 
 async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> {
