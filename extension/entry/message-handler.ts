@@ -240,8 +240,9 @@ export function dispatchContentScriptMessage(rawMessage: unknown, sendResponse: 
 
 // URL 变化编排（自 core/runtime.js 搬入）：core/url-watcher.js 只负责给 history
 // 打补丁并广播 boc:urlchange（纯机制），本组合根监听 popstate/hashchange/
-// boc:urlchange，按原顺序编排：更新 clip 签名 → 恢复普通页状态 → 确保 UI →
-// 重置 clip → player-ai 按钮同步 → reader 同步/字幕刷新。行为与顺序与搬迁前完全一致。
+// boc:urlchange，按原顺序编排：更新 clip 签名 → 恢复普通页状态 →（阅读模式下）
+// 确保 UI → 重置 clip → player-ai 按钮同步 → reader 同步/字幕刷新。顺序与搬迁前
+// 一致，唯 UI 壳改为条件装载（普通页 SPA 换片不建壳，见 handleUrlChange 内注）。
 let urlChangeHandlerBound = false;
 
 export function bindUrlChangeHandler() {
@@ -268,15 +269,22 @@ export function bindUrlChangeHandler() {
     // 再被迟到的 reset 递增误杀，自动刷新静默失效。
     clipState.setFetchRunId(clipState.fetchRunId + 1);
     enforceNormalPageStateIfNeeded(nextUrl);
-    // 候选03：UI 壳惰性构建。URL 变化后需要先确保壳存在，再执行依赖壳的逻辑
-    //（resetClipState 会清空面板内容；阅读模式进入依赖阅读视图壳）。
+    // 候选03：UI 壳惰性构建的条件收口。壳只在阅读视图已开或本次 URL 变化正要
+    // 进入阅读模式时才需要——resetClipState 的 rerender 与阅读模式进入都要取
+    // 壳节点；阅读模式进入链（reader/shell.ts 的 runReaderEntrySequence）自身
+    // 也先 ensureUiReady，共用同一 loader promise，建壳时机不晚于「无条件先
+    // ensure」的旧编排。普通页 SPA 换片（切视频/切 P）不装载 ui-renderer
+    // chunk：轻量路径只做状态重置，setStatus/setMessage 无壳节点时只写 state。
+    const shouldEnterReaderMode = isReaderMode(nextUrl);
     (async () => {
-      // UI 壳装载失败不中断编排也不漏 unhandled rejection，记日志即止。
-      try {
-        await ensureUiReady();
-      } catch (error) {
-        logWarn("[BOC] UI shell ensure after URL change failed", error);
-        return;
+      if (isReaderViewOpen() || shouldEnterReaderMode) {
+        // UI 壳装载失败不中断编排也不漏 unhandled rejection，记日志即止。
+        try {
+          await ensureUiReady();
+        } catch (error) {
+          logWarn("[BOC] UI shell ensure after URL change failed", error);
+          return;
+        }
       }
       // 候选02：resetClipState 属总结链层，经 ensure 装载后执行。装载/执行失败
       // 记日志不中断编排（后续 reader 分支与状态提示仍需走到）。
@@ -300,7 +308,6 @@ export function bindUrlChangeHandler() {
         }
       })();
     }
-    const shouldEnterReaderMode = isReaderMode(nextUrl);
     if (!isReaderViewOpen() && shouldEnterReaderMode) {
       // URL 跳转编排改走阅读壳（工单 arch-slim/02）：与消息意图三档共享同一条
       // 进入链（挂表 → 翻门控属性 → enterReaderMode），但无 player-ai 前奏
