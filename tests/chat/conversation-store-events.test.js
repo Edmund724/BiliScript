@@ -144,7 +144,7 @@ afterEach(() => {
 });
 
 // ===========================================================================
-// loadAll / hydratePages / persistCurrent:历史列表面的 change 时序
+// loadAll / 命中项分页补水 / persistCurrent:历史列表面的 change 时序
 // ===========================================================================
 describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
   it("loadAll:change 恰一次且 detail 为空(不触 chip——无上下文写入)", async () => {

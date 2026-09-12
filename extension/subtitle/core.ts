@@ -188,14 +188,18 @@ export function rebuildDerivedContent(): void {
 // 落账（字幕接受事务）只存原始字幕体 + 拉热评，markdown/SRT/TXT 三份全文派生
 // 内容推迟到首次消费（复制/导出/快照）时生成并缓存：构建各做一遍全文遍历 +
 // 大字符串拼接，原先挡在 subtitle-ready 通知前、推迟阅读列表首屏。缓存输入
-// 指纹取构建实际读取的全部 state 投影——引用字段（body/settings/chapters/
-// hotComments）按引用比对（写路径一律整体替换引用），标量元信息按值比对；
-// 任何输入变化即重建，消费产物与逐次重建逐字节一致，字幕更新后不会拿到旧派生。
+// 指纹取构建实际读取的全部投影——引用字段（body/settings/chapters/
+// hotComments）按引用比对（生产写路径经 setters 整体替换引用），标量元信息
+// 按值比对，外加 location.href 与 created 日期（buildMarkdown 读这两者，缺了
+// 跨日/同视频换页会拿到旧字节）；任何输入变化即重建，消费产物与逐次重建
+// 逐字节一致，字幕更新后不会拿到旧派生。
 interface DerivedContentCacheEntry {
   body: unknown;
   settings: unknown;
   chapters: unknown;
   hotComments: unknown;
+  href: string;
+  created: string;
   bvid: string;
   aid: string;
   cid: string;
@@ -207,24 +211,39 @@ interface DerivedContentCacheEntry {
   videoDuration: number;
 }
 
+// 标量指纹字段单表：capture 与 validate 共用，避免两处清单漂移。
+const DERIVED_SCALAR_FIELDS = [
+  "bvid",
+  "aid",
+  "cid",
+  "title",
+  "author",
+  "uploadDate",
+  "description",
+  "selectedSubtitleLang",
+  "videoDuration"
+] as const;
+
 let derivedContentCache: DerivedContentCacheEntry | null = null;
+
+function currentHref(): string {
+  return typeof location !== "undefined" ? location.href : "";
+}
 
 function captureDerivedContentInputs(): DerivedContentCacheEntry {
   const clip = state.clip;
+  const entry = {} as Record<(typeof DERIVED_SCALAR_FIELDS)[number], string | number>;
+  for (const key of DERIVED_SCALAR_FIELDS) {
+    entry[key] = clip[key] as string | number;
+  }
   return {
     body: clip.subtitleBody,
     settings: state.settings,
     chapters: clip.chapters,
     hotComments: clip.hotComments,
-    bvid: clip.bvid,
-    aid: clip.aid,
-    cid: clip.cid,
-    title: clip.title,
-    author: clip.author,
-    uploadDate: clip.uploadDate,
-    description: clip.description,
-    selectedSubtitleLang: clip.selectedSubtitleLang,
-    videoDuration: clip.videoDuration
+    href: currentHref(),
+    created: formatLocalDate(),
+    ...(entry as Omit<DerivedContentCacheEntry, "body" | "settings" | "chapters" | "hotComments" | "href" | "created">)
   };
 }
 
@@ -234,21 +253,17 @@ function isDerivedContentCacheValid(): boolean {
     return false;
   }
   const clip = state.clip;
-  return (
-    cached.body === clip.subtitleBody &&
-    cached.settings === state.settings &&
-    cached.chapters === clip.chapters &&
-    cached.hotComments === clip.hotComments &&
-    cached.bvid === clip.bvid &&
-    cached.aid === clip.aid &&
-    cached.cid === clip.cid &&
-    cached.title === clip.title &&
-    cached.author === clip.author &&
-    cached.uploadDate === clip.uploadDate &&
-    cached.description === clip.description &&
-    cached.selectedSubtitleLang === clip.selectedSubtitleLang &&
-    cached.videoDuration === clip.videoDuration
-  );
+  if (
+    cached.body !== clip.subtitleBody ||
+    cached.settings !== state.settings ||
+    cached.chapters !== clip.chapters ||
+    cached.hotComments !== clip.hotComments ||
+    cached.href !== currentHref() ||
+    cached.created !== formatLocalDate()
+  ) {
+    return false;
+  }
+  return DERIVED_SCALAR_FIELDS.every((key) => cached[key] === clip[key]);
 }
 
 // 派生内容首次消费入口：缓存命中即零开销返回，未命中重建三份并落 state。

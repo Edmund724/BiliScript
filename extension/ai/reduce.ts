@@ -106,7 +106,6 @@ interface ReduceSummariesInput {
   signal?: AbortSignal | null;
   onProgress?: (notice: string) => void;
   groupInputChars?: number | string;
-  concurrency?: number;
 }
 
 interface ReduceSummariesResult {
@@ -131,8 +130,7 @@ export async function reduceSummaries({
   runPrompts,
   signal,
   onProgress,
-  groupInputChars = REDUCE_GROUP_INPUT_CHARS,
-  concurrency = REDUCE_CONCURRENCY
+  groupInputChars = REDUCE_GROUP_INPUT_CHARS
 }: ReduceSummariesInput): Promise<ReduceSummariesResult> {
   const maxChars = Number(groupInputChars) > 0 ? Number(groupInputChars) : REDUCE_GROUP_INPUT_CHARS;
   let merged: string[] = Array.isArray(summaries) ? summaries.map((s) => String(s == null ? "" : s)) : [];
@@ -164,7 +162,7 @@ export async function reduceSummaries({
         // 防御性 clamp：单条归并产出截断到归并组输入，避免个别超长输出撑爆下一层组预算。
         return trimmed.length > maxChars ? trimmed.slice(0, maxChars) : trimmed;
       },
-      concurrency,
+      concurrency: REDUCE_CONCURRENCY,
       signal,
       onItemDone: (_result, index) => {
         if (typeof onProgress === "function") {

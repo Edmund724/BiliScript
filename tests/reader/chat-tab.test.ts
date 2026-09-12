@@ -191,6 +191,44 @@ describe("组合根装配与懒加载边界", () => {
     expect(messages.querySelector(".chat-suggestions")).not.toBe(null);
   });
 
+  it("首开初始化四路并行：平台列表被卡住时会话存档与 offscreen 确保已发起（opt-backlog-2026-09/05）", async () => {
+    seedReadyContext();
+    const chromeStub = window.chrome as unknown as { runtime: { sendMessage: Sendstub } };
+    // 把平台列表响应关在 gate 后：并行实现下其余三路不等待它；串行实现下
+    // 会话存档（storage.local.get）要等 providers 落定才会发起，本断言即失败。
+    let releaseProviders: (value: unknown) => void = () => {};
+    const providersGate = new Promise((resolve) => {
+      releaseProviders = resolve;
+    });
+    chromeStub.runtime.sendMessage.mockImplementation((message: { type?: string }, callback?: (resp: unknown) => void) => {
+      const type = String(message?.type || "");
+      if (type === "ai-providers-list") {
+        void providersGate.then(() =>
+          callback?.({ ok: true, providers: [{ id: "p1", name: "平台一", model: "模型一", enabled: true }] })
+        );
+      } else if (type === "get-settings") {
+        callback?.({ ok: true, settings: {} });
+      } else {
+        callback?.({ ok: true });
+      }
+      return undefined;
+    });
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    const activation = chat.ensureChatTabActivated();
+
+    // 平台列表仍在 gate 后：offscreen 确保与会话存档必须已经发起。
+    await waitFor(() =>
+      chromeStub.runtime.sendMessage.mock.calls.some((call) => (call[0] as { type?: string })?.type === "ensure-offscreen-chat")
+    );
+    const storageGet = (window.chrome as unknown as { storage: { local: { get: Sendstub } } }).storage.local.get;
+    await waitFor(() => storageGet.mock.calls.length > 0);
+
+    releaseProviders(null);
+    await activation;
+    expect(lazyChat.isReaderChatTabLoaded()).toBe(true);
+  });
+
   it("重复激活幂等：不重跑 init（storage 读取次数不变）", async () => {
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();

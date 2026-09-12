@@ -140,7 +140,8 @@ export interface CreateConversationStoreDeps {
   // 会话引用解析单接缝（工单 05 合并原 resolveAiConversationContext /
   // resolveAiConversationPageRef 两个同形 dep）：purpose="context" 解析整份
   // 对话上下文（pinned 补水；组合根接工单 04 的进程内短路 + 网络复合适配器），
-  // purpose="page" 解析分页信息（hydratePages 的会话分页补水）。
+  // purpose="page" 解析分页信息（restoreLatest 命中项的分页补水，
+  // opt-backlog-2026-09/05 自 hydratePages 批量收敛为单条）。
   resolveAiConversationRef: (
     contextRef: AiContext,
     purpose: "context" | "page"
@@ -609,7 +610,8 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   }
 
   // 工单 arch-slim-2/07：返回面 9 键 = 收窄 8 键（原 11 摘除 apply/resolve-
-  // Context/hydratePages——实现保留为工厂内私有函数，内部调用点不变）+ 工单 D
+  // Context/hydratePages——私有实现 hydratePages 后于 opt-backlog-2026-09/05
+  // 收敛为 hydrateConversationPage 单条，只服务 restoreLatest 命中项）+ 工单 D
   // 授权的公开窄方法 detachForRestart。
   return {
     loadAll,
