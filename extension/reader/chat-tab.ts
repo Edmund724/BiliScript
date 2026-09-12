@@ -808,6 +808,25 @@ async function sendFromUi(): Promise<void> {
 // bindEvents（元素级绑定；全局触发源见 bindGlobalTriggers）
 // ============================================================
 
+// 消息区滚动通知 rAF 合帧（10-2）：滚动事件的判定回调会在每次触发时读
+// scrollHeight（强制布局）。按帧合批——同帧多条 scroll 只判定/通知一次，
+// scrollHeight 读沉到帧回调，且来自 scrollToBottom 的写后紧跟读不再交错。
+let scrollSyncFrame = 0;
+function flushScrollAutoScrollSync(): void {
+  scrollSyncFrame = 0;
+  chatRuntime.setAutoScroll(isMessagesNearBottom());
+}
+function scheduleScrollAutoScrollSync(): void {
+  if (scrollSyncFrame) {
+    return;
+  }
+  if (typeof window.requestAnimationFrame === "function") {
+    scrollSyncFrame = window.requestAnimationFrame(flushScrollAutoScrollSync);
+  } else {
+    scrollSyncFrame = window.setTimeout(flushScrollAutoScrollSync, 16);
+  }
+}
+
 function bindEvents(): void {
   els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -819,9 +838,7 @@ function bindEvents(): void {
     autosizeInput();
     updateSendBtnState();
   });
-  els.messages.addEventListener("scroll", () => {
-    chatRuntime.setAutoScroll(isMessagesNearBottom());
-  });
+  els.messages.addEventListener("scroll", scheduleScrollAutoScrollSync);
   els.contextChip.addEventListener("click", () => {
     void openCurrentContextInReader();
   });
