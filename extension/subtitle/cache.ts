@@ -175,13 +175,32 @@ interface SubtitleSignatureInput {
  * 主动失效（07 票决议）。模式位（有无自带章节）一并纳入：章节出现/消失会切换
  * 短路径，产物形态不同。算法必须逐位稳定——历史概览缓存键依赖它。
  */
-export function buildSubtitleSignature({ lang, subtitleId, subtitleUrl, body, chapters, chapterOutline }: SubtitleSignatureInput = {}): string {
-  const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
+
+// 候选10 批1：body 遍历度量（条数/首末时间戳/总字符数）按「输入数组引用」缓存
+//（WeakMap，照 normalizeChaptersCache 先例）。概览与 AI 分析在多拍/多产物路径
+// 上共拿同一 state.clip.subtitleBody 引用重复算签名，引用相同即零遍历复用。
+// 已核实调用方都不原地修改传入 body——写路径一律经 clipState.setSubtitleBody
+//（新数组）整体替换引用；返回度量只被只读拼接，缓存不会失真。
+interface BodySignatureMetrics {
+  count: number;
+  firstFrom: number;
+  lastTo: number;
+  totalChars: number;
+}
+
+const bodySignatureMetricsCache = new WeakMap<object, BodySignatureMetrics>();
+
+function measureSubtitleBody(body: unknown): BodySignatureMetrics {
+  const items = Array.isArray(body) ? body : [];
+  const cached = bodySignatureMetricsCache.get(items);
+  if (cached) {
+    return cached;
+  }
   let count = 0;
   let totalChars = 0;
   let firstFrom = 0;
   let lastTo = 0;
-  for (const item of normalizeSubtitleItems(body)) {
+  for (const item of normalizeSubtitleItems(items)) {
     const content = String(item?.content ?? "").trim();
     if (!content) continue;
     if (count === 0) {
@@ -191,6 +210,14 @@ export function buildSubtitleSignature({ lang, subtitleId, subtitleUrl, body, ch
     totalChars += content.length;
     count += 1;
   }
+  const metrics = { count, firstFrom, lastTo, totalChars };
+  bodySignatureMetricsCache.set(items, metrics);
+  return metrics;
+}
+
+export function buildSubtitleSignature({ lang, subtitleId, subtitleUrl, body, chapters, chapterOutline }: SubtitleSignatureInput = {}): string {
+  const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
+  const { count, firstFrom, lastTo, totalChars } = measureSubtitleBody(body);
   const basis = [
     "v1",
     sourceKey,
