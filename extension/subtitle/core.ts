@@ -184,8 +184,87 @@ export function rebuildDerivedContent(): void {
   clipState.setTxt(body.length ? buildTxt(body, state.settings) : "");
 }
 
-// 原 extension/notes/build.js 的 refreshDerivedContent，浅模块合并后内联于此。
-export async function refreshDerivedContent({ refreshComments = false } = {}): Promise<void> {
+// ===== 派生内容懒生成（opt-backlog-2026-09/04）=====
+// 落账（字幕接受事务）只存原始字幕体 + 拉热评，markdown/SRT/TXT 三份全文派生
+// 内容推迟到首次消费（复制/导出/快照）时生成并缓存：构建各做一遍全文遍历 +
+// 大字符串拼接，原先挡在 subtitle-ready 通知前、推迟阅读列表首屏。缓存输入
+// 指纹取构建实际读取的全部 state 投影——引用字段（body/settings/chapters/
+// hotComments）按引用比对（写路径一律整体替换引用），标量元信息按值比对；
+// 任何输入变化即重建，消费产物与逐次重建逐字节一致，字幕更新后不会拿到旧派生。
+interface DerivedContentCacheEntry {
+  body: unknown;
+  settings: unknown;
+  chapters: unknown;
+  hotComments: unknown;
+  bvid: string;
+  aid: string;
+  cid: string;
+  title: string;
+  author: string;
+  uploadDate: string;
+  description: string;
+  selectedSubtitleLang: string;
+  videoDuration: number;
+}
+
+let derivedContentCache: DerivedContentCacheEntry | null = null;
+
+function captureDerivedContentInputs(): DerivedContentCacheEntry {
+  const clip = state.clip;
+  return {
+    body: clip.subtitleBody,
+    settings: state.settings,
+    chapters: clip.chapters,
+    hotComments: clip.hotComments,
+    bvid: clip.bvid,
+    aid: clip.aid,
+    cid: clip.cid,
+    title: clip.title,
+    author: clip.author,
+    uploadDate: clip.uploadDate,
+    description: clip.description,
+    selectedSubtitleLang: clip.selectedSubtitleLang,
+    videoDuration: clip.videoDuration
+  };
+}
+
+function isDerivedContentCacheValid(): boolean {
+  const cached = derivedContentCache;
+  if (!cached) {
+    return false;
+  }
+  const clip = state.clip;
+  return (
+    cached.body === clip.subtitleBody &&
+    cached.settings === state.settings &&
+    cached.chapters === clip.chapters &&
+    cached.hotComments === clip.hotComments &&
+    cached.bvid === clip.bvid &&
+    cached.aid === clip.aid &&
+    cached.cid === clip.cid &&
+    cached.title === clip.title &&
+    cached.author === clip.author &&
+    cached.uploadDate === clip.uploadDate &&
+    cached.description === clip.description &&
+    cached.selectedSubtitleLang === clip.selectedSubtitleLang &&
+    cached.videoDuration === clip.videoDuration
+  );
+}
+
+// 派生内容首次消费入口：缓存命中即零开销返回，未命中重建三份并落 state。
+// 消费点（复制/导出/快照）调用本函数取代原先的消费前无条件重建双保险。
+export function ensureDerivedContent(): void {
+  if (isDerivedContentCacheValid()) {
+    return;
+  }
+  rebuildDerivedContent();
+  derivedContentCache = captureDerivedContentInputs();
+}
+
+// 热评拉取（自 refreshDerivedContent 拆出，opt-backlog-2026-09/04）：原是派生
+// 刷新的一部分，但热评消费方不止笔记渲染（overview 分析/context 装配），且落账
+// 后阅读视图即依赖它呈现——留在字幕接受事务内。派生三件套不再随本调用构建。
+export async function refreshHotComments({ refreshComments = false } = {}): Promise<void> {
   if (state.settings?.includeHotCommentsInNote) {
     const shouldFetchComments =
       refreshComments || !Array.isArray(state.clip.hotComments) || state.clip.hotComments.length === 0;
@@ -198,6 +277,10 @@ export async function refreshDerivedContent({ refreshComments = false } = {}): P
       }
     }
   }
+}
 
-  rebuildDerivedContent();
+// 消费侧（复制 Markdown）的完整刷新：热评按需补拉 + 派生内容懒生成。
+export async function refreshDerivedContent({ refreshComments = false } = {}): Promise<void> {
+  await refreshHotComments({ refreshComments });
+  ensureDerivedContent();
 }

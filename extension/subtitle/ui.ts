@@ -13,7 +13,7 @@ import { state } from "../core/state.js";
 import { setMessage, setStatus } from "../shared/ui-status.js";
 // ids 为 reader 状态微模块（候选04 结构归并）：纯常量表，不经 reader/index.js
 // facade 转发（否则总结链会静态拖起整个 reader 域）。
-import { refreshDerivedContent, rebuildDerivedContent } from "./core.js";
+import { refreshDerivedContent, ensureDerivedContent } from "./core.js";
 
 // ===== 链层交互（候选02 分层惰性：自 ui/ui-renderer.js 移入） =====
 //
@@ -87,7 +87,8 @@ export async function copySubtitleTranscript(): Promise<void> {
 
 export async function downloadSubtitle(): Promise<void> {
   state.setSettings(await getSettings());
-  rebuildDerivedContent();
+  // 懒生成（opt-backlog-2026-09/04）：首次消费时构建并缓存，命中即零开销。
+  ensureDerivedContent();
   const format = normalizeDownloadFormat(state.settings?.downloadFormat);
   const content = format === "txt" ? state.clip.txt : state.clip.srt;
   if (!content) {
@@ -113,6 +114,8 @@ export async function downloadSubtitle(): Promise<void> {
 }
 
 export function buildClipSnapshotPayload(): Record<string, unknown> {
+  // 派生三件套懒生成后快照（opt-backlog-2026-09/04）：落账不再预建，读取前确保缓存。
+  ensureDerivedContent();
   const subtitleOptions = buildSubtitleOptionViews(
     state.clip.subtitles,
     state.clip.selectedSubtitleId,

@@ -47,6 +47,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   readVideoAuthor: vi.fn(() => "测试作者"),
   readUploadDate: vi.fn(() => "2026-01-01"),
   readVideoDescription: vi.fn(() => ""),
+  refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
@@ -107,6 +108,7 @@ async function importEpoch() {
   cache.loadSubtitleFromCache.mockReset().mockResolvedValue(null);
   uiStatus.setStatus.mockReset();
   uiStatus.setMessage.mockReset();
+  core.refreshHotComments.mockReset().mockResolvedValue(undefined);
   core.refreshDerivedContent.mockReset().mockResolvedValue(undefined);
 }
 
@@ -130,7 +132,7 @@ describe("事务级 runId 自检（commit.acceptSubtitle / commitNoSubtitle）",
     expect(state.clip.selectedSubtitleLang).toBe("");
     expect(state.clip.subtitleBody).toEqual([]);
     expect(state.clip.subtitleFetchState).toBe("idle");
-    expect(core.refreshDerivedContent).not.toHaveBeenCalled();
+    expect(core.refreshHotComments).not.toHaveBeenCalled();
     const { notifyReaderPresenter } = await import("../../extension/reader/reader-bus.js");
     expect(notifyReaderPresenter).not.toHaveBeenCalled();
   });
@@ -142,7 +144,7 @@ describe("事务级 runId 自检（commit.acceptSubtitle / commitNoSubtitle）",
 
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(state.clip.subtitleBody.map((item) => item.content)).toEqual(["第一条", "第二条"]);
-    expect(core.refreshDerivedContent).toHaveBeenCalledTimes(1);
+    expect(core.refreshHotComments).toHaveBeenCalledTimes(1);
   });
 
   it("未传 runId → 不校验直接提交（asr/fallback 收尾路径行为不变）", async () => {

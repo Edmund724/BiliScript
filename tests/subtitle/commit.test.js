@@ -3,15 +3,17 @@
 // 一段字幕成为当前视频生效字幕的唯一事务：稳定排序（from 升序，读路径
 // findActiveSubtitleIndex 二分依赖）→ 写 state（selectedSubtitleId/Url/Lang +
 // subtitleBody）→ fetchState="ready" → 清 noSubtitleReason → await
-// refreshDerivedContent() → 通知 "subtitle-ready"（发射无条件，视图过滤归
-// reader 侧）。本套件在纯
+// refreshHotComments()（热评拉取；markdown/SRT/TXT 派生三件套自
+// opt-backlog-2026-09/04 起改为首次消费时懒生成，落账不再触发）→ 通知
+// "subtitle-ready"（发射无条件，视图过滤归 reader 侧）。本套件在纯
 // state 级锁死这些不变量；无字幕出口（逆事务）与接受互为逆，同样锁清空完整性。
 //
-// mock 结构：refreshDerivedContent mock（派生刷新的调用/时序断言是本套件职责，
-// 笔记构建本体归 core.test.js）、reader-bus mock（notifyReaderPresenter 可观察）。
-// 渲染/状态栏回调（renderMeta/renderSubtitleSelect/setStatus）不静态可达，经
-// configureCommitUi 注入 vi.fn——与生产由 fetcher 注入同一条接线。
-// view-state / dom-utils / reader-ids / selection / state 保持真实：纯叶子。
+// mock 结构：refreshHotComments / refreshDerivedContent mock（落账只拉热评、
+// 不建派生的调用/时序断言是本套件职责，懒生成本体归 core 测试）、reader-bus
+// mock（notifyReaderPresenter 可观察）。渲染/状态栏回调（renderMeta/
+// renderSubtitleSelect/setStatus）不静态可达，经 configureCommitUi 注入 vi.fn
+// ——与生产由 fetcher 注入同一条接线。view-state / dom-utils / reader-ids /
+// selection / state 保持真实：纯叶子。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -22,10 +24,11 @@ import {
   configureCommitUi,
   buildNoSubtitleStatusMessage
 } from "../../extension/subtitle/commit.js";
-import { refreshDerivedContent } from "../../extension/subtitle/core.js";
+import { refreshHotComments, refreshDerivedContent } from "../../extension/subtitle/core.js";
 import { notifyReaderPresenter } from "../../extension/reader/reader-bus.js";
 
 vi.mock("../../extension/subtitle/core.js", () => ({
+  refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 vi.mock("../../extension/reader/reader-bus.js", () => ({
@@ -61,6 +64,7 @@ beforeEach(() => {
   configureCommitUi(commitUiMocks);
 
   state.reader.setViewOpen(false);
+  vi.mocked(refreshHotComments).mockClear();
   vi.mocked(refreshDerivedContent).mockClear();
   vi.mocked(notifyReaderPresenter).mockClear();
 });
@@ -105,9 +109,9 @@ describe("acceptSubtitle：字幕接受事务", () => {
     expect(clipState.noSubtitleReason).toBe(null);
   });
 
-  it("await 派生刷新：refreshDerivedContent 恰好在 state 落位后被调用一次", async () => {
+  it("await 热评拉取：refreshHotComments 恰好在 state 落位后被调用一次，且不触发派生三件套构建", async () => {
     let stateAtRefresh = null;
-    vi.mocked(refreshDerivedContent).mockImplementation(async () => {
+    vi.mocked(refreshHotComments).mockImplementation(async () => {
       stateAtRefresh = {
         body: state.clip.subtitleBody.map((item) => item.content),
         fetchState: state.clip.subtitleFetchState,
@@ -122,8 +126,11 @@ describe("acceptSubtitle：字幕接受事务", () => {
       selectedSubtitleLang: "中文"
     });
 
-    expect(refreshDerivedContent).toHaveBeenCalledTimes(1);
-    // 派生内容（笔记/SRT/TXT/预览）读到的是已接受完成的状态，不是半事务态
+    expect(refreshHotComments).toHaveBeenCalledTimes(1);
+    // 派生内容（笔记/SRT/TXT）自 opt-backlog-2026-09/04 起首次消费时才懒生成，
+    // 落账路径零构建（refreshDerivedContent 是消费侧入口，落账不得触达）。
+    expect(refreshDerivedContent).not.toHaveBeenCalled();
+    // 热评拉取读到的是已接受完成的状态，不是半事务态
     expect(stateAtRefresh).toEqual({
       body: ["a-第一", "a2-同from稳定", "b-第二", "c-最后"],
       fetchState: "ready",
@@ -266,7 +273,7 @@ describe("接受 ↔ 无字幕出口 互逆", () => {
 
     await acceptSubtitle(acceptArgs);
     expect(state.clip.subtitleFetchState).toBe("ready");
-    expect(refreshDerivedContent).toHaveBeenCalledTimes(1);
+    expect(refreshHotComments).toHaveBeenCalledTimes(1);
 
     await commitNoSubtitle({ asrResult: "empty" });
     expect(state.clip.subtitleFetchState).toBe("empty");
@@ -278,7 +285,7 @@ describe("接受 ↔ 无字幕出口 互逆", () => {
     expect(state.clip.subtitleFetchState).toBe("ready");
     expectStrictlySortedByFrom(state.clip.subtitleBody);
     expect(clipState.noSubtitleReason).toBe(null);
-    expect(refreshDerivedContent).toHaveBeenCalledTimes(2);
+    expect(refreshHotComments).toHaveBeenCalledTimes(2);
   });
 });
 

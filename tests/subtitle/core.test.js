@@ -6,10 +6,15 @@
 // 由写入端 sortSubtitleBodyByFrom（fetcher / asr fallback 落 state 前）保证，
 // 见 tests/subtitle/selection.test.js 的 sortSubtitleBodyByFrom 用例。
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { state } from "../../extension/core/state.js";
-import { findActiveSubtitleIndex, getReadingSubtitleItems } from "../../extension/subtitle/core.js";
+import { state, clipState } from "../../extension/core/state.js";
+import {
+  findActiveSubtitleIndex,
+  getReadingSubtitleItems,
+  ensureDerivedContent,
+  rebuildDerivedContent
+} from "../../extension/subtitle/core.js";
 
 // 旧线性实现的快照基准（与重构前 core.js 逐字同语义）：
 // to 缺省/非法时视为 from + 2；命中返回条目索引，否则 -1。
@@ -239,5 +244,87 @@ describe("getReadingSubtitleItems：按引用缓存", () => {
     expect(second).not.toBe(first);
     expect(second.map((item) => item.content)).toEqual(["甲", "丙"]);
     expect(second.map((item) => item.index)).toEqual([0, 2]);
+  });
+});
+
+// opt-backlog-2026-09/04：字幕落账不再预建 markdown/SRT/TXT，首次消费时经
+// ensureDerivedContent 构建并缓存。锁三件事：缓存命中零重建（消费点不再每
+// 次全文遍历）、输入（body/settings/元信息）变化即失效重建（不拿旧派生）、
+// 懒生成产物与裸重建逐字节一致。
+describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
+  const BODY = [
+    { from: 0, to: 2, content: "甲" },
+    { from: 2, to: 4, content: "乙" }
+  ];
+
+  it("首次消费构建三份落 state；输入不变时重复调用零重建", () => {
+    state.clip.setSubtitleBody(BODY);
+    const setMarkdownSpy = vi.spyOn(clipState, "setMarkdown");
+    const setSrtSpy = vi.spyOn(clipState, "setSrt");
+    const setTxtSpy = vi.spyOn(clipState, "setTxt");
+
+    ensureDerivedContent();
+    expect(state.clip.markdown).not.toBe("");
+    expect(state.clip.srt).not.toBe("");
+    expect(state.clip.txt).not.toBe("");
+
+    ensureDerivedContent();
+    ensureDerivedContent();
+    expect(setMarkdownSpy).toHaveBeenCalledTimes(1);
+    expect(setSrtSpy).toHaveBeenCalledTimes(1);
+    expect(setTxtSpy).toHaveBeenCalledTimes(1);
+    setMarkdownSpy.mockRestore();
+    setSrtSpy.mockRestore();
+    setTxtSpy.mockRestore();
+  });
+
+  it("字幕更新（body 换引用）→ 缓存失效：重建且拿到新字幕的派生，不是旧缓存", () => {
+    state.clip.setSubtitleBody(BODY);
+    ensureDerivedContent();
+    const firstSrt = state.clip.srt;
+    expect(firstSrt).toContain("甲");
+
+    state.clip.setSubtitleBody([{ from: 0, to: 2, content: "丙" }]);
+    const setSrtSpy = vi.spyOn(clipState, "setSrt");
+    ensureDerivedContent();
+
+    expect(setSrtSpy).toHaveBeenCalledTimes(1);
+    expect(state.clip.srt).toContain("丙");
+    expect(state.clip.srt).not.toBe(firstSrt);
+    setSrtSpy.mockRestore();
+  });
+
+  it("设置替换（引用变化）→ 缓存失效重建：TXT 随 includeTimestampInBody 变化", () => {
+    state.clip.setSubtitleBody(BODY);
+    ensureDerivedContent();
+    const plainTxt = state.clip.txt;
+
+    state.setSettings({ ...state.settings, includeTimestampInBody: !state.settings.includeTimestampInBody });
+    const setTxtSpy = vi.spyOn(clipState, "setTxt");
+    ensureDerivedContent();
+
+    expect(setTxtSpy).toHaveBeenCalledTimes(1);
+    expect(state.clip.txt).not.toBe(plainTxt);
+    setTxtSpy.mockRestore();
+  });
+
+  it("懒生成产物与裸重建逐字节一致（复制/导出产物不因懒化而变）", () => {
+    state.clip.setSubtitleBody(BODY);
+    state.setSettings({ ...state.settings, tags: "测试标签" });
+    ensureDerivedContent();
+    const lazy = { md: state.clip.markdown, srt: state.clip.srt, txt: state.clip.txt };
+
+    rebuildDerivedContent();
+    expect(state.clip.markdown).toBe(lazy.md);
+    expect(state.clip.srt).toBe(lazy.srt);
+    expect(state.clip.txt).toBe(lazy.txt);
+  });
+
+  it("空字幕体：三份均为空串", () => {
+    state.clip.setSubtitleBody([]);
+    ensureDerivedContent();
+    expect(state.clip.markdown).toBe("");
+    expect(state.clip.srt).toBe("");
+    expect(state.clip.txt).toBe("");
   });
 });

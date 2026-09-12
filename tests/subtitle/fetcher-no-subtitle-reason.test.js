@@ -62,6 +62,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   readUploadDate: vi.fn(() => "2026-01-01"),
   // arch-slim-2/03：readVideoDescription 自 subtitle/ui.js 归位 core.js
   readVideoDescription: vi.fn(() => ""),
+  refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 vi.mock("../../extension/subtitle/cache.js", () => ({

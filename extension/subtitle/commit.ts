@@ -4,7 +4,9 @@
 // 一段字幕成为当前视频生效字幕的六步序列——稳定排序（from 升序，读路径
 // findActiveSubtitleIndex 二分依赖）→ 写 state（selectedSubtitleId/Url/Lang +
 // subtitleBody）→ fetchState="ready" → 清 noSubtitleReason → await
-// refreshDerivedContent()（笔记/SRT/TXT/预览派生）→ 通知 "subtitle-ready"
+// refreshHotComments()（热评拉取；markdown/SRT/TXT 派生三件套改为首次消费时
+// 懒生成并缓存，见 core.js ensureDerivedContent，opt-backlog-2026-09/04）→
+// 通知 "subtitle-ready"
 //（发射无条件：视图门控的裁决权归 reader 侧 init-essentials 分派链，见
 // acceptSubtitle 内注）。两个事务均支持可选 runId 代次自检（M23 runId 协调）：
 // 调用方传入自己的抓取代次时，写 state 前先与 clipState.fetchRunId 比对，代次
@@ -30,7 +32,7 @@
 import { clipState } from "../core/state.js";
 import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
 import { sortSubtitleBodyByFrom } from "./selection.js";
-import { refreshDerivedContent } from "./core.js";
+import { refreshHotComments } from "./core.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
 import { ensureRunActive } from "../shared/error-helpers.js";
 
@@ -89,7 +91,7 @@ export async function acceptSubtitle({
   clipState.setSubtitleBody(sortedBody as SubtitleBodyItem[]);
   clipState.setSubtitleFetchState("ready");
   clipState.setNoSubtitleReason(null);
-  await refreshDerivedContent();
+  await refreshHotComments();
   // 发射无条件：视图门控的裁决权归 reader 侧（init-essentials 分派链按
   // readingViewOpen 跳过、lifecycle 处理体再按当前 state 投影）。这里按视图
   // 开关截断通知会让「抓取完成时视图未开」的轮次永久丢通知，字幕列表停在

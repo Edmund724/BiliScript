@@ -44,6 +44,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   readVideoTitle: vi.fn(() => "标题"),
   readVideoAuthor: vi.fn(() => "作者"),
   readUploadDate: vi.fn(() => "2026-01-01"),
+  refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 vi.mock("../../extension/subtitle/cache.js", () => ({
