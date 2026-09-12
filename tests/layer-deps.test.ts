@@ -63,7 +63,9 @@ const SIDE_EFFECT_RE = /(?:^|\n)[ \t]*import\s*["'](\.[^"']+)["']/g;
 const DYNAMIC_RE = /\bimport\s*\(\s*["'](\.[^"']+)["']\s*\)/g;
 
 function collectEdges(file: string): ImportEdge[] {
-  const source = readFileSync(file, "utf8");
+  // 先掐掉块注释：注释里举例写的 import 行（若独占一行）会被下面的行首正则
+  // 当成真边计入。行注释无此问题——行首已有 `//`，匹配不上。
+  const source = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   const edges: ImportEdge[] = [];
 
   for (const match of source.matchAll(STATIC_RE)) {
@@ -109,8 +111,13 @@ describe("分层依赖守卫", () => {
   const edges = files.flatMap(collectEdges);
 
   it("扫描到源码（守卫自身有效，不是空转）", () => {
-    expect(files.length).toBeGreaterThan(150);
-    expect(edges.length).toBeGreaterThan(400);
+    // 不写死文件/边数阈值：源码只增不减，写死数字会在无人违反不变量时红。
+    // 改为钉住结构事实——每个已登记分层都有文件，且两条不变量各自都有待检边
+    // （shared 的出边、指向 entry 的入边），任一条没了都说明扫描空转。
+    const emptyLayers = LAYERS.filter((layer) => !files.some((file) => layerOf(file) === layer));
+    expect(emptyLayers, `分层 ${emptyLayers.join(", ")} 下无源码文件`).toEqual([]);
+    expect(edges.some((edge) => layerOf(edge.importer) === "shared")).toBe(true);
+    expect(edges.some((edge) => layerOf(edge.target) === "entry")).toBe(true);
   });
 
   it("顶层目录全部在已知分层清单内", () => {

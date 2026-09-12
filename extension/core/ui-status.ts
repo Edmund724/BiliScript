@@ -18,13 +18,9 @@
 import { state, uiState } from "./state.js";
 import { ids } from "../shared/dom-ids.js";
 
-function getOptionalElement(id: string): HTMLElement | null {
-  return document.getElementById(id);
-}
-
 export function setStatus(text: string): void {
   uiState.setStatusText(String(text || ""));
-  const node = getOptionalElement(ids.readingStatus);
+  const node = document.getElementById(ids.readingStatus);
   if (node) {
     node.textContent = state.ui.statusText;
   }
@@ -32,7 +28,7 @@ export function setStatus(text: string): void {
 
 export function setMessage(text: string): void {
   uiState.setMessageText(String(text || ""));
-  const node = getOptionalElement(ids.readingStatus);
+  const node = document.getElementById(ids.readingStatus);
   if (node) {
     node.textContent = state.ui.messageText;
   }

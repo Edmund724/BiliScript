@@ -984,10 +984,7 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
   // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是
   // 关掉一切，confirm 无意义。自治监听 hidden 属性变化，零跨模块状态。
-  const observer = observeSettingsPanelHidden(() => closeProviderEditor(true));
-  if (observer) {
-    state.observer = observer;
-  }
+  observeSettingsPanelHidden(() => closeProviderEditor(true), state);
 }
 
 export function isProviderEditorOpen(): boolean {

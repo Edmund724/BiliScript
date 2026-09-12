@@ -134,10 +134,7 @@ export function confirmDialog(options: ConfirmDialogOptions): Promise<boolean> {
   // 抽屉收起 = 用户意图关掉一切，按取消结算（与 provider-editor 的强制关闭
   // 同判断，但确认没有可丢的草稿，直接 resolve(false)）。代次在此捕获，回调里
   // 结算的是本弹层的代次而非观察器触发时的当前值。
-  const observer = observeSettingsPanelHidden(() => settle(generation, false));
-  if (observer) {
-    state.observer = observer;
-  }
+  observeSettingsPanelHidden(() => settle(generation, false), state);
 
   return new Promise<boolean>((resolve) => {
     resolvePending = resolve;
