@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — Bilibili-Summary｜一键总结B站视频
 
-> Last Updated: 2026-09-10
+> Last Updated: 2026-09-12
 >
 > Status: Draft. Do not submit until tickets #01 through #06 are complete, the real Chrome checks pass, and the 2.1.0 release archive is rebuilt.
 
@@ -52,7 +52,6 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 | `storage` | permissions | Save API keys, notes, conversations, subtitles, summaries, settings, and cache entries locally. |
 | `unlimitedStorage` | permissions | The subtitle, segment-summary, and overview caches keep the 3 most recent videos per cache family with no byte limit; this permission declares that those local caches are exempt from Chrome's normal storage quota so saved transcripts and summaries are not evicted. |
 | `scripting` | permissions | Run the reading interface and player controls on supported Bilibili video pages. |
-| `tabs` | permissions | Identify the active Bilibili tab, keep the reading interface attached to the correct video, synchronize playback state, and pass that tab to the audio pipeline. |
 | `offscreen` | permissions | Decode audio and process AI or ASR streams in a background document while the user continues browsing the video page. |
 | `declarativeNetRequest` | permissions | Add short-lived session rules that set the Referer/Origin headers for requests to Bilibili's audio CDN while an active speech-recognition task is running, then remove those rules when the task finishes. |
 | `https://www.bilibili.com/*` | host_permissions | Read supported video and watch-later pages so the extension can add the Digest button and reading interface. |

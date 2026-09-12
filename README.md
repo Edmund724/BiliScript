@@ -151,7 +151,7 @@ Firefox、Safari、移动浏览器和其他 Chromium 浏览器没有测试过。
 ### Chrome 权限说明
 
 - `storage` 与 `unlimitedStorage`：保存设置、API Key、笔记、对话、字幕、概览和本地缓存；只有非敏感设置通过 Chrome 账号同步。字幕 / 小结 / 概览等缓存族各自只保留最近 3 个视频、不设字节上限，`unlimitedStorage` 即为此声明，避免缓存被 Chrome 常规配额清理。
-- `scripting` 与 `tabs`：在用户当前打开的 B 站视频页注入页面内 Digest 面板，并在视频、面板和播放器之间同步状态。
+- `scripting`：在用户当前打开的 B 站视频页注入页面内 Digest 面板，并在视频、面板和播放器之间同步状态。
 - `offscreen`：在后台文档中解码无字幕视频的音频并处理 AI / ASR 流，不用于读取其他网页。
 - `declarativeNetRequest`：仅在语音识别任务进行时，为发往 `*.bilivideo.com` 音频 CDN 的请求注入会话级 Referer / Origin 头以通过防盗链校验（域名精确匹配，规则只存在内存中），任务结束即清除规则。
 - `https://www.bilibili.com/*`：在视频页与稍后再看列表页注入 Digest 按钮和阅读面板。

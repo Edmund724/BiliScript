@@ -67,7 +67,7 @@ Chrome 扩展存储不是密码保险箱。任何能充分访问你的浏览器�
 
 - `storage`：本地保存设置、Key、笔记、对话与缓存；
 - `unlimitedStorage`：声明本地字幕 / 小结 / 概览缓存不受 Chrome 常规存储配额约束（缓存无字节上限，见上），避免转写与总结产物被系统清理；
-- `scripting` / `tabs`：在 B 站视频页注入并协调页面内 Digest 面板、联动播放器跳转、识别当前视频标签页；
+- `scripting`：在 B 站视频页注入并协调页面内 Digest 面板、联动播放器跳转、识别当前视频标签页；
 - `offscreen`：音频解码与 AI / ASR 流式请求的后台文档；
 - `declarativeNetRequest`：仅在语音识别转写任务期间为 B 站音频 CDN（`*.bilivideo.com`）请求注入 Referer/Origin 会话规则以通过防盗链，任务结束即清除；
 - `https://www.bilibili.com/*`：在视频页与稍后再看列表页注入 Digest 按钮与阅读面板；
