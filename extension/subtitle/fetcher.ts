@@ -22,7 +22,6 @@ import { normalizeChapters } from "./chapters.js";
 import {
   normalizeSubtitleTracks,
   pickPreferredSubtitle,
-  sortSubtitleBodyByFrom,
   validateSubtitleByDuration
 } from "./selection.js";
 import type { DurationValidationResult } from "./selection.js";
@@ -498,9 +497,10 @@ export async function loadSubtitle(
   // 从网络获取
   const subtitle = await fetchSubtitleBody(url);
   ensureRunActive(runId, state.clip.fetchRunId);
-  // 候选10 批1：B站 CC 接口返回的 body 实践上有序但接口并不承诺；在这里
-  // （写入端）稳定排序一次，落缓存与落 state 都是有序副本，读路径不做排序。
-  const body = sortSubtitleBodyByFrom(Array.isArray(subtitle.body) ? subtitle.body : []) as unknown[];
+  // 排序不在此处做：稳定排序统一收口在提交事务（commit.acceptSubtitle 内的
+  // sortSubtitleBodyByFrom），写 state 前单点保证「按 from 升序」不变量；
+  // 这里保持网络返回的原始 body 顺序，落缓存的有序性由该事务的幂等排序兜底。
+  const body = Array.isArray(subtitle.body) ? subtitle.body : [];
   if (body.length === 0) {
     throw new Error("字幕文件为空。");
   }
@@ -519,9 +519,9 @@ export async function loadSubtitle(
     setMessage("字幕已加载，但本地缓存写入失败（已自动清理旧缓存仍失败），重启浏览器后需重新抓取。");
   }
 
-  // 字幕接受事务（commit.acceptSubtitle）：body 已在上方落缓存前完成稳定排序
-  //（事务内幂等再收口一次），写 selected 三项 → ready → 清原因 → 刷新派生 →
-  // 通知 reader 全部由事务单点负责。runId 随行自检（M23）：网络抓取与提交间
+  // 字幕接受事务（commit.acceptSubtitle）：稳定排序唯一一次发生在事务内——
+  // 写 selected 三项 → ready → 清原因 → 刷新派生（含排序后的 body）→ 通知
+  // reader 全部由事务单点负责。runId 随行自检（M23）：网络抓取与提交间
   // 隔着落缓存等 await，reset/新抓取推进代次后到站的旧 run 在事务门口让位，
   // 旧视频字幕不写进已重置的 state。
   await acceptSubtitle({
