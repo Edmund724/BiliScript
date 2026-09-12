@@ -34,7 +34,14 @@
 // Top-level side effects: NONE (no document/chrome/window access at module
 // scope) — unlike sidepanel.js, this module evaluates cleanly under a Node test
 // harness without a DOM shim.
-import { renderMarkdown, splitMarkdownTail, stripThinkBlocks } from "../ui/markdown.js";
+import {
+  createMarkdownTailCursor,
+  createThinkStripCursor,
+  renderMarkdownStripped,
+  stripThinkBlocks,
+  type MarkdownTailCursor,
+  type ThinkStripCursor
+} from "../ui/markdown.js";
 // mermaid 图表：renderMarkdown 只产出占位 DOM，SVG 由这里在节点插入之后异步水合
 //（懒 chunk，见 ui/lazy-mermaid 头注）。
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
@@ -112,14 +119,20 @@ export interface CreateChatRuntimeDeps {
   confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
 }
 
-// 流式 token 累加器（按节点存放在 WeakMap）：base = 已 flush 的全量文本，
-// pending = 未 flush 的增量帧，stableText/stableEl/tailEl 为双容器渲染状态。
+// 流式 token 累加器（按节点存放在 WeakMap）：base = 已 flush 的全量原文，
+// pending = 未 flush 的增量帧，stableText/stableCut/stableEl/tailEl 为双容器渲染
+// 状态，stripCursor/tailCursor 为剥除/切分的增量游标（ui/markdown 头注有逐字节
+// 论证；cursor 状态随 resetTokenStreamState 一并重置）。
 interface TokenStreamState {
   base: string;
   pending: string[];
   stableText: string;
+  // 上次渲染时的切点行号（与 tailCursor.cut 比较；初值 -2 保证首帧必物化）
+  stableCut: number;
   stableEl: HTMLDivElement | null;
   tailEl: HTMLDivElement | null;
+  stripCursor: ThinkStripCursor;
+  tailCursor: MarkdownTailCursor;
 }
 
 // 思考文本的显示状态（全量文本缓冲 + 按节点隔离的滚动合帧 + 钉底标志）
@@ -655,22 +668,37 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
   // 流式 token 累加器（原挂在 assistant 节点的 dataset.raw，每 token 全量
   // 拼接旧串，O(n²) 复制——全仓读取方仅同流的 flush / finalize / stopped）。
-  // 现改为 WeakMap 按节点存放 { base, pending, stableText, stableEl, tailEl }：
-  // append 推入 pending；flush 时 text = base + pending.join("")，剥 think 后
-  // 切分渲染，渲染后 text 收进 base、清空 pending，每帧拼接量与帧间隔成正比，
-  // 总复制量 O(n)。stableText 记录该节点上次渲染过的稳定前缀，用于跳过未
-  // 增长的 stable 重渲染。finalize / stopped 从 base + pending 取全量文本。
+  // 现改为 WeakMap 按节点存放 { base, pending, stableText, stableCut, ... }：
+  // append 推入 pending；flush 时把 pending 增量喂给剥除/切分游标（每帧正则只跑
+  // 未定居尾 + 新增部分，O(帧间隔)，输出与 stripThinkBlocks/splitMarkdownTail
+  // 全量逐字节一致），渲染后 text 收进 base、清空 pending，每帧拼接量与帧间隔成
+  // 正比，总复制量 O(n)。stableText/stableCut 记录上次渲染过的稳定前缀，用于
+  // 跳过未增长的 stable 重渲染（切点只增不减，切点不变即 stable 不变）。
+  // finalize / stopped 从 base + pending 取全量原文。
   // 随占位节点初始化（appendAssistantPlaceholder），跨消息天然隔离。
   const tokenStreamStates = new WeakMap<HTMLElement, TokenStreamState>();
 
+  function freshTokenStreamState(): TokenStreamState {
+    return {
+      base: "",
+      pending: [],
+      stableText: "",
+      stableCut: -2,
+      stableEl: null,
+      tailEl: null,
+      stripCursor: createThinkStripCursor(),
+      tailCursor: createMarkdownTailCursor()
+    };
+  }
+
   function resetTokenStreamState(node: HTMLElement): void {
-    tokenStreamStates.set(node, { base: "", pending: [], stableText: "", stableEl: null, tailEl: null });
+    tokenStreamStates.set(node, freshTokenStreamState());
   }
 
   function getTokenStreamState(node: HTMLElement): TokenStreamState {
     let state = tokenStreamStates.get(node);
     if (!state) {
-      state = { base: "", pending: [], stableText: "", stableEl: null, tailEl: null };
+      state = freshTokenStreamState();
       tokenStreamStates.set(node, state);
     }
     return state;
@@ -766,27 +794,48 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       tokenFlushFrame = 0;
       const epoch = ++tokenFlushEpoch;
       const state = getTokenStreamState(node);
-      const text = state.base + state.pending.join("");
-      // 50ms 长任务预算：deadline 取样在剥除/切分之前，让 stripThinkBlocks/
-      // splitMarkdownTail 的耗时也计入本帧预算，与「剥除/切分、稳定块与末块的
-      // renderMarkdown + innerHTML 重建都计入本帧同步工作」的注释一致。预算
-      // 耗尽先让出主线程（yieldToMain）再继续；恢复后校验代际（流被取消/收口，
-      // 或有更新的一帧已启动），不等即作废本帧——不渲染、不回写 base（其文本
-      // 已包含在新帧的 base + pending 里，不会丢）。预算检查保持同步：未触发
-      // 让出时 flush 在帧回调内同步完成（与旧的同步渲染时序一致）。
+      const delta = state.pending.join("");
+      // 50ms 长任务预算：deadline 取样在剥除/切分之前，让增量游标的耗时也计入
+      // 本帧预算，与「剥除/切分、稳定块与末块的 renderMarkdown + innerHTML 重建
+      // 都计入本帧同步工作」的注释一致。预算耗尽先让出主线程（yieldToMain）再
+      // 继续；恢复后校验代际（流被取消/收口，或有更新的一帧已启动），不等即作
+      // 废本帧——不渲染（文本与游标状态已在下方同步段原子提交，下一帧从游标
+      // 状态续渲，不会丢也不会重复）。预算检查保持同步：未触发让出时 flush 在
+      // 帧回调内同步完成（与旧的同步渲染时序一致）。
       let deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
       const stale = () => epoch !== tokenFlushEpoch;
-      // think 块先剥除再切分，保证未闭合的  ``` 不会横跨 stable/tail 切点
-      // （renderMarkdown 内部的再 strip 是无害幂等）。
-      const cleaned = stripThinkBlocks(text);
-      const { stableText, tailText } = splitMarkdownTail(cleaned);
+      // think 块先剥除再切分（增量游标内部保持同一顺序），保证未闭合的  ```
+      // 或 <think> 不会横跨 stable/tail 切点。游标输出与 stripThinkBlocks /
+      // splitMarkdownTail 全量逐字节一致（ui/markdown 头注论证），每帧正则只跑
+      // 未定居尾 + 本帧新增，不再随已渲染前缀增长。
+      state.stripCursor.push(delta);
+      const lines = state.stripCursor.lines;
+      state.tailCursor.update(lines);
+      const cut = state.tailCursor.cut;
+      // stable 物化：切点不变即 stable 不变（切点只增不减），增长点才拼接。
+      // stableCut/stableText 是渲染簿记，随渲染提交——让出点作废的帧不得留下
+      // 「已渲染」记录（否则下一帧会跳过 stable 重渲染）。
+      const stableChanged = !(cut >= 0 && cut === state.stableCut);
+      let stableText: string;
+      if (!stableChanged) {
+        stableText = state.stableText;
+      } else {
+        stableText = cut < 0 ? "" : lines.slice(0, cut).join("\n");
+      }
+      // tail 每帧物化（拼接 + trimEnd 还原全量版的尾部 trim，逐字节等价）
+      const tailText = (cut < 0 ? lines.join("\n") : lines.slice(cut).join("\n")).trimEnd();
+      // 文本与游标状态原子提交：游标位置与 base 必须同步前进——否则帧在让出
+      // 点作废或渲染抛错后，下一帧会把同一段 pending 重复喂给游标。
+      state.base += delta;
+      state.pending.length = 0;
       ensureStreamContainers(node, state);
       // 正文首帧渲染 = 思考流结束：所有未折叠的思考盒（正常情况下一个；
       // 收尾 reasoning 在 token 后到达时可能有第二个）收成「思考过程」行，
       // 保留在消息内供点击回看——不再移除节点。
       node.querySelectorAll(".chat-thinking:not(.chat-thinking-collapsible)").forEach(collapseThinking);
-      // 稳定前缀只在增长时渲染一次；末块每帧重渲染
-      if (state.stableText !== stableText) {
+      // 稳定前缀只在增长时渲染一次；末块每帧重渲染。空 stable 且容器本就
+      // 空时跳过（与旧实现的 stableText 比较语义一致，避免无谓的空串重建）。
+      if (stableChanged && (stableText !== "" || state.stableEl!.innerHTML !== "")) {
         if (performance.now() >= deadline) {
           await yieldToMain();
           deadline = performance.now() + STREAM_FRAME_BUDGET_MS;
@@ -794,8 +843,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
             return;
           }
         }
+        state.stableCut = cut;
         state.stableText = stableText;
-        state.stableEl!.innerHTML = renderMarkdown(stableText);
+        state.stableEl!.innerHTML = renderMarkdownStripped(stableText);
         // stable 只在增长时重渲染一次，其内的 mermaid 占位在此水合（整体重建
         // 会换掉节点，但 SVG 有「主题 + 源码」缓存兜底，重入只是字符串替换）。
         hydrateMermaid(state.stableEl!);
@@ -812,15 +862,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // tail 每帧整体重建，且未闭合的围栏本就整段留在 tail——不对它水合
       //（每帧重渲染一遍图表既慢又闪）；围栏闭合进入 stable 后自然渲染，流收口
       // 的整渲染再兜一次。
-      state.tailEl!.innerHTML = renderMarkdown(tailText);
+      state.tailEl!.innerHTML = renderMarkdownStripped(tailText);
       if (cursor) {
         state.tailEl!.appendChild(cursor);
       }
       // 流式帧滚动瞬时化（见 scrollToBottom instant 分支：不逐帧重启 CSS
       // 平滑滚动动画）
       scrollToBottom(false, { instant: true });
-      state.base = text;
-      state.pending.length = 0;
     };
     // flush 是 async：同步段（剥除/切分/渲染）的抛错经 promise 变 unhandled
     // rejection，必须 catch 收口记日志（与仓内 console.error 惯例一致）。
@@ -1021,7 +1069,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     // markdown-body：启用 github-markdown-css 排版基线（样式随对话分区表挂载，
     // 变量由 github-markdown-theme.css 桥接到 --boc-reader-*）。
     content.className = "chat-msg-assistant-body markdown-body";
-    content.innerHTML = renderMarkdown(cleanedRaw);
+    content.innerHTML = renderMarkdownStripped(cleanedRaw);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
     // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里
     // 的图表源码不会被它改写；水合换入的 SVG 里也不该再长出时间戳按钮。

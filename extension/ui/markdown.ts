@@ -48,7 +48,14 @@ export function isTimestampOnlyInlineCode(value: unknown): boolean {
 }
 
 export function renderMarkdown(text: string): string {
-  let escaped = escapeHtml(stripThinkBlocks(text));
+  return renderMarkdownStripped(stripThinkBlocks(text));
+}
+
+// renderMarkdownStripped — 与 renderMarkdown 相同，但输入须已由调用方剥除 think
+// 块（chat-runtime 的流式 flush 与终态渲染都先经 stripThinkBlocks，内部再剥一
+// 遍只是幂等冗余）。独立调用方（如 explain-card）用 renderMarkdown，勿直接用本函数。
+export function renderMarkdownStripped(text: string): string {
+  let escaped = escapeHtml(text);
   const codeBlocks: CodeFence[] = [];
   // info string 单列捕获（不含换行与反引号，因而不会跨行吃掉围栏正文）+ 其后
   // 可选的换行。没有换行说明 ``` 与正文同行（`` ```js alert(1)``` ``），此时
@@ -346,6 +353,221 @@ export function splitMarkdownTail(text: unknown): { stableText: string; tailText
   };
 }
 
+// =========================================================================
+// 流式增量剥除 / 切分游标
+// =========================================================================
+// chat-runtime 的流式 flush 每帧对「全文」跑 stripThinkBlocks + splitMarkdownTail
+// 是 O(全文) 的纯函数开销。两个游标把这两条纯函数改成增量维护，输出与全量版本
+// 逐字节一致（尾部差一个 trimEnd，见 ThinkStripCursor.lines 的文档）：
+//
+//   const strip = createThinkStripCursor();
+//   const tail = createMarkdownTailCursor();
+//   for (const delta of 每帧 pending) {
+//     strip.push(delta);
+//     tail.update(strip.lines);
+//     const stableText = tail.cut < 0 ? "" : strip.lines.slice(0, tail.cut).join("\n");
+//     const tailText = (tail.cut < 0 ? strip.lines.join("\n") : strip.lines.slice(tail.cut).join("\n")).trimEnd();
+//   }
+//
+// ThinkStripCursor 的逐字节论证（为何已定居前缀可以跳过重复剥除）：
+//   剥除的 4 条正则里，任何匹配只会「从某个 < 起始、向右延伸」，因此一帧内只有
+//   靠近文本末尾的「未定居尾」可能受未来文本影响，分三种形态：
+//     1. 部分标签（如 "<thin"、"</think"）：当前不构成匹配、原样保留在输出里，
+//        未来文本可将其补全为真标签（杂散闭合被剥除 / 开标签开块）；
+//     2. 未闭合 <think> 开标签：正则 2 把它吃到串尾，未来闭标签到达时转为
+//        正则 1 成对剥除——块起点之前输出不变，块内容丢弃即可（顺序配对：
+//        第 k 个闭标签配第 k 个开标签），故只需记住标签本身；
+//     3. 核尾空白：正则 4（^\s*<标签>\s*$）的 \s* 可向前跨行吃到切点前的空白，
+//        故行尾空白行与行尾空白也留在未定居区，每帧随剥除结果重新落定。
+//   三类之外的前缀（「核」）不含任何活标签，未来的匹配不可能触达，跳过重复剥除
+//   是安全的。每帧实际跑正则的字符串 = 未定居尾 + 本帧新增，与帧间隔成正比。
+export interface ThinkStripCursor {
+  // 追加一帧新增原文（对应 flush 的 pending.join("")）。
+  push(delta: string): void;
+  // 剥除后文本的逐行视图：join("\n") 与 stripThinkBlocks(累计原文) 逐字节一致，
+  // 仅尾部可能多出来被 strip 的 trim 去掉的空白（调用方对 tail 侧做 trimEnd 即
+  // 完全等价；这些尾部空白不改变 splitMarkdownTail 的切点判定与 renderMarkdown
+  // 输出——空行是 parser 无操作，行尾空白被 parser 逐行 trim）。
+  readonly lines: readonly string[];
+}
+
+// 部分标签后缀：可跨帧补全为 think 标签的串尾（< / </ / <t…<think…(无 >) /
+// </t…</think）。保守起见任何 "<" 开头的串尾都算（如 "<b"），只会多留少量
+// 字符在未定居区，不影响正确性。
+const PARTIAL_THINK_TAG = /<(\/?)(t(h(i(n(k\b[^>]*)?)?)?)?)?$/i;
+// think 标签词法单元：完整开标签或闭标签（顺序配对的扫描单位）。
+const THINK_TAG_TOKEN = /<think\b[^>]*>|<\/think>/gi;
+const TRAILING_WS_RUN = /\s*$/;
+
+export function createThinkStripCursor(): ThinkStripCursor {
+  const lines: string[] = [""];
+  // 未闭合 think 块的起始标签（非空即处于「块内」）；块内容已丢弃。
+  let openTag = "";
+  // 块内未检后缀：闭标签可能跨帧补全（字符先被当块内容到达），块内每帧只在
+  // blockTail + 新增里找第一个完整 </think>，未找到时把可补全的标签后缀留下。
+  let blockTail = "";
+
+  return {
+    push(delta: string): void {
+      if (!delta) {
+        return;
+      }
+      let remaining = delta;
+      while (remaining) {
+        if (openTag) {
+          // 块内：顺序配对该块的是其后第一个完整 </think>。找到则出块，闭标签
+          // 之后的文本回清态继续处理；未找到只留可补全后缀（O(新增)）。
+          const combined = blockTail + remaining;
+          const close = combined.match(/<\/think>/i);
+          if (!close) {
+            const partial = combined.match(PARTIAL_THINK_TAG);
+            blockTail = partial ? partial[0] : "";
+            remaining = "";
+            continue;
+          }
+          blockTail = "";
+          openTag = "";
+          remaining = combined.slice(close.index! + close[0].length);
+          continue;
+        }
+        // 清态。1. 抽出未定居尾，按原文顺序（末行尾的部分标签 → 行尾空白 →
+        // 末尾空白行）拼回应检串 q：view = 核 + (pre + pt + ws) + 空白行。
+        // 顺序依据：空白行是数组末尾行，在串上位于末行之后；行尾空白抽自末行
+        // 尾部，位于部分标签之后。
+        let tailBuf = "";
+        while (lines.length > 1 && lines[lines.length - 1].trim() === "") {
+          tailBuf = "\n" + lines.pop()! + tailBuf;
+        }
+        let last = lines[lines.length - 1];
+        const ws = last.match(TRAILING_WS_RUN)![0];
+        if (ws) {
+          last = last.slice(0, last.length - ws.length);
+        }
+        const partial = last.match(PARTIAL_THINK_TAG);
+        let pt = "";
+        if (partial) {
+          pt = partial[0];
+          last = last.slice(0, last.length - pt.length);
+        }
+        lines[lines.length - 1] = last;
+        const q = pt + ws + tailBuf + remaining;
+        remaining = "";
+
+        // 2. 对未定居区跑与全量完全相同的剥除正则。
+        let resolved = stripThinkBlocksBody(q);
+
+        // 3. 顺序配对扫描：balance 记录未配对开标签数，openIdx 为最早未配对
+        // 开标签。存在未闭合块时块内容丢弃（见文件级注释的论证），块起点
+        // 之前的结果与全量一致；块后可补全的标签后缀转入 blockTail。
+        let openIdx = -1;
+        let balance = 0;
+        THINK_TAG_TOKEN.lastIndex = 0;
+        let token: RegExpExecArray | null;
+        while ((token = THINK_TAG_TOKEN.exec(q))) {
+          if (token[0][1] === "/") {
+            if (balance > 0) {
+              balance -= 1;
+              if (balance === 0) {
+                openIdx = -1;
+              }
+            }
+          } else {
+            if (balance === 0) {
+              openIdx = token.index;
+            }
+            balance += 1;
+          }
+        }
+        if (openIdx >= 0) {
+          openTag = q.slice(openIdx).match(/^<think\b[^>]*>/i)![0];
+          const afterTag = q.slice(openIdx + openTag.length);
+          const bp = afterTag.match(PARTIAL_THINK_TAG);
+          blockTail = bp ? bp[0] : "";
+        }
+
+        // 4. 剥除结果并回行视图（仅改动末行及其后——切分游标已扫前缀不受影响）。
+        const pieces = resolved.split("\n");
+        lines[lines.length - 1] += pieces[0];
+        for (let i = 1; i < pieces.length; i += 1) {
+          lines.push(pieces[i]);
+        }
+
+        // 5. 前导 trim：与 stripThinkBlocks 的 trim 头部逐帧保持一致（think 块
+        // 整体剥除后视图可重回空白，前缘并非一次落定，而是每帧幂等修剪）。实质
+        // 修剪只发生在视图全空白、切分游标尚未扫描任何行的阶段；修剪后首行首
+        // 字符从此不变（合并只追加末行），后续调用为 O(1) 空操作。
+        let head = 0;
+        while (head < lines.length && lines[head].trim() === "") {
+          head += 1;
+        }
+        if (head === lines.length) {
+          lines.length = 1;
+          lines[0] = "";
+        } else {
+          if (head > 0) {
+            lines.splice(0, head);
+          }
+          lines[0] = lines[0].replace(/^\s+/, "");
+        }
+      }
+    },
+    get lines(): readonly string[] {
+      return lines;
+    }
+  };
+}
+
+// MarkdownTailCursor — splitMarkdownTail 的增量版：逐帧喂入行数组（按前缀增长，
+// 只有末行及其后可能变化），cut 判定规则与全量版一个比特都不变。维护已扫描行数
+// 与围栏开合状态，每帧只扫新增部分。唯一例外：末行突变可使「最后非空行」回退
+// （部分标签补全 + 纯空白负载的极端角落），此时重置重扫——该角落全量版本身就会
+// 缩短 stable，正确性优先于增量。
+export interface MarkdownTailCursor {
+  // 用最新行数组推进切分状态（行数组与上次调用按前缀一致）。
+  update(lines: readonly string[]): void;
+  // 当前切点（空行段起点行号；-1 = 无切点，全 tail）。
+  readonly cut: number;
+}
+
+export function createMarkdownTailCursor(): MarkdownTailCursor {
+  let cut = -1;
+  let fenceOpen = false;
+  // 已计入围栏/切点扫描的行数：下标 [0, scanned) 的行内容永不再变。
+  let scanned = 0;
+  let lastNonBlank = -1;
+
+  return {
+    update(lines: readonly string[]): void {
+      let nb = lines.length - 1;
+      while (nb >= 0 && lines[nb].trim() === "") {
+        nb -= 1;
+      }
+      if (nb < lastNonBlank) {
+        cut = -1;
+        fenceOpen = false;
+        scanned = 0;
+      }
+      if (nb > scanned) {
+        for (let i = scanned; i < nb; i += 1) {
+          const blank = lines[i].trim() === "";
+          if (blank && !fenceOpen && (i === 0 || lines[i - 1].trim() !== "")) {
+            cut = i;
+          }
+          const fences = lines[i].match(/```/g);
+          if (fences && fences.length % 2 === 1) {
+            fenceOpen = !fenceOpen;
+          }
+        }
+        scanned = nb;
+      }
+      lastNonBlank = nb;
+    },
+    get cut(): number {
+      return cut;
+    }
+  };
+}
+
 function renderInline(text: string): string {
   return text
     .replace(/`([^`]+)`/g, (_, c: string) => (isTimestampOnlyInlineCode(c) ? c : `<code>${c}</code>`))
@@ -358,11 +580,16 @@ function renderInline(text: string): string {
     });
 }
 
-export function stripThinkBlocks(text: unknown): string {
-  return String(text || "")
+// stripThinkBlocksBody — 4 条剥除正则（不含首尾 trim），stripThinkBlocks 与
+// ThinkStripCursor（流式增量剥除）共用同一份正则序列，保证增量与全量逐字节一致。
+function stripThinkBlocksBody(text: string): string {
+  return text
     .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
     .replace(/<think\b[^>]*>[\s\S]*$/gi, "")
     .replace(/<\/think>/gi, "")
-    .replace(/^\s*<\/?think\b[^>]*>\s*$/gim, "")
-    .trim();
+    .replace(/^\s*<\/?think\b[^>]*>\s*$/gim, "");
+}
+
+export function stripThinkBlocks(text: unknown): string {
+  return stripThinkBlocksBody(String(text || "")).trim();
 }
