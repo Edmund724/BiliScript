@@ -13,6 +13,9 @@ import type { AiContext, AiProvider, StreamChatEvent } from "./types.js";
 // 出向 port 协议单源（ticket 08）：port 回吐点经 ChatPortMessage 联合标注，
 // 裸 postMessage 字面量获得编译期约束（事件名 typo / 形状漂移编译被拒）。
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
+// 07 票 token 合帧：流式 token 按窗口预算批传，削减结构化克隆次数；
+// 单 token 批次仍走普通 token 事件（慢速流线格式与旧一致）。
+import { TokenBatcher } from "./token-batcher.js";
 
 // 超预算回落时的提示文案：如实描述——本次单次调用不发，ladder 收到
 // overflow 标记错误后立即转 Map-Reduce 分段整理（对用户表现为进度逐段推进）。
@@ -77,8 +80,10 @@ interface StreamChatInput {
 
 /**
  * 流式 port 适配器：对外签名不变（ladder 消费点最小改动），内部经
- * ai/completion.js 接缝发请求。port 协议不变：
- * - 流式事件（token/reasoning）原样回吐，每个事件重挂空闲超时（onActivity）；
+ * ai/completion.js 接缝发请求。port 协议不变（token 之外）：
+ * - token 事件经 TokenBatcher 按 30~50ms 窗口预算批传（07 票，削减结构化克隆
+ *   次数；单 token 批次仍走普通 token 事件）；reasoning 等其余事件前先把积压
+ *   token 收口，全局顺序与逐 token 传输一致；每个原始事件重挂空闲超时（onActivity）；
  * - 读流中断重试：新流事件前回吐一条 stream-reset（代际重置信号，渲染层
  *   清空本条消息缓冲整体重放，避免两代流拼接成重复文本）；
  * - 重试提示经 notice（读流中断重试保持旧现状：不打扰用户）；
@@ -116,6 +121,20 @@ export async function streamChat({ provider, context, userPrompt, history, port,
     systemPrompt: context?.aiSystemPrompt
   });
 
+  // 07 票 token 合帧：token 事件经窗口预算批传（削减 port 结构化克隆次数），
+  // 其余事件（reasoning/notice/reset/done/stopped/error）前先把积压 token 收口，
+  // 全局顺序与逐 token 传输一致；单 token 批次回落普通 token 事件。
+  const tokenBatcher = new TokenBatcher({
+    onFlush: (tokens) => {
+      if (tokens.length === 1) {
+        port.postMessage({ type: "token", data: tokens[0] } satisfies ChatPortMessage);
+      } else {
+        port.postMessage({ type: "token-batch", data: tokens } satisfies ChatPortMessage);
+      }
+    }
+  });
+  const flushTokens = () => tokenBatcher.flush();
+
   try {
     await chatCompletion({
       provider,
@@ -124,13 +143,21 @@ export async function streamChat({ provider, context, userPrompt, history, port,
       signal,
       thinkingLevel,
       onEvent: (event: StreamChatEvent) => {
-        // 流式活动：重挂空闲超时 + port 回吐（事件对象与 port 消息同型，直接透传）。
+        // 流式活动：重挂空闲超时（每个原始事件一次，合帧窗口内活动信号不丢）。
         onActivity?.();
+        if (event.type === "token") {
+          tokenBatcher.push(event.data);
+          return;
+        }
+        // 非 token 事件不得越过积压 token（渲染顺序）：先 flush 再回吐。
+        flushTokens();
         port.postMessage(event);
       },
       onStreamReset: () => {
-        // 读流中断重试：通知渲染层清空本条消息缓冲，从头接收重试流。
+        // 读流中断重试：先吐出旧流尾巴（不丢 token），再通知渲染层清空本条
+        // 消息缓冲，从头接收重试流。
         onActivity?.();
+        flushTokens();
         port.postMessage({ type: "stream-reset" } satisfies ChatPortMessage);
       },
       onRetry: ({ attempt, maxRetries, kind, error }: { attempt: number; maxRetries: number; kind: string; error: Error }) => {
@@ -152,14 +179,18 @@ export async function streamChat({ provider, context, userPrompt, history, port,
       throw e;
     }
     if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
-      // 中止收束：对齐旧 streamChat 的停止 UX，不串错误。
+      // 中止收束：对齐旧 streamChat 的停止 UX，不串错误。先 flush 尾巴不丢 token。
+      flushTokens();
       port.postMessage({ type: "stopped", reason: "已停止生成" } satisfies ChatPortMessage);
       return;
     }
+    flushTokens();
     port.postMessage({ type: "error", error: String((e as { message?: unknown })?.message ?? e) } satisfies ChatPortMessage);
     return;
   }
 
+  // 流正常收口：先 flush 最后一批 token，再发 done。
+  flushTokens();
   port.postMessage({ type: "done" } satisfies ChatPortMessage);
   return { done: true };
 }

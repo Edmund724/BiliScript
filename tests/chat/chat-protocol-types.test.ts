@@ -36,4 +36,12 @@ describe("chat 出向协议联合（编译期守卫）", () => {
     expect(guard.data?.message).toBe("预计 3 次调用");
     expect(error.code).toBe("subtitle-body-missing");
   });
+
+  it("token-batch 合帧成员可赋值（07 票）：data 为 string[]，缺 data 编译被拒", () => {
+    const batch = { type: "token-batch", data: ["增", "量"] } satisfies ChatPortMessage;
+    expect(batch.data).toEqual(["增", "量"]);
+    // @ts-expect-error token-batch 分支 data: string[] 必填，缺 data 无成员可匹配
+    const missing: ChatPortMessage = { type: "token-batch" };
+    expect(missing.type).toBe("token-batch");
+  });
 });

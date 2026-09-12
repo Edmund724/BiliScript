@@ -299,3 +299,74 @@ describe("不变量 1：每帧至多一次 tail 渲染（renderMarkdownStripped 
     expect(node.querySelector(".chat-msg-cursor")).not.toBeNull();
   });
 });
+
+describe("07 票 token 合帧对拍：token-batch 分批喂入 ≡ 逐 token 喂入", () => {
+  // 与 runStream 同构的批量驱动：每批数据应恰好注册 1 帧（rAF 合帧不变量对批次同样成立）
+  function runBatchedStream(runtime, deps, batches) {
+    const raf = holdRaf();
+    const node = assistantNode(deps);
+    const frames = [];
+    let cumulative = "";
+    for (const batch of batches) {
+      cumulative += batch.join("");
+      const before = raf.mock.calls.length;
+      feed(runtime, { type: "token-batch", data: batch });
+      expect(raf.mock.calls.length).toBe(before + 1);
+      raf.mock.calls[raf.mock.calls.length - 1][0]();
+      frames.push({ snapshot: frameSnapshot(node), cumulative });
+    }
+    return { frames, node, raf };
+  }
+
+  const CORPUS = [
+    "# 标题\n\n",
+    "第一段**加粗**",
+    "\n\n- 项目一\n",
+    "- 项目二\n\n",
+    "```js\nconst a = 1;\n```\n\n",
+    "结尾段落"
+  ];
+
+  it("不均匀分批（含单 token 批）与逐 token 逐帧等价、终态一致", async () => {
+    const base = await makeRuntime("基线");
+    const baseRun = runStream(base.runtime, base.deps, CORPUS);
+    const baseFramesByCumulative = new Map(baseRun.frames.map((f) => [f.cumulative, f.snapshot]));
+
+    const batches = [
+      [CORPUS[0]],
+      [CORPUS[1], CORPUS[2]],
+      [CORPUS[3], CORPUS[4], CORPUS[5]]
+    ];
+    const batched = await makeRuntime("合帧");
+    const batchedRun = runBatchedStream(batched.runtime, batched.deps, batches);
+
+    // 每个批边界的帧快照与逐 token 驱动的同累计文本帧逐字节一致
+    for (const frame of batchedRun.frames) {
+      expect(frame.snapshot).toEqual(baseFramesByCumulative.get(frame.cumulative));
+    }
+    // 终态一致
+    feed(base.runtime, { type: "done" });
+    feed(batched.runtime, { type: "done" });
+    expect(batchedRun.node.textContent).toBe(baseRun.node.textContent);
+    expect(batchedRun.node.querySelector(".chat-msg-assistant-body").innerHTML).toBe(
+      baseRun.node.querySelector(".chat-msg-assistant-body").innerHTML
+    );
+  });
+
+  it("token-batch 与 token 的分派副作用一致：收尾 reasoning 同样新建思考节点", async () => {
+    const byToken = await makeRuntime("逐token");
+    for (const t of ["正文", "继续"]) {
+      feed(byToken.runtime, { type: "token", data: t });
+    }
+    feed(byToken.runtime, { type: "reasoning", data: "事后思路" });
+
+    const byBatch = await makeRuntime("合帧");
+    feed(byBatch.runtime, { type: "token-batch", data: ["正文", "继续"] });
+    feed(byBatch.runtime, { type: "reasoning", data: "事后思路" });
+
+    expect(byBatch.deps.messages.querySelector(".chat-msg-assistant").innerHTML).toBe(
+      byToken.deps.messages.querySelector(".chat-msg-assistant").innerHTML
+    );
+  });
+});
+

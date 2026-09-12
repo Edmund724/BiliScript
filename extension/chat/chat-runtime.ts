@@ -315,6 +315,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       thinkingNode = null;
       thinkingEnded = true;
       appendToken(activeAssistantNode, msg.data);
+    } else if (msg.type === "token-batch") {
+      // 07 票合帧：与逐 token 同一 appendToken 渲染收口（首个 token 注册帧，
+      // 同批其余 token 并入挂起帧），视觉输出与逐 token 传输逐字节一致。
+      handleFirstStreamToken();
+      thinkingNode = null;
+      thinkingEnded = true;
+      for (const token of Array.isArray(msg.data) ? msg.data : []) {
+        if (typeof token === "string") {
+          appendToken(activeAssistantNode, token);
+        }
+      }
     } else if (msg.type === "stream-reset") {
       // 读流中断重试（offscreen 重新从头生成）：已吐 token 撤不回且新流不保证
       // 前缀一致，清空本条消息缓冲整体重放，避免两代流拼接成重复文本。

@@ -178,6 +178,124 @@ describe("streamChat port 协议：事件序列与旧实现一致", () => {
   });
 });
 
+describe("streamChat token 合帧（07 票）：窗口预算批传，输出逐字节一致", () => {
+  it("1000 token 一次成流 → 按 maxPending 分批，消息条数 ≥90% 下降，拼接不丢不重", async () => {
+    const tokens = Array.from({ length: 1000 }, (_, i) => `t${i}`);
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      sseResponse([...tokens.map((t) => sseData({ content: t })), "data: [DONE]\n\n"])
+    ));
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(result).toEqual({ done: true });
+    const batches = port.messages.filter((m) => m.type === "token-batch");
+    const singles = port.messages.filter((m) => m.type === "token");
+    // 1000 条逐 token 消息 → 常数级批次（maxPending=32 → 32 批）
+    expect(batches.length + singles.length).toBeLessThanOrEqual(34);
+    expect(batches.length + singles.length).toBeLessThan(1000 * 0.1);
+    expect(batches.flatMap((b) => b.data)).toEqual(tokens); // 逐字节一致
+    expect(port.messages.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("单 token 批次回落普通 token 事件（慢速流线格式与旧一致）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      sseResponse([sseData({ content: "唯" }), sseData({ content: "一" }), "data: [DONE]\n\n"])
+    ));
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    // 两个 token 同窗口 → 一条 token-batch；收尾 flush 不含空批
+    expect(port.messages).toEqual([
+      { type: "token-batch", data: ["唯", "一"] },
+      { type: "done" }
+    ]);
+  });
+
+  it("reasoning 事件先把积压 token 收口再回吐（渲染顺序不颠倒）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      sseResponse([
+        sseData({ content: "正文一" }),
+        sseData({ reasoning_content: "思路" }),
+        sseData({ content: "正文二" }),
+        "data: [DONE]\n\n"
+      ])
+    ));
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(port.messages).toEqual([
+      { type: "token", data: "正文一" }, // 单 token 批次回落 token 事件
+      { type: "reasoning", data: "思路" },
+      { type: "token", data: "正文二" },
+      { type: "done" }
+    ]);
+  });
+
+  it("stream-reset 前先 flush 旧流尾巴（不丢 token），reset 仍先于重试流", async () => {
+    // 第一段流：两个 token 后 read 抛错触发读流重试
+    let readCount = 0;
+    const flakyBody = {
+      getReader() {
+        return {
+          async read() {
+            readCount += 1;
+            if (readCount === 1) {
+              const encoder = new TextEncoder();
+              return { value: encoder.encode(sseData({ content: "旧一" }) + sseData({ content: "旧二" })), done: false };
+            }
+            throw new Error("stream closed");
+          }
+        };
+      }
+    };
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(async () => ({ ok: true, status: 200, body: flakyBody }))
+      .mockImplementationOnce(async () =>
+        sseResponse([sseData({ content: "新" }), "data: [DONE]\n\n"]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(result).toEqual({ done: true });
+    const types = port.messages.map((m) => m.type);
+    const resetIdx = types.indexOf("stream-reset");
+    expect(resetIdx).toBeGreaterThan(0);
+    // 旧流尾巴在 reset 之前 flush（一条合帧消息，不丢 token）
+    expect(port.messages[resetIdx - 1]).toEqual({ type: "token-batch", data: ["旧一", "旧二"] });
+    // reset 先于重试流 token
+    expect(resetIdx).toBeLessThan(types.indexOf("token"));
+    expect(port.messages.at(-1)).toEqual({ type: "done" });
+  });
+});
+
 describe("streamChat 溢出语义（catch 查标记）", () => {
   it("HTTP 400 body 含 maximum context length → 抛 { overflow: true }，不再 post overflow/error", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>

@@ -51,10 +51,19 @@ export interface ChatCostGuardEvent {
   data?: { message?: unknown };
 }
 
-// offscreen → 宿主的出向 port 消息联合（七流式事件 + cost-guard，全体可携带
-// cachedContextKey 回执）。载荷字段与既有线格式逐一对齐，不加不删。
+// token 合帧事件（07 票）：offscreen 侧按 30~50ms 窗口预算把流式 token 合并成
+// 数组再 postMessage（削减结构化克隆次数）；宿主按数组逐个走同一 appendToken
+// 渲染收口，视觉输出与逐 token 传输逐字节一致。单 token 批次仍走普通 token 事件。
+export interface ChatTokenBatchEvent {
+  type: "token-batch";
+  data: string[];
+}
+
+// offscreen → 宿主的出向 port 消息联合（七流式事件 + cost-guard + token-batch，
+// 全体可携带 cachedContextKey 回执）。载荷字段与既有线格式逐一对齐，不加不删。
 export type ChatPortMessage =
   | (StreamTokenEvent & ChatReceipt)
+  | (ChatTokenBatchEvent & ChatReceipt)
   | (StreamReasoningEvent & ChatReceipt)
   | (StreamNoticeEvent & ChatReceipt)
   | (StreamResetEvent & ChatReceipt)
