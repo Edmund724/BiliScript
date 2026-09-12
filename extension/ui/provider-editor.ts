@@ -9,8 +9,8 @@
 // requestProviderOriginsViaBackground 各调用方闭包）。
 //
 // 关闭语义（拍板 Q6）：打开时快照字段，取消 / Esc / 点遮罩 / 面板外点击先做
-// dirty 对比，有改动 confirm「未保存的更改将丢失」，无改动直接关；保存成功
-// 直接关。测试只验证连通性，成功也不落盘——只有点「保存」才真正保存。
+// dirty 对比，有改动弹面板内确认（ui/confirm-dialog.js——原生 confirm 绘制在
+// 浏览器窗口中央，面板停靠右侧时看不到），无改动直接关；保存成功直接关。测试只验证连通性，成功也不落盘——只有点「保存」才真正保存。
 // 设置抽屉收起（hidden）时强制关闭（MutationObserver 自治监听，ui-renderer
 // 无需知道本模块存在）。
 //
@@ -172,13 +172,15 @@ function isDirty(): boolean {
   return state.open && currentSnapshot() !== state.dirtySnapshot;
 }
 
-// ===== 关闭（幂等；force 跳过 dirty confirm） =====
+// ===== 关闭（幂等；force 跳过 dirty 确认弹层） =====
 
 export function closeProviderEditor(force = false): void {
   if (!state.open && !state.host) {
     return;
   }
-  if (state.open && !force && isDirty() && !confirm("未保存的更改将丢失，确定关闭？")) {
+  if (state.open && !force && isDirty()) {
+    // 非 force 直调的 dirty 拦截，与 requestClose 同路径
+    void confirmDiscardChanges();
     return;
   }
   state.generation += 1;
@@ -191,12 +193,28 @@ export function closeProviderEditor(force = false): void {
   state.host = null;
 }
 
-// 取消 / Esc / 遮罩 / 面板外点击的统一关闭入口：dirty 才拦（拍板 Q6）
+// 取消 / Esc / 遮罩 / 面板外点击的统一关闭入口（拍板 Q6）：dirty 才拦——
+// 无改动同步直关（Esc/遮罩点击的既有同步语义，测试锁定）；有改动弹面板内
+// 确认弹层（ui/confirm-dialog.js，与删除二次确认同源），放弃更改才关
 function requestClose(): void {
-  if (isDirty() && !confirm("未保存的更改将丢失，确定关闭？")) {
+  if (!isDirty()) {
+    closeProviderEditor(true);
     return;
   }
-  closeProviderEditor(true);
+  void confirmDiscardChanges();
+}
+
+// dirty 确认：弹层叠在本 Modal 之上（z-index 50 > 40）；确认期间编辑器的
+// 文档级监听按 isConfirmDialogOpen 让位，Esc/外点由弹层承接
+async function confirmDiscardChanges(): Promise<void> {
+  const ok = await confirmDialog({
+    message: "未保存的更改将丢失，确定关闭？",
+    confirmText: "放弃更改",
+    danger: true
+  });
+  if (ok) {
+    closeProviderEditor(true);
+  }
 }
 
 // ===== 保存（拍板 Q2：单平台 upsert 委托注入的 onSave） =====

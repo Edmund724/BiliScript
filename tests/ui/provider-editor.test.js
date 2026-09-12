@@ -14,17 +14,17 @@
 //   忽略前一个，测试不落盘（绝无保存与权限消息）；ASR 平台级测试保留；
 // - 「获取可用模型」弹窗（拍板 Q5/Q11）：地址/Key 前置校验、权限在点击同步
 //   链（先于模型请求）、搜索/全选、已添加置灰、失败原位重试、Esc 逐层退出；
-// - dirty 保护（拍板 Q6）：有改动 confirm 拦截，无改动直接关；Esc / 点遮罩
-//   同走此保护；
+// - dirty 保护（拍板 Q6）：有改动弹面板内确认（ui/confirm-dialog.js），无改
+//   动直接关；Esc / 点遮罩同走此保护；弹层打开期间 Esc 只关弹层不关编辑器；
 // - 面板外点击 capture 拦截：只关 Modal，bubble 委托（抽屉外点关闭）收不到；
 // - 删除二次确认：面板内弹层（ui/confirm-dialog.js）叠在编辑器之上，确认才
 //   发删除消息，取消不删且编辑器不关；弹层打开期间编辑器的文档级监听让位；
-// - 抽屉收起联动：settingsPanel hidden → 强制关闭（丢改动不 confirm）。
+// - 抽屉收起联动：settingsPanel hidden → 强制关闭（丢改动不弹确认）。
 //
 // chrome.runtime.sendMessage 换装按 type 分发的消息总线；探针与 ASR 模型列表
 // 模块整体 mock，隔离 fetch。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
 vi.mock("../../extension/ai/provider-test.js", () => ({
@@ -112,13 +112,17 @@ function messageTypes(sent) {
   return sent.map((message) => message.type);
 }
 
-let confirmMock;
-
 beforeEach(() => {
   resetModuleState();
   document.body.innerHTML = "";
-  confirmMock = vi.fn(() => true);
-  vi.stubGlobal("confirm", confirmMock);
+});
+
+afterEach(async () => {
+  // 部分用例故意断言「取消不删/不关」后半段，编辑器在用例结束时仍开着——
+  // 其文档级 capture 监听（Esc/外点）不随 innerHTML 清场摘除，会抢先拦截
+  // 后续用例的同名事件。统一强制收尾（幂等，已关的直接返回）。
+  const { closeProviderEditor } = await import("../../extension/ui/provider-editor.js");
+  closeProviderEditor(true);
 });
 
 describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
@@ -373,28 +377,41 @@ describe("provider-editor：头部删除按钮（用户拍板：× 改警示删�
 });
 
 describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
-  it("有改动：取消/Esc/点遮罩先 confirm，拒绝不关；确认后关", async () => {
+  it("有改动：取消先弹面板内确认——拒绝不关，放弃更改才关；弹层打开期间 Esc 只关弹层", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
 
-    confirmMock.mockReturnValueOnce(false);
+    // 取消按钮：dirty 确认弹层（ui/confirm-dialog.js，与删除二次确认同源）
     fireClick(dialog.querySelector(".provider-editor-cancel"));
-    expect(confirmMock).toHaveBeenCalledWith("未保存的更改将丢失，确定关闭？");
+    let confirmBtn = document.querySelector(".confirm-dialog-confirm");
+    expect(confirmBtn, "dirty 确认弹层应已打开").not.toBeNull();
+    expect(confirmBtn.textContent).toBe("放弃更改");
+    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("未保存的更改将丢失，确定关闭？");
+    fireClick(document.querySelector(".confirm-dialog-cancel"));
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
     expect(editorGone()).toBe(false);
 
+    // 弹层再开时按 Esc：编辑器文档级监听让位，Esc 只关弹层不关编辑器
     fireClick(dialog.querySelector(".provider-editor-cancel"));
-    expect(confirmMock).toHaveBeenCalledTimes(2);
-    expect(editorGone()).toBe(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
+    expect(editorGone()).toBe(false);
+
+    // 放弃更改：确认后关
+    fireClick(dialog.querySelector(".provider-editor-cancel"));
+    confirmBtn = document.querySelector(".confirm-dialog-confirm");
+    fireClick(confirmBtn);
+    await vi.waitFor(() => expect(editorGone()).toBe(true));
   });
 
-  it("无改动：取消直接关，不弹 confirm", async () => {
+  it("无改动：取消直接关，不弹确认弹层", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     fireClick(dialog.querySelector(".provider-editor-cancel"));
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
     expect(editorGone()).toBe(true);
   });
 
@@ -411,7 +428,7 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
     expect(editorGone()).toBe(true);
   });
 
-  it("保存成功后直接关（不因字段快照≠初始而弹 confirm）", async () => {
+  it("保存成功后直接关（不因字段快照≠初始而弹确认弹层）", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
@@ -422,7 +439,7 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
     fireClick(dialog.querySelector(".provider-editor-save"));
 
     await vi.waitFor(() => expect(editorGone()).toBe(true));
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
   });
 });
 
@@ -440,10 +457,11 @@ describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", ()
     expect(dialog.querySelectorAll(".provider-editor-model-row")).toHaveLength(1);
     expect(dialog.querySelector(".provider-editor-catalog-empty").hidden).toBe(true);
 
-    // 加行即脏：取消先 confirm（草稿语义只改 DOM，无任何消息）
-    confirmMock.mockReturnValueOnce(false);
+    // 加行即脏：取消先弹面板内确认（草稿语义只改 DOM，无任何消息）
     fireClick(dialog.querySelector(".provider-editor-cancel"));
-    expect(confirmMock).toHaveBeenCalledWith("未保存的更改将丢失，确定关闭？");
+    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("未保存的更改将丢失，确定关闭？");
+    fireClick(document.querySelector(".confirm-dialog-cancel"));
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
     expect(editorGone()).toBe(false);
     expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
 
@@ -703,7 +721,7 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     expect(dropdown.hidden).toBe(true);
   });
 
-  it("设置抽屉收起（hidden）时 Modal 强制关闭：dirty 也不 confirm", async () => {
+  it("设置抽屉收起（hidden）时 Modal 强制关闭：dirty 也不弹确认弹层", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
@@ -713,7 +731,7 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     await vi.waitFor(() => {
       expect(editorGone()).toBe(true);
     });
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
   });
 });
 
@@ -889,7 +907,7 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     expect(editorGone()).toBe(false);
   });
 
-  it("Esc 逐层退出：先关弹窗不关 Modal，再关 Modal", async () => {
+  it("Esc 逐层退出：先关弹窗不关 Modal，再 Esc 弹 dirty 确认，放弃更改后关 Modal", async () => {
     const { host } = await mountPanel({
       "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini"] })
     });
@@ -906,8 +924,13 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
     expect(editorGone()).toBe(false);
 
+    // baseUrl/Key 已填（dirty）：第二下 Esc 不直关，弹面板内 dirty 确认
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(editorGone()).toBe(true);
+    expect(editorGone()).toBe(false);
+    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("未保存的更改将丢失，确定关闭？");
+
+    fireClick(document.querySelector(".confirm-dialog-confirm"));
+    await vi.waitFor(() => expect(editorGone()).toBe(true));
   });
 });
 
