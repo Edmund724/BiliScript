@@ -41,6 +41,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawn } = require("child_process");
 const { build, context } = require("esbuild");
+const { createLocalImportGuard } = require("./build-guards.js");
 
 // --watch（npm run dev）：首轮走与发布完全一致的全量构建 + 自检 + 报表，之后
 // esbuild context 监听三个构建任务原地重建 dist/，content 部分拉起
@@ -112,29 +113,9 @@ const BACKGROUND_JS_MAX_KB = 256;
 // fail fast；这里不重复）。
 
 // Guard: every resolved local (`./`/`../`) import **from extension/ source** must
-// stay inside extension/. 与 build-content.js 的 localImportGuard 同一份逻辑
-//（脚本未导出，故复制；两边改动必须同步）；只校验不改写路径。只查
-// extension/ 内的导入方：第三方包内部也满是相对导入，那类不越界概念。
-const EXTENSION_ROOT_ABS = path.resolve(extensionRoot) + path.sep;
-const localImportGuard = {
-  name: "extension-local-import-guard",
-  setup(build) {
-    build.onResolve({ filter: /^\.\.?\// }, (args) => {
-      if (!path.resolve(args.importer).startsWith(EXTENSION_ROOT_ABS)) return undefined;
-      const resolved = path.resolve(args.resolveDir, args.path);
-      if (resolved.startsWith(EXTENSION_ROOT_ABS)) return undefined;
-      const relFromExtension = path.relative(extensionRoot, resolved);
-      return {
-        errors: [
-          {
-            text: `Import "${args.path}" in "${args.importer}" resolves to "${resolved}", ` +
-              `which is outside extension/ (${relFromExtension || resolved}).`,
-          },
-        ],
-      };
-    });
-  },
-};
+// stay inside extension/. 实现在 ./build-guards.js——与 build-content.js 共用同
+// 一份工厂，两边不再手工同步；只校验不改写路径。
+const localImportGuard = createLocalImportGuard(extensionRoot);
 
 function cleanDist() {
   fs.rmSync(distDir, { recursive: true, force: true });

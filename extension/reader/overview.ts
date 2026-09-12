@@ -28,7 +28,7 @@ import { state } from "../core/state.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
-import { setMessage } from "../shared/ui-status.js";
+import { setMessage } from "../core/ui-status.js";
 // 「选中平台 + 其 API Key」解析（与选区解释共用）。
 import { resolveActiveProvider } from "../ai/active-provider.js";
 // 签名族已迁 subtitle/cache.ts（arch-slim-3 #1，键族同居）；概览管线本体只留

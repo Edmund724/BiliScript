@@ -33,9 +33,9 @@ vi.mock("../../extension/bilibili/reader-url.js", () => ({
 vi.mock("../../extension/subtitle/lazy.js", () => ({
   ensureSummarizeChain: vi.fn()
 }));
-// 候选03 常驻瘦身：setStatus 迁入 shared/ui-status.js；ensureUiReady 迁入 ui/lazy-ui.js
+// 候选03 常驻瘦身：setStatus 迁入 core/ui-status.js；ensureUiReady 迁入 ui/lazy-ui.js
 //（arch-slim-2/09 加载器归位各域目录）。
-vi.mock("../../extension/shared/ui-status.js", () => ({
+vi.mock("../../extension/core/ui-status.js", () => ({
   setStatus: vi.fn()
 }));
 vi.mock("../../extension/ui/lazy-ui.js", () => ({

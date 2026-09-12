@@ -12,7 +12,7 @@ import { dispatchChatTabOutsideClick } from "../reader/chat-tab-bridge.js";
 // 候选03 常驻瘦身：本模块（面板 + 阅读视图壳构建、事件绑定）已整体惰性化，
 // 经 ui/lazy-ui.js 动态装载。静态 import 只允许常驻叶子——reader 状态微模块
 //（./reader/state.js，含 ids/view-state/scroll-state）、轻状态栏写入器
-//（../shared/ui-status.js）、reader 域懒加载转发助手（./reader-gate.js，动态边
+//（../core/ui-status.js）、reader 域懒加载转发助手（./reader-gate.js，动态边
 // 在 reader/lazy-reader 内部）。
 import { classes, getReaderActiveDigestTab, ids, isReaderViewOpen, setReaderActiveDigestTab } from "../reader/state.js";
 import type { ReaderDigestTab } from "../reader/state.js";
@@ -56,7 +56,7 @@ export function buildUiHtml(): string {
            AI 对话。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管退役
            ——章节列表由概览 tab 提供，播放器保持 B 站原生布局不动；
            readingStatus 挪进面板 header 下方（id 不变，subtitle/ai/chat 各域
-           经 shared/ui-status.js 持续写入）。三 tab body 的内容模板随各自域
+           经 core/ui-status.js 持续写入）。三 tab body 的内容模板随各自域
            叶子（arch-slim-2/06：壳只懂面板骨架与 tab 切换） -->
       <aside id="${ids.readingDigestPanel}" class="boc-reading-digest-panel" aria-label="Digest 面板">
             <header class="boc-reading-header">
@@ -337,7 +337,7 @@ export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boole
 
 // renderMeta / renderSubtitleSelect / setBusyState 已随经典侧栏面板删除
 //（digest-only-ui：阅读视图的元信息/字幕轨由 reader 域渲染，复制/导出由字幕
-// tab 工具条接线）；setStatus / setMessage 已迁往 ../shared/ui-status.js，宿主
+// tab 工具条接线）；setStatus / setMessage 已迁往 ../core/ui-status.js，宿主
 // 收敛到 #boc-reading-status。
 // arch-slim-2/06：三 tab 的模板与专属绑定已同居各自域叶子（对话 reader/
 // chat-template.ts + chat-tab.ts；字幕 reader/subtitle-tab-ui.ts；选区解释

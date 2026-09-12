@@ -1,10 +1,12 @@
-// extension/core/content-orchestration-wiring.ts
+// extension/entry/content-orchestration-wiring.ts
 // SW / sidepanel 共享的 content 注入恢复接线。
 // 把真实 chrome API 触点组装进 background-content-orchestration 工厂，
 // 两侧各自 import 所需函数；本模块拥有全部 chrome 副作用，工厂仍零 chrome 依赖。
+//（02 分层归位：工厂本体下沉 core/，本接线属组合根侧，归位 entry/——依赖方向
+// 从「core 反向指 entry」翻正为「entry 顺向指 core」。）
 
 import { sendMessageToTab, waitForTabComplete } from "../shared/tab-utils.js";
-import { createBackgroundContentOrchestrator } from "../entry/background-content-orchestration.js";
+import { createBackgroundContentOrchestrator } from "../core/background-content-orchestration.js";
 
 // 期望版本单源（arch-slim-3/04）：此前 wiring 与 entry/background.ts 各算一份
 // chrome.runtime.getManifest().version，现收编为此处唯一导出。

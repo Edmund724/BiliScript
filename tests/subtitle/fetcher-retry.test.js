@@ -21,7 +21,7 @@ vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
   notifyReaderPresenter: vi.fn()
 }));
-vi.mock("../../extension/shared/ui-status.js", () => ({
+vi.mock("../../extension/core/ui-status.js", () => ({
   setStatus: vi.fn(),
   setMessage: vi.fn()
 }));
@@ -101,7 +101,7 @@ async function importEpoch() {
   fetcher = await import("../../extension/subtitle/fetcher.js");
   state = (await import("../../extension/core/state.js")).state;
   gateway = await import("../../extension/bilibili/gateway.js");
-  uiStatus = await import("../../extension/shared/ui-status.js");
+  uiStatus = await import("../../extension/core/ui-status.js");
   commit = await import("../../extension/subtitle/commit.js");
   readerBus = await import("../../extension/reader/reader-bus.js");
 

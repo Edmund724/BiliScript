@@ -1,5 +1,5 @@
-// 候选03 常驻瘦身：setMessage / setStatus 迁入 shared/ui-status.js。
-import { setMessage, setStatus } from "../shared/ui-status.js";
+// 候选03 常驻瘦身：setMessage / setStatus 迁入 core/ui-status.js。
+import { setMessage, setStatus } from "../core/ui-status.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { state, clipState } from "../core/state.js";
 import type { SubtitleOption } from "../core/state.js";

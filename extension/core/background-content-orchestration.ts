@@ -3,6 +3,8 @@
 // 从 entry/background.js 提取：background 只组装真实 chrome API 传入工厂，
 // 本模块拥有全部时序与错误分类决策。模块顶层零 chrome 依赖（仅 shared/utils
 // 的 sleep 作默认延时、shared 的错误哨兵常量），可在 Node 测试环境直接 evaluate。
+//（02 分层归位：工厂本体自 entry/ 下沉 core/——它零 chrome 依赖，属 core 层纯
+// 编排；chrome 触点接线留在 entry/content-orchestration-wiring.ts。）
 
 import { sleep } from "../shared/utils.js";
 import {

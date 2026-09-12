@@ -20,7 +20,7 @@
 // 失败语义：加载失败清空缓存 promise，允许下次触发重试。
 //
 // 消费约定：链内函数（refreshClip/loadSubtitle/resetClipState/buildClipSnapshotPayload/
-// onSubtitleChange/copyMarkdown/downloadSubtitle）不静态 import fetcher/ui，
+// copySubtitleTranscript/downloadSubtitle）不静态 import fetcher/ui，
 // 一律 `const chain = await ensureSummarizeChain()` 后调 `chain.xxx()`；promise 缓存天然
 // 去重并发调用。reader 侧的 requestSubtitleRefresh（reader-bus seam）只转发：
 // 调用方（reader/lifecycle.js）先 ensure 本链再调 seam，链装载成功路径上的
@@ -39,8 +39,6 @@ export interface SummarizeChain {
     forceRefresh?: boolean
   ): Promise<void>;
   resetClipState(options?: { keepFetchState?: boolean }): void;
-  onSubtitleChange(event: Event): Promise<void>;
-  copyMarkdown(): Promise<void>;
   // PR3：阅读模式字幕 tab「复制」——复制字幕纯文本（transcript，buildTxt 管线）
   copySubtitleTranscript(): Promise<void>;
   downloadSubtitle(): Promise<void>;

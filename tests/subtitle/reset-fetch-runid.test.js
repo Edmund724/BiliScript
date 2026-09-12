@@ -25,7 +25,7 @@ vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
   notifyReaderPresenter: vi.fn()
 }));
-vi.mock("../../extension/shared/ui-status.js", () => ({
+vi.mock("../../extension/core/ui-status.js", () => ({
   setStatus: vi.fn(),
   setMessage: vi.fn()
 }));
@@ -89,7 +89,7 @@ async function importEpoch() {
   clipState = stateModule.clipState;
   gateway = await import("../../extension/bilibili/gateway.js");
   cache = await import("../../extension/subtitle/cache.js");
-  uiStatus = await import("../../extension/shared/ui-status.js");
+  uiStatus = await import("../../extension/core/ui-status.js");
   core = await import("../../extension/subtitle/core.js");
 
   gateway.fetchVideoMeta.mockReset().mockResolvedValue({

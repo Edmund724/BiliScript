@@ -11,13 +11,13 @@
 //     fetcher，不能由 fallback.js 直 import——动态 import pipeline 的职责留在
 //     本叶子，不移进 fallback.js；
 //   - 其余装配依赖直取各单源：getSettings（core/runtime）、setStatus/setMessage
-//    （shared/ui-status）、acceptSubtitle / commitNoSubtitle（subtitle/commit，
+//    （core/ui-status）、acceptSubtitle / commitNoSubtitle（subtitle/commit，
 //     字幕接受事务唯一入口）、loadProviders（本文件 loadAsrProviderList）。
 // 本模块只被 subtitle/fetcher.js 动态 import；不 import extension/entry/ 与
 // extension/pages/ 的任何内容。
 
 import { getSettings } from "../core/runtime.js";
-import { setMessage, setStatus } from "../shared/ui-status.js";
+import { setMessage, setStatus } from "../core/ui-status.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { createLazyLoader } from "../shared/lazy-import.js";
 // PR3：boc-subtitle-status 广播的进程内镜像（零依赖叶子）——reader 同进程的

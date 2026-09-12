@@ -19,8 +19,8 @@ vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
   notifyReaderPresenter: vi.fn()
 }));
-// 候选03 常驻瘦身：setMessage / setStatus 已迁入 shared/ui-status.js。
-vi.mock("../../extension/shared/ui-status.js", () => ({
+// 候选03 常驻瘦身：setMessage / setStatus 已迁入 core/ui-status.js。
+vi.mock("../../extension/core/ui-status.js", () => ({
   setStatus: vi.fn(),
   setMessage: vi.fn()
 }));

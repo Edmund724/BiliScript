@@ -10,9 +10,13 @@
 // #boc-reading-status（renderReadingStatus 同节点：sync tick 的进度文案会覆盖
 // 抓取/操作提示，语义上正是「当前状态行」，阅读视图未开时节点不存在则静默
 // 只写 state，clip 快照 payload 与转写横幅仍从 state 取值）。）
+//
+// 02 分层归位：自 shared/ 下沉 core/——本模块要读写 core/state 的状态行，
+// 留在 shared 会让 shared 反向 import 上层，破 shared 叶子纪律。落 core 后
+// core 只向下依赖 shared，依赖方向捋顺。
 
-import { state, uiState } from "../core/state.js";
-import { ids } from "../reader/state.js";
+import { state, uiState } from "./state.js";
+import { ids } from "../shared/dom-ids.js";
 
 function getOptionalElement(id: string): HTMLElement | null {
   return document.getElementById(id);

@@ -1,6 +1,6 @@
-// 候选03 常驻瘦身：setMessage 迁入 shared/ui-status.js，player-ai 动态 chunk
+// 候选03 常驻瘦身：setMessage 迁入 core/ui-status.js，player-ai 动态 chunk
 // 不再把 ui/ui-renderer.js 拖为静态依赖。
-import { setMessage } from "../shared/ui-status.js";
+import { setMessage } from "../core/ui-status.js";
 import { buildPlayerAiQuickActionIconSvg } from "../ui/icons.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getSettings } from "../core/runtime.js";

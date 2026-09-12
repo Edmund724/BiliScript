@@ -32,6 +32,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { build, context } = require("esbuild");
+const { createLocalImportGuard } = require("./build-guards.js");
 
 // --watch：esbuild context 常驻监听，供 build.js --watch（npm run dev）以子进程
 // 方式拉起；首轮仍跑全量自检与报表，之后每次重建只打一行日志。
@@ -54,6 +55,9 @@ const mainOutfile = path.join(outDir, "content-main.mjs");
 const bootstrapOutfile = path.join(outDir, "content-bootstrap.iife.js");
 const chunksDir = path.join(outDir, "chunks");
 // 分包前的单文件产物（已废弃）：构建前清掉，避免它混进 release zip。
+// 不是死分支——它在下方 cleanPreviousOutput() 里真的被删；清的是「旧机器/旧
+// checkout 遗留的那一枚」，本地新构建不会再生它。arch-slim-2/01 与 02
+// 两轮审阅均核实过并判定保留，勿当死代码移除。
 const legacyOutfile = path.join(outDir, "content-classic.js");
 
 // 懒加载目标清单：extension/ 内全部动态 import() 站点指向的模块（lazy-*
@@ -121,32 +125,9 @@ const MAIN_MODULE_BASENAME = "content-main.mjs";
 
 // Guard: every resolved local (`./`/`../`) import **from extension/ source** must
 // stay inside extension/. Absolute and external (package) imports are left
-// untouched. The guard lives on the build object via esbuild's onResolve so it
-// never rewrites paths, only validates them as esbuild resolves them.
-//
-// 只查 extension/ 内的导入方：第三方包（mermaid 及其 d3-*/es-toolkit 等依赖）
-// 内部也满是相对导入，那类不越界概念——它们由 esbuild 正常解析并打包进产物，
-// 拦下来只会让任何运行时依赖都无法引入。
-const EXTENSION_ROOT = path.resolve(extensionRoot) + path.sep;
-const localImportGuard = {
-  name: "extension-local-import-guard",
-  setup(build) {
-    build.onResolve({ filter: /^\.\.?\// }, (args) => {
-      if (!path.resolve(args.importer).startsWith(EXTENSION_ROOT)) return undefined;
-      const resolved = path.resolve(args.resolveDir, args.path);
-      if (resolved.startsWith(EXTENSION_ROOT)) return undefined;
-      const relFromExtension = path.relative(extensionRoot, resolved);
-      return {
-        errors: [
-          {
-            text: `Import "${args.path}" in "${args.importer}" resolves to "${resolved}", ` +
-              `which is outside extension/ (${relFromExtension || resolved}).`,
-          },
-        ],
-      };
-    });
-  },
-};
+// untouched. 实现在 ./build-guards.js——与 build.js 共用同一份工厂，两边不再手工
+// 同步。
+const localImportGuard = createLocalImportGuard(extensionRoot);
 
 // 轮 B 专用 alias：只有 mermaid-render.ts 的精确 import "mermaid" 落到生成好的
 // 精简入口；其他轮次及其他入口不经过这个重定向。

@@ -27,6 +27,7 @@ import { createTranscriptionEngine } from "../asr/engine.js";
 import { transcribe as transcribeOpenAi } from "../asr/adapters/openai-transcriptions.js";
 import { isFragmentedMp4, createAdtsExtractor, parseAudioSpecificConfig } from "../asr/adts.js";
 import { ASR_CONCURRENCY } from "../shared/offscreen-constants.js";
+import { concatBytes } from "../shared/bytes.js";
 import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
 import { safePostMessage } from "../shared/messaging.js";
 import { logWarn } from "../shared/logging.js";
@@ -433,14 +434,6 @@ export async function* streamAudioSegments(
     }
   }
   throw new Error("音频下载失败");
-}
-
-// 拼接两段字节（fMP4 头部判定缓冲累积用，仅小缓冲 ≤4MB）
-function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
 }
 
 // HEAD 探大小：Content-Length 超上限直接拒绝（超长视频不下载不解码）。

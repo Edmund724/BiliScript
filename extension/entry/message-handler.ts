@@ -17,9 +17,9 @@ import {
 // 链内符号一律先 await ensureSummarizeChain() 再取用。一键总结
 // 热路径上的装载是本地 chunk 动态 import（~10ms），被消息往返掩盖。
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
-// 候选03 常驻瘦身：setStatus 迁入 shared/ui-status.js（DOM 节点存在时写入，
+// 候选03 常驻瘦身：setStatus 迁入 core/ui-status.js（DOM 节点存在时写入，
 // 否则仅更新 state）；ensureUiReady 经 ui/lazy-ui.js 惰性构建 UI 壳。
-import { setStatus } from "../shared/ui-status.js";
+import { setStatus } from "../core/ui-status.js";
 import { ensureUiReady } from "../ui/lazy-ui.js";
 
 // player-ai 经加载器按需引入（候选4 分包）：开关关闭态不再常驻

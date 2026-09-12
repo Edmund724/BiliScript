@@ -32,6 +32,7 @@ import { buildModelPickerField, wireModelPicker } from "./model-picker.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
+import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
 import { TRASH_ICON_PATHS } from "./provider-row.js";
 import type { ProviderRowElement, ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 
@@ -772,22 +773,6 @@ function ensureHost(): HTMLElement | null {
   return host;
 }
 
-// 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是
-// 关掉一切，confirm 无意义。自治监听 hidden 属性变化，零跨模块状态。
-function watchSettingsPanel(): void {
-  const panel = document.getElementById(ids.readingSettingsPanel);
-  if (!panel || typeof MutationObserver === "undefined") {
-    return;
-  }
-  const observer = new MutationObserver(() => {
-    if (panel.hidden) {
-      closeProviderEditor(true);
-    }
-  });
-  observer.observe(panel, { attributes: true, attributeFilter: ["hidden"] });
-  state.observer = observer;
-}
-
 // 面板外点击（capture 阶段拦截）：只关 Modal 不关抽屉——ui-renderer 的抽屉
 // 外点关闭是 document bubble 委托，capture 阶段 stopPropagation 后不再触发
 //（一次点击只关一层）。面板内点击（含遮罩）正常冒泡：settings-panel 的
@@ -997,7 +982,12 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   state.dirtySnapshot = currentSnapshot();
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
-  watchSettingsPanel();
+  // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是
+  // 关掉一切，confirm 无意义。自治监听 hidden 属性变化，零跨模块状态。
+  const observer = observeSettingsPanelHidden(() => closeProviderEditor(true));
+  if (observer) {
+    state.observer = observer;
+  }
 }
 
 export function isProviderEditorOpen(): boolean {

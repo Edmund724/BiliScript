@@ -1,6 +1,6 @@
 // content-error-sentinels.ts — 浏览器引擎错误文案哨兵（shared 常量收口）。
 //
-// 注入恢复编排（entry/background-content-orchestration.js）需要按浏览器引擎
+// 注入恢复编排（core/background-content-orchestration.js）需要按浏览器引擎
 // 抛出的错误文案做错误分类；这些文案由浏览器生成，不是本扩展代码主动 throw
 // 的，集中在此避免同一字面量在 SW / 页面侧散落多处后随引擎改版悄悄失配。
 

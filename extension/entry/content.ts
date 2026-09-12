@@ -8,7 +8,7 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { logInfo, logWarn } from "../shared/logging.js";
 // 状态栏降级写入器（getSettings 水合失败的外层兜底，与 reader 链共用
 // #boc-reading-status 节点）
-import { setStatus } from "../shared/ui-status.js";
+import { setStatus } from "../core/ui-status.js";
 
 // 播放器 AI 模块经加载器按需引入（候选4 分包）：开关关闭态下该能力零装载，
 // start/stop/sync 全部走 loadPlayerAi() 的动态 import。默认开启（2026-09 起，

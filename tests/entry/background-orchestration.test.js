@@ -17,7 +17,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBackgroundContentOrchestrator } from "../../extension/entry/background-content-orchestration.js";
+import { createBackgroundContentOrchestrator } from "../../extension/core/background-content-orchestration.js";
 import { sleep } from "../../extension/shared/utils.js";
 import {
   DUPLICATE_CLASSIC_INJECTION_SENTINEL,

@@ -16,6 +16,8 @@
 //
 // 本模块是纯函数，不碰 AudioContext / DOM，Node/vitest 下可独立测试。
 
+import { concatBytes } from "../shared/bytes.js";
+
 // esds.AudioSpecificConfig 解析结果（ADTS 头组装所需的编码参数）
 export interface AudioSpecificConfig {
   profile: number;
@@ -210,14 +212,6 @@ export function parseAudioSpecificConfig(bytes: Uint8Array | ArrayBuffer): Audio
 
 function readU32(u8: Uint8Array, p: number): number {
   return (u8[p] << 24) | (u8[p + 1] << 16) | (u8[p + 2] << 8) | u8[p + 3];
-}
-
-// 拼接两段字节（增量解析器跨 push 的残包缓冲拼接用，仅小缓冲）
-function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
 }
 
 function readAscii(u8: Uint8Array, p: number, len: number): string {

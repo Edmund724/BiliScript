@@ -39,7 +39,7 @@ vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
 vi.mock("../../extension/subtitle/lazy.js", () => ({
   ensureSummarizeChain: vi.fn()
 }));
-vi.mock("../../extension/shared/ui-status.js", () => ({
+vi.mock("../../extension/core/ui-status.js", () => ({
   setStatus: vi.fn()
 }));
 vi.mock("../../extension/ui/lazy-ui.js", () => ({

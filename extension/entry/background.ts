@@ -10,7 +10,7 @@ import {
   injectReaderContent,
   probeContentScriptVersion,
   triggerReaderModeInTab
-} from "../core/content-orchestration-wiring.js";
+} from "./content-orchestration-wiring.js";
 import { getMergedSettings, normalizeSettings, saveSettings } from "../core/settings-store.js";
 // 安装/更新一次性设置迁移（2026-09 AI 键默认开：存量显式 false 清位）
 import { applyPlayerAiQuickActionDefaultOnMigration } from "./settings-migration.js";
@@ -395,7 +395,7 @@ const messageHandlers = new Map<BackgroundMessageType, BackgroundHandler>(
   Object.entries(messageHandlerTable) as Array<[BackgroundMessageType, BackgroundHandler]>
 );
 
-// EXPECTED_CONTENT_SCRIPT_VERSION 单源在 core/content-orchestration-wiring.ts
+// EXPECTED_CONTENT_SCRIPT_VERSION 单源在 entry/content-orchestration-wiring.ts
 //（arch-slim-3/04 收编，本文件经 import 消费）。
 
 chrome.runtime.onInstalled.addListener(async () => {

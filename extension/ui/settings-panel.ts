@@ -27,6 +27,10 @@ import {
   validateNotePlaceholderSections
 } from "../core/validators.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
+// 02 复制粘贴收口：设置读取（消息 + 软超时 + 回落默认值）单源在 core/runtime，
+// 本模块不再手抄一份；代价是此处读取也带上了 5s 软超时与超时 warn——超时仍
+// 回落默认值，与原先无超时版本的可见行为一致（无网络往返挂死）。
+import { getSettings } from "../core/runtime.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import {
@@ -369,18 +373,6 @@ async function ensurePresetsLoaded(): Promise<void> {
 function setStatus(elements: SettingsElements, text: unknown, isError = false): void {
   elements.status.textContent = String(text || "");
   elements.status.dataset.error = isError ? "true" : "false";
-}
-
-async function getSettings(): Promise<typeof DEFAULT_SETTINGS> {
-  try {
-    const resp = await sendRuntimeMessage({ type: "get-settings" });
-    if (!resp?.ok) {
-      return { ...DEFAULT_SETTINGS };
-    }
-    return { ...DEFAULT_SETTINGS, ...(resp.settings || {}) };
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
 }
 
 async function loadSettings(elements: SettingsElements): Promise<void> {
