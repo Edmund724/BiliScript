@@ -43,3 +43,7 @@
 ## 修订（2026-09-07：面板重锚自查 800ms → 2s）
 
 「800ms 定时自查重锚」节拍降为 2s（`digest-host.ts` 的 `REANCHOR_INTERVAL_MS` 改本地常量）：核实事件路径（resize/scroll 的 rAF 合帧 + `applyDigestRect` 每拍锚点比对换锚）自带重锚后，定时自查只是「用户完全不动 + 无 observer 事件」期间的兜底，面板跑位是降级表现而非功能失效（与本 ADR「对抗面」一节的定性一致），2s 自愈可接受；按钮自愈（`shared/self-heal.ts` 800ms）是功能失效恢复，语义本就独立，不再共用单源常量。决策与验收记录见 `.scratch/tickets/arch-slim-4/issues/06-p2-digest-host-one-pass.md`。
+
+## 修订（2026-09-12：readerContentWidth 档位机制退役）
+
+「锚点链与降级链」与「后果」中的 `readerContentWidth` 档位陈述已被代码推翻：档位机制（narrow 340 / standard 380 / wide 440 + float 强制浮层档，含设置项）已整体删除——digest-only-ui 排版定稿后贴栏宽度下限写死 380px（`digest-host.ts` 的 `PANEL_TARGET_WIDTH = 380`），不再读任何设置；浮层仅由降级链（窄窗 < 1000px / 锚点全落空且无播放器）进入，`readerContentWidth="float"` 档位不复存在。正文历史部分保留不动。

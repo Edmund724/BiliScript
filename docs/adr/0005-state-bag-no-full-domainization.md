@@ -36,3 +36,7 @@ subtitle/ 等）。我们决定：**状态袋不做全域化，只把完全内�
 - 架构评审（含 AI 代理）不得再提议 reader/clip/ui 命名空间的归属搬迁。
 - 重开条件：若未来要动 clip，正确切入点是 lifecycle 渲染的数据来源（参数注入/快照传递），
   而非状态归属搬迁。
+
+## 修订（2026-09-12：suppressUntil 写入方搬迁）
+
+playerAi 单切片迁出的结论不变；「考虑过的方案」与「后果」中 `core/message-handler.ts` 的陈述已被代码推翻：message-handler 对 player-AI 的唯一写入（`setSuppressedUntil`）已随阅读壳唯一事务搬走，**`suppressUntil(timestamp)` 的唯一生产调用点现为 `reader/shell.ts`**（enterReaderShell 八步无闪变时序第 1 步，`shell.ts` 内 `suppressUntil(Date.now() + 2500)`）；message-handler 只剩经 `ai/lazy-player-ai.js` 的动态装载触达（`loadPlayerAi` / `isPlayerAiLoaded`），不触 player-AI 状态槽位。docs/state-contract.md 的写入方陈述（reader/shell.ts 经意图级 helper 写入）已与此一致。

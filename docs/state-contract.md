@@ -85,8 +85,9 @@ through `transitionReaderShell`, never through `setViewOpen` — that setter (an
 The three core namespaces above form a **content-script (page-context) singleton**: every importer of
 `core/state.ts` runs in the content bundle (`entry/content.ts`, `reader/*`, `subtitle/*`,
 `bilibili/*`, `asr/fallback.ts`, …). The `playerAi` namespace in `ai/player-ai-state.ts` shares the
-same lifetime: it is imported by the player-ai dynamic chunk (content page context) and by
-`entry/message-handler.ts` (also content), so MV3 SW termination does not touch it either. The service-worker bundle reaches `state.ts` only through
+same lifetime: its importers are all content-page modules (the player-ai dynamic chunk
+and the reader shell chain — `reader/shell.ts`, `reader/lazy-shell.ts`,
+`reader/explain-intent.ts`), so MV3 SW termination does not touch it either. The service-worker bundle reaches `state.ts` only through
 static imports (`shared/logging.ts`, `shared/error-helpers.ts`, `bilibili/gateway.ts`), and its
 paths only read defaults (`state.settings?.enableDebugLogs`); no SW path writes business fields.
 Loss of this state on page reload is accepted product semantics (state is re-derived from the URL,
