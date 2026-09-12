@@ -5,6 +5,9 @@
 // 不新开写路径）。面板的开合/互斥/外点/Esc 收口在 reader/chat-popovers.ts，
 // 本模块只渲染，不持有开合状态。
 //
+// chip 内模型名与档位是两个独立 span：溢出截断只由 CSS 施加在模型名 span，
+// 档位与 chevron 恒完整（model-select-width 只决定 chip 整体宽度，不参与截断）。
+//
 // 依赖方向（无环）：共享状态（../chat/chat-state 的 aiThinkingLevel）与
 // chat/model-select-width 直接 import；DOM 元素与面板关闭回调（惰性互引
 // popovers 实例，组装点以箭头函数接线）经工厂 deps 注入。本模块不 import
@@ -16,9 +19,9 @@ import { escapeHtml } from "../shared/string-utils.js";
 export interface CreateReaderChatModelPanelDeps {
   modelSelect: HTMLSelectElement;
   chip: HTMLButtonElement;
-  chipLabel: HTMLElement;
+  chipModel: HTMLElement;
+  chipLevel: HTMLElement;
   panelList: HTMLElement;
-  inputBar: HTMLElement;
   // 惰性互引（组装点以箭头函数接线，回调执行时 popovers 实例已存在）
   hidePanel: () => void;
 }
@@ -35,23 +38,24 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
 };
 
 export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps): ReaderChatModelPanel {
-  const { modelSelect, chip, chipLabel, panelList, inputBar } = deps;
+  const { modelSelect, chip, chipModel, chipLevel, panelList } = deps;
 
   // chip 文案 = 选中模型名 + 当前思考档位（截图形态「DeepSeek V4.1 Flash High」）。
   // 未配置平台（select 禁用）时 chip 同步禁用，只给占位文案（档位无意义）。
+  // 模型名与档位分写两个 span：CSS 只对模型名 span 做溢出截断，档位恒完整。
   function renderChip(): void {
     if (modelSelect.disabled) {
-      chipLabel.textContent = "未配置平台";
+      chipModel.textContent = "未配置平台";
+      chipLevel.textContent = "";
       chip.disabled = true;
-      updateModelSelectWidth({ chip, chipLabel, inputBar });
+      updateModelSelectWidth({ chip, chipModel, chipLevel });
       return;
     }
     const option = modelSelect.options[modelSelect.selectedIndex];
-    const modelText = String(option?.textContent || "").trim() || "未配置平台";
-    const levelText = THINKING_LEVEL_LABELS[chatSessionState.aiThinkingLevel] || "Off";
-    chipLabel.textContent = `${modelText} ${levelText}`;
+    chipModel.textContent = String(option?.textContent || "").trim() || "未配置平台";
+    chipLevel.textContent = THINKING_LEVEL_LABELS[chatSessionState.aiThinkingLevel] || "Off";
     chip.disabled = false;
-    updateModelSelectWidth({ chip, chipLabel, inputBar });
+    updateModelSelectWidth({ chip, chipModel, chipLevel });
   }
 
   // 面板列表：按 select optgroup 分组渲染（平台名 = 组标题），当前选中项打勾。

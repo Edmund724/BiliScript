@@ -3,8 +3,9 @@
 // 契约测试。工单 arch-review-2026-09/10 起模块自 ui/ 搬入 chat/（断 chat → ui
 // 最后一条逻辑边），本测试留守 tests/ui/ 不随迁（scope 之外），仅改 import。
 // 发送框重构起度量对象从原生 select 换成模型 chip：宽度写在 chip 上，文本源
-// 是 chip 内的 label 节点，上限从「toolbar 剩余宽度」改为「输入控件行宽 40%」
-// （无 inputBar 时回退旧硬上限 232）。
+// 是 chip 内的模型名 + 档位两个 span（拼接测量），宽度语义 = hug content：
+// 按内容自适应夹在 [92, 260]（260 只防极端长名；溢出截断由 CSS 施加在模型名
+// span 上，档位与 chevron 恒完整，度量不参与截断）。
 // jsdom 不带 canvas npm 包，HTMLCanvasElement.getContext 返回 null
 // （已实测：打印 "Not implemented" 通知但不抛错），恰好覆盖模块内既有的
 // 降级路径（!ctx → 每字符 8px 估算），据此守住三个关键不变量：
@@ -12,8 +13,8 @@
 // - [92, maxWidth] 区间夹取（短文案触底 92、长文案被上限截断）；
 // - 文案缺失时回落「未配置平台」参与测量。
 // getContext 显式 mock 为 null：不依赖 jsdom 版本的 canvas 行为，也消除
-// "Not implemented" 的控制台噪音；maxWidth 分支经 inputBar=null（232 默认上限）
-// 驱动，inputBar 在 jsdom 无布局（clientWidth 恒 0）走 40% 上限触底 92。
+// "Not implemented" 的控制台噪音。260 上限用例：模型名 30 字符 + 档位 Off
+// 拼接 34 字符 → 34×8 + 24 + 36 = 332 > 260 截断。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -30,21 +31,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function makeChip(optionText) {
+function makeChip(modelText, levelText = "Off") {
   const chip = document.createElement("button");
-  const chipLabel = document.createElement("span");
-  if (optionText !== undefined) {
-    chipLabel.textContent = optionText;
+  const chipModel = document.createElement("span");
+  const chipLevel = document.createElement("span");
+  if (modelText !== undefined) {
+    chipModel.textContent = modelText;
   }
-  chip.appendChild(chipLabel);
-  return { chip, chipLabel };
+  chipLevel.textContent = levelText;
+  chip.append(chipModel, chipLevel);
+  return { chip, chipModel, chipLevel };
 }
 
-function makeEls(optionText) {
-  // inputBar 传 null：getModelChipMaxWidth 走「inputBar 缺失 → 默认上限 232」
-  // 分支；jsdom 下 inputBar 分支（clientWidth 恒 0 → 40% 触底 92）单独用例覆盖。
-  const { chip, chipLabel } = makeChip(optionText);
-  return { chip, chipLabel, inputBar: null };
+function makeEls(modelText, levelText = "Off") {
+  const { chip, chipModel, chipLevel } = makeChip(modelText, levelText);
+  return { chip, chipModel, chipLevel };
 }
 
 describe("model-select-width", () => {
@@ -54,31 +55,36 @@ describe("model-select-width", () => {
   });
 
   it("updateModelSelectWidth：chip 缺失时直接返回，不写样式", () => {
-    const els = { chip: null, chipLabel: null, inputBar: null };
+    const els = { chip: null, chipModel: null, chipLevel: null };
     expect(() => updateModelSelectWidth(els)).not.toThrow();
   });
 
-  it("updateModelSelectWidth：短文案 desired 低于下限时触底 92px", () => {
-    const els = makeEls("AI"); // 2×8 + 3×8 + 36 = 76 < 92
+  it("updateModelSelectWidth：模型名 + 档位拼接测宽（「AI Off」= 6 字符 → 108px）", () => {
+    const els = makeEls("AI"); // 6×8 + 24 + 36 = 108
+    updateModelSelectWidth(els);
+    expect(els.chip.style.width).toBe("108px");
+  });
+
+  it("updateModelSelectWidth：按内容自适应（hug content），模型名短 chip 就窄", () => {
+    const els = makeEls("M"); // (1+1+3)×8 + 24 + 36 = 100
+    updateModelSelectWidth(els);
+    expect(els.chip.style.width).toBe("100px");
+  });
+
+  it("updateModelSelectWidth：无档位文本时不拼空格（「AI」= 2 字符 → 触底 92px）", () => {
+    const els = makeEls("AI", ""); // 2×8 + 24 + 36 = 76 < 92
     updateModelSelectWidth(els);
     expect(els.chip.style.width).toBe("92px");
   });
 
-  it("updateModelSelectWidth：长文案 desired 超过默认上限 232 时被截断", () => {
-    const els = makeEls("x".repeat(30)); // 30×8 + 24 + 36 = 300 > 232
+  it("updateModelSelectWidth：极端长名被 260 上限截断（hug content 的保险）", () => {
+    const els = makeEls("x".repeat(30)); // (30+1+3)×8 + 24 + 36 = 332 > 260
     updateModelSelectWidth(els);
-    expect(els.chip.style.width).toBe("232px");
-  });
-
-  it("updateModelSelectWidth：有 inputBar 时上限为控件行宽 40%（jsdom 无布局触底 92）", () => {
-    const els = makeEls("x".repeat(30));
-    els.inputBar = document.createElement("div"); // clientWidth 恒 0 → 上限 92
-    updateModelSelectWidth(els);
-    expect(els.chip.style.width).toBe("92px");
+    expect(els.chip.style.width).toBe("260px");
   });
 
   it("updateModelSelectWidth：chip 文案缺失时回落「未配置平台」参与测量", () => {
-    const els = makeEls(); // 5×8 + 24 + 36 = 100
+    const els = makeEls(undefined, ""); // 5×8 + 24 + 36 = 100
     updateModelSelectWidth(els);
     expect(els.chip.style.width).toBe("100px");
   });
@@ -125,7 +131,7 @@ describe("scheduleModelSelectWidthUpdate（rAF 合帧）", () => {
       expect(els.chip.style.width).toBe(""); // 合帧期内不写
 
       raf.flush();
-      expect(els.chip.style.width).toBe("92px"); // 与同步调用同结果
+      expect(els.chip.style.width).toBe("108px"); // 与同步调用同结果
     } finally {
       raf.restore();
     }
@@ -134,14 +140,14 @@ describe("scheduleModelSelectWidthUpdate（rAF 合帧）", () => {
   it("同帧重复调度以最后一次传入的 els 为准", () => {
     const raf = installFakeRaf();
     try {
-      const first = makeEls("AI"); // 触底 92
-      const second = makeEls("x".repeat(30)); // 截断 232
+      const first = makeEls("AI"); // 108px（"AI Off"）
+      const second = makeEls("x".repeat(30)); // 截断 260
       scheduleModelSelectWidthUpdate(first);
       scheduleModelSelectWidthUpdate(second);
       raf.flush();
 
       expect(first.chip.style.width).toBe("");
-      expect(second.chip.style.width).toBe("232px");
+      expect(second.chip.style.width).toBe("260px");
     } finally {
       raf.restore();
     }

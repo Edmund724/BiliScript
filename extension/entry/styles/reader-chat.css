@@ -73,32 +73,42 @@
   opacity: 0.72;
 }
 
-/* 思考档位分段控件：与面板主导航 .boc-reading-tabs 同一套「凹槽 + 卡片」语言
- * （槽 12px / 项 10px，同心圆角 = 12 − 2px 内边距），不再自成一套胶囊。高度
- * 28/22 与 13px 字号是紧凑工具栏档，保持不变。 */
+/* 思考档位分段控件（模型面板底部）：浅色容器内嵌分段药丸——inactive 档纯
+ * 文字（次要色），active 档白底圆角药丸 + 细边框 + 主题文字色，无主题色填充。 */
+.boc-reading-chat .chat-model-panel-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.boc-reading-chat .chat-model-thinking-label {
+  flex: 0 0 auto;
+  color: var(--boc-reader-muted, #6f675c);
+  font-size: 13px;
+}
+
 .boc-reading-chat .chat-thinking-toggle {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  height: 28px;
   padding: 2px;
   border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-radius: 12px;
-  background: var(--boc-reader-surface-2, #f0e9df);
+  border-radius: 10px;
+  background: var(--boc-reader-surface, #fdfbf7);
 }
 
 .boc-reading-chat .chat-thinking-btn {
-  height: 22px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 10px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: var(--boc-reader-muted, #6f675c);
   font: inherit;
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .boc-reading-chat .chat-thinking-btn:active {
@@ -111,8 +121,9 @@
 
 .boc-reading-chat .chat-thinking-btn.is-active {
   background: var(--boc-reader-card, #ffffff);
+  border-color: var(--boc-reader-border, #e7dfd4);
   color: var(--boc-reader-text, #2b2620);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 /* 思考档位「关不掉」提示行（工单 03）：档位切换区内独占一行的小字，
@@ -702,8 +713,9 @@
   stroke-linecap: round;
 }
 
-/* 模型 chip：隐藏 select 的展示层。内联 width（model-select-width 度量结果），
- * 超出省略号截断；右侧 chevron 固定不被压缩。 */
+/* 模型 chip：隐藏 select 的展示层。内联 width（model-select-width 按内容度量，
+ * hug content，上限 260 防极端长名）；溢出省略号只截断模型名 span，档位与
+ * chevron 固定不被压缩。 */
 .boc-reading-chat .chat-model-chip {
   display: inline-flex;
   align-items: center;
@@ -737,11 +749,18 @@
   color: var(--boc-reader-muted, #6f675c);
 }
 
-.boc-reading-chat .chat-model-chip-label {
+/* 模型名 span：溢出截断只作用于此（ellipsis）；档位 span 与 chevron 恒完整，
+ * 不进截断流。chip 整体宽度由 model-select-width 按内容决定（hug content，
+ * 上限 260 防极端长名）。 */
+.boc-reading-chat .chat-model-chip-model {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.boc-reading-chat .chat-model-chip-level {
+  flex: 0 0 auto;
 }
 
 .boc-reading-chat .chat-model-chip svg {
@@ -902,6 +921,7 @@
   background: var(--boc-reader-surface-2, #f0e9df);
 }
 
+/* 选中行：极浅主题色 tint 底 + 主题文字色（克制，不整行填充主题色）。 */
 .boc-reading-chat .chat-model-option.is-selected {
   background: var(--boc-reader-accent-soft, #fce0ea);
   color: var(--boc-reader-accent, #fb7299);

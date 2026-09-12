@@ -43,44 +43,47 @@ function makeSelect() {
 
 function makeHarness(select = makeSelect()) {
   const chip = document.createElement("button");
-  const chipLabel = document.createElement("span");
-  chip.appendChild(chipLabel);
+  const chipModel = document.createElement("span");
+  const chipLevel = document.createElement("span");
+  chip.append(chipModel, chipLevel);
   const panelList = document.createElement("div");
-  const inputBar = document.createElement("div");
-  document.body.append(chip, panelList, inputBar);
+  document.body.append(chip, panelList);
   const hidePanel = vi.fn();
-  const modelPanel = createReaderChatModelPanel({ modelSelect: select, chip, chipLabel, panelList, inputBar, hidePanel });
-  return { select, chip, chipLabel, panelList, inputBar, hidePanel, modelPanel };
+  const modelPanel = createReaderChatModelPanel({ modelSelect: select, chip, chipModel, chipLevel, panelList, hidePanel });
+  return { select, chip, chipModel, chipLevel, panelList, hidePanel, modelPanel };
 }
 
 describe("renderChip", () => {
-  it("文案 = 选中模型名 + 当前思考档位标签（默认 off → Off）", () => {
+  it("模型名与档位分写两个 span（默认 off → Off）", () => {
     chatSessionState.aiThinkingLevel = "off";
-    const { chip, chipLabel, modelPanel } = makeHarness();
+    const { chip, chipModel, chipLevel, modelPanel } = makeHarness();
 
     modelPanel.renderChip();
 
-    expect(chipLabel.textContent).toBe("m1b Off");
+    expect(chipModel.textContent).toBe("m1b");
+    expect(chipLevel.textContent).toBe("Off");
     expect(chip.disabled).toBe(false);
   });
 
-  it("档位标签随 chatSessionState.aiThinkingLevel（high → High）", () => {
+  it("档位 span 随 chatSessionState.aiThinkingLevel（high → High），模型名不动", () => {
     chatSessionState.aiThinkingLevel = "high";
-    const { chipLabel, modelPanel } = makeHarness();
+    const { chipModel, chipLevel, modelPanel } = makeHarness();
 
     modelPanel.renderChip();
 
-    expect(chipLabel.textContent).toBe("m1b High");
+    expect(chipModel.textContent).toBe("m1b");
+    expect(chipLevel.textContent).toBe("High");
   });
 
-  it("select 禁用（未配置平台）：chip 同步禁用并回落占位文案", () => {
+  it("select 禁用（未配置平台）：chip 同步禁用，模型名回落占位、档位清空", () => {
     const select = document.createElement("select");
     select.disabled = true;
-    const { chip, chipLabel, modelPanel } = makeHarness(select);
+    const { chip, chipModel, chipLevel, modelPanel } = makeHarness(select);
 
     modelPanel.renderChip();
 
-    expect(chipLabel.textContent).toBe("未配置平台");
+    expect(chipModel.textContent).toBe("未配置平台");
+    expect(chipLevel.textContent).toBe("");
     expect(chip.disabled).toBe(true);
   });
 });

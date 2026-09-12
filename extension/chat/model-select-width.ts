@@ -2,23 +2,26 @@
 // 工单 arch-review-2026-09/10 自 ui/ 搬入 chat/；发送框重构起度量对象从原生
 // select 换成模型 chip——chip 是隐藏 select 的展示层，宽度按内容自适应）。
 //
-// 纯 UI 度量叶子（零 import）：用离屏 canvas 按当前计算字体测量 chip 文案宽，
-// 叠加 "000" 兜底宽 + 36px 装饰余量，再夹在 [92, 输入控件行宽度 40%] 区间内，
-// 结果写回 chip 的内联 width（CSS 侧溢出省略号截断）。canvas 不可用
-// （getContext 返回 null）时退化为每字符 8px 估算，行为与迁出前一致。
-// 无 inputBar（缺省）时上限回退 232（旧硬上限语义，jsdom/独立调用场景）。
+// 纯 UI 度量叶子（零 import）：用离屏 canvas 按当前计算字体测量 chip 文案宽
+// （模型名 + 档位），叠加 "000" 兜底宽 + 36px 装饰余量，再夹在 [92, 260] 区间内，
+// 结果写回 chip 的内联 width。260 只防极端长名——正常状态 hug content；
+// 溢出截断由 CSS 施加在模型名 span 上（档位与 chevron 恒完整，不进截断流）。
+// canvas 不可用（getContext 返回 null）时退化为每字符 8px 估算，行为与迁出前一致。
 //
 // 依赖方向：无——消费方（对话组合根/providers 工厂）在 change/resize/渲染三个
-// 调用点传入其模块级 `els` 引用包（chip/chipLabel/inputBar），本模块不反向
+// 调用点传入其模块级 `els` 引用包（chip/chipModel/chipLevel），本模块不反向
 // 依赖任何页面模块，可在 jsdom 下直接单测。
 
-// 消费方模块级 els 引用包中本模块关心的字段；均可缺省（缺省时走各自的
-// 兜底分支：无 chip 直接返回，无 inputBar 用 232 默认上限）。
+// 消费方模块级 els 引用包中本模块关心的字段；均可缺省（缺省时走兜底分支：
+// 无 chip 直接返回，模型名缺失用「未配置平台」参与测量）。
 export interface ModelSelectWidthEls {
   chip?: HTMLElement | null;
-  chipLabel?: HTMLElement | null;
-  inputBar?: HTMLElement | null;
+  chipModel?: HTMLElement | null;
+  chipLevel?: HTMLElement | null;
 }
+
+// 宽度上限：只防极端长模型名把 chip 撑爆；正常内容永远到不了（hug content）。
+const MODEL_CHIP_MAX_WIDTH = 260;
 
 let modelSelectMeasureCanvas: HTMLCanvasElement | null = null;
 let modelSelectWidthRafId = 0;
@@ -50,14 +53,15 @@ export function updateModelSelectWidth(els: ModelSelectWidthEls): void {
   if (!els.chip) {
     return;
   }
-  const text = String(els.chipLabel?.textContent || "").trim() || "未配置平台";
+  const model = String(els.chipModel?.textContent || "").trim() || "未配置平台";
+  const level = String(els.chipLevel?.textContent || "").trim();
+  const text = level ? `${model} ${level}` : model;
   const computedStyle = window.getComputedStyle(els.chip);
   const measuredTextWidth = measureTextWidth(text, computedStyle);
   const extraCharsWidth = measureTextWidth("000", computedStyle);
   const desiredWidth = Math.ceil(measuredTextWidth + extraCharsWidth + 36);
   const minWidth = 92;
-  const maxWidth = getModelChipMaxWidth(els);
-  const nextWidth = Math.max(minWidth, Math.min(desiredWidth, maxWidth));
+  const nextWidth = Math.max(minWidth, Math.min(desiredWidth, MODEL_CHIP_MAX_WIDTH));
   els.chip.style.width = `${nextWidth}px`;
 }
 
@@ -76,17 +80,4 @@ export function measureTextWidth(text: string, style?: CSSStyleDeclaration | nul
   const fontFamily = style?.fontFamily || "sans-serif";
   ctx.font = `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`;
   return ctx.measureText(text).width;
-}
-
-function getModelChipMaxWidth(els: ModelSelectWidthEls): number {
-  const inputBar = els.inputBar;
-  if (!inputBar) {
-    return 232;
-  }
-  const style = window.getComputedStyle(inputBar);
-  const paddingLeft = Number.parseFloat(style.paddingLeft || "0") || 0;
-  const paddingRight = Number.parseFloat(style.paddingRight || "0") || 0;
-  const contentWidth = inputBar.clientWidth - paddingLeft - paddingRight;
-  // 上限 = 输入控件行内容宽的 40%（长模型名截断省略号，余量留给 + / 发送键）。
-  return Math.max(92, Math.floor(contentWidth * 0.4));
 }

@@ -746,10 +746,10 @@ describe("resize 合帧（P2-3：model-select 宽度重算走 rAF 而非同步�
     expect(chip.style.width).toBe("");
 
     await waitFor(() => chip.style.width !== "");
-    // jsdom 无布局：inputBar clientWidth 恒 0 → 40% 上限触底 92，与直接
-    // 调用 updateModelSelectWidth 同结果（tests/ui/model-select-width.test.js
-    // 另锁「一帧至多一帧」的合帧计数）。
-    expect(chip.style.width).toBe("92px");
+    // jsdom canvas 降级 8px/字符：chip 文案「模型一 Off」7 字符 → 7×8 + 24 + 36
+    // = 116，与直接调用 updateModelSelectWidth 同结果（tests/ui/model-select-width
+    // .test.js 另锁「一帧至多一帧」的合帧计数与 [92, 260] 区间）。
+    expect(chip.style.width).toBe("116px");
   });
 });
 

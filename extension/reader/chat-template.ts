@@ -72,10 +72,13 @@ export function buildChatTabBodyHtml(): string {
           <div id="${ids.readingChatModelPanel}" class="chat-model-panel" hidden>
             <div id="${ids.readingChatModelList}" class="chat-model-list"></div>
             <div class="chat-model-panel-foot">
-              <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-toggle" role="group" aria-label="思考档位">
-                <button type="button" class="chat-thinking-btn" data-level="off">Off</button>
-                <button type="button" class="chat-thinking-btn" data-level="low">Low</button>
-                <button type="button" class="chat-thinking-btn" data-level="high">High</button>
+              <div class="chat-model-panel-thinking">
+                <span class="chat-model-thinking-label">思考</span>
+                <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-toggle" role="group" aria-label="思考档位">
+                  <button type="button" class="chat-thinking-btn" data-level="off">Off</button>
+                  <button type="button" class="chat-thinking-btn" data-level="low">Low</button>
+                  <button type="button" class="chat-thinking-btn" data-level="high">High</button>
+                </div>
               </div>
               <div id="${ids.readingChatThinkingHint}" class="chat-thinking-hint" role="note" hidden></div>
             </div>
@@ -97,7 +100,9 @@ export function buildChatTabBodyHtml(): string {
                 </svg>
               </button>
               <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位">
-                <span class="chat-model-chip-label">未配置平台</span>
+                <!-- 模型名与档位分 span：溢出截断只作用于模型名，档位与 chevron 恒完整 -->
+                <span class="chat-model-chip-model">未配置平台</span>
+                <span class="chat-model-chip-level">Off</span>
                 <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="m6 9 6 6 6-6"></path>
                 </svg>

@@ -140,7 +140,6 @@ const els = {
   historyClearBtn: document.getElementById(ids.readingChatHistoryClearBtn) as HTMLButtonElement | null,
   messages: document.getElementById(ids.readingChatMessages) as HTMLElement,
   input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
-  inputBar: document.getElementById(ids.readingChatInputBar) as HTMLElement,
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null
@@ -448,18 +447,18 @@ const popovers = createReaderChatPopovers({
 const modelPanel = createReaderChatModelPanel({
   modelSelect: els.modelSelect,
   chip: els.modelChip,
-  chipLabel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-label") as HTMLElement,
+  chipModel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-model") as HTMLElement,
+  chipLevel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-level") as HTMLElement,
   panelList: els.modelPanelList,
-  inputBar: els.inputBar,
   hidePanel: () => popovers.hideModelPanel()
 });
 
-// 宽度度量专用 els 引用包（model-select-width 的契约键名 chip/chipLabel/inputBar；
+// 宽度度量专用 els 引用包（model-select-width 的契约键名 chip/chipModel/chipLevel；
 // 模块级 els 用 readingChat* 语义键名，二者在此显式对齐）。
 const widthEls: ModelSelectWidthEls = {
   chip: els.modelChip,
-  chipLabel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-label") as HTMLElement,
-  inputBar: els.inputBar
+  chipModel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-model") as HTMLElement,
+  chipLevel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-level") as HTMLElement
 };
 
 // 上下文状态加载编排壳（../chat/context-load.ts）与 chat 流状态机
@@ -473,9 +472,9 @@ const presets = createPresetPrompts({
   renderPresetPrompts: () => lists.renderPresetPrompts()
 });
 
-// AI 平台加载渲染 + 思考档位（widthEls 见上：度量对象是从键对齐出来的
-// chip/chipLabel/inputBar 引用包；providers 内部的 updateModelSelectWidth
-// 调用随 select 渲染刷新 chip 宽度）；persistAiPresetPrompts 惰性互引 presets。
+// AI 平台加载渲染 + 思考档位（widthEls 见上：度量对象是 chip/chipModel/chipLevel
+// 引用包；providers 内部的 updateModelSelectWidth 调用随 select 渲染刷新 chip
+// 宽度）；persistAiPresetPrompts 惰性互引 presets。
 // 思考档位「关不掉」提示（工单 03）的 DOM 与判定在本文件（updateThinkingHint），
 // baseUrl 识别入参由 providers 模块自 ai-providers-list 载荷透传。
 const providerPrefs = createProviderPrefs({
