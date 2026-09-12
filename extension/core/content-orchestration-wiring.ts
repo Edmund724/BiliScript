@@ -21,16 +21,14 @@ async function probeContentScriptVersionOnce(tabId: number) {
 }
 
 async function injectReaderAssets(tabId: number) {
-  // S3 分层：修复注入语义是「补齐整页样式」（页面可能被 manifest 注入路径
-  // 遗漏，阅读模式可能正处于开启状态），因此阅读表全量注入；播放器 AI 表
-  // 不需要——它只随 ai/player-ai.js 模块装载挂载，与内容脚本注入无关。
-  //（digest-only-ui：常驻表 panel.css 已随经典侧栏面板删除，内容脚本不再
-  // 经 manifest 注入任何样式——阅读表全部由 ensureReaderStyles 挂载。）
-  await chrome.scripting.insertCSS({
-    target: { tabId },
-    files: ["entry/styles/reader.css", "entry/styles/reader-gate.css"]
-  });
-
+  // S3 分层：阅读表由 style-injector 的挂载记录注入（ensureReaderStyles 挂
+  // link、exitReaderShell → removeReaderStyles 摘除）。内容脚本在进入阅读模式
+  // 时经 ensureReaderStyles 以同一枚 link 挂载——若此处再 insertCSS 同一份，
+  // 会形成「insertCSS 永久残留（无可摘除点）+ link 挂载」两份并存的样式表，
+  // 退出阅读模式后 insertCSS 那份永不摘除（10-5）。收口只走挂载记录单通道：
+  // 这里的修复注入经 bootstrap 拉起内容主包，由其在进入阅读模式时挂 link
+  //（见 content.ts ensureReaderStyles / removeReaderStyles）;播放器 AI 表只随
+  // ai/player-ai.js 惰性挂载，与内容脚本注入无关。
   await chrome.scripting.executeScript({
     // 候选4 分包后这里注入 classic bootstrap：它置版本哨兵后异步拉起 ESM
     // 主包（manifest.content_scripts 指向同一文件，注入语义一致）。重复注入
