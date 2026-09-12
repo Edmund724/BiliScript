@@ -17,6 +17,8 @@
 // - dirty 保护（拍板 Q6）：有改动 confirm 拦截，无改动直接关；Esc / 点遮罩
 //   同走此保护；
 // - 面板外点击 capture 拦截：只关 Modal，bubble 委托（抽屉外点关闭）收不到；
+// - 删除二次确认：面板内弹层（ui/confirm-dialog.js）叠在编辑器之上，确认才
+//   发删除消息，取消不删且编辑器不关；弹层打开期间编辑器的文档级监听让位；
 // - 抽屉收起联动：settingsPanel hidden → 强制关闭（丢改动不 confirm）。
 //
 // chrome.runtime.sendMessage 换装按 type 分发的消息总线；探针与 ASR 模型列表
@@ -323,7 +325,7 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
 describe("provider-editor：头部删除按钮（用户拍板：× 改警示删除，编辑态提供）", () => {
   const aiItem = { id: "p1", presetId: "custom", name: "自定义", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
 
-  it("编辑态：头部显示删除按钮；confirm 后发删除消息 + 权限回收现查 + 重渲 + 关 Modal", async () => {
+  it("编辑态：头部显示删除按钮；面板内确认后发删除消息 + 权限回收现查 + 重渲 + 关 Modal", async () => {
     const { sent, host } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: [aiItem] }),
       "ai-providers-save": () => ({ ok: true, providers: [] }),
@@ -337,8 +339,22 @@ describe("provider-editor：头部删除按钮（用户拍板：× 改警示删�
     expect(deleteBtn).not.toBeNull();
     expect(deleteBtn.textContent).toBe("删除");
 
+    // 二次确认走面板内弹层（ui/confirm-dialog.js）：弹层叠在编辑器之上
+    //（z-index 50 > 40），点「取消」不删除、编辑器不关
     fireClick(deleteBtn);
-    expect(confirmMock).toHaveBeenCalledWith("确定要删除这个平台吗？删除后需要重新配置。");
+    const confirmButton = document.querySelector(".confirm-dialog-confirm");
+    expect(confirmButton, "删除二次确认弹层应已打开").not.toBeNull();
+    expect(confirmButton.textContent).toBe("删除");
+    fireClick(document.querySelector(".confirm-dialog-cancel"));
+    await vi.waitFor(() => {
+      expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+    });
+    expect(sent.some((message) => message.type === "ai-providers-delete")).toBe(false);
+    expect(editorGone()).toBe(false);
+
+    // 点「删除」：确认链走通（编辑器的文档级 Esc/外点监听在弹层打开期间让位）
+    fireClick(deleteBtn);
+    fireClick(document.querySelector(".confirm-dialog-confirm"));
 
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === "ai-providers-delete")).toBe(true);

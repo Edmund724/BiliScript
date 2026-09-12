@@ -7,8 +7,10 @@
 //   ui/provider-editor.js 的 Modal，其契约见 provider-editor.test.js）；
 // - 行 dataset 四键（providerId / hasSavedKey / currentPresetId / baseUrl——
 //   删除回收 host 权限的钩子要从行上拿 baseUrl）；
-// - 删除接线：确认 → onBeforeDelete（权限回收钩子，带行 dataset 的 baseUrl）→
-//   后台删除消息 → onDelete（ASR 清选用态）；取消确认则不动；
+// - 删除接线：面板内二次确认弹层（ui/confirm-dialog.js；原生 confirm 弹窗绘制
+//   在浏览器窗口中央，面板停靠右侧时可能看不到）→ onBeforeDelete（权限回收
+//   钩子，带行 dataset 的 baseUrl）→ 后台删除消息 → onDelete（ASR 清选用态）；
+//   取消确认则不动；
 // - ASR 选用 radio：change 即时持久化 activeAsrProviderId 并同步选中态；
 // - 「编辑」按钮回调转发 providerId。
 // shared/messaging.js（sendRuntimeMessage）被整体 mock，避免拖入 content
@@ -60,9 +62,12 @@ const TRASH_PATHS = [
 ];
 
 function makeContainer() {
+  // 删除二次确认弹层挂在 #boc-reading-view 直下（confirm-dialog 契约），
+  // 列表容器须放进视图里
+  document.body.innerHTML = '<div id="boc-reading-view"><section id="boc-reading-settings-panel"></section></div>';
   const listNode = document.createElement("div");
   const emptyNode = document.createElement("p");
-  document.body.append(listNode, emptyNode);
+  document.getElementById("boc-reading-view").append(listNode, emptyNode);
   return { listNode, emptyNode };
 }
 
@@ -76,14 +81,24 @@ function readTrashPaths(row) {
   return Array.from(row.querySelectorAll(".provider-row-remove svg path")).map((p) => p.getAttribute("d"));
 }
 
-// 纯微任务冲刷：等待行事件处理器里 await sendRuntimeMessage / 回调链走完
+// 纯微任务冲刷：等待行事件处理器里 await confirmDialog / sendRuntimeMessage /
+// 回调链走完
 async function flushMicrotasks() {
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 20; i++) {
     await Promise.resolve();
   }
 }
 
-let confirmMock;
+// 面板内确认弹层的单发点击（结构契约见 tests/ui/confirm-dialog.test.js）
+function confirmDelete() {
+  const button = document.querySelector(".confirm-dialog-confirm");
+  expect(button, "删除确认弹层应已打开").not.toBeNull();
+  fireClick(button);
+}
+
+function cancelDelete() {
+  fireClick(document.querySelector(".confirm-dialog-cancel"));
+}
 
 beforeEach(() => {
   vi.resetModules();
@@ -91,8 +106,6 @@ beforeEach(() => {
   document.body.innerHTML = "";
   sendRuntimeMessageMock.mockReset();
   sendRuntimeMessageMock.mockImplementation(async () => ({ ok: true }));
-  confirmMock = vi.fn(() => true);
-  vi.stubGlobal("confirm", confirmMock);
 });
 
 async function loadAiRows() {
@@ -211,12 +224,16 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
     rows.renderAiProviders(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
     const row = listNode.querySelector(".ai-provider-row");
 
-    confirmMock.mockReturnValueOnce(false);
+    // 弹层点「取消」：钩子与删除消息都不触发
     fireClick(row.querySelector(".provider-row-remove"));
+    cancelDelete();
+    await flushMicrotasks();
     expect(onBeforeDelete).not.toHaveBeenCalled();
     expect(sendRuntimeMessageMock).not.toHaveBeenCalled();
 
+    // 弹层点「删除」：确认链走通
     fireClick(row.querySelector(".provider-row-remove"));
+    confirmDelete();
     await flushMicrotasks();
     expect(onBeforeDelete).toHaveBeenCalledTimes(1);
     expect(onBeforeDelete).toHaveBeenCalledWith("p1", "https://api.openai.com/v1");
@@ -235,6 +252,7 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
     const row = listNode.querySelector(".ai-provider-row");
 
     fireClick(row.querySelector(".provider-row-remove"));
+    confirmDelete();
     await flushMicrotasks();
     expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "ai-providers-delete", providerId: "p1" });
     expect(listNode.querySelectorAll(".ai-provider-row")).toHaveLength(0);
@@ -312,6 +330,7 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
     const row = listNode.querySelector(".asr-provider-row");
 
     fireClick(row.querySelector(".provider-row-remove"));
+    confirmDelete();
     await flushMicrotasks();
     expect(onBeforeDelete).toHaveBeenCalledWith("asr1", "https://api.siliconflow.cn/v1");
     expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "asr-providers-delete", providerId: "asr1" });

@@ -12,10 +12,12 @@
 // 随行内状态行退役一并收口：删除按钮统一 provider-row-remove。
 //
 // 两行差异通过参数注入：显示名 / 模型名的解析、（ASR）选用 radio 及其
-// 即时持久化回调、删除报文。行构建器只依赖参数与回调，不直接访问 DOM 全局。
+// 即时持久化回调、删除报文。行构建器自身的状态只依赖参数与回调；唯一例外
+// 是删除确认走 ui/confirm-dialog.js 的面板内弹层（该模块自持挂载与结算）。
 
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
+import { confirmDialog } from "./confirm-dialog.js";
 import type { BackgroundMessage, ContentScriptMessage } from "../shared/messaging-protocol.js";
 
 // 垃圾桶图标路径：固定属性行 / 笔记段落行 / 平台行共用同一份 path 定义。
@@ -179,12 +181,15 @@ export function createProviderRow({
         onRowEdit?.(row);
       });
 
-      // 删除：确认后调后台删除；若删的是当前选用平台，清空选用态（onDelete 注入
-      // 处理）。onBeforeDelete 在被删行摘出 DOM 之前执行，注入方据此拿到该行的
-      // baseUrl 回收 host 权限（chrome.permissions.remove 不需要用户手势）；钩子
-      // 报错不阻断删除。
+      // 删除：面板内二次确认（ui/confirm-dialog.js，原生 confirm 弹窗绘制在浏
+      // 览器窗口中央，面板停靠右侧时可能看不到）后调后台删除；若删的是当前
+      // 选用平台，清空选用态（onDelete 注入处理）。onBeforeDelete 在被删行摘出
+      // DOM 之前执行，注入方据此拿到该行的 baseUrl 回收 host 权限
+      //（chrome.permissions.remove 不需要用户手势）；钩子报错不阻断删除。
       row.querySelector(`.${removeClass}`)?.addEventListener("click", async () => {
-        if (!confirm("确定要删除这个平台吗？")) return;
+        if (!(await confirmDialog({ message: "确定要删除这个平台吗？", confirmText: "删除", danger: true }))) {
+          return;
+        }
         const providerId = row.dataset.providerId || "";
         try {
           await onBeforeDelete(providerId, row.dataset.baseUrl || "");

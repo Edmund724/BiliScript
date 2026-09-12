@@ -1108,6 +1108,105 @@
   filter: brightness(1.05);
 }
 
+/* ===== 面板内二次确认弹层（confirm-dialog）：替代浏览器原生 confirm——原生
+ * 弹窗绘制在浏览器窗口正中央，扩展面板停靠窗口右侧时可能落在面板可视区外
+ * （删除平台时看不到确认的用户报告）。宿主挂法/层级同 provider-editor-host
+ * （z-index 50 略高于编辑器 40：删除确认可从编辑器 Modal 上叠开）；卡片与
+ * 按钮度量沿用 settings-ui-coherence。 */
+#boc-reading-view .confirm-dialog-host {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  /* 贴栏态（reader-gate.css）整个 view 对鼠标穿透，同 provider-editor-host
+   * 单点恢复 auto 的既有补丁 */
+  pointer-events: auto;
+}
+
+/* settings-host 的 box-sizing 通配保护同样盖不到本宿主（provider-editor-host
+ * 同款黑洞防护） */
+#boc-reading-view .confirm-dialog-host,
+#boc-reading-view .confirm-dialog-host * {
+  box-sizing: border-box;
+}
+
+#boc-reading-view .confirm-dialog-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 16, 12, 0.28);
+}
+
+#boc-reading-view .confirm-dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(320px, calc(100% - 48px));
+  border-radius: 14px;
+  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  background: var(--boc-reader-surface, #fdfbf7);
+  box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
+}
+
+#boc-reading-view .confirm-dialog:focus {
+  outline: none;
+}
+
+#boc-reading-view .confirm-dialog-message {
+  margin: 0;
+  padding: 16px 16px 12px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--boc-reader-text, #2b2620);
+}
+
+#boc-reading-view .confirm-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+
+/* 取消/确认两键度量并入 provider-editor-cancel/save 一组（32 高/999 圆角/
+ * 15 字号），颜色面分开写 */
+#boc-reading-view .confirm-dialog-cancel,
+#boc-reading-view .confirm-dialog-confirm {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .confirm-dialog-cancel {
+  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  background: transparent;
+  color: var(--boc-reader-muted, #6f675c);
+}
+
+#boc-reading-view .confirm-dialog-cancel:hover {
+  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface-2, #f0e9df);
+}
+
+#boc-reading-view .confirm-dialog-confirm {
+  border: 0;
+  background: var(--boc-reader-accent, #fb7299);
+  color: #fff;
+  font-weight: 600;
+}
+
+#boc-reading-view .confirm-dialog-confirm:hover {
+  filter: brightness(1.05);
+}
+
+/* 破坏性确认（删除平台）：警示红底，token 与 provider-editor-delete 同源 */
+#boc-reading-view .confirm-dialog-confirm-danger {
+  background: var(--boc-reader-danger);
+}
+
 /* ===== AI 模型目录（multi-model-catalog 阶段2）：Modal 内联模型行（ID + 行级
  * 测试 + 删除，Q3/Q9 无展示名/展开箭头）+「获取可用模型」勾选弹窗（Q5/Q11）。
  * 度量沿用 settings-ui-coherence：控件高 32、圆角 8/999、字号 15/14、
@@ -1616,6 +1715,8 @@
   #boc-reading-view .provider-editor-fetch-retry:active,
   #boc-reading-view .provider-editor-fetch-cancel:active,
   #boc-reading-view .provider-editor-fetch-confirm:active,
+  #boc-reading-view .confirm-dialog-cancel:active,
+  #boc-reading-view .confirm-dialog-confirm:active,
   #boc-reading-view .boc-reading-settings-host .provider-row-edit:active {
     transform: none;
   }

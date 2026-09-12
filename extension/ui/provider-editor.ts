@@ -30,6 +30,7 @@ import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
 import { buildModelPickerField, wireModelPicker } from "./model-picker.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
+import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { TRASH_ICON_PATHS } from "./provider-row.js";
 import type { ProviderRowElement, ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
@@ -274,7 +275,11 @@ async function save(): Promise<void> {
 
 async function deleteActive(): Promise<void> {
   if (!state.editingId || !state.onDelete) return;
-  if (!confirm("确定要删除这个平台吗？删除后需要重新配置。")) return;
+  // 面板内二次确认（ui/confirm-dialog.js）：原生 confirm 绘制在浏览器窗口中央，
+  // 面板停靠右侧时可能看不到；确认期间编辑器的文档级监听整体让位
+  if (!(await confirmDialog({ message: "确定要删除这个平台吗？删除后需要重新配置。", confirmText: "删除", danger: true }))) {
+    return;
+  }
   setBusy(true);
   showStatus("正在删除...");
   const generation = state.generation;
@@ -771,6 +776,9 @@ function watchSettingsPanel(): void {
 // 文档级委托照常收起 Modal 内的模型下拉。
 function onDocumentClickCapture(event: MouseEvent): void {
   if (!state.open) return;
+  // 确认弹层（删除二次确认）叠在本 Modal 之上时整体让位：同一批事件由
+  // confirm-dialog 的 capture 监听承接，避免一次外点/Esc 把两层一起关掉
+  if (isConfirmDialogOpen()) return;
   const view = document.getElementById(ids.readingView);
   if (view && event.target instanceof Node && view.contains(event.target)) {
     return;
@@ -781,6 +789,8 @@ function onDocumentClickCapture(event: MouseEvent): void {
 
 function onDocumentKeyDownCapture(event: KeyboardEvent): void {
   if (!state.open || event.key !== "Escape") return;
+  // 确认弹层打开期间让位（同 onDocumentClickCapture）：Esc 逐层退出，先关确认
+  if (isConfirmDialogOpen()) return;
   event.stopPropagation();
   // 弹窗开着先关弹窗（拍板 Q5：Esc 逐层退出），否则关编辑器
   if (getFetchDialog()) {
