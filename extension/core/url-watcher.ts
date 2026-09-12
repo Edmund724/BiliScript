@@ -11,10 +11,48 @@ import { state, uiState } from "./state.js";
 export const BOC_URL_CHANGE_EVENT = "boc:urlchange";
 let urlWatcherHistoryPatched = false;
 let urlWatcherPollStarted = false;
+let urlWatcherPollId: ReturnType<typeof setInterval> | null = null;
 let lastObservedHref = "";
 
 // href 轮询兜底节拍（原 1200ms 轮询的恢复，见下）。
 const URL_POLL_INTERVAL_MS = 1000;
+
+// 单拍轮询体（startUrlPolling 的 interval 回调）：地址变化即同步派发。
+function pollUrlChange(): void {
+  if (location.href === lastObservedHref) {
+    return;
+  }
+  lastObservedHref = location.href;
+  window.dispatchEvent(new Event(BOC_URL_CHANGE_EVENT));
+}
+
+function startUrlPolling(): void {
+  if (urlWatcherPollId !== null) {
+    return;
+  }
+  urlWatcherPollId = window.setInterval(pollUrlChange, URL_POLL_INTERVAL_MS);
+}
+
+function stopUrlPolling(): void {
+  if (urlWatcherPollId !== null) {
+    clearInterval(urlWatcherPollId);
+    urlWatcherPollId = null;
+  }
+}
+
+// 可见性节流（10-7）：标签页隐藏时轮询无意义（页面不渲染、用户不可见），
+// 停掉 interval 省空闲资源；恢复可见时先同步补扫一次——隐藏期间主世界 SPA
+// 换片（history 补丁截获不到）不丢，靠这次显式对账派发 boc:urlchange 兜底，
+// 再重启轮询。
+function handleUrlWatcherVisibility(): void {
+  const hidden = typeof document.hidden === "boolean" ? document.hidden : false;
+  if (hidden) {
+    stopUrlPolling();
+    return;
+  }
+  pollUrlChange();
+  startUrlPolling();
+}
 
 // URL 变化事件广播（纯机制，无域依赖）。两条检测路径：
 // 1. history 补丁：同步、即时，但内容脚本跑在隔离世界，补丁只能截获本世界
@@ -51,12 +89,11 @@ export function startUrlWatcher(): void {
   if (!urlWatcherPollStarted) {
     urlWatcherPollStarted = true;
     lastObservedHref = location.href;
-    window.setInterval(() => {
-      if (location.href === lastObservedHref) {
-        return;
-      }
-      lastObservedHref = location.href;
-      window.dispatchEvent(new Event(BOC_URL_CHANGE_EVENT));
-    }, URL_POLL_INTERVAL_MS);
+    document.addEventListener("visibilitychange", handleUrlWatcherVisibility);
+    // 启动时已隐藏：轮询暂停，等恢复可见时补扫并重启（见 handleUrlWatcherVisibility）。
+    const hidden = typeof document.hidden === "boolean" && document.hidden;
+    if (!hidden) {
+      startUrlPolling();
+    }
   }
 }
