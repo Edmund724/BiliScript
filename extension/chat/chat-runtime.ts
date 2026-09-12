@@ -286,7 +286,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   // =========================================================================
-  // dispatchChatPortMessage — offscreen port 消息的协议分派（七分派 + 代际重置）
+  // dispatchChatPortMessage — offscreen port 消息的协议分派（八分派 + 代际重置）
   // =========================================================================
   // sendMessage 内 port.onMessage 监听器的函数体与公开的 handleChatPortMessage
   // （协议测试入口）共用同一份分派。port 参数仅用于 cost-guard 的确认回执：

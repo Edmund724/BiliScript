@@ -9,7 +9,7 @@ import {
   getSegmentSummaryKey,
   getRawSegmentKey,
   loadSegmentSummary,
-  loadSegmentSummaries,
+  loadSegmentSummariesByKeys,
   saveSegmentSummary,
   saveRawSegments,
   loadStoredRawSegments,
@@ -49,7 +49,7 @@ export function createSegmentCacheHandler(): (
           const keys = indexes.map((segmentIndex) =>
             getSegmentSummaryKey({ ...fields, segmentIndex, budgetScale: message.budgetScale })
           );
-          return { ok: true, summaries: await loadSegmentSummaries(keys) };
+          return { ok: true, summaries: await loadSegmentSummariesByKeys(keys) };
         }
         if (message.op === "save-raw") {
           const key = getRawSegmentKey({

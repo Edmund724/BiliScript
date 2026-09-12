@@ -59,8 +59,8 @@ export interface ChatTokenBatchEvent {
   data: string[];
 }
 
-// offscreen → 宿主的出向 port 消息联合（七流式事件 + cost-guard + token-batch，
-// 全体可携带 cachedContextKey 回执）。载荷字段与既有线格式逐一对齐，不加不删。
+// offscreen → 宿主的出向 port 消息联合（七流式事件 + cost-guard + 07 票
+// token-batch，全体可携带 cachedContextKey 回执）。载荷字段与既有线格式对齐。
 export type ChatPortMessage =
   | (StreamTokenEvent & ChatReceipt)
   | (ChatTokenBatchEvent & ChatReceipt)

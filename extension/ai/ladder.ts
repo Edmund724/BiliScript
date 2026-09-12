@@ -164,17 +164,11 @@ export async function runLadderChat(
   }
 }
 
-interface LadderDispatchDeps {
-  streamChat: StreamChatFn;
-  orchestrateMapReduce: OrchestrateMapReduceFn;
-  resolveFollowupContext: ResolveFollowupContextFn;
-  buildBudgetPlan: BuildBudgetPlanFn;
-  buildCostGuardNotice: BuildCostGuardNoticeFn;
-  trimRecentTurns: TrimRecentTurnsFn;
-  askCostGuard: (port: ChatPort, message: string) => Promise<unknown>;
-  onActivity?: () => void;
-  pauseIdleTimeout?: () => void;
-}
+// 阶梯分派本体的依赖面：RunLadderChatDeps 的分派字段（保活缝由外层持有，不在列）。
+type LadderDispatchDeps = Required<Pick<RunLadderChatDeps,
+  "streamChat" | "orchestrateMapReduce" | "resolveFollowupContext" | "buildBudgetPlan" |
+  "buildCostGuardNotice" | "trimRecentTurns" | "askCostGuard">> &
+  Pick<RunLadderChatDeps, "onActivity" | "pauseIdleTimeout">;
 
 // 阶梯分派本体：与保活生命周期解耦，runLadderChat 统一 try/finally 释放端口。
 async function runLadderChatDispatch(

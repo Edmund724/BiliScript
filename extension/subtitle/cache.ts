@@ -81,8 +81,9 @@ interface AsrCacheCleanupOptions {
  * ASR 孤儿清理：删除同 (bvid, cid) 下除 keepKey 外的 ASR 变体缓存键
  * （不同 provider/model/language 的旧转写，键含 "id_asr:" source key）。
  * 平台字幕轨（id_/url_/lang_ 且非 asr:）不是孤儿，一律保留。
- * 枚举走 core/cache-lru 的 readFamilyKeys 索引定点批量读取；条目缺失 /
- * 无 keys / 旧格式时由原语回退 get(null) 前缀扫描（含一次性告警，见原语）。
+ * 枚举走 core/cache-lru 的 readFamilyKeys 分键索引（get(null) 快照过滤）；该
+ * bvid 无索引条目 → 原语返回 null + 一次性 logWarn，回退 get(null) 前缀扫描
+ * 自愈（见原语）。
  * 返回删除的键数组；失败 logWarn 并返回 []，不抛异常。
  */
 export async function clearStaleAsrSubtitleCache({ bvid, cid, keepKey = "" }: AsrCacheCleanupOptions): Promise<string[]> {

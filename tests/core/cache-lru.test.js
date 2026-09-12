@@ -4,8 +4,10 @@
 // (b) writeWithEviction 失败后先淘汰再重试一次，重试成功返回 { ok:true }，
 //     重试仍失败返回 distinct 的 CacheWriteError（{ ok:false }，不抛异常）；
 // (c) 一次机制覆盖两族（boc_lvs_* 与 boc_subtitle_cache_*）。
-// 注：recordCacheWrite / readLruIndex / LRU_INDEX_KEY 已收模块私有（09 票），
-// 用例以 readFamilyKeys 读回验证，或直接以字面量键 boc_cache_lru_index 读写索引。
+// 注：索引分键布局（11 票）后 recordCacheWrite / readManifest / LRU_MANIFEST_KEY
+// 均为模块私有，用例以 readFamilyKeys 读回验证，或直接以字面量键
+// boc_cache_lru_index（汇总清单）与 boc_cache_lru_index:{family}:{bvid}:{key}
+// （分键索引）读写做 arrange/断言。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -81,16 +83,17 @@ describe("readFamilyKeys：索引驱动取该族该 bvid 的缓存键（读端�
     expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1a")).toEqual(dataKeys);
   });
 
-  it("条目缺失 / 旧格式（数值 ts 无 keys）→ 回退 null（消费方 get(null) 前缀扫描）", async () => {
+  it("条目缺失 / 旧格式清单 → 回退 null（消费方 get(null) 前缀扫描）", async () => {
     await storage.local.set({
+      // 仅旧格式清单（数值 ts）：readFamilyKeys 只认分键索引，无条目 → null
       boc_cache_lru_index: { boc_lvs_raw_: { BV1old: 100 } }
     });
 
-    // 条目缺失（该 bvid 无条目）
+    // 条目缺失（该 bvid 无分键索引条目）
     await expect(mod.readFamilyKeys("boc_lvs_raw_", "BV1none", "boc_lvs_raw_")).resolves.toBeNull();
-    // 旧格式条目：normalize 兼容为 { ts, keys: [] } → 无 keys 同路回退
+    // 只有旧格式清单、无分键索引条目 → 同路回退
     await expect(mod.readFamilyKeys("boc_lvs_raw_", "BV1old", "boc_lvs_raw_")).resolves.toBeNull();
-    // 整个索引缺失
+    // 整个清单缺失
     await expect(mod.readFamilyKeys("boc_lvs_raw_", "BV1a", "boc_lvs_raw_")).resolves.toBeNull();
   });
 
@@ -112,7 +115,7 @@ describe("readFamilyKeys：索引驱动取该族该 bvid 的缓存键（读端�
   });
 });
 
-describe("索引记录（family → bvid → { ts, keys }）", () => {
+describe("索引记录（分键索引 + 汇总清单）", () => {
   it("writeWithEviction 更新索引（合并去重 keys）；readFamilyKeys 读回；读失败走回退", async () => {
     await mod.writeWithEviction({
       family: "boc_lvs_raw_",
@@ -226,6 +229,28 @@ describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
     // summary 族不足 keep 个 → 无删除
     expect(removed.boc_lvs_summary_).toBeUndefined();
     expect(storage.map.has("boc_lvs_summary_BV1a_1_a_1")).toBe(true);
+  });
+
+  it("前缀撞车族：analysis_final_ 键归 final 族自身，不被段族前缀扫描误淘汰（审查回归）", async () => {
+    // 段族 4 视频（BV1old 最旧将被淘汰）+ final 族同视频整份键：
+    // final 键以 boc_lvs_analysis_ 为父前缀，最长前缀归属必须把它判给 final 族，
+    // 否则 bvid 被解析成 "final"（ts=0 最旧）而随段族每次淘汰整份误删。
+    await seedNewFormatIndex("boc_lvs_analysis_", [
+      ["BV1old", 10, ["boc_lvs_analysis_BV1old_1_a_1"]],
+      ["BV1a", 100, ["boc_lvs_analysis_BV1a_1_a_1"]],
+      ["BV1b", 200, ["boc_lvs_analysis_BV1b_1_a_1"]],
+      ["BV1c", 300, ["boc_lvs_analysis_BV1c_1_a_1"]]
+    ]);
+    await seedNewFormatIndex("boc_lvs_analysis_final_", [
+      ["BV1a", 100, ["boc_lvs_analysis_final_BV1a_1_a_1"]]
+    ]);
+
+    const removed = await mod.pruneToRecentVideos(mod.CACHE_FAMILIES, 3);
+    // 段族淘汰最旧 BV1old；final 键保留（不被段族扫描误纳）
+    expect(storage.map.has("boc_lvs_analysis_BV1old_1_a_1")).toBe(false);
+    expect(storage.map.has("boc_lvs_analysis_BV1a_1_a_1")).toBe(true);
+    expect(storage.map.has("boc_lvs_analysis_final_BV1a_1_a_1")).toBe(true);
+    expect(removed["boc_lvs_analysis_"] || []).not.toContain("boc_lvs_analysis_final_BV1a_1_a_1");
   });
 
   it("不足 keep 个时不动任何键；淘汰失败静默返回 {}", async () => {

@@ -466,9 +466,10 @@ chrome.action?.onClicked?.addListener(
 // 端口绑定，接受持有即钉住，无消息往来）；可选链与 chrome.action 先例一致，
 // 测试桩无需提供 onConnect。端口断开（运行结束 / SW 重载）由 runtime 回收。
 chrome.runtime.onConnect?.addListener?.((port) => {
-  if (isSwKeepalivePort(port)) {
-    // 保活端口无消息往来：接受持有即生效。
+  if (!isSwKeepalivePort(port)) {
+    return;
   }
+  // 保活端口无消息往来：接受持有即生效。
 });
 
 // 调试日志门：SW 自读 storage（此前门读 state.settings，SW 里恒为缺省关，

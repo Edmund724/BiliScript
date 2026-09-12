@@ -124,22 +124,11 @@ export async function loadSegmentSummary(key: string): Promise<string | null> {
 
 /**
  * 批量读取分段小结（08 票）：一次 storage.get 取 N 键，返回与 keys 按序对齐的
- * 数组（未命中/读失败为 null）。容错语义同 loadSegmentSummary（静默、不抛）。
+ * 数组（未命中/读失败为 null）。读口径出自 createCacheFamily.loadMany 单源，
+ * 容错语义同 loadSegmentSummary（静默、不抛）。
  */
-export async function loadSegmentSummaries(keys: string[]): Promise<(string | null)[]> {
-  const list = (Array.isArray(keys) ? keys : []).filter((key) => typeof key === "string" && Boolean(key));
-  if (list.length === 0) {
-    return [];
-  }
-  try {
-    const all = await chrome.storage.local.get(list);
-    return list.map((key) => {
-      const value = (all[key] as Record<string, unknown> | undefined)?.summary;
-      return value == null ? null : (value as string);
-    });
-  } catch {
-    return list.map(() => null);
-  }
+export async function loadSegmentSummariesByKeys(keys: string[]): Promise<(string | null)[]> {
+  return summaryFamily.loadMany(keys);
 }
 
 type SaveResult = EvictionResult | EvictionFailure;
@@ -192,10 +181,10 @@ interface LoadStoredRawSegmentsInput {
 /**
  * 跨会话回退读取：按 (bvid, cid, 字幕轨 source key) 枚举已落盘的原始字幕段键，
  * 按段序返回与 plan.segments 同构的数组（{ index, from, to, items }）。
- * 枚举走 core/cache-lru 的 readFamilyKeys 索引定点批量读取（单次往返）；条目缺失 /
- * 无 keys / 旧格式时由原语回退 get(null) 前缀扫描（含一次性告警，见原语）。
- * from/to 由 items 首末项推导（对齐 budgeter.splitByBudget 的段边界语义）。
- * 缺 bvid/cid / 无命中 / 读失败 → []（回退只补空，绝不抛错）。
+ * 枚举走 core/cache-lru 的 readFamilyKeys（分键索引的 get(null) 快照过滤）；
+ * 该 bvid 无索引条目 → 原语返回 null + 一次性 logWarn，回退 get(null) 前缀
+ * 扫描自愈（见原语）。from/to 由 items 首末项推导（对齐 budgeter.splitByBudget
+ * 的段边界语义）。缺 bvid/cid / 无命中 / 读失败 → []（回退只补空，绝不抛错）。
  */
 export async function loadStoredRawSegments({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: LoadStoredRawSegmentsInput = {}): Promise<StoredRawSegment[]> {
   try {

@@ -32,7 +32,7 @@
 import { logWarn } from "../shared/logging.js";
 
 // LRU 汇总清单键（模块私有；测试以字面量直读写做 arrange/断言）。
-const LRU_INDEX_KEY = "boc_cache_lru_index";
+const LRU_MANIFEST_KEY = "boc_cache_lru_index";
 // 分键索引条目前缀：完整索引键为 `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:${cacheKey}`。
 // 冒号不在任何数据键中出现（数据键只含 [A-Za-z0-9_] 及 source key 内的少量符号），
 // 前缀与清单键、数据键互不撞车。
@@ -42,10 +42,10 @@ const LRU_INDEX_ENTRY_PREFIX = "boc_cache_lru_index:";
 //   - boc_lvs_raw_* / boc_lvs_summary_*：ai/segment-cache.ts 的原始字幕段 / 分段小结；
 //   - boc_subtitle_cache_*：subtitle/cache.ts 的整篇字幕正文（值 { body, timestamp }）；
 //   - boc_lvs_analysis_* / boc_lvs_analysis_final_*：ai/analysis.ts 的概览分段 / 整份产物。
-// 前缀撞车语义：boc_lvs_analysis_final_ 以 boc_lvs_analysis_ 为前缀，段族的
-// 前缀扫描（get(null) 兜底 / 前缀过滤）会把 final 键一并纳入候选——两族键的
-// bvid 段相同，淘汰按 bvid 粒度 keep/evict，同视频的段键与整份键共存亡（既有
-// 行为零变化）；final 族的前缀过滤则精确匹配自身。
+// 前缀撞车归属：boc_lvs_analysis_final_ 以 boc_lvs_analysis_ 为父前缀，数据键按
+// 「最长注册前缀」归属（final 键归 final 族自身）——段族的前缀扫描不再把 final 键
+// 误纳为 bvid="final"（旧兜底路径的误归因随分键布局变成唯一路径后必修，见
+// pruneToRecentVideos 的 familyOfCacheKey）；两族各按自己的索引条目与清单 ts 淘汰。
 export const CACHE_FAMILIES = [
   "boc_lvs_raw_",
   "boc_lvs_summary_",
@@ -55,6 +55,14 @@ export const CACHE_FAMILIES = [
 ];
 // 每族保留的最近视频数（模块私有；evictLruByCount 的 keep 缺省值）。
 const LRU_KEEP_VIDEOS = 3;
+
+// 注册族按前缀长度降序：撞前缀的键由最长前缀族认领（见上）。
+const FAMILIES_BY_PREFIX_LENGTH = [...CACHE_FAMILIES].sort((a, b) => b.length - a.length);
+
+// 数据键归属族：最长注册前缀命中；不属于任何注册族 → null。
+function familyOfCacheKey(key: string): string | null {
+  return FAMILIES_BY_PREFIX_LENGTH.find((family) => key.startsWith(family)) || null;
+}
 
 // 汇总清单：{ [family]: { [bvid]: ts } }。只是短路/排名用的启发式元数据，
 // 不是键面的真相来源（真相是分键索引）。
@@ -118,8 +126,8 @@ function normalizeEntryTs(value: unknown): number | null {
 // 旧格式值（数值 ts、{ ts, keys } 对象）逐条归一兼容，混合清单也照计。
 async function readManifest(): Promise<LruManifest> {
   try {
-    const result = await requireStorageLocal().get(LRU_INDEX_KEY);
-    return normalizeManifest(result?.[LRU_INDEX_KEY]);
+    const result = await requireStorageLocal().get(LRU_MANIFEST_KEY);
+    return normalizeManifest(result?.[LRU_MANIFEST_KEY]);
   } catch {
     return {};
   }
@@ -214,7 +222,7 @@ async function recordCacheWrite(
   }
   const items: Record<string, unknown> = { ...entries };
   if (family && bvid) {
-    items[LRU_INDEX_KEY] = mergeManifestWrite(manifestSnapshot, family, bvid, timestamp);
+    items[LRU_MANIFEST_KEY] = mergeManifestWrite(manifestSnapshot, family, bvid, timestamp);
   }
   await storage.set(items);
 }
@@ -263,7 +271,7 @@ export async function pruneToRecentVideos(
     }
 
     const all = await storage.get(null);
-    const manifest = normalizeManifest(all?.[LRU_INDEX_KEY]);
+    const manifest = normalizeManifest(all?.[LRU_MANIFEST_KEY]);
 
     // 分键索引按 族 → bvid → { ts(取最大), keys } 归并。
     const indexed = new Map<string, Map<string, { ts: number; keys: Set<string> }>>();
@@ -315,12 +323,15 @@ export async function pruneToRecentVideos(
         }
       }
       for (const key of Object.keys(all || {})) {
-        if (key.startsWith(family)) {
-          candidateKeys.add(key);
-          const bvid = parseBvidFromCacheKey(key, family);
-          if (bvid && !timestamps.has(bvid)) {
-            timestamps.set(bvid, familyManifest[bvid] ?? 0);
-          }
+        // 最长前缀归属：撞前缀键（boc_lvs_analysis_final_*）只归自己的族，
+        // 不被父前缀族的扫描误纳（否则 bvid 被解析成 "final" 而整族误淘汰）。
+        if (!key.startsWith(family) || familyOfCacheKey(key) !== family) {
+          continue;
+        }
+        candidateKeys.add(key);
+        const bvid = parseBvidFromCacheKey(key, family);
+        if (bvid && !timestamps.has(bvid)) {
+          timestamps.set(bvid, familyManifest[bvid] ?? 0);
         }
       }
       // 「注册但从未写入」的族（无索引、无清单、无数据键）：跳过。
@@ -360,7 +371,7 @@ export async function pruneToRecentVideos(
       // 清单重写（仅被清理族；未参与淘汰的族原样保留）：被淘汰 bvid 条目移除，
       // survivors 以排名 ts 落盘。失败不影响已删除的数据键（下次 prune 会再收）。
       try {
-        await storage.set({ [LRU_INDEX_KEY]: { ...manifest, ...manifestRewrite } });
+        await storage.set({ [LRU_MANIFEST_KEY]: { ...manifest, ...manifestRewrite } });
       } catch {
         // 清单重写失败静默（启发式元数据，允许丢）。
       }
@@ -490,12 +501,25 @@ export interface CacheFamily<TValue> {
   key(fields: CacheFamilyKeyFields, tail: unknown): string;
   /** 读：未命中 / 读失败 / 形状损坏 → null（静默，淘汰索引元数据同理可丢）。 */
   load(key: string): Promise<TValue | null>;
+  /** 批量读（08 票）：一次 storage.get 取 N 键，与 keys 按序对齐（未命中/损坏/失败 → null）。 */
+  loadMany(keys: string[]): Promise<(TValue | null)[]>;
   /** 写：经 writeWithEviction（写失败先淘汰再重试一次），最终失败走 logFailure、不抛。 */
   save(key: string, value: TValue): Promise<CacheSaveResult>;
 }
 
 export function createCacheFamily<TValue>(options: CacheFamilyOptions<TValue>): CacheFamily<TValue> {
   const { prefix, payloadField, toSourceKey, validate, logFailure } = options;
+  // 单键/批量读共用的取值归一（payload 字段提取 + 形状校验），读口径只此一处。
+  function readPayload(all: Record<string, unknown>, key: string): TValue | null {
+    const value = (all[key] as Record<string, unknown> | undefined)?.[payloadField];
+    if (value == null) {
+      return null;
+    }
+    if (validate && !validate(value)) {
+      return null;
+    }
+    return value as TValue;
+  }
   return {
     prefix,
     key(fields, tail) {
@@ -504,17 +528,21 @@ export function createCacheFamily<TValue>(options: CacheFamilyOptions<TValue>): 
     },
     async load(key) {
       try {
-        const result = await requireStorageLocal().get(key);
-        const value = (result[key] as Record<string, unknown> | undefined)?.[payloadField];
-        if (value == null) {
-          return null;
-        }
-        if (validate && !validate(value)) {
-          return null;
-        }
-        return value as TValue;
+        return readPayload(await requireStorageLocal().get(key), key);
       } catch {
         return null;
+      }
+    },
+    async loadMany(keys) {
+      const list = (Array.isArray(keys) ? keys : []).filter((key) => typeof key === "string" && Boolean(key));
+      if (list.length === 0) {
+        return [];
+      }
+      try {
+        const all = await requireStorageLocal().get(list);
+        return list.map((key) => readPayload(all, key));
+      } catch {
+        return list.map(() => null);
       }
     },
     async save(key, value) {

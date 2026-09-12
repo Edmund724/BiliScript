@@ -33,11 +33,6 @@ export class TokenBatcher {
     this.maxPending = Math.max(1, Math.floor(Number(maxPending)) || 32);
   }
 
-  /** 当前积压未吐出的 token 数。 */
-  get size(): number {
-    return this.pending.length;
-  }
-
   push(token: string): void {
     this.pending.push(token);
     if (this.pending.length >= this.maxPending) {
@@ -52,7 +47,9 @@ export class TokenBatcher {
     }
   }
 
-  /** 同步吐出全部积压并清掉计时器；无积压时无输出。流结束/中断时调用。 */
+  /** 同步吐出全部积压并清掉计时器；无积压时无输出。流结束/中断时调用。
+   *  onFlush 自身抛错（端口已断）时吞掉并丢弃本批——端口已断意味着本流无可
+   *  接收方，后续事件回吐会走同一错误路径，不另起 unhandled rejection。 */
   flush(): void {
     if (this.timer !== null) {
       clearTimeout(this.timer);
@@ -63,6 +60,10 @@ export class TokenBatcher {
     }
     const batch = this.pending;
     this.pending = [];
-    this.onFlush(batch);
+    try {
+      this.onFlush(batch);
+    } catch {
+      // 端口断连等发送失败：本批丢弃，流将在下一个非 token 事件处收束为错误。
+    }
   }
 }
