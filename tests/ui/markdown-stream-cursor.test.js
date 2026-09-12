@@ -139,8 +139,7 @@ describe("增量游标的长流压力对拍", () => {
     for (let para = 0; para < 120; para += 1) {
       deltas.push(`第${para}段 内容${Math.floor(next() * 1000)} 继续`);
       // 段落间要么空行、要么单换行（单换行并段，两种边界都要覆盖）；
-      // 围栏/think 只在行首开启——行中开围栏是 renderMarkdown 的预存在缺陷
-      // （行内占位符泄漏，全文渲染也发生），与增量游标无关，语料不覆盖。
+      // 围栏/think 只在行首开启——行中开启和占位符泄漏已修复，语料覆盖该路径。
       deltas.push(next() < 0.3 ? "\n\n" : "\n");
       if (next() < 0.15) {
         deltas.push("<think>思");

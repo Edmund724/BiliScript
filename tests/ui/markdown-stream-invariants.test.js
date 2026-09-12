@@ -41,6 +41,9 @@ const EQUIVALENCE_CORPUS = [
   "a<think\n\n部分标签在段尾",
   "emoji 🎉 段落\n\n第二段 **bold** [link](https://example.com)",
   "嵌套 ``` 围栏 ``` 行内\n\n第二段",
+  "说明\n\n段中开启 ```js\n代码\n```\n\n后续段落",
+  "```js\nx\n```\n\n中间段落 ```code``` 之后继续",
+  "``````\n\n``````e",
   "ol 列表\n\n3. 丙\n7. 丁\n\nol 后续段"
 ];
 
@@ -49,7 +52,9 @@ describe("不变量 2/3：stable + tail 堆叠渲染与全文渲染逐字节等�
     it(`堆叠 ≡ 全文：${JSON.stringify(text.slice(0, 32))}`, () => {
       const cleaned = stripThinkBlocks(text);
       const { stableText, tailText } = splitMarkdownTail(cleaned);
-      expect(renderMarkdown(stableText) + renderMarkdown(tailText)).toBe(renderMarkdown(cleaned));
+      const fullHtml = renderMarkdown(cleaned);
+      expect(renderMarkdown(stableText) + renderMarkdown(tailText)).toBe(fullHtml);
+      expect(fullHtml).not.toContain("\u0001BOC_CODE");
     });
   }
 });

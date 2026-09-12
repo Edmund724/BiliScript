@@ -31,6 +31,66 @@ interface CodeFence {
   code: string;
 }
 
+interface FenceDelimiter {
+  markerLength: number;
+  info: string;
+}
+
+function parseFenceOpeningLine(line: string): FenceDelimiter | null {
+  const match = line.match(/^ {0,3}(`{3,})([^\n`]*)\r?$/);
+  return match ? { markerLength: match[1].length, info: match[2] } : null;
+}
+
+function isMatchingFenceClosingLine(line: string, markerLength: number): boolean {
+  const delimiter = parseFenceOpeningLine(line);
+  return delimiter !== null && delimiter.markerLength >= markerLength && delimiter.info.trim() === "";
+}
+
+function updateFenceState(line: string, markerLength: number): number {
+  if (markerLength === 0) {
+    return parseFenceOpeningLine(line)?.markerLength ?? 0;
+  }
+  return isMatchingFenceClosingLine(line, markerLength) ? 0 : markerLength;
+}
+
+function extractCodeFences(escaped: string): { text: string; codeBlocks: CodeFence[] } {
+  const lines = escaped.split("\n");
+  const output: string[] = [];
+  const codeBlocks: CodeFence[] = [];
+
+  for (let index = 0; index < lines.length; ) {
+    const opening = parseFenceOpeningLine(lines[index]);
+    if (!opening) {
+      output.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    let closing = -1;
+    for (let candidate = index + 1; candidate < lines.length; candidate += 1) {
+      if (isMatchingFenceClosingLine(lines[candidate], opening.markerLength)) {
+        closing = candidate;
+        break;
+      }
+    }
+    if (closing < 0) {
+      output.push(lines[index]);
+      index += 1;
+      continue;
+    }
+
+    const body = lines.slice(index + 1, closing).join("\n");
+    codeBlocks.push({
+      lang: opening.info.trim().toLowerCase(),
+      code: closing === index + 1 ? "" : `${body}${body.endsWith("\n") ? "" : "\n"}`
+    });
+    output.push(`\u0001BOC_CODE_${codeBlocks.length - 1}\u0001`);
+    index = closing + 1;
+  }
+
+  return { text: output.join("\n"), codeBlocks };
+}
+
 export function isTimestampOnlyInlineCode(value: unknown): boolean {
   const text = String(value || "").trim();
   if (!text) {
@@ -55,24 +115,13 @@ export function renderMarkdown(text: string): string {
 // 块（chat-runtime 的流式 flush 与终态渲染都先经 stripThinkBlocks，内部再剥一
 // 遍只是幂等冗余）。独立调用方（如 explain-card）用 renderMarkdown，勿直接用本函数。
 export function renderMarkdownStripped(text: string): string {
-  let escaped = escapeHtml(text);
-  const codeBlocks: CodeFence[] = [];
-  // info string 单列捕获（不含换行与反引号，因而不会跨行吃掉围栏正文）+ 其后
-  // 可选的换行。没有换行说明 ``` 与正文同行（`` ```js alert(1)``` ``），此时
-  // 整段按正文处理、语言为空——与旧实现一致，不然语言判定会把正文吃掉。
-  escaped = escaped.replace(
-    /```([^\n`]*)(\r?\n)?([\s\S]*?)```/g,
-    (_, info: string, newline: string | undefined, code: string) => {
-      const sameLine = newline === undefined;
-      codeBlocks.push({
-        lang: sameLine ? "" : info.trim().toLowerCase(),
-        code: sameLine ? info + code : code
-      });
-      return `\u0001BOC_CODE_${codeBlocks.length - 1}\u0001`;
-    }
-  );
+  const escaped = escapeHtml(text);
+  // 仅行首（允许 ≤3 空格）围栏是块级标记；段中出现的 ``` 保留为普通文本。
+  const extracted = extractCodeFences(escaped);
+  const renderedText = extracted.text;
+  const codeBlocks = extracted.codeBlocks;
 
-  const lines = escaped.split("\n");
+  const lines = renderedText.split("\n");
   const out: string[] = [];
   let listType = "";
   let listStartNumber = 1;
@@ -308,10 +357,9 @@ export function renderMarkdownStripped(text: string): string {
 //      必须还有非空行——排除文末换行产生的尾随空行，保证 stable 随流式追加
 //      只增不减、不会因尾随空行出现又消失而来回抖动；取满足条件的最后一个
 //      切点（最后一个空行边界）。
-//   2. 切点之前围栏必须闭合。围栏开合判定与 renderMarkdown 的 ``` 成对摘出
-//      （``` 按出现顺序两两配对）一致：``` 每出现一次开/闭一次，前缀内累计
-//      出现奇数次即处于未闭合围栏中（escapeHtml 不改写反引号，转义前后计数
-//      一致）。
+//   2. 切点之前围栏必须闭合。围栏开合判定与 renderMarkdown 的行级成对摘出
+//      （围栏只在行首开启，允许 0–3 个空格；段中 ``` 不生效）一致：
+//      每行最多一个围栏分隔符，开启行记录标记长度，闭合行还必须匹配该长度。
 //   3. 找不到满足条件的切点（全文无空行，或所有空行边界都落在未闭合围栏内）
 //      时安全退化：stableText 为空串、tailText 为全文，等价于全量渲染。
 // 切点落在空行上，而 markdown 的块级结构（标题/表格/列表/段落/引用块/分割线/
@@ -331,18 +379,15 @@ export function splitMarkdownTail(text: unknown): { stableText: string; tailText
   if (lastNonBlank < 0) {
     return { stableText: "", tailText: source };
   }
-  let fenceOpen = false;
+  let fenceMarkerLength = 0;
   let cut = -1;
   for (let index = 0; index < lastNonBlank; index += 1) {
     const line = lines[index];
     const blank = line.trim() === "";
-    if (blank && !fenceOpen && (index === 0 || lines[index - 1].trim() !== "")) {
+    if (blank && fenceMarkerLength === 0 && (index === 0 || lines[index - 1].trim() !== "")) {
       cut = index; // 循环上界 lastNonBlank 保证该空行段之后仍有非空行
     }
-    const fences = line.match(/```/g);
-    if (fences && fences.length % 2 === 1) {
-      fenceOpen = !fenceOpen;
-    }
+    fenceMarkerLength = updateFenceState(line, fenceMarkerLength);
   }
   if (cut < 0) {
     return { stableText: "", tailText: source };
@@ -531,7 +576,7 @@ export interface MarkdownTailCursor {
 
 export function createMarkdownTailCursor(): MarkdownTailCursor {
   let cut = -1;
-  let fenceOpen = false;
+  let fenceMarkerLength = 0;
   // 已计入围栏/切点扫描的行数：下标 [0, scanned) 的行内容永不再变。
   let scanned = 0;
   let lastNonBlank = -1;
@@ -544,19 +589,16 @@ export function createMarkdownTailCursor(): MarkdownTailCursor {
       }
       if (nb < lastNonBlank) {
         cut = -1;
-        fenceOpen = false;
+        fenceMarkerLength = 0;
         scanned = 0;
       }
       if (nb > scanned) {
         for (let i = scanned; i < nb; i += 1) {
           const blank = lines[i].trim() === "";
-          if (blank && !fenceOpen && (i === 0 || lines[i - 1].trim() !== "")) {
+          if (blank && fenceMarkerLength === 0 && (i === 0 || lines[i - 1].trim() !== "")) {
             cut = i;
           }
-          const fences = lines[i].match(/```/g);
-          if (fences && fences.length % 2 === 1) {
-            fenceOpen = !fenceOpen;
-          }
+          fenceMarkerLength = updateFenceState(lines[i], fenceMarkerLength);
         }
         scanned = nb;
       }

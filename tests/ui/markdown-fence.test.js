@@ -4,7 +4,7 @@
 // tests/ui/mermaid-render.test.ts）。
 
 import { describe, expect, it } from "vitest";
-import { renderMarkdown } from "../../extension/ui/markdown.js";
+import { renderMarkdown, renderMarkdownStripped } from "../../extension/ui/markdown.js";
 
 describe("renderMarkdown 代码围栏", () => {
   it("```mermaid → 图表占位，语言名不进正文", () => {
@@ -37,9 +37,18 @@ describe("renderMarkdown 代码围栏", () => {
     expect(html).not.toContain("title=foo");
   });
 
-  it("单行围栏（``` 与正文同行、无换行）：整段仍按正文，不被当 info string 吃掉", () => {
-    expect(renderMarkdown("```js alert(1)```")).toBe("<pre><code>js alert(1)</code></pre>");
-    expect(renderMarkdown("```plain```")).toBe("<pre><code>plain</code></pre>");
+  it("段中围栏标记按普通文本保留，不产出占位符", () => {
+    const inlineFence = renderMarkdown("段落中 ```js\ncode\n``` 之后");
+    expect(inlineFence).toBe("<p>段落中 ``<code>js code </code>`` 之后</p>");
+    expect(inlineFence).not.toContain("\u0001BOC_CODE");
+    expect(renderMarkdown("```js alert(1)```")).toBe(
+      "<p>``<code>js alert(1)</code>``</p>"
+    );
+    expect(renderMarkdown("```plain```")).toBe("<p>``<code>plain</code>``</p>");
+    expect(renderMarkdown("   ```js\ncode\n```")).toBe("<pre><code>code\n</code></pre>");
+    expect(renderMarkdownStripped("    ```js\ncode\n```")).toBe(
+      "<p>``<code>js code </code>``</p>"
+    );
   });
 
   it("空 mermaid 围栏：仍产出占位（源码为空由水合侧跳过），单行写法按正文处理", () => {
@@ -47,7 +56,7 @@ describe("renderMarkdown 代码围栏", () => {
       '<div class="boc-md-mermaid" data-boc-mermaid="pending"><pre class="boc-md-mermaid-src"><code></code></pre></div>'
     );
     // 无换行的 ```mermaid``` 属于上面「单行围栏」一类：按正文，不产占位
-    expect(renderMarkdown("```mermaid```")).toBe("<pre><code>mermaid</code></pre>");
+    expect(renderMarkdown("```mermaid```")).toBe("<p>``<code>mermaid</code>``</p>");
   });
 
   it("图表源码仍先过 escapeHtml（不产出可执行标签）", () => {
