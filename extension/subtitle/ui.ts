@@ -1,11 +1,10 @@
 import { BOC_VERSION } from "../core/defaults.js";
-import { loadSubtitle } from "./fetcher.js";
 import { buildSubtitlePreview, buildTxt } from "../notes/render.js";
 import { buildSubtitleOptionViews } from "./selection.js";
 import { sanitizeFileName, escapeHtml } from "../shared/string-utils.js";
 import { cleanVideoUrl } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
-import { getErrorMessage, isStaleRunError } from "../shared/error-helpers.js";
+import { getErrorMessage } from "../shared/error-helpers.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeDownloadFormat } from "../core/validators.js";
 import { state } from "../core/state.js";
