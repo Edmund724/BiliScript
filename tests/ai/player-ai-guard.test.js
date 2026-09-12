@@ -269,9 +269,9 @@ describe("player-ai 启停守卫", () => {
     host.dispatchEvent(new MouseEvent("mousemove"));
     expect(wrap.classList.contains("is-active")).toBe(true);
 
-    const cursorTypes = ["mousemove", "mouseenter", "mouseleave", "pointermove"];
+    const cursorTypes = ["mousemove", "mouseenter", "mouseleave"];
     const cursorBinds = hostAddSpy.mock.calls.filter(([type]) => cursorTypes.includes(type));
-    expect(cursorBinds.length).toBe(4);
+    expect(cursorBinds.length).toBe(3);
 
     stopPlayerAiQuickAction();
 
@@ -279,7 +279,7 @@ describe("player-ai 启停守卫", () => {
     expect(document.querySelector(".boc-player-ai-wrap")).toBeNull();
     expect(playerAiState.playerAiQuickActionObserver).toBeNull();
     expect(playerAiState.playerAiQuickActionLayoutBound).toBe(false);
-    // 4 个游标 handler 均以绑定时的同一引用被 removeEventListener 摘除
+    // 3 个游标 handler 均以绑定时的同一引用被 removeEventListener 摘除
     for (const [type, handler] of cursorBinds) {
       expect(hostRemoveSpy.mock.calls.some(([t, h]) => t === type && h === handler)).toBe(true);
     }

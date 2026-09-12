@@ -445,7 +445,6 @@ function bindPlayerAiQuickActionCursorSync(wrap: HTMLElement): void {
   host.addEventListener("mousemove", showForCursorActivity, { passive: true });
   host.addEventListener("mouseenter", showForCursorActivity, { passive: true });
   host.addEventListener("mouseleave", hideImmediately, { passive: true });
-  host.addEventListener("pointermove", showForCursorActivity, { passive: true });
   playerAiQuickActionCursorSync = { host, wrap, showForCursorActivity, hideImmediately };
   (wrap as HTMLElement & { __bocPlayerAiCursorHost?: HTMLElement }).__bocPlayerAiCursorHost = host;
 }
@@ -458,7 +457,6 @@ function unbindPlayerAiQuickActionCursorSync(): void {
   host.removeEventListener("mousemove", showForCursorActivity);
   host.removeEventListener("mouseenter", showForCursorActivity);
   host.removeEventListener("mouseleave", hideImmediately);
-  host.removeEventListener("pointermove", showForCursorActivity);
   playerAiQuickActionCursorSync = null;
 }
 
