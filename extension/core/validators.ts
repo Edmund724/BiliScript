@@ -6,9 +6,12 @@
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
   DEFAULT_INITIAL_QUICK_PROMPTS,
+  DEFAULT_PLAYER_AI_QUICK_PROMPT,
   DEFAULT_SETTINGS,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   type FixedFrontmatterProperty,
   type NotePlaceholderSection,
   type Settings
@@ -47,13 +50,22 @@ export function normalizeEnablePlayerAiQuickAction(value: unknown): boolean {
 }
 
 export function normalizePlayerAiQuickPrompt(value: unknown): string {
-  return toString(value).trim();
+  const normalized = toString(value).trim();
+  // 旧默认快捷提示词一次性升到当前默认（与 aiSystemPrompt 的 LEGACY 映射同机制）。
+  if (normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT) {
+    return DEFAULT_PLAYER_AI_QUICK_PROMPT;
+  }
+  return normalized;
 }
 
 export function normalizeAiSystemPrompt(value: unknown): string {
   const normalized = toString(value).trim();
-  // 两代历史默认一次性升到当前默认（第一代与第二代机制相同）；用户自定义文本不动。
-  if (normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT || normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2) {
+  // 三代历史默认一次性升到当前默认（机制相同）；用户自定义文本不动。
+  if (
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT ||
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2 ||
+    normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3
+  ) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
   return normalized;

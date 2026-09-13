@@ -99,7 +99,8 @@ ${segmentLines.join("\n")}`;
  */
 function buildNotePrompt({ title, material }: { title: string; material: string }): string {
   return `写一份翔实、自然的 Markdown 视频笔记。完整复原内容脉络、具体例子、核心观点及其依据，
-并在有帮助时加入关键时间点。不要加入外部知识或评价。全文以一万二千字以内为宜，密度优先，不要为凑长度注水。
+并在有帮助时加入关键时间点。不要加入外部知识或评价。信息点要齐全，长视频不要过度压缩；
+全文以一万二千字以内为宜，密度优先，不要为凑长度注水。
 
 视频标题：${title}
 
