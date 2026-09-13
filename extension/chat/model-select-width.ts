@@ -2,10 +2,11 @@
 // 工单 arch-review-2026-09/10 自 ui/ 搬入 chat/；发送框重构起度量对象从原生
 // select 换成模型 chip——chip 是隐藏 select 的展示层，宽度按内容自适应）。
 //
-// 纯 UI 度量叶子（零 import）：用离屏 canvas 按当前计算字体测量 chip 文案宽
-// （模型名 + 档位），叠加 44px 装饰余量（左右 padding 20 + chevron 14 + 两个
-// flex gap 8，另留 2px buffer），再夹在 [92, 420] 区间内，结果写回 chip 的内联
-// width。420 只防极端长名——正常状态 hug content；
+// 纯 UI 度量叶子（零 import）：用离屏 canvas 按当前计算字体分别测量 chip 的
+// 模型名与档位宽（DOM 里两者之间是 4px flex gap，不整串测），叠加 44px 装饰余量
+// （左右 padding 20 + 两个 gap 8 + chevron 14，另留 2px buffer），再夹在
+// [92, 420] 区间内，结果写回 chip 的内联 width。420 只防极端长名——正常状态
+// hug content；
 // 溢出截断由 CSS 施加在模型名 span 上（档位与 chevron 恒完整，不进截断流）。
 // canvas 不可用（getContext 返回 null）时退化为每字符 8px 估算，行为与迁出前一致。
 //
@@ -56,10 +57,12 @@ export function updateModelSelectWidth(els: ModelSelectWidthEls): void {
   }
   const model = String(els.chipModel?.textContent || "").trim() || "未配置平台";
   const level = String(els.chipLevel?.textContent || "").trim();
-  const text = level ? `${model} ${level}` : model;
   const computedStyle = window.getComputedStyle(els.chip);
-  const measuredTextWidth = measureTextWidth(text, computedStyle);
-  // 装饰余量 = 左右 padding 20 + chevron 14 + 两个 flex gap 8，另留 2px buffer；
+  // 模型名与档位分开测量（不能整串测：DOM 里两者之间是 4px flex gap 而非空格
+  // 字形，整串测会把空格宽也计进内容，多出的 ~5px 全部落在 chevron 右侧）。
+  const measuredTextWidth =
+    measureTextWidth(model, computedStyle) + (level ? measureTextWidth(level, computedStyle) : 0);
+  // 装饰余量 = 左右 padding 20 + 两个 flex gap 8 + chevron 14，另留 2px buffer；
   // 旧实现叠加的 "000" 兜底宽是原生 select 时代的遗留，chip hug content 后
   // 只会在 chevron 右侧留出多余空白，已移除。
   const desiredWidth = Math.ceil(measuredTextWidth + 44);

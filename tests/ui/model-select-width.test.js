@@ -9,12 +9,12 @@
 // jsdom 不带 canvas npm 包，HTMLCanvasElement.getContext 返回 null
 // （已实测：打印 "Not implemented" 通知但不抛错），恰好覆盖模块内既有的
 // 降级路径（!ctx → 每字符 8px 估算），据此守住三个关键不变量：
-// - 降级测宽下的期望宽度算式（文本 8px/字符 + 44 装饰余量）；
+// - 降级测宽下的期望宽度算式（模型名与档位各 8px/字符 + 44 装饰余量）；
 // - [92, maxWidth] 区间夹取（短文案触底 92、长文案被上限截断）；
 // - 文案缺失时回落「未配置平台」参与测量。
 // getContext 显式 mock 为 null：不依赖 jsdom 版本的 canvas 行为，也消除
 // "Not implemented" 的控制台噪音。420 上限用例：模型名 60 字符 + 档位 Off
-// 拼接 64 字符 → 64×8 + 44 = 556 > 420 截断。
+// → 480 + 24 + 44 = 548 > 420 截断。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -59,16 +59,16 @@ describe("model-select-width", () => {
     expect(() => updateModelSelectWidth(els)).not.toThrow();
   });
 
-  it("updateModelSelectWidth：模型名 + 档位拼接测宽（「AI Off」= 6 字符 → 触底 92px）", () => {
-    const els = makeEls("AI"); // 6×8 + 44 = 92，触底
+  it("updateModelSelectWidth：模型名 + 档位拼接测宽（「AI Off」= 5 字符 → 触底 92px）", () => {
+    const els = makeEls("AI"); // 2×8 + 3×8 + 44 = 84，触底
     updateModelSelectWidth(els);
     expect(els.chip.style.width).toBe("92px");
   });
 
   it("updateModelSelectWidth：按内容自适应（hug content），模型名短 chip 就窄", () => {
-    const els = makeEls("MODEL"); // (5+1+3)×8 + 44 = 116
+    const els = makeEls("MODEL"); // 5×8 + 3×8 + 44 = 108
     updateModelSelectWidth(els);
-    expect(els.chip.style.width).toBe("116px");
+    expect(els.chip.style.width).toBe("108px");
   });
 
   it("updateModelSelectWidth：无档位文本时不拼空格（「AI」= 2 字符 → 触底 92px）", () => {
@@ -78,7 +78,7 @@ describe("model-select-width", () => {
   });
 
   it("updateModelSelectWidth：极端长名被 420 上限截断（hug content 的保险）", () => {
-    const els = makeEls("x".repeat(60)); // (60+1+3)×8 + 44 = 556 > 420
+    const els = makeEls("x".repeat(60)); // 60×8 + 3×8 + 44 = 548 > 420
     updateModelSelectWidth(els);
     expect(els.chip.style.width).toBe("420px");
   });
