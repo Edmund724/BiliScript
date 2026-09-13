@@ -621,7 +621,11 @@ function assertReconciliation(point, expectedFields, label) {
 
 describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signature, hotComments, isVideoContext}", () => {
   it("reader/chat-tab.ts 直接读取的快照字段", () => {
-    const source = readSource("../../extension/reader/chat-tab.js");
+    // 工单 12 拆分后组合根分散在 chat-tab-{dom,core,lifecycle}.ts（chat-tab.ts
+    // 为再导出壳，无代码读取）——锚定意图不变：并集扫描四片源码。
+    const source = ["chat-tab-dom", "chat-tab-core", "chat-tab-lifecycle", "chat-tab"]
+      .map((name) => readSource(`../../extension/reader/${name}.js`))
+      .join("\n");
     // contextData：非视频页判定（isVideoContext，含 asr notice 显隐与发送守卫）、
     // 无字幕发送拦截（noSubtitleReason）、时间戳跳转（url）；
     // chip 文案与 live 匹配已随候选5 拆分迁往 chat/context-load.js
