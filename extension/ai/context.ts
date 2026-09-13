@@ -1,5 +1,6 @@
 // 把 content.js 传来的 context 拼成 chat messages，并提供建议 chip 模板。
 
+import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/defaults.js";
 import { SEGMENT_INPUT_CHARS } from "./budgeter.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
 import type { AiContext, ChatMessage, HotComment } from "./types.js";
@@ -13,15 +14,25 @@ interface BuildMessagesInput {
 
 export function buildMessages({ context, userPrompt, history, systemPrompt }: BuildMessagesInput = {}): ChatMessage[] {
   const ctx = context || {};
-  const sections: string[] = [
-    `你是一个 B 站视频助手。当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
+  const sections: string[] = [];
+
+  // 用户自定义系统提示词是主人格，排第一位（清空时回落内置默认——那条本身就是
+  // 完整人设）；标题/字幕/评论等数据段随后，不再有独立的内置 mini 人设。
+  const customSystemPrompt = String(systemPrompt || "").trim();
+  sections.push(customSystemPrompt || DEFAULT_AI_SYSTEM_PROMPT);
+
+  sections.push(
+    `当前用户正在看一个视频，标题：「${ctx.title || "未知"}」`,
     `作者：${ctx.author || "未知"} | 上传日期：${ctx.uploadDate || "未知"}`
-  ];
+  );
 
   // 字幕只以 subtitleBody（原始条目）入协议，发送物由此现场渲染，与预算判定同源。
   // includeTimestampInBody 由 payload 透传（context-resolver / content 侧设置），
   // 缺失时 buildSubtitlePrompt 默认 true（与历史默认一致）。
-  const subtitleText = String(ctx.compressedSummaryMarkdown || "")
+  // 追问压缩路径的发送物是「分段小结 + 成稿笔记」而非逐字字幕，标签如实分流：
+  // 误标「字幕全文」会让模型对时间戳引用与原话类问题过度自信。
+  const compressedSummary = String(ctx.compressedSummaryMarkdown || "");
+  const subtitleText = compressedSummary
     || buildSubtitlePrompt({
       body: ctx.subtitleBody,
       chapters: ctx.chapters,
@@ -29,7 +40,11 @@ export function buildMessages({ context, userPrompt, history, systemPrompt }: Bu
       includeTimestampInBody: ctx.includeTimestampInBody
     });
   if (subtitleText) {
-    sections.push(`以下是视频的字幕全文：\n\n${subtitleText}`);
+    sections.push(
+      compressedSummary
+        ? `以下是本视频此前的整理成果（分段小结与成稿笔记，非逐字字幕）：\n\n${subtitleText}`
+        : `以下是视频的字幕全文：\n\n${subtitleText}`
+    );
   } else {
     sections.push("（暂无字幕）");
   }
@@ -39,11 +54,6 @@ export function buildMessages({ context, userPrompt, history, systemPrompt }: Bu
       .map(function (c: HotComment, i: number) { return `${i + 1}. ${c.uname || "匿名"}（赞 ${c.like || 0}）: ${c.message || ""}`; })
       .join("\n");
     sections.push(`以下是按热度排序的前 ${ctx.hotComments.length} 条热门评论：\n\n${commentBlock}`);
-  }
-
-  const customSystemPrompt = String(systemPrompt || "").trim();
-  if (customSystemPrompt) {
-    sections.push("以下是额外系统要求：\n" + customSystemPrompt);
   }
 
   let historyMessages: ChatMessage[] = [];
