@@ -107,7 +107,7 @@ export function buildChatTabBodyHtml(): string {
                   <path d="M3 12h18"></path>
                   <path d="M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18"></path>
                 </svg>
-                <span>联网</span>
+                <span>联网搜索</span>
               </button>
               <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位">
                 <!-- 模型名与档位分 span：溢出截断只作用于模型名，档位与 chevron 恒完整 -->
