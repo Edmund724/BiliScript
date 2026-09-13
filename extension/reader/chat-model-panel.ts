@@ -5,8 +5,9 @@
 // 不新开写路径）。面板的开合/互斥/外点/Esc 收口在 reader/chat-popovers.ts，
 // 本模块只渲染，不持有开合状态。
 //
-// chip 内模型名与档位是两个独立 span：溢出截断只由 CSS 施加在模型名 span，
-// 档位与 chevron 恒完整（model-select-width 只决定 chip 整体宽度，不参与截断）。
+// chip 内「平台名·模型名」与档位是两个独立 span：溢出截断只由 CSS 施加在
+// 模型名 span，档位与 chevron 恒完整（model-select-width 只决定 chip 整体宽度，
+// 不参与截断）。
 //
 // 依赖方向（无环）：共享状态（../chat/chat-state 的 aiThinkingLevel）与
 // chat/model-select-width 直接 import；DOM 元素与面板关闭回调（惰性互引
@@ -40,9 +41,11 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
 export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps): ReaderChatModelPanel {
   const { modelSelect, chip, chipModel, chipLevel, panelList } = deps;
 
-  // chip 文案 = 选中模型名 + 当前思考档位（截图形态「DeepSeek V4.1 Flash High」）。
+  // chip 文案 = 平台名·选中模型名 + 当前思考档位（截图形态「ModelScope·DeepSeek
+  // V4.1 Flash High」）。平台名取选中 option 所属 optgroup 的 label（与面板分组
+  // 标题同源），中点「·」分隔；optgroup 缺失/label 空则只显示模型名。
   // 未配置平台（select 禁用）时 chip 同步禁用，只给占位文案（档位无意义）。
-  // 模型名与档位分写两个 span：CSS 只对模型名 span 做溢出截断，档位恒完整。
+  // 平台名·模型名与档位分写两个 span：CSS 只对模型名 span 做溢出截断，档位恒完整。
   function renderChip(): void {
     if (modelSelect.disabled) {
       chipModel.textContent = "未配置平台";
@@ -52,7 +55,9 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       return;
     }
     const option = modelSelect.options[modelSelect.selectedIndex];
-    chipModel.textContent = String(option?.textContent || "").trim() || "未配置平台";
+    const platform = String(option?.closest("optgroup")?.getAttribute("label") || "").trim();
+    const modelName = String(option?.textContent || "").trim() || "未配置平台";
+    chipModel.textContent = platform ? `${platform}·${modelName}` : modelName;
     chipLevel.textContent = THINKING_LEVEL_LABELS[chatSessionState.aiThinkingLevel] || "Off";
     chip.disabled = false;
     updateModelSelectWidth({ chip, chipModel, chipLevel });

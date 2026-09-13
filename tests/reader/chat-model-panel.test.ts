@@ -5,8 +5,9 @@
 // 持久化——本文件只断「值源被写 + change 被派生」两件事实）。
 //
 // 覆盖：
-// - renderChip：文案 = 选中模型名 + 思考档位标签（off/low/high → Off/Low/High）；
-//   select 禁用（未配置平台）→ chip 同步禁用并回落占位文案；
+// - renderChip：文案 = 平台名·选中模型名 + 思考档位标签（off/low/high → Off/Low/
+//   High）；optgroup label 缺失时只显示模型名；select 禁用（未配置平台）→ chip
+//   同步禁用并回落占位文案；
 // - renderPanel：按 optgroup 分组渲染、当前选中项 is-selected + ✓、点击选项写
 //   值源并派生 change 后关面板；点当前已选项不改值但仍关面板。
 
@@ -54,15 +55,25 @@ function makeHarness(select = makeSelect()) {
 }
 
 describe("renderChip", () => {
-  it("模型名与档位分写两个 span（默认 off → Off）", () => {
+  it("模型名带平台名前缀（中点分隔）与档位分写两个 span（默认 off → Off）", () => {
     chatSessionState.aiThinkingLevel = "off";
     const { chip, chipModel, chipLevel, modelPanel } = makeHarness();
 
     modelPanel.renderChip();
 
-    expect(chipModel.textContent).toBe("m1b");
+    expect(chipModel.textContent).toBe("平台一·m1b");
     expect(chipLevel.textContent).toBe("Off");
     expect(chip.disabled).toBe(false);
+  });
+
+  it("选中项不在 optgroup 内：只显示模型名，不拼前缀", () => {
+    const select = document.createElement("select");
+    select.innerHTML = '<option value="solo" selected>solo-model</option>';
+    const { chipModel, modelPanel } = makeHarness(select);
+
+    modelPanel.renderChip();
+
+    expect(chipModel.textContent).toBe("solo-model");
   });
 
   it("档位 span 随 chatSessionState.aiThinkingLevel（high → High），模型名不动", () => {
@@ -71,7 +82,7 @@ describe("renderChip", () => {
 
     modelPanel.renderChip();
 
-    expect(chipModel.textContent).toBe("m1b");
+    expect(chipModel.textContent).toBe("平台一·m1b");
     expect(chipLevel.textContent).toBe("High");
   });
 

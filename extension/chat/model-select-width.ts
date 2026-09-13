@@ -3,8 +3,9 @@
 // select 换成模型 chip——chip 是隐藏 select 的展示层，宽度按内容自适应）。
 //
 // 纯 UI 度量叶子（零 import）：用离屏 canvas 按当前计算字体测量 chip 文案宽
-// （模型名 + 档位），叠加 "000" 兜底宽 + 36px 装饰余量，再夹在 [92, 420] 区间内，
-// 结果写回 chip 的内联 width。420 只防极端长名——正常状态 hug content；
+// （模型名 + 档位），叠加 44px 装饰余量（左右 padding 20 + chevron 14 + 两个
+// flex gap 8，另留 2px buffer），再夹在 [92, 420] 区间内，结果写回 chip 的内联
+// width。420 只防极端长名——正常状态 hug content；
 // 溢出截断由 CSS 施加在模型名 span 上（档位与 chevron 恒完整，不进截断流）。
 // canvas 不可用（getContext 返回 null）时退化为每字符 8px 估算，行为与迁出前一致。
 //
@@ -58,8 +59,10 @@ export function updateModelSelectWidth(els: ModelSelectWidthEls): void {
   const text = level ? `${model} ${level}` : model;
   const computedStyle = window.getComputedStyle(els.chip);
   const measuredTextWidth = measureTextWidth(text, computedStyle);
-  const extraCharsWidth = measureTextWidth("000", computedStyle);
-  const desiredWidth = Math.ceil(measuredTextWidth + extraCharsWidth + 36);
+  // 装饰余量 = 左右 padding 20 + chevron 14 + 两个 flex gap 8，另留 2px buffer；
+  // 旧实现叠加的 "000" 兜底宽是原生 select 时代的遗留，chip hug content 后
+  // 只会在 chevron 右侧留出多余空白，已移除。
+  const desiredWidth = Math.ceil(measuredTextWidth + 44);
   const minWidth = 92;
   const nextWidth = Math.max(minWidth, Math.min(desiredWidth, MODEL_CHIP_MAX_WIDTH));
   els.chip.style.width = `${nextWidth}px`;
