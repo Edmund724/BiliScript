@@ -57,6 +57,27 @@ describe("parseSsePayload 纯函数", () => {
       { type: "content", data: "42" }
     ]);
   });
+
+  it("tool_calls 分片（联网搜索管线）：id/name/arguments 片段按事件透出", () => {
+    expect(
+      parseSsePayload(JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"qu' } }] } }] }))
+    ).toEqual([
+      { type: "tool-call-fragment", index: 0, id: "call_1", name: "web_search", argsFragment: '{"qu' }
+    ]);
+    // 后续分片：只带 index + arguments 增量（无 id/name 字段）
+    expect(
+      parseSsePayload(JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'ery":"x"}' } }] } }] }))
+    ).toEqual([
+      { type: "tool-call-fragment", index: 0, argsFragment: 'ery":"x"}' }
+    ]);
+  });
+
+  it("finish_reason 透出为 finish 事件；缺省/null 不产事件", () => {
+    expect(parseSsePayload(JSON.stringify({ choices: [{ delta: {}, finish_reason: "tool_calls" }] }))).toEqual([
+      { type: "finish", reason: "tool_calls" }
+    ]);
+    expect(parseSsePayload(JSON.stringify({ choices: [{ delta: {}, finish_reason: null }] }))).toEqual([]);
+  });
 });
 
 describe("SSE 字节级分包（经 chatCompletion 流式缝）", () => {

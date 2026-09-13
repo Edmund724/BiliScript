@@ -21,6 +21,7 @@
 // 字面量（注释除外）。
 
 import type {
+  ChatMessage,
   StreamDoneEvent,
   StreamErrorEvent,
   StreamNoticeEvent,
@@ -59,14 +60,36 @@ export interface ChatTokenBatchEvent {
   data: string[];
 }
 
+// 联网搜索工具状态（spec §2.2，port 层事件，不在引擎 StreamChatEvent 之列）：
+// tool-loop 每次搜索的 searching / done / failed 逐条回吐，宿主最小消费为
+// notice 行（spec §4 完整时间线卡留给后续 effort）。
+export interface ChatToolStatusEvent {
+  type: "tool-status";
+  status: "searching" | "done" | "failed";
+  query: string;
+  resultCount?: number;
+  platform?: string;
+}
+
+// 工具轮持久化副本（spec §2.5）：assistant(tool_calls) + tool 结果消息，
+// tool 内容已截断（完整结果只活在当轮请求里）。宿主 dispatch 缓存，
+// commitAssistantTurn 按 user → tool 消息 → assistant 顺序插入会话历史。
+export interface ChatToolTurnEvent {
+  type: "tool-turn";
+  messages: ChatMessage[];
+}
+
 // offscreen → 宿主的出向 port 消息联合（七流式事件 + cost-guard + 07 票
-// token-batch，全体可携带 cachedContextKey 回执）。载荷字段与既有线格式对齐。
+// token-batch + 联网搜索的 tool-status/tool-turn，全体可携带 cachedContextKey
+// 回执）。载荷字段与既有线格式对齐。
 export type ChatPortMessage =
   | (StreamTokenEvent & ChatReceipt)
   | (ChatTokenBatchEvent & ChatReceipt)
   | (StreamReasoningEvent & ChatReceipt)
   | (StreamNoticeEvent & ChatReceipt)
   | (StreamResetEvent & ChatReceipt)
+  | (ChatToolTurnEvent & ChatReceipt)
+  | (ChatToolStatusEvent & ChatReceipt)
   | (StreamDoneEvent & ChatReceipt)
   | (StreamStoppedEvent & ChatReceipt)
   | (PortErrorEvent & ChatReceipt)

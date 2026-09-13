@@ -45,3 +45,32 @@ describe("chat 出向协议联合（编译期守卫）", () => {
     expect(missing.type).toBe("token-batch");
   });
 });
+
+describe("联网搜索 port 事件（spec §2.2/§2.5）", () => {
+  it("tool-status 成员可赋值：status 三态 + query + 可选 resultCount/platform", () => {
+    const searching = { type: "tool-status", status: "searching", query: "x" } satisfies ChatPortMessage;
+    const done = { type: "tool-status", status: "done", query: "x", resultCount: 5, platform: "Tavily" } satisfies ChatPortMessage;
+    const failed = { type: "tool-status", status: "failed", query: "x" } satisfies ChatPortMessage;
+    expect(searching.status).toBe("searching");
+    expect(done.resultCount).toBe(5);
+    expect(failed.status).toBe("failed");
+    // @ts-expect-error status 词表外的取值无成员可匹配
+    const bad: ChatPortMessage = { type: "tool-status", status: "unknown", query: "x" };
+    expect(bad).toBeTruthy();
+  });
+
+  it("tool-turn 成员可赋值：messages 为 ChatMessage[]（assistant/tool 轮持久化副本）", () => {
+    const turn = {
+      type: "tool-turn",
+      messages: [
+        { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: "{}" } }] },
+        { role: "tool", tool_call_id: "call_1", content: "[]" }
+      ]
+    } satisfies ChatPortMessage;
+    expect(turnPayload(turn)).toBe(2);
+  });
+});
+
+function turnPayload(msg: unknown): number {
+  return (msg as { messages: unknown[] }).messages.length;
+}

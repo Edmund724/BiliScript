@@ -449,3 +449,59 @@ describe("streamChat 读流中断重试：stream-reset 代际重置信号", () =
     expect(port.messages.at(-1)?.type).toBe("error");
   });
 });
+
+describe("webSearch 工具循环 port 回吐（spec §2.3）", () => {
+  function sseDataFinish(delta, finishReason) {
+    return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
+  }
+  const TOOL_ROUND = [
+    sseDataFinish({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }] }),
+    sseDataFinish({}, "tool_calls")
+  ];
+  const FINAL_ROUND = [sseDataFinish({ content: "回答" }), sseDataFinish({}, "stop")];
+
+  it("tool 轮：port 依次收到 tool-status / tool-turn / token / done；历史中的 tool 消息透传", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse(TOOL_ROUND))
+      .mockResolvedValueOnce(sseResponse(FINAL_ROUND));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
+      userPrompt: "问",
+      history: [],
+      port,
+      webSearch: {
+        maxToolCalls: 5,
+        executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
+      }
+    });
+
+    expect(result).toEqual({ done: true });
+    const types = port.messages.map((m) => m.type);
+    // 顺序：searching → done（搜索前 flush，无 token 积压）
+    expect(types).toEqual(["tool-status", "tool-status", "tool-turn", "token", "done"]);
+    expect(port.messages[0]).toMatchObject({ type: "tool-status", status: "searching", query: "x" });
+    expect(port.messages[1]).toMatchObject({ type: "tool-status", status: "done", query: "x", resultCount: 1, platform: "Tavily" });
+    expect(port.messages[2].type).toBe("tool-turn");
+    expect(port.messages[2].messages.map((m) => m.role)).toEqual(["assistant", "tool"]);
+    // 两次调用：第一次带 tools，tool 消息已回填
+    const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(firstBody.tools).toEqual([expect.anything()]);
+    const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(secondBody.messages.some((m) => m.role === "tool")).toBe(true);
+  });
+
+  it("无 webSearch：行为回归（不解析工具、事件序列与旧实现一致）", async () => {
+    const fetchMock = vi.fn(async () => sseResponse([sseData({ content: "正文" }), "data: [DONE]\n\n"]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({ provider: PROVIDER, context: {}, userPrompt: "", history: [], port });
+    expect(port.messages.map((m) => m.type)).toEqual(["token", "done"]);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+  });
+});

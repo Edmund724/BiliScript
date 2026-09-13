@@ -960,3 +960,112 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
     expect(resetsNonStream).toEqual([]);
   });
 });
+
+describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）", () => {
+  // SSE chunk：delta 载荷 + choice 级 finish_reason。
+  function sseData(delta, finishReason) {
+    return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
+  }
+  const TOOL_ROUND = [
+    sseData({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }] }),
+    sseData({}, "tool_calls")
+  ];
+  const WEB_SEARCH_TOOL = {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "d",
+      parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
+    }
+  };
+
+  it("buildChatRequestBody：传 tools 即带 tools + tool_choice: auto；不传不带", () => {
+    const withTools = buildChatRequestBody({ model: "m", messages: [], tools: [WEB_SEARCH_TOOL] });
+    expect(withTools.tools).toEqual([WEB_SEARCH_TOOL]);
+    expect(withTools.tool_choice).toBe("auto");
+    const without = buildChatRequestBody({ model: "m", messages: [] });
+    expect(without.tools).toBeUndefined();
+    expect(without.tool_choice).toBeUndefined();
+  });
+
+  it("流式聚合：跨 chunk 分片按 index 拼接，返回 finishReason + assistantContent + toolCalls，tool-call 事件聚合后逐条吐出", async () => {
+    const fetchMock = vi.fn(async () => sseResponse([
+      sseData({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"qu' } }] }),
+      sseData({ content: "先想", tool_calls: [{ index: 0, function: { arguments: 'ery":"x"}' } }] }),
+      sseData({}, "tool_calls")
+    ]));
+
+    const events = [];
+    const result = await chatCompletion({
+      provider: PROVIDER,
+      messages: [{ role: "user", content: "hi" }],
+      stream: true,
+      tools: [WEB_SEARCH_TOOL],
+      fetchImpl: fetchMock,
+      onEvent: (e) => events.push(e)
+    });
+
+    expect(result).toEqual({
+      done: true,
+      finishReason: "tool_calls",
+      assistantContent: "先想",
+      toolCalls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }]
+    });
+    // tool-call 事件聚合后发出（query 从 arguments JSON 解析）
+    expect(events.filter((e) => e.type === "tool-call")).toEqual([
+      { type: "tool-call", name: "web_search", args: { query: "x" } }
+    ]);
+    // 请求体确实带 tools
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toEqual([WEB_SEARCH_TOOL]);
+    expect(body.tool_choice).toBe("auto");
+  });
+
+  it("流式无 tool_calls：返回值保持 { done: true } 形状不变（向后兼容）", async () => {
+    const fetchMock = vi.fn(async () => sseResponse([sseData({ content: "ok" }), sseData({}, "stop")]));
+    const result = await chatCompletion({
+      provider: PROVIDER,
+      messages: [],
+      stream: true,
+      fetchImpl: fetchMock,
+      onEvent: () => {}
+    });
+    expect(result).toEqual({ done: true });
+  });
+
+  it("非流式 tool_calls：读 message.tool_calls，返回 finishReason + assistantContent + toolCalls", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      choices: [{
+        message: {
+          content: "",
+          tool_calls: [{ id: "call_9", type: "function", function: { name: "web_search", arguments: '{"query":"y"}' } }]
+        },
+        finish_reason: "tool_calls"
+      }]
+    }));
+    const result = await chatCompletion({
+      provider: PROVIDER,
+      messages: [],
+      stream: false,
+      tools: [WEB_SEARCH_TOOL],
+      fetchImpl: fetchMock
+    });
+    expect(result).toEqual({
+      done: true,
+      finishReason: "tool_calls",
+      assistantContent: "",
+      toolCalls: [{ id: "call_9", type: "function", function: { name: "web_search", arguments: '{"query":"y"}' } }]
+    });
+  });
+
+  it("非流式无 tool_calls：返回 content 字符串不变", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    const result = await chatCompletion({
+      provider: PROVIDER,
+      messages: [],
+      stream: false,
+      fetchImpl: fetchMock
+    });
+    expect(result).toBe("ok");
+  });
+});

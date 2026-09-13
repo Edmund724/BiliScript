@@ -10,9 +10,13 @@ interface BuildMessagesInput {
   userPrompt?: unknown;
   history?: unknown[];
   systemPrompt?: unknown;
+  // 联网搜索管线（spec §2.5）：开启时保留历史中的 assistant(tool_calls) 与 tool
+  // 消息（多轮追问保持工具上下文，OpenAI 协议合法）；关闭时整体丢弃——无 tools
+  // 的请求里出现 tool 消息部分平台会报 4xx。
+  includeToolHistory?: boolean;
 }
 
-export function buildMessages({ context, userPrompt, history, systemPrompt }: BuildMessagesInput = {}): ChatMessage[] {
+export function buildMessages({ context, userPrompt, history, systemPrompt, includeToolHistory }: BuildMessagesInput = {}): ChatMessage[] {
   const ctx = context || {};
   const sections: string[] = [];
 
@@ -59,7 +63,24 @@ export function buildMessages({ context, userPrompt, history, systemPrompt }: Bu
   let historyMessages: ChatMessage[] = [];
   if (Array.isArray(history)) {
     historyMessages = history.filter(function (m: unknown) {
-      return m && ((m as { role?: unknown }).role === "user" || (m as { role?: unknown }).role === "assistant") && typeof (m as { content?: unknown }).content === "string";
+      const item = m as { role?: unknown; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown };
+      if (!item) return false;
+      // 联网轮（spec §2.5）：assistant(tool_calls) 与 tool 消息原样透传，
+      // 多轮追问保持工具上下文。
+      if (includeToolHistory) {
+        if (item.role === "assistant" && Array.isArray(item.tool_calls) && item.tool_calls.length) {
+          return true;
+        }
+        if (item.role === "tool" && typeof item.tool_call_id === "string" && typeof item.content === "string") {
+          return true;
+        }
+      }
+      // 关闭时（无 tools 轮）：tool 消息与空正文 assistant(tool_calls) 丢弃
+      //（OpenAI 协议下无 tools 的 tool_calls 消息非法）；带正文的 assistant
+      // 保留为普通 assistant。
+      if (item.role === "tool") return false;
+      if (item.role === "assistant" && !item.content && item.tool_calls != null) return false;
+      return (item.role === "user" || item.role === "assistant") && typeof item.content === "string";
     }) as ChatMessage[];
   }
 

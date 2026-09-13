@@ -9,6 +9,7 @@ import { buildMessages, clipSubtitleForContext } from "./context.js";
 import { buildBudgetPlan, estimateTokens, MATERIAL_BUDGET_CHARS } from "./budgeter.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
 import { chatCompletion, makeOverflowError, validateProviderBasics } from "./completion.js";
+import { runToolLoop, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
 import type { AiContext, AiProvider, StreamChatEvent } from "./types.js";
 // 出向 port 协议单源（ticket 08）：port 回吐点经 ChatPortMessage 联合标注，
 // 裸 postMessage 字面量获得编译期约束（事件名 typo / 形状漂移编译被拒）。
@@ -76,6 +77,9 @@ interface StreamChatInput {
   signal?: AbortSignal | null;
   onActivity?: () => void;
   thinkingLevel?: string;
+  // 联网搜索管线（spec §2.3）：传入即走 ai/tool-loop.ts 的工具循环（对话 tab
+  // toggle 开启且已配置搜索平台时由 offscreen 注入；Map-Reduce 轮由 ladder 剥离）。
+  webSearch?: { maxToolCalls: number; executeSearch: (query: string) => Promise<ToolLoopSearchOutcome> };
 }
 
 /**
@@ -91,7 +95,7 @@ interface StreamChatInput {
  * - 仅 context-length 溢出（含预算内超限）以带 .overflow 标记的错误上抛，
  *   供 ladder「catch 查标记」分流（单次转 Map-Reduce / 追问报错）。
  */
-export async function streamChat({ provider, context, userPrompt, history, port, signal, onActivity, thinkingLevel }: StreamChatInput): Promise<{ done: true } | undefined> {
+export async function streamChat({ provider, context, userPrompt, history, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
   if (!port) return;
 
   // 基础校验单点下沉 completion（arch-slim-3/09）：port 适配层 catch 后转回吐，
@@ -118,7 +122,10 @@ export async function streamChat({ provider, context, userPrompt, history, port,
     context,
     userPrompt,
     history,
-    systemPrompt: context?.aiSystemPrompt
+    systemPrompt: context?.aiSystemPrompt,
+    // 联网轮保留历史中的 assistant(tool_calls)/tool 消息（OpenAI 协议合法）；
+    // 无 tools 轮整体丢弃（部分平台对无 tools 请求里的 tool 消息报 4xx）。
+    includeToolHistory: Boolean(webSearch)
   });
 
   // 07 票 token 合帧：token 事件经窗口预算批传（削减 port 结构化克隆次数），
@@ -136,12 +143,9 @@ export async function streamChat({ provider, context, userPrompt, history, port,
   const flushTokens = () => tokenBatcher.flush();
 
   try {
-    await chatCompletion({
-      provider,
-      messages,
-      stream: true,
-      signal,
-      thinkingLevel,
+    // 逐轮共用的流事件适配（单次与工具循环同款）：流式活动重挂空闲超时、
+    // token 合帧、非 token 事件先 flush 再回吐。
+    const streamCallbacks = {
       onEvent: (event: StreamChatEvent) => {
         // 流式活动：重挂空闲超时（每个原始事件一次，合帧窗口内活动信号不丢）。
         onActivity?.();
@@ -151,6 +155,11 @@ export async function streamChat({ provider, context, userPrompt, history, port,
         }
         // 非 token 事件不得越过积压 token（渲染顺序）：先 flush 再回吐。
         flushTokens();
+        if (event.type === "tool-call") {
+          // 引擎级 tool-call 事件（spec §2.2）不出 port：UI 面向的 tool-status
+          // 由 tool-loop 的 onToolStatus 回吐（查询/结果数/平台语义更全）。
+          return;
+        }
         port.postMessage(event);
       },
       onStreamReset: () => {
@@ -172,7 +181,45 @@ export async function streamChat({ provider, context, userPrompt, history, port,
             : `连接中断，正在重新连接（${attempt}/${maxRetries}）...`
         } satisfies ChatPortMessage);
       }
-    });
+    };
+
+    if (webSearch) {
+      // 联网轮：ai/tool-loop.ts 编排多轮 chatCompletion；notice / tool-status /
+      // tool-turn 同走「先 flush 再回吐」纪律，tool-turn 为宿主持久化副本
+      //（spec §2.5，tool 内容已截断）。
+      await runToolLoop({
+        provider,
+        messages,
+        stream: true,
+        signal,
+        thinkingLevel,
+        maxToolCalls: webSearch.maxToolCalls,
+        executeSearch: webSearch.executeSearch,
+        ...streamCallbacks,
+        onNotice: (text) => {
+          onActivity?.();
+          flushTokens();
+          port.postMessage({ type: "notice", data: text } satisfies ChatPortMessage);
+        },
+        onToolStatus: (payload: ToolStatusPayload) => {
+          onActivity?.();
+          flushTokens();
+          port.postMessage({ type: "tool-status", ...payload } satisfies ChatPortMessage);
+        },
+        onToolTurn: (toolMessages) => {
+          port.postMessage({ type: "tool-turn", messages: toolMessages } satisfies ChatPortMessage);
+        }
+      });
+    } else {
+      await chatCompletion({
+        provider,
+        messages,
+        stream: true,
+        signal,
+        thinkingLevel,
+        ...streamCallbacks
+      });
+    }
   } catch (e) {
     if ((e as { overflow?: boolean })?.overflow) {
       // 溢出上抛：ladder 据标记分流（单次转 Map-Reduce / 追问报错），不经 port error。

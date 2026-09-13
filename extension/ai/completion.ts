@@ -17,7 +17,7 @@
 import { parseSsePayload } from "./sse-parser.js";
 import { makeAbortedError, isRetryableNetworkError } from "../shared/error-helpers.js";
 import { normalizeThinkingLevel, resolveThinkingProfile } from "./thinking-profiles.js";
-import type { ChatMessage, StreamChatEvent } from "./types.js";
+import type { ChatMessage, ChatToolCall, StreamChatEvent } from "./types.js";
 
 // OpenAI 兼容协议 chat 路径。
 // 覆盖 OpenAI / DeepSeek / Qwen / Zhipu / Kimi / MiniMax / Mimo / Opencode Go / OpenRouter / Stepfun / Ollama（OpenAI 兼容模式）等。
@@ -27,6 +27,12 @@ export const OPENAI_CHAT_PATH = "/chat/completions";
 // 思考档位词表唯一主人在 thinking-profiles（表与档位同域）；此处 re-export
 // 保住既有 import 路径（completion 曾是词表主人）。
 export { normalizeThinkingLevel } from "./thinking-profiles.js";
+
+// OpenAI 兼容 tools 定义（联网搜索管线）：tool-loop 传入，随请求体透传。
+export interface ChatToolDefinition {
+  type: "function";
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+}
 
 interface BuildChatRequestBodyInput {
   model: string;
@@ -39,6 +45,8 @@ interface BuildChatRequestBodyInput {
   // provider 记录穿入。
   baseUrl?: string;
   presetId?: string;
+  // 联网搜索管线（spec §2.1）：传入即随请求体带 tools + tool_choice: "auto"。
+  tools?: ChatToolDefinition[];
 }
 
 interface ChatRequestBody {
@@ -50,6 +58,8 @@ interface ChatRequestBody {
   max_completion_tokens?: number;
   thinking?: { type: string };
   enable_thinking?: boolean;
+  tools?: ChatToolDefinition[];
+  tool_choice?: "auto";
 }
 
 /**
@@ -62,8 +72,12 @@ interface ChatRequestBody {
  * token 参数映射）在 maxTokens 写入时消费：openai-reasoning 系写
  * max_completion_tokens，其余类与 unknown 维持 max_tokens 现状。
  */
-export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId }: BuildChatRequestBodyInput): ChatRequestBody {
+export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools }: BuildChatRequestBodyInput): ChatRequestBody {
   const body: ChatRequestBody = { model, messages, stream };
+  if (tools && tools.length) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
   const thinking = resolveThinkingProfile({
     presetId,
     baseUrl,
@@ -179,16 +193,44 @@ interface DrainSseStreamInput {
   onEvent?: (event: StreamChatEvent) => void;
 }
 
+// 单次 SSE 流的解析产物：content 为 content 增量拼接（tool 轮 assistant 消息
+// 回填用）；toolCalls 为按 index 聚合的 tool_calls；finishReason 取最后一个
+// finish 事件（"stop" | "tool_calls" | ...，缺失为 null）。
+interface DrainSseStreamResult {
+  content: string;
+  toolCalls: ChatToolCall[];
+  finishReason: string | null;
+}
+
+// 从 arguments JSON 宽容解析 query（spec §2.2 的 args 形状）：对象带 query 字符串
+// 直取；其余（含非 JSON / 非对象）以原文包 { query } 兜底，工具调用方总有词可搜。
+// tool-loop 回填 tool 消息时复用同一解析（收口单源）。
+export function parseToolArgs(rawArguments: string): { query: string } {
+  try {
+    const parsed = JSON.parse(rawArguments) as { query?: unknown };
+    if (parsed && typeof parsed === "object" && typeof parsed.query === "string") {
+      return { query: parsed.query };
+    }
+  } catch {}
+  return { query: rawArguments };
+}
+
 /**
  * 读取并解析单个 SSE 响应，逐事件经 onEvent 吐出（不依赖 port/DOM）。
  * 手动 buffer 按行切、data: 前缀、[DONE] 跳过；解析出的事件（reasoning/content）
  * 归一为 { type: "token" | "reasoning", data }（port 协议词表，适配层可直透）。
+ * 联网搜索扩展：delta.tool_calls 分片按 index 聚合（id/name/arguments 跨 chunk
+ * 拼接），流结束时逐条吐 onEvent({ type: "tool-call", name, args: { query } })
+ * （spec §2.2 聚合后发出），并随返回值带回聚合结果。
  * 中止时抛 makeAbortedError，由调用方统一收束。
  */
-async function drainSseStream({ response, signal, onEvent }: DrainSseStreamInput): Promise<void> {
+async function drainSseStream({ response, signal, onEvent }: DrainSseStreamInput): Promise<DrainSseStreamResult> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let content = "";
+  let finishReason: string | null = null;
+  const fragments = new Map<number, { id: string; name: string; args: string }>();
 
   while (true) {
     if (signal?.aborted) {
@@ -210,13 +252,39 @@ async function drainSseStream({ response, signal, onEvent }: DrainSseStreamInput
 
       const events = parseSsePayload(data);
       for (const event of events) {
-        onEvent?.({
-          type: event.type === "reasoning" ? "reasoning" : "token",
-          data: event.data
-        });
+        if (event.type === "reasoning" || event.type === "content") {
+          if (event.type === "content") {
+            content += event.data;
+          }
+          onEvent?.({
+            type: event.type === "reasoning" ? "reasoning" : "token",
+            data: event.data
+          });
+        } else if (event.type === "tool-call-fragment") {
+          const existing = fragments.get(event.index) || { id: "", name: "", args: "" };
+          if (event.id) existing.id = event.id;
+          if (event.name) existing.name = event.name;
+          existing.args += event.argsFragment;
+          fragments.set(event.index, existing);
+        } else if (event.type === "finish") {
+          finishReason = event.reason;
+        }
       }
     }
   }
+
+  // 聚合的 tool_calls 按流内顺序（index 升序）吐 tool-call 事件并随结果带回。
+  const toolCalls: ChatToolCall[] = [...fragments.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, fragment]) => ({
+      id: fragment.id || `tool_call_${index}`,
+      type: "function" as const,
+      function: { name: fragment.name, arguments: fragment.args }
+    }));
+  for (const call of toolCalls) {
+    onEvent?.({ type: "tool-call", name: call.function.name, args: parseToolArgs(call.function.arguments) });
+  }
+  return { content, toolCalls, finishReason };
 }
 
 interface RetryPayload {
@@ -224,6 +292,13 @@ interface RetryPayload {
   maxRetries: number;
   kind: "fetch" | "http" | "stream";
   error: Error;
+}
+
+interface ChatCompletionToolResult {
+  done: true;
+  finishReason: string | null;
+  assistantContent: string;
+  toolCalls: ChatToolCall[];
 }
 
 interface ChatCompletionInput {
@@ -239,6 +314,8 @@ interface ChatCompletionInput {
   probe?: boolean;
   maxTokens?: number | null;
   headers?: Record<string, string>;
+  // 联网搜索管线（spec §2.1）：传入即注入 tools + tool_choice: "auto"。
+  tools?: ChatToolDefinition[];
   onEvent?: (event: StreamChatEvent) => void;
   onRetry?: (payload: RetryPayload) => void;
   onStreamReset?: () => void;
@@ -253,6 +330,10 @@ interface ChatCompletionInput {
  * - messages: OpenAI 消息数组（组装留在调用方）。
  * - stream: 流式增量经 onEvent 吐出，成功返回 { done: true }；
  *   非流式成功返回 choices[0].message.content（非字符串回落空串）。
+ *   解析出 tool_calls（联网搜索管线，spec §2.1）时改返回
+ *   { done: true, finishReason, assistantContent, toolCalls }——流式由
+ *   drainSseStream 聚合（finish_reason=tool_calls），非流式读
+ *   message.tool_calls；无 tools 调用方返回值形状不变。
  * - probe: 探针模式——body 强制 token 上限参数（默认 1，参数名随 tokenParam
  *   映射，见 buildChatRequestBody），成功判定 = response.ok
  *   且不读响应体（某些兼容网关在 max_tokens:1 下返回非 JSON 体，不视为失败）。
@@ -300,12 +381,13 @@ export async function chatCompletion({
   probe = false,
   maxTokens,
   headers: extraHeaders,
+  tools,
   onEvent,
   onRetry,
   onStreamReset,
   retryDelayMs = 800,
   fetchImpl = globalThis.fetch
-}: ChatCompletionInput): Promise<string | { done: true }> {
+}: ChatCompletionInput): Promise<string | { done: true } | ChatCompletionToolResult> {
   const { baseUrl, model } = validateProviderBasics(provider);
 
   const maxRetries = retries ?? defaultRetries(stream);
@@ -324,7 +406,8 @@ export async function chatCompletion({
     // baseUrl 已归一；思考参数查表：presetId 主路径（provider 记录随带），
     // baseUrl host 推断兜底（custom/旧记录）。
     presetId: provider.presetId,
-    baseUrl
+    baseUrl,
+    tools
   });
 
   // 上一次失败（kind + 错误）：attempt > 0 时经 onRetry 上报后再退避重试。
@@ -385,8 +468,9 @@ export async function chatCompletion({
     }
 
     if (stream) {
+      let streamResult: DrainSseStreamResult;
       try {
-        await drainSseStream({ response, signal, onEvent });
+        streamResult = await drainSseStream({ response, signal, onEvent });
       } catch (e) {
         if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
           throw makeAbortedError();
@@ -398,6 +482,14 @@ export async function chatCompletion({
         lastFailure = { kind: "stream", error };
         continue;
       }
+      if (streamResult.toolCalls.length) {
+        return {
+          done: true,
+          finishReason: streamResult.finishReason,
+          assistantContent: streamResult.content,
+          toolCalls: streamResult.toolCalls
+        };
+      }
       return { done: true };
     }
 
@@ -407,7 +499,29 @@ export async function chatCompletion({
     } catch (e) {
       throw new Error(`响应解析失败：${(e as { message?: unknown })?.message || e}`);
     }
-    const content = (json as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]?.message?.content;
+    const choice = (json as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown }; finish_reason?: unknown }> })?.choices?.[0];
+    const content = choice?.message?.content;
+    const rawToolCalls = Array.isArray(choice?.message?.tool_calls) ? choice?.message?.tool_calls : [];
+    if (rawToolCalls.length) {
+      // 非流式 tool_calls（后续解释链接入用）：原样收为 ChatToolCall[]，宽容归一。
+      const toolCalls = (rawToolCalls as Array<Record<string, unknown>>).map((call, index) => {
+        const fn = (call.function || {}) as { name?: unknown; arguments?: unknown };
+        return {
+          id: typeof call.id === "string" && call.id ? call.id : `tool_call_${index}`,
+          type: "function" as const,
+          function: {
+            name: typeof fn.name === "string" ? fn.name : "",
+            arguments: typeof fn.arguments === "string" ? fn.arguments : "{}"
+          }
+        };
+      });
+      return {
+        done: true,
+        finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null,
+        assistantContent: typeof content === "string" ? content : "",
+        toolCalls
+      };
+    }
     return typeof content === "string" ? content : "";
   }
   // 循环内最后一次失败必 throw，此处不可达；防御性兜底满足控制流分析。
