@@ -827,6 +827,12 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+  transition: transform 150ms ease-out;
+}
+
+/* 面板在 chip 上方弹出：开（.is-open，由 popovers 同步）= chevron 翻转朝上。 */
+.boc-reading-chat .chat-model-chip.is-open svg {
+  transform: rotate(180deg);
 }
 
 /* 发送键：空闲 = ↑（accent 圆键，空输入禁用置灰）；流式中同键变停止键

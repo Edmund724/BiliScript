@@ -39,12 +39,25 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
   const { presetPopover, historyPopover, modelPanel, presetInput } = deps;
 
   // 互斥基准：任一弹层打开前先关其余两个（同一时刻至多一层浮在发送框上）。
+  // 模型面板的 hidden 统一经 setModelPanelHidden 写（同步 chip 箭头方向）。
   function hideOthers(except: HTMLElement): void {
     for (const popover of [presetPopover, historyPopover, modelPanel]) {
-      if (popover !== except) {
+      if (popover === except) {
+        continue;
+      }
+      if (popover === modelPanel) {
+        setModelPanelHidden(true);
+      } else {
         popover.hidden = true;
       }
     }
+  }
+
+  // 模型面板开合同步 chip 箭头方向：面板在 chip 上方弹出，开 = chevron 朝上
+  //（.is-open），关 = 朝下。toggle/互斥/外点/Esc/hidePanel 全部路径经此写。
+  function setModelPanelHidden(hidden: boolean): void {
+    modelPanel.hidden = hidden;
+    deps.modelChipBtn.classList.toggle("is-open", !hidden);
   }
 
   function togglePresetPopover(event?: Event): void {
@@ -81,14 +94,14 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     event?.stopPropagation();
     hideOthers(modelPanel);
     const willShow = modelPanel.hidden;
-    modelPanel.hidden = !willShow;
+    setModelPanelHidden(!willShow);
     if (willShow) {
       deps.renderModelPanel();
     }
   }
 
   function hideModelPanel(): void {
-    modelPanel.hidden = true;
+    setModelPanelHidden(true);
   }
 
   // 外点关闭（由组合根经 chat-tab-bridge 注册进 ui-renderer 的单一文档级委托）：

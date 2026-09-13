@@ -130,8 +130,8 @@ describe("toggleHistoryPopover", () => {
 });
 
 describe("toggleModelPanel", () => {
-  it("开模型面板：刷新面板列表，并关预设与历史", () => {
-    const { popovers, deps, presetPopover, historyPopover, modelPanel } = makeHarness();
+  it("开模型面板：刷新面板列表，chip 箭头翻转（is-open），并关预设与历史", () => {
+    const { popovers, deps, presetPopover, historyPopover, modelPanel, modelChipBtn } = makeHarness();
     historyPopover.hidden = true;
     presetPopover.hidden = true;
     modelPanel.hidden = true;
@@ -142,15 +142,32 @@ describe("toggleModelPanel", () => {
     expect(presetPopover.hidden).toBe(true);
     expect(historyPopover.hidden).toBe(true);
     expect(deps.renderModelPanel).toHaveBeenCalledTimes(1);
+    expect(modelChipBtn.classList.contains("is-open")).toBe(true);
   });
 
-  it("可见时再 toggle：关闭（不重复刷新）", () => {
-    const { popovers, deps, modelPanel } = makeHarness();
+  it("可见时再 toggle：关闭（不重复刷新），chip 箭头复位（is-open 移除）", () => {
+    const { popovers, deps, modelPanel, modelChipBtn } = makeHarness();
+    modelPanel.hidden = true;
+    popovers.toggleModelPanel();
 
     popovers.toggleModelPanel();
 
     expect(modelPanel.hidden).toBe(true);
-    expect(deps.renderModelPanel).not.toHaveBeenCalled();
+    expect(deps.renderModelPanel).toHaveBeenCalledTimes(1);
+    expect(modelChipBtn.classList.contains("is-open")).toBe(false);
+  });
+
+  it("互斥：开预设 popover 关模型面板时，chip 箭头同步复位", () => {
+    const { popovers, presetPopover, historyPopover, modelPanel, modelChipBtn } = makeHarness();
+    historyPopover.hidden = true;
+    presetPopover.hidden = true;
+    modelPanel.hidden = true;
+    popovers.toggleModelPanel();
+
+    popovers.togglePresetPopover();
+
+    expect(modelPanel.hidden).toBe(true);
+    expect(modelChipBtn.classList.contains("is-open")).toBe(false);
   });
 });
 
