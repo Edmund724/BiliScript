@@ -479,7 +479,8 @@ export function updateSendBtnState(): void {
 }
 
 export function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
-  els.input.disabled = isStreaming;
+  // 流式中输入框不禁用（等待期间可继续打字）：发送闸由双发竞态闸拦——流式中
+  // 回车/发送键走到的 sendMessage 会被 activePort 直接忽略，新消息发不出去。
   stopInFlight = stopping;
   // 同键双形态：空闲 = ↑ 发送键（空输入禁用）；流式中 = 停止键（圆形 + 方块
   // 图标，点击 abort 同一条 stopActiveStream 链），停止中禁用防连点。

@@ -530,16 +530,15 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     await waitFor(() => ports.length === 1);
 
-    // 流式中：发送键切换为停止键形态（is-stop），输入框禁用
+    // 流式中：发送键切换为停止键形态（is-stop）；输入框不禁用（等待期间可继续打字）
     const sendBtn = document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement;
     expect(sendBtn.classList.contains("is-stop")).toBe(true);
-    expect(input.disabled).toBe(true);
+    expect(input.disabled).toBe(false);
 
     chat.closeChatSession();
 
     expect(ports[0].disconnect).toHaveBeenCalledTimes(1);
     expect(sendBtn.classList.contains("is-stop")).toBe(false);
-    expect(input.disabled).toBe(false);
 
     // 关闭后发送不再放行（不做后台续跑）：subtitle-wait 轮询闸住，无新 port
     input.value = "关闭后再发";

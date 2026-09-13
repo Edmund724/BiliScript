@@ -773,9 +773,9 @@
   stroke-linecap: round;
 }
 
-/* 模型 chip：隐藏 select 的展示层。内联 width（model-select-width 按内容度量，
+/* 模型 chip：隐藏 select 的展示层。内联 width（model-select-width 按内容度量,
  * hug content，上限 420 防极端长名）；溢出省略号只截断模型名 span，档位与
- * chevron 固定不被压缩。 */
+ * chevron 固定不被压缩。无自身底色——模型名直接落在输入卡片背景上。 */
 .boc-reading-chat .chat-model-chip {
   display: inline-flex;
   align-items: center;
@@ -784,8 +784,7 @@
   margin-left: auto;
   padding: 0 10px;
   border: 0;
-  border-radius: 999px;
-  background: var(--boc-reader-surface-2);
+  background: transparent;
   color: var(--boc-reader-text);
   font: inherit;
   font-size: 13px;
@@ -793,11 +792,7 @@
   cursor: pointer;
   overflow: hidden;
   white-space: nowrap;
-  transition: background 0.15s ease-out, transform 100ms ease-out;
-}
-
-.boc-reading-chat .chat-model-chip:hover {
-  background: var(--boc-reader-surface-3);
+  transition: transform 100ms ease-out;
 }
 
 .boc-reading-chat .chat-model-chip:active {
