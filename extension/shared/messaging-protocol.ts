@@ -349,6 +349,22 @@ export type SearchProvidersDeleteResponse = {
   error?: string;
 };
 
+// ===== 联网搜索运行时解析（spec §2.3/§2.4）=====
+// offscreen 文档无 chrome.storage，工具循环的搜索配置（激活平台 + Key + 上限）
+// 经本消息单趟往返解析（仿 resolve-ai-provider）。未配置激活平台时 ok:true 且
+// provider 缺省——调用方（entry/offscreen.ts）据此 notice「未配置搜索平台」并
+// 走原无工具路径，不算错误。
+export type ResolveSearchProviderMessage = { type: "resolve-search-provider" };
+// 响应锚点：entry/background.ts handleResolveSearchProvider。
+export type ResolveSearchProviderResponse = {
+  ok: boolean;
+  provider?: { id: string; name: string; type: string; baseUrl: string };
+  apiKey?: string;
+  // settings.webSearchMaxToolCalls（单轮搜索次数上限，区间 1–10）。
+  maxToolCalls?: number;
+  error?: string;
+};
+
 export type OffloadTaskMessage = {
   type: "offload-task";
   taskType?: string;
@@ -404,6 +420,7 @@ export type BackgroundMessage =
   | SearchProvidersListMessage
   | SearchProvidersSaveMessage
   | SearchProvidersDeleteMessage
+  | ResolveSearchProviderMessage
   | SegmentCacheMessage
   | OffloadTaskMessage
   | OffscreenRequestCloseMessage
@@ -437,6 +454,9 @@ export type OffscreenChatMessage = {
   providerId?: string;
   // 选中模型 id（multi-model-catalog）：缺省回落解析平台记录的目录首项
   model?: string;
+  // 联网搜索管线（spec §2.1）：宿主「联网」toggle 全局记忆，offscreen 据此决定
+  // 是否解析搜索配置并注入 tools；Map-Reduce 归约轮由 ladder 静默禁用 + notice。
+  webSearchEnabled?: boolean;
   subtitleBody?: unknown;
   [key: string]: unknown;
 };
@@ -503,6 +523,7 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends SearchProvidersListMessage ? SearchProvidersListResponse
   : M extends SearchProvidersSaveMessage ? SearchProvidersSaveResponse
   : M extends SearchProvidersDeleteMessage ? SearchProvidersDeleteResponse
+  : M extends ResolveSearchProviderMessage ? ResolveSearchProviderResponse
   : M extends SegmentCacheMessage ? SegmentCacheResponse
   : M extends OffloadTaskMessage ? OffloadTaskResponse
   : M extends OffscreenRequestCloseMessage ? OffscreenRequestCloseResponse

@@ -228,3 +228,59 @@ describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", 
     expect(calls.streamChat).toHaveLength(1);
   });
 });
+
+describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
+  it("单次路径：webSearch 透传 streamChat", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps();
+    const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig", webSearch }, deps);
+    expect(calls.streamChat[0].webSearch).toBe(webSearch);
+  });
+
+  it("追问压缩路径：webSearch 透传（单次流式调用，非归约轮）", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      resolveFollowupContext: vi.fn(async () => ({ compressedSummaryMarkdown: "压缩摘要" }))
+    });
+    const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig", webSearch }, deps);
+    expect(calls.streamChat[0].webSearch).toBe(webSearch);
+    expect(port.messages.some((m) => m.data === "超长内容归约中，本轮不联网")).toBe(false);
+  });
+
+  it("Map-Reduce 归约轮：notice「本轮不联网」+ 不传 webSearch", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 })
+    });
+    const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig", webSearch }, deps);
+    expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(true);
+    expect(calls.mapReduce.length).toBe(1);
+  });
+
+  it("单次溢出转 Map-Reduce：同样 notice + 不联网", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps({
+      buildBudgetPlan: () => ({ mode: "single" }),
+      streamChat: vi.fn(async () => {
+        throw Object.assign(new Error("overflow"), { overflow: true });
+      })
+    });
+    const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig", webSearch }, deps);
+    expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(true);
+    expect(calls.mapReduce.length).toBe(1);
+  });
+
+  it("无 webSearch：归约轮不发 notice（行为回归）", async () => {
+    const port = makePort();
+    const { deps } = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 })
+    });
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    expect(port.messages.some((m) => m.data === "超长内容归约中，本轮不联网")).toBe(false);
+  });
+});

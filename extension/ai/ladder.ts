@@ -47,6 +47,13 @@ export interface ChatPort {
 export type BudgetPlan = Pick<import("./types.js").BudgetPlan, "mode"> &
   Partial<Pick<import("./types.js").BudgetPlan, "estimatedCalls" | "estimatedTokens">>;
 
+// executeSearch 的窄面（ai/tool-loop.ts 的 ToolLoopSearchOutcome 同形，此处
+// 结构化窄面，测试注入方少填字段也能过编译）。
+export interface WebSearchRuntime {
+  maxToolCalls: number;
+  executeSearch: (query: string) => Promise<{ results: unknown[]; platform: string }>;
+}
+
 export interface StreamChatArgs {
   provider: ChatProvider;
   context: ChatContext;
@@ -56,6 +63,9 @@ export interface StreamChatArgs {
   port: ChatPort;
   signal: AbortSignal | string | null;
   onActivity?: () => void;
+  // 联网搜索管线（spec §2.3）：传入即走 ai/tool-loop 的工具循环；Map-Reduce
+  // 归约轮剥离 + notice，追问压缩与单次路径透传。
+  webSearch?: WebSearchRuntime;
 }
 
 export type StreamChatFn = (args: StreamChatArgs) => Promise<unknown>;
@@ -101,6 +111,9 @@ export interface RunLadderChatArgs {
   provider: ChatProvider;
   port: ChatPort;
   signal: AbortSignal | string | null;
+  // 联网搜索运行时（spec §2.3）：offscreen 在 webSearchEnabled 且已配置激活
+  // 平台时注入；undefined = 本轮无联网（toggle 关 / 未配置 / 解析失败）。
+  webSearch?: WebSearchRuntime;
 }
 
 export interface RunLadderChatDeps {
@@ -132,7 +145,7 @@ export interface RunLadderChatDeps {
  * askCostGuard 依赖 offscreen 的 Promise 簿记，必须由 offscreen 注入。
  */
 export async function runLadderChat(
-  { msg, provider, port, signal }: RunLadderChatArgs,
+  { msg, provider, port, signal, webSearch }: RunLadderChatArgs,
   deps: RunLadderChatDeps
 ): Promise<void> {
   const streamChat: StreamChatFn = deps.streamChat ?? (_streamChat as unknown as StreamChatFn);
@@ -148,7 +161,7 @@ export async function runLadderChat(
   // 覆盖成本护栏等待与追问小结加载，结束/异常经 finally 释放。
   const keepalive = (deps.acquireSwKeepalive ?? _acquireSwKeepalive)();
   try {
-    await runLadderChatDispatch({ msg, provider, port, signal }, {
+    await runLadderChatDispatch({ msg, provider, port, signal, webSearch }, {
       streamChat,
       orchestrateMapReduce,
       resolveFollowupContext,
@@ -172,7 +185,7 @@ type LadderDispatchDeps = Required<Pick<RunLadderChatDeps,
 
 // 阶梯分派本体：与保活生命周期解耦，runLadderChat 统一 try/finally 释放端口。
 async function runLadderChatDispatch(
-  { msg, provider, port, signal }: RunLadderChatArgs,
+  { msg, provider, port, signal, webSearch }: RunLadderChatArgs,
   {
     streamChat,
     orchestrateMapReduce,
@@ -211,7 +224,9 @@ async function runLadderChatDispatch(
           thinkingLevel: msg.thinkingLevel,
           port,
           signal,
-          onActivity
+          onActivity,
+          // 追问压缩路径是单次流式调用（非归约轮），联网可用（spec Q12）。
+          webSearch
         });
       } catch (e) {
         // 兜底：压缩摘要 + 检索注入仍意外溢出（HTTP context-length）时，绝不静默无输出。
@@ -243,6 +258,10 @@ async function runLadderChatDispatch(
     // 期间没有任何流式活动可重挂 90 秒窗口，慢模型单段超窗会误杀整个运行（根治
     // [90s-idle] 诊断）。进度仍逐段回吐；真正挂死由用户「停止」兜底。
     pauseIdleTimeout?.();
+    // 联网开关开启时归约轮静默禁用搜索（spec Q12：归约轮不联网）。
+    if (webSearch) {
+      port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
+    }
     await orchestrateMapReduce({
       provider,
       context: msg.context || {},
@@ -270,7 +289,8 @@ async function runLadderChatDispatch(
       thinkingLevel: msg.thinkingLevel,
       port,
       signal,
-      onActivity
+      onActivity,
+      webSearch
     });
   } catch (e) {
     if (!(e as { overflow?: boolean }).overflow) {
@@ -278,6 +298,10 @@ async function runLadderChatDispatch(
     }
     // 编排期间整体暂停空闲超时（语义同上方 map-reduce 主路径）。
     pauseIdleTimeout?.();
+    // 溢出转 Map-Reduce 同为归约轮：静默禁用搜索 + notice（spec Q12）。
+    if (webSearch) {
+      port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
+    }
     await orchestrateMapReduce({
       provider,
       context: msg.context || {},

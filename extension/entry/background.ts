@@ -289,6 +289,40 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
   return true;
 }
 
+// ===== 联网搜索消息处理 =====
+
+// 联网搜索运行时解析（spec §2.3/§2.4）：offscreen 文档无 chrome.storage，工具
+// 循环的搜索配置（激活平台 + Key + 单轮上限）经本消息单趟往返。激活平台未配置
+// / 未启用 / Key 缺失时 ok:true 且 provider 缺省——调用方 notice 后走原无工具
+// 路径，不算错误（搜索是增强，缺失不阻塞对话）。
+function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: SendResponse): boolean {
+  withOkResponse(
+    (async () => {
+      const settings = await getMergedSettings();
+      const providers = await searchProviderStore.loadProviders();
+      const active = providers.find(
+        (p) => p.id === settings.activeSearchProviderId && p.enabled !== false
+      );
+      if (!active) {
+        return { ok: true };
+      }
+      const apiKey = await searchProviderStore.getKey(active.id);
+      if (!apiKey) {
+        return { ok: true };
+      }
+      return {
+        ok: true,
+        provider: { id: active.id, name: active.name, type: active.type, baseUrl: active.baseUrl },
+        apiKey,
+        maxToolCalls: settings.webSearchMaxToolCalls
+      };
+    })(),
+    sendResponse,
+    (error) => (error as Error | undefined)?.message || String(error)
+  );
+  return true;
+}
+
 // ===== ASR 平台消息处理 =====
 
 function handleAsrPresetsList(_message: Msg<"asr-presets-list">, _sender: MessageSender, sendResponse: SendResponse): boolean {
@@ -399,6 +433,7 @@ const messageHandlerTable = {
   "search-providers-list": searchProviderHandlers.list,
   "search-providers-save": searchProviderHandlers.save,
   "search-providers-delete": searchProviderHandlers.remove,
+  "resolve-search-provider": handleResolveSearchProvider,
   "segment-cache": handleSegmentCache,
   "offload-task": handleOffloadTask,
   "offscreen-request-close": handleOffscreenRequestCloseMsg,

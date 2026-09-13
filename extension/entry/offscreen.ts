@@ -34,9 +34,14 @@ import { createLazyLoader } from "../shared/lazy-import.js";
 import type {
   OffscreenAsrPortMessage,
   OffscreenChatPortMessage,
-  ResolveAiProviderResponse
+  ResolveAiProviderResponse,
+  ResolveSearchProviderResponse
 } from "../shared/messaging-protocol.js";
-import type { ChatMsg } from "../ai/ladder.js";
+import type { ChatMsg, WebSearchRuntime } from "../ai/ladder.js";
+// 联网搜索执行器（spec §2.4）：offscreen 侧经 provider-http 消息通道由 SW 发起
+// 搜索请求，密钥不出 SW；adapter 选型按 provider.type 分派。
+import { executeWebSearch } from "../search/search-executor.js";
+import type { SearchProviderType } from "../core/presets.js";
 // 出向回吐协议单源（chat/protocol.ts，ticket 08）：聊天端口名常量收口两处
 // 裸写（本文件 onConnect 判定与宿主 connect），withCachedContextKey 包装的
 // postMessage 入参从 Record<string, unknown> 收为协议联合——下游
@@ -193,14 +198,22 @@ chrome.runtime.onConnect.addListener((port) => {
       // 拉 ../ai/ladder.js）。串行会多等一轮「往返 + module 解析」，改
       // Promise.all 并行。任一侧失败照旧走原分支：装载失败抛错进下方既有
       // catch 通道回报（{ type: "error" }），语义与 runLadderChat 抛错一致，
-      // 不崩文档；provider 解析出错短路并清理活动请求态。
-      const [resolved, runLadderChat] = await Promise.all([
+      // 不崩文档；provider 解析出错短路并清理活动请求态。联网开关开启时并行
+      // 解析搜索配置（resolve-search-provider 单趟往返，spec §2.3/§2.4）。
+      const webSearchRequested = (msg as ChatMsg).webSearchEnabled === true;
+      const [resolved, runLadderChat, searchRuntime] = await Promise.all([
         resolveProviderWithKey(ackedPort, msg.providerId),
-        ladderLoader.load()
+        ladderLoader.load(),
+        webSearchRequested ? resolveSearchRuntime() : Promise.resolve(undefined)
       ]);
       if (resolved.error) {
         clearActiveRequestState();
         return;
+      }
+      if (webSearchRequested && !searchRuntime) {
+        // 开关开启但未配置激活搜索平台（或解析失败）：如实提示后走原无工具路径
+        //（搜索是增强，缺失不阻塞对话）。
+        ackedPort.postMessage({ type: "notice", data: "未配置搜索平台，本轮未联网" });
       }
       const { provider, apiKey } = resolved;
 
@@ -234,7 +247,9 @@ chrome.runtime.onConnect.addListener((port) => {
             ...(msg.model ? { model: String(msg.model) } : {})
           },
           port: ackedPort,
-          signal: activeAbortController.signal
+          signal: activeAbortController.signal,
+          // 联网运行时（spec §2.3）：toggle 开启且已配置时注入工具循环。
+          ...(searchRuntime ? { webSearch: searchRuntime } : {})
         },
         {
           askCostGuard,
@@ -356,6 +371,35 @@ function withCachedContextKey<T extends ChatPortMessage>(port: PostMessagePort, 
       safePostMessage(port, { ...data, cachedContextKey: contextKey } as T);
     }
   };
+}
+
+// 取联网搜索运行时（spec §2.3/§2.4）：resolve-search-provider 单趟往返拿激活
+// 平台（id/name/type/baseUrl）+ Key + 单轮上限，组装 executeSearch 闭包（中止
+// 复用本次聊天的 abort controller，停止可中断在途搜索）。未配置 / 解析失败返回
+// undefined，调用方 notice 后走原无工具路径——搜索是增强，缺失不阻塞对话。
+async function resolveSearchRuntime(): Promise<WebSearchRuntime | undefined> {
+  try {
+    const resp = (await chrome.runtime.sendMessage({
+      type: "resolve-search-provider"
+    })) as ResolveSearchProviderResponse | null;
+    if (!resp?.ok || !resp.provider || !resp.apiKey) {
+      return undefined;
+    }
+    const config = {
+      type: resp.provider.type as SearchProviderType,
+      baseUrl: resp.provider.baseUrl,
+      apiKey: resp.apiKey
+    };
+    const maxToolCalls = Number(resp.maxToolCalls) > 0 ? Number(resp.maxToolCalls) : 5;
+    return {
+      maxToolCalls,
+      executeSearch: (query) =>
+        executeWebSearch(config, query, undefined, activeAbortController?.signal ?? null)
+    };
+  } catch {
+    // 消息失败/无接收方（SW 冷启动竞态等）：维持无联网，与未配置同路径。
+    return undefined;
+  }
 }
 
 // 取「选中的平台 + 其 API Key」：走 resolve-ai-provider 合成消息单趟往返
