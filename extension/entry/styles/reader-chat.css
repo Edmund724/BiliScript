@@ -654,15 +654,58 @@
   opacity: 0.62;
 }
 
-/* 联网搜索开关（spec §4）：开启态 accent-soft 底 + accent 字，与关闭态灰字
- * 区分；pill 母题沿用 .chat-toolbar-btn 的圆角与高度。 */
+/* 联网搜索开关（spec §4）：输入行 + 右侧的描边 pill（DeepSeek 输入框工具
+ * pill 同款位）；开启态 accent-soft 底 + accent 字与关闭态灰字区分。 */
+.boc-reading-chat .chat-web-search-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-reader-muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+}
+
+.boc-reading-chat .chat-web-search-pill:hover {
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
+}
+
+.boc-reading-chat .chat-web-search-pill:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+.boc-reading-chat .chat-web-search-pill svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.boc-reading-chat .chat-web-search-pill span {
+  font-size: inherit;
+  line-height: 1;
+}
+
 .boc-reading-chat .chat-web-search-pill.is-active {
+  border-color: var(--boc-reader-accent);
   background: var(--boc-reader-accent-soft);
   color: var(--boc-reader-accent);
   font-weight: 600;
 }
 
 .boc-reading-chat .chat-web-search-pill.is-active:hover {
+  border-color: var(--boc-reader-accent);
   background: var(--boc-reader-accent-soft);
   color: var(--boc-reader-accent);
 }
