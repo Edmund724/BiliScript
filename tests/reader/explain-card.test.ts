@@ -295,6 +295,51 @@ describe("面板内解释卡片", () => {
     expect(args.provider.baseUrl).toBe("https://thinking-proxy.example.com/v1");
   });
 
+  it("webSearchEnabled 开启：解释请求带联网运行时（resolve-search-provider 往返组装）", async () => {
+    // 覆盖 setup 层的 chrome stub：get-settings 回开启态，resolve-search-provider
+    // 回激活平台；其余消息回 ok（sendRuntimeMessage callback 风格）。
+    vi.stubGlobal("chrome", {
+      runtime: {
+        lastError: null,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        sendMessage: (msg: { type?: string }, cb?: (r: unknown) => void) => {
+          const payload =
+            msg?.type === "get-settings"
+              ? { ok: true, settings: { webSearchEnabled: true } }
+              : msg?.type === "resolve-search-provider"
+                ? { ok: true, provider: { id: "p", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" }, apiKey: "tvly-k", maxToolCalls: 2 }
+                : { ok: true };
+          if (typeof cb === "function") {
+            cb(payload);
+            return undefined;
+          }
+          return Promise.resolve(payload);
+        }
+      }
+    });
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
+
+    const args = aiMock.explainSelection.mock.calls[0][0] as {
+      webSearch?: { maxToolCalls: number; executeSearch: (q: string) => Promise<unknown> };
+    };
+    expect(args.webSearch).toMatchObject({ maxToolCalls: 2 });
+    expect(typeof args.webSearch?.executeSearch).toBe("function");
+
+    // 用例后恢复 setup 层 stub（下一个用例的 resetModuleState 会重装）
+    vi.unstubAllGlobals();
+  });
+
+  it("toggle 关（默认设置）：解释请求不带 webSearch（无联网字段）", async () => {
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
+    const args = aiMock.explainSelection.mock.calls[0][0] as { webSearch?: unknown };
+    expect(args.webSearch).toBeUndefined();
+  });
+
   it("卡片「去对话追问」：写意图（含 selection）+ 切到 AI 对话 tab + 引用卡展示选中片段", async () => {
     selectInItem(1, "传递信息的工具");
     explainBtn().click();

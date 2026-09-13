@@ -34,14 +34,12 @@ import { createLazyLoader } from "../shared/lazy-import.js";
 import type {
   OffscreenAsrPortMessage,
   OffscreenChatPortMessage,
-  ResolveAiProviderResponse,
-  ResolveSearchProviderResponse
+  ResolveAiProviderResponse
 } from "../shared/messaging-protocol.js";
 import type { ChatMsg, WebSearchRuntime } from "../ai/ladder.js";
-// 联网搜索执行器（spec §2.4）：offscreen 侧经 provider-http 消息通道由 SW 发起
-// 搜索请求，密钥不出 SW；adapter 选型按 provider.type 分派。
-import { executeWebSearch } from "../search/search-executor.js";
-import type { SearchProviderType } from "../core/presets.js";
+// 联网搜索运行时解析器（spec §2.3/§2.4）：resolve-search-provider 往返 + executeSearch
+// 闭包组装收口单源（search/search-runtime.ts，选区解释链同走此解析）。
+import { resolveWebSearchRuntime } from "../search/search-runtime.js";
 // 出向回吐协议单源（chat/protocol.ts，ticket 08）：聊天端口名常量收口两处
 // 裸写（本文件 onConnect 判定与宿主 connect），withCachedContextKey 包装的
 // postMessage 入参从 Record<string, unknown> 收为协议联合——下游
@@ -373,33 +371,12 @@ function withCachedContextKey<T extends ChatPortMessage>(port: PostMessagePort, 
   };
 }
 
-// 取联网搜索运行时（spec §2.3/§2.4）：resolve-search-provider 单趟往返拿激活
-// 平台（id/name/type/baseUrl）+ Key + 单轮上限，组装 executeSearch 闭包（中止
-// 复用本次聊天的 abort controller，停止可中断在途搜索）。未配置 / 解析失败返回
+// 取联网搜索运行时（spec §2.3/§2.4）：委托 search/search-runtime.ts 的共享解析
+//（resolve-search-provider 往返 + executeSearch 闭包，选区解释链同源）；中止
+// 复用本次聊天的 abort controller，停止可中断在途搜索。未配置 / 解析失败返回
 // undefined，调用方 notice 后走原无工具路径——搜索是增强，缺失不阻塞对话。
 async function resolveSearchRuntime(): Promise<WebSearchRuntime | undefined> {
-  try {
-    const resp = (await chrome.runtime.sendMessage({
-      type: "resolve-search-provider"
-    })) as ResolveSearchProviderResponse | null;
-    if (!resp?.ok || !resp.provider || !resp.apiKey) {
-      return undefined;
-    }
-    const config = {
-      type: resp.provider.type as SearchProviderType,
-      baseUrl: resp.provider.baseUrl,
-      apiKey: resp.apiKey
-    };
-    const maxToolCalls = Number(resp.maxToolCalls) > 0 ? Number(resp.maxToolCalls) : 5;
-    return {
-      maxToolCalls,
-      executeSearch: (query) =>
-        executeWebSearch(config, query, undefined, activeAbortController?.signal ?? null)
-    };
-  } catch {
-    // 消息失败/无接收方（SW 冷启动竞态等）：维持无联网，与未配置同路径。
-    return undefined;
-  }
+  return resolveWebSearchRuntime(activeAbortController?.signal ?? null);
 }
 
 // 取「选中的平台 + 其 API Key」：走 resolve-ai-provider 合成消息单趟往返

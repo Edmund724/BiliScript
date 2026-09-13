@@ -7,7 +7,7 @@
 // 4. 平台不支持 tools（不可重试 4xx）：notice + 摘除 tools 无联网重发一次；
 // 5. 轮内多条 tool call：逐条计数 / 8 条截断 / 持久化副本 2000 字符截断。
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runToolLoop, WEB_SEARCH_TOOL, TOOL_MESSAGE_MAX_CHARS } from "../../extension/ai/tool-loop.js";
+import { runToolLoop, webSearchTool, WEB_SEARCH_TOOL, TOOL_MESSAGE_MAX_CHARS } from "../../extension/ai/tool-loop.js";
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 
@@ -253,5 +253,40 @@ describe("runToolLoop 工具调用循环", () => {
 
   it("web_search 工具描述带 [n] 引用要求（prompt 侧编号契约）", () => {
     expect(WEB_SEARCH_TOOL.function.description).toContain("[n]");
+  });
+
+  it("toolDefinition 变体：解释链传 requireCitations:false，描述不带 [n] 且随请求注入", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" }),
+      toolDefinition: webSearchTool({ requireCitations: false })
+    }));
+    expect(capture.calls[0].tools).toHaveLength(1);
+    expect(capture.calls[0].tools[0].function.name).toBe("web_search");
+    expect(capture.calls[0].tools[0].function.description).not.toContain("[n]");
+  });
+
+  it("非流式轮返回最终文本（选区解释链消费，无事件拼装）", async () => {
+    let call = 0;
+    const json = vi.fn(async () => {
+      call += 1;
+      return call === 1
+        ? { choices: [{ message: { role: "assistant", tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"术语"}' } }] }, finish_reason: "tool_calls" }] }
+        : { choices: [{ message: { role: "assistant", content: "最终解释" }, finish_reason: "stop" }] };
+    });
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json }));
+    const result = await runToolLoop(makeInput({
+      stream: false,
+      fetchImpl,
+      executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
+    }));
+    expect(result).toBe("最终解释");
+  });
+
+  it("maxTokens 透传 chatCompletion（解释链钉 320 输出上限）", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({ maxTokens: 320, fetchImpl: capture.fetchImpl, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
+    expect(capture.calls[0].max_tokens).toBe(320);
   });
 });

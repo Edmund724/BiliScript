@@ -24,6 +24,9 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { renderMarkdown } from "../ui/markdown.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
+import { getSettings } from "../core/runtime.js";
+import { resolveWebSearchRuntime } from "../search/search-runtime.js";
+import { setMessage } from "../core/ui-status.js";
 import { logWarn } from "../shared/logging.js";
 import { ids } from "./state.js";
 import { setPendingExplainIntent } from "./explain-intent.js";
@@ -50,6 +53,8 @@ interface ExplainCardState {
   controller: AbortController | null;
   /** 代际号：回执落定前比对，过期回执丢弃 */
   runId: number;
+  /** 联网搜索进行中（loading 态文案区分「正在解释」与「正在联网搜索」） */
+  searching: boolean;
 }
 
 const card: ExplainCardState = {
@@ -62,7 +67,8 @@ const card: ExplainCardState = {
   text: "",
   error: "",
   controller: null,
-  runId: 0
+  runId: 0,
+  searching: false
 };
 
 export interface ReaderExplainCardPayload {
@@ -98,7 +104,7 @@ function renderCard(): void {
       ? `
         <div class="boc-reading-explain-card-state">
           <span class="boc-reading-explain-card-dot" aria-hidden="true"></span>
-          正在解释…
+          ${card.searching ? "正在联网搜索…" : "正在解释…"}
         </div>
       `
       : card.phase === "error"
@@ -154,6 +160,7 @@ function startExplainRequest(): void {
   card.phase = "loading";
   card.text = "";
   card.error = "";
+  card.searching = false;
   renderCard();
 
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -165,6 +172,13 @@ function startExplainRequest(): void {
       // explainSelection 按需动态装载（ai/explain 不再常驻 reader chunk），
       // 装载失败与请求失败同走 error 态。
       const { explainSelection } = await import("../ai/explain.js");
+      // 联网搜索（spec §2.1：选区解释链同样可用）：toggle 开启才解析运行时；
+      // 未配置激活平台时解析器返回 undefined，如实走原无工具路径（搜索是增强，
+      // 缺失不阻塞解释）。中止复用本卡 abort controller，关闭/重试可断在途搜索。
+      let webSearch;
+      if ((await getSettings()).webSearchEnabled) {
+        webSearch = await resolveWebSearchRuntime(controller?.signal ?? null);
+      }
       const text = await explainSelection({
         provider,
         videoTitle: state.clip.title,
@@ -173,13 +187,31 @@ function startExplainRequest(): void {
         from: card.from,
         index: card.index,
         body: getClipBody(),
-        signal: controller?.signal
+        signal: controller?.signal,
+        webSearch,
+        // 搜索中/完成切换 loading 文案；notice（搜索失败原因 / 额度用尽）走
+        // 阅读视图状态条——卡片本身无 notice 通道，回答不因搜索失败中断。
+        onSearchStatus: (payload) => {
+          if (runId !== card.runId) {
+            return;
+          }
+          card.searching = payload.status === "searching";
+          if (card.phase === "loading") {
+            renderCard();
+          }
+        },
+        onNotice: (notice) => {
+          if (runId === card.runId) {
+            setMessage(notice);
+          }
+        }
       });
       if (runId !== card.runId) {
         return; // 已被新的打开/关闭取代：丢弃过期回执
       }
       card.phase = "ready";
       card.text = text;
+      card.searching = false;
       renderCard();
     } catch (error) {
       if (runId !== card.runId || (error as { aborted?: boolean })?.aborted) {
@@ -188,6 +220,7 @@ function startExplainRequest(): void {
       logWarn("[BOC] explain selection failed", error);
       card.phase = "error";
       card.error = getErrorMessage(error);
+      card.searching = false;
       renderCard();
     }
   })();
@@ -226,6 +259,7 @@ export function closeReaderExplainCard(): void {
   card.open = false;
   card.text = "";
   card.error = "";
+  card.searching = false;
   renderCard();
 }
 

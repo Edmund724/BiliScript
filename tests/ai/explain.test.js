@@ -6,8 +6,18 @@ import { resetModuleState } from "../setup.js";
 
 const completionMock = vi.hoisted(() => ({ chatCompletion: vi.fn(async () => "  解释文本  ") }));
 
+// parseToolArgs 用真实实现（tool-loop 回填 tool 消息复用；JSON 宽容解析）。
 vi.mock("../../extension/ai/completion.js", () => ({
-  chatCompletion: completionMock.chatCompletion
+  chatCompletion: completionMock.chatCompletion,
+  parseToolArgs: (raw) => {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && typeof parsed.query === "string") {
+        return { query: parsed.query };
+      }
+    } catch {}
+    return { query: raw };
+  }
 }));
 
 let explain;
@@ -167,5 +177,102 @@ describe("explainSelection", () => {
     await expect(
       explain.explainSelection({ provider: { baseUrl: "https://api.test/v1", model: "m" }, selection: "词", line: "句", from: 0 })
     ).rejects.toThrow("HTTP 401");
+  });
+
+  it("联网链走 tool-loop：注入 web_search 工具 + 联网变体提示词，搜索结果回填 tool 消息，返回最终文本", async () => {
+    completionMock.chatCompletion
+      .mockResolvedValueOnce({
+        done: true,
+        finishReason: "tool_calls",
+        assistantContent: "",
+        toolCalls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"传递信息的工具"}' } }]
+      })
+      .mockResolvedValueOnce("  最终解释  ");
+    const statuses = [];
+    const notices = [];
+    const text = await explain.explainSelection({
+      provider: { baseUrl: "https://api.test/v1", apiKey: "sk", model: "m" },
+      selection: "传递信息的工具",
+      line: "我们习惯将其视为传递信息的工具",
+      from: 10,
+      body: BODY,
+      index: 2,
+      webSearch: {
+        maxToolCalls: 2,
+        executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
+      },
+      onSearchStatus: (p) => statuses.push(p),
+      onNotice: (n) => notices.push(n)
+    });
+
+    expect(text).toBe("最终解释");
+    // 非流式 + off 档位 + 320 输出上限（解释口径不因联网改变）
+    const first = completionMock.chatCompletion.mock.calls[0][0];
+    expect(first.stream).toBe(false);
+    expect(first.thinkingLevel).toBe("off");
+    expect(first.maxTokens).toBe(320);
+    // 工具注入 + 联网变体系统提示词（允许 web_search）；[n] 引用要求不进解释链
+    expect(first.tools).toHaveLength(1);
+    expect(first.tools[0].function.name).toBe("web_search");
+    expect(first.tools[0].function.description).not.toContain("[n]");
+    expect(first.messages[0].content).toContain("web_search");
+    // 二次调用带 tool 结果消息
+    const second = completionMock.chatCompletion.mock.calls[1][0];
+    expect(second.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", tool_call_id: "call_1", content: JSON.stringify([{ title: "t", url: "u", snippet: "s" }]) })
+    ]));
+    // 搜索状态透传，无失败 notice
+    expect(statuses.map((p) => p.status)).toEqual(["searching", "done"]);
+    expect(notices).toEqual([]);
+  });
+
+  it("联网链搜索失败降级：「搜索失败」tool 消息 + notice，回答不中断", async () => {
+    completionMock.chatCompletion
+      .mockResolvedValueOnce({
+        done: true,
+        finishReason: "tool_calls",
+        assistantContent: "",
+        toolCalls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"术语"}' } }]
+      })
+      .mockResolvedValueOnce("解释");
+    const statuses = [];
+    const notices = [];
+    const text = await explain.explainSelection({
+      provider: { baseUrl: "https://api.test/v1", apiKey: "sk", model: "m" },
+      selection: "术语",
+      line: "句",
+      from: 0,
+      webSearch: {
+        maxToolCalls: 2,
+        executeSearch: async () => {
+          throw new Error("HTTP 429");
+        }
+      },
+      onSearchStatus: (p) => statuses.push(p),
+      onNotice: (n) => notices.push(n)
+    });
+
+    expect(text).toBe("解释");
+    const second = completionMock.chatCompletion.mock.calls[1][0];
+    expect(second.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "tool", tool_call_id: "call_1", content: expect.stringContaining("搜索失败：HTTP 429") })
+    ]));
+    expect(statuses.at(-1).status).toBe("failed");
+    expect(notices).toEqual([expect.stringContaining("联网搜索失败")]);
+  });
+
+  it("联网变体提示词：允许 web_search 核实 + 依据口径收口（纯函数）", () => {
+    const messages = explain.buildExplainMessages({
+      videoTitle: "T",
+      selection: "词",
+      line: "句",
+      from: 0,
+      webSearch: { maxToolCalls: 2, executeSearch: async () => ({ results: [], platform: "Tavily" }) }
+    });
+    expect(messages[0].content).toContain("可调用 web_search 工具联网核实");
+    expect(messages[0].content).toContain("不要臆造");
+    // 无联网时提示词不变（不出现工具措辞）
+    const plain = explain.buildExplainMessages({ videoTitle: "T", selection: "词", line: "句", from: 0 });
+    expect(plain[0].content).not.toContain("web_search");
   });
 });

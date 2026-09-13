@@ -10,6 +10,7 @@
 // 还是一句观点，而不必回读整片字幕。整片字幕既贵又没必要（解释只需要局部语境）。
 
 import { chatCompletion } from "./completion.js";
+import { runToolLoop, webSearchTool, type ToolLoopSearchOutcome, type ToolStatusPayload } from "./tool-loop.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
 import { formatClock, shouldUseHours, shouldUseHoursForRange } from "../shared/clock-text.js";
 import type { AiProvider, ChatMessage } from "./types.js";
@@ -33,6 +34,20 @@ export interface ExplainSelectionInput {
   /** 所在句在 body 中的下标；缺省或越界时退化为「无上下文窗口」 */
   index?: number;
   signal?: AbortSignal | null;
+  /** 联网搜索运行时（spec §2.1：选区解释链同样携带）：传入即走 tool-loop，
+   * 提示词换联网变体（允许调用 web_search 核实字幕未覆盖的术语/事实）。 */
+  webSearch?: ExplainWebSearch;
+  /** 搜索状态回调（tool-status 透传）：解释卡据此把「正在解释…」换成搜索中态。 */
+  onSearchStatus?: (payload: ToolStatusPayload) => void;
+  /** 联网 notice（额度用尽 / 搜索失败原因）：调用方自行决定提示位置。 */
+  onNotice?: (text: string) => void;
+}
+
+// 联网搜索运行时（与对话链 ai/client.ts 的 WebSearchRuntime 同形状；解释卡经
+// search/search-runtime.ts 的解析器组装）。
+export interface ExplainWebSearch {
+  maxToolCalls: number;
+  executeSearch: (query: string) => Promise<ToolLoopSearchOutcome>;
 }
 
 // 上下文窗口半径（前后各取几句）。太小判不出指代，太大就只是在重复字幕。
@@ -41,18 +56,31 @@ const CONTEXT_WINDOW_SENTENCES = 2;
 // 压低上限同时也是给模型的长度信号（越长出得越慢）。
 const EXPLAIN_MAX_TOKENS = 320;
 
-const EXPLAIN_SYSTEM_PROMPT = [
-  "你在解释 B 站视频字幕里被观众选中的内容。",
-  "规则：",
-  "- 不要思考过程、不要前言后语，直接给出解释本身",
-  "- 最多 3 句话，尽量短",
-  "- 选中的是词或术语：给简明定义，并说明它在本视频里具体指什么",
-  "- 选中的是短语或整句：解释它在当前上下文中的含义与说话人想表达什么",
-  "- 人名 / 机构 / 产品名：说明它是谁 / 什么，以及与本片主题的关系",
-  "- 字幕是语音识别（ASR）生成的，可能有同音错别字：先按上下文推断选中文字的本字再解释；无法确定本字时如实说明",
-  "- 只依据给出的字幕上下文判断，上下文不足以确定时如实说明，不要臆造",
-  "- 用与字幕一致的语言回答（中文字幕用中文）"
-].join("\n");
+// 系统提示词：联网开启时换规则变体——「只依据字幕上下文」改为允许（且仅允许）
+// 调 web_search 核实，避免工具与「不要臆造」口径打架。基础规则数组单一来源，
+// 两变体只在「依据口径」一条上分叉。
+export function buildExplainSystemPrompt({ webSearch = false }: { webSearch?: boolean } = {}): string {
+  const rules = [
+    "- 不要思考过程、不要前言后语，直接给出解释本身",
+    "- 最多 3 句话，尽量短",
+    "- 选中的是词或术语：给简明定义，并说明它在本视频里具体指什么",
+    "- 选中的是短语或整句：解释它在当前上下文中的含义与说话人想表达什么",
+    "- 人名 / 机构 / 产品名：说明它是谁 / 什么，以及与本片主题的关系",
+    "- 字幕是语音识别（ASR）生成的，可能有同音错别字：先按上下文推断选中文字的本字再解释；无法确定本字时如实说明",
+    webSearch
+      ? "- 可调用 web_search 工具联网核实：仅当字幕上下文不足以解释选中的术语 / 实体 / 时效性事实时才调用，不需要就不搜"
+      : "- 只依据给出的字幕上下文判断，上下文不足以确定时如实说明，不要臆造",
+    webSearch
+      ? "- 只依据字幕上下文与搜索结果回答，都不足以确定时如实说明，不要臆造"
+      : "- 用与字幕一致的语言回答（中文字幕用中文）"
+  ];
+  if (webSearch) {
+    rules.push("- 用与字幕一致的语言回答（中文字幕用中文）");
+  }
+  return ["你在解释 B 站视频字幕里被观众选中的内容。", "规则：", ...rules].join("\n");
+}
+
+const EXPLAIN_SYSTEM_PROMPT = buildExplainSystemPrompt();
 
 /**
  * 以选中句为锚截取上下文窗口（前后各 N 句，带时间戳；跳过空句）。
@@ -85,15 +113,16 @@ export function buildExplainContext(
   return lines.join("\n");
 }
 
-/** 组装解释请求的消息（纯函数，便于单测）。 */
+/** 组装解释请求的消息（纯函数，便于单测）。webSearch 时系统提示词换联网变体。 */
 export function buildExplainMessages({
   videoTitle,
   selection,
   line,
   from,
   body,
-  index
-}: Omit<ExplainSelectionInput, "provider" | "signal">): ChatMessage[] {
+  index,
+  webSearch
+}: Omit<ExplainSelectionInput, "provider" | "signal" | "onSearchStatus" | "onNotice">): ChatMessage[] {
   const stamp = formatClock(Number(from) || 0, { hours: shouldUseHours(from) });
   const context = buildExplainContext(body, index);
   const sections = [
@@ -103,7 +132,7 @@ export function buildExplainMessages({
     context ? `字幕上下文（→ 标记为所在句）：\n${context}` : "（无可用上下文）"
   ];
   return [
-    { role: "system", content: EXPLAIN_SYSTEM_PROMPT },
+    { role: "system", content: webSearch ? buildExplainSystemPrompt({ webSearch: true }) : EXPLAIN_SYSTEM_PROMPT },
     { role: "user", content: `${sections.join("\n\n")}\n\n请解释选中内容。` }
   ];
 }
@@ -132,9 +161,37 @@ export async function explainSelection({
   from,
   body,
   index,
-  signal
+  signal,
+  webSearch,
+  onSearchStatus,
+  onNotice
 }: ExplainSelectionInput): Promise<string> {
-  const messages = buildExplainMessages({ videoTitle, selection, line, from, body, index });
+  const messages = buildExplainMessages({ videoTitle, selection, line, from, body, index, webSearch });
+  if (webSearch) {
+    // 联网链（spec §2.1 选区解释链同样可用）：非流式走 tool-loop，最终文本取
+    // 返回值（非流式轮为 chatCompletion 字符串）。tool 定义不带 [n] 引用要求
+    //（解释卡无来源渲染），失败降级与额度上限语义同对话链。
+    const webText = (
+      await runToolLoop({
+        provider,
+        messages,
+        stream: false,
+        signal,
+        thinkingLevel: "off",
+        maxToolCalls: webSearch.maxToolCalls,
+        executeSearch: webSearch.executeSearch,
+        toolDefinition: webSearchTool({ requireCitations: false }),
+        maxTokens: EXPLAIN_MAX_TOKENS,
+        onToolStatus: onSearchStatus,
+        onNotice,
+        fetchImpl: providerFetchViaBackground
+      })
+    ).trim();
+    if (!webText) {
+      throw new Error("模型没有给出解释，请重试。");
+    }
+    return webText;
+  }
   const result = await chatCompletion({
     provider,
     messages,
