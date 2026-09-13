@@ -4,7 +4,7 @@
 // 最后一条逻辑边），本测试留守 tests/ui/ 不随迁（scope 之外），仅改 import。
 // 发送框重构起度量对象从原生 select 换成模型 chip：宽度写在 chip 上，文本源
 // 是 chip 内的模型名 + 档位两个 span（拼接测量），宽度语义 = hug content：
-// 按内容自适应夹在 [92, 260]（260 只防极端长名；溢出截断由 CSS 施加在模型名
+// 按内容自适应夹在 [92, 420]（420 只防极端长名；溢出截断由 CSS 施加在模型名
 // span 上，档位与 chevron 恒完整，度量不参与截断）。
 // jsdom 不带 canvas npm 包，HTMLCanvasElement.getContext 返回 null
 // （已实测：打印 "Not implemented" 通知但不抛错），恰好覆盖模块内既有的
@@ -13,8 +13,8 @@
 // - [92, maxWidth] 区间夹取（短文案触底 92、长文案被上限截断）；
 // - 文案缺失时回落「未配置平台」参与测量。
 // getContext 显式 mock 为 null：不依赖 jsdom 版本的 canvas 行为，也消除
-// "Not implemented" 的控制台噪音。260 上限用例：模型名 30 字符 + 档位 Off
-// 拼接 34 字符 → 34×8 + 24 + 36 = 332 > 260 截断。
+// "Not implemented" 的控制台噪音。420 上限用例：模型名 60 字符 + 档位 Off
+// 拼接 64 字符 → 64×8 + 24 + 36 = 536 > 420 截断。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -77,10 +77,10 @@ describe("model-select-width", () => {
     expect(els.chip.style.width).toBe("92px");
   });
 
-  it("updateModelSelectWidth：极端长名被 260 上限截断（hug content 的保险）", () => {
-    const els = makeEls("x".repeat(30)); // (30+1+3)×8 + 24 + 36 = 332 > 260
+  it("updateModelSelectWidth：极端长名被 420 上限截断（hug content 的保险）", () => {
+    const els = makeEls("x".repeat(60)); // (60+1+3)×8 + 24 + 36 = 536 > 420
     updateModelSelectWidth(els);
-    expect(els.chip.style.width).toBe("260px");
+    expect(els.chip.style.width).toBe("420px");
   });
 
   it("updateModelSelectWidth：chip 文案缺失时回落「未配置平台」参与测量", () => {
@@ -141,13 +141,13 @@ describe("scheduleModelSelectWidthUpdate（rAF 合帧）", () => {
     const raf = installFakeRaf();
     try {
       const first = makeEls("AI"); // 108px（"AI Off"）
-      const second = makeEls("x".repeat(30)); // 截断 260
+      const second = makeEls("x".repeat(60)); // 截断 420
       scheduleModelSelectWidthUpdate(first);
       scheduleModelSelectWidthUpdate(second);
       raf.flush();
 
       expect(first.chip.style.width).toBe("");
-      expect(second.chip.style.width).toBe("260px");
+      expect(second.chip.style.width).toBe("420px");
     } finally {
       raf.restore();
     }

@@ -3,8 +3,8 @@
 // select 换成模型 chip——chip 是隐藏 select 的展示层，宽度按内容自适应）。
 //
 // 纯 UI 度量叶子（零 import）：用离屏 canvas 按当前计算字体测量 chip 文案宽
-// （模型名 + 档位），叠加 "000" 兜底宽 + 36px 装饰余量，再夹在 [92, 260] 区间内，
-// 结果写回 chip 的内联 width。260 只防极端长名——正常状态 hug content；
+// （模型名 + 档位），叠加 "000" 兜底宽 + 36px 装饰余量，再夹在 [92, 420] 区间内，
+// 结果写回 chip 的内联 width。420 只防极端长名——正常状态 hug content；
 // 溢出截断由 CSS 施加在模型名 span 上（档位与 chevron 恒完整，不进截断流）。
 // canvas 不可用（getContext 返回 null）时退化为每字符 8px 估算，行为与迁出前一致。
 //
@@ -21,7 +21,7 @@ export interface ModelSelectWidthEls {
 }
 
 // 宽度上限：只防极端长模型名把 chip 撑爆；正常内容永远到不了（hug content）。
-const MODEL_CHIP_MAX_WIDTH = 260;
+const MODEL_CHIP_MAX_WIDTH = 420;
 
 let modelSelectMeasureCanvas: HTMLCanvasElement | null = null;
 let modelSelectWidthRafId = 0;
