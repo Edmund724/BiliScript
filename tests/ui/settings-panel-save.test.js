@@ -29,7 +29,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/defaults.js";
+import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 // AI 探针 mock：测试连接按钮直调 provider-test（不经 SW 消息），固定成功
 vi.mock("../../extension/ai/provider-test.js", () => ({
@@ -378,4 +378,51 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
   //    换行（"a\nb" 落到 value 是 "ab"，jsdom 与真实浏览器一致），
   //    /[\r\n]/.test(payload.tags) 恒为 false。该分支只能在注入 payload 层触达，
   //    属防御性代码。
+});
+
+describe("恢复默认偏好按钮", () => {
+  it("确认后把偏好键面写回默认值，平台域键不参与，状态条提示成功", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const sent = installMessageBus();
+    const host = await mountPanel();
+
+    fireClick(host.querySelector("#bocSettingsResetBtn"));
+
+    await vi.waitFor(() => {
+      const payloads = sent
+        .filter((message) => message.type === "save-settings")
+        .map((message) => message.settings);
+      expect(payloads.some((settings) => settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT)).toBe(true);
+    });
+    const payloads = sent
+      .filter((message) => message.type === "save-settings")
+      .map((message) => message.settings);
+    const resetPayload = payloads.find((settings) => settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT);
+    expect(resetPayload).toBeDefined();
+    // 偏好键面：aiSystemPrompt 落当前默认，快捷提示词/开关也在载荷里
+    expect(resetPayload.playerAiQuickPrompt).toBe(DEFAULT_SETTINGS.playerAiQuickPrompt);
+    expect(resetPayload.enablePlayerAiQuickAction).toBe(DEFAULT_SETTINGS.enablePlayerAiQuickAction);
+    // 平台域配置（模型选择 / ASR 标量）与迁移旗标不参与重置
+    expect(resetPayload).not.toHaveProperty("defaultModel");
+    expect(resetPayload).not.toHaveProperty("activeAsrProviderId");
+    expect(resetPayload).not.toHaveProperty("asrAutoFallback");
+    expect(resetPayload).not.toHaveProperty("asrLanguage");
+    expect(resetPayload).not.toHaveProperty("aiBtnDefaultOnMigrated");
+    await vi.waitFor(() => {
+      expect(lastStatus(host).textContent).toContain("已恢复默认设置");
+    });
+    expect(confirmSpy).toHaveBeenCalled();
+  });
+
+  it("确认取消时不发任何保存消息", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const sent = installMessageBus();
+    const host = await mountPanel();
+
+    fireClick(host.querySelector("#bocSettingsResetBtn"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sent.some((message) => message.type === "save-settings")).toBe(false);
+    expect(lastStatus(host).textContent).not.toContain("已恢复默认设置");
+  });
 });

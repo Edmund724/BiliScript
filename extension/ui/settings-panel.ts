@@ -180,6 +180,7 @@ function collectElements(host: HTMLElement) {
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>("aiSystemPrompt"),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
     saveBtn: byIdIn<HTMLButtonElement>("bocSettingsSaveBtn"),
+    resetBtn: byIdIn<HTMLButtonElement>("bocSettingsResetBtn"),
     status: byIdIn<HTMLElement>("bocSettingsStatus")
   };
 }
@@ -584,6 +585,55 @@ function setBusy(elements: SettingsElements, isBusy: boolean): void {
   elements.saveBtn.textContent = isBusy ? "处理中..." : "保存设置";
 }
 
+// 偏好重置的默认值载荷：本面板管理的偏好键面（与 collectFormPayload 同一形状
+// —— save-settings 按键面白名单落盘，aiProviders/asrProviders/密钥不在 settings
+// 键面，天然不受影响）。defaultModel 与 ASR 标量（activeAsrProviderId /
+// asrAutoFallback / asrLanguage）是平台域配置，不参与重置（拍板：偏好类）。
+// aiBtnDefaultOnMigrated 是安装/更新迁移旗标，重置为 false 会重触发一次迁移
+// 翻转，同样不参与。
+function buildDefaultPreferencePayload() {
+  return {
+    tags: DEFAULT_SETTINGS.tags,
+    downloadFormat: DEFAULT_SETTINGS.downloadFormat,
+    includeDateInFilename: DEFAULT_SETTINGS.includeDateInFilename,
+    includeHotCommentsInNote: DEFAULT_SETTINGS.includeHotCommentsInNote,
+    includePlayerEmbedInNote: DEFAULT_SETTINGS.includePlayerEmbedInNote,
+    enablePlayerAiQuickAction: DEFAULT_SETTINGS.enablePlayerAiQuickAction,
+    playerAiQuickPrompt: DEFAULT_SETTINGS.playerAiQuickPrompt,
+    includeTimestampInBody: DEFAULT_SETTINGS.includeTimestampInBody,
+    enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
+    readerTheme: DEFAULT_SETTINGS.readerTheme,
+    frontmatterFields: DEFAULT_SETTINGS.frontmatterFields.slice(),
+    fixedFrontmatterProperties: DEFAULT_SETTINGS.fixedFrontmatterProperties.map((row) => ({ ...row })),
+    notePlaceholderSections: DEFAULT_SETTINGS.notePlaceholderSections.map((row) => ({ ...row })),
+    aiSystemPrompt: DEFAULT_SETTINGS.aiSystemPrompt,
+    aiInitialQuickPrompts: DEFAULT_SETTINGS.aiInitialQuickPrompts.slice(),
+    aiPresetPrompts: DEFAULT_SETTINGS.aiPresetPrompts.slice()
+  };
+}
+
+// 恢复默认偏好：确认后把本面板的偏好键面一次性写回默认值（平台/密钥/模型选择/
+// ASR 配置不动），随后重载表单让 UI 反映默认值。
+async function resetPreferences(elements: SettingsElements): Promise<void> {
+  if (!window.confirm("确定要把偏好设置恢复默认值吗？AI 平台、密钥与语音转写配置不受影响。")) {
+    return;
+  }
+  setBusy(elements, true);
+  try {
+    const resp = await sendRuntimeMessage({ type: "save-settings", settings: buildDefaultPreferencePayload() });
+    if (!resp?.ok) {
+      setStatus(elements, resp?.error || "重置失败", true);
+      return;
+    }
+    await loadSettings(elements);
+    setStatus(elements, "已恢复默认设置");
+  } catch (error) {
+    setStatus(elements, (error as Error).message || "重置失败", true);
+  } finally {
+    setBusy(elements, false);
+  }
+}
+
 // 保存设置（provider-master-detail/02 起：只承载其余设置项）。AI/ASR 平台的
 // 保存已整体移交 provider-editor Modal 的单平台 upsert（saveProviderSingle），
 // 本函数不再收集/校验/落盘平台列表，也不再申请平台 host 权限（平台域名的
@@ -645,6 +695,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   setAsrBeforeDeleteHandler(revokeOriginOnDelete);
 
   elements.saveBtn.addEventListener("click", () => saveSettings(elements));
+  elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
   elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow(elements.fixedPropertiesList, elements.fixedPropertiesEmpty));
   elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow(elements.noteSectionsList, elements.noteSectionsEmpty));
   // 添加平台：直接进空白编辑 Modal（拍板 Q4，预设下拉是编辑页第一项）；

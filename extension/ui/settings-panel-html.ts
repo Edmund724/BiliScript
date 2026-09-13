@@ -130,6 +130,7 @@ export function buildSettingsHtml(): string {
     </section>
 
     <div class="boc-set-actions">
+      <button id="bocSettingsResetBtn" type="button" class="add-property-btn">恢复默认偏好</button>
       <button id="bocSettingsSaveBtn" type="button" class="boc-set-save-btn">保存设置</button>
     </div>
     <p id="bocSettingsStatus" class="boc-set-status"></p>
