@@ -13,7 +13,9 @@ import {
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
-  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2
 } from "../../extension/core/defaults.js";
 
 let syncGetMock;
@@ -85,19 +87,21 @@ describe("normalizeSettings 纯函数", () => {
     expect(normalizeSettings(withoutKey).includePlayerEmbedInNote).toBe(true);
   });
 
-  // 三代历史默认系统提示词一次性升到当前默认；用户自定义文本不动。
-  it("aiSystemPrompt：三代历史默认都映射为当前默认，自定义文本原样保留", async () => {
+  // 四代历史默认系统提示词一次性升到当前默认；用户自定义文本不动。
+  it("aiSystemPrompt：四代历史默认都映射为当前默认，自定义文本原样保留", async () => {
     const { normalizeSettings } = await loadStoreModule();
-    for (const legacy of [LEGACY_DEFAULT_AI_SYSTEM_PROMPT, LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2, LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3]) {
+    for (const legacy of [LEGACY_DEFAULT_AI_SYSTEM_PROMPT, LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2, LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3, LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4]) {
       expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiSystemPrompt: legacy }).aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     }
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiSystemPrompt: "我的自定义人设" }).aiSystemPrompt).toBe("我的自定义人设");
   });
 
-  // 旧默认快捷提示词一次性升到当前默认；用户自定义文本不动。
-  it("playerAiQuickPrompt：旧默认映射为当前默认，自定义文本原样保留", async () => {
+  // 两代旧默认快捷提示词一次性升到当前默认；用户自定义文本不动。
+  it("playerAiQuickPrompt：两代旧默认都映射为当前默认，自定义文本原样保留", async () => {
     const { normalizeSettings } = await loadStoreModule();
-    expect(normalizeSettings({ ...DEFAULT_SETTINGS, playerAiQuickPrompt: LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT }).playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+    for (const legacy of [LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT, LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2]) {
+      expect(normalizeSettings({ ...DEFAULT_SETTINGS, playerAiQuickPrompt: legacy }).playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+    }
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, playerAiQuickPrompt: "按章节整理内容" }).playerAiQuickPrompt).toBe("按章节整理内容");
   });
 });
