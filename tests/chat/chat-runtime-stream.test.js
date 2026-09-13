@@ -1009,24 +1009,30 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
     expect(scrollToSpy).not.toHaveBeenCalled();
   });
 
-  it("非流式路径（appendUserMessage / endStream 收尾）保留直写 scrollTop，不经 scrollTo", async () => {
+  // 回归（追问后视口突跳且流式不跟随）：发送路径强制滚底不能交给 CSS
+  // smooth——追问时上一条长消息刚被摘除 c-v 豁免，视口外块塌缩到估算占位
+  // 高（c-v 高度记忆只在持有 c-v 期间记录，首次施拿没有），平滑动画扫过时
+  // 逐块弹回真实高：视口下方内容突然下推（屏上突跳），且动画目标固化于
+  // 调用时刻、落后于弹高后的真实底部，终点距底被 scroll-sync 判定读到会
+  // 把自动跟随关死。发送路径必须 instant 一步落底，重估算在落底同帧被
+  // clamp 吸收。
+  it("发送路径滚动瞬时化：appendUserMessage 走 instant scrollTo，endStream 收尾保留直写", async () => {
     const { deps, runtime } = await makeRuntime();
     const raf = holdRaf();
     const scrollToSpy = vi.fn();
     deps.messages.scrollTo = scrollToSpy;
 
-    // appendUserMessage 强制滚动：直写 scrollTop（滚动节奏交给 CSS smooth）
+    // appendUserMessage 强制滚动：instant scrollTo（顶掉 CSS smooth 动画）
     deps.messages.scrollTop = 0;
     runtime.appendUserMessage("新消息");
-    expect(deps.messages.scrollTop).toBe(deps.messages.scrollHeight);
-    expect(scrollToSpy).not.toHaveBeenCalled();
+    expect(scrollToSpy).toHaveBeenCalledWith({ top: deps.messages.scrollHeight, behavior: "instant" });
 
-    // flush 路径走 instant scrollTo；done 收尾（endStream）回到直写
+    // flush 路径走 instant scrollTo；done 收尾（endStream）仍是直写
     feed(runtime, { type: "token", data: "正文" });
     raf.mock.calls[0][0]();
-    expect(scrollToSpy).toHaveBeenCalledTimes(1);
+    expect(scrollToSpy).toHaveBeenCalledTimes(2);
     feed(runtime, { type: "done" });
-    expect(scrollToSpy).toHaveBeenCalledTimes(1);
+    expect(scrollToSpy).toHaveBeenCalledTimes(2);
     expect(deps.messages.scrollTop).toBe(deps.messages.scrollHeight);
   });
 

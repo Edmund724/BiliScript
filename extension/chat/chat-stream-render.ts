@@ -84,8 +84,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
   // scroll-behavior:smooth（reader-chat.css 对 .chat-messages 的设定），避免
   // 流式期间每帧都重启一次平滑滚动动画。注意不能用 behavior:"auto"——按
   // CSSOM View 规范它取 CSS scroll-behavior 值，CSS 是 smooth 时压不住。
-  // 非流式路径（appendUserMessage / endStream 收尾）直写 scrollTop，滚动
-  // 节奏交给 CSS（smooth）。jsdom 等无 Element.scrollTo 的环境退回直写。
+  // 发送路径（appendUserMessage / appendAssistantPlaceholder 的强制滚底）同用
+  // instant：CSS smooth 会启动动画扫过上一条长消息刚被 c-v 塌缩的块，估算
+  // 占位高逐块弹回真实高（视口突跳），且动画目标固化于调用时刻、落后于
+  // 弹高后的真实底部——终点距底被 scroll-sync 判定读到，会把自动跟随关死
+  // （追问后流式不跟随的根因）。endStream 收尾仍直写 scrollTop：视图已在
+  // 底部，finalize 重渲染的高度差由 clamp 吸收，无扫掠路径。
   function scrollToBottom(force = false, { instant = false }: { instant?: boolean } = {}): void {
     if (!force && !shouldAutoScrollMessages) {
       return;
@@ -107,7 +111,9 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     deps.messages.appendChild(node);
     if (shouldScroll) {
       shouldAutoScrollMessages = true;
-      scrollToBottom(true);
+      // instant：见 scrollToBottom 注释——发送路径的平滑动画会扫过上一条
+      // 长消息 c-v 塌缩后的估算块，弹高突跳且动画终点落后于真实底部。
+      scrollToBottom(true, { instant: true });
     }
   }
 
@@ -117,9 +123,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
   function appendAssistantPlaceholder(): HTMLDivElement {
     // 上一条消息的流式豁免（chat-msg-streaming）到此为止，回归历史消息的
     // content-visibility 跳过渲染待遇。切换刻意放在新消息上屏、强制滚底的
-    // 同一时刻：高度重估算被发送动作掩盖。若在 endStream 切换，刚完成的
-    // 消息会在静止状态下从真实高度突变回估算占位高（c-v 记忆只在持有
-    // c-v 期间记录，首次施加拿不到），视口莫名上跳。
+    // 同一时刻，且滚底走 instant（见 scrollToBottom 注释）：c-v 首次施加拿
+    // 不到高度记忆（记忆只在持有 c-v 期间记录），视口外块塌缩到估算占位
+    // 高——平滑动画扫过时逐块弹回真实高会让视口突跳、动画终点落后于真实
+    // 底部；instant 一步落底，重估算在落底同帧被 clamp 吸收，零可见跳动。
+    // 若在 endStream 切换，刚完成的消息会在静止状态下从真实高度突变回估
+    // 算占位高，视口莫名上跳。
     deps.messages
       .querySelectorAll(".chat-msg-assistant.chat-msg-streaming")
       .forEach((el) => el.classList.remove("chat-msg-streaming"));
@@ -136,7 +145,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     node.appendChild(cursor);
     deps.messages.appendChild(node);
     shouldAutoScrollMessages = true;
-    scrollToBottom(true);
+    scrollToBottom(true, { instant: true });
     return node;
   }
   // =========================================================================

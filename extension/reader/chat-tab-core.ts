@@ -673,7 +673,11 @@ async function runConversationReplay(): Promise<void> {
     return;
   }
   chatRuntime.setAutoScroll(true);
-  chatRuntime.scrollToBottom(true);
+  // instant（同发送路径，见 chat-stream-render scrollToBottom 注释）：回放
+  // 渲染的历史消息全部带 c-v 块，平滑动画扫过时估算块逐块弹回真实高，视口
+  // 突跳且动画终点落后于真实底部，终点距底会被 scroll-sync 判定读成关闭
+  // 自动跟随——回放后追问流式不跟随。
+  chatRuntime.scrollToBottom(true, { instant: true });
 }
 
 // 历史回放时找该助手消息的前一条用户消息（注入 renderAssistantMessage 的 userPrompt）
