@@ -72,8 +72,8 @@ const TIMESTAMP_TEACHING_BLOCK = `⚠️ 关键：时间戳的取法 ⚠️
 export const ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：章节 + 金句。
 
 你需要给出：
-- 覆盖**本次给到的全部字幕**的章节。章节数量由你判断——在话题真正发生转折的地方分章，该多则多、该少则少。唯一的硬性要求是覆盖度：章节必须贯穿这段字幕的整条时间线，**最后一个章节的时间戳必须晚于用户消息中给出的「后段门槛」**。不要只覆盖前半段，也不要把章节全挤在开头。
-- 3-5 条金句，附上它们在字幕中的时间戳。
+- 覆盖**本次给到的全部字幕**的章节。章节数量由你判断——在话题真正发生转折的地方分章，该多则多、该少则少。唯一的硬性要求是覆盖度：章节必须贯穿这段字幕的整条时间线，**最后一个章节的时间戳必须晚于用户消息中给出的「后段门槛」**（用户消息给出「现成章节目录」时除外：以目录为准）。不要只覆盖前半段，也不要把章节全挤在开头。
+- 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
 
 ${ASR_CORRECTION_BLOCK}
 
@@ -84,6 +84,7 @@ ${TIMESTAMP_TEACHING_BLOCK}
 **章节边界必须完全采用那份目录**：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，
 不得增删章节、不得改动任何时间戳——哪怕目录的分章与字幕的话题转折对不上。
 你的职责只是为每一章补写 summary（这一段讲了什么），依据是目录时间戳之间的字幕内容。
+目录存在时「后段门槛」不适用：最后一章的时间戳以目录为准，不必晚于门槛。
 前情回顾（分段路径）里的时间戳依然不能用：目录时间戳早于本段起点时，那一章归上一段管。
 
 ⚠️ 关于「前情回顾」⚠️
@@ -123,7 +124,7 @@ ${TIMESTAMP_TEACHING_BLOCK}
 export const QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为它挑选金句。
 
 你需要给出：
-- 3-5 条金句，附上它们在字幕中的时间戳。
+- 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
 
 ${ASR_CORRECTION_BLOCK}
 
@@ -159,11 +160,13 @@ ${TIMESTAMP_TEACHING_BLOCK}
 
 // 用户提示词模板：整搬参考仓库 prompts/analysis.md「用户提示词」代码块。
 // {rangeNote} / {contextNote} 不分块时为空串（与参考实现一致，留空行）。
+// {lateThresholdLine} 由装配侧按「有无现成章节目录」二选一：无目录给硬门槛，
+// 有目录声明门槛不适用（F2 决议：目录权威优先，两条互斥指令不再同时出现）。
 const ANALYSIS_USER_TEMPLATE = `视频标题：{videoTitle}
 UP 主：{ownerName}
 {rangeNote}
 本次字幕从 {startFormatted}（第 {minTimestampSeconds} 秒）到 {durationFormatted}（第 {maxTimestampSeconds} 秒）——时间戳必须落在这个区间内！
-后段门槛：最后一个章节的时间戳必须晚于 {lateThreshold}。
+{lateThresholdLine}
 
 视频简介（用它来校正人名、品牌名与术语的写法）：
 {videoDescription}
@@ -327,7 +330,8 @@ function buildChapterOutlineNote(outline: OutlineChapter[] | undefined): string 
   return (
     `\n现成章节目录（来自视频简介/评论，共 ${outline.length} 章）：\n` +
     `${lines.join("\n")}\n` +
-    `按系统提示词的要求：章节边界与标题必须完全照抄这份目录，不要增删或改动时间戳，只需为每章补写 summary。\n`
+    `按系统提示词的要求：章节边界与标题必须完全照抄这份目录，不要增删或改动时间戳，只需为每章补写 summary。` +
+    `后段门槛不适用，最后一章以目录为准。\n`
   );
 }
 
@@ -411,7 +415,9 @@ function buildAnalysisUserPrompt(mode: "full" | "quotes", input: BuildAnalysisPr
     minTimestampSeconds: startSeconds,
     durationFormatted: timing.durationFormatted,
     maxTimestampSeconds: timing.maxTimestampSeconds,
-    lateThreshold: timing.lateThreshold,
+    lateThresholdLine: Array.isArray(input.chapterOutline) && input.chapterOutline.length
+      ? "后段门槛：不适用——已采用现成章节目录，最后一章以目录为准。"
+      : `后段门槛：最后一个章节的时间戳必须晚于 ${timing.lateThreshold}。`,
     videoDescription: String(input.videoDescription ?? "").trim() || "（无简介）",
     chapterOutlineNote: buildChapterOutlineNote(input.chapterOutline),
     contextNote: buildContextNote(mode, input.contextItems),
