@@ -20,8 +20,7 @@
    * 与设置抽屉/编辑 Modal/解释卡同档，深色下不再是浅色硬编码投影。 */
   border-radius: 14px;
   box-shadow: var(--boc-reader-shadow);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue",
-    Arial, sans-serif;
+  font-family: var(--boc-reader-font-sans);
   /* 容器查询宿主（size-aware-styling 指南）：面板内容排版按视图实际宽度分档
    * ——贴栏档宽度由 digest-host 写 var（与视口宽度脱钩）、浮层档由 left+right
    * 撑出，视口媒体查询判不了面板真实宽度。inline-size 容纳安全：两档的宽度
@@ -67,11 +66,11 @@
  * 贡献 0 特异性、不改视图内既有规则的相对次序，选择器带 #id 作用域，
  * 不外泄到宿主页其他元素。 */
 #boc-reading-view :where(h1, h2, h3, h4, h5, h6) {
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 #boc-reading-view :where(a) {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 .boc-reading-header {
@@ -223,10 +222,10 @@
   min-height: 32px;
   margin: 0;
   padding: 0 26px 0 12px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background-color: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background-color: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -234,8 +233,8 @@
   -webkit-appearance: none;
   -moz-appearance: none;
   background-image:
-    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint, #a39a8d) 50%),
-    linear-gradient(135deg, var(--boc-reader-faint, #a39a8d) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint) 50%),
+    linear-gradient(135deg, var(--boc-reader-faint) 50%, transparent 50%);
   background-position:
     calc(100% - 14px) calc(50% - 1px),
     calc(100% - 10px) calc(50% - 1px);
@@ -246,8 +245,8 @@
 .boc-reading-select:focus,
 .boc-reading-select-sm:focus {
   outline: none;
-  border-color: var(--boc-reader-accent, #fb7299);
-  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft, #fce0ea);
+  border-color: var(--boc-reader-accent);
+  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft);
 }
 
 /* .boc-reading-subtitle 的几何在下方基础段单份声明（width/box-sizing/flex/
@@ -281,8 +280,8 @@
    * 溢出会顶出页面级横向滚动条（Modal 出现前的既有 2px 残留，一并收口） */
   box-sizing: border-box;
   border-radius: 14px;
-  background: var(--boc-reader-surface, #fdfbf7);
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  background: var(--boc-reader-surface);
+  border: 1px solid var(--boc-reader-border);
   box-shadow: var(--boc-reader-shadow, none);
   pointer-events: auto;
 }
@@ -294,7 +293,7 @@
   gap: 10px;
   /* 半透明材质：surface 加 alpha 的 rgba（token，gate 段两主题定义）+
    * blur/saturate 毛玻璃；面板壳自身 z-index 2147483646，与宿主页共存不受影响 */
-  background: var(--boc-reader-header-bg, var(--boc-reader-surface, #fdfbf7));
+  background: var(--boc-reader-header-bg, var(--boc-reader-surface));
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
 }
@@ -336,7 +335,7 @@
   gap: 4px;
   margin: 2px 14px 0;
   padding: 4px;
-  background: var(--boc-reader-pill-bg, #f0e9df);
+  background: var(--boc-reader-pill-bg);
   border-radius: 12px;
 }
 
@@ -350,7 +349,7 @@
   font-size: 15px;
   font-weight: 600;
   font-family: inherit;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
@@ -359,12 +358,12 @@
 }
 
 .boc-reading-tab:hover {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 .boc-reading-tab.is-active {
-  background: var(--boc-reader-accent, #fb7299);
-  color: var(--boc-reader-accent-ink, #ffffff);
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-accent-ink);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
@@ -406,8 +405,8 @@
 .boc-reading-placeholder {
   margin: auto 0;
   padding: 26px 20px;
-  background: var(--boc-reader-card, #ffffff);
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  background: var(--boc-reader-card);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 14px;
   text-align: center;
 }
@@ -415,14 +414,14 @@
 .boc-reading-placeholder-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   margin-bottom: 6px;
 }
 
 .boc-reading-placeholder-copy {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   margin: 0;
 }
 
@@ -460,13 +459,13 @@
 .boc-reading-overview,
 .boc-reading-chat .chat-messages {
   scrollbar-width: thin;
-  scrollbar-color: var(--boc-reader-faint, #a39a8d) transparent;
+  scrollbar-color: var(--boc-reader-faint) transparent;
 }
 
 .boc-reading-subtitle:hover,
 .boc-reading-overview:hover,
 .boc-reading-chat .chat-messages:hover {
-  scrollbar-color: var(--boc-reader-muted, #6f675c) transparent;
+  scrollbar-color: var(--boc-reader-muted) transparent;
 }
 
 /* 旧引擎降级（Chrome ≤120 无 scrollbar-color）：显式定义 ::-webkit-scrollbar
@@ -490,7 +489,7 @@
   .boc-reading-subtitle::-webkit-scrollbar-thumb,
   .boc-reading-overview::-webkit-scrollbar-thumb,
   .boc-reading-chat .chat-messages::-webkit-scrollbar-thumb {
-    background: var(--boc-reader-faint, #a39a8d);
+    background: var(--boc-reader-faint);
     border: 2px solid transparent;
     border-radius: 999px;
     background-clip: content-box;
@@ -499,7 +498,7 @@
   .boc-reading-subtitle::-webkit-scrollbar-thumb:hover,
   .boc-reading-overview::-webkit-scrollbar-thumb:hover,
   .boc-reading-chat .chat-messages::-webkit-scrollbar-thumb:hover {
-    background: var(--boc-reader-muted, #6f675c);
+    background: var(--boc-reader-muted);
     border: 2px solid transparent;
     background-clip: content-box;
   }
@@ -543,12 +542,12 @@
  *（prototype/direction-approved.md）——等宽字体 + accent-soft 底 + accent 字。
  * 母题自称 pill，形状就是 pill（999px，与同底的 .boc-reading-ov-badge 同款）。 */
 .boc-reading-time {
-  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-family: var(--boc-reader-font-mono);
   font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
-  color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
   border-radius: 999px;
   padding: 1px 7px;
   white-space: nowrap;
@@ -596,7 +595,7 @@
 }
 
 /* 主题 token 属阅读表：引用方（gate 段）随表同挂同摘，无跨表串色。
- * 上方基础段的同名规则也吃同一批 token（带 fallback 写法），此处只保留
+ * 上方基础段的同名规则也吃同一批 token（回退值已随令牌收敛剥除），此处只保留
  * 基础段覆盖不到的排版修正。 */
 #boc-reading-view,
 #boc-reading-view .boc-reading-meta,
@@ -739,10 +738,10 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
   padding: 5px 10px;
-  background: var(--boc-reader-card, #ffffff);
+  background: var(--boc-reader-card);
 }
 
 .boc-reading-search-input {
@@ -754,17 +753,17 @@
   padding: 0;
   font-family: inherit;
   font-size: 15px;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-search-input::placeholder {
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 .boc-reading-search-count {
   flex: 0 0 auto;
   font-size: 14px;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   white-space: nowrap;
 }
 
@@ -775,12 +774,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  background: var(--boc-reader-card, #ffffff);
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-card);
   border-radius: 8px;
   padding: 0;
   font-size: 14px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
@@ -790,8 +789,8 @@
 }
 
 .boc-reading-search-nav:hover:not(:disabled) {
-  border-color: var(--boc-reader-accent, #fb7299);
-  color: var(--boc-reader-accent, #fb7299);
+  border-color: var(--boc-reader-accent);
+  color: var(--boc-reader-accent);
 }
 
 .boc-reading-search-nav:disabled {
@@ -801,13 +800,13 @@
 
 .boc-reading-mini-btn {
   flex: 0 0 auto;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  background: var(--boc-reader-card, #ffffff);
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-card);
   border-radius: 10px;
   padding: 6px 12px;
   font-family: inherit;
   font-size: 14.5px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
@@ -817,32 +816,32 @@
 }
 
 .boc-reading-mini-btn:hover {
-  border-color: var(--boc-reader-accent, #fb7299);
-  color: var(--boc-reader-accent, #fb7299);
+  border-color: var(--boc-reader-accent);
+  color: var(--boc-reader-accent);
 }
 
 /* 命中高亮：mark + 当前命中（search-current 为 JS/CSS 契约名） */
 .boc-reading-subtitle mark.boc-reading-search-hit {
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
   border-radius: 3px;
   padding: 0 1px;
 }
 
 .boc-reading-subtitle mark.boc-reading-search-hit.search-current {
-  background: var(--boc-reader-accent, #fb7299);
-  color: var(--boc-reader-accent-ink, #ffffff);
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-accent-ink);
 }
 
 .boc-reading-item.search-current {
-  background: var(--boc-reader-highlight, #fdeeda);
+  background: var(--boc-reader-highlight);
 }
 
 /* 转写中间态：横幅（highlight 底）+ 不确定进度动画 + 列表淡出禁用 */
 .boc-reading-asr-banner {
   flex: 0 0 auto;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  background: var(--boc-reader-highlight, #fdeeda);
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-highlight);
   border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 10px;
@@ -851,14 +850,14 @@
 .boc-reading-asr-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   margin-bottom: 4px;
 }
 
 .boc-reading-asr-copy {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   margin: 0 0 10px;
 }
 
@@ -866,7 +865,7 @@
  * 条 boc-asr-pulse 动画——同一面板的两个 loading 指示器不该两个粗细。 */
 .boc-reading-asr-track {
   height: 4px;
-  background: var(--boc-reader-track, rgba(0, 0, 0, 0.08));
+  background: var(--boc-reader-track);
   border-radius: 99px;
   overflow: hidden;
 }
@@ -874,7 +873,7 @@
 .boc-reading-asr-fill {
   height: 100%;
   width: 38%;
-  background: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent);
   border-radius: 99px;
   animation: boc-asr-pulse 1.6s ease-in-out infinite alternate;
 }
@@ -898,7 +897,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 14px;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   margin-top: 6px;
 }
 
@@ -924,8 +923,8 @@
   border: none;
   padding: 8px 18px;
   border-radius: 999px;
-  background: var(--boc-reader-accent, #fb7299);
-  color: var(--boc-reader-accent-ink, #ffffff);
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-accent-ink);
   font-family: inherit;
   font-size: 14.5px;
   font-weight: 600;
@@ -957,9 +956,9 @@
 }
 
 .boc-reading-explain-btn {
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   padding: 5px 14px;
   border-radius: 999px;
   font-family: inherit;
@@ -975,9 +974,9 @@
 }
 
 .boc-reading-explain-btn:hover {
-  border-color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-accent, #fb7299);
+  border-color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
 }
 
 /* 选区「解释」卡片：面板内弹层（遮罩 + 居中对话框），整块内容由
@@ -997,7 +996,7 @@
   position: absolute;
   inset: 0;
   border-radius: 14px;
-  background: rgba(20, 16, 12, 0.28);
+  background: var(--boc-reader-mask-bg);
 }
 
 .boc-reading-explain-card-dialog {
@@ -1009,9 +1008,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 14px;
-  background: var(--boc-reader-card, #ffffff);
+  background: var(--boc-reader-card);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
 }
 
@@ -1026,7 +1025,7 @@
 .boc-reading-explain-card-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 .boc-reading-explain-card-close {
@@ -1034,7 +1033,7 @@
   padding: 2px 8px;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   font-size: 20px;
   line-height: 1.2;
   cursor: pointer;
@@ -1046,16 +1045,16 @@
 }
 
 .boc-reading-explain-card-close:hover {
-  background: var(--boc-reader-pill-bg, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-pill-bg);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-explain-card-quote {
   flex: 0 0 auto;
   margin: 0 0 10px;
   padding: 10px 14px;
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-muted, #6f675c);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-muted);
   font-size: 15px;
   font-style: italic;
   line-height: 1.6;
@@ -1069,7 +1068,7 @@
   padding: 0 14px 12px;
   font-size: 15.5px;
   line-height: 1.75;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   word-break: break-word;
 }
 
@@ -1136,20 +1135,20 @@
   gap: 8px;
   padding: 2px 0 10px;
   font-size: 15px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 .boc-reading-explain-card-state.is-error {
   display: block;
   padding-bottom: 10px;
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 /* loading 转圈：与概览/转写横幅同族的细环动画 */
 .boc-reading-explain-card-dot {
   width: 12px;
   height: 12px;
-  border: 2px solid var(--boc-reader-accent, #fb7299);
+  border: 2px solid var(--boc-reader-accent);
   border-top-color: transparent;
   border-radius: 50%;
   animation: boc-explain-spin 0.8s linear infinite;
@@ -1196,16 +1195,16 @@
 .boc-md-mermaid-fallback {
   margin-top: 4px;
   font-size: 13px;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 /* AI 对话 tab 的待解释意图引用卡（PR3 引入，PR5 起由对话组合根渲染/消费）：
  * 时间戳 pill 母题（.boc-reading-time）+ 引用句 + 取消按钮；发送成功即隐藏。 */
 .boc-reading-chat-intent {
   flex: 0 0 auto;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-left: 3px solid var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-card, #ffffff);
+  border: 1px solid var(--boc-reader-border);
+  border-left: 3px solid var(--boc-reader-accent);
+  background: var(--boc-reader-card);
   border-radius: 10px;
   padding: 10px 12px;
   margin-bottom: 8px;
@@ -1225,7 +1224,7 @@
 .boc-reading-chat-intent-title {
   font-size: 14px;
   font-weight: 700;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 .boc-reading-chat-intent-cancel {
@@ -1236,7 +1235,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   font: inherit;
   font-size: 15px;
   line-height: 1;
@@ -1249,15 +1248,15 @@
 }
 
 .boc-reading-chat-intent-cancel:hover {
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
 }
 
 .boc-reading-chat-intent-quote {
   margin: 0;
   font-size: 15px;
   line-height: 1.6;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   word-break: break-word;
 }
 
@@ -1286,7 +1285,7 @@
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   margin-bottom: 9px;
 }
 
@@ -1295,8 +1294,8 @@
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0;
-  color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
   border-radius: 999px;
   padding: 1px 8px;
 }
@@ -1304,7 +1303,7 @@
 .boc-reading-ov-empty {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 /* 章节列表：时间戳 pill + 标题 + 小结（点击跳播）。卡片底色用 surface-2 与
@@ -1316,7 +1315,7 @@
   gap: 10px;
   align-items: start;
   border: 0;
-  background: var(--boc-reader-surface-2, #f0e9df);
+  background: var(--boc-reader-surface-2);
   border-radius: 10px;
   padding: 9px 10px;
   margin-bottom: 8px;
@@ -1332,7 +1331,7 @@
 }
 
 .boc-reading-ov-chapter:hover {
-  background: var(--boc-reader-surface-3, #e7dfd4);
+  background: var(--boc-reader-surface-3);
 }
 
 .boc-reading-ov-chapter-copy {
@@ -1345,14 +1344,14 @@
   font-size: 16px;
   font-weight: 600;
   line-height: 1.5;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   word-break: break-word;
 }
 
 .boc-reading-ov-chapter-desc {
   font-size: 16px;
   line-height: 1.6;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   word-break: break-word;
 }
 
@@ -1360,9 +1359,9 @@
 .boc-reading-ov-quote {
   width: 100%;
   display: block;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  border-left: 3px solid var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-card, #ffffff);
+  border: 1px solid var(--boc-reader-border);
+  border-left: 3px solid var(--boc-reader-accent);
+  background: var(--boc-reader-card);
   border-radius: 10px;
   padding: 10px 12px 8px;
   margin-bottom: 10px;
@@ -1377,7 +1376,7 @@
 }
 
 .boc-reading-ov-quote:hover {
-  border-color: var(--boc-reader-accent, #fb7299);
+  border-color: var(--boc-reader-accent);
   border-left-width: 3px;
 }
 
@@ -1385,7 +1384,7 @@
   display: block;
   font-size: 16px;
   line-height: 1.7;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   word-break: break-word;
 }
 
@@ -1402,13 +1401,13 @@
 .boc-reading-ov-quote-copy {
   font-size: 14px;
   font-weight: 600;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   cursor: pointer;
   user-select: none;
 }
 
 .boc-reading-ov-quote-copy:hover {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 /* 状态条（生成中 / 部分失败 / 失败）+ 不确定进度细条 */
@@ -1417,7 +1416,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
   padding: 9px 12px;
   margin-bottom: 12px;
@@ -1425,24 +1424,24 @@
 
 .boc-reading-ov-strip.is-generating {
   border-color: transparent;
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  background: var(--boc-reader-accent-soft);
 }
 
 .boc-reading-ov-strip.is-partial,
 .boc-reading-ov-strip.is-error {
-  background: var(--boc-reader-highlight, #fdeeda);
+  background: var(--boc-reader-highlight);
 }
 
 .boc-reading-ov-strip-text {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-ov-progress {
   flex: 0 0 auto;
   font-size: 14px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   white-space: nowrap;
 }
 
@@ -1457,7 +1456,7 @@
 .boc-reading-ov-fill {
   height: 100%;
   width: 38%;
-  background: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent);
   border-radius: 99px;
   animation: boc-asr-pulse 1.6s ease-in-out infinite alternate;
 }
@@ -1494,7 +1493,7 @@
 #boc-reading-view .confirm-dialog-mask {
   position: absolute;
   inset: 0;
-  background: rgba(20, 16, 12, 0.28);
+  background: var(--boc-reader-mask-bg);
 }
 
 #boc-reading-view .confirm-dialog {
@@ -1504,8 +1503,8 @@
   transform: translate(-50%, -50%);
   width: min(320px, calc(100% - 48px));
   border-radius: 14px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  background: var(--boc-reader-surface, #fdfbf7);
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-surface);
   box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
 }
 
@@ -1518,7 +1517,7 @@
   padding: 16px 16px 12px;
   font-size: 15px;
   line-height: 1.5;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 #boc-reading-view .confirm-dialog-foot {
@@ -1541,20 +1540,20 @@
 }
 
 #boc-reading-view .confirm-dialog-cancel {
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 #boc-reading-view .confirm-dialog-cancel:hover {
-  color: var(--boc-reader-text, #2b2620);
-  background: var(--boc-reader-surface-2, #f0e9df);
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
 }
 
 #boc-reading-view .confirm-dialog-confirm {
   border: 0;
-  background: var(--boc-reader-accent, #fb7299);
-  color: #fff;
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-on-fill);
   font-weight: 600;
 }
 

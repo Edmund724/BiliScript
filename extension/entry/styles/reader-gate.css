@@ -74,7 +74,7 @@ body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-reader-follow="manual"
   margin-left: 8px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 /* ===== 主题 token =====
@@ -83,7 +83,10 @@ body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-reader-follow="manual"
  * accent 换亮粉可读变体，暗色主题不破相（纸色档已随两档制退役删除）。
  * 新增 card（白卡片）/faint（三级文字）/accent-ink（accent 实底上的文字）/
  * pill-bg（分段控件底）/highlight（提示横幅底，PR3 转写横幅消费）。
- * 时间戳 pill 母题消费 accent-soft 底 + accent 字。 */
+ * 时间戳 pill 母题消费 accent-soft 底 + accent 字。
+ * 后补组件级 token：mask-bg（弹层遮罩底，两主题同值深纱）/on-fill（实底
+ * 强调与警示按钮上的文字，两主题恒白——与暗色为深墨的 accent-ink 分开）/
+ * font-sans、font-mono（面板字体栈）。 */
 html[data-boc-reader-mode="1"],
 body[data-boc-reader-mode="1"],
 #boc-reading-view {
@@ -104,15 +107,26 @@ body[data-boc-reader-mode="1"],
   /* 进度轨底色（转写横幅 / 概览不确定进度条）：黑色半透明在深色面上不可见，
    * 两主题各给一份。 */
   --boc-reader-track: rgba(0, 0, 0, 0.08);
-  /* 语义色（Key 状态点 / 校验通过 / 删除警示 / 朗读高亮）：两主题各一份，
-   * 深色用更亮的绿红保证对比。 */
+  /* 语义色（Key 状态点 / 校验通过 / 删除警示 / 朗读高亮）：success 绿两主题
+   * 同值（此处定义即可，dark 块不重复），danger 红深色换更亮档保证对比。 */
   --boc-reader-success: #3fb950;
   --boc-reader-danger: #d93025;
   --boc-reader-danger-soft: rgba(217, 48, 37, 0.14);
+  /* 组件级：弹层遮罩底（解释卡 / 确认弹层 / 编辑 Modal / 获取弹窗四处 mask
+   * 共用）——深色沿用同一深纱，暗面上本就无差异，无需两份。 */
+  --boc-reader-mask-bg: rgba(20, 16, 12, 0.28);
+  /* 实底强调/警示按钮上的文字（发送键 / 确认键 / 保存键 / 删除键 hover）：
+   * 两主题恒白。与 accent-ink 不同（其暗色档是深墨），历史行为如此。 */
+  --boc-reader-on-fill: #ffffff;
   --boc-reader-shadow: 0 18px 40px rgba(112, 93, 64, 0.1);
   --boc-reader-subtitle-font-size: 16px;
   --boc-reader-subtitle-line-height: 1.5;
   --boc-reader-letter-spacing: 0em;
+  /* 面板字体栈：font-sans 与 ui/mermaid-render.ts 的 PANEL_FONT_FAMILY 字面量
+   * 互为镜像（mermaid 配置吃不了 CSS 变量）；font-mono 取时间戳 pill 那套
+   * 更全的栈。 */
+  --boc-reader-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  --boc-reader-font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   /* 动效 token：spring=临界阻尼无回弹（淡入/位移进场）；bounce=轻微回弹，
    * 仅用于有动量感的进出场（面板弹入、播放器按钮滑入）；press=按压缩放档。 */
   --boc-reader-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
@@ -143,7 +157,6 @@ body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
   --boc-reader-pill-bg: #1a2a46;
   --boc-reader-highlight: rgba(253, 238, 218, 0.1);
   --boc-reader-track: rgba(226, 232, 240, 0.18);
-  --boc-reader-success: #3fb950;
   --boc-reader-danger: #f2555a;
   --boc-reader-danger-soft: rgba(242, 85, 90, 0.2);
   --boc-reader-shadow: 0 18px 42px rgba(2, 6, 23, 0.42);
@@ -152,21 +165,22 @@ body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
 }
 
 /* ===== 减弱透明度 =====
- * 半透明材质（header/设置抽屉）退回近实色：token 在此统一覆盖，消费方
- * （reader.css / reader-settings.css）只需各自关掉 backdrop-filter。 */
+ * 半透明材质（header/设置抽屉）退回近实色：退回值即 surface 令牌（var 引用，
+ * 两主题各自跟随），消费方（reader.css / reader-settings.css）只需各自关掉
+ * backdrop-filter。 */
 @media (prefers-reduced-transparency: reduce) {
   html[data-boc-reader-mode="1"],
   body[data-boc-reader-mode="1"],
   #boc-reading-view {
-    --boc-reader-header-bg: #fdfbf7;
-    --boc-reader-overlay-bg: #fdfbf7;
+    --boc-reader-header-bg: var(--boc-reader-surface);
+    --boc-reader-overlay-bg: var(--boc-reader-surface);
   }
 
   html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
   body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
   #boc-reading-view[data-theme="dark"] {
-    --boc-reader-header-bg: #0f172a;
-    --boc-reader-overlay-bg: #0f172a;
+    --boc-reader-header-bg: var(--boc-reader-surface);
+    --boc-reader-overlay-bg: var(--boc-reader-surface);
   }
 }
 

@@ -38,10 +38,10 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: 14px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   /* 半透明材质：overlay token（gate 段两主题定义）+ blur/saturate 毛玻璃，
    * 与 reader header 同款（reduced-transparency 见文件尾降级块） */
-  background: var(--boc-reader-overlay-bg, var(--boc-reader-surface, #fdfbf7));
+  background: var(--boc-reader-overlay-bg, var(--boc-reader-surface));
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
   padding: 12px 14px;
@@ -114,7 +114,7 @@
 #boc-reading-view .boc-reading-settings-host .boc-set-h {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   margin: 0;
 }
 
@@ -122,7 +122,7 @@
   margin: 0;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 #boc-reading-view .boc-reading-settings-host .boc-set-row {
@@ -133,7 +133,7 @@
 #boc-reading-view .boc-reading-settings-host .boc-set-label {
   font-size: 14px;
   font-weight: 600;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 /* 输入框 box 全表唯一一份：.boc-set-quick-prompts input 同度量并入本条。 */
@@ -142,10 +142,10 @@
   width: 100%;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
 }
@@ -165,8 +165,8 @@
 #boc-reading-view .provider-editor-dialog select:focus,
 #boc-reading-view .custom-select-trigger:focus {
   outline: none;
-  border-color: var(--boc-reader-accent, #fb7299);
-  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft, #fce0ea);
+  border-color: var(--boc-reader-accent);
+  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft);
 }
 
 /* 校验错误态（aria-invalid，指南 fallback 通道）：Q22 甲——段落位置校验失败
@@ -175,7 +175,7 @@
  * applyValidationError 落属性、options-rows 行监听修正即摘。焦点态仍由上方
  * 单源叠加光环。 */
 #boc-reading-view .custom-select-trigger[aria-invalid="true"] {
-  border-color: var(--boc-reader-accent, #fb7299);
+  border-color: var(--boc-reader-accent);
 }
 
 /* 原生 select 回退（自定义下拉未接管时）：#downloadFormat 在 initCustomSelect
@@ -184,18 +184,18 @@
   width: 100%;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
   appearance: none;
   -webkit-appearance: none;
   padding-right: 26px;
   background-image:
-    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint, #a39a8d) 50%),
-    linear-gradient(135deg, var(--boc-reader-faint, #a39a8d) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint) 50%),
+    linear-gradient(135deg, var(--boc-reader-faint) 50%, transparent 50%);
   background-position:
     calc(100% - 12px) calc(50% - 1px),
     calc(100% - 9px) calc(50% - 1px);
@@ -207,10 +207,10 @@
   width: 100%;
   min-height: 66px;
   padding: 8px 10px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
   line-height: 1.5;
@@ -228,7 +228,7 @@
 }
 
 #boc-reading-view .boc-reading-settings-host .boc-set-textarea::placeholder {
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 /* 复选行统一：.boc-set-check（导出区等长标签）与 .mini-checkbox（笔记属性字段）
@@ -242,7 +242,7 @@
   margin: 0;
   font-size: 15px;
   line-height: 1.45;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   cursor: pointer;
 }
 
@@ -252,7 +252,7 @@
 #boc-reading-view .boc-reading-settings-host input[type="checkbox"],
 #boc-reading-view .boc-reading-settings-host input[type="radio"],
 #boc-reading-view .boc-reading-settings-host input[type="range"] {
-  accent-color: var(--boc-reader-accent, #fb7299);
+  accent-color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .boc-reading-settings-host .boc-set-check input[type="checkbox"],
@@ -282,8 +282,8 @@
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-accent, #fb7299);
-  color: var(--boc-reader-accent-ink, #ffffff);
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-accent-ink);
   font: inherit;
   font-size: 15px;
   font-weight: 600;
@@ -305,11 +305,11 @@
   min-height: 16px;
   font-size: 14px;
   line-height: 1.4;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 #boc-reading-view .boc-reading-settings-host .boc-set-status[data-error="true"] {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 /* 校验错误态（aria-invalid fallback 通道）：行级自定义规则（键名字符集 /
@@ -319,7 +319,7 @@
 #boc-reading-view .boc-reading-settings-host input[aria-invalid="true"],
 #boc-reading-view .boc-reading-settings-host select[aria-invalid="true"],
 #boc-reading-view .boc-reading-settings-host textarea[aria-invalid="true"] {
-  border-color: var(--boc-reader-accent, #fb7299);
+  border-color: var(--boc-reader-accent);
 }
 
 /* 固定属性 / 正文附加段落 / 平台 provider 行（原 options.css 行级规则，
@@ -335,7 +335,7 @@
 #boc-reading-view .boc-reading-settings-host .fixed-properties-empty {
   margin: 0;
   font-size: 14px;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 #boc-reading-view .boc-reading-settings-host .fixed-property-fields,
@@ -361,7 +361,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -376,7 +376,7 @@
 
 #boc-reading-view .boc-reading-settings-host .fixed-property-remove:hover,
 #boc-reading-view .boc-reading-settings-host .note-section-remove:hover {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .boc-reading-settings-host .fixed-property-remove svg,
@@ -397,10 +397,10 @@
   width: 100%;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
   line-height: 1.2;
@@ -411,8 +411,8 @@
   -webkit-appearance: none;
   padding-right: 26px;
   background-image:
-    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint, #a39a8d) 50%),
-    linear-gradient(135deg, var(--boc-reader-faint, #a39a8d) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint) 50%),
+    linear-gradient(135deg, var(--boc-reader-faint) 50%, transparent 50%);
   background-position:
     calc(100% - 12px) calc(50% - 1px),
     calc(100% - 9px) calc(50% - 1px);
@@ -433,10 +433,10 @@
   width: 100%;
   height: 32px;
   padding: 0 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
   font-weight: 400;
@@ -458,7 +458,7 @@
   width: 8px;
   height: 8px;
   flex: 0 0 auto;
-  stroke: var(--boc-reader-faint, #a39a8d);
+  stroke: var(--boc-reader-faint);
   stroke-width: 1.5;
   fill: none;
   stroke-linecap: round;
@@ -479,9 +479,9 @@
   max-height: 320px;
   overflow-y: auto;
   padding: 6px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 12px;
-  background: var(--boc-reader-card, #ffffff);
+  background: var(--boc-reader-card);
   box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
   list-style: none;
   margin: 0;
@@ -502,7 +502,7 @@
   text-align: left;
   font: inherit;
   font-size: 15px;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -519,17 +519,17 @@
 #boc-reading-view .boc-reading-settings-host .fixed-property-type-option:hover,
 #boc-reading-view .provider-editor-host .ai-provider-model-option:hover,
 #boc-reading-view .custom-select-option:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
+  background: var(--boc-reader-surface-2);
 }
 
 #boc-reading-view .provider-editor-host .ai-provider-model-option[data-selected="true"],
 #boc-reading-view .custom-select-option[data-selected="true"] {
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .provider-editor-host .ai-provider-model-loading {
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   cursor: default;
 }
 
@@ -543,20 +543,20 @@
 }
 
 #boc-reading-view .provider-editor-host .ai-provider-model-error {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .provider-editor-host .ai-provider-model-count {
   padding: 8px 10px 2px;
   font-size: 14px;
-  color: var(--boc-reader-faint, #a39a8d);
-  border-top: 1px dashed var(--boc-reader-border, #e7dfd4);
+  color: var(--boc-reader-faint);
+  border-top: 1px dashed var(--boc-reader-border);
   margin-top: 4px;
 }
 
 #boc-reading-view .boc-reading-settings-host .fixed-property-fields input::placeholder,
 #boc-reading-view .boc-reading-settings-host .note-section-fields input::placeholder {
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 #boc-reading-view .boc-reading-settings-host .fixed-property-value-slot {
@@ -567,7 +567,7 @@
 #boc-reading-view .boc-reading-settings-host .note-section-error {
   margin: 6px 0 0;
   font-size: 14px;
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .boc-reading-settings-host .fixed-property-error[hidden],
@@ -588,7 +588,7 @@
 #boc-reading-view .boc-reading-settings-host .ai-providers-empty {
   margin: 0;
   font-size: 14px;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 #boc-reading-view .boc-reading-settings-host .ai-provider-row,
@@ -598,9 +598,9 @@
   gap: 2px;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
-  background: var(--boc-reader-card, #ffffff);
+  background: var(--boc-reader-card);
 }
 
 #boc-reading-view .boc-reading-settings-host .provider-row-line {
@@ -616,7 +616,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--boc-reader-faint, #a39a8d);
+  background: var(--boc-reader-faint);
 }
 
 #boc-reading-view .boc-reading-settings-host .provider-row-dot[data-state="saved"] {
@@ -628,7 +628,7 @@
   min-width: 0;
   font-size: 15px;
   font-weight: 600;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -639,7 +639,7 @@
   padding-left: 16px;
   font-size: 14px;
   line-height: 1.4;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -671,7 +671,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -685,8 +685,8 @@
 }
 
 #boc-reading-view .provider-editor-host .ai-provider-model-toggle:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
 }
 
 #boc-reading-view .provider-editor-host .ai-provider-model-toggle svg {
@@ -714,7 +714,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -727,8 +727,8 @@
 }
 
 #boc-reading-view .boc-reading-settings-host .provider-row-remove:hover {
-  color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
 }
 
 #boc-reading-view .boc-reading-settings-host .provider-row-remove svg {
@@ -748,7 +748,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 400;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -765,10 +765,10 @@
   justify-self: start;
   height: 32px;
   padding: 0 12px;
-  border: 1px dashed var(--boc-reader-border, #e7dfd4);
+  border: 1px dashed var(--boc-reader-border);
   border-radius: 999px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font-size: 15px;
   font-weight: 400;
   cursor: pointer;
@@ -780,8 +780,8 @@
 }
 
 #boc-reading-view .boc-reading-settings-host .add-property-btn:hover {
-  color: var(--boc-reader-accent, #fb7299);
-  border-color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
+  border-color: var(--boc-reader-accent);
 }
 
 /* 面板外部的 global document click 委托会关闭 type picker 菜单/模型下拉；
@@ -808,10 +808,10 @@
   justify-content: space-between;
   gap: 5px;
   padding: 0 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -828,7 +828,7 @@
 #boc-reading-view .custom-select-arrow {
   display: inline-flex;
   flex: 0 0 auto;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 #boc-reading-view .custom-select-arrow svg {
@@ -871,7 +871,7 @@
 #boc-reading-view .provider-editor-mask {
   position: absolute;
   inset: 0;
-  background: rgba(20, 16, 12, 0.28);
+  background: var(--boc-reader-mask-bg);
 }
 
 #boc-reading-view .provider-editor-dialog {
@@ -886,8 +886,8 @@
   display: flex;
   flex-direction: column;
   border-radius: 14px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  background: var(--boc-reader-surface, #fdfbf7);
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-surface);
   box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
 }
 
@@ -910,13 +910,13 @@
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px 10px;
-  border-bottom: 1px solid var(--boc-reader-border, #e7dfd4);
+  border-bottom: 1px solid var(--boc-reader-border);
 }
 
 #boc-reading-view .provider-editor-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 /* 删除按钮（Modal 头部右侧，对齐参考截图的编辑页布局；用户拍板改为醒目
@@ -941,7 +941,7 @@
 
 #boc-reading-view .provider-editor-delete:hover {
   background: var(--boc-reader-danger);
-  color: #fff;
+  color: var(--boc-reader-on-fill);
 }
 
 #boc-reading-view .provider-editor-body {
@@ -961,7 +961,7 @@
 
 #boc-reading-view .provider-editor-label {
   font-size: 14px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 #boc-reading-view .provider-editor-dialog input[type="text"],
@@ -970,12 +970,12 @@
   width: 100%;
   height: 32px;
   padding: 4px 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
   font: inherit;
   font-size: 15px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   min-width: 0;
   margin: 0;
 }
@@ -988,7 +988,7 @@
  * 优先级、声明在后取胜；聚焦中的错误边框让位焦点光环（上方单源）。 */
 #boc-reading-view .provider-editor-dialog input[type="text"]:user-invalid,
 #boc-reading-view .provider-editor-dialog input[type="password"]:user-invalid {
-  border-color: var(--boc-reader-accent, #fb7299);
+  border-color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .provider-editor-dialog input[type="text"]:user-valid,
@@ -1018,8 +1018,8 @@
   line-height: 1;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -1030,7 +1030,7 @@
 }
 
 #boc-reading-view .provider-editor-test:hover {
-  background: var(--boc-reader-surface-3, #e7dfd4);
+  background: var(--boc-reader-surface-3);
 }
 
 #boc-reading-view .provider-editor-test:disabled,
@@ -1046,11 +1046,11 @@
   margin: 0;
   font-size: 14px;
   line-height: 1.4;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 #boc-reading-view .provider-editor-status[data-error="true"] {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .provider-editor-foot {
@@ -1060,16 +1060,16 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 16px 14px;
-  border-top: 1px solid var(--boc-reader-border, #e7dfd4);
+  border-top: 1px solid var(--boc-reader-border);
 }
 
 #boc-reading-view .provider-editor-cancel {
   height: 32px;
   padding: 0 14px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 999px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -1081,8 +1081,8 @@
 }
 
 #boc-reading-view .provider-editor-cancel:hover {
-  color: var(--boc-reader-text, #2b2620);
-  background: var(--boc-reader-surface-2, #f0e9df);
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
 }
 
 #boc-reading-view .provider-editor-save {
@@ -1090,8 +1090,8 @@
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-accent, #fb7299);
-  color: #fff;
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-on-fill);
   font: inherit;
   font-size: 15px;
   font-weight: 600;
@@ -1128,7 +1128,7 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
   font: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -1141,7 +1141,7 @@
 }
 
 #boc-reading-view .provider-editor-fetch:hover {
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  background: var(--boc-reader-accent-soft);
 }
 
 #boc-reading-view .provider-editor-model-list {
@@ -1185,7 +1185,7 @@
 #boc-reading-view .provider-editor-model-result[data-state="loading"] {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--boc-reader-accent, #fb7299);
+  border: 2px solid var(--boc-reader-accent);
   border-top-color: transparent;
   border-radius: 50%;
   animation: boc-model-test-spin 0.8s linear infinite;
@@ -1200,7 +1200,7 @@
 }
 
 #boc-reading-view .provider-editor-model-result[data-state="error"] {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .provider-editor-model-result[data-state="error"]::before {
@@ -1223,8 +1223,8 @@
   line-height: 1;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -1235,7 +1235,7 @@
 }
 
 #boc-reading-view .provider-editor-model-test:hover {
-  background: var(--boc-reader-surface-3, #e7dfd4);
+  background: var(--boc-reader-surface-3);
 }
 
 #boc-reading-view .provider-editor-model-test:disabled {
@@ -1252,7 +1252,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1265,8 +1265,8 @@
 }
 
 #boc-reading-view .provider-editor-model-remove:hover {
-  color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
 }
 
 #boc-reading-view .provider-editor-model-remove svg {
@@ -1288,11 +1288,11 @@
 }
 
 #boc-reading-view .provider-editor-catalog-empty {
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 #boc-reading-view .provider-editor-catalog-error {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .provider-editor-catalog-empty[hidden],
@@ -1305,10 +1305,10 @@
   align-self: flex-start;
   height: 32px;
   padding: 0 12px;
-  border: 1px dashed var(--boc-reader-border, #e7dfd4);
+  border: 1px dashed var(--boc-reader-border);
   border-radius: 999px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -1320,8 +1320,8 @@
 }
 
 #boc-reading-view .provider-editor-model-add:hover {
-  color: var(--boc-reader-accent, #fb7299);
-  border-color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
+  border-color: var(--boc-reader-accent);
 }
 
 /* 「获取可用模型」弹窗：宿主内的第二层弹层（mask + 居中卡片），盖在编辑
@@ -1329,7 +1329,7 @@
 #boc-reading-view .provider-editor-fetch-mask {
   position: absolute;
   inset: 0;
-  background: rgba(20, 16, 12, 0.28);
+  background: var(--boc-reader-mask-bg);
 }
 
 #boc-reading-view .provider-editor-fetch-dialog {
@@ -1344,8 +1344,8 @@
   gap: 10px;
   padding: 14px 16px;
   border-radius: 14px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
-  background: var(--boc-reader-surface, #fdfbf7);
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-surface);
   box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
 }
 
@@ -1360,7 +1360,7 @@
 #boc-reading-view .provider-editor-fetch-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 #boc-reading-view .provider-editor-fetch-close {
@@ -1370,7 +1370,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
@@ -1385,8 +1385,8 @@
 }
 
 #boc-reading-view .provider-editor-fetch-close:hover {
-  color: var(--boc-reader-text, #2b2620);
-  background: var(--boc-reader-surface-2, #f0e9df);
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
 }
 
 /* 弹窗输入（挂在 .provider-editor-host 直下，不受 .provider-editor-dialog
@@ -1395,12 +1395,12 @@
   width: 100%;
   height: 32px;
   padding: 4px 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
   font: inherit;
   font-size: 15px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
   min-width: 0;
   margin: 0;
 }
@@ -1410,7 +1410,7 @@
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   cursor: pointer;
 }
 
@@ -1422,9 +1422,9 @@
   list-style: none;
   margin: 0;
   padding: 6px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
+  background: var(--boc-reader-card);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1440,7 +1440,7 @@
 }
 
 #boc-reading-view .provider-editor-fetch-item:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
+  background: var(--boc-reader-surface-2);
 }
 
 #boc-reading-view .provider-editor-fetch-item-label {
@@ -1450,7 +1450,7 @@
   align-items: center;
   gap: 6px;
   font-size: 15px;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   cursor: pointer;
 }
 
@@ -1463,20 +1463,20 @@
 #boc-reading-view .provider-editor-fetch-added {
   flex: 0 0 auto;
   font-size: 13px;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 #boc-reading-view .provider-editor-fetch-message {
   padding: 4px 10px;
   font-size: 14px;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 #boc-reading-view .provider-editor-fetch-error {
   margin: 0;
   font-size: 14px;
   line-height: 1.4;
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
 }
 
 #boc-reading-view .provider-editor-fetch-error[hidden] {
@@ -1489,8 +1489,8 @@
   margin-left: 4px;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -1513,10 +1513,10 @@
 #boc-reading-view .provider-editor-fetch-cancel {
   height: 32px;
   padding: 0 14px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 999px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -1528,8 +1528,8 @@
 }
 
 #boc-reading-view .provider-editor-fetch-cancel:hover {
-  color: var(--boc-reader-text, #2b2620);
-  background: var(--boc-reader-surface-2, #f0e9df);
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
 }
 
 #boc-reading-view .provider-editor-fetch-confirm {
@@ -1537,8 +1537,8 @@
   padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-accent, #fb7299);
-  color: #fff;
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-on-fill);
   font: inherit;
   font-size: 15px;
   font-weight: 600;
@@ -1570,7 +1570,7 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -1581,8 +1581,8 @@
 }
 
 #boc-reading-view .boc-reading-settings-host .provider-row-edit:hover {
-  color: var(--boc-reader-text, #2b2620);
-  background: var(--boc-reader-surface-2, #f0e9df);
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
 }
 
 /* ===== 减少动态 =====

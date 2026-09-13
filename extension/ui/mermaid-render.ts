@@ -41,8 +41,9 @@ interface RenderedDiagram {
 const MERMAID_THEME_ATTR = "data-boc-mermaid-theme";
 const MERMAID_UNSUPPORTED_MESSAGE = "不支持的图表类型，已显示源码";
 
-// 面板字体栈（reader.css 的面板族）。mermaid 默认栈是 "trebuchet ms, verdana,
-// arial"，与面板字体不搭，显式对齐。
+// 面板字体栈：与 reader-gate.css 的 --boc-reader-font-sans 令牌互为镜像——
+// mermaid 配置吃不了 CSS 变量，只能字面量同步，改动须两边一致。mermaid 默认
+// 栈是 "trebuchet ms, verdana, arial"，与面板字体不搭，显式对齐。
 const PANEL_FONT_FAMILY =
   '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif';
 

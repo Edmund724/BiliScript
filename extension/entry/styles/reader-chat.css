@@ -20,7 +20,7 @@
   flex-direction: column;
   font-size: 15px;
   line-height: 1.5;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-chat .chat-header {
@@ -29,7 +29,7 @@
   gap: 5px;
   min-height: 42px;
   padding: 6px 0 8px;
-  border-bottom: 1px solid var(--boc-reader-border, #e7dfd4);
+  border-bottom: 1px solid var(--boc-reader-border);
   flex-shrink: 0;
 }
 
@@ -42,8 +42,8 @@
   min-width: 0;
   padding: 6px 10px;
   border: 0;
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-muted, #6f675c);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-muted);
   border-radius: 999px;
   font-size: 14px;
   text-align: left;
@@ -59,13 +59,13 @@
 }
 
 .boc-reading-chat .chat-context-chip:hover {
-  background: var(--boc-reader-surface-3, #e7dfd4);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface-3);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-chat .chat-context-chip.is-mismatch {
-  background: var(--boc-reader-highlight, #fdeeda);
-  color: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-highlight);
+  color: var(--boc-reader-accent);
 }
 
 .boc-reading-chat .chat-context-chip:disabled {
@@ -83,7 +83,7 @@
 
 .boc-reading-chat .chat-model-thinking-label {
   flex: 0 0 auto;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font-size: 13px;
 }
 
@@ -92,9 +92,9 @@
   display: inline-flex;
   align-items: center;
   padding: 2px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
-  background: var(--boc-reader-surface, #fdfbf7);
+  background: var(--boc-reader-surface);
 }
 
 .boc-reading-chat .chat-thinking-btn {
@@ -103,7 +103,7 @@
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font: inherit;
   font-size: 13px;
   line-height: 1;
@@ -116,13 +116,13 @@
 }
 
 .boc-reading-chat .chat-thinking-btn:hover {
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-chat .chat-thinking-btn.is-active {
-  background: var(--boc-reader-card, #ffffff);
-  border-color: var(--boc-reader-border, #e7dfd4);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-card);
+  border-color: var(--boc-reader-border);
+  color: var(--boc-reader-text);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
@@ -131,7 +131,7 @@
 .boc-reading-chat .chat-thinking-hint {
   flex-basis: 100%;
   padding: 0 2px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font-size: 14px;
   line-height: 1.4;
 }
@@ -147,7 +147,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -180,8 +180,8 @@
 }
 
 .boc-reading-chat .chat-icon-btn:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
 }
 
 @keyframes boc-chat-icon-rotate {
@@ -217,10 +217,10 @@
 .boc-reading-chat .chat-chip {
   text-align: left;
   padding: 10px 12px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
-  background: var(--boc-reader-surface, #fdfbf7);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface);
+  color: var(--boc-reader-text);
   font: inherit;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, transform 100ms ease-out;
@@ -231,8 +231,8 @@
 }
 
 .boc-reading-chat .chat-chip:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
-  border-color: var(--boc-reader-surface-3, #e7dfd4);
+  background: var(--boc-reader-surface-2);
+  border-color: var(--boc-reader-surface-3);
 }
 
 /* 气泡是「内容排版域」的形状与字号档：正文 16px（与字幕正文的
@@ -250,16 +250,16 @@
 
 .boc-reading-chat .chat-msg-user {
   align-self: flex-end;
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
+  border: 1px solid var(--boc-reader-border);
   border-bottom-right-radius: 6px;
 }
 
 .boc-reading-chat .chat-msg-assistant {
   align-self: flex-start;
   background: transparent;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   border: 0;
   padding: 0;
   white-space: normal;
@@ -275,7 +275,7 @@
  * 一行「思考过程」。 */
 .boc-reading-chat .chat-thinking {
   margin-bottom: 10px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
@@ -287,13 +287,13 @@
   gap: 6px;
   font-weight: 500;
   margin-bottom: 4px;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 .boc-reading-chat .chat-thinking-icon {
   display: inline-flex;
   flex: none;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
 }
 
 .boc-reading-chat .chat-thinking-icon svg {
@@ -312,7 +312,7 @@
    * 共用规则在 @supports not (scrollbar-color: auto) 内，本元素不在其列，
    * 且 reader.css 不得再含 chat-* 标记）。 */
   scrollbar-width: thin;
-  scrollbar-color: var(--boc-reader-faint, #a39a8d) transparent;
+  scrollbar-color: var(--boc-reader-faint) transparent;
 }
 
 /* 思考流结束后的折叠态：收成一行「思考过程 ▸」，点击展开回看（当轮有效，
@@ -347,10 +347,10 @@
   width: 32px;
   height: 32px;
   padding: 0;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 8px;
-  background: var(--boc-reader-card, #ffffff);
-  color: var(--boc-reader-muted, #6f675c);
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-muted);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -363,14 +363,14 @@
 }
 
 .boc-reading-chat .chat-msg-copy-btn:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
-  border-color: var(--boc-reader-surface-3, #e7dfd4);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
+  border-color: var(--boc-reader-surface-3);
 }
 
 .boc-reading-chat .chat-msg-copy-btn:disabled {
   cursor: default;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 .boc-reading-chat .chat-msg-copy-btn svg {
@@ -423,9 +423,11 @@
 
 .boc-reading-chat .chat-msg-assistant code {
   padding: 1px 5px;
-  background: var(--boc-reader-surface-2, #f0e9df);
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  background: var(--boc-reader-surface-2);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 4px;
+  /* 栈与 --boc-reader-font-mono（"SF Mono" 打头的更全套）不同——首字体与
+   * 条目数不一致，换用令牌会改解析序，保持字面量。 */
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 14px;
 }
@@ -436,25 +438,25 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
   text-decoration: underline;
-  text-decoration-color: var(--boc-reader-accent-soft, #fce0ea);
+  text-decoration-color: var(--boc-reader-accent-soft);
   text-underline-offset: 2px;
 }
 
 .boc-reading-chat .chat-timestamp-link:hover {
-  color: var(--boc-reader-accent, #fb7299);
-  text-decoration-color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
+  text-decoration-color: var(--boc-reader-accent);
 }
 
 .boc-reading-chat .chat-msg-assistant pre {
   margin: 6px 0;
   padding: 10px 12px;
-  background: var(--boc-reader-surface, #fdfbf7);
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  background: var(--boc-reader-surface);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
   overflow-x: auto;
 }
@@ -523,7 +525,7 @@
   display: inline-block;
   width: 5px;
   height: 12px;
-  background: var(--boc-reader-faint, #a39a8d);
+  background: var(--boc-reader-faint);
   margin-left: 2px;
   vertical-align: -2px;
   animation: boc-chat-blink 1s steps(2) infinite;
@@ -534,16 +536,16 @@
 }
 
 .boc-reading-chat .chat-msg-error {
-  color: var(--boc-reader-text, #2b2620);
-  background: var(--boc-reader-highlight, #fdeeda);
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-highlight);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
   padding: 8px 10px;
   font-size: 14px;
 }
 
 .boc-reading-chat .chat-msg-stopped {
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font-size: 14px;
   line-height: 1.4;
   padding-top: 2px;
@@ -552,14 +554,14 @@
 .boc-reading-chat .chat-center-error {
   margin: auto;
   text-align: center;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font-size: 15.5px;
   padding: 18px 16px;
   line-height: 1.65;
 }
 
 .boc-reading-chat .chat-center-error a {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
   text-decoration: none;
 }
 
@@ -574,17 +576,17 @@
   z-index: 1;
   margin-bottom: 2px;
   padding: 7px 10px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-muted, #6f675c);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-muted);
   font-size: 14px;
   line-height: 1.35;
   text-align: center;
 }
 
 .boc-reading-chat .chat-context-notice a {
-  color: var(--boc-reader-accent, #fb7299);
+  color: var(--boc-reader-accent);
   text-decoration: none;
 }
 
@@ -596,10 +598,10 @@
   flex: 0 0 auto;
   margin: 0 0 6px;
   padding: 7px 10px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-muted, #6f675c);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-muted);
   font-size: 14px;
   line-height: 1.35;
   text-align: center;
@@ -614,7 +616,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px 0 0;
-  border-top: 1px solid var(--boc-reader-border, #e7dfd4);
+  border-top: 1px solid var(--boc-reader-border);
   flex-shrink: 0;
   position: relative;
 }
@@ -628,7 +630,7 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font: inherit;
   font-size: 14.5px;
   line-height: 1;
@@ -641,8 +643,8 @@
 }
 
 .boc-reading-chat .chat-toolbar-btn:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-chat .chat-toolbar-btn:disabled {
@@ -662,14 +664,14 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px 10px 8px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 14px;
-  background: var(--boc-reader-surface, #fdfbf7);
+  background: var(--boc-reader-surface);
 }
 
 .boc-reading-chat .chat-input-card:focus-within {
-  border-color: var(--boc-reader-accent, #fb7299);
-  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft, #fce0ea);
+  border-color: var(--boc-reader-accent);
+  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft);
 }
 
 /* 底部控件行：+ 在左，模型 chip 与发送键在右（chip margin-left:auto 顶开）。 */
@@ -690,14 +692,14 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   cursor: pointer;
   transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .boc-reading-chat .chat-add-btn:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-chat .chat-add-btn:active {
@@ -725,8 +727,8 @@
   padding: 0 10px;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 13px;
   line-height: 1;
@@ -737,7 +739,7 @@
 }
 
 .boc-reading-chat .chat-model-chip:hover {
-  background: var(--boc-reader-surface-3, #e7dfd4);
+  background: var(--boc-reader-surface-3);
 }
 
 .boc-reading-chat .chat-model-chip:active {
@@ -746,7 +748,7 @@
 
 .boc-reading-chat .chat-model-chip:disabled {
   cursor: default;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 /* 模型名 span：溢出截断只作用于此（ellipsis）；档位 span 与 chevron 恒完整，
@@ -786,8 +788,8 @@
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-accent, #fb7299);
-  color: #ffffff;
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-on-fill);
   cursor: pointer;
   transition: opacity 0.15s ease-out, transform 100ms ease-out;
 }
@@ -838,10 +840,10 @@
   gap: 8px;
   max-height: min(430px, calc(100vh - 260px));
   padding: 10px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 14px;
-  background: var(--boc-reader-card, #ffffff);
-  box-shadow: var(--boc-reader-shadow, 0 18px 40px rgba(112, 93, 64, 0.1));
+  background: var(--boc-reader-card);
+  box-shadow: var(--boc-reader-shadow);
   overflow-y: auto;
 }
 
@@ -861,7 +863,7 @@
 .boc-reading-chat .chat-history-popover-title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
 }
 
 .boc-reading-chat .chat-preset-list {
@@ -879,7 +881,7 @@
 .boc-reading-chat .chat-preset-empty,
 .boc-reading-chat .chat-history-empty,
 .boc-reading-chat .chat-model-empty {
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   font-size: 14px;
 }
 
@@ -894,7 +896,7 @@
 
 .boc-reading-chat .chat-model-group {
   padding: 6px 8px 2px;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   font-size: 12px;
   font-weight: 600;
 }
@@ -909,7 +911,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 14px;
   text-align: left;
@@ -918,13 +920,13 @@
 }
 
 .boc-reading-chat .chat-model-option:hover {
-  background: var(--boc-reader-surface-2, #f0e9df);
+  background: var(--boc-reader-surface-2);
 }
 
 /* 选中行：极浅主题色 tint 底 + 主题文字色（克制，不整行填充主题色）。 */
 .boc-reading-chat .chat-model-option.is-selected {
-  background: var(--boc-reader-accent-soft, #fce0ea);
-  color: var(--boc-reader-accent, #fb7299);
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
 }
 
 .boc-reading-chat .chat-model-option-name {
@@ -944,13 +946,13 @@
   flex-direction: column;
   gap: 6px;
   padding-top: 8px;
-  border-top: 1px solid var(--boc-reader-border, #e7dfd4);
+  border-top: 1px solid var(--boc-reader-border);
 }
 
 .boc-reading-chat .chat-history-clear-btn {
   border: 0;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -965,8 +967,8 @@
 }
 
 .boc-reading-chat .chat-history-clear-btn:hover {
-  color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
 }
 
 .boc-reading-chat .chat-history-item {
@@ -974,21 +976,21 @@
   grid-template-columns: minmax(0, 1fr) 24px;
   gap: 6px;
   align-items: center;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 10px;
-  background: var(--boc-reader-surface, #fdfbf7);
+  background: var(--boc-reader-surface);
   padding: 4px;
   max-width: 100%;
 }
 
 .boc-reading-chat .chat-history-item.is-active {
-  border-color: var(--boc-reader-surface-3, #e7dfd4);
-  background: var(--boc-reader-surface-2, #f0e9df);
+  border-color: var(--boc-reader-surface-3);
+  background: var(--boc-reader-surface-2);
 }
 
 .boc-reading-chat .chat-history-item.is-live-match {
-  border-color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  border-color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
 }
 
 .boc-reading-chat .chat-history-open {
@@ -997,7 +999,7 @@
   border: 0;
   background: transparent;
   text-align: left;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -1029,14 +1031,14 @@
 .boc-reading-chat .chat-history-title-suffix {
   flex: 0 0 auto;
   white-space: nowrap;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font-size: 14px;
 }
 
 .boc-reading-chat .chat-history-meta {
   font-size: 14px;
   line-height: 1.3;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1048,7 +1050,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -1060,17 +1062,17 @@
 }
 
 .boc-reading-chat .chat-history-remove:hover {
-  color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
 }
 
 .boc-reading-chat .chat-preset-item {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 999px;
-  background: var(--boc-reader-surface, #fdfbf7);
+  background: var(--boc-reader-surface);
   overflow: hidden;
 }
 
@@ -1079,7 +1081,7 @@
   padding: 5px 10px;
   border: 0;
   background: transparent;
-  color: var(--boc-reader-muted, #6f675c);
+  color: var(--boc-reader-muted);
   font: inherit;
   font-size: 14px;
   cursor: pointer;
@@ -1089,24 +1091,24 @@
 }
 
 .boc-reading-chat .chat-preset-chip:hover {
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
 }
 
 .boc-reading-chat .chat-preset-remove {
   width: 24px;
   height: 24px;
   border: 0;
-  border-left: 1px solid var(--boc-reader-border, #e7dfd4);
+  border-left: 1px solid var(--boc-reader-border);
   background: transparent;
-  color: var(--boc-reader-faint, #a39a8d);
+  color: var(--boc-reader-faint);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
 }
 
 .boc-reading-chat .chat-preset-remove:hover {
-  color: var(--boc-reader-accent, #fb7299);
-  background: var(--boc-reader-accent-soft, #fce0ea);
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
 }
 
 .boc-reading-chat .chat-preset-editor {
@@ -1119,10 +1121,10 @@
   min-width: 0;
   height: 32px;
   padding: 0 10px;
-  border: 1px solid var(--boc-reader-border, #e7dfd4);
+  border: 1px solid var(--boc-reader-border);
   border-radius: 999px;
-  background: var(--boc-reader-surface, #fdfbf7);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
 }
@@ -1132,15 +1134,15 @@
   padding: 0 12px;
   border: 0;
   border-radius: 999px;
-  background: var(--boc-reader-surface-2, #f0e9df);
-  color: var(--boc-reader-text, #2b2620);
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
 }
 
 .boc-reading-chat .chat-preset-add-btn:hover {
-  background: var(--boc-reader-surface-3, #e7dfd4);
+  background: var(--boc-reader-surface-3);
 }
 
 .boc-reading-chat #boc-reading-chat-input {
@@ -1150,7 +1152,7 @@
   padding: 2px 4px;
   border: 0;
   background: transparent;
-  color: var(--boc-reader-text, #2b2620);
+  color: var(--boc-reader-text);
   font: inherit;
   font-size: 15px;
   line-height: 1.45;
