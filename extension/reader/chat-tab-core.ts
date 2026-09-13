@@ -353,10 +353,11 @@ export const providerPrefs = createProviderPrefs({
   modelSelect: els.modelSelect,
   thinkingBtns: els.thinkingBtns,
   widthEls,
+  webSearchPill: els.webSearchPill,
   renderPresetPrompts: () => lists.renderPresetPrompts(),
   persistAiPresetPrompts: () => presets.persistAiPresetPrompts()
 });
-export const { loadProvidersAndPrefs, setThinkingLevel } = providerPrefs;
+export const { loadProvidersAndPrefs, setThinkingLevel, setWebSearchEnabled } = providerPrefs;
 
 // ============================================================
 // 思考档位「关不掉」提示（工单 03，对话 tab 档位区唯一的 UI 增量）

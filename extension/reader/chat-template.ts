@@ -19,6 +19,10 @@ export function buildChatTabBodyHtml(): string {
       <div id="${ids.readingChatRoot}" class="boc-reading-chat">
         <header class="chat-header boc-reading-chat-header">
           <button type="button" class="chat-context-chip" id="${ids.readingChatContextChip}" title="">加载中...</button>
+          <!-- 联网搜索开关（spec §4）：点击即改全局记忆，开启态 accent-soft 底 -->
+          <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-toolbar-btn chat-web-search-pill" title="联网搜索" aria-pressed="false">
+            <span>联网</span>
+          </button>
           <button id="${ids.readingChatHistoryBtn}" type="button" class="chat-toolbar-btn" title="历史对话">
             <span>历史对话</span>
           </button>

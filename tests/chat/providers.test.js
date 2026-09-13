@@ -348,3 +348,65 @@ describe("setSelectedProvider / getStoredSelectedProviderId", () => {
     expect(providerPrefs.getStoredSelectedProviderId()).toBe("p9");
   });
 });
+
+describe("webSearchEnabled 联网开关（spec §2.1/§4）", () => {
+  function makePillHarness(storage) {
+    const pill = document.createElement("button");
+    document.body.appendChild(pill);
+    const harness = makeHarness(storage);
+    // pill 是可选注入：直接挂 deps 重建实例
+    const providerPrefs = createProviderPrefs({ ...harness.deps, webSearchPill: pill });
+    return { ...harness, providerPrefs, pill };
+  }
+
+  it("loadProvidersAndPrefs 水合 settings.webSearchEnabled，pill 开启态渲染", async () => {
+    sendRuntimeMessageMock.mockImplementation(async (msg) => {
+      if (msg.type === "get-settings") {
+        return { ok: true, settings: { aiThinkingLevel: "off", webSearchEnabled: true } };
+      }
+      return { ok: true, providers: [] };
+    });
+    const { providerPrefs, pill } = makePillHarness();
+
+    await providerPrefs.loadProvidersAndPrefs();
+
+    expect(chatSessionState.webSearchEnabled).toBe(true);
+    expect(pill.classList.contains("is-active")).toBe(true);
+    expect(pill.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("settings 缺省：默认关", async () => {
+    sendRuntimeMessageMock.mockImplementation(async (msg) => {
+      if (msg.type === "get-settings") {
+        return { ok: true, settings: {} };
+      }
+      return { ok: true, providers: [] };
+    });
+    const { providerPrefs, pill } = makePillHarness();
+
+    await providerPrefs.loadProvidersAndPrefs();
+
+    expect(chatSessionState.webSearchEnabled).toBe(false);
+    expect(pill.classList.contains("is-active")).toBe(false);
+  });
+
+  it("setWebSearchEnabled：写 chatSessionState + 渲染 + save-settings 单键持久化", async () => {
+    const { providerPrefs, pill } = makePillHarness();
+
+    await providerPrefs.setWebSearchEnabled(true);
+
+    expect(chatSessionState.webSearchEnabled).toBe(true);
+    expect(pill.classList.contains("is-active")).toBe(true);
+    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({
+      type: "save-settings",
+      settings: { webSearchEnabled: true }
+    });
+
+    await providerPrefs.setWebSearchEnabled(false);
+    expect(pill.classList.contains("is-active")).toBe(false);
+    expect(sendRuntimeMessageMock).toHaveBeenCalledWith({
+      type: "save-settings",
+      settings: { webSearchEnabled: false }
+    });
+  });
+});

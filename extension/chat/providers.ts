@@ -71,6 +71,8 @@ export interface ProviderPrefsStorage {
 export interface CreateProviderPrefsDeps {
   modelSelect: HTMLSelectElement;
   thinkingBtns: NodeListOf<HTMLElement>;
+  // 联网搜索开关 pill（spec §4，chat header 工具条；缺省 = 宿主无此控件）
+  webSearchPill?: HTMLElement | null;
   // updateModelSelectWidth 的 els 引用包（含 chip/chipLabel/inputBar——发送框
   // 重构起度量对象是模型 chip 而非 select）
   widthEls: ModelSelectWidthEls;
@@ -86,6 +88,9 @@ export interface ProviderPrefs {
   loadProvidersAndPrefs: (opts?: { preferredProviderId?: string }) => Promise<void>;
   renderModelSelect: (preferredProviderId?: string) => void;
   setThinkingLevel: (level: string) => Promise<void>;
+  // 联网搜索开关（spec §4）：点击即改全局记忆（sync settings.webSearchEnabled），
+  // 默认关。渲染与写入同收口。
+  setWebSearchEnabled: (enabled: boolean) => Promise<void>;
   // 选中项写入 chrome.storage.local（原 sidepanel.ts modelSelect change
   // 监听里的 localStorage.setItem 换通道）；闭包缓存同步更新供
   // renderModelSelect 的同步回退读取。multi-model-catalog 起写入的是复合值
@@ -127,7 +132,7 @@ function formatProviderLabel(provider: { name?: string; model?: unknown }): stri
 }
 
 export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPrefs {
-  const { modelSelect, thinkingBtns, widthEls } = deps;
+  const { modelSelect, thinkingBtns, widthEls, webSearchPill } = deps;
   const storage =
     deps.storage ||
     (typeof chrome !== "undefined" && chrome?.storage?.local ? chrome.storage.local : undefined);
@@ -191,12 +196,15 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     chatSessionState.aiThinkingLevel = normalizeAiThinkingLevel(
       settingsResp?.settings?.aiThinkingLevel ?? storedPrefs[THINKING_LEVEL_KEY]
     );
+    // 联网搜索开关（spec §2.1/§4）：全局记忆（sync settings），默认关。
+    chatSessionState.webSearchEnabled = Boolean(settings?.webSearchEnabled);
     if (!chatSessionState.aiPrefs.aiPresetPrompts.length) {
       chatSessionState.aiPrefs.aiPresetPrompts = DEFAULT_PRESET_PROMPTS.slice();
       void deps.persistAiPresetPrompts();
     }
     renderModelSelect(preferredProviderId);
     renderThinkingLevel();
+    renderWebSearchEnabled();
     deps.renderPresetPrompts();
   }
 
@@ -282,6 +290,19 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     await sendRuntimeMessage({ type: "save-settings", settings: { aiThinkingLevel: chatSessionState.aiThinkingLevel } }).catch(() => null);
   }
 
+  // 联网搜索开关渲染（spec §4）：pill 开启态 is-active（accent-soft 底）。
+  function renderWebSearchEnabled(): void {
+    if (!webSearchPill) return;
+    webSearchPill.classList.toggle("is-active", chatSessionState.webSearchEnabled);
+    webSearchPill.setAttribute("aria-pressed", chatSessionState.webSearchEnabled ? "true" : "false");
+  }
+
+  async function setWebSearchEnabled(enabled: boolean): Promise<void> {
+    chatSessionState.webSearchEnabled = Boolean(enabled);
+    renderWebSearchEnabled();
+    await sendRuntimeMessage({ type: "save-settings", settings: { webSearchEnabled: chatSessionState.webSearchEnabled } }).catch(() => null);
+  }
+
   function setSelectedProvider(providerId: string): void {
     storedSelectedProviderId = String(providerId || "").trim();
     if (storage) {
@@ -293,5 +314,5 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     return storedSelectedProviderId;
   }
 
-  return { loadProvidersAndPrefs, renderModelSelect, setThinkingLevel, setSelectedProvider, getStoredSelectedProviderId };
+  return { loadProvidersAndPrefs, renderModelSelect, setThinkingLevel, setWebSearchEnabled, setSelectedProvider, getStoredSelectedProviderId };
 }

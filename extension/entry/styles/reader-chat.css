@@ -652,6 +652,19 @@
   opacity: 0.62;
 }
 
+/* 联网搜索开关（spec §4）：开启态 accent-soft 底 + accent 字，与关闭态灰字
+ * 区分；pill 母题沿用 .chat-toolbar-btn 的圆角与高度。 */
+.boc-reading-chat .chat-web-search-pill.is-active {
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
+  font-weight: 600;
+}
+
+.boc-reading-chat .chat-web-search-pill.is-active:hover {
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
+}
+
 .boc-reading-chat .chat-toolbar-btn span {
   font-size: inherit;
   line-height: 1;

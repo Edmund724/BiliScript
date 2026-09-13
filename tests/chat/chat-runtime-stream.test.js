@@ -1219,3 +1219,54 @@ describe("resetStreamState 对挂起流式渲染帧的清理", () => {
     expect(deps.messages.querySelectorAll(".chat-msg-cursor")).toHaveLength(0);
   });
 });
+
+// ==========================================================================
+// 联网搜索：tool-turn 持久化与 tool-status notice（spec §2.5/§4）
+// ==========================================================================
+describe("tool-turn 持久化与 tool-status 最小消费", () => {
+  it("tool-turn → done：chatHistory 按 user → tool 消息 → assistant 顺序写回", async () => {
+    const raf = holdRaf();
+    const { deps, runtime } = await makeRuntime("问");
+    feed(runtime, {
+      type: "tool-turn",
+      messages: [
+        { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }] },
+        { role: "tool", tool_call_id: "call_1", content: "[]" }
+      ]
+    });
+    feed(runtime, { type: "token", data: "回答" });
+    runRafFrames(raf);
+    feed(runtime, { type: "done" });
+
+    expect(chatSessionState.chatHistory.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant"]);
+    expect(chatSessionState.chatHistory[1]).toMatchObject({ role: "assistant", tool_calls: [{ id: "call_1" }] });
+    expect(chatSessionState.chatHistory[2]).toMatchObject({ role: "tool", tool_call_id: "call_1", content: "[]" });
+    expect(chatSessionState.chatHistory[3]).toMatchObject({ role: "assistant", content: "回答" });
+    expect(deps.store.persistCurrent).toHaveBeenCalled();
+  });
+
+  it("error 终态：pendingToolMessages 清空，不串入下一条消息", async () => {
+    const { runtime } = await makeRuntime("问");
+    feed(runtime, {
+      type: "tool-turn",
+      messages: [{ role: "tool", tool_call_id: "call_1", content: "[]" }]
+    });
+    feed(runtime, { type: "error", error: "boom" });
+
+    // 第二条流：tool-turn 未再到达，done 写回不含旧 tool 消息
+    const { runtime: runtime2 } = await makeRuntime("再问");
+    feed(runtime2, { type: "token", data: "答" });
+    feed(runtime2, { type: "done" });
+    expect(chatSessionState.chatHistory.filter((m) => m.role === "tool")).toHaveLength(0);
+  });
+
+  it("tool-status：notice 行显示平台与查询/结果数（spec §4 最小消费）", async () => {
+    const raf = holdRaf();
+    const { deps, runtime } = await makeRuntime("问");
+    feed(runtime, { type: "tool-status", status: "searching", query: "x", platform: "Tavily" });
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("Tavily · 搜索中：x…", 4000);
+    feed(runtime, { type: "tool-status", status: "done", query: "x", resultCount: 3, platform: "Tavily" });
+    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("Tavily · 完成（3 条结果）", 4000);
+    runRafFrames(raf);
+  });
+});

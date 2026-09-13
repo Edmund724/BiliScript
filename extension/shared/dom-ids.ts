@@ -56,6 +56,8 @@ export const ids = {
   //（重建壳）+ ../chat/*（内核）。
   readingChatRoot: "boc-reading-chat",
   readingChatContextChip: "boc-reading-chat-context-chip",
+  // 联网搜索开关 pill（spec §4，chat header 工具条，历史按钮同排）
+  readingChatWebSearchPill: "boc-reading-chat-web-search-pill",
   readingChatHistoryBtn: "boc-reading-chat-history-btn",
   readingChatRefreshBtn: "boc-reading-chat-refresh-btn",
   readingChatNewBtn: "boc-reading-chat-new-btn",

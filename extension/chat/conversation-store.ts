@@ -65,6 +65,19 @@ export interface Conversation {
   messages: ChatSessionMessage[];
 }
 
+// 历史消息压平的单点（加载/持久化两处共用）：{ role, content } 基础形状上
+// 条件透传联网搜索的 tool 字段（spec §2.5，tool 轮消息从历史重建）。
+function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
+  const base = { role: item.role, content: String(item.content || "") };
+  if (Array.isArray(item.tool_calls) && item.tool_calls.length) {
+    return { ...base, tool_calls: item.tool_calls };
+  }
+  if (typeof item.tool_call_id === "string" && item.tool_call_id) {
+    return { ...base, tool_call_id: item.tool_call_id };
+  }
+  return base;
+}
+
 export interface ConversationMeta {
   id: string;
   title: string;
@@ -390,7 +403,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       resolvedContext: null
     };
     chatSessionState.chatHistory = Array.isArray(conversation.messages)
-      ? conversation.messages.map((item) => ({ role: item.role, content: String(item.content || "") }))
+      ? conversation.messages.map((item) => normalizeHistoryMessage(item))
       : [];
     const liveData = chatSessionState.liveContextData;
     const liveKey = chatSessionState.liveContextKey;
@@ -510,7 +523,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       createdAt: Number(meta?.createdAt) || now,
       updatedAt: now,
       contextRef: meta?.contextRef || buildAiContextRef(context),
-      messages: chat.map((item) => ({ role: item.role, content: String(item.content || "") }))
+      messages: chat.map((item) => normalizeHistoryMessage(item))
     };
     const filtered = saved().filter((item) => item.id !== currentId);
     commitSaved([nextConversation, ...filtered].slice(0, maxSavedConversations));

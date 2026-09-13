@@ -45,7 +45,7 @@ import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 // 绘制在浏览器窗口正中央，面板停靠右侧时可能落在可视区外。
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import type { ConversationStore } from "./conversation-store.js";
-import { chatSessionState } from "./chat-state.js";
+import { chatSessionState, type ChatSessionMessage } from "./chat-state.js";
 // offscreen → 宿主的出向 port 消息联合（ticket 08 单源，原本处手抄八分派）。
 // 注意：ChatPort 不从 protocol re-export——本侧消费的是 chrome.runtime.Port
 // 全视图（监听/断连半边），protocol 的 ChatPort 是生产侧 postMessage 窄视图。
@@ -190,6 +190,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let activePort: ChatPort | null = null;
   let activeAssistantNode: HTMLDivElement | null = null;
   let activeUserPrompt = "";
+  // 联网搜索的 tool 轮持久化副本（spec §2.5）：tool-turn 事件到达时缓存，
+  // done/stopped 写回时按 user → tool 消息 → assistant 顺序插入 chatHistory，
+  // 收口时清空（终态后不串入下一条消息）。
+  let pendingToolMessages: ChatSessionMessage[] = [];
   // 会话身份快照：sendMessage 发起时捕获 currentConversationId，finalize /
   // stopped 持久化前经 deps.store.isCurrent(快照) 判定（守卫逻辑单点收在
   // store，见 sidepanel-conversation-store.js）。发送后当前会话被删除/清空/
@@ -310,6 +314,20 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       showAssistantError(activeAssistantNode, msg.error || "未知错误");
     } else if (msg.type === "notice") {
       deps.ui.showConversationContextNotice(msg.data, 4000);
+    } else if (msg.type === "tool-status") {
+      // 联网搜索工具状态（spec §4 最小消费：notice 行；时间线卡留给后续 effort）。
+      const platform = typeof msg.platform === "string" && msg.platform ? msg.platform : "联网搜索";
+      const label = msg.status === "searching"
+        ? `${platform} · 搜索中：${msg.query}…`
+        : msg.status === "done"
+          ? `${platform} · 完成${typeof msg.resultCount === "number" ? `（${msg.resultCount} 条结果）` : ""}`
+          : `联网搜索失败：${msg.query}`;
+      deps.ui.showConversationContextNotice(label, 4000);
+    } else if (msg.type === "tool-turn") {
+      // 工具轮持久化副本（spec §2.5）：缓存，done/stopped 时随一问一答写回。
+      pendingToolMessages = Array.isArray(msg.messages)
+        ? msg.messages.filter((m) => Boolean(m && typeof m === "object" && typeof (m as { role?: unknown }).role === "string"))
+        : [];
     } else if (msg.type === "cost-guard") {
       // offscreen 发起 Map-Reduce 前弹成本护栏，等待确认后回执。确认通道经
       // deps 注入（缺省面板内确认弹层）；弹层是异步的，回执挂在 Promise 上，
@@ -376,6 +394,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.autosizeInput();
       setStreamingUiState(true);
       activeUserPrompt = text;
+      pendingToolMessages = [];
       activeConversationId = chatSessionState.currentConversationId;
       activeAssistantNode = appendAssistantPlaceholder();
       startStreamSlowNoticeTimer();
@@ -424,6 +443,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         // 选中模型（multi-model-catalog）：offscreen 解析平台后以它覆盖目录首项
         model: deps.getSelectedModel?.() || "",
         thinkingLevel: chatSessionState.aiThinkingLevel,
+        // 联网搜索开关（spec §2.1）：全局记忆（chat header pill），offscreen 据此
+        // 解析搜索配置并注入 tools。
+        webSearchEnabled: chatSessionState.webSearchEnabled,
         context,
         contextKey,
         prompt: text,
@@ -514,12 +536,16 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 在途一问一答写回（done / stopped 共享）：身份守卫判定收在 store
   // （deps.store.isCurrent）。发送后当前会话已变（删除/清空/切换）→ 不写回
   // chatHistory、不持久化（防会话复活 / 串话），DOM 仍由 renderStep 更新。
+  // 联网搜索（spec §2.5）：tool 轮消息（assistant(tool_calls) + tool 结果）
+  // 按 user → tool 消息 → assistant 顺序插入，重开会话后可从历史重建。
   function commitAssistantTurn(raw: string): void {
     if (activeUserPrompt && raw && deps.store.isCurrent(activeConversationId)) {
       chatSessionState.chatHistory.push({ role: "user", content: activeUserPrompt });
+      chatSessionState.chatHistory.push(...pendingToolMessages);
       chatSessionState.chatHistory.push({ role: "assistant", content: raw });
       void deps.store.persistCurrent();
     }
+    pendingToolMessages = [];
   }
 
   // -------------------------------------------------------------------------

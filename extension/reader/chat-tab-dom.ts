@@ -17,6 +17,8 @@ export const els = {
   modelPanelList: document.getElementById(ids.readingChatModelList) as HTMLElement,
   thinkingToggle: document.getElementById(ids.readingChatThinkingToggle) as HTMLElement,
   thinkingBtns: document.querySelectorAll<HTMLElement>(`#${ids.readingChatThinkingToggle} .chat-thinking-btn`),
+  // 联网搜索开关 pill（spec §4，chat header 工具条）
+  webSearchPill: document.getElementById(ids.readingChatWebSearchPill) as HTMLElement | null,
   // 思考档位「关不掉」提示行（工单 03，模板默认 hidden）
   thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
   newChatBtn: document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement,

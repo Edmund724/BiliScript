@@ -48,6 +48,7 @@ import {
   sendFromUi,
   setStreamingUiState,
   setThinkingLevel,
+  setWebSearchEnabled,
   subtitleWaiter,
   unbindSubtitleStatusBus,
   unbindUrlChangeTrigger,
@@ -411,6 +412,12 @@ function bindEvents(): void {
       updateThinkingHint();
     });
   });
+  // 联网搜索开关（spec §4）：点击即改全局记忆（sync settings.webSearchEnabled）。
+  if (els.webSearchPill) {
+    els.webSearchPill.addEventListener("click", () => {
+      void setWebSearchEnabled(!chatSessionState.webSearchEnabled);
+    });
+  }
   window.addEventListener("resize", onWindowResize);
   // 容器层委托（对话 tab 根节点 #readingChatRoot，元素随态重建而容器不换，
   // 对齐 batched-render 头注的容器委托先例）：

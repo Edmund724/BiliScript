@@ -59,9 +59,14 @@ export interface CurrentConversationMeta {
 }
 
 // 一问一答条目（{ role, content }）；role 的取值由写入方约束为 user/assistant。
+// 联网搜索（spec §2.5）：tool 轮的 assistant(tool_calls) 与 tool 结果消息
+// （tool 内容已截断）也进历史，多轮追问保持工具上下文——字段对齐 ai/types 的
+// ChatMessage（tool_calls / tool_call_id，普通消息不带字段）。
 export interface ChatSessionMessage {
   role: string;
   content: string;
+  tool_calls?: unknown;
+  tool_call_id?: string;
 }
 
 // 持久化历史会话（storage 的内存镜像条目）。字段集与 conversation-store 的
@@ -121,6 +126,9 @@ export interface ChatSessionState {
   // 读取以 settings ?? storage 为准（写点在 providers.ts 的 setThinkingLevel /
   // loadProvidersAndPrefs）。
   aiThinkingLevel: "off" | "low" | "high";
+  // 联网搜索开关（spec §2.1/§4）：全局记忆（sync settings.webSearchEnabled），
+  // 默认关；写点在 providers.ts 的 setWebSearchEnabled / loadProvidersAndPrefs。
+  webSearchEnabled: boolean;
 }
 
 export const chatSessionState: ChatSessionState = {
@@ -160,5 +168,7 @@ export const chatSessionState: ChatSessionState = {
   // boc_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
   // 读取以 settings ?? storage 为准（写点在 providers.ts 的 setThinkingLevel /
   // loadProvidersAndPrefs）。
-  aiThinkingLevel: "off"
+  aiThinkingLevel: "off",
+  // 联网搜索开关（spec §2.1/§4）：全局记忆，默认关。
+  webSearchEnabled: false
 };
