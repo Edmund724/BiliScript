@@ -1471,7 +1471,7 @@
  * 弹窗绘制在浏览器窗口正中央，扩展面板停靠窗口右侧时可能落在面板可视区外
  * （删除平台时看不到确认的用户报告）。消费方横跨设置域（删除平台 / dirty
  * 关闭）与对话域（清空历史 / 成本护栏），故样式落在本常驻表而非按需的
- * reader-settings-*/reader-chat 表——宿主挂法/层级同编辑器 Modal 宿主
+ * reader-settings-* / reader-chat 表——宿主挂法/层级同编辑器 Modal 宿主
  *（z-index 50 略高于编辑器 40：确认可从编辑器 Modal 上叠开）；卡片与按钮
  * 度量沿用 settings-ui-coherence（32 高 / 999 圆角 / 15 字号）。 */
 #boc-reading-view .confirm-dialog-host {
