@@ -8,6 +8,7 @@ import {
   DEFAULT_INITIAL_QUICK_PROMPTS,
   DEFAULT_SETTINGS,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
+  LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
   type FixedFrontmatterProperty,
   type NotePlaceholderSection,
   type Settings
@@ -51,7 +52,8 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
 
 export function normalizeAiSystemPrompt(value: unknown): string {
   const normalized = toString(value).trim();
-  if (normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT) {
+  // 两代历史默认一次性升到当前默认（第一代与第二代机制相同）；用户自定义文本不动。
+  if (normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT || normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
   return normalized;
