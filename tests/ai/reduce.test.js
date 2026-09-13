@@ -82,16 +82,15 @@ describe("buildReduceGroups 贪心分组", () => {
 });
 
 describe("buildReducePrompt 措辞对齐蓝本 _merge_prompt", () => {
-  it("含标题、层/组序号、去重保时间点/前后关系与连续材料输出要求，条目以空行拼接", () => {
+  it("含标题、批次序号、去重保时间点/前后关系与连续材料输出要求，条目以空行拼接", () => {
     const prompt = buildReducePrompt({
       title: "测试视频",
-      level: 2,
       groupIndex: 1,
       groupCount: 3,
       group: ["片段A", "片段B"]
     });
     expect(prompt).toContain("视频标题：测试视频");
-    expect(prompt).toContain("这是长视频内容的第 2 层归并，第 1/3 组。");
+    expect(prompt).toContain("这是长视频合并材料的第 1/3 批。");
     expect(prompt).toContain(
       "请合并以下连续片段笔记，去除重复但保留观点、依据、例子、时间点和前后关系。"
     );
@@ -102,12 +101,11 @@ describe("buildReducePrompt 措辞对齐蓝本 _merge_prompt", () => {
   it("非数组 group 按空串处理不抛错", () => {
     const prompt = buildReducePrompt({
       title: "t",
-      level: 1,
       groupIndex: 1,
       groupCount: 1,
       group: null
     });
-    expect(prompt).toContain("这是长视频内容的第 1 层归并，第 1/1 组。");
+    expect(prompt).toContain("这是长视频合并材料的第 1/1 批。");
   });
 });
 
@@ -153,13 +151,13 @@ describe("reduceSummaries 多层归并收敛", () => {
     expect(result.levels).toBe(2);
     expect(result.merged).toHaveLength(2);
     expect(groupChars(result.merged)).toBeLessThanOrEqual(REDUCE_GROUP_INPUT_CHARS);
-    // 3 + 2 次调用，每个归并 prompt 带对应层/组序号
+    // 3 + 2 次调用，每个归并 prompt 带对应批次序号
     expect(runPrompts).toHaveBeenCalledTimes(5);
     const prompts = runPrompts.mock.calls.map((c) => c[0].prompt);
-    expect(prompts[0]).toContain("这是长视频内容的第 1 层归并，第 1/3 组。");
-    expect(prompts[2]).toContain("这是长视频内容的第 1 层归并，第 3/3 组。");
-    expect(prompts[3]).toContain("这是长视频内容的第 2 层归并，第 1/2 组。");
-    expect(prompts[4]).toContain("这是长视频内容的第 2 层归并，第 2/2 组。");
+    expect(prompts[0]).toContain("这是长视频合并材料的第 1/3 批。");
+    expect(prompts[2]).toContain("这是长视频合并材料的第 3/3 批。");
+    expect(prompts[3]).toContain("这是长视频合并材料的第 1/2 批。");
+    expect(prompts[4]).toContain("这是长视频合并材料的第 2/2 批。");
     for (const prompt of prompts) {
       expect(prompt).toContain("视频标题：测试视频");
     }
@@ -212,7 +210,7 @@ describe("reduceSummaries 归并层并发（06 票）", () => {
     const summaries = makeSummaries(30, 10000);
     const delays = [30, 1, 10];
     const runPrompts = vi.fn(async ({ prompt }) => {
-      const m = String(prompt || "").match(/第 (\d+)\/3 组/);
+      const m = String(prompt || "").match(/第 (\d+)\/3 批/);
       const idx = m ? Number(m[1]) - 1 : 0;
       await new Promise((resolve) => setTimeout(resolve, delays[idx]));
       return `结果${idx + 1}`;
@@ -237,7 +235,7 @@ describe("reduceSummaries 归并层并发（06 票）", () => {
   it("单组失败仍整层 reject（错误语义与串行期一致：不外吞、不产出部分 merged）", async () => {
     const summaries = makeSummaries(30, 10000);
     const runPrompts = vi.fn(async ({ prompt }) => {
-      if (String(prompt || "").includes("第 2/3 组")) {
+      if (String(prompt || "").includes("第 2/3 批")) {
         throw new Error("组 2 模型调用失败");
       }
       return "组合并结果";

@@ -211,7 +211,7 @@ describe("orchestrateMapReduce 切片→小结→成稿编排", () => {
     const segmentPrompt = userContents.find((c) => c.includes("连续片段"));
     expect(segmentPrompt).toContain("视频标题：测试视频");
     expect(segmentPrompt).toContain("这是第 1/5 个连续片段");
-    expect(segmentPrompt).toContain("请忠实压缩这个片段");
+    expect(segmentPrompt).toContain("请把这个片段忠实压缩到原文的约五分之一");
     expect(segmentPrompt).toContain("保留重要事实、例子、论证关系和原有时间点");
     expect(segmentPrompt).toContain("不做评价，不补充外部知识");
     // 时间戳以 [起点-终点] 拼入

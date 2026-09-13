@@ -27,11 +27,14 @@ import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
 // 单条字幕项渲染上限（防御性截断，避免个别超长项撑爆小结请求）。
 const MAX_ITEM_CHARS = 4000;
 
-// 笔记编辑系统提示词单源（arch-slim-2/03，原两处逐字手抄）：分段小结与成稿
-// 两次模型调用共用。字节冻结（spec 拍板「静态提示词字节不动」），改前先过
+// 笔记编辑系统提示词单源（arch-slim-2/03，原两处逐字手抄）：分段小结、成稿与
+// 归并三次模型调用共用（F5：归并阶段此前走更薄的兜底，口径分叉，收单源）。
+// ASR 提示行（F4）：与概览管线同吃一份 ASR 字幕，逐字错字不修正会一路传染到
+// 小结缓存、成稿与追问检索。字节冻结（spec 拍板「静态提示词字节不动」），改前先过
 // tests/ai 蓝本对齐断言。
 const NOTE_EDITOR_SYSTEM_PROMPT =
-  "你是视频笔记编辑。忠实理解语境与作者意图，允许结合上下文保守修正明显的口误、笔误和语音转写错误。";
+  "你是视频笔记编辑。忠实理解语境与作者意图，允许结合上下文保守修正明显的口误、笔误和语音转写错误。" +
+  "字幕是自动语音识别（ASR）生成的：同音错别字多，人名、品牌名与术语尤其易错——按视频标题与上下文推断本字后再写入笔记，但不要改写原意。";
 
 // 溢出放宽预算重跑：收紧比例与用户可见文案（重跑发起 / 重跑仍溢出）。
 const OVERFLOW_RETRY_BUDGET_SCALE = 0.5;
@@ -81,7 +84,8 @@ function buildSegmentPrompt({ title, index, total, items }: { title: string; ind
   return `视频标题：${title}
 这是第 ${index}/${total} 个连续片段。
 
-请忠实压缩这个片段，供后续撰写完整笔记使用。保留重要事实、例子、论证关系和原有时间点；
+请把这个片段忠实压缩到原文的约五分之一（重要内容多可适当放宽），供后续撰写完整笔记使用。
+保留重要事实、例子、论证关系和原有时间点；
 结合上下文理解表达意图，不做评价，不补充外部知识。
 
 字幕：
@@ -95,7 +99,7 @@ ${segmentLines.join("\n")}`;
  */
 function buildNotePrompt({ title, material }: { title: string; material: string }): string {
   return `写一份翔实、自然的 Markdown 视频笔记。完整复原内容脉络、具体例子、核心观点及其依据，
-并在有帮助时加入关键时间点。不要加入外部知识或评价。
+并在有帮助时加入关键时间点。不要加入外部知识或评价。全文以一万二千字以内为宜，密度优先，不要为凑长度注水。
 
 视频标题：${title}
 
@@ -364,7 +368,7 @@ export async function orchestrateMapReduce({
             const text = await chatCompletionImpl({
               provider,
               messages: (messages as Array<{ role: string; content: string }> | undefined) || [
-                { role: "system", content: "你是视频笔记编辑。" },
+                { role: "system", content: NOTE_EDITOR_SYSTEM_PROMPT },
                 { role: "user", content: prompt || "" }
               ],
               thinkingLevel,

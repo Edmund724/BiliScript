@@ -69,23 +69,23 @@ export function buildReduceGroups(summaries: unknown[], { groupInputChars = REDU
 
 interface BuildReducePromptInput {
   title: string;
-  level: number;
   groupIndex: number;
   groupCount: number;
   group: unknown[];
 }
 
 /**
- * 构造归并 prompt：对齐蓝本 _merge_prompt 措辞——视频标题 + 第 level 层第 groupIndex/groupCount 组
+ * 构造归并 prompt：对齐蓝本 _merge_prompt 措辞——视频标题 + 第 groupIndex/groupCount 批
  * + 去重但保留观点、依据、例子、时间点与前后关系，不做评价、不补外部知识，只输出连续材料。
+ * 「第 N 层归并」等内部术语不进 prompt（模型不需要知道层数），只保留批次序号。
  * group 内各条目以 `\n\n` 拼接。
  */
-export function buildReducePrompt({ title, level, groupIndex, groupCount, group }: BuildReducePromptInput): string {
+export function buildReducePrompt({ title, groupIndex, groupCount, group }: BuildReducePromptInput): string {
   const material = (Array.isArray(group) ? group : [])
     .map((s) => String(s == null ? "" : s))
     .join("\n\n");
   return `视频标题：${title}
-这是长视频内容的第 ${level} 层归并，第 ${groupIndex}/${groupCount} 组。
+这是长视频合并材料的第 ${groupIndex}/${groupCount} 批。
 
 请合并以下连续片段笔记，去除重复但保留观点、依据、例子、时间点和前后关系。
 不要评价，不补充外部知识，只输出供最终成稿使用的连续材料。
@@ -152,7 +152,6 @@ export async function reduceSummaries({
         const text = await runPrompts({
           prompt: buildReducePrompt({
             title,
-            level: levels,
             groupIndex: index + 1,
             groupCount: groups.length,
             group
