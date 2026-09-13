@@ -95,7 +95,7 @@ describe("host 权限代申请：单一实现与调用方闭包", () => {
       .sort();
     expect(callers).toEqual([
       "extension/ui/model-picker.ts",
-      "extension/ui/provider-editor.ts",
+      "extension/ui/provider-editor-fetch-dialog.ts",
       "extension/ui/settings-panel.ts"
     ]);
   });
@@ -133,7 +133,9 @@ describe("调用方手势同步链（调用前零先行 await）", () => {
   });
 
   it("provider-editor「获取可用模型」openFetchDialog：函数体开头到权限申请调用之间没有先行 await", () => {
-    const source = readSource("../../extension/ui/provider-editor.js");
+    // 扫描锚点随工单 12 分片改指 fetch 片——openFetchDialog 整体搬过去了，
+    // 原 provider-editor.ts 只剩逐名再导出壳（权限申请处仍在点击同步链上）。
+    const source = readSource("../../extension/ui/provider-editor-fetch-dialog.js");
     const start = source.indexOf("async function openFetchDialog(");
     const request = source.indexOf("requestProviderOriginsViaBackground(", start);
     expect(start).toBeGreaterThan(-1);
