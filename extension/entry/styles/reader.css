@@ -282,7 +282,7 @@
   border-radius: 14px;
   background: var(--boc-reader-surface);
   border: 1px solid var(--boc-reader-border);
-  box-shadow: var(--boc-reader-shadow, none);
+  box-shadow: var(--boc-reader-shadow);
   pointer-events: auto;
 }
 
@@ -1505,7 +1505,7 @@
   border-radius: 14px;
   border: 1px solid var(--boc-reader-border);
   background: var(--boc-reader-surface);
-  box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
+  box-shadow: var(--boc-reader-shadow);
 }
 
 #boc-reading-view .confirm-dialog:focus {

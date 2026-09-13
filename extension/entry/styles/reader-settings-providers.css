@@ -42,7 +42,7 @@
   border-radius: 14px;
   border: 1px solid var(--boc-reader-border);
   background: var(--boc-reader-surface);
-  box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
+  box-shadow: var(--boc-reader-shadow);
 }
 
 #boc-reading-view .provider-editor-dialog:focus {
@@ -74,7 +74,8 @@
 }
 
 /* 删除按钮（Modal 头部右侧，对齐参考截图的编辑页布局；用户拍板改为醒目
- * 警示底色）。红用固定警示色：token 表无红色语义，rgba 底在两主题下均不刺眼 */
+ * 警示底色）。红走语义令牌：danger-soft 半透明底 + danger 字，dark 档的
+ * danger 已换更亮红档，两主题下对比均达标 */
 #boc-reading-view .provider-editor-delete {
   height: 32px;
   padding: 0 14px;
@@ -500,7 +501,7 @@
   border-radius: 14px;
   border: 1px solid var(--boc-reader-border);
   background: var(--boc-reader-surface);
-  box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
+  box-shadow: var(--boc-reader-shadow);
 }
 
 #boc-reading-view .provider-editor-fetch-head {

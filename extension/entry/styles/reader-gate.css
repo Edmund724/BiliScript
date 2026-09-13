@@ -90,7 +90,6 @@ body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-reader-follow="manual"
 html[data-boc-reader-mode="1"],
 body[data-boc-reader-mode="1"],
 #boc-reading-view {
-  --boc-reader-page-bg: #f4efe8;
   --boc-reader-surface: #fdfbf7;
   --boc-reader-surface-2: #f0e9df;
   --boc-reader-surface-3: #e7dfd4;
@@ -142,7 +141,6 @@ body[data-boc-reader-mode="1"],
 html[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
 body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
 #boc-reading-view[data-theme="dark"] {
-  --boc-reader-page-bg: #09111f;
   --boc-reader-surface: #0f172a;
   --boc-reader-surface-2: #132038;
   --boc-reader-surface-3: #1a2a46;

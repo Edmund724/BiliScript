@@ -20,7 +20,6 @@ const expectedSourceHash = "19f24f8cd5bf77ef366f63698b45377ffe6b346e78e6ed0ee5ba
 const expectedLayoutChunkHash = "08158f63a7d3572dca0a880b2012577f3da9ea53ce4968c118c7ecc949752f56";
 const expectedMathChunkHash = "3e097dc503ef753116bb327d93a8592e3dbbcaa9cc2a3696e552a982c6a41bb6";
 const retainedTypes = [
-  "flowchart-elk",
   "flowchart-v2",
   "flowchart",
   "sequence",
@@ -217,7 +216,9 @@ for (const retained of ["flowDiagram", "sequenceDiagram", "classDiagram", "mindm
     throw new Error(`Retained output is missing: ${retained}`);
   }
 }
-for (const excluded of ["architecture", "c4Diagram", "pieDiagram", "gitGraph", "journeyDiagram", "quadrantDiagram", "xychartDiagram", "requirementDiagram", "sankeyDiagram", "blockDiagram", "vennDiagram", "railroadDiagram", "erDiagram", "ganttDiagram", "stateDiagram", "swimlanes", "katex"]) {
+// "elk"：flowchart-elk 探测器已裁剪（bundle 从无 elk 布局加载器），若未来
+// 版本把 elk 布局器/加载器带进 bundle，在此失败而不是静默混入。
+for (const excluded of ["architecture", "c4Diagram", "pieDiagram", "gitGraph", "journeyDiagram", "quadrantDiagram", "xychartDiagram", "requirementDiagram", "sankeyDiagram", "blockDiagram", "vennDiagram", "railroadDiagram", "erDiagram", "ganttDiagram", "stateDiagram", "swimlanes", "katex", "elk"]) {
   if (outputNames.some((name) => name.includes(excluded))) {
     throw new Error(`Excluded output remains: ${excluded}`);
   }
