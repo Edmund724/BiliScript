@@ -1118,6 +1118,38 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
     expect(textNode.scrollTop).toBe(1000);
   });
 
+  // 回归（联网搜索 reasoning 大块增量的钉底误判）：程序性写入在帧 N 落底，
+  // 其触发的 scroll 事件要到下一帧 scroll steps 才派发，期间思考盒又增长了
+  // > 24px——事件几何显示「不在底部」是内容增长造成的，不是用户上翻，不得
+  // 翻转 pinned（否则不再写入 → 不再有事件 → 钉底永久失效，盒子停在当中）。
+  it("钉底误判回归：写入落底后、事件派发前的内容增长不视为用户上翻", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const node = assistantNode(deps);
+    const raf = holdRaf();
+
+    feed(runtime, { type: "reasoning", data: "第一段" });
+    const textNode = node.querySelector(".chat-thinking-text");
+    Object.defineProperty(textNode, "scrollHeight", { get: () => 1000, configurable: true });
+    Object.defineProperty(textNode, "clientHeight", { get: () => 200, configurable: true });
+    raf.mock.calls[0][0]();
+    expect(textNode.scrollTop).toBe(1000);
+
+    // 模拟错位时序：写入落底后、scroll 事件派发前，内容又增长 300px——
+    // 事件派发时 scrollTop 仍是写入落点（1000），几何距底 300px
+    Object.defineProperty(textNode, "scrollHeight", { get: () => 1300, configurable: true });
+    textNode.dispatchEvent(new Event("scroll"));
+    feed(runtime, { type: "reasoning", data: "第二段" });
+    raf.mock.calls[1][0]();
+    expect(textNode.scrollTop).toBe(1300);
+
+    // 同一窗口内的真实用户上翻仍要停钉底（位置上移优先于增长豁免）
+    textNode.scrollTop = 500;
+    textNode.dispatchEvent(new Event("scroll"));
+    feed(runtime, { type: "reasoning", data: "第三段" });
+    raf.mock.calls[2][0]();
+    expect(textNode.scrollTop).toBe(500);
+  });
+
   it("流式消息带 chat-msg-streaming 类（豁免 content-visibility），下一次发送上屏时摘除上一条", async () => {
     const { deps, runtime } = await makeRuntime("问题一");
     const node1 = assistantNode(deps);

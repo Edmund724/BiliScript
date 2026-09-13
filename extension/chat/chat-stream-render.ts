@@ -57,6 +57,10 @@ interface ThinkingDisplayState {
   scrollFrame: number;
   // 思考盒钉底标志：用户上翻即停跟随，回到底部附近恢复（与外层消息容器同契约）
   pinned: boolean;
+  // 上次程序性钉底写入后的 scrollTop / scrollHeight 读数：scroll 事件判定
+  // 「是否用户上翻」的基准（见钉底监听注释）
+  lastTop: number;
+  syncedHeight: number;
 }
 
 /**
@@ -218,7 +222,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     const scroll = () => {
       state.scrollFrame = 0;
       if (state.pinned) {
-        textNode.scrollTop = textNode.scrollHeight;
+        const height = textNode.scrollHeight;
+        textNode.scrollTop = height;
+        // 记录写入后的实际读数（scrollTop 写入会被 clamp 到 scrollHeight -
+        // clientHeight，回读才是事件判定用的真实基准）。
+        state.syncedHeight = height;
+        state.lastTop = textNode.scrollTop;
       }
       scrollToBottom(false, { instant: true });
     };
@@ -239,17 +248,31 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     }
     let state = thinkingDisplayStates.get(textNode);
     if (!state) {
-      state = { text: "", scrollFrame: 0, pinned: true };
+      state = { text: "", scrollFrame: 0, pinned: true, lastTop: 0, syncedHeight: 0 };
       thinkingDisplayStates.set(textNode, state);
-      // 用户上翻检测：离开底部即停钉底，回到底部附近恢复。程序性钉底
-      //（帧回调写 scrollTop=scrollHeight）触发的 scroll 事件落点即底部，
-      // 天然归为 pinned=true，无需区分事件来源。
+      // 用户上翻检测：位置上移即停钉底，回到底部附近恢复。不能只按几何
+      // 重算——程序性钉底写入（帧回调 scrollTop=scrollHeight）触发的 scroll
+      // 事件要到下一帧 scroll steps 才派发，期间同步落进思考盒的增量（联网
+      // 搜索的 reasoning 大块正是这种窗口）会让事件几何显示「不在底部」，
+      // 纯几何判定会误判为用户上翻，钉底就此永久失效（不再写入 → 不再有
+      // 事件 → 无法自愈）。判定规则：
+      //   - scrollTop 低于上次程序性写入的落点：位置上移，程序性写入只会
+      //     把 scrollTop 往下推，必是用户上翻 → 停钉底；
+      //   - 位置没动（= 上次写入落点）但 scrollHeight 已增长：几何错位是
+      //     内容增量造成的，不是用户 → 保持钉底，等下一帧写入追平；
+      //   - 其余（位置下移，或高度未变）按几何重算，与旧契约一致。
       textNode.addEventListener("scroll", () => {
         const st = thinkingDisplayStates.get(textNode);
         if (!st) {
           return;
         }
-        st.pinned = textNode.scrollTop + textNode.clientHeight >= textNode.scrollHeight - THINKING_NEAR_BOTTOM_PX;
+        const top = textNode.scrollTop;
+        if (top < st.lastTop) {
+          st.pinned = false;
+        } else if (top > st.lastTop || textNode.scrollHeight === st.syncedHeight) {
+          st.pinned = top + textNode.clientHeight >= textNode.scrollHeight - THINKING_NEAR_BOTTOM_PX;
+        }
+        st.lastTop = top;
       });
     }
     state.text += String(text || "");
