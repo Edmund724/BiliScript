@@ -2,6 +2,7 @@
   "name": "bilibili-summary",
   "version": "2.1.0",
   "description": "Bilibili 视频字幕抓取与 AI 总结浏览器扩展",
+  "packageManager": "pnpm@11.24.0",
   "directories": {
     "doc": "docs"
   },

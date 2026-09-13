@@ -60,10 +60,10 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 ```bash
 git clone https://github.com/Edmund724/Bilibili-Summary.git
 cd Bilibili-Summary
-npm install
-npm run build          # 生成 dist/（content 分包 + 各入口 bundle，含 sourcemap）
-npm run dev            # watch 模式：首轮全量构建到 dist/ 后持续重建，改代码即生效
-npm run build:release  # 生成 Chrome 打包到 release/（zip 不含 sourcemap）
+pnpm install
+pnpm run build          # 生成 dist/（content 分包 + 各入口 bundle，含 sourcemap）
+pnpm run dev            # watch 模式：首轮全量构建到 dist/ 后持续重建，改代码即生效
+pnpm run build:release  # 生成 Chrome 打包到 release/（zip 不含 sourcemap）
 ```
 
 日常开发跑 `npm run dev`，在扩展管理页「加载已解压的扩展程序」选择 `dist/`，重建后点扩展的刷新按钮即可。
@@ -321,9 +321,9 @@ extension/
 修改项目后，让你的编程 Agent 运行：
 
 ```bash
-npm test
-npm run typecheck
-npm run build
+pnpm test
+pnpm run typecheck
+pnpm run build
 ```
 
 Agent 还应该在 Chrome 中重新加载扩展，并测试多个真实 B 站视频。自动检查通过，不代表真实服务请求和 B 站交互一定正常。
