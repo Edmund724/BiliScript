@@ -16,7 +16,7 @@
 
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 
-export type ProviderEditorKind = "ai" | "asr";
+export type ProviderEditorKind = "ai" | "asr" | "search";
 
 // 保存回调（settings-panel 注入）：权限申请与整列表落盘收口在
 // settings-panel.saveProviderSingle，本模块不触碰权限。返回 error 时 Modal
@@ -86,7 +86,8 @@ export function readField(selector: string): string {
   return String(input?.value || "").trim();
 }
 
-// AI 行历史语义：未知 presetId 回落最后一个预设（自定义）；ASR 回落 null
+// AI 行历史语义：未知 presetId 回落最后一个预设（自定义）；ASR / 搜索平台
+// 回落 null（搜索平台无自定义预设，spec 非目标）
 export function resolvePreset(presets: readonly ProviderRowPreset[], presetId: string, kind: ProviderEditorKind): ProviderRowPreset | null {
   const found = presets.find((p) => p.id === presetId) || null;
   if (found) return found;
@@ -94,7 +95,7 @@ export function resolvePreset(presets: readonly ProviderRowPreset[], presetId: s
 }
 
 export function apiKeyPlaceholder(kind: ProviderEditorKind, preset: ProviderRowPreset | null, hasSavedKey: boolean): string {
-  if (kind === "asr") {
+  if (kind === "asr" || kind === "search") {
     return hasSavedKey ? "已保存" : "API Key";
   }
   const requiresKey = preset?.requiresKey !== false;

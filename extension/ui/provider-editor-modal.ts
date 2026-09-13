@@ -153,6 +153,21 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
   const baseUrl = readField(".provider-editor-baseurl").replace(/\/+$/, "");
   const apiKey = readField(".provider-editor-apikey");
 
+  if (state.kind === "search") {
+    // 搜索平台无模型概念（spec §3.3）：只收预设 / 名称 / baseUrl / Key
+    return {
+      upsert: {
+        id: state.editingId,
+        presetId: preset?.id || "tavily",
+        name,
+        type: preset?.type || "tavily",
+        baseUrl,
+        apiKey,
+        hasSavedKey: state.hasSavedKey
+      }
+    };
+  }
+
   if (state.kind === "asr") {
     const model = readField(".provider-editor-model");
     return {
@@ -296,7 +311,7 @@ export async function runTest(): Promise<void> {
 // ===== 模板 =====
 
 export function editorTitle(kind: ProviderEditorKind, editing: boolean): string {
-  const label = kind === "ai" ? "AI 平台" : "语音转写平台";
+  const label = kind === "ai" ? "AI 平台" : kind === "search" ? "搜索平台" : "语音转写平台";
   return editing ? `编辑${label}` : `添加${label}`;
 }
 export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
@@ -304,11 +319,12 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const presets = options.presets;
   // 新增默认「自定义」（与平铺行空白行的 presetId 默认一致，baseUrl 空）；
   // 编辑按列表项 presetId（未知值由 resolvePreset 回落，AI 回落最后一个预设）
-  const presetId = String(item?.presetId || "custom");
+  const presetId = String(item?.presetId || (options.kind === "search" ? presets[0]?.id || "custom" : "custom"));
   const preset = resolvePreset(presets, presetId, options.kind);
   const hasSavedKey = Boolean(item?.hasSavedKey);
   const baseUrl = String(item?.baseUrl ?? preset?.baseUrl ?? "");
   const isAi = options.kind === "ai";
+  const isSearch = options.kind === "search";
   // AI 名称是拍板 Q7 新增的可选项：历史数据 name=预设名，值留空 + 占位符展示
   // 预设名（保存时空值回落预设名）；用户自定义过（≠预设名）才回填实值。
   // ASR 名称是实值语义（与平铺行一致：初始即预设名）。
@@ -361,7 +377,10 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
           <button type="button" class="provider-editor-model-add" data-provider-editor-action="add-model">+ 添加模型</button>
         </div>
         <p class="provider-editor-status" hidden></p>`
-          : `
+          : isSearch
+            ? `
+        <p class="provider-editor-status" hidden></p>`
+            : `
         <div class="provider-editor-field">
           <label class="provider-editor-label">模型</label>
           ${buildModelPickerField({
@@ -512,12 +531,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
     if (baseUrlInput && (!currentBaseUrl || (previous && currentBaseUrl === previous.baseUrl))) {
       baseUrlInput.value = next.baseUrl;
     }
-    if (options.kind === "asr") {
-      const modelInput = dialog.querySelector<HTMLInputElement>(".provider-editor-model");
-      if (modelInput) modelInput.value = next.model || "";
-      if (nameInput) nameInput.value = next.name || "";
-      if (apikeyInput) apikeyInput.value = "";
-    } else {
+    if (options.kind === "ai") {
       const currentName = nameInput?.value.trim() || "";
       if (nameInput && (!currentName || (previous && currentName === previous.name))) {
         nameInput.value = "";
@@ -526,6 +540,15 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
       if (apikeyInput) {
         apikeyInput.placeholder = apiKeyPlaceholder("ai", next, state.hasSavedKey);
       }
+    } else {
+      // ASR 名称/模型无条件跟随、Key 清空（平铺行同款）；搜索平台同款语义，
+      // 只是无模型字段可跟
+      if (options.kind === "asr") {
+        const modelInput = dialog.querySelector<HTMLInputElement>(".provider-editor-model");
+        if (modelInput) modelInput.value = next.model || "";
+      }
+      if (nameInput) nameInput.value = next.name || "";
+      if (apikeyInput) apikeyInput.value = "";
     }
     // Key 必填随预设挂摘（requiresKey 与已存 Key 态同占位符口径）
     syncApiKeyRequired(next);

@@ -109,6 +109,11 @@ _Avoid_: 缓存摘要、记忆、上下文摘要
 代码名：`resolveActiveProvider`（content 侧消费壳）/ `resolveProviderWithKey`（offscreen 消费壳）/ `createAiResolvedProviderHandler`（SW 处理器，策略单源）
 _Avoid_: 手抄多趟解析链、第二份解析实现
 
+**搜索平台**:
+联网搜索平台（spec ai-chat-web-search，Tavily/Exa/Brave 三预设，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（单选激活，对齐 ASR radio 心智，"" = 无激活）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起（密钥不出 SW，三家域为常驻 host 权限）。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
+代码名：`searchProviderStore`（extension/search/search-provider-store.js）/ `normalizeSearchProvider` / `SEARCH_PROVIDER_PRESETS`（core/presets.js）/ 适配器 `extension/search/adapters/`
+_Avoid_: Key 进 sync、自定义预设、offscreen 直发搜索请求
+
 ### AI 对话
 
 **拆除会话**:

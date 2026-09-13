@@ -165,6 +165,14 @@ export interface Settings {
   activeAsrProviderId: string;
   asrAutoFallback: boolean;
   asrLanguage: string;
+  // ===== 联网搜索（spec §3.2）=====
+  // searchProviders 列表不在此处：provider 列表归 search/search-provider-store.js
+  //（provider-store 收口，经 search-providers-save 消息写回），settings 只存标量。
+  // activeSearchProviderId 对齐 ASR radio 心智（string，"" = 无激活平台；
+  // spec 的 string | null 在 normalizeSettings 收口为 ""）。
+  activeSearchProviderId: string; // 当前选用的搜索平台 id
+  webSearchEnabled: boolean;      // 对话/选区解释链联网开关，全局记住上次状态，默认关
+  webSearchMaxToolCalls: number;  // 单轮搜索次数上限（区间 1–10）
 }
 
 // ===== Merged default settings =====
@@ -209,5 +217,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // （provider-store 收口，经 asr-providers-save 消息写回），settings 只存标量。
   activeAsrProviderId: "",   // 当前选用的 ASR 平台 id
   asrAutoFallback: true,     // 无字幕轨时自动走 ASR；false 则仅提示
-  asrLanguage: "auto"        // 转写语言档位（auto/zh/en），zh/en 传给平台
+  asrLanguage: "auto",       // 转写语言档位（auto/zh/en），zh/en 传给平台
+  // ===== 联网搜索标量（spec §3.2，走 save-settings 白名单）=====
+  activeSearchProviderId: "", // 当前选用的搜索平台 id（单选激活，对齐 ASR radio）
+  webSearchEnabled: false,    // 全局记住上次开关状态，默认关
+  webSearchMaxToolCalls: 5    // 单轮搜索次数上限（1–10）
 };

@@ -15,7 +15,10 @@
     "https://www.bilibili.com/*",
     "https://api.bilibili.com/*",
     "https://*.hdslb.com/*",
-    "https://*.bilivideo.com/*"
+    "https://*.bilivideo.com/*",
+    "https://api.tavily.com/*",
+    "https://api.exa.ai/*",
+    "https://api.search.brave.com/*"
   ],
   "optional_host_permissions": [
     "http://*/*",

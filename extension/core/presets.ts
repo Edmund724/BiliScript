@@ -77,6 +77,45 @@ export const PRESETS: readonly AiProviderPreset[] = [
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
 
+// ===== 联网搜索平台预设 =====
+// type 决定走哪个适配器（extension/search/adapters/），三家均为纯 HTTP：
+//   tavily：POST /search，Authorization: Bearer
+//   exa：POST /search，x-api-key
+//   brave：GET /res/v1/web/search，X-Subscription-Token
+// note 显示在设置行副行（如 Brave 免费计划提示）。不做自定义预设（spec 非目标）。
+
+export type SearchProviderType = "tavily" | "exa" | "brave";
+
+export interface SearchProviderPreset {
+  id: string;
+  name: string;
+  type: SearchProviderType;
+  baseUrl: string;
+  note?: string;
+}
+
+export const SEARCH_PROVIDER_PRESETS: readonly SearchProviderPreset[] = [
+  {
+    id: "tavily",
+    name: "Tavily",
+    type: "tavily",
+    baseUrl: "https://api.tavily.com"
+  },
+  {
+    id: "exa",
+    name: "Exa",
+    type: "exa",
+    baseUrl: "https://api.exa.ai"
+  },
+  {
+    id: "brave",
+    name: "Brave Search",
+    type: "brave",
+    baseUrl: "https://api.search.brave.com",
+    note: "免费计划需绑信用卡"
+  }
+];
+
 export function normalizeBaseUrl(value: unknown): string {
   return String(value || "").trim().replace(/\/+$/, "");
 }

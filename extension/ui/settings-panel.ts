@@ -29,6 +29,7 @@ import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
 import {
   normalizeDownloadFormat,
   normalizePlayerAiQuickPrompt,
+  normalizeWebSearchMaxToolCalls,
   normalizeFixedFrontmatterProperties,
   normalizeNotePlaceholderSections,
   validateFixedFrontmatterProperties,
@@ -68,6 +69,14 @@ import {
   setAsrBeforeDeleteHandler,
   setAsrRowEditHandler
 } from "./options-asr-rows.js";
+import { SEARCH_PROVIDER_PRESETS, type SearchProviderPreset } from "../core/presets.js";
+import {
+  renderSearchProviders,
+  generateSearchProviderId,
+  getActiveSearchProviderId,
+  setSearchDeleteHandler,
+  setSearchRowEditHandler
+} from "./options-search-rows.js";
 import type { ProviderEditorKind } from "./provider-editor.js";
 import {
   requestProviderOriginsViaBackground,
@@ -178,6 +187,10 @@ function collectElements(host: HTMLElement) {
     asrProvidersEmpty: byIdIn<HTMLElement>("asrProvidersEmpty"),
     addAsrProviderBtn: byIdIn<HTMLButtonElement>("addAsrProviderBtn"),
     asrAutoFallback: byIdIn<HTMLInputElement>("asrAutoFallback"),
+    searchProvidersList: byIdIn<HTMLElement>("searchProvidersList"),
+    searchProvidersEmpty: byIdIn<HTMLElement>("searchProvidersEmpty"),
+    addSearchProviderBtn: byIdIn<HTMLButtonElement>("addSearchProviderBtn"),
+    webSearchMaxToolCalls: byIdIn<HTMLInputElement>("webSearchMaxToolCalls"),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>("aiSystemPrompt"),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
     saveBtn: byIdIn<HTMLButtonElement>("bocSettingsSaveBtn"),
@@ -294,6 +307,14 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
     presets: asrPresets,
     activeId: settings.activeAsrProviderId || ""
   });
+
+  // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
+  elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(settings.webSearchMaxToolCalls));
+  const searchProviders = await loadSearchProviders();
+  renderSearchProviders(elements.searchProvidersList, elements.searchProvidersEmpty, searchProviders, {
+    presets: SEARCH_PROVIDER_PRESETS,
+    activeId: settings.activeSearchProviderId || ""
+  });
 }
 
 let savedAiPresetPrompts: string[] = [];
@@ -318,6 +339,16 @@ async function loadAsrProviders(): Promise<ProviderRowItem[]> {
   }
 }
 
+async function loadSearchProviders(): Promise<ProviderRowItem[]> {
+  try {
+    const resp = await sendRuntimeMessage({ type: "search-providers-list" });
+    if (!resp?.ok) return [];
+    return Array.isArray(resp.providers) ? resp.providers : [];
+  } catch {
+    return [];
+  }
+}
+
 // ===== 单平台保存与编辑 Modal（provider-master-detail/01） =====
 
 // 单平台 upsert 保存（provider-editor Modal 的保存回调）。与整表 saveSettings
@@ -331,7 +362,9 @@ async function saveProviderSingle(
   kind: ProviderEditorKind,
   upsert: ProviderRowItem
 ): Promise<{ ok: boolean; error?: string; providers?: ProviderRowItem[] }> {
-  if (upsert.baseUrl) {
+  // 搜索平台域名是静态 host 权限（manifest host_permissions，spec §2.4），不走
+  // optional 权限代申请
+  if (kind !== "search" && upsert.baseUrl) {
     const permission = await requestProviderOriginsViaBackground([String(upsert.baseUrl)]);
     if (!permission.ok) {
       return { ok: false, error: permission.error };
@@ -341,16 +374,21 @@ async function saveProviderSingle(
     // 消息 type 用三元直发单字面量（联合 type 会让 ResponseOf 推断塌成 never）
     const listResp = kind === "ai"
       ? await sendRuntimeMessage({ type: "ai-providers-list" })
-      : await sendRuntimeMessage({ type: "asr-providers-list" });
+      : kind === "search"
+        ? await sendRuntimeMessage({ type: "search-providers-list" })
+        : await sendRuntimeMessage({ type: "asr-providers-list" });
     const list: ProviderRowItem[] =
       listResp?.ok && Array.isArray(listResp.providers) ? listResp.providers : [];
-    const providerId = String(upsert.id || "") || (kind === "ai" ? generateAiProviderId() : generateAsrProviderId());
+    const providerId = String(upsert.id || "")
+      || (kind === "ai" ? generateAiProviderId() : kind === "search" ? generateSearchProviderId() : generateAsrProviderId());
     const next = list.some((p) => String(p?.id || "") === providerId)
       ? list.map((p) => (String(p?.id || "") === providerId ? { ...p, ...upsert, id: providerId } : p))
       : [...list, { ...upsert, id: providerId }];
     const saveResp = kind === "ai"
       ? await sendRuntimeMessage({ type: "ai-providers-save", providers: next })
-      : await sendRuntimeMessage({ type: "asr-providers-save", providers: next });
+      : kind === "search"
+        ? await sendRuntimeMessage({ type: "search-providers-save", providers: next })
+        : await sendRuntimeMessage({ type: "asr-providers-save", providers: next });
     if (!saveResp?.ok) {
       return { ok: false, error: saveResp?.error || "保存失败" };
     }
@@ -370,6 +408,11 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
   const elements = collectElements(host);
   if (kind === "ai") {
     renderAiProviders(elements.aiProvidersList, elements.aiProvidersEmpty, providers);
+  } else if (kind === "search") {
+    renderSearchProviders(elements.searchProvidersList, elements.searchProvidersEmpty, providers, {
+      presets: SEARCH_PROVIDER_PRESETS,
+      activeId: getActiveSearchProviderId(elements.searchProvidersList)
+    });
   } else {
     renderAsrProviders(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
       presets: asrPresets,
@@ -399,18 +442,24 @@ async function deleteFromEditor(
   target: { id: string; baseUrl: string }
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const [aiProviders, asrProviders] = await Promise.all([loadAiProviders(), loadAsrProviders()]);
-    const { origins, revoked } = await revokeOrphanOrigin(
-      { id: target.id, baseUrl: target.baseUrl },
-      [...aiProviders, ...asrProviders]
-    );
-    const host = settingsHostRef;
-    if (origins.length > 0 && !revoked && host) {
-      setStatus(collectElements(host), permissionRevokeErrorMessage(origins), true);
+    if (kind !== "search") {
+      // 搜索平台域名是静态 host 权限（无 optional 授权可回收），跳过 orphan
+      // origin 判定
+      const [aiProviders, asrProviders] = await Promise.all([loadAiProviders(), loadAsrProviders()]);
+      const { origins, revoked } = await revokeOrphanOrigin(
+        { id: target.id, baseUrl: target.baseUrl },
+        [...aiProviders, ...asrProviders]
+      );
+      const host = settingsHostRef;
+      if (origins.length > 0 && !revoked && host) {
+        setStatus(collectElements(host), permissionRevokeErrorMessage(origins), true);
+      }
     }
     const resp = kind === "ai"
       ? await sendRuntimeMessage({ type: "ai-providers-delete", providerId: target.id })
-      : await sendRuntimeMessage({ type: "asr-providers-delete", providerId: target.id });
+      : kind === "search"
+        ? await sendRuntimeMessage({ type: "search-providers-delete", providerId: target.id })
+        : await sendRuntimeMessage({ type: "asr-providers-delete", providerId: target.id });
     if (!resp?.ok) {
       return { ok: false, error: resp?.error || "删除失败" };
     }
@@ -428,7 +477,7 @@ async function deleteFromEditor(
 // openProviderEditor 按需动态装载（provider-editor 连同其探针链整体进动态
 // chunk），装载失败落抽屉状态条，不静默。
 async function openProviderEditorById(kind: ProviderEditorKind, providerId: string): Promise<void> {
-  const providers = kind === "ai" ? await loadAiProviders() : await loadAsrProviders();
+  const providers = kind === "ai" ? await loadAiProviders() : kind === "search" ? await loadSearchProviders() : await loadAsrProviders();
   const item = providerId ? providers.find((p) => String(p?.id || "") === providerId) || null : null;
   if (providerId && !item) {
     return;
@@ -438,7 +487,7 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
     openProviderEditor({
       kind,
       item,
-      presets: kind === "ai" ? aiPresets : asrPresets,
+      presets: kind === "ai" ? aiPresets : kind === "search" ? SEARCH_PROVIDER_PRESETS : asrPresets,
       onSave: saveFromEditor,
       onDelete: deleteFromEditor
     });
@@ -685,6 +734,11 @@ function bindSettingsEvents(host: HTMLElement): void {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: "" } });
     }
   });
+  setSearchDeleteHandler(async (providerId) => {
+    if (providerId && String(getActiveSearchProviderId(elements.searchProvidersList) || "") === providerId) {
+      await sendRuntimeMessage({ type: "save-settings", settings: { activeSearchProviderId: "" } });
+    }
+  });
   // 删除平台时回收 host 权限：AI 与 ASR 两组共用同一条判定——origin 不再被任何
   // 存活平台使用（含另一组）才 remove。存活列表从后端现查（紧凑行不再承载
   // baseUrl 输入框，被删行的 baseUrl 由行 dataset 传入钩子）。回收失败不阻断
@@ -708,8 +762,10 @@ function bindSettingsEvents(host: HTMLElement): void {
   // 平铺行「编辑」按钮：现查权威列表项后打开预填 Modal（拍板 Q3）
   elements.addAiProviderBtn.addEventListener("click", () => void openProviderEditorById("ai", ""));
   elements.addAsrProviderBtn.addEventListener("click", () => void openProviderEditorById("asr", ""));
+  elements.addSearchProviderBtn.addEventListener("click", () => void openProviderEditorById("search", ""));
   setAiRowEditHandler((providerId) => void openProviderEditorById("ai", providerId));
   setAsrRowEditHandler((providerId) => void openProviderEditorById("asr", providerId));
+  setSearchRowEditHandler((providerId) => void openProviderEditorById("search", providerId));
   // 外点关闭委托。快速通道（M15 INP）：监听器挂在 document 上，宿主页每一次
   // 点击都会进来，常态是三类弹层全关——此时旧实现无条件做三轮扫描（固定属性
   // 菜单 + Modal 模型下拉 + 自定义下拉，后两轮全文档）。先做一次合并存在性
@@ -752,10 +808,20 @@ function bindSettingsEvents(host: HTMLElement): void {
   elements.asrAutoFallback?.addEventListener("change", async () => {
     await sendRuntimeMessage({ type: "save-settings", settings: { asrAutoFallback: elements.asrAutoFallback.checked } });
   });
+  // 搜索平台：单轮搜索上限即时持久化
+  elements.webSearchMaxToolCalls?.addEventListener("change", async () => {
+    await sendRuntimeMessage({
+      type: "save-settings",
+      settings: { webSearchMaxToolCalls: elements.webSearchMaxToolCalls.value }
+    });
+  });
   // onChanged 回读他端改动（区/键过滤走 shared/watch-storage-keys seam，R3 收口）。
   watchStorageKeys((changes) => {
     elements.asrAutoFallback.checked = changes.asrAutoFallback.newValue !== false;
-  }, { sync: ["asrAutoFallback"] });
+    if (changes.webSearchMaxToolCalls) {
+      elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(changes.webSearchMaxToolCalls.newValue));
+    }
+  }, { sync: ["asrAutoFallback", "webSearchMaxToolCalls"] });
 }
 
 // ===== host 权限申请 =====

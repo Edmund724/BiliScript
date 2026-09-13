@@ -21,6 +21,8 @@ import {
   aiProviderStore
 } from "../core/ai-provider-store.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
+// 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
+import { searchProviderStore } from "../search/search-provider-store.js";
 // 模型列表探测（fetch 原语）归 ai 域（arch-slim-2/09）；纯存储仍在 core/。
 import { handleAiProvidersModels as fetchAiProviderModels } from "../ai/provider-models.js";
 // 平台请求代发（AI 探针传输层）：content script 的跨域 fetch 服从网页 CORS，
@@ -303,6 +305,15 @@ const asrProviderHandlers = createProviderMessageHandlers({
   loadKeys: asrProviderStore.loadKeys
 });
 
+// 搜索平台 CRUD 处理器（spec §3.3）：与 AI / ASR 家族共用同一套契约（列表 /
+// Key 的消息路由），连通性测试随后续 tool-loop 迭代再议。
+const searchProviderHandlers = createProviderMessageHandlers({
+  loadProviders: searchProviderStore.loadProviders,
+  saveProviders: searchProviderStore.saveProviders,
+  deleteProvider: searchProviderStore.deleteProvider,
+  loadKeys: searchProviderStore.loadKeys
+});
+
 // 内容脚本 ASR 回退的运行时配置：settings 标量 + provider-store 列表 + 激活
 // 平台 Key 一次回包，provider-store 存储层不再进内容 bundle（契约见
 // provider-handlers.js）。
@@ -385,6 +396,9 @@ const messageHandlerTable = {
   "asr-providers-save": asrProviderHandlers.save,
   "asr-providers-delete": asrProviderHandlers.remove,
   "get-asr-runtime-config": handleGetAsrRuntimeConfig,
+  "search-providers-list": searchProviderHandlers.list,
+  "search-providers-save": searchProviderHandlers.save,
+  "search-providers-delete": searchProviderHandlers.remove,
   "segment-cache": handleSegmentCache,
   "offload-task": handleOffloadTask,
   "offscreen-request-close": handleOffscreenRequestCloseMsg,
@@ -507,7 +521,8 @@ function illegalMessageReason(message: BackgroundMessage, sender: MessageSender)
   const badShape =
     (message.type === "save-settings" && message.settings != null
       && (typeof message.settings !== "object" || Array.isArray(message.settings)))
-    || ((message.type === "ai-providers-save" || message.type === "asr-providers-save")
+    || ((message.type === "ai-providers-save" || message.type === "asr-providers-save"
+      || message.type === "search-providers-save")
       && message.providers !== undefined && !Array.isArray(message.providers))
     || (message.type === "player-ai-quick-action" && message.tabId !== undefined
       && !Number.isFinite(message.tabId));

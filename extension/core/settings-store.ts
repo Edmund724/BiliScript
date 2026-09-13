@@ -26,7 +26,9 @@ import {
   normalizeAiInitialQuickPrompts,
   normalizeAiPresetPrompts,
   normalizeDefaultModel,
-  normalizeAiThinkingLevel
+  normalizeAiThinkingLevel,
+  normalizeWebSearchEnabled,
+  normalizeWebSearchMaxToolCalls
 } from "./validators.js";
 
 // ===== 设置归一化 + 存储 =====
@@ -57,7 +59,12 @@ const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   ["aiThinkingLevel", (m) => normalizeAiThinkingLevel(m.aiThinkingLevel)],
   ["activeAsrProviderId", (m) => String(m.activeAsrProviderId || "").trim()],
   ["asrAutoFallback", (m) => normalizeAsrAutoFallback(m.asrAutoFallback)],
-  ["asrLanguage", (m) => normalizeAsrLanguage(m.asrLanguage)]
+  ["asrLanguage", (m) => normalizeAsrLanguage(m.asrLanguage)],
+  // 联网搜索标量（spec §3.2）：激活平台 id 归一为 ""，开关仅显式 true 开，
+  // 上限整数夹取 1–10
+  ["activeSearchProviderId", (m) => String(m.activeSearchProviderId || "").trim()],
+  ["webSearchEnabled", (m) => normalizeWebSearchEnabled(m.webSearchEnabled)],
+  ["webSearchMaxToolCalls", (m) => normalizeWebSearchMaxToolCalls(m.webSearchMaxToolCalls)]
 ];
 
 // 设置归一化的唯一收口：对步骤表内的受管字段逐项归一化，返回新对象

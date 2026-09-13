@@ -11,9 +11,10 @@
 // 运行时依赖边。
 
 import type { Settings } from "../core/defaults.js";
-import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
+import type { AiProviderPreset, AsrProviderPreset, SearchProviderPreset } from "../core/presets.js";
 import type { AiProvider, HotComment } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
+import type { SearchProvider } from "../search/search-provider-normalize.js";
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -145,6 +146,7 @@ export type FetchJsonResponse = {
 // 只带 hasSavedKey 占位。
 export type ProviderListEntry = AiProvider & { hasSavedKey: boolean };
 export type AsrProviderListEntry = AsrProvider & { hasSavedKey: boolean };
+export type SearchProviderListEntry = SearchProvider & { hasSavedKey: boolean };
 
 export type AiProvidersListMessage = { type: "ai-providers-list" };
 // 响应锚点：core/provider-handlers.ts list——{ ok: true, providers }，失败经
@@ -319,6 +321,34 @@ export type GetAsrRuntimeConfigResponse = {
   error?: string;
 };
 
+// ===== 搜索平台消息族（spec §3.3，仿 asr-providers-* 契约）=====
+// 预设目录（SEARCH_PROVIDER_PRESETS）是纯数据常量，UI 直接 import core/presets，
+// 不设 search-presets-list 消息。
+export type SearchProvidersListMessage = { type: "search-providers-list" };
+// 响应锚点：core/provider-handlers.ts list（搜索家族与 ASR 同契约）。
+export type SearchProvidersListResponse = {
+  ok: boolean;
+  providers?: SearchProviderListEntry[];
+  error?: string;
+};
+export type SearchProvidersSaveMessage = { type: "search-providers-save"; providers?: unknown };
+// 响应锚点：core/provider-handlers.ts save。
+export type SearchProvidersSaveResponse = {
+  ok: boolean;
+  providers?: SearchProviderListEntry[];
+  error?: string;
+};
+export type SearchProvidersDeleteMessage = {
+  type: "search-providers-delete";
+  providerId?: string;
+};
+// 响应锚点：core/provider-handlers.ts remove。
+export type SearchProvidersDeleteResponse = {
+  ok: boolean;
+  providers?: SearchProviderListEntry[];
+  error?: string;
+};
+
 export type OffloadTaskMessage = {
   type: "offload-task";
   taskType?: string;
@@ -371,6 +401,9 @@ export type BackgroundMessage =
   | AsrProvidersSaveMessage
   | AsrProvidersDeleteMessage
   | GetAsrRuntimeConfigMessage
+  | SearchProvidersListMessage
+  | SearchProvidersSaveMessage
+  | SearchProvidersDeleteMessage
   | SegmentCacheMessage
   | OffloadTaskMessage
   | OffscreenRequestCloseMessage
@@ -467,6 +500,9 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends AsrProvidersSaveMessage ? AsrProvidersSaveResponse
   : M extends AsrProvidersDeleteMessage ? AsrProvidersDeleteResponse
   : M extends GetAsrRuntimeConfigMessage ? GetAsrRuntimeConfigResponse
+  : M extends SearchProvidersListMessage ? SearchProvidersListResponse
+  : M extends SearchProvidersSaveMessage ? SearchProvidersSaveResponse
+  : M extends SearchProvidersDeleteMessage ? SearchProvidersDeleteResponse
   : M extends SegmentCacheMessage ? SegmentCacheResponse
   : M extends OffloadTaskMessage ? OffloadTaskResponse
   : M extends OffscreenRequestCloseMessage ? OffscreenRequestCloseResponse

@@ -32,11 +32,16 @@ describe("manifest：ASR 音频 CDN 的最窄 host 权限（工单 04）", () =>
   });
 
   it("B 站站内域不在本次改动中放宽（保持既有最窄集合）", () => {
+    // spec §2.4：搜索平台三家 API 域为常驻权限（tests/search/manifest-search-host.test.js
+    // 锁定三家域），B 站站内四域保持原样
     expect(manifest.host_permissions).toEqual([
       "https://www.bilibili.com/*",
       "https://api.bilibili.com/*",
       "https://*.hdslb.com/*",
-      "https://*.bilivideo.com/*"
+      "https://*.bilivideo.com/*",
+      "https://api.tavily.com/*",
+      "https://api.exa.ai/*",
+      "https://api.search.brave.com/*"
     ]);
   });
 });

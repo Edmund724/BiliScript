@@ -279,7 +279,8 @@
 }
 
 #boc-reading-view .boc-reading-settings-host .ai-provider-row,
-#boc-reading-view .boc-reading-settings-host .asr-provider-row {
+#boc-reading-view .boc-reading-settings-host .asr-provider-row,
+#boc-reading-view .boc-reading-settings-host .search-provider-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -428,7 +429,8 @@
   stroke-linejoin: round;
 }
 
-#boc-reading-view .boc-reading-settings-host .asr-provider-active {
+#boc-reading-view .boc-reading-settings-host .asr-provider-active,
+#boc-reading-view .boc-reading-settings-host .search-provider-active {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -440,7 +442,8 @@
   cursor: pointer;
 }
 
-#boc-reading-view .boc-reading-settings-host .asr-provider-active input[type="radio"] {
+#boc-reading-view .boc-reading-settings-host .asr-provider-active input[type="radio"],
+#boc-reading-view .boc-reading-settings-host .search-provider-active input[type="radio"] {
   margin: 0;
 }
 

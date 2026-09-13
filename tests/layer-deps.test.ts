@@ -27,7 +27,9 @@ const EXTENSION_ROOT = join(process.cwd(), "extension");
 
 // 顶层分层（依赖方向自左向右；entry 为组合根）。新增顶层目录必须同步此处，
 // 否则第 4 条用例会红——这是有意的：结构变化要显式复核依赖方向。
-const LAYERS = ["shared", "core", "ai", "asr", "bilibili", "chat", "notes", "reader", "subtitle", "ui", "entry"];
+// search（联网搜索域，spec ai-chat-web-search）仿 asr：域类型/归一化/store
+// 在本层，预设数据与通用类型留在 core（search → core，无其它层指入）。
+const LAYERS = ["shared", "core", "ai", "asr", "bilibili", "chat", "notes", "reader", "search", "subtitle", "ui", "entry"];
 
 // 构建产物（两轮 esbuild 输出），不参与源码依赖图。
 const GENERATED_DIRS = new Set(["chunks", "icons"]);

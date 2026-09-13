@@ -6,8 +6,8 @@
 //（分节、id、类名契约）与流程代码互不干扰，模板改动只落本文件。
 // id 契约与原 options 页保持一致：settings-panel.ts 的 collectElements 按 id
 // 取自宿主容器，options-rows / validators 的行级选择器直接复用；分节顺序即
-// 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → AI 按钮 → AI 对话 → 导出 →
-// 笔记属性 → 自定义属性 → 正文附加段落 → 保存行）。
+// 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 → AI 对话 →
+// 导出 → 笔记属性 → 自定义属性 → 正文附加段落 → 保存行）。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
 // chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。
 
@@ -31,6 +31,18 @@ export function buildSettingsHtml(): string {
         <input id="asrAutoFallback" type="checkbox" />
         无字幕时自动生成字幕
       </label>
+    </section>
+
+    <section class="boc-set-group">
+      <div class="boc-set-h">搜索平台</div>
+      <p class="boc-set-hint">AI 对话与选区解释可联网搜索视频内容之外的信息（function calling，由模型决定何时搜）。当前选用平台提供搜索结果。</p>
+      <div id="searchProvidersList" class="ai-providers-list"></div>
+      <p id="searchProvidersEmpty" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Tavily / Exa / Brave）。</p>
+      <button id="addSearchProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
+      <div class="boc-set-row">
+        <label class="boc-set-label" for="webSearchMaxToolCalls">单轮搜索次数上限</label>
+        <input id="webSearchMaxToolCalls" class="boc-set-input" type="number" min="1" max="10" step="1" />
+      </div>
     </section>
 
     <section class="boc-set-group">
