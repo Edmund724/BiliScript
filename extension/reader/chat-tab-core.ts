@@ -64,6 +64,9 @@ import type { ModelSelectWidthEls } from "../chat/model-select-width.js";
 // 时间戳跳转的进程内 seek（reader 域唯一定位入口，见 getTimestampNavDeps）。
 import { seekReadingTarget } from "./sync.js";
 import { els } from "./chat-tab-dom.js";
+// 联网搜索回放重建（spec §4）：历史中的 tool 轮消息聚合为搜索回合（查询词 +
+// 来源），时间线卡挂在回合的回答消息上；tool 消息本体不作为正文渲染。
+import { collectHistorySearchTurns } from "../chat/search-sources.js";
 // sessionClosed 读侧回边（唯一）：connectPort / pollContext 闭包读 lifecycle 片的
 // sessionClosed，赋值方（ensureChatTabActivated / closeChatSession）在 lifecycle——
 // 纯搬移约束下函数体不可改，读经 ESM live binding 只发生在回调执行时（两片求值
@@ -621,6 +624,12 @@ async function runConversationReplay(): Promise<void> {
   invalidateConversationReplay();
   const generation = conversationReplayGeneration;
   const history = chatSessionState.chatHistory;
+  // 联网搜索回合（spec §4）：历史中的 assistant(tool_calls) + tool 消息聚合为
+  // 搜索回合，按回答消息下标对位——时间线卡插在回答前，来源随正文重建成
+  // [n] 内联引用；tool 消息本体（含 JSON 结果）不作为消息渲染。
+  const searchTurnByAssistantIndex = new Map(
+    collectHistorySearchTurns(history).map((turn) => [turn.assistantIndex, turn])
+  );
   // 与原 forEach 同语义：只遍历开跑时的长度，渲染期间新追加的消息不在此列
   //（流式写回走各自的 append 路径）。
   const total = history.length;
@@ -632,13 +641,25 @@ async function runConversationReplay(): Promise<void> {
     const message = history[index];
     if (message.role === "user") {
       chatRuntime.appendUserMessage(message.content, false);
+    } else if (message.role === "tool" || (Array.isArray(message.tool_calls) && message.tool_calls.length && !String(message.content || "").trim())) {
+      // 工具轮消息（spec §2.5）：查询与结果由回合回答消息上的搜索时间线卡
+      // 承载，消息本体不渲染（assistant(tool_calls) 无正文，tool 是 JSON）；
+      // 带正文 + tool_calls 的混合消息照常渲染（正文不丢）。
+      continue;
     } else {
       const node = document.createElement("div");
       node.className = "chat-msg chat-msg-assistant";
+      const searchTurn = searchTurnByAssistantIndex.get(index);
       chatRuntime.renderAssistantMessage(node, String(message.content || ""), {
-        userPrompt: findPreviousUserPrompt(index)
+        userPrompt: findPreviousUserPrompt(index),
+        ...(searchTurn ? { sources: searchTurn.sources } : {})
       });
       els.messages.appendChild(node);
+      if (searchTurn) {
+        // 卡片插在回答节点之前（先 append 节点再插卡——insertBefore 的参照
+        // 节点必须已在 DOM 内）。
+        els.messages.insertBefore(chatRuntime.buildSearchTimelineCard(searchTurn), node);
+      }
     }
     if (performance.now() >= deadline) {
       await yieldToMainThread();

@@ -202,6 +202,8 @@
   flex-direction: column;
   gap: 10px;
   scroll-behavior: smooth;
+  /* 联网搜索来源悬停预览卡的定位父容器（chat-stream-render showSourcePreview）。 */
+  position: relative;
 }
 
 /* 消息区滚动条走三滚动容器共用规则（.boc-reading-subtitle 处定义）。 */
@@ -1177,3 +1179,189 @@
   min-height: 60px;
 }
 
+
+/* ============================================================
+ * 联网搜索（spec §4，变体 B + 内联引用）
+ * ============================================================ */
+
+/* 搜索时间线卡：插在用户消息与回答之间，占满消息区宽度（align-self:stretch
+ * 对抗助手气泡的 flex-start）；头部 = 地球图标 +「联网搜索」+ 状态右对齐。 */
+.boc-reading-chat .chat-search-card {
+  align-self: stretch;
+  max-width: 100%;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 10px;
+  background: var(--boc-reader-surface);
+  padding: 8px 10px;
+}
+
+.boc-reading-chat .chat-search-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--boc-reader-muted);
+}
+
+.boc-reading-chat .chat-search-card-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--boc-reader-faint);
+}
+
+.boc-reading-chat .chat-search-card-icon svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.boc-reading-chat .chat-search-card-status {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--boc-reader-faint);
+}
+
+/* 每步一行 = 弹点 + 查询词 + 结果数；进行中弹点空心 accent 圈，失败行红字。 */
+.boc-reading-chat .chat-search-card-steps {
+  display: flex;
+  flex-direction: column;
+}
+
+.boc-reading-chat .chat-search-step {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 13.5px;
+}
+
+.boc-reading-chat .chat-search-step + .chat-search-step {
+  border-top: 1px dashed var(--boc-reader-border);
+}
+
+.boc-reading-chat .chat-search-step-bullet {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--boc-reader-accent);
+  justify-self: center;
+}
+
+.boc-reading-chat .chat-search-step.is-running .chat-search-step-bullet {
+  width: 5px;
+  height: 5px;
+  background: var(--boc-reader-surface-3);
+  border: 2px solid var(--boc-reader-accent);
+}
+
+.boc-reading-chat .chat-search-step.is-failed .chat-search-step-note {
+  color: var(--boc-reader-accent);
+}
+
+.boc-reading-chat .chat-search-step-query {
+  color: var(--boc-reader-text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.boc-reading-chat .chat-search-step-note {
+  font-size: 12px;
+  color: var(--boc-reader-faint);
+}
+
+/* 来源 chip 行（时间线卡底部，虚线分隔）：横向滚动 chip = 编号 pill + 来源标题。 */
+.boc-reading-chat .chat-search-chips {
+  border-top: 1px dashed var(--boc-reader-border);
+  margin-top: 4px;
+}
+
+.boc-reading-chat .chat-search-chip-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 0 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--boc-reader-faint) transparent;
+}
+
+.boc-reading-chat .chat-search-chip {
+  flex: none;
+  max-width: 160px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 999px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.boc-reading-chat .chat-search-chip:hover {
+  border-color: var(--boc-reader-accent);
+}
+
+.boc-reading-chat .chat-search-chip-idx {
+  color: var(--boc-reader-accent);
+  font-weight: 700;
+  font-size: 11.5px;
+}
+
+.boc-reading-chat .chat-search-chip span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 正文内联 [n] 引用：accent 上标，悬停出预览卡，点击新标签打开来源 URL。 */
+.boc-reading-chat .chat-cite {
+  color: var(--boc-reader-accent);
+  font-weight: 600;
+  font-size: 12px;
+  vertical-align: 2px;
+  cursor: pointer;
+}
+
+.boc-reading-chat .chat-cite:hover {
+  text-decoration: underline;
+}
+
+/* 来源悬停预览卡：标题 + 域名 + 摘录（snippet 前 200 字符），定位由
+ * chat-stream-render showSourcePreview 以行内 left/top 写入。 */
+.boc-reading-chat .chat-search-preview {
+  position: absolute;
+  z-index: 20;
+  max-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 10px;
+  background: var(--boc-reader-card);
+  box-shadow: var(--boc-reader-shadow);
+  font-size: 13px;
+  color: var(--boc-reader-muted);
+  pointer-events: none;
+}
+
+.boc-reading-chat .chat-search-preview-title {
+  font-weight: 600;
+  color: var(--boc-reader-text);
+  margin-bottom: 3px;
+}
+
+.boc-reading-chat .chat-search-preview-host {
+  font-size: 12px;
+}
+
+.boc-reading-chat .chat-search-preview-excerpt {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--boc-reader-faint);
+}

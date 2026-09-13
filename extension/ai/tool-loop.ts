@@ -16,12 +16,14 @@ import { chatCompletion, parseToolArgs, type ChatToolDefinition } from "./comple
 import type { ChatMessage, ChatToolCall, StreamChatEvent } from "./types.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 
-// web_search 工具定义（spec §2.1 原文）。
+// web_search 工具定义（spec §2.1 原文 + §4 引用要求）：描述要求模型在正文中
+// 以 [n] 标注引用来源（n 为该条结果在全部搜索结果中的全局序号，从 1 起按
+// 搜索与结果顺序累计——宿主按 tool-status 到达顺序同序编号，两侧对齐）。
 export const WEB_SEARCH_TOOL: ChatToolDefinition = {
   type: "function",
   function: {
     name: "web_search",
-    description: "搜索互联网获取视频内容之外的信息。需要时效性信息或视频未覆盖的事实时调用。",
+    description: "搜索互联网获取视频内容之外的信息。需要时效性信息或视频未覆盖的事实时调用。回答正文中引用搜索结果时使用 [n] 标记（n 为该条结果在全部搜索结果中的序号，从 1 开始按搜索与结果顺序累计）。",
     parameters: {
       type: "object",
       properties: { query: { type: "string", description: "搜索关键词" } },
@@ -50,6 +52,8 @@ export interface ToolStatusPayload {
   query: string;
   resultCount?: number;
   platform?: string;
+  // 搜索结果（done 时携带，spec §4）：时间线卡 chip 行与内联引用的数据源。
+  sources?: NormalizedSearchResult[];
 }
 
 export interface RunToolLoopInput {
@@ -192,7 +196,8 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<void> {
           status: "done",
           query,
           resultCount: outcome.results.length,
-          platform: outcome.platform
+          platform: outcome.platform,
+          sources: outcome.results
         });
       } catch (e) {
         // 搜索请求被中止：照 chatCompletion 的中止语义上抛，不伪装成搜索失败。

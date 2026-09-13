@@ -1260,13 +1260,18 @@ describe("tool-turn 持久化与 tool-status 最小消费", () => {
     expect(chatSessionState.chatHistory.filter((m) => m.role === "tool")).toHaveLength(0);
   });
 
-  it("tool-status：notice 行显示平台与查询/结果数（spec §4 最小消费）", async () => {
+  it("tool-status：驱动搜索时间线卡（spec §4，notice 行消费已由卡片取代）", async () => {
     const raf = holdRaf();
     const { deps, runtime } = await makeRuntime("问");
     feed(runtime, { type: "tool-status", status: "searching", query: "x", platform: "Tavily" });
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("Tavily · 搜索中：x…", 4000);
+    // 不再走 notice 行：时间线卡出现在消息区
+    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(expect.stringContaining("Tavily · 搜索中"), 4000);
+    const card = deps.messages.querySelector(".chat-search-card");
+    expect(card).toBeTruthy();
+    expect(card.querySelector(".chat-search-card-status").textContent).toBe("搜索中…");
     feed(runtime, { type: "tool-status", status: "done", query: "x", resultCount: 3, platform: "Tavily" });
-    expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith("Tavily · 完成（3 条结果）", 4000);
+    expect(card.querySelector(".chat-search-card-status").textContent).toContain("Tavily · 完成（");
+    expect(card.querySelector(".chat-search-step-note").textContent).toBe("3 条");
     runRafFrames(raf);
   });
 });

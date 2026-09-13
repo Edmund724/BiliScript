@@ -19,7 +19,8 @@
 // error/notice/cost-guard）统一经 dispatchChatPortMessage 分派——真实 port
 // 监听器与公开的协议测试入口 handleChatPortMessage 共用；done/stopped/error
 // 三条终态路径的六步收尾时序收敛为唯一的 endStream 实现。返回面收窄为
-// 9 个 sidepanel 消费方法 + handleChatPortMessage，内部步骤全部私有化。
+// 9 个 sidepanel 消费方法 + handleChatPortMessage + buildSearchTimelineCard
+//（spec §4 回放重建），内部步骤全部私有化。
 //
 // PR5 改造（宿主解耦补齐）：cost-guard 的确认通道经 deps.confirmCostGuard
 // 注入，缺省为面板内确认弹层（ui/confirm-dialog.js；原生 confirm 绘制在浏
@@ -164,13 +165,15 @@ export interface CreateChatRuntimeDeps {
  *   runtime's own closure variables — sidepanel queries it with isStreaming() /
  *   hasPendingUserPrompt(), never by reading runtime internals)。
  *   候选07：接口面刻意收窄为 9 + 1——只暴露 sidepanel 实际消费的 9 个方法 +
- *   1 个协议测试入口；内部渲染/收尾步骤（首 token、计时器、占位、token 追加、
- *   三类终态收口、thinking 节点等）全部私有化，测试经 sendMessage + 假 port
- *   或 handleChatPortMessage 以协议消息驱动，不直接戳内部步骤：
+ *   1 个协议测试入口（联网搜索回放重建另加 buildSearchTimelineCard，
+ *   spec §4：历史回放的时间线卡从 chatHistory 重建）；内部渲染/收尾步骤（首
+ *   token、计时器、占位、token 追加、三类终态收口、thinking 节点等）全部私有
+ *   化，测试经 sendMessage + 假 port 或 handleChatPortMessage 以协议消息驱动，
+ *   不直接戳内部步骤：
  *   {
  *     sendMessage,                 // () => Promise<void>
  *     stopActiveStream,            // () => void
- *     renderAssistantMessage,      // (node, raw, { userPrompt }) => void
+ *     renderAssistantMessage,      // (node, raw, { userPrompt, sources? }) => void
  *     appendUserMessage,           // (text, shouldScroll) => void
  *     // ---- auto-scroll (flag owned by the ./chat-stream-render.js piece;
  *     // sidepanel writes via these narrow entries, flush/finalize read it
@@ -183,6 +186,8 @@ export interface CreateChatRuntimeDeps {
  *     resetStreamState,            // () => void  (clear + disconnect + null state)
  *     // ---- 协议测试入口：offscreen port 消息对象进、UI/状态变化出 ----
  *     handleChatPortMessage,       // (msg) => void  (与 port.onMessage 监听器同分派)
+ *     // ---- 回放重建：历史聚合结果 → 静态时间线卡 DOM（chat-tab-core 消费）----
+ *     buildSearchTimelineCard,     // (turn: HistorySearchTurn) => HTMLElement
  *   }
  */
 export function createChatRuntime(deps: CreateChatRuntimeDeps) {
@@ -253,7 +258,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     cancelTokenFlush,
     getStreamRaw,
     renderAssistantMessage,
-    setAutoScroll
+    setAutoScroll,
+    applySearchStatus,
+    takeTurnSearchSources,
+    clearSearchCard,
+    buildSearchTimelineCard
   ] = createChatStreamRenderer(deps);
   // =========================================================================
   // dispatchChatPortMessage — offscreen port 消息的协议分派（八分派 + 代际重置）
@@ -315,14 +324,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     } else if (msg.type === "notice") {
       deps.ui.showConversationContextNotice(msg.data, 4000);
     } else if (msg.type === "tool-status") {
-      // 联网搜索工具状态（spec §4 最小消费：notice 行；时间线卡留给后续 effort）。
-      const platform = typeof msg.platform === "string" && msg.platform ? msg.platform : "联网搜索";
-      const label = msg.status === "searching"
-        ? `${platform} · 搜索中：${msg.query}…`
-        : msg.status === "done"
-          ? `${platform} · 完成${typeof msg.resultCount === "number" ? `（${msg.resultCount} 条结果）` : ""}`
-          : `联网搜索失败：${msg.query}`;
-      deps.ui.showConversationContextNotice(label, 4000);
+      // 联网搜索工具状态（spec §4）：驱动搜索时间线卡（步骤行 / 结果数 /
+      // 平台耗时 / 来源 chip 行），插在用户消息与回答之间。
+      applySearchStatus(activeAssistantNode, msg);
     } else if (msg.type === "tool-turn") {
       // 工具轮持久化副本（spec §2.5）：缓存，done/stopped 时随一问一答写回。
       pendingToolMessages = Array.isArray(msg.messages)
@@ -495,6 +499,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     resetTokenStreamState(node);
     const cursor = node.querySelector(".chat-msg-cursor");
     node.querySelectorAll(".chat-stream-stable, .chat-stream-tail, .chat-thinking").forEach((el) => el.remove());
+    // 联网搜索（spec §4）：整体重放含重新搜索，时间线卡一并清除重放。
+    clearSearchCard(node);
     if (cursor) {
       node.appendChild(cursor);
     }
@@ -559,7 +565,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     endStream(node, (n) => {
       const raw = getStreamRaw(n);
-      renderAssistantMessage(n, raw, { userPrompt: activeUserPrompt });
+      // 联网搜索（spec §4）：本回合累计来源传给终态渲染，[n] 转内联引用。
+      renderAssistantMessage(n, raw, { userPrompt: activeUserPrompt, sources: takeTurnSearchSources(n) });
       commitAssistantTurn(raw);
     });
   }
@@ -589,7 +596,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       stopped.className = "chat-msg-stopped";
       stopped.textContent = reason || "已停止生成";
       if (raw.trim()) {
-        renderAssistantMessage(n, raw, { userPrompt: activeUserPrompt });
+        // 联网搜索（spec §4）：同 done，本回合来源随正文渲染成内联引用。
+        renderAssistantMessage(n, raw, { userPrompt: activeUserPrompt, sources: takeTurnSearchSources(n) });
         n.appendChild(stopped);
         commitAssistantTurn(raw);
       } else {
@@ -710,8 +718,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     dispatchChatPortMessage(msg, activePort);
   }
 
-  // 返回面恰好 10 键（候选07）：9 个 sidepanel 消费方法 + 1 个协议测试入口。
-  // 内部步骤（handleFirstStreamToken / clearStreamRuntimeState /
+  // 返回面 11 键（候选07：sidepanel 消费的 9 个方法 + 1 个协议测试入口 +
+  // 1 个回放重建入口）。内部步骤（handleFirstStreamToken / clearStreamRuntimeState /
   // startStreamSlowNoticeTimer / appendAssistantPlaceholder / appendToken /
   // finalizeAssistant / handleAssistantStopped / showAssistantError /
   // createThinkingNode / appendThinkingText）不再外露。
@@ -725,6 +733,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     isStreaming,
     hasPendingUserPrompt,
     resetStreamState,
-    handleChatPortMessage
+    handleChatPortMessage,
+    buildSearchTimelineCard
   };
 }

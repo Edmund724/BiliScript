@@ -23,6 +23,8 @@ import {
 //（懒 chunk，见 ui/lazy-mermaid 头注）。
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
+import type { ChatToolStatusEvent } from "./protocol.js";
+import { SEARCH_PREVIEW_MAX_CHARS, type ChatSearchSource, type HistorySearchTurn } from "./search-sources.js";
 
 // chat-stream-render 消费的最窄 deps 面：messages 滚动容器 + 终态渲染的两个
 // 回调（结构子集——createChatRuntime 直接传入完整 CreateChatRuntimeDeps）。
@@ -470,9 +472,352 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     }
   }
   // =========================================================================
+  // 联网搜索时间线卡（spec §4，变体 B + 内联引用）
+  // =========================================================================
+  // tool-status 事件驱动的独立卡片，插在用户消息与回答（assistant 节点）之间：
+  // 头部 = 地球图标 +「联网搜索」+ 状态（进行中「搜索中…」，完成「平台 · 完成
+  // （Xs）」）；每步一行 = 弹点 + 查询词 + 结果数；完成后底部（虚线分隔）追加
+  // 来源 chip 行（编号 pill + 标题，点击新标签打开 URL）。状态按 assistant 节点
+  // 隔离（WeakMap，与 token 流累加器同契约：随占位节点建立、跨消息天然隔离，
+  // stream-reset 整卡清除重放）。
+  //
+  // 来源编号跨搜索累计（到达顺序），与正文 [n] 内联引用、tool-loop 描述里的
+  // 编号契约对齐（spec §4/§5）。悬停预览卡与 chip/cite 点击的新标签打开走
+  // window.open（reader 对话 tab 在 content script 上下文，无 chrome.tabs）。
+
+  // 时间线卡头部地球图标：与 ui/icons.ts 线性描边同族（24 视框 / stroke 2 /
+  // currentColor），纯装饰，随 svg 自带 aria-hidden。
+  const SEARCH_GLOBE_ICON_SVG =
+    '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>';
+
+  // 按节点隔离的时间线卡状态（键 = assistant 占位节点）。
+  interface SearchCardState {
+    card: HTMLElement;
+    statusEl: HTMLElement;
+    stepsEl: HTMLElement;
+    // 来源 chip 行容器（首个带 sources 的 done 到达时创建）。
+    chipsWrap: HTMLElement | null;
+    chipRow: HTMLElement | null;
+    // 跨搜索累计的来源（编号顺序 = 到达顺序）。
+    sources: ChatSearchSource[];
+    // 首条 searching 到达时刻（头部耗时 = 至最近一次 done 的累计）。
+    startedAt: number;
+  }
+
+  const searchCardStates = new WeakMap<HTMLElement, SearchCardState>();
+
+  // 消息区滚动即收走悬停预览卡（showSourcePreview 写死的定位不随滚动更新，
+  // 滚动后卡片与锚点脱开，直接收走；passive 不阻塞滚动合帧）。
+  deps.messages.addEventListener("scroll", () => hideSourcePreview(deps.messages), { passive: true });
+
+  // 新标签打开 URL（chip / 内联引用共用的收口；url 非法时静默忽略）。
+  function openSourceUrl(url: string): void {
+    const target = String(url || "").trim();
+    if (!target || !/^https?:\/\//i.test(target)) {
+      return;
+    }
+    window.open(target, "_blank", "noopener");
+  }
+
+  // 来源悬停预览卡（spec §4：标题 + 域名 + 内容摘录）。shared 定位父容器 =
+  // 消息滚动区（reader-chat.css 对 .chat-messages 设 position:relative），
+  // 锚点下方左对齐，左右钳制在容器内；同一时刻至多一张（data-chat-search-preview）。
+  function showSourcePreview(container: HTMLElement, anchor: Element, source: ChatSearchSource): void {
+    hideSourcePreview(container);
+    let domain = "";
+    try {
+      domain = new URL(source.url).hostname;
+    } catch {
+      domain = "";
+    }
+    const card = document.createElement("div");
+    card.className = "chat-search-preview";
+    card.setAttribute("data-chat-search-preview", "");
+    const title = document.createElement("div");
+    title.className = "chat-search-preview-title";
+    title.textContent = source.title || source.url;
+    const host = document.createElement("div");
+    host.className = "chat-search-preview-host";
+    host.textContent = domain || source.url;
+    const excerpt = document.createElement("div");
+    excerpt.className = "chat-search-preview-excerpt";
+    excerpt.textContent = String(source.snippet || "").slice(0, SEARCH_PREVIEW_MAX_CHARS);
+    card.append(title, host);
+    if (excerpt.textContent) {
+      card.appendChild(excerpt);
+    }
+    container.appendChild(card);
+    const anchorRect = anchor.getBoundingClientRect();
+    const boxRect = container.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const left = Math.min(
+      Math.max(anchorRect.left - boxRect.left - 40, 4),
+      Math.max(boxRect.width - cardRect.width - 4, 4)
+    );
+    card.style.left = `${left}px`;
+    card.style.top = `${anchorRect.bottom - boxRect.top + 6}px`;
+  }
+
+  function hideSourcePreview(container: HTMLElement): void {
+    container.querySelectorAll("[data-chat-search-preview]").forEach((el) => el.remove());
+  }
+
+  // 卡骨架共享构建器（live 与回放同构，spec §4）：头部（地球图标 +「联网搜索」
+  // + 状态）+ 步骤容器。
+  function createSearchCardShell(statusText: string): { card: HTMLElement; statusEl: HTMLElement; stepsEl: HTMLElement } {
+    const card = document.createElement("div");
+    card.className = "chat-search-card";
+    const head = document.createElement("div");
+    head.className = "chat-search-card-head";
+    const icon = document.createElement("span");
+    icon.className = "chat-search-card-icon";
+    icon.innerHTML = SEARCH_GLOBE_ICON_SVG;
+    const label = document.createElement("span");
+    label.textContent = "联网搜索";
+    const status = document.createElement("span");
+    status.className = "chat-search-card-status";
+    status.textContent = statusText;
+    head.append(icon, label, status);
+    const steps = document.createElement("div");
+    steps.className = "chat-search-card-steps";
+    card.append(head, steps);
+    return { card, statusEl: status, stepsEl: steps };
+  }
+
+  // 步骤行共享构建器：running=true 为「搜索中…」进行中形态（live 路径），
+  // false 为终态行（回放路径，noteText 记结果数）。
+  function createSearchStepRow(query: string, noteText: string, running: boolean): HTMLElement {
+    const row = document.createElement("div");
+    row.className = running ? "chat-search-step is-running" : "chat-search-step";
+    const bullet = document.createElement("span");
+    bullet.className = "chat-search-step-bullet";
+    const queryEl = document.createElement("span");
+    queryEl.className = "chat-search-step-query";
+    queryEl.textContent = query;
+    const note = document.createElement("span");
+    note.className = "chat-search-step-note";
+    note.textContent = noteText;
+    row.append(bullet, queryEl, note);
+    return row;
+  }
+
+  function createSearchCard(messages: HTMLElement, assistantNode: HTMLElement): SearchCardState {
+    const { card, statusEl, stepsEl } = createSearchCardShell("搜索中…");
+    messages.insertBefore(card, assistantNode);
+    return { card, statusEl, stepsEl, chipsWrap: null, chipRow: null, sources: [], startedAt: Date.now() };
+  }
+
+  function createSearchStep(stepsEl: HTMLElement, query: string): HTMLElement {
+    const row = createSearchStepRow(query, "搜索中…", true);
+    stepsEl.appendChild(row);
+    return row;
+  }
+
+  // 来源 chip 行（虚线分隔 + 横向滚动）：chips = 编号 pill + 标题，编号从
+  // startIndex（跨搜索累计）起。chipsWrap/chipRow 只建一次，后续 done 追加。
+  function appendSourceChips(state: SearchCardState, sources: ChatSearchSource[]): void {
+    if (!sources.length) {
+      return;
+    }
+    if (!state.chipsWrap || !state.chipRow) {
+      state.chipsWrap = document.createElement("div");
+      state.chipsWrap.className = "chat-search-chips";
+      state.chipRow = document.createElement("div");
+      state.chipRow.className = "chat-search-chip-row";
+      state.chipsWrap.appendChild(state.chipRow);
+      state.card.appendChild(state.chipsWrap);
+    }
+    for (const source of sources) {
+      const index = state.sources.length + 1;
+      state.sources.push(source);
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chat-search-chip";
+      chip.setAttribute("title", source.title || source.url);
+      const pill = document.createElement("span");
+      pill.className = "chat-search-chip-idx";
+      pill.textContent = String(index);
+      const name = document.createElement("span");
+      name.textContent = source.title || source.url;
+      chip.append(pill, name);
+      chip.addEventListener("click", () => {
+        openSourceUrl(source.url);
+      });
+      state.chipRow.appendChild(chip);
+    }
+  }
+
+  /**
+   * applySearchStatus — tool-status 事件驱动时间线卡（live 流路径）。
+   * 首个事件建卡（插在 assistant 节点之前），searching 追加步骤行、done 补
+   * 结果数与来源 chips、failed 标记失败行；头部状态随最近事件推进。
+   */
+  function applySearchStatus(node: HTMLDivElement | null, msg: ChatToolStatusEvent): void {
+    if (!node || !node.parentNode) {
+      return;
+    }
+    let state = searchCardStates.get(node);
+    if (!state) {
+      state = createSearchCard(deps.messages, node);
+      searchCardStates.set(node, state);
+    }
+    if (msg.status === "searching") {
+      state.statusEl.textContent = "搜索中…";
+      createSearchStep(state.stepsEl, String(msg.query || ""));
+      return;
+    }
+    // 收口最近一条 searching 步骤行（事件顺序保证属于本次查询）。
+    const runningRow = state.stepsEl.querySelector(".chat-search-step.is-running:last-of-type");
+    if (msg.status === "failed") {
+      if (runningRow) {
+        runningRow.classList.remove("is-running");
+        runningRow.classList.add("is-failed");
+        const note = runningRow.querySelector(".chat-search-step-note");
+        if (note) {
+          note.textContent = "搜索失败";
+        }
+      }
+      state.statusEl.textContent = "搜索失败";
+      return;
+    }
+    // done：步骤行补结果数 + 头部平台与累计耗时 + 来源 chips。
+    if (runningRow) {
+      runningRow.classList.remove("is-running");
+      const note = runningRow.querySelector(".chat-search-step-note");
+      if (note) {
+        note.textContent = typeof msg.resultCount === "number" ? `${msg.resultCount} 条` : "";
+      }
+    }
+    if (Array.isArray(msg.sources) && msg.sources.length) {
+      appendSourceChips(state, msg.sources);
+    }
+    const platform = typeof msg.platform === "string" && msg.platform ? msg.platform : "联网搜索";
+    const elapsed = Math.max(0, (Date.now() - state.startedAt) / 1000);
+    state.statusEl.textContent = `${platform} · 完成（${elapsed.toFixed(1)}s）`;
+  }
+
+  // 终态收口取本回合累计来源（finalize / stopped 传给 renderAssistantMessage
+  // 做 [n] 内联引用）；take 语义：顺带收走可能挂着的来源预览卡。
+  function takeTurnSearchSources(node: HTMLDivElement | null): ChatSearchSource[] {
+    if (!node) {
+      return [];
+    }
+    hideSourcePreview(deps.messages);
+    return searchCardStates.get(node)?.sources.slice() ?? [];
+  }
+
+  // stream-reset（offscreen 整体重放，含重新搜索）：整卡清除，状态随新事件重建。
+  // 卡片恒插在 assistant 节点之前（createSearchCard），即其前兄弟元素。
+  function clearSearchCard(node: HTMLDivElement | null): void {
+    if (!node) {
+      return;
+    }
+    searchCardStates.delete(node);
+    const previous = node.previousElementSibling;
+    if (previous?.classList.contains("chat-search-card")) {
+      previous.remove();
+    }
+    hideSourcePreview(deps.messages);
+  }
+
+  /**
+   * buildSearchTimelineCard — 回放路径的静态卡构建（spec §4：来源 chip 行与
+   * 时间线卡可从历史重建）。从历史聚合回合（collectHistorySearchTurns 的
+   * HistorySearchTurn）构建与 live 卡同构的 DOM：头部 + 步骤行 + 来源 chip 行
+   * （编号从 1 起累计）。平台/耗时未持久化，头部状态记结果条数；chip 点击与
+   * 悬停引用同 openSourceUrl。
+   */
+  function buildSearchTimelineCard(turn: HistorySearchTurn): HTMLElement {
+    const { card, stepsEl } = createSearchCardShell(`${turn.sources.length} 条来源`);
+    turn.queries.forEach((query, i) => {
+      stepsEl.appendChild(createSearchStepRow(query, `${turn.resultCounts[i] ?? 0} 条`, false));
+    });
+    const replayState: SearchCardState = { card, statusEl: card.querySelector(".chat-search-card-status")!, stepsEl, chipsWrap: null, chipRow: null, sources: [], startedAt: Date.now() };
+    appendSourceChips(replayState, turn.sources);
+    return card;
+  }
+
+  // =========================================================================
+  // renderSearchCitations — 正文 [n] → 内联引用（spec §4）
+  // =========================================================================
+  // 流结束后（renderAssistantMessage）把正文文本节点里的 [n] 换成上标引用：
+  // 点击新标签打开来源 URL；悬停出预览卡（标题 + 域名 + 摘录 200 字符）。
+  // 只处理不在 a / code / pre / button / sup 内的文本节点（时间戳 linkify
+  // 同款 walker 纪律），编号越界（模型编造 / 历史截断）按纯文本保留。
+
+  const CITATION_PATTERN = /\[(\d{1,2})\]/g;
+
+  function renderSearchCitations(root: HTMLElement, sources: ChatSearchSource[]): void {
+    if (!sources.length) {
+      return;
+    }
+    const container = deps.messages;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    while (walker.nextNode()) {
+      const current = walker.currentNode;
+      if (!(current instanceof Text)) {
+        continue;
+      }
+      const parent = current.parentElement;
+      if (!parent || parent.closest("a, code, pre, button, sup")) {
+        continue;
+      }
+      CITATION_PATTERN.lastIndex = 0;
+      if (!CITATION_PATTERN.test(current.textContent || "")) {
+        continue;
+      }
+      textNodes.push(current);
+    }
+    textNodes.forEach((textNode) => {
+      const text = textNode.textContent || "";
+      const fragment = document.createDocumentFragment();
+      let lastIndex = 0;
+      let hasMatch = false;
+      CITATION_PATTERN.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = CITATION_PATTERN.exec(text))) {
+        hasMatch = true;
+        if (match.index > lastIndex) {
+          fragment.append(document.createTextNode(text.slice(lastIndex, match.index)));
+        }
+        const marker = match[0];
+        const index = Number(match[1]);
+        const source = sources[index - 1];
+        if (!source || !source.url) {
+          fragment.append(document.createTextNode(marker));
+        } else {
+          const cite = document.createElement("sup");
+          cite.className = "chat-cite";
+          cite.setAttribute("data-cite-url", source.url);
+          cite.textContent = marker;
+          cite.addEventListener("click", () => {
+            openSourceUrl(source.url);
+          });
+          cite.addEventListener("mouseenter", () => {
+            showSourcePreview(container, cite, source);
+          });
+          cite.addEventListener("mouseleave", () => {
+            hideSourcePreview(container);
+          });
+          fragment.append(cite);
+        }
+        lastIndex = match.index + marker.length;
+      }
+      if (!hasMatch) {
+        return;
+      }
+      if (lastIndex < text.length) {
+        fragment.append(document.createTextNode(text.slice(lastIndex)));
+      }
+      textNode.replaceWith(fragment);
+    });
+  }
+
+  // =========================================================================
   // renderAssistantMessage
   // =========================================================================
-  function renderAssistantMessage(node: HTMLDivElement | null, raw: unknown, { userPrompt = "" }: { userPrompt?: string } = {}): void {
+  function renderAssistantMessage(node: HTMLDivElement | null, raw: unknown, { userPrompt = "", sources = [] }: { userPrompt?: string; sources?: ChatSearchSource[] } = {}): void {
     if (!node) {
       return;
     }
@@ -499,6 +844,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里
     // 的图表源码不会被它改写；水合换入的 SVG 里也不该再长出时间戳按钮。
     hydrateMermaid(content);
+    // 联网搜索（spec §4）：[n] → 上标内联引用（流结束后统一转换；流式期间
+    // 原文呈现）。编号与时间线卡 chip 行同序（跨搜索累计）。
+    if (sources.length) {
+      renderSearchCitations(content, sources);
+    }
     node.appendChild(content);
 
     const actions = document.createElement("div");
@@ -553,6 +903,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     cancelTokenFlush,
     getStreamRaw,
     renderAssistantMessage,
-    setAutoScroll
+    setAutoScroll,
+    applySearchStatus,
+    takeTurnSearchSources,
+    clearSearchCard,
+    buildSearchTimelineCard
   ] as const;
 }

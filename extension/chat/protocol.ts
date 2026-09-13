@@ -61,14 +61,20 @@ export interface ChatTokenBatchEvent {
 }
 
 // 联网搜索工具状态（spec §2.2，port 层事件，不在引擎 StreamChatEvent 之列）：
-// tool-loop 每次搜索的 searching / done / failed 逐条回吐，宿主最小消费为
-// notice 行（spec §4 完整时间线卡留给后续 effort）。
+// tool-loop 每次搜索的 searching / done / failed 逐条回吐，宿主渲染搜索时间
+// 线卡（spec §4）。done 的 sources 为该次搜索的 { title, url, snippet }[]，
+// 时间线卡 chip 行与正文内联引用（悬停预览 / 新标签打开）的数据源；形状单源
+// 在 chat/search-sources.ts（回放重建共用同一类型）。
+import type { ChatSearchSource } from "./search-sources.js";
+export type ChatToolStatusSource = ChatSearchSource;
+
 export interface ChatToolStatusEvent {
   type: "tool-status";
   status: "searching" | "done" | "failed";
   query: string;
   resultCount?: number;
   platform?: string;
+  sources?: ChatToolStatusSource[];
 }
 
 // 工具轮持久化副本（spec §2.5）：assistant(tool_calls) + tool 结果消息，

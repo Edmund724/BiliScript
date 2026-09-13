@@ -570,6 +570,42 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
   });
 });
 
+describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + 内联引用）", () => {
+  it("tool 轮消息渲染成时间线卡与 [n] 引用，JSON 不落正文", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    // 激活流程会用会话存档覆盖 chatHistory：先激活载入 providers，再播入
+    // 带工具轮的历史并触发回放（renderInitialState → renderConversationMessages）。
+    chatSessionState.chatHistory = [
+      { role: "user", content: "视频里提到的 MoE 后来有什么进展？" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "c1", function: { name: "web_search", arguments: '{"query":"MoE 新进展"}' } }]
+      },
+      {
+        role: "tool",
+        tool_call_id: "c1",
+        content: JSON.stringify([{ title: "来源A", url: "https://a.example.com/x", snippet: "摘录A" }])
+      },
+      { role: "assistant", content: "回答见 [1]。" }
+    ];
+    (await import("../../extension/reader/chat-tab-core.js")).renderInitialState();
+
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    await waitFor(() => Boolean(messages.querySelector(".chat-search-card")));
+    const card = messages.querySelector(".chat-search-card") as HTMLElement;
+    expect((card.querySelector(".chat-search-step-query") as HTMLElement).textContent).toBe("MoE 新进展");
+    expect((card.querySelector(".chat-search-step-note") as HTMLElement).textContent).toBe("1 条");
+    expect(card.querySelectorAll(".chat-search-chip")).toHaveLength(1);
+    // tool 消息 JSON 不落正文；[n] 重建为内联引用
+    expect(messages.textContent).not.toContain('{"title"');
+    expect(messages.querySelectorAll("sup.chat-cite")).toHaveLength(1);
+  });
+});
+
 describe("外点关闭单委托（chat-tab-bridge 并入 ui-renderer 文档级委托）", () => {
   it("点外关闭 popover、点内不关；重复激活不双挂监听", async () => {
     seedReadyContext();

@@ -112,7 +112,7 @@ describe("runToolLoop 工具调用循环", () => {
     expect(capture.calls[1].tools).toEqual([expect.objectContaining({ function: expect.objectContaining({ name: "web_search" }) })]);
     expect(capture.statuses).toEqual([
       { status: "searching", query: "bilibili ai" },
-      { status: "done", query: "bilibili ai", resultCount: 1, platform: "Tavily" }
+      { status: "done", query: "bilibili ai", resultCount: 1, platform: "Tavily", sources: [{ title: "t", url: "u", snippet: "s" }] }
     ]);
     expect(capture.notices).toEqual([]);
     // 持久化副本：assistant + tool 两条
@@ -234,5 +234,24 @@ describe("runToolLoop 工具调用循环", () => {
     // 持久化副本截 2,000
     const persistedTool = capture.toolTurns[0].find((m) => m.role === "tool");
     expect(persistedTool.content.length).toBe(TOOL_MESSAGE_MAX_CHARS);
+  });
+
+  it("done 状态带搜索结果 sources（时间线卡 chip 行 / 内联引用数据源）", async () => {
+    capture = makeCapture();
+    const results = [
+      { title: "标题一", url: "https://a.com/1", snippet: "摘录一" },
+      { title: "标题二", url: "https://b.com/2", snippet: "摘录二" }
+    ];
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: async () => ({ results, platform: "Brave" })
+    }));
+
+    const done = capture.statuses.find((s) => s.status === "done");
+    expect(done).toMatchObject({ status: "done", query: "bilibili ai", resultCount: 2, platform: "Brave", sources: results });
+  });
+
+  it("web_search 工具描述带 [n] 引用要求（prompt 侧编号契约）", () => {
+    expect(WEB_SEARCH_TOOL.function.description).toContain("[n]");
   });
 });
