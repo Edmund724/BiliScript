@@ -79,6 +79,8 @@ export interface RunToolLoopInput {
   toolDefinition?: ChatToolDefinition;
   // 透传 chatCompletion 的输出上限（选区解释链钉 320，见 ai/explain.ts）。
   maxTokens?: number;
+  // 透传 chatCompletion 的网络重试次数（选区解释链钉 1，与非联网链一致）。
+  retries?: number;
   // 逐轮透传 chatCompletion 的流事件与重试回调（token 合帧等适配留在调用方）。
   onEvent?: (event: StreamChatEvent) => void;
   onRetry?: (payload: { attempt: number; maxRetries: number; kind: string; error: Error }) => void;
@@ -123,6 +125,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     executeSearch,
     toolDefinition = WEB_SEARCH_TOOL,
     maxTokens,
+    retries,
     onEvent,
     onRetry,
     onStreamReset,
@@ -152,6 +155,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         signal,
         thinkingLevel,
         maxTokens,
+        retries,
         tools: withTools ? [toolDefinition] : undefined,
         onEvent,
         onRetry,

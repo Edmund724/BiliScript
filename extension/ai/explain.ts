@@ -182,6 +182,7 @@ export async function explainSelection({
         executeSearch: webSearch.executeSearch,
         toolDefinition: webSearchTool({ requireCitations: false }),
         maxTokens: EXPLAIN_MAX_TOKENS,
+        retries: 1,
         onToolStatus: onSearchStatus,
         onNotice,
         fetchImpl: providerFetchViaBackground

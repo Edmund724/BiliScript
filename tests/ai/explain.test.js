@@ -211,6 +211,8 @@ describe("explainSelection", () => {
     expect(first.stream).toBe(false);
     expect(first.thinkingLevel).toBe("off");
     expect(first.maxTokens).toBe(320);
+    // 重试能力与非联网链一致（chatCompletion 非流式默认 0，解释链钉 1）
+    expect(first.retries).toBe(1);
     // 工具注入 + 联网变体系统提示词（允许 web_search）；[n] 引用要求不进解释链
     expect(first.tools).toHaveLength(1);
     expect(first.tools[0].function.name).toBe("web_search");
