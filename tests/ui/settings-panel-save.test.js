@@ -61,7 +61,7 @@ function installMessageBus(overrides = {}) {
 }
 
 async function mountPanel() {
-  document.body.innerHTML = '<div id="boc-reading-settings-host"></div>';
+  document.body.innerHTML = '<div id="boc-reading-view"><div id="boc-reading-settings-host"></div></div>';
   const panel = await import("../../extension/ui/settings-panel.js");
   panel.renderReaderSettingsPanel();
   const host = document.getElementById("boc-reading-settings-host");
@@ -380,13 +380,28 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
   //    属防御性代码。
 });
 
+// 恢复默认的二次确认走 ui/confirm-dialog.js 面板内弹层（不用原生 confirm）：
+// 弹层宿主挂在 #boc-reading-view 直下，mountPanel 需包上阅读视图；结算方式是
+// 点击弹层内的确认/取消按钮。
 describe("恢复默认偏好按钮", () => {
-  it("确认后把偏好键面写回默认值，平台域键不参与，状态条提示成功", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  async function openResetDialog() {
+    const button = await vi.waitFor(() => {
+      const node = document.querySelector(".confirm-dialog-confirm");
+      if (!node) throw new Error("确认弹层未打开");
+      return node;
+    });
+    return button;
+  }
+
+  it("面板内确认弹层：点「恢复默认」后把偏好键面写回默认值，平台域键不参与", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
     fireClick(host.querySelector("#bocSettingsResetBtn"));
+    const confirmBtn = await openResetDialog();
+    // 警示着色（danger）：与删除平台的确认同源的红色确认键
+    expect(document.querySelector(".confirm-dialog-confirm-danger")).toBeTruthy();
+    fireClick(confirmBtn);
 
     await vi.waitFor(() => {
       const payloads = sent
@@ -411,15 +426,19 @@ describe("恢复默认偏好按钮", () => {
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toContain("已恢复默认设置");
     });
-    expect(confirmSpy).toHaveBeenCalled();
   });
 
-  it("确认取消时不发任何保存消息", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("确认弹层点「取消」时不发任何保存消息", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
     fireClick(host.querySelector("#bocSettingsResetBtn"));
+    const cancelBtn = await vi.waitFor(() => {
+      const node = document.querySelector(".confirm-dialog-cancel");
+      if (!node) throw new Error("确认弹层未打开");
+      return node;
+    });
+    fireClick(cancelBtn);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(sent.some((message) => message.type === "save-settings")).toBe(false);

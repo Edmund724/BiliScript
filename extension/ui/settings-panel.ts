@@ -43,6 +43,7 @@ import { getSettings } from "../core/runtime.js";
 // 头注（id 契约、分节顺序）。
 import { buildSettingsHtml } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
+import { confirmDialog } from "./confirm-dialog.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import {
   renderFixedPropertyRows,
@@ -612,10 +613,15 @@ function buildDefaultPreferencePayload() {
   };
 }
 
-// 恢复默认偏好：确认后把本面板的偏好键面一次性写回默认值（平台/密钥/模型选择/
-// ASR 配置不动），随后重载表单让 UI 反映默认值。
+// 恢复默认偏好：面板内确认弹层（ui/confirm-dialog.js，惯用法同删除平台的二次
+// 确认，不用原生 confirm）通过后，把本面板的偏好键面一次性写回默认值（平台/
+// 密钥/模型选择/ASR 配置不动），随后重载表单让 UI 反映默认值。
 async function resetPreferences(elements: SettingsElements): Promise<void> {
-  if (!window.confirm("确定要把偏好设置恢复默认值吗？AI 平台、密钥与语音转写配置不受影响。")) {
+  if (!(await confirmDialog({
+    message: "确定要把偏好设置恢复默认值吗？AI 平台、密钥与语音转写配置不受影响。",
+    confirmText: "恢复默认",
+    danger: true
+  }))) {
     return;
   }
   setBusy(elements, true);
