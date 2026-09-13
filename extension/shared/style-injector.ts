@@ -1,10 +1,11 @@
 // 样式注入器（S3 分层）：阅读表（styles/reader.css + styles/reader-gate.css）、
-// 播放器 AI 表（styles/player-ai.css）、设置分区表（styles/reader-settings.css，
-// arch-slim-4/04）与对话分区表（styles/reader-chat.css，arch-slim-4/07）不再经
+// 播放器 AI 表（styles/player-ai.css）、设置分区表组（styles/
+// reader-settings-{shell,rows,providers}.css，arch-slim-4/04，2026-09 拆分）
+// 与对话分区表（styles/reader-chat.css，arch-slim-4/07）不再经
 // manifest 常驻注入，改由本模块在对应能力启用时挂载。
 //
 // 挂载机制：<link rel="stylesheet" href="chrome.runtime.getURL(...)">。link
-// 挂进页面 DOM 后由页面渲染管线加载，属页面侧资源访问——三份样式表依赖
+// 挂进页面 DOM 后由页面渲染管线加载，属页面侧资源访问——全部样式表依赖
 // manifest WAR 里的 "entry/styles/*" 放行（matches 限 www.bilibili.com）。
 //
 // 为什么不用 fetch + textContent/adoptedStyleSheets：内容脚本建 link 的样式
@@ -28,7 +29,7 @@
 
 interface StyleInjectorSlots {
   mounted: Map<string, HTMLLinkElement>;
-  // 设置分区表的首挂 ready promise（null = 尚未首挂）；同表跨实例共享，
+  // 设置分区表组的首挂 ready promise（null = 尚未首挂）；同表组跨实例共享，
   // 后求值的实例经 whenReaderSettingsStylesReady 等的是同一份。
   readerSettingsReady: Promise<void> | null;
 }
@@ -68,21 +69,36 @@ export function removePlayerAiStyles(): void {
   unmountStyleLink("entry/styles/player-ai.css");
 }
 
-// 设置分区表（arch-slim-4/04）：随 ui/settings-panel chunk 按需装载（模块顶层
-// ensure，抽屉首次打开才动态 import 该 chunk）。onload 门控：首挂时等 link load
-// 再渲染抽屉内容（~50ms 兜底超时），首帧零闪变；重挂命中 mounted Map 即时渲染。
+// 设置分区表组（arch-slim-4/04；2026-09 按分区拆为三份，列表顺序 = 拆分前
+// 单表内的规则顺序 = 级联顺序）：随 ui/settings-panel chunk 按需装载（模块
+// 顶层 ensure，抽屉首次打开才动态 import 该 chunk）。onload 门控：首挂时等
+// 全部三表 link load 再渲染抽屉内容（每表 ~50ms 兜底超时），首帧零闪变；
+// 重挂命中 mounted Map 即时渲染。
 // 与 reader/player-ai 表不同：exitReaderShell 不摘除——设置表数据留在浏览器
 // 样式缓存，二进宫免闪变（同 reader 主表「link 数据在缓存」口径）。
+const READER_SETTINGS_STYLE_PATHS = [
+  "entry/styles/reader-settings-shell.css",
+  "entry/styles/reader-settings-rows.css",
+  "entry/styles/reader-settings-providers.css"
+];
+
 export function ensureReaderSettingsStyles(): void {
-  const path = "entry/styles/reader-settings.css";
   const slots = styleSlots();
-  const isFirstMount = !slots.mounted.has(path);
-  const link = mountStyleLink(path);
+  const isFirstMount = READER_SETTINGS_STYLE_PATHS.some((path) => !slots.mounted.has(path));
+  const links = READER_SETTINGS_STYLE_PATHS.map((path) => mountStyleLink(path));
   if (!isFirstMount) {
     return;
   }
-  // link 可能已缓存命中（load 已触发过或同步完成），readyState/监听双口径。
-  slots.readerSettingsReady = new Promise<void>((resolve) => {
+  // link 可能已缓存命中（load 已触发过或同步完成），readyState/监听双口径；
+  // 全部三表就绪才算 ready（级联顺序三份一起生效，单表先行无意义）。
+  slots.readerSettingsReady = Promise.all(links.map(waitForStyleLinkLoad)).then(() => {});
+}
+
+// 单表 onload 门控原语：sheet 已在即视为同步完成，否则等 load/error（once）。
+// 兜底：load 事件异常不达（如宿主扩展上下文异常）时放行渲染，闪变概率
+// 换可用性——体验优先（grilling Q7 决策）。
+function waitForStyleLinkLoad(link: HTMLLinkElement): Promise<void> {
+  return new Promise<void>((resolve) => {
     const done = () => resolve();
     if (link.sheet) {
       done();
@@ -90,8 +106,6 @@ export function ensureReaderSettingsStyles(): void {
     }
     link.addEventListener("load", done, { once: true });
     link.addEventListener("error", done, { once: true });
-    // 兜底：load 事件异常不达（如宿主扩展上下文异常）时放行渲染，闪变概率
-    // 换可用性——体验优先（grilling Q7 决策）。
     window.setTimeout(done, 50);
   });
 }

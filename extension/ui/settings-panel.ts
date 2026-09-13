@@ -2,7 +2,7 @@
 //
 // 原独立 options 页（pages/options.{html,css,ts}）的全部设置项搬入 Digest 面板
 // 的设置抽屉（ui-renderer 模板内的 #boc-reading-settings-host 容器，分节、
-// 随抽屉滚动），本模块负责模板渲染、装载与保存，行为与 options 页逐条对应：
+// 随抽屉滚动），行为与 options 页逐条对应：
 //   - 装载（get-settings）→ 渲染三类行（固定属性/笔记段落/AI/ASR 平台）；
 //   - 保存（先同步收集与校验，再申请 host 权限，最后分三路落盘：
 //     settings / AI 平台 / ASR 平台）。行构建与验证本体复用
@@ -13,6 +13,14 @@
 // API（Chromium 仅扩展自有页面/SW 可用），host 权限申请改走
 // "request-provider-origins" 消息由 background SW 代为申请（手势随一次
 // runtime 消息传导；SW 监听器在调用 chrome.permissions.request 前零 await）。
+//
+// 2026-09 大文件拆分：抽屉 HTML 模板（buildSettingsHtml，纯字符串零逻辑）
+// 迁往 ui/settings-panel-html.ts，本模块只留流程编排（模板挂载/装载/收集
+// 校验/保存/事件绑定/编辑 Modal 接线）。未再继续拆「表单收集校验 vs 事件
+// 绑定与保存流程」两半：collectFormPayload 读取本模块状态
+//（savedAiPresetPrompts），且 options-save-gesture.test.js 的调用方闭包与
+// 手势链扫描把 saveProviderSingle / saveSettings / saveBtn 绑定钉在本文件，
+// 再拆需改签名/外移共享状态，收益不抵扰动。
 
 import { DEFAULT_SETTINGS, DEFAULT_INITIAL_QUICK_PROMPTS } from "../core/defaults.js";
 import type { FixedFrontmatterProperty, NotePlaceholderSection } from "../core/validators.js";
@@ -31,6 +39,9 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 // 本模块不再手抄一份；代价是此处读取也带上了 5s 软超时与超时 warn——超时仍
 // 回落默认值，与原先无超时版本的可见行为一致（无网络往返挂死）。
 import { getSettings } from "../core/runtime.js";
+// 抽屉 HTML 模板（2026-09 拆分）：纯字符串零逻辑，见 settings-panel-html.ts
+// 头注（id 契约、分节顺序）。
+import { buildSettingsHtml } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import {
@@ -117,144 +128,17 @@ interface SettingsValidationResult {
   requireContent?: boolean;
 }
 
-// ===== 模板（分节、随设置抽屉滚动） =====
-
-function buildSettingsHtml(): string {
-  return `
-    <section class="boc-set-group">
-      <div class="boc-set-h">AI 模型平台</div>
-      <p class="boc-set-hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / Qwen / GLM / Kimi / MiniMax / Ollama 等）。在下方点击 + 添加平台，填写名称、API Base URL、API Key 与模型名称，点「测试」可验证连通性，点「保存」后才会写入设置。</p>
-      <div id="aiProvidersList" class="ai-providers-list"></div>
-      <p id="aiProvidersEmpty" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
-      <button id="addAiProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
-    </section>
-
-    <section class="boc-set-group">
-      <div class="boc-set-h">语音转写平台</div>
-      <p class="boc-set-hint">无字幕轨视频可通过语音识别自动生成字幕。当前选用平台将用于转写。</p>
-      <div id="asrProvidersList" class="ai-providers-list"></div>
-      <p id="asrProvidersEmpty" class="ai-providers-empty">还没有配置语音转写平台。点击下方添加按钮从预设创建，无字幕视频将无法自动生成字幕。</p>
-      <button id="addAsrProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
-      <label class="boc-set-check asr-fallback-checkbox">
-        <input id="asrAutoFallback" type="checkbox" />
-        无字幕时自动生成字幕
-      </label>
-    </section>
-
-    <section class="boc-set-group">
-      <div class="boc-set-h">AI 按钮</div>
-      <label class="boc-set-check">
-        <input id="enablePlayerAiQuickAction" type="checkbox" />
-        在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空
-      </label>
-      <textarea
-        id="playerAiQuickPrompt"
-        class="boc-set-textarea"
-        placeholder="例如：整理这期视频的内容，输出结构化总结。"
-      ></textarea>
-    </section>
-
-    <section class="boc-set-group">
-      <div class="boc-set-h">AI 对话 - 系统提示词</div>
-      <textarea id="aiSystemPrompt" class="boc-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
-    </section>
-
-    <section class="boc-set-group">
-      <div class="boc-set-h">AI 对话 - 初始问题</div>
-      <p class="boc-set-hint">新视频没有历史对话时显示，最多 4 条，留空则不显示。</p>
-      <div class="boc-set-quick-prompts">
-        <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 1" />
-        <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 2" />
-        <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 3" />
-        <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 4" />
-      </div>
-    </section>
-
-    <section class="boc-set-group">
-      <div class="boc-set-h">导出</div>
-      <div class="boc-set-row">
-        <label class="boc-set-label" for="tags">默认标签（逗号分隔）</label>
-        <input id="tags" class="boc-set-input" type="text" placeholder="例如：clippings,bilibili,subtitle" />
-      </div>
-      <div class="boc-set-row">
-        <label class="boc-set-label" for="downloadFormat">下载格式</label>
-        <select id="downloadFormat" class="boc-set-select">
-          <option value="srt">SRT</option>
-          <option value="txt">TXT</option>
-        </select>
-      </div>
-      <label class="boc-set-check">
-        <input id="includeDateInFilename" type="checkbox" />
-        文件名前包含导出日期
-      </label>
-      <label class="boc-set-check">
-        <input id="includeHotCommentsInNote" type="checkbox" />
-        导出前 20 条热门评论
-      </label>
-      <label class="boc-set-check">
-        <input id="includePlayerEmbedInNote" type="checkbox" />
-        在笔记正文嵌入 B 站播放器（MarkText 等不渲染 iframe 的编辑器可关闭）
-      </label>
-      <label class="boc-set-check">
-        <input id="includeTimestampInBody" type="checkbox" />
-        在字幕正文中保留时间戳
-      </label>
-      <label class="boc-set-check">
-        <input id="enableDebugLogs" type="checkbox" />
-        启用调试日志（仅在排查问题时开启）
-      </label>
-    </section>
-
-    <section class="boc-set-group">
-      <div class="boc-set-h">笔记属性（Frontmatter）</div>
-      <p class="boc-set-hint">勾选需要写入到笔记属性区（Frontmatter）的字段。</p>
-      <div class="boc-set-field-grid">
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="title" /> title</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="url" /> url</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="bvid" /> bvid</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="cid" /> cid</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="author" /> author</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="upload_date" /> upload_date</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="subtitle_lang" /> subtitle_lang</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="created" /> created</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="tags" /> tags</label>
-      </div>
-    </section>
-
-    <section class="boc-set-group">
-      <div class="boc-set-h">自定义属性</div>
-      <p class="boc-set-hint">支持默认属性的变量映射，比如 {{upload_date}}、{{created}}</p>
-      <div id="fixedPropertiesList" class="fixed-properties-list"></div>
-      <p id="fixedPropertiesEmpty" class="fixed-properties-empty">还没有自定义属性</p>
-      <button id="addFixedPropertyBtn" class="add-property-btn" type="button">+ 添加属性</button>
-    </section>
-
-    <section class="boc-set-group">
-      <div class="boc-set-h">正文附加段落</div>
-      <p class="boc-set-hint">在正文插入占位段落标题。默认结构：简介-章节-字幕；具体内容可留空。</p>
-      <div id="noteSectionsList" class="note-sections-list"></div>
-      <p id="noteSectionsEmpty" class="fixed-properties-empty">还没有正文附加段落</p>
-      <button id="addNoteSectionBtn" class="add-property-btn" type="button">+ 添加段落</button>
-    </section>
-
-    <div class="boc-set-actions">
-      <button id="bocSettingsSaveBtn" type="button" class="boc-set-save-btn">保存设置</button>
-    </div>
-    <p id="bocSettingsStatus" class="boc-set-status"></p>
-  `;
-}
-
 // ===== 分区渲染隔离（interactions-in-complex-layouts 指南，M15）=====
 // .boc-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
 // 校验错误显示/保存重渲等分区内部变更的 style/layout 失效圈在分区内，不上溯
 // 阅读壳与宿主 B 站页面。
 // 不取 paint containment（r1 评审）：paint 会把后代裁剪到分区 padding box，
 // 而本面板弹层（fixed-property-type-menu / custom-select-dropdown，absolute
-// top:100%+6px）刻意溢出分区边界盖过相邻卡片（reader-settings.css 弹层族
+// top:100%+6px）刻意溢出分区边界盖过相邻卡片（reader-settings-rows.css 弹层族
 // 注释），末行之下只剩「+ 添加属性」按钮的高度，菜单必被分区底边截断——
 // 用户可见回归。也因此不走 content-visibility:auto：按 CSS Containment L2 /
 // MDN，cv:auto 恒含 paint containment（含屏上态），裁剪问题相同。
-// 经 TS 内联应用而非落 reader-settings.css 样式表：真实原因是样式表文件不在
+// 经 TS 内联应用而非落 reader-settings-*.css 样式表：真实原因是样式表文件不在
 // 本任务 scope（M15 只放行 settings-panel 等五个文件）；内联也让应用时机与
 // 模板构建同处一地。仅首建调用一次，非每次交互。
 function applySectionContainment(host: HTMLElement): void {
@@ -643,7 +527,7 @@ function applyValidationError(elements: SettingsElements, validation: SettingsVa
       );
       const noteSectionErrorNode = row.querySelector<HTMLElement>(".note-section-error");
       if (titleInput || contentInput || positionTrigger) {
-        // 错误态走 aria-invalid（reader-settings.css 校验态规则的 fallback 通道，
+        // 错误态走 aria-invalid（reader-settings-shell.css 校验态规则的 fallback 通道，
         // 指南对原生约束表达不了的条件规则的推荐面）；焦点仍落组件 trigger
         //（Q22 甲：select 已被 custom-select 壳 clip 隐藏，直接聚焦会掉进 1px 黑洞）
         if (titleInput && !String(titleInput.value || "").trim()) {

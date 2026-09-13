@@ -486,7 +486,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
   const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl");
   const apikeyInput = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
 
-  // 原生约束（reader-settings.css 的 :user-invalid/:user-valid 校验态消费）：
+  // 原生约束（reader-settings-providers.css 的 :user-invalid/:user-valid 校验态消费）：
   // ASR 模型名输入由 model-picker 模板生成（构建器契约不含属性注入），在此补
   // required；Key 必填随预设 requiresKey 与已存 Key 态挂摘（与占位符同口径）。
   // AI 模型目录行无原生必填（空目录合法，拍板 Q13），required 不适用于目录。

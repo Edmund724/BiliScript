@@ -1,0 +1,329 @@
+/* ===== 抽屉壳层与通用控件（arch-slim-4/04，2026-09 拆分第一份） =====
+ * 原 reader-settings.css 单表按分区拆为三份（本表 + reader-settings-rows.css +
+ * reader-settings-providers.css），级联顺序 = 拆分前文件内规则顺序，列表顺序
+ * 即挂载顺序：shell → rows → providers（shared/style-injector 的
+ * READER_SETTINGS_STYLE_PATHS）。自 reader.css 设置分区拆出（原 options 页
+ * 设置项 + provider-editor Modal + custom-select 组），随 ui/settings-panel
+ * chunk 按需装载（ensureReaderSettingsStyles，settings-panel.ts 模块顶层挂载
+ * + onload 门控，ready 门控等全部三表 load 完成）。
+ * 本表：抽屉壳层（#boc-reading-settings-panel 两态 + 展开态接管）与通用控件族
+ *（boc-set-* 输入/下拉/复选/保存/状态，焦点/校验态单源）。
+ * 颜色/边框走 --boc-reader-* token（reader-gate.css 两主题定义），深色自动
+ * 跟随；容器：#boc-reading-settings-panel 内嵌 #boc-reading-settings-host
+ * （ui/ui-renderer 模板），规则全部以 #boc-reading-settings-panel 为前置，
+ * 避免与宿主页面类名冲突。custom-select-* 为文档级裸类（custom-select.ts
+ * 生成），仅被 settings-panel / provider-editor 消费。
+ *
+ * ===== 控件规格速查（settings-ui-coherence 终局规格，01/02/03 定档） =====
+ * 圆角四档 14/12/10/8：14 面板与 Modal → 12 弹层 → 10 卡片 → 8 框（输入/
+ * 下拉/图标按钮/弹层选项）。形状语言：pill = 文字动作按钮；8px = 一切「框」。
+ * 字号三档：16-700 分区标题 | 15px 控件与按钮文字（含行内、Modal、下拉选项、
+ * 复选与单选标签）| 14px 次级文字（提示/字段名/状态/空状态/错误/附属信息）。
+ * 控件高 32 一律（嵌在框内的图标 toggle 保持 24）；图标两档：行删 16 /
+ * chevron 8（24 视框 stroke 3 折 1px 视觉）；列表与分块间距四档 6 / 8 / 12 / 14
+ * （标签与控件的贴身 gap、微型行内布局除外）。
+ * 焦点态、弹层卡片、选项行、输入框 box 各只此一份声明，改一处即改全部。
+ * 按控件族组织，不按区块组织；新增控件先归族再落规则。 */
+
+/* ===== 侧边栏设置面板（digest-only-ui）：原独立 options 页的设置项 =====
+ * 原 pages/options.css 随 options 页删除，其全部设置项样式按「宿主容器 +
+ * 行级构建器类」迁入本表。所有颜色/边框改走 --boc-reader-* token（gate 段
+ * 两主题定义），深色自动跟随；数字/字符统一改用当前排版基准 14px 或
+ * 控件内 13px。容器：#boc-reading-settings-panel 内嵌
+ * #boc-reading-settings-host（ui/ui-renderer 模板），其滚动链与右侧概览 tab
+ * 相同（max-height: calc(100vh - 150px) + overflow-y:auto），规则全部以
+ * #boc-reading-settings-panel 为前置，避免与宿主页面类名冲突。 */
+#boc-reading-view .boc-reading-settings-panel {
+  max-height: calc(100vh - 150px);
+  /* 面板壳网格里的固定落位（第 3–4 行 = 标签条 + tab body，单列）：
+   * 两态都声明，退出淡出期间抽屉才留在原位与标签区重叠——若只写在
+   * :not([hidden]) 里，[hidden] 一翻转它就失去落位、被自动放置挤到新的
+   * 第 5 行，标签区反而瞬间弹动。 */
+  grid-row: 3 / 5;
+  grid-column: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 14px;
+  border: 1px solid var(--boc-reader-border);
+  /* 半透明材质：overlay token（gate 段两主题定义）+ blur/saturate 毛玻璃，
+   * 与 reader header 同款（reduced-transparency 见文件尾降级块） */
+  background: var(--boc-reader-overlay-bg, var(--boc-reader-surface));
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  padding: 12px 14px;
+  /* 开合过渡（2026-09 用户决议：进出场同速同曲线）：淡入淡出统一 spring
+   * 0.2s，display 经 allow-discrete 参与同一时长——hidden 翻转是纯属性切换
+   *（renderReaderPanels），淡入从 display:none 首帧起（起点由 @starting-style
+   * 提供），淡出走完再隐，旧引擎瞬时显隐（与改造前行为一致）。
+   * 关闭不再「卡一下」的关键不在这条 transition，而在抽屉与标签区同占网格
+   * 第 3–4 行（见上）：淡出期间标签区已经按最终布局排好，抽屉在它上方淡走，
+   * 而不是留在流内把 tab body 挤到几十 px、等 display 延迟到点再弹回。 */
+  transition: opacity 0.2s var(--boc-reader-ease-spring, ease), display 0.2s allow-discrete;
+}
+
+#boc-reading-view .boc-reading-settings-panel[hidden] {
+  display: none;
+  opacity: 0;
+  transition: opacity 0.2s var(--boc-reader-ease-spring, ease), display 0.2s allow-discrete;
+}
+
+@starting-style {
+  #boc-reading-view .boc-reading-settings-panel:not([hidden]) {
+    opacity: 0;
+  }
+}
+
+/* ===== 设置展开态接管面板（2026-09 用户决议）=====
+ * 设置抽屉一开即独占面板：摘掉抽屉自身的圆角阴影与高度上限让它贴满面板壳，
+ * 隐藏底部 字幕/概览/AI 对话 标签条与三个 tab body（含内容，避免残留行）。
+ * 纯属性反应：[hidden] 由 renderReaderPanels 单点切换，无新状态类。
+ * 关闭抽屉即整体回落三 tab 形态（抽屉的网格落位在两态通用规则里，见上）。 */
+#boc-reading-view .boc-reading-settings-panel:not([hidden]) {
+  max-height: none;
+  min-height: 0;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  margin: 0;
+  padding: 12px 16px 16px;
+}
+
+#boc-reading-view .boc-reading-settings-panel:not([hidden]) .boc-reading-settings-extension {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+#boc-reading-view .boc-reading-settings-panel:not([hidden]) ~ .boc-reading-tabs,
+#boc-reading-view .boc-reading-settings-panel:not([hidden]) ~ .boc-reading-tab-body {
+  display: none;
+}
+
+#boc-reading-view .boc-reading-settings-extension {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+#boc-reading-view .boc-reading-settings-host {
+  display: grid;
+  gap: 14px;
+}
+
+#boc-reading-view .boc-reading-settings-host * {
+  box-sizing: border-box;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-group {
+  display: grid;
+  gap: 8px;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-h {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--boc-reader-text);
+  margin: 0;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-hint {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-row {
+  display: grid;
+  gap: 6px;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--boc-reader-muted);
+}
+
+/* 输入框 box 全表唯一一份：.boc-set-quick-prompts input 同度量并入本条。 */
+#boc-reading-view .boc-reading-settings-host .boc-set-input,
+#boc-reading-view .boc-reading-settings-host .boc-set-quick-prompts input {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  font: inherit;
+  font-size: 15px;
+}
+
+/* 焦点态全表唯一一份：outline 关掉默认环，accent 描边 + 2px soft 光环。
+ * 所有控件都收在阅读视图作用域内，新控件焦点态并入本组。 */
+#boc-reading-view .boc-reading-settings-host .boc-set-input:focus,
+#boc-reading-view .boc-reading-settings-host .boc-set-select:focus,
+#boc-reading-view .boc-reading-settings-host .boc-set-textarea:focus,
+#boc-reading-view .boc-reading-settings-host .boc-set-quick-prompts input:focus,
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-button:focus,
+#boc-reading-view .boc-reading-settings-host .fixed-property-fields input:focus,
+#boc-reading-view .boc-reading-settings-host .note-section-fields input:focus,
+#boc-reading-view .boc-reading-settings-host .note-section-fields select:focus,
+#boc-reading-view .provider-editor-dialog input[type="text"]:focus,
+#boc-reading-view .provider-editor-dialog input[type="password"]:focus,
+#boc-reading-view .provider-editor-dialog select:focus,
+#boc-reading-view .custom-select-trigger:focus {
+  outline: none;
+  border-color: var(--boc-reader-accent);
+  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft);
+}
+
+/* 校验错误态（aria-invalid，指南 fallback 通道）：Q22 甲——段落位置校验失败
+ * 时标在组件壳上（原生 select 已被 clip 隐藏，直接标错会掉 1px 黑洞）；行级
+ * 条件规则（空行跳过的条件必填等）原生约束表达不了，由 settings-panel
+ * applyValidationError 落属性、options-rows 行监听修正即摘。焦点态仍由上方
+ * 单源叠加光环。 */
+#boc-reading-view .custom-select-trigger[aria-invalid="true"] {
+  border-color: var(--boc-reader-accent);
+}
+
+/* 原生 select 回退（自定义下拉未接管时）：#downloadFormat 在 initCustomSelect
+ * 接管前唯一的样式来源。 */
+#boc-reading-view .boc-reading-settings-host .boc-set-select {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  font: inherit;
+  font-size: 15px;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint) 50%),
+    linear-gradient(135deg, var(--boc-reader-faint) 50%, transparent 50%);
+  background-position:
+    calc(100% - 12px) calc(50% - 1px),
+    calc(100% - 9px) calc(50% - 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-textarea {
+  width: 100%;
+  min-height: 66px;
+  padding: 8px 10px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* 系统提示词是长文案（多段结构化提示），默认 66px 两三行的高度不够用。 */
+#boc-reading-view .boc-reading-settings-host #aiSystemPrompt {
+  min-height: 200px;
+}
+
+/* AI 按钮的快捷提示词同样按多行文案对待。 */
+#boc-reading-view .boc-reading-settings-host #playerAiQuickPrompt {
+  min-height: 132px;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-textarea::placeholder {
+  color: var(--boc-reader-faint);
+}
+
+/* 复选行统一：.boc-set-check（导出区等长标签）与 .mini-checkbox（笔记属性字段）
+ * 共用同一套标签度量——accent 色由下方原生控件统一规则声明。单选框
+ *（.asr-provider-active）并到同一套度量（Q19）。 */
+#boc-reading-view .boc-reading-settings-host .boc-set-check,
+#boc-reading-view .boc-reading-settings-host .mini-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--boc-reader-text);
+  cursor: pointer;
+}
+
+/* 原生控件主题色统一（brand-consistent-forms）：checkbox / radio / range 一律
+ * accent 色，单条声明覆盖全表，不引入自定义替代控件（accent-color 只着色这几
+ * 类原生控件）；各控件的 margin/flex 度量留在各自族规则。 */
+#boc-reading-view .boc-reading-settings-host input[type="checkbox"],
+#boc-reading-view .boc-reading-settings-host input[type="radio"],
+#boc-reading-view .boc-reading-settings-host input[type="range"] {
+  accent-color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-check input[type="checkbox"],
+#boc-reading-view .boc-reading-settings-host .mini-checkbox input[type="checkbox"] {
+  margin: 2px 0 0;
+  flex: 0 0 auto;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 6px 8px;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-quick-prompts {
+  display: grid;
+  gap: 8px;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-save-btn {
+  height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-accent-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-save-btn:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-save-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-status {
+  margin: 0;
+  min-height: 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--boc-reader-muted);
+}
+
+#boc-reading-view .boc-reading-settings-host .boc-set-status[data-error="true"] {
+  color: var(--boc-reader-accent);
+}
+
+/* 校验错误态（aria-invalid fallback 通道）：行级自定义规则（键名字符集 /
+ * 类型相关值格式 / 重复键等）无法用原生约束表达，保存校验失败由
+ * settings-panel.applyValidationError 落属性，修正输入即摘除。设置面板行
+ * 输入没有无条件必填约束（空行整体跳过），不走 :user-invalid。 */
+#boc-reading-view .boc-reading-settings-host input[aria-invalid="true"],
+#boc-reading-view .boc-reading-settings-host select[aria-invalid="true"],
+#boc-reading-view .boc-reading-settings-host textarea[aria-invalid="true"] {
+  border-color: var(--boc-reader-accent);
+}

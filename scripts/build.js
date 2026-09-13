@@ -26,7 +26,9 @@
 //   entry/styles/reader.css           阅读表（运行时挂载，随阅读模式）
 //   entry/styles/reader-gate.css      阅读表门控段（同上）
 //   entry/styles/player-ai.css        播放器 AI 表（随 ai/player-ai.js chunk）
-//   entry/styles/reader-settings.css  设置分区表（随 ui/settings-panel chunk 挂载）
+//   entry/styles/reader-settings-shell.css      设置分区表组·壳层与通用控件（随 ui/settings-panel chunk 挂载）
+//   entry/styles/reader-settings-rows.css       设置分区表组·行级构建器与下拉（同上）
+//   entry/styles/reader-settings-providers.css  设置分区表组·编辑 Modal 与模型目录（同上）
 //   entry/styles/reader-chat.css      对话分区表（随对话域首次激活挂载）
 //   entry/content-bootstrap.iife.js  拷贝自 build-content.js 产物
 //   entry/content-main.mjs           拷贝自 build-content.js 产物
@@ -71,9 +73,12 @@ const cssEntries = [
   "entry/styles/reader.css",
   "entry/styles/reader-gate.css",
   "entry/styles/player-ai.css",
-  // 设置分区表（arch-slim-4/04）：随 ui/settings-panel chunk 按需挂载
+  // 设置分区表组（arch-slim-4/04；2026-09 拆分为三份，列表顺序 = 拆分前单表
+  // 内的规则顺序 = 级联顺序）：随 ui/settings-panel chunk 按需挂载
   //（shared/style-injector ensureReaderSettingsStyles），独立入口 minify。
-  "entry/styles/reader-settings.css",
+  "entry/styles/reader-settings-shell.css",
+  "entry/styles/reader-settings-rows.css",
+  "entry/styles/reader-settings-providers.css",
   // 对话分区表（arch-slim-4/07）：随对话域首次激活按需挂载
   //（shared/style-injector ensureReaderChatStyles），独立入口 minify。
   "entry/styles/reader-chat.css",

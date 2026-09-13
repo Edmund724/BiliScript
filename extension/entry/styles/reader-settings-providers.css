@@ -1,0 +1,794 @@
+/* ===== 平台编辑 Modal + AI 模型目录 + 全表降级块（arch-slim-4/04，2026-09 拆分第三份） =====
+ * 自 reader-settings.css 拆出（原单表尾段）：平台编辑 Modal
+ *（provider-master-detail/01）、AI 模型目录（multi-model-catalog 阶段2）、
+ * 行「编辑」按钮（provider-row-edit）与表尾三块媒体查询降级（减动态/减弱
+ * 透明度/滚动毛玻璃关停——选择器覆盖全表，按级联顺序压轴收尾）。
+ * 级联顺序见 reader-settings-shell.css 头注：shell → rows → providers。
+ * 颜色/边框走 --boc-reader-* token（reader-gate.css 两主题定义）。 */
+
+/* ===== 平台编辑 Modal（provider-master-detail/01）：AI/ASR 平台的
+ * 列表行「编辑」/「+ 添加平台」打开的面板内弹层（explain-card 先例）。
+ * 宿主 .provider-editor-host 挂 #boc-reading-view 直下（不在设置抽屉滚动
+ * 容器内，mask 不随内容滚动）；组件类名 provider-editor-* 前缀，模型选择
+ * 控件沿用 ai-provider-model-* 契约（ui/model-picker 共用，settings-panel
+ * 的文档级外点关闭对 Modal 内下拉同样生效）。 */
+#boc-reading-view .provider-editor-host {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  /* 贴栏态（reader-gate.css）整个 view 是 pointer-events:none、digest-panel
+   * 单点恢复 auto——本宿主挂在 view 直下不在 digest-panel 内，缺这条整层
+   * 对鼠标穿透（Modal 内所有点击落到下层抽屉内容上，按钮全无响应）。 */
+  pointer-events: auto;
+}
+
+#boc-reading-view .provider-editor-mask {
+  position: absolute;
+  inset: 0;
+  background: var(--boc-reader-mask-bg);
+}
+
+#boc-reading-view .provider-editor-dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-surface);
+  box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
+}
+
+#boc-reading-view .provider-editor-dialog:focus {
+  outline: none;
+}
+
+/* settings-host 的 box-sizing 通配保护不在本宿主作用域内——缺了它
+ * content-box 下 width:100% 的输入控件加 padding+border 恰好横向溢出
+ * 18px，dialog 出现多此一举的横向滚动条 */
+#boc-reading-view .provider-editor-host,
+#boc-reading-view .provider-editor-host * {
+  box-sizing: border-box;
+}
+
+#boc-reading-view .provider-editor-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--boc-reader-border);
+}
+
+#boc-reading-view .provider-editor-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--boc-reader-text);
+}
+
+/* 删除按钮（Modal 头部右侧，对齐参考截图的编辑页布局；用户拍板改为醒目
+ * 警示底色）。红用固定警示色：token 表无红色语义，rgba 底在两主题下均不刺眼 */
+#boc-reading-view .provider-editor-delete {
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-danger-soft);
+  color: var(--boc-reader-danger);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-delete:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-delete:hover {
+  background: var(--boc-reader-danger);
+  color: var(--boc-reader-on-fill);
+}
+
+#boc-reading-view .provider-editor-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+#boc-reading-view .provider-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+#boc-reading-view .provider-editor-label {
+  font-size: 14px;
+  color: var(--boc-reader-muted);
+}
+
+#boc-reading-view .provider-editor-dialog input[type="text"],
+#boc-reading-view .provider-editor-dialog input[type="password"],
+#boc-reading-view .provider-editor-dialog select {
+  width: 100%;
+  height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 15px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  min-width: 0;
+  margin: 0;
+}
+
+/* 原生约束校验态（:user-valid / :user-invalid，Baseline 2023-11）：API 地址
+ * required+pattern、模型名 required、API Key 按 requiresKey/已存 Key 动态
+ * required（provider-editor.wireDialog 挂摘）。浏览器仅在用户提交过值（blur）
+ * 或尝试提交后才进入 :user-invalid，修正输入即自动恢复，无需 JS 摘除；
+ * :user-valid 复用 Key 状态点的成功绿作正向反馈。选择器与上方基础样式同
+ * 优先级、声明在后取胜；聚焦中的错误边框让位焦点光环（上方单源）。 */
+#boc-reading-view .provider-editor-dialog input[type="text"]:user-invalid,
+#boc-reading-view .provider-editor-dialog input[type="password"]:user-invalid {
+  border-color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .provider-editor-dialog input[type="text"]:user-valid,
+#boc-reading-view .provider-editor-dialog input[type="password"]:user-valid {
+  border-color: var(--boc-reader-success);
+}
+
+#boc-reading-view .provider-editor-dialog .ai-provider-model-wrapper .provider-editor-model {
+  flex: 1;
+  min-width: 0;
+  padding-right: 30px !important;
+}
+
+#boc-reading-view .provider-editor-testrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+#boc-reading-view .provider-editor-test {
+  height: 32px;
+  width: 72px;
+  flex: 0 0 auto;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-test:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-test:hover {
+  background: var(--boc-reader-surface-3);
+}
+
+#boc-reading-view .provider-editor-test:disabled,
+#boc-reading-view .provider-editor-save:disabled,
+#boc-reading-view .provider-editor-cancel:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#boc-reading-view .provider-editor-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--boc-reader-muted);
+}
+
+#boc-reading-view .provider-editor-status[data-error="true"] {
+  color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .provider-editor-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--boc-reader-border);
+}
+
+#boc-reading-view .provider-editor-cancel {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-reader-muted);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-cancel:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-cancel:hover {
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
+}
+
+#boc-reading-view .provider-editor-save {
+  height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-on-fill);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+/* save 的 hover 走亮度通道（下方 :hover filter），按压叠加缩放不冲突 */
+#boc-reading-view .provider-editor-save:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-save:hover {
+  filter: brightness(1.05);
+}
+
+/* ===== AI 模型目录（multi-model-catalog 阶段2）：Modal 内联模型行（ID + 行级
+ * 测试 + 删除，Q3/Q9 无展示名/展开箭头）+「获取可用模型」勾选弹窗（Q5/Q11）。
+ * 度量沿用 settings-ui-coherence：控件高 32、圆角 8/999、字号 15/14、
+ * pill=文字按钮；主题变量 --boc-reader-*。AI 平台级测试按钮已退役
+ *（Q4 行级替代），.provider-editor-test 仅剩 ASR 消费。 */
+#boc-reading-view .provider-editor-catalog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 「获取可用模型」：pill=文字按钮（规范），悬停软底提示可点 */
+#boc-reading-view .provider-editor-fetch {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-reader-accent);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-fetch:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-fetch:hover {
+  background: var(--boc-reader-accent-soft);
+}
+
+#boc-reading-view .provider-editor-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+#boc-reading-view .provider-editor-model-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 输入框基础样式由 .provider-editor-dialog input[type="text"] 单源提供（32 高/
+ * 8px 圆角），这里只补目录行的弹性占比 */
+#boc-reading-view .provider-editor-model-row .provider-editor-model-id {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 行级测试反馈（Q12）：spinner → ✓/✕，失败原因在 title 悬停查看 */
+#boc-reading-view .provider-editor-model-result {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+#boc-reading-view .provider-editor-model-result[hidden] {
+  display: none;
+}
+
+#boc-reading-view .provider-editor-model-result[data-state="loading"] {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--boc-reader-accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: boc-model-test-spin 0.8s linear infinite;
+}
+
+#boc-reading-view .provider-editor-model-result[data-state="ok"] {
+  color: var(--boc-reader-success);
+}
+
+#boc-reading-view .provider-editor-model-result[data-state="ok"]::before {
+  content: "✓";
+}
+
+#boc-reading-view .provider-editor-model-result[data-state="error"] {
+  color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .provider-editor-model-result[data-state="error"]::before {
+  content: "✕";
+}
+
+@keyframes boc-model-test-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 行级测试按钮：与退役前的平台级测试按钮同观感（accent-soft pill） */
+#boc-reading-view .provider-editor-model-test {
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-model-test:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-model-test:hover {
+  background: var(--boc-reader-surface-3);
+}
+
+#boc-reading-view .provider-editor-model-test:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 行删除按钮：与平台行 provider-row-remove 同度量（24×32 图标按钮） */
+#boc-reading-view .provider-editor-model-remove {
+  width: 24px;
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--boc-reader-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-model-remove:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-model-remove:hover {
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
+}
+
+#boc-reading-view .provider-editor-model-remove svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 空目录提示（Q13）与目录区红字（「获取可用模型」前置校验失败） */
+#boc-reading-view .provider-editor-catalog-empty,
+#boc-reading-view .provider-editor-catalog-error {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+#boc-reading-view .provider-editor-catalog-empty {
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .provider-editor-catalog-error {
+  color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .provider-editor-catalog-empty[hidden],
+#boc-reading-view .provider-editor-catalog-error[hidden] {
+  display: none;
+}
+
+/* 「+ 添加模型」：与设置区 add-property-btn 同款的虚线 pill */
+#boc-reading-view .provider-editor-model-add {
+  align-self: flex-start;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px dashed var(--boc-reader-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-reader-muted);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-model-add:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-model-add:hover {
+  color: var(--boc-reader-accent);
+  border-color: var(--boc-reader-accent);
+}
+
+/* 「获取可用模型」弹窗：宿主内的第二层弹层（mask + 居中卡片），盖在编辑
+ * Modal 之上；Esc/取消/点遮罩只关本层（拍板 Q5）。 */
+#boc-reading-view .provider-editor-fetch-mask {
+  position: absolute;
+  inset: 0;
+  background: var(--boc-reader-mask-bg);
+}
+
+#boc-reading-view .provider-editor-fetch-dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--boc-reader-border);
+  background: var(--boc-reader-surface);
+  box-shadow: var(--boc-reader-shadow, 0 28px 60px rgba(15, 23, 42, 0.16));
+}
+
+#boc-reading-view .provider-editor-fetch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+#boc-reading-view .provider-editor-fetch-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--boc-reader-text);
+}
+
+#boc-reading-view .provider-editor-fetch-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--boc-reader-faint);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-fetch-close:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-fetch-close:hover {
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
+}
+
+/* 弹窗输入（挂在 .provider-editor-host 直下，不受 .provider-editor-dialog
+ * 基础输入样式覆盖）：与 Modal 输入框同度量 */
+#boc-reading-view .provider-editor-fetch-dialog input[type="text"] {
+  width: 100%;
+  height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 15px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  min-width: 0;
+  margin: 0;
+}
+
+#boc-reading-view .provider-editor-fetch-all-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--boc-reader-muted);
+  cursor: pointer;
+}
+
+#boc-reading-view .provider-editor-fetch-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  background: var(--boc-reader-card);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#boc-reading-view .provider-editor-fetch-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 6px;
+  border-radius: 8px;
+}
+
+#boc-reading-view .provider-editor-fetch-item:hover {
+  background: var(--boc-reader-surface-2);
+}
+
+#boc-reading-view .provider-editor-fetch-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  color: var(--boc-reader-text);
+  cursor: pointer;
+}
+
+#boc-reading-view .provider-editor-fetch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#boc-reading-view .provider-editor-fetch-added {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .provider-editor-fetch-message {
+  padding: 4px 10px;
+  font-size: 14px;
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .provider-editor-fetch-error {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .provider-editor-fetch-error[hidden] {
+  display: none;
+}
+
+#boc-reading-view .provider-editor-fetch-retry {
+  height: 24px;
+  padding: 0 10px;
+  margin-left: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-fetch-retry:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-fetch-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+#boc-reading-view .provider-editor-fetch-cancel {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-reader-muted);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-fetch-cancel:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-fetch-cancel:hover {
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
+}
+
+#boc-reading-view .provider-editor-fetch-confirm {
+  height: 32px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--boc-reader-accent);
+  color: var(--boc-reader-on-fill);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-fetch-confirm:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-fetch-confirm:hover {
+  filter: brightness(1.05);
+}
+
+#boc-reading-view .provider-editor-fetch-confirm:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 行「编辑」按钮：打开 provider-editor Modal（01 引入，02 起为紧凑行主行内
+ * 的正式编辑入口，与状态点/名称/（ASR）选用 radio 同排） */
+#boc-reading-view .boc-reading-settings-host .provider-row-edit {
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0 12px;
+  font-size: 15px;
+  line-height: 1;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-reader-muted);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-edit:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-edit:hover {
+  color: var(--boc-reader-text);
+  background: var(--boc-reader-surface-2);
+}
+
+/* ===== 减少动态 =====
+ * 开合过渡关 transform 类（本表开合只有 opacity + display，压成短 opacity）；
+ * 按压缩放对减少动态用户关停，颜色/背景类短过渡保留。 */
+@media (prefers-reduced-motion: reduce) {
+  #boc-reading-view .boc-reading-settings-panel {
+    transition: opacity 0.2s ease, display 0.2s allow-discrete;
+  }
+
+  #boc-reading-view .boc-reading-settings-host .boc-set-save-btn:active,
+  #boc-reading-view .boc-reading-settings-host .fixed-property-remove:active,
+  #boc-reading-view .boc-reading-settings-host .note-section-remove:active,
+  #boc-reading-view .boc-reading-settings-host .fixed-property-type-button:active,
+  #boc-reading-view .boc-reading-settings-host .fixed-property-type-option:active,
+  #boc-reading-view .provider-editor-host .ai-provider-model-option:active,
+  #boc-reading-view .custom-select-option:active,
+  #boc-reading-view .custom-select-trigger:active,
+  #boc-reading-view .provider-editor-host .ai-provider-model-toggle:active,
+  #boc-reading-view .boc-reading-settings-host .provider-row-remove:active,
+  #boc-reading-view .boc-reading-settings-host .add-property-btn:active,
+  #boc-reading-view .provider-editor-delete:active,
+  #boc-reading-view .provider-editor-test:active,
+  #boc-reading-view .provider-editor-cancel:active,
+  #boc-reading-view .provider-editor-save:active,
+  #boc-reading-view .provider-editor-fetch:active,
+  #boc-reading-view .provider-editor-model-test:active,
+  #boc-reading-view .provider-editor-model-remove:active,
+  #boc-reading-view .provider-editor-model-add:active,
+  #boc-reading-view .provider-editor-fetch-close:active,
+  #boc-reading-view .provider-editor-fetch-retry:active,
+  #boc-reading-view .provider-editor-fetch-cancel:active,
+  #boc-reading-view .provider-editor-fetch-confirm:active,
+  #boc-reading-view .boc-reading-settings-host .provider-row-edit:active {
+    transform: none;
+  }
+}
+
+/* ===== 减弱透明度 =====
+ * 抽屉材质退回近实色（token 已在 gate 段覆盖为实色），毛玻璃一并关停 */
+@media (prefers-reduced-transparency: reduce) {
+  #boc-reading-view .boc-reading-settings-panel {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ===== 滚动进行中关停毛玻璃（M19 / M12 巡检 P2-2） =====
+ * 贴栏态面板随 --boc-digest-top 逐帧位移，设置抽屉的 backdrop 跟着每帧重采样。
+ * digest-host 滚动期间给 #boc-reading-view 挂 data-boc-digest-scrolling，停下
+ * （scrollend 或 150ms 静默兜底）摘除；静止态材质与恢复后一字不变。 */
+#boc-reading-view[data-boc-digest-scrolling="1"] .boc-reading-settings-panel {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}

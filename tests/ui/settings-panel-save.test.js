@@ -16,7 +16,7 @@
 //   HTMLElement 调 querySelector → TypeError），已由 02 票修复并在此补
 //   行级落位断言（见文末与两票 Comments）。行级错误态载体是 aria-invalid
 //   属性（M9 校验态现代化：原生约束表达不了的条件规则走指南 fallback 通道，
-//   CSS 侧 reader-settings.css 的 [aria-invalid="true"] 规则消费）。
+//   CSS 侧 reader-settings-shell.css 的 [aria-invalid="true"] 规则消费）。
 //
 // chrome.runtime.sendMessage 换装成按 type 分发的消息总线（sent 记录全部出站
 // 报文），loadSettings 是 fire-and-forget，mountPanel 用 vi.waitFor 等装载链

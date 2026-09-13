@@ -953,7 +953,7 @@ describe("provider-editor：ASR 模型下拉箭头先申请域名权限（model-
 });
 
 // M9 校验态现代化：字段级错误态不再走手写 input-error 类，改为原生约束
-//（required / pattern）+ reader-settings.css 的 :user-invalid/:user-valid
+//（required / pattern）+ reader-settings-providers.css 的 :user-invalid/:user-valid
 // CSS 校验态——浏览器只在用户提交过值（blur）或尝试提交后才进入
 // :user-invalid，天然满足「仅在用户交互后展示错误」。这里锁定属性面：
 // 保存链报文语义与校验口径零改动（JS validators 仍是权威，上方用例覆盖）。

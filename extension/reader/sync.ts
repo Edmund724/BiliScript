@@ -77,7 +77,7 @@ export function stopReadingViewSync() {
 
 // P3-1：字幕 tab 可见性判定（tick 的滚动/高亮段开关）。判定通道与 CSS 显隐
 //（reader.css `.boc-reading-tab-body:not(.is-active)` / `[hidden]`、
-// reader-settings.css 设置抽屉展开时压掉三 tab body）一致：tab body 非 active、
+// reader-settings-shell.css 设置抽屉展开时压掉三 tab body）一致：tab body 非 active、
 // 带 hidden 属性或设置抽屉展开即视为不可见。节点缺失（壳未建）按可见处理，
 // 保持旧行为与既有抛错路径不变。
 function isSubtitleTabVisible(): boolean {

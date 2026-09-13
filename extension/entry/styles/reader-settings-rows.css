@@ -1,0 +1,540 @@
+/* ===== 设置行级构建器 + 平台行 + 自定义下拉（arch-slim-4/04，2026-09 拆分第二份） =====
+ * 自 reader-settings.css 拆出（原单表中段）：固定属性 / 正文附加段落 /
+ * AI·ASR 平台的行级规则（行构建器 options-rows / options-asr-rows /
+ * provider-row 照旧生成）、弹层卡片与选项行单源（fixed-property-type-menu /
+ * ai-provider-model-dropdown / custom-select-dropdown 同度量）、以及
+ * custom-select 通用下拉（下载格式 / Modal 预设 / 段落位置）。
+ * 挂载与级联顺序见 reader-settings-shell.css 头注：shell → rows → providers，
+ * 本表规则位于 shell 之后、providers（编辑 Modal）之前，与拆分前文件内
+ * 规则顺序一致。颜色/边框走 --boc-reader-* token（reader-gate.css 两主题
+ * 定义）。 */
+
+/* 固定属性 / 正文附加段落 / 平台 provider 行（原 options.css 行级规则，
+ * 类名未动——行构建器（options-rows / options-asr-rows / provider-row）
+ * 照旧生成；栅格缩到面板宽度能用的 4 列形态） */
+#boc-reading-view .boc-reading-settings-host .fixed-properties-list,
+#boc-reading-view .boc-reading-settings-host .note-sections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-properties-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-fields,
+#boc-reading-view .boc-reading-settings-host .note-section-fields {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 32px;
+  gap: 6px;
+  align-items: center;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-field-remove,
+#boc-reading-view .boc-reading-settings-host .note-section-field-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-remove,
+#boc-reading-view .boc-reading-settings-host .note-section-remove {
+  width: 100%;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--boc-reader-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-remove:active,
+#boc-reading-view .boc-reading-settings-host .note-section-remove:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-remove:hover,
+#boc-reading-view .boc-reading-settings-host .note-section-remove:hover {
+  color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-remove svg,
+#boc-reading-view .boc-reading-settings-host .note-section-remove svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-fields input,
+#boc-reading-view .boc-reading-settings-host .fixed-property-fields select,
+#boc-reading-view .boc-reading-settings-host .note-section-fields input,
+#boc-reading-view .boc-reading-settings-host .note-section-fields select {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+#boc-reading-view .boc-reading-settings-host .note-section-fields select.note-section-position {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 26px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint) 50%),
+    linear-gradient(135deg, var(--boc-reader-faint) 50%, transparent 50%);
+  background-position:
+    calc(100% - 12px) calc(50% - 1px),
+    calc(100% - 9px) calc(50% - 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-picker {
+  position: relative;
+  height: 32px;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-button:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-button svg {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  stroke: var(--boc-reader-faint);
+  stroke-width: 1.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 弹层卡片全表唯一一份（Q18：模型选择弹层与自定义下拉同源）。 */
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-menu,
+#boc-reading-view .provider-editor-host .ai-provider-model-dropdown,
+#boc-reading-view .custom-select-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 260px;
+  z-index: 30;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 12px;
+  background: var(--boc-reader-card);
+  box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
+  list-style: none;
+  margin: 0;
+}
+
+/* 选项行全表唯一一份：button 型（类型/模型选项、下拉选项）与 li 型（下拉
+ * 选项、模型加载/提示项）共用度量，cursor: pointer 对 li 无害。 */
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-option,
+#boc-reading-view .provider-editor-host .ai-provider-model-option,
+#boc-reading-view .provider-editor-host .ai-provider-model-message,
+#boc-reading-view .custom-select-option {
+  width: 100%;
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px 10px;
+  text-align: left;
+  font: inherit;
+  font-size: 15px;
+  color: var(--boc-reader-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-option:active,
+#boc-reading-view .provider-editor-host .ai-provider-model-option:active,
+#boc-reading-view .custom-select-option:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-option:hover,
+#boc-reading-view .provider-editor-host .ai-provider-model-option:hover,
+#boc-reading-view .custom-select-option:hover {
+  background: var(--boc-reader-surface-2);
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-option[data-selected="true"],
+#boc-reading-view .custom-select-option[data-selected="true"] {
+  background: var(--boc-reader-accent-soft);
+  color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-loading {
+  color: var(--boc-reader-faint);
+  cursor: default;
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-loading:hover {
+  background: transparent;
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-message {
+  white-space: normal;
+  cursor: default;
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-error {
+  color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-count {
+  padding: 8px 10px 2px;
+  font-size: 14px;
+  color: var(--boc-reader-faint);
+  border-top: 1px dashed var(--boc-reader-border);
+  margin-top: 4px;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-fields input::placeholder,
+#boc-reading-view .boc-reading-settings-host .note-section-fields input::placeholder {
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-value-slot {
+  width: 100%;
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-error,
+#boc-reading-view .boc-reading-settings-host .note-section-error {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--boc-reader-accent);
+}
+
+#boc-reading-view .boc-reading-settings-host .fixed-property-error[hidden],
+#boc-reading-view .boc-reading-settings-host .note-section-error[hidden] {
+  display: none;
+}
+
+/* AI / ASR 平台行（provider-master-detail/02 紧凑形态）：行是纯展示 + 编辑/
+ * 删除入口——主行（Key 状态点 + 名称 +（ASR）选用 radio + 动作）+ 模型名副行，
+ * 行内零输入字段；编辑/测试/模型目录全在 ui/provider-editor.js 的 Modal。 */
+#boc-reading-view .boc-reading-settings-host .ai-providers-list,
+#boc-reading-view .boc-reading-settings-host .asr-providers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#boc-reading-view .boc-reading-settings-host .ai-providers-empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .boc-reading-settings-host .ai-provider-row,
+#boc-reading-view .boc-reading-settings-host .asr-provider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 10px;
+  background: var(--boc-reader-card);
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Key 状态点：已存 Key 实心绿，未存弱化灰（数据源 hasSavedKey，拍板 Q3） */
+#boc-reading-view .boc-reading-settings-host .provider-row-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--boc-reader-faint);
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-dot[data-state="saved"] {
+  background: var(--boc-reader-success);
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--boc-reader-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-model {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--boc-reader-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-wrapper .provider-editor-model {
+  flex: 1;
+  min-width: 0;
+  padding-right: 30px !important;
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-toggle {
+  /* 24×24：嵌在 32px 输入框内的图标 toggle，不参与行级动作按钮高度档——
+   * 撑到 32 会顶破输入框内边距。 */
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 24px;
+  width: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--boc-reader-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 基态 transform 被 translateY(-50%) 占用，按压缩放并入同一 transform 链 */
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-toggle:active {
+  transform: translateY(-50%) scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-toggle:hover {
+  background: var(--boc-reader-surface-2);
+  color: var(--boc-reader-text);
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-toggle svg {
+  width: 8px;
+  height: 8px;
+  stroke: currentColor;
+  stroke-width: 3;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#boc-reading-view .provider-editor-host .ai-provider-model-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 删除按钮（AI/ASR 统一 provider-row-remove：此前 ASR 复用 ai-provider-remove
+ * 的既有耦合随行内状态行退役一并收口） */
+#boc-reading-view .boc-reading-settings-host .provider-row-remove {
+  width: 24px;
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--boc-reader-faint);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-remove:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-remove:hover {
+  color: var(--boc-reader-accent);
+  background: var(--boc-reader-accent-soft);
+}
+
+#boc-reading-view .boc-reading-settings-host .provider-row-remove svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#boc-reading-view .boc-reading-settings-host .asr-provider-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--boc-reader-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#boc-reading-view .boc-reading-settings-host .asr-provider-active input[type="radio"] {
+  margin: 0;
+}
+
+#boc-reading-view .boc-reading-settings-host .asr-fallback-checkbox {
+  margin-top: 4px;
+}
+
+#boc-reading-view .boc-reading-settings-host .add-property-btn {
+  justify-self: start;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px dashed var(--boc-reader-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--boc-reader-muted);
+  font-size: 15px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .boc-reading-settings-host .add-property-btn:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+#boc-reading-view .boc-reading-settings-host .add-property-btn:hover {
+  color: var(--boc-reader-accent);
+  border-color: var(--boc-reader-accent);
+}
+
+/* 面板外部的 global document click 委托会关闭 type picker 菜单/模型下拉；
+ * 弹出层需要盖过相邻卡片，堆叠上下文内 z-index 已够，此处补一个兜底。 */
+#boc-reading-view .boc-reading-settings-host .fixed-property-type-menu[hidden],
+#boc-reading-view .provider-editor-host .ai-provider-model-dropdown[hidden],
+#boc-reading-view .custom-select-dropdown[hidden] {
+  display: none;
+}
+
+/* 自定义下拉通用样式（下载格式 / Modal 预设 / 段落位置） */
+#boc-reading-view .custom-select-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+#boc-reading-view .custom-select-trigger {
+  width: 100%;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--boc-reader-border);
+  border-radius: 8px;
+  background: var(--boc-reader-card);
+  color: var(--boc-reader-text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#boc-reading-view .custom-select-trigger:active {
+  transform: scale(var(--boc-reader-press-scale, 1));
+}
+
+/* 箭头取类型选择器那套观感：8px 见方、faint 色、1px 描边——本 SVG 是 24 视框，
+ * stroke-width 换算成 3 才与 12 视框的 1.5 等宽。SVG 上的 stroke-width 是演示
+ * 属性，CSS 规则可直接覆盖。 */
+#boc-reading-view .custom-select-arrow {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .custom-select-arrow svg {
+  width: 8px;
+  height: 8px;
+  stroke-width: 3;
+}
+
+/* 隐藏 select（custom-select 接管后）：会被设置宿主与 Modal 的高优先级规则
+ * 压掉尺寸/描边，后两条再补回被压属性——隐藏不依赖 clip 兜底。 */
+#boc-reading-view .custom-select-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+  white-space: nowrap;
+}

@@ -588,7 +588,7 @@ describe("digest-host 滚动进行中材质降级（M19）", () => {
     const settingsRule =
       /#boc-reading-view\[data-boc-digest-scrolling="1"\]\s+\.boc-reading-settings-panel\s*\{[^}]*backdrop-filter:\s*none/s;
     expect(read("extension/entry/styles/reader.css")).toMatch(headerRule);
-    expect(read("extension/entry/styles/reader-settings.css")).toMatch(settingsRule);
+    expect(read("extension/entry/styles/reader-settings-providers.css")).toMatch(settingsRule);
   });
 });
 

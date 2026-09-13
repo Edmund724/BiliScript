@@ -72,7 +72,7 @@ const FLOAT_ATTR = "data-boc-digest-float";
 // 滚动进行中标记：贴栏态面板每帧随 --boc-digest-top 位移，header/设置抽屉的
 // backdrop-filter 跟着每帧重采样（M12 巡检 P2-2）。滚动期间摘掉毛玻璃、停下
 // 恢复——面板壳自身是不透明底，header/抽屉的 backdrop 只有面板底色，摘掉期间
-// 模糊结果无可见差异；静止态材质一字不动。规则在 reader.css / reader-settings.css。
+// 模糊结果无可见差异；静止态材质一字不动。规则在 reader.css / reader-settings-providers.css。
 const SCROLLING_ATTR = "data-boc-digest-scrolling";
 // 滚动收尾兜底窗：scrollend（支持时）即时恢复材质，本定时器兜底——滚动事件
 // 每拍重置，滚动停止 150ms 内无 scrollend 也会恢复，不依赖引擎事件支持。

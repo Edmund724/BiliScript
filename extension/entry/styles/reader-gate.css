@@ -133,7 +133,7 @@ body[data-boc-reader-mode="1"],
   --boc-reader-ease-bounce: cubic-bezier(0.34, 1.4, 0.64, 1);
   --boc-reader-press-scale: 0.97;
   /* 半透明材质底（reader header / 设置抽屉，backdrop-filter 消费方在
-   * reader.css / reader-settings.css）：surface 加 alpha 的 rgba，两主题各调。 */
+   * reader.css / reader-settings-shell.css）：surface 加 alpha 的 rgba，两主题各调。 */
   --boc-reader-header-bg: rgba(253, 251, 247, 0.72);
   --boc-reader-overlay-bg: rgba(253, 251, 247, 0.8);
   color: var(--boc-reader-text);
@@ -166,7 +166,7 @@ body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
 
 /* ===== 减弱透明度 =====
  * 半透明材质（header/设置抽屉）退回近实色：退回值即 surface 令牌（var 引用，
- * 两主题各自跟随），消费方（reader.css / reader-settings.css）只需各自关掉
+ * 两主题各自跟随），消费方（reader.css / reader-settings-shell.css）只需各自关掉
  * backdrop-filter。 */
 @media (prefers-reduced-transparency: reduce) {
   html[data-boc-reader-mode="1"],
