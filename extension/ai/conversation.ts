@@ -46,9 +46,14 @@ function normalizeContextUrlForKey(value: unknown): string {
 
 // ============ 会话规范化 ============
 
+// 会话消息：基础形状 { role, content } 上条件透传联网搜索的 tool 字段
+//（spec §2.5，tool 轮消息从历史重建）——与 conversation-store 的
+// normalizeHistoryMessage 同一透传语义，读取与持久化两处共用。
 interface ConversationMessage {
   role: string;
   content: string;
+  tool_calls?: unknown[];
+  tool_call_id?: string;
 }
 
 interface NormalizedConversation {
@@ -72,8 +77,19 @@ export function normalizeConversations(value: unknown): NormalizedConversation[]
     .map((item) => {
       const messages = Array.isArray(item?.messages)
         ? item.messages
-            .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant") && typeof msg.content === "string")
-            .map((msg: { role?: unknown; content?: unknown }) => ({ role: String(msg.role), content: String(msg.content) }))
+            .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
+            .map((msg: { role?: unknown; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown }) => {
+              const base = { role: String(msg.role), content: String(msg.content) };
+              const calls = msg.tool_calls;
+              if (Array.isArray(calls) && calls.length) {
+                return { ...base, tool_calls: calls };
+              }
+              const callId = msg.tool_call_id;
+              if (typeof callId === "string" && callId) {
+                return { ...base, tool_call_id: callId };
+              }
+              return base;
+            })
         : [];
       const id = String(item?.id || "").trim();
       if (!id || !messages.length) {
