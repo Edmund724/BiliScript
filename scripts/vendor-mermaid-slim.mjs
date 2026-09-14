@@ -22,9 +22,7 @@ const expectedMathChunkHash = "3e097dc503ef753116bb327d93a8592e3dbbcaa9cc2a3696e
 const retainedTypes = [
   "flowchart-v2",
   "flowchart",
-  "sequence",
-  "class",
-  "classDiagram"
+  "sequence"
 ];
 
 const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
@@ -225,14 +223,14 @@ const result = await build({
   metafile: true
 });
 const outputNames = Object.keys(result.metafile.outputs);
-for (const retained of ["flowDiagram", "sequenceDiagram", "classDiagram", "dagre"]) {
+for (const retained of ["flowDiagram", "sequenceDiagram", "dagre"]) {
   if (!outputNames.some((name) => name.includes(retained))) {
     throw new Error(`Retained output is missing: ${retained}`);
   }
 }
 // "elk"：flowchart-elk 探测器已裁剪（bundle 从无 elk 布局加载器），若未来
 // 版本把 elk 布局器/加载器带进 bundle，在此失败而不是静默混入。
-for (const excluded of ["architecture", "c4Diagram", "pieDiagram", "gitGraph", "journeyDiagram", "quadrantDiagram", "xychartDiagram", "requirementDiagram", "sankeyDiagram", "blockDiagram", "vennDiagram", "railroadDiagram", "erDiagram", "ganttDiagram", "stateDiagram", "swimlanes", "katex", "elk", "mindmap", "cose-bilkent"]) {
+for (const excluded of ["architecture", "c4Diagram", "pieDiagram", "gitGraph", "journeyDiagram", "quadrantDiagram", "xychartDiagram", "requirementDiagram", "sankeyDiagram", "blockDiagram", "vennDiagram", "railroadDiagram", "erDiagram", "ganttDiagram", "stateDiagram", "swimlanes", "katex", "elk", "mindmap", "cose-bilkent", "classDiagram"]) {
   if (outputNames.some((name) => name.includes(excluded))) {
     throw new Error(`Excluded output remains: ${excluded}`);
   }
