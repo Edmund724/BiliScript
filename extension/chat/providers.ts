@@ -208,7 +208,11 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     deps.renderPresetPrompts();
   }
 
-  // 选中值回落：依次尝试传入优先值 / settings defaultModel / storage 选中值。
+  // 选中值回落：依次尝试传入优先值 / chrome.storage 选中值（复合值，精确到
+  // 模型）/ settings defaultModel（裸平台 id，只能解析到平台首个模型）。storage
+  // 选中值必须排在 defaultModel 之前：两者由模型切换监听同趟写入（lifecycle 的
+  // change 处理器），defaultModel 只是裸平台 id——排在前面会把 storage 里的精确
+  // 模型选择遮蔽成「平台首个模型」，新开页面就丢模型（更换模型不被记住）。
   // 每个候选都接受新复合值（buildModelOptionValue 产物）与旧裸平台 id 两种
   // 形态；裸 id 命中平台时回落该平台首个模型（旧选中记录向前兼容）。全部
   // 不命中则首选项。
@@ -261,8 +265,8 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
 
     const candidates = [
       preferredProviderId,
-      chatSessionState.aiPrefs.defaultModel || "",
-      storedSelectedProviderId
+      storedSelectedProviderId,
+      chatSessionState.aiPrefs.defaultModel || ""
     ];
     let matched = "";
     for (const candidate of candidates) {

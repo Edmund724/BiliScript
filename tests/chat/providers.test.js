@@ -9,7 +9,8 @@
 //   DEFAULT_PRESET_PROMPTS 并触发持久化、渲染回调（modelSelect/思考档位/预设
 //   列表）；
 // - renderModelSelect：无平台 → disabled +「未配置平台」；有平台 → 按优先级
-//   preferredProviderId > aiPrefs.defaultModel > chrome.storage 选中（闭包缓存）；
+//   preferredProviderId > chrome.storage 选中（复合值，精确到模型）>
+//   aiPrefs.defaultModel（裸平台 id，只解析到平台首个模型）；
 // - setThinkingLevel：归一化 + 渲染 + chrome.storage 写 + save-settings 单键。
 //
 // 模板同 tests/chat/presets.test.js：vi.hoisted mock shared/messaging；
@@ -296,6 +297,44 @@ describe("renderModelSelect", () => {
     await providerPrefs.loadProvidersAndPrefs();
 
     expect(modelSelect.value).toBe(buildModelOptionValue("p1", "m1b"));
+  });
+
+  it("storage 复合选中值优先于 defaultModel（同平台换到非首个模型后新页面不丢）", async () => {
+    // 复现工单场景：切换模型监听同趟写入 local 复合值与 sync defaultModel
+    //（裸平台 id）。defaultModel 只能解析到平台首个模型，若排在复合值之前，
+    // 新开页面会回落首个模型、丢失精确选择。
+    sendRuntimeMessageMock.mockImplementation(async (message) => {
+      if (message.type === "ai-providers-list") {
+        return { providers: [
+          { id: "p1", name: "平台一", models: ["m1", "m1b"], enabled: true }
+        ] };
+      }
+      return { ok: true, settings: { defaultModel: "p1" } };
+    });
+    const storage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: buildModelOptionValue("p1", "m1b") });
+    const { modelSelect, providerPrefs } = makeHarness(storage);
+
+    await providerPrefs.loadProvidersAndPrefs();
+
+    expect(modelSelect.value).toBe(buildModelOptionValue("p1", "m1b"));
+  });
+
+  it("storage 选中值失效（平台已删）时继续回落 defaultModel", async () => {
+    sendRuntimeMessageMock.mockImplementation(async (message) => {
+      if (message.type === "ai-providers-list") {
+        return { providers: [
+          { id: "p1", name: "平台一", models: ["m1"], enabled: true },
+          { id: "p2", name: "平台二", models: ["m2"], enabled: true }
+        ] };
+      }
+      return { ok: true, settings: { defaultModel: "p2" } };
+    });
+    const storage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: buildModelOptionValue("p9", "m9") });
+    const { modelSelect, providerPrefs } = makeHarness(storage);
+
+    await providerPrefs.loadProvidersAndPrefs();
+
+    expect(modelSelect.value).toBe(buildModelOptionValue("p2", "m2"));
   });
 
   it("闭包缓存未预取（未经过 loadProvidersAndPrefs）时回退到首个平台首个模型", () => {
