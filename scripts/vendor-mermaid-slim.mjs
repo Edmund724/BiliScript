@@ -24,8 +24,7 @@ const retainedTypes = [
   "flowchart",
   "sequence",
   "class",
-  "classDiagram",
-  "mindmap"
+  "classDiagram"
 ];
 
 const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
@@ -151,8 +150,7 @@ generated = generated.split(chunkPrefixOriginal).join(chunkPrefixPatched);
 // 裁剪 1：swimlane 布局加载器（flowchart 实验特性，~113KB / ~42KB gzip）。
 // registerDefaultLayoutLoaders 少了 swimlane 后，flowchart 请求该算法时走
 // getRegisteredLayoutAlgorithm 内置的 fallback:"dagre"（mermaid 11.17.2 源码
-// 语义已核对，仅 log.warn 降级，非硬失败）。dagre / cose-bilkent 保留：
-// dagre 是 flowchart 回退，cose-bilkent 是 mindmap 的 fallback。
+// 语义已核对，仅 log.warn 降级，非硬失败）。dagre 保留：它是 flowchart 回退。
 const swimlaneLoaderEntry = `    {
       name: "swimlane",
       loader: /* @__PURE__ */ __name(async () => await import("./swimlanes-42K2YHIH.mjs"), "loader")
@@ -163,6 +161,22 @@ if (!layoutChunkText.includes(swimlaneLoaderEntry)) {
   throw new Error("Mermaid swimlane loader entry not found in layout chunk");
 }
 fs.writeFileSync(layoutChunkPatched, layoutChunkText.replace(swimlaneLoaderEntry, ""));
+
+// 裁剪 1b：cose-bilkent 默认布局加载器（registerDefaultLayoutLoaders 的
+// ...true ? [...] : [] spread，~514KB / ~150KB gzip）。cose-bilkent 原是
+// mindmap 的默认 layoutAlgorithm，mindmap 已裁（retainedTypes 去掉 mindmap、
+// 探测器段删除），flowchart/sequence 走 dagre，加载站点消失后整个
+// cytoscape 族不再打包；同 swimlane 机制，防回混校验在下方 excluded 列表。
+const coseBilkentLoaderEntry = `...true ? [
+      {
+        name: "cose-bilkent",
+        loader: /* @__PURE__ */ __name(async () => await import("./cose-bilkent-JH36ORCC.mjs"), "loader")
+      }
+    ] : []`;
+if (!layoutChunkText.includes(coseBilkentLoaderEntry)) {
+  throw new Error("Mermaid cose-bilkent loader entry not found in layout chunk");
+}
+fs.writeFileSync(layoutChunkPatched, fs.readFileSync(layoutChunkPatched, "utf8").replace(coseBilkentLoaderEntry, "...[]"));
 
 // 裁剪 2：katex 数学渲染（~268KB / ~77KB gzip）。mermaid 的 math 渲染由标签
 // 里的 $$...$$ 触发（hasKatex），无配置项可整体关闭；此处把 renderKatexUnsanitized
@@ -211,14 +225,14 @@ const result = await build({
   metafile: true
 });
 const outputNames = Object.keys(result.metafile.outputs);
-for (const retained of ["flowDiagram", "sequenceDiagram", "classDiagram", "mindmap", "dagre", "cose-bilkent"]) {
+for (const retained of ["flowDiagram", "sequenceDiagram", "classDiagram", "dagre"]) {
   if (!outputNames.some((name) => name.includes(retained))) {
     throw new Error(`Retained output is missing: ${retained}`);
   }
 }
 // "elk"：flowchart-elk 探测器已裁剪（bundle 从无 elk 布局加载器），若未来
 // 版本把 elk 布局器/加载器带进 bundle，在此失败而不是静默混入。
-for (const excluded of ["architecture", "c4Diagram", "pieDiagram", "gitGraph", "journeyDiagram", "quadrantDiagram", "xychartDiagram", "requirementDiagram", "sankeyDiagram", "blockDiagram", "vennDiagram", "railroadDiagram", "erDiagram", "ganttDiagram", "stateDiagram", "swimlanes", "katex", "elk"]) {
+for (const excluded of ["architecture", "c4Diagram", "pieDiagram", "gitGraph", "journeyDiagram", "quadrantDiagram", "xychartDiagram", "requirementDiagram", "sankeyDiagram", "blockDiagram", "vennDiagram", "railroadDiagram", "erDiagram", "ganttDiagram", "stateDiagram", "swimlanes", "katex", "elk", "mindmap", "cose-bilkent"]) {
   if (outputNames.some((name) => name.includes(excluded))) {
     throw new Error(`Excluded output remains: ${excluded}`);
   }
