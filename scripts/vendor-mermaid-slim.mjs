@@ -13,6 +13,7 @@ const chunksSourceDir = path.join(projectRoot, "node_modules/mermaid/dist/chunks
 const chunksOutputDir = path.join(projectRoot, "node_modules/mermaid/dist/chunks/mermaid.boc");
 const layoutChunkSource = path.join(chunksSourceDir, "chunk-TLUHSLCS.mjs");
 const mathChunkSource = path.join(chunksSourceDir, "chunk-DU6HZSFF.mjs");
+const iconifyStubPath = path.join(projectRoot, "scripts", "vendor-iconify-stub.mjs");
 const layoutChunkPatched = path.join(chunksOutputDir, "chunk-TLUHSLCS.mjs");
 const mathChunkPatched = path.join(chunksOutputDir, "chunk-DU6HZSFF.mjs");
 const expectedVersion = "11.17.2";
@@ -220,6 +221,9 @@ const result = await build({
   format: "esm",
   platform: "browser",
   target: "chrome120",
+  // @iconify/utils 替身（体积裁剪）：mermaid icons.ts 只用五个导出，产品不注册
+  // 图标包，降级路径见 vendor-iconify-stub.mjs 头注。探针轮与产品轮 B 同一 alias。
+  alias: { "@iconify/utils": iconifyStubPath },
   metafile: true
 });
 const outputNames = Object.keys(result.metafile.outputs);
