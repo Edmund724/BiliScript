@@ -130,7 +130,10 @@ const MAIN_MODULE_BASENAME = "content-main.mjs";
 const localImportGuard = createLocalImportGuard(extensionRoot);
 
 // 轮 B 专用 alias：只有 mermaid-render.ts 的精确 import "mermaid" 落到生成好的
-// 精简入口；其他轮次及其他入口不经过这个重定向。
+// 精简入口；其他轮次及其他入口不经过这个重定向。@iconify/utils 同理——只有
+// mermaid 图（经 mermaid.boc 的 icons chunk）可达它，替换为
+// scripts/vendor-iconify-stub.mjs 的最小替身（产品不注册图标包，降级路径见
+// stub 头注），~240KB 依赖树随 import 站点消失。
 const mermaidSlimAlias = {
   name: "mermaid-slim-round-b-only",
   setup(buildApi) {
@@ -142,6 +145,9 @@ const mermaidSlimAlias = {
       }
       return { path: slimMermaidEntry };
     });
+    buildApi.onResolve({ filter: /^@iconify\/utils$/ }, () => ({
+      path: path.join(__dirname, "..", "scripts", "vendor-iconify-stub.mjs"),
+    }));
   },
 };
 
