@@ -329,9 +329,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       applySearchStatus(activeAssistantNode, msg);
     } else if (msg.type === "tool-turn") {
       // 工具轮持久化副本（spec §2.5）：缓存，done/stopped 时随一问一答写回。
-      pendingToolMessages = Array.isArray(msg.messages)
-        ? msg.messages.filter((m) => Boolean(m && typeof m === "object" && typeof (m as { role?: unknown }).role === "string"))
-        : [];
+      // 同一 user 回合内每个 tool-turn 累积（runToolLoop 多轮各吐一次）——
+      // 整体替换会把多轮搜索的中间轮冲掉，回放重建只剩最后一轮。
+      if (Array.isArray(msg.messages)) {
+        pendingToolMessages.push(
+          ...msg.messages.filter((m) => Boolean(m && typeof m === "object" && typeof (m as { role?: unknown }).role === "string"))
+        );
+      }
     } else if (msg.type === "cost-guard") {
       // offscreen 发起 Map-Reduce 前弹成本护栏，等待确认后回执。确认通道经
       // deps 注入（缺省面板内确认弹层）；弹层是异步的，回执挂在 Promise 上，

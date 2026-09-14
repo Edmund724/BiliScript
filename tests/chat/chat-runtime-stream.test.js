@@ -1283,13 +1283,53 @@ describe("tool-turn 持久化与 tool-status 最小消费", () => {
     expect(deps.store.persistCurrent).toHaveBeenCalled();
   });
 
-  it("error 终态：pendingToolMessages 清空，不串入下一条消息", async () => {
+  it("多轮 tool-turn → done：全部轮的 [assistant(tool_calls), tool] 都落进 chatHistory", async () => {
+    const raf = holdRaf();
+    const { deps, runtime } = await makeRuntime("问");
+    feed(runtime, {
+      type: "tool-turn",
+      messages: [
+        { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"第一轮"}' } }] },
+        { role: "tool", tool_call_id: "call_1", content: "[]" }
+      ]
+    });
+    feed(runtime, {
+      type: "tool-turn",
+      messages: [
+        { role: "assistant", content: "", tool_calls: [{ id: "call_2", type: "function", function: { name: "web_search", arguments: '{"query":"第二轮"}' } }] },
+        { role: "tool", tool_call_id: "call_2", content: "[]" }
+      ]
+    });
+    feed(runtime, { type: "token", data: "回答" });
+    runRafFrames(raf);
+    feed(runtime, { type: "done" });
+
+    expect(chatSessionState.chatHistory.map((m) => m.role)).toEqual([
+      "user", "assistant", "tool", "assistant", "tool", "assistant"
+    ]);
+    expect(chatSessionState.chatHistory[1]).toMatchObject({ role: "assistant", tool_calls: [{ id: "call_1" }] });
+    expect(chatSessionState.chatHistory[2]).toMatchObject({ role: "tool", tool_call_id: "call_1" });
+    expect(chatSessionState.chatHistory[3]).toMatchObject({ role: "assistant", tool_calls: [{ id: "call_2" }] });
+    expect(chatSessionState.chatHistory[4]).toMatchObject({ role: "tool", tool_call_id: "call_2" });
+    expect(chatSessionState.chatHistory[5]).toMatchObject({ role: "assistant", content: "回答" });
+    expect(deps.store.persistCurrent).toHaveBeenCalled();
+  });
+
+  it("error 终态：累积中的 pendingToolMessages 清空，不串入下一条消息", async () => {
     const { runtime } = await makeRuntime("问");
     feed(runtime, {
       type: "tool-turn",
-      messages: [{ role: "tool", tool_call_id: "call_1", content: "[]" }]
+      messages: [{ role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"第一轮"}' } }] }, { role: "tool", tool_call_id: "call_1", content: "[]" }]
+    });
+    feed(runtime, {
+      type: "tool-turn",
+      messages: [{ role: "tool", tool_call_id: "call_2", content: "[]" }]
     });
     feed(runtime, { type: "error", error: "boom" });
+
+    // error 不写回：累积的多轮 tool 消息不落 chatHistory
+    expect(chatSessionState.chatHistory.filter((m) => m.role === "tool")).toHaveLength(0);
+    expect(chatSessionState.chatHistory).toHaveLength(0);
 
     // 第二条流：tool-turn 未再到达，done 写回不含旧 tool 消息
     const { runtime: runtime2 } = await makeRuntime("再问");

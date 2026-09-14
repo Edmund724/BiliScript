@@ -107,6 +107,34 @@ describe("collectHistorySearchTurns", () => {
     ];
     expect(collectHistorySearchTurns(history)[0].queries).toEqual([""]);
   });
+
+  it("同一 user 回合内多个 tool-turn 聚为一张多步骤卡（累积落盘形状：连续多组 assistant(tool_calls)+tool）", () => {
+    const history = [
+      { role: "user", content: "问" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_1", function: { name: "web_search", arguments: '{"query":"第一轮"}' } }]
+      },
+      { role: "tool", tool_call_id: "call_1", content: JSON.stringify([{ title: "A", url: "https://a.com", snippet: "sa" }]) },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_2", function: { name: "web_search", arguments: '{"query":"第二轮"}' } }]
+      },
+      { role: "tool", tool_call_id: "call_2", content: JSON.stringify([{ title: "B", url: "https://b.com", snippet: "sb" }]) },
+      { role: "assistant", content: "答 [1] 与 [2]。" }
+    ];
+    const turns = collectHistorySearchTurns(history);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].assistantIndex).toBe(5);
+    expect(turns[0].queries).toEqual(["第一轮", "第二轮"]);
+    expect(turns[0].resultCounts).toEqual([1, 1]);
+    expect(turns[0].sources).toEqual([
+      { title: "A", url: "https://a.com", snippet: "sa" },
+      { title: "B", url: "https://b.com", snippet: "sb" }
+    ]);
+  });
 });
 
 describe("SEARCH_PREVIEW_MAX_CHARS", () => {

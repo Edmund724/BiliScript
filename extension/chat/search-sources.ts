@@ -158,10 +158,15 @@ export function collectHistorySearchTurns(history: readonly ChatSessionMessage[]
       return;
     }
     // assistant 消息：带 tool_calls 则开启新搜索轮（查询词按 tool_call 顺序）；
-    // 纯 assistant 则收口一轮（有搜索内容才产出，回答下标即本条）。
+    // 同一 user 回合内已开启的搜索轮（多轮 tool-turn 各一组
+    // assistant(tool_calls)+tool）累积进同一条 pending——不替换，替换会把
+    // 前几轮的查询与来源冲掉（回放只剩最后一轮）；纯 assistant 则收口一轮
+    // （有搜索内容才产出，回答下标即本条）。
     const toolCalls = (message as ChatSessionMessage).tool_calls;
     if (Array.isArray(toolCalls) && toolCalls.length) {
-      pending = { queries: [], resultCounts: [], sources: [] };
+      if (!pending) {
+        pending = { queries: [], resultCounts: [], sources: [] };
+      }
       for (const call of toolCalls) {
         const fn = (call as { function?: { name?: unknown; arguments?: unknown } }).function;
         if (fn && fn.name === "web_search") {
