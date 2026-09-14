@@ -6,8 +6,9 @@
 // 经 rAF 每帧追加 TRANSCRIPT_APPEND_BATCH 条：
 //   - 事件委托在容器层（reader/subtitle-tab-ui.ts 绑定 + sync.js closest 委托），追加的节点
 //     天然可交互，无需逐条重绑；
-//   - 跳转/跟随目标未上屏时经 ensureReadingSubtitleRenderedUpTo 同步补渲染
-//     （由 lifecycle.js 的 registerReaderPorts 单点注册进显式端口，供 sync.js
+//   - 跳转/跟随目标未上屏时经 ensureReadingSubtitleRenderedUpTo 补渲染（同步段
+//     有单帧上限，超出部分转 rAF 分帧补齐；由 lifecycle.js 的
+//     registerReaderPorts 单点注册进显式端口，供 sync.js
 //     经 readerPorts.flushReadingSubtitleToIndex 回调）；
 //   - 渲染期间再次 renderReadingView（切轨/重进阅读模式）先取消上一轮任务。
 // 章节列表量小（几十条），保持整段渲染不变。
@@ -138,9 +139,15 @@ function appendReadingSubtitleBatch() {
   }
 }
 
-// 跳转/跟随定位的同步补渲染：把 [cursor, targetIndex] 一次性上屏后返回 true，
-// 剩余条目继续走 rAF 分批。目标已在屏内（或无进行中任务）时原样返回 true，
-// 调用方（sync.js）随后照常 querySelector。
+// 跳转/跟随定位的同步补渲染：把 [cursor, targetIndex] 上屏后返回 true，剩余条目
+// 继续走 rAF 分批。目标已在屏内（或无进行中任务）时原样返回 true，调用方
+// （sync.js）随后照常 querySelector。
+//
+// 单帧上限：同步 flush 超过 SUBTITLE_SYNC_FLUSH_LIMIT 条时只补前 limit 条，超出
+// 部分转 rAF 分帧补齐（复用既有追加任务机制）——否则长视频跳到远处时是单帧大块
+// DOM 解析 + 强制布局，与分批渲染的初衷相悖。
+const SUBTITLE_SYNC_FLUSH_LIMIT = 200;
+
 export function ensureReadingSubtitleRenderedUpTo(targetIndex: number) {
   const task = subtitleAppendTask;
   if (!task) {
@@ -156,15 +163,18 @@ export function ensureReadingSubtitleRenderedUpTo(targetIndex: number) {
     return true;
   }
   const end = Math.min(task.items.length, targetIndex + 1);
+  const flushEnd = Math.min(end, task.cursor + SUBTITLE_SYNC_FLUSH_LIMIT);
   const flushFrom = task.cursor;
-  insertReadingSubtitleRange(task.listEl, task.items, task.cursor, end, task.withHours);
-  task.cursor = end;
+  insertReadingSubtitleRange(task.listEl, task.items, task.cursor, flushEnd, task.withHours);
+  task.cursor = flushEnd;
   // 批次回执：同步补渲染出的条目同样要带搜索高亮（跳转落点即命中时，当前命中
   // 标记由搜索模块在补渲染后现查落位）
-  notifyReadingSubtitleBatchAppended(flushFrom, end);
+  notifyReadingSubtitleBatchAppended(flushFrom, flushEnd);
   if (task.cursor >= task.items.length) {
     subtitleAppendTask = null;
   } else {
+    // 同步 flush 被上限截断（或本来就有余量）：余下条目（含超出上限的落点区间）
+    // 由既有 rAF 追加任务逐帧补齐
     scheduleReadingSubtitleAppend();
   }
   return true;

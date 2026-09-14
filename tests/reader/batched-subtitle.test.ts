@@ -144,26 +144,52 @@ describe("字幕列表分批渲染", () => {
   });
 
   it("follow 跳转到未渲染区：同步补渲染到目标 index 再滚动，不依赖后续帧", () => {
-    state.clip.subtitleBody = makeBody(800);
+    state.clip.subtitleBody = makeBody(600);
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
-    expect(renderedItemCount()).toBe(120); // 目标 index 600 尚未上屏
+    expect(renderedItemCount()).toBe(120); // 目标 index 300 尚未上屏（区间 181 条 < 同步上限，当拍全量补齐）
 
     const bound = shell.bindReadingViewVideo(video);
     expect(bound).toBe(video);
     video.play = () => Promise.resolve();
-    video.currentTime = 1200; // 第 600 条（from = 600 * 2）
+    video.currentTime = 600; // 第 300 条（from = 300 * 2）
 
-    // 不 flush 任何 rAF：目标必须在本拍内同步补渲染
+    // 不 flush 任何 rAF：目标必须在本拍内同步补渲染（未超同步上限）
     shell.syncReadingViewPlayback(true);
 
-    expect(renderedItemCount()).toBeGreaterThanOrEqual(601);
+    expect(renderedItemCount()).toBe(301);
     const active = subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement;
-    expect(active.dataset.index).toBe("600");
-    expect(state.reader.readingActiveSubtitleIndex).toBe(600);
-    // 剩余条目继续排进 rAF 队列，flush 后全量渲染完成
+    expect(active.dataset.index).toBe("300");
+    expect(state.reader.readingActiveSubtitleIndex).toBe(300);
+    // 任务已收尾，flush 队列不再追加
     flushAnimationFrames();
-    expect(renderedItemCount()).toBe(800);
+    expect(renderedItemCount()).toBe(600);
+  });
+
+  it("同步补渲染超限：只同步上屏上限条，落点区间由后续帧补齐后自愈落位", () => {
+    state.clip.subtitleBody = makeBody(1500);
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    expect(renderedItemCount()).toBe(120);
+
+    const bound = shell.bindReadingViewVideo(video);
+    expect(bound).toBe(video);
+    video.play = () => Promise.resolve();
+    video.currentTime = 2800; // 落点第 1400 条（from = 1400 * 2）
+
+    // 同步 flush 被上限截断：cursor 120 → 320，只多补一批，落点条目不在本拍上屏
+    shell.syncReadingViewPlayback(true);
+    expect(renderedItemCount()).toBe(320);
+    expect(subtitleList().querySelector(".boc-reading-item.is-active")).toBeNull();
+
+    // rAF 追加任务逐帧补齐到落点；下一次时间更新（视频播放中的 timeupdate）
+    // 重走 sync 时目标已上屏，is-active 与滚动自愈落位
+    flushAnimationFrames();
+    expect(renderedItemCount()).toBe(1500);
+    shell.syncReadingViewPlayback(true);
+    const active = subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement;
+    expect(active.dataset.index).toBe("1400");
+    expect(state.reader.readingActiveSubtitleIndex).toBe(1400);
   });
 
   it("手动暂停中的激活计算照旧：不补渲染/滚动，恢复后下一拍补高亮", () => {
@@ -175,17 +201,17 @@ describe("字幕列表分批渲染", () => {
     shell.renderReadingView();
     shell.bindReadingViewVideo(video);
     shell.noteManualReaderInteraction(60_000); // 手动暂停跟随
-    video.currentTime = 1200; // index 600 未渲染
+    video.currentTime = 600; // index 300 未渲染（区间 181 条 < 同步上限）
     shell.syncReadingViewPlayback();
-    expect(state.reader.readingActiveSubtitleIndex).toBe(600); // 计算照旧
+    expect(state.reader.readingActiveSubtitleIndex).toBe(300); // 计算照旧
     expect(subtitleList().querySelector(".boc-reading-item.is-active")).toBeNull(); // 暂停分支不补渲染/滚动
 
     // 手动暂停过期后恢复跟随（等价 resumeReaderFollowPlayback 的 forceScroll
     // 路径）：flush 补渲染 + 高亮 + scrollIntoView
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000);
     shell.syncReadingViewPlayback(true);
-    expect(renderedItemCount()).toBeGreaterThanOrEqual(601);
-    expect((subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement).dataset.index).toBe("600");
+    expect(renderedItemCount()).toBeGreaterThanOrEqual(301);
+    expect((subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement).dataset.index).toBe("300");
   });
 
   it("渲染期间再次 renderReadingView（切轨）：取消上一轮任务，新数据不重不漏", () => {

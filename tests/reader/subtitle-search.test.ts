@@ -204,10 +204,23 @@ describe("字幕句内搜索", () => {
     expect(searchCount()).toBe("1 / 2");
 
     shell.moveReadingSubtitleSearch(1);
-    // 补渲染到目标 index 后才拿得到节点（不许跳不过去）
-    expect(renderedItemCount()).toBeGreaterThanOrEqual(601);
+    // 补渲染被同步上限截断（cursor 120 → 320）：落点 item 600 不在本拍上屏
+    expect(renderedItemCount()).toBe(320);
     expect(searchCount()).toBe("2 / 2");
-    const hit = subtitleList().querySelector('[data-index="600"] mark.boc-reading-search-hit.search-current');
+    expect(subtitleList().querySelector(".search-current")).toBeNull();
+
+    // rAF 追加任务逐帧补齐：item 600 上屏即由批次回执 hook 自动带命中高亮
+    flushAnimationFrames();
+    const hitMark = subtitleList().querySelector(
+      '[data-index="600"] mark.boc-reading-search-hit'
+    );
+    expect(hitMark?.textContent).toBe("目标词");
+
+    // 重放（preserveIndex 保住当前命中序号）：目标已上屏，search-current 落位
+    shell.refreshReadingSubtitleSearch({ preserveIndex: true, scroll: false });
+    const hit = subtitleList().querySelector(
+      '[data-index="600"] mark.boc-reading-search-hit.search-current'
+    );
     expect(hit?.textContent).toBe("目标词");
   });
 
