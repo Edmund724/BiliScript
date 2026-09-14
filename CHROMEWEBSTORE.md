@@ -1,8 +1,8 @@
 # Chrome Web Store Listing — Bilibili-Summary｜一键总结B站视频
 
-> Last Updated: 2026-09-12
+> Last Updated: 2026-09-14
 >
-> Status: Draft. Do not submit until tickets #01 through #06 are complete, the real Chrome checks pass, and the 2.1.0 release archive is rebuilt.
+> Status: Draft. Do not submit until tickets #01 through #06 are complete, the real Chrome checks pass, and the 2.2.0 release archive is rebuilt.
 
 ## Store Listing
 
@@ -14,11 +14,11 @@
 
 Bilibili-Summary 在 B 站视频页右侧打开 Digest 阅读面板，让你一边看视频，一边读取逐句字幕、章节和 AI 摘要。点击视频播放器下方的 Digest 按钮，或点击浏览器工具栏上的扩展图标——两个入口完全等价，打开的是同一个页面内阅读面板。设置、字幕、概览、AI 对话和笔记都在这个面板内。
 
-你可以按时间跳转字幕，搜索当前句，复制或下载 Markdown、SRT 和 TXT；也可以保存带时间戳的笔记。概览会整理章节、重点引用和完整笔记。AI 对话能围绕当前视频追问，并使用你配置的模型；选中字幕后，可以继续请求讲解、翻译或润色。
+你可以按时间跳转字幕，搜索当前句，复制或下载 Markdown、SRT 和 TXT；也可以保存带时间戳的笔记。概览会整理章节、重点引用和完整笔记。AI 对话能围绕当前视频追问，并使用你配置的模型；选中字幕后，可以继续请求讲解、翻译或润色。可选开启联网搜索后，模型在需要视频之外的信息时可自行查询，回答中给出搜索时间线、来源链接与内联引用；该功能默认关闭，需要用户自行配置搜索平台（Tavily / Exa / Brave Search）。
 
 视频没有字幕轨时，语音识别回退可以把音频转成带时间戳的字幕。只有开启无字幕回退且当前视频确实没有字幕时，扩展才会抓取音频。
 
-API Key 由你自己配置。扩展直接连接你选择的 AI 和语音识别服务，不经过本项目开发者。
+API Key 由你自己配置。扩展直接连接你选择的 AI、语音识别和搜索服务，不经过本项目开发者。
 
 需要帮助或报告问题，请访问 https://github.com/Edmund724/Bilibili-Summary/issues。
 
@@ -58,6 +58,9 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 | `https://api.bilibili.com/*` | host_permissions | Fetch video metadata and subtitle data while the user is reading or summarizing a Bilibili video. |
 | `https://*.hdslb.com/*` | host_permissions | Fetch subtitle files (subtitle-body JSON) hosted on Bilibili's CDN. |
 | `https://*.bilivideo.com/*` | host_permissions | Download the audio track from Bilibili's CDN only when the speech-recognition fallback is enabled and the current video has no subtitle track. |
+| `https://api.tavily.com/*` | host_permissions | Send a model-generated query to Tavily and return results, only while the user has enabled web search and selected Tavily as the search provider. |
+| `https://api.exa.ai/*` | host_permissions | Send a model-generated query to Exa and return results, only while the user has enabled web search and selected Exa as the search provider. |
+| `https://api.search.brave.com/*` | host_permissions | Send a model-generated query to Brave Search and return results, only while the user has enabled web search and selected Brave Search as the search provider. |
 | `http://*/*`, `https://*/*` | optional_host_permissions | Connect to an AI or speech-recognition endpoint that the user explicitly adds, including a local Whisper service. Chrome may request this access when the user saves a matching provider. |
 
 ## Privacy & Data Use
@@ -71,12 +74,12 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 | Personally identifiable info | No | No | Not required. | No |
 | Health info | No | No | Not required. | No |
 | Financial info | No | No | Not required. | No |
-| Authentication info | Yes, user-provided API keys | Yes, to the provider selected by the user | Authenticate the user's chosen AI or speech-recognition provider. | Only with that selected provider |
+| Authentication info | Yes, user-provided API keys | Yes, to the provider selected by the user | Authenticate the user's chosen AI, speech-recognition, or search provider. | Only with that selected provider |
 | Personal communications | Yes, AI conversation text when the user uses chat | Yes, to the selected AI provider | Answer questions about the current video. | Only with that selected provider |
 | Location | No | No | Not required. | No |
 | Web history | No | No | The extension reads only the active supported Bilibili video and the watch-later page. | No |
 | User activity | Yes | Yes, when a user requests AI analysis or speech recognition | Store notes and settings, and provide requested analysis or speech recognition. | Only with the selected AI or speech-recognition provider |
-| Website content | Yes, current video metadata, subtitles, selected text, comments used for analysis, and audio only when speech-recognition fallback is enabled | Yes, based on the user's requested feature and provider settings | Create summaries, explanations, translations, notes, conversations, and timestamped speech-to-text results. | Bilibili requests go directly between the user's browser and Bilibili; feature content is sent only to the selected provider |
+| Website content | Yes, current video metadata, subtitles, selected text, comments used for analysis, and audio only when speech-recognition fallback is enabled | Yes, based on the user's requested feature and provider settings; web-search queries go to the selected search provider only while the user enables web search | Create summaries, explanations, translations, notes, conversations, timestamped speech-to-text results, and web-search results. | Bilibili requests go directly between the user's browser and Bilibili; feature content is sent only to the selected provider |
 
 ### Data Use Certification
 
@@ -110,6 +113,7 @@ The policy and the store disclosure must be checked together before submission. 
 
 | Version | Date | Changes | Status |
 |---|---|---|---|
+| 2.2.0 | 2026-09-14 | Optional web search for AI chat and selection explanations (Tavily / Exa / Brave) with a search timeline, source links, and inline citations; Mermaid rendering in AI answers limited to flowcharts and sequence diagrams; the note player embed can be turned off; provider model lists, in-panel confirmation dialogs, and a batch of streaming, cache, and bundle-size optimizations. | Draft |
 | 2.1.0 | 2026-09-09 | Chrome 120 baseline, one Digest entry behavior from both the page button and toolbar icon, restricted Offscreen message flow, bounded ASR audio permissions, and updated compatibility and data-use notes. | Draft |
 
 ## Review Notes
@@ -123,7 +127,7 @@ Before submission:
 - Confirm that the extension name and Bilibili references comply with the Chrome Web Store trademark policy.
 - Fill in the publisher name and a monitored contact email.
 - Verify that the GitHub-hosted privacy policy URL is public and matches the completed code.
-- Rebuild the 2.1.0 archive from the verified final source; do not submit `release/bilibili-summary-v2.1.0-chrome.zip` as it stands before this task's implementation tickets are complete.
+- Rebuild the 2.2.0 archive from the verified final source with `pnpm run build` and `pnpm run build:release`; do not submit an archive built from an earlier revision.
 
 ### Rejection History
 
