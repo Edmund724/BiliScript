@@ -143,7 +143,13 @@ const mermaidSlimAlias = {
       if (args.path !== "mermaid" || importer !== mermaidRenderSource) {
         return undefined;
       }
-      return { path: slimMermaidEntry };
+      // pnpm 布局下 node_modules/mermaid 是指向 .pnpm/mermaid@*/node_modules/
+      // 的符号链接；esbuild 不会对插件返回的路径做 realpath，裸依赖
+      // （ts-dedent/d3/stylis/dompurify/es-toolkit）的 node_modules 回退
+      // 会走到根 node_modules 落空。realpath 回真实位置后，依赖作为
+      // .pnpm 兄弟目录解析——与 vendor 探针构建（入口直给，esbuild 自行
+      // realpath）行为一致。
+      return { path: fs.realpathSync(slimMermaidEntry) };
     });
     buildApi.onResolve({ filter: /^@iconify\/utils$/ }, () => ({
       path: path.join(__dirname, "..", "scripts", "vendor-iconify-stub.mjs"),

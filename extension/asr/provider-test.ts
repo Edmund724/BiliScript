@@ -50,7 +50,16 @@ export async function testAsrConnection(
   provider: unknown,
   { transport }: AsrProbeOptions = {}
 ): Promise<AsrProbeResult> {
-  const normalized = normalizeAsrProvider(provider);
+  let normalized = normalizeAsrProvider(provider);
+  if (!normalized) {
+    // 新增平台场景：Modal 尚未分配 id（editingId 为空），normalizeAsrProvider
+    // 因缺 id 返回 null；Key 随参携带、无需按 id 代查时探针仍可执行，注入占位 id
+    // 放行归一化（占位 id 不落盘，仅复用 type/baseUrl/model 校验）。
+    const raw = provider as { id?: string; apiKey?: string };
+    if (!String(raw?.id || "").trim() && String(raw?.apiKey || "").trim()) {
+      normalized = normalizeAsrProvider({ ...raw, id: "__probe-draft__" });
+    }
+  }
   if (!normalized) {
     return { ok: false, error: "平台配置不完整或 type 非法" };
   }

@@ -83,6 +83,22 @@ describe("testAsrConnection 分发与兜底", () => {
     expect((await testAsrConnection({ type: "openai-transcriptions", baseUrl: "x", model: "y" })).ok).toBe(false);
     expect((await testAsrConnection(null)).ok).toBe(false);
   });
+
+  it("新增平台（无 id、Key 随参携带）放行探针", async () => {
+    // Modal 添加平台时 editingId 为空：归一化缺 id 落空，但 Key 已随参携带、
+    // 不依赖按 id 代查，探针照常执行（回归：修复前误报「平台配置不完整或 type 非法」）
+    fetchMock.mockResolvedValue(jsonResponse(200, { text: "ok" }));
+    const { testAsrConnection } = await loadModule();
+    const resp = await testAsrConnection({
+      name: "SiliconFlow 硅基流动（免费）",
+      type: "openai-transcriptions",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "XingChenAGI/XingChenASR-V3.2",
+      apiKey: "sk-1"
+    });
+    expect(resp.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("openai-transcriptions 探针", () => {

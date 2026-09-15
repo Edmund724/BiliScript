@@ -581,6 +581,15 @@ async function startWatch(esbuildContexts) {
     if (recopyTimer) clearTimeout(recopyTimer);
     recopyTimer = setTimeout(() => {
       recopyTimer = null;
+      // content 子进程每轮重建先 cleanPreviousOutput() 再写回，watch 去抖
+      // （150ms）远短于一轮重建（vendor 探针 + 7.9MB chunk 复制），去抖到期
+      // 时可能正处删除后、写回前的窗口：本轮跳过，子进程后续写入会继续
+      // 触发 watch 事件并拉起新的 recopy。首轮全量拷贝（main() 里的
+      // copyStaticAssets）保持严格，仍 fail fast。
+      const contentArtifactsReady =
+        copyFiles.every((rel) => fs.existsSync(path.join(extensionRoot, rel))) &&
+        copyDirs.every((dir) => fs.existsSync(path.join(extensionRoot, dir)));
+      if (!contentArtifactsReady) return;
       copyStaticAssets();
       console.log(`[watch] static/content assets re-copied at ${new Date().toLocaleTimeString()}`);
     }, 150);
