@@ -63,16 +63,21 @@ export interface AiProviderPreset {
   // 缺省即 openai——15 个预设现状全部 OpenAI compatible，逐平台多协议归属在
   // 实测后逐个显式填写（preset-protocol-audit）。
   protocol?: AiProtocol;
+  // 个别协议的差异化端点（multi-protocol-ai）：协议与默认端点不同域/路径时
+  // 显式登记（preset-protocol-audit「Anthropic 兼容 Base URL」表）；编辑 Modal
+  // 切协议时 baseUrl 未改过即跟随对应协议的端点。缺省回落 baseUrl（含同址
+  // 多协议平台：Kimi Code、Opencode Go 无需登记）。
+  protocolBaseUrls?: Partial<Record<AiProtocol, string>>;
 }
 
 export const PRESETS: readonly AiProviderPreset[] = [
   { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", requiresKey: true },
-  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true },
-  { id: "qwen",          name: "Qwen",        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", requiresKey: true },
-  { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true },
+  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
+  { id: "qwen",          name: "Qwen",        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://dashscope.aliyuncs.com/apps/anthropic" } },
+  { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },
   { id: "moonshot",      name: "Kimi",        baseUrl: "https://api.kimi.com/coding/v1", requiresKey: true },
-  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true },
-  { id: "mimo",          name: "Mimo",        baseUrl: "https://api.mimo.ai/v1", requiresKey: true },
+  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.minimaxi.com/anthropic" } },
+  { id: "mimo",          name: "Mimo",        baseUrl: "https://api.mimo.ai/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.xiaomimimo.com/anthropic" } },
   { id: "opencodego",    name: "Opencode Go", baseUrl: "https://opencode.ai/zen/go/v1", requiresKey: true },
   { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true },
   { id: "stepfun",       name: "Stepfun",     baseUrl: "https://api.stepfun.com/step_plan/v1", requiresKey: true },

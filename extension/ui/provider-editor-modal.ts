@@ -79,7 +79,7 @@ export function setBusy(isBusy: boolean): void {
 // ===== 协议助手（multi-protocol-ai 设置 UI 章） =====
 
 // 任意来源的协议值收敛到注册表词表；缺省/未知值兜底 openai（与 resolveAdapter
-// 同口径——存量记录缺 protocol 字段时编辑 Modal 直接显示「OpenAI 兼容」，
+// 同口径——存量记录缺 protocol 字段时编辑 Modal 直接显示「OpenAI」，
 // 无提示，事实即如此）。
 function normalizeProtocolValue(value: unknown): AiProtocol {
   return typeof value === "string" && value in PROTOCOL_ADAPTERS ? (value as AiProtocol) : "openai";
@@ -89,6 +89,12 @@ function normalizeProtocolValue(value: unknown): AiProtocol {
 // OpenAI compatible；逐平台多协议归属实测后由 preset 词表显式填写）。
 function presetProtocol(preset: ProviderRowPreset | null): AiProtocol {
   return normalizeProtocolValue(preset?.protocol);
+}
+
+// 预设在某协议下的端点：protocolBaseUrls 登记了差异化端点（multi-protocol-ai，
+// preset-protocol-audit 表）用登记值，否则回落预设 baseUrl（同址多协议平台）。
+function presetBaseUrlForProtocol(preset: ProviderRowPreset | null, protocol: AiProtocol): string {
+  return preset?.protocolBaseUrls?.[protocol] ?? preset?.baseUrl ?? "";
 }
 
 // 限制点文案（capabilities.unsupported 的说明串）：表单底部小字，仅非空时
@@ -367,7 +373,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
   const models = isAi && Array.isArray(item?.models) ? item.models.map(String) : [];
   const model = isAi ? "" : String(item?.model ?? preset?.model ?? "");
-  // 协议下拉：编辑按记录值（存量缺字段/未知值显示「OpenAI 兼容」，无提示，
+  // 协议下拉：编辑按记录值（存量缺字段/未知值显示「OpenAI」，无提示，
   // 事实即如此）；新增回落预设默认归属（现状全 openai）。限制点小字仅
   // capabilities.unsupported 非空时露出（拍板 05-ui-protocol-selector）。
   const protocol = normalizeProtocolValue(item?.protocol ?? presetProtocol(preset));
@@ -595,6 +601,8 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
         if (!currentProtocol || currentProtocol === presetProtocol(previous)) {
           protocolSelect.value = presetProtocol(next);
         }
+        // 联动改了下拉值：同步协议基线，随后的手动切协议以上一发实际值为准
+        protocolSelect.dataset.previousProtocol = protocolSelect.value;
         syncProtocolNotes(protocolSelect.value);
       }
     } else {
@@ -620,6 +628,9 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
   }
 
   // 协议下拉（multi-protocol-ai，仅 AI）：切协议即刷新底部限制点小字。
+  // baseUrl 联动（拍板同预设切换惯例）：当前值仍是上一协议在该预设下的默认
+  // 端点（或空）才跟随新协议的默认端点；用户手改过不覆盖（同 baseUrl 切协议
+  // 的代理平台用例不受影响——前后端点相同，跟随是 no-op）。
   const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol");
   const syncProtocolNotes = (value: unknown): void => {
     const notesNode = dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes");
@@ -630,7 +641,20 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
   };
   if (protocolSelect) {
     initCustomSelect(protocolSelect, "custom-select-wrapper provider-editor-protocol-wrapper");
-    protocolSelect.addEventListener("change", () => syncProtocolNotes(protocolSelect.value));
+    protocolSelect.dataset.previousProtocol = protocolSelect.value;
+    protocolSelect.addEventListener("change", () => {
+      if (options.kind === "ai" && baseUrlInput) {
+        const preset = resolvePreset(options.presets, presetSelect?.value || "", options.kind);
+        const previous = normalizeProtocolValue(protocolSelect.dataset.previousProtocol);
+        const next = normalizeProtocolValue(protocolSelect.value);
+        const current = baseUrlInput.value.trim();
+        if (preset && (!current || current === presetBaseUrlForProtocol(preset, previous))) {
+          baseUrlInput.value = presetBaseUrlForProtocol(preset, next);
+        }
+      }
+      protocolSelect.dataset.previousProtocol = protocolSelect.value;
+      syncProtocolNotes(protocolSelect.value);
+    });
   }
 
   // 输入即清错误状态行（修正输入即清错）；字段级校验态由 :user-invalid CSS

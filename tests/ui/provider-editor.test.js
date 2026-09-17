@@ -327,7 +327,7 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
 });
 
 describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", () => {
-  it("新增 AI：协议下拉默认 OpenAI 兼容、限制点小字隐藏；保存报文写入显式 protocol", async () => {
+  it("新增 AI：协议下拉默认 OpenAI、限制点小字隐藏；保存报文写入显式 protocol", async () => {
     const { sent, host } = await mountPanel({
       "ai-providers-save": () => ({ ok: true, providers: [] })
     });
@@ -351,7 +351,7 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(sent.find((message) => message.type === "ai-providers-save").providers[0].protocol).toBe("openai");
   });
 
-  it("存量记录缺 protocol 字段：编辑显示「OpenAI 兼容」（无提示），保存回写显式值", async () => {
+  it("存量记录缺 protocol 字段：编辑显示「OpenAI」（无提示），保存回写显式值", async () => {
     const aiItem = { id: "p1", presetId: "custom", name: "我的端点", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
     const { sent, host } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: [aiItem] }),
@@ -425,6 +425,47 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     presetSelect.dispatchEvent(new Event("change"));
     expect(protocolSelect.value).toBe("openai");
   });
+
+  it("协议下拉选项名为 OpenAI / Anthropic / Responses（统一风格）", async () => {
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    const labels = Array.from(dialog.querySelectorAll(".provider-editor-protocol option")).map((option) => option.textContent);
+    expect(labels).toEqual(["OpenAI", "Anthropic", "Responses"]);
+  });
+
+  it("切协议联动 baseUrl：未改过跟随该预设的协议端点（DeepSeek /v1 ↔ /anthropic），改过的值不覆盖", async () => {
+    const presets = [
+      { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
+      { id: "custom", name: "自定义", baseUrl: "", requiresKey: true }
+    ];
+    const { host } = await mountPanel({
+      "ai-presets-list": () => ({ ok: true, presets })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    const presetSelect = dialog.querySelector(".provider-editor-preset");
+    const protocolSelect = dialog.querySelector(".provider-editor-protocol");
+    const baseUrlInput = dialog.querySelector(".provider-editor-baseurl");
+    presetSelect.value = "deepseek";
+    presetSelect.dispatchEvent(new Event("change"));
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
+
+    // 切 Anthropic：默认值跟随登记端点；切回 OpenAI：跟随默认 baseUrl
+    protocolSelect.value = "anthropic";
+    protocolSelect.dispatchEvent(new Event("change"));
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/anthropic");
+    protocolSelect.value = "openai";
+    protocolSelect.dispatchEvent(new Event("change"));
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
+
+    // 用户手改过 baseUrl：切协议不再覆盖
+    baseUrlInput.value = "https://my-proxy.example.com/v1";
+    protocolSelect.value = "anthropic";
+    protocolSelect.dispatchEvent(new Event("change"));
+    expect(baseUrlInput.value).toBe("https://my-proxy.example.com/v1");
+  });
+
 
   it("切协议即脏：取消先弹 dirty 确认弹层", async () => {
     const { host } = await mountPanel();

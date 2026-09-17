@@ -67,6 +67,9 @@ export interface ProviderRowPreset {
   requiresKey?: boolean;
   // 协议默认归属（multi-protocol-ai）：选中预设时编辑 Modal 协议下拉的联动默认值。
   protocol?: string;
+  // 个别协议的差异化端点（multi-protocol-ai）：切协议时 baseUrl 未改过即跟随
+  // （与 AiProviderPreset.protocolBaseUrls 同字段，宽松 string 键）。
+  protocolBaseUrls?: Record<string, string>;
 }
 
 // 行内状态 <p> 的写入口（wireModelPicker 注入用）：行内状态行已随紧凑形态
