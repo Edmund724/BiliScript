@@ -130,14 +130,15 @@ describe("probeAiChatCompletion { ok, error } 形状", () => {
     expect(lastRequest().headers.authorization).toBeUndefined();
   });
 
-  it("非 2xx → { ok:false, error: 'HTTP <status>: <detail>' }（响应体前 200 字符）", async () => {
+  it("非 2xx → { ok:false, error: 'HTTP <status>: [协议名] <detail>' }（错误体经 adapter 提取，截前 200 字符）", async () => {
     installProxyBus(() => ({ ok: true, status: 401, body: JSON.stringify({ error: { message: "bad key" } }) }));
     const { probeAiChatCompletion } = await loadModule();
 
     const resp = await probeAiChatCompletion({ baseUrl: "https://x", apiKey: "sk", model: "m" });
 
     expect(resp.ok).toBe(false);
-    expect(resp.error).toBe("HTTP 401: " + JSON.stringify({ error: { message: "bad key" } }));
+    // OpenAI 错误信封（error.message）经 adapter 提取，core 加协议名前缀。
+    expect(resp.error).toBe("HTTP 401: [openai] bad key");
     expect(sent).toHaveLength(1); // 探针不重试
   });
 

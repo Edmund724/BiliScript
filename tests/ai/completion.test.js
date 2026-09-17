@@ -536,7 +536,7 @@ describe("溢出端到端：抛 .overflow 标记错误且不重试", () => {
 
     const error = await chatCompletion({ provider: PROVIDER, messages: [], fetchImpl: fetchMock }).catch((e) => e);
     expect(error.overflow).toBe(true);
-    expect(error.message).toBe("HTTP 413: context_length_exceeded");
+    expect(error.message).toBe("HTTP 413: [openai] context_length_exceeded");
   });
 
   it("makeOverflowError 是 err.overflow 的唯一工厂", () => {
@@ -605,7 +605,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
       onRetry: (info) => retries.push(info)
     }).catch((e) => e);
 
-    expect(error.message).toBe("HTTP 500: boom");
+    expect(error.message).toBe("HTTP 500: [openai] boom");
     expect(error.status).toBe(500);
     expect(error.retryable).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(3);

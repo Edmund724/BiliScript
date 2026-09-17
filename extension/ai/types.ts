@@ -1,6 +1,8 @@
 // AI 域共享类型（08 票迁移）。
 // 只放纯类型与常量型字面量，不依赖运行时模块，供 ai/ 内部各模块复用。
 
+import type { AiProtocol } from "./protocol-adapter.js";
+
 export type ChatMessageRole = "user" | "assistant" | "system" | "tool";
 
 // OpenAI 兼容 tool_calls 结构（联网搜索管线，spec §2.1）：assistant 消息随带
@@ -47,6 +49,9 @@ export interface AiProvider {
   model?: string;
   requiresKey?: boolean;
   enabled?: boolean;
+  // 平台协议（multi-protocol-ai）：缺省/未知值经 resolveAdapter 兜底 openai，
+  // 存量记录零变化。
+  protocol?: AiProtocol;
   [key: string]: unknown;
 }
 

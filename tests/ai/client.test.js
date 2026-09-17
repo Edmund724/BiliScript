@@ -122,11 +122,11 @@ describe("streamChat port 协议：事件序列与旧实现一致", () => {
     expect(result).toBeUndefined();
     const errors = port.messages.filter((m) => m.type === "error");
     expect(errors).toHaveLength(1);
-    expect(errors[0].error).toBe("HTTP 401: Unauthorized");
+    expect(errors[0].error).toBe("HTTP 401: [openai] Unauthorized");
     // 重试提示（对齐旧文案），错误只发一条
     const notices = port.messages.filter((m) => m.type === "notice");
     expect(notices).toHaveLength(2);
-    expect(notices[0].data).toBe("HTTP 401: Unauthorized，正在重试...");
+    expect(notices[0].data).toBe("HTTP 401: [openai] Unauthorized，正在重试...");
     expect(port.messages.some((m) => m.type === "done")).toBe(false);
   });
 
