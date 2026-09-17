@@ -69,6 +69,7 @@ export function isContextLengthOverflow(detailOrError: unknown): boolean {
     "too large",
     "max_tokens",
     "max tokens",
+    "max_output_tokens",
     "token limit",
     "最大上下文",
     "上下文长度",

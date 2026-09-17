@@ -481,6 +481,7 @@ describe("isContextLengthOverflow 溢出识别（样本自 budget-single-shot �
       "max tokens exceeded",
       "prompt is too long",
       "input is too large",
+      'incomplete_details: {"reason":"max_output_tokens"}',
       "请求的上下文长度超出限制",
       "上下文长度超过最大限制",
       "请求 tokens 超出上下文上限"
