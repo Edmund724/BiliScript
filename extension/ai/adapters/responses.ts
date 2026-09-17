@@ -20,7 +20,14 @@
 //   reasoning.effort（L9）；
 // - L1 加固：function_call 聚合不依赖 output_item.added——arguments delta/done
 //   懒建条目，output_item.done 回填 name/call_id/完整 arguments（兼容端点漏发
-//   added 时调用仍有名字可搜）。
+//   added 时调用仍有名字可搜）；
+// - 终态事件是收束判据（research §2）：连接关闭仍未收到 completed/failed/
+//   incomplete/error → 抛错走 core 读流中断重试（stream-reset），不把截断内容
+//   当成功返回；非流式 status:"failed" 同判抛错；
+// - 思考词表归一：开关型 off 词汇（enable_thinking:false / thinking:{type:
+//   "disabled"}）翻译成 reasoning.effort:"none"（Responses 默认开思考，丢弃会让
+//   off 静默变成默认开）；非官方 effort 值归一（xhigh → high，词表外值丢弃，
+//   软失败优于硬 400）。
 // 聚合形状与 openai/anthropic adapter 同型（DrainResult），编排层零改动。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
@@ -49,6 +56,9 @@ function toResponsesInput(messages: ChatMessage[]): unknown[] {
   const input: unknown[] = [];
   for (const message of messages) {
     if (message.role === "assistant" && message.tool_calls?.length) {
+      // 有意不保留 message.content（若有）：Responses 的 assistant 轮按 Items
+      // 拆开回放，research §1 只钉 function_call 项（与 anthropic adapter 保留
+      // text 块不同——Anthropic 线格式要求 content 与 tool_use 同块）。
       for (const call of message.tool_calls) {
         input.push({ type: "function_call", call_id: call.id, name: call.function.name, arguments: call.function.arguments });
       }
@@ -77,10 +87,24 @@ function toResponsesTools(tools: ChatRequest["tools"]): unknown[] | undefined {
 }
 
 // 思考档位二次改写：chat 形状字段名 → Responses 形状（L9：表不改写，改写在
-// adapter）。只翻译 reasoning_effort → reasoning.effort；enable_thinking /
-// thinking 等 chat-completions 系字段名不属于 Responses 词表，不透传（软失败
-// 优于硬 400）。探针不发：探针 maxTokens=1，reasoning 与过低输出上限并存在
-// 被 400 的风险（对齐 anthropic adapter 探针特化）。
+// adapter）。两类词汇要归一（research 只钉了 effort 改名，实现期补）：
+// - 开关型 off 词汇（enable_thinking:false / thinking:{type:"disabled"}）→
+//   reasoning.effort:"none"：Responses 推理模型默认开思考，直接丢弃会让用户的
+//   「关思考」静默落成服务端默认档（off 变 on）；
+// - effort 值归一到官方词表（none/minimal/low/medium/high）：qwen 系的 xhigh
+//   直通会被 Responses 端 400，映射到 high；词表外值丢弃（软失败优于硬 400）。
+// enable_thinking / thinking 等 chat-completions 系字段名不属于 Responses 词表，
+// 不透传。探针不发：探针 maxTokens=1，reasoning 与过低输出上限并存在被 400
+// 的风险（对齐 anthropic adapter 探针特化）。
+const RESPONSES_EFFORTS = new Set(["none", "minimal", "low", "medium", "high"]);
+
+function normalizeEffort(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  if (RESPONSES_EFFORTS.has(value)) return value;
+  if (value === "xhigh") return "high";
+  return undefined;
+}
+
 function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest): void {
   if (request.probe) return;
   const thinking = resolveThinkingProfile({
@@ -91,8 +115,12 @@ function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest
     stream: request.stream
   });
   const fields = thinking.fields as Record<string, unknown>;
-  if (typeof fields.reasoning_effort === "string") {
-    body.reasoning = { effort: fields.reasoning_effort };
+  const offVocab =
+    fields.enable_thinking === false ||
+    (fields.thinking as { type?: unknown } | undefined)?.type === "disabled";
+  const effort = offVocab ? "none" : normalizeEffort(fields.reasoning_effort);
+  if (effort) {
+    body.reasoning = { effort };
   }
 }
 
@@ -181,6 +209,9 @@ export const responsesAdapter: ProtocolAdapter = {
     let eventName = "";
     let content = "";
     let incomplete = false;
+    // 终态事件是收束判据（research §2）：连接关闭仍未收到终态 → 抛错走 core
+    // 读流中断重试（stream-reset），不把截断内容当成功返回。
+    let sawTerminal = false;
     // 到达顺序即追加顺序（L8 不重排），Map 保留插入序。
     const fragments = new Map<string, FunctionCallFragment>();
 
@@ -272,11 +303,13 @@ export const responsesAdapter: ProtocolAdapter = {
           }
           case "response.completed":
             // 终态：正常收束；done 由调用方（client/map-reduce）收口单发。
+            sawTerminal = true;
             break;
           case "response.incomplete":
-            // 截断（如 max_output_tokens）：落在 finishReason="length"；
+            // 终态：截断（如 max_output_tokens）落在 finishReason="length"；
             // 不发 stopped 事件（收口纪律同 done）。
             incomplete = true;
+            sawTerminal = true;
             break;
           case "response.failed": {
             // 终态失败：抛错走 core 读流中断重试（流式 2 次）；前缀对齐 core
@@ -295,6 +328,12 @@ export const responsesAdapter: ProtocolAdapter = {
           // 事件（web_search_call 等）与未知事件：一律忽略（L1/L7）。
         }
       }
+    }
+
+    // 连接关闭仍未收到终态事件：按读流中断处理（research §2）——抛错让 core
+    // 走流式重试（2 次）+ stream-reset；继续聚合只会把截断内容当成功返回。
+    if (!sawTerminal) {
+      throw new Error("[responses] stream closed before terminal event (completed/failed/incomplete)");
     }
 
     // 聚合的 function_call 按到达顺序吐 tool-call 事件（与 openai/anthropic
@@ -316,6 +355,7 @@ export const responsesAdapter: ProtocolAdapter = {
     // §5），function_call 项回转为 ChatToolCall（research §3）。
     const data = json as {
       status?: unknown;
+      error?: { code?: unknown; message?: unknown };
       output?: Array<{
         type?: string;
         content?: Array<{ type?: string; text?: string }>;
@@ -338,6 +378,13 @@ export const responsesAdapter: ProtocolAdapter = {
           function: { name: item.name ?? "", arguments: item.arguments ?? "{}" }
         });
       }
+    }
+    // 非流式终态失败（HTTP 200 + status:"failed"）：与流内 response.failed 同判
+    // 抛错，不当成功返回（非流式 core 无重试，错误直达调用方错误通道）。
+    if (data.status === "failed") {
+      const code = typeof data.error?.code === "string" ? data.error.code : "response_failed";
+      const message = typeof data.error?.message === "string" ? data.error.message : "";
+      throw new Error(`[responses] ${code}: ${message}`);
     }
     // usage 字段名不同（input/output_tokens）但本扩展不消费（research §5）。
     return {

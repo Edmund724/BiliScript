@@ -153,6 +153,27 @@ describe("buildBody（请求映射，research §1/§3）", () => {
     const body = responsesAdapter.buildBody({ ...base, thinkingLevel: "high", messages: [] });
     expect("reasoning" in body).toBe(false);
   });
+
+  it("开关型 off 词汇归一为 reasoning.effort:\"none\"（Responses 默认开思考，直接丢弃会让 off 变默认开）", () => {
+    // deepseek-v3.2 = deepseek-hybrid-effort：off 词汇是 thinking:{type:disabled}。
+    const deepseek = responsesAdapter.buildBody({
+      ...base, presetId: "deepseek", thinkingLevel: "off", model: "deepseek-v3.2", messages: []
+    });
+    expect(deepseek.reasoning).toEqual({ effort: "none" });
+    // qwen3-max = qwen-hybrid-switch：off 词汇是 enable_thinking:false。
+    const qwen = responsesAdapter.buildBody({
+      ...base, presetId: "qwen", thinkingLevel: "off", model: "qwen3-max", messages: []
+    });
+    expect(qwen.reasoning).toEqual({ effort: "none" });
+  });
+
+  it("effort 值归一：qwen 系 xhigh → high（Responses 官方词表只有 none/minimal/low/medium/high）", () => {
+    // qwen3.8-max = qwen-hybrid-effort：high 档词表产出 reasoning_effort:"xhigh"。
+    const body = responsesAdapter.buildBody({
+      ...base, presetId: "qwen", thinkingLevel: "high", model: "qwen3.8-max", messages: []
+    });
+    expect(body.reasoning).toEqual({ effort: "high" });
+  });
 });
 
 describe("drainStream（SSE 事件映射，research §2）", () => {
@@ -258,6 +279,16 @@ describe("drainStream（SSE 事件映射，research §2）", () => {
       responsesAdapter.drainStream(sseResponse([responsesSseBlock("response.created", {})]), { signal: controller.signal })
     ).rejects.toMatchObject({ aborted: true });
   });
+
+  it("连接关闭未收终态事件 → 抛错走 core 读流中断重试（research §2 收束判据）", async () => {
+    const chunks = [
+      responsesSseBlock("response.output_text.delta", { item_id: "m", delta: "截断" })
+      // 无 completed/failed/incomplete：连接即关闭。
+    ];
+    await expect(
+      responsesAdapter.drainStream(sseResponse(chunks), {})
+    ).rejects.toThrow("[responses] stream closed before terminal event");
+  });
 });
 
 describe("parseResponse（非流式，research §5）", () => {
@@ -285,6 +316,12 @@ describe("parseResponse（非流式，research §5）", () => {
 
   it("缺 output → 空串与合成 finishReason", () => {
     expect(responsesAdapter.parseResponse({})).toEqual({ content: "", toolCalls: [], finishReason: "stop" });
+  });
+
+  it("status failed → 抛错（HTTP 200 终态失败不当成功返回，同流内 response.failed）", () => {
+    expect(() =>
+      responsesAdapter.parseResponse({ status: "failed", error: { code: "server_error", message: "boom" } })
+    ).toThrow("[responses] server_error: boom");
   });
 });
 
