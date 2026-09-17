@@ -660,13 +660,15 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     expect(row.querySelector(".provider-editor-model-result").dataset.state).toBe("loading");
     expect(row.querySelector(".provider-editor-model-test").disabled).toBe(true);
 
-    // 探针直调（新增 id 为空 → providerId 空串，Key 随参数携带），模型取行内值
+    // 探针直调（新增 id 为空 → providerId 空串，Key 随参数携带），模型取行内值，
+    // 协议取表单下拉当前值（multi-protocol-ai）
     await vi.waitFor(() => {
       expect(testAiProviderConnection).toHaveBeenCalledWith({
         providerId: "",
         baseUrl: "https://api.example.com/v1",
         apiKey: "sk-test",
-        model: "gpt-4o-mini"
+        model: "gpt-4o-mini",
+        protocol: "openai"
       });
     });
     await vi.waitFor(() => {
@@ -712,6 +714,26 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     fireClick(row.querySelector(".provider-editor-model-test"));
     expect(row.querySelector(".provider-editor-model-result").title).toBe("请先填写 API 地址");
     expect(testAiProviderConnection).not.toHaveBeenCalled();
+  });
+
+  it("行级测试随表单协议下拉走：切到 Anthropic 探针带 protocol:anthropic（multi-protocol-ai）", async () => {
+    const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
+    const protocolSelect = dialog.querySelector(".provider-editor-protocol");
+    protocolSelect.value = "anthropic";
+    protocolSelect.dispatchEvent(new Event("change"));
+    const row = addModelRowWithValue(dialog, "claude-sonnet-4-5");
+
+    fireClick(row.querySelector(".provider-editor-model-test"));
+
+    await vi.waitFor(() => {
+      expect(testAiProviderConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ protocol: "anthropic" })
+      );
+    });
   });
 
   it("多行并发测试互不阻塞，各行用自己的模型 ID", async () => {

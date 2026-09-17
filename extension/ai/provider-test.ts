@@ -17,6 +17,7 @@
 // 但不再经它拖入 completion 链）。
 
 import { chatCompletion } from "./completion.js";
+import type { AiProtocol } from "./protocol-adapter.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
 import { formatProbeConnectionError } from "../core/provider-store.js";
 import { aiProviderStore } from "../core/ai-provider-store.js";
@@ -42,6 +43,10 @@ export interface TestAiConnectionInput {
   apiKey?: string;
   model?: string;
   presetId?: string;
+  // 平台协议（multi-protocol-ai）：随 provider 记录透传 chatCompletion，端点 /
+  // 鉴权头 / 请求体由 adapter 自然切换（probe 只调度，无协议分支）。缺省/未知值
+  // 由 completion 内 resolveAdapter 兜底 openai。
+  protocol?: string;
 }
 
 export interface TestAiConnectionResult {
@@ -49,7 +54,7 @@ export interface TestAiConnectionResult {
   error?: string;
 }
 
-export async function testAiConnection({ baseUrl, apiKey, model, presetId }: TestAiConnectionInput): Promise<TestAiConnectionResult> {
+export async function testAiConnection({ baseUrl, apiKey, model, presetId, protocol }: TestAiConnectionInput): Promise<TestAiConnectionResult> {
   const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "");
   const normalizedModel = String(model || "").trim();
   if (!normalizedBaseUrl) {
@@ -64,6 +69,7 @@ export async function testAiConnection({ baseUrl, apiKey, model, presetId }: Tes
     apiKey,
     model: normalizedModel,
     presetId,
+    protocol,
     headers: { Accept: "application/json" }
   });
 }
@@ -73,18 +79,18 @@ interface ProbeAiChatCompletionInput {
   apiKey?: string;
   model?: string;
   presetId?: string;
+  protocol?: string;
   headers?: Record<string, string>;
 }
 
-export async function probeAiChatCompletion({ baseUrl, apiKey, model, presetId, headers }: ProbeAiChatCompletionInput): Promise<TestAiConnectionResult> {
+export async function probeAiChatCompletion({ baseUrl, apiKey, model, presetId, protocol, headers }: ProbeAiChatCompletionInput): Promise<TestAiConnectionResult> {
+  // 鉴权头由 adapter.authHeaders 全权负责（各协议不同：Bearer / x-api-key 等），
+  // 本模块不再注入 Authorization——multi-protocol-ai 探针收进 adapter 后的调度化。
   const requestHeaders: Record<string, string> = { ...(headers || { Accept: "application/json" }) };
-  if (apiKey && !requestHeaders.Authorization) {
-    requestHeaders.Authorization = `Bearer ${apiKey}`;
-  }
 
   try {
     await chatCompletion({
-      provider: { baseUrl, apiKey, model, presetId },
+      provider: { baseUrl, apiKey, model, presetId, protocol: protocol as AiProtocol | undefined },
       messages: [{ role: "user", content: "ping" }],
       probe: true,
       headers: requestHeaders,
@@ -103,8 +109,10 @@ export async function probeAiChatCompletion({ baseUrl, apiKey, model, presetId, 
 // options 页「测试」按钮的入口：平铺字段 + providerId，替代原 ai-providers-test
 // 消息在 SW 侧的输入装配（provider-handlers.js pickFlatTestProvider 的契约）——
 // Key 解析优先用户重输的 apiKey，否则按 providerId 从已存 Key 代查，都没有为空串。
+// protocol 同 presetId 穿线：直输（表单协议下拉的当前值）优先，否则按 providerId
+// 从已存记录代查（multi-protocol-ai：探针端点/鉴权随 adapter 切换）。
 // 返回 { ok, error? }，UX 语义与原消息往返完全一致。
-export async function testAiProviderConnection({ providerId, baseUrl, apiKey, model }: { providerId?: string; baseUrl?: string; apiKey?: string; model?: string }): Promise<TestAiConnectionResult> {
+export async function testAiProviderConnection({ providerId, baseUrl, apiKey, model, protocol }: { providerId?: string; baseUrl?: string; apiKey?: string; model?: string; protocol?: string }): Promise<TestAiConnectionResult> {
   // S2 收紧 host_permissions：域名未授权时跨域 fetch 只会以 CORS 失败，探针原样
   // 抛出是「无法连接：Failed to fetch」这类看不出原因的文案，所以先把权限缺失换成
   // 可操作提示，不再发起注定失败的请求，也不读一次 Key 存储。
@@ -114,16 +122,21 @@ export async function testAiProviderConnection({ providerId, baseUrl, apiKey, mo
     return { ok: false, error: HOST_PERMISSION_HINT };
   }
   let resolvedApiKey = String(apiKey || "").trim();
-  // presetId 穿线（02 号票）：按 providerId 从已存列表读记录的 presetId（preset
-  // 词表键，loadProviders 已 normalize），随探针请求下发——host 反代无 host 规则
-  // 时这是思考字段查表的唯一识别线索；读取失败按无 presetId 继续（不阻塞探针）。
+  // presetId / protocol 穿线（02 号票 / multi-protocol-ai）：按 providerId 从已存
+  // 列表读记录字段（presetId 是 preset 词表键，loadProviders 已 normalize）随探针
+  // 请求下发——host 反代无 host 规则时 presetId 是思考字段查表的唯一识别线索，
+  // protocol 决定端点/鉴权/请求体走哪个 adapter；读取失败按缺省继续（不阻塞探针）。
   let resolvedPresetId = "";
+  let resolvedProtocol = String(protocol || "").trim();
   if (providerId) {
     try {
       const record = (await aiProviderStore.loadProviders()).find((item) => item.id === providerId);
       resolvedPresetId = String(record?.presetId || "");
+      if (!resolvedProtocol) {
+        resolvedProtocol = String(record?.protocol || "");
+      }
     } catch (error) {
-      console.warn("读取已存平台 presetId 失败，按无 presetId 继续", error);
+      console.warn("读取已存平台 presetId/protocol 失败，按无 presetId 继续", error);
     }
   }
   if (!resolvedApiKey && providerId) {
@@ -135,5 +148,5 @@ export async function testAiProviderConnection({ providerId, baseUrl, apiKey, mo
       console.warn("读取已存 API Key 失败，按未填写 Key 继续", error);
     }
   }
-  return testAiConnection({ baseUrl, apiKey: resolvedApiKey, model, presetId: resolvedPresetId });
+  return testAiConnection({ baseUrl, apiKey: resolvedApiKey, model, presetId: resolvedPresetId, protocol: resolvedProtocol });
 }

@@ -83,6 +83,9 @@ export async function runModelTest(row: HTMLElement | null): Promise<void> {
     return;
   }
   const apiKey = readField(".provider-editor-apikey");
+  // 协议下拉当前值随探针下发（multi-protocol-ai）：新增/改协议未保存时探针也按
+  // 表单所选协议走 adapter（端点/鉴权自然切换）；未传时探针回落已存记录的协议。
+  const protocol = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value || "";
   const generation = state.generation;
   const token = (Number(row.dataset.testToken) || 0) + 1;
   row.dataset.testToken = String(token);
@@ -98,7 +101,8 @@ export async function runModelTest(row: HTMLElement | null): Promise<void> {
     providerId: state.editingId,
     baseUrl,
     apiKey,
-    model
+    model,
+    protocol
   });
   if (generation !== state.generation || !state.open || !row.isConnected) {
     return; // 过期回执：Modal 已关/已重开或行已删，不打扰

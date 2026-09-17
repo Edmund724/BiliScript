@@ -355,3 +355,141 @@ describe("testAiProviderConnection presetId 穿线", () => {
     expect(JSON.parse(lastRequest().body)).toMatchObject({ reasoning_effort: "none" });
   });
 });
+
+// 协议穿线（multi-protocol-ai 第五部分）：探针只调度——protocol 随 provider 透传
+// chatCompletion，端点/鉴权头/请求体由 adapter 自然切换；本模块无任何协议分支
+//（原手写 Authorization: Bearer 注入已删，鉴权归 adapter.authHeaders）。
+describe("探针协议调度（multi-protocol-ai）", () => {
+  it("protocol:anthropic → 端点 <baseUrl>/v1/messages、x-api-key 鉴权、无 Authorization", async () => {
+    const { probeAiChatCompletion } = await loadModule();
+
+    // anthropic endpoint 自补 /v1 路径：baseUrl 不带 /v1（如 https://api.anthropic.com）
+    const resp = await probeAiChatCompletion({
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-ant",
+      model: "claude-sonnet-4-5",
+      protocol: "anthropic"
+    });
+
+    expect(resp).toEqual({ ok: true });
+    const request = lastRequest();
+    expect(request.url).toBe("https://api.example.com/v1/messages");
+    expect(request.headers["x-api-key"]).toBe("sk-ant");
+    expect(request.headers["anthropic-version"]).toBe("2023-06-01");
+    expect(request.headers.authorization).toBeUndefined();
+    // max_tokens 必填：probe 特化 maxTokens=1 由 core 代劳
+    expect(JSON.parse(request.body)).toMatchObject({ model: "claude-sonnet-4-5", max_tokens: 1 });
+  });
+
+  it("protocol:responses → 端点 /v1/responses、Bearer 鉴权（负载内联 tools 词表无关探针）", async () => {
+    const { probeAiChatCompletion } = await loadModule();
+
+    const resp = await probeAiChatCompletion({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "sk-resp",
+      model: "gpt-5.1",
+      protocol: "responses"
+    });
+
+    expect(resp).toEqual({ ok: true });
+    const request = lastRequest();
+    expect(request.url).toBe("https://api.example.com/v1/responses");
+    expect(request.headers.authorization).toBe("Bearer sk-resp");
+    expect(JSON.parse(request.body)).toMatchObject({ model: "gpt-5.1", store: false });
+  });
+
+  it("未知 protocol 值 → resolveAdapter 兜底 openai（/chat/completions，行为零变化）", async () => {
+    const { probeAiChatCompletion } = await loadModule();
+
+    const resp = await probeAiChatCompletion({
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "sk-1",
+      model: "gpt",
+      protocol: "gemini"
+    });
+
+    expect(resp).toEqual({ ok: true });
+    expect(lastRequest().url).toBe("https://api.example.com/v1/chat/completions");
+    expect(lastRequest().headers.authorization).toBe("Bearer sk-1");
+  });
+
+  it("缺 protocol（存量记录）→ openai：Authorization 仍由 adapter 提供（Bearer sk-1）", async () => {
+    const { probeAiChatCompletion } = await loadModule();
+
+    const resp = await probeAiChatCompletion({ baseUrl: "https://x/v1", apiKey: "sk-1", model: "gpt" });
+
+    expect(resp).toEqual({ ok: true });
+    expect(lastRequest().headers.authorization).toBe("Bearer sk-1");
+  });
+
+  it("testAiProviderConnection：未直传协议 → 按 providerId 代查已存记录的 protocol", async () => {
+    stubChrome({
+      permissions: { contains: vi.fn(async () => true) },
+      storage: {
+        sync: {
+          get: vi.fn(async () => ({
+            aiProviders: [{
+              id: "p1",
+              presetId: "custom",
+              name: "Claude",
+              baseUrl: "https://api.example.com",
+              model: "claude-sonnet-4-5",
+              requiresKey: true,
+              enabled: true,
+              protocol: "anthropic"
+            }]
+          })),
+          set: vi.fn(async () => {})
+        },
+        local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) }
+      }
+    });
+    const { testAiProviderConnection } = await loadModule();
+
+    const resp = await testAiProviderConnection({
+      providerId: "p1",
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-ant",
+      model: "claude-sonnet-4-5"
+    });
+
+    expect(resp).toEqual({ ok: true });
+    expect(lastRequest().url).toBe("https://api.example.com/v1/messages");
+  });
+
+  it("testAiProviderConnection：直传协议优先于已存记录（表单改了协议未保存，探针按表单走）", async () => {
+    stubChrome({
+      permissions: { contains: vi.fn(async () => true) },
+      storage: {
+        sync: {
+          get: vi.fn(async () => ({
+            aiProviders: [{
+              id: "p1",
+              presetId: "custom",
+              name: "旧记录",
+              baseUrl: "https://api.example.com/v1",
+              model: "gpt",
+              requiresKey: true,
+              enabled: true,
+              protocol: "openai"
+            }]
+          })),
+          set: vi.fn(async () => {})
+        },
+        local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) }
+      }
+    });
+    const { testAiProviderConnection } = await loadModule();
+
+    const resp = await testAiProviderConnection({
+      providerId: "p1",
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "sk-1",
+      model: "gpt",
+      protocol: "responses"
+    });
+
+    expect(resp).toEqual({ ok: true });
+    expect(lastRequest().url).toBe("https://api.example.com/v1/responses");
+  });
+});
