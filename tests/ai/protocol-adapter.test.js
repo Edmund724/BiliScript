@@ -2,8 +2,8 @@
 // resolveAdapter 是唯一读路径——缺字段/未知值/非字符串一律兜底 openai（存量
 // 记录零变化）；chatCompletion 经 provider.protocol 穿线到 adapter（端点/鉴权/
 // 请求体随协议切换，core 重试/中止/溢出/探针语义不变）。
-// anthropic 已落地（第二部分，细测见 adapter-anthropic.test.js）；responses 仍为
-// 占位 adapter（第三部分排期），调用即抛清晰错误。
+// anthropic / responses 已落地（第二/三部分，细测见 adapter-anthropic.test.js /
+// adapter-responses.test.js）。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROTOCOL_ADAPTERS, resolveAdapter } from "../../extension/ai/protocol-adapter.js";
@@ -30,17 +30,6 @@ describe("resolveAdapter（协议解析单点）", () => {
     }
   });
 
-  it("未实现协议（responses）的占位 adapter：任何调用都抛带协议名的清晰错误", () => {
-    for (const protocol of ["responses"]) {
-      const adapter = PROTOCOL_ADAPTERS[protocol];
-      expect(adapter.protocol).toBe(protocol);
-      expect(() => adapter.endpoint("https://x")).toThrow(new RegExp(protocol));
-      expect(() => adapter.authHeaders("sk")).toThrow(new RegExp(protocol));
-      expect(() => adapter.buildBody({ model: "m", messages: [], stream: false, probe: false, baseUrl: "https://x" })).toThrow(new RegExp(protocol));
-      expect(() => adapter.extractErrorDetail("{}")).toThrow(new RegExp(protocol));
-      expect(() => adapter.parseResponse({})).toThrow(new RegExp(protocol));
-    }
-  });
 });
 
 describe("协议穿线（chatCompletion → resolveAdapter）", () => {
@@ -83,18 +72,26 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
     expect(body.stream).toBe(false);
   });
 
-  it("provider.protocol 为未实现协议（responses）→ adapter 调用期抛错，不发请求", async () => {
-    const fetchMock = vi.fn();
+  it("provider.protocol 为 responses → /responses + Bearer，无状态请求体形状", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      status: "completed",
+      output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }]
+    }));
 
-    await expect(
-      chatCompletion({
-        provider: { baseUrl: "https://x", model: "m", protocol: "responses" },
-        messages: [],
-        retries: 0,
-        retryDelayMs: 0,
-        fetchImpl: fetchMock
-      })
-    ).rejects.toThrow(/responses/);
-    expect(fetchMock).not.toHaveBeenCalled();
+    await chatCompletion({
+      provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "responses" },
+      messages: [{ role: "system", content: "sys" }, { role: "user", content: "hi" }],
+      fetchImpl: fetchMock
+    });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://api.example.com/v1/responses");
+    expect(init.headers.Authorization).toBe("Bearer sk");
+    const body = JSON.parse(init.body);
+    // system 剥为顶层 instructions；store:false 恒在（无状态形态）。
+    expect(body.instructions).toBe("sys");
+    expect(body.store).toBe(false);
+    expect(body.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "hi" }] }]);
+    expect(body.stream).toBe(false);
   });
 });
