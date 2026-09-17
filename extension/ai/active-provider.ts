@@ -14,6 +14,7 @@
 
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { AiProvider } from "./types.js";
+import type { AiProtocol } from "./protocol-adapter.js";
 
 /**
  * 解析当前应使用的 AI 平台（含 apiKey/baseUrl/model）。
@@ -36,6 +37,9 @@ export async function resolveActiveProvider(): Promise<AiProvider> {
     // presetId 穿线（provider 记录随带）：解释链下游 thinking-profiles 查表的
     // 主识别路径，反代 baseUrl 无 host 规则时是唯一线索。缺失归一为空串
     //（resolver 端回落 host/模型名识别，不臆造平台）。
-    presetId: String(resp.provider?.presetId || "")
+    presetId: String(resp.provider?.presetId || ""),
+    // 协议穿线（multi-protocol-ai）：completion 经 resolveAdapter 收敛到协议
+    // 适配器；非法/缺失值由 resolveAdapter 兜底 openai，此处原样透传。
+    protocol: resp.provider?.protocol as AiProtocol | undefined
   };
 }

@@ -4,6 +4,8 @@
 // （arch-slim-2/09：ASR 域类型 AsrProvider 与 normalizeAsrProvider 已搬
 // asr/asr-provider-normalize.ts；本文件保留跨 context 的预设数据与通用归一化。）
 
+import type { AiProtocol } from "../ai/protocol-adapter.js";
+
 // ===== ASR（语音转写）平台预设 =====
 // 字段含义见 spec.md 第 4 节。type 决定走哪个适配器，共一种：
 //   openai-transcriptions：OpenAI 兼容 multipart 端点（SiliconFlow / 本地 Whisper / 自定义）
@@ -57,6 +59,10 @@ export interface AiProviderPreset {
   name: string;
   baseUrl: string;
   requiresKey: boolean;
+  // 协议默认归属（multi-protocol-ai）：选中预设时编辑 Modal 协议下拉的联动默认值。
+  // 缺省即 openai——15 个预设现状全部 OpenAI compatible，逐平台多协议归属在
+  // 实测后逐个显式填写（preset-protocol-audit）。
+  protocol?: AiProtocol;
 }
 
 export const PRESETS: readonly AiProviderPreset[] = [

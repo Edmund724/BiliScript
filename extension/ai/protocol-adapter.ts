@@ -101,3 +101,13 @@ export function resolveAdapter(protocol: unknown): ProtocolAdapter {
   }
   return PROTOCOL_ADAPTERS.openai;
 }
+
+// ===== 设置 UI 消费词表 =====
+
+// 编辑 Modal 协议下拉的选项词表（展示名给人读；值即 AiProtocol）。
+// 新增协议 = 注册表登记一行 + 此处加一个选项。
+export const PROTOCOL_OPTIONS: ReadonlyArray<{ value: AiProtocol; label: string }> = [
+  { value: "openai", label: "OpenAI 兼容" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "responses", label: "Responses API" }
+];

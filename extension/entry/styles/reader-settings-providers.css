@@ -455,6 +455,19 @@
   display: none;
 }
 
+/* 协议限制点小字（multi-protocol-ai）：表单底部，仅 capabilities.unsupported
+   非空时露出（openai 为空自然隐藏），样式与空目录提示同款 */
+#boc-reading-view .provider-editor-protocol-notes {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--boc-reader-faint);
+}
+
+#boc-reading-view .provider-editor-protocol-notes[hidden] {
+  display: none;
+}
+
 /* 「+ 添加模型」：与设置区 add-property-btn 同款的虚线 pill */
 #boc-reading-view .provider-editor-model-add {
   align-self: flex-start;

@@ -51,6 +51,9 @@ export interface ProviderRowItem {
   enabled?: boolean;
   apiKey?: string;
   hasSavedKey?: boolean;
+  // 平台协议（multi-protocol-ai）：编辑 Modal 预填/回写；宽松 string，合法性
+  // 由编辑 Modal 经注册表词表收敛。
+  protocol?: string;
 }
 
 // 平台预设的结构子集：AiProviderPreset（core/presets）与 AsrProviderPreset
@@ -62,6 +65,8 @@ export interface ProviderRowPreset {
   model?: string;
   type?: string;
   requiresKey?: boolean;
+  // 协议默认归属（multi-protocol-ai）：选中预设时编辑 Modal 协议下拉的联动默认值。
+  protocol?: string;
 }
 
 // 行内状态 <p> 的写入口（wireModelPicker 注入用）：行内状态行已随紧凑形态

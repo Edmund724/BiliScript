@@ -17,6 +17,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { validateAiProviders } from "../core/validators.js";
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
+import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { buildModelPickerField, wireModelPicker } from "./model-picker.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
@@ -75,6 +76,29 @@ export function setBusy(isBusy: boolean): void {
     .forEach((button) => (button.disabled = isBusy));
 }
 
+// ===== 协议助手（multi-protocol-ai 设置 UI 章） =====
+
+// 任意来源的协议值收敛到注册表词表；缺省/未知值兜底 openai（与 resolveAdapter
+// 同口径——存量记录缺 protocol 字段时编辑 Modal 直接显示「OpenAI 兼容」，
+// 无提示，事实即如此）。
+function normalizeProtocolValue(value: unknown): AiProtocol {
+  return typeof value === "string" && value in PROTOCOL_ADAPTERS ? (value as AiProtocol) : "openai";
+}
+
+// 预设的协议默认归属：词表内值原样返回，缺省 openai（15 个预设现状全部
+// OpenAI compatible；逐平台多协议归属实测后由 preset 词表显式填写）。
+function presetProtocol(preset: ProviderRowPreset | null): AiProtocol {
+  return normalizeProtocolValue(preset?.protocol);
+}
+
+// 限制点文案（capabilities.unsupported 的说明串）：表单底部小字，仅非空时
+// 露出（openai 为空自然隐藏）。稳定键不进文案，只给人读的说明。
+function protocolNotes(protocol: unknown): string {
+  const unsupported = resolveAdapter(protocol).capabilities.unsupported;
+  const text = Object.values(unsupported).join("；");
+  return text ? `该协议限制：${text}` : "";
+}
+
 // ===== dirty 快照（拍板 Q6） =====
 
 export function currentSnapshot(): string {
@@ -91,6 +115,10 @@ export function currentSnapshot(): string {
     readField(".provider-editor-name"),
     readField(".provider-editor-baseurl"),
     readField(".provider-editor-apikey"),
+    // AI 协议下拉进快照：切协议即脏（multi-protocol-ai）
+    state.kind === "ai"
+      ? getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value || ""
+      : "",
     modelsPart
   ].join("\u0000");
 }
@@ -195,7 +223,11 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
     requiresKey: preset?.requiresKey !== false,
     enabled: true,
     apiKey,
-    hasSavedKey: state.hasSavedKey
+    hasSavedKey: state.hasSavedKey,
+    // 协议显式落盘（multi-protocol-ai）：存量记录编辑保存即写入显式值
+    protocol: normalizeProtocolValue(
+      getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value
+    )
   };
   // 单平台校验与整表保存共用 validateAiProviders（报文语义一致：baseUrl 格式 /
   // requiresKey 缺 Key / 缺模型名）。校验失败只报状态行，不关 Modal。
@@ -335,6 +367,11 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
   const models = isAi && Array.isArray(item?.models) ? item.models.map(String) : [];
   const model = isAi ? "" : String(item?.model ?? preset?.model ?? "");
+  // 协议下拉：编辑按记录值（存量缺字段/未知值显示「OpenAI 兼容」，无提示，
+  // 事实即如此）；新增回落预设默认归属（现状全 openai）。限制点小字仅
+  // capabilities.unsupported 非空时露出（拍板 05-ui-protocol-selector）。
+  const protocol = normalizeProtocolValue(item?.protocol ?? presetProtocol(preset));
+  const notes = isAi ? protocolNotes(protocol) : "";
 
   return `
     <div class="provider-editor-mask" data-provider-editor-action="close"></div>
@@ -350,6 +387,15 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
             ${presets.map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
           </select>
         </div>
+        ${isAi
+          ? `
+        <div class="provider-editor-field">
+          <label class="provider-editor-label">协议</label>
+          <select class="provider-editor-protocol">
+            ${PROTOCOL_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === protocol ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+          </select>
+        </div>`
+          : ""}
         <div class="provider-editor-field">
           <label class="provider-editor-label">名称</label>
           <input class="provider-editor-name" type="text" placeholder="${escapeHtml(namePlaceholder)}" value="${escapeHtml(nameValue)}" />
@@ -376,7 +422,8 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
           <p class="provider-editor-catalog-error" hidden></p>
           <button type="button" class="provider-editor-model-add" data-provider-editor-action="add-model">+ 添加模型</button>
         </div>
-        <p class="provider-editor-status" hidden></p>`
+        <p class="provider-editor-status" hidden></p>
+        <p class="provider-editor-protocol-notes" ${notes ? "" : "hidden"}>${escapeHtml(notes)}</p>`
           : isSearch
             ? `
         <p class="provider-editor-status" hidden></p>`
@@ -540,6 +587,16 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
       if (apikeyInput) {
         apikeyInput.placeholder = apiKeyPlaceholder("ai", next, state.hasSavedKey);
       }
+      // 协议联动默认归属、允许用户改（拍板 05-ui-protocol-selector）：当前值
+      // 仍是上一预设默认值（或空）才跟随新预设；用户改过的选择不覆盖。
+      // 随协议刷新底部限制点小字。
+      if (protocolSelect) {
+        const currentProtocol = protocolSelect.value;
+        if (!currentProtocol || currentProtocol === presetProtocol(previous)) {
+          protocolSelect.value = presetProtocol(next);
+        }
+        syncProtocolNotes(protocolSelect.value);
+      }
     } else {
       // ASR 名称/模型无条件跟随、Key 清空（平铺行同款）；搜索平台同款语义，
       // 只是无模型字段可跟
@@ -560,6 +617,20 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
     // AI / ASR 一律接管（ADR-0007）：原生 select 的弹层由浏览器绘制，圆角与
     // 高亮都是系统外观，与 Modal 内其余 8px 框/12px 弹层割裂。
     initCustomSelect(presetSelect, "custom-select-wrapper provider-editor-preset-wrapper");
+  }
+
+  // 协议下拉（multi-protocol-ai，仅 AI）：切协议即刷新底部限制点小字。
+  const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol");
+  const syncProtocolNotes = (value: unknown): void => {
+    const notesNode = dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes");
+    if (!notesNode) return;
+    const text = protocolNotes(value);
+    notesNode.hidden = !text;
+    notesNode.textContent = text;
+  };
+  if (protocolSelect) {
+    initCustomSelect(protocolSelect, "custom-select-wrapper provider-editor-protocol-wrapper");
+    protocolSelect.addEventListener("change", () => syncProtocolNotes(protocolSelect.value));
   }
 
   // 输入即清错误状态行（修正输入即清错）；字段级校验态由 :user-invalid CSS

@@ -59,3 +59,27 @@ describe("normalizeAiProvider 模型目录归一化", () => {
     expect(providers).toEqual([]);
   });
 });
+
+describe("normalizeAiProvider 协议字段归一化（multi-protocol-ai）", () => {
+  it("注册表词表内的协议值原样保留", async () => {
+    const providers = await loadProvidersFrom([
+      { id: "p1", name: "x", protocol: "anthropic" },
+      { id: "p2", name: "y", protocol: "responses" },
+      { id: "p3", name: "z", protocol: "openai" }
+    ]);
+    expect(providers[0].protocol).toBe("anthropic");
+    expect(providers[1].protocol).toBe("responses");
+    expect(providers[2].protocol).toBe("openai");
+  });
+
+  it("缺省/未知协议值不落盘字段（读侧 resolveAdapter 兜底 openai，存量记录零变化）", async () => {
+    const providers = await loadProvidersFrom([
+      { id: "p1", name: "x" },
+      { id: "p2", name: "y", protocol: "gemini" },
+      { id: "p3", name: "z", protocol: "" }
+    ]);
+    expect(providers[0]).not.toHaveProperty("protocol");
+    expect(providers[1]).not.toHaveProperty("protocol");
+    expect(providers[2]).not.toHaveProperty("protocol");
+  });
+});

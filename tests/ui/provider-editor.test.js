@@ -326,6 +326,122 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
   });
 });
 
+describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", () => {
+  it("新增 AI：协议下拉默认 OpenAI 兼容、限制点小字隐藏；保存报文写入显式 protocol", async () => {
+    const { sent, host } = await mountPanel({
+      "ai-providers-save": () => ({ ok: true, providers: [] })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    const protocolSelect = dialog.querySelector(".provider-editor-protocol");
+    expect(protocolSelect, "AI Modal 应渲染协议下拉").not.toBeNull();
+    expect(protocolSelect.value).toBe("openai");
+    // openai 的 capabilities.unsupported 为空：限制点小字不露出
+    expect(dialog.querySelector(".provider-editor-protocol-notes").hidden).toBe(true);
+
+    dialog.querySelector(".provider-editor-baseurl").value = "https://api.example.com/v1";
+    dialog.querySelector(".provider-editor-apikey").value = "sk-test";
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    dialog.querySelector(".provider-editor-model-id").value = "gpt-4o-mini";
+    fireClick(dialog.querySelector(".provider-editor-save"));
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
+    });
+    expect(sent.find((message) => message.type === "ai-providers-save").providers[0].protocol).toBe("openai");
+  });
+
+  it("存量记录缺 protocol 字段：编辑显示「OpenAI 兼容」（无提示），保存回写显式值", async () => {
+    const aiItem = { id: "p1", presetId: "custom", name: "我的端点", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
+    const { sent, host } = await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [aiItem] }),
+      "ai-providers-save": () => ({ ok: true, providers: [aiItem] })
+    });
+
+    const row = host.querySelector("#aiProvidersList .ai-provider-row");
+    const { dialog } = await openEditor(host, row.querySelector(".provider-row-edit"));
+
+    expect(dialog.querySelector(".provider-editor-protocol").value).toBe("openai");
+
+    fireClick(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
+    });
+    expect(sent.find((message) => message.type === "ai-providers-save").providers[0].protocol).toBe("openai");
+  });
+
+  it("编辑 anthropic 记录：预填选中且限制点小字露出；切协议小字随之刷新", async () => {
+    const aiItem = { id: "p1", presetId: "custom", name: "claude", baseUrl: "https://api.anthropic.com/v1", models: ["claude-sonnet-4-5"], requiresKey: true, enabled: true, hasSavedKey: true, protocol: "anthropic" };
+    const { host } = await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [aiItem] })
+    });
+
+    const row = host.querySelector("#aiProvidersList .ai-provider-row");
+    const { dialog } = await openEditor(host, row.querySelector(".provider-row-edit"));
+
+    const protocolSelect = dialog.querySelector(".provider-editor-protocol");
+    const notes = dialog.querySelector(".provider-editor-protocol-notes");
+    expect(protocolSelect.value).toBe("anthropic");
+    expect(notes.hidden).toBe(false);
+    expect(notes.textContent).toContain("该协议限制");
+    expect(notes.textContent).toContain("disable_parallel_tool_use");
+
+    // 切 responses：小字换成 responses 的限制说明
+    protocolSelect.value = "responses";
+    protocolSelect.dispatchEvent(new Event("change"));
+    expect(notes.hidden).toBe(false);
+    expect(notes.textContent).toContain("sequence_number");
+
+    // 切回 openai：unsupported 为空，小字收起
+    protocolSelect.value = "openai";
+    protocolSelect.dispatchEvent(new Event("change"));
+    expect(notes.hidden).toBe(true);
+  });
+
+  it("预设切换联动默认归属、允许用户改：未改跟随新预设默认，改过的选择不覆盖", async () => {
+    const presets = [
+      { id: "proxied", name: "代理平台", baseUrl: "https://proxy.example.com/v1", requiresKey: true, protocol: "anthropic" },
+      { id: "custom", name: "自定义", baseUrl: "", requiresKey: true, protocol: "responses" }
+    ];
+    const { host } = await mountPanel({
+      "ai-presets-list": () => ({ ok: true, presets })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    const presetSelect = dialog.querySelector(".provider-editor-preset");
+    const protocolSelect = dialog.querySelector(".provider-editor-protocol");
+    // 新增默认 custom 预设：协议回落该预设默认归属
+    expect(protocolSelect.value).toBe("responses");
+
+    // 当前值仍是上一预设默认 → 跟随 proxied 的默认 anthropic
+    presetSelect.value = "proxied";
+    presetSelect.dispatchEvent(new Event("change"));
+    expect(protocolSelect.value).toBe("anthropic");
+
+    // 用户手动改成 openai → 切预设不覆盖用户选择
+    protocolSelect.value = "openai";
+    protocolSelect.dispatchEvent(new Event("change"));
+    presetSelect.value = "custom";
+    presetSelect.dispatchEvent(new Event("change"));
+    expect(protocolSelect.value).toBe("openai");
+  });
+
+  it("切协议即脏：取消先弹 dirty 确认弹层", async () => {
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    const protocolSelect = dialog.querySelector(".provider-editor-protocol");
+    protocolSelect.value = "responses";
+    protocolSelect.dispatchEvent(new Event("change"));
+
+    fireClick(dialog.querySelector(".provider-editor-cancel"));
+    expect(document.querySelector(".confirm-dialog-confirm"), "切协议应触发 dirty 保护").not.toBeNull();
+    fireClick(document.querySelector(".confirm-dialog-cancel"));
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog-host")).toBeNull());
+    expect(editorGone()).toBe(false);
+  });
+});
+
 describe("provider-editor：头部删除按钮（用户拍板：× 改警示删除，编辑态提供）", () => {
   const aiItem = { id: "p1", presetId: "custom", name: "自定义", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
 
