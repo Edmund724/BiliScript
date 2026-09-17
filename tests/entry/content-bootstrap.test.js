@@ -6,7 +6,11 @@
 //   - 加载失败：promise reject，console.error 现场定位信息带主包路径与扩展
 //     版本（生产上 chunk 加载失败的唯一可观测线索），且缓存清空允许重试；
 //   - 防重复注入：STARTED 标志置位后再次 start 返回 null，不重复 import、
-//     不覆盖哨兵。
+//     不覆盖哨兵；
+//   - 首按钮预取（first-button-ux/04）：loadContentMain 注入 digest-button /
+//     player-ai 的 <link rel="modulepreload">（只下载不执行，importModule 仍
+//     只被主包路径调用）；预取失败 onerror 仅诊断并摘除 link，不阻塞主链，
+//     主包失败重试时重新注入。
 //
 // 动态 import 无法直接 stub，生产实现的 importModule 默认参数是真实 import()；
 // 测试经工厂依赖注入 fake getExtensionUrl / importModule 代替。源模块顶层的
@@ -21,6 +25,7 @@ import { resetModuleState } from "../setup.js";
 
 import {
   CONTENT_MAIN_MODULE_PATH,
+  PRELOAD_MODULE_PATHS,
   startContentBootstrap
 } from "../../extension/entry/content-bootstrap.js";
 
@@ -29,6 +34,14 @@ const fakeGetExtensionUrl = (modulePath) => `chrome-extension://fake-id/${module
 function cleanGlobals() {
   delete globalThis.__BOC_CONTENT_BOOTSTRAP_STARTED__;
   delete globalThis.__BOC_CONTENT_SCRIPT_LOADED__;
+}
+
+// bootstrap 注入的预取 link 是 document 级副作用，用例间必须清干净，
+// 否则上个用例残留的 link 会让「注入条数」类断言互相污染。
+function cleanPreloadLinks() {
+  document.head
+    .querySelectorAll('link[rel="modulepreload"]')
+    .forEach((link) => link.remove());
 }
 
 beforeEach(() => {
@@ -42,12 +55,14 @@ beforeEach(() => {
   // 断言不受影响），用例只测工厂注入路径。
   resetModuleState();
   cleanGlobals();
+  cleanPreloadLinks();
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   cleanGlobals();
+  cleanPreloadLinks();
 });
 
 describe("startContentBootstrap", () => {
@@ -135,5 +150,96 @@ describe("startContentBootstrap", () => {
     // 哨兵不被第二次注入覆盖，importModule 也未被新的闭包再次调用
     expect(globalThis.__BOC_CONTENT_SCRIPT_LOADED__).toBe(sentinelBefore);
     expect(importModule).toHaveBeenCalledTimes(1);
+  });
+
+  it("预取：loadContentMain 注入 digest-button / player-ai 的 modulepreload，与主包下载并行且只下载不执行", async () => {
+    const mainNamespace = { default: "main" };
+    const importModule = vi.fn().mockResolvedValue(mainNamespace);
+    const { loadContentMain } = startContentBootstrap({
+      getExtensionUrl: fakeGetExtensionUrl,
+      importModule
+    });
+
+    await loadContentMain();
+
+    // modulepreload 只下载不执行：importModule 仍只被主包路径调用一次，
+    // 按钮 chunk 不得经 importModule 提前执行（装载时序归主包尾部 loader）。
+    expect(importModule).toHaveBeenCalledTimes(1);
+    expect(importModule).toHaveBeenCalledWith(
+      fakeGetExtensionUrl(CONTENT_MAIN_MODULE_PATH)
+    );
+
+    const links = document.head.querySelectorAll('link[rel="modulepreload"]');
+    expect(links).toHaveLength(PRELOAD_MODULE_PATHS.length);
+    const hrefs = [...links].map((link) => link.getAttribute("href"));
+    expect(hrefs).toEqual(
+      PRELOAD_MODULE_PATHS.map((modulePath) => fakeGetExtensionUrl(modulePath))
+    );
+  });
+
+  it("重复 loadContentMain 不重复注入预取 link", async () => {
+    const importModule = vi.fn().mockResolvedValue({ default: "main" });
+    const { loadContentMain } = startContentBootstrap({
+      getExtensionUrl: fakeGetExtensionUrl,
+      importModule
+    });
+
+    await Promise.all([loadContentMain(), loadContentMain()]);
+
+    expect(
+      document.head.querySelectorAll('link[rel="modulepreload"]')
+    ).toHaveLength(PRELOAD_MODULE_PATHS.length);
+  });
+
+  it("预取失败不阻塞主链：onerror 仅诊断并摘除 link，loadContentMain 仍解析", async () => {
+    const mainNamespace = { default: "main" };
+    const importModule = vi.fn().mockResolvedValue(mainNamespace);
+    const { loadContentMain } = startContentBootstrap({
+      getExtensionUrl: fakeGetExtensionUrl,
+      importModule
+    });
+
+    const pending = loadContentMain();
+    const links = document.head.querySelectorAll('link[rel="modulepreload"]');
+    links.forEach((link) => link.dispatchEvent(new Event("error")));
+
+    await expect(pending).resolves.toBe(mainNamespace);
+    expect(console.error).toHaveBeenCalledTimes(links.length);
+    const logged = console.error.mock.calls.map((call) => call.map(String).join(" "));
+    PRELOAD_MODULE_PATHS.forEach((modulePath) => {
+      expect(logged.some((line) => line.includes(modulePath))).toBe(true);
+    });
+    expect(logged[0]).toContain("extension v");
+    // 失败的 link 被摘除，不在 head 里堆积
+    expect(
+      document.head.querySelector('link[rel="modulepreload"]')
+    ).toBeNull();
+  });
+
+  it("失败可重试：主包加载失败且预取 link 已摘除后，再次触发重新注入预取", async () => {
+    const failure = new Error("Failed to fetch dynamically imported module");
+    const mainNamespace = { default: "main" };
+    const importModule = vi
+      .fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(mainNamespace);
+    const { loadContentMain } = startContentBootstrap({
+      getExtensionUrl: fakeGetExtensionUrl,
+      importModule
+    });
+
+    await expect(loadContentMain()).rejects.toBe(failure);
+    // 模拟预取同样失败：onerror 摘除全部预取 link
+    document.head
+      .querySelectorAll('link[rel="modulepreload"]')
+      .forEach((link) => link.dispatchEvent(new Event("error")));
+    expect(
+      document.head.querySelector('link[rel="modulepreload"]')
+    ).toBeNull();
+
+    await expect(loadContentMain()).resolves.toBe(mainNamespace);
+    expect(
+      document.head.querySelectorAll('link[rel="modulepreload"]')
+    ).toHaveLength(PRELOAD_MODULE_PATHS.length);
   });
 });

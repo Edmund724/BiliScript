@@ -6,9 +6,10 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import {
-  DEFAULT_SETTINGS,
   DEFAULT_AI_SYSTEM_PROMPT,
+  DEFAULT_INITIAL_QUICK_PROMPTS,
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
@@ -16,7 +17,7 @@ import {
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2
-} from "../../extension/core/defaults.js";
+} from "../../extension/core/default-prompts.js";
 
 let syncGetMock;
 let syncSetMock;
@@ -104,6 +105,25 @@ describe("normalizeSettings 纯函数", () => {
     }
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, playerAiQuickPrompt: "按章节整理内容" }).playerAiQuickPrompt).toBe("按章节整理内容");
   });
+
+  // defaults 拆分（first-button-ux/03）：DEFAULT_SETTINGS 的 prompt 字段是空占位，
+  // 读路径归一化必须回落当前默认——新装/缺键不能得到空串/空数组。
+  it("新装缺键：空占位 prompt 字段经归一化回落当前默认，不落空串/空数组", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    const out = normalizeSettings({ ...DEFAULT_SETTINGS });
+    expect(out.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(out.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+    expect(out.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+  });
+
+  // 「清空 prompt 保存 = 恢复默认」：用户把提示词清空后保存，空串（含纯空白）
+  // 经归一化改写回当前默认（与 LEGACY 映射同机制，落盘即当前默认文本）。
+  it("清空保存：aiSystemPrompt/playerAiQuickPrompt 空串回落当前默认", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    const out = normalizeSettings({ ...DEFAULT_SETTINGS, aiSystemPrompt: "  ", playerAiQuickPrompt: "" });
+    expect(out.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(out.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+  });
 });
 
 describe("normalizeSettings 是唯一归一化路径", () => {
@@ -136,6 +156,24 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     expect(syncSetMock).toHaveBeenCalledTimes(1);
     expect(syncSetMock.mock.calls[0][0]).toEqual(normalizeSettings(payload));
     expect(syncSetMock.mock.calls[0][0].aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+  });
+
+  // 写路径同款：清空后的空串/空数组不落盘为占位值，落盘即当前默认。
+  it("写路径：清空的 prompt 落盘为当前默认而非空串/空数组", async () => {
+    const { saveSettings } = await loadStoreModule();
+
+    await saveSettings({
+      ...DEFAULT_SETTINGS,
+      aiSystemPrompt: "",
+      playerAiQuickPrompt: "",
+      aiInitialQuickPrompts: []
+    });
+
+    expect(syncSetMock).toHaveBeenCalledTimes(1);
+    const persisted = syncSetMock.mock.calls[0][0];
+    expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+    expect(persisted.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
   });
 });
 
@@ -176,5 +214,21 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
     const persisted = syncSetMock.mock.calls[0][0];
     expect(persisted.downloadFormat).toBe("srt");
     expect(persisted.aiThinkingLevel).toBe("high");
+  });
+
+  // 新装路径：sync.get 原样返回 DEFAULT_SETTINGS（prompt 字段为空占位），迁移
+  // 落盘的必须是当前默认文本，不能是空串/空数组。
+  it("onInstalled 新装迁移：空占位 prompt 落盘为当前默认，不产生空串", async () => {
+    await import("../../extension/entry/background.js");
+    const onInstalledListener = chrome.runtime.onInstalled.addListener.mock.calls[0][0];
+    syncGetMock.mockImplementation(async (defaults) => ({ ...defaults }));
+
+    await onInstalledListener();
+
+    expect(syncSetMock).toHaveBeenCalledTimes(1);
+    const persisted = syncSetMock.mock.calls[0][0];
+    expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+    expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
+    expect(persisted.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
   });
 });

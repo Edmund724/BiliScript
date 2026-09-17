@@ -1,7 +1,5 @@
-import {
-  DEFAULT_SETTINGS,
-  DEFAULT_PLAYER_AI_QUICK_PROMPT
-} from "../core/defaults.js";
+import { DEFAULT_SETTINGS } from "../core/defaults.js";
+import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../core/default-prompts.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
 import { normalizePlayerAiQuickPrompt } from "../core/validators.js";
 import { buildReaderModeUrl, isSupportedBilibiliPage } from "../bilibili/video-id-shared.js";

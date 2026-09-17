@@ -1,6 +1,6 @@
 // 把 content.js 传来的 context 拼成 chat messages，并提供建议 chip 模板。
 
-import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/defaults.js";
+import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/default-prompts.js";
 import { SEGMENT_INPUT_CHARS } from "./budgeter.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
 import type { AiContext, ChatMessage, HotComment } from "./types.js";

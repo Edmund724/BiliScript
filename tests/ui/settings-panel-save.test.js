@@ -29,7 +29,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
+import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
+import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
 
 // AI 探针 mock：测试连接按钮直调 provider-test（不经 SW 消息），固定成功
 vi.mock("../../extension/ai/provider-test.js", () => ({
@@ -414,8 +415,8 @@ describe("恢复默认偏好按钮", () => {
       .map((message) => message.settings);
     const resetPayload = payloads.find((settings) => settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT);
     expect(resetPayload).toBeDefined();
-    // 偏好键面：aiSystemPrompt 落当前默认，快捷提示词/开关也在载荷里
-    expect(resetPayload.playerAiQuickPrompt).toBe(DEFAULT_SETTINGS.playerAiQuickPrompt);
+    // 偏好键面：aiSystemPrompt/playerAiQuickPrompt 落当前默认文本，快捷提示词/开关也在载荷里
+    expect(resetPayload.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(resetPayload.enablePlayerAiQuickAction).toBe(DEFAULT_SETTINGS.enablePlayerAiQuickAction);
     // 平台域配置（模型选择 / ASR 标量）与迁移旗标不参与重置
     expect(resetPayload).not.toHaveProperty("defaultModel");

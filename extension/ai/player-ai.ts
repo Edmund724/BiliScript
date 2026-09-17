@@ -57,11 +57,17 @@ let playerAiQuickActionCursorSync: CursorSync | null = null;
 
 // 已挂载就位记录（性能工单）：sync 挂载成功时记下 (wrap, host)。
 // 背景：播放中 B 站进度条 width 与弹幕持续改动播放器子树，回调排 rAF 后 sync
-// 每帧都要全量跑字幕控件门（多个 querySelectorAll，逐候选读 aria-label /
-// title / data-text / textContent / className，候选可达数百）。按钮已挂载且
-// 宿主未变时该门结果稳定，跳过它——这份记录就是跳过的依据。
+// 每帧都要全量跑宿主复判与挂载结构检查（多个 querySelectorAll + 逐候选读
+// aria-label / title / data-text / textContent / className，候选可达数百）。
+// 按钮已挂载且宿主未变时该判定结果稳定，跳过它——这份记录就是跳过的依据。
 let playerAiQuickActionMountedWrap: HTMLElement | null = null;
 let playerAiQuickActionMountedHost: HTMLElement | null = null;
+
+// 字幕控件校准信号（工单 first-button-ux/01）：控件不再是挂载硬门，降级为
+// 「首次就绪后一次性位置复校」——控制条水合可能改变容器几何导致按钮漂移，
+// 复校把挂载路径全量重跑一遍（宿主复判 + 视觉重写）。只在首次控件就绪时
+// 跑一次；未校准前每次 sync 都要扫控件（装载窗口内的固有开销，控件就绪即停）。
+let playerAiSubtitleControlCalibrated = false;
 
 // 样式常量提升到模块级：挂载时写入与「是否已在位」的幂等探测共用同一组值。
 // 三个值都是常量，不随全屏/宽屏等播放器状态变化（现状也是每次写同一组字面量）；
@@ -105,7 +111,7 @@ function isPlayerAiQuickActionVisualsCurrent(button: HTMLElement): boolean {
 }
 
 // 属性记录（进度条 width / class 抖动）与全量 sync 的共用入口：已就位就只
-// 校准按钮样式（幂等探测，值在位时零写入），不碰字幕门、挂载结构与新建节点；
+// 校准按钮样式（幂等探测，值在位时零写入），不碰校准扫描、挂载结构与新建节点；
 // 返回 false 表示未就位，调用方按各自口径落回全量路径（观察器侧排一次帧内
 // 快车道，sync 侧继续往下走完整流程）——装载窗口的行为与短路前一致。
 function tryRefreshPlayerAiQuickActionVisuals(): boolean {
@@ -297,8 +303,8 @@ function schedulePlayerAiQuickActionRetry(): void {
     return;
   }
   // 退避节奏加密（工单 button-injection-stability/01）：首拍 100ms、步进
-  // +100ms、封顶 1s（原 260ms 起步 / 2.5s 封顶——视频已出而字幕控件未渲染时
-  // 按钮最坏以 2.5s 步长干等）。字幕控件门语义不变，只加密重试节拍。
+  // +100ms、封顶 1s（原 260ms 起步 / 2.5s 封顶——播放器容器未就绪时按钮最坏
+  // 以 2.5s 步长干等）。宿主门语义不变，只加密重试节拍。
   const delay = Math.min(100 * (playerAiQuickActionRetryCount + 1), 1000);
   playerAiQuickActionRetryCount += 1;
   schedulePlayerAiQuickActionSync(delay);
@@ -312,9 +318,18 @@ function syncPlayerAiQuickActionButton(): void {
     return;
   }
 
-  // 已就位短路（性能工单）：按钮在原位且宿主判定仍是它时，跳过字幕控件扫描
-  // （多个 querySelectorAll + 逐候选读属性）——播放中每帧回调的主要开销。只留
-  // 幂等的视觉校准（值已在位则零写入）。失同步自愈不受影响：按钮被 B 站摘掉后
+  // 字幕控件校准信号（工单 first-button-ux/01）：未校准且控件已就绪 → 一次性
+  // 复校（清就位记录，落回下方全量路径重判宿主 + 重写视觉），防控制条水合
+  // 改变容器几何导致按钮漂移。须在已就位短路之前：复校的触发场景正是按钮
+  // 已稳定就位、短路本会拦住全量路径。
+  if (!playerAiSubtitleControlCalibrated && findPlayerSubtitleControlNode()) {
+    playerAiSubtitleControlCalibrated = true;
+    clearPlayerAiQuickActionMountRecord();
+  }
+
+  // 已就位短路（性能工单）：按钮在原位且宿主判定仍是它时，跳过下方全量挂载
+  // 路径（宿主复判与结构重建）——播放中每帧回调的主要开销。只留幂等的视觉
+  // 校准（值已在位则零写入）。失同步自愈不受影响：按钮被 B 站摘掉后
   // wrap.isConnected / 宿主记录即失效，本短路不成立，落到下方原有路径走
   // rAF / 退避重试补回。
   if (tryRefreshPlayerAiQuickActionVisuals()) {
@@ -327,11 +342,6 @@ function syncPlayerAiQuickActionButton(): void {
 
   const existing = document.getElementById("boc-player-ai-quick-action");
   const existingWrap = existing?.closest(".boc-player-ai-wrap");
-  if (!hasPlayerSubtitleControl()) {
-    removePlayerAiQuickActionButton();
-    schedulePlayerAiQuickActionRetry();
-    return;
-  }
 
   const playerHost = findPlayerAiQuickActionHost();
   if (!playerHost) {
@@ -460,10 +470,8 @@ function unbindPlayerAiQuickActionCursorSync(): void {
   playerAiQuickActionCursorSync = null;
 }
 
-function hasPlayerSubtitleControl(): boolean {
-  return Boolean(findPlayerSubtitleControlNode());
-}
-
+// 字幕控件探测：工单 first-button-ux/01 起只服务校准信号（首次就绪一次性
+// 复校），不再是挂载硬门——宿主门（findPlayerAiQuickActionHost）过即挂。
 function findPlayerSubtitleControlNode(): Element | null {
   const controlRoots = Array.from(
     document.querySelectorAll(

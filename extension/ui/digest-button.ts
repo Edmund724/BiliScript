@@ -10,11 +10,14 @@
 // syncDigestButton）——视图关闭后把按钮补回来、视图壳被页面重渲染摘走或进入
 // 链半途失败时自动恢复，这些失同步在直达路径同样可能发生。
 //
-// 与 player-ai 的有意差异：工具栏按钮场景用定时自查而非 MutationObserver——
-// 观察 body 时弹幕每飘一条都是变更事件，白烧 CPU 且防抖等不到空档；定时器
-// 顺带覆盖 SPA 换页（不触发事件）。（收窄版观察器见 bindToolbarObserver：
-// 只观察工具栏宿主子树，弹幕/播放器变更不入观——宿主在位后「稿件举报」
-// 的插入经它同步感知，按钮与它同拍落位，不再等下一拍。）
+// 与 player-ai 的有意差异：工具栏按钮场景以定时自查为节拍底座——SPA 换页
+// 不触发事件，失同步恢复（RESTORE_CONFIRM_TICKS 连击确认）也要连续拍，定时
+// 器顺带覆盖两者。宿主出现的即时感知由观察器承担（bindToolbarObserver 两
+// 档：失锚期挂稳定祖先 body——工具栏宿主会被整棵替换、无处窄挂；宿主在场
+// 收窄到宿主子树，弹幕/播放器变更不入观）。失锚期 tick 只做单选择器轻探测，
+// findComplaintNode 全树扫描只在宿主在场后运行（02 失锚期事件化）——宽档
+// 回调走完整自查，落入失锚期轻探测分支后，弹幕级 childList 抖动一拍只付
+// 一次选择器查询，不重跑全树扫描。
 //
 // 点击行为：不发 background 消息。直接构造 reader-enter 消息交给
 // content 侧处理器（entry/message-handler.ts 已实现的阅读模式进入路径，
@@ -264,10 +267,16 @@ export function injectDigestButton(): void {
     anchorGraceWaitLogged = false;
     return;
   }
-  const complaint = findComplaintNode();
-  // 全量路径（本来就扫过宿主）顺带重建观察器绑定：宿主在位后「稿件举报」的
-  // 插入不再等自查节拍（见 bindToolbarObserver 注）。
-  bindToolbarObserver();
+  // 失锚期轻探测（02 事件化）：宿主缺席 ⇒ 「稿件举报」必无（多信号判定的
+  // 全局 [class*='complaint'] 兜底也只在宿主在场后跑），一拍只付一次单选
+  // 择器查询，不跑 findComplaintNode 的全树扫描。
+  const hostPresent = document.querySelector(TOOLBAR_HOST_SELECTOR) !== null;
+  // 观察器维护：挂点失活（宿主被整棵换掉）或档位与宿主有无不符（宿主刚
+  // 出现/消失）即重挂——宿主出现的即时感知由观察器承担，tick 退为兜底。
+  if (!isToolbarObserverActive() || toolbarObserverWide === hostPresent) {
+    bindToolbarObserver();
+  }
+  const complaint = hostPresent ? findComplaintNode() : null;
 
   if (complaint && complaint.parentElement) {
     if (anchorPhase !== "anchor") {
@@ -369,20 +378,28 @@ export function removeDigestButton(): void {
 
 // ===== 工具栏宿主即时注入观察器 =====
 //
-// 200ms 自查只兜底「工具栏宿主尚未出现」（宿主插入是低频一次性事件，tick
-// 探到即可）；宿主在位后，「稿件举报」由 Vue 水合/重渲染插进工具栏的时刻经
-// MutationObserver 微任务级同步感知——按钮与它同拍落位。观察范围刻意收窄到
-// 工具栏宿主子树：观察 body 会被弹幕打爆（见文件头「与 player-ai 的有意
-// 差异」注），工具栏自身变更是低频事件，零防抖直调自查也无压力。
+// 宿主出现的感知与宿主内的变更感知分两档（02 失锚期事件化）：
+//   - 窄档（宿主在场）：观察工具栏宿主子树，「稿件举报」由 Vue 水合/重渲染
+//     插进的时刻微任务级同步感知——按钮与它同拍落位；观察范围刻意收窄，
+//     弹幕/播放器变更不入观（见文件头「与 player-ai 的有意差异」注）；
+//   - 宽档（失锚期，宿主未出现）：工具栏宿主 #arc_toolbar_report /
+//     .video-toolbar-container 会被 B 站整棵替换，观察器无处窄挂，退到稳定
+//     祖先 body——宿主整棵出现的时刻由它感知。200ms tick 在失锚期只做轻
+//     探测（见 injectDigestButton），宿主出现的即时性感知由本观察器承担。
 //
-// 回调走完整自查而非直接注入：视图接管（按钮恒摘除）、失同步自愈等守卫口径
-// 全部收口在 syncDigestButton，观察器不自带第二套判定。
+// 回调走完整自查而非直接注入：视图接管（按钮恒摘除）、失同步自愈等守卫
+// 口径全部收口在 syncDigestButton，观察器不自带第二套判定；失锚期自查落入
+// 轻探测分支，高频 childList 抖动（弹幕飘过等）一拍只付一次选择器查询。
 //
-// 重绑时机：只在注入全量路径（本来就扫过宿主）里重建绑定，健康态零扫描早退
-// 不触碰；宿主被整棵换掉后旧观察器自然失活，下一次全量路径（≤200ms 的自查
-// 兜底）换绑新宿主。
+// 重绑时机：观察器目标失活（宿主被整棵换掉，窄档旧挂点断连——宽档 body
+// 恒活）或档位与宿主有无不符时，下一拍全量路径（≤200ms 的自查兜底）重挂；
+// 健康态零扫描早退不触碰。
 const TOOLBAR_HOST_SELECTOR = "#arc_toolbar_report, .video-toolbar-container";
 let toolbarObserver: MutationObserver | null = null;
+// 当前挂点集合（失活检测用）：窄档为工具栏宿主列表，宽档为 body。
+let toolbarObserverTargets: Element[] = [];
+// 当前档位：true=宽档（宿主缺席，挂稳定祖先）。
+let toolbarObserverWide = false;
 
 function onToolbarMutation(): void {
   syncDigestButton();
@@ -396,18 +413,30 @@ function bindToolbarObserver(): void {
     toolbarObserver = new MutationObserver(onToolbarMutation);
   }
   toolbarObserver.disconnect();
+  toolbarObserverTargets = [];
   const hosts = document.querySelectorAll(TOOLBAR_HOST_SELECTOR);
-  if (hosts.length === 0) {
+  toolbarObserverWide = hosts.length === 0;
+  if (toolbarObserverWide) {
+    toolbarObserver.observe(document.body, { childList: true, subtree: true });
+    toolbarObserverTargets = [document.body];
     return;
   }
   for (const host of hosts) {
     toolbarObserver.observe(host, { childList: true, subtree: true });
+    toolbarObserverTargets.push(host);
   }
+}
+
+// 观察器目标失活检测：窄档宿主被整棵换掉后旧挂点全部断连（isConnected 假），
+// 下一拍全量路径据此重挂新宿主；宽档 body 恒活。
+function isToolbarObserverActive(): boolean {
+  return toolbarObserverTargets.some((target) => target.isConnected);
 }
 
 function unbindToolbarObserver(): void {
   toolbarObserver?.disconnect();
   toolbarObserver = null;
+  toolbarObserverTargets = [];
 }
 
 // 「稿件举报」多信号判定（02 加固；kimi-webbridge 2026-09-09 实地：现行 DOM

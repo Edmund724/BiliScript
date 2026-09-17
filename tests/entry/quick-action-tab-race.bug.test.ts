@@ -35,7 +35,7 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
-import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/defaults.js";
+import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 import type { MessageSender, SendResponse } from "../../extension/shared/messaging-protocol.js";
 

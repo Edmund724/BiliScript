@@ -7,7 +7,7 @@
 // 收拢为一个可变状态对象，chat/* 子模块与 sidepanel.js（过渡期组合根）直接
 // import 它，deps 里只剩 UI/transport 回调、storage 抽象与常量。
 //
-// 依赖方向（无环）：本文件是零依赖叶子——唯一 import 是 ../core/defaults.js
+// 依赖方向（无环）：本文件是零依赖叶子——唯一 import 是 ../core/default-prompts.js
 // 的纯常量（DEFAULT_INITIAL_QUICK_PROMPTS / DEFAULT_PRESET_PROMPTS，纯数据无
 // 逻辑），用于给出 aiPrefs 的初始值；AiContext 类型仅供编译期（import type，
 // 运行时零依赖）。sidepanel.js / conversation-store.ts / chat-runtime.ts 单向
@@ -21,7 +21,7 @@
 // 测试注意：本对象是模块级单例，测试里若配合 vi.resetModules 切换模块纪元，
 // 需重新 import 本模块取新鲜实例；单纪元内复用时请在 beforeEach 手动重置字段。
 
-import { DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_PRESET_PROMPTS } from "../core/defaults.js";
+import { DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_PRESET_PROMPTS } from "../core/default-prompts.js";
 import type { AiContext } from "../ai/types.js";
 
 // 上下文快照 = ContextFetch 全量 payload 的落地形态（core/context-assembly

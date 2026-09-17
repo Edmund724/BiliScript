@@ -27,9 +27,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
 
+// 本文件最后一个加载的模块实例：afterEach 用它断观察器。失锚期宽档观察器
+// 挂在 body 上，不随 innerHTML 清空而失活，不断掉会让上一用例的回调在
+// 下一用例的 DOM 里空转（02 失锚期事件化后出现的宽档挂点）。
+let loadedDigestButton = null;
+
 async function loadModule() {
   const lazy = await import("../../extension/ui/lazy-digest-button.js");
-  return lazy.loadDigestButton();
+  loadedDigestButton = await lazy.loadDigestButton();
+  return loadedDigestButton;
 }
 
 function makeToolbarHtml({ withComplaint = true } = {}) {
@@ -59,6 +65,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  loadedDigestButton?.removeDigestButton();
+  loadedDigestButton = null;
   document.body.innerHTML = "";
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -434,5 +442,117 @@ describe("digest-button 幂等与自查", () => {
     await vi.advanceTimersByTimeAsync(201);
 
     expect(button.nextElementSibling.className).toBe("video-complaint");
+  });
+});
+
+describe("digest-button 失锚期事件化（02）", () => {
+  it("失锚期 tick 只做轻探测：宿主缺席时一拍不跑全树扫描", async () => {
+    // 02：失锚期（init 首载窗 / 浮动层期）每拍主线程成本降为一次单选择器
+    // 查询——findComplaintNode 的宿主全量 querySelectorAll + 全局
+    // [class*='complaint'] 兜底不得运行（它在宿主缺席时必无所获）。
+    document.body.innerHTML = `${makePlayerHtml()}<video src="blob:test"></video>`;
+
+    await loadModule();
+
+    const docAll = vi.spyOn(document, "querySelectorAll");
+    const elementAll = vi.spyOn(Element.prototype, "querySelectorAll");
+    const docQuery = vi.spyOn(document, "querySelector");
+    await vi.advanceTimersByTimeAsync(3 * 201);
+
+    expect(docAll).not.toHaveBeenCalled();
+    expect(elementAll).not.toHaveBeenCalled();
+    // 轻探测：单次 querySelector 直接探工具栏宿主。
+    expect(
+      docQuery.mock.calls.some((args) => args[0] === "#arc_toolbar_report, .video-toolbar-container")
+    ).toBe(true);
+  });
+
+  it("宿主晚出现：稳定祖先观察器微任务感知，0ms 落①位不等 200ms 节拍", async () => {
+    // 首载加载中：工具栏宿主整个未渲染（init 等待窗内）。宿主出现后感知
+    // 走观察器（失锚期挂稳定祖先 body），按钮与宿主同拍落位。
+    document.body.innerHTML = `${makePlayerHtml()}<video src="blob:test"></video>`;
+
+    await loadModule();
+    expect(document.getElementById("boc-digest-button")).toBeNull();
+
+    const right = document.createElement("div");
+    right.className = "video-toolbar-right";
+    const complaint = document.createElement("div");
+    complaint.className = "video-complaint";
+    complaint.textContent = "稿件举报";
+    right.appendChild(complaint);
+    const host = document.createElement("div");
+    host.id = "arc_toolbar_report";
+    host.appendChild(right);
+    document.body.appendChild(host);
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    const button = document.getElementById("boc-digest-button");
+    expect(button).not.toBeNull();
+    expect(button.parentElement).toBe(right);
+    expect(button.nextElementSibling).toBe(complaint);
+  });
+
+  it("宿主整棵替换：目标失活后下一拍归位新宿主，观察器重挂新宿主子树", async () => {
+    document.body.innerHTML = `${makeToolbarHtml()}${makePlayerHtml()}<video src="blob:test"></video>`;
+
+    await loadModule();
+
+    const oldHost = document.getElementById("arc_toolbar_report");
+    const oldRight = oldHost.querySelector(".video-toolbar-right");
+    expect(document.getElementById("boc-digest-button").parentElement).toBe(oldRight);
+
+    // B 站重渲染：工具栏宿主整棵换新（按钮随旧宿主一并被摘走，窄档观察器
+    // 挂点断连，靠下一拍的目标失活检测重挂）。
+    const newHost = document.createElement("div");
+    newHost.id = "arc_toolbar_report";
+    newHost.innerHTML =
+      '<div class="video-toolbar-right"><div class="video-complaint"><span>稿件举报</span></div><div class="video-note"></div></div>';
+    oldHost.replaceWith(newHost);
+    const newRight = newHost.querySelector(".video-toolbar-right");
+    const firstComplaint = newHost.querySelector(".video-complaint");
+
+    await vi.advanceTimersByTimeAsync(201);
+    const button = document.getElementById("boc-digest-button");
+    expect(button).not.toBeNull();
+    expect(button.parentElement).toBe(newRight);
+    expect(button.nextElementSibling).toBe(firstComplaint);
+
+    // 观察器已重挂新宿主子树：新一轮「只换举报节点」的重渲染 0ms 内被
+    // 感知（若仍挂在断连的旧宿主上，这一步要等下一拍）。
+    const secondComplaint = document.createElement("div");
+    secondComplaint.className = "video-complaint";
+    secondComplaint.textContent = "稿件举报";
+    firstComplaint.replaceWith(secondComplaint);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.getElementById("boc-digest-button").nextElementSibling).toBe(secondComplaint);
+  });
+
+  it("失锚→归锚迁移：浮动层期宿主整棵出现，观察器 0ms 感知即升回①位", async () => {
+    document.body.innerHTML = `${makePlayerHtml()}<video src="blob:test"></video>`;
+
+    await loadModule();
+
+    // 首载等待窗耗尽 → 降④浮动层（失锚期，宿主一直缺席）。
+    await vi.advanceTimersByTimeAsync(11200);
+    const floating = document.getElementById("boc-digest-button");
+    expect(document.getElementById("boc-digest-overlay").contains(floating)).toBe(true);
+
+    // 工具栏水合完成，宿主整棵出现 → 观察器同步感知，升回①位。
+    const host = document.createElement("div");
+    host.id = "arc_toolbar_report";
+    host.innerHTML =
+      '<div class="video-toolbar-right"><div class="video-complaint"><span>稿件举报</span></div><div class="video-note"></div></div>';
+    document.body.insertBefore(host, document.body.firstElementChild);
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    const button = document.getElementById("boc-digest-button");
+    expect(button.parentElement).toBe(host.querySelector(".video-toolbar-right"));
+    expect(button.nextElementSibling.className).toBe("video-complaint");
+    // 从④升回时空浮动层一并收走。
+    expect(document.getElementById("boc-digest-overlay")).toBeNull();
   });
 });

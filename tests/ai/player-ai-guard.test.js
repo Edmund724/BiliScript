@@ -307,8 +307,9 @@ describe("player-ai 启停守卫", () => {
   });
 
   it("stop → retry 定时器清理，stop 后不再触发挂载", async () => {
-    // 只有容器、无字幕控件 → sync 挂载失败进入 retry 退避
-    document.body.innerHTML = `<div class="bpx-player-container"></div>`;
+    // 播放器宿主缺席 → sync 找不到宿主进入 retry 退避（门软化后「只有容器」
+    // 也能挂载，不再是失败形态，见下方 first-button-ux/01 describe）
+    document.body.innerHTML = "";
     const { state } = await loadContentScript({ enablePlayerAiQuickAction: true });
     const { schedulePlayerAiQuickActionSync, stopPlayerAiQuickAction } = await import("../../extension/ai/player-ai.js");
 
@@ -430,11 +431,11 @@ describe("player-ai 重试退避节奏与注入耗时观测（工单 button-inje
   });
 
   it("retry 快车道：先逐帧重试，预算耗尽后回落 100ms 起步退避", async () => {
-    // 字幕控件门语义保留：只有容器、无字幕控件 → 挂载失败走 retry。
-    // rAF 换成手推队列，并把装载期残留的帧/定时器清掉，边界必须确定，不依赖
-    // jsdom 的帧拍，也不受容器观察器那条 sync 链路的干扰。
+    // 宿主门：播放器容器缺席 → 挂载失败走 retry（门软化后「只有容器」挂载成功，
+    // 不再是失败形态）。rAF 换成手推队列，并把装载期残留的帧/定时器清掉，边界
+    // 必须确定，不依赖 jsdom 的帧拍，也不受容器观察器那条 sync 链路的干扰。
     installRafQueue();
-    document.body.innerHTML = `<div class="bpx-player-container"></div>`;
+    document.body.innerHTML = "";
     const { playerAiState: state } = await loadContentScript({ enablePlayerAiQuickAction: true });
     vi.clearAllTimers();
     rafQueue = [];
@@ -493,5 +494,80 @@ describe("player-ai 重试退避节奏与注入耗时观测（工单 button-inje
       return line.includes("player-ai") && line.includes("装载→挂载耗时");
     });
     expect(timingLog).toBeDefined();
+  });
+});
+
+describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () => {
+  it("只有容器、无字幕控件 → 宿主门过即挂载（硬门翻转为挂载成功）", async () => {
+    // 门软化前此形态挂载失败进 retry；软化后宿主门过即挂，字幕控件只作
+    // 校准信号，不挡挂载。挂载成功 ⇒ 无退避定时器（正句柄）残留。
+    document.body.innerHTML = `<div class="bpx-player-container"></div>`;
+    const { playerAiState: state } = await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+    // 0 = 无挂起 sync；负 = 观察器补的帧内快车道 rAF。正句柄才是退避定时器。
+    expect(state.playerAiQuickActionSyncTimer).toBeLessThanOrEqual(0);
+  });
+
+  it("字幕控件就绪后执行一次性位置复校，且只跑一次", async () => {
+    // 复校 = 首次控件就绪时清就位记录、把挂载路径全量重跑一遍（宿主复判 +
+    // 内联视觉变量重写）。观测点：稳定短路对内联样式零写入，复校的全量路径
+    // 会重写；复校只一次，之后回到短路。
+    document.body.innerHTML = `<div class="bpx-player-container"></div>`;
+    await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    const wrap = document.querySelector(".boc-player-ai-wrap");
+    expect(wrap).not.toBeNull();
+
+    // 复校前：按钮已稳定就位，sync 走视觉短路——内联样式零写入
+    const setPropertySpy = vi.spyOn(wrap.style, "setProperty");
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(setPropertySpy).not.toHaveBeenCalled();
+
+    // 控制条水合：字幕控件首次就绪 → 一次性复校（内联变量被全量重写）
+    const control = document.createElement("button");
+    control.setAttribute("aria-label", "字幕");
+    control.setAttribute("title", "字幕");
+    wrap.parentElement.appendChild(control);
+    await flushMicrotasks();
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(setPropertySpy).toHaveBeenCalled();
+    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+
+    // 只跑一次：复校后回到视觉短路，零写入
+    setPropertySpy.mockClear();
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(setPropertySpy).not.toHaveBeenCalled();
+  });
+
+  it("按钮被 B 站重渲染冲掉后，observer + 帧内快车道自动重挂", async () => {
+    // 挂早被水合冲掉的自愈链固化：摘除按钮（childList 变化）→ 容器观察器
+    // 回调 → 帧内快车道（rAF）→ 全量路径重挂。不新增机制，只锁行为。
+    makePlayerDom();
+    await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { schedulePlayerAiQuickActionSync } = await import("../../extension/ai/player-ai.js");
+
+    schedulePlayerAiQuickActionSync(0);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+
+    // 模拟 B 站重渲染把按钮连 wrap 一起摘掉
+    document.querySelector(".boc-player-ai-wrap").remove();
+    expect(document.getElementById("boc-player-ai-quick-action")).toBeNull();
+
+    // 观察器补 sync 排 rAF，推进一帧即重挂
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
   });
 });

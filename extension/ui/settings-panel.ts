@@ -22,7 +22,13 @@
 // 手势链扫描把 saveProviderSingle / saveSettings / saveBtn 绑定钉在本文件，
 // 再拆需改签名/外移共享状态，收益不抵扰动。
 
-import { DEFAULT_SETTINGS, DEFAULT_INITIAL_QUICK_PROMPTS } from "../core/defaults.js";
+import { DEFAULT_SETTINGS } from "../core/defaults.js";
+import {
+  DEFAULT_AI_SYSTEM_PROMPT,
+  DEFAULT_INITIAL_QUICK_PROMPTS,
+  DEFAULT_PLAYER_AI_QUICK_PROMPT,
+  DEFAULT_PRESET_PROMPTS
+} from "../core/default-prompts.js";
 import type { FixedFrontmatterProperty, NotePlaceholderSection } from "../core/validators.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
 import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
@@ -294,7 +300,9 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   renderNoteSectionRows(elements.noteSectionsList, elements.noteSectionsEmpty, settings.notePlaceholderSections);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
-  savedAiPresetPrompts = Array.isArray(settings.aiPresetPrompts) ? settings.aiPresetPrompts : [];
+  savedAiPresetPrompts = Array.isArray(settings.aiPresetPrompts) && settings.aiPresetPrompts.length
+    ? settings.aiPresetPrompts
+    : DEFAULT_PRESET_PROMPTS.slice();
 
   // AI 配置
   const providers = await loadAiProviders();
@@ -524,7 +532,9 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
 }
 
 function renderInitialQuickPromptInputs(elements: SettingsElements, value: unknown): void {
-  const prompts = Array.isArray(value) ? value : DEFAULT_INITIAL_QUICK_PROMPTS;
+  // 空数组同样回落默认：getSettings 以 DEFAULT_SETTINGS 合并缺键，新装/缺键时
+  // 占位值是 []，与 default-prompts 的当前默认同语义。
+  const prompts = Array.isArray(value) && value.length ? value : DEFAULT_INITIAL_QUICK_PROMPTS;
   elements.aiInitialQuickPrompts.forEach((input, index) => {
     input.value = String(prompts[index] || "");
   });
@@ -649,16 +659,18 @@ function buildDefaultPreferencePayload() {
     includeHotCommentsInNote: DEFAULT_SETTINGS.includeHotCommentsInNote,
     includePlayerEmbedInNote: DEFAULT_SETTINGS.includePlayerEmbedInNote,
     enablePlayerAiQuickAction: DEFAULT_SETTINGS.enablePlayerAiQuickAction,
-    playerAiQuickPrompt: DEFAULT_SETTINGS.playerAiQuickPrompt,
+    // prompt 默认文本在 default-prompts.ts（DEFAULT_SETTINGS 里是空占位）：
+    // 恢复默认直接写当前默认文本。
+    playerAiQuickPrompt: DEFAULT_PLAYER_AI_QUICK_PROMPT,
     includeTimestampInBody: DEFAULT_SETTINGS.includeTimestampInBody,
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
     frontmatterFields: DEFAULT_SETTINGS.frontmatterFields.slice(),
     fixedFrontmatterProperties: DEFAULT_SETTINGS.fixedFrontmatterProperties.map((row) => ({ ...row })),
     notePlaceholderSections: DEFAULT_SETTINGS.notePlaceholderSections.map((row) => ({ ...row })),
-    aiSystemPrompt: DEFAULT_SETTINGS.aiSystemPrompt,
-    aiInitialQuickPrompts: DEFAULT_SETTINGS.aiInitialQuickPrompts.slice(),
-    aiPresetPrompts: DEFAULT_SETTINGS.aiPresetPrompts.slice()
+    aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
+    aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
+    aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
   };
 }
 

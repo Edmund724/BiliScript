@@ -22,7 +22,7 @@
 // import 组合根。
 import {
   DEFAULT_PRESET_PROMPTS
-} from "../core/defaults.js";
+} from "../core/default-prompts.js";
 import {
   normalizeAiInitialQuickPrompts,
   normalizeAiPresetPrompts,

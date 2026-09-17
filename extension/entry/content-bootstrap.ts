@@ -22,6 +22,17 @@ import { BOC_VERSION } from "../core/version.js";
 // 误识别为可静态分析的字符串字面量而尝试内联打包。
 export const CONTENT_MAIN_MODULE_PATH = "entry/content-main.mjs";
 
+// 首按钮 chunk 预取清单（first-button-ux/04）：bootstrap 拉起主包的同时经
+// <link rel="modulepreload"> 暖缓存，主包求值尾部 loadDigestButton() /
+// loadPlayerAi() 的动态 import 命中缓存，省一次本地往返。modulepreload 只
+// 下载不执行，装载时序与 enablePlayerAiQuickAction 门控完全不变。懒入口产物
+// 名无 content-hash（build-content.js 的 entryNames: "[name]"），可安全硬编码；
+// 各 chunk 的共享 chunk 由浏览器对 modulepreload 递归抓取，不需列出。
+export const PRELOAD_MODULE_PATHS = [
+  "entry/chunks/digest-button.mjs",
+  "entry/chunks/player-ai.mjs"
+];
+
 interface BootstrapOptions {
   getExtensionUrl?: (modulePath: string) => string;
   importModule?: (url: string) => Promise<unknown>;
@@ -55,12 +66,37 @@ export function startContentBootstrap(options: BootstrapOptions = {}): Bootstrap
     options.getExtensionUrl ?? ((modulePath) => chrome.runtime.getURL(modulePath));
   const importMainModule = options.importModule ?? ((url) => import(url));
 
+  // 首按钮 chunk 预取（见 PRELOAD_MODULE_PATHS 头注）。与主包 import 同 tick
+  // 发起，二者并行。onerror 仅诊断：预取失败不阻塞主链，摘除失败 link 以便
+  // 下次加载触发（下方失败可重试模式）时重新注入；仍在 head 中的 link 说明
+  // 预取进行中或已成功，不重复注入。
+  function preloadButtonChunks(): void {
+    for (const modulePath of PRELOAD_MODULE_PATHS) {
+      const url = resolveMainModuleUrl(modulePath);
+      if (document.querySelector(`link[rel="modulepreload"][href="${url}"]`)) {
+        continue;
+      }
+      const link = document.createElement("link");
+      link.rel = "modulepreload";
+      link.href = url;
+      link.onerror = () => {
+        link.remove();
+        console.error(
+          `[BOC] 首按钮 chunk 预取失败：${modulePath} ` +
+            `(extension v${BOC_VERSION})。主包加载不受影响，下次加载触发时将重试。`
+        );
+      };
+      document.head.appendChild(link);
+    }
+  }
+
   // 缓存加载 promise：同一文档内任何后续触发（重复注入、调试调用）共享同一
   // 次模块加载，避免主包顶层副作用被执行两次。
   let mainPromise: Promise<unknown> | null = null;
 
   function loadContentMain(): Promise<unknown> {
     if (!mainPromise) {
+      preloadButtonChunks();
       // async IIFE 把 getExtensionUrl / importMainModule 的同步异常（如扩展上下文
       // 已失效）也统一纳入 try/catch，维持「失败即清空」的可重试语义。
       mainPromise = (async () => {

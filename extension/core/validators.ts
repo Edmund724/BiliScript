@@ -2,18 +2,21 @@
 // Pure normalizers / validators for stored settings: reader preferences,
 // download format, AI prompts, fixed frontmatter properties and note
 // placeholder sections. No Chrome APIs, no DOM. Default constants live in
-// defaults.ts; provider presets in presets.ts.
+// defaults.ts; prompt default texts in default-prompts.ts; provider presets
+// in presets.ts.
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
   DEFAULT_INITIAL_QUICK_PROMPTS,
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
-  DEFAULT_SETTINGS,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
-  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2
+} from "./default-prompts.js";
+import {
+  DEFAULT_SETTINGS,
   type FixedFrontmatterProperty,
   type NotePlaceholderSection,
   type Settings
@@ -57,6 +60,10 @@ export function normalizePlayerAiQuickPrompt(value: unknown): string {
   if (normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT || normalized === LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2) {
     return DEFAULT_PLAYER_AI_QUICK_PROMPT;
   }
+  // 空串（DEFAULT_SETTINGS 空占位 / 用户清空保存）回落当前默认：清空即恢复默认。
+  if (!normalized) {
+    return DEFAULT_PLAYER_AI_QUICK_PROMPT;
+  }
   return normalized;
 }
 
@@ -69,6 +76,10 @@ export function normalizeAiSystemPrompt(value: unknown): string {
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3 ||
     normalized === LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4
   ) {
+    return DEFAULT_AI_SYSTEM_PROMPT;
+  }
+  // 空串（DEFAULT_SETTINGS 空占位 / 用户清空保存）回落当前默认：清空即恢复默认。
+  if (!normalized) {
     return DEFAULT_AI_SYSTEM_PROMPT;
   }
   return normalized;
@@ -88,9 +99,11 @@ export function normalizeAiInitialQuickPrompts(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return DEFAULT_INITIAL_QUICK_PROMPTS.slice();
   }
-  return value
+  const prompts = value
     .map(function (item: unknown) { return toString(item).trim(); })
     .slice(0, 4);
+  // 空数组（DEFAULT_SETTINGS 空占位）回落当前默认，与 !Array.isArray 分支同语义。
+  return prompts.length ? prompts : DEFAULT_INITIAL_QUICK_PROMPTS.slice();
 }
 
 export function normalizeDefaultModel(value: unknown): string {

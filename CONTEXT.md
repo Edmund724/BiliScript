@@ -57,6 +57,11 @@ Digest 面板进入与退出阅读形态的唯一事务。按意图三档（open
 代码名：`enterReaderShell` / `exitReaderShell`（intent 三档）/ `reader/shell.ts`；承载消息 `reader-enter` / `reader-restore` / `reader-close`——页面内 Digest 按钮与工具栏图标点击共用同一 `reader-enter` 事务，无 popup / Side Panel 入口。
 _Avoid_: popup- 词根消息名、进入阅读模式手抄序列
 
+**播放器快捷按钮**:
+播放器控制条上唤起 AI 快捷追问的按钮（player-ai 链）。宿主门（`.bpx-player-container` 优先链）过即挂正式位，不等字幕控件——字幕控件门自 2026-09 起软化为校准信号：控件首次就绪只触发一次性位置复校（防控制条水合改变容器几何导致漂移），复校只跑一次；挂早被 B 站水合冲掉走现有自愈链（容器 observer → rAF 快车道 → 退避兜底）重挂，不新增降级位（用户不接受按钮位置跳变）。
+代码名：`player-ai.ts` / `findPlayerAiQuickActionHost` / `findPlayerSubtitleControlNode`（校准探针，非定位/行为依赖）/ `playerAiSubtitleControlCalibrated`
+_Avoid_: 把字幕控件门当硬门回退、降级位先挂后迁移
+
 ### 总结流程
 
 **笔记**:
