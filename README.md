@@ -204,7 +204,7 @@ Bilibili Summary 不收款，也不转售 API 服务。建议为账号设置消�
 1. 打开阅读面板，点击右上角齿轮（设置）
 2. 在「AI 模型平台」区域点击「+ 添加平台」
 3. 选择平台预设（自动填充 API Base URL 与所属协议），或选择「自定义」手动填写
-4. 选择协议（OpenAI 兼容 / Anthropic / Responses API）：预设已带好默认值，接入 Anthropic 系或 OpenAI Responses 端点的平台时改选对应协议，Base URL 会跟随联动
+4. 选择协议（OpenAI / Anthropic / Responses）：预设已带好默认值，接入 Anthropic 系或 OpenAI Responses 端点的平台时改选对应协议，Base URL 会跟随联动
 5. 填写 API Key 和模型名称（点击模型名称旁的箭头可自动拉取可用模型列表）
 6. 点击「测试」验证连接，测试成功后配置自动保存
 
@@ -218,7 +218,7 @@ Bilibili Summary 不收款，也不转售 API 服务。建议为账号设置消�
 
 ### 已支持的平台预设
 
-本扩展支持三种 AI 服务协议：OpenAI 兼容、Anthropic、OpenAI Responses API。协议决定请求格式、鉴权方式与流式解析，设置里选好协议后「测试」与对话、联网搜索都走该协议。内置以下平台预设（预设默认走 OpenAI 兼容协议）：
+本扩展支持三种 AI 服务协议：OpenAI（兼容）、Anthropic、Responses。协议决定请求格式、鉴权方式与流式解析，设置里选好协议后「测试」与对话、联网搜索都走该协议。内置以下平台预设（预设默认走 OpenAI 协议）：
 
 | 平台           | 预设名称        |
 | ------------ | ----------- |
