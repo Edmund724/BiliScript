@@ -52,7 +52,7 @@ import {
 import { READER_CLOSE_ATTRS } from "./presentation-fields.js";
 
 // LAYOUT (state) functions this module drives:
-import { classes, ids } from "./state.js";
+import { ids } from "./state.js";
 // B 形态右栏 Digest 面板定位器：进入时开始贴栏定位，关闭时拆除。LAYOUT 层
 // 只剩 video-bind + digest-host。
 import { openDigestHost, closeDigestHost } from "./digest-host.js";
@@ -395,16 +395,12 @@ export function renderReadingView() {
   // 候选10 批2：渲染期间再次触发（切轨/重进阅读模式/状态重渲）时，先取消上一轮
   // 未完成的追加任务，按新数据从头分批，避免旧任务把过期条目追加进新列表。
   cancelReadingSubtitleAppend();
-  const titleNode = document.querySelector(`.${classes.readingTitle}`);
   const metaNode = getReaderElement(ids.readingMeta);
   // 章节渲染由概览 tab 接管（rail 章节列表 DOM 已随整页接管退役）。
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
   const subtitleItems = getReadingSubtitleItems();
   const withHours = shouldShowHoursInNote(state, body);
 
-  if (titleNode) {
-    titleNode.textContent = state.clip.title || "B站字幕阅读";
-  }
   if (metaNode) {
     metaNode.textContent = buildReadingMetaLine();
   }
@@ -493,15 +489,13 @@ export function renderReaderPanels() {
 }
 
 // renderReadingInfoPanel / buildReadingSummaryItems 已随「视频摘要」「视频简介」
-// 区块删除（digest-only-ui：面板 header 下的 meta 行保留标题/作者/日期信息）。
+// 区块删除（digest-only-ui：面板 header 下的 meta 行只留作者/来源/分P/字幕语言，
+// 标题随 AI 对话 chip 展示，日期左侧视频区已有，均不占面板空间）。
 
 function buildReadingMetaLine() {
   const parts = [];
   if (state.clip.author) {
     parts.push(state.clip.author);
-  }
-  if (state.clip.uploadDate) {
-    parts.push(state.clip.uploadDate);
   }
   parts.push("bilibili.com");
   if (Number(state.clip.pageCount) > 1) {

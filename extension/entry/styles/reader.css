@@ -84,15 +84,6 @@
   min-width: 0;
 }
 
-.boc-reading-title {
-  display: block;
-  margin: 0;
-  font-size: 18px;
-  line-height: 1.15;
-  color: var(--boc-reader-text, #0f172a);
-  word-break: break-word;
-}
-
 .boc-reading-meta,
 .boc-reading-status {
   font-size: 16px;
@@ -103,10 +94,6 @@
 /* 面板壳网格第 2 行（见 .boc-reading-digest-panel）；其他容器里该属性无效 */
 .boc-reading-status {
   grid-row: 2;
-}
-
-.boc-reading-meta {
-  margin-top: 8px;
 }
 
 .boc-reading-actions {
@@ -606,14 +593,6 @@
   color: var(--boc-reader-text);
 }
 
-#boc-reading-view .boc-reading-title {
-  font-size: 22px;
-  color: var(--boc-reader-text);
-  margin-top: 10px;
-  /* 大标题负字距（Apple 排版），正文走 --boc-reader-letter-spacing（0em） */
-  letter-spacing: -0.02em;
-}
-
 #boc-reading-view .boc-reading-meta,
 #boc-reading-view .boc-reading-status {
   font-size: 16px;
@@ -693,15 +672,11 @@
 
 /* 长总结内容区容器查询窄档（size-aware-styling 指南）：随面板实际内容宽
  * 分档（须排在上方 #boc-reading-view 前缀规则之后，同特异性靠源序取胜）。
- * 窄容器（贴栏下限 300px 一带）收紧标题与字幕行几何，给正文列让宽；字幕
+ * 窄容器（贴栏下限 300px 一带）收紧字幕行几何，给正文列让宽；字幕
  * 正文字号不在此强设——--boc-reader-subtitle-font-size 是用户可调档，窄档
  * 覆盖会与设置项打架。不支持容器查询的引擎无窄档（与既有宽档行为一致），
  * 属安全降级。 */
 @container (max-width: 560px) {
-  #boc-reading-view .boc-reading-title {
-    font-size: 18px;
-  }
-
   #boc-reading-view .boc-reading-item {
     grid-template-columns: 64px minmax(0, 1fr);
     gap: 10px;

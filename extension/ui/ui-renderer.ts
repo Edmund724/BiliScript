@@ -14,7 +14,7 @@ import { dispatchChatTabOutsideClick } from "../reader/chat-tab-bridge.js";
 //（./reader/state.js，含 ids/view-state/scroll-state）、轻状态栏写入器
 //（../core/ui-status.js）、reader 域懒加载转发助手（./reader-gate.js，动态边
 // 在 reader/lazy-reader 内部）。
-import { classes, getReaderActiveDigestTab, ids, isReaderViewOpen, setReaderActiveDigestTab } from "../reader/state.js";
+import { getReaderActiveDigestTab, ids, isReaderViewOpen, setReaderActiveDigestTab } from "../reader/state.js";
 import type { ReaderDigestTab } from "../reader/state.js";
 // 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
@@ -61,7 +61,6 @@ export function buildUiHtml(): string {
       <aside id="${ids.readingDigestPanel}" class="boc-reading-digest-panel" aria-label="Digest 面板">
             <header class="boc-reading-header">
               <div class="boc-reading-header-copy">
-                <strong class="${classes.readingTitle}">${escapeHtml(state.clip.title || "B站字幕阅读")}</strong>
                 <div id="${ids.readingMeta}" class="boc-reading-meta">bilibili.com</div>
               </div>
               <div class="boc-reading-actions">
