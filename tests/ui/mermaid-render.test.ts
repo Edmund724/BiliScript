@@ -195,4 +195,14 @@ describe("hydrateMermaidPlaceholders", () => {
 
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
   });
+
+  it("root 自身是占位时也被水合（lazy-mermaid 可见性门控按单块传入）", async () => {
+    const { hydrateMermaidPlaceholders } = await loadModule();
+    const block = mountBlock("graph TD");
+
+    await hydrateMermaidPlaceholders(block, { theme: "light" });
+
+    expect(mermaidMock.render).toHaveBeenCalledTimes(1);
+    expect(block.getAttribute("data-boc-mermaid")).toBe("done");
+  });
 });

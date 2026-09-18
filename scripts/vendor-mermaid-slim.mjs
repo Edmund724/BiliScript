@@ -14,6 +14,8 @@ const chunksOutputDir = path.join(projectRoot, "node_modules/mermaid/dist/chunks
 const layoutChunkSource = path.join(chunksSourceDir, "chunk-TLUHSLCS.mjs");
 const mathChunkSource = path.join(chunksSourceDir, "chunk-DU6HZSFF.mjs");
 const iconifyStubPath = path.join(projectRoot, "scripts", "vendor-iconify-stub.mjs");
+const markedStubPath = path.join(projectRoot, "scripts", "vendor-marked-stub.mjs");
+const d3SlimPath = path.join(projectRoot, "scripts", "vendor-d3-slim.mjs");
 const layoutChunkPatched = path.join(chunksOutputDir, "chunk-TLUHSLCS.mjs");
 const mathChunkPatched = path.join(chunksOutputDir, "chunk-DU6HZSFF.mjs");
 const expectedVersion = "11.17.2";
@@ -223,9 +225,23 @@ const result = await build({
   target: "chrome120",
   // @iconify/utils 替身（体积裁剪）：mermaid icons.ts 只用五个导出，产品不注册
   // 图标包，降级路径见 vendor-iconify-stub.mjs 头注。探针轮与产品轮 B 同一 alias。
-  alias: { "@iconify/utils": iconifyStubPath },
+  // marked / d3 替身同理（见 vendor-marked-stub.mjs / vendor-d3-slim.mjs 头注）：
+  // marked 运行时零调用、d3 保留闭包只用 select + d3-shape 曲线族。
+  alias: {
+    "@iconify/utils": iconifyStubPath,
+    marked: markedStubPath,
+    d3: d3SlimPath
+  },
   metafile: true
 });
+// 替身落地守卫：alias 静默失效（路径写错、filter 漂移）时替身不进 inputs，
+// 在此失败而不是悄悄把 ~300KB 的 marked+d3 umbrella 打回 bundle。
+for (const stubPath of [markedStubPath, d3SlimPath]) {
+  const stubName = path.basename(stubPath);
+  if (!Object.keys(result.metafile.inputs).some((input) => input.endsWith(stubName))) {
+    throw new Error(`Mermaid slim alias did not apply: ${stubName} not in probe inputs`);
+  }
+}
 const outputNames = Object.keys(result.metafile.outputs);
 for (const retained of ["flowDiagram", "sequenceDiagram", "dagre"]) {
   if (!outputNames.some((name) => name.includes(retained))) {

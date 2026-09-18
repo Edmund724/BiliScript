@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<!-- mermaid 构建产物渲染冒烟 harness（手动/按需跑，不纳入 pnpm test）。
+     用法：先 pnpm build:content，再 node scripts/mermaid-smoke/serve.mjs，
+     经 kimi-webbridge 打开本页。结果写入 <pre id="boc-smoke-result"> 与
+     document.title（BOC_SMOKE_PASS / BOC_SMOKE_FAIL），供浏览器侧读取断言。
+
+     覆盖：sequence + flow 各一张最小 fixture 在真实 Chrome 渲染出 SVG、
+     全程无 console.error / window.onerror；flow 节点 hover（mermaid 11 的
+     setupToolTips/bindFunctions 在 flowchart-v2/sequence 渲染路径不再被调用，
+     此处仅证明合成 hover 事件不报错）与 vendor-d3-slim.mjs 的 transition
+     补丁契约由 tests/ui/vendor-d3-slim.test.ts 单测钉住。 -->
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>BOC_SMOKE_RUNNING</title>
+<style>
+  body { font-family: sans-serif; }
+  .mermaidTooltip { position: absolute; }
+</style>
+</head>
+<body>
+<h1>mermaid smoke</h1>
+<div id="fixtures"></div>
+<pre id="boc-smoke-result">running…</pre>
+<script type="module">
+const errors = [];
+window.addEventListener("error", (e) => errors.push(String(e.message ?? e)));
+window.addEventListener("unhandledrejection", (e) => errors.push("unhandledrejection: " + String(e.reason)));
+const origConsoleError = console.error.bind(console);
+console.error = (...args) => { errors.push(args.map(String).join(" ")); origConsoleError(...args); };
+
+const SEQUENCE_SRC = `sequenceDiagram
+  participant A as Alice
+  participant B as Bob
+  A->>B: hello
+  B-->>A: hi`;
+
+const FLOW_SRC = `flowchart LR
+  A[Start] --> B{ok?}
+  B -->|yes| C[Done]
+  B -->|no| A`;
+
+function mountFixture(id, source) {
+  const div = document.createElement("div");
+  div.className = "boc-md-mermaid";
+  div.id = id;
+  div.setAttribute("data-boc-mermaid", "pending");
+  const pre = document.createElement("pre");
+  pre.className = "boc-md-mermaid-src";
+  const code = document.createElement("code");
+  code.textContent = source;
+  pre.appendChild(code);
+  div.appendChild(pre);
+  document.getElementById("fixtures").appendChild(div);
+}
+
+const results = [];
+function check(name, ok, detail = "") {
+  results.push({ name, ok, detail });
+}
+
+async function main() {
+  mountFixture("boc-seq", SEQUENCE_SRC);
+  mountFixture("boc-flow", FLOW_SRC);
+
+  const render = await import("../../extension/entry/chunks/mermaid-render.mjs");
+  await render.hydrateMermaidPlaceholders(document.body, { theme: "light" });
+
+  const seq = document.getElementById("boc-seq");
+  const flow = document.getElementById("boc-flow");
+  const seqSvg = seq.querySelector(".boc-md-mermaid-svg svg");
+  const flowSvg = flow.querySelector(".boc-md-mermaid-svg svg");
+  check("sequence svg rendered", !!seqSvg);
+  check("flow svg rendered", !!flowSvg);
+  check("sequence attr done", seq.getAttribute("data-boc-mermaid") === "done", seq.getAttribute("data-boc-mermaid"));
+  check("flow attr done", flow.getAttribute("data-boc-mermaid") === "done", flow.getAttribute("data-boc-mermaid"));
+  check("sequence actor text", !!seqSvg && seqSvg.textContent.includes("Alice"));
+  check("flow node text", !!flowSvg && flowSvg.textContent.includes("Start"));
+
+  // flow hover：mermaid 11 的 flowchart-v2/sequence 渲染不再调用 bindFunctions，
+  // g.node 上没有 d3 事件监听——合成 hover 只证明不报错；transition 补丁的
+  // 行为契约由 tests/ui/vendor-d3-slim.test.ts 钉住。
+  const node = flow.querySelector("g.node");
+  check("flow node exists", !!node);
+  if (node) {
+    node.setAttribute("title", "smoke tooltip");
+    for (const type of ["mouseover", "mouseout"]) {
+      node.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+    }
+  }
+
+  check("no console/page errors", errors.length === 0, errors.join(" | "));
+
+  const pass = results.every((r) => r.ok);
+  const lines = results.map((r) => `${r.ok ? "PASS" : "FAIL"} ${r.name}${r.detail ? " — " + r.detail : ""}`);
+  document.getElementById("boc-smoke-result").textContent =
+    (pass ? "BOC_SMOKE_PASS\n" : "BOC_SMOKE_FAIL\n") + lines.join("\n");
+  document.title = pass ? "BOC_SMOKE_PASS" : "BOC_SMOKE_FAIL";
+}
+
+main().catch((error) => {
+  errors.push("harness: " + (error?.stack ?? String(error)));
+  document.getElementById("boc-smoke-result").textContent = "BOC_SMOKE_FAIL\n" + errors.join("\n");
+  document.title = "BOC_SMOKE_FAIL";
+});
+</script>
+</body>
+</html>

@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "eval:run": "node_modules/.bin/esbuild eval/run.ts --bundle --platform=node --format=esm --outfile=eval/run.mjs && node eval/run.mjs",
-    "eval:sweep": "node_modules/.bin/esbuild eval/sweep.ts --bundle --platform=node --format=esm --outfile=eval/sweep.mjs && node eval/sweep.mjs"
+    "eval:sweep": "node_modules/.bin/esbuild eval/sweep.ts --bundle --platform=node --format=esm --outfile=eval/sweep.mjs && node eval/sweep.mjs",
+    "smoke:mermaid": "node scripts/mermaid-smoke/serve.mjs"
   },
   "repository": {
     "type": "git",
@@ -32,6 +33,8 @@
   "homepage": "https://github.com/Edmund724/Bilibili-Summary#readme",
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.11",
+    "d3-selection": "3.0.0",
+    "d3-shape": "3.2.0",
     "esbuild": "^0.28.2",
     "github-markdown-css": "^5.9.0",
     "jsdom": "^30.0.1",

@@ -134,9 +134,26 @@ const localImportGuard = createLocalImportGuard(extensionRoot);
 // mermaid 图（经 mermaid.boc 的 icons chunk）可达它，替换为
 // scripts/vendor-iconify-stub.mjs 的最小替身（产品不注册图标包，降级路径见
 // stub 头注），~240KB 依赖树随 import 站点消失。
+// marked / d3 同理（import 方限 mermaid 包内文件，见两个 vendor 替身头注）：
+// marked 运行时零调用（无 markdown label 配置），d3 保留闭包只用 select +
+// d3-shape 曲线族，umbrella 的 ~300KB（含 transition 原型补丁等副作用成员）
+// 随 alias 消失。
+const mermaidPackageFile = /(?:[\\/]node_modules[\\/]mermaid[\\/]|[\\/]mermaid@[^\\/]+[\\/]node_modules[\\/]mermaid[\\/])/;
 const mermaidSlimAlias = {
   name: "mermaid-slim-round-b-only",
   setup(buildApi) {
+    buildApi.onResolve({ filter: /^marked$/ }, (args) => {
+      if (!mermaidPackageFile.test(args.importer)) {
+        return undefined;
+      }
+      return { path: path.join(__dirname, "..", "scripts", "vendor-marked-stub.mjs") };
+    });
+    buildApi.onResolve({ filter: /^d3$/ }, (args) => {
+      if (!mermaidPackageFile.test(args.importer)) {
+        return undefined;
+      }
+      return { path: path.join(__dirname, "..", "scripts", "vendor-d3-slim.mjs") };
+    });
     buildApi.onResolve({ filter: /^mermaid$/ }, (args) => {
       const importer = path.resolve(args.importer);
       const mermaidRenderSource = path.join(extensionRoot, "ui", "mermaid-render.ts");
@@ -373,7 +390,68 @@ function selfCheck() {
     process.exitCode = 1;
     return false;
   }
-  return assertSharedSlotsInBothRegions();
+  return assertSharedSlotsInBothRegions() && assertMermaidStubsApplied();
+}
+
+// mermaid 替身守卫（mermaid-slim-round2）：沿 import 语句从 chunks/mermaid-render.mjs
+// 走图收集整个 mermaid 懒闭包，逐个读伴随 sourcemap 的 sources，断言体积替身真的
+// 进了闭包（vendor-marked-stub.mjs / vendor-d3-slim.mjs，alias 静默失效时在此
+// 失败），且 marked/d3 umbrella 本体没有被打回来（sources 含 /marked/、/d3@ 或
+// node_modules/d3/ 包路径时在此失败）。
+const MERMAID_STUB_SOURCES = ["vendor-marked-stub.mjs", "vendor-d3-slim.mjs"];
+const MERMAID_CLOSURE_ENTRY = "mermaid-render.mjs";
+
+function collectMermaidClosureFiles() {
+  const files = new Set();
+  const queue = [MERMAID_CLOSURE_ENTRY];
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (files.has(file)) continue;
+    files.add(file);
+    const full = path.join(chunksDir, file);
+    if (!fs.existsSync(full)) continue;
+    const text = fs.readFileSync(full, "utf8");
+    for (const match of text.matchAll(
+      /import\s*(?:[\w${},*\s]+\s*from\s*)?["'](\.\/[^"']+)["']/g
+    )) {
+      queue.push(path.posix.basename(match[1]));
+    }
+  }
+  return files;
+}
+
+function assertMermaidStubsApplied() {
+  const closureFiles = collectMermaidClosureFiles();
+  const sources = new Set();
+  for (const file of closureFiles) {
+    const mapFile = path.join(chunksDir, `${file}.map`);
+    if (!fs.existsSync(mapFile)) continue;
+    for (const source of JSON.parse(fs.readFileSync(mapFile, "utf8")).sources ?? []) {
+      sources.add(source);
+    }
+  }
+  const basename = (source) => source.split(/[\\/]/).pop() ?? source;
+  for (const stub of MERMAID_STUB_SOURCES) {
+    if (![...sources].some((source) => basename(source) === stub)) {
+      console.error(
+        `Self-check failed: mermaid 闭包未包含体积替身 ${stub}——` +
+          "build-content.js 的 marked/d3 alias 可能已失效"
+      );
+      process.exitCode = 1;
+      return false;
+    }
+  }
+  for (const source of sources) {
+    if (/[\\/]marked[\\/]/.test(source) || /[\\/]node_modules[\\/]d3[\\/]/.test(source)) {
+      console.error(
+        `Self-check failed: mermaid 闭包 sourcemap 含 umbrella 依赖 ${source}——` +
+          "marked/d3 体积替身被绕过"
+      );
+      process.exitCode = 1;
+      return false;
+    }
+  }
+  return true;
 }
 
 // 跨实例共享槽守卫（2026-09 双实例收口）：content 是两轮构建——常驻包（轮 A，

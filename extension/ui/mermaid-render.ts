@@ -173,7 +173,19 @@ export async function hydrateMermaidPlaceholders(
   options: HydrateMermaidOptions = {}
 ): Promise<void> {
   const { theme = "light", force = false } = options;
-  const blocks = Array.from(root.querySelectorAll(MERMAID_BLOCK_SELECTOR)).filter((block) => {
+  // detectType 依赖 mermaid 模块初始化时注册的图表探测器（mermaid 11 的
+  // initialize 内部会 addDiagrams 完成注册），必须先配置再检测——否则首个
+  // 水合会话里 detectors 为空，全部图表被误判 unsupported（真实浏览器冒烟
+  // 抓到的回归）。ensureConfigured 按主题幂等，渲染路径里的再次调用是空转。
+  ensureConfigured(theme);
+  // root 自身若是占位（lazy-mermaid 的可见性门控按单块水合时直接把块当
+  // root 传入），querySelectorAll 不含自身，需显式并入；既有调用点传的都是
+  // 会话容器，自身不匹配选择器，行为不变。
+  const blocks = Array.from(
+    root instanceof Element && root.matches(MERMAID_BLOCK_SELECTOR)
+      ? [root, ...root.querySelectorAll(MERMAID_BLOCK_SELECTOR)]
+      : root.querySelectorAll(MERMAID_BLOCK_SELECTOR)
+  ).filter((block) => {
     if (block.getAttribute(MERMAID_BLOCK_ATTR) === "pending") {
       return true;
     }
