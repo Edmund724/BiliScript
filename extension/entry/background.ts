@@ -9,7 +9,18 @@ import {
   probeContentScriptVersion,
   triggerReaderModeInTab
 } from "./content-orchestration-wiring.js";
-import { getMergedSettings, normalizeSettings, saveSettings } from "../core/settings-store.js";
+import { normalizeSettings, saveSettings } from "../core/settings-store.js";
+// 设置快照（sw-settings-snapshot 票）：四个热路径读 handler 读设置/平台存储
+// 的唯一读路径（设置 UI 的 list/get CRUD 读维持直读 provider-store，不入快照）。
+// 读命中时热路径 storage 读为 0；失效双通道 = 写 handler 落盘后 inline
+// invalidate + 快照内 onChanged 订阅兜底跨设备 sync 变更（onChanged 不在写入
+// 方上下文触发，inline 失效是写后读的唯一保证）。
+import {
+  getSettings as getSettingsSnapshot,
+  getProviderStore as getProviderStoreSnapshot,
+  invalidate as invalidateSettingsSnapshot,
+  PROVIDER_FAMILY_STORAGE_KEYS
+} from "../core/settings-snapshot.js";
 // 安装/更新一次性设置迁移（2026-09 AI 键默认开：存量显式 false 清位）
 import { applyPlayerAiQuickActionDefaultOnMigration } from "./settings-migration.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
@@ -65,7 +76,7 @@ function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender
   // 异步错误回包统一走 withOkResponse（arch-slim-2/03 单源）；同步错误回包
   // （缺参/拒绝处理等）保持处理器内直写。
   withOkResponse(
-    (async () => ({ ok: true, settings: await getMergedSettings() }))(),
+    (async () => ({ ok: true, settings: await getSettingsSnapshot() }))(),
     sendResponse
   );
   return true;
@@ -75,6 +86,9 @@ function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSende
   withOkResponse(
     (async () => {
       await saveSettings(message.settings || {});
+      // 写后 inline 失效：payload 键全集交给快照按键域映射（白名单外键自然
+      // 落空）；onChanged 不在写入方上下文触发，这里必须显式失效。
+      invalidateSettingsSnapshot(Object.keys(message.settings || {}));
       return { ok: true };
     })(),
     sendResponse
@@ -145,7 +159,7 @@ async function triggerReaderChatInTab(
     readerUrl: string;
   }
 ): Promise<{ ok: true }> {
-  const settings = await getMergedSettings();
+  const settings = await getSettingsSnapshot();
   if (options.requireQuickActionEnabled && !settings.enablePlayerAiQuickAction) {
     throw new Error("AI 按钮未开启");
   }
@@ -232,19 +246,36 @@ function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sen
 // 请求构造仍在 content 侧 ai/provider-test.js（completion 链不进 SW，候选 04
 // 拆链），只有传输经 provider-http 代发；ASR 探针（asr/provider-test.js）仍在
 // content 侧直调，wav-encode 链同样不进 SW。故本工厂不注入 probe。
+//
+// 写后 inline 失效：providers-save/delete 落盘 await 完成后失效对应族快照
+// （onChanged 不在写入方上下文触发，写后读语义靠这里保证；load-modify-write
+// 本体仍直读存储，不经快照——spec Q3 写路径纪律）。
+function invalidateAfterWrite<TArgs extends unknown[], TResult>(
+  write: (...args: TArgs) => Promise<TResult>,
+  storageKeys: readonly string[]
+): (...args: TArgs) => Promise<TResult> {
+  return async (...args: TArgs) => {
+    const result = await write(...args);
+    invalidateSettingsSnapshot(storageKeys);
+    return result;
+  };
+}
+
 const aiProviderHandlers = createProviderMessageHandlers({
   loadProviders: aiProviderStore.loadProviders,
-  saveProviders: aiProviderStore.saveProviders,
-  deleteProvider: aiProviderStore.deleteProvider,
+  saveProviders: invalidateAfterWrite(aiProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.ai),
+  deleteProvider: invalidateAfterWrite(aiProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.ai),
   loadKeys: aiProviderStore.loadKeys
 });
 
 // 「激活平台」单趟解析（arch-slim-3/09）：offscreen 聊天链与 content 侧
-// 概览/选区解释共用，解析策略与密钥校验单源在处理器内。
+// 概览/选区解释共用，解析策略与密钥校验单源在处理器内。列表与 Key 同走
+// settings-snapshot 的 ai 族快照：一次 storage 读拿全（此前 aiProviderKeys
+// 在 loadProviders 与 loadKeys 间重复读两次）。
 const aiResolvedProviderHandler = createAiResolvedProviderHandler({
-  getMergedSettings,
-  loadProviders: aiProviderStore.loadProviders,
-  loadKeys: aiProviderStore.loadKeys
+  getMergedSettings: getSettingsSnapshot,
+  loadProviders: async () => (await getProviderStoreSnapshot("ai")).providers,
+  loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys
 });
 
 function handleAiPresetsList(_message: Msg<"ai-presets-list">, _sender: MessageSender, sendResponse: SendResponse): boolean {
@@ -296,15 +327,16 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
 function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: SendResponse): boolean {
   withOkResponse(
     (async () => {
-      const settings = await getMergedSettings();
-      const providers = await searchProviderStore.loadProviders();
+      // settings 标量 + 搜索平台列表 + Key 一次快照读取（命中时零 storage 调用）
+      const settings = await getSettingsSnapshot();
+      const { providers, keys } = await getProviderStoreSnapshot("search");
       const active = providers.find(
         (p) => p.id === settings.activeSearchProviderId && p.enabled !== false
       );
       if (!active) {
         return { ok: true };
       }
-      const apiKey = await searchProviderStore.getKey(active.id);
+      const apiKey = String(keys[active.id] || "").trim();
       if (!apiKey) {
         return { ok: true };
       }
@@ -332,8 +364,8 @@ function handleAsrPresetsList(_message: Msg<"asr-presets-list">, _sender: Messag
 // 消息路由，与 AI 家族共用同一套契约。
 const asrProviderHandlers = createProviderMessageHandlers({
   loadProviders: asrProviderStore.loadProviders,
-  saveProviders: asrProviderStore.saveProviders,
-  deleteProvider: asrProviderStore.deleteProvider,
+  saveProviders: invalidateAfterWrite(asrProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.asr),
+  deleteProvider: invalidateAfterWrite(asrProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.asr),
   loadKeys: asrProviderStore.loadKeys
 });
 
@@ -341,18 +373,21 @@ const asrProviderHandlers = createProviderMessageHandlers({
 // Key 的消息路由），连通性测试随后续 tool-loop 迭代再议。
 const searchProviderHandlers = createProviderMessageHandlers({
   loadProviders: searchProviderStore.loadProviders,
-  saveProviders: searchProviderStore.saveProviders,
-  deleteProvider: searchProviderStore.deleteProvider,
+  saveProviders: invalidateAfterWrite(searchProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.search),
+  deleteProvider: invalidateAfterWrite(searchProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.search),
   loadKeys: searchProviderStore.loadKeys
 });
 
 // 内容脚本 ASR 回退的运行时配置：settings 标量 + provider-store 列表 + 激活
 // 平台 Key 一次回包，provider-store 存储层不再进内容 bundle（契约见
-// provider-handlers.js）。
+// provider-handlers.js）。读路径走 settings-snapshot 的 asr 族快照。
 const handleGetAsrRuntimeConfig = createAsrRuntimeConfigHandler({
-  getMergedSettings,
-  loadProviders: asrProviderStore.loadProviders,
-  getAsrProviderKey: asrProviderStore.getKey
+  getMergedSettings: getSettingsSnapshot,
+  loadProviders: async () => (await getProviderStoreSnapshot("asr")).providers,
+  getAsrProviderKey: async (providerId) => {
+    const { keys } = await getProviderStoreSnapshot("asr");
+    return String(keys[providerId] || "").trim();
+  }
 });
 
 // offscreen 段缓存消息族：offscreen 文档只有 chrome.runtime（平台限制），
@@ -593,4 +628,7 @@ async function initializeSettingsStorage() {
   // 安装/更新迁移：合并结果先经 normalizeSettings 收口再落盘，存量 LEGACY
   // 默认提示词等旧值在此一次性改写为当前值，而不是每次读取时重复映射。
   await chrome.storage.sync.set(normalizeSettings({ ...DEFAULT_SETTINGS, ...syncCurrent }));
+  // 迁移直写 storage（不经 save-settings），写后 inline 失效 settings 快照：
+  // SW 存活期内的 onInstalled（扩展 reload/update）可能带着热缓存跑。
+  invalidateSettingsSnapshot(Object.keys(DEFAULT_SETTINGS));
 }

@@ -134,6 +134,11 @@ AI 对话链与选区解释链共用的联网搜索执行管线（function calli
 代码名：`runToolLoop` / `WEB_SEARCH_TOOL` / `webSearchTool`（ai/tool-loop.ts）/ `executeWebSearch`（search/search-executor.ts）/ `resolveWebSearchRuntime`（search/search-runtime.ts）/ `resolve-search-provider`（background handler）/ `tool-status` / `tool-turn`（chat/protocol.ts port 事件）
 _Avoid_: 手抄第二份循环、offscreen 读 chrome.storage、tool 结果全文进历史
 
+**设置快照**:
+四个热路径读 handler（resolve-ai-provider / resolve-search-provider / get-asr-runtime-config / get-settings）读设置/平台存储的唯一读路径（sw-settings-snapshot 票；设置 UI 的 `*-providers-list` / `get-*-provider-key` 低频 CRUD 读维持直读 provider-store，不入快照）：settings 归一化产物 + 三 providerStore（ai/asr/search）normalize + hasSavedKey 装配产物各缓存一份，命中时热路径（每条聊天消息）storage 读降为 0。失效双通道：SW 内写消息 handler 落盘 await 完成后 inline 按 storage 键失效（onChanged 不在写入方上下文触发，inline 失效是「写后读」语义的唯一保证）；`storage.onChanged` 订阅兜底其它扩展上下文与跨设备 sync 变更。写路径纪律：快照只服务读路径，load-modify-write 继续直读存储不经快照；interface 不提供写（write-through 须先解决并发写交错丢 Key）。
+代码名：`settingsSnapshot`（extension/core/settings-snapshot.js）/ `getSettings()` / `getProviderStore(family)` / `invalidate(keys)`；失效粒度 = storage 键（settings 键面 = DEFAULT_SETTINGS 键集，族键面 = `xxxProviders`（sync）+ `xxxProviderKeys`（local））
+_Avoid_: 热路径 handler 直读 storage、给快照加写接口、绕过快照手抄第二次归一化
+
 ### AI 对话
 
 **拆除会话**:
