@@ -50,7 +50,7 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 | Permission | Type | Justification |
 |---|---|---|
 | `storage` | permissions | Save API keys, notes, conversations, subtitles, summaries, settings, and cache entries locally. |
-| `unlimitedStorage` | permissions | Store segment-summary caches, AI conversation sessions, raw subtitle/transcript caches, and overview caches with no byte limit; the subtitle, segment-summary, and overview caches keep the 3 most recent videos per cache family. This permission declares that those local stores are exempt from Chrome's normal storage quota so saved transcripts, conversations, and summaries are not evicted. |
+| `unlimitedStorage` | permissions | Exempt local stores — subtitle, segment-summary, and overview caches, AI conversation sessions, and raw transcripts — from Chrome's normal storage quota; the cache families keep the 3 most recent videos per family with no byte limit, so saved transcripts and summaries are not evicted. |
 | `scripting` | permissions | Run the reading interface and player controls on supported Bilibili video pages. |
 | `offscreen` | permissions | Decode audio and process AI or ASR streams in a background document while the user continues browsing the video page. |
 | `declarativeNetRequest` | permissions | Add short-lived session rules that set the Referer/Origin headers for requests to Bilibili's audio CDN while an active speech-recognition task is running, then remove those rules when the task finishes. |
