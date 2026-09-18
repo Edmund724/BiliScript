@@ -87,6 +87,7 @@ describe("双实例纪律守卫（构建期接线）", () => {
     const mainMap = {
       sources: [
         "../core/state.ts",
+        "../core/types.d.ts",
         "../../node_modules/dep/index.ts",
         "../entry/content-main.mjs",
       ],

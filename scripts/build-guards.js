@@ -42,17 +42,18 @@ function createLocalImportGuard(extensionRoot) {
   };
 }
 
-module.exports = { createLocalImportGuard, sourcesFromMap, diffDualInstanceAllowlist };
-
 // 归一化单个 sourcemap 的 sources：map 的 sources 相对于 map 文件所在目录，
 // 解析后只保留落在 extension/ 内的 .ts 源（构建产物、node_modules 依赖天然
-// 排除），返回 extension 相对路径（posix 风格，与清单书写一致）。
+// 排除；.d.ts 无运行时声明，排除——与 build-content.js collectSlotKeys 的
+// 判据一致），返回 extension 相对路径（posix 风格，与清单书写一致）。
 function sourcesFromMap(mapJson, mapDir, extensionRoot) {
   return mapJson.sources
     .map((source) => path.normalize(path.join(mapDir, source)))
     .filter(
       (source) =>
-        source.startsWith(extensionRoot + path.sep) && source.endsWith(".ts")
+        source.startsWith(extensionRoot + path.sep) &&
+        source.endsWith(".ts") &&
+        !source.endsWith(".d.ts")
     )
     .map((source) => path.relative(extensionRoot, source).split(path.sep).join("/"));
 }
@@ -68,3 +69,5 @@ function diffDualInstanceAllowlist(actualSources, allowlistSources) {
     missing: [...allowlisted].filter((source) => !actual.has(source)).sort(),
   };
 }
+
+module.exports = { createLocalImportGuard, sourcesFromMap, diffDualInstanceAllowlist };

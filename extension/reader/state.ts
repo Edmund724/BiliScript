@@ -56,7 +56,7 @@ export function isReaderViewOpen() {
 // 放本叶子而非 core/state：与 scroll-state 同型的瞬态 UI 状态（不持久化、
 // 不进 settings 水合），模块级变量随 resetModules 时代自然重置。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL：本文件含模块级可变状态
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本文件含模块级可变状态
 // （readingActiveDigestTab、两个滚动截止位），content 两轮构建下常驻包与懒加载
 // 区各一份实例。安全依据：这些状态的读写双方全部在懒加载区 reader 域内
 // （ui-renderer 的 tab 写手、lifecycle/sync 的滚动读写）；常驻侧（content.ts /
