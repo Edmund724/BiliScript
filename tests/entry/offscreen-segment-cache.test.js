@@ -221,4 +221,68 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });
+
+  it("新会话接力：上一轮未 flush 的残留缓冲（如 overflow 重跑在途段）随下一条 chat 落盘", async () => {
+    // 首轮分段调用全部挂起不返回（无 stop/异常 → 无 flush 触发点，残留缓冲）
+    let hungFirstWave = true;
+    let segmentCalls = 0;
+    chatCompletionMock.mockImplementation(async (input) => {
+      if (String(input.messages?.at(-1)?.content || "").includes("连续片段")) {
+        segmentCalls += 1;
+        if (hungFirstWave) {
+          return new Promise(() => {});
+        }
+        return "分段小结内容";
+      }
+      return "# 视频笔记：《长视频》\n完整笔记正文。";
+    });
+
+    await importOffscreen();
+    const session = connectChat();
+    session.send({
+      action: "chat",
+      providerId: "p1",
+      contextKey: CONTEXT_KEY,
+      context: { title: "长视频", subtitleBody: makeBody() },
+      prompt: "总结"
+    });
+    await vi.waitFor(() => {
+      expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "cost-guard")).toBe(true);
+    });
+    session.send({ action: "cost-guard-confirm", ok: true });
+    await vi.waitFor(() => {
+      expect(segmentCalls).toBe(3);
+    });
+
+    // 第二轮 chat（等价于 overflow 重跑成功后的追问接力）：开始时 await flush，
+    // 首轮 3 段残留 raw 先按 save-raw 落 SW，第二轮正常跑合并写
+    hungFirstWave = false;
+    session.send({
+      action: "chat",
+      providerId: "p1",
+      contextKey: CONTEXT_KEY,
+      context: { title: "长视频", subtitleBody: makeBody() },
+      prompt: "再总结"
+    });
+    // 第二轮同样 ≥5 次调用：先弹成本护栏，确认后编排才启动
+    await vi.waitFor(() => {
+      expect(session.port.postMessage.mock.calls.filter((c) => c[0]?.type === "cost-guard").length).toBe(2);
+    });
+    session.send({ action: "cost-guard-confirm", ok: true });
+    await vi.waitFor(() => {
+      expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "done")).toBe(true);
+    });
+
+    const ops = sendMessageMock.mock.calls
+      .map((c) => c[0])
+      .filter((m) => m?.type === "segment-cache")
+      .map((m) => m.op);
+    // 首轮 3 段残留经新会话接力 flush 落盘（先于本轮段缓存读，load-stored-raw 无竞态）
+    expect(ops.filter((op) => op === "save-raw").length).toBe(3);
+    // 第二轮 5 段全部合并写
+    expect(ops.filter((op) => op === "save-summary-raw").length).toBe(5);
+    expect([...memoryArea.store.keys()].filter((k) => k.startsWith("boc_lvs_raw_")).length).toBe(5);
+    const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
+    expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
+  });
 });

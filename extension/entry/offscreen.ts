@@ -46,8 +46,10 @@ import { resolveWebSearchRuntime } from "../search/search-runtime.js";
 // ladder/streamChat/map-reduce 构造的联合成员获得编译期约束。
 import { OFFSCREEN_CHAT_PORT_NAME } from "../chat/protocol.js";
 import type { ChatPortMessage } from "../chat/protocol.js";
-// 写聚合（段缓存写聚合 ticket）：abort/异常路径把 proxy 缓冲的同段 raw 落盘
-//（port 断开 / offscreen 自关不 flush——缓冲随文档销毁丢弃，见 proxy 模块头注）。
+// 写聚合（段缓存写聚合 ticket）：abort/超时/异常路径把 proxy 缓冲的同段 raw 落盘；
+// 新 chat 消息开始时亦 await flush 一次（上一轮的残留接力落盘——追问是缓冲 raw 的
+// 唯一消费者，必以新 chat 进场；port 断开 / offscreen 自关不 flush，缓冲随文档
+// 销毁丢弃，见 proxy 模块头注）。
 import { flushSegmentCacheRawBuffer } from "../ai/segment-cache-proxy.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
@@ -196,6 +198,9 @@ chrome.runtime.onConnect.addListener((port) => {
 
     try {
       abortActiveRequest();
+      // 新会话接力：上一轮残留缓冲（如 overflow 重跑后首轮在途段的 raw）在此落盘，
+      // await 保证先于本轮的段缓存读（追问 load-stored-raw 无竞态）
+      await flushSegmentCacheRawBuffer();
       activeAbortController = new AbortController();
 
       // 候选04/10-6：首次聊天并行拉取两件互不依赖的前置——provider 解析
