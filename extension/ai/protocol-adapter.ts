@@ -8,8 +8,10 @@
 // core 零改动。
 import type { ChatMessage, ChatToolCall, StreamChatEvent } from "./types.js";
 
-// 平台协议词表（CONTEXT.md「平台协议」）。
-export type AiProtocol = "openai" | "anthropic" | "responses";
+// 词表叶 re-export：类型消费者沿用本模块路径，不感知拆分。分发表键以
+// Record<AiProtocol, ...> 注解强制覆盖词表叶（单源，禁止第二份词表）。
+export type { AiProtocol } from "./protocol-vocab.js";
+import type { AiProtocol } from "./protocol-vocab.js";
 
 // tools 定义沿用 OpenAI 风格形状（编排层词表，adapter 内翻译为协议线格式）。
 export interface ChatToolDefinition {

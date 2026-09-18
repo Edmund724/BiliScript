@@ -120,12 +120,12 @@ AI 平台对外说话用的线格式族，开放注册表（spec multi-protocol-
 _Avoid_: API 格式、接口类型；与扩展内部消息协议（messaging-protocol 词根）混用；把第四种协议（Gemini 等）的实现纳入本次范围
 
 **协议适配器**:
-把平台协议差异收敛在唯一 fetch 点一侧的翻译单元：编排层（阶梯/归并/工具循环）只面对统一的 `ChatMessage[]` 入参与 `StreamChatEvent` 出参，SSE 事件差异（Anthropic 的 message_start/content_block_delta、Responses 的 response.* 事件）、tool use 双向翻译（编排层保持 OpenAI tools 风格）、探针（probe）、错误归一化（归一为现有错误形状并前缀协议名）都在适配器内。一个协议一个适配器。
-代码名：`ProtocolAdapter` / `PROTOCOL_ADAPTERS` 注册表
+把平台协议差异收敛在唯一 fetch 点一侧的翻译单元：编排层（阶梯/归并/工具循环）只面对统一的 `ChatMessage[]` 入参与 `StreamChatEvent` 出参，SSE 事件差异（Anthropic 的 message_start/content_block_delta、Responses 的 response.* 事件）、tool use 双向翻译（编排层保持 OpenAI tools 风格）、探针（probe）、错误归一化（归一为现有错误形状并前缀协议名）都在适配器内。一个协议一个适配器。合法值清单拆在词表叶（纯叶零依赖）：词表消费者（normalize 校验、设置 UI）只 import 词表叶，SW 静态图与协议栈脱钩；分发表键以 `Record<AiProtocol, ...>` 强制覆盖词表叶，单源；唯一读路径 `resolveAdapter` 不变。
+代码名：`ProtocolAdapter` / `PROTOCOL_ADAPTERS` 注册表 / `AI_PROTOCOLS` 词表叶（`protocol-vocab.ts`）
 _Avoid_: 每条协议复制编排链、编排层感知协议
 
 **搜索平台**:
-联网搜索平台（spec ai-chat-web-search，Tavily/Exa/Brave 三预设，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（单选激活，对齐 ASR radio 心智，"" = 无激活）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起（密钥不出 SW，三家域为常驻 host 权限）。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
+联网搜索平台（spec ai-chat-web-search，Tavily/Exa/Brave 三预设，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（单选激活，对齐 ASR radio 心智，"" = 无激活）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起 fetch：key 经消息中转（SW → offscreen 内存 →（消息 header）→ SW），SW 只做 fetch 发起方，key 不落 offscreen 存储/日志（protocol-vocab-leaf 文档语义修正，替代旧「密钥不出 SW」表述）；三家域为常驻 host 权限。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
 代码名：`searchProviderStore`（extension/search/search-provider-store.js）/ `normalizeSearchProvider` / `SEARCH_PROVIDER_PRESETS`（core/presets.js）/ 适配器 `extension/search/adapters/`
 _Avoid_: Key 进 sync、自定义预设、offscreen 直发搜索请求
 

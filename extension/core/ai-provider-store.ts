@@ -10,7 +10,7 @@
 //（arch-slim-2/09：探针是 ai 域知识，core/ 回归纯共享底座）。
 
 import { createProviderStore } from "./provider-store.js";
-import { PROTOCOL_ADAPTERS, type AiProtocol } from "../ai/protocol-adapter.js";
+import { AI_PROTOCOLS, type AiProtocol } from "../ai/protocol-vocab.js";
 
 export interface AiProvider {
   id: string;
@@ -68,9 +68,10 @@ function normalizeAiProvider(item: unknown): AiProvider | null {
     requiresKey: raw.requiresKey !== false,
     enabled: raw.enabled !== false
   };
-  // 协议字段：仅注册表词表内的值落盘（缺省/未知值省略，读侧经 resolveAdapter
+  // 协议字段：仅词表叶内的值落盘（缺省/未知值省略，读侧经 resolveAdapter
   // 兜底 openai——存量记录读写出形状不变，multi-protocol-ai 设置 UI 章）。
-  if (typeof raw.protocol === "string" && raw.protocol in PROTOCOL_ADAPTERS) {
+  // 词表校验只 import 词表叶，不拖入分发表及其协议栈（protocol-vocab-leaf）。
+  if (typeof raw.protocol === "string" && (AI_PROTOCOLS as readonly string[]).includes(raw.protocol)) {
     normalized.protocol = raw.protocol as AiProtocol;
   }
   return normalized;
