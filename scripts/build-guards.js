@@ -6,6 +6,11 @@
 
 const path = require("path");
 
+// 双实例守卫（build-content.js 的 assertDualInstanceAllowlist 专用，纯函数收在此
+// 是为了让 tests/ 能不经构建直接喂 fixture 对账）：content 两轮构建把共享底座
+// 各装一份实例，「允许双实例模块清单」必须与构建产物 sourcemap 的交集逐字一致
+// ——清单外的新双实例模块（如懒侧新 import 了某个常驻模块）在此现形。
+
 // Guard: every resolved local (`./`/`../`) import **from extension/ source** must
 // stay inside extension/. Absolute and external (package) imports are left
 // untouched. The guard lives on the build object via esbuild's onResolve so it
@@ -37,4 +42,29 @@ function createLocalImportGuard(extensionRoot) {
   };
 }
 
-module.exports = { createLocalImportGuard };
+module.exports = { createLocalImportGuard, sourcesFromMap, diffDualInstanceAllowlist };
+
+// 归一化单个 sourcemap 的 sources：map 的 sources 相对于 map 文件所在目录，
+// 解析后只保留落在 extension/ 内的 .ts 源（构建产物、node_modules 依赖天然
+// 排除），返回 extension 相对路径（posix 风格，与清单书写一致）。
+function sourcesFromMap(mapJson, mapDir, extensionRoot) {
+  return mapJson.sources
+    .map((source) => path.normalize(path.join(mapDir, source)))
+    .filter(
+      (source) =>
+        source.startsWith(extensionRoot + path.sep) && source.endsWith(".ts")
+    )
+    .map((source) => path.relative(extensionRoot, source).split(path.sep).join("/"));
+}
+
+// 对账：实测双实例集合（常驻包 sourcemap ∩ 全部 chunk sourcemap）vs 允许
+// 双实例模块清单。unexpected = 产物里有、清单没有（新双实例模块，构建报错、
+// 强制人工评估）；missing = 清单有、产物没有（清单漂移，提示清理）。
+function diffDualInstanceAllowlist(actualSources, allowlistSources) {
+  const actual = new Set(actualSources);
+  const allowlisted = new Set(allowlistSources);
+  return {
+    unexpected: [...actual].filter((source) => !allowlisted.has(source)).sort(),
+    missing: [...allowlisted].filter((source) => !actual.has(source)).sort(),
+  };
+}

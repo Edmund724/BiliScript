@@ -7,6 +7,11 @@
 // 逐订阅者过滤分发。
 // 分发必须仍经 chrome.storage.onChanged.addListener 注册的真实监听完成——
 // 测试以捕获该 API 的 stub 回调方式触发，不存在绕过 API 直调回调的捷径。
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL：subscriptions/registeredHost 是
+// 模块级可变状态，content 两轮构建下常驻包与懒加载区各一份实例。安全依据：
+// 分发经真实 chrome.storage.onChanged 监听完成，两侧各自注册监听、各自分发
+// 本侧订阅者，存储事件天然多播到两个监听，无跨实例对齐需求。
 
 // 区 → 键清单：声明了哪区才监听哪区，区内的键命中才分发。
 export interface StorageKeyWatch {

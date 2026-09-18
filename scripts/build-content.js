@@ -32,7 +32,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { build, context } = require("esbuild");
-const { createLocalImportGuard } = require("./build-guards.js");
+const { createLocalImportGuard, sourcesFromMap, diffDualInstanceAllowlist } = require("./build-guards.js");
 
 // --watch：esbuild context 常驻监听，供 build.js --watch（npm run dev）以子进程
 // 方式拉起；首轮仍跑全量自检与报表，之后每次重建只打一行日志。
@@ -390,7 +390,11 @@ function selfCheck() {
     process.exitCode = 1;
     return false;
   }
-  return assertSharedSlotsInBothRegions() && assertMermaidStubsApplied();
+  return (
+    assertSharedSlotsInBothRegions() &&
+    assertMermaidStubsApplied() &&
+    assertDualInstanceAllowlist()
+  );
 }
 
 // mermaid 替身守卫（mermaid-slim-round2）：沿 import 语句从 chunks/mermaid-render.mjs
@@ -524,6 +528,111 @@ function assertSharedSlotsInBothRegions() {
     return false;
   }
   return true;
+}
+
+// ===== 双实例纪律守卫（content-dual-instance-guard，2026-09-18）=====
+//
+// 背景：两轮构建下 22 个模块在常驻包与懒加载区各一份实例（sourcemap 交集
+// 实测），其中 5 个的跨实例状态已挂 globalThis 槽（守卫见上）。其余模块靠
+// 「懒侧不碰模块级可变状态」的隐形约定兜底——三个历史 bug（7d08229 digest
+// 点击静默无效、5a62ac6 主题不落盘、828430f 跨侧读空值）都是同类事故，约定
+// 必须变显式。
+//
+// 本守卫对两层事实做静态对账（见 docs/adr/0008）：
+//   1. 实测双实例集合（常驻包 sourcemap ∩ 全部 chunk sourcemap）vs 下方
+//      「允许双实例模块清单」——清单外的新双实例模块（典型：懒侧新 import
+//      了一个含可变状态的常驻模块）在此报错，强制人工评估后再入清单；
+//      清单漂移（模块不再双实例）同样报错，防止清单腐化成谎话。
+//   2. 清单 mutable 位 vs 源文件头注的 BOC_DUAL_INSTANCE_STATEFUL 标记——
+//      含模块级可变状态的模块必须两头同时声明（缺一即失败）；声明了标记的
+//      模块必须标 mutable: true。新增双实例状态照此声明即可自动纳入对账。
+const DUAL_INSTANCE_STATEFUL_MARKER = "BOC_DUAL_INSTANCE_STATEFUL";
+
+const DUAL_INSTANCE_ALLOWLIST = [
+  // —— 含模块级可变状态（mutable: true，头注均有标记 + 安全依据）——
+  { source: "core/state.ts", mutable: true }, // 状态本体挂 __BOC_STATE__ 槽
+  { source: "core/url-watcher.ts", mutable: true }, // 懒侧仅引用事件名常量，不调用状态函数
+  { source: "reader/reader-bus.ts", mutable: true }, // 槽表挂 __BOC_READER_BUS__
+  { source: "reader/state.ts", mutable: true }, // 可变位读写双方全在懒侧 reader 域
+  { source: "shared/lazy-import.ts", mutable: true }, // 缓存闭包双份，ESM 按 URL 去重
+  { source: "shared/logging.ts", mutable: true }, // 调试门挂 __BOC_LOG_GATE__ 槽
+  { source: "shared/messaging.ts", mutable: true }, // 分发槽挂 globalThis
+  { source: "shared/style-injector.ts", mutable: true }, // 挂载记录挂 __BOC_STYLE_INJECTOR__ 槽
+  { source: "shared/watch-storage-keys.ts", mutable: true }, // 两侧各自注册真实 onChanged 监听
+  { source: "ai/lazy-player-ai.ts", mutable: true }, // 模块级 loader 缓存闭包
+  { source: "reader/lazy-reader.ts", mutable: true }, // 同上
+  { source: "subtitle/lazy.ts", mutable: true }, // 同上
+  { source: "ui/lazy-ui.ts", mutable: true }, // 同上
+  // —— 纯模块（无模块级可变状态，mutable: false，无头注标记）——
+  { source: "bilibili/video-id-shared.ts", mutable: false },
+  { source: "core/defaults.ts", mutable: false },
+  { source: "core/runtime.ts", mutable: false },
+  { source: "core/ui-status.ts", mutable: false },
+  { source: "core/version.ts", mutable: false },
+  { source: "reader/presentation-fields.ts", mutable: false },
+  { source: "shared/dom-ids.ts", mutable: false },
+  { source: "shared/error-helpers.ts", mutable: false },
+  { source: "shared/utils.ts", mutable: false }
+];
+
+function readMapExtensionSources(mapFile) {
+  const mapJson = JSON.parse(fs.readFileSync(mapFile, "utf8"));
+  return sourcesFromMap(mapJson, path.dirname(mapFile), extensionRoot);
+}
+
+function collectDualInstanceSources() {
+  const mainSources = new Set(readMapExtensionSources(`${mainOutfile}.map`));
+  const chunkMaps = fs.existsSync(chunksDir)
+    ? fs.readdirSync(chunksDir).filter((file) => file.endsWith(".map"))
+    : [];
+  const lazySources = new Set();
+  for (const chunkMap of chunkMaps) {
+    for (const source of readMapExtensionSources(path.join(chunksDir, chunkMap))) {
+      lazySources.add(source);
+    }
+  }
+  return [...mainSources].filter((source) => lazySources.has(source));
+}
+
+function assertDualInstanceAllowlist() {
+  const { unexpected, missing } = diffDualInstanceAllowlist(
+    collectDualInstanceSources(),
+    DUAL_INSTANCE_ALLOWLIST.map((entry) => entry.source)
+  );
+  const markerMismatches = [];
+  for (const entry of DUAL_INSTANCE_ALLOWLIST) {
+    const text = fs.readFileSync(path.join(extensionRoot, entry.source), "utf8");
+    const hasMarker = text.includes(DUAL_INSTANCE_STATEFUL_MARKER);
+    if (entry.mutable && !hasMarker) {
+      markerMismatches.push(
+        `${entry.source}：清单标 mutable: true，头注缺少 ${DUAL_INSTANCE_STATEFUL_MARKER} 标记`
+      );
+    } else if (!entry.mutable && hasMarker) {
+      markerMismatches.push(
+        `${entry.source}：头注声明了 ${DUAL_INSTANCE_STATEFUL_MARKER}，清单未标 mutable: true`
+      );
+    }
+  }
+  if (unexpected.length + missing.length + markerMismatches.length === 0) {
+    return true;
+  }
+  const details = [];
+  for (const source of unexpected) {
+    details.push(
+      `${source} 变成了双实例但不在清单——若含模块级可变状态，先评估两侧安全性，` +
+        `入清单（mutable: true + 头注 ${DUAL_INSTANCE_STATEFUL_MARKER} 标记），否则标 mutable: false`
+    );
+  }
+  for (const source of missing) {
+    details.push(`${source} 在清单里但构建产物中已不双实例——从清单移除`);
+  }
+  details.push(...markerMismatches);
+  console.error(
+    "Self-check failed: 双实例纪律对账未过（约定见 docs/adr/0008，守卫头注）：\n  " +
+      details.join("\n  ")
+  );
+  process.exitCode = 1;
+  return false;
 }
 
 // 体积守卫（评审 #1）：reader 域装载图（含 reader/lifecycle 的 chunk）不得含

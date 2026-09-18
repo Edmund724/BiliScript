@@ -23,6 +23,10 @@
 // 加载器本体收拢于 shared/lazy-import.ts 的 createLazyLoader（与
 // reader/lazy-reader.ts、subtitle/lazy.ts、subtitle/fetcher.ts 的 ASR 回退装载
 // 同款），本模块保留仓库既有导出名。
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL：模块级 loader 的 promise 缓存
+// 是闭包可变状态，两轮构建下两侧各一份；安全依据见 shared/lazy-import.ts 头注
+//（两侧动态 import 同一 chunk URL，ESM 注册表按 URL 去重，缓存双份只是冗余）。
 interface PlayerAiDomain {
   removePlayerAiQuickActionButton(): void;
   schedulePlayerAiQuickActionSync(): void;

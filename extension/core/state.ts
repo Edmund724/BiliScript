@@ -320,6 +320,9 @@ const localState: State = {
 // 初始值（clip.currentUrl 读 location）由先求值的实例——常驻包——创建；后求值
 // 的实例把自己那份本地对象丢弃、改用槽内对象，因此下面只导出槽内绑定，本地
 // 对象仅作为「第一个实例」的建槽材料（一次性小开销，换来声明体逐字不动）。
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态，允许
+// 双实例；安全依据即上文的 globalThis 槽（状态本体在槽内，两侧同一份）。
 interface StateBundle {
   readerState: ReaderStateWritable;
   clipState: ClipStateWritable;

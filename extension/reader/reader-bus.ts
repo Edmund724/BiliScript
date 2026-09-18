@@ -57,6 +57,9 @@ type UiCommandHandler = (name: string, payload?: unknown) => void;
 // 与调用就静默错开（阅读面板里改主题不落盘、player-ai 同步请求无人接收的
 // 根因）。隔离世界的 globalThis 在同一扩展的全部 content 模块间唯一，两侧经
 // 它对齐到同一份槽（与 shared/messaging.ts 的页内分发槽同款先例）。
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（槽
+// 表），允许双实例；安全依据即上文的 globalThis 槽。
 interface ReaderBusSlots {
   readers: ReaderPresenterHandler[];
   subtitleRefreshHandlers: SubtitleRefreshHandler[];

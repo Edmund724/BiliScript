@@ -35,7 +35,9 @@ describe("跨实例共享槽守卫（构建期接线）", () => {
     expect(text.includes("function assertSharedSlotsInBothRegions()")).toBe(true);
     expect(text.includes("function assertMermaidStubsApplied()")).toBe(true);
     // selfCheck 以守卫的返回值收尾——守卫失败即 selfCheck 失败（build fail fast）
-    expect(text.includes("return assertSharedSlotsInBothRegions() && assertMermaidStubsApplied();")).toBe(true);
+    expect(text.includes("assertSharedSlotsInBothRegions()")).toBe(true);
+    expect(text.includes("assertMermaidStubsApplied()")).toBe(true);
+    expect(text.includes("assertDualInstanceAllowlist()")).toBe(true);
     // 扫描约定与两侧判据在场（防把守卫改成只看常驻包/只看 chunk）
     expect(text.includes("SLOT_KEY_DECLARATION")).toBe(true);
     expect(text.includes("不在常驻包")).toBe(true);

@@ -18,6 +18,9 @@
 //
 // 槽用可变对象而非直接放函数：后注册覆盖先注册的语义与旧实现逐字一致，且
 // minified 体积最小（SW 包体积守卫余量以字节计）。
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（调试
+// 门槽），允许双实例；安全依据即上文的 globalThis 槽。
 
 interface DebugGateSlot {
   gate: () => boolean;

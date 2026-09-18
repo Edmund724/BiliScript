@@ -26,7 +26,9 @@
 // 扩展的全部 content 模块间唯一，两侧对齐到同一份记录（与 shared/messaging.ts
 // 的页内分发槽、reader/reader-bus.ts 的槽表、core/state.ts 的状态单例同款
 // 先例）。
-
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（挂载
+// 记录与 ready promise 表），允许双实例；安全依据即上文的 globalThis 槽。
 interface StyleInjectorSlots {
   mounted: Map<string, HTMLLinkElement>;
   // 设置分区表组的首挂 ready promise（null = 尚未首挂）；同表组跨实例共享，

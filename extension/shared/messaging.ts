@@ -80,6 +80,9 @@ type ContentMessageDispatcher = (rawMessage: unknown, sendResponse: SendResponse
 // 页内源（ui/digest-button.ts）拿的是懒 chunk 实例，槽为 null 时分发静默
 // 返回 false（digest 点击无反应的症状）。隔离世界的 globalThis 在同一扩展的
 // 全部 content 模块间唯一，注册与调用经它对齐到同一个槽。
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（注册
+// 槽），允许双实例；安全依据即上文的 globalThis 槽。
 const DISPATCHER_SLOT_KEY = "__BOC_CONTENT_SCRIPT_DISPATCHER__";
 
 function dispatcherHost(): Record<string, ContentMessageDispatcher | null | undefined> {

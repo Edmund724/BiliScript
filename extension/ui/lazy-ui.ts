@@ -9,6 +9,10 @@
 // 加载器语义与 reader/lazy-reader.ts / ai/lazy-player-ai.ts 一致：同文档内重复
 // 调用共享同一 promise（createLazyLoader 缓存），并发触发不会构建两次；失败
 // 清缓存，下次触发可重试。
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL：模块级 loader 的 promise 缓存
+// 是闭包可变状态，两轮构建下两侧各一份；安全依据见 shared/lazy-import.ts 头注
+//（两侧动态 import 同一 chunk URL，ESM 注册表按 URL 去重，缓存双份只是冗余）。
 
 import { createLazyLoader } from "../shared/lazy-import.js";
 

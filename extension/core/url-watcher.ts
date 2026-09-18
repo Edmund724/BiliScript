@@ -6,6 +6,13 @@
 // entry/message-handler.ts（arch-slim-2/09 归位 entry/）的 bindUrlChangeHandler 中。
 // 本文件只 import ./state.ts（防重标记），不得依赖 ui/reader/ai/subtitle/
 // bilibili 任何域。
+//
+// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态
+// （history 补丁标记、轮询 interval id、lastObservedHref），content 两轮构建下
+// 常驻包与懒加载区各一份实例。安全依据：懒侧（reader/chat-tab-core.ts）只引用
+// BOC_URL_CHANGE_EVENT 常量，不调用任何状态函数，懒侧实例的补丁标记与轮询 id
+// 永不写；若未来懒侧需要 URL 变化通知，走 boc:urlchange 窗口事件，不得直接
+// 调用本模块的状态函数（scripts/build-content.js 的双实例守卫对账本标记）。
 import { state, uiState } from "./state.js";
 
 export const BOC_URL_CHANGE_EVENT = "boc:urlchange";
