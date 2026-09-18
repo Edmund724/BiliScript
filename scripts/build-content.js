@@ -220,8 +220,9 @@ function sizeInBytes(file) {
 
 // 构建配置提取为共享对象：一次性构建走 build()，--watch 走 context()。
 // sourcemap 恒开（linked external map，非 inline/eval——扩展 CSP 禁 eval）：
-// content 脚本的 .map 需经 manifest WAR（"entry/*.map"、"entry/chunks/*"）暴露
-// 给 devtools；发布 zip 由 build_release.py 剔除全部 .map。
+// manifest WAR 的 "entry/*.map" 条目已移除（剩余 "entry/content-main.mjs"、
+// "entry/chunks/*"、"entry/styles/*"）；发布 zip 由 build_release.py 剔除全部
+// .map，无 map 的 zip 里 chunks 通配不泄露任何文件。
 //
 // 轮 B（懒加载区）：目标模块作 entryPoints + splitting:true，共享代码在轮内
 // 自动提升为 chunk-[hash] 去重。entry 产物名取 lazyTargets 的 key、无 hash

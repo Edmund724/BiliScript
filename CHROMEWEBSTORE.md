@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — Bilibili-Summary｜一键总结B站视频
 
-> Last Updated: 2026-09-14
+> Last Updated: 2026-09-18
 >
 > Status: Draft. Do not submit until tickets #01 through #06 are complete, the real Chrome checks pass, and the 2.2.0 release archive is rebuilt.
 
@@ -50,7 +50,7 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 | Permission | Type | Justification |
 |---|---|---|
 | `storage` | permissions | Save API keys, notes, conversations, subtitles, summaries, settings, and cache entries locally. |
-| `unlimitedStorage` | permissions | The subtitle, segment-summary, and overview caches keep the 3 most recent videos per cache family with no byte limit; this permission declares that those local caches are exempt from Chrome's normal storage quota so saved transcripts and summaries are not evicted. |
+| `unlimitedStorage` | permissions | Store segment-summary caches, AI conversation sessions, raw subtitle/transcript caches, and overview caches with no byte limit; the subtitle, segment-summary, and overview caches keep the 3 most recent videos per cache family. This permission declares that those local stores are exempt from Chrome's normal storage quota so saved transcripts, conversations, and summaries are not evicted. |
 | `scripting` | permissions | Run the reading interface and player controls on supported Bilibili video pages. |
 | `offscreen` | permissions | Decode audio and process AI or ASR streams in a background document while the user continues browsing the video page. |
 | `declarativeNetRequest` | permissions | Add short-lived session rules that set the Referer/Origin headers for requests to Bilibili's audio CDN while an active speech-recognition task is running, then remove those rules when the task finishes. |
@@ -61,7 +61,7 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 | `https://api.tavily.com/*` | host_permissions | Send a model-generated query to Tavily and return results, only while the user has enabled web search and selected Tavily as the search provider. |
 | `https://api.exa.ai/*` | host_permissions | Send a model-generated query to Exa and return results, only while the user has enabled web search and selected Exa as the search provider. |
 | `https://api.search.brave.com/*` | host_permissions | Send a model-generated query to Brave Search and return results, only while the user has enabled web search and selected Brave Search as the search provider. |
-| `http://*/*`, `https://*/*` | optional_host_permissions | Connect to an AI or speech-recognition endpoint that the user explicitly adds, including a local Whisper service. Chrome may request this access when the user saves a matching provider. |
+| `http://*/*`, `https://*/*` | optional_host_permissions | Connect to an AI or speech-recognition endpoint that the user explicitly adds, including a local Whisper service or a self-hosted/intranet HTTP endpoint of a custom AI platform. Chrome may request this access when the user saves a matching provider. |
 
 ## Privacy & Data Use
 
