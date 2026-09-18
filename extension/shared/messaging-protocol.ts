@@ -245,9 +245,13 @@ export type ResolveAiProviderResponse = {
 // boc_lvs_raw_* 两族）宿主是 SW——offscreen 的 Map-Reduce / 追问链经本族消息
 // 读写（arch-review-2026-09/05，替下 storage-local-bridge 垫片），SW 端 handler
 // 直调 segment-cache 单源（键位装配也在 SW 完成，消息只带 context 字段）。
+// 写聚合（段缓存写聚合 ticket）：Map-Reduce 未命中段的 saveRaw 由 offscreen 侧
+// proxy 缓冲、随 saveSummary 合成一条 save-summary-raw 合并 op（写路径 3N→2N，
+// SW 侧每段 2get+4set→1get+3set）；abort/异常路径 proxy 把缓冲的 raw 按
+// save-raw 逐个 flush，port 断开 / offscreen 自关则随文档销毁丢弃。
 export type SegmentCacheMessage = {
   type: "segment-cache";
-  op: "load-summary" | "load-summaries" | "save-summary" | "save-raw" | "load-stored-raw";
+  op: "load-summary" | "load-summaries" | "save-summary" | "save-raw" | "save-summary-raw" | "load-stored-raw";
   // context 形字段（bvid/cid/selectedSubtitleId/selectedSubtitleUrl/subtitleLang），
   // SW 端经 segmentCacheKeyFields 归一为键位字段
   context?: Record<string, unknown>;
@@ -261,7 +265,7 @@ export type SegmentCacheMessage = {
   // unknown 透传：budgetScaleSuffix 的 Number() 归一在 SW 的 segment-cache 单源
   // 完成，与迁移前直连调用的口径逐字一致
   budgetScale?: unknown;
-  // save-summary 的载荷 / save-raw 的原始段条目
+  // save-summary 的载荷 / save-raw 与 save-summary-raw 的原始段条目
   summary?: string;
   segments?: unknown[];
 };
@@ -274,6 +278,10 @@ export type SegmentCacheResponse = {
   // load-stored-raw 回包：按段序排列的落盘原始段（无命中为空数组；带 prompt 时
   // 非命中段 items 已被剥离，段元数据 index/from/to 保留）
   storedSegments?: unknown[];
+  // save-summary-raw 合并写回包的 per-op 结果：两族各自成败（粗粒度，同败同果；
+  // 保住写失败可观测性，offscreen 侧任一失败都汇成一次 { ok:false } 上浮）
+  summarySaved?: { ok: boolean; error?: string };
+  rawSaved?: { ok: boolean; error?: string };
   error?: string;
 };
 

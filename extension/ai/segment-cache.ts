@@ -7,7 +7,7 @@
 
 import { logError } from "../shared/logging.js";
 import { buildSubtitleSourceKey } from "../subtitle/cache.js";
-import { createCacheFamily, readFamilyKeys } from "../core/cache-lru.js";
+import { createCacheFamily, parseBvidFromCacheKey, readFamilyKeys, writeBundleWithEviction } from "../core/cache-lru.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
 
 // 分段小结缓存键前缀。
@@ -155,6 +155,36 @@ export async function loadRawSegments(key: string): Promise<unknown[] | null> {
  */
 export async function saveRawSegments(key: string, segments: unknown[]): Promise<SaveResult> {
   return rawFamily.save(key, segments);
+}
+
+/**
+ * 两族合并写（段缓存写聚合 ticket）：同段原始段 + 分段小结一次落盘——
+ * 分键索引与汇总清单经 writeBundleWithEviction 打包成一次 set，数据各一次
+ * set（每段 1 get + 3 set，替代单族两写的 2 get + 4 set）；淘汰短路检查覆盖
+ * raw / summary 两族。容错语义同单族写（先淘汰再重试一次，最终失败 logError、
+ * 不抛）。键位仍由调用方（SW 端 handler）装配。
+ */
+export async function saveSegmentSummaryWithRaw(summaryKey: string, summary: string, rawKey: string, segments: unknown[]): Promise<SaveResult> {
+  const result = await writeBundleWithEviction(
+    [
+      { family: RAW_SEGMENT_PREFIX, bvid: parseBvidFromCacheKey(rawKey, RAW_SEGMENT_PREFIX), cacheKeys: [rawKey] },
+      { family: SEGMENT_SUMMARY_PREFIX, bvid: parseBvidFromCacheKey(summaryKey, SEGMENT_SUMMARY_PREFIX), cacheKeys: [summaryKey] }
+    ],
+    async () => {
+      const timestamp = Date.now();
+      await chrome.storage.local.set({ [rawKey]: { segments, timestamp } });
+      await chrome.storage.local.set({ [summaryKey]: { summary, timestamp } });
+    },
+    { pruneFamilies: [RAW_SEGMENT_PREFIX, SEGMENT_SUMMARY_PREFIX] }
+  );
+  if (!result.ok) {
+    logError("[BOC] failed to save segment summary+raw cache bundle after eviction", {
+      summaryKey,
+      rawKey,
+      error: result.error?.message || result.error
+    });
+  }
+  return result;
 }
 
 // 从原始段缓存键尾段解析段序号（键形如 `${前缀}${bvid}_${cid}_${sourceKey}_${index}`）。

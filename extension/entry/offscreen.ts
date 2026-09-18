@@ -46,6 +46,9 @@ import { resolveWebSearchRuntime } from "../search/search-runtime.js";
 // ladder/streamChat/map-reduce 构造的联合成员获得编译期约束。
 import { OFFSCREEN_CHAT_PORT_NAME } from "../chat/protocol.js";
 import type { ChatPortMessage } from "../chat/protocol.js";
+// 写聚合（段缓存写聚合 ticket）：abort/异常路径把 proxy 缓冲的同段 raw 落盘
+//（port 断开 / offscreen 自关不 flush——缓冲随文档销毁丢弃，见 proxy 模块头注）。
+import { flushSegmentCacheRawBuffer } from "../ai/segment-cache-proxy.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 
@@ -121,6 +124,8 @@ function armIdleTimeout(abortController: AbortController, port: PostMessagePort)
   idleTimeoutId = setTimeout(function () {
     if (abortController && !abortController.signal.aborted) {
       abortController.abort();
+      // 超时中断同样 flush 缓冲的原始段（异常路径，保住已切好的段缓存）
+      void flushSegmentCacheRawBuffer();
       port.postMessage({
         type: "error",
         error: "请求超时（90 秒未返回任何数据），已自动中断"
@@ -160,6 +165,8 @@ chrome.runtime.onConnect.addListener((port) => {
     if (!msg) return;
     if (msg.action === "stop") {
       abortActiveRequest();
+      // 「用户主动停止」主场景：缓冲的同段 raw 落盘，供跨会话追问复用
+      void flushSegmentCacheRawBuffer();
       return;
     }
     if (msg.action === "cost-guard-confirm") {
@@ -256,6 +263,8 @@ chrome.runtime.onConnect.addListener((port) => {
         }
       );
     } catch (e) {
+      // 异常路径：编排中断，缓冲的同段 raw 落盘（不随本次失败丢弃）
+      void flushSegmentCacheRawBuffer();
       ackedPort.postMessage({ type: "error", error: String((e as Error | undefined)?.message || e) });
     } finally {
       clearIdleTimeout();

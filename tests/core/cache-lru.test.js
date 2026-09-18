@@ -623,6 +623,141 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
   });
 });
 
+describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket）", () => {
+  const RAW_KEY = "boc_lvs_raw_BV1a_1_s_1";
+  const SUMMARY_KEY = "boc_lvs_summary_BV1a_1_s_1";
+  const bundleWrite = (write) =>
+    mod.writeBundleWithEviction(
+      [
+        { family: "boc_lvs_raw_", bvid: "BV1a", cacheKeys: [RAW_KEY] },
+        { family: "boc_lvs_summary_", bvid: "BV1a", cacheKeys: [SUMMARY_KEY] }
+      ],
+      write
+    );
+
+  it("两族索引与 manifest 打包成一次 set；数据写一次；两族索引可读回", async () => {
+    const setCalls = [];
+    const origSet = storage.local.set.getMockImplementation();
+    storage.local.set.mockImplementation(async (items) => {
+      setCalls.push(Object.keys(items));
+      await origSet(items);
+    });
+    const write = vi.fn(async () => {
+      await storage.local.set({ [RAW_KEY]: { segments: [], timestamp: 1 } });
+      await storage.local.set({ [SUMMARY_KEY]: { summary: "小", timestamp: 1 } });
+    });
+
+    const result = await bundleWrite(write);
+
+    expect(result).toEqual({ ok: true });
+    expect(write).toHaveBeenCalledTimes(1);
+    // 两族分键索引条目 + 汇总清单合成一次 set（11 票不变式：分键索引原子 set，
+    // 同一次 set 携带多键与 recordCacheWrite 单 set 先例一致）
+    const indexSet = setCalls.find((keys) => keys.includes("boc_cache_lru_index"));
+    expect(indexSet).toBeDefined();
+    expect(indexSet).toContain(`boc_cache_lru_index:boc_lvs_raw_:BV1a:${RAW_KEY}`);
+    expect(indexSet).toContain(`boc_cache_lru_index:boc_lvs_summary_:BV1a:${SUMMARY_KEY}`);
+    // 清单读恰 1 次（attempt 内快照）
+    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === "boc_cache_lru_index").length;
+    expect(indexReads).toBe(1);
+    // 数据键 + 两族索引都落盘，readFamilyKeys 各自读回
+    expect(storage.map.has(RAW_KEY)).toBe(true);
+    expect(storage.map.has(SUMMARY_KEY)).toBe(true);
+    expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1a")).toEqual([RAW_KEY]);
+    expect(await mod.readFamilyKeys("boc_lvs_summary_", "BV1a")).toEqual([SUMMARY_KEY]);
+    const manifest = (await storage.local.get("boc_cache_lru_index")).boc_cache_lru_index;
+    expect(manifest.boc_lvs_raw_.BV1a).toEqual(expect.any(Number));
+    expect(manifest.boc_lvs_summary_.BV1a).toEqual(expect.any(Number));
+  });
+
+  it("数据写首次失败 → 先淘汰再重试一次，重试成功返回 { ok:true }", async () => {
+    await storage.local.set({
+      boc_cache_lru_index: { boc_lvs_raw_: { BV1old: 1, BV1m: 2, BV1n: 3 } },
+      boc_lvs_raw_BV1old_1_s_1: { segments: [], timestamp: 1 },
+      boc_lvs_raw_BV1m_1_s_1: { segments: [], timestamp: 2 },
+      boc_lvs_raw_BV1n_1_s_1: { segments: [], timestamp: 3 }
+    });
+    let dataWriteAttempts = 0;
+    storage.local.set.mockImplementation(async (items) => {
+      if (RAW_KEY in items || SUMMARY_KEY in items) {
+        dataWriteAttempts += 1;
+        if (dataWriteAttempts === 1) {
+          throw new Error("quota");
+        }
+      }
+      for (const [key, value] of Object.entries(items)) {
+        storage.map.set(key, value);
+      }
+    });
+    const write = vi.fn(async () => {
+      await storage.local.set({ [RAW_KEY]: { segments: [], timestamp: 5 } });
+      await storage.local.set({ [SUMMARY_KEY]: { summary: "小", timestamp: 5 } });
+    });
+
+    const result = await bundleWrite(write);
+
+    expect(result).toEqual({ ok: true });
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(storage.map.has("boc_lvs_raw_BV1old_1_s_1")).toBe(false);
+    expect(storage.map.has(RAW_KEY)).toBe(true);
+    expect(storage.map.has(SUMMARY_KEY)).toBe(true);
+  });
+
+  it("重试仍失败 → 返回 { ok:false, error: CacheWriteError }，不抛异常", async () => {
+    storage.local.set.mockImplementation(async (items) => {
+      if (RAW_KEY in items || SUMMARY_KEY in items) {
+        throw new Error("quota");
+      }
+      for (const [key, value] of Object.entries(items)) {
+        storage.map.set(key, value);
+      }
+    });
+    const write = vi.fn(async () => {
+      await storage.local.set({ [RAW_KEY]: { segments: [], timestamp: 5 } });
+    });
+
+    const result = await bundleWrite(write);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBeInstanceOf(mod.CacheWriteError);
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+
+  it("entries 为空 / write 非函数 → { ok:false }，不触碰存储", async () => {
+    const empty = await mod.writeBundleWithEviction([], async () => {});
+    expect(empty.ok).toBe(false);
+    expect(empty.error).toBeInstanceOf(mod.CacheWriteError);
+    const bad = await mod.writeBundleWithEviction([{ family: "boc_lvs_raw_", bvid: "BV1a", cacheKeys: [] }]);
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toBeInstanceOf(mod.CacheWriteError);
+    expect(storage.local.set).not.toHaveBeenCalled();
+  });
+
+  it("一族越界即触发淘汰（短路检查覆盖写入涉及的全部族）", async () => {
+    // raw 族 3 个视频（合并写入的第 4 个），summary 族仅 1 个：raw 族越界须淘汰
+    await storage.local.set({
+      boc_cache_lru_index: {
+        boc_lvs_raw_: { BV1old: 1, BV1m: 2, BV1n: 3 },
+        boc_lvs_summary_: { BV1a: 10 }
+      },
+      boc_lvs_raw_BV1old_1_s_1: { segments: [], timestamp: 1 },
+      boc_lvs_raw_BV1m_1_s_1: { segments: [], timestamp: 2 },
+      boc_lvs_raw_BV1n_1_s_1: { segments: [], timestamp: 3 }
+    });
+    const write = vi.fn(async () => {
+      await storage.local.set({ [RAW_KEY]: { segments: [], timestamp: 5 } });
+      await storage.local.set({ [SUMMARY_KEY]: { summary: "小", timestamp: 5 } });
+    });
+
+    const result = await bundleWrite(write);
+
+    expect(result).toEqual({ ok: true });
+    expect(storage.map.has("boc_lvs_raw_BV1old_1_s_1")).toBe(false);
+    expect(storage.map.has(RAW_KEY)).toBe(true);
+    expect(storage.map.has(SUMMARY_KEY)).toBe(true);
+  });
+});
+
 describe("一次机制覆盖两族：真实写路径（segment-cache / subtitle cache）", () => {
   it("subtitle/cache.js saveSubtitleToCache 更新索引并淘汰第 4 个旧视频", async () => {
     const cache = await import("../../extension/subtitle/cache.js");

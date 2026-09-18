@@ -155,15 +155,17 @@ function normalizeManifest(raw: unknown): LruManifest {
 }
 
 // 在清单快照上合并「本次写入」：短路检查以此判断本次写入是否可能造成越界
-// （stored 清单读于写入之前，快照里还没有本次 bvid）。
-function mergeManifestWrite(manifest: LruManifest, family: string, bvid: string, ts: number): LruManifest {
-  return {
-    ...manifest,
-    [family]: {
-      ...(manifest[family] || {}),
+// （stored 清单读于写入之前，快照里还没有本次 bvid）。跨族合并写（段缓存写聚合）
+// 传入多组 { family, bvid, ts }，一次覆盖全部写入族。
+function mergeManifestWrites(manifest: LruManifest, writes: Array<{ family: string; bvid: string; ts: number }>): LruManifest {
+  const next: LruManifest = { ...manifest };
+  for (const { family, bvid, ts } of writes) {
+    next[family] = {
+      ...(next[family] || {}),
       [bvid]: ts
-    }
-  };
+    };
+  }
+  return next;
 }
 
 // 索引退化回退的一次性告警标志（模块级，跨消费方共享）：回退路径可能被每次追问
@@ -205,24 +207,31 @@ export async function readFamilyKeys(family: string, bvid: string, keyPrefix = "
 //      并发写互不覆盖（11 票核心）；
 //   2. 汇总清单：在调用方给的快照上合并本 bvid 后整键覆盖——并发新增可能互相覆盖，
 //      仅影响短路/排名启发，不丢键面，prune 会顺手重写清单自愈。
-// 失败上抛，由 writeWithEviction 统一处理。
-async function recordCacheWrite(
-  family: string,
-  bvid: string,
+// 跨族合并写（段缓存写聚合）：多族索引条目与 manifest 打包进同一次 set
+// （同一次 set 携带多键不违反 11 票不变式，与单键一索引项的布局一致）。
+// 失败上抛，由 writeWithEviction / writeBundleWithEviction 统一处理。
+async function recordCacheWrites(
+  writes: Array<{ family: string; bvid: string; cacheKeys: string[] }>,
   timestamp = Date.now(),
-  cacheKeys: string[] = [],
   manifestSnapshot: LruManifest = {}
 ): Promise<void> {
   const storage = requireStorageLocal();
-  const entries: Record<string, { ts: number }> = {};
-  for (const key of new Set(Array.isArray(cacheKeys) ? cacheKeys : [])) {
-    if (key) {
-      entries[`${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:${key}`] = { ts: timestamp };
+  const items: Record<string, unknown> = {};
+  const manifestWrites: Array<{ family: string; bvid: string; ts: number }> = [];
+  for (const write of Array.isArray(writes) ? writes : []) {
+    const entries: Record<string, { ts: number }> = {};
+    for (const key of new Set(Array.isArray(write.cacheKeys) ? write.cacheKeys : [])) {
+      if (key) {
+        entries[`${LRU_INDEX_ENTRY_PREFIX}${write.family}:${write.bvid}:${key}`] = { ts: timestamp };
+      }
+    }
+    Object.assign(items, entries);
+    if (write.family && write.bvid) {
+      manifestWrites.push({ family: write.family, bvid: write.bvid, ts: timestamp });
     }
   }
-  const items: Record<string, unknown> = { ...entries };
-  if (family && bvid) {
-    items[LRU_MANIFEST_KEY] = mergeManifestWrite(manifestSnapshot, family, bvid, timestamp);
+  if (manifestWrites.length > 0) {
+    items[LRU_MANIFEST_KEY] = mergeManifestWrites(manifestSnapshot, manifestWrites);
   }
   await storage.set(items);
 }
@@ -401,31 +410,41 @@ interface WriteWithEvictionOptions {
   pruneFamilies?: string[];
 }
 
+// 跨族合并写的一次写入计划：每族登记 bvid 与本次写入的缓存键（分键索引条目来源）。
+export interface CacheWriteBundleEntry {
+  family: string;
+  bvid: string;
+  cacheKeys: string[];
+}
+
 /**
- * 带 LRU 淘汰的写入：记录索引（原子分键写，无并发竞态）→ 写入 → 每次成功写入后
- * 维持「每族仅保留最近 keep 个视频」的不变量（先读清单短路：快照合并本次 bvid 后
- * 各族条目数都 ≤ keep 时跳过完整 prune；清单少计只导致多留，prune 真枚举兜底）；
- * 写入失败时先淘汰（静默）再重试一次，仍失败返回
- * { ok:false, error: CacheWriteError }（distinct 失败，由调用方决定是否上浮 UI）。
- * 从不抛出；返回 { ok:true } 或 { ok:false, error }。
+ * 跨族合并写（段缓存写聚合 ticket）：一次写入横跨多族时，分键索引与汇总清单
+ * 合成一次 set（recordCacheWrites 打包），数据写由调用方闭包完成（可含多次
+ * storage.set）；淘汰短路检查覆盖 entries 涉及的全部族。失败处理与
+ * writeWithEviction 同口径：先淘汰（静默）再重试一次，仍失败返回
+ * { ok:false, error: CacheWriteError }。从不抛出。
  */
-export async function writeWithEviction({
-  family = "",
-  bvid = "",
-  write,
-  keys = [],
-  keep = LRU_KEEP_VIDEOS,
-  pruneFamilies = CACHE_FAMILIES
-}: WriteWithEvictionOptions = {}): Promise<EvictionResult | EvictionFailure> {
+export async function writeBundleWithEviction(
+  entries: CacheWriteBundleEntry[],
+  write: () => Promise<void>,
+  { keep = LRU_KEEP_VIDEOS, pruneFamilies = CACHE_FAMILIES }: { keep?: number; pruneFamilies?: string[] } = {}
+): Promise<EvictionResult | EvictionFailure> {
+  const bundle = (Array.isArray(entries) ? entries : []).filter(
+    (entry): entry is CacheWriteBundleEntry =>
+      Boolean(entry) && typeof entry.family === "string" && typeof entry.bvid === "string"
+  );
+  if (bundle.length === 0) {
+    return { ok: false, error: new CacheWriteError("writeBundleWithEviction：entries 不能为空") };
+  }
   if (typeof write !== "function") {
-    return { ok: false, error: new CacheWriteError("writeWithEviction：write 必须是函数") };
+    return { ok: false, error: new CacheWriteError("writeBundleWithEviction：write 必须是函数") };
   }
 
   const timestamp = Date.now();
   // 每次 attempt 现读清单快照：重试路径拿到的是淘汰后的新清单。
   const attempt = async () => {
     const manifestSnapshot = await readManifest();
-    await recordCacheWrite(family, bvid, timestamp, keys, manifestSnapshot);
+    await recordCacheWrites(bundle, timestamp, manifestSnapshot);
     await write();
     return manifestSnapshot;
   };
@@ -451,11 +470,38 @@ export async function writeWithEviction({
   }
 
   // 维持 LRU 不变量：每次成功写入后收缩到每族最近 keep 个视频。清单快照（合并
-  // 本次写入）各族 bvid 数都 ≤ keep 时本次写入不可能造成越界，跳过完整 prune。
-  if (!familiesWithinKeep(mergeManifestWrite(manifestSnapshot, family, bvid, timestamp), pruneFamilies, keep)) {
+  // 本次写入的全部族/bvid）各族 bvid 数都 ≤ keep 时本次写入不可能造成越界，
+  // 跳过完整 prune。
+  const manifestWrites = bundle
+    .filter((entry) => entry.family && entry.bvid)
+    .map((entry) => ({ family: entry.family, bvid: entry.bvid, ts: timestamp }));
+  if (!familiesWithinKeep(mergeManifestWrites(manifestSnapshot, manifestWrites), pruneFamilies, keep)) {
     await pruneToRecentVideos(pruneFamilies, keep);
   }
   return { ok: true };
+}
+
+/**
+ * 带 LRU 淘汰的写入：记录索引（原子分键写，无并发竞态）→ 写入 → 每次成功写入后
+ * 维持「每族仅保留最近 keep 个视频」的不变量（先读清单短路：快照合并本次 bvid 后
+ * 各族条目数都 ≤ keep 时跳过完整 prune；清单少计只导致多留，prune 真枚举兜底）；
+ * 写入失败时先淘汰（静默）再重试一次，仍失败返回
+ * { ok:false, error: CacheWriteError }（distinct 失败，由调用方决定是否上浮 UI）。
+ * 从不抛出；返回 { ok:true } 或 { ok:false, error }。
+ * （单族特例，实现收进 writeBundleWithEviction 单路径。）
+ */
+export async function writeWithEviction({
+  family = "",
+  bvid = "",
+  write,
+  keys = [],
+  keep = LRU_KEEP_VIDEOS,
+  pruneFamilies = CACHE_FAMILIES
+}: WriteWithEvictionOptions = {}): Promise<EvictionResult | EvictionFailure> {
+  if (typeof write !== "function") {
+    return { ok: false, error: new CacheWriteError("writeWithEviction：write 必须是函数") };
+  }
+  return writeBundleWithEviction([{ family, bvid, cacheKeys: keys }], write, { keep, pruneFamilies });
 }
 
 // ============================================================

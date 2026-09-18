@@ -37,7 +37,7 @@ _Avoid_: 补零/不补零双约定并存、各处手写 withHours 启发式、�
 _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 fetchRunId（须同步先行于装载链，否则新视频抓取可能被迟到的递增误杀）
 
 **原始字幕缓存**:
-按时间戳/章节切好的原始字幕段，可随取随用；仅在压缩摘要之外的细节追问时按需检索注入。宿主注记（arch-review-2026-09/05）：storage 真实宿主是 SW，offscreen（Map-Reduce/追问链）经 `segment-cache` 消息族读写——offscreen 侧唯一出站点 `ai/segment-cache-proxy.ts`，SW 端 `ai/segment-cache-handler.ts` 直调 segment-cache 单源（键位装配在 SW 完成）。
+按时间戳/章节切好的原始字幕段，可随取随用；仅在压缩摘要之外的细节追问时按需检索注入。宿主注记（arch-review-2026-09/05）：storage 真实宿主是 SW，offscreen（Map-Reduce/追问链）经 `segment-cache` 消息族读写——offscreen 侧唯一出站点 `ai/segment-cache-proxy.ts`，SW 端 `ai/segment-cache-handler.ts` 直调 segment-cache 单源（键位装配在 SW 完成）。写聚合注记（段缓存写聚合 ticket）：Map-Reduce 未命中段的 saveRaw 由 proxy 缓冲、随 saveSummary 合成 `save-summary-raw` 合并 op（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set，两族索引/manifest 打包一次 set）；abort/异常路径 proxy 把缓冲 raw 按 save-raw flush，port 断开 / offscreen 自关随文档销毁丢弃；proxy 从纯直通变有状态缓冲，是出站点收口的既有纪律内演化。
 代码名：`ai/segment-cache.js`（`boc_lvs_raw_*`）/ `ai/raw-retrieval.js`
 _Avoid_: 长记忆、向量库
 

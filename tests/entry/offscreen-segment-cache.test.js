@@ -4,10 +4,14 @@
 // storage）」的环境，跑通真实 ladder → map-reduce → segment-cache-proxy →
 // 消息 → segment-cache 链路，断言：
 // - 原始段 / 分段小结读写全部经 segment-cache 消息族落 SW（内存 store 可见）；
+// - 写聚合（段缓存写聚合 ticket）：saveRaw 经 proxy 缓冲、随 saveSummary 合成
+//   save-summary-raw 合并 op（5 段 = 5 条合并写，无单独 save-raw）；
+// - 用户停止（abort）时 proxy 把缓冲的 raw 按 save-raw flush 落 SW；
 // - LRU 索引登记了两个族；
 // - 全程无「本地字幕缓存写入失败」提示。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetModuleState } from "../setup.js";
 
 const { chatCompletionMock } = vi.hoisted(() => ({ chatCompletionMock: vi.fn() }));
 
@@ -83,6 +87,8 @@ function stubChromeRuntime() {
 }
 
 async function importOffscreen() {
+  vi.resetModules();
+  resetModuleState();
   onConnectListeners = [];
   stubChromeRuntime();
   return import("../../extension/entry/offscreen.js");
@@ -134,14 +140,17 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "done")).toBe(true);
     });
 
-    // raw / summary 两族的读（miss）与写都经 segment-cache 消息族过 SW
+    // raw / summary 两族的读（miss）与写都经 segment-cache 消息族过 SW；
+    // 写聚合：5 段的 saveRaw 全部随 saveSummary 合成 save-summary-raw（5 条合并写，
+    // 无单独 save-summary / save-raw 消息）
     const ops = sendMessageMock.mock.calls
       .map((c) => c[0])
       .filter((m) => m?.type === "segment-cache")
       .map((m) => m.op);
     expect(ops.filter((op) => op === "load-summary").length).toBe(5);
-    expect(ops.filter((op) => op === "save-summary").length).toBe(5);
-    expect(ops.filter((op) => op === "save-raw").length).toBe(5);
+    expect(ops.filter((op) => op === "save-summary-raw").length).toBe(5);
+    expect(ops.filter((op) => op === "save-summary").length).toBe(0);
+    expect(ops.filter((op) => op === "save-raw").length).toBe(0);
 
     const storeKeys = [...memoryArea.store.keys()];
     const rawKeys = storeKeys.filter((k) => k.startsWith("boc_lvs_raw_"));
@@ -150,6 +159,65 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     expect(summaryKeys.length).toBe(5);
     expect(storeKeys).toContain("boc_cache_lru_index");
 
+    const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
+    expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
+  });
+
+  it("用户停止（abort）：proxy 把缓冲的 raw 按 save-raw flush 落 SW", async () => {
+    // 分段模型调用挂起在 abort 上（saveRaw 已缓冲、saveSummary 未到达）
+    let segmentCalls = 0;
+    chatCompletionMock.mockImplementation(async (input) => {
+      if (String(input.messages?.at(-1)?.content || "").includes("连续片段")) {
+        segmentCalls += 1;
+        return new Promise((resolve, reject) => {
+          input.signal.addEventListener("abort", () => {
+            const error = new Error("aborted");
+            error.aborted = true;
+            reject(error);
+          });
+        });
+      }
+      return "# 视频笔记：《长视频》\n完整笔记正文。";
+    });
+
+    await importOffscreen();
+    const session = connectChat();
+    session.send({
+      action: "chat",
+      providerId: "p1",
+      contextKey: CONTEXT_KEY,
+      context: { title: "长视频", subtitleBody: makeBody() },
+      prompt: "总结"
+    });
+
+    await vi.waitFor(() => {
+      expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "cost-guard")).toBe(true);
+    });
+    session.send({ action: "cost-guard-confirm", ok: true });
+
+    // 首波并发 3 段的模型调用已发出（每段的 saveRaw 已入 proxy 缓冲）
+    await vi.waitFor(() => {
+      expect(segmentCalls).toBe(3);
+    });
+    session.send({ action: "stop" });
+
+    // 编排收束为 stopped；缓冲的 3 段 raw 经 save-raw flush 落 SW
+    await vi.waitFor(() => {
+      expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "stopped")).toBe(true);
+    });
+    await vi.waitFor(() => {
+      const rawKeys = [...memoryArea.store.keys()].filter((k) => k.startsWith("boc_lvs_raw_"));
+      expect(rawKeys.length).toBe(3);
+    });
+
+    const ops = sendMessageMock.mock.calls
+      .map((c) => c[0])
+      .filter((m) => m?.type === "segment-cache")
+      .map((m) => m.op);
+    expect(ops.filter((op) => op === "save-raw").length).toBe(3);
+    // 未完成的段没有 summary 落盘，也没有合并 op
+    expect(ops.filter((op) => op === "save-summary-raw").length).toBe(0);
+    expect(ops.filter((op) => op === "save-summary").length).toBe(0);
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });

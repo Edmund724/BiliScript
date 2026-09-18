@@ -348,3 +348,51 @@ describe("预算代隔离：budgetScale≠1 时 key 带代后缀（防段边界�
     expect(mod.buildSegmentSummaryCacheKey(context, 3, "x")).toBe("boc_lvs_summary_BV1scale_5_id_sub-1_3");
   });
 });
+
+describe("saveSegmentSummaryWithRaw：两族合并写（段缓存写聚合 ticket）", () => {
+  const fields = { bvid: "BV1pair", cid: "1", subtitleId: "sub-1" };
+  const summaryKey = () => mod.getSegmentSummaryKey({ ...fields, segmentIndex: 2 });
+  const rawKey = () => mod.getRawSegmentKey({ ...fields, segmentIndex: 2 });
+
+  it("一次调用落两族数据 + 两族索引/清单打包写；读回与单族写等价", async () => {
+    const setCalls = [];
+    const origSet = storage.local.set.getMockImplementation();
+    storage.local.set.mockImplementation(async (items) => {
+      setCalls.push(Object.keys(items));
+      await origSet(items);
+    });
+
+    const result = await mod.saveSegmentSummaryWithRaw(summaryKey(), "合并小结", rawKey(), [
+      { from: 0, to: 5, content: "x" }
+    ]);
+
+    expect(result).toEqual({ ok: true });
+    // 存储操作 = 1 get（清单快照）+ 3 set（raw 数据 / summary 数据 / 两族索引+manifest 打包）
+    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === "boc_cache_lru_index").length;
+    expect(indexReads).toBe(1);
+    expect(setCalls.filter((keys) => keys.includes(rawKey()))).toHaveLength(1);
+    expect(setCalls.filter((keys) => keys.includes(summaryKey()))).toHaveLength(1);
+    const indexSet = setCalls.find((keys) => keys.includes("boc_cache_lru_index"));
+    expect(indexSet).toContain(`boc_cache_lru_index:boc_lvs_raw_:BV1pair:${rawKey()}`);
+    expect(indexSet).toContain(`boc_cache_lru_index:boc_lvs_summary_:BV1pair:${summaryKey()}`);
+    // 读回等价：loadRawSegments / loadSegmentSummary 各自命中
+    expect(await mod.loadSegmentSummary(summaryKey())).toBe("合并小结");
+    expect(await mod.loadRawSegments(rawKey())).toEqual([{ from: 0, to: 5, content: "x" }]);
+  });
+
+  it("写失败（淘汰后重试仍失败）→ { ok:false, error: CacheWriteError }，不抛", async () => {
+    storage.local.set.mockImplementation(async (items) => {
+      if (rawKey() in items || summaryKey() in items) {
+        throw new Error("quota");
+      }
+      for (const [key, value] of Object.entries(items)) {
+        storage.map.set(key, value);
+      }
+    });
+
+    const result = await mod.saveSegmentSummaryWithRaw(summaryKey(), "合并小结", rawKey(), []);
+
+    expect(result.ok).toBe(false);
+    expect(String(result.error || "")).toContain("缓存写入失败");
+  });
+});

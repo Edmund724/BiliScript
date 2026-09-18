@@ -12,6 +12,7 @@ import {
   loadSegmentSummariesByKeys,
   saveSegmentSummary,
   saveRawSegments,
+  saveSegmentSummaryWithRaw,
   loadStoredRawSegments,
   segmentCacheKeyFields
 } from "./segment-cache.js";
@@ -59,6 +60,30 @@ export function createSegmentCacheHandler(): (
           });
           const result = await saveRawSegments(key, Array.isArray(message.segments) ? message.segments : []);
           return result.ok ? { ok: true } : { ok: false, error: String(result.error || "段缓存原始段写入失败") };
+        }
+        if (message.op === "save-summary-raw") {
+          // 写聚合（段缓存写聚合 ticket）：offscreen proxy 缓冲的 saveRaw 随
+          // saveSummary 合成的合并 op——两族一次落盘（索引/清单打包一次 set，
+          // 每段 1 get + 3 set）；键位装配与 budgetScale 归一仍在本单源完成。
+          // per-op 结果粗粒度同果（bundle 写整体成败），保住失败可观测性。
+          const summaryKey = getSegmentSummaryKey({
+            ...fields,
+            segmentIndex: message.segmentIndex,
+            budgetScale: message.budgetScale
+          });
+          const rawKey = getRawSegmentKey({
+            ...fields,
+            segmentIndex: message.segmentIndex,
+            budgetScale: message.budgetScale
+          });
+          const result = await saveSegmentSummaryWithRaw(
+            summaryKey,
+            String(message.summary ?? ""),
+            rawKey,
+            Array.isArray(message.segments) ? message.segments : []
+          );
+          const opResult = result.ok ? { ok: true } : { ok: false, error: String(result.error || "段缓存合并写入失败") };
+          return { ok: result.ok, summarySaved: opResult, rawSaved: opResult };
         }
         if (message.op === "load-stored-raw") {
           // String 归一与迁移前 followup-router 调用点的口径逐字一致
