@@ -550,6 +550,56 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     expect(setPropertySpy).not.toHaveBeenCalled();
   });
 
+  it("stop 后校准标志复位：换视频重新获得一次性复校", async () => {
+    // SPA 换视频：stop（旧视频拆卸）→ start（新视频装载）。旧视频装载窗口
+    // 已完成校准（flag 置位）；复位生效的观测点是新视频控制条水合（字幕控件
+    // 就绪）时复校再次触发——否则第二个视频起几何漂移再无保护。
+    document.body.innerHTML = `<div class="bpx-player-container"></div>`;
+    await loadContentScript({ enablePlayerAiQuickAction: true });
+    const { schedulePlayerAiQuickActionSync, startPlayerAiQuickAction, stopPlayerAiQuickAction } = await import("../../extension/ai/player-ai.js");
+
+    vi.clearAllTimers();
+    installRafQueue();
+    schedulePlayerAiQuickActionSync(0);
+    flushRafQueue();
+    const firstWrap = document.querySelector(".boc-player-ai-wrap");
+    expect(firstWrap).not.toBeNull();
+
+    // 旧视频控制条水合：首次复校（flag 置位，内联变量全量重写）
+    const control = document.createElement("button");
+    control.setAttribute("aria-label", "字幕");
+    control.setAttribute("title", "字幕");
+    firstWrap.parentElement.appendChild(control);
+    await flushMicrotasks();
+    schedulePlayerAiQuickActionSync(0);
+    flushRafQueue();
+
+    // 换视频：stop 拆卸旧生命周期（校准标志应在此复位），start 开新装载窗口。
+    // 摘掉旧控件模拟新视频 DOM 尚未水合出控制条。
+    control.remove();
+    stopPlayerAiQuickAction();
+    startPlayerAiQuickAction();
+    flushRafQueue();
+    const wrap = document.querySelector(".boc-player-ai-wrap");
+    expect(wrap).not.toBeNull();
+
+    // 新视频未校准前稳定短路：内联样式零写入
+    const setPropertySpy = vi.spyOn(wrap.style, "setProperty");
+    schedulePlayerAiQuickActionSync(0);
+    flushRafQueue();
+    expect(setPropertySpy).not.toHaveBeenCalled();
+
+    // 新视频控制条水合：字幕控件就绪 → 复校再次触发（复位生效的观测点）
+    const newControl = document.createElement("button");
+    newControl.setAttribute("aria-label", "字幕");
+    newControl.setAttribute("title", "字幕");
+    wrap.parentElement.appendChild(newControl);
+    await flushMicrotasks();
+    schedulePlayerAiQuickActionSync(0);
+    flushRafQueue();
+    expect(setPropertySpy).toHaveBeenCalled();
+  });
+
   it("按钮被 B 站重渲染冲掉后，observer + 帧内快车道自动重挂", async () => {
     // 挂早被水合冲掉的自愈链固化：摘除按钮（childList 变化）→ 容器观察器
     // 回调 → 帧内快车道（rAF）→ 全量路径重挂。不新增机制，只锁行为。

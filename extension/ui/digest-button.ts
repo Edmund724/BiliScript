@@ -273,7 +273,7 @@ export function injectDigestButton(): void {
   const hostPresent = document.querySelector(TOOLBAR_HOST_SELECTOR) !== null;
   // 观察器维护：挂点失活（宿主被整棵换掉）或档位与宿主有无不符（宿主刚
   // 出现/消失）即重挂——宿主出现的即时感知由观察器承担，tick 退为兜底。
-  if (!isToolbarObserverActive() || toolbarObserverWide === hostPresent) {
+  if (!isToolbarObserverActive() || toolbarObserverExpectsHost !== hostPresent) {
     bindToolbarObserver();
   }
   const complaint = hostPresent ? findComplaintNode() : null;
@@ -398,8 +398,9 @@ const TOOLBAR_HOST_SELECTOR = "#arc_toolbar_report, .video-toolbar-container";
 let toolbarObserver: MutationObserver | null = null;
 // 当前挂点集合（失活检测用）：窄档为工具栏宿主列表，宽档为 body。
 let toolbarObserverTargets: Element[] = [];
-// 当前档位：true=宽档（宿主缺席，挂稳定祖先）。
-let toolbarObserverWide = false;
+// 当前档位锁定的宿主有无：true=窄档（宿主在场，挂宿主子树），false=宽档
+//（宿主缺席，挂稳定祖先 body）。
+let toolbarObserverExpectsHost = false;
 
 function onToolbarMutation(): void {
   syncDigestButton();
@@ -415,8 +416,8 @@ function bindToolbarObserver(): void {
   toolbarObserver.disconnect();
   toolbarObserverTargets = [];
   const hosts = document.querySelectorAll(TOOLBAR_HOST_SELECTOR);
-  toolbarObserverWide = hosts.length === 0;
-  if (toolbarObserverWide) {
+  toolbarObserverExpectsHost = hosts.length > 0;
+  if (!toolbarObserverExpectsHost) {
     toolbarObserver.observe(document.body, { childList: true, subtree: true });
     toolbarObserverTargets = [document.body];
     return;

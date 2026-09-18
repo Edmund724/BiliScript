@@ -62,7 +62,7 @@ export function startContentBootstrap(options: BootstrapOptions = {}): Bootstrap
   // 比对），语义与分包前的单文件 bundle 保持一致。
   globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
 
-  const resolveMainModuleUrl =
+  const resolveModuleUrl =
     options.getExtensionUrl ?? ((modulePath) => chrome.runtime.getURL(modulePath));
   const importMainModule = options.importModule ?? ((url) => import(url));
 
@@ -72,7 +72,7 @@ export function startContentBootstrap(options: BootstrapOptions = {}): Bootstrap
   // 预取进行中或已成功，不重复注入。
   function preloadButtonChunks(): void {
     for (const modulePath of PRELOAD_MODULE_PATHS) {
-      const url = resolveMainModuleUrl(modulePath);
+      const url = resolveModuleUrl(modulePath);
       if (document.querySelector(`link[rel="modulepreload"][href="${url}"]`)) {
         continue;
       }
@@ -101,7 +101,7 @@ export function startContentBootstrap(options: BootstrapOptions = {}): Bootstrap
       // 已失效）也统一纳入 try/catch，维持「失败即清空」的可重试语义。
       mainPromise = (async () => {
         try {
-          return await importMainModule(resolveMainModuleUrl(CONTENT_MAIN_MODULE_PATH));
+          return await importMainModule(resolveModuleUrl(CONTENT_MAIN_MODULE_PATH));
         } catch (error) {
           // 失败清缓存：允许后续触发重试（例如扩展刚更新导致旧 chunk 404，
           // 重新触发加载即可恢复，不必刷新页面）。

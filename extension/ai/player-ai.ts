@@ -65,8 +65,9 @@ let playerAiQuickActionMountedHost: HTMLElement | null = null;
 
 // 字幕控件校准信号（工单 first-button-ux/01）：控件不再是挂载硬门，降级为
 // 「首次就绪后一次性位置复校」——控制条水合可能改变容器几何导致按钮漂移，
-// 复校把挂载路径全量重跑一遍（宿主复判 + 视觉重写）。只在首次控件就绪时
-// 跑一次；未校准前每次 sync 都要扫控件（装载窗口内的固有开销，控件就绪即停）。
+// 复校把挂载路径全量重跑一遍（宿主复判 + 视觉重写）。每个装载窗口只在首次
+// 控件就绪时跑一次（stop 时随生命周期复位，见 stopPlayerAiQuickAction）；
+// 未校准前每次 sync 都要扫控件（装载窗口内的固有开销，控件就绪即停）。
 let playerAiSubtitleControlCalibrated = false;
 
 // 样式常量提升到模块级：挂载时写入与「是否已在位」的幂等探测共用同一组值。
@@ -167,6 +168,10 @@ export function stopPlayerAiQuickAction(): void {
   cancelPlayerAiQuickActionSync();
   resetPlayerAiQuickActionRetryCount();
   removePlayerAiQuickActionButton();
+  // 校准标志随生命周期复位：SPA 换视频后控制条重新水合，容器几何可能再次
+  // 变化，新装载窗口应重新获得一次性复校保护，而不是只校准内容脚本存活期内
+  // 的第一个视频。
+  playerAiSubtitleControlCalibrated = false;
 }
 
 export function startPlayerAiQuickActionObserver(): void {
