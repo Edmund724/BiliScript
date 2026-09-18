@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bilibili-Summary｜一键总结B站视频",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "minimum_chrome_version": "120",
   "description": "在 B 站视频页读取带时间戳字幕，生成摘要、对话内容和可跳转笔记。",
   "permissions": [

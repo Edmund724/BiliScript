@@ -113,6 +113,7 @@ The policy and the store disclosure must be checked together before submission. 
 
 | Version | Date | Changes | Status |
 |---|---|---|---|
+| 2.2.1 | 2026-09-18 | AI provider setup gains a protocol selector alongside OpenAI-compatible: Anthropic and OpenAI Responses API adapters with per-protocol auth, streaming, and thinking-effort mapping; background service worker size reduced (-26%) via protocol vocabulary split; settings snapshot and segment-cache write aggregation improve hot-path performance; reader panel header deduplicated. | Draft |
 | 2.2.0 | 2026-09-14 | Optional web search for AI chat and selection explanations (Tavily / Exa / Brave) with a search timeline, source links, and inline citations; Mermaid rendering in AI answers limited to flowcharts and sequence diagrams; the note player embed can be turned off; provider model lists, in-panel confirmation dialogs, and a batch of streaming, cache, and bundle-size optimizations. | Draft |
 | 2.1.0 | 2026-09-09 | Chrome 120 baseline, one Digest entry behavior from both the page button and toolbar icon, restricted Offscreen message flow, bounded ASR audio permissions, and updated compatibility and data-use notes. | Draft |
 
