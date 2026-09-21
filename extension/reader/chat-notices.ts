@@ -2,7 +2,7 @@
 //（PR5 自 extension/pages/sidepanel-notices.ts 重建；原 sidepanel 孪生模块已
 // 随侧边栏形态删除，本文件是唯一实现，判定逻辑（通知条去重、textContent 防注入、
 // 自动消失定时器、居中错误块、suggestionsNode 同步置空、近底阈值）不再与孪生
-// 同步，行为契约由 tests/reader/chat-notices.test.js 钉住。DOM 壳：容器经 deps
+// 同步，行为契约由 tests/reader/chat-notices.test.ts 钉住。DOM 壳：容器经 deps
 // 注入 reader 的 readingChatMessages，class 名沿用 .chat-context-notice /
 // .chat-center-error / .chat-suggestions）。
 //

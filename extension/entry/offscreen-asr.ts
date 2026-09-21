@@ -60,7 +60,7 @@ export interface AsrRuntimeConfig {
 // error-helpers 的 withTimeout（arch-slim-2/03 单源），超时以 timeoutError
 // 拒绝、由调用方按配置缺失收口，与原手搓 race 拒绝语义一致。响应形状引用
 // 协议单源（arch-slim-2/02，原手猜形状断言移除）：本 context 保留 Promise
-// 风格直发（MV3 无回调签名，见 tests/entry/offscreen-asr-skip.test.js 的
+// 风格直发（MV3 无回调签名，见 tests/entry/offscreen-asr-skip.test.ts 的
 // stub 说明），await 的 unknown 回包在传输边界收窄为协议响应类型。
 async function requestAsrRuntimeConfig(timeoutMs = 5000): Promise<AsrRuntimeConfig> {
   const response = (await withTimeout(

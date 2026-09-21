@@ -3,8 +3,8 @@
 // tsc --noEmit（typecheck 脚本覆盖 tests/**/*.ts）下编译被拒——本文件的负向
 // 断言行就是验收：联合一旦放宽回 string，typecheck 会因「未使用的期望错误
 // 指令」变红。各取值的运行时行为回归分别在
-// tests/subtitle/fetcher-no-subtitle-reason.test.js、tests/subtitle/commit.test.js
-// 与 tests/chat/no-subtitle.test.js 锁定，本文件不做行为断言。
+// tests/subtitle/fetcher-no-subtitle-reason.test.ts、tests/subtitle/commit.test.ts
+// 与 tests/chat/no-subtitle.test.ts 锁定，本文件不做行为断言。
 
 import { describe, expect, it } from "vitest";
 import type { NoSubtitleReason, SubtitleFetchState } from "../../extension/core/state.js";

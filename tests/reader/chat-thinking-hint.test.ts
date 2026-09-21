@@ -4,7 +4,7 @@
 //（modelSelect change / 档位按钮 click），不直调组合根内部函数——「提示只由
 // chat-tab.ts 的 updateThinkingHint 消费 resolver 判定结果驱动」正是本文件的
 // 守护意图（激活前模板默认 hidden 即其黑盒佐证）；resolver 本体（识别优先级/
-// 级联/offFallback 语义）是纯函数守护，已由 tests/ai/thinking-profiles.test.js
+// 级联/offFallback 语义）是纯函数守护，已由 tests/ai/thinking-profiles.test.ts
 // 锁定，本文件不重复。
 //
 // 覆盖（工单 AC）：

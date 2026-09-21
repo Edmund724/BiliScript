@@ -2,7 +2,7 @@
 // formatClock（不补零展示，拍板 Q1）/ parseClock（严口径解析 + 过渡期补零容错）/
 // withHours 两档谓词（条目级 / 元数据级聚合前的单点判定）。三个历史解析器
 // （parseOutlineClock / parseTimestampSeconds / parseTimestampToSeconds）的哨兵
-// 语义差异在各自消费方断言：outline -1 丢条目见 tests/ai/analysis.test.js、
+// 语义差异在各自消费方断言：outline -1 丢条目见 tests/ai/analysis.test.ts、
 // nav 0 哨兵见 tests/ui/timestamp-nav.test.ts。
 
 import { describe, expect, it } from "vitest";

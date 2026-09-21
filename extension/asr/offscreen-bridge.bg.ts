@@ -19,7 +19,7 @@ import type { MessageSender, SendResponse } from "../shared/messaging-protocol.j
 // - 目标 host：无字幕 ASR 的音轨请求全部落在 playurl（api.bilibili.com）返回
 //   的 data.dash.audio[].baseUrl/backupUrl 上，仓库内真实样本均为
 //   bilivideo.com 的子域（upx.bilivideo.com / upos-sz-mirror08.bilivideo.com，
-//   见 tests/asr/audio-source.test.js 与 eval/ 音频夹具）。规则条件用
+//   见 tests/asr/audio-source.test.ts 与 eval/ 音频夹具）。规则条件用
 //   requestDomains 精确匹配该域及其子域（比 "||bilivideo.com" 的 urlFilter
 //   收窄：不会误命中 "bilivideo.com.evil.com" 这类拼接域）。
 // - 来源页：offscreen 文档（扩展自身 context）fetch 音轨；Referer/Origin 伪

@@ -5,7 +5,7 @@
 // 刷新——所有改主题路径（点击循环、进入阅读模式、storage 跨页同步 watcher）
 // 都收敛到该函数，按钮不另接。
 // 依赖全为轻叶子（core/state、reader/state 的 ids 表、本目录图标表）；
-// 按钮节点缺失时静默跳过（测试骨架不搭该按钮，见 tests/helpers/reader-skeleton.js）。
+// 按钮节点缺失时静默跳过（测试骨架不搭该按钮，见 tests/helpers/reader-skeleton.ts）。
 import { state } from "../core/state.js";
 import { ids } from "../reader/state.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";

@@ -17,10 +17,7 @@
   "include": [
     "extension/**/*.js",
     "extension/**/*.ts",
-    "extension/**/*.d.ts",
-    "tests/**/*.js",
-    "tests/**/*.ts",
-    "tests/**/*.d.ts"
+    "extension/**/*.d.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

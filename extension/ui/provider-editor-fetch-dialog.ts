@@ -7,7 +7,7 @@
 //（./provider-editor-catalog.js），不反向依赖 Modal 本体。
 //
 // 手势不变式：openFetchDialog 从函数体开头到 requestProviderOriginsViaBackground
-// 之间零先行 await（tests/ui/options-save-gesture.test.js 扫描本文件锁定——该用例
+// 之间零先行 await（tests/ui/options-save-gesture.test.ts 扫描本文件锁定——该用例
 // 原扫 provider-editor.ts，随本片搬移改锚）。函数体自原 provider-editor.ts 逐字节搬移。
 
 import { escapeHtml } from "../shared/string-utils.js";
@@ -155,7 +155,7 @@ export async function loadFetchModels(baseUrl: string, apiKey: string): Promise<
 
 // 「获取可用模型」入口：校验地址/Key → 弹窗骨架 → 权限代申请 → 拉列表。
 // 手势同步链：本函数开头到 requestProviderOriginsViaBackground 之间零先行
-// await（tests/ui/options-save-gesture.test.js 锁定）——点击直达代申请。
+// await（tests/ui/options-save-gesture.test.ts 锁定）——点击直达代申请。
 export async function openFetchDialog(): Promise<void> {
   const baseUrl = readField(".provider-editor-baseurl");
   const apiKey = readField(".provider-editor-apikey");

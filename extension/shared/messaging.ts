@@ -22,7 +22,7 @@ interface Runtime {
 
 // 泛型化（arch-slim-2/02）：返回类型由消息字面量经 ResponseOf<M> 静态推断，
 // 消费点不再手猜响应形状（响应形状断言已全仓清零，扫描断言见
-// tests/shared/messaging-response-scan.test.js）。唯一的 unknown cast 收在
+// tests/shared/messaging-response-scan.test.ts）。唯一的 unknown cast 收在
 // 传输边界本处——线格式 resp 是 unknown，响应形状由服务端处理器实现为事实
 // 锚点、经调用点的消息类型静态承诺。
 export function sendRuntimeMessage<M extends BackgroundMessage | ContentScriptMessage>(

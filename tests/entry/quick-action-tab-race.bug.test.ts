@@ -72,7 +72,7 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
   let onMessageListener: (message: unknown, sender: MessageSender, sendResponse: SendResponse) => boolean | void;
 
   beforeAll(async () => {
-    // setup.js 的 chrome stub 缺 getManifest / tabs.onUpdated / runtime.onMessage
+    // setup.ts 的 chrome stub 缺 getManifest / tabs.onUpdated / runtime.onMessage
     //（background 顶层要注册监听器），这里装 superset 后动态装载 background。
     vi.stubGlobal("chrome", {
       runtime: {
@@ -94,7 +94,7 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
     onMessageListener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
   });
 
-  // content 半边的用例依赖 setup.js 的 chrome stub：用例结束后摘掉本 describe
+  // content 半边的用例依赖 setup.ts 的 chrome stub：用例结束后摘掉本 describe
   // 的 superset，让 resetModuleState → setupEnvironment 重新装回通用 stub。
   afterAll(() => {
     vi.unstubAllGlobals();
@@ -147,7 +147,7 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
 
 // ===== content 半边：对话激活在进入事务收敛后落地 =====
 
-// 每用例 resetModules 后动态重取（setup.js 的全局 beforeEach 会清
+// 每用例 resetModules 后动态重取（setup.ts 的全局 beforeEach 会清
 // globalThis.__BOC_READER_BUS__ 槽；ui-renderer 的订阅在模块求值时注册，
 // 必须每用例重新求值/装载，否则 subscribeUiCommand 落在已被清空的槽上）。
 type Modules = {

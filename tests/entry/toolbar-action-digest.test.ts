@@ -12,7 +12,7 @@
 //      同 readerUrl 拼法、同 open 意图。
 //
 // harness 与 quick-action-tab-race.bug.test.ts 同款：SW 半边 superset stub
-// chrome 后动态装载 background.js，摘 stub 后 content 半边回到 setup.js 通用
+// chrome 后动态装载 background.js，摘 stub 后 content 半边回到 setup.ts 通用
 // stub + 每用例干净模块纪元。shell 的 enterReaderShell mock 挂 vi.hoisted
 // 槽跨纪元共享（resetModules 只换模块实例，不换 hoisted 槽）。
 
@@ -36,7 +36,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
   const actionOnClickedAddListener = vi.fn();
 
   beforeAll(async () => {
-    // setup.js 的 chrome stub 缺 action.onClicked / getManifest / tabs.onUpdated
+    // setup.ts 的 chrome stub 缺 action.onClicked / getManifest / tabs.onUpdated
     //（background 顶层要同步注册监听器），装 superset 后动态装载 background。
     vi.stubGlobal("chrome", {
       runtime: {
@@ -59,7 +59,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
     onClickedListener = actionOnClickedAddListener.mock.calls[0][0] as typeof onClickedListener;
   });
 
-  // content 半边的用例依赖 setup.js 的 chrome stub：用例结束后摘掉本 describe
+  // content 半边的用例依赖 setup.ts 的 chrome stub：用例结束后摘掉本 describe
   // 的 superset，让 resetModuleState → setupEnvironment 重新装回通用 stub。
   afterAll(() => {
     vi.unstubAllGlobals();

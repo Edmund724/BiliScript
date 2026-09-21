@@ -7,7 +7,7 @@
 // 函数，但 gateway.ts 静态 import state/video-probe/selection→cache→cache-lru
 // （≈44KB raw）把字幕缓存机器整链拖进了 SW。本模块是叶子——不 import 任何
 // extension/ 模块（URL/Headers/fetch 全是平台全局），叶子约束由
-// tests/bilibili/gateway-core.test.js 源码扫描锁住，防缓存链经此回内联
+// tests/bilibili/gateway-core.test.ts 源码扫描锁住，防缓存链经此回内联
 // （scripts/build.js 的 BACKGROUND_JS_MAX_KB 守卫防的正是这条链）。
 //
 // 消费方：entry/background.ts（fetch-json 消息处理器）、ai/context-resolver.ts

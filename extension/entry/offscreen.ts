@@ -399,7 +399,7 @@ async function resolveSearchRuntime(): Promise<WebSearchRuntime | undefined> {
 // 任一缺失（平台不存在 / key 读取失败 / 需要 key 但未配置）返回带 error 的对象；
 // 成功返回 { provider, apiKey }（apiKey 合并进 provider 副本，沿用下游消费形状）。
 // 响应形状引用协议单源（arch-slim-2/02）：本 context 保留 Promise 风格直发
-//（MV3 无回调签名，见 tests/entry/offscreen-asr-skip.test.js 的 stub 说明），
+//（MV3 无回调签名，见 tests/entry/offscreen-asr-skip.test.ts 的 stub 说明），
 // await 的 unknown 回包在传输边界收窄为协议响应类型——与 shared/messaging.ts
 // 内部的单点 cast 同性质。
 async function resolveProviderWithKey(port: PostMessagePort, providerId: string | undefined) {

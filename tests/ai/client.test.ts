@@ -1,0 +1,507 @@
+// ai/client.js streamChat port 协议测试（候选 03 后：client 退为流式 port 适配器）。
+// 验证适配层把 completion 接缝的完成值/类型化错误映射回 offscreen port 协议，
+// 事件序列与旧 streamChat 保持一致：token/reasoning → notice → done/stopped/error；
+// 仅溢出以带 .overflow 标记的错误上抛（ladder catch 查标记分流）。
+// （原「streamChat 溢出兜底哨兵」用例自 tests/ai/map-reduce.test.ts 迁入并按新语义改断言。）
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetModuleState, makeSubtitleBody } from "../setup.js";
+import { streamChat, resolveSubtitleForContext, OVER_BUDGET_NOTICE } from "../../extension/ai/client.js";
+import { makeOverflowError } from "../../extension/ai/completion.js";
+
+beforeEach(() => {
+  resetModuleState();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
+
+function makePort() {
+  return { messages: [], postMessage(m) { this.messages.push(m); } };
+}
+
+function jsonResponse(payload, ok = true, status = 200) {
+  return {
+    ok,
+    status,
+    text: async () => JSON.stringify(payload),
+    json: async () => payload
+  };
+}
+
+function textResponse(text, ok = false, status = 400) {
+  return { ok, status, text: async () => text, json: async () => ({}) };
+}
+
+function sseResponse(chunks) {
+  const encoder = new TextEncoder();
+  let i = 0;
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      getReader() {
+        return {
+          async read() {
+            if (i < chunks.length) {
+              return { value: encoder.encode(chunks[i++]), done: false };
+            }
+            return { done: true };
+          }
+        };
+      }
+    }
+  };
+}
+
+function sseData(delta) {
+  return `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
+}
+
+describe("streamChat port 协议：事件序列与旧实现一致", () => {
+  it("流式成功：token/reasoning 逐条回吐 + 收尾 done，返回 { done: true }", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      sseResponse([
+        sseData({ reasoning_content: "思路" }),
+        sseData({ content: "正文" }),
+        "data: [DONE]\n\n"
+      ])
+    ));
+    const port = makePort();
+    const onActivity = vi.fn();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
+      userPrompt: "总结",
+      history: [],
+      port,
+      onActivity
+    });
+
+    expect(result).toEqual({ done: true });
+    expect(port.messages).toEqual([
+      { type: "reasoning", data: "思路" },
+      { type: "token", data: "正文" },
+      { type: "done" }
+    ]);
+    // 每个流式事件重挂空闲超时
+    expect(onActivity).toHaveBeenCalledTimes(2);
+  });
+
+  it("预检：缺 baseUrl / 缺 model → post error 且不发请求", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const port1 = makePort();
+    await streamChat({ provider: { model: "m" }, context: {}, userPrompt: "", history: [], port: port1 });
+    expect(port1.messages).toEqual([{ type: "error", error: "baseUrl 未配置" }]);
+
+    const port2 = makePort();
+    await streamChat({ provider: { baseUrl: "https://x" }, context: {}, userPrompt: "", history: [], port: port2 });
+    expect(port2.messages).toEqual([{ type: "error", error: "模型未配置" }]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("非溢出 HTTP 错误：重试 notice ×2 后 post error，正常返回（不抛）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse("Unauthorized", false, 401)));
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(result).toBeUndefined();
+    const errors = port.messages.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0].error).toBe("HTTP 401: [openai] Unauthorized");
+    // 重试提示（对齐旧文案），错误只发一条
+    const notices = port.messages.filter((m) => m.type === "notice");
+    expect(notices).toHaveLength(2);
+    expect(notices[0].data).toBe("HTTP 401: [openai] Unauthorized，正在重试...");
+    expect(port.messages.some((m) => m.type === "done")).toBe(false);
+  });
+
+  it("网络错误：重试 notice（连接中断文案）后 post error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("Failed to fetch");
+    }));
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    const notices = port.messages.filter((m) => m.type === "notice");
+    expect(notices.map((n) => n.data)).toEqual([
+      "连接中断，正在重新连接（1/2）...",
+      "连接中断，正在重新连接（2/2）..."
+    ]);
+    const errors = port.messages.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0].error).toBe("网络错误：Failed to fetch");
+  });
+
+  it("abort：post stopped，无 done / error", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      const e = new Error("aborted");
+      e.name = "AbortError";
+      throw e;
+    }));
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port,
+      signal: controller.signal
+    });
+
+    expect(result).toBeUndefined();
+    expect(port.messages).toEqual([{ type: "stopped", reason: "已停止生成" }]);
+  });
+});
+
+describe("streamChat token 合帧（07 票）：窗口预算批传，输出逐字节一致", () => {
+  it("1000 token 一次成流 → 按 maxPending 分批，消息条数 ≥90% 下降，拼接不丢不重", async () => {
+    const tokens = Array.from({ length: 1000 }, (_, i) => `t${i}`);
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      sseResponse([...tokens.map((t) => sseData({ content: t })), "data: [DONE]\n\n"])
+    ));
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(result).toEqual({ done: true });
+    const batches = port.messages.filter((m) => m.type === "token-batch");
+    const singles = port.messages.filter((m) => m.type === "token");
+    // 1000 条逐 token 消息 → 常数级批次（maxPending=32 → 32 批）
+    expect(batches.length + singles.length).toBeLessThanOrEqual(34);
+    expect(batches.length + singles.length).toBeLessThan(1000 * 0.1);
+    expect(batches.flatMap((b) => b.data)).toEqual(tokens); // 逐字节一致
+    expect(port.messages.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("单 token 批次回落普通 token 事件（慢速流线格式与旧一致）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      sseResponse([sseData({ content: "唯" }), sseData({ content: "一" }), "data: [DONE]\n\n"])
+    ));
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    // 两个 token 同窗口 → 一条 token-batch；收尾 flush 不含空批
+    expect(port.messages).toEqual([
+      { type: "token-batch", data: ["唯", "一"] },
+      { type: "done" }
+    ]);
+  });
+
+  it("reasoning 事件先把积压 token 收口再回吐（渲染顺序不颠倒）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      sseResponse([
+        sseData({ content: "正文一" }),
+        sseData({ reasoning_content: "思路" }),
+        sseData({ content: "正文二" }),
+        "data: [DONE]\n\n"
+      ])
+    ));
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(port.messages).toEqual([
+      { type: "token", data: "正文一" }, // 单 token 批次回落 token 事件
+      { type: "reasoning", data: "思路" },
+      { type: "token", data: "正文二" },
+      { type: "done" }
+    ]);
+  });
+
+  it("stream-reset 前先 flush 旧流尾巴（不丢 token），reset 仍先于重试流", async () => {
+    // 第一段流：两个 token 后 read 抛错触发读流重试
+    let readCount = 0;
+    const flakyBody = {
+      getReader() {
+        return {
+          async read() {
+            readCount += 1;
+            if (readCount === 1) {
+              const encoder = new TextEncoder();
+              return { value: encoder.encode(sseData({ content: "旧一" }) + sseData({ content: "旧二" })), done: false };
+            }
+            throw new Error("stream closed");
+          }
+        };
+      }
+    };
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(async () => ({ ok: true, status: 200, body: flakyBody }))
+      .mockImplementationOnce(async () =>
+        sseResponse([sseData({ content: "新" }), "data: [DONE]\n\n"]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(result).toEqual({ done: true });
+    const types = port.messages.map((m) => m.type);
+    const resetIdx = types.indexOf("stream-reset");
+    expect(resetIdx).toBeGreaterThan(0);
+    // 旧流尾巴在 reset 之前 flush（一条合帧消息，不丢 token）
+    expect(port.messages[resetIdx - 1]).toEqual({ type: "token-batch", data: ["旧一", "旧二"] });
+    // reset 先于重试流 token
+    expect(resetIdx).toBeLessThan(types.indexOf("token"));
+    expect(port.messages.at(-1)).toEqual({ type: "done" });
+  });
+});
+
+describe("streamChat 溢出语义（catch 查标记）", () => {
+  it("HTTP 400 body 含 maximum context length → 抛 { overflow: true }，不再 post overflow/error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      textResponse("This model's maximum context length is 8192 tokens, but you requested 12000 tokens.", false, 400)
+    ));
+    const port = makePort();
+
+    await expect(
+      streamChat({
+        provider: PROVIDER,
+        context: { title: "t", subtitleBody: [] },
+        userPrompt: "总结",
+        history: [],
+        port
+      })
+    ).rejects.toMatchObject({ overflow: true });
+    expect(port.messages).toHaveLength(0);
+  });
+
+  it("超预算（>200k）→ 仍发 notice 提示 + 抛 overflow 标记错误，不发任何请求", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+    const context = { title: "t", subtitleBody: makeSubtitleBody(210000) };
+
+    await expect(
+      streamChat({
+        provider: PROVIDER,
+        context,
+        userPrompt: "总结",
+        history: [],
+        port
+      })
+    ).rejects.toMatchObject({ overflow: true });
+
+    const postMessages = port.messages;
+    expect(postMessages.some((m) => m.type === "notice" && m.data === OVER_BUDGET_NOTICE)).toBe(true);
+    expect(postMessages.some((m) => m.type === "overflow")).toBe(false);
+    // 超预算直接上抛，不发任何请求
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("普通错误不误判为溢出（post error、不上抛）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => textResponse("Unauthorized", false, 401)));
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(result).toBeUndefined();
+    expect(port.messages.some((m) => m.type === "error")).toBe(true);
+  });
+
+  it("追问压缩摘要超预算（body 空 + compressedSummaryMarkdown >200k）→ overflow 标记错误", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const port = makePort();
+
+    await expect(
+      streamChat({
+        provider: PROVIDER,
+        context: { title: "t", subtitleBody: [], compressedSummaryMarkdown: "a".repeat(200001) },
+        userPrompt: "追问",
+        history: [],
+        port
+      })
+    ).rejects.toMatchObject({ overflow: true });
+  });
+});
+
+describe("resolveSubtitleForContext / OVER_BUDGET_NOTICE（预算策略留在 client）", () => {
+  it("预算内与超预算的发送物判定（承接 budget-single-shot 的溢出标记语义）", () => {
+    const over = resolveSubtitleForContext({ subtitleBody: makeSubtitleBody(210000) });
+    expect(over.mode).toBe("map-reduce");
+    expect(over.overflowMarked).toBe(true);
+    expect(over.notice).toBe(OVER_BUDGET_NOTICE);
+
+    const within = resolveSubtitleForContext({ subtitleBody: makeSubtitleBody(200000) });
+    expect(within.mode).toBe("single");
+    expect(within.overflowMarked).toBe(false);
+    expect(within.notice).toBe("");
+  });
+
+  it("makeOverflowError 产出的标记错误即 ladder 分流依据", () => {
+    const error = makeOverflowError(OVER_BUDGET_NOTICE);
+    expect(error.overflow).toBe(true);
+    expect(error.message).toBe("字幕过长，已切换为分段整理模式");
+  });
+});
+
+describe("streamChat 读流中断重试：stream-reset 代际重置信号", () => {
+  it("读流中断重试 → port 收到 stream-reset（在新流 token 之前）+ 恢复后 done", async () => {
+    const brokenReader = () => ({
+      ok: true,
+      status: 200,
+      body: {
+        getReader() {
+          return {
+            read: async () => {
+              throw new Error("stream closed");
+            }
+          };
+        }
+      }
+    });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(async () => brokenReader())
+      .mockResolvedValueOnce(sseResponse([sseData({ content: "二代正文" }), "data: [DONE]\n\n"]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(result).toEqual({ done: true });
+    // reset 恰一条且先于重试流 token（渲染层先清缓冲再收新流）
+    const resetIdx = port.messages.findIndex((m) => m.type === "stream-reset");
+    const tokenIdx = port.messages.findIndex((m) => m.type === "token");
+    expect(resetIdx).toBeGreaterThanOrEqual(0);
+    expect(port.messages.filter((m) => m.type === "stream-reset")).toHaveLength(1);
+    expect(resetIdx).toBeLessThan(tokenIdx);
+    expect(port.messages.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("fetch/http 阶段重试不发 stream-reset（未吐过事件）", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 401, text: async () => "Unauthorized" })
+      .mockResolvedValueOnce({ ok: false, status: 401, text: async () => "Unauthorized" })
+      .mockResolvedValueOnce({ ok: false, status: 401, text: async () => "Unauthorized" });
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(port.messages.some((m) => m.type === "stream-reset")).toBe(false);
+    expect(port.messages.at(-1)?.type).toBe("error");
+  });
+});
+
+describe("webSearch 工具循环 port 回吐（spec §2.3）", () => {
+  function sseDataFinish(delta, finishReason) {
+    return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
+  }
+  const TOOL_ROUND = [
+    sseDataFinish({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }] }),
+    sseDataFinish({}, "tool_calls")
+  ];
+  const FINAL_ROUND = [sseDataFinish({ content: "回答" }), sseDataFinish({}, "stop")];
+
+  it("tool 轮：port 依次收到 tool-status / tool-turn / token / done；历史中的 tool 消息透传", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse(TOOL_ROUND))
+      .mockResolvedValueOnce(sseResponse(FINAL_ROUND));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: PROVIDER,
+      context: { title: "t", subtitleBody: [{ from: 0, to: 5, content: "字幕" }] },
+      userPrompt: "问",
+      history: [],
+      port,
+      webSearch: {
+        maxToolCalls: 5,
+        executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
+      }
+    });
+
+    expect(result).toEqual({ done: true });
+    const types = port.messages.map((m) => m.type);
+    // 顺序：searching → done（搜索前 flush，无 token 积压）
+    expect(types).toEqual(["tool-status", "tool-status", "tool-turn", "token", "done"]);
+    expect(port.messages[0]).toMatchObject({ type: "tool-status", status: "searching", query: "x" });
+    expect(port.messages[1]).toMatchObject({ type: "tool-status", status: "done", query: "x", resultCount: 1, platform: "Tavily" });
+    expect(port.messages[2].type).toBe("tool-turn");
+    expect(port.messages[2].messages.map((m) => m.role)).toEqual(["assistant", "tool"]);
+    // 两次调用：第一次带 tools，tool 消息已回填
+    const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(firstBody.tools).toEqual([expect.anything()]);
+    const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(secondBody.messages.some((m) => m.role === "tool")).toBe(true);
+  });
+
+  it("无 webSearch：行为回归（不解析工具、事件序列与旧实现一致）", async () => {
+    const fetchMock = vi.fn(async () => sseResponse([sseData({ content: "正文" }), "data: [DONE]\n\n"]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({ provider: PROVIDER, context: {}, userPrompt: "", history: [], port });
+    expect(port.messages.map((m) => m.type)).toEqual(["token", "done"]);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.tools).toBeUndefined();
+  });
+});

@@ -5,7 +5,7 @@
 // 幕体为空，此时把空 subtitleBody 发给模型只会得到凭标题+热评编造的总结。
 // ensureCurrentContextForSend 在最终快照后据此拦截发送，并按 noSubtitleReason
 // （content 侧 asr/fallback.js 写入、经上下文快照 payload 透传）给
-// 出对应提示。文案与原因的对应关系锁定在本模块（tests/chat/no-subtitle.test.js）。
+// 出对应提示。文案与原因的对应关系锁定在本模块（tests/chat/no-subtitle.test.ts）。
 //
 // reason 取值（clipState.noSubtitleReason，见 core/state.js）：
 //   null            未知/未归类 → 通用文案

@@ -28,7 +28,7 @@ async function loadReaderModules() {
   ids = (await import("../../extension/reader/state.js")).ids;
   chromeStub = globalThis.chrome as unknown as ChromeRuntimeStub;
   // 模拟 content.js 的接线：reader 域经 reader-bus seam 持久化/读取设置，
-  // 底层仍是 chrome.runtime.sendMessage（tests/setup.js 的 stub）。
+  // 底层仍是 chrome.runtime.sendMessage（tests/setup.ts 的 stub）。
   presenter.subscribeReaderSettingsPersist(() => {
     chromeStub.runtime.sendMessage(
       { type: "save-settings", settings: state.settings },

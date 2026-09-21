@@ -26,7 +26,7 @@ export function hotCommentsText(hotComments: unknown): string {
 
 // 两份系统提示词逐字共享的「ASR 纠错块」（工单 arch-slim/03 提取）：金句挑选
 // 标准 + ASR 字幕两大特点 + 金句纠错打磨。只此一份声明，两份提示词拼接引用；
-// 合成串由 tests/ai/analysis-prompt-freeze.test.js 冻结断言逐字节把关。
+// 合成串由 tests/ai/analysis-prompt-freeze.test.ts 冻结断言逐字节把关。
 const ASR_CORRECTION_BLOCK = `金句要挑这几类：
 - 反直觉的观点，或者跟常识拧着来的判断
 - 让人「原来如此」的事实、数据、冷知识
@@ -68,7 +68,7 @@ const TIMESTAMP_TEACHING_BLOCK = `⚠️ 关键：时间戳的取法 ⚠️
 
 // 整搬自 .scratch/bilibili-digest/prompts/analysis.md「系统提示词」代码块；
 // digest-only-ui 起 JSON 输出 schema 顶层的 "summary" 概述字段已移除。
-// 导出仅测试面：冻结断言（tests/ai/analysis-prompt-freeze.test.js）逐字节比对合成串。
+// 导出仅测试面：冻结断言（tests/ai/analysis-prompt-freeze.test.ts）逐字节比对合成串。
 export const ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：章节 + 金句。
 
 你需要给出：

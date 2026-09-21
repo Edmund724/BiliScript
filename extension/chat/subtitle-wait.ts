@@ -3,7 +3,7 @@
 // 从 sidepanel.js 提取（与 chat-runtime 同一套拆分手法；PR5 自
 // extension/pages/sidepanel-subtitle-wait.ts 迁入 chat 域，逻辑零语义改动）：
 // 组合根只负责组装 deps，本模块拥有轮询/失效/清理的全部时序状态。模块顶层零
-// 副作用，可在 Node 测试环境直接 evaluate（见 tests/chat/subtitle-wait.test.js）。
+// 副作用，可在 Node 测试环境直接 evaluate（见 tests/chat/subtitle-wait.test.ts）。
 //
 // 为什么存在：一键总结发送前若 content 侧正在抓取或做小时级 ASR 转写
 // （subtitleFetchState === "loading" 且字幕体为空），把空 subtitleBody 直接发

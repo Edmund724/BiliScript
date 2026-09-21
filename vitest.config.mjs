@@ -9,7 +9,7 @@ export default defineConfig({
       }
     },
     include: ["tests/**/*.test.js", "tests/**/*.test.ts"],
-    setupFiles: ["tests/setup.js"],
+    setupFiles: ["tests/setup.ts"],
     clearMocks: true,
     testTimeout: 10000,
     coverage: {

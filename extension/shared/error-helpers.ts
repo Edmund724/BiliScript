@@ -139,7 +139,7 @@ export async function retryAsync<T>(task: () => Promise<T>, retries = 1, delayMs
 // 由调用方自行回退）。
 // 定时器走全局 setTimeout 而非 window.setTimeout：本模块同时被 SW
 //（ai/context-resolver.js）与页面/offscreen context 消费，MV3 service worker
-// 全局无 window（回归测试 tests/shared/with-timeout.test.js 钉 node 环境）。
+// 全局无 window（回归测试 tests/shared/with-timeout.test.ts 钉 node 环境）。
 export function withTimeout<T>(promise: Promise<T>, ms: number, timeoutError?: null): Promise<T | undefined>;
 export function withTimeout<T>(promise: Promise<T>, ms: number, timeoutError: Error): Promise<T>;
 export function withTimeout<T>(

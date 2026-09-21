@@ -81,7 +81,7 @@ export type ReaderContextPayload = {
 //   hotComments           本工厂恒为 []：真值由装配链全量路径拉取后整体覆盖。
 //                         此占位仅为字段齐全。
 // 新增字段必须：同时进本清单 + 工厂 + 签名三分类（参与/间接/排除）之一，
-// 并在 tests/entry/message-handler-signature.test.js 的形状锁死断言里显式过测试。
+// 并在 tests/entry/message-handler-signature.test.ts 的形状锁死断言里显式过测试。
 export const READER_CONTEXT_PAYLOAD_FIELDS: readonly (keyof ReaderContextPayload)[] = Object.freeze([
   "url",
   "title",

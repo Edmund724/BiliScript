@@ -5,7 +5,7 @@
 // （属性而非变量）、窄窗浮层、2s 自查重锚、close 拆除与变量清除。
 //（digest-only-ui：面板宽度档机制退役，贴栏宽度下限定死 380px。）
 //
-// 注意：setup.js 给 Element.prototype.getBoundingClientRect 打了「恒返回
+// 注意：setup.ts 给 Element.prototype.getBoundingClientRect 打了「恒返回
 // 800x450」的默认补丁——不覆盖它会让锚点判定/降级分支全部走不到，测试假绿。
 // 本文件所有涉及 rect 判定的元素都在用例内显式 stub。jsdom 下
 // documentElement.clientWidth 恒 0，视口右界回落 innerWidth（1920）；

@@ -87,7 +87,7 @@ async function defaultFetchHotComments(): Promise<unknown[]> {
 // reader 与 content 同进程：直接读 state.clip + core/context-payload 组装，
 // 不走「扩展页 → background → content」的消息往返。此前的消息链策略退役后，
 // 这是 ContextFetch 的唯一生产实现（工单 08 短路验收，测试见
-// tests/chat/context-inprocess.test.js），三件事在此收敛：
+// tests/chat/context-inprocess.test.ts），三件事在此收敛：
 //   1. 签名短路：ifSignature 与当前 payload 签名一致且非 forceRefresh →
 //      unchanged 信封（不重发字幕体、不拉热评）；
 //   2. 热评时机：仅全量路径拉热评（unchanged 已提前返回）；

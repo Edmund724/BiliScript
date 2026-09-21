@@ -365,7 +365,7 @@ async function loadSearchProviders(): Promise<ProviderRowItem[]> {
 // asr-providers-save 本就是整列表替换语义，SW 协议零改动）。API Key 仍单独落
 // chrome.storage.local（saveProviders 后台语义：空输入沿用已存 Key 不清除）。
 // 手势不变式：权限申请前零先行 await——baseUrl 由 upsert 参数直供，无需先
-// 查列表（tests/ui/options-save-gesture.test.js 锁定）。
+// 查列表（tests/ui/options-save-gesture.test.ts 锁定）。
 async function saveProviderSingle(
   kind: ProviderEditorKind,
   upsert: ProviderRowItem
@@ -843,4 +843,4 @@ function bindSettingsEvents(host: HTMLElement): void {
 // 页面/SW 可用），经 request-provider-origins 消息由 SW 代为申请；手势经一次
 // runtime 消息传导，SW 监听器在调用 chrome.permissions.request 前零 await（见
 // entry/background.ts handleRequestProviderOrigins，手势不变式测试
-// tests/ui/options-save-gesture.test.js 扫描全部调用方与 SW 处理器）。
+// tests/ui/options-save-gesture.test.ts 扫描全部调用方与 SW 处理器）。

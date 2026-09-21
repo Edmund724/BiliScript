@@ -104,7 +104,7 @@ export interface ProviderOriginsProxyResult {
 // 手势安全由两段各自保证，缺一不可：
 // - 本函数两个分支的申请发起（requestProviderOrigins 的同步段 / sendRuntimeMessage
 //   调用）之前零 await，调用方（click/change 手势处理器）再保证「调用本函数前
-//   零先行 await」——逐调用方扫描见 tests/ui/options-save-gesture.test.js；
+//   零先行 await」——逐调用方扫描见 tests/ui/options-save-gesture.test.ts；
 // - SW 处理器（entry/background.ts 的 handleRequestProviderOrigins）在
 //   chrome.permissions.request 前零 await，手势随一次 runtime 消息传导。
 // 返回 { ok, error? }：ok=false 时 error 为可操作提示（用户拒绝 / 环境不支持 /
