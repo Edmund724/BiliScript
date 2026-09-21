@@ -14,16 +14,19 @@ import { adtsFromFmp4, parseAudioSpecificConfig } from "../../extension/asr/adts
 import { ASR_DOWNLOAD_LIMIT_MESSAGE, MAX_AUDIO_BYTES } from "../../extension/asr/protocol.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// 单参 readFileSync 被 tests/reader/node-stubs.d.ts 的 string 返回重载抢先匹配
+// （该垫片与本目录垫片并存于全量检查面），读二进制夹具需要字节返回面。
+const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const fixture = new Uint8Array(
-  readFileSync(join(__dirname, "../asr/fixtures", "fmp4-audio-sample.bin"))
+  readFileBytes(join(__dirname, "../asr/fixtures", "fmp4-audio-sample.bin"))
 );
 const asc = parseAudioSpecificConfig(fixture) || {};
 
 // 假 reader：按队列逐个 yield chunk（模拟网络分块到达）
-function readerFromChunks(chunks) {
+function readerFromChunks(chunks: Uint8Array[]) {
   let i = 0;
   return {
-    read: async () =>
+    read: async (): Promise<{ done: boolean; value?: Uint8Array }> =>
       i < chunks.length
         ? { done: false, value: chunks[i++] }
         : { done: true, value: undefined },
@@ -35,8 +38,18 @@ function readerFromChunks(chunks) {
 // getResponses 为按 URL 顺序取用的响应工厂队列。
 // headThrows：HEAD 直接抛网络错误（部分 CDN/中间层对 HEAD 断连，见下「HEAD
 // 抛网络错误」用例），区别于 headOk=false 的「HEAD 返回非 ok」。
-function stubFetch({ headOk = true, headThrows = false, contentLength = "1000", getResponses } = {}) {
-  const factories = [...getResponses];
+function stubFetch({
+  headOk = true,
+  headThrows = false,
+  contentLength = "1000",
+  getResponses
+}: {
+  headOk?: boolean;
+  headThrows?: boolean;
+  contentLength?: string;
+  getResponses?: Array<() => unknown>;
+} = {}) {
+  const factories = [...getResponses!];
   const fetchMock = vi.fn(async (url, init) => {
     if (init?.method === "HEAD") {
       if (headThrows) {
@@ -55,13 +68,13 @@ function stubFetch({ headOk = true, headThrows = false, contentLength = "1000", 
   return fetchMock;
 }
 
-function okStreamResponse(chunks) {
+function okStreamResponse(chunks: Uint8Array[]) {
   const reader = readerFromChunks(chunks);
   return { ok: true, body: { getReader: () => reader }, _reader: reader };
 }
 
-async function collect(gen) {
-  const items = [];
+async function collect(gen: AsyncGenerator<{ segment?: Uint8Array }, void, unknown>) {
+  const items: Array<{ segment?: Uint8Array }> = [];
   for await (const item of gen) items.push(item);
   return items;
 }
@@ -111,7 +124,7 @@ function buildMinimalFmp4() {
   return out;
 }
 
-function writeU32(arr, p, value) {
+function writeU32(arr: Uint8Array, p: number, value: number): void {
   arr[p] = (value >>> 24) & 0xff;
   arr[p + 1] = (value >>> 16) & 0xff;
   arr[p + 2] = (value >>> 8) & 0xff;
@@ -209,7 +222,7 @@ describe("streamAudioSegments", () => {
 // 上限用小注入值测试（生产默认 ASR_MAX_CUMULATIVE_DOWNLOAD_BYTES = 200MB，
 // 由 asr/protocol.js 单源）；注入面为第三参 options.downloadCapBytes。
 describe("累计下载量上限", () => {
-  function bigChunks(count, size = 1024 * 1024) {
+  function bigChunks(count: number, size = 1024 * 1024) {
     return Array.from({ length: count }, () => new Uint8Array(size).fill(0x21));
   }
 

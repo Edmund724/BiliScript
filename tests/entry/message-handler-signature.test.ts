@@ -77,15 +77,23 @@ import {
   SIGNATURE_INDIRECT_FIELDS,
   SIGNATURE_EXCLUDED_FIELDS,
   createReaderContextPayload,
-  computeContextStateSignature
+  computeContextStateSignature,
+  type ReaderContextPayload
 } from "../../extension/core/context-payload.js";
-import { state } from "../../extension/core/state.js";
+import { state, type ClipState } from "../../extension/core/state.js";
 
-const onMessageListeners = [];
+// chrome-types.d.ts 的 OnMessage 监听器形状（message/sender/sendResponse）。
+type OnMessageListener = (
+  message: unknown,
+  sender: unknown,
+  sendResponse: (response?: unknown) => void
+) => unknown;
+
+const onMessageListeners: OnMessageListener[] = [];
 vi.stubGlobal("chrome", {
   runtime: {
     onMessage: {
-      addListener: (listener) => onMessageListeners.push(listener)
+      addListener: (listener: OnMessageListener) => onMessageListeners.push(listener)
     }
   }
 });
@@ -216,7 +224,7 @@ describe("computeContextStateSignature 纯函数", () => {
 // —— 手写期望固件：改动以上任一清单都必须显式过这里的逐字断言 ——
 
 // AiContext 快照全量 payload 的字段清单（顺序 = 工厂组装序）
-const EXPECTED_PAYLOAD_FIELDS = [
+const EXPECTED_PAYLOAD_FIELDS: (keyof ReaderContextPayload)[] = [
   "url",
   "title",
   "author",
@@ -300,7 +308,7 @@ const FULL_SETTINGS = { includeTimestampInBody: true };
 const FULL_URL = "https://www.bilibili.com/video/BV1map/?p=3";
 
 // 与 FULL_CLIP/FULL_SETTINGS/FULL_URL 对应的期望 payload（全字段）
-const EXPECTED_FULL_PAYLOAD = {
+const EXPECTED_FULL_PAYLOAD: Record<string, unknown> = {
   url: FULL_URL,
   title: "映射测试视频",
   author: "某位UP主",
@@ -339,9 +347,11 @@ function buildPayload() {
 }
 
 // 纯函数块的基础 payload：直接经工厂组（不经处理器），只依赖单源模块
+// FULL_CLIP 有意夹带「未归一化输入」（noSubtitleReason 空串/原始字符串态），
+// 强转仅为通过 Partial<ClipState> 入参面——取值与断言对象就是归一化行为本身。
 function makeFullPayload() {
   return createReaderContextPayload({
-    clip: FULL_CLIP,
+    clip: FULL_CLIP as Partial<ClipState>,
     settings: FULL_SETTINGS,
     url: FULL_URL
   });
@@ -388,7 +398,7 @@ describe("context-payload 形状快照与签名三分类对账", () => {
   it("排除清单逐字段机械遍历：实质扰动 → 签名不变", () => {
     const base = computeContextStateSignature(makeFullPayload());
     // 每个排除字段一个「穿透普通等值比较」的实质扰动值（数组换内容、字符串换值）
-    const mutations = {
+    const mutations: Record<string, unknown> = {
       hotComments: [{ uname: "评论者", like: 1, message: "热评内容" }],
       url: "https://www.bilibili.com/video/BV1map/?p=3&t=9",
       title: "被站点改写的标题 - 哔哩哔哩",
@@ -427,7 +437,7 @@ describe("context-payload 形状快照与签名三分类对账", () => {
     const base = computeContextStateSignature(full);
     // 扰动值必须穿透该字段的投影语义：索引型数组（只取长度）用「追加元素」，
     // 归一化标量（trim/Number/!==false）用归一化后不同的值
-    const mutations = {
+    const mutations: Record<string, unknown> = {
       bvid: "BV1other",
       cid: "202",
       pageIndex: 4,
@@ -478,7 +488,7 @@ describe("createReaderContextPayload 组装映射", () => {
     // settings 缺省 → includeTimestampInBody 按 !== false 判 true；url 由调用方
     // 注入，无参时原样透传 undefined。
     const payload = createReaderContextPayload();
-    const expected = {
+    const expected: Record<string, unknown> = {
       url: undefined,
       title: "",
       author: "",
@@ -507,7 +517,9 @@ describe("createReaderContextPayload 组装映射", () => {
   });
 
   it("归一化分支：pageIndex/pageCount/videoDuration 的 Number 归一与缺省回退", () => {
-    const build = (clip) => createReaderContextPayload({ clip, settings: {}, url: "u" });
+    // 用例有意喂「契约外取值」（字符串数字/非法数值）锁定运行时归一化，入参
+    // 只能按 any 标注（Partial<ClipState> 会在编译期拒收这些扰动值）。
+    const build = (clip: any) => createReaderContextPayload({ clip, settings: {}, url: "u" });
     // pageIndex：>0 才收（字符串数字收为 number），否则回退 1
     expect(build({ pageIndex: "3" }).pageIndex).toBe(3);
     expect(build({ pageIndex: 0 }).pageIndex).toBe(1);
@@ -522,7 +534,7 @@ describe("createReaderContextPayload 组装映射", () => {
   });
 
   it("归一化分支：noSubtitleReason/chapters/subtitleFetchState 的缺省口径", () => {
-    const build = (clip) => createReaderContextPayload({ clip, settings: {}, url: "u" });
+    const build = (clip: any) => createReaderContextPayload({ clip, settings: {}, url: "u" });
     // noSubtitleReason：缺失/空串归一为 null，非空原样透传
     expect(build({}).noSubtitleReason).toBe(null);
     expect(build({ noSubtitleReason: "" }).noSubtitleReason).toBe(null);
@@ -536,7 +548,8 @@ describe("createReaderContextPayload 组装映射", () => {
   });
 
   it("includeTimestampInBody 口径：仅显式 false 关闭，缺失按默认 true", () => {
-    const build = (settings) => createReaderContextPayload({ clip: {}, settings, url: "u" });
+    // 同上：0 等 falsy 扰动值是归一化断言对象本身，入参按 any 标注。
+    const build = (settings: any) => createReaderContextPayload({ clip: {}, settings, url: "u" });
     expect(build(undefined).includeTimestampInBody).toBe(true);
     expect(build({}).includeTimestampInBody).toBe(true);
     expect(build({ includeTimestampInBody: false }).includeTimestampInBody).toBe(false);
@@ -575,7 +588,7 @@ const ALLOWED_SNAPSHOT_FIELDS = new Set([
 
 // 读消费方源码（相对本测试文件的路径）；剔除整行注释与块注释，让扫描只看
 // 代码——注释里的字段名举例不应参与对账，也不应因措辞变化造成误报。
-function readSource(relativePath) {
+function readSource(relativePath: string) {
   // TS 渐进迁移期间源文件可能是 .js 或 .ts，缺失时回退到另一扩展名。
   const jsUrl = new URL(relativePath, import.meta.url);
   const url = existsSync(fileURLToPath(jsUrl))
@@ -592,13 +605,13 @@ function readSource(relativePath) {
 //——JS 标识符不含连字符，receiver 前出现 `-` 只可能是字符串字面量里的模块
 // 路径（如 "context-payload.js"），不应参与对账。
 // 允许 TS 非空断言 `receiver!.field`（迁移期 .ts 源码常见）。
-function scanFields(source, receiver) {
+function scanFields(source: string, receiver: string) {
   const pattern = new RegExp(`(?<![A-Za-z0-9_$-])${receiver}[?!]*\\.([A-Za-z_$][\\w$]*)`, "g");
   return new Set([...source.matchAll(pattern)].map((match) => match[1]));
 }
 
 // 按函数锚点切出源码块（消费方模块内参数别名只在其函数内有意义）
-function sliceBlock(source, startMarker, endMarker) {
+function sliceBlock(source: string, startMarker: string, endMarker: string | undefined) {
   const start = source.indexOf(startMarker);
   expect(start, `源码中应存在锚点 ${startMarker}`).toBeGreaterThan(-1);
   const from = start + startMarker.length;
@@ -608,7 +621,7 @@ function sliceBlock(source, startMarker, endMarker) {
 
 // 单个对账点：扫描结果 == 手写期望集（防漏报），且 ⊆ 允许集（对账结论）。
 // point 为空集时说明锚点漂移（期望集非空必然失败）。
-function assertReconciliation(point, expectedFields, label) {
+function assertReconciliation(point: Set<string>, expectedFields: string[], label: string) {
   const expected = new Set(expectedFields);
   expect([...point].sort(), `${label} 扫描到的字段`).toEqual([...expected].sort());
   for (const field of point) {

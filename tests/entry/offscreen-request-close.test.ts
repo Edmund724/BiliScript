@@ -18,17 +18,18 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { MessageSender } from "../../extension/shared/messaging-protocol.js";
 
 const OFFSCREEN_URL = "chrome-extension://test/entry/offscreen.html";
 
-function stubSwEnv({ closeError } = {}) {
+function stubSwEnv({ closeError }: { closeError?: Error } = {}) {
   const closeDocument = vi.fn(async () => {
     if (closeError) throw closeError;
   });
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
-      getURL: (path) => `chrome-extension://test/${path}`,
+      getURL: (path: string) => `chrome-extension://test/${path}`,
       sendMessage: vi.fn((_message, callback) => {
         callback?.({ ok: true });
         return undefined;
@@ -49,10 +50,10 @@ function stubSwEnv({ closeError } = {}) {
 }
 
 // offscreen 文档自身的 sender 形状（无 sender.tab、url 为文档 URL）
-const offscreenSender = { url: OFFSCREEN_URL };
+const offscreenSender: MessageSender = { url: OFFSCREEN_URL };
 // 非法来源：content script（有 tab）与 URL 不符的扩展上下文
-const tabSender = { tab: { id: 7 }, url: "https://www.bilibili.com/video/BV1/" };
-const extensionPageSender = { url: "chrome-extension://test/entry/background.html" };
+const tabSender: MessageSender = { tab: { id: 7 }, url: "https://www.bilibili.com/video/BV1/" };
+const extensionPageSender: MessageSender = { url: "chrome-extension://test/entry/background.html" };
 
 beforeEach(() => {
   resetModuleState();
@@ -159,7 +160,10 @@ describe("ensure-offscreen-chat：创建失败沿消息通道上抛为 ok:false"
   it("createDocument 真实失败 → { ok:false, error } 带原始错误", async () => {
     stubSwEnv();
     chrome.runtime.getContexts = vi.fn(async () => []);
-    chrome.offscreen = { createDocument: vi.fn(async () => { throw new Error("offscreen reasons invalid"); }) };
+    chrome.offscreen = {
+      createDocument: vi.fn(async () => { throw new Error("offscreen reasons invalid"); }),
+      closeDocument: vi.fn(async () => {})
+    };
     resetModuleState();
     await import("../../extension/entry/background.js");
     const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];

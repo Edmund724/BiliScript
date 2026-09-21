@@ -11,8 +11,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-let onConnectListeners = [];
-let fetchMock;
+let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let fetchMock: ReturnType<typeof vi.fn>;
 
 // 反代域名：host 推断无规则。对话链若没把 presetId 带到请求层，模式表未列的
 // llama3.2 将落 unknown（思考字段全缺）——字段出现本身即穿线判据
@@ -22,7 +22,7 @@ function stubChromeRuntime() {
   vi.stubGlobal("chrome", {
     runtime: {
       onConnect: {
-        addListener: (fn) => onConnectListeners.push(fn)
+        addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn)
       },
       sendMessage: vi.fn(async (message) => {
         if (message?.type === "resolve-ai-provider") {
@@ -51,11 +51,11 @@ function stubChromeRuntime() {
 }
 
 // 组装一条 OpenAI 兼容 SSE data: 行（对话链走流式）。
-function sseData(delta) {
+function sseData(delta: { reasoning_content?: unknown; content?: unknown; tool_calls?: unknown }) {
   return `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
 }
 
-function sseResponse(chunks) {
+function sseResponse(chunks: string[]) {
   const encoder = new TextEncoder();
   let i = 0;
   return {
@@ -86,12 +86,18 @@ async function importOffscreen() {
 }
 
 function makeChatPort() {
-  const listeners = { message: [], disconnect: [] };
+  const listeners: { message: Array<(msg: unknown) => void>; disconnect: Array<() => void> } = { message: [], disconnect: [] };
   return {
     port: {
       name: "offscreen-chat",
-      onMessage: { addListener: (fn) => listeners.message.push(fn) },
-      onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
+      onMessage: {
+        addListener: (fn: (msg: unknown) => void) => listeners.message.push(fn),
+        removeListener: (fn: (msg: unknown) => void) => {}
+      },
+      onDisconnect: {
+        addListener: (fn: () => void) => listeners.disconnect.push(fn),
+        removeListener: (fn: () => void) => {}
+      },
       postMessage: vi.fn(),
       disconnect: vi.fn()
     },

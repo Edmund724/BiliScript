@@ -6,6 +6,7 @@
 // background 入口 + 路由监听器直调）。
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { ResolveSearchProviderResponse } from "../../extension/shared/messaging-protocol.js";
 
 const PROVIDER_ENTRY = {
   id: "tavily",
@@ -16,11 +17,11 @@ const PROVIDER_ENTRY = {
   enabled: true
 };
 
-function stubStorage({ syncFixture = {}, localFixture = {} } = {}) {
+function stubStorage({ syncFixture = {}, localFixture = {} }: { syncFixture?: Record<string, unknown>; localFixture?: Record<string, unknown> } = {}) {
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
-      getURL: (path) => `chrome-extension://test/${path}`,
+      getURL: (path: string) => `chrome-extension://test/${path}`,
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() },
       onInstalled: { addListener: vi.fn() },
       getManifest: () => ({ version: "9.9.9" })
@@ -30,9 +31,9 @@ function stubStorage({ syncFixture = {}, localFixture = {} } = {}) {
       // get 的 keys 形状两种：数组（provider-store）与默认值对象（getMergedSettings
       // 传 DEFAULT_SETTINGS）——统一按请求键从 fixture 取值。
       sync: {
-        get: vi.fn(async (keys) => {
-          const requested = Array.isArray(keys) ? keys : typeof keys === "object" && keys ? Object.keys(keys) : [keys];
-          const out = {};
+        get: vi.fn(async (keys: string | string[] | Record<string, unknown> | null | undefined) => {
+          const requested = (Array.isArray(keys) ? keys : typeof keys === "object" && keys ? Object.keys(keys) : [keys]) as string[];
+          const out: Record<string, unknown> = {};
           for (const key of requested) {
             if (key in syncFixture) {
               out[key] = syncFixture[key];
@@ -43,9 +44,9 @@ function stubStorage({ syncFixture = {}, localFixture = {} } = {}) {
         set: vi.fn(async () => {})
       },
       local: {
-        get: vi.fn(async (keys) => {
-          const requested = Array.isArray(keys) ? keys : [keys];
-          const out = {};
+        get: vi.fn(async (keys: string | string[] | null | undefined) => {
+          const requested = (Array.isArray(keys) ? keys : [keys]) as string[];
+          const out: Record<string, unknown> = {};
           for (const key of requested) {
             if (key in localFixture) {
               out[key] = localFixture[key];
@@ -65,9 +66,12 @@ async function importBackground() {
   return vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
 }
 
-function callHandler(listener, message) {
+function callHandler(
+  listener: (message: unknown, sender: chrome.runtime.MessageSender, sendResponse: (response?: unknown) => void) => boolean | void,
+  message: unknown
+) {
   return new Promise((resolve) => {
-    const sender = { url: "chrome-extension://test/entry/offscreen.html" };
+    const sender = { url: "chrome-extension://test/entry/offscreen.html" } as chrome.runtime.MessageSender;
     const resolved = listener(message, sender, (resp) => resolve(resp));
     // 处理器返回 false（同步无回包）时直接判失败，避免用例挂死
     setTimeout(() => resolve(undefined), 50);
@@ -93,7 +97,7 @@ describe("resolve-search-provider 路由", () => {
     await import("../../extension/entry/background.js");
     const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
 
-    const response = await callHandler(listener, { type: "resolve-search-provider" });
+    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
 
     expect(response).toEqual({
       ok: true,
@@ -108,7 +112,7 @@ describe("resolve-search-provider 路由", () => {
     await import("../../extension/entry/background.js");
     const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
 
-    const response = await callHandler(listener, { type: "resolve-search-provider" });
+    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
 
     expect(response).toEqual({ ok: true });
     expect(response.provider).toBeUndefined();
@@ -122,7 +126,7 @@ describe("resolve-search-provider 路由", () => {
     await import("../../extension/entry/background.js");
     const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
 
-    const response = await callHandler(listener, { type: "resolve-search-provider" });
+    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
 
     expect(response).toEqual({ ok: true });
     expect(response.apiKey).toBeUndefined();

@@ -12,8 +12,12 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { chatCompletion } from "../../extension/ai/completion.js";
+import type { SegmentCacheMessage } from "../../extension/shared/messaging-protocol.js";
 
-const { chatCompletionMock } = vi.hoisted(() => ({ chatCompletionMock: vi.fn() }));
+const { chatCompletionMock } = vi.hoisted(() => ({
+  chatCompletionMock: vi.fn<typeof chatCompletion>()
+}));
 
 vi.mock("../../extension/ai/completion.js", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -33,51 +37,52 @@ function makeBody() {
 }
 
 const CONTEXT_KEY = "video:BV1bridge|101";
-let onConnectListeners = [];
-let memoryArea;
-let segmentCacheHandler;
-let sendMessageMock;
+let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let memoryArea: ReturnType<typeof makeMemoryArea>;
+let segmentCacheHandler: ReturnType<typeof createSegmentCacheHandler>;
+let sendMessageMock: ReturnType<typeof vi.fn>;
 
 function makeMemoryArea() {
-  const store = new Map();
+  const store = new Map<string, unknown>();
   return {
     store,
-    get: vi.fn(async (keys) => {
+    get: vi.fn(async (keys: string | string[] | null) => {
       if (keys === null || keys === undefined) {
         return Object.fromEntries(store);
       }
       const wanted = Array.isArray(keys) ? keys : [keys];
-      const out = {};
+      const out: Record<string, unknown> = {};
       for (const k of wanted) if (store.has(k)) out[k] = store.get(k);
       return out;
     }),
-    set: vi.fn(async (items) => {
+    set: vi.fn(async (items: Record<string, unknown>) => {
       for (const [k, v] of Object.entries(items || {})) store.set(k, v);
     }),
-    remove: vi.fn(async (keys) => {
+    remove: vi.fn(async (keys: string | string[]) => {
       for (const k of Array.isArray(keys) ? keys : [keys]) store.delete(k);
     })
   };
 }
 
 function stubChromeRuntime() {
-  sendMessageMock = vi.fn(async (message) => {
-    if (message?.type === "resolve-ai-provider") {
+  sendMessageMock = vi.fn(async (message: unknown) => {
+    const msg = message as { type?: string } & Record<string, unknown>;
+    if (msg.type === "resolve-ai-provider") {
       return {
         ok: true,
         provider: { id: "p1", name: "测试平台", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
         apiKey: "test-key"
       };
     }
-    if (message?.type === "segment-cache") {
+    if (msg.type === "segment-cache") {
       // 路由到 SW 端真实 handler（segment-cache 单源 + 内存 storage）
-      return new Promise((resolve) => segmentCacheHandler(message, {}, resolve));
+      return new Promise((resolve) => segmentCacheHandler(msg as SegmentCacheMessage, {}, resolve));
     }
     return { ok: true };
   });
   vi.stubGlobal("chrome", {
     runtime: {
-      onConnect: { addListener: (fn) => onConnectListeners.push(fn) },
+      onConnect: { addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn) },
       sendMessage: sendMessageMock
     },
     // SW 侧 handler 直调 segment-cache → chrome.storage.local（内存实现）
@@ -95,17 +100,28 @@ async function importOffscreen() {
 }
 
 function connectChat() {
-  const port = {
+  // 原实现把监听挂在 port._onMessage 上；chrome-types 的 Port 无此字段，改挂局部
+  // 变量（单监听覆盖语义与运行时行为不变）
+  let onMessageListener: ((message: unknown) => void) | undefined;
+  const port: chrome.runtime.Port & { postMessage: ReturnType<typeof vi.fn> } = {
     name: "offscreen-chat",
-    onMessage: { addListener: (fn) => (port._onMessage = fn) },
-    onDisconnect: { addListener: (fn) => {} },
-    postMessage: vi.fn(),
+    onMessage: {
+      addListener: (fn: (message: unknown) => void) => {
+        onMessageListener = fn;
+      },
+      removeListener: () => {}
+    },
+    onDisconnect: {
+      addListener: (fn: () => void) => {},
+      removeListener: () => {}
+    },
+    postMessage: vi.fn((_message: unknown) => {}),
     disconnect: vi.fn()
   };
   onConnectListeners[0](port);
   return {
     port,
-    send: (msg) => port._onMessage(msg)
+    send: (msg: unknown) => onMessageListener!(msg)
   };
 }
 
@@ -170,8 +186,8 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       if (String(input.messages?.at(-1)?.content || "").includes("连续片段")) {
         segmentCalls += 1;
         return new Promise((resolve, reject) => {
-          input.signal.addEventListener("abort", () => {
-            const error = new Error("aborted");
+          input.signal!.addEventListener("abort", () => {
+            const error = new Error("aborted") as Error & { aborted: boolean };
             error.aborted = true;
             reject(error);
           });

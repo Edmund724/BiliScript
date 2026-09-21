@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
+const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 const READER_CSS = "extension/entry/styles/reader.css";
 const CHAT_CSS = "extension/entry/styles/reader-chat.css";
@@ -91,13 +91,13 @@ describe("长回复屏外段落跳过渲染（M13）", () => {
   // 顶层规则抽取：先剥注释（避免注释黏进 selector 片段），再取上个 } 到下个
   // { 之间的文本为 selector 部（c-v 规则不嵌套在 at-rule 内），按逗号拆开精
   // 确比对，body 须含 content-visibility: auto。
-  const findRule = (cssText, selector) =>
+  const findRule = (cssText: string, selector: string) =>
     (cssText.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+\{[^}]*\}/g) || []).find((rule) => {
       const [head, body] = rule.split("{");
       return (
         head
           .split(",")
-          .map((part) => part.trim())
+          .map((part: string) => part.trim())
           .includes(selector) && body.includes("content-visibility: auto")
       );
     });

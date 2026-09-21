@@ -25,6 +25,7 @@
     "tests/shared/**/*.ts",
     "tests/search/**/*.ts",
     "tests/bilibili/**/*.ts",
+    "tests/entry/**/*.ts",
     "tests/reader/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]

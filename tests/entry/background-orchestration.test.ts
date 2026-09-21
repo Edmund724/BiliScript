@@ -17,7 +17,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBackgroundContentOrchestrator } from "../../extension/core/background-content-orchestration.js";
+import {
+  createBackgroundContentOrchestrator,
+  type BackgroundContentOrchestratorDeps
+} from "../../extension/core/background-content-orchestration.js";
 import { sleep } from "../../extension/shared/utils.js";
 import {
   DUPLICATE_CLASSIC_INJECTION_SENTINEL,
@@ -51,7 +54,8 @@ function makeSpyDelayHarness(overrides = {}) {
 }
 
 // delay spy 记录到的毫秒序列（锁定轮询次数与间隔）
-const msSeq = (harness) => harness.deps.delay.mock.calls.map((call) => call[0]);
+const msSeq = (harness: { deps: BackgroundContentOrchestratorDeps }): number[] =>
+  vi.mocked(harness.deps.delay!).mock.calls.map((call) => call[0]);
 
 beforeEach(() => {
   vi.useFakeTimers();

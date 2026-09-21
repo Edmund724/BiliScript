@@ -15,18 +15,29 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { resolveAsrProvider } from "../../extension/entry/offscreen-asr.js";
+import { resolveAsrProvider, type AsrRuntimeConfig } from "../../extension/entry/offscreen-asr.js";
 
-const RUNTIME_CONFIG_OK = {
+const RUNTIME_CONFIG_OK: AsrRuntimeConfig = {
   asrAutoFallback: true,
   activeAsrProviderId: "p1",
-  providers: [{ id: "p1", type: "openai-transcriptions", name: "硅基流动" }],
+  providers: [
+    {
+      id: "p1",
+      type: "openai-transcriptions",
+      name: "硅基流动",
+      presetId: "preset-siliconflow",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "FunASR-Nano-2512",
+      supportsTimestamps: true,
+      enabled: true
+    }
+  ],
   activeKey: "sk-test",
   asrLanguage: "auto"
 };
 
 // onConnect 监听器捕获袋（beforeEach 重建；模块重导入后注册的监听器都进这里）
-let onConnectListeners = [];
+let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
 
 beforeEach(() => {
   resetModuleState();
@@ -50,12 +61,16 @@ async function loadOffscreen() {
 function connectAsrDecodePort() {
   const listener = onConnectListeners[onConnectListeners.length - 1];
   expect(listener, "offscreen.js 应已在模块加载时注册 onConnect 监听").toBeTruthy();
-  const listeners = new Set();
+  const listeners = new Set<(message: unknown) => void>();
   const port = {
     name: "asr-decode",
     postMessage: vi.fn(),
-    onMessage: { addListener: (fn) => listeners.add(fn) },
-    onDisconnect: { addListener: vi.fn() }
+    onMessage: {
+      addListener: (fn: (message: unknown) => void) => listeners.add(fn),
+      removeListener: vi.fn()
+    },
+    onDisconnect: { addListener: vi.fn(), removeListener: vi.fn() },
+    disconnect: vi.fn()
   };
   listener(port);
   return { port, taskListener: [...listeners][0] };

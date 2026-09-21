@@ -20,7 +20,7 @@
 // 已安装、守卫为真」之前（首次导入的模块求值顺序：setup.ts 先于本文件，
 // 顶层守卫在模块求值时即触发自动启动——见 beforeEach 注释）。
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 
 import {
@@ -29,7 +29,7 @@ import {
   startContentBootstrap
 } from "../../extension/entry/content-bootstrap.js";
 
-const fakeGetExtensionUrl = (modulePath) => `chrome-extension://fake-id/${modulePath}`;
+const fakeGetExtensionUrl = (modulePath: string) => `chrome-extension://fake-id/${modulePath}`;
 
 function cleanGlobals() {
   delete globalThis.__BOC_CONTENT_BOOTSTRAP_STARTED__;
@@ -75,7 +75,7 @@ describe("startContentBootstrap", () => {
     expect(globalThis.__BOC_CONTENT_BOOTSTRAP_STARTED__).toBe(true);
     // 哨兵值必须是版本字符串（background/popup 的运行时探针按版本比对）
     expect(typeof globalThis.__BOC_CONTENT_SCRIPT_LOADED__).toBe("string");
-    expect(globalThis.__BOC_CONTENT_SCRIPT_LOADED__.length).toBeGreaterThan(0);
+    expect(globalThis.__BOC_CONTENT_SCRIPT_LOADED__!.length).toBeGreaterThan(0);
   });
 
   it("成功加载：loadContentMain 解析出 importModule 返回的模块命名空间", async () => {
@@ -84,7 +84,7 @@ describe("startContentBootstrap", () => {
     const { loadContentMain } = startContentBootstrap({
       getExtensionUrl: fakeGetExtensionUrl,
       importModule
-    });
+    })!;
 
     await expect(loadContentMain()).resolves.toBe(mainNamespace);
     expect(importModule).toHaveBeenCalledTimes(1);
@@ -99,7 +99,7 @@ describe("startContentBootstrap", () => {
     const { loadContentMain } = startContentBootstrap({
       getExtensionUrl: fakeGetExtensionUrl,
       importModule
-    });
+    })!;
 
     const p1 = loadContentMain();
     const p2 = loadContentMain();
@@ -114,7 +114,7 @@ describe("startContentBootstrap", () => {
     const { loadContentMain } = startContentBootstrap({
       getExtensionUrl: fakeGetExtensionUrl,
       importModule
-    });
+    })!;
 
     await expect(loadContentMain()).rejects.toBe(failure);
     expect(importModule).toHaveBeenCalledTimes(1);
@@ -122,7 +122,7 @@ describe("startContentBootstrap", () => {
     // 现场定位契约：错误输出必须包含主包路径与扩展版本，否则生产上无法
     // 区分「WAR 配置缺失」与「产物没打进 zip」。
     expect(console.error).toHaveBeenCalledTimes(1);
-    const logged = console.error.mock.calls[0].map(String).join(" ");
+    const logged = (console.error as unknown as Mock).mock.calls[0].map(String).join(" ");
     expect(logged).toContain(CONTENT_MAIN_MODULE_PATH);
     expect(logged).toContain("extension v");
 
@@ -138,7 +138,7 @@ describe("startContentBootstrap", () => {
       importModule
     });
     // import 经 Promise.resolve().then 异步发起，先等到它真正跑过一次
-    await first.loadContentMain();
+    await first!.loadContentMain();
     expect(importModule).toHaveBeenCalledTimes(1);
 
     const sentinelBefore = globalThis.__BOC_CONTENT_SCRIPT_LOADED__;
@@ -158,7 +158,7 @@ describe("startContentBootstrap", () => {
     const { loadContentMain } = startContentBootstrap({
       getExtensionUrl: fakeGetExtensionUrl,
       importModule
-    });
+    })!;
 
     await loadContentMain();
 
@@ -182,7 +182,7 @@ describe("startContentBootstrap", () => {
     const { loadContentMain } = startContentBootstrap({
       getExtensionUrl: fakeGetExtensionUrl,
       importModule
-    });
+    })!;
 
     await Promise.all([loadContentMain(), loadContentMain()]);
 
@@ -197,7 +197,7 @@ describe("startContentBootstrap", () => {
     const { loadContentMain } = startContentBootstrap({
       getExtensionUrl: fakeGetExtensionUrl,
       importModule
-    });
+    })!;
 
     const pending = loadContentMain();
     const links = document.head.querySelectorAll('link[rel="modulepreload"]');
@@ -205,7 +205,7 @@ describe("startContentBootstrap", () => {
 
     await expect(pending).resolves.toBe(mainNamespace);
     expect(console.error).toHaveBeenCalledTimes(links.length);
-    const logged = console.error.mock.calls.map((call) => call.map(String).join(" "));
+    const logged = (console.error as unknown as Mock).mock.calls.map((call) => call.map(String).join(" "));
     PRELOAD_MODULE_PATHS.forEach((modulePath) => {
       expect(logged.some((line) => line.includes(modulePath))).toBe(true);
     });
@@ -226,7 +226,7 @@ describe("startContentBootstrap", () => {
     const { loadContentMain } = startContentBootstrap({
       getExtensionUrl: fakeGetExtensionUrl,
       importModule
-    });
+    })!;
 
     await expect(loadContentMain()).rejects.toBe(failure);
     // 模拟预取同样失败：onerror 摘除全部预取 link

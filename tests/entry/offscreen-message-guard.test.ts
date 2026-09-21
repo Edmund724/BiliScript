@@ -13,21 +13,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
+import type { MessageSender } from "../../extension/shared/messaging-protocol.js";
 
 vi.mock("../../extension/shared/tab-utils.js", () => ({
   sendMessageToTab: vi.fn(async () => ({ ok: true })),
   waitForTabComplete: vi.fn(async () => true)
 }));
 
-const OFFSCREEN_SENDER = { url: "chrome-extension://test/entry/offscreen.html" };
-const TAB_SENDER = (id) => ({ tab: { id }, url: "https://www.bilibili.com/video/BV1/" });
+const OFFSCREEN_SENDER: MessageSender = { url: "chrome-extension://test/entry/offscreen.html" };
+const TAB_SENDER = (id: number): MessageSender => ({ tab: { id }, url: "https://www.bilibili.com/video/BV1/" });
 
 async function importBackground() {
   resetModuleState();
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
-      getURL: (path) => `chrome-extension://test/${path}`,
+      getURL: (path: string) => `chrome-extension://test/${path}`,
       sendMessage: vi.fn((_message, callback) => {
         callback?.({ ok: true });
         return undefined;

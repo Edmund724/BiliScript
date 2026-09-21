@@ -31,13 +31,13 @@ function makeBody() {
   }));
 }
 
-let onConnectListeners = [];
-let localStore;
+let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let localStore: Record<string, unknown>;
 
 function stubChromeRuntime() {
   vi.stubGlobal("chrome", {
     runtime: {
-      onConnect: { addListener: (fn) => onConnectListeners.push(fn) },
+      onConnect: { addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn) },
       sendMessage: vi.fn(async (message) => {
         if (message?.type === "resolve-ai-provider") {
           return {
@@ -52,17 +52,17 @@ function stubChromeRuntime() {
     offscreen: { closeDocument: vi.fn(async () => {}) },
     storage: {
       local: {
-        get: vi.fn(async (keys) => {
+        get: vi.fn(async (keys: string | string[] | null | undefined) => {
           if (keys === null || keys === undefined) return { ...localStore };
           const wanted = Array.isArray(keys) ? keys : [keys];
-          const out = {};
+          const out: Record<string, unknown> = {};
           for (const k of wanted) if (k in localStore) out[k] = localStore[k];
           return out;
         }),
-        set: vi.fn(async (obj) => {
+        set: vi.fn(async (obj: Record<string, unknown>) => {
           Object.assign(localStore, obj);
         }),
-        remove: vi.fn(async (keys) => {
+        remove: vi.fn(async (keys: string | string[]) => {
           for (const k of Array.isArray(keys) ? keys : [keys]) delete localStore[k];
         })
       }
@@ -79,21 +79,32 @@ async function importOffscreen() {
 
 function connectChat() {
   expect(onConnectListeners).toHaveLength(1);
+  // 原实现把监听挂在 port._onMessage 上；chrome-types 的 Port 无此字段，改挂局部
+  // 变量（单监听覆盖语义与运行时行为不变，同 offscreen-segment-cache.test.ts）
+  let onMessageListener: ((message: unknown) => void) | undefined;
   const port = {
     name: "offscreen-chat",
-    onMessage: { addListener: (fn) => (port._onMessage = fn) },
-    onDisconnect: { addListener: (fn) => {} },
+    onMessage: {
+      addListener: (fn: (message: unknown) => void) => {
+        onMessageListener = fn;
+      },
+      removeListener: () => {}
+    },
+    onDisconnect: {
+      addListener: (fn: () => void) => {},
+      removeListener: () => {}
+    },
     postMessage: vi.fn(),
     disconnect: vi.fn()
   };
-  onConnectListeners[0](port);
+  onConnectListeners[0](port as unknown as chrome.runtime.Port);
   return {
     port,
-    send: (msg) => port._onMessage(msg)
+    send: (msg: unknown) => onMessageListener!(msg)
   };
 }
 
-async function flushThroughChatCall(session) {
+async function flushThroughChatCall(session: ReturnType<typeof connectChat>) {
   // 微任务排水：让 chat 处理链走到挂起的 chatCompletion（多轮推进假时钟，其间
   // advanceTimersByTimeAsync 会排空微任务）
   for (let i = 0; i < 50 && chatCompletionMock.mock.calls.length === 0; i++) {

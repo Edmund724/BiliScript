@@ -16,11 +16,20 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// mock 句柄用 vi.hoisted 提出模块纪元外：.ts 测试里静态 import 的是真实模块
+// 类型（运行时才被 mock 掉），mock 配置/断言一律走这组句柄，避免 TS2339
+// （与 tests/reader/shell.test.ts 同款手法）。
+const mocks = vi.hoisted(() => ({
+  ensureReaderDomain: vi.fn(),
+  isReaderViewOpen: vi.fn(() => false),
+  ensureReaderChatTab: vi.fn()
+}));
+
 vi.mock("../../extension/reader/lazy-reader.js", () => ({
-  ensureReaderDomain: vi.fn()
+  ensureReaderDomain: mocks.ensureReaderDomain
 }));
 vi.mock("../../extension/reader/state.js", () => ({
-  isReaderViewOpen: vi.fn(() => false),
+  isReaderViewOpen: mocks.isReaderViewOpen,
   enforceNormalPageStateIfNeeded: vi.fn()
 }));
 vi.mock("../../extension/core/url-watcher.js", () => ({
@@ -30,7 +39,7 @@ vi.mock("../../extension/core/url-watcher.js", () => ({
 // arch-slim-2/03：reader-url 单源后 shell 的兜底 URL 也经 buildReaderModeUrl——
 // 只 mock 掉带副作用的 replaceState（replaceReaderModeUrl），URL 拼法走真身。
 vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/bilibili/reader-url.js")>();
   return {
     ...actual,
     replaceReaderModeUrl: vi.fn()
@@ -50,9 +59,8 @@ vi.mock("../../extension/ai/lazy-player-ai.js", () => ({
   isPlayerAiLoaded: vi.fn(() => false)
 }));
 // 对话 seam（reader/lazy-chat-tab）：mock 掉组合根，断言消费路径与参数。
-const ensureReaderChatTabMock = vi.hoisted(() => vi.fn());
 vi.mock("../../extension/reader/lazy-chat-tab.js", () => ({
-  ensureReaderChatTab: ensureReaderChatTabMock,
+  ensureReaderChatTab: mocks.ensureReaderChatTab,
   isReaderChatTabLoaded: vi.fn(() => false)
 }));
 // bilibili/gateway.js（reader-get-hot-comments 处理器动态 import）：别名校验用例
@@ -63,15 +71,25 @@ vi.mock("../../extension/bilibili/gateway.js", () => ({
 }));
 
 import { bindRuntimeEvents } from "../../extension/entry/message-handler.js";
-import { ensureReaderDomain } from "../../extension/reader/lazy-reader.js";
-import { isReaderViewOpen } from "../../extension/reader/state.js";
 
-const onMessageListeners = [];
+const {
+  ensureReaderDomain,
+  isReaderViewOpen,
+  ensureReaderChatTab: ensureReaderChatTabMock
+} = mocks;
+
+type OnMessageListener = (
+  message: unknown,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: unknown) => void
+) => boolean | void;
+
+const onMessageListeners: OnMessageListener[] = [];
 vi.stubGlobal("chrome", {
   runtime: {
-    getURL: (path) => `chrome-extension://test/${path}`,
+    getURL: (path: string) => `chrome-extension://test/${path}`,
     onMessage: {
-      addListener: (listener) => onMessageListeners.push(listener)
+      addListener: (listener: OnMessageListener) => onMessageListeners.push(listener)
     }
   }
 });
@@ -145,8 +163,8 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
   });
 
   it("即答语义：命令已受理入队即回 ok，不等进入事务完成", async () => {
-    let releaseEnter = () => {};
-    const enterGate = new Promise((resolve) => {
+    let releaseEnter: () => void = () => {};
+    const enterGate = new Promise<void>((resolve) => {
       releaseEnter = resolve;
     });
     ensureReaderDomain.mockResolvedValue({

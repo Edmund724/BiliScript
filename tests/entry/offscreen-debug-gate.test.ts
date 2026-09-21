@@ -14,8 +14,28 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { createAsrDecodeHandler } from "../../extension/entry/offscreen-asr.js";
 
-const { createAsrDecodeHandlerMock } = vi.hoisted(() => ({ createAsrDecodeHandlerMock: vi.fn() }));
+const { createAsrDecodeHandlerMock } = vi.hoisted(() => ({
+  createAsrDecodeHandlerMock: vi.fn<typeof createAsrDecodeHandler>()
+}));
+
+// 测试替身收到的 runtime 消息形状：type 判别字段 + 其余载荷透传
+type GateMessage = { type?: string } & Record<string, unknown>;
+type SendMessageImpl = (message: GateMessage, callback?: (response?: unknown) => void) => void;
+type OnConnectListener = (port: chrome.runtime.Port) => void;
+// sender / sendResponse 可选：测试里按消息单参直调广播监听
+type OnMessageListener = (
+  message: unknown,
+  sender?: chrome.runtime.MessageSender,
+  sendResponse?: chrome.runtime.SendMessageCallback
+) => void;
+// 全局 process 已有 tests/reader/node-stubs.d.ts 的窄声明（仅 cwd），此处局部
+// 宽化到本测试用到的 unhandledRejection 挂/摘接口
+type ProcessShim = {
+  on(event: string, listener: (reason: unknown) => void): void;
+  removeListener(event: string, listener: (reason: unknown) => void): void;
+};
 
 vi.mock("../../extension/entry/offscreen-asr.js", () => ({
   createAsrDecodeHandler: createAsrDecodeHandlerMock
@@ -41,7 +61,7 @@ const FORBIDDEN_API_RE = /chrome\.(storage|offscreen|declarativeNetRequest|tabs|
 // 收编进扫描是 r1 审查 P2 的纵深防御要求：桥链两端的运行时源码都不得新增
 // 扩展级 chrome API（该文件现仅用 chrome.runtime.connect/sendMessage）。
 
-function readStrippedSource(relativePath) {
+function readStrippedSource(relativePath: string) {
   const url = new URL(relativePath, import.meta.url);
   expect(existsSync(fileURLToPath(url)), `扫描目标存在：${relativePath}`).toBe(true);
   const raw = readFileSync(fileURLToPath(url), "utf8");
@@ -65,14 +85,14 @@ describe("静态扫描：offscreen 文档不触碰扩展级 Chrome API", () => {
 
 // ===== 2/3. 行为测试：消息式调试门 + 自关请求 =====
 
-let sendMessageMock;
-let onMessageListeners;
-let onConnectListeners;
+let sendMessageMock: ReturnType<typeof vi.fn>;
+let onMessageListeners: OnMessageListener[];
+let onConnectListeners: OnConnectListener[];
 
-function stubOffscreenEnv({ sendMessageImpl } = {}) {
+function stubOffscreenEnv({ sendMessageImpl }: { sendMessageImpl?: SendMessageImpl } = {}) {
   onMessageListeners = [];
   onConnectListeners = [];
-  sendMessageMock = vi.fn((_message, callback) => {
+  sendMessageMock = vi.fn((_message: GateMessage, callback?: (response?: unknown) => void) => {
     if (sendMessageImpl) {
       sendMessageImpl(_message, callback);
       return undefined;
@@ -83,9 +103,9 @@ function stubOffscreenEnv({ sendMessageImpl } = {}) {
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
-      onConnect: { addListener: (fn) => onConnectListeners.push(fn) },
+      onConnect: { addListener: (fn: OnConnectListener) => onConnectListeners.push(fn) },
       onMessage: {
-        addListener: (fn) => onMessageListeners.push(fn),
+        addListener: (fn: OnMessageListener) => onMessageListeners.push(fn),
         removeListener: vi.fn(),
         hasListener: vi.fn()
       },
@@ -94,23 +114,36 @@ function stubOffscreenEnv({ sendMessageImpl } = {}) {
   });
 }
 
-async function importOffscreen(envOptions) {
+async function importOffscreen(envOptions?: { sendMessageImpl?: SendMessageImpl }) {
   vi.resetModules();
   stubOffscreenEnv(envOptions);
   return import("../../extension/entry/offscreen.js");
 }
 
 function makeAsrPort() {
-  const listeners = { message: [], disconnect: [] };
+  const listeners: { message: Array<(msg: unknown) => void>; disconnect: Array<() => void> } = {
+    message: [],
+    disconnect: []
+  };
   return {
     port: {
       name: "asr-decode",
-      onMessage: { addListener: (fn) => listeners.message.push(fn) },
-      onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
+      onMessage: {
+        addListener: (fn: (msg: unknown) => void) => {
+          listeners.message.push(fn);
+        },
+        removeListener: () => {}
+      },
+      onDisconnect: {
+        addListener: (fn: () => void) => {
+          listeners.disconnect.push(fn);
+        },
+        removeListener: () => {}
+      },
       postMessage: vi.fn(),
       disconnect: vi.fn()
     },
-    send: (msg) => listeners.message.forEach((fn) => fn(msg)),
+    send: (msg: unknown) => listeners.message.forEach((fn) => fn(msg)),
     fireDisconnect: () => listeners.disconnect.forEach((fn) => fn())
   };
 }
@@ -169,15 +202,17 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
   });
 
   it("初始请求失败（lastError）：门维持缺省关，不抛未处理拒绝", async () => {
-    const unhandled = [];
-    const onUnhandled = (reason) => unhandled.push(reason);
-    process.on("unhandledRejection", onUnhandled);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    (process as unknown as ProcessShim).on("unhandledRejection", onUnhandled);
     try {
       stubOffscreenEnv({
         sendMessageImpl: (_message, callback) => {
-          chrome.runtime.lastError = { message: "Receiving end does not exist" };
+          // chrome-types 里 lastError 是只读 const，测试替身需可写
+          const mutableRuntime = chrome.runtime as { lastError: chrome.runtime.LastError | null };
+          mutableRuntime.lastError = { message: "Receiving end does not exist" };
           callback?.(undefined);
-          chrome.runtime.lastError = null;
+          mutableRuntime.lastError = null;
         }
       });
       await import("../../extension/entry/offscreen.js");
@@ -190,7 +225,7 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
       expect(unhandled).toEqual([]);
       warnSpy.mockRestore();
     } finally {
-      process.removeListener("unhandledRejection", onUnhandled);
+      (process as unknown as ProcessShim).removeListener("unhandledRejection", onUnhandled);
     }
   });
 });
@@ -255,9 +290,9 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
   });
 
   it("回包丢失（成功关闭时文档随之销毁）：静默，不告警也不抛 unhandled rejection", async () => {
-    const unhandled = [];
-    const onUnhandled = (reason) => unhandled.push(reason);
-    process.on("unhandledRejection", onUnhandled);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    (process as unknown as ProcessShim).on("unhandledRejection", onUnhandled);
     try {
       // sendMessageImpl 不回任何包：sendRuntimeMessage 的 promise 永不 settle
       armTerminalEcho();
@@ -272,7 +307,7 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
       expect(unhandled).toEqual([]);
       warnSpy.mockRestore();
     } finally {
-      process.removeListener("unhandledRejection", onUnhandled);
+      (process as unknown as ProcessShim).removeListener("unhandledRejection", onUnhandled);
     }
   });
 });

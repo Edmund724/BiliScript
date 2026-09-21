@@ -23,7 +23,7 @@ import {
 } from "../../scripts/build-guards.js";
 
 const ROOT = process.cwd();
-const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
+const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 const BUILD_CONTENT = "scripts/build-content.js";
 const MARKER = "BOC_DUAL_INSTANCE_STATEFUL";

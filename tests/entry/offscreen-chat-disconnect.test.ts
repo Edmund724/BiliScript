@@ -11,6 +11,7 @@
 // 「vi.resetModules + 动态导入 = 文档纪元」手法沿 offscreen-chat-subtitle-slot.test.js。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChatPort } from "../../extension/ai/ladder.js";
 
 const { runLadderChatMock } = vi.hoisted(() => ({ runLadderChatMock: vi.fn() }));
 
@@ -24,13 +25,16 @@ vi.mock("../../extension/entry/offscreen-asr.js", () => ({
 const CONTEXT_KEY = "video:BV1body|101";
 const BODY = [{ from: 0, to: 5, content: "第一句" }];
 
-let onConnectListeners = [];
+// chrome-types.d.ts 的 OnConnect 监听器形状（offscreen.ts 注册的端口监听器）。
+type OnConnectListener = (port: chrome.runtime.Port) => void;
+
+let onConnectListeners: OnConnectListener[] = [];
 
 function stubChromeRuntime() {
   vi.stubGlobal("chrome", {
     runtime: {
       onConnect: {
-        addListener: (fn) => onConnectListeners.push(fn)
+        addListener: (fn: OnConnectListener) => onConnectListeners.push(fn)
       },
       sendMessage: vi.fn(async (message) => {
         if (message?.type === "resolve-ai-provider") {
@@ -58,13 +62,16 @@ async function importOffscreen() {
 
 // 断连后 postMessage 抛错（Chrome 的 Port 行为）
 function makeChatPort() {
-  const listeners = { message: [], disconnect: [] };
+  const listeners: { message: Array<(message: unknown) => void>; disconnect: Array<() => void> } = {
+    message: [],
+    disconnect: []
+  };
   let disconnected = false;
   return {
     port: {
       name: "offscreen-chat",
-      onMessage: { addListener: (fn) => listeners.message.push(fn) },
-      onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
+      onMessage: { addListener: (fn: (message: unknown) => void) => listeners.message.push(fn) },
+      onDisconnect: { addListener: (fn: () => void) => listeners.disconnect.push(fn) },
       postMessage: vi.fn(() => {
         if (disconnected) {
           throw new Error("Attempting to use a disconnected port object");
@@ -83,11 +90,11 @@ function makeChatPort() {
 function connectChat() {
   expect(onConnectListeners).toHaveLength(1);
   const session = makeChatPort();
-  onConnectListeners[0](session.port);
+  onConnectListeners[0](session.port as unknown as chrome.runtime.Port);
   return {
     port: session.port,
     fireDisconnect: session.fireDisconnect,
-    send: (msg) => session.listeners.message[0](msg)
+    send: (msg: unknown) => session.listeners.message[0](msg)
   };
 }
 
@@ -109,9 +116,9 @@ beforeEach(() => {
 
 describe("offscreen 聊天通道断连容错", () => {
   it("断连后 ladder 的迟到回执不抛 disconnected port 错误", async () => {
-    let ladderPort = null;
+    let ladderPort: ChatPort | null = null;
     // ladder 挂在半空（永不结算），模拟流式进行中端口被断开
-    runLadderChatMock.mockImplementation(async ({ port }) => {
+    runLadderChatMock.mockImplementation(async ({ port }: { port: ChatPort }) => {
       ladderPort = port;
       await new Promise(() => {});
     });
@@ -123,15 +130,21 @@ describe("offscreen 聊天通道断连容错", () => {
     expect(ladderPort).not.toBeNull();
 
     session.fireDisconnect();
-    expect(() => ladderPort.postMessage({ type: "token", data: "late" })).not.toThrow();
+    expect(() => ladderPort!.postMessage({ type: "token", data: "late" })).not.toThrow();
   });
 
   it("断连后 ladder 抛错：catch 通道的错误回报被吞，无 unhandled rejection", async () => {
-    const unhandled = [];
-    const onUnhandled = (reason) => unhandled.push(reason);
-    process.on("unhandledRejection", onUnhandled);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    // tests/reader/node-stubs.d.ts 只声明了 process.cwd——本文件需要的事件面经
+    // 局部别名补足（运行时即真 process，非类型层面替换）。
+    const nodeProcess = process as unknown as {
+      on(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
+      removeListener(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
+    };
+    nodeProcess.on("unhandledRejection", onUnhandled);
     try {
-      let rejectLadder = null;
+      let rejectLadder: ((reason?: unknown) => void) | null = null;
       runLadderChatMock.mockImplementation(
         () => new Promise((_, reject) => { rejectLadder = reject; })
       );
@@ -144,12 +157,12 @@ describe("offscreen 聊天通道断连容错", () => {
       // 端口断开（面板关闭/换页/刷新），随后 ladder 才以失败收场——
       // catch 通道向已断开的端口回报错误
       session.fireDisconnect();
-      rejectLadder(new Error("网络中断"));
+      rejectLadder!(new Error("网络中断"));
       await flushTicks();
 
       expect(unhandled).toEqual([]);
     } finally {
-      process.removeListener("unhandledRejection", onUnhandled);
+      nodeProcess.removeListener("unhandledRejection", onUnhandled);
     }
   });
 });

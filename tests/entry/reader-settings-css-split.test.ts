@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
+const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 const READER_CSS = "extension/entry/styles/reader.css";
 // 设置分区表组（2026-09 拆分）：三份按级联顺序排列，标记检查对拼接后全文做

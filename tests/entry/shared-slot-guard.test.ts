@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
+const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
 const BUILD_CONTENT = "scripts/build-content.js";
 
@@ -59,7 +59,7 @@ describe("跨实例共享槽守卫（构建期接线）", () => {
     for (const rel of SLOT_MODULES) {
       const match = /"(__BOC_[A-Z_]+__)"/.exec(read(rel));
       expect(match, `${rel} 未找到槽键字面量`).not.toBe(null);
-      keys.push(match[1]);
+      keys.push(match![1]);
     }
     for (const key of keys) {
       expect(setup.includes(`delete slots.${key};`), `tests/setup.ts 未清 ${key}`).toBe(true);

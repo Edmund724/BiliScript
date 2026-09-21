@@ -39,12 +39,15 @@ const ASR_PROVIDER = {
   enabled: true
 };
 
-function stubStorage({ syncFixture = {}, localFixture = {} } = {}) {
+function stubStorage({
+  syncFixture = {},
+  localFixture = {}
+}: { syncFixture?: Record<string, unknown>; localFixture?: Record<string, unknown> } = {}) {
   // set 真实写回 fixture：写后读失效断言依赖「落盘 → 重读拿新值」全链成立
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
-      getURL: (path) => `chrome-extension://test/${path}`,
+      getURL: (path: string) => `chrome-extension://test/${path}`,
       sendMessage: vi.fn((_message, callback) => {
         callback?.({ ok: true });
         return undefined;
@@ -56,28 +59,30 @@ function stubStorage({ syncFixture = {}, localFixture = {} } = {}) {
     tabs: { onUpdated: { addListener: vi.fn() } },
     storage: {
       sync: {
-        get: vi.fn(async (keys) => {
-          const requested = Array.isArray(keys) ? keys : typeof keys === "object" && keys ? Object.keys(keys) : [keys];
-          const out = {};
+        get: vi.fn(async (keys: string | string[] | Record<string, unknown> | null) => {
+          const requested = (
+            Array.isArray(keys) ? keys : typeof keys === "object" && keys ? Object.keys(keys) : [keys]
+          ) as string[];
+          const out: Record<string, unknown> = {};
           for (const key of requested) {
             if (key in syncFixture) out[key] = syncFixture[key];
           }
           return out;
         }),
-        set: vi.fn(async (obj) => {
+        set: vi.fn(async (obj: Record<string, unknown>) => {
           Object.assign(syncFixture, obj);
         })
       },
       local: {
-        get: vi.fn(async (keys) => {
-          const requested = Array.isArray(keys) ? keys : [keys];
-          const out = {};
+        get: vi.fn(async (keys: string | string[] | Record<string, unknown> | null) => {
+          const requested = (Array.isArray(keys) ? keys : [keys]) as string[];
+          const out: Record<string, unknown> = {};
           for (const key of requested) {
             if (key in localFixture) out[key] = localFixture[key];
           }
           return out;
         }),
-        set: vi.fn(async (obj) => {
+        set: vi.fn(async (obj: Record<string, unknown>) => {
           Object.assign(localFixture, obj);
         })
       },
@@ -92,9 +97,17 @@ async function importBackground() {
   return vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
 }
 
-function callHandler(listener, message) {
-  return new Promise((resolve) => {
-    const sender = { url: "chrome-extension://test/entry/offscreen.html" };
+// chrome-types.d.ts 的 OnMessage 监听器形状（background.ts 注册的路由监听器）。
+type BackgroundMessageListener = (
+  message: unknown,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: unknown) => void
+) => boolean | void;
+
+// 响应信封随消息类型变化（ai/search/asr/settings 各族），统一按 any 解开。
+function callHandler(listener: BackgroundMessageListener, message: unknown): Promise<any> {
+  return new Promise<any>((resolve) => {
+    const sender = { url: "chrome-extension://test/entry/offscreen.html" } as chrome.runtime.MessageSender;
     const resolved = listener(message, sender, (resp) => resolve(resp));
     // 处理器返回 false（同步无回包）时直接判失败，避免用例挂死
     setTimeout(() => resolve(undefined), 50);
@@ -116,7 +129,7 @@ beforeEach(() => {
 });
 
 describe("热路径命中：四个读 handler 二次调用 storage 读为 0", () => {
-  async function assertSecondCallZeroReads(message, firstAssert) {
+  async function assertSecondCallZeroReads(message: unknown, firstAssert: (response: any) => void) {
     const listener = await importBackground();
     const first = await callHandler(listener, message);
     firstAssert(first);

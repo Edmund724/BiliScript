@@ -51,11 +51,18 @@ import { ensureReaderDomain } from "../../extension/reader/lazy-reader.js";
 import { getRuntimeVideoElement } from "../../extension/bilibili/video-probe.js";
 import { isReaderViewOpen } from "../../extension/reader/state.js";
 
-const onMessageListeners = [];
+// chrome-types.d.ts 的 OnMessage 监听器形状（message/sender/sendResponse）。
+type OnMessageListener = (
+  message: unknown,
+  sender: unknown,
+  sendResponse: (response?: unknown) => void
+) => unknown;
+
+const onMessageListeners: OnMessageListener[] = [];
 vi.stubGlobal("chrome", {
   runtime: {
     onMessage: {
-      addListener: (listener) => onMessageListeners.push(listener)
+      addListener: (listener: OnMessageListener) => onMessageListeners.push(listener)
     }
   }
 });
@@ -68,10 +75,10 @@ function makeVideoStub({ paused = true } = {}) {
     currentTime: 0,
     paused,
     play: vi.fn(() => Promise.resolve())
-  };
+  } as unknown as HTMLVideoElement;
 }
 
-async function requestSeek(seconds) {
+async function requestSeek(seconds: number | string) {
   const sendResponse = vi.fn();
   const keepOpen = messageListener({ type: "reader-seek-video-time", seconds }, {}, sendResponse);
   await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledTimes(1));
@@ -80,16 +87,18 @@ async function requestSeek(seconds) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  isReaderViewOpen.mockReturnValue(false);
+  vi.mocked(isReaderViewOpen).mockReturnValue(false);
 });
 
 describe("reader-seek-video-time：seek 深入口两形态", () => {
   it("reader 开着：经 ensureReaderDomain 单入口 seekReadingTarget（resumePlayback:false），处理器不直接碰视频", async () => {
     const video = makeVideoStub();
     const seekReadingTarget = vi.fn(() => 42);
-    ensureReaderDomain.mockResolvedValue({ seekReadingTarget });
-    getRuntimeVideoElement.mockReturnValue(video);
-    isReaderViewOpen.mockReturnValue(true);
+    vi.mocked(ensureReaderDomain).mockResolvedValue(
+      { seekReadingTarget } as unknown as Awaited<ReturnType<typeof ensureReaderDomain>>
+    );
+    vi.mocked(getRuntimeVideoElement).mockReturnValue(video);
+    vi.mocked(isReaderViewOpen).mockReturnValue(true);
 
     const { response, keepOpen } = await requestSeek("42");
 
@@ -104,9 +113,11 @@ describe("reader-seek-video-time：seek 深入口两形态", () => {
 
   it("reader 开着但域内未绑定到视频（seekReadingTarget 返回 null）：同型降级 ok:false", async () => {
     const video = makeVideoStub();
-    ensureReaderDomain.mockResolvedValue({ seekReadingTarget: vi.fn(() => null) });
-    getRuntimeVideoElement.mockReturnValue(video);
-    isReaderViewOpen.mockReturnValue(true);
+    vi.mocked(ensureReaderDomain).mockResolvedValue(
+      { seekReadingTarget: vi.fn(() => null) } as unknown as Awaited<ReturnType<typeof ensureReaderDomain>>
+    );
+    vi.mocked(getRuntimeVideoElement).mockReturnValue(video);
+    vi.mocked(isReaderViewOpen).mockReturnValue(true);
 
     const { response } = await requestSeek(30);
 
@@ -116,8 +127,8 @@ describe("reader-seek-video-time：seek 深入口两形态", () => {
 
   it("reader 未开且正在播放：只 seek 视频并续播（旧行为保持），不装载 reader 域", async () => {
     const video = makeVideoStub({ paused: false });
-    getRuntimeVideoElement.mockReturnValue(video);
-    isReaderViewOpen.mockReturnValue(false);
+    vi.mocked(getRuntimeVideoElement).mockReturnValue(video);
+    vi.mocked(isReaderViewOpen).mockReturnValue(false);
 
     const { response } = await requestSeek(35.5);
 
@@ -129,8 +140,8 @@ describe("reader-seek-video-time：seek 深入口两形态", () => {
 
   it("reader 未开且暂停中：只 seek 不续播（旧行为保持）", async () => {
     const video = makeVideoStub({ paused: true });
-    getRuntimeVideoElement.mockReturnValue(video);
-    isReaderViewOpen.mockReturnValue(false);
+    vi.mocked(getRuntimeVideoElement).mockReturnValue(video);
+    vi.mocked(isReaderViewOpen).mockReturnValue(false);
 
     const { response } = await requestSeek(10);
 
@@ -141,8 +152,8 @@ describe("reader-seek-video-time：seek 深入口两形态", () => {
 
   it("reader 未开且时间非法（NaN/Infinity）：截断为 0（旧行为保持）", async () => {
     const video = makeVideoStub({ paused: true });
-    getRuntimeVideoElement.mockReturnValue(video);
-    isReaderViewOpen.mockReturnValue(false);
+    vi.mocked(getRuntimeVideoElement).mockReturnValue(video);
+    vi.mocked(isReaderViewOpen).mockReturnValue(false);
 
     const { response } = await requestSeek(Number.POSITIVE_INFINITY);
 
@@ -151,8 +162,8 @@ describe("reader-seek-video-time：seek 深入口两形态", () => {
   });
 
   it("无视频：ok:false 错误口径", async () => {
-    getRuntimeVideoElement.mockReturnValue(null);
-    isReaderViewOpen.mockReturnValue(false);
+    vi.mocked(getRuntimeVideoElement).mockReturnValue(null);
+    vi.mocked(isReaderViewOpen).mockReturnValue(false);
 
     const { response } = await requestSeek(12);
 

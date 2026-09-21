@@ -24,14 +24,14 @@ vi.mock("../../extension/entry/offscreen-asr.js", () => ({
 const CONTEXT_KEY = "video:BV1body|101";
 const BODY = [{ from: 0, to: 5, content: "第一句" }];
 
-let onConnectListeners = [];
+let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
 
 // 提供能通过 resolveProviderWithKey 的 provider/key 响应（resolve-ai-provider 单趟）
 function stubChromeRuntime() {
   vi.stubGlobal("chrome", {
     runtime: {
       onConnect: {
-        addListener: (fn) => onConnectListeners.push(fn)
+        addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn)
       },
       sendMessage: vi.fn(async (message) => {
         if (message?.type === "resolve-ai-provider") {
@@ -59,12 +59,18 @@ async function importOffscreen() {
 }
 
 function makeChatPort() {
-  const listeners = { message: [], disconnect: [] };
+  const listeners: { message: Array<(msg: unknown) => void>; disconnect: Array<() => void> } = { message: [], disconnect: [] };
   return {
     port: {
       name: "offscreen-chat",
-      onMessage: { addListener: (fn) => listeners.message.push(fn) },
-      onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
+      onMessage: {
+        addListener: (fn: (msg: unknown) => void) => listeners.message.push(fn),
+        removeListener: (fn: (msg: unknown) => void) => {}
+      },
+      onDisconnect: {
+        addListener: (fn: () => void) => listeners.disconnect.push(fn),
+        removeListener: (fn: () => void) => {}
+      },
       postMessage: vi.fn(),
       disconnect: vi.fn()
     },
@@ -79,7 +85,7 @@ function connectChat() {
   onConnectListeners[0](session.port);
   return {
     port: session.port,
-    send: (msg) => session.listeners.message[0](msg),
+    send: (msg: unknown) => session.listeners.message[0](msg),
     flush: () => vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalled())
   };
 }
