@@ -75,6 +75,11 @@ describe("reader 生命周期", () => {
       { from: 0, to: 10, content: "大家好" },
       { from: 10, to: 30, content: "今天讲测试" }
     ];
+    // bvid 未设置（≠ 当前地址）→ 进入会触发后台重抓链；给 stub 视频一个有效
+    // duration 让 waitForVideoMetadata 当拍就绪，抓取链在本用例窗口内落定，
+    // 不拖到后续用例 teardown 后对账重渲（视图开着但骨架已拆，byId 抛错）。
+    const enteredVideo = document.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(enteredVideo, "duration", { value: 120, configurable: true });
 
     await shell.enterReaderMode();
 
@@ -114,6 +119,43 @@ describe("reader 生命周期", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
   });
 
+  it("关闭后移动进度再重开（字幕已缓存）：进入即定位到新进度并启动同步", async () => {
+    // 用户报障形态：关闭 digest → 拖动进度 → 重开 digest。重开时字幕命中缓存、
+    // 不再触发 subtitle-ready，进入路径必须自己启动同步并把滚动定位到当前进度。
+    state.clip.bvid = "BV1test000000"; // 与 READER_MODE_URL 同 bvid，不触发后台重抓
+    const body = [];
+    for (let i = 0; i < 400; i += 1) {
+      body.push({ from: i * 2, to: i * 2 + 1.9, content: `字幕第${i}条` });
+    }
+    state.clip.subtitleBody = body;
+
+    const video = document.querySelector("video") as HTMLVideoElement;
+    video.currentTime = 0;
+    await shell.enterReaderMode();
+    shell.closeReadingView();
+
+    // 关闭期间用户拖动了进度：第 300 条
+    video.currentTime = 600;
+
+    const elementScrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = elementScrollSpy;
+    // jsdom 无布局：scrollHeight/clientHeight 恒 0，滚动走 window.scrollTo 分支
+    const windowScrollSpy = vi.fn();
+    window.scrollTo = windowScrollSpy;
+
+    await shell.enterReaderMode();
+
+    // 进入当拍即定位：高亮 + 滚动落位，不等任何后续播放事件
+    const active = document.querySelector(".boc-reading-item.is-active") as HTMLElement;
+    expect(active?.dataset.index).toBe("300");
+    expect(state.reader.readingActiveSubtitleIndex).toBe(300);
+    expect(elementScrollSpy.mock.calls.length + windowScrollSpy.mock.calls.length).toBeGreaterThan(0);
+    // 同步 tick 已启动（视频事件绑定由 tick 兜底建立）
+    expect(syncRunning()).toBe(true);
+
+    shell.closeReadingView();
+  });
+
   it("退出阅读模式：清空 data 属性、关闭视图、停止同步", async () => {
     state.clip.chapters = [
       { title: "开场", from: 0 },
@@ -126,9 +168,10 @@ describe("reader 生命周期", () => {
 
     await shell.enterReaderMode();
 
-    // B 形态：进入不再绑定视频同步（视图打开即就绪，不等播放器）
+    // 进入即启动同步 tick 并立即定位（重开路径不再有 subtitle-ready 通知，
+    // 见「关闭后移动进度再重开」用例）：视频事件绑定随进入建立。
     const video = document.querySelector("video") as HTMLVideoElement;
-    expect(syncRunning()).toBe(false);
+    expect(syncRunning()).toBe(true);
 
     shell.closeReadingView();
 
