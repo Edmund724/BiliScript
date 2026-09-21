@@ -71,7 +71,7 @@ function callHandler(
   message: unknown
 ) {
   return new Promise((resolve) => {
-    const sender = { url: "chrome-extension://test/entry/offscreen.html" } as chrome.runtime.MessageSender;
+    const sender: chrome.runtime.MessageSender = { url: "chrome-extension://test/entry/offscreen.html" };
     const resolved = listener(message, sender, (resp) => resolve(resp));
     // 处理器返回 false（同步无回包）时直接判失败，避免用例挂死
     setTimeout(() => resolve(undefined), 50);

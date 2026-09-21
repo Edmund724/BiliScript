@@ -30,12 +30,6 @@ type OnMessageListener = (
   sender?: chrome.runtime.MessageSender,
   sendResponse?: chrome.runtime.SendMessageCallback
 ) => void;
-// 全局 process 已有 tests/reader/node-stubs.d.ts 的窄声明（仅 cwd），此处局部
-// 宽化到本测试用到的 unhandledRejection 挂/摘接口
-type ProcessShim = {
-  on(event: string, listener: (reason: unknown) => void): void;
-  removeListener(event: string, listener: (reason: unknown) => void): void;
-};
 
 vi.mock("../../extension/entry/offscreen-asr.js", () => ({
   createAsrDecodeHandler: createAsrDecodeHandlerMock
@@ -204,7 +198,7 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
   it("初始请求失败（lastError）：门维持缺省关，不抛未处理拒绝", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    (process as unknown as ProcessShim).on("unhandledRejection", onUnhandled);
+    process.on("unhandledRejection", onUnhandled);
     try {
       stubOffscreenEnv({
         sendMessageImpl: (_message, callback) => {
@@ -225,7 +219,7 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
       expect(unhandled).toEqual([]);
       warnSpy.mockRestore();
     } finally {
-      (process as unknown as ProcessShim).removeListener("unhandledRejection", onUnhandled);
+      process.removeListener("unhandledRejection", onUnhandled);
     }
   });
 });
@@ -292,7 +286,7 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
   it("回包丢失（成功关闭时文档随之销毁）：静默，不告警也不抛 unhandled rejection", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    (process as unknown as ProcessShim).on("unhandledRejection", onUnhandled);
+    process.on("unhandledRejection", onUnhandled);
     try {
       // sendMessageImpl 不回任何包：sendRuntimeMessage 的 promise 永不 settle
       armTerminalEcho();
@@ -307,7 +301,7 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
       expect(unhandled).toEqual([]);
       warnSpy.mockRestore();
     } finally {
-      (process as unknown as ProcessShim).removeListener("unhandledRejection", onUnhandled);
+      process.removeListener("unhandledRejection", onUnhandled);
     }
   });
 });

@@ -19,6 +19,7 @@ declare namespace chrome {
       tab?: { id?: number; url?: string };
       origin?: string;
       id?: string;
+      url?: string;
     }
 
     type SendMessageCallback = (response?: unknown) => void;

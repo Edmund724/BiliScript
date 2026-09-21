@@ -136,13 +136,7 @@ describe("offscreen 聊天通道断连容错", () => {
   it("断连后 ladder 抛错：catch 通道的错误回报被吞，无 unhandled rejection", async () => {
     const unhandled: unknown[] = [];
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
-    // tests/reader/node-stubs.d.ts 只声明了 process.cwd——本文件需要的事件面经
-    // 局部别名补足（运行时即真 process，非类型层面替换）。
-    const nodeProcess = process as unknown as {
-      on(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
-      removeListener(event: "unhandledRejection", listener: (reason: unknown) => void): unknown;
-    };
-    nodeProcess.on("unhandledRejection", onUnhandled);
+    process.on("unhandledRejection", onUnhandled);
     try {
       let rejectLadder: ((reason?: unknown) => void) | null = null;
       runLadderChatMock.mockImplementation(
@@ -162,7 +156,7 @@ describe("offscreen 聊天通道断连容错", () => {
 
       expect(unhandled).toEqual([]);
     } finally {
-      nodeProcess.removeListener("unhandledRejection", onUnhandled);
+      process.removeListener("unhandledRejection", onUnhandled);
     }
   });
 });

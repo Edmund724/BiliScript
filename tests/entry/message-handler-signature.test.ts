@@ -164,9 +164,9 @@ describe("computeContextStateSignature 纯函数", () => {
     seedReadyClip();
 
     // includeTimestampInBody（设置项变化）
-    state.setSettings({ ...(state.settings || {}), includeTimestampInBody: false });
+    state.setSettings({ ...state.settings!, includeTimestampInBody: false });
     expect(computeContextStateSignature(buildPayload())).not.toBe(base);
-    state.setSettings({ ...(state.settings || {}), includeTimestampInBody: true });
+    state.setSettings({ ...state.settings!, includeTimestampInBody: true });
 
     // bvid / cid / pageIndex / subtitleLang
     state.clip.setBvid("BV1other");
