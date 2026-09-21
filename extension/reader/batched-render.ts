@@ -143,6 +143,10 @@ function appendReadingSubtitleBatch() {
 // 继续走 rAF 分批。目标已在屏内（或无进行中任务）时原样返回 true，调用方
 // （sync.js）随后照常 querySelector。
 //
+// 返回值语义：true = 已落定（目标已在屏，或渲染已全部完成——目标永不上屏的
+// 过滤条目也归此类，重试无意义）；false = 目标被单帧上限截断尚未上屏，后续
+// rAF 帧会补齐，调用方可据此推迟记账、下一拍重试。
+//
 // 单帧上限：同步 flush 超过 SUBTITLE_SYNC_FLUSH_LIMIT 条时只补前 limit 条，超出
 // 部分转 rAF 分帧补齐（复用既有追加任务机制）——否则长视频跳到远处时是单帧大块
 // DOM 解析 + 强制布局，与分批渲染的初衷相悖。
@@ -172,12 +176,13 @@ export function ensureReadingSubtitleRenderedUpTo(targetIndex: number) {
   notifyReadingSubtitleBatchAppended(flushFrom, flushEnd);
   if (task.cursor >= task.items.length) {
     subtitleAppendTask = null;
-  } else {
-    // 同步 flush 被上限截断（或本来就有余量）：余下条目（含超出上限的落点区间）
-    // 由既有 rAF 追加任务逐帧补齐
-    scheduleReadingSubtitleAppend();
+    // 渲染已全部完成：目标在屏或永不上屏（被过滤条目），落定
+    return true;
   }
-  return true;
+  // 同步 flush 被上限截断（或本来就有余量）：余下条目（含超出上限的落点区间）
+  // 由既有 rAF 追加任务逐帧补齐
+  scheduleReadingSubtitleAppend();
+  return task.cursor > targetIndex;
 }
 
 // renderReadingView（lifecycle.js）在首屏批之后启动追加任务的入口：原先是

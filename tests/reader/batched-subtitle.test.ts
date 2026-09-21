@@ -192,6 +192,40 @@ describe("字幕列表分批渲染", () => {
     expect(state.reader.readingActiveSubtitleIndex).toBe(1400);
   });
 
+  it("force 拍落点超出同步 flush 上限：rAF 补齐后，后续非 force tick 必须补滚动", () => {
+    // 用户报障形态：视频播了一段时间后点 digest，subtitle-ready 的 force 拍
+    // 目标 index 超出 120+200 同步补渲染窗口 → 节点未上屏滚动被跳过；此后
+    // 生产环境只有非 force 的 250ms tick，滚动必须随条目上屏补落位。
+    state.clip.subtitleBody = makeBody(1500);
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    shell.bindReadingViewVideo(video);
+    video.currentTime = 2800; // 落点第 1400 条，远超 120+200 窗口
+
+    const elementScrollSpy = vi.fn();
+    Element.prototype.scrollIntoView = elementScrollSpy;
+    // jsdom 无布局：scrollHeight/clientHeight 恒 0，滚动会走 window.scrollTo 分支
+    const windowScrollSpy = vi.fn();
+    window.scrollTo = windowScrollSpy;
+
+    // subtitle-ready 的 force 拍：flush 被上限截断，滚动当拍跳过
+    shell.syncReadingViewPlayback(true);
+    expect(subtitleList().querySelector('[data-index="1400"]')).toBeNull();
+
+    // rAF 逐帧补齐全部条目（生产中约百余毫秒内完成）
+    flushAnimationFrames();
+    expect(renderedItemCount()).toBe(1500);
+    elementScrollSpy.mockClear();
+    windowScrollSpy.mockClear();
+
+    // 生产 tick（非 force，视频暂停中 index 不再变化）：滚动必须补上
+    shell.syncReadingViewPlayback();
+    shell.syncReadingViewPlayback();
+    const active = subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement;
+    expect(active.dataset.index).toBe("1400");
+    expect(elementScrollSpy.mock.calls.length + windowScrollSpy.mock.calls.length).toBeGreaterThan(0);
+  });
+
   it("手动暂停中的激活计算照旧：不补渲染/滚动，恢复后下一拍补高亮", () => {
     // 三开关退役后自动滚动恒开：未暂停时 index 变化会立即同步补渲染并滚动
     //（见上面 follow 用例）。真正不产生滚动/补渲染的是手动暂停分支——此处

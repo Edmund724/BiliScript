@@ -178,6 +178,11 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
     lastActiveItems.subtitle.node = subtitleHit.next;
   }
 
+  // 滚动落位失败且补渲染仍在途（被单帧上限截断）时不给 active 索引记账：
+  // 下一拍（非 force）shouldScroll 因索引差继续为真，条目随 rAF 上屏后自动
+  // 补滚动。若照常记账，后续 tick shouldScroll 恒假，暂停中的视频永不补滚。
+  let scrollDeferred = false;
+
   if (shouldScroll) {
     if (isManualScrollPaused()) {
       updateReaderFollowState();
@@ -190,8 +195,9 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
     // 先同步补渲染到目标 index 再取节点滚动，保证「跳不过去」不发生。
     if (!scrollSubtitleNode && subtitleIndex >= 0) {
       // 候选06：补渲染实现属 LIFECYCLE（分批渲染状态机在 lifecycle.js），经
-      // 显式端口回调（lifecycle 启动时注册，缺失即抛错，不再静默返回 true）。
-      readerPorts.flushReadingSubtitleToIndex(subtitleIndex);
+      // 显式端口回调（lifecycle 启动时注册，缺失即抛错）。false = 目标被
+      // 单帧上限截断尚未上屏（后续 rAF 帧补齐），滚动推迟到后续拍重试。
+      scrollDeferred = readerPorts.flushReadingSubtitleToIndex(subtitleIndex) === false;
       scrollSubtitleNode = subtitleList.querySelector(`[data-index="${subtitleIndex}"]`);
       if (scrollSubtitleNode) {
         // 补渲染后才拿到节点：同步补上 is-active 并刷新缓存，与「节点本就在屏」
@@ -202,6 +208,7 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
         scrollSubtitleNode.classList.add("is-active");
         lastActiveItems.subtitle.index = subtitleIndex;
         lastActiveItems.subtitle.node = scrollSubtitleNode;
+        scrollDeferred = false;
       }
     }
     if (scrollSubtitleNode) {
@@ -209,7 +216,9 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
     }
   }
 
-  state.reader.setActiveSubtitleIndex(subtitleIndex);
+  if (!scrollDeferred) {
+    state.reader.setActiveSubtitleIndex(subtitleIndex);
+  }
   state.reader.setActiveChapterIndex(chapterIndex);
 }
 
