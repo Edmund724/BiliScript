@@ -17,7 +17,15 @@
   "include": [
     "extension/**/*.js",
     "extension/**/*.ts",
-    "extension/**/*.d.ts"
+    "extension/**/*.d.ts",
+    "tests/setup.ts",
+    "tests/layer-deps.test.ts",
+    "tests/helpers/**/*.ts",
+    "tests/notes/**/*.ts",
+    "tests/shared/**/*.ts",
+    "tests/search/**/*.ts",
+    "tests/bilibili/**/*.ts",
+    "tests/reader/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

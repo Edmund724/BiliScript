@@ -71,7 +71,7 @@ function targetNode(target: AttrTarget) {
   return document.getElementById(ids.readingView) as HTMLElement;
 }
 
-let ids: Record<string, string>;
+let ids: typeof import("../../extension/reader/state.js").ids;
 let shell: typeof import("../../extension/reader/index.js");
 let presentation: typeof import("../../extension/reader/presentation.js");
 let state: TestState;

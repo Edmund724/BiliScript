@@ -15,7 +15,7 @@ function freshStorageStubs() {
 }
 
 function storageChangeListener() {
-  return chrome.storage.onChanged.addListener.mock.calls.at(-1)?.[0];
+  return vi.mocked(chrome.storage.onChanged.addListener).mock.calls.at(-1)![0];
 }
 
 describe("shared/watch-storage-keys seam", () => {

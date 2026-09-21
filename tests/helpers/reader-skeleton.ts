@@ -15,6 +15,7 @@
 // mountReaderSkeleton() 之后再自行创建。
 
 import { READER_MODE_URL } from "../setup.js";
+import type { ids as readerIds } from "../../extension/reader/state.js";
 
 const DEFAULT_VIDEO_PROPS = {
   duration: 600,
@@ -25,7 +26,7 @@ const DEFAULT_VIDEO_PROPS = {
 };
 
 // 给 video 元素定义默认媒体属性（jsdom 不实现这些属性，读取会得到 undefined）。
-export function stubVideoMediaProps(video) {
+export function stubVideoMediaProps(video: HTMLVideoElement): HTMLVideoElement {
   Object.entries(DEFAULT_VIDEO_PROPS).forEach(([key, value]) => {
     Object.defineProperty(video, key, { value, configurable: true });
   });
@@ -65,7 +66,7 @@ export function mountPlayerChain(container = document.body) {
 // 骨架按同一从属关系搭建，bindUiEvents 可直接使用。PR3 起字幕 tab 另含
 // 搜索工具条/复制导出/转写横幅/Follow 按钮/解释浮层，chat tab 含待解释
 // 意图卡，均按真实模板同构搭建）。
-export function mountReaderSkeleton(ids) {
+export function mountReaderSkeleton(ids: typeof readerIds) {
   const doc = document;
 
   // applyReaderPageFocus 通过 getReaderElement(ids.root) 读取扩展根节点
@@ -274,7 +275,7 @@ export function mountReaderSkeleton(ids) {
 // 给播放器链上的元素补可见尺寸，保证 video-probe 判定通过。
 // （PR2：#boc-reading-inline-host 随字幕列表搬进统一面板而移除，列表容器
 // 自身不再需要可见尺寸 mock——sync 域滚动路径对其不可见容器本就走兜底。）
-export function mockPlayerRects(extraSelectors = []) {
+export function mockPlayerRects(extraSelectors: string[] = []) {
   const selectors = [
     ".bpx-player-primary-area",
     ".bpx-player-video-area",
@@ -286,7 +287,7 @@ export function mockPlayerRects(extraSelectors = []) {
 
   const nodes = selectors
     .map((selector) => document.querySelector(selector))
-    .filter(Boolean);
+    .filter((node): node is Element => node !== null);
 
   nodes.forEach((node) => {
     node.getBoundingClientRect = () => STANDARD_RECT();

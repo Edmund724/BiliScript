@@ -20,8 +20,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let createReaderChatPopovers;
-let ids;
+let createReaderChatPopovers: typeof import("../../extension/reader/chat-popovers.js").createReaderChatPopovers;
+let ids: typeof import("../../extension/reader/state.js").ids;
 
 beforeEach(async () => {
   resetModuleState();
@@ -180,7 +180,7 @@ describe("handleDocumentClick（外点关闭，readingChat* id）", () => {
     const outside = document.createElement("div");
     document.body.appendChild(outside);
 
-    popovers.handleDocumentClick({ target: outside });
+    popovers.handleDocumentClick({ target: outside } as unknown as MouseEvent);
 
     expect(presetPopover.hidden).toBe(true);
     expect(historyPopover.hidden).toBe(true);
@@ -196,24 +196,24 @@ describe("handleDocumentClick（外点关闭，readingChat* id）", () => {
     const insideModel = document.createElement("span");
     modelPanel.appendChild(insideModel);
 
-    popovers.handleDocumentClick({ target: insidePreset });
+    popovers.handleDocumentClick({ target: insidePreset } as unknown as MouseEvent);
     expect(presetPopover.hidden).toBe(false);
     expect(historyPopover.hidden).toBe(false);
     expect(modelPanel.hidden).toBe(false);
 
-    popovers.handleDocumentClick({ target: presetBtn });
+    popovers.handleDocumentClick({ target: presetBtn } as unknown as MouseEvent);
     expect(presetPopover.hidden).toBe(false);
 
-    popovers.handleDocumentClick({ target: insideHistory });
+    popovers.handleDocumentClick({ target: insideHistory } as unknown as MouseEvent);
     expect(historyPopover.hidden).toBe(false);
 
-    popovers.handleDocumentClick({ target: historyBtn });
+    popovers.handleDocumentClick({ target: historyBtn } as unknown as MouseEvent);
     expect(historyPopover.hidden).toBe(false);
 
-    popovers.handleDocumentClick({ target: insideModel });
+    popovers.handleDocumentClick({ target: insideModel } as unknown as MouseEvent);
     expect(modelPanel.hidden).toBe(false);
 
-    popovers.handleDocumentClick({ target: modelChipBtn });
+    popovers.handleDocumentClick({ target: modelChipBtn } as unknown as MouseEvent);
     expect(modelPanel.hidden).toBe(false);
   });
 
@@ -222,7 +222,7 @@ describe("handleDocumentClick（外点关闭，readingChat* id）", () => {
     const outside = document.createElement("div");
     document.body.appendChild(outside);
 
-    popovers.handleDocumentClick({ target: outside });
+    popovers.handleDocumentClick({ target: outside } as unknown as MouseEvent);
 
     expect(presetPopover.hidden).toBe(true);
     expect(historyPopover.hidden).toBe(true);
@@ -232,7 +232,7 @@ describe("handleDocumentClick（外点关闭，readingChat* id）", () => {
   it("非 Element target（如 document/text node）：全关", () => {
     const { popovers, presetPopover, historyPopover, modelPanel } = makeHarness();
 
-    popovers.handleDocumentClick({ target: document });
+    popovers.handleDocumentClick({ target: document } as unknown as MouseEvent);
 
     expect(presetPopover.hidden).toBe(true);
     expect(historyPopover.hidden).toBe(true);

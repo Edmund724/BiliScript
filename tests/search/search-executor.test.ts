@@ -8,13 +8,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function makeFetch(payload, ok = true, status = 200) {
+function makeFetch(payload: unknown, ok = true, status = 200) {
   return {
-    fetchImpl: vi.fn(async () => ({
+    fetchImpl: vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => ({
       ok,
       status,
       json: async () => payload
-    }))
+    }) as unknown as Response)
   };
 }
 
@@ -27,10 +27,10 @@ describe("executeWebSearch 三家适配器分派", () => {
       { fetchImpl }
     );
     expect(fetchImpl.mock.calls[0][0]).toBe("https://api.tavily.com/search");
-    const init = fetchImpl.mock.calls[0][1];
+    const init = fetchImpl.mock.calls[0][1]! as { method?: string; headers: Record<string, string>; body?: string };
     expect(init.method).toBe("POST");
     expect(init.headers.Authorization).toBe("Bearer tvly-k");
-    expect(JSON.parse(init.body)).toEqual({ query: "bilibili ai", max_results: SEARCH_RESULT_COUNT, include_raw_content: false });
+    expect(JSON.parse(init.body!)).toEqual({ query: "bilibili ai", max_results: SEARCH_RESULT_COUNT, include_raw_content: false });
     expect(outcome).toMatchObject({ platform: "Tavily", credits: 3 });
     expect(outcome.results[0]).toEqual({ title: "t", url: "u", snippet: "c" });
   });
@@ -43,9 +43,9 @@ describe("executeWebSearch 三家适配器分派", () => {
       { fetchImpl }
     );
     expect(fetchImpl.mock.calls[0][0]).toBe("https://api.exa.ai/search");
-    const init = fetchImpl.mock.calls[0][1];
+    const init = fetchImpl.mock.calls[0][1]! as { method?: string; headers: Record<string, string>; body?: string };
     expect(init.headers["x-api-key"]).toBe("exa-k");
-    expect(JSON.parse(init.body)).toEqual({ query: "q", numResults: SEARCH_RESULT_COUNT, contents: { summary: true } });
+    expect(JSON.parse(init.body!)).toEqual({ query: "q", numResults: SEARCH_RESULT_COUNT, contents: { summary: true } });
     expect(outcome.platform).toBe("Exa");
   });
 
@@ -62,7 +62,7 @@ describe("executeWebSearch 三家适配器分派", () => {
     expect(params.get("q")).toBe("q b");
     expect(params.get("count")).toBe(String(SEARCH_RESULT_COUNT));
     expect(params.get("extra_snippets")).toBe("false");
-    const init = fetchImpl.mock.calls[0][1];
+    const init = fetchImpl.mock.calls[0][1]! as { method?: string; headers: Record<string, string>; body?: string };
     expect(init.method).toBe("GET");
     expect(init.headers["X-Subscription-Token"]).toBe("brave-k");
     expect(outcome.results[0]).toEqual({ title: "t", url: "u", snippet: "d" });
@@ -81,7 +81,11 @@ describe("executeWebSearch 三家适配器分派", () => {
   });
 
   it("响应体非 JSON：抛「搜索响应解析失败」", async () => {
-    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new Error("bad json"); } }));
+    const fetchImpl = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new Error("bad json"); }
+    }) as unknown as Response);
     await expect(
       executeWebSearch(
         { type: "tavily", baseUrl: "https://api.tavily.com", apiKey: "k" },

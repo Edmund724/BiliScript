@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 
 const EXTENSION_ROOT = join(process.cwd(), "extension");
 
-function listSourceFiles(dir) {
+function listSourceFiles(dir: string): string[] {
   const result = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -39,7 +39,7 @@ const sourceFileMap = new Map(
     readFileSync(file, "utf8")
   ])
 );
-const read = (file) => {
+const read = (file: string) => {
   const text = sourceFileMap.get(file);
   if (text === undefined) {
     throw new Error(`扫描目标不存在：${file}`);
@@ -54,7 +54,7 @@ const BACKGROUND = "entry/background.ts";
 // 声明体没有 type: 字面量，不会误配）
 const MESSAGE_LITERAL_RE = /export type (\w+) = \{[^}]*?type:\s*"([^"]+)"/g;
 
-function parseUnionMembers(protocolText, unionName) {
+function parseUnionMembers(protocolText: string, unionName: string): string[] {
   const block = protocolText.match(new RegExp(`export type ${unionName} =([\\s\\S]*?);`));
   if (!block) {
     throw new Error(`messaging-protocol.ts 缺少 ${unionName} union`);

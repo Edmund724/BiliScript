@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 
 const EXTENSION_ROOT = join(process.cwd(), "extension");
 
-function listSourceFiles(dir) {
+function listSourceFiles(dir: string): string[] {
   const result = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
@@ -41,12 +41,12 @@ function listSourceFiles(dir) {
 }
 
 const sourceFileMap = new Map(
-  listSourceFiles(EXTENSION_ROOT).map((file) => [
+  listSourceFiles(EXTENSION_ROOT).map((file): [string, string] => [
     relative(EXTENSION_ROOT, file).split(sep).join("/"),
     readFileSync(file, "utf8")
   ])
 );
-const read = (file) => sourceFileMap.get(file) ?? "";
+const read = (file: string) => sourceFileMap.get(file) ?? "";
 
 const SHELL = "reader/shell.ts";
 

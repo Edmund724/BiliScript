@@ -19,8 +19,8 @@ function loadInjector() {
   return import("../../extension/shared/style-injector.js");
 }
 
-function mountedLinks() {
-  return Array.from(document.querySelectorAll('link[data-boc-style="1"]'));
+function mountedLinks(): HTMLLinkElement[] {
+  return Array.from(document.querySelectorAll<HTMLLinkElement>('link[data-boc-style="1"]'));
 }
 
 beforeEach(() => {

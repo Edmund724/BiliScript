@@ -12,7 +12,7 @@ export const READER_MODE_URL = "https://www.bilibili.com/video/BV1test000000/?bo
 export const NORMAL_PAGE_URL = "https://www.bilibili.com/video/BV1test000000/";
 
 function stubChromeApi() {
-  const listeners = new Set();
+  const listeners = new Set<(...args: unknown[]) => void>();
 
   const chromeStub = {
     runtime: {
@@ -27,13 +27,13 @@ function stubChromeApi() {
         return undefined;
       }),
       onMessage: {
-        addListener(listener) {
+        addListener(listener: (...args: unknown[]) => void) {
           listeners.add(listener);
         },
-        removeListener(listener) {
+        removeListener(listener: (...args: unknown[]) => void) {
           listeners.delete(listener);
         },
-        hasListener(listener) {
+        hasListener(listener: (...args: unknown[]) => void) {
           return listeners.has(listener);
         }
       }
@@ -71,11 +71,12 @@ export function setupEnvironment() {
 // 状态单例、shared/style-injector.ts 的挂载记录）：清空即「换干净槽」——否则
 // 上一条用例的注册/状态会随 globalThis 活到下一用例。
 export function clearSharedSlots() {
-  delete globalThis.__BOC_CONTENT_SCRIPT_DISPATCHER__;
-  delete globalThis.__BOC_LOG_GATE__;
-  delete globalThis.__BOC_READER_BUS__;
-  delete globalThis.__BOC_STATE__;
-  delete globalThis.__BOC_STYLE_INJECTOR__;
+  const slots = globalThis as unknown as Record<string, unknown>;
+  delete slots.__BOC_CONTENT_SCRIPT_DISPATCHER__;
+  delete slots.__BOC_LOG_GATE__;
+  delete slots.__BOC_READER_BUS__;
+  delete slots.__BOC_STATE__;
+  delete slots.__BOC_STYLE_INJECTOR__;
 }
 
 // 每条用例前清一次（在文件自身的 beforeEach 之前跑）：即便某文件只调
@@ -104,21 +105,25 @@ export function resetModuleState() {
 
   // jsdom 无布局，getBoundingClientRect 恒为 0。给 Element 原型补默认可见矩形，
   // 让 reader 的布局判定（>240x120 等）通过；特定元素可在用例内再覆盖。
-  if (typeof Element !== "undefined" && !Element.prototype.getBoundingClientRect.__bocDefaultPatched) {
-    Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
-      return { x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 450, width: 800, height: 450, toJSON: () => ({}) };
-    };
-    Element.prototype.getBoundingClientRect.__bocDefaultPatched = true;
+  if (typeof Element !== "undefined") {
+    const rect = Element.prototype.getBoundingClientRect as (() => DOMRect) & { __bocDefaultPatched?: boolean };
+    if (!rect.__bocDefaultPatched) {
+      const patched = function getBoundingClientRect() {
+        return { x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 450, width: 800, height: 450, toJSON: () => ({}) };
+      } as (() => DOMRect) & { __bocDefaultPatched?: boolean };
+      patched.__bocDefaultPatched = true;
+      Element.prototype.getBoundingClientRect = patched;
+    }
   }
 }
 
-export function setLocationUrl(url) {
+export function setLocationUrl(url: string) {
   history.replaceState({}, "", url);
 }
 
 // 生成指定总字符数的字幕体：每项 charsPerItem 个字符（末项取余），from 每项 +5 秒。
 // 供 AI 预算器 / Map-Reduce / 单次路径测试共享（避免各测试文件重复定义）。
-export function makeSubtitleBody(totalChars, charsPerItem = 1000) {
+export function makeSubtitleBody(totalChars: number, charsPerItem = 1000) {
   const items = [];
   let remaining = totalChars;
   let t = 0;

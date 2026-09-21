@@ -26,17 +26,27 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(path.resolve(here, "../../extension/bilibili/gateway-core.ts"), "utf8");
 
 // 带 size 的 Headers 替身（Map 子类，键小写归一，语义对齐 Fetch Standard）
-class FakeHeaders extends Map {
-  set(key, value) {
+class FakeHeaders extends Map<string, string | null> {
+  set(key: string, value: string) {
     super.set(String(key).toLowerCase(), value);
     return this;
   }
-  get(key) {
+  get(key: string): string | null {
     return super.get(String(key).toLowerCase()) ?? null;
   }
 }
 
-function okResponse(payload) {
+// bgFetchJson 实际下发的 init（替身场景下 headers 恒为 FakeHeaders 实例）
+interface FetchOptions {
+  method: string;
+  credentials: string;
+  cache: string;
+  headers: FakeHeaders;
+  referrer?: string;
+  referrerPolicy?: string;
+}
+
+function okResponse(payload: unknown) {
   return { ok: true, json: async () => payload };
 }
 
@@ -67,7 +77,7 @@ describe("isBiliUrl（拆叶后语义不变）", () => {
 
 describe("bgFetchJson（拆叶后头部/凭据语义逐字不变）", () => {
   it("B 站 URL：附加 B 站请求头与 referrer，credentials include / no-store", async () => {
-    const fetchMock = vi.fn(async () => okResponse({ code: 0 }));
+    const fetchMock = vi.fn(async (_url: string, _options?: FetchOptions) => okResponse({ code: 0 }));
     vi.stubGlobal("Headers", FakeHeaders);
     vi.stubGlobal("fetch", fetchMock);
 
@@ -77,31 +87,31 @@ describe("bgFetchJson（拆叶后头部/凭据语义逐字不变）", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0];
     expect(url).toBe("https://api.bilibili.com/x/web-interface/view?bvid=BV1x");
-    expect(options.method).toBe("GET");
-    expect(options.credentials).toBe("include");
-    expect(options.cache).toBe("no-store");
-    expect(options.headers.get("accept")).toBe("application/json, text/plain, */*");
-    expect(options.headers.get("accept-language")).toBe("zh-CN,zh;q=0.9,en;q=0.8");
-    expect(options.headers.get("cache-control")).toBe("no-cache");
-    expect(options.headers.get("pragma")).toBe("no-cache");
-    expect(options.referrer).toBe("https://www.bilibili.com/");
-    expect(options.referrerPolicy).toBe("strict-origin-when-cross-origin");
+    expect(options!.method).toBe("GET");
+    expect(options!.credentials).toBe("include");
+    expect(options!.cache).toBe("no-store");
+    expect(options!.headers.get("accept")).toBe("application/json, text/plain, */*");
+    expect(options!.headers.get("accept-language")).toBe("zh-CN,zh;q=0.9,en;q=0.8");
+    expect(options!.headers.get("cache-control")).toBe("no-cache");
+    expect(options!.headers.get("pragma")).toBe("no-cache");
+    expect(options!.referrer).toBe("https://www.bilibili.com/");
+    expect(options!.referrerPolicy).toBe("strict-origin-when-cross-origin");
   });
 
   it("非 B 站 URL：不附加头部与 referrer，method/credentials/cache 保持", async () => {
-    const fetchMock = vi.fn(async () => okResponse({ fine: true }));
+    const fetchMock = vi.fn(async (_url: string, _options?: FetchOptions) => okResponse({ fine: true }));
     vi.stubGlobal("Headers", FakeHeaders);
     vi.stubGlobal("fetch", fetchMock);
 
     await bgFetchJson("https://example.com/api");
 
     const [, options] = fetchMock.mock.calls[0];
-    expect(options.headers).toBeUndefined();
-    expect(options.referrer).toBeUndefined();
-    expect(options.referrerPolicy).toBeUndefined();
-    expect(options.method).toBe("GET");
-    expect(options.credentials).toBe("include");
-    expect(options.cache).toBe("no-store");
+    expect(options!.headers).toBeUndefined();
+    expect(options!.referrer).toBeUndefined();
+    expect(options!.referrerPolicy).toBeUndefined();
+    expect(options!.method).toBe("GET");
+    expect(options!.credentials).toBe("include");
+    expect(options!.cache).toBe("no-store");
   });
 
   it("响应非 ok：抛 HTTP <status>", async () => {

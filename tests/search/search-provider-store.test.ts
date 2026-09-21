@@ -7,8 +7,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { searchProviderStore } from "../../extension/search/search-provider-store.js";
 
-let syncStorage;
-let localStorage;
+let syncStorage: Record<string, unknown>;
+let localStorage: Record<string, unknown>;
 
 beforeEach(() => {
   resetModuleState();
@@ -21,7 +21,7 @@ beforeEach(() => {
       sync: {
         ...globalThis.chrome.storage.sync,
         get: vi.fn(async (keys) => {
-          const out = {};
+          const out: Record<string, unknown> = {};
           const names = Array.isArray(keys) ? keys : [keys];
           for (const k of names) out[k] = syncStorage[k];
           return out;
@@ -31,7 +31,7 @@ beforeEach(() => {
       local: {
         ...globalThis.chrome.storage.local,
         get: vi.fn(async (keys) => {
-          const out = {};
+          const out: Record<string, unknown> = {};
           const names = Array.isArray(keys) ? keys : [keys];
           for (const k of names) out[k] = localStorage[k];
           return out;
@@ -49,7 +49,7 @@ describe("searchProviderStore", () => {
     ]);
     expect(syncStorage.searchProviders).toHaveLength(1);
     expect(JSON.stringify(syncStorage.searchProviders)).not.toContain("tk_1");
-    expect(localStorage.searchProviderKeys.search_1).toBe("tk_1");
+    expect((localStorage.searchProviderKeys as Record<string, string>).search_1).toBe("tk_1");
     const list = await searchProviderStore.loadProviders();
     expect(list).toEqual([
       { id: "search_1", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com", enabled: true, hasSavedKey: true }

@@ -27,8 +27,14 @@ import {
   buildSubtitleSectionLines,
   shouldShowHoursInNote
 } from "../../extension/notes/section-lines.js";
+import { DEFAULT_SETTINGS, type Settings } from "../../extension/core/defaults.js";
 
-const body = (items) => items.map((item) => ({ from: 0, to: 5, content: "x", ...item }));
+// 字幕条目夹具形状：from/to/content 三键均可被用例局部覆盖；对调用方而言既
+// 满足 SubtitleBodyItemLike（from/to/content 全部按可选 unknown 收口）也满足
+// unknown[] 参数。
+type BodyItem = Partial<{ from: number; to: number; content: string }>;
+
+const body = (items: BodyItem[]) => items.map((item) => ({ from: 0, to: 5, content: "x", ...item }));
 
 beforeEach(() => {
   setLocationUrl(NORMAL_PAGE_URL);
@@ -200,7 +206,10 @@ describe("buildSubtitleSectionLines：章节分桶四要素", () => {
 // ===== buildMarkdown：逐段断言 =====
 
 describe("buildMarkdown", () => {
-  const baseSettings = {
+  // 未列出的键以 DEFAULT_SETTINGS 兜底（与生产读取行为一致；本夹具测的所有
+  // 键均显式覆盖，includePlayerEmbedInNote 走默认 true，与缺省键行为相同）。
+  const baseSettings: Settings = {
+    ...DEFAULT_SETTINGS,
     tags: "note, test",
     includeTimestampInBody: true,
     includeHotCommentsInNote: false,
@@ -275,7 +284,7 @@ describe("buildMarkdown", () => {
     expect(lines).toContain("`0:10` 第二句");
 
     // 顺序约束：frontmatter < iframe < 简介 < 章节 < 字幕
-    const indexOf = (needle) => lines.findIndex((line) => line === needle || line.startsWith(needle));
+    const indexOf = (needle: string) => lines.findIndex((line) => line === needle || line.startsWith(needle));
     expect(indexOf("---")).toBeLessThan(indexOf("<iframe"));
     expect(indexOf("<iframe")).toBeLessThan(indexOf("## 简介"));
     expect(indexOf("## 简介")).toBeLessThan(indexOf("## 章节"));

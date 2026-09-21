@@ -18,9 +18,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { ChatSessionState } from "../../extension/chat/chat-state.js";
+import type { CreateReaderChatListsDeps } from "../../extension/reader/chat-lists.js";
 
-let createReaderChatLists;
-let chatSessionState;
+let createReaderChatLists: typeof import("../../extension/reader/chat-lists.js").createReaderChatLists;
+let chatSessionState: ChatSessionState;
 
 async function importModule() {
   const module = await import("../../extension/reader/chat-lists.js");
@@ -29,7 +31,7 @@ async function importModule() {
   chatSessionState = state;
 }
 
-function makeDeps(overrides = {}) {
+function makeDeps(overrides: Partial<CreateReaderChatListsDeps> = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const presetList = document.createElement("div");
@@ -38,9 +40,9 @@ function makeDeps(overrides = {}) {
   const input = document.createElement("textarea");
   container.append(presetList, historyList, historyClearBtn, input);
 
-  let suggestionsNode = document.createElement("div");
+  let suggestionsNode: HTMLElement = document.createElement("div");
   container.appendChild(suggestionsNode);
-  const deps = {
+  const deps: CreateReaderChatListsDeps = {
     presetList,
     historyList,
     historyClearBtn,
@@ -51,14 +53,14 @@ function makeDeps(overrides = {}) {
     autosizeInput: vi.fn(),
     onSuggestionClick: vi.fn(),
     getSuggestionsNode: () => suggestionsNode,
-    insertPresetPrompt: null, // 组装后回填（惰性互引）
+    insertPresetPrompt: null as unknown as (prompt: string) => void, // 组装后回填（惰性互引）
     hidePresetPopover: vi.fn(),
     hideHistoryPopover: vi.fn(),
     ...overrides
   };
   const lists = createReaderChatLists(deps);
   deps.insertPresetPrompt = (prompt) => lists.insertPresetPrompt(prompt);
-  return { deps, lists, input, presetList, historyList, historyClearBtn, container, setSuggestionsNode: (node) => {
+  return { deps, lists, input, presetList, historyList, historyClearBtn, container, setSuggestionsNode: (node: HTMLElement) => {
     suggestionsNode.remove();
     suggestionsNode = node;
     container.appendChild(node);
@@ -67,7 +69,7 @@ function makeDeps(overrides = {}) {
 
 // setup.ts 给 HTMLElement.prototype.click 打了「补派发一次 MouseEvent」的补丁，
 // 直接 .click() 会双触发；测试里统一用 dispatchEvent 保证恰好一次。
-function clickOnce(el) {
+function clickOnce(el: Element) {
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
@@ -165,7 +167,7 @@ describe("renderPresetPrompts（预设提示词）", () => {
     const { lists, input, presetList } = makeDeps();
     input.value = "已有内容";
     lists.renderPresetPrompts();
-    clickOnce(presetList.querySelector(".chat-preset-chip"));
+    clickOnce(presetList.querySelector(".chat-preset-chip")!);
     expect(input.value).toBe("已有内容\n提示词A");
   });
 
@@ -203,7 +205,7 @@ describe("renderHistoryList（历史会话）", () => {
     expect(items[0].classList.contains("is-active")).toBe(false);
     expect(items[1].classList.contains("is-active")).toBe(true);
 
-    clickOnce(items[0].querySelector(".chat-history-open"));
+    clickOnce(items[0].querySelector(".chat-history-open")!);
     expect(deps.applyById).toHaveBeenCalledWith("c1");
     expect(deps.hideHistoryPopover).toHaveBeenCalledTimes(1);
   });
@@ -215,7 +217,7 @@ describe("renderHistoryList（历史会话）", () => {
     const { lists, deps, historyList } = makeDeps();
     lists.renderHistoryList();
 
-    clickOnce(historyList.querySelector(".chat-history-remove"));
+    clickOnce(historyList.querySelector(".chat-history-remove")!);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(deps.deleteById).toHaveBeenCalledWith("c1");
   });

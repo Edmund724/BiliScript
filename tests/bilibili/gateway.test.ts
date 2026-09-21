@@ -19,31 +19,31 @@ import {
 } from "../../extension/bilibili/gateway.js";
 import { clipState } from "../../extension/core/state.js";
 import { formatLocalDate } from "../../extension/shared/utils.js";
+import type { HotComment } from "../../extension/bilibili/bili-api-shared.js";
 
 // 假 transport：按 URL 子串路由到预设载荷/异常，并记录调用轨迹（供次数与顺序断言）
-function fakeTransport(routes) {
-  const calls = [];
-  const transport = vi.fn(async (url) => {
+function fakeTransport(routes: [match: string, handler: unknown][]) {
+  const calls: string[] = [];
+  const transport = vi.fn(async (url: string) => {
     calls.push(url);
     const route = routes.find(([match]) => url.includes(match));
     if (!route) {
       throw new Error(`unexpected url: ${url}`);
     }
     const handler = route[1];
-    return typeof handler === "function" ? handler(url) : handler;
+    return typeof handler === "function" ? (handler as (u: string) => unknown)(url) : handler;
   });
-  transport.calls = calls;
-  return transport;
+  return Object.assign(transport, { calls });
 }
 
 const wbiMatch = "x/player/wbi/v2";
 const v2Match = "x/player/v2";
 
-function subtitlePayload(subtitles, viewPoints = []) {
+function subtitlePayload(subtitles: unknown[], viewPoints: unknown[] = []) {
   return { code: 0, data: { subtitle: { subtitles }, view_points: viewPoints } };
 }
 
-function track(id, url) {
+function track(id: number | string, url: string) {
   return { id, lan: "zh-CN", lan_doc: "中文", subtitle_url: url };
 }
 
@@ -265,7 +265,11 @@ describe("isBiliUrl 边界", () => {
 // deps 全注入（ledger/aid/拉取替身），另有一条缺省 deps 接线对账（落账到真实
 // core/state 的 clipState）。
 describe("fetchHotCommentsWithLedger：热评编排单源", () => {
-  function makeDeps({ aid = "100", comments = [], fetchError = null } = {}) {
+  function makeDeps({
+    aid = 100,
+    comments = [],
+    fetchError = null
+  }: { aid?: number; comments?: HotComment[]; fetchError?: Error | null } = {}) {
     const ledger = { setHotComments: vi.fn() };
     const deps = {
       clipState: ledger,
@@ -279,7 +283,7 @@ describe("fetchHotCommentsWithLedger：热评编排单源", () => {
   }
 
   it("有 aid：fetchHotComments(20) 拉取 + 落账 comments + 返回 {comments}（无 note）", async () => {
-    const comments = [{ uname: "u", message: "m" }];
+    const comments = [{ uname: "u", like: 0, message: "m" }];
     const { ledger, deps } = makeDeps({ comments });
 
     const outcome = await fetchHotCommentsWithLedger(deps);
@@ -290,7 +294,7 @@ describe("fetchHotCommentsWithLedger：热评编排单源", () => {
   });
 
   it("无 aid：不拉取，落账清空 + 空列表 + note「无法获取视频 aid」", async () => {
-    const { ledger, deps } = makeDeps({ aid: "" });
+    const { ledger, deps } = makeDeps({ aid: 0 });
 
     const outcome = await fetchHotCommentsWithLedger(deps);
 
@@ -312,7 +316,7 @@ describe("fetchHotCommentsWithLedger：热评编排单源", () => {
   it("缺省 deps：落账接线到 core/state 的 clipState", async () => {
     const spy = vi.spyOn(clipState, "setHotComments").mockImplementation(() => {});
     try {
-      const comments = [{ uname: "u", message: "m" }];
+      const comments = [{ uname: "u", like: 0, message: "m" }];
       const outcome = await fetchHotCommentsWithLedger({
         getCurrentAid: () => 100,
         fetchHotComments: async () => comments

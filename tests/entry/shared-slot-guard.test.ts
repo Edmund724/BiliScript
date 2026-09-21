@@ -62,7 +62,7 @@ describe("跨实例共享槽守卫（构建期接线）", () => {
       keys.push(match[1]);
     }
     for (const key of keys) {
-      expect(setup.includes(`delete globalThis.${key};`), `tests/setup.ts 未清 ${key}`).toBe(true);
+      expect(setup.includes(`delete slots.${key};`), `tests/setup.ts 未清 ${key}`).toBe(true);
     }
   });
 });

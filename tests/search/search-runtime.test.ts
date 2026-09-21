@@ -6,6 +6,7 @@
 // 3. maxToolCalls 缺省/非法回落 5。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveWebSearchRuntime } from "../../extension/search/search-runtime.js";
+import type { ResolveSearchProviderResponse } from "../../extension/shared/messaging-protocol.js";
 
 const PROVIDER_OK = {
   ok: true,
@@ -17,8 +18,8 @@ const PROVIDER_OK = {
 // chrome.runtime 双通道替身（sendRuntimeMessage 走 callback + lastError；解析器
 // 直发走 Promise 风格，两种风格都回）：resolve-search-provider 回 resp，
 // provider-http 回 HTTP 200 JSON（SW 端 ok:true + status 透传的载荷形状）。
-function stubRuntime(resp, httpPayload = { results: [{ title: "t", url: "u", content: "c" }] }) {
-  const reply = (msg) => {
+function stubRuntime(resp: ResolveSearchProviderResponse, httpPayload = { results: [{ title: "t", url: "u", content: "c" }] }) {
+  const reply = (msg: { type?: string }) => {
     if (msg?.type === "resolve-search-provider") {
       return resp;
     }
@@ -45,13 +46,17 @@ afterEach(() => {
 describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
   it("成功组装：maxToolCalls 透传，executeSearch 经 provider-http 真跑并归一", async () => {
     vi.stubGlobal("chrome", { runtime: stubRuntime(PROVIDER_OK) });
-    const runtime = await resolveWebSearchRuntime();
+    const runtime = (await resolveWebSearchRuntime())!;
     expect(runtime.maxToolCalls).toBe(3);
     const outcome = await runtime.executeSearch("bilibili ai");
     expect(outcome.platform).toBe("Tavily");
     expect(outcome.results[0]).toEqual({ title: "t", url: "u", snippet: "c" });
     // provider-http 消息带搜索请求形状（url/headers 密钥不出 SW）
-    const httpMsg = vi.mocked(globalThis.chrome.runtime.sendMessage).mock.calls[1][0];
+    const httpMsg = vi.mocked(globalThis.chrome.runtime.sendMessage).mock.calls[1][0] as {
+      type?: string;
+      url?: string;
+      headers: Record<string, string>;
+    };
     expect(httpMsg.type).toBe("provider-http");
     expect(httpMsg.url).toBe("https://api.tavily.com/search");
     expect(httpMsg.headers.authorization).toBe("Bearer tvly-k");
@@ -60,7 +65,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
   it("abort signal 透传 executeSearch（调用方停止可中断在途搜索）", async () => {
     vi.stubGlobal("chrome", { runtime: stubRuntime(PROVIDER_OK) });
     const controller = new AbortController();
-    const runtime = await resolveWebSearchRuntime(controller.signal);
+    const runtime = (await resolveWebSearchRuntime(controller.signal))!;
     const { providerFetchViaBackground } = await import("../../extension/core/provider-http.js");
     controller.abort();
     await expect(runtime.executeSearch("q")).rejects.toMatchObject({ name: "AbortError" });

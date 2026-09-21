@@ -21,7 +21,7 @@ describe("Tavily 适配器", () => {
     expect(req.method).toBe("POST");
     expect(req.url).toBe("https://api.tavily.com/search");
     expect(req.headers.Authorization).toBe("Bearer key-1");
-    expect(JSON.parse(req.body)).toEqual({ query: "B站 UP 主", max_results: 5, include_raw_content: false });
+    expect(JSON.parse(req.body!)).toEqual({ query: "B站 UP 主", max_results: 5, include_raw_content: false });
   });
 
   it("baseUrl 尾斜杠去重", () => {
@@ -52,7 +52,7 @@ describe("Exa 适配器", () => {
     expect(req.method).toBe("POST");
     expect(req.url).toBe("https://api.exa.ai/search");
     expect(req.headers["x-api-key"]).toBe("key-1");
-    expect(JSON.parse(req.body)).toEqual({ query: "B站 UP 主", numResults: 5, contents: { summary: true } });
+    expect(JSON.parse(req.body!)).toEqual({ query: "B站 UP 主", numResults: 5, contents: { summary: true } });
   });
 
   it("results[].summary 映射为 snippet", () => {

@@ -17,8 +17,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { CreateReaderChatFeedbackDeps } from "../../extension/reader/chat-notices.js";
 
-let createReaderChatFeedback;
+let createReaderChatFeedback: typeof import("../../extension/reader/chat-notices.js").createReaderChatFeedback;
 
 beforeEach(async () => {
   resetModuleState();
@@ -30,16 +31,22 @@ beforeEach(async () => {
 function makeHarness() {
   const messages = document.createElement("div");
   document.body.appendChild(messages);
-  const timers = [];
+  interface InjectedTimer {
+    id: number;
+    fn: () => void;
+    ms: number;
+    cleared: boolean;
+  }
+  const timers: InjectedTimer[] = [];
   let timerSeq = 0;
   const deps = {
     messages,
-    setTimer: vi.fn((fn, ms) => {
-      const handle = { id: ++timerSeq, fn, ms, cleared: false };
+    setTimer: vi.fn((fn: () => void, ms: number) => {
+      const handle: InjectedTimer = { id: ++timerSeq, fn, ms, cleared: false };
       timers.push(handle);
       return handle;
     }),
-    clearTimer: vi.fn((handle) => {
+    clearTimer: vi.fn((handle: InjectedTimer) => {
       handle.cleared = true;
       const index = timers.indexOf(handle);
       if (index >= 0) {
@@ -48,13 +55,13 @@ function makeHarness() {
     }),
     scrollToBottom: vi.fn(),
     getSuggestionsNode: () => suggestionsNode,
-    setSuggestionsNode: (node) => {
+    setSuggestionsNode: (node: HTMLElement | null) => {
       suggestionsNode = node;
     },
     onOpenSettings: vi.fn()
   };
-  let suggestionsNode = document.createElement("div");
-  const feedback = createReaderChatFeedback(deps);
+  let suggestionsNode: HTMLElement | null = document.createElement("div");
+  const feedback = createReaderChatFeedback(deps as unknown as CreateReaderChatFeedbackDeps);
   const fireTimers = () => {
     [...timers].forEach((timer) => timer.fn());
   };
@@ -67,7 +74,7 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
 
     feedback.showConversationContextNotice("<b>加粗</b>", 0);
 
-    const notice = messages.querySelector(".chat-context-notice");
+    const notice = messages.querySelector(".chat-context-notice")!;
     expect(notice).not.toBeNull();
     expect(notice.textContent).toBe("<b>加粗</b>");
     expect(notice.querySelector("b")).toBeNull();
@@ -116,7 +123,7 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
 
     feedback.showConversationContextNotice("需要配置", 0, { openSettingsAction: true });
 
-    const link = messages.querySelector(".chat-context-notice a");
+    const link = messages.querySelector(".chat-context-notice a")!;
     expect(link).not.toBeNull();
     expect(link.textContent).toBe("前往设置");
     link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -141,7 +148,7 @@ describe("showConversationContextError / removeCenteredState", () => {
     feedback.showConversationContextError("读取失败");
 
     expect(messages.querySelectorAll(".chat-context-notice")).toHaveLength(0);
-    const error = messages.querySelector(".chat-center-error");
+    const error = messages.querySelector(".chat-center-error")!;
     expect(error.textContent).toBe("读取失败");
     expect(deps.scrollToBottom).toHaveBeenCalledTimes(1);
   });

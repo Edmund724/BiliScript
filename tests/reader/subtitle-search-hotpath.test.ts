@@ -10,13 +10,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
+import type { SubtitleBodyItem } from "../../extension/core/state.js";
 
 const TOTAL_ITEMS = 1500;
 const KEYWORD = "目标词";
 
-let state;
-let ids;
-let search;
+let state: typeof import("../../extension/core/state.js").state;
+let ids: typeof import("../../extension/reader/state.js").ids;
+let search: typeof import("../../extension/reader/subtitle-search.js");
 
 function buildFixture() {
   document.body.innerHTML = "";
@@ -26,7 +27,7 @@ function buildFixture() {
   const list = document.createElement("div");
   list.id = ids.readingSubtitleList;
   document.body.appendChild(list);
-  const body = [];
+  const body: SubtitleBodyItem[] = [];
   for (let i = 0; i < TOTAL_ITEMS; i += 1) {
     const content = `第${i}条含${KEYWORD}的句子`;
     body.push({ from: i * 2, to: i * 2 + 1.9, content });
@@ -47,8 +48,8 @@ function markCount() {
   return document.querySelectorAll(`mark.boc-reading-search-hit`).length;
 }
 
-function itemText(index) {
-  return document.querySelector(`[data-index="${index}"] .boc-reading-text`);
+function itemText(index: number) {
+  return document.querySelector(`[data-index="${index}"] .boc-reading-text`)!;
 }
 
 beforeEach(async () => {
@@ -80,7 +81,7 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
 
     expect(markCount()).toBe(0);
     expect(normalizeSpy).toHaveBeenCalledTimes(1);
-    expect(normalizeSpy.mock.instances[0].id).toBe(ids.readingSubtitleList);
+    expect((normalizeSpy.mock.instances[0] as Element).id).toBe(ids.readingSubtitleList);
     expect(itemText(0).textContent).toBe(`第0条含${KEYWORD}的句子`);
     expect(itemText(TOTAL_ITEMS - 1).textContent).toBe(`第${TOTAL_ITEMS - 1}条含${KEYWORD}的句子`);
   });
@@ -112,7 +113,7 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     for (let i = from; i < to; i += 1) {
       expect(itemText(i).querySelectorAll("mark").length).toBe(1);
     }
-    expect(itemText(from).querySelector("mark").textContent).toBe(KEYWORD);
+    expect(itemText(from).querySelector("mark")!.textContent).toBe(KEYWORD);
     expect(markCount()).toBe(TOTAL_ITEMS);
     // 区间取子集：恰为区间宽次定位，与全表规模无关
     expect(querySpy).toHaveBeenCalledTimes(to - from);
