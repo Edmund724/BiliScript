@@ -1,6 +1,3 @@
-# OS
-.DS_Store
-
 # Dependencies
 node_modules/
 
@@ -16,12 +13,6 @@ node_modules/
 /extension/entry/content-main.mjs
 /extension/entry/content-main.mjs.map
 /extension/entry/chunks/
-
-# Local agent / store assets
-AGENTS.md
-PRIVACY_POLICY_zh-CN.md
-WEBSTORE_LISTING_zh-CN.md
-docs/agents/domain.md
 
 # Local / agent / IDE
 .agents
