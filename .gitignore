@@ -4,7 +4,6 @@ node_modules/
 # Build / generated artifacts
 /release/
 /dist/
-/build/
 /coverage/
 
 # Generated extension files（候选4 分包：classic bootstrap + ESM 主包 + 动态 chunk）
