@@ -31,7 +31,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function makeChip(modelText, levelText = "Off") {
+function makeChip(modelText: string | undefined, levelText = "Off") {
   const chip = document.createElement("button");
   const chipModel = document.createElement("span");
   const chipLevel = document.createElement("span");
@@ -43,15 +43,15 @@ function makeChip(modelText, levelText = "Off") {
   return { chip, chipModel, chipLevel };
 }
 
-function makeEls(modelText, levelText = "Off") {
+function makeEls(modelText: string | undefined, levelText = "Off") {
   const { chip, chipModel, chipLevel } = makeChip(modelText, levelText);
   return { chip, chipModel, chipLevel };
 }
 
 describe("model-select-width", () => {
   it("measureTextWidth：canvas 不可用时按每字符 8px 降级估算", () => {
-    expect(measureTextWidth("000", { fontSize: "11px" })).toBe(24);
-    expect(measureTextWidth("", { fontSize: "11px" })).toBe(0);
+    expect(measureTextWidth("000", { fontSize: "11px" } as CSSStyleDeclaration)).toBe(24);
+    expect(measureTextWidth("", { fontSize: "11px" } as CSSStyleDeclaration)).toBe(0);
   });
 
   it("updateModelSelectWidth：chip 缺失时直接返回，不写样式", () => {

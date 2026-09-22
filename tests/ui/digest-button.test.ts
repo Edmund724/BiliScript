@@ -30,11 +30,15 @@ import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
 // 本文件最后一个加载的模块实例：afterEach 用它断观察器。失锚期宽档观察器
 // 挂在 body 上，不随 innerHTML 清空而失活，不断掉会让上一用例的回调在
 // 下一用例的 DOM 里空转（02 失锚期事件化后出现的宽档挂点）。
-let loadedDigestButton = null;
+type DigestButtonModule = typeof import("../../extension/ui/digest-button.js");
 
-async function loadModule() {
+let loadedDigestButton: DigestButtonModule | null = null;
+
+async function loadModule(): Promise<DigestButtonModule> {
   const lazy = await import("../../extension/ui/lazy-digest-button.js");
-  loadedDigestButton = await lazy.loadDigestButton();
+  // lazy-digest-button 的 DigestButtonDomain 只声明消费方最小面
+  //（removeDigestButton）；本文件按模块命名空间取 injectDigestButton 直测注入。
+  loadedDigestButton = (await lazy.loadDigestButton()) as DigestButtonModule;
   return loadedDigestButton;
 }
 
@@ -78,13 +82,13 @@ afterEach(() => {
 describe("digest-button 快路径（01）", () => {
   it("装载即注入：不等 settle 链，模块求值后按钮已在锚点①位", async () => {
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
-    const complaint = document.querySelector(".video-complaint");
+    const complaint = document.querySelector(".video-complaint")!;
 
     await loadModule();
 
     // 不推进任何定时器：settle 链（window.load + video 轮询 + 1200ms 余量）
     // 若还在，按钮此刻必然缺席
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(button.nextElementSibling).toBe(complaint);
   });
@@ -106,11 +110,11 @@ describe("digest-button 快路径（01）", () => {
 describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
   it("锚点①：命中「稿件举报」时按钮落在其左侧", async () => {
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
-    const complaint = document.querySelector(".video-complaint");
+    const complaint = document.querySelector(".video-complaint")!;
 
     await loadModule();
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     // 紧邻「稿件举报」左侧：后一个兄弟就是 complaint 本尊
     expect(button.nextElementSibling).toBe(complaint);
@@ -129,11 +133,11 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
         </div>
       </div>
       <video src="blob:test"></video>`;
-    const complaint = document.querySelector(".video-complaint");
+    const complaint = document.querySelector(".video-complaint")!;
 
     await loadModule();
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(button.nextElementSibling).toBe(complaint);
   });
@@ -152,7 +156,7 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
 
     await loadModule();
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(button.nextElementSibling).toBe(complaint);
   });
@@ -168,11 +172,11 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
         </div>
       </div>
       <video src="blob:test"></video>`;
-    const complaint = document.querySelector(".video-complaint");
+    const complaint = document.querySelector(".video-complaint")!;
 
     await loadModule();
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(button.nextElementSibling).toBe(complaint);
   });
@@ -184,8 +188,8 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
     // 首载等待窗：init 相位①未就绪时暂不注入（页面加载中，浮动按钮会闪现在
     // 视频右上角），窗耗尽才降④。
     document.body.innerHTML = `${makeToolbarHtml({ withComplaint: false })}${makePlayerHtml()}<video src="blob:test"></video>`;
-    const right = document.querySelector(".video-toolbar-right");
-    const leftMain = document.querySelector(".video-toolbar-left-main");
+    const right = document.querySelector(".video-toolbar-right")!;
+    const leftMain = document.querySelector(".video-toolbar-left-main")!;
 
     await loadModule();
 
@@ -196,11 +200,11 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
     // 窗口耗尽：降④浮动层兜底（推进量需跨过 10000ms 首载等待窗，200ms
     // 节拍下窗后首个 tick 即 ~10000ms）
     await vi.advanceTimersByTimeAsync(11200);
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(right.contains(button)).toBe(false);
     expect(leftMain.contains(button)).toBe(false);
-    const overlay = document.getElementById("boc-digest-overlay");
+    const overlay = document.getElementById("boc-digest-overlay")!;
     expect(overlay).not.toBeNull();
     expect(overlay.contains(button)).toBe(true);
     expect(overlay.style.position).toBe("absolute");
@@ -213,15 +217,15 @@ describe("digest-button 注入锚点层级（02 收拢：①→④）", () => {
     // 的直接父层 .bpx-player-container（那层归播放器管，插节点会推倒重建）。
     document.body.innerHTML = makePlayerHtml();
     document
-      .querySelector(".bpx-player-container")
+      .querySelector(".bpx-player-container")!
       .appendChild(Object.assign(document.createElement("video"), { src: "blob:test" }));
 
     await loadModule();
     await vi.advanceTimersByTimeAsync(11200);
 
-    const overlay = document.getElementById("boc-digest-overlay");
+    const overlay = document.getElementById("boc-digest-overlay")!;
     expect(overlay).not.toBeNull();
-    expect(overlay.parentElement.className).toBe("bpx-player-primary-area");
+    expect(overlay.parentElement!.className).toBe("bpx-player-primary-area");
   });
 
   it("浮动宿主候选全落空：不挂按钮也不报错", async () => {
@@ -241,14 +245,14 @@ describe("digest-button 失配宽限与升降级（02）", () => {
 
     await loadModule();
 
-    const right = document.querySelector(".video-toolbar-right");
-    let button = document.getElementById("boc-digest-button");
+    const right = document.querySelector(".video-toolbar-right")!;
+    let button = document.getElementById("boc-digest-button")!;
     expect(button.parentElement).toBe(right);
 
     // B 站重渲染：举报节点（连带按钮）被换掉。移除变更本身经观察器微任务
     // 触发一轮自查（进入宽限，beats 2→1），先冲掉微任务再走节拍。
     button.remove();
-    document.querySelector(".video-complaint").remove();
+    document.querySelector(".video-complaint")!.remove();
     await vi.advanceTimersByTimeAsync(0);
 
     // 第 1 拍：宽限中，不降级
@@ -256,9 +260,9 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
     // 第 2 拍：宽限耗尽，降级④浮动层
     await vi.advanceTimersByTimeAsync(201);
-    const overlay = document.getElementById("boc-digest-overlay");
+    const overlay = document.getElementById("boc-digest-overlay")!;
     expect(overlay).not.toBeNull();
-    button = document.getElementById("boc-digest-button");
+    button = document.getElementById("boc-digest-button")!;
     expect(overlay.contains(button)).toBe(true);
     expect(right.contains(button)).toBe(false);
     // 可观测：降级事件有 console 日志
@@ -273,14 +277,14 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     // 页面加载中：工具栏先出壳、举报节点后渲染（用户看到的正是这个间隙里
     // 按钮闪现在视频右上角）
     expect(document.getElementById("boc-digest-button")).toBeNull();
-    const right = document.querySelector(".video-toolbar-right");
+    const right = document.querySelector(".video-toolbar-right")!;
     const complaint = document.createElement("div");
     complaint.className = "video-complaint";
     complaint.textContent = "稿件举报";
     right.insertBefore(complaint, right.firstElementChild);
     await vi.advanceTimersByTimeAsync(201);
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
@@ -295,7 +299,7 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     await loadModule();
 
     expect(document.getElementById("boc-digest-button")).toBeNull();
-    const right = document.querySelector(".video-toolbar-right");
+    const right = document.querySelector(".video-toolbar-right")!;
     const complaint = document.createElement("div");
     complaint.className = "video-complaint";
     complaint.textContent = "稿件举报";
@@ -303,7 +307,7 @@ describe("digest-button 失配宽限与升降级（02）", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
@@ -315,18 +319,18 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     await loadModule();
 
     // 重渲染：举报节点短暂消失一拍后回来（Vue 重渲染换新节点）
-    document.getElementById("boc-digest-button").remove();
-    document.querySelector(".video-complaint").remove();
+    document.getElementById("boc-digest-button")!.remove();
+    document.querySelector(".video-complaint")!.remove();
     await vi.advanceTimersByTimeAsync(201);
     const complaint = document.createElement("div");
     complaint.className = "video-complaint";
     complaint.textContent = "稿件举报";
-    const right = document.querySelector(".video-toolbar-right");
+    const right = document.querySelector(".video-toolbar-right")!;
     right.insertBefore(complaint, right.firstElementChild);
 
     await vi.advanceTimersByTimeAsync(201);
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
@@ -342,18 +346,18 @@ describe("digest-button 失配宽限与升降级（02）", () => {
     // 200ms 节拍下窗后首个 tick 即 ~10000ms）
     expect(document.getElementById("boc-digest-button")).toBeNull();
     await vi.advanceTimersByTimeAsync(11200);
-    let button = document.getElementById("boc-digest-button");
-    expect(document.getElementById("boc-digest-overlay").contains(button)).toBe(true);
+    let button = document.getElementById("boc-digest-button")!;
+    expect(document.getElementById("boc-digest-overlay")!.contains(button)).toBe(true);
 
     // 工具栏渲染完成，举报节点出现 → 下一自查拍升回①
-    const right = document.querySelector(".video-toolbar-right");
+    const right = document.querySelector(".video-toolbar-right")!;
     const complaint = document.createElement("div");
     complaint.className = "video-complaint";
     complaint.textContent = "稿件举报";
     right.insertBefore(complaint, right.firstElementChild);
     await vi.advanceTimersByTimeAsync(201);
 
-    button = document.getElementById("boc-digest-button");
+    button = document.getElementById("boc-digest-button")!;
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
     expect(button.style.background).toBe("rgb(251, 114, 153)");
@@ -363,7 +367,7 @@ describe("digest-button 失配宽限与升降级（02）", () => {
 describe("digest-button 幂等与自查", () => {
   it("幂等：重复注入不重复插按钮", async () => {
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
-    const complaint = document.querySelector(".video-complaint");
+    const complaint = document.querySelector(".video-complaint")!;
 
     const { injectDigestButton } = await loadModule();
 
@@ -371,7 +375,7 @@ describe("digest-button 幂等与自查", () => {
     injectDigestButton();
 
     expect(document.querySelectorAll("#boc-digest-button").length).toBe(1);
-    expect(complaint.previousElementSibling.id).toBe("boc-digest-button");
+    expect(complaint.previousElementSibling!.id).toBe("boc-digest-button");
   });
 
   it("自查周期：非 /video/ 页主动移除按钮；回到 /video/ 页补回", async () => {
@@ -435,13 +439,13 @@ describe("digest-button 幂等与自查", () => {
 
     await loadModule();
 
-    const right = document.querySelector(".video-toolbar-right");
-    const button = document.getElementById("boc-digest-button");
+    const right = document.querySelector(".video-toolbar-right")!;
+    const button = document.getElementById("boc-digest-button")!;
     right.appendChild(button);
 
     await vi.advanceTimersByTimeAsync(201);
 
-    expect(button.nextElementSibling.className).toBe("video-complaint");
+    expect(button.nextElementSibling!.className).toBe("video-complaint");
   });
 });
 
@@ -488,7 +492,7 @@ describe("digest-button 失锚期事件化（02）", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
@@ -499,9 +503,9 @@ describe("digest-button 失锚期事件化（02）", () => {
 
     await loadModule();
 
-    const oldHost = document.getElementById("arc_toolbar_report");
+    const oldHost = document.getElementById("arc_toolbar_report")!;
     const oldRight = oldHost.querySelector(".video-toolbar-right");
-    expect(document.getElementById("boc-digest-button").parentElement).toBe(oldRight);
+    expect(document.getElementById("boc-digest-button")!.parentElement).toBe(oldRight);
 
     // B 站重渲染：工具栏宿主整棵换新（按钮随旧宿主一并被摘走，窄档观察器
     // 挂点断连，靠下一拍的目标失活检测重挂）。
@@ -514,7 +518,7 @@ describe("digest-button 失锚期事件化（02）", () => {
     const firstComplaint = newHost.querySelector(".video-complaint");
 
     await vi.advanceTimersByTimeAsync(201);
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button).not.toBeNull();
     expect(button.parentElement).toBe(newRight);
     expect(button.nextElementSibling).toBe(firstComplaint);
@@ -524,10 +528,10 @@ describe("digest-button 失锚期事件化（02）", () => {
     const secondComplaint = document.createElement("div");
     secondComplaint.className = "video-complaint";
     secondComplaint.textContent = "稿件举报";
-    firstComplaint.replaceWith(secondComplaint);
+    firstComplaint!.replaceWith(secondComplaint);
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(document.getElementById("boc-digest-button").nextElementSibling).toBe(secondComplaint);
+    expect(document.getElementById("boc-digest-button")!.nextElementSibling).toBe(secondComplaint);
   });
 
   it("失锚→归锚迁移：浮动层期宿主整棵出现，观察器 0ms 感知即升回①位", async () => {
@@ -537,8 +541,8 @@ describe("digest-button 失锚期事件化（02）", () => {
 
     // 首载等待窗耗尽 → 降④浮动层（失锚期，宿主一直缺席）。
     await vi.advanceTimersByTimeAsync(11200);
-    const floating = document.getElementById("boc-digest-button");
-    expect(document.getElementById("boc-digest-overlay").contains(floating)).toBe(true);
+    const floating = document.getElementById("boc-digest-button")!;
+    expect(document.getElementById("boc-digest-overlay")!.contains(floating)).toBe(true);
 
     // 工具栏水合完成，宿主整棵出现 → 观察器同步感知，升回①位。
     const host = document.createElement("div");
@@ -549,9 +553,9 @@ describe("digest-button 失锚期事件化（02）", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-digest-button")!;
     expect(button.parentElement).toBe(host.querySelector(".video-toolbar-right"));
-    expect(button.nextElementSibling.className).toBe("video-complaint");
+    expect(button.nextElementSibling!.className).toBe("video-complaint");
     // 从④升回时空浮动层一并收走。
     expect(document.getElementById("boc-digest-overlay")).toBeNull();
   });

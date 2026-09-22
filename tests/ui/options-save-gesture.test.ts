@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 // 去块注释与行注释（与既有源码扫描测试同一口径），避免注释里的 await 误判
-function stripComments(source) {
+function stripComments(source: string) {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
@@ -43,7 +43,7 @@ function stripComments(source) {
 // Vite 会把字面量形式改写成资源 URL，jsdom 下解析成 https:// 开头而 fileURLToPath 报错。
 // 源文件已是 .ts；写法上保留 existsSync 双后缀回退（与 tests/core/
 // message-handler-signature.test.js 的 readSource 同一口径）。
-function readSource(relativePath) {
+function readSource(relativePath: string) {
   const jsUrl = new URL(relativePath, import.meta.url);
   const url = existsSync(fileURLToPath(jsUrl))
     ? jsUrl
@@ -56,8 +56,8 @@ function listExtensionSources() {
   // 根路径同样走变量传入（同 readSource：字面量会被 Vite 改写成资源 URL）
   const relativeRoot = "../../extension";
   const root = fileURLToPath(new URL(relativeRoot, import.meta.url));
-  const files = [];
-  const walk = (dir) => {
+  const files: string[] = [];
+  const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = `${dir}/${entry.name}`;
       if (entry.isDirectory()) {
@@ -169,8 +169,8 @@ describe("设置面板保存链的既有契约", () => {
     const source = readSource("../../extension/ui/settings-panel.js");
     const binding = source.match(/saveBtn\.addEventListener\(\s*"click"([\s\S]{0,120}?)\);/);
     expect(binding, "找不到 saveBtn 的 click 绑定").toBeTruthy();
-    expect(binding[1]).toContain("saveSettings(");
-    expect(/\bawait\b/.test(binding[1])).toBe(false);
+    expect(binding![1]).toContain("saveSettings(");
+    expect(/\bawait\b/.test(binding![1])).toBe(false);
   });
 
   it("saveSettings 不再申请平台权限（provider-master-detail/02：平台授权收口在 provider-editor 单平台链）", () => {

@@ -58,7 +58,7 @@ describe("renderMarkdown 任务列表", () => {
 
   it("* [ ] 与 + [ ] 同样识别", () => {
     const html = renderMarkdown("* [ ] 甲\n+ [x] 乙");
-    expect(html.match(/<li class="task-list-item">/g).length).toBe(2);
+    expect(html.match(/<li class="task-list-item">/g)!.length).toBe(2);
   });
 });
 

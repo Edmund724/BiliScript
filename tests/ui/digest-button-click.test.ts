@@ -31,7 +31,7 @@ vi.mock("../../extension/reader/lazy-reader.js", () => ({
 // 只 mock 掉带副作用的 replaceState（replaceReaderModeUrl），URL 拼法走真身，
 // 本用例因此同时钉住 buildReaderModeUrl 的规范拼法。
 vi.mock("../../extension/bilibili/reader-url.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/bilibili/reader-url.js")>();
   return {
     ...actual,
     replaceReaderModeUrl: vi.fn()
@@ -84,7 +84,7 @@ describe("digest-button 点击行为", () => {
     const button = document.getElementById("boc-digest-button");
     expect(button).not.toBeNull();
 
-    button.click();
+    button!.click();
     await vi.waitFor(() => {
       expect(replaceReaderModeUrl).toHaveBeenCalled();
     });

@@ -40,16 +40,18 @@ const ASR_PRESETS = [
     name: "SiliconFlow 硅基流动（免费）",
     type: "openai-transcriptions",
     baseUrl: "https://api.siliconflow.cn/v1",
-    model: "XingChenAGI/XingChenASR-V3.2-Ultra"
+    model: "XingChenAGI/XingChenASR-V3.2-Ultra",
+    supportsTimestamps: true
   },
   {
     id: "local-whisper",
     name: "本地 Whisper 服务",
     type: "openai-transcriptions",
     baseUrl: "http://localhost:8000/v1",
-    model: "whisper-large-v3"
+    model: "whisper-large-v3",
+    supportsTimestamps: true
   },
-  { id: "custom", name: "自定义", type: "openai-transcriptions", baseUrl: "", model: "" }
+  { id: "custom", name: "自定义", type: "openai-transcriptions", baseUrl: "", model: "", supportsTimestamps: true }
 ];
 
 // 共享垃圾桶 path：固定属性行 / 笔记段落行 / 平台行共用同一份定义
@@ -67,17 +69,17 @@ function makeContainer() {
   document.body.innerHTML = '<div id="boc-reading-view"><section id="boc-reading-settings-panel"></section></div>';
   const listNode = document.createElement("div");
   const emptyNode = document.createElement("p");
-  document.getElementById("boc-reading-view").append(listNode, emptyNode);
+  document.getElementById("boc-reading-view")!.append(listNode, emptyNode);
   return { listNode, emptyNode };
 }
 
 // setup.ts 给 HTMLElement.prototype.click 打的补丁会派发两次事件（原生 click + 手动
 // dispatch），这里改为单次显式派发，模拟真实用户的一次点击。
-function fireClick(el) {
+function fireClick(el: Element) {
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
-function readTrashPaths(row) {
+function readTrashPaths(row: Element) {
   return Array.from(row.querySelectorAll(".provider-row-remove svg path")).map((p) => p.getAttribute("d"));
 }
 
@@ -93,11 +95,11 @@ async function flushMicrotasks() {
 function confirmDelete() {
   const button = document.querySelector(".confirm-dialog-confirm");
   expect(button, "删除确认弹层应已打开").not.toBeNull();
-  fireClick(button);
+  fireClick(button!);
 }
 
 function cancelDelete() {
-  fireClick(document.querySelector(".confirm-dialog-cancel"));
+  fireClick(document.querySelector(".confirm-dialog-cancel")!);
 }
 
 beforeEach(() => {
@@ -127,7 +129,7 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
       { id: "p2", presetId: "ollama", baseUrl: "http://localhost:11434/v1", model: "llama3", hasSavedKey: true }
     ], { presets: AI_PRESETS });
 
-    const allRows = listNode.querySelectorAll(".ai-provider-row");
+    const allRows = listNode.querySelectorAll<HTMLElement>(".ai-provider-row");
     expect(allRows).toHaveLength(2);
     expect(emptyNode.hidden).toBe(true);
 
@@ -139,15 +141,15 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
     expect(row.dataset.baseUrl).toBe("https://api.openai.com/v1");
 
     // 主行：状态点（未存 Key=missing）+ 名称（自定义名优先）+ 编辑/删除
-    const line = row.querySelector(".provider-row-line");
+    const line = row.querySelector(".provider-row-line")!;
     expect(line).not.toBeNull();
-    expect(line.querySelector(".provider-row-dot").dataset.state).toBe("missing");
-    expect(line.querySelector(".provider-row-name").textContent).toBe("我的端点");
-    expect(line.querySelector("button.provider-row-edit").textContent).toBe("编辑");
+    expect(line.querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("missing");
+    expect(line.querySelector(".provider-row-name")!.textContent).toBe("我的端点");
+    expect(line.querySelector("button.provider-row-edit")!.textContent).toBe("编辑");
     expect(line.querySelector("button.provider-row-remove")).not.toBeNull();
 
     // 副行：模型名
-    expect(row.querySelector(".provider-row-model").textContent).toBe("gpt-4o-mini");
+    expect(row.querySelector(".provider-row-model")!.textContent).toBe("gpt-4o-mini");
 
     // 紧凑行内零输入字段（编辑职责在 provider-editor Modal）
     expect(row.querySelectorAll("input")).toHaveLength(0);
@@ -159,7 +161,7 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
     expect(readTrashPaths(row)).toEqual(TRASH_PATHS);
 
     // 第二行：hasSavedKey=1 → 绿点
-    expect(allRows[1].querySelector(".provider-row-dot").dataset.state).toBe("saved");
+    expect(allRows[1].querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("saved");
   });
 
   it("名称回落：无自定义名回落预设名；模型名空则不渲染副行", async () => {
@@ -170,9 +172,9 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
       { id: "p2", presetId: "ollama", baseUrl: "http://localhost:11434/v1", model: "" }
     ], { presets: AI_PRESETS });
 
-    const allRows = listNode.querySelectorAll(".ai-provider-row");
+    const allRows = listNode.querySelectorAll<HTMLElement>(".ai-provider-row");
     // 名称 = 预设名（历史数据 name=预设名，拍板 Q7 的回落语义）
-    expect(allRows[0].querySelector(".provider-row-name").textContent).toBe("OpenAI 兼容");
+    expect(allRows[0].querySelector(".provider-row-name")!.textContent).toBe("OpenAI 兼容");
     expect(allRows[0].querySelector(".provider-row-model")).toBeNull();
 
     // 显式空模型同样不渲染副行
@@ -188,11 +190,11 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
       { id: "p3", presetId: "custom", name: "旧数据", baseUrl: "", model: "gpt-4o-mini" }
     ], { presets: AI_PRESETS });
 
-    const allRows = listNode.querySelectorAll(".ai-provider-row");
-    expect(allRows[0].querySelector(".provider-row-model").textContent).toBe("deepseek-v4-flash 等 3 个");
-    expect(allRows[1].querySelector(".provider-row-model").textContent).toBe("llama3");
+    const allRows = listNode.querySelectorAll<HTMLElement>(".ai-provider-row");
+    expect(allRows[0].querySelector(".provider-row-model")!.textContent).toBe("deepseek-v4-flash 等 3 个");
+    expect(allRows[1].querySelector(".provider-row-model")!.textContent).toBe("llama3");
     // 历史单模型记录（无 models）回落 model 字段
-    expect(allRows[2].querySelector(".provider-row-model").textContent).toBe("gpt-4o-mini");
+    expect(allRows[2].querySelector(".provider-row-model")!.textContent).toBe("gpt-4o-mini");
   });
 
   it("渲染空列表时显示空态", async () => {
@@ -210,8 +212,8 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
     rows.setAiRowEditHandler(onEdit);
     rows.renderAiProviders(listNode, document.createElement("p"), [aiItem], { presets: AI_PRESETS });
 
-    const row = listNode.querySelector(".ai-provider-row");
-    fireClick(row.querySelector(".provider-row-edit"));
+    const row = listNode.querySelector(".ai-provider-row")!;
+    fireClick(row.querySelector(".provider-row-edit")!);
     expect(onEdit).toHaveBeenCalledTimes(1);
     expect(onEdit).toHaveBeenCalledWith("p1");
   });
@@ -222,17 +224,17 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
     const onBeforeDelete = vi.fn(async () => {});
     rows.setAiBeforeDeleteHandler(onBeforeDelete);
     rows.renderAiProviders(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
-    const row = listNode.querySelector(".ai-provider-row");
+    const row = listNode.querySelector(".ai-provider-row")!;
 
     // 弹层点「取消」：钩子与删除消息都不触发
-    fireClick(row.querySelector(".provider-row-remove"));
+    fireClick(row.querySelector(".provider-row-remove")!);
     cancelDelete();
     await flushMicrotasks();
     expect(onBeforeDelete).not.toHaveBeenCalled();
     expect(sendRuntimeMessageMock).not.toHaveBeenCalled();
 
     // 弹层点「删除」：确认链走通
-    fireClick(row.querySelector(".provider-row-remove"));
+    fireClick(row.querySelector(".provider-row-remove")!);
     confirmDelete();
     await flushMicrotasks();
     expect(onBeforeDelete).toHaveBeenCalledTimes(1);
@@ -249,9 +251,9 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
       throw new Error("permissions API unavailable");
     }));
     rows.renderAiProviders(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
-    const row = listNode.querySelector(".ai-provider-row");
+    const row = listNode.querySelector(".ai-provider-row")!;
 
-    fireClick(row.querySelector(".provider-row-remove"));
+    fireClick(row.querySelector(".provider-row-remove")!);
     confirmDelete();
     await flushMicrotasks();
     expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "ai-providers-delete", providerId: "p1" });
@@ -274,7 +276,7 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
     const { listNode, emptyNode } = makeContainer();
     rows.renderAsrProviders(listNode, emptyNode, [asrItem, { id: "asr2", presetId: "local-whisper", hasSavedKey: true }], { presets: ASR_PRESETS, activeId: "asr2" });
 
-    const allRows = listNode.querySelectorAll(".asr-provider-row");
+    const allRows = listNode.querySelectorAll<HTMLElement>(".asr-provider-row");
     expect(allRows).toHaveLength(2);
     expect(emptyNode.hidden).toBe(true);
 
@@ -282,18 +284,18 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
     expect(row.dataset.currentPresetId).toBe("siliconflow");
     expect(row.dataset.baseUrl).toBe("https://api.siliconflow.cn/v1");
     // 名称取列表项实值；模型名取已保存 model
-    expect(row.querySelector(".provider-row-name").textContent).toBe("我的 ASR");
-    expect(row.querySelector(".provider-row-model").textContent).toBe("XingChenAGI/XingChenASR-V3.2-Ultra");
+    expect(row.querySelector(".provider-row-name")!.textContent).toBe("我的 ASR");
+    expect(row.querySelector(".provider-row-model")!.textContent).toBe("XingChenAGI/XingChenASR-V3.2-Ultra");
     // whisper 预设行：无 name 字段回落预设名，模型名回落预设 model
-    expect(allRows[1].querySelector(".provider-row-name").textContent).toBe("本地 Whisper 服务");
-    expect(allRows[1].querySelector(".provider-row-model").textContent).toBe("whisper-large-v3");
+    expect(allRows[1].querySelector(".provider-row-name")!.textContent).toBe("本地 Whisper 服务");
+    expect(allRows[1].querySelector(".provider-row-model")!.textContent).toBe("whisper-large-v3");
     // 选用 radio：activeId 命中 asr2；状态点 asr2 已存 Key
-    const radios = listNode.querySelectorAll(".asr-provider-active-radio");
+    const radios = listNode.querySelectorAll<HTMLInputElement>(".asr-provider-active-radio");
     expect(radios[0].checked).toBe(false);
     expect(radios[1].checked).toBe(true);
-    expect(radios[0].closest("label").title).toBe("选用该平台自动生成字幕");
-    expect(allRows[0].querySelector(".provider-row-dot").dataset.state).toBe("missing");
-    expect(allRows[1].querySelector(".provider-row-dot").dataset.state).toBe("saved");
+    expect(radios[0].closest("label")!.title).toBe("选用该平台自动生成字幕");
+    expect(allRows[0].querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("missing");
+    expect(allRows[1].querySelector<HTMLElement>(".provider-row-dot")!.dataset.state).toBe("saved");
     // 删除按钮统一 provider-row-remove（历史耦合 ai-provider-remove 已收口）
     expect(row.querySelector("button.provider-row-remove")).not.toBeNull();
     expect(row.querySelector(".ai-provider-remove")).toBeNull();
@@ -305,7 +307,7 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
     const { listNode, emptyNode } = makeContainer();
     rows.renderAsrProviders(listNode, emptyNode, [asrItem, { id: "asr2", presetId: "local-whisper" }], { presets: ASR_PRESETS });
 
-    const radios = listNode.querySelectorAll(".asr-provider-active-radio");
+    const radios = listNode.querySelectorAll<HTMLInputElement>(".asr-provider-active-radio");
     radios[1].checked = true;
     radios[1].dispatchEvent(new Event("change"));
     await flushMicrotasks();
@@ -327,9 +329,9 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
     const onBeforeDelete = vi.fn(async () => {});
     rows.setAsrBeforeDeleteHandler(onBeforeDelete);
     rows.renderAsrProviders(listNode, emptyNode, [asrItem], { presets: ASR_PRESETS });
-    const row = listNode.querySelector(".asr-provider-row");
+    const row = listNode.querySelector(".asr-provider-row")!;
 
-    fireClick(row.querySelector(".provider-row-remove"));
+    fireClick(row.querySelector(".provider-row-remove")!);
     confirmDelete();
     await flushMicrotasks();
     expect(onBeforeDelete).toHaveBeenCalledWith("asr1", "https://api.siliconflow.cn/v1");
@@ -346,7 +348,7 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
     rows.setAsrRowEditHandler(onEdit);
     rows.renderAsrProviders(listNode, document.createElement("p"), [asrItem], { presets: ASR_PRESETS });
 
-    fireClick(listNode.querySelector(".asr-provider-row .provider-row-edit"));
+    fireClick(listNode.querySelector(".asr-provider-row .provider-row-edit")!);
     expect(onEdit).toHaveBeenCalledWith("asr1");
   });
 });

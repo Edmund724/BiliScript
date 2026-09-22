@@ -27,7 +27,7 @@
 // 双触发会把保存链并发跑两趟（第二趟收集到的可能已被第一趟重渲染清空）。产线
 // 监听器对 dispatchEvent 与真实点击同样响应。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
@@ -37,8 +37,16 @@ vi.mock("../../extension/ai/provider-test.js", () => ({
   testAiProviderConnection: vi.fn(async () => ({ ok: true }))
 }));
 
-function installMessageBus(overrides = {}) {
-  const responders = {
+type SentMessage = { type: string; settings?: Record<string, unknown>; [key: string]: unknown };
+type MessageResponder = (message: SentMessage) => Record<string, unknown>;
+type SendMessageMock = Mock<(message: SentMessage, callback?: (response?: unknown) => void) => undefined>;
+
+// 消息总线桩：chrome.runtime.sendMessage 的命名空间声明是重载函数，mock 只能经
+// 断言赋值；mock 本体另存模块变量供用例读 calls（同 setup 的 chrome 桩面）。
+let sendMessageMock: SendMessageMock | null = null;
+
+function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
+  const responders: Record<string, MessageResponder> = {
     "get-settings": () => ({ ok: true, settings: {} }),
     // 预设列表返回失败 → settings-panel 回落内置 PRESETS / ASR_PROVIDER_PRESETS
     "ai-presets-list": () => ({ ok: false }),
@@ -51,37 +59,39 @@ function installMessageBus(overrides = {}) {
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
   };
-  const sent = [];
-  chrome.runtime.sendMessage = vi.fn((message, callback) => {
+  const sent: SentMessage[] = [];
+  const mock: SendMessageMock = vi.fn((message: SentMessage, callback?: (response?: unknown) => void) => {
     sent.push(message);
     const respond = responders[message.type];
     callback?.(respond ? respond(message) : { ok: true });
     return undefined;
   });
+  sendMessageMock = mock;
+  chrome.runtime.sendMessage = mock as unknown as typeof chrome.runtime.sendMessage;
   return sent;
 }
 
-async function mountPanel() {
+async function mountPanel(): Promise<HTMLElement> {
   document.body.innerHTML = '<div id="boc-reading-view"><div id="boc-reading-settings-host"></div></div>';
   const panel = await import("../../extension/ui/settings-panel.js");
   panel.renderReaderSettingsPanel();
-  const host = document.getElementById("boc-reading-settings-host");
+  const host = document.getElementById("boc-reading-settings-host")!;
   await vi.waitFor(() => {
-    expect(chrome.runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
+    expect(sendMessageMock!.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
   });
   return host;
 }
 
-function messageTypes(sent) {
+function messageTypes(sent: SentMessage[]): string[] {
   return sent.map((message) => message.type);
 }
 
-function lastStatus(host) {
-  return host.querySelector("#bocSettingsStatus");
+function lastStatus(host: HTMLElement): HTMLElement {
+  return host.querySelector<HTMLElement>("#bocSettingsStatus")!;
 }
 
 // 单发 click（见文件头说明）
-function fireClick(node) {
+function fireClick(node: Element): void {
   node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
@@ -109,11 +119,11 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     // 组件自开（trigger 监听器 stopPropagation，不经外点委托；openList 对
     // closeAllCustomSelects 的内部调用走模块内局部绑定，不经命名空间，不计入 spy）
     const trigger = host
-      .querySelector("#downloadFormat")
-      .closest(".custom-select-wrapper")
-      .querySelector(".custom-select-trigger");
+      .querySelector("#downloadFormat")!
+      .closest(".custom-select-wrapper")!
+      .querySelector(".custom-select-trigger")!;
     fireClick(trigger);
-    const dropdown = host.querySelector(".custom-select-dropdown");
+    const dropdown = host.querySelector<HTMLElement>(".custom-select-dropdown")!;
     expect(dropdown.hidden).toBe(false);
 
     fireClick(document.body);
@@ -125,7 +135,7 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     installMessageBus();
     const host = await mountPanel();
 
-    const groups = host.querySelectorAll(".boc-set-group");
+    const groups = host.querySelectorAll<HTMLElement>(".boc-set-group");
     expect(groups.length).toBeGreaterThan(0);
     groups.forEach((group) => {
       expect(group.style.contain).toBe("layout style");
@@ -137,10 +147,10 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#addFixedPropertyBtn"));
-    const picker = host.querySelector(".fixed-property-type-picker");
-    const button = picker.querySelector(".fixed-property-type-button");
-    const menu = picker.querySelector(".fixed-property-type-menu");
+    fireClick(host.querySelector("#addFixedPropertyBtn")!);
+    const picker = host.querySelector<HTMLElement>(".fixed-property-type-picker")!;
+    const button = picker.querySelector<HTMLElement>(".fixed-property-type-button")!;
+    const menu = picker.querySelector<HTMLElement>(".fixed-property-type-menu")!;
     // 类型按钮自身监听器 stopPropagation，document 外点委托不触发（组件自开）
     fireClick(button);
     expect(picker.dataset.open).toBe("true");
@@ -176,16 +186,16 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     const host = await mountPanel();
 
     // 收集段：改表单若干值（含 trim / 布尔 / 复选组 / 数组截断口径）
-    host.querySelector("#tags").value = "  clip, test  ";
-    host.querySelector("#includeHotCommentsInNote").checked = true;
+    host.querySelector<HTMLInputElement>("#tags")!.value = "  clip, test  ";
+    host.querySelector<HTMLInputElement>("#includeHotCommentsInNote")!.checked = true;
     // 默认开的布尔档：取消勾选必须落盘为 false（false 是有效值，不能被
     // 「值为 undefined 才剔除」的边界吞掉）
-    host.querySelector("#includePlayerEmbedInNote").checked = false;
-    host.querySelector("#enableDebugLogs").checked = true;
-    host.querySelector("#aiSystemPrompt").value = "  自定义系统提示词  ";
-    host.querySelector('input[name="frontmatterField"][value="author"]').checked = false;
+    host.querySelector<HTMLInputElement>("#includePlayerEmbedInNote")!.checked = false;
+    host.querySelector<HTMLInputElement>("#enableDebugLogs")!.checked = true;
+    host.querySelector<HTMLTextAreaElement>("#aiSystemPrompt")!.value = "  自定义系统提示词  ";
+    host.querySelector<HTMLInputElement>('input[name="frontmatterField"][value="author"]')!.checked = false;
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn"));
+    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
 
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === "save-settings")).toBe(true);
@@ -199,7 +209,7 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     expect(types).not.toContain("ai-providers-save");
     expect(types).not.toContain("asr-providers-save");
 
-    const saveMessage = sent.find((message) => message.type === "save-settings");
+    const saveMessage = sent.find((message) => message.type === "save-settings")!;
     expect(saveMessage.settings).toMatchObject({
       tags: "clip, test",
       downloadFormat: "srt",
@@ -210,17 +220,17 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
       aiSystemPrompt: "自定义系统提示词",
       frontmatterFields: expect.not.arrayContaining(["author"])
     });
-    expect(saveMessage.settings.frontmatterFields).toContain("title");
-    expect(saveMessage.settings.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
-    expect(saveMessage.settings.aiPresetPrompts).toHaveLength(3);
-    expect(saveMessage.settings.fixedFrontmatterProperties).toEqual([]);
-    expect(saveMessage.settings.notePlaceholderSections).toEqual([]);
+    expect(saveMessage.settings!.frontmatterFields).toContain("title");
+    expect(saveMessage.settings!.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+    expect(saveMessage.settings!.aiPresetPrompts).toHaveLength(3);
+    expect(saveMessage.settings!.fixedFrontmatterProperties).toEqual([]);
+    expect(saveMessage.settings!.notePlaceholderSections).toEqual([]);
 
     // 状态条与 busy 复位
     const status = lastStatus(host);
     expect(status.textContent).toBe("保存成功");
     expect(status.dataset.error).toBe("false");
-    const saveBtn = host.querySelector("#bocSettingsSaveBtn");
+    const saveBtn = host.querySelector<HTMLButtonElement>("#bocSettingsSaveBtn")!;
     expect(saveBtn.disabled).toBe(false);
     expect(saveBtn.textContent).toBe("保存设置");
   });
@@ -229,15 +239,15 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     const sent = installMessageBus({ "save-settings": () => ({ ok: false, error: "写入失败" }) });
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn"));
+    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
 
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toBe("写入失败");
     });
 
     expect(lastStatus(host).dataset.error).toBe("true");
-    expect(host.querySelector("#bocSettingsSaveBtn").disabled).toBe(false);
-    expect(host.querySelector("#bocSettingsSaveBtn").textContent).toBe("保存设置");
+    expect(host.querySelector<HTMLButtonElement>("#bocSettingsSaveBtn")!.disabled).toBe(false);
+    expect(host.querySelector<HTMLButtonElement>("#bocSettingsSaveBtn")!.textContent).toBe("保存设置");
   });
 });
 
@@ -247,23 +257,23 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     const host = await mountPanel();
 
     // 预置三类旧错误态：tags 字段、固定属性行 key + 行内错误节点、笔记段落行标题
-    fireClick(host.querySelector("#addFixedPropertyBtn"));
-    const fixedRow = host.querySelector("#fixedPropertiesList .fixed-property-row");
-    const staleKey = fixedRow.querySelector(".fixed-property-key");
-    const staleErrorNode = fixedRow.querySelector(".fixed-property-error");
+    fireClick(host.querySelector("#addFixedPropertyBtn")!);
+    const fixedRow = host.querySelector<HTMLElement>("#fixedPropertiesList .fixed-property-row")!;
+    const staleKey = fixedRow.querySelector<HTMLElement>(".fixed-property-key")!;
+    const staleErrorNode = fixedRow.querySelector<HTMLElement>(".fixed-property-error")!;
     staleKey.setAttribute("aria-invalid", "true");
     staleErrorNode.hidden = false;
     staleErrorNode.textContent = "旧错误残留";
 
-    fireClick(host.querySelector("#addNoteSectionBtn"));
-    const noteRow = host.querySelector("#noteSectionsList .note-section-row");
-    const staleTitle = noteRow.querySelector(".note-section-title");
+    fireClick(host.querySelector("#addNoteSectionBtn")!);
+    const noteRow = host.querySelector<HTMLElement>("#noteSectionsList .note-section-row")!;
+    const staleTitle = noteRow.querySelector<HTMLElement>(".note-section-title")!;
     staleTitle.setAttribute("aria-invalid", "true");
 
-    const tags = host.querySelector("#tags");
+    const tags = host.querySelector<HTMLElement>("#tags")!;
     tags.setAttribute("aria-invalid", "true");
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn"));
+    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
 
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toBe("保存成功");
@@ -284,7 +294,7 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     installMessageBus();
     const host = await mountPanel();
 
-    const tags = host.querySelector("#tags");
+    const tags = host.querySelector<HTMLElement>("#tags")!;
     tags.setAttribute("aria-invalid", "true");
     tags.dispatchEvent(new Event("input", { bubbles: true }));
 
@@ -300,20 +310,20 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#addFixedPropertyBtn"));
-    const row = host.querySelector("#fixedPropertiesList .fixed-property-row");
+    fireClick(host.querySelector("#addFixedPropertyBtn")!);
+    const row = host.querySelector<HTMLElement>("#fixedPropertiesList .fixed-property-row")!;
     // 显式清空 key（新行的 value 属性是字面量 "undefined"，见 escapeHtml(undefined)），
     // 只填值：validateFixedFrontmatterProperties 报「请填写固定属性的属性名」
-    row.querySelector(".fixed-property-key").value = "";
-    row.querySelector(".fixed-property-value").value = "some-value";
+    row.querySelector<HTMLInputElement>(".fixed-property-key")!.value = "";
+    row.querySelector<HTMLInputElement>(".fixed-property-value")!.value = "some-value";
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn"));
+    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
 
     // 行内落位：key 输入框标错并聚焦，行内错误节点显示具体文案
-    const keyInput = row.querySelector(".fixed-property-key");
+    const keyInput = row.querySelector<HTMLInputElement>(".fixed-property-key")!;
     expect(keyInput.getAttribute("aria-invalid")).toBe("true");
     expect(document.activeElement).toBe(keyInput);
-    const errorNode = row.querySelector(".fixed-property-error");
+    const errorNode = row.querySelector<HTMLElement>(".fixed-property-error")!;
     expect(errorNode.hidden).toBe(false);
     expect(errorNode.textContent).toBe("请填写固定属性的属性名");
     expect(lastStatus(host).textContent).toBe("请填写固定属性的属性名");
@@ -328,19 +338,19 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#addFixedPropertyBtn"));
-    const row = host.querySelector("#fixedPropertiesList .fixed-property-row");
+    fireClick(host.querySelector("#addFixedPropertyBtn")!);
+    const row = host.querySelector<HTMLElement>("#fixedPropertiesList .fixed-property-row")!;
     // 填属性名、清空值（text 类型）：报「请填写固定属性的属性值」
-    row.querySelector(".fixed-property-key").value = "favorite_quote";
-    row.querySelector(".fixed-property-value").value = "";
+    row.querySelector<HTMLInputElement>(".fixed-property-key")!.value = "favorite_quote";
+    row.querySelector<HTMLInputElement>(".fixed-property-value")!.value = "";
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn"));
+    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
 
-    const valueInput = row.querySelector(".fixed-property-value");
+    const valueInput = row.querySelector<HTMLInputElement>(".fixed-property-value")!;
     expect(valueInput.getAttribute("aria-invalid")).toBe("true");
     expect(document.activeElement).toBe(valueInput);
-    expect(row.querySelector(".fixed-property-key").getAttribute("aria-invalid")).toBeNull();
-    const errorNode = row.querySelector(".fixed-property-error");
+    expect(row.querySelector<HTMLInputElement>(".fixed-property-key")!.getAttribute("aria-invalid")).toBeNull();
+    const errorNode = row.querySelector<HTMLElement>(".fixed-property-error")!;
     expect(errorNode.hidden).toBe(false);
     expect(errorNode.textContent).toBe("请填写固定属性的属性值");
     expect(sent.some((message) => message.type === "save-settings")).toBe(false);
@@ -350,19 +360,19 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#addNoteSectionBtn"));
-    const row = host.querySelector("#noteSectionsList .note-section-row");
+    fireClick(host.querySelector("#addNoteSectionBtn")!);
+    const row = host.querySelector<HTMLElement>("#noteSectionsList .note-section-row")!;
     // 清空标题（新行的 value 属性是字面量 "undefined"）、内容非空：
     // validateNotePlaceholderSections 报「请填写段落标题」
-    row.querySelector(".note-section-title").value = "";
-    row.querySelector(".note-section-content").value = "默认内容";
+    row.querySelector<HTMLInputElement>(".note-section-title")!.value = "";
+    row.querySelector<HTMLInputElement>(".note-section-content")!.value = "默认内容";
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn"));
+    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
 
-    const titleInput = row.querySelector(".note-section-title");
+    const titleInput = row.querySelector<HTMLInputElement>(".note-section-title")!;
     expect(titleInput.getAttribute("aria-invalid")).toBe("true");
     expect(document.activeElement).toBe(titleInput);
-    const errorNode = row.querySelector(".note-section-error");
+    const errorNode = row.querySelector<HTMLElement>(".note-section-error")!;
     expect(errorNode.hidden).toBe(false);
     expect(errorNode.textContent).toBe("请填写段落标题");
     expect(lastStatus(host).textContent).toBe("请填写段落标题");
@@ -398,7 +408,7 @@ describe("恢复默认偏好按钮", () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#bocSettingsResetBtn"));
+    fireClick(host.querySelector("#bocSettingsResetBtn")!);
     const confirmBtn = await openResetDialog();
     // 警示着色（danger）：与删除平台的确认同源的红色确认键
     expect(document.querySelector(".confirm-dialog-confirm-danger")).toBeTruthy();
@@ -413,7 +423,7 @@ describe("恢复默认偏好按钮", () => {
     const payloads = sent
       .filter((message) => message.type === "save-settings")
       .map((message) => message.settings);
-    const resetPayload = payloads.find((settings) => settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT);
+    const resetPayload = payloads.find((settings) => settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT)!;
     expect(resetPayload).toBeDefined();
     // 偏好键面：aiSystemPrompt/playerAiQuickPrompt 落当前默认文本，快捷提示词/开关也在载荷里
     expect(resetPayload.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
@@ -433,7 +443,7 @@ describe("恢复默认偏好按钮", () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#bocSettingsResetBtn"));
+    fireClick(host.querySelector("#bocSettingsResetBtn")!);
     const cancelBtn = await vi.waitFor(() => {
       const node = document.querySelector(".confirm-dialog-cancel");
       if (!node) throw new Error("确认弹层未打开");

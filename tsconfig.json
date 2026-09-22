@@ -30,7 +30,8 @@
     "tests/core/**/*.ts",
     "tests/asr/**/*.ts",
     "tests/subtitle/**/*.ts",
-    "tests/chat/**/*.ts"
+    "tests/chat/**/*.ts",
+    "tests/ui/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

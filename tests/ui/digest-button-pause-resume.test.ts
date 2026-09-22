@@ -81,7 +81,7 @@ async function startHealthy() {
 }
 
 // 进入接管态：视图开 + 壳完好 → 下一常速拍摘按钮并降频。
-async function enterPausedState(setIntervalSpy) {
+async function enterPausedState(setIntervalSpy: Awaited<ReturnType<typeof startHealthy>>) {
   mocks.isReaderViewOpen.mockReturnValue(true);
   mocks.isReaderShellIntact.mockReturnValue(true);
   await vi.advanceTimersByTimeAsync(201);

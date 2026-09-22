@@ -2,8 +2,13 @@
 // 不引入完整 @types/node，避免把 Node 全局泄漏到扩展源码类型检查面。
 
 declare module "node:fs" {
+  export interface Dirent {
+    name: string;
+    isDirectory(): boolean;
+  }
   export function readFileSync(path: string, options?: { encoding?: string } | string): string;
   export function readdirSync(path: string): string[];
+  export function readdirSync(path: string, options: { withFileTypes: true }): Dirent[];
   export function statSync(path: string): { isDirectory(): boolean };
   export function existsSync(path: string): boolean;
 }

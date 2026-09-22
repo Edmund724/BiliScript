@@ -25,11 +25,11 @@ function makeContainer() {
   document.body.innerHTML = '<div id="boc-reading-view"><section id="boc-reading-settings-panel"></section></div>';
   const listNode = document.createElement("div");
   const emptyNode = document.createElement("p");
-  document.getElementById("boc-reading-view").append(listNode, emptyNode);
+  document.getElementById("boc-reading-view")!.append(listNode, emptyNode);
   return { listNode, emptyNode };
 }
 
-function fireChange(el) {
+function fireChange(el: Element) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
@@ -49,9 +49,9 @@ describe("搜索平台行", () => {
     renderSearchProviders(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "search_1" });
     const rows = listNode.querySelectorAll(".search-provider-row");
     expect(rows).toHaveLength(2);
-    expect(rows[0].querySelector(".provider-row-name").textContent).toBe("Tavily");
+    expect(rows[0].querySelector(".provider-row-name")!.textContent).toBe("Tavily");
     expect(rows[0].querySelector(".provider-row-model")).toBeNull();
-    expect(rows[1].querySelector(".provider-row-model").textContent).toContain("免费计划需绑信用卡");
+    expect(rows[1].querySelector(".provider-row-model")!.textContent).toContain("免费计划需绑信用卡");
     expect(emptyNode.hidden).toBe(true);
   });
 
@@ -65,7 +65,7 @@ describe("搜索平台行", () => {
   it("选用 radio change 即时持久化 activeSearchProviderId 并同步选中态", async () => {
     const { listNode, emptyNode } = makeContainer();
     renderSearchProviders(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
-    const radios = listNode.querySelectorAll(".search-provider-active-radio");
+    const radios = listNode.querySelectorAll<HTMLInputElement>(".search-provider-active-radio");
     radios[1].checked = true;
     fireChange(radios[1]);
     await vi.waitFor(() => {
@@ -81,7 +81,7 @@ describe("搜索平台行", () => {
     const { listNode, emptyNode } = makeContainer();
     renderSearchProviders(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
     setActiveSearchProvider(listNode, "search_1");
-    const radios = listNode.querySelectorAll(".search-provider-active-radio");
+    const radios = listNode.querySelectorAll<HTMLInputElement>(".search-provider-active-radio");
     expect(radios[0].checked).toBe(true);
     expect(getActiveSearchProviderId(listNode)).toBe("search_1");
   });

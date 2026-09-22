@@ -73,7 +73,7 @@ describe("不变量 2：切点判定规则锁定", () => {
       // tail 首行即切点行，必为空白行
       expect(tailText.split("\n")[0].trim()).toBe("");
       // stable 末尾不得是空行（切点是空行段起点，stable 不含切点行）
-      expect(stableText.split("\n").pop().trim()).not.toBe("");
+      expect(stableText.split("\n").pop()!.trim()).not.toBe("");
     }
   });
 
@@ -105,13 +105,13 @@ describe("不变量 2：stable 只增不减（逐帧前缀序列）", () => {
     ["mermaid\n\n```mermaid\n", "graph TD;\n", "A-->B;\n```\n\n", "图后"]
   ];
 
-  function charSplits(text) {
+  function charSplits(text: string) {
     const cuts = new Set([0, text.length]);
     for (let i = 1; i < text.length; i += 7) cuts.add(i);
     return [...cuts].sort((a, b) => a - b).map((c, i, arr) => text.slice(arr[i - 1] ?? 0, c));
   }
 
-  function assertMonotone(tokens) {
+  function assertMonotone(tokens: string[]) {
     let cumulative = "";
     let prevStable = "";
     let prevCutLineCount = -1;
@@ -132,7 +132,7 @@ describe("不变量 2：stable 只增不减（逐帧前缀序列）", () => {
     }
   }
 
-  function assertEquivalence(tokens) {
+  function assertEquivalence(tokens: string[]) {
     let cumulative = "";
     for (const token of tokens) {
       cumulative += token;

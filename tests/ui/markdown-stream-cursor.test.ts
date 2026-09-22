@@ -70,7 +70,7 @@ const SEQUENCES = [
   ["\n", "\n", "段一\n\n", "段二"]
 ];
 
-function splitsOf(text) {
+function splitsOf(text: string) {
   const result = [];
   // 整段一次推入
   result.push([text]);
@@ -83,7 +83,7 @@ function splitsOf(text) {
   return result;
 }
 
-function assertCursorEqualsFull(deltas) {
+function assertCursorEqualsFull(deltas: string[]) {
   const strip = createThinkStripCursor();
   const tail = createMarkdownTailCursor();
   let full = "";
@@ -127,7 +127,7 @@ describe("ThinkStripCursor + MarkdownTailCursor 对拍全量纯函数", () => {
 
 describe("增量游标的长流压力对拍", () => {
   it("600 帧小增量构建长文：每帧与全量一致", () => {
-    const rand = (seed) => () => {
+    const rand = (seed: number) => () => {
       seed |= 0;
       seed = (seed + 0x6d2b79f5) | 0;
       let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);

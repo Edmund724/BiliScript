@@ -15,7 +15,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-function fireClick(el) {
+function fireClick(el: Element) {
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
@@ -43,23 +43,23 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     const pending = confirmDialog({ message: "确定要删除这个平台吗？", confirmText: "删除", danger: true });
 
     expect(isConfirmDialogOpen()).toBe(true);
-    const view = document.getElementById("boc-reading-view");
-    const host = view.querySelector(".confirm-dialog-host");
+    const view = document.getElementById("boc-reading-view")!;
+    const host = view.querySelector<HTMLElement>(".confirm-dialog-host")!;
     expect(host).not.toBeNull();
     expect(host.parentElement).toBe(view);
     expect(host.querySelector(".confirm-dialog-mask")).not.toBeNull();
 
-    const dialog = host.querySelector(".confirm-dialog");
+    const dialog = host.querySelector(".confirm-dialog")!;
     expect(dialog.getAttribute("role")).toBe("dialog");
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(dialog.getAttribute("aria-label")).toBe("删除");
     expect(dialog.textContent).toContain("确定要删除这个平台吗？");
-    expect(host.querySelector(".confirm-dialog-confirm").textContent).toBe("删除");
-    expect(host.querySelector(".confirm-dialog-confirm").classList.contains("confirm-dialog-confirm-danger")).toBe(true);
-    expect(host.querySelector(".confirm-dialog-cancel").textContent).toBe("取消");
+    expect(host.querySelector(".confirm-dialog-confirm")!.textContent).toBe("删除");
+    expect(host.querySelector(".confirm-dialog-confirm")!.classList.contains("confirm-dialog-confirm-danger")).toBe(true);
+    expect(host.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
 
     // 报文 HTML 转义（防注入）
-    fireClick(host.querySelector(".confirm-dialog-cancel"));
+    fireClick(host.querySelector(".confirm-dialog-cancel")!);
     await expect(pending).resolves.toBe(false);
   });
 
@@ -67,10 +67,10 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     mountView();
     const { confirmDialog } = await loadDialog();
     const pending = confirmDialog({ message: "<img src=x onerror=1>" });
-    const message = document.querySelector(".confirm-dialog-message");
+    const message = document.querySelector(".confirm-dialog-message")!;
     expect(message.querySelector("img")).toBeNull();
     expect(message.textContent).toBe("<img src=x onerror=1>");
-    fireClick(document.querySelector(".confirm-dialog-cancel"));
+    fireClick(document.querySelector(".confirm-dialog-cancel")!);
     await expect(pending).resolves.toBe(false);
   });
 
@@ -78,7 +78,7 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     mountView();
     const { confirmDialog, isConfirmDialogOpen } = await loadDialog();
     const pending = confirmDialog({ message: "确定？", confirmText: "删除", danger: true });
-    fireClick(document.querySelector(".confirm-dialog-confirm"));
+    fireClick(document.querySelector(".confirm-dialog-confirm")!);
     await expect(pending).resolves.toBe(true);
     expect(isConfirmDialogOpen()).toBe(false);
     expect(document.querySelector(".confirm-dialog-host")).toBeNull();
@@ -90,13 +90,13 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
 
     // 取消键
     let pending = confirmDialog({ message: "m1" });
-    fireClick(document.querySelector(".confirm-dialog-cancel"));
+    fireClick(document.querySelector(".confirm-dialog-cancel")!);
     await expect(pending).resolves.toBe(false);
     expect(document.querySelector(".confirm-dialog-host")).toBeNull();
 
     // 遮罩（host 直下 dialog 的兄弟，从 document 查）
     pending = confirmDialog({ message: "m2" });
-    fireClick(document.querySelector(".confirm-dialog-mask"));
+    fireClick(document.querySelector(".confirm-dialog-mask")!);
     await expect(pending).resolves.toBe(false);
     expect(document.querySelector(".confirm-dialog-host")).toBeNull();
 
@@ -114,7 +114,7 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     const pending = confirmDialog({ message: "m" });
     expect(isConfirmDialogOpen()).toBe(true);
 
-    const panel = document.getElementById("boc-reading-settings-panel");
+    const panel = document.getElementById("boc-reading-settings-panel")!;
     panel.hidden = true;
     await expect(pending).resolves.toBe(false);
     expect(isConfirmDialogOpen()).toBe(false);
@@ -125,13 +125,13 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     mountView();
     const { confirmDialog } = await loadDialog();
     const first = confirmDialog({ message: "第一个" });
-    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("第一个");
+    expect(document.querySelector(".confirm-dialog-message")!.textContent).toBe("第一个");
 
     const second = confirmDialog({ message: "第二个" });
     await expect(first).resolves.toBe(false);
-    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("第二个");
+    expect(document.querySelector(".confirm-dialog-message")!.textContent).toBe("第二个");
 
-    fireClick(document.querySelector(".confirm-dialog-confirm"));
+    fireClick(document.querySelector(".confirm-dialog-confirm")!);
     await expect(second).resolves.toBe(true);
   });
 
@@ -166,7 +166,7 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     document.addEventListener("click", () => {
       documentClicks += 1;
     });
-    fireClick(document.querySelector(".confirm-dialog-confirm"));
+    fireClick(document.querySelector(".confirm-dialog-confirm")!);
     expect(documentClicks).toBe(0);
     await expect(pending).resolves.toBe(true);
   });

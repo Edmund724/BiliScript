@@ -21,8 +21,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-function installMessageBus(overrides = {}) {
-  const responders = {
+type BusMessage = { type: string } & Record<string, unknown>;
+type BusResponder = (message: BusMessage) => unknown;
+
+function installMessageBus(overrides: Record<string, BusResponder> = {}) {
+  const responders: Record<string, BusResponder> = {
     "get-settings": () => ({ ok: true, settings: {} }),
     "ai-presets-list": () => ({ ok: false }),
     "asr-presets-list": () => ({ ok: false }),
@@ -31,13 +34,14 @@ function installMessageBus(overrides = {}) {
     "save-settings": () => ({ ok: true }),
     ...overrides
   };
-  const sent = [];
-  chrome.runtime.sendMessage = vi.fn((message, callback) => {
-    sent.push(message);
-    const respond = responders[message.type];
-    callback?.(respond ? respond(message) : { ok: true });
+  const sent: BusMessage[] = [];
+  chrome.runtime.sendMessage = vi.fn((message: unknown, callback?: (response?: unknown) => void) => {
+    const typed = message as BusMessage;
+    sent.push(typed);
+    const respond = responders[typed.type];
+    callback?.(respond ? respond(typed) : { ok: true });
     return undefined;
-  });
+  }) as unknown as typeof chrome.runtime.sendMessage;
   return sent;
 }
 
@@ -45,21 +49,25 @@ async function mountPanel() {
   document.body.innerHTML = '<div id="boc-reading-settings-host"></div>';
   const panel = await import("../../extension/ui/settings-panel.js");
   panel.renderReaderSettingsPanel();
-  const host = document.getElementById("boc-reading-settings-host");
+  const host = document.getElementById("boc-reading-settings-host")!;
   await vi.waitFor(() => {
-    expect(chrome.runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
+    expect(
+      vi.mocked(chrome.runtime.sendMessage).mock.calls.some(
+        ([message]) => (message as { type?: string } | undefined)?.type === "asr-providers-list"
+      )
+    ).toBe(true);
   });
   return host;
 }
 
 // 单发 click（settings-panel-save.test.js 同款：jsdom 原生 click 已派发事件，
 // 手动补派发会双触发）
-function fireClick(node) {
+function fireClick(node: Element) {
   node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
-function addNoteRow(host) {
-  fireClick(host.querySelector("#addNoteSectionBtn"));
+function addNoteRow(host: HTMLElement) {
+  fireClick(host.querySelector("#addNoteSectionBtn")!);
   return host.querySelector("#noteSectionsList .note-section-row");
 }
 
@@ -71,11 +79,11 @@ describe("custom-select 键盘与错误态归位（settings-ui-coherence/04）",
   it("(a) trigger Enter 展开 → ↓ 漫游 → Enter 选中：select.value 写回并派生一次 bubbling change", async () => {
     installMessageBus();
     const host = await mountPanel();
-    const row = addNoteRow(host);
-    const select = row.querySelector(".note-section-position");
-    const trigger = row.querySelector(".note-section-field-position .custom-select-trigger");
-    const dropdown = row.querySelector(".custom-select-dropdown");
-    const options = Array.from(dropdown.querySelectorAll(".custom-select-option"));
+    const row = addNoteRow(host)!;
+    const select = row.querySelector<HTMLSelectElement>(".note-section-position")!;
+    const trigger = row.querySelector<HTMLElement>(".note-section-field-position .custom-select-trigger")!;
+    const dropdown = row.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    const options = Array.from(dropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
 
     // ARIA 接线：trigger ↔ listbox 关联、角色与选中态
     expect(trigger.getAttribute("aria-haspopup")).toBe("listbox");
@@ -86,7 +94,7 @@ describe("custom-select 键盘与错误态归位（settings-ui-coherence/04）",
     expect(options[0].getAttribute("aria-selected")).toBe("true");
     expect(options[1].getAttribute("aria-selected")).toBe("false");
 
-    const changeEvents = [];
+    const changeEvents: Event[] = [];
     select.addEventListener("change", (e) => changeEvents.push(e));
 
     trigger.focus();
@@ -113,10 +121,10 @@ describe("custom-select 键盘与错误态归位（settings-ui-coherence/04）",
   it("(b) 段落位置校验失败：aria-invalid 与 focus 落在 trigger，修正后清错摘属性", async () => {
     const sent = installMessageBus();
     vi.doMock("../../extension/core/validators.js", async (importOriginal) => {
-      const actual = await importOriginal();
+      const actual = await importOriginal<typeof import("../../extension/core/validators.js")>();
       return {
         ...actual,
-        validateNotePlaceholderSections: (items) =>
+        validateNotePlaceholderSections: (items: unknown[]) =>
           items.length > 0
             ? { ok: false, row: items[0], message: "请选择有效的位置" }
             : actual.validateNotePlaceholderSections(items)
@@ -125,20 +133,20 @@ describe("custom-select 键盘与错误态归位（settings-ui-coherence/04）",
     const host = await mountPanel();
     vi.doUnmock("../../extension/core/validators.js");
 
-    const row = addNoteRow(host);
-    const select = row.querySelector(".note-section-position");
-    const trigger = row.querySelector(".note-section-field-position .custom-select-trigger");
+    const row = addNoteRow(host)!;
+    const select = row.querySelector<HTMLSelectElement>(".note-section-position")!;
+    const trigger = row.querySelector<HTMLElement>(".note-section-field-position .custom-select-trigger")!;
 
     // 行内前置态：标题非空（让位给 position 分支），原生 select 值漂移为非法空值
-    row.querySelector(".note-section-title").value = "总结";
+    row.querySelector<HTMLInputElement>(".note-section-title")!.value = "总结";
     select.value = "";
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn"));
+    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
 
     expect(trigger.getAttribute("aria-invalid")).toBe("true");
     expect(document.activeElement).toBe(trigger);
-    expect(row.querySelector(".note-section-title").getAttribute("aria-invalid")).toBeNull();
-    const errorNode = row.querySelector(".note-section-error");
+    expect(row.querySelector(".note-section-title")!.getAttribute("aria-invalid")).toBeNull();
+    const errorNode = row.querySelector<HTMLElement>(".note-section-error")!;
     expect(errorNode.hidden).toBe(false);
     expect(errorNode.textContent).toBe("请选择有效的位置");
     expect(sent.some((message) => message.type === "save-settings")).toBe(false);
