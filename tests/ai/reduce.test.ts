@@ -13,35 +13,36 @@ import {
   REDUCE_CONCURRENCY
 } from "../../extension/ai/reduce.js";
 import { REDUCE_GROUP_INPUT_CHARS } from "../../extension/ai/budgeter.js";
+import type { BudgetPlan } from "../../extension/ai/types.js";
 
 // 生成 n 条各 chars 字符的小结（首字符序号区分，便于断言顺序保持）。
-function makeSummaries(count, chars) {
+function makeSummaries(count: number, chars: number) {
   return Array.from({ length: count }, (_, i) => `s${i}`.padEnd(chars, "x"));
 }
 
 // 一组字符合计。
-function groupChars(group) {
+function groupChars(group: string[]): number {
   return group.reduce((acc, s) => acc + s.length, 0);
 }
 
 describe("shouldReduce 阈值判定", () => {
   it("totalChars > 500000 触发归并；恰好 500000 不触发（沿用 03 直接成稿）", () => {
-    expect(shouldReduce({ totalChars: 500001, segments: [] })).toBe(true);
-    expect(shouldReduce({ totalChars: 500000, segments: [] })).toBe(false);
+    expect(shouldReduce({ totalChars: 500001, segments: [] } as unknown as BudgetPlan)).toBe(true);
+    expect(shouldReduce({ totalChars: 500000, segments: [] } as unknown as BudgetPlan)).toBe(false);
   });
 
   it("段数 ≥11 但 totalChars ≤500k（章节对齐切出短段）→ 不触发归并", () => {
-    expect(shouldReduce({ segments: new Array(11).fill({}) })).toBe(false);
-    expect(shouldReduce({ segments: new Array(11).fill({}), totalChars: 450000 })).toBe(false);
-    expect(shouldReduce({ segments: new Array(11).fill({}), totalChars: 500001 })).toBe(true);
+    expect(shouldReduce({ segments: new Array(11).fill({}) } as unknown as BudgetPlan)).toBe(false);
+    expect(shouldReduce({ segments: new Array(11).fill({}), totalChars: 450000 } as unknown as BudgetPlan)).toBe(false);
+    expect(shouldReduce({ segments: new Array(11).fill({}), totalChars: 500001 } as unknown as BudgetPlan)).toBe(true);
   });
 
   it("needsReduce 显式置真触发", () => {
-    expect(shouldReduce({ needsReduce: true })).toBe(true);
+    expect(shouldReduce({ needsReduce: true } as unknown as BudgetPlan)).toBe(true);
   });
 
   it("空对象 / null / undefined 不触发", () => {
-    expect(shouldReduce({})).toBe(false);
+    expect(shouldReduce({} as unknown as BudgetPlan)).toBe(false);
     expect(shouldReduce(null)).toBe(false);
     expect(shouldReduce(undefined)).toBe(false);
   });
@@ -53,7 +54,7 @@ describe("buildReduceGroups 贪心分组", () => {
     const input = makeSummaries(12, 20000);
     const groups = buildReduceGroups(input);
     expect(groups).toHaveLength(3);
-    for (const group of groups) {
+    for (const group of groups as string[][]) {
       expect(groupChars(group)).toBeLessThanOrEqual(REDUCE_GROUP_INPUT_CHARS);
     }
     expect(groups.flat()).toEqual(input);
@@ -76,8 +77,8 @@ describe("buildReduceGroups 贪心分组", () => {
 
   it("空数组 / 非数组返回 []", () => {
     expect(buildReduceGroups([])).toEqual([]);
-    expect(buildReduceGroups(null)).toEqual([]);
-    expect(buildReduceGroups("x")).toEqual([]);
+    expect(buildReduceGroups(null as unknown as unknown[])).toEqual([]);
+    expect(buildReduceGroups("x" as unknown as unknown[])).toEqual([]);
   });
 });
 
@@ -103,7 +104,7 @@ describe("buildReducePrompt 措辞对齐蓝本 _merge_prompt", () => {
       title: "t",
       groupIndex: 1,
       groupCount: 1,
-      group: null
+      group: null as unknown as unknown[]
     });
     expect(prompt).toContain("这是长视频合并材料的第 1/1 批。");
   });
@@ -139,7 +140,7 @@ describe("reduceSummaries 多层归并收敛", () => {
     // → 第 2 层 40k+40k=80k 一组、40k 一组 → 2 组 → 2×40k=80k 收敛。
     const summaries = makeSummaries(30, 10000);
     const onProgress = vi.fn();
-    const runPrompts = vi.fn(async () => "x".repeat(40000));
+    const runPrompts = vi.fn(async (_input: { prompt?: string; messages?: unknown[] }) => "x".repeat(40000));
 
     const result = await reduceSummaries({
       summaries,
@@ -215,7 +216,7 @@ describe("reduceSummaries 归并层并发（06 票）", () => {
       await new Promise((resolve) => setTimeout(resolve, delays[idx]));
       return `结果${idx + 1}`;
     });
-    const notices = [];
+    const notices: string[] = [];
     const result = await reduceSummaries({
       summaries,
       title: "测试视频",
@@ -296,7 +297,7 @@ describe("reduceSummaries 中止", () => {
 });
 
 describe("reduceSummaries groupInputChars 参数化（溢出放宽预算重跑用）", () => {
-  function makeSummaries(count, chars) {
+  function makeSummaries(count: number, chars: number) {
     return Array.from({ length: count }, (_, i) => `s${i}`.padEnd(chars, "x"));
   }
 

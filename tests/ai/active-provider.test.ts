@@ -6,13 +6,21 @@
 // 这是概览 / 选区解释两条 content 链的平台识别主路径来源——baseUrl host 推断
 // 退为兜底（custom 用户改过反代域名时识别不失效）。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let activeProvider;
+let activeProvider: typeof import("../../extension/ai/active-provider.js");
+let sendMessageMock: Mock;
 
-function stubMessages({ provider, apiKey = "sk-test", ok = true, error } = {}) {
-  globalThis.chrome.runtime.sendMessage.mockImplementation((message, callback) => {
+type StubMessagesOptions = {
+  provider?: Record<string, unknown>;
+  apiKey?: string;
+  ok?: boolean;
+  error?: string;
+};
+
+function stubMessages({ provider, apiKey = "sk-test", ok = true, error }: StubMessagesOptions = {}) {
+  sendMessageMock.mockImplementation((message, callback) => {
     if (message?.type === "resolve-ai-provider") {
       if (!ok) {
         callback({ ok: false, error });
@@ -28,6 +36,10 @@ function stubMessages({ provider, apiKey = "sk-test", ok = true, error } = {}) {
 
 beforeEach(async () => {
   resetModuleState();
+  // runtime.sendMessage 的命名空间声明是重载函数，mock 只能经 cast 换装
+  //（同 tests/ui/provider-editor.test.ts 手法）。
+  sendMessageMock = vi.fn();
+  (chrome as unknown as { runtime: { sendMessage: Mock } }).runtime.sendMessage = sendMessageMock;
   activeProvider = await import("../../extension/ai/active-provider.js");
 });
 
@@ -79,8 +91,8 @@ describe("resolveActiveProvider presetId 穿线（resolve-ai-provider 单趟）"
 
     await activeProvider.resolveActiveProvider();
 
-    expect(globalThis.chrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
-    expect(globalThis.chrome.runtime.sendMessage.mock.calls[0][0]).toEqual({
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock.mock.calls[0][0]).toEqual({
       type: "resolve-ai-provider"
     });
   });

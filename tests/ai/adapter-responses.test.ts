@@ -9,9 +9,10 @@ import { describe, expect, it, vi } from "vitest";
 import { responsesAdapter } from "../../extension/ai/adapters/responses.js";
 import { PROTOCOL_ADAPTERS, resolveAdapter } from "../../extension/ai/protocol-adapter.js";
 import { chatCompletion } from "../../extension/ai/completion.js";
+import type { StreamChatEvent } from "../../extension/ai/types.js";
 
 // SSE 流式响应：chunks 按 read() 顺序返回（编码为 UTF-8 字节）。
-function sseResponse(chunks) {
+function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
   let i = 0;
   return {
@@ -29,11 +30,11 @@ function sseResponse(chunks) {
         };
       }
     }
-  };
+  } as unknown as Response;
 }
 
 // Responses SSE 块：event: 行 + data: 行 + 空行分隔。
-function responsesSseBlock(eventName, payload) {
+function responsesSseBlock(eventName: string, payload: unknown) {
   return `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`;
 }
 
@@ -199,7 +200,7 @@ describe("drainStream（SSE 事件映射，research §2）", () => {
       responsesSseBlock("future_unknown_event", { foo: 1 }),
       responsesSseBlock("response.completed", { response: { status: "completed" } })
     ];
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await responsesAdapter.drainStream(sseResponse(chunks), { onEvent: (e) => events.push(e) });
 
     expect(result.content).toBe("你好世界拒");
@@ -224,7 +225,7 @@ describe("drainStream（SSE 事件映射，research §2）", () => {
       responsesSseBlock("response.output_text.delta", { item_id: "m", delta: "hi" }),
       responsesSseBlock("response.completed", { response: { status: "completed" } })
     ];
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await responsesAdapter.drainStream(sseResponse(chunks), { onEvent: (e) => events.push(e) });
     expect(result).toEqual({ content: "hi", toolCalls: [], finishReason: "stop" });
     expect(events).toEqual([{ type: "token", data: "hi" }]);
@@ -235,7 +236,7 @@ describe("drainStream（SSE 事件映射，research §2）", () => {
       responsesSseBlock("response.output_text.delta", { item_id: "m", delta: "半" }),
       responsesSseBlock("response.incomplete", { response: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } } })
     ];
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await responsesAdapter.drainStream(sseResponse(chunks), { onEvent: (e) => events.push(e) });
     expect(result.finishReason).toBe("length");
     expect(result.content).toBe("半");
@@ -264,7 +265,7 @@ describe("drainStream（SSE 事件映射，research §2）", () => {
       responsesSseBlock("response.output_item.done", { item: { id: "fc_7", type: "function_call", call_id: "call_7", name: "web_search", arguments: "{\"query\":\"y\"}" } }),
       responsesSseBlock("response.completed", { response: { status: "completed" } })
     ];
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await responsesAdapter.drainStream(sseResponse(chunks), { onEvent: (e) => events.push(e) });
     expect(result.toolCalls).toEqual([
       { id: "call_7", type: "function", function: { name: "web_search", arguments: "{\"query\":\"y\"}" } }
@@ -339,11 +340,11 @@ describe("extractErrorDetail（research §4）", () => {
 
 describe("chatCompletion 经 responses 协议端到端（core 骨架零改动）", () => {
   it("流式：onEvent 收 token 归一事件，返回 { done: true }，请求体无状态形状", async () => {
-    const fetchMock = vi.fn(async () => sseResponse([
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => sseResponse([
       responsesSseBlock("response.output_text.delta", { item_id: "m", delta: "流" }),
       responsesSseBlock("response.completed", { response: { status: "completed" } })
     ]));
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await chatCompletion({
       provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "responses" },
       messages: [{ role: "system", content: "sys" }, { role: "user", content: "hi" }],
@@ -354,7 +355,7 @@ describe("chatCompletion 经 responses 协议端到端（core 骨架零改动）
 
     expect(result).toEqual({ done: true });
     expect(events).toEqual([{ type: "token", data: "流" }]);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string>; body: string }];
     expect(url).toBe("https://api.example.com/v1/responses");
     expect(init.headers.Authorization).toBe("Bearer sk");
     const body = JSON.parse(init.body);
@@ -364,11 +365,11 @@ describe("chatCompletion 经 responses 协议端到端（core 骨架零改动）
   });
 
   it("HTTP 错误：detail 带 [responses] 前缀（core 统一加），溢出判定照常命中", async () => {
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => ({
       ok: false,
       status: 400,
       text: vi.fn(async () => JSON.stringify({ error: { message: "prompt is too long: 99 tokens > 9 maximum allowed" } }))
-    }));
+    }) as unknown as Response);
 
     await expect(
       chatCompletion({

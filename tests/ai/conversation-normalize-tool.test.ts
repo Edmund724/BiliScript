@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizeConversations } from "../../extension/ai/conversation.js";
 
-function conversationWith(messages) {
+function conversationWith(messages: unknown[]) {
   return [
     {
       id: "conv-1",

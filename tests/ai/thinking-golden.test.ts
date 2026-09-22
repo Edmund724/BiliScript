@@ -6,13 +6,23 @@
 
 import { describe, expect, it } from "vitest";
 import { buildChatRequestBody } from "../../extension/ai/completion.js";
+import type { ChatMessage } from "../../extension/ai/types.js";
 
-const MESSAGES = [{ role: "user", content: "hi" }];
+const MESSAGES: ChatMessage[] = [{ role: "user", content: "hi" }];
+
+interface BodyForInput {
+  baseUrl?: string;
+  presetId?: string;
+  model: string;
+  level: string;
+  stream?: boolean;
+  maxTokens?: number;
+}
 
 // 走请求构造单缝（buildChatRequestBody）：host 推断即由 baseUrl 承载；
 // presetId（provider 记录的 presetId，02 号票穿线）是识别主路径，不传即回落
 // host 推断（上面的平台矩阵 golden 均为 host 路径，锁定 01 行为）。
-function bodyFor({ baseUrl, presetId, model, level, stream = false, maxTokens }) {
+function bodyFor({ baseUrl, presetId, model, level, stream = false, maxTokens }: BodyForInput) {
   return buildChatRequestBody({ model, messages: MESSAGES, stream, thinkingLevel: level, baseUrl, presetId, maxTokens });
 }
 
@@ -400,7 +410,7 @@ const PLATFORMS = [
 for (const platform of PLATFORMS) {
   describe(`golden：${platform.name}`, () => {
     for (const c of platform.cases) {
-      for (const level of ["off", "low", "high"]) {
+      for (const level of ["off", "low", "high"] as const) {
         it(`${c.model}（${c.kind}）· ${level}`, () => {
           expect(bodyFor({ baseUrl: platform.baseUrl, model: c.model, level })).toEqual({
             model: c.model,

@@ -8,10 +8,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
-import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
+import { DEFAULT_SETTINGS, type Settings } from "../../extension/core/defaults.js";
 // playerAiState 须按用例动态获取：beforeEach 的 vi.resetModules() 会换模块
 // 纪元，静态 import 拿到的实例与生产代码（动态 import 加载）不是同一对象。
-let playerAiState = null;
+let playerAiState: (typeof import("../../extension/ai/player-ai-state.js"))["playerAiState"];
 async function getPlayerAiState() {
   playerAiState = (await import("../../extension/ai/player-ai-state.js")).playerAiState;
   return playerAiState;
@@ -36,9 +36,9 @@ import {
 } from "../../extension/reader/lazy-reader-presentation.js";
 
 const storageChangeListeners = new Set();
-let activeSettingsRef = null;
+let activeSettingsRef!: { current: Partial<Settings> };
 
-function stubChrome(settings) {
+function stubChrome(settings: Partial<Settings>) {
   activeSettingsRef = { current: { ...settings } };
   vi.stubGlobal("chrome", {
     runtime: {
@@ -80,10 +80,10 @@ async function flushMicrotasks(times = 20) {
 beforeEach(() => {
   storageChangeListeners.clear();
   resetModuleState();
-  ensureUiReady.mockClear();
-  hydrateReaderStateFromSettings.mockClear();
-  applyReadingViewPresentation.mockClear();
-  renderReadingStatus.mockClear();
+  vi.mocked(ensureUiReady).mockClear();
+  vi.mocked(hydrateReaderStateFromSettings).mockClear();
+  vi.mocked(applyReadingViewPresentation).mockClear();
+  vi.mocked(renderReadingStatus).mockClear();
   vi.useFakeTimers();
 });
 
@@ -128,7 +128,7 @@ describe("player-ai 快路径与惰性装载解耦", () => {
     // bindPlayerAiSettingsWatcher）经 shared/watch-storage-keys seam 收口为
     // 单条真实 chrome.storage.onChanged 监听（calls[0]），seam 派发器按各订阅
     // 者的区/键清单过滤分发；enablePlayerAiQuickAction 由播放器 AI 开关门消费。
-    const listener = chrome.storage.onChanged.addListener.mock.calls[0][0];
+    const listener = vi.mocked(chrome.storage.onChanged.addListener).mock.calls[0][0];
     activeSettingsRef.current = { ...activeSettingsRef.current, enablePlayerAiQuickAction: true };
     listener({ enablePlayerAiQuickAction: { newValue: true } }, "sync");
 

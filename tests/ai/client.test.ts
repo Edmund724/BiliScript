@@ -20,11 +20,30 @@ afterEach(() => {
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 
-function makePort() {
-  return { messages: [], postMessage(m) { this.messages.push(m); } };
+// 假 port 收集到的消息形状（用例按 type 过滤后读 data / error / reason / messages）
+interface PortMessage {
+  type: string;
+  data?: unknown;
+  error?: string;
+  reason?: string;
+  status?: string;
+  query?: string;
+  resultCount?: number;
+  platform?: string;
+  messages?: Array<{ role: string; content?: string }>;
 }
 
-function jsonResponse(payload, ok = true, status = 200) {
+function makePort() {
+  const messages: PortMessage[] = [];
+  return {
+    messages,
+    postMessage(message: unknown) {
+      messages.push(message as PortMessage);
+    }
+  };
+}
+
+function jsonResponse(payload: unknown, ok = true, status = 200) {
   return {
     ok,
     status,
@@ -33,11 +52,11 @@ function jsonResponse(payload, ok = true, status = 200) {
   };
 }
 
-function textResponse(text, ok = false, status = 400) {
+function textResponse(text: string, ok = false, status = 400) {
   return { ok, status, text: async () => text, json: async () => ({}) };
 }
 
-function sseResponse(chunks) {
+function sseResponse(chunks: string[]) {
   const encoder = new TextEncoder();
   let i = 0;
   return {
@@ -58,7 +77,7 @@ function sseResponse(chunks) {
   };
 }
 
-function sseData(delta) {
+function sseData(delta: unknown) {
   return `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
 }
 
@@ -451,7 +470,7 @@ describe("streamChat 读流中断重试：stream-reset 代际重置信号", () =
 });
 
 describe("webSearch 工具循环 port 回吐（spec §2.3）", () => {
-  function sseDataFinish(delta, finishReason) {
+  function sseDataFinish(delta: unknown, finishReason?: string) {
     return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
   }
   const TOOL_ROUND = [
@@ -486,16 +505,16 @@ describe("webSearch 工具循环 port 回吐（spec §2.3）", () => {
     expect(port.messages[0]).toMatchObject({ type: "tool-status", status: "searching", query: "x" });
     expect(port.messages[1]).toMatchObject({ type: "tool-status", status: "done", query: "x", resultCount: 1, platform: "Tavily" });
     expect(port.messages[2].type).toBe("tool-turn");
-    expect(port.messages[2].messages.map((m) => m.role)).toEqual(["assistant", "tool"]);
+    expect(port.messages[2].messages!.map((m) => m.role)).toEqual(["assistant", "tool"]);
     // 两次调用：第一次带 tools，tool 消息已回填
     const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(firstBody.tools).toEqual([expect.anything()]);
     const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(secondBody.messages.some((m) => m.role === "tool")).toBe(true);
+    expect(secondBody.messages.some((m: { role: string }) => m.role === "tool")).toBe(true);
   });
 
   it("无 webSearch：行为回归（不解析工具、事件序列与旧实现一致）", async () => {
-    const fetchMock = vi.fn(async () => sseResponse([sseData({ content: "正文" }), "data: [DONE]\n\n"]));
+    const fetchMock = vi.fn(async (_url: unknown, _init: { body: string }) => sseResponse([sseData({ content: "正文" }), "data: [DONE]\n\n"]));
     vi.stubGlobal("fetch", fetchMock);
     const port = makePort();
 

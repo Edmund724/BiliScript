@@ -8,10 +8,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let mod;
+let mod: typeof import("../../extension/ai/sw-keepalive.js");
 
 function makeFakePort() {
-  const disconnectListeners = [];
+  const disconnectListeners: Array<() => void> = [];
   return {
     port: {
       name: "boc-sw-keepalive",
@@ -45,7 +45,7 @@ describe("acquireSwKeepalive", () => {
     const connect = vi.fn(() => port);
     vi.stubGlobal("chrome", { runtime: { connect } });
 
-    const handle = mod.acquireSwKeepalive();
+    const handle = mod.acquireSwKeepalive()!;
     expect(handle).not.toBeNull();
     expect(connect).toHaveBeenCalledWith({ name: mod.SW_KEEPALIVE_PORT_NAME });
 
@@ -59,7 +59,7 @@ describe("acquireSwKeepalive", () => {
     const { port, disconnectListeners } = makeFakePort();
     vi.stubGlobal("chrome", { runtime: { connect: vi.fn(() => port) } });
 
-    const handle = mod.acquireSwKeepalive();
+    const handle = mod.acquireSwKeepalive()!;
     expect(port.onDisconnect.addListener).toHaveBeenCalledTimes(1);
     // 模拟 SW 崩溃/重载导致的端口断连
     for (const fn of disconnectListeners) {

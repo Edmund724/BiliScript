@@ -7,10 +7,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
 
-let mod;
-let jsonRepairMod;
-let cacheMod;
-let storage;
+let mod: typeof import("../../extension/ai/analysis.js");
+let jsonRepairMod: typeof import("../../extension/ai/json-repair.js");
+let cacheMod: typeof import("../../extension/subtitle/cache.js");
+let storage: ReturnType<typeof createMemoryStorage>;
+
+// chatCompletion 的入参形状（编排层 ChatCompletionFn 未导出，按本测试用到的字段就地声明）。
+type ChatCompletionCall = {
+  provider: { baseUrl?: string; apiKey?: string; model?: string };
+  messages: Array<{ role: string; content: string }>;
+  thinkingLevel?: string;
+  signal?: AbortSignal | null;
+  retries?: number;
+  maxTokens?: number | null;
+  stream?: boolean;
+};
 
 // 内存 Map 实现的 chrome.storage.local（get/set/remove 均 vi.fn，便于断言与注入失败）。
 function createMemoryStorage() {
@@ -21,7 +32,7 @@ function createMemoryStorage() {
         return Object.fromEntries(map.entries());
       }
       const want = Array.isArray(keys) ? keys : [keys];
-      const out = {};
+      const out: Record<string, unknown> = {};
       for (const k of want) {
         if (map.has(k)) {
           out[k] = map.get(k);
@@ -86,7 +97,7 @@ function makeContext(overrides = {}) {
 // 依系统提示词区分「整份分章」与「短路径只挑金句」，并按用户提示词里的
 // 「第 i / N 段」产出来自对应区间的章节/金句 JSON。
 function buildCompletionFake({ failedSegments = new Set(), parts = null } = {}) {
-  const calls = [];
+  const calls: ChatCompletionCall[] = [];
   const chatCompletion = vi.fn(async (input) => {
     calls.push(input);
     const system = input.messages[0]?.content || "";
@@ -186,7 +197,7 @@ describe("validateAnalysis 越界丢弃与秒反推", () => {
 
 describe("repairTruncatedJson 截断修复与 parseLooseJson 宽容解析", () => {
   it("截断在字符串中间 / 括号中间 / 逗号后，都能补齐保住已生成内容", () => {
-    const expectParsed = (text) => {
+    const expectParsed = (text: string) => {
       const parsed = JSON.parse(jsonRepairMod.repairTruncatedJson(text));
       expect(parsed.keyQuotes).toHaveLength(2);
       expect(parsed.keyQuotes[1].quote).toBe("第二句");
@@ -212,7 +223,9 @@ describe("repairTruncatedJson 截断修复与 parseLooseJson 宽容解析", () =
       chapters: [{ title: "a", timestampSeconds: 1 }]
     });
     // 输出中途被截断：补齐后拿到 chapters 数组
-    const truncated = jsonRepairMod.parseLooseJson('{"chapters":[{"title":"开场","timestampSeconds":0},{"title":"正题"');
+    const truncated = jsonRepairMod.parseLooseJson('{"chapters":[{"title":"开场","timestampSeconds":0},{"title":"正题"') as {
+      chapters: Array<{ title: string }>;
+    };
     expect(truncated.chapters.map((c) => c.title)).toEqual(["开场", "正题"]);
   });
 
@@ -244,7 +257,7 @@ describe("双路径分派", () => {
     expect(calls[0].messages[0].content).toContain("产出一份结构化概览：章节 + 金句");
     // digest-only-ui：顶层概述字段已移除（章节条目内的 summary 不受影响）
     expect(calls[0].messages[0].content).not.toContain('"summary": "全片概述');
-    const user = calls[0].messages.at(-1).content;
+    const user = calls[0].messages.at(-1)!.content;
     expect(user).toContain("视频标题：测试视频");
     expect(user).toContain("UP 主：UP 主甲");
     expect(user).toContain("后段门槛：最后一个章节的时间戳必须晚于 3:45"); // 300s × 75% = 225s
@@ -273,12 +286,12 @@ describe("双路径分派", () => {
     // 每段请求都携带 off 档位（协议层据此注入 THINKING_DISABLE_FIELDS）
     expect(calls.every((c) => c.thinkingLevel === "off")).toBe(true);
 
-    const firstUser = calls.find((c) => c.messages.at(-1).content.includes("第 1 / 5 段")).messages.at(-1).content;
+    const firstUser = calls.find((c) => c.messages.at(-1)!.content.includes("第 1 / 5 段"))!.messages.at(-1)!.content;
     expect(firstUser).toContain("注意：这是长视频切分后的第 1 / 5 段，覆盖 0:00 到 4:10");
     expect(firstUser).toContain("只为这一段产出章节与金句，不要涉及其它时间段");
     expect(firstUser).not.toContain("前情回顾");
 
-    const secondUser = calls.find((c) => c.messages.at(-1).content.includes("第 2 / 5 段")).messages.at(-1).content;
+    const secondUser = calls.find((c) => c.messages.at(-1)!.content.includes("第 2 / 5 段"))!.messages.at(-1)!.content;
     expect(secondUser).toContain("前情回顾（上一段的结尾，只用来理解本段承接什么，不要为它开章节或挑金句）");
     // 前情回顾只进输入不进输出：maxTokens 估算基于本段正文
     expect(secondUser).toContain("字幕：");
@@ -320,7 +333,7 @@ describe("空正文重试", () => {
   // 真实故障：step-3.7-flash 无视关思考字段族，思考耗尽 max_tokens（finish_reason=length）
   // 后 content 空串返回 → parseLooseJson("") 抛「Unexpected end of JSON input」。
   it("首次调用空正文 → 加倍 max_tokens 重试一次并正常解析", async () => {
-    const calls = [];
+    const calls: ChatCompletionCall[] = [];
     const good = JSON.stringify({
       chapters: [{ title: "章1", timestampSeconds: 5, summary: "甲" }],
       keyQuotes: [{ quote: "金句1", timestampSeconds: 30 }]
@@ -336,7 +349,7 @@ describe("空正文重试", () => {
 
     expect(chatCompletion).toHaveBeenCalledTimes(2);
     // 重试调用按原估算预算加倍，给思考之后的正文留出空间
-    expect(calls[1].maxTokens).toBe(calls[0].maxTokens * 2);
+    expect(calls[1].maxTokens).toBe(calls[0].maxTokens! * 2);
     expect(calls[1].messages).toEqual(calls[0].messages);
     expect(result.chapters.map((c) => c.title)).toEqual(["章1"]);
     expect(result.quotes).toEqual([{ from: 30, content: "金句1" }]);
@@ -447,7 +460,7 @@ describe("自带章节短路径", () => {
     expect(system).not.toContain("产出一份结构化概览：章节 + 金句");
     expect(system).not.toContain('"chapters"');
     // 用户提示词无「后段门槛」（章节不由模型产出）
-    expect(calls[0].messages.at(-1).content).not.toContain("后段门槛");
+    expect(calls[0].messages.at(-1)!.content).not.toContain("后段门槛");
 
     // 产物同构：章节取稿件标题 + 金句归位
     expect(result.chapters).toEqual([
@@ -471,7 +484,7 @@ describe("自带章节短路径", () => {
 
     expect(chatCompletion).toHaveBeenCalledTimes(5);
     expect(calls.every((c) => c.messages[0].content.includes("为它挑选金句"))).toBe(true);
-    const secondUser = calls.find((c) => c.messages.at(-1).content.includes("第 2 / 5 段")).messages.at(-1).content;
+    const secondUser = calls.find((c) => c.messages.at(-1)!.content.includes("第 2 / 5 段"))!.messages.at(-1)!.content;
     expect(secondUser).toContain("只为这一段挑选金句，不要涉及其它时间段");
     expect(secondUser).toContain("前情回顾（上一段的结尾，只用来理解本段承接什么，不要从中挑金句）");
     expect(result.chapters).toEqual([
@@ -558,7 +571,7 @@ describe("缓存键与签名", () => {
 
 describe("promise 复用去重", () => {
   it("同视频生成中重复触发：共享同一进行中 promise，模型只调用一次", async () => {
-    let release;
+    let release!: (value?: unknown) => void;
     const gate = new Promise((resolve) => {
       release = resolve;
     });
@@ -629,7 +642,7 @@ describe("成本护栏与进度", () => {
 
   it("分段路径预估 ≥5 次调用且注入 askCostGuard：拒绝时抛 cancelled 标记错误", async () => {
     const { chatCompletion } = buildCompletionFake();
-    const askCostGuard = vi.fn(async () => false);
+    const askCostGuard = vi.fn(async (_message: string) => false);
     await expect(
       mod.runOverviewAnalysis({ provider: makeProvider(), context: guardContext() }, { chatCompletion, askCostGuard })
     ).rejects.toMatchObject({ cancelled: true });
@@ -859,7 +872,7 @@ describe("双路径 × 现成章节目录（简介/评论）", () => {
       { provider: makeProvider(), context: makeContext({ subtitleBody: body, videoDescription: description }) },
       { chatCompletion }
     );
-    const user = calls[0].messages.at(-1).content;
+    const user = calls[0].messages.at(-1)!.content;
     expect(user).toContain("现成章节目录（来自视频简介/评论，共 3 章）：");
     expect(user).toContain("0:00 开场");
     expect(user).toContain("3:25 安装与配置");
@@ -889,7 +902,7 @@ describe("双路径 × 现成章节目录（简介/评论）", () => {
       },
       { chatCompletion }
     );
-    const user = calls[0].messages.at(-1).content;
+    const user = calls[0].messages.at(-1)!.content;
     expect(user).toContain("现成章节目录（来自视频简介/评论，共 3 章）：");
     expect(user).toContain("5:00 数据结构");
   });
@@ -904,7 +917,7 @@ describe("双路径 × 现成章节目录（简介/评论）", () => {
     );
     expect(chatCompletion).toHaveBeenCalledTimes(5);
     for (const call of calls) {
-      expect(call.messages.at(-1).content).toContain("现成章节目录（来自视频简介/评论，共 4 章）：");
+      expect(call.messages.at(-1)!.content).toContain("现成章节目录（来自视频简介/评论，共 4 章）：");
     }
   });
 });

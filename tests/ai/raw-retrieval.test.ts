@@ -12,7 +12,7 @@ import {
 } from "../../extension/ai/raw-retrieval.js";
 
 // 构造一个原始字幕段：秒级 from/to + items（与 03 plan.segments / 04 缓存同构）。
-function seg(index, from, to, texts) {
+function seg(index: number, from: number, to: number, texts: string[]) {
   return {
     index,
     from,

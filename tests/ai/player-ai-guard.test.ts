@@ -17,20 +17,23 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
-import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
+import { DEFAULT_SETTINGS, type Settings } from "../../extension/core/defaults.js";
 // playerAiState 须按用例动态获取：beforeEach 的 vi.resetModules() 会换模块
 // 纪元，静态 import 拿到的实例与生产代码（动态 import 加载）不是同一对象。
-let playerAiState = null;
+let playerAiState: typeof import("../../extension/ai/player-ai-state.js").playerAiState;
 async function getPlayerAiState() {
   playerAiState = (await import("../../extension/ai/player-ai-state.js")).playerAiState;
   return playerAiState;
 }
 
-const storageChangeListeners = new Set();
+// storage.onChanged 的 listener 形状（stub 收集，emitStorageChange 手动派发）。
+type StorageChangeListener = (changes: Record<string, { newValue: unknown }>, area: string) => void;
+
+const storageChangeListeners = new Set<StorageChangeListener>();
 
 // 帧内快车道用例的手推 rAF 队列：jsdom 的 rAF 在 fake 时钟下按 16ms 拍触发，
 // 逐帧重试与预算耗尽的边界要确定就得自己推帧（见 installRafQueue/flushRafQueue）。
-let rafQueue = [];
+let rafQueue: FrameRequestCallback[] = [];
 let rafHandle = 0;
 function installRafQueue() {
   rafQueue = [];
@@ -44,13 +47,14 @@ function installRafQueue() {
 function flushRafQueue() {
   const pending = rafQueue;
   rafQueue = [];
-  pending.forEach((cb) => cb());
+  // 手推队列没有真实帧时间戳，回调本身不使用该参数（见 player-ai 调度器）。
+  pending.forEach((cb) => cb(0));
 }
 
 // 当前用例的内存设置引用：stubChrome 写入，emitStorageChange 更新并派发。
-let activeSettingsRef = null;
+let activeSettingsRef: { current: Partial<Settings> };
 // deferGetSettings 模式下挂起的 get-settings 回包回调（模拟 SW 冷启动未回包）。
-let pendingGetSettingsCallback = null;
+let pendingGetSettingsCallback: ((response: unknown) => void) | null = null;
 
 // 本用例期望的"当前设置"（与 DEFAULT_SETTINGS 合并后由
 // get-settings 回读返回，模拟 background 的 normalizeSettings 兜底）。
@@ -58,7 +62,7 @@ let pendingGetSettingsCallback = null;
 // 这里沿用；startPlayerAiQuickAction 会触发 ensurePlayerAiStyles 挂 link。
 // options.deferGetSettings：get-settings 不回包（缓存回调），模拟 SW 冷启动
 // 未响应，用于验证 content.js 的 storage 快路径门控不等 SW 往返。
-function stubChrome(settings, { deferGetSettings = false } = {}) {
+function stubChrome(settings: Partial<Settings>, { deferGetSettings = false }: { deferGetSettings?: boolean } = {}) {
   activeSettingsRef = { current: { ...settings } };
   pendingGetSettingsCallback = null;
   const runtime = {
@@ -111,7 +115,7 @@ function stubChrome(settings, { deferGetSettings = false } = {}) {
 
 // 派发 storage 变更并同步内存中的"当前设置"，模拟真实 sync storage 的读写一致
 // （reader watcher 的异步全量回读会拿到与 onChanged 相同的新值）。
-function emitStorageChange(key, newValue) {
+function emitStorageChange(key: string, newValue: unknown) {
   activeSettingsRef.current = { ...activeSettingsRef.current, [key]: newValue };
   const changes = { [key]: { newValue } };
   for (const listener of [...storageChangeListeners]) {
@@ -131,7 +135,7 @@ async function flushMicrotasks(times = 20) {
   }
 }
 
-async function loadContentScript(settings) {
+async function loadContentScript(settings: Partial<Settings>) {
   setLocationUrl(NORMAL_PAGE_URL);
   // S3 分层：player-ai 模块顶层即挂样式 link（ensurePlayerAiStyles），
   // 挂载用的 runtime.getURL 引用与断言无关。
@@ -159,12 +163,12 @@ async function loadContentScript(settings) {
   return { state: (await import("../../extension/core/state.js")).state, playerAiState: aiState };
 }
 
-function makePlayerDom() {
+function makePlayerDom(): Element {
   document.body.innerHTML = `
     <div class="bpx-player-container">
       <button type="button" aria-label="字幕" title="字幕">CC</button>
     </div>`;
-  return document.querySelector(".bpx-player-container");
+  return document.querySelector(".bpx-player-container")!;
 }
 
 beforeEach(() => {
@@ -262,9 +266,9 @@ describe("player-ai 启停守卫", () => {
     schedulePlayerAiQuickActionSync(0);
     flushRafQueue();
 
-    const button = document.getElementById("boc-player-ai-quick-action");
+    const button = document.getElementById("boc-player-ai-quick-action")!;
     expect(button).not.toBeNull();
-    const wrap = button.closest(".boc-player-ai-wrap");
+    const wrap = button.closest(".boc-player-ai-wrap")!;
     // 游标监听已绑：mousemove 应点亮按钮
     host.dispatchEvent(new MouseEvent("mousemove"));
     expect(wrap.classList.contains("is-active")).toBe(true);
@@ -460,12 +464,12 @@ describe("player-ai 重试退避节奏与注入耗时观测（工单 button-inje
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
     flushRafQueue();
     expect(rafQueue.length).toBe(0);
-    expect(setTimeoutSpy.mock.calls.at(-1)[1]).toBe(100);
+    expect(setTimeoutSpy.mock.calls.at(-1)![1]).toBe(100);
 
     // 退避节奏：预算耗尽后每一拍都是「定时器到点 → 重新吃满 20 帧 → 落回下一
     // 拍」，所以每观察一拍就整轮推进一次（20 帧 + 该拍毫秒数）。
     const stepOnce = async () => {
-      const ms = setTimeoutSpy.mock.calls.at(-1)[1];
+      const ms = setTimeoutSpy.mock.calls.at(-1)![1]!;
       for (let i = 0; i < 20; i += 1) {
         flushRafQueue();
       }
@@ -523,7 +527,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
 
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
-    const wrap = document.querySelector(".boc-player-ai-wrap");
+    const wrap = document.querySelector<HTMLElement>(".boc-player-ai-wrap")!;
     expect(wrap).not.toBeNull();
 
     // 复校前：按钮已稳定就位，sync 走视觉短路——内联样式零写入
@@ -536,7 +540,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     const control = document.createElement("button");
     control.setAttribute("aria-label", "字幕");
     control.setAttribute("title", "字幕");
-    wrap.parentElement.appendChild(control);
+    wrap.parentElement!.appendChild(control);
     await flushMicrotasks();
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
@@ -562,14 +566,14 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     installRafQueue();
     schedulePlayerAiQuickActionSync(0);
     flushRafQueue();
-    const firstWrap = document.querySelector(".boc-player-ai-wrap");
+    const firstWrap = document.querySelector<HTMLElement>(".boc-player-ai-wrap")!;
     expect(firstWrap).not.toBeNull();
 
     // 旧视频控制条水合：首次复校（flag 置位，内联变量全量重写）
     const control = document.createElement("button");
     control.setAttribute("aria-label", "字幕");
     control.setAttribute("title", "字幕");
-    firstWrap.parentElement.appendChild(control);
+    firstWrap.parentElement!.appendChild(control);
     await flushMicrotasks();
     schedulePlayerAiQuickActionSync(0);
     flushRafQueue();
@@ -580,7 +584,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     stopPlayerAiQuickAction();
     startPlayerAiQuickAction();
     flushRafQueue();
-    const wrap = document.querySelector(".boc-player-ai-wrap");
+    const wrap = document.querySelector<HTMLElement>(".boc-player-ai-wrap")!;
     expect(wrap).not.toBeNull();
 
     // 新视频未校准前稳定短路：内联样式零写入
@@ -593,7 +597,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     const newControl = document.createElement("button");
     newControl.setAttribute("aria-label", "字幕");
     newControl.setAttribute("title", "字幕");
-    wrap.parentElement.appendChild(newControl);
+    wrap.parentElement!.appendChild(newControl);
     await flushMicrotasks();
     schedulePlayerAiQuickActionSync(0);
     flushRafQueue();
@@ -612,7 +616,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
 
     // 模拟 B 站重渲染把按钮连 wrap 一起摘掉
-    document.querySelector(".boc-player-ai-wrap").remove();
+    document.querySelector<HTMLElement>(".boc-player-ai-wrap")!.remove();
     expect(document.getElementById("boc-player-ai-quick-action")).toBeNull();
 
     // 观察器补 sync 排 rAF，推进一帧即重挂

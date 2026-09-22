@@ -18,7 +18,7 @@ import {
 // 构造 contextData：原始字幕体（subtitleBody）只含一条正文为整篇 markdown 的
 // 条目（关闭时间戳渲染），用于断言压缩后绝不含整篇原始字幕、未成稿回退输出与
 // body 内容逐字一致。
-function makeContext(markdown) {
+function makeContext(markdown: string) {
   return {
     title: "测试视频",
     subtitleBody: markdown ? [{ from: 0, to: 1, content: markdown }] : [],
@@ -29,7 +29,7 @@ function makeContext(markdown) {
 // 全文独有的段落：只存在于原始字幕全文，任何压缩结果都不应包含它。
 const UNIQUE_RAW_MARKER = "这个段落只属于原始字幕全文，压缩摘要绝不该出现";
 
-function makeUniqueMarkdown(length) {
+function makeUniqueMarkdown(length: number) {
   return "a".repeat(length) + "\n\n" + UNIQUE_RAW_MARKER + "\n\n" + "b".repeat(length);
 }
 
@@ -47,7 +47,7 @@ describe("hasFinalNote：首轮 / 尚未成稿判定", () => {
   it("note 为空白串 / summaries 空数组 / 非数组 → false", () => {
     expect(hasFinalNote({ note: "   ", segmentSummaries: ["小结一"] })).toBe(false);
     expect(hasFinalNote({ note: "笔记", segmentSummaries: [] })).toBe(false);
-    expect(hasFinalNote({ note: "笔记", segmentSummaries: "小结一" })).toBe(false);
+    expect(hasFinalNote({ note: "笔记", segmentSummaries: "小结一" as unknown as unknown[] })).toBe(false);
   });
 
   it("note 非空 + 非空 summaries → true（已「成稿」）", () => {
@@ -112,8 +112,8 @@ describe("buildCompressedSummary：组装与边界", () => {
   });
 
   it("非数组 segmentSummaries 容错为空", () => {
-    expect(buildCompressedSummary({ segmentSummaries: "小结一" })).toBe("");
-    expect(buildCompressedSummary({ segmentSummaries: null, note: "笔记" })).toContain("## 成稿笔记");
+    expect(buildCompressedSummary({ segmentSummaries: "小结一" as unknown as unknown[] })).toBe("");
+    expect(buildCompressedSummary({ segmentSummaries: null as unknown as unknown[], note: "笔记" })).toContain("## 成稿笔记");
   });
 });
 

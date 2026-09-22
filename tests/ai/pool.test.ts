@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let mod;
+let mod: typeof import("../../extension/ai/pool.js");
 
 async function importModules() {
   vi.resetModules();
@@ -28,7 +28,7 @@ describe("并发上限", () => {
     const items = [0, 1, 2, 3, 4, 5, 6, 7];
     let inFlight = 0;
     let peak = 0;
-    const done = [];
+    const done: number[] = [];
     const worker = vi.fn(async (item, index) => {
       inFlight += 1;
       peak = Math.max(peak, inFlight);
@@ -70,7 +70,7 @@ describe("并发上限", () => {
 describe("原始下标与完成顺序", () => {
   it("完成顺序可乱（手动 resolution），results 仍按原始下标排布、onItemDone 收到原始 index", async () => {
     const items = ["a", "b", "c"];
-    const release = [];
+    const release: Array<(value?: unknown) => void> = [];
     const gates = items.map(
       () =>
         new Promise((resolve) => {
@@ -82,7 +82,7 @@ describe("原始下标与完成顺序", () => {
       await gates[index];
       return item.toUpperCase();
     });
-    const doneIndexes = [];
+    const doneIndexes: number[] = [];
     const onItemDone = vi.fn((result, index) => {
       doneIndexes.push(index);
     });
@@ -113,7 +113,7 @@ describe("原始下标与完成顺序", () => {
       await new Promise((resolve) => setTimeout(resolve, 40 - item));
       return item + 1;
     });
-    const seen = [];
+    const seen: Array<{ index: number; result: number }> = [];
     const results = await mod.runMapBounded({
       items,
       worker,
@@ -121,7 +121,7 @@ describe("原始下标与完成顺序", () => {
     });
 
     expect(results).toEqual([11, 21, 31]);
-    const indexOf = (index) => seen.find((s) => s.index === index).result;
+    const indexOf = (index: number) => seen.find((s) => s.index === index)!.result;
     expect(indexOf(0)).toBe(11);
     expect(indexOf(1)).toBe(21);
     expect(indexOf(2)).toBe(31);
@@ -132,7 +132,7 @@ describe("signal 中止", () => {
   it("abort 后不再启动新项；已启动的照常收尾，返回已完成的 results", async () => {
     const items = [0, 1, 2, 3, 4, 5];
     const controller = new AbortController();
-    const started = [];
+    const started: number[] = [];
     let startedCount = 0;
     const worker = vi.fn(async (item, index) => {
       startedCount += 1;
@@ -158,7 +158,7 @@ describe("signal 中止", () => {
   it("abort 时若已启动的 worker 抛 aborted 标记错误，整体 rethrow 该错误", async () => {
     const items = [0, 1, 2, 3];
     const controller = new AbortController();
-    const abortError = new Error("已停止生成");
+    const abortError: Error & { aborted?: boolean } = new Error("已停止生成");
     abortError.aborted = true;
     const worker = vi.fn(async (item) => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -210,7 +210,7 @@ describe("重试语义", () => {
 
   it("带 aborted 标记的错误不重试、直接 rethrow", async () => {
     const items = ["x"];
-    const abortError = new Error("已停止生成");
+    const abortError: Error & { aborted?: boolean } = new Error("已停止生成");
     abortError.aborted = true;
     const worker = vi.fn(async () => {
       throw abortError;
@@ -223,9 +223,9 @@ describe("重试语义", () => {
   it("单段重试耗尽（rethrow）前，先完成的其它段已通过 onItemDone 回吐", async () => {
     const items = ["ok1", "bad", "ok2"];
     const badError = new Error("boom");
-    const release = [];
+    const release: Array<(value?: unknown) => void> = [];
     const gates = items.map(() => new Promise((resolve) => release.push(resolve)));
-    const doneResults = [];
+    const doneResults: string[] = [];
     const worker = vi.fn(async (item) => {
       await gates[items.indexOf(item)];
       if (item === "bad") throw badError;
@@ -254,7 +254,7 @@ describe("重试语义", () => {
 
 describe("溢出错误不重试（同素材重发必然再溢出，交上层放宽预算重跑）", () => {
   it("worker 抛 overflow 标记错误 → 不重试（调用 1 次）、整体 rethrow", async () => {
-    const overflowError = new Error("上下文超出模型限制");
+    const overflowError: Error & { overflow?: boolean } = new Error("上下文超出模型限制");
     overflowError.overflow = true;
     let calls = 0;
     const worker = vi.fn(async () => {

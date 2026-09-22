@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseSsePayload } from "../../extension/ai/sse-parser.js";
 import { chatCompletion } from "../../extension/ai/completion.js";
+import type { StreamChatEvent } from "../../extension/ai/types.js";
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 
@@ -82,7 +83,7 @@ describe("parseSsePayload 纯函数", () => {
 
 describe("SSE 字节级分包（经 chatCompletion 流式缝）", () => {
   // 原始字节块响应：chunks 为 Uint8Array 数组，按 read() 顺序返回
-  function sseBytesResponse(byteChunks) {
+  function sseBytesResponse(byteChunks: Uint8Array[]): Response {
     let i = 0;
     return {
       ok: true,
@@ -99,7 +100,7 @@ describe("SSE 字节级分包（经 chatCompletion 流式缝）", () => {
           };
         }
       }
-    };
+    } as unknown as Response;
   }
 
   it("多字节 UTF-8 字符跨 chunk 从字节中间切开：拼齐后逐字还原", async () => {
@@ -109,9 +110,9 @@ describe("SSE 字节级分包（经 chatCompletion 流式缝）", () => {
     const charStart = bytes.findIndex((b, i) => i > 6 && b === 0xe5);
     expect(charStart).toBeGreaterThan(6);
     const cut = charStart + 1;
-    const fetchMock = vi.fn(async () => sseBytesResponse([bytes.slice(0, cut), bytes.slice(cut)]));
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => sseBytesResponse([bytes.slice(0, cut), bytes.slice(cut)]));
 
-    const events = [];
+    const events: StreamChatEvent[] = [];
     await chatCompletion({
       provider: PROVIDER,
       messages: [],
@@ -123,15 +124,15 @@ describe("SSE 字节级分包（经 chatCompletion 流式缝）", () => {
   });
 
   it("一个 chunk 内多行 data: 前缀变体（无空格 / 多余空格）+ [DONE] 终止后不再产出", async () => {
-    const payload = (delta) => JSON.stringify({ choices: [{ delta }] });
+    const payload = (delta: Record<string, unknown>) => JSON.stringify({ choices: [{ delta }] });
     const text =
       `data:${payload({ content: "甲" })}\n\n` + // data: 后无空格
       `data:  ${payload({ content: "乙" })}\n\n` + // 多余空格
       "data: [DONE]\n\n" +
       `data: ${payload({ content: "不该出现" })}\n\n`; // [DONE] 之后的行（容错：解析器不炸）
-    const fetchMock = vi.fn(async () => sseBytesResponse([new TextEncoder().encode(text)]));
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => sseBytesResponse([new TextEncoder().encode(text)]));
 
-    const events = [];
+    const events: StreamChatEvent[] = [];
     await chatCompletion({
       provider: PROVIDER,
       messages: [],

@@ -50,7 +50,7 @@ vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => ({
 }));
 
 import { resolveAiConversationContext } from "../../extension/ai/context-resolver.js";
-import { fetchSubtitleBundle } from "../../extension/bilibili/gateway.js";
+import { fetchSubtitleBundle, type Chapter } from "../../extension/bilibili/gateway.js";
 
 const CONTEXT_REF = {
   title: "入口标题",
@@ -80,8 +80,8 @@ describe("resolveAiConversationContext chapters 透传", () => {
   });
 
   it("bundle 无章节 → chapters 为空数组（非 undefined）", async () => {
-    fetchSubtitleBundle.mockResolvedValueOnce({
-      tracks: [{ id: "sub-1", subtitleUrl: "https://s.example.com/1.json", lan: "zh-CN", lanDoc: "中文" }],
+    vi.mocked(fetchSubtitleBundle).mockResolvedValueOnce({
+      tracks: [{ id: "sub-1", subtitleUrl: "https://s.example.com/1.json", lan: "zh-CN", lanDoc: "中文", source: "player-wbi-v2" }],
       chapters: []
     });
 
@@ -90,9 +90,9 @@ describe("resolveAiConversationContext chapters 透传", () => {
   });
 
   it("bundle 章节为脏值（非数组）→ chapters 回落空数组", async () => {
-    fetchSubtitleBundle.mockResolvedValueOnce({
-      tracks: [{ id: "sub-1", subtitleUrl: "https://s.example.com/1.json", lan: "zh-CN", lanDoc: "中文" }],
-      chapters: undefined
+    vi.mocked(fetchSubtitleBundle).mockResolvedValueOnce({
+      tracks: [{ id: "sub-1", subtitleUrl: "https://s.example.com/1.json", lan: "zh-CN", lanDoc: "中文", source: "player-wbi-v2" }],
+      chapters: undefined as unknown as Chapter[]
     });
 
     const result = await resolveAiConversationContext(CONTEXT_REF);

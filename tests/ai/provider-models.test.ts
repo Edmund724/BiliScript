@@ -5,17 +5,17 @@
 // 回包是「Failed to fetch」这类看不出原因的文案，必须换成可操作提示。
 // 判定与 AI/ASR 连通性探针共用 core/host-permissions.js 的一份实现。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let fetchMock;
+let fetchMock: Mock;
 
 async function loadModule() {
   return import("../../extension/ai/provider-models.js");
 }
 
 // 最小响应对象（探测代码只消费 ok / status / text / json）。
-function jsonResponse(status, body) {
+function jsonResponse(status: number, body: unknown) {
   return {
     ok: status >= 200 && status < 300,
     status,

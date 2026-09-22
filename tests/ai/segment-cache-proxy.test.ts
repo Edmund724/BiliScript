@@ -8,9 +8,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let proxy;
-let flushSegmentCacheRawBuffer;
-let sendMessageMock;
+let proxy: typeof import("../../extension/ai/segment-cache-proxy.js").segmentCacheProxy;
+let flushSegmentCacheRawBuffer: typeof import("../../extension/ai/segment-cache-proxy.js").flushSegmentCacheRawBuffer;
+let sendMessageMock: ReturnType<typeof vi.fn>;
 
 const CONTEXT = { bvid: "BV1p", cid: "1", selectedSubtitleId: "sub-1" };
 

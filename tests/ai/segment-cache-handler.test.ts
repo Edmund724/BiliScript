@@ -5,10 +5,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { SegmentCacheMessage, SegmentCacheResponse, SendResponse } from "../../extension/shared/messaging-protocol.js";
 
-let mod;
-let storage;
-let handler;
+let mod: typeof import("../../extension/ai/segment-cache-handler.js");
+let storage: ReturnType<typeof createMemoryStorage>;
+let handler: ReturnType<typeof import("../../extension/ai/segment-cache-handler.js").createSegmentCacheHandler>;
 
 function createMemoryStorage() {
   const map = new Map();
@@ -18,7 +19,7 @@ function createMemoryStorage() {
         return Object.fromEntries(map.entries());
       }
       const want = Array.isArray(keys) ? keys : [keys];
-      const out = {};
+      const out: Record<string, unknown> = {};
       for (const k of want) {
         if (map.has(k)) {
           out[k] = map.get(k);
@@ -49,8 +50,8 @@ async function importModules() {
   handler = mod.createSegmentCacheHandler();
 }
 
-function request(message) {
-  return new Promise((resolve) => handler(message, {}, resolve));
+function request(message: SegmentCacheMessage): Promise<SegmentCacheResponse> {
+  return new Promise<SegmentCacheResponse>((resolve) => handler(message, {}, resolve as SendResponse));
 }
 
 const CONTEXT = { bvid: "BV1h", cid: "9", selectedSubtitleId: "sub-1", selectedSubtitleUrl: "", subtitleLang: "" };

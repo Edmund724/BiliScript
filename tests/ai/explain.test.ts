@@ -3,13 +3,18 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { ToolStatusPayload } from "../../extension/ai/tool-loop.js";
 
-const completionMock = vi.hoisted(() => ({ chatCompletion: vi.fn(async () => "  解释文本  ") }));
+// chatCompletion 替身：非流式返回文本，工具轮返回 tool_calls 结果对象
+// （返回类型放宽到 any——mockResolvedValueOnce 两种形态都要能塞进去）。
+const completionMock = vi.hoisted(() => ({
+  chatCompletion: vi.fn(async (_args?: any): Promise<any> => "  解释文本  ")
+}));
 
 // parseToolArgs 用真实实现（tool-loop 回填 tool 消息复用；JSON 宽容解析）。
 vi.mock("../../extension/ai/completion.js", () => ({
   chatCompletion: completionMock.chatCompletion,
-  parseToolArgs: (raw) => {
+  parseToolArgs: (raw: string) => {
     try {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object" && typeof parsed.query === "string") {
@@ -20,7 +25,7 @@ vi.mock("../../extension/ai/completion.js", () => ({
   }
 }));
 
-let explain;
+let explain: typeof import("../../extension/ai/explain.js");
 
 const BODY = [
   { from: 0, content: "我们习惯把语言视为空气" },
@@ -188,8 +193,8 @@ describe("explainSelection", () => {
         toolCalls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"传递信息的工具"}' } }]
       })
       .mockResolvedValueOnce("  最终解释  ");
-    const statuses = [];
-    const notices = [];
+    const statuses: ToolStatusPayload[] = [];
+    const notices: string[] = [];
     const text = await explain.explainSelection({
       provider: { baseUrl: "https://api.test/v1", apiKey: "sk", model: "m" },
       selection: "传递信息的工具",
@@ -237,8 +242,8 @@ describe("explainSelection", () => {
         toolCalls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"术语"}' } }]
       })
       .mockResolvedValueOnce("解释");
-    const statuses = [];
-    const notices = [];
+    const statuses: ToolStatusPayload[] = [];
+    const notices: string[] = [];
     const text = await explain.explainSelection({
       provider: { baseUrl: "https://api.test/v1", apiKey: "sk", model: "m" },
       selection: "术语",
@@ -259,7 +264,7 @@ describe("explainSelection", () => {
     expect(second.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: "tool", tool_call_id: "call_1", content: expect.stringContaining("搜索失败：HTTP 429") })
     ]));
-    expect(statuses.at(-1).status).toBe("failed");
+    expect(statuses.at(-1)!.status).toBe("failed");
     expect(notices).toEqual([expect.stringContaining("联网搜索失败")]);
   });
 

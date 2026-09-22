@@ -13,7 +13,8 @@ import {
   EXCEPTIONS,
   PROVIDERS,
   resolveThinkingProfile,
-  validateThinkingTables
+  validateThinkingTables,
+  type ResolveThinkingInput
 } from "../../extension/ai/thinking-profiles.js";
 
 // 与 core/presets.ts 的 AI preset baseUrl 一致（host 推断的输入形状）。
@@ -29,7 +30,7 @@ const SILICONFLOW_URL = "https://api.siliconflow.cn/v1";
 const AMD_URL = "https://developer.amd.com.cn/radeon/api/v1";
 const SENSENOVA_URL = "https://token.sensenova.cn/v1";
 
-const resolve = (overrides) => resolveThinkingProfile({ model: "m", level: "off", stream: false, ...overrides });
+const resolve = (overrides: Partial<ResolveThinkingInput>) => resolveThinkingProfile({ model: "m", level: "off", stream: false, ...overrides });
 
 describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", () => {
   it("例外表压过模式表：qwen3.8-max 命中例外（effort 档），qwen3.8- 前缀其余模型走模式表开关", () => {

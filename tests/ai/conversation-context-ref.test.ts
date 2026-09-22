@@ -135,7 +135,7 @@ describe("buildAiContextRef 输入兜底", () => {
 
 describe("buildContextPlaceholder 在统一构造器结果上补占位字段", () => {
   it("15 字段齐 + hotComments 空数组（协议不再有 subtitleMarkdown）", () => {
-    const placeholder = buildContextPlaceholder(FULL_INPUT);
+    const placeholder = buildContextPlaceholder(FULL_INPUT)!;
     expect(Object.keys(placeholder)).toEqual([...EXPECTED_FIELDS, "hotComments"]);
     expect(placeholder.title).toBe("测试视频");
     expect(placeholder.bvid).toBe("BV1full");
@@ -145,7 +145,7 @@ describe("buildContextPlaceholder 在统一构造器结果上补占位字段", (
   });
 
   it("chapters 缺省的旧会话 ref → chapters undefined，其余占位字段照常", () => {
-    const placeholder = buildContextPlaceholder({ title: "旧会话", bvid: "BV1old" });
+    const placeholder = buildContextPlaceholder({ title: "旧会话", bvid: "BV1old" })!;
     expect(placeholder.chapters).toBeUndefined();
     expect(placeholder.hotComments).toEqual([]);
   });

@@ -17,7 +17,7 @@ describe("TokenBatcher 合帧窗口", () => {
   });
 
   it("窗口内多个 token 合并成一批；窗口到期才吐", () => {
-    const batches = [];
+    const batches: string[][] = [];
     const batcher = new TokenBatcher({ onFlush: (tokens) => batches.push(tokens) });
 
     for (const t of ["a", "b", "c"]) {
@@ -29,7 +29,7 @@ describe("TokenBatcher 合帧窗口", () => {
   });
 
   it("窗口从首 token 起算；flush 后静默期重新起窗", () => {
-    const batches = [];
+    const batches: string[][] = [];
     const batcher = new TokenBatcher({ onFlush: (tokens) => batches.push(tokens), windowMs: 30 });
 
     batcher.push("t1");
@@ -44,7 +44,7 @@ describe("TokenBatcher 合帧窗口", () => {
   });
 
   it("maxPending 积压上限提前 flush，且不留残余计时器", () => {
-    const batches = [];
+    const batches: string[][] = [];
     const batcher = new TokenBatcher({ onFlush: (tokens) => batches.push(tokens), maxPending: 4 });
 
     for (let i = 0; i < 4; i += 1) {
@@ -56,7 +56,7 @@ describe("TokenBatcher 合帧窗口", () => {
   });
 
   it("flush() 同步收尾剩余积压并清计时器；空 flush 不吐", () => {
-    const batches = [];
+    const batches: string[][] = [];
     const batcher = new TokenBatcher({ onFlush: (tokens) => batches.push(tokens) });
 
     batcher.flush(); // 空 flush：无输出
@@ -74,7 +74,7 @@ describe("TokenBatcher 合帧窗口", () => {
   });
 
   it("不丢不重：交错窗口到期与积压上限，全批次拼接 === 原序列", () => {
-    const batches = [];
+    const batches: string[][] = [];
     const batcher = new TokenBatcher({ onFlush: (tokens) => batches.push(tokens), windowMs: 40, maxPending: 7 });
 
     const source = Array.from({ length: 1000 }, (_, i) => `tok-${i}-xyz`);

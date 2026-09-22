@@ -6,8 +6,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
 
-let mod;
-let segmentCacheLoop;
+let mod: typeof import("../../extension/ai/map-reduce.js");
+let segmentCacheLoop: Awaited<ReturnType<typeof installSegmentCacheLoop>>;
 
 // 段缓存 SW 回路（arch-review-2026-09/05）：段缓存宿主迁 SW，orchestrateMapReduce
 // 的缺省 segmentCache 是消息代理——测试环境把 chrome.runtime.sendMessage 路由到
@@ -21,7 +21,7 @@ function createMemoryStorage() {
         return Object.fromEntries(map.entries());
       }
       const want = Array.isArray(keys) ? keys : [keys];
-      const out = {};
+      const out: Record<string, unknown> = {};
       for (const k of want) {
         if (map.has(k)) {
           out[k] = map.get(k);
@@ -96,7 +96,7 @@ function makePort() {
 }
 
 // 组装非流式 JSON 响应。
-function jsonResponse(payload, ok = true, status = 200) {
+function jsonResponse(payload: unknown, ok = true, status = 200) {
   return {
     ok,
     status,
@@ -107,7 +107,7 @@ function jsonResponse(payload, ok = true, status = 200) {
 
 // 依 messages[user].content 里的「第 i/N 个连续片段」返回小结；成稿调用返回笔记。
 function buildSequencedMock() {
-  const summaryTexts = {
+  const summaryTexts: Record<number, string> = {
     1: "小结一：事实A。",
     2: "小结二：事实B。",
     3: "小结三：事实C。",
@@ -353,8 +353,7 @@ describe("orchestrateMapReduce 中止", () => {
       chapters: []
     });
 
-    const abortError = new Error("已停止生成");
-    abortError.aborted = true;
+    const abortError = Object.assign(new Error("已停止生成"), { aborted: true });
     fetchMock.mockImplementation(async (_url, init) => {
       const body = JSON.parse(init.body);
       const user = body.messages[body.messages.length - 1]?.content || "";
@@ -444,7 +443,7 @@ describe("缓存写入最终失败的上浮（LRU 淘汰后重试仍失败）", 
     const { fetchMock } = buildSequencedMock();
     vi.stubGlobal("fetch", fetchMock);
     // 存储写入持续失败（模拟容量不足）：所有 save 都走「淘汰→重试→失败」链
-    globalThis.chrome.storage.local.set.mockRejectedValue(new Error("quota"));
+    vi.mocked(globalThis.chrome.storage.local.set).mockRejectedValue(new Error("quota"));
     const port = makePort();
 
     const context = makeContext();
@@ -594,8 +593,7 @@ describe("溢出放宽预算重跑（context-length 溢出的编排级兜底）"
 
   it("中止（aborted）不触发预算重跑：stopped 收束，无重试 notice", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => {
-      const e = new Error("已停止生成");
-      e.aborted = true;
+      const e = Object.assign(new Error("已停止生成"), { aborted: true });
       throw e;
     }));
     const port = makePort();
@@ -637,7 +635,11 @@ describe("presetId 穿线（概览 Map-Reduce 链 → 请求体）", () => {
     });
 
     const result = await mod.orchestrateMapReduce({
-      provider: { baseUrl: "https://thinking-proxy.example.com/v1", model: "Qwen/Qwen3-32B", apiKey: "sk-test", presetId: "modelscope" },
+      provider: Object.assign(makeProvider(), {
+        baseUrl: "https://thinking-proxy.example.com/v1",
+        model: "Qwen/Qwen3-32B",
+        presetId: "modelscope"
+      }),
       context,
       plan,
       port,
@@ -694,7 +696,7 @@ describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
       }
       noteCalls += 1;
       if (noteCalls === 1) {
-        return { ok: false, status: 400, text: async () => "maximum context length exceeded" };
+        return { ok: false, status: 400, text: async (): Promise<string> => "maximum context length exceeded" };
       }
       return jsonResponse({ choices: [{ message: { content: "# 视频笔记：《测试视频》\n收紧档正文。" } }] });
     });

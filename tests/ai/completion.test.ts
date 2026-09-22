@@ -13,10 +13,26 @@ import {
   normalizeThinkingLevel,
   isContextLengthOverflow,
   makeOverflowError,
-  OPENAI_CHAT_PATH
+  OPENAI_CHAT_PATH,
+  type ChatToolDefinition
 } from "../../extension/ai/completion.js";
+import type { StreamChatEvent } from "../../extension/ai/types.js";
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
+
+type FetchImpl = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+// 假 fetch 工厂：显式声明签名，mock.calls 才带 [url, init] 元组类型；返回值只
+// 消费 Response 的少数字段，形状断言在这里统一收口（同 tests/search 惯例）。
+function mockFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<unknown>) {
+  return vi.fn<FetchImpl>(impl as FetchImpl);
+}
+
+// init 形状：测试按记录/字符串取 body 与 headers（HeadersInit 联合的断言侧收口）。
+type InitLike = { body: string; headers: Record<string, string>; method?: string };
+
+// onRetry 载荷（completion 的 RetryPayload 未导出，按结构标注）。
+type RetryInfo = { attempt: number; maxRetries: number; kind: "fetch" | "http" | "stream"; error: Error };
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -27,23 +43,23 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// 非流式 JSON 响应。
-function jsonResponse(payload, ok = true, status = 200) {
+// 假 Response：只实现测试消费的字段，形状断言收口在返回处。
+function jsonResponse(payload: unknown, ok = true, status = 200): Response {
   return {
     ok,
     status,
     text: vi.fn(async () => JSON.stringify(payload)),
     json: async () => payload
-  };
+  } as unknown as Response;
 }
 
 // 非流式纯文本响应（探针 !ok / HTTP 错误路径用）。
-function textResponse(text, ok = false, status = 400) {
-  return { ok, status, text: vi.fn(async () => text), json: vi.fn() };
+function textResponse(text: string, ok = false, status = 400): Response {
+  return { ok, status, text: vi.fn(async () => text), json: vi.fn() } as unknown as Response;
 }
 
 // SSE 流式响应：chunks 按 read() 顺序返回（编码为 UTF-8 字节）。
-function sseResponse(chunks) {
+function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
   let i = 0;
   return {
@@ -61,17 +77,17 @@ function sseResponse(chunks) {
         };
       }
     }
-  };
+  } as unknown as Response;
 }
 
 // 组装一条 OpenAI 兼容 SSE data: 行。
-function sseData(delta) {
+function sseData(delta: unknown) {
   return `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
 }
 
 describe("请求构造对照表（url / body / headers）", () => {
   it("baseUrl 去尾斜杠（单个与多个）+ 拼接 OPENAI_CHAT_PATH；Bearer 仅当 apiKey", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
 
     await chatCompletion({
       provider: { baseUrl: "https://api.example.com/v1/", model: "m", apiKey: "sk-1" },
@@ -94,23 +110,23 @@ describe("请求构造对照表（url / body / headers）", () => {
       expect(url).toBe(`https://api.example.com/v1${OPENAI_CHAT_PATH}`);
       expect(url).toContain("/chat/completions");
     }
-    const [, withKey] = fetchMock.mock.calls[0];
+    const withKey = fetchMock.mock.calls[0][1] as InitLike;
     expect(withKey.headers.Authorization).toBe("Bearer sk-1");
     expect(withKey.method).toBe("POST");
     // 无 apiKey 时不带 Authorization，Content-Type 固定 JSON
-    const [, noKey] = fetchMock.mock.calls[2];
+    const noKey = fetchMock.mock.calls[2][1] as InitLike;
     expect(noKey.headers.Authorization).toBeUndefined();
     expect(noKey.headers["Content-Type"]).toBe("application/json");
   });
 
   it("思考档位经 thinking-profiles 查表：OpenAI gpt-5.1 off→effort none、low/high→effort；未知平台×模型三档不发", async () => {
     // 按请求体 stream 动态回响应：流式给 SSE 响应（可读体），非流式给 JSON 响应。
-    const fetchMock = vi.fn(async (_url, init) =>
-      JSON.parse(init.body).stream
+    const fetchMock = mockFetch(async (_url, init) =>
+      JSON.parse(init!.body as string).stream
         ? sseResponse([])
         : jsonResponse({ choices: [{ message: { content: "" } }] })
     );
-    const run = (provider, overrides) =>
+    const run = (provider: { baseUrl?: string; model?: string; apiKey?: string }, overrides: Partial<Parameters<typeof chatCompletion>[0]>) =>
       chatCompletion({
         provider,
         messages: [{ role: "user", content: "hi" }],
@@ -126,7 +142,7 @@ describe("请求构造对照表（url / body / headers）", () => {
     await run(PROVIDER, { stream: true, thinkingLevel: "off" });
     await run(PROVIDER, { stream: true });
 
-    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body));
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse((init as InitLike).body));
     // OpenAI：off（例外表）映射 effort none——不再发会让严格 400 的未知字段族
     expect(bodies[0]).toMatchObject({ reasoning_effort: "none" });
     expect(bodies[0]).not.toHaveProperty("thinking");
@@ -143,7 +159,7 @@ describe("请求构造对照表（url / body / headers）", () => {
 
   it("probe 模式：max_tokens:1 + ping 消息 + stream:false；额外头合并且不覆盖 Content-Type", async () => {
     const response = jsonResponse({ choices: [{ message: { content: "" } }] });
-    const fetchMock = vi.fn(async () => response);
+    const fetchMock = mockFetch(async () => response);
 
     await chatCompletion({
       provider: PROVIDER,
@@ -158,13 +174,13 @@ describe("请求构造对照表（url / body / headers）", () => {
     // 探针省略档位 ⇒ 回落 off ⇒ 经 thinking-profiles 查表：未知平台×模型无事实
     // （UNKNOWN 哨兵）→ 不发任何思考字段。旧实现霰弹枪双发 thinking+enable_thinking
     // 会让 OpenAI 严格校验的探针必 400；查表后字段跟着平台走（见下一条用例）。
-    expect(JSON.parse(init.body)).toEqual({
+    expect(JSON.parse((init as InitLike).body)).toEqual({
       model: "test-model",
       messages: [{ role: "user", content: "ping" }],
       stream: false,
       max_tokens: 1
     });
-    expect(init.headers).toEqual({
+    expect((init as InitLike).headers).toEqual({
       Accept: "application/json",
       "Content-Type": "application/json",
       Authorization: "Bearer sk-test"
@@ -172,7 +188,7 @@ describe("请求构造对照表（url / body / headers）", () => {
   });
 
   it("probe 在 OpenAI reasoning 模型上发 reasoning_effort:none + max_completion_tokens:1（查表后不再带必 400 的字段族）", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
       provider: { baseUrl: "https://api.openai.com/v1", model: "gpt-5.1", apiKey: "sk-1" },
@@ -181,7 +197,7 @@ describe("请求构造对照表（url / body / headers）", () => {
       fetchImpl: fetchMock
     });
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body)).toEqual({
       model: "gpt-5.1",
       messages: [{ role: "user", content: "ping" }],
       stream: false,
@@ -191,7 +207,7 @@ describe("请求构造对照表（url / body / headers）", () => {
   });
 
   it("显式 maxTokens 写进 body；传入 headers 已带 Authorization 时不重复注入", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
       provider: PROVIDER,
@@ -201,7 +217,7 @@ describe("请求构造对照表（url / body / headers）", () => {
       fetchImpl: fetchMock
     });
 
-    const [, init] = fetchMock.mock.calls[0];
+    const init = fetchMock.mock.calls[0][1] as InitLike;
     expect(JSON.parse(init.body).max_tokens).toBe(7);
     expect(init.headers.Authorization).toBe("Bearer pre-set");
   });
@@ -228,7 +244,7 @@ describe("请求构造对照表（url / body / headers）", () => {
 // 落地行为一致（上面的请求构造对照表即 01 golden，继续锁定）。
 describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
   it("provider.presetId 与 host 推断冲突时 presetId 赢：host 命中 Mimo 但记录是 ollama → effort 词汇", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
       // baseUrl 指向 Mimo 官方域（host 推断 → enable_thinking 族）；presetId
@@ -239,13 +255,13 @@ describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
       fetchImpl: fetchMock
     });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body);
     expect(body).toMatchObject({ reasoning_effort: "none" });
     expect(body).not.toHaveProperty("enable_thinking");
   });
 
   it("provider.presetId（如反代场景）→ 按 preset 平台规则出 enable_thinking 族", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
       provider: { baseUrl: "https://thinking-proxy.example.com/v1", apiKey: "sk-1", model: "qwen3-max", presetId: "qwen" },
@@ -254,11 +270,11 @@ describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
       fetchImpl: fetchMock
     });
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ enable_thinking: false });
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body)).toMatchObject({ enable_thinking: false });
   });
 
   it("presetId='custom'（旧记录 normalize 落点）→ 回落模型名识别：taxonomy 命中 DeepSeek 规则", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
       provider: { baseUrl: "https://thinking-proxy.example.com/v1", apiKey: "sk-1", model: "deepseek-v4-pro", presetId: "custom" },
@@ -267,11 +283,11 @@ describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
       fetchImpl: fetchMock
     });
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ thinking: { type: "disabled" } });
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body)).toMatchObject({ thinking: { type: "disabled" } });
   });
 
   it("旧记录不带 presetId 字段：host 推断照常（01 golden 不回归）", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
       provider: { baseUrl: "https://api.openai.com/v1", apiKey: "sk-1", model: "gpt-5.1" },
@@ -280,7 +296,7 @@ describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
       fetchImpl: fetchMock
     });
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ reasoning_effort: "none" });
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body)).toMatchObject({ reasoning_effort: "none" });
   });
 });
 
@@ -290,7 +306,7 @@ describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
 // 概览/分析的估算预算（含空正文加倍重试）与探针（maxTokens 默认 1）走同一接缝。
 describe("token 参数名映射（maxTokens 随类换名，04 号票）", () => {
   it("OpenAI reasoning 模型（gpt-5.1）+ maxTokens → 请求体 max_completion_tokens，无 max_tokens", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
       provider: { baseUrl: "https://api.openai.com/v1", apiKey: "sk-1", model: "gpt-5.1" },
@@ -299,13 +315,13 @@ describe("token 参数名映射（maxTokens 随类换名，04 号票）", () => 
       fetchImpl: fetchMock
     });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body);
     expect(body).toMatchObject({ max_completion_tokens: 4096 });
     expect(body).not.toHaveProperty("max_tokens");
   });
 
   it("非 reasoning 模型（deepseek-v4）+ maxTokens → 请求体仍 max_tokens（现状不变）", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
       provider: { baseUrl: "https://api.deepseek.com/v1", apiKey: "sk-1", model: "deepseek-v4-pro" },
@@ -314,7 +330,7 @@ describe("token 参数名映射（maxTokens 随类换名，04 号票）", () => 
       fetchImpl: fetchMock
     });
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body);
     expect(body).toMatchObject({ max_tokens: 4096 });
     expect(body).not.toHaveProperty("max_completion_tokens");
   });
@@ -390,7 +406,7 @@ describe("非流式返回值", () => {
   });
 
   it("响应体非法 JSON → 抛「响应解析失败」（不重试，只调一次）", async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => { throw new Error("bad json"); } }));
+    const fetchMock = mockFetch(async () => ({ ok: true, status: 200, json: async () => { throw new Error("bad json"); } }));
     await expect(
       chatCompletion({ provider: PROVIDER, messages: [], fetchImpl: fetchMock })
     ).rejects.toThrow("响应解析失败：bad json");
@@ -408,7 +424,7 @@ describe("SSE 流式解析与事件序列", () => {
         "data: [DONE]\n\n"
       ])
     );
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await chatCompletion({
       provider: PROVIDER,
       messages: [],
@@ -432,7 +448,7 @@ describe("SSE 流式解析与事件序列", () => {
         'lo"}}]}\n\ndata: {"choices":[{"delta":{"content":"!"}}]}\n\n'
       ])
     );
-    const events = [];
+    const events: StreamChatEvent[] = [];
     await chatCompletion({
       provider: PROVIDER,
       messages: [],
@@ -456,7 +472,7 @@ describe("SSE 流式解析与事件序列", () => {
         sseData({ content: "ok" })
       ])
     );
-    const events = [];
+    const events: StreamChatEvent[] = [];
     await chatCompletion({
       provider: PROVIDER,
       messages: [],
@@ -555,7 +571,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
       .mockRejectedValueOnce(new Error("Failed to fetch"))
       .mockRejectedValueOnce(new Error("Failed to fetch"))
       .mockResolvedValueOnce(sseResponse([sseData({ content: "ok" })]));
-    const retries = [];
+    const retries: RetryInfo[] = [];
 
     const result = await chatCompletion({
       provider: PROVIDER,
@@ -595,7 +611,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
 
   it("非溢出 HTTP 500 → 重试 2 次（kind=http），耗尽后抛带 status 的错误；401 同样重试（对齐旧 client 现状）", async () => {
     const fetchMock = vi.fn(async () => textResponse("boom", false, 500));
-    const retries = [];
+    const retries: RetryInfo[] = [];
 
     const error = await chatCompletion({
       provider: PROVIDER,
@@ -644,7 +660,7 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
   });
 
   it("读流中断（SSE 中途抛错）→ kind=stream 重试，最终成功；耗尽后抛原始错误", async () => {
-    const brokenReader = () => ({
+    const brokenReader = (): Response => ({
       ok: true,
       status: 200,
       body: {
@@ -656,11 +672,11 @@ describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
           };
         }
       }
-    });
+    } as unknown as Response);
     const fetchMock = vi.fn()
       .mockImplementationOnce(async () => brokenReader())
       .mockResolvedValueOnce(sseResponse([sseData({ content: "recovered" })]));
-    const retries = [];
+    const retries: RetryInfo[] = [];
 
     const result = await chatCompletion({
       provider: PROVIDER,
@@ -747,7 +763,7 @@ describe("溢出 / abort 不重试", () => {
   it("fetch 抛带 aborted 标记的假中止 → 收束为 { aborted: true }，不重试", async () => {
     const fetchMock = vi.fn(async () => {
       const e = new Error("已停止生成");
-      e.aborted = true;
+      (e as Error & { aborted?: boolean }).aborted = true;
       throw e;
     });
 
@@ -761,7 +777,7 @@ describe("溢出 / abort 不重试", () => {
     const controller = new AbortController();
     const encoder = new TextEncoder();
     let reads = 0;
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = mockFetch(async () => ({
       ok: true,
       status: 200,
       body: {
@@ -779,7 +795,7 @@ describe("溢出 / abort 不重试", () => {
         }
       }
     }));
-    const events = [];
+    const events: StreamChatEvent[] = [];
 
     await expect(
       chatCompletion({
@@ -841,7 +857,7 @@ describe("fetchImpl 注入", () => {
 
 describe("onStreamReset：读流中断重试的代际重置信号", () => {
   it("kind=stream 重试 → onStreamReset 在新流任何事件前调用恰一次", async () => {
-    const brokenReader = () => ({
+    const brokenReader = (): Response => ({
       ok: true,
       status: 200,
       body: {
@@ -853,12 +869,12 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
           };
         }
       }
-    });
+    } as unknown as Response);
     const fetchMock = vi.fn()
       .mockImplementationOnce(async () => brokenReader())
       .mockResolvedValueOnce(sseResponse([sseData({ content: "二代正文" })]));
-    const events = [];
-    const resets = [];
+    const events: StreamChatEvent[] = [];
+    const resets: string[] = [];
 
     await chatCompletion({
       provider: PROVIDER,
@@ -881,7 +897,7 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
     const fetchFail = vi.fn()
       .mockRejectedValueOnce(new Error("connection reset"))
       .mockResolvedValueOnce(sseResponse([sseData({ content: "ok" })]));
-    const resetsFetch = [];
+    const resetsFetch: number[] = [];
     await chatCompletion({
       provider: PROVIDER,
       messages: [],
@@ -898,7 +914,7 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
     const httpFail = vi.fn()
       .mockResolvedValueOnce({ ok: false, status: 500, text: async () => "server error" })
       .mockResolvedValueOnce(sseResponse([sseData({ content: "ok" })]));
-    const resetsHttp = [];
+    const resetsHttp: number[] = [];
     await chatCompletion({
       provider: PROVIDER,
       messages: [],
@@ -913,7 +929,7 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
   });
 
   it("连续两次读流中断（重试耗尽前）→ 每代流开始前各一次 reset；非流式不触发", async () => {
-    const brokenReader = () => ({
+    const brokenReader = (): Response => ({
       ok: true,
       status: 200,
       body: {
@@ -925,12 +941,12 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
           };
         }
       }
-    });
+    } as unknown as Response);
     const fetchMock = vi.fn()
       .mockImplementationOnce(async () => brokenReader())
       .mockImplementationOnce(async () => brokenReader())
       .mockResolvedValueOnce(sseResponse([sseData({ content: "三代正文" })]));
-    const resets = [];
+    const resets: number[] = [];
     await chatCompletion({
       provider: PROVIDER,
       messages: [],
@@ -947,7 +963,7 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
     const nonStreamFetch = vi.fn()
       .mockRejectedValueOnce(new Error("connection reset"))
       .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: "ok" } }] }));
-    const resetsNonStream = [];
+    const resetsNonStream: number[] = [];
     await chatCompletion({
       provider: PROVIDER,
       messages: [],
@@ -964,14 +980,14 @@ describe("onStreamReset：读流中断重试的代际重置信号", () => {
 
 describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）", () => {
   // SSE chunk：delta 载荷 + choice 级 finish_reason。
-  function sseData(delta, finishReason) {
+  function sseData(delta: unknown, finishReason?: string) {
     return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
   }
   const TOOL_ROUND = [
     sseData({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }] }),
     sseData({}, "tool_calls")
   ];
-  const WEB_SEARCH_TOOL = {
+  const WEB_SEARCH_TOOL: ChatToolDefinition = {
     type: "function",
     function: {
       name: "web_search",
@@ -990,13 +1006,13 @@ describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）
   });
 
   it("流式聚合：跨 chunk 分片按 index 拼接，返回 finishReason + assistantContent + toolCalls，tool-call 事件聚合后逐条吐出", async () => {
-    const fetchMock = vi.fn(async () => sseResponse([
+    const fetchMock = mockFetch(async () => sseResponse([
       sseData({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"qu' } }] }),
       sseData({ content: "先想", tool_calls: [{ index: 0, function: { arguments: 'ery":"x"}' } }] }),
       sseData({}, "tool_calls")
     ]));
 
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await chatCompletion({
       provider: PROVIDER,
       messages: [{ role: "user", content: "hi" }],
@@ -1017,7 +1033,7 @@ describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）
       { type: "tool-call", name: "web_search", args: { query: "x" } }
     ]);
     // 请求体确实带 tools
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body);
     expect(body.tools).toEqual([WEB_SEARCH_TOOL]);
     expect(body.tool_choice).toBe("auto");
   });

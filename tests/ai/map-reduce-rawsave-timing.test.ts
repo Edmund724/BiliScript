@@ -14,11 +14,16 @@ import { resetModuleState, makeSubtitleBody } from "../setup.js";
 
 const segmentCache = vi.hoisted(() => ({
   loadSummary: vi.fn(),
+  loadSummaries: vi.fn(),
+  loadStoredRaw: vi.fn(),
   saveSummary: vi.fn(),
   saveRaw: vi.fn()
 }));
 
-let mod;
+let mod: typeof import("../../extension/ai/map-reduce.js");
+
+type Port = ReturnType<typeof makePort>;
+type Deferred = ReturnType<typeof makeDeferred>;
 
 async function importModules() {
   vi.resetModules();
@@ -61,8 +66,8 @@ async function makePlan() {
 
 // 可控 promise：外部手动 resolve/reject（时序锁的载体）
 function makeDeferred() {
-  let resolve;
-  let reject;
+  let resolve!: (value: unknown) => void;
+  let reject!: (reason: unknown) => void;
   const promise = new Promise((res, rej) => {
     resolve = res;
     reject = rej;
@@ -76,11 +81,11 @@ function flushMicrotasks() {
 }
 
 // 依 messages[user].content 识别分段小结/成稿调用
-function isSegmentCall(input) {
+function isSegmentCall(input: { messages?: Array<{ content?: string }> }) {
   return String(input.messages?.at(-1)?.content || "").includes("连续片段");
 }
 
-function cacheWriteNotices(port) {
+function cacheWriteNotices(port: Port) {
   return port.postMessage.mock.calls
     .map((c) => c[0])
     .filter((m) => m.type === "notice" && String(m.data || "").includes("缓存写入失败"));
@@ -91,8 +96,8 @@ describe("原始段盘 fire-and-forget（#10）", () => {
     const plan = await makePlan();
     expect(plan.segments).toHaveLength(5);
 
-    const events = [];
-    const deferreds = [];
+    const events: string[] = [];
+    const deferreds: Deferred[] = [];
     segmentCache.saveRaw.mockImplementation(({ segments: items }) => {
       const d = makeDeferred();
       deferreds.push(d);
@@ -137,7 +142,7 @@ describe("原始段盘 fire-and-forget（#10）", () => {
 
   it("用例B：小结盘仍 await——saveSegmentSummary resolve 前编排不结算", async () => {
     const plan = await makePlan();
-    const deferreds = [];
+    const deferreds: Deferred[] = [];
     segmentCache.saveSummary.mockImplementation(() => {
       const d = makeDeferred();
       deferreds.push(d);

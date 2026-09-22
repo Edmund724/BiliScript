@@ -13,7 +13,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function jsonResponse(payload) {
+function jsonResponse(payload: unknown) {
   return { ok: true, status: 200, text: vi.fn(async () => JSON.stringify(payload)), json: async () => payload };
 }
 
@@ -34,24 +34,25 @@ describe("resolveAdapter（协议解析单点）", () => {
 
 describe("协议穿线（chatCompletion → resolveAdapter）", () => {
   it("protocol 缺省 / 显式 openai / 未知值 → 行为一致（/chat/completions + Bearer）", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({ choices: [{ message: { content: "ok" } }] }) as unknown as Response);
 
     await chatCompletion({ provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk" }, messages: [], fetchImpl: fetchMock });
     await chatCompletion({ provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "openai" }, messages: [], fetchImpl: fetchMock });
-    await chatCompletion({ provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "gemini" }, messages: [], fetchImpl: fetchMock });
+    await chatCompletion({ provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "gemini" as never }, messages: [], fetchImpl: fetchMock });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
-    for (const [url, init] of fetchMock.mock.calls) {
+    for (const [url, init] of fetchMock.mock.calls as Array<[string, { headers: Record<string, string> }]>) {
       expect(url).toBe("https://api.example.com/v1/chat/completions");
       expect(init.headers.Authorization).toBe("Bearer sk");
     }
   });
 
   it("provider.protocol 为 anthropic → /v1/messages + x-api-key，Anthropic 请求体形状", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({
       content: [{ type: "text", text: "ok" }],
       stop_reason: "end_turn"
-    }));
+    }) as unknown as Response);
 
     await chatCompletion({
       provider: { baseUrl: "https://api.example.com", model: "claude-x", apiKey: "sk-ant", protocol: "anthropic" },
@@ -59,7 +60,7 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
       fetchImpl: fetchMock
     });
 
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string>; body: string }];
     expect(url).toBe("https://api.example.com/v1/messages");
     expect(init.headers["x-api-key"]).toBe("sk-ant");
     expect(init.headers["anthropic-version"]).toBe("2023-06-01");
@@ -73,10 +74,10 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
   });
 
   it("provider.protocol 为 responses → /responses + Bearer，无状态请求体形状", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({
       status: "completed",
       output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }]
-    }));
+    }) as unknown as Response);
 
     await chatCompletion({
       provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "responses" },
@@ -84,7 +85,7 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
       fetchImpl: fetchMock
     });
 
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string>; body: string }];
     expect(url).toBe("https://api.example.com/v1/responses");
     expect(init.headers.Authorization).toBe("Bearer sk");
     const body = JSON.parse(init.body);

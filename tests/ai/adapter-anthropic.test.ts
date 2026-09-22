@@ -8,9 +8,10 @@ import { describe, expect, it, vi } from "vitest";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 import { PROTOCOL_ADAPTERS, resolveAdapter } from "../../extension/ai/protocol-adapter.js";
 import { chatCompletion } from "../../extension/ai/completion.js";
+import type { StreamChatEvent } from "../../extension/ai/types.js";
 
 // SSE 流式响应：chunks 按 read() 顺序返回（编码为 UTF-8 字节）。
-function sseResponse(chunks) {
+function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
   let i = 0;
   return {
@@ -28,10 +29,10 @@ function sseResponse(chunks) {
         };
       }
     }
-  };
+  } as unknown as Response;
 }
 
-function anthropicSseData(event) {
+function anthropicSseData(event: Record<string, unknown>) {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
@@ -235,7 +236,7 @@ describe("drainStream（SSE 事件映射，research §3）", () => {
       anthropicSseData({ type: "future_unknown_event", foo: 1 }),
       anthropicSseData({ type: "message_stop" })
     ];
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await anthropicAdapter.drainStream(sseResponse(chunks), { onEvent: (e) => events.push(e) });
 
     expect(result.content).toBe("你好世界");
@@ -319,12 +320,12 @@ describe("extractErrorDetail（research §6）", () => {
 
 describe("chatCompletion 经 anthropic 协议端到端（core 骨架零改动）", () => {
   it("流式：onEvent 收 token/done 归一事件，返回 { done: true }", async () => {
-    const fetchMock = vi.fn(async () => sseResponse([
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => sseResponse([
       anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "流" } }),
       anthropicSseData({ type: "message_delta", delta: { stop_reason: "end_turn" } }),
       anthropicSseData({ type: "message_stop" })
     ]));
-    const events = [];
+    const events: StreamChatEvent[] = [];
     const result = await chatCompletion({
       provider: { baseUrl: "https://api.anthropic.com", model: "claude-x", apiKey: "sk-ant", protocol: "anthropic" },
       messages: [{ role: "user", content: "hi" }],
@@ -337,15 +338,15 @@ describe("chatCompletion 经 anthropic 协议端到端（core 骨架零改动）
     expect(events).toEqual([{ type: "token", data: "流" }]);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://api.anthropic.com/v1/messages");
-    expect(init.headers["x-api-key"]).toBe("sk-ant");
+    expect((init?.headers as Record<string, string>)["x-api-key"]).toBe("sk-ant");
   });
 
   it("HTTP 错误：detail 带 [anthropic] 前缀（core 统一加）与截断", async () => {
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async () => ({
       ok: false,
       status: 400,
       text: vi.fn(async () => JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "prompt is too long: 99 tokens > 9 maximum" } }))
-    }));
+    }) as unknown as Response);
 
     await expect(
       chatCompletion({

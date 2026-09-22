@@ -6,8 +6,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let mod;
-let storage;
+let mod: typeof import("../../extension/ai/segment-cache.js");
+let storage: ReturnType<typeof createMemoryStorage>;
 
 // 内存 Map 实现的 chrome.storage.local：get/set/remove 均为 vi.fn，便于断言调用与注入失败。
 // get 需支持 null（loadStoredRawSegments 索引缺失时的回退兜底走全量枚举）。
@@ -19,7 +19,7 @@ function createMemoryStorage() {
         return Object.fromEntries(map.entries());
       }
       const want = Array.isArray(keys) ? keys : [keys];
-      const out = {};
+      const out: Record<string, unknown> = {};
       for (const k of want) {
         if (map.has(k)) {
           out[k] = map.get(k);
@@ -180,7 +180,7 @@ describe("换轨不串：缓存键随字幕轨区分", () => {
 
 describe("键含 bvid+cid+段，键风格对齐 getSubtitleCacheKey", () => {
   it("不同 bvid / cid / segmentIndex → 不同 key", () => {
-    const k = (bvid, cid, segmentIndex) =>
+    const k = (bvid: string, cid: string, segmentIndex: number) =>
       mod.getSegmentSummaryKey({ bvid, cid, segmentIndex, subtitleId: "sub-1" });
     const keys = [k("BV1a", "1", 0), k("BV1b", "1", 0), k("BV1a", "2", 0), k("BV1a", "1", 1)];
     expect(new Set(keys).size).toBe(4);
@@ -304,11 +304,15 @@ describe("容错：读写失败 logWarn 且不抛异常", () => {
     storage.local.set.mockRejectedValue(new Error("quota"));
     const summaryResult = await mod.saveSegmentSummary("boc_lvs_summary_x", "小结");
     expect(summaryResult.ok).toBe(false);
-    expect(summaryResult.error).toBeInstanceOf(Error);
+    if (summaryResult.ok === false) {
+      expect(summaryResult.error).toBeInstanceOf(Error);
+    }
 
     const rawResult = await mod.saveRawSegments("boc_lvs_raw_x", []);
     expect(rawResult.ok).toBe(false);
-    expect(rawResult.error).toBeInstanceOf(Error);
+    if (rawResult.ok === false) {
+      expect(rawResult.error).toBeInstanceOf(Error);
+    }
   });
 });
 
@@ -355,11 +359,11 @@ describe("saveSegmentSummaryWithRaw：两族合并写（段缓存写聚合 ticke
   const rawKey = () => mod.getRawSegmentKey({ ...fields, segmentIndex: 2 });
 
   it("一次调用落两族数据 + 两族索引/清单打包写；读回与单族写等价", async () => {
-    const setCalls = [];
+    const setCalls: string[][] = [];
     const origSet = storage.local.set.getMockImplementation();
     storage.local.set.mockImplementation(async (items) => {
       setCalls.push(Object.keys(items));
-      await origSet(items);
+      await origSet!(items);
     });
 
     const result = await mod.saveSegmentSummaryWithRaw(summaryKey(), "合并小结", rawKey(), [
@@ -393,6 +397,8 @@ describe("saveSegmentSummaryWithRaw：两族合并写（段缓存写聚合 ticke
     const result = await mod.saveSegmentSummaryWithRaw(summaryKey(), "合并小结", rawKey(), []);
 
     expect(result.ok).toBe(false);
-    expect(String(result.error || "")).toContain("缓存写入失败");
+    if (result.ok === false) {
+      expect(String(result.error || "")).toContain("缓存写入失败");
+    }
   });
 });

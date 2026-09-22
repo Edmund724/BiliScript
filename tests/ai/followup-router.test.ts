@@ -64,8 +64,8 @@ describe("loadSegmentSummaries", () => {
 describe("buildRetrieveRaw", () => {
   it("命中时间戳 → 返回该段渲染文本", () => {
     const segs = [
-      { index: 1, from: 0, to: 500, items: [{ from: 0, to: 5, content: "开场内容" }] },
-      { index: 2, from: 500, to: 1000, items: [{ from: 500, to: 505, content: "后续内容" }] }
+      { index: 1, from: 0, to: 500, chars: 4, items: [{ from: 0, to: 5, content: "开场内容" }] },
+      { index: 2, from: 500, to: 1000, chars: 4, items: [{ from: 500, to: 505, content: "后续内容" }] }
     ];
     const plan2 = { segments: segs };
     const retrieve = buildRetrieveRaw({ context: { chapters: [] }, plan: plan2 });
@@ -114,13 +114,13 @@ describe("resolveFollowupContext", () => {
   });
 
   it("成稿后追问 → 压缩上下文（含笔记+小结、不含原始全文、subtitleBody 置空）", async () => {
-    const result = await resolveFollowupContext({
+    const result = (await resolveFollowupContext({
       context,
       plan,
       history: [{ role: "assistant", content: "# 视频笔记：《测试视频》\n完整笔记正文。" }],
       userPrompt: "再讲讲",
       loadSummaries: async () => summariesFixture
-    });
+    }))!;
     expect(result).not.toBeNull();
     expect(result.subtitleBody).toEqual([]);
     expect(result.compressedSummaryMarkdown).toContain("完整笔记正文。");
@@ -132,18 +132,18 @@ describe("resolveFollowupContext", () => {
     const segPlan = {
       ...plan,
       segments: [
-        { index: 1, from: 0, to: 500, items: [{ from: 0, to: 5, content: "开场白内容ABC" }] },
-        { index: 2, from: 500, to: 1000, items: [{ from: 500, to: 505, content: "后续内容DEF" }] },
-        { index: 3, from: 1000, to: 1500, items: [{ from: 1000, to: 1005, content: "结尾内容GHI" }] }
+        { index: 1, from: 0, to: 500, chars: 8, items: [{ from: 0, to: 5, content: "开场白内容ABC" }] },
+        { index: 2, from: 500, to: 1000, chars: 7, items: [{ from: 500, to: 505, content: "后续内容DEF" }] },
+        { index: 3, from: 1000, to: 1500, chars: 7, items: [{ from: 1000, to: 1005, content: "结尾内容GHI" }] }
       ]
     };
-    const result = await resolveFollowupContext({
+    const result = (await resolveFollowupContext({
       context,
       plan: segPlan,
       history: [{ role: "assistant", content: "完整笔记正文。" }],
       userPrompt: "09:00 那里讲了什么", // 540s → 命中第 2 段
       loadSummaries: async () => summariesFixture
-    });
+    }))!;
     expect(result.compressedSummaryMarkdown).toContain("## 相关原始字幕段");
     expect(result.compressedSummaryMarkdown).toContain("后续内容DEF");
   });

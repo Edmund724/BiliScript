@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let mod;
+let mod: typeof import("../../extension/ai/cost-guard.js");
 
 async function importModules() {
   vi.resetModules();

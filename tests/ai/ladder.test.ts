@@ -6,17 +6,31 @@
 // 溢出语义（候选 03 起）：fake streamChat 抛带 .overflow 标记的错误（旧返回哨兵已废）。
 
 import { describe, expect, it, vi } from "vitest";
-import { runLadderChat } from "../../extension/ai/ladder.js";
+import { runLadderChat, type ChatMessage, type ChatMsg, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
 import { makeOverflowError } from "../../extension/ai/completion.js";
+
+// 假 port 收发的消息形状（用例只断言 notice / stopped / error 三类的字段）
+interface PortMessage {
+  type?: string;
+  data?: unknown;
+  reason?: string;
+  error?: string;
+}
 
 // 收集 postMessage 消息的 fake port
 function makePort() {
-  return { messages: [], postMessage(m) { this.messages.push(m); } };
+  const messages: PortMessage[] = [];
+  return {
+    messages,
+    postMessage(m: PortMessage) {
+      messages.push(m);
+    }
+  };
 }
 
 // 依测试需要覆盖的 fake deps 工厂：默认全部可观察的最小实现
-function makeDeps(overrides = {}) {
-  const calls = { streamChat: [], mapReduce: [], followup: [], guard: [] };
+function makeDeps(overrides: Partial<RunLadderChatDeps> = {}) {
+  const calls = { streamChat: [] as any[], mapReduce: [] as any[], followup: [] as any[], guard: [] as any[] };
   const deps = {
     streamChat: vi.fn(async (args) => {
       calls.streamChat.push(args);
@@ -30,18 +44,19 @@ function makeDeps(overrides = {}) {
       calls.followup.push(args);
       return null;
     }),
-    buildBudgetPlan: vi.fn(() => ({ mode: "single" })),
+    buildBudgetPlan: vi.fn((): { mode: "single" | "map-reduce" } => ({ mode: "single" })),
     buildCostGuardNotice: vi.fn(() => ({ shouldPrompt: false, message: "" })),
     trimRecentTurns: vi.fn((history) => (history || []).slice(-2)),
     askCostGuard: vi.fn(async () => true),
     onActivity: vi.fn(),
     pauseIdleTimeout: vi.fn(),
+    acquireSwKeepalive: undefined as RunLadderChatDeps["acquireSwKeepalive"],
     ...overrides
   };
   return { deps, calls };
 }
 
-function makeMsg() {
+function makeMsg(): ChatMsg {
   return {
     context: { subtitleBody: ["a", "b"], chapters: [] },
     history: [{ role: "user", content: "h1" }, { role: "assistant", content: "h2" }],
@@ -71,7 +86,7 @@ describe("runLadderChat 分派", () => {
 
   it("② map-reduce 模式下追问命中 → trimRecentTurns 截历史 + 单次 streamChat", async () => {
     const port = makePort();
-    const history = Array.from({ length: 6 }, (_, i) => ({ role: "user", content: `h${i}` }));
+    const history: ChatMessage[] = Array.from({ length: 6 }, (_, i) => ({ role: "user", content: `h${i}` }));
     const followupFn = vi.fn(async () => ({ kind: "followup" }));
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
@@ -158,7 +173,7 @@ describe("runLadderChat 分派", () => {
 
 describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", () => {
   function makeKeepaliveSpy() {
-    const events = [];
+    const events: string[] = [];
     const handle = {
       release: vi.fn(() => {
         events.push("release");

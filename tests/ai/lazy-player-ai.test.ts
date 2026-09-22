@@ -29,7 +29,9 @@ describe("loadPlayerAi", () => {
     const { loadPlayerAi, isPlayerAiLoaded } = await importLoader();
     expect(isPlayerAiLoaded()).toBe(false);
 
-    const mod = await loadPlayerAi();
+    // PlayerAiDomain 只声明消费方用到的两个成员；用例断言的是注入的 mock
+    // 命名空间原样透出，故按 player-ai 模块命名空间取用。
+    const mod = (await loadPlayerAi()) as unknown as typeof import("../../extension/ai/player-ai.js");
     // 不做整对象 toBe 比较：vitest 的 pretty-format 对 mock 模块 namespace 有
     // 专门的 $$typeof 检查，整对象比较会误报；用行为验证（拿到的是同一 mock）
     expect(typeof mod.startPlayerAiQuickAction).toBe("function");
@@ -64,7 +66,7 @@ describe("loadPlayerAi", () => {
     const playerAiNamespace = { startPlayerAiQuickAction: vi.fn() };
     vi.doMock("../../extension/ai/player-ai.js", () => playerAiNamespace);
     const second = await importLoader();
-    const mod = await second.loadPlayerAi();
+    const mod = (await second.loadPlayerAi()) as unknown as typeof import("../../extension/ai/player-ai.js");
     expect(typeof mod.startPlayerAiQuickAction).toBe("function");
     expect(second.isPlayerAiLoaded()).toBe(true);
   });
