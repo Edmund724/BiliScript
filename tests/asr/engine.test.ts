@@ -12,6 +12,7 @@ import {
   DEFAULT_RETRIES,
   DEFAULT_RETRY_DELAY_MS
 } from "../../extension/asr/engine.js";
+import type { AsrTranscribeResult, TranscribeChunk, TranscribeFn } from "../../extension/asr/engine.js";
 import { ASR_CONCURRENCY } from "../../extension/shared/offscreen-constants.js";
 import * as errorHelpers from "../../extension/shared/error-helpers.js";
 
@@ -21,21 +22,28 @@ const realRetryAsync = errorHelpers.retryAsync;
 
 // makeChunk：合成切片，形状对齐 chunkHost 回传的 { index, startSec,
 // durationSec, wavBlob }（自建 600s/片场景 → startSec 间隔 600，与生产
-// 片长无关）。
-function makeChunk(index, extra = {}) {
+// 片长无关）。wavBlob 取真实 Blob（TranscribeChunk 契约要求；tag 仅作
+// 调试文本内容，无断言依赖）。
+function makeChunk(index: number, extra: Partial<TranscribeChunk> & { fast?: boolean } = {}): TranscribeChunk {
   return {
     index,
     startSec: index * 600,
     durationSec: 600,
-    wavBlob: { tag: `wav-${index}` },
+    wavBlob: new Blob([`wav-${index}`], { type: "audio/wav" }),
     ...extra
   };
 }
 
-function makeDeferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+}
+
+function makeDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
     resolve = res;
     reject = rej;
   });
@@ -46,7 +54,7 @@ function makeDeferred() {
 function makeCountingTranscribe(delayMs = 5) {
   let active = 0;
   let peak = 0;
-  const transcribe = async (chunk) => {
+  const transcribe: TranscribeFn = async (chunk) => {
     active += 1;
     peak = Math.max(peak, active);
     await new Promise((r) => setTimeout(r, delayMs));
@@ -58,19 +66,17 @@ function makeCountingTranscribe(delayMs = 5) {
 
 // 可重试错误工厂：error.retryable === true（shared/error-helpers 的重试判据之一）
 function makeRetryableError(message = "转写请求失败") {
-  const err = new Error(message);
-  err.retryable = true;
-  return err;
+  return Object.assign(new Error(message), { retryable: true });
 }
 
-let retryCalls;
+let retryCalls: Array<{ retries: number; delayMs: number }>;
 
 beforeEach(() => {
   retryCalls = [];
   // 透传 spy：记录 engine 每次调用 retryAsync 的 (retries, delayMs) 参数，
   // 重试语义仍走真实实现（含指数退避：首重 250ms / 次重 500ms）。
   vi.spyOn(errorHelpers, "retryAsync").mockImplementation((task, retries, delayMs) => {
-    retryCalls.push({ retries, delayMs });
+    retryCalls.push({ retries: retries!, delayMs: delayMs! });
     return realRetryAsync(task, retries, delayMs);
   });
 });
@@ -144,16 +150,16 @@ describe("createTranscriptionEngine 活队列调度", () => {
   });
 
   it("活喂入：push 发生在部分片仍在途时——新片占满空位、超出部分排队，全部被处理", async () => {
-    const gates = new Map(); // 慢片 index → deferred
-    const transcribe = vi.fn(async (chunk) => {
+    const gates = new Map<number, Deferred<AsrTranscribeResult>>(); // 慢片 index → deferred
+    const transcribe = vi.fn(async (chunk: TranscribeChunk & { fast?: boolean }) => {
       if (chunk.fast) {
         return { text: `fast-${chunk.index}` };
       }
-      const gate = makeDeferred();
+      const gate = makeDeferred<AsrTranscribeResult>();
       gates.set(chunk.index, gate);
       return gate.promise;
     });
-    const delivered = [];
+    const delivered: Array<{ index: number; text: string }> = [];
     const engine = createTranscriptionEngine({
       transcribe,
       concurrency: 5,
@@ -185,11 +191,11 @@ describe("createTranscriptionEngine 活队列调度", () => {
 
   it("close 是流结束标记：在途 + 排队片全部消化后才 resolve", async () => {
     let gatedCount = 0;
-    const gates = [];
+    const gates: Array<Deferred<AsrTranscribeResult>> = [];
     const transcribe = vi.fn(async () => {
       if (gatedCount < 5) {
         gatedCount += 1;
-        const gate = makeDeferred();
+        const gate = makeDeferred<AsrTranscribeResult>();
         gates.push(gate);
         return gate.promise;
       }
@@ -256,7 +262,7 @@ describe("失败计数（Q8a）与逐片交付", () => {
       }
       return { text: `文本 ${chunk.index}` };
     });
-    const delivered = [];
+    const delivered: Array<{ index: number; text: string }> = [];
     const engine = createTranscriptionEngine({
       transcribe,
       onChunkResult: (chunk, result) => delivered.push({ index: chunk.index, text: result.text })
@@ -275,14 +281,14 @@ describe("失败计数（Q8a）与逐片交付", () => {
   });
 
   it("逐片交付按完成顺序回调（非 push 顺序），次数 = 成功片数；交付回调抛错不影响调度", async () => {
-    const gates = [];
+    const gates: Array<Deferred<AsrTranscribeResult>> = [];
     const transcribe = vi.fn(async () => {
-      const gate = makeDeferred();
+      const gate = makeDeferred<AsrTranscribeResult>();
       gates.push(gate);
       return gate.promise;
     });
-    const deliveryAttempts = []; // 每次交付回调的尝试记录（含抛错那次）
-    const delivered = []; // 成功交付（回调未抛错）的片
+    const deliveryAttempts: number[] = []; // 每次交付回调的尝试记录（含抛错那次）
+    const delivered: Array<{ index: number; text: string }> = []; // 成功交付（回调未抛错）的片
     const engine = createTranscriptionEngine({
       transcribe,
       onChunkResult: (chunk, result) => {
@@ -320,13 +326,13 @@ describe("失败计数（Q8a）与逐片交付", () => {
 describe("中止探针", () => {
   it("isAborted 置真后不再发起新转写，排队片丢弃清点，close 如实返回", async () => {
     let aborted = false;
-    const gates = [];
+    const gates: Array<Deferred<AsrTranscribeResult>> = [];
     const transcribe = vi.fn(async () => {
-      const gate = makeDeferred();
+      const gate = makeDeferred<AsrTranscribeResult>();
       gates.push(gate);
       return gate.promise;
     });
-    const delivered = [];
+    const delivered: number[] = [];
     const engine = createTranscriptionEngine({
       transcribe,
       concurrency: 5,
@@ -359,9 +365,9 @@ describe("中止探针", () => {
 
   it("在途片失败 + 中止并存：计数如实（completed + failed + dropped = accepted）", async () => {
     let aborted = false;
-    const gates = [];
+    const gates: Array<{ index: number; gate: Deferred<AsrTranscribeResult> }> = [];
     const transcribe = vi.fn(async (chunk) => {
-      const gate = makeDeferred();
+      const gate = makeDeferred<AsrTranscribeResult>();
       gates.push({ index: chunk.index, gate });
       return gate.promise;
     });
@@ -395,10 +401,8 @@ describe("中止探针", () => {
 
 describe("HTTP 状态码重试判定（isRetryableNetworkError 按状态收紧）", () => {
   // 对齐适配器（openai-transcriptions）抛出的 HTTP 错误形状：message + err.status
-  function makeHttpError(status, detail = "") {
-    const err = new Error(`HTTP ${status}${detail ? `: ${detail}` : ""}`);
-    err.status = status;
-    return err;
+  function makeHttpError(status: number, detail = "") {
+    return Object.assign(new Error(`HTTP ${status}${detail ? `: ${detail}` : ""}`), { status });
   }
 
   it("401：确定性鉴权失败，经 retryAsync 一次尝试即跳过计 failed（不重试）", async () => {
@@ -479,7 +483,7 @@ describe("HTTP 状态码重试判定（isRetryableNetworkError 按状态收紧�
 // 错误。上限只按排队计，在途片不占排队额度。
 describe("maxPendingChunks（待处理分片上限）", () => {
   function blockedTranscribe() {
-    const deferred = makeDeferred();
+    const deferred = makeDeferred<AsrTranscribeResult>();
     const transcribe = vi.fn(() => deferred.promise);
     return { transcribe, release: () => deferred.resolve({ text: "完成" }) };
   }

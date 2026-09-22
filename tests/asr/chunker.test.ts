@@ -9,13 +9,14 @@ import {
   buildChunkPlan,
   buildWavChunks,
   validateDecodedAudio,
-  makeDecodedBuffer
+  makeDecodedBuffer,
+  type DecodedAudioBuffer
 } from "../../extension/asr/chunker.js";
 
 // 读取 WAV 头各字段（对照 44 字节标准布局）
-function readWavHeader(blob, bytes) {
+function readWavHeader(blob: Blob, bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const ascii = (offset, len) =>
+  const ascii = (offset: number, len: number) =>
     String.fromCharCode(...bytes.subarray(offset, offset + len));
   return {
     riff: ascii(0, 4),
@@ -35,7 +36,7 @@ function readWavHeader(blob, bytes) {
 }
 
 // 读 WAV 的 PCM 采样值（Int16 little-endian）
-function readPcmSamples(blob, bytes) {
+function readPcmSamples(blob: Blob, bytes: Uint8Array) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const count = (bytes.length - 44) / 2;
   const samples = new Int16Array(count);
@@ -238,7 +239,7 @@ describe("makeDecodedBuffer 契约适配", () => {
     // 模拟用户报错路径：解码产出的裸 Float32Array，若绕过适配
     // 直接喂给 validateDecodedAudio，必须抛显式错误而不是产出空切片。
     const bare = new Float32Array(16000);
-    expect(() => validateDecodedAudio(bare)).toThrow(/解码结果时长为零/);
+    expect(() => validateDecodedAudio(bare as unknown as DecodedAudioBuffer)).toThrow(/解码结果时长为零/);
   });
 });
 

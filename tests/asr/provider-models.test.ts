@@ -8,14 +8,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let fetchMock;
+let fetchMock: ReturnType<typeof vi.fn>;
 
 async function loadModule() {
   return import("../../extension/asr/provider-models.js");
 }
 
 // 最小响应对象（拉取代码只消费 ok / status / text / json）。
-function jsonResponse(status, body) {
+function jsonResponse(status: number, body: unknown) {
   return {
     ok: status >= 200 && status < 300,
     status,

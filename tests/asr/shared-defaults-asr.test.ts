@@ -10,7 +10,7 @@ import { normalizeAsrProvider } from "../../extension/asr/asr-provider-normalize
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 // 本地查找助手：生产代码没有按 id 查预设的导出（按需直接遍历预设表）。
-const presetById = (id) => ASR_PROVIDER_PRESETS.find((p) => p.id === id) || null;
+const presetById = (id: string) => ASR_PROVIDER_PRESETS.find((p) => p.id === id) || null;
 
 describe("ASR_PROVIDER_PRESETS", () => {
   it("包含三个内置预设（SiliconFlow/本地 Whisper/自定义）", () => {
@@ -36,16 +36,16 @@ describe("ASR_PROVIDER_PRESETS", () => {
   });
 
   it("SiliconFlow 与本地 Whisper 同为 openai-transcriptions", () => {
-    expect(presetById("siliconflow-sensevoice").type).toBe("openai-transcriptions");
-    expect(presetById("local-whisper").type).toBe("openai-transcriptions");
+    expect(presetById("siliconflow-sensevoice")!.type).toBe("openai-transcriptions");
+    expect(presetById("local-whisper")!.type).toBe("openai-transcriptions");
   });
 
   it("SiliconFlow 已支持返回时间戳，supportsTimestamps=true", () => {
-    expect(presetById("siliconflow-sensevoice").supportsTimestamps).toBe(true);
+    expect(presetById("siliconflow-sensevoice")!.supportsTimestamps).toBe(true);
   });
 
   it("SiliconFlow 默认模型为推荐的 XingChenASR-V3.2-Ultra（免费且带句级时间戳）", () => {
-    const sf = presetById("siliconflow-sensevoice");
+    const sf = presetById("siliconflow-sensevoice")!;
     expect(sf.model).toBe("XingChenAGI/XingChenASR-V3.2-Ultra");
   });
 });
@@ -77,7 +77,7 @@ describe("normalizeAsrProvider", () => {
     const out = normalizeAsrProvider({
       id: "p1", type: "openai-transcriptions", baseUrl: "x", model: "y", language: "en"
     });
-    expect(out.language).toBeUndefined();
+    expect((out as unknown as Record<string, unknown>)?.language).toBeUndefined();
   });
 
   it("normalizeAsrLanguage：zh/en 保留，其余回落 auto", () => {
@@ -98,7 +98,7 @@ describe("normalizeAsrProvider", () => {
       baseUrl: "http://localhost:8000/v1///",
       model: "whisper-1"
     });
-    expect(out.baseUrl).toBe("http://localhost:8000/v1");
+    expect(out!.baseUrl).toBe("http://localhost:8000/v1");
   });
 
   it("非法 type 返回 null（不静默接受任意 type）", () => {
@@ -127,19 +127,19 @@ describe("normalizeAsrProvider", () => {
       baseUrl: "x",
       model: "y"
     });
-    expect(out.supportsTimestamps).toBe(true);
+    expect(out!.supportsTimestamps).toBe(true);
   });
 
   it("enabled 显式 false 被保留，非 false 值回落 true", () => {
     const enabled = normalizeAsrProvider({
       id: "p1", type: "openai-transcriptions", baseUrl: "x", model: "y", enabled: false
     });
-    expect(enabled.enabled).toBe(false);
+    expect(enabled!.enabled).toBe(false);
 
     const enabledTruthy = normalizeAsrProvider({
       id: "p2", type: "openai-transcriptions", baseUrl: "x", model: "y", enabled: "yes"
     });
-    expect(enabledTruthy.enabled).toBe(true);
+    expect(enabledTruthy!.enabled).toBe(true);
   });
 });
 

@@ -20,25 +20,25 @@ import { resetModuleState } from "../setup.js";
 // sendMessage 每次重建（默认回 ok:true），避免前一用例的 mockImplementation
 // 污染（jsdom 全局 chrome 一经 stub 便不重置）。
 function installConnectMock() {
-  const connections = [];
+  const connections: any[] = [];
   const sendMessage = vi.fn((_message, callback) => {
     // prepare 响应带 ruleId（background 分配器返回），与真实契约一致
     callback?.({ ok: true, ruleId: 32001 });
     return undefined;
   });
   const connect = vi.fn(() => {
-    const listeners = new Set();
-    const disconnectListeners = new Set();
+    const listeners = new Set<(msg: unknown) => void>();
+    const disconnectListeners = new Set<() => void>();
     const port = {
       name: "asr-decode",
-      posted: [],
-      postMessage: vi.fn((msg) => port.posted.push(msg)),
-      onMessage: { addListener: (fn) => listeners.add(fn) },
-      onDisconnect: { addListener: (fn) => disconnectListeners.add(fn) },
+      posted: [] as unknown[],
+      postMessage: vi.fn((msg: unknown) => port.posted.push(msg)),
+      onMessage: { addListener: (fn: (msg: unknown) => void) => listeners.add(fn) },
+      onDisconnect: { addListener: (fn: () => void) => disconnectListeners.add(fn) },
       disconnect: vi.fn(),
       _listeners: listeners,
       _disconnectListeners: disconnectListeners,
-      _emit: (msg) => listeners.forEach((fn) => fn(msg)),
+      _emit: (msg: unknown) => listeners.forEach((fn) => fn(msg)),
       _emitDisconnect: () => disconnectListeners.forEach((fn) => fn())
     };
     connections.push(port);
@@ -231,12 +231,14 @@ describe("任务取消只剩真断连（isStale 跨 context 复核已移除）",
 
     // 旧契约按注入的 isStale 在每条 port 消息到达时断连 reject；新契约宿主
     // 不再接收该参数——传了也被忽略，转写与视频切换解耦（abort 语义收敛到
-    // port.onDisconnect）
-    const promise = host({
+    // port.onDisconnect）。先赋给变量再传入：对象字面量直传会触发 excess
+    // property 检查，而本用例恰恰要验证「多传的字段被忽略」。
+    const staleArgs = {
       audioUrl: "https://x/a.m4s",
       backupUrls: [],
       isStale: () => true
-    });
+    };
+    const promise = host(staleArgs);
     await new Promise((resolve) => setTimeout(resolve, 0));
     const port = connections[0];
 

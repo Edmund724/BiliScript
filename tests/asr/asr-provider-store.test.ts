@@ -6,8 +6,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let syncStorage;
-let localStorage;
+let syncStorage: Record<string, any>;
+let localStorage: Record<string, any>;
 
 async function loadModule() {
   return import("../../extension/asr/asr-provider-store.js");
@@ -25,7 +25,7 @@ beforeEach(() => {
       sync: {
         ...globalThis.chrome.storage.sync,
         get: vi.fn(async (keys) => {
-          const out = {};
+          const out: Record<string, any> = {};
           // chrome.storage.get 签名支持 string | string[] | object，这里覆盖数组形式
           const names = Array.isArray(keys) ? keys : [keys];
           for (const k of names) out[k] = syncStorage[k];
@@ -36,7 +36,7 @@ beforeEach(() => {
       local: {
         ...globalThis.chrome.storage.local,
         get: vi.fn(async (keys) => {
-          const out = {};
+          const out: Record<string, any> = {};
           // chrome.storage.get 签名支持 string | string[] | object，这里覆盖数组形式
           const names = Array.isArray(keys) ? keys : [keys];
           for (const k of names) out[k] = localStorage[k];
@@ -48,7 +48,7 @@ beforeEach(() => {
   });
 });
 
-function baseProvider(id, overrides = {}) {
+function baseProvider(id: string, overrides: Record<string, any> = {}) {
   return {
     id,
     presetId: "custom",

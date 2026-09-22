@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let syncSetMock;
+let syncSetMock: ReturnType<typeof vi.fn>;
 
 async function loadModule() {
   return import("../../extension/core/settings-store.js");
@@ -126,13 +126,13 @@ describe("getMergedSettings ASR 默认项", () => {
         sync: {
           ...globalThis.chrome.storage.sync,
           get: vi.fn(async (defaults) => {
-            const stored = {
+            const stored: Record<string, unknown> = {
               asrProviders: [{ id: "p1", type: "openai-transcriptions", baseUrl: "https://x/", model: "m" }],
               activeAsrProviderId: " p1 ",
               asrAutoFallback: false,
               asrLanguage: "en"
             };
-            const out = {};
+            const out: Record<string, unknown> = {};
             for (const key of Object.keys(defaults)) {
               out[key] = key in stored ? stored[key] : defaults[key];
             }

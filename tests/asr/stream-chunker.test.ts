@@ -8,13 +8,14 @@
 import { describe, expect, it } from "vitest";
 import { streamWavChunks } from "../../extension/asr/stream-chunker.js";
 import { buildWavChunks, makeDecodedBuffer } from "../../extension/asr/chunker.js";
+import type { WavChunk } from "../../extension/asr/chunker.js";
 import { ASR_PENDING_CHUNKS_LIMIT_MESSAGE } from "../../extension/asr/protocol.js";
 
 const RATE = 16000;
 const FILL = 0.25;
 
 // 合成段：把 [0, totalSec) 按 segSec 切段（最后一段截短），值恒 FILL。
-function makeSegments(totalSec, segSec) {
+function makeSegments(totalSec: number, segSec: number): Float32Array[] {
   const segs = [];
   for (let s = 0; s < totalSec; s += segSec) {
     const len = Math.min(segSec, totalSec - s) * RATE;
@@ -26,7 +27,7 @@ function makeSegments(totalSec, segSec) {
 }
 
 // 基准：全量 mono → 生产切片语义（buildWavChunks）
-function baselineChunks(totalSec, chunkSec) {
+function baselineChunks(totalSec: number, chunkSec: number): WavChunk[] {
   const mono = new Float32Array(totalSec * RATE);
   mono.fill(FILL);
   return buildWavChunks(
@@ -36,7 +37,7 @@ function baselineChunks(totalSec, chunkSec) {
 }
 
 // WAV Blob → 16bit PCM 样本（与 encodeWav 写回的字节逐位比较）
-async function wavPcm16(blob) {
+async function wavPcm16(blob: Blob): Promise<Int16Array> {
   const buf = new Uint8Array(await blob.arrayBuffer());
   const out = new Int16Array((buf.length - 44) / 2);
   const view = new DataView(buf.buffer);
@@ -48,7 +49,7 @@ async function wavPcm16(blob) {
 
 // 大数组紧凑比较：长度 + 校验和 + 抽样点（全量 toEqual 会生成巨型 diff 把
 // vitest worker 的 V8 堆打爆）
-function expectPcmMatches(got, want) {
+function expectPcmMatches(got: Int16Array, want: Int16Array) {
   expect(got.length).toBe(want.length);
   if (got.length === 0) return;
   let gotSum = 0;
@@ -65,13 +66,13 @@ function expectPcmMatches(got, want) {
   expect(got[got.length - 1]).toBe(want[want.length - 1]);
 }
 
-function collectStream(segments, { chunkSeconds, segmentsIn = segments } = {}) {
-  const out = [];
+function collectStream(segments: Float32Array[], { chunkSeconds, segmentsIn = segments }: { chunkSeconds: number; segmentsIn?: Float32Array[] }) {
+  const out: WavChunk[] = [];
   return {
     out,
     promise: streamWavChunks(segmentsIn, {
       chunkSeconds,
-      decodeSegment: (seg) => Promise.resolve(seg), // 段即 16k mono 裸数组
+      decodeSegment: (seg) => Promise.resolve(seg as Float32Array), // 段即 16k mono 裸数组
       onChunk: async (chunk) => {
         out.push(chunk);
       }
@@ -142,7 +143,7 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
     await expect(
       streamWavChunks(segments, {
         chunkSeconds: 1200,
-        decodeSegment: (seg) => Promise.resolve(seg),
+        decodeSegment: (seg) => Promise.resolve(seg as Float32Array),
         onChunk: async () => {}
       })
     ).rejects.toThrow(/疑似静音/);
@@ -157,11 +158,11 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
   it("片间偶发 onChunk 中异步等待（base64 编码耗时）不改变输出顺序", async () => {
     const totalSec = 2440; // 两片 + 残余 40s
     const segments = makeSegments(totalSec, 45);
-    const out = [];
+    const out: WavChunk[] = [];
     let call = 0;
     await streamWavChunks(segments, {
       chunkSeconds: 1200,
-      decodeSegment: (seg) => Promise.resolve(seg),
+      decodeSegment: (seg) => Promise.resolve(seg as Float32Array),
       onChunk: async (chunk) => {
         call += 1;
         await new Promise((r) => setTimeout(r, 3));
@@ -177,10 +178,15 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
 // 计数继续；全部段失败（零片产出）才算整体失败。decodeSegment 全部 fake。 =====
 
 // 解码器 fake：failures 集合内的段下标抛错（可编程每次调用的行为）。
-function makeFailingDecoder({ failAt, failTimes = Infinity, abortAt = -1, abortSentinel }) {
-  const calls = new Map(); // segmentIndex → 调用次数
-  const decodeSegment = async (seg) => {
-    const index = seg.__index;
+function makeFailingDecoder({ failAt, failTimes = Infinity, abortAt = -1, abortSentinel }: {
+  failAt: number[];
+  failTimes?: number;
+  abortAt?: number;
+  abortSentinel?: unknown;
+}) {
+  const calls = new Map<number, number>(); // segmentIndex → 调用次数
+  const decodeSegment = async (seg: unknown) => {
+    const index = (seg as { __index: number }).__index;
     const count = (calls.get(index) || 0) + 1;
     calls.set(index, count);
     if (index === abortAt) {
@@ -189,13 +195,13 @@ function makeFailingDecoder({ failAt, failTimes = Infinity, abortAt = -1, abortS
     if (failAt.includes(index) && count <= failTimes) {
       throw new Error(`音频解码失败：段 ${index} 损坏`);
     }
-    return seg;
+    return seg as Float32Array;
   };
   return { decodeSegment, calls };
 }
 
 // 给段打上下标（fake 解码器据此决定失败/中止）
-function tagSegments(segments) {
+function tagSegments(segments: Float32Array[]): Array<Float32Array & { __index: number }> {
   return segments.map((seg, __index) => Object.assign(seg, { __index }));
 }
 
@@ -216,11 +222,13 @@ describe("段级解码降级（Q8a）", () => {
     const segments = tagSegments(makeSegments(600, 200));
     // 段 1 第一次失败、第二次成功
     const decoder = makeFailingDecoder({ failAt: [1], failTimes: 1 });
-    const out = [];
+    const out: WavChunk[] = [];
     const meta = await streamWavChunks(segments, {
       chunkSeconds: 1200,
       decodeSegment: decoder.decodeSegment,
-      onChunk: async (chunk) => out.push(chunk),
+      onChunk: async (chunk) => {
+        out.push(chunk);
+      },
       decodeRetries: 1
     });
     expect(decoder.calls.get(1)).toBe(2); // 重试 1 次
@@ -232,11 +240,13 @@ describe("段级解码降级（Q8a）", () => {
   it("decodeRetries=1 + skipFailedSegments：重试仍失败 → 跳过该段计数，后续段继续", async () => {
     const segments = tagSegments(makeSegments(600, 200));
     const decoder = makeFailingDecoder({ failAt: [1] }); // 段 1 恒失败
-    const out = [];
+    const out: WavChunk[] = [];
     const meta = await streamWavChunks(segments, {
       chunkSeconds: 1200,
       decodeSegment: decoder.decodeSegment,
-      onChunk: async (chunk) => out.push(chunk),
+      onChunk: async (chunk) => {
+        out.push(chunk);
+      },
       decodeRetries: 1,
       skipFailedSegments: true
     });
@@ -288,7 +298,7 @@ describe("onChunk 拒绝（下游待处理分片超限）", () => {
   it("首个 onChunk 返回 false：抛 ASR_PENDING_CHUNKS_LIMIT_MESSAGE，后续段不再消费", async () => {
     const segments = tagSegments(makeSegments(600, 200)); // 3 段
     const decoder = makeFailingDecoder({ failAt: [] });
-    const seen = [];
+    const seen: number[] = [];
 
     await expect(
       streamWavChunks(segments, {
@@ -313,7 +323,7 @@ describe("onChunk 拒绝（下游待处理分片超限）", () => {
     await expect(
       streamWavChunks(segments, {
         chunkSeconds: 300, // 永远拼不满：唯一一片走残余分支
-        decodeSegment: (seg) => Promise.resolve(seg),
+        decodeSegment: (seg) => Promise.resolve(seg as Float32Array),
         onChunk: async () => false
       })
     ).rejects.toThrow(ASR_PENDING_CHUNKS_LIMIT_MESSAGE);
@@ -321,10 +331,10 @@ describe("onChunk 拒绝（下游待处理分片超限）", () => {
 
   it("onChunk 返回 true / undefined（既有消费方语义）不受影响：正常产出", async () => {
     const segments = makeSegments(300, 100);
-    const out = [];
+    const out: WavChunk[] = [];
     const meta = await streamWavChunks(segments, {
       chunkSeconds: 300,
-      decodeSegment: (seg) => Promise.resolve(seg),
+      decodeSegment: (seg) => Promise.resolve(seg as Float32Array),
       onChunk: async (chunk) => {
         out.push(chunk);
         return true;

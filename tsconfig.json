@@ -27,7 +27,8 @@
     "tests/bilibili/**/*.ts",
     "tests/entry/**/*.ts",
     "tests/reader/**/*.ts",
-    "tests/core/**/*.ts"
+    "tests/core/**/*.ts",
+    "tests/asr/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

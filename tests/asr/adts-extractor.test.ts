@@ -9,17 +9,21 @@ import { dirname, join } from "node:path";
 import {
   createAdtsExtractor,
   adtsFromFmp4,
-  parseAudioSpecificConfig
+  parseAudioSpecificConfig,
+  type AdtsExtractorConfig
 } from "../../extension/asr/adts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// 单参 readFileSync 被 tests/reader/node-stubs.d.ts 的 string 返回重载抢先匹配
+//（同 tests/entry/offscreen-audio-stream.test.ts 的处理），读二进制走本别名
+const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const fixture = new Uint8Array(
-  readFileSync(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
+  readFileBytes(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
 );
-const big = new Uint8Array(readFileSync(join(__dirname, "fixtures", "fmp4-1mb.bin")));
+const big = new Uint8Array(readFileBytes(join(__dirname, "fixtures", "fmp4-1mb.bin")));
 
 // 用整块 push 复现 adtsFromFmp4 的输出（包装即此语义），作为逐字节一致的基准
-function collectViaExtractor(bytes, config) {
+function collectViaExtractor(bytes: Uint8Array, config: AdtsExtractorConfig): Uint8Array[] {
   const extractor = createAdtsExtractor(config);
   const segments = [...extractor.push(bytes), ...extractor.flush()];
   if (extractor.frameCount === 0) return [];
@@ -27,9 +31,9 @@ function collectViaExtractor(bytes, config) {
 }
 
 // 按给定块长序列循环切分字节并喂给 extractor，返回全部段
-function collectViaChunkedPush(bytes, chunkSizes, config) {
+function collectViaChunkedPush(bytes: Uint8Array, chunkSizes: number[], config: AdtsExtractorConfig): Uint8Array[] {
   const extractor = createAdtsExtractor(config);
-  const segments = [];
+  const segments: Uint8Array[] = [];
   let off = 0;
   let i = 0;
   while (off < bytes.length) {

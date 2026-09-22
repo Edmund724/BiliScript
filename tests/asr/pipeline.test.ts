@@ -10,6 +10,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { AsrChunkResult } from "../../extension/asr/offscreen-bridge.page.js";
+import type { AsrProvider } from "../../extension/asr/asr-provider-store.js";
 
 // ===== 模块级 mock：pipeline 的外部依赖 =====
 
@@ -54,7 +56,7 @@ vi.mock("../../extension/subtitle/cache.js", () => ({
   clearSubtitleCacheByKey: vi.fn(async () => {})
 }));
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, contentFetchJson: vi.fn() };
 });
 
@@ -62,7 +64,7 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
 // skippedSegments, failedChunks}），results 为按片 index 对齐的单片记录
 // [{ index, startSec, durationSec, result }]。durationSec 对齐 offscreen
 // streamWavChunks 的实际解码片长语义（测试按时长切好传入）。
-function makeSynthTaskHost(chunks) {
+function makeSynthTaskHost(chunks: Array<{ startSec: number; durationSec: number; result: AsrChunkResult }>) {
   return vi.fn(async () => ({
     results: chunks.map((chunk, index) => ({
       index,
@@ -76,18 +78,22 @@ function makeSynthTaskHost(chunks) {
   }));
 }
 
-// 默认 provider（openai-transcriptions，带时间戳）
-const OPENAI_PROVIDER = {
+// 默认 provider（openai-transcriptions，带时间戳）。
+// presetId/enabled 为 AsrProvider 签名必填字段（normalizeAsrProvider 的产出形状），
+// 运行时适配器只读 baseUrl/model/apiKey/language，此处按签名补齐。
+const OPENAI_PROVIDER: AsrProvider = {
   id: "siliconflow-sensevoice",
+  presetId: "custom",
   name: "SiliconFlow 硅基流动",
   type: "openai-transcriptions",
   baseUrl: "https://api.siliconflow.cn/v1",
   model: "FunAudioLLM/SenseVoiceSmall",
   supportsTimestamps: true,
+  enabled: true,
   apiKey: "sk-test"
 };
 
-let pipeline;
+let pipeline: typeof import("../../extension/asr/pipeline.js");
 
 beforeEach(async () => {
   resetModuleState();
@@ -213,7 +219,7 @@ describe("openai-transcriptions 适配器", () => {
     const adapter = await import("../../extension/asr/adapters/openai-transcriptions.js");
     const { isRetryableNetworkError } = await import("../../extension/shared/error-helpers.js");
 
-    let caught = null;
+    let caught: Error | null = null;
     try {
       await adapter.transcribe({
         wavBlob: new Blob([new Uint8Array(8)]),
@@ -222,19 +228,19 @@ describe("openai-transcriptions 适配器", () => {
         provider: OPENAI_PROVIDER
       });
     } catch (error) {
-      caught = error;
+      caught = error as Error;
     }
 
     // 网络层错误不被适配器包装：原样上抛，交 retryAsync 消息启发式判定可重试
     expect(caught).toBeInstanceOf(TypeError);
-    expect(caught.message).toBe("Failed to fetch");
+    expect(caught?.message).toBe("Failed to fetch");
     expect(isRetryableNetworkError(caught)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("FormData 字段断言：body 为 FormData、model 正确、绝无 Content-Type 头、apiKey 带 Bearer", async () => {
-    let captured = null;
-    let capturedUrl = null;
+    let captured: { body: FormData; headers: Record<string, string> } | null = null;
+    let capturedUrl: string | null = null;
     const fetchMock = vi.fn(async (url, init) => {
       captured = init;
       capturedUrl = url;
@@ -252,21 +258,21 @@ describe("openai-transcriptions 适配器", () => {
     // json 降级路径只产 text：verbose_json 一次 + json 一次（无 segments → 降级）
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // FormData 捕获最后一次请求（json 降级那次）
-    expect(captured.body).toBeInstanceOf(FormData);
-    expect(captured.body.get("model")).toBe("FunAudioLLM/SenseVoiceSmall");
-    expect(captured.body.get("response_format")).toBe("json");
+    expect(captured!.body).toBeInstanceOf(FormData);
+    expect(captured!.body.get("model")).toBe("FunAudioLLM/SenseVoiceSmall");
+    expect(captured!.body.get("response_format")).toBe("json");
     // 语言不放在 multipart 字段里（SiliconFlow 只认查询参数）
-    expect(captured.body.get("language")).toBeNull();
-    expect(captured.body.get("file")).toBeInstanceOf(Blob);
+    expect(captured!.body.get("language")).toBeNull();
+    expect(captured!.body.get("file")).toBeInstanceOf(Blob);
     // 绝不手动设 Content-Type
-    expect(captured.headers["Content-Type"]).toBeUndefined();
-    expect(captured.headers.Authorization).toBe("Bearer sk-test");
+    expect(captured!.headers["Content-Type"]).toBeUndefined();
+    expect(captured!.headers.Authorization).toBe("Bearer sk-test");
     // provider 未设语言档位 → URL 不带 language 参数
     expect(capturedUrl).toBe("https://api.siliconflow.cn/v1/audio/transcriptions");
   });
 
   it("language=en 时 URL 附加 ?language=english（英文转写链路）", async () => {
-    let capturedUrls = [];
+    let capturedUrls: string[] = [];
     const fetchMock = vi.fn(async (url, init) => {
       capturedUrls.push(url);
       return { ok: true, status: 200, json: async () => ({ text: "hello" }) };
@@ -288,7 +294,7 @@ describe("openai-transcriptions 适配器", () => {
   });
 
   it("language=zh 时 URL 附加 ?language=zh", async () => {
-    let capturedUrls = [];
+    let capturedUrls: string[] = [];
     const fetchMock = vi.fn(async (url) => {
       capturedUrls.push(url);
       return { ok: true, status: 200, json: async () => ({ text: "你好" }) };
@@ -305,7 +311,7 @@ describe("openai-transcriptions 适配器", () => {
   });
 
   it("apiKey 为空时不带 Authorization 头", async () => {
-    let captured = null;
+    let captured: { headers: Record<string, string> } | null = null;
     const fetchMock = vi.fn(async (url, init) => {
       captured = init;
       return { ok: true, status: 200, json: async () => ({ text: "ok" }) };
@@ -318,8 +324,8 @@ describe("openai-transcriptions 适配器", () => {
       durationSec: 60,
       provider: { ...OPENAI_PROVIDER, apiKey: "" }
     });
-    expect(captured.headers.Authorization).toBeUndefined();
-    expect(captured.headers["Content-Type"]).toBeUndefined();
+    expect(captured!.headers.Authorization).toBeUndefined();
+    expect(captured!.headers["Content-Type"]).toBeUndefined();
   });
 });
 

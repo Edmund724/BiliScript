@@ -32,13 +32,38 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { MessageSender } from "../../extension/shared/messaging-protocol.js";
+
+// 模拟 updateSessionRules 的会话规则表条目：只保留测试关心的 id 与宽松
+// 内容形状（priority/action/condition 原样存放，断言经 toMatchObject 进行）
+interface FakeSessionRule {
+  id: number;
+  priority?: number;
+  action?: unknown;
+  condition?: unknown;
+}
+
+// prepare/cleanup 经 sendResponse 回传的响应形状（ruleId 仅 prepare 携带，
+// 这里取宽类型，prepare 助手在返回处收窄）
+type BridgeResponse = { ok: boolean; ruleId?: number; error?: string };
+
+// prepare 成功响应（ruleId 必有）：prepareOnce/prepareFrom 的返回类型
+type PrepareResponse = { ok: boolean; ruleId: number; error?: string };
+
+interface StubSwEnvOptions {
+  matchAllResult?: unknown[];
+  matchAllError?: unknown;
+  updateSessionRules?: (options: { removeRuleIds?: number[]; addRules?: FakeSessionRule[] }) => Promise<void>;
+  getSessionRules?: () => Promise<FakeSessionRule[]>;
+  tabsGet?: (tabId: number) => Promise<{ id: number }>;
+}
 
 // 模拟 updateSessionRules 的会话规则表：removeRuleIds 先删、addRules 后加，
 // 用于断言多任务规则并存 / 单任务删除的精确性（与真实 API 同序语义）；
 // initialRules 为冷启动对账要看到的平台残留规则
-function makeRuleStore(initialRules = []) {
-  const rules = new Map(initialRules.map((rule) => [rule.id, rule]));
-  const updateSessionRules = vi.fn(async ({ removeRuleIds = [], addRules = [] }) => {
+function makeRuleStore(initialRules: FakeSessionRule[] = []) {
+  const rules = new Map(initialRules.map((rule) => [rule.id, rule] as const));
+  const updateSessionRules = vi.fn(async ({ removeRuleIds = [], addRules = [] }: { removeRuleIds?: number[]; addRules?: FakeSessionRule[] }) => {
     for (const id of removeRuleIds) rules.delete(id);
     for (const rule of addRules) rules.set(rule.id, rule);
   });
@@ -47,8 +72,8 @@ function makeRuleStore(initialRules = []) {
   return { rules, updateSessionRules, getSessionRules };
 }
 
-function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessionRules, tabsGet } = {}) {
-  const createDocument = vi.fn(async () => ({}));
+function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessionRules, tabsGet }: StubSwEnvOptions = {}) {
+  const createDocument = vi.fn(async (_options: unknown) => ({}));
   const updateRules = updateSessionRules || vi.fn(async () => {});
   const getRules = getSessionRules || vi.fn(async () => []);
   vi.stubGlobal("chrome", {
@@ -58,7 +83,7 @@ function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessi
         callback?.({ ok: true });
         return undefined;
       }),
-      getURL: (path) => `chrome-extension://test/${path}`,
+      getURL: (path: string) => `chrome-extension://test/${path}`,
       onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn() }
     },
     storage: {
@@ -82,7 +107,7 @@ function stubSwEnv({ matchAllResult, matchAllError, updateSessionRules, getSessi
 // 已存在 offscreen 文档的 matchAll 结果（跳过 createDocument 分支）
 const existingDocClients = [{ url: "chrome-extension://test/entry/offscreen.html" }];
 
-let bridge;
+let bridge: typeof import("../../extension/asr/offscreen-bridge.bg.js");
 
 beforeEach(() => {
   resetModuleState();
@@ -144,8 +169,8 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
     expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: "offscreen reasons invalid" });
 
     // 失败任务不占用 id：重试成功拿到的是同一个首 id
-    const retried = [];
-    await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, {}, (r) => retried.push(r));
+    const retried: BridgeResponse[] = [];
+    await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, {}, (r) => retried.push(r as BridgeResponse));
     expect(retried[0]).toEqual({ ok: true, ruleId: 32001 });
   });
 
@@ -187,15 +212,15 @@ describe("handleAsrDecodePrepare 的 offscreen 文档守卫", () => {
 // 来源（同标签页 / 同为 offscreen）的清理请求；簿记不在（SW 冷启动后上一
 // 实例的 ruleId）保持幂等放行。
 describe("cleanup 的标签页归属校验（跨标签页请求拒绝执行）", () => {
-  async function prepareFrom(sender) {
-    const responses = [];
-    await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, sender, (r) => responses.push(r));
-    return responses[0];
+  async function prepareFrom(sender: MessageSender) {
+    const responses: BridgeResponse[] = [];
+    await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, sender, (r) => responses.push(r as BridgeResponse));
+    return responses[0] as PrepareResponse;
   }
 
-  async function cleanupFrom(sender, ruleId) {
-    const responses = [];
-    await bridge.handleAsrDecodeCleanup({ taskType: "asr-decode-cleanup", ruleId }, sender, (r) => responses.push(r));
+  async function cleanupFrom(sender: MessageSender, ruleId: number) {
+    const responses: BridgeResponse[] = [];
+    await bridge.handleAsrDecodeCleanup({ taskType: "asr-decode-cleanup", ruleId }, sender, (r) => responses.push(r as BridgeResponse));
     return responses[0];
   }
 
@@ -259,17 +284,17 @@ const EXPECTED_RULE_SHAPE = {
 };
 
 async function prepareOnce() {
-  const responses = [];
-  await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, {}, (r) => responses.push(r));
-  return responses[0];
+  const responses: BridgeResponse[] = [];
+  await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, {}, (r) => responses.push(r as BridgeResponse));
+  return responses[0] as PrepareResponse;
 }
 
-async function cleanupOnce(ruleId) {
-  const responses = [];
+async function cleanupOnce(ruleId: number) {
+  const responses: BridgeResponse[] = [];
   await bridge.handleAsrDecodeCleanup(
     { taskType: "asr-decode-cleanup", ruleId },
     {},
-    (r) => responses.push(r)
+    (r) => responses.push(r as BridgeResponse)
   );
   return responses[0];
 }
@@ -313,11 +338,11 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
 
     const first = await prepareOnce();
     const second = await prepareOnce();
-    const cleanupResponses = [];
+    const cleanupResponses: BridgeResponse[] = [];
     await bridge.handleAsrDecodeCleanup(
       { taskType: "asr-decode-cleanup", ruleId: first.ruleId },
       {},
-      (r) => cleanupResponses.push(r)
+      (r) => cleanupResponses.push(r as BridgeResponse)
     );
 
     expect(cleanupResponses[0]).toEqual({ ok: true });
@@ -334,7 +359,7 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
     bridge = await import("../../extension/asr/offscreen-bridge.bg.js");
 
     const first = await prepareOnce();
-    const cleanup = (ruleId) => cleanupOnce(ruleId);
+    const cleanup = (ruleId: number) => cleanupOnce(ruleId);
 
     // 同一 id 重复 cleanup、从未分配的 id cleanup，都不抛且 ok:true
     await expect(cleanup(first.ruleId)).resolves.toEqual({ ok: true });
@@ -393,12 +418,12 @@ describe("防盗链规则 id 按任务分配（多转写任务并发互不删除
 // makeRuleStore 的初始规则 = 上一实例残留在平台的会话规则。
 // 平台残留的上一实例规则，内容与新任务所加规则同形（冷启动对账与泄漏回收
 // 用例共用）
-function residueRule(id) {
+function residueRule(id: number): FakeSessionRule {
   return { id, ...EXPECTED_RULE_SHAPE };
 }
 
 describe("SW 冷启动对账（分配器账本以平台为事实源重建）", () => {
-  async function coldStartBridge(initialRules = []) {
+  async function coldStartBridge(initialRules: FakeSessionRule[] = []) {
     const store = makeRuleStore(initialRules);
     stubSwEnv({
       matchAllResult: existingDocClients,
@@ -486,7 +511,7 @@ describe("SW 冷启动对账（分配器账本以平台为事实源重建）", (
 // 归属标签页已不存在的活跃规则回收（tabs.get 的「No tab with id」确定性错误
 // 才判死，其他异常按存活处理——宁可漏收不误收）。
 describe("prepare 前的死标签页残留回收（异常取消 / 后台终止路径）", () => {
-  async function freshBridge({ tabsGet, initialRules = [] } = {}) {
+  async function freshBridge({ tabsGet, initialRules = [] }: { tabsGet?: StubSwEnvOptions["tabsGet"]; initialRules?: FakeSessionRule[] } = {}) {
     const store = makeRuleStore(initialRules);
     stubSwEnv({
       matchAllResult: existingDocClients,
@@ -498,11 +523,11 @@ describe("prepare 前的死标签页残留回收（异常取消 / 后台终止�
     return store;
   }
 
-  async function prepareFrom(tabId) {
-    const responses = [];
-    await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, { tab: { id: tabId } }, (r) => responses.push(r));
+  async function prepareFrom(tabId: number) {
+    const responses: BridgeResponse[] = [];
+    await bridge.handleAsrDecodePrepare({ taskType: "asr-decode-prepare" }, { tab: { id: tabId } }, (r) => responses.push(r as BridgeResponse));
     expect(responses[0].ok).toBe(true);
-    return responses[0];
+    return responses[0] as PrepareResponse;
   }
 
   it("标签页关闭后（tabs.get 报 No tab with id），其名下规则在下一次 prepare 前被回收且 id 复用", async () => {

@@ -13,8 +13,11 @@ import {
 } from "../../extension/asr/adts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// 单参 readFileSync 被 tests/reader/node-stubs.d.ts 的 string 返回重载抢先匹配
+//（同 tests/entry/offscreen-audio-stream.test.ts 的处理），读二进制走本别名
+const readFileBytes = readFileSync as unknown as (path: string) => Uint8Array;
 const fixture = new Uint8Array(
-  readFileSync(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
+  readFileBytes(join(__dirname, "fixtures", "fmp4-audio-sample.bin"))
 );
 
 // 手工构造的最小 fMP4：ftyp + moof + mdat（1 个样本）
@@ -75,7 +78,7 @@ function buildMinimalFmp4(asc = [0x11, 0x90]) {
   return out;
 }
 
-function writeU32(arr, p, value) {
+function writeU32(arr: Uint8Array, p: number, value: number) {
   arr[p] = (value >>> 24) & 0xff;
   arr[p + 1] = (value >>> 16) & 0xff;
   arr[p + 2] = (value >>> 8) & 0xff;
@@ -153,7 +156,7 @@ describe("adtsFromFmp4", () => {
 
 describe("真实 1MB 样本（26 对 moof/mdat）", () => {
   const big = new Uint8Array(
-    readFileSync(join(__dirname, "fixtures", "fmp4-1mb.bin"))
+    readFileBytes(join(__dirname, "fixtures", "fmp4-1mb.bin"))
   );
   it("提取的 ADTS 段总帧数 > 3000 且字节流无断点", () => {
     const asc = parseAudioSpecificConfig(big);

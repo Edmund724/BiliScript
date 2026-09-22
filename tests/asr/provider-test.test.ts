@@ -8,8 +8,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let fetchMock;
-let localStorage;
+let fetchMock: ReturnType<typeof vi.fn>;
+let localStorage: Record<string, any>;
 
 async function loadModule() {
   return import("../../extension/asr/provider-test.js");
@@ -37,7 +37,7 @@ beforeEach(() => {
         ...globalThis.chrome.storage.local,
         get: vi.fn(async (keys) => {
           const names = Array.isArray(keys) ? keys : [keys];
-          const out = {};
+          const out: Record<string, any> = {};
           for (const k of names) out[k] = localStorage[k];
           return out;
         }),
@@ -48,16 +48,16 @@ beforeEach(() => {
 });
 
 // 构造一个带真实 Response 语义的最小响应对象（含 ok/status/text），
-// 探针代码只消费这三个字段。
-function jsonResponse(status, body) {
+// 探针代码只消费这三个字段。返回值断言为 Response 以满足 transport 注入签名。
+function jsonResponse(status: number, body: unknown): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     text: vi.fn(async () => JSON.stringify(body))
-  };
+  } as unknown as Response;
 }
 
-function baseProvider(overrides = {}) {
+function baseProvider(overrides: Record<string, unknown> = {}) {
   return {
     id: "p1",
     presetId: "custom",

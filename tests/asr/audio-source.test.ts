@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let fetchMock;
+let fetchMock: ReturnType<typeof vi.fn>;
 
 async function loadModule() {
   return import("../../extension/asr/audio-source.js");
@@ -16,15 +16,15 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
 });
 
-function audioTrack(id, bandwidth, baseUrl, backupUrl = []) {
-  const track = { id, bandwidth, baseUrl };
+function audioTrack(id: number, bandwidth: number, baseUrl: string, backupUrl: string[] = []) {
+  const track: { id: number; bandwidth: number; baseUrl: string; backupUrl?: string[] } = { id, bandwidth, baseUrl };
   if (backupUrl.length > 0) {
     track.backupUrl = backupUrl;
   }
   return track;
 }
 
-function buildDashData(audio) {
+function buildDashData(audio: any) {
   return { audio };
 }
 
@@ -100,7 +100,7 @@ describe("buildPlayurlUrl", () => {
 describe("getSourceAudioUrl", () => {
   it("走注入 transport 请求 playurl 并选最小 bandwidth 音轨", async () => {
     const { getSourceAudioUrl } = await loadModule();
-    const transport = vi.fn(async () => ({
+    const transport = vi.fn(async (_url: string) => ({
       code: 0,
       data: {
         dash: {
