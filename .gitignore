@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+# agent 沙箱下写不进 ~/.local/share/pnpm/store 时，pnpm 会回退到仓库根建本地 store
+.pnpm-store/
 
 # Build / generated artifacts
 /release/
