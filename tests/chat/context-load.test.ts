@@ -19,9 +19,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { ChatSessionContextSnapshot } from "../../extension/chat/chat-state.js";
+import type { ContextFetchOutcome } from "../../extension/core/context-assembly.js";
 
-let createContextLoad;
-let chatSessionState;
+let createContextLoad: typeof import("../../extension/chat/context-load.js").createContextLoad;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 
 async function importModule() {
   const module = await import("../../extension/chat/context-load.js");
@@ -32,16 +34,22 @@ async function importModule() {
 
 const ACTIVE_TAB = { id: 42, url: "https://www.bilibili.com/video/BV1" };
 
-function makePayload(overrides = {}) {
+function makePayload(overrides: Partial<ChatSessionContextSnapshot> = {}) {
   return { signature: "sig-1", title: "测试视频", url: "https://www.bilibili.com/video/BV1", isVideoContext: true, ...overrides };
 }
 
-function makeHarness({ tab = ACTIVE_TAB, fetchOutcome } = {}) {
+function makeHarness({
+  tab = ACTIVE_TAB,
+  fetchOutcome
+}: {
+  tab?: { id?: number; url?: string } | null;
+  fetchOutcome?: () => ContextFetchOutcome;
+} = {}) {
   const contextChip = document.createElement("button");
   document.body.appendChild(contextChip);
   const deps = {
     getActiveTab: vi.fn(async () => tab),
-    fetchContext: vi.fn(async () => {
+    fetchContext: vi.fn(async (): Promise<ContextFetchOutcome> => {
       if (fetchOutcome) {
         return fetchOutcome();
       }
@@ -279,8 +287,8 @@ describe("openCurrentContextUrl", () => {
   it("同视频：不更新 URL，但强刷一轮上下文", async () => {
     chatSessionState.contextData = { title: "视频", url: "https://www.bilibili.com/video/BV1" };
     const { deps, contextLoad } = makeHarness();
-    const updateSpy = vi.fn(async () => {});
-    window.chrome = window.chrome || {};
+    const updateSpy = vi.fn(async (): Promise<chrome.tabs.Tab> => ({ status: "complete" }));
+    window.chrome = window.chrome || ({} as typeof window.chrome);
     window.chrome.tabs = { ...window.chrome.tabs, update: updateSpy };
 
     await contextLoad.openCurrentContextUrl();
@@ -292,8 +300,8 @@ describe("openCurrentContextUrl", () => {
   it("跨视频：更新 URL 后强刷（waitForTabComplete 需 chrome.tabs.get stub）", async () => {
     chatSessionState.contextData = { title: "视频", url: "https://www.bilibili.com/video/BV1" };
     const { deps, contextLoad } = makeHarness({ tab: { id: 42, url: "https://www.bilibili.com/video/BVother" } });
-    const updateSpy = vi.fn(async () => {});
-    window.chrome = window.chrome || {};
+    const updateSpy = vi.fn(async (): Promise<chrome.tabs.Tab> => ({ status: "complete" }));
+    window.chrome = window.chrome || ({} as typeof window.chrome);
     window.chrome.tabs = {
       ...window.chrome.tabs,
       update: updateSpy,

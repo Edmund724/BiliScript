@@ -29,7 +29,8 @@
     "tests/reader/**/*.ts",
     "tests/core/**/*.ts",
     "tests/asr/**/*.ts",
-    "tests/subtitle/**/*.ts"
+    "tests/subtitle/**/*.ts",
+    "tests/chat/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

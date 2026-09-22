@@ -18,6 +18,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { ModelSelectWidthEls } from "../../extension/chat/model-select-width.js";
 
 const { sendRuntimeMessageMock } = vi.hoisted(() => ({
   sendRuntimeMessageMock: vi.fn()
@@ -30,10 +31,10 @@ vi.mock("../../extension/shared/messaging.js", () => ({
 const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
 const THINKING_LEVEL_KEY = "boc_ai_thinking_level";
 
-let createProviderPrefs;
-let chatSessionState;
-let buildModelOptionValue;
-let parseModelOptionValue;
+let createProviderPrefs: typeof import("../../extension/chat/providers.js").createProviderPrefs;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let buildModelOptionValue: typeof import("../../extension/chat/providers.js").buildModelOptionValue;
+let parseModelOptionValue: typeof import("../../extension/chat/providers.js").parseModelOptionValue;
 
 async function importModule() {
   const module = await import("../../extension/chat/providers.js");
@@ -46,11 +47,11 @@ async function importModule() {
 
 // chrome.storage.local fake（conversation-store 测试同款手法：Map 底座 + 记录
 // 调用的 get/set）
-function makeStorageFake(initial = {}) {
+function makeStorageFake(initial: Record<string, unknown> = {}) {
   const data = new Map(Object.entries(initial));
   return {
     data,
-    get: vi.fn(async (keys) =>
+    get: vi.fn(async (keys: string[]) =>
       Object.fromEntries(keys.filter((k) => data.has(k)).map((k) => [k, data.get(k)]))
     ),
     set: vi.fn(async (items) => {
@@ -69,11 +70,11 @@ function makeHarness(storage = makeStorageFake()) {
     btn.dataset.level = level;
     document.body.appendChild(btn);
     return btn;
-  });
+  }) as unknown as NodeListOf<HTMLElement> & HTMLButtonElement[];
   const deps = {
     modelSelect,
     thinkingBtns,
-    widthEls: { modelSelect },
+    widthEls: { modelSelect } as ModelSelectWidthEls,
     renderPresetPrompts: vi.fn(),
     persistAiPresetPrompts: vi.fn(async () => {}),
     storage
@@ -222,7 +223,7 @@ describe("renderModelSelect", () => {
 
     providerPrefs.renderModelSelect();
 
-    const group = modelSelect.querySelector("optgroup");
+    const group = modelSelect.querySelector("optgroup")!;
     expect(group.label).toBe("DeepSeek");
     expect(Array.from(group.querySelectorAll("option")).map((opt) => opt.value)).toEqual([
       buildModelOptionValue("p1", "deepseek-v4-flash"),
@@ -389,7 +390,7 @@ describe("setSelectedProvider / getStoredSelectedProviderId", () => {
 });
 
 describe("webSearchEnabled 联网开关（spec §2.1/§4）", () => {
-  function makePillHarness(storage) {
+  function makePillHarness(storage = makeStorageFake()) {
     const pill = document.createElement("button");
     document.body.appendChild(pill);
     const harness = makeHarness(storage);

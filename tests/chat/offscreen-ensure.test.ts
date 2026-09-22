@@ -12,8 +12,22 @@ import { resetModuleState } from "../setup.js";
 import { ensureChatOffscreenDocument } from "../../extension/chat/offscreen-ensure.js";
 import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASON } from "../../extension/shared/offscreen-constants.js";
 
-function stubChrome({ contexts, contextsError, createError } = {}) {
-  const createDocument = vi.fn(async () => {
+interface StubChromeOptions {
+  contexts?: unknown[];
+  contextsError?: unknown;
+  createError?: unknown;
+}
+
+// createDocument 入参形状（chrome-types.d.ts 的 CreateDocumentOptions 子集），
+// 仅用于断言调用载荷。
+interface OffscreenCreateOptions {
+  url: string;
+  reasons: string[];
+  justification: string;
+}
+
+function stubChrome({ contexts, contextsError, createError }: StubChromeOptions = {}) {
+  const createDocument = vi.fn(async (_options: OffscreenCreateOptions) => {
     if (createError) throw createError;
     return {};
   });
@@ -25,7 +39,7 @@ function stubChrome({ contexts, contextsError, createError } = {}) {
     ...globalThis.chrome,
     runtime: {
       ...globalThis.chrome.runtime,
-      getURL: (path) => `chrome-extension://test/${path}`,
+      getURL: (path: string) => `chrome-extension://test/${path}`,
       getContexts
     },
     offscreen: { createDocument }

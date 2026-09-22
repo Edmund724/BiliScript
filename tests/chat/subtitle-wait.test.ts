@@ -6,14 +6,34 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { CreateSubtitleWaiterDeps } from "../../extension/chat/subtitle-wait.js";
 import { createSubtitleWaiter, isContextPending } from "../../extension/chat/subtitle-wait.js";
 
 const POLL_MS = 4000;
 
+interface PollOutcome {
+  ok: boolean;
+  pending: boolean;
+}
+
+// 轮询结果元素：字面量，或动态返回它的函数（可为 async）
+type PollStep = PollOutcome | (() => PollOutcome | Promise<PollOutcome>);
+
+// fake 定时器句柄（源码只把它原样回传给 clearTimer，句柄形状不参与逻辑）
+interface TimerHandle {
+  id: number;
+  fn: () => void;
+  ms: number;
+  cleared: boolean;
+}
+
 // 受控 fake：手动 timer 队列 + notice 记录 + 可编程轮询结果序列。
 // pollResults 为数组，超出长度时重复最后一项；元素可为函数（动态返回）。
-function makeHarness(pollResults, { pollIntervalMs = POLL_MS } = {}) {
-  const timers = [];
+function makeHarness(
+  pollResults: PollStep[],
+  { pollIntervalMs = POLL_MS }: { pollIntervalMs?: number } = {}
+) {
+  const timers: TimerHandle[] = [];
   let timerSeq = 0;
   let pollIndex = 0;
   const deps = {
@@ -25,12 +45,12 @@ function makeHarness(pollResults, { pollIntervalMs = POLL_MS } = {}) {
     }),
     showWaitingNotice: vi.fn(),
     removeNotice: vi.fn(),
-    setTimer: vi.fn((fn, ms) => {
+    setTimer: vi.fn((fn: () => void, ms: number) => {
       const handle = { id: ++timerSeq, fn, ms, cleared: false };
       timers.push(handle);
       return handle;
     }),
-    clearTimer: vi.fn((handle) => {
+    clearTimer: vi.fn((handle: TimerHandle) => {
       handle.cleared = true;
       const index = timers.indexOf(handle);
       if (index >= 0) {
@@ -38,7 +58,8 @@ function makeHarness(pollResults, { pollIntervalMs = POLL_MS } = {}) {
       }
     })
   };
-  const waiter = createSubtitleWaiter(deps);
+  // 对象句柄与 deps 声明的 number 句柄不一致，但源码只做不透明透传，运行时等价
+  const waiter = createSubtitleWaiter(deps as unknown as CreateSubtitleWaiterDeps);
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   // 触发最早挂起的定时器（模拟轮询间隔到达）
   const fireNextTimer = async () => {
@@ -57,7 +78,7 @@ const PENDING = { ok: true, pending: true };
 const FAILED = { ok: false, pending: false };
 
 describe("createSubtitleWaiter", () => {
-  let harness;
+  let harness: ReturnType<typeof makeHarness>;
 
   beforeEach(() => {
     harness = makeHarness([READY]);
@@ -114,7 +135,7 @@ describe("createSubtitleWaiter", () => {
   });
 
   it("tick 进行中重复 kick()：去重，不并发多轮轮询", async () => {
-    let releasePoll;
+    let releasePoll!: (value: PollOutcome) => void;
     harness = makeHarness([
       () => new Promise((resolve) => {
         releasePoll = resolve;

@@ -26,16 +26,42 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
+import type { ChatPort, ChatPortMessage } from "../../extension/chat/chat-runtime.js";
 
-let createChatRuntime;
-let chatSessionState;
+let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+
+// 假 port（chat-runtime 经 connectPort 取用；方法保留 mock 引用以便断言载荷）
+interface FakePort {
+  name: string;
+  postMessage: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+  onMessage: { addListener: (fn: (msg: unknown) => void) => void };
+  onDisconnect: { addListener: (fn: () => void) => void };
+}
+
+interface PortSession {
+  port: FakePort;
+  listeners: {
+    message: Array<(message: unknown) => void>;
+    disconnect: Array<() => void>;
+  };
+}
+
+type ChatRuntime = ReturnType<typeof import("../../extension/chat/chat-runtime.js").createChatRuntime>;
+type RuntimeDeps = ReturnType<typeof makeDeps>;
+
+// window.scheduler 是非标准可选 API（chat-stream-render 以可选属性读取，
+// 缺失时回落 setTimeout）；这里用同款可选视图替换/清理。
+type SchedulerWindow = { scheduler?: { yield: () => Promise<void> } };
 
 const SLOW_NOTICE_TEXT = "模型响应较慢，可能正在思考，请稍候…";
 
-function makePort() {
-  const listeners = { message: [], disconnect: [] };
+function makePort(): PortSession {
+  const listeners: PortSession["listeners"] = { message: [], disconnect: [] };
   return {
     port: {
+      name: "offscreen-chat",
       onMessage: { addListener: (fn) => listeners.message.push(fn) },
       onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
       postMessage: vi.fn(),
@@ -48,7 +74,7 @@ function makePort() {
 function makeDeps() {
   const messages = document.createElement("div");
   const input = document.createElement("textarea");
-  const ports = [];
+  const ports: PortSession[] = [];
   return {
     messages,
     input,
@@ -56,7 +82,7 @@ function makeDeps() {
     stopBtn: null,
     store: {
       persistCurrent: vi.fn(async () => {}),
-      isCurrent: vi.fn((id) => id === chatSessionState.currentConversationId)
+      isCurrent: vi.fn((id: string) => id === chatSessionState.currentConversationId)
     },
     ui: {
       setStreamingUiState: vi.fn(),
@@ -76,7 +102,7 @@ function makeDeps() {
     connectPort: vi.fn(async () => {
       const session = makePort();
       ports.push(session);
-      return session.port;
+      return session.port as unknown as ChatPort;
     })
   };
 }
@@ -89,7 +115,7 @@ async function makeRuntime(text = "问题") {
   return { deps, runtime, session: deps.ports[0] };
 }
 
-function feed(runtime, msg) {
+function feed(runtime: ChatRuntime, msg: ChatPortMessage | null | undefined) {
   runtime.handleChatPortMessage(msg);
 }
 
@@ -97,15 +123,15 @@ function holdRaf() {
   return vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
 }
 
-function assistantNode(deps) {
-  return deps.messages.querySelector(".chat-msg-assistant");
+function assistantNode(deps: RuntimeDeps): HTMLElement {
+  return deps.messages.querySelector(".chat-msg-assistant") as HTMLElement;
 }
 
 // 帧快照：stable/tail 的 innerHTML（tail 摘除光标后）+ 光标接回断言所需信息
-function frameSnapshot(node) {
-  const stableEl = node.querySelector(".chat-stream-stable");
-  const tailEl = node.querySelector(".chat-stream-tail");
-  const tailClone = tailEl.cloneNode(true);
+function frameSnapshot(node: Element) {
+  const stableEl = node.querySelector(".chat-stream-stable")!;
+  const tailEl = node.querySelector(".chat-stream-tail")!;
+  const tailClone = tailEl.cloneNode(true) as HTMLElement;
   tailClone.querySelector(".chat-msg-cursor")?.remove();
   return {
     stableHTML: stableEl.innerHTML,
@@ -139,7 +165,7 @@ afterEach(() => {
 // 逐帧驱动 token 序列，每帧收集快照
 // 注意：vi.spyOn 重复打点返回同一 mock（calls 跨运行时累积），每次驱动
 // 「本次 token 新注册」的帧（list 尾部），不能用局部索引。
-function runStream(runtime, deps, tokens) {
+function runStream(runtime: ChatRuntime, deps: RuntimeDeps, tokens: string[]) {
   const raf = holdRaf();
   const node = assistantNode(deps);
   const frames = [];
@@ -149,7 +175,7 @@ function runStream(runtime, deps, tokens) {
     const before = raf.mock.calls.length;
     feed(runtime, { type: "token", data: token });
     expect(raf.mock.calls.length).toBe(before + 1);
-    raf.mock.calls[raf.mock.calls.length - 1][0]();
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
     frames.push({ snapshot: frameSnapshot(node), cumulative });
   }
   return { frames, node, raf };
@@ -194,7 +220,7 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
       // 不变量 5：终态整渲染从全量文本重放，与流式渲染逐字节一致
       feed(runtime, { type: "done" });
       const full = tokens.join("");
-      const finalHTML = node.querySelector(".chat-msg-assistant-body").innerHTML;
+      const finalHTML = node.querySelector(".chat-msg-assistant-body")!.innerHTML;
       expect(finalHTML).toBe(md.renderMarkdown(md.stripThinkBlocks(full)));
       const last = frames[frames.length - 1].snapshot;
       expect(finalHTML).toBe(last.stableHTML + last.tailHTML);
@@ -205,7 +231,7 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
   it("stable 只增不减（无部分标签补真的语料）", async () => {
     for (const name of ["多段落+列表+围栏+结尾", "think 块未闭合再闭合", "尾随空行不抖动 stable"]) {
       const { deps, runtime } = await makeRuntime();
-      const { frames } = runStream(runtime, deps, CORPORA[name]);
+      const { frames } = runStream(runtime, deps, CORPORA[name as keyof typeof CORPORA]);
       let prevStable = "";
       for (const { snapshot } of frames) {
         expect(snapshot.stableText.startsWith(prevStable)).toBe(true);
@@ -217,7 +243,7 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
 
 describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重复消费", () => {
   afterEach(() => {
-    delete window.scheduler;
+    delete (window as unknown as SchedulerWindow).scheduler;
   });
 
   it("旧帧挂起在让出点期间新 token 到达：放行后逐帧等价、内容不重复", async () => {
@@ -228,22 +254,22 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
     // 时钟每读一次推进 100ms（超过 50ms 预算），让出点全部命中
     let clock = 0;
     vi.spyOn(performance, "now").mockImplementation(() => (clock += 100));
-    let release;
-    const gate = new Promise((resolve) => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    window.scheduler = { yield: vi.fn(() => gate) };
+    (window as unknown as SchedulerWindow).scheduler = { yield: vi.fn(() => gate) };
 
     const tokens = ["第一段\n\n第二段", "，继续", "\n\n第三段"];
     let cumulative = "";
     // 帧 1：游标已消费、挂起在 stable 渲染前的让出点（作废路径）
     cumulative += tokens[0];
     feed(runtime, { type: "token", data: tokens[0] });
-    raf.mock.calls[raf.mock.calls.length - 1][0]();
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
     // 帧 2 到达并执行（同样挂起在让出点）
     cumulative += tokens[1];
     feed(runtime, { type: "token", data: tokens[1] });
-    raf.mock.calls[raf.mock.calls.length - 1][0]();
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
     release();
     await vi.waitFor(() => {
       expect(node.querySelector(".chat-stream-tail")?.textContent).toContain("第二段，继续");
@@ -255,7 +281,7 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
 
     // 帧 3 正常推进并收尾（帧 3 在已 resolve 的让出点上仍有微任务让出，等落地）
     feed(runtime, { type: "token", data: tokens[2] });
-    raf.mock.calls[raf.mock.calls.length - 1][0]();
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
     cumulative += tokens[2];
     await vi.waitFor(() => {
       expect(node.querySelector(".chat-stream-tail")?.textContent).toContain("第三段");
@@ -263,7 +289,7 @@ describe("不变量 10 增量侧：让出点作废帧后流继续，游标不重
     const s3 = frameSnapshot(node);
     expect(s3.stableHTML + s3.tailHTML).toBe(md.renderMarkdown(md.stripThinkBlocks(cumulative)));
     feed(runtime, { type: "done" });
-    expect(node.querySelector(".chat-msg-assistant-body").innerHTML).toBe(
+    expect(node.querySelector(".chat-msg-assistant-body")!.innerHTML).toBe(
       md.renderMarkdown(md.stripThinkBlocks(cumulative))
     );
     expect(chatSessionState.chatHistory[1]).toEqual({ role: "assistant", content: cumulative });
@@ -281,20 +307,20 @@ describe("不变量 1：每帧至多一次 tail 渲染（renderMarkdownStripped 
 
     // 帧 1：建立 stable（一次 stable 渲染 + 一次 tail 渲染）
     feed(runtime, { type: "token", data: "第一段\n\n第二段开头" });
-    raf.mock.calls[raf.mock.calls.length - 1][0]();
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
     expect(renderSpy).toHaveBeenCalledTimes(2);
 
     // 帧 2：tail 增长、stable 不变 → 仅 tail 一次
     renderSpy.mockClear();
     feed(runtime, { type: "token", data: "，继续增长" });
-    raf.mock.calls[raf.mock.calls.length - 1][0]();
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
     expect(renderSpy).toHaveBeenCalledTimes(1);
-    expect(node.querySelector(".chat-stream-tail").textContent).toContain("第二段开头，继续增长");
+    expect(node.querySelector(".chat-stream-tail")!.textContent).toContain("第二段开头，继续增长");
 
     // 帧 3：新空行边界 → stable 增长一次 + tail 一次
     renderSpy.mockClear();
     feed(runtime, { type: "token", data: "\n\n第三段" });
-    raf.mock.calls[raf.mock.calls.length - 1][0]();
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
     expect(renderSpy).toHaveBeenCalledTimes(2);
     expect(node.querySelector(".chat-msg-cursor")).not.toBeNull();
   });
@@ -302,7 +328,7 @@ describe("不变量 1：每帧至多一次 tail 渲染（renderMarkdownStripped 
 
 describe("07 票 token 合帧对拍：token-batch 分批喂入 ≡ 逐 token 喂入", () => {
   // 与 runStream 同构的批量驱动：每批数据应恰好注册 1 帧（rAF 合帧不变量对批次同样成立）
-  function runBatchedStream(runtime, deps, batches) {
+  function runBatchedStream(runtime: ChatRuntime, deps: RuntimeDeps, batches: string[][]) {
     const raf = holdRaf();
     const node = assistantNode(deps);
     const frames = [];
@@ -312,7 +338,7 @@ describe("07 票 token 合帧对拍：token-batch 分批喂入 ≡ 逐 token 喂
       const before = raf.mock.calls.length;
       feed(runtime, { type: "token-batch", data: batch });
       expect(raf.mock.calls.length).toBe(before + 1);
-      raf.mock.calls[raf.mock.calls.length - 1][0]();
+      raf.mock.calls[raf.mock.calls.length - 1][0](0);
       frames.push({ snapshot: frameSnapshot(node), cumulative });
     }
     return { frames, node, raf };
@@ -348,8 +374,8 @@ describe("07 票 token 合帧对拍：token-batch 分批喂入 ≡ 逐 token 喂
     feed(base.runtime, { type: "done" });
     feed(batched.runtime, { type: "done" });
     expect(batchedRun.node.textContent).toBe(baseRun.node.textContent);
-    expect(batchedRun.node.querySelector(".chat-msg-assistant-body").innerHTML).toBe(
-      baseRun.node.querySelector(".chat-msg-assistant-body").innerHTML
+    expect(batchedRun.node.querySelector(".chat-msg-assistant-body")!.innerHTML).toBe(
+      baseRun.node.querySelector(".chat-msg-assistant-body")!.innerHTML
     );
   });
 
@@ -364,8 +390,8 @@ describe("07 票 token 合帧对拍：token-batch 分批喂入 ≡ 逐 token 喂
     feed(byBatch.runtime, { type: "token-batch", data: ["正文", "继续"] });
     feed(byBatch.runtime, { type: "reasoning", data: "事后思路" });
 
-    expect(byBatch.deps.messages.querySelector(".chat-msg-assistant").innerHTML).toBe(
-      byToken.deps.messages.querySelector(".chat-msg-assistant").innerHTML
+    expect(byBatch.deps.messages.querySelector(".chat-msg-assistant")!.innerHTML).toBe(
+      byToken.deps.messages.querySelector(".chat-msg-assistant")!.innerHTML
     );
   });
 });

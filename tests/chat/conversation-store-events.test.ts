@@ -38,14 +38,22 @@
 // 模块同纪元导入并手动重置字段。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { CreateConversationStoreDeps } from "../../extension/chat/conversation-store.js";
 
-let createConversationStore;
-let chatSessionState;
+let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 
 const URL_A = "https://www.bilibili.com/video/BV1abc";
 
-function makeConversation(id, { contextKey = "", url = URL_A, pageIndex } = {}) {
+interface ConversationOverrides {
+  contextKey?: string;
+  url?: string;
+  pageIndex?: number;
+}
+
+function makeConversation(id: string, { contextKey = "", url = URL_A, pageIndex }: ConversationOverrides = {}) {
   return {
     id,
     title: `对话${id}`,
@@ -64,12 +72,12 @@ function makeConversation(id, { contextKey = "", url = URL_A, pageIndex } = {}) 
 }
 
 function makeStorage() {
-  const data = new Map();
+  const data = new Map<string, unknown>();
   return {
-    get: vi.fn(async (keys) =>
+    get: vi.fn<(keys: string[]) => Promise<Record<string, unknown>>>(async (keys) =>
       Object.fromEntries(keys.filter((k) => data.has(k)).map((k) => [k, data.get(k)]))
     ),
-    set: vi.fn(async (obj) => {
+    set: vi.fn<(items: Record<string, unknown>) => Promise<void>>(async (obj) => {
       for (const [k, v] of Object.entries(obj)) {
         data.set(k, v);
       }
@@ -77,14 +85,27 @@ function makeStorage() {
   };
 }
 
-function makeHarness(storeDepsOverrides = {}) {
+// 注入依赖的方法面（与 CreateConversationStoreDeps 一致；storage 是对象不是
+// 函数，单独取 makeStorage 的返回形状）。每个 dep 都是 vi.fn 但保留原签名——
+// mockImplementation 的参数与 mock.calls 的取值都按签名推断，不依赖隐式 any。
+interface StoreDeps {
+  loadContextState: Mock<CreateConversationStoreDeps["loadContextState"]>;
+  resolveAiConversationRef: Mock<CreateConversationStoreDeps["resolveAiConversationRef"]>;
+  onConversationChanged: Mock<CreateConversationStoreDeps["onConversationChanged"]>;
+  onStreamInterrupted: Mock<CreateConversationStoreDeps["onStreamInterrupted"]>;
+  onContextNotice: Mock<CreateConversationStoreDeps["onContextNotice"]>;
+  storage: ReturnType<typeof makeStorage>;
+  confirmClearAll?: (message: string) => boolean | Promise<boolean>;
+}
+
+function makeHarness(storeDepsOverrides: Partial<StoreDeps> = {}) {
   const storage = makeStorage();
-  const deps = {
-    loadContextState: vi.fn(async () => true),
-    resolveAiConversationRef: vi.fn(async () => ({})),
-    onConversationChanged: vi.fn(),
-    onStreamInterrupted: vi.fn(),
-    onContextNotice: vi.fn(),
+  const deps: StoreDeps = {
+    loadContextState: vi.fn<CreateConversationStoreDeps["loadContextState"]>(async () => true),
+    resolveAiConversationRef: vi.fn<CreateConversationStoreDeps["resolveAiConversationRef"]>(async () => ({})),
+    onConversationChanged: vi.fn<CreateConversationStoreDeps["onConversationChanged"]>(),
+    onStreamInterrupted: vi.fn<CreateConversationStoreDeps["onStreamInterrupted"]>(),
+    onContextNotice: vi.fn<CreateConversationStoreDeps["onContextNotice"]>(),
     storage,
     ...storeDepsOverrides
   };
@@ -93,15 +114,20 @@ function makeHarness(storeDepsOverrides = {}) {
 }
 
 // 事件时序记录器:change / interrupt / notice 按发生顺序入 log,供顺序断言。
-function makeOrderLog(deps) {
-  const log = [];
+function makeOrderLog(deps: StoreDeps) {
+  const log: unknown[][] = [];
   deps.onConversationChanged.mockImplementation((change) => log.push(["change", change]));
   deps.onStreamInterrupted.mockImplementation(() => log.push(["interrupt"]));
   deps.onContextNotice.mockImplementation((notice) => log.push(["notice", notice]));
   return log;
 }
 
-function makePinnedMeta(overrides = {}) {
+interface PinnedMetaOverrides {
+  contextRef?: Record<string, unknown> | null;
+  resolvedContext?: Record<string, unknown> | null;
+}
+
+function makePinnedMeta(overrides: PinnedMetaOverrides = {}) {
   return {
     id: "conv-1",
     title: "视频A",
@@ -163,7 +189,7 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
 
   it("restoreLatest 命中项分页补水:仅命中项一条请求(purpose=page),change 序列 = [{}, {refreshContextChip}]", async () => {
     const { store, deps } = makeHarness({
-      resolveAiConversationRef: vi.fn(async (ref, purpose) => {
+      resolveAiConversationRef: vi.fn<CreateConversationStoreDeps["resolveAiConversationRef"]>(async (ref, purpose) => {
         expect(purpose).toBe("page");
         return { pageIndex: 2, url: `${URL_A}?p=2`, cid: "2", pageTitle: "第二P" };
       })
@@ -249,7 +275,7 @@ describe("restoreLatest / applyById 的 change 时序", () => {
 
   it("applyById(上下文键与 live 不一致):change = {refreshContextChip, resetView} → notice pending,补水解析走 purpose=context", async () => {
     const { store, deps } = makeHarness({
-      resolveAiConversationRef: vi.fn(async (ref, purpose) => {
+      resolveAiConversationRef: vi.fn<CreateConversationStoreDeps["resolveAiConversationRef"]>(async (ref, purpose) => {
         expect(purpose).toBe("context");
         return { bvid: "BV1abc", cid: "1", url: URL_A, title: "视频A", isVideoContext: true };
       })
@@ -338,7 +364,7 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
     log.length = 0;
 
     const pending = store.clearAll();
-    const confirmBtn = document.querySelector(".confirm-dialog-confirm");
+    const confirmBtn = document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!;
     expect(confirmBtn, "清空确认弹层应已打开").not.toBeNull();
     expect(confirmBtn.textContent).toBe("清空");
     confirmBtn.click();

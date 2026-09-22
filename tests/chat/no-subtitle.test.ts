@@ -9,11 +9,13 @@
 //     （chat-runtime 以 !== true 判定提前返回）。
 
 import { describe, expect, it } from "vitest";
+import type { SubtitleBodyItem } from "../../extension/ai/types.js";
 import {
   NO_SUBTITLE_SEND_BLOCKED,
   buildNoSubtitleNotice,
   isNoSubtitleEmptyContext
 } from "../../extension/chat/no-subtitle.js";
+import type { NoSubtitleReason } from "../../extension/chat/no-subtitle.js";
 
 describe("NO_SUBTITLE_SEND_BLOCKED", () => {
   it("类型化拦截信号：真值但严格不等 true（chat-runtime 以 !== true 放行）", () => {
@@ -53,7 +55,7 @@ describe("isNoSubtitleEmptyContext", () => {
     expect(isNoSubtitleEmptyContext(null)).toBe(false);
     expect(isNoSubtitleEmptyContext(undefined)).toBe(false);
     expect(isNoSubtitleEmptyContext({ subtitleFetchState: "empty" })).toBe(true); // 非数组 body 折算为空
-    expect(isNoSubtitleEmptyContext({ subtitleFetchState: "empty", subtitleBody: "x" })).toBe(true);
+    expect(isNoSubtitleEmptyContext({ subtitleFetchState: "empty", subtitleBody: "x" as unknown as SubtitleBodyItem[] })).toBe(true);
   });
 });
 
@@ -97,7 +99,7 @@ describe("buildNoSubtitleNotice", () => {
       message: "当前视频没有字幕，无法总结。",
       openSettings: false
     });
-    expect(buildNoSubtitleNotice("something-else")).toEqual({
+    expect(buildNoSubtitleNotice("something-else" as unknown as NoSubtitleReason)).toEqual({
       message: "当前视频没有字幕，无法总结。",
       openSettings: false
     });

@@ -9,21 +9,57 @@
 // 两个不同的 state 单例），并在每个用例前手动重置会用到的字段。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock, MockInstance } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
 import { renderMarkdown } from "../../extension/ui/markdown.js";
+import type { ChatPortMessage, CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
+import type { ChatSessionState } from "../../extension/chat/chat-state.js";
+import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
 
-let createChatRuntime;
-let chatSessionState;
+type MockFn = Mock<(...args: any[]) => any>;
+// 帧回调视图：用例手动驱动帧时不传时间戳，而 spy 记录的是真实签名
+// FrameRequestCallback（要求 1 个实参）——按无参可调用视图取用。
+type RafSpy = MockInstance<(callback: () => void) => number>;
+type TestPort = ReturnType<typeof makePort>;
+type ChatRuntime = ReturnType<typeof createChatRuntime>;
+
+// 被测 deps：在真 CreateChatRuntimeDeps 之上把注入点放宽为 vi.fn（用例内可
+// 重赋 / 追加 mockImplementation），并带上假 port 收集器与占位节点引用。
+interface TestDeps extends CreateChatRuntimeDeps {
+  ports: TestPort[];
+  stopBtn: null;
+  store: { persistCurrent: MockFn; isCurrent: MockFn };
+  ui: {
+    setStreamingUiState: MockFn;
+    showConversationContextNotice: MockFn;
+    removeConversationContextNotice: MockFn;
+    hidePresetPopover: MockFn;
+    hideHistoryPopover: MockFn;
+    removeCenteredState: MockFn;
+    removeSuggestions: MockFn;
+    resetConversationView: MockFn;
+    autosizeInput: MockFn;
+  };
+  ensureCurrentContextForSend: MockFn;
+  connectPort: MockFn;
+}
+
+let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
+let chatSessionState: ChatSessionState;
 
 const SLOW_NOTICE_TEXT = "模型响应较慢，可能正在思考，请稍候…";
 
 function makePort() {
-  const listeners = { message: [], disconnect: [] };
+  const listeners: { message: ((msg: unknown) => void)[]; disconnect: (() => void)[] } = {
+    message: [],
+    disconnect: []
+  };
   return {
     port: {
-      onMessage: { addListener: (fn) => listeners.message.push(fn) },
-      onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
+      name: OFFSCREEN_CHAT_PORT_NAME,
+      onMessage: { addListener: (fn: (msg: unknown) => void) => listeners.message.push(fn) },
+      onDisconnect: { addListener: (fn: () => void) => listeners.disconnect.push(fn) },
       postMessage: vi.fn(),
       disconnect: vi.fn()
     },
@@ -31,10 +67,10 @@ function makePort() {
   };
 }
 
-function makeDeps() {
+function makeDeps(): TestDeps {
   const messages = document.createElement("div");
   const input = document.createElement("textarea");
-  const ports = [];
+  const ports: TestPort[] = [];
   return {
     messages,
     input,
@@ -44,7 +80,7 @@ function makeDeps() {
       persistCurrent: vi.fn(async () => {}),
       // 会话身份守卫的单一判定点在 store；mock 与真实现同语义（严格相等，
       // 含空 id == 空当前 id → true 的新会话首发场景）
-      isCurrent: vi.fn((id) => id === chatSessionState.currentConversationId)
+      isCurrent: vi.fn((id: string) => id === chatSessionState.currentConversationId)
     },
     ui: {
       setStreamingUiState: vi.fn(),
@@ -79,23 +115,23 @@ async function makeRuntime(text = "帮我写个标题") {
 }
 
 // 协议入口喂消息（与 sendMessage 内注册的 port.onMessage 监听器同一分派）
-function feed(runtime, msg) {
+function feed(runtime: ChatRuntime, msg: ChatPortMessage) {
   runtime.handleChatPortMessage(msg);
 }
 
 // 拦截 rAF：注册回调但不自动执行，由用例手动驱动每帧 flush
-function holdRaf() {
-  return vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1);
+function holdRaf(): RafSpy {
+  return vi.spyOn(window, "requestAnimationFrame").mockImplementation(() => 1) as unknown as RafSpy;
 }
 
 // 驱动当前已注册的全部 rAF 回调并清空记录（token flush 与思考滚动各自注册
 // 一帧，reasoning 先于 token 到达时思考帧占用前面的索引）
-function runRafFrames(raf) {
+function runRafFrames(raf: RafSpy) {
   raf.mock.calls.splice(0).forEach((call) => call[0]());
 }
 
-function assistantNode(deps) {
-  return deps.messages.querySelector(".chat-msg-assistant");
+function assistantNode(deps: TestDeps): HTMLElement {
+  return deps.messages.querySelector<HTMLElement>(".chat-msg-assistant")!;
 }
 
 beforeEach(async () => {
@@ -161,7 +197,7 @@ describe("sendMessage 建流与协议入口", () => {
     // 经协议入口喂 token：写入同一条流（累加后整段重渲染进末块容器）
     feed(runtime, { type: "token", data: " 与第二帧" });
     raf.mock.calls[1][0]();
-    const tail = node.querySelector(".chat-stream-tail");
+    const tail = node.querySelector<HTMLElement>(".chat-stream-tail")!;
     expect(tail.textContent).toContain("第一帧");
     expect(tail.textContent).toContain("第二帧");
   });
@@ -183,7 +219,7 @@ describe("sendMessage 建流与协议入口", () => {
   it("发送中（ensure 窗口内）重复 sendMessage 被拒：不发起第二条 port、不开第二条流", async () => {
     const deps = makeDeps();
     deps.input.value = "第一条";
-    let releaseEnsure;
+    let releaseEnsure!: (value: unknown) => void;
     deps.ensureCurrentContextForSend = vi.fn(() => new Promise((resolve) => { releaseEnsure = resolve; }));
 
     const runtime = createChatRuntime(deps);
@@ -240,8 +276,8 @@ describe("token 流式渲染（协议驱动）", () => {
     expect(node.querySelector("p")).toBeTruthy();
 
     // 光标始终接在末块容器（chat-stream-tail）尾部、渲染内容之后
-    const tailEl = node.querySelector(".chat-stream-tail");
-    expect(tailEl.lastElementChild.className).toBe("chat-msg-cursor");
+    const tailEl = node.querySelector<HTMLElement>(".chat-stream-tail")!;
+    expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
   });
 
   it("稳定前缀 + 末块增量渲染：stable 只在增长时重渲染，done 后与全量渲染一致", async () => {
@@ -252,11 +288,11 @@ describe("token 流式渲染（协议驱动）", () => {
     // 帧 1：两个段落 → stable = 第一段（空行边界），tail = 末段 + 光标
     feed(runtime, { type: "token", data: "第一段\n\n第二段开头" });
     raf.mock.calls[0][0]();
-    const stableEl = node.querySelector(".chat-stream-stable");
-    const tailEl = node.querySelector(".chat-stream-tail");
+    const stableEl = node.querySelector<HTMLElement>(".chat-stream-stable")!;
+    const tailEl = node.querySelector<HTMLElement>(".chat-stream-tail")!;
     expect(stableEl.innerHTML).toBe(renderMarkdown("第一段"));
-    expect(tailEl.querySelector("p").textContent).toBe("第二段开头");
-    expect(tailEl.lastElementChild.className).toBe("chat-msg-cursor");
+    expect(tailEl.querySelector("p")!.textContent).toBe("第二段开头");
+    expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
 
     // 篡改 stable 内容，用于探测后续帧是否重渲染了 stable
     stableEl.innerHTML = "SENTINEL";
@@ -265,21 +301,21 @@ describe("token 流式渲染（协议驱动）", () => {
     feed(runtime, { type: "token", data: "，仍在增长" });
     raf.mock.calls[1][0]();
     expect(stableEl.innerHTML).toBe("SENTINEL");
-    expect(tailEl.querySelector("p").textContent).toBe("第二段开头，仍在增长");
-    expect(tailEl.lastElementChild.className).toBe("chat-msg-cursor");
+    expect(tailEl.querySelector("p")!.textContent).toBe("第二段开头，仍在增长");
+    expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
 
     // 帧 3：新空行边界出现 → stable 增长并重渲染一次
     feed(runtime, { type: "token", data: "\n\n第三段" });
     raf.mock.calls[2][0]();
     expect(stableEl.innerHTML).toBe(renderMarkdown("第一段\n\n第二段开头，仍在增长"));
-    expect(tailEl.querySelector("p").textContent).toBe("第三段");
+    expect(tailEl.querySelector("p")!.textContent).toBe("第三段");
 
     // done：流式双容器被整体替换，最终 DOM 与 renderMarkdown(全文) 一致
     const fullText = "第一段\n\n第二段开头，仍在增长\n\n第三段";
     feed(runtime, { type: "done" });
     expect(node.querySelector(".chat-stream-stable")).toBeNull();
     expect(node.querySelector(".chat-stream-tail")).toBeNull();
-    expect(node.querySelector(".chat-msg-assistant-body").innerHTML).toBe(renderMarkdown(fullText));
+    expect(node.querySelector<HTMLElement>(".chat-msg-assistant-body")!.innerHTML).toBe(renderMarkdown(fullText));
   });
 
   it("done 收尾：未 flush 的 pending 一并入全量文本；写回并持久化；断开 port 退出流式 UI", async () => {
@@ -312,7 +348,7 @@ describe("token 流式渲染（协议驱动）", () => {
 
     expect(chatSessionState.chatHistory[0]).toEqual({ role: "user", content: "帮我写个标题" });
     expect(chatSessionState.chatHistory[1]).toEqual({ role: "assistant", content: fullText });
-    expect(node.querySelector(".chat-msg-assistant-body").innerHTML).toBe(renderMarkdown(fullText));
+    expect(node.querySelector<HTMLElement>(".chat-msg-assistant-body")!.innerHTML).toBe(renderMarkdown(fullText));
 
     // 生命周期收口副作用：断开 port、退出流式 UI、焦点回输入框
     expect(session.port.disconnect).toHaveBeenCalled();
@@ -332,7 +368,7 @@ describe("reasoning / thinking 展示", () => {
     const raf = holdRaf();
 
     feed(runtime, { type: "reasoning", data: "先想" });
-    const thinking = node.querySelector(".chat-thinking");
+    const thinking = node.querySelector<HTMLElement>(".chat-thinking")!;
     expect(thinking).toBeTruthy();
     expect(thinking.querySelector(".chat-thinking-label")?.textContent).toBe("思考中…");
     expect(thinking.querySelector(".chat-thinking-text")?.textContent).toBe("先想");
@@ -344,7 +380,7 @@ describe("reasoning / thinking 展示", () => {
     // 首个 token 的帧渲染把思考盒折叠成「思考过程」行保留在消息内（不移除）
     feed(runtime, { type: "token", data: "正文" });
     runRafFrames(raf);
-    const folded = node.querySelector(".chat-thinking");
+    const folded = node.querySelector<HTMLElement>(".chat-thinking")!;
     expect(folded).toBeTruthy();
     expect(folded.classList.contains("chat-thinking-collapsible")).toBe(true);
     expect(folded.classList.contains("chat-thinking-collapsed")).toBe(true);
@@ -359,7 +395,7 @@ describe("reasoning / thinking 展示", () => {
     const raf = holdRaf();
 
     feed(runtime, { type: "reasoning", data: "想了很多" });
-    const thinking = node.querySelector(".chat-thinking");
+    const thinking = node.querySelector<HTMLElement>(".chat-thinking")!;
     // 流式期间未进入可折叠态：点击无事发生
     thinking.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(false);
@@ -431,7 +467,7 @@ describe("reasoning / thinking 展示", () => {
     feed(runtime, { type: "reasoning", data: "第一轮思考" });
     feed(runtime, { type: "token", data: "第一轮正文" });
     runRafFrames(raf);
-    feed(runtime, { type: "reasoning", data: null });
+    feed(runtime, { type: "reasoning", data: "" });
     feed(runtime, { type: "done" });
     const node1 = deps.messages.querySelectorAll(".chat-msg-assistant")[0];
     // node1 留下两条折叠思考行：正文流前的「第一轮思考」+ 收尾 reasoning 新建的
@@ -448,8 +484,8 @@ describe("reasoning / thinking 展示", () => {
     deps.input.value = "问题二";
     await runtime.sendMessage();
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
-    feed(runtime, { type: "reasoning", data: null });
-    const node2Thinking = node2.querySelector(".chat-thinking");
+    feed(runtime, { type: "reasoning", data: "" });
+    const node2Thinking = node2.querySelector<HTMLElement>(".chat-thinking")!;
     expect(node2Thinking).toBeTruthy();
     expect(node2Thinking.querySelector(".chat-thinking-text")?.textContent).toBe("");
     // 旧消息的思考行不再被触碰（也没有游离新节点）
@@ -513,7 +549,8 @@ describe("终态分派：stopped / error", () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
 
-    feed(runtime, { type: "stopped" });
+    // 空 reason → 走 msg.reason || 默认文案 的兜底分支（线上形状该字段必填）
+    feed(runtime, { type: "stopped", reason: "" });
 
     expect(node.querySelector(".chat-msg-stopped")?.textContent).toBe("已停止生成");
     expect(node.querySelector(".chat-msg-assistant-body")).toBeNull();
@@ -539,10 +576,11 @@ describe("终态分派：stopped / error", () => {
     expect(runtime.isStreaming()).toBe(false);
   });
 
-  it("error 无 error 字段：默认文案「错误：未知错误」", async () => {
+  it("error 空 error 字段：默认文案「错误：未知错误」", async () => {
     const { deps, runtime } = await makeRuntime();
 
-    feed(runtime, { type: "error" });
+    // 空 error → 走 msg.error || 默认文案 的兜底分支（线上形状该字段必填）
+    feed(runtime, { type: "error", error: "" });
 
     expect(assistantNode(deps).querySelector(".chat-msg-error")?.textContent).toBe("错误：未知错误");
   });
@@ -569,10 +607,10 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
 
     // 确认路径：文案取 msg.data.message
     feed(runtime, { type: "cost-guard", data: { message: "预计 3 次调用" } });
-    let confirmBtn = document.querySelector(".confirm-dialog-confirm");
+    let confirmBtn = document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!;
     expect(confirmBtn, "成本护栏确认弹层应已打开").not.toBeNull();
     expect(confirmBtn.textContent).toBe("继续");
-    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("预计 3 次调用");
+    expect(document.querySelector<HTMLElement>(".confirm-dialog-message")!.textContent).toBe("预计 3 次调用");
     confirmBtn.click();
     await vi.waitFor(() => {
       expect(session.port.postMessage).toHaveBeenCalledWith({ action: "cost-guard-confirm", ok: true });
@@ -580,8 +618,8 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
 
     // 取消路径：data 缺省时用兜底文案
     feed(runtime, { type: "cost-guard" });
-    expect(document.querySelector(".confirm-dialog-message").textContent).toBe("预计会有多次调用，是否继续？");
-    document.querySelector(".confirm-dialog-cancel").click();
+    expect(document.querySelector<HTMLElement>(".confirm-dialog-message")!.textContent).toBe("预计会有多次调用，是否继续？");
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel")!.click();
     await vi.waitFor(() => {
       expect(session.port.postMessage).toHaveBeenLastCalledWith({ action: "cost-guard-confirm", ok: false });
     });
@@ -623,7 +661,7 @@ describe("stream-reset 代际重放（读流中断重试：整体重放）", () 
     // finalize 全量 = 第二代流全文，无第一代拼接残留
     const expected = "## 第二代重写\n\n全新的正文";
     expect(chatSessionState.chatHistory[1]).toEqual({ role: "assistant", content: expected });
-    expect(node.querySelector(".chat-msg-assistant-body").innerHTML).toBe(renderMarkdown(expected));
+    expect(node.querySelector<HTMLElement>(".chat-msg-assistant-body")!.innerHTML).toBe(renderMarkdown(expected));
     expect(node.textContent).not.toContain("第一代");
   });
 
@@ -701,7 +739,7 @@ describe("慢响应提示计时器（fake timers）", () => {
     // 迟到的收尾 reasoning 事件（真实时序中与 done 交错）——首 token 标志
     // 若被 done 的 clear 复位（旧实现），这里会再次触发 handleFirstStreamToken
     // 的清理副作用（remove 变 4 次）
-    feed(runtime, { type: "reasoning", data: null });
+    feed(runtime, { type: "reasoning", data: "" });
     expect(removeSpy).toHaveBeenCalledTimes(3);
 
     // 第二条消息：慢响应提示必须照常重新武装并弹出
@@ -771,7 +809,7 @@ describe("sendMessage 无字幕拦截的提前返回", () => {
   // sendMessage 在用户消息上屏前中止：不追加用户/助手节点、不清输入框、
   // 不落 chatHistory、不发起 offscreen port、不进入流式 UI 状态。
   // notice 文案本身由 sidepanel（ensureCurrentContextForSend 调用方）负责。
-  function makeSendDeps(ensureResult) {
+  function makeSendDeps(ensureResult: boolean | string) {
     const deps = makeDeps();
     deps.input.value = "总结一下这个视频";
     deps.connectPort = vi.fn(async () => {
@@ -871,19 +909,24 @@ describe("流式 flush 长任务分片（帧预算耗尽让出主线程）", () 
     return vi.spyOn(performance, "now").mockImplementation(() => (t += 100));
   }
 
+  // window.scheduler 在 lib.dom 里是必填只读属性（Scheduler）：测试桩按可写
+  // 可选视图写入 / 删除。
+  type WritableSchedulerWindow = { scheduler?: { yield: () => Promise<void> } };
+
   // 可手动放行的 scheduler.yield 替身（返回同一个 deferred promise）
   function gateScheduler() {
-    let release;
-    const promise = new Promise((resolve) => { release = resolve; });
-    window.scheduler = { yield: vi.fn(() => promise) };
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => { release = resolve; });
+    const schedulerStub = { yield: vi.fn(() => promise) };
+    (window as unknown as WritableSchedulerWindow).scheduler = schedulerStub;
     return {
-      yieldSpy: window.scheduler.yield,
+      yieldSpy: schedulerStub.yield,
       release: () => release()
     };
   }
 
   afterEach(() => {
-    delete window.scheduler;
+    delete (window as unknown as WritableSchedulerWindow).scheduler;
   });
 
   it("帧预算耗尽：优先 scheduler.yield 让出主线程，让出后完成渲染并保留光标", async () => {
@@ -908,8 +951,8 @@ describe("流式 flush 长任务分片（帧预算耗尽让出主线程）", () 
     });
     expect(gate.yieldSpy).toHaveBeenCalledTimes(2);
     expect(node.querySelector(".chat-stream-stable")?.innerHTML).toBe(renderMarkdown("第一段"));
-    const tailEl = node.querySelector(".chat-stream-tail");
-    expect(tailEl.lastElementChild.className).toBe("chat-msg-cursor");
+    const tailEl = node.querySelector<HTMLElement>(".chat-stream-tail")!;
+    expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
 
     // base/pending 收口正常：done 后全量文本不丢
     feed(runtime, { type: "done" });
@@ -1042,7 +1085,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
     const raf = holdRaf();
 
     feed(runtime, { type: "reasoning", data: "第一段" });
-    const textNode = node.querySelector(".chat-thinking-text");
+    const textNode = node.querySelector<HTMLElement>(".chat-thinking-text")!;
     expect(textNode?.textContent).toBe("第一段");
 
     // 同帧第二条增量：不再注册帧、不触发滚动读数
@@ -1081,7 +1124,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
     expect(raf.mock.calls).toHaveLength(3);
 
     // 驱动新帧：新节点滚动生效（旧挂起帧不阻挡）
-    const textNode2 = node2.querySelector(".chat-thinking-text");
+    const textNode2 = node2.querySelector<HTMLElement>(".chat-thinking-text")!;
     const getScrollHeight2 = vi.fn(() => 4321);
     Object.defineProperty(textNode2, "scrollHeight", { get: getScrollHeight2, configurable: true });
     raf.mock.calls[2][0]();
@@ -1101,7 +1144,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
     const raf = holdRaf();
 
     feed(runtime, { type: "reasoning", data: "第一段" });
-    const textNode = node.querySelector(".chat-thinking-text");
+    const textNode = node.querySelector<HTMLElement>(".chat-thinking-text")!;
     Object.defineProperty(textNode, "scrollHeight", { get: () => 1000, configurable: true });
     Object.defineProperty(textNode, "clientHeight", { get: () => 200, configurable: true });
 
@@ -1134,7 +1177,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
     const raf = holdRaf();
 
     feed(runtime, { type: "reasoning", data: "第一段" });
-    const textNode = node.querySelector(".chat-thinking-text");
+    const textNode = node.querySelector<HTMLElement>(".chat-thinking-text")!;
     Object.defineProperty(textNode, "scrollHeight", { get: () => 1000, configurable: true });
     Object.defineProperty(textNode, "clientHeight", { get: () => 200, configurable: true });
     raf.mock.calls[0][0]();
@@ -1230,13 +1273,13 @@ describe("resetStreamState 对挂起流式渲染帧的清理", () => {
 
     // 新帧渲染新节点
     raf.mock.calls[1][0]();
-    const node2 = deps.messages.querySelector(".chat-msg-assistant");
-    expect(node2.querySelector(".chat-stream-tail").textContent).toContain("新流正文");
+    const node2 = deps.messages.querySelector<HTMLElement>(".chat-msg-assistant")!;
+    expect(node2.querySelector(".chat-stream-tail")!.textContent).toContain("新流正文");
 
     // 旧帧执行：只渲染已脱离的旧节点，不污染消息区、不影响新节点
     raf.mock.calls[0][0]();
     expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
-    expect(node2.querySelector(".chat-stream-tail").textContent).toContain("新流正文");
+    expect(node2.querySelector(".chat-stream-tail")!.textContent).toContain("新流正文");
   });
 
   it("resetStreamState 后执行旧帧：消息区不被旧流残留渲染污染", async () => {
@@ -1344,12 +1387,12 @@ describe("tool-turn 持久化与 tool-status 最小消费", () => {
     feed(runtime, { type: "tool-status", status: "searching", query: "x", platform: "Tavily" });
     // 不再走 notice 行：时间线卡出现在消息区
     expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalledWith(expect.stringContaining("Tavily · 搜索中"), 4000);
-    const card = deps.messages.querySelector(".chat-search-card");
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
     expect(card).toBeTruthy();
-    expect(card.querySelector(".chat-search-card-status").textContent).toBe("搜索中…");
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("搜索中…");
     feed(runtime, { type: "tool-status", status: "done", query: "x", resultCount: 3, platform: "Tavily" });
-    expect(card.querySelector(".chat-search-card-status").textContent).toContain("Tavily · 完成（");
-    expect(card.querySelector(".chat-search-step-note").textContent).toBe("3 条");
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toContain("Tavily · 完成（");
+    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("3 条");
     runRafFrames(raf);
   });
 });

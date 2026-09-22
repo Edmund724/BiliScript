@@ -18,16 +18,53 @@
 // 被测模块同纪元导入，并手动重置全部字段。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
+import type { ChatSessionState } from "../../extension/chat/chat-state.js";
+import type { Conversation, CreateConversationStoreDeps, StorageArea } from "../../extension/chat/conversation-store.js";
+import type { ChatPortMessage, CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
+import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
 
-let createConversationStore;
-let createChatRuntime;
-let chatSessionState;
+type MockFn = Mock<(...args: any[]) => any>;
+
+// 被测 deps：真 CreateChatRuntimeDeps + 假 port 的监听器收集面
+interface TestRuntimeDeps extends CreateChatRuntimeDeps {
+  stopBtn: null;
+  store: { persistCurrent: MockFn; isCurrent: MockFn };
+  ui: {
+    setStreamingUiState: MockFn;
+    showConversationContextNotice: MockFn;
+    removeConversationContextNotice: MockFn;
+    hidePresetPopover: MockFn;
+    hideHistoryPopover: MockFn;
+    removeCenteredState: MockFn;
+    removeSuggestions: MockFn;
+    resetConversationView: MockFn;
+    autosizeInput: MockFn;
+  };
+  ensureCurrentContextForSend: MockFn;
+  connectPort: MockFn;
+}
+
+let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
+let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
+let chatSessionState: ChatSessionState;
 
 const URL_A = "https://www.bilibili.com/video/BV1abc";
 
-function makeConversation(id, { contextKey = "", url = URL_A, messages } = {}) {
+// 存档会话夹具：Conversation 形状 + 开放索引（chatSessionState.savedConversations
+// 的 ChatSessionSavedConversation 带字符串索引签名，接口类型不隐式具备）。
+type SavedConversation = Conversation & Record<string, unknown>;
+
+function makeConversation(
+  id: string,
+  {
+    contextKey = "",
+    url = URL_A,
+    messages
+  }: { contextKey?: string; url?: string; messages?: Conversation["messages"] } = {}
+): SavedConversation {
   return {
     id,
     title: `对话${id}`,
@@ -45,13 +82,13 @@ function makeConversation(id, { contextKey = "", url = URL_A, messages } = {}) {
   };
 }
 
-function makeStorage() {
-  const data = new Map();
+function makeStorage(): StorageArea {
+  const data = new Map<string, unknown>();
   return {
-    get: vi.fn(async (keys) =>
+    get: vi.fn(async (keys: string[]) =>
       Object.fromEntries(keys.filter((k) => data.has(k)).map((k) => [k, data.get(k)]))
     ),
-    set: vi.fn(async (obj) => {
+    set: vi.fn(async (obj: Record<string, unknown>) => {
       for (const [k, v] of Object.entries(obj)) {
         data.set(k, v);
       }
@@ -72,10 +109,10 @@ function makeStoreStubs() {
 // 组装 store + 假"在途流"闭包。onStreamInterrupted 模拟 chatRuntime.resetStreamState
 // 的关键语义：同步断流、清在途一问一答。simulateStreamEnd 模拟真实
 // finalizeAssistant 的持久化段（身份一致且在途 → push + persistCurrent）。
-function makeStreamHarness(storeDepsOverrides = {}) {
+function makeStreamHarness(storeDepsOverrides: Partial<CreateConversationStoreDeps> = {}) {
   const stream = { active: false, userPrompt: "", raw: "", capturedId: "" };
-  const stopCalls = [];
-  const persistCalls = [];
+  const stopCalls: boolean[] = [];
+  const persistCalls: boolean[] = [];
   const storage = makeStorage();
   const ui = makeStoreStubs();
   const store = createConversationStore({
@@ -89,7 +126,7 @@ function makeStreamHarness(storeDepsOverrides = {}) {
     ...storeDepsOverrides
   });
 
-  function startStream(userPrompt, raw = "回答中") {
+  function startStream(userPrompt: string, raw = "回答中") {
     stream.active = true;
     stream.userPrompt = userPrompt;
     stream.raw = raw;
@@ -241,7 +278,7 @@ describe("conversation-store reset 路径在流式中的停流", () => {
     chatSessionState.savedConversations = [makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })];
     chatSessionState.currentConversationId = "c1";
     chatSessionState.currentConversationMeta = { id: "c1", pinnedContext: true, contextKey: "" };
-    chatSessionState.chatHistory = [makeConversation("c1").messages];
+    chatSessionState.chatHistory = makeConversation("c1").messages;
 
     const result = await h.store.restoreLatest();
 
@@ -257,7 +294,7 @@ describe("conversation-store reset 路径在流式中的停流", () => {
     chatSessionState.savedConversations = [makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })];
     chatSessionState.currentConversationId = "c1";
     chatSessionState.currentConversationMeta = { id: "c1", pinnedContext: true, contextKey: "" };
-    chatSessionState.chatHistory = [makeConversation("c1").messages];
+    chatSessionState.chatHistory = makeConversation("c1").messages;
     h.startStream("在途问题");
 
     const result = await h.store.restoreLatest();
@@ -328,14 +365,15 @@ describe("chat-runtime 流结束的会话身份校验", () => {
   function makeSendHarness() {
     const messages = document.createElement("div");
     const input = document.createElement("textarea");
-    const listeners = [];
+    const listeners: ((msg: ChatPortMessage) => void)[] = [];
     const port = {
-      onMessage: { addListener: (fn) => listeners.push(fn) },
+      name: OFFSCREEN_CHAT_PORT_NAME,
+      onMessage: { addListener: (fn: (msg: ChatPortMessage) => void) => listeners.push(fn) },
       onDisconnect: { addListener: () => {} },
       postMessage: vi.fn(),
       disconnect: vi.fn()
     };
-    const deps = {
+    const deps: TestRuntimeDeps = {
       messages,
       input,
       stopBtn: null,
@@ -343,7 +381,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
         persistCurrent: vi.fn(async () => {}),
         // 会话身份守卫的单一判定点在 store；mock 与真实现同语义（严格相等，
         // 含空 id == 空当前 id → true 的新会话首发场景）
-        isCurrent: vi.fn((id) => id === chatSessionState.currentConversationId)
+        isCurrent: vi.fn((id: string) => id === chatSessionState.currentConversationId)
       },
       ui: {
         setStreamingUiState: vi.fn(),
@@ -364,7 +402,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     };
     input.value = "在途问题";
     const runtime = createChatRuntime(deps);
-    return { deps, runtime, emit: (msg) => listeners[0](msg) };
+    return { deps, runtime, emit: (msg: ChatPortMessage) => listeners[0](msg) };
   }
 
   it("finalize：发送后当前会话已删（id 已变）→ 只渲染 DOM，不 push 不 persist", async () => {

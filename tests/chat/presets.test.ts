@@ -37,8 +37,8 @@ vi.mock("../../extension/shared/messaging.js", () => ({
 
 const DEFAULTS = ["生成视频摘要和结论", "按章节整理视频内容", "生成带时间轴的笔记"];
 
-let createPresetPrompts;
-let chatSessionState;
+let createPresetPrompts: typeof import("../../extension/chat/presets.js").createPresetPrompts;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 
 // 组装工厂 + 重置模块级单例（与 provider-row.test.js 同构：resetModules
 // 后同纪元导入被测模块与其状态模块）
@@ -49,13 +49,13 @@ async function makePresets() {
   createPresetPrompts = module.createPresetPrompts;
   chatSessionState = state;
   return createPresetPrompts({
-    presetInput: { value: "" },
+    presetInput: presetInputWith(""),
     renderPresetPrompts: vi.fn()
   });
 }
 
-function presetInputWith(value) {
-  return { value };
+function presetInputWith(value: string): HTMLInputElement {
+  return { value } as HTMLInputElement;
 }
 
 beforeEach(async () => {

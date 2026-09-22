@@ -27,6 +27,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
+import type { CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
+import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
+import type { AiContext } from "../../extension/ai/types.js";
+import type { ClipState } from "../../extension/core/state.js";
 
 const { gatewayMock } = vi.hoisted(() => ({
   gatewayMock: {
@@ -41,19 +45,22 @@ vi.mock("../../extension/bilibili/gateway.js", () => ({
   fetchHotCommentsWithLedger: gatewayMock.fetchHotCommentsWithLedger
 }));
 
-let createInProcessContextFetch;
-let createInProcessPinnedContextResolver;
-let createContextLoad;
-let createConversationStore;
-let createChatRuntime;
-let createSubtitleWaiter;
-let isContextPending;
-let chatSessionState;
-let noSubtitle;
+let createInProcessContextFetch: typeof import("../../extension/core/context-assembly.js").createInProcessContextFetch;
+let createInProcessPinnedContextResolver: typeof import("../../extension/core/context-assembly.js").createInProcessPinnedContextResolver;
+let createContextLoad: typeof import("../../extension/chat/context-load.js").createContextLoad;
+let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
+let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
+let createSubtitleWaiter: typeof import("../../extension/chat/subtitle-wait.js").createSubtitleWaiter;
+let isContextPending: typeof import("../../extension/chat/subtitle-wait.js").isContextPending;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let noSubtitle: typeof import("../../extension/chat/no-subtitle.js");
 
 const VIDEO_URL = "https://www.bilibili.com/video/BV1test000000/";
 const CONTEXT_KEY = "video:BV1test000000|101";
 const HOT_COMMENTS = [{ uname: "热评君", message: "前方高能" }];
+
+// content 侧 state.clip 的受控替身句柄（clip 读取器读 current）。
+type ClipRef = { current: Partial<ClipState> };
 
 async function importModules() {
   const contextLoadModule = await import("../../extension/chat/context-load.js");
@@ -76,7 +83,7 @@ async function importModules() {
 
 // content 侧 state.clip 的受控替身（字段与 core/state.ts 的 ClipBusinessState
 // 同形；payload 组装只读 createSidepanelContextPayload 的投影字段）。
-function makeClip(overrides = {}) {
+function makeClip(overrides: Partial<ClipState> = {}): Partial<ClipState> {
   return {
     currentUrl: VIDEO_URL,
     bvid: "BV1test000000",
@@ -104,7 +111,7 @@ function makeClip(overrides = {}) {
 }
 
 // 进程内策略 + loadContextState 编排壳的组装（测试注入受控 clip 快照与热评）。
-function makeContextHarness(clipRef, { hotComments = HOT_COMMENTS } = {}) {
+function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { hotComments?: unknown[] } = {}) {
   const fetchHotComments = vi.fn(async () => hotComments);
   const fetchContext = createInProcessContextFetch({
     clip: () => clipRef.current,
@@ -131,32 +138,53 @@ function makeContextHarness(clipRef, { hotComments = HOT_COMMENTS } = {}) {
   return { fetchHotComments, contextLoad, deps, contextChip };
 }
 
+// 宿主 → offscreen 的 chat port 消息（sendMessage 的发火载荷；port.postMessage
+// 边界为 unknown，本文件只读 action/contextKey/prompt/context 四个字段）。
+interface ChatSendMessage {
+  action: string;
+  contextKey?: string;
+  prompt?: string;
+  context: { subtitleBody?: unknown; subtitleFetchState?: unknown };
+}
+
 // chat-runtime 假 port / deps（沿 chat-runtime-stream.test.js 的手法）
 function makePort() {
-  const listeners = { message: [], disconnect: [] };
+  const listeners: {
+    message: Array<(message: unknown) => void>;
+    disconnect: Array<() => void>;
+  } = { message: [], disconnect: [] };
   return {
     port: {
-      onMessage: { addListener: (fn) => listeners.message.push(fn) },
-      onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
-      postMessage: vi.fn(),
+      // 生产端口名常量（chat/protocol.js 的 OFFSCREEN_CHAT_PORT_NAME）
+      name: OFFSCREEN_CHAT_PORT_NAME,
+      onMessage: { addListener: (fn: (message: unknown) => void) => listeners.message.push(fn) },
+      onDisconnect: { addListener: (fn: () => void) => listeners.disconnect.push(fn) },
+      postMessage: vi.fn<(message: ChatSendMessage) => void>(),
       disconnect: vi.fn()
     },
     listeners
   };
 }
 
-function makeChatDeps(overrides = {}) {
+// 假 deps：CreateChatRuntimeDeps 全字段 + 测试自持的 ports 记录面（stopBtn 为
+// 历史组合根残留字段，运行时不再消费，保留以对账旧接线形状）。
+type ChatRuntimeDeps = CreateChatRuntimeDeps & {
+  ports: Array<ReturnType<typeof makePort>>;
+  stopBtn: null;
+};
+
+function makeChatDeps(overrides: Partial<ChatRuntimeDeps> = {}) {
   const messages = document.createElement("div");
   const input = document.createElement("textarea");
-  const ports = [];
-  const deps = {
+  const ports: ChatRuntimeDeps["ports"] = [];
+  const deps: ChatRuntimeDeps = {
     messages,
     input,
     ports,
     stopBtn: null,
     store: {
       persistCurrent: vi.fn(async () => {}),
-      isCurrent: (id) => id === chatSessionState.currentConversationId
+      isCurrent: (id: string) => id === chatSessionState.currentConversationId
     },
     ui: {
       setStreamingUiState: vi.fn(),
@@ -183,7 +211,7 @@ function makeChatDeps(overrides = {}) {
   return { deps };
 }
 
-async function send(runtime, deps, text) {
+async function send(runtime: ReturnType<typeof createChatRuntime>, deps: ChatRuntimeDeps, text: string) {
   deps.input.value = text;
   await runtime.sendMessage();
 }
@@ -223,8 +251,8 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     // 首次全量组装：热评拉取 + 快照附 signature
     await contextLoad.loadContextState({ silent: true });
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
-    expect(chatSessionState.contextData.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
-    const signature = chatSessionState.liveContextData.signature;
+    expect(chatSessionState.contextData!.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
+    const signature = chatSessionState.liveContextData!.signature;
     expect(signature).not.toBe("");
     expect(chatSessionState.currentContextKey).toBe(CONTEXT_KEY);
 
@@ -267,9 +295,9 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     // 的进程内重演），并随快照补写 signature / isVideoContext
     await contextLoad.loadContextState({ silent: true });
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
-    expect(chatSessionState.contextData.hotComments).toEqual(HOT_COMMENTS);
-    expect(chatSessionState.contextData.isVideoContext).toBe(true);
-    expect(chatSessionState.contextData.signature).not.toBe("");
+    expect(chatSessionState.contextData!.hotComments).toEqual(HOT_COMMENTS);
+    expect(chatSessionState.contextData!.isVideoContext).toBe(true);
+    expect(chatSessionState.contextData!.signature).not.toBe("");
 
     // 签名未变：短路路径提前返回，不拉热评
     await contextLoad.loadContextState({ silent: true });
@@ -278,7 +306,7 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     // forceRefresh：忽略签名强制全量 → 再次拉取（与消息链手动刷新语义一致）
     await contextLoad.loadContextState({ forceRefresh: true, silent: true });
     expect(fetchHotComments).toHaveBeenCalledTimes(2);
-    expect(chatSessionState.contextData.hotComments).toEqual(HOT_COMMENTS);
+    expect(chatSessionState.contextData!.hotComments).toEqual(HOT_COMMENTS);
   });
 
   it("③ ASR 转写中发送 → subtitle-wait 等待而非发空上下文；转写完成后放行完整字幕", async () => {
@@ -294,7 +322,9 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     // 进程内 loadContextState 的 live 快照）
     const waitingNotice = vi.fn();
     const removeNotice = vi.fn();
-    const timers = [];
+    // 注入定时器记录面：id 为可选字段（setTimer 的返回代币），历史断言里
+    // 兼容按 id 或按序位查找。
+    const timers: Array<{ fn: () => void; ms: number; id?: number }> = [];
     let timerSeq = 0;
     const subtitleWaiter = createSubtitleWaiter({
       pollIntervalMs: 4000,
@@ -309,11 +339,11 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
       },
       showWaitingNotice: waitingNotice,
       removeNotice,
-      setTimer: (fn, ms) => {
+      setTimer: (fn: () => void, ms: number) => {
         timers.push({ fn, ms });
         return ++timerSeq;
       },
-      clearTimer: (handle) => {
+      clearTimer: (handle: number) => {
         const index = timers.findIndex((t) => t.id === handle || timers.indexOf(t) === handle - 1);
         if (index >= 0) {
           timers.splice(index, 1);
@@ -372,7 +402,7 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     expect(chatMsg.action).toBe("chat");
     expect(chatMsg.prompt).toBe("总结一下这个视频");
     expect(Array.isArray(chatMsg.context.subtitleBody)).toBe(true);
-    expect(chatMsg.context.subtitleBody.length).toBeGreaterThan(0);
+    expect((chatMsg.context.subtitleBody as unknown[]).length).toBeGreaterThan(0);
     expect(chatMsg.context.subtitleFetchState).toBe("ready");
     // 等待结束 notice 清理；等待期间热评只在放行后的全量路径拉取
     expect(removeNotice).toHaveBeenCalled();
@@ -386,7 +416,7 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
 //  缺省实现调用单源、comments 合并进快照、降级空列表口径不变）
 // ===========================================================================
 describe("缺省热评实现（gateway 单源接缝）", () => {
-  function makeBareFetch(clipRef) {
+  function makeBareFetch(clipRef: ClipRef) {
     return createInProcessContextFetch({
       clip: () => clipRef.current,
       settings: () => ({ includeTimestampInBody: true }),
@@ -404,7 +434,7 @@ describe("缺省热评实现（gateway 单源接缝）", () => {
 
     expect(gatewayMock.fetchHotCommentsWithLedger).toHaveBeenCalledTimes(1);
     expect(outcome.kind).toBe("payload");
-    expect(outcome.payload.hotComments).toEqual(comments);
+    expect((outcome as { payload: AiContext }).payload.hotComments).toEqual(comments);
   });
 
   it("降级（{comments:[], note}）：快照热评空数组、不阻断全量路径（note 不进快照）", async () => {
@@ -415,7 +445,7 @@ describe("缺省热评实现（gateway 单源接缝）", () => {
     const outcome = await fetchContext({ forceRefresh: true, ifSignature: "" });
 
     expect(outcome.kind).toBe("payload");
-    expect(outcome.payload.hotComments).toEqual([]);
+    expect((outcome as { payload: AiContext }).payload.hotComments).toEqual([]);
   });
 });
 
@@ -431,8 +461,17 @@ describe("缺省热评实现（gateway 单源接缝）", () => {
 // 网络，不可装配出错的上下文。
 // ===========================================================================
 describe("pinned 补水身份短路（工单 04）", () => {
+  // 用例逐字段造「身份不一致」场景；未列出的字段取 makePinnedRef 的基准值。
+  interface PinnedRefOverrides {
+    bvid?: string;
+    cid?: string;
+    subtitleLang?: string;
+    selectedSubtitleId?: string;
+    selectedSubtitleUrl?: string;
+  }
+
   // 持久化会话的 contextRef（buildAiContextRef 归一后的形状）。
-  function makePinnedRef(overrides = {}) {
+  function makePinnedRef(overrides: PinnedRefOverrides = {}) {
     return {
       bvid: "BV1test000000",
       cid: "101",
@@ -450,7 +489,10 @@ describe("pinned 补水身份短路（工单 04）", () => {
 
   // 短路解析器 + 网络路径 mock（resolveNetwork 即 conversation-store 的
   // resolveAiConversationContext dep 的网络适配器替身）。
-  function makeResolver(clipRef, { resolveNetwork } = {}) {
+  function makeResolver(
+    clipRef: ClipRef,
+    { resolveNetwork }: { resolveNetwork?: (contextRef: unknown) => Promise<Record<string, unknown>> } = {}
+  ) {
     const fetchHotComments = vi.fn(async () => HOT_COMMENTS);
     const network = resolveNetwork
       || vi.fn(async () => ({
@@ -500,7 +542,7 @@ describe("pinned 补水身份短路（工单 04）", () => {
     const live = await liveFetch({ forceRefresh: true, ifSignature: "" });
 
     expect(live.kind).toBe("payload");
-    expect(pinnedPayload).toEqual(live.payload);
+    expect(pinnedPayload).toEqual((live as { payload: AiContext }).payload);
   });
 
   it.each([
@@ -552,7 +594,7 @@ describe("pinned 补水身份短路（工单 04）", () => {
     const store = createConversationStore({
       loadContextState: vi.fn(async () => true),
       // purpose="context" 走被测的身份短路复合适配器；"page" 无关本用例
-      resolveAiConversationRef: vi.fn((ref, purpose) =>
+      resolveAiConversationRef: vi.fn((ref: AiContext, purpose: "context" | "page") =>
         purpose === "context" ? resolve(ref) : Promise.resolve({})
       ),
       onConversationChanged: vi.fn(),
@@ -581,9 +623,9 @@ describe("pinned 补水身份短路（工单 04）", () => {
     expect(ok).toBe(true);
     // 零网络往返：补水上下文来自进程内快照
     expect(network).not.toHaveBeenCalled();
-    expect(chatSessionState.contextData.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
-    expect(chatSessionState.contextData.signature).not.toBe("");
+    expect(chatSessionState.contextData!.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
+    expect(chatSessionState.contextData!.signature).not.toBe("");
     expect(chatSessionState.currentContextKey).toBe(CONTEXT_KEY);
-    expect(chatSessionState.currentConversationMeta.resolvedContext).not.toBeNull();
+    expect(chatSessionState.currentConversationMeta!.resolvedContext).not.toBeNull();
   });
 });

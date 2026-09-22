@@ -13,17 +13,39 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js";
+import type { ChatPort } from "../../extension/chat/chat-runtime.js";
 
-let createChatRuntime;
-let chatSessionState;
+let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+
+// 假 port（chat-runtime 经 connectPort 取用；方法保留 mock 引用以便断言载荷）
+interface FakePort {
+  name: string;
+  postMessage: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+  onMessage: { addListener: (fn: (msg: unknown) => void) => void };
+  onDisconnect: { addListener: (fn: () => void) => void };
+}
+
+// 假 port 会话：port 本体 + 注册进去的监听器（测试直接调用驱动协议）
+interface PortSession {
+  port: FakePort;
+  listeners: {
+    message: Array<(message: unknown) => void>;
+    disconnect: Array<() => void>;
+  };
+}
+
+type ChatRuntime = ReturnType<typeof import("../../extension/chat/chat-runtime.js").createChatRuntime>;
 
 const CONTEXT_KEY = "video:BV1body|101";
 const SUBTITLE_BODY = [{ from: 0, to: 5, content: "x".repeat(1000) }];
 
-function makePort() {
-  const listeners = { message: [], disconnect: [] };
+function makePort(): PortSession {
+  const listeners: PortSession["listeners"] = { message: [], disconnect: [] };
   return {
     port: {
+      name: "offscreen-chat",
       onMessage: { addListener: (fn) => listeners.message.push(fn) },
       onDisconnect: { addListener: (fn) => listeners.disconnect.push(fn) },
       postMessage: vi.fn(),
@@ -34,14 +56,14 @@ function makePort() {
 }
 
 function makeRuntime() {
-  const ports = [];
+  const ports: PortSession[] = [];
   const deps = {
     messages: document.createElement("div"),
     input: document.createElement("textarea"),
     stopBtn: null,
     store: {
       persistCurrent: vi.fn(async () => {}),
-      isCurrent: (id) => id === chatSessionState.currentConversationId
+      isCurrent: (id: string) => id === chatSessionState.currentConversationId
     },
     ui: {
       setStreamingUiState: vi.fn(),
@@ -61,7 +83,7 @@ function makeRuntime() {
     connectPort: vi.fn(async () => {
       const session = makePort();
       ports.push(session);
-      return session.port;
+      return session.port as unknown as ChatPort;
     })
   };
   return { runtime: createChatRuntime(deps), deps, ports };
@@ -79,13 +101,13 @@ function seedVideoContext() {
 }
 
 // 发送一条消息（sendMessage 会清空 input.value，每条消息需重新赋值）
-async function send(runtime, deps, text) {
+async function send(runtime: ChatRuntime, deps: ReturnType<typeof makeRuntime>["deps"], text: string) {
   deps.input.value = text;
   await runtime.sendMessage();
 }
 
 // 断言该会话发过恰好一条 chat 消息并返回消息本体
-function getChatMessage(session) {
+function getChatMessage(session: PortSession) {
   expect(session.port.postMessage).toHaveBeenCalledTimes(1);
   const msg = session.port.postMessage.mock.calls[0][0];
   expect(msg.action).toBe("chat");

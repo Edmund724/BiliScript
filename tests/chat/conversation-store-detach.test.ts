@@ -20,14 +20,24 @@
 // 模块同纪元导入并手动重置字段(与 events 测试同款)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type {
+  ConversationStore,
+  CreateConversationStoreDeps
+} from "../../extension/chat/conversation-store.js";
 
-let createConversationStore;
-let chatSessionState;
+let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 
 const URL_A = "https://www.bilibili.com/video/BV1abc";
 
-function makeConversation(id, { contextKey = "", url = URL_A } = {}) {
+interface ConversationOverrides {
+  contextKey?: string;
+  url?: string;
+}
+
+function makeConversation(id: string, { contextKey = "", url = URL_A }: ConversationOverrides = {}) {
   return {
     id,
     title: `对话${id}`,
@@ -46,13 +56,13 @@ function makeConversation(id, { contextKey = "", url = URL_A } = {}) {
 }
 
 function makeStorage() {
-  const data = new Map();
+  const data = new Map<string, unknown>();
   return {
     data,
-    get: vi.fn(async (keys) =>
+    get: vi.fn<(keys: string[]) => Promise<Record<string, unknown>>>(async (keys) =>
       Object.fromEntries(keys.filter((k) => data.has(k)).map((k) => [k, data.get(k)]))
     ),
-    set: vi.fn(async (obj) => {
+    set: vi.fn<(items: Record<string, unknown>) => Promise<void>>(async (obj) => {
       for (const [k, v] of Object.entries(obj)) {
         data.set(k, v);
       }
@@ -60,14 +70,27 @@ function makeStorage() {
   };
 }
 
-function makeHarness(storeDepsOverrides = {}) {
+// 注入依赖的方法面（与 CreateConversationStoreDeps 一致；storage 是对象不是
+// 函数，单独取 makeStorage 的返回形状）。每个 dep 都是 vi.fn 但保留原签名——
+// mockImplementation 的参数与 mock.calls 的取值都按签名推断，不依赖隐式 any。
+interface StoreDeps {
+  loadContextState: Mock<CreateConversationStoreDeps["loadContextState"]>;
+  resolveAiConversationRef: Mock<CreateConversationStoreDeps["resolveAiConversationRef"]>;
+  onConversationChanged: Mock<CreateConversationStoreDeps["onConversationChanged"]>;
+  onStreamInterrupted: Mock<CreateConversationStoreDeps["onStreamInterrupted"]>;
+  onContextNotice: Mock<CreateConversationStoreDeps["onContextNotice"]>;
+  storage: ReturnType<typeof makeStorage>;
+  confirmClearAll?: (message: string) => boolean | Promise<boolean>;
+}
+
+function makeHarness(storeDepsOverrides: Partial<StoreDeps> = {}) {
   const storage = makeStorage();
-  const deps = {
-    loadContextState: vi.fn(async () => true),
-    resolveAiConversationRef: vi.fn(async () => ({})),
-    onConversationChanged: vi.fn(),
-    onStreamInterrupted: vi.fn(),
-    onContextNotice: vi.fn(),
+  const deps: StoreDeps = {
+    loadContextState: vi.fn<CreateConversationStoreDeps["loadContextState"]>(async () => true),
+    resolveAiConversationRef: vi.fn<CreateConversationStoreDeps["resolveAiConversationRef"]>(async () => ({})),
+    onConversationChanged: vi.fn<CreateConversationStoreDeps["onConversationChanged"]>(),
+    onStreamInterrupted: vi.fn<CreateConversationStoreDeps["onStreamInterrupted"]>(),
+    onContextNotice: vi.fn<CreateConversationStoreDeps["onContextNotice"]>(),
     storage,
     ...storeDepsOverrides
   };
@@ -75,12 +98,20 @@ function makeHarness(storeDepsOverrides = {}) {
   return { store, deps, storage };
 }
 
+// 断流通知发起「瞬间」捕获的会话身份与存档面（onStreamInterrupted 回调内取样）。
+interface InterruptedSnapshot {
+  id: string;
+  meta: unknown;
+  history: unknown[];
+  savedCount: number;
+}
+
 // 统一事件时序记录器:change / interrupt / notice / persist 按发生顺序入 log;
 // interruptedWith 在断流通知发起「瞬间」捕获会话身份与存档面——用于证明
 // 「断流先于身份清空」与各出口 detach 前的内存次序(commitSaved 位置)。
-function makeOrderLog(deps, storage) {
-  const log = [];
-  const interruptedWith = [];
+function makeOrderLog(deps: StoreDeps, storage: ReturnType<typeof makeStorage>) {
+  const log: unknown[][] = [];
+  const interruptedWith: InterruptedSnapshot[] = [];
   deps.onConversationChanged.mockImplementation((change) => log.push(["change", change]));
   deps.onStreamInterrupted.mockImplementation(() => {
     interruptedWith.push({
@@ -101,7 +132,7 @@ function makeOrderLog(deps, storage) {
   return { log, interruptedWith };
 }
 
-function seedCurrentConversation(id = "c1", overrides = {}) {
+function seedCurrentConversation(id = "c1", overrides: ConversationOverrides = {}) {
   chatSessionState.savedConversations = [makeConversation(id, overrides)];
   chatSessionState.currentConversationId = id;
   chatSessionState.currentConversationMeta = {
@@ -151,7 +182,7 @@ const DETACH_EXITS = [
       // 绑定另一视频 → 与当前上下文无匹配
       seedCurrentConversation("c1", { url: "https://www.bilibili.com/video/BVother" });
     },
-    run(store) {
+    run(store: ConversationStore) {
       return store.restoreLatest();
     },
     persisted: false
@@ -161,7 +192,7 @@ const DETACH_EXITS = [
     setup() {
       seedCurrentConversation("c1");
     },
-    run(store) {
+    run(store: ConversationStore) {
       return store.deleteById("c1");
     },
     persisted: true
@@ -172,7 +203,7 @@ const DETACH_EXITS = [
     setup() {
       seedCurrentConversation("c1");
     },
-    run(store) {
+    run(store: ConversationStore) {
       return store.clearAll();
     },
     persisted: true
@@ -182,7 +213,7 @@ const DETACH_EXITS = [
     setup() {
       seedCurrentConversation("c1");
     },
-    run(store) {
+    run(store: ConversationStore) {
       return store.detachForRestart();
     },
     persisted: false
@@ -358,9 +389,12 @@ describe("公开接口面", () => {
       "persistCurrent",
       "restoreLatest"
     ]);
-    expect(store.apply).toBeUndefined();
-    expect(store.resolveContext).toBeUndefined();
-    expect(store.hydratePages).toBeUndefined();
+    // 三摘除键的「不在返回面」断言：窄接口类型上本就不存在这些键，运行时面
+    // 经 Record 视图取读（键缺失 = undefined）。
+    const exposed = store as unknown as Record<string, unknown>;
+    expect(exposed.apply).toBeUndefined();
+    expect(exposed.resolveContext).toBeUndefined();
+    expect(exposed.hydratePages).toBeUndefined();
   });
 
   it("内部 apply 经 applyById 存活:身份/历史/事件面照常", () => {
@@ -370,7 +404,7 @@ describe("公开接口面", () => {
     store.applyById("c1");
 
     expect(chatSessionState.currentConversationId).toBe("c1");
-    expect(chatSessionState.currentConversationMeta.pinnedContext).toBe(true);
+    expect(chatSessionState.currentConversationMeta!.pinnedContext).toBe(true);
     expect(chatSessionState.chatHistory.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(deps.onConversationChanged).toHaveBeenCalledWith({ refreshContextChip: true, resetView: true });
   });
