@@ -2,7 +2,13 @@
   "name": "bilibili-summary",
   "version": "2.2.1",
   "description": "Bilibili 视频字幕抓取与 AI 总结浏览器扩展",
-  "packageManager": "pnpm@11.24.0",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": ">=12.0.0 <13.0.0",
+      "onFail": "download"
+    }
+  },
   "directories": {
     "doc": "docs"
   },
