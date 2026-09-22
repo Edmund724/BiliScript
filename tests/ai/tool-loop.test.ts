@@ -76,10 +76,6 @@ function sseData(delta: unknown, finishReason?: string) {
   return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
 }
 
-function textResponse(text: string, ok = false, status = 400): Response {
-  return { ok, status, text: vi.fn(async () => text), json: vi.fn() } as unknown as Response;
-}
-
 // 第一轮 SSE：一条 web_search tool call（id/name/arguments 跨 chunk 分片）。
 const TOOL_ROUND_CHUNKS = [
   sseData({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"que' } }] }),

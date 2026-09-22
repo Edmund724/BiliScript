@@ -635,11 +635,12 @@ describe("presetId 穿线（概览 Map-Reduce 链 → 请求体）", () => {
     });
 
     const result = await mod.orchestrateMapReduce({
-      provider: Object.assign(makeProvider(), {
+      provider: {
+        ...makeProvider(),
         baseUrl: "https://thinking-proxy.example.com/v1",
         model: "Qwen/Qwen3-32B",
         presetId: "modelscope"
-      }),
+      },
       context,
       plan,
       port,

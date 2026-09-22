@@ -43,7 +43,7 @@ const OVERFLOW_STILL_MESSAGE = "该视频素材在调低分段量后仍超出模
 
 interface ChatCompletionImpl {
   (input: {
-    provider: { baseUrl?: string; apiKey?: string; model?: string };
+    provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
     messages: Array<{ role: string; content: string }>;
     thinkingLevel?: string;
     signal?: AbortSignal | null;
@@ -122,7 +122,7 @@ function buildMaterial(summaries: unknown[]): string {
 }
 
 interface SummarizeSegmentInput {
-  provider: { baseUrl?: string; apiKey?: string; model?: string };
+  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
   context: Record<string, unknown>;
   segment: BudgetPlanSegment;
   total: number;
@@ -210,7 +210,7 @@ async function summarizeSegment({
 }
 
 interface OrchestrateMapReduceInput {
-  provider: { baseUrl?: string; apiKey?: string; model?: string };
+  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
   context?: Record<string, unknown> | null;
   plan?: BudgetPlan | null;
   port?: ChatPort | null;

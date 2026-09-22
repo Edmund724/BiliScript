@@ -79,7 +79,6 @@ function makeDeps() {
     messages,
     input,
     ports,
-    stopBtn: null,
     store: {
       persistCurrent: vi.fn(async () => {}),
       isCurrent: vi.fn((id: string) => id === chatSessionState.currentConversationId)

@@ -60,7 +60,6 @@ function makeRuntime() {
   const deps = {
     messages: document.createElement("div"),
     input: document.createElement("textarea"),
-    stopBtn: null,
     store: {
       persistCurrent: vi.fn(async () => {}),
       isCurrent: (id: string) => id === chatSessionState.currentConversationId

@@ -135,14 +135,11 @@ beforeEach(() => {
   resetModuleState();
   memoryStorage = installMemoryStorage();
 
-  // 真实 commitNoSubtitle 会渲染轨道/元信息（注入回调）并清空预览 DOM：
-  // 注入 vi.fn 状态栏回调 + 提供 jsdom 空节点即可，不依赖真实渲染。
+  // commitNoSubtitle 的 UI 面只剩状态栏回调（digest-only-ui 后预览 DOM 已删）：
+  // 注入 vi.fn 即可，不依赖真实渲染。
   configureCommitUi({
     setStatus: vi.fn()
   });
-  const preview = document.createElement("textarea");
-  preview.id = "boc-preview";
-  document.body.appendChild(preview);
 
   clipState.setFetchRunId(RUN_ID);
   clipState.setBvid(BVID);

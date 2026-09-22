@@ -30,7 +30,6 @@ type MockFn = Mock<(...args: any[]) => any>;
 
 // 被测 deps：真 CreateChatRuntimeDeps + 假 port 的监听器收集面
 interface TestRuntimeDeps extends CreateChatRuntimeDeps {
-  stopBtn: null;
   store: { persistCurrent: MockFn; isCurrent: MockFn };
   ui: {
     setStreamingUiState: MockFn;
@@ -376,7 +375,6 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     const deps: TestRuntimeDeps = {
       messages,
       input,
-      stopBtn: null,
       store: {
         persistCurrent: vi.fn(async () => {}),
         // 会话身份守卫的单一判定点在 store；mock 与真实现同语义（严格相等，

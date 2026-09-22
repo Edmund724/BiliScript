@@ -599,7 +599,7 @@ describe("promise 复用去重", () => {
     expect(chatCompletion).toHaveBeenCalledTimes(1);
 
     // 落定后再触发：读缓存，不走生成
-    expect(mod.runOverviewAnalysis(args, { chatCompletion })).resolves.toEqual(r1);
+    await expect(mod.runOverviewAnalysis(args, { chatCompletion })).resolves.toEqual(r1);
     expect(chatCompletion).toHaveBeenCalledTimes(1);
   });
 

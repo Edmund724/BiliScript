@@ -28,7 +28,6 @@ type ChatRuntime = ReturnType<typeof createChatRuntime>;
 // 重赋 / 追加 mockImplementation），并带上假 port 收集器与占位节点引用。
 interface TestDeps extends CreateChatRuntimeDeps {
   ports: TestPort[];
-  stopBtn: null;
   store: { persistCurrent: MockFn; isCurrent: MockFn };
   ui: {
     setStreamingUiState: MockFn;
@@ -75,7 +74,6 @@ function makeDeps(): TestDeps {
     messages,
     input,
     ports,
-    stopBtn: null,
     store: {
       persistCurrent: vi.fn(async () => {}),
       // 会话身份守卫的单一判定点在 store；mock 与真实现同语义（严格相等，

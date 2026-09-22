@@ -166,11 +166,9 @@ function makePort() {
   };
 }
 
-// 假 deps：CreateChatRuntimeDeps 全字段 + 测试自持的 ports 记录面（stopBtn 为
-// 历史组合根残留字段，运行时不再消费，保留以对账旧接线形状）。
+// 假 deps：CreateChatRuntimeDeps 全字段 + 测试自持的 ports 记录面。
 type ChatRuntimeDeps = CreateChatRuntimeDeps & {
   ports: Array<ReturnType<typeof makePort>>;
-  stopBtn: null;
 };
 
 function makeChatDeps(overrides: Partial<ChatRuntimeDeps> = {}) {
@@ -181,7 +179,6 @@ function makeChatDeps(overrides: Partial<ChatRuntimeDeps> = {}) {
     messages,
     input,
     ports,
-    stopBtn: null,
     store: {
       persistCurrent: vi.fn(async () => {}),
       isCurrent: (id: string) => id === chatSessionState.currentConversationId
