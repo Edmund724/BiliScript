@@ -15,8 +15,14 @@
 // clearStaleAsrSubtitleCache 孤儿清理 + 伪轨道收尾）、stale run。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createAsrFallback } from "../../extension/asr/fallback.js";
+import type {
+  AsrFallback,
+  CreateAsrFallbackDeps,
+  SubtitleItem
+} from "../../extension/asr/fallback.js";
 import { state, clipState } from "../../extension/core/state.js";
 import { getSubtitleCacheKey, saveSubtitleToCache } from "../../extension/subtitle/cache.js";
 import {
@@ -56,17 +62,28 @@ function asrCacheKey({ providerId = "p1", model = "whisper-large-v3", lang = "au
   });
 }
 
+// 注入依赖的方法签名面（与 CreateAsrFallbackDeps 一致；sleepFor 为可选注入，
+// 本文件恒传入零延迟实现）。
+type DepsFns = Required<CreateAsrFallbackDeps>;
+
+// 测试内的依赖对象：每个方法都是 vi.fn，但保留原签名——mockImplementation 的
+// 参数与 mock.calls 的取值都按签名推断，不再依赖隐式 any。
+type Deps = { [K in keyof DepsFns]: Mock<DepsFns[K]> };
+
+// 内存版 cache 条目（cache.js 的写入形状 { body, timestamp }）
+type CacheEntry = { body?: unknown; timestamp?: number };
+
 // 内存版 chrome.storage.local：真实 cache.js / cache-lru.js 跑在 Map 之上
 //（cache-lru 需要 get(null) 全量枚举，见其模块注释的测试约定）。
-function installMemoryStorage() {
-  const store = new Map();
+function installMemoryStorage(): Map<string, CacheEntry> {
+  const store = new Map<string, CacheEntry>();
   const storage = globalThis.chrome.storage.local;
-  storage.get.mockImplementation(async (keys) => {
+  vi.mocked(storage.get).mockImplementation(async (keys) => {
     if (keys === null || keys === undefined) {
       return Object.fromEntries(store);
     }
-    const list = Array.isArray(keys) ? keys : [keys];
-    const out = {};
+    const list = Array.isArray(keys) ? keys : [keys as string];
+    const out: Record<string, unknown> = {};
     for (const key of list) {
       if (store.has(key)) {
         out[key] = store.get(key);
@@ -74,12 +91,12 @@ function installMemoryStorage() {
     }
     return out;
   });
-  storage.set.mockImplementation(async (entries) => {
+  vi.mocked(storage.set).mockImplementation(async (entries) => {
     for (const [key, value] of Object.entries(entries)) {
-      store.set(key, value);
+      store.set(key, value as CacheEntry);
     }
   });
-  storage.remove.mockImplementation(async (keys) => {
+  vi.mocked(storage.remove).mockImplementation(async (keys) => {
     const list = Array.isArray(keys) ? keys : [keys];
     for (const key of list) {
       store.delete(key);
@@ -89,40 +106,38 @@ function installMemoryStorage() {
 }
 
 // 预置缓存条目（镜像 cache.js 的写入形状 { body, timestamp }）
-async function seedCache(key, body) {
+async function seedCache(key: string, body: SubtitleItem[]) {
   await globalThis.chrome.storage.local.set({ [key]: { body, timestamp: Date.now() } });
 }
 
-function buildDeps(overrides = {}) {
+function buildDeps(overrides: Partial<Deps> = {}): Deps {
   return {
-    getSettings: vi.fn(async () => state.settings),
-    loadProviders: vi.fn(async () => [PROVIDER]),
-    setStatus: vi.fn(),
-    setMessage: vi.fn(),
+    getSettings: vi.fn<DepsFns["getSettings"]>(async () => state.settings),
+    loadProviders: vi.fn<DepsFns["loadProviders"]>(async () => [PROVIDER]),
+    setStatus: vi.fn<DepsFns["setStatus"]>(),
+    setMessage: vi.fn<DepsFns["setMessage"]>(),
     // 字幕接受事务：vi.fn 包装真实实现（真实落 state + 可观察调用）
-    acceptSubtitle: vi.fn(realAcceptSubtitle),
-    commitNoSubtitle: vi.fn(realCommitNoSubtitle),
-    runAsrPipeline: vi.fn(async () => []),
-    broadcastSubtitleStatus: vi.fn(),
+    acceptSubtitle: vi.fn<DepsFns["acceptSubtitle"]>(realAcceptSubtitle),
+    commitNoSubtitle: vi.fn<DepsFns["commitNoSubtitle"]>(realCommitNoSubtitle),
+    runAsrPipeline: vi.fn<DepsFns["runAsrPipeline"]>(async () => []),
+    broadcastSubtitleStatus: vi.fn<DepsFns["broadcastSubtitleStatus"]>(),
     // 整轮重试退避注入（测试零延迟；生产走 shared/utils 的真实 sleep）
-    sleepFor: vi.fn(async () => {}),
+    sleepFor: vi.fn<DepsFns["sleepFor"]>(async () => {}),
     ...overrides
   };
 }
 
-let memoryStorage;
-let deps;
-let fallback;
+let memoryStorage: Map<string, CacheEntry>;
+let deps: Deps;
+let fallback: AsrFallback;
 
 beforeEach(() => {
   resetModuleState();
   memoryStorage = installMemoryStorage();
 
   // 真实 commitNoSubtitle 会渲染轨道/元信息（注入回调）并清空预览 DOM：
-  // 注入 vi.fn 渲染回调 + 提供 jsdom 空节点即可，不依赖真实渲染。
+  // 注入 vi.fn 状态栏回调 + 提供 jsdom 空节点即可，不依赖真实渲染。
   configureCommitUi({
-    renderMeta: vi.fn(),
-    renderSubtitleSelect: vi.fn(),
     setStatus: vi.fn()
   });
   const preview = document.createElement("textarea");
@@ -150,7 +165,10 @@ beforeEach(() => {
 
 // runAsrPipeline 挂起（转写中），返回句柄数组用于逐个 resolve/reject
 function stubPendingPipeline() {
-  const pending = [];
+  const pending: Array<{
+    resolve: (body: SubtitleItem[]) => void;
+    reject: (reason?: unknown) => void;
+  }> = [];
   deps.runAsrPipeline.mockImplementation(() => {
     return new Promise((resolve, reject) => {
       pending.push({ resolve, reject });
@@ -259,8 +277,9 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     expect(result).toBe("done");
     expect(deps.runAsrPipeline).toHaveBeenCalledTimes(1);
     // 页面侧不再传 provider/Key/durationSec（provider+Key 组装移到 offscreen）；
-    // 语言档位来自设置快照、模型来自 provider 列表，只体现为缓存键
-    const pipelineArgs = deps.runAsrPipeline.mock.calls[0][0];
+    // 语言档位来自设置快照、模型来自 provider 列表，只体现为缓存键。
+    // 断言「不接收」的字段已不在签名内，按记录参数取原始对象视图。
+    const pipelineArgs = deps.runAsrPipeline.mock.calls[0][0] as unknown as Record<string, unknown>;
     expect(pipelineArgs).toEqual(
       expect.objectContaining({
         bvid: BVID,
@@ -370,7 +389,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
 
   it("写缓存失败（LRU 淘汰后重试仍失败）：setMessage 一次性上浮，不阻断收尾", async () => {
     // storage.set 恒失败 → writeWithEviction 返回 ok:false → setMessage 上浮
-    globalThis.chrome.storage.local.set.mockRejectedValue(new Error("quota exceeded"));
+    vi.mocked(globalThis.chrome.storage.local.set).mockRejectedValue(new Error("quota exceeded"));
     deps.runAsrPipeline.mockResolvedValue(TRANSCRIBED_BODY);
 
     const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
@@ -402,7 +421,7 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
 
   it("空结果带诊断：onEmptyDiagnostic 的信息拼进状态栏", async () => {
     deps.runAsrPipeline.mockImplementation(async ({ onEmptyDiagnostic }) => {
-      onEmptyDiagnostic("音频解码为空");
+      onEmptyDiagnostic!("音频解码为空");
       return [];
     });
 
@@ -512,8 +531,8 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
   });
 
   it("stale 进度门控：转写中切视频，onProgress 不再触发 setStatus", async () => {
-    let progress = null;
-    let resolvePipeline = null;
+    let progress: ((message: string) => void) | undefined;
+    let resolvePipeline: ((body: SubtitleItem[]) => void) | undefined;
     deps.runAsrPipeline.mockImplementation(
       ({ onProgress }) =>
         new Promise((resolve) => {
@@ -525,19 +544,19 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
     await vi.waitFor(() => expect(progress).toBeTruthy());
 
     // fresh 阶段：进度文案照常上状态栏（现状行为不变）
-    progress("语音识别中 1 片…");
+    progress!("语音识别中 1 片…");
     const callsAfterFresh = deps.setStatus.mock.calls.length;
     expect(String(deps.setStatus.mock.calls[callsAfterFresh - 1][0])).toContain("语音识别中 1 片…");
 
     // 切视频后：进度不再触发 setStatus（新视频状态栏不被旧任务污染）
     clipState.setBvid("BV1other");
     clipState.setFetchRunId(2);
-    progress("语音识别中 2 片…");
+    progress!("语音识别中 2 片…");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(deps.setStatus.mock.calls.length).toBe(callsAfterFresh);
 
     // 任务本身照常到站：缓存照落、零 UI 收尾
-    resolvePipeline(TRANSCRIBED_BODY);
+    resolvePipeline!(TRANSCRIBED_BODY);
     await expect(promise).resolves.toBe("done");
     expect(memoryStorage.get(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
   });
@@ -637,7 +656,7 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
   });
 
   it("重试窗口内切视频：重试照跑、终态静默让位（asr-done 广播 + 零 UI 写入）", async () => {
-    const deferred = [];
+    const deferred: Array<(body: SubtitleItem[]) => void> = [];
     deps.runAsrPipeline.mockImplementation(({ onAttemptOutcome }) => {
       onAttemptOutcome?.({ totalChunks: 3, failedChunks: 3, elapsedMs: 1000 });
       return new Promise((resolve) => {

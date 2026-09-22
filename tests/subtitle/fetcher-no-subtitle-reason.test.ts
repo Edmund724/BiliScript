@@ -18,6 +18,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, setupEnvironment } from "../setup.js";
 import { clipState } from "../../extension/core/state.js";
+// 缓存写失败出口的真实错误类型（LRU 淘汰后重试仍失败的 distinct 错误）。
+import { CacheWriteError } from "../../extension/core/cache-lru.js";
 
 // 顶层副作用 subscribeSubtitleRefresh(refreshClip) 需要 reader-bus 提供该函数。
 vi.mock("../../extension/reader/reader-bus.js", () => ({
@@ -32,7 +34,7 @@ vi.mock("../../extension/core/ui-status.js", () => ({
 // arch-slim-2/03：fetcher 的 fetchVideoMeta/fetchSubtitleBundle 纯直通包装已删
 // （日志下沉 gateway），refreshClip 的抓取打桩改挂 gateway 的同名函数。
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/bilibili/gateway.js")>();
   return {
     ...actual,
     fetchVideoMeta: vi.fn(),
@@ -45,7 +47,7 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
 // 可观察调用），保持「调用了 commit」可断言。configureCommitUi 保持真实导出
 //（fetcher 模块求值期接线用）。
 vi.mock("../../extension/subtitle/commit.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/subtitle/commit.js")>();
   return {
     ...actual,
     acceptSubtitle: vi.fn(actual.acceptSubtitle),
@@ -120,15 +122,15 @@ beforeEach(() => {
   clipState.setFetchRunId(0);
 
   // 单一纪元下 mock 实现会跨用例保留：显式归位，避免用例间相互污染
-  loadSubtitleFromCache.mockReset();
-  loadSubtitleFromCache.mockResolvedValue(null);
-  fetchBodyMock.mockReset();
-  saveSubtitleToCache.mockReset();
-  saveSubtitleToCache.mockResolvedValue(undefined);
-  clearSubtitleCacheByKey.mockReset();
-  clearSubtitleCacheByKey.mockResolvedValue(undefined);
-  setMessage.mockClear();
-  acceptSubtitle.mockClear();
+  vi.mocked(loadSubtitleFromCache).mockReset();
+  vi.mocked(loadSubtitleFromCache).mockResolvedValue(null);
+  vi.mocked(fetchBodyMock).mockReset();
+  vi.mocked(saveSubtitleToCache).mockReset();
+  vi.mocked(saveSubtitleToCache).mockResolvedValue({ ok: true });
+  vi.mocked(clearSubtitleCacheByKey).mockReset();
+  vi.mocked(clearSubtitleCacheByKey).mockResolvedValue(undefined);
+  vi.mocked(setMessage).mockClear();
+  vi.mocked(acceptSubtitle).mockClear();
 });
 
 // buildNoSubtitleStatusMessage 的文案契约已随无字幕出口事务迁至
@@ -162,7 +164,7 @@ describe("noSubtitleReason 清除点", () => {
     clipState.setNoSubtitleReason("no-asr-config");
     // 旧缓存条目可能无序：接受事务单点负责排序（findActiveSubtitleIndex 二分依赖）
     const unsortedBody = [SUBTITLE_BODY[2], SUBTITLE_BODY[0], SUBTITLE_BODY[1]];
-    loadSubtitleFromCache.mockResolvedValue(unsortedBody);
+    vi.mocked(loadSubtitleFromCache).mockResolvedValue(unsortedBody);
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false);
 
@@ -185,7 +187,7 @@ describe("noSubtitleReason 清除点", () => {
 
   it("loadSubtitle 网络成功 ready：陈旧原因清 null，且经字幕接受事务", async () => {
     clipState.setNoSubtitleReason("asr-failed");
-    fetchBodyMock.mockResolvedValue({ body: SUBTITLE_BODY });
+    vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", true);
 
@@ -207,8 +209,8 @@ describe("noSubtitleReason 清除点", () => {
 // loadSubtitleFromCache 在 beforeEach 已归位为 null；其余 mock 按用例覆写
 describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
   it("网络成功但缓存写失败（LRU 淘汰后重试仍失败）：setMessage 一次性上浮，接受事务照常收尾", async () => {
-    saveSubtitleToCache.mockResolvedValue({ ok: false });
-    fetchBodyMock.mockResolvedValue({ body: SUBTITLE_BODY });
+    vi.mocked(saveSubtitleToCache).mockResolvedValue({ ok: false, error: new CacheWriteError("quota") });
+    vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", true);
 
@@ -224,8 +226,8 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
 
   it("缓存命中但时长不匹配：清缓存后走网络重抓", async () => {
     // 过短字幕：videoDuration=300、maxTo=10 < 66 → too-short
-    loadSubtitleFromCache.mockResolvedValue([{ from: 0, to: 10, content: "过短" }]);
-    fetchBodyMock.mockResolvedValue({ body: SUBTITLE_BODY });
+    vi.mocked(loadSubtitleFromCache).mockResolvedValue([{ from: 0, to: 10, content: "过短" }]);
+    vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false);
 
@@ -245,7 +247,7 @@ describe("586c61b 回归：refreshClip 错误路径的 fetchState 保持 error",
     // 轮询会误判"非转写中"提前放行空字幕（586c61b 原始 bug）。
     clipState.setSubtitleFetchState("loading");
     // arch-slim-2/03：直通包装删除后，refreshClip 经 gateway.fetchVideoMeta 抓取。
-    fetchMetaMock.mockRejectedValue(new Error("meta down"));
+    vi.mocked(fetchMetaMock).mockRejectedValue(new Error("meta down"));
 
     await expect(fetcher.refreshClip()).resolves.toBeUndefined();
 

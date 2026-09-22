@@ -45,7 +45,7 @@ describe("normalizeChapters：按引用缓存", () => {
   });
 
   it("空数组与非数组输入", () => {
-    const empty = [];
+    const empty: unknown[] = [];
     expect(normalizeChapters(empty)).toEqual([]);
     expect(normalizeChapters(empty)).toBe(normalizeChapters(empty)); // 同引用命中缓存
     expect(normalizeChapters(null)).toEqual([]);
@@ -67,7 +67,7 @@ describe("sortSubtitleBodyByFrom：写入端稳定排序", () => {
       { from: 0, to: 10, content: "a" },
       { from: 10, to: 20, content: "b" }
     ];
-    expect(sortSubtitleBodyByFrom(body).map((item) => item.content)).toEqual(["a", "b", "c"]);
+    expect(sortSubtitleBodyByFrom(body)!.map((item) => item.content)).toEqual(["a", "b", "c"]);
   });
 
   it("稳定：同 from 保持原有相对顺序", () => {
@@ -76,13 +76,13 @@ describe("sortSubtitleBodyByFrom：写入端稳定排序", () => {
       { from: 0, to: 5, content: "early" },
       { from: 5, to: 9, content: "second" }
     ];
-    const sorted = sortSubtitleBodyByFrom(body);
+    const sorted = sortSubtitleBodyByFrom(body)!;
     expect(sorted.map((item) => item.content)).toEqual(["early", "first", "second"]);
   });
 
   it("返回新数组，不原地修改入参", () => {
     const body = [{ from: 20 }, { from: 0 }];
-    const sorted = sortSubtitleBodyByFrom(body);
+    const sorted = sortSubtitleBodyByFrom(body)!;
     expect(sorted).not.toBe(body);
     expect(body.map((item) => item.from)).toEqual([20, 0]);
     expect(sorted.map((item) => item.from)).toEqual([0, 20]);

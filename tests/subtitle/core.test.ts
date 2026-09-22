@@ -15,10 +15,18 @@ import {
   ensureDerivedContent,
   rebuildDerivedContent
 } from "../../extension/subtitle/core.js";
+import type { SubtitleBodyItem } from "../../extension/core/state.js";
+
+// 本套件刻意喂 to 缺省/非法与 undefined body（防御性脏数据）：body 用 to 可选的
+// 局部口径，落 state 前断言回写入端的 SubtitleBodyItem。
+type TestSubtitleItem = { from: number; to?: number; content: string };
 
 // 旧线性实现的快照基准（与重构前 core.js 逐字同语义）：
 // to 缺省/非法时视为 from + 2；命中返回条目索引，否则 -1。
-function legacyLinearFindActiveSubtitleIndex(body, currentTime) {
+function legacyLinearFindActiveSubtitleIndex(
+  body: TestSubtitleItem[] | null | undefined,
+  currentTime: number
+): number {
   const items = Array.isArray(body) ? body : [];
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
@@ -32,8 +40,8 @@ function legacyLinearFindActiveSubtitleIndex(body, currentTime) {
   return -1;
 }
 
-function expectSameAsLegacy(body, currentTime) {
-  state.clip.setSubtitleBody(body);
+function expectSameAsLegacy(body: TestSubtitleItem[] | null | undefined, currentTime: number) {
+  state.clip.setSubtitleBody(body as SubtitleBodyItem[]);
   expect(findActiveSubtitleIndex(currentTime)).toBe(
     legacyLinearFindActiveSubtitleIndex(body, currentTime)
   );
@@ -114,14 +122,14 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（随机模糊）",
   // 注意：to 缺省（from+2）若落在相邻条目区间内会构成重叠，重叠数据上线性
   // 返回最早命中、二分返回最靠近候选点的命中（都是包含 t 的条目）——那属于
   // 防御性脏数据，见下方「重叠区间」用例的显式说明。
-  function randomSortedBody(rng) {
+  function randomSortedBody(rng: () => number): TestSubtitleItem[] {
     const length = 1 + Math.floor(rng() * 60);
-    const body = [];
+    const body: TestSubtitleItem[] = [];
     let from = 0;
     for (let i = 0; i < length; i += 1) {
       from += rng() * 4; // 随机间隙
       const duration = 0.5 + rng() * 3;
-      const item = { from: Math.round(from * 100) / 100, content: `line-${i}` };
+      const item: TestSubtitleItem = { from: Math.round(from * 100) / 100, content: `line-${i}` };
       if (i < length - 1 || rng() < 0.5) {
         // 非末条必须带 to（保证与下一条不重叠）；末条随机缺省 to（from+2 语义）
         item.to = Math.round((from + duration) * 100) / 100;
@@ -148,7 +156,7 @@ describe("findActiveSubtitleIndex：与旧线性实现等价（随机模糊）",
       const maxFrom = body[body.length - 1].from + 4;
       for (let probe = 0; probe < 8; probe += 1) {
         const t = Math.round(rng() * maxFrom * 100) / 100;
-        state.clip.setSubtitleBody(body);
+        state.clip.setSubtitleBody(body as SubtitleBodyItem[]);
         const actual = findActiveSubtitleIndex(t);
         const expected = legacyLinearFindActiveSubtitleIndex(body, t);
         if (actual !== expected) {
@@ -188,16 +196,16 @@ describe("findActiveSubtitleIndex：重叠区间的已记录偏差（防御性�
   // 不变；正常生产数据（条目带有效 to、区间不重叠）任意时刻至多一条命中，
   // 新旧实现完全一致。这里断言「返回的条目确实包含 t」而非与线性同索引。
   it("重叠区间：返回包含 currentTime 的条目", () => {
-    const body = [
+    const body: TestSubtitleItem[] = [
       { from: 0, to: 10, content: "a" },
       { from: 10, content: "b" }, // to 缺省 → [10, 12)，与下一条重叠
       { from: 11, to: 15, content: "c" }
     ];
-    state.clip.setSubtitleBody(body);
+    state.clip.setSubtitleBody(body as SubtitleBodyItem[]);
     const index = findActiveSubtitleIndex(11.5);
     expect(index).toBe(2); // 候选点（最后 from <= t）即命中
     const item = body[index];
-    const to = item.to > item.from ? item.to : item.from + 2;
+    const to = item.to! > item.from ? item.to! : item.from + 2;
     expect(11.5).toBeGreaterThanOrEqual(item.from);
     expect(11.5).toBeLessThan(to);
   });

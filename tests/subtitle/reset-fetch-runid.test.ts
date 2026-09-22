@@ -18,7 +18,7 @@
 // saveSubtitleToCache/loadSubtitleFromCache 两个落盘口（前者用可控 promise
 // 精确复现「提交前 await 窗口」的竞态时序），键构造/候选构建走真实实现。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
 
 vi.mock("../../extension/reader/reader-bus.js", () => ({
@@ -30,7 +30,7 @@ vi.mock("../../extension/core/ui-status.js", () => ({
   setMessage: vi.fn()
 }));
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/bilibili/gateway.js")>();
   return {
     ...actual,
     fetchVideoMeta: vi.fn(),
@@ -51,7 +51,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshDerivedContent: vi.fn(async () => {})
 }));
 vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
   return {
     ...actual,
     saveSubtitleToCache: vi.fn(async () => ({ ok: true })),
@@ -64,39 +64,47 @@ const GOOD_BODY = [
   { from: 0, to: 1.2, content: "第一条" },
   { from: 1.5, to: 290, content: "第二条" }
 ];
-const TRACK = { id: "sub-1", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/sub.json" };
+const TRACK = {
+  id: "sub-1",
+  lan: "zh-CN",
+  lanDoc: "中文",
+  subtitleUrl: "https://i0.hdslb.com/sub.json",
+  source: "player-wbi-v2"
+};
 
-function createPending() {
-  let resolve;
-  const promise = new Promise((res) => {
+// 可控 promise：resolve 由测试在窗口点手动触发（挂起期间的插队竞态）
+function createPending<T = void>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
     resolve = res;
   });
   return { promise, resolve };
 }
 
-let fetcher;
-let state;
-let clipState;
-let gateway;
-let cache;
-let uiStatus;
-let core;
+let fetcher: typeof import("../../extension/subtitle/fetcher.js");
+let state: (typeof import("../../extension/core/state.js"))["state"];
+let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
+let gateway: MockedObject<typeof import("../../extension/bilibili/gateway.js")>;
+let cache: MockedObject<typeof import("../../extension/subtitle/cache.js")>;
+let uiStatus: MockedObject<typeof import("../../extension/core/ui-status.js")>;
+let core: MockedObject<typeof import("../../extension/subtitle/core.js")>;
 
 async function importEpoch() {
   fetcher = await import("../../extension/subtitle/fetcher.js");
   const stateModule = await import("../../extension/core/state.js");
   state = stateModule.state;
   clipState = stateModule.clipState;
-  gateway = await import("../../extension/bilibili/gateway.js");
-  cache = await import("../../extension/subtitle/cache.js");
-  uiStatus = await import("../../extension/core/ui-status.js");
-  core = await import("../../extension/subtitle/core.js");
+  gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
+  cache = vi.mocked(await import("../../extension/subtitle/cache.js"));
+  uiStatus = vi.mocked(await import("../../extension/core/ui-status.js"));
+  core = vi.mocked(await import("../../extension/subtitle/core.js"));
 
   gateway.fetchVideoMeta.mockReset().mockResolvedValue({
     aid: "123",
     title: "测试标题",
     author: "测试作者",
     description: "测试简介",
+    uploadDate: "2026-01-01",
     defaultCid: "101",
     defaultDuration: 300,
     pages: [{ cid: "101", page: 1, part: "P1", duration: 300 }]
@@ -176,7 +184,7 @@ describe("事务级 runId 自检（commit.acceptSubtitle / commitNoSubtitle）",
 });
 
 // 字幕接受事务（真实实现）快捷调用
-function accept({ runId }) {
+function accept({ runId }: { runId?: number }) {
   return import("../../extension/subtitle/commit.js").then(({ acceptSubtitle }) =>
     acceptSubtitle({
       body: [...GOOD_BODY].reverse(),
@@ -195,9 +203,9 @@ describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
     // 插队（reset+递增）必须发生在窗口内才能命中事务门口的自检。
     clipState.setFetchRunId(1);
     clipState.setVideoDuration(300);
-    const bodyPending = createPending();
+    const bodyPending = createPending<{ body: unknown[] }>();
     gateway.fetchSubtitleBody.mockImplementation(() => bodyPending.promise);
-    const savePending = createPending();
+    const savePending = createPending<{ ok: true }>();
     cache.saveSubtitleToCache.mockImplementation(() => savePending.promise);
     const run = fetcher.refreshClip();
     await vi.waitFor(() => expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(1));

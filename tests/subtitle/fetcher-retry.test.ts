@@ -14,8 +14,9 @@
 // 每个用例在 beforeEach 内重取 fetcher 与 state（同纪元实例），共享的 mock
 // 实例手工 mockReset（resetModules 后 mock 工厂不重跑，见 fetcher-logging.test.js）。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type { SubtitleTrack } from "../../extension/bilibili/gateway.js";
 
 vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
@@ -26,7 +27,7 @@ vi.mock("../../extension/core/ui-status.js", () => ({
   setMessage: vi.fn()
 }));
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/bilibili/gateway.js")>();
   return {
     ...actual,
     fetchVideoMeta: vi.fn(),
@@ -49,11 +50,11 @@ vi.mock("../../extension/subtitle/core.js", () => ({
 vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
   // importOriginal 保留 normalizeSubtitleUrlForCache（selection.pickPreferredSubtitle
   // 按路径比对上一轨 URL 时消费），其余落盘/读缓存口按用例需要 mock。
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
   return {
     ...actual,
-    buildSubtitleCandidates: vi.fn((tracks, preferred) => {
-      const list = [preferred];
+    buildSubtitleCandidates: vi.fn((tracks: SubtitleTrack[] | null | undefined, preferred: SubtitleTrack | null | undefined) => {
+      const list: SubtitleTrack[] = [preferred as SubtitleTrack];
       for (const item of tracks || []) {
         if (item !== preferred) {
           list.push(item);
@@ -86,24 +87,24 @@ vi.mock("../../extension/asr/fallback.js", () => ({
   }))
 }));
 
-const oldTrack = { id: "sub-1", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/sub-old.json" };
-const freshTrack = { id: "sub-1", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/sub-fresh.json?auth_key=new" };
+const oldTrack = { id: "sub-1", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/sub-old.json", source: "player-wbi-v2" };
+const freshTrack = { id: "sub-1", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://i0.hdslb.com/sub-fresh.json?auth_key=new", source: "player-wbi-v2" };
 const goodBody = [{ from: 0, to: 200, content: "hello" }];
 
-let fetcher;
-let state;
-let gateway;
-let uiStatus;
-let commit;
-let readerBus;
+let fetcher: typeof import("../../extension/subtitle/fetcher.js");
+let state: (typeof import("../../extension/core/state.js"))["state"];
+let gateway: MockedObject<typeof import("../../extension/bilibili/gateway.js")>;
+let uiStatus: MockedObject<typeof import("../../extension/core/ui-status.js")>;
+let commit: MockedObject<typeof import("../../extension/subtitle/commit.js")>;
+let readerBus: MockedObject<typeof import("../../extension/reader/reader-bus.js")>;
 
 async function importEpoch() {
   fetcher = await import("../../extension/subtitle/fetcher.js");
   state = (await import("../../extension/core/state.js")).state;
-  gateway = await import("../../extension/bilibili/gateway.js");
-  uiStatus = await import("../../extension/core/ui-status.js");
-  commit = await import("../../extension/subtitle/commit.js");
-  readerBus = await import("../../extension/reader/reader-bus.js");
+  gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
+  uiStatus = vi.mocked(await import("../../extension/core/ui-status.js"));
+  commit = vi.mocked(await import("../../extension/subtitle/commit.js"));
+  readerBus = vi.mocked(await import("../../extension/reader/reader-bus.js"));
 
   gateway.fetchVideoMeta.mockReset();
   gateway.fetchSubtitleBundle.mockReset();
@@ -121,6 +122,7 @@ async function importEpoch() {
     title: "测试标题",
     author: "测试作者",
     description: "测试简介",
+    uploadDate: "2026-01-01",
     defaultCid: "101",
     defaultDuration: 300,
     pages: [{ cid: "101", page: 1, part: "P1", duration: 300 }]

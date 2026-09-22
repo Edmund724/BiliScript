@@ -28,7 +28,8 @@
     "tests/entry/**/*.ts",
     "tests/reader/**/*.ts",
     "tests/core/**/*.ts",
-    "tests/asr/**/*.ts"
+    "tests/asr/**/*.ts",
+    "tests/subtitle/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

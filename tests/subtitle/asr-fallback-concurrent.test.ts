@@ -12,9 +12,10 @@
 // 包装的真实实现（真实落 state + 可观察调用），其余依赖为测试内构造的假依赖，
 // 不经 vi.mock。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createAsrFallback } from "../../extension/asr/fallback.js";
+import type { AsrFallback, CreateAsrFallbackDeps, SubtitleItem } from "../../extension/asr/fallback.js";
 import { state, clipState } from "../../extension/core/state.js";
 import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
 import {
@@ -53,15 +54,18 @@ function asrCacheKey({ bvid = BVID, cid = CID } = {}) {
   });
 }
 
+// 内存 storage 的条目形状（cache.saveSubtitleToCache 的落盘值），供断言直读 body
+type StoredSubtitleEntry = { body: SubtitleItem[] };
+
 function installMemoryStorage() {
-  const store = new Map();
+  const store = new Map<string, StoredSubtitleEntry>();
   const storage = globalThis.chrome.storage.local;
-  storage.get.mockImplementation(async (keys) => {
+  vi.mocked(storage.get).mockImplementation(async (keys) => {
     if (keys === null || keys === undefined) {
       return Object.fromEntries(store);
     }
-    const list = Array.isArray(keys) ? keys : [keys];
-    const out = {};
+    const list = Array.isArray(keys) ? keys : [keys as string];
+    const out: Record<string, unknown> = {};
     for (const key of list) {
       if (store.has(key)) {
         out[key] = store.get(key);
@@ -69,12 +73,12 @@ function installMemoryStorage() {
     }
     return out;
   });
-  storage.set.mockImplementation(async (entries) => {
+  vi.mocked(storage.set).mockImplementation(async (entries) => {
     for (const [key, value] of Object.entries(entries)) {
-      store.set(key, value);
+      store.set(key, value as StoredSubtitleEntry);
     }
   });
-  storage.remove.mockImplementation(async (keys) => {
+  vi.mocked(storage.remove).mockImplementation(async (keys) => {
     const list = Array.isArray(keys) ? keys : [keys];
     for (const key of list) {
       store.delete(key);
@@ -83,20 +87,29 @@ function installMemoryStorage() {
   return store;
 }
 
-let memoryStorage;
-let deps;
-let fallback;
+// 注入依赖的 mock 形状：逐口按 CreateAsrFallbackDeps 的真实签名起 vi.fn（事务口
+// 保留真实实现的签名，其余为纯替身）。
+type DepsMock = {
+  getSettings: Mock<CreateAsrFallbackDeps["getSettings"]>;
+  loadProviders: Mock<CreateAsrFallbackDeps["loadProviders"]>;
+  setStatus: Mock<CreateAsrFallbackDeps["setStatus"]>;
+  setMessage: Mock<CreateAsrFallbackDeps["setMessage"]>;
+  acceptSubtitle: Mock<typeof realAcceptSubtitle>;
+  commitNoSubtitle: Mock<typeof realCommitNoSubtitle>;
+  runAsrPipeline: Mock<CreateAsrFallbackDeps["runAsrPipeline"]>;
+  broadcastSubtitleStatus: Mock<CreateAsrFallbackDeps["broadcastSubtitleStatus"]>;
+};
+
+let memoryStorage: Map<string, StoredSubtitleEntry>;
+let deps: DepsMock;
+let fallback: AsrFallback;
 
 beforeEach(() => {
   resetModuleState();
   memoryStorage = installMemoryStorage();
 
-  // 真实 commitNoSubtitle 需要注入渲染回调 + 预览 DOM 节点（见 asr-fallback.test.js）
-  configureCommitUi({
-    renderMeta: vi.fn(),
-    renderSubtitleSelect: vi.fn(),
-    setStatus: vi.fn()
-  });
+  // 真实 commitNoSubtitle 只要求注入状态栏回调（见 commit.js 的 CommitUiCallbacks）
+  configureCommitUi({ setStatus: vi.fn() });
   const preview = document.createElement("textarea");
   preview.id = "boc-preview";
   document.body.appendChild(preview);
@@ -118,24 +131,24 @@ beforeEach(() => {
   };
 
   deps = {
-    getSettings: vi.fn(async () => state.settings),
-    loadProviders: vi.fn(async () => [PROVIDER]),
-    setStatus: vi.fn(),
-    setMessage: vi.fn(),
+    getSettings: vi.fn<CreateAsrFallbackDeps["getSettings"]>(async () => state.settings),
+    loadProviders: vi.fn<CreateAsrFallbackDeps["loadProviders"]>(async () => [PROVIDER]),
+    setStatus: vi.fn<CreateAsrFallbackDeps["setStatus"]>(),
+    setMessage: vi.fn<CreateAsrFallbackDeps["setMessage"]>(),
     // 字幕接受事务：vi.fn 包装真实实现（真实落 state + 可观察调用）
     acceptSubtitle: vi.fn(realAcceptSubtitle),
     commitNoSubtitle: vi.fn(realCommitNoSubtitle),
-    runAsrPipeline: vi.fn(async () => []),
-    broadcastSubtitleStatus: vi.fn()
+    runAsrPipeline: vi.fn<CreateAsrFallbackDeps["runAsrPipeline"]>(async () => []),
+    broadcastSubtitleStatus: vi.fn<CreateAsrFallbackDeps["broadcastSubtitleStatus"]>()
   };
   fallback = createAsrFallback(deps);
 });
 
 // runAsrPipeline 挂起（转写中），返回句柄数组用于逐个 resolve/reject
 function stubPendingPipeline() {
-  const pending = [];
+  const pending: Array<{ resolve: (body: SubtitleItem[]) => void; reject: (reason?: unknown) => void }> = [];
   deps.runAsrPipeline.mockImplementation(() => {
-    return new Promise((resolve, reject) => {
+    return new Promise<SubtitleItem[]>((resolve, reject) => {
       pending.push({ resolve, reject });
     });
   });
@@ -143,8 +156,8 @@ function stubPendingPipeline() {
 }
 
 // 数据键（非 LRU 索引键）中对 cacheKey 的写入次数：断言成果只落一次缓存
-function cacheKeyWriteCount(cacheKey) {
-  return globalThis.chrome.storage.local.set.mock.calls.filter(
+function cacheKeyWriteCount(cacheKey: string) {
+  return vi.mocked(globalThis.chrome.storage.local.set).mock.calls.filter(
     ([entries]) => entries && Object.prototype.hasOwnProperty.call(entries, cacheKey)
   ).length;
 }
@@ -179,8 +192,11 @@ describe("ASR 转写中并发调用（共享转写、成果落缓存）", () => 
     // STALE_RUN 在 fetcher 的 catch 中被 isStaleRunError 吞掉（此处直接体现
     // 为 reject），完成提示只出现一次
     expect(secondOutcome.status).toBe("fulfilled");
-    expect(secondOutcome.value).toBe("done");
     expect(firstOutcome.status).toBe("rejected");
+    if (secondOutcome.status !== "fulfilled" || firstOutcome.status !== "rejected") {
+      throw new Error("并发收尾状态与预期不符（断言失败时不会走到这里）");
+    }
+    expect(secondOutcome.value).toBe("done");
     expect(firstOutcome.reason).toMatchObject({ code: "STALE_RUN" });
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(state.clip.subtitleBody).toEqual(TRANSCRIBED_BODY);

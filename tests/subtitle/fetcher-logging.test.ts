@@ -27,7 +27,7 @@ vi.mock("../../extension/core/ui-status.js", () => ({
 // arch-slim-2/03：fetcher 的 fetchVideoMeta/fetchSubtitleBundle 纯直通包装已删
 // （日志下沉 gateway），refreshClip 的抓取断言/打桩改挂 gateway 的同名函数。
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/bilibili/gateway.js")>();
   return {
     ...actual,
     fetchVideoMeta: vi.fn(),
@@ -72,14 +72,14 @@ vi.mock("../../extension/subtitle/cache.js", () => ({
 // / runtime / selection 仅依赖纯函数或 state。
 //（若这些模块的 import 链被进一步破坏，这里会暴露为“红在别处”。）
 
-let fetcher;
-let fetchBodyMock;
+let fetcher: typeof import("../../extension/subtitle/fetcher.js");
+let fetchBodyMock: typeof import("../../extension/bilibili/gateway.js").fetchSubtitleBody;
 
 beforeEach(async () => {
   resetModuleState();
   fetcher = await import("../../extension/subtitle/fetcher.js");
   fetchBodyMock = (await import("../../extension/bilibili/gateway.js")).fetchSubtitleBody;
-  fetchBodyMock.mockReset();
+  vi.mocked(fetchBodyMock).mockReset();
 
   // 测试桩：vitest 的 ESM 变换把 logWarn 这类未绑定标识符回退到全局对象
   // 查找（这与浏览器/esbuild 行为一致），因此把桩挂在 globalThis 上，让
@@ -91,9 +91,9 @@ beforeEach(async () => {
 
 describe("tryLoadSubtitleCandidates 日志路径", () => {
   it("单候选成功：logInfo 不再抛 ReferenceError（修复后通过）", async () => {
-    fetchBodyMock.mockResolvedValue({ body: [{ from: 0, to: 10, content: "hello" }] });
+    vi.mocked(fetchBodyMock).mockResolvedValue({ body: [{ from: 0, to: 10, content: "hello" }] });
 
-    const candidate = { id: "1", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://example.com/sub.json" };
+    const candidate = { id: "1", lan: "zh-CN", lanDoc: "中文", subtitleUrl: "https://example.com/sub.json", source: "" };
     const result = await fetcher.tryLoadSubtitleCandidates([candidate], 0, false);
 
     expect(result).toBe(candidate);
@@ -101,11 +101,11 @@ describe("tryLoadSubtitleCandidates 日志路径", () => {
   });
 
   it("候选失败：logWarn 不再抛 ReferenceError（修复后通过）", async () => {
-    fetchBodyMock.mockRejectedValue(new Error("network down"));
+    vi.mocked(fetchBodyMock).mockRejectedValue(new Error("network down"));
 
     await expect(
       fetcher.tryLoadSubtitleCandidates(
-        [{ id: "1", lan: "zh-CN", subtitleUrl: "https://example.com/sub.json" }],
+        [{ id: "1", lan: "zh-CN", lanDoc: "", subtitleUrl: "https://example.com/sub.json", source: "" }],
         0,
         false
       )
@@ -125,7 +125,7 @@ describe("tryLoadSubtitleCandidates 日志路径", () => {
     // 须在同纪元实例上读，见 fetcher-no-subtitle-reason.test.js 的
     // 586c61b 回归用例（单纪元 + 真实 state）。
     // arch-slim-2/03：直通包装删除后，refreshClip 经 gateway.fetchVideoMeta 抓取。
-    const fetchMetaMock = (await import("../../extension/bilibili/gateway.js")).fetchVideoMeta;
+    const fetchMetaMock = vi.mocked((await import("../../extension/bilibili/gateway.js")).fetchVideoMeta);
     fetchMetaMock.mockRejectedValue(new Error("meta down"));
 
     await expect(fetcher.refreshClip()).resolves.toBeUndefined();

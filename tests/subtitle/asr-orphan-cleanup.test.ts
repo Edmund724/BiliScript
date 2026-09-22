@@ -7,8 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let cache;
-let storage;
+let cache: typeof import("../../extension/subtitle/cache.js");
+let storage: ReturnType<typeof createMemoryStorage>;
 
 // 内存 Map 实现的 chrome.storage.local：get 需支持 null（全量枚举）。
 function createMemoryStorage() {
@@ -19,7 +19,7 @@ function createMemoryStorage() {
         return Object.fromEntries(map.entries());
       }
       const want = Array.isArray(keys) ? keys : [keys];
-      const out = {};
+      const out: Record<string, unknown> = {};
       for (const k of want) {
         if (map.has(k)) {
           out[k] = map.get(k);
@@ -104,7 +104,7 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
   it("索引含该 bvid 条目 → 定点批量枚举出过期变体（11 票分键布局：索引枚举走全量快照）", async () => {
     const keepKey = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:new:p:m:auto" });
     const staleAsr = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:old:p:m:auto" });
-    const items = {
+    const items: Record<string, unknown> = {
       [keepKey]: { body: BODY, timestamp: 2 },
       [staleAsr]: { body: BODY, timestamp: 1 }
     };
@@ -160,6 +160,8 @@ describe("saveSubtitleToCache 与统一 LRU 的接线", () => {
     storage.local.set.mockRejectedValue(new Error("quota"));
     const result = await cache.saveSubtitleToCache("boc_subtitle_cache_BV1a_1_id_x", BODY);
     expect(result.ok).toBe(false);
-    expect(result.error).toBeInstanceOf(Error);
+    if (result.ok === false) {
+      expect(result.error).toBeInstanceOf(Error);
+    }
   });
 });

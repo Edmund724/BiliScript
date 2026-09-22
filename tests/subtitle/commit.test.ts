@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { state, clipState } from "../../extension/core/state.js";
+import type { NoSubtitleReason, SubtitleBodyItem } from "../../extension/core/state.js";
 import {
   acceptSubtitle,
   commitNoSubtitle,
@@ -45,7 +46,7 @@ const UNSORTED_BODY = [
   { from: 0, to: 0.5, content: "a2-同from稳定" }
 ];
 
-function expectStrictlySortedByFrom(body) {
+function expectStrictlySortedByFrom(body: SubtitleBodyItem[]) {
   for (let i = 1; i < body.length; i += 1) {
     expect(Number(body[i].from)).toBeGreaterThanOrEqual(Number(body[i - 1].from));
   }
@@ -298,7 +299,7 @@ describe("buildNoSubtitleStatusMessage（自 fetcher 随迁的文案契约）", 
   });
 
   it("其余原因与未知（asr-disabled/asr-failed/asr-empty/null）：维持通用引导句", () => {
-    for (const reason of ["asr-disabled", "asr-failed", "asr-empty", null]) {
+    for (const reason of ["asr-disabled", "asr-failed", "asr-empty", null] as NoSubtitleReason[]) {
       clipState.setNoSubtitleReason(reason);
       expect(buildNoSubtitleStatusMessage()).toBe(
         "当前视频无字幕。 可在设置页配置语音识别平台自动生成字幕。"

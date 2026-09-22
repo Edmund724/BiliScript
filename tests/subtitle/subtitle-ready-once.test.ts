@@ -13,10 +13,11 @@
 // notifyReaderPresenter 用 importOriginal 包 vi.fn 计数，语义不变。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { MockedFunction } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/bilibili/gateway.js")>();
   return {
     ...actual,
     fetchVideoMeta: vi.fn(),
@@ -38,7 +39,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshDerivedContent: vi.fn(async () => {})
 }));
 vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
   return {
     ...actual,
     saveSubtitleToCache: vi.fn(async () => ({ ok: true })),
@@ -54,7 +55,7 @@ vi.mock("../../extension/shared/messaging.js", () => ({
   sendRuntimeMessage: vi.fn(async () => null)
 }));
 vi.mock("../../extension/reader/reader-bus.js", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = await importOriginal<typeof import("../../extension/reader/reader-bus.js")>();
   return {
     ...actual,
     notifyReaderPresenter: vi.fn(actual.notifyReaderPresenter)
@@ -62,35 +63,46 @@ vi.mock("../../extension/reader/reader-bus.js", async (importOriginal) => {
 });
 
 describe("字幕就绪通知全程恰一次（链级防回焊锁）", () => {
-  let fetcher;
-  let state;
-  let notifyReaderPresenter;
+  let fetcher: typeof import("../../extension/subtitle/fetcher.js");
+  let state: typeof import("../../extension/core/state.js").state;
+  let notifyReaderPresenter: MockedFunction<
+    typeof import("../../extension/reader/reader-bus.js").notifyReaderPresenter
+  >;
 
   beforeEach(async () => {
     resetModuleState();
     setLocationUrl(READER_MODE_URL);
     const gateway = await import("../../extension/bilibili/gateway.js");
-    gateway.fetchVideoMeta.mockResolvedValue({
+    vi.mocked(gateway.fetchVideoMeta).mockResolvedValue({
       aid: "aid1",
       title: "测试视频",
       author: "UP",
       uploadDate: "2026-01-01",
       description: "",
-      pages: [{}],
-      defaultCid: "101"
+      pages: [{ cid: "101", page: 1, part: "P1", duration: 300 }],
+      defaultCid: "101",
+      defaultDuration: 300
     });
-    gateway.fetchSubtitleBundle.mockResolvedValue({
-      tracks: [{ id: "s1", lan: "zh-CN", lanDoc: "中文（自动）", subtitleUrl: "https://fake.subtitle/url.json" }],
+    vi.mocked(gateway.fetchSubtitleBundle).mockResolvedValue({
+      tracks: [
+        {
+          id: "s1",
+          lan: "zh-CN",
+          lanDoc: "中文（自动）",
+          subtitleUrl: "https://fake.subtitle/url.json",
+          source: ""
+        }
+      ],
       chapters: []
     });
-    gateway.fetchSubtitleBody.mockResolvedValue({
+    vi.mocked(gateway.fetchSubtitleBody).mockResolvedValue({
       body: [
         { from: 0, to: 140, content: "大家好" },
         { from: 140, to: 280, content: "开始今天的话题" }
       ]
     });
     const bus = await import("../../extension/reader/reader-bus.js");
-    notifyReaderPresenter = bus.notifyReaderPresenter;
+    notifyReaderPresenter = vi.mocked(bus.notifyReaderPresenter);
     notifyReaderPresenter.mockClear();
     state = (await import("../../extension/core/state.js")).state;
     state.reader.setViewOpen(true);
