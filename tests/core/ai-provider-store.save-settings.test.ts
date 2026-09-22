@@ -3,10 +3,10 @@
 // 缺失的 key 不得被默认值覆盖（否则如 setThinkingLevel 只传
 // aiThinkingLevel 时会把 enablePlayerAiQuickAction 冲成 false）。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let syncSetMock;
+let syncSetMock: Mock;
 
 async function loadModule() {
   const module = await import("../../extension/core/settings-store.js");

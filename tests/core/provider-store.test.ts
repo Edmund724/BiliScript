@@ -7,11 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { createProviderStore } from "../../extension/core/provider-store.js";
 
-let syncStorage;
-let localStorage;
+let syncStorage: Record<string, any>;
+let localStorage: Record<string, any>;
 
 // 工厂测试专用的最小归一化函数（不依赖 shared-defaults，验证工厂本身契约）
-function normalizeProvider(item) {
+function normalizeProvider(item: any) {
   if (!item || typeof item !== "object") return null;
   const id = String(item.id || "").trim();
   if (!id) return null;
@@ -40,8 +40,8 @@ beforeEach(() => {
       ...globalThis.chrome.storage,
       sync: {
         ...globalThis.chrome.storage.sync,
-        get: vi.fn(async (keys) => {
-          const out = {};
+        get: vi.fn(async (keys: unknown) => {
+          const out: Record<string, any> = {};
           const names = Array.isArray(keys) ? keys : [keys];
           for (const k of names) out[k] = syncStorage[k];
           return out;
@@ -50,8 +50,8 @@ beforeEach(() => {
       },
       local: {
         ...globalThis.chrome.storage.local,
-        get: vi.fn(async (keys) => {
-          const out = {};
+        get: vi.fn(async (keys: unknown) => {
+          const out: Record<string, any> = {};
           const names = Array.isArray(keys) ? keys : [keys];
           for (const k of names) out[k] = localStorage[k];
           return out;
@@ -62,7 +62,7 @@ beforeEach(() => {
   });
 });
 
-function provider(id, overrides = {}) {
+function provider(id: string, overrides: Record<string, unknown> = {}) {
   return { id, name: "P " + id, model: "m-" + id, ...overrides };
 }
 
@@ -126,8 +126,8 @@ describe("hasSavedKey 装饰", () => {
       provider("p2")
     ]);
     const list = await store.loadProviders();
-    expect(list.find((p) => p.id === "p1").hasSavedKey).toBe(true);
-    expect(list.find((p) => p.id === "p2").hasSavedKey).toBe(false);
+    expect(list.find((p) => p.id === "p1")!.hasSavedKey).toBe(true);
+    expect(list.find((p) => p.id === "p2")!.hasSavedKey).toBe(false);
     for (const item of list) {
       expect(item).not.toHaveProperty("apiKey");
     }

@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-async function loadProvidersFrom(storedList) {
+async function loadProvidersFrom(storedList: unknown) {
   const syncGetMock = vi.fn(async () => ({ aiProviders: storedList }));
   vi.stubGlobal("chrome", {
     ...globalThis.chrome,

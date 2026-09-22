@@ -14,7 +14,7 @@ import { applyPlayerAiQuickActionDefaultOnMigration } from "../../extension/entr
 // chrome.storage.sync：QUOTA_BYTES_PER_ITEM = 8192，键名与 JSON 序列化值均按
 // UTF-8 字节计入单键体积（prompt 默认文本含 CJK，码元计数会低估约 3 倍）。
 const SYNC_QUOTA_BYTES_PER_ITEM = 8192;
-const utf8Bytes = (text) => new TextEncoder().encode(text).length;
+const utf8Bytes = (text: string) => new TextEncoder().encode(text).length;
 
 describe("settings sync 单键 8KB 守卫", () => {
   it("initializeSettingsStorage 全量写回键面：每键序列化体积低于 sync 单键上限", () => {

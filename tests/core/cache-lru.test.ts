@@ -11,20 +11,21 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import type * as CacheLruModule from "../../extension/core/cache-lru.js";
 
-let mod;
-let storage;
+let mod: typeof CacheLruModule;
+let storage: ReturnType<typeof createMemoryStorage>;
 
 // 内存 Map 实现的 chrome.storage.local：get 需支持 null（全量枚举，供前缀扫描）。
 function createMemoryStorage() {
-  const map = new Map();
+  const map = new Map<string, unknown>();
   const local = {
-    get: vi.fn(async (keys) => {
+    get: vi.fn(async (keys: unknown): Promise<Record<string, unknown>> => {
       if (keys === null || keys === undefined) {
         return Object.fromEntries(map.entries());
       }
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out = {};
+      const want: string[] = Array.isArray(keys) ? keys : [keys];
+      const out: Record<string, unknown> = {};
       for (const k of want) {
         if (map.has(k)) {
           out[k] = map.get(k);
@@ -32,13 +33,13 @@ function createMemoryStorage() {
       }
       return out;
     }),
-    set: vi.fn(async (items) => {
+    set: vi.fn(async (items: Record<string, unknown>): Promise<void> => {
       for (const [key, value] of Object.entries(items)) {
         map.set(key, value);
       }
     }),
-    remove: vi.fn(async (keys) => {
-      const want = Array.isArray(keys) ? keys : [keys];
+    remove: vi.fn(async (keys: unknown): Promise<void> => {
+      const want: string[] = Array.isArray(keys) ? keys : [keys];
       for (const k of want) {
         map.delete(k);
       }
@@ -71,7 +72,7 @@ describe("readFamilyKeys：索引驱动取该族该 bvid 的缓存键（读端�
       "boc_lvs_raw_BV1a_1_b_2",
       "boc_lvs_raw_BV1a_9_z_9"
     ];
-    const items = {};
+    const items: Record<string, unknown> = {};
     for (const key of dataKeys) {
       items[`boc_cache_lru_index:boc_lvs_raw_:BV1a:${key}`] = { ts: 100 };
     }
@@ -164,11 +165,14 @@ describe("索引记录（分键索引 + 汇总清单）", () => {
 describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
   // 直写分键索引 + 清单（显式 ts 保证排名确定，绕过 writeWithEviction 以免种子
   // 写入提前触发淘汰）+ 每视频两条数据键（模拟 raw/summary 的多段、字幕缓存的平台+ASR 轨）。
-  async function seedFamily(family, bvids) {
+  async function seedFamily(family: string, bvids: [string, number][]) {
     const lruKey = "boc_cache_lru_index";
-    const currentManifest = (await storage.local.get(lruKey))[lruKey] || {};
-    const familyManifest = {};
-    const items = {};
+    const currentManifest = ((await storage.local.get(lruKey))[lruKey] || {}) as Record<
+      string,
+      Record<string, number>
+    >;
+    const familyManifest: Record<string, number> = {};
+    const items: Record<string, unknown> = {};
     for (const [bvid, ts] of bvids) {
       familyManifest[bvid] = ts;
       for (const suffix of ["1_a_1", "1_b_2"]) {
@@ -266,11 +270,14 @@ describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
 });
 
 // 直接以字面量分键索引 + 清单写索引与数据键（绕过 writeWithEviction 便于精确控制键面）。
-async function seedNewFormatIndex(family, entries) {
+async function seedNewFormatIndex(family: string, entries: [string, number, string[]][]) {
   const lruKey = "boc_cache_lru_index";
-  const currentManifest = (await storage.local.get(lruKey))[lruKey] || {};
-  const familyManifest = {};
-  const items = { [lruKey]: { ...currentManifest, [family]: familyManifest } };
+  const currentManifest = ((await storage.local.get(lruKey))[lruKey] || {}) as Record<
+    string,
+    Record<string, number>
+  >;
+  const familyManifest: Record<string, number> = {};
+  const items: Record<string, unknown> = { [lruKey]: { ...currentManifest, [family]: familyManifest } };
   for (const [bvid, ts, keys] of entries) {
     familyManifest[bvid] = ts;
     for (const key of keys) {
@@ -499,7 +506,10 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
     expect(storage.map.has("boc_lvs_raw_BV1old_1_a_1")).toBe(false);
     // write 未传 keys → BV1new 仅在清单记录 ts（无分键索引条目，readFamilyKeys
     // 会回退，故此处直读清单）
-    const manifest = (await storage.local.get("boc_cache_lru_index")).boc_cache_lru_index;
+    const manifest = (await storage.local.get("boc_cache_lru_index")).boc_cache_lru_index as Record<
+      string,
+      Record<string, number>
+    >;
     expect(manifest.boc_lvs_raw_.BV1new).toEqual(expect.any(Number));
   });
 
@@ -556,15 +566,19 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
     const result = await mod.writeWithEviction({ family: "boc_lvs_raw_", bvid: "BV1a", write });
 
     expect(result.ok).toBe(false);
-    expect(result.error).toBeInstanceOf(mod.CacheWriteError);
-    expect(result.error.name).toBe("CacheWriteError");
+    if (result.ok === false) {
+      expect(result.error).toBeInstanceOf(mod.CacheWriteError);
+      expect(result.error.name).toBe("CacheWriteError");
+    }
     expect(write).toHaveBeenCalledTimes(2); // 首次 + 淘汰后重试一次
   });
 
   it("write 非函数 → { ok:false }；keep 可自定义", async () => {
     const bad = await mod.writeWithEviction({ family: "boc_lvs_raw_", bvid: "BV1a" });
     expect(bad.ok).toBe(false);
-    expect(bad.error).toBeInstanceOf(mod.CacheWriteError);
+    if (bad.ok === false) {
+      expect(bad.error).toBeInstanceOf(mod.CacheWriteError);
+    }
 
     // 直写索引（旧格式条目）+ 数据键：BV1a 最旧，写入目标 BV1b
     await storage.local.set({
@@ -626,7 +640,7 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
 describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket）", () => {
   const RAW_KEY = "boc_lvs_raw_BV1a_1_s_1";
   const SUMMARY_KEY = "boc_lvs_summary_BV1a_1_s_1";
-  const bundleWrite = (write) =>
+  const bundleWrite = (write: () => Promise<void>) =>
     mod.writeBundleWithEviction(
       [
         { family: "boc_lvs_raw_", bvid: "BV1a", cacheKeys: [RAW_KEY] },
@@ -636,11 +650,11 @@ describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket�
     );
 
   it("两族索引与 manifest 打包成一次 set；数据写一次；两族索引可读回", async () => {
-    const setCalls = [];
+    const setCalls: string[][] = [];
     const origSet = storage.local.set.getMockImplementation();
     storage.local.set.mockImplementation(async (items) => {
       setCalls.push(Object.keys(items));
-      await origSet(items);
+      await origSet?.(items);
     });
     const write = vi.fn(async () => {
       await storage.local.set({ [RAW_KEY]: { segments: [], timestamp: 1 } });
@@ -665,7 +679,10 @@ describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket�
     expect(storage.map.has(SUMMARY_KEY)).toBe(true);
     expect(await mod.readFamilyKeys("boc_lvs_raw_", "BV1a")).toEqual([RAW_KEY]);
     expect(await mod.readFamilyKeys("boc_lvs_summary_", "BV1a")).toEqual([SUMMARY_KEY]);
-    const manifest = (await storage.local.get("boc_cache_lru_index")).boc_cache_lru_index;
+    const manifest = (await storage.local.get("boc_cache_lru_index")).boc_cache_lru_index as Record<
+      string,
+      Record<string, number>
+    >;
     expect(manifest.boc_lvs_raw_.BV1a).toEqual(expect.any(Number));
     expect(manifest.boc_lvs_summary_.BV1a).toEqual(expect.any(Number));
   });
@@ -719,17 +736,27 @@ describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket�
     const result = await bundleWrite(write);
 
     expect(result.ok).toBe(false);
-    expect(result.error).toBeInstanceOf(mod.CacheWriteError);
+    if (result.ok === false) {
+      expect(result.error).toBeInstanceOf(mod.CacheWriteError);
+    }
     expect(write).toHaveBeenCalledTimes(2);
   });
 
   it("entries 为空 / write 非函数 → { ok:false }，不触碰存储", async () => {
     const empty = await mod.writeBundleWithEviction([], async () => {});
     expect(empty.ok).toBe(false);
-    expect(empty.error).toBeInstanceOf(mod.CacheWriteError);
-    const bad = await mod.writeBundleWithEviction([{ family: "boc_lvs_raw_", bvid: "BV1a", cacheKeys: [] }]);
+    if (empty.ok === false) {
+      expect(empty.error).toBeInstanceOf(mod.CacheWriteError);
+    }
+    // write 非函数：运行时走 typeof 守卫返回 { ok:false }，类型层以断言表达「非函数」
+    const bad = await mod.writeBundleWithEviction(
+      [{ family: "boc_lvs_raw_", bvid: "BV1a", cacheKeys: [] }],
+      undefined as unknown as () => Promise<void>
+    );
     expect(bad.ok).toBe(false);
-    expect(bad.error).toBeInstanceOf(mod.CacheWriteError);
+    if (bad.ok === false) {
+      expect(bad.error).toBeInstanceOf(mod.CacheWriteError);
+    }
     expect(storage.local.set).not.toHaveBeenCalled();
   });
 

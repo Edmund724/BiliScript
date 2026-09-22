@@ -29,19 +29,19 @@ const SEARCH_PROVIDER = {
   enabled: true
 };
 
-function makeStub({ syncFixture = {}, localFixture = {} } = {}) {
+function makeStub({ syncFixture = {}, localFixture = {} }: { syncFixture?: Record<string, unknown>; localFixture?: Record<string, unknown> } = {}) {
   return {
     runtime: {
       lastError: null,
-      getURL: (path) => `chrome-extension://test/${path}`
+      getURL: (path: string) => `chrome-extension://test/${path}`
     },
     storage: {
       // get 的 keys 形状两种：数组（provider-store）与默认值对象
       // （getMergedSettings 传 DEFAULT_SETTINGS）——按请求键从 fixture 取值。
       sync: {
-        get: vi.fn(async (keys) => {
+        get: vi.fn(async (keys: unknown) => {
           const requested = Array.isArray(keys) ? keys : typeof keys === "object" && keys ? Object.keys(keys) : [keys];
-          const out = {};
+          const out: Record<string, unknown> = {};
           for (const key of requested) {
             if (key in syncFixture) out[key] = syncFixture[key];
           }
@@ -50,9 +50,9 @@ function makeStub({ syncFixture = {}, localFixture = {} } = {}) {
         set: vi.fn(async () => {})
       },
       local: {
-        get: vi.fn(async (keys) => {
+        get: vi.fn(async (keys: unknown) => {
           const requested = Array.isArray(keys) ? keys : [keys];
-          const out = {};
+          const out: Record<string, unknown> = {};
           for (const key of requested) {
             if (key in localFixture) out[key] = localFixture[key];
           }
@@ -199,7 +199,7 @@ describe("写后读失效：invalidate(存储键) 后重读拿新值", () => {
 describe("onChanged 兜底：跨上下文/跨设备变更按键域失效", () => {
   // 模块经 shared/watch-storage-keys 懒注册真实 onChanged 监听：捕获 stub 上的
   // addListener 回调直调（与生产触发路径一致，无绕过 API 的捷径）。
-  function fireOnChanged(changes, areaName) {
+  function fireOnChanged(changes: Record<string, chrome.storage.StorageChange>, areaName: string) {
     const listener = vi.mocked(chrome.storage.onChanged.addListener).mock.calls[0][0];
     listener(changes, areaName);
   }

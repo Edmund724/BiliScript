@@ -8,25 +8,28 @@
 // - content 侧 providerFetchViaBackground：出向载荷（url/method/headers/body）、
 //   ok:false 抛错（经 completion 包装成「无法连接：…」）、Response 合成。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let fetchMock;
-let sent;
-let responder;
+type ProxyResponse = { ok: boolean; status?: number; body?: string; error?: string };
+type ProxyResponder = (message: unknown) => ProxyResponse | undefined;
+
+let fetchMock: Mock;
+let sent: unknown[];
+let responder: ProxyResponder;
 
 async function loadModule() {
   return import("../../extension/core/provider-http.js");
 }
 
-function installProxyBus(next) {
+function installProxyBus(next?: ProxyResponder) {
   responder = next || (() => ({ ok: true, status: 200, body: "" }));
   sent = [];
-  chrome.runtime.sendMessage = vi.fn((message, callback) => {
+  chrome.runtime.sendMessage = vi.fn((message: unknown, callback?: (response?: unknown) => void) => {
     sent.push(message);
     callback?.(responder(message));
     return undefined;
-  });
+  }) as unknown as typeof chrome.runtime.sendMessage;
 }
 
 function stubChrome(overrides = {}) {

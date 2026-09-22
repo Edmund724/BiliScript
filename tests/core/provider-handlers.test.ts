@@ -10,19 +10,19 @@ import { resetModuleState } from "../setup.js";
 import { createProviderMessageHandlers, createAsrRuntimeConfigHandler } from "../../extension/core/provider-handlers.js";
 
 // 捕获（可能异步的）sendResponse：回包即 resolve，测试 await response 即可
-function makeChannel() {
-  let resolveResponse;
-  const response = new Promise((resolve) => {
-    resolveResponse = resolve;
+function makeChannel<T = unknown>() {
+  let resolveResponse: (payload: unknown) => void = () => {};
+  const response = new Promise<T>((resolve) => {
+    resolveResponse = resolve as (payload: unknown) => void;
   });
-  const sendResponse = vi.fn((payload) => resolveResponse(payload));
+  const sendResponse = vi.fn((payload: unknown) => resolveResponse(payload));
   return { sendResponse, response };
 }
 
 function makeDeps(overrides = {}) {
   return {
     loadProviders: vi.fn(async () => [{ id: "p1", name: "P1", hasSavedKey: true }]),
-    saveProviders: vi.fn(async (items) => items.map((p) => ({ ...p, hasSavedKey: false }))),
+    saveProviders: vi.fn(async (items: any[]) => items.map((p) => ({ ...p, hasSavedKey: false }))),
     deleteProvider: vi.fn(async () => [{ id: "p2", name: "P2", hasSavedKey: false }]),
     loadKeys: vi.fn(async () => ({ p1: "stored-key" })),
     ...overrides
@@ -242,7 +242,7 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
       getMergedSettings: vi.fn(async () => ({ defaultModel: "p2" }))
     });
     const handler = createAiResolvedProviderHandler(deps);
-    const { sendResponse, response } = makeChannel();
+    const { sendResponse, response } = makeChannel<{ provider: { id: string } }>();
 
     handler({}, {}, sendResponse);
     expect((await response).provider.id).toBe("p2");
@@ -251,7 +251,7 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
       getMergedSettings: vi.fn(async () => ({ defaultModel: "ghost" }))
     });
     const fallbackHandler = createAiResolvedProviderHandler(fallbackDeps);
-    const fallbackChannel = makeChannel();
+    const fallbackChannel = makeChannel<{ provider: { id: string } }>();
     fallbackHandler({}, {}, fallbackChannel.sendResponse);
     expect((await fallbackChannel.response).provider.id).toBe("p1");
   });
@@ -285,7 +285,7 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
       loadKeys: vi.fn(async () => ({}))
     });
     const handler = createAiResolvedProviderHandler(deps);
-    const { sendResponse, response } = makeChannel();
+    const { sendResponse, response } = makeChannel<{ ok: boolean; apiKey: string }>();
 
     handler({ providerId: "local" }, {}, sendResponse);
     const payload = await response;

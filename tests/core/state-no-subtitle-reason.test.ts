@@ -18,7 +18,7 @@ describe("clipState.noSubtitleReason", () => {
   });
 
   it("setter 回读：四类归一值均可写入", () => {
-    for (const reason of ["no-asr-config", "asr-disabled", "asr-failed", "asr-empty"]) {
+    for (const reason of ["no-asr-config", "asr-disabled", "asr-failed", "asr-empty"] as const) {
       clipState.setNoSubtitleReason(reason);
       expect(clipState.noSubtitleReason).toBe(reason);
     }

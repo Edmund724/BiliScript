@@ -4,7 +4,7 @@
 // - initializeSettingsStorage 落盘的是归一化后的值：存量 LEGACY 默认提示词与
 //   非法 aiThinkingLevel 在安装/更新时被一次性改写，而不是每次读取时再映射。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import {
@@ -19,8 +19,8 @@ import {
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2
 } from "../../extension/core/default-prompts.js";
 
-let syncGetMock;
-let syncSetMock;
+let syncGetMock: Mock;
+let syncSetMock: Mock;
 
 async function loadStoreModule() {
   return import("../../extension/core/settings-store.js");
@@ -83,7 +83,7 @@ describe("normalizeSettings 纯函数", () => {
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: true }).includePlayerEmbedInNote).toBe(true);
 
     // 键不在对象里（模拟存量存储合并前的原始 map）同样回落 true
-    const withoutKey = { ...DEFAULT_SETTINGS };
+    const withoutKey: Record<string, unknown> = { ...DEFAULT_SETTINGS };
     delete withoutKey.includePlayerEmbedInNote;
     expect(normalizeSettings(withoutKey).includePlayerEmbedInNote).toBe(true);
   });
@@ -180,7 +180,8 @@ describe("normalizeSettings 是唯一归一化路径", () => {
 describe("initializeSettingsStorage 安装/更新迁移", () => {
   it("onInstalled 落盘归一化后的设置：LEGACY 提示词改写为当前默认，非法 aiThinkingLevel 回落", async () => {
     await import("../../extension/entry/background.js");
-    const onInstalledListener = chrome.runtime.onInstalled.addListener.mock.calls[0][0];
+    const onInstalledListener = vi.mocked(chrome.runtime.onInstalled.addListener).mock
+      .calls[0][0] as unknown as () => unknown;
     syncGetMock.mockImplementation(async (defaults) => ({
       ...defaults,
       aiSystemPrompt: LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
@@ -202,7 +203,8 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
 
   it("存储中已是当前值的字段原样保留，不产生多余改写", async () => {
     await import("../../extension/entry/background.js");
-    const onInstalledListener = chrome.runtime.onInstalled.addListener.mock.calls[0][0];
+    const onInstalledListener = vi.mocked(chrome.runtime.onInstalled.addListener).mock
+      .calls[0][0] as unknown as () => unknown;
     syncGetMock.mockImplementation(async (defaults) => ({
       ...defaults,
       downloadFormat: "srt",
@@ -220,7 +222,8 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
   // 落盘的必须是当前默认文本，不能是空串/空数组。
   it("onInstalled 新装迁移：空占位 prompt 落盘为当前默认，不产生空串", async () => {
     await import("../../extension/entry/background.js");
-    const onInstalledListener = chrome.runtime.onInstalled.addListener.mock.calls[0][0];
+    const onInstalledListener = vi.mocked(chrome.runtime.onInstalled.addListener).mock
+      .calls[0][0] as unknown as () => unknown;
     syncGetMock.mockImplementation(async (defaults) => ({ ...defaults }));
 
     await onInstalledListener();

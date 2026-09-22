@@ -13,22 +13,33 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let sent;
-let responder;
+// provider-http 出向载荷（探针只发一次：url/method/headers/body）
+type ProxyRequest = {
+  type: string;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: string;
+};
+type ProxyResponse = { ok: boolean; status?: number; body?: string; error?: string };
+type ProxyResponder = (message: unknown) => ProxyResponse | undefined;
+
+let sent: ProxyRequest[];
+let responder: ProxyResponder;
 
 async function loadModule() {
   return import("../../extension/ai/provider-test.js");
 }
 
 // provider-http 消息总线：记录每次出向载荷，按 responder 回包（缺省 200 空体）。
-function installProxyBus(next) {
+function installProxyBus(next?: ProxyResponder) {
   responder = next || (() => ({ ok: true, status: 200, body: "" }));
   sent = [];
-  chrome.runtime.sendMessage = vi.fn((message, callback) => {
-    sent.push(message);
+  chrome.runtime.sendMessage = vi.fn((message: unknown, callback?: (response?: unknown) => void) => {
+    sent.push(message as ProxyRequest);
     callback?.(responder(message));
     return undefined;
-  });
+  }) as unknown as typeof chrome.runtime.sendMessage;
 }
 
 // 最近一次代发请求的载荷（探针只发一次：url/method/headers/body）
@@ -176,7 +187,7 @@ describe("probeAiChatCompletion { ok, error } 形状", () => {
 // ai-providers-test 处理器的输入装配（provider-handlers.js pickFlatTestProvider）：
 // 直输 Key 优先，否则按 providerId 从 chrome.storage.local 代查，都没有为空串。
 describe("testAiProviderConnection Key 代查", () => {
-  const storageGet = () => globalThis.chrome.storage.local.get;
+  const storageGet = () => vi.mocked(globalThis.chrome.storage.local.get);
 
   it("直输 Key 优先：已存 Key 不顶替直输值，Authorization 用重输值", async () => {
     storageGet().mockReset();
@@ -298,7 +309,7 @@ describe("testAiProviderConnection 的 host 权限预检", () => {
 // host/模型名识别，与 01 落地行为一致。
 describe("testAiProviderConnection presetId 穿线", () => {
   // 播种 chrome.storage.sync 的已存列表（loadProviders 读取 + normalize 的入口）
-  function stubProviderStorage(list) {
+  function stubProviderStorage(list: unknown[]) {
     stubChrome({
       permissions: { contains: vi.fn(async () => true) },
       storage: {
