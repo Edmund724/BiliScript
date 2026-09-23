@@ -3,8 +3,8 @@
 // （ai/completion.ts）与后续 UI 票（对话 offUnavailable 提示）都直接调用。
 //
 // 每个事实唯一主人：
-// - 平台 preset 列表 / baseUrl 数据唯一主人在 core/presets.ts，本模块只派生
-//   host 索引（不复制 baseUrl）；
+// - 平台 preset 列表 / baseUrl 数据唯一主人在 core/presets.ts，host 索引收口在
+//   core/preset-host-index.ts（不复制 baseUrl；与模型目录的 provider 识别共用）；
 // - 模型血统事实（永远/混合/永不思考）只活在 TAXONOMY / EXCEPTIONS；
 // - 参数逐格事实以矩阵报告为准：
 //   .scratch/reports/model-thinking-matrix-20260905.md（13 平台 × 5 问矩阵 +
@@ -27,7 +27,7 @@
 //   unknown 是显式哨兵（thinkingClass:"unknown"，非静默 false）：三档均不发
 //   （Q4C——软失败优于硬 400）。
 
-import { PRESETS } from "../core/presets.js";
+import { hostOf, presetIdForHost } from "../core/preset-host-index.js";
 
 // ===== 档位词表 =====
 // UI 三档按钮与全局档位键的取值域（唯一主人自本票起收口至此；
@@ -352,32 +352,6 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   }
 };
 
-// ===== host 索引：从 core/presets.ts 派生（baseUrl 数据不在此复制）=====
-// AI preset 之外：SiliconFlow 只有 ASR preset 登记同域名，custom 平台填其 baseUrl
-// 发 AI 请求时须经这条显式别名命中（PROVIDERS["siliconflow"]）。派生条目若在
-// PROVIDERS 无对应键则惰性无效（查到无规则 = 无 provider → 落 unknown）。
-const PRESET_HOST_INDEX = new Map<string, string>();
-
-function hostOf(baseUrl: string): string {
-  try {
-    return new URL(baseUrl).hostname.toLowerCase();
-  } catch {
-    // 无 scheme 的 baseUrl 进不了 fetch，同样进不了 host 索引
-    return "";
-  }
-}
-
-for (const preset of PRESETS) {
-  const host = hostOf(preset.baseUrl);
-  if (host) {
-    PRESET_HOST_INDEX.set(host, preset.id);
-  }
-}
-// 手工别名：SiliconFlow 只存在于 ASR preset（core/presets 的音频表），
-// AI preset 表没有它，但它是思考适配收录的平台（enable_thinking 系）——
-// 用户手填其 baseUrl 作 custom 平台时靠这条命中。表数据仍不复制 baseUrl。
-PRESET_HOST_INDEX.set("api.siliconflow.cn", "siliconflow");
-
 // ===== resolver =====
 
 export type ResolvedThinkingClass = ClassRule["thinkingClass"] | "unknown";
@@ -439,7 +413,7 @@ export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): 
   if (byId && PROVIDERS[byId]) {
     return byId;
   }
-  return PRESET_HOST_INDEX.get(hostOf(String(baseUrl || "")));
+  return presetIdForHost(hostOf(String(baseUrl || ""))) ?? undefined;
 }
 
 function resolveProvider(presetId?: string, baseUrl?: string): ProviderRule | undefined {

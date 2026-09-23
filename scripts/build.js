@@ -347,17 +347,22 @@ function assertBackgroundBundleSize() {
   }
 }
 
-// SW 协议栈脱钩守卫（protocol-vocab-leaf）：SW 静态图对协议栈的唯一值引用
-// 已拆到词表叶，adapters / thinking-profiles / sse-parser / protocol-adapter
-// 若再次出现在 background.js 的 map sources，说明某条新 import 把整条协议栈
-// 拖回了 SW——fail fast。
-const BACKGROUND_PROTOCOL_STACK_SOURCES = [
+// SW 静态图脱钩守卫（protocol-vocab-leaf + model-catalog/05 不变式 5）：
+//   - 协议栈：SW 对协议栈的唯一值引用已拆到词表叶，adapters / thinking-profiles /
+//     sse-parser / protocol-adapter 若再次出现在 background.js 的 map sources，
+//     说明某条新 import 把整条协议栈拖回了 SW；
+//   - 模型目录：pi-ai 目录产物（85KB 构建期数据）与它的域模块只服务设置 UI 的
+//     只读展示，只准经 ui/lazy-model-catalog.ts 动态 import。
+// 两类都 fail fast。
+const BACKGROUND_FORBIDDEN_STATIC_SOURCES = [
   /(^|\/)ai\/adapters\//,
   /(^|\/)ai\/thinking-profiles\.ts$/,
   /(^|\/)ai\/sse-parser\.ts$/,
   /(^|\/)ai\/protocol-adapter\.ts$/,
+  /(^|\/)ai\/catalog\/pi-ai-catalog\.generated\.ts$/,
+  /(^|\/)ai\/model-catalog\.ts$/,
 ];
-function assertBackgroundProtocolSlim() {
+function assertBackgroundStaticGraphSlim() {
   const mapPath = path.join(distDir, "entry", "background.js.map");
   const sources = sourcesFromMap(
     JSON.parse(fs.readFileSync(mapPath, "utf8")),
@@ -365,11 +370,11 @@ function assertBackgroundProtocolSlim() {
     extensionRoot
   );
   const leaked = sources.filter((source) =>
-    BACKGROUND_PROTOCOL_STACK_SOURCES.some((re) => re.test(source))
+    BACKGROUND_FORBIDDEN_STATIC_SOURCES.some((re) => re.test(source))
   );
   if (leaked.length > 0) {
     console.error(
-      "build.js: SW 静态图重新包含协议栈，词表叶拆分失效：\n" +
+      "build.js: SW 静态图包含禁止的模块（协议栈须留在词表叶后 / 模型目录只能懒加载）：\n" +
         leaked.map((source) => `  - ${source}`).join("\n")
     );
     process.exit(1);
@@ -555,7 +560,7 @@ async function main() {
   assertManifestReferences();
   assertHtmlReferences();
   assertBackgroundBundleSize();
-  assertBackgroundProtocolSlim();
+  assertBackgroundStaticGraphSlim();
   assertLadderChunkSlim(offscreenResult.metafile);
 
   // offscreen 拆分守卫：常驻文件必须仍含动态 import( 且至少产出一个动态

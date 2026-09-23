@@ -68,18 +68,25 @@ export interface AiProviderPreset {
   // 切协议时 baseUrl 未改过即跟随对应协议的端点。缺省回落 baseUrl（含同址
   // 多协议平台：Kimi Code、Opencode Go 无需登记）。
   protocolBaseUrls?: Partial<Record<AiProtocol, string>>;
+  // 模型目录归属（model-catalog/02）：本预设对应 @earendil-works/pi-ai 的
+  // provider 目录文件名。presetId 与上游文件名不是一套（zhipu/zai-coding-cn、
+  // mimo/xiaomi、openai_compat/openai…），且实测按 host 自动匹配会错配
+  // （zhipu 同域不同路径、mimo 曾用不解析的 api.mimo.ai），故逐平台显式登记；
+  // 查表时 presetId 命中即不再看 baseUrl（host 只兜底 custom/未知预设）。
+  // 没有登记 = 该预设永远没有目录数据（白名单见 ai/model-catalog.ts）。
+  piProvider?: string;
 }
 
 export const PRESETS: readonly AiProviderPreset[] = [
-  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", requiresKey: true },
-  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true, protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
+  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", requiresKey: true, piProvider: "openai" },
+  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true, piProvider: "deepseek", protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
   { id: "qwen",          name: "Qwen",        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://dashscope.aliyuncs.com/apps/anthropic" } },
-  { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },
-  { id: "moonshot",      name: "Kimi",        baseUrl: "https://api.kimi.com/coding/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.kimi.com/coding" } },
-  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.minimaxi.com/anthropic" } },
-  { id: "mimo",          name: "Mimo",        baseUrl: "https://api.xiaomimimo.com/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.xiaomimimo.com/anthropic" } },
-  { id: "opencodego",    name: "Opencode Go", baseUrl: "https://opencode.ai/zen/go/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://opencode.ai/zen/go" } },
-  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://openrouter.ai/api" } },
+  { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, piProvider: "zai-coding-cn", protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },
+  { id: "moonshot",      name: "Kimi",        baseUrl: "https://api.kimi.com/coding/v1", requiresKey: true, piProvider: "kimi-coding", protocolBaseUrls: { anthropic: "https://api.kimi.com/coding" } },
+  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true, piProvider: "minimax-cn", protocolBaseUrls: { anthropic: "https://api.minimaxi.com/anthropic" } },
+  { id: "mimo",          name: "Mimo",        baseUrl: "https://api.xiaomimimo.com/v1", requiresKey: true, piProvider: "xiaomi", protocolBaseUrls: { anthropic: "https://api.xiaomimimo.com/anthropic" } },
+  { id: "opencodego",    name: "Opencode Go", baseUrl: "https://opencode.ai/zen/go/v1", requiresKey: true, piProvider: "opencode-go", protocolBaseUrls: { anthropic: "https://opencode.ai/zen/go" } },
+  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true, piProvider: "openrouter", protocolBaseUrls: { anthropic: "https://openrouter.ai/api" } },
   { id: "stepfun",       name: "Stepfun",     baseUrl: "https://api.stepfun.com/step_plan/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.stepfun.com/step_plan" } },
   { id: "modelscope",    name: "ModelScope",  baseUrl: "https://api-inference.modelscope.cn/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api-inference.modelscope.cn" } },
   { id: "amd",           name: "AMD Radeon Cloud（免费）", baseUrl: "https://developer.amd.com.cn/radeon/api/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://developer.amd.com.cn/radeon/api" } },
@@ -87,6 +94,22 @@ export const PRESETS: readonly AiProviderPreset[] = [
   { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false },
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
+
+// 无数据白名单（model-catalog/02）：这些预设在上游 pi-ai 目录里没有对应 provider
+// 文件，模型元数据永远查不到，UI 静默降级（不显示占位）。与上面的 piProvider
+// 字段同源对账：每个预设恰好属于「登记了 piProvider」或「在本清单」之一——新增
+// 预设忘配即测试失败，而不是悄悄进白名单（tests/ai/model-catalog.test.ts）。
+// custom 虽然在白名单里，它的查表仍走 baseUrl host 兜底（ai/model-catalog.ts
+// 的 IDENTITYLESS_PRESETS：custom 的语义就是用户自填端点，presetId 不带身份）。
+export const NO_CATALOG_PRESETS = [
+  "qwen",
+  "stepfun",
+  "modelscope",
+  "amd",
+  "sensenova",
+  "ollama",
+  "custom"
+] as const;
 
 // ===== 联网搜索平台预设 =====
 // type 决定走哪个适配器（extension/search/adapters/），三家均为纯 HTTP：
