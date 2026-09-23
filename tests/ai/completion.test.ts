@@ -249,7 +249,7 @@ describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
     await chatCompletion({
       // baseUrl 指向 Mimo 官方域（host 推断 → enable_thinking 族）；presetId
       // 主路径生效则整体改按 ollama 规则——字段族切换是「谁赢」的可观测判据
-      provider: { baseUrl: "https://api.mimo.ai/v1", apiKey: "sk-1", model: "llama3.2", presetId: "ollama" },
+      provider: { baseUrl: "https://api.xiaomimimo.com/v1", apiKey: "sk-1", model: "llama3.2", presetId: "ollama" },
       messages: [{ role: "user", content: "hi" }],
       thinkingLevel: "off",
       fetchImpl: fetchMock

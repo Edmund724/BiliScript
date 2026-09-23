@@ -198,8 +198,8 @@ const PLATFORMS = [
     ]
   },
   {
-    name: "Mimo 小米（api.mimo.ai）",
-    baseUrl: "https://api.mimo.ai/v1",
+    name: "Mimo 小米（api.xiaomimimo.com）",
+    baseUrl: "https://api.xiaomimimo.com/v1",
     cases: [
       {
         kind: "混合开关（mimo-v2.5-pro / mimo-v2-flash）",
@@ -437,7 +437,7 @@ describe("golden：presetId 穿线（presetId 为主，host 表兜底）", () =>
     // baseUrl 指向 Mimo 官方域：host 推断本会落 mimo unknownClass（enable_thinking）；
     // presetId 主路径生效则整体改按 ollama 规则（reasoning_effort），字段族切换是
     // 「谁赢」的可观测判据
-    expect(bodyFor({ baseUrl: "https://api.mimo.ai/v1", presetId: "ollama", model: "llama3.2", level: "off" })).toEqual({
+    expect(bodyFor({ baseUrl: "https://api.xiaomimimo.com/v1", presetId: "ollama", model: "llama3.2", level: "off" })).toEqual({
       model: "llama3.2",
       messages: MESSAGES,
       stream: false,
@@ -460,7 +460,7 @@ describe("golden：presetId 穿线（presetId 为主，host 表兜底）", () =>
 
   it("custom + presetId='custom' → 回落 host 兜底：Mimo host 的 unknownClass 对未列模型生效", () => {
     // mimo-7b 不在模式表：host 查不到就落 unknown（不发），查到（兜底生效）则发
-    expect(bodyFor({ baseUrl: "https://api.mimo.ai/v1", presetId: "custom", model: "mimo-7b", level: "off" })).toEqual({
+    expect(bodyFor({ baseUrl: "https://api.xiaomimimo.com/v1", presetId: "custom", model: "mimo-7b", level: "off" })).toEqual({
       model: "mimo-7b",
       messages: MESSAGES,
       stream: false,

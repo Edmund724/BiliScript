@@ -77,7 +77,7 @@ export const PRESETS: readonly AiProviderPreset[] = [
   { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },
   { id: "moonshot",      name: "Kimi",        baseUrl: "https://api.kimi.com/coding/v1", requiresKey: true },
   { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.minimaxi.com/anthropic" } },
-  { id: "mimo",          name: "Mimo",        baseUrl: "https://api.mimo.ai/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.xiaomimimo.com/anthropic" } },
+  { id: "mimo",          name: "Mimo",        baseUrl: "https://api.xiaomimimo.com/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.xiaomimimo.com/anthropic" } },
   { id: "opencodego",    name: "Opencode Go", baseUrl: "https://opencode.ai/zen/go/v1", requiresKey: true },
   { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true },
   { id: "stepfun",       name: "Stepfun",     baseUrl: "https://api.stepfun.com/step_plan/v1", requiresKey: true },
