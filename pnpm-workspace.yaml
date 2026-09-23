@@ -1,2 +1,6 @@
 allowBuilds:
+  # pi-ai 的传递依赖（本轮只读它的 providers/data JSON，不跑其运行时），
+  # 其构建脚本一律不批。
+  '@google/genai': false
   esbuild: true
+  protobufjs: false

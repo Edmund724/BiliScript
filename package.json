@@ -17,6 +17,7 @@
     "dev": "node scripts/build.js --watch",
     "build:content": "node scripts/build-content.js",
     "build:release": "python3 scripts/build_release.py",
+    "catalog:sync": "node scripts/sync-pi-ai-catalog.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -38,6 +39,7 @@
   },
   "homepage": "https://github.com/Edmund724/Bilibili-Summary#readme",
   "devDependencies": {
+    "@earendil-works/pi-ai": "0.85.1",
     "@vitest/coverage-v8": "^4.1.11",
     "d3-selection": "3.0.0",
     "d3-shape": "3.2.0",
