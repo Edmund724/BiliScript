@@ -431,14 +431,20 @@ export function resolveThinkingProfile({ presetId, baseUrl, model, level, stream
 }
 
 // provider 识别：presetId 优先（02 穿线），host 推断兜底（本票对 custom/直填
-// baseUrl 的平台生效）。
-function resolveProvider(presetId?: string, baseUrl?: string): ProviderRule | undefined {
+// baseUrl 的平台生效）。识别结果以 id 形式另开一口给需要「是哪家平台」的消费方
+// ——目前只有 anthropic adapter 的平台专属思考词汇（stepfun / amd 的 Messages
+// 通道只认 output_config.effort）；开这口是为了不让那边复制一份识别规则。
+export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): string | undefined {
   const byId = String(presetId || "").trim();
   if (byId && PROVIDERS[byId]) {
-    return PROVIDERS[byId];
+    return byId;
   }
-  const hostPresetId = PRESET_HOST_INDEX.get(hostOf(String(baseUrl || "")));
-  return hostPresetId ? PROVIDERS[hostPresetId] : undefined;
+  return PRESET_HOST_INDEX.get(hostOf(String(baseUrl || "")));
+}
+
+function resolveProvider(presetId?: string, baseUrl?: string): ProviderRule | undefined {
+  const id = resolveThinkingProviderId(presetId, baseUrl);
+  return id ? PROVIDERS[id] : undefined;
 }
 
 function matchRuleClass(entries: readonly TaxonomyEntry[], model: string): string | undefined {

@@ -215,6 +215,97 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(body.thinking).toBeUndefined();
   });
+
+  // stepfun / amd 的 Messages 通道只认 output_config.effort：stepfun 官方字段表未列
+  // thinking；amd 带 budget_tokens 的 thinking 明确 400。
+  it("effort 词汇平台（stepfun）：发 output_config.effort，不发 thinking", () => {
+    const high = anthropicAdapter.buildBody({
+      ...base,
+      baseUrl: "https://api.stepfun.com/step_plan",
+      presetId: "stepfun",
+      thinkingLevel: "high",
+      model: "step-3.7-flash",
+      messages: []
+    });
+    expect(high.output_config).toEqual({ effort: "high" });
+    expect(high.thinking).toBeUndefined();
+
+    const low = anthropicAdapter.buildBody({
+      ...base,
+      baseUrl: "https://api.stepfun.com/step_plan",
+      presetId: "stepfun",
+      thinkingLevel: "low",
+      model: "step-3.7-flash",
+      messages: []
+    });
+    expect(low.output_config).toEqual({ effort: "low" });
+    expect(low.thinking).toBeUndefined();
+  });
+
+  it("effort 词汇平台（amd）：override 表的 reasoning_effort 原样作为 effort", () => {
+    const body = anthropicAdapter.buildBody({
+      ...base,
+      baseUrl: "https://developer.amd.com.cn/radeon/api",
+      presetId: "amd",
+      thinkingLevel: "high",
+      model: "DeepSeek-V4-Flash",
+      messages: []
+    });
+    expect(body.output_config).toEqual({ effort: "high" });
+    expect(body.thinking).toBeUndefined();
+  });
+
+  it("effort 词汇平台：off（reasoning_effort none）与探针一律不发 output_config", () => {
+    const off = anthropicAdapter.buildBody({
+      ...base,
+      baseUrl: "https://developer.amd.com.cn/radeon/api",
+      presetId: "amd",
+      thinkingLevel: "off",
+      model: "DeepSeek-V4-Flash",
+      messages: []
+    });
+    expect(off.output_config).toBeUndefined();
+    expect(off.thinking).toBeUndefined();
+
+    const probe = anthropicAdapter.buildBody({
+      ...base,
+      baseUrl: "https://api.stepfun.com/step_plan",
+      presetId: "stepfun",
+      probe: true,
+      maxTokens: 1,
+      thinkingLevel: "high",
+      model: "step-3.7-flash",
+      messages: []
+    });
+    expect(probe.output_config).toBeUndefined();
+    expect(probe.thinking).toBeUndefined();
+  });
+
+  it("custom 平台直填 stepfun 域（host 推断）同样走 effort 词汇", () => {
+    const body = anthropicAdapter.buildBody({
+      ...base,
+      baseUrl: "https://api.stepfun.com/step_plan",
+      presetId: "custom",
+      thinkingLevel: "high",
+      model: "step-3.7-flash",
+      messages: []
+    });
+    expect(body.output_config).toEqual({ effort: "high" });
+    expect(body.thinking).toBeUndefined();
+  });
+
+  it("非 effort 词汇平台（openrouter）维持 thinking + budget_tokens：其 schema 两者都收", () => {
+    const body = anthropicAdapter.buildBody({
+      ...base,
+      baseUrl: "https://openrouter.ai/api",
+      presetId: "openrouter",
+      thinkingLevel: "high",
+      model: "deepseek/deepseek-v4",
+      messages: []
+    });
+    expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 2048 });
+    expect(body.output_config).toBeUndefined();
+  });
 });
 
 describe("drainStream（SSE 事件映射，research §3）", () => {

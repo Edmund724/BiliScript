@@ -12,7 +12,7 @@
 // 另修正 prototype 的线形状错误：message_delta 的 stop_reason 在 delta 内。
 // 聚合形状与 openai adapter 同型（DrainResult），编排层零改动。
 import { makeAbortedError } from "../../shared/error-helpers.js";
-import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
+import { normalizeThinkingLevel, resolveThinkingProfile, resolveThinkingProviderId } from "../thinking-profiles.js";
 import { parseToolArgs } from "./openai.js";
 import type { ChatRequest, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall } from "../types.js";
@@ -27,6 +27,17 @@ const DEFAULT_BUDGET_TOKENS = 2048;
 // 思考档位改写：chat 形状字段 → Anthropic thinking 形状（research 限制点 11）。
 // thinking-profiles 表本身不改（OpenAI 词汇），改写发生在此；关思考的三种词汇
 // 殊途同归——Anthropic 默认即关，一律不发字段。
+//
+// Anthropic 家族的思考开关有两套词汇：老式 thinking:{type,budget_tokens}（原生各家）
+// 与新式 output_config.effort。以下平台的 Messages 通道只认后者：
+// - stepfun：官方请求字段表列 output_config.effort、未列 thinking
+//   （platform.stepfun.com/docs/zh/api-reference/chat/messages-create）。
+// - amd：带 budget_tokens 的 thinking 明确 400（"thinking" is not supported for
+//   this model），官方指引用 output_config.effort
+//   （amd-aim.github.io/radeon-cloud-docs/zh-cn/api/messages/）。
+// effort 取矩阵已算好的 reasoning_effort（同域词表），不自造映射。
+const EFFORT_VOCAB_PRESETS = new Set(["stepfun", "amd"]);
+
 function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest): void {
   // 探针不发 thinking：探针 maxTokens=1，而 budget_tokens ≥1024 且必须 < max_tokens，
   // 任何 thinking 字段都会把探针打成 400（探针语义 = 测连通，成功判定 response.ok）。
@@ -45,6 +56,15 @@ function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest
     fields.enable_thinking === false ||
     (fields.thinking as { type?: unknown } | undefined)?.type === "disabled";
   if (off) return;
+  // 只认 effort 词汇的平台：矩阵给的就是 reasoning_effort，原样作为 effort 发出；
+  // 若矩阵给的是别的开关词汇（无 reasoning_effort）则不发——软失败优于硬 400。
+  if (EFFORT_VOCAB_PRESETS.has(resolveThinkingProviderId(request.presetId, request.baseUrl) ?? "")) {
+    const effort = fields.reasoning_effort;
+    if (typeof effort === "string" && effort !== "none") {
+      body.output_config = { effort };
+    }
+    return;
+  }
   // 开思考：{ type: "enabled", budget_tokens }；budget 夹在 [1024, max_tokens) 内，
   // 放不下（调用方 maxTokens 过小）则不发——软失败优于硬 400。
   const maxTokens = (body.max_tokens as number) ?? DEFAULT_MAX_TOKENS;
