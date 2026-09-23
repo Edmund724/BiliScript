@@ -14,7 +14,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { getDialog, readField, resolvePreset, state } from "./provider-editor-state.js";
-import { addModelRow, readModelIds, showCatalogError } from "./provider-editor-catalog.js";
+import { addModelRow, readModelIds, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
 
 // ===== 「获取可用模型」勾选弹窗（拍板 Q5/Q11）：搜索 / 全选 / 已添加置灰 =====
 
@@ -87,15 +87,19 @@ export function renderFetchItems(filter: string): void {
     ? visible.map((m) => {
         const added = existing.has(m);
         return `
-          <li class="provider-editor-fetch-item">
+          <li class="provider-editor-fetch-item" data-model-id="${escapeHtml(m)}">
             <label class="provider-editor-fetch-item-label">
               <input type="checkbox" class="provider-editor-fetch-check" value="${escapeHtml(m)}" ${added ? "disabled" : ""} />
               <span class="provider-editor-fetch-name">${escapeHtml(m)}</span>
             </label>
+            <span class="provider-editor-fetch-meta" data-model-meta hidden></span>
             ${added ? '<span class="provider-editor-fetch-added">已添加</span>' : ""}
           </li>`;
       }).join("")
     : `<li class="provider-editor-fetch-message">无匹配模型</li>`;
+  // 元数据栏（model-catalog/04）：查得到才渲染；目录模块尚未加载完时留空，
+  // 加载完成由 primeModelCatalogMeta 补一次（不重渲列表，不丢勾选态）
+  refreshModelCatalogMeta();
   syncFetchSelectionState();
 }
 

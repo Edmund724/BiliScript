@@ -320,6 +320,30 @@
   min-width: 0;
 }
 
+/* 只读模型元数据（model-catalog/04）：上下文窗口 + 能力徽标，查不到整栏 hidden
+ * 不占位（目录行与「获取可用模型」勾选项共用 [data-model-meta] 标记） */
+#boc-reading-view [data-model-meta] {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--boc-reader-faint);
+  white-space: nowrap;
+}
+
+#boc-reading-view [data-model-meta][hidden] {
+  display: none;
+}
+
+#boc-reading-view .provider-editor-model-badge {
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--boc-reader-surface-3);
+  font-size: 12px;
+}
+
 /* 行级测试反馈（Q12）：spinner → ✓/✕，失败原因在 title 悬停查看 */
 #boc-reading-view .provider-editor-model-result {
   flex: 0 0 auto;
@@ -632,6 +656,12 @@
   flex: 0 0 auto;
   font-size: 13px;
   color: var(--boc-reader-faint);
+}
+
+/* 勾选项的元数据栏（model-catalog/04）：与目录行同一套短格式，窄屏先挤名字
+ * （名有 ellipsis），元数据恒 nowrap 不换行 */
+#boc-reading-view .provider-editor-fetch-item [data-model-meta] {
+  font-size: 12px;
 }
 
 #boc-reading-view .provider-editor-fetch-message {

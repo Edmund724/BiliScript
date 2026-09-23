@@ -36,7 +36,9 @@ import {
 import {
   addModelRow,
   modelRowHtml,
+  primeModelCatalogMeta,
   readModelIds,
+  refreshModelCatalogMeta,
   removeModelRow,
   runModelTest
 } from "./provider-editor-catalog.js";
@@ -626,6 +628,8 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
     // Key 必填随预设挂摘（requiresKey 与已存 Key 态同占位符口径）
     syncApiKeyRequired(next);
     clearStatus();
+    // 元数据跟着平台身份走（presetId 变了、baseUrl 可能被联动改掉）
+    refreshModelCatalogMeta();
     presetSelect.dataset.previousPresetId = next.id;
   });
   if (presetSelect) {
@@ -662,6 +666,8 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
       }
       protocolSelect.dataset.previousProtocol = protocolSelect.value;
       syncProtocolNotes(protocolSelect.value);
+      // 切协议可能联动改 baseUrl（protocolBaseUrls 端点），元数据跟着重算
+      refreshModelCatalogMeta();
     });
   }
 
@@ -674,6 +680,13 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
       }
     });
   });
+
+  // 只读模型元数据（model-catalog/04）：改 API 地址（custom/未知预设的身份来源）
+  // 或改模型 ID 都要重算；目录行是动态增删的，用委托收 input
+  baseUrlInput?.addEventListener("input", () => refreshModelCatalogMeta());
+  dialog
+    .querySelector<HTMLElement>(".provider-editor-model-list")
+    ?.addEventListener("input", () => refreshModelCatalogMeta());
 
   // 可达性桥（accessible-error-announcement）：:user-invalid（视觉态）与
   // aria-invalid（程序态）同拍——浏览器判定进入/退出 :user-invalid 的时刻
@@ -737,6 +750,11 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是
   // 关掉一切，confirm 无意义。自治监听 hidden 属性变化，零跨模块状态。
   observeSettingsPanelHidden(() => closeProviderEditor(true), state);
+  // 只读模型元数据（model-catalog/04）：只有 AI Modal 用得上，打开后才动态 import
+  // 目录 chunk（85KB），首屏不为它买单；加载完补齐已渲染的目录行与拉取弹窗
+  if (options.kind === "ai") {
+    void primeModelCatalogMeta();
+  }
 }
 
 export function isProviderEditorOpen(): boolean {

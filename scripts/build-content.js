@@ -82,6 +82,10 @@ const lazyTargets = [
   { name: "pipeline", source: "asr/pipeline.ts" },
   { name: "fallback", source: "asr/fallback.ts" },
   { name: "analysis", source: "ai/analysis.ts" },
+  // 模型目录元数据（model-catalog/04，ui/lazy-model-catalog 的动态 import 落点）：
+  // 85KB 构建期数据 + 它的域模块，只在设置 Modal 打开时加载；列为懒加载目标后，
+  // 轮 A 若被静态 import 进常驻图会直接命中「静态引用 chunks/」守卫。
+  { name: "model-catalog", source: "ai/model-catalog.ts" },
   // mermaid 图表渲染（ui/lazy-mermaid 的动态 import 落点）：运行时只支持已保留的
   // 图表类型，精简入口独立成懒 chunk；各类型继续按 import() 分包，只有真出现
   // 某类图表时才加载对应的二级 chunk。
