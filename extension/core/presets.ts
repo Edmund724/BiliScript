@@ -60,8 +60,8 @@ export interface AiProviderPreset {
   baseUrl: string;
   requiresKey: boolean;
   // 协议默认归属（multi-protocol-ai）：选中预设时编辑 Modal 协议下拉的联动默认值。
-  // 缺省即 openai——15 个预设现状全部 OpenAI compatible，逐平台多协议归属在
-  // 实测后逐个显式填写（preset-protocol-audit）。
+  // 缺省即 openai；逐平台多协议归属实测后逐个显式填写（preset-protocol-audit），
+  // 目前显式填写的只有 DeepSeek（官方 Anthropic 端点）。
   protocol?: AiProtocol;
   // 个别协议的差异化端点（multi-protocol-ai）：协议与默认端点不同域/路径时
   // 显式登记（preset-protocol-audit「Anthropic 兼容 Base URL」表）；编辑 Modal
@@ -72,7 +72,7 @@ export interface AiProviderPreset {
 
 export const PRESETS: readonly AiProviderPreset[] = [
   { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", requiresKey: true },
-  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
+  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true, protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
   { id: "qwen",          name: "Qwen",        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://dashscope.aliyuncs.com/apps/anthropic" } },
   { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },
   { id: "moonshot",      name: "Kimi",        baseUrl: "https://api.kimi.com/coding/v1", requiresKey: true },

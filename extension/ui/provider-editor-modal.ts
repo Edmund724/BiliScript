@@ -360,8 +360,15 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const presetId = String(item?.presetId || (options.kind === "search" ? presets[0]?.id || "custom" : "custom"));
   const preset = resolvePreset(presets, presetId, options.kind);
   const hasSavedKey = Boolean(item?.hasSavedKey);
-  const baseUrl = String(item?.baseUrl ?? preset?.baseUrl ?? "");
   const isAi = options.kind === "ai";
+  // 协议下拉：编辑按记录值（存量缺字段/未知值显示「OpenAI」，无提示，事实即
+  // 如此——不得跟随预设默认漂移，运行时 resolveAdapter 也是 openai）；新增才
+  // 回落预设默认归属。限制点小字仅 capabilities.unsupported 非空时露出
+  //（拍板 05-ui-protocol-selector）。
+  const protocol = normalizeProtocolValue(item ? item.protocol : presetProtocol(preset));
+  // 无存量 baseUrl 时按协议取预设端点（DeepSeek 预设默认 Anthropic，新建即填
+  // /anthropic；其余预设未登记 protocolBaseUrls，回落 preset.baseUrl）
+  const baseUrl = String(item?.baseUrl ?? (isAi ? presetBaseUrlForProtocol(preset, protocol) : preset?.baseUrl) ?? "");
   const isSearch = options.kind === "search";
   // AI 名称是拍板 Q7 新增的可选项：历史数据 name=预设名，值留空 + 占位符展示
   // 预设名（保存时空值回落预设名）；用户自定义过（≠预设名）才回填实值。
@@ -373,10 +380,6 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
   const models = isAi && Array.isArray(item?.models) ? item.models.map(String) : [];
   const model = isAi ? "" : String(item?.model ?? preset?.model ?? "");
-  // 协议下拉：编辑按记录值（存量缺字段/未知值显示「OpenAI」，无提示，
-  // 事实即如此）；新增回落预设默认归属（现状全 openai）。限制点小字仅
-  // capabilities.unsupported 非空时露出（拍板 05-ui-protocol-selector）。
-  const protocol = normalizeProtocolValue(item?.protocol ?? presetProtocol(preset));
   const notes = isAi ? protocolNotes(protocol) : "";
 
   return `
@@ -581,10 +584,24 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
     if (!next) return;
     const previous = resolvePreset(options.presets, presetSelect.dataset.previousPresetId || "", options.kind);
     const currentBaseUrl = baseUrlInput?.value.trim() || "";
-    if (baseUrlInput && (!currentBaseUrl || (previous && currentBaseUrl === previous.baseUrl))) {
-      baseUrlInput.value = next.baseUrl;
-    }
     if (options.kind === "ai") {
+      // 协议先联动（拍板 05-ui-protocol-selector）：当前值仍是上一预设默认值
+      //（或空）才跟随新预设；用户改过的选择不覆盖。随后 baseUrl 按「上一预设 +
+      // 当时协议」的端点判是否未改过——两处联动共用一条判据，否则 DeepSeek 这类
+      // 默认 Anthropic 的预设会把 /v1 当成用户手改值。
+      if (protocolSelect) {
+        const currentProtocol = protocolSelect.value;
+        if (!currentProtocol || currentProtocol === presetProtocol(previous)) {
+          protocolSelect.value = presetProtocol(next);
+        }
+        protocolSelect.dataset.previousProtocol = protocolSelect.value;
+        syncProtocolNotes(protocolSelect.value);
+      }
+      const currentProtocol = normalizeProtocolValue(protocolSelect?.value ?? presetProtocol(next));
+      const previousBaseUrl = previous ? presetBaseUrlForProtocol(previous, currentProtocol) : "";
+      if (baseUrlInput && (!currentBaseUrl || currentBaseUrl === previousBaseUrl)) {
+        baseUrlInput.value = presetBaseUrlForProtocol(next, currentProtocol);
+      }
       const currentName = nameInput?.value.trim() || "";
       if (nameInput && (!currentName || (previous && currentName === previous.name))) {
         nameInput.value = "";
@@ -593,19 +610,10 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
       if (apikeyInput) {
         apikeyInput.placeholder = apiKeyPlaceholder("ai", next, state.hasSavedKey);
       }
-      // 协议联动默认归属、允许用户改（拍板 05-ui-protocol-selector）：当前值
-      // 仍是上一预设默认值（或空）才跟随新预设；用户改过的选择不覆盖。
-      // 随协议刷新底部限制点小字。
-      if (protocolSelect) {
-        const currentProtocol = protocolSelect.value;
-        if (!currentProtocol || currentProtocol === presetProtocol(previous)) {
-          protocolSelect.value = presetProtocol(next);
-        }
-        // 联动改了下拉值：同步协议基线，随后的手动切协议以上一发实际值为准
-        protocolSelect.dataset.previousProtocol = protocolSelect.value;
-        syncProtocolNotes(protocolSelect.value);
-      }
     } else {
+      if (baseUrlInput && (!currentBaseUrl || (previous && currentBaseUrl === previous.baseUrl))) {
+        baseUrlInput.value = next.baseUrl;
+      }
       // ASR 名称/模型无条件跟随、Key 清空（平铺行同款）；搜索平台同款语义，
       // 只是无模型字段可跟
       if (options.kind === "asr") {

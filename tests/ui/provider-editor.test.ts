@@ -479,6 +479,51 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
   });
 
 
+  it("内置 DeepSeek 预设默认 Anthropic：新增选该预设即填 /anthropic，切回 openai 联动 /v1", async () => {
+    // 总线 ai-presets-list 返回失败 → settings-panel 回落内置 PRESETS（core/presets）
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
+    const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
+    const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
+
+    presetSelect.value = "deepseek";
+    presetSelect.dispatchEvent(new Event("change"));
+    expect(protocolSelect.value).toBe("anthropic");
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/anthropic");
+
+    protocolSelect.value = "openai";
+    protocolSelect.dispatchEvent(new Event("change"));
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
+  });
+
+
+  it("编辑 DeepSeek 记录（protocol=anthropic，baseUrl /anthropic）→ 切回 openai 联动 /v1（该预设协议端点）", async () => {
+    const presets = [
+      { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", requiresKey: true, protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
+      { id: "custom", name: "自定义", baseUrl: "", requiresKey: true }
+    ];
+    const aiItem = { id: "p1", presetId: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/anthropic", models: ["deepseek-v4-pro"], requiresKey: true, enabled: true, hasSavedKey: true, protocol: "anthropic" };
+    const { host } = await mountPanel({
+      "ai-presets-list": () => ({ ok: true, presets }),
+      "ai-providers-list": () => ({ ok: true, providers: [aiItem] })
+    });
+
+    const row = host.querySelector<HTMLElement>("#aiProvidersList .ai-provider-row")!;
+    const { dialog } = await openEditor(host, row.querySelector(".provider-row-edit")!);
+
+    const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
+    const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
+    expect(protocolSelect.value).toBe("anthropic");
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/anthropic");
+
+    protocolSelect.value = "openai";
+    protocolSelect.dispatchEvent(new Event("change"));
+    expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
+  });
+
+
   it("切协议即脏：取消先弹 dirty 确认弹层", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
