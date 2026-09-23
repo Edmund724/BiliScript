@@ -194,7 +194,7 @@ export const CLASSES: Record<string, ClassRule> = {
     on: { fields: { thinking: { type: "enabled" } } }
   },
 
-  // --- StepFun（platform.stepfun.ai step_plan reasoning API）---
+  // --- StepFun（platform.stepfun.com step_plan reasoning API）---
   // 例外表成员 step-3.7：永远思考 + effort 三档（/think off 客户端语义即映射 low 档）。
   "step37-effort": {
     thinkingClass: "always",
@@ -282,7 +282,7 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
   { class: "doubao-hybrid-switch", patterns: ["doubao-seed"] },
   // OpenAI gpt-5 血统：effort 档位；5.1/5.2 的 off=none 在例外表（developers.openai.com）
   { class: "openai-reasoning", patterns: ["gpt-5"] },
-  // StepFun：3.7 先于 step-3 前缀（platform.stepfun.ai）
+  // StepFun：3.7 先于 step-3 前缀（platform.stepfun.com）
   { class: "step37-effort", patterns: ["step-3.7"] },
   { class: "step-always", patterns: ["step-3"] },
   // Mimo v2 系：混合开关（aliyun.com）
@@ -316,7 +316,7 @@ export const PROVIDERS: Record<string, ProviderRule> = {
       }
     }
   },
-  stepfun: {}, // step_plan 订阅端点（platform.stepfun.ai），模型族已覆盖 taxonomy
+  stepfun: {}, // step_plan 订阅端点（platform.stepfun.com），模型族已覆盖 taxonomy
   modelscope: { unknownClass: "qwen-hybrid-switch" }, // 托管模型用原生 enable_thinking（modelscope.cn）
   ollama: { unknownClass: "ollama-effort" },
   siliconflow: { unknownClass: "siliconflow-switch" },
