@@ -43,8 +43,9 @@ import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 import { ensureReaderDomain } from "../reader/lazy-reader.js";
 import { ensureReaderShell } from "../reader/lazy-shell.js";
 import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/state.js";
-// 候选03 常驻瘦身：renderReadingStatus 已惰性化。
-import { renderReadingStatus } from "../reader/lazy-reader-presentation.js";
+// 候选03 常驻瘦身：renderReadingStatus 已惰性化。错误路径的浮空播报走
+// announceReadingStatus（吞错口径见 lazy-reader-presentation 内注）。
+import { announceReadingStatus, renderReadingStatus } from "../reader/lazy-reader-presentation.js";
 // 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
 
@@ -245,14 +246,6 @@ export function dispatchContentScriptMessage(rawMessage: unknown, sendResponse: 
 // 一致，唯 UI 壳改为条件装载（普通页 SPA 换片不建壳，见 handleUrlChange 内注）。
 let urlChangeHandlerBound = false;
 
-// 状态栏写入是尽力而为：renderReadingStatus 落在懒加载的呈现层（候选03），装载
-// 失败或节点缺失都会以拒绝收场。等待落地的地方用 await + try/catch（下方「检测
-// 到视频变化」那处）；错误路径里的浮空播报统一经本包装吞错——浮空调用不接
-// catch 就是未处理拒绝（测试拆除 DOM 后仍在飞的进入/刷新链会命中）。
-function writeReadingStatus(text: string): void {
-  void renderReadingStatus(text).catch(() => {});
-}
-
 export function bindUrlChangeHandler() {
   if (urlChangeHandlerBound) {
     return;
@@ -330,12 +323,12 @@ export function bindUrlChangeHandler() {
             readerUrl: nextUrl,
             announce: () => renderReadingStatus("检测到阅读视图跳转，正在打开阅读模式..."),
             onEnterFailed: (error) => {
-              writeReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+              announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
             }
           });
         } catch (error) {
           logWarn("[BOC] reading shell load failed", error);
-          writeReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+          announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
         }
       })();
       return;
@@ -362,13 +355,13 @@ export function bindUrlChangeHandler() {
               await chain.refreshClip();
             } catch (error) {
               if (!isStaleRunError(error)) {
-                writeReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
+                announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
               }
             }
           })();
         } catch (error) {
           if (!isStaleRunError(error)) {
-            writeReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
+            announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
           }
         }
       })();

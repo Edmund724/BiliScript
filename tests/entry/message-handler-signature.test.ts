@@ -43,7 +43,9 @@ vi.mock("../../extension/ui/lazy-ui.js", () => ({
   ensureUiReady: vi.fn(async () => {})
 }));
 vi.mock("../../extension/reader/lazy-reader-presentation.js", () => ({
-  renderReadingStatus: vi.fn(async () => {})
+  renderReadingStatus: vi.fn(async () => {}),
+  // 错误路径的浮空播报包装（真实实现吞错，mock 同为空实现）
+  announceReadingStatus: vi.fn()
 }));
 vi.mock("../../extension/ai/player-ai.js", () => ({
   removePlayerAiQuickActionButton: vi.fn(),

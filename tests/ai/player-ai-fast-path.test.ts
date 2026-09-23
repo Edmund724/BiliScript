@@ -25,7 +25,9 @@ vi.mock("../../extension/ui/lazy-ui.js", () => ({
 vi.mock("../../extension/reader/lazy-reader-presentation.js", () => ({
   hydrateReaderStateFromSettings: vi.fn(() => new Promise(() => {})),
   applyReadingViewPresentation: vi.fn(() => new Promise(() => {})),
-  renderReadingStatus: vi.fn(() => new Promise(() => {}))
+  renderReadingStatus: vi.fn(() => new Promise(() => {})),
+  // 浮空播报包装（吞错口径）：mock 同为空实现
+  announceReadingStatus: vi.fn()
 }));
 
 import { ensureUiReady } from "../../extension/ui/lazy-ui.js";

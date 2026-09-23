@@ -35,3 +35,10 @@ export async function renderReadingStatus(text: string | number | null | undefin
   const mod = await loader.load();
   mod.renderReadingStatus(text);
 }
+
+// 尽力而为的状态栏播报：呈现层是懒加载的，装载失败或节点缺失都会让
+// renderReadingStatus 以拒绝收场。需要落地顺序的调用方 await 它并自行 try/catch；
+// 纯播报（错误路径、浮空链）用本包装——浮空调用不接 catch 就是未处理拒绝。
+export function announceReadingStatus(text: string | number | null | undefined): void {
+  void renderReadingStatus(text).catch(() => {});
+}

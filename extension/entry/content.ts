@@ -35,7 +35,7 @@ import { clearReaderModePageState, bindNormalPageStateGuard } from "../reader/st
 import {
   hydrateReaderStateFromSettings,
   applyReadingViewPresentation,
-  renderReadingStatus
+  announceReadingStatus
 } from "../reader/lazy-reader-presentation.js";
 import { ensureReaderDomain } from "../reader/lazy-reader.js";
 
@@ -217,7 +217,7 @@ function init(): void {
           const reader = await ensureReaderDomain();
           await reader.enterReaderMode();
         } catch (error) {
-          renderReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+          announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
         }
       }
       // 两分支（阅读直达 / 非阅读模式）的 digest 工具栏按钮装载已上移到
