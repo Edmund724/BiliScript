@@ -22,7 +22,7 @@
 // 需重新 import 本模块取新鲜实例；单纪元内复用时请在 beforeEach 手动重置字段。
 
 import { DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_PRESET_PROMPTS } from "../core/default-prompts.js";
-import type { AiContext } from "../ai/types.js";
+import type { AiContext, ImagePart } from "../ai/types.js";
 
 // 上下文快照 = ContextFetch 全量 payload 的落地形态（core/context-assembly
 // 装配链组出）。结构上与 AI 域的 AiContext 同形（含 subtitleBody /
@@ -65,6 +65,8 @@ export interface CurrentConversationMeta {
 export interface ChatSessionMessage {
   role: string;
   content: string;
+  // 图片输入（image-input 路线 B）：与 ai/types 的 ChatMessage.images 同形。
+  images?: ImagePart[];
   tool_calls?: unknown;
   tool_call_id?: string;
 }

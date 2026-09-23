@@ -308,6 +308,55 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 });
 
+describe("images 线格式（image-input 路线 B：content 翻译）", () => {
+  const base = { model: "claude-x", stream: false, probe: false, baseUrl: "https://api.anthropic.com" };
+  const IMAGE = { mime: "image/webp", data: "QUJD" };
+
+  it("无图消息：请求体逐字节不变（images 是纯本地字段，不上线）", () => {
+    const body = anthropicAdapter.buildBody({
+      ...base,
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "yo" }
+      ]
+    });
+    expect(JSON.stringify(body)).toBe(
+      '{"model":"claude-x","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}],"stream":false,"max_tokens":4096}'
+    );
+  });
+
+  it("images: []（空数组）与缺省同形：content 保持字符串", () => {
+    const body = anthropicAdapter.buildBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
+    expect(JSON.stringify(body)).toBe(
+      '{"model":"claude-x","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":4096}'
+    );
+  });
+
+  it("带图消息：text 块 + image 块（base64 源，media_type 取消息 mime）", () => {
+    const body = anthropicAdapter.buildBody({
+      ...base,
+      messages: [{ role: "user", content: "这张图里是什么", images: [IMAGE, { mime: "image/png", data: "REVG" }] }]
+    });
+    expect(body.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "这张图里是什么" },
+          { type: "image", source: { type: "base64", media_type: "image/webp", data: "QUJD" } },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "REVG" } }
+        ]
+      }
+    ]);
+  });
+
+  it("纯图消息（正文空）：只发 image 块，不发空 text 块（空 text 块会 400）", () => {
+    const body = anthropicAdapter.buildBody({ ...base, messages: [{ role: "user", content: "", images: [IMAGE] }] });
+    expect(body.messages).toEqual([
+      { role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/webp", data: "QUJD" } }] }
+    ]);
+  });
+});
+
 describe("drainStream（SSE 事件映射，research §3）", () => {
   it("全事件会话：text/thinking 增量、tool_use 聚合、stop_reason、未知事件宽容", async () => {
     const chunks = [

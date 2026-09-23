@@ -49,6 +49,10 @@ import { isReaderTranscribing } from "./transcribe-banner.js";
 // 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
+// 图片附件区内核（image-input 02 号票）：粘贴 → 压缩 → 缩略图 + 单个删除。
+import { createChatInputImages } from "../chat/chat-input-images.js";
+// 发图门控（image-input 05 号票）：带图发送受理时按目录乐观放行（提示不阻断）。
+import { createImageSupportGate } from "../chat/image-support.js";
 import { createReaderChatModelPanel } from "./chat-model-panel.js";
 import { createReaderChatPopovers } from "./chat-popovers.js";
 // 壳命令通道（arch-review-2026-09/10 依赖反转）：快捷动作定位对话 tab 与空态
@@ -197,6 +201,23 @@ export const {
   removeSuggestions,
   isMessagesNearBottom
 } = feedback;
+// 图片附件区（image-input 02 号票）：粘贴 → 压缩（03 号票规格）→ 缩略图 + 单个
+// 删除；拒绝提示走消息区通知条（与上下文提示同一出口，自动隐藏）。流式闸含
+// 「在途发送」（hasPendingUserPrompt）——发送流程从受理到落定的窗口里也不收新图。
+// 消费点两处：chat-runtime 发送受理（deps.takeInputImages）与 restartChat 清场。
+export const inputImages = createChatInputImages({
+  strip: els.imageStrip,
+  isStreaming: () => chatRuntime.isStreaming() || chatRuntime.hasPendingUserPrompt(),
+  onReject: (message) => showConversationContextNotice(message, 4000)
+});
+// 发图门控（image-input 05 号票）：带图消息被发送受理时查一次模型目录，目录明确
+// 登记不收图才提示（乐观放行，不阻断发送）；目录查不到静默放过，交给平台 400 兜底。
+// 提示走消息区通知条（与附件区拒绝提示同一出口）。目录模块只经动态 import 装载，
+// 不进 content 静态图。
+export const imageSupportGate = createImageSupportGate({
+  getSelectedModelValue: () => els.modelSelect.value,
+  notify: (message) => showConversationContextNotice(message, 4000)
+});
 // 对话域内核链单一深入口（arch-review-2026-09/08）：pinned 补水解析器 +
 // conversation-store + context-load（含内联 createInProcessContextFetch）+
 // chat-runtime 在 ../chat/tab-domain.ts 组装——实例级硬边顺序 pinnedResolver →
@@ -270,6 +291,14 @@ export const { runtime: chatRuntime, store: conversationStore, contextLoad } = c
   // 选中模型 id（multi-model-catalog）：随 chat 消息下发，offscreen 覆盖平台
   // 目录首项；复合值编码见 chat/providers.ts 的 MODEL_OPTION_SEPARATOR。
   getSelectedModel: () => parseModelOptionValue(els.modelSelect.value).model,
+  // 图片附件（image-input 02 号票）：发送受理时消费附件区（读取并清空），随本条
+  // chat 消息的 images 字段下发。发图门控（05 号票）挂在这一步：受理点才是「图在
+  // 手 + 模型已定」的唯一时刻（被前置闸拦下的发送不会提示）。
+  takeInputImages: () => {
+    const images = inputImages.takeImages();
+    imageSupportGate.check(images);
+    return images;
+  },
   getTimestampNavDeps,
   normalizeMarkdownForSectionPaste,
   // 发送前 ensure offscreen 文档再连端口：文档死亡后自愈重建（ensure 失败
@@ -816,5 +845,7 @@ export function restartChat({ keepContext = false }: { keepContext?: boolean } =
   resetConversationView("");
   setStreamingUiState(false);
   els.input.value = "";
+  // 附件随输入框一起清场（新会话/上下文切换后不带着上一轮的图片）。
+  inputImages.clear();
   autosizeInput();
 }

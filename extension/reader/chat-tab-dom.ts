@@ -33,6 +33,8 @@ export const els = {
   historyClearBtn: document.getElementById(ids.readingChatHistoryClearBtn) as HTMLButtonElement | null,
   messages: document.getElementById(ids.readingChatMessages) as HTMLElement,
   input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
+  // 图片附件区（image-input 02 号票，模板默认 hidden）
+  imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
   sendBtn: document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement,
   asrNotice: document.getElementById(ids.readingChatAsrNotice) as HTMLElement | null,
   intentCard: document.getElementById(ids.readingChatIntent) as HTMLElement | null

@@ -13,9 +13,18 @@ export interface ChatToolCall {
   function: { name: string; arguments: string };
 }
 
+// 图片输入（image-input 路线 B）：content 保持 string，图片并列挂在 images 上。
+// data 为 base64 原文（不含 `data:` 前缀），前缀/字段名随协议由各 adapter 组装。
+export interface ImagePart {
+  mime: string;
+  data: string;
+}
+
 export interface ChatMessage {
   role: ChatMessageRole;
   content: string;
+  // 带图消息才有的字段（无图消息不带，请求体形状逐字节不变）。
+  images?: ImagePart[];
   // 仅 assistant(tool_calls) / tool 消息使用；无 tools 的普通消息不带字段。
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;

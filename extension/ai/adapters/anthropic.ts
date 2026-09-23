@@ -87,6 +87,9 @@ function extractSystem(messages: ChatMessage[]): { system: string | undefined; r
 // - assistant 带 tool_calls → content 块数组：text 块 + 每 call 一个 tool_use 块
 //   （arguments JSON.parse 失败兜底 { query: 原文 }，对齐 parseToolArgs 宽容风格，
 //   限制点 4）。
+// - 带 images 的消息（image-input 路线 B）→ content 块数组：text 块 + image 块
+//   （base64 源）；无图消息维持原字符串 content（线形状逐字节不变）。图片只可能
+//   来自用户粘贴，故 assistant(tool_calls) 轮不合并图片（仍是 text + tool_use 块）。
 // - role:"tool" 消息 → 合并进 user 消息的 tool_result 块（连续多条合并进同一条）；
 //   前置条件：须紧跟对应 assistant(tool_use) 消息，孤立 tool 消息由平台 400 兜底
 //   （调用方消息序列由编排层保证，限制点 3）。
@@ -114,6 +117,15 @@ function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
       } else {
         out.push({ role: "user", content: [resultBlock] });
       }
+    } else if (message.images?.length) {
+      // 图片输入（image-input 路线 B）：text 块 + 每张图一个 image 块（base64 源，
+      // media_type 取消息自带 mime）。text 块仅在正文非空时发出——空 text 块会 400。
+      const blocks: unknown[] = [];
+      if (message.content) blocks.push({ type: "text", text: message.content });
+      for (const image of message.images) {
+        blocks.push({ type: "image", source: { type: "base64", media_type: image.mime, data: image.data } });
+      }
+      out.push({ role: message.role, content: blocks });
     } else {
       out.push({ role: message.role, content: message.content });
     }

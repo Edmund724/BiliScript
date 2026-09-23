@@ -75,7 +75,7 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 | Health info | No | No | Not required. | No |
 | Financial info | No | No | Not required. | No |
 | Authentication info | Yes, user-provided API keys | Yes, to the provider selected by the user | Authenticate the user's chosen AI, speech-recognition, or search provider. | Only with that selected provider |
-| Personal communications | Yes, AI conversation text when the user uses chat | Yes, to the selected AI provider | Answer questions about the current video. | Only with that selected provider |
+| Personal communications | Yes, AI conversation text and images the user pastes into chat | Yes, to the selected AI provider | Answer questions about the current video. | Only with that selected provider |
 | Location | No | No | Not required. | No |
 | Web history | No | No | The extension reads only the active supported Bilibili video and the watch-later page. | No |
 | User activity | Yes | Yes, when a user requests AI analysis or speech recognition | Store notes and settings, and provide requested analysis or speech recognition. | Only with the selected AI or speech-recognition provider |

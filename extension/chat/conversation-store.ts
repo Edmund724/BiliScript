@@ -38,6 +38,8 @@ import {
   buildConversationTitle,
   generateConversationId,
   normalizeConversations,
+  normalizeImageParts,
+  retainLatestImage,
   resolveConversationStorageKey,
   normalizeConversationTitle,
   doesConversationMatchCurrentContext,
@@ -66,9 +68,14 @@ export interface Conversation {
 }
 
 // 历史消息压平的单点（加载/持久化两处共用）：{ role, content } 基础形状上
-// 条件透传联网搜索的 tool 字段（spec §2.5，tool 轮消息从历史重建）。
+// 条件透传联网搜索的 tool 字段（spec §2.5，tool 轮消息从历史重建）与图片字段
+//（image-input 路线 B；合法性判定复用 ai/conversation 的同一份）。
 function normalizeHistoryMessage(item: ChatSessionMessage): ChatSessionMessage {
-  const base = { role: item.role, content: String(item.content || "") };
+  const base: ChatSessionMessage = { role: item.role, content: String(item.content || "") };
+  const images = normalizeImageParts(item.images);
+  if (images) {
+    base.images = images;
+  }
   if (Array.isArray(item.tool_calls) && item.tool_calls.length) {
     return { ...base, tool_calls: item.tool_calls };
   }
@@ -523,7 +530,10 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       createdAt: Number(meta?.createdAt) || now,
       updatedAt: now,
       contextRef: meta?.contextRef || buildAiContextRef(context),
-      messages: chat.map((item) => normalizeHistoryMessage(item))
+      // 落盘前的图片保留策略（04 号票）：整条历史只留最近一张图，其余摘掉
+      //（占位由请求组装期的 ai/context 现拼，不写进 content——否则历史消息
+      // 在界面上会多出一句占位文本）。
+      messages: retainLatestImage(chat.map((item) => normalizeHistoryMessage(item)))
     };
     const filtered = saved().filter((item) => item.id !== currentId);
     commitSaved([nextConversation, ...filtered].slice(0, maxSavedConversations));

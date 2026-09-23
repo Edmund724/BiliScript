@@ -8,7 +8,7 @@
 import { parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
-import type { ChatToolCall } from "../types.js";
+import type { ChatMessage, ChatToolCall } from "../types.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 
 // OpenAI 兼容协议 chat 路径。
@@ -29,11 +29,21 @@ interface BuildChatRequestBodyInput {
   tools?: ChatToolDefinition[];
 }
 
+// 带图消息的线格式（image-input 路线 B）：content 从字符串翻成 text / image_url
+// 块数组；无图消息保持字符串，线形状与改动前逐字节一致。
+type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+interface WireMessage extends Omit<ChatMessage, "content" | "images"> {
+  content: string | ChatContentPart[];
+}
+
 // type 而非 interface：对象字面量类型可隐式赋给 Record<string, unknown>
 //（adapter.buildBody 的返回签名），interface 无此隐式索引签名。
 type ChatRequestBody = {
   model: string;
-  messages: ChatRequest["messages"];
+  messages: WireMessage[];
   stream: boolean;
   reasoning_effort?: string;
   max_tokens?: number;
@@ -42,6 +52,22 @@ type ChatRequestBody = {
   enable_thinking?: boolean;
   tools?: ChatToolDefinition[];
   tool_choice?: "auto";
+}
+
+// 消息翻译（image-input 路线 B）：带 images 的消息把 content 翻成 content parts
+//（text 块 + 每张图一个 image_url 块，url 为 data:<mime>;base64,<b64>）；text 块
+// 仅在正文非空时发出——空 text 块部分兼容端点会 400。无图消息的线形状与改动前
+// 逐字节一致（images 字段不上线，是个纯本地字段）。
+function toWireMessages(messages: ChatMessage[]): WireMessage[] {
+  return messages.map(({ images, ...message }) => {
+    if (!images?.length) return message;
+    const parts: ChatContentPart[] = [];
+    if (message.content) parts.push({ type: "text", text: message.content });
+    for (const image of images) {
+      parts.push({ type: "image_url", image_url: { url: `data:${image.mime};base64,${image.data}` } });
+    }
+    return { ...message, content: parts };
+  });
 }
 
 /**
@@ -53,9 +79,11 @@ type ChatRequestBody = {
  * offUnavailable / thinkingClass（03 对话提示）本函数不消费；tokenParam（04
  * token 参数映射）在 maxTokens 写入时消费：openai-reasoning 系写
  * max_completion_tokens，其余类与 unknown 维持 max_tokens 现状。
+ * messages 经 toWireMessages 翻译：带图消息的 content → text/image_url 块数组，
+ * 无图消息原字段原值透传。
  */
 export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools }: BuildChatRequestBodyInput): ChatRequestBody {
-  const body: ChatRequestBody = { model, messages, stream };
+  const body: ChatRequestBody = { model, messages: toWireMessages(messages), stream };
   if (tools && tools.length) {
     body.tools = tools;
     body.tool_choice = "auto";

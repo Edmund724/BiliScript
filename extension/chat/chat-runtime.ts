@@ -9,11 +9,12 @@
 //
 // Responsibility: orchestrate "send message → stream receive → render assistant
 // tokens → stop/error handling". It owns the stream runtime state
-// (activePort / activeAssistantNode / activeUserPrompt / thinkingNode /
-// streamSlowNoticeTimer / streamFirstTokenReceived) and the port protocol
-// dispatch, delegates persistence (conversation-store, injected via deps), and
-// hands DOM rendering / scrolling / hydration to ./chat-stream-render.js
-// (consumed below by destructuring createChatStreamRenderer(deps)).
+// (activePort / activeAssistantNode / activeUserPrompt / activeUserImages /
+// thinkingNode / streamSlowNoticeTimer / streamFirstTokenReceived) and the port
+// protocol dispatch, delegates persistence (conversation-store, injected via
+// deps), and hands DOM rendering / scrolling / hydration to
+// ./chat-stream-render.js (consumed below by destructuring
+// createChatStreamRenderer(deps)).
 //
 // 候选07：offscreen port 消息协议（reasoning/token/stream-reset/done/stopped/
 // error/notice/cost-guard）统一经 dispatchChatPortMessage 分派——真实 port
@@ -42,6 +43,7 @@
 // harness without a DOM shim.
 
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
+import type { ImagePart } from "../ai/types.js";
 // 成本护栏缺省确认通道：面板内弹层（ui/confirm-dialog.js）——原生 confirm
 // 绘制在浏览器窗口正中央，面板停靠右侧时可能落在可视区外。
 import { confirmDialog } from "../ui/confirm-dialog.js";
@@ -52,6 +54,8 @@ import { chatSessionState, type ChatSessionMessage } from "./chat-state.js";
 // 全视图（监听/断连半边），protocol 的 ChatPort 是生产侧 postMessage 窄视图。
 import type { ChatPortMessage } from "./protocol.js";
 import { createChatStreamRenderer } from "./chat-stream-render.js";
+// 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
+import { imageUnsupportedErrorHint } from "./image-support.js";
 
 const STREAM_SLOW_NOTICE_MS = 15000;
 
@@ -107,6 +111,10 @@ export interface CreateChatRuntimeDeps {
   // port 消息下发，offscreen 以它覆盖解析平台的目录首项。可选——未注入的
   // 旧组合根（测试）不发该字段，offscreen 回落平台目录首项。
   getSelectedModel?: () => string;
+  // 图片输入（image-input 路线 B）：发送受理时消费附件区（读取并清空缩略图），随
+  // 本条 chat 消息的 images 字段下发。未注入（旧组合根/测试）时不带该字段——
+  // 无图消息的线格式逐字节不变。
+  takeInputImages?: () => ImagePart[];
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -195,6 +203,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   let activePort: ChatPort | null = null;
   let activeAssistantNode: HTMLDivElement | null = null;
   let activeUserPrompt = "";
+  // 本代际用户消息的图片（image-input 04 号票）：发送受理时随 activeUserPrompt
+  // 一起捕获，done/stopped 写回时挂在那条 user 消息上——图片从此进历史，
+  // 追问/落盘才看得到（收口与 activeUserPrompt 同步清空，不串进下一条消息）。
+  let activeUserImages: ImagePart[] = [];
   // 联网搜索的 tool 轮持久化副本（spec §2.5）：tool-turn 事件到达时缓存，
   // done/stopped 写回时按 user → tool 消息 → assistant 顺序插入 chatHistory，
   // 收口时清空（终态后不串入下一条消息）。
@@ -397,11 +409,19 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.removeCenteredState();
       deps.ui.removeSuggestions();
 
+      // 图片输入（image-input 路线 B）：闸都过了（发送确已受理）才消费附件区——
+      // 被 provider/上下文/无字幕拦下的发送不清空用户的图片。读取与清空同一次
+      // 调用（takeInputImages = 附件区的读+清，见 reader/chat-tab-core 的接线）。
+      const images = deps.takeInputImages?.() ?? [];
+
       appendUserMessage(text);
       deps.input.value = "";
       deps.ui.autosizeInput();
       setStreamingUiState(true);
       activeUserPrompt = text;
+      // 本代际图片随 prompt 一起记下（04 号票：写回 chatHistory 时挂在那条 user
+      // 消息上，历史重发/落盘才有图可谈）。
+      activeUserImages = images;
       pendingToolMessages = [];
       activeConversationId = chatSessionState.currentConversationId;
       activeAssistantNode = appendAssistantPlaceholder();
@@ -457,6 +477,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         context,
         contextKey,
         prompt: text,
+        // 图片输入（image-input 路线 B）：本轮用户消息的图片（content 侧已压缩成
+        // WebP 的 ImagePart，经 port 结构化克隆到 offscreen 进请求体）；无图片时
+        // 不带该字段——无图消息的线格式逐字节不变。
+        ...(images.length ? { images } : {}),
         // 历史只走顶层 history（offscreen/ai 侧统一读 msg.history）；
         // 不再向 context 里塞 chatHistory 副本（无任何读取方的死负载）。
         history: chatSessionState.chatHistory
@@ -534,6 +558,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     // 消息从真实高度突变回估算占位高（视口上跳）；摘除挪到下一次发送上屏时
     //（appendAssistantPlaceholder），高度重估算被强制滚底掩盖。
     activeUserPrompt = "";
+    activeUserImages = [];
     if (activePort) {
       try { activePort.disconnect(); } catch {}
       activePort = null;
@@ -548,9 +573,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // chatHistory、不持久化（防会话复活 / 串话），DOM 仍由 renderStep 更新。
   // 联网搜索（spec §2.5）：tool 轮消息（assistant(tool_calls) + tool 结果）
   // 按 user → tool 消息 → assistant 顺序插入，重开会话后可从历史重建。
+  // 图片（image-input 04 号票）：本代际的图片挂在那条 user 消息上（无图不带
+  // 字段——无图历史逐字节不变），「最近一条用户消息的图」由此进历史。
   function commitAssistantTurn(raw: string): void {
     if (activeUserPrompt && raw && deps.store.isCurrent(activeConversationId)) {
-      chatSessionState.chatHistory.push({ role: "user", content: activeUserPrompt });
+      chatSessionState.chatHistory.push({
+        role: "user",
+        content: activeUserPrompt,
+        ...(activeUserImages.length ? { images: activeUserImages } : {})
+      });
       chatSessionState.chatHistory.push(...pendingToolMessages);
       chatSessionState.chatHistory.push({ role: "assistant", content: raw });
       void deps.store.persistCurrent();
@@ -575,7 +606,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     });
   }
 
-  // error：错误占位（不渲染正文、不写回、不持久化）
+  // error：错误占位（不渲染正文、不写回、不持久化）。图片输入（05 号票）：本轮带图
+  // 且平台回 400、而平台 detail 没给图片线索时，在错误文案后缀一句可操作提示——
+  // 判定与文案在 chat/image-support.js（activeUserImages 此处仍是本代际的图，
+  // endStream 的 renderStep 之后才清空）。
   function showAssistantError(node: HTMLDivElement | null, error: unknown): void {
     if (!node) {
       return;
@@ -584,7 +618,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       n.innerHTML = "";
       const err = document.createElement("div");
       err.className = "chat-msg-error";
-      err.textContent = `错误：${error}`;
+      err.textContent = `错误：${error}${imageUnsupportedErrorHint(error, activeUserImages)}`;
       n.appendChild(err);
     });
   }
@@ -703,6 +737,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     }
     activeAssistantNode = null;
     activeUserPrompt = "";
+    activeUserImages = [];
     thinkingNode = null;
     thinkingEnded = false;
     // 复位在途发送标志：resetStreamState 可能在 connectPort await 窗口内被调

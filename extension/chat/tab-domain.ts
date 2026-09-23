@@ -23,8 +23,9 @@
 //   - 状态 getter：clip / settings（进程内装配链两条路的运行时输入，与
 //     core/context-assembly 的注入口径一致）；
 //   - runtime 传输/AI 回调：ensureCurrentContextForSend / getProviderId /
-//     getSelectedModel（multi-model-catalog 起，可选）/ getTimestampNavDeps /
-//     normalizeMarkdownForSectionPaste / connectPort
+//     getSelectedModel（multi-model-catalog 起，可选）/ takeInputImages
+//     （image-input 02 号票起，可选：发送受理时消费图片附件区）/
+//     getTimestampNavDeps / normalizeMarkdownForSectionPaste / connectPort
 //    （闭包连着组合根的页面级状态与 DOM，留在 chat-tab）。
 //
 // 门面 re-exports：组合根仍需的 chat 域零散出口（chatSessionState、
@@ -32,6 +33,7 @@
 // presets/providers 工厂）统一自本模块转出——chat-tab 的 chat 域 import 面
 // 收敛为本模块一处（工单 08 验收：10 → 1）。
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
+import type { ImagePart } from "../ai/types.js";
 import type { ClipState } from "../core/state.js";
 import type { Settings } from "../core/defaults.js";
 import {
@@ -92,6 +94,9 @@ export interface CreateChatTabDomainDeps {
   getProviderId: () => string;
   // 选中模型 id（multi-model-catalog，可选）：chat-runtime 透传进 chat 消息
   getSelectedModel?: () => string;
+  // 图片附件（image-input 02 号票，可选）：发送受理时消费附件区，随 chat 消息的
+  // images 字段下发（组合根接 reader/chat-tab-core 的 inputImages.takeImages）。
+  takeInputImages?: () => ImagePart[];
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   connectPort: () => Promise<ChatPort> | ChatPort;
@@ -160,6 +165,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     ensureCurrentContextForSend: deps.ensureCurrentContextForSend,
     getProviderId: deps.getProviderId,
     getSelectedModel: deps.getSelectedModel,
+    takeInputImages: deps.takeInputImages,
     getTimestampNavDeps: deps.getTimestampNavDeps,
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort

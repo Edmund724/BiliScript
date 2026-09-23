@@ -86,6 +86,9 @@ export function buildChatTabBodyHtml(): string {
           <!-- 发送卡片：上方输入区 + 下方控件行（+ / 模型 chip / 发送键），整体一个
                圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">
+            <!-- 图片附件区（image-input 02 号票）：粘贴（Ctrl+V）的图片缩略图 +
+                 单个删除键；无附件时 hidden。内容由 chat/chat-input-images.ts 渲染。 -->
+            <div id="${ids.readingChatImageStrip}" class="chat-image-strip" hidden></div>
             <textarea
               id="${ids.readingChatInput}"
               rows="2"

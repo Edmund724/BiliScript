@@ -177,6 +177,55 @@ describe("buildBody（请求映射，research §1/§3）", () => {
   });
 });
 
+describe("images 线格式（image-input 路线 B：input_image 项）", () => {
+  const base = { model: "m", stream: false, probe: false, baseUrl: "https://api.example.com/v1" };
+  const IMAGE = { mime: "image/webp", data: "QUJD" };
+
+  it("无图消息：请求体逐字节不变（images 是纯本地字段，不上线）", () => {
+    const body = responsesAdapter.buildBody({
+      ...base,
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "yo" }
+      ]
+    });
+    expect(JSON.stringify(body)).toBe(
+      '{"model":"m","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]},{"role":"assistant","content":[{"type":"output_text","text":"yo"}]}],"stream":false,"store":false}'
+    );
+  });
+
+  it("images: []（空数组）与缺省同形：content 只有 input_text 项", () => {
+    const body = responsesAdapter.buildBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
+    expect(JSON.stringify(body)).toBe(
+      '{"model":"m","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}],"stream":false,"store":false}'
+    );
+  });
+
+  it("带图消息：user 的 content 追加 input_image 项（image_url 为 data: 前缀串）", () => {
+    const body = responsesAdapter.buildBody({
+      ...base,
+      messages: [{ role: "user", content: "这张图里是什么", images: [IMAGE, { mime: "image/png", data: "REVG" }] }]
+    });
+    expect(body.input).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: "这张图里是什么" },
+          { type: "input_image", image_url: "data:image/webp;base64,QUJD" },
+          { type: "input_image", image_url: "data:image/png;base64,REVG" }
+        ]
+      }
+    ]);
+  });
+
+  it("纯图消息（正文空）：只发 input_image 项，不发空 input_text 项", () => {
+    const body = responsesAdapter.buildBody({ ...base, messages: [{ role: "user", content: "", images: [IMAGE] }] });
+    expect(body.input).toEqual([
+      { role: "user", content: [{ type: "input_image", image_url: "data:image/webp;base64,QUJD" }] }
+    ]);
+  });
+});
+
 describe("drainStream（SSE 事件映射，research §2）", () => {
   it("全事件会话：delta 顶层字符串、reasoning/refusal、function_call 聚合、completed 收口、未知事件宽容", async () => {
     const chunks = [

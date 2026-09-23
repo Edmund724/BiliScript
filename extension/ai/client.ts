@@ -10,7 +10,7 @@ import { buildBudgetPlan, estimateTokens, MATERIAL_BUDGET_CHARS } from "./budget
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
 import { chatCompletion, makeOverflowError, validateProviderBasics } from "./completion.js";
 import { runToolLoop, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
-import type { AiContext, AiProvider, StreamChatEvent } from "./types.js";
+import type { AiContext, AiProvider, ImagePart, StreamChatEvent } from "./types.js";
 // 出向 port 协议单源（ticket 08）：port 回吐点经 ChatPortMessage 联合标注，
 // 裸 postMessage 字面量获得编译期约束（事件名 typo / 形状漂移编译被拒）。
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
@@ -73,6 +73,9 @@ interface StreamChatInput {
   context?: AiContext | null;
   userPrompt?: string;
   history?: unknown[];
+  // 图片输入（image-input 路线 B）：本轮用户消息的图片（宿主粘贴 → content 侧
+  // 压缩后的 WebP base64），透传给 buildMessages 挂在末条 user 消息上。
+  userImages?: ImagePart[];
   port: ChatPort;
   signal?: AbortSignal | null;
   onActivity?: () => void;
@@ -95,7 +98,7 @@ interface StreamChatInput {
  * - 仅 context-length 溢出（含预算内超限）以带 .overflow 标记的错误上抛，
  *   供 ladder「catch 查标记」分流（单次转 Map-Reduce / 追问报错）。
  */
-export async function streamChat({ provider, context, userPrompt, history, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
+export async function streamChat({ provider, context, userPrompt, history, userImages, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
   if (!port) return;
 
   // 基础校验单点下沉 completion（arch-slim-3/09）：port 适配层 catch 后转回吐，
@@ -122,6 +125,8 @@ export async function streamChat({ provider, context, userPrompt, history, port,
     context,
     userPrompt,
     history,
+    // 图片输入（image-input 路线 B）：挂在本轮 user 消息上（无图时不带字段）。
+    images: userImages,
     systemPrompt: context?.aiSystemPrompt,
     // 联网轮保留历史中的 assistant(tool_calls)/tool 消息（OpenAI 协议合法）；
     // 无 tools 轮整体丢弃（部分平台对无 tools 请求里的 tool 消息报 4xx）。

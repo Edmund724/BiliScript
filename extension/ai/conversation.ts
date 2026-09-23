@@ -3,7 +3,7 @@
 // 作为经典脚本加载，不依赖任何外部状态或 Chrome API。
 
 import { extractBvid, extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
-import type { AiContext, ChapterItem, HotComment } from "./types.js";
+import type { AiContext, ChapterItem, HotComment, ImagePart } from "./types.js";
 
 export const MAX_SAVED_CONVERSATIONS = 60;
 
@@ -52,8 +52,55 @@ function normalizeContextUrlForKey(value: unknown): string {
 interface ConversationMessage {
   role: string;
   content: string;
+  images?: ImagePart[];
   tool_calls?: unknown[];
   tool_call_id?: string;
+}
+
+// 图片白名单透传（image-input 路线 B，04 号票落盘策略）：数组非空且每项 mime/data
+// 均为非空字符串才保留，非法项丢弃（同 tool_calls 的宽容归一）；全被丢弃或字段
+// 缺失时返回 undefined——旧持久化记录零变化。conversation-store 加载侧复用同一
+// 判定，避免「什么算合法图片」出现第二份。
+export function normalizeImageParts(value: unknown): ImagePart[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parts = value.filter((item): item is ImagePart => {
+    const part = item as { mime?: unknown; data?: unknown };
+    return Boolean(part) && typeof part.mime === "string" && Boolean(part.mime) && typeof part.data === "string" && Boolean(part.data);
+  });
+  return parts.length ? parts : undefined;
+}
+
+// 落盘保留策略（image-input 04 号票）：一个会话最多留最近一张图——最后一条带图
+// 消息的最后一张，其余图片整条摘掉，最坏体积被压到每会话 ≤1MB。
+// 这里**不写文本占位**：占位是请求组装期的事（ai/context 的 buildMessages），
+// 写进 content 会让历史消息在界面上显示出占位文本。
+// 非保留位一律摘掉 images 字段（含非法项 / 空数组）：与加载侧的白名单同向——
+// 落盘记录里的 images 要么是那一张有效图，要么不存在。除 images 外的字段原样。
+export function retainLatestImage<T extends object>(messages: T[]): T[] {
+  const fields = messages.map((message) => (message as { images?: unknown }).images);
+  let keepIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (normalizeImageParts(fields[i])) {
+      keepIndex = i;
+      break;
+    }
+  }
+  if (!fields.some((value) => value !== undefined)) {
+    // 全无 images 字段：原数组原样返回（旧记录零变化，不做无谓拷贝）。
+    return messages;
+  }
+  return messages.map((message, index) => {
+    const parts = normalizeImageParts(fields[index]);
+    if (parts && index === keepIndex) {
+      return { ...message, images: [parts[parts.length - 1]] };
+    }
+    if (fields[index] === undefined) {
+      return message;
+    }
+    const next = { ...message } as T & { images?: unknown };
+    delete next.images;
+    return next as T;
+  });
 }
 
 interface NormalizedConversation {
@@ -78,8 +125,12 @@ export function normalizeConversations(value: unknown): NormalizedConversation[]
       const messages = Array.isArray(item?.messages)
         ? item.messages
             .filter((msg: { role?: unknown; content?: unknown }) => msg && (msg.role === "user" || msg.role === "assistant" || msg.role === "tool") && typeof msg.content === "string")
-            .map((msg: { role?: unknown; content?: unknown; tool_calls?: unknown; tool_call_id?: unknown }) => {
-              const base = { role: String(msg.role), content: String(msg.content) };
+            .map((msg: { role?: unknown; content?: unknown; images?: unknown; tool_calls?: unknown; tool_call_id?: unknown }) => {
+              const base: ConversationMessage = { role: String(msg.role), content: String(msg.content) };
+              const images = normalizeImageParts(msg.images);
+              if (images) {
+                base.images = images;
+              }
               const calls = msg.tool_calls;
               if (Array.isArray(calls) && calls.length) {
                 return { ...base, tool_calls: calls };

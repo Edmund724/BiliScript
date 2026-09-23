@@ -299,3 +299,70 @@ describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
     expect(port.messages.some((m) => m.data === "超长内容归约中，本轮不联网")).toBe(false);
   });
 });
+
+describe("图片输入透传（image-input 路线 B）", () => {
+  const VALID = { mime: "image/webp", data: "QUJD" };
+
+  it("单次路径：msg.images 经白名单归一后透传 streamChat", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps();
+
+    await runLadderChat(
+      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port, signal: "sig" },
+      deps
+    );
+
+    expect(calls.streamChat[0].userImages).toEqual([VALID]);
+  });
+
+  it("非法项被白名单丢弃；全非法/缺省时为 undefined（无图不带字段）", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps();
+
+    await runLadderChat(
+      {
+        msg: { ...makeMsg(), images: [{ mime: "image/webp" }, VALID, { mime: "", data: "x" }] },
+        provider: { id: "p" },
+        port,
+        signal: "sig"
+      },
+      deps
+    );
+    expect(calls.streamChat[0].userImages).toEqual([VALID]);
+
+    const bare = makePort();
+    const second = makeDeps();
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port: bare, signal: "sig" }, second.deps);
+    expect(second.calls.streamChat[0].userImages).toBeUndefined();
+  });
+
+  it("追问压缩路径：同样透传；Map-Reduce 主路径不带图（各段现造 user 消息）", async () => {
+    const port = makePort();
+    const { deps, calls } = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      resolveFollowupContext: vi.fn(async () => ({ compressedSummaryMarkdown: "压缩摘要" }))
+    });
+
+    await runLadderChat(
+      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port, signal: "sig" },
+      deps
+    );
+    expect(calls.streamChat[0].userImages).toEqual([VALID]);
+
+    // 单次溢出转 Map-Reduce：归约/分段编排的 args 里没有图片字段（04 号票：
+    // map-reduce 主路径不进 history，图片只在单次/追问两条路径生效）。
+    const overflowPort = makePort();
+    const overflowDeps = makeDeps({
+      buildBudgetPlan: () => ({ mode: "single" }),
+      streamChat: vi.fn(async () => {
+        throw makeOverflowError("overflow");
+      })
+    });
+    await runLadderChat(
+      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port: overflowPort, signal: "sig" },
+      overflowDeps.deps
+    );
+    expect(overflowDeps.calls.mapReduce).toHaveLength(1);
+    expect(overflowDeps.calls.mapReduce[0].userImages).toBeUndefined();
+  });
+});

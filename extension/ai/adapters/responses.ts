@@ -46,8 +46,11 @@ function extractInstructions(messages: ChatMessage[]): { instructions: string | 
 }
 
 // ChatMessage[] → Responses input 项（research §1）：
-// - user → { role:"user", content:[{type:"input_text", text}] }
+// - user → { role:"user", content:[{type:"input_text", text}] }；带 images 时
+//   content 追加 input_image 项（image-input 路线 B），无图消息线形状逐字节不变。
 // - assistant 纯文本 → { role:"assistant", content:[{type:"output_text", text}] }
+//   （assistant 带 images 不翻译图片：assistant 轮的 content 块词表只有
+//   output_text/refusal，图片只可能来自用户粘贴——02 号票入口）
 // - assistant 带 tool_calls → 每条 call 拆一项 {type:"function_call", call_id,
 //   name, arguments}（Responses 的 Items 是拆开的，research §3）
 // - tool → {type:"function_call_output", call_id, output}（output 必须是字符串，L5；
@@ -64,6 +67,16 @@ function toResponsesInput(messages: ChatMessage[]): unknown[] {
       }
     } else if (message.role === "tool") {
       input.push({ type: "function_call_output", call_id: message.tool_call_id ?? "", output: message.content });
+    } else if (message.role === "user" && message.images?.length) {
+      // 图片输入（image-input 路线 B）：input_text 项 + 每张图一个 input_image 项
+      //（image_url 为 data:<mime>;base64,<b64>）；text 项仅在正文非空时发出
+      //（空 text 块各端点宽容度不一，省掉最稳）。
+      const content: unknown[] = [];
+      if (message.content) content.push({ type: "input_text", text: message.content });
+      for (const image of message.images) {
+        content.push({ type: "input_image", image_url: `data:${image.mime};base64,${image.data}` });
+      }
+      input.push({ role: "user", content });
     } else if (message.role === "user") {
       input.push({ role: "user", content: [{ type: "input_text", text: message.content }] });
     } else if (message.role === "assistant") {

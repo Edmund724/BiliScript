@@ -85,6 +85,9 @@ export const ids = {
   readingChatHistoryClearBtn: "boc-reading-chat-history-clear-btn",
   readingChatInput: "boc-reading-chat-input",
   readingChatInputBar: "boc-reading-chat-input-bar",
+  // 图片附件区（image-input 02 号票）：粘贴图片的缩略图条目 + 单个删除键，
+  // 无附件时 hidden（不占位）。
+  readingChatImageStrip: "boc-reading-chat-image-strip",
   // 发送按钮：空闲为 ↑（空输入禁用），流式中切换为停止键（圆形 + 方块图标）。
   readingChatSendBtn: "boc-reading-chat-send-btn"
 };

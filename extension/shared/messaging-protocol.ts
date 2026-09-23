@@ -12,7 +12,7 @@
 
 import type { Settings } from "../core/defaults.js";
 import type { AiProviderPreset, AsrProviderPreset, SearchProviderPreset } from "../core/presets.js";
-import type { AiProvider, HotComment } from "../ai/types.js";
+import type { AiProvider, HotComment, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 
@@ -465,6 +465,9 @@ export type OffscreenChatMessage = {
   // 联网搜索管线（spec §2.1）：宿主「联网」toggle 全局记忆，offscreen 据此决定
   // 是否解析搜索配置并注入 tools；Map-Reduce 归约轮由 ladder 静默禁用 + notice。
   webSearchEnabled?: boolean;
+  // 图片输入（image-input 路线 B）：本轮用户消息的图片（宿主粘贴 → content 侧
+  // 按 03 号票规格压缩后的 WebP base64，无图时不带字段）。
+  images?: ImagePart[];
   subtitleBody?: unknown;
   [key: string]: unknown;
 };

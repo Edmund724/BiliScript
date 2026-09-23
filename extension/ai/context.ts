@@ -2,8 +2,9 @@
 
 import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/default-prompts.js";
 import { SEGMENT_INPUT_CHARS } from "./budgeter.js";
+import { normalizeImageParts } from "./conversation.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
-import type { AiContext, ChatMessage, HotComment } from "./types.js";
+import type { AiContext, ChatMessage, HotComment, ImagePart } from "./types.js";
 
 interface BuildMessagesInput {
   context?: AiContext | null;
@@ -14,9 +15,42 @@ interface BuildMessagesInput {
   // 消息（多轮追问保持工具上下文，OpenAI 协议合法）；关闭时整体丢弃——无 tools
   // 的请求里出现 tool 消息部分平台会报 4xx。
   includeToolHistory?: boolean;
+  // 图片输入（image-input 路线 B）：本轮用户消息的图片，挂在本函数现造的末条
+  // user 消息上；缺失/空数组时不带字段——无图消息的请求体逐字节不变。
+  images?: ImagePart[];
 }
 
-export function buildMessages({ context, userPrompt, history, systemPrompt, includeToolHistory }: BuildMessagesInput = {}): ChatMessage[] {
+// 更早图片的占位文案（04 号票用词）：content 保持 string（路线 B），只是把图片
+// 字段换成一句人话——模型仍知道「那里原本有图」，但不再重复支付图片 token。
+function formatImagePlaceholder(count: number): string {
+  return count === 1 ? "[用户曾发送一张图片]" : `[用户曾发送 ${count} 张图片]`;
+}
+
+// 历史重发策略（image-input 04 号票）：只保留最近一条用户消息的图片，更早的
+// 图片在请求组装时摘掉并追加文本占位。本轮自己带图时（hasCurrentImages），
+// 「最近一条用户消息」就是本轮这条，历史里的图片全部换成占位。
+function replaceEarlierImages(historyMessages: ChatMessage[], hasCurrentImages: boolean): ChatMessage[] {
+  let keepIndex = -1;
+  if (!hasCurrentImages) {
+    for (let i = historyMessages.length - 1; i >= 0; i -= 1) {
+      if (normalizeImageParts(historyMessages[i].images)?.length) {
+        keepIndex = i;
+        break;
+      }
+    }
+  }
+  return historyMessages.map((message, index) => {
+    const parts = normalizeImageParts(message.images);
+    if (!parts || index === keepIndex) {
+      return message;
+    }
+    const placeholder = formatImagePlaceholder(parts.length);
+    const { images: _replaced, ...rest } = message;
+    return { ...rest, content: message.content ? `${message.content}\n\n${placeholder}` : placeholder };
+  });
+}
+
+export function buildMessages({ context, userPrompt, history, systemPrompt, includeToolHistory, images }: BuildMessagesInput = {}): ChatMessage[] {
   const ctx = context || {};
   const sections: string[] = [];
 
@@ -84,10 +118,21 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     }) as ChatMessage[];
   }
 
+  // 历史重发（image-input 04 号票）：只留最近一条用户消息的图片，更早的换成
+  // 文本占位（见 replaceEarlierImages）；本轮带图时历史里的图片全部让位。
+  historyMessages = replaceEarlierImages(historyMessages, Boolean(images?.length));
+
+  // 本轮 user 消息：图片（image-input 路线 B）挂在这条上（也是「最近一条用户
+  // 消息的图片」——上面的历史重发策略据此让位）。
+  const userMessage: ChatMessage = { role: "user", content: String(userPrompt || "") };
+  if (images?.length) {
+    userMessage.images = images;
+  }
+
   const messages: ChatMessage[] = [
     { role: "system", content: sections.join("\n\n") },
     ...historyMessages,
-    { role: "user", content: String(userPrompt || "") }
+    userMessage
   ];
   return messages;
 }

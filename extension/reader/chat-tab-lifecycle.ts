@@ -34,6 +34,7 @@ import {
   conversationReplayInFlight,
   conversationStore,
   contextLoad,
+  inputImages,
   isMessagesNearBottom,
   lists,
   loadContextState,
@@ -347,6 +348,12 @@ function bindEvents(): void {
       void sendFromUi();
     }
   });
+  // 图片粘贴（image-input 02 号票）：仅当剪贴板含 image/* 时拦截（纯文本/其它
+  // 非图片内容不 preventDefault，既有粘贴行为不变）；压缩与上限判定在
+  // chat/chat-input-images.ts，拒绝提示走消息区通知条。
+  els.input.addEventListener("paste", (e) => {
+    inputImages.handlePaste(e);
+  });
   els.input.addEventListener("input", () => {
     autosizeInput();
     updateSendBtnState();
@@ -422,7 +429,9 @@ function bindEvents(): void {
   // 容器层委托（对话 tab 根节点 #readingChatRoot，元素随态重建而容器不换，
   // 对齐 batched-render 头注的容器委托先例）：
   //   1. 引用卡取消：[data-chat-intent-action="cancel"] 点击；
-  //   2. 无平台空态「前往设置」：[id=readingChatOpenSettings] 点击 → 打开侧边栏
+  //   2. 图片附件删除：[data-chat-image-remove] 点击（附件条目由
+  //      chat/chat-input-images.ts 重建，容器委托对每次重建的键都生效）；
+  //   3. 无平台空态「前往设置」：[id=readingChatOpenSettings] 点击 → 打开侧边栏
   //      设置抽屉（arch-slim-2/06 死绑定修复——该链接由 renderInitialState →
   //      resetConversationView 用 innerHTML 后建，原先 ui-renderer 在壳构建时
   //      getElementById 直绑，绑定时点早于元素诞生、监听器永远挂不上；容器
@@ -433,6 +442,11 @@ function bindEvents(): void {
     if (intentBtn && intentBtn.dataset.chatIntentAction === "cancel") {
       clearPendingExplainIntent();
       hideExplainIntentCard();
+      return;
+    }
+    const removeBtn = target?.closest<HTMLElement>("[data-chat-image-remove]");
+    if (removeBtn) {
+      inputImages.removeAt(Number(removeBtn.dataset.chatImageRemove));
       return;
     }
     if (target?.closest<HTMLElement>(`[id="${ids.readingChatOpenSettings}"]`)) {

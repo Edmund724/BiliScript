@@ -12,6 +12,10 @@ import { resolveFollowupContext as _resolveFollowupContext } from "./followup-ro
 import { trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
 import { buildCostGuardNotice as _buildCostGuardNotice } from "./cost-guard.js";
 import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } from "./sw-keepalive.js";
+// 图片合法性白名单（image-input 路线 B）：与历史加载侧同一份判定（01 号票的
+// 单点），port 载荷在阶梯入口归一后随 streamChat 下发。
+import { normalizeImageParts } from "./conversation.js";
+import type { ImagePart } from "./types.js";
 
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -29,6 +33,9 @@ export interface ChatMsg {
   history?: ChatMessage[];
   prompt?: string;
   thinkingLevel?: string;
+  // 图片输入（image-input 路线 B）：本轮用户消息的图片（宿主粘贴 → content 侧
+  // 压缩后的 WebP base64）。port 载荷宽容解析（normalizeImageParts 白名单）。
+  images?: unknown;
   [key: string]: unknown;
 }
 
@@ -59,6 +66,8 @@ export interface StreamChatArgs {
   context: ChatContext;
   userPrompt: string;
   history: ChatMessage[];
+  // 图片输入（image-input 路线 B）：本轮用户消息的图片（无图时 undefined）。
+  userImages?: ImagePart[];
   thinkingLevel?: string;
   port: ChatPort;
   signal: AbortSignal | string | null;
@@ -203,6 +212,10 @@ async function runLadderChatDispatch(
     body: Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : [],
     chapters: Array.isArray(msg.context?.chapters) ? msg.context.chapters : []
   });
+  // 图片输入（image-input 路线 B）：本轮用户消息的图片经白名单归一后随两条
+  // streamChat 路径（追问压缩 / 单次）下发；非法项丢弃、空则 undefined。
+  // Map-Reduce 主路径不进 history、各段现造 user 消息，图片不参与（04 号票）。
+  const userImages = normalizeImageParts(msg.images);
   if (plan.mode === "map-reduce") {
     // 追问压缩：已有成稿笔记 + 分段小结时，改走「压缩摘要 + 检索注入 + 单次调用」，
     // 不再重跑 Map-Reduce（token 随追问近乎常数）。
@@ -221,6 +234,7 @@ async function runLadderChatDispatch(
           context: followupContext,
           userPrompt: msg.prompt || "",
           history: trimmedHistory,
+          userImages,
           thinkingLevel: msg.thinkingLevel,
           port,
           signal,
@@ -286,6 +300,7 @@ async function runLadderChatDispatch(
       context: msg.context || {},
       userPrompt: msg.prompt || "",
       history: Array.isArray(msg.history) ? msg.history : [],
+      userImages,
       thinkingLevel: msg.thinkingLevel,
       port,
       signal,

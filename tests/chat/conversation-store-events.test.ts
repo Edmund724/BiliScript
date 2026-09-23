@@ -230,6 +230,64 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
     expect(deps.onConversationChanged).toHaveBeenCalledWith({});
     expect(deps.onStreamInterrupted).not.toHaveBeenCalled();
   });
+
+  it("persistCurrent:消息的 images 字段随文本一起落盘（image-input 路线 B 的白名单透传）", async () => {
+    const { store } = makeHarness();
+    const images = [{ mime: "image/webp", data: "QUJD" }];
+    chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A", isVideoContext: true };
+    chatSessionState.currentContextKey = "k-1";
+    chatSessionState.chatHistory = [
+      { role: "user", content: "这张图里是什么", images },
+      { role: "assistant", content: "是截图" }
+    ];
+
+    await store.persistCurrent();
+
+    expect(chatSessionState.savedConversations[0].messages).toEqual([
+      { role: "user", content: "这张图里是什么", images },
+      { role: "assistant", content: "是截图" }
+    ]);
+  });
+
+  it("落盘只留最近一张图；重开（loadAll + restoreLatest）后追问仍带得回那张图", async () => {
+    const { store, storage } = makeHarness();
+    const earlier = { mime: "image/webp", data: "QUJD" };
+    const latest = { mime: "image/webp", data: "WFla" };
+    chatSessionState.contextData = { bvid: "BV1abc", cid: "1", url: URL_A, title: "视频A", isVideoContext: true };
+    chatSessionState.currentContextKey = "k-1";
+    chatSessionState.chatHistory = [
+      { role: "user", content: "第一张图", images: [earlier] },
+      { role: "assistant", content: "是截图" },
+      { role: "user", content: "这张呢", images: [latest] },
+      { role: "assistant", content: "也是截图" }
+    ];
+
+    await store.persistCurrent();
+
+    // 更早那张整条摘掉（不写占位文本——占位是请求组装期的事，写进 content 会
+    // 在界面上显示出来），最近一张原样留下。
+    const persisted = [
+      { role: "user", content: "第一张图" },
+      { role: "assistant", content: "是截图" },
+      { role: "user", content: "这张呢", images: [latest] },
+      { role: "assistant", content: "也是截图" }
+    ];
+    expect(chatSessionState.savedConversations[0].messages).toEqual(persisted);
+
+    // 重开 tab：新 store 实例 + 同一份 storage → loadAll 读回 → restoreLatest 恢复
+    // 到 chatHistory，那一张图仍在（追问时随历史重发，见 ai/context 的重发策略）。
+    const { store: reopened } = makeHarness({ storage });
+    chatSessionState.currentContextKey = "";
+    chatSessionState.contextData = null;
+    chatSessionState.liveContextData = { bvid: "BV1abc", cid: "1", url: URL_A, isVideoContext: true };
+    chatSessionState.liveContextKey = "video:BV1abc|1";
+
+    await reopened.loadAll();
+    const restored = await reopened.restoreLatest();
+
+    expect(restored).toBe(true);
+    expect(chatSessionState.chatHistory).toEqual(persisted);
+  });
 });
 
 // ===========================================================================

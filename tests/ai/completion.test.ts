@@ -392,6 +392,60 @@ describe("buildChatRequestBody / normalizeThinkingLevel（自 client.js 迁入�
   });
 });
 
+describe("images 线格式（image-input 路线 B：openai chat 的 content 翻译）", () => {
+  const base = { model: "test-model", stream: false, baseUrl: "https://api.example.com/v1" };
+  const IMAGE = { mime: "image/webp", data: "QUJD" };
+
+  it("无图消息：请求体逐字节不变（images 是纯本地字段，不上线）", () => {
+    const body = buildChatRequestBody({
+      ...base,
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "yo" }
+      ]
+    });
+    expect(JSON.stringify(body)).toBe(
+      '{"model":"test-model","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}],"stream":false}'
+    );
+  });
+
+  it("images: []（空数组）与缺省同形：不产生 content parts，也不上线 images 字段", () => {
+    const body = buildChatRequestBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
+    expect(JSON.stringify(body)).toBe(
+      '{"model":"test-model","messages":[{"role":"user","content":"hi"}],"stream":false}'
+    );
+  });
+
+  it("带图消息：content 翻成 text + image_url 块数组（url 为 data:<mime>;base64,<b64>）", () => {
+    const body = buildChatRequestBody({
+      ...base,
+      messages: [
+        { role: "user", content: "这张图里是什么", images: [IMAGE, { mime: "image/png", data: "REVG" }] },
+        { role: "assistant", content: "是截图" }
+      ]
+    });
+    expect(body.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "这张图里是什么" },
+          { type: "image_url", image_url: { url: "data:image/webp;base64,QUJD" } },
+          { type: "image_url", image_url: { url: "data:image/png;base64,REVG" } }
+        ]
+      },
+      // 同一请求里的纯文本消息维持字符串 content（只有带图消息换形状）。
+      { role: "assistant", content: "是截图" }
+    ]);
+  });
+
+  it("纯图消息（正文空）：只发 image_url 块，不发空 text 块", () => {
+    const body = buildChatRequestBody({ ...base, messages: [{ role: "user", content: "", images: [IMAGE] }] });
+    expect(body.messages).toEqual([
+      { role: "user", content: [{ type: "image_url", image_url: { url: "data:image/webp;base64,QUJD" } }] }
+    ]);
+  });
+});
+
 describe("非流式返回值", () => {
   it("返回 choices[0].message.content；非字符串 content 回落空串", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "成稿" } }] }));
