@@ -54,11 +54,14 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-// 静态边：import|export <clause> from "<相对路径>"。注释先掐掉（块注释起点锚在
+// 静态边：import|export <clause> from "<相对路径>"。纯类型引入（import type）
+// 构建后消失、不构成运行时边，故跳过（与 tests/layer-deps.test.ts 同口径——
+// UI 片用 import type 取 CatalogModelMeta 是允许的）。注释先掐掉（块注释起点锚在
 // 行首——行内出现的 `/*` 如 `adapters/*` 不算注释起点，否则会把后面的真 import
 // 一起吞掉，tests/layer-deps.test.ts 的 `/\*[\s\S]*?\*\//` 手法在这里会误伤）。
 const STATIC_EDGE_RE = /(?:^|\n)[ \t]*(?:import|export)\s+([^;]*?)\s+from\s*["'](\.[^"']+)["']/g;
 const BLOCK_COMMENT_RE = /^[ \t]*\/\*[\s\S]*?\*\/[ \t]*$/gm;
+const TYPE_ONLY_CLAUSE_RE = /^\s*type\b|^\{\s*type\s/;
 
 function staticImportersOf(fragment: string): string[] {
   // 同一文件的 import 与 export-from 都算边，去重后给「哪些文件静态引用」这一事实
@@ -66,7 +69,7 @@ function staticImportersOf(fragment: string): string[] {
   for (const file of walk("extension")) {
     const source = readFileSync(file, "utf8").replace(BLOCK_COMMENT_RE, "");
     for (const match of source.matchAll(STATIC_EDGE_RE)) {
-      if (match[2].includes(fragment)) {
+      if (match[2].includes(fragment) && !TYPE_ONLY_CLAUSE_RE.test(match[1])) {
         importers.add(relative("extension", file).split(sep).join("/"));
       }
     }
@@ -188,6 +191,14 @@ describe("查表（03）", () => {
     expect(lookupModelMeta("deepseek", "no-such-model")).toBeNull();
     // gpt-4 属于 openai 目录，拿 deepseek 查应当落空（键含 provider）
     expect(lookupModelMeta("deepseek", "gpt-4")).toBeNull();
+  });
+
+  it("同名模型在不同 provider 下各归各的登记值（键为什么含 provider 的实证）", () => {
+    // mimo-v2.5 同时挂在 xiaomi 与 opencode-go 两家目录下，窗口/展示名登记都不同
+    expect(lookupModelMeta("xiaomi", "mimo-v2.5")?.contextWindow).toBe(1_048_576);
+    expect(lookupModelMeta("opencode-go", "mimo-v2.5")?.contextWindow).toBe(1_000_000);
+    expect(lookupModelMeta("xiaomi", "mimo-v2.5")?.name).toBe("MiMo-V2.5");
+    expect(lookupModelMeta("opencode-go", "mimo-v2.5")?.name).toBe("MiMo V2.5");
   });
 
   it("非字符串入参一律 null，不抛错、不回落猜测值", () => {
