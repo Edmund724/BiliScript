@@ -2,9 +2,12 @@
 //（provider-editor 拆分片，工单 12）。
 //
 // 职责：目录行模板（modelRowHtml）、草稿行增删、空态提示、目录级红字错误、行级
-// 连通测试（multi-model-catalog 阶段2；拍板 Q3/Q4/Q7/Q9/Q10/Q12/Q13）。
-// 依赖方向：只用底层的状态袋与字段/DOM 原语（./provider-editor-state.js），
-// 不反向依赖 Modal 本体。函数体自原 provider-editor.ts 逐字节搬移。
+// 连通测试（multi-model-catalog 阶段2；拍板 Q3/Q4/Q7/Q9/Q10/Q12/Q13），以及只读
+// 模型元数据的渲染与重算（model-catalog/04）。
+// 依赖方向：只用底层的状态袋与字段/DOM 原语（./provider-editor-state.js）与目录
+// 懒加载器（./lazy-model-catalog.js）；对 ai/model-catalog 只取类型（import type，
+// 构建后消失，不把 85KB 产物静态拖进本片）。不反向依赖 Modal 本体。函数体自原
+// provider-editor.ts 逐字节搬移。
 
 import { escapeHtml } from "../shared/string-utils.js";
 import { testAiProviderConnection } from "../ai/provider-test.js";
