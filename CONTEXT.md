@@ -139,6 +139,24 @@ _Avoid_: 手抄第二份循环、offscreen 读 chrome.storage、tool 结果全�
 代码名：`settingsSnapshot`（extension/core/settings-snapshot.js）/ `getSettings()` / `getProviderStore(family)` / `invalidate(keys)`；失效粒度 = storage 键（settings 键面 = DEFAULT_SETTINGS 键集，族键面 = `xxxProviders`（sync）+ `xxxProviderKeys`（local））
 _Avoid_: 热路径 handler 直读 storage、给快照加写接口、绕过快照手抄第二次归一化
 
+### 模型目录（model-catalog）
+
+设置页平台编辑 Modal 里的**只读**模型元数据（上下文窗口 / 是否支持思考 / 是否收图）。数据来自构建期从 `@earendil-works/pi-ai`（MIT，devDependency 精确 pin）目录裁剪出的零依赖叶子产物，不是运行时依赖；决策与反例证据见 [ADR-0009](docs/adr/0009-model-catalog-borrow-not-embed.md)。
+
+六条不变式（每条都能当判据用，锚点是实际实现/测试位置）：
+
+1. **pi-ai 只作数据来源与设计参照，永不进入请求执行路径。** 上游只在构建期被读（`scripts/sync-pi-ai-catalog.mjs`）；`provider-http.ts → completion.ts → adapters/*` 那条链上没有任何目录代码。
+2. **目录数据只读**：不落盘、不进 `AiProvider` 存储、不参与请求体构造。`ai/model-catalog.ts` 只有查表函数、无写入口；"写"只发生在 UI 的 DOM（`ui/provider-editor-catalog.ts` 的 `fillMetaSlot`）。
+3. **目录对协议无感**：查表键是 `(piProvider, modelId)`，`protocol` 不参与。`resolvePiProvider` 的两段识别都不读协议字段；实证在 `tests/ai/model-catalog.test.ts`（「同名模型在不同 provider 下各归各的登记值」与「presetId 优先于 host」）。
+4. **查不到即 `null`，UI 静默隐藏，不回落猜测值。** `lookupModelMeta` 对未知键与非字符串入参一律 `null`；UI 侧 `[data-model-meta]` 置 `hidden` 整栏不占位（无 "—"、无「暂无数据」）——`tests/ui/model-catalog-meta.test.ts` 的隐藏用例。
+5. **产物是零 `import` 的叶子模块，且只能懒加载，不得进 SW 静态图。** `extension/ai/catalog/pi-ai-catalog.generated.ts` 零 `import`（`tests/ai/model-catalog.test.ts` 叶子用例）；只被 `ai/model-catalog.ts` 静态引用、`ai/model-catalog` 无人静态引用（同文件静态边用例）；SW 侧由 `scripts/build.js` 的 `assertBackgroundStaticGraphSlim` 兜底，content 常驻侧由 `scripts/build-content.js` 的「主包不得静态引用 chunks/」兜底。
+6. **不拿外部数据补 `thinking-profiles.ts`**——那张表是单一事实源。产物刻意不带 `compat` / `thinkingLevelMap`；线格式与平台怪癖事实只活在 `ai/thinking-profiles.ts` 与三个 adapter。
+
+配套约束（同源，别越过）：`AiProviderPreset.piProvider` 与无数据白名单 `NO_CATALOG_PRESETS` 同源在 `core/presets.ts`（新增预设漏配即测试红，`tests/ai/model-catalog.test.ts` 的覆盖/反向用例）；`preset → piProvider` 是显式映射，host 只兜底 `custom`/未知预设；无数据平台（`qwen` / `stepfun` / `modelscope` / `amd` / `sensenova` / `ollama` / `custom`）永远没有元数据。
+
+代码名：`PI_AI_CATALOG` / `lookupModelMeta`（`ai/catalog/pi-ai-catalog.generated.ts`，生成产物）/ `resolvePiProvider` / `lookupCatalogMeta`（`ai/model-catalog.ts`）/ `piProvider`（preset 字段）/ `ui/lazy-model-catalog.ts`（唯一懒加载入口）/ `pnpm catalog:sync`
+_Avoid_: 把 pi-ai 接进请求链、用目录数据补 `thinking-profiles.ts`、让 `protocol` 参与查表、给目录加写路径/落盘、在对话界面塞模型元数据
+
 ### AI 对话
 
 **拆除会话**:
