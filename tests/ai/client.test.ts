@@ -515,7 +515,8 @@ describe("输出上限截断（finish_reason=length）", () => {
   }
 
   it("正文后补一条带 code 的截断 notice，再收口 done（宿主据此渲染常驻徽标）", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => sseResponse([sseChoices({ content: "半句" }), sseChoices({}, "length")])));
+    const fetchMock = vi.fn(async () => sseResponse([sseChoices({ content: "半句" }), sseChoices({}, "length")]));
+    vi.stubGlobal("fetch", fetchMock);
     const port = makePort();
 
     const result = await streamChat({ provider: PROVIDER, context: {}, userPrompt: "", history: [], port });
@@ -526,6 +527,108 @@ describe("输出上限截断（finish_reason=length）", () => {
       { type: "notice", data: TRUNCATED_NOTICE, code: "truncated" },
       { type: "done" }
     ]);
+    // 有正文只是被截尾：不重跑（重跑会白花一次额度且回答未必一致）。
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("空正文截断 → 显式带双倍预算重跑一次，stream-reset 清空重放，不挂徽标", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse([sseChoices({}, "length")]))
+      .mockResolvedValueOnce(sseResponse([sseChoices({ content: "正文" }), sseChoices({}, "stop")]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    const result = await streamChat({ provider: PROVIDER, context: {}, userPrompt: "", history: [], port });
+
+    expect(result).toEqual({ done: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // 首发维持「不显式传预算、由平台默认决定」现状；只有重试才显式加倍。
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBeUndefined();
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(16384);
+    expect(port.messages).toEqual([
+      { type: "stream-reset" },
+      { type: "token", data: "正文" },
+      { type: "done" }
+    ]);
+  });
+
+  it("anthropic 协议：空正文截断 → 首发走 adapter 兜底 8192、重试显式 16384，思考随 reset 重放", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse([
+        anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "想" } }),
+        anthropicSseData({ type: "message_delta", delta: { stop_reason: "max_tokens" } })
+      ]))
+      .mockResolvedValueOnce(sseResponse([
+        anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "正文" } }),
+        anthropicSseData({ type: "message_delta", delta: { stop_reason: "end_turn" } })
+      ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({ provider: { ...PROVIDER, protocol: "anthropic" }, context: {}, userPrompt: "问", history: [], port });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(8192);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(16384);
+    // 第一代的思考已回吐，随即被 stream-reset 作废（宿主清空本条缓冲整体重放）。
+    expect(port.messages).toEqual([
+      { type: "reasoning", data: "想" },
+      { type: "stream-reset" },
+      { type: "token", data: "正文" },
+      { type: "done" }
+    ]);
+  });
+
+  it("正文只有空白也算空正文：同样触发重跑", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse([sseChoices({ content: " \n " }), sseChoices({}, "length")]))
+      .mockResolvedValueOnce(sseResponse([sseChoices({ content: "正文" }), sseChoices({}, "stop")]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({ provider: PROVIDER, context: {}, userPrompt: "", history: [], port });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(port.messages.map((m) => m.type)).toEqual(["token", "stream-reset", "token", "done"]);
+  });
+
+  it("重跑后仍空正文截断 → 只重跑一次，仍挂带 code 的截断 notice", async () => {
+    const fetchMock = vi.fn(async () => sseResponse([sseChoices({}, "length")]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({ provider: PROVIDER, context: {}, userPrompt: "", history: [], port });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(port.messages).toEqual([
+      { type: "stream-reset" },
+      { type: "notice", data: TRUNCATED_NOTICE, code: "truncated" },
+      { type: "done" }
+    ]);
+  });
+
+  it("联网轮：空正文截断同样重跑一次（工具循环整体重放）", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse([sseChoices({}, "length")]))
+      .mockResolvedValueOnce(sseResponse([sseChoices({ content: "回答" }), sseChoices({}, "stop")]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: {},
+      userPrompt: "问",
+      history: [],
+      port,
+      webSearch: {
+        maxToolCalls: 5,
+        executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
+      }
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(16384);
+    expect(port.messages.filter((m) => m.type === "stream-reset")).toHaveLength(1);
+    expect(port.messages.at(-1)?.type).toBe("done");
   });
 
   it("finish_reason=stop：不补提示，事件序列与旧实现一致", async () => {

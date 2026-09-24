@@ -27,6 +27,14 @@ export const OVER_BUDGET_NOTICE = "字幕过长，已切换为分段整理模式
 // 吃掉了预算还是问题本身太长。
 export const TRUNCATED_NOTICE = "回答被截断（达到模型输出上限）";
 
+// 空正文重跑的输出预算：思考型模型会把输出预算全烧在思考上、正文以空串收尾
+// （仓库已记录的 step-3.7-flash 故障：finish_reason=length + 正文空，见
+// analysis-orchestrate 的空正文重试）。命中时显式传该预算重跑一次——首发不传
+// 预算（由平台默认决定，openai 系平台此时干脆不发该字段），故「加倍」是相对
+// anthropic adapter 的兜底上限 8192。取值与 analysis 的封顶同源（16384）。
+// 只重跑一次：再空就挂常驻截断徽标，不无限重试（每轮都是整笔额度）。
+const EMPTY_TEXT_RETRY_MAX_TOKENS = 16384;
+
 interface SubtitleResolution {
   markdown: string;
   mode: "single" | "map-reduce";
@@ -98,6 +106,9 @@ interface StreamChatInput {
  *   token 收口，全局顺序与逐 token 传输一致；每个原始事件重挂空闲超时（onActivity）；
  * - 读流中断重试：新流事件前回吐一条 stream-reset（代际重置信号，渲染层
  *   清空本条消息缓冲整体重放，避免两代流拼接成重复文本）；
+ * - 空正文截断重跑：最后一轮 finishReason="length" 而正文压根没吐出来（思考型模型
+ *   把预算全烧在思考上）时，显式带 EMPTY_TEXT_RETRY_MAX_TOKENS 重跑一轮（联网轮
+ *   重跑整条工具循环），并先回吐一条 stream-reset 作废已吐的思考；仍空才提示；
  * - 重试提示经 notice（读流中断重试保持旧现状：不打扰用户）；
  * - 截断提示经 notice 的 code 分支（不新增事件类型）：最后一轮 finishReason="length"
  *   （max_tokens 命中）时在 done 之前补一条 { data: TRUNCATED_NOTICE, code:"truncated" }，
@@ -158,6 +169,9 @@ export async function streamChat({ provider, context, userPrompt, history, userI
   // 最近一轮的 finishReason（"length" = 输出被 max_tokens 截断）：逐轮回调只写、
   // 收口时读一次——联网轮中间工具轮的 reason 会被最终轮覆盖，不误标最终回答。
   let lastFinishReason: string | null = null;
+  // 本代是否压根没吐出正文（只判空，故不留正文副本）：截断重跑的唯一触发条件的
+  // 另一半。空白 token 不算正文（同 analysis 的 trim 口径）。
+  let emittedNoText = true;
 
   try {
     // 逐轮共用的流事件适配（单次与工具循环同款）：流式活动重挂空闲超时、
@@ -167,6 +181,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
         // 流式活动：重挂空闲超时（每个原始事件一次，合帧窗口内活动信号不丢）。
         onActivity?.();
         if (event.type === "token") {
+          if (event.data.trim()) emittedNoText = false;
           tokenBatcher.push(event.data);
           return;
         }
@@ -206,42 +221,56 @@ export async function streamChat({ provider, context, userPrompt, history, userI
       }
     };
 
-    if (webSearch) {
+    // 一轮对话：无 webSearch 单次调用；联网轮整条工具循环（maxTokens 透传给每轮）。
+    // 抽成函数只为截断重跑能整体重放，不改其余调用形状。
+    const runTurn = (maxTokens?: number) => webSearch
       // 联网轮：ai/tool-loop.ts 编排多轮 chatCompletion；notice / tool-status /
       // tool-turn 同走「先 flush 再回吐」纪律，tool-turn 为宿主持久化副本
       //（spec §2.5，tool 内容已截断）。
-      await runToolLoop({
-        provider,
-        messages,
-        stream: true,
-        signal,
-        thinkingLevel,
-        maxToolCalls: webSearch.maxToolCalls,
-        executeSearch: webSearch.executeSearch,
-        ...streamCallbacks,
-        onNotice: (text) => {
-          onActivity?.();
-          flushTokens();
-          port.postMessage({ type: "notice", data: text } satisfies ChatPortMessage);
-        },
-        onToolStatus: (payload: ToolStatusPayload) => {
-          onActivity?.();
-          flushTokens();
-          port.postMessage({ type: "tool-status", ...payload } satisfies ChatPortMessage);
-        },
-        onToolTurn: (toolMessages) => {
-          port.postMessage({ type: "tool-turn", messages: toolMessages } satisfies ChatPortMessage);
-        }
-      });
-    } else {
-      await chatCompletion({
-        provider,
-        messages,
-        stream: true,
-        signal,
-        thinkingLevel,
-        ...streamCallbacks
-      });
+      ? runToolLoop({
+          provider,
+          messages,
+          stream: true,
+          signal,
+          thinkingLevel,
+          maxTokens,
+          maxToolCalls: webSearch.maxToolCalls,
+          executeSearch: webSearch.executeSearch,
+          ...streamCallbacks,
+          onNotice: (text) => {
+            onActivity?.();
+            flushTokens();
+            port.postMessage({ type: "notice", data: text } satisfies ChatPortMessage);
+          },
+          onToolStatus: (payload: ToolStatusPayload) => {
+            onActivity?.();
+            flushTokens();
+            port.postMessage({ type: "tool-status", ...payload } satisfies ChatPortMessage);
+          },
+          onToolTurn: (toolMessages) => {
+            port.postMessage({ type: "tool-turn", messages: toolMessages } satisfies ChatPortMessage);
+          }
+        })
+      : chatCompletion({
+          provider,
+          messages,
+          stream: true,
+          signal,
+          thinkingLevel,
+          maxTokens,
+          ...streamCallbacks
+        });
+
+    await runTurn();
+    // 空正文截断（长思考把预算烧光、正文空串收尾，见 EMPTY_TEXT_RETRY_MAX_TOKENS）：
+    // 显式带加倍预算重跑一轮。已吐的思考/工具状态由 stream-reset 作废、宿主清空本条
+    // 缓冲整体重放（与读流中断重试同款信号），只重跑一次——预算已翻倍，再空就是
+    // 模型确实给不出正文，交给收口处的截断徽标如实提示。
+    if (lastFinishReason === "length" && emittedNoText) {
+      flushTokens();
+      port.postMessage({ type: "stream-reset" } satisfies ChatPortMessage);
+      lastFinishReason = null;
+      await runTurn(EMPTY_TEXT_RETRY_MAX_TOKENS);
     }
   } catch (e) {
     if ((e as { overflow?: boolean })?.overflow) {
@@ -262,7 +291,8 @@ export async function streamChat({ provider, context, userPrompt, history, userI
   // 流正常收口：先 flush 最后一批 token，再发 done。
   flushTokens();
   // 截断（最后一轮 finishReason="length"）：在 done 之前补一条带 code 的 notice，
-  // 宿主据此在消息尾部渲染常驻徽标（不走 4 秒通知条）。只提示，不重试。
+  // 宿主据此在消息尾部渲染常驻徽标（不走 4 秒通知条）。空正文那类已在上面重跑过
+  // 一轮，这里只如实提示、不再重试（预算已翻倍，再给一次也不会更好）。
   if (lastFinishReason === "length") {
     port.postMessage({ type: "notice", data: TRUNCATED_NOTICE, code: "truncated" } satisfies ChatPortMessage);
   }
