@@ -343,6 +343,8 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(overviewText()).toContain("正在生成概览…");
     expect(occurrences()).toBe(1);
     expect(overviewBody().querySelector(".biliscript-reading-placeholder-title")).toBeNull();
+    // 说明文字挂在 is-generating 修饰上：没了标题，它按 tab 正文档 16px 排（reader.css）
+    expect(overviewBody().querySelector(".biliscript-reading-placeholder.is-generating")).not.toBeNull();
 
     // 单发路径流式进度：进度文案替换回落文案，而非与之并列
     notify("正在生成概览…（已接收 1195 字）");

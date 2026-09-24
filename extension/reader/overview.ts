@@ -400,10 +400,11 @@ function buildResultSectionsHtml(): string {
   const analysis = overview.analysis;
   if (!analysis) {
     // 生成中无旧产物：结果区只留一句「稍后会出现什么」的说明——标题行曾与
-    // 状态条重复同一句「正在生成概览」，已删。
+    // 状态条重复同一句「正在生成概览」，已删；没了标题，这句就是卡的正文
+    //（样式按 is-generating 提到正文档）。
     if (overview.phase === "generating") {
       return `
-        <div class="biliscript-reading-placeholder">
+        <div class="biliscript-reading-placeholder is-generating">
           <p class="biliscript-reading-placeholder-copy">章节与金句会出现在这里；期间可先在「字幕」页阅读。</p>
         </div>
       `;

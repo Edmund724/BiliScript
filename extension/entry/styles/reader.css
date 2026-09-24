@@ -412,6 +412,13 @@
   margin: 0;
 }
 
+/* 生成中的占位卡没有标题（标题行曾与状态条重复同一句「正在生成概览」）：说明
+ * 文字就是这张卡的正文，按概览 tab 正文档 16px 排；带标题的占位卡里那行仍是
+ * 附注，维持 14px（同转写横幅 title 16 / copy 14 的约定）。 */
+.biliscript-reading-placeholder.is-generating .biliscript-reading-placeholder-copy {
+  font-size: 16px;
+}
+
 .biliscript-reading-main {
   min-height: 0;
   flex: 1;
