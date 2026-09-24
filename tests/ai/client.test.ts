@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
-import { streamChat, resolveSubtitleForContext, OVER_BUDGET_NOTICE } from "../../extension/ai/client.js";
+import { streamChat, resolveSubtitleForContext, OVER_BUDGET_NOTICE, TRUNCATED_NOTICE } from "../../extension/ai/client.js";
 import { makeOverflowError } from "../../extension/ai/completion.js";
 
 beforeEach(() => {
@@ -522,5 +522,60 @@ describe("webSearch 工具循环 port 回吐（spec §2.3）", () => {
     expect(port.messages.map((m) => m.type)).toEqual(["token", "done"]);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.tools).toBeUndefined();
+  });
+});
+
+describe("输出上限截断（finish_reason=length）", () => {
+  function sseChoices(delta: unknown, finishReason?: string) {
+    return `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finishReason }] })}\n\n`;
+  }
+
+  // Anthropic 形状事件（同一条读流路径的另一种线格式）。
+  function anthropicSseData(event: Record<string, unknown>) {
+    return `data: ${JSON.stringify(event)}\n\n`;
+  }
+
+  it("正文后补一条截断 notice，再收口 done（不再静默）", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse([sseChoices({ content: "半句" }), sseChoices({}, "length")])));
+    const port = makePort();
+
+    const result = await streamChat({ provider: PROVIDER, context: {}, userPrompt: "", history: [], port });
+
+    expect(result).toEqual({ done: true });
+    expect(port.messages).toEqual([
+      { type: "token", data: "半句" },
+      { type: "notice", data: TRUNCATED_NOTICE },
+      { type: "done" }
+    ]);
+  });
+
+  it("finish_reason=stop：不补提示，事件序列与旧实现一致", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => sseResponse([sseChoices({ content: "答完" }), sseChoices({}, "stop")])));
+    const port = makePort();
+
+    await streamChat({ provider: PROVIDER, context: {}, userPrompt: "", history: [], port });
+
+    expect(port.messages.map((m) => m.type)).toEqual(["token", "done"]);
+  });
+
+  it("anthropic 协议未传 maxTokens：请求体走 adapter 兜底 8192（放得下思考预算）", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, _init: { body: string }) =>
+      sseResponse([
+        anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "正文" } }),
+        anthropicSseData({ type: "message_delta", delta: { stop_reason: "end_turn" } })
+      ])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({
+      provider: { baseUrl: "https://api-inference.modelscope.cn", model: "Qwen/Qwen3-8B", apiKey: "k", protocol: "anthropic" },
+      context: {},
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(8192);
   });
 });
