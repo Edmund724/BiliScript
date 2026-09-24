@@ -44,6 +44,9 @@
 
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import type { ImagePart } from "../ai/types.js";
+// 会话 id 生成（平台会话头 x-opencode-session 的身份来源，见 ai/preset-headers.ts）：
+// 发送时物化，缺失才生成——持久化路径 persistCurrent 见已有 id 直接沿用。
+import { generateConversationId } from "../ai/conversation.js";
 // 成本护栏缺省确认通道：面板内弹层（ui/confirm-dialog.js）——原生 confirm
 // 绘制在浏览器窗口正中央，面板停靠右侧时可能落在可视区外。
 import { confirmDialog } from "../ui/confirm-dialog.js";
@@ -436,6 +439,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       activeUserImages = images;
       pendingToolMessages = [];
       turnTruncatedNotice = "";
+      // 会话 id 物化：本轮发送起该会话就有稳定 id（原先要等首次落盘由
+      // persistCurrent 生成），平台会话头（Opencode Go 的 x-opencode-session）
+      // 据此做到「每会话一个稳定标识、新会话新标识」；persistCurrent 见已有 id
+      // 直接沿用，落盘与身份守卫（isCurrent 快照比对）语义都不变。
+      if (!chatSessionState.currentConversationId) {
+        chatSessionState.currentConversationId = generateConversationId();
+      }
       activeConversationId = chatSessionState.currentConversationId;
       activeAssistantNode = appendAssistantPlaceholder();
       startStreamSlowNoticeTimer();
@@ -483,6 +493,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         providerId,
         // 选中模型（multi-model-catalog）：offscreen 解析平台后以它覆盖目录首项
         model: deps.getSelectedModel?.() || "",
+        // 会话身份（平台会话头取值来源，见 shared/messaging-protocol.ts 与
+        // ai/preset-headers.ts）：上面已物化，恒非空。
+        conversationId: chatSessionState.currentConversationId,
         thinkingLevel: chatSessionState.aiThinkingLevel,
         // 联网搜索开关（spec §2.1）：全局记忆（chat header pill），offscreen 据此
         // 解析搜索配置并注入 tools。

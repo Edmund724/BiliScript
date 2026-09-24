@@ -187,6 +187,30 @@ describe("请求构造对照表（url / body / headers）", () => {
     });
   });
 
+  it("Opencode Go 预设补 x-opencode-session（同会话恒同值 / 新会话新值 / 其余预设不补）", async () => {
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+    const send = (presetId: string, sessionId?: string) =>
+      chatCompletion({
+        provider: { ...PROVIDER, presetId, ...(sessionId ? { sessionId } : {}) },
+        messages: [{ role: "user", content: "hi" }],
+        fetchImpl: fetchMock
+      });
+
+    await send("opencodego", "conv_a1");
+    await send("opencodego", "conv_a1");
+    await send("opencodego", "conv_b2");
+    await send("deepseek", "conv_a1");
+
+    const headers = fetchMock.mock.calls.map(([, init]) => (init as InitLike).headers);
+    const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(headers[0]["x-opencode-session"]).toMatch(UUID_V4);
+    // 同一会话的两条请求（工具循环/重试即这种形状）共用同一个会话 id
+    expect(headers[1]["x-opencode-session"]).toBe(headers[0]["x-opencode-session"]);
+    expect(headers[2]["x-opencode-session"]).not.toBe(headers[0]["x-opencode-session"]);
+    // 会话头是 Opencode Go 专属：其余平台不补
+    expect(headers[3]["x-opencode-session"]).toBeUndefined();
+  });
+
   it("probe 在 OpenAI reasoning 模型上发 reasoning_effort:none + max_completion_tokens:1（查表后不再带必 400 的字段族）", async () => {
     const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 

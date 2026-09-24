@@ -19,6 +19,7 @@
 //   （及流式读流中断）都重试，与状态码无关。
 import { makeAbortedError, isRetryableNetworkError } from "../shared/error-helpers.js";
 import { resolveAdapter } from "./protocol-adapter.js";
+import { presetRequestHeaders } from "./preset-headers.js";
 import type { AiProtocol, ChatRequest, ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, StreamChatEvent } from "./types.js";
 
@@ -145,7 +146,9 @@ interface ChatCompletionInput {
   // 缺省 "custom"），思考参数查表的平台识别主路径——02 号票穿线，未命中（custom/
   // 旧记录）回落 baseUrl host 推断。protocol 是平台协议字段（multi-protocol-ai），
   // 缺省/未知值经 resolveAdapter 兜底 openai，存量记录零变化。
-  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string; protocol?: AiProtocol };
+  // sessionId 是本轮所属会话的稳定标识（宿主填 chat 会话 id），只喂
+  // preset-headers 的平台会话头；无会话的调用（探针/解释）不填。
+  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string; protocol?: AiProtocol; sessionId?: string };
   messages: ChatMessage[];
   stream?: boolean;
   signal?: AbortSignal | null;
@@ -170,10 +173,10 @@ interface ChatCompletionInput {
 /**
  * chat 单一入口（流式与非流式合一，probe 为探针特化）。
  * 参数：
- * - provider: { baseUrl, apiKey, model, presetId?, protocol? }；baseUrl 去尾斜杠。
+ * - provider: { baseUrl, apiKey, model, presetId?, protocol?, sessionId? }；baseUrl 去尾斜杠。
  *   protocol 经 resolveAdapter 解析为 ProtocolAdapter：端点 / 鉴权头 / 请求体
  *   （思考档位查表、token 上限参数名、tools 透传）随 adapter 组装；缺省/未知值
- *   兜底 openai（存量行为零变化）。
+ *   兜底 openai（存量行为零变化）。sessionId 只经 preset-headers 变成平台会话头。
  * - messages: OpenAI 消息数组（编排层词表，adapter 内翻译；组装留在调用方）。
  * - stream: 流式增量经 onEvent 吐出，成功返回 { done: true }；
  *   非流式成功返回聚合 content（非字符串回落空串，adapter.parseResponse 兜底）。
@@ -194,8 +197,9 @@ interface ChatCompletionInput {
  *   finish_reason=length 都归到这个值），调用方据此提示「回答没答完」。只回报，
  *   不改返回形状，也不重试。
  * - headers: 额外请求头（探针的 Accept 等）；Content-Type 固定 JSON，
- *   同键不覆盖调用方注入（Authorization 由 adapter.authHeaders 提供，可被
- *   extraHeaders 覆盖——对齐旧「已存在时不重复注入」语义）。
+ *   同键不覆盖调用方注入（Authorization 由 adapter.authHeaders 提供、平台预设头
+ *   由 preset-headers 提供，两者都可被 extraHeaders 覆盖）——对齐旧「已存在时
+ *   不重复注入」语义。
  * - thinkingLevel / maxTokens / signal / fetchImpl（默认 globalThis.fetch）；
  *   思考字段由 adapter 内经 thinking-profiles 按平台×模型查表。
  * 错误模型见文件头注释；HTTP 错误 detail 经 adapter.extractErrorDetail 提取、
@@ -248,10 +252,12 @@ export async function chatCompletion({
   const maxRetries = retries ?? defaultRetries(stream);
 
   // 鉴权头形状由 adapter.authHeaders 全权负责（各协议不同：Bearer / x-api-key
-  // 等）；extraHeaders 同键优先（对齐旧「Authorization 已存在时不重复注入」），
-  // Content-Type 固定 JSON。
+  // 等）；平台预设额外要求的头（preset-headers 单点，如 Opencode Go 的
+  // x-opencode-session）随后合并；extraHeaders 同键优先（对齐旧「Authorization
+  // 已存在时不重复注入」），Content-Type 固定 JSON。
   const headers: Record<string, string> = {
     ...adapter.authHeaders(provider.apiKey),
+    ...presetRequestHeaders(provider),
     ...extraHeaders,
     "Content-Type": "application/json"
   };

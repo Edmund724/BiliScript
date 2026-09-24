@@ -462,6 +462,10 @@ export type OffscreenChatMessage = {
   providerId?: string;
   // 选中模型 id（multi-model-catalog）：缺省回落解析平台记录的目录首项
   model?: string;
+  // 会话身份（Opencode Go 的 x-opencode-session 取值来源，见 ai/preset-headers.ts）：
+  // 宿主每次发送带上当前 chat 会话 id，offscreen 挂到本轮 provider 上，本轮
+  // 全部请求（工具循环 / Map-Reduce / 重试 / 截断重跑）共用同一个会话标识。
+  conversationId?: string;
   // 联网搜索管线（spec §2.1）：宿主「联网」toggle 全局记忆，offscreen 据此决定
   // 是否解析搜索配置并注入 tools；Map-Reduce 归约轮由 ladder 静默禁用 + notice。
   webSearchEnabled?: boolean;

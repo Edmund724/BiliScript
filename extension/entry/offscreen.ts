@@ -269,7 +269,12 @@ chrome.runtime.onConnect.addListener((port) => {
           provider: {
             ...provider,
             apiKey,
-            ...(msg.model ? { model: String(msg.model) } : {})
+            ...(msg.model ? { model: String(msg.model) } : {}),
+            // 平台会话头取值来源（Opencode Go 的 x-opencode-session，见
+            // ai/preset-headers.ts）：宿主带的会话身份挂进本轮 provider，阶梯下
+            // 游（ladder/streamChat/map-reduce/tool-loop）原样透传，本轮所有请求
+            // 因此共用一个会话标识；未携带（旧宿主）不填，preset-headers 现造一个。
+            ...(msg.conversationId ? { sessionId: String(msg.conversationId) } : {})
           },
           port: ackedPort,
           signal: activeAbortController.signal,
