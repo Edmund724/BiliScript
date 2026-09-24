@@ -1,4 +1,4 @@
-# Chrome Web Store Listing — Bilibili-Summary｜一键总结B站视频
+# Chrome Web Store Listing — BiliScript｜B站视频文摘
 
 > Last Updated: 2026-09-24
 >
@@ -6,13 +6,13 @@
 
 ## Store Listing
 
-**Extension Name**: Bilibili-Summary｜一键总结B站视频
+**Extension Name**: BiliScript｜B站视频文摘
 
-**Short Description**: 在 B 站视频页读取带时间戳字幕，生成摘要、对话内容和可跳转笔记。
+**Short Description**: 在 B 站视频页阅读带时间戳字幕，生成摘要与 AI 对话。
 
 **Detailed Description**:
 
-Bilibili-Summary 在 B 站视频页右侧打开 Digest 阅读面板，让你一边看视频，一边读取逐句字幕、章节和 AI 摘要。点击视频播放器下方的 Digest 按钮，或点击浏览器工具栏上的扩展图标——两个入口完全等价，打开的是同一个页面内阅读面板。设置、字幕、概览、AI 对话和笔记都在这个面板内。
+BiliScript 在 B 站视频页右侧打开文摘阅读面板，让你一边看视频，一边读取逐句字幕、章节和 AI 摘要。点击视频播放器下方的文摘按钮，或点击浏览器工具栏上的扩展图标——两个入口完全等价，打开的是同一个页面内阅读面板。设置、字幕、概览、AI 对话和笔记都在这个面板内。
 
 你可以按时间跳转字幕，搜索当前句，复制或下载 Markdown、SRT 和 TXT；也可以保存带时间戳的笔记。概览会整理章节、重点引用和完整笔记。AI 对话能围绕当前视频追问，并使用你配置的模型；选中字幕后，可以继续请求讲解、翻译或润色。可选开启联网搜索后，模型在需要视频之外的信息时可自行查询，回答中给出搜索时间线、来源链接与内联引用；该功能默认关闭，需要用户自行配置搜索平台（Tavily / Exa / Brave Search）。
 

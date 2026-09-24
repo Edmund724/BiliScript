@@ -1,8 +1,8 @@
-# Bilibili-Summary｜一键总结 B 站视频
+# BiliScript｜B 站视频文摘
 
 > 本项目基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper) 二次修改，沿用原仓库的 MIT License。UI 设计参考了 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)。
 
-一个开源的浏览器扩展，在 B 站视频页右侧的 Digest 阅读面板中提供字幕阅读、AI 总结、内容讲解和时间戳笔记，不用离开视频页面。
+一个开源的浏览器扩展，在 B 站视频页右侧的文摘阅读面板中提供字幕阅读、AI 总结、内容讲解和时间戳笔记，不用离开视频页面。
 
 API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 ModelScope 都提供免费额度，日常使用基本够用。项目本身不送 Key，也不经手中转你的请求。
 

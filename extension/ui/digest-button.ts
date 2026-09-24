@@ -1,4 +1,4 @@
-// ui/digest-button.ts — 播放页工具栏「Digest」按钮（统一 Digest 阅读模式 PR1，
+// ui/digest-button.ts — 播放页工具栏「文摘」按钮（统一 Digest 阅读模式 PR1，
 // 工单 .scratch/tickets/digest-reader/issues/04-digest-button-anchor.md）。
 //
 // 装载模式仿 ai/player-ai.ts 的惰性域模块：经 ui/lazy-digest-button.ts 动态
@@ -362,9 +362,9 @@ function createDigestButton(): HTMLButtonElement {
   const button = document.createElement("button");
   button.id = DIGEST_BUTTON_ID;
   button.type = "button";
-  button.textContent = "Digest";
-  button.title = "用 AI 总结这期视频";
-  button.setAttribute("aria-label", "用 AI 总结这期视频");
+  button.textContent = "文摘";
+  button.title = "阅读这期视频的字幕与文摘";
+  button.setAttribute("aria-label", "阅读这期视频的字幕与文摘");
   button.setAttribute("data-boc-extension-node", "digest-button");
   button.addEventListener("click", handleDigestButtonClick);
   return button;
