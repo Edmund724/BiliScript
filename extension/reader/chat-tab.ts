@@ -36,7 +36,8 @@
 //     解释卡片「去对话追问」/概览笔记按钮触达 seam）才 init；
 //   - 关闭阅读模式即断流（closeReadingView → closeChatSession：resetStreamState
 //     断 port、pending 的 subtitle-wait 立即失效、摘全局触发源）；重开从会话
-//     历史恢复（激活路径 loadContextState → restoreLatest → renderInitialState）；
+//     历史恢复（激活路径 loadProvidersAndPrefs → loadContextState → restoreLatest
+//     → renderInitialState）；
 //     对话 tab 的流式中关闭不做后台续跑（connectPort 的 closed 闸兜底）。
 //
 // 测试注意：els 在模块求值时解析（对话 tab 只在面板壳存在后装载，与 sidepanel

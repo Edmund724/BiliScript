@@ -158,10 +158,15 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   }
 }
 
-// 重开/重进的恢复路径（工单 08：重开从会话历史恢复）：静默重取上下文（签名
-// 短路便宜）→ 恢复匹配当前上下文的最近会话 → 按会话历史重渲消息区（顺带清掉
-// 关闭时残留的流式半截节点）。
+// 重开/重进的恢复路径（工单 08：重开从会话历史恢复）：重取平台/偏好（会话关闭
+// 期间存储变更 watcher 已随触发源摘下，设置抽屉里的新增平台只能在此补读）→
+// 静默重取上下文（签名短路便宜）→ 恢复匹配当前上下文的最近会话 → 按会话历史
+// 重渲消息区（顺带清掉关闭时残留的流式半截节点）。
 async function restoreChatSession(): Promise<void> {
+  // 与 init / 外部变更刷新同口径三件：平台列表 + 模型 chip + 档位提示。
+  await loadProvidersAndPrefs().catch(() => null);
+  modelPanel.renderChip();
+  updateThinkingHint();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
     return;

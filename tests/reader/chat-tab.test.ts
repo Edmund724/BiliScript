@@ -80,6 +80,16 @@ interface FakePort {
 }
 const ports: FakePort[] = [];
 
+// 平台列表（ai-providers-list 的响应源，用例内可变）与 storage.onChanged 监听
+// 收集：模拟「设置抽屉新增平台 → SW 写 storage.sync.aiProviders → 存储事件派发
+// 到 content」。beforeEach 复位。
+type StorageListener = (changes: Record<string, unknown>, areaName: string) => void;
+let providerList: Array<Record<string, unknown>> = [];
+const storageListeners = new Set<StorageListener>();
+function fireStorageChange(changes: Record<string, unknown>, areaName: string): void {
+  [...storageListeners].forEach((listener) => listener(changes, areaName));
+}
+
 type Sendstub = ReturnType<typeof vi.fn>;
 function stubChromeByType(): void {
   const chromeStub = window.chrome as unknown as {
@@ -93,7 +103,7 @@ function stubChromeByType(): void {
   chromeStub.runtime.sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
     const type = String(message?.type || "");
     if (type === "ai-providers-list") {
-      callback?.({ ok: true, providers: [{ id: "p1", name: "平台一", model: "模型一", enabled: true }] });
+      callback?.({ ok: true, providers: providerList });
     } else if (type === "get-settings") {
       callback?.({ ok: true, settings: {} });
     } else {
@@ -118,6 +128,12 @@ function stubChromeByType(): void {
   chromeStub.storage.local.get = vi.fn(async () => ({}));
   chromeStub.storage.local.set = vi.fn(async () => {});
   chromeStub.storage.sync.set = vi.fn(async () => {});
+  chromeStub.storage.onChanged.addListener = vi.fn((listener: StorageListener) => {
+    storageListeners.add(listener);
+  });
+  chromeStub.storage.onChanged.removeListener = vi.fn((listener: StorageListener) => {
+    storageListeners.delete(listener);
+  });
 }
 
 // 等待异步链落定（轮询直到 predicate 成立或超时）——发送流程跨多层 await，
@@ -160,6 +176,8 @@ beforeEach(async () => {
   document.documentElement.removeAttribute("data-biliscript-reader-mode");
   document.body.removeAttribute("data-biliscript-reader-mode");
   ports.length = 0;
+  storageListeners.clear();
+  providerList = [{ id: "p1", name: "平台一", model: "模型一", enabled: true }];
   await loadShell();
   stubChromeByType();
   statusBus.publishSubtitleStatusPhase("idle");
@@ -566,6 +584,29 @@ describe("断流收口（工单 08：关闭即断流，重开从会话历史恢�
     statusBus.publishSubtitleStatusPhase("asr-transcribing");
     expect((document.getElementById(ids.readingChatAsrNotice) as HTMLElement).hidden).toBe(false);
     statusBus.publishSubtitleStatusPhase("idle");
+  });
+
+  it("关闭期间新增平台：重开激活刷新平台列表（模型选择器纳入新平台）", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const modelSelect = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
+    expect(modelSelect.value).toBe("p1\u0001模型一");
+
+    chat.closeChatSession();
+
+    // 关闭期间（设置抽屉在会话关闭态下新增平台）：存储事件已无订阅者，
+    // 恢复路径必须自己重取平台列表。
+    const next = [
+      { id: "p1", name: "平台一", model: "模型一", enabled: true },
+      { id: "p2", name: "平台二", models: ["模型二"], enabled: true }
+    ];
+    providerList = next;
+    fireStorageChange({ aiProviders: { newValue: next, oldValue: [next[0]] } }, "sync");
+
+    await chat.ensureChatTabActivated();
+
+    expect(Array.from(modelSelect.options).map((option) => option.value)).toContain("p2\u0001模型二");
   });
 });
 
