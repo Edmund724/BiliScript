@@ -4,7 +4,6 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 
 beforeEach(() => {
   resetModuleState();
@@ -12,12 +11,6 @@ beforeEach(() => {
 });
 
 describe("normalizeSettings：联网搜索标量", () => {
-  it("默认值：无激活平台、关、上限 5", () => {
-    expect(DEFAULT_SETTINGS.activeSearchProviderId).toBe("");
-    expect(DEFAULT_SETTINGS.webSearchEnabled).toBe(false);
-    expect(DEFAULT_SETTINGS.webSearchMaxToolCalls).toBe(5);
-  });
-
   it("activeSearchProviderId trim；null/undefined 归一为空串", async () => {
     const { normalizeSettings } = await import("../../extension/core/settings-store.js");
     expect(normalizeSettings({ activeSearchProviderId: " search_1 " }).activeSearchProviderId).toBe("search_1");

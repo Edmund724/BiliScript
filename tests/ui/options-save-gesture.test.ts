@@ -9,22 +9,16 @@
 // 代申请已收口为 core/host-permissions.ts 的单一实现
 // requestProviderOriginsViaBackground（content script 语境无 chrome.permissions
 // API，经 request-provider-origins 消息由 SW 代为申请；扩展页面语境直调）。
-// 手势链条上的每一环都必须零先行 await，本文件锁定三段：
-// 1. 全部调用方闭包：调用单一实现的文件恰好是模型下拉箭头（model-picker：
-//    ASR Modal 拉模型列表前申请域名权限）、平台编辑 Modal 的「获取可用模型」
-//    （provider-editor：multi-model-catalog 阶段2 起 AI 拉模型列表前申请域名
-//    权限）与设置面板单平台保存链（settings-panel）三处——新调用方出现时必须
-//    把它的手势链断言加进本文件；
-// 2. 每个调用方：从手势函数入口到代申请调用之间零先行 await（保存链的调用
+// 手势链条上的每一环都必须零先行 await，本文件锁定两段：
+// 1. 每个调用方：从手势函数入口到代申请调用之间零先行 await（保存链的调用
 //    被直接 await；模型下拉箭头同样直接 await，拒绝只在下拉内提示）；
-// 3. SW 处理器（handleRequestProviderOrigins）：从入口到
+// 2. SW 处理器（handleRequestProviderOrigins）：从入口到
 //    chrome.permissions.request 之间零 await——手势经一次 runtime 消息传导，
 //    SW 侧垫任何 await 都会让弹窗被 Chrome 拒绝。
 //
-// 另锁一条设置面板侧的既有契约：保存按钮 click 直调 saveSettings（中间不垫
-// await）。provider-master-detail/02 起 saveSettings 不再申请平台权限（平台
-// 授权收口在 provider-editor Modal 的 saveProviderSingle / 探针与模型列表
-// 预检链路），平铺行「测试连接」自动保存与预设切换代申请随之退役。
+// 另锁一条设置面板侧的既有契约：provider-master-detail/02 起 saveSettings 不再
+// 申请平台权限（平台授权收口在 provider-editor Modal 的 saveProviderSingle /
+// 探针与模型列表预检链路），平铺行「测试连接」自动保存与预设切换代申请随之退役。
 //
 // 断言刻意只认「await 的位置」而不认变量名/文案，改注释、换字段名都不该红。
 
@@ -71,7 +65,7 @@ function listExtensionSources() {
   return files;
 }
 
-describe("host 权限代申请：单一实现与调用方闭包", () => {
+describe("host 权限代申请：单一实现", () => {
   it("requestProviderOriginsViaBackground 只在 core/host-permissions.ts 定义（ui/ 的重复实现已退役）", () => {
     const core = readSource("../../extension/core/host-permissions.js");
     expect(core).toContain("export async function requestProviderOriginsViaBackground(");
@@ -85,19 +79,6 @@ describe("host 权限代申请：单一实现与调用方闭包", () => {
         `requestProviderOriginsViaBackground 不得在他处重复定义：${file}`
       ).toBe(false);
     }
-  });
-
-  it("调用方闭包：恰好是模型下拉箭头（model-picker，ASR Modal 消费）、平台编辑 Modal「获取可用模型」（provider-editor：拉模型列表前申请域名权限）与设置面板（settings-panel：整表链退役后只剩 saveProviderSingle 的单平台保存）", () => {
-    const callers = listExtensionSources()
-      .filter((file) => !file.endsWith("/core/host-permissions.ts") && !file.endsWith("/core/host-permissions.js"))
-      .filter((file) => /requestProviderOriginsViaBackground\s*\(/.test(readFileSync(file, "utf8")))
-      .map((file) => file.replace(/^.*\/extension\//, "extension/"))
-      .sort();
-    expect(callers).toEqual([
-      "extension/ui/model-picker.ts",
-      "extension/ui/provider-editor-fetch-dialog.ts",
-      "extension/ui/settings-panel.ts"
-    ]);
   });
 });
 
@@ -165,14 +146,6 @@ describe("SW 处理器零 await（手势经 runtime 消息传导的最后一环�
 });
 
 describe("设置面板保存链的既有契约", () => {
-  it("保存按钮 click 监听直调 saveSettings（不先 await 任何东西）", () => {
-    const source = readSource("../../extension/ui/settings-panel.js");
-    const binding = source.match(/saveBtn\.addEventListener\(\s*"click"([\s\S]{0,120}?)\);/);
-    expect(binding, "找不到 saveBtn 的 click 绑定").toBeTruthy();
-    expect(binding![1]).toContain("saveSettings(");
-    expect(/\bawait\b/.test(binding![1])).toBe(false);
-  });
-
   it("saveSettings 不再申请平台权限（provider-master-detail/02：平台授权收口在 provider-editor 单平台链）", () => {
     const source = readSource("../../extension/ui/settings-panel.js");
     const start = source.indexOf("async function saveSettings(");

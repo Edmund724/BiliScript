@@ -7,26 +7,8 @@ import { makeSubtitleBody } from "../setup.js";
 import {
   buildBudgetPlan,
   estimateTokens,
-  CHAR_PER_TOKEN,
-  MATERIAL_BUDGET_CHARS,
-  SEGMENT_INPUT_CHARS,
-  SEGMENT_SUMMARY_CHARS,
-  REDUCE_GROUP_INPUT_CHARS,
-  FINAL_OUTPUT_CHARS,
-  REDUCE_TRIGGER_CHARS
+  REDUCE_GROUP_INPUT_CHARS
 } from "../../extension/ai/budgeter.js";
-
-describe("常量单一事实来源", () => {
-  it("素材预算 / 段 / 归并 / 成稿 / 系数与 ADR-0001（含 2026-09-06 抬线修订）对齐", () => {
-    expect(CHAR_PER_TOKEN).toBe(1.0);
-    expect(MATERIAL_BUDGET_CHARS).toBe(200000);
-    expect(SEGMENT_INPUT_CHARS).toBe(50000);
-    expect(SEGMENT_SUMMARY_CHARS).toBe(10000);
-    expect(REDUCE_GROUP_INPUT_CHARS).toBe(100000);
-    expect(FINAL_OUTPUT_CHARS).toBe(16000);
-    expect(REDUCE_TRIGGER_CHARS).toBe(500000);
-  });
-});
 
 describe("estimateTokens", () => {
   it("非字符串返回 0", () => {

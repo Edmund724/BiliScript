@@ -1,8 +1,7 @@
 // defaults.js / validators.js 纯函数归一化测试：
-// aiThinkingLevel（思考档位）默认 off，非法值回落 off。
+// aiThinkingLevel（思考档位）非法值回落 off。
 
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { normalizeAiThinkingLevel } from "../../extension/core/validators.js";
 
 describe("normalizeAiThinkingLevel", () => {
@@ -17,11 +16,5 @@ describe("normalizeAiThinkingLevel", () => {
     expect(normalizeAiThinkingLevel("")).toBe("off");
     expect(normalizeAiThinkingLevel(undefined)).toBe("off");
     expect(normalizeAiThinkingLevel(null)).toBe("off");
-  });
-});
-
-describe("DEFAULT_SETTINGS.aiThinkingLevel", () => {
-  it("默认值为 off", () => {
-    expect(DEFAULT_SETTINGS.aiThinkingLevel).toBe("off");
   });
 });

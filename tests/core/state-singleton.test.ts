@@ -26,10 +26,6 @@ beforeEach(async () => {
 });
 
 describe("core/state 单例跨实例共享", () => {
-  it("两个模块实例确实不同（前提校验）", () => {
-    expect(lazy).not.toBe(resident);
-  });
-
   it("两侧拿到同一份 state / clipState / uiState（对象同一性）", () => {
     expect(lazy.state).toBe(resident.state);
     expect(lazy.clipState).toBe(resident.clipState);

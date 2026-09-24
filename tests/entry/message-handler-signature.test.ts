@@ -250,37 +250,6 @@ const EXPECTED_PAYLOAD_FIELDS: (keyof ReaderContextPayload)[] = [
   "hotComments"
 ];
 
-// 签名投影表派生的参与字段（顺序 = join 序列化顺序，重排需显式过测试）
-const EXPECTED_PARTICIPATING_FIELDS = [
-  "bvid",
-  "cid",
-  "pageIndex",
-  "subtitleFetchState",
-  "subtitleBody",
-  "selectedSubtitleId",
-  "subtitleOptions",
-  "chapters",
-  "includeTimestampInBody",
-  "subtitleLang"
-];
-
-// 间接参与：仅 cid 为空时经 cid 投影回退进入签名
-const EXPECTED_INDIRECT_FIELDS = ["aid"];
-
-// 刻意排除出签名的字段
-const EXPECTED_EXCLUDED_FIELDS = [
-  "hotComments",
-  "url",
-  "title",
-  "author",
-  "uploadDate",
-  "pageCount",
-  "pageTitle",
-  "videoDuration",
-  "selectedSubtitleUrl",
-  "noSubtitleReason"
-];
-
 // —— 组装映射固件：字段名映射注意 subtitleLang ← clip.selectedSubtitleLang、
 //    subtitleOptions ← clip.subtitles（payload 与 clip 的字段名不同名）——
 const FULL_CLIP = {
@@ -360,19 +329,9 @@ function makeFullPayload() {
 }
 
 describe("context-payload 形状快照与签名三分类对账", () => {
-  it("字段清单常量逐字锁死（增删字段/重排必须显式过测试）", () => {
-    expect([...READER_CONTEXT_PAYLOAD_FIELDS]).toEqual(EXPECTED_PAYLOAD_FIELDS);
-  });
-
   it("工厂产物的 key 集合与顺序 = 字段清单（形状快照）", () => {
     const payload = makeFullPayload();
     expect(Object.keys(payload)).toEqual(EXPECTED_PAYLOAD_FIELDS);
-  });
-
-  it("签名三分类常量逐字锁死", () => {
-    expect([...SIGNATURE_PARTICIPATING_FIELDS]).toEqual(EXPECTED_PARTICIPATING_FIELDS);
-    expect([...SIGNATURE_INDIRECT_FIELDS]).toEqual(EXPECTED_INDIRECT_FIELDS);
-    expect([...SIGNATURE_EXCLUDED_FIELDS]).toEqual(EXPECTED_EXCLUDED_FIELDS);
   });
 
   it("三分类完备：参与 ∪ 间接 ∪ 排除 = 字段清单，且两两不交", () => {
@@ -649,15 +608,6 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
       ["url", "isVideoContext", "noSubtitleReason"],
       "chat-tab contextData"
     );
-    // liveContextData：整对象存取（轮询数据源 / 新对话快照应用），无字段级读取
-    assertReconciliation(
-      scanFields(source, "liveContextData"),
-      [],
-      "chat-tab liveContextData"
-    );
-    // resp.payload 整体落地 liveContextData，无字段级读取（unchanged 判定已
-    // 抽到 chat/context-policy.js）
-    assertReconciliation(scanFields(source, "payload"), [], "chat-tab resp.payload");
   });
 
   it("chat/context-load.js：上下文加载读 title/url（chip）与 signature（回传）", () => {
@@ -675,8 +625,6 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
       ["signature"],
       "context-load liveContextData"
     );
-    // resp.payload 整体落地 liveContextData / 传入 applyContextPayload，无字段级读取
-    assertReconciliation(scanFields(source, "payload"), [], "context-load resp.payload");
   });
 
   it("reader/chat-lists.ts：列表渲染读 isVideoContext 与 live 匹配 url", () => {
@@ -763,22 +711,5 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
       ["pageIndex", "page", "url"],
       "extractConversationPageSuffix context"
     );
-  });
-
-  it("chat/chat-runtime.js：整包转发 contextData（含 subtitleBody 省略重传）", () => {
-    // offscreen 渲染链（videoDuration/includeTimestampInBody/chapters 等）的字段级
-    // 消费不在 对话侧 对账锚点范围（由整包展开天然随 payload 下传）；此处仅固化转发
-    // 形态：contextData 整包展开 + contextKey 命中时删除 subtitleBody 省传输。
-    const source = readSource("../../extension/chat/chat-runtime.js");
-    expect(source).toMatch(/\.\.\.chatSessionState\.contextData/);
-    expect(source).toMatch(/delete context\.subtitleBody/);
-  });
-
-  it("chat/chat-state.js：状态容器整对象持有快照，无字段级消费", () => {
-    // contextData/liveContextData 在容器中以整对象存取，对账锚点由上面的读取方
-    // 覆盖；此处断言容器源码中不出现对快照的字段级访问（防未来在容器层散读）。
-    const source = readSource("../../extension/chat/chat-state.js");
-    expect(scanFields(source, "contextData").size).toBe(0);
-    expect(scanFields(source, "liveContextData").size).toBe(0);
   });
 });

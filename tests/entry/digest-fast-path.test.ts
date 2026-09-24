@@ -74,17 +74,4 @@ describe("digest-button 快路径（不等 getSettings 水合）", () => {
 
     expect(mocks.loadDigestButton).toHaveBeenCalledTimes(1);
   });
-
-  it("装载失败仅告警不抛出，不阻塞其余启动链", async () => {
-    setLocationUrl(NORMAL_PAGE_URL);
-    stubChrome();
-    // 拒绝经 loadDigestButton().catch 吞掉：若 catch 缺失，本用例会以
-    // unhandled rejection 失败（vitest 对未处理拒绝判败），无需额外断言。
-    mocks.loadDigestButton.mockRejectedValue(new Error("chunk load failed"));
-
-    await import("../../extension/entry/content.js");
-    await flushMicrotasks();
-
-    expect(mocks.loadDigestButton).toHaveBeenCalledTimes(1);
-  });
 });

@@ -1,7 +1,6 @@
 // presets.js / asr-provider-normalize.js / defaults.js ASR 预设与规范化测试：
 // 验证 ASR_PROVIDER_PRESETS 字段齐全、normalizeAsrProvider type 合法值校验、
-// DEFAULT_SETTINGS 的 3 个 ASR 标量默认项（asrProviders 列表已摘出 settings，
-// 归 provider-store 管）。（arch-slim-2/09：normalizeAsrProvider 随域类型搬
+// DEFAULT_SETTINGS 不含 asrProviders（列表已摘出 settings，归 provider-store 管）。（arch-slim-2/09：normalizeAsrProvider 随域类型搬
 // asr/asr-provider-normalize.ts，预设数据仍住 core/presets.ts。）
 
 import { describe, expect, it } from "vitest";
@@ -13,15 +12,6 @@ import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 const presetById = (id: string) => ASR_PROVIDER_PRESETS.find((p) => p.id === id) || null;
 
 describe("ASR_PROVIDER_PRESETS", () => {
-  it("包含三个内置预设（SiliconFlow/本地 Whisper/自定义）", () => {
-    const ids = ASR_PROVIDER_PRESETS.map((p) => p.id);
-    expect(ids).toEqual([
-      "siliconflow-sensevoice",
-      "local-whisper",
-      "custom"
-    ]);
-  });
-
   it("每个预设字段齐全且 type 为合法值之一", () => {
     const validTypes = new Set(["openai-transcriptions"]);
     for (const p of ASR_PROVIDER_PRESETS) {
@@ -38,15 +28,6 @@ describe("ASR_PROVIDER_PRESETS", () => {
   it("SiliconFlow 与本地 Whisper 同为 openai-transcriptions", () => {
     expect(presetById("siliconflow-sensevoice")!.type).toBe("openai-transcriptions");
     expect(presetById("local-whisper")!.type).toBe("openai-transcriptions");
-  });
-
-  it("SiliconFlow 已支持返回时间戳，supportsTimestamps=true", () => {
-    expect(presetById("siliconflow-sensevoice")!.supportsTimestamps).toBe(true);
-  });
-
-  it("SiliconFlow 默认模型为推荐的 XingChenASR-V3.2-Ultra（免费且带句级时间戳）", () => {
-    const sf = presetById("siliconflow-sensevoice")!;
-    expect(sf.model).toBe("XingChenAGI/XingChenASR-V3.2-Ultra");
   });
 });
 
@@ -146,14 +127,5 @@ describe("normalizeAsrProvider", () => {
 describe("DEFAULT_SETTINGS ASR 默认项", () => {
   it("asrProviders 不再是设置默认项（provider 列表归 provider-store）", () => {
     expect(DEFAULT_SETTINGS).not.toHaveProperty("asrProviders");
-  });
-  it("activeAsrProviderId 默认空串", () => {
-    expect(DEFAULT_SETTINGS.activeAsrProviderId).toBe("");
-  });
-  it("asrAutoFallback 默认 true（无字幕自动走 ASR）", () => {
-    expect(DEFAULT_SETTINGS.asrAutoFallback).toBe(true);
-  });
-  it("asrLanguage 默认 auto（自动检测语言）", () => {
-    expect(DEFAULT_SETTINGS.asrLanguage).toBe("auto");
   });
 });

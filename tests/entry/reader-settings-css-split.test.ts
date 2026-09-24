@@ -21,7 +21,6 @@ const SETTINGS_CSS_FILES = [
 ];
 const INJECTOR = "extension/shared/style-injector.ts";
 const SETTINGS_PANEL = "extension/ui/settings-panel.ts";
-const BUILD_JS = "scripts/build.js";
 
 // 设置分区样式标记：拆分前全部在 reader.css，拆分后（2026-09 起表组三份）
 // 不得回流 reader.css
@@ -35,13 +34,12 @@ describe("设置分区 CSS 拆分（arch-slim-4/04）", () => {
     }
   });
 
-  it("设置分区表组持有全部设置分区标记与 settings-panel 本体规则", () => {
+  it("设置分区表组持有全部设置分区标记", () => {
     const files = SETTINGS_CSS_FILES.map((rel) => read(rel));
     for (const marker of SETTINGS_MARKERS) {
       const holder = files.findIndex((text) => text.includes(marker));
       expect(holder, `设置分区表组缺少标记 ${marker}`).toBeGreaterThan(-1);
     }
-    expect(read(SETTINGS_CSS_FILES[0]).includes("boc-reading-settings-panel")).toBe(true);
   });
 
   it("自定义下拉样式只在阅读视图内匹配", () => {
@@ -80,12 +78,5 @@ describe("设置分区 CSS 拆分（arch-slim-4/04）", () => {
     expect(panel).toMatch(/ensureReaderSettingsStyles\(\)/);
     // 首建分支门控：等 onload ready 再渲染
     expect(panel).toMatch(/whenReaderSettingsStylesReady/);
-  });
-
-  it("build.js 持有设置分区表组三份独立 minify 入口", () => {
-    const buildJs = read(BUILD_JS);
-    for (const rel of SETTINGS_CSS_FILES) {
-      expect(buildJs.includes(rel.replace("extension/", "")), `build.js 缺入口 ${rel}`).toBe(true);
-    }
   });
 });

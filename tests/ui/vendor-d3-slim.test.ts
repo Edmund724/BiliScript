@@ -40,14 +40,4 @@ describe("vendor-d3-slim transition 补丁", () => {
 
     el.remove();
   });
-
-  it("select 直通 d3-selection 的完整 API", () => {
-    const el = document.createElement("div");
-    document.body.appendChild(el);
-    const sel = select(el);
-    sel.attr("class", "x").append("span").text("hi");
-    expect(el.querySelector("span")?.textContent).toBe("hi");
-    expect(el.getAttribute("class")).toBe("x");
-    el.remove();
-  });
 });

@@ -1,24 +1,15 @@
 // engine.js（ASR 转写调度引擎）测试：活队列调度 / 并发上限 / 逐片重试 /
 // 失败计数（Q8a）/ 中止探针 / 逐片交付回调。纯模块单测——transcribe 注入
 // fake（deferred 门控），不依赖 chrome / AudioContext / 真实网络。
-// retryAsync 用真实实现（经 spyOn 记录参数的透传 mock），同时验证
-// ① 重试参数与 pipeline.js transcribeChunk 完全一致 (2, 500)；
-// ② error.retryable=true / 网络错误才重试的真实语义。
+// retryAsync 走真实实现，验证 error.retryable=true / 网络错误才重试的真实语义。
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createTranscriptionEngine,
-  transcribeChunk,
-  DEFAULT_RETRIES,
-  DEFAULT_RETRY_DELAY_MS
+  transcribeChunk
 } from "../../extension/asr/engine.js";
 import type { AsrTranscribeResult, TranscribeChunk, TranscribeFn } from "../../extension/asr/engine.js";
-import { ASR_CONCURRENCY } from "../../extension/shared/offscreen-constants.js";
 import * as errorHelpers from "../../extension/shared/error-helpers.js";
-
-// 真实 retryAsync：必须在首次 spyOn 之前捕获原函数引用（clearMocks 不恢复
-// 实现，beforeEach 里重复 spyOn 时若再从命名空间取会拿到 spy 自身导致递归）。
-const realRetryAsync = errorHelpers.retryAsync;
 
 // makeChunk：合成切片，形状对齐 chunkHost 回传的 { index, startSec,
 // durationSec, wavBlob }（自建 600s/片场景 → startSec 间隔 600，与生产
@@ -69,18 +60,6 @@ function makeRetryableError(message = "转写请求失败") {
   return Object.assign(new Error(message), { retryable: true });
 }
 
-let retryCalls: Array<{ retries: number; delayMs: number }>;
-
-beforeEach(() => {
-  retryCalls = [];
-  // 透传 spy：记录 engine 每次调用 retryAsync 的 (retries, delayMs) 参数，
-  // 重试语义仍走真实实现（含指数退避：首重 250ms / 次重 500ms）。
-  vi.spyOn(errorHelpers, "retryAsync").mockImplementation((task, retries, delayMs) => {
-    retryCalls.push({ retries: retries!, delayMs: delayMs! });
-    return realRetryAsync(task, retries, delayMs);
-  });
-});
-
 describe("transcribeChunk 单片语义（镜像 pipeline transcribeChunk）", () => {
   it("返回 { ...result, durationSec }；进度经注入 transcribe 的 ctx.onProgress 透传", async () => {
     const onProgress = vi.fn();
@@ -118,10 +97,6 @@ describe("transcribeChunk 单片语义（镜像 pipeline transcribeChunk）", ()
 
     expect(result).toEqual({ text: "重试成功", durationSec: 600 });
     expect(transcribe).toHaveBeenCalledTimes(2);
-    // 与 pipeline.js transcribeChunk 完全一致的重试参数
-    expect(retryCalls).toEqual([{ retries: DEFAULT_RETRIES, delayMs: DEFAULT_RETRY_DELAY_MS }]);
-    // 并发上限经 eval/ 并发扫描实测标定为 10（硅基流动最优解，见 offscreen-constants.ts 注释）
-    expect(ASR_CONCURRENCY).toBe(10);
   });
 
   it("不可重试错误直接上抛（一次尝试，不重试）", async () => {

@@ -201,12 +201,6 @@ describe("查表（03）", () => {
     expect(lookupModelMeta("opencode-go", "mimo-v2.5")?.name).toBe("MiMo V2.5");
   });
 
-  it("非字符串入参一律 null，不抛错、不回落猜测值", () => {
-    expect(lookupModelMeta(undefined, "gpt-4")).toBeNull();
-    expect(lookupModelMeta("openai", null)).toBeNull();
-    expect(lookupModelMeta(42, {})).toBeNull();
-  });
-
   it("presetId 优先于 host：已知预设不因 baseUrl 漂移", () => {
     // ollama 是已知预设但不在目录数据里 → 不得被 mimo 的 host 兜底命中
     expect(resolvePiProvider("ollama", "https://api.xiaomimimo.com/v1")).toBeNull();

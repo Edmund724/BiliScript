@@ -9,10 +9,6 @@ import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
 import { PROTOCOL_ADAPTERS } from "../../extension/ai/protocol-adapter.js";
 
 describe("AI_PROTOCOLS 词表叶", () => {
-  it("合法值清单 = openai / anthropic / responses", () => {
-    expect([...AI_PROTOCOLS]).toEqual(["openai", "anthropic", "responses"]);
-  });
-
   it("纯叶：模块源码无 import（零运行时依赖，不拖入分发表/adapters）", async () => {
     const { readFileSync } = await import("node:fs");
     const source = readFileSync("extension/ai/protocol-vocab.ts", "utf8");

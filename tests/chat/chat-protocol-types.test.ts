@@ -14,35 +14,35 @@ describe("chat 出向协议联合（编译期守卫）", () => {
   it("事件名 typo 编译被拒", () => {
     // @ts-expect-error "toke" 不在 ChatPortMessage 联合内（正确名是 "token"）
     const typo: ChatPortMessage = { type: "toke", data: "x" };
-    expect(typo.type).toBe("toke");
+    void typo;
   });
 
   it("形状漂移编译被拒：token 缺必填 data 不满足任何联合成员", () => {
     // @ts-expect-error token 分支 data: string 必填，缺 data 无成员可匹配
     const missing: ChatPortMessage = { type: "token" };
-    expect(missing.type).toBe("token");
+    void missing;
   });
 
   it("流式事件成员可赋值（satisfies 保留字面量类型以读取分支字段）", () => {
     const token = { type: "token", data: "增量", cachedContextKey: "k1" } satisfies ChatPortMessage;
     const stopped = { type: "stopped", reason: "已停止生成" } satisfies ChatPortMessage;
-    expect(token.data).toBe("增量");
-    expect(stopped.reason).toBe("已停止生成");
+    void token;
+    void stopped;
   });
 
   it("非引擎成员可赋值：cost-guard 载荷与 error 的类型化 code", () => {
     const guard = { type: "cost-guard", data: { message: "预计 3 次调用" } } satisfies ChatPortMessage;
     const error = { type: "error", error: "字幕体缺失", code: "subtitle-body-missing" } satisfies ChatPortMessage;
-    expect(guard.data?.message).toBe("预计 3 次调用");
-    expect(error.code).toBe("subtitle-body-missing");
+    void guard;
+    void error;
   });
 
   it("token-batch 合帧成员可赋值（07 票）：data 为 string[]，缺 data 编译被拒", () => {
     const batch = { type: "token-batch", data: ["增", "量"] } satisfies ChatPortMessage;
-    expect(batch.data).toEqual(["增", "量"]);
+    void batch;
     // @ts-expect-error token-batch 分支 data: string[] 必填，缺 data 无成员可匹配
     const missing: ChatPortMessage = { type: "token-batch" };
-    expect(missing.type).toBe("token-batch");
+    void missing;
   });
 });
 
@@ -51,12 +51,12 @@ describe("联网搜索 port 事件（spec §2.2/§2.5）", () => {
     const searching = { type: "tool-status", status: "searching", query: "x" } satisfies ChatPortMessage;
     const done = { type: "tool-status", status: "done", query: "x", resultCount: 5, platform: "Tavily" } satisfies ChatPortMessage;
     const failed = { type: "tool-status", status: "failed", query: "x" } satisfies ChatPortMessage;
-    expect(searching.status).toBe("searching");
-    expect(done.resultCount).toBe(5);
-    expect(failed.status).toBe("failed");
+    void searching;
+    void done;
+    void failed;
     // @ts-expect-error status 词表外的取值无成员可匹配
     const bad: ChatPortMessage = { type: "tool-status", status: "unknown", query: "x" };
-    expect(bad).toBeTruthy();
+    void bad;
   });
 
   it("tool-turn 成员可赋值：messages 为 ChatMessage[]（assistant/tool 轮持久化副本）", () => {

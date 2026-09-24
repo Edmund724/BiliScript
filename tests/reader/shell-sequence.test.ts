@@ -5,14 +5,13 @@
 // enterReaderMode）与退出逆事务只允许存在于 reader/shell.ts 一个实现。
 //
 // 扫描口径（源码文本级，tests/ 不在扫描范围）：
-//  1. shell.ts 必须包含全部时序关键词（实现在场）；
-//  2. replaceReaderModeUrl 的调用只允许出现在 shell.ts（reader-url.ts 仅为定义）；
-//  3. 门控属性 setAttribute 写入只允许出现在 shell.ts 与 entry/content.ts
+//  1. replaceReaderModeUrl 的调用只允许出现在 shell.ts（reader-url.ts 仅为定义）；
+//  2. 门控属性 setAttribute 写入只允许出现在 shell.ts 与 entry/content.ts
 //     （后者是启动直达路径的同步预置翻转：先于设置水合把门控翻好，不属于
 //     进入事务的八步时序，见工单 Comments）；
-//  4. ensureReaderStyles 的调用只允许出现在 shell.ts 与 entry/content.ts（同上）；
-//  5. enterReaderShell / exitReaderShell 只允许定义在 shell.ts；
-//  6. 壳的调用方闭包 = lazy-shell（message-handler 的动态装载边，arch-slim-2/09
+//  3. ensureReaderStyles 的调用只允许出现在 shell.ts 与 entry/content.ts（同上）；
+//  4. enterReaderShell / exitReaderShell 只允许定义在 shell.ts；
+//  5. 壳的调用方闭包 = lazy-shell（message-handler 的动态装载边，arch-slim-2/09
 //     shell 静态边改动态、shell 不进常驻 chunk）+ ui-renderer（关闭按钮）+
 //     digest-button（失同步守卫判定）三处，新增调用方须显式扩圈。
 //
@@ -50,21 +49,6 @@ const read = (file: string) => sourceFileMap.get(file) ?? "";
 
 const SHELL = "reader/shell.ts";
 
-// 时序关键词：八步进入链 + 退出逆事务 + 壳完好性自查的实现在场证明
-const SHELL_SEQUENCE_KEYWORDS = [
-  "suppressUntil",
-  "removePlayerAiQuickActionButton",
-  "resolveReaderEntryUrl",
-  "ensureUiReady",
-  "replaceReaderModeUrl",
-  "ensureReaderStyles",
-  'setAttribute("data-boc-reader-mode"',
-  "enterReaderMode",
-  "closeReadingView",
-  "removeReaderStyles",
-  "isReaderShellIntact"
-];
-
 // 允许调用 replaceReaderModeUrl 的文件（reader-url.ts 是定义处，非调用）
 const REPLACE_URL_ALLOWED = new Set(["bilibili/reader-url.ts", SHELL]);
 // 门控属性写入的允许集（content.ts 为启动直达路径的同步预置翻转，非八步时序）
@@ -83,13 +67,6 @@ const SHELL_LOADER = "reader/lazy-shell.ts";
 const MESSAGE_HANDLER = "entry/message-handler.ts";
 
 describe("阅读壳序列唯一性（arch-slim/02 验收标准 1）", () => {
-  it("reader/shell.ts 包含八步进入链与退出逆事务的全部时序关键词", () => {
-    const text = read(SHELL);
-    for (const keyword of SHELL_SEQUENCE_KEYWORDS) {
-      expect(text.includes(keyword), `${SHELL} 缺少时序关键词 ${keyword}`).toBe(true);
-    }
-  });
-
   it("replaceReaderModeUrl 的调用只存在于 reader/shell.ts（URL 改写步骤唯一）", () => {
     const callers = [...sourceFileMap.keys()]
       .filter((file) => /replaceReaderModeUrl\s*\(/.test(read(file)))

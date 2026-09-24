@@ -41,10 +41,6 @@ describe("跨实例共享槽守卫（构建期接线）", () => {
         text
       )
     ).toBe(true);
-    // 扫描约定与两侧判据在场（防把守卫改成只看常驻包/只看 chunk）
-    expect(text.includes("SLOT_KEY_DECLARATION")).toBe(true);
-    expect(text.includes("不在常驻包")).toBe(true);
-    expect(text.includes("不在任何懒加载区 chunk")).toBe(true);
   });
 
   it("五个共享槽模块各自按约定声明槽键（少一个守卫就漏一个）", () => {

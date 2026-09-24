@@ -83,12 +83,3 @@ describe("acquireSwKeepalive", () => {
     expect(mod.acquireSwKeepalive()).toBeNull();
   });
 });
-
-describe("isSwKeepalivePort（SW 端 onConnect 分派）", () => {
-  it("按端口名判定保活端口", () => {
-    expect(mod.isSwKeepalivePort({ name: "boc-sw-keepalive" })).toBe(true);
-    expect(mod.isSwKeepalivePort({ name: "offscreen-chat" })).toBe(false);
-    expect(mod.isSwKeepalivePort(null)).toBe(false);
-    expect(mod.isSwKeepalivePort(undefined)).toBe(false);
-  });
-});

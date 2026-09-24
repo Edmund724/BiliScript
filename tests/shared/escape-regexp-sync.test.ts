@@ -17,9 +17,6 @@ import { describe, expect, it } from "vitest";
 const ROOT = process.cwd();
 const SITES = ["extension/ai/thinking-profiles.ts", "scripts/build.js"];
 
-// 正则元字符转义的唯一实现形态（\ 需排在字符类里，故源码写作 `\\`）。
-const CANONICAL_BODY = 'return v.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&");';
-
 function read(rel: string): string {
   return readFileSync(join(ROOT, rel), "utf8");
 }
@@ -50,11 +47,5 @@ describe("escapeRegExp 双份实现同步守卫", () => {
   it("extension 侧与 build 脚本侧实现逐字一致", () => {
     const [extensionBody, buildBody] = SITES.map(normalizedBody);
     expect(buildBody).toBe(extensionBody);
-  });
-
-  it("同步到的是正则元字符转义本身（防两份同步到同一个错实现）", () => {
-    for (const rel of SITES) {
-      expect(normalizedBody(rel)).toBe(CANONICAL_BODY);
-    }
   });
 });

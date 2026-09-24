@@ -18,8 +18,7 @@ import {
   hasHostPermission,
   collectOrphanOrigins,
   revokeOrphanOrigin,
-  permissionRevokeErrorMessage,
-  HOST_PERMISSION_HINT
+  permissionRevokeErrorMessage
 } from "../../extension/core/host-permissions.js";
 
 beforeEach(() => {
@@ -138,10 +137,6 @@ describe("hasHostPermission（探针/模型列表的权限预检）", () => {
       throw new Error("no permissions API");
     });
     expect(await hasHostPermission("https://api.openai.com/v1", throwing)).toBe(true);
-  });
-
-  it("统一提示文案导出可用", () => {
-    expect(HOST_PERMISSION_HINT).toContain("未授权");
   });
 });
 

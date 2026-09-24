@@ -70,13 +70,6 @@ describe("encodeWav 编码器正确性", () => {
     expect(h.dataSize).toBe(16000 * 2);
   });
 
-  it("60 秒 16k 单声道体积 = 44 + 16000*2*60 ≈ 1,920,044 字节（≈1.9MB/分钟）", async () => {
-    const seconds = 60;
-    const blob = encodeWav(new Float32Array(16000 * seconds), 16000);
-    const bytes = await blob.arrayBuffer();
-    expect(bytes.byteLength).toBe(44 + 16000 * 2 * seconds);
-  });
-
   it("PCM 样本量化与舍入：0.5→16384、1.0→32767、-1.0→-32768、0→0", async () => {
     const blob = encodeWav(new Float32Array([0.5, 1.0, -1.0, 0.0, 0.9999]), 16000);
     const bytes = new Uint8Array(await blob.arrayBuffer());

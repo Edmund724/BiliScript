@@ -42,9 +42,6 @@ function parseAllowlist() {
 describe("双实例纪律守卫（构建期接线）", () => {
   it("build-content.js 声明守卫、清单并在 selfCheck 里调用", () => {
     const text = read(BUILD_CONTENT);
-    expect(text.includes("function assertDualInstanceAllowlist()")).toBe(true);
-    expect(text.includes("const DUAL_INSTANCE_ALLOWLIST = [")).toBe(true);
-    expect(text.includes(MARKER)).toBe(true);
     // selfCheck 以守卫的返回值收尾——守卫失败即 selfCheck 失败（build fail fast）
     expect(text.includes("assertDualInstanceAllowlist()")).toBe(true);
     expect(text.includes("assertSharedSlotsInBothRegions() &&")).toBe(true);

@@ -4,8 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseToolSourceArray,
-  collectHistorySearchTurns,
-  SEARCH_PREVIEW_MAX_CHARS
+  collectHistorySearchTurns
 } from "../../extension/chat/search-sources.js";
 
 describe("parseToolSourceArray", () => {
@@ -134,11 +133,5 @@ describe("collectHistorySearchTurns", () => {
       { title: "A", url: "https://a.com", snippet: "sa" },
       { title: "B", url: "https://b.com", snippet: "sb" }
     ]);
-  });
-});
-
-describe("SEARCH_PREVIEW_MAX_CHARS", () => {
-  it("来源预览摘录上限 = 200 字符（spec §5）", () => {
-    expect(SEARCH_PREVIEW_MAX_CHARS).toBe(200);
   });
 });

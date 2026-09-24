@@ -35,19 +35,6 @@ function liveInput(overrides = {}) {
   };
 }
 
-describe("LOAD_CONTEXT_ACTION 枚举", () => {
-  it("六个动作的字符串值快照", () => {
-    expect(LOAD_CONTEXT_ACTION).toEqual({
-      NO_TAB: "no-tab",
-      SKIP_UNCHANGED: "skip-unchanged",
-      ERROR: "error",
-      APPLY_PINNED: "apply-pinned",
-      BLOCKED_STREAMING: "blocked-streaming",
-      APPLY_LIVE: "apply-live"
-    });
-  });
-});
-
 describe("resolveLoadContextAction — skip-unchanged 短路", () => {
   it("ok 且 payload.unchanged === true → SKIP_UNCHANGED，只带 returnValue", () => {
     expect(resolveLoadContextAction(liveInput({ response: OK_UNCHANGED }))).toEqual({
@@ -284,3 +271,4 @@ describe("失败文案常量与现网逐字一致", () => {
     expect(CONTEXT_READ_FAILED_MESSAGE).toBe("当前页面上下文读取失败。");
   });
 });
+

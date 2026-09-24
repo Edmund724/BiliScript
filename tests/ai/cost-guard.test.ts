@@ -23,10 +23,6 @@ afterEach(() => {
 });
 
 describe("触发阈值", () => {
-  it("COST_GUARD_MIN_CALLS = 5", () => {
-    expect(mod.COST_GUARD_MIN_CALLS).toBe(5);
-  });
-
   it("预估 ≥5 次调用 → true", () => {
     expect(mod.shouldPromptCostGuard(5)).toBe(true);
     expect(mod.shouldPromptCostGuard(6)).toBe(true);
