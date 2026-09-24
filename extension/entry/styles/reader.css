@@ -1400,6 +1400,9 @@
 .biliscript-reading-ov-strip.is-generating {
   border-color: transparent;
   background: var(--biliscript-reader-accent-soft);
+  /* 生成中状态条只有一句进度文案（无操作按钮）：单槽居中，不与 partial/error
+   * 条的「左说事、右给按钮」对齐冲突。 */
+  justify-content: center;
 }
 
 .biliscript-reading-ov-strip.is-partial,
@@ -1411,13 +1414,6 @@
   font-size: 14px;
   line-height: 1.6;
   color: var(--biliscript-reader-text);
-}
-
-.biliscript-reading-ov-progress {
-  flex: 0 0 auto;
-  font-size: 14px;
-  color: var(--biliscript-reader-muted);
-  white-space: nowrap;
 }
 
 .biliscript-reading-ov-track {

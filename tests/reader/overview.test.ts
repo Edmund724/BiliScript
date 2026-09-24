@@ -322,6 +322,37 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(overviewText()).toContain("开场");
   });
 
+  it("生成中状态条单槽：文案全面板只出现一次，未收到进度前回落「正在生成概览…」", async () => {
+    seedClip();
+    let resolveRun!: (value: OverviewAnalysis) => void;
+    let notify!: (notice: string) => void;
+    runOverviewMock.mockImplementation(
+      (_args, deps?: { onProgress?: (notice: string) => void }) => {
+        notify = (notice) => deps?.onProgress?.(notice);
+        return new Promise<OverviewAnalysis>((resolve) => {
+          resolveRun = resolve;
+        });
+      }
+    );
+
+    const run = reader.triggerReaderOverviewGeneration();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+
+    const occurrences = () => overviewText().split("正在生成概览").length - 1;
+    // 未收到任何进度：状态条回落到固定文案；结果区占位卡已无标题，全面板只此一处
+    expect(overviewText()).toContain("正在生成概览…");
+    expect(occurrences()).toBe(1);
+    expect(overviewBody().querySelector(".biliscript-reading-placeholder-title")).toBeNull();
+
+    // 单发路径流式进度：进度文案替换回落文案，而非与之并列
+    notify("正在生成概览…（已接收 1195 字）");
+    expect(overviewText()).toContain("正在生成概览…（已接收 1195 字）");
+    expect(occurrences()).toBe(1);
+
+    resolveRun({ ...SAMPLE_ANALYSIS });
+    await run;
+  });
+
   it("AI 分章（稿件章节为空）章节标头带「AI 生成」标注；自带章节不标", async () => {
     seedClip();
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);

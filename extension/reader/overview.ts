@@ -185,7 +185,7 @@ export function triggerReaderOverviewGeneration(
   overview.generatedFor = clipKey;
   overview.aiChapters = !Array.isArray(state.clip.chapters) || state.clip.chapters.length === 0;
   overview.phase = "generating";
-  overview.progressText = "正在生成概览…";
+  overview.progressText = "";
   overview.errorText = "";
   renderIfOpen();
 
@@ -359,13 +359,15 @@ function buildEmptyStateHtml(): string {
   `;
 }
 
-// 生成中状态条：进度文案来自管线 onProgress（分段路径实时推进），细进度条
-// 复用转写横幅的 biliscript-asr-pulse 不确定动画（页面侧拿不到确定进度）。
+// 生成中状态条：单槽居中显示管线进度文案（onProgress，分段路径实时推进；
+// 单发路径为「正在生成概览…（已接收 N 字）」/「模型正在思考…」），管线还没
+// 报过进度时回落固定文案——同一句只渲染一次，不再「固定标签 + 带前缀的
+// 进度文案」并排两遍。细进度条复用转写横幅的 biliscript-asr-pulse 不确定
+// 动画（页面侧拿不到确定进度）。
 function buildGeneratingStrip(): string {
   return `
     <div class="biliscript-reading-ov-strip is-generating">
-      <span class="biliscript-reading-ov-strip-text">正在生成概览…</span>
-      <span class="biliscript-reading-ov-progress">${escapeHtml(overview.progressText || "")}</span>
+      <span class="biliscript-reading-ov-strip-text">${escapeHtml(overview.progressText || "正在生成概览…")}</span>
     </div>
     <div class="biliscript-reading-ov-track" aria-hidden="true"><div class="biliscript-reading-ov-fill"></div></div>
   `;
@@ -397,10 +399,11 @@ function buildErrorStrip(): string {
 function buildResultSectionsHtml(): string {
   const analysis = overview.analysis;
   if (!analysis) {
+    // 生成中无旧产物：结果区只留一句「稍后会出现什么」的说明——标题行曾与
+    // 状态条重复同一句「正在生成概览」，已删。
     if (overview.phase === "generating") {
       return `
         <div class="biliscript-reading-placeholder">
-          <div class="biliscript-reading-placeholder-title">正在生成概览</div>
           <p class="biliscript-reading-placeholder-copy">章节与金句会出现在这里；期间可先在「字幕」页阅读。</p>
         </div>
       `;
