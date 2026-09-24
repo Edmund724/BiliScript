@@ -323,14 +323,14 @@ describe("images 线格式（image-input 路线 B：content 翻译）", () => {
       ]
     });
     expect(JSON.stringify(body)).toBe(
-      '{"model":"claude-x","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}],"stream":false,"max_tokens":4096}'
+      '{"model":"claude-x","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}],"stream":false,"max_tokens":8192}'
     );
   });
 
   it("images: []（空数组）与缺省同形：content 保持字符串", () => {
     const body = anthropicAdapter.buildBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
     expect(JSON.stringify(body)).toBe(
-      '{"model":"claude-x","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":4096}'
+      '{"model":"claude-x","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":8192}'
     );
   });
 

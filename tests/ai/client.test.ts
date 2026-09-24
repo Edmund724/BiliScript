@@ -535,7 +535,7 @@ describe("输出上限截断（finish_reason=length）", () => {
     return `data: ${JSON.stringify(event)}\n\n`;
   }
 
-  it("正文后补一条截断 notice，再收口 done（不再静默）", async () => {
+  it("正文后补一条带 code 的截断 notice，再收口 done（宿主据此渲染常驻徽标）", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => sseResponse([sseChoices({ content: "半句" }), sseChoices({}, "length")])));
     const port = makePort();
 
@@ -544,7 +544,7 @@ describe("输出上限截断（finish_reason=length）", () => {
     expect(result).toEqual({ done: true });
     expect(port.messages).toEqual([
       { type: "token", data: "半句" },
-      { type: "notice", data: TRUNCATED_NOTICE },
+      { type: "notice", data: TRUNCATED_NOTICE, code: "truncated" },
       { type: "done" }
     ]);
   });
@@ -577,5 +577,31 @@ describe("输出上限截断（finish_reason=length）", () => {
     });
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(8192);
+  });
+
+  it("联网轮：工具轮的 finish_reason 不外泄成截断提示（最终轮 stop → 无 notice）", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sseResponse([
+        sseChoices({ tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"x"}' } }] }),
+        sseChoices({}, "tool_calls")
+      ]))
+      .mockResolvedValueOnce(sseResponse([sseChoices({ content: "回答" }), sseChoices({}, "stop")]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    await streamChat({
+      provider: PROVIDER,
+      context: {},
+      userPrompt: "问",
+      history: [],
+      port,
+      webSearch: {
+        maxToolCalls: 5,
+        executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
+      }
+    });
+
+    expect(port.messages.filter((m) => m.type === "notice")).toEqual([]);
+    expect(port.messages.at(-1)?.type).toBe("done");
   });
 });

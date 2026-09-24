@@ -553,6 +553,15 @@
   padding-top: 2px;
 }
 
+/* 截断徽标（finishReason=length）：正文尾部的一行常驻说明——命中 max_tokens 时
+   SSE 只是结束，界面上没有别的迹象。只活在本次视图，不落会话记录。 */
+.boc-reading-chat .chat-msg-truncated {
+  color: var(--boc-reader-muted);
+  font-size: 14px;
+  line-height: 1.4;
+  padding-top: 2px;
+}
+
 .boc-reading-chat .chat-center-error {
   margin: auto;
   text-align: center;

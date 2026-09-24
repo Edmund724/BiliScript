@@ -211,6 +211,12 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // done/stopped 写回时按 user → tool 消息 → assistant 顺序插入 chatHistory，
   // 收口时清空（终态后不串入下一条消息）。
   let pendingToolMessages: ChatSessionMessage[] = [];
+  // 本代际的截断提示文案（notice(code:"truncated") 落到这里；空串 = 未被截断）。
+  // 文案由引擎给（ai/client.ts 的 TRUNCATED_NOTICE），宿主不复制一份；done 收尾时
+  // 渲染成 assistant 消息尾部的常驻徽标（.chat-msg-truncated）。生命周期与
+  // pendingToolMessages 同款：发送时复位、终态消费——只活在本次视图，不落会话记录，
+  // 重开对话后不再有。
+  let turnTruncatedNotice = "";
   // 会话身份快照：sendMessage 发起时捕获 currentConversationId，finalize /
   // stopped 持久化前经 deps.store.isCurrent(快照) 判定（守卫逻辑单点收在
   // store，见 sidepanel-conversation-store.js）。发送后当前会话被删除/清空/
@@ -334,7 +340,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       }
       showAssistantError(activeAssistantNode, msg.error || "未知错误");
     } else if (msg.type === "notice") {
-      deps.ui.showConversationContextNotice(msg.data, 4000);
+      // 截断提示（code:"truncated"）：不走 4 秒通知条——记在本代际上，done 收尾时
+      // 渲染成 assistant 消息尾部的常驻徽标（文案由引擎给，宿主不复制一份）。
+      if (msg.code === "truncated") {
+        turnTruncatedNotice = String(msg.data || "");
+      } else {
+        deps.ui.showConversationContextNotice(msg.data, 4000);
+      }
     } else if (msg.type === "tool-status") {
       // 联网搜索工具状态（spec §4）：驱动搜索时间线卡（步骤行 / 结果数 /
       // 平台耗时 / 来源 chip 行），插在用户消息与回答之间。
@@ -423,6 +435,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 消息上，历史重发/落盘才有图可谈）。
       activeUserImages = images;
       pendingToolMessages = [];
+      turnTruncatedNotice = "";
       activeConversationId = chatSessionState.currentConversationId;
       activeAssistantNode = appendAssistantPlaceholder();
       startStreamSlowNoticeTimer();
@@ -602,8 +615,21 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const raw = getStreamRaw(n);
       // 联网搜索（spec §4）：本回合累计来源传给终态渲染，[n] 转内联引用。
       renderAssistantMessage(n, raw, { userPrompt: activeUserPrompt, sources: takeTurnSearchSources(n) });
+      appendTruncatedBadge(n);
       commitAssistantTurn(raw);
     });
+  }
+
+  // 截断徽标：本代际被 max_tokens 截断时，在渲染完成的正文之后挂一行常驻说明
+  //（位置与停止徽标一致）。不落会话记录——重开对话后正文还在、这行不在。
+  function appendTruncatedBadge(n: HTMLElement): void {
+    if (!turnTruncatedNotice) {
+      return;
+    }
+    const badge = document.createElement("div");
+    badge.className = "chat-msg-truncated";
+    badge.textContent = turnTruncatedNotice;
+    n.appendChild(badge);
   }
 
   // error：错误占位（不渲染正文、不写回、不持久化）。图片输入（05 号票）：本轮带图

@@ -597,6 +597,49 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
     expect(runtime.isStreaming()).toBe(true);
   });
 
+  // 截断提示走 notice 的 code 分支（不新增事件类型）：不进 4 秒通知条，改为在
+  // done 收尾的正文之后挂一行常驻徽标（文案由引擎给，宿主原样转发）。
+  it("notice code=truncated：不走通知条，done 收尾在正文后挂常驻截断徽标", async () => {
+    const { deps, runtime } = await makeRuntime("总结一下");
+    const node = assistantNode(deps);
+    const raf = holdRaf();
+
+    feed(runtime, { type: "token", data: "半句" });
+    runRafFrames(raf);
+    feed(runtime, { type: "notice", data: "回答被截断（达到模型输出上限）", code: "truncated" });
+    feed(runtime, { type: "done" });
+
+    expect(deps.ui.showConversationContextNotice).not.toHaveBeenCalled();
+    expect(node.querySelector(".chat-msg-assistant-body")?.innerHTML).toBe(renderMarkdown("半句"));
+    expect(node.querySelector(".chat-msg-truncated")?.textContent).toBe("回答被截断（达到模型输出上限）");
+    // 截断只加一行说明，不改落库数据（正文照常写回）
+    expect(chatSessionState.chatHistory).toEqual([
+      { role: "user", content: "总结一下" },
+      { role: "assistant", content: "半句" }
+    ]);
+  });
+
+  it("截断标记不串代际：下一条消息正常收尾不带徽标", async () => {
+    const { deps, runtime } = await makeRuntime("问题一");
+    const raf = holdRaf();
+
+    feed(runtime, { type: "token", data: "第一轮" });
+    runRafFrames(raf);
+    feed(runtime, { type: "notice", data: "回答被截断（达到模型输出上限）", code: "truncated" });
+    feed(runtime, { type: "done" });
+    expect(deps.messages.querySelector(".chat-msg-truncated")).not.toBeNull();
+
+    deps.input.value = "问题二";
+    await runtime.sendMessage();
+    const nodes = deps.messages.querySelectorAll(".chat-msg-assistant");
+    const node2 = nodes[nodes.length - 1] as HTMLElement;
+    feed(runtime, { type: "token", data: "第二轮" });
+    runRafFrames(raf);
+    feed(runtime, { type: "done" });
+
+    expect(node2.querySelector(".chat-msg-truncated")).toBeNull();
+  });
+
   it("cost-guard：面板内确认弹层确认 → 回执 ok:true；取消/缺省文案 → ok:false，流不终止", async () => {
     const { runtime, session } = await makeRuntime();
     // 缺省确认通道用例：不注入 confirmCostGuard——确认走面板内弹层

@@ -43,6 +43,11 @@ interface ChatReceipt {
 // error 事件的线上形状：引擎只承诺 error 文案，字幕体缺失路径额外带 code。
 type PortErrorEvent = StreamErrorEvent & { code?: string };
 
+// notice 事件的线上形状：引擎只承诺文案；截断提示（引擎侧 finishReason=length）
+// 额外带 code: "truncated"，宿主据此渲染成 assistant 消息尾部的常驻徽标，而不是
+// 走「4 秒自动消失的通知条」。
+type PortNoticeEvent = StreamNoticeEvent & { code?: "truncated" };
+
 // cost-guard 事件：offscreen 发起 Map-Reduce 前请求成本确认，宿主经
 // port.postMessage({ action: "cost-guard-confirm", ok }) 回执（入向形状在
 // messaging-protocol）。message 宿主侧按 unknown 宽容读取
@@ -92,7 +97,7 @@ export type ChatPortMessage =
   | (StreamTokenEvent & ChatReceipt)
   | (ChatTokenBatchEvent & ChatReceipt)
   | (StreamReasoningEvent & ChatReceipt)
-  | (StreamNoticeEvent & ChatReceipt)
+  | (PortNoticeEvent & ChatReceipt)
   | (StreamResetEvent & ChatReceipt)
   | (ChatToolTurnEvent & ChatReceipt)
   | (ChatToolStatusEvent & ChatReceipt)
