@@ -7,7 +7,7 @@
 **不变式（硬）**：概览的请求不得回落页面源直发——`analysis-orchestrate` 的 `requestValidatedPart` 把 `fetchImpl` 钉在 `providerFetchViaOffscreen`（单次路径、空正文重试、分段路径共用该函数，一处覆盖；回归由 `tests/ai/analysis.test.ts` 的逐调用断言看守）。两条代发通道按请求时长分工：
 
 - **SW 代发**（`core/provider-http.ts`）：探针 / 选区解释 / 联网搜索三链；硬编码 15s 超时、受 MV3 service worker 生命周期约束，只服务短请求。
-- **offscreen 代发**（`core/provider-http-offscreen.ts`）：概览链；无超时、端口断连即 abort，服务分钟级非流式请求。
+- **offscreen 代发**（`core/provider-http-offscreen.ts`）：概览链；无超时、端口断连即 abort，服务分钟级长请求（2026-09-24 修订后为流式分块回吐，见文末）。
 
 ## 与既有决议的关系
 
@@ -26,3 +26,18 @@
 - **已知限制（有意接受）**：offscreen 侧不做 host 权限预检（offscreen 只有 `chrome.runtime`，无 `chrome.permissions`），权限缺失仍表现为「网络错误：Failed to fetch」；通道不设超时（与改动前的直发同口径），平台侧挂起时面板停在「正在生成概览…」，用户可用重试或关闭页面收场。
 - offscreen 文档在概览期间常驻（ASR 终态自关判定已把「有在飞代发端口」计入保留条件），与既有聊天链同量级。
 - 概览请求不再受**任何**平台网关预检白名单影响；协议适配器（`anthropic.ts` 的 `x-api-key` / `anthropic-version`）维持原样，不为单个平台定制。
+
+## 2026-09-24 修订：概览调用改流式，代发端口改分块回吐
+
+同日实测暴露了上方「服务分钟级非流式请求」这条口径的后果（ModelScope + `deepseek-ai/DeepSeek-V4.1-Flash`，Anthropic 协议）：
+
+- 长视频（字幕 124,505 字，`max_tokens` 8192，非流式）：网关把请求挂了约 19 分钟后回 `HTTP 500 {"detail":"Request timed out."}`。
+- 短视频（字幕约 700 字，`max_tokens` 2048 → 空正文重试 4096，非流式）：每次约 50 秒返回 200 但正文为空串（该模型在 ModelScope 上默认思考、思考计入 `max_tokens`；Anthropic 线上「关思考」表现为不发字段，于是平台默认生效），面板报「模型没有返回正文（输出预算可能被思考过程占满）」。
+- 同端点、同模型、同一份 12.4 万字素材，**对话链走 SSE 流式正常**。
+
+**修订**：概览的模型调用（单发与分段两条路径共用的 `requestValidatedPart`）改 `stream: true`，正文从 token 事件聚合、`onStreamReset` 归零（避免读流中断重试的两代流拼接）；代发端口改为**一律分块回吐**——响应头 `{ok,status}` → 正文分片 `{ok,chunk}` → `{done:true}`，中途失败只回 `{ok:false,error}`，content 侧据此合成带 `ReadableStream` body 的 `Response`（截断不得当作成功）。于是：
+
+- 非流式长请求的网关**整体超时**不再触发（连接持续有字节流动）；
+- 单发路径的正文增量经 `onProgress` 进面板（「正在生成概览…（已接收 N 字）」/「模型正在思考…」，1s 节流）；分段路径的「正在整理第 x/y 段」不受影响。
+
+上方「平台侧挂起时面板停在正在生成概览…」**有意保留**：通道仍不设超时（流式下没有整体超时问题，但网关完全不发字节时仍会静默等待）。本轮**不动** `max_tokens` 预算（`estimateOutputTokens` 的 ceiling 与空正文重试的加倍上限）——思考吃预算导致的空正文是同一根因的第二个出口，留作独立议题。

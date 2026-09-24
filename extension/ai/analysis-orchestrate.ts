@@ -143,7 +143,20 @@ type ChatCompletionFn = (input: {
   maxTokens?: number | null;
   // 传输层注入（overview-offscreen-transport）：概览一律经 offscreen 代发
   fetchImpl?: typeof fetch;
+  // 流式（概览改流式）：正文增量经 onEvent 吐出（{ type: "token", data }，思考
+  // 增量是 { type: "reasoning", data }），流式成功返回 { done: true }；读流中断
+  // 重试时 onStreamReset 通报代际切换（completion.ts 的契约）。
+  stream?: boolean;
+  onEvent?: (event: unknown) => void;
+  onStreamReset?: () => void;
 }) => Promise<unknown>;
+
+// 流式进度计数（requestValidatedPart 的 onTokenProgress 契约）：正文与思考各自
+// 已接收的字符数，文案与节流由消费侧（单发路径）负责。
+interface TokenProgressState {
+  contentChars: number;
+  reasoningChars: number;
+}
 
 type BuildBudgetPlanFn = (args: { body?: unknown[]; chapters?: unknown[] }) => BudgetPlan;
 
@@ -232,9 +245,12 @@ function makeEmptyAnalysisError(): Error {
 }
 
 // 单次模型调用 → 宽容解析 → 校验。maxTokens 按正文长度估算（ratio 0.5，
-// 前情回顾只进输入不进输出）；非流式显式 retries 由调用方给（单次 2 / 分段走池层重试）。
-// 空正文（含纯空白）按「思考占满输出预算」加倍预算重试一次，仍空则抛可读错误
-// （EMPTY_TEXT_RETRY_MAX_TOKENS_CEILING 处有根因说明）。
+// 前情回顾只进输入不进输出）；显式 retries 由调用方给（单次 2 / 分段走池层重试）。
+// 调用形态为流式（stream: true）——网关对非流式长请求整体超时（实测 19 分钟后
+// HTTP 500 Request timed out），流式既躲开它又给面板真实进度；正文只能从 token
+// 事件聚合（流式成功返回 { done: true }）。空正文（含纯空白）按「思考占满输出
+// 预算」加倍预算重试一次，仍空则抛可读错误（EMPTY_TEXT_RETRY_MAX_TOKENS_CEILING
+// 处有根因说明）。
 async function requestValidatedPart({
   provider,
   systemPrompt,
@@ -243,7 +259,8 @@ async function requestValidatedPart({
   thinkingLevel,
   signal,
   retries,
-  chatCompletionImpl
+  chatCompletionImpl,
+  onTokenProgress
 }: {
   provider: { baseUrl?: string; apiKey?: string; model?: string };
   systemPrompt: string;
@@ -253,6 +270,7 @@ async function requestValidatedPart({
   signal?: AbortSignal | null;
   retries?: number;
   chatCompletionImpl: ChatCompletionFn;
+  onTokenProgress?: (state: TokenProgressState) => void;
 }): Promise<OverviewAnalysis> {
   if (signal?.aborted) {
     throw makeAbortedError();
@@ -262,25 +280,83 @@ async function requestValidatedPart({
     { role: "user", content: built.prompt }
   ];
   const baseMaxTokens = estimateOutputTokens(built.transcriptChars, { ratio: 0.5, floor: 2048 });
+  // 正文从流式事件聚合（流式成功的返回值只有 { done: true }）；读流中断重试的
+  // 代际切换由下方 onStreamReset 归零。
+  let text = "";
+  let reasoningChars = 0;
+  const onEvent = (event: unknown): void => {
+    const streamEvent = event as { type?: string; data?: unknown } | null;
+    if (streamEvent?.type === "token") {
+      text += String(streamEvent.data ?? "");
+    } else if (streamEvent?.type === "reasoning") {
+      reasoningChars += String(streamEvent.data ?? "").length;
+    } else {
+      return;
+    }
+    onTokenProgress?.({ contentChars: text.length, reasoningChars });
+  };
   // 传输层钉死在 offscreen 代发（空正文重试与分段路径共用本函数，一处覆盖）：
-  // 概览是非流式请求，不得回落 globalThis.fetch 的页面源直发。
-  const requestBase = { provider, messages, thinkingLevel, signal, retries, fetchImpl: providerFetchViaOffscreen };
-  let text = await chatCompletionImpl({ ...requestBase, maxTokens: baseMaxTokens });
-  if (!String(text ?? "").trim()) {
-    text = await chatCompletionImpl({
+  // 概览是流式请求，正文经端口分块回吐读出（core/provider-http-offscreen.ts），
+  // 不得回落 globalThis.fetch 的页面源直发。
+  const requestBase = {
+    provider,
+    messages,
+    thinkingLevel,
+    signal,
+    retries,
+    fetchImpl: providerFetchViaOffscreen,
+    stream: true,
+    onEvent,
+    // 读流中断重试（completion 的 kind=stream）会重吐整条流：清零已聚合的正文，
+    // 否则两代流拼接成重复文本（completion.ts 的 onStreamReset 契约）。
+    onStreamReset: () => {
+      text = "";
+    }
+  };
+  await chatCompletionImpl({ ...requestBase, maxTokens: baseMaxTokens });
+  if (!text.trim()) {
+    await chatCompletionImpl({
       ...requestBase,
       maxTokens: Math.min(baseMaxTokens * 2, EMPTY_TEXT_RETRY_MAX_TOKENS_CEILING)
     });
   }
-  if (!String(text ?? "").trim()) {
+  if (!text.trim()) {
     throw new Error("模型没有返回正文（输出预算可能被思考过程占满），请重试。");
   }
-  return validateAnalysis(parseLooseJson(String(text ?? "")), built.timing.maxTimestampSeconds, minSeconds);
+  return validateAnalysis(parseLooseJson(text), built.timing.maxTimestampSeconds, minSeconds);
+}
+
+// 单发路径的流式进度文案：正文有增量报已收字数、只有思考增量报思考态；1 秒节流
+// 并跳过重复文案——每个 token 都推给面板只会造成无意义的连续重渲染。分段路径的
+// 「正在整理第 x/y 段」由 runMapBounded 的 onItemDone 产出，不接本回调。
+const OVERVIEW_TOKEN_PROGRESS_THROTTLE_MS = 1000;
+
+function buildTokenProgressReporter(
+  onProgress?: (notice: string) => void
+): ((state: TokenProgressState) => void) | undefined {
+  if (typeof onProgress !== "function") {
+    return undefined;
+  }
+  let lastAt = 0;
+  let lastNotice = "";
+  return ({ contentChars, reasoningChars }) => {
+    const notice = contentChars > 0 ? `正在生成概览…（已接收 ${contentChars} 字）` : reasoningChars > 0 ? "模型正在思考…" : "";
+    if (!notice || notice === lastNotice) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastAt < OVERVIEW_TOKEN_PROGRESS_THROTTLE_MS) {
+      return;
+    }
+    lastAt = now;
+    lastNotice = notice;
+    onProgress(notice);
+  };
 }
 
 /**
  * 概览生成编排入口（纯数据层，依赖注入对齐 ladder / orchestrateMapReduce 惯例）：
- * 1. 双路径分派：字幕 ≤200k 字符（buildBudgetPlan mode=single）单次非流式调用
+ * 1. 双路径分派：字幕 ≤200k 字符（buildBudgetPlan mode=single）单次流式调用
  *    （显式 retries: 2）；>200k 走 buildBudgetPlan 切段 + runMapBounded 有界并发
  *    每段生成 + 段产物合并。
  * 2. 自带章节短路径：context.chapters 非空时只跑金句挑选调用（短提示词），
@@ -459,7 +535,10 @@ async function executeOverviewRun({
       thinkingLevel,
       signal,
       retries: 2,
-      chatCompletionImpl
+      chatCompletionImpl,
+      // 单发路径是长视频（数万字素材）唯一一次调用，流式正文增量直接进面板；
+      // 分段路径接流式进度会与「正在整理第 x/y 段」抢同一条文案，故不接。
+      onTokenProgress: buildTokenProgressReporter(onProgress)
     });
     const analysis = shortPath
       ? {
