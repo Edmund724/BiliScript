@@ -159,6 +159,11 @@ _Avoid_: 把 pi-ai 接进请求链、用目录数据补 `thinking-profiles.ts`�
 
 ### AI 对话
 
+**图片输入**:
+用户在 AI 对话里经剪贴板粘贴发给模型的图片。消息形状为路线 B：`content` 保持 string，图片并列挂在 `ChatMessage.images`（`{mime, data}`，base64 不带前缀）；发送前在 content script 统一压成 WebP q0.9、长边 ≤1568px，单条 ≤4 张、单张 ≤1MB。历史重发只保留最近一条用户消息的图（更早的替换为文本占位），落盘每会话最多留最近一张。门控乐观放行：目录明确不收图只提示不阻断，查不到静默交给平台 400。
+代码名：`ImagePart` / `ChatMessage.images`（ai/types.js）/ `chat/image-compress.js` / `chat/chat-input-images.js` / `chat/image-support.js` / `retainLatestImage` / `normalizeImageParts`
+_Avoid_: 附件图片、贴图、content parts 升级（被否的路线 A）、文件选择器/拖拽/视频帧入口（非目标）
+
 **拆除会话**:
 把「当前会话」从对话视图与存储中摘除的唯一事务：断流通知先于任何 await 与落盘 → 清会话 id/meta/历史 → 需要时做 live 上下文回填。删除单个会话、清空全部、恢复最新、开启新会话、发送前上下文失配各出口都必须经此收口，禁止手抄序列（与「字幕接受」「阅读壳」同款收口纪律）。
 代码名：`detachCurrent` / `repopulateLive`（conversation-store 内部原语）
