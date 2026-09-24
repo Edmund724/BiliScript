@@ -15,7 +15,7 @@ let storage: ReturnType<typeof createMemoryStorage>;
 
 // chatCompletion 的入参形状（编排层 ChatCompletionFn 未导出，按本测试用到的字段就地声明）。
 type ChatCompletionCall = {
-  provider: { baseUrl?: string; apiKey?: string; model?: string };
+  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
   messages: Array<{ role: string; content: string }>;
   thinkingLevel?: string;
   signal?: AbortSignal | null;
@@ -358,6 +358,36 @@ describe("双路径分派", () => {
     await mod.runOverviewAnalysis({ provider: makeProvider(), context, forceRefresh: true }, { chatCompletion });
     expect(chatCompletion).toHaveBeenCalledTimes(1);
     expect(chatCompletion.mock.calls[0][0].messages.at(-1)!.content).toContain("第 2 / 5 段");
+  });
+});
+
+// 平台身份穿线（平台预设额外请求头的上游，见 tests/ai/platform-header-chains.test.ts）：
+// 概览的 provider 由 content 侧 resolveActiveProvider 给出（带记录 presetId），
+// 编排层必须原样交给 chatCompletion——丢掉它，概览请求就带不上 Opencode Go 的
+// x-opencode-session，表现为「概览失败而对话正常」。
+describe("概览链平台身份穿线", () => {
+  it("单次路径与分段路径都把 provider 上的 presetId 原样交给 chatCompletion", async () => {
+    const { chatCompletion, calls } = buildCompletionFake();
+    const provider = { ...makeProvider(), presetId: "opencodego" };
+
+    // 单次路径（预算内整篇）
+    await mod.runOverviewAnalysis(
+      { provider, context: makeContext({ subtitleBody: makeSubtitleBody(1000) }), forceRefresh: true },
+      { chatCompletion }
+    );
+    const singleCalls = calls.length;
+    expect(singleCalls).toBeGreaterThan(0);
+
+    // 分段路径（超预算 → Map-Reduce 逐段）
+    await mod.runOverviewAnalysis(
+      { provider, context: makeContext({ bvid: "BV1test2", subtitleBody: makeSubtitleBody(210000) }), forceRefresh: true },
+      { chatCompletion }
+    );
+    expect(calls.length).toBeGreaterThan(singleCalls); // 分段路径确有多次调用
+
+    for (const call of calls) {
+      expect(call.provider.presetId).toBe("opencodego");
+    }
   });
 });
 
