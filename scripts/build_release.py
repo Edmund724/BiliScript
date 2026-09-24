@@ -93,7 +93,7 @@ def main():
 
     zip_path = build_zip(version)
 
-    print(f"Built release package for v{version} (chrome only):")
+    print(f"Built release package for v{version}:")
     print(f"- zip: {zip_path}")
 
 
