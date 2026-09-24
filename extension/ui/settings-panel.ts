@@ -3,9 +3,9 @@
 // 原独立 options 页（pages/options.{html,css,ts}）的全部设置项搬入 文摘面板
 // 的设置抽屉（ui-renderer 模板内的 #biliscript-reading-settings-host 容器，分节、
 // 随抽屉滚动），行为与 options 页逐条对应：
-//   - 装载（get-settings）→ 渲染三类行（固定属性/笔记段落/AI/ASR 平台）；
-//   - 保存（先同步收集与校验，再申请 host 权限，最后分三路落盘：
-//     settings / AI 平台 / ASR 平台）。行构建与验证本体复用
+//   - 装载（get-settings）→ 渲染平台行（AI/ASR / 搜索平台）与标量设置项；
+//   - 保存（同步收集后分路落盘：settings 经 save-settings，平台经
+//     provider-editor Modal 的单平台 upsert）。平台行构建与验证本体复用
 //     ../ui/options-rows.ts、../ui/options-asr-rows.ts、../core/validators.ts。
 //   - 平台测试（AI/ASR 探针）只验证连通性，不落盘——保存只发生在 Modal 的
 //     保存按钮链路上。
@@ -29,17 +29,12 @@ import {
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
   DEFAULT_PRESET_PROMPTS
 } from "../core/default-prompts.js";
-import type { FixedFrontmatterProperty, NotePlaceholderSection } from "../core/validators.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
 import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
 import {
   normalizeDownloadFormat,
   normalizePlayerAiQuickPrompt,
-  normalizeWebSearchMaxToolCalls,
-  normalizeFixedFrontmatterProperties,
-  normalizeNotePlaceholderSections,
-  validateFixedFrontmatterProperties,
-  validateNotePlaceholderSections
+  normalizeWebSearchMaxToolCalls
 } from "../core/validators.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 // 02 复制粘贴收口：设置读取（消息 + 软超时 + 回落默认值）单源在 core/runtime，
@@ -53,14 +48,6 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import {
-  renderFixedPropertyRows,
-  addFixedPropertyRow,
-  collectFixedPropertyRows,
-  clearFixedPropertyErrors,
-  renderNoteSectionRows,
-  addNoteSectionRow,
-  collectNoteSectionRows,
-  clearNoteSectionErrors,
   renderAiProviders,
   generateAiProviderId,
   setAiBeforeDeleteHandler,
@@ -101,8 +88,6 @@ import {
 
 ensureReaderSettingsStyles();
 
-const NOTE_SECTION_POSITIONS = new Set(["before_intro", "before_chapters", "before_subtitle"]);
-
 let aiPresets: AiProviderPreset[] = [];
 let asrPresets: AsrProviderPreset[] = [];
 
@@ -112,36 +97,15 @@ let settingsHostRef: HTMLElement | null = null;
 
 // collectFormPayload 的产物形态（save-settings 报文的 settings 载荷）
 interface SettingsFormPayload {
-  tags: string;
   downloadFormat: string;
   includeDateInFilename: boolean;
-  includeHotCommentsInNote: boolean;
-  includePlayerEmbedInNote: boolean;
   enablePlayerAiQuickAction: boolean;
   playerAiQuickPrompt: string;
   includeTimestampInBody: boolean;
   enableDebugLogs: boolean;
-  frontmatterFields: string[];
-  fixedFrontmatterProperties: FixedFrontmatterProperty[];
-  notePlaceholderSections: NotePlaceholderSection[];
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   aiPresetPrompts: string[];
-}
-
-// validateSettings / validateFixedFrontmatterProperties / validateAiProviders 的
-// 校验失败载体。row 由 core/validators 以 unknown 返回——它是 options-rows
-// collectFixedPropertyRows / collectNoteSectionRows 以 { includeRow: true } 收集
-// 时的「行收集对象」（{key,type,value,row}），真实 DOM 行挂在其 .row 属性上，
-// 在 applyValidationError 收窄后定位行内输入元素（arch-slim-2/02 修复：旧代码
-// 把收集对象整体当 HTMLElement 调 querySelector → TypeError，行级校验失败时
-// 保存静默失败、无任何 UI 反馈——05 票发现）。
-interface SettingsValidationResult {
-  ok: boolean;
-  field?: HTMLElement;
-  row?: unknown;
-  message?: string;
-  requireContent?: boolean;
 }
 
 // ===== 分区渲染隔离（interactions-in-complex-layouts 指南，M15）=====
@@ -149,11 +113,11 @@ interface SettingsValidationResult {
 // 校验错误显示/保存重渲等分区内部变更的 style/layout 失效圈在分区内，不上溯
 // 阅读壳与宿主 B 站页面。
 // 不取 paint containment（r1 评审）：paint 会把后代裁剪到分区 padding box，
-// 而本面板弹层（fixed-property-type-menu / custom-select-dropdown，absolute
-// top:100%+6px）刻意溢出分区边界盖过相邻卡片（reader-settings-rows.css 弹层族
-// 注释），末行之下只剩「+ 添加属性」按钮的高度，菜单必被分区底边截断——
-// 用户可见回归。也因此不走 content-visibility:auto：按 CSS Containment L2 /
-// MDN，cv:auto 恒含 paint containment（含屏上态），裁剪问题相同。
+// 而本面板弹层（custom-select-dropdown，absolute top:100%+6px）刻意溢出分区
+// 边界盖过相邻卡片（reader-settings-rows.css 弹层族注释），末行之下只剩按钮的
+// 高度，菜单必被分区底边截断——用户可见回归。也因此不走 content-visibility:auto：
+// 按 CSS Containment L2 / MDN，cv:auto 恒含 paint containment（含屏上态），
+// 裁剪问题相同。
 // 经 TS 内联应用而非落 reader-settings-*.css 样式表：真实原因是样式表文件不在
 // 本任务 scope（M15 只放行 settings-panel 等五个文件）；内联也让应用时机与
 // 模板构建同处一地。仅首建调用一次，非每次交互。
@@ -170,22 +134,12 @@ function collectElements(host: HTMLElement) {
   const byIdIn = <T extends HTMLElement>(id: string): T =>
     host.querySelector(`#${id}`) as T;
   return {
-    tags: byIdIn<HTMLInputElement>("tags"),
     downloadFormat: byIdIn<HTMLSelectElement>("downloadFormat"),
     includeDateInFilename: byIdIn<HTMLInputElement>("includeDateInFilename"),
-    includeHotCommentsInNote: byIdIn<HTMLInputElement>("includeHotCommentsInNote"),
-    includePlayerEmbedInNote: byIdIn<HTMLInputElement>("includePlayerEmbedInNote"),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>("enablePlayerAiQuickAction"),
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>("playerAiQuickPrompt"),
     includeTimestampInBody: byIdIn<HTMLInputElement>("includeTimestampInBody"),
     enableDebugLogs: byIdIn<HTMLInputElement>("enableDebugLogs"),
-    frontmatterFields: host.querySelectorAll<HTMLInputElement>('input[name="frontmatterField"]'),
-    fixedPropertiesList: byIdIn<HTMLElement>("fixedPropertiesList"),
-    fixedPropertiesEmpty: byIdIn<HTMLElement>("fixedPropertiesEmpty"),
-    addFixedPropertyBtn: byIdIn<HTMLButtonElement>("addFixedPropertyBtn"),
-    noteSectionsList: byIdIn<HTMLElement>("noteSectionsList"),
-    noteSectionsEmpty: byIdIn<HTMLElement>("noteSectionsEmpty"),
-    addNoteSectionBtn: byIdIn<HTMLButtonElement>("addNoteSectionBtn"),
     aiProvidersList: byIdIn<HTMLElement>("aiProvidersList"),
     aiProvidersEmpty: byIdIn<HTMLElement>("aiProvidersEmpty"),
     addAiProviderBtn: byIdIn<HTMLButtonElement>("addAiProviderBtn"),
@@ -283,21 +237,12 @@ function setStatus(elements: SettingsElements, text: unknown, isError = false): 
 async function loadSettings(elements: SettingsElements): Promise<void> {
   await ensurePresetsLoaded();
   const settings = await getSettings();
-  elements.tags.value = settings.tags || "";
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
-  elements.includeHotCommentsInNote.checked = Boolean(settings.includeHotCommentsInNote);
-  elements.includePlayerEmbedInNote.checked = settings.includePlayerEmbedInNote !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
-  const selectedFields = new Set(settings.frontmatterFields || DEFAULT_SETTINGS.frontmatterFields);
-  elements.frontmatterFields.forEach((checkbox) => {
-    checkbox.checked = selectedFields.has(checkbox.value);
-  });
-  renderFixedPropertyRows(elements.fixedPropertiesList, elements.fixedPropertiesEmpty, settings.fixedFrontmatterProperties);
-  renderNoteSectionRows(elements.noteSectionsList, elements.noteSectionsEmpty, settings.notePlaceholderSections);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
   savedAiPresetPrompts = Array.isArray(settings.aiPresetPrompts) && settings.aiPresetPrompts.length
@@ -508,23 +453,13 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
 }
 
 function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
-  const selectedFields = Array.from(elements.frontmatterFields)
-    .filter((checkbox) => checkbox.checked)
-    .map((checkbox) => checkbox.value);
-
   return {
-    tags: elements.tags.value.trim(),
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
-    includeHotCommentsInNote: elements.includeHotCommentsInNote.checked,
-    includePlayerEmbedInNote: elements.includePlayerEmbedInNote.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     enableDebugLogs: elements.enableDebugLogs.checked,
-    frontmatterFields: selectedFields,
-    fixedFrontmatterProperties: normalizeFixedFrontmatterProperties(collectFixedPropertyRows(elements.fixedPropertiesList)),
-    notePlaceholderSections: normalizeNotePlaceholderSections(collectNoteSectionRows(elements.noteSectionsList)),
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
     aiInitialQuickPrompts: collectInitialQuickPrompts(elements),
     aiPresetPrompts: Array.isArray(savedAiPresetPrompts) ? savedAiPresetPrompts.slice(0, 12) : []
@@ -546,100 +481,6 @@ function collectInitialQuickPrompts(elements: SettingsElements): string[] {
     .slice(0, 4);
 }
 
-function validateSettings(elements: SettingsElements, payload: SettingsFormPayload): SettingsValidationResult {
-  if (/[\r\n]/.test(payload.tags)) {
-    return { ok: false, field: elements.tags, message: "默认标签请使用逗号分隔，不要换行" };
-  }
-
-  const fixedPropertyValidation = validateFixedFrontmatterProperties(collectFixedPropertyRows(elements.fixedPropertiesList, { includeRow: true }));
-  if (!fixedPropertyValidation.ok) {
-    return fixedPropertyValidation;
-  }
-
-  const noteSectionValidation = validateNotePlaceholderSections(collectNoteSectionRows(elements.noteSectionsList, { includeRow: true }));
-  if (!noteSectionValidation.ok) {
-    return noteSectionValidation;
-  }
-
-  return { ok: true };
-}
-
-function applyValidationError(elements: SettingsElements, validation: SettingsValidationResult): void {
-  clearInputErrors(elements);
-  if (validation?.field) {
-    validation.field.setAttribute("aria-invalid", "true");
-    validation.field.focus();
-  }
-  if (validation?.row) {
-    // validators 的 row 载体是「行收集对象」（{key,type,value,row}，见
-    // SettingsValidationResult 注），真实 DOM 行取其 .row 属性——修复前把
-    // 收集对象整体当 HTMLElement 用，row.querySelector 抛 TypeError（05 票）。
-    const row = (validation.row as { row?: HTMLElement }).row ?? null;
-    if (row) {
-      const keyInput = row.querySelector<HTMLInputElement>(".fixed-property-key");
-      const valueInput = row.querySelector<HTMLInputElement>(".fixed-property-value");
-      const titleInput = row.querySelector<HTMLInputElement>(".note-section-title");
-      const contentInput = row.querySelector<HTMLInputElement>(".note-section-content");
-      const positionSelect = row.querySelector<HTMLSelectElement>(".note-section-position");
-      // 段落位置的错误态落在组件 trigger 上（Q22 甲）：select 已被
-      // custom-select 壳 clip 隐藏，直接标错/聚焦会掉进 1px 黑洞
-      const positionTrigger = row.querySelector<HTMLElement>(
-        ".note-section-field-position .custom-select-wrapper .custom-select-trigger"
-      );
-      const noteSectionErrorNode = row.querySelector<HTMLElement>(".note-section-error");
-      if (titleInput || contentInput || positionTrigger) {
-        // 错误态走 aria-invalid（reader-settings-shell.css 校验态规则的 fallback 通道，
-        // 指南对原生约束表达不了的条件规则的推荐面）；焦点仍落组件 trigger
-        //（Q22 甲：select 已被 custom-select 壳 clip 隐藏，直接聚焦会掉进 1px 黑洞）
-        if (titleInput && !String(titleInput.value || "").trim()) {
-          titleInput.setAttribute("aria-invalid", "true");
-          titleInput.focus();
-        } else if (positionTrigger && positionSelect && !NOTE_SECTION_POSITIONS.has(String(positionSelect.value || "").trim())) {
-          positionTrigger.setAttribute("aria-invalid", "true");
-          positionTrigger.focus();
-        } else if (contentInput && validation.requireContent) {
-          contentInput.setAttribute("aria-invalid", "true");
-          contentInput.focus();
-        } else if (titleInput) {
-          titleInput.setAttribute("aria-invalid", "true");
-          titleInput.focus();
-        }
-        if (noteSectionErrorNode) {
-          noteSectionErrorNode.hidden = false;
-          noteSectionErrorNode.textContent = validation.message || "正文附加段落校验失败";
-        }
-        setStatus(elements, validation?.message || "设置校验失败", true);
-        return;
-      }
-      if (keyInput && !String(keyInput.value || "").trim()) {
-        keyInput.setAttribute("aria-invalid", "true");
-        keyInput.focus();
-      } else if (valueInput && !String(valueInput.value || "").trim()) {
-        valueInput.setAttribute("aria-invalid", "true");
-        valueInput.focus();
-      } else if (keyInput) {
-        keyInput.setAttribute("aria-invalid", "true");
-        keyInput.focus();
-      }
-
-      const errorNode = row.querySelector<HTMLElement>(".fixed-property-error");
-      if (errorNode) {
-        errorNode.hidden = false;
-        errorNode.textContent = validation.message || "固定属性校验失败";
-      }
-    }
-  }
-  setStatus(elements, validation?.message || "设置校验失败", true);
-}
-
-function clearInputErrors(elements: SettingsElements): void {
-  [elements.tags].forEach((input) => {
-    input?.removeAttribute("aria-invalid");
-  });
-  clearFixedPropertyErrors(elements.fixedPropertiesList);
-  clearNoteSectionErrors(elements.noteSectionsList);
-}
-
 function setBusy(elements: SettingsElements, isBusy: boolean): void {
   elements.saveBtn.disabled = isBusy;
   elements.saveBtn.textContent = isBusy ? "处理中..." : "保存设置";
@@ -653,11 +494,8 @@ function setBusy(elements: SettingsElements, isBusy: boolean): void {
 // 翻转，同样不参与。
 function buildDefaultPreferencePayload() {
   return {
-    tags: DEFAULT_SETTINGS.tags,
     downloadFormat: DEFAULT_SETTINGS.downloadFormat,
     includeDateInFilename: DEFAULT_SETTINGS.includeDateInFilename,
-    includeHotCommentsInNote: DEFAULT_SETTINGS.includeHotCommentsInNote,
-    includePlayerEmbedInNote: DEFAULT_SETTINGS.includePlayerEmbedInNote,
     enablePlayerAiQuickAction: DEFAULT_SETTINGS.enablePlayerAiQuickAction,
     // prompt 默认文本在 default-prompts.ts（DEFAULT_SETTINGS 里是空占位）：
     // 恢复默认直接写当前默认文本。
@@ -665,9 +503,6 @@ function buildDefaultPreferencePayload() {
     includeTimestampInBody: DEFAULT_SETTINGS.includeTimestampInBody,
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
-    frontmatterFields: DEFAULT_SETTINGS.frontmatterFields.slice(),
-    fixedFrontmatterProperties: DEFAULT_SETTINGS.fixedFrontmatterProperties.map((row) => ({ ...row })),
-    notePlaceholderSections: DEFAULT_SETTINGS.notePlaceholderSections.map((row) => ({ ...row })),
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
     aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
     aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
@@ -704,16 +539,10 @@ async function resetPreferences(elements: SettingsElements): Promise<void> {
 // 保存设置（provider-master-detail/02 起：只承载其余设置项）。AI/ASR 平台的
 // 保存已整体移交 provider-editor Modal 的单平台 upsert（saveProviderSingle），
 // 本函数不再收集/校验/落盘平台列表，也不再申请平台 host 权限（平台域名的
-// 授权在 Modal 保存与探针/模型列表预检的链路上收口）。
+// 授权在 Modal 保存与探针/模型列表预检的链路上收口）。笔记导出字段删除后
+// 本链只剩收集 → 单路落盘：面板已无条件必填项，故不再有校验/清错步骤。
 async function saveSettings(elements: SettingsElements): Promise<void> {
-  clearInputErrors(elements);
-
   const payload = collectFormPayload(elements);
-  const validation = validateSettings(elements, payload);
-  if (!validation.ok) {
-    applyValidationError(elements, validation);
-    return;
-  }
 
   setBusy(elements, true);
   try {
@@ -722,8 +551,6 @@ async function saveSettings(elements: SettingsElements): Promise<void> {
       setStatus(elements, resp?.error || "保存失败", true);
       return;
     }
-    renderFixedPropertyRows(elements.fixedPropertiesList, elements.fixedPropertiesEmpty, payload.fixedFrontmatterProperties);
-    renderNoteSectionRows(elements.noteSectionsList, elements.noteSectionsEmpty, payload.notePlaceholderSections);
     setStatus(elements, "保存成功");
   } catch (error) {
     setStatus(elements, (error as Error).message || "保存失败", true);
@@ -768,8 +595,6 @@ function bindSettingsEvents(host: HTMLElement): void {
 
   elements.saveBtn.addEventListener("click", () => saveSettings(elements));
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
-  elements.addFixedPropertyBtn.addEventListener("click", () => addFixedPropertyRow(elements.fixedPropertiesList, elements.fixedPropertiesEmpty));
-  elements.addNoteSectionBtn.addEventListener("click", () => addNoteSectionRow(elements.noteSectionsList, elements.noteSectionsEmpty));
   // 添加平台：直接进空白编辑 Modal（拍板 Q4，预设下拉是编辑页第一项）；
   // 平铺行「编辑」按钮：现查权威列表项后打开预填 Modal（拍板 Q3）
   elements.addAiProviderBtn.addEventListener("click", () => void openProviderEditorById("ai", ""));
@@ -779,30 +604,17 @@ function bindSettingsEvents(host: HTMLElement): void {
   setAsrRowEditHandler((providerId) => void openProviderEditorById("asr", providerId));
   setSearchRowEditHandler((providerId) => void openProviderEditorById("search", providerId));
   // 外点关闭委托。快速通道（M15 INP）：监听器挂在 document 上，宿主页每一次
-  // 点击都会进来，常态是三类弹层全关——此时旧实现无条件做三轮扫描（固定属性
-  // 菜单 + Modal 模型下拉 + 自定义下拉，后两轮全文档）。先做一次合并存在性
-  // 检查，全关即返回；有开着的弹层才逐族收拢（写操作对已关弹层本就是 no-op，
-  // 行为零变化）。三类弹层都只在设置抽屉/编辑 Modal 打开期间存在。
+  // 点击都会进来，常态是两类弹层全关——此时旧实现无条件做两轮扫描（Modal
+  // 模型下拉 + 自定义下拉，均全文档）。先做一次合并存在性检查，全关即返回；
+  // 有开着的弹层才逐族收拢（写操作对已关弹层本就是 no-op，行为零变化）。两类
+  // 弹层都只在设置抽屉/编辑 Modal 打开期间存在。
   document.addEventListener("click", (event) => {
     if (
       !document.querySelector(
-        '.fixed-property-type-picker[data-open="true"], .ai-provider-model-dropdown:not([hidden]), .custom-select-dropdown:not([hidden])'
+        '.ai-provider-model-dropdown:not([hidden]), .custom-select-dropdown:not([hidden])'
       )
     ) {
       return;
-    }
-    if (!(event.target instanceof Element) || !event.target.closest(".fixed-property-type-picker")) {
-      elements.fixedPropertiesList.querySelectorAll<HTMLElement>(".fixed-property-type-picker").forEach((picker) => {
-        picker.setAttribute("data-open", "false");
-        const button = picker.querySelector(".fixed-property-type-button");
-        const menu = picker.querySelector(".fixed-property-type-menu") as HTMLElement | null;
-        if (button) {
-          button.setAttribute("aria-expanded", "false");
-        }
-        if (menu) {
-          menu.hidden = true;
-        }
-      });
     }
     if (!(event.target instanceof Element) || !event.target.closest(".ai-provider-model-wrapper")) {
       document.querySelectorAll<HTMLElement>(".ai-provider-model-dropdown").forEach((dropdown) => {
@@ -812,9 +624,6 @@ function bindSettingsEvents(host: HTMLElement): void {
     if (!(event.target instanceof Element) || !event.target.closest(".custom-select-wrapper")) {
       closeAllCustomSelects();
     }
-  });
-  [elements.tags].forEach((input) => {
-    input?.addEventListener("input", () => input.removeAttribute("aria-invalid"));
   });
   // ASR：总开关即时持久化
   elements.asrAutoFallback?.addEventListener("change", async () => {

@@ -15,13 +15,9 @@ import { normalizeAsrLanguage } from "./presets.js";
 import { withTimeout } from "../shared/error-helpers.js";
 import {
   normalizeDownloadFormat,
-  normalizeIncludeHotCommentsInNote,
-  normalizeIncludePlayerEmbedInNote,
   normalizeEnablePlayerAiQuickAction,
   normalizePlayerAiQuickPrompt,
   normalizeReaderTheme,
-  normalizeFixedFrontmatterProperties,
-  normalizeNotePlaceholderSections,
   normalizeAiSystemPrompt,
   normalizeAiInitialQuickPrompts,
   normalizeAiPresetPrompts,
@@ -44,14 +40,10 @@ type NormalizerStep = [string, (m: Record<string, unknown>) => unknown];
 // 的归一化值。步骤顺序即历史内联顺序，不可调整。
 const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   ["downloadFormat", (m) => normalizeDownloadFormat(m.downloadFormat)],
-  ["includeHotCommentsInNote", (m) => normalizeIncludeHotCommentsInNote(m.includeHotCommentsInNote)],
-  ["includePlayerEmbedInNote", (m) => normalizeIncludePlayerEmbedInNote(m.includePlayerEmbedInNote)],
   ["enablePlayerAiQuickAction", (m) => normalizeEnablePlayerAiQuickAction(m.enablePlayerAiQuickAction)],
   ["playerAiQuickPrompt", (m) => normalizePlayerAiQuickPrompt(m.playerAiQuickPrompt)],
   ["readerTheme", (m) => normalizeReaderTheme(m.readerTheme)],
   ["readerThemeUserSet", (m) => m.readerThemeUserSet === true],
-  ["fixedFrontmatterProperties", (m) => normalizeFixedFrontmatterProperties(m.fixedFrontmatterProperties)],
-  ["notePlaceholderSections", (m) => normalizeNotePlaceholderSections(m.notePlaceholderSections)],
   ["aiSystemPrompt", (m) => normalizeAiSystemPrompt(m.aiSystemPrompt)],
   ["aiInitialQuickPrompts", (m) => normalizeAiInitialQuickPrompts(m.aiInitialQuickPrompts)],
   ["aiPresetPrompts", (m) => normalizeAiPresetPrompts(m.aiPresetPrompts)],
@@ -91,8 +83,9 @@ export async function getMergedSettings(timeoutMs = 5000): Promise<Settings> {
 }
 
 // 写入白名单：settings 域的键面 = DEFAULT_SETTINGS 声明的键集。除归一化步骤表
-// 覆盖的字段外，tags 等透传字段也经 save-settings 落盘，因此白名单取键面全集
-// 而非步骤表键集。saveSettings 据此剔除键面外的键。
+// 覆盖的字段外，includeDateInFilename 等透传字段也经 save-settings 落盘，因此
+// 白名单取键面全集而非步骤表键集。saveSettings 据此剔除键面外的键（笔记导出
+// 删除后旧存储里残留的字段也在此被自然丢弃，无需迁移）。
 const SETTINGS_STORAGE_KEYS = new Set<string>(Object.keys(DEFAULT_SETTINGS));
 
 export async function saveSettings(settings: unknown): Promise<void> {

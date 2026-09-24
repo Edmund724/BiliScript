@@ -8,11 +8,6 @@ export function escapeHtml(value: unknown): string {
 }
 
 
-export function escapeYaml(value: unknown): string {
-  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-}
-
-
 export function formatTimestamp(seconds: number | string, forSrt = false): string {
   const safe = Number(seconds) || 0;
   const msTotal = Math.max(0, Math.floor(safe * 1000));
@@ -29,37 +24,6 @@ export function formatTimestamp(seconds: number | string, forSrt = false): strin
   }
 
   return `${hh}:${mm}:${ss},${String(ms).padStart(3, "0")}`;
-}
-
-
-export function pushOptionalLines(targetLines: string[], extraLines: unknown): void {
-  if (!Array.isArray(extraLines) || !extraLines.length) {
-    return;
-  }
-  targetLines.push(...(extraLines as string[]));
-}
-
-
-export function resolveFrontmatterTemplateValue(
-  value: unknown,
-  templateContext: Record<string, unknown> = {}
-): string {
-  return String(value || "").replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, rawKey: string) => {
-    const key = String(rawKey || "").trim().toLowerCase();
-    if (!key) {
-      return "";
-    }
-    const resolved = templateContext[key];
-    return resolved == null ? "" : String(resolved);
-  });
-}
-
-
-export function parseFrontmatterArrayItems(value: unknown): string[] {
-  return String(value || "")
-    .split(/[，,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 

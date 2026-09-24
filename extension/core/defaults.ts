@@ -21,29 +21,10 @@ export { BILISCRIPT_VERSION } from "./version.js";
 // 侧边栏摘除退役——快捷动作改走消息直发（reader-enter 的 chat 负载），
 // 信箱键不再读写；存量键留存在用户 storage 中，无害。
 
-export interface FixedFrontmatterProperty {
-  key: string;
-  type: "text" | "number" | "checkbox" | "list" | "date";
-  value: string;
-}
-
-export interface NotePlaceholderSection {
-  title: string;
-  position: "before_intro" | "before_chapters" | "before_subtitle";
-  content: string;
-}
-
 export interface Settings {
   [key: string]: unknown;
-  tags: string;
   downloadFormat: string;
   includeDateInFilename: boolean;
-  includeHotCommentsInNote: boolean;
-  // 笔记正文顶部的 B 站播放器 <iframe>：默认开（Obsidian 等渲染内联 HTML 的
-  // 编辑器可用），关闭后正文不再输出该行——MarkText 等按 GFM tagfilter 剥掉
-  // iframe 的编辑器会把它渲染成一个空的 "Empty HTML Block" 占位块。仅影响
-  // 笔记输出，不影响阅读面板内的播放。
-  includePlayerEmbedInNote: boolean;
   enablePlayerAiQuickAction: boolean;
   // AI 键默认开迁移旗标（entry/settings-migration.ts）：true 表示存量显式
   // false 已随迁移改写回默认 true 一次，此后用户显式关闭的值不再被安装/更新
@@ -56,9 +37,6 @@ export interface Settings {
   // 主题手动选择哨兵：header 按钮点击循环置 true（updateReaderPreferences），
   // 从未手动选过则水合时按 prefers-color-scheme 定初始主题（不落盘）。
   readerThemeUserSet: boolean;
-  frontmatterFields: string[];
-  fixedFrontmatterProperties: FixedFrontmatterProperty[];
-  notePlaceholderSections: NotePlaceholderSection[];
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   aiPresetPrompts: string[];
@@ -79,11 +57,8 @@ export interface Settings {
 
 // ===== Merged default settings =====
 export const DEFAULT_SETTINGS: Settings = {
-  tags: "clippings,bilibili",
   downloadFormat: "srt",
   includeDateInFilename: true,
-  includeHotCommentsInNote: false,
-  includePlayerEmbedInNote: true,
   // 2026-09 起默认开启：AI 键与 script 按钮一样进视频页即可见可点（此前默认
   // false，按钮对未手动开启的用户从不出现——设置门控挂载语义本身不变，见
   // content.ts 的启停接线与 ai/player-ai.ts 的 sync 门控）。存量显式 false 由
@@ -97,19 +72,6 @@ export const DEFAULT_SETTINGS: Settings = {
   enableDebugLogs: false,
   readerTheme: "light",
   readerThemeUserSet: false,
-  frontmatterFields: [
-    "title",
-    "url",
-    "bvid",
-    "cid",
-    "author",
-    "upload_date",
-    "subtitle_lang",
-    "created",
-    "tags"
-  ],
-  fixedFrontmatterProperties: [],
-  notePlaceholderSections: [],
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],
   aiPresetPrompts: [],

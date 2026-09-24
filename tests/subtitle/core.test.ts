@@ -13,9 +13,20 @@ import {
   findActiveSubtitleIndex,
   getReadingSubtitleItems,
   ensureDerivedContent,
-  rebuildDerivedContent
+  rebuildDerivedContent,
+  refreshHotComments
 } from "../../extension/subtitle/core.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
+
+// 热评抓取链路（opt-backlog-2026-09/04）：笔记导出删除后热评仍有非导出的消费方
+// （概览 / AI 上下文），refreshHotComments 不再有设置门——字幕接受事务无条件
+// 按需拉取。本文件用固定热评替身驱动该函数。
+const HOT_COMMENTS = [{ uname: "甲", like: 3, message: "热评一" }];
+
+vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/bilibili/gateway.js")>();
+  return { ...actual, fetchHotComments: vi.fn(async () => HOT_COMMENTS) };
+});
 
 // 本套件刻意喂 to 缺省/非法与 undefined body（防御性脏数据）：body 用 to 可选的
 // 局部口径，落 state 前断言回写入端的 SubtitleBodyItem。
@@ -318,7 +329,7 @@ describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
 
   it("懒生成产物与裸重建逐字节一致（复制/导出产物不因懒化而变）", () => {
     state.clip.setSubtitleBody(BODY);
-    state.setSettings({ ...state.settings, tags: "测试标签" });
+    state.setSettings({ ...state.settings, includeDateInFilename: !state.settings.includeDateInFilename });
     ensureDerivedContent();
     const lazy = { md: state.clip.markdown, srt: state.clip.srt, txt: state.clip.txt };
 
@@ -334,5 +345,29 @@ describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
     expect(state.clip.markdown).toBe("");
     expect(state.clip.srt).toBe("");
     expect(state.clip.txt).toBe("");
+  });
+});
+
+describe("refreshHotComments：不受笔记导出设置门控", () => {
+  it("默认设置（键面已无 includeHotCommentsInNote）同样拉取 20 条并落 state", async () => {
+    const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
+    state.clip.setHotComments([]);
+
+    await refreshHotComments();
+
+    expect(gateway.fetchHotComments).toHaveBeenCalledWith(20);
+    expect(state.clip.hotComments).toEqual(HOT_COMMENTS);
+  });
+
+  it("已有热评且非强制刷新：短路不重复拉取；refreshComments=true 强制刷新一次", async () => {
+    const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
+    state.clip.setHotComments(HOT_COMMENTS);
+    gateway.fetchHotComments.mockClear();
+
+    await refreshHotComments();
+    expect(gateway.fetchHotComments).not.toHaveBeenCalled();
+
+    await refreshHotComments({ refreshComments: true });
+    expect(gateway.fetchHotComments).toHaveBeenCalledTimes(1);
   });
 });

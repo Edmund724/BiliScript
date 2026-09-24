@@ -1,14 +1,12 @@
 // notes/render.ts 直测（arch-slim-2/05 测试网）。
 //
-// 被测函数全部是纯函数（无 DOM/chrome 依赖；cleanVideoUrl 读 location.href，
-// beforeEach 统一钉在标准视频 URL），零注入成本直测。覆盖：
+// 被测函数全部是纯函数（无 DOM/chrome 依赖），零注入成本直测。覆盖：
 // - buildSubtitleSectionLines 章节分桶四要素（工单 acceptance 逐条参数化）：
 //   浮点容差（from + 0.001 >= start）/ 章界取下一章 from /「### 其他片段」兜底 /
 //   末尾空行裁剪。该函数同时被 ai/subtitle-prompt.ts 消费——输出即发给模型的
 //   prompt 字节，断言冻结意义双份（改动即 prompt 漂移，必须显式过门）；
-// - buildMarkdown 逐段断言：frontmatter 模板 / 占位节 / 评论节（工单原文的
-//   「hasFinalNote 联动」在当前树中已不存在同名分支，评论节的
-//   includeHotCommentsInNote 门控即该联动点的现存形态，见票 Comments）；
+// - buildMarkdown 段结构断言：简介 / 章节 / 字幕三段；笔记导出删除后正文不再
+//   出现 frontmatter、播放器 iframe 与「## 评论」节（meta 带热评也不出）；
 // - buildTxt / buildSrt / buildSubtitlePreview / shouldShowHoursInNote
 //   （三输入 max 口径：字幕 maxTo、章节 max(from,to)、meta.videoDuration）。
 
@@ -206,16 +204,10 @@ describe("buildSubtitleSectionLines：章节分桶四要素", () => {
 // ===== buildMarkdown：逐段断言 =====
 
 describe("buildMarkdown", () => {
-  // 未列出的键以 DEFAULT_SETTINGS 兜底（与生产读取行为一致；本夹具测的所有
-  // 键均显式覆盖，includePlayerEmbedInNote 走默认 true，与缺省键行为相同）。
+  // 未列出的键以 DEFAULT_SETTINGS 兜底（与生产读取行为一致）。
   const baseSettings: Settings = {
     ...DEFAULT_SETTINGS,
-    tags: "note, test",
-    includeTimestampInBody: true,
-    includeHotCommentsInNote: false,
-    frontmatterFields: ["title", "url", "bvid", "cid", "author", "upload_date", "subtitle_lang", "created", "tags"],
-    fixedFrontmatterProperties: [],
-    notePlaceholderSections: []
+    includeTimestampInBody: true
   };
 
   const fullMeta = {
@@ -231,14 +223,14 @@ describe("buildMarkdown", () => {
       { title: "第一章", from: 0, to: 10 },
       { title: "第二章", from: 10, to: 20 }
     ],
+    // 笔记导出删除后热评不再进正文：meta 带热评也不得出现「## 评论」
     hotComments: [
       { uname: "甲", like: 10, message: "说得好" },
       { uname: "乙", like: 5, message: "学到了" }
     ]
   };
 
-  it("完整结构：frontmatter → iframe → 简介 → 章节 → 字幕分段", () => {
-    setLocationUrl("https://www.bilibili.com/video/BV1abcDEFghi/?p=2");
+  it("段落结构：简介 → 章节 → 字幕（首行即简介，无前置块）", () => {
     const md = buildMarkdown(
       fullMeta,
       body([
@@ -249,26 +241,8 @@ describe("buildMarkdown", () => {
     );
     const lines = md.split("\n");
 
-    // frontmatter：--- 包裹 + 启用字段逐行落位（tags 归一为 yaml 数组）
-    expect(lines[0]).toBe("---");
-    expect(lines).toContain('title: "视频标题"');
-    expect(lines).toContain('url: "https://www.bilibili.com/video/BV1abcDEFghi/?p=2"');
-    expect(lines).toContain('bvid: "BV1abcDEFghi"');
-    expect(lines).toContain('cid: "42"');
-    expect(lines).toContain('author: "UP主"');
-    expect(lines).toContain('upload_date: "2026-01-02"');
-    expect(lines).toContain('subtitle_lang: "zh-CN"');
-    expect(lines.some((line) => /^created: "\d{4}-\d{2}-\d{2}"$/.test(line))).toBe(true);
-    expect(lines).toContain('tags: ["note", "test"]');
-    // 闭合 --- 紧跟最后一个字段行（无自定义属性时即 tags 行）
-    expect(lines[lines.indexOf("tags: [") + 1]).toBe("---");
-
-    // iframe：嵌入播放器带 aid/bvid/cid，page 取自 location 的 p 参数
-    const iframe = lines.find((line) => line.startsWith("<iframe"));
-    expect(iframe).toContain("aid=123&bvid=BV1abcDEFghi&cid=42&page=2&autoplay=0");
-
     // 简介
-    expect(lines).toContain("## 简介");
+    expect(lines[0]).toBe("## 简介");
     expect(lines).toContain("这是简介");
 
     // 章节：紧凑时间戳（不补零，arch-slim-2/08 拍板 Q1）
@@ -283,85 +257,37 @@ describe("buildMarkdown", () => {
     expect(lines).toContain("### 第二章 `0:10`");
     expect(lines).toContain("`0:10` 第二句");
 
-    // 顺序约束：frontmatter < iframe < 简介 < 章节 < 字幕
+    // 顺序约束：简介 < 章节 < 字幕
     const indexOf = (needle: string) => lines.findIndex((line) => line === needle || line.startsWith(needle));
-    expect(indexOf("---")).toBeLessThan(indexOf("<iframe"));
-    expect(indexOf("<iframe")).toBeLessThan(indexOf("## 简介"));
     expect(indexOf("## 简介")).toBeLessThan(indexOf("## 章节"));
     expect(indexOf("## 章节")).toBeLessThan(indexOf("## 字幕"));
   });
 
-  it("播放器嵌入：includePlayerEmbedInNote 缺省或 true 时输出 iframe 行", () => {
-    setLocationUrl("https://www.bilibili.com/video/BV1abcDEFghi/");
-    const body1 = body([{ from: 0, content: "第一句" }]);
+  it("导出正文不含 frontmatter（不以 --- 开头）、不含播放器 iframe、不含「## 评论」", () => {
+    setLocationUrl("https://www.bilibili.com/video/BV1abcDEFghi/?p=2");
+    const md = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), baseSettings);
+    const lines = md.split("\n");
 
-    // 缺省（存量设置对象里没有该键）：与加入开关前一致，仍输出
-    expect(buildMarkdown(fullMeta, body1, baseSettings)).toContain("<iframe");
-    // 显式 true
-    expect(
-      buildMarkdown(fullMeta, body1, { ...baseSettings, includePlayerEmbedInNote: true })
-    ).toContain("<iframe");
+    expect(md.startsWith("---")).toBe(false);
+    expect(lines).not.toContain("---");
+    // 元信息不再以 YAML 属性行落进正文（tags 键随导出设置一并退役）
+    expect(lines.some((line) => /^[a-z_]+:\s/.test(line))).toBe(false);
+    expect(md).not.toContain("<iframe");
+    expect(md).not.toContain("## 评论");
+    expect(md).not.toContain("说得好");
   });
 
-  it("播放器嵌入：includePlayerEmbedInNote=false 时不输出 iframe，其余段落结构不变", () => {
-    setLocationUrl("https://www.bilibili.com/video/BV1abcDEFghi/");
+  it("includeTimestampInBody=false：字幕行不带时间戳，段落结构不变", () => {
     const lines = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), {
       ...baseSettings,
-      includePlayerEmbedInNote: false
+      includeTimestampInBody: false
     }).split("\n");
 
-    expect(lines.some((line) => line.includes("<iframe"))).toBe(false);
-    // 不留空占位行：frontmatter 闭合行紧接 `## 简介`
-    expect(lines[lines.indexOf("---", 1) + 1]).toBe("");
-    expect(lines[lines.indexOf("---", 1) + 2]).toBe("## 简介");
-    // 其余结构原样
+    expect(lines).toContain("## 简介");
     expect(lines).toContain("## 章节");
     expect(lines).toContain("## 字幕");
-  });
-
-  it("评论节：includeHotCommentsInNote=true 时输出「## 评论」，编号 + 点赞 + 内容", () => {
-    const md = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), {
-      ...baseSettings,
-      includeHotCommentsInNote: true
-    });
-
-    expect(md).toContain("## 评论");
-    expect(md).toContain("1. 甲（赞 10）");
-    expect(md).toContain("说得好");
-    expect(md).toContain("2. 乙（赞 5）");
-    expect(md).toContain("学到了");
-  });
-
-  it("评论节：includeHotCommentsInNote=false（默认）即使 meta 带热评也不输出", () => {
-    const md = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), baseSettings);
-    expect(md).not.toContain("## 评论");
-  });
-
-  it("占位节：before_subtitle 位置的段落渲染在「## 字幕」之前，模板变量 {{title}} 解析", () => {
-    const md = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), {
-      ...baseSettings,
-      notePlaceholderSections: [{ title: "我的总结", position: "before_subtitle", content: "{{title}} 的总结" }]
-    });
-    const lines = md.split("\n");
-
-    expect(lines).toContain("## 我的总结");
-    expect(lines).toContain("视频标题 的总结");
-    expect(lines.indexOf("## 我的总结")).toBeLessThan(lines.indexOf("## 字幕"));
-  });
-
-  it("占位节：before_intro 渲染在简介前、before_chapters 渲染在章节前", () => {
-    const md = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), {
-      ...baseSettings,
-      notePlaceholderSections: [
-        { title: "导读", position: "before_intro", content: "" },
-        { title: "目录", position: "before_chapters", content: "" }
-      ]
-    });
-    const lines = md.split("\n");
-
-    expect(lines.indexOf("## 导读")).toBeLessThan(lines.indexOf("## 简介"));
-    expect(lines.indexOf("## 目录")).toBeGreaterThan(lines.indexOf("## 简介"));
-    expect(lines.indexOf("## 目录")).toBeLessThan(lines.indexOf("## 章节"));
+    expect(lines).not.toContain("`0:00` 第一句");
+    expect(lines).toContain("第一句");
   });
 
   it("无字幕：字幕区落「（暂无字幕）」占位，meta 无章节时不渲染章节节", () => {
@@ -370,22 +296,6 @@ describe("buildMarkdown", () => {
     expect(md).toContain("（暂无字幕）");
     expect(md).not.toContain("## 章节");
     expect(md).not.toContain("### 第一章");
-  });
-
-  it("frontmatter 字段未启用时不输出对应行，全部未启用且无自定义属性时省略 frontmatter", () => {
-    const md = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), {
-      ...baseSettings,
-      frontmatterFields: ["author"]
-    });
-    expect(md).toContain('author: "UP主"');
-    expect(md).not.toContain("title: ");
-
-    const mdNoFrontmatter = buildMarkdown(fullMeta, body([{ from: 0, content: "第一句" }]), {
-      ...baseSettings,
-      frontmatterFields: []
-    });
-    expect(mdNoFrontmatter.startsWith("---")).toBe(false);
-    expect(mdNoFrontmatter.startsWith("<iframe")).toBe(true);
   });
 });
 

@@ -1,22 +1,15 @@
-// ui/settings-panel.ts saveSettings 保存链与 applyValidationError 直测
+// ui/settings-panel.ts saveSettings 保存链直测
 //（arch-slim-2/05 测试网；provider-master-detail/02 起 saveSettings 只承载
 // 其余设置项——AI/ASR 平台的收集/校验/落盘/权限申请整体移交 provider-editor
-// Modal 的单平台链，见 provider-editor.test.js）。
+// Modal 的单平台链，见 provider-editor.test.js；笔记导出删除后本链只剩
+// 收集 → 单路落盘）。
 //
 // 走真实模块 + DOM 仿真（script-button.test.js 同款）：saveSettings 未导出，
 // 经唯一公开入口 renderReaderSettingsPanel 挂载面板后驱动——
-// - 保存链：收集(collectFormPayload) → 校验(validateSettings) → 单路落盘
-//   (save-settings)；平台相关的 request-provider-origins /
-//   ai-providers-save / asr-providers-save 消息不再出自本链；
-// - applyValidationError 直测：可达分支为 AI 平台校验的 message-only 分支、
-//   保存开头的 clearInputErrors 联动，以及（arch-slim-2/02 修复后）row 级分支
-//   的行内落位。field 分支（tags 换行）经 DOM 不可达——单行 input 的 value
-//   sanitizer 会剥掉换行（jsdom 与真实浏览器一致）；row 分支曾是真 bug
-//   （validators 返回的 row 是收集对象 {key,type,value,row}，产线把它当
-//   HTMLElement 调 querySelector → TypeError），已由 02 票修复并在此补
-//   行级落位断言（见文末与两票 Comments）。行级错误态载体是 aria-invalid
-//   属性（M9 校验态现代化：原生约束表达不了的条件规则走指南 fallback 通道，
-//   CSS 侧 reader-settings-shell.css 的 [aria-invalid="true"] 规则消费）。
+// - 保存链：收集(collectFormPayload) → 单路落盘(save-settings)；平台相关的
+//   request-provider-origins / ai-providers-save / asr-providers-save 消息
+//   不再出自本链；
+// - 模板口径：笔记导出的三个区块与三个导出选项行已删除，导出的保留项在场。
 //
 // chrome.runtime.sendMessage 换装成按 type 分发的消息总线（sent 记录全部出站
 // 报文），loadSettings 是 fire-and-forget，mountPanel 用 vi.waitFor 等装载链
@@ -143,26 +136,6 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     });
   });
 
-  it("外点关闭委托：类型菜单展开后点击面板外收起（守卫检查到开着弹层放行）", async () => {
-    installMessageBus();
-    const host = await mountPanel();
-
-    fireClick(host.querySelector("#addFixedPropertyBtn")!);
-    const picker = host.querySelector<HTMLElement>(".fixed-property-type-picker")!;
-    const button = picker.querySelector<HTMLElement>(".fixed-property-type-button")!;
-    const menu = picker.querySelector<HTMLElement>(".fixed-property-type-menu")!;
-    // 类型按钮自身监听器 stopPropagation，document 外点委托不触发（组件自开）
-    fireClick(button);
-    expect(picker.dataset.open).toBe("true");
-    expect(menu.hidden).toBe(false);
-
-    // 点击设置分区之外（面板宿主上）→ 外点委托收起
-    fireClick(document.body);
-    expect(picker.dataset.open).toBe("false");
-    expect(menu.hidden).toBe(true);
-    expect(button.getAttribute("aria-expanded")).toBe("false");
-  });
-
   it("常态快速通道：三类弹层全关时 document 点击零收起动作", async () => {
     installMessageBus();
     const host = await mountPanel();
@@ -181,19 +154,13 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
 });
 
 describe("saveSettings 保存链（保存按钮手势）", () => {
-  it("全链成功：收集→校验→单路落盘（平台消息不再出自本链），状态条成功、busy 复位", async () => {
+  it("全链成功：收集→单路落盘（平台消息不再出自本链），状态条成功、busy 复位", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    // 收集段：改表单若干值（含 trim / 布尔 / 复选组 / 数组截断口径）
-    host.querySelector<HTMLInputElement>("#tags")!.value = "  clip, test  ";
-    host.querySelector<HTMLInputElement>("#includeHotCommentsInNote")!.checked = true;
-    // 默认开的布尔档：取消勾选必须落盘为 false（false 是有效值，不能被
-    // 「值为 undefined 才剔除」的边界吞掉）
-    host.querySelector<HTMLInputElement>("#includePlayerEmbedInNote")!.checked = false;
+    // 收集段：改表单若干值（布尔 / textarea trim 口径）
     host.querySelector<HTMLInputElement>("#enableDebugLogs")!.checked = true;
     host.querySelector<HTMLTextAreaElement>("#aiSystemPrompt")!.value = "  自定义系统提示词  ";
-    host.querySelector<HTMLInputElement>('input[name="frontmatterField"][value="author"]')!.checked = false;
 
     fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
 
@@ -211,20 +178,25 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
 
     const saveMessage = sent.find((message) => message.type === "save-settings")!;
     expect(saveMessage.settings).toMatchObject({
-      tags: "clip, test",
       downloadFormat: "srt",
       includeDateInFilename: true,
-      includeHotCommentsInNote: true,
-      includePlayerEmbedInNote: false,
+      includeTimestampInBody: true,
       enableDebugLogs: true,
-      aiSystemPrompt: "自定义系统提示词",
-      frontmatterFields: expect.not.arrayContaining(["author"])
+      aiSystemPrompt: "自定义系统提示词"
     });
-    expect(saveMessage.settings!.frontmatterFields).toContain("title");
+    // 笔记导出的字段已退出收集口径（键不在载荷里）
+    for (const key of [
+      "tags",
+      "includeHotCommentsInNote",
+      "includePlayerEmbedInNote",
+      "frontmatterFields",
+      "fixedFrontmatterProperties",
+      "notePlaceholderSections"
+    ]) {
+      expect(saveMessage.settings, `${key} 不应出现在负载里`).not.toHaveProperty(key);
+    }
     expect(saveMessage.settings!.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
     expect(saveMessage.settings!.aiPresetPrompts).toHaveLength(3);
-    expect(saveMessage.settings!.fixedFrontmatterProperties).toEqual([]);
-    expect(saveMessage.settings!.notePlaceholderSections).toEqual([]);
 
     // 状态条与 busy 复位
     const status = lastStatus(host);
@@ -251,144 +223,46 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
   });
 });
 
-describe("applyValidationError：可达分支直测 + clearInputErrors 联动", () => {
-  it("保存开头先 clearInputErrors：预置的旧行级错误态在校验前被清空，随后全链保存成功", async () => {
-    const sent = installMessageBus();
-    const host = await mountPanel();
-
-    // 预置三类旧错误态：tags 字段、固定属性行 key + 行内错误节点、笔记段落行标题
-    fireClick(host.querySelector("#addFixedPropertyBtn")!);
-    const fixedRow = host.querySelector<HTMLElement>("#fixedPropertiesList .fixed-property-row")!;
-    const staleKey = fixedRow.querySelector<HTMLElement>(".fixed-property-key")!;
-    const staleErrorNode = fixedRow.querySelector<HTMLElement>(".fixed-property-error")!;
-    staleKey.setAttribute("aria-invalid", "true");
-    staleErrorNode.hidden = false;
-    staleErrorNode.textContent = "旧错误残留";
-
-    fireClick(host.querySelector("#addNoteSectionBtn")!);
-    const noteRow = host.querySelector<HTMLElement>("#noteSectionsList .note-section-row")!;
-    const staleTitle = noteRow.querySelector<HTMLElement>(".note-section-title")!;
-    staleTitle.setAttribute("aria-invalid", "true");
-
-    const tags = host.querySelector<HTMLElement>("#tags")!;
-    tags.setAttribute("aria-invalid", "true");
-
-    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
-
-    await vi.waitFor(() => {
-      expect(lastStatus(host).textContent).toBe("保存成功");
-    });
-
-    // 联动：saveSettings 第一步 clearInputErrors 清掉全部旧错误态
-    //（预置行 key/value 均空，validators 跳过空行，不阻断保存）
-    expect(tags.getAttribute("aria-invalid")).toBeNull();
-    expect(staleKey.getAttribute("aria-invalid")).toBeNull();
-    expect(staleErrorNode.hidden).toBe(true);
-    expect(staleErrorNode.textContent).toBe("");
-    expect(staleTitle.getAttribute("aria-invalid")).toBeNull();
-    expect(lastStatus(host).dataset.error).toBe("false");
-    expect(sent.some((message) => message.type === "save-settings")).toBe(true);
-  });
-
-  it("tags 输入监听：input 事件即清自身错误态（修正输入即清错）", async () => {
+// 笔记导出删除后的模板口径（要求 5）：三个区块（笔记属性 / 自定义属性 /
+// 正文附加段落）与三个导出选项行（默认标签 / 热门评论 / 播放器嵌入）不再渲染，
+// 字幕导出的保留项在场。
+describe("设置抽屉模板：笔记导出区块已删除", () => {
+  it("不含三个笔记属性区块，对应的 id 与行控点全部消失", async () => {
     installMessageBus();
     const host = await mountPanel();
 
-    const tags = host.querySelector<HTMLElement>("#tags")!;
-    tags.setAttribute("aria-invalid", "true");
-    tags.dispatchEvent(new Event("input", { bubbles: true }));
-
-    expect(tags.getAttribute("aria-invalid")).toBeNull();
+    for (const label of ["笔记属性", "自定义属性", "正文附加段落"]) {
+      expect(host.textContent, `仍渲染「${label}」区块`).not.toContain(label);
+    }
+    for (const id of [
+      "tags",
+      "includeHotCommentsInNote",
+      "includePlayerEmbedInNote",
+      "fixedPropertiesList",
+      "fixedPropertiesEmpty",
+      "addFixedPropertyBtn",
+      "noteSectionsList",
+      "noteSectionsEmpty",
+      "addNoteSectionBtn"
+    ]) {
+      expect(host.querySelector(`#${id}`), `#${id} 应随笔记导出一并删除`).toBeNull();
+    }
+    expect(host.querySelectorAll('input[name="frontmatterField"]')).toHaveLength(0);
+    expect(host.querySelector(".fixed-properties-list")).toBeNull();
+    expect(host.querySelector(".note-sections-list")).toBeNull();
   });
 
-  // 行级落位断言（arch-slim-2/02 补）：05 票发现的 row 级真 bug（validators
-  // 返回的 row 是收集对象 {key,type,value,row}，applyValidationError 旧代码把
-  // 收集对象整体当 HTMLElement 调 row.querySelector → TypeError，保存静默失败、
-  // 无任何 UI 反馈）已由 02 票修复——按收集对象定位真实 DOM 行。以下三条用例
-  // 在修复前会以 unhandled rejection 形式炸掉，修复后逐分支断言错误落位。
-  it("固定属性行校验失败（key 缺失）：错误落位到真实 DOM 行的 key 输入框", async () => {
-    const sent = installMessageBus();
+  it("导出区保留下载格式 / 文件名日期 / 保留时间戳 / 调试日志四项", async () => {
+    installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#addFixedPropertyBtn")!);
-    const row = host.querySelector<HTMLElement>("#fixedPropertiesList .fixed-property-row")!;
-    // 显式清空 key（新行的 value 属性是字面量 "undefined"，见 escapeHtml(undefined)），
-    // 只填值：validateFixedFrontmatterProperties 报「请填写固定属性的属性名」
-    row.querySelector<HTMLInputElement>(".fixed-property-key")!.value = "";
-    row.querySelector<HTMLInputElement>(".fixed-property-value")!.value = "some-value";
-
-    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
-
-    // 行内落位：key 输入框标错并聚焦，行内错误节点显示具体文案
-    const keyInput = row.querySelector<HTMLInputElement>(".fixed-property-key")!;
-    expect(keyInput.getAttribute("aria-invalid")).toBe("true");
-    expect(document.activeElement).toBe(keyInput);
-    const errorNode = row.querySelector<HTMLElement>(".fixed-property-error")!;
-    expect(errorNode.hidden).toBe(false);
-    expect(errorNode.textContent).toBe("请填写固定属性的属性名");
-    expect(lastStatus(host).textContent).toBe("请填写固定属性的属性名");
-    expect(lastStatus(host).dataset.error).toBe("true");
-
-    // 校验失败在权限代申请之前中止：三路落盘零发送
-    expect(sent.some((message) => message.type === "request-provider-origins")).toBe(false);
-    expect(sent.some((message) => message.type === "save-settings")).toBe(false);
+    for (const id of ["downloadFormat", "includeDateInFilename", "includeTimestampInBody", "enableDebugLogs"]) {
+      expect(host.querySelector(`#${id}`), `#${id} 应保留`).toBeTruthy();
+    }
+    expect(host.textContent).toContain("下载格式");
+    expect(host.textContent).toContain("文件名前包含导出日期");
+    expect(host.textContent).toContain("在字幕正文中保留时间戳");
   });
-
-  it("固定属性行校验失败（value 缺失）：错误落位到值输入框", async () => {
-    const sent = installMessageBus();
-    const host = await mountPanel();
-
-    fireClick(host.querySelector("#addFixedPropertyBtn")!);
-    const row = host.querySelector<HTMLElement>("#fixedPropertiesList .fixed-property-row")!;
-    // 填属性名、清空值（text 类型）：报「请填写固定属性的属性值」
-    row.querySelector<HTMLInputElement>(".fixed-property-key")!.value = "favorite_quote";
-    row.querySelector<HTMLInputElement>(".fixed-property-value")!.value = "";
-
-    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
-
-    const valueInput = row.querySelector<HTMLInputElement>(".fixed-property-value")!;
-    expect(valueInput.getAttribute("aria-invalid")).toBe("true");
-    expect(document.activeElement).toBe(valueInput);
-    expect(row.querySelector<HTMLInputElement>(".fixed-property-key")!.getAttribute("aria-invalid")).toBeNull();
-    const errorNode = row.querySelector<HTMLElement>(".fixed-property-error")!;
-    expect(errorNode.hidden).toBe(false);
-    expect(errorNode.textContent).toBe("请填写固定属性的属性值");
-    expect(sent.some((message) => message.type === "save-settings")).toBe(false);
-  });
-
-  it("笔记段落行校验失败（标题缺失）：note-section-error 显示「请填写段落标题」", async () => {
-    const sent = installMessageBus();
-    const host = await mountPanel();
-
-    fireClick(host.querySelector("#addNoteSectionBtn")!);
-    const row = host.querySelector<HTMLElement>("#noteSectionsList .note-section-row")!;
-    // 清空标题（新行的 value 属性是字面量 "undefined"）、内容非空：
-    // validateNotePlaceholderSections 报「请填写段落标题」
-    row.querySelector<HTMLInputElement>(".note-section-title")!.value = "";
-    row.querySelector<HTMLInputElement>(".note-section-content")!.value = "默认内容";
-
-    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
-
-    const titleInput = row.querySelector<HTMLInputElement>(".note-section-title")!;
-    expect(titleInput.getAttribute("aria-invalid")).toBe("true");
-    expect(document.activeElement).toBe(titleInput);
-    const errorNode = row.querySelector<HTMLElement>(".note-section-error")!;
-    expect(errorNode.hidden).toBe(false);
-    expect(errorNode.textContent).toBe("请填写段落标题");
-    expect(lastStatus(host).textContent).toBe("请填写段落标题");
-    expect(lastStatus(host).dataset.error).toBe("true");
-    expect(sent.some((message) => message.type === "save-settings")).toBe(false);
-  });
-
-  // 缺陷与不可达记录（arch-slim-2/05 实施期发现，02 票修复，详见两票 Comments）：
-  // 1. row 级分支曾是真 bug——validate* 返回的 row 是收集对象 {key,type,value,row}，
-  //    applyValidationError 把它当 HTMLElement 调 row.querySelector → TypeError
-  //    （未处理 rejection，保存静默失败、无任何 UI 反馈）。02 票改为按收集对象
-  //    的 .row 属性定位真实 DOM 行，上方三条行级落位断言已补齐。
-  // 2. tags 换行的 field 分支经 DOM 不可达——单行 input 的 value sanitizer 剥离
-  //    换行（"a\nb" 落到 value 是 "ab"，jsdom 与真实浏览器一致），
-  //    /[\r\n]/.test(payload.tags) 恒为 false。该分支只能在注入 payload 层触达，
-  //    属防御性代码。
 });
 
 // 恢复默认的二次确认走 ui/confirm-dialog.js 面板内弹层（不用原生 confirm）：
@@ -434,6 +308,17 @@ describe("恢复默认偏好按钮", () => {
     expect(resetPayload).not.toHaveProperty("asrAutoFallback");
     expect(resetPayload).not.toHaveProperty("asrLanguage");
     expect(resetPayload).not.toHaveProperty("aiBtnDefaultOnMigrated");
+    // 笔记导出字段已退出偏好键面：重置载荷不再携带
+    for (const key of [
+      "tags",
+      "includeHotCommentsInNote",
+      "includePlayerEmbedInNote",
+      "frontmatterFields",
+      "fixedFrontmatterProperties",
+      "notePlaceholderSections"
+    ]) {
+      expect(resetPayload, `${key} 不应出现在重置载荷里`).not.toHaveProperty(key);
+    }
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toContain("已恢复默认设置");
     });

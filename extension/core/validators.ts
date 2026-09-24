@@ -1,9 +1,8 @@
 // extension/core/validators.ts
 // Pure normalizers / validators for stored settings: reader preferences,
-// download format, AI prompts, fixed frontmatter properties and note
-// placeholder sections. No Chrome APIs, no DOM. Default constants live in
-// defaults.ts; prompt default texts in default-prompts.ts; provider presets
-// in presets.ts.
+// download format, AI prompts, AI providers and web search. No Chrome APIs, no
+// DOM. Default constants live in defaults.ts; prompt default texts in
+// default-prompts.ts; provider presets in presets.ts.
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
   DEFAULT_INITIAL_QUICK_PROMPTS,
@@ -17,8 +16,6 @@ import {
 } from "./default-prompts.js";
 import {
   DEFAULT_SETTINGS,
-  type FixedFrontmatterProperty,
-  type NotePlaceholderSection,
   type Settings
 } from "./defaults.js";
 
@@ -38,16 +35,6 @@ export function normalizeReaderTheme(value: unknown): string {
 // ===== Download / AI normalizers =====
 export function normalizeDownloadFormat(value: unknown): string {
   return value === "txt" ? "txt" : "srt";
-}
-
-export function normalizeIncludeHotCommentsInNote(value: unknown): boolean {
-  return value === true;
-}
-
-// 默认 true 的布尔档（同 asrAutoFallback）：只有显式 false 关闭，缺失/非法值
-// 都回落到「输出」——存量存储里没有该键，必须保持与加入开关前一致的行为。
-export function normalizeIncludePlayerEmbedInNote(value: unknown): boolean {
-  return value !== false;
 }
 
 export function normalizeEnablePlayerAiQuickAction(value: unknown): boolean {
@@ -129,143 +116,10 @@ export function normalizeWebSearchMaxToolCalls(value: unknown): number {
   return Math.min(10, Math.max(1, Math.round(parsed)));
 }
 
-// ===== Frontmatter normalizers =====
-export function normalizeFixedPropertyType(value: unknown): FixedFrontmatterProperty["type"] {
-  const type = toString(value).trim().toLowerCase();
-  return type === "number" || type === "checkbox" || type === "list" || type === "date" ? type : "text";
-}
-
-export function normalizeFixedPropertyValue(type: unknown, value: unknown): string {
-  const normalizedType = normalizeFixedPropertyType(type);
-  if (normalizedType === "checkbox") {
-    return toString(value).trim().toLowerCase();
-  }
-  return toString(value).trim();
-}
-
-export function isFixedPropertyRowEffectivelyEmpty(type: unknown, value: unknown): boolean {
-  return !toString(value).trim();
-}
-
-export function normalizeFixedFrontmatterProperties(value: unknown): FixedFrontmatterProperty[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map(function (item: unknown) {
-      const raw = item as Partial<FixedFrontmatterProperty>;
-      return {
-        key: toString(raw.key).trim(),
-        type: normalizeFixedPropertyType(raw.type),
-        value: normalizeFixedPropertyValue(raw.type, raw.value)
-      };
-    })
-    .filter(function (item) { return item.key && !isFixedPropertyRowEffectivelyEmpty(item.type, item.value); });
-}
-
-const SYSTEM_FRONTMATTER_FIELDS = new Set(
-  DEFAULT_SETTINGS.frontmatterFields.map((field) => String(field).toLowerCase())
-);
-
 interface ValidationResult {
   ok: boolean;
   row?: unknown;
   message?: string;
-}
-
-// ===== Frontmatter / note-section validation =====
-export function validateFixedFrontmatterProperties(items: unknown[]): ValidationResult {
-  const systemFrontmatterFields = SYSTEM_FRONTMATTER_FIELDS;
-  const customPropertyKeyPattern = /^[\p{L}\p{N}_\-\s]+$/u;
-  const frontmatterDateValueRe = /^\d{4}-\d{2}-\d{2}$/;
-  const seenKeys = new Set<string>();
-  const rows = Array.isArray(items) ? items : [];
-  for (let i = 0; i < rows.length; i++) {
-    const item = rows[i];
-    const raw = item as Partial<FixedFrontmatterProperty>;
-    const key = String(raw.key || "").trim();
-    const type = normalizeFixedPropertyType(raw.type);
-    const value = raw.value;
-    const lowerKey = key.toLowerCase();
-    const valueText = typeof value === "string" ? value.trim() : "";
-
-    if (!key && isFixedPropertyRowEffectivelyEmpty(type, value)) {
-      continue;
-    }
-    if (!key) {
-      return { ok: false, row: item, message: "请填写固定属性的属性名" };
-    }
-    if (!customPropertyKeyPattern.test(key)) {
-      return { ok: false, row: item, message: "属性名仅支持中文、英文、数字、空格、下划线和短横线" };
-    }
-    const hasTemplateToken = containsFrontmatterTemplateToken(valueText);
-
-    if (type === "number") {
-      if (!valueText) {
-        return { ok: false, row: item, message: "请填写数字类型的属性值" };
-      }
-      if (!hasTemplateToken && !Number.isFinite(Number(valueText))) {
-        return { ok: false, row: item, message: "数字类型的属性值必须是有效数字" };
-      }
-    } else if (type === "checkbox") {
-      if (!valueText) {
-        return { ok: false, row: item, message: "请填写复选框类型的属性值" };
-      }
-      const normalizedCheckboxValue = valueText.toLowerCase();
-      if (!hasTemplateToken && normalizedCheckboxValue !== "true" && normalizedCheckboxValue !== "false") {
-        return { ok: false, row: item, message: "复选框类型的属性值只能填写 true 或 false" };
-      }
-    } else if (type === "date") {
-      if (!valueText) {
-        return { ok: false, row: item, message: "请填写日期类型的属性值" };
-      }
-      if (!hasTemplateToken && !frontmatterDateValueRe.test(valueText)) {
-        return { ok: false, row: item, message: "日期类型请填写 YYYY-MM-DD，或使用 {{upload_date}} 这类变量" };
-      }
-    } else if (!valueText) {
-      return { ok: false, row: item, message: "请填写固定属性的属性值" };
-    }
-    if (systemFrontmatterFields.has(lowerKey)) {
-      return { ok: false, row: item, message: "该属性名与系统字段重复，请换一个名称" };
-    }
-    if (seenKeys.has(lowerKey)) {
-      return { ok: false, row: item, message: "固定属性名不能重复" };
-    }
-    seenKeys.add(lowerKey);
-  }
-
-  return { ok: true };
-}
-
-export function normalizeNoteSectionPosition(value: unknown): NotePlaceholderSection["position"] {
-  const key = toString(value).trim().toLowerCase();
-  return key === "before_chapters" || key === "before_subtitle" ? key : "before_intro";
-}
-
-export function validateNotePlaceholderSections(items: unknown[]): ValidationResult {
-  const allowedPositions = new Set<NotePlaceholderSection["position"]>(["before_intro", "before_chapters", "before_subtitle"]);
-  const maxSections = 5;
-  const rows = Array.isArray(items) ? items : [];
-  if (rows.length > maxSections) {
-    return { ok: false, message: "正文附加段落最多添加 " + maxSections + " 个" };
-  }
-  for (let i = 0; i < rows.length; i++) {
-    const item = rows[i];
-    const raw = item as Partial<NotePlaceholderSection>;
-    const title = String(raw.title || "").trim();
-    const position = normalizeNoteSectionPosition(raw.position);
-    const content = String(raw.content || "").trim();
-    if (!title && !content) {
-      continue;
-    }
-    if (!title) {
-      return { ok: false, row: item, message: "请填写段落标题" };
-    }
-    if (!allowedPositions.has(position)) {
-      return { ok: false, row: item, message: "请选择有效的位置" };
-    }
-  }
-  return { ok: true };
 }
 
 interface AiProviderValidationInput {
@@ -307,32 +161,4 @@ export function validateAiProviders(items: unknown[]): ValidationResult {
   return { ok: true };
 }
 
-function containsFrontmatterTemplateToken(value: unknown): boolean {
-  return /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/.test(String(value || "").trim());
-}
-
-// ===== Note placeholder sections =====
-export function normalizeNotePlaceholderSections(items: unknown): NotePlaceholderSection[] {
-  const allowedPositions = new Set<NotePlaceholderSection["position"]>(["before_intro", "before_chapters", "before_subtitle"]);
-  if (!Array.isArray(items)) {
-    return [];
-  }
-  return items
-    .map(function (item: unknown) {
-      const title = toString((item as Partial<NotePlaceholderSection>).title).trim();
-      const content = toString((item as Partial<NotePlaceholderSection>).content).trim();
-      const rawPosition = toString((item as Partial<NotePlaceholderSection>).position).trim();
-      const position = allowedPositions.has(rawPosition as NotePlaceholderSection["position"])
-        ? (rawPosition as NotePlaceholderSection["position"])
-        : "before_intro";
-      return {
-        title,
-        position,
-        content
-      };
-    })
-    .filter(function (item) { return item.title; })
-    .slice(0, 5);
-}
-
-export type { FixedFrontmatterProperty, NotePlaceholderSection, Settings };
+export type { Settings };

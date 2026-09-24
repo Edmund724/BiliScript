@@ -279,17 +279,17 @@ export function ensureDerivedContent(): void {
 // 热评拉取（自 refreshDerivedContent 拆出，opt-backlog-2026-09/04）：原是派生
 // 刷新的一部分，但热评消费方不止笔记渲染（overview 分析/context 装配），且落账
 // 后阅读视图即依赖它呈现——留在字幕接受事务内。派生三件套不再随本调用构建。
+// 笔记导出删除后不再有 includeHotCommentsInNote 设置门：热评的消费方（概览 /
+// AI 上下文）与导出无关，落账后一律按需补拉。
 export async function refreshHotComments({ refreshComments = false } = {}): Promise<void> {
-  if (state.settings?.includeHotCommentsInNote) {
-    const shouldFetchComments =
-      refreshComments || !Array.isArray(state.clip.hotComments) || state.clip.hotComments.length === 0;
-    if (shouldFetchComments) {
-      try {
-        clipState.setHotComments(await fetchHotComments(20));
-      } catch (error) {
-        clipState.setHotComments([]);
-        logWarn("[BILISCRIPT] failed to fetch hot comments for note export", error);
-      }
+  const shouldFetchComments =
+    refreshComments || !Array.isArray(state.clip.hotComments) || state.clip.hotComments.length === 0;
+  if (shouldFetchComments) {
+    try {
+      clipState.setHotComments(await fetchHotComments(20));
+    } catch (error) {
+      clipState.setHotComments([]);
+      logWarn("[BILISCRIPT] failed to fetch hot comments", error);
     }
   }
 }

@@ -7,7 +7,7 @@
 // id 契约与原 options 页保持一致：settings-panel.ts 的 collectElements 按 id
 // 取自宿主容器，options-rows / validators 的行级选择器直接复用；分节顺序即
 // 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 → AI 对话 →
-// 导出 → 笔记属性 → 自定义属性 → 正文附加段落 → 保存行）。
+// 导出 → 保存行）。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
 // chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。
 
@@ -77,10 +77,6 @@ export function buildSettingsHtml(): string {
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">导出</div>
       <div class="biliscript-set-row">
-        <label class="biliscript-set-label" for="tags">默认标签（逗号分隔）</label>
-        <input id="tags" class="biliscript-set-input" type="text" placeholder="例如：clippings,bilibili,subtitle" />
-      </div>
-      <div class="biliscript-set-row">
         <label class="biliscript-set-label" for="downloadFormat">下载格式</label>
         <select id="downloadFormat" class="biliscript-set-select">
           <option value="srt">SRT</option>
@@ -92,14 +88,6 @@ export function buildSettingsHtml(): string {
         文件名前包含导出日期
       </label>
       <label class="biliscript-set-check">
-        <input id="includeHotCommentsInNote" type="checkbox" />
-        导出前 20 条热门评论
-      </label>
-      <label class="biliscript-set-check">
-        <input id="includePlayerEmbedInNote" type="checkbox" />
-        在笔记正文嵌入 B 站播放器（MarkText 等不渲染 iframe 的编辑器可关闭）
-      </label>
-      <label class="biliscript-set-check">
         <input id="includeTimestampInBody" type="checkbox" />
         在字幕正文中保留时间戳
       </label>
@@ -107,38 +95,6 @@ export function buildSettingsHtml(): string {
         <input id="enableDebugLogs" type="checkbox" />
         启用调试日志（仅在排查问题时开启）
       </label>
-    </section>
-
-    <section class="biliscript-set-group">
-      <div class="biliscript-set-h">笔记属性（Frontmatter）</div>
-      <p class="biliscript-set-hint">勾选需要写入到笔记属性区（Frontmatter）的字段。</p>
-      <div class="biliscript-set-field-grid">
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="title" /> title</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="url" /> url</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="bvid" /> bvid</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="cid" /> cid</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="author" /> author</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="upload_date" /> upload_date</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="subtitle_lang" /> subtitle_lang</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="created" /> created</label>
-        <label class="mini-checkbox"><input type="checkbox" name="frontmatterField" value="tags" /> tags</label>
-      </div>
-    </section>
-
-    <section class="biliscript-set-group">
-      <div class="biliscript-set-h">自定义属性</div>
-      <p class="biliscript-set-hint">支持默认属性的变量映射，比如 {{upload_date}}、{{created}}</p>
-      <div id="fixedPropertiesList" class="fixed-properties-list"></div>
-      <p id="fixedPropertiesEmpty" class="fixed-properties-empty">还没有自定义属性</p>
-      <button id="addFixedPropertyBtn" class="add-property-btn" type="button">+ 添加属性</button>
-    </section>
-
-    <section class="biliscript-set-group">
-      <div class="biliscript-set-h">正文附加段落</div>
-      <p class="biliscript-set-hint">在正文插入占位段落标题。默认结构：简介-章节-字幕；具体内容可留空。</p>
-      <div id="noteSectionsList" class="note-sections-list"></div>
-      <p id="noteSectionsEmpty" class="fixed-properties-empty">还没有正文附加段落</p>
-      <button id="addNoteSectionBtn" class="add-property-btn" type="button">+ 添加段落</button>
     </section>
 
     <div class="biliscript-set-actions">

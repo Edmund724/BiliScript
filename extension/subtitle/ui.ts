@@ -90,7 +90,6 @@ export function buildClipSnapshotPayload(): Record<string, unknown> {
     title: state.clip.title || "",
     author: state.clip.author || "",
     uploadDate: state.clip.uploadDate || "",
-    tags: String(state.settings?.tags || ""),
     status: state.ui.statusText || "",
     message: state.ui.messageText || "",
     subtitlePreview: buildSubtitlePreview(state.clip.subtitleBody || [], state.settings || DEFAULT_SETTINGS),

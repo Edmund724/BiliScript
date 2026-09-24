@@ -1,159 +1,14 @@
 /* ===== 设置行级构建器 + 平台行 + 自定义下拉（arch-slim-4/04，2026-09 拆分第二份） =====
- * 自 reader-settings.css 拆出（原单表中段）：固定属性 / 正文附加段落 /
- * AI·ASR 平台的行级规则（行构建器 options-rows / options-asr-rows /
- * provider-row 照旧生成）、弹层卡片与选项行单源（fixed-property-type-menu /
- * ai-provider-model-dropdown / custom-select-dropdown 同度量）、以及
- * custom-select 通用下拉（下载格式 / Modal 预设 / 段落位置）。
+ * 自 reader-settings.css 拆出（原单表中段）：AI·ASR 平台的行级规则（行构建器
+ * options-rows / options-asr-rows / provider-row 照旧生成）、弹层卡片与选项行
+ * 单源（ai-provider-model-dropdown / custom-select-dropdown 同度量）、以及
+ * custom-select 通用下拉（下载格式 / Modal 预设）。
  * 挂载与级联顺序见 reader-settings-shell.css 头注：shell → rows → providers，
  * 本表规则位于 shell 之后、providers（编辑 Modal）之前，与拆分前文件内
  * 规则顺序一致。颜色/边框走 --biliscript-reader-* token（reader-gate.css 两主题
  * 定义）。 */
 
-/* 固定属性 / 正文附加段落 / 平台 provider 行（原 options.css 行级规则，
- * 类名未动——行构建器（options-rows / options-asr-rows / provider-row）
- * 照旧生成；栅格缩到面板宽度能用的 4 列形态） */
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-properties-list,
-#biliscript-reading-view .biliscript-reading-settings-host .note-sections-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-properties-empty {
-  margin: 0;
-  font-size: 14px;
-  color: var(--biliscript-reader-faint);
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-fields,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-fields {
-  display: grid;
-  grid-template-columns: 84px minmax(0, 1fr) 32px;
-  gap: 6px;
-  align-items: center;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-field-remove,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-field-remove {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 32px;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-remove,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-remove {
-  width: 100%;
-  height: 32px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--biliscript-reader-faint);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 100ms ease-out;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-remove:active,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-remove:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-remove:hover,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-remove:hover {
-  color: var(--biliscript-reader-accent);
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-remove svg,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-remove svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-fields input,
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-fields select,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-fields input,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-fields select {
-  width: 100%;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
-  background: var(--biliscript-reader-card);
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 15px;
-  line-height: 1.2;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-fields select.note-section-position {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 26px;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--biliscript-reader-faint) 50%),
-    linear-gradient(135deg, var(--biliscript-reader-faint) 50%, transparent 50%);
-  background-position:
-    calc(100% - 12px) calc(50% - 1px),
-    calc(100% - 9px) calc(50% - 1px);
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-picker {
-  position: relative;
-  height: 32px;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 5px;
-  width: 100%;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
-  background: var(--biliscript-reader-card);
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 15px;
-  font-weight: 400;
-  cursor: pointer;
-  transition: transform 100ms ease-out;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-button:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-button svg {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-  stroke: var(--biliscript-reader-faint);
-  stroke-width: 1.5;
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 /* 弹层卡片全表唯一一份（Q18：模型选择弹层与自定义下拉同源）。 */
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-menu,
 #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
 #biliscript-reading-view .custom-select-dropdown {
   position: absolute;
@@ -174,9 +29,8 @@
   margin: 0;
 }
 
-/* 选项行全表唯一一份：button 型（类型/模型选项、下拉选项）与 li 型（下拉
+/* 选项行全表唯一一份：button 型（模型选项、下拉选项）与 li 型（下拉
  * 选项、模型加载/提示项）共用度量，cursor: pointer 对 li 无害。 */
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-option,
 #biliscript-reading-view .provider-editor-host .ai-provider-model-option,
 #biliscript-reading-view .provider-editor-host .ai-provider-model-message,
 #biliscript-reading-view .custom-select-option {
@@ -197,13 +51,11 @@
   transition: transform 100ms ease-out;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-option:active,
 #biliscript-reading-view .provider-editor-host .ai-provider-model-option:active,
 #biliscript-reading-view .custom-select-option:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-option:hover,
 #biliscript-reading-view .provider-editor-host .ai-provider-model-option:hover,
 #biliscript-reading-view .custom-select-option:hover {
   background: var(--biliscript-reader-surface-2);
@@ -239,27 +91,6 @@
   color: var(--biliscript-reader-faint);
   border-top: 1px dashed var(--biliscript-reader-border);
   margin-top: 4px;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-fields input::placeholder,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-fields input::placeholder {
-  color: var(--biliscript-reader-faint);
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-value-slot {
-  width: 100%;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-error,
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-error {
-  margin: 6px 0 0;
-  font-size: 14px;
-  color: var(--biliscript-reader-accent);
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-error[hidden],
-#biliscript-reading-view .biliscript-reading-settings-host .note-section-error[hidden] {
-  display: none;
 }
 
 /* AI / ASR 平台行（provider-master-detail/02 紧凑形态）：行是纯展示 + 编辑/
@@ -474,15 +305,14 @@
   border-color: var(--biliscript-reader-accent);
 }
 
-/* 面板外部的 global document click 委托会关闭 type picker 菜单/模型下拉；
+/* 面板外部的 global document click 委托会关闭模型下拉/自定义下拉；
  * 弹出层需要盖过相邻卡片，堆叠上下文内 z-index 已够，此处补一个兜底。 */
-#biliscript-reading-view .biliscript-reading-settings-host .fixed-property-type-menu[hidden],
 #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown[hidden],
 #biliscript-reading-view .custom-select-dropdown[hidden] {
   display: none;
 }
 
-/* 自定义下拉通用样式（下载格式 / Modal 预设 / 段落位置） */
+/* 自定义下拉通用样式（下载格式 / Modal 预设） */
 #biliscript-reading-view .custom-select-wrapper {
   position: relative;
   display: flex;

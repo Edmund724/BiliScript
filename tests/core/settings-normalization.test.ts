@@ -66,26 +66,29 @@ describe("normalizeSettings 纯函数", () => {
 
   it("返回新对象且不改入参，非受管字段原样保留", async () => {
     const { normalizeSettings } = await loadStoreModule();
-    const input = { ...DEFAULT_SETTINGS, tags: "clippings,custom", downloadFormat: "vtt" };
+    const input = { ...DEFAULT_SETTINGS, unknownKey: "passthrough", downloadFormat: "vtt" };
     const out = normalizeSettings(input);
     expect(out).not.toBe(input);
     expect(input.downloadFormat).toBe("vtt");
-    expect(out.tags).toBe("clippings,custom");
+    expect(out.downloadFormat).toBe("srt");
+    expect(out.unknownKey).toBe("passthrough");
   });
 
-  // includePlayerEmbedInNote 是默认 true 的布尔档（同 asrAutoFallback）：存量存储
-  // 里没有该键，读取必须回落到 true，否则老用户升级后会静默丢掉笔记里的播放器。
-  it("includePlayerEmbedInNote：缺失/非法值回落 true，仅显式 false 关闭", async () => {
-    const { normalizeSettings } = await loadStoreModule();
-    expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: undefined }).includePlayerEmbedInNote).toBe(true);
-    expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: "no" }).includePlayerEmbedInNote).toBe(true);
-    expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: false }).includePlayerEmbedInNote).toBe(false);
-    expect(normalizeSettings({ ...DEFAULT_SETTINGS, includePlayerEmbedInNote: true }).includePlayerEmbedInNote).toBe(true);
-
-    // 键不在对象里（模拟存量存储合并前的原始 map）同样回落 true
-    const withoutKey: Record<string, unknown> = { ...DEFAULT_SETTINGS };
-    delete withoutKey.includePlayerEmbedInNote;
-    expect(normalizeSettings(withoutKey).includePlayerEmbedInNote).toBe(true);
+  // 笔记导出功能删除（导出的 Markdown 只剩简介/章节/字幕）：被删字段退出
+  // DEFAULT_SETTINGS 键面，旧存储里残留的这些键在写路径被白名单丢弃——不需要
+  // 迁移，白名单取 DEFAULT_SETTINGS 键集天然收敛。
+  it("笔记导出字段已退出设置键面：DEFAULT_SETTINGS 不再声明这些键", async () => {
+    for (const key of [
+      "tags",
+      "includeHotCommentsInNote",
+      "includePlayerEmbedInNote",
+      "frontmatterFields",
+      "fixedFrontmatterProperties",
+      "notePlaceholderSections"
+    ]) {
+      expect(Object.keys(DEFAULT_SETTINGS), `DEFAULT_SETTINGS 仍声明 ${key}`).not.toContain(key);
+      expect(DEFAULT_SETTINGS[key]).toBeUndefined();
+    }
   });
 
   // 四代历史默认系统提示词一次性升到当前默认；用户自定义文本不动。
@@ -174,6 +177,37 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
     expect(persisted.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+  });
+
+  // 笔记导出删除后的写路径收敛：整对象写回里的被删字段（旧存储残留 / 陈旧
+  // 快照）被白名单剔除，不会复活。
+  it("写路径：笔记导出字段被白名单丢弃，其余键照常落盘", async () => {
+    const { saveSettings } = await loadStoreModule();
+
+    await saveSettings({
+      ...DEFAULT_SETTINGS,
+      tags: "clippings,bilibili",
+      includeHotCommentsInNote: true,
+      includePlayerEmbedInNote: true,
+      frontmatterFields: ["title"],
+      fixedFrontmatterProperties: [{ key: "k", type: "text", value: "v" }],
+      notePlaceholderSections: [{ title: "t", position: "before_intro", content: "c" }]
+    });
+
+    expect(syncSetMock).toHaveBeenCalledTimes(1);
+    const persisted = syncSetMock.mock.calls[0][0];
+    for (const key of [
+      "tags",
+      "includeHotCommentsInNote",
+      "includePlayerEmbedInNote",
+      "frontmatterFields",
+      "fixedFrontmatterProperties",
+      "notePlaceholderSections"
+    ]) {
+      expect(persisted, `${key} 不应落盘`).not.toHaveProperty(key);
+    }
+    expect(persisted.downloadFormat).toBe(DEFAULT_SETTINGS.downloadFormat);
+    expect(persisted.includeDateInFilename).toBe(DEFAULT_SETTINGS.includeDateInFilename);
   });
 });
 
