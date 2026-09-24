@@ -61,7 +61,7 @@ function getItemNode(itemIndex: number): HTMLElement | null {
   return getSubtitleList()?.querySelector<HTMLElement>(`[data-index="${itemIndex}"]`) || null;
 }
 
-// 大小写不敏感字面量匹配（语义照搬 youtube-script findLiteralTranscriptMatches：
+// 大小写不敏感字面量匹配（语义照搬 youtube-digest findLiteralTranscriptMatches：
 // 正则元字符转义为字面量——标点是字幕文本不是表达式命令）
 function findLiteralMatches(text: string, needle: string): SearchRange[] {
   const source = String(text || "");

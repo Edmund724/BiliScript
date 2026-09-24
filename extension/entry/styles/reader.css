@@ -1282,7 +1282,7 @@
 }
 
 /* 章节列表：时间戳 pill + 标题 + 小结（点击跳播）。卡片底色用 surface-2 与
- * 周边区分（script-only-ui 决策：参考 YouTube Script Overview 卡片式）。 */
+ * 周边区分（script-only-ui 决策：参考 YouTube Digest Overview 卡片式）。 */
 .biliscript-reading-ov-chapter {
   width: 100%;
   display: grid;

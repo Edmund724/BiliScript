@@ -4,7 +4,7 @@
 // 维护；auto 跟随中、manual 手动滚动暂停）+ reader.css 的 CSS 显隐规则——
 // auto 隐藏、manual 显示、转写中隐藏（三开关退役后无 off 态，自动滚动恒开）。
 // 按钮行为：resumeReaderFollowPlayback 把跟随拉回 auto 并跳回当前句（不改播放
-// 进度——语义是「回去继续跟随」，不是 seek；对齐 youtube-script sidepanel.js
+// 进度——语义是「回去继续跟随」，不是 seek；对齐 youtube-digest sidepanel.js
 // 的 Follow playback 按钮）。
 //
 // jsdom 无法测 CSS display，显隐规则做两层验证：

@@ -32,7 +32,7 @@ _Avoid_: 目录、分段、集
 _Avoid_: 补零/不补零双约定并存、各处手写 withHours 启发式、第三套解析器
 
 **字幕接受**:
-一段字幕成为当前视频生效字幕的唯一事务：稳定排序（from 升序，读路径二分依赖）→ 写 state → `fetchState="ready"` → 清 `noSubtitleReason` → 刷新派生内容（笔记/SRT/TXT）→ 通知 reader（`subtitle-ready`，emit 单点在事务内——调用方补发通知或直调渲染即双渲染）。四个写入点（CC 缓存命中/网络新抓/ASR 缓存命中/转写完成）与无字幕出口（逆事务：清空 + `empty` + 原因）都必须经此收口，禁止手抄序列。事务带可选 runId 代次自检（M23 runId 协调）：调用方传入自己的抓取代次，写 state 前与 `fetchRunId` 比对，代次已被 URL 变化编排递增/新一轮抓取推进则抛 STALE_RUN 让位——旧视频字幕不得写进已重置的 state。递增单点在 URL 变化编排（`handleUrlChange` 感知 clip 签名变化处）同步先行，早于 reset 与新视频 refreshClip 的动态装载链；未传 runId（ASR 收尾路径，自有 isStale 视频键门控）不校验。
+一段字幕成为当前视频生效字幕的唯一事务：稳定排序（from 升序，读路径二分依赖）→ 写 state → `fetchState="ready"` → 清 `noSubtitleReason` → 刷新派生内容（Markdown/SRT/TXT）→ 通知 reader（`subtitle-ready`，emit 单点在事务内——调用方补发通知或直调渲染即双渲染）。四个写入点（CC 缓存命中/网络新抓/ASR 缓存命中/转写完成）与无字幕出口（逆事务：清空 + `empty` + 原因）都必须经此收口，禁止手抄序列。事务带可选 runId 代次自检（M23 runId 协调）：调用方传入自己的抓取代次，写 state 前与 `fetchRunId` 比对，代次已被 URL 变化编排递增/新一轮抓取推进则抛 STALE_RUN 让位——旧视频字幕不得写进已重置的 state。递增单点在 URL 变化编排（`handleUrlChange` 感知 clip 签名变化处）同步先行，早于 reset 与新视频 refreshClip 的动态装载链；未传 runId（ASR 收尾路径，自有 isStale 视频键门控）不校验。
 代码名：`subtitle/commit.js`（接受与无字幕出口的唯一入口；DOM 渲染回调由 fetcher 注入，保持静态图无环）/ `runId` 自检（`AcceptSubtitleArgs.runId` / `CommitNoSubtitleArgs.runId`）
 _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 fetchRunId（须同步先行于装载链，否则新视频抓取可能被迟到的递增误杀）
 
@@ -64,10 +64,10 @@ _Avoid_: 把字幕控件门当硬门回退、降级位先挂后迁移
 
 ### 总结流程
 
-**笔记**:
-最终产出的、面向收藏与复习的完整 Markdown 总结。
-代码名：`notes/` 目录（`notes/render.js` 的 `buildMarkdown`）/ `hasFinalNote`（判定已成稿）
-_Avoid_: 总结、摘要、回答
+**成稿笔记**:
+AI 总结阶梯（ADR-0001）的内部中间产物——素材在预算内一次成稿、超预算经「分段 + 归并」后成稿的完整 Markdown 总结，用于追问时的常驻压缩上下文，不是面向用户的笔记功能。产品已无笔记功能（原 Frontmatter 笔记导出 2026-09 删除）；`notes/` 目录仅承担字幕导出渲染（Markdown/SRT/TXT）。
+代码名：`ai/followup-context.js` 的 `hasFinalNote`（判定已成稿）/ `notes/render.js` 的 `buildMarkdown`（导出渲染）
+_Avoid_: 总结、摘要、回答；也不要再引入「保存笔记 / 笔记库」这类用户功能命名
 
 **音频分片**:
 长音频按固定时长切出的上传单元（5 分钟/片，WAV）。与「分段小结」互不相干：分片是 ASR 的上传/转写单元，小结是字幕的压缩产物。
@@ -95,7 +95,7 @@ _Avoid_: 窗口、配额、限额
 _Avoid_: 降级、回退
 
 **概览**:
-文摘面板三大标签之一（对应 YouTube Script 的 Overview）：段落总结 + 章节列表 + 金句 + 完整笔记一节。视频无自带章节时由 AI 分章。
+文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：章节列表（含分段小结）+ 金句。视频无自带章节时由 AI 分章。
 _Avoid_: 总览
 
 **金句**:
@@ -103,7 +103,7 @@ AI 从字幕中挑选的佳句，收录在概览页章节下方，带时间戳�
 _Avoid_: 名句、摘抄
 
 **压缩摘要**:
-追问时常驻上下文的有界形式（分段小结 + 笔记），取代把原始字幕整篇重发。
+追问时常驻上下文的有界形式（分段小结 + 成稿笔记），取代把原始字幕整篇重发。
 代码名：`compressedSummaryMarkdown` / `buildCompressedSummary` / `ai/followup-context.js`
 _Avoid_: 缓存摘要、记忆、上下文摘要
 

@@ -341,7 +341,7 @@ export function noteManualReaderInteraction(durationMs = 3000) {
 // 本函数只负责行为：
 //   - manual 态 = 手动滚动暂停中 → 清暂停；
 //   - 随后 forceScroll 同步一次高亮与滚动，跳回「当前正在播的句子」——不改
-//     播放进度（按钮语义是「回去继续跟随」，不是 seek；与 youtube-script
+//     播放进度（按钮语义是「回去继续跟随」，不是 seek；与 youtube-digest
 //     sidepanel.js 的 Follow playback 按钮行为一致）。
 export function resumeReaderFollowPlayback() {
   resetManualScrollPause();
