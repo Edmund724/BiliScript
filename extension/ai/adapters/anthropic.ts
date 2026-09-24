@@ -18,7 +18,12 @@ import type { ChatRequest, DrainContext, DrainResult, ProtocolAdapter } from "..
 import type { ChatMessage, ChatToolCall } from "../types.js";
 
 // Anthropic max_tokens 必填且无默认：调用方未传时 adapter 兜底（research 限制点 1）。
-const DEFAULT_MAX_TOKENS = 4096;
+// 兜底值的语义 =「调用方不关心时给一个合理上限」（OpenAI 系平台此时干脆不发字段、
+// 由平台自身默认决定），故按「思考预算之外还留得下正文」取值：思考 token 计入
+// max_tokens（budget_tokens 是目标而非硬上限），4096 会被思考吃光——表现为回答
+// 中途截断、甚至只有思考没有正文（同 analysis-orchestrate 的 finish_reason=length
+// 空正文记录）。8192 = 默认思考预算 2048 + 6144 正文余量。
+const DEFAULT_MAX_TOKENS = 8192;
 // 开思考的 budget_tokens 下限（Anthropic 硬性要求 ≥1024）与默认预算；
 // budget 计入 max_tokens，故必须 < max_tokens。
 const MIN_BUDGET_TOKENS = 1024;
@@ -207,7 +212,7 @@ export const anthropicAdapter: ProtocolAdapter = {
       model: request.model,
       messages: toAnthropicMessages(rest),
       stream: request.stream,
-      // max_tokens 必填（限制点 1）：调用方未传兜底 4096；探针由 core 代劳传 1。
+      // max_tokens 必填（限制点 1）：调用方未传兜底 DEFAULT_MAX_TOKENS；探针由 core 代劳传 1。
       max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS
     };
     if (system) body.system = system;

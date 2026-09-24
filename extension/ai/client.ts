@@ -22,6 +22,11 @@ import { TokenBatcher } from "./token-batcher.js";
 // overflow 标记错误后立即转 Map-Reduce 分段整理（对用户表现为进度逐段推进）。
 export const OVER_BUDGET_NOTICE = "字幕过长，已切换为分段整理模式";
 
+// 截断提示（finishReason="length"）：命中 max_tokens 后 SSE 只是结束，界面上没有
+// 任何迹象——不提示的话用户只会觉得「模型没答完」。文案只陈述事实，不猜是思考
+// 吃掉了预算还是问题本身太长。
+export const TRUNCATED_NOTICE = "回答被截断（达到模型输出上限）";
+
 interface SubtitleResolution {
   markdown: string;
   mode: "single" | "map-reduce";
@@ -94,6 +99,8 @@ interface StreamChatInput {
  * - 读流中断重试：新流事件前回吐一条 stream-reset（代际重置信号，渲染层
  *   清空本条消息缓冲整体重放，避免两代流拼接成重复文本）；
  * - 重试提示经 notice（读流中断重试保持旧现状：不打扰用户）；
+ * - 截断提示经 notice：finishReason="length"（max_tokens 命中）时在正文之后补一条
+ *   TRUNCATED_NOTICE，事件序列之外不加新事件类型；
  * - 成功回吐 done；中止回吐 stopped；其余失败回吐 error；
  * - 仅 context-length 溢出（含预算内超限）以带 .overflow 标记的错误上抛，
  *   供 ladder「catch 查标记」分流（单次转 Map-Reduce / 追问报错）。
@@ -185,6 +192,14 @@ export async function streamChat({ provider, context, userPrompt, history, userI
             ? `${error.message}，正在重试...`
             : `连接中断，正在重新连接（${attempt}/${maxRetries}）...`
         } satisfies ChatPortMessage);
+      },
+      onFinishReason: (reason: string | null) => {
+        // 截断（finishReason="length"）不改变事件序列语义，只补一条提示：命中
+        // max_tokens 时 SSE 只是结束，不说的话用户只会觉得「模型没答完」。
+        // 联网轮中间工具轮也会照传，"tool_calls" 在此忽略。
+        if (reason !== "length") return;
+        flushTokens();
+        port.postMessage({ type: "notice", data: TRUNCATED_NOTICE } satisfies ChatPortMessage);
       }
     };
 

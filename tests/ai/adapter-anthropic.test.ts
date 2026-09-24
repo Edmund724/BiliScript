@@ -84,9 +84,9 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
   });
 
-  it("max_tokens 必填兜底 4096；显式值透传（限制点 1）", () => {
-    expect(anthropicAdapter.buildBody({ ...base, messages: [] }).max_tokens).toBe(4096);
-    expect(anthropicAdapter.buildBody({ ...base, messages: [], maxTokens: 8192 }).max_tokens).toBe(8192);
+  it("max_tokens 必填兜底 8192；显式值透传（限制点 1）", () => {
+    expect(anthropicAdapter.buildBody({ ...base, messages: [] }).max_tokens).toBe(8192);
+    expect(anthropicAdapter.buildBody({ ...base, messages: [], maxTokens: 4096 }).max_tokens).toBe(4096);
     // 探针由 core 代劳传 1：直接透传不兜底。
     expect(anthropicAdapter.buildBody({ ...base, messages: [], maxTokens: 1 }).max_tokens).toBe(1);
   });
@@ -157,6 +157,8 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       model: "deepseek-v3.2"
     });
     expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 2048 });
+    // 兜底上限必须放得下思考预算：思考 token 计入 max_tokens，兜底过小正文会被挤没。
+    expect(body.max_tokens).toBe(8192);
   });
 
   it("关思考三种词汇殊途同归：一律不发 thinking 字段", () => {

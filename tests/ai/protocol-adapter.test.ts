@@ -66,10 +66,10 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
     expect(init.headers["anthropic-version"]).toBe("2023-06-01");
     expect(init.headers.Authorization).toBeUndefined();
     const body = JSON.parse(init.body);
-    // system 剥为顶层参数（research 限制点 2）；max_tokens 兜底 4096（限制点 1）。
+    // system 剥为顶层参数（research 限制点 2）；max_tokens 兜底 8192（限制点 1）。
     expect(body.system).toBe("sys");
     expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
-    expect(body.max_tokens).toBe(4096);
+    expect(body.max_tokens).toBe(8192);
     expect(body.stream).toBe(false);
   });
 

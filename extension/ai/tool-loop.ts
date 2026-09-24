@@ -85,6 +85,9 @@ export interface RunToolLoopInput {
   onEvent?: (event: StreamChatEvent) => void;
   onRetry?: (payload: { attempt: number; maxRetries: number; kind: string; error: Error }) => void;
   onStreamReset?: () => void;
+  // 逐轮透传 chatCompletion 的 finishReason 回报（截断判定与提示留在调用方；
+  // 中间工具轮的 "tool_calls" 也照传，调用方只认 "length"）。
+  onFinishReason?: (reason: string | null) => void;
   // notice：额度用尽 / 平台不支持 tools / 搜索失败等用户可见提示。
   onNotice?: (text: string) => void;
   onToolStatus?: (payload: ToolStatusPayload) => void;
@@ -129,6 +132,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     onEvent,
     onRetry,
     onStreamReset,
+    onFinishReason,
     onNotice,
     onToolStatus,
     onToolTurn,
@@ -160,6 +164,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         onEvent,
         onRetry,
         onStreamReset,
+        onFinishReason,
         retryDelayMs,
         fetchImpl
       });

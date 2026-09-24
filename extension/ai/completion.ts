@@ -159,6 +159,10 @@ interface ChatCompletionInput {
   onEvent?: (event: StreamChatEvent) => void;
   onRetry?: (payload: RetryPayload) => void;
   onStreamReset?: () => void;
+  // 流式成功后、返回值收束前回报本次映射后的 finishReason（"length" = 输出被
+  // max_tokens 截断）。返回形状被向后兼容用例锁死为 { done: true }（无 tool_calls
+  // 时），截断感知因此走这条回调，而不是改返回形状。
+  onFinishReason?: (reason: string | null) => void;
   retryDelayMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -185,6 +189,10 @@ interface ChatCompletionInput {
  *   前调用一次。重试从头生成、已吐事件无法撤回且新流不保证前缀一致，渲染层
  *   收到该信号应清空本条消息的流式缓冲整体重放（避免两代流拼接成重复文本）。
  *   fetch/http 阶段的失败未吐过任何事件，不触发。
+ * - onFinishReason: 流式成功收束前调用一次，回报映射后的 finishReason——"length"
+ *   即输出被 max_tokens 截断（Anthropic 的 stop_reason=max_tokens 与 OpenAI 的
+ *   finish_reason=length 都归到这个值），调用方据此提示「回答没答完」。只回报，
+ *   不改返回形状，也不重试。
  * - headers: 额外请求头（探针的 Accept 等）；Content-Type 固定 JSON，
  *   同键不覆盖调用方注入（Authorization 由 adapter.authHeaders 提供，可被
  *   extraHeaders 覆盖——对齐旧「已存在时不重复注入」语义）。
@@ -227,6 +235,7 @@ export async function chatCompletion({
   onEvent,
   onRetry,
   onStreamReset,
+  onFinishReason,
   retryDelayMs = 800,
   fetchImpl = globalThis.fetch
 }: ChatCompletionInput): Promise<string | { done: true } | ChatCompletionToolResult> {
@@ -338,6 +347,8 @@ export async function chatCompletion({
         lastFailure = { kind: "stream", error };
         continue;
       }
+      // 截断感知出口（返回形状不变）：reason="length" 即 max_tokens 命中。
+      onFinishReason?.(streamResult.finishReason);
       if (streamResult.toolCalls.length) {
         return {
           done: true,

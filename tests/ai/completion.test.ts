@@ -1104,6 +1104,21 @@ describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）
     expect(result).toEqual({ done: true });
   });
 
+  it("流式 finish_reason=length：onFinishReason 回报 length，返回形状仍不变", async () => {
+    const fetchMock = vi.fn(async () => sseResponse([sseData({ content: "半句" }), sseData({}, "length")]));
+    const reasons: Array<string | null> = [];
+    const result = await chatCompletion({
+      provider: PROVIDER,
+      messages: [],
+      stream: true,
+      fetchImpl: fetchMock,
+      onEvent: () => {},
+      onFinishReason: (reason) => reasons.push(reason)
+    });
+    expect(result).toEqual({ done: true });
+    expect(reasons).toEqual(["length"]);
+  });
+
   it("非流式 tool_calls：读 message.tool_calls，返回 finishReason + assistantContent + toolCalls", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({
       choices: [{
