@@ -1411,7 +1411,10 @@
 }
 
 .biliscript-reading-ov-strip-text {
-  font-size: 14px;
+  /* 状态条那句话是当下最重要的信息（生成中/部分失败/失败），按概览 tab 的正文
+   * 档 16px 排——转写横幅的同角色（.biliscript-reading-asr-title）同档；
+   * 14px 是占位说明/badge/Copy 钮的注脚档。 */
+  font-size: 16px;
   line-height: 1.6;
   color: var(--biliscript-reader-text);
 }
