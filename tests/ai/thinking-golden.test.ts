@@ -404,6 +404,26 @@ const PLATFORMS = [
         high: { reasoning_effort: "high" }
       }
     ]
+  },
+  {
+    name: "Opencode Go（opencode.ai/zen/go，override：网关只暴露 effort 词表，off 关不掉→落 low）",
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    cases: [
+      {
+        kind: "原生可关的族模型也被 override 覆盖（不发 thinking 开关）",
+        model: "deepseek-v4-flash",
+        off: { reasoning_effort: "low" },
+        low: { reasoning_effort: "low" },
+        high: { reasoning_effort: "high" }
+      },
+      {
+        kind: "网关元数据无档位声明的模型（glm-5.1）同样照发整域词表",
+        model: "glm-5.1",
+        off: { reasoning_effort: "low" },
+        low: { reasoning_effort: "low" },
+        high: { reasoning_effort: "high" }
+      }
+    ]
   }
 ];
 

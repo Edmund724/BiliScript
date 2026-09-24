@@ -211,6 +211,23 @@ describe("请求构造对照表（url / body / headers）", () => {
     expect(headers[3]["x-opencode-session"]).toBeUndefined();
   });
 
+  it("Opencode Go 的 off 落 effort low（解释/概览钉的 off 在这平台真发出最低档；不臆造关思考字段）", async () => {
+    const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
+
+    await chatCompletion({
+      provider: { baseUrl: "https://opencode.ai/zen/go/v1", model: "glm-5.1", apiKey: "sk-1", presetId: "opencodego" },
+      messages: [{ role: "user", content: "hi" }],
+      thinkingLevel: "off",
+      fetchImpl: fetchMock
+    });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body);
+    expect(body.reasoning_effort).toBe("low");
+    // 网关未文档化关思考参数：不发 thinking / enable_thinking 开关
+    expect(body.thinking).toBeUndefined();
+    expect(body.enable_thinking).toBeUndefined();
+  });
+
   it("probe 在 OpenAI reasoning 模型上发 reasoning_effort:none + max_completion_tokens:1（查表后不再带必 400 的字段族）", async () => {
     const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 

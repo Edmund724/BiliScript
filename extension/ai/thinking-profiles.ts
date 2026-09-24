@@ -293,8 +293,7 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
 // unknownClass 分工（spec）：词汇平台无关的（Ollama/SiliconFlow/ModelScope/Mimo）
 // 给 provider 级默认；按模型定协议的（DeepSeek/Qwen/GLM/Kimi/MiniMax/
 // StepFun）不给，未知模型落 unknown 哨兵。override 型：OpenRouter / AMD /
-// SenseNova（严格拒收 thinking 开关、整域只认 effort 词汇的网关）。
-// Opencode Go（api.doubao.com）域名已死（NXDOMAIN）：不写规则，落 unknown（Q16）。
+// SenseNova / Opencode Go（严格拒收 thinking 开关、整域只认 effort 词汇的网关）。
 export const PROVIDERS: Record<string, ProviderRule> = {
   deepseek: {},      // 协议按模型定（api-docs.deepseek.com）
   qwen: {},          // 百炼模型族已覆盖 taxonomy；未列模型白名单制风险高，不发
@@ -344,6 +343,27 @@ export const PROVIDERS: Record<string, ProviderRule> = {
       thinkingClass: "hybrid",
       levels: {
         off: { fields: { reasoning_effort: "none" } },
+        low: { fields: { reasoning_effort: "low" } },
+        high: { fields: { reasoning_effort: "high" } }
+      }
+    }
+  },
+  // Opencode Go（opencode.ai/zen/go/v1，$10/月订阅网关；官方文档只讲请求头，未
+  // 文档化思考控制参数）：网关自己暴露的模型元数据（models.dev 的 opencode-go，
+  // opencode 客户端发参依据，2026-09 快照）显示 41 个模型里只有 effort 词表
+  // （glm-5.3、deepseek-v4-flash、grok-4.x、qwen3.8-max/flash、muse-spark… 各按
+  // 模型给 low…max）、开关（minimax-m3、qwen3.7/3.8 系）与完全没有档位
+  // （glm-5.1、kimi-k2.6/k2.5/k2.7-code、mimo-*、minimax-m2.x）三类。据产品裁定
+  // 取「整域只认 effort 词表」：off 无关闭声明 → 既有级联落 low（explain/overview
+  // 钉的 off 因此真发出最低档，对话 tab 显示「关不掉思考」长版提示），low/high 直传。
+  // 不写 off 声明：元数据里只有 gpt-6-luna/hy3 少数模型收 effort none，整域一刀切
+  // 发 none 会对其他模型硬 400。走 Messages 协议的模型（minimax-m3、qwen3.7/3.8）
+  // 由 anthropic adapter 把 effort 词汇改写成 thinking:{type:"enabled",budget_tokens}
+  //（非 EFFORT_VOCAB_PRESETS 成员，见该适配器头注）。
+  opencodego: {
+    override: {
+      thinkingClass: "always",
+      levels: {
         low: { fields: { reasoning_effort: "low" } },
         high: { fields: { reasoning_effort: "high" } }
       }

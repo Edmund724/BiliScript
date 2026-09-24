@@ -188,7 +188,7 @@ describe("baseUrl host 推断（本票生效的 provider 识别路径）", () =>
     expect(r.thinkingClass).toBe("hybrid");
   });
 
-  it("Opencode Go（api.doubao.com）域名已死不写 provider 规则：平台未列模型落 unknown", () => {
+  it("已死的 api.doubao.com 不是现 preset 的 host（现 baseUrl 是 opencode.ai）→ 该域名仍落 unknown", () => {
     expect(resolve({ baseUrl: "https://api.doubao.com/v1", model: "skylark-2-pro", level: "off" })).toEqual({
       fields: {},
       offUnavailable: false,
@@ -273,6 +273,43 @@ describe("provider override 型（SenseNova 商汤：托管 deepseek-v4-flash �
   it("原生 sensenova-6.7-flash-lite 随 override 照发 effort 词汇（无已文档化思考控制参数）", () => {
     expect(resolve({ baseUrl: SENSENOVA_URL, model: "sensenova-6.7-flash-lite", level: "high" }).fields).toEqual({
       reasoning_effort: "high"
+    });
+  });
+});
+
+describe("provider override 型（Opencode Go：网关只暴露 effort 词表，off 关不掉→落最低档）", () => {
+  // 事实来源：models.dev 的 opencode-go（opencode 客户端发参依据）——41 个模型里
+  // 只有 effort 词表（glm-5.3/deepseek-v4-flash/grok-4.x/qwen3.8-max… 各按模型给
+  // low…max）与开关/无选项三类，没有网关级「关思考」参数；gpt-6/hy3 少数模型收
+  // effort none，整域一刀切发 none 会对其余模型硬 400。故不写 off 声明：off 走
+  // 既有级联落 low，UI 显示「关不掉思考」（长版文案）。
+  it("presetId='opencodego' 命中：off 落 effort low + offUnavailable + offFallback=low", () => {
+    expect(resolve({ presetId: "opencodego", model: "glm-5.1", level: "off" })).toEqual({
+      fields: { reasoning_effort: "low" },
+      offUnavailable: true,
+      offFallback: "low",
+      thinkingClass: "always"
+    });
+  });
+
+  it("override 无视血统表：原生可关的族模型（deepseek-v4-flash）也走 effort，不发 thinking 开关", () => {
+    const r = resolve({ presetId: "opencodego", model: "deepseek-v4-flash", level: "off" });
+    expect(r.fields).toEqual({ reasoning_effort: "low" });
+    expect(r.fields).not.toHaveProperty("thinking");
+  });
+
+  it("low/high 直传 effort；网关元数据里无档位声明的模型同样照发（整域唯一词表）", () => {
+    expect(resolve({ presetId: "opencodego", model: "kimi-k2.6", level: "low" }).fields).toEqual({
+      reasoning_effort: "low"
+    });
+    expect(resolve({ presetId: "opencodego", model: "minimax-m3", level: "high" }).fields).toEqual({
+      reasoning_effort: "high"
+    });
+  });
+
+  it("host 兜底同样命中（custom 平台填网关 baseUrl）", () => {
+    expect(resolve({ baseUrl: "https://opencode.ai/zen/go/v1", model: "whatever", level: "off" }).fields).toEqual({
+      reasoning_effort: "low"
     });
   });
 });
