@@ -133,3 +133,103 @@ describe("概览链（offscreen 代发）", () => {
     expect(payload?.headers.authorization).toBe("Bearer sk-test");
   });
 });
+
+// 「概览整轮一个会话 id」的端到端口径：一轮概览会发出多次请求（分段并发逐段、
+// 空正文加倍重试），x-opencode-session 必须同值——逐调用现造随机 id 会把同一轮
+// 概览拆成多个会话（平台侧路由与 prompt 缓存都按会话走）。
+describe("概览链整轮一个会话 id", () => {
+  // 概览会落整份 / 分段缓存（chrome.storage.local）：内存实现避免缓存分支报错干扰。
+  function memoryStorage() {
+    const map = new Map<string, unknown>();
+    return {
+      get: vi.fn(async (keys: unknown) => {
+        if (keys === null || keys === undefined) {
+          return Object.fromEntries(map.entries());
+        }
+        const want = Array.isArray(keys) ? keys : [keys];
+        return Object.fromEntries(want.filter((k) => map.has(k as string)).map((k) => [k, map.get(k as string)]));
+      }),
+      set: vi.fn(async (items: Record<string, unknown>) => {
+        for (const [key, value] of Object.entries(items)) map.set(key, value);
+      }),
+      remove: vi.fn(async (keys: unknown) => {
+        for (const key of Array.isArray(keys) ? keys : [keys]) map.delete(key as string);
+      })
+    };
+  }
+
+  // 第 N 次请求回不同流的代发桩（一次请求一个端口）：首代只吐思考（正文空 →
+  // 触发空正文加倍重试），次代吐合法概览 JSON。
+  function stubOffscreenRelaySequence(renders: string[]): OffscreenRelayMessage[] {
+    const posted: OffscreenRelayMessage[] = [];
+    const local = memoryStorage();
+    let requestIndex = -1;
+    vi.stubGlobal("chrome", {
+      storage: { local },
+      runtime: {
+        lastError: null,
+        sendMessage: vi.fn((_message: unknown, callback?: (resp?: unknown) => void) => {
+          callback?.({ ok: true });
+          return undefined;
+        }),
+        connect: vi.fn(() => {
+          requestIndex += 1;
+          const render = renders[Math.min(requestIndex, renders.length - 1)];
+          const listeners: Array<(reply: unknown) => void> = [];
+          return {
+            name: "provider-http-offscreen",
+            postMessage: (payload: OffscreenRelayMessage) => {
+              posted.push(payload);
+              queueMicrotask(() => {
+                for (const listener of listeners) {
+                  listener({ ok: true, status: 200 });
+                  listener({ ok: true, status: 200, chunk: render });
+                  listener({ ok: true, status: 200, done: true });
+                }
+              });
+            },
+            disconnect: vi.fn(),
+            onMessage: { addListener: (listener: (reply: unknown) => void) => listeners.push(listener) },
+            onDisconnect: { addListener: vi.fn() }
+          };
+        })
+      }
+    });
+    return posted;
+  }
+
+  it("同一轮概览的多次请求带同一个 x-opencode-session", async () => {
+    const chunk = (delta: Record<string, string>) => `data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`;
+    const posted = stubOffscreenRelaySequence([
+      chunk({ reasoning_content: "把预算花在思考上" }),
+      chunk({
+        content: JSON.stringify({
+          chapters: [{ title: "章1", timestampSeconds: 5, summary: "甲" }],
+          keyQuotes: [{ quote: "金句1", timestampSeconds: 30 }]
+        })
+      })
+    ]);
+    const { runOverviewAnalysis } = await import("../../extension/ai/analysis.js");
+    const { makeSubtitleBody } = await import("../setup.js");
+
+    const analysis = await runOverviewAnalysis({
+      provider: PROVIDER,
+      context: {
+        bvid: "BV1test",
+        cid: "123",
+        selectedSubtitleId: "sub-1",
+        subtitleLang: "zh-CN",
+        videoDuration: 300,
+        subtitleBody: makeSubtitleBody(50000)
+      },
+      thinkingLevel: "off"
+    });
+
+    expect(analysis.chapters.map((item) => item.title)).toEqual(["章1"]);
+    // 两次请求（空正文重试）都经 offscreen 代发，会话头同值
+    expect(posted).toHaveLength(2);
+    const sessions = posted.map((payload) => payload.headers["x-opencode-session"]);
+    expect(sessions[0]).toMatch(UUID_V4);
+    expect(sessions[1]).toBe(sessions[0]);
+  });
+});

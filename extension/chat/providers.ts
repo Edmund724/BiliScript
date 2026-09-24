@@ -31,35 +31,20 @@ import {
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { GetSettingsResponse } from "../shared/messaging-protocol.js";
 import { escapeHtml } from "../shared/string-utils.js";
+// 选中项键与复合值编解码的单源在 shared 叶子（ai 域同源消费，见该模块头注）；
+// 本模块按原导入面再导出，既有消费方（chat-tab / image-support / 测试）不受影响。
+import {
+  SELECTED_PROVIDER_KEY,
+  MODEL_OPTION_SEPARATOR,
+  buildModelOptionValue,
+  parseModelOptionValue
+} from "../shared/selected-provider.js";
 import { updateModelSelectWidth } from "./model-select-width.js";
 import { chatSessionState } from "./chat-state.js";
 import type { ModelSelectWidthEls } from "./model-select-width.js";
 
-export const SELECTED_PROVIDER_KEY = "biliscript_ai_selected_provider";
 export const THINKING_LEVEL_KEY = "biliscript_ai_thinking_level";
-
-// 模型选项复合值分隔符（multi-model-catalog 拍板 Q8）：chat 模型选择器改成
-// 「按平台 optgroup 分组、一模型一选项」后，option value 需要同时携带平台 id
-// 与模型 id（选模型即隐式选定平台）；该控制字符不出现在平台 id/模型名中。
-export const MODEL_OPTION_SEPARATOR = String.fromCharCode(1);
-
-// 复合值编解码的单源：chat-tab（change 监听/思考提示/deps getter）与
-// providers.ts（渲染/选中回落）共用，禁止两侧手拆。
-export function buildModelOptionValue(providerId: string, model: string): string {
-  return `${String(providerId || "").trim()}${MODEL_OPTION_SEPARATOR}${String(model || "").trim()}`;
-}
-
-export function parseModelOptionValue(value: unknown): { providerId: string; model: string } {
-  const raw = String(value || "");
-  const idx = raw.indexOf(MODEL_OPTION_SEPARATOR);
-  if (idx === -1) {
-    return { providerId: raw.trim(), model: "" };
-  }
-  return {
-    providerId: raw.slice(0, idx).trim(),
-    model: raw.slice(idx + MODEL_OPTION_SEPARATOR.length).trim()
-  };
-}
+export { SELECTED_PROVIDER_KEY, MODEL_OPTION_SEPARATOR, buildModelOptionValue, parseModelOptionValue };
 
 // chrome.storage.local 的窄视图（conversation-store 的 StorageArea 同型；
 // 缺省取全局 chrome.storage.local，测试注入 fake）。

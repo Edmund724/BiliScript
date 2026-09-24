@@ -398,8 +398,15 @@ export function runOverviewAnalysis(
   if (inflight) {
     return inflight;
   }
+  // 整轮一个会话身份：概览一轮会发出多次请求（分段并发逐段、空正文加倍重试），
+  // 平台会话头（Opencode Go 的 x-opencode-session，见 ai/preset-headers.ts）必须
+  // 整轮同值——身份在这里挂一次，而不是留给下游逐调用现造一个随机 id（那会把
+  // 同一轮概览拆成多个会话，平台侧的路由与 prompt 缓存都按会话走）。身份取本轮
+  // 整份缓存键：同一视频同一字幕轨的一次概览就是一个会话，重跑也落在同一条上。
+  // 复制而非原地挂：调用方的 provider 不因一次生成被改写。
+  const runProvider = { ...provider, sessionId: finalKey };
   const promise = executeOverviewRun({
-    provider,
+    provider: runProvider,
     ctx,
     body,
     shortPath,

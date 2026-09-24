@@ -15,7 +15,7 @@ let storage: ReturnType<typeof createMemoryStorage>;
 
 // chatCompletion 的入参形状（编排层 ChatCompletionFn 未导出，按本测试用到的字段就地声明）。
 type ChatCompletionCall = {
-  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
+  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string; sessionId?: string };
   messages: Array<{ role: string; content: string }>;
   thinkingLevel?: string;
   signal?: AbortSignal | null;
@@ -388,6 +388,29 @@ describe("概览链平台身份穿线", () => {
     for (const call of calls) {
       expect(call.provider.presetId).toBe("opencodego");
     }
+  });
+});
+
+// 「概览整轮一个稳定会话 id」：Opencode Go 的 x-opencode-session 按会话（对话）路由
+// 并做 prompt 缓存，同一轮内的请求必须共用一个会话身份。概览一轮会发出多次请求
+//（分段路径并发逐段、空正文加倍重试），身份只能由编排层在入口挂一次——若留给下游
+// 逐调用现造，同一轮就是多个会话。
+describe("概览整轮共用一个会话身份", () => {
+  it("分段路径的并发多段调用拿到同一个 sessionId（且不改写调用方给的 provider）", async () => {
+    const { chatCompletion, calls } = buildCompletionFake();
+    const provider = { ...makeProvider(), presetId: "opencodego" };
+
+    await mod.runOverviewAnalysis(
+      { provider, context: makeContext({ subtitleBody: makeSubtitleBody(210000) }), forceRefresh: true },
+      { chatCompletion }
+    );
+
+    expect(calls.length).toBeGreaterThan(1); // 分段路径确有多次调用
+    const identities = calls.map((call) => call.provider.sessionId);
+    expect(identities[0]).toBeTruthy();
+    expect(new Set(identities).size).toBe(1);
+    // 编排层复制后挂身份：调用方（reader/overview.ts）的 provider 不被原地改写
+    expect(provider).not.toHaveProperty("sessionId");
   });
 });
 
