@@ -432,12 +432,12 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(protocolSelect.value).toBe("openai");
   });
 
-  it("协议下拉选项名为 OpenAI / Anthropic（统一风格）", async () => {
+  it("协议下拉选项名为 OpenAI Chat Completions / Anthropic Messages（全称，统一风格）", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     const labels = Array.from(dialog.querySelectorAll(".provider-editor-protocol option")).map((option) => option.textContent);
-    expect(labels).toEqual(["OpenAI", "Anthropic"]);
+    expect(labels).toEqual(["OpenAI Chat Completions", "Anthropic Messages"]);
   });
 
   it("切协议联动 baseUrl：未改过跟随该预设的协议端点（DeepSeek /v1 ↔ /anthropic），改过的值不覆盖", async () => {

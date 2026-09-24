@@ -107,6 +107,6 @@ export function resolveAdapter(protocol: unknown): ProtocolAdapter {
 // 编辑 Modal 协议下拉的选项词表（展示名给人读；值即 AiProtocol）。
 // 新增协议 = 注册表登记一行 + 此处加一个选项。
 export const PROTOCOL_OPTIONS: ReadonlyArray<{ value: AiProtocol; label: string }> = [
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" }
+  { value: "openai", label: "OpenAI Chat Completions" },
+  { value: "anthropic", label: "Anthropic Messages" }
 ];
