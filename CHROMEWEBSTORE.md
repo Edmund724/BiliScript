@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — Bilibili-Summary｜一键总结B站视频
 
-> Last Updated: 2026-09-18
+> Last Updated: 2026-09-24
 >
 > Status: Draft. Do not submit until tickets #01 through #06 are complete, the real Chrome checks pass, and the 2.2.0 release archive is rebuilt.
 
@@ -113,6 +113,7 @@ The policy and the store disclosure must be checked together before submission. 
 
 | Version | Date | Changes | Status |
 |---|---|---|---|
+| 2.2.2 | 2026-09-24 | Chat accepts pasted images (compressed locally to WebP, long edge ≤1568px, up to 4 per message) on the OpenAI and Anthropic protocols; the provider editor shows a read-only model catalog with context window and reasoning/image badges; truncated chat answers now carry a persistent badge and retry once at double the output budget when the model returns no text; more presets register their Anthropic endpoints and DeepSeek defaults to the Anthropic protocol; the Responses protocol adapter and the OpenAI preset were removed. | Draft |
 | 2.2.1 | 2026-09-18 | AI provider setup gains a protocol selector with three adapters: OpenAI, Anthropic, and Responses; background service worker size reduced (-26%) via protocol vocabulary split; settings snapshot and segment-cache write aggregation improve hot-path performance; reader panel header deduplicated. | Draft |
 | 2.2.0 | 2026-09-14 | Optional web search for AI chat and selection explanations (Tavily / Exa / Brave) with a search timeline, source links, and inline citations; Mermaid rendering in AI answers limited to flowcharts and sequence diagrams; the note player embed can be turned off; provider model lists, in-panel confirmation dialogs, and a batch of streaming, cache, and bundle-size optimizations. | Draft |
 | 2.1.0 | 2026-09-09 | Chrome 120 baseline, one Digest entry behavior from both the page button and toolbar icon, restricted Offscreen message flow, bounded ASR audio permissions, and updated compatibility and data-use notes. | Draft |
