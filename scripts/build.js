@@ -8,7 +8,7 @@
 //      运行时惰性（ADR-0003），全静态图。offscreen 例外（见
 //      buildOffscreenEntry）：AI / ASR 两族任务链动态 import 后开
 //      splitting，常驻接线与动态 chunk 分文件落盘。
-//      （digest-only-ui：options/popup 页面已随「侧边栏成为唯一界面」删除，
+//      （script-only-ui：options/popup 页面已随「侧边栏成为唯一界面」删除，
 //      不再有扩展页面入口。）
 //   3. CSS minify 到 dist 同相对路径。
 //   4. 静态资源（manifest.json / html / icons）原样拷入；产物路径与源路径
@@ -68,7 +68,7 @@ const jsEntries = [
 
 // CSS minify 入口。S3 分层：content 样式全部按需挂载（reader/player-ai 各自
 // 运行时 link 挂载，见 shared/style-injector），仍走 minify 保证 dist 无未压缩
-// CSS。（digest-only-ui：常驻表 panel.css 已随经典侧栏面板删除。）
+// CSS。（script-only-ui：常驻表 panel.css 已随经典侧栏面板删除。）
 const cssEntries = [
   "entry/styles/reader.css",
   "entry/styles/reader-gate.css",
@@ -83,7 +83,7 @@ const cssEntries = [
   //（shared/style-injector ensureReaderChatStyles），独立入口 minify。
   "entry/styles/reader-chat.css",
   // AI 回复 markdown 排版基线（github-markdown-css v5.9.0 vendored）与其
-  // 站内主题桥接层（--fgColor-* 等映射到 --boc-reader-*）：随对话分区表同
+  // 站内主题桥接层（--fgColor-* 等映射到 --biliscript-reader-*）：随对话分区表同
   // 时机挂载，二者必须排在 reader-chat.css 之前（覆盖层在注入顺序与特异性
   // 上都占优）。
   "entry/styles/github-markdown.css",

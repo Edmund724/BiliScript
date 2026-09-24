@@ -64,7 +64,7 @@ export function replaceIDs(body) {
   }
   let result = body;
   for (const id of ids) {
-    const next = `boc-i${idCounter++}`;
+    const next = `biliscript-i${idCounter++}`;
     result = result
       .replace(new RegExp(`(\\bid\\s*=\\s*")${escapeRegExp(id)}(")`, "g"), `$1${next}$2`)
       .replace(new RegExp(`(\\bxlink:href\\s*=\\s*"#)${escapeRegExp(id)}(")`, "g"), `$1${next}$2`)

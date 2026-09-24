@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!-- mermaid 构建产物渲染冒烟 harness（手动/按需跑，不纳入 pnpm test）。
      用法：先 pnpm build:content，再 node scripts/mermaid-smoke/serve.mjs，
-     经 kimi-webbridge 打开本页。结果写入 <pre id="boc-smoke-result"> 与
-     document.title（BOC_SMOKE_PASS / BOC_SMOKE_FAIL），供浏览器侧读取断言。
+     经 kimi-webbridge 打开本页。结果写入 <pre id="biliscript-smoke-result"> 与
+     document.title（BILISCRIPT_SMOKE_PASS / BILISCRIPT_SMOKE_FAIL），供浏览器侧读取断言。
 
      覆盖：sequence + flow 各一张最小 fixture 在真实 Chrome 渲染出 SVG、
      全程无 console.error / window.onerror；flow 节点 hover（mermaid 11 的
@@ -12,7 +12,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<title>BOC_SMOKE_RUNNING</title>
+<title>BILISCRIPT_SMOKE_RUNNING</title>
 <style>
   body { font-family: sans-serif; }
   .mermaidTooltip { position: absolute; }
@@ -21,7 +21,7 @@
 <body>
 <h1>mermaid smoke</h1>
 <div id="fixtures"></div>
-<pre id="boc-smoke-result">running…</pre>
+<pre id="biliscript-smoke-result">running…</pre>
 <script type="module">
 const errors = [];
 window.addEventListener("error", (e) => errors.push(String(e.message ?? e)));
@@ -42,11 +42,11 @@ const FLOW_SRC = `flowchart LR
 
 function mountFixture(id, source) {
   const div = document.createElement("div");
-  div.className = "boc-md-mermaid";
+  div.className = "biliscript-md-mermaid";
   div.id = id;
-  div.setAttribute("data-boc-mermaid", "pending");
+  div.setAttribute("data-biliscript-mermaid", "pending");
   const pre = document.createElement("pre");
-  pre.className = "boc-md-mermaid-src";
+  pre.className = "biliscript-md-mermaid-src";
   const code = document.createElement("code");
   code.textContent = source;
   pre.appendChild(code);
@@ -60,20 +60,20 @@ function check(name, ok, detail = "") {
 }
 
 async function main() {
-  mountFixture("boc-seq", SEQUENCE_SRC);
-  mountFixture("boc-flow", FLOW_SRC);
+  mountFixture("biliscript-seq", SEQUENCE_SRC);
+  mountFixture("biliscript-flow", FLOW_SRC);
 
   const render = await import("../../extension/entry/chunks/mermaid-render.mjs");
   await render.hydrateMermaidPlaceholders(document.body, { theme: "light" });
 
-  const seq = document.getElementById("boc-seq");
-  const flow = document.getElementById("boc-flow");
-  const seqSvg = seq.querySelector(".boc-md-mermaid-svg svg");
-  const flowSvg = flow.querySelector(".boc-md-mermaid-svg svg");
+  const seq = document.getElementById("biliscript-seq");
+  const flow = document.getElementById("biliscript-flow");
+  const seqSvg = seq.querySelector(".biliscript-md-mermaid-svg svg");
+  const flowSvg = flow.querySelector(".biliscript-md-mermaid-svg svg");
   check("sequence svg rendered", !!seqSvg);
   check("flow svg rendered", !!flowSvg);
-  check("sequence attr done", seq.getAttribute("data-boc-mermaid") === "done", seq.getAttribute("data-boc-mermaid"));
-  check("flow attr done", flow.getAttribute("data-boc-mermaid") === "done", flow.getAttribute("data-boc-mermaid"));
+  check("sequence attr done", seq.getAttribute("data-biliscript-mermaid") === "done", seq.getAttribute("data-biliscript-mermaid"));
+  check("flow attr done", flow.getAttribute("data-biliscript-mermaid") === "done", flow.getAttribute("data-biliscript-mermaid"));
   check("sequence actor text", !!seqSvg && seqSvg.textContent.includes("Alice"));
   check("flow node text", !!flowSvg && flowSvg.textContent.includes("Start"));
 
@@ -93,15 +93,15 @@ async function main() {
 
   const pass = results.every((r) => r.ok);
   const lines = results.map((r) => `${r.ok ? "PASS" : "FAIL"} ${r.name}${r.detail ? " — " + r.detail : ""}`);
-  document.getElementById("boc-smoke-result").textContent =
-    (pass ? "BOC_SMOKE_PASS\n" : "BOC_SMOKE_FAIL\n") + lines.join("\n");
-  document.title = pass ? "BOC_SMOKE_PASS" : "BOC_SMOKE_FAIL";
+  document.getElementById("biliscript-smoke-result").textContent =
+    (pass ? "BILISCRIPT_SMOKE_PASS\n" : "BILISCRIPT_SMOKE_FAIL\n") + lines.join("\n");
+  document.title = pass ? "BILISCRIPT_SMOKE_PASS" : "BILISCRIPT_SMOKE_FAIL";
 }
 
 main().catch((error) => {
   errors.push("harness: " + (error?.stack ?? String(error)));
-  document.getElementById("boc-smoke-result").textContent = "BOC_SMOKE_FAIL\n" + errors.join("\n");
-  document.title = "BOC_SMOKE_FAIL";
+  document.getElementById("biliscript-smoke-result").textContent = "BILISCRIPT_SMOKE_FAIL\n" + errors.join("\n");
+  document.title = "BILISCRIPT_SMOKE_FAIL";
 });
 </script>
 </body>

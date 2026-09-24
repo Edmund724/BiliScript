@@ -7,10 +7,10 @@ import { build } from "esbuild";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packagePath = path.join(projectRoot, "node_modules/mermaid/package.json");
 const sourcePath = path.join(projectRoot, "node_modules/mermaid/dist/mermaid.core.mjs");
-const outputPath = path.join(projectRoot, "node_modules/mermaid/dist/mermaid.boc.mjs");
+const outputPath = path.join(projectRoot, "node_modules/mermaid/dist/mermaid.biliscript.mjs");
 const probeDir = path.join(projectRoot, ".scratch/mermaid-build");
 const chunksSourceDir = path.join(projectRoot, "node_modules/mermaid/dist/chunks/mermaid.core");
-const chunksOutputDir = path.join(projectRoot, "node_modules/mermaid/dist/chunks/mermaid.boc");
+const chunksOutputDir = path.join(projectRoot, "node_modules/mermaid/dist/chunks/mermaid.biliscript");
 const layoutChunkSource = path.join(chunksSourceDir, "chunk-TLUHSLCS.mjs");
 const mathChunkSource = path.join(chunksSourceDir, "chunk-DU6HZSFF.mjs");
 const iconifyStubPath = path.join(projectRoot, "scripts", "vendor-iconify-stub.mjs");
@@ -127,12 +127,12 @@ if (generated === source || generated.length >= source.length) {
   throw new Error("Mermaid detector trimming made no change");
 }
 
-// 精简入口指向 mermaid.boc 副本 chunk 区：swimlane 布局加载器与 katex 数学渲染
+// 精简入口指向 mermaid.biliscript 副本 chunk 区：swimlane 布局加载器与 katex 数学渲染
 // 不在 mermaid.core.mjs 本体里，而在它静态引用的 chunk 文件里（前者在
 // chunk-TLUHSLCS 的 registerDefaultLayoutLoaders，后者在 chunk-DU6HZSFF 的
 // renderKatexUnsanitized）。裁剪必须作用在「可达图内唯一」的模块实例上——直接
 // 原地改 node_modules 会污染安装包，而只复制个别 chunk 又会与原始路径形成两个
-// 模块实例（注册表写入 A 实例、render 读 B 实例）。因此整目录复制出 mermaid.boc
+// 模块实例（注册表写入 A 实例、render 读 B 实例）。因此整目录复制出 mermaid.biliscript
 // 副本区（只 .mjs），把精简入口的 specifier 全部重定向过去，再对副本做文本
 // 裁剪；所有跨 chunk 引用在副本区内相对解析，天然单一实例。7.9MB 级本地复制，
 // 每次构建重建，node_modules 内不入库。
@@ -142,7 +142,7 @@ fs.cpSync(chunksSourceDir, chunksOutputDir, {
   filter: (entry) => entry === chunksSourceDir || entry.endsWith(".mjs")
 });
 const chunkPrefixOriginal = "./chunks/mermaid.core/";
-const chunkPrefixPatched = "./chunks/mermaid.boc/";
+const chunkPrefixPatched = "./chunks/mermaid.biliscript/";
 if (!generated.includes(chunkPrefixOriginal)) {
   throw new Error("Mermaid entry does not reference its chunk directory");
 }

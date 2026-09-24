@@ -46,7 +46,7 @@ const slimMermaidEntry = path.join(
   "node_modules",
   "mermaid",
   "dist",
-  "mermaid.boc.mjs"
+  "mermaid.biliscript.mjs"
 );
 const entry = path.join(extensionRoot, "entry", "content.ts");
 const bootstrapEntry = path.join(extensionRoot, "entry", "content-bootstrap.ts");
@@ -66,7 +66,7 @@ const legacyOutfile = path.join(outDir, "content-classic.js");
 // （chunks/<name>.mjs），轮 A 的 external 路径必须与之逐字一致。
 const lazyTargets = [
   { name: "player-ai", source: "ai/player-ai.ts" },
-  { name: "digest-button", source: "ui/digest-button.ts" },
+  { name: "script-button", source: "ui/script-button.ts" },
   { name: "ui-renderer", source: "ui/ui-renderer.ts" },
   { name: "reader", source: "reader/index.ts" },
   { name: "chat-tab", source: "reader/chat-tab.ts" },
@@ -101,9 +101,9 @@ const lazyTargetExternals = new Map(
 );
 
 // Version-consistency guard: fail fast before invoking esbuild if the
-// BOC_VERSION literal in extension/core/defaults.js drifts from
+// BILISCRIPT_VERSION literal in extension/core/defaults.js drifts from
 // manifest.json's "version". This guards the runtime probe that compares
-// __BOC_CONTENT_SCRIPT_LOADED__ (bootstrap 写入) against
+// __BILISCRIPT_CONTENT_SCRIPT_LOADED__ (bootstrap 写入) against
 // chrome.runtime.getManifest().version.
 const manifestPath = path.join(__dirname, "..", "extension", "manifest.json");
 // 版本实体在 core/version.ts（bootstrap 专用拆分，defaults.ts re-export）；
@@ -113,18 +113,18 @@ const versionTsPath = path.join(__dirname, "..", "extension", "core", "version.t
 
 const manifestVersion = JSON.parse(fs.readFileSync(manifestPath, "utf8")).version;
 const versionTsText = fs.readFileSync(versionTsPath, "utf8");
-const versionTsMatch = /export const BOC_VERSION = "([^"]+)"/.exec(versionTsText);
+const versionTsMatch = /export const BILISCRIPT_VERSION = "([^"]+)"/.exec(versionTsText);
 const versionTsVersion = versionTsMatch ? versionTsMatch[1] : null;
 
 if (!versionTsVersion || versionTsVersion !== manifestVersion) {
   console.error(
     `Version mismatch: ${manifestPath} has "version": ${manifestVersion}, ` +
-      `but ${versionTsPath} declares BOC_VERSION = ${versionTsVersion ?? "(unparseable)"}`
+      `but ${versionTsPath} declares BILISCRIPT_VERSION = ${versionTsVersion ?? "(unparseable)"}`
   );
   process.exit(1);
 }
 
-const REQUIRED_MARKER = "__BOC_CONTENT_SCRIPT_LOADED__";
+const REQUIRED_MARKER = "__BILISCRIPT_CONTENT_SCRIPT_LOADED__";
 const MAIN_MODULE_BASENAME = "content-main.mjs";
 
 // Guard: every resolved local (`./`/`../`) import **from extension/ source** must
@@ -135,7 +135,7 @@ const localImportGuard = createLocalImportGuard(extensionRoot);
 
 // 轮 B 专用 alias：只有 mermaid-render.ts 的精确 import "mermaid" 落到生成好的
 // 精简入口；其他轮次及其他入口不经过这个重定向。@iconify/utils 同理——只有
-// mermaid 图（经 mermaid.boc 的 icons chunk）可达它，替换为
+// mermaid 图（经 mermaid.biliscript 的 icons chunk）可达它，替换为
 // scripts/vendor-iconify-stub.mjs 的最小替身（产品不注册图标包，降级路径见
 // stub 头注），~240KB 依赖树随 import 站点消失。
 // marked / d3 同理（import 方限 mermaid 包内文件，见两个 vendor 替身头注）：
@@ -470,10 +470,10 @@ function assertMermaidStubsApplied() {
 // style-injector 挂载记录依次见 reader/reader-bus.ts、shared/logging.ts、
 // core/state.ts、shared/style-injector.ts）。
 //
-// 本守卫按命名约定扫源码（`*_SLOT_KEY = "__BOC_...__"`），断言每个槽键在常驻包
+// 本守卫按命名约定扫源码（`*_SLOT_KEY = "__BILISCRIPT_...__"`），断言每个槽键在常驻包
 // 与至少一个懒加载区 chunk 里都出现——槽被树摇掉、或模块掉出某一轮构建时在此
 // 失败。新增跨实例状态照约定声明槽键即可自动纳入本守卫，不必改这里。
-const SLOT_KEY_DECLARATION = /\b[A-Z_]*SLOT_KEY\s*=\s*"(__BOC_[A-Z_]+__)"/g;
+const SLOT_KEY_DECLARATION = /\b[A-Z_]*SLOT_KEY\s*=\s*"(__BILISCRIPT_[A-Z_]+__)"/g;
 
 function collectSlotKeys() {
   const keys = new Map(); // key → 声明它的源文件（相对 extension/）
@@ -502,7 +502,7 @@ function assertSharedSlotsInBothRegions() {
   const slotKeys = collectSlotKeys();
   if (slotKeys.size === 0) {
     console.error(
-      'Self-check failed: 未发现任何跨实例共享槽声明（*_SLOT_KEY = "__BOC_...__"）' +
+      'Self-check failed: 未发现任何跨实例共享槽声明（*_SLOT_KEY = "__BILISCRIPT_...__"）' +
         "——约定见本函数头注，槽全没了意味着跨实例状态没挂共享槽"
     );
     process.exitCode = 1;
@@ -539,7 +539,7 @@ function assertSharedSlotsInBothRegions() {
 //
 // 背景：两轮构建下 22 个模块在常驻包与懒加载区各一份实例（sourcemap 交集
 // 实测），其中 5 个的跨实例状态已挂 globalThis 槽（守卫见上）。其余模块靠
-// 「懒侧不碰模块级可变状态」的隐形约定兜底——三个历史 bug（7d08229 digest
+// 「懒侧不碰模块级可变状态」的隐形约定兜底——三个历史 bug（7d08229 script
 // 点击静默无效、5a62ac6 主题不落盘、828430f 跨侧读空值）都是同类事故，约定
 // 必须变显式。
 //
@@ -548,21 +548,21 @@ function assertSharedSlotsInBothRegions() {
 //      「允许双实例模块清单」——清单外的新双实例模块（典型：懒侧新 import
 //      了一个含可变状态的常驻模块）在此报错，强制人工评估后再入清单；
 //      清单漂移（模块不再双实例）同样报错，防止清单腐化成谎话。
-//   2. 清单 mutable 位 vs 源文件头注的 BOC_DUAL_INSTANCE_STATEFUL 标记——
+//   2. 清单 mutable 位 vs 源文件头注的 BILISCRIPT_DUAL_INSTANCE_STATEFUL 标记——
 //      含模块级可变状态的模块必须两头同时声明（缺一即失败）；声明了标记的
 //      模块必须标 mutable: true。新增双实例状态照此声明即可自动纳入对账。
-const DUAL_INSTANCE_STATEFUL_MARKER = "BOC_DUAL_INSTANCE_STATEFUL";
+const DUAL_INSTANCE_STATEFUL_MARKER = "BILISCRIPT_DUAL_INSTANCE_STATEFUL";
 
 const DUAL_INSTANCE_ALLOWLIST = [
   // —— 含模块级可变状态（mutable: true，头注均有标记 + 安全依据）——
-  { source: "core/state.ts", mutable: true }, // 状态本体挂 __BOC_STATE__ 槽
+  { source: "core/state.ts", mutable: true }, // 状态本体挂 __BILISCRIPT_STATE__ 槽
   { source: "core/url-watcher.ts", mutable: true }, // 懒侧仅引用事件名常量，不调用状态函数
-  { source: "reader/reader-bus.ts", mutable: true }, // 槽表挂 __BOC_READER_BUS__
+  { source: "reader/reader-bus.ts", mutable: true }, // 槽表挂 __BILISCRIPT_READER_BUS__
   { source: "reader/state.ts", mutable: true }, // 可变位读写双方全在懒侧 reader 域
   { source: "shared/lazy-import.ts", mutable: true }, // 缓存闭包双份，ESM 按 URL 去重
-  { source: "shared/logging.ts", mutable: true }, // 调试门挂 __BOC_LOG_GATE__ 槽
+  { source: "shared/logging.ts", mutable: true }, // 调试门挂 __BILISCRIPT_LOG_GATE__ 槽
   { source: "shared/messaging.ts", mutable: true }, // 分发槽挂 globalThis
-  { source: "shared/style-injector.ts", mutable: true }, // 挂载记录挂 __BOC_STYLE_INJECTOR__ 槽
+  { source: "shared/style-injector.ts", mutable: true }, // 挂载记录挂 __BILISCRIPT_STYLE_INJECTOR__ 槽
   { source: "shared/watch-storage-keys.ts", mutable: true }, // 两侧各自注册真实 onChanged 监听
   { source: "ai/lazy-player-ai.ts", mutable: true }, // 模块级 loader 缓存闭包
   { source: "reader/lazy-reader.ts", mutable: true }, // 同上
