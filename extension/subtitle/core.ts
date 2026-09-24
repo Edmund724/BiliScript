@@ -188,11 +188,11 @@ export function rebuildDerivedContent(): void {
 // 落账（字幕接受事务）只存原始字幕体 + 拉热评，markdown/SRT/TXT 三份全文派生
 // 内容推迟到首次消费（复制/导出/快照）时生成并缓存：构建各做一遍全文遍历 +
 // 大字符串拼接，原先挡在 subtitle-ready 通知前、推迟阅读列表首屏。缓存输入
-// 指纹取构建实际读取的全部投影——引用字段（body/settings/chapters/
-// hotComments）按引用比对（生产写路径经 setters 整体替换引用），标量元信息
-// 按值比对，外加 location.href 与 created 日期（buildMarkdown 读这两者，缺了
-// 跨日/同视频换页会拿到旧字节）；任何输入变化即重建，消费产物与逐次重建
-// 逐字节一致，字幕更新后不会拿到旧派生。
+// 指纹取构建读取投影的超集——引用字段（body/settings/chapters）按引用比对
+// （生产写路径经 setters 整体替换引用），标量元信息按值比对。笔记导出删除后
+// buildMarkdown 只读 简介/章节/字幕 三段，location.href、created、hotComments
+// 等已不再是读取项，指纹仍留作超集（多重建一次无害，收窄另立工单）；任何输入
+// 变化即重建，消费产物与逐次重建逐字节一致，字幕更新后不会拿到旧派生。
 interface DerivedContentCacheEntry {
   body: unknown;
   settings: unknown;
