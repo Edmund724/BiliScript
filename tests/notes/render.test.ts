@@ -7,7 +7,7 @@
 //   prompt 字节，断言冻结意义双份（改动即 prompt 漂移，必须显式过门）；
 // - buildMarkdown 段结构断言：简介 / 章节 / 字幕三段；笔记导出删除后正文不再
 //   出现 frontmatter、播放器 iframe 与「## 评论」节（meta 带热评也不出）；
-// - buildTxt / buildSrt / buildSubtitlePreview / shouldShowHoursInNote
+// - buildTxt / buildSrt / shouldShowHoursInNote
 //   （三输入 max 口径：字幕 maxTo、章节 max(from,to)、meta.videoDuration）。
 
 import { beforeEach, describe, expect, it } from "vitest";
@@ -16,7 +16,6 @@ import { setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
 import {
   buildMarkdown,
   buildSrt,
-  buildSubtitlePreview,
   buildTxt
 } from "../../extension/notes/render.js";
 // arch-review-2026-09/04：两函数已提取到窄叶子（prompt 字节冻结断言不变——
@@ -299,7 +298,7 @@ describe("buildMarkdown", () => {
   });
 });
 
-// ===== buildTxt / buildSrt / buildSubtitlePreview / shouldShowHoursInNote =====
+// ===== buildTxt / buildSrt / shouldShowHoursInNote =====
 
 describe("buildTxt", () => {
   it("includeTimestampInBody 缺省/false：纯文本逐行拼接，空内容行被过滤", () => {
@@ -345,31 +344,6 @@ describe("buildSrt", () => {
   it("空入参返回空串", () => {
     expect(buildSrt(null)).toBe("");
     expect(buildSrt([])).toBe("");
-  });
-});
-
-describe("buildSubtitlePreview", () => {
-  it("includeTimestampInBody=true：反引号紧凑时间戳前缀，空内容行被过滤", () => {
-    expect(
-      buildSubtitlePreview(
-        body([
-          { from: 0, content: "第一句" },
-          { from: 5, content: "" },
-          { from: 10, content: "第二句" }
-        ]),
-        { includeTimestampInBody: true }
-      )
-    ).toBe("`0:00` 第一句\n`0:10` 第二句");
-  });
-
-  it("includeTimestampInBody=false：纯文本预览", () => {
-    expect(buildSubtitlePreview(body([{ from: 0, content: "第一句" }]), {})).toBe("第一句");
-  });
-
-  it("maxTo >= 3600 时切小时口径", () => {
-    expect(
-      buildSubtitlePreview(body([{ from: 7225, to: 7230, content: "两小时句" }]), { includeTimestampInBody: true })
-    ).toBe("`2:00:25` 两小时句");
   });
 });
 

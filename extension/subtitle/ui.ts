@@ -1,24 +1,20 @@
-import { BILISCRIPT_VERSION } from "../core/defaults.js";
-import { buildSubtitlePreview, buildTxt } from "../notes/render.js";
-import { buildSubtitleOptionViews } from "./selection.js";
-import { sanitizeFileName, escapeHtml } from "../shared/string-utils.js";
-import { cleanVideoUrl } from "../bilibili/video-id-shared.js";
+import { buildTxt } from "../notes/render.js";
+import { sanitizeFileName } from "../shared/string-utils.js";
 import { getSettings } from "../core/runtime.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
-import { DEFAULT_SETTINGS } from "../core/defaults.js";
-import { normalizeDownloadFormat } from "../core/validators.js";
 import { state } from "../core/state.js";
+import { normalizeDownloadFormat } from "../core/validators.js";
 // 候选03 常驻瘦身：setMessage / setStatus 迁入 core/ui-status.js。
 import { setMessage, setStatus } from "../core/ui-status.js";
 // ids 为 reader 状态微模块（候选04 结构归并）：纯常量表，不经 reader/index.js
 // facade 转发（否则总结链会静态拖起整个 reader 域）。
-import { refreshDerivedContent, ensureDerivedContent } from "./core.js";
+import { ensureDerivedContent } from "./core.js";
 
 // ===== 链层交互（候选02 分层惰性：自 ui/ui-renderer.js 移入） =====
 //
-// copySubtitleTranscript / downloadSubtitle / buildClipSnapshotPayload 只服务
-// 总结链与面板交互，留在 ui-renderer（常驻）会把它对 selection.js（isAiSubtitle）
-// 及 cache/cache-lru 的依赖一并拖回常驻。
+// copySubtitleTranscript / downloadSubtitle 只服务总结链与面板交互，留在
+// ui-renderer（常驻）会把它对 selection.js（isAiSubtitle）及 cache/cache-lru
+// 的依赖一并拖回常驻。
 // setStatus/setMessage 仍在 core/ui-status：URL 变化编排与本模块错误提示在
 // 启动期使用。
 //（script-only-ui：经典侧栏面板删除后，renderMeta / renderSubtitleSelect /
@@ -73,32 +69,6 @@ export async function downloadSubtitle(): Promise<void> {
   URL.revokeObjectURL(url);
 
   setMessage(`已下载：${filename}`);
-}
-
-export function buildClipSnapshotPayload(): Record<string, unknown> {
-  // 派生三件套懒生成后快照（opt-backlog-2026-09/04）：落账不再预建，读取前确保缓存。
-  ensureDerivedContent();
-  const subtitleOptions = buildSubtitleOptionViews(
-    state.clip.subtitles,
-    state.clip.selectedSubtitleId,
-    state.clip.selectedSubtitleUrl
-  );
-
-  return {
-    contentVersion: BILISCRIPT_VERSION,
-    url: cleanVideoUrl(),
-    title: state.clip.title || "",
-    author: state.clip.author || "",
-    uploadDate: state.clip.uploadDate || "",
-    status: state.ui.statusText || "",
-    message: state.ui.messageText || "",
-    subtitlePreview: buildSubtitlePreview(state.clip.subtitleBody || [], state.settings || DEFAULT_SETTINGS),
-    markdown: state.clip.markdown || "",
-    srt: state.clip.srt || "",
-    txt: state.clip.txt || "",
-    downloadFormat: normalizeDownloadFormat(state.settings?.downloadFormat),
-    subtitleOptions
-  };
 }
 
 // applyNoSubtitleState 已迁入 subtitle/commit.js（commitNoSubtitle，无字幕出口

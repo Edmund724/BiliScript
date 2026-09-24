@@ -26,9 +26,7 @@ vi.mock("../../extension/bilibili/reader-url.js", () => ({
 vi.mock("../../extension/bilibili/video-probe.js", () => ({
   getRuntimeVideoElement: vi.fn(() => null)
 }));
-vi.mock("../../extension/subtitle/ui.js", () => ({
-  buildClipSnapshotPayload: vi.fn(() => ({}))
-}));
+vi.mock("../../extension/subtitle/ui.js", () => ({}));
 vi.mock("../../extension/subtitle/fetcher.js", () => ({
   refreshClip: vi.fn(async () => {}),
   loadSubtitle: vi.fn(async () => {}),

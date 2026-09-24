@@ -8,7 +8,7 @@ import { formatTimestamp } from "../shared/string-utils.js";
 import { formatClock, shouldUseHours } from "../shared/clock-text.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
 import { buildSubtitleSectionLines, shouldShowHoursInNote } from "./section-lines.js";
-import { state, type State } from "../core/state.js";
+import { type State } from "../core/state.js";
 
 // 渲染入参的宽松 meta 形状：字段全部按可选收口，各渲染函数内部沿用原有的
 // String()/Number() 归一，行为与迁出前一致。clipState 片段按结构直接兼容；
@@ -83,23 +83,6 @@ export function buildSrt(body: SubtitleBodyItemLike[] | null | undefined): strin
       return `${index + 1}\n${from} --> ${to}\n${text}`;
     })
     .join("\n\n");
-}
-
-export function buildSubtitlePreview(body: SubtitleBodyItemLike[] | null | undefined, settings: NoteRenderSettings): string {
-  const compactWithHours = shouldShowHoursInSubtitle(body);
-  return (body || [])
-    .map((item) => {
-      const text = String(item?.content || "").trim();
-      if (!text) {
-        return "";
-      }
-      if (settings.includeTimestampInBody) {
-        return `\`${formatClock(item.from as number, { hours: compactWithHours })}\` ${text}`;
-      }
-      return text;
-    })
-    .filter(Boolean)
-    .join("\n");
 }
 
 export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settings?: NoteRenderSettings): string {

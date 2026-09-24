@@ -7,7 +7,6 @@
 // 不触碰 DOM。（笔记导出的固定属性 / 笔记段落行构建器与校验随功能删除。）
 
 import { PRESETS, type AiProviderPreset } from "../core/presets.js";
-import { validateAiProviders } from "../core/validators.js";
 import {
   createProviderRow,
   type ProviderRowItem

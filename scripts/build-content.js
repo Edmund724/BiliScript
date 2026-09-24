@@ -573,7 +573,6 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "core/defaults.ts", mutable: false },
   { source: "core/runtime.ts", mutable: false },
   { source: "core/ui-status.ts", mutable: false },
-  { source: "core/version.ts", mutable: false },
   { source: "reader/presentation-fields.ts", mutable: false },
   { source: "shared/dom-ids.ts", mutable: false },
   { source: "shared/error-helpers.ts", mutable: false },
