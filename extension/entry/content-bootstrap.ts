@@ -15,7 +15,7 @@
 
 // 只 import 版本常量：defaults.js 的全部默认设置常量不必进 bootstrap
 //（主包自带），见 core/version.js 头注。
-import { BOC_VERSION } from "../core/version.js";
+import { BILISCRIPT_VERSION } from "../core/version.js";
 
 // 主包固定路径：与 scripts/build-content.js 的产出约定一致，改动需两处同步。
 // 放在模块级常量而非内联字面量传给 import()，同时避免打包器把动态导入目标
@@ -53,14 +53,14 @@ export function startContentBootstrap(options: BootstrapOptions = {}): Bootstrap
   // 由浏览器抛出（非本扩展代码主动 throw）；background 的注入编排按
   // shared/content-error-sentinels.js 的 DUPLICATE_CLASSIC_INJECTION_SENTINEL
   // 将其视为「已注入」吞掉（本 bootstrap 为 IIFE、无顶层绑定，不触发该哨兵）。
-  if (globalThis.__BOC_CONTENT_BOOTSTRAP_STARTED__) {
+  if (globalThis.__BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__) {
     return null;
   }
-  globalThis.__BOC_CONTENT_BOOTSTRAP_STARTED__ = true;
+  globalThis.__BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__ = true;
 
   // 运行时版本探针的哨兵（background 与 chrome.runtime.getManifest().version
   // 比对），语义与分包前的单文件 bundle 保持一致。
-  globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
+  globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__ = BILISCRIPT_VERSION;
 
   const resolveModuleUrl =
     options.getExtensionUrl ?? ((modulePath) => chrome.runtime.getURL(modulePath));
@@ -82,8 +82,8 @@ export function startContentBootstrap(options: BootstrapOptions = {}): Bootstrap
       link.onerror = () => {
         link.remove();
         console.error(
-          `[BOC] 首按钮 chunk 预取失败：${modulePath} ` +
-            `(extension v${BOC_VERSION})。主包加载不受影响，下次加载触发时将重试。`
+          `[BILISCRIPT] 首按钮 chunk 预取失败：${modulePath} ` +
+            `(extension v${BILISCRIPT_VERSION})。主包加载不受影响，下次加载触发时将重试。`
         );
       };
       document.head.appendChild(link);
@@ -110,8 +110,8 @@ export function startContentBootstrap(options: BootstrapOptions = {}): Bootstrap
           // 原始报错只给页面 URL 下的相对路径，不指明来源，必须在这里补齐
           // 上下文才能定位是 WAR 配置缺失还是产物没打进包。
           console.error(
-            `[BOC] 内容脚本主包加载失败：${CONTENT_MAIN_MODULE_PATH} ` +
-              `(extension v${BOC_VERSION})。请确认扩展包内存在该文件，且 ` +
+            `[BILISCRIPT] 内容脚本主包加载失败：${CONTENT_MAIN_MODULE_PATH} ` +
+              `(extension v${BILISCRIPT_VERSION})。请确认扩展包内存在该文件，且 ` +
               `manifest.json 的 web_accessible_resources 覆盖 ` +
               `"entry/content-main.mjs" 与 "entry/chunks/*"。`,
             error

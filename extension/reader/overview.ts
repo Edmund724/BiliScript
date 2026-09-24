@@ -274,7 +274,7 @@ export function ensureReaderOverviewTab(): void {
 }
 
 // ============================================================
-// 渲染（替换 PR2 占位卡：#boc-reading-tabbody-overview 内整块重建）
+// 渲染（替换 PR2 占位卡：#biliscript-reading-tabbody-overview 内整块重建）
 // ============================================================
 
 // 渲染前把状态收敛到与当前视频/字幕轨一致：
@@ -321,9 +321,9 @@ function buildOverviewBodyHtml(): string {
     case "idle":
     default:
       return `
-        <div class="boc-reading-placeholder">
-          <div class="boc-reading-placeholder-title">概览还未生成</div>
-          <p class="boc-reading-placeholder-copy">切到概览标签页会自动开始生成章节与金句。</p>
+        <div class="biliscript-reading-placeholder">
+          <div class="biliscript-reading-placeholder-title">概览还未生成</div>
+          <p class="biliscript-reading-placeholder-copy">切到概览标签页会自动开始生成章节与金句。</p>
         </div>
       `;
   }
@@ -337,37 +337,37 @@ function buildOverviewBodyHtml(): string {
 function buildEmptyStateHtml(): string {
   if (isReaderTranscribing()) {
     return `
-      <div class="boc-reading-placeholder">
-        <div class="boc-reading-placeholder-title">概览等字幕就绪后自动生成</div>
-        <p class="boc-reading-placeholder-copy">音频转写完成后会自动生成章节与金句，期间可先在「字幕」页看视频。</p>
+      <div class="biliscript-reading-placeholder">
+        <div class="biliscript-reading-placeholder-title">概览等字幕就绪后自动生成</div>
+        <p class="biliscript-reading-placeholder-copy">音频转写完成后会自动生成章节与金句，期间可先在「字幕」页看视频。</p>
       </div>
     `;
   }
   if (state.clip.subtitleFetchState === "loading") {
     return `
-      <div class="boc-reading-placeholder">
-        <div class="boc-reading-placeholder-title">字幕抓取中，就绪后自动生成概览</div>
-        <p class="boc-reading-placeholder-copy">章节与金句会在字幕就绪后自动出现，无需切换标签页。</p>
+      <div class="biliscript-reading-placeholder">
+        <div class="biliscript-reading-placeholder-title">字幕抓取中，就绪后自动生成概览</div>
+        <p class="biliscript-reading-placeholder-copy">章节与金句会在字幕就绪后自动出现，无需切换标签页。</p>
       </div>
     `;
   }
   return `
-    <div class="boc-reading-placeholder">
-      <div class="boc-reading-placeholder-title">该视频没有可用字幕</div>
-      <p class="boc-reading-placeholder-copy">概览（章节与金句）需要字幕才能生成。</p>
+    <div class="biliscript-reading-placeholder">
+      <div class="biliscript-reading-placeholder-title">该视频没有可用字幕</div>
+      <p class="biliscript-reading-placeholder-copy">概览（章节与金句）需要字幕才能生成。</p>
     </div>
   `;
 }
 
 // 生成中状态条：进度文案来自管线 onProgress（分段路径实时推进），细进度条
-// 复用转写横幅的 boc-asr-pulse 不确定动画（页面侧拿不到确定进度）。
+// 复用转写横幅的 biliscript-asr-pulse 不确定动画（页面侧拿不到确定进度）。
 function buildGeneratingStrip(): string {
   return `
-    <div class="boc-reading-ov-strip is-generating">
-      <span class="boc-reading-ov-strip-text">正在生成概览…</span>
-      <span class="boc-reading-ov-progress">${escapeHtml(overview.progressText || "")}</span>
+    <div class="biliscript-reading-ov-strip is-generating">
+      <span class="biliscript-reading-ov-strip-text">正在生成概览…</span>
+      <span class="biliscript-reading-ov-progress">${escapeHtml(overview.progressText || "")}</span>
     </div>
-    <div class="boc-reading-ov-track" aria-hidden="true"><div class="boc-reading-ov-fill"></div></div>
+    <div class="biliscript-reading-ov-track" aria-hidden="true"><div class="biliscript-reading-ov-fill"></div></div>
   `;
 }
 
@@ -376,18 +376,18 @@ function buildGeneratingStrip(): string {
 function buildPartialStrip(): string {
   const failedCount = overview.analysis?.failedRanges?.length || 0;
   return `
-    <div class="boc-reading-ov-strip is-partial">
-      <span class="boc-reading-ov-strip-text">有 ${failedCount} 个分段生成失败，对应区间的章节与金句缺失。</span>
-      <button type="button" class="boc-reading-mini-btn" data-overview-action="retry-failed">重试失败区间</button>
+    <div class="biliscript-reading-ov-strip is-partial">
+      <span class="biliscript-reading-ov-strip-text">有 ${failedCount} 个分段生成失败，对应区间的章节与金句缺失。</span>
+      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">重试失败区间</button>
     </div>
   `;
 }
 
 function buildErrorStrip(): string {
   return `
-    <div class="boc-reading-ov-strip is-error">
-      <span class="boc-reading-ov-strip-text">概览生成失败：${escapeHtml(overview.errorText || "未知错误")}</span>
-      <button type="button" class="boc-reading-mini-btn" data-overview-action="retry">重试</button>
+    <div class="biliscript-reading-ov-strip is-error">
+      <span class="biliscript-reading-ov-strip-text">概览生成失败：${escapeHtml(overview.errorText || "未知错误")}</span>
+      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重试</button>
     </div>
   `;
 }
@@ -399,9 +399,9 @@ function buildResultSectionsHtml(): string {
   if (!analysis) {
     if (overview.phase === "generating") {
       return `
-        <div class="boc-reading-placeholder">
-          <div class="boc-reading-placeholder-title">正在生成概览</div>
-          <p class="boc-reading-placeholder-copy">章节与金句会出现在这里；期间可先在「字幕」页阅读。</p>
+        <div class="biliscript-reading-placeholder">
+          <div class="biliscript-reading-placeholder-title">正在生成概览</div>
+          <p class="biliscript-reading-placeholder-copy">章节与金句会出现在这里；期间可先在「字幕」页阅读。</p>
         </div>
       `;
     }
@@ -416,18 +416,18 @@ function buildResultSectionsHtml(): string {
   const quotes = (Array.isArray(analysis.quotes) ? analysis.quotes : []).filter(
     (item) => item && String(item?.content || "").trim()
   );
-  const chapterBadge = overview.aiChapters ? '<span class="boc-reading-ov-badge">AI 生成</span>' : "";
-  const quotesEmptyNote = quotes.length === 0 ? '<div class="boc-reading-ov-empty">没有可用的金句。</div>' : "";
+  const chapterBadge = overview.aiChapters ? '<span class="biliscript-reading-ov-badge">AI 生成</span>' : "";
+  const quotesEmptyNote = quotes.length === 0 ? '<div class="biliscript-reading-ov-empty">没有可用的金句。</div>' : "";
 
   // —— 无章节视频：维持平铺——章节空态 + 独立金句 section（卡片按 from 平铺）——
   if (chapters.length === 0) {
     return `
-      <section class="boc-reading-ov-section">
-        <div class="boc-reading-ov-h">章节</div>
-        <div class="boc-reading-ov-empty">没有可用的章节。</div>
+      <section class="biliscript-reading-ov-section">
+        <div class="biliscript-reading-ov-h">章节</div>
+        <div class="biliscript-reading-ov-empty">没有可用的章节。</div>
       </section>
-      <section class="boc-reading-ov-section">
-        <div class="boc-reading-ov-h">金句<span class="boc-reading-ov-badge">AI 精选</span></div>
+      <section class="biliscript-reading-ov-section">
+        <div class="biliscript-reading-ov-h">金句<span class="biliscript-reading-ov-badge">AI 精选</span></div>
         ${quotesEmptyNote}${quotes.map((item) => quoteCardHtml(item, withHours)).join("")}
       </section>
     `;
@@ -438,12 +438,12 @@ function buildResultSectionsHtml(): string {
   // 短路径）产物同构，UI 不区分来源（概览票 07 决议）。
   const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours)).join("");
   return `
-    <section class="boc-reading-ov-section">
-      <div class="boc-reading-ov-h">章节${chapterBadge}</div>
+    <section class="biliscript-reading-ov-section">
+      <div class="biliscript-reading-ov-h">章节${chapterBadge}</div>
       ${chapterBlocks}
     </section>
-    <section class="boc-reading-ov-section">
-      <div class="boc-reading-ov-h">金句<span class="boc-reading-ov-badge">AI 精选</span></div>
+    <section class="biliscript-reading-ov-section">
+      <div class="biliscript-reading-ov-h">金句<span class="biliscript-reading-ov-badge">AI 精选</span></div>
       ${quotesEmptyNote}${quotes.map((item) => quoteCardHtml(item, withHours)).join("")}
     </section>
   `;
@@ -454,11 +454,11 @@ function chapterCardHtml(item: AnalysisChapter, withHours: boolean): string {
   const from = Number(item.from) || 0;
   const desc = String(item.summary || "").trim();
   return `
-    <button type="button" class="boc-reading-ov-chapter" data-seconds="${from}">
-      <span class="boc-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
-      <span class="boc-reading-ov-chapter-copy">
-        <span class="boc-reading-ov-chapter-title">${escapeHtml(String(item.title))}</span>
-        ${desc ? `<span class="boc-reading-ov-chapter-desc">${escapeHtml(desc)}</span>` : ""}
+    <button type="button" class="biliscript-reading-ov-chapter" data-seconds="${from}">
+      <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
+      <span class="biliscript-reading-ov-chapter-copy">
+        <span class="biliscript-reading-ov-chapter-title">${escapeHtml(String(item.title))}</span>
+        ${desc ? `<span class="biliscript-reading-ov-chapter-desc">${escapeHtml(desc)}</span>` : ""}
       </span>
     </button>
   `;
@@ -473,11 +473,11 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
     return "";
   }
   return `
-    <button type="button" class="boc-reading-ov-quote" data-seconds="${from}">
-      <span class="boc-reading-ov-quote-text">「${escapeHtml(content)}」</span>
-      <span class="boc-reading-ov-quote-foot">
-        <span class="boc-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
-        <span class="boc-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}">Copy</span>
+    <button type="button" class="biliscript-reading-ov-quote" data-seconds="${from}">
+      <span class="biliscript-reading-ov-quote-text">「${escapeHtml(content)}」</span>
+      <span class="biliscript-reading-ov-quote-foot">
+        <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
+        <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}">Copy</span>
       </span>
     </button>
   `;
@@ -507,7 +507,7 @@ export function onReadingOverviewClick(event: MouseEvent): void {
   // 点击语义 = resumePlayback:true）。金句卡有正文，用户选中文本复制时不跳转，
   // 与字幕句点击同款守卫。
   const seekTarget = (event.target as HTMLElement | null)?.closest<HTMLElement>(
-    ".boc-reading-ov-chapter, .boc-reading-ov-quote"
+    ".biliscript-reading-ov-chapter, .biliscript-reading-ov-quote"
   );
   if (!seekTarget) {
     return;

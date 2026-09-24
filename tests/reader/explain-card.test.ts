@@ -9,7 +9,7 @@
 // - 卡片「去对话追问」：写意图（含 selection）+ 三通道切到 AI 对话 tab；
 // - 卡片关闭（×/遮罩）与 closeReadingView 会话收尾；
 // - provider 解析失败 → error 态 + 重试按钮；
-// - 浮层/卡片点击不触发点句跳转（都不在 .boc-reading-item 委托链内）。
+// - 浮层/卡片点击不触发点句跳转（都不在 .biliscript-reading-item 委托链内）。
 //
 // AI 侧（provider 解析 + 解释请求）以 vi.mock 替身解耦：请求组装与提示词口径在
 // tests/ai/explain.test.ts 单测，这里只测接线与状态迁移。
@@ -136,7 +136,7 @@ function seedSubtitleBody() {
 // 定位已合帧，补发后推一帧让浮层落到 DOM）
 function selectInItem(index: number, text: string) {
   const item = subtitleItem(index);
-  const textNode = item.querySelector(".boc-reading-text")?.firstChild as Text;
+  const textNode = item.querySelector(".biliscript-reading-text")?.firstChild as Text;
   const full = textNode.textContent || "";
   const start = Math.max(0, full.indexOf(text));
   const range = document.createRange();
@@ -163,8 +163,8 @@ function dispatchActionClick(action: string) {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   aiMock.resolveActiveProvider.mockResolvedValue({ baseUrl: "https://api.test/v1", apiKey: "sk-test", model: "m" });
   aiMock.explainSelection.mockReset();
   aiMock.explainSelection.mockResolvedValue("这是模型给出的解释。");
@@ -220,7 +220,7 @@ describe("选区「解释」浮层", () => {
     // 同一帧内的多次选区变化合并成一次定位（拖选高频路径）
     bodyRect.mockClear();
     const item = subtitleItem(1);
-    const textNode = item.querySelector(".boc-reading-text")?.firstChild as Text;
+    const textNode = item.querySelector(".biliscript-reading-text")?.firstChild as Text;
     const selection = document.getSelection();
     [2, 4, 6].forEach((end) => {
       const range = document.createRange();
@@ -257,10 +257,10 @@ describe("面板内解释卡片", () => {
 
     // 卡片经 reader 动态域装载（loadReaderDomain().then），断言前等一轮落定
     await vi.waitFor(() => expect(explainCard().hidden).toBe(false));
-    expect(explainCard().querySelector(".boc-reading-explain-card-quote")?.textContent).toBe("传递信息的工具");
+    expect(explainCard().querySelector(".biliscript-reading-explain-card-quote")?.textContent).toBe("传递信息的工具");
 
     await vi.waitFor(() =>
-      expect(explainCard().querySelector(".boc-reading-explain-card-answer")?.textContent).toContain("这是模型给出的解释。")
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-answer")?.textContent).toContain("这是模型给出的解释。")
     );
 
     // 请求入参：选中片段 + 所在整句 + 起始秒 + 条目下标（上下文窗口锚点）
@@ -363,7 +363,7 @@ describe("面板内解释卡片", () => {
 
     const chatTab = await ensureReaderChatTab();
     await chatTab.ensureChatTabActivated();
-    const quote = document.querySelector(`#${ids.readingChatIntent} .boc-reading-chat-intent-quote`);
+    const quote = document.querySelector(`#${ids.readingChatIntent} .biliscript-reading-chat-intent-quote`);
     expect(quote?.textContent).toContain("传递信息的工具");
     expect(quote?.textContent).toContain("我们习惯将其视为传递信息的工具");
   });
@@ -380,7 +380,7 @@ describe("面板内解释卡片", () => {
     selectInItem(1, "工具");
     explainBtn().click();
     await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(true));
-    const mask = explainCard().querySelector(".boc-reading-explain-card-mask") as HTMLElement;
+    const mask = explainCard().querySelector(".biliscript-reading-explain-card-mask") as HTMLElement;
     mask.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(false));
 
@@ -397,14 +397,14 @@ describe("面板内解释卡片", () => {
     selectInItem(1, "工具");
     explainBtn().click();
     await vi.waitFor(() =>
-      expect(explainCard().querySelector(".boc-reading-explain-card-state.is-error")?.textContent).toContain("还没有配置 AI 平台")
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-state.is-error")?.textContent).toContain("还没有配置 AI 平台")
     );
     const firstCallCount = aiMock.explainSelection.mock.calls.length;
 
     dispatchActionClick("retry");
     await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBe(firstCallCount + 1));
     await vi.waitFor(() =>
-      expect(explainCard().querySelector(".boc-reading-explain-card-answer")?.textContent).toContain("这是模型给出的解释。")
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-answer")?.textContent).toContain("这是模型给出的解释。")
     );
   });
 
@@ -417,18 +417,18 @@ describe("面板内解释卡片", () => {
 
     selectInItem(0, "第一句话");
     explainBtn().click();
-    await vi.waitFor(() => expect(explainCard().querySelector(".boc-reading-explain-card-quote")?.textContent).toBe("第一句话"));
+    await vi.waitFor(() => expect(explainCard().querySelector(".biliscript-reading-explain-card-quote")?.textContent).toBe("第一句话"));
 
     selectInItem(1, "传递信息的工具");
     explainBtn().click();
     await vi.waitFor(() =>
-      expect(explainCard().querySelector(".boc-reading-explain-card-answer")?.textContent).toContain("第二次的解释。")
+      expect(explainCard().querySelector(".biliscript-reading-explain-card-answer")?.textContent).toContain("第二次的解释。")
     );
 
     // 迟到的第一次回执必须被丢弃（代际守卫）
     resolveFirst("第一次的解释。");
     await new Promise((resolve) => setTimeout(resolve, 30));
-    const answer = explainCard().querySelector(".boc-reading-explain-card-answer")?.textContent || "";
+    const answer = explainCard().querySelector(".biliscript-reading-explain-card-answer")?.textContent || "";
     expect(answer).toContain("第二次的解释。");
     expect(answer).not.toContain("第一次的解释。");
   });
@@ -445,8 +445,8 @@ describe("面板内解释卡片", () => {
     explainBtn().click();
     await vi.waitFor(() => expect(reader.isReaderExplainCardOpen()).toBe(true));
 
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
     reader.closeReadingView();
 
     expect(reader.isReaderExplainCardOpen()).toBe(false);

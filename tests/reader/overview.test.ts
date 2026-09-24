@@ -97,7 +97,7 @@ function overviewText(): string {
   return overviewBody().textContent || "";
 }
 
-// 金句复制反馈走 setMessage（script-only-ui：宿主收敛到 #boc-reading-status）
+// 金句复制反馈走 setMessage（script-only-ui：宿主收敛到 #biliscript-reading-status）
 function messageText(): string {
   return (document.getElementById(ids.readingStatus) as HTMLElement).textContent || "";
 }
@@ -198,8 +198,8 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(text).toContain("为什么测试难写");
     expect(text).toContain("测试不是目的，而是反馈。");
     // 章节与金句都是可点击跳播目标
-    expect(overviewBody().querySelectorAll(".boc-reading-ov-chapter").length).toBe(2);
-    expect(overviewBody().querySelectorAll(".boc-reading-ov-quote").length).toBe(1);
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter").length).toBe(2);
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-quote").length).toBe(1);
   });
 
   it("presetId 穿线：解析链带回记录的 presetId（preset 词表键），随 provider 进入概览管线", async () => {
@@ -326,7 +326,7 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     seedClip();
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
     await reader.triggerReaderOverviewGeneration();
-    const sectionHead = overviewBody().querySelector(".boc-reading-ov-h")?.parentElement?.textContent || "";
+    const sectionHead = overviewBody().querySelector(".biliscript-reading-ov-h")?.parentElement?.textContent || "";
     // AI 分章：章节标头带标注（章节与金句分区呈现，见分区渲染测试）
     expect(overviewText()).toContain("AI 生成");
     expect(sectionHead).toBeDefined();
@@ -337,7 +337,7 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
     await reader.triggerReaderOverviewGeneration();
     expect(runOverviewMock).toHaveBeenCalledTimes(1);
-    const headings = Array.from(overviewBody().querySelectorAll(".boc-reading-ov-h")).map((node) => node.textContent || "");
+    const headings = Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-h")).map((node) => node.textContent || "");
     expect(headings.some((heading) => heading.includes("章节") && !heading.includes("AI 生成"))).toBe(true);
   });
 
@@ -427,18 +427,18 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
   };
 
   function quoteCard(seconds: number): HTMLElement | null {
-    return overviewBody().querySelector<HTMLElement>(`.boc-reading-ov-quote[data-seconds='${seconds}']`);
+    return overviewBody().querySelector<HTMLElement>(`.biliscript-reading-ov-quote[data-seconds='${seconds}']`);
   }
 
   // 分区结构：章节 section 只放章节卡，金句 section 只放金句卡，互不混排。
   function assertSectionsSplit(): void {
-    const sections = Array.from(overviewBody().querySelectorAll(".boc-reading-ov-section"));
+    const sections = Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-section"));
     expect(sections.length).toBe(2);
     const [chapterSection, quoteSection] = sections;
-    expect(chapterSection.querySelector(".boc-reading-ov-h")?.textContent).toContain("章节");
-    expect(quoteSection.querySelector(".boc-reading-ov-h")?.textContent).toContain("金句");
-    expect(chapterSection.querySelectorAll(".boc-reading-ov-quote").length).toBe(0);
-    expect(quoteSection.querySelectorAll(".boc-reading-ov-chapter").length).toBe(0);
+    expect(chapterSection.querySelector(".biliscript-reading-ov-h")?.textContent).toContain("章节");
+    expect(quoteSection.querySelector(".biliscript-reading-ov-h")?.textContent).toContain("金句");
+    expect(chapterSection.querySelectorAll(".biliscript-reading-ov-quote").length).toBe(0);
+    expect(quoteSection.querySelectorAll(".biliscript-reading-ov-chapter").length).toBe(0);
   }
 
   it("自带章节视频：章节与金句分区呈现，时间戳与原话保真", async () => {
@@ -480,7 +480,7 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
 
     assertSectionsSplit();
     // 金句统一按 from 升序平铺在金句 section 下
-    const quotes = Array.from(overviewBody().querySelectorAll<HTMLElement>(".boc-reading-ov-quote"));
+    const quotes = Array.from(overviewBody().querySelectorAll<HTMLElement>(".biliscript-reading-ov-quote"));
     expect(quotes.map((node) => node.dataset.seconds)).toEqual(["30", "150"]);
   });
 
@@ -497,10 +497,10 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     await reader.triggerReaderOverviewGeneration();
 
     expect(overviewText()).toContain("没有可用的章节");
-    const headings = Array.from(overviewBody().querySelectorAll(".boc-reading-ov-h")).map((node) => node.textContent || "");
+    const headings = Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-h")).map((node) => node.textContent || "");
     expect(headings.some((heading) => heading.includes("金句") && heading.includes("AI 精选"))).toBe(true);
     // 平铺：金句按 from 升序铺在金句 section 下
-    const quotes = Array.from(overviewBody().querySelectorAll<HTMLElement>(".boc-reading-ov-quote"));
+    const quotes = Array.from(overviewBody().querySelectorAll<HTMLElement>(".biliscript-reading-ov-quote"));
     expect(quotes.map((node) => node.dataset.seconds)).toEqual(["125", "200"]);
   });
 
@@ -514,7 +514,7 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     await reader.triggerReaderOverviewGeneration();
 
     expect(overviewText()).toContain("章一");
-    expect(overviewBody().querySelectorAll(".boc-reading-ov-quote").length).toBe(0);
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-quote").length).toBe(0);
     expect(overviewText()).toContain("没有可用的金句");
   });
 });
@@ -531,7 +531,7 @@ describe("概览点击 seek（章节/金句跳播）与金句复制", () => {
     const video = document.querySelector("video") as HTMLVideoElement;
     video.play = vi.fn(() => Promise.resolve()) as unknown as HTMLVideoElement["play"];
 
-    const chapter = overviewBody().querySelector<HTMLElement>(".boc-reading-ov-chapter[data-seconds='120']")!;
+    const chapter = overviewBody().querySelector<HTMLElement>(".biliscript-reading-ov-chapter[data-seconds='120']")!;
     chapter.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     expect(video.currentTime).toBe(120);
@@ -542,7 +542,7 @@ describe("概览点击 seek（章节/金句跳播）与金句复制", () => {
     const video = document.querySelector("video") as HTMLVideoElement;
     video.play = vi.fn(() => Promise.resolve()) as unknown as HTMLVideoElement["play"];
 
-    const quote = overviewBody().querySelector<HTMLElement>(".boc-reading-ov-quote")!;
+    const quote = overviewBody().querySelector<HTMLElement>(".biliscript-reading-ov-quote")!;
     quote.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     expect(video.currentTime).toBe(125);
@@ -593,7 +593,7 @@ describe("概览点击 seek（章节/金句跳播）与金句复制", () => {
       toString: () => "已选中的文字"
     } as unknown as Selection);
 
-    const quote = overviewBody().querySelector<HTMLElement>(".boc-reading-ov-quote")!;
+    const quote = overviewBody().querySelector<HTMLElement>(".biliscript-reading-ov-quote")!;
     quote.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     expect(video.currentTime).toBe(0);

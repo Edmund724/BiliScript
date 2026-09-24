@@ -111,7 +111,7 @@ beforeEach(() => {
   // 真实 commitNoSubtitle 只要求注入状态栏回调（见 commit.js 的 CommitUiCallbacks）
   configureCommitUi({ setStatus: vi.fn() });
   const preview = document.createElement("textarea");
-  preview.id = "boc-preview";
+  preview.id = "biliscript-preview";
   document.body.appendChild(preview);
 
   clipState.setFetchRunId(1);

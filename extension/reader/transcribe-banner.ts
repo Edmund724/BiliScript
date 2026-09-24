@@ -1,7 +1,7 @@
 // 转写中间态呈现（PR3）：字幕 tab 内的 ASR 转写横幅 + 列表淡出禁用。
 //
 // 数据源（已核实的结论，见工单 09 PR3 实施说明）：
-//   - chrome.runtime.sendMessage 的 boc-subtitle-status 广播**不会被发送方所在
+//   - chrome.runtime.sendMessage 的 biliscript-subtitle-status 广播**不会被发送方所在
 //     content script 自己收到**（只达 popup/sidepanel 等扩展上下文），reader 与
 //     转写编排同进程，监听 chrome.runtime.onMessage 无效；
 //   - 因此相位经 shared/subtitle-status-bus.js 的进程内镜像读取/订阅——镜像由

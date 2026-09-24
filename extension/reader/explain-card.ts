@@ -102,29 +102,29 @@ function renderCard(): void {
   const bodyHtml =
     card.phase === "loading"
       ? `
-        <div class="boc-reading-explain-card-state">
-          <span class="boc-reading-explain-card-dot" aria-hidden="true"></span>
+        <div class="biliscript-reading-explain-card-state">
+          <span class="biliscript-reading-explain-card-dot" aria-hidden="true"></span>
           ${card.searching ? "正在联网搜索…" : "正在解释…"}
         </div>
       `
       : card.phase === "error"
         ? `
-          <div class="boc-reading-explain-card-state is-error">${escapeHtml(card.error || "解释失败")}</div>
-          <button type="button" class="boc-reading-mini-btn" data-explain-card-action="retry">重试</button>
+          <div class="biliscript-reading-explain-card-state is-error">${escapeHtml(card.error || "解释失败")}</div>
+          <button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="retry">重试</button>
         `
-        : `<div class="boc-reading-explain-card-answer markdown-body">${renderMarkdown(card.text)}</div>`;
+        : `<div class="biliscript-reading-explain-card-answer markdown-body">${renderMarkdown(card.text)}</div>`;
 
   root.innerHTML = `
-    <div class="boc-reading-explain-card-mask" data-explain-card-action="close"></div>
-    <section class="boc-reading-explain-card-dialog" role="dialog" aria-modal="true" aria-label="解释" tabindex="-1">
-      <header class="boc-reading-explain-card-head">
-        <span class="boc-reading-explain-card-title">解释</span>
-        <button type="button" class="boc-reading-explain-card-close" data-explain-card-action="close" title="关闭" aria-label="关闭">×</button>
+    <div class="biliscript-reading-explain-card-mask" data-explain-card-action="close"></div>
+    <section class="biliscript-reading-explain-card-dialog" role="dialog" aria-modal="true" aria-label="解释" tabindex="-1">
+      <header class="biliscript-reading-explain-card-head">
+        <span class="biliscript-reading-explain-card-title">解释</span>
+        <button type="button" class="biliscript-reading-explain-card-close" data-explain-card-action="close" title="关闭" aria-label="关闭">×</button>
       </header>
-      <div class="boc-reading-explain-card-quote">${escapeHtml(card.selection)}</div>
-      <div class="boc-reading-explain-card-content">${bodyHtml}</div>
-      <footer class="boc-reading-explain-card-foot">
-        <button type="button" class="boc-reading-mini-btn" data-explain-card-action="ask-chat">去对话追问</button>
+      <div class="biliscript-reading-explain-card-quote">${escapeHtml(card.selection)}</div>
+      <div class="biliscript-reading-explain-card-content">${bodyHtml}</div>
+      <footer class="biliscript-reading-explain-card-foot">
+        <button type="button" class="biliscript-reading-mini-btn" data-explain-card-action="ask-chat">去对话追问</button>
       </footer>
     </section>
   `;
@@ -135,7 +135,7 @@ function renderCard(): void {
 
   // 焦点进对话框：键盘用户点完「解释」后 Esc/Tab 立即可用（选区已清，不再需要
   // 页面焦点；jsdom 无布局但 focus() 可调，守卫存在性即可）。
-  root.querySelector<HTMLElement>(".boc-reading-explain-card-dialog")?.focus?.({ preventScroll: true });
+  root.querySelector<HTMLElement>(".biliscript-reading-explain-card-dialog")?.focus?.({ preventScroll: true });
 }
 
 // Esc 关闭：只在卡片开着期间挂文档级 keydown（与遮罩/× 同一关闭语义）。
@@ -217,7 +217,7 @@ function startExplainRequest(): void {
       if (runId !== card.runId || (error as { aborted?: boolean })?.aborted) {
         return; // 中止/过期：卡片已关闭或已换选区，不打扰
       }
-      logWarn("[BOC] explain selection failed", error);
+      logWarn("[BILISCRIPT] explain selection failed", error);
       card.phase = "error";
       card.error = getErrorMessage(error);
       card.searching = false;

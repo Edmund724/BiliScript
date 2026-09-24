@@ -35,9 +35,9 @@ async function loadModule(): Promise<RenderModule> {
 
 function mountBlock(source: string): Element {
   document.body.innerHTML =
-    `<div class="boc-md-mermaid" data-boc-mermaid="pending">` +
-    `<pre class="boc-md-mermaid-src"><code>${source}</code></pre></div>`;
-  return document.querySelector(".boc-md-mermaid")!;
+    `<div class="biliscript-md-mermaid" data-biliscript-mermaid="pending">` +
+    `<pre class="biliscript-md-mermaid-src"><code>${source}</code></pre></div>`;
+  return document.querySelector(".biliscript-md-mermaid")!;
 }
 
 // mermaid 的 SVG 以根 id 作内部 id 前缀（<style> 选择器与 url(#…) 引用）
@@ -65,10 +65,10 @@ describe("hydrateMermaidPlaceholders", () => {
 
     await hydrateMermaidPlaceholders(document.body, { theme: "light" });
 
-    expect(mermaidMock.calls).toEqual([{ id: expect.stringMatching(/^boc-mermaid-/), source: "graph TD\nA --> B" }]);
-    expect(block.getAttribute("data-boc-mermaid")).toBe("done");
-    expect(block.querySelector(".boc-md-mermaid-src code")!.textContent).toBe("graph TD\nA --> B");
-    expect(block.querySelector(".boc-md-mermaid-svg svg")).toBeTruthy();
+    expect(mermaidMock.calls).toEqual([{ id: expect.stringMatching(/^biliscript-mermaid-/), source: "graph TD\nA --> B" }]);
+    expect(block.getAttribute("data-biliscript-mermaid")).toBe("done");
+    expect(block.querySelector(".biliscript-md-mermaid-src code")!.textContent).toBe("graph TD\nA --> B");
+    expect(block.querySelector(".biliscript-md-mermaid-svg svg")).toBeTruthy();
   });
 
   it("插入时换新 id：<style> 选择器与 url(#…) 引用整体改写，不复用渲染时的 id", async () => {
@@ -78,7 +78,7 @@ describe("hydrateMermaidPlaceholders", () => {
     await hydrateMermaidPlaceholders(document.body);
 
     const renderedId = mermaidMock.calls[0].id;
-    const html = block.querySelector(".boc-md-mermaid-svg")!.innerHTML;
+    const html = block.querySelector(".biliscript-md-mermaid-svg")!.innerHTML;
     const mountedId = /<svg id="([^"]+)"/.exec(html)![1];
     expect(mountedId).not.toBe(renderedId);
     expect(html).toContain(`#${mountedId} .node`);
@@ -98,16 +98,16 @@ describe("hydrateMermaidPlaceholders", () => {
       return { svg: svgFor(id) };
     });
     document.body.innerHTML =
-      `<div class="boc-md-mermaid" data-boc-mermaid="pending"><pre class="boc-md-mermaid-src"><code>bad</code></pre></div>` +
-      `<div class="boc-md-mermaid" data-boc-mermaid="pending"><pre class="boc-md-mermaid-src"><code>good</code></pre></div>`;
+      `<div class="biliscript-md-mermaid" data-biliscript-mermaid="pending"><pre class="biliscript-md-mermaid-src"><code>bad</code></pre></div>` +
+      `<div class="biliscript-md-mermaid" data-biliscript-mermaid="pending"><pre class="biliscript-md-mermaid-src"><code>good</code></pre></div>`;
 
     await hydrateMermaidPlaceholders(document.body);
 
-    const [bad, good] = Array.from(document.querySelectorAll(".boc-md-mermaid"));
-    expect(bad.getAttribute("data-boc-mermaid")).toBe("error");
-    expect(bad.querySelector(".boc-md-mermaid-fallback")!.textContent).toContain("图表渲染失败");
-    expect(bad.querySelector(".boc-md-mermaid-src")!.textContent).toContain("bad");
-    expect(good.getAttribute("data-boc-mermaid")).toBe("done");
+    const [bad, good] = Array.from(document.querySelectorAll(".biliscript-md-mermaid"));
+    expect(bad.getAttribute("data-biliscript-mermaid")).toBe("error");
+    expect(bad.querySelector(".biliscript-md-mermaid-fallback")!.textContent).toContain("图表渲染失败");
+    expect(bad.querySelector(".biliscript-md-mermaid-src")!.textContent).toContain("bad");
+    expect(good.getAttribute("data-biliscript-mermaid")).toBe("done");
   });
 
   it("不支持类型：显示精确源码降级文案，不影响后续图，换主题后可重新检测", async () => {
@@ -121,24 +121,24 @@ describe("hydrateMermaidPlaceholders", () => {
       return "flowchart";
     });
     document.body.innerHTML =
-      `<div class="boc-md-mermaid" data-boc-mermaid="pending"><pre class="boc-md-mermaid-src"><code>${unsupportedSource}</code></pre></div>` +
-      `<div class="boc-md-mermaid" data-boc-mermaid="pending"><pre class="boc-md-mermaid-src"><code>graph TD\nA --> B</code></pre></div>`;
+      `<div class="biliscript-md-mermaid" data-biliscript-mermaid="pending"><pre class="biliscript-md-mermaid-src"><code>${unsupportedSource}</code></pre></div>` +
+      `<div class="biliscript-md-mermaid" data-biliscript-mermaid="pending"><pre class="biliscript-md-mermaid-src"><code>graph TD\nA --> B</code></pre></div>`;
 
     await hydrateMermaidPlaceholders(document.body, { theme: "light" });
 
-    const [unsupported, following] = Array.from(document.querySelectorAll(".boc-md-mermaid"));
-    expect(unsupported.getAttribute("data-boc-mermaid")).toBe("unsupported");
-    expect(unsupported.getAttribute("data-boc-mermaid")).not.toBe("error");
-    expect(unsupported.querySelector(".boc-md-mermaid-fallback")!.textContent).toBe("不支持的图表类型，已显示源码");
-    expect(unsupported.querySelector(".boc-md-mermaid-src code")!.textContent).toBe(unsupportedSource);
-    expect(unsupported.querySelector(".boc-md-mermaid-svg")).toBeNull();
-    expect(following.getAttribute("data-boc-mermaid")).toBe("done");
+    const [unsupported, following] = Array.from(document.querySelectorAll(".biliscript-md-mermaid"));
+    expect(unsupported.getAttribute("data-biliscript-mermaid")).toBe("unsupported");
+    expect(unsupported.getAttribute("data-biliscript-mermaid")).not.toBe("error");
+    expect(unsupported.querySelector(".biliscript-md-mermaid-fallback")!.textContent).toBe("不支持的图表类型，已显示源码");
+    expect(unsupported.querySelector(".biliscript-md-mermaid-src code")!.textContent).toBe(unsupportedSource);
+    expect(unsupported.querySelector(".biliscript-md-mermaid-svg")).toBeNull();
+    expect(following.getAttribute("data-biliscript-mermaid")).toBe("done");
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
 
     unsupportedDetected = false;
     await hydrateMermaidPlaceholders(document.body, { theme: "dark", force: true });
-    expect(unsupported.getAttribute("data-boc-mermaid")).toBe("done");
-    expect(unsupported.querySelector(".boc-md-mermaid-fallback")).toBeNull();
+    expect(unsupported.getAttribute("data-biliscript-mermaid")).toBe("done");
+    expect(unsupported.querySelector(".biliscript-md-mermaid-fallback")).toBeNull();
     expect(mermaidMock.render).toHaveBeenCalledTimes(3);
   });
 
@@ -149,7 +149,7 @@ describe("hydrateMermaidPlaceholders", () => {
     await hydrateMermaidPlaceholders(document.body);
 
     expect(mermaidMock.render).not.toHaveBeenCalled();
-    expect(block.getAttribute("data-boc-mermaid")).toBe("pending");
+    expect(block.getAttribute("data-biliscript-mermaid")).toBe("pending");
   });
 
   it("缓存：同主题同源码再水合一次不重渲染（流式 stable 每增长一次就整体重建）", async () => {
@@ -162,7 +162,7 @@ describe("hydrateMermaidPlaceholders", () => {
     await hydrateMermaidPlaceholders(document.body);
 
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
-    expect(document.body.querySelector(".boc-md-mermaid")!.getAttribute("data-boc-mermaid")).toBe("done");
+    expect(document.body.querySelector(".biliscript-md-mermaid")!.getAttribute("data-biliscript-mermaid")).toBe("done");
   });
 
   it("主题：异主题各自渲染并重配 mermaid；force + 同主题跳过", async () => {
@@ -183,7 +183,7 @@ describe("hydrateMermaidPlaceholders", () => {
     expect(mermaidMock.render).toHaveBeenCalledTimes(2);
     expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "dark" }));
     expect(mermaidMock.initialize).toHaveBeenCalledTimes(2);
-    expect(block.getAttribute("data-boc-mermaid")).toBe("done");
+    expect(block.getAttribute("data-biliscript-mermaid")).toBe("done");
   });
 
   it("非 force 水合不动已渲染的块（换主题不经 force 不会重做）", async () => {
@@ -203,6 +203,6 @@ describe("hydrateMermaidPlaceholders", () => {
     await hydrateMermaidPlaceholders(block, { theme: "light" });
 
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
-    expect(block.getAttribute("data-boc-mermaid")).toBe("done");
+    expect(block.getAttribute("data-biliscript-mermaid")).toBe("done");
   });
 });

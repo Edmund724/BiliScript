@@ -1,21 +1,21 @@
 // extension/core/url-watcher.ts
 // URL 变化的纯机制层：history.pushState/replaceState 补丁 + href 轮询兜底，
-// 检测到变化即同步派发 boc:urlchange 自定义事件。
-// 不做任何业务编排：popstate/hashchange/boc:urlchange 的监听注册与 URL 变化
+// 检测到变化即同步派发 biliscript:urlchange 自定义事件。
+// 不做任何业务编排：popstate/hashchange/biliscript:urlchange 的监听注册与 URL 变化
 // 编排（重置 clip → 刷字幕 → reader 同步 → player-ai 按钮同步）在组合根
 // entry/message-handler.ts（arch-slim-2/09 归位 entry/）的 bindUrlChangeHandler 中。
 // 本文件只 import ./state.ts（防重标记），不得依赖 ui/reader/ai/subtitle/
 // bilibili 任何域。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态
 // （history 补丁标记、轮询 interval id、lastObservedHref），content 两轮构建下
 // 常驻包与懒加载区各一份实例。安全依据：懒侧（reader/chat-tab-core.ts）只引用
-// BOC_URL_CHANGE_EVENT 常量，不调用任何状态函数，懒侧实例的补丁标记与轮询 id
-// 永不写；若未来懒侧需要 URL 变化通知，走 boc:urlchange 窗口事件，不得直接
+// BILISCRIPT_URL_CHANGE_EVENT 常量，不调用任何状态函数，懒侧实例的补丁标记与轮询 id
+// 永不写；若未来懒侧需要 URL 变化通知，走 biliscript:urlchange 窗口事件，不得直接
 // 调用本模块的状态函数（scripts/build-content.js 的双实例守卫对账本标记）。
 import { state, uiState } from "./state.js";
 
-export const BOC_URL_CHANGE_EVENT = "boc:urlchange";
+export const BILISCRIPT_URL_CHANGE_EVENT = "biliscript:urlchange";
 let urlWatcherHistoryPatched = false;
 let urlWatcherPollStarted = false;
 let urlWatcherPollId: ReturnType<typeof setInterval> | null = null;
@@ -30,7 +30,7 @@ function pollUrlChange(): void {
     return;
   }
   lastObservedHref = location.href;
-  window.dispatchEvent(new Event(BOC_URL_CHANGE_EVENT));
+  window.dispatchEvent(new Event(BILISCRIPT_URL_CHANGE_EVENT));
 }
 
 function startUrlPolling(): void {
@@ -49,7 +49,7 @@ function stopUrlPolling(): void {
 
 // 可见性节流（10-7）：标签页隐藏时轮询无意义（页面不渲染、用户不可见），
 // 停掉 interval 省空闲资源；恢复可见时先同步补扫一次——隐藏期间主世界 SPA
-// 换片（history 补丁截获不到）不丢，靠这次显式对账派发 boc:urlchange 兜底，
+// 换片（history 补丁截获不到）不丢，靠这次显式对账派发 biliscript:urlchange 兜底，
 // 再重启轮询。
 function handleUrlWatcherVisibility(): void {
   const hidden = typeof document.hidden === "boolean" ? document.hidden : false;
@@ -81,13 +81,13 @@ export function startUrlWatcher(): void {
     history.pushState = function pushState(this: History, ...args: unknown[]): unknown {
       const result = originalPushState.apply(this, args as Parameters<typeof history.pushState>);
       lastObservedHref = location.href;
-      window.dispatchEvent(new Event(BOC_URL_CHANGE_EVENT));
+      window.dispatchEvent(new Event(BILISCRIPT_URL_CHANGE_EVENT));
       return result;
     };
     history.replaceState = function replaceState(this: History, ...args: unknown[]): unknown {
       const result = originalReplaceState.apply(this, args as Parameters<typeof history.replaceState>);
       lastObservedHref = location.href;
-      window.dispatchEvent(new Event(BOC_URL_CHANGE_EVENT));
+      window.dispatchEvent(new Event(BILISCRIPT_URL_CHANGE_EVENT));
       return result;
     };
     urlWatcherHistoryPatched = true;

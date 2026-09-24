@@ -65,7 +65,7 @@ describe("稍后再看列表内 SPA 换片的 URL 检测（轮询兜底）", () 
     messageHandler.bindUrlChangeHandler();
 
     // 模拟 B 站主世界 SPA 换片：绕过实例上的补丁（原型方法直调），
-    // 不派发 boc:urlchange、不触发 popstate。
+    // 不派发 biliscript:urlchange、不触发 popstate。
     History.prototype.replaceState.call(history, {}, "", WATCHLATER_URL_B);
 
     // 补丁未截获：同步路径无任何反应，clip 仍是视频 A。

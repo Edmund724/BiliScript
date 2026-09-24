@@ -1,5 +1,5 @@
 // 统一 文摘阅读模式 PR1 验收（消息路径）：文摘按钮点击发出
-// reader-enter 且 readerUrl 带 boc_reader=1。
+// reader-enter 且 readerUrl 带 biliscript_reader=1。
 //
 // 生产路径：按钮 click → handleScriptButtonClick 构造 {type, readerUrl} →
 // shared/messaging.js 的 dispatchContentScriptMessage 原语 → 处理器
@@ -75,13 +75,13 @@ afterEach(() => {
 });
 
 describe("script-button 点击行为", () => {
-  it("点击发出 reader-enter，readerUrl 为带 boc_reader=1 的规范视频 URL", async () => {
+  it("点击发出 reader-enter，readerUrl 为带 biliscript_reader=1 的规范视频 URL", async () => {
     setLocationUrl("https://www.bilibili.com/video/BV1test000000/?p=2&spm_id_from=x");
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
 
     await loadModule();
     // 01 快路径：装载即注入，settle 链已退役
-    const button = document.getElementById("boc-script-button");
+    const button = document.getElementById("biliscript-script-button");
     expect(button).not.toBeNull();
 
     button!.click();
@@ -89,9 +89,9 @@ describe("script-button 点击行为", () => {
       expect(replaceReaderModeUrl).toHaveBeenCalled();
     });
 
-    // cleanVideoUrl 清掉非视频参数后加 boc_reader=1，p=2 保留（规范视频 URL）。
+    // cleanVideoUrl 清掉非视频参数后加 biliscript_reader=1，p=2 保留（规范视频 URL）。
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(
-      "https://www.bilibili.com/video/BV1test000000/?p=2&boc_reader=1"
+      "https://www.bilibili.com/video/BV1test000000/?p=2&biliscript_reader=1"
     );
   });
 });

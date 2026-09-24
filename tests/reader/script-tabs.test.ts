@@ -59,8 +59,8 @@ function expectTabActive(name: "Subtitle" | "Overview" | "Chat", active: boolean
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   await loadModules();
   uiRenderer.ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
@@ -86,7 +86,7 @@ describe("统一 文摘面板三标签", () => {
     expect(tabButton("Chat")).not.toBe(null);
 
     const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
-    expect(subtitleList.parentElement).toBe(tabBody("Subtitle").querySelector(".boc-reading-main"));
+    expect(subtitleList.parentElement).toBe(tabBody("Subtitle").querySelector(".biliscript-reading-main"));
     // 模板初值：字幕 tab 默认激活（与 ui-renderer 模板一致）
     expectTabActive("Subtitle", true);
     expectTabActive("Overview", false);
@@ -99,7 +99,7 @@ describe("统一 文摘面板三标签", () => {
     expect(overviewBody).not.toBe(null);
     const overviewCopy = tabBody("Overview").textContent || "";
     expect(overviewCopy).toContain("概览还未生成");
-    expect(overviewBody.querySelector(".boc-reading-ov-chapter, .boc-reading-ov-quote")).toBe(null);
+    expect(overviewBody.querySelector(".biliscript-reading-ov-chapter, .biliscript-reading-ov-quote")).toBe(null);
     expect(tabBody("Overview").querySelector("input, textarea, button, select")).toBe(null);
 
     // AI 对话（PR5 落地）：真对话 UI 壳（消息区/输入框/模型与思考档/预设历史），
@@ -140,8 +140,8 @@ describe("统一 文摘面板三标签", () => {
 
   it("D. 进入阅读模式：重置回默认「字幕」tab", async () => {
     seedSubtitleBody();
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
 
     // 先手动切到概览（模拟上一次会话的停留状态）
     uiRenderer.setReaderScriptTab("overview");
@@ -158,13 +158,13 @@ describe("统一 文摘面板三标签", () => {
 
     // 字幕列表在打开后正常渲染进字幕 tab
     const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
-    expect(subtitleList.querySelectorAll(".boc-reading-item").length).toBe(2);
+    expect(subtitleList.querySelectorAll(".biliscript-reading-item").length).toBe(2);
   });
 
   it("E. 视图开着期间重渲（切轨/subtitle-ready）不重置所在 tab", async () => {
     seedSubtitleBody();
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
 
     await reader.enterReaderMode();
     uiRenderer.setReaderScriptTab("overview");

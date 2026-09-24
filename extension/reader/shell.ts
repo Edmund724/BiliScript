@@ -22,7 +22,7 @@
 //    （原本地手抄的同一判定收口为唯一实现）。
 //
 // 另有 enterReaderShellOnUrlNavigation：URL 跳转编排（bindUrlChangeHandler）的
-// 进入入口。页内跳转到 boc_reader=1 地址而视图未开时走它——与消息意图三档共
+// 进入入口。页内跳转到 biliscript_reader=1 地址而视图未开时走它——与消息意图三档共
 // 享同一条进入链（runReaderEntrySequence 唯一实现），但无 player-ai 前奏
 // （URL 跳转没有用户点击在先，不抑制也不摘 AI 悬浮按钮，与收口前行为逐字
 // 一致），并把「进入前播报」「失败口径」作为编排侧参数注入。
@@ -55,7 +55,7 @@ export interface EnterReaderShellOptions {
 // 空 readerUrl 的语义是「已在阅读模式内，只聚焦/激活」。但 background 的
 // player-ai / reading-chat 链在视图未开时也传空串（triggerReaderModeInTab 的
 // 空 readerUrl 参数）——此时必须用当前地址兜底构造阅读 URL，否则 URL 改写、
-// 阅读表与 data-boc-reader-mode 门控全被跳过，enterReaderMode 落在无样式的
+// 阅读表与 data-biliscript-reader-mode 门控全被跳过，enterReaderMode 落在无样式的
 // 半进入态（页面布局微变但阅读模式不出现）。拼法单源在 bilibili/reader-url.ts
 // 的 buildReaderModeUrl（arch-slim-2/03，原与 ui/script-button.ts 各抄一份）。
 function resolveReaderEntryUrl(readerUrl: string): string {
@@ -77,9 +77,9 @@ export function isReaderShellIntact(): boolean {
   return Boolean(
     shell?.isConnected &&
       shell.classList.contains("open") &&
-      shell.getAttribute("data-boc-reader-ready") !== "0" &&
-      document.body.getAttribute("data-boc-reader-mode") === "1" &&
-      document.documentElement.getAttribute("data-boc-reader-mode") === "1"
+      shell.getAttribute("data-biliscript-reader-ready") !== "0" &&
+      document.body.getAttribute("data-biliscript-reader-mode") === "1" &&
+      document.documentElement.getAttribute("data-biliscript-reader-mode") === "1"
   );
 }
 
@@ -139,7 +139,7 @@ function runReaderShellEnterTransaction(
   }).catch((error) => {
     if (getReaderShellState() === "entering") {
       transitionReaderShell("closed");
-      logWarnAlways("[BOC] reading shell enter transaction failed, state rolled back to closed", error);
+      logWarnAlways("[BILISCRIPT] reading shell enter transaction failed, state rolled back to closed", error);
     }
     onEnterFailed(error);
   });
@@ -156,8 +156,8 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
     replaceReaderModeUrl(readerUrl);
     // S3：先挂阅读表再翻属性（无闪变时序，见上方不变式注）
     ensureReaderStyles();
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
   }
   if (!isReaderViewOpen()) {
     // 候选02：enterReaderMode 属 reader 重域，经 ensureReaderDomain 装载后
@@ -179,7 +179,7 @@ async function restoreSelfHealBeforeEntry(): Promise<void> {
     const reader = await ensureReaderDomain();
     reader.closeReadingView();
   } catch (error) {
-    logWarn("[BOC] reading view restore: close failed", error);
+    logWarn("[BILISCRIPT] reading view restore: close failed", error);
   }
 }
 
@@ -205,10 +205,10 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
   const onFailed = (error: unknown): void => {
     logWarn(
       intent === "open"
-        ? "[BOC] reading mode trigger failed"
+        ? "[BILISCRIPT] reading mode trigger failed"
         : intent === "restore"
-          ? "[BOC] reading view restore failed"
-          : "[BOC] reading chat trigger failed",
+          ? "[BILISCRIPT] reading view restore failed"
+          : "[BILISCRIPT] reading chat trigger failed",
       error
     );
   };
@@ -253,7 +253,7 @@ export interface EnterReaderShellOnUrlNavigationOptions {
 }
 
 // URL 跳转编排入口（entry/message-handler.ts 的 bindUrlChangeHandler）：popstate/
-// hashchange/boc:urlchange 落在 boc_reader=1 地址而视图未开时走本入口。与消息
+// hashchange/biliscript:urlchange 落在 biliscript_reader=1 地址而视图未开时走本入口。与消息
 // 意图三档共享同一条进入链（runReaderEntrySequence 唯一实现），但无 player-ai
 // 前奏——URL 跳转没有用户点击在先，不抑制也不摘 AI 悬浮按钮（按钮同步由编排
 // 自身的 schedulePlayerAiQuickActionSync 负责，与收口前行为一致）。
@@ -264,7 +264,7 @@ export function enterReaderShellOnUrlNavigation(
     if (options.onEnterFailed) {
       options.onEnterFailed(error);
     } else {
-      logWarn("[BOC] reading view start failed", error);
+      logWarn("[BILISCRIPT] reading view start failed", error);
     }
   };
   return runReaderShellEnterTransaction(async () => {
@@ -284,7 +284,7 @@ export function enterReaderShellOnUrlNavigation(
 export function exitReaderShell(): Promise<void> {
   return runReaderEntryExclusive(async () => {
     // 视图未开（state closed，如一次失败的进入事务之后点关闭）不做状态迁移，
-    // 但保留 URL 收敛/摘表/事件——直达进入失败后的「关闭」仍要清掉 boc_reader
+    // 但保留 URL 收敛/摘表/事件——直达进入失败后的「关闭」仍要清掉 biliscript_reader
     // 地址与残留样式，否则 script-button 的 URL 自查会反复重触发进入。
     if (getReaderShellState() !== "closed") {
       transitionReaderShell("exiting");
@@ -316,7 +316,7 @@ export function exitReaderShell(): Promise<void> {
     // 失败继续向上抛——消息路径按结果回包、关闭按钮链自行接（与收口前一致）。
     if (getReaderShellState() === "exiting") {
       transitionReaderShell("open");
-      logWarnAlways("[BOC] reading shell exit transaction failed, state rolled back to open", error);
+      logWarnAlways("[BILISCRIPT] reading shell exit transaction failed, state rolled back to open", error);
     }
     throw error;
   });

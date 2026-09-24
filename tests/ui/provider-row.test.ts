@@ -64,12 +64,12 @@ const TRASH_PATHS = [
 ];
 
 function makeContainer() {
-  // 删除二次确认弹层挂在 #boc-reading-view 直下（confirm-dialog 契约），
+  // 删除二次确认弹层挂在 #biliscript-reading-view 直下（confirm-dialog 契约），
   // 列表容器须放进视图里
-  document.body.innerHTML = '<div id="boc-reading-view"><section id="boc-reading-settings-panel"></section></div>';
+  document.body.innerHTML = '<div id="biliscript-reading-view"><section id="biliscript-reading-settings-panel"></section></div>';
   const listNode = document.createElement("div");
   const emptyNode = document.createElement("p");
-  document.getElementById("boc-reading-view")!.append(listNode, emptyNode);
+  document.getElementById("biliscript-reading-view")!.append(listNode, emptyNode);
   return { listNode, emptyNode };
 }
 

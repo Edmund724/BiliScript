@@ -232,7 +232,7 @@ export function createTranscriptionEngine({
       // 重试耗尽仍失败：跳过并计数，不中止整条管线（Q8a 口径）
       failedChunks += 1;
       failures.push({ chunk, error });
-      logWarn("[BOC] asr chunk transcription failed, skipping", {
+      logWarn("[BILISCRIPT] asr chunk transcription failed, skipping", {
         chunkIndex: chunk?.index,
         error: getErrorMessage(error)
       });

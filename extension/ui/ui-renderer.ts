@@ -51,54 +51,54 @@ import { buildOverviewTabBodyHtml, bindReadingOverviewEvents } from "../reader/o
 export function buildUiHtml(): string {
   const themeView = themeButtonView(state.reader.readingTheme);
   return `
-    <section id="${ids.readingView}" aria-hidden="true" data-boc-reader-ready="0" aria-busy="true">
+    <section id="${ids.readingView}" aria-hidden="true" data-biliscript-reader-ready="0" aria-busy="true">
       <!-- 统一 文摘面板（B 形态）：右栏面板壳，三标签 = 字幕 / 概览 /
            AI 对话。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管退役
            ——章节列表由概览 tab 提供，播放器保持 B 站原生布局不动；
            readingStatus 挪进面板 header 下方（id 不变，subtitle/ai/chat 各域
            经 core/ui-status.js 持续写入）。三 tab body 的内容模板随各自域
            叶子（arch-slim-2/06：壳只懂面板骨架与 tab 切换） -->
-      <aside id="${ids.readingScriptPanel}" class="boc-reading-script-panel" aria-label="文摘面板">
-            <header class="boc-reading-header">
-              <div class="boc-reading-header-copy">
-                <div id="${ids.readingMeta}" class="boc-reading-meta">bilibili.com</div>
+      <aside id="${ids.readingScriptPanel}" class="biliscript-reading-script-panel" aria-label="文摘面板">
+            <header class="biliscript-reading-header">
+              <div class="biliscript-reading-header-copy">
+                <div id="${ids.readingMeta}" class="biliscript-reading-meta">bilibili.com</div>
               </div>
-              <div class="boc-reading-actions">
-                <button id="${ids.readingThemeSelect}" type="button" class="boc-reading-icon-btn" title="主题：${themeView.title}" aria-label="主题：${themeView.title}">
+              <div class="biliscript-reading-actions">
+                <button id="${ids.readingThemeSelect}" type="button" class="biliscript-reading-icon-btn" title="主题：${themeView.title}" aria-label="主题：${themeView.title}">
                   ${themeView.icon}
                 </button>
-                <button id="${ids.readingSettingsBtn}" type="button" class="boc-reading-icon-btn" title="设置" aria-label="设置">
+                <button id="${ids.readingSettingsBtn}" type="button" class="biliscript-reading-icon-btn" title="设置" aria-label="设置">
                   ${READING_HEADER_ICONS.settings}
                 </button>
-                <button id="${ids.readingCloseBtn}" type="button" class="boc-reading-icon-btn" title="退出" aria-label="退出阅读视图">
+                <button id="${ids.readingCloseBtn}" type="button" class="biliscript-reading-icon-btn" title="退出" aria-label="退出阅读视图">
                   ${READING_HEADER_ICONS.close}
                 </button>
               </div>
             </header>
 
-            <p id="${ids.readingStatus}" class="boc-reading-status">使用页面原生播放器联动章节和字幕。</p>
+            <p id="${ids.readingStatus}" class="biliscript-reading-status">使用页面原生播放器联动章节和字幕。</p>
 
-            <section id="${ids.readingSettingsPanel}" class="boc-reading-panel boc-reading-settings-panel" hidden>
+            <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
               <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项
                    由 ui/settings-panel.js 渲染进此容器（分节、可滚动），options
                    页面本体已删除。顶部滚动/字幕/章节三开关与字幕语言下拉已随
                    三开关退役移除——语言下拉移入字幕 tab 工具条（复制按钮左侧）。 -->
-              <section class="boc-reading-settings-group boc-reading-settings-extension">
-                <div id="${ids.readingSettingsHost}" class="boc-reading-settings-host"></div>
+              <section class="biliscript-reading-settings-group biliscript-reading-settings-extension">
+                <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host"></div>
               </section>
             </section>
 
             <!-- 标签页分段控件（凹槽 + 卡片，12px 槽 / 8px 项；active 态 = accent 实底，见 prototype/direction-approved.md） -->
-            <div class="boc-reading-tabs" role="tablist" aria-label="Script 标签">
-              <button id="${ids.readingTabSubtitle}" type="button" class="boc-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
-              <button id="${ids.readingTabOverview}" type="button" class="boc-reading-tab" role="tab" aria-selected="false">概览</button>
-              <button id="${ids.readingTabChat}" type="button" class="boc-reading-tab" role="tab" aria-selected="false">AI 对话</button>
+            <div class="biliscript-reading-tabs" role="tablist" aria-label="Script 标签">
+              <button id="${ids.readingTabSubtitle}" type="button" class="biliscript-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
+              <button id="${ids.readingTabOverview}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">概览</button>
+              <button id="${ids.readingTabChat}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">AI 对话</button>
             </div>
 
             <!-- 字幕 tab body：工具条/转写横幅/列表容器/Follow 模板与交互绑定
                  在 reader/subtitle-tab-ui.ts；选区「解释」浮层与卡片宿主在
                  reader/explain-pop-ui.ts（arch-slim-2/06 下放） -->
-            <div id="${ids.readingTabBodySubtitle}" class="boc-reading-tab-body is-active" role="tabpanel" aria-label="字幕">
+            <div id="${ids.readingTabBodySubtitle}" class="biliscript-reading-tab-body is-active" role="tabpanel" aria-label="字幕">
               ${buildSubtitleTabBodyHtml()}
               ${buildExplainPopHtml()}
               ${buildExplainCardHostHtml()}
@@ -108,7 +108,7 @@ export function buildUiHtml(): string {
                  状态机/渲染在 reader/overview.ts（PR4 状态机宿主），内容由
                  lifecycle/ui 触发路径按阶段整块重建——idle/generating/ready/
                  partial/error/empty 全诚实态，不放假数据。此为未生成初值。 -->
-            <div id="${ids.readingTabBodyOverview}" class="boc-reading-tab-body" role="tabpanel" aria-label="概览" hidden>
+            <div id="${ids.readingTabBodyOverview}" class="biliscript-reading-tab-body" role="tabpanel" aria-label="概览" hidden>
               ${buildOverviewTabBodyHtml()}
             </div>
 
@@ -116,7 +116,7 @@ export function buildUiHtml(): string {
                  叶子（arch-slim-2/06 下放；组合根 reader/chat-tab.ts 首次激活时
                  接线，含容器级事件委托），未激活前壳保持静默空态（空消息区 +
                  空输入框），不放假数据。 -->
-            <div id="${ids.readingTabBodyChat}" class="boc-reading-tab-body" role="tabpanel" aria-label="AI 对话" hidden>
+            <div id="${ids.readingTabBodyChat}" class="biliscript-reading-tab-body" role="tabpanel" aria-label="AI 对话" hidden>
               ${buildChatTabBodyHtml()}
             </div>
       </aside>
@@ -129,7 +129,7 @@ export function buildUiHtml(): string {
 // 标签切换是纯壳交互（class/aria/hidden 写入），不触碰 reader 域状态；唯一
 // 例外是对话 tab 的分区表挂载（arch-slim-4/07，见 setReaderScriptTab）。
 // active 态约定：tab 按钮 .is-active + aria-selected，tab body .is-active 且
-// 去 hidden（CSS 双通道：.boc-reading-tab-body:not(.is-active) 与 [hidden]
+// 去 hidden（CSS 双通道：.biliscript-reading-tab-body:not(.is-active) 与 [hidden]
 // 都收敛为 display:none，防 UA 样式被作者 display 覆盖）。
 // 当前激活标签的类型单源在 reader/state.js（状态位同居本叶子，ui 壳与测试
 // 经本 re-export 取用，import 路径不变）。
@@ -188,7 +188,7 @@ export function activateReaderChatTab({ consumeIntent = true }: { consumeIntent?
       const chat = await ensureReaderChatTab();
       await chat.ensureChatTabActivated({ consumeIntent });
     } catch (error) {
-      logWarn("[BOC] chat tab activate failed", error);
+      logWarn("[BILISCRIPT] chat tab activate failed", error);
     }
   })();
 }
@@ -231,7 +231,7 @@ subscribeUiCommand((name, payload) => {
 
 export function bindUiEvents(): void {
   // script-only-ui：A 形态经典侧栏面板已删除，模板不再包含旧壳节点
-  //（boc-panel/boc-status/boc-preview 等）；面板交互只有阅读视图（Script）。
+  //（biliscript-panel/biliscript-status/biliscript-preview 等）；面板交互只有阅读视图（Script）。
   const readingView = byId(ids.readingView);
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingThemeSelect = byId(ids.readingThemeSelect);
@@ -269,7 +269,7 @@ export function bindUiEvents(): void {
   // ，ensure 命中缓存 promise）。关闭按钮：退出事务统一走阅读壳（工单
   // arch-slim/02），与 reader-close 消息路径同一实现。
   readingCloseBtn.addEventListener("click", () => {
-    exitReaderShell().catch((error) => logWarn("[BOC] close reading view failed", error));
+    exitReaderShell().catch((error) => logWarn("[BILISCRIPT] close reading view failed", error));
   });
   readingThemeSelect.addEventListener("click", () => {
     const next = state.reader.readingTheme === "dark" ? "light" : "dark";
@@ -337,7 +337,7 @@ export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boole
 // renderMeta / renderSubtitleSelect / setBusyState 已随经典侧栏面板删除
 //（script-only-ui：阅读视图的元信息/字幕轨由 reader 域渲染，复制/导出由字幕
 // tab 工具条接线）；setStatus / setMessage 已迁往 ../core/ui-status.js，宿主
-// 收敛到 #boc-reading-status。
+// 收敛到 #biliscript-reading-status。
 // arch-slim-2/06：三 tab 的模板与专属绑定已同居各自域叶子（对话 reader/
 // chat-template.ts + chat-tab.ts；字幕 reader/subtitle-tab-ui.ts；选区解释
 // reader/explain-pop-ui.ts + explain-card.ts；概览 reader/overview-ui.ts +

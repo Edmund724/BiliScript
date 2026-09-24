@@ -20,7 +20,7 @@ function loadInjector() {
 }
 
 function mountedLinks(): HTMLLinkElement[] {
-  return Array.from(document.querySelectorAll<HTMLLinkElement>('link[data-boc-style="1"]'));
+  return Array.from(document.querySelectorAll<HTMLLinkElement>('link[data-biliscript-style="1"]'));
 }
 
 beforeEach(() => {

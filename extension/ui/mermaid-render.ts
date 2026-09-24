@@ -1,4 +1,4 @@
-// ui/mermaid-render.ts — mermaid 图表占位（ui/markdown 产出的 [data-boc-mermaid]）
+// ui/mermaid-render.ts — mermaid 图表占位（ui/markdown 产出的 [data-biliscript-mermaid]）
 // 的异步水合实现。
 //
 // 为什么是独立模块 + 懒 chunk：mermaid 及其图表类型仍是 MB 级依赖，常驻图与
@@ -38,10 +38,10 @@ interface RenderedDiagram {
 // 块上记录的「渲染时用的主题」：force 水合据此判断某块是否真的需要重做——
 // applyReadingViewPresentation 在进入阅读模式、字幕重渲等路径上同样会跑，只看
 // 状态位会无差别重挂 SVG（白闪一次）。
-const MERMAID_THEME_ATTR = "data-boc-mermaid-theme";
+const MERMAID_THEME_ATTR = "data-biliscript-mermaid-theme";
 const MERMAID_UNSUPPORTED_MESSAGE = "不支持的图表类型，已显示源码";
 
-// 面板字体栈：与 reader-gate.css 的 --boc-reader-font-sans 令牌互为镜像——
+// 面板字体栈：与 reader-gate.css 的 --biliscript-reader-font-sans 令牌互为镜像——
 // mermaid 配置吃不了 CSS 变量，只能字面量同步，改动须两边一致。mermaid 默认
 // 栈是 "trebuchet ms, verdana, arial"，与面板字体不搭，显式对齐。
 const PANEL_FONT_FAMILY =
@@ -97,7 +97,7 @@ function rememberSvg(cacheKey: string, diagram: RenderedDiagram): void {
 function startRender(cacheKey: string, source: string, theme: string): Promise<RenderedDiagram> {
   const task = (async () => {
     ensureConfigured(theme);
-    const id = `boc-mermaid-${++idSeq}`;
+    const id = `biliscript-mermaid-${++idSeq}`;
     const { svg } = await mermaid.render(id, source);
     const rendered: RenderedDiagram = { svg, id };
     rememberSvg(cacheKey, rendered);
@@ -125,22 +125,22 @@ function mountDiagram(block: Element, diagram: RenderedDiagram, theme: string): 
   // 每次插入换一个新 id：同一张图（缓存命中）在页面上出现两份时 id 不会重复。
   // mermaid 的内部 id 全以根 id 为前缀，整体替换即覆盖 <style> 选择器与
   // url(#…) 引用。
-  const freshId = `boc-mermaid-${++idSeq}`;
+  const freshId = `biliscript-mermaid-${++idSeq}`;
   const holder = document.createElement("div");
-  holder.className = "boc-md-mermaid-svg";
+  holder.className = "biliscript-md-mermaid-svg";
   holder.innerHTML = diagram.id === freshId ? diagram.svg : diagram.svg.split(diagram.id).join(freshId);
-  block.querySelector(".boc-md-mermaid-svg")?.remove();
-  block.querySelector(".boc-md-mermaid-fallback")?.remove();
+  block.querySelector(".biliscript-md-mermaid-svg")?.remove();
+  block.querySelector(".biliscript-md-mermaid-fallback")?.remove();
   block.appendChild(holder);
   block.setAttribute(MERMAID_BLOCK_ATTR, "done");
   block.setAttribute(MERMAID_THEME_ATTR, theme);
 }
 
 function setFallback(block: Element, message: string): void {
-  block.querySelector(".boc-md-mermaid-svg")?.remove();
-  block.querySelector(".boc-md-mermaid-fallback")?.remove();
+  block.querySelector(".biliscript-md-mermaid-svg")?.remove();
+  block.querySelector(".biliscript-md-mermaid-fallback")?.remove();
   const note = document.createElement("div");
-  note.className = "boc-md-mermaid-fallback";
+  note.className = "biliscript-md-mermaid-fallback";
   note.textContent = message;
   block.appendChild(note);
 }
@@ -206,7 +206,7 @@ export async function hydrateMermaidPlaceholders(
       mountDiagram(block, await renderDiagram(source, theme), theme);
     } catch (error) {
       markError(block, theme);
-      logWarnAlways("[BOC] mermaid 图表渲染失败：", error);
+      logWarnAlways("[BILISCRIPT] mermaid 图表渲染失败：", error);
     }
   }
 }

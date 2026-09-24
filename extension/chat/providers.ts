@@ -35,8 +35,8 @@ import { updateModelSelectWidth } from "./model-select-width.js";
 import { chatSessionState } from "./chat-state.js";
 import type { ModelSelectWidthEls } from "./model-select-width.js";
 
-export const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
-export const THINKING_LEVEL_KEY = "boc_ai_thinking_level";
+export const SELECTED_PROVIDER_KEY = "biliscript_ai_selected_provider";
+export const THINKING_LEVEL_KEY = "biliscript_ai_thinking_level";
 
 // 模型选项复合值分隔符（multi-model-catalog 拍板 Q8）：chat 模型选择器改成
 // 「按平台 optgroup 分组、一模型一选项」后，option value 需要同时携带平台 id

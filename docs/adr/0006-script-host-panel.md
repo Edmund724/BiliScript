@@ -1,8 +1,8 @@
 # 阅读模式采用右栏 文摘面板，整页接管退役
 
-阅读模式曾有两条路线：**整页接管**（把 B 站 main 节点就地搬进扩展壳、播放器挂进扩展布局、剪枝页面噪声分支）与 **右栏 文摘面板**（不碰 B 站 DOM，面板贴右栏 fixed 定位）。我们决定：**阅读模式 = 右栏 文摘面板**——`reader/script-host.ts` 负责算右栏 rect 并写进 `#boc-reading-view` 的四个 CSS 变量（`--boc-script-left/top/width/height`），面板 `position: fixed` 贴栏；锚点失效或视口过窄时降级为居中浮层。整页接管体系（player-host、hover-chrome、page-frame、剪枝门控）全部退役。
+阅读模式曾有两条路线：**整页接管**（把 B 站 main 节点就地搬进扩展壳、播放器挂进扩展布局、剪枝页面噪声分支）与 **右栏 文摘面板**（不碰 B 站 DOM，面板贴右栏 fixed 定位）。我们决定：**阅读模式 = 右栏 文摘面板**——`reader/script-host.ts` 负责算右栏 rect 并写进 `#biliscript-reading-view` 的四个 CSS 变量（`--biliscript-script-left/top/width/height`），面板 `position: fixed` 贴栏；锚点失效或视口过窄时降级为居中浮层。整页接管体系（player-host、hover-chrome、page-frame、剪枝门控）全部退役。
 
-本裁决取代旧 ADR 中依赖整页接管的描述：ADR-0004（shadow DOM 边界）的结论本身不受影响——**文摘面板仍留在 light DOM**（`#boc-reading-view` 是扩展自有子树，与 B 站节点同文档），但 ADR-0004 事实依据 2 描述的「B 站 main 节点就地搬移」链路已不存在，阅读模式不再搬移任何 B 站节点。
+本裁决取代旧 ADR 中依赖整页接管的描述：ADR-0004（shadow DOM 边界）的结论本身不受影响——**文摘面板仍留在 light DOM**（`#biliscript-reading-view` 是扩展自有子树，与 B 站节点同文档），但 ADR-0004 事实依据 2 描述的「B 站 main 节点就地搬移」链路已不存在，阅读模式不再搬移任何 B 站节点。
 
 ## 理由
 
@@ -17,7 +17,7 @@
 降级链（每级只在前一级失败时进入）：
 
 1. **锚点全落空但视口够宽且有播放器** → 贴播放器右缘（`findReaderPlayerHost` 现查宿主 rect）。
-2. **窄窗（< 1000px）/ 连播放器都没有 / `readerContentWidth="float"`** → 居中浮层：不写变量，改设 `data-boc-script-float="1"`，回落 reader.css 浮层基础样式。
+2. **窄窗（< 1000px）/ 连播放器都没有 / `readerContentWidth="float"`** → 居中浮层：不写变量，改设 `data-biliscript-script-float="1"`，回落 reader.css 浮层基础样式。
 
 重算机制：resize/scroll 事件经 rAF 合帧 + 脏检查快照；SPA 换页换掉锚点节点由 800ms 定时自查重锚（刻意不用 MutationObserver，弹幕会把它打爆）；锚点变化经 ResizeObserver 观察。
 

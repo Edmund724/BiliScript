@@ -21,12 +21,12 @@
 //     subtitle-wait + no-subtitle + notices/lists/popovers（三壳重建于
 //     reader/chat-{notices,lists,popovers}.ts，逻辑照抄）。URL 变化的实时上下文
 //     同步调度（原 chat/context-sync.ts 的防抖状态机，工单 05 并回为本地闭包）
-//     由 boc:urlchange 触发，reader 打开/关闭的恢复折叠进本组合根的激活路径。
+//     由 biliscript:urlchange 触发，reader 打开/关闭的恢复折叠进本组合根的激活路径。
 //   - offscreen 连接：chrome.offscreen/getContexts 仅扩展上下文可用，content
 //     script 经 "ensure-offscreen-chat" 消息委托 background 幂等 ensure，再
 //     connect "offscreen-chat" 端口——sidepanel.ts connectPort 的自愈设计照搬。
 //   - subtitleWaiter.kick 的触发源：content script 收不到自己的
-//     boc-subtitle-status 广播（PR3 已核实），改订阅 shared/subtitle-status-bus
+//     biliscript-subtitle-status 广播（PR3 已核实），改订阅 shared/subtitle-status-bus
 //     的进程内相位（asr-transcribing/done/failed），语义与侧栏广播监听一致。
 //   - 外点关闭：popovers 的 handleDocumentClick 经 chat-tab-bridge 注册槽并入
 //     ui-renderer 的单一文档级委托（风险 6，不双监听）。

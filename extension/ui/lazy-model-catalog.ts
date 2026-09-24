@@ -13,7 +13,7 @@
 // 双实例纪律（ADR-0008）：模块级 loader 缓存 + loaded 快照是闭包可变状态。
 // 本模块只被懒侧引用（provider-editor 的元数据栏与 chat 门控，都不常驻），构建
 // 守卫实测对账；若将来变成双实例，scripts/build-content.js 会报错要求入清单并声明
-// BOC_DUAL_INSTANCE_STATEFUL 标记。
+// BILISCRIPT_DUAL_INSTANCE_STATEFUL 标记。
 
 import { createLazyLoader } from "../shared/lazy-import.js";
 

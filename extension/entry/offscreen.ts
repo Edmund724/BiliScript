@@ -238,7 +238,7 @@ chrome.runtime.onConnect.addListener((port) => {
           const text = String(item?.content ?? "").trim();
           return sum + text.length;
         }, 0);
-        logInfo("[BOC] AI chat material chars:", materialChars);
+        logInfo("[BILISCRIPT] AI chat material chars:", materialChars);
       }
 
       // 阶梯分派策略（预算内单次流式 → 超预算 Map-Reduce → 追问压缩/成本护栏）
@@ -300,7 +300,7 @@ async function dispatchAsrDecodeTask(task: unknown, port: chrome.runtime.Port) {
   try {
     handleAsrDecodeTask = await asrHandlerLoader.load();
   } catch (error) {
-    logWarn("[BOC] offscreen-asr.js load failed", { error: getErrorMessage(error) });
+    logWarn("[BILISCRIPT] offscreen-asr.js load failed", { error: getErrorMessage(error) });
     safePostMessage(port, {
       type: ASR_MSG_ERROR,
       error: "ASR 模块加载失败：" + getErrorMessage(error)
@@ -347,7 +347,7 @@ async function requestSelfClose(): Promise<void> {
   try {
     const resp = await sendRuntimeMessage({ type: "offscreen-request-close" });
     if (resp && !resp.ok) {
-      logWarn("[BOC] offscreen closeDocument after asr task failed", {
+      logWarn("[BILISCRIPT] offscreen closeDocument after asr task failed", {
         error: resp.error || "offscreen-request-close 被拒绝"
       });
     }

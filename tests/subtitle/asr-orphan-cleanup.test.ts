@@ -110,7 +110,7 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
     };
     // 直写分键索引记录两键（原经 recordCacheWrite arrange，收私有后改为字面量键）
     for (const key of [keepKey, staleAsr]) {
-      items[`boc_cache_lru_index:boc_subtitle_cache_:BV1o:${key}`] = { ts: 10 };
+      items[`biliscript_cache_lru_index:biliscript_subtitle_cache_:BV1o:${key}`] = { ts: 10 };
     }
     await storage.local.set(items);
 
@@ -129,15 +129,15 @@ describe("saveSubtitleToCache 与统一 LRU 的接线", () => {
     // 直写索引（旧格式条目，数值 ts）造出已满 3 个的族 + 最旧 BV1old
     // （写入目标 BV1n 由 save 内部记录）
     await storage.local.set({
-      boc_cache_lru_index: { boc_subtitle_cache_: { BV1old: 1, BV1m: 2, BV1w: 3 } },
-      boc_subtitle_cache_BV1old_1_id_x: { body: BODY, timestamp: 1 },
-      boc_subtitle_cache_BV1m_1_id_x: { body: BODY, timestamp: 2 },
-      boc_subtitle_cache_BV1w_1_id_x: { body: BODY, timestamp: 3 }
+      biliscript_cache_lru_index: { biliscript_subtitle_cache_: { BV1old: 1, BV1m: 2, BV1w: 3 } },
+      biliscript_subtitle_cache_BV1old_1_id_x: { body: BODY, timestamp: 1 },
+      biliscript_subtitle_cache_BV1m_1_id_x: { body: BODY, timestamp: 2 },
+      biliscript_subtitle_cache_BV1w_1_id_x: { body: BODY, timestamp: 3 }
     });
     let dataWriteAttempts = 0;
     storage.local.set.mockImplementation(async (items) => {
       // 仅数据键首次写入失败（模拟容量不足），索引记录正常
-      if ("boc_subtitle_cache_BV1n_1_id_y" in items) {
+      if ("biliscript_subtitle_cache_BV1n_1_id_y" in items) {
         dataWriteAttempts += 1;
         if (dataWriteAttempts === 1) {
           throw new Error("quota");
@@ -148,17 +148,17 @@ describe("saveSubtitleToCache 与统一 LRU 的接线", () => {
       }
     });
 
-    const result = await cache.saveSubtitleToCache("boc_subtitle_cache_BV1n_1_id_y", BODY);
+    const result = await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1n_1_id_y", BODY);
 
     expect(result).toMatchObject({ ok: true });
     expect(dataWriteAttempts).toBe(2);
-    expect(storage.map.has("boc_subtitle_cache_BV1old_1_id_x")).toBe(false);
-    expect(storage.map.get("boc_subtitle_cache_BV1n_1_id_y")).toMatchObject({ body: BODY });
+    expect(storage.map.has("biliscript_subtitle_cache_BV1old_1_id_x")).toBe(false);
+    expect(storage.map.get("biliscript_subtitle_cache_BV1n_1_id_y")).toMatchObject({ body: BODY });
   });
 
   it("淘汰后重试仍失败 → 返回 { ok:false, error } 不抛异常（logError 由调用方上浮）", async () => {
     storage.local.set.mockRejectedValue(new Error("quota"));
-    const result = await cache.saveSubtitleToCache("boc_subtitle_cache_BV1a_1_id_x", BODY);
+    const result = await cache.saveSubtitleToCache("biliscript_subtitle_cache_BV1a_1_id_x", BODY);
     expect(result.ok).toBe(false);
     if (result.ok === false) {
       expect(result.error).toBeInstanceOf(Error);

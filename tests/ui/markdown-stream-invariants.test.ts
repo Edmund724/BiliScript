@@ -54,7 +54,7 @@ describe("不变量 2/3：stable + tail 堆叠渲染与全文渲染逐字节等�
       const { stableText, tailText } = splitMarkdownTail(cleaned);
       const fullHtml = renderMarkdown(cleaned);
       expect(renderMarkdown(stableText) + renderMarkdown(tailText)).toBe(fullHtml);
-      expect(fullHtml).not.toContain("\u0001BOC_CODE");
+      expect(fullHtml).not.toContain("\u0001BILISCRIPT_CODE");
     });
   }
 });

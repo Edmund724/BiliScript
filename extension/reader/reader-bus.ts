@@ -58,7 +58,7 @@ type UiCommandHandler = (name: string, payload?: unknown) => void;
 // 根因）。隔离世界的 globalThis 在同一扩展的全部 content 模块间唯一，两侧经
 // 它对齐到同一份槽（与 shared/messaging.ts 的页内分发槽同款先例）。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（槽
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（槽
 // 表），允许双实例；安全依据即上文的 globalThis 槽。
 interface ReaderBusSlots {
   readers: ReaderPresenterHandler[];
@@ -69,7 +69,7 @@ interface ReaderBusSlots {
   uiCommandHandler: UiCommandHandler | null;
 }
 
-const READER_BUS_SLOT_KEY = "__BOC_READER_BUS__";
+const READER_BUS_SLOT_KEY = "__BILISCRIPT_READER_BUS__";
 
 function readerBusSlots(): ReaderBusSlots {
   const host = globalThis as unknown as Record<string, ReaderBusSlots | undefined>;
@@ -113,7 +113,7 @@ export function notifyReaderPresenter(kind: string, ...payload: unknown[]) {
     try {
       handler(kind, ...payload);
     } catch (error) {
-      logWarn("[BOC] reader presenter handler failed", { kind, error });
+      logWarn("[BILISCRIPT] reader presenter handler failed", { kind, error });
     }
   }
 }
@@ -150,7 +150,7 @@ export function requestSubtitleRefresh(): Promise<unknown> {
   try {
     return Promise.resolve(handler());
   } catch (error) {
-    logWarn("[BOC] subtitle refresh handler failed", { error });
+    logWarn("[BILISCRIPT] subtitle refresh handler failed", { error });
     return Promise.resolve(undefined);
   }
 }
@@ -170,7 +170,7 @@ export function persistReaderSettingsThroughSeam() {
   try {
     handler();
   } catch (error) {
-    logWarn("[BOC] reader settings persist handler failed", { error });
+    logWarn("[BILISCRIPT] reader settings persist handler failed", { error });
   }
 }
 
@@ -189,7 +189,7 @@ export function loadReaderSettingsThroughSeam() {
   try {
     return Promise.resolve(handler());
   } catch (error) {
-    logWarn("[BOC] reader settings load handler failed", { error });
+    logWarn("[BILISCRIPT] reader settings load handler failed", { error });
     return Promise.resolve(null);
   }
 }
@@ -210,7 +210,7 @@ export function requestPlayerAiSync(delayMs?: number, options?: { resetRetry?: b
   try {
     handler(delayMs, options);
   } catch (error) {
-    logWarn("[BOC] player-ai sync handler failed", { error });
+    logWarn("[BILISCRIPT] player-ai sync handler failed", { error });
   }
 }
 
@@ -233,6 +233,6 @@ export function requestUiCommand(name: string, payload?: unknown) {
   try {
     handler(name, payload);
   } catch (error) {
-    logWarn("[BOC] ui command handler failed", { name, error });
+    logWarn("[BILISCRIPT] ui command handler failed", { name, error });
   }
 }

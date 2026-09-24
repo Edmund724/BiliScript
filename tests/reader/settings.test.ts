@@ -104,8 +104,8 @@ describe("设置变更与 data-attribute", () => {
     const bodyEl = document.body;
 
     expect(readingView.dataset.theme).toBe("light");
-    expect(htmlEl.dataset.bocReaderTheme).toBe("light");
-    expect(bodyEl.dataset.bocReaderTheme).toBe("light");
+    expect(htmlEl.dataset.biliscriptReaderTheme).toBe("light");
+    expect(bodyEl.dataset.biliscriptReaderTheme).toBe("light");
   });
 
   it("applyReadingViewPresentation：header 主题按钮图标/文案随主题刷新", () => {

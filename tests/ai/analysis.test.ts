@@ -305,13 +305,13 @@ describe("双路径分派", () => {
     expect(result.failedRanges).toBeUndefined();
   });
 
-  it("分段路径每段先落盘（boc_lvs_analysis_ 族 + 段序号），再次生成只补未落盘段", async () => {
+  it("分段路径每段先落盘（biliscript_lvs_analysis_ 族 + 段序号），再次生成只补未落盘段", async () => {
     const { chatCompletion } = buildCompletionFake();
     const context = makeContext({ subtitleBody: makeSubtitleBody(210000) });
     await mod.runOverviewAnalysis({ provider: makeProvider(), context, forceRefresh: true }, { chatCompletion });
     expect(chatCompletion).toHaveBeenCalledTimes(5);
 
-    const segKeys = [...storage.map.keys()].filter((k) => k.startsWith("boc_lvs_analysis_BV1test_123_"));
+    const segKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_BV1test_123_"));
     expect(segKeys).toHaveLength(5);
     expect(segKeys.map((k) => Number(k.split("_").at(-1))).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
 
@@ -384,11 +384,11 @@ describe("部分失败降级", () => {
     ]);
     expect(result.failedRanges).toEqual([{ from: 250, to: 500 }]);
     // 部分结果照常落整份缓存（含 failedRanges），重试走 forceRefresh
-    const finalKeys = [...storage.map.keys()].filter((k) => k.startsWith("boc_lvs_analysis_final_"));
+    const finalKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_final_"));
     expect(finalKeys).toHaveLength(1);
     expect(storage.map.get(finalKeys[0]).analysis.failedRanges).toEqual([{ from: 250, to: 500 }]);
     // 失败段不落段缓存：1、3、4、5 段落盘，2 段没有
-    const segKeys = [...storage.map.keys()].filter((k) => k.startsWith("boc_lvs_analysis_BV1test_123_"));
+    const segKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_BV1test_123_"));
     expect(segKeys).toHaveLength(4);
   });
 
@@ -500,15 +500,15 @@ describe("自带章节短路径", () => {
 // ============================================================
 
 describe("缓存键与签名", () => {
-  it("整份结果键 = boc_lvs_analysis_final_ + bvid_cid_轨道_签名；命中后不再调用模型", async () => {
+  it("整份结果键 = biliscript_lvs_analysis_final_ + bvid_cid_轨道_签名；命中后不再调用模型", async () => {
     const { chatCompletion, calls } = buildCompletionFake();
     const context = makeContext({ subtitleBody: makeSubtitleBody(50000) });
     const first = await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion });
 
-    const finalKeys = [...storage.map.keys()].filter((k) => k.startsWith("boc_lvs_analysis_final_"));
+    const finalKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_final_"));
     expect(finalKeys).toHaveLength(1);
     // 键形：前缀_bvid_cid_轨道sourceKey_签名（轨道走 id_ 分支）
-    expect(finalKeys[0]).toMatch(/^boc_lvs_analysis_final_BV1test_123_id_sub-1_sig[0-9a-z]+$/);
+    expect(finalKeys[0]).toMatch(/^biliscript_lvs_analysis_final_BV1test_123_id_sub-1_sig[0-9a-z]+$/);
     // 换轨 → source key 变 → 键变
     const otherTrack = mod.buildAnalysisFinalCacheKey(makeContext({ selectedSubtitleId: "sub-2" }), "sigX");
     expect(otherTrack).not.toBe(finalKeys[0]);
@@ -533,7 +533,7 @@ describe("缓存键与签名", () => {
     await mod.runOverviewAnalysis({ provider: makeProvider(), context: refetched }, { chatCompletion });
     expect(chatCompletion).toHaveBeenCalledTimes(1);
     // 两份产物各占一个键
-    expect([...storage.map.keys()].filter((k) => k.startsWith("boc_lvs_analysis_final_"))).toHaveLength(2);
+    expect([...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_final_"))).toHaveLength(2);
   });
 
   it("buildSubtitleSignature：确定性、随来源/条数/首末时间戳/文本量变化", () => {
@@ -549,18 +549,18 @@ describe("缓存键与签名", () => {
     expect(cacheMod.buildSubtitleSignature({ body: [] })).toBe(cacheMod.buildSubtitleSignature({ body: [] }));
   });
 
-  it("分段缓存键复用 segment-cache 键位形状：boc_lvs_analysis_ 前缀 + _b50 预算代继承", async () => {
+  it("分段缓存键复用 segment-cache 键位形状：biliscript_lvs_analysis_ 前缀 + _b50 预算代继承", async () => {
     const segmentCacheMod = await import("../../extension/ai/segment-cache.js");
     const context = makeContext();
     const key = mod.buildAnalysisSegmentCacheKey(context, 3);
-    expect(key).toBe("boc_lvs_analysis_BV1test_123_id_sub-1_3");
-    // 预算代后缀与 boc_lvs_summary_ 同规则
-    expect(mod.buildAnalysisSegmentCacheKey(context, 3, 0.5)).toBe("boc_lvs_analysis_BV1test_123_id_sub-1_3_b50");
+    expect(key).toBe("biliscript_lvs_analysis_BV1test_123_id_sub-1_3");
+    // 预算代后缀与 biliscript_lvs_summary_ 同规则
+    expect(mod.buildAnalysisSegmentCacheKey(context, 3, 0.5)).toBe("biliscript_lvs_analysis_BV1test_123_id_sub-1_3_b50");
     expect(mod.buildAnalysisSegmentCacheKey(context, 3, 1)).toBe(key);
     // 与分段小结键同形不同族（产物不共享、键位机制共享）
-    expect(key).toBe("boc_lvs_analysis_BV1test_123_id_sub-1_3");
+    expect(key).toBe("biliscript_lvs_analysis_BV1test_123_id_sub-1_3");
     expect(segmentCacheMod.getSegmentSummaryKey({ bvid: "BV1test", cid: "123", subtitleId: "sub-1", segmentIndex: 3 })).toBe(
-      "boc_lvs_summary_BV1test_123_id_sub-1_3"
+      "biliscript_lvs_summary_BV1test_123_id_sub-1_3"
     );
   });
 });

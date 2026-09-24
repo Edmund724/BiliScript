@@ -46,10 +46,10 @@ function installMessageBus(overrides: Record<string, BusResponder> = {}) {
 }
 
 async function mountPanel() {
-  document.body.innerHTML = '<div id="boc-reading-settings-host"></div>';
+  document.body.innerHTML = '<div id="biliscript-reading-settings-host"></div>';
   const panel = await import("../../extension/ui/settings-panel.js");
   panel.renderReaderSettingsPanel();
-  const host = document.getElementById("boc-reading-settings-host")!;
+  const host = document.getElementById("biliscript-reading-settings-host")!;
   await vi.waitFor(() => {
     expect(
       vi.mocked(chrome.runtime.sendMessage).mock.calls.some(
@@ -141,7 +141,7 @@ describe("custom-select 键盘与错误态归位（settings-ui-coherence/04）",
     row.querySelector<HTMLInputElement>(".note-section-title")!.value = "总结";
     select.value = "";
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
 
     expect(trigger.getAttribute("aria-invalid")).toBe("true");
     expect(document.activeElement).toBe(trigger);

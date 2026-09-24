@@ -1,16 +1,16 @@
 // 「缓存 LRU 淘汰」模块：为 chrome.storage.local 上的缓存族键提供统一的
 // 「最近写入视频」索引与淘汰机制（一次机制覆盖全部注册族）：
-//   - boc_lvs_raw_* / boc_lvs_summary_*：ai/segment-cache.js 的原始字幕段 / 分段小结；
-//   - boc_subtitle_cache_*：subtitle/cache.js 的整篇字幕正文（值 { body, timestamp }）。
+//   - biliscript_lvs_raw_* / biliscript_lvs_summary_*：ai/segment-cache.js 的原始字幕段 / 分段小结；
+//   - biliscript_subtitle_cache_*：subtitle/cache.js 的整篇字幕正文（值 { body, timestamp }）。
 // 设计决策（与产品确认）：
 //   - 每族只保留最近写入的 keep（默认 3）个视频（按 bvid），LRU 以 lastWriteTimestamp
 //     排序，无字节上限；
 //   - 索引按「族 + bvid + 缓存键」分键落盘（11 票，消并发覆盖竞态）：每个缓存键对应
-//     一条索引键 boc_cache_lru_index:{family}:{bvid}:{cacheKey}（值 { ts }），写入是
+//     一条索引键 biliscript_cache_lru_index:{family}:{bvid}:{cacheKey}（值 { ts }），写入是
 //     各自键上的原子 set——map-reduce 并发 3 段写同一 bvid 时互相不再覆盖（旧实现
-//     整键读-改-写 boc_cache_lru_index，并发写丢 keys，段缓存不可枚举导致重复请求）。
+//     整键读-改-写 biliscript_cache_lru_index，并发写丢 keys，段缓存不可枚举导致重复请求）。
 //     chrome.storage 没有原子追加，「单键一索引项」是唯一无竞态布局；
-//   - 另有汇总清单键 boc_cache_lru_index：{ [family]: { [bvid]: ts } }，仅供
+//   - 另有汇总清单键 biliscript_cache_lru_index：{ [family]: { [bvid]: ts } }，仅供
 //     writeWithEviction 的「各族 ≤ keep」短路检查与淘汰排名参考（读-改-写仍可能丢
 //     并发新增，但只影响「是否提前触发淘汰」，不丢索引键面；prune 以分键索引为准
 //     顺手重写清单自愈）。旧格式条目（数值 ts，或 { ts, keys } 对象）读端归一兼容，
@@ -32,26 +32,26 @@
 import { logWarn } from "../shared/logging.js";
 
 // LRU 汇总清单键（模块私有；测试以字面量直读写做 arrange/断言）。
-const LRU_MANIFEST_KEY = "boc_cache_lru_index";
+const LRU_MANIFEST_KEY = "biliscript_cache_lru_index";
 // 分键索引条目前缀：完整索引键为 `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:${cacheKey}`。
 // 冒号不在任何数据键中出现（数据键只含 [A-Za-z0-9_] 及 source key 内的少量符号），
 // 前缀与清单键、数据键互不撞车。
-const LRU_INDEX_ENTRY_PREFIX = "boc_cache_lru_index:";
+const LRU_INDEX_ENTRY_PREFIX = "biliscript_cache_lru_index:";
 // 参与统一淘汰的缓存族前缀（全仓唯一注册处，arch-slim-2/08 起 analysis 两族
 // 收进注册、不再由 ai/analysis.ts 自行扩展名单）：
-//   - boc_lvs_raw_* / boc_lvs_summary_*：ai/segment-cache.ts 的原始字幕段 / 分段小结；
-//   - boc_subtitle_cache_*：subtitle/cache.ts 的整篇字幕正文（值 { body, timestamp }）；
-//   - boc_lvs_analysis_* / boc_lvs_analysis_final_*：ai/analysis.ts 的概览分段 / 整份产物。
-// 前缀撞车归属：boc_lvs_analysis_final_ 以 boc_lvs_analysis_ 为父前缀，数据键按
+//   - biliscript_lvs_raw_* / biliscript_lvs_summary_*：ai/segment-cache.ts 的原始字幕段 / 分段小结；
+//   - biliscript_subtitle_cache_*：subtitle/cache.ts 的整篇字幕正文（值 { body, timestamp }）；
+//   - biliscript_lvs_analysis_* / biliscript_lvs_analysis_final_*：ai/analysis.ts 的概览分段 / 整份产物。
+// 前缀撞车归属：biliscript_lvs_analysis_final_ 以 biliscript_lvs_analysis_ 为父前缀，数据键按
 // 「最长注册前缀」归属（final 键归 final 族自身）——段族的前缀扫描不再把 final 键
 // 误纳为 bvid="final"（旧兜底路径的误归因随分键布局变成唯一路径后必修，见
 // pruneToRecentVideos 的 familyOfCacheKey）；两族各按自己的索引条目与清单 ts 淘汰。
 export const CACHE_FAMILIES = [
-  "boc_lvs_raw_",
-  "boc_lvs_summary_",
-  "boc_subtitle_cache_",
-  "boc_lvs_analysis_",
-  "boc_lvs_analysis_final_"
+  "biliscript_lvs_raw_",
+  "biliscript_lvs_summary_",
+  "biliscript_subtitle_cache_",
+  "biliscript_lvs_analysis_",
+  "biliscript_lvs_analysis_final_"
 ];
 // 每族保留的最近视频数（模块私有；evictLruByCount 的 keep 缺省值）。
 const LRU_KEEP_VIDEOS = 3;
@@ -194,7 +194,7 @@ export async function readFamilyKeys(family: string, bvid: string, keyPrefix = "
   if (keys.length === 0) {
     if (!indexFallbackWarned) {
       indexFallbackWarned = true;
-      logWarn(`[BOC] cache-lru index missing for family=${family} bvid=${bvid}, fallback to full storage scan`);
+      logWarn(`[BILISCRIPT] cache-lru index missing for family=${family} bvid=${bvid}, fallback to full storage scan`);
     }
     return null;
   }
@@ -332,7 +332,7 @@ export async function pruneToRecentVideos(
         }
       }
       for (const key of Object.keys(all || {})) {
-        // 最长前缀归属：撞前缀键（boc_lvs_analysis_final_*）只归自己的族，
+        // 最长前缀归属：撞前缀键（biliscript_lvs_analysis_final_*）只归自己的族，
         // 不被父前缀族的扫描误纳（否则 bvid 被解析成 "final" 而整族误淘汰）。
         if (!key.startsWith(family) || familyOfCacheKey(key) !== family) {
           continue;
@@ -507,8 +507,8 @@ export async function writeWithEviction({
 // ============================================================
 // 缓存族工厂（arch-slim-2/08）：chrome.storage.local 上「族键拼装 + 静默读 +
 // { payload, timestamp } 落盘 + writeWithEviction 统一 LRU 淘汰写」的口径单源。
-// 消费实例：ai/segment-cache.ts（boc_lvs_summary_ / boc_lvs_raw_ 两族）与
-// ai/analysis.ts（boc_lvs_analysis_final_ / boc_lvs_analysis_ 两族）。
+// 消费实例：ai/segment-cache.ts（biliscript_lvs_summary_ / biliscript_lvs_raw_ 两族）与
+// ai/analysis.ts（biliscript_lvs_analysis_final_ / biliscript_lvs_analysis_ 两族）。
 // 本叶保持零 import：source key 推导（buildSubtitleSourceKey，属 subtitle 域）
 // 与失败日志（logError，拖 core/state）都经 options 注入，不反向依赖。
 // （readFamilyKeys 的回退告警经 shared/logging 的 logWarn——同为不拖 state/

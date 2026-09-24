@@ -50,7 +50,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshDerivedContent: vi.fn(async () => {})
 }));
 vi.mock("../../extension/subtitle/cache.js", () => ({
-  getSubtitleCacheKey: vi.fn(() => "boc_subtitle_cache_asr_test"),
+  getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_asr_test"),
   loadSubtitleFromCache: vi.fn(async () => null),
   saveSubtitleToCache: vi.fn(async () => {}),
   clearSubtitleCacheByKey: vi.fn(async () => {})

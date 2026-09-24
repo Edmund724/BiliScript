@@ -176,9 +176,9 @@ beforeEach(() => {
   // 上一用例注册表可能留有已排的帧内快车道 rAF：resetModules() 换注册表后
   // 该帧仍会在本用例的 fake 时钟里开火，用旧注册表的设置对当前 DOM 挂按钮。
   // 模块把它挂到 window 上正是为了这里能按 id 取消（见 player-ai.ts 调度器）。
-  if (window.__bocPlayerAiSyncRaf !== undefined) {
-    window.cancelAnimationFrame(window.__bocPlayerAiSyncRaf);
-    delete window.__bocPlayerAiSyncRaf;
+  if (window.__biliscriptPlayerAiSyncRaf !== undefined) {
+    window.cancelAnimationFrame(window.__biliscriptPlayerAiSyncRaf);
+    delete window.__biliscriptPlayerAiSyncRaf;
   }
   resetModuleState();
   // resetModuleState 内部的 useRealTimers 复位后，本文件统一挂 fake 时钟
@@ -199,7 +199,7 @@ describe("player-ai 启停守卫", () => {
     expect(playerAiState.playerAiQuickActionObserver).toBeNull();
     expect(playerAiState.playerAiQuickActionLayoutBound).toBe(false);
     expect(windowAddSpy.mock.calls.some(([type]) => type === "resize")).toBe(false);
-    expect(document.getElementById("boc-player-ai-quick-action")).toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
   });
 
   it("设置开启 → observe 被调、layout 监听挂上", async () => {
@@ -266,9 +266,9 @@ describe("player-ai 启停守卫", () => {
     schedulePlayerAiQuickActionSync(0);
     flushRafQueue();
 
-    const button = document.getElementById("boc-player-ai-quick-action")!;
+    const button = document.getElementById("biliscript-player-ai-quick-action")!;
     expect(button).not.toBeNull();
-    const wrap = button.closest(".boc-player-ai-wrap")!;
+    const wrap = button.closest(".biliscript-player-ai-wrap")!;
     // 游标监听已绑：mousemove 应点亮按钮
     host.dispatchEvent(new MouseEvent("mousemove"));
     expect(wrap.classList.contains("is-active")).toBe(true);
@@ -279,8 +279,8 @@ describe("player-ai 启停守卫", () => {
 
     stopPlayerAiQuickAction();
 
-    expect(document.getElementById("boc-player-ai-quick-action")).toBeNull();
-    expect(document.querySelector(".boc-player-ai-wrap")).toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
+    expect(document.querySelector(".biliscript-player-ai-wrap")).toBeNull();
     expect(playerAiState.playerAiQuickActionObserver).toBeNull();
     expect(playerAiState.playerAiQuickActionLayoutBound).toBe(false);
     // 3 个游标 handler 均以绑定时的同一引用被 removeEventListener 摘除
@@ -298,7 +298,7 @@ describe("player-ai 启停守卫", () => {
     schedulePlayerAiQuickActionSync(0);
     // fake 时钟显式推进：0 → 帧内快车道（rAF），推进一帧即执行 sync
     await vi.advanceTimersByTimeAsync(20);
-    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
 
     // 再次 sync（按钮已挂载路径）：不应重复绑游标监听
     schedulePlayerAiQuickActionSync(0);
@@ -322,7 +322,7 @@ describe("player-ai 启停守卫", () => {
     await vi.advanceTimersByTimeAsync(1);
 
     // 挂载失败已进入 retry：sync 定时器为 260ms 退避定时器
-    expect(document.getElementById("boc-player-ai-quick-action")).toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
     expect(playerAiState.playerAiQuickActionSyncTimer).not.toBe(0);
 
     stopPlayerAiQuickAction();
@@ -330,7 +330,7 @@ describe("player-ai 启停守卫", () => {
 
     // 推进 3 秒：retry 定时器已清，不会再触发挂载
     await vi.advanceTimersByTimeAsync(3000);
-    expect(document.getElementById("boc-player-ai-quick-action")).toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
     expect(playerAiState.playerAiQuickActionSyncTimer).toBe(0);
   });
 
@@ -360,7 +360,7 @@ describe("player-ai 启停守卫", () => {
     const observeSpy = vi.spyOn(MutationObserver.prototype, "observe");
     await loadContentScript({ enablePlayerAiQuickAction: true });
 
-    // reader 呈现层另有针对 body 的属性观察器（attributeFilter 带 data-boc-reader-*），
+    // reader 呈现层另有针对 body 的属性观察器（attributeFilter 带 data-biliscript-reader-*），
     // 按 childList 形态区分出 player-ai 的回退观察器。
     const bodyObserveCall = observeSpy.mock.calls.find(
       ([target, options]) => target === document.body && options?.childList === true
@@ -431,7 +431,7 @@ describe("player-ai 重试退避节奏与注入耗时观测（工单 button-inje
     // 挂载本身照常：推一帧 + 微任务后按钮在位
     flushRafQueue();
     await flushMicrotasks();
-    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
   });
 
   it("retry 快车道：先逐帧重试，预算耗尽后回落 100ms 起步退避", async () => {
@@ -492,7 +492,7 @@ describe("player-ai 重试退避节奏与注入耗时观测（工单 button-inje
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(120);
 
-    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
     const timingLog = infoSpy.mock.calls.find((args) => {
       const line = args.join(" ");
       return line.includes("player-ai") && line.includes("装载→挂载耗时");
@@ -512,7 +512,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
 
-    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
     // 0 = 无挂起 sync；负 = 观察器补的帧内快车道 rAF。正句柄才是退避定时器。
     expect(state.playerAiQuickActionSyncTimer).toBeLessThanOrEqual(0);
   });
@@ -527,7 +527,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
 
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
-    const wrap = document.querySelector<HTMLElement>(".boc-player-ai-wrap")!;
+    const wrap = document.querySelector<HTMLElement>(".biliscript-player-ai-wrap")!;
     expect(wrap).not.toBeNull();
 
     // 复校前：按钮已稳定就位，sync 走视觉短路——内联样式零写入
@@ -545,7 +545,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
     expect(setPropertySpy).toHaveBeenCalled();
-    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
 
     // 只跑一次：复校后回到视觉短路，零写入
     setPropertySpy.mockClear();
@@ -566,7 +566,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     installRafQueue();
     schedulePlayerAiQuickActionSync(0);
     flushRafQueue();
-    const firstWrap = document.querySelector<HTMLElement>(".boc-player-ai-wrap")!;
+    const firstWrap = document.querySelector<HTMLElement>(".biliscript-player-ai-wrap")!;
     expect(firstWrap).not.toBeNull();
 
     // 旧视频控制条水合：首次复校（flag 置位，内联变量全量重写）
@@ -584,7 +584,7 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
     stopPlayerAiQuickAction();
     startPlayerAiQuickAction();
     flushRafQueue();
-    const wrap = document.querySelector<HTMLElement>(".boc-player-ai-wrap")!;
+    const wrap = document.querySelector<HTMLElement>(".biliscript-player-ai-wrap")!;
     expect(wrap).not.toBeNull();
 
     // 新视频未校准前稳定短路：内联样式零写入
@@ -613,15 +613,15 @@ describe("player-ai 字幕控件门软化（工单 first-button-ux/01）", () =>
 
     schedulePlayerAiQuickActionSync(0);
     await vi.advanceTimersByTimeAsync(20);
-    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
 
     // 模拟 B 站重渲染把按钮连 wrap 一起摘掉
-    document.querySelector<HTMLElement>(".boc-player-ai-wrap")!.remove();
-    expect(document.getElementById("boc-player-ai-quick-action")).toBeNull();
+    document.querySelector<HTMLElement>(".biliscript-player-ai-wrap")!.remove();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).toBeNull();
 
     // 观察器补 sync 排 rAF，推进一帧即重挂
     await flushMicrotasks();
     await vi.advanceTimersByTimeAsync(20);
-    expect(document.getElementById("boc-player-ai-quick-action")).not.toBeNull();
+    expect(document.getElementById("biliscript-player-ai-quick-action")).not.toBeNull();
   });
 });

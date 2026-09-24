@@ -65,7 +65,7 @@ vi.mock("../../extension/subtitle/cache.js", () => ({
   clearSubtitleCacheByKey: vi.fn(async () => {}),
   saveSubtitleToCache: vi.fn(async () => {}),
   loadSubtitleFromCache: vi.fn(async () => null),
-  getSubtitleCacheKey: vi.fn(() => "boc_subtitle_cache_test")
+  getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_test")
 }));
 
 // 以下依赖保持真实加载：state / defaults / validators / utils / url-utils / error-helpers
@@ -113,9 +113,9 @@ describe("tryLoadSubtitleCandidates 日志路径", () => {
   });
 
   it("refreshClip 外层路径：错误被安全捕获（复现用户症状）", async () => {
-    // resetClipState（真实代码）通过 byId("boc-preview") 写空值，需该 DOM 节点。
+    // resetClipState（真实代码）通过 byId("biliscript-preview") 写空值，需该 DOM 节点。
     const preview = document.createElement("textarea");
-    preview.id = "boc-preview";
+    preview.id = "biliscript-preview";
     document.body.appendChild(preview);
 
     // 让 fetchVideoMeta 抛错，使 refreshClip 在 logInfo 出现之前就失败——若

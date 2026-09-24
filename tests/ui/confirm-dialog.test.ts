@@ -2,7 +2,7 @@
 // ui/confirm-dialog.ts 面板内二次确认弹层的行为契约。动机（用户报告）：删除
 // AI 平台的二次确认原走浏览器原生 confirm()，弹窗绘制在浏览器窗口正中央，
 // 扩展面板停靠窗口右侧时弹窗可能落在面板可视区外。本模块把确认画进扩展
-// 自己的界面（宿主挂 #boc-reading-view 直下），本文件守住：
+// 自己的界面（宿主挂 #biliscript-reading-view 直下），本文件守住：
 // - 打开即渲染：宿主挂 view 直下、mask + role=dialog + aria-modal、报文转义、
 //   danger 警示键类名；
 // - 结算路径：确认键 → true；取消键 / 遮罩 / Esc / 抽屉收起 → false，且每种
@@ -21,8 +21,8 @@ function fireClick(el: Element) {
 
 function mountView() {
   document.body.innerHTML = `
-    <div id="boc-reading-view">
-      <section id="boc-reading-settings-panel"></section>
+    <div id="biliscript-reading-view">
+      <section id="biliscript-reading-settings-panel"></section>
     </div>
   `;
 }
@@ -43,7 +43,7 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     const pending = confirmDialog({ message: "确定要删除这个平台吗？", confirmText: "删除", danger: true });
 
     expect(isConfirmDialogOpen()).toBe(true);
-    const view = document.getElementById("boc-reading-view")!;
+    const view = document.getElementById("biliscript-reading-view")!;
     const host = view.querySelector<HTMLElement>(".confirm-dialog-host")!;
     expect(host).not.toBeNull();
     expect(host.parentElement).toBe(view);
@@ -114,7 +114,7 @@ describe("confirm-dialog：面板内二次确认弹层", () => {
     const pending = confirmDialog({ message: "m" });
     expect(isConfirmDialogOpen()).toBe(true);
 
-    const panel = document.getElementById("boc-reading-settings-panel")!;
+    const panel = document.getElementById("biliscript-reading-settings-panel")!;
     panel.hidden = true;
     await expect(pending).resolves.toBe(false);
     expect(isConfirmDialogOpen()).toBe(false);

@@ -4,7 +4,7 @@ import { logInfo } from "./logging.js";
 // Loose shape shared by the custom error objects this module creates/consumes.
 // Kept internal; callers pass `unknown` and we cast only when reading optional
 // diagnostic fields.
-interface BocErrorLike {
+interface BiliscriptErrorLike {
   code?: unknown;
   retryable?: boolean;
   status?: unknown;
@@ -42,7 +42,7 @@ export function toReadableText(value: unknown, fallback = ""): string {
 }
 
 export function getErrorMessage(error: unknown, fallback = "未知错误"): string {
-  const err = error as BocErrorLike;
+  const err = error as BiliscriptErrorLike;
   const code = toReadableText(err?.code, "");
   const message = toReadableText(err?.message, "");
   if (message) {
@@ -71,7 +71,7 @@ export function ensureRunActive(runId: string | number, expectedRunId: string | 
 }
 
 export function isStaleRunError(error: unknown): boolean {
-  return (error as BocErrorLike)?.code === "STALE_RUN";
+  return (error as BiliscriptErrorLike)?.code === "STALE_RUN";
 }
 
 export function isRetryableNetworkError(error: unknown): boolean {
@@ -80,7 +80,7 @@ export function isRetryableNetworkError(error: unknown): boolean {
   // 是确定性失败，原样重发只会再次失败，不重试。status<=0 不是有效 HTTP 状态码
   // （ASR 适配器用 -1 表示响应体解析失败等自造哨兵）；无 status 的错误（如
   // bilibili 网关只把状态码写进消息文本）维持下方消息启发式不变。
-  const err = error as BocErrorLike;
+  const err = error as BiliscriptErrorLike;
   const status = Number(err?.status);
   if (Number.isFinite(status) && status > 0) {
     return status === 408 || status === 429 || status >= 500;
@@ -114,7 +114,7 @@ export async function retryAsync<T>(task: () => Promise<T>, retries = 1, delayMs
       return await task();
     } catch (error) {
       lastError = error;
-      const err = error as BocErrorLike;
+      const err = error as BiliscriptErrorLike;
       const isNetworkError = isRetryableNetworkError(error);
       const isRetryable = err?.retryable === true;
       if (!isNetworkError && !isRetryable) {
@@ -124,7 +124,7 @@ export async function retryAsync<T>(task: () => Promise<T>, retries = 1, delayMs
         throw error;
       }
       const backoffDelay = Math.min(delayMs * Math.pow(2, attempt - 1), 5000);
-      logInfo(`[BOC] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
+      logInfo(`[BILISCRIPT] retrying after ${backoffDelay}ms, attempt ${attempt + 1}/${retries}`, {
         error: getErrorMessage(error),
         code: err?.code
       });
@@ -169,6 +169,6 @@ export function makeAbortedError(message = "已停止生成"): Error & { aborted
 }
 
 export function isExtensionContextInvalidated(error: unknown): boolean {
-  const msg = String((error as BocErrorLike)?.message || "");
+  const msg = String((error as BiliscriptErrorLike)?.message || "");
   return msg.includes("Extension context invalidated");
 }

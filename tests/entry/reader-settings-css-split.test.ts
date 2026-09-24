@@ -24,7 +24,7 @@ const SETTINGS_PANEL = "extension/ui/settings-panel.ts";
 
 // 设置分区样式标记：拆分前全部在 reader.css，拆分后（2026-09 起表组三份）
 // 不得回流 reader.css
-const SETTINGS_MARKERS = ["boc-reading-settings-host", "provider-editor-", "custom-select-"];
+const SETTINGS_MARKERS = ["biliscript-reading-settings-host", "provider-editor-", "custom-select-"];
 
 describe("设置分区 CSS 拆分（arch-slim-4/04）", () => {
   it("reader.css 不含设置分区标记（守卫回流）", () => {
@@ -52,7 +52,7 @@ describe("设置分区 CSS 拆分（arch-slim-4/04）", () => {
           line.includes(".custom-select-") && /[{,]\s*$/.test(line),
       );
     const unscopedSelectors = selectorLines.filter(
-      (line) => !line.startsWith("#boc-reading-view "),
+      (line) => !line.startsWith("#biliscript-reading-view "),
     );
 
     expect(selectorLines.length).toBeGreaterThan(0);
@@ -60,7 +60,7 @@ describe("设置分区 CSS 拆分（arch-slim-4/04）", () => {
   });
 
   it("壳静态模板的 settings-group 留守 reader.css（不随分区搬走）", () => {
-    expect(read(READER_CSS).includes("boc-reading-settings-group")).toBe(true);
+    expect(read(READER_CSS).includes("biliscript-reading-settings-group")).toBe(true);
   });
 
   it("style-injector 暴露设置表三件套（ensure/whenReady）与三份路径，settings-panel 顶挂载接线", () => {

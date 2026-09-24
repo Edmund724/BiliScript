@@ -2,7 +2,7 @@
 // 面板内二次确认弹层（in-page confirm）：替代浏览器原生 confirm()——原生
 // 弹窗绘制在浏览器窗口正中央，扩展面板停靠在窗口右侧时弹窗可能落在面板
 // 可视区外（用户报告：删除平台时看不到确认）。本模块把确认画进扩展自己的
-// 界面：宿主挂 #boc-reading-view 直下（provider-editor.ensureHost 同款），
+// 界面：宿主挂 #biliscript-reading-view 直下（provider-editor.ensureHost 同款），
 // mask + role=dialog 居中卡片，弹层出现在面板内部，一定看得见。
 //
 // 结构契约沿用 provider-editor Modal 的先例（reader/explain-card.ts 一脉）：
@@ -24,7 +24,7 @@ export interface ConfirmDialogOptions {
   // 确认键文案（缺省「确定」）
   confirmText?: string;
   // 确认键警示着色（删除等破坏性动作）：红底白字，token 与
-  // provider-editor-delete 同源的 --boc-reader-danger 系
+  // provider-editor-delete 同源的 --biliscript-reader-danger 系
   danger?: boolean;
 }
 

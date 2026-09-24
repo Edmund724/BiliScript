@@ -16,4 +16,4 @@
 // 本事件名字符串，派发方/监听方谁也不进谁的模块图。
 export const SELF_HEAL_INTERVAL_MS = 200;
 
-export const READER_CLOSED_EVENT = "boc:reader-closed";
+export const READER_CLOSED_EVENT = "biliscript:reader-closed";

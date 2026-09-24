@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-const SLOT_KEY = "__BOC_CONTENT_SCRIPT_DISPATCHER__";
+const SLOT_KEY = "__BILISCRIPT_CONTENT_SCRIPT_DISPATCHER__";
 
 describe("shared/messaging 页内分发原语", () => {
   beforeEach(() => {
@@ -32,7 +32,7 @@ describe("shared/messaging 页内分发原语", () => {
     registerContentScriptDispatcher(dispatcher);
     expect((globalThis as Record<string, unknown>)[SLOT_KEY]).toBe(dispatcher);
     const sendResponse = vi.fn();
-    const message = { type: "reader-enter", readerUrl: "https://www.bilibili.com/video/BV1?boc_reader=1" };
+    const message = { type: "reader-enter", readerUrl: "https://www.bilibili.com/video/BV1?biliscript_reader=1" };
     expect(dispatchContentScriptMessage(message, sendResponse)).toBe(true);
     expect(dispatcher).toHaveBeenCalledWith(message, sendResponse);
   });

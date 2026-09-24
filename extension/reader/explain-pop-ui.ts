@@ -21,8 +21,8 @@ export function buildExplainPopHtml(): string {
   return `
             <!-- 选区「解释」浮层：单实例、绝对定位在 tab body（不进列表滚动
                  容器，避免随滚动裁剪/漂移），在字幕句内选中词/句后定位到选区下方 -->
-            <div id="${ids.readingExplainPop}" class="boc-reading-explain-pop" hidden>
-              <button type="button" class="boc-reading-explain-btn">解释</button>
+            <div id="${ids.readingExplainPop}" class="biliscript-reading-explain-pop" hidden>
+              <button type="button" class="biliscript-reading-explain-btn">解释</button>
             </div>
   `;
 }
@@ -33,7 +33,7 @@ export function buildExplainCardHostHtml(): string {
   return `
             <!-- 选区「解释」卡片宿主：覆盖整个 tab body 的面板内弹层（遮罩 +
                  对话框），内容由 reader/explain-card.js 按状态机整块重建 -->
-            <div id="${ids.readingExplainCard}" class="boc-reading-explain-card" hidden></div>
+            <div id="${ids.readingExplainCard}" class="biliscript-reading-explain-card" hidden></div>
   `;
 }
 
@@ -43,7 +43,7 @@ export function bindReadingExplainEvents(): void {
   // 内时显示浮层，并定位到选区下方；选区清空/移出列表/列表滚动时隐藏。
   // 定位合帧到 rAF：拖选期间 selectionchange 高频触发，一帧内至多一次「读→写」
   // 相位（事件相位只做无布局的选区判定与快照）。
-  // 浮层挂在本 tab body（非列表滚动容器）内，不进 .boc-reading-item 的点击委托
+  // 浮层挂在本 tab body（非列表滚动容器）内，不进 .biliscript-reading-item 的点击委托
   // 链——点「解释」不会触发点句跳转。
   const readingExplainPop = byId(ids.readingExplainPop);
   const readingExplainBtn = readingExplainPop.querySelector("button") as HTMLButtonElement;
@@ -154,7 +154,7 @@ export function bindReadingExplainEvents(): void {
     const anchorNode = range.startContainer.nodeType === Node.TEXT_NODE
       ? range.startContainer.parentElement
       : (range.startContainer as HTMLElement | null);
-    const item = anchorNode?.closest?.<HTMLElement>(".boc-reading-item");
+    const item = anchorNode?.closest?.<HTMLElement>(".biliscript-reading-item");
     if (!item || !subtitleList.contains(item)) {
       hideExplainPop();
       return;
@@ -179,7 +179,7 @@ export function bindReadingExplainEvents(): void {
       snapshot && snapshot.itemIndex !== "" && Number.isFinite(itemIndex) && itemIndex >= 0
         ? subtitleList.querySelector<HTMLElement>(`[data-index="${itemIndex}"]`)
         : null;
-    const line = itemNode?.querySelector(".boc-reading-text")?.textContent?.trim() || "";
+    const line = itemNode?.querySelector(".biliscript-reading-text")?.textContent?.trim() || "";
     if (!itemNode || !line || !snapshot) {
       hideExplainPop();
       return;

@@ -12,7 +12,7 @@
 //
 // 与笔记管线的关系（07 票决议）：产物不共享、只共享机制——分段边界沿用
 // buildBudgetPlan.splitByBudget（同一 200k 判定线与 50k 单段预算），缓存走
-// 独立的 boc_lvs_analysis_ 族前缀，互不读写、互不阻塞。
+// 独立的 biliscript_lvs_analysis_ 族前缀，互不读写、互不阻塞。
 //
 // 失败语义（07 票决议）：分段路径段失败 → 跳过该段出部分结果并记录
 // failedRanges（含部分结果的整份产物照常落缓存，重试走 forceRefresh，段缓存

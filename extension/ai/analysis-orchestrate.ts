@@ -38,11 +38,11 @@ import type { BudgetPlan, BudgetPlanSegment, ChatMessage } from "./types.js";
 // 本模块经上方 import 消费同一实现。
 
 // 整份概览结果缓存键前缀（键形：前缀 + bvid + cid + 字幕轨 source key + 字幕签名）。
-const ANALYSIS_FINAL_PREFIX = "boc_lvs_analysis_final_";
-// 概览分段产物缓存键前缀（键形与 boc_lvs_summary_ 同族：…+ 段序号 [+ 预算代]）。
+const ANALYSIS_FINAL_PREFIX = "biliscript_lvs_analysis_final_";
+// 概览分段产物缓存键前缀（键形与 biliscript_lvs_summary_ 同族：…+ 段序号 [+ 预算代]）。
 // 注意它是 ANALYSIS_FINAL_PREFIX 的父前缀——两族都已注册进 core/cache-lru.ts 的
 // CACHE_FAMILIES（前缀撞车语义见该处注释），本模块不再自行扩展淘汰名单。
-const ANALYSIS_SEGMENT_PREFIX = "boc_lvs_analysis_";
+const ANALYSIS_SEGMENT_PREFIX = "biliscript_lvs_analysis_";
 // 前情回顾字数：每段开头附带的上一段结尾字数（对齐参考仓库 ANALYSIS_OVERLAP_CHARS）。
 const ANALYSIS_CONTEXT_CHARS = 400;
 
@@ -73,7 +73,7 @@ const analysisFinalFamily = createCacheFamily<OverviewAnalysis>({
   payloadField: "analysis",
   toSourceKey: buildSubtitleSourceKey,
   validate: isOverviewShape,
-  logFailure: (info) => logError("[BOC] failed to save analysis cache after eviction", info)
+  logFailure: (info) => logError("[BILISCRIPT] failed to save analysis cache after eviction", info)
 });
 
 const analysisSegmentFamily = createCacheFamily<OverviewAnalysis>({
@@ -81,7 +81,7 @@ const analysisSegmentFamily = createCacheFamily<OverviewAnalysis>({
   payloadField: "analysis",
   toSourceKey: buildSubtitleSourceKey,
   validate: isOverviewShape,
-  logFailure: (info) => logError("[BOC] failed to save analysis cache after eviction", info)
+  logFailure: (info) => logError("[BILISCRIPT] failed to save analysis cache after eviction", info)
 });
 
 function contextKeyFields(context: Record<string, unknown> | undefined | null): {
@@ -110,7 +110,7 @@ export function buildAnalysisFinalCacheKey(context: Record<string, unknown> | un
 }
 
 /**
- * 概览分段产物缓存键：与 boc_lvs_summary_ 同族键形（…+ 段序号 [+ 预算代]），
+ * 概览分段产物缓存键：与 biliscript_lvs_summary_ 同族键形（…+ 段序号 [+ 预算代]），
  * 仅族前缀不同——产物不共享、键位机制共享（07 票决议）；预算代后缀逻辑继承
  * segment-cache 的 budgetScaleSuffix（_b50 等），段边界漂移不串内容。
  */

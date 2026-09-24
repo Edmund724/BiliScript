@@ -869,7 +869,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
 
     const content = document.createElement("div");
     // markdown-body：启用 github-markdown-css 排版基线（样式随对话分区表挂载，
-    // 变量由 github-markdown-theme.css 桥接到 --boc-reader-*）。
+    // 变量由 github-markdown-theme.css 桥接到 --biliscript-reader-*）。
     content.className = "chat-msg-assistant-body markdown-body";
     content.innerHTML = renderMarkdownStripped(cleanedRaw);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());

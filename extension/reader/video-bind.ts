@@ -12,7 +12,7 @@
 // seeked 不再排队控制条恢复（面板形态用户用原生控制条），宿主变化不再排队
 // ensureReaderPlayerMounted（video 换新时「重新绑定」由本函数首行的
 // readingVideoEl 比对兜底，sync tick 与 seek 入口都会路过）。原 player-host 的
-// videoEventsBound 模块级标志删除：绑定与否以元素上的 __bocReadingSyncController
+// videoEventsBound 模块级标志删除：绑定与否以元素上的 __biliscriptReadingSyncController
 // 为准，单一事实来源（原实现里标志与控制器本就同生命周期，双轨是历史负担）。
 //
 // 依赖方向（保持层图不变）：本模块属 LAYOUT 层叶子，只依赖 state/video-probe/
@@ -22,14 +22,14 @@ import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 // 端口半边：SYNC 域回调经 reader 域唯一显式端口（ports.js 叶子，缺失即抛错）。
 import { readerPorts } from "./ports.js";
 
-// 解绑 video 同步监听：AbortController 挂在元素上（__bocReadingSyncController），
+// 解绑 video 同步监听：AbortController 挂在元素上（__biliscriptReadingSyncController），
 // abort 即移除整组 seeked/loadedmetadata 监听，无需再逐个
 // removeEventListener 并 stash handler 引用。
 export function unbindReadingViewVideoSync(): void {
   const prev = state.reader.readingVideoEl;
-  if (prev && prev.__bocReadingSyncController) {
-    prev.__bocReadingSyncController.abort();
-    delete prev.__bocReadingSyncController;
+  if (prev && prev.__biliscriptReadingSyncController) {
+    prev.__biliscriptReadingSyncController.abort();
+    delete prev.__biliscriptReadingSyncController;
   }
 }
 
@@ -40,7 +40,7 @@ export function bindReadingViewVideo(video: HTMLVideoElement | null = getRuntime
     return null;
   }
 
-  if (state.reader.readingVideoEl === video && video.__bocReadingSyncController) {
+  if (state.reader.readingVideoEl === video && video.__biliscriptReadingSyncController) {
     return video;
   }
 
@@ -62,7 +62,7 @@ export function bindReadingViewVideo(video: HTMLVideoElement | null = getRuntime
   const { signal } = controller;
   video.addEventListener("seeked", syncHandler, { signal });
   video.addEventListener("loadedmetadata", syncHandler, { signal });
-  video.__bocReadingSyncController = controller;
+  video.__biliscriptReadingSyncController = controller;
   state.reader.readingVideoEl = video;
   return video;
 }

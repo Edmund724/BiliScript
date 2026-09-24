@@ -39,16 +39,16 @@ function mountExtraSkeleton() {
 
   // 经典面板（bindUiEvents 通过 byId 访问）
   const panel = doc.createElement("div");
-  panel.id = "boc-panel";
+  panel.id = "biliscript-panel";
   doc.body.appendChild(panel);
   (
     [
-      ["boc-close-btn", "button"],
-      ["boc-refresh-btn", "button"],
-      ["boc-subtitle-select", "select"],
-      ["boc-copy-btn", "button"],
-      ["boc-download-btn", "button"],
-      ["boc-settings-btn", "button"]
+      ["biliscript-close-btn", "button"],
+      ["biliscript-refresh-btn", "button"],
+      ["biliscript-subtitle-select", "select"],
+      ["biliscript-copy-btn", "button"],
+      ["biliscript-download-btn", "button"],
+      ["biliscript-settings-btn", "button"]
     ] as [string, keyof HTMLElementTagNameMap][]
   ).forEach(([id, tag]) => {
     const node = doc.createElement(tag);
@@ -92,9 +92,9 @@ describe("播放同步与高亮", () => {
   it("手动渲染列表后无高亮项（activeIndex 为 -1）", () => {
     shell.renderReadingView();
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    expect(readingView.querySelectorAll(".boc-reading-item").length).toBe(3);
-    expect(readingView.querySelector(".boc-reading-item.is-active")).toBe(null);
-    expect(readingView.querySelector(".boc-reading-chapter")).toBe(null);
+    expect(readingView.querySelectorAll(".biliscript-reading-item").length).toBe(3);
+    expect(readingView.querySelector(".biliscript-reading-item.is-active")).toBe(null);
+    expect(readingView.querySelector(".biliscript-reading-chapter")).toBe(null);
   });
 
   it("syncReadingViewPlayback：按 currentTime 切换字幕与章节高亮", () => {
@@ -104,7 +104,7 @@ describe("播放同步与高亮", () => {
     // 手动绑定 stub 视频（与挂载路径一致）
     const bound = playerHost.bindReadingViewVideo(video);
     expect(bound).toBe(video);
-    expect(video.__bocReadingSyncController).toBeInstanceOf(AbortController);
+    expect(video.__biliscriptReadingSyncController).toBeInstanceOf(AbortController);
 
     video.currentTime = 12;
     sync.syncReadingViewPlayback();
@@ -112,7 +112,7 @@ describe("播放同步与高亮", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     // B 形态（阶段 2）：rail 章节列表 DOM 退役，章节高亮断言删除（概览 tab
     // 承接章节导航，其 seek 链路由 overview.test.ts 覆盖）
-    const activeSubtitle = readingView.querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const activeSubtitle = readingView.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(activeSubtitle.dataset.index).toBe("1");
     expect(activeSubtitle.textContent).toContain("第二句");
 
@@ -130,7 +130,7 @@ describe("播放同步与高亮", () => {
     video.dispatchEvent(new Event("seeked"));
 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    const activeSubtitle = readingView.querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const activeSubtitle = readingView.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(activeSubtitle.dataset.index).toBe("2");
     expect(state.reader.readingActiveSubtitleIndex).toBe(2);
     expect(state.reader.readingActiveChapterIndex).toBe(1);
@@ -175,13 +175,13 @@ describe("播放同步与高亮", () => {
     // 高亮/滚动整段跳过：零布局读取、无 is-active、索引状态不推进
     expect(rectSpy).not.toHaveBeenCalled();
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    expect(readingView.querySelector(".boc-reading-item.is-active")).toBe(null);
+    expect(readingView.querySelector(".biliscript-reading-item.is-active")).toBe(null);
     expect(state.reader.readingActiveSubtitleIndex).toBe(-1);
 
     // 状态栏（面板 header，三 tab 常显）与跟随态属性（header 标注消费）照常收敛
     const status = document.getElementById(ids.readingStatus) as HTMLElement;
     expect(status.textContent).toBe("当前进度 0:12");
-    expect(readingView.getAttribute("data-boc-reader-follow")).toBe("auto");
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
   });
 
   it("P3-1 切回字幕 tab：下一拍补上高亮与索引（跳过的段自然收敛）", () => {
@@ -198,7 +198,7 @@ describe("播放同步与高亮", () => {
     sync.syncReadingViewPlayback();
 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    const activeSubtitle = readingView.querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const activeSubtitle = readingView.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(activeSubtitle.dataset.index).toBe("1");
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
   });
@@ -213,7 +213,7 @@ describe("播放同步与高亮", () => {
     sync.syncReadingViewPlayback();
 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    expect(readingView.querySelector(".boc-reading-item.is-active")).toBe(null);
+    expect(readingView.querySelector(".biliscript-reading-item.is-active")).toBe(null);
     expect(state.reader.readingActiveSubtitleIndex).toBe(-1);
     // 状态栏仍收敛（抽屉展开不改变 header 状态行的可见性）
     expect((document.getElementById(ids.readingStatus) as HTMLElement).textContent).toBe("当前进度 0:12");
@@ -234,7 +234,7 @@ describe("播放同步与高亮", () => {
     video.currentTime = 35;
     video.dispatchEvent(new Event("timeupdate"));
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
-    const activeSubtitle = readingView.querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const activeSubtitle = readingView.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(activeSubtitle.textContent).toContain("第二句");
 
     // 跟随收敛到 250ms interval 单路：tick 到点即切高亮（此刻 timeupdate/seeked
@@ -251,13 +251,13 @@ describe("播放同步与高亮", () => {
     state.reader.readingViewOpen = true;
     playerHost.bindReadingViewVideo(video);
     sync.startReadingViewSync();
-    const controller = video.__bocReadingSyncController;
+    const controller = video.__biliscriptReadingSyncController;
     expect(controller).toBeInstanceOf(AbortController);
 
     sync.stopReadingViewSync();
 
     expect(controller!.signal.aborted).toBe(true);
-    expect(video.__bocReadingSyncController).toBeUndefined();
+    expect(video.__biliscriptReadingSyncController).toBeUndefined();
   });
 
   it("点击字幕跳转：选择文本时忽略，空白选区时跳转", async () => {
@@ -268,7 +268,7 @@ describe("播放同步与高亮", () => {
     uiRenderer.bindUiEvents();
 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    const target = readingView.querySelectorAll(".boc-reading-item")[2] as HTMLElement;
+    const target = readingView.querySelectorAll(".biliscript-reading-item")[2] as HTMLElement;
 
     // 选中文本时不跳转：候选02 后点击经 ensure 异步转发，先等一拍确保处理器
     // 已执行过——此刻仍不跳转才证明「选区拦截」语义成立。
@@ -287,7 +287,7 @@ describe("播放同步与高亮", () => {
     await vi.waitFor(() => {
       expect(video.currentTime).toBe(30);
     });
-    const activeSubtitle = readingView.querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const activeSubtitle = readingView.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(activeSubtitle.dataset.index).toBe("2");
   });
 
@@ -302,27 +302,27 @@ describe("播放同步与高亮", () => {
     expect(video.play).toHaveBeenCalled();
   });
 
-  it("updateReaderFollowState：按手动暂停状态写入 data-boc-reader-follow", () => {
+  it("updateReaderFollowState：按手动暂停状态写入 data-biliscript-reader-follow", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     state.reader.readingViewOpen = true;
 
     // 手动交互暂停跟随（等价于原状态字段直接赋值：手动暂停 5s）
     sync.noteManualReaderInteraction(5000);
     sync.updateReaderFollowState();
-    expect(readingView.getAttribute("data-boc-reader-follow")).toBe("manual");
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
 
     // 暂停过期后跟随回到 auto
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000);
     sync.updateReaderFollowState();
-    expect(readingView.getAttribute("data-boc-reader-follow")).toBe("auto");
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
   });
 
-  it("noteManualReaderInteraction：手动交互暂停跟随（data-boc-reader-follow=manual）", () => {
+  it("noteManualReaderInteraction：手动交互暂停跟随（data-biliscript-reader-follow=manual）", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
     state.reader.readingViewOpen = true;
 
     sync.noteManualReaderInteraction(5000);
 
-    expect(readingView.getAttribute("data-boc-reader-follow")).toBe("manual");
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
   });
 });

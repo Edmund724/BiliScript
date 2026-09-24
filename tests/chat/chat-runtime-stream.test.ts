@@ -643,8 +643,8 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
   it("cost-guard：面板内确认弹层确认 → 回执 ok:true；取消/缺省文案 → ok:false，流不终止", async () => {
     const { runtime, session } = await makeRuntime();
     // 缺省确认通道用例：不注入 confirmCostGuard——确认走面板内弹层
-    //（ui/confirm-dialog.js），须挂 #boc-reading-view 供其挂载
-    document.body.innerHTML = '<div id="boc-reading-view"></div>';
+    //（ui/confirm-dialog.js），须挂 #biliscript-reading-view 供其挂载
+    document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
 
     // 确认路径：文案取 msg.data.message
     feed(runtime, { type: "cost-guard", data: { message: "预计 3 次调用" } });

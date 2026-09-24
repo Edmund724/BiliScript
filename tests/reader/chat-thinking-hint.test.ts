@@ -153,8 +153,8 @@ function seedReadyContext(): void {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   await loadShell();
   stubChromeByType();
   seedReadyContext();

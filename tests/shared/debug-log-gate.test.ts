@@ -26,8 +26,8 @@ describe("shared/logging 调试门", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(logging.shouldDebugLog()).toBe(false);
-    logging.logWarn("[BOC] quiet");
-    logging.logError("[BOC] quiet");
+    logging.logWarn("[BILISCRIPT] quiet");
+    logging.logError("[BILISCRIPT] quiet");
     expect(warnSpy).not.toHaveBeenCalled();
     expect(errorSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
@@ -38,10 +38,10 @@ describe("shared/logging 调试门", () => {
     const logging = await import("../../extension/shared/logging.js");
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     logging.registerDebugGate(() => true);
-    logging.logInfo("[BOC] loud");
+    logging.logInfo("[BILISCRIPT] loud");
     expect(infoSpy).toHaveBeenCalledTimes(1);
     logging.registerDebugGate(() => false);
-    logging.logInfo("[BOC] quiet again");
+    logging.logInfo("[BILISCRIPT] quiet again");
     expect(infoSpy).toHaveBeenCalledTimes(1);
     infoSpy.mockRestore();
   });
@@ -50,7 +50,7 @@ describe("shared/logging 调试门", () => {
     // 两轮构建（scripts/build-content.js）把 shared 底座在懒加载区重复一份：
     // 门原先挂模块级变量，注册发生在常驻包实例（content.ts 的
     // registerDebugLogGate），抓取链/reader/对话用的懒加载区那份看不到——
-    // 用户开了「调试日志」也捞不到 [BOC] 行。门改挂 globalThis 槽。
+    // 用户开了「调试日志」也捞不到 [BILISCRIPT] 行。门改挂 globalThis 槽。
     const resident = await import("../../extension/shared/logging.js");
     resident.registerDebugGate(() => true);
     vi.resetModules();
@@ -58,8 +58,8 @@ describe("shared/logging 调试门", () => {
     expect(lazy).not.toBe(resident);
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    lazy.logWarn("[BOC] from lazy chunk");
-    expect(warnSpy).toHaveBeenCalledWith("[BOC] from lazy chunk");
+    lazy.logWarn("[BILISCRIPT] from lazy chunk");
+    expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] from lazy chunk");
     warnSpy.mockRestore();
   });
 });
@@ -77,8 +77,8 @@ describe("shared/debug-log-gate 三宿主接线", () => {
     const { registerDebugLogGate } = await import("../../extension/shared/debug-log-gate.js");
     registerDebugLogGate();
     await vi.waitFor(() => {
-      logWarn("[BOC] from offscreen");
-      expect(warnSpy).toHaveBeenCalledWith("[BOC] from offscreen");
+      logWarn("[BILISCRIPT] from offscreen");
+      expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] from offscreen");
     });
     warnSpy.mockRestore();
   });
@@ -92,19 +92,19 @@ describe("shared/debug-log-gate 三宿主接线", () => {
     expect(listener).toBeTypeOf("function");
 
     listener({ enableDebugLogs: { newValue: true } }, "sync");
-    logWarn("[BOC] on");
-    expect(warnSpy).toHaveBeenCalledWith("[BOC] on");
+    logWarn("[BILISCRIPT] on");
+    expect(warnSpy).toHaveBeenCalledWith("[BILISCRIPT] on");
 
     listener({ enableDebugLogs: { newValue: false } }, "local");
-    logWarn("[BOC] still on");
+    logWarn("[BILISCRIPT] still on");
     expect(warnSpy).toHaveBeenCalledTimes(2);
 
     listener({ readerTheme: { newValue: "dark" } }, "sync");
-    logWarn("[BOC] key ignored");
+    logWarn("[BILISCRIPT] key ignored");
     expect(warnSpy).toHaveBeenCalledTimes(3);
 
     listener({ enableDebugLogs: { newValue: false } }, "sync");
-    logWarn("[BOC] off");
+    logWarn("[BILISCRIPT] off");
     expect(warnSpy).toHaveBeenCalledTimes(3);
     warnSpy.mockRestore();
   });
@@ -118,7 +118,7 @@ describe("shared/debug-log-gate 三宿主接线", () => {
     const { registerDebugLogGate } = await import("../../extension/shared/debug-log-gate.js");
     registerDebugLogGate();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    logWarn("[BOC] quiet");
+    logWarn("[BILISCRIPT] quiet");
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });

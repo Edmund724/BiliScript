@@ -24,7 +24,7 @@
 // reader/lazy-reader.ts、subtitle/lazy.ts、subtitle/fetcher.ts 的 ASR 回退装载
 // 同款），本模块保留仓库既有导出名。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
 // 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 interface PlayerAiDomain {
   removePlayerAiQuickActionButton(): void;

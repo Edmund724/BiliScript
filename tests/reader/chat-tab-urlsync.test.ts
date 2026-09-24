@@ -1,9 +1,9 @@
 // tests/reader/chat-tab-urlsync.test.ts
 // URL 变化强刷调度（arch-slim 工单 05：chat/context-sync.ts 并回 chat-tab 后的
 // 行为锁定）。原 createLiveContextSync 的 schedule 防抖状态机在单宿主现实下
-// 只剩 boc:urlchange 一个触发源（恒强刷 → 120ms 快档防抖，重复触发即重置）。
+// 只剩 biliscript:urlchange 一个触发源（恒强刷 → 120ms 快档防抖，重复触发即重置）。
 //
-// 独立成文件的原因：boc:urlchange 监听挂在 window 上，跨测试纪元（vi.reset-
+// 独立成文件的原因：biliscript:urlchange 监听挂在 window 上，跨测试纪元（vi.reset-
 // Modules 换代）的旧 chat-tab 模块实例无法摘除自己的监听；本文件每例收尾
 // closeChatSession（unbindGlobalTriggers 摘监听），保证断言不被旧纪元污染。
 //
@@ -109,8 +109,8 @@ function seedReadyContext(): void {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   ids = (await import("../../extension/reader/state.js")).ids;
@@ -121,7 +121,7 @@ beforeEach(async () => {
 });
 
 describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () => {
-  it("快速连发 boc:urlchange 只触发一轮全量同步（防抖重置，热评拉取恰 +1 次）", async () => {
+  it("快速连发 biliscript:urlchange 只触发一轮全量同步（防抖重置，热评拉取恰 +1 次）", async () => {
     gatewayMock.getCurrentAid.mockReturnValue(7100);
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
@@ -135,9 +135,9 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     await reopened.ensureChatTabActivated();
     const reopenedBaseline = gatewayMock.fetchHotComments.mock.calls.length;
 
-    window.dispatchEvent(new Event("boc:urlchange"));
-    window.dispatchEvent(new Event("boc:urlchange"));
-    window.dispatchEvent(new Event("boc:urlchange"));
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+    window.dispatchEvent(new Event("biliscript:urlchange"));
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(reopenedBaseline + 1);
@@ -152,7 +152,7 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= 1);
 
     state.clip.title = "防抖后的新标题";
-    window.dispatchEvent(new Event("boc:urlchange"));
+    window.dispatchEvent(new Event("biliscript:urlchange"));
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     const chip = document.getElementById(ids.readingChatContextChip) as HTMLButtonElement;

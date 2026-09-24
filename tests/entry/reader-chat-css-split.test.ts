@@ -18,8 +18,8 @@ const UI_RENDERER = "extension/ui/ui-renderer.ts";
 const CHAT_TAB = "extension/reader/chat-tab.ts";
 
 // 对话分区样式标记：拆分前全部在 reader.css，拆分后只允许在 reader-chat.css。
-// 不用裸串 boc-reading-chat——留守壳分区的 intent 卡（boc-reading-chat-intent-*）
-// 与三 tab 共享滚动条（.boc-reading-chat .chat-messages 滚动条）合法引用同前缀。
+// 不用裸串 biliscript-reading-chat——留守壳分区的 intent 卡（biliscript-reading-chat-intent-*）
+// 与三 tab 共享滚动条（.biliscript-reading-chat .chat-messages 滚动条）合法引用同前缀。
 const CHAT_MARKERS = [
   "chat-header",
   "chat-context-chip",
@@ -49,8 +49,8 @@ describe("对话分区 CSS 拆分（arch-slim-4/07）", () => {
 
   it("壳常驻分区留守 reader.css（intent 卡 + 三 tab 共享滚动条）", () => {
     const text = read(READER_CSS);
-    expect(text.includes("boc-reading-chat-intent")).toBe(true);
-    expect(text).toMatch(/\.boc-reading-chat \.chat-messages::-webkit-scrollbar/);
+    expect(text.includes("biliscript-reading-chat-intent")).toBe(true);
+    expect(text).toMatch(/\.biliscript-reading-chat \.chat-messages::-webkit-scrollbar/);
   });
 
   it("style-injector 暴露对话表三件套（无 onload 门控）", () => {
@@ -98,7 +98,7 @@ describe("长回复屏外段落跳过渲染（M13）", () => {
     for (const block of BLOCKS) {
       // c-v 跳过渲染只施加在历史消息上：正在流式输出的消息
       //（.chat-msg-streaming）豁免——估算占位高会让流式「滚到底」落点不准
-      const rule = findRule(css, `.boc-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) ${block}`);
+      const rule = findRule(css, `.biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) ${block}`);
       expect(rule, `chat 分区缺块级 c-v 规则: ${block}`).toBeTruthy();
       expect(rule).toMatch(/contain-intrinsic-size: auto none auto \d+px;/);
     }
@@ -107,10 +107,10 @@ describe("长回复屏外段落跳过渲染（M13）", () => {
   it("reader.css 解释卡同步逐块 c-v:auto；概览条目统一为 auto 记忆 + none 宽占位", () => {
     const css = read(READER_CSS);
     for (const block of BLOCKS) {
-      const rule = findRule(css, `.boc-reading-explain-card-answer ${block}`);
+      const rule = findRule(css, `.biliscript-reading-explain-card-answer ${block}`);
       expect(rule, `解释卡缺块级 c-v 规则: ${block}`).toBeTruthy();
       expect(rule).toMatch(/contain-intrinsic-size: auto none auto \d+px;/);
     }
-    expect(css).toMatch(/\.boc-reading-item \{[^}]*contain-intrinsic-size: auto none auto 44px;/s);
+    expect(css).toMatch(/\.biliscript-reading-item \{[^}]*contain-intrinsic-size: auto none auto 44px;/s);
   });
 });

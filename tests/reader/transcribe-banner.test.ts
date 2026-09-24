@@ -1,6 +1,6 @@
 // PR3 转写中间态呈现回归测试（横幅 + 列表淡出禁用 + 进度行）。
 //
-// 数据源结论（已核实）：boc-subtitle-status 的 chrome.runtime.sendMessage 广播
+// 数据源结论（已核实）：biliscript-subtitle-status 的 chrome.runtime.sendMessage 广播
 // 不会被发送方所在的 content script 自己收到——reader 与转写编排同进程，相位经
 // shared/subtitle-status-bus 的进程内镜像读取/订阅（fetcher.broadcastSubtitleStatus
 // 在原广播旁同步发布）；分片进度（片 x/y）页面侧拿不到（切片计划与总数只在

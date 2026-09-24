@@ -191,7 +191,7 @@ describe("键含 bvid+cid+段，键风格对齐 getSubtitleCacheKey", () => {
     const base = { bvid: "BV1a", cid: "1", segmentIndex: 3 };
     const url = "https://s.example.com/sub/abc.json?auth=1";
     const key = mod.getSegmentSummaryKey({ ...base, subtitleUrl: url });
-    expect(key).toBe(`boc_lvs_summary_BV1a_1_${buildSubtitleSourceKey("", url, "")}_3`);
+    expect(key).toBe(`biliscript_lvs_summary_BV1a_1_${buildSubtitleSourceKey("", url, "")}_3`);
 
     // 换 URL 中的 id（路径变化）→ source key 变
     const url2 = "https://s.example.com/sub/def.json?auth=2";
@@ -245,7 +245,7 @@ describe("上下文键位构造器：与原手拼键逐字节一致（预热缓�
       segmentIndex: 2
     });
     expect(await mod.loadSegmentSummary(legacySummaryKey)).toBe("统一键位小结");
-    expect(await mod.loadRawSegments(legacySummaryKey.replace("boc_lvs_summary_", "boc_lvs_raw_"))).toEqual([
+    expect(await mod.loadRawSegments(legacySummaryKey.replace("biliscript_lvs_summary_", "biliscript_lvs_raw_"))).toEqual([
       { from: 0, to: 5, content: "x" }
     ]);
   });
@@ -254,29 +254,29 @@ describe("上下文键位构造器：与原手拼键逐字节一致（预热缓�
 describe("容错：读写失败 logWarn 且不抛异常", () => {
   it("load 读失败返回 null（小结与原始段）", async () => {
     storage.local.get.mockRejectedValueOnce(new Error("read boom"));
-    await expect(mod.loadSegmentSummary("boc_lvs_summary_x")).resolves.toBeNull();
+    await expect(mod.loadSegmentSummary("biliscript_lvs_summary_x")).resolves.toBeNull();
 
     storage.local.get.mockRejectedValueOnce(new Error("read boom"));
-    await expect(mod.loadRawSegments("boc_lvs_raw_x")).resolves.toBeNull();
+    await expect(mod.loadRawSegments("biliscript_lvs_raw_x")).resolves.toBeNull();
   });
 
   it("save 写失败先淘汰重试：重试成功返回 { ok:true } 且不抛", async () => {
     storage.local.set.mockRejectedValueOnce(new Error("write boom"));
-    await expect(mod.saveSegmentSummary("boc_lvs_summary_x", "小结")).resolves.toMatchObject({ ok: true });
+    await expect(mod.saveSegmentSummary("biliscript_lvs_summary_x", "小结")).resolves.toMatchObject({ ok: true });
 
     storage.local.set.mockRejectedValueOnce(new Error("write boom"));
-    await expect(mod.saveRawSegments("boc_lvs_raw_x", [])).resolves.toMatchObject({ ok: true });
+    await expect(mod.saveRawSegments("biliscript_lvs_raw_x", [])).resolves.toMatchObject({ ok: true });
   });
 
   it("save 持续失败（淘汰后重试仍失败）返回 { ok:false, error } 且不抛异常", async () => {
     storage.local.set.mockRejectedValue(new Error("quota"));
-    const summaryResult = await mod.saveSegmentSummary("boc_lvs_summary_x", "小结");
+    const summaryResult = await mod.saveSegmentSummary("biliscript_lvs_summary_x", "小结");
     expect(summaryResult.ok).toBe(false);
     if (summaryResult.ok === false) {
       expect(summaryResult.error).toBeInstanceOf(Error);
     }
 
-    const rawResult = await mod.saveRawSegments("boc_lvs_raw_x", []);
+    const rawResult = await mod.saveRawSegments("biliscript_lvs_raw_x", []);
     expect(rawResult.ok).toBe(false);
     if (rawResult.ok === false) {
       expect(rawResult.error).toBeInstanceOf(Error);
@@ -299,14 +299,14 @@ describe("预算代隔离：budgetScale≠1 时 key 带代后缀（防段边界�
     const explicit = mod.buildSegmentSummaryCacheKey(context, 3, undefined);
     expect(byDefault).toBe(scaleOne);
     expect(byDefault).toBe(explicit);
-    expect(byDefault).toBe("boc_lvs_summary_BV1scale_5_id_sub-1_3");
-    expect(mod.buildRawSegmentCacheKey(context, 3)).toBe("boc_lvs_raw_BV1scale_5_id_sub-1_3");
+    expect(byDefault).toBe("biliscript_lvs_summary_BV1scale_5_id_sub-1_3");
+    expect(mod.buildRawSegmentCacheKey(context, 3)).toBe("biliscript_lvs_raw_BV1scale_5_id_sub-1_3");
   });
 
   it("budgetScale=0.5 → 追加 _b50 后缀；scale=2 → _b200；raw / summary 两族同规则", () => {
-    expect(mod.buildSegmentSummaryCacheKey(context, 3, 0.5)).toBe("boc_lvs_summary_BV1scale_5_id_sub-1_3_b50");
-    expect(mod.buildRawSegmentCacheKey(context, 3, 0.5)).toBe("boc_lvs_raw_BV1scale_5_id_sub-1_3_b50");
-    expect(mod.buildSegmentSummaryCacheKey(context, 3, 2)).toBe("boc_lvs_summary_BV1scale_5_id_sub-1_3_b200");
+    expect(mod.buildSegmentSummaryCacheKey(context, 3, 0.5)).toBe("biliscript_lvs_summary_BV1scale_5_id_sub-1_3_b50");
+    expect(mod.buildRawSegmentCacheKey(context, 3, 0.5)).toBe("biliscript_lvs_raw_BV1scale_5_id_sub-1_3_b50");
+    expect(mod.buildSegmentSummaryCacheKey(context, 3, 2)).toBe("biliscript_lvs_summary_BV1scale_5_id_sub-1_3_b200");
   });
 
   it("同段序号不同预算档 → key 不同（0.5 档绝不命中 1 档已落盘小结）", async () => {
@@ -317,7 +317,7 @@ describe("预算代隔离：budgetScale≠1 时 key 带代后缀（防段边界�
   });
 
   it("非法 budgetScale（非数）按缺省档处理（无后缀）", () => {
-    expect(mod.buildSegmentSummaryCacheKey(context, 3, "x")).toBe("boc_lvs_summary_BV1scale_5_id_sub-1_3");
+    expect(mod.buildSegmentSummaryCacheKey(context, 3, "x")).toBe("biliscript_lvs_summary_BV1scale_5_id_sub-1_3");
   });
 });
 
@@ -340,13 +340,13 @@ describe("saveSegmentSummaryWithRaw：两族合并写（段缓存写聚合 ticke
 
     expect(result).toEqual({ ok: true });
     // 存储操作 = 1 get（清单快照）+ 3 set（raw 数据 / summary 数据 / 两族索引+manifest 打包）
-    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === "boc_cache_lru_index").length;
+    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === "biliscript_cache_lru_index").length;
     expect(indexReads).toBe(1);
     expect(setCalls.filter((keys) => keys.includes(rawKey()))).toHaveLength(1);
     expect(setCalls.filter((keys) => keys.includes(summaryKey()))).toHaveLength(1);
-    const indexSet = setCalls.find((keys) => keys.includes("boc_cache_lru_index"));
-    expect(indexSet).toContain(`boc_cache_lru_index:boc_lvs_raw_:BV1pair:${rawKey()}`);
-    expect(indexSet).toContain(`boc_cache_lru_index:boc_lvs_summary_:BV1pair:${summaryKey()}`);
+    const indexSet = setCalls.find((keys) => keys.includes("biliscript_cache_lru_index"));
+    expect(indexSet).toContain(`biliscript_cache_lru_index:biliscript_lvs_raw_:BV1pair:${rawKey()}`);
+    expect(indexSet).toContain(`biliscript_cache_lru_index:biliscript_lvs_summary_:BV1pair:${summaryKey()}`);
     // 读回等价：loadRawSegments / loadSegmentSummary 各自命中
     expect(await mod.loadSegmentSummary(summaryKey())).toBe("合并小结");
     expect(await mod.loadRawSegments(rawKey())).toEqual([{ from: 0, to: 5, content: "x" }]);

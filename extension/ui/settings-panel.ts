@@ -1,7 +1,7 @@
 // settings-panel.ts — 侧边栏设置面板（script-only-ui）。
 //
 // 原独立 options 页（pages/options.{html,css,ts}）的全部设置项搬入 文摘面板
-// 的设置抽屉（ui-renderer 模板内的 #boc-reading-settings-host 容器，分节、
+// 的设置抽屉（ui-renderer 模板内的 #biliscript-reading-settings-host 容器，分节、
 // 随抽屉滚动），行为与 options 页逐条对应：
 //   - 装载（get-settings）→ 渲染三类行（固定属性/笔记段落/AI/ASR 平台）；
 //   - 保存（先同步收集与校验，再申请 host 权限，最后分三路落盘：
@@ -145,7 +145,7 @@ interface SettingsValidationResult {
 }
 
 // ===== 分区渲染隔离（interactions-in-complex-layouts 指南，M15）=====
-// .boc-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
+// .biliscript-set-group 是随抽屉滚动的自包含布局区：contain: layout style 把行增删/
 // 校验错误显示/保存重渲等分区内部变更的 style/layout 失效圈在分区内，不上溯
 // 阅读壳与宿主 B 站页面。
 // 不取 paint containment（r1 评审）：paint 会把后代裁剪到分区 padding box，
@@ -158,7 +158,7 @@ interface SettingsValidationResult {
 // 本任务 scope（M15 只放行 settings-panel 等五个文件）；内联也让应用时机与
 // 模板构建同处一地。仅首建调用一次，非每次交互。
 function applySectionContainment(host: HTMLElement): void {
-  host.querySelectorAll<HTMLElement>(".boc-set-group").forEach((group) => {
+  host.querySelectorAll<HTMLElement>(".biliscript-set-group").forEach((group) => {
     group.style.contain = "layout style";
   });
 }
@@ -199,9 +199,9 @@ function collectElements(host: HTMLElement) {
     webSearchMaxToolCalls: byIdIn<HTMLInputElement>("webSearchMaxToolCalls"),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>("aiSystemPrompt"),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
-    saveBtn: byIdIn<HTMLButtonElement>("bocSettingsSaveBtn"),
-    resetBtn: byIdIn<HTMLButtonElement>("bocSettingsResetBtn"),
-    status: byIdIn<HTMLElement>("bocSettingsStatus")
+    saveBtn: byIdIn<HTMLButtonElement>("biliscriptSettingsSaveBtn"),
+    resetBtn: byIdIn<HTMLButtonElement>("biliscriptSettingsResetBtn"),
+    status: byIdIn<HTMLElement>("biliscriptSettingsStatus")
   };
 }
 
@@ -219,16 +219,16 @@ export function renderReaderSettingsPanel(): void {
     return;
   }
   settingsHostRef = host;
-  if (!host.dataset.bocSettingsRendered) {
+  if (!host.dataset.biliscriptSettingsRendered) {
     void (async () => {
       await whenReaderSettingsStylesReady();
-      if (!host.isConnected || host.dataset.bocSettingsRendered) {
+      if (!host.isConnected || host.dataset.biliscriptSettingsRendered) {
         return;
       }
       host.innerHTML = buildSettingsHtml();
       applySectionContainment(host);
       bindSettingsEvents(host);
-      host.dataset.bocSettingsRendered = "1";
+      host.dataset.biliscriptSettingsRendered = "1";
       void loadSettings(collectElements(host));
     })();
     return;

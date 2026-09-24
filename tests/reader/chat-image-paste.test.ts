@@ -181,8 +181,8 @@ function sendEnter(): void {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   ports.length = 0;
   providersPayload = DEFAULT_PROVIDERS_PAYLOAD;
   stubCanvasPrimitives();

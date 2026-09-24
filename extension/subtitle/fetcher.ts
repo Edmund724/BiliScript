@@ -94,7 +94,7 @@ export async function tryLoadSubtitleCandidates(
   let lastError: unknown = null;
   for (const item of candidates || []) {
     try {
-      logInfo("[BOC] try subtitle track", {
+      logInfo("[BILISCRIPT] try subtitle track", {
         id: item.id,
         lan: item.lan,
         lanDoc: item.lanDoc,
@@ -119,9 +119,9 @@ export async function tryLoadSubtitleCandidates(
         reason: reasonCode || reasonMessage
       };
       if (reasonCode === "SUBTITLE_DURATION_MISMATCH") {
-        logInfo(`[BOC] subtitle track skipped ${JSON.stringify(meta)}`);
+        logInfo(`[BILISCRIPT] subtitle track skipped ${JSON.stringify(meta)}`);
       } else {
-        logWarn(`[BOC] subtitle track rejected ${JSON.stringify(meta)}`);
+        logWarn(`[BILISCRIPT] subtitle track rejected ${JSON.stringify(meta)}`);
       }
       ensureRunActive(runId, state.clip.fetchRunId);
       continue;
@@ -219,7 +219,7 @@ export async function refreshClip(): Promise<void> {
     // 改在门外先判 shouldDebugLog()，门关时跳过整套 map 分配。
     if (shouldDebugLog()) {
       logInfo(
-        "[BOC] chapters",
+        "[BILISCRIPT] chapters",
         state.clip.chapters.map((item) => ({
           from: item.from,
           to: item.to,
@@ -227,7 +227,7 @@ export async function refreshClip(): Promise<void> {
         }))
       );
       logInfo(
-        "[BOC] subtitle tracks",
+        "[BILISCRIPT] subtitle tracks",
         state.clip.subtitles.map((item) => ({
           id: item.id,
           lan: item.lan,
@@ -261,7 +261,7 @@ export async function refreshClip(): Promise<void> {
     }
     ensureRunActive(runId, state.clip.fetchRunId);
     if (selected) {
-      logInfo("[BOC] selected subtitle track", {
+      logInfo("[BILISCRIPT] selected subtitle track", {
         id: selected.id,
         lan: selected.lan,
         lanDoc: selected.lanDoc
@@ -294,7 +294,7 @@ async function resolveClipMeta(runId: number): Promise<void> {
   ensureRunActive(runId, state.clip.fetchRunId);
 
   // 调试：打印 API 返回的原始数据
-  logInfo("[BOC] raw meta data", {
+  logInfo("[BILISCRIPT] raw meta data", {
     meta,
     defaultCid: meta.defaultCid,
     pagesCount: (meta.pages || []).length
@@ -323,7 +323,7 @@ async function resolveClipMeta(runId: number): Promise<void> {
     throw new Error("无法获取当前视频时长，已停止抓取以避免串到错误字幕。");
   }
 
-  logInfo("[BOC] resolved video ids", {
+  logInfo("[BILISCRIPT] resolved video ids", {
     url: location.href,
     aid: state.clip.aid,
     bvid: state.clip.bvid,
@@ -475,13 +475,13 @@ export async function loadSubtitle(
     if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
       const cachedCheck = validateSubtitleByDuration(cachedBody, state.clip.videoDuration);
       if (!cachedCheck.ok) {
-        logWarn("[BOC] cached subtitle duration mismatch, clearing cache", {
+        logWarn("[BILISCRIPT] cached subtitle duration mismatch, clearing cache", {
           cacheKey,
           reason: cachedCheck.reason
         });
         await clearSubtitleCacheByKey(cacheKey);
       } else {
-        logInfo("[BOC] using cached subtitle", { cacheKey, itemCount: cachedBody.length });
+        logInfo("[BILISCRIPT] using cached subtitle", { cacheKey, itemCount: cachedBody.length });
         ensureRunActive(runId, state.clip.fetchRunId);
         // 字幕接受事务（commit.acceptSubtitle）：写 selected 三项 → ready →
         // 清原因 → 刷新派生 → 通知 reader，旧缓存条目可能无序，幂等稳定排序
@@ -552,7 +552,7 @@ async function loadAsrFallbackOrNull() {
     const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");
     return await loadActiveAsrFallback();
   } catch (asrLoadError) {
-    logWarn("[BOC] asr fallback module load failed; treat as no active transcribe", asrLoadError);
+    logWarn("[BILISCRIPT] asr fallback module load failed; treat as no active transcribe", asrLoadError);
     return null;
   }
 }

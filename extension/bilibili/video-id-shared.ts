@@ -5,7 +5,7 @@
 
 export function isReaderMode(url: string = location.href): boolean {
   try {
-    return new URL(url).searchParams.get("boc_reader") === "1";
+    return new URL(url).searchParams.get("biliscript_reader") === "1";
   } catch {
     return false;
   }
@@ -14,7 +14,7 @@ export function isReaderMode(url: string = location.href): boolean {
 export function stripReaderModeUrl(url: string = location.href): string {
   try {
     const parsed = new URL(url);
-    parsed.searchParams.delete("boc_reader");
+    parsed.searchParams.delete("biliscript_reader");
     return parsed.toString();
   } catch {
     return url;
@@ -100,8 +100,8 @@ export function cleanVideoUrl(href: string = location.href): string {
   }
 }
 
-// boc_reader=1 阅读模式 URL 的唯一拼法：cleanVideoUrl 清成规范视频 URL 再加
-// boc_reader=1 查询参数；非 B 站/非视频 URL 原样返回（cleanVideoUrl 语义），
+// biliscript_reader=1 阅读模式 URL 的唯一拼法：cleanVideoUrl 清成规范视频 URL 再加
+// biliscript_reader=1 查询参数；非 B 站/非视频 URL 原样返回（cleanVideoUrl 语义），
 // URL 解析失败回落 cleanVideoUrl 的结果，绝不抛出。
 // 2026-09 工单 02-toolbar-icon-opens-script：工具栏 action 点击（SW 侧）与页内
 // 文摘按钮共用本单源——原住 bilibili/reader-url.ts，因该文件拖 core/state
@@ -111,7 +111,7 @@ export function buildReaderModeUrl(rawUrl: string): string {
   const base = cleanVideoUrl(rawUrl);
   try {
     const parsed = new URL(base);
-    parsed.searchParams.set("boc_reader", "1");
+    parsed.searchParams.set("biliscript_reader", "1");
     return parsed.toString();
   } catch {
     return base;

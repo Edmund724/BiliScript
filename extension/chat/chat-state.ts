@@ -120,11 +120,11 @@ export interface ChatSessionState {
     defaultModel?: string;
   };
   // ---- 杂项标志 ----
-  // content 侧音频转写进行中的兜底信号（boc-subtitle-status 广播写，
+  // content 侧音频转写进行中的兜底信号（biliscript-subtitle-status 广播写，
   // subtitleWaiter 轮询读）
   asrTranscribingActive: boolean;
   // 思考档位（off/low/high）。双持久化：chrome.storage.local
-  // boc_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
+  // biliscript_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
   // 读取以 settings ?? storage 为准（写点在 providers.ts 的 setThinkingLevel /
   // loadProvidersAndPrefs）。
   aiThinkingLevel: "off" | "low" | "high";
@@ -163,11 +163,11 @@ export const chatSessionState: ChatSessionState = {
     aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
   },
   // ---- 杂项标志 ----
-  // content 侧音频转写进行中的兜底信号（boc-subtitle-status 广播写，
+  // content 侧音频转写进行中的兜底信号（biliscript-subtitle-status 广播写，
   // subtitleWaiter 轮询读）
   asrTranscribingActive: false,
   // 思考档位（off/low/high）。双持久化：chrome.storage.local
-  // boc_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
+  // biliscript_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
   // 读取以 settings ?? storage 为准（写点在 providers.ts 的 setThinkingLevel /
   // loadProvidersAndPrefs）。
   aiThinkingLevel: "off",

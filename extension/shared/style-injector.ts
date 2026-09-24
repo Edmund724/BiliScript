@@ -27,7 +27,7 @@
 // 的页内分发槽、reader/reader-bus.ts 的槽表、core/state.ts 的状态单例同款
 // 先例）。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（挂载
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（挂载
 // 记录与 ready promise 表），允许双实例；安全依据即上文的 globalThis 槽。
 interface StyleInjectorSlots {
   mounted: Map<string, HTMLLinkElement>;
@@ -36,7 +36,7 @@ interface StyleInjectorSlots {
   readerSettingsReady: Promise<void> | null;
 }
 
-const STYLE_SLOT_KEY = "__BOC_STYLE_INJECTOR__";
+const STYLE_SLOT_KEY = "__BILISCRIPT_STYLE_INJECTOR__";
 
 function styleSlots(): StyleInjectorSlots {
   const host = globalThis as unknown as Record<string, StyleInjectorSlots | undefined>;
@@ -126,7 +126,7 @@ export function whenReaderSettingsStylesReady(): Promise<void> {
 //   1. github-markdown.css：AI 回复 markdown 排版基线（vendored，选择器
 //      特异性低，作底座）；
 //   2. github-markdown-theme.css：primer --fgColor-*/--bgColor-* 变量映射到
-//      --boc-reader-*（含 data-theme 暗色档），并复位字体/字号/背景为宿主值；
+//      --biliscript-reader-*（含 data-theme 暗色档），并复位字体/字号/背景为宿主值；
 //   3. reader-chat.css：站内有意为之的覆盖层（气泡紧凑间距、标题字号阶梯、
 //      时间戳 pill、content-visibility），特异性 0-2-x 且排在最后，稳赢基线。
 const READER_CHAT_STYLE_PATHS = [
@@ -156,7 +156,7 @@ function mountStyleLink(path: string): HTMLLinkElement {
   link = document.createElement("link");
   link.rel = "stylesheet";
   link.href = chrome.runtime.getURL(path);
-  link.dataset.bocStyle = "1";
+  link.dataset.biliscriptStyle = "1";
   (document.head || document.documentElement).appendChild(link);
   mounted.set(path, link);
   return link;

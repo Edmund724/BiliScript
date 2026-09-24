@@ -4,7 +4,7 @@
 // 运行结束 release 断开。SW 异常断连（崩溃/重载）时端口随之失效——兜底为
 // 不重连：后续段缓存消息自然走既有唤醒/错误路径，不影响运行本身的错误语义。
 
-export const SW_KEEPALIVE_PORT_NAME = "boc-sw-keepalive";
+export const SW_KEEPALIVE_PORT_NAME = "biliscript-sw-keepalive";
 
 export interface SwKeepaliveHandle {
   release: () => void;

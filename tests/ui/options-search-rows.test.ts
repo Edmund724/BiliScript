@@ -22,10 +22,10 @@ import {
 } from "../../extension/ui/options-search-rows.js";
 
 function makeContainer() {
-  document.body.innerHTML = '<div id="boc-reading-view"><section id="boc-reading-settings-panel"></section></div>';
+  document.body.innerHTML = '<div id="biliscript-reading-view"><section id="biliscript-reading-settings-panel"></section></div>';
   const listNode = document.createElement("div");
   const emptyNode = document.createElement("p");
-  document.getElementById("boc-reading-view")!.append(listNode, emptyNode);
+  document.getElementById("biliscript-reading-view")!.append(listNode, emptyNode);
   return { listNode, emptyNode };
 }
 

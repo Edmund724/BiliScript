@@ -1,9 +1,9 @@
 // Reader LAYOUT 层 · script-host 域（右栏 文摘面板定位器）。
 //
-// 职责：计算右栏 rect 并写入 #boc-reading-view 的 CSS 变量
-// --boc-script-left/top/width/height。定位 CSS（reader-gate.css）消费这些变量，
+// 职责：计算右栏 rect 并写入 #biliscript-reading-view 的 CSS 变量
+// --biliscript-script-left/top/width/height。定位 CSS（reader-gate.css）消费这些变量，
 // 本模块只负责「算 + 写」；浮层形态（降级 2）不写变量，改设
-// data-boc-script-float="1" 属性，让 CSS 回落到 reader.css 既有的
+// data-biliscript-script-float="1" 属性，让 CSS 回落到 reader.css 既有的
 // 居中浮层基础样式。
 //
 // 贴栏形态的几何：面板吃掉「锚点左缘 → 视口右缘」整条右侧（B 站容器有最大
@@ -18,7 +18,7 @@
 //
 // 附带职责（M19）：滚动起止的材质降级标记。面板贴栏时每帧随变量位移，
 // header/设置抽屉的 backdrop-filter 会逐帧重采样；滚动期间给视图节点挂
-// data-boc-script-scrolling（CSS 侧摘掉毛玻璃），scrollend 或 150ms 静默
+// data-biliscript-script-scrolling（CSS 侧摘掉毛玻璃），scrollend 或 150ms 静默
 // 兜底摘除。与 rAF 重算共用 scroll 监听、各自独立的收尾节拍。
 //
 // 为什么不用 MutationObserver：弹幕每飘一条都是变更事件，白烧 CPU（见
@@ -27,7 +27,7 @@
 // 的按钮自愈相互独立，不复用 shared/self-heal.js 的 200ms 常量）。
 
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
-// #boc-reading-view 的 id 单源（arch-slim-2/03）：reader/state.js 的 id 表就是
+// #biliscript-reading-view 的 id 单源（arch-slim-2/03）：reader/state.js 的 id 表就是
 // 为此存在，本模块四处手抄字面量收口到 ids.readingView。
 import { ids } from "./state.js";
 
@@ -66,14 +66,14 @@ const REANCHOR_INTERVAL_MS = 2000;
 
 // 贴栏宽度下限：定死 380px。
 
-const SCRIPT_VAR_PREFIX = "--boc-script-";
+const SCRIPT_VAR_PREFIX = "--biliscript-script-";
 const SCRIPT_VARS = ["left", "top", "width", "height"] as const;
-const FLOAT_ATTR = "data-boc-script-float";
-// 滚动进行中标记：贴栏态面板每帧随 --boc-script-top 位移，header/设置抽屉的
+const FLOAT_ATTR = "data-biliscript-script-float";
+// 滚动进行中标记：贴栏态面板每帧随 --biliscript-script-top 位移，header/设置抽屉的
 // backdrop-filter 跟着每帧重采样（M12 巡检 P2-2）。滚动期间摘掉毛玻璃、停下
 // 恢复——面板壳自身是不透明底，header/抽屉的 backdrop 只有面板底色，摘掉期间
 // 模糊结果无可见差异；静止态材质一字不动。规则在 reader.css / reader-settings-providers.css。
-const SCROLLING_ATTR = "data-boc-script-scrolling";
+const SCROLLING_ATTR = "data-biliscript-script-scrolling";
 // 滚动收尾兜底窗：scrollend（支持时）即时恢复材质，本定时器兜底——滚动事件
 // 每拍重置，滚动停止 150ms 内无 scrollend 也会恢复，不依赖引擎事件支持。
 const SCROLL_IDLE_TIMEOUT_MS = 150;

@@ -27,7 +27,7 @@ vi.mock("../../extension/shared/tab-utils.js", () => ({
 }));
 
 const VIDEO_URL = "https://www.bilibili.com/video/BV1abc000000/?p=2&spm_id_from=x";
-const VIDEO_READER_URL = "https://www.bilibili.com/video/BV1abc000000/?p=2&boc_reader=1";
+const VIDEO_READER_URL = "https://www.bilibili.com/video/BV1abc000000/?p=2&biliscript_reader=1";
 
 // ===== SW 半边：action onClicked → 同一条 reader-enter 事务 =====
 
@@ -76,7 +76,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
     await vi.waitFor(() => expect(sendMessageToTab).toHaveBeenCalledTimes(1));
 
     // readerUrl = buildReaderModeUrl(tab.url)：cleanVideoUrl 清掉非视频参数
-    // （spm_id_from）保留分 P 后加 boc_reader=1，与页内按钮同源单源拼法。
+    // （spm_id_from）保留分 P 后加 biliscript_reader=1，与页内按钮同源单源拼法。
     expect(sendMessageToTab).toHaveBeenCalledWith(7, {
       type: "reader-enter",
       readerUrl: VIDEO_READER_URL
@@ -93,7 +93,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
 
     expect(sendMessageToTab).toHaveBeenCalledWith(8, {
       type: "reader-enter",
-      readerUrl: "https://www.bilibili.com/video/BV1wl000001/?boc_reader=1"
+      readerUrl: "https://www.bilibili.com/video/BV1wl000001/?biliscript_reader=1"
     });
   });
 
@@ -211,7 +211,7 @@ describe("工具栏载荷与页内 文摘按钮的进入事务等价", () => {
     const lazy = await import("../../extension/ui/lazy-script-button.js");
     await lazy.loadScriptButton();
 
-    const button = document.getElementById("boc-script-button");
+    const button = document.getElementById("biliscript-script-button");
     expect(button).not.toBeNull();
     button!.click();
 

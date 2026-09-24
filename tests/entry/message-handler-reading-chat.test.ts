@@ -34,7 +34,7 @@ vi.mock("../../extension/reader/state.js", () => ({
 }));
 vi.mock("../../extension/core/url-watcher.js", () => ({
   startUrlWatcher: vi.fn(),
-  BOC_URL_CHANGE_EVENT: "boc:urlchange"
+  BILISCRIPT_URL_CHANGE_EVENT: "biliscript:urlchange"
 }));
 // arch-slim-2/03：reader-url 单源后 shell 的兜底 URL 也经 buildReaderModeUrl——
 // 只 mock 掉带副作用的 replaceState（replaceReaderModeUrl），URL 拼法走真身。
@@ -121,7 +121,7 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
 
     const sendResponse = vi.fn();
     const keepOpen = messageListener(
-      { type: "reader-enter", readerUrl: "https://www.bilibili.com/video/BV1/?boc_reader=1", chat: { prompt: "总结" } },
+      { type: "reader-enter", readerUrl: "https://www.bilibili.com/video/BV1/?biliscript_reader=1", chat: { prompt: "总结" } },
       {},
       sendResponse
     );
@@ -155,7 +155,7 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
     ensureReaderDomain.mockResolvedValue({ enterReaderMode });
 
     const sendResponse = vi.fn();
-    messageListener({ type: "reader-enter", readerUrl: "https://www.bilibili.com/video/BV1/?boc_reader=1" }, {}, sendResponse);
+    messageListener({ type: "reader-enter", readerUrl: "https://www.bilibili.com/video/BV1/?biliscript_reader=1" }, {}, sendResponse);
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
     await vi.waitFor(() => expect(enterReaderMode).toHaveBeenCalledTimes(1));
@@ -185,11 +185,11 @@ describe("reader-enter + chat 负载：打开阅读模式并激活对话 tab（�
 describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL", () => {
   // PR5c 回归：background 的 player-ai 链在「未在阅读模式」时也传空 readerUrl
   //（原语义假设空串 = 已在阅读模式内只聚焦）。若 content 侧跳过 URL 改写 +
-  // 阅读表 + data-boc-reader-mode 门控，enterReaderMode 会落在无样式的半进入态
+  // 阅读表 + data-biliscript-reader-mode 门控，enterReaderMode 会落在无样式的半进入态
   //（布局微变但阅读模式不出现）。
   afterEach(() => {
-    document.documentElement.removeAttribute("data-boc-reader-mode");
-    document.body.removeAttribute("data-boc-reader-mode");
+    document.documentElement.removeAttribute("data-biliscript-reader-mode");
+    document.body.removeAttribute("data-biliscript-reader-mode");
   });
 
   it("reader-enter：空 readerUrl 且视图未开 → 兜底改写 + 翻门控属性 + enterReaderMode", async () => {
@@ -204,9 +204,9 @@ describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL"
 
     await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledWith({ ok: true }));
     await vi.waitFor(() => expect(enterReaderMode).toHaveBeenCalledTimes(1));
-    expect(replaceReaderModeUrl).toHaveBeenCalledWith("https://www.bilibili.com/video/BV1test000000/?boc_reader=1");
-    expect(document.documentElement.getAttribute("data-boc-reader-mode")).toBe("1");
-    expect(document.body.getAttribute("data-boc-reader-mode")).toBe("1");
+    expect(replaceReaderModeUrl).toHaveBeenCalledWith("https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1");
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+    expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
   });
 
   it("reader-enter：空 readerUrl 且视图已开 → 保持纯聚焦语义，不改写 URL", async () => {
@@ -234,7 +234,7 @@ describe("空 readerUrl 兜底：视图未开时用当前地址构造阅读 URL"
     messageListener({ type: "reader-enter", readerUrl: "", chat: { prompt: "总结" } }, {}, vi.fn());
 
     await vi.waitFor(() => expect(chat.runQuickActionPrompt).toHaveBeenCalledWith("总结"));
-    expect(replaceReaderModeUrl).toHaveBeenCalledWith("https://www.bilibili.com/video/BV1test000000/?boc_reader=1");
-    expect(document.documentElement.getAttribute("data-boc-reader-mode")).toBe("1");
+    expect(replaceReaderModeUrl).toHaveBeenCalledWith("https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1");
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
   });
 });

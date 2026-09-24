@@ -54,7 +54,7 @@ describe("reader 域自注册 presenter 订阅（双实例缺陷回归）", () =
 
     presenter.notifyReaderPresenter("subtitle-ready");
 
-    expect(document.querySelectorAll(".boc-reading-item").length).toBe(1);
+    expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(1);
     // 状态行文案由同一条通知先写「抓取完成，阅读视图已同步最新字幕。」，随后
     // 播放同步 tick（startReadingViewSync）接手改写为「当前进度 …」——生产同序，
     // 故此处只断言列表（状态行路径由上一用例钉住）。

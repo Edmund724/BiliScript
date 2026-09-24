@@ -1,6 +1,6 @@
 // Reader 呈现属性单一事实源（候选06 属性表半边）。
 //
-// 「阅读模式开着 + 排版设置」由一组 data-boc-reader-* / data-boc-reading-* 页面
+// 「阅读模式开着 + 排版设置」由一组 data-biliscript-reader-* / data-biliscript-reading-* 页面
 // 属性表达。历史上同一份字段清单在 5 处手抄且已漂移：
 //   1. 写入方 presentation.js（applyReadingViewPresentation）；
 //   2. closeReadingView 的移除清单（lifecycle.js）——漏了 subtitle-visible；
@@ -59,7 +59,7 @@ export interface ReaderPresentationField {
 //                                    只为 bindSettingsWatcher 的键清单服务）。
 //   targets         作用目标 → 该目标上的连字符属性名；不在该目标落位为 null。
 //                     html = documentElement，body = document.body，
-//                     readingView = #boc-reading-view（短名属性）。
+//                     readingView = #biliscript-reading-view（短名属性）。
 //   datasetKeys     与 targets 同序的 dataset 驼峰键（attr 去掉 "data-" 转驼峰；
 //                   不变量测试会校验两者一致，防手抄漂移）。
 //   storageKey      对应 chrome.storage 设置键（无则 null）。
@@ -73,7 +73,7 @@ export interface ReaderPresentationField {
 //                   close 与守卫清理的范围差由本标志与 clearOnGuard 的组合
 //                   显式声明。
 //   clearViewOnClose  readingView 上的短名镜像是否随 close 清除。排版字段的
-//                   短名镜像不清：#boc-reading-view 是常驻模板壳，close 只把
+//                   短名镜像不清：#biliscript-reading-view 是常驻模板壳，close 只把
 //                   它复位到关闭基线（class/aria/ready），短名属性由下次 open
 //                   的 apply 全量重写，且无任何
 //                   close→open 窗口期消费方；视图内标志 follow 则必须清。
@@ -87,8 +87,8 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
   {
     id: "theme",
     kind: "presentation",
-    targets: { html: "data-boc-reader-theme", body: "data-boc-reader-theme", readingView: "data-theme" },
-    datasetKeys: { html: "bocReaderTheme", body: "bocReaderTheme", readingView: "theme" },
+    targets: { html: "data-biliscript-reader-theme", body: "data-biliscript-reader-theme", readingView: "data-theme" },
+    datasetKeys: { html: "biliscriptReaderTheme", body: "biliscriptReaderTheme", readingView: "theme" },
     storageKey: "readerTheme",
     legacyStorageKey: null,
     watchedByGuard: true,
@@ -102,8 +102,8 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
   {
     id: "mode",
     kind: "enter-flag",
-    targets: { html: "data-boc-reader-mode", body: "data-boc-reader-mode", readingView: null },
-    datasetKeys: { html: "bocReaderMode", body: "bocReaderMode", readingView: null },
+    targets: { html: "data-biliscript-reader-mode", body: "data-biliscript-reader-mode", readingView: null },
+    datasetKeys: { html: "biliscriptReaderMode", body: "biliscriptReaderMode", readingView: null },
     storageKey: null,
     legacyStorageKey: null,
     watchedByGuard: true,
@@ -116,10 +116,10 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
   {
     id: "readingActive",
     kind: "enter-flag",
-    // 变体前缀 data-boc-reading-*（非 reader-*），只在 body 上（CSS 隐藏
+    // 变体前缀 data-biliscript-reading-*（非 reader-*），只在 body 上（CSS 隐藏
     // 播放器原生字幕层依赖它）。
-    targets: { html: null, body: "data-boc-reading-active", readingView: null },
-    datasetKeys: { html: null, body: "bocReadingActive", readingView: null },
+    targets: { html: null, body: "data-biliscript-reading-active", readingView: null },
+    datasetKeys: { html: null, body: "biliscriptReadingActive", readingView: null },
     storageKey: null,
     legacyStorageKey: null,
     watchedByGuard: true,
@@ -133,8 +133,8 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
   {
     id: "follow",
     kind: "view-flag",
-    targets: { html: null, body: null, readingView: "data-boc-reader-follow" },
-    datasetKeys: { html: null, body: null, readingView: "bocReaderFollow" },
+    targets: { html: null, body: null, readingView: "data-biliscript-reader-follow" },
+    datasetKeys: { html: null, body: null, readingView: "biliscriptReaderFollow" },
     storageKey: null,
     legacyStorageKey: null,
     watchedByGuard: false,
@@ -228,14 +228,14 @@ export const READER_SETTINGS_WATCH_KEYS: string[] = [
 ];
 
 // 有意不入主表的同前缀局部标志：不参与呈现属性契约的临时/局部标记，由本清单
-// 统一登记防漂移。注意 data-boc-reader-ready 的写读点跨多文件（非「写入方与
+// 统一登记防漂移。注意 data-biliscript-reader-ready 的写读点跨多文件（非「写入方与
 // 清除方在同一处」的局部标志语义，arch-slim-2/03 订正），登记在此是防手抄清单
 // 复活的权宜——它按语义本该进主表。
-// 源码扫描测试据此放行；新增 data-boc-* 属性字面量必须要么进主表、要么进本清单。
+// 源码扫描测试据此放行；新增 data-biliscript-* 属性字面量必须要么进主表、要么进本清单。
 export const LOCAL_FLAG_ATTRIBUTES = new Set([
   // 视图就绪态。写：ui-renderer 模板初值 "0" + lifecycle.ts（进入置 "0"、
   // setReadingViewReady 写 "1"/"0"）；读：shell.ts 的壳完好性判定 +
   // reader.css / reader-gate.css 的门控选择器。
-  "data-boc-reader-ready",
-  "data-boc-reader-hide-sending-bar"  // close 时瞬时隐藏 B 站发送条（写入/清除同在 lifecycle）
+  "data-biliscript-reader-ready",
+  "data-biliscript-reader-hide-sending-bar"  // close 时瞬时隐藏 B 站发送条（写入/清除同在 lifecycle）
 ]);

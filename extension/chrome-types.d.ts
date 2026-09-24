@@ -222,9 +222,9 @@ declare namespace chrome {
 // content 入口的全局哨兵（原 entry/entry-globals.d.ts 归并于此）：全局脚本
 // 作用域直接与 lib.dom 的 Window 合并；var 声明供 globalThis.xxx 访问。
 interface Window {
-  __BOC_CONTENT_SCRIPT_LOADED__?: string;
-  __BOC_CONTENT_BOOTSTRAP_STARTED__?: boolean;
+  __BILISCRIPT_CONTENT_SCRIPT_LOADED__?: string;
+  __BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__?: boolean;
 }
 
-var __BOC_CONTENT_SCRIPT_LOADED__: string | undefined;
-var __BOC_CONTENT_BOOTSTRAP_STARTED__: boolean | undefined;
+var __BILISCRIPT_CONTENT_SCRIPT_LOADED__: string | undefined;
+var __BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__: boolean | undefined;

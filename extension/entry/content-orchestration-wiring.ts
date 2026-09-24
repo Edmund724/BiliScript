@@ -17,7 +17,7 @@ export const EXPECTED_CONTENT_SCRIPT_VERSION = chrome.runtime.getManifest().vers
 async function probeContentScriptVersionOnce(tabId: number) {
   const probe = await chrome.scripting.executeScript({
     target: { tabId },
-    func: () => (globalThis as Record<string, unknown>).__BOC_CONTENT_SCRIPT_LOADED__ || ""
+    func: () => (globalThis as Record<string, unknown>).__BILISCRIPT_CONTENT_SCRIPT_LOADED__ || ""
   });
   return String(probe?.[0]?.result || "");
 }
@@ -34,7 +34,7 @@ async function injectReaderAssets(tabId: number) {
   await chrome.scripting.executeScript({
     // 候选4 分包后这里注入 classic bootstrap：它置版本哨兵后异步拉起 ESM
     // 主包（manifest.content_scripts 指向同一文件，注入语义一致）。重复注入
-    // 由 bootstrap 的 __BOC_CONTENT_BOOTSTRAP_STARTED__ 标志挡住；classic 重复
+    // 由 bootstrap 的 __BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__ 标志挡住；classic 重复
     // 注入的词法冲突哨兵（见 shared/content-error-sentinels.js）由编排层吞掉。
     target: { tabId },
     files: ["entry/content-bootstrap.iife.js"]
@@ -47,7 +47,7 @@ async function isTabReaderModeOff(tabId: number) {
     return false;
   }
   try {
-    return new URL(tab.url).searchParams.get("boc_reader") !== "1";
+    return new URL(tab.url).searchParams.get("biliscript_reader") !== "1";
   } catch {
     return false;
   }

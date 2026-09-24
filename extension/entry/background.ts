@@ -171,7 +171,7 @@ async function triggerReaderChatInTab(
       if (parsed.hostname !== "www.bilibili.com") {
         throw new Error("当前网页不是 B 站视频页");
       }
-      parsed.searchParams.set("boc_reader", "1");
+      parsed.searchParams.set("biliscript_reader", "1");
       url = parsed.toString();
     } catch (error) {
       throw new Error((error as Error).message || "阅读视图地址无效");
@@ -185,7 +185,7 @@ async function triggerReaderChatInTab(
 }
 
 // player-ai 悬浮按钮语义反转（工单 08 决议 2）：不再打开 AI 侧边栏/写 storage
-// 信箱（boc_player_ai_quick_action_v1 已退役），改为「进入/聚焦阅读模式 +
+// 信箱（biliscript_player_ai_quick_action_v1 已退役），改为「进入/聚焦阅读模式 +
 // 定位对话 tab + 自动发送快捷提示词」——单条带 chat 负载的 reader-enter 走
 // triggerReaderModeInTab 链（空 readerUrl = 已在阅读模式内，只聚焦），
 // 提示词组装后由 content 侧进入事务内的对话 seam runQuickActionPrompt 消费。
@@ -488,14 +488,14 @@ chrome.runtime.onInstalled.addListener(async () => {
     await reapAllSessionRules();
   } catch (error) {
     // 清理失败只记日志：残留在下次 prepare 的对账/回收仍会被收编
-    logWarn("[BOC] asr session rule reap on install/update failed", error);
+    logWarn("[BILISCRIPT] asr session rule reap on install/update failed", error);
   }
   try {
     await initializeSettingsStorage();
   } catch (error) {
     // 安装/更新迁移失败不进 SW unhandled rejection，只记日志（下次安装/更新
     // 会重试整段迁移）。
-    logWarn("[BOC] settings storage init on install/update failed", error);
+    logWarn("[BILISCRIPT] settings storage init on install/update failed", error);
   }
 });
 
@@ -537,7 +537,7 @@ chrome.action?.onClicked?.addListener(
     }
     const triggered = await triggerReaderModeInTab(tabId, buildReaderModeUrl(tab.url || ""));
     if (!triggered) {
-      logWarn("[BOC] toolbar action click: reader-enter 触发失败（重试耗尽）");
+      logWarn("[BILISCRIPT] toolbar action click: reader-enter 触发失败（重试耗尽）");
     }
   }
 );

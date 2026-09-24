@@ -80,7 +80,7 @@ vi.mock("../../extension/subtitle/cache.js", () => ({
   clearSubtitleCacheByKey: vi.fn(async () => {}),
   saveSubtitleToCache: vi.fn(async () => {}),
   loadSubtitleFromCache: vi.fn(async () => null),
-  getSubtitleCacheKey: vi.fn(() => "boc_subtitle_cache_test")
+  getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_test")
 }));
 
 // 被测对象（真实 fetcher 模块；原部分 mock 的 fetchVideoMeta/fetchSubtitleBundle
@@ -111,9 +111,9 @@ beforeEach(() => {
   setupEnvironment();
   history.replaceState({}, "", NORMAL_PAGE_URL);
   document.body.innerHTML = "";
-  // resetClipState（真实代码）通过 byId("boc-preview") 写空值，需该 DOM 节点
+  // resetClipState（真实代码）通过 byId("biliscript-preview") 写空值，需该 DOM 节点
   const preview = document.createElement("textarea");
-  preview.id = "boc-preview";
+  preview.id = "biliscript-preview";
   document.body.appendChild(preview);
 
   clipState.setBvid("BV1test000000");
@@ -221,7 +221,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
     expect(acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(clipState.subtitleFetchState).toBe("ready");
     // 有序副本落缓存（缓存写入前的调用方预备排序，仅此一处例外）
-    expect(saveSubtitleToCache).toHaveBeenCalledWith("boc_subtitle_cache_test", SUBTITLE_BODY);
+    expect(saveSubtitleToCache).toHaveBeenCalledWith("biliscript_subtitle_cache_test", SUBTITLE_BODY);
   });
 
   it("缓存命中但时长不匹配：清缓存后走网络重抓", async () => {
@@ -231,7 +231,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false);
 
-    expect(clearSubtitleCacheByKey).toHaveBeenCalledWith("boc_subtitle_cache_test");
+    expect(clearSubtitleCacheByKey).toHaveBeenCalledWith("biliscript_subtitle_cache_test");
     // 时长不匹配的缓存条目不进 state；网络重抓经接受事务落位
     expect(clipState.subtitleBody).toEqual(SUBTITLE_BODY);
     expect(clipState.subtitleFetchState).toBe("ready");

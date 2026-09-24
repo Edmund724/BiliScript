@@ -10,7 +10,7 @@
 // 调用共享同一 promise（createLazyLoader 缓存），并发触发不会构建两次；失败
 // 清缓存，下次触发可重试。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
 // 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 
 import { createLazyLoader } from "../shared/lazy-import.js";

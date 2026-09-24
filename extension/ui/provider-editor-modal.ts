@@ -462,7 +462,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
 
 // ===== 挂载与全局监听 =====
 
-// 挂载宿主：#boc-reading-view 直下（面板内弹层的最大合理范围，不在设置抽屉
+// 挂载宿主：#biliscript-reading-view 直下（面板内弹层的最大合理范围，不在设置抽屉
 // 滚动容器内——mask 不随内容滚动）。阅读视图重建时宿主随根节点一起消失，
 // open 入口的幂等重置兜底状态残留。
 export function ensureHost(): HTMLElement | null {
@@ -515,7 +515,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
 
   // 委托挂 host（mask 与 dialog 的共同父级）：遮罩是 dialog 的兄弟，挂 dialog
   // 上收不到遮罩点击（explain-card 同款：委托在容器上）。
-  // 无条件 stopPropagation：Modal 宿主挂 #boc-reading-view 直下，在设置抽屉
+  // 无条件 stopPropagation：Modal 宿主挂 #biliscript-reading-view 直下，在设置抽屉
   // （settingsPanel）之外——点击外传会被 ui-renderer 的抽屉外点关闭委托（判定
   // 域 settingsPanel+齿轮，document bubble）当成外点把抽屉一起收掉，随即触发
   // hidden 联动的强制关闭，保存/关闭动作被吞（一次点击只关一层）。下拉的外点

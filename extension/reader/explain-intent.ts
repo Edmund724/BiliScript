@@ -16,7 +16,7 @@
 
 // 形状契约（PR5 依赖，字段名勿随意改）：
 //   from      —— 选中句起始秒（条目 data-seconds），供对话侧时间戳 pill / 引用定位
-//   content   —— 选中所在整句纯文本（.boc-reading-text 的 textContent trim），
+//   content   —— 选中所在整句纯文本（.biliscript-reading-text 的 textContent trim），
 //                始终是解释的上下文锚点
 //   selection —— 用户实际选中的词/短语（选区文本 trim）；整句选中或无选区时省略，
 //                消费方据此区分「解释一个词」与「解释整句」两种提示词

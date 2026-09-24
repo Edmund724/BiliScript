@@ -262,7 +262,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
           setStatus("语音识别完成（缓存命中）。");
           return "done";
         }
-        logWarn("[BOC] cached asr subtitle duration mismatch, clearing cache", {
+        logWarn("[BILISCRIPT] cached asr subtitle duration mismatch, clearing cache", {
           cacheKey,
           reason: (cachedCheck as { reason?: string }).reason
         });
@@ -376,7 +376,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       // 占用），但 asr-done 终态广播照发，让 sidepanel 的全局等待标志归位。
       if (!Array.isArray(body) || body.length === 0) {
         if (isStale()) {
-          logInfo("[BOC] asr transcribe finished empty after video switch; terminal broadcast only", {
+          logInfo("[BILISCRIPT] asr transcribe finished empty after video switch; terminal broadcast only", {
             bvid,
             cid,
             ...(emptyDiag ? { diagnostic: emptyDiag } : {})
@@ -396,7 +396,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       // 不执行 finishAsrFallback（不写 clipState/DOM/reader，避免串台）。
       // 用户切回原视频时经缓存命中或共享单元自动接上。
       if (isStale()) {
-        logInfo("[BOC] asr transcribe finished after video switch; result cached, UI deferred", {
+        logInfo("[BILISCRIPT] asr transcribe finished after video switch; result cached, UI deferred", {
           bvid,
           cid,
           itemCount: body.length
@@ -418,7 +418,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       // STALE_RUN 让 fetcher catch 静默吞掉。
       if (isStale()) {
         const phase = (error as { code?: string }).code === "asr-skip" ? "asr-done" : "asr-failed";
-        logWarn("[BOC] asr transcribe failed after video switch; terminal broadcast only", {
+        logWarn("[BILISCRIPT] asr transcribe failed after video switch; terminal broadcast only", {
           bvid,
           cid,
           phase,

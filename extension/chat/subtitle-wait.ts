@@ -8,7 +8,7 @@
 // 为什么存在：一键总结发送前若 content 侧正在抓取或做小时级 ASR 转写
 // （subtitleFetchState === "loading" 且字幕体为空），把空 subtitleBody 直接发
 // 给模型会让它凭标题+热评编造"无公开字幕"的总结。这里等待上下文就绪再放行
-// 发送流程，轮询为主，content 的 boc-subtitle-status 广播（asr-done/asr-failed）
+// 发送流程，轮询为主，content 的 biliscript-subtitle-status 广播（asr-done/asr-failed）
 // 到达时由 sidepanel 调 kick() 立即补一轮。
 //
 // 时序约定（测试锁定，改动前先读）：
@@ -24,7 +24,7 @@ import type { ChatSessionContextSnapshot } from "./chat-state.js";
 //     抓取失败等边界把状态清掉（历史上 resetClipState 置 idle 曾导致提前放行
 //     空字幕、模型编造"无公开字幕"总结）；
 //   - asrTranscribingActive：兜底信号。sidepanel 收到 content 的
-//     boc-subtitle-status(asr-transcribing) 广播置 true，收到 asr-done/asr-failed
+//     biliscript-subtitle-status(asr-transcribing) 广播置 true，收到 asr-done/asr-failed
 //     置 false。转写广播仍活跃时，即使快照状态被清也继续等待。
 // 字幕体非空即视为就绪，不受上述信号影响。
 export function isContextPending(

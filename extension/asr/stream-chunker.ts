@@ -144,7 +144,7 @@ export async function streamWavChunks(
       throw lastError;
     }
     skippedSegments += 1;
-    logWarn("[BOC] asr segment decode failed, skipping", {
+    logWarn("[BILISCRIPT] asr segment decode failed, skipping", {
       segmentIndex,
       attempts: decodeRetries + 1,
       error: getErrorMessage(lastError)

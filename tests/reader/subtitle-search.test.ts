@@ -71,15 +71,15 @@ function subtitleList(): HTMLElement {
 }
 
 function renderedItemCount(): number {
-  return subtitleList().querySelectorAll(".boc-reading-item").length;
+  return subtitleList().querySelectorAll(".biliscript-reading-item").length;
 }
 
 function searchMarks(): NodeListOf<HTMLElement> {
-  return subtitleList().querySelectorAll("mark.boc-reading-search-hit");
+  return subtitleList().querySelectorAll("mark.biliscript-reading-search-hit");
 }
 
 function currentMark(): HTMLElement | null {
-  return subtitleList().querySelector("mark.boc-reading-search-hit.search-current");
+  return subtitleList().querySelector("mark.biliscript-reading-search-hit.search-current");
 }
 
 function searchInput(): HTMLInputElement {
@@ -109,16 +109,16 @@ function mountBindExtras() {
   readingView.appendChild(readingCloseBtn);
 
   const panel = document.createElement("div");
-  panel.id = "boc-panel";
+  panel.id = "biliscript-panel";
   document.body.appendChild(panel);
   (
     [
-      ["boc-close-btn", "button"],
-      ["boc-refresh-btn", "button"],
-      ["boc-subtitle-select", "select"],
-      ["boc-copy-btn", "button"],
-      ["boc-download-btn", "button"],
-      ["boc-settings-btn", "button"]
+      ["biliscript-close-btn", "button"],
+      ["biliscript-refresh-btn", "button"],
+      ["biliscript-subtitle-select", "select"],
+      ["biliscript-copy-btn", "button"],
+      ["biliscript-download-btn", "button"],
+      ["biliscript-settings-btn", "button"]
     ] as [string, keyof HTMLElementTagNameMap][]
   ).forEach(([id, tag]) => {
     const node = document.createElement(tag);
@@ -212,14 +212,14 @@ describe("字幕句内搜索", () => {
     // rAF 追加任务逐帧补齐：item 600 上屏即由批次回执 hook 自动带命中高亮
     flushAnimationFrames();
     const hitMark = subtitleList().querySelector(
-      '[data-index="600"] mark.boc-reading-search-hit'
+      '[data-index="600"] mark.biliscript-reading-search-hit'
     );
     expect(hitMark?.textContent).toBe("目标词");
 
     // 重放（preserveIndex 保住当前命中序号）：目标已上屏，search-current 落位
     shell.refreshReadingSubtitleSearch({ preserveIndex: true, scroll: false });
     const hit = subtitleList().querySelector(
-      '[data-index="600"] mark.boc-reading-search-hit.search-current'
+      '[data-index="600"] mark.biliscript-reading-search-hit.search-current'
     );
     expect(hit?.textContent).toBe("目标词");
   });
@@ -242,7 +242,7 @@ describe("字幕句内搜索", () => {
     // 后续批次上屏即带高亮：800 条全部有 mark
     expect(renderedItemCount()).toBe(800);
     expect(searchMarks().length).toBe(800);
-    expect(subtitleList().querySelector('[data-index="700"] mark.boc-reading-search-hit')).not.toBe(null);
+    expect(subtitleList().querySelector('[data-index="700"] mark.biliscript-reading-search-hit')).not.toBe(null);
   }, 20000);
 
   it("清除搜索恢复原文本：无 mark 残留，textContent 逐字还原", () => {
@@ -256,7 +256,7 @@ describe("字幕句内搜索", () => {
     expect(searchMarks().length).toBe(0);
     expect(searchCount()).toBe("");
     expect(
-      (subtitleList().querySelector('[data-index="1"] .boc-reading-text') as HTMLElement).textContent
+      (subtitleList().querySelector('[data-index="1"] .biliscript-reading-text') as HTMLElement).textContent
     ).toBe("这里提到目标词甲");
   });
 
@@ -303,7 +303,7 @@ describe("字幕句内搜索", () => {
     );
     await vi.waitFor(() => expect(searchCount()).toBe("2 / 2"));
     expect(
-      subtitleList().querySelector('[data-index="2"] mark.boc-reading-search-hit.search-current')
+      subtitleList().querySelector('[data-index="2"] mark.biliscript-reading-search-hit.search-current')
     ).not.toBe(null);
   });
 
@@ -401,7 +401,7 @@ describe("字幕句内搜索防抖接线", () => {
     await settle();
     expect(searchCount()).toBe("1 / 1");
     expect(
-      subtitleList().querySelector('[data-index="2"] mark.boc-reading-search-hit.search-current')
+      subtitleList().querySelector('[data-index="2"] mark.biliscript-reading-search-hit.search-current')
     ).not.toBe(null);
     // 计时器已被冲刷消费：快进不再二次刷新
     flushDebounceWindow();

@@ -27,9 +27,9 @@ import { readerPorts } from "./ports.js";
 import { noteManualReaderInteraction } from "./sync.js";
 
 // 高亮与当前命中的 class 契约（reader.css 消费；search-current 为任务约定名）
-const SEARCH_HIT_MARK_CLASS = "boc-reading-search-hit";
+const SEARCH_HIT_MARK_CLASS = "biliscript-reading-search-hit";
 const SEARCH_CURRENT_CLASS = "search-current";
-const SEARCH_TEXT_SELECTOR = ".boc-reading-text";
+const SEARCH_TEXT_SELECTOR = ".biliscript-reading-text";
 
 interface SearchRange {
   start: number;

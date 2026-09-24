@@ -66,7 +66,7 @@ vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
     clearStaleAsrSubtitleCache: vi.fn(async () => {}),
     saveSubtitleToCache: vi.fn(async () => ({ ok: true })),
     loadSubtitleFromCache: vi.fn(async () => null),
-    getSubtitleCacheKey: vi.fn(() => "boc_subtitle_cache_test")
+    getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_test")
   };
 });
 vi.mock("../../extension/subtitle/commit.js", () => ({

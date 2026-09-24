@@ -1,18 +1,18 @@
-/* 播放器 AI 快捷动作（#boc-player-ai-quick-action）——随 ai/player-ai.js 动态
+/* 播放器 AI 快捷动作（#biliscript-player-ai-quick-action）——随 ai/player-ai.js 动态
  * chunk 挂载（S3 分层）：节点由该模块创建，样式随模块装载注入，节点创建前就绪。 */
 
-.boc-player-ai-wrap {
+.biliscript-player-ai-wrap {
   align-items: center;
   background: rgba(20, 24, 32, 0.68);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
   display: inline-flex;
-  flex: 0 0 var(--boc-player-ai-action-hit-size, 28px);
-  height: var(--boc-player-ai-action-hit-size, 28px);
+  flex: 0 0 var(--biliscript-player-ai-action-hit-size, 28px);
+  height: var(--biliscript-player-ai-action-hit-size, 28px);
   justify-content: center;
   margin: 0;
-  min-width: var(--boc-player-ai-action-hit-size, 28px);
+  min-width: var(--biliscript-player-ai-action-hit-size, 28px);
   opacity: 0;
   overflow: hidden;
   pointer-events: none;
@@ -22,23 +22,23 @@
   transform: translate(8px, -50%);
   /* 滑入用 bounce（轻微回弹，动量感）：全库唯一的 bounce 消费点，只挂在位移
    * 上——显隐/色变走全站统一的 0.15s ease-out。token 定义在 reader-gate 阅读
-   * 表，播放器页无 data-boc-reader-mode 时走字面 fallback。 */
+   * 表，播放器页无 data-biliscript-reader-mode 时走字面 fallback。 */
   transition: opacity 0.15s ease-out, background-color 0.15s ease-out,
-    transform 0.3s var(--boc-reader-ease-bounce, cubic-bezier(0.34, 1.4, 0.64, 1));
-  width: var(--boc-player-ai-action-hit-size, 28px);
+    transform 0.3s var(--biliscript-reader-ease-bounce, cubic-bezier(0.34, 1.4, 0.64, 1));
+  width: var(--biliscript-player-ai-action-hit-size, 28px);
   z-index: 30;
 }
 
-.boc-player-ai-wrap.is-active,
-.boc-player-ai-wrap:hover,
-.boc-player-ai-wrap:focus-within {
+.biliscript-player-ai-wrap.is-active,
+.biliscript-player-ai-wrap:hover,
+.biliscript-player-ai-wrap:focus-within {
   background: rgba(20, 24, 32, 0.78);
   opacity: 1;
   pointer-events: auto;
   transform: translate(0, -50%);
 }
 
-#boc-player-ai-quick-action {
+#biliscript-player-ai-quick-action {
   -webkit-appearance: none;
   appearance: none;
   align-items: center;
@@ -47,7 +47,7 @@
   border: 0;
   border-radius: 0;
   box-sizing: border-box;
-  color: var(--boc-player-ai-action-color, currentColor);
+  color: var(--biliscript-player-ai-action-color, currentColor);
   display: inline-flex;
   flex: 0 0 auto;
   justify-content: center;
@@ -66,9 +66,9 @@
   transition: transform 0.15s ease-out, color 0.15s ease-out, opacity 0.15s ease-out;
 }
 
-#boc-player-ai-quick-action svg {
-  width: var(--boc-player-ai-action-icon-size, 24px);
-  height: var(--boc-player-ai-action-icon-size, 24px);
+#biliscript-player-ai-quick-action svg {
+  width: var(--biliscript-player-ai-action-icon-size, 24px);
+  height: var(--biliscript-player-ai-action-icon-size, 24px);
   display: block;
   flex: 0 0 auto;
   stroke: currentColor;
@@ -77,31 +77,31 @@
   stroke-linejoin: round;
 }
 
-#boc-player-ai-quick-action:hover {
-  color: var(--boc-player-ai-action-hover-color, var(--boc-player-ai-action-color, currentColor));
+#biliscript-player-ai-quick-action:hover {
+  color: var(--biliscript-player-ai-action-hover-color, var(--biliscript-player-ai-action-color, currentColor));
 }
 
-#boc-player-ai-quick-action:active {
-  transform: scale(var(--boc-reader-press-scale, 0.97));
+#biliscript-player-ai-quick-action:active {
+  transform: scale(var(--biliscript-reader-press-scale, 0.97));
 }
 
-#boc-player-ai-quick-action:disabled {
+#biliscript-player-ai-quick-action:disabled {
   opacity: 0.62;
   cursor: wait;
   transform: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .boc-player-ai-wrap {
+  .biliscript-player-ai-wrap {
     /* 滑入位移对减少动态用户关停（显隐跳变即到位），opacity/色变保留 */
     transition: opacity 0.15s ease-out, background-color 0.15s ease-out;
   }
 
-  #boc-player-ai-quick-action {
+  #biliscript-player-ai-quick-action {
     transition: color 0.15s ease-out, opacity 0.15s ease-out;
   }
 
-  #boc-player-ai-quick-action:active {
+  #biliscript-player-ai-quick-action:active {
     transform: none;
   }
 }

@@ -4,11 +4,11 @@
  *
  * 为什么需要这层：github-markdown-css 用 primer 的 --fgColor-… / --bgColor-… /
  * --borderColor-… 变量，暗色走 prefers-color-scheme，不跟随阅读视图
- * #boc-reading-view[data-theme] 的站内切换，且其蓝灰配色与本项目纸色/深蓝
- * 主题冲突。这里把语义变量映射到 --boc-reader-*：明暗两档无需各写一份——
- * boc 变量自身在 reader-gate.css 的 [data-theme="dark"] 下翻转。
+ * #biliscript-reading-view[data-theme] 的站内切换，且其蓝灰配色与本项目纸色/深蓝
+ * 主题冲突。这里把语义变量映射到 --biliscript-reader-*：明暗两档无需各写一份——
+ * biliscript 变量自身在 reader-gate.css 的 [data-theme="dark"] 下翻转。
  *
- * 特异性口径：#boc-reading-view .markdown-body（1-1-0）高于 vendored 文件的
+ * 特异性口径：#biliscript-reading-view .markdown-body（1-1-0）高于 vendored 文件的
  * .markdown-body（0-1-0）与其暗色媒体查询段 .markdown-body:not(...)（0-2-0），
  * 站内主题开关完全接管配色，OS 级 prefers-color-scheme 不影响。
  *
@@ -16,19 +16,19 @@
  * danger/done 等告警色）保持 GitHub 默认值：parser 不产出 .pl-* 高亮 span
  * 与 alert 块，这些规则对我们是惰性的；后续接代码高亮时再补映射。 */
 
-#boc-reading-view .markdown-body {
-  --fgColor-default: var(--boc-reader-text, #2b2620);
-  --fgColor-muted: var(--boc-reader-muted, #6f675c);
-  --fgColor-accent: var(--boc-reader-accent, #fb7299);
-  --fgColor-danger: var(--boc-reader-danger, #d93025);
-  --bgColor-default: var(--boc-reader-surface, #fdfbf7);
-  --bgColor-muted: var(--boc-reader-surface-2, #f0e9df);
-  --bgColor-neutral-muted: var(--boc-reader-surface-2, #f0e9df);
-  --bgColor-attention-muted: var(--boc-reader-highlight, #fdeeda);
-  --borderColor-default: var(--boc-reader-border, #e7dfd4);
-  --borderColor-muted: var(--boc-reader-border, #e7dfd4);
-  --borderColor-accent-emphasis: var(--boc-reader-accent, #fb7299);
-  --focus-outlineColor: var(--boc-reader-accent, #fb7299);
+#biliscript-reading-view .markdown-body {
+  --fgColor-default: var(--biliscript-reader-text, #2b2620);
+  --fgColor-muted: var(--biliscript-reader-muted, #6f675c);
+  --fgColor-accent: var(--biliscript-reader-accent, #fb7299);
+  --fgColor-danger: var(--biliscript-reader-danger, #d93025);
+  --bgColor-default: var(--biliscript-reader-surface, #fdfbf7);
+  --bgColor-muted: var(--biliscript-reader-surface-2, #f0e9df);
+  --bgColor-neutral-muted: var(--biliscript-reader-surface-2, #f0e9df);
+  --bgColor-attention-muted: var(--biliscript-reader-highlight, #fdeeda);
+  --borderColor-default: var(--biliscript-reader-border, #e7dfd4);
+  --borderColor-muted: var(--biliscript-reader-border, #e7dfd4);
+  --borderColor-accent-emphasis: var(--biliscript-reader-accent, #fb7299);
+  --focus-outlineColor: var(--biliscript-reader-accent, #fb7299);
   /* 排版域跟随阅读视图，不被 GitHub 字体栈/字号接管：中文回退栈与阅读视图
    * 不同（Windows 上 Segoe UI/Noto Sans vs 站内的雅黑栈），字号行高沿用
    * 气泡档（.chat-msg 16px/1.45）与解释卡各自定义；github-markdown-css
@@ -47,10 +47,10 @@
  * 表现就是真页面上所有列表项既无子弹也无缩进（独立复现页无宿主 CSS，
  * 复现不出）。:not(.task-list-item) 保住基线任务列表的去子弹规则。
  * 特异性 1-2-2（id+class+:not 类+两元素）压过宿主元素级 reset。 */
-#boc-reading-view .markdown-body ul > li:not(.task-list-item) {
+#biliscript-reading-view .markdown-body ul > li:not(.task-list-item) {
   list-style-type: disc;
 }
 
-#boc-reading-view .markdown-body ol > li:not(.task-list-item) {
+#biliscript-reading-view .markdown-body ol > li:not(.task-list-item) {
   list-style-type: decimal;
 }

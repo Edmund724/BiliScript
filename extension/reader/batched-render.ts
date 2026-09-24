@@ -42,14 +42,14 @@ export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHour
   return `
     <button
       type="button"
-      class="boc-reading-item"
+      class="biliscript-reading-item"
       data-index="${item.index}"
       data-seconds="${item.from}"
     >
-      <span class="boc-reading-time">${escapeHtml(
+      <span class="biliscript-reading-time">${escapeHtml(
         formatClock(item.from, { hours: withHours })
       )}</span>
-      <span class="boc-reading-text">${escapeHtml(item.content)}</span>
+      <span class="biliscript-reading-text">${escapeHtml(item.content)}</span>
     </button>
   `;
 }

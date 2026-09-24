@@ -74,21 +74,21 @@ function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
   return sent;
 }
 
-// 面板 + 编辑 Modal 的挂载环境：Modal 宿主挂 #boc-reading-view 直下
+// 面板 + 编辑 Modal 的挂载环境：Modal 宿主挂 #biliscript-reading-view 直下
 //（provider-editor.ensureHost），设置抽屉 hidden 联动监听挂在
-// #boc-reading-settings-panel 上，两者都须在 DOM 里。
+// #biliscript-reading-settings-panel 上，两者都须在 DOM 里。
 async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
   document.body.innerHTML = `
-    <div id="boc-reading-view">
-      <section id="boc-reading-settings-panel">
-        <div id="boc-reading-settings-host"></div>
+    <div id="biliscript-reading-view">
+      <section id="biliscript-reading-settings-panel">
+        <div id="biliscript-reading-settings-host"></div>
       </section>
     </div>
   `;
   const sent = installMessageBus(busOverrides);
   const panel = await import("../../extension/ui/settings-panel.js");
   panel.renderReaderSettingsPanel();
-  const host = document.getElementById("boc-reading-settings-host")!;
+  const host = document.getElementById("biliscript-reading-settings-host")!;
   await vi.waitFor(() => {
     expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
   });
@@ -912,7 +912,7 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     const bubbleSpy = vi.fn();
     document.addEventListener("click", bubbleSpy);
     try {
-      // 派发到 body（#boc-reading-view 之外）→ Modal 的 capture 监听 stopPropagation
+      // 派发到 body（#biliscript-reading-view 之外）→ Modal 的 capture 监听 stopPropagation
       document.body.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
       expect(bubbleSpy).not.toHaveBeenCalled();
       expect(editorGone()).toBe(true);
@@ -957,7 +957,7 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
 
     dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
 
-    document.getElementById("boc-reading-settings-panel")!.hidden = true;
+    document.getElementById("biliscript-reading-settings-panel")!.hidden = true;
     await vi.waitFor(() => {
       expect(editorGone()).toBe(true);
     });

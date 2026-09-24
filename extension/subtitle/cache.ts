@@ -4,7 +4,7 @@ import type { SubtitleTrack } from "../bilibili/gateway.js";
 // 类型专用导入（编译期擦除，无运行时 ai 边）：字幕条目形状归 ai/types 声明。
 import type { SubtitleBodyItem } from "../ai/types.js";
 
-const CACHE_KEY_PREFIX = "boc_subtitle_cache_";
+const CACHE_KEY_PREFIX = "biliscript_subtitle_cache_";
 // ASR 变体 source key 前缀：fetcher 以 subtitleId "asr:<providerId>:<model>:<lang>"
 // 组键（经 buildSubtitleSourceKey 的 id_ 分支），用于识别/清理过期 ASR 转写变体。
 const ASR_SOURCE_KEY_PREFIX = "id_asr:";
@@ -63,7 +63,7 @@ export async function saveSubtitleToCache(cacheKey: string, body: unknown[]): Pr
       })
   });
   if (!result.ok) {
-    logError("[BOC] failed to save subtitle cache after eviction", {
+    logError("[BILISCRIPT] failed to save subtitle cache after eviction", {
       cacheKey,
       error: result.error?.message || result.error
     });
@@ -101,7 +101,7 @@ export async function clearStaleAsrSubtitleCache({ bvid, cid, keepKey = "" }: As
     }
     return staleKeys;
   } catch (error) {
-    logWarn("[BOC] failed to clear stale asr subtitle cache entries", { bvid, cid, error });
+    logWarn("[BILISCRIPT] failed to clear stale asr subtitle cache entries", { bvid, cid, error });
     return [];
   }
 }
@@ -110,7 +110,7 @@ export async function clearSubtitleCacheByKey(cacheKey: string): Promise<void> {
   try {
     await chrome.storage.local.remove(cacheKey);
   } catch (error) {
-    logWarn("[BOC] failed to clear subtitle cache by key", { cacheKey, error });
+    logWarn("[BILISCRIPT] failed to clear subtitle cache by key", { cacheKey, error });
   }
 }
 

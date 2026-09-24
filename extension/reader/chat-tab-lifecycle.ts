@@ -257,11 +257,11 @@ function renderExplainIntentCard(intent: { from: number; content: string; select
   if (!els.intentCard) {
     return;
   }
-  const quote = els.intentCard.querySelector<HTMLElement>(".boc-reading-chat-intent-quote");
+  const quote = els.intentCard.querySelector<HTMLElement>(".biliscript-reading-chat-intent-quote");
   if (quote) {
     quote.textContent = intent.selection ? `「${intent.selection}」｜${intent.content}` : `「${intent.content}」`;
   }
-  const stamp = els.intentCard.querySelector<HTMLElement>(".boc-reading-chat-intent-time");
+  const stamp = els.intentCard.querySelector<HTMLElement>(".biliscript-reading-chat-intent-time");
   if (stamp) {
     stamp.textContent = formatClock(intent.from, { hours: "auto" });
   }
@@ -466,7 +466,7 @@ function onWindowResize(): void {
 }
 // chip 点击的 reader 适配（sidepanel 版为 openCurrentContextUrl：chrome.tabs.update
 // 跳转活动标签页）。content script 无 chrome.tabs：同视频只做静默强刷；绑定会话
-// 指向别的视频时页内导航到目标 URL（保留 boc_reader=1，阅读模式随 URL 恢复）。
+// 指向别的视频时页内导航到目标 URL（保留 biliscript_reader=1，阅读模式随 URL 恢复）。
 // URL 拼法单源在 bilibili/reader-url.ts 的 buildReaderModeUrl（arch-slim-2/03）。
 async function openCurrentContextInReader(): Promise<void> {
   const targetUrl = String(chatSessionState.contextData?.url || chatSessionState.currentConversationMeta?.contextUrl || "").trim();

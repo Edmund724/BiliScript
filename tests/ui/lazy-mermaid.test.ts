@@ -44,10 +44,10 @@ async function loadModule(): Promise<LazyMermaidModule> {
 
 function mountBlock(state = "pending"): Element {
   document.body.innerHTML =
-    `<div class="boc-md-mermaid" data-boc-mermaid="${state}">` +
-    `<pre class="boc-md-mermaid-src"><code>flowchart LR
+    `<div class="biliscript-md-mermaid" data-biliscript-mermaid="${state}">` +
+    `<pre class="biliscript-md-mermaid-src"><code>flowchart LR
 A-->B</code></pre></div>`;
-  return document.querySelector(".boc-md-mermaid")!;
+  return document.querySelector(".biliscript-md-mermaid")!;
 }
 
 function setRect(block: Element, top: number): void {

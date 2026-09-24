@@ -227,7 +227,7 @@ export function needsConversationPageHydration(conversation: Conversation | null
 
 // 存档存储键与容量上限（工单 05 收窄：原 deps 可选键收进模块常量——唯一生产
 // 宿主组合根传的正是这两个值，测试无一覆盖）。
-const CONVERSATIONS_STORAGE_KEY = "boc_ai_conversations_v1";
+const CONVERSATIONS_STORAGE_KEY = "biliscript_ai_conversations_v1";
 
 export function createConversationStore(deps: CreateConversationStoreDeps): ConversationStore {
   // 工厂期校验（缺 dep 早失败；原为调用期 requireDep 逐点检查，单宿主下等价）

@@ -1,5 +1,5 @@
 // Reader 调试快照（自 lifecycle.js 迁出）。
-// __BOC_READER_DEBUG_SNAPSHOT__ 全局函数的真身：采集阅读视图/播放器宿主链的
+// __BILISCRIPT_READER_DEBUG_SNAPSHOT__ 全局函数的真身：采集阅读视图/播放器宿主链的
 // getBoundingClientRect + getComputedStyle + data 属性，产出一份可序列化布局
 // 快照，用于排查 文摘面板/播放器布局走样。注册在 ./init-essentials.js（常驻
 // 轻量），只在手动调用全局函数时经 ensureReaderDomain 装载 reader 域后转发；
@@ -88,8 +88,8 @@ export function createReaderDebugSnapshot(label = "manual") {
   return {
     label: String(label || "manual"),
     url: cleanVideoUrl(),
-    readerMode: document.documentElement.getAttribute("data-boc-reader-mode"),
-    readingActive: document.body.getAttribute("data-boc-reading-active"),
+    readerMode: document.documentElement.getAttribute("data-biliscript-reader-mode"),
+    readingActive: document.body.getAttribute("data-biliscript-reading-active"),
     readingViewOpen: state.reader.readingViewOpen,
     readingViewReady: state.reader.readingViewReady,
     hasRoot: Boolean(document.getElementById(ids.root)),
@@ -117,8 +117,8 @@ export function createReaderDebugSnapshot(label = "manual") {
       ".bpx-player-container",
       ".bpx-player-video-area",
       ".bpx-player-primary-area",
-      "#boc-reading-script-panel",
-      "#boc-reading-view"
+      "#biliscript-reading-script-panel",
+      "#biliscript-reading-view"
     ]
       .map((selector) => pickNodeSnapshot(selector))
       .filter(Boolean),

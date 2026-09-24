@@ -17,10 +17,10 @@ const TIMESTAMP_INLINE_CODE_REST_PATTERN = /^[\s,，、;；:：\-–—~～至�
 // mermaid 围栏（```mermaid）的占位标记与选择器单源：renderMarkdown（产出占位）
 // 与 ui/lazy-mermaid、ui/mermaid-render（异步水合成图表）共用，避免 data 属性
 // 名/类名在三处各写一份。markdown 是纯模块——只产出占位 DOM，不做异步渲染。
-export const MERMAID_BLOCK_ATTR = "data-boc-mermaid";
+export const MERMAID_BLOCK_ATTR = "data-biliscript-mermaid";
 export const MERMAID_BLOCK_SELECTOR = `[${MERMAID_BLOCK_ATTR}]`;
 // 源码 <pre>：渲染成功后由 CSS 按 done 状态隐藏，渲染前/失败时就是一块普通代码块
-const MERMAID_SOURCE_CLASS = "boc-md-mermaid-src";
+const MERMAID_SOURCE_CLASS = "biliscript-md-mermaid-src";
 export const MERMAID_SOURCE_SELECTOR = `.${MERMAID_SOURCE_CLASS}`;
 const MERMAID_FENCE_LANG = "mermaid";
 
@@ -84,7 +84,7 @@ function extractCodeFences(escaped: string): { text: string; codeBlocks: CodeFen
       lang: opening.info.trim().toLowerCase(),
       code: closing === index + 1 ? "" : `${body}${body.endsWith("\n") ? "" : "\n"}`
     });
-    output.push(`\u0001BOC_CODE_${codeBlocks.length - 1}\u0001`);
+    output.push(`\u0001BILISCRIPT_CODE_${codeBlocks.length - 1}\u0001`);
     index = closing + 1;
   }
 
@@ -193,7 +193,7 @@ export function renderMarkdownStripped(text: string): string {
     const rawLine = lines[index];
     const line = rawLine.trim();
 
-    const codeMatch = line.match(/^\u0001BOC_CODE_(\d+)\u0001$/);
+    const codeMatch = line.match(/^\u0001BILISCRIPT_CODE_(\d+)\u0001$/);
     if (codeMatch) {
       flushPara();
       closeList();
@@ -203,7 +203,7 @@ export function renderMarkdownStripped(text: string): string {
         // 块，不需要额外的加载态样式），真正的 SVG 由 ui/lazy-mermaid 在节点插入
         // DOM 后异步换入（见 MERMAID_BLOCK_ATTR 的状态机 pending/done/error）。
         out.push(
-          `<div class="boc-md-mermaid" ${MERMAID_BLOCK_ATTR}="pending">` +
+          `<div class="biliscript-md-mermaid" ${MERMAID_BLOCK_ATTR}="pending">` +
             `<pre class="${MERMAID_SOURCE_CLASS}"><code>${fence.code}</code></pre></div>`
         );
         continue;

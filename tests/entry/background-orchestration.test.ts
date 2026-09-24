@@ -30,7 +30,7 @@ import {
 const TAB_ID = 7;
 const EXPECTED_VERSION = "2.0.0";
 const STALE_VERSION = "0.9.0";
-const READER_URL = "https://www.bilibili.com/video/BV1test000000/?boc_reader=1";
+const READER_URL = "https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1";
 
 // deps 全注入的编排器 harness：默认 probe 命中期望版本、各副作用即时成功。
 // delay 用生产默认 sleep（假时钟拦截）；需要断言间隔值的用例用 makeSpyDelayHarness。

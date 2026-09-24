@@ -1,5 +1,5 @@
 import { state } from "../core/state.js";
-import { BOC_VERSION, DEFAULT_SETTINGS } from "../core/defaults.js";
+import { BILISCRIPT_VERSION, DEFAULT_SETTINGS } from "../core/defaults.js";
 
 import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
@@ -7,7 +7,7 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { logInfo, logWarn } from "../shared/logging.js";
 // 状态栏降级写入器（getSettings 水合失败的外层兜底，与 reader 链共用
-// #boc-reading-status 节点）
+// #biliscript-reading-status 节点）
 import { setStatus } from "../core/ui-status.js";
 
 // 播放器 AI 模块经加载器按需引入（候选4 分包）：开关关闭态下该能力零装载，
@@ -23,7 +23,7 @@ import { loadScriptButton } from "../ui/lazy-script-button.js";
 // 候选03 常驻瘦身：UI 壳构建（ensureUiReady）与 reader 静态呈现层
 //（hydrateReaderStateFromSettings / applyReadingViewPresentation / renderReadingStatus）
 // 已惰性化，只在面板打开或进入阅读模式时加载。普通页启动路径不再构建
-// #boc-root / #boc-reading-view 壳，也不应用阅读排版属性。
+// #biliscript-root / #biliscript-reading-view 壳，也不应用阅读排版属性。
 import { ensureUiReady } from "../ui/lazy-ui.js";
 // 候选02 分层惰性 + 候选03 常驻瘦身：init() 的启动符号只保留真正常驻的轻量
 // 接线与页面状态守卫；设置水合/排版呈现/状态栏文案随阅读模式进入惰性装载。
@@ -67,7 +67,7 @@ interface PlayerAiApi {
 // delayMs 透传给 schedulePlayerAiQuickActionSync；options.resetRetry 重置重试计数。
 type PlayerAiSyncHandler = (delayMs?: number, options?: { resetRetry?: boolean }) => void;
 
-globalThis.__BOC_CONTENT_SCRIPT_LOADED__ = BOC_VERSION;
+globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__ = BILISCRIPT_VERSION;
 
 // 播放器 AI 开关监听只注册一次：init 在模块加载时同步执行，声明必须位于
 // 其之前（避免 TDZ），标志兜底防重复注入。
@@ -89,7 +89,7 @@ function init(): void {
   // 先注册调试日志门再打启动日志；初始读 storage 是异步的，首条日志可能竞争
   // 失败，onChanged 保活后续开关。
   registerDebugLogGate();
-  logInfo(`[BOC] content script loaded, version=${BOC_VERSION}`);
+  logInfo(`[BILISCRIPT] content script loaded, version=${BILISCRIPT_VERSION}`);
   if (!isSupportedUrl()) {
     return;
   }
@@ -100,12 +100,12 @@ function init(): void {
 
   const shouldEnterReaderMode = isReaderMode();
   if (shouldEnterReaderMode) {
-    // S3：先挂阅读表再翻 data-boc-reader-mode 属性——属性门控是样式生效开关，
+    // S3：先挂阅读表再翻 data-biliscript-reader-mode 属性——属性门控是样式生效开关，
     // 表提前挂（哪怕 link 尚未加载完）不会误伤普通页面；属性翻转瞬间阅读样式
     // 已注入，无闪变窗口。
     ensureReaderStyles();
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
   } else {
     removeReaderStyles();
     clearReaderModePageState();
@@ -119,7 +119,7 @@ function init(): void {
   // the presenter seam callbacks here.
   subscribeReaderSettingsPersist(() => {
     sendRuntimeMessage({ type: "save-settings", settings: state.settings }).catch((error) => {
-      logWarn("[BOC] failed to persist reader settings", error);
+      logWarn("[BILISCRIPT] failed to persist reader settings", error);
     });
   });
   subscribeReaderSettingsLoad(() => getSettings());
@@ -128,7 +128,7 @@ function init(): void {
   // reader dependency graph). The delayMs argument maps to
   // schedulePlayerAiQuickActionSync(delayMs); an undefined value keeps the
   // default 120ms delay. options.resetRetry mirrors the original
-  // __BOC_FORCE_SYNC_PLAYER_AI__ behavior (only the debug helper resets the
+  // __BILISCRIPT_FORCE_SYNC_PLAYER_AI__ behavior (only the debug helper resets the
   // retry counter before syncing).
   subscribePlayerAiSync(((delayMs, options) => {
     // 未加载 = 快捷开关关闭态：按钮不存在，无需同步（start 自带初始 sync，
@@ -145,7 +145,7 @@ function init(): void {
         }
         api.schedulePlayerAiQuickActionSync(delayMs);
       } catch (error) {
-        logWarn("[BOC] player-ai sync via lazy loader failed", error);
+        logWarn("[BILISCRIPT] player-ai sync via lazy loader failed", error);
       }
     })();
   }) as PlayerAiSyncHandler);
@@ -154,8 +154,8 @@ function init(): void {
   // 显式启动（见 init 的 getSettings 水合与 bindPlayerAiSettingsWatcher），
   // 开关关闭态不再无条件绑定（默认开启，2026-09 起）。
   // URL 变化编排已搬到组合根（bindUrlChangeHandler）：监听 popstate/hashchange/
-  // boc:urlchange 并按序编排；runtime.startUrlWatcher 由其内部调用，只负责
-  // history 补丁与 boc:urlchange 广播。
+  // biliscript:urlchange 并按序编排；runtime.startUrlWatcher 由其内部调用，只负责
+  // history 补丁与 biliscript:urlchange 广播。
   bindUrlChangeHandler();
   bindPlayerAiSettingsWatcher();
   // Script 工具栏按钮快路径（工单 button-injection-stability/01）：不等
@@ -165,7 +165,7 @@ function init(): void {
   // 恒摘除，装载为视图失同步自愈与「关闭视图后补回按钮」。完整设置水合失败
   // 不影响按钮（模块不消费任何设置）。
   loadScriptButton().catch((error) => {
-    logWarn("[BOC] script-button module load failed", error);
+    logWarn("[BILISCRIPT] script-button module load failed", error);
   });
   // 快路径门控：按钮启停只依赖 enablePlayerAiQuickAction 单键。直连
   // chrome.storage.sync 读取（content 脚本本就有 storage 权限），绕开
@@ -265,7 +265,7 @@ async function startPlayerAiQuickActionLazy(): Promise<void> {
     const playerAi = await loadPlayerAi();
     (playerAi as unknown as PlayerAiApi).startPlayerAiQuickAction();
   } catch (error) {
-    logWarn("[BOC] player-ai module load failed (quick action not started)", error);
+    logWarn("[BILISCRIPT] player-ai module load failed (quick action not started)", error);
   }
 }
 
@@ -277,6 +277,6 @@ async function stopPlayerAiQuickActionLazy(): Promise<void> {
     const playerAi = await loadPlayerAi();
     (playerAi as unknown as PlayerAiApi).stopPlayerAiQuickAction();
   } catch (error) {
-    logWarn("[BOC] player-ai stop after lazy load failed", error);
+    logWarn("[BILISCRIPT] player-ai stop after lazy load failed", error);
   }
 }

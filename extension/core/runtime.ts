@@ -2,8 +2,8 @@
 // 其余能力已按职责拆出：
 //   - 消息传输（sendRuntimeMessage / sendOffloadMessage）→ shared/messaging.ts
 //     （所有 context 共用，shared 叶子，不 import core/*）；
-//   - URL 事件机制（startUrlWatcher / BOC_URL_CHANGE_EVENT）→ core/url-watcher.ts
-//     （history 补丁 + boc:urlchange 派发的纯机制；编排仍在组合根
+//   - URL 事件机制（startUrlWatcher / BILISCRIPT_URL_CHANGE_EVENT）→ core/url-watcher.ts
+//     （history 补丁 + biliscript:urlchange 派发的纯机制；编排仍在组合根
 //     entry/message-handler.ts 的 bindUrlChangeHandler，arch-slim-2/09 归位 entry/）；
 //   - 阅读模式 URL 更新（replaceReaderModeUrl，含 clip 签名先于 replaceState
 //     的时序不变式）→ bilibili/reader-url.ts（B 站域）。
@@ -30,7 +30,7 @@ export async function getSettings(timeoutMs = 5000): Promise<Settings> {
     }
     return { ...DEFAULT_SETTINGS, ...(response.settings || {}) };
   } catch (error) {
-    console.warn("[BOC] getSettings fallback to defaults", (error as Error | undefined)?.message);
+    console.warn("[BILISCRIPT] getSettings fallback to defaults", (error as Error | undefined)?.message);
     return { ...DEFAULT_SETTINGS };
   }
 }

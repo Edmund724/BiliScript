@@ -178,7 +178,7 @@ async function maybeRefreshReaderSubtitleInBackground() {
   try {
     await ensureSummarizeChain();
   } catch (error) {
-    logWarn("[BOC] subtitle refresh (summarize chain load) failed", { error });
+    logWarn("[BILISCRIPT] subtitle refresh (summarize chain load) failed", { error });
   }
   try {
     await requestSubtitleRefresh();
@@ -273,7 +273,7 @@ export async function enterReaderMode() {
   const readingView = getReaderElement(ids.readingView);
   // 视图打开走状态机迁移（entering→open；直开路径 closed→open）
   transitionReaderShell("open");
-  document.body.setAttribute("data-boc-reading-active", "1");
+  document.body.setAttribute("data-biliscript-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
   // PR2：每次打开阅读视图都回到默认「字幕」标签（概览/AI 对话关闭前的停留
@@ -346,7 +346,7 @@ export function closeReadingView() {
   const readingView = getReaderElement(ids.readingView);
   readingView.classList.remove("open", "reader-page");
   readingView.setAttribute("aria-hidden", "true");
-  readingView.setAttribute("data-boc-reader-ready", "0");
+  readingView.setAttribute("data-biliscript-reader-ready", "0");
   // 候选06：移除清单从呈现属性表派生（presentation-fields.js 的 clearOnClose
   // 标志），不再手抄。清单现只含 theme/follow（subtitle-visible 走样修正与
   // chapter-visibility 已随 2026-09 三开关退役一并删除，见 presentation-fields.js
@@ -413,7 +413,7 @@ export function renderReadingView() {
 
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   if (subtitleItems.length === 0) {
-    subtitleList.innerHTML = `<div class="boc-reading-empty">${escapeHtml(
+    subtitleList.innerHTML = `<div class="biliscript-reading-empty">${escapeHtml(
       getReadingSubtitlePlaceholderText()
     )}</div>`;
   } else {
@@ -523,7 +523,7 @@ function setReadingViewReady(ready: boolean) {
   if (!readingView) {
     return;
   }
-  readingView.setAttribute("data-boc-reader-ready", state.reader.readingViewReady ? "1" : "0");
+  readingView.setAttribute("data-biliscript-reader-ready", state.reader.readingViewReady ? "1" : "0");
   readingView.setAttribute("aria-busy", state.reader.readingViewReady ? "false" : "true");
 }
 

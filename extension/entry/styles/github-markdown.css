@@ -14,8 +14,8 @@
  * extension/ 源文件，@import 指向 extension/ 外的 node_modules 在 unpacked
  * load 下不可达，vendor 后 dev/release 完全一致。
  * 颜色变量不直接用文件内置值——由 github-markdown-theme.css 桥接映射到
- * --boc-reader-*（含 data-theme="dark" 暗色档）；原文件的
- * prefers-color-scheme 明暗变量段整段裁去（桥接层 #boc-reading-view
+ * --biliscript-reader-*（含 data-theme="dark" 暗色档）；原文件的
+ * prefers-color-scheme 明暗变量段整段裁去（桥接层 #biliscript-reading-view
  * .markdown-body 特异性 1-1-0 完全接管配色，OS 级媒体查询不影响，
  * 未映射的 prettylights/告警色只被已裁段消费）。 */
 .markdown-body {

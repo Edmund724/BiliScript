@@ -169,11 +169,11 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     expect(ops.filter((op) => op === "save-raw").length).toBe(0);
 
     const storeKeys = [...memoryArea.store.keys()];
-    const rawKeys = storeKeys.filter((k) => k.startsWith("boc_lvs_raw_"));
-    const summaryKeys = storeKeys.filter((k) => k.startsWith("boc_lvs_summary_"));
+    const rawKeys = storeKeys.filter((k) => k.startsWith("biliscript_lvs_raw_"));
+    const summaryKeys = storeKeys.filter((k) => k.startsWith("biliscript_lvs_summary_"));
     expect(rawKeys.length).toBe(5);
     expect(summaryKeys.length).toBe(5);
-    expect(storeKeys).toContain("boc_cache_lru_index");
+    expect(storeKeys).toContain("biliscript_cache_lru_index");
 
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
@@ -222,7 +222,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "stopped")).toBe(true);
     });
     await vi.waitFor(() => {
-      const rawKeys = [...memoryArea.store.keys()].filter((k) => k.startsWith("boc_lvs_raw_"));
+      const rawKeys = [...memoryArea.store.keys()].filter((k) => k.startsWith("biliscript_lvs_raw_"));
       expect(rawKeys.length).toBe(3);
     });
 
@@ -297,7 +297,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     expect(ops.filter((op) => op === "save-raw").length).toBe(3);
     // 第二轮 5 段全部合并写
     expect(ops.filter((op) => op === "save-summary-raw").length).toBe(5);
-    expect([...memoryArea.store.keys()].filter((k) => k.startsWith("boc_lvs_raw_")).length).toBe(5);
+    expect([...memoryArea.store.keys()].filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(5);
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });

@@ -54,7 +54,7 @@ export async function ensureChatOffscreenDocument(): Promise<boolean> {
     if (OFFSCREEN_ALREADY_EXISTS_RE.test(getErrorMessage(error))) {
       return true;
     }
-    logWarn("[BOC] ensureChatOffscreenDocument createDocument failed", {
+    logWarn("[BILISCRIPT] ensureChatOffscreenDocument createDocument failed", {
       error: getErrorMessage(error)
     });
     throw error;

@@ -299,7 +299,7 @@ describe("出口二 deleteById 当前会话", () => {
 
     expect(log).toEqual([
       ["interrupt"],
-      ["persist", ["boc_ai_conversations_v1"]],
+      ["persist", ["biliscript_ai_conversations_v1"]],
       ["change", {}],
       ["change", { refreshContextChip: true, resetView: true }]
     ]);
@@ -338,7 +338,7 @@ describe("出口三 clearAll", () => {
 
     expect(log).toEqual([
       ["interrupt"],
-      ["persist", ["boc_ai_conversations_v1"]],
+      ["persist", ["biliscript_ai_conversations_v1"]],
       ["change", {}],
       ["change", { refreshContextChip: true, historyCleared: true, resetView: true }]
     ]);
@@ -440,7 +440,7 @@ describe("公开接口面", () => {
     const { store, deps, storage } = makeHarness({
       resolveAiConversationRef: vi.fn(async () => ({ pageIndex: 2, url: `${URL_A}?p=2`, cid: "2", pageTitle: "第二P" }))
     });
-    await storage.set({ boc_ai_conversations_v1: [makeConversation("c1")] });
+    await storage.set({ biliscript_ai_conversations_v1: [makeConversation("c1")] });
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionState.liveContextKey = "k-1";
 

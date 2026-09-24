@@ -22,7 +22,7 @@
 // 点击行为：不发 background 消息。直接构造 reader-enter 消息交给
 // content 侧处理器（entry/message-handler.ts 已实现的阅读模式进入路径，
 // arch-slim-2/09 组合根归位 entry/），readerUrl 拼法单源在 bilibili/reader-url.ts
-// 的 buildReaderModeUrl（cleanVideoUrl 清成规范视频 URL 再加 boc_reader=1；
+// 的 buildReaderModeUrl（cleanVideoUrl 清成规范视频 URL 再加 biliscript_reader=1；
 // arch-slim-2/03 收口，原本地 buildReaderUrl 与 shell.ts 各抄一份）。经
 // dispatchContentScriptMessage 分发而非 chrome.runtime.sendMessage：content
 // script 的 sendMessage 不会回环到本文档自己的 onMessage 监听器，分发主体抽出
@@ -52,8 +52,8 @@ import { READER_CLOSED_EVENT, SELF_HEAL_INTERVAL_MS } from "../shared/self-heal.
 // stability 决议：默认开启、不做持久化——调试门缺省关，不能走 logInfo）。
 import { logInfoAlways } from "../shared/logging.js";
 
-const SCRIPT_BUTTON_ID = "boc-script-button";
-const SCRIPT_OVERLAY_ID = "boc-script-overlay";
+const SCRIPT_BUTTON_ID = "biliscript-script-button";
+const SCRIPT_OVERLAY_ID = "biliscript-script-overlay";
 
 // 定时自查间隔：B 站重渲染 / SPA 换页把节点带走后靠它补回（注入幂等）。
 // 单源 shared/self-heal.js（script-host 的面板重锚节拍独立，不复用本常量）。
@@ -179,7 +179,7 @@ function syncScriptButton(): void {
   // REINJECT_INTERVAL_MS 为基准，暂停档会拉长确认窗口。
   //   - 状态开着而壳失整：面板被页面重渲染摘走，按钮被守卫永久压住——用户看到
   //     「侧边栏和按钮一起消失，只能刷新」的正是它；
-  //   - URL 带 boc_reader=1 而视图没开：进入链半途失败（直达启动失败 / 中途
+  //   - URL 带 biliscript_reader=1 而视图没开：进入链半途失败（直达启动失败 / 中途
   //     状态被清），失败文案写进隐藏面板用户看不见。
   if (viewOpen || readerUrlMode) {
     setTickInterval(REINJECT_INTERVAL_MS);
@@ -235,7 +235,7 @@ const INIT_FALLBACK_DELAY_MS = 10000;
 let initWaitLogged = false;
 
 function logAnchor(message: string): void {
-  logInfoAlways(`[BOC] script-button: ${message}`);
+  logInfoAlways(`[BILISCRIPT] script-button: ${message}`);
 }
 
 // 注入耗时日志（01 可观测）：首个按钮落到 DOM 的时刻，只记一次。
@@ -365,7 +365,7 @@ function createScriptButton(): HTMLButtonElement {
   button.textContent = "文摘";
   button.title = "阅读这期视频的字幕与文摘";
   button.setAttribute("aria-label", "阅读这期视频的字幕与文摘");
-  button.setAttribute("data-boc-extension-node", "script-button");
+  button.setAttribute("data-biliscript-extension-node", "script-button");
   button.addEventListener("click", handleScriptButtonClick);
   return button;
 }

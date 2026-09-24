@@ -25,7 +25,7 @@ vi.mock("../../extension/reader/state.js", () => ({
 // message-handler 的其余静态依赖按 chapters/signature 测试同款 mock（本文件不触达其行为）。
 vi.mock("../../extension/core/url-watcher.js", () => ({
   startUrlWatcher: vi.fn(),
-  BOC_URL_CHANGE_EVENT: "boc:urlchange"
+  BILISCRIPT_URL_CHANGE_EVENT: "biliscript:urlchange"
 }));
 vi.mock("../../extension/bilibili/reader-url.js", () => ({
   replaceReaderModeUrl: vi.fn()

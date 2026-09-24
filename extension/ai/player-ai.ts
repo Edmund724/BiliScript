@@ -19,7 +19,7 @@ import { ensurePlayerAiStyles, removePlayerAiStyles } from "../shared/style-inje
 // ===== S3 分层：样式挂载（模块求值即挂，幂等） =====
 //
 // 为什么在模块级挂：样式必须「节点创建前就绪」——startPlayerAiQuickAction 的
-// schedulePlayerAiQuickActionSync() 会创建 #boc-player-ai-quick-action，若样式
+// schedulePlayerAiQuickActionSync() 会创建 #biliscript-player-ai-quick-action，若样式
 // 尚未注入，首次 sync 创建出的节点会以无样式状态挂到播放器上，直到下一个
 // sync（resize/滚动/观察器回调）才带样式，形成闪变。模块一旦装载（本文件
 // 求值）即挂表，start 与创建节点之间无需等待样式就绪——节点创建前样式已注入。
@@ -99,15 +99,15 @@ function isPlayerAiQuickActionMountedStable(): boolean {
 // 这一现实场景；逐像素等价不是本路径的目标（漏判最多是一次多余的幂等写）。
 function isPlayerAiQuickActionVisualsCurrent(button: HTMLElement): boolean {
   const wrap = button.parentElement;
-  if (button.style.getPropertyValue("--boc-player-ai-action-icon-size") !== `${PLAYER_AI_ICON_SIZE_PX}px`) {
+  if (button.style.getPropertyValue("--biliscript-player-ai-action-icon-size") !== `${PLAYER_AI_ICON_SIZE_PX}px`) {
     return false;
   }
   if (!(wrap instanceof HTMLElement)) {
     return true;
   }
   return (
-    wrap.style.getPropertyValue("--boc-player-ai-action-hit-size") === `${PLAYER_AI_HIT_SIZE_PX}px` &&
-    wrap.style.getPropertyValue("--boc-player-ai-action-color") === PLAYER_AI_BASE_COLOR
+    wrap.style.getPropertyValue("--biliscript-player-ai-action-hit-size") === `${PLAYER_AI_HIT_SIZE_PX}px` &&
+    wrap.style.getPropertyValue("--biliscript-player-ai-action-color") === PLAYER_AI_BASE_COLOR
   );
 }
 
@@ -275,7 +275,7 @@ export function schedulePlayerAiQuickActionSync(delayMs = 120): void {
       playerAiState.setSyncTimer(0);
       syncPlayerAiQuickActionButton();
     });
-    (window as Window).__bocPlayerAiSyncRaf = rafId;
+    (window as Window).__biliscriptPlayerAiSyncRaf = rafId;
     playerAiState.setSyncTimer(-rafId);
     return;
   }
@@ -345,8 +345,8 @@ function syncPlayerAiQuickActionButton(): void {
     return;
   }
 
-  const existing = document.getElementById("boc-player-ai-quick-action");
-  const existingWrap = existing?.closest(".boc-player-ai-wrap");
+  const existing = document.getElementById("biliscript-player-ai-quick-action");
+  const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
 
   const playerHost = findPlayerAiQuickActionHost();
   if (!playerHost) {
@@ -361,14 +361,14 @@ function syncPlayerAiQuickActionButton(): void {
   let wrap = existingWrap instanceof HTMLElement ? existingWrap : null;
   if (!wrap) {
     wrap = document.createElement("div");
-    wrap.className = "boc-player-ai-wrap";
-    wrap.setAttribute("data-boc-extension-node", "ai-quick-action");
+    wrap.className = "biliscript-player-ai-wrap";
+    wrap.setAttribute("data-biliscript-extension-node", "ai-quick-action");
   }
   if (!button) {
     button = document.createElement("button");
-    button.id = "boc-player-ai-quick-action";
+    button.id = "biliscript-player-ai-quick-action";
     button.type = "button";
-    button.className = "boc-player-ai-quick-action";
+    button.className = "biliscript-player-ai-quick-action";
     button.title = "用 AI 分析这期视频";
     button.setAttribute("aria-label", "用 AI 分析这期视频");
     button.innerHTML = buildPlayerAiQuickActionIconSvg();
@@ -393,7 +393,7 @@ function syncPlayerAiQuickActionButton(): void {
   if (!mountTimingLogged) {
     mountTimingLogged = true;
     logInfoAlways(
-      `[BOC] player-ai: AI 键已挂载，装载→挂载耗时 ${Date.now() - MODULE_BOOT_AT}ms`
+      `[BILISCRIPT] player-ai: AI 键已挂载，装载→挂载耗时 ${Date.now() - MODULE_BOOT_AT}ms`
     );
   }
 }
@@ -413,7 +413,7 @@ export function removePlayerAiQuickActionButton(): void {
     window.clearTimeout(playerAiState.playerAiQuickActionCursorHideTimer);
     playerAiState.setCursorHideTimer(0);
   }
-  document.getElementById("boc-player-ai-quick-action")?.closest(".boc-player-ai-wrap")?.remove();
+  document.getElementById("biliscript-player-ai-quick-action")?.closest(".biliscript-player-ai-wrap")?.remove();
 }
 
 function bindPlayerAiQuickActionCursorSync(wrap: HTMLElement): void {
@@ -461,7 +461,7 @@ function bindPlayerAiQuickActionCursorSync(wrap: HTMLElement): void {
   host.addEventListener("mouseenter", showForCursorActivity, { passive: true });
   host.addEventListener("mouseleave", hideImmediately, { passive: true });
   playerAiQuickActionCursorSync = { host, wrap, showForCursorActivity, hideImmediately };
-  (wrap as HTMLElement & { __bocPlayerAiCursorHost?: HTMLElement }).__bocPlayerAiCursorHost = host;
+  (wrap as HTMLElement & { __biliscriptPlayerAiCursorHost?: HTMLElement }).__biliscriptPlayerAiCursorHost = host;
 }
 
 function unbindPlayerAiQuickActionCursorSync(): void {
@@ -553,11 +553,11 @@ function syncPlayerAiQuickActionVisuals(button: HTMLElement): void {
   }
   const wrap = button.parentElement instanceof HTMLElement ? button.parentElement : null;
   [wrap, button].filter((node): node is HTMLElement => Boolean(node)).forEach((node) => {
-    node.style.setProperty("--boc-player-ai-action-hit-size", `${PLAYER_AI_HIT_SIZE_PX}px`);
-    node.style.setProperty("--boc-player-ai-action-color", PLAYER_AI_BASE_COLOR);
-    node.style.setProperty("--boc-player-ai-action-hover-color", PLAYER_AI_BASE_COLOR);
+    node.style.setProperty("--biliscript-player-ai-action-hit-size", `${PLAYER_AI_HIT_SIZE_PX}px`);
+    node.style.setProperty("--biliscript-player-ai-action-color", PLAYER_AI_BASE_COLOR);
+    node.style.setProperty("--biliscript-player-ai-action-hover-color", PLAYER_AI_BASE_COLOR);
   });
-  button.style.setProperty("--boc-player-ai-action-icon-size", `${PLAYER_AI_ICON_SIZE_PX}px`);
+  button.style.setProperty("--biliscript-player-ai-action-icon-size", `${PLAYER_AI_ICON_SIZE_PX}px`);
 }
 
 async function handlePlayerAiQuickActionClick(event: MouseEvent): Promise<void> {

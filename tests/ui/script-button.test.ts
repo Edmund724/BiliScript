@@ -88,7 +88,7 @@ describe("script-button 快路径（01）", () => {
 
     // 不推进任何定时器：settle 链（window.load + video 轮询 + 1200ms 余量）
     // 若还在，按钮此刻必然缺席
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(button.nextElementSibling).toBe(complaint);
   });
@@ -98,7 +98,7 @@ describe("script-button 快路径（01）", () => {
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
 
     await loadModule();
-    expect(document.getElementById("boc-script-button")).not.toBeNull();
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
 
     const timingLog = infoSpy.mock.calls.find((args) =>
       args.join(" ").includes("装载→挂载耗时")
@@ -114,7 +114,7 @@ describe("script-button 注入锚点层级（02 收拢：①→④）", () => {
 
     await loadModule();
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     // 紧邻「稿件举报」左侧：后一个兄弟就是 complaint 本尊
     expect(button.nextElementSibling).toBe(complaint);
@@ -137,7 +137,7 @@ describe("script-button 注入锚点层级（02 收拢：①→④）", () => {
 
     await loadModule();
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(button.nextElementSibling).toBe(complaint);
   });
@@ -156,7 +156,7 @@ describe("script-button 注入锚点层级（02 收拢：①→④）", () => {
 
     await loadModule();
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(button.nextElementSibling).toBe(complaint);
   });
@@ -176,7 +176,7 @@ describe("script-button 注入锚点层级（02 收拢：①→④）", () => {
 
     await loadModule();
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(button.nextElementSibling).toBe(complaint);
   });
@@ -194,17 +194,17 @@ describe("script-button 注入锚点层级（02 收拢：①→④）", () => {
     await loadModule();
 
     // 等待窗内：宁可按钮缺席也不闪在浮动层
-    expect(document.getElementById("boc-script-button")).toBeNull();
-    expect(document.getElementById("boc-script-overlay")).toBeNull();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
+    expect(document.getElementById("biliscript-script-overlay")).toBeNull();
 
     // 窗口耗尽：降④浮动层兜底（推进量需跨过 10000ms 首载等待窗，200ms
     // 节拍下窗后首个 tick 即 ~10000ms）
     await vi.advanceTimersByTimeAsync(11200);
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(right.contains(button)).toBe(false);
     expect(leftMain.contains(button)).toBe(false);
-    const overlay = document.getElementById("boc-script-overlay")!;
+    const overlay = document.getElementById("biliscript-script-overlay")!;
     expect(overlay).not.toBeNull();
     expect(overlay.contains(button)).toBe(true);
     expect(overlay.style.position).toBe("absolute");
@@ -223,7 +223,7 @@ describe("script-button 注入锚点层级（02 收拢：①→④）", () => {
     await loadModule();
     await vi.advanceTimersByTimeAsync(11200);
 
-    const overlay = document.getElementById("boc-script-overlay")!;
+    const overlay = document.getElementById("biliscript-script-overlay")!;
     expect(overlay).not.toBeNull();
     expect(overlay.parentElement!.className).toBe("bpx-player-primary-area");
   });
@@ -233,8 +233,8 @@ describe("script-button 注入锚点层级（02 收拢：①→④）", () => {
 
     await loadModule();
 
-    expect(document.getElementById("boc-script-button")).toBeNull();
-    expect(document.getElementById("boc-script-overlay")).toBeNull();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
+    expect(document.getElementById("biliscript-script-overlay")).toBeNull();
   });
 });
 
@@ -246,7 +246,7 @@ describe("script-button 失配宽限与升降级（02）", () => {
     await loadModule();
 
     const right = document.querySelector(".video-toolbar-right")!;
-    let button = document.getElementById("boc-script-button")!;
+    let button = document.getElementById("biliscript-script-button")!;
     expect(button.parentElement).toBe(right);
 
     // B 站重渲染：举报节点（连带按钮）被换掉。移除变更本身经观察器微任务
@@ -257,12 +257,12 @@ describe("script-button 失配宽限与升降级（02）", () => {
 
     // 第 1 拍：宽限中，不降级
     await vi.advanceTimersByTimeAsync(201);
-    expect(document.getElementById("boc-script-overlay")).toBeNull();
+    expect(document.getElementById("biliscript-script-overlay")).toBeNull();
     // 第 2 拍：宽限耗尽，降级④浮动层
     await vi.advanceTimersByTimeAsync(201);
-    const overlay = document.getElementById("boc-script-overlay")!;
+    const overlay = document.getElementById("biliscript-script-overlay")!;
     expect(overlay).not.toBeNull();
-    button = document.getElementById("boc-script-button")!;
+    button = document.getElementById("biliscript-script-button")!;
     expect(overlay.contains(button)).toBe(true);
     expect(right.contains(button)).toBe(false);
     // 可观测：降级事件有 console 日志
@@ -276,7 +276,7 @@ describe("script-button 失配宽限与升降级（02）", () => {
 
     // 页面加载中：工具栏先出壳、举报节点后渲染（用户看到的正是这个间隙里
     // 按钮闪现在视频右上角）
-    expect(document.getElementById("boc-script-button")).toBeNull();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
     const right = document.querySelector(".video-toolbar-right")!;
     const complaint = document.createElement("div");
     complaint.className = "video-complaint";
@@ -284,10 +284,10 @@ describe("script-button 失配宽限与升降级（02）", () => {
     right.insertBefore(complaint, right.firstElementChild);
     await vi.advanceTimersByTimeAsync(201);
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
-    expect(document.getElementById("boc-script-overlay")).toBeNull();
+    expect(document.getElementById("biliscript-script-overlay")).toBeNull();
   });
 
   it("宿主在位后「稿件举报」插入：观察器微任务落位，不等 200ms 节拍", async () => {
@@ -298,7 +298,7 @@ describe("script-button 失配宽限与升降级（02）", () => {
 
     await loadModule();
 
-    expect(document.getElementById("boc-script-button")).toBeNull();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
     const right = document.querySelector(".video-toolbar-right")!;
     const complaint = document.createElement("div");
     complaint.className = "video-complaint";
@@ -307,7 +307,7 @@ describe("script-button 失配宽限与升降级（02）", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
@@ -319,7 +319,7 @@ describe("script-button 失配宽限与升降级（02）", () => {
     await loadModule();
 
     // 重渲染：举报节点短暂消失一拍后回来（Vue 重渲染换新节点）
-    document.getElementById("boc-script-button")!.remove();
+    document.getElementById("biliscript-script-button")!.remove();
     document.querySelector(".video-complaint")!.remove();
     await vi.advanceTimersByTimeAsync(201);
     const complaint = document.createElement("div");
@@ -330,11 +330,11 @@ describe("script-button 失配宽限与升降级（02）", () => {
 
     await vi.advanceTimersByTimeAsync(201);
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
-    expect(document.getElementById("boc-script-overlay")).toBeNull();
+    expect(document.getElementById("biliscript-script-overlay")).toBeNull();
   });
 
   it("降④后 complaint 恢复：按钮从浮动层升回①位", async () => {
@@ -344,10 +344,10 @@ describe("script-button 失配宽限与升降级（02）", () => {
 
     // 首载①未就绪 → 等待窗内不注入，窗耗尽降④（推进量需跨过 10000ms 窗口，
     // 200ms 节拍下窗后首个 tick 即 ~10000ms）
-    expect(document.getElementById("boc-script-button")).toBeNull();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
     await vi.advanceTimersByTimeAsync(11200);
-    let button = document.getElementById("boc-script-button")!;
-    expect(document.getElementById("boc-script-overlay")!.contains(button)).toBe(true);
+    let button = document.getElementById("biliscript-script-button")!;
+    expect(document.getElementById("biliscript-script-overlay")!.contains(button)).toBe(true);
 
     // 工具栏渲染完成，举报节点出现 → 下一自查拍升回①
     const right = document.querySelector(".video-toolbar-right")!;
@@ -357,7 +357,7 @@ describe("script-button 失配宽限与升降级（02）", () => {
     right.insertBefore(complaint, right.firstElementChild);
     await vi.advanceTimersByTimeAsync(201);
 
-    button = document.getElementById("boc-script-button")!;
+    button = document.getElementById("biliscript-script-button")!;
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
     expect(button.style.background).toBe("rgb(251, 114, 153)");
@@ -374,8 +374,8 @@ describe("script-button 幂等与自查", () => {
     injectScriptButton();
     injectScriptButton();
 
-    expect(document.querySelectorAll("#boc-script-button").length).toBe(1);
-    expect(complaint.previousElementSibling!.id).toBe("boc-script-button");
+    expect(document.querySelectorAll("#biliscript-script-button").length).toBe(1);
+    expect(complaint.previousElementSibling!.id).toBe("biliscript-script-button");
   });
 
   it("自查周期：非 /video/ 页主动移除按钮；回到 /video/ 页补回", async () => {
@@ -383,18 +383,18 @@ describe("script-button 幂等与自查", () => {
 
     await loadModule();
 
-    expect(document.getElementById("boc-script-button")).not.toBeNull();
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
 
     // SPA 换到非 /video/ 页：下一个自查周期摘除按钮
     setLocationUrl("https://www.bilibili.com/");
     await vi.advanceTimersByTimeAsync(201);
-    expect(document.getElementById("boc-script-button")).toBeNull();
-    expect(document.getElementById("boc-script-overlay")).toBeNull();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
+    expect(document.getElementById("biliscript-script-overlay")).toBeNull();
 
     // 换回播放页：按钮补回（幂等注入）
     setLocationUrl(NORMAL_PAGE_URL);
     await vi.advanceTimersByTimeAsync(201);
-    expect(document.getElementById("boc-script-button")).not.toBeNull();
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
   });
 
   it("自查周期：稍后再看页（/list/watchlater?bvid=）是视频播放页，不摘按钮", async () => {
@@ -406,10 +406,10 @@ describe("script-button 幂等与自查", () => {
 
     await loadModule();
 
-    expect(document.getElementById("boc-script-button")).not.toBeNull();
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
 
     await vi.advanceTimersByTimeAsync(201);
-    expect(document.getElementById("boc-script-button")).not.toBeNull();
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
   });
 
   it("健康态自查零扫描：按钮就位时一拍只 getElementById 一次，不寻锚", async () => {
@@ -426,7 +426,7 @@ describe("script-button 幂等与自查", () => {
     const elementAll = vi.spyOn(Element.prototype, "querySelectorAll");
     await vi.advanceTimersByTimeAsync(201);
 
-    expect(byId.mock.calls.map((args) => args[0])).toEqual(["boc-script-button"]);
+    expect(byId.mock.calls.map((args) => args[0])).toEqual(["biliscript-script-button"]);
     expect(docAll).not.toHaveBeenCalled();
     expect(elementAll).not.toHaveBeenCalled();
   });
@@ -440,7 +440,7 @@ describe("script-button 幂等与自查", () => {
     await loadModule();
 
     const right = document.querySelector(".video-toolbar-right")!;
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     right.appendChild(button);
 
     await vi.advanceTimersByTimeAsync(201);
@@ -477,7 +477,7 @@ describe("script-button 失锚期事件化（02）", () => {
     document.body.innerHTML = `${makePlayerHtml()}<video src="blob:test"></video>`;
 
     await loadModule();
-    expect(document.getElementById("boc-script-button")).toBeNull();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
 
     const right = document.createElement("div");
     right.className = "video-toolbar-right";
@@ -492,7 +492,7 @@ describe("script-button 失锚期事件化（02）", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(button.parentElement).toBe(right);
     expect(button.nextElementSibling).toBe(complaint);
@@ -505,7 +505,7 @@ describe("script-button 失锚期事件化（02）", () => {
 
     const oldHost = document.getElementById("arc_toolbar_report")!;
     const oldRight = oldHost.querySelector(".video-toolbar-right");
-    expect(document.getElementById("boc-script-button")!.parentElement).toBe(oldRight);
+    expect(document.getElementById("biliscript-script-button")!.parentElement).toBe(oldRight);
 
     // B 站重渲染：工具栏宿主整棵换新（按钮随旧宿主一并被摘走，窄档观察器
     // 挂点断连，靠下一拍的目标失活检测重挂）。
@@ -518,7 +518,7 @@ describe("script-button 失锚期事件化（02）", () => {
     const firstComplaint = newHost.querySelector(".video-complaint");
 
     await vi.advanceTimersByTimeAsync(201);
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button).not.toBeNull();
     expect(button.parentElement).toBe(newRight);
     expect(button.nextElementSibling).toBe(firstComplaint);
@@ -531,7 +531,7 @@ describe("script-button 失锚期事件化（02）", () => {
     firstComplaint!.replaceWith(secondComplaint);
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(document.getElementById("boc-script-button")!.nextElementSibling).toBe(secondComplaint);
+    expect(document.getElementById("biliscript-script-button")!.nextElementSibling).toBe(secondComplaint);
   });
 
   it("失锚→归锚迁移：浮动层期宿主整棵出现，观察器 0ms 感知即升回①位", async () => {
@@ -541,8 +541,8 @@ describe("script-button 失锚期事件化（02）", () => {
 
     // 首载等待窗耗尽 → 降④浮动层（失锚期，宿主一直缺席）。
     await vi.advanceTimersByTimeAsync(11200);
-    const floating = document.getElementById("boc-script-button")!;
-    expect(document.getElementById("boc-script-overlay")!.contains(floating)).toBe(true);
+    const floating = document.getElementById("biliscript-script-button")!;
+    expect(document.getElementById("biliscript-script-overlay")!.contains(floating)).toBe(true);
 
     // 工具栏水合完成，宿主整棵出现 → 观察器同步感知，升回①位。
     const host = document.createElement("div");
@@ -553,10 +553,10 @@ describe("script-button 失锚期事件化（02）", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    const button = document.getElementById("boc-script-button")!;
+    const button = document.getElementById("biliscript-script-button")!;
     expect(button.parentElement).toBe(host.querySelector(".video-toolbar-right"));
     expect(button.nextElementSibling!.className).toBe("video-complaint");
     // 从④升回时空浮动层一并收走。
-    expect(document.getElementById("boc-script-overlay")).toBeNull();
+    expect(document.getElementById("biliscript-script-overlay")).toBeNull();
   });
 });

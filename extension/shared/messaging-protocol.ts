@@ -44,7 +44,7 @@ export type ReaderCloseMessage = {
 export type ReaderCloseResponse = { ok: boolean; error?: string };
 
 // 阅读视图自愈恢复（ui/script-button.ts 的 200ms 自查在失同步时派发）：
-// URL 带 boc_reader=1 而视图没开（直达进入失败）、或状态开着而壳被页面重渲染
+// URL 带 biliscript_reader=1 而视图没开（直达进入失败）、或状态开着而壳被页面重渲染
 // 摘掉（状态-DOM 失同步）时，按 DOM 实况收敛状态后重走进入链。readerUrl 语义
 // 同 reader-enter。仅 content 页内源使用（dispatchContentScriptMessage）。
 export type ReaderRestoreMessage = {
@@ -241,8 +241,8 @@ export type ResolveAiProviderResponse = {
 
 // ===== offscreen 段缓存消息族 =====
 // 平台事实（chrome.offscreen 官方文档）：offscreen 文档仅支持 chrome.runtime，
-// 无 chrome.storage。段缓存（ai/segment-cache.js 的 boc_lvs_summary_* /
-// boc_lvs_raw_* 两族）宿主是 SW——offscreen 的 Map-Reduce / 追问链经本族消息
+// 无 chrome.storage。段缓存（ai/segment-cache.js 的 biliscript_lvs_summary_* /
+// biliscript_lvs_raw_* 两族）宿主是 SW——offscreen 的 Map-Reduce / 追问链经本族消息
 // 读写（arch-review-2026-09/05，替下 storage-local-bridge 垫片），SW 端 handler
 // 直调 segment-cache 单源（键位装配也在 SW 完成，消息只带 context 字段）。
 // 写聚合（段缓存写聚合 ticket）：Map-Reduce 未命中段的 saveRaw 由 offscreen 侧

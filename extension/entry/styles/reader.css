@@ -1,10 +1,10 @@
-/* 统一 文摘面板内部布局（#boc-reading-view 基础布局）——随阅读模式挂载的
- * 非门控段（S3 分层）：页面无 data-boc-reader-mode 时视图 display:none 静默，
- * 挂载后任何时刻建节点都不会闪现。#boc-reading-view 的唯一内容是
+/* 统一 文摘面板内部布局（#biliscript-reading-view 基础布局）——随阅读模式挂载的
+ * 非门控段（S3 分层）：页面无 data-biliscript-reader-mode 时视图 display:none 静默，
+ * 挂载后任何时刻建节点都不会闪现。#biliscript-reading-view 的唯一内容是
  * 文摘面板（三标签 300–460px 窄容器），rail/stage/player-slot 等整页接管
  * 期布局已随其退役删除；视口定位（贴栏/浮层）在 reader-gate.css 门控段。 */
 
-#boc-reading-view {
+#biliscript-reading-view {
   position: fixed;
   left: 16px;
   right: 16px;
@@ -14,13 +14,13 @@
   display: none;
   padding: 20px 22px;
   box-sizing: border-box;
-  background: var(--boc-reader-surface, #fff);
-  border: 1px solid var(--boc-reader-border, #e5e7eb);
-  /* 面板族圆角 14、阴影吃 --boc-reader-shadow（reader-gate.css 两主题各一份）：
+  background: var(--biliscript-reader-surface, #fff);
+  border: 1px solid var(--biliscript-reader-border, #e5e7eb);
+  /* 面板族圆角 14、阴影吃 --biliscript-reader-shadow（reader-gate.css 两主题各一份）：
    * 与设置抽屉/编辑 Modal/解释卡同档，深色下不再是浅色硬编码投影。 */
   border-radius: 14px;
-  box-shadow: var(--boc-reader-shadow);
-  font-family: var(--boc-reader-font-sans);
+  box-shadow: var(--biliscript-reader-shadow);
+  font-family: var(--biliscript-reader-font-sans);
   /* 容器查询宿主（size-aware-styling 指南）：面板内容排版按视图实际宽度分档
    * ——贴栏档宽度由 script-host 写 var（与视口宽度脱钩）、浮层档由 left+right
    * 撑出，视口媒体查询判不了面板真实宽度。inline-size 容纳安全：两档的宽度
@@ -33,7 +33,7 @@
    * 在此无落点：面板高度两端都是外部几何（贴栏 var 随滚动逐帧改写、浮层
    * min() 定长），无「定长→内在尺寸」边界，block-size 过渡会造成贴栏态
    * 跟滚动追帧回弹，故开合动画止于 opacity + display。 */
-  transition: opacity 0.35s var(--boc-reader-ease-spring, ease), display 0.35s allow-discrete;
+  transition: opacity 0.35s var(--biliscript-reader-ease-spring, ease), display 0.35s allow-discrete;
 }
 
 /* 淡入起点：openReaderViewShell 同 tick 写 .open + ready=1，从 display:none
@@ -41,16 +41,16 @@
  * 提供首帧 opacity:0 才有淡入。不支持的引擎（Chrome <117）按瞬时显形呈现
  * （即改造前行为）。 */
 @starting-style {
-  #boc-reading-view.open {
+  #biliscript-reading-view.open {
     opacity: 0;
   }
 }
 
-#boc-reading-view.open {
+#biliscript-reading-view.open {
   display: block;
 }
 
-#boc-reading-view[data-boc-reader-ready="0"] {
+#biliscript-reading-view[data-biliscript-reader-ready="0"] {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -65,154 +65,154 @@
  * 中招）。用 `#id :where()` 提权压回：(1,0,0) 稳胜宿主 (0,0,1)，:where()
  * 贡献 0 特异性、不改视图内既有规则的相对次序，选择器带 #id 作用域，
  * 不外泄到宿主页其他元素。 */
-#boc-reading-view :where(h1, h2, h3, h4, h5, h6) {
-  color: var(--boc-reader-text);
+#biliscript-reading-view :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--biliscript-reader-text);
 }
 
-#boc-reading-view :where(a) {
-  color: var(--boc-reader-accent);
+#biliscript-reading-view :where(a) {
+  color: var(--biliscript-reader-accent);
 }
 
-.boc-reading-header {
+.biliscript-reading-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
 }
 
-.boc-reading-header-copy {
+.biliscript-reading-header-copy {
   min-width: 0;
 }
 
-.boc-reading-meta,
-.boc-reading-status {
+.biliscript-reading-meta,
+.biliscript-reading-status {
   font-size: 16px;
   line-height: 1.5;
-  color: var(--boc-reader-muted, #6b7280);
+  color: var(--biliscript-reader-muted, #6b7280);
 }
 
-/* 面板壳网格第 2 行（见 .boc-reading-script-panel）；其他容器里该属性无效 */
-.boc-reading-status {
+/* 面板壳网格第 2 行（见 .biliscript-reading-script-panel）；其他容器里该属性无效 */
+.biliscript-reading-status {
   grid-row: 2;
 }
 
-.boc-reading-actions {
+.biliscript-reading-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
   flex-wrap: nowrap;
   justify-content: flex-end;
-  transition: opacity 0.3s var(--boc-reader-ease-spring, ease);
+  transition: opacity 0.3s var(--biliscript-reader-ease-spring, ease);
 }
 
-.boc-reading-actions[data-boc-icon-hidden="1"] {
+.biliscript-reading-actions[data-biliscript-icon-hidden="1"] {
   opacity: 0;
   pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .boc-reading-actions {
+  .biliscript-reading-actions {
     transition: none;
   }
 
   /* 面板开合淡入淡出对减少动态用户一并关停（指南的安全底线） */
-  #boc-reading-view {
+  #biliscript-reading-view {
     transition: none;
   }
 
   /* 按压缩放与 tab 内容进场动画（transform 类）对减少动态用户关停；颜色/
    * 背景类短过渡保留 */
-  .boc-reading-actions button:active,
-  .boc-reading-icon-btn:active,
-  .boc-reading-tab:active,
-  .boc-reading-item:active,
-  .boc-reading-search-nav:active,
-  .boc-reading-mini-btn:active,
-  .boc-reading-explain-btn:active,
-  .boc-reading-explain-card-close:active,
-  .boc-reading-chat-intent-cancel:active,
-  .boc-reading-ov-chapter:active,
-  .boc-reading-ov-quote:active,
-  #boc-reading-view .confirm-dialog-cancel:active,
-  #boc-reading-view .confirm-dialog-confirm:active {
+  .biliscript-reading-actions button:active,
+  .biliscript-reading-icon-btn:active,
+  .biliscript-reading-tab:active,
+  .biliscript-reading-item:active,
+  .biliscript-reading-search-nav:active,
+  .biliscript-reading-mini-btn:active,
+  .biliscript-reading-explain-btn:active,
+  .biliscript-reading-explain-card-close:active,
+  .biliscript-reading-chat-intent-cancel:active,
+  .biliscript-reading-ov-chapter:active,
+  .biliscript-reading-ov-quote:active,
+  #biliscript-reading-view .confirm-dialog-cancel:active,
+  #biliscript-reading-view .confirm-dialog-confirm:active {
     transform: none;
   }
 
-  .boc-reading-tab-body.is-active {
+  .biliscript-reading-tab-body.is-active {
     animation: none;
   }
 }
 
-.boc-reading-actions button {
-  border: 1px solid var(--boc-reader-border, #e5e7eb);
-  background: var(--boc-reader-surface, #fff);
+.biliscript-reading-actions button {
+  border: 1px solid var(--biliscript-reader-border, #e5e7eb);
+  background: var(--biliscript-reader-surface, #fff);
   border-radius: 999px;
   min-height: 36px;
   padding: 0 14px;
   font-size: 15px;
-  color: var(--boc-reader-text, #1f2937);
+  color: var(--biliscript-reader-text, #1f2937);
   box-sizing: border-box;
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-actions button:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-actions button:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-icon-btn {
+.biliscript-reading-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 34px;
   height: 34px;
-  border: 1px solid var(--boc-reader-border, #e5e7eb);
-  background: var(--boc-reader-surface, #fff);
+  border: 1px solid var(--biliscript-reader-border, #e5e7eb);
+  background: var(--biliscript-reader-surface, #fff);
   border-radius: 8px;
   cursor: pointer;
   padding: 0;
-  color: var(--boc-reader-text, #1f2937);
+  color: var(--biliscript-reader-text, #1f2937);
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-icon-btn:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-icon-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-icon-btn svg {
+.biliscript-reading-icon-btn svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
 }
 
-.boc-reading-icon-btn:hover {
-  background: var(--boc-reader-surface-2, #f3f4f6);
-  border-color: var(--boc-reader-border, #d1d5db);
+.biliscript-reading-icon-btn:hover {
+  background: var(--biliscript-reader-surface-2, #f3f4f6);
+  border-color: var(--biliscript-reader-border, #d1d5db);
 }
 
 /* 主题切换按钮点按反馈（ui-renderer 300ms 即摘）：accent-soft 软底 + accent 字，
  * 深浅两主题同源 token */
-.boc-reading-icon-btn.is-active {
-  background: var(--boc-reader-accent-soft, #eff6ff);
-  border-color: var(--boc-reader-accent, #2563eb);
-  color: var(--boc-reader-accent, #2563eb);
+.biliscript-reading-icon-btn.is-active {
+  background: var(--biliscript-reader-accent-soft, #eff6ff);
+  border-color: var(--biliscript-reader-accent, #2563eb);
+  color: var(--biliscript-reader-accent, #2563eb);
 }
 
 /* 下拉框单一 box（语言下拉/工具栏 select 共用）：8px 框 + 自绘 chevron，
- * 与设置页下拉（.boc-set-select / 自定义下拉组件）同形；此前两条规则各写
+ * 与设置页下拉（.biliscript-set-select / 自定义下拉组件）同形；此前两条规则各写
  * 一半（padding 2 值、原生箭头）靠源序取胜。 */
-.boc-reading-select,
-.boc-reading-select-sm {
+.biliscript-reading-select,
+.biliscript-reading-select-sm {
   width: auto;
   height: 32px;
   min-height: 32px;
   margin: 0;
   padding: 0 26px 0 12px;
-  border: 1px solid var(--boc-reader-border);
+  border: 1px solid var(--biliscript-reader-border);
   border-radius: 8px;
-  background-color: var(--boc-reader-card);
-  color: var(--boc-reader-text);
+  background-color: var(--biliscript-reader-card);
+  color: var(--biliscript-reader-text);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -220,8 +220,8 @@
   -webkit-appearance: none;
   -moz-appearance: none;
   background-image:
-    linear-gradient(45deg, transparent 50%, var(--boc-reader-faint) 50%),
-    linear-gradient(135deg, var(--boc-reader-faint) 50%, transparent 50%);
+    linear-gradient(45deg, transparent 50%, var(--biliscript-reader-faint) 50%),
+    linear-gradient(135deg, var(--biliscript-reader-faint) 50%, transparent 50%);
   background-position:
     calc(100% - 14px) calc(50% - 1px),
     calc(100% - 10px) calc(50% - 1px);
@@ -229,22 +229,22 @@
   background-repeat: no-repeat;
 }
 
-.boc-reading-select:focus,
-.boc-reading-select-sm:focus {
+.biliscript-reading-select:focus,
+.biliscript-reading-select-sm:focus {
   outline: none;
-  border-color: var(--boc-reader-accent);
-  box-shadow: 0 0 0 2px var(--boc-reader-accent-soft);
+  border-color: var(--biliscript-reader-accent);
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 
-/* .boc-reading-subtitle 的几何在下方基础段单份声明（width/box-sizing/flex/
+/* .biliscript-reading-subtitle 的几何在下方基础段单份声明（width/box-sizing/flex/
  * padding/overflow），此处不留空壳。 */
 
 /* ===== 统一 文摘面板（PR2）：右侧面板壳 + 三标签 =====
  * 视口定位（fixed 右侧、全高卡片）在 reader-gate.css 门控段；这里只定义
  * 面板内部结构：header → tabs（凹槽 + 卡片分段控件，12px 槽 / 8px 项）→
  * tab-body。色值全部走
- * --boc-reader-* 主题 token（gate 段两主题定义），暗色主题自动跟随。 */
-.boc-reading-script-panel {
+ * --biliscript-reader-* 主题 token（gate 段两主题定义），暗色主题自动跟随。 */
+.biliscript-reading-script-panel {
   min-height: 0;
   /* 四行网格（header / status / tabs / tab-body）替代原 flex 列：设置抽屉与
    * 标签区同占第 3–4 行（抽屉 span 两行），抽屉退出时两者重叠而非同时在流内
@@ -267,38 +267,38 @@
    * 溢出会顶出页面级横向滚动条（Modal 出现前的既有 2px 残留，一并收口） */
   box-sizing: border-box;
   border-radius: 14px;
-  background: var(--boc-reader-surface);
-  border: 1px solid var(--boc-reader-border);
-  box-shadow: var(--boc-reader-shadow);
+  background: var(--biliscript-reader-surface);
+  border: 1px solid var(--biliscript-reader-border);
+  box-shadow: var(--biliscript-reader-shadow);
   pointer-events: auto;
 }
 
-.boc-reading-script-panel .boc-reading-header {
+.biliscript-reading-script-panel .biliscript-reading-header {
   grid-row: 1;
   align-items: center;
   padding: 14px 16px 10px;
   gap: 10px;
   /* 半透明材质：surface 加 alpha 的 rgba（token，gate 段两主题定义）+
    * blur/saturate 毛玻璃；面板壳自身 z-index 2147483646，与宿主页共存不受影响 */
-  background: var(--boc-reader-header-bg, var(--boc-reader-surface));
+  background: var(--biliscript-reader-header-bg, var(--biliscript-reader-surface));
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
 }
 
 /* 减弱透明度：材质退回近实色（token 已在 gate 段覆盖），毛玻璃一并关停 */
 @media (prefers-reduced-transparency: reduce) {
-  .boc-reading-script-panel .boc-reading-header {
+  .biliscript-reading-script-panel .biliscript-reading-header {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 }
 
-/* 滚动进行中关停毛玻璃（M19 / M12 巡检 P2-2）：贴栏态面板随 --boc-script-top
+/* 滚动进行中关停毛玻璃（M19 / M12 巡检 P2-2）：贴栏态面板随 --biliscript-script-top
  * 逐帧位移，header 的 backdrop 跟着每帧重采样。script-host 在滚动期间给
- * #boc-reading-view 挂 data-boc-script-scrolling，滚动停下（scrollend 或
+ * #biliscript-reading-view 挂 data-biliscript-script-scrolling，滚动停下（scrollend 或
  * 150ms 静默兜底）摘除。面板壳自身是不透明底，header 的 backdrop 只有面板
  * 底色，关停期间无可感差异；静止态材质与滚动恢复后一字不变。 */
-#boc-reading-view[data-boc-script-scrolling="1"] .boc-reading-script-panel .boc-reading-header {
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-script-panel .biliscript-reading-header {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -307,7 +307,7 @@
  * header/tab-body 各自带 16px 水平内边距，而状态行原是撑满面板宽度的裸
  * block（文本左缘贴面板边缘），与 header 内容不在同一垂直线上——补同款
  * 水平边距 + 与下方 tab 控件的小间距。 */
-.boc-reading-script-panel .boc-reading-status {
+.biliscript-reading-script-panel .biliscript-reading-status {
   margin: 0 16px 8px;
   line-height: 1.4;
 }
@@ -315,18 +315,18 @@
 /* 分段控件母题：凹槽（12px 圆角）+ 卡片项（8px 圆角，同心 = 12 − 4px 内边距）。
  * 对话 tab 的思考档位分段控件镜像同一套语言，槽内边距 2px 故取 10px 项，仍是
  * 同一母题。 */
-.boc-reading-tabs {
+.biliscript-reading-tabs {
   grid-row: 3;
   grid-column: 1;
   display: flex;
   gap: 4px;
   margin: 2px 14px 0;
   padding: 4px;
-  background: var(--boc-reader-pill-bg);
+  background: var(--biliscript-reader-pill-bg);
   border-radius: 12px;
 }
 
-.boc-reading-tab {
+.biliscript-reading-tab {
   flex: 1;
   border: none;
   background: none;
@@ -336,25 +336,25 @@
   font-size: 15px;
   font-weight: 600;
   font-family: inherit;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
   transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
-.boc-reading-tab:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-tab:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-tab:hover {
-  color: var(--boc-reader-accent);
+.biliscript-reading-tab:hover {
+  color: var(--biliscript-reader-accent);
 }
 
-.boc-reading-tab.is-active {
-  background: var(--boc-reader-accent);
-  color: var(--boc-reader-accent-ink);
+.biliscript-reading-tab.is-active {
+  background: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent-ink);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
-.boc-reading-tab-body {
+.biliscript-reading-tab-body {
   grid-row: 4;
   grid-column: 1;
   min-height: 0;
@@ -367,17 +367,17 @@
 
 /* tab 显隐双通道：class（is-active）与 hidden 属性都收敛为不显示——
  * 作者 display:flex 会盖过 hidden 的 UA 样式，两条都写防漂移。 */
-.boc-reading-tab-body:not(.is-active),
-.boc-reading-tab-body[hidden] {
+.biliscript-reading-tab-body:not(.is-active),
+.biliscript-reading-tab-body[hidden] {
   display: none;
 }
 
 /* tab 切换内容进场（motion token：spring 0.3s）——显隐翻转的瞬间播放一次 */
-.boc-reading-tab-body.is-active {
-  animation: boc-tab-body-in 0.3s var(--boc-reader-ease-spring, ease);
+.biliscript-reading-tab-body.is-active {
+  animation: biliscript-tab-body-in 0.3s var(--biliscript-reader-ease-spring, ease);
 }
 
-@keyframes boc-tab-body-in {
+@keyframes biliscript-tab-body-in {
   from {
     opacity: 0;
     transform: translateY(4px);
@@ -389,30 +389,30 @@
 }
 
 /* 概览 / AI 对话 tab 的诚实占位卡（PR4/PR5 落地前不假装可用） */
-.boc-reading-placeholder {
+.biliscript-reading-placeholder {
   margin: auto 0;
   padding: 26px 20px;
-  background: var(--boc-reader-card);
-  border: 1px solid var(--boc-reader-border);
+  background: var(--biliscript-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
   border-radius: 14px;
   text-align: center;
 }
 
-.boc-reading-placeholder-title {
+.biliscript-reading-placeholder-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
   margin-bottom: 6px;
 }
 
-.boc-reading-placeholder-copy {
+.biliscript-reading-placeholder-copy {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
   margin: 0;
 }
 
-.boc-reading-main {
+.biliscript-reading-main {
   min-height: 0;
   flex: 1;
   overflow: hidden;
@@ -421,10 +421,10 @@
   pointer-events: auto;
 }
 
-.boc-reading-subtitle {
+.biliscript-reading-subtitle {
   width: 100%;
   /* 必须 border-box：默认 content-box 下 width:100% 再叠左右 padding 会比
-   * .boc-reading-main（overflow:hidden）宽 16px，右缘连同滚动条一起被裁掉，
+   * .biliscript-reading-main（overflow:hidden）宽 16px，右缘连同滚动条一起被裁掉，
    * 表现为「滚动条不可见」（18dba67 误删滚动条定制也没救回来，真正的根因
    * 在这里）。概览/chat 两个滚动容器没设 width:100%，所以幸免。 */
   box-sizing: border-box;
@@ -439,20 +439,20 @@
 
 /* 三个 tab 的滚动容器共用同一套细滚动条（字幕列表 / 概览 / AI 对话消息区）。
  * 标准属性优先（customize-scrollbar-color-and-thickness 指南）：scrollbar-width
- * + scrollbar-color 直接吃 --boc-reader-* 主题 token，两主题自动跟随。thumb
+ * + scrollbar-color 直接吃 --biliscript-reader-* 主题 token，两主题自动跟随。thumb
  * 用 faint（浅底上够可见），hover 加深为 muted——标准属性没有 thumb 伪元素
  * hover 态，取容器 hover 近似（指针进入滚动区即加深）。 */
-.boc-reading-subtitle,
-.boc-reading-overview,
-.boc-reading-chat .chat-messages {
+.biliscript-reading-subtitle,
+.biliscript-reading-overview,
+.biliscript-reading-chat .chat-messages {
   scrollbar-width: thin;
-  scrollbar-color: var(--boc-reader-faint) transparent;
+  scrollbar-color: var(--biliscript-reader-faint) transparent;
 }
 
-.boc-reading-subtitle:hover,
-.boc-reading-overview:hover,
-.boc-reading-chat .chat-messages:hover {
-  scrollbar-color: var(--boc-reader-muted) transparent;
+.biliscript-reading-subtitle:hover,
+.biliscript-reading-overview:hover,
+.biliscript-reading-chat .chat-messages:hover {
+  scrollbar-color: var(--biliscript-reader-muted) transparent;
 }
 
 /* 旧引擎降级（Chrome ≤120 无 scrollbar-color）：显式定义 ::-webkit-scrollbar
@@ -461,36 +461,36 @@
  * 指南要求包 @supports not：支持标准属性的引擎跳过整块，避免两套机制打架
  *（标准属性非 auto 会让 ::-webkit-scrollbar 整组失效，二者只能取其一）。 */
 @supports not (scrollbar-color: auto) {
-  .boc-reading-subtitle::-webkit-scrollbar,
-  .boc-reading-overview::-webkit-scrollbar,
-  .boc-reading-chat .chat-messages::-webkit-scrollbar {
+  .biliscript-reading-subtitle::-webkit-scrollbar,
+  .biliscript-reading-overview::-webkit-scrollbar,
+  .biliscript-reading-chat .chat-messages::-webkit-scrollbar {
     width: 8px;
   }
 
-  .boc-reading-subtitle::-webkit-scrollbar-track,
-  .boc-reading-overview::-webkit-scrollbar-track,
-  .boc-reading-chat .chat-messages::-webkit-scrollbar-track {
+  .biliscript-reading-subtitle::-webkit-scrollbar-track,
+  .biliscript-reading-overview::-webkit-scrollbar-track,
+  .biliscript-reading-chat .chat-messages::-webkit-scrollbar-track {
     background: transparent;
   }
 
-  .boc-reading-subtitle::-webkit-scrollbar-thumb,
-  .boc-reading-overview::-webkit-scrollbar-thumb,
-  .boc-reading-chat .chat-messages::-webkit-scrollbar-thumb {
-    background: var(--boc-reader-faint);
+  .biliscript-reading-subtitle::-webkit-scrollbar-thumb,
+  .biliscript-reading-overview::-webkit-scrollbar-thumb,
+  .biliscript-reading-chat .chat-messages::-webkit-scrollbar-thumb {
+    background: var(--biliscript-reader-faint);
     border: 2px solid transparent;
     border-radius: 999px;
     background-clip: content-box;
   }
 
-  .boc-reading-subtitle::-webkit-scrollbar-thumb:hover,
-  .boc-reading-overview::-webkit-scrollbar-thumb:hover,
-  .boc-reading-chat .chat-messages::-webkit-scrollbar-thumb:hover {
-    background: var(--boc-reader-muted);
+  .biliscript-reading-subtitle::-webkit-scrollbar-thumb:hover,
+  .biliscript-reading-overview::-webkit-scrollbar-thumb:hover,
+  .biliscript-reading-chat .chat-messages::-webkit-scrollbar-thumb:hover {
+    background: var(--biliscript-reader-muted);
     border: 2px solid transparent;
     background-clip: content-box;
   }
 }
-.boc-reading-item {
+.biliscript-reading-item {
   width: 100%;
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
@@ -501,7 +501,7 @@
   border-radius: 10px;
   padding: 10px 12px;
   text-align: left;
-  color: var(--boc-reader-text, #111827);
+  color: var(--biliscript-reader-text, #111827);
   cursor: pointer;
   user-select: text;
   -webkit-user-select: text;
@@ -516,25 +516,25 @@
   contain-intrinsic-size: auto none auto 44px;
 }
 
-.boc-reading-item:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-item:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-item.is-active {
+.biliscript-reading-item.is-active {
   background: transparent;
   box-shadow: none;
 }
 
 /* 时间戳 pill：贯穿字幕行 / 章节 / 金句 / AI 引用的视觉母题
  *（prototype/direction-approved.md）——等宽字体 + accent-soft 底 + accent 字。
- * 母题自称 pill，形状就是 pill（999px，与同底的 .boc-reading-ov-badge 同款）。 */
-.boc-reading-time {
-  font-family: var(--boc-reader-font-mono);
+ * 母题自称 pill，形状就是 pill（999px，与同底的 .biliscript-reading-ov-badge 同款）。 */
+.biliscript-reading-time {
+  font-family: var(--biliscript-reader-font-mono);
   font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
-  color: var(--boc-reader-accent);
-  background: var(--boc-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent-soft);
   border-radius: 999px;
   padding: 1px 7px;
   white-space: nowrap;
@@ -542,31 +542,31 @@
   align-self: start;
 }
 
-.boc-reading-item.is-active .boc-reading-text {
+.biliscript-reading-item.is-active .biliscript-reading-text {
   text-decoration-line: underline;
-  text-decoration-color: var(--boc-reader-success);
+  text-decoration-color: var(--biliscript-reader-success);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
 
-.boc-reading-text {
+.biliscript-reading-text {
   font-size: 14px;
   line-height: 1.5;
   color: inherit;
 }
 
-.boc-reading-empty {
+.biliscript-reading-empty {
   padding: 12px 4px;
   font-size: 14px;
-  color: var(--boc-reader-faint, #94a3b8);
+  color: var(--biliscript-reader-faint, #94a3b8);
 }
 
 /* 视口媒体查询只留壳定位（浮层档的边距/贴顶）：排版窄档已上移到下方
  * @container——面板贴栏宽度由 script-host 写 var，与视口宽度脱钩，且旧
  * 媒体查询里的排版规则（item 列宽/正文字号/标题字号）早被同表后段的
- * #boc-reading-view 前缀覆盖规则压成死代码，一并删除。 */
+ * #biliscript-reading-view 前缀覆盖规则压成死代码，一并删除。 */
 @media (max-width: 1100px) {
-  #boc-reading-view {
+  #biliscript-reading-view {
     left: 12px;
     right: 12px;
     bottom: 12px;
@@ -575,7 +575,7 @@
 }
 
 @media (max-width: 760px) {
-  #boc-reading-view {
+  #biliscript-reading-view {
     top: 72px;
     height: auto;
   }
@@ -584,100 +584,100 @@
 /* 主题 token 属阅读表：引用方（gate 段）随表同挂同摘，无跨表串色。
  * 上方基础段的同名规则也吃同一批 token（回退值已随令牌收敛剥除），此处只保留
  * 基础段覆盖不到的排版修正。 */
-#boc-reading-view,
-#boc-reading-view .boc-reading-meta,
-#boc-reading-view .boc-reading-status,
-#boc-reading-view .boc-reading-item,
-#boc-reading-view .boc-reading-panel,
-#boc-reading-view .boc-reading-select {
-  color: var(--boc-reader-text);
+#biliscript-reading-view,
+#biliscript-reading-view .biliscript-reading-meta,
+#biliscript-reading-view .biliscript-reading-status,
+#biliscript-reading-view .biliscript-reading-item,
+#biliscript-reading-view .biliscript-reading-panel,
+#biliscript-reading-view .biliscript-reading-select {
+  color: var(--biliscript-reader-text);
 }
 
-#boc-reading-view .boc-reading-meta,
-#boc-reading-view .boc-reading-status {
+#biliscript-reading-view .biliscript-reading-meta,
+#biliscript-reading-view .biliscript-reading-status {
   font-size: 16px;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
 }
 
-#boc-reading-view .boc-reading-actions {
+#biliscript-reading-view .biliscript-reading-actions {
   gap: 10px;
 }
 
-#boc-reading-view .boc-reading-actions button,
-#boc-reading-view .boc-reading-select {
+#biliscript-reading-view .biliscript-reading-actions button,
+#biliscript-reading-view .biliscript-reading-select {
   box-shadow: none;
 }
 
-/* header 三个纯图标按钮（主题/设置/退出）都带 .boc-reading-icon-btn：基础段的
- * .boc-reading-actions button（文字动作按钮 pill + min-height 36）与
- * .boc-reading-icon-btn（34×34 / 8px）同时命中，min-height 压过 height 让图标
+/* header 三个纯图标按钮（主题/设置/退出）都带 .biliscript-reading-icon-btn：基础段的
+ * .biliscript-reading-actions button（文字动作按钮 pill + min-height 36）与
+ * .biliscript-reading-icon-btn（34×34 / 8px）同时命中，min-height 压过 height 让图标
  * 按钮长成 34×36 的胶囊。此处按「8px = 一切框」把图标按钮按回方块。 */
-#boc-reading-view .boc-reading-actions button.boc-reading-icon-btn {
+#biliscript-reading-view .biliscript-reading-actions button.biliscript-reading-icon-btn {
   height: 34px;
   min-height: 0;
   padding: 0;
   border-radius: 8px;
 }
 
-#boc-reading-view .boc-reading-actions button.is-active {
-  background: var(--boc-reader-accent-soft);
-  color: var(--boc-reader-accent);
+#biliscript-reading-view .biliscript-reading-actions button.is-active {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
 }
 
 /* 字幕 tab 工具条内的语言下拉（三开关退役后自设置面板移入，2026-09）：
  * 形状/高度/字号走基础段统一框形态（8px / 32px / 15px，与设置页下拉一致）；
  * 这里只留差异项：token 换色（border/card 底/muted 字）与 max-width 限宽，
  * 行内对齐由 flex 工具条的 align-items:center 保证。 */
-#boc-reading-view .boc-reading-sub-toolbar .boc-reading-select-sm {
-  border-color: var(--boc-reader-border);
+#biliscript-reading-view .biliscript-reading-sub-toolbar .biliscript-reading-select-sm {
+  border-color: var(--biliscript-reader-border);
   /* 长写：background 简写会把基础段的自绘 chevron（background-image）一起清掉 */
-  background-color: var(--boc-reader-card);
-  color: var(--boc-reader-muted);
+  background-color: var(--biliscript-reader-card);
+  color: var(--biliscript-reader-muted);
   max-width: 130px;
 }
 
-#boc-reading-view .boc-reading-sub-toolbar .boc-reading-select-sm:hover {
-  border-color: var(--boc-reader-accent);
-  color: var(--boc-reader-accent);
+#biliscript-reading-view .biliscript-reading-sub-toolbar .biliscript-reading-select-sm:hover {
+  border-color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent);
 }
 
-#boc-reading-view .boc-reading-panel {
+#biliscript-reading-view .biliscript-reading-panel {
   border-radius: 14px;
   padding: 14px 16px;
   pointer-events: auto;
-  background: var(--boc-reader-surface);
-  border: 1px solid var(--boc-reader-border);
-  box-shadow: var(--boc-reader-shadow);
+  background: var(--biliscript-reader-surface);
+  border: 1px solid var(--biliscript-reader-border);
+  box-shadow: var(--biliscript-reader-shadow);
 }
 
-#boc-reading-view .boc-reading-main {
+#biliscript-reading-view .biliscript-reading-main {
   justify-content: stretch;
   background: transparent;
 }
 
-#boc-reading-view .boc-reading-item.is-active {
-  background: var(--boc-reader-accent-soft);
+#biliscript-reading-view .biliscript-reading-item.is-active {
+  background: var(--biliscript-reader-accent-soft);
 }
 
-#boc-reading-view .boc-reading-time {
-  color: var(--boc-reader-accent);
+#biliscript-reading-view .biliscript-reading-time {
+  color: var(--biliscript-reader-accent);
 }
 
-#boc-reading-view .boc-reading-text {
-  font-size: var(--boc-reader-subtitle-font-size);
-  line-height: var(--boc-reader-subtitle-line-height);
-  letter-spacing: var(--boc-reader-letter-spacing);
-  color: var(--boc-reader-text);
+#biliscript-reading-view .biliscript-reading-text {
+  font-size: var(--biliscript-reader-subtitle-font-size);
+  line-height: var(--biliscript-reader-subtitle-line-height);
+  letter-spacing: var(--biliscript-reader-letter-spacing);
+  color: var(--biliscript-reader-text);
 }
 
 /* 长总结内容区容器查询窄档（size-aware-styling 指南）：随面板实际内容宽
- * 分档（须排在上方 #boc-reading-view 前缀规则之后，同特异性靠源序取胜）。
+ * 分档（须排在上方 #biliscript-reading-view 前缀规则之后，同特异性靠源序取胜）。
  * 窄容器（贴栏下限 300px 一带）收紧字幕行几何，给正文列让宽；字幕
- * 正文字号不在此强设——--boc-reader-subtitle-font-size 是用户可调档，窄档
+ * 正文字号不在此强设——--biliscript-reader-subtitle-font-size 是用户可调档，窄档
  * 覆盖会与设置项打架。不支持容器查询的引擎无窄档（与既有宽档行为一致），
  * 属安全降级。 */
 @container (max-width: 560px) {
-  #boc-reading-view .boc-reading-item {
+  #biliscript-reading-view .biliscript-reading-item {
     grid-template-columns: 64px minmax(0, 1fr);
     gap: 10px;
     padding: 10px 8px;
@@ -685,16 +685,16 @@
 }
 
 /* 设置面板分组（窄容器适配） */
-#boc-reading-view .boc-reading-settings-group {
+#biliscript-reading-view .biliscript-reading-settings-group {
   display: grid;
   gap: 7px;
 }
 
 /* ===== PR3 字幕 tab：搜索工具条 / 转写横幅 / 跟随按钮 / 句上解释浮层 / 意图卡
- * 色值全部走 --boc-reader-* token（reader-gate.css 两主题定义），暗色自动跟随。
+ * 色值全部走 --biliscript-reader-* token（reader-gate.css 两主题定义），暗色自动跟随。
  * 视觉基准：prototype/unified-panel.html + final-字幕-解释.jpg / final-转写中.jpg */
 /* 窄容器（面板 300–460px）：放不下时按钮折到搜索框下一行 */
-.boc-reading-sub-toolbar {
+.biliscript-reading-sub-toolbar {
   flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
@@ -703,23 +703,23 @@
   margin-bottom: 10px;
 }
 
-.boc-reading-sub-toolbar .boc-reading-search {
+.biliscript-reading-sub-toolbar .biliscript-reading-search {
   flex: 1 1 150px;
 }
 
-.boc-reading-search {
+.biliscript-reading-search {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--boc-reader-border);
+  border: 1px solid var(--biliscript-reader-border);
   border-radius: 10px;
   padding: 5px 10px;
-  background: var(--boc-reader-card);
+  background: var(--biliscript-reader-card);
 }
 
-.boc-reading-search-input {
+.biliscript-reading-search-input {
   flex: 1;
   min-width: 0;
   border: none;
@@ -728,132 +728,132 @@
   padding: 0;
   font-family: inherit;
   font-size: 15px;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
 }
 
-.boc-reading-search-input::placeholder {
-  color: var(--boc-reader-faint);
+.biliscript-reading-search-input::placeholder {
+  color: var(--biliscript-reader-faint);
 }
 
-.boc-reading-search-count {
+.biliscript-reading-search-count {
   flex: 0 0 auto;
   font-size: 14px;
-  color: var(--boc-reader-faint);
+  color: var(--biliscript-reader-faint);
   white-space: nowrap;
 }
 
-.boc-reading-search-nav {
+.biliscript-reading-search-nav {
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--boc-reader-border);
-  background: var(--boc-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-card);
   border-radius: 8px;
   padding: 0;
   font-size: 14px;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-search-nav:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-search-nav:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-search-nav:hover:not(:disabled) {
-  border-color: var(--boc-reader-accent);
-  color: var(--boc-reader-accent);
+.biliscript-reading-search-nav:hover:not(:disabled) {
+  border-color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent);
 }
 
-.boc-reading-search-nav:disabled {
+.biliscript-reading-search-nav:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.boc-reading-mini-btn {
+.biliscript-reading-mini-btn {
   flex: 0 0 auto;
-  border: 1px solid var(--boc-reader-border);
-  background: var(--boc-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-card);
   border-radius: 10px;
   padding: 6px 12px;
   font-family: inherit;
   font-size: 14.5px;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-mini-btn:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-mini-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-mini-btn:hover {
-  border-color: var(--boc-reader-accent);
-  color: var(--boc-reader-accent);
+.biliscript-reading-mini-btn:hover {
+  border-color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent);
 }
 
 /* 命中高亮：mark + 当前命中（search-current 为 JS/CSS 契约名） */
-.boc-reading-subtitle mark.boc-reading-search-hit {
-  background: var(--boc-reader-accent-soft);
-  color: var(--boc-reader-accent);
+.biliscript-reading-subtitle mark.biliscript-reading-search-hit {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
   border-radius: 3px;
   padding: 0 1px;
 }
 
-.boc-reading-subtitle mark.boc-reading-search-hit.search-current {
-  background: var(--boc-reader-accent);
-  color: var(--boc-reader-accent-ink);
+.biliscript-reading-subtitle mark.biliscript-reading-search-hit.search-current {
+  background: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent-ink);
 }
 
-.boc-reading-item.search-current {
-  background: var(--boc-reader-highlight);
+.biliscript-reading-item.search-current {
+  background: var(--biliscript-reader-highlight);
 }
 
 /* 转写中间态：横幅（highlight 底）+ 不确定进度动画 + 列表淡出禁用 */
-.boc-reading-asr-banner {
+.biliscript-reading-asr-banner {
   flex: 0 0 auto;
-  border: 1px solid var(--boc-reader-border);
-  background: var(--boc-reader-highlight);
+  border: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-highlight);
   border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 10px;
 }
 
-.boc-reading-asr-title {
+.biliscript-reading-asr-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
   margin-bottom: 4px;
 }
 
-.boc-reading-asr-copy {
+.biliscript-reading-asr-copy {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
   margin: 0 0 10px;
 }
 
-/* 不确定进度轨：与概览状态条轨（.boc-reading-ov-track）同一档粗细 4px、同一
- * 条 boc-asr-pulse 动画——同一面板的两个 loading 指示器不该两个粗细。 */
-.boc-reading-asr-track {
+/* 不确定进度轨：与概览状态条轨（.biliscript-reading-ov-track）同一档粗细 4px、同一
+ * 条 biliscript-asr-pulse 动画——同一面板的两个 loading 指示器不该两个粗细。 */
+.biliscript-reading-asr-track {
   height: 4px;
-  background: var(--boc-reader-track);
+  background: var(--biliscript-reader-track);
   border-radius: 99px;
   overflow: hidden;
 }
 
-.boc-reading-asr-fill {
+.biliscript-reading-asr-fill {
   height: 100%;
   width: 38%;
-  background: var(--boc-reader-accent);
+  background: var(--biliscript-reader-accent);
   border-radius: 99px;
-  animation: boc-asr-pulse 1.6s ease-in-out infinite alternate;
+  animation: biliscript-asr-pulse 1.6s ease-in-out infinite alternate;
 }
 
-@keyframes boc-asr-pulse {
+@keyframes biliscript-asr-pulse {
   from {
     opacity: 0.55;
   }
@@ -863,32 +863,32 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .boc-reading-asr-fill {
+  .biliscript-reading-asr-fill {
     animation: none;
   }
 }
 
-.boc-reading-asr-foot {
+.biliscript-reading-asr-foot {
   display: flex;
   justify-content: space-between;
   font-size: 14px;
-  color: var(--boc-reader-faint);
+  color: var(--biliscript-reader-faint);
   margin-top: 6px;
 }
 
-.boc-reading-main {
-  transition: opacity 0.2s var(--boc-reader-ease-spring, ease);
+.biliscript-reading-main {
+  transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease);
 }
 
-.boc-reading-tab-body.is-transcribing .boc-reading-main {
+.biliscript-reading-tab-body.is-transcribing .biliscript-reading-main {
   opacity: 0.35;
   pointer-events: none;
 }
 
-/* Follow playback 悬浮按钮：显隐只由 data-boc-reader-follow 驱动——
+/* Follow playback 悬浮按钮：显隐只由 data-biliscript-reader-follow 驱动——
  * auto（跟随中）隐藏；manual（手动滚动暂停）时显示，
  * 点击由 resumeReaderFollowPlayback 拉回 auto 并跳回当前句。 */
-.boc-reading-follow-btn {
+.biliscript-reading-follow-btn {
   display: none;
   position: absolute;
   left: 50%;
@@ -898,8 +898,8 @@
   border: none;
   padding: 8px 18px;
   border-radius: 999px;
-  background: var(--boc-reader-accent);
-  color: var(--boc-reader-accent-ink);
+  background: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-accent-ink);
   font-family: inherit;
   font-size: 14.5px;
   font-weight: 600;
@@ -909,31 +909,31 @@
   transition: filter 100ms ease-out;
 }
 
-.boc-reading-follow-btn:active {
+.biliscript-reading-follow-btn:active {
   filter: brightness(0.92);
 }
 
-#boc-reading-view[data-boc-reader-follow="manual"] .boc-reading-follow-btn {
+#biliscript-reading-view[data-biliscript-reader-follow="manual"] .biliscript-reading-follow-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.boc-reading-tab-body.is-transcribing .boc-reading-follow-btn {
+.biliscript-reading-tab-body.is-transcribing .biliscript-reading-follow-btn {
   display: none !important;
 }
 
 /* 选区「解释」浮层：绝对定位在 tab body（不进列表滚动容器，避免随滚动裁剪）；
  * 在字幕句内选中词/句后定位到选区下方，选区清空/列表滚动/重新按下时隐藏 */
-.boc-reading-explain-pop {
+.biliscript-reading-explain-pop {
   position: absolute;
   z-index: 7;
 }
 
-.boc-reading-explain-btn {
-  border: 1px solid var(--boc-reader-border);
-  background: var(--boc-reader-card);
-  color: var(--boc-reader-text);
+.biliscript-reading-explain-btn {
+  border: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-card);
+  color: var(--biliscript-reader-text);
   padding: 5px 14px;
   border-radius: 999px;
   font-family: inherit;
@@ -944,37 +944,37 @@
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-explain-btn:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-explain-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-explain-btn:hover {
-  border-color: var(--boc-reader-accent);
-  background: var(--boc-reader-accent-soft);
-  color: var(--boc-reader-accent);
+.biliscript-reading-explain-btn:hover {
+  border-color: var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
 }
 
 /* 选区「解释」卡片：面板内弹层（遮罩 + 居中对话框），整块内容由
  * reader/explain-card.js 按 loading/ready/error 三态重建。视觉基准
  * prototype/final-字幕-解释.jpg：accent 标题 + 选中原文软底条 + 正文解释。 */
-.boc-reading-explain-card {
+.biliscript-reading-explain-card {
   position: absolute;
   inset: 0;
   z-index: 9;
 }
 
-.boc-reading-explain-card[hidden] {
+.biliscript-reading-explain-card[hidden] {
   display: none;
 }
 
-.boc-reading-explain-card-mask {
+.biliscript-reading-explain-card-mask {
   position: absolute;
   inset: 0;
   border-radius: 14px;
-  background: var(--boc-reader-mask-bg);
+  background: var(--biliscript-reader-mask-bg);
 }
 
-.boc-reading-explain-card-dialog {
+.biliscript-reading-explain-card-dialog {
   position: absolute;
   left: 12px;
   right: 12px;
@@ -983,13 +983,13 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--boc-reader-border);
+  border: 1px solid var(--biliscript-reader-border);
   border-radius: 14px;
-  background: var(--boc-reader-card);
+  background: var(--biliscript-reader-card);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
 }
 
-.boc-reading-explain-card-head {
+.biliscript-reading-explain-card-head {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -997,145 +997,145 @@
   padding: 12px 14px 8px;
 }
 
-.boc-reading-explain-card-title {
+.biliscript-reading-explain-card-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--boc-reader-accent);
+  color: var(--biliscript-reader-accent);
 }
 
-.boc-reading-explain-card-close {
+.biliscript-reading-explain-card-close {
   border: 0;
   padding: 2px 8px;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint);
+  color: var(--biliscript-reader-faint);
   font-size: 20px;
   line-height: 1.2;
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-explain-card-close:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-explain-card-close:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-explain-card-close:hover {
-  background: var(--boc-reader-pill-bg);
-  color: var(--boc-reader-text);
+.biliscript-reading-explain-card-close:hover {
+  background: var(--biliscript-reader-pill-bg);
+  color: var(--biliscript-reader-text);
 }
 
-.boc-reading-explain-card-quote {
+.biliscript-reading-explain-card-quote {
   flex: 0 0 auto;
   margin: 0 0 10px;
   padding: 10px 14px;
-  background: var(--boc-reader-accent-soft);
-  color: var(--boc-reader-muted);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-muted);
   font-size: 15px;
   font-style: italic;
   line-height: 1.6;
   word-break: break-word;
 }
 
-.boc-reading-explain-card-content {
+.biliscript-reading-explain-card-content {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 0 14px 12px;
   font-size: 15.5px;
   line-height: 1.75;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
   word-break: break-word;
 }
 
 /* 答案区带 .markdown-body（github-markdown-css 基线，随对话分区表挂载、
  * 晚于本表加载）：.markdown-body p 与这里的特异性同级（0-1-1）但靠后胜出，
  * 挂上 .markdown-body 抬到 0-2-1 保住紧凑 8px 档。 */
-.boc-reading-explain-card-answer.markdown-body p {
+.biliscript-reading-explain-card-answer.markdown-body p {
   margin: 0 0 8px;
 }
 
-.boc-reading-explain-card-answer.markdown-body p:last-child {
+.biliscript-reading-explain-card-answer.markdown-body p:last-child {
   margin-bottom: 0;
 }
 
 /* 长解释屏外段落跳过渲染（M13，同 reader-chat 对话区的 c-v:auto 块级方案，
  * defer-rendering-heavy-content 指南）：renderMarkdown 的块级输出逐块
- * content-visibility: auto，只跳过滚动容器 .boc-reading-explain-card-content
+ * content-visibility: auto，只跳过滚动容器 .biliscript-reading-explain-card-content
  * 视口外的块。占位按 15.5px × 1.75 行高单行 27px 估，标题/列表/表格/代码块
  * 按浏览器默认排版的近似值；auto 让浏览器记住实际尺寸，回滚零跳动；宽度
  * 不占位（块宽由容器拉伸决定）。不支持的引擎忽略整组声明（c-v:auto 无需
  * fallback）；跳过的块仍可页内查找、可聚焦，无需 hidden="until-found"。 */
-.boc-reading-explain-card-answer p {
+.biliscript-reading-explain-card-answer p {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 27px;
 }
 
-.boc-reading-explain-card-answer h3,
-.boc-reading-explain-card-answer h4,
-.boc-reading-explain-card-answer h5,
-.boc-reading-explain-card-answer h6 {
+.biliscript-reading-explain-card-answer h3,
+.biliscript-reading-explain-card-answer h4,
+.biliscript-reading-explain-card-answer h5,
+.biliscript-reading-explain-card-answer h6 {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 56px;
 }
 
-.boc-reading-explain-card-answer ul,
-.boc-reading-explain-card-answer ol {
+.biliscript-reading-explain-card-answer ul,
+.biliscript-reading-explain-card-answer ol {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 52px;
 }
 
-.boc-reading-explain-card-answer pre {
+.biliscript-reading-explain-card-answer pre {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 70px;
 }
 
-.boc-reading-explain-card-answer table {
+.biliscript-reading-explain-card-answer table {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 56px;
 }
 
-.boc-reading-explain-card-answer blockquote {
+.biliscript-reading-explain-card-answer blockquote {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 52px;
 }
 
-.boc-reading-explain-card-answer hr {
+.biliscript-reading-explain-card-answer hr {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 56px;
 }
 
-.boc-reading-explain-card-state {
+.biliscript-reading-explain-card-state {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 2px 0 10px;
   font-size: 15px;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
 }
 
-.boc-reading-explain-card-state.is-error {
+.biliscript-reading-explain-card-state.is-error {
   display: block;
   padding-bottom: 10px;
-  color: var(--boc-reader-accent);
+  color: var(--biliscript-reader-accent);
 }
 
 /* loading 转圈：与概览/转写横幅同族的细环动画 */
-.boc-reading-explain-card-dot {
+.biliscript-reading-explain-card-dot {
   width: 12px;
   height: 12px;
-  border: 2px solid var(--boc-reader-accent);
+  border: 2px solid var(--biliscript-reader-accent);
   border-top-color: transparent;
   border-radius: 50%;
-  animation: boc-explain-spin 0.8s linear infinite;
+  animation: biliscript-explain-spin 0.8s linear infinite;
 }
 
-@keyframes boc-explain-spin {
+@keyframes biliscript-explain-spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-.boc-reading-explain-card-foot {
+.biliscript-reading-explain-card-foot {
   flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
@@ -1145,64 +1145,64 @@
 
 /* ===== markdown mermaid 图表块（ui/markdown 产出占位，ui/mermaid-render 水合） =====
  * 规则收在 reader 基表而非分区表：图块同时出现在选区解释卡
- *（.boc-reading-explain-card-answer）与对话消息（.chat-msg-assistant-body，样式在
- * 按需挂载的 reader-chat.css），两处共用同一套 .boc-md-mermaid* 类名；reader 基表
+ *（.biliscript-reading-explain-card-answer）与对话消息（.chat-msg-assistant-body，样式在
+ * 按需挂载的 reader-chat.css），两处共用同一套 .biliscript-md-mermaid* 类名；reader 基表
  * 在阅读视图内恒在场，故只此一份。渲染前/失败时的源码 <pre> 外观由各自分区的 pre
  * 规则负责，这里只补「渲染成功后隐藏源码」、SVG 容器与失败提示。 */
-.boc-md-mermaid[data-boc-mermaid="done"] .boc-md-mermaid-src {
+.biliscript-md-mermaid[data-biliscript-mermaid="done"] .biliscript-md-mermaid-src {
   display: none;
 }
 
-.boc-md-mermaid-svg {
+.biliscript-md-mermaid-svg {
   margin: 6px 0;
   overflow-x: auto;
 }
 
 /* mermaid 默认 useMaxWidth：渲染出的 SVG 自带 width=100% + 内联 max-width + viewBox。
  * 这里只兜「随面板宽度缩放、按 viewBox 比例保持高度、窄面板横向滚动」。 */
-.boc-md-mermaid-svg svg {
+.biliscript-md-mermaid-svg svg {
   display: block;
   max-width: 100%;
   height: auto;
   margin: 0 auto;
 }
 
-.boc-md-mermaid-fallback {
+.biliscript-md-mermaid-fallback {
   margin-top: 4px;
   font-size: 13px;
-  color: var(--boc-reader-faint);
+  color: var(--biliscript-reader-faint);
 }
 
 /* AI 对话 tab 的待解释意图引用卡（PR3 引入，PR5 起由对话组合根渲染/消费）：
- * 时间戳 pill 母题（.boc-reading-time）+ 引用句 + 取消按钮；发送成功即隐藏。 */
-.boc-reading-chat-intent {
+ * 时间戳 pill 母题（.biliscript-reading-time）+ 引用句 + 取消按钮；发送成功即隐藏。 */
+.biliscript-reading-chat-intent {
   flex: 0 0 auto;
-  border: 1px solid var(--boc-reader-border);
-  border-left: 3px solid var(--boc-reader-accent);
-  background: var(--boc-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
+  border-left: 3px solid var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-card);
   border-radius: 10px;
   padding: 10px 12px;
   margin-bottom: 8px;
 }
 
-.boc-reading-chat-intent[hidden] {
+.biliscript-reading-chat-intent[hidden] {
   display: none !important;
 }
 
-.boc-reading-chat-intent-head {
+.biliscript-reading-chat-intent-head {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
 }
 
-.boc-reading-chat-intent-title {
+.biliscript-reading-chat-intent-title {
   font-size: 14px;
   font-weight: 700;
-  color: var(--boc-reader-faint);
+  color: var(--biliscript-reader-faint);
 }
 
-.boc-reading-chat-intent-cancel {
+.biliscript-reading-chat-intent-cancel {
   margin-left: auto;
   width: 24px;
   height: 24px;
@@ -1210,7 +1210,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--boc-reader-faint);
+  color: var(--biliscript-reader-faint);
   font: inherit;
   font-size: 15px;
   line-height: 1;
@@ -1218,30 +1218,30 @@
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-chat-intent-cancel:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-chat-intent-cancel:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-chat-intent-cancel:hover {
-  background: var(--boc-reader-accent-soft);
-  color: var(--boc-reader-accent);
+.biliscript-reading-chat-intent-cancel:hover {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
 }
 
-.boc-reading-chat-intent-quote {
+.biliscript-reading-chat-intent-quote {
   margin: 0;
   font-size: 15px;
   line-height: 1.6;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
   word-break: break-word;
 }
 
 /* ===== PR4 概览 tab：章节 / 金句 =====
  * 视觉基准：prototype/final-概览.jpg——章节列表（时间戳 pill + 标题 +
  * 小结）→ 金句卡（白底 + 左 3px accent 边 + 右下角时间戳与 Copy 按钮）。
- * 色值全部走 --boc-reader-* token（gate 段两主题定义），暗色主题自动跟随；
- * 时间戳 pill 复用 .boc-reading-time 母题。
+ * 色值全部走 --biliscript-reader-* token（gate 段两主题定义），暗色主题自动跟随；
+ * 时间戳 pill 复用 .biliscript-reading-time 母题。
  *（script-only-ui：概览顶部「总结」区块已删除，直接以章节开头。） */
-.boc-reading-overview {
+.biliscript-reading-overview {
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
@@ -1249,48 +1249,48 @@
   pointer-events: auto;
 }
 
-.boc-reading-ov-section {
+.biliscript-reading-ov-section {
   margin-bottom: 20px;
 }
 
-.boc-reading-ov-h {
+.biliscript-reading-ov-h {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  color: var(--boc-reader-faint);
+  color: var(--biliscript-reader-faint);
   margin-bottom: 9px;
 }
 
 /* 「AI 生成 / AI 精选」小标注：accent 软底 pill，仅在 AI 分章/金句标头出现 */
-.boc-reading-ov-badge {
+.biliscript-reading-ov-badge {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0;
-  color: var(--boc-reader-accent);
-  background: var(--boc-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent-soft);
   border-radius: 999px;
   padding: 1px 8px;
 }
 
-.boc-reading-ov-empty {
+.biliscript-reading-ov-empty {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--boc-reader-faint);
+  color: var(--biliscript-reader-faint);
 }
 
 /* 章节列表：时间戳 pill + 标题 + 小结（点击跳播）。卡片底色用 surface-2 与
  * 周边区分（script-only-ui 决策：参考 YouTube Script Overview 卡片式）。 */
-.boc-reading-ov-chapter {
+.biliscript-reading-ov-chapter {
   width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: start;
   border: 0;
-  background: var(--boc-reader-surface-2);
+  background: var(--biliscript-reader-surface-2);
   border-radius: 10px;
   padding: 9px 10px;
   margin-bottom: 8px;
@@ -1301,42 +1301,42 @@
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-ov-chapter:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-ov-chapter:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-ov-chapter:hover {
-  background: var(--boc-reader-surface-3);
+.biliscript-reading-ov-chapter:hover {
+  background: var(--biliscript-reader-surface-3);
 }
 
-.boc-reading-ov-chapter-copy {
+.biliscript-reading-ov-chapter-copy {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.boc-reading-ov-chapter-title {
+.biliscript-reading-ov-chapter-title {
   font-size: 16px;
   font-weight: 600;
   line-height: 1.5;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
   word-break: break-word;
 }
 
-.boc-reading-ov-chapter-desc {
+.biliscript-reading-ov-chapter-desc {
   font-size: 16px;
   line-height: 1.6;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
   word-break: break-word;
 }
 
 /* 金句卡：白底 + 左 3px accent 边 + 右下角时间戳（点击跳播） */
-.boc-reading-ov-quote {
+.biliscript-reading-ov-quote {
   width: 100%;
   display: block;
-  border: 1px solid var(--boc-reader-border);
-  border-left: 3px solid var(--boc-reader-accent);
-  background: var(--boc-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
+  border-left: 3px solid var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-card);
   border-radius: 10px;
   padding: 10px 12px 8px;
   margin-bottom: 10px;
@@ -1346,24 +1346,24 @@
   transition: transform 100ms ease-out;
 }
 
-.boc-reading-ov-quote:active {
-  transform: scale(var(--boc-reader-press-scale, 1));
+.biliscript-reading-ov-quote:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.boc-reading-ov-quote:hover {
-  border-color: var(--boc-reader-accent);
+.biliscript-reading-ov-quote:hover {
+  border-color: var(--biliscript-reader-accent);
   border-left-width: 3px;
 }
 
-.boc-reading-ov-quote-text {
+.biliscript-reading-ov-quote-text {
   display: block;
   font-size: 16px;
   line-height: 1.7;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
   word-break: break-word;
 }
 
-.boc-reading-ov-quote-foot {
+.biliscript-reading-ov-quote-foot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -1373,71 +1373,71 @@
 
 /* 金句卡右下角 Copy 按钮（小字文本钮）：span[role=button]——嵌在跳播 <button>
  * 卡内不能用 <button>，语义由 role + data-overview-action 委托分流补齐 */
-.boc-reading-ov-quote-copy {
+.biliscript-reading-ov-quote-copy {
   font-size: 14px;
   font-weight: 600;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
   cursor: pointer;
   user-select: none;
 }
 
-.boc-reading-ov-quote-copy:hover {
-  color: var(--boc-reader-accent);
+.biliscript-reading-ov-quote-copy:hover {
+  color: var(--biliscript-reader-accent);
 }
 
 /* 状态条（生成中 / 部分失败 / 失败）+ 不确定进度细条 */
-.boc-reading-ov-strip {
+.biliscript-reading-ov-strip {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border: 1px solid var(--boc-reader-border);
+  border: 1px solid var(--biliscript-reader-border);
   border-radius: 10px;
   padding: 9px 12px;
   margin-bottom: 12px;
 }
 
-.boc-reading-ov-strip.is-generating {
+.biliscript-reading-ov-strip.is-generating {
   border-color: transparent;
-  background: var(--boc-reader-accent-soft);
+  background: var(--biliscript-reader-accent-soft);
 }
 
-.boc-reading-ov-strip.is-partial,
-.boc-reading-ov-strip.is-error {
-  background: var(--boc-reader-highlight);
+.biliscript-reading-ov-strip.is-partial,
+.biliscript-reading-ov-strip.is-error {
+  background: var(--biliscript-reader-highlight);
 }
 
-.boc-reading-ov-strip-text {
+.biliscript-reading-ov-strip-text {
   font-size: 14px;
   line-height: 1.6;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
 }
 
-.boc-reading-ov-progress {
+.biliscript-reading-ov-progress {
   flex: 0 0 auto;
   font-size: 14px;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
   white-space: nowrap;
 }
 
-.boc-reading-ov-track {
+.biliscript-reading-ov-track {
   height: 4px;
-  background: var(--boc-reader-track, rgba(0, 0, 0, 0.06));
+  background: var(--biliscript-reader-track, rgba(0, 0, 0, 0.06));
   border-radius: 99px;
   overflow: hidden;
   margin-bottom: 14px;
 }
 
-.boc-reading-ov-fill {
+.biliscript-reading-ov-fill {
   height: 100%;
   width: 38%;
-  background: var(--boc-reader-accent);
+  background: var(--biliscript-reader-accent);
   border-radius: 99px;
-  animation: boc-asr-pulse 1.6s ease-in-out infinite alternate;
+  animation: biliscript-asr-pulse 1.6s ease-in-out infinite alternate;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .boc-reading-ov-fill {
+  .biliscript-reading-ov-fill {
     animation: none;
   }
 }
@@ -1449,7 +1449,7 @@
  * reader-settings-* / reader-chat 表——宿主挂法/层级同编辑器 Modal 宿主
  *（z-index 50 略高于编辑器 40：确认可从编辑器 Modal 上叠开）；卡片与按钮
  * 度量沿用 settings-ui-coherence（32 高 / 999 圆角 / 15 字号）。 */
-#boc-reading-view .confirm-dialog-host {
+#biliscript-reading-view .confirm-dialog-host {
   position: absolute;
   inset: 0;
   z-index: 50;
@@ -1460,42 +1460,42 @@
 
 /* 各分区表的 box-sizing 通配保护盖不到本宿主（编辑器 Modal 宿主同款
  * 黑洞防护） */
-#boc-reading-view .confirm-dialog-host,
-#boc-reading-view .confirm-dialog-host * {
+#biliscript-reading-view .confirm-dialog-host,
+#biliscript-reading-view .confirm-dialog-host * {
   box-sizing: border-box;
 }
 
-#boc-reading-view .confirm-dialog-mask {
+#biliscript-reading-view .confirm-dialog-mask {
   position: absolute;
   inset: 0;
-  background: var(--boc-reader-mask-bg);
+  background: var(--biliscript-reader-mask-bg);
 }
 
-#boc-reading-view .confirm-dialog {
+#biliscript-reading-view .confirm-dialog {
   position: absolute;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(320px, calc(100% - 48px));
   border-radius: 14px;
-  border: 1px solid var(--boc-reader-border);
-  background: var(--boc-reader-surface);
-  box-shadow: var(--boc-reader-shadow);
+  border: 1px solid var(--biliscript-reader-border);
+  background: var(--biliscript-reader-surface);
+  box-shadow: var(--biliscript-reader-shadow);
 }
 
-#boc-reading-view .confirm-dialog:focus {
+#biliscript-reading-view .confirm-dialog:focus {
   outline: none;
 }
 
-#boc-reading-view .confirm-dialog-message {
+#biliscript-reading-view .confirm-dialog-message {
   margin: 0;
   padding: 16px 16px 12px;
   font-size: 15px;
   line-height: 1.5;
-  color: var(--boc-reader-text);
+  color: var(--biliscript-reader-text);
 }
 
-#boc-reading-view .confirm-dialog-foot {
+#biliscript-reading-view .confirm-dialog-foot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -1503,8 +1503,8 @@
   padding: 0 16px 14px;
 }
 
-#boc-reading-view .confirm-dialog-cancel,
-#boc-reading-view .confirm-dialog-confirm {
+#biliscript-reading-view .confirm-dialog-cancel,
+#biliscript-reading-view .confirm-dialog-confirm {
   height: 32px;
   padding: 0 14px;
   border-radius: 999px;
@@ -1514,30 +1514,30 @@
   transition: transform 100ms ease-out;
 }
 
-#boc-reading-view .confirm-dialog-cancel {
-  border: 1px solid var(--boc-reader-border);
+#biliscript-reading-view .confirm-dialog-cancel {
+  border: 1px solid var(--biliscript-reader-border);
   background: transparent;
-  color: var(--boc-reader-muted);
+  color: var(--biliscript-reader-muted);
 }
 
-#boc-reading-view .confirm-dialog-cancel:hover {
-  color: var(--boc-reader-text);
-  background: var(--boc-reader-surface-2);
+#biliscript-reading-view .confirm-dialog-cancel:hover {
+  color: var(--biliscript-reader-text);
+  background: var(--biliscript-reader-surface-2);
 }
 
-#boc-reading-view .confirm-dialog-confirm {
+#biliscript-reading-view .confirm-dialog-confirm {
   border: 0;
-  background: var(--boc-reader-accent);
-  color: var(--boc-reader-on-fill);
+  background: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-on-fill);
   font-weight: 600;
 }
 
-#boc-reading-view .confirm-dialog-confirm:hover {
+#biliscript-reading-view .confirm-dialog-confirm:hover {
   filter: brightness(1.05);
 }
 
 /* 破坏性确认（删除平台 / 清空历史 / 放弃更改）：警示红底，token 与编辑器
  * 删除按钮同源 */
-#boc-reading-view .confirm-dialog-confirm-danger {
-  background: var(--boc-reader-danger);
+#biliscript-reading-view .confirm-dialog-confirm-danger {
+  background: var(--biliscript-reader-danger);
 }

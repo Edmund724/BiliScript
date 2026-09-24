@@ -21,7 +21,7 @@ let resident: StyleInjector;
 let lazy: StyleInjector;
 
 function injectedLinks(): HTMLLinkElement[] {
-  return Array.from(document.querySelectorAll<HTMLLinkElement>("link[data-boc-style]"));
+  return Array.from(document.querySelectorAll<HTMLLinkElement>("link[data-biliscript-style]"));
 }
 
 beforeEach(async () => {

@@ -79,12 +79,12 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   doc.body.appendChild(readingView);
 
   // 统一 文摘面板壳（B 形态）：header / 设置面板 / 三标签 + tab body
-  // 与真实模板同构，readingStatus 挪进 header 下方；字幕列表 .boc-reading-main
+  // 与真实模板同构，readingStatus 挪进 header 下方；字幕列表 .biliscript-reading-main
   // 挂在字幕 tab body 内。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管
   // 退役，不再搭建（章节列表由概览 tab 提供）。
   const scriptPanel = doc.createElement("aside");
   scriptPanel.id = ids.readingScriptPanel;
-  scriptPanel.className = "boc-reading-script-panel";
+  scriptPanel.className = "biliscript-reading-script-panel";
   readingView.appendChild(scriptPanel);
 
   const readingStatus = doc.createElement("p");
@@ -101,33 +101,33 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
 
   const tabSubtitle = doc.createElement("button");
   tabSubtitle.id = ids.readingTabSubtitle;
-  tabSubtitle.className = "boc-reading-tab is-active";
+  tabSubtitle.className = "biliscript-reading-tab is-active";
   scriptPanel.appendChild(tabSubtitle);
 
   const tabOverview = doc.createElement("button");
   tabOverview.id = ids.readingTabOverview;
-  tabOverview.className = "boc-reading-tab";
+  tabOverview.className = "biliscript-reading-tab";
   scriptPanel.appendChild(tabOverview);
 
   const tabChat = doc.createElement("button");
   tabChat.id = ids.readingTabChat;
-  tabChat.className = "boc-reading-tab";
+  tabChat.className = "biliscript-reading-tab";
   scriptPanel.appendChild(tabChat);
 
   const tabBodySubtitle = doc.createElement("div");
   tabBodySubtitle.id = ids.readingTabBodySubtitle;
-  tabBodySubtitle.className = "boc-reading-tab-body is-active";
+  tabBodySubtitle.className = "biliscript-reading-tab-body is-active";
   scriptPanel.appendChild(tabBodySubtitle);
 
   const tabBodyOverview = doc.createElement("div");
   tabBodyOverview.id = ids.readingTabBodyOverview;
-  tabBodyOverview.className = "boc-reading-tab-body";
+  tabBodyOverview.className = "biliscript-reading-tab-body";
   tabBodyOverview.setAttribute("hidden", "");
   scriptPanel.appendChild(tabBodyOverview);
 
   const tabBodyChat = doc.createElement("div");
   tabBodyChat.id = ids.readingTabBodyChat;
-  tabBodyChat.className = "boc-reading-tab-body";
+  tabBodyChat.className = "biliscript-reading-tab-body";
   tabBodyChat.setAttribute("hidden", "");
   scriptPanel.appendChild(tabBodyChat);
 
@@ -135,70 +135,70 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   // renderReadingView 尾部经 renderReadingOverview 收敛概览内容，骨架必须齐。
   const overviewBody = doc.createElement("div");
   overviewBody.id = ids.readingOverviewBody;
-  overviewBody.className = "boc-reading-overview";
+  overviewBody.className = "biliscript-reading-overview";
   tabBodyOverview.appendChild(overviewBody);
 
   // PR3 字幕 tab 工具条（搜索 + 复制/导出）：与 ui-renderer 真实模板同构，
   // bindUiEvents 对这些节点直接 byId 绑定（缺节点会抛错，骨架必须齐）。
   const subToolbar = doc.createElement("div");
-  subToolbar.className = "boc-reading-sub-toolbar";
+  subToolbar.className = "biliscript-reading-sub-toolbar";
   tabBodySubtitle.appendChild(subToolbar);
 
   const searchBox = doc.createElement("div");
-  searchBox.className = "boc-reading-search";
+  searchBox.className = "biliscript-reading-search";
   subToolbar.appendChild(searchBox);
 
   const searchInput = doc.createElement("input");
   searchInput.type = "text";
   searchInput.id = ids.readingSearchInput;
-  searchInput.className = "boc-reading-search-input";
+  searchInput.className = "biliscript-reading-search-input";
   searchBox.appendChild(searchInput);
 
   const searchCount = doc.createElement("span");
   searchCount.id = ids.readingSearchCount;
-  searchCount.className = "boc-reading-search-count";
+  searchCount.className = "biliscript-reading-search-count";
   searchBox.appendChild(searchCount);
 
   const searchPrev = doc.createElement("button");
   searchPrev.type = "button";
   searchPrev.id = ids.readingSearchPrevBtn;
-  searchPrev.className = "boc-reading-search-nav";
+  searchPrev.className = "biliscript-reading-search-nav";
   searchPrev.disabled = true;
   searchBox.appendChild(searchPrev);
 
   const searchNext = doc.createElement("button");
   searchNext.type = "button";
   searchNext.id = ids.readingSearchNextBtn;
-  searchNext.className = "boc-reading-search-nav";
+  searchNext.className = "biliscript-reading-search-nav";
   searchNext.disabled = true;
   searchBox.appendChild(searchNext);
 
   const copySubtitleBtn = doc.createElement("button");
   copySubtitleBtn.type = "button";
   copySubtitleBtn.id = ids.readingCopySubtitleBtn;
-  copySubtitleBtn.className = "boc-reading-mini-btn";
+  copySubtitleBtn.className = "biliscript-reading-mini-btn";
   subToolbar.appendChild(copySubtitleBtn);
 
   const exportSubtitleBtn = doc.createElement("button");
   exportSubtitleBtn.type = "button";
   exportSubtitleBtn.id = ids.readingExportSubtitleBtn;
-  exportSubtitleBtn.className = "boc-reading-mini-btn";
+  exportSubtitleBtn.className = "biliscript-reading-mini-btn";
   subToolbar.appendChild(exportSubtitleBtn);
 
   // PR3 转写中间态横幅（默认隐藏）+ 进度行
   const transcribeBanner = doc.createElement("aside");
   transcribeBanner.id = ids.readingTranscribeBanner;
-  transcribeBanner.className = "boc-reading-asr-banner";
+  transcribeBanner.className = "biliscript-reading-asr-banner";
   transcribeBanner.setAttribute("hidden", "");
   tabBodySubtitle.appendChild(transcribeBanner);
 
   const transcribeProgress = doc.createElement("div");
   transcribeProgress.id = ids.readingTranscribeProgress;
-  transcribeProgress.className = "boc-reading-asr-foot";
+  transcribeProgress.className = "biliscript-reading-asr-foot";
   transcribeBanner.appendChild(transcribeProgress);
 
   const readingMain = doc.createElement("div");
-  readingMain.className = "boc-reading-main";
+  readingMain.className = "biliscript-reading-main";
   tabBodySubtitle.appendChild(readingMain);
 
   const readingSubtitleList = doc.createElement("div");
@@ -209,24 +209,24 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   const followBtn = doc.createElement("button");
   followBtn.type = "button";
   followBtn.id = ids.readingFollowBtn;
-  followBtn.className = "boc-reading-follow-btn";
+  followBtn.className = "biliscript-reading-follow-btn";
   tabBodySubtitle.appendChild(followBtn);
 
   const explainPop = doc.createElement("div");
   explainPop.id = ids.readingExplainPop;
-  explainPop.className = "boc-reading-explain-pop";
+  explainPop.className = "biliscript-reading-explain-pop";
   explainPop.setAttribute("hidden", "");
   tabBodySubtitle.appendChild(explainPop);
 
   const explainBtn = doc.createElement("button");
   explainBtn.type = "button";
-  explainBtn.className = "boc-reading-explain-btn";
+  explainBtn.className = "biliscript-reading-explain-btn";
   explainPop.appendChild(explainBtn);
 
   // 选区「解释」卡片宿主（真实模板同构：空壳，内容整块由 explain-card 状态机重建）
   const explainCard = doc.createElement("div");
   explainCard.id = ids.readingExplainCard;
-  explainCard.className = "boc-reading-explain-card";
+  explainCard.className = "biliscript-reading-explain-card";
   explainCard.setAttribute("hidden", "");
   tabBodySubtitle.appendChild(explainCard);
 
@@ -234,31 +234,31 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   // PR5 起整卡由对话组合根渲染/消费，骨架只保留节点存在性）
   const chatIntent = doc.createElement("div");
   chatIntent.id = ids.readingChatIntent;
-  chatIntent.className = "boc-reading-chat-intent";
+  chatIntent.className = "biliscript-reading-chat-intent";
   chatIntent.setAttribute("hidden", "");
   tabBodyChat.appendChild(chatIntent);
 
   const intentHead = doc.createElement("div");
-  intentHead.className = "boc-reading-chat-intent-head";
+  intentHead.className = "biliscript-reading-chat-intent-head";
   chatIntent.appendChild(intentHead);
 
   const intentTitle = doc.createElement("span");
-  intentTitle.className = "boc-reading-chat-intent-title";
+  intentTitle.className = "biliscript-reading-chat-intent-title";
   intentHead.appendChild(intentTitle);
 
   const intentTime = doc.createElement("span");
-  intentTime.className = "boc-reading-chat-intent-time boc-reading-time";
+  intentTime.className = "biliscript-reading-chat-intent-time biliscript-reading-time";
   intentHead.appendChild(intentTime);
 
   const intentQuote = doc.createElement("blockquote");
-  intentQuote.className = "boc-reading-chat-intent-quote";
+  intentQuote.className = "biliscript-reading-chat-intent-quote";
   chatIntent.appendChild(intentQuote);
 
   // 三开关退役（2026-09）：滚动/字幕/章节三个 checkbox 从设置面板删除，不再
   // 在骨架中搭建（对应 id 已从 ids 表移除）。
   const readingSubtitleSelect = doc.createElement("select");
   readingSubtitleSelect.id = ids.readingSubtitleSelect;
-  readingSubtitleSelect.className = "boc-reading-select boc-reading-select-sm";
+  readingSubtitleSelect.className = "biliscript-reading-select biliscript-reading-select-sm";
   subToolbar.insertBefore(readingSubtitleSelect, copySubtitleBtn);
 
   const readingSettingsBtn = doc.createElement("button");
@@ -273,7 +273,7 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
 }
 
 // 给播放器链上的元素补可见尺寸，保证 video-probe 判定通过。
-// （PR2：#boc-reading-inline-host 随字幕列表搬进统一面板而移除，列表容器
+// （PR2：#biliscript-reading-inline-host 随字幕列表搬进统一面板而移除，列表容器
 // 自身不再需要可见尺寸 mock——sync 域滚动路径对其不可见容器本就走兜底。）
 export function mockPlayerRects(extraSelectors: string[] = []) {
   const selectors = [

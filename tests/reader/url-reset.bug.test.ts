@@ -1,7 +1,7 @@
-// 反馈回路（5be8f39 嫌疑路径）：replaceState 补丁派发的 boc:urlchange
+// 反馈回路（5be8f39 嫌疑路径）：replaceState 补丁派发的 biliscript:urlchange
 // 是否会在进入阅读模式时清空已抓取的章节。
 //
-// startUrlWatcher（history 补丁 + boc:urlchange 广播）派发的事件由组合根
+// startUrlWatcher（history 补丁 + biliscript:urlchange 广播）派发的事件由组合根
 // message-handler 的 handleUrlChange 消费：
 // handleUrlChange 在 clip 签名不匹配时 resetClipState()（chapters 清空）。
 // 5be8f39 的修复是"先更新签名再调 replaceState"。这里同时验证：
@@ -25,7 +25,7 @@ vi.mock("../../extension/reader/index.js", async (importActual) => {
 });
 
 const OTHER_VIDEO_URL = "https://www.bilibili.com/video/BV1test999999/";
-const OTHER_VIDEO_READER_URL = "https://www.bilibili.com/video/BV1test999999/?boc_reader=1";
+const OTHER_VIDEO_READER_URL = "https://www.bilibili.com/video/BV1test999999/?biliscript_reader=1";
 
 let state: TestState;
 let clipState: typeof import("../../extension/core/state.js").clipState;
@@ -41,7 +41,7 @@ async function loadModules() {
   clipState = stateModule.clipState;
   readerUrl = await import("../../extension/bilibili/reader-url.js");
   // URL 变化编排（handleUrlChange 监听）在组合根 message-handler；
-  // url-watcher.startUrlWatcher 只负责 history 补丁与 boc:urlchange 广播。
+  // url-watcher.startUrlWatcher 只负责 history 补丁与 biliscript:urlchange 广播。
   messageHandler = await import("../../extension/entry/message-handler.js");
   videoIdShared = await import("../../extension/bilibili/video-id-shared.js");
   uiRenderer = await import("../../extension/ui/ui-renderer.js");

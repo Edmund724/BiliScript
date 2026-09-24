@@ -165,8 +165,8 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const logging = await import("../../extension/shared/logging.js");
     await vi.waitFor(() => {
-      logging.logInfo("[BOC] gate on");
-      expect(infoSpy).toHaveBeenCalledWith("[BOC] gate on");
+      logging.logInfo("[BILISCRIPT] gate on");
+      expect(infoSpy).toHaveBeenCalledWith("[BILISCRIPT] gate on");
     });
     infoSpy.mockRestore();
   });
@@ -180,17 +180,17 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
     const logging = await import("../../extension/shared/logging.js");
 
     broadcastListener({ type: "debug-log-gate-changed", enabled: true });
-    logging.logInfo("[BOC] on");
+    logging.logInfo("[BILISCRIPT] on");
     expect(infoSpy).toHaveBeenCalledTimes(1);
 
     broadcastListener({ type: "debug-log-gate-changed", enabled: false });
-    logging.logInfo("[BOC] off");
+    logging.logInfo("[BILISCRIPT] off");
     expect(infoSpy).toHaveBeenCalledTimes(1);
 
     // 非门广播（其他消息）不翻转
     broadcastListener({ type: "something-else" });
     broadcastListener({ type: "debug-log-gate-changed" });
-    logging.logInfo("[BOC] still off");
+    logging.logInfo("[BILISCRIPT] still off");
     expect(infoSpy).toHaveBeenCalledTimes(1);
     infoSpy.mockRestore();
   });
@@ -214,7 +214,7 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const logging = await import("../../extension/shared/logging.js");
       await new Promise((resolve) => setTimeout(resolve, 0));
-      logging.logWarn("[BOC] quiet");
+      logging.logWarn("[BILISCRIPT] quiet");
       expect(warnSpy).not.toHaveBeenCalled();
       expect(unhandled).toEqual([]);
       warnSpy.mockRestore();
@@ -276,7 +276,7 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
 
     await vi.waitFor(() =>
       expect(warnSpy).toHaveBeenCalledWith(
-        "[BOC] offscreen closeDocument after asr task failed",
+        "[BILISCRIPT] offscreen closeDocument after asr task failed",
         { error: "仅接受 offscreen 文档发送" }
       )
     );

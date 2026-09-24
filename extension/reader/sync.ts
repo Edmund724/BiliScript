@@ -76,7 +76,7 @@ export function stopReadingViewSync() {
 }
 
 // P3-1：字幕 tab 可见性判定（tick 的滚动/高亮段开关）。判定通道与 CSS 显隐
-//（reader.css `.boc-reading-tab-body:not(.is-active)` / `[hidden]`、
+//（reader.css `.biliscript-reading-tab-body:not(.is-active)` / `[hidden]`、
 // reader-settings-shell.css 设置抽屉展开时压掉三 tab body）一致：tab body 非 active、
 // 带 hidden 属性或设置抽屉展开即视为不可见。节点缺失（壳未建）按可见处理，
 // 保持旧行为与既有抛错路径不变。
@@ -110,7 +110,7 @@ export function syncReadingViewPlayback(forceScroll = false) {
   // findActiveSubtitleIndex/findActiveChapterIndex 与高亮/滚动 DOM 写。索引状态
   // 刻意不更新：切回字幕 tab 后的首拍索引必与旧值不同，shouldScroll 自然为真，
   // 补上高亮与滚动（最多延迟一拍）。状态栏（面板 header，三 tab 常显）、跟随态
-  // 属性（#boc-reading-view，header「手动浏览中」标注常显）与转写横幅进度行与
+  // 属性（#biliscript-reading-view，header「手动浏览中」标注常显）与转写横幅进度行与
   // tab 无关，照常收敛。
   if (isSubtitleTabVisible()) {
     const subtitleIndex = findActiveSubtitleIndex(currentTime);
@@ -165,7 +165,7 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   // rail 章节列表 DOM 已随整页接管退役，章节高亮写组整段删除；
   // activeChapterIndex 状态照常维护（概览 tab 的高亮消费）。
-  const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, "boc-reading-item");
+  const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, "biliscript-reading-item");
 
   if (!subtitleHit.unchanged) {
     if (subtitleHit.current && subtitleHit.current !== subtitleHit.next) {
@@ -241,7 +241,7 @@ function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
   }
 
   // PR2 统一 文摘面板：字幕列表常驻右侧面板「字幕」tab（自身即滚动容器），
-  // 原内联宿主分支（boc-reading-inline-host 的 scrollTo）随机制移除——跟随/
+  // 原内联宿主分支（biliscript-reading-inline-host 的 scrollTo）随机制移除——跟随/
   // 跳转滚动一律收敛为「优先列表容器内滚动，容器不可滚才滚页面兜底」。
   // 列表容器或条目不可见（如其他标签页激活、条目尚未上屏）时退回
   // scrollIntoView：对隐藏节点无操作，不产生程序化滚动窗口。
@@ -320,7 +320,7 @@ export function jumpReadingTarget(seconds: number | string) {
 }
 
 export function onReadingSubtitleClick(event: MouseEvent) {
-  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(".boc-reading-item");
+  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(".biliscript-reading-item");
   if (!target) {
     return;
   }
@@ -337,7 +337,7 @@ export function noteManualReaderInteraction(durationMs = 3000) {
 }
 
 // PR3 Follow playback 悬浮按钮的回调：把跟随从「手动暂停（manual）」拉回自动。
-// 按钮显隐由 data-boc-reader-follow 两态（manual/auto）的 CSS 驱动（reader.css），
+// 按钮显隐由 data-biliscript-reader-follow 两态（manual/auto）的 CSS 驱动（reader.css），
 // 本函数只负责行为：
 //   - manual 态 = 手动滚动暂停中 → 清暂停；
 //   - 随后 forceScroll 同步一次高亮与滚动，跳回「当前正在播的句子」——不改
@@ -357,8 +357,8 @@ export function updateReaderFollowState() {
   const mode = isManualScrollPaused() ? "manual" : "auto";
   // 候选10 批1：值未变时跳过 setAttribute。先读现值而非缓存上次写入值：
   // closeReadingView 会 removeAttribute，读现值能自动从外部移除中自愈。
-  if (readingView.getAttribute("data-boc-reader-follow") === mode) {
+  if (readingView.getAttribute("data-biliscript-reader-follow") === mode) {
     return;
   }
-  readingView.setAttribute("data-boc-reader-follow", mode);
+  readingView.setAttribute("data-biliscript-reader-follow", mode);
 }

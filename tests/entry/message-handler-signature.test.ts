@@ -14,11 +14,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// 原 core/runtime.js 的三个符号已按职责拆分：startUrlWatcher / BOC_URL_CHANGE_EVENT
+// 原 core/runtime.js 的三个符号已按职责拆分：startUrlWatcher / BILISCRIPT_URL_CHANGE_EVENT
 // 在 core/url-watcher.js，replaceReaderModeUrl 在 bilibili/reader-url.js。
 vi.mock("../../extension/core/url-watcher.js", () => ({
   startUrlWatcher: vi.fn(),
-  BOC_URL_CHANGE_EVENT: "boc:urlchange"
+  BILISCRIPT_URL_CHANGE_EVENT: "biliscript:urlchange"
 }));
 vi.mock("../../extension/bilibili/reader-url.js", () => ({
   replaceReaderModeUrl: vi.fn()

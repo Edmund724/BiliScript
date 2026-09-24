@@ -148,7 +148,7 @@ describe("background 半边：点 AI 键只发一条带 chat 负载的 reader-en
 // ===== content 半边：对话激活在进入事务收敛后落地 =====
 
 // 每用例 resetModules 后动态重取（setup.ts 的全局 beforeEach 会清
-// globalThis.__BOC_READER_BUS__ 槽；ui-renderer 的订阅在模块求值时注册，
+// globalThis.__BILISCRIPT_READER_BUS__ 槽；ui-renderer 的订阅在模块求值时注册，
 // 必须每用例重新求值/装载，否则 subscribeUiCommand 落在已被清空的槽上）。
 type Modules = {
   dispatch: typeof import("../../extension/entry/message-handler.js").dispatchContentScriptMessage;
@@ -185,8 +185,8 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     resetModuleState();
     setLocationUrl(NORMAL_PAGE_URL);
     document.body.innerHTML = "";
-    document.documentElement.removeAttribute("data-boc-reader-mode");
-    document.body.removeAttribute("data-boc-reader-mode");
+    document.documentElement.removeAttribute("data-biliscript-reader-mode");
+    document.body.removeAttribute("data-biliscript-reader-mode");
 
     const messageHandler = await import("../../extension/entry/message-handler.js");
     const lazyReader = await import("../../extension/reader/lazy-reader.js");

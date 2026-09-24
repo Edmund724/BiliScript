@@ -77,9 +77,9 @@ describe("阅读壳序列唯一性（arch-slim/02 验收标准 1）", () => {
     expect(callers).toContain(SHELL);
   });
 
-  it("data-boc-reader-mode 门控属性写入只存在于 shell.ts 与启动预置（content.ts）", () => {
+  it("data-biliscript-reader-mode 门控属性写入只存在于 shell.ts 与启动预置（content.ts）", () => {
     const writers = [...sourceFileMap.keys()]
-      .filter((file) => /setAttribute\("data-boc-reader-mode"/.test(read(file)))
+      .filter((file) => /setAttribute\("data-biliscript-reader-mode"/.test(read(file)))
       .sort();
     for (const file of writers) {
       expect(GATE_ATTR_ALLOWED.has(file), `门控属性写入出现在许可集之外：${file}`).toBe(true);

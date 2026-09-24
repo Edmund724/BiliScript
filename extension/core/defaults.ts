@@ -10,14 +10,14 @@
 // "version" by scripts/build-content.js' version guard.
 // 实体在 core/version.ts（bootstrap 只打包这一个常量，不连带全部默认设置），
 // 这里 re-export 维持既有 import 路径不变。
-export { BOC_VERSION } from "./version.js";
+export { BILISCRIPT_VERSION } from "./version.js";
 
 // ===== AI Prompts =====
 // prompt 默认文本（当前第五代 + 各代 legacy 冻结常量）在 default-prompts.ts。
 // DEFAULT_SETTINGS 的 prompt 字段是空占位："" / [] 经 validators.ts 归一化
 // 回落当前默认（空串不落盘，新装/缺键/清空保存都收敛到当前默认文本）。
 
-// PR5c：player-ai 的 storage 信箱（boc_player_ai_quick_action_v1）已随 AI
+// PR5c：player-ai 的 storage 信箱（biliscript_player_ai_quick_action_v1）已随 AI
 // 侧边栏摘除退役——快捷动作改走消息直发（reader-enter 的 chat 负载），
 // 信箱键不再读写；存量键留存在用户 storage 中，无害。
 

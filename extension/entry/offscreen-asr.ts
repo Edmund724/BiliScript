@@ -149,7 +149,7 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
           throw error;
         }
         // 消息失败/超时也按配置缺失处理（页面静默 skip，与原 fallback 同语义）
-        logWarn("[BOC] get-asr-runtime-config failed, skipping asr task", {
+        logWarn("[BILISCRIPT] get-asr-runtime-config failed, skipping asr task", {
           error: getErrorMessage(error)
         });
         throw makeAsrSkipError(error);

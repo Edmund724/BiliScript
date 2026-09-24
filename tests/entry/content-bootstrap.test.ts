@@ -32,8 +32,8 @@ import {
 const fakeGetExtensionUrl = (modulePath: string) => `chrome-extension://fake-id/${modulePath}`;
 
 function cleanGlobals() {
-  delete globalThis.__BOC_CONTENT_BOOTSTRAP_STARTED__;
-  delete globalThis.__BOC_CONTENT_SCRIPT_LOADED__;
+  delete globalThis.__BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__;
+  delete globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__;
 }
 
 // bootstrap 注入的预取 link 是 document 级副作用，用例间必须清干净，
@@ -72,10 +72,10 @@ describe("startContentBootstrap", () => {
       importModule: vi.fn()
     });
     expect(bootstrap).not.toBeNull();
-    expect(globalThis.__BOC_CONTENT_BOOTSTRAP_STARTED__).toBe(true);
+    expect(globalThis.__BILISCRIPT_CONTENT_BOOTSTRAP_STARTED__).toBe(true);
     // 哨兵值必须是版本字符串（background/popup 的运行时探针按版本比对）
-    expect(typeof globalThis.__BOC_CONTENT_SCRIPT_LOADED__).toBe("string");
-    expect(globalThis.__BOC_CONTENT_SCRIPT_LOADED__!.length).toBeGreaterThan(0);
+    expect(typeof globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__).toBe("string");
+    expect(globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__!.length).toBeGreaterThan(0);
   });
 
   it("成功加载：loadContentMain 解析出 importModule 返回的模块命名空间", async () => {
@@ -141,14 +141,14 @@ describe("startContentBootstrap", () => {
     await first!.loadContentMain();
     expect(importModule).toHaveBeenCalledTimes(1);
 
-    const sentinelBefore = globalThis.__BOC_CONTENT_SCRIPT_LOADED__;
+    const sentinelBefore = globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__;
     const second = startContentBootstrap({
       getExtensionUrl: fakeGetExtensionUrl,
       importModule
     });
     expect(second).toBeNull();
     // 哨兵不被第二次注入覆盖，importModule 也未被新的闭包再次调用
-    expect(globalThis.__BOC_CONTENT_SCRIPT_LOADED__).toBe(sentinelBefore);
+    expect(globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__).toBe(sentinelBefore);
     expect(importModule).toHaveBeenCalledTimes(1);
   });
 

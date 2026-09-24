@@ -157,8 +157,8 @@ function seedReadyContext(): void {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   ports.length = 0;
   await loadShell();
   stubChromeByType();
@@ -241,8 +241,8 @@ describe("组合根装配与懒加载边界", () => {
   });
 
   it("closeReadingView 在对话 tab 未装载时不触发懒加载（清理 no-op）", async () => {
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
     const reader = await import("../../extension/reader/index.js");
     reader.closeReadingView();
     expect(lazyChat.isReaderChatTabLoaded()).toBe(false);
@@ -698,7 +698,7 @@ describe("历史回放分片让出（P2-1：50ms 预算 + scheduler.yield/setTim
       storage: { local: { get: ReturnType<typeof vi.fn> } };
     };
     chromeStub.storage.local.get = vi.fn(async () => ({
-      boc_ai_conversations_v1: [
+      biliscript_ai_conversations_v1: [
         {
           id: "conv-replay",
           title: "测试视频",

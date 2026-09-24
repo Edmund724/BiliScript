@@ -2,7 +2,7 @@
 // entry/：消息分发与页内编排是 entry 层知识，core/ 回归纯共享底座）。
 import { state, uiState, clipState } from "../core/state.js";
 
-import { startUrlWatcher, BOC_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+import { startUrlWatcher, BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import {
   getErrorMessage,
   isStaleRunError
@@ -121,7 +121,7 @@ function handleReaderShellEnter(
       });
       sendResponse({ ok: true });
     } catch (error) {
-      logWarn("[BOC] reading shell load failed", error);
+      logWarn("[BILISCRIPT] reading shell load failed", error);
       sendResponse({ ok: false, error: getErrorMessage(error) });
     }
   })();
@@ -240,8 +240,8 @@ export function dispatchContentScriptMessage(rawMessage: unknown, sendResponse: 
 }
 
 // URL 变化编排（自 core/runtime.js 搬入）：core/url-watcher.js 只负责给 history
-// 打补丁并广播 boc:urlchange（纯机制），本组合根监听 popstate/hashchange/
-// boc:urlchange，按原顺序编排：更新 clip 签名 → 恢复普通页状态 →（阅读模式下）
+// 打补丁并广播 biliscript:urlchange（纯机制），本组合根监听 popstate/hashchange/
+// biliscript:urlchange，按原顺序编排：更新 clip 签名 → 恢复普通页状态 →（阅读模式下）
 // 确保 UI → 重置 clip → player-ai 按钮同步 → reader 同步/字幕刷新。顺序与搬迁前
 // 一致，唯 UI 壳改为条件装载（普通页 SPA 换片不建壳，见 handleUrlChange 内注）。
 let urlChangeHandlerBound = false;
@@ -283,7 +283,7 @@ export function bindUrlChangeHandler() {
         try {
           await ensureUiReady();
         } catch (error) {
-          logWarn("[BOC] UI shell ensure after URL change failed", error);
+          logWarn("[BILISCRIPT] UI shell ensure after URL change failed", error);
           return;
         }
       }
@@ -293,7 +293,7 @@ export function bindUrlChangeHandler() {
         const chain = await ensureSummarizeChain();
         chain.resetClipState();
       } catch (error) {
-        logWarn("[BOC] clip state reset after URL change failed", error);
+        logWarn("[BILISCRIPT] clip state reset after URL change failed", error);
       }
     })();
     // player-ai 按钮同步（原为同步调用）：懒加载后「已加载/加载中才请求」，
@@ -327,7 +327,7 @@ export function bindUrlChangeHandler() {
             }
           });
         } catch (error) {
-          logWarn("[BOC] reading shell load failed", error);
+          logWarn("[BILISCRIPT] reading shell load failed", error);
           announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
         }
       })();
@@ -374,6 +374,6 @@ export function bindUrlChangeHandler() {
   // startUrlWatcher 内部「监听在前、补丁在后」的顺序保持一致。
   window.addEventListener("popstate", handleUrlChange);
   window.addEventListener("hashchange", handleUrlChange);
-  window.addEventListener(BOC_URL_CHANGE_EVENT, handleUrlChange);
+  window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
   startUrlWatcher();
 }

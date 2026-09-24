@@ -18,7 +18,7 @@ _Avoid_: Part、页、集数
 
 **字幕**:
 视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
-代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-boc-reader-subtitle-visible`——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
+代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible`——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
 _Avoid_: 转录、transcript
 
 **章节**:
@@ -38,12 +38,12 @@ _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 f
 
 **原始字幕缓存**:
 按时间戳/章节切好的原始字幕段，可随取随用；仅在压缩摘要之外的细节追问时按需检索注入。宿主注记（arch-review-2026-09/05）：storage 真实宿主是 SW，offscreen（Map-Reduce/追问链）经 `segment-cache` 消息族读写——offscreen 侧唯一出站点 `ai/segment-cache-proxy.ts`，SW 端 `ai/segment-cache-handler.ts` 直调 segment-cache 单源（键位装配在 SW 完成）。写聚合注记（段缓存写聚合 ticket）：Map-Reduce 未命中段的 saveRaw 由 proxy 缓冲、随 saveSummary 合成 `save-summary-raw` 合并 op（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set，两族索引/manifest 打包一次 set）；abort/异常路径 proxy 把缓冲 raw 按 save-raw flush，port 断开 / offscreen 自关随文档销毁丢弃；proxy 从纯直通变有状态缓冲，是出站点收口的既有纪律内演化。
-代码名：`ai/segment-cache.js`（`boc_lvs_raw_*`）/ `ai/raw-retrieval.js`
+代码名：`ai/segment-cache.js`（`biliscript_lvs_raw_*`）/ `ai/raw-retrieval.js`
 _Avoid_: 长记忆、向量库
 
 **文摘面板**:
 阅读模式的唯一呈现形态：右栏固定定位面板，三标签（字幕 / 概览 / AI 对话）。不接管页面、不搬播放器；贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）。ADR-0006。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 `setReaderScriptTab`）。
-代码名：`#boc-reading-view` / `#boc-reading-script-panel` / `reader/script-host.ts` / `--boc-script-*` / `data-boc-script-float` / `readingActiveScriptTab` / `setReaderScriptTab`
+代码名：`#biliscript-reading-view` / `#biliscript-reading-script-panel` / `reader/script-host.ts` / `--biliscript-script-*` / `data-biliscript-script-float` / `readingActiveScriptTab` / `setReaderScriptTab`
 口语同义词：侧边栏（仅兼容用户说法；README 统一为文摘阅读面板，代码与 ADR 沿用 文摘面板）
 _Avoid_: 阅读视图整页接管、播放器槽、rail/stage、剪枝、反解 DOM class 取当前标签
 
@@ -76,7 +76,7 @@ _Avoid_: 与「分段小结」混用
 
 **分段小结**:
 把一段字幕忠实压缩成的中间产物，保留事实、时间点与前后关系，供归并与追问检索。（与「音频分片」区分：分片是上传单元，小结是压缩产物。）
-代码名：`buildSegmentPrompt` / `formatSegmentItem` / `ai/segment-cache.js`（`boc_lvs_summary_*`）/ `SEGMENT_SUMMARY_CHARS`
+代码名：`buildSegmentPrompt` / `formatSegmentItem` / `ai/segment-cache.js`（`biliscript_lvs_summary_*`）/ `SEGMENT_SUMMARY_CHARS`
 _Avoid_: 小总结、chunk 摘要
 
 **归并**:

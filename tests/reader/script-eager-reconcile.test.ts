@@ -83,7 +83,7 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
     // 对账：抓取落定后列表按 state 重渲染（无字幕空态 → 有数据列表），
     // 概览生成再次触发。
     await vi.waitFor(() => {
-      expect(document.querySelectorAll(".boc-reading-item").length).toBe(2);
+      expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(2);
     });
     expect(overview.triggerReaderOverviewGeneration).toHaveBeenCalledTimes(2);
 
@@ -113,7 +113,7 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
 
     // 对账重渲照旧发生（subtitle-ready 通知可能丢），但不再起第二轮抓取
     await vi.waitFor(() => {
-      expect(document.querySelectorAll(".boc-reading-item").length).toBe(1);
+      expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(1);
     });
     expect(refreshSpy).not.toHaveBeenCalled();
 
@@ -140,7 +140,7 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
     // 重开按当前 state 渲染 + 触发，数据不丢
     await shell.enterReaderMode();
     await vi.waitFor(() => {
-      expect(document.querySelectorAll(".boc-reading-item").length).toBe(1);
+      expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(1);
     });
     shell.closeReadingView();
   });

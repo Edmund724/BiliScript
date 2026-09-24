@@ -16,8 +16,8 @@ import { ids } from "./state.js";
 
 export function buildChatTabBodyHtml(): string {
   return `
-      <div id="${ids.readingChatRoot}" class="boc-reading-chat">
-        <header class="chat-header boc-reading-chat-header">
+      <div id="${ids.readingChatRoot}" class="biliscript-reading-chat">
+        <header class="chat-header biliscript-reading-chat-header">
           <button type="button" class="chat-context-chip" id="${ids.readingChatContextChip}" title="">加载中...</button>
           <button id="${ids.readingChatHistoryBtn}" type="button" class="chat-toolbar-btn" title="历史对话">
             <span>历史对话</span>
@@ -38,13 +38,13 @@ export function buildChatTabBodyHtml(): string {
           </button>
         </header>
 
-        <div id="${ids.readingChatIntent}" class="boc-reading-chat-intent" hidden>
-          <div class="boc-reading-chat-intent-head">
-            <span class="boc-reading-chat-intent-title">待解释的字幕句</span>
-            <span class="boc-reading-chat-intent-time boc-reading-time">00:00</span>
-            <button type="button" class="boc-reading-chat-intent-cancel" data-chat-intent-action="cancel" title="取消解释" aria-label="取消解释">×</button>
+        <div id="${ids.readingChatIntent}" class="biliscript-reading-chat-intent" hidden>
+          <div class="biliscript-reading-chat-intent-head">
+            <span class="biliscript-reading-chat-intent-title">待解释的字幕句</span>
+            <span class="biliscript-reading-chat-intent-time biliscript-reading-time">00:00</span>
+            <button type="button" class="biliscript-reading-chat-intent-cancel" data-chat-intent-action="cancel" title="取消解释" aria-label="取消解释">×</button>
           </div>
-          <blockquote class="boc-reading-chat-intent-quote"></blockquote>
+          <blockquote class="biliscript-reading-chat-intent-quote"></blockquote>
         </div>
 
         <!-- 转写状态行：默认基础句；等待发送期间文案由 chat-tab.ts 切换（唯一提示，不另起消息区通知） -->

@@ -3,7 +3,7 @@
 // content 是两轮构建——常驻包（轮 A）与懒加载区（轮 B）把共享底座各装一份实例。
 // 跨实例共享的可变状态必须挂 globalThis 槽（先例 shared/messaging.ts 的页内
 // 分发槽），否则注册与消费落在两份实例上、静默错开。scripts/build-content.js 的
-// assertSharedSlotsInBothRegions 按命名约定扫源码（`*_SLOT_KEY = "__BOC_...__"`），
+// assertSharedSlotsInBothRegions 按命名约定扫源码（`*_SLOT_KEY = "__BILISCRIPT_...__"`），
 // 构建后断言每个槽键在常驻包与至少一个懒加载区 chunk 里都出现。
 //
 // 本测试锁两件事（构建期守卫本身由 npm run build 每次跑）：
@@ -20,7 +20,7 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 const BUILD_CONTENT = "scripts/build-content.js";
 
 // 槽键命名约定：守卫据此扫源码。新增共享槽模块时补进本表。
-const SLOT_KEY_PATTERN = /\b[A-Z_]*SLOT_KEY\s*=\s*"__BOC_[A-Z_]+__"/;
+const SLOT_KEY_PATTERN = /\b[A-Z_]*SLOT_KEY\s*=\s*"__BILISCRIPT_[A-Z_]+__"/;
 const SLOT_MODULES = [
   "extension/shared/messaging.ts", // 页内消息分发槽（先例）
   "extension/shared/logging.ts", // 调试日志门
@@ -53,7 +53,7 @@ describe("跨实例共享槽守卫（构建期接线）", () => {
     const setup = read("tests/setup.ts");
     const keys = [];
     for (const rel of SLOT_MODULES) {
-      const match = /"(__BOC_[A-Z_]+__)"/.exec(read(rel));
+      const match = /"(__BILISCRIPT_[A-Z_]+__)"/.exec(read(rel));
       expect(match, `${rel} 未找到槽键字面量`).not.toBe(null);
       keys.push(match![1]);
     }

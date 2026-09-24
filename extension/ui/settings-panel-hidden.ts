@@ -4,7 +4,7 @@
 // 必须一并结算——provider-editor 按强制关闭（丢弃 dirty 草稿），confirm-dialog
 // 按取消结算。此前 provider-editor.ts 与 confirm-dialog.ts 各写了一份逐字相同的
 // watchSettingsPanel，两处只在回调与（confirm 侧的）代次捕获上不同，故把公共的
-// 「盯 #boc-reading-settings-panel 的 hidden 属性」抽成单份原语。
+// 「盯 #biliscript-reading-settings-panel 的 hidden 属性」抽成单份原语。
 //
 // 不自行持有 observer：调用方把宿主 state 传进来，由原语就地挂上 observer 字段，
 // 便于关闭流程统一 disconnect（两侧既有的清理路径不变）。环境不支持

@@ -1,6 +1,6 @@
 // PR3 Follow playback 悬浮按钮回归测试。
 //
-// 显隐基座：data-boc-reader-follow 两态（manual/auto，sync.updateReaderFollowState
+// 显隐基座：data-biliscript-reader-follow 两态（manual/auto，sync.updateReaderFollowState
 // 维护；auto 跟随中、manual 手动滚动暂停）+ reader.css 的 CSS 显隐规则——
 // auto 隐藏、manual 显示、转写中隐藏（三开关退役后无 off 态，自动滚动恒开）。
 // 按钮行为：resumeReaderFollowPlayback 把跟随拉回 auto 并跳回当前句（不改播放
@@ -38,7 +38,7 @@ function readingView(): HTMLElement {
 }
 
 function followValue(): string | null {
-  return readingView().getAttribute("data-boc-reader-follow");
+  return readingView().getAttribute("data-biliscript-reader-follow");
 }
 
 function seedBody() {
@@ -96,7 +96,7 @@ describe("Follow playback 悬浮按钮", () => {
 
   it("CSS/JS 契约：reader.css 的显隐选择器引用跟随态属性，转写中强制隐藏", () => {
     const css = readFileSync(resolve(process.cwd(), "extension/entry/styles/reader.css"), "utf8");
-    expect(css).toContain('#boc-reading-view[data-boc-reader-follow="manual"] .boc-reading-follow-btn');
-    expect(css).toContain(".boc-reading-tab-body.is-transcribing .boc-reading-follow-btn");
+    expect(css).toContain('#biliscript-reading-view[data-biliscript-reader-follow="manual"] .biliscript-reading-follow-btn');
+    expect(css).toContain(".biliscript-reading-tab-body.is-transcribing .biliscript-reading-follow-btn");
   });
 });

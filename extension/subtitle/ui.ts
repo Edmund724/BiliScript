@@ -1,4 +1,4 @@
-import { BOC_VERSION } from "../core/defaults.js";
+import { BILISCRIPT_VERSION } from "../core/defaults.js";
 import { buildSubtitlePreview, buildTxt } from "../notes/render.js";
 import { buildSubtitleOptionViews } from "./selection.js";
 import { sanitizeFileName, escapeHtml } from "../shared/string-utils.js";
@@ -85,7 +85,7 @@ export function buildClipSnapshotPayload(): Record<string, unknown> {
   );
 
   return {
-    contentVersion: BOC_VERSION,
+    contentVersion: BILISCRIPT_VERSION,
     url: cleanVideoUrl(),
     title: state.clip.title || "",
     author: state.clip.author || "",

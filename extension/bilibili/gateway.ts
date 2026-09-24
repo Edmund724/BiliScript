@@ -92,7 +92,7 @@ export function readRuntimeVideoDuration(): number {
 }
 
 export async function fetchSubtitleBody<T = unknown>(url: string): Promise<{ body: T[] }> {
-  logInfo("[BOC] fetch subtitle body", { url });
+  logInfo("[BILISCRIPT] fetch subtitle body", { url });
   const body = await fetchSubtitleBodyJson<T>(contentFetchJson, url);
   return { body };
 }
@@ -173,7 +173,7 @@ export interface VideoMeta {
 // 包装层移到 gateway 本体，字段与文案逐字一致）。
 export async function fetchVideoMeta(transport: JsonTransport, bvid: string): Promise<VideoMeta> {
   const url = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
-  logInfo("[BOC] fetch video meta", { url, bvid });
+  logInfo("[BILISCRIPT] fetch video meta", { url, bvid });
   const payload = await transport(url);
   if ((payload as { code?: unknown })?.code !== 0) {
     throw new Error(toReadableText((payload as { message?: unknown })?.message, "无法获取视频信息"));
@@ -225,7 +225,7 @@ export async function fetchSubtitleBundle(
   try {
     return await fetchSubtitleBundleInner(transport, { bvid, cid, aid });
   } catch (error) {
-    logWarn("[BOC] subtitles API request failed", {
+    logWarn("[BILISCRIPT] subtitles API request failed", {
       bvid,
       cid,
       aid,
@@ -239,7 +239,7 @@ async function fetchSubtitleBundleInner(
   transport: JsonTransport,
   { bvid, cid, aid }: { bvid?: string | number; cid?: string | number; aid?: string | number }
 ): Promise<{ tracks: SubtitleTrack[]; chapters: Chapter[] }> {
-  logInfo("[BOC] fetch subtitles list", { bvid, cid, aid });
+  logInfo("[BILISCRIPT] fetch subtitles list", { bvid, cid, aid });
   const requests: SubtitleInfoRequest[] = buildSubtitleInfoRequests({ bvid, cid, aid });
 
   const fetchByRequest = async (request: SubtitleInfoRequest) => {

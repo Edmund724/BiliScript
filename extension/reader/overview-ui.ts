@@ -16,10 +16,10 @@ import { withReader } from "../ui/reader-gate.js";
 
 export function buildOverviewTabBodyHtml(): string {
   return `
-              <div id="${ids.readingOverviewBody}" class="boc-reading-overview">
-                <div class="boc-reading-placeholder">
-                  <div class="boc-reading-placeholder-title">概览还未生成</div>
-                  <p class="boc-reading-placeholder-copy">切到概览标签页会自动开始生成章节与金句。</p>
+              <div id="${ids.readingOverviewBody}" class="biliscript-reading-overview">
+                <div class="biliscript-reading-placeholder">
+                  <div class="biliscript-reading-placeholder-title">概览还未生成</div>
+                  <p class="biliscript-reading-placeholder-copy">切到概览标签页会自动开始生成章节与金句。</p>
                 </div>
               </div>
   `;

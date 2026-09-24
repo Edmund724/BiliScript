@@ -72,10 +72,10 @@ function installMessageBus(overrides: Record<string, MessageResponder> = {}): Se
 }
 
 async function mountPanel(): Promise<HTMLElement> {
-  document.body.innerHTML = '<div id="boc-reading-view"><div id="boc-reading-settings-host"></div></div>';
+  document.body.innerHTML = '<div id="biliscript-reading-view"><div id="biliscript-reading-settings-host"></div></div>';
   const panel = await import("../../extension/ui/settings-panel.js");
   panel.renderReaderSettingsPanel();
-  const host = document.getElementById("boc-reading-settings-host")!;
+  const host = document.getElementById("biliscript-reading-settings-host")!;
   await vi.waitFor(() => {
     expect(sendMessageMock!.mock.calls.some(([message]) => message.type === "asr-providers-list")).toBe(true);
   });
@@ -87,7 +87,7 @@ function messageTypes(sent: SentMessage[]): string[] {
 }
 
 function lastStatus(host: HTMLElement): HTMLElement {
-  return host.querySelector<HTMLElement>("#bocSettingsStatus")!;
+  return host.querySelector<HTMLElement>("#biliscriptSettingsStatus")!;
 }
 
 // 单发 click（见文件头说明）
@@ -135,7 +135,7 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     installMessageBus();
     const host = await mountPanel();
 
-    const groups = host.querySelectorAll<HTMLElement>(".boc-set-group");
+    const groups = host.querySelectorAll<HTMLElement>(".biliscript-set-group");
     expect(groups.length).toBeGreaterThan(0);
     groups.forEach((group) => {
       expect(group.style.contain).toBe("layout style");
@@ -195,7 +195,7 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     host.querySelector<HTMLTextAreaElement>("#aiSystemPrompt")!.value = "  自定义系统提示词  ";
     host.querySelector<HTMLInputElement>('input[name="frontmatterField"][value="author"]')!.checked = false;
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
 
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === "save-settings")).toBe(true);
@@ -230,7 +230,7 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     const status = lastStatus(host);
     expect(status.textContent).toBe("保存成功");
     expect(status.dataset.error).toBe("false");
-    const saveBtn = host.querySelector<HTMLButtonElement>("#bocSettingsSaveBtn")!;
+    const saveBtn = host.querySelector<HTMLButtonElement>("#biliscriptSettingsSaveBtn")!;
     expect(saveBtn.disabled).toBe(false);
     expect(saveBtn.textContent).toBe("保存设置");
   });
@@ -239,15 +239,15 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     const sent = installMessageBus({ "save-settings": () => ({ ok: false, error: "写入失败" }) });
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
 
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toBe("写入失败");
     });
 
     expect(lastStatus(host).dataset.error).toBe("true");
-    expect(host.querySelector<HTMLButtonElement>("#bocSettingsSaveBtn")!.disabled).toBe(false);
-    expect(host.querySelector<HTMLButtonElement>("#bocSettingsSaveBtn")!.textContent).toBe("保存设置");
+    expect(host.querySelector<HTMLButtonElement>("#biliscriptSettingsSaveBtn")!.disabled).toBe(false);
+    expect(host.querySelector<HTMLButtonElement>("#biliscriptSettingsSaveBtn")!.textContent).toBe("保存设置");
   });
 });
 
@@ -273,7 +273,7 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     const tags = host.querySelector<HTMLElement>("#tags")!;
     tags.setAttribute("aria-invalid", "true");
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
 
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toBe("保存成功");
@@ -317,7 +317,7 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     row.querySelector<HTMLInputElement>(".fixed-property-key")!.value = "";
     row.querySelector<HTMLInputElement>(".fixed-property-value")!.value = "some-value";
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
 
     // 行内落位：key 输入框标错并聚焦，行内错误节点显示具体文案
     const keyInput = row.querySelector<HTMLInputElement>(".fixed-property-key")!;
@@ -344,7 +344,7 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     row.querySelector<HTMLInputElement>(".fixed-property-key")!.value = "favorite_quote";
     row.querySelector<HTMLInputElement>(".fixed-property-value")!.value = "";
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
 
     const valueInput = row.querySelector<HTMLInputElement>(".fixed-property-value")!;
     expect(valueInput.getAttribute("aria-invalid")).toBe("true");
@@ -367,7 +367,7 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
     row.querySelector<HTMLInputElement>(".note-section-title")!.value = "";
     row.querySelector<HTMLInputElement>(".note-section-content")!.value = "默认内容";
 
-    fireClick(host.querySelector("#bocSettingsSaveBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
 
     const titleInput = row.querySelector<HTMLInputElement>(".note-section-title")!;
     expect(titleInput.getAttribute("aria-invalid")).toBe("true");
@@ -392,7 +392,7 @@ describe("applyValidationError：可达分支直测 + clearInputErrors 联动", 
 });
 
 // 恢复默认的二次确认走 ui/confirm-dialog.js 面板内弹层（不用原生 confirm）：
-// 弹层宿主挂在 #boc-reading-view 直下，mountPanel 需包上阅读视图；结算方式是
+// 弹层宿主挂在 #biliscript-reading-view 直下，mountPanel 需包上阅读视图；结算方式是
 // 点击弹层内的确认/取消按钮。
 describe("恢复默认偏好按钮", () => {
   async function openResetDialog() {
@@ -408,7 +408,7 @@ describe("恢复默认偏好按钮", () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#bocSettingsResetBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
     const confirmBtn = await openResetDialog();
     // 警示着色（danger）：与删除平台的确认同源的红色确认键
     expect(document.querySelector(".confirm-dialog-confirm-danger")).toBeTruthy();
@@ -443,7 +443,7 @@ describe("恢复默认偏好按钮", () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#bocSettingsResetBtn")!);
+    fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
     const cancelBtn = await vi.waitFor(() => {
       const node = document.querySelector(".confirm-dialog-cancel");
       if (!node) throw new Error("确认弹层未打开");

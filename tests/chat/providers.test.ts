@@ -28,8 +28,8 @@ vi.mock("../../extension/shared/messaging.js", () => ({
   sendRuntimeMessage: sendRuntimeMessageMock
 }));
 
-const SELECTED_PROVIDER_KEY = "boc_ai_selected_provider";
-const THINKING_LEVEL_KEY = "boc_ai_thinking_level";
+const SELECTED_PROVIDER_KEY = "biliscript_ai_selected_provider";
+const THINKING_LEVEL_KEY = "biliscript_ai_thinking_level";
 
 let createProviderPrefs: typeof import("../../extension/chat/providers.js").createProviderPrefs;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;

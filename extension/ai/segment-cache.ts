@@ -11,9 +11,9 @@ import { createCacheFamily, parseBvidFromCacheKey, readFamilyKeys, writeBundleWi
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
 
 // 分段小结缓存键前缀。
-const SEGMENT_SUMMARY_PREFIX = "boc_lvs_summary_";
+const SEGMENT_SUMMARY_PREFIX = "biliscript_lvs_summary_";
 // 原始字幕段缓存键前缀。
-const RAW_SEGMENT_PREFIX = "boc_lvs_raw_";
+const RAW_SEGMENT_PREFIX = "biliscript_lvs_raw_";
 
 // 两族缓存实例（arch-slim-2/08 缓存族参数化）：键拼装 / 静默读 / LRU 淘汰写 /
 // 失败日志口径全部出自 core/cache-lru.ts 的 createCacheFamily，本模块只剩
@@ -22,14 +22,14 @@ const summaryFamily = createCacheFamily<string>({
   prefix: SEGMENT_SUMMARY_PREFIX,
   payloadField: "summary",
   toSourceKey: buildSubtitleSourceKey,
-  logFailure: (info) => logError("[BOC] failed to save segment summary cache after eviction", info)
+  logFailure: (info) => logError("[BILISCRIPT] failed to save segment summary cache after eviction", info)
 });
 
 const rawFamily = createCacheFamily<unknown[]>({
   prefix: RAW_SEGMENT_PREFIX,
   payloadField: "segments",
   toSourceKey: buildSubtitleSourceKey,
-  logFailure: (info) => logError("[BOC] failed to save raw segments cache after eviction", info)
+  logFailure: (info) => logError("[BILISCRIPT] failed to save raw segments cache after eviction", info)
 });
 
 interface SegmentKeyOptions {
@@ -45,7 +45,7 @@ interface SegmentKeyOptions {
 // 段序号之外的预算代后缀：同一 (bvid, cid, 字幕轨) 在不同预算档下的分段边界不同，
 // 段序号相同不代表内容相同——不带代标记的 key 会命中错位小结（内容串段）。
 // budgetScale=1（常态档）不带后缀，key 形状与历史逐字节一致，已有缓存零迁移。
-// 导出供同族键位（如 ai/analysis.ts 的 boc_lvs_analysis_ 族）继承同一预算代约定。
+// 导出供同族键位（如 ai/analysis.ts 的 biliscript_lvs_analysis_ 族）继承同一预算代约定。
 export function budgetScaleSuffix(budgetScale: unknown): string {
   const scale = Number(budgetScale);
   return Number.isFinite(scale) && scale !== 1 ? `_b${Math.round(scale * 100)}` : "";
@@ -178,7 +178,7 @@ export async function saveSegmentSummaryWithRaw(summaryKey: string, summary: str
     { pruneFamilies: [RAW_SEGMENT_PREFIX, SEGMENT_SUMMARY_PREFIX] }
   );
   if (!result.ok) {
-    logError("[BOC] failed to save segment summary+raw cache bundle after eviction", {
+    logError("[BILISCRIPT] failed to save segment summary+raw cache bundle after eviction", {
       summaryKey,
       rawKey,
       error: result.error?.message || result.error

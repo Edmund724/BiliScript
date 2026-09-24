@@ -43,8 +43,8 @@ export function renderReadingStatus(text: string | number | null | undefined) {
 // ===== 内联宿主呈现（PR2 移除） =====
 //
 // applyInlineHostPresentation 随字幕列表搬进统一面板「字幕」tab 一并移除：
-// 内联宿主（boc-reading-inline-host）形态不复存在，字幕显隐不再经
-// .boc-reading-main 的 display 表达（字幕常显，三开关退役后无隐藏通道）。
+// 内联宿主（biliscript-reading-inline-host）形态不复存在，字幕显隐不再经
+// .biliscript-reading-main 的 display 表达（字幕常显，三开关退役后无隐藏通道）。
 
 // ===== 设置水合与排版应用（自 lifecycle.js 迁入） =====
 //
@@ -94,7 +94,7 @@ export function applyReadingViewPresentation() {
       document.body.dataset[field.datasetKeys.body] = values[field.id];
     }
   }
-  // 字幕/章节的 checkbox 同步与 .boc-reading-main 显隐已随三开关退役删除
+  // 字幕/章节的 checkbox 同步与 .biliscript-reading-main 显隐已随三开关退役删除
   //（字幕常显，开关与 data 属性不再存在）。
   // header 主题按钮（太阳/月亮）随之刷新：所有改主题路径（点击循环、进入阅读
   // 模式、storage 跨页同步 watcher）都收敛到本函数，按钮单点跟随不另接线。

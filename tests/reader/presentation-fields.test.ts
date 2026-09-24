@@ -6,7 +6,7 @@
 //   A. 表结构不变量（id 唯一 / 目标与 dataset 键派生一致 / 标志齐全）
 //   B. 派生清单与表标志一致；close 与守卫两份移除清单的「真实差异」显式断言
 //   C. storage 键 ↔ 字段一一对应，且全部落在 DEFAULT_SETTINGS 键面
-//   D. 源码扫描：消费方与 CSS 中出现的每个 data-boc-* 属性要么在表里、
+//   D. 源码扫描：消费方与 CSS 中出现的每个 data-biliscript-* 属性要么在表里、
 //      要么在 LOCAL_FLAG_ATTRIBUTES（防止手抄清单复活）
 //   E. 行为：apply 真的写全 writtenByApply 字段；close 真的清全 clearOnClose
 //      字段；守卫真的收敛 body 全集
@@ -87,8 +87,8 @@ async function loadModules() {
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   await loadModules();
   mountReaderSkeleton(ids);
   mountPlayerChain();
@@ -174,22 +174,22 @@ describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
 
   it("修正锚点：close 与守卫清理清单已无 subtitle-visible / chapter-visibility（三开关退役删除）", () => {
     for (const target of ["html", "body"] as const) {
-      expect(READER_CLOSE_ATTRS[target]).not.toContain("data-boc-reader-subtitle-visible");
-      expect(READER_CLOSE_ATTRS[target]).not.toContain("data-boc-reader-chapter-visibility");
-      expect(READER_GUARD_CLEAR_ATTRS[target]).not.toContain("data-boc-reader-subtitle-visible");
-      expect(READER_GUARD_CLEAR_ATTRS[target]).not.toContain("data-boc-reader-chapter-visibility");
+      expect(READER_CLOSE_ATTRS[target]).not.toContain("data-biliscript-reader-subtitle-visible");
+      expect(READER_CLOSE_ATTRS[target]).not.toContain("data-biliscript-reader-chapter-visibility");
+      expect(READER_GUARD_CLEAR_ATTRS[target]).not.toContain("data-biliscript-reader-subtitle-visible");
+      expect(READER_GUARD_CLEAR_ATTRS[target]).not.toContain("data-biliscript-reader-chapter-visibility");
     }
   });
 
   it("超集锚点：守卫 body 清单与 html 清单对称，仅差 reading-active（body 独有）", () => {
     const bodyOnly = READER_GUARD_CLEAR_ATTRS.body.filter((attr) => !READER_GUARD_CLEAR_ATTRS.html.includes(attr));
-    expect(bodyOnly).toEqual(["data-boc-reading-active"]);
+    expect(bodyOnly).toEqual(["data-biliscript-reading-active"]);
     const htmlOnly = READER_GUARD_CLEAR_ATTRS.html.filter((attr) => !READER_GUARD_CLEAR_ATTRS.body.includes(attr));
     expect(htmlOnly).toEqual([]);
   });
 
   it("close 与守卫的真实差异：close 额外清视图内标志 follow，守卫永不触碰视图", () => {
-    expect(READER_CLOSE_ATTRS.readingView).toEqual(["data-boc-reader-follow"]);
+    expect(READER_CLOSE_ATTRS.readingView).toEqual(["data-biliscript-reader-follow"]);
     expect(READER_GUARD_CLEAR_ATTRS.readingView).toEqual([]);
     expect(READER_GUARD_FILTER.readingView).toEqual([]);
     // 三开关退役后 close/守卫清理清单只剩 theme + mode/reading-active 等
@@ -246,7 +246,7 @@ describe("C. storage 键 ↔ 字段一一对应", () => {
   });
 });
 
-describe("D. 源码扫描：data-boc-* 属性字面量必须登记在案", () => {
+describe("D. 源码扫描：data-biliscript-* 属性字面量必须登记在案", () => {
   // 覆盖四个表驱动消费方 + 仍然直写 mode 的组合根/消息处理器 + CSS/模板/探针
   // 消费方。其属性均为 LOCAL 局部标志（ready/hide-sending-bar 等），不纳入扫描面。
   const SCANNED_FILES = [
@@ -260,7 +260,7 @@ describe("D. 源码扫描：data-boc-* 属性字面量必须登记在案", () =>
     "extension/bilibili/video-probe.ts",
     "extension/entry/styles/reader-gate.css"
   ];
-  const ATTR_PATTERN = /data-boc-(?:reader|reading)-[a-z-]+/g;
+  const ATTR_PATTERN = /data-biliscript-(?:reader|reading)-[a-z-]+/g;
 
   it("扫描文件中出现的属性全部在表内或 LOCAL_FLAG_ATTRIBUTES 中", () => {
     const known = new Set([...allDeclaredAttrs(), ...LOCAL_FLAG_ATTRIBUTES]);
@@ -290,10 +290,10 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
     state.reader.setTheme("dark");
 
     // 非 apply 字段预置值：apply 不得清除/覆写它们
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reading-active", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reading-active", "1");
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    readingView.setAttribute("data-boc-reader-follow", "manual");
+    readingView.setAttribute("data-biliscript-reader-follow", "manual");
 
     presentation.applyReadingViewPresentation();
 
@@ -307,21 +307,21 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
       }
     }
     // apply 不负责的字段原值保持
-    expect(document.documentElement.getAttribute("data-boc-reader-mode")).toBe("1");
-    expect(document.body.getAttribute("data-boc-reading-active")).toBe("1");
-    expect(readingView.getAttribute("data-boc-reader-follow")).toBe("manual");
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+    expect(document.body.getAttribute("data-biliscript-reading-active")).toBe("1");
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
   });
 
   it("E2. closeReadingView 清全 clearOnClose 字段（现只含 theme + 页面级标志）", async () => {
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
     // 组合根语义：进入前 mode 由 content.js/message-handler 写
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
 
     await shell.enterReaderMode();
     // 进入后确认属性确实已落位（否则 close 断言空转）
-    expect(document.documentElement.getAttribute("data-boc-reader-theme")).toBeTruthy();
-    expect(document.body.getAttribute("data-boc-reading-active")).toBe("1");
+    expect(document.documentElement.getAttribute("data-biliscript-reader-theme")).toBeTruthy();
+    expect(document.body.getAttribute("data-biliscript-reading-active")).toBe("1");
 
     shell.closeReadingView();
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -342,18 +342,18 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
     pageState.bindNormalPageStateGuard();
 
     // 表派生后为全集，theme 写入即触发收敛清除。
-    document.body.setAttribute("data-boc-reader-theme", "dark");
-    document.documentElement.setAttribute("data-boc-reader-theme", "dark");
+    document.body.setAttribute("data-biliscript-reader-theme", "dark");
+    document.documentElement.setAttribute("data-biliscript-reader-theme", "dark");
 
     await vi.waitFor(() => {
-      expect(document.body.getAttribute("data-boc-reader-theme")).toBe(null);
-      expect(document.documentElement.getAttribute("data-boc-reader-theme")).toBe(null);
+      expect(document.body.getAttribute("data-biliscript-reader-theme")).toBe(null);
+      expect(document.documentElement.getAttribute("data-biliscript-reader-theme")).toBe(null);
     });
 
     // follow 是视图内标志（watchedByGuard=false）：守卫不监听也不清理
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    readingView.setAttribute("data-boc-reader-follow", "manual");
+    readingView.setAttribute("data-biliscript-reader-follow", "manual");
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(readingView.getAttribute("data-boc-reader-follow")).toBe("manual");
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
   });
 });

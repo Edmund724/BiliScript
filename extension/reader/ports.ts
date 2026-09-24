@@ -53,18 +53,18 @@ let portImpls: ReaderPortImpls | null = null;
 // 抛错（防拼写漂移悄悄绕过显式方法集）。
 export function registerReaderPorts(impls: ReaderPortImpls) {
   if (portImpls) {
-    throw new Error("[BOC] reader 端口重复注册：只允许 lifecycle 启动时单点注册一次。");
+    throw new Error("[BILISCRIPT] reader 端口重复注册：只允许 lifecycle 启动时单点注册一次。");
   }
   if (!impls || typeof impls !== "object") {
-    throw new Error("[BOC] reader 端口注册缺少实现表。");
+    throw new Error("[BILISCRIPT] reader 端口注册缺少实现表。");
   }
   const missing = READER_PORT_METHODS.filter((name) => typeof impls[name as keyof ReaderPortImpls] !== "function");
   if (missing.length > 0) {
-    throw new Error(`[BOC] reader 端口注册缺少方法：${missing.join(", ")}`);
+    throw new Error(`[BILISCRIPT] reader 端口注册缺少方法：${missing.join(", ")}`);
   }
   const unknown = Object.keys(impls).filter((name) => !READER_PORT_METHODS.includes(name));
   if (unknown.length > 0) {
-    throw new Error(`[BOC] reader 端口注册含未知方法：${unknown.join(", ")}（方法集见 READER_PORT_METHODS）`);
+    throw new Error(`[BILISCRIPT] reader 端口注册含未知方法：${unknown.join(", ")}（方法集见 READER_PORT_METHODS）`);
   }
   portImpls = { ...impls };
 }
@@ -74,7 +74,7 @@ export function registerReaderPorts(impls: ReaderPortImpls) {
 function requirePortMethod(name: keyof ReaderPortImpls) {
   const handler = portImpls ? portImpls[name] : null;
   if (typeof handler !== "function") {
-    throw new Error(`[BOC] reader 端口方法 ${name} 未注册（应由 lifecycle 启动时单点注册）。`);
+    throw new Error(`[BILISCRIPT] reader 端口方法 ${name} 未注册（应由 lifecycle 启动时单点注册）。`);
   }
   return handler;
 }

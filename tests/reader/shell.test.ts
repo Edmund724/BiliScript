@@ -94,7 +94,7 @@ function makeChatStub() {
   };
 }
 
-// 构造 #boc-reading-view 壳 DOM 与页面门控属性（isReaderShellIntact 的判定面）。
+// 构造 #biliscript-reading-view 壳 DOM 与页面门控属性（isReaderShellIntact 的判定面）。
 // 缺省全部就位 = 完好壳；各用例按需破坏单一条件。
 interface ShellMountOptions {
   present?: boolean;
@@ -113,18 +113,18 @@ function mountShell({
 }: ShellMountOptions = {}): void {
   if (present) {
     const shell = document.createElement("section");
-    shell.id = "boc-reading-view";
+    shell.id = "biliscript-reading-view";
     if (open) {
       shell.classList.add("open");
     }
-    shell.setAttribute("data-boc-reader-ready", ready);
+    shell.setAttribute("data-biliscript-reader-ready", ready);
     document.body.appendChild(shell);
   }
   if (bodyAttr) {
-    document.body.setAttribute("data-boc-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
   }
   if (htmlAttr) {
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
   }
 }
 
@@ -132,8 +132,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   setLocationUrl(NORMAL_PAGE_URL);
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   // style-injector 的挂载记录是模块级 Map，跨用例残留会污染挂表断言
   removeReaderStyles();
   playerAiState.setSuppressedUntil(0);
@@ -146,8 +146,8 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.innerHTML = "";
-  document.documentElement.removeAttribute("data-boc-reader-mode");
-  document.body.removeAttribute("data-boc-reader-mode");
+  document.documentElement.removeAttribute("data-biliscript-reader-mode");
+  document.body.removeAttribute("data-biliscript-reader-mode");
   removeReaderStyles();
 });
 
@@ -168,8 +168,8 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     expect(ensureUiReady).toHaveBeenCalledTimes(1);
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(READER_MODE_URL);
     expect(isReaderStylesMounted()).toBe(true);
-    expect(document.documentElement.getAttribute("data-boc-reader-mode")).toBe("1");
-    expect(document.body.getAttribute("data-boc-reader-mode")).toBe("1");
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+    expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
     // 无闪变时序：壳就绪 → 改写 → 挂表 → 翻属性 → 进入
     const uiOrder = ensureUiReady.mock.invocationCallOrder[0];
@@ -185,7 +185,7 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     await enterReaderShell({ readerUrl: "", intent: "open" });
 
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(
-      "https://www.bilibili.com/video/BV1test000000/?p=2&boc_reader=1"
+      "https://www.bilibili.com/video/BV1test000000/?p=2&biliscript_reader=1"
     );
   });
 
@@ -245,7 +245,7 @@ describe("enterReaderShell：restore 档（失同步自愈，壳级接口测试�
     expect(reader.closeReadingView).not.toHaveBeenCalled();
     expect(reader.enterReaderMode).not.toHaveBeenCalled();
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(READER_MODE_URL);
-    expect(document.body.getAttribute("data-boc-reader-mode")).toBe("1");
+    expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
   });
 
   it("视图没开（URL 带阅读标记而进入链半途失败）→ 直接走进入链，无收敛步", async () => {
@@ -326,7 +326,7 @@ describe("enterReaderShellOnUrlNavigation：URL 跳转编排入口", () => {
     expect(announce).toHaveBeenCalledTimes(1);
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(READER_MODE_URL);
     expect(isReaderStylesMounted()).toBe(true);
-    expect(document.documentElement.getAttribute("data-boc-reader-mode")).toBe("1");
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
     // 播报必须先落地：否则会反向覆盖 enterReaderMode 的「已就绪」文案
     expect(announce.mock.invocationCallOrder[0]).toBeLessThan(reader.enterReaderMode.mock.invocationCallOrder[0]);

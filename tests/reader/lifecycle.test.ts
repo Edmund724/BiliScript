@@ -1,5 +1,5 @@
 // reader 生命周期测试：进入/退出阅读模式。
-// 通过 stub DOM（boc 阅读视图骨架）与 stub 视频元素驱动
+// 通过 stub DOM（biliscript 阅读视图骨架）与 stub 视频元素驱动
 // shell.js 的 enterReaderMode / closeReadingView / hydrate / apply 等真实路径。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +37,7 @@ async function loadReaderModules() {
 // （内部同步定时器/绑定标志已收成 reader-impl 模块级闭包，不再暴露在 state.reader）
 function syncRunning() {
   const video = document.querySelector("video");
-  return Boolean((video as HTMLVideoElement | null)?.__bocReadingSyncController);
+  return Boolean((video as HTMLVideoElement | null)?.__biliscriptReadingSyncController);
 }
 
 beforeEach(async () => {
@@ -88,26 +88,26 @@ describe("reader 生命周期", () => {
     expect(readingView.classList.contains("open")).toBe(true);
     expect(readingView.classList.contains("reader-page")).toBe(true);
     expect(readingView.getAttribute("aria-hidden")).toBe("false");
-    expect(document.body.getAttribute("data-boc-reading-active")).toBe("1");
+    expect(document.body.getAttribute("data-biliscript-reading-active")).toBe("1");
 
-    // data-boc-reader-mode 由 content.js 的 init 在进入前设置，enterReaderMode 不负责
-    document.documentElement.setAttribute("data-boc-reader-mode", "1");
-    document.body.setAttribute("data-boc-reader-mode", "1");
-    expect(document.documentElement.getAttribute("data-boc-reader-mode")).toBe("1");
-    expect(document.body.getAttribute("data-boc-reader-mode")).toBe("1");
+    // data-biliscript-reader-mode 由 content.js 的 init 在进入前设置，enterReaderMode 不负责
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
+    expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
 
     // B 形态不再渲染 rail 章节列表（章节由概览 tab 提供）；字幕列表照常渲染
-    const chapterButtons = readingView.querySelectorAll(".boc-reading-chapter") as NodeListOf<HTMLElement>;
+    const chapterButtons = readingView.querySelectorAll(".biliscript-reading-chapter") as NodeListOf<HTMLElement>;
     expect(chapterButtons.length).toBe(0);
 
-    const subtitleItems = readingView.querySelectorAll(".boc-reading-item") as NodeListOf<HTMLElement>;
+    const subtitleItems = readingView.querySelectorAll(".biliscript-reading-item") as NodeListOf<HTMLElement>;
     expect(subtitleItems.length).toBe(2);
     expect(subtitleItems[1].dataset.seconds).toBe("10");
     expect(subtitleItems[1].textContent).toContain("今天讲测试");
 
     // B 形态不驱动播放器挂载：视图打开即 ready，无挂载等待文案
     expect(state.reader.readingViewReady).toBe(true);
-    expect(readingView.getAttribute("data-boc-reader-ready")).toBe("1");
+    expect(readingView.getAttribute("data-biliscript-reader-ready")).toBe("1");
     expect(readingView.getAttribute("aria-busy")).toBe("false");
 
     // 进入即开始右栏定位（script-host open），且不等播放器
@@ -146,7 +146,7 @@ describe("reader 生命周期", () => {
     await shell.enterReaderMode();
 
     // 进入当拍即定位：高亮 + 滚动落位，不等任何后续播放事件
-    const active = document.querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const active = document.querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(active?.dataset.index).toBe("300");
     expect(state.reader.readingActiveSubtitleIndex).toBe(300);
     expect(elementScrollSpy.mock.calls.length + windowScrollSpy.mock.calls.length).toBeGreaterThan(0);
@@ -179,15 +179,15 @@ describe("reader 生命周期", () => {
     expect(state.reader.readingViewOpen).toBe(false);
     expect(readingView.classList.contains("open")).toBe(false);
     expect(readingView.getAttribute("aria-hidden")).toBe("true");
-    expect(readingView.getAttribute("data-boc-reader-ready")).toBe("0");
-    expect(document.body.getAttribute("data-boc-reading-active")).toBe(null);
-    expect(document.documentElement.getAttribute("data-boc-reader-mode")).toBe(null);
-    expect(document.documentElement.getAttribute("data-boc-reader-theme")).toBe(null);
-    expect(document.body.getAttribute("data-boc-reader-theme")).toBe(null);
+    expect(readingView.getAttribute("data-biliscript-reader-ready")).toBe("0");
+    expect(document.body.getAttribute("data-biliscript-reading-active")).toBe(null);
+    expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe(null);
+    expect(document.documentElement.getAttribute("data-biliscript-reader-theme")).toBe(null);
+    expect(document.body.getAttribute("data-biliscript-reader-theme")).toBe(null);
 
     // 同步保持未运行、视频事件监听不存在
     expect(syncRunning()).toBe(false);
-    expect(video.__bocReadingSyncController).toBeUndefined();
+    expect(video.__biliscriptReadingSyncController).toBeUndefined();
 
     await new Promise((resolve) => setTimeout(resolve, 150));
   });

@@ -75,7 +75,7 @@ async function startHealthy() {
   document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
   const setIntervalSpy = vi.spyOn(window, "setInterval");
   await loadModule();
-  expect(document.getElementById("boc-script-button")).not.toBeNull();
+  expect(document.getElementById("biliscript-script-button")).not.toBeNull();
   setIntervalSpy.mockClear();
   return setIntervalSpy;
 }
@@ -85,7 +85,7 @@ async function enterPausedState(setIntervalSpy: Awaited<ReturnType<typeof startH
   mocks.isReaderViewOpen.mockReturnValue(true);
   mocks.isReaderShellIntact.mockReturnValue(true);
   await vi.advanceTimersByTimeAsync(201);
-  expect(document.getElementById("boc-script-button")).toBeNull();
+  expect(document.getElementById("biliscript-script-button")).toBeNull();
   expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 2000)).toBe(true);
 }
 
@@ -97,7 +97,7 @@ describe("script-button 自查 interval 暂停/恢复（arch-slim-2/09）", () =
 
     // 暂停档兜底 tick 仍在跑且保持摘除（壳完好 ⇒ 不派发恢复）。
     await vi.advanceTimersByTimeAsync(2000);
-    expect(document.getElementById("boc-script-button")).toBeNull();
+    expect(document.getElementById("biliscript-script-button")).toBeNull();
     expect(mocks.dispatchContentScriptMessage).not.toHaveBeenCalled();
   });
 
@@ -110,12 +110,12 @@ describe("script-button 自查 interval 暂停/恢复（arch-slim-2/09）", () =
     window.dispatchEvent(new CustomEvent(READER_CLOSED_EVENT));
 
     // 首拍：不推进任何定时器即补回按钮，interval 恢复 200ms 常速。
-    expect(document.getElementById("boc-script-button")).not.toBeNull();
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
     expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 200)).toBe(true);
 
     // 常速自查维持健康态（不重复注入、不再摘除）。
     await vi.advanceTimersByTimeAsync(201);
-    expect(document.getElementById("boc-script-button")).not.toBeNull();
+    expect(document.getElementById("biliscript-script-button")).not.toBeNull();
   });
 
   it("暂停期壳失整：恢复常速，三连拍确认后派发 reader-restore 自愈", async () => {

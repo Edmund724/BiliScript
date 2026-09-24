@@ -102,7 +102,7 @@ function subtitleList() {
 }
 
 function renderedItemCount() {
-  return subtitleList().querySelectorAll(".boc-reading-item").length;
+  return subtitleList().querySelectorAll(".biliscript-reading-item").length;
 }
 
 describe("字幕列表分批渲染", () => {
@@ -158,7 +158,7 @@ describe("字幕列表分批渲染", () => {
     shell.syncReadingViewPlayback(true);
 
     expect(renderedItemCount()).toBe(301);
-    const active = subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const active = subtitleList().querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(active.dataset.index).toBe("300");
     expect(state.reader.readingActiveSubtitleIndex).toBe(300);
     // 任务已收尾，flush 队列不再追加
@@ -180,14 +180,14 @@ describe("字幕列表分批渲染", () => {
     // 同步 flush 被上限截断：cursor 120 → 320，只多补一批，落点条目不在本拍上屏
     shell.syncReadingViewPlayback(true);
     expect(renderedItemCount()).toBe(320);
-    expect(subtitleList().querySelector(".boc-reading-item.is-active")).toBeNull();
+    expect(subtitleList().querySelector(".biliscript-reading-item.is-active")).toBeNull();
 
     // rAF 追加任务逐帧补齐到落点；下一次时间更新（视频播放中的 timeupdate）
     // 重走 sync 时目标已上屏，is-active 与滚动自愈落位
     flushAnimationFrames();
     expect(renderedItemCount()).toBe(1500);
     shell.syncReadingViewPlayback(true);
-    const active = subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const active = subtitleList().querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(active.dataset.index).toBe("1400");
     expect(state.reader.readingActiveSubtitleIndex).toBe(1400);
   });
@@ -221,7 +221,7 @@ describe("字幕列表分批渲染", () => {
     // 生产 tick（非 force，视频暂停中 index 不再变化）：滚动必须补上
     shell.syncReadingViewPlayback();
     shell.syncReadingViewPlayback();
-    const active = subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement;
+    const active = subtitleList().querySelector(".biliscript-reading-item.is-active") as HTMLElement;
     expect(active.dataset.index).toBe("1400");
     expect(elementScrollSpy.mock.calls.length + windowScrollSpy.mock.calls.length).toBeGreaterThan(0);
   });
@@ -238,14 +238,14 @@ describe("字幕列表分批渲染", () => {
     video.currentTime = 600; // index 300 未渲染（区间 181 条 < 同步上限）
     shell.syncReadingViewPlayback();
     expect(state.reader.readingActiveSubtitleIndex).toBe(300); // 计算照旧
-    expect(subtitleList().querySelector(".boc-reading-item.is-active")).toBeNull(); // 暂停分支不补渲染/滚动
+    expect(subtitleList().querySelector(".biliscript-reading-item.is-active")).toBeNull(); // 暂停分支不补渲染/滚动
 
     // 手动暂停过期后恢复跟随（等价 resumeReaderFollowPlayback 的 forceScroll
     // 路径）：flush 补渲染 + 高亮 + scrollIntoView
     vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000);
     shell.syncReadingViewPlayback(true);
     expect(renderedItemCount()).toBeGreaterThanOrEqual(301);
-    expect((subtitleList().querySelector(".boc-reading-item.is-active") as HTMLElement).dataset.index).toBe("300");
+    expect((subtitleList().querySelector(".biliscript-reading-item.is-active") as HTMLElement).dataset.index).toBe("300");
   });
 
   it("渲染期间再次 renderReadingView（切轨）：取消上一轮任务，新数据不重不漏", () => {

@@ -38,7 +38,7 @@ import type * as DebugSnapshotModule from "./debug-snapshot.js";
 import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
 import type { Settings } from "../core/defaults.js";
 
-// 阅读模式调试辅助（__BOC_READER_DEBUG_SNAPSHOT__ 等）。注册保持常驻轻量；
+// 阅读模式调试辅助（__BILISCRIPT_READER_DEBUG_SNAPSHOT__ 等）。注册保持常驻轻量；
 // 快照真身（createReaderDebugSnapshot，读播放器链布局/样式）在 reader 域内，
 // 只在手动调用全局函数时才动态装载。未装载即调用会先拉起 reader 域——这是
 // 显式的调试动作，装载成本可接受；装载失败按 null 快照落地并记日志。
@@ -48,16 +48,16 @@ export function installReaderDebugHelpers() {
       const reader = await ensureReaderDomain();
       return ((reader as unknown) as typeof DebugSnapshotModule).createReaderDebugSnapshot(label);
     } catch (error) {
-      logWarn("[BOC] reader debug snapshot failed (reader domain load failed)", error);
+      logWarn("[BILISCRIPT] reader debug snapshot failed (reader domain load failed)", error);
       return null;
     }
   };
-  globalThis.__BOC_READER_DEBUG_SNAPSHOT__ = snapshotReader;
-  globalThis.__BOC_DEBUG__ = {
-    ...(globalThis.__BOC_DEBUG__ || {}),
+  globalThis.__BILISCRIPT_READER_DEBUG_SNAPSHOT__ = snapshotReader;
+  globalThis.__BILISCRIPT_DEBUG__ = {
+    ...(globalThis.__BILISCRIPT_DEBUG__ || {}),
     snapshotReader
   };
-  globalThis.__BOC_FORCE_SYNC_PLAYER_AI__ = () => {
+  globalThis.__BILISCRIPT_FORCE_SYNC_PLAYER_AI__ = () => {
     requestPlayerAiSync(0, { resetRetry: true });
   };
 }
@@ -88,13 +88,13 @@ export function bindSettingsWatcher() {
             await hydrateReaderStateFromSettings(next);
             await applyReadingViewPresentation();
           } catch (error) {
-            logWarn("[BOC] failed to apply reader presentation after storage change", error);
+            logWarn("[BILISCRIPT] failed to apply reader presentation after storage change", error);
           }
         })();
       }
       requestPlayerAiSync();
     } catch (error) {
-      logWarn("[BOC] failed to refresh settings after storage change", error);
+      logWarn("[BILISCRIPT] failed to refresh settings after storage change", error);
     }
   }, { sync: READER_SETTINGS_WATCH_KEYS, local: READER_SETTINGS_WATCH_KEYS });
 }

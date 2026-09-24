@@ -20,7 +20,7 @@
 // 失败语义：加载失败清空缓存 promise，允许下次触发重试（例如扩展刚更新、
 // 旧 chunk 404 的过渡窗口内先失败、刷新后可恢复）。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
 // 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 
 interface ReaderDomain {

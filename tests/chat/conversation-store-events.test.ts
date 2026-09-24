@@ -412,8 +412,8 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
     // 缺省确认通道用例：不注入 confirmClearAll——确认走面板内弹层
-    //（ui/confirm-dialog.js），须挂 #boc-reading-view 供其挂载
-    document.body.innerHTML = '<div id="boc-reading-view"></div>';
+    //（ui/confirm-dialog.js），须挂 #biliscript-reading-view 供其挂载
+    document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
     chatSessionState.savedConversations = [makeConversation("c1")];
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionState.liveContextKey = "k-1";

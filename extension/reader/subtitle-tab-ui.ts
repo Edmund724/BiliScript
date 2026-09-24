@@ -27,20 +27,20 @@ import { withReader } from "../ui/reader-gate.js";
 
 export function buildSubtitleTabBodyHtml(): string {
   return `
-            <div class="boc-reading-sub-toolbar">
-              <div class="boc-reading-search">
+            <div class="biliscript-reading-sub-toolbar">
+              <div class="biliscript-reading-search">
                 <input
                   id="${ids.readingSearchInput}"
-                  class="boc-reading-search-input"
+                  class="biliscript-reading-search-input"
                   type="text"
                   placeholder="搜索字幕…"
                   aria-label="搜索字幕"
                 />
-                <span id="${ids.readingSearchCount}" class="boc-reading-search-count" aria-live="polite"></span>
+                <span id="${ids.readingSearchCount}" class="biliscript-reading-search-count" aria-live="polite"></span>
                 <button
                   id="${ids.readingSearchPrevBtn}"
                   type="button"
-                  class="boc-reading-search-nav"
+                  class="biliscript-reading-search-nav"
                   title="上一条（Shift+Enter）"
                   aria-label="上一条搜索结果"
                   disabled
@@ -48,34 +48,34 @@ export function buildSubtitleTabBodyHtml(): string {
                 <button
                   id="${ids.readingSearchNextBtn}"
                   type="button"
-                  class="boc-reading-search-nav"
+                  class="biliscript-reading-search-nav"
                   title="下一条（Enter）"
                   aria-label="下一条搜索结果"
                   disabled
                 >↓</button>
               </div>
-              <select id="${ids.readingSubtitleSelect}" class="boc-reading-select boc-reading-select-sm" aria-label="字幕语言"></select>
-              <button id="${ids.readingCopySubtitleBtn}" type="button" class="boc-reading-mini-btn">复制</button>
-              <button id="${ids.readingExportSubtitleBtn}" type="button" class="boc-reading-mini-btn">导出</button>
+              <select id="${ids.readingSubtitleSelect}" class="biliscript-reading-select biliscript-reading-select-sm" aria-label="字幕语言"></select>
+              <button id="${ids.readingCopySubtitleBtn}" type="button" class="biliscript-reading-mini-btn">复制</button>
+              <button id="${ids.readingExportSubtitleBtn}" type="button" class="biliscript-reading-mini-btn">导出</button>
             </div>
 
             <!-- 转写中间态（PR3）：显隐由 reader/transcribe-banner.ts 按
                  shared/subtitle-status-bus 的进程内相位驱动；进度为不确定样式
                  （页面侧拿不到片 x/y），进度行实时显示状态栏文本 -->
-            <aside id="${ids.readingTranscribeBanner}" class="boc-reading-asr-banner" hidden>
-              <div class="boc-reading-asr-title">该视频无字幕，正在进行音频转写…</div>
-              <p class="boc-reading-asr-copy">转写完成后字幕与概览将自动出现，期间可先看视频</p>
-              <div class="boc-reading-asr-track" aria-hidden="true"><div class="boc-reading-asr-fill"></div></div>
-              <div id="${ids.readingTranscribeProgress}" class="boc-reading-asr-foot">正在准备转写…</div>
+            <aside id="${ids.readingTranscribeBanner}" class="biliscript-reading-asr-banner" hidden>
+              <div class="biliscript-reading-asr-title">该视频无字幕，正在进行音频转写…</div>
+              <p class="biliscript-reading-asr-copy">转写完成后字幕与概览将自动出现，期间可先看视频</p>
+              <div class="biliscript-reading-asr-track" aria-hidden="true"><div class="biliscript-reading-asr-fill"></div></div>
+              <div id="${ids.readingTranscribeProgress}" class="biliscript-reading-asr-foot">正在准备转写…</div>
             </aside>
 
-            <section class="boc-reading-main">
-              <div id="${ids.readingSubtitleList}" class="boc-reading-subtitle"></div>
+            <section class="biliscript-reading-main">
+              <div id="${ids.readingSubtitleList}" class="biliscript-reading-subtitle"></div>
             </section>
 
-            <!-- Follow playback 悬浮按钮：显隐只由 data-boc-reader-follow
+            <!-- Follow playback 悬浮按钮：显隐只由 data-biliscript-reader-follow
                  （manual/auto）的 CSS 驱动，点击恢复跟随并跳回当前句 -->
-            <button id="${ids.readingFollowBtn}" type="button" class="boc-reading-follow-btn">↓ 跟随播放</button>
+            <button id="${ids.readingFollowBtn}" type="button" class="biliscript-reading-follow-btn">↓ 跟随播放</button>
   `;
 }
 
@@ -92,7 +92,7 @@ export function bindSubtitleTabEvents(): void {
       const chain = await ensureSummarizeChain();
       await chain.loadSubtitle(url, String(option.dataset.lang || "unknown"), state.clip.fetchRunId, String(option.dataset.id || ""));
     } catch (error) {
-      logWarn("[BOC] failed to switch subtitle in reading view", error);
+      logWarn("[BILISCRIPT] failed to switch subtitle in reading view", error);
     }
   });
 
@@ -165,7 +165,7 @@ export function bindSubtitleTabEvents(): void {
       const chain = await ensureSummarizeChain();
       await chain.copySubtitleTranscript();
     } catch (error) {
-      logWarn("[BOC] copy subtitle transcript failed", error);
+      logWarn("[BILISCRIPT] copy subtitle transcript failed", error);
     }
   });
   byId(ids.readingExportSubtitleBtn).addEventListener("click", async () => {
@@ -173,12 +173,12 @@ export function bindSubtitleTabEvents(): void {
       const chain = await ensureSummarizeChain();
       await chain.downloadSubtitle();
     } catch (error) {
-      logWarn("[BOC] download subtitle failed", error);
+      logWarn("[BILISCRIPT] download subtitle failed", error);
     }
   });
 
   // ===== PR3 Follow playback 悬浮按钮 =====
-  // 显隐由 data-boc-reader-follow 的 CSS 驱动；点击恢复跟随并跳回当前句
+  // 显隐由 data-biliscript-reader-follow 的 CSS 驱动；点击恢复跟随并跳回当前句
   //（resumeReaderFollowPlayback，不改播放进度）。
   byId(ids.readingFollowBtn).addEventListener("click", () => {
     withReader("resume reader follow", (reader) => reader.resumeReaderFollowPlayback());

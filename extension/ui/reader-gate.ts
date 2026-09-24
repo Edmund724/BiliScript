@@ -8,7 +8,7 @@
 // ui 壳闭包静态携带而不拖重域。
 //
 // - withReader(label, fn)：失败记 logWarn，错误标签一处声明（调用点只传
-//   label，文案恒为 "[BOC] <label> failed"，与收口前逐字一致）；label 传 null
+//   label，文案恒为 "[BILISCRIPT] <label> failed"，与收口前逐字一致）；label 传 null
 //   表示静默——高频滚动/点击路径装载失败不打日志、下次交互自然重试（原语义）。
 // - whenReaderReady(fn)：不吞错的内核，供需沿调用方链传播错误的场景
 //   （字幕切换链的统一 catch）复用。
@@ -33,6 +33,6 @@ export async function whenReaderReady(fn: (reader: UiReaderDomain) => unknown): 
 
 export function withReader(label: string | null, fn: (reader: UiReaderDomain) => unknown): void {
   whenReaderReady(fn).catch((error) => {
-    if (label) logWarn(`[BOC] ${label} failed`, error);
+    if (label) logWarn(`[BILISCRIPT] ${label} failed`, error);
   });
 }

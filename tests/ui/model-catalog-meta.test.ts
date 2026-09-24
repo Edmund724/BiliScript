@@ -24,7 +24,7 @@ const PRESET_SUBSET = [
 
 async function mountDialog(options: { presetId: string; baseUrl: string; models: string[] }) {
   document.body.innerHTML = `
-    <div id="boc-reading-view">
+    <div id="biliscript-reading-view">
       <div class="provider-editor-host">
         <section class="provider-editor-dialog">
           <select class="provider-editor-preset">

@@ -70,9 +70,9 @@ function mountPlayerChain(playerRect: ReturnType<typeof makeRect>) {
 }
 
 function readingView(): HTMLElement {
-  const node = document.getElementById("boc-reading-view");
+  const node = document.getElementById("biliscript-reading-view");
   if (!node) {
-    throw new Error("missing #boc-reading-view");
+    throw new Error("missing #biliscript-reading-view");
   }
   return node as HTMLElement;
 }
@@ -80,7 +80,7 @@ function readingView(): HTMLElement {
 function vars(el: HTMLElement): Record<string, string> {
   const result: Record<string, string> = {};
   for (const name of ["left", "top", "width", "height"]) {
-    result[name] = el.style.getPropertyValue(`--boc-script-${name}`);
+    result[name] = el.style.getPropertyValue(`--biliscript-script-${name}`);
   }
   return result;
 }
@@ -139,7 +139,7 @@ beforeEach(() => {
   window.innerWidth = 1920;
   // 定位写组的目标元素（真实页面由 ui-renderer 挂在 body 下）。
   const view = document.createElement("div");
-  view.id = "boc-reading-view";
+  view.id = "biliscript-reading-view";
   document.body.appendChild(view);
   // 锚点不在 beforeEach 统一挂载：querySelector 按 DOM 顺序取首个命中，
   // 统一挂默认锚点会抢走各用例自建锚点的优先级，各用例按需显式 mount。
@@ -178,7 +178,7 @@ describe("script-host 锚点命中", () => {
     scriptHost.openScriptHost();
 
     const el = readingView();
-    expect(el.getAttribute("data-boc-script-float")).toBe(null);
+    expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
     // 贴栏占「锚点左缘 1520 → 视口右界 1920」：宽 400；纵向钳进一屏
     //（top 80，height = 768 - 80，而非锚点的 2000）。
     expect(vars(el)).toEqual({
@@ -315,7 +315,7 @@ describe("script-host 降级链", () => {
     scriptHost.openScriptHost();
 
     const el = readingView();
-    expect(el.getAttribute("data-boc-script-float")).toBe("1");
+    expect(el.getAttribute("data-biliscript-script-float")).toBe("1");
     expect(vars(el)).toEqual({ left: "", top: "", width: "", height: "" });
   });
 
@@ -325,7 +325,7 @@ describe("script-host 降级链", () => {
     scriptHost.openScriptHost();
 
     const el = readingView();
-    expect(el.getAttribute("data-boc-script-float")).toBe("1");
+    expect(el.getAttribute("data-biliscript-script-float")).toBe("1");
     expect(vars(el)).toEqual({ left: "", top: "", width: "", height: "" });
   });
 
@@ -337,7 +337,7 @@ describe("script-host 降级链", () => {
     scriptHost.openScriptHost();
 
     const el = readingView();
-    expect(el.getAttribute("data-boc-script-float")).toBe("1");
+    expect(el.getAttribute("data-biliscript-script-float")).toBe("1");
     expect(vars(el)).toEqual({ left: "", top: "", width: "", height: "" });
   });
 
@@ -347,7 +347,7 @@ describe("script-host 降级链", () => {
     const anchor = mountAnchor(".right-container-inner", makeRect(520, 80, 360, 2000));
 
     scriptHost.openScriptHost();
-    expect(readingView().getAttribute("data-boc-script-float")).toBe("1");
+    expect(readingView().getAttribute("data-biliscript-script-float")).toBe("1");
 
     window.innerWidth = 1920;
     // 锚点 rect 不随 innerWidth 自动变，改成宽视口下的正确值。
@@ -357,7 +357,7 @@ describe("script-host 降级链", () => {
     vi.restoreAllMocks();
 
     const el = readingView();
-    expect(el.getAttribute("data-boc-script-float")).toBe(null);
+    expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
     // 贴栏恢复：占锚点左缘 1520 → 视口右界 1920，宽 400。
     expect(vars(el).width).toBe("400px");
   });
@@ -529,11 +529,11 @@ describe("script-host 重算时机", () => {
 });
 
 // 滚动进行中材质降级（M19 / M12 巡检 P2-2）：贴栏态面板每帧随
-// --boc-script-top 位移，header/设置抽屉的 backdrop-filter 跟着逐帧重采样。
-// script-host 在滚动期间给 #boc-reading-view 挂 data-boc-script-scrolling，
+// --biliscript-script-top 位移，header/设置抽屉的 backdrop-filter 跟着逐帧重采样。
+// script-host 在滚动期间给 #biliscript-reading-view 挂 data-biliscript-script-scrolling，
 // scrollend（或 150ms 静默兜底）摘除；CSS 侧由滚动属性关停毛玻璃。
 describe("script-host 滚动进行中材质降级（M19）", () => {
-  const SCROLLING_ATTR = "data-boc-script-scrolling";
+  const SCROLLING_ATTR = "data-biliscript-script-scrolling";
 
   it("scroll 事件挂标记，document 上的 scrollend（视口滚动）立即摘除", async () => {
     await loadModules();
@@ -584,9 +584,9 @@ describe("script-host 滚动进行中材质降级（M19）", () => {
   it("CSS 侧消费滚动属性：header 与设置抽屉各有一条关停毛玻璃规则", () => {
     const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), "utf8");
     const headerRule =
-      /#boc-reading-view\[data-boc-script-scrolling="1"\]\s+\.boc-reading-script-panel\s+\.boc-reading-header\s*\{[^}]*backdrop-filter:\s*none/s;
+      /#biliscript-reading-view\[data-biliscript-script-scrolling="1"\]\s+\.biliscript-reading-script-panel\s+\.biliscript-reading-header\s*\{[^}]*backdrop-filter:\s*none/s;
     const settingsRule =
-      /#boc-reading-view\[data-boc-script-scrolling="1"\]\s+\.boc-reading-settings-panel\s*\{[^}]*backdrop-filter:\s*none/s;
+      /#biliscript-reading-view\[data-biliscript-script-scrolling="1"\]\s+\.biliscript-reading-settings-panel\s*\{[^}]*backdrop-filter:\s*none/s;
     expect(read("extension/entry/styles/reader.css")).toMatch(headerRule);
     expect(read("extension/entry/styles/reader-settings-providers.css")).toMatch(settingsRule);
   });
@@ -604,7 +604,7 @@ describe("script-host close", () => {
 
     const el = readingView();
     expect(vars(el)).toEqual({ left: "", top: "", width: "", height: "" });
-    expect(el.getAttribute("data-boc-script-float")).toBe(null);
+    expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
 
     // 定时器停摆：close 后推进时间不再触发重算（变量保持已清除态）。
     mountAnchor(".right-container", makeRect(1500, 100, 360, 1800));
@@ -630,7 +630,7 @@ describe("script-host close", () => {
     expect(() => scriptHost.closeScriptHost()).not.toThrow();
   });
 
-  it("open 时 #boc-reading-view 不存在：静默不炸，后续重算可恢复", async () => {
+  it("open 时 #biliscript-reading-view 不存在：静默不炸，后续重算可恢复", async () => {
     await loadModules();
     document.body.innerHTML = "";
     expect(() => scriptHost.openScriptHost()).not.toThrow();
@@ -638,7 +638,7 @@ describe("script-host close", () => {
     // 元素后来出现（ui 渲染完成），下一次重算能写上变量（经 resize 事件走
     // 事件路径合帧；原「手动重算」死槽位导出已随 arch-slim-2/03 删除）。
     const view = document.createElement("div");
-    view.id = "boc-reading-view";
+    view.id = "biliscript-reading-view";
     document.body.appendChild(view);
     mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     runRafSynchronously();
@@ -654,7 +654,7 @@ describe("script-host close", () => {
     scriptHost.openScriptHost();
 
     const el = readingView();
-    expect(el.getAttribute("data-boc-script-float")).toBe("1");
+    expect(el.getAttribute("data-biliscript-script-float")).toBe("1");
     expect(vars(el)).toEqual({ left: "", top: "", width: "", height: "" });
 
     // 视口变宽后重算：恢复贴栏。锚点 rect 不随 innerWidth 变（左缘 1640），
@@ -662,7 +662,7 @@ describe("script-host close", () => {
     window.innerWidth = 1920;
     runRafSynchronously();
     window.dispatchEvent(new Event("resize"));
-    expect(el.getAttribute("data-boc-script-float")).toBe(null);
+    expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
     expect(vars(el)).toEqual({
       left: "1540px",
       top: "80px",

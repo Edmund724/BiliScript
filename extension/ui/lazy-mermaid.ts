@@ -1,7 +1,7 @@
 // ui/lazy-mermaid.ts — mermaid 图表水合的窄入口 + 懒加载器（常驻轻模块）。
 //
 // 为什么惰性：ui/mermaid-render 连着 Mermaid 及已保留图表类型的 MB 级依赖。
-// 多数对话里没有图表，装载挂在「root 里真有 [data-boc-mermaid] 占位」这一判定
+// 多数对话里没有图表，装载挂在「root 里真有 [data-biliscript-mermaid] 占位」这一判定
 // 之后，没有图表的会话连这个脏 chunk 都不请求。占位在屏外时连装载也不触发
 // （IntersectionObserver 门控，见下方 observeForHydration），滚入视口才装载。
 //
@@ -31,7 +31,7 @@ async function hydrateMermaidNow(root: ParentNode, force: boolean): Promise<void
     const module = await loader.load();
     await module.hydrateMermaidPlaceholders(root, { theme: state.reader.readingTheme === "dark" ? "dark" : "light", force });
   } catch (error) {
-    logWarnAlways("[BOC] mermaid 懒加载失败：", error);
+    logWarnAlways("[BILISCRIPT] mermaid 懒加载失败：", error);
   }
 }
 

@@ -14,7 +14,7 @@ function makeFakePort() {
   const disconnectListeners: Array<() => void> = [];
   return {
     port: {
-      name: "boc-sw-keepalive",
+      name: "biliscript-sw-keepalive",
       onDisconnect: {
         addListener: vi.fn((fn) => disconnectListeners.push(fn))
       },

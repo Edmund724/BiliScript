@@ -93,7 +93,7 @@ describe("seekReadingTarget 规范序", () => {
     expect(log).toEqual([{ pausedAtAssign: false, next: 12 }]);
     // 跟随状态按规范序第 2 步落在 auto；seek 后事件驱动（seeked 直连 + 尾部
     // force 同步）以 auto 行为滚动
-    expect(readingView.getAttribute("data-boc-reader-follow")).toBe("auto");
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
     expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
     expect(state.reader.readingActiveSubtitleIndex).toBe(1);
   });
@@ -109,7 +109,7 @@ describe("seekReadingTarget 规范序", () => {
     video.currentTime = 12; // 直接赋值：此刻暂停未清
     video.dispatchEvent(new Event("seeked"));
 
-    expect(readingView.getAttribute("data-boc-reader-follow")).toBe("manual");
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
     expect(state.reader.readingActiveSubtitleIndex).toBe(1); // 高亮照切
   });
 });

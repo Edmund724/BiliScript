@@ -42,7 +42,7 @@ import {
   type NoSubtitleReason
 } from "../chat/tab-domain.js";
 // reader 触发源与进程内相位（content script 收不到自己的 runtime 广播）。
-import { BOC_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 // 转写中判定（与字幕 tab 横幅同源：相位 transcribing 且字幕体为空）。
 import { isReaderTranscribing } from "./transcribe-banner.js";
@@ -83,7 +83,7 @@ const NON_VIDEO_CONTEXT_MESSAGE = "当前页非 B 站视频页面，<br>无法�
 // 展示，其余阶段（含转写结束后未再发布的情况）经由 setRefreshing(false) 与
 // phase 判断隐藏。asr-done/asr-failed：一键总结若正在等待转写
 //（subtitleWaiter.wait），立即触发一轮上下文轮询，不必等 4 秒间隔。
-// （sidepanel 版监听 chrome.runtime.onMessage 的 boc-subtitle-status 广播；
+// （sidepanel 版监听 chrome.runtime.onMessage 的 biliscript-subtitle-status 广播；
 // reader 与转写编排同进程收不到自己的广播，改订阅 shared/subtitle-status-bus。）
 let unsubscribeStatusBus: (() => void) | null = null;
 
@@ -137,7 +137,7 @@ export function unbindSubtitleStatusBus(): void {
   unsubscribeStatusBus?.();
   unsubscribeStatusBus = null;
 }
-// reader 触发源：boc:urlchange（core/url-watcher 广播）→ 强刷快档（切 P/切视频
+// reader 触发源：biliscript:urlchange（core/url-watcher 广播）→ 强刷快档（切 P/切视频
 // 必须全网络重拉）。调度状态机原在 chat/context-sync.ts 的
 // createLiveContextSync（工单 05 并回）：~40 行纯间接层里 reader 只消费
 // onUrlChange 一个触发源（sidepanel 世界的 visibility/focus/tabs handler 无
@@ -162,14 +162,14 @@ export function bindUrlChangeTrigger(): void {
     return;
   }
   urlChangeHandler = () => scheduleLiveContextSync();
-  window.addEventListener(BOC_URL_CHANGE_EVENT, urlChangeHandler);
+  window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, urlChangeHandler);
 }
 
 export function unbindUrlChangeTrigger(): void {
   if (!urlChangeHandler) {
     return;
   }
-  window.removeEventListener(BOC_URL_CHANGE_EVENT, urlChangeHandler);
+  window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, urlChangeHandler);
   urlChangeHandler = null;
 }
 // 跨模块共享状态（contextData / currentContextKey / providers / chatHistory /
@@ -757,7 +757,7 @@ async function startSubtitleFetchIfNeeded(): Promise<boolean> {
     await ensureSummarizeChain();
     requestSubtitleRefresh().catch(() => {});
   } catch (error) {
-    logWarn("[BOC] subtitle fetch start failed", { error });
+    logWarn("[BILISCRIPT] subtitle fetch start failed", { error });
     return false;
   }
   return true;

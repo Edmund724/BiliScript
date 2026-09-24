@@ -10,7 +10,7 @@
 // 继续走异步路径」）：已存在加载请求（含仍在加载中）⇒ true；失败清缓存后
 // 回落 false。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——加载器的 promise 缓存是调用方
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——加载器的 promise 缓存是调用方
 // 模块级闭包状态（ai/lazy-player-ai.ts、reader/lazy-reader.ts、subtitle/lazy.ts、
 // ui/lazy-ui.ts 的模块级 loader），content 两轮构建下常驻包与懒加载区各一份。
 // 安全依据：两侧 loader 动态 import 的 chunk URL 相同，ESM 注册表按 URL 去重，

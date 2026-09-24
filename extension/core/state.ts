@@ -321,7 +321,7 @@ const localState: State = {
 // 的实例把自己那份本地对象丢弃、改用槽内对象，因此下面只导出槽内绑定，本地
 // 对象仅作为「第一个实例」的建槽材料（一次性小开销，换来声明体逐字不动）。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态，允许
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态，允许
 // 双实例；安全依据即上文的 globalThis 槽（状态本体在槽内，两侧同一份）。
 interface StateBundle {
   readerState: ReaderStateWritable;
@@ -330,7 +330,7 @@ interface StateBundle {
   state: State;
 }
 
-const STATE_SLOT_KEY = "__BOC_STATE__";
+const STATE_SLOT_KEY = "__BILISCRIPT_STATE__";
 
 const stateBundle: StateBundle = ((globalThis as unknown as Record<string, StateBundle | undefined>)[STATE_SLOT_KEY] ??= {
   readerState: localReaderState,
@@ -380,7 +380,7 @@ export function transitionReaderShell(to: ReaderShellState): boolean {
     return true;
   }
   if (!READER_SHELL_TRANSITIONS[from].includes(to)) {
-    logWarnAlways(`[BOC] 非法阅读壳状态迁移：${from} → ${to}，已拒绝`);
+    logWarnAlways(`[BILISCRIPT] 非法阅读壳状态迁移：${from} → ${to}，已拒绝`);
     return false;
   }
   state.reader.readingShellState = to;

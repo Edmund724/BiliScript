@@ -288,7 +288,7 @@ export async function refreshHotComments({ refreshComments = false } = {}): Prom
         clipState.setHotComments(await fetchHotComments(20));
       } catch (error) {
         clipState.setHotComments([]);
-        logWarn("[BOC] failed to fetch hot comments for note export", error);
+        logWarn("[BILISCRIPT] failed to fetch hot comments for note export", error);
       }
     }
   }

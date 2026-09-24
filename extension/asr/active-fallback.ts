@@ -20,7 +20,7 @@ import { getSettings } from "../core/runtime.js";
 import { setMessage, setStatus } from "../core/ui-status.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { createLazyLoader } from "../shared/lazy-import.js";
-// PR3：boc-subtitle-status 广播的进程内镜像（零依赖叶子）——reader 同进程的
+// PR3：biliscript-subtitle-status 广播的进程内镜像（零依赖叶子）——reader 同进程的
 // 转写中间态呈现经它读取/订阅（content script 收不到自己的 runtime 广播）。
 import { publishSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { acceptSubtitle, commitNoSubtitle } from "../subtitle/commit.js";
@@ -38,7 +38,7 @@ import type { AsrFallback, AsrProviderMeta } from "./fallback.js";
 function broadcastSubtitleStatus(phase: string): void {
   publishSubtitleStatusPhase(phase);
   try {
-    const promise = chrome.runtime.sendMessage({ type: "boc-subtitle-status", phase });
+    const promise = chrome.runtime.sendMessage({ type: "biliscript-subtitle-status", phase });
     if (promise && typeof promise.catch === "function") {
       promise.catch(() => {});
     }

@@ -32,10 +32,10 @@ function buildFixture() {
     const content = `第${i}条含${KEYWORD}的句子`;
     body.push({ from: i * 2, to: i * 2 + 1.9, content });
     const item = document.createElement("div");
-    item.className = "boc-reading-item";
+    item.className = "biliscript-reading-item";
     item.dataset.index = String(i);
     const text = document.createElement("span");
-    text.className = "boc-reading-text";
+    text.className = "biliscript-reading-text";
     text.textContent = content;
     item.appendChild(text);
     list.appendChild(item);
@@ -45,11 +45,11 @@ function buildFixture() {
 }
 
 function markCount() {
-  return document.querySelectorAll(`mark.boc-reading-search-hit`).length;
+  return document.querySelectorAll(`mark.biliscript-reading-search-hit`).length;
 }
 
 function itemText(index: number) {
-  return document.querySelector(`[data-index="${index}"] .boc-reading-text`)!;
+  return document.querySelector(`[data-index="${index}"] .biliscript-reading-text`)!;
 }
 
 beforeEach(async () => {

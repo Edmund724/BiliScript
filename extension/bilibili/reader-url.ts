@@ -2,7 +2,7 @@
 // clip 域行为：阅读模式 URL 的 replaceState 更新（replaceReaderModeUrl）+
 // clip 签名时序。
 // 不变式——clip 签名必须先于 replaceState 更新（补丁后的 replaceState 会同步
-// 派发 boc:urlchange 触发 handleUrlChange，签名未先更新会被误判为真实 URL
+// 派发 biliscript:urlchange 触发 handleUrlChange，签名未先更新会被误判为真实 URL
 // 变化而清空全部 clip 状态）。
 // 本函数仅 content 侧使用；replaceReaderModeUrl 原放在 core/runtime.js
 // （URL 工具杂项）现归位到 B 站域。buildReaderModeUrl 原为三处手抄
@@ -26,7 +26,7 @@ export function replaceReaderModeUrl(nextUrl: unknown): void {
 
   try {
     // Update clip signature BEFORE calling replaceState, because the patched
-    // history.replaceState dispatches boc:urlchange synchronously, which
+    // history.replaceState dispatches biliscript:urlchange synchronously, which
     // triggers handleUrlChange — if the signature hasn't been updated yet,
     // it looks like a real URL change and resets all clip state (chapters,
     // subtitles, etc.).
@@ -37,7 +37,7 @@ export function replaceReaderModeUrl(nextUrl: unknown): void {
     clipState.setCurrentClipSignature(computeCurrentClipSignature(location.href));
   } catch (error) {
     if (shouldDebugLog()) {
-      console.warn("[BOC] failed to replace reader mode url", error);
+      console.warn("[BILISCRIPT] failed to replace reader mode url", error);
     }
   }
 }

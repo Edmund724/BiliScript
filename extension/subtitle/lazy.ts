@@ -27,7 +27,7 @@
 // initSummarizeChain 会把 refreshClip 注册进 seam，闭环成立（arch-slim-2/03
 // 把懒装载触达从 seam 移到调用方）。
 //
-// 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——模块级 chainLoader 的 promise
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 chainLoader 的 promise
 // 缓存是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 
 import { createLazyLoader } from "../shared/lazy-import.js";

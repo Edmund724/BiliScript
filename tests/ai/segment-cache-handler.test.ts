@@ -81,14 +81,14 @@ describe("save-summary-raw 合并 op", () => {
     expect(response.summarySaved).toEqual({ ok: true });
     expect(response.rawSaved).toEqual({ ok: true });
     // 键位装配在 SW：bvid/cid/字幕轨 + 段序号（常态档无代后缀）
-    const rawKey = "boc_lvs_raw_BV1h_9_id_sub-1_3";
-    const summaryKey = "boc_lvs_summary_BV1h_9_id_sub-1_3";
+    const rawKey = "biliscript_lvs_raw_BV1h_9_id_sub-1_3";
+    const summaryKey = "biliscript_lvs_summary_BV1h_9_id_sub-1_3";
     expect(storage.map.get(rawKey)).toMatchObject({ segments: [{ from: 0, to: 5, content: "x" }] });
     expect(storage.map.get(summaryKey)).toMatchObject({ summary: "合并小结" });
     // 两族分键索引都登记（readFamilyKeys 可读回）
     const lru = await import("../../extension/core/cache-lru.js");
-    expect(await lru.readFamilyKeys("boc_lvs_raw_", "BV1h")).toEqual([rawKey]);
-    expect(await lru.readFamilyKeys("boc_lvs_summary_", "BV1h")).toEqual([summaryKey]);
+    expect(await lru.readFamilyKeys("biliscript_lvs_raw_", "BV1h")).toEqual([rawKey]);
+    expect(await lru.readFamilyKeys("biliscript_lvs_summary_", "BV1h")).toEqual([summaryKey]);
   });
 
   it("budgetScale 归一留在 SW：0.5 档 summary key 带 _b50 后缀（raw 同规则随键装配）", async () => {
@@ -103,13 +103,13 @@ describe("save-summary-raw 合并 op", () => {
     });
 
     expect(response.ok).toBe(true);
-    expect(storage.map.has("boc_lvs_summary_BV1h_9_id_sub-1_3_b50")).toBe(true);
-    expect(storage.map.has("boc_lvs_raw_BV1h_9_id_sub-1_3_b50")).toBe(true);
+    expect(storage.map.has("biliscript_lvs_summary_BV1h_9_id_sub-1_3_b50")).toBe(true);
+    expect(storage.map.has("biliscript_lvs_raw_BV1h_9_id_sub-1_3_b50")).toBe(true);
   });
 
   it("写失败 → ok:false + per-op 带 error（粗粒度同果），不抛", async () => {
     storage.local.set.mockImplementation(async (items) => {
-      if (Object.keys(items).some((k) => k.startsWith("boc_lvs_raw_") || k.startsWith("boc_lvs_summary_"))) {
+      if (Object.keys(items).some((k) => k.startsWith("biliscript_lvs_raw_") || k.startsWith("biliscript_lvs_summary_"))) {
         throw new Error("quota");
       }
       for (const [key, value] of Object.entries(items)) {
@@ -141,7 +141,7 @@ describe("既有单族 op 行为不变", () => {
 
     expect(r1).toEqual({ ok: true });
     expect(r2).toEqual({ ok: true });
-    expect(storage.map.get("boc_lvs_summary_BV1h_9_id_sub-1_1")).toMatchObject({ summary: "单小结" });
-    expect(storage.map.get("boc_lvs_raw_BV1h_9_id_sub-1_1")).toMatchObject({ segments: [{ from: 0, to: 1, content: "y" }] });
+    expect(storage.map.get("biliscript_lvs_summary_BV1h_9_id_sub-1_1")).toMatchObject({ summary: "单小结" });
+    expect(storage.map.get("biliscript_lvs_raw_BV1h_9_id_sub-1_1")).toMatchObject({ segments: [{ from: 0, to: 1, content: "y" }] });
   });
 });

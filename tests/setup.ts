@@ -8,7 +8,7 @@
 
 import { beforeEach, vi } from "vitest";
 
-export const READER_MODE_URL = "https://www.bilibili.com/video/BV1test000000/?boc_reader=1";
+export const READER_MODE_URL = "https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1";
 export const NORMAL_PAGE_URL = "https://www.bilibili.com/video/BV1test000000/";
 
 function stubChromeApi() {
@@ -72,11 +72,11 @@ export function setupEnvironment() {
 // 上一条用例的注册/状态会随 globalThis 活到下一用例。
 export function clearSharedSlots() {
   const slots = globalThis as unknown as Record<string, unknown>;
-  delete slots.__BOC_CONTENT_SCRIPT_DISPATCHER__;
-  delete slots.__BOC_LOG_GATE__;
-  delete slots.__BOC_READER_BUS__;
-  delete slots.__BOC_STATE__;
-  delete slots.__BOC_STYLE_INJECTOR__;
+  delete slots.__BILISCRIPT_CONTENT_SCRIPT_DISPATCHER__;
+  delete slots.__BILISCRIPT_LOG_GATE__;
+  delete slots.__BILISCRIPT_READER_BUS__;
+  delete slots.__BILISCRIPT_STATE__;
+  delete slots.__BILISCRIPT_STYLE_INJECTOR__;
 }
 
 // 每条用例前清一次（在文件自身的 beforeEach 之前跑）：即便某文件只调
@@ -106,12 +106,12 @@ export function resetModuleState() {
   // jsdom 无布局，getBoundingClientRect 恒为 0。给 Element 原型补默认可见矩形，
   // 让 reader 的布局判定（>240x120 等）通过；特定元素可在用例内再覆盖。
   if (typeof Element !== "undefined") {
-    const rect = Element.prototype.getBoundingClientRect as (() => DOMRect) & { __bocDefaultPatched?: boolean };
-    if (!rect.__bocDefaultPatched) {
+    const rect = Element.prototype.getBoundingClientRect as (() => DOMRect) & { __biliscriptDefaultPatched?: boolean };
+    if (!rect.__biliscriptDefaultPatched) {
       const patched = function getBoundingClientRect() {
         return { x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 450, width: 800, height: 450, toJSON: () => ({}) };
-      } as (() => DOMRect) & { __bocDefaultPatched?: boolean };
-      patched.__bocDefaultPatched = true;
+      } as (() => DOMRect) & { __biliscriptDefaultPatched?: boolean };
+      patched.__biliscriptDefaultPatched = true;
       Element.prototype.getBoundingClientRect = patched;
     }
   }
