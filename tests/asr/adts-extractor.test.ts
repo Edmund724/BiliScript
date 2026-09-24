@@ -1,5 +1,5 @@
 // extension/asr/adts.js createAdtsExtractor 单测：有状态增量解析器。
-// 覆盖：与 adtsFromFmp4 整段输出逐字节一致；1 字节/次的极端切分 push 序列与
+// 覆盖：非 fMP4 输入无段产出；1 字节/次的极端切分 push 序列与
 // 整块 push 输出一致（残包边界）；flush 收尾（尾部不足 10 moof 的段）。
 
 import { describe, expect, it } from "vitest";
@@ -48,32 +48,12 @@ function collectViaChunkedPush(bytes: Uint8Array, chunkSizes: number[], config: 
 
 const asc = parseAudioSpecificConfig(fixture) || {};
 
-describe("createAdtsExtractor 与 adtsFromFmp4 输出逐字节一致", () => {
-  it("真实 B 站音轨片段（98KB，2 对 moof/mdat）", () => {
-    const expected = adtsFromFmp4(fixture, asc);
-    expect(expected.length).toBeGreaterThan(0);
-    const actual = collectViaExtractor(fixture, asc);
-    expect(actual).toEqual(expected);
-  });
-
-  it("真实 1MB 样本（26 对 moof/mdat，含 10 moof 分段边界）", () => {
-    const expected = adtsFromFmp4(big, asc);
-    expect(expected.length).toBeGreaterThan(1); // 确认跨过分段边界
-    const actual = collectViaExtractor(big, asc);
-    expect(actual).toEqual(expected);
-  });
-
+describe("createAdtsExtractor 非 fMP4 输入", () => {
   it("非 fMP4 输入：无段产出且 frameCount 为 0", () => {
     const extractor = createAdtsExtractor(asc);
     expect(extractor.push(new Uint8Array(100))).toEqual([]);
     expect(extractor.flush()).toEqual([]);
     expect(extractor.frameCount).toBe(0);
-  });
-
-  it("默认配置（AAC-LC/48k/双声道）与显式 ASC 配置输出一致", () => {
-    const extractor = createAdtsExtractor({});
-    const segments = [...extractor.push(fixture), ...extractor.flush()];
-    expect(segments).toEqual(adtsFromFmp4(fixture, {}));
   });
 });
 

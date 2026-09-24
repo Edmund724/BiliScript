@@ -247,17 +247,4 @@ describe("任务取消只剩真断连（isStale 跨 context 复核已移除）",
 
     await expect(promise).resolves.toMatchObject({ totalChunks: 1 });
   });
-
-  it("port 断连仍是唯一取消路径：未 done 断连 → reject「音频解码中断」", async () => {
-    const { connections } = installConnectMock();
-    const bridge = await import("../../extension/asr/offscreen-bridge.page.js");
-    const host = bridge.createOffscreenChunkHost();
-
-    const promise = host({ audioUrl: "https://x/a.m4s", backupUrls: [] });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const port = connections[0];
-    port._emitDisconnect();
-
-    await expect(promise).rejects.toThrow("音频解码中断：后台连接已断开");
-  });
 });

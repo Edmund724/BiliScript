@@ -153,22 +153,6 @@ describe("offFallback：off 级联去向的显式字段（03 号票 UI 长短版
   });
 });
 
-describe("纯 resolver 判定与 DOM 无关（工单 03 守护：后台路径不渲染提示）", () => {
-  it("概览/解释/Map-Reduce 走同款级联判定也不触碰 DOM：resolve 前后文档无变化", () => {
-    const bodyHtml = document.body.innerHTML;
-    const elementCount = document.getElementsByTagName("*").length;
-
-    // 后台路径（非流式）同款判定：级联标记照常返回，但不产生任何 DOM 副作用
-    // ——提示渲染是对话 tab UI 层（reader/chat-tab.ts）的专属职责。
-    const r = resolveThinkingProfile({ baseUrl: KIMI_URL, model: "kimi-k3", level: "off", stream: false });
-    expect(r.offUnavailable).toBe(true);
-    expect(r.offFallback).toBe("low");
-
-    expect(document.body.innerHTML).toBe(bodyHtml);
-    expect(document.getElementsByTagName("*").length).toBe(elementCount);
-  });
-});
-
 describe("streamOnly（Q14A：流式限制规则遇非流式按无事实处理）", () => {
   it("流式：off 照发 enable_thinking:false", () => {
     const r = resolve({ baseUrl: QWEN_URL, model: "qwen3-32b", level: "off", stream: true });

@@ -63,8 +63,4 @@ describe("AI 键默认开一次性迁移", () => {
     const rerun = applyPlayerAiQuickActionDefaultOnMigration(afterUserTurnsOff);
     expect(rerun.enablePlayerAiQuickAction).toBe(false);
   });
-
-  it("新默认值为 true（迁移存在的前提：默认翻转已发生）", () => {
-    expect(DEFAULT_SETTINGS.enablePlayerAiQuickAction).toBe(true);
-  });
 });

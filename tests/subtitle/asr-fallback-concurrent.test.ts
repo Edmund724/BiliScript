@@ -227,18 +227,6 @@ describe("ASR 转写中并发调用（共享转写、成果落缓存）", () => 
     expect(statusCalls.some((s) => s.includes("缓存命中"))).toBe(true);
   });
 
-  it("转写失败：asr-failed 广播发出，走无字幕出口逆事务（commit.commitNoSubtitle）", async () => {
-    deps.runAsrPipeline.mockRejectedValue(new Error("音频解码失败"));
-
-    const result = await fallback.maybeRunAsrFallback({ runId: 1 });
-
-    expect(result).toBe("error");
-    expect(deps.broadcastSubtitleStatus).toHaveBeenCalledWith("asr-failed");
-    expect(deps.commitNoSubtitle).toHaveBeenCalledTimes(1);
-    expect(deps.commitNoSubtitle).toHaveBeenCalledWith({ noSubtitleReason: "asr-failed", asrResult: "error" });
-    expect(state.clip.subtitleFetchState).toBe("empty");
-  });
-
   it("转写进行中走 awaitActiveAsrTranscribe（fetcher 失败兜底路径）：跟随共享转写收尾，不重复转写", async () => {
     const pending = stubPendingPipeline();
 

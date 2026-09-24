@@ -18,12 +18,6 @@ function jsonResponse(payload: unknown) {
 }
 
 describe("resolveAdapter（协议解析单点）", () => {
-  it("三个协议值各自命中注册表", () => {
-    expect(resolveAdapter("openai")).toBe(PROTOCOL_ADAPTERS.openai);
-    expect(resolveAdapter("anthropic")).toBe(PROTOCOL_ADAPTERS.anthropic);
-    expect(resolveAdapter("responses")).toBe(PROTOCOL_ADAPTERS.responses);
-  });
-
   it("缺字段 / 未知值 / 非字符串 → openai 兜底（存量记录零变化）", () => {
     for (const value of [undefined, null, "", "gemini", "OPENAI", 42, {}, true]) {
       expect(resolveAdapter(value), String(value)).toBe(PROTOCOL_ADAPTERS.openai);

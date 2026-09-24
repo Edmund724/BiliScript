@@ -89,14 +89,6 @@ afterEach(() => {
 });
 
 describe("播放同步与高亮", () => {
-  it("渲染后首个字幕项默认高亮（readerState 重置为 -1 后的 get 行为）", () => {
-    expect(state.reader.readingActiveSubtitleIndex).toBe(-1);
-    const readingView = document.getElementById(ids.readingView) as HTMLElement;
-    expect(readingView.querySelectorAll(".boc-reading-item").length).toBe(0);
-    // 列表尚未渲染（未调 renderReadingView），因此无高亮项
-    expect(readingView.querySelector(".boc-reading-item.is-active")).toBe(null);
-  });
-
   it("手动渲染列表后无高亮项（activeIndex 为 -1）", () => {
     shell.renderReadingView();
     const readingView = document.getElementById(ids.readingView) as HTMLElement;

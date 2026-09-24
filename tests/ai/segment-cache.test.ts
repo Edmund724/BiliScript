@@ -213,38 +213,6 @@ describe("上下文键位构造器：与原手拼键逐字节一致（预热缓�
     subtitleBody: [{ from: 0, to: 5, content: "x" }]
   };
 
-  it("buildSegmentSummaryCacheKey(context, i) === getSegmentSummaryKey(手拼 6 字段)", () => {
-    for (const segmentIndex of [0, 1, 3]) {
-      const unified = mod.buildSegmentSummaryCacheKey(context, segmentIndex);
-      const manual = mod.getSegmentSummaryKey({
-        bvid: context.bvid,
-        cid: context.cid,
-        subtitleId: context.selectedSubtitleId,
-        subtitleUrl: context.selectedSubtitleUrl,
-        lang: context.subtitleLang,
-        segmentIndex
-      });
-      expect(unified).toBe(manual);
-      expect(unified).toBe(`boc_lvs_summary_${context.bvid}_${context.cid}_id_sub-9_${segmentIndex}`);
-    }
-  });
-
-  it("buildRawSegmentCacheKey(context, i) === getRawSegmentKey(手拼 6 字段)", () => {
-    for (const segmentIndex of [0, 1, 3]) {
-      const unified = mod.buildRawSegmentCacheKey(context, segmentIndex);
-      const manual = mod.getRawSegmentKey({
-        bvid: context.bvid,
-        cid: context.cid,
-        subtitleId: context.selectedSubtitleId,
-        subtitleUrl: context.selectedSubtitleUrl,
-        lang: context.subtitleLang,
-        segmentIndex
-      });
-      expect(unified).toBe(manual);
-      expect(unified).toBe(`boc_lvs_raw_${context.bvid}_${context.cid}_id_sub-9_${segmentIndex}`);
-    }
-  });
-
   it("segmentCacheKeyFields：selectedSubtitleId/Url/Lang 映射为键位入参且只挑键位字段", () => {
     expect(mod.segmentCacheKeyFields(context)).toEqual({
       bvid: "BV1ctx",

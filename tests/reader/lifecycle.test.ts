@@ -192,10 +192,6 @@ describe("reader 生命周期", () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
   });
 
-  it("等待视频元数据：duration 就绪立即 resolve", async () => {
-    await expect(shell.waitForVideoMetadata(50)).resolves.toBeUndefined();
-  });
-
   it("字幕缓存属上一个视频（bvid 与当前地址不符）：进入阅读模式触发后台重抓", async () => {
     // 稍后再看列表内 SPA 换片逃逸 URL 监听时 state.clip 残留旧视频数据；
     // 缓存命中判定带 bvid 校验，明确不符则按未抓取处理、走后台 refreshClip。

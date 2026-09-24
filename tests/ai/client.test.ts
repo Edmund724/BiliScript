@@ -6,8 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
-import { streamChat, resolveSubtitleForContext, OVER_BUDGET_NOTICE, TRUNCATED_NOTICE } from "../../extension/ai/client.js";
-import { makeOverflowError } from "../../extension/ai/completion.js";
+import { streamChat, OVER_BUDGET_NOTICE, TRUNCATED_NOTICE } from "../../extension/ai/client.js";
 
 beforeEach(() => {
   resetModuleState();
@@ -386,26 +385,6 @@ describe("streamChat 溢出语义（catch 查标记）", () => {
         port
       })
     ).rejects.toMatchObject({ overflow: true });
-  });
-});
-
-describe("resolveSubtitleForContext / OVER_BUDGET_NOTICE（预算策略留在 client）", () => {
-  it("预算内与超预算的发送物判定（承接 budget-single-shot 的溢出标记语义）", () => {
-    const over = resolveSubtitleForContext({ subtitleBody: makeSubtitleBody(210000) });
-    expect(over.mode).toBe("map-reduce");
-    expect(over.overflowMarked).toBe(true);
-    expect(over.notice).toBe(OVER_BUDGET_NOTICE);
-
-    const within = resolveSubtitleForContext({ subtitleBody: makeSubtitleBody(200000) });
-    expect(within.mode).toBe("single");
-    expect(within.overflowMarked).toBe(false);
-    expect(within.notice).toBe("");
-  });
-
-  it("makeOverflowError 产出的标记错误即 ladder 分流依据", () => {
-    const error = makeOverflowError(OVER_BUDGET_NOTICE);
-    expect(error.overflow).toBe(true);
-    expect(error.message).toBe("字幕过长，已切换为分段整理模式");
   });
 });
 

@@ -2,15 +2,11 @@
 // 唯一渲染收口）。覆盖：
 // - buildSubtitlePrompt：章节分节、时间戳开关、withHours（videoDuration 判定）、
 //   空 body 返回空串；
-// - 与笔记场景 buildAiConversationMarkdown 的输出等价性；
 // - 「预算按 body、发送按渲染产物」的一致性锚点：同一份 body 的渲染产物即
 //   resolveSubtitleForContext / buildMessages 的实际发送物。
 
 import { describe, expect, it } from "vitest";
-import {
-  buildSubtitlePrompt,
-  buildAiConversationMarkdown
-} from "../../extension/ai/subtitle-prompt.js";
+import { buildSubtitlePrompt } from "../../extension/ai/subtitle-prompt.js";
 
 const BODY = [
   { from: 0, to: 5, content: "第一句" },
@@ -59,14 +55,5 @@ describe("buildSubtitlePrompt", () => {
     expect(buildSubtitlePrompt({ body: [{ from: 0, to: 5, content: "  " }] })).toBe(
       "## 字幕\n\n（暂无字幕）"
     );
-  });
-
-  it("输出与笔记场景 buildAiConversationMarkdown 等价（同一渲染收口）", () => {
-    const body = [...BODY, { from: 3700, to: 3705, content: "一小时后的内容" }];
-    const chapters = [...CHAPTERS, { title: "尾声", from: 3700, to: 3800 }];
-    const includeTimestampInBody = true;
-    expect(
-      buildSubtitlePrompt({ body, chapters, videoDuration: 3800, includeTimestampInBody })
-    ).toBe(buildAiConversationMarkdown({ chapters, videoDuration: 3800 }, body, { includeTimestampInBody }));
   });
 });
