@@ -87,12 +87,10 @@ export interface ProtocolAdapter {
 
 import { openaiAdapter } from "./adapters/openai.js";
 import { anthropicAdapter } from "./adapters/anthropic.js";
-import { responsesAdapter } from "./adapters/responses.js";
 
 export const PROTOCOL_ADAPTERS: Record<AiProtocol, ProtocolAdapter> = {
   openai: openaiAdapter,
-  anthropic: anthropicAdapter,
-  responses: responsesAdapter
+  anthropic: anthropicAdapter
 };
 
 // 协议解析单点：存量记录缺 protocol 字段 / 未知值 → openai（行为零变化兜底）。
@@ -110,6 +108,5 @@ export function resolveAdapter(protocol: unknown): ProtocolAdapter {
 // 新增协议 = 注册表登记一行 + 此处加一个选项。
 export const PROTOCOL_OPTIONS: ReadonlyArray<{ value: AiProtocol; label: string }> = [
   { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "responses", label: "Responses" }
+  { value: "anthropic", label: "Anthropic" }
 ];

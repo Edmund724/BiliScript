@@ -2,8 +2,7 @@
 // resolveAdapter 是唯一读路径——缺字段/未知值/非字符串一律兜底 openai（存量
 // 记录零变化）；chatCompletion 经 provider.protocol 穿线到 adapter（端点/鉴权/
 // 请求体随协议切换，core 重试/中止/溢出/探针语义不变）。
-// anthropic / responses 已落地（第二/三部分，细测见 adapter-anthropic.test.js /
-// adapter-responses.test.js）。
+// anthropic 已落地（第二部分，细测见 adapter-anthropic.test.js）。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PROTOCOL_ADAPTERS, resolveAdapter } from "../../extension/ai/protocol-adapter.js";
@@ -19,7 +18,8 @@ function jsonResponse(payload: unknown) {
 
 describe("resolveAdapter（协议解析单点）", () => {
   it("缺字段 / 未知值 / 非字符串 → openai 兜底（存量记录零变化）", () => {
-    for (const value of [undefined, null, "", "gemini", "OPENAI", 42, {}, true]) {
+    // "responses"：适配器已移除，存量记录按未知值兜底 openai（词表同步摘除）。
+    for (const value of [undefined, null, "", "gemini", "responses", "OPENAI", 42, {}, true]) {
       expect(resolveAdapter(value), String(value)).toBe(PROTOCOL_ADAPTERS.openai);
     }
   });
@@ -64,29 +64,6 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
     expect(body.system).toBe("sys");
     expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
     expect(body.max_tokens).toBe(8192);
-    expect(body.stream).toBe(false);
-  });
-
-  it("provider.protocol 为 responses → /responses + Bearer，无状态请求体形状", async () => {
-    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => jsonResponse({
-      status: "completed",
-      output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }]
-    }) as unknown as Response);
-
-    await chatCompletion({
-      provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "responses" },
-      messages: [{ role: "system", content: "sys" }, { role: "user", content: "hi" }],
-      fetchImpl: fetchMock
-    });
-
-    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string>; body: string }];
-    expect(url).toBe("https://api.example.com/v1/responses");
-    expect(init.headers.Authorization).toBe("Bearer sk");
-    const body = JSON.parse(init.body);
-    // system 剥为顶层 instructions；store:false 恒在（无状态形态）。
-    expect(body.instructions).toBe("sys");
-    expect(body.store).toBe(false);
-    expect(body.input).toEqual([{ role: "user", content: [{ type: "input_text", text: "hi" }] }]);
     expect(body.stream).toBe(false);
   });
 });

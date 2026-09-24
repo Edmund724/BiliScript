@@ -70,7 +70,7 @@ export interface AiProviderPreset {
   protocolBaseUrls?: Partial<Record<AiProtocol, string>>;
   // 模型目录归属（model-catalog/02）：本预设对应 @earendil-works/pi-ai 的
   // provider 目录文件名。presetId 与上游文件名不是一套（zhipu/zai-coding-cn、
-  // mimo/xiaomi、openai_compat/openai…），且实测按 host 自动匹配会错配
+  // mimo/xiaomi…），且实测按 host 自动匹配会错配
   // （zhipu 同域不同路径、mimo 曾用不解析的 api.mimo.ai），故逐平台显式登记；
   // 查表时 presetId 命中即不再看 baseUrl（host 只兜底 custom/未知预设）。
   // 没有登记 = 该预设永远没有目录数据（白名单见 ai/model-catalog.ts）。
@@ -78,7 +78,6 @@ export interface AiProviderPreset {
 }
 
 export const PRESETS: readonly AiProviderPreset[] = [
-  { id: "openai_compat", name: "OpenAI 兼容", baseUrl: "https://api.openai.com/v1", requiresKey: true, piProvider: "openai" },
   { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true, piProvider: "deepseek", protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
   { id: "qwen",          name: "Qwen",        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://dashscope.aliyuncs.com/apps/anthropic" } },
   { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, piProvider: "zai-coding-cn", protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },

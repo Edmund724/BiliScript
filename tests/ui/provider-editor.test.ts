@@ -398,12 +398,6 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(notes.textContent).toContain("该协议限制");
     expect(notes.textContent).toContain("disable_parallel_tool_use");
 
-    // 切 responses：小字换成 responses 的限制说明
-    protocolSelect.value = "responses";
-    protocolSelect.dispatchEvent(new Event("change"));
-    expect(notes.hidden).toBe(false);
-    expect(notes.textContent).toContain("sequence_number");
-
     // 切回 openai：unsupported 为空，小字收起
     protocolSelect.value = "openai";
     protocolSelect.dispatchEvent(new Event("change"));
@@ -413,7 +407,7 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
   it("预设切换联动默认归属、允许用户改：未改跟随新预设默认，改过的选择不覆盖", async () => {
     const presets = [
       { id: "proxied", name: "代理平台", baseUrl: "https://proxy.example.com/v1", requiresKey: true, protocol: "anthropic" },
-      { id: "custom", name: "自定义", baseUrl: "", requiresKey: true, protocol: "responses" }
+      { id: "custom", name: "自定义", baseUrl: "", requiresKey: true }
     ];
     const { host } = await mountPanel({
       "ai-presets-list": () => ({ ok: true, presets })
@@ -422,8 +416,8 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
 
     const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
     const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
-    // 新增默认 custom 预设：协议回落该预设默认归属
-    expect(protocolSelect.value).toBe("responses");
+    // 新增默认 custom 预设：协议回落该预设默认归属（缺省 openai）
+    expect(protocolSelect.value).toBe("openai");
 
     // 当前值仍是上一预设默认 → 跟随 proxied 的默认 anthropic
     presetSelect.value = "proxied";
@@ -438,12 +432,12 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(protocolSelect.value).toBe("openai");
   });
 
-  it("协议下拉选项名为 OpenAI / Anthropic / Responses（统一风格）", async () => {
+  it("协议下拉选项名为 OpenAI / Anthropic（统一风格）", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     const labels = Array.from(dialog.querySelectorAll(".provider-editor-protocol option")).map((option) => option.textContent);
-    expect(labels).toEqual(["OpenAI", "Anthropic", "Responses"]);
+    expect(labels).toEqual(["OpenAI", "Anthropic"]);
   });
 
   it("切协议联动 baseUrl：未改过跟随该预设的协议端点（DeepSeek /v1 ↔ /anthropic），改过的值不覆盖", async () => {
@@ -529,7 +523,7 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
-    protocolSelect.value = "responses";
+    protocolSelect.value = "anthropic";
     protocolSelect.dispatchEvent(new Event("change"));
 
     fireClick(dialog.querySelector(".provider-editor-cancel"));
@@ -986,7 +980,7 @@ describe("provider-editor：预设切换（Modal 内不代申请权限）", () =
 
     // 用户改过 baseUrl → 不覆盖
     baseUrlInput.value = "https://my-proxy.example.com/v1";
-    select.value = "openai_compat";
+    select.value = "deepseek";
     select.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://my-proxy.example.com/v1");
 
@@ -1215,7 +1209,7 @@ describe("provider-editor：原生约束校验属性（:user-invalid CSS 校验�
     select.dispatchEvent(new Event("change"));
     expect(apikey.required).toBe(false);
 
-    select.value = "openai_compat";
+    select.value = "deepseek";
     select.dispatchEvent(new Event("change"));
     expect(apikey.required).toBe(true);
   });

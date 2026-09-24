@@ -392,23 +392,6 @@ describe("探针协议调度（multi-protocol-ai）", () => {
     expect(JSON.parse(request.body)).toMatchObject({ model: "claude-sonnet-4-5", max_tokens: 1 });
   });
 
-  it("protocol:responses → 端点 /v1/responses、Bearer 鉴权（负载内联 tools 词表无关探针）", async () => {
-    const { probeAiChatCompletion } = await loadModule();
-
-    const resp = await probeAiChatCompletion({
-      baseUrl: "https://api.example.com/v1",
-      apiKey: "sk-resp",
-      model: "gpt-5.1",
-      protocol: "responses"
-    });
-
-    expect(resp).toEqual({ ok: true });
-    const request = lastRequest();
-    expect(request.url).toBe("https://api.example.com/v1/responses");
-    expect(request.headers.authorization).toBe("Bearer sk-resp");
-    expect(JSON.parse(request.body)).toMatchObject({ model: "gpt-5.1", store: false });
-  });
-
   it("未知 protocol 值 → resolveAdapter 兜底 openai（/chat/completions，行为零变化）", async () => {
     const { probeAiChatCompletion } = await loadModule();
 
@@ -494,13 +477,13 @@ describe("探针协议调度（multi-protocol-ai）", () => {
 
     const resp = await testAiProviderConnection({
       providerId: "p1",
-      baseUrl: "https://api.example.com/v1",
+      baseUrl: "https://api.example.com",
       apiKey: "sk-1",
       model: "gpt",
-      protocol: "responses"
+      protocol: "anthropic"
     });
 
     expect(resp).toEqual({ ok: true });
-    expect(lastRequest().url).toBe("https://api.example.com/v1/responses");
+    expect(lastRequest().url).toBe("https://api.example.com/v1/messages");
   });
 });

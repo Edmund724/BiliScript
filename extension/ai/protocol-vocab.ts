@@ -5,6 +5,6 @@
 // 分发表键必须覆盖本词表（protocol-adapter.ts 以 Record<AiProtocol, ...>
 // 注解强制），单源，禁止第二份词表。
 
-export const AI_PROTOCOLS = ["openai", "anthropic", "responses"] as const;
+export const AI_PROTOCOLS = ["openai", "anthropic"] as const;
 
 export type AiProtocol = (typeof AI_PROTOCOLS)[number];

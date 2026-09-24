@@ -115,12 +115,12 @@ _Avoid_: 缓存摘要、记忆、上下文摘要
 _Avoid_: 手抄多趟解析链、第二份解析实现
 
 **平台协议**:
-AI 平台对外说话用的线格式族，开放注册表（spec multi-protocol-ai，本次落地三种）：OpenAI compatible（chat completions）、Anthropic（messages）、Responses（OpenAI Responses API 的无状态形态，完整 input 数组、不用 previous_response_id 链）。每个 AI 平台记录带一个协议字段，存量记录缺省读作 OpenAI compatible。
-代码名：`AiProtocol`（`"openai" | "anthropic" | "responses"`）/ provider 的 `protocol` 字段；唯一读路径 `resolveAdapter`（`PROTOCOL_ADAPTERS` 注册表），缺字段/未知值兜底 openai，不得旁路直读 protocol 字段
+AI 平台对外说话用的线格式族，开放注册表（spec multi-protocol-ai，落地两种）：OpenAI compatible（chat completions）、Anthropic（messages）。每个 AI 平台记录带一个协议字段，存量记录缺省读作 OpenAI compatible。
+代码名：`AiProtocol`（`"openai" | "anthropic"`）/ provider 的 `protocol` 字段；唯一读路径 `resolveAdapter`（`PROTOCOL_ADAPTERS` 注册表），缺字段/未知值兜底 openai，不得旁路直读 protocol 字段
 _Avoid_: API 格式、接口类型；与扩展内部消息协议（messaging-protocol 词根）混用；把第四种协议（Gemini 等）的实现纳入本次范围
 
 **协议适配器**:
-把平台协议差异收敛在唯一 fetch 点一侧的翻译单元：编排层（阶梯/归并/工具循环）只面对统一的 `ChatMessage[]` 入参与 `StreamChatEvent` 出参，SSE 事件差异（Anthropic 的 message_start/content_block_delta、Responses 的 response.* 事件）、tool use 双向翻译（编排层保持 OpenAI tools 风格）、探针（probe）、错误归一化（归一为现有错误形状并前缀协议名）都在适配器内。一个协议一个适配器。合法值清单拆在词表叶（纯叶零依赖）：词表消费者（normalize 校验、设置 UI）只 import 词表叶，SW 静态图与协议栈脱钩；分发表键以 `Record<AiProtocol, ...>` 强制覆盖词表叶，单源；唯一读路径 `resolveAdapter` 不变。
+把平台协议差异收敛在唯一 fetch 点一侧的翻译单元：编排层（阶梯/归并/工具循环）只面对统一的 `ChatMessage[]` 入参与 `StreamChatEvent` 出参，SSE 事件差异（Anthropic 的 message_start/content_block_delta）、tool use 双向翻译（编排层保持 OpenAI tools 风格）、探针（probe）、错误归一化（归一为现有错误形状并前缀协议名）都在适配器内。一个协议一个适配器。合法值清单拆在词表叶（纯叶零依赖）：词表消费者（normalize 校验、设置 UI）只 import 词表叶，SW 静态图与协议栈脱钩；分发表键以 `Record<AiProtocol, ...>` 强制覆盖词表叶，单源；唯一读路径 `resolveAdapter` 不变。
 代码名：`ProtocolAdapter` / `PROTOCOL_ADAPTERS` 注册表 / `AI_PROTOCOLS` 词表叶（`protocol-vocab.ts`）
 _Avoid_: 每条协议复制编排链、编排层感知协议
 

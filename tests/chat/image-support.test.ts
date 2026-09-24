@@ -74,7 +74,7 @@ beforeEach(async () => {
 
 describe("门控：乐观放行（目录明确登记不收图才提示）", () => {
   it("目录含 image：不提示", async () => {
-    seedProvider({ id: "p1", presetId: "openai_compat" });
+    seedProvider({ id: "p1", presetId: "custom" });
     const { gate, notify, lookupMeta } = makeGate({
       value: buildModelOptionValue("p1", "gpt-4o"),
       lookup: async () => ({ input: ["text", "image"] })
@@ -184,8 +184,8 @@ describe("真实目录链路（默认懒加载接缝，不注入替身）", () =
     await vi.waitFor(() => expect(textOnly.notify).toHaveBeenCalledWith(mod.IMAGE_UNSUPPORTED_NOTICE));
     expect(lazy.loadedModelCatalog()).not.toBeNull();
 
-    seedProvider({ id: "p1", presetId: "openai_compat" });
-    const vision = makeRealGate(buildModelOptionValue("p1", "gpt-4o"));
+    seedProvider({ id: "p1", presetId: "openrouter" });
+    const vision = makeRealGate(buildModelOptionValue("p1", "openai/gpt-4o"));
     vision.gate.check([IMAGE]);
 
     const unknown = makeRealGate(buildModelOptionValue("p1", "no-such-model"));

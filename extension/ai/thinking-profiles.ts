@@ -291,12 +291,11 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
 
 // ===== PROVIDERS：平台规则（键 = core/presets.ts 的 AI preset id）=====
 // unknownClass 分工（spec）：词汇平台无关的（Ollama/SiliconFlow/ModelScope/Mimo）
-// 给 provider 级默认；按模型定协议的（OpenAI/DeepSeek/Qwen/GLM/Kimi/MiniMax/
+// 给 provider 级默认；按模型定协议的（DeepSeek/Qwen/GLM/Kimi/MiniMax/
 // StepFun）不给，未知模型落 unknown 哨兵。override 型：OpenRouter / AMD /
 // SenseNova（严格拒收 thinking 开关、整域只认 effort 词汇的网关）。
 // Opencode Go（api.doubao.com）域名已死（NXDOMAIN）：不写规则，落 unknown（Q16）。
 export const PROVIDERS: Record<string, ProviderRule> = {
-  openai_compat: {}, // 严格 400（developers.openai.com），未列模型宁可不发
   deepseek: {},      // 协议按模型定（api-docs.deepseek.com）
   qwen: {},          // 百炼模型族已覆盖 taxonomy；未列模型白名单制风险高，不发
   zhipu: {},         // docs.bigmodel.cn

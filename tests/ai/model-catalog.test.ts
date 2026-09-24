@@ -157,12 +157,11 @@ describe("preset → piProvider 映射（02）", () => {
     }
   });
 
-  it("映射表 = spec 的 8 家（多一个少一个都要显式复核）", () => {
+  it("映射表 = spec 的 7 家（多一个少一个都要显式复核）", () => {
     const mapped = PRESETS.filter((preset) => preset.piProvider).map(
       (preset) => `${preset.id} → ${preset.piProvider}`
     );
     expect(mapped).toEqual([
-      "openai_compat → openai",
       "deepseek → deepseek",
       "zhipu → zai-coding-cn",
       "moonshot → kimi-coding",

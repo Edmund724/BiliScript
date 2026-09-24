@@ -24,7 +24,7 @@ beforeEach(() => {
 describe("normalizeAiProvider 模型目录归一化", () => {
   it("旧单模型记录无感迁移：model 包成单元素目录", async () => {
     const providers = await loadProvidersFrom([
-      { id: "p1", presetId: "openai_compat", name: "我的端点", baseUrl: "https://api.example.com/v1/", model: "gpt-4o-mini", requiresKey: true }
+      { id: "p1", presetId: "custom", name: "我的端点", baseUrl: "https://api.example.com/v1/", model: "gpt-4o-mini", requiresKey: true }
     ]);
     expect(providers).toHaveLength(1);
     expect(providers[0].models).toEqual(["gpt-4o-mini"]);
@@ -64,22 +64,23 @@ describe("normalizeAiProvider 协议字段归一化（multi-protocol-ai）", () 
   it("注册表词表内的协议值原样保留", async () => {
     const providers = await loadProvidersFrom([
       { id: "p1", name: "x", protocol: "anthropic" },
-      { id: "p2", name: "y", protocol: "responses" },
-      { id: "p3", name: "z", protocol: "openai" }
+      { id: "p2", name: "y", protocol: "openai" }
     ]);
     expect(providers[0].protocol).toBe("anthropic");
-    expect(providers[1].protocol).toBe("responses");
-    expect(providers[2].protocol).toBe("openai");
+    expect(providers[1].protocol).toBe("openai");
   });
 
   it("缺省/未知协议值不落盘字段（读侧 resolveAdapter 兜底 openai，存量记录零变化）", async () => {
     const providers = await loadProvidersFrom([
       { id: "p1", name: "x" },
       { id: "p2", name: "y", protocol: "gemini" },
-      { id: "p3", name: "z", protocol: "" }
+      { id: "p3", name: "z", protocol: "" },
+      // "responses"：适配器已移除，词表同步摘除后按未知值不落盘。
+      { id: "p4", name: "w", protocol: "responses" }
     ]);
     expect(providers[0]).not.toHaveProperty("protocol");
     expect(providers[1]).not.toHaveProperty("protocol");
     expect(providers[2]).not.toHaveProperty("protocol");
+    expect(providers[3]).not.toHaveProperty("protocol");
   });
 });
