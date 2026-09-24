@@ -161,16 +161,30 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(body.max_tokens).toBe(8192);
   });
 
-  it("关思考三种词汇殊途同归：一律不发 thinking 字段", () => {
-    // off 显式关（thinking:{type:"disabled"}）。
+  it("关思考三种词汇殊途同归：翻译成 thinking:{type:disabled} 发出", () => {
+    // 查表给出 off 声明 = 该平台此模型可关思考：必须显式发 disabled。
+    // 「不发字段依赖服务端默认」在默认开思考的网关上是错的——ModelScope 实测
+    // （2026-09，deepseek-ai/DeepSeek-V4.1-Flash）：Messages 端点默认开思考、
+    // enable_thinking:false 被忽略、思考计入 max_tokens 会把正文挤成空串，
+    // 只有 thinking:{type:"disabled"} 能真正关掉。
+    // ModelScope + 带组织前缀的模型名（落 unknownClass qwen-hybrid-switch）。
     const off = anthropicAdapter.buildBody({
+      ...base,
+      presetId: "modelscope",
+      thinkingLevel: "off",
+      model: "deepseek-ai/DeepSeek-V4.1-Flash",
+      messages: []
+    });
+    expect(off.thinking).toEqual({ type: "disabled" });
+    // 已是 Anthropic 形状的关思考词汇（thinking:{type:"disabled"}）同样落成 disabled。
+    const native = anthropicAdapter.buildBody({
       ...base,
       presetId: "deepseek",
       thinkingLevel: "off",
       model: "deepseek-v3.2",
       messages: []
     });
-    expect(off.thinking).toBeUndefined();
+    expect(native.thinking).toEqual({ type: "disabled" });
     // always 级联 low（reasoning_effort low 是开思考词汇）→ 开。
     const cascaded = anthropicAdapter.buildBody({
       ...base,

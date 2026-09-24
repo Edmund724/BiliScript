@@ -34,7 +34,11 @@ const DEFAULT_BUDGET_TOKENS = 2048;
 
 // 思考档位改写：chat 形状字段 → Anthropic thinking 形状（research 限制点 11）。
 // thinking-profiles 表本身不改（OpenAI 词汇），改写发生在此；关思考的三种词汇
-// 殊途同归——Anthropic 默认即关，一律不发字段。
+// 殊途同归为 thinking:{type:"disabled"}——「Anthropic 默认即关、一律不发字段」在
+// 默认开思考的网关上不成立：ModelScope Messages 端点实测（2026-09，
+// deepseek-ai/DeepSeek-V4.1-Flash）默认开思考、enable_thinking:false 被忽略、
+// 思考计入 max_tokens 会把正文挤成空串（概览卡「模型正在思考…」的根因），只有
+// thinking:{type:"disabled"} 能真正关掉。
 //
 // Anthropic 家族的思考开关有两套词汇：老式 thinking:{type,budget_tokens}（原生各家）
 // 与新式 output_config.effort。以下平台的 Messages 通道只认后者：
@@ -58,15 +62,25 @@ function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest
     stream: request.stream
   });
   const fields = thinking.fields;
+  // 无事实（unknown 哨兵 / never / always 无档可落）：维持不发——软失败优于硬 400。
+  if (!Object.keys(fields).length) return;
+  const effortVocab = EFFORT_VOCAB_PRESETS.has(resolveThinkingProviderId(request.presetId, request.baseUrl) ?? "");
   const off =
-    !Object.keys(fields).length ||
     fields.reasoning_effort === "none" ||
     fields.enable_thinking === false ||
     (fields.thinking as { type?: unknown } | undefined)?.type === "disabled";
-  if (off) return;
+  if (off) {
+    // 查表给出关思考声明 = 该平台此模型可关思考：翻译成 Anthropic 原生
+    // thinking:{type:"disabled"} 显式发出，不能依赖服务端默认（默认开思考的
+    // 网关见文件头 ModelScope 实测）。effort 词汇平台（stepfun/amd）的 Messages
+    // 通道不收 thinking 字段：维持不发。
+    if (effortVocab) return;
+    body.thinking = { type: "disabled" };
+    return;
+  }
   // 只认 effort 词汇的平台：矩阵给的就是 reasoning_effort，原样作为 effort 发出；
   // 若矩阵给的是别的开关词汇（无 reasoning_effort）则不发——软失败优于硬 400。
-  if (EFFORT_VOCAB_PRESETS.has(resolveThinkingProviderId(request.presetId, request.baseUrl) ?? "")) {
+  if (effortVocab) {
     const effort = fields.reasoning_effort;
     if (typeof effort === "string" && effort !== "none") {
       body.output_config = { effort };
