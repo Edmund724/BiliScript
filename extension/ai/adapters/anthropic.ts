@@ -19,10 +19,13 @@ import type { ChatMessage, ChatToolCall } from "../types.js";
 
 // Anthropic max_tokens 必填且无默认：调用方未传时 adapter 兜底（research 限制点 1）。
 // 兜底值的语义 =「调用方不关心时给一个合理上限」（OpenAI 系平台此时干脆不发字段、
-// 由平台自身默认决定），故按「思考预算之外还留得下正文」取值：思考 token 计入
-// max_tokens（budget_tokens 是目标而非硬上限），4096 会被思考吃光——表现为回答
-// 中途截断、甚至只有思考没有正文（同 analysis-orchestrate 的 finish_reason=length
-// 空正文记录）。8192 = 默认思考预算 2048 + 6144 正文余量。
+// 由平台自身默认决定），故按「思考预算之外还留得下正文」取值。思考是否计入
+// max_tokens 看平台：官方文档计入（budget_tokens 是目标而非硬上限）；ModelScope
+// 实测分模型——Qwen3.8-Flash-Next 不计入（max_tokens=8192 时 output_tokens 可达
+// 15805，stop_reason 仍 end_turn），step-3.7-flash 计入、会把正文挤成空串
+// （即 analysis-orchestrate 的 finish_reason=length 空正文记录）。中文长答本身也
+// 吃额度：实测 4096 下六千字散文在 5637 字处截断（stop_reason=max_tokens），同一
+// 请求 8192 完整收尾。8192 = 默认思考预算 2048 + 6144 正文余量。
 const DEFAULT_MAX_TOKENS = 8192;
 // 开思考的 budget_tokens 下限（Anthropic 硬性要求 ≥1024）与默认预算；
 // budget 计入 max_tokens，故必须 < max_tokens。
