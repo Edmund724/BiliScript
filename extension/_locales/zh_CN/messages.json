@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "BiliScript｜B站视频文摘",
+    "description": "扩展显示名（Edge 加载项商店清单语言检测依据）"
+  },
+  "appDesc": {
+    "message": "在 B 站视频页阅读带时间戳字幕，生成摘要与 AI 对话。",
+    "description": "扩展简短描述"
+  }
+}

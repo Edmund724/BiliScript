@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "BiliScript｜B站视频文摘",
+  "name": "__MSG_appName__",
   "version": "2.3.0",
+  "default_locale": "zh_CN",
   "minimum_chrome_version": "120",
-  "description": "在 B 站视频页阅读带时间戳字幕，生成摘要与 AI 对话。",
+  "description": "__MSG_appDesc__",
   "permissions": [
     "storage",
     "unlimitedStorage",

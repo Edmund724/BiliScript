@@ -102,8 +102,9 @@ const copyFiles = [
   "entry/content-main.mjs.map",
 ];
 
-// 原样拷贝的目录（icons 资源；chunks/ 文件名带内容 hash，整目录拷）。
-const copyDirs = ["icons", "entry/chunks"];
+// 原样拷贝的目录（icons 资源；chunks/ 文件名带内容 hash，整目录拷；
+// _locales 为扩展语言包，决定商店清单语言检测）。
+const copyDirs = ["icons", "entry/chunks", "_locales"];
 
 // background.js 体积守卫（防呆上限）：防止 context-resolver / gateway /
 // subtitle 等大链意外重新内联回 SW 包——只拦 KB 量级的意外回流，不追求极限
