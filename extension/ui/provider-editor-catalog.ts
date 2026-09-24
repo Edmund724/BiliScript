@@ -92,6 +92,10 @@ export async function runModelTest(row: HTMLElement | null): Promise<void> {
   // 协议下拉当前值随探针下发（multi-protocol-ai）：新增/改协议未保存时探针也按
   // 表单所选协议走 adapter（端点/鉴权自然切换）；未传时探针回落已存记录的协议。
   const protocol = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value || "";
+  // 平台下拉当前值同穿线（平台身份 → 平台要求的额外请求头，见 ai/preset-headers.ts）：
+  // 新增平台没有已存记录，身份只能来自表单——只按记录代查会漏掉平台头（Opencode Go
+  // 缺会话头请求不被接受），表现为「测试不通但对话能通」。
+  const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "";
   const generation = state.generation;
   const token = (Number(row.dataset.testToken) || 0) + 1;
   row.dataset.testToken = String(token);
@@ -108,7 +112,8 @@ export async function runModelTest(row: HTMLElement | null): Promise<void> {
     baseUrl,
     apiKey,
     model,
-    protocol
+    protocol,
+    presetId
   });
   if (generation !== state.generation || !state.open || !row.isConnected) {
     return; // 过期回执：Modal 已关/已重开或行已删，不打扰

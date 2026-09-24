@@ -760,7 +760,8 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
         baseUrl: "https://api.example.com/v1",
         apiKey: "sk-test",
         model: "gpt-4o-mini",
-        protocol: "openai"
+        protocol: "openai",
+        presetId: "custom"
       });
     });
     await vi.waitFor(() => {
@@ -824,6 +825,26 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     await vi.waitFor(() => {
       expect(testAiProviderConnection).toHaveBeenCalledWith(
         expect.objectContaining({ protocol: "anthropic" })
+      );
+    });
+  });
+
+  it("行级测试随表单平台下拉走：选 Opencode Go 探针带 presetId:opencodego（新增未保存，平台身份不来自己存记录）", async () => {
+    const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
+    presetSelect.value = "opencodego";
+    presetSelect.dispatchEvent(new Event("change"));
+    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://opencode.ai/zen/go/v1";
+    const row = addModelRowWithValue(dialog, "glm-5.1");
+
+    fireClick(row.querySelector(".provider-editor-model-test"));
+
+    await vi.waitFor(() => {
+      expect(testAiProviderConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ presetId: "opencodego" })
       );
     });
   });

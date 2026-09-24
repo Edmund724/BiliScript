@@ -365,6 +365,52 @@ describe("testAiProviderConnection presetId 穿线", () => {
     // openai host 兜底命中 → gpt-5.1 off = effort none（01 golden 锁定）
     expect(JSON.parse(lastRequest().body)).toMatchObject({ reasoning_effort: "none" });
   });
+
+  // 直传 presetId 优先（新增/改平台未保存场景）：新增平台没有 providerId、没有
+  // 已存记录，身份只能来自表单下拉；靠记录代查时探针会以「无预设」发出去，
+  // Opencode Go 这类要求平台头的站点因此测不通（对话能通是因为它走
+  // resolve-ai-provider 拿得到 presetId）。
+  it("直传 presetId 优先于已存记录：新增平台（无 providerId）也带预设身份与平台头", async () => {
+    stubProviderStorage([]);
+    const { testAiProviderConnection } = await loadModule();
+
+    const resp = await testAiProviderConnection({
+      providerId: "",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      apiKey: "sk-1",
+      model: "glm-5.1",
+      presetId: "opencodego"
+    });
+
+    expect(resp).toEqual({ ok: true });
+    expect(lastRequest().headers["x-opencode-session"]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    );
+  });
+
+  it("直传 presetId 优先于已存记录：表单换了平台但还没保存（记录仍是 custom）", async () => {
+    stubProviderStorage([{
+      id: "p1",
+      presetId: "custom",
+      name: "自定义",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      model: "glm-5.1",
+      requiresKey: true,
+      enabled: true
+    }]);
+    const { testAiProviderConnection } = await loadModule();
+
+    const resp = await testAiProviderConnection({
+      providerId: "p1",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      apiKey: "sk-1",
+      model: "glm-5.1",
+      presetId: "opencodego"
+    });
+
+    expect(resp).toEqual({ ok: true });
+    expect(lastRequest().headers["x-opencode-session"]).toBeTruthy();
+  });
 });
 
 // 协议穿线（multi-protocol-ai 第五部分）：探针只调度——protocol 随 provider 透传

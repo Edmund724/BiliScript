@@ -109,10 +109,14 @@ export async function probeAiChatCompletion({ baseUrl, apiKey, model, presetId, 
 // options 页「测试」按钮的入口：平铺字段 + providerId，替代原 ai-providers-test
 // 消息在 SW 侧的输入装配（provider-handlers.js pickFlatTestProvider 的契约）——
 // Key 解析优先用户重输的 apiKey，否则按 providerId 从已存 Key 代查，都没有为空串。
-// protocol 同 presetId 穿线：直输（表单协议下拉的当前值）优先，否则按 providerId
-// 从已存记录代查（multi-protocol-ai：探针端点/鉴权随 adapter 切换）。
+// protocol / presetId 同穿线：直输（表单当前值）优先，否则按 providerId 从已存
+// 记录代查（multi-protocol-ai：探针端点/鉴权随 adapter 切换；平台身份则决定平台
+// 要求的额外请求头，见 ai/preset-headers.ts）。直传优先是新增平台的必要路径：
+// 新增时没有 providerId，身份只可能来自表单，只按记录代查会发出「无预设」的探针
+// （Opencode Go 这类要求平台头的站点因此测不通，而对话走 resolve-ai-provider
+// 拿得到 presetId，于是出现「对话能通、测试不通」）。
 // 返回 { ok, error? }，UX 语义与原消息往返完全一致。
-export async function testAiProviderConnection({ providerId, baseUrl, apiKey, model, protocol }: { providerId?: string; baseUrl?: string; apiKey?: string; model?: string; protocol?: string }): Promise<TestAiConnectionResult> {
+export async function testAiProviderConnection({ providerId, baseUrl, apiKey, model, protocol, presetId }: { providerId?: string; baseUrl?: string; apiKey?: string; model?: string; protocol?: string; presetId?: string }): Promise<TestAiConnectionResult> {
   // S2 收紧 host_permissions：域名未授权时跨域 fetch 只会以 CORS 失败，探针原样
   // 抛出是「无法连接：Failed to fetch」这类看不出原因的文案，所以先把权限缺失换成
   // 可操作提示，不再发起注定失败的请求，也不读一次 Key 存储。
@@ -122,16 +126,18 @@ export async function testAiProviderConnection({ providerId, baseUrl, apiKey, mo
     return { ok: false, error: HOST_PERMISSION_HINT };
   }
   let resolvedApiKey = String(apiKey || "").trim();
-  // presetId / protocol 穿线（02 号票 / multi-protocol-ai）：按 providerId 从已存
-  // 列表读记录字段（presetId 是 preset 词表键，loadProviders 已 normalize）随探针
-  // 请求下发——host 反代无 host 规则时 presetId 是思考字段查表的唯一识别线索，
-  // protocol 决定端点/鉴权/请求体走哪个 adapter；读取失败按缺省继续（不阻塞探针）。
-  let resolvedPresetId = "";
+  // presetId / protocol 穿线（02 号票 / multi-protocol-ai）：直传值优先，缺省按
+  // providerId 从已存列表读记录字段随探针请求下发——host 反代无 host 规则时
+  // presetId 是思考字段查表、平台头的唯一识别线索，protocol 决定端点/鉴权/请求体
+  // 走哪个 adapter；读取失败按缺省继续（不阻塞探针）。
+  let resolvedPresetId = String(presetId || "").trim();
   let resolvedProtocol = String(protocol || "").trim();
   if (providerId) {
     try {
       const record = (await aiProviderStore.loadProviders()).find((item) => item.id === providerId);
-      resolvedPresetId = String(record?.presetId || "");
+      if (!resolvedPresetId) {
+        resolvedPresetId = String(record?.presetId || "");
+      }
       if (!resolvedProtocol) {
         resolvedProtocol = String(record?.protocol || "");
       }
