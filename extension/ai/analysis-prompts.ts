@@ -1,8 +1,8 @@
 // 「概览数据管线」三片之提示词装配（arch-slim-3 #11 自 ai/analysis.ts 切出，纯函数；
 // 对外经 analysis.ts 壳再导出，只依赖 subtitle/cache 与 analysis-validate 的
 // MAX_ANALYSIS_CHAPTERS）。
-// 提示词整搬参考仓库 .scratch/bilibili-digest/prompts/analysis.md（系统提示词
-// 全静态、逐字节一致；digest-only-ui 起顶层 "summary" 概述字段已随概览 UI 的
+// 提示词整搬参考仓库 .scratch/bilibili-script/prompts/analysis.md（系统提示词
+// 全静态、逐字节一致；script-only-ui 起顶层 "summary" 概述字段已随概览 UI 的
 // 总结区块一并移除）。
 
 import { normalizeSubtitleItems } from "../subtitle/cache.js";
@@ -66,8 +66,8 @@ const TIMESTAMP_TEACHING_BLOCK = `⚠️ 关键：时间戳的取法 ⚠️
 - timestamp: "2:30"
 - timestampSeconds: 150`;
 
-// 整搬自 .scratch/bilibili-digest/prompts/analysis.md「系统提示词」代码块；
-// digest-only-ui 起 JSON 输出 schema 顶层的 "summary" 概述字段已移除。
+// 整搬自 .scratch/bilibili-script/prompts/analysis.md「系统提示词」代码块；
+// script-only-ui 起 JSON 输出 schema 顶层的 "summary" 概述字段已移除。
 // 导出仅测试面：冻结断言（tests/ai/analysis-prompt-freeze.test.ts）逐字节比对合成串。
 export const ANALYSIS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，产出一份结构化概览：章节 + 金句。
 

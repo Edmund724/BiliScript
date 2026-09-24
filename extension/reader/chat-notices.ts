@@ -7,7 +7,7 @@
 // .chat-center-error / .chat-suggestions）。
 //
 // 唯一语义改造（盘点报告 §1.1 notices 判定行）：「前往设置」链接在 reader
-//（content script）语境下没有 chrome.runtime.openOptionsPage；digest-only-ui
+//（content script）语境下没有 chrome.runtime.openOptionsPage；script-only-ui
 // 起 open-options 消息与独立设置页已删除，链接点击经 deps.onOpenSettings
 // 回调打开侧边栏设置抽屉（生产组装点在 reader/chat-tab.ts 注入，转发到
 // ui-renderer 的 openReaderSettingsPanel）。

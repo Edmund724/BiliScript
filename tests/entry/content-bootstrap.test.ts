@@ -7,7 +7,7 @@
 //     版本（生产上 chunk 加载失败的唯一可观测线索），且缓存清空允许重试；
 //   - 防重复注入：STARTED 标志置位后再次 start 返回 null，不重复 import、
 //     不覆盖哨兵；
-//   - 首按钮预取（first-button-ux/04）：loadContentMain 注入 digest-button /
+//   - 首按钮预取（first-button-ux/04）：loadContentMain 注入 script-button /
 //     player-ai 的 <link rel="modulepreload">（只下载不执行，importModule 仍
 //     只被主包路径调用）；预取失败 onerror 仅诊断并摘除 link，不阻塞主链，
 //     主包失败重试时重新注入。
@@ -152,7 +152,7 @@ describe("startContentBootstrap", () => {
     expect(importModule).toHaveBeenCalledTimes(1);
   });
 
-  it("预取：loadContentMain 注入 digest-button / player-ai 的 modulepreload，与主包下载并行且只下载不执行", async () => {
+  it("预取：loadContentMain 注入 script-button / player-ai 的 modulepreload，与主包下载并行且只下载不执行", async () => {
     const mainNamespace = { default: "main" };
     const importModule = vi.fn().mockResolvedValue(mainNamespace);
     const { loadContentMain } = startContentBootstrap({

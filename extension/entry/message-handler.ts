@@ -59,7 +59,7 @@ import type {
   SendResponse
 } from "../shared/messaging-protocol.js";
 // 页内分发原语（arch-slim-2/09，与 sendRuntimeMessage 同址 shared/messaging.js）：
-// ui/digest-button.ts 等页内触发源经它进同一条处理器路径，本组合根在
+// ui/script-button.ts 等页内触发源经它进同一条处理器路径，本组合根在
 // bindRuntimeEvents 时把分发主体注册进去。
 import { registerContentScriptDispatcher } from "../shared/messaging.js";
 // 候选02 分层惰性：gateway（getCurrentAid/fetchHotComments）原被本模块与总结
@@ -72,7 +72,7 @@ export function bindRuntimeEvents() {
   }
   uiState.setRuntimeEventsBound(true);
 
-  // 页内源（ui/digest-button.ts 的点击 / 失同步自愈）与 runtime 监听器共用
+  // 页内源（ui/script-button.ts 的点击 / 失同步自愈）与 runtime 监听器共用
   // 同一分发主体：注册进 shared/messaging.js 的原语槽（ui 侧只依赖 shared，
   // 不建 ui → entry 静态边），再挂 chrome.runtime.onMessage。
   registerContentScriptDispatcher(dispatchContentScriptMessage);
@@ -82,7 +82,7 @@ export function bindRuntimeEvents() {
 }
 
 // onMessage 监听器的分发主体抽成可导出函数：除 runtime 消息外，页内触发源
-//（ui/digest-button.ts 的工具栏按钮）也走同一处理器路径——页内源经
+//（ui/script-button.ts 的工具栏按钮）也走同一处理器路径——页内源经
 // shared/messaging.js 的 dispatchContentScriptMessage 原语（本函数在
 // bindRuntimeEvents 时注册进去）复用同一处理逻辑（保持 handler 单源，消息
 // 形状不变）。

@@ -29,7 +29,7 @@ let modelSelectMeasureCanvas: HTMLCanvasElement | null = null;
 let modelSelectWidthRafId = 0;
 let pendingModelSelectWidthEls: ModelSelectWidthEls | null = null;
 
-// rAF 合帧入口（P2-3，仓内 reader/digest-host.ts 的 scheduleDigestLayout 先例）：
+// rAF 合帧入口（P2-3，仓内 reader/script-host.ts 的 scheduleScriptLayout 先例）：
 // resize 一帧内可触发多次，直接调用 updateModelSelectWidth 会让「读布局
 // （clientWidth/offsetWidth）→ 写内联 width」在每次事件上各跑一遍，反复强制
 // 布局。此处置脏 + 一帧至多跑一次，读写各发生一次。同帧重复调度以最后一次

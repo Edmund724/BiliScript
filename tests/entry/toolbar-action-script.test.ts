@@ -1,10 +1,10 @@
-// 工具栏 action 点击（工单 02-toolbar-icon-opens-digest）——toolbar-* 命名
+// 工具栏 action 点击（工单 02-toolbar-icon-opens-script）——toolbar-* 命名
 //（entry 测试 scope 限制）。
 //
 // 两段验证：
 //   1. SW 半边：chrome.action.onClicked 只认事件自带的活动标签页；受支持的
 //      B 站视频/稍后再看页派发单条 reader-enter（经 triggerReaderModeInTab 的
-//      重试/注入链），载荷与页内 Digest 按钮同源 buildReaderModeUrl 且不含
+//      重试/注入链），载荷与页内 文摘按钮同源 buildReaderModeUrl 且不含
 //      tabId 字段（跨标签页消息无从伪造目标）；非受支持页/缺 tab id 零派发；
 //      重复点击与活动标签页切换各投递到当次事件标签页，重试不换目标。
 //   2. 等价性（content 半边）：工具栏载荷与页内按钮点击走同一条
@@ -135,7 +135,7 @@ describe("SW 半边：action onClicked → 同一 reader-enter 事务", () => {
   });
 });
 
-// ===== 等价性：工具栏载荷与页内 Digest 按钮走同一进入事务 =====
+// ===== 等价性：工具栏载荷与页内 文摘按钮走同一进入事务 =====
 
 const shellMocks = vi.hoisted(() => ({
   enterReaderShell: vi.fn(
@@ -170,7 +170,7 @@ function makeToolbarHtml() {
     </div>`;
 }
 
-describe("工具栏载荷与页内 Digest 按钮的进入事务等价", () => {
+describe("工具栏载荷与页内 文摘按钮的进入事务等价", () => {
   beforeEach(() => {
     resetModuleState();
     setLocationUrl(NORMAL_PAGE_URL);
@@ -204,14 +204,14 @@ describe("工具栏载荷与页内 Digest 按钮的进入事务等价", () => {
   it("页内按钮点击与工具栏路径产生相同的事务参数（同 readerUrl / 同 open 意图）", async () => {
     document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
 
-    // 生产时序：content.ts init() 先 bindRuntimeEvents 注册分发主体，digest
+    // 生产时序：content.ts init() 先 bindRuntimeEvents 注册分发主体，script
     // 按钮后装载——与本用例动态 import 同一模块纪元。
     const handler = await import("../../extension/entry/message-handler.js");
     handler.bindRuntimeEvents();
-    const lazy = await import("../../extension/ui/lazy-digest-button.js");
-    await lazy.loadDigestButton();
+    const lazy = await import("../../extension/ui/lazy-script-button.js");
+    await lazy.loadScriptButton();
 
-    const button = document.getElementById("boc-digest-button");
+    const button = document.getElementById("boc-script-button");
     expect(button).not.toBeNull();
     button!.click();
 

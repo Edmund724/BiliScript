@@ -189,7 +189,7 @@ const feedback = createReaderChatFeedback({
   setSuggestionsNode: (node) => {
     suggestionsNode = node;
   },
-  // digest-only-ui：提示条「前往设置」打开侧边栏设置抽屉（open-options 已删；
+  // script-only-ui：提示条「前往设置」打开侧边栏设置抽屉（open-options 已删；
   // 经 reader-bus open-settings 命令由壳执行，arch-review-2026-09/10）
   onOpenSettings: () => requestUiCommand("open-settings")
 });

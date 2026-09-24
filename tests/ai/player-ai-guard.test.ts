@@ -149,12 +149,12 @@ async function loadContentScript(settings: Partial<Settings>) {
     const { loadPlayerAi } = await import("../../extension/ai/lazy-player-ai.js");
     await loadPlayerAi();
   }
-  // digest 按钮模块无条件常驻（工单 button-injection-stability/01 快路径：
+  // script 按钮模块无条件常驻（工单 button-injection-stability/01 快路径：
   // init() 直接触发装载），同样预热到位。模块求值即寻锚注入——往
   // .bpx-player-container 插浮动层会触发 AI 容器观察器回 scheduleSync；不预热
   // 的话该插入的微任务时序可能落到用例中途，冲掉用例手排的 sync 定时器。
-  const { loadDigestButton } = await import("../../extension/ui/lazy-digest-button.js");
-  await loadDigestButton();
+  const { loadScriptButton } = await import("../../extension/ui/lazy-script-button.js");
+  await loadScriptButton();
   await flushMicrotasks();
   // 模块级 playerAiState 经 getPlayerAiState() 绑定到本用例注册表的实例；
   // 用例要读状态槽位请用这里返回的对象，不要再次 getPlayerAiState()——再次

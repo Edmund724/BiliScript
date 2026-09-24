@@ -1,4 +1,4 @@
-// 统一 Digest 面板三标签（PR2）回归测试：真实模板（ensureUiReady/buildUiHtml）
+// 统一 文摘面板三标签（PR2）回归测试：真实模板（ensureUiReady/buildUiHtml）
 // + 真实事件绑定（bindUiEvents）。
 //
 // 覆盖：
@@ -21,14 +21,14 @@ let state: TestState;
 let reader: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
-let getReaderActiveDigestTab: typeof import("../../extension/reader/state.js").getReaderActiveDigestTab;
+let getReaderActiveScriptTab: typeof import("../../extension/reader/state.js").getReaderActiveScriptTab;
 
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   reader = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
-  getReaderActiveDigestTab = (await import("../../extension/reader/state.js")).getReaderActiveDigestTab;
+  getReaderActiveScriptTab = (await import("../../extension/reader/state.js")).getReaderActiveScriptTab;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
 }
 
@@ -78,9 +78,9 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe("统一 Digest 面板三标签", () => {
+describe("统一 文摘面板三标签", () => {
   it("A. 壳结构：三 tab 与 tab body 存在，字幕列表挂在字幕 tab body 内", () => {
-    expect(document.getElementById(ids.readingDigestPanel)).not.toBe(null);
+    expect(document.getElementById(ids.readingScriptPanel)).not.toBe(null);
     expect(tabButton("Subtitle")).not.toBe(null);
     expect(tabButton("Overview")).not.toBe(null);
     expect(tabButton("Chat")).not.toBe(null);
@@ -144,9 +144,9 @@ describe("统一 Digest 面板三标签", () => {
     document.body.setAttribute("data-boc-reader-mode", "1");
 
     // 先手动切到概览（模拟上一次会话的停留状态）
-    uiRenderer.setReaderDigestTab("overview");
+    uiRenderer.setReaderScriptTab("overview");
     expectTabActive("Overview", true);
-    expect(getReaderActiveDigestTab()).toBe("overview");
+    expect(getReaderActiveScriptTab()).toBe("overview");
 
     await reader.enterReaderMode();
     expect(state.reader.readingViewOpen).toBe(true);
@@ -154,7 +154,7 @@ describe("统一 Digest 面板三标签", () => {
     expectTabActive("Overview", false);
     expectTabActive("Chat", false);
     // 状态位与 DOM 三通道同源（single source of truth，见 reader/state.js）
-    expect(getReaderActiveDigestTab()).toBe("subtitle");
+    expect(getReaderActiveScriptTab()).toBe("subtitle");
 
     // 字幕列表在打开后正常渲染进字幕 tab
     const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
@@ -167,13 +167,13 @@ describe("统一 Digest 面板三标签", () => {
     document.body.setAttribute("data-boc-reader-mode", "1");
 
     await reader.enterReaderMode();
-    uiRenderer.setReaderDigestTab("overview");
+    uiRenderer.setReaderScriptTab("overview");
 
     reader.renderReadingView();
 
     expectTabActive("Overview", true);
     expectTabActive("Subtitle", false);
     // 重渲不重置：状态位同样保持用户所在标签
-    expect(getReaderActiveDigestTab()).toBe("overview");
+    expect(getReaderActiveScriptTab()).toBe("overview");
   });
 });

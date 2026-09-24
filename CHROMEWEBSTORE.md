@@ -20,7 +20,7 @@ BiliScript 在 B 站视频页右侧打开文摘阅读面板，让你一边看视
 
 API Key 由你自己配置。扩展直接连接你选择的 AI、语音识别和搜索服务，不经过本项目开发者。
 
-需要帮助或报告问题，请访问 https://github.com/Edmund724/Bilibili-Summary/issues。
+需要帮助或报告问题，请访问 https://github.com/Edmund724/BiliScript/issues。
 
 **Category**: Productivity
 
@@ -89,7 +89,7 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 
 ## Privacy Policy
 
-**Privacy Policy URL**: https://github.com/Edmund724/Bilibili-Summary/blob/main/PRIVACY.md
+**Privacy Policy URL**: https://github.com/Edmund724/BiliScript/blob/main/PRIVACY.md
 
 The policy and the store disclosure must be checked together before submission. `chrome.storage.sync` sends non-sensitive settings through the user's Chrome account. API keys, notes, conversations, and caches remain in `chrome.storage.local`.
 
@@ -105,9 +105,9 @@ The policy and the store disclosure must be checked together before submission. 
 
 **Contact Email**: [Required before submission; use a monitored public support address]
 
-**Support URL / Email**: https://github.com/Edmund724/Bilibili-Summary/issues
+**Support URL / Email**: https://github.com/Edmund724/BiliScript/issues
 
-**Homepage URL**: https://github.com/Edmund724/Bilibili-Summary#readme
+**Homepage URL**: https://github.com/Edmund724/BiliScript#readme
 
 ## Version History
 
@@ -116,7 +116,7 @@ The policy and the store disclosure must be checked together before submission. 
 | 2.2.2 | 2026-09-24 | Chat accepts pasted images (compressed locally to WebP, long edge ≤1568px, up to 4 per message) on the OpenAI and Anthropic protocols; the provider editor shows a read-only model catalog with context window and reasoning/image badges; truncated chat answers now carry a persistent badge and retry once at double the output budget when the model returns no text; more presets register their Anthropic endpoints and DeepSeek defaults to the Anthropic protocol; the Responses protocol adapter and the OpenAI preset were removed. | Draft |
 | 2.2.1 | 2026-09-18 | AI provider setup gains a protocol selector with three adapters: OpenAI, Anthropic, and Responses; background service worker size reduced (-26%) via protocol vocabulary split; settings snapshot and segment-cache write aggregation improve hot-path performance; reader panel header deduplicated. | Draft |
 | 2.2.0 | 2026-09-14 | Optional web search for AI chat and selection explanations (Tavily / Exa / Brave) with a search timeline, source links, and inline citations; Mermaid rendering in AI answers limited to flowcharts and sequence diagrams; the note player embed can be turned off; provider model lists, in-panel confirmation dialogs, and a batch of streaming, cache, and bundle-size optimizations. | Draft |
-| 2.1.0 | 2026-09-09 | Chrome 120 baseline, one Digest entry behavior from both the page button and toolbar icon, restricted Offscreen message flow, bounded ASR audio permissions, and updated compatibility and data-use notes. | Draft |
+| 2.1.0 | 2026-09-09 | Chrome 120 baseline, one Script entry behavior from both the page button and toolbar icon, restricted Offscreen message flow, bounded ASR audio permissions, and updated compatibility and data-use notes. | Draft |
 
 ## Review Notes
 

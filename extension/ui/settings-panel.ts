@@ -1,6 +1,6 @@
-// settings-panel.ts — 侧边栏设置面板（digest-only-ui）。
+// settings-panel.ts — 侧边栏设置面板（script-only-ui）。
 //
-// 原独立 options 页（pages/options.{html,css,ts}）的全部设置项搬入 Digest 面板
+// 原独立 options 页（pages/options.{html,css,ts}）的全部设置项搬入 文摘面板
 // 的设置抽屉（ui-renderer 模板内的 #boc-reading-settings-host 容器，分节、
 // 随抽屉滚动），行为与 options 页逐条对应：
 //   - 装载（get-settings）→ 渲染三类行（固定属性/笔记段落/AI/ASR 平台）；

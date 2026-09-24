@@ -165,7 +165,7 @@ describe("播放同步与高亮", () => {
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
-    uiRenderer.setReaderDigestTab("overview");
+    uiRenderer.setReaderScriptTab("overview");
 
     video.currentTime = 12;
     sync.syncReadingViewPlayback(); // 预热 video 元素缓存（其探测会读 rect）
@@ -188,13 +188,13 @@ describe("播放同步与高亮", () => {
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
-    uiRenderer.setReaderDigestTab("overview");
+    uiRenderer.setReaderScriptTab("overview");
 
     video.currentTime = 12;
     sync.syncReadingViewPlayback();
     expect(state.reader.readingActiveSubtitleIndex).toBe(-1);
 
-    uiRenderer.setReaderDigestTab("subtitle");
+    uiRenderer.setReaderScriptTab("subtitle");
     sync.syncReadingViewPlayback();
 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;

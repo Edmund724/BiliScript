@@ -1,7 +1,7 @@
 {
-  "name": "bilibili-summary",
+  "name": "biliscript",
   "version": "2.2.2",
-  "description": "Bilibili 视频字幕抓取与 AI 总结浏览器扩展",
+  "description": "B 站视频字幕阅读与 AI 总结浏览器扩展",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
@@ -28,16 +28,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Edmund724/Bilibili-Summary.git"
+    "url": "git+https://github.com/Edmund724/BiliScript.git"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/Edmund724/Bilibili-Summary/issues"
+    "url": "https://github.com/Edmund724/BiliScript/issues"
   },
-  "homepage": "https://github.com/Edmund724/Bilibili-Summary#readme",
+  "homepage": "https://github.com/Edmund724/BiliScript#readme",
   "devDependencies": {
     "@earendil-works/pi-ai": "0.85.1",
     "@vitest/coverage-v8": "^4.1.11",

@@ -61,7 +61,7 @@ interface PostMessageLikePort {
 }
 
 // ===== 页内消息分发原语（arch-slim-2/09）=====
-// content script 页内触发源（ui/digest-button.ts 的工具栏点击 / 失同步自愈）
+// content script 页内触发源（ui/script-button.ts 的工具栏点击 / 失同步自愈）
 // 与 runtime onMessage 监听器共用同一条处理器路径：content script 的
 // chrome.runtime.sendMessage 不会回环到本文档自己的监听器，页内源必须直接调
 // 用分发主体才能复用同一处理逻辑（handler 单源，消息形状不变）。
@@ -69,7 +69,7 @@ interface PostMessageLikePort {
 // 分发主体（完整路由表）是 entry/message-handler.ts 的组合根知识，住在那里；
 // 本文件只持「注册槽 + 转发」的原语壳——于 bindRuntimeEvents 时由组合根把
 // dispatchContentScriptMessage 注册进来，页内源一律经这里调用。这样
-// ui/digest-button.ts 取分发原语只依赖 shared 叶子，不建 ui → entry 的静态
+// ui/script-button.ts 取分发原语只依赖 shared 叶子，不建 ui → entry 的静态
 // 边（shared 不 import entry/core/域模块的叶子纪律不变）。未注册时返回
 // false，与「无人处理该消息」同义。
 type ContentMessageDispatcher = (rawMessage: unknown, sendResponse: SendResponse) => boolean;
@@ -77,8 +77,8 @@ type ContentMessageDispatcher = (rawMessage: unknown, sendResponse: SendResponse
 // 注册槽必须挂 globalThis 而非模块级变量：两轮构建（scripts/build-content.js）
 // 把常驻底座在轮 B 懒 chunk 区重复一份，本模块在 content-main 与 chunks/ 共享
 // chunk 里各是一个实例，模块级槽在两侧互不通用——注册发生在常驻包实例，而
-// 页内源（ui/digest-button.ts）拿的是懒 chunk 实例，槽为 null 时分发静默
-// 返回 false（digest 点击无反应的症状）。隔离世界的 globalThis 在同一扩展的
+// 页内源（ui/script-button.ts）拿的是懒 chunk 实例，槽为 null 时分发静默
+// 返回 false（script 点击无反应的症状）。隔离世界的 globalThis 在同一扩展的
 // 全部 content 模块间唯一，注册与调用经它对齐到同一个槽。
 //
 // 双实例纪律标记：BOC_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（注册

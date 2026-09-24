@@ -1,5 +1,5 @@
 // 「概览数据管线」三片之校验/合并（arch-slim-3 #11 自 ai/analysis.ts 切出，纯函数、零 import；
-// 对外经 analysis.ts 壳再导出）。适配纯函数整搬自 .scratch/bilibili-digest/lib/ai.js，
+// 对外经 analysis.ts 壳再导出）。适配纯函数整搬自 .scratch/bilibili-script/lib/ai.js，
 // 产出归一化为本仓库字段名：{ chapters: {from,to,title,summary}[],
 // quotes: {from,content}[], failedRanges?: {from,to}[] }。
 

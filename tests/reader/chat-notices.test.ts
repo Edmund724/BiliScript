@@ -2,7 +2,7 @@
 // createReaderChatFeedback（对话 tab 消息区通知/错误/建议区清理/近底判定）行为契约。
 // PR5 自 tests/sidepanel/sidepanel-notices.test.ts 随重建迁移：逻辑断言保真；
 // 语义改造——「前往设置」链接在 reader 语境经 deps.onOpenSettings 回调打开
-// 侧边栏设置抽屉（digest-only-ui：open-options 消息与独立设置页已删除）。
+// 侧边栏设置抽屉（script-only-ui：open-options 消息与独立设置页已删除）。
 //
 // 覆盖：
 // - showConversationContextNotice：追加通知条（textContent，防注入）、重复显示

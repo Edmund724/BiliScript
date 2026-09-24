@@ -179,7 +179,7 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     expect(replaceOrder).toBeLessThan(enterOrder);
   });
 
-  it("空 readerUrl 且视图未开 → 兜底构造阅读 URL（与 digest-button 拼法一致）", async () => {
+  it("空 readerUrl 且视图未开 → 兜底构造阅读 URL（与 script-button 拼法一致）", async () => {
     setLocationUrl("https://www.bilibili.com/video/BV1test000000/?p=2&spm_id_from=x");
 
     await enterReaderShell({ readerUrl: "", intent: "open" });
@@ -406,7 +406,7 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
   });
 });
 
-describe("isReaderShellIntact：壳完好性判定（restore 自愈与 digest 按钮守卫的唯一判定）", () => {
+describe("isReaderShellIntact：壳完好性判定（restore 自愈与 script 按钮守卫的唯一判定）", () => {
   it("五条件全真才完好", () => {
     mountShell();
     expect(isReaderShellIntact()).toBe(true);

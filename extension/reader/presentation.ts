@@ -7,7 +7,7 @@
 //（content.js init 的 hydrate/apply）的直接依赖——留在 lifecycle.js 会把整个
 // reader 域拖回常驻。
 //（PR2：原内联宿主呈现 applyInlineHostPresentation 已随字幕列表搬进统一面板
-// 一并移除；digest-only-ui：四个排版 stepper 模板/绑定已随排版档位机制退役。）
+// 一并移除；script-only-ui：四个排版 stepper 模板/绑定已随排版档位机制退役。）
 //
 // 阅读视图打开后才用到的交互呈现（updateReaderPreferences / renderReaderPanels）
 // 已移回 lifecycle.js（reader 动态 chunk；renderReadingInfoPanel 已随「视频
@@ -108,4 +108,4 @@ export function applyReadingViewPresentation() {
 // updateReaderPreferences / persistReaderSettings / renderReaderPanels 已移回
 // lifecycle.js（reader 动态 chunk）——它们只在阅读视图交互时执行，常驻侧经
 // ensureReaderDomain 转发（ui-renderer）。renderReadingInfoPanel 已随「视频
-// 摘要/简介」区块删除（digest-only-ui）。
+// 摘要/简介」区块删除（script-only-ui）。

@@ -193,7 +193,7 @@ describe("字幕列表分批渲染", () => {
   });
 
   it("force 拍落点超出同步 flush 上限：rAF 补齐后，后续非 force tick 必须补滚动", () => {
-    // 用户报障形态：视频播了一段时间后点 digest，subtitle-ready 的 force 拍
+    // 用户报障形态：视频播了一段时间后点 script，subtitle-ready 的 force 拍
     // 目标 index 超出 120+200 同步补渲染窗口 → 节点未上屏滚动被跳过；此后
     // 生产环境只有非 force 的 250ms tick，滚动必须随条目上屏补落位。
     state.clip.subtitleBody = makeBody(1500);

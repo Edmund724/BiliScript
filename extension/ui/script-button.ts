@@ -1,13 +1,13 @@
-// ui/digest-button.ts — 播放页工具栏「文摘」按钮（统一 Digest 阅读模式 PR1，
-// 工单 .scratch/tickets/digest-reader/issues/04-digest-button-anchor.md）。
+// ui/script-button.ts — 播放页工具栏「文摘」按钮（统一 文摘阅读模式 PR1，
+// 工单 .scratch/tickets/script-reader/issues/04-script-button-anchor.md）。
 //
-// 装载模式仿 ai/player-ai.ts 的惰性域模块：经 ui/lazy-digest-button.ts 动态
+// 装载模式仿 ai/player-ai.ts 的惰性域模块：经 ui/lazy-script-button.ts 动态
 // import（arch-slim-2/09 加载器归位 ui/），content.ts init() 触发装载（01 快
 // 路径：不等 getSettings 水合，本模块无设置项、常驻，无需 SW 往返先行）；模块
 // 求值即自管「寻锚注入/摘除 → setInterval 定时自查 + visibilitychange 即时
 // 自查」生命周期。
 // 阅读直达分支也装载的原因：直达路径上按钮模块同时承担视图失同步自愈（见
-// syncDigestButton）——视图关闭后把按钮补回来、视图壳被页面重渲染摘走或进入
+// syncScriptButton）——视图关闭后把按钮补回来、视图壳被页面重渲染摘走或进入
 // 链半途失败时自动恢复，这些失同步在直达路径同样可能发生。
 //
 // 与 player-ai 的有意差异：工具栏按钮场景以定时自查为节拍底座——SPA 换页
@@ -52,11 +52,11 @@ import { READER_CLOSED_EVENT, SELF_HEAL_INTERVAL_MS } from "../shared/self-heal.
 // stability 决议：默认开启、不做持久化——调试门缺省关，不能走 logInfo）。
 import { logInfoAlways } from "../shared/logging.js";
 
-const DIGEST_BUTTON_ID = "boc-digest-button";
-const DIGEST_OVERLAY_ID = "boc-digest-overlay";
+const SCRIPT_BUTTON_ID = "boc-script-button";
+const SCRIPT_OVERLAY_ID = "boc-script-overlay";
 
 // 定时自查间隔：B 站重渲染 / SPA 换页把节点带走后靠它补回（注入幂等）。
-// 单源 shared/self-heal.js（digest-host 的面板重锚节拍独立，不复用本常量）。
+// 单源 shared/self-heal.js（script-host 的面板重锚节拍独立，不复用本常量）。
 const REINJECT_INTERVAL_MS = SELF_HEAL_INTERVAL_MS;
 // 暂停期兜底节拍：阅读壳打开且完好时按钮恒被摘除，自查只剩空跑 DOM 查询，
 // 降频至此（不是全停——恢复事件丢失时按钮最迟一个兜底 tick 补回，风险上限
@@ -105,7 +105,7 @@ let mountTimingLogged = false;
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     setTickInterval(REINJECT_INTERVAL_MS);
-    syncDigestButton();
+    syncScriptButton();
   }
 });
 // 阅读壳退出（exitReaderShell 完成退出事务后派发，事件名单源
@@ -113,7 +113,7 @@ document.addEventListener("visibilitychange", () => {
 // 关闭后补回按钮」的主恢复触发点（暂停期兜底 tick 只是丢事件时的兜底）。
 window.addEventListener(READER_CLOSED_EVENT, () => {
   setTickInterval(REINJECT_INTERVAL_MS);
-  syncDigestButton();
+  syncScriptButton();
 });
 
 // ===== 自查节拍（arch-slim-2/09 暂停/恢复收口） =====
@@ -132,7 +132,7 @@ function setTickInterval(ms: number): void {
   if (tickTimer) {
     window.clearInterval(tickTimer);
   }
-  tickTimer = window.setInterval(syncDigestButton, ms);
+  tickTimer = window.setInterval(syncScriptButton, ms);
   tickIntervalMs = ms;
 }
 
@@ -147,7 +147,7 @@ const RESTORE_RETRY_BACKOFF_MS = 4000;
 let brokenTicks = 0;
 let lastRestoreAt = 0;
 
-function syncDigestButton(): void {
+function syncScriptButton(): void {
   // SPA 换到非视频页：工具栏按钮无意义，主动摘除。口径单源
   // video-id-shared 的 isSupportedVideoPage（与 content.ts isSupportedUrl
   // 共用）——稍后再看等列表播放页（/list/watchlater?bvid=）由该 predicate
@@ -159,7 +159,7 @@ function syncDigestButton(): void {
     anchorGraceBeats = 0;
     initWaitLogged = false;
     setTickInterval(REINJECT_INTERVAL_MS);
-    removeDigestButton();
+    removeScriptButton();
     return;
   }
   const viewOpen = isReaderViewOpen();
@@ -171,7 +171,7 @@ function syncDigestButton(): void {
   if (viewOpen && isReaderShellIntact()) {
     brokenTicks = 0;
     setTickInterval(PAUSED_INTERVAL_MS);
-    removeDigestButton();
+    removeScriptButton();
     return;
   }
   // 失同步两态，交由 reader-restore 处理器自愈（连续确认 + 退避见
@@ -200,7 +200,7 @@ function syncDigestButton(): void {
   // 失同步的残留计数让下一轮瞬态误触发恢复）。
   brokenTicks = 0;
   setTickInterval(REINJECT_INTERVAL_MS);
-  injectDigestButton();
+  injectScriptButton();
 }
 
 // ===== 注入 =====
@@ -235,7 +235,7 @@ const INIT_FALLBACK_DELAY_MS = 10000;
 let initWaitLogged = false;
 
 function logAnchor(message: string): void {
-  logInfoAlways(`[BOC] digest-button: ${message}`);
+  logInfoAlways(`[BOC] script-button: ${message}`);
 }
 
 // 注入耗时日志（01 可观测）：首个按钮落到 DOM 的时刻，只记一次。
@@ -253,8 +253,8 @@ function logMountTiming(target: string): void {
 // 发现①回来时升回①位。
 let anchorSeat: HTMLElement | null = null;
 
-export function injectDigestButton(): void {
-  const existing = document.getElementById(DIGEST_BUTTON_ID);
+export function injectScriptButton(): void {
+  const existing = document.getElementById(SCRIPT_BUTTON_ID);
   // 零扫描早退（性能；健康态 200ms 一拍 × 每页每小时约 18000 拍）：按钮挂着且
   // 席位未变即返回，不跑 findComplaintNode 的全量扫描。豁免范围严格限于「挂
   // 着且席位没变」这一种状态——席位节点被页面重渲染换掉/摘走（引用不等）、
@@ -294,13 +294,13 @@ export function injectDigestButton(): void {
       anchorSeat = complaint;
       return;
     }
-    const button = existing?.isConnected ? existing : createDigestButton();
-    styleDigestButton(button, { floating: false });
+    const button = existing?.isConnected ? existing : createScriptButton();
+    styleScriptButton(button, { floating: false });
     complaint.parentElement.insertBefore(button, complaint);
     anchorSeat = complaint;
     logMountTiming("锚点①「稿件举报」左侧");
     // 从④升回时把空了的浮动层一并收走（④只服务本按钮，不残留空壳）。
-    const overlay = document.getElementById(DIGEST_OVERLAY_ID);
+    const overlay = document.getElementById(SCRIPT_OVERLAY_ID);
     if (overlay && !overlay.firstElementChild) {
       overlay.remove();
     }
@@ -343,7 +343,7 @@ export function injectDigestButton(): void {
     logAnchor("宽限耗尽，降级播放器浮动层");
   }
 
-  const overlay = ensureDigestOverlay();
+  const overlay = ensureScriptOverlay();
   if (!overlay) {
     return;
   }
@@ -352,28 +352,28 @@ export function injectDigestButton(): void {
   if (existing?.isConnected && existing.parentElement === overlay) {
     return;
   }
-  const button = existing?.isConnected ? existing : createDigestButton();
-  styleDigestButton(button, { floating: true });
+  const button = existing?.isConnected ? existing : createScriptButton();
+  styleScriptButton(button, { floating: true });
   overlay.appendChild(button);
   logMountTiming("④播放器浮动层");
 }
 
-function createDigestButton(): HTMLButtonElement {
+function createScriptButton(): HTMLButtonElement {
   const button = document.createElement("button");
-  button.id = DIGEST_BUTTON_ID;
+  button.id = SCRIPT_BUTTON_ID;
   button.type = "button";
   button.textContent = "文摘";
   button.title = "阅读这期视频的字幕与文摘";
   button.setAttribute("aria-label", "阅读这期视频的字幕与文摘");
-  button.setAttribute("data-boc-extension-node", "digest-button");
-  button.addEventListener("click", handleDigestButtonClick);
+  button.setAttribute("data-boc-extension-node", "script-button");
+  button.addEventListener("click", handleScriptButtonClick);
   return button;
 }
 
-export function removeDigestButton(): void {
+export function removeScriptButton(): void {
   unbindToolbarObserver();
-  document.getElementById(DIGEST_BUTTON_ID)?.remove();
-  document.getElementById(DIGEST_OVERLAY_ID)?.remove();
+  document.getElementById(SCRIPT_BUTTON_ID)?.remove();
+  document.getElementById(SCRIPT_OVERLAY_ID)?.remove();
 }
 
 // ===== 工具栏宿主即时注入观察器 =====
@@ -385,10 +385,10 @@ export function removeDigestButton(): void {
 //   - 宽档（失锚期，宿主未出现）：工具栏宿主 #arc_toolbar_report /
 //     .video-toolbar-container 会被 B 站整棵替换，观察器无处窄挂，退到稳定
 //     祖先 body——宿主整棵出现的时刻由它感知。200ms tick 在失锚期只做轻
-//     探测（见 injectDigestButton），宿主出现的即时性感知由本观察器承担。
+//     探测（见 injectScriptButton），宿主出现的即时性感知由本观察器承担。
 //
 // 回调走完整自查而非直接注入：视图接管（按钮恒摘除）、失同步自愈等守卫
-// 口径全部收口在 syncDigestButton，观察器不自带第二套判定；失锚期自查落入
+// 口径全部收口在 syncScriptButton，观察器不自带第二套判定；失锚期自查落入
 // 轻探测分支，高频 childList 抖动（弹幕飘过等）一拍只付一次选择器查询。
 //
 // 重绑时机：观察器目标失活（宿主被整棵换掉，窄档旧挂点断连——宽档 body
@@ -403,7 +403,7 @@ let toolbarObserverTargets: Element[] = [];
 let toolbarObserverExpectsHost = false;
 
 function onToolbarMutation(): void {
-  syncDigestButton();
+  syncScriptButton();
 }
 
 function bindToolbarObserver(): void {
@@ -499,7 +499,7 @@ function findComplaintNode(): HTMLElement | null {
   return best;
 }
 
-function styleDigestButton(button: HTMLElement, { floating }: { floating: boolean }): void {
+function styleScriptButton(button: HTMLElement, { floating }: { floating: boolean }): void {
   button.style.cssText = floating
     ? `${BUTTON_BASE_STYLE}background:rgba(251,114,153,.92);box-shadow:0 2px 8px rgba(0,0,0,.2);`
     : `${BUTTON_BASE_STYLE}background:#fb7299;margin-right:16px;`;
@@ -507,12 +507,12 @@ function styleDigestButton(button: HTMLElement, { floating }: { floating: boolea
 
 // ===== 浮动降级 =====
 
-function ensureDigestOverlay(): HTMLElement | null {
+function ensureScriptOverlay(): HTMLElement | null {
   const player = findFloatHost();
   if (!player) {
     return null;
   }
-  const existing = player.querySelector(`#${DIGEST_OVERLAY_ID}`);
+  const existing = player.querySelector(`#${SCRIPT_OVERLAY_ID}`);
   if (existing instanceof HTMLElement && existing.isConnected) {
     return existing;
   }
@@ -521,7 +521,7 @@ function ensureDigestOverlay(): HTMLElement | null {
     player.style.position = "relative";
   }
   const overlay = document.createElement("div");
-  overlay.id = DIGEST_OVERLAY_ID;
+  overlay.id = SCRIPT_OVERLAY_ID;
   overlay.style.cssText =
     "position:absolute;top:12px;right:12px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;";
   player.appendChild(overlay);
@@ -545,7 +545,7 @@ function findFloatHost(): HTMLElement | null {
 
 // ===== 点击 =====
 
-function handleDigestButtonClick(event: MouseEvent): void {
+function handleScriptButtonClick(event: MouseEvent): void {
   event.preventDefault();
   event.stopPropagation();
   // 阅读视图开着时按钮已被自查摘除，这里兜底不重复触发。
@@ -563,5 +563,5 @@ function handleDigestButtonClick(event: MouseEvent): void {
 // 01 快路径：装载即首轮注入 + 常速自查节拍。必须置于求值末尾——上面的自查
 // 状态（brokenTicks 等）与锚点阶段声明得先就位，同步首轮注入才能跑。
 
-syncDigestButton();
+syncScriptButton();
 setTickInterval(REINJECT_INTERVAL_MS);

@@ -15,10 +15,10 @@ import { setStatus } from "../core/ui-status.js";
 // core/defaults.ts），分包收益保留给关闭态用户——关闭时 chunk 不下载。
 import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 
-// Digest 工具栏按钮经加载器按需引入（统一 Digest 阅读模式 PR1）：非阅读模式
+// Script 工具栏按钮经加载器按需引入（统一 文摘阅读模式 PR1）：非阅读模式
 // 分支与阅读模式直达分支都装载——直达分支上按钮由自查守卫恒摘除（无意义），
-// 装载为的是视图失同步自愈与关闭视图后补回按钮（见 ui/digest-button.ts 头注）。
-import { loadDigestButton } from "../ui/lazy-digest-button.js";
+// 装载为的是视图失同步自愈与关闭视图后补回按钮（见 ui/script-button.ts 头注）。
+import { loadScriptButton } from "../ui/lazy-script-button.js";
 
 // 候选03 常驻瘦身：UI 壳构建（ensureUiReady）与 reader 静态呈现层
 //（hydrateReaderStateFromSettings / applyReadingViewPresentation / renderReadingStatus）
@@ -158,14 +158,14 @@ function init(): void {
   // history 补丁与 boc:urlchange 广播。
   bindUrlChangeHandler();
   bindPlayerAiSettingsWatcher();
-  // Digest 工具栏按钮快路径（工单 button-injection-stability/01）：不等
-  // getSettings 水合（SW 往返是按钮首载慢的主因之一）。digest 按钮无设置键、
+  // Script 工具栏按钮快路径（工单 button-injection-stability/01）：不等
+  // getSettings 水合（SW 往返是按钮首载慢的主因之一）。script 按钮无设置键、
   // 常驻，模块自管「寻锚注入/摘除 → 定时自查」生命周期——装载即寻锚，锚点未
   // 就绪的注入自然失败，靠 200ms 自查自愈；阅读模式直达分支上按钮被自查守卫
   // 恒摘除，装载为视图失同步自愈与「关闭视图后补回按钮」。完整设置水合失败
   // 不影响按钮（模块不消费任何设置）。
-  loadDigestButton().catch((error) => {
-    logWarn("[BOC] digest-button module load failed", error);
+  loadScriptButton().catch((error) => {
+    logWarn("[BOC] script-button module load failed", error);
   });
   // 快路径门控：按钮启停只依赖 enablePlayerAiQuickAction 单键。直连
   // chrome.storage.sync 读取（content 脚本本就有 storage 权限），绕开
@@ -220,7 +220,7 @@ function init(): void {
           announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
         }
       }
-      // 两分支（阅读直达 / 非阅读模式）的 digest 工具栏按钮装载已上移到
+      // 两分支（阅读直达 / 非阅读模式）的 script 工具栏按钮装载已上移到
       // init() 快路径（01：不等 getSettings 水合），此处不再重复装载。
     } catch (error) {
       // getSettings 水合拒绝的外层兜底（内层子链各有降级口径，不经此 catch）：

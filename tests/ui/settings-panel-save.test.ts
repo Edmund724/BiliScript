@@ -3,7 +3,7 @@
 // 其余设置项——AI/ASR 平台的收集/校验/落盘/权限申请整体移交 provider-editor
 // Modal 的单平台链，见 provider-editor.test.js）。
 //
-// 走真实模块 + DOM 仿真（digest-button.test.js 同款）：saveSettings 未导出，
+// 走真实模块 + DOM 仿真（script-button.test.js 同款）：saveSettings 未导出，
 // 经唯一公开入口 renderReaderSettingsPanel 挂载面板后驱动——
 // - 保存链：收集(collectFormPayload) → 校验(validateSettings) → 单路落盘
 //   (save-settings)；平台相关的 request-provider-origins /

@@ -1,24 +1,24 @@
 /* 阅读模式门控段——随阅读模式挂载（S3 分层）：全部规则以
  * data-boc-reader-mode="1" / data-boc-reading-active="1" 为前置，未开启时永不匹配。
- * B 形态（右栏 Digest 面板）：整页接管门控已退役，本表只剩 Digest 面板的
- * 视口定位与显隐门控——面板贴右栏 fixed 定位（rect 由 reader/digest-host 写入
- * 四个 --boc-digest-* 变量：横向占「锚点左缘 → 视口右缘（不含滚动条）」整条
+ * B 形态（右栏 文摘面板）：整页接管门控已退役，本表只剩 文摘面板的
+ * 视口定位与显隐门控——面板贴右栏 fixed 定位（rect 由 reader/script-host 写入
+ * 四个 --boc-script-* 变量：横向占「锚点左缘 → 视口右缘（不含滚动条）」整条
  * 右侧，纵向钳进一屏），窄窗/无锚点/float 档降级为居中浮层；B 站页面自身的
  * 布局、播放器与推荐栏一律不动。 */
 
-/* ===== Digest 面板定位 =====
- * 贴栏态：digest-host 挂载时写 left/top/width/height 四变量，面板按变量定位
- * （跟滚动，rAF 合帧）。浮层降级态（data-boc-digest-float="1"）：不写变量，
+/* ===== 文摘面板定位 =====
+ * 贴栏态：script-host 挂载时写 left/top/width/height 四变量，面板按变量定位
+ * （跟滚动，rAF 合帧）。浮层降级态（data-boc-script-float="1"）：不写变量，
  * 回落到 reader.css 的居中浮层基础样式（fixed 16px 边距 + 76vh）。
  * 两态都必须可点：#boc-root 在 reader.css 无 pointer-events 约束
  * （pointer-events:none 只存在于 ready=0 与旧 A 形态专用壳上），面板自身
  * pointer-events:auto 即整链可点，无需子元素逐层恢复。 */
 body[data-boc-reader-mode="1"] #boc-reading-view {
   position: fixed;
-  left: var(--boc-digest-left, 16px);
-  top: var(--boc-digest-top, 16px);
-  width: var(--boc-digest-width, auto);
-  height: var(--boc-digest-height, min(76vh, 860px));
+  left: var(--boc-script-left, 16px);
+  top: var(--boc-script-top, 16px);
+  width: var(--boc-script-width, auto);
+  height: var(--boc-script-height, min(76vh, 860px));
   right: auto;
   bottom: auto;
   margin: 0;
@@ -32,10 +32,10 @@ body[data-boc-reader-mode="1"] #boc-reading-view.open {
   display: block;
 }
 
-/* 浮层形态：digest-host 未写变量（窄窗/无锚点/float 档），面板回到居中浮层
+/* 浮层形态：script-host 未写变量（窄窗/无锚点/float 档），面板回到居中浮层
  * 基础样式（reader.css 的 fixed 16px 边距 + 76vh）——这里只复位贴栏变量定位
  * 并恢复可点，宽度/高度/圆角/阴影全部沿用基础段。 */
-body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-digest-float="1"] {
+body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-script-float="1"] {
   left: 16px;
   top: 16px;
   width: auto;
@@ -58,7 +58,7 @@ body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-reader-ready="0"] {
 
 /* 面板壳在门控内的定位兜底：reader.css 基础段已定义面板内部布局
  * （flex 列 + 圆角 + 阴影），此处只保证在贴栏变量定位下撑满视图节点。 */
-body[data-boc-reader-mode="1"] .boc-reading-digest-panel {
+body[data-boc-reader-mode="1"] .boc-reading-script-panel {
   width: 100%;
   height: 100%;
   pointer-events: auto;
@@ -78,7 +78,7 @@ body[data-boc-reader-mode="1"] #boc-reading-view[data-boc-reader-follow="manual"
 }
 
 /* ===== 主题 token =====
- * PR2 统一 Digest 面板按 prototype/direction-approved.md 定稿色板重排：
+ * PR2 统一 文摘面板按 prototype/direction-approved.md 定稿色板重排：
  * light（默认）= 暖白纸感底 + B 站粉 accent（#fb7299）；dark 沿用其底色，
  * accent 换亮粉可读变体，暗色主题不破相（纸色档已随两档制退役删除）。
  * 新增 card（白卡片）/faint（三级文字）/accent-ink（accent 实底上的文字）/
@@ -182,7 +182,7 @@ body[data-boc-reader-mode="1"][data-boc-reader-theme="dark"],
   }
 }
 
-/* 面板宽度：digest-only-ui 排版定稿，档位机制已退役——贴栏宽度下限定死
- * 380px（接线在 digest-host：贴栏 rect 占锚点左缘到视口右缘整条右侧，仅在
+/* 面板宽度：script-only-ui 排版定稿，档位机制已退役——贴栏宽度下限定死
+ * 380px（接线在 script-host：贴栏 rect 占锚点左缘到视口右缘整条右侧，仅在
  * 可填宽度不足 380px 时作下限），CSS 无档位分支。
  * （三开关退役：字幕/章节隐藏规则已随 2026-09 开关删除，字幕常显。） */

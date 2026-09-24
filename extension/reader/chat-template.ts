@@ -1,7 +1,7 @@
 // AI 对话 tab 的模板叶子（arch-slim-2/06：模板段自 ui/ui-renderer.ts 下放）。
 //
 // 为什么是纯模板叶子：chat-tab.ts（对话组合根）已反向 import ui-renderer 的
-// setReaderDigestTab/openReaderSettingsPanel——对话 tab 模板若直接搬进
+// setReaderScriptTab/openReaderSettingsPanel——对话 tab 模板若直接搬进
 // chat-tab.ts 会成环；本模块只依赖 reader/state.js 的 ids 表（零 reader/ui
 // 依赖、零逻辑），壳（ui-renderer）组装、chat-tab 消费 els，依赖图保持无环。
 //

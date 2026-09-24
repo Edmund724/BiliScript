@@ -1,7 +1,7 @@
-/* 统一 Digest 面板内部布局（#boc-reading-view 基础布局）——随阅读模式挂载的
+/* 统一 文摘面板内部布局（#boc-reading-view 基础布局）——随阅读模式挂载的
  * 非门控段（S3 分层）：页面无 data-boc-reader-mode 时视图 display:none 静默，
  * 挂载后任何时刻建节点都不会闪现。#boc-reading-view 的唯一内容是
- * Digest 面板（三标签 300–460px 窄容器），rail/stage/player-slot 等整页接管
+ * 文摘面板（三标签 300–460px 窄容器），rail/stage/player-slot 等整页接管
  * 期布局已随其退役删除；视口定位（贴栏/浮层）在 reader-gate.css 门控段。 */
 
 #boc-reading-view {
@@ -22,7 +22,7 @@
   box-shadow: var(--boc-reader-shadow);
   font-family: var(--boc-reader-font-sans);
   /* 容器查询宿主（size-aware-styling 指南）：面板内容排版按视图实际宽度分档
-   * ——贴栏档宽度由 digest-host 写 var（与视口宽度脱钩）、浮层档由 left+right
+   * ——贴栏档宽度由 script-host 写 var（与视口宽度脱钩）、浮层档由 left+right
    * 撑出，视口媒体查询判不了面板真实宽度。inline-size 容纳安全：两档的宽度
    * 都不依赖内容横向尺寸（height: auto 的窄窗浮层只涉纵向，不受容纳约束）。 */
   container-type: inline-size;
@@ -91,7 +91,7 @@
   color: var(--boc-reader-muted, #6b7280);
 }
 
-/* 面板壳网格第 2 行（见 .boc-reading-digest-panel）；其他容器里该属性无效 */
+/* 面板壳网格第 2 行（见 .boc-reading-script-panel）；其他容器里该属性无效 */
 .boc-reading-status {
   grid-row: 2;
 }
@@ -239,12 +239,12 @@
 /* .boc-reading-subtitle 的几何在下方基础段单份声明（width/box-sizing/flex/
  * padding/overflow），此处不留空壳。 */
 
-/* ===== 统一 Digest 面板（PR2）：右侧面板壳 + 三标签 =====
+/* ===== 统一 文摘面板（PR2）：右侧面板壳 + 三标签 =====
  * 视口定位（fixed 右侧、全高卡片）在 reader-gate.css 门控段；这里只定义
  * 面板内部结构：header → tabs（凹槽 + 卡片分段控件，12px 槽 / 8px 项）→
  * tab-body。色值全部走
  * --boc-reader-* 主题 token（gate 段两主题定义），暗色主题自动跟随。 */
-.boc-reading-digest-panel {
+.boc-reading-script-panel {
   min-height: 0;
   /* 四行网格（header / status / tabs / tab-body）替代原 flex 列：设置抽屉与
    * 标签区同占第 3–4 行（抽屉 span 两行），抽屉退出时两者重叠而非同时在流内
@@ -273,7 +273,7 @@
   pointer-events: auto;
 }
 
-.boc-reading-digest-panel .boc-reading-header {
+.boc-reading-script-panel .boc-reading-header {
   grid-row: 1;
   align-items: center;
   padding: 14px 16px 10px;
@@ -287,27 +287,27 @@
 
 /* 减弱透明度：材质退回近实色（token 已在 gate 段覆盖），毛玻璃一并关停 */
 @media (prefers-reduced-transparency: reduce) {
-  .boc-reading-digest-panel .boc-reading-header {
+  .boc-reading-script-panel .boc-reading-header {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 }
 
-/* 滚动进行中关停毛玻璃（M19 / M12 巡检 P2-2）：贴栏态面板随 --boc-digest-top
- * 逐帧位移，header 的 backdrop 跟着每帧重采样。digest-host 在滚动期间给
- * #boc-reading-view 挂 data-boc-digest-scrolling，滚动停下（scrollend 或
+/* 滚动进行中关停毛玻璃（M19 / M12 巡检 P2-2）：贴栏态面板随 --boc-script-top
+ * 逐帧位移，header 的 backdrop 跟着每帧重采样。script-host 在滚动期间给
+ * #boc-reading-view 挂 data-boc-script-scrolling，滚动停下（scrollend 或
  * 150ms 静默兜底）摘除。面板壳自身是不透明底，header 的 backdrop 只有面板
  * 底色，关停期间无可感差异；静止态材质与滚动恢复后一字不变。 */
-#boc-reading-view[data-boc-digest-scrolling="1"] .boc-reading-digest-panel .boc-reading-header {
+#boc-reading-view[data-boc-script-scrolling="1"] .boc-reading-script-panel .boc-reading-header {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
-/* 状态行（「当前进度」等）与 header 内容左右对齐（digest-only-ui）：
+/* 状态行（「当前进度」等）与 header 内容左右对齐（script-only-ui）：
  * header/tab-body 各自带 16px 水平内边距，而状态行原是撑满面板宽度的裸
  * block（文本左缘贴面板边缘），与 header 内容不在同一垂直线上——补同款
  * 水平边距 + 与下方 tab 控件的小间距。 */
-.boc-reading-digest-panel .boc-reading-status {
+.boc-reading-script-panel .boc-reading-status {
   margin: 0 16px 8px;
   line-height: 1.4;
 }
@@ -562,7 +562,7 @@
 }
 
 /* 视口媒体查询只留壳定位（浮层档的边距/贴顶）：排版窄档已上移到下方
- * @container——面板贴栏宽度由 digest-host 写 var，与视口宽度脱钩，且旧
+ * @container——面板贴栏宽度由 script-host 写 var，与视口宽度脱钩，且旧
  * 媒体查询里的排版规则（item 列宽/正文字号/标题字号）早被同表后段的
  * #boc-reading-view 前缀覆盖规则压成死代码，一并删除。 */
 @media (max-width: 1100px) {
@@ -1240,7 +1240,7 @@
  * 小结）→ 金句卡（白底 + 左 3px accent 边 + 右下角时间戳与 Copy 按钮）。
  * 色值全部走 --boc-reader-* token（gate 段两主题定义），暗色主题自动跟随；
  * 时间戳 pill 复用 .boc-reading-time 母题。
- *（digest-only-ui：概览顶部「总结」区块已删除，直接以章节开头。） */
+ *（script-only-ui：概览顶部「总结」区块已删除，直接以章节开头。） */
 .boc-reading-overview {
   flex: 1;
   min-height: 0;
@@ -1282,7 +1282,7 @@
 }
 
 /* 章节列表：时间戳 pill + 标题 + 小结（点击跳播）。卡片底色用 surface-2 与
- * 周边区分（digest-only-ui 决策：参考 YouTube Digest Overview 卡片式）。 */
+ * 周边区分（script-only-ui 决策：参考 YouTube Script Overview 卡片式）。 */
 .boc-reading-ov-chapter {
   width: 100%;
   display: grid;

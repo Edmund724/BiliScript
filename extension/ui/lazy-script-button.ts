@@ -1,7 +1,7 @@
-// ui/digest-button.ts 的按需加载器（统一 Digest 阅读模式 PR1；
+// ui/script-button.ts 的按需加载器（统一 文摘阅读模式 PR1；
 // arch-slim-2/09 自 core/ 搬回 ui/：加载器跟随被加载模块的目录）。
 //
-// 为什么惰性：Digest 按钮只在 /video/ 播放页有职责，且其水合等待链
+// 为什么惰性：文摘按钮只在 /video/ 播放页有职责，且其水合等待链
 // （poll <video> + SETTLE_DELAY_MS）不应急着在 watchlater 等支持的普通页上跑。
 // content.ts 在 getSettings().then 的非阅读模式分支触发装载（与 loadPlayerAi
 // 同款动态 import 边），分包后本模块随动态 chunk 按需下载。
@@ -13,20 +13,20 @@
 // 失败语义：加载失败清空缓存 promise，允许下次触发重试（与 lazy-player-ai 一致）。
 //
 // 「未加载」的语义约定（消费方依赖它做等价性判断）：模块未加载 ⇒ 按钮从未
-// 挂上 ⇒ removeDigestButton 是 no-op。装载面：content.ts 的 getSettings().then
+// 挂上 ⇒ removeScriptButton 是 no-op。装载面：content.ts 的 getSettings().then
 // 两个分支（非阅读模式 + 阅读模式直达）都装载本模块——直达分支装载不为按钮
 // （自查守卫在阅读模式下恒摘除），为的是视图失同步自愈与「关闭视图后补回
-// 按钮」（见 ui/digest-button.ts 头注）；按钮注入本身由 syncDigestButton 按
+// 按钮」（见 ui/script-button.ts 头注）；按钮注入本身由 syncScriptButton 按
 // isReaderViewOpen/isReaderMode 守卫，两种路径下都不会在阅读模式开着时挂出。
-interface DigestButtonDomain {
-  removeDigestButton(): void;
+interface ScriptButtonDomain {
+  removeScriptButton(): void;
 }
 
 import { createLazyLoader } from "../shared/lazy-import.js";
 
-const loader = createLazyLoader<DigestButtonDomain>(() => import("./digest-button.js"));
+const loader = createLazyLoader<ScriptButtonDomain>(() => import("./script-button.js"));
 
-// 按需加载 ui/digest-button.ts，同一文档内重复调用共享同一 promise。
-export function loadDigestButton(): Promise<DigestButtonDomain> {
+// 按需加载 ui/script-button.ts，同一文档内重复调用共享同一 promise。
+export function loadScriptButton(): Promise<ScriptButtonDomain> {
   return loader.load();
 }

@@ -13,7 +13,7 @@
 //  4. enterReaderShell / exitReaderShell 只允许定义在 shell.ts；
 //  5. 壳的调用方闭包 = lazy-shell（message-handler 的动态装载边，arch-slim-2/09
 //     shell 静态边改动态、shell 不进常驻 chunk）+ ui-renderer（关闭按钮）+
-//     digest-button（失同步守卫判定）三处，新增调用方须显式扩圈。
+//     script-button（失同步守卫判定）三处，新增调用方须显式扩圈。
 //
 // 用 .js 落地：扫描要读 node:fs/node:path，tsconfig 未含 node 类型（与工单 01
 // 的手势不变式扫描测试同款选择）。
@@ -59,7 +59,7 @@ const STYLES_ALLOWED = new Set(["shared/style-injector.ts", "entry/content.ts", 
 // 动态装载，shell 不再借道常驻 chunk，message-handler 内不允许 shell 静态边）
 const SHELL_CALLERS = new Set([
   "ui/ui-renderer.ts",
-  "ui/digest-button.ts"
+  "ui/script-button.ts"
 ]);
 // shell 的唯一动态装载边（加载器跟随被加载模块目录）
 const SHELL_LOADER = "reader/lazy-shell.ts";
@@ -104,7 +104,7 @@ describe("阅读壳序列唯一性（arch-slim/02 验收标准 1）", () => {
     expect(definitions).toEqual([SHELL]);
   });
 
-  it("壳的调用方闭包：lazy-shell 装载边 + ui-renderer / digest-button 两处静态调用方", () => {
+  it("壳的调用方闭包：lazy-shell 装载边 + ui-renderer / script-button 两处静态调用方", () => {
     const importers = [...sourceFileMap.keys()]
       .filter((file) => /["'][^"']*reader\/shell\.js["']/.test(read(file)))
       .sort();

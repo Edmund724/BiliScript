@@ -84,7 +84,7 @@ export const DEFAULT_SETTINGS: Settings = {
   includeDateInFilename: true,
   includeHotCommentsInNote: false,
   includePlayerEmbedInNote: true,
-  // 2026-09 起默认开启：AI 键与 digest 按钮一样进视频页即可见可点（此前默认
+  // 2026-09 起默认开启：AI 键与 script 按钮一样进视频页即可见可点（此前默认
   // false，按钮对未手动开启的用户从不出现——设置门控挂载语义本身不变，见
   // content.ts 的启停接线与 ai/player-ai.ts 的 sync 门控）。存量显式 false 由
   // 安装/更新迁移一次性清位（entry/settings-migration.ts），此后用户显式关闭

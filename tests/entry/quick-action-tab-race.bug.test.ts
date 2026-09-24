@@ -31,7 +31,7 @@
 //     行为（requestUiCommand("set-tab:chat", {consumeIntent:false})，
 //     chat-tab.ts:655）。
 // 两个写手之间的派发链（message-handler → shell → reader-bus 订阅者 →
-// setReaderDigestTab）全部走真实模块。
+// setReaderScriptTab）全部走真实模块。
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -156,7 +156,7 @@ type Modules = {
   ensureReaderChatTab: typeof import("../../extension/reader/lazy-chat-tab.js").ensureReaderChatTab;
   ensureUiReady: typeof import("../../extension/ui/lazy-ui.js").ensureUiReady;
   requestUiCommand: typeof import("../../extension/reader/reader-bus.js").requestUiCommand;
-  getReaderActiveDigestTab: typeof import("../../extension/reader/state.js").getReaderActiveDigestTab;
+  getReaderActiveScriptTab: typeof import("../../extension/reader/state.js").getReaderActiveScriptTab;
   state: typeof import("../../extension/core/state.js").state;
   ids: typeof import("../../extension/reader/state.js").ids;
   uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
@@ -205,7 +205,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
       requestUiCommand: readerBus.requestUiCommand,
       state: coreState.state,
       ids: readerState.ids,
-      getReaderActiveDigestTab: readerState.getReaderActiveDigestTab,
+      getReaderActiveScriptTab: readerState.getReaderActiveScriptTab,
       uiRenderer
     };
 
@@ -213,7 +213,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     m.state.reader.setViewReady(false);
 
     // 预热壳：装载真实 ui-renderer（注册 set-tab:chat / reset-tabs 订阅者）并
-    // 构建 Digest 面板 DOM。消息链的 ensureUiReady 桩走幂等 no-op，把「模块装载
+    // 构建 文摘面板 DOM。消息链的 ensureUiReady 桩走幂等 no-op，把「模块装载
     // 快慢」这一生产随机项从回路里钉掉，只留我们要测的事务序。
     uiRenderer.ensureUiReady();
     (m.ensureUiReady as ReturnType<typeof vi.fn>).mockImplementation(async () => {
@@ -273,7 +273,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     await vi.waitFor(() => expectTabActive(m.ids, "Chat", true));
     expectTabActive(m.ids, "Chat", true);
     expectTabActive(m.ids, "Subtitle", false);
-    expect(m.getReaderActiveDigestTab()).toBe("chat");
+    expect(m.getReaderActiveScriptTab()).toBe("chat");
   });
 
   it("对照（赢序）：enterReaderMode 先收敛、chat 激活后落 ⇒ 停在对话 tab（绿灯）", async () => {
@@ -295,7 +295,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
 
     expectTabActive(m.ids, "Chat", true);
     expectTabActive(m.ids, "Subtitle", false);
-    expect(m.getReaderActiveDigestTab()).toBe("chat");
+    expect(m.getReaderActiveScriptTab()).toBe("chat");
   });
 
   it("无 chat 负载：纯 open 意图，零对话激活", async () => {

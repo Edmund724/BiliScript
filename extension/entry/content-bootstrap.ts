@@ -23,13 +23,13 @@ import { BOC_VERSION } from "../core/version.js";
 export const CONTENT_MAIN_MODULE_PATH = "entry/content-main.mjs";
 
 // 首按钮 chunk 预取清单（first-button-ux/04）：bootstrap 拉起主包的同时经
-// <link rel="modulepreload"> 暖缓存，主包求值尾部 loadDigestButton() /
+// <link rel="modulepreload"> 暖缓存，主包求值尾部 loadScriptButton() /
 // loadPlayerAi() 的动态 import 命中缓存，省一次本地往返。modulepreload 只
 // 下载不执行，装载时序与 enablePlayerAiQuickAction 门控完全不变。懒入口产物
 // 名无 content-hash（build-content.js 的 entryNames: "[name]"），可安全硬编码；
 // 各 chunk 的共享 chunk 由浏览器对 modulepreload 递归抓取，不需列出。
 export const PRELOAD_MODULE_PATHS = [
-  "entry/chunks/digest-button.mjs",
+  "entry/chunks/script-button.mjs",
   "entry/chunks/player-ai.mjs"
 ];
 

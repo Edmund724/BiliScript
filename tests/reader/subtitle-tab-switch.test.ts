@@ -8,7 +8,7 @@
 // subtitle-ready-once.test.js（链级）+ presenter-forward.test.ts（转发形状）
 // 共同锁定。
 //
-// 壳构建走 digest-tabs.test.ts 同款 harness（真实 ui-renderer 建壳即绑定字幕
+// 壳构建走 script-tabs.test.ts 同款 harness（真实 ui-renderer 建壳即绑定字幕
 // tab 事件），reader-gate 与总结链加载器 mock 掉：前者正是被锁的直调通道，
 // 后者隔离网络边界。
 

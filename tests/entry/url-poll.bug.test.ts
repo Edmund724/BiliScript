@@ -4,7 +4,7 @@
 // 的调用（扩展自己的 replaceReaderModeUrl），B 站主世界的 SPA 导航（稍后再看
 // 列表内换视频）走的是主世界自己的 history，对补丁不可见，且 pushState 导航
 // 不触发 popstate。url-watcher 的 href 轮询兜底必须能发现这类「绕过补丁」的
-// 导航，并驱动 handleUrlChange 重置 clip（否则再点 Digest 展示上一个视频的
+// 导航，并驱动 handleUrlChange 重置 clip（否则再点 Script 展示上一个视频的
 // 字幕/视频信息）。
 //
 // 测试里用 History.prototype.replaceState.call 绕过实例上的补丁，模拟主世界

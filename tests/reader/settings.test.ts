@@ -1,7 +1,7 @@
 // 设置变更测试：主题
 // 通过 hydrateReaderStateFromSettings 与 updateReaderPreferences 驱动，
 // 校验 data-attribute 在阅读视图、documentElement、body 三处的应用。
-//（digest-only-ui：排版档位机制退役，字号/字距/行距/面板宽度不再可调，
+//（script-only-ui：排版档位机制退役，字号/字距/行距/面板宽度不再可调，
 // 相关字段与 data-attribute 一并移除；三开关退役后章节/字幕可见性设置项
 // 与 data-attribute 也随之删除，设置只剩主题。）
 

@@ -14,15 +14,15 @@ import { dispatchChatTabOutsideClick } from "../reader/chat-tab-bridge.js";
 //（./reader/state.js，含 ids/view-state/scroll-state）、轻状态栏写入器
 //（../core/ui-status.js）、reader 域懒加载转发助手（./reader-gate.js，动态边
 // 在 reader/lazy-reader 内部）。
-import { getReaderActiveDigestTab, ids, isReaderViewOpen, setReaderActiveDigestTab } from "../reader/state.js";
-import type { ReaderDigestTab } from "../reader/state.js";
+import { getReaderActiveScriptTab, ids, isReaderViewOpen, setReaderActiveScriptTab } from "../reader/state.js";
+import type { ReaderScriptTab } from "../reader/state.js";
 // 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
 // 阅读壳（工单 arch-slim/02）：关闭按钮的关闭链退化为退出事务委托
 //（URL 收敛 → closeReadingView → 摘阅读表，唯一实现在 reader/shell.ts）。
 import { exitReaderShell } from "../reader/shell.js";
 // 对话分区表（arch-slim-4/07）：切到对话 tab 的全部入口都先经
-// setReaderDigestTab("chat")，chat 分支同步挂载（reader/chat-tab.ts 模块顶层
+// setReaderScriptTab("chat")，chat 分支同步挂载（reader/chat-tab.ts 模块顶层
 // 另兜底挂一次）；不建 onload 门控——无样式窗口只落在未激活的静默空态上。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 // arch-slim-2/06 ui 按 tab 全量收口：三 tab 的模板段+绑定段同居各自域叶子，
@@ -52,13 +52,13 @@ export function buildUiHtml(): string {
   const themeView = themeButtonView(state.reader.readingTheme);
   return `
     <section id="${ids.readingView}" aria-hidden="true" data-boc-reader-ready="0" aria-busy="true">
-      <!-- 统一 Digest 面板（B 形态）：右栏面板壳，三标签 = 字幕 / 概览 /
+      <!-- 统一 文摘面板（B 形态）：右栏面板壳，三标签 = 字幕 / 概览 /
            AI 对话。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管退役
            ——章节列表由概览 tab 提供，播放器保持 B 站原生布局不动；
            readingStatus 挪进面板 header 下方（id 不变，subtitle/ai/chat 各域
            经 core/ui-status.js 持续写入）。三 tab body 的内容模板随各自域
            叶子（arch-slim-2/06：壳只懂面板骨架与 tab 切换） -->
-      <aside id="${ids.readingDigestPanel}" class="boc-reading-digest-panel" aria-label="Digest 面板">
+      <aside id="${ids.readingScriptPanel}" class="boc-reading-script-panel" aria-label="文摘面板">
             <header class="boc-reading-header">
               <div class="boc-reading-header-copy">
                 <div id="${ids.readingMeta}" class="boc-reading-meta">bilibili.com</div>
@@ -79,7 +79,7 @@ export function buildUiHtml(): string {
             <p id="${ids.readingStatus}" class="boc-reading-status">使用页面原生播放器联动章节和字幕。</p>
 
             <section id="${ids.readingSettingsPanel}" class="boc-reading-panel boc-reading-settings-panel" hidden>
-              <!-- 扩展设置宿主（digest-only-ui）：原独立 options 页的全部设置项
+              <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项
                    由 ui/settings-panel.js 渲染进此容器（分节、可滚动），options
                    页面本体已删除。顶部滚动/字幕/章节三开关与字幕语言下拉已随
                    三开关退役移除——语言下拉移入字幕 tab 工具条（复制按钮左侧）。 -->
@@ -89,7 +89,7 @@ export function buildUiHtml(): string {
             </section>
 
             <!-- 标签页分段控件（凹槽 + 卡片，12px 槽 / 8px 项；active 态 = accent 实底，见 prototype/direction-approved.md） -->
-            <div class="boc-reading-tabs" role="tablist" aria-label="Digest 标签">
+            <div class="boc-reading-tabs" role="tablist" aria-label="Script 标签">
               <button id="${ids.readingTabSubtitle}" type="button" class="boc-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
               <button id="${ids.readingTabOverview}" type="button" class="boc-reading-tab" role="tab" aria-selected="false">概览</button>
               <button id="${ids.readingTabChat}" type="button" class="boc-reading-tab" role="tab" aria-selected="false">AI 对话</button>
@@ -124,35 +124,35 @@ export function buildUiHtml(): string {
   `;
 }
 
-// ===== 统一 Digest 面板三标签（PR2） =====
+// ===== 统一 文摘面板三标签（PR2） =====
 //
 // 标签切换是纯壳交互（class/aria/hidden 写入），不触碰 reader 域状态；唯一
-// 例外是对话 tab 的分区表挂载（arch-slim-4/07，见 setReaderDigestTab）。
+// 例外是对话 tab 的分区表挂载（arch-slim-4/07，见 setReaderScriptTab）。
 // active 态约定：tab 按钮 .is-active + aria-selected，tab body .is-active 且
 // 去 hidden（CSS 双通道：.boc-reading-tab-body:not(.is-active) 与 [hidden]
 // 都收敛为 display:none，防 UA 样式被作者 display 覆盖）。
 // 当前激活标签的类型单源在 reader/state.js（状态位同居本叶子，ui 壳与测试
 // 经本 re-export 取用，import 路径不变）。
-export type { ReaderDigestTab } from "../reader/state.js";
+export type { ReaderScriptTab } from "../reader/state.js";
 
-const DIGEST_TAB_DEFS: Array<{ name: ReaderDigestTab; buttonId: string; bodyId: string }> = [
+const SCRIPT_TAB_DEFS: Array<{ name: ReaderScriptTab; buttonId: string; bodyId: string }> = [
   { name: "subtitle", buttonId: ids.readingTabSubtitle, bodyId: ids.readingTabBodySubtitle },
   { name: "overview", buttonId: ids.readingTabOverview, bodyId: ids.readingTabBodyOverview },
   { name: "chat", buttonId: ids.readingTabChat, bodyId: ids.readingTabBodyChat }
 ];
 
-export function setReaderDigestTab(tab: ReaderDigestTab): void {
-  // 状态位先落（single source of truth，见 reader/state.js digest-tab-state 节），
+export function setReaderScriptTab(tab: ReaderScriptTab): void {
+  // 状态位先落（single source of truth，见 reader/state.js script-tab-state 节），
   // DOM 三通道只是投影。用例：竞态排查断言（reader-state.ts），未来消费方不再
   // 反解 DOM。
-  setReaderActiveDigestTab(tab);
+  setReaderActiveScriptTab(tab);
   // 对话分区表按需装载（arch-slim-4/07）：切到对话 tab 的三个入口（tab 点击 /
   // 解释卡「去对话追问」/ player-ai 快捷动作）都先经本函数，同步挂载保证首开
   // 即在场；ensure 内部 mounted Map 去重，重入零成本。
   if (tab === "chat") {
     ensureReaderChatStyles();
   }
-  for (const def of DIGEST_TAB_DEFS) {
+  for (const def of SCRIPT_TAB_DEFS) {
     const button = document.getElementById(def.buttonId);
     const body = document.getElementById(def.bodyId);
     if (!button || !body) {
@@ -172,8 +172,8 @@ export function setReaderDigestTab(tab: ReaderDigestTab): void {
 
 // 进入阅读模式时回到默认「字幕」标签（lifecycle.enterReaderMode 调用）；
 // 视图开着期间的渲染重渲不重置，避免打断用户所在标签。
-export function resetReaderDigestTabs(): void {
-  setReaderDigestTab("subtitle");
+export function resetReaderScriptTabs(): void {
+  setReaderScriptTab("subtitle");
 }
 
 // PR5：AI 对话 tab 的二级惰性激活入口。首次切到对话 tab 时经
@@ -193,7 +193,7 @@ export function activateReaderChatTab({ consumeIntent = true }: { consumeIntent?
   })();
 }
 
-// digest-only-ui：打开侧边栏设置抽屉（展开 + 渲染）。原「打开设置页」入口
+// script-only-ui：打开侧边栏设置抽屉（展开 + 渲染）。原「打开设置页」入口
 //（open-options 消息/options 页）已删除，header 齿轮、对话 tab 设置按钮与
 // 提示条「前往设置」都收敛到本函数；reader 域（lifecycle.renderReaderPanels）
 // 在抽屉打开时装载设置面板。
@@ -206,7 +206,7 @@ export function openReaderSettingsPanel(): void {
 // reader-bus 具名命令，本壳是唯一执行方。三命令：
 //   - "reset-tabs"：进入阅读模式重置回默认「字幕」tab（lifecycle.enterReaderMode）；
 //   - "set-tab:chat"：切到对话 tab + 激活——原 explain-card「去对话追问」与
-//     下方 tab click 分支的「setReaderDigestTab("chat") + activateReaderChatTab」
+//     下方 tab click 分支的「setReaderScriptTab("chat") + activateReaderChatTab」
 //     重复组合收敛到此一处，reader 侧只发一次命令；payload.consumeIntent ===
 //     false 时透传（chat-tab 快捷动作路径不消费待解释意图）；
 //   - "open-settings"：打开侧边栏设置抽屉（chat-tab 空态「前往设置」与提示条
@@ -215,7 +215,7 @@ export function openReaderSettingsPanel(): void {
 // 空转，与原 reader 侧直调的行为同形。
 subscribeUiCommand((name, payload) => {
   if (name === "set-tab:chat") {
-    setReaderDigestTab("chat");
+    setReaderScriptTab("chat");
     const consumeIntent = (payload as { consumeIntent?: boolean } | null)?.consumeIntent !== false;
     activateReaderChatTab({ consumeIntent });
     return;
@@ -225,13 +225,13 @@ subscribeUiCommand((name, payload) => {
     return;
   }
   if (name === "reset-tabs") {
-    resetReaderDigestTabs();
+    resetReaderScriptTabs();
   }
 });
 
 export function bindUiEvents(): void {
-  // digest-only-ui：A 形态经典侧栏面板已删除，模板不再包含旧壳节点
-  //（boc-panel/boc-status/boc-preview 等）；面板交互只有阅读视图（Digest）。
+  // script-only-ui：A 形态经典侧栏面板已删除，模板不再包含旧壳节点
+  //（boc-panel/boc-status/boc-preview 等）；面板交互只有阅读视图（Script）。
   const readingView = byId(ids.readingView);
   const readingCloseBtn = byId(ids.readingCloseBtn);
   const readingThemeSelect = byId(ids.readingThemeSelect);
@@ -243,15 +243,15 @@ export function bindUiEvents(): void {
   bindReadingExplainEvents();
   bindReadingOverviewEvents();
 
-  // Digest 面板三标签切换（纯壳交互，见上方 setReaderDigestTab 注释）。
+  // 文摘面板三标签切换（纯壳交互，见上方 setReaderScriptTab 注释）。
   // 切到 AI 对话 tab（PR5）：二级惰性激活对话组合根（首次装载 + 恢复路径 +
   // 消费待解释意图，见 activateReaderChatTab）；「切 tab + 激活」组合与
   // set-tab:chat 壳命令同款（arch-review-2026-09/10 收敛，命令执行在本文件）。
   // 切到概览 tab（PR4）：未生成则自动触发生成（idle 才触发，生成中复用进行中
   // promise，已生成不重跑）；reader 域交互按惯例经 ui/reader-gate 装载后转发。
-  for (const def of DIGEST_TAB_DEFS) {
+  for (const def of SCRIPT_TAB_DEFS) {
     byId(def.buttonId).addEventListener("click", () => {
-      setReaderDigestTab(def.name);
+      setReaderScriptTab(def.name);
       if (def.name === "chat") {
         activateReaderChatTab();
       }
@@ -261,7 +261,7 @@ export function bindUiEvents(): void {
     });
   }
 
-  // digest-only-ui：经典侧栏面板的按钮绑定（close/refresh/select/copy/
+  // script-only-ui：经典侧栏面板的按钮绑定（close/refresh/select/copy/
   // download/settings）已随 A 形态模板删除；刷新/复制/导出等动作由字幕 tab
   // 工具条与面板 header 的动作按钮承接，绑定见 reader/subtitle-tab-ui.ts。
   // ===== 阅读视图交互回调（候选02）：closeReadingView/sync/click 等属 reader
@@ -335,7 +335,7 @@ export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boole
 }
 
 // renderMeta / renderSubtitleSelect / setBusyState 已随经典侧栏面板删除
-//（digest-only-ui：阅读视图的元信息/字幕轨由 reader 域渲染，复制/导出由字幕
+//（script-only-ui：阅读视图的元信息/字幕轨由 reader 域渲染，复制/导出由字幕
 // tab 工具条接线）；setStatus / setMessage 已迁往 ../core/ui-status.js，宿主
 // 收敛到 #boc-reading-status。
 // arch-slim-2/06：三 tab 的模板与专属绑定已同居各自域叶子（对话 reader/

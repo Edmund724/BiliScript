@@ -243,7 +243,7 @@ describe("双路径分派", () => {
     const { chatCompletion, calls } = buildCompletionFake();
     const body = makeSubtitleBody(50000);
     const result = await mod.runOverviewAnalysis(
-      // digest-only-ui：调用方（reader/overview）显式传 thinkingLevel:"off"，
+      // script-only-ui：调用方（reader/overview）显式传 thinkingLevel:"off"，
       // 此处断言它逐级透传到 chatCompletion（协议层据此注入关闭字段）。
       { provider: makeProvider(), context: makeContext({ subtitleBody: body }), thinkingLevel: "off" },
       { chatCompletion }
@@ -255,7 +255,7 @@ describe("双路径分派", () => {
     expect(calls[0].thinkingLevel).toBe("off");
     // 系统提示词 = 整份分章提示词；用户提示词无 rangeNote（分段标记不出现）
     expect(calls[0].messages[0].content).toContain("产出一份结构化概览：章节 + 金句");
-    // digest-only-ui：顶层概述字段已移除（章节条目内的 summary 不受影响）
+    // script-only-ui：顶层概述字段已移除（章节条目内的 summary 不受影响）
     expect(calls[0].messages[0].content).not.toContain('"summary": "全片概述');
     const user = calls[0].messages.at(-1)!.content;
     expect(user).toContain("视频标题：测试视频");
@@ -275,7 +275,7 @@ describe("双路径分派", () => {
     const { chatCompletion, calls } = buildCompletionFake();
     const body = makeSubtitleBody(210000); // 5 段：50k ×4 / 10k
     const result = await mod.runOverviewAnalysis(
-      // digest-only-ui：显式 off 透传（reader/overview 调用方钉死），每段调用都带
+      // script-only-ui：显式 off 透传（reader/overview 调用方钉死），每段调用都带
       { provider: makeProvider(), context: makeContext({ subtitleBody: body }), thinkingLevel: "off" },
       { chatCompletion }
     );

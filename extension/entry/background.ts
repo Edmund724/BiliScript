@@ -53,7 +53,7 @@ import { isSwKeepalivePort } from "../ai/sw-keepalive.js";
 // SW 静态图只进传输叶（arch-slim-2/04）：bgFetchJson/isBiliUrl 拆至 gateway-core，
 // 不经 gateway 拖入 state/video-probe/selection→cache 链。
 import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
-// digest-only-ui：侧边栏设置面板的 host 权限代申请（collectOrigins 纯函数）
+// script-only-ui：侧边栏设置面板的 host 权限代申请（collectOrigins 纯函数）
 import { collectOrigins } from "../core/host-permissions.js";
 // PR5：对话 tab 的 offscreen 文档 ensure 通道（background 侧唯一合法创建点）
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
@@ -96,7 +96,7 @@ function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSende
   return true;
 }
 
-// digest-only-ui：侧边栏设置面板（content script）保存时的 host 权限代申请。
+// script-only-ui：侧边栏设置面板（content script）保存时的 host 权限代申请。
 // content script 无 chrome.permissions API，用户手势经本次 runtime 消息传导到
 // 本处理器——chrome.permissions.request 必须是处理器内的第一个动作（任何先行
 // await 都会耗尽手势，被 Chrome 以「缺少用户手势」拒绝，见
@@ -440,7 +440,7 @@ function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: Mes
 // { [K in BackgroundMessageType]: MessageHandler<Msg<K>> } 校验——
 // 消息名 typo / 漏注册 handler / 多注册未知名在 typecheck 即报错（此前 Map +
 // 逐条 `as BackgroundHandler` 断言对这一切零捕获）；每个条目的处理器同时按其
-// 具体消息形状 Msg<K> 校验，签名与消息类型不匹配同样报错。digest-only-ui：
+// 具体消息形状 Msg<K> 校验，签名与消息类型不匹配同样报错。script-only-ui：
 // open-options 处理器已随 options 页删除（设置已全部并入侧边栏面板，无独立
 // 设置页可开）。
 const messageHandlerTable = {
@@ -514,14 +514,14 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-// ===== 工具栏 action 点击（工单 02-toolbar-icon-opens-digest）=====
+// ===== 工具栏 action 点击（工单 02-toolbar-icon-opens-script）=====
 
 // chrome.action 命名空间声明已归并 chrome-types.d.ts（工单 04），原局部
 // ActionOnClickedEvent 契约与 cast 删除。可选链守卫：既有测试环境的 chrome
 // stub 可能缺 action 命名空间（生产 MV3 + manifest.action 恒有），顶层注册
 // 不可因缺命名空间抛错。
 
-// 与页内 Digest 按钮同一条 reader-enter 事务：经 triggerReaderModeInTab 的
+// 与页内 文摘按钮同一条 reader-enter 事务：经 triggerReaderModeInTab 的
 // 重试/注入链发 reader-enter，content 侧落 entry/message-handler.ts →
 // ensureReaderShell 进入事务——不建 popup / Side Panel / 第二套打开流程。
 // 目标标签页只取 onClicked 事件自带的活动标签页：reader-enter 载荷没有 tabId

@@ -361,7 +361,7 @@ export const uiState = stateBundle.uiState;
 //   exiting → closed    退出事务内 closeReadingView 收尾
 //   exiting → open      退出失败回退（视图仍在，不能卡在 exiting）
 // 同态迁移（from === to）视为幂等 no-op，不记日志。desync（壳失整）不进状态机
-// ——isReaderShellIntact 谓词 + digest-button 自查维持现状。
+// ——isReaderShellIntact 谓词 + script-button 自查维持现状。
 
 const READER_SHELL_TRANSITIONS: Record<ReaderShellState, readonly ReaderShellState[]> = {
   closed: ["entering", "open"],

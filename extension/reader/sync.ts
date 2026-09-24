@@ -8,7 +8,7 @@
 // Layer graph (acyclic; ports.js is the zero-dependency leaf):
 //
 //   ports.js  显式回调端口（本域逆依赖的唯一通道，lifecycle 单点注册）
-//   LAYOUT    video-bind.js + digest-host.js → ports
+//   LAYOUT    video-bind.js + script-host.js → ports
 //                               module-level closure: scroll-pause variables,
 //                               timer variables
 //   SYNC      sync.js（本文件）                     → LAYOUT + ports
@@ -240,7 +240,7 @@ function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
     return;
   }
 
-  // PR2 统一 Digest 面板：字幕列表常驻右侧面板「字幕」tab（自身即滚动容器），
+  // PR2 统一 文摘面板：字幕列表常驻右侧面板「字幕」tab（自身即滚动容器），
   // 原内联宿主分支（boc-reading-inline-host 的 scrollTo）随机制移除——跟随/
   // 跳转滚动一律收敛为「优先列表容器内滚动，容器不可滚才滚页面兜底」。
   // 列表容器或条目不可见（如其他标签页激活、条目尚未上屏）时退回
@@ -341,7 +341,7 @@ export function noteManualReaderInteraction(durationMs = 3000) {
 // 本函数只负责行为：
 //   - manual 态 = 手动滚动暂停中 → 清暂停；
 //   - 随后 forceScroll 同步一次高亮与滚动，跳回「当前正在播的句子」——不改
-//     播放进度（按钮语义是「回去继续跟随」，不是 seek；与 youtube-digest
+//     播放进度（按钮语义是「回去继续跟随」，不是 seek；与 youtube-script
 //     sidepanel.js 的 Follow playback 按钮行为一致）。
 export function resumeReaderFollowPlayback() {
   resetManualScrollPause();

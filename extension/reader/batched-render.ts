@@ -54,7 +54,7 @@ export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHour
   `;
 }
 
-// 把 items[from, to) 追加进列表（尾部追加）。digest-only-ui 退役尾部 spacer 后
+// 把 items[from, to) 追加进列表（尾部追加）。script-only-ui 退役尾部 spacer 后
 // 条目顺序即 DOM 顺序，无需再维护锚节点。
 function insertReadingSubtitleRange(
   listEl: HTMLElement,

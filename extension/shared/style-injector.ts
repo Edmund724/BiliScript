@@ -117,7 +117,7 @@ export function whenReaderSettingsStylesReady(): Promise<void> {
 }
 
 // 对话分区表（arch-slim-4/07）：随对话域首次激活按需装载，不建 onload 门控
-//（1-2 帧无样式窗口只落在未激活的静默空态上）。挂载点两个：setReaderDigestTab
+//（1-2 帧无样式窗口只落在未激活的静默空态上）。挂载点两个：setReaderScriptTab
 // 的 chat 分支同步 ensure（盖住 tab 点击/解释卡/快捷动作全部入口），reader/
 // chat-tab.ts 模块顶层兜底（盖住未来入口）。与设置表同口径：exitReaderShell
 // 不摘除，数据留在浏览器样式缓存，二进宫免闪变。

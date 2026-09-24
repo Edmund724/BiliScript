@@ -1,7 +1,7 @@
 // reader/shell.ts — 阅读壳唯一事务（CONTEXT.md「阅读壳」词条的代码落点，
 // 工单 .scratch/tickets/arch-slim/issues/02-reader-shell.md）。
 //
-// 进入与退出 Digest 面板阅读形态各只剩一条路：enterReaderShell（按意图三档
+// 进入与退出 文摘面板阅读形态各只剩一条路：enterReaderShell（按意图三档
 // open 进入 / restore 恢复 / chat 进对话）与 exitReaderShell（逆事务）。
 // 八步无闪变时序（suppressUntil → 摘播放器快捷按钮 → resolveReaderEntryUrl →
 // ensureUiReady → replaceReaderModeUrl → ensureReaderStyles → 翻 body/html
@@ -10,15 +10,15 @@
 //
 // 挂在现有 ensureReaderDomain 接缝后：arch-slim-2/09 起本模块改为动态 chunk
 //（message-handler 的 reading-view 分支经 reader/lazy-shell.js 动态装载；
-// ui-renderer 关闭按钮、digest-button 守卫判定是动态 chunk 内的静态委托），
+// ui-renderer 关闭按钮、script-button 守卫判定是动态 chunk 内的静态委托），
 // 不再借道常驻包。reader 重符号一律经 lazy-* 动态装载边取用，不把重域拖进
 // 常驻图。依赖方向：shell → lazy-*（动态边）+ 各常驻叶子，无环。
 //
 // 三个消费面：
 //   - entry/message-handler.ts：reader-enter / reader-restore / reader-close
 //     三个消息分支退化成一两行委托（经 reader/lazy-shell.js）；
-//   - ui/ui-renderer.ts：Digest 面板关闭按钮的关闭链退化为 exitReaderShell 委托；
-//   - ui/digest-button.ts：定时自查的失同步判定改用 isReaderShellIntact
+//   - ui/ui-renderer.ts：文摘面板关闭按钮的关闭链退化为 exitReaderShell 委托；
+//   - ui/script-button.ts：定时自查的失同步判定改用 isReaderShellIntact
 //    （原本地手抄的同一判定收口为唯一实现）。
 //
 // 另有 enterReaderShellOnUrlNavigation：URL 跳转编排（bindUrlChangeHandler）的
@@ -57,7 +57,7 @@ export interface EnterReaderShellOptions {
 // 空 readerUrl 参数）——此时必须用当前地址兜底构造阅读 URL，否则 URL 改写、
 // 阅读表与 data-boc-reader-mode 门控全被跳过，enterReaderMode 落在无样式的
 // 半进入态（页面布局微变但阅读模式不出现）。拼法单源在 bilibili/reader-url.ts
-// 的 buildReaderModeUrl（arch-slim-2/03，原与 ui/digest-button.ts 各抄一份）。
+// 的 buildReaderModeUrl（arch-slim-2/03，原与 ui/script-button.ts 各抄一份）。
 function resolveReaderEntryUrl(readerUrl: string): string {
   if (readerUrl || isReaderViewOpen()) {
     return readerUrl;
@@ -65,13 +65,13 @@ function resolveReaderEntryUrl(readerUrl: string): string {
   return buildReaderModeUrl(location.href);
 }
 
-// 壳完好性自查（唯一判定，restore 自愈与 digest 按钮守卫共用的同一 predicate）：
+// 壳完好性自查（唯一判定，restore 自愈与 script 按钮守卫共用的同一 predicate）：
 // 状态说视图开着，但 DOM 侧任一必要呈现条件缺失——壳被页面重渲染整树摘走、
 // .open 掉了、ready 门控卡 0、html/body 门控属性被页面侧清掉。任一命中面板都
-// 不可见，而 readingViewOpen 仍为 true，digest 按钮被守卫永久压住——表现为
+// 不可见，而 readingViewOpen 仍为 true，script 按钮被守卫永久压住——表现为
 // 「侧边栏和按钮一起消失，只能刷新」。restore 档据此在进入链前收敛失同步。
 // 注意：本判定是纯 DOM 谓词，不含 readingViewOpen 状态位；「视图开着且失整」
-// 的组合判断由调用方表达（restore 档的 beforeEntry / digest-button 的守卫）。
+// 的组合判断由调用方表达（restore 档的 beforeEntry / script-button 的守卫）。
 export function isReaderShellIntact(): boolean {
   const shell = document.getElementById(ids.readingView);
   return Boolean(
@@ -168,7 +168,7 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
 }
 
 // restore 档的失同步自愈（进入链前收敛）：状态开着而壳失整时先走退出事务把
-// 失同步状态清干净（readingViewOpen 卡 true、digest 按钮被压住的那档故障），
+// 失同步状态清干净（readingViewOpen 卡 true、script 按钮被压住的那档故障），
 // 再交给进入链重开。收敛失败只记日志不阻断（与收口前处理器口径一致）；重开
 // 会话态由各 tab 的恢复路径接管（对话从会话历史恢复、概览读缓存）。
 async function restoreSelfHealBeforeEntry(): Promise<void> {
@@ -277,7 +277,7 @@ export function enterReaderShellOnUrlNavigation(
 }
 
 // 退出事务（逆事务）：URL 收敛 → closeReadingView → 摘阅读表。吸收收口前的
-// 两处手抄——reader-close 消息处理器与 Digest 面板关闭按钮链（两者语义相同：
+// 两处手抄——reader-close 消息处理器与 文摘面板关闭按钮链（两者语义相同：
 // 先收敛地址栏再关视图；关闭按钮不回包、消息路径按结果回包，差异只在失败
 // 口径，由调用方在返回的 promise 上自行接）。与进入事务同队列串行：entering
 // 中收到 close 时排在进入事务之后顺延执行。
@@ -285,7 +285,7 @@ export function exitReaderShell(): Promise<void> {
   return runReaderEntryExclusive(async () => {
     // 视图未开（state closed，如一次失败的进入事务之后点关闭）不做状态迁移，
     // 但保留 URL 收敛/摘表/事件——直达进入失败后的「关闭」仍要清掉 boc_reader
-    // 地址与残留样式，否则 digest-button 的 URL 自查会反复重触发进入。
+    // 地址与残留样式，否则 script-button 的 URL 自查会反复重触发进入。
     if (getReaderShellState() !== "closed") {
       transitionReaderShell("exiting");
     }
@@ -303,12 +303,12 @@ export function exitReaderShell(): Promise<void> {
     // presentation-fields 的 clearOnClose 清单翻回）已停止生效，摘表进一步释放
     // 级联；下次进入重挂（link 数据在浏览器缓存，二进宫无闪变）。
     removeReaderStyles();
-    // 退出完成通知（arch-slim-2/09 自愈收口）：digest-button 的自查 interval 在
+    // 退出完成通知（arch-slim-2/09 自愈收口）：script-button 的自查 interval 在
     // 阅读壳打开且完好期间降频暂停，靠本事件恢复常速并立即补回按钮。事件名
     // 单源 shared/self-heal.js（READER_CLOSED_EVENT）；有意走 window
-    // CustomEvent 而非静态 import 边——digest-button 不 import 本模块的派发点，
+    // CustomEvent 而非静态 import 边——script-button 不 import 本模块的派发点，
     // 两侧只共享事件名字符串。只在本事务收敛后派发：退出失败（URL 改写抛错 /
-    // closeReadingView 抛错）不走这里，失同步场景仍由 digest-button 的自查
+    // closeReadingView 抛错）不走这里，失同步场景仍由 script-button 的自查
     // reader-restore 链兜底。
     window.dispatchEvent(new CustomEvent(READER_CLOSED_EVENT));
   }).catch((error) => {

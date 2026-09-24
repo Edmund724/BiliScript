@@ -1,7 +1,7 @@
 /* ===== AI 对话 tab 样式（PR5，arch-slim-4/07） =====
  * 自 reader.css 对话分区（.chat-* 全套）拆出，随对话域首次激活按需装载
  *（shared/style-injector 的 ensureReaderChatStyles，两个挂载点：ui-renderer
- * setReaderDigestTab("chat") 分支同步挂载 + reader/chat-tab.ts 模块顶层兜底，
+ * setReaderScriptTab("chat") 分支同步挂载 + reader/chat-tab.ts 模块顶层兜底，
  * 不建 onload 门控）。颜色/边框走 --boc-reader-* token（reader-gate.css 两主题
  * 定义），light/dark 自动跟随。规则全部以 .boc-reading-chat 为唯一前缀
  *（chat-template.ts 模板根类），避免与宿主页面类名冲突。 */

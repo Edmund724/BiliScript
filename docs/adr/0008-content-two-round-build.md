@@ -2,7 +2,7 @@
 
 content script 采用**两轮构建**：轮 B 把全部动态 import 目标（17 个，今 19 个）作 entryPoints 以 `splitting: true` 出懒加载区；轮 A 对 `entry/content.ts` 单独 `splitting: false`，onResolve 插件把懒加载目标 external 成轮 B 产物路径，常驻图整体内联进单文件 `content-main.mjs`。常驻口径 = bootstrap + 主包共 **2 个请求**（commit 24f63e2 实测：由单轮 splitting 的 19 请求降下）。代价（已接受）：常驻底座在轮 B 懒 chunk 区重复一份——本地资源按需读取，无网络成本。
 
-双实例是两轮构建的直接后果：共享底座模块在常驻包与懒加载区各求值一份。纪律：**跨实例共享的可变状态必须挂 globalThis 槽**（5 个槽模块：state / messaging / reader-bus / style-injector / logging，经三个历史 bug 淬炼：7d08229 digest 点击静默无效、5a62ac6 主题不落盘、828430f 跨侧读空值）；其余双实例模块（22 个，sourcemap 交集实测）不得携带未声明的模块级可变状态——含可变状态的 13 个在头注声明 `BOC_DUAL_INSTANCE_STATEFUL` 标记并写明安全依据，scripts/build-content.js 的 `assertDualInstanceAllowlist` 对「实测双实例集合 vs 允许清单」与「清单 mutable 位 vs 头注标记」做构建期对账（2026-09-18 落地）。
+双实例是两轮构建的直接后果：共享底座模块在常驻包与懒加载区各求值一份。纪律：**跨实例共享的可变状态必须挂 globalThis 槽**（5 个槽模块：state / messaging / reader-bus / style-injector / logging，经三个历史 bug 淬炼：7d08229 script 点击静默无效、5a62ac6 主题不落盘、828430f 跨侧读空值）；其余双实例模块（22 个，sourcemap 交集实测）不得携带未声明的模块级可变状态——含可变状态的 13 个在头注声明 `BOC_DUAL_INSTANCE_STATEFUL` 标记并写明安全依据，scripts/build-content.js 的 `assertDualInstanceAllowlist` 对「实测双实例集合 vs 允许清单」与「清单 mutable 位 vs 头注标记」做构建期对账（2026-09-18 落地）。
 
 ## 考虑过的方案
 

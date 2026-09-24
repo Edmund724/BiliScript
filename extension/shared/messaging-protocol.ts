@@ -43,7 +43,7 @@ export type ReaderCloseMessage = {
 // 失败带可读 error。
 export type ReaderCloseResponse = { ok: boolean; error?: string };
 
-// 阅读视图自愈恢复（ui/digest-button.ts 的 200ms 自查在失同步时派发）：
+// 阅读视图自愈恢复（ui/script-button.ts 的 200ms 自查在失同步时派发）：
 // URL 带 boc_reader=1 而视图没开（直达进入失败）、或状态开着而壳被页面重渲染
 // 摘掉（状态-DOM 失同步）时，按 DOM 实况收敛状态后重走进入链。readerUrl 语义
 // 同 reader-enter。仅 content 页内源使用（dispatchContentScriptMessage）。
@@ -103,7 +103,7 @@ export type GetSettingsResponse = {
 export type SaveSettingsMessage = { type: "save-settings"; settings?: unknown };
 // 响应锚点：entry/background.ts handleSaveSettings——落盘成功仅 { ok: true }。
 export type SaveSettingsResponse = { ok: boolean; error?: string };
-// digest-only-ui：content script 语境没有 chrome.permissions API（仅扩展自有
+// script-only-ui：content script 语境没有 chrome.permissions API（仅扩展自有
 // 页面/SW 可用），侧边栏设置面板保存时的 host 权限申请改走此消息由 SW 代为
 // 申请。用户手势经一次 runtime 消息传导；SW 处理器必须在调用
 // chrome.permissions.request 前零 await（见 entry/background.ts）。

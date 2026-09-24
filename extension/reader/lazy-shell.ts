@@ -29,7 +29,7 @@ import type {
 export type { ReaderShellIntent };
 
 // 阅读壳对外的窄接口（本加载器消费方只触达进入事务入口与事务收敛等待，
-// 壳完好性自查 isReaderShellIntact 的消费方——ui/digest-button.ts——走自己的
+// 壳完好性自查 isReaderShellIntact 的消费方——ui/script-button.ts——走自己的
 // 静态轻边，不经本加载器）。
 interface ReaderShellDomain {
   enterReaderShell(options: EnterReaderShellOptions): Promise<void>;

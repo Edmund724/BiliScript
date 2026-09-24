@@ -216,7 +216,7 @@ async function startOverviewRun(clipKey: string, forceRefresh: boolean): Promise
     const { runOverviewAnalysis } = await import("../ai/analysis.js");
     const provider = await resolveActiveProvider();
     const analysis = await runOverviewAnalysis(
-      // digest-only-ui：思考档位显式钉死 off（对齐 ai/explain.ts 的钉法）——
+      // script-only-ui：思考档位显式钉死 off（对齐 ai/explain.ts 的钉法）——
       // 章节/金句生成不开放思考档位，省略档位虽会在协议层归一化落到 off，
       // 显式传参让「查表关思考」（thinking-profiles → 平台关闭字段/级联）的
       // 行为成为契约而非默认值巧合（协议层改动时不会被静默带走）。
@@ -331,7 +331,7 @@ function buildOverviewBodyHtml(): string {
 
 // 无字幕诚实空态（07 票决议：无字幕不触发、不放假数据）。转写进行中（字幕
 // tab 横幅同源判定）给出预期文案，与横幅「转写完成后字幕与概览将自动出现」
-// 一致；字幕抓取中（subtitleFetchState=loading，点 Digest 后台抓取未落定）
+// 一致；字幕抓取中（subtitleFetchState=loading，点 Script 后台抓取未落定）
 // 同为预期态，不误显「该视频没有可用字幕」——字幕就绪后 subtitle-ready 通知
 // / 落定对账会自动触发生成。
 function buildEmptyStateHtml(): string {

@@ -11,15 +11,15 @@ let state: TestState;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let impl: typeof shell;
-let digestHost: typeof import("../../extension/reader/digest-host.js");
+let scriptHost: typeof import("../../extension/reader/script-host.js");
 
-// B 形态（阶段 2）：digest-host 以 spy 包装（实现保留），验证进入即开始贴右栏
+// B 形态（阶段 2）：script-host 以 spy 包装（实现保留），验证进入即开始贴右栏
 // 定位、关闭即拆除。vi.mock 会被提升到模块求值前，须放在顶层。
-vi.mock("../../extension/reader/digest-host.js", async (importActual) => {
-  const actual = await importActual() as typeof import("../../extension/reader/digest-host.js");
+vi.mock("../../extension/reader/script-host.js", async (importActual) => {
+  const actual = await importActual() as typeof import("../../extension/reader/script-host.js");
   return {
-    openDigestHost: vi.fn(actual.openDigestHost),
-    closeDigestHost: vi.fn(actual.closeDigestHost)
+    openScriptHost: vi.fn(actual.openScriptHost),
+    closeScriptHost: vi.fn(actual.closeScriptHost)
   };
 });
 
@@ -28,7 +28,7 @@ async function loadReaderModules() {
   state = (await import("../../extension/core/state.js")).state as TestState;
   shell = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
-  digestHost = await import("../../extension/reader/digest-host.js");
+  scriptHost = await import("../../extension/reader/script-host.js");
   impl = shell;
   return { state, shell, ids };
 }
@@ -61,9 +61,9 @@ afterEach(() => {
 });
 
 describe("reader 生命周期", () => {
-  it("进入阅读模式：打开视图、写 data 属性、渲染字幕列表并打开 digest-host", async () => {
+  it("进入阅读模式：打开视图、写 data 属性、渲染字幕列表并打开 script-host", async () => {
     // B 形态：播放器挂载/整页接管链退役，进入不再绑定视频同步——
-    // 绑定由 sync tick 的 bindReadingViewVideo 兜底。digest-host 以 spy 验证
+    // 绑定由 sync tick 的 bindReadingViewVideo 兜底。script-host 以 spy 验证
     // 进入即开始贴右栏定位、关闭即拆除。
     state.clip.title = "测试视频";
     state.clip.author = "up主";
@@ -110,17 +110,17 @@ describe("reader 生命周期", () => {
     expect(readingView.getAttribute("data-boc-reader-ready")).toBe("1");
     expect(readingView.getAttribute("aria-busy")).toBe("false");
 
-    // 进入即开始右栏定位（digest-host open），且不等播放器
-    expect(digestHost.openDigestHost).toHaveBeenCalledTimes(1);
+    // 进入即开始右栏定位（script-host open），且不等播放器
+    expect(scriptHost.openScriptHost).toHaveBeenCalledTimes(1);
 
     // 关闭视图以清掉同步定时器等，避免污染后续测试
     shell.closeReadingView();
-    expect(digestHost.closeDigestHost).toHaveBeenCalledTimes(1);
+    expect(scriptHost.closeScriptHost).toHaveBeenCalledTimes(1);
     await new Promise((resolve) => setTimeout(resolve, 150));
   });
 
   it("关闭后移动进度再重开（字幕已缓存）：进入即定位到新进度并启动同步", async () => {
-    // 用户报障形态：关闭 digest → 拖动进度 → 重开 digest。重开时字幕命中缓存、
+    // 用户报障形态：关闭 script → 拖动进度 → 重开 script。重开时字幕命中缓存、
     // 不再触发 subtitle-ready，进入路径必须自己启动同步并把滚动定位到当前进度。
     state.clip.bvid = "BV1test000000"; // 与 READER_MODE_URL 同 bvid，不触发后台重抓
     const body = [];

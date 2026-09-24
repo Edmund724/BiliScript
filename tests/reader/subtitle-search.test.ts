@@ -278,13 +278,13 @@ describe("字幕句内搜索", () => {
     shell.refreshReadingSubtitleSearch();
     const marksBefore = searchMarks().length;
 
-    uiRenderer.setReaderDigestTab("overview");
+    uiRenderer.setReaderScriptTab("overview");
     // DOM 不销毁：输入、高亮、计数原样保留
     expect(searchInput().value).toBe("目标词");
     expect(searchMarks().length).toBe(marksBefore);
     expect(searchCount()).toBe("1 / 2");
 
-    uiRenderer.setReaderDigestTab("subtitle");
+    uiRenderer.setReaderScriptTab("subtitle");
     expect(searchMarks().length).toBe(marksBefore);
     expect(currentMark()).not.toBe(null);
   });

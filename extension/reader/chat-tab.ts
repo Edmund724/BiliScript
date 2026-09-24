@@ -51,7 +51,7 @@
 //     （初始化时序/事件绑定/激活收尾；sessionClosed 读侧回边见 core 片头注）
 
 // 对话分区表模块顶兜底挂载（arch-slim-4/07，settings-panel.ts 顶挂载同款先例）：
-// 主点在 ui-renderer setReaderDigestTab 的 chat 分支（盖住现役三入口），此处盖
+// 主点在 ui-renderer setReaderScriptTab 的 chat 分支（盖住现役三入口），此处盖
 // 住未来新入口——本模块被动态装载即样式在场；ensure 内部 mounted Map 去重。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 // 先于 lifecycle 求值组合根内核片（保持拆分前的模块遍历序，稳住压缩命名分配）。

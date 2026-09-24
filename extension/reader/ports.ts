@@ -11,7 +11,7 @@
 //
 // 层图（保持既有方向不变，ports.js 为叶子）：
 //   ports.js   显式方法集（本文件，零依赖叶子）
-//   LAYOUT     video-bind.js + digest-host.js        → ports
+//   LAYOUT     video-bind.js + script-host.js        → ports
 //   SYNC       sync.js                               → LAYOUT + ports
 //   LIFECYCLE  lifecycle.js                          → SYNC + LAYOUT（并在
 //              模块求值时单点注册端口实现）

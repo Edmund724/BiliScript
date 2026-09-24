@@ -1,6 +1,6 @@
-// 工单 button-injection-stability/01：Digest 工具栏按钮快路径。
+// 工单 button-injection-stability/01：Script 工具栏按钮快路径。
 //
-// content.ts init() 直接触发 loadDigestButton，不等 getSettings 水合——digest
+// content.ts init() 直接触发 loadScriptButton，不等 getSettings 水合——script
 // 按钮无设置键、常驻，SW 冷启动未回包时也必须已装载（此前装载挂在
 // getSettings().then 尾部，SW 往返是按钮首载慢的主因之一）。参照
 // player-ai-fast-path.test.js：get-settings 用 deferGetSettings 模拟永不回包，
@@ -10,11 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
 
 const mocks = vi.hoisted(() => ({
-  loadDigestButton: vi.fn(() => Promise.resolve({}))
+  loadScriptButton: vi.fn(() => Promise.resolve({}))
 }));
 
-vi.mock("../../extension/ui/lazy-digest-button.js", () => ({
-  loadDigestButton: mocks.loadDigestButton
+vi.mock("../../extension/ui/lazy-script-button.js", () => ({
+  loadScriptButton: mocks.loadScriptButton
 }));
 
 // get-settings 永不回包（回调挂起），模拟 SW 冷启动未响应。
@@ -56,7 +56,7 @@ async function flushMicrotasks(times = 20) {
 
 beforeEach(() => {
   resetModuleState();
-  mocks.loadDigestButton.mockClear();
+  mocks.loadScriptButton.mockClear();
 });
 
 afterEach(() => {
@@ -64,14 +64,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("digest-button 快路径（不等 getSettings 水合）", () => {
-  it("SW 冷启动（get-settings 未回包）时 digest 按钮模块已装载", async () => {
+describe("script-button 快路径（不等 getSettings 水合）", () => {
+  it("SW 冷启动（get-settings 未回包）时 script 按钮模块已装载", async () => {
     setLocationUrl(NORMAL_PAGE_URL);
     stubChrome();
 
     await import("../../extension/entry/content.js");
     await flushMicrotasks();
 
-    expect(mocks.loadDigestButton).toHaveBeenCalledTimes(1);
+    expect(mocks.loadScriptButton).toHaveBeenCalledTimes(1);
   });
 });

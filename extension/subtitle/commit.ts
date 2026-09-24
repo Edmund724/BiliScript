@@ -27,7 +27,7 @@
 // subtitle/core、reader/reader-bus（常驻轻 seam，arch-slim-2/03 自 presenter.ts
 // 改名）、reader/view-state（常驻微
 // 模块，纯 state 读取）、shared/logging。
-//（digest-only-ui：经典侧栏面板的预览 textarea 已删除，commit 不再清空它。）
+//（script-only-ui：经典侧栏面板的预览 textarea 已删除，commit 不再清空它。）
 
 import { clipState } from "../core/state.js";
 import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
@@ -44,7 +44,7 @@ export interface CommitUiCallbacks {
 // loadSubtitle / fallback 的四个接受点均不调 renderMeta，渲染由调用方编排负责）；
 // 无字幕出口只回 reader 的 subtitle-ready 通知（renderReadingView 落空态）与
 // setStatus（skip 分支的引导文案）。
-//（digest-only-ui：经典侧栏面板的 renderMeta/renderSubtitleSelect 已随旧壳
+//（script-only-ui：经典侧栏面板的 renderMeta/renderSubtitleSelect 已随旧壳
 // 删除——无字幕出口对面板的元信息/下拉渲染改由 reader-bus 通知驱动。）
 let commitUi: CommitUiCallbacks | null = null;
 
@@ -111,7 +111,7 @@ export interface CommitNoSubtitleArgs {
 // 无字幕出口（逆事务，applyNoSubtitleState + 两处收尾段的唯一实现）：清空选中
 // 三项 + body + 派生内容，fetchState 落 "empty"，写 noSubtitleReason，
 // 通知（renderReadingView 落空态），skip 时状态栏落引导文案。
-//（digest-only-ui：经典侧栏面板的 preview DOM 与 renderMeta/renderSubtitleSelect
+//（script-only-ui：经典侧栏面板的 preview DOM 与 renderMeta/renderSubtitleSelect
 // 回调已删除——无字幕出口对阅读视图的呈现收敛到 subtitle-ready 通知。）与接受互为逆：
 // 两者写齐同一组字段，任何时刻 state 不落在半事务态。
 //

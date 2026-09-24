@@ -1,4 +1,4 @@
-// 自愈调度收口（arch-slim-2/09）：ui/digest-button.ts 的自查 interval
+// 自愈调度收口（arch-slim-2/09）：ui/script-button.ts 的自查 interval
 // 暂停/恢复时序测试。
 //
 // 收口语义：
@@ -12,8 +12,8 @@
 //
 // mock 面：isReaderViewOpen / isReaderShellIntact / 页内分发原语
 // dispatchContentScriptMessage（shared/messaging.js）——本文件只验证调度时序，
-// 处理器路由与注入锚点由 digest-button.test.js / digest-button-click.test.js
-// 的真实模块用例覆盖。定时器全文件 fake（与 digest-button.test.js 同款）。
+// 处理器路由与注入锚点由 script-button.test.js / script-button-click.test.js
+// 的真实模块用例覆盖。定时器全文件 fake（与 script-button.test.js 同款）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
@@ -36,8 +36,8 @@ vi.mock("../../extension/shared/messaging.js", () => ({
 }));
 
 async function loadModule() {
-  const lazy = await import("../../extension/ui/lazy-digest-button.js");
-  return lazy.loadDigestButton();
+  const lazy = await import("../../extension/ui/lazy-script-button.js");
+  return lazy.loadScriptButton();
 }
 
 // 模块求值即启动生命周期（01 快路径）：装载即执行首轮注入，再挂常速自查
@@ -75,7 +75,7 @@ async function startHealthy() {
   document.body.innerHTML = `${makeToolbarHtml()}<video src="blob:test"></video>`;
   const setIntervalSpy = vi.spyOn(window, "setInterval");
   await loadModule();
-  expect(document.getElementById("boc-digest-button")).not.toBeNull();
+  expect(document.getElementById("boc-script-button")).not.toBeNull();
   setIntervalSpy.mockClear();
   return setIntervalSpy;
 }
@@ -85,11 +85,11 @@ async function enterPausedState(setIntervalSpy: Awaited<ReturnType<typeof startH
   mocks.isReaderViewOpen.mockReturnValue(true);
   mocks.isReaderShellIntact.mockReturnValue(true);
   await vi.advanceTimersByTimeAsync(201);
-  expect(document.getElementById("boc-digest-button")).toBeNull();
+  expect(document.getElementById("boc-script-button")).toBeNull();
   expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 2000)).toBe(true);
 }
 
-describe("digest-button 自查 interval 暂停/恢复（arch-slim-2/09）", () => {
+describe("script-button 自查 interval 暂停/恢复（arch-slim-2/09）", () => {
   it("壳打开且完好：按钮摘除，自查降频至暂停档 2s 兜底", async () => {
     const setIntervalSpy = await startHealthy();
 
@@ -97,7 +97,7 @@ describe("digest-button 自查 interval 暂停/恢复（arch-slim-2/09）", () =
 
     // 暂停档兜底 tick 仍在跑且保持摘除（壳完好 ⇒ 不派发恢复）。
     await vi.advanceTimersByTimeAsync(2000);
-    expect(document.getElementById("boc-digest-button")).toBeNull();
+    expect(document.getElementById("boc-script-button")).toBeNull();
     expect(mocks.dispatchContentScriptMessage).not.toHaveBeenCalled();
   });
 
@@ -110,12 +110,12 @@ describe("digest-button 自查 interval 暂停/恢复（arch-slim-2/09）", () =
     window.dispatchEvent(new CustomEvent(READER_CLOSED_EVENT));
 
     // 首拍：不推进任何定时器即补回按钮，interval 恢复 200ms 常速。
-    expect(document.getElementById("boc-digest-button")).not.toBeNull();
+    expect(document.getElementById("boc-script-button")).not.toBeNull();
     expect(setIntervalSpy.mock.calls.some(([, ms]) => ms === 200)).toBe(true);
 
     // 常速自查维持健康态（不重复注入、不再摘除）。
     await vi.advanceTimersByTimeAsync(201);
-    expect(document.getElementById("boc-digest-button")).not.toBeNull();
+    expect(document.getElementById("boc-script-button")).not.toBeNull();
   });
 
   it("暂停期壳失整：恢复常速，三连拍确认后派发 reader-restore 自愈", async () => {

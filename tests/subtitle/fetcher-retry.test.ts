@@ -7,7 +7,7 @@
 // （previousId/URL/lang）重选轨 → 重试一次；重试仍败或新 bundle 无合适轨时把
 // 触发重试的原始错误上抛，交 refreshClip 错误路径收尾。
 //
-// 依赖处理走 digest-button-click.test.js 同款 vi.mock（重依赖 mock 掉，轻依赖
+// 依赖处理走 script-button-click.test.js 同款 vi.mock（重依赖 mock 掉，轻依赖
 // state/selection/error-helpers 保持真实）：gateway 四个抓取口、page-context、
 // cache、commit 事务、ASR 域（错误路径 loadAsrFallback 会动态 import）全部
 // mock；ASR 实例固定「无活动转写」，让错误路径干净落到 reset+error 收尾。

@@ -33,11 +33,11 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 
 ## 功能图片演示
 
-![Bilibili-Summary 字幕标签页：逐句时间戳，点击跳转播放位置](docs/images/demo-subtitle.png)
+![BiliScript 字幕标签页：逐句时间戳，点击跳转播放位置](docs/images/demo-subtitle.png)
 
-![Bilibili-Summary 概览标签页：AI 生成的章节分段](docs/images/demo-overview.png)
+![BiliScript 概览标签页：AI 生成的章节分段](docs/images/demo-overview.png)
 
-![Bilibili-Summary AI 对话标签页：围绕视频内容多轮追问](docs/images/demo-ai-chat.png)
+![BiliScript AI 对话标签页：围绕视频内容多轮追问](docs/images/demo-ai-chat.png)
 
 ## 安装方式
 
@@ -60,8 +60,8 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 ### 方式二：从源码构建
 
 ```bash
-git clone https://github.com/Edmund724/Bilibili-Summary.git
-cd Bilibili-Summary
+git clone https://github.com/Edmund724/BiliScript.git
+cd BiliScript
 pnpm install
 pnpm run build          # 生成 dist/（content 分包 + 各入口 bundle，含 sourcemap）
 pnpm run dev            # watch 模式：首轮全量构建到 dist/ 后持续重建，改代码即生效
@@ -74,7 +74,7 @@ pnpm run build:release  # 生成 Chrome 打包到 release/（zip 不含 sourcema
 
 无需编程基础，也不用命令行操作。把下面这段话发送给你的编程 Agent：
 
-> 请把这个项目下载或克隆到我选择的长期保留文件夹，告诉我准确的完整路径，并让 Chrome"加载已解压的扩展程序"使用同一个文件夹。如果我在第一次安装时需要位置建议，可以推荐 macOS 或 Linux 上的 `~/Documents/bilibili-summary`，或 Windows 上的 `%USERPROFILE%\Documents\bilibili-summary`，但不要假设我一定使用这些路径。请用简单易懂的语言一步一步指导我完成安装和配置。https://github.com/Edmund724/Bilibili-Summary
+> 请把这个项目下载或克隆到我选择的长期保留文件夹，告诉我准确的完整路径，并让 Chrome"加载已解压的扩展程序"使用同一个文件夹。如果我在第一次安装时需要位置建议，可以推荐 macOS 或 Linux 上的 `~/Documents/biliscript`，或 Windows 上的 `%USERPROFILE%\Documents\biliscript`，但不要假设我一定使用这些路径。请用简单易懂的语言一步一步指导我完成安装和配置。https://github.com/Edmund724/BiliScript
 
 你的 Agent 应该帮你：
 
@@ -90,7 +90,7 @@ pnpm run build:release  # 生成 Chrome 打包到 release/（zip 不含 sourcema
 
 ## 设置 API Key
 
-Bilibili-Summary 需要两个 Key（联网搜索是可选功能，需要时再加第三个）：
+BiliScript 需要两个 Key（联网搜索是可选功能，需要时再加第三个）：
 
 1. **硅基流动 API Key**，用于无字幕视频的语音转写。
 2. **ModelScope API Key**，用于 AI 总结和对话。

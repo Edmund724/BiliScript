@@ -1,4 +1,4 @@
-// shared/dom-ids.ts — Digest 面板与阅读视图的 DOM id 契约表（shared 叶子）。
+// shared/dom-ids.ts — 文摘面板与阅读视图的 DOM id 契约表（shared 叶子）。
 //
 // 为什么独立成 shared 叶子：id 表被三方共享——UI 模板（ui/ui-renderer.js
 // buildUiHtml）、总结链（subtitle/ui.js）与 reader 域实现（video-bind/
@@ -8,9 +8,9 @@
 
 export const ids = {
   root: "boc-root",
-  // digest-only-ui：经典侧栏面板 ids（panel/status/meta/subtitleSelect/preview/
+  // script-only-ui：经典侧栏面板 ids（panel/status/meta/subtitleSelect/preview/
   // message/copyBtn/downloadBtn/refreshBtn/closeBtn/settingsBtn）已随 A 形态壳
-  // 删除——Digest 面板是唯一界面，状态/消息写入 #boc-reading-status。
+  // 删除——文摘面板是唯一界面，状态/消息写入 #boc-reading-status。
   readingView: "boc-reading-view",
   readingStatus: "boc-reading-status",
   readingCloseBtn: "boc-reading-close-btn",
@@ -21,9 +21,9 @@ export const ids = {
   readingSettingsHost: "boc-reading-settings-host",
   readingMeta: "boc-reading-meta",
   readingSubtitleList: "boc-reading-subtitle",
-  // 统一 Digest 面板（PR2）：右侧面板壳 + 三标签（字幕/概览/AI 对话）分段控件。
+  // 统一 文摘面板（PR2）：右侧面板壳 + 三标签（字幕/概览/AI 对话）分段控件。
   // 字幕列表（readingSubtitleList）整体挂进字幕 tab body；概览/AI 对话为诚实占位。
-  readingDigestPanel: "boc-reading-digest-panel",
+  readingScriptPanel: "boc-reading-script-panel",
   readingTabSubtitle: "boc-reading-tab-subtitle",
   readingTabOverview: "boc-reading-tab-overview",
   readingTabChat: "boc-reading-tab-chat",

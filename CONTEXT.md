@@ -18,7 +18,7 @@ _Avoid_: Part、页、集数
 
 **字幕**:
 视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
-代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-boc-reader-subtitle-visible`——字幕列表常驻 Digest 面板「字幕」标签，transcript 词根已对齐字幕。
+代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-boc-reader-subtitle-visible`——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
 _Avoid_: 转录、transcript
 
 **章节**:
@@ -41,20 +41,20 @@ _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 f
 代码名：`ai/segment-cache.js`（`boc_lvs_raw_*`）/ `ai/raw-retrieval.js`
 _Avoid_: 长记忆、向量库
 
-**Digest 面板**:
-阅读模式的唯一呈现形态：右栏固定定位面板，三标签（字幕 / 概览 / AI 对话）。不接管页面、不搬播放器；贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）。ADR-0006。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 `setReaderDigestTab`）。
-代码名：`#boc-reading-view` / `#boc-reading-digest-panel` / `reader/digest-host.ts` / `--boc-digest-*` / `data-boc-digest-float` / `readingActiveDigestTab` / `setReaderDigestTab`
-口语同义词：侧边栏（仅兼容用户说法；README 统一为文摘阅读面板，代码与 ADR 沿用 Digest 面板）
+**文摘面板**:
+阅读模式的唯一呈现形态：右栏固定定位面板，三标签（字幕 / 概览 / AI 对话）。不接管页面、不搬播放器；贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）。ADR-0006。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 `setReaderScriptTab`）。
+代码名：`#boc-reading-view` / `#boc-reading-script-panel` / `reader/script-host.ts` / `--boc-script-*` / `data-boc-script-float` / `readingActiveScriptTab` / `setReaderScriptTab`
+口语同义词：侧边栏（仅兼容用户说法；README 统一为文摘阅读面板，代码与 ADR 沿用 文摘面板）
 _Avoid_: 阅读视图整页接管、播放器槽、rail/stage、剪枝、反解 DOM class 取当前标签
 
 **右栏锚点**:
-Digest 面板贴栏定位的参考节点，按优先级串行试探的右栏候选链（新版 `.right-container-inner` 起，旧版 `#reco_list` 止），有效判据 = 存在 + 宽度 ≥ 280 + 未滚出视口。唯一随 B 站改版会坏的面板依赖；坏的表现是降级跑位，不是功能失效。
-代码名：`ANCHOR_SELECTORS` / `findDigestAnchor`（reader/digest-host.ts）
+文摘面板贴栏定位的参考节点，按优先级串行试探的右栏候选链（新版 `.right-container-inner` 起，旧版 `#reco_list` 止），有效判据 = 存在 + 宽度 ≥ 280 + 未滚出视口。唯一随 B 站改版会坏的面板依赖；坏的表现是降级跑位，不是功能失效。
+代码名：`ANCHOR_SELECTORS` / `findScriptAnchor`（reader/script-host.ts）
 _Avoid_: 宿主、播放器宿主（那是 video-probe 的概念）
 
 **阅读壳**:
-Digest 面板进入与退出阅读形态的唯一事务。按意图三档（open 进入 / restore 恢复 / chat 进对话）执行「先挂阅读样式表、再翻 body/html 属性」的无闪变时序，含摘除播放器快捷按钮、suppress 抑制窗口与 restore 档的 shell 完好性自查；退出为逆事务。生命周期由四态状态机收口（closed/entering/open/exiting，单源 `core/state.ts` 的 `transitionReaderShell`，`readingViewOpen` 是其派生投影）：进入与退出事务同队列串行（entering 中收到 close 顺延），失败回退合法边（entering→closed / exiting→open）。全部入口（按钮/编排触发、恢复、进对话）与关闭出口都必须经此收口，禁止手抄序列。
-代码名：`enterReaderShell` / `exitReaderShell`（intent 三档）/ `reader/shell.ts`；承载消息 `reader-enter` / `reader-restore` / `reader-close`——页面内 Digest 按钮与工具栏图标点击共用同一 `reader-enter` 事务，无 popup / Side Panel 入口。
+文摘面板进入与退出阅读形态的唯一事务。按意图三档（open 进入 / restore 恢复 / chat 进对话）执行「先挂阅读样式表、再翻 body/html 属性」的无闪变时序，含摘除播放器快捷按钮、suppress 抑制窗口与 restore 档的 shell 完好性自查；退出为逆事务。生命周期由四态状态机收口（closed/entering/open/exiting，单源 `core/state.ts` 的 `transitionReaderShell`，`readingViewOpen` 是其派生投影）：进入与退出事务同队列串行（entering 中收到 close 顺延），失败回退合法边（entering→closed / exiting→open）。全部入口（按钮/编排触发、恢复、进对话）与关闭出口都必须经此收口，禁止手抄序列。
+代码名：`enterReaderShell` / `exitReaderShell`（intent 三档）/ `reader/shell.ts`；承载消息 `reader-enter` / `reader-restore` / `reader-close`——页面内 文摘按钮与工具栏图标点击共用同一 `reader-enter` 事务，无 popup / Side Panel 入口。
 _Avoid_: popup- 词根消息名、进入阅读模式手抄序列
 
 **播放器快捷按钮**:
@@ -95,7 +95,7 @@ _Avoid_: 窗口、配额、限额
 _Avoid_: 降级、回退
 
 **概览**:
-Digest 面板三大标签之一（对应 YouTube Digest 的 Overview）：段落总结 + 章节列表 + 金句 + 完整笔记一节。视频无自带章节时由 AI 分章。
+文摘面板三大标签之一（对应 YouTube Script 的 Overview）：段落总结 + 章节列表 + 金句 + 完整笔记一节。视频无自带章节时由 AI 分章。
 _Avoid_: 总览
 
 **金句**:

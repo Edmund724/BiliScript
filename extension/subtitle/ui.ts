@@ -21,7 +21,7 @@ import { refreshDerivedContent, ensureDerivedContent } from "./core.js";
 // 及 cache/cache-lru 的依赖一并拖回常驻。
 // setStatus/setMessage 仍在 core/ui-status：URL 变化编排与本模块错误提示在
 // 启动期使用。
-//（digest-only-ui：经典侧栏面板删除后，renderMeta / renderSubtitleSelect /
+//（script-only-ui：经典侧栏面板删除后，renderMeta / renderSubtitleSelect /
 // setBusyState 三件「抓取结果渲染」已无目标节点——阅读视图的元信息/字幕轨由
 // reader 域的 renderReadingView/renderReadingSubtitleSelect 渲染，本节移除；
 // 02 死代码清理：供经典面板「复制 Markdown」「字幕轨 <select> change」调用的

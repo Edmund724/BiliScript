@@ -7,7 +7,7 @@
 //     双路合计 ~8-9Hz 收敛为 interval 4Hz，seek/换轨即时响应由事件路保留）；
 //   - unbindReadingViewVideoSync：abort 即移除整组监听。
 //
-// B 形态收尾：player-host 整页接管随 Digest 面板形态退役，原绑定
+// B 形态收尾：player-host 整页接管随 文摘面板形态退役，原绑定
 // 实现里的挂载/布局分支一并删除——loadedmetadata 不再触发 layoutReaderPlayerHost，
 // seeked 不再排队控制条恢复（面板形态用户用原生控制条），宿主变化不再排队
 // ensureReaderPlayerMounted（video 换新时「重新绑定」由本函数首行的

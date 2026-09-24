@@ -60,7 +60,7 @@ export function mountPlayerChain(container = document.body) {
 }
 
 // 搭建阅读视图的基本 DOM 骨架（renderReadingView 及其 presentation 依赖的
-// 元素），返回 { readingView, readingMain, digestPanel }。阅读视图 id 取自
+// 元素），返回 { readingView, readingMain, scriptPanel }。阅读视图 id 取自
 // ids 表，顺序/从属关系与 ui-renderer.js 的真实模板保持一致（PR2 起：
 // 字幕列表挂进统一面板「字幕」tab body，header/settings 也在面板壳内——
 // 骨架按同一从属关系搭建，bindUiEvents 可直接使用。PR3 起字幕 tab 另含
@@ -78,58 +78,58 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   readingView.id = ids.readingView;
   doc.body.appendChild(readingView);
 
-  // 统一 Digest 面板壳（B 形态）：header / 设置面板 / 三标签 + tab body
+  // 统一 文摘面板壳（B 形态）：header / 设置面板 / 三标签 + tab body
   // 与真实模板同构，readingStatus 挪进 header 下方；字幕列表 .boc-reading-main
   // 挂在字幕 tab body 内。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管
   // 退役，不再搭建（章节列表由概览 tab 提供）。
-  const digestPanel = doc.createElement("aside");
-  digestPanel.id = ids.readingDigestPanel;
-  digestPanel.className = "boc-reading-digest-panel";
-  readingView.appendChild(digestPanel);
+  const scriptPanel = doc.createElement("aside");
+  scriptPanel.id = ids.readingScriptPanel;
+  scriptPanel.className = "boc-reading-script-panel";
+  readingView.appendChild(scriptPanel);
 
   const readingStatus = doc.createElement("p");
   readingStatus.id = ids.readingStatus;
-  digestPanel.appendChild(readingStatus);
+  scriptPanel.appendChild(readingStatus);
 
   const readingMeta = doc.createElement("div");
   readingMeta.id = ids.readingMeta;
-  digestPanel.appendChild(readingMeta);
+  scriptPanel.appendChild(readingMeta);
 
   const readingSettingsPanel = doc.createElement("div");
   readingSettingsPanel.id = ids.readingSettingsPanel;
-  digestPanel.appendChild(readingSettingsPanel);
+  scriptPanel.appendChild(readingSettingsPanel);
 
   const tabSubtitle = doc.createElement("button");
   tabSubtitle.id = ids.readingTabSubtitle;
   tabSubtitle.className = "boc-reading-tab is-active";
-  digestPanel.appendChild(tabSubtitle);
+  scriptPanel.appendChild(tabSubtitle);
 
   const tabOverview = doc.createElement("button");
   tabOverview.id = ids.readingTabOverview;
   tabOverview.className = "boc-reading-tab";
-  digestPanel.appendChild(tabOverview);
+  scriptPanel.appendChild(tabOverview);
 
   const tabChat = doc.createElement("button");
   tabChat.id = ids.readingTabChat;
   tabChat.className = "boc-reading-tab";
-  digestPanel.appendChild(tabChat);
+  scriptPanel.appendChild(tabChat);
 
   const tabBodySubtitle = doc.createElement("div");
   tabBodySubtitle.id = ids.readingTabBodySubtitle;
   tabBodySubtitle.className = "boc-reading-tab-body is-active";
-  digestPanel.appendChild(tabBodySubtitle);
+  scriptPanel.appendChild(tabBodySubtitle);
 
   const tabBodyOverview = doc.createElement("div");
   tabBodyOverview.id = ids.readingTabBodyOverview;
   tabBodyOverview.className = "boc-reading-tab-body";
   tabBodyOverview.setAttribute("hidden", "");
-  digestPanel.appendChild(tabBodyOverview);
+  scriptPanel.appendChild(tabBodyOverview);
 
   const tabBodyChat = doc.createElement("div");
   tabBodyChat.id = ids.readingTabBodyChat;
   tabBodyChat.className = "boc-reading-tab-body";
   tabBodyChat.setAttribute("hidden", "");
-  digestPanel.appendChild(tabBodyChat);
+  scriptPanel.appendChild(tabBodyChat);
 
   // PR4 概览 tab 渲染宿主（真实模板同构：reader/overview.js 按状态机整块重建）。
   // renderReadingView 尾部经 renderReadingOverview 收敛概览内容，骨架必须齐。
@@ -263,13 +263,13 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
 
   const readingSettingsBtn = doc.createElement("button");
   readingSettingsBtn.id = ids.readingSettingsBtn;
-  digestPanel.appendChild(readingSettingsBtn);
+  scriptPanel.appendChild(readingSettingsBtn);
 
   const readingInfoHost = doc.createElement("div");
   readingInfoHost.id = ids.readingSettingsHost;
-  digestPanel.appendChild(readingInfoHost);
+  scriptPanel.appendChild(readingInfoHost);
 
-  return { readingView, readingMain, digestPanel };
+  return { readingView, readingMain, scriptPanel };
 }
 
 // 给播放器链上的元素补可见尺寸，保证 video-probe 判定通过。

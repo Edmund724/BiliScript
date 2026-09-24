@@ -6,9 +6,9 @@
 // 变化而清空全部 clip 状态）。
 // 本函数仅 content 侧使用；replaceReaderModeUrl 原放在 core/runtime.js
 // （URL 工具杂项）现归位到 B 站域。buildReaderModeUrl 原为三处手抄
-// （reader/shell.ts resolveReaderEntryUrl、ui/digest-button.ts buildReaderUrl、
+// （reader/shell.ts resolveReaderEntryUrl、ui/script-button.ts buildReaderUrl、
 // reader/chat-tab.ts openCurrentContextInReader），arch-slim-2/03 收口为单源，
-// 2026-09 工单 02-toolbar-icon-opens-digest 起 SW 侧工具栏入口也要消费同一
+// 2026-09 工单 02-toolbar-icon-opens-script 起 SW 侧工具栏入口也要消费同一
 // 拼法——本文件拖 core/state 不能进 SW 图，纯 URL 计算的 buildReaderModeUrl
 // 已收编至 bilibili/video-id-shared.ts，此处 re-export 保持页内消费方不动。
 // 可 import core/state 与 bilibili/video-id-shared。

@@ -1,4 +1,4 @@
-// 后台字幕抓取落定后的「对账收尾」回归测试（M22 digest-eager-subtitle-overview）。
+// 后台字幕抓取落定后的「对账收尾」回归测试（M22 script-eager-subtitle-overview）。
 //
 // subtitle-ready 通知存在丢失形态（发射门控、init-essentials 分派链 catch 吞错），
 // 一旦丢失，列表渲染与概览自动生成只剩切 tab 兜底，而状态栏照写「抓取完成」
@@ -76,7 +76,7 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
 
     await shell.enterReaderMode();
 
-    // 打开即触发（点 Digest 同时启动抓取与概览生成；此时 body 为空早退），
+    // 打开即触发（点 Script 同时启动抓取与概览生成；此时 body 为空早退），
     // 概览触发电不依赖用户切 tab。
     expect(overview.triggerReaderOverviewGeneration).toHaveBeenCalledTimes(1);
 

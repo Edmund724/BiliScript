@@ -95,4 +95,4 @@ BiliScript 不出售个人信息、不构建广告画像、不与数据经纪商
 
 ## 联系
 
-本项目通过 [GitHub Issues](https://github.com/Edmund724/Bilibili-Summary/issues) 接收反馈。使用前请阅读本政策、源代码以及各服务商的文档；如发现漏洞或意外泄露，请通过 Issues 联系。
+本项目通过 [GitHub Issues](https://github.com/Edmund724/BiliScript/issues) 接收反馈。使用前请阅读本政策、源代码以及各服务商的文档；如发现漏洞或意外泄露，请通过 Issues 联系。

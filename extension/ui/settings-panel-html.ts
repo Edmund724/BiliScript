@@ -1,4 +1,4 @@
-// ui/settings-panel-html.ts — 设置抽屉的 HTML 模板（digest-only-ui，2026-09 拆分）。
+// ui/settings-panel-html.ts — 设置抽屉的 HTML 模板（script-only-ui，2026-09 拆分）。
 //
 // 自 settings-panel.ts 拆出（大文件拆分工单）：settings-panel.ts 只留流程编排
 //（模板挂载/装载/收集校验/保存/事件绑定/编辑 Modal 接线），模板字符串单独成

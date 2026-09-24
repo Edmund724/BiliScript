@@ -97,7 +97,7 @@ function overviewText(): string {
   return overviewBody().textContent || "";
 }
 
-// 金句复制反馈走 setMessage（digest-only-ui：宿主收敛到 #boc-reading-status）
+// 金句复制反馈走 setMessage（script-only-ui：宿主收敛到 #boc-reading-status）
 function messageText(): string {
   return (document.getElementById(ids.readingStatus) as HTMLElement).textContent || "";
 }
@@ -186,7 +186,7 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     };
     expect(args.provider).toEqual({ baseUrl: "https://api.test/v1", apiKey: "sk-test", model: "test-model", presetId: "custom" });
     expect(args.forceRefresh).toBe(false);
-    // digest-only-ui：章节/金句生成思考档位显式钉死 off（请求体的思考字段由
+    // script-only-ui：章节/金句生成思考档位显式钉死 off（请求体的思考字段由
     // thinking-profiles 查表注入，见 ai/completion.test 与 thinking-golden）
     expect(args.thinkingLevel).toBe("off");
     expect(args.context.bvid).toBe("BV1test000000");

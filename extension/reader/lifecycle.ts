@@ -3,21 +3,21 @@
 //
 // Deep module owning the reader view lifecycle (enter/close), the settings
 // rendering/steppers and the page-state guards. It depends
-// on the base LAYOUT layer (video-bind.js + digest-host.js)
+// on the base LAYOUT layer (video-bind.js + script-host.js)
 // and on ./sync.js; neither may import it, so the dependency graph stays acyclic:
 //
 //   ports.js        显式回调端口叶子（本模块在文件尾单点注册全部端口实现）
-//   LAYOUT          video-bind.js + digest-host.js → ports
+//   LAYOUT          video-bind.js + script-host.js → ports
 //   SYNC            sync.js（本文件）                      → SYNC + LAYOUT + ports
 //   LIFECYCLE       lifecycle.js（本文件）            → SYNC + LAYOUT + ports
 //
-// B 形态（右栏 Digest 面板）：进入链只开壳、渲染并 openDigestHost（播放器
-// 不动），close 拆 digest-host 并清理会话态；reader-bus reset 通知只停同步。
+// B 形态（右栏 文摘面板）：进入链只开壳、渲染并 openScriptHost（播放器
+// 不动），close 拆 script-host 并清理会话态；reader-bus reset 通知只停同步。
 import { state, transitionReaderShell } from "../core/state.js";
 import { getReaderElement } from "../shared/dom-utils.js";
 import { sleep } from "../shared/utils.js";
 // 候选02：updateReaderPreferences/renderReaderPanels 自 presentation.js 移回
-//（digest-only-ui：排版档位机制退役，validators 只剩主题归一化）。
+//（script-only-ui：排版档位机制退役，validators 只剩主题归一化）。
 import { normalizeReaderTheme } from "../core/validators.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
 import { extractBvid } from "../bilibili/video-id-shared.js";
@@ -53,11 +53,11 @@ import { READER_CLOSE_ATTRS } from "./presentation-fields.js";
 
 // LAYOUT (state) functions this module drives:
 import { ids } from "./state.js";
-// B 形态右栏 Digest 面板定位器：进入时开始贴栏定位，关闭时拆除。LAYOUT 层
-// 只剩 video-bind + digest-host。
-import { openDigestHost, closeDigestHost } from "./digest-host.js";
+// B 形态右栏 文摘面板定位器：进入时开始贴栏定位，关闭时拆除。LAYOUT 层
+// 只剩 video-bind + script-host。
+import { openScriptHost, closeScriptHost } from "./script-host.js";
 import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
-// PR2 统一 Digest 面板：进入阅读模式时把右侧面板重置回默认「字幕」标签。
+// PR2 统一 文摘面板：进入阅读模式时把右侧面板重置回默认「字幕」标签。
 // tab 切换是纯壳交互，实现在 ui/ui-renderer（bindUiEvents 的标签绑定同文件），
 // 本域只做打开时机上的重置触发（重渲 renderReadingView 不重置，避免打断用户）。
 // 工单 arch-review-2026-09/10 依赖反转：重置改经 reader-bus 的 reset-tabs 命令
@@ -147,7 +147,7 @@ import {
 
 // 「本视频字幕已在手」判定（入口与元数据等待后各判一次，同一份语义）。
 // 缓存命中须带视频身份校验：稍后再看列表内 SPA 换片若逃逸了 URL 监听
-// （如轮询兜底的一个节拍内点了 Digest），state.clip 可能还停在上一个
+// （如轮询兜底的一个节拍内点了 Script），state.clip 可能还停在上一个
 // 视频——subtitleBody 非空但 bvid 与当前地址不符时按未抓取处理，重抓。
 function hasSubtitleForCurrentVideo(): boolean {
   return (
@@ -289,9 +289,9 @@ export async function enterReaderMode() {
   // 首开路径随后 subtitle-ready 会再 start 一次（幂等：清旧 interval 重启）。
   startReadingViewSync();
   syncReadingViewPlayback(true);
-  // B 形态：面板贴右栏 fixed 定位（digest-host 负责算 rect/降级浮层）；
+  // B 形态：面板贴右栏 fixed 定位（script-host 负责算 rect/降级浮层）；
   // 播放器保持 B 站原生布局不动，无需等挂载。
-  openDigestHost();
+  openScriptHost();
   // 字幕未抓取时的后台兜底抓取（原 finishEnterReaderMode 链保留项）：B 形态
   // 面板以字幕为主内容，不依赖播放器挂载成功，直达路径也必须有数据来源。
   maybeRefreshReaderSubtitleInBackground();
@@ -383,7 +383,7 @@ export function closeReadingView() {
   stopReadingViewSync();
   // B 形态：拆除右栏定位监听并清 CSS 变量/浮层属性（紧随其后的一轮 render
   // 不再把门控选择器唤醒，面板安全回落 display:none）。
-  closeDigestHost();
+  closeScriptHost();
 }
 
 // 对话 tab 会话关闭的静默收尾（closeReadingView 的 fire-and-forget 半边）：
@@ -483,7 +483,7 @@ export function renderReaderPanels() {
   const settingsBtn = getReaderElement(ids.readingSettingsBtn);
   settingsPanel.hidden = !state.reader.readingSettingsExpanded;
   settingsBtn.classList.toggle("is-active", state.reader.readingSettingsExpanded);
-  // digest-only-ui：设置抽屉展开时装载原 options 页的全部设置项（宿主容器在
+  // script-only-ui：设置抽屉展开时装载原 options 页的全部设置项（宿主容器在
   // ui-renderer 模板内；模板与数据装载在 settings-panel 内，展开即刷新）。
   if (!settingsPanel.hidden) {
     void (async () => {
@@ -495,7 +495,7 @@ export function renderReaderPanels() {
 }
 
 // renderReadingInfoPanel / buildReadingSummaryItems 已随「视频摘要」「视频简介」
-// 区块删除（digest-only-ui：面板 header 下的 meta 行只留作者/来源/分P/字幕语言，
+// 区块删除（script-only-ui：面板 header 下的 meta 行只留作者/来源/分P/字幕语言，
 // 标题随 AI 对话 chip 展示，日期左侧视频区已有，均不占面板空间）。
 
 function buildReadingMetaLine() {

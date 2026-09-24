@@ -135,7 +135,7 @@ beforeEach(() => {
   resetModuleState();
   memoryStorage = installMemoryStorage();
 
-  // commitNoSubtitle 的 UI 面只剩状态栏回调（digest-only-ui 后预览 DOM 已删）：
+  // commitNoSubtitle 的 UI 面只剩状态栏回调（script-only-ui 后预览 DOM 已删）：
   // 注入 vi.fn 即可，不依赖真实渲染。
   configureCommitUi({
     setStatus: vi.fn()
