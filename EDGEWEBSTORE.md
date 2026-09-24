@@ -2,12 +2,11 @@
 
 > 状态：准备稿。按 Partner Center 的六个页面组织，每节内容可直接粘贴。
 > 事实与风险基线见 `.scratch/tickets/edge-store-publishing/spec.md`。
-> Chrome Web Store 版本见 `CHROMEWEBSTORE.md`（切到 Edge 后为待废弃文档）。
 
 ## 0. 提交前阻塞项
 
-- [ ] 重做截图到 **1280×800**（现有三张 1912×863 / 653×797 / 653×797，Edge 均不接受）
-- [ ] 生成 **300×300** 商店 logo（`extension/icons/icon128.png` 是 1:1、能过 128 底线，但推荐补大图）
+- [x] 重做截图到 **1280×800**（三张已就绪：`docs/images/store/01~03`）
+- [x] 生成 **300×300** 商店 logo（`docs/images/store/logo-300.png`）
 - [ ] 生成 **440×280** 小促销图（Edge 字段表标"可选"、总览页称"必需"，做一张规避歧义）
 - [ ] 确认 `PRIVACY.md` 已去掉浏览器绑定表述（本轮已改）
 - [ ] 备好发布者显示名与受监控的支持邮箱
@@ -21,7 +20,7 @@
 - `minimum_chrome_version` 是 Edge 官方字段列表中的受支持字段，保留
 - 无远程代码，无竞品商店链接
 
-包可以复用 `pnpm run build:release` 的产物。**可选的低成本规避**：产物文件名现在是 `bilibili-summary-v<版本>-chrome.zip`（`scripts/build_release.py:60` 硬编码），文件名会显示在 Partner Center 的包列表里，可换一个不含 "chrome" 的 Edge 变体名。
+包可以复用 `pnpm run build:release` 的产物，文件名 `bilibili-summary-v<版本>-edge.zip`（原 `-chrome.zip` 已改，避免 "chrome" 字样显示在 Partner Center 包列表里）。
 
 ## 2. Availability
 

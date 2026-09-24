@@ -57,7 +57,7 @@ def build_zip(version: str):
         )
 
     RELEASE_DIR.mkdir(parents=True, exist_ok=True)
-    zip_path = RELEASE_DIR / f"{PACKAGE_NAME}-v{version}-chrome.zip"
+    zip_path = RELEASE_DIR / f"{PACKAGE_NAME}-v{version}-edge.zip"
     if zip_path.exists():
         zip_path.unlink()
 
