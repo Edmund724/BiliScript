@@ -124,6 +124,11 @@ _Avoid_: API 格式、接口类型；与扩展内部消息协议（messaging-pro
 代码名：`ProtocolAdapter` / `PROTOCOL_ADAPTERS` 注册表 / `AI_PROTOCOLS` 词表叶（`protocol-vocab.ts`）
 _Avoid_: 每条协议复制编排链、编排层感知协议
 
+**平台请求代发**:
+扩展上下文代 content script 发起平台 HTTP 请求的通道总称——content script 的跨域 fetch 服从**网页** CORS，而平台网关的预检白名单常拒扩展自带的鉴权头（实测 ModelScope 的 Anthropic 端点拒 `x-api-key` / `anthropic-version`）。两条通道按请求时长分工：**SW 代发**（探针 / 选区解释 / 联网搜索三链）硬编码 15s 超时、受 MV3 service worker 生命周期约束，只服务短请求；**offscreen 代发**（概览链，一请求一端口、无超时）服务分钟级非流式请求（ADR-0010）。两端同文件组织 = 发送端在 content 合成标准 Response，接收端在承载上下文执行 fetch 并按 `ProviderHttpRequestResult` 回执。
+代码名：`providerFetchViaBackground` / `handleProviderHttpRequest`（SW 代发）；`providerFetchViaOffscreen` / `attachProviderHttpPort` / `PROVIDER_HTTP_OFFSCREEN_PORT_NAME`（offscreen 代发）
+_Avoid_: 把「content 发起、offscreen 执行」与「offscreen 客户端直发平台」混为一谈（后者仍被否决）；让概览回落页面源直发
+
 **搜索平台**:
 联网搜索平台（spec ai-chat-web-search，Tavily/Exa/Brave 三预设，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（单选激活，对齐 ASR radio 心智，"" = 无激活）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起 fetch：key 经消息中转（SW → offscreen 内存 →（消息 header）→ SW），SW 只做 fetch 发起方，key 不落 offscreen 存储/日志（protocol-vocab-leaf 文档语义修正，替代旧「密钥不出 SW」表述）；三家域为常驻 host 权限。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
 代码名：`searchProviderStore`（extension/search/search-provider-store.js）/ `normalizeSearchProvider` / `SEARCH_PROVIDER_PRESETS`（core/presets.js）/ 适配器 `extension/search/adapters/`
