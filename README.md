@@ -41,7 +41,7 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 
 ## 安装方式
 
-> 仅发布 Chrome / Chromium 版本，要求 Chrome 120 或更高版本，不支持 Firefox。核心功能依赖 offscreen 等 Chrome 专属 API。
+> 支持 Chrome 120 或更高版本，不支持 Firefox。核心功能依赖 offscreen 等 Chromium 专属 API。Edge 加载项商店版本上架后可直接在商店安装，当前可用下方 unpacked 方式。
 
 ### 方式一：下载打包版本（推荐）
 
@@ -65,7 +65,7 @@ cd BiliScript
 pnpm install
 pnpm run build          # 生成 dist/（content 分包 + 各入口 bundle，含 sourcemap）
 pnpm run dev            # watch 模式：首轮全量构建到 dist/ 后持续重建，改代码即生效
-pnpm run build:release  # 生成 Chrome 打包到 release/（zip 不含 sourcemap）
+pnpm run build:release  # 生成发布包到 release/（zip 不含 sourcemap）
 ```
 
 日常开发跑 `npm run dev`，在扩展管理页「加载已解压的扩展程序」选择 `dist/`，重建后点扩展的刷新按钮即可。
@@ -100,7 +100,7 @@ BiliScript 需要两个 Key（联网搜索是可选功能，需要时再加第�
 1. 打开硅基流动官方[注册页面](https://siliconflow.cn/)。
 2. 创建账号并登录。
 3. 在控制台的 API Key 管理页创建一个新 Key。
-4. 复制 Key，粘贴到 Bilibili Summary 设置中的 **硅基流动 API Key**。
+4. 复制 Key，粘贴到 BiliScript 设置中的 **硅基流动 API Key**。
 5. 点模型名右侧的箭头拉取该平台全部可选模型，从列表中选择一个。常用转写模型的区别：
    
    - `XingChenAGI/XingChenASR-V3.2`：免费，返回句级时间戳，字幕可逐句点击跳播。**实测速度最快，首选推荐**。
@@ -120,7 +120,7 @@ BiliScript 需要两个 Key（联网搜索是可选功能，需要时再加第�
 1. 打开 ModelScope 官方[注册/登录页面](https://modelscope.cn/)。
 2. 创建账号或登录。
 3. 在用户页或 API 管理页创建 SDK Token（通常是 `ms-` 开头）。
-4. 复制 Token，粘贴到 Bilibili Summary 设置中的 **ModelScope API Key**。
+4. 复制 Token，粘贴到 BiliScript 设置中的 **ModelScope API Key**。
 
 ModelScope 提供每日签到免费积分，注册后每天登录官网即可领取，积分可直接用于 AI 总结和对话，详见下方「免费额度与成本」。账号和接口的最新说明请查看 [ModelScope 官方 API 文档](https://modelscope.cn/docs/intro/model-service)。
 
@@ -196,7 +196,7 @@ ModelScope 提供每日签到免费积分，注册账号后每天登录官网即
 
 联网搜索是可选功能，不开启时不产生任何搜索请求，也就不产生任何费用。三家的免费额度与计费见上文「获取搜索平台 API Key（可选）」，首选 Tavily（每月 1,000 credits，一次搜索扣 1 credit）；用超免费额度后按各平台标准价计费，具体以官方页面为准。
 
-Bilibili Summary 不收款，也不转售 API 服务。建议为账号设置消费上限并定期查看用量。
+BiliScript 不收款，也不转售 API 服务。建议为账号设置消费上限并定期查看用量。
 
 ## AI 配置与平台支持
 
@@ -249,7 +249,7 @@ Bilibili Summary 不收款，也不转售 API 服务。建议为账号设置消�
 
 ## 隐私和数据流向
 
-Bilibili Summary 直接从扩展向服务商发送请求：
+BiliScript 直接从扩展向服务商发送请求：
 
 1. 从 B 站获取原生字幕数据。
 2. 使用 AI 功能时，把字幕和相关视频信息发送给 ModelScope 或你自行配置的 AI 平台；你在对话里粘贴的图片会以 base64 形式随消息一并发送（发送前在本地压缩为 WebP，长边不超过 1568px）。
@@ -258,7 +258,7 @@ Bilibili Summary 直接从扩展向服务商发送请求：
 5. 开启「无字幕视频语音识别回退」后，无字幕视频的音频会发送到你选用的语音识别平台（如硅基流动）转写。「本地 Whisper」预设连接本机自部署的转写服务，音频不出本机。不开启回退时，本工具不抓取也不上传任何音频。
 6. API Key、对话与最近缓存仅存本地（`chrome.storage.local`，不随账号同步）；非敏感设置（系统提示词、下载格式、AI 按钮提示词等）经 `chrome.storage.sync` 随 Chrome 账号在登录设备间同步。
 
-Bilibili Summary 没有账号系统、广告、分析统计或行为追踪。硅基流动、ModelScope 和你配置的搜索平台会按各自的条款和隐私政策处理数据。详见 [PRIVACY.md](PRIVACY.md)。
+BiliScript 没有账号系统、广告、分析统计或行为追踪。硅基流动、ModelScope 和你配置的搜索平台会按各自的条款和隐私政策处理数据。详见 [PRIVACY.md](PRIVACY.md)。
 
 ## 常见问题
 

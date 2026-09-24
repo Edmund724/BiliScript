@@ -1,6 +1,6 @@
 {
   "name": "biliscript",
-  "version": "2.2.2",
+  "version": "2.3.0",
   "description": "B 站视频字幕阅读与 AI 总结浏览器扩展",
   "devEngines": {
     "packageManager": {
