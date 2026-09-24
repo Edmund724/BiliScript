@@ -20,7 +20,7 @@
 - `minimum_chrome_version` 是 Edge 官方字段列表中的受支持字段，保留
 - 无远程代码，无竞品商店链接
 
-包可以复用 `pnpm run build:release` 的产物，文件名 `bilibili-summary-v<版本>-edge.zip`（原 `-chrome.zip` 已改，避免 "chrome" 字样显示在 Partner Center 包列表里）。
+包可以复用 `pnpm run build:release` 的产物，文件名 `BiliScript-v<版本>-edge.zip`（原 `bilibili-summary-...-chrome.zip` 已改，避免旧产品名和 "chrome" 字样显示在 Partner Center 包列表里）。
 
 ## 2. Availability
 
