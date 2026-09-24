@@ -2,13 +2,13 @@
 
 生效日期：2026 年 9 月 24 日
 
-Bilibili-Summary 是一个仅发布在 GitHub、自带 API Key（bring-your-own-key）的 Chrome 扩展。它没有账号系统、没有开发者运营的后端服务器、没有统计分析、没有广告、没有遥测。
+BiliScript 是一个仅发布在 GitHub、自带 API Key（bring-your-own-key）的 Chrome 扩展。它没有账号系统、没有开发者运营的后端服务器、没有统计分析、没有广告、没有遥测。
 
 > 本扩展基于 [haixiong1997/Bilibili-Obsidian-Clipper](https://github.com/haixiong1997/Bilibili-Obsidian-Clipper)（MIT）二次开发，UI 设计参考 [YouTube Digest](https://github.com/zarazhangrui/youtube-digest)。
 
 ## 扩展会处理哪些数据
 
-根据你使用的功能，Bilibili-Summary 会处理：
+根据你使用的功能，BiliScript 会处理：
 
 - 当前 B 站视频的规范 URL 与视频标识（bvid / cid / aid）、分 P 信息；
 - 字幕文本与时间戳（B 站原生字幕，或你开启语音识别回退后由 ASR 生成的字幕）；
@@ -54,7 +54,7 @@ Bilibili-Summary 是一个仅发布在 GitHub、自带 API Key（bring-your-own-
 
 ## 本地存储与留存
 
-Bilibili-Summary 使用 Chrome 扩展存储，不使用任何云端服务：
+BiliScript 使用 Chrome 扩展存储，不使用任何云端服务：
 
 - 以下数据仅保存在设备本地（`chrome.storage.local`，不随账号同步）：API Key、AI / ASR 平台配置、保存的笔记、对话历史（上限 60 条会话）、字幕 / 分段小结 / 概览缓存。对话历史中每条会话最多保留你最近发送的一张图片（base64 内联，不超过 1MB）；删除对话或清除扩展存储即可移除。缓存按「缓存族」组织——原始字幕段、分段小结、整篇字幕正文、概览分段、整份概览产物各为一族，每族只保留最近写入的 **3 个视频**（超出按最近写入时间淘汰，由 LRU 索引驱动）；各缓存族**没有字节上限**，清单中的 `unlimitedStorage` 权限即为此声明，防止 Chrome 在常规配额下清理这些数据；缓存写入也**没有待写并发上限**——每次写入就是一次直接的 `chrome.storage.local.set` 调用，不走并发队列。
 - 非敏感设置（系统提示词、快捷提示词、下载格式、Frontmatter 字段、语音识别开关与语言档位等）保存在 `chrome.storage.sync`，会随你的 Chrome 账号在你自己登录的设备之间同步。API Key 永不进入该同步通道。
@@ -83,11 +83,11 @@ Chrome 扩展存储不是密码保险箱。任何能充分访问你的浏览器�
 - `https://api.tavily.com/*`、`https://api.exa.ai/*`、`https://api.search.brave.com/*`：仅在你开启联网搜索时向选用的搜索平台发送查询词并取回结果；这三个域名随扩展声明，未配置搜索平台则不会发起请求；
 - AI / ASR 平台域名为可选权限（`http://*/*`、`https://*/*`）：仅在你保存对应平台、或点模型名右侧箭头拉取该平台模型列表时弹窗申请，删除平台时自动回收。
 
-Bilibili-Summary 不会利用上述权限监控你的一般浏览行为。
+BiliScript 不会利用上述权限监控你的一般浏览行为。
 
 ## 不出售、无广告
 
-Bilibili-Summary 不出售个人信息、不构建广告画像、不与数据经纪商共享数据，也不包含任何统计或分析 SDK。
+BiliScript 不出售个人信息、不构建广告画像、不与数据经纪商共享数据，也不包含任何统计或分析 SDK。
 
 ## 政策变更
 

@@ -12,9 +12,9 @@
 
 **Detailed Description**:
 
-BiliScript 在 B 站视频页右侧打开文摘阅读面板，让你一边看视频，一边读取逐句字幕、章节和 AI 摘要。点击视频播放器下方的文摘按钮，或点击浏览器工具栏上的扩展图标——两个入口完全等价，打开的是同一个页面内阅读面板。设置、字幕、概览、AI 对话和笔记都在这个面板内。
+BiliScript 在 B 站视频页右侧打开文摘阅读面板，让你一边看视频，一边读取逐句字幕、章节和 AI 摘要。点击视频播放器下方的文摘按钮，或点击浏览器工具栏上的扩展图标——两个入口完全等价，打开的是同一个页面内阅读面板。设置、字幕、概览和 AI 对话都在这个面板内。
 
-你可以按时间跳转字幕，搜索当前句，复制或下载 Markdown、SRT 和 TXT；也可以保存带时间戳的笔记。概览会整理章节、重点引用和完整笔记。AI 对话能围绕当前视频追问，并使用你配置的模型；选中字幕后，可以继续请求讲解、翻译或润色。可选开启联网搜索后，模型在需要视频之外的信息时可自行查询，回答中给出搜索时间线、来源链接与内联引用；该功能默认关闭，需要用户自行配置搜索平台（Tavily / Exa / Brave Search）。
+你可以按时间跳转字幕，搜索当前句，复制或下载 Markdown、SRT 和 TXT。概览会整理章节和重点引用。AI 对话能围绕当前视频追问，并使用你配置的模型；选中字幕后，可以继续请求讲解、翻译或润色。可选开启联网搜索后，模型在需要视频之外的信息时可自行查询，回答中给出搜索时间线、来源链接与内联引用；该功能默认关闭，需要用户自行配置搜索平台（Tavily / Exa / Brave Search）。
 
 视频没有字幕轨时，语音识别回退可以把音频转成带时间戳的字幕。只有开启无字幕回退且当前视频确实没有字幕时，扩展才会抓取音频。
 
@@ -24,7 +24,7 @@ API Key 由你自己配置。扩展直接连接你选择的 AI、语音识别和
 
 **Category**: Productivity
 
-**Single Purpose**: 在 B 站视频页内整理可跳转字幕、摘要和笔记。
+**Single Purpose**: 在 B 站视频页内整理可跳转字幕和摘要。
 
 **Primary Language**: 简体中文
 
@@ -54,7 +54,7 @@ Refresh the screenshots after the toolbar entry and compatibility fixes are comp
 | `scripting` | permissions | Run the reading interface and player controls on supported Bilibili video pages. |
 | `offscreen` | permissions | Decode audio and process AI or ASR streams in a background document while the user continues browsing the video page. |
 | `declarativeNetRequest` | permissions | Add short-lived session rules that set the Referer/Origin headers for requests to Bilibili's audio CDN while an active speech-recognition task is running, then remove those rules when the task finishes. |
-| `https://www.bilibili.com/*` | host_permissions | Read supported video and watch-later pages so the extension can add the Digest button and reading interface. |
+| `https://www.bilibili.com/*` | host_permissions | Read supported video and watch-later pages so the extension can add the 文摘 button and reading interface. |
 | `https://api.bilibili.com/*` | host_permissions | Fetch video metadata and subtitle data while the user is reading or summarizing a Bilibili video. |
 | `https://*.hdslb.com/*` | host_permissions | Fetch subtitle files (subtitle-body JSON) hosted on Bilibili's CDN. |
 | `https://*.bilivideo.com/*` | host_permissions | Download the audio track from Bilibili's CDN only when the speech-recognition fallback is enabled and the current video has no subtitle track. |
@@ -125,7 +125,7 @@ The policy and the store disclosure must be checked together before submission. 
 Before submission:
 
 - Implementation tickets #01 through #05 are merged; ticket #06 (chrome-runtime-acceptance) must pass before submission.
-- Update the support screenshots to show the current in-page Digest panel with both entry points (page Digest button and toolbar icon).
+- Update the support screenshots to show the current in-page 文摘 panel with both entry points (page 文摘 button and toolbar icon).
 - Confirm that the extension name and Bilibili references comply with the Chrome Web Store trademark policy.
 - Fill in the publisher name and a monitored contact email.
 - Verify that the GitHub-hosted privacy policy URL is public and matches the completed code.
