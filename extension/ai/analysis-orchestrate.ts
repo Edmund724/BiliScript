@@ -6,6 +6,10 @@ import { buildSubtitleSourceKey, buildSubtitleSignature, normalizeSubtitleItems 
 import { logError } from "../shared/logging.js";
 import { makeAbortedError } from "../shared/error-helpers.js";
 import { createCacheFamily } from "../core/cache-lru.js";
+// 概览请求的传输层（overview-offscreen-transport）：content 直发服从网页 CORS，
+// 平台网关的预检白名单不含 Anthropic 的 x-api-key / anthropic-version（实测
+// ModelScope），故概览的每一次调用都经 offscreen 代发（长请求宿主，见模块头注）。
+import { providerFetchViaOffscreen } from "../core/provider-http-offscreen.js";
 import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
 import { buildCostGuardNotice as _buildCostGuardNotice } from "./cost-guard.js";
 import { chatCompletion as _chatCompletion } from "./completion.js";
@@ -137,6 +141,8 @@ type ChatCompletionFn = (input: {
   signal?: AbortSignal | null;
   retries?: number;
   maxTokens?: number | null;
+  // 传输层注入（overview-offscreen-transport）：概览一律经 offscreen 代发
+  fetchImpl?: typeof fetch;
 }) => Promise<unknown>;
 
 type BuildBudgetPlanFn = (args: { body?: unknown[]; chapters?: unknown[] }) => BudgetPlan;
@@ -256,7 +262,9 @@ async function requestValidatedPart({
     { role: "user", content: built.prompt }
   ];
   const baseMaxTokens = estimateOutputTokens(built.transcriptChars, { ratio: 0.5, floor: 2048 });
-  const requestBase = { provider, messages, thinkingLevel, signal, retries };
+  // 传输层钉死在 offscreen 代发（空正文重试与分段路径共用本函数，一处覆盖）：
+  // 概览是非流式请求，不得回落 globalThis.fetch 的页面源直发。
+  const requestBase = { provider, messages, thinkingLevel, signal, retries, fetchImpl: providerFetchViaOffscreen };
   let text = await chatCompletionImpl({ ...requestBase, maxTokens: baseMaxTokens });
   if (!String(text ?? "").trim()) {
     text = await chatCompletionImpl({

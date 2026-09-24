@@ -43,6 +43,9 @@ const OFFSCREEN_SOURCES = [
   "../../extension/entry/offscreen-lifecycle.ts",
   "../../extension/entry/offscreen-subtitle-slot.ts",
   "../../extension/entry/offscreen.html",
+  // 概览代发通道的 offscreen 半边（overview-offscreen-transport）：接收端在
+  // core/provider-http-offscreen.ts，同文件另有 content 侧发送端（不在本文档内运行）
+  "../../extension/core/provider-http-offscreen.ts",
   // 页面半边（内容脚本侧，见上方注释）：纵深防御收编（r1 审查 P2）
   "../../extension/asr/offscreen-bridge.page.ts"
 ];

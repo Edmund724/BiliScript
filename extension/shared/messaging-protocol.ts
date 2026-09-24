@@ -493,7 +493,24 @@ export type OffscreenAsrPortMessage = {
   };
 };
 
-export type OffscreenPortMessage = OffscreenChatPortMessage | OffscreenAsrPortMessage;
+// 概览链的平台请求代发（overview-offscreen-transport）：content script 发起、
+// offscreen 文档执行的一次性请求。概览是分钟级非流式请求，SW 代发（provider-http）
+// 的 15s 超时与 MV3 SW 生命周期都不适用，故宿主取 offscreen——扩展源 fetch 只受
+// host 权限约束，不过网页 CORS 预检（content 直发会撞网关预检白名单）。
+// 端口名常量与两端实现在 core/provider-http-offscreen.ts（两端同文件）；
+// 回执形状复用 core/provider-http.ts 的 ProviderHttpRequestResult。
+export type OffscreenProviderHttpPortMessage = {
+  action: "provider-http";
+  url?: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+};
+
+export type OffscreenPortMessage =
+  | OffscreenChatPortMessage
+  | OffscreenAsrPortMessage
+  | OffscreenProviderHttpPortMessage;
 
 // ===== 通用处理函数签名 =====
 

@@ -21,7 +21,16 @@ type ChatCompletionCall = {
   retries?: number;
   maxTokens?: number | null;
   stream?: boolean;
+  // 传输层注入（overview-offscreen-transport）：概览请求必须带 offscreen 代发，
+  // 不得回落 globalThis.fetch（页面源直发撞平台网关的 CORS 预检）
+  fetchImpl?: unknown;
 };
+
+// 概览请求的传输层单点（content 发起 → offscreen 执行）；断言逐调用比对同一
+// 函数引用，防回归直发。
+async function loadOffscreenRelay() {
+  return (await import("../../extension/core/provider-http-offscreen.js")).providerFetchViaOffscreen;
+}
 
 // 内存 Map 实现的 chrome.storage.local（get/set/remove 均 vi.fn，便于断言与注入失败）。
 function createMemoryStorage() {
@@ -253,6 +262,9 @@ describe("双路径分派", () => {
     expect(calls[0].retries).toBe(2);
     expect(calls[0].stream).toBeUndefined();
     expect(calls[0].thinkingLevel).toBe("off");
+    // 传输层：页面源直发会撞平台网关 CORS 预检（ModelScope 的 Anthropic 端点拒
+    // anthropic-version/x-api-key），概览一律经 offscreen 代发
+    expect(calls[0].fetchImpl).toBe(await loadOffscreenRelay());
     // 系统提示词 = 整份分章提示词；用户提示词无 rangeNote（分段标记不出现）
     expect(calls[0].messages[0].content).toContain("产出一份结构化概览：章节 + 金句");
     // script-only-ui：顶层概述字段已移除（章节条目内的 summary 不受影响）
@@ -285,6 +297,9 @@ describe("双路径分派", () => {
     expect(calls.every((c) => c.retries === undefined)).toBe(true);
     // 每段请求都携带 off 档位（协议层据此注入 THINKING_DISABLE_FIELDS）
     expect(calls.every((c) => c.thinkingLevel === "off")).toBe(true);
+    // 并发分段的每段请求同样经 offscreen 代发（不得有直发回落）
+    const offscreenRelay = await loadOffscreenRelay();
+    expect(calls.every((c) => c.fetchImpl === offscreenRelay)).toBe(true);
 
     const firstUser = calls.find((c) => c.messages.at(-1)!.content.includes("第 1 / 5 段"))!.messages.at(-1)!.content;
     expect(firstUser).toContain("注意：这是长视频切分后的第 1 / 5 段，覆盖 0:00 到 4:10");

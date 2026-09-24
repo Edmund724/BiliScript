@@ -45,6 +45,9 @@ import { resolveWebSearchRuntime } from "../search/search-runtime.js";
 // postMessage 入参从 Record<string, unknown> 收为协议联合——下游
 // ladder/streamChat/map-reduce 构造的联合成员获得编译期约束。
 import { OFFSCREEN_CHAT_PORT_NAME } from "../chat/protocol.js";
+// 概览链的平台请求代发（overview-offscreen-transport）：端口名常量与两端同址
+// 在 core/provider-http-offscreen.ts；本文档只认领端口并按活跃端口集簿记生命周期。
+import { PROVIDER_HTTP_OFFSCREEN_PORT_NAME, attachProviderHttpPort } from "../core/provider-http-offscreen.js";
 import type { ChatPortMessage } from "../chat/protocol.js";
 // 写聚合（段缓存写聚合 ticket）：abort/超时/异常路径把 proxy 缓冲的同段 raw 落盘；
 // 新 chat 消息开始时亦 await flush 一次（上一轮的残留接力落盘——追问是缓冲 raw 的
@@ -94,13 +97,15 @@ var STREAM_IDLE_TIMEOUT_MS = 90000;
 // port 断连会重置其 lastAcked，时序缝隙里漏网的缺失消息走 settle 的错误回执。
 const subtitleSlot = createSubtitleBodySlot();
 
-// 同一文档双通道存活计数：聊天（OFFSCREEN_CHAT_PORT_NAME 端口）用计数维护，
-// 解码任务（"asr-decode" 端口）用存活端口集合维护——终态判定要排除
-// 本次任务的端口自身（done/error 时它还连着），集合比计数少一分监听
-// 注册时序依赖。asr-decode 任务终态后由 maybeCloseSelfAfterAsr 据此决定
-// 是否自关文档（判定纯函数在 ./offscreen-lifecycle.js）。
+// 同一文档三通道存活计数：聊天（OFFSCREEN_CHAT_PORT_NAME 端口）用计数维护，
+// 解码任务（"asr-decode" 端口）与概览代发（PROVIDER_HTTP_OFFSCREEN_PORT_NAME
+// 端口）用存活端口集合维护——终态判定要排除本次任务的端口自身（done/error 时
+// 它还连着），集合比计数少一分监听注册时序依赖。asr-decode 任务终态后由
+// maybeCloseSelfAfterAsr 据此决定是否自关文档（判定纯函数在
+// ./offscreen-lifecycle.js）；概览代发在飞时不得自关（回执通道会被吞掉）。
 let currentChatCount = 0;
 const activeAsrPorts = new Set<chrome.runtime.Port>();
+const activeProviderPorts = new Set<chrome.runtime.Port>();
 
 // ASR 族懒加载：load() 返回「已注入 onTaskTerminal 的任务执行器」——动态
 // import 与工厂装配都在 loadFn 内，工厂只执行一次。任务终态（断连取消 /
@@ -154,6 +159,16 @@ chrome.runtime.onConnect.addListener((port) => {
       if (!msg || msg.action !== ASR_DECODE_ACTION) return;
       dispatchAsrDecodeTask(msg.task || {}, port);
     });
+    return;
+  }
+  if (port && port.name === PROVIDER_HTTP_OFFSCREEN_PORT_NAME) {
+    // 概览代发端口：入集即算「文档有承载」（ASR 终态不关本文档），请求执行与
+    // 断连 abort 全在 attachProviderHttpPort 内；本文件只簿记生命周期。
+    activeProviderPorts.add(port);
+    port.onDisconnect.addListener(() => {
+      activeProviderPorts.delete(port);
+    });
+    attachProviderHttpPort(port);
     return;
   }
   if (!port || port.name !== OFFSCREEN_CHAT_PORT_NAME) {
@@ -320,9 +335,10 @@ function abortActiveRequest() {
 
 // asr-decode 任务终态（done / error / 断连取消）后的自关判定，三处终态
 // 共用本函数（offscreen-asr.js 经 onTaskTerminal 回调触达，装载失败路径在
-// 上方 dispatchAsrDecodeTask），不得各写一份。本文档同时承载聊天与解码：
-// 聊天端口还在（currentChatCount > 0）或有其他解码任务在跑（刷新竞态下新
-// 任务可能已连上本文档）时保留；否则文档已无承载，自关以释放渲染进程。调用
+// 上方 dispatchAsrDecodeTask），不得各写一份。本文档同时承载聊天、解码与
+// 概览代发三条通道：聊天端口还在（currentChatCount > 0）、有其他解码任务在跑
+//（刷新竞态下新任务可能已连上本文档）、或有概览代发端口在飞（分钟级请求，被
+// 自关吞掉的话回执永远不到）时保留；否则文档已无承载，自关以释放渲染进程。调用
 // 时终态消息必须已 postMessage 发完——文档关闭后无法再 postMessage。
 // 装载中的分支不会触发本判定（装载由端口消息触发、端口已入集），纯 ASR /
 // 纯聊天 / 混合会话的关闭行为与拆分前一致。
@@ -331,7 +347,7 @@ function maybeCloseSelfAfterAsr(port: chrome.runtime.Port) {
   // 断连收尾），断连取消时可能已被断连监听移出——Set.delete 幂等，
   // 两种时序都正确。
   activeAsrPorts.delete(port);
-  if (activeAsrPorts.size > 0 || !shouldCloseAfterAsrTask(currentChatCount)) {
+  if (activeAsrPorts.size > 0 || !shouldCloseAfterAsrTask(currentChatCount, activeProviderPorts.size)) {
     return;
   }
   // 自关闭经 runtime 消息委托 SW 执行（工单 03：offscreen 无 chrome.offscreen，
