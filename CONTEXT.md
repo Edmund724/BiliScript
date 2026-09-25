@@ -125,7 +125,7 @@ _Avoid_: API 格式、接口类型；与扩展内部消息协议（messaging-pro
 _Avoid_: 每条协议复制编排链、编排层感知协议
 
 **平台怪癖词表**:
-协议线格式层面的平台差异（请求体字段名、思考词汇、消息历史要求、会话头、流式哨兵）的**唯一主人**：稳定键 + 语义 + 适用协议 + 线格式取值，借 pi-ai `compat` 的命名与语义设计、**不借其数据**（ADR-0009）。纯叶零 import（只 type-import 词表叶 `AiProtocol`），不拖入分发表与 adapters。「该平台开哪些怪癖」在 `PLATFORM_QUIRKS` 一处声明；「该协议 adapter 接纳哪些怪癖」由 `ProtocolAdapter.consumes` 自陈，两侧由 `validateCompatVocab` 在测试期对账——声明了没人接纳（死声明）与接纳了没声明（漏登记）都报错，**校验不进运行时**。模型血统事实（哪档发什么字段）不在词表：那是 `thinking-profiles.ts` 的单一事实源，词表只登记它与协议栈之间的缝隙。
+协议线格式层面的平台差异（请求体字段名、思考词汇、消息历史要求、会话头、流式哨兵）的**唯一主人**：稳定键 + 语义 + 适用协议 + 线格式取值，借 pi-ai `compat` 的命名与语义设计、**不借其数据**（ADR-0009）。纯叶零 import（只 type-import 词表叶 `AiProtocol`），不拖入分发表与 adapters。「该平台开哪些怪癖」在 `PLATFORM_QUIRKS` 一处声明；「该协议 adapter 接纳哪些怪癖」由 `ProtocolAdapter.consumes` 自陈，两侧由 `validateCompatVocab` 在测试期对账——声明了没人接纳（死声明）与接纳了没声明（漏登记）都报错；平台侧另查平台 id 是真实 AI 预设、怪癖绑定的协议该平台登记了端点（否则是构造性死声明）。**校验不进运行时**。对账只到「端点存不存在」，**不按记录当前选的协议收窄**——设置 UI 的协议下拉对任何预设都无条件渲染两种协议，绑在另一条通道上的怪癖只是不生效、不是违规。模型血统事实（哪档发什么字段）不在词表：那是 `thinking-profiles.ts` 的单一事实源，词表只登记它与协议栈之间的缝隙。
 代码名：`COMPAT_QUIRKS` / `PLATFORM_QUIRKS` / `hasPlatformQuirk` / `quirkWireValue` / `validateCompatVocab`（`ai/compat-vocab.ts`）/ `ProtocolAdapter.consumes`（`ai/protocol-adapter.ts`）
 _Avoid_: 在 adapter 注释里回抄怪癖语义（只指键名）、给 pi-ai 的 compat 值开运行时入口、把模型血统事实搬进词表、词表叶里 value-import 协议栈
 

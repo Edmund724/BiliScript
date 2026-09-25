@@ -14,13 +14,13 @@ import { readFileSync } from "node:fs";
 import { AI_PROTOCOLS, type AiProtocol } from "../../extension/ai/protocol-vocab.js";
 import {
   COMPAT_QUIRKS,
-  PLATFORM_QUIRKS,
   hasPlatformQuirk,
   quirkWireValue,
   validateCompatVocab,
   type CompatQuirk
 } from "../../extension/ai/compat-vocab.js";
 import { PROTOCOL_ADAPTERS } from "../../extension/ai/protocol-adapter.js";
+import { PRESETS } from "../../extension/core/presets.js";
 import { presetRequestHeaders, sessionIdFor } from "../../extension/ai/preset-headers.js";
 
 // adapter 侧的自陈「我接纳这些怪癖」，与词表声明的适用协议对账用。
@@ -29,6 +29,24 @@ function adapterConsumes(): Record<AiProtocol, readonly CompatQuirk[]> {
     openai: PROTOCOL_ADAPTERS.openai.consumes,
     anthropic: PROTOCOL_ADAPTERS.anthropic.consumes
   };
+}
+
+// 协议缺省就是 openai（resolveAdapter 兜底），它的端点恒为 preset.baseUrl；
+// 其余协议须由 protocolBaseUrls 登记了端点，才算该平台真能服务这条通道。
+const DEFAULT_PROTOCOL: AiProtocol = "openai";
+
+// 每个平台实际登记了端点的协议（由 core/presets.ts 推导，词表叶保持零 import）。
+function presetProtocols(): Record<string, AiProtocol[]> {
+  const out: Record<string, AiProtocol[]> = {};
+  for (const preset of PRESETS) {
+    const served: AiProtocol[] = [];
+    for (const protocol of AI_PROTOCOLS) {
+      const endpoint = protocol === DEFAULT_PROTOCOL ? preset.baseUrl : preset.protocolBaseUrls?.[protocol];
+      if (endpoint) served.push(protocol);
+    }
+    out[preset.id] = served;
+  }
+  return out;
 }
 
 describe("compat-vocab 词表叶", () => {
@@ -79,6 +97,10 @@ describe("二次校验层（声明与接纳对账）", () => {
     expect(validateCompatVocab({ consumes: adapterConsumes() })).toEqual([]);
   });
 
+  it("真实表零违规（含端点对账）：平台 id 是真预设，且绑定的协议该平台有端点", () => {
+    expect(validateCompatVocab({ consumes: adapterConsumes(), platformProtocols: presetProtocols() })).toEqual([]);
+  });
+
   it("adapter 漏接纳（少认一个键）→ 报错，指出缺哪个协议", () => {
     const real = adapterConsumes();
     const errors = validateCompatVocab({
@@ -113,17 +135,45 @@ describe("二次校验层（声明与接纳对账）", () => {
     ).toContain('PLATFORM_QUIRKS.broken: 怪癖键 "maxTokensField" 没有任何协议 adapter 接纳（死声明）');
   });
 
-  it("真实平台声明表零违规（PLATFORM_QUIRKS 的每个键都被某 adapter 接纳）", () => {
-    const consumes = adapterConsumes();
-    for (const [platform, quirks] of Object.entries(PLATFORM_QUIRKS)) {
-      for (const quirk of quirks) {
-        expect(COMPAT_QUIRKS[quirk], platform).toBeDefined();
-        const accepted = (Object.keys(consumes) as AiProtocol[]).some((protocol) =>
-          consumes[protocol].includes(quirk)
-        );
-        expect(accepted, `${platform} → ${quirk}`).toBe(true);
-      }
-    }
+  it("平台 id 必须是真实 AI 预设（防手滑打错）", () => {
+    expect(
+      validateCompatVocab({
+        consumes: adapterConsumes(),
+        platformProtocols: presetProtocols(),
+        platforms: { opencodgo: ["sessionHeader"] }
+      })
+    ).toContain("PLATFORM_QUIRKS.opencodgo: 平台 id 不在 core/presets.ts 的 AI 预设词表里");
+  });
+
+  it("怪癖绑定的协议该平台没登记端点 → 构造性死声明（anthropic-only 怪癖给了 ollama）", () => {
+    // ollama 只登记了 openai 端点（http://localhost:11434/v1），没有
+    // protocolBaseUrls.anthropic：UI 里选 anthropic 会回落 baseUrl 拼出
+    // /v1/v1/messages，那条声明永远走不到——但"某 adapter 接纳"这道查不出来。
+    expect(presetProtocols().ollama).toEqual(["openai"]);
+    expect(
+      validateCompatVocab({
+        consumes: adapterConsumes(),
+        platformProtocols: presetProtocols(),
+        platforms: { ollama: ["thinkingDisabledMustBeExplicit"] }
+      })
+    ).toContain(
+      'PLATFORM_QUIRKS.ollama: 怪癖键 "thinkingDisabledMustBeExplicit" 只适用于 anthropic，但该平台未登记这些协议的端点（构造性死声明）'
+    );
+  });
+
+  it("跨协议声明不算违规：判据是端点存不存在，不是记录当前选了哪个协议", () => {
+    // stepfun 两种端点都登记了：effortVocabMessages 绑 anthropic、
+    // overrideEffortVocabulary 绑 openai，两条在同一张表里共存——设置 UI 的协议
+    // 下拉对任何预设都无条件渲染两种协议，怪癖按通道各自生效。stepfun 的 openai
+    // 通道正是它的主通道，绑在 anthropic 上的那条只是不生效，不是违规。
+    expect([...presetProtocols().stepfun].sort()).toEqual(["anthropic", "openai"]);
+    expect(
+      validateCompatVocab({
+        consumes: adapterConsumes(),
+        platformProtocols: presetProtocols(),
+        platforms: { stepfun: ["effortVocabMessages", "overrideEffortVocabulary"] }
+      })
+    ).toEqual([]);
   });
 });
 

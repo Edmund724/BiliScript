@@ -11,7 +11,8 @@
 // - PLATFORM_QUIRKS 是「该平台开哪些怪癖」的唯一声明处。新增平台时在这里登记一行。
 // - ProtocolAdapter.consumes 是「该协议 adapter 接纳哪些怪癖」的自陈；校验器
 //   validateCompatVocab 对账两侧（测试期跑，不进运行时）：声明了却没人接纳、
-//   接纳了却没声明，都报错。
+//   接纳了却没声明，都报错；平台侧另查平台 id 是否为真实预设、怪癖绑定的协议
+//   该平台有没有登记端点。
 //
 // 词表里只放**协议线格式层面的怪癖**（请求体字段名、思考词汇、消息历史要求、
 // 会话头、流式哨兵…）。模型血统事实（哪档发什么字段）不在这里——那是
@@ -191,17 +192,31 @@ export function quirkWireValue(platformId: string | undefined, quirk: CompatQuir
 // ===== 二次校验层（测试期"编译器"，票第 4 条）=====
 // 语义：词表声明的「适用协议」与 adapter 自陈的「接纳的怪癖」必须两侧对齐——
 // 声明了没人接纳 = 死声明，接纳了没声明 = 漏登记。两者都报错，测试即红。
+// 平台侧另有两道：平台 id 必须是真实 AI 预设；怪癖绑定的协议该平台得有端点
+// （否则声明永远走不到，见 platformProtocols 注释）。
 // 校验真实表（传 consumes）或注入违规后的表副本；返回中文错误列表（空 = 通过）。
-// 纯函数、无副作用：consumes 由调用方从 PROTOCOL_ADAPTERS 取（词表叶不 import 分发表）。
+// 纯函数、无副作用：consumes 与 platformProtocols 由调用方从 PROTOCOL_ADAPTERS
+// 与 PRESETS 取（词表叶不 import 分发表，也不 import 预设表）。
 
 export interface CompatVocabTables {
   quirks?: Record<string, CompatQuirkSpec>;
   platforms?: Readonly<Record<string, readonly CompatQuirk[]>>;
   /** 每个协议 adapter 接纳的怪癖键集（按 AiProtocol 索引）。 */
   consumes: Readonly<Record<AiProtocol, readonly CompatQuirk[]>>;
+  /**
+   * 每个平台**实际登记了端点**的协议（调用方从 core/presets.ts 推导；缺省则
+   * 跳过端点这道检查）。
+   *
+   * 判据是「端点存不存在」而不是「这条 provider 记录当前选了什么协议」——
+   * 设置 UI 的协议下拉对任何预设都无条件渲染两种协议，且多数平台两种都真的
+   * 能服务。所以一条绑在 anthropic 通道上的怪癖，在 openai 记录上只是**不生效**，
+   * 不是违规（stepfun / amd 的 openai 通道正是它们的主通道）；只有当平台压根没
+   * 登记那个协议的端点时，声明才是构造性的死路。
+   */
+  platformProtocols?: Readonly<Record<string, readonly AiProtocol[]>>;
 }
 
-export function validateCompatVocab({ quirks = COMPAT_QUIRKS, platforms = PLATFORM_QUIRKS, consumes }: CompatVocabTables): string[] {
+export function validateCompatVocab({ quirks = COMPAT_QUIRKS, platforms = PLATFORM_QUIRKS, consumes, platformProtocols }: CompatVocabTables): string[] {
   const errors: string[] = [];
 
   for (const [quirk, spec] of Object.entries(quirks)) {
@@ -223,6 +238,10 @@ export function validateCompatVocab({ quirks = COMPAT_QUIRKS, platforms = PLATFO
   // 接纳（不声明没人消费的死键）。
   const protocols = Object.keys(consumes) as AiProtocol[];
   for (const [platform, declared] of Object.entries(platforms)) {
+    const served = platformProtocols?.[platform];
+    if (platformProtocols && !served) {
+      errors.push(`PLATFORM_QUIRKS.${platform}: 平台 id 不在 core/presets.ts 的 AI 预设词表里`);
+    }
     for (const quirk of declared) {
       if (!quirks[quirk]) {
         errors.push(`PLATFORM_QUIRKS.${platform}: 怪癖键 "${quirk}" 不在词表 COMPAT_QUIRKS 中`);
@@ -230,6 +249,12 @@ export function validateCompatVocab({ quirks = COMPAT_QUIRKS, platforms = PLATFO
       }
       if (!protocols.some((protocol) => consumes[protocol].includes(quirk))) {
         errors.push(`PLATFORM_QUIRKS.${platform}: 怪癖键 "${quirk}" 没有任何协议 adapter 接纳（死声明）`);
+      }
+      if (served && !quirks[quirk].protocols.some((protocol) => served.includes(protocol))) {
+        errors.push(
+          `PLATFORM_QUIRKS.${platform}: 怪癖键 "${quirk}" 只适用于 ${quirks[quirk].protocols.join(" / ")}，` +
+            `但该平台未登记这些协议的端点（构造性死声明）`
+        );
       }
     }
   }
