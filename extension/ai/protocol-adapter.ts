@@ -13,6 +13,12 @@ import type { ChatMessage, ChatToolCall, StreamChatEvent } from "./types.js";
 export type { AiProtocol } from "./protocol-vocab.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 
+// 平台怪癖词表（compat-vocab 票）：怪癖键的语义与适用协议以词表单源为准，
+// adapter 只在 consumes 里自陈"我接纳哪些键"，对账在测试期（词表叶零依赖，
+// 不拖入 adapters/分发表）。
+export type { CompatQuirk } from "./compat-vocab.js";
+import type { CompatQuirk } from "./compat-vocab.js";
+
 // tools 定义沿用 OpenAI 风格形状（编排层词表，adapter 内翻译为协议线格式）。
 export interface ChatToolDefinition {
   type: "function";
@@ -61,6 +67,13 @@ export interface DrainContext {
 export interface ProtocolAdapter {
   readonly protocol: AiProtocol;
   readonly capabilities: ProtocolCapabilities;
+  /**
+   * 本 adapter 接纳的平台怪癖（compat-vocab 词表的稳定键，语义与适用协议
+   * 以词表单源为准）。声明侧是词表、接纳侧是这里，测试期由
+   * `validateCompatVocab` 对账——声明了没人接纳 / 接纳了没声明都报错。
+   * 这是纯自陈，不参与请求构造（行为零变化）。
+   */
+  readonly consumes: readonly CompatQuirk[];
 
   /** 端点路径（baseUrl 已去尾斜杠；代理平台路径以官方文档为准） */
   endpoint(baseUrl: string): string;

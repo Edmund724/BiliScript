@@ -45,10 +45,13 @@ export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
 // 单档字段补丁。fields 键白名单：thinking / enable_thinking / reasoning_effort
 // （校验器强制）。温度类字段明令禁止——Kimi 等平台思考模式温度/top_p 固定且
 // 官方明确不要显式传，本扩展从不发 temperature 是安全属性（矩阵报告现状判定节）。
+// 三套字段词汇本身是平台怪癖，语义见 compat-vocab 词表的 thinkingFormat；本表
+// 逐格给「哪档发哪个字段」的**事实**，两者分工不重叠。
 export interface ThinkingPatch {
   fields?: Record<string, unknown>;
   // 仅流式可发（如 qwen3-235b/32b/30b 的 enable_thinking:false，百炼限制）；
   // 非流式请求遇此规则按「无事实」处理，走级联（Q14A）。
+  // 该限制的平台语义是怪癖 streamingOnlyThinkingOff（compat-vocab 词表）。
   streamOnly?: boolean;
 }
 
@@ -64,7 +67,8 @@ export interface ClassRule {
   low?: ThinkingPatch;
   high?: ThinkingPatch;
   // token 上限参数的随表事实（openai-reasoning 系须 max_completion_tokens）；
-  // 缺省 = max_tokens。本票只随 resolver 返回，请求体消费是 04 号票。
+  // 缺省 = max_tokens。参数名差异的平台语义见 compat-vocab 词表的 maxTokensField
+  // （本表只给逐模型事实，词表给"这条怪癖是什么"）。
   tokenParam?: "max_tokens" | "max_completion_tokens";
 }
 
@@ -293,7 +297,8 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
 // unknownClass 分工（spec）：词汇平台无关的（Ollama/SiliconFlow/ModelScope/Mimo）
 // 给 provider 级默认；按模型定协议的（DeepSeek/Qwen/GLM/Kimi/MiniMax/
 // StepFun）不给，未知模型落 unknown 哨兵。override 型：OpenRouter / AMD /
-// SenseNova / Opencode Go（严格拒收 thinking 开关、整域只认 effort 词汇的网关）。
+// SenseNova / Opencode Go（严格拒收 thinking 开关、整域只认 effort 词汇的网关，
+// 平台语义见 compat-vocab 词表的 overrideEffortVocabulary）。
 export const PROVIDERS: Record<string, ProviderRule> = {
   deepseek: {},      // 协议按模型定（api-docs.deepseek.com）
   qwen: {},          // 百炼模型族已覆盖 taxonomy；未列模型白名单制风险高，不发
@@ -425,8 +430,9 @@ export function resolveThinkingProfile({ presetId, baseUrl, model, level, stream
 
 // provider 识别：presetId 优先（02 穿线），host 推断兜底（本票对 custom/直填
 // baseUrl 的平台生效）。识别结果以 id 形式另开一口给需要「是哪家平台」的消费方
-// ——目前只有 anthropic adapter 的平台专属思考词汇（stepfun / amd 的 Messages
-// 通道只认 output_config.effort）；开这口是为了不让那边复制一份识别规则。
+// ——目前只有 anthropic adapter 的平台专属思考词汇（怪癖 effortVocabMessages：
+// stepfun / amd 的 Messages 通道只认 output_config.effort，词表 PLATFORM_QUIRKS
+// 是那份名单的唯一主人）；开这口是为了不让那边复制一份识别规则。
 export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): string | undefined {
   const byId = String(presetId || "").trim();
   if (byId && PROVIDERS[byId]) {

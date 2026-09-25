@@ -29,7 +29,7 @@
 
 **语义叠加与单一事实源才是理由**：目录任务只取数据，上述成本一个都不发生。因此边界划死：
 
-- **借**：目录 schema 的字段划分（`contextWindow` / `maxTokens` / `reasoning` / `input` / `cost` / `compat`）；`compat` 开关词表（`thinkingFormat`、`maxTokensField`、`requiresReasoningContentOnAssistantMessages` 等平台怪癖的命名与语义，这是当前最缺的东西——非思考类的平台怪癖现在散在三个 adapter 的注释里，没有统一词表）；`dsh-llm-pi-ai` 的二次校验层思路（profile 声明的 compat 字段必须被该协议接纳，否则报错）。
+- **借**：目录 schema 的字段划分（`contextWindow` / `maxTokens` / `reasoning` / `input` / `cost` / `compat`）；`compat` 开关词表（`thinkingFormat`、`maxTokensField`、`requiresReasoningContentOnAssistantMessages` 等平台怪癖的命名与语义，这是当前最缺的东西——非思考类的平台怪癖现在散在两个 adapter 的注释里，没有统一词表；已落地为 `extension/ai/compat-vocab.ts`）；`dsh-llm-pi-ai` 的二次校验层思路（profile 声明的 compat 字段必须被该协议接纳，否则报错）。
 - **不借**：`dsh-llm-pi-ai` 的外来 assistant 消息降级 / replay 机制（那是"跨 provider 迁移多轮历史"的问题，本扩展场景不同，见 `conversation.ts`）；以及任何**运行时数据**——包括**不拿 pi-ai 的 `thinkingLevelMap` / `compat` 去补 `thinking-profiles.ts` 的空白**（那是同一模型两个事实源，正是要避免的 bug 类型）。
 
 ## 考虑过的方案

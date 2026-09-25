@@ -1,9 +1,12 @@
 // ai/preset-headers.ts — 平台预设额外要求的请求头（查表单点）。
 //
+// 平台会话头的**事实主人在 compat-vocab 词表**（怪癖 sessionHeader）：本模块只
+// 取头名并填值，不再自建「哪个平台要什么头」的名单——新增要会话头的平台 =
+// 词表 PLATFORM_QUIRKS 里加一行。
+//
 // Opencode Go：官方文档「Where can I use it?」要求客户端在 x-opencode-session 里
 // 给每个对话一个稳定会话 id（供平台做路由与 prompt 缓存），不带这个头请求不被
-// 接受。规则与取值都在本模块，completion.ts（唯一 fetch 点）是唯一消费点；
-// 新增「按预设补头」的平台只在此登记一行。
+// 接受。completion.ts（唯一 fetch 点）是唯一消费点。
 //
 // 会话 id 的来源是宿主给的会话身份（provider.sessionId = chat 会话 id，见
 // entry/offscreen.ts 的接线与 chat/chat-runtime.ts 的物化）：同一会话跨轮、
@@ -11,10 +14,7 @@
 // 「每个对话一个稳定会话 id」。没有会话身份的调用（选区解释、连通性探针、
 // 旧宿主）现造一个随机 id：这些调用本身就不构成「一个对话」。
 
-// 预设 id → 会话头名（presets.ts 的 AiProviderPreset.id 词表键）。
-const SESSION_HEADER_PRESETS: Readonly<Record<string, string>> = {
-  opencodego: "x-opencode-session"
-};
+import { quirkWireValue } from "./compat-vocab.js";
 
 export interface PresetHeaderInput {
   presetId?: unknown;
@@ -23,7 +23,7 @@ export interface PresetHeaderInput {
 
 // 该预设要求的额外请求头；无要求返回空对象（调用方展开合并）。
 export function presetRequestHeaders(provider?: PresetHeaderInput | null): Record<string, string> {
-  const header = SESSION_HEADER_PRESETS[String(provider?.presetId || "").trim()];
+  const header = quirkWireValue(String(provider?.presetId || "").trim(), "sessionHeader");
   if (!header) {
     return {};
   }

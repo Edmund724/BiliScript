@@ -124,6 +124,11 @@ _Avoid_: API 格式、接口类型；与扩展内部消息协议（messaging-pro
 代码名：`ProtocolAdapter` / `PROTOCOL_ADAPTERS` 注册表 / `AI_PROTOCOLS` 词表叶（`protocol-vocab.ts`）
 _Avoid_: 每条协议复制编排链、编排层感知协议
 
+**平台怪癖词表**:
+协议线格式层面的平台差异（请求体字段名、思考词汇、消息历史要求、会话头、流式哨兵）的**唯一主人**：稳定键 + 语义 + 适用协议 + 线格式取值，借 pi-ai `compat` 的命名与语义设计、**不借其数据**（ADR-0009）。纯叶零 import（只 type-import 词表叶 `AiProtocol`），不拖入分发表与 adapters。「该平台开哪些怪癖」在 `PLATFORM_QUIRKS` 一处声明；「该协议 adapter 接纳哪些怪癖」由 `ProtocolAdapter.consumes` 自陈，两侧由 `validateCompatVocab` 在测试期对账——声明了没人接纳（死声明）与接纳了没声明（漏登记）都报错，**校验不进运行时**。模型血统事实（哪档发什么字段）不在词表：那是 `thinking-profiles.ts` 的单一事实源，词表只登记它与协议栈之间的缝隙。
+代码名：`COMPAT_QUIRKS` / `PLATFORM_QUIRKS` / `hasPlatformQuirk` / `quirkWireValue` / `validateCompatVocab`（`ai/compat-vocab.ts`）/ `ProtocolAdapter.consumes`（`ai/protocol-adapter.ts`）
+_Avoid_: 在 adapter 注释里回抄怪癖语义（只指键名）、给 pi-ai 的 compat 值开运行时入口、把模型血统事实搬进词表、词表叶里 value-import 协议栈
+
 **平台请求代发**:
 扩展上下文代 content script 发起平台 HTTP 请求的通道总称——content script 的跨域 fetch 服从**网页** CORS，而平台网关的预检白名单常拒扩展自带的鉴权头（实测 ModelScope 的 Anthropic 端点拒 `x-api-key` / `anthropic-version`）。两条通道按请求时长分工：**SW 代发**（探针 / 选区解释 / 联网搜索三链）硬编码 15s 超时、受 MV3 service worker 生命周期约束，只服务短请求；**offscreen 代发**（概览链，一请求一端口、无超时、一律分块回吐）服务分钟级流式长请求（ADR-0010）。两端同文件组织 = 发送端在 content 用分块回吐合成标准 Response（响应头先落定，status/ok 立即可用；`.json()`/`.text()` 与流式读 body 同一形状），接收端在承载上下文执行 fetch 并按到达顺序回吐响应头 / 正文分片 / done。
 代码名：`providerFetchViaBackground` / `handleProviderHttpRequest`（SW 代发）；`providerFetchViaOffscreen` / `attachProviderHttpPort` / `PROVIDER_HTTP_OFFSCREEN_PORT_NAME`（offscreen 代发）
@@ -155,7 +160,7 @@ _Avoid_: 热路径 handler 直读 storage、给快照加写接口、绕过快照
 3. **目录对协议无感**：查表键是 `(piProvider, modelId)`，`protocol` 不参与。`resolvePiProvider` 的两段识别都不读协议字段；实证在 `tests/ai/model-catalog.test.ts`（「同名模型在不同 provider 下各归各的登记值」与「presetId 优先于 host」）。
 4. **查不到即 `null`，UI 静默隐藏，不回落猜测值。** `lookupModelMeta` 对未知键与非字符串入参一律 `null`；UI 侧 `[data-model-meta]` 置 `hidden` 整栏不占位（无 "—"、无「暂无数据」）——`tests/ui/model-catalog-meta.test.ts` 的隐藏用例。
 5. **产物是零 `import` 的叶子模块，且只能懒加载，不得进 SW 静态图。** `extension/ai/catalog/pi-ai-catalog.generated.ts` 零 `import`（`tests/ai/model-catalog.test.ts` 叶子用例）；只被 `ai/model-catalog.ts` 静态引用、`ai/model-catalog` 无人静态引用（同文件静态边用例）；SW 侧由 `scripts/build.js` 的 `assertBackgroundStaticGraphSlim` 兜底，content 常驻侧由 `scripts/build-content.js` 的「主包不得静态引用 chunks/」兜底。
-6. **不拿外部数据补 `thinking-profiles.ts`**——那张表是单一事实源。产物刻意不带 `compat` / `thinkingLevelMap`；线格式与平台怪癖事实只活在 `ai/thinking-profiles.ts` 与三个 adapter。
+6. **不拿外部数据补 `thinking-profiles.ts`**——那张表是单一事实源。产物刻意不带 `compat` / `thinkingLevelMap`；线格式与平台怪癖事实只活在 `ai/thinking-profiles.ts` 与两个 adapter（`adapters/openai.ts` / `adapters/anthropic.ts`）。
 
 配套约束（同源，别越过）：`AiProviderPreset.piProvider` 与无数据白名单 `NO_CATALOG_PRESETS` 同源在 `core/presets.ts`（新增预设漏配即测试红，`tests/ai/model-catalog.test.ts` 的覆盖/反向用例）；`preset → piProvider` 是显式映射，host 只兜底 `custom`/未知预设；无数据平台（`qwen` / `stepfun` / `modelscope` / `amd` / `sensenova` / `ollama` / `custom`）永远没有元数据。
 

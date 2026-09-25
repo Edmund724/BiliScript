@@ -5,6 +5,7 @@
 // index 聚合）/ 非流式 choices 提取。唯一新增 extractErrorDetail（错误 envelope
 // 提取）——spec 错误归一化要求，core 统一加 `[协议名] ` 前缀与 200 字符截断。
 // core（completion.ts）只留重试/中止/溢出/探针骨架。
+// 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
@@ -54,10 +55,10 @@ type ChatRequestBody = {
   tool_choice?: "auto";
 }
 
-// 消息翻译（image-input 路线 B）：带 images 的消息把 content 翻成 content parts
-//（text 块 + 每张图一个 image_url 块，url 为 data:<mime>;base64,<b64>）；text 块
-// 仅在正文非空时发出——空 text 块部分兼容端点会 400。无图消息的线形状与改动前
-// 逐字节一致（images 字段不上线，是个纯本地字段）。
+// 消息翻译（怪癖 contentPartsAsArray，语义见 compat-vocab）：带 images 的消息把
+// content 翻成 content parts（text 块 + 每张图一个 image_url 块，url 为
+// data:<mime>;base64,<b64>）；text 块仅在正文非空时发出——空 text 块部分兼容端点会
+// 400。无图消息的线形状与改动前逐字节一致（images 字段不上线，是个纯本地字段）。
 function toWireMessages(messages: ChatMessage[]): WireMessage[] {
   return messages.map(({ images, ...message }) => {
     if (!images?.length) return message;
@@ -73,11 +74,12 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
 /**
  * 构造 chat/completions 请求体（纯函数，便于单测；请求构造单点）。
  * stream 显式传递（流式 true / 非流式 false）；maxTokens 供探针传 1。
- * 思考字段由 thinking-profiles 的 resolveThinkingProfile 查表决定：平台
- * （presetId / baseUrl host）× 模型（例外表 >> 模式表）→ 档位 patch；查不到
- * 事实（unknown 哨兵）或缺档一律不发字段——软失败优于硬 400。resolver 返回的
- * offUnavailable / thinkingClass（03 对话提示）本函数不消费；tokenParam（04
- * token 参数映射）在 maxTokens 写入时消费：openai-reasoning 系写
+ * 思考字段由 thinking-profiles 的 resolveThinkingProfile 查表决定（怪癖
+ * thinkingFormat，语义见 compat-vocab）：平台（presetId / baseUrl host）× 模型
+ * （例外表 >> 模式表）→ 档位 patch；查不到事实（unknown 哨兵）或缺档一律不发
+ * 字段——软失败优于硬 400。resolver 返回的 offUnavailable / thinkingClass
+ * （03 对话提示）本函数不消费；tokenParam（04 token 参数映射，见怪癖
+ * maxTokensField）在 maxTokens 写入时消费：openai-reasoning 系写
  * max_completion_tokens，其余类与 unknown 维持 max_tokens 现状。
  * messages 经 toWireMessages 翻译：带图消息的 content → text/image_url 块数组，
  * 无图消息原字段原值透传。
@@ -97,10 +99,10 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
   });
   Object.assign(body, thinking.fields);
   if (maxTokens != null) {
-    // token 上限参数名随表（04 号票）：openai-reasoning 系不认 max_tokens（严格
-    // 400），写 max_completion_tokens；其余类与 unknown（resolver 不返回
-    // tokenParam）维持 max_tokens 现状。探针（maxTokens 默认 1）与概览/分析的
-    // 估算预算（含空正文加倍重试）同走此接缝，自动生效、无需调用方特判。
+    // 怪癖 maxTokensField（语义见 compat-vocab）：token 上限参数名随表（04 号票）——
+    // openai-reasoning 系不认 max_tokens（严格 400），写 max_completion_tokens；其余类与
+    // unknown（resolver 不返回 tokenParam）维持 max_tokens 现状。探针（maxTokens 默认 1）
+    // 与概览/分析的估算预算（含空正文加倍重试）同走此接缝，自动生效、无需调用方特判。
     body[thinking.tokenParam ?? "max_tokens"] = maxTokens;
   }
   return body;
@@ -124,7 +126,8 @@ export function parseToolArgs(rawArguments: string): { query: string } {
  * 读取并解析单个 SSE 响应，逐事件经 onEvent 吐出（不依赖 port/DOM）。
  * 手动 buffer 按行切、data: 前缀、[DONE] 跳过；解析出的事件（reasoning/content）
  * 归一为 { type: "token" | "reasoning", data }（port 协议词表，适配层可直透）。
- * 联网搜索扩展：delta.tool_calls 分片按 index 聚合（id/name/arguments 跨 chunk
+ * 联网搜索扩展（怪癖 toolCallFragmentsByIndex，语义见 compat-vocab）：
+ * delta.tool_calls 分片按 index 聚合（id/name/arguments 跨 chunk
  * 拼接），流结束时逐条吐 onEvent({ type: "tool-call", name, args: { query } })
  * （spec §2.2 聚合后发出），并随返回值带回聚合结果。
  * 中止时抛 makeAbortedError，由调用方统一收束。
@@ -203,12 +206,30 @@ export const openaiAdapter: ProtocolAdapter = {
     unsupported: {}
   },
 
+  // 平台怪癖自陈（语义与适用协议见 compat-vocab 词表单源）：
+  // maxTokensField（token 上限参数名）/ thinkingFormat（思考词汇三套）/
+  // streamingOnlyThinkingOff（关思考仅流式）/ overrideEffortVocabulary（effort 词汇网关）/
+  // contentPartsAsArray（带图消息 content 翻块数组）/ toolCallFragmentsByIndex（分片按 index 聚合）/
+  // sessionHeader（会话头由 preset-headers 按词表派生）/
+  // bearerOptionalWithoutKey（空 key 不注入 Authorization）。
+  consumes: [
+    "maxTokensField",
+    "thinkingFormat",
+    "streamingOnlyThinkingOff",
+    "overrideEffortVocabulary",
+    "contentPartsAsArray",
+    "toolCallFragmentsByIndex",
+    "sessionHeader",
+    "bearerOptionalWithoutKey"
+  ],
+
   endpoint(baseUrl: string): string {
     return `${baseUrl}${OPENAI_CHAT_PATH}`;
   },
 
   authHeaders(apiKey: string | undefined): Record<string, string> {
-    // Bearer 仅在 apiKey 存在时注入（现状：requiresKey=false 的平台允许空 key）。
+    // 怪癖 bearerOptionalWithoutKey（语义见 compat-vocab）：Bearer 仅在 apiKey
+    // 存在时注入（requiresKey=false 的平台允许空 key）。
     return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
   },
 

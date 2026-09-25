@@ -1,58 +1,68 @@
 // ai/adapters/anthropic.ts — Anthropic Messages API 协议适配器（multi-protocol-ai
 // 第二部分）。线格式对照 research/anthropic-wire-mapping.md（issues/02），底稿为
 // 评审过的 prototype adapters/anthropic.ts，实现期修正四处：
-// - probe 不发 thinking（探针 maxTokens=1，budget_tokens 必须 < max_tokens，发了必 400）；
+// - probe 不发 thinking（怪癖 probeOmitsThinking）；
 // - off 判定覆盖全部关思考词汇（enable_thinking:false / thinking:{type:"disabled"}
 //   / reasoning_effort:"none"），prototype 只认 effort 词表会把 off 误发成开；
 // - 流内不吐 done（对齐 openai adapter：done 由 client/map-reduce 收口单发，
-//   prototype 的 message_stop 发 done 会与调用方收口双发）；
-// - stop_reason 必须映射回 OpenAI 词表（tool_use→"tool_calls" 等）：tool-loop 对
-//   finishReason 精确匹配 "tool_calls"（tool-loop.ts），原词会让联网轮提前返回；
-//   research「保留原词」的建议与真实消费方矛盾，spec「编排层零改动」优先。
+//   prototype 的 message_stop 发 done 会与调用方收口双发；怪癖 noDoneSentinel）；
+// - stop_reason 必须映射回 OpenAI 词表（tool_use→"tool_calls" 等，怪癖
+//   stopReasonVocabulary）：tool-loop 对 finishReason 精确匹配 "tool_calls"
+//   （tool-loop.ts），原词会让联网轮提前返回；research「保留原词」的建议与真实
+//   消费方矛盾，spec「编排层零改动」优先。
 // 另修正 prototype 的线形状错误：message_delta 的 stop_reason 在 delta 内。
 // 聚合形状与 openai adapter 同型（DrainResult），编排层零改动。
+// 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { normalizeThinkingLevel, resolveThinkingProfile, resolveThinkingProviderId } from "../thinking-profiles.js";
+import { hasPlatformQuirk } from "../compat-vocab.js";
 import { parseToolArgs } from "./openai.js";
 import type { ChatRequest, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall } from "../types.js";
 
-// Anthropic max_tokens 必填且无默认：调用方未传时 adapter 兜底（research 限制点 1）。
-// 兜底值的语义 =「调用方不关心时给一个合理上限」（OpenAI 系平台此时干脆不发字段、
-// 由平台自身默认决定），故按「思考预算之外还留得下正文」取值。思考是否计入
-// max_tokens 看平台：官方文档计入（budget_tokens 是目标而非硬上限）；ModelScope
-// 实测分模型——Qwen3.8-Flash-Next 不计入（max_tokens=8192 时 output_tokens 可达
-// 15805，stop_reason 仍 end_turn），step-3.7-flash 计入、会把正文挤成空串
-// （即 analysis-orchestrate 的 finish_reason=length 空正文记录）。中文长答本身也
-// 吃额度：实测 4096 下六千字散文在 5637 字处截断（stop_reason=max_tokens），同一
-// 请求 8192 完整收尾。8192 = 默认思考预算 2048 + 6144 正文余量。
+// 怪癖 maxTokensRequired（语义见 compat-vocab 词表单源）：max_tokens 必填且无
+// 默认，调用方未传时 adapter 兜底。兜底值的语义 =「调用方不关心时给一个合理上限」
+// （OpenAI 系平台此时干脆不发字段、由平台自身默认决定），故按「思考预算之外还
+// 留得下正文」取值。思考是否计入 max_tokens 看平台：官方文档计入（budget_tokens
+// 是目标而非硬上限）；ModelScope 实测分模型——Qwen3.8-Flash-Next 不计入
+// （max_tokens=8192 时 output_tokens 可达 15805，stop_reason 仍 end_turn），
+// step-3.7-flash 计入、会把正文挤成空串（即 analysis-orchestrate 的
+// finish_reason=length 空正文记录）。中文长答本身也吃额度：实测 4096 下六千字散文
+// 在 5637 字处截断（stop_reason=max_tokens），同一请求 8192 完整收尾。
+// 8192 = 默认思考预算 2048 + 6144 正文余量。
 const DEFAULT_MAX_TOKENS = 8192;
-// 开思考的 budget_tokens 下限（Anthropic 硬性要求 ≥1024）与默认预算；
-// budget 计入 max_tokens，故必须 < max_tokens。
+// 怪癖 thinkingBudgetTokens（语义见 compat-vocab）：开思考的 budget_tokens 下限
+// （Anthropic 硬性要求 ≥1024）与默认预算；budget 计入 max_tokens，故必须 < max_tokens。
 const MIN_BUDGET_TOKENS = 1024;
 const DEFAULT_BUDGET_TOKENS = 2048;
 
-// 思考档位改写：chat 形状字段 → Anthropic thinking 形状（research 限制点 11）。
-// thinking-profiles 表本身不改（OpenAI 词汇），改写发生在此；关思考的三种词汇
-// 殊途同归为 thinking:{type:"disabled"}——「Anthropic 默认即关、一律不发字段」在
-// 默认开思考的网关上不成立：ModelScope Messages 端点实测（2026-09，
-// deepseek-ai/DeepSeek-V4.1-Flash）默认开思考、enable_thinking:false 被忽略、
-// 思考计入 max_tokens 会把正文挤成空串（概览卡「模型正在思考…」的根因），只有
+// 思考档位改写（怪癖 thinkingFormat，语义见 compat-vocab）：chat 形状字段 →
+// Anthropic thinking 形状。thinking-profiles 表本身不改（OpenAI 词汇），改写发生
+// 在此；关思考的三种词汇殊途同归为 thinking:{type:"disabled"}——见怪癖
+// thinkingDisabledMustBeExplicit：「Anthropic 默认即关、一律不发字段」在默认开
+// 思考的网关上不成立（ModelScope Messages 端点实测 2026-09，
+// deepseek-ai/DeepSeek-V4.1-Flash 默认开思考、enable_thinking:false 被忽略、
+// 思考计入 max_tokens 会把正文挤成空串，即概览卡「模型正在思考…」的根因），只有
 // thinking:{type:"disabled"} 能真正关掉。
 //
 // Anthropic 家族的思考开关有两套词汇：老式 thinking:{type,budget_tokens}（原生各家）
-// 与新式 output_config.effort。以下平台的 Messages 通道只认后者：
+// 与新式 output_config.effort。走 Messages 通道而只认后者的平台由怪癖
+// effortVocabMessages 登记（stepfun / amd，词表 PLATFORM_QUIRKS 是唯一主人，
+// 本文件不再自建名单）：
 // - stepfun：官方请求字段表列 output_config.effort、未列 thinking
 //   （platform.stepfun.com/docs/zh/api-reference/chat/messages-create）。
 // - amd：带 budget_tokens 的 thinking 明确 400（"thinking" is not supported for
 //   this model），官方指引用 output_config.effort
 //   （amd-aim.github.io/radeon-cloud-docs/zh-cn/api/messages/）。
 // effort 取矩阵已算好的 reasoning_effort（同域词表），不自造映射。
-const EFFORT_VOCAB_PRESETS = new Set(["stepfun", "amd"]);
+function usesEffortVocabulary(presetId?: string, baseUrl?: string): boolean {
+  return hasPlatformQuirk(resolveThinkingProviderId(presetId, baseUrl), "effortVocabMessages");
+}
 
 function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest): void {
-  // 探针不发 thinking：探针 maxTokens=1，而 budget_tokens ≥1024 且必须 < max_tokens，
-  // 任何 thinking 字段都会把探针打成 400（探针语义 = 测连通，成功判定 response.ok）。
+  // 怪癖 probeOmitsThinking：探针不发 thinking——探针 maxTokens=1，而
+  // budget_tokens ≥1024 且必须 < max_tokens，任何 thinking 字段都会把探针打成
+  // 400（探针语义 = 测连通，成功判定 response.ok）。
   if (request.probe) return;
   const thinking = resolveThinkingProfile({
     presetId: request.presetId,
@@ -64,22 +74,23 @@ function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest
   const fields = thinking.fields;
   // 无事实（unknown 哨兵 / never / always 无档可落）：维持不发——软失败优于硬 400。
   if (!Object.keys(fields).length) return;
-  const effortVocab = EFFORT_VOCAB_PRESETS.has(resolveThinkingProviderId(request.presetId, request.baseUrl) ?? "");
+  const effortVocab = usesEffortVocabulary(request.presetId, request.baseUrl);
   const off =
     fields.reasoning_effort === "none" ||
     fields.enable_thinking === false ||
     (fields.thinking as { type?: unknown } | undefined)?.type === "disabled";
   if (off) {
     // 查表给出关思考声明 = 该平台此模型可关思考：翻译成 Anthropic 原生
-    // thinking:{type:"disabled"} 显式发出，不能依赖服务端默认（默认开思考的
-    // 网关见文件头 ModelScope 实测）。effort 词汇平台（stepfun/amd）的 Messages
-    // 通道不收 thinking 字段：维持不发。
+    // thinking:{type:"disabled"} 显式发出，不能依赖服务端默认（怪癖
+    // thinkingDisabledMustBeExplicit，默认开思考的网关见文件头 ModelScope 实测）。
+    // effort 词汇平台（stepfun/amd）的 Messages 通道不收 thinking 字段：维持不发。
     if (effortVocab) return;
     body.thinking = { type: "disabled" };
     return;
   }
-  // 只认 effort 词汇的平台：矩阵给的就是 reasoning_effort，原样作为 effort 发出；
-  // 若矩阵给的是别的开关词汇（无 reasoning_effort）则不发——软失败优于硬 400。
+  // 怪癖 effortVocabMessages：只认 effort 词汇的平台，矩阵给的就是
+  // reasoning_effort，原样作为 effort 发出；若矩阵给的是别的开关词汇（无
+  // reasoning_effort）则不发——软失败优于硬 400。
   if (effortVocab) {
     const effort = fields.reasoning_effort;
     if (typeof effort === "string" && effort !== "none") {
@@ -87,16 +98,17 @@ function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest
     }
     return;
   }
-  // 开思考：{ type: "enabled", budget_tokens }；budget 夹在 [1024, max_tokens) 内，
-  // 放不下（调用方 maxTokens 过小）则不发——软失败优于硬 400。
+  // 开思考（怪癖 thinkingBudgetTokens）：{ type: "enabled", budget_tokens }；
+  // budget 夹在 [1024, max_tokens) 内，放不下（调用方 maxTokens 过小）则不发
+  // ——软失败优于硬 400。
   const maxTokens = (body.max_tokens as number) ?? DEFAULT_MAX_TOKENS;
   const budget = Math.min(DEFAULT_BUDGET_TOKENS, maxTokens - 1);
   if (budget < MIN_BUDGET_TOKENS) return;
   body.thinking = { type: "enabled", budget_tokens: budget };
 }
 
-// system 剥出：Anthropic messages 数组不允许 system 角色（research 限制点 2）；
-// 多条按出现顺序 \n\n 拼接（契约点）。
+// system 剥出（怪癖 systemOutOfBand，语义见 compat-vocab）：Anthropic messages
+// 数组不允许 system 角色；多条按出现顺序 \n\n 拼接（契约点）。
 function extractSystem(messages: ChatMessage[]): { system: string | undefined; rest: ChatMessage[] } {
   const systemParts = messages.filter((m) => m.role === "system").map((m) => m.content);
   return {
@@ -105,16 +117,15 @@ function extractSystem(messages: ChatMessage[]): { system: string | undefined; r
   };
 }
 
-// 消息翻译（research §4）：
+// 消息翻译（怪癖 toolResultInUserMessage / contentPartsAsArray，语义见 compat-vocab）：
 // - assistant 带 tool_calls → content 块数组：text 块 + 每 call 一个 tool_use 块
-//   （arguments JSON.parse 失败兜底 { query: 原文 }，对齐 parseToolArgs 宽容风格，
-//   限制点 4）。
+//   （arguments JSON.parse 失败兜底 { query: 原文 }，对齐 parseToolArgs 宽容风格）。
 // - 带 images 的消息（image-input 路线 B）→ content 块数组：text 块 + image 块
 //   （base64 源）；无图消息维持原字符串 content（线形状逐字节不变）。图片只可能
 //   来自用户粘贴，故 assistant(tool_calls) 轮不合并图片（仍是 text + tool_use 块）。
 // - role:"tool" 消息 → 合并进 user 消息的 tool_result 块（连续多条合并进同一条）；
 //   前置条件：须紧跟对应 assistant(tool_use) 消息，孤立 tool 消息由平台 400 兜底
-//   （调用方消息序列由编排层保证，限制点 3）。
+//   （调用方消息序列由编排层保证）。
 function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
   const out: unknown[] = [];
   for (const message of messages) {
@@ -156,9 +167,9 @@ function toAnthropicMessages(messages: ChatMessage[]): unknown[] {
 }
 
 // input_schema 直接改名透传（压平并行的 disable_parallel_tool_use 在 buildBody
-// 的 tool_choice 上，spec「被有意不支持的能力」parallel-tool-use-flattened）。
-// 原生服务端工具（名字带日期版本后缀，如 web_search_20250305）不走 tool-loop，
-// 显式不翻译（server-tools 限制点；只翻译编排层发来的客户端 function 工具）。
+// 的 tool_choice 上，见怪癖 parallelToolUseFlattened）。原生服务端工具（名字带日期
+// 版本后缀，如 web_search_20250305）不走 tool-loop，显式不翻译（怪癖
+// serverToolsNotTranslated，语义见 compat-vocab；只翻译编排层发来的客户端 function 工具）。
 const NATIVE_TOOL_NAME = /_\d{8}$/;
 
 function toAnthropicTools(tools: ChatRequest["tools"]): unknown[] | undefined {
@@ -173,9 +184,9 @@ function toAnthropicTools(tools: ChatRequest["tools"]): unknown[] | undefined {
   return translated.length ? translated : undefined;
 }
 
-// stop_reason 词表映射回 OpenAI 词表（research §3 映射表）：tool-loop 对
-// finishReason 精确匹配 "tool_calls"，原词会让联网轮提前返回——spec「编排层
-// 零改动」要求此处翻译而非改消费方；未列出的新词原样透传。
+// stop_reason 词表映射回 OpenAI 词表（怪癖 stopReasonVocabulary，语义见
+// compat-vocab）：tool-loop 对 finishReason 精确匹配 "tool_calls"，原词会让联网轮
+// 提前返回——spec「编排层零改动」要求此处翻译而非改消费方；未列出的新词原样透传。
 function mapStopReason(reason: string): string {
   switch (reason) {
     case "end_turn":
@@ -206,18 +217,40 @@ export const anthropicAdapter: ProtocolAdapter = {
     thinkingProfiles: true,
     unsupported: {
       // 稳定键 → 给人读的说明（spec「被有意不支持的能力」逐条落点）。
+      // 语义与协议怪癖词表同源，见 compat-vocab 的 parallelToolUseFlattened /
+      // thinkingSignatureNotReplayed / serverToolsNotTranslated。
       "parallel-tool-use-flattened": "并行 tool_use 已按协议压平（disable_parallel_tool_use: true）；未来需要并行时聚合层按 index 已天然支持",
       "thinking-roundtrip": "thinking 块的 signature 不回传 ChatMessage，多轮回传 thinking 会 400；本场景（单轮总结 + 单轮 tool loop）无此需求",
       "server-tools": "Anthropic 原生服务端工具（web_search_20250305 等）不走 tool-loop，adapter 只翻译客户端 function 工具"
     }
   },
 
+  // 平台怪癖自陈（语义与适用协议见 compat-vocab 词表单源）。
+  consumes: [
+    "maxTokensRequired",
+    "thinkingFormat",
+    "thinkingBudgetTokens",
+    "thinkingDisabledMustBeExplicit",
+    "effortVocabMessages",
+    "probeOmitsThinking",
+    "systemOutOfBand",
+    "toolResultInUserMessage",
+    "stopReasonVocabulary",
+    "noDoneSentinel",
+    "thinkingSignatureNotReplayed",
+    "parallelToolUseFlattened",
+    "serverToolsNotTranslated",
+    "contentPartsAsArray",
+    "authHeaderScheme"
+  ],
+
   endpoint(baseUrl: string): string {
     return `${baseUrl}/v1/messages`;
   },
 
   authHeaders(apiKey: string | undefined): Record<string, string> {
-    // 非 Bearer：x-api-key + anthropic-version（research 限制点 5）。
+    // 怪癖 authHeaderScheme（语义见 compat-vocab）：非 Bearer，x-api-key +
+    // anthropic-version。
     const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
     if (apiKey) headers["x-api-key"] = apiKey;
     return headers;
@@ -229,7 +262,8 @@ export const anthropicAdapter: ProtocolAdapter = {
       model: request.model,
       messages: toAnthropicMessages(rest),
       stream: request.stream,
-      // max_tokens 必填（限制点 1）：调用方未传兜底 DEFAULT_MAX_TOKENS；探针由 core 代劳传 1。
+      // 怪癖 maxTokensRequired：max_tokens 必填，调用方未传兜底
+      // DEFAULT_MAX_TOKENS；探针由 core 代劳传 1。
       max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS
     };
     if (system) body.system = system;
@@ -243,8 +277,8 @@ export const anthropicAdapter: ProtocolAdapter = {
   },
 
   extractErrorDetail(bodyText: string): string {
-    // Anthropic 错误体：{ type: "error", error: { type, message } }（research §6）；
-    // core 统一加 `[Anthropic] ` 前缀与 200 字符截断。
+    // Anthropic 错误体：{ type: "error", error: { type, message } }；core 统一加
+    // `[Anthropic] ` 前缀与 200 字符截断。
     try {
       const parsed = JSON.parse(bodyText) as { error?: { type?: unknown; message?: unknown } };
       const type = typeof parsed.error?.type === "string" ? parsed.error.type : "";
@@ -257,9 +291,10 @@ export const anthropicAdapter: ProtocolAdapter = {
   },
 
   async drainStream(response: Response, ctx: DrainContext): Promise<DrainResult> {
-    // 事件映射（research §3）。data: 行自带 type 字段，无需解析 event: 行；
-    // 无 [DONE] 哨兵——流读完即收束，done 由调用方（client/map-reduce）收口单发。
-    // 中止抛 makeAbortedError（与 openai adapter 同型），由 core 统一收束。
+    // 事件映射。data: 行自带 type 字段，无需解析 event: 行；无 [DONE] 哨兵
+    // （怪癖 noDoneSentinel，语义见 compat-vocab）——流读完即收束，done 由调用方
+    // （client/map-reduce）收口单发。中止抛 makeAbortedError（与 openai adapter
+    // 同型），由 core 统一收束。
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -316,19 +351,21 @@ export const anthropicAdapter: ProtocolAdapter = {
               existing.args += event.delta.partial_json ?? "";
               fragments.set(event.index ?? 0, existing);
             }
-            // signature_delta 忽略（thinking 不回传，限制点 thinking-roundtrip）。
+            // signature_delta 忽略（怪癖 thinkingSignatureNotReplayed：thinking
+            // 不回传，语义见 compat-vocab）。
             break;
           case "message_delta":
             // stop_reason 在 delta 内（message_delta 形状）；词表经 mapStopReason
-            // 映射回 OpenAI 词表（tool-loop 精确匹配 "tool_calls"，见文件头）。
+            // 映射回 OpenAI 词表（怪癖 stopReasonVocabulary，tool-loop 精确匹配
+            // "tool_calls"，见文件头）。
             if (typeof event.delta?.stop_reason === "string" && event.delta.stop_reason) {
               finishReason = mapStopReason(event.delta.stop_reason);
             }
             break;
           case "error":
-            // 流内错误（如 overloaded_error，research 限制点 12）：抛出走 core 的
-            // 读流中断重试（流式 2 次，retryable 语义与 http ≥500 对齐）；前缀对齐
-            // core HTTP 路径的 `[协议名] ` 形状。继续读完只会把截断内容当成功返回。
+            // 流内错误（如 overloaded_error）：抛出走 core 的读流中断重试（流式
+            // 2 次，retryable 语义与 http ≥500 对齐）；前缀对齐 core HTTP 路径的
+            // `[协议名] ` 形状。继续读完只会把截断内容当成功返回。
             throw new Error(`[anthropic] ${event.error?.type ?? "error"}: ${event.error?.message ?? ""}`);
           // message_start / content_block_stop / ping / 未知事件：一律忽略
           // （官方要求 graceful 处理未知类型）。
@@ -352,8 +389,8 @@ export const anthropicAdapter: ProtocolAdapter = {
   },
 
   parseResponse(json: unknown): DrainResult {
-    // 非流式：content 块数组——text 块顺序拼接无分隔符（research 限制点 13），
-    // tool_use 块回转为 ChatToolCall（research §5）。
+    // 非流式：content 块数组——text 块顺序拼接无分隔符（怪癖
+    // contentPartsAsArray），tool_use 块回转为 ChatToolCall。
     const data = json as {
       content?: Array<{ type?: string; text?: string; id?: string; name?: string; input?: unknown }>;
       stop_reason?: unknown;
