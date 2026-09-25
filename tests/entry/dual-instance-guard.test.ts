@@ -15,7 +15,7 @@
 //      漂移被报出、完全一致时零误报。
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   diffDualInstanceAllowlist,
@@ -80,7 +80,12 @@ describe("双实例纪律守卫（构建期接线）", () => {
   });
 
   it("sourcemap 归一化：只留 extension/ 内 .ts 源，map 相对路径按 map 目录解析", () => {
-    const extensionRoot = "/repo/extension";
+    // mapDir / extensionRoot 用宿主平台原生路径拼（生产侧传的是
+    // path.dirname(mapFile) 与 resolve 后的 extension 根，都是原生形态）：
+    // sourcesFromMap 的 filter 拿 extensionRoot + path.sep 做前缀比对，写死
+    // POSIX 绝对路径会在 Windows 上整条落空。返回值恒为 posix 风格。
+    const extensionRoot = resolve("repo-fixture", "extension");
+    const entryDir = join(extensionRoot, "entry");
     const mainMap = {
       sources: [
         "../core/state.ts",
@@ -89,12 +94,10 @@ describe("双实例纪律守卫（构建期接线）", () => {
         "../entry/content-main.mjs",
       ],
     };
-    expect(sourcesFromMap(mainMap, "/repo/extension/entry", extensionRoot)).toEqual([
-      "core/state.ts",
-    ]);
+    expect(sourcesFromMap(mainMap, entryDir, extensionRoot)).toEqual(["core/state.ts"]);
     const chunkMap = { sources: ["../../shared/messaging.ts"] };
-    expect(
-      sourcesFromMap(chunkMap, "/repo/extension/entry/chunks", extensionRoot)
-    ).toEqual(["shared/messaging.ts"]);
+    expect(sourcesFromMap(chunkMap, join(entryDir, "chunks"), extensionRoot)).toEqual([
+      "shared/messaging.ts",
+    ]);
   });
 });
