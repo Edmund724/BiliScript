@@ -16,7 +16,7 @@
     "build": "node scripts/build.js",
     "dev": "node scripts/build.js --watch",
     "build:content": "node scripts/build-content.js",
-    "build:release": "python3 scripts/build_release.py",
+    "build:release": "python3 scripts/build_release.py || python scripts/build_release.py",
     "catalog:sync": "node scripts/sync-pi-ai-catalog.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
