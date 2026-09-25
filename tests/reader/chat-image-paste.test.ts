@@ -318,7 +318,7 @@ describe("发图门控（目录乐观放行）", () => {
       {
         id: "p1",
         name: "DeepSeek",
-        model: "deepseek-v4-flash",
+        model: "deepseek-v4-pro",
         presetId: "deepseek",
         baseUrl: "https://api.deepseek.com/v1",
         enabled: true

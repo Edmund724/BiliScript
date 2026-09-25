@@ -39,7 +39,7 @@ const VENDORED_PI_PROVIDERS = [
 
 // pin 版本下的事实（spec 表逐文件计数之和）；产物与上游一致时必然相等，
 // 不等即「pin 变了/上游内容变了」——先确认再同步 spec 与 scripts 里的期望值。
-const EXPECTED_MODEL_COUNT = 475;
+const EXPECTED_MODEL_COUNT = 490;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -78,7 +78,7 @@ function staticImportersOf(fragment: string): string[] {
 }
 
 describe("pi-ai 目录产物（01）", () => {
-  it("vendor 了 11 个 provider、475 个模型，与源文件计数之和一致", () => {
+  it("vendor 了 11 个 provider、490 个模型，与源文件计数之和一致", () => {
     expect(Object.keys(PI_AI_CATALOG)).toEqual(VENDORED_PI_PROVIDERS);
     const total = Object.values(PI_AI_CATALOG).reduce(
       (sum, models) => sum + Object.keys(models).length,
@@ -175,11 +175,11 @@ describe("preset → piProvider 映射（02）", () => {
 
 describe("查表（03）", () => {
   it("命中：(piProvider, modelId) 精确匹配，protocol 不参与", () => {
-    expect(lookupModelMeta("deepseek", "deepseek-v4-flash")).toEqual({
-      id: "deepseek-v4-flash",
-      name: "DeepSeek V4 Flash",
+    expect(lookupModelMeta("deepseek", "deepseek-flash")).toEqual({
+      id: "deepseek-flash",
+      name: "DeepSeek V4.1 Flash",
       reasoning: true,
-      input: ["text"],
+      input: ["text", "image"],
       contextWindow: 1000000,
       maxTokens: 384000
     });

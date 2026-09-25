@@ -43,7 +43,7 @@ const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTo
 
 // pin 版本下的模型总数（spec 表逐文件计数之和）。生成期对账：不是这个数说明
 // 上游内容或路径变了——先确认 pin 版本，再同步本常量、spec 与测试。
-const EXPECTED_MODEL_COUNT = 475;
+const EXPECTED_MODEL_COUNT = 490;
 
 function fail(message) {
   console.error(`sync-pi-ai-catalog: ${message}`);

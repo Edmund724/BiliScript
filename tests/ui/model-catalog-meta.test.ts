@@ -113,14 +113,14 @@ describe("模型行元数据", () => {
     expect(slot.querySelectorAll(".provider-editor-model-badge")).toHaveLength(2);
     expect(slot.title).toContain("MiMo-V2.5");
     expect(slot.title).toContain("输出上限 131K");
-    expect(slot.title).toContain("目录 @earendil-works/pi-ai 0.85.1");
+    expect(slot.title).toContain("目录 @earendil-works/pi-ai 0.87.1");
   });
 
   it("只文本的模型不挂「图片」徽标", async () => {
     const { dialog, catalog } = await mountDialog({
       presetId: "deepseek",
       baseUrl: DEEPSEEK_BASE_URL,
-      models: ["deepseek-v4-flash"]
+      models: ["deepseek-v4-pro"]
     });
     await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
     catalog.refreshModelCatalogMeta();
@@ -214,7 +214,7 @@ describe("「获取可用模型」勾选弹窗（spec §展示：同一套短格
       "../../extension/ui/provider-editor-fetch-dialog.js"
     );
     renderFetchSkeleton();
-    renderFetchList(["deepseek-v4-flash", "no-such-model"]);
+    renderFetchList(["deepseek-v4-pro", "no-such-model"]);
 
     const items = hostElement().querySelectorAll<HTMLElement>(".provider-editor-fetch-item");
     expect(items).toHaveLength(2);
@@ -228,7 +228,7 @@ describe("「获取可用模型」勾选弹窗（spec §展示：同一套短格
       "../../extension/ui/provider-editor-fetch-dialog.js"
     );
     renderFetchSkeleton();
-    renderFetchList(["deepseek-v4-flash"]); // 加载前：留空
+    renderFetchList(["deepseek-v4-pro"]); // 加载前：留空
     const item = hostElement().querySelector<HTMLElement>(".provider-editor-fetch-item")!;
     expect(item.querySelector<HTMLElement>("[data-model-meta]")!.hidden).toBe(true);
 

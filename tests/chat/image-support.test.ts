@@ -174,12 +174,12 @@ describe("门控：乐观放行（目录明确登记不收图才提示）", () =
 });
 
 describe("真实目录链路（默认懒加载接缝，不注入替身）", () => {
-  it("deepseek-v4-flash（目录仅文本）→ 提示；gpt-4o（目录含图）→ 无提示；未知模型 → 无提示", async () => {
+  it("deepseek-v4-pro（目录仅文本）→ 提示；gpt-4o（目录含图）→ 无提示；未知模型 → 无提示", async () => {
     const lazy = await import("../../extension/ui/lazy-model-catalog.js");
     expect(lazy.loadedModelCatalog()).toBeNull(); // 加载前：谁都还没把目录拖进来
 
     seedProvider({ id: "p1", presetId: "deepseek", baseUrl: DEEPSEEK_BASE_URL });
-    const textOnly = makeRealGate(buildModelOptionValue("p1", "deepseek-v4-flash"));
+    const textOnly = makeRealGate(buildModelOptionValue("p1", "deepseek-v4-pro"));
     textOnly.gate.check([IMAGE]);
     await vi.waitFor(() => expect(textOnly.notify).toHaveBeenCalledWith(mod.IMAGE_UNSUPPORTED_NOTICE));
     expect(lazy.loadedModelCatalog()).not.toBeNull();

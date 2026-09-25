@@ -39,7 +39,7 @@
   },
   "homepage": "https://github.com/Edmund724/BiliScript#readme",
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-ai": "0.87.1",
     "@vitest/coverage-v8": "^4.1.11",
     "d3-selection": "3.0.0",
     "d3-shape": "3.2.0",
