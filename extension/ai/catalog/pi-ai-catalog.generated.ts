@@ -2,7 +2,7 @@
 //
 // 来源：@earendil-works/pi-ai@0.87.1（devDependency，精确 pin）
 // 生成：pnpm catalog:sync（scripts/sync-pi-ai-catalog.mjs）
-// 口径：11 个 provider 文件 / 490 个模型，每个模型只保留
+// 口径：7 个 provider 文件 / 435 个模型，每个模型只保留
 //       id / name / reasoning / input / contextWindow / maxTokens。
 //
 // 刻意不带的字段（spec「明确不带」）：cost / compat / thinkingLevelMap /
@@ -30,54 +30,11 @@ export interface CatalogModelMeta {
 export const PI_AI_CATALOG_SOURCE = {
   package: "@earendil-works/pi-ai",
   version: "0.87.1",
-  providers: 11,
-  models: 490
+  providers: 7,
+  models: 435
 } as const;
 
 export const PI_AI_CATALOG: Readonly<Record<string, Readonly<Record<string, CatalogModelMeta>>>> = {
-  "openai": {
-    "gpt-4": { id: "gpt-4", name: "GPT-4", reasoning: false, input: ["text"], contextWindow: 8192, maxTokens: 8192 },
-    "gpt-4-turbo": { id: "gpt-4-turbo", name: "GPT-4 Turbo", reasoning: false, input: ["text", "image"], contextWindow: 128000, maxTokens: 4096 },
-    "gpt-4.1": { id: "gpt-4.1", name: "GPT-4.1", reasoning: false, input: ["text", "image"], contextWindow: 1047576, maxTokens: 32768 },
-    "gpt-4.1-mini": { id: "gpt-4.1-mini", name: "GPT-4.1 mini", reasoning: false, input: ["text", "image"], contextWindow: 1047576, maxTokens: 32768 },
-    "gpt-4.1-nano": { id: "gpt-4.1-nano", name: "GPT-4.1 nano", reasoning: false, input: ["text", "image"], contextWindow: 1047576, maxTokens: 32768 },
-    "gpt-4o": { id: "gpt-4o", name: "GPT-4o", reasoning: false, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384 },
-    "gpt-4o-2024-05-13": { id: "gpt-4o-2024-05-13", name: "GPT-4o (2024-05-13)", reasoning: false, input: ["text", "image"], contextWindow: 128000, maxTokens: 4096 },
-    "gpt-4o-2024-08-06": { id: "gpt-4o-2024-08-06", name: "GPT-4o (2024-08-06)", reasoning: false, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384 },
-    "gpt-4o-2024-11-20": { id: "gpt-4o-2024-11-20", name: "GPT-4o (2024-11-20)", reasoning: false, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384 },
-    "gpt-4o-mini": { id: "gpt-4o-mini", name: "GPT-4o mini", reasoning: false, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384 },
-    "gpt-5": { id: "gpt-5", name: "GPT-5", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5-chat-latest": { id: "gpt-5-chat-latest", name: "GPT-5 Chat Latest", reasoning: false, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384 },
-    "gpt-5-mini": { id: "gpt-5-mini", name: "GPT-5 Mini", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5-nano": { id: "gpt-5-nano", name: "GPT-5 Nano", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5-pro": { id: "gpt-5-pro", name: "GPT-5 Pro", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5.1": { id: "gpt-5.1", name: "GPT-5.1", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5.2": { id: "gpt-5.2", name: "GPT-5.2", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5.2-chat-latest": { id: "gpt-5.2-chat-latest", name: "GPT-5.2 Chat", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384 },
-    "gpt-5.2-pro": { id: "gpt-5.2-pro", name: "GPT-5.2 Pro", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5.3-chat-latest": { id: "gpt-5.3-chat-latest", name: "GPT-5.3 Chat (latest)", reasoning: false, input: ["text", "image"], contextWindow: 128000, maxTokens: 16384 },
-    "gpt-5.3-codex": { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5.3-codex-spark": { id: "gpt-5.3-codex-spark", name: "GPT-5.3 Codex Spark", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 32000 },
-    "gpt-5.4": { id: "gpt-5.4", name: "GPT-5.4", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
-    "gpt-5.4-mini": { id: "gpt-5.4-mini", name: "GPT-5.4 mini", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5.4-nano": { id: "gpt-5.4-nano", name: "GPT-5.4 nano", reasoning: true, input: ["text", "image"], contextWindow: 400000, maxTokens: 128000 },
-    "gpt-5.4-pro": { id: "gpt-5.4-pro", name: "GPT-5.4 Pro", reasoning: true, input: ["text", "image"], contextWindow: 1050000, maxTokens: 128000 },
-    "gpt-5.5": { id: "gpt-5.5", name: "GPT-5.5", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
-    "gpt-5.5-pro": { id: "gpt-5.5-pro", name: "GPT-5.5 Pro", reasoning: true, input: ["text", "image"], contextWindow: 1050000, maxTokens: 128000 },
-    "gpt-5.6-luna": { id: "gpt-5.6-luna", name: "GPT-5.6 Luna", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
-    "gpt-5.6-sol": { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
-    "gpt-5.6-terra": { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
-    "gpt-6-astra": { id: "gpt-6-astra", name: "GPT-6 Astra", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
-    "gpt-6-luna": { id: "gpt-6-luna", name: "GPT-6 Luna", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
-    "gpt-6-sol": { id: "gpt-6-sol", name: "GPT-6 Sol", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
-    "gpt-realtime-2.1": { id: "gpt-realtime-2.1", name: "GPT-Realtime-2.1", reasoning: true, input: ["text", "image"], contextWindow: 128000, maxTokens: 32000 },
-    "o1": { id: "o1", name: "o1", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 100000 },
-    "o1-pro": { id: "o1-pro", name: "o1-pro", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 100000 },
-    "o3": { id: "o3", name: "o3", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 100000 },
-    "o3-mini": { id: "o3-mini", name: "o3-mini", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 100000 },
-    "o3-pro": { id: "o3-pro", name: "o3-pro", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 100000 },
-    "o4-mini": { id: "o4-mini", name: "o4-mini", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 100000 },
-  },
   "deepseek": {
     "deepseek-flash": { id: "deepseek-flash", name: "DeepSeek V4.1 Flash", reasoning: true, input: ["text", "image"], contextWindow: 1000000, maxTokens: 384000 },
     "deepseek-v4-pro": { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 384000 },
@@ -526,26 +483,6 @@ export const PI_AI_CATALOG: Readonly<Record<string, Readonly<Record<string, Cata
     "~x-ai/grok-latest": { id: "~x-ai/grok-latest", name: "xAI: Grok Latest", reasoning: true, input: ["text", "image"], contextWindow: 500000, maxTokens: 450000 },
     "~z-ai/glm-flash-latest": { id: "~z-ai/glm-flash-latest", name: "Z.ai: GLM Flash Latest", reasoning: true, input: ["text", "image"], contextWindow: 1048576, maxTokens: 943718 },
     "~z-ai/glm-latest": { id: "~z-ai/glm-latest", name: "Z.ai: GLM Latest", reasoning: true, input: ["text"], contextWindow: 1048576, maxTokens: 131072 },
-  },
-  "zai": {
-    "glm-4.7": { id: "glm-4.7", name: "GLM-4.7", reasoning: true, input: ["text"], contextWindow: 204800, maxTokens: 131072 },
-    "glm-5-turbo": { id: "glm-5-turbo", name: "GLM-5-Turbo", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 131072 },
-    "glm-5.2": { id: "glm-5.2", name: "GLM-5.2", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 131072 },
-    "glm-5.2-highspeed": { id: "glm-5.2-highspeed", name: "GLM-5.2 Highspeed", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 131072 },
-    "glm-5.3": { id: "glm-5.3", name: "GLM-5.3", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 131072 },
-    "glm-5.3-flash": { id: "glm-5.3-flash", name: "GLM-5.3-Flash", reasoning: true, input: ["text", "image"], contextWindow: 1000000, maxTokens: 131072 },
-    "glm-5.3-highspeed": { id: "glm-5.3-highspeed", name: "GLM-5.3 Highspeed", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 131072 },
-  },
-  "moonshotai": {
-    "kimi-k2.6": { id: "kimi-k2.6", name: "Kimi K2.6", reasoning: true, input: ["text", "image"], contextWindow: 262144, maxTokens: 262144 },
-    "kimi-k2.7-code": { id: "kimi-k2.7-code", name: "Kimi K2.7 Code", reasoning: true, input: ["text", "image"], contextWindow: 262144, maxTokens: 262144 },
-    "kimi-k2.7-code-highspeed": { id: "kimi-k2.7-code-highspeed", name: "Kimi K2.7 Code HighSpeed", reasoning: true, input: ["text", "image"], contextWindow: 262144, maxTokens: 262144 },
-    "kimi-k3": { id: "kimi-k3", name: "Kimi K3", reasoning: true, input: ["text", "image"], contextWindow: 1048576, maxTokens: 131072 },
-  },
-  "minimax": {
-    "MiniMax-M2.7": { id: "MiniMax-M2.7", name: "MiniMax-M2.7", reasoning: true, input: ["text"], contextWindow: 204800, maxTokens: 131072 },
-    "MiniMax-M2.7-highspeed": { id: "MiniMax-M2.7-highspeed", name: "MiniMax-M2.7-highspeed", reasoning: true, input: ["text"], contextWindow: 204800, maxTokens: 131072 },
-    "MiniMax-M3": { id: "MiniMax-M3", name: "MiniMax-M3", reasoning: true, input: ["text", "image"], contextWindow: 1048576, maxTokens: 512000 },
   },
 };
 

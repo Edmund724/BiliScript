@@ -22,20 +22,19 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const MODULE_FILE = "extension/ai/catalog/pi-ai-catalog.generated.ts";
 
-// vendor 的 11 个 provider 文件（spec §数据来源与范围）。顺序 = 产物内键序，
+// vendor 的 7 个 provider 文件（spec §数据来源与范围）。顺序 = 产物内键序，
 // 固定以保证幂等；不按字母排是为了让产物读者按 spec 的表核对。
+// 口径：只 vendor PRESETS[].piProvider 登记到的那 7 个（core/presets.ts）——查表
+// 键 (piProvider, modelId) 的第一段只能来自 presets，多 vendor 的表（上游的
+// openai / zai / moonshotai / minimax）永远查不到，是纯死重。
 const PI_PROVIDER_FILES = [
-  "openai",
   "deepseek",
   "zai-coding-cn",
   "kimi-coding",
   "minimax-cn",
   "xiaomi",
   "opencode-go",
-  "openrouter",
-  "zai",
-  "moonshotai",
-  "minimax"
+  "openrouter"
 ];
 
 // 产物字段白名单（顺序 = 每行字段序）
@@ -43,7 +42,7 @@ const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTo
 
 // pin 版本下的模型总数（spec 表逐文件计数之和）。生成期对账：不是这个数说明
 // 上游内容或路径变了——先确认 pin 版本，再同步本常量、spec 与测试。
-const EXPECTED_MODEL_COUNT = 490;
+const EXPECTED_MODEL_COUNT = 435;
 
 function fail(message) {
   console.error(`sync-pi-ai-catalog: ${message}`);

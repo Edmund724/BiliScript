@@ -22,24 +22,21 @@ const GENERATED_MODULE = "extension/ai/catalog/pi-ai-catalog.generated.ts";
 // 静态引用形状里的路径口径 = 相对 extension/（walk 的口径）
 const CATALOG_CONSUMER = "ai/model-catalog.ts";
 
-// spec §数据来源与范围 的 11 个 vendor 文件（顺序 = 产物键序）
+// spec §数据来源与范围 的 7 个 vendor 文件（顺序 = 产物键序）——与
+// PRESETS[].piProvider 登记的 7 家一一对应，无人可达的表不进产物。
 const VENDORED_PI_PROVIDERS = [
-  "openai",
   "deepseek",
   "zai-coding-cn",
   "kimi-coding",
   "minimax-cn",
   "xiaomi",
   "opencode-go",
-  "openrouter",
-  "zai",
-  "moonshotai",
-  "minimax"
+  "openrouter"
 ];
 
 // pin 版本下的事实（spec 表逐文件计数之和）；产物与上游一致时必然相等，
 // 不等即「pin 变了/上游内容变了」——先确认再同步 spec 与 scripts 里的期望值。
-const EXPECTED_MODEL_COUNT = 490;
+const EXPECTED_MODEL_COUNT = 435;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -78,7 +75,7 @@ function staticImportersOf(fragment: string): string[] {
 }
 
 describe("pi-ai 目录产物（01）", () => {
-  it("vendor 了 11 个 provider、490 个模型，与源文件计数之和一致", () => {
+  it("vendor 了 7 个 provider、435 个模型，与源文件计数之和一致", () => {
     expect(Object.keys(PI_AI_CATALOG)).toEqual(VENDORED_PI_PROVIDERS);
     const total = Object.values(PI_AI_CATALOG).reduce(
       (sum, models) => sum + Object.keys(models).length,
@@ -186,10 +183,10 @@ describe("查表（03）", () => {
   });
 
   it("未命中：未知 provider / 未知 model / 跨 provider 的 id 都返回 null", () => {
-    expect(lookupModelMeta("no-such-provider", "gpt-4")).toBeNull();
+    expect(lookupModelMeta("no-such-provider", "glm-5.3")).toBeNull();
     expect(lookupModelMeta("deepseek", "no-such-model")).toBeNull();
-    // gpt-4 属于 openai 目录，拿 deepseek 查应当落空（键含 provider）
-    expect(lookupModelMeta("deepseek", "gpt-4")).toBeNull();
+    // glm-5.3 属于 zai-coding-cn 目录，拿 deepseek 查应当落空（键含 provider）
+    expect(lookupModelMeta("deepseek", "glm-5.3")).toBeNull();
   });
 
   it("同名模型在不同 provider 下各归各的登记值（键为什么含 provider 的实证）", () => {
