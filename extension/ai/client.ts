@@ -1,14 +1,15 @@
-// client.ts — 预算内单次总结的流式 port 适配器（候选 03 后）。
-// 职责只剩两块：① 预算策略（resolveSubtitleForContext 判定发送物与超预算回落，
-// 「预算判定属策略、溢出检测属协议」——协议细节在 ai/completion.js 接缝）；
-// ② port 回吐适配（把 chatCompletion 的 onEvent/onRetry/完成值/类型化错误
-// 映射回 offscreen port 协议：token/reasoning/notice/done/stopped/error）。
-// 请求构造、SSE 解析、溢出判定、重试策略全部下沉到 ai/completion.js。
+// client.ts — 单次总结的流式 port 适配器（候选 03 后）。
+// 职责只有一块：port 回吐适配（把 chatCompletion 的 onEvent/onRetry/完成值/
+// 类型化错误映射回 offscreen port 协议：token/reasoning/notice/done/stopped/
+// error），外加 token 合帧、读流重试后的 stream-reset、空正文截断重跑这几件
+// 本层特有的回吐纪律。请求构造、SSE 解析、溢出判定、重试策略全部下沉到
+// ai/completion.js。
+// 显式不变式：素材预算判定的唯一入口是 ai/ladder.ts（分派前一次 buildBudgetPlan
+// 定档）。本模块不做预算重判，给什么发什么——绕过 ladder 直喂超预算 body 时，
+// 平台会原样收下（今天无此路径：调用方只有 ladder 与其追问分支）。
 
-import { buildMessages, clipSubtitleForContext } from "./context.js";
-import { buildBudgetPlan, estimateTokens, MATERIAL_BUDGET_CHARS } from "./budgeter.js";
-import { buildSubtitlePrompt } from "./subtitle-prompt.js";
-import { chatCompletion, makeOverflowError, validateProviderBasics } from "./completion.js";
+import { buildMessages } from "./context.js";
+import { chatCompletion, validateProviderBasics } from "./completion.js";
 import { runToolLoop, type ToolStatusPayload, type ToolLoopSearchOutcome } from "./tool-loop.js";
 import type { AiContext, AiProvider, ImagePart, StreamChatEvent } from "./types.js";
 // 出向 port 协议单源（ticket 08）：port 回吐点经 ChatPortMessage 联合标注，
@@ -17,10 +18,6 @@ import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
 // 07 票 token 合帧：流式 token 按窗口预算批传，削减结构化克隆次数；
 // 单 token 批次仍走普通 token 事件（慢速流线格式与旧一致）。
 import { TokenBatcher } from "./token-batcher.js";
-
-// 超预算回落时的提示文案：如实描述——本次单次调用不发，ladder 收到
-// overflow 标记错误后立即转 Map-Reduce 分段整理（对用户表现为进度逐段推进）。
-export const OVER_BUDGET_NOTICE = "字幕过长，已切换为分段整理模式";
 
 // 截断提示（finishReason="length"）：命中 max_tokens 后 SSE 只是结束，界面上没有
 // 任何迹象——不提示的话用户只会觉得「模型没答完」。文案只陈述事实，不猜是思考
@@ -34,52 +31,6 @@ export const TRUNCATED_NOTICE = "回答被截断（达到模型输出上限）";
 // anthropic adapter 的兜底上限 8192。取值与 analysis 的封顶同源（16384）。
 // 只重跑一次：再空就挂常驻截断徽标，不无限重试（每轮都是整笔额度）。
 const EMPTY_TEXT_RETRY_MAX_TOKENS = 16384;
-
-interface SubtitleResolution {
-  markdown: string;
-  mode: "single" | "map-reduce";
-  notice: string;
-  overflowMarked: boolean;
-}
-
-/**
- * 决定给模型的字幕：素材预算内（≤200k 字符）整篇原样；超预算回落 50k 硬截断并打标记。
- * 纯函数，streamChat 只负责消费返回的 { markdown, mode, notice, overflowMarked }。
- * 预算输入与发送物同源：发送物由 subtitle-prompt 的 buildSubtitlePrompt 从
- * subtitleBody 现场渲染（追问压缩路径则直接用 compressedSummaryMarkdown 文本产物）；
- * body 缺失/空时退化为对实际发送物（空渲染或压缩摘要）的 estimateTokens 判定。
- */
-export function resolveSubtitleForContext(context: AiContext | null | undefined): SubtitleResolution {
-  const ctx = context || {};
-  const body = Array.isArray(ctx.subtitleBody) ? ctx.subtitleBody : [];
-  // 追问压缩路径：压缩摘要本身就是最终发送物，预算按其实际长度估 token。
-  const markdown = String(ctx.compressedSummaryMarkdown || "")
-    || buildSubtitlePrompt({
-      body,
-      chapters: ctx.chapters,
-      videoDuration: ctx.videoDuration,
-      includeTimestampInBody: ctx.includeTimestampInBody
-    });
-
-  let mode: "single" | "map-reduce";
-  if (body.length > 0) {
-    mode = buildBudgetPlan({ body, chapters: ctx.chapters }).mode;
-  } else {
-    // body 缺失/空：对实际发送物估 token（空渲染 ≈ 0 → single；压缩摘要按其长度判定）。
-    mode = estimateTokens(markdown) > MATERIAL_BUDGET_CHARS ? "map-reduce" : "single";
-  }
-
-  if (mode === "single") {
-    return { markdown, mode, notice: "", overflowMarked: false };
-  }
-
-  return {
-    markdown: clipSubtitleForContext(markdown),
-    mode,
-    notice: OVER_BUDGET_NOTICE,
-    overflowMarked: true
-  };
-}
 
 interface StreamChatInput {
   provider: AiProvider;
@@ -114,7 +65,7 @@ interface StreamChatInput {
  *   （max_tokens 命中）时在 done 之前补一条 { data: TRUNCATED_NOTICE, code:"truncated" }，
  *   宿主据此渲染消息尾部的常驻徽标（不再走 4 秒通知条）；
  * - 成功回吐 done；中止回吐 stopped；其余失败回吐 error；
- * - 仅 context-length 溢出（含预算内超限）以带 .overflow 标记的错误上抛，
+ * - 仅 context-length 溢出以带 .overflow 标记的错误上抛，
  *   供 ladder「catch 查标记」分流（单次转 Map-Reduce / 追问报错）。
  */
 export async function streamChat({ provider, context, userPrompt, history, userImages, port, signal, onActivity, thinkingLevel, webSearch }: StreamChatInput): Promise<{ done: true } | undefined> {
@@ -129,18 +80,9 @@ export async function streamChat({ provider, context, userPrompt, history, userI
     return;
   }
 
-  const subtitleResolution = resolveSubtitleForContext(context);
-  if (subtitleResolution.notice) {
-    port.postMessage({ type: "notice", data: subtitleResolution.notice } satisfies ChatPortMessage);
-  }
-  if (subtitleResolution.overflowMarked) {
-    // 超预算：仍先提示，再以 overflow 标记错误上抛供 ladder 转 Map-Reduce。
-    throw makeOverflowError(OVER_BUDGET_NOTICE);
-  }
-
   const messages = buildMessages({
-    // buildMessages 与 resolveSubtitleForContext 从同一份 subtitleBody /
-    // compressedSummaryMarkdown 渲染，无需再注入任何渲染产物字段。
+    // 发送物由 buildMessages 从 subtitleBody / compressedSummaryMarkdown 现场渲染，
+    // 无需注入任何渲染产物字段。
     context,
     userPrompt,
     history,

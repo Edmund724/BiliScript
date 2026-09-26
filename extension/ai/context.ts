@@ -1,7 +1,6 @@
 // 把 content.js 传来的 context 拼成 chat messages，并提供建议 chip 模板。
 
 import { DEFAULT_AI_SYSTEM_PROMPT } from "../core/default-prompts.js";
-import { SEGMENT_INPUT_CHARS } from "./budgeter.js";
 import { normalizeImageParts } from "./conversation.js";
 import { buildSubtitlePrompt } from "./subtitle-prompt.js";
 import type { AiContext, ChatMessage, HotComment, ImagePart } from "./types.js";
@@ -135,12 +134,4 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
     userMessage
   ];
   return messages;
-}
-
-// 截断上限即单段输入预算（budgeter 的 SEGMENT_INPUT_CHARS）：与 Map-Reduce 的
-// 「单段原始字幕字符上限」是同一个概念，不再各写一份 50000。
-export function clipSubtitleForContext(markdown: unknown, maxChars: number = SEGMENT_INPUT_CHARS): string {
-  const text = String(markdown || "");
-  if (!text || text.length <= maxChars) return text;
-  return text.slice(0, maxChars) + "\n\n...（字幕过长，已截断）";
 }

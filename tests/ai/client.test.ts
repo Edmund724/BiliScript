@@ -5,8 +5,8 @@
 // （原「streamChat 溢出兜底哨兵」用例自 tests/ai/map-reduce.test.ts 迁入并按新语义改断言。）
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetModuleState, makeSubtitleBody } from "../setup.js";
-import { streamChat, OVER_BUDGET_NOTICE, TRUNCATED_NOTICE } from "../../extension/ai/client.js";
+import { resetModuleState } from "../setup.js";
+import { streamChat, TRUNCATED_NOTICE } from "../../extension/ai/client.js";
 
 beforeEach(() => {
   resetModuleState();
@@ -39,15 +39,6 @@ function makePort() {
     postMessage(message: unknown) {
       messages.push(message as PortMessage);
     }
-  };
-}
-
-function jsonResponse(payload: unknown, ok = true, status = 200) {
-  return {
-    ok,
-    status,
-    text: async () => JSON.stringify(payload),
-    json: async () => payload
   };
 }
 
@@ -333,29 +324,6 @@ describe("streamChat 溢出语义（catch 查标记）", () => {
     expect(port.messages).toHaveLength(0);
   });
 
-  it("超预算（>200k）→ 仍发 notice 提示 + 抛 overflow 标记错误，不发任何请求", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
-    vi.stubGlobal("fetch", fetchMock);
-    const port = makePort();
-    const context = { title: "t", subtitleBody: makeSubtitleBody(210000) };
-
-    await expect(
-      streamChat({
-        provider: PROVIDER,
-        context,
-        userPrompt: "总结",
-        history: [],
-        port
-      })
-    ).rejects.toMatchObject({ overflow: true });
-
-    const postMessages = port.messages;
-    expect(postMessages.some((m) => m.type === "notice" && m.data === OVER_BUDGET_NOTICE)).toBe(true);
-    expect(postMessages.some((m) => m.type === "overflow")).toBe(false);
-    // 超预算直接上抛，不发任何请求
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it("普通错误不误判为溢出（post error、不上抛）", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => textResponse("Unauthorized", false, 401)));
     const port = makePort();
@@ -370,21 +338,6 @@ describe("streamChat 溢出语义（catch 查标记）", () => {
 
     expect(result).toBeUndefined();
     expect(port.messages.some((m) => m.type === "error")).toBe(true);
-  });
-
-  it("追问压缩摘要超预算（body 空 + compressedSummaryMarkdown >200k）→ overflow 标记错误", async () => {
-    vi.stubGlobal("fetch", vi.fn());
-    const port = makePort();
-
-    await expect(
-      streamChat({
-        provider: PROVIDER,
-        context: { title: "t", subtitleBody: [], compressedSummaryMarkdown: "a".repeat(200001) },
-        userPrompt: "追问",
-        history: [],
-        port
-      })
-    ).rejects.toMatchObject({ overflow: true });
   });
 });
 

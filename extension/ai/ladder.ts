@@ -5,6 +5,7 @@
 // offscreen.js 只负责接线：abort controller、空闲超时、cost-guard Promise 簿记。
 // 溢出语义（候选 03 起）：streamChat 仅在 context-length 溢出时抛带
 // .overflow 标记的错误，本模块 catch 查标记分流；其余失败经 port error 回吐。
+// 素材预算判定的唯一入口即本模块分派前的 buildBudgetPlan（client 不再重判）。
 import { streamChat as _streamChat } from "./client.js";
 import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
 import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
@@ -288,7 +289,7 @@ async function runLadderChatDispatch(
 
   // 单次路径 context-length 溢出 → 自动转 Map-Reduce 重试一次
   //（仅一次：map-reduce 各调用自身更短，再溢出就抛出错误；abort controller 复用，stop 仍可中止）。
-  // streamChat 仅在溢出（预算内超限 / HTTP context-length）时抛带 .overflow 标记的错误。
+  // streamChat 仅在 HTTP context-length 溢出时抛带 .overflow 标记的错误。
   try {
     await streamChat({
       provider,
