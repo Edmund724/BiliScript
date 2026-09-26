@@ -15,12 +15,7 @@ import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } fro
 // 图片合法性白名单（image-input 路线 B）：与历史加载侧同一份判定（01 号票的
 // 单点），port 载荷在阶梯入口归一后随 streamChat 下发。
 import { normalizeImageParts } from "./conversation.js";
-import type { ImagePart } from "./types.js";
-
-export interface ChatMessage {
-  role: "user" | "assistant" | "system";
-  content: string;
-}
+import type { ChatMessage, ImagePart } from "./types.js";
 
 export interface ChatContext {
   subtitleBody?: unknown[];
@@ -70,7 +65,7 @@ export interface StreamChatArgs {
   userImages?: ImagePart[];
   thinkingLevel?: string;
   port: ChatPort;
-  signal: AbortSignal | string | null;
+  signal: AbortSignal | null;
   onActivity?: () => void;
   // 联网搜索管线（spec §2.3）：传入即走 ai/tool-loop 的工具循环；Map-Reduce
   // 归约轮剥离 + notice，追问压缩与单次路径透传。
@@ -84,7 +79,7 @@ export interface OrchestrateMapReduceArgs {
   context: ChatContext;
   plan: BudgetPlan;
   port: ChatPort;
-  signal: AbortSignal | string | null;
+  signal: AbortSignal | null;
   thinkingLevel?: string;
   onProgress: (notice: string) => void;
 }
@@ -119,7 +114,7 @@ export interface RunLadderChatArgs {
   msg: ChatMsg;
   provider: ChatProvider;
   port: ChatPort;
-  signal: AbortSignal | string | null;
+  signal: AbortSignal | null;
   // 联网搜索运行时（spec §2.3）：offscreen 在 webSearchEnabled 且已配置激活
   // 平台时注入；undefined = 本轮无联网（toggle 关 / 未配置 / 解析失败）。
   webSearch?: WebSearchRuntime;

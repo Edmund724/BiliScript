@@ -6,8 +6,9 @@
 // 溢出语义（候选 03 起）：fake streamChat 抛带 .overflow 标记的错误（旧返回哨兵已废）。
 
 import { describe, expect, it, vi } from "vitest";
-import { runLadderChat, type ChatMessage, type ChatMsg, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
+import { runLadderChat, type ChatMsg, type RunLadderChatDeps } from "../../extension/ai/ladder.js";
 import { makeOverflowError } from "../../extension/ai/completion.js";
+import type { ChatMessage } from "../../extension/ai/types.js";
 
 // 假 port 收发的消息形状（用例只断言 notice / stopped / error 三类的字段）
 interface PortMessage {
@@ -67,17 +68,18 @@ function makeMsg(): ChatMsg {
 
 describe("runLadderChat 分派", () => {
   it("① 预算内（非 map-reduce）→ 单次 streamChat，不触发追问与 Map-Reduce", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps();
 
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
     expect(calls.streamChat).toHaveLength(1);
     expect(calls.streamChat[0]).toMatchObject({
       provider: { id: "p" },
       context: { subtitleBody: ["a", "b"], chapters: [] },
       userPrompt: "总结一下",
-      signal: "sig"
+      signal
     });
     expect(calls.mapReduce).toHaveLength(0);
     expect(calls.followup).toHaveLength(0);
@@ -85,6 +87,7 @@ describe("runLadderChat 分派", () => {
   });
 
   it("② map-reduce 模式下追问命中 → trimRecentTurns 截历史 + 单次 streamChat", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const history: ChatMessage[] = Array.from({ length: 6 }, (_, i) => ({ role: "user", content: `h${i}` }));
     const followupFn = vi.fn(async () => ({ kind: "followup" }));
@@ -93,7 +96,7 @@ describe("runLadderChat 分派", () => {
       resolveFollowupContext: followupFn
     });
 
-    await runLadderChat({ msg: { ...makeMsg(), history }, provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: { ...makeMsg(), history }, provider: { id: "p" }, port, signal }, deps);
 
     expect(followupFn).toHaveBeenCalledTimes(1);
     expect(deps.trimRecentTurns).toHaveBeenCalledWith(history);
@@ -106,22 +109,24 @@ describe("runLadderChat 分派", () => {
   });
 
   it("③a 未命中 + shouldPrompt=true + 确认 → askCostGuard 后走 orchestrateMapReduce", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 }),
       buildCostGuardNotice: () => ({ shouldPrompt: true, message: "预计约 8 次调用" })
     });
 
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
     expect(deps.askCostGuard).toHaveBeenCalledWith(port, "预计约 8 次调用");
     expect(deps.pauseIdleTimeout).toHaveBeenCalled();
     expect(calls.mapReduce).toHaveLength(1);
-    expect(calls.mapReduce[0]).toMatchObject({ plan: { mode: "map-reduce" }, signal: "sig" });
+    expect(calls.mapReduce[0]).toMatchObject({ plan: { mode: "map-reduce" }, signal });
     expect(port.messages).toHaveLength(0);
   });
 
   it("③b 未命中 + shouldPrompt=true + 取消 → postMessage stopped，不走 Map-Reduce", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
@@ -129,7 +134,7 @@ describe("runLadderChat 分派", () => {
       askCostGuard: vi.fn(async () => false)
     });
 
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
     expect(deps.askCostGuard).toHaveBeenCalledTimes(1);
     expect(calls.mapReduce).toHaveLength(0);
@@ -137,6 +142,7 @@ describe("runLadderChat 分派", () => {
   });
 
   it("④ 单次 streamChat 抛 overflow 标记错误 → orchestrateMapReduce 被调一次（仅一次）", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       streamChat: vi.fn(async () => {
@@ -144,7 +150,7 @@ describe("runLadderChat 分派", () => {
       })
     });
 
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
     expect(deps.streamChat).toHaveBeenCalledTimes(1);
     expect(calls.mapReduce).toHaveLength(1);
@@ -152,6 +158,7 @@ describe("runLadderChat 分派", () => {
   });
 
   it("⑤ 追问压缩后 streamChat 抛 overflow 标记错误 → postMessage 追问溢出错误，不转 Map-Reduce", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
@@ -161,7 +168,7 @@ describe("runLadderChat 分派", () => {
       })
     });
 
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
     expect(deps.streamChat).toHaveBeenCalledTimes(1);
     expect(calls.mapReduce).toHaveLength(0);
@@ -187,12 +194,13 @@ describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", 
   }
 
   it("单次流式路径：先 acquire（在任何分派之前），运行结束 release", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps } = makeDeps();
     const { acquireSwKeepalive, handle, events } = makeKeepaliveSpy();
     deps.acquireSwKeepalive = acquireSwKeepalive;
 
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
     expect(acquireSwKeepalive).toHaveBeenCalledTimes(1);
     expect(events).toEqual(["acquire", "release"]);
@@ -200,6 +208,7 @@ describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", 
   });
 
   it("Map-Reduce 主路径（含成本护栏等待）全程持有，结束 release", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
@@ -210,13 +219,14 @@ describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", 
     const { acquireSwKeepalive, events } = makeKeepaliveSpy();
     deps.acquireSwKeepalive = acquireSwKeepalive;
 
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
     expect(calls.mapReduce).toHaveLength(1);
     expect(events).toEqual(["acquire", "release"]);
   });
 
   it("streamChat 抛非 overflow 错误（运行失败）→ 仍 release，异常继续上抛", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps } = makeDeps({
       streamChat: vi.fn(async () => {
@@ -227,18 +237,19 @@ describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", 
     deps.acquireSwKeepalive = acquireSwKeepalive;
 
     await expect(
-      runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps)
+      runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps)
     ).rejects.toThrow("boom");
     expect(handle.release).toHaveBeenCalledTimes(1);
   });
 
   it("acquire 返回 null（无 chrome 环境）→ 运行不受影响", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       acquireSwKeepalive: vi.fn(() => null)
     });
 
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
 
     expect(calls.streamChat).toHaveLength(1);
   });
@@ -246,37 +257,41 @@ describe("08 票 SW 保活：运行期间持有，结束（含异常）释放", 
 
 describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
   it("单次路径：webSearch 透传 streamChat", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps();
     const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig", webSearch }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(calls.streamChat[0].webSearch).toBe(webSearch);
   });
 
   it("追问压缩路径：webSearch 透传（单次流式调用，非归约轮）", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
       resolveFollowupContext: vi.fn(async () => ({ compressedSummaryMarkdown: "压缩摘要" }))
     });
     const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig", webSearch }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(calls.streamChat[0].webSearch).toBe(webSearch);
     expect(port.messages.some((m) => m.data === "超长内容归约中，本轮不联网")).toBe(false);
   });
 
   it("Map-Reduce 归约轮：notice「本轮不联网」+ 不传 webSearch", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 })
     });
     const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig", webSearch }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(true);
     expect(calls.mapReduce.length).toBe(1);
   });
 
   it("单次溢出转 Map-Reduce：同样 notice + 不联网", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "single" }),
@@ -285,17 +300,18 @@ describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
       })
     });
     const webSearch = { maxToolCalls: 5, executeSearch: async () => ({ results: [], platform: "Tavily" }) };
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig", webSearch }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(true);
     expect(calls.mapReduce.length).toBe(1);
   });
 
   it("无 webSearch：归约轮不发 notice（行为回归）", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8, estimatedTokens: 150000 })
     });
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal: "sig" }, deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal }, deps);
     expect(port.messages.some((m) => m.data === "超长内容归约中，本轮不联网")).toBe(false);
   });
 });
@@ -304,11 +320,12 @@ describe("图片输入透传（image-input 路线 B）", () => {
   const VALID = { mime: "image/webp", data: "QUJD" };
 
   it("单次路径：msg.images 经白名单归一后透传 streamChat", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps();
 
     await runLadderChat(
-      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port, signal: "sig" },
+      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port, signal },
       deps
     );
 
@@ -316,6 +333,7 @@ describe("图片输入透传（image-input 路线 B）", () => {
   });
 
   it("非法项被白名单丢弃；全非法/缺省时为 undefined（无图不带字段）", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps();
 
@@ -324,7 +342,7 @@ describe("图片输入透传（image-input 路线 B）", () => {
         msg: { ...makeMsg(), images: [{ mime: "image/webp" }, VALID, { mime: "", data: "x" }] },
         provider: { id: "p" },
         port,
-        signal: "sig"
+        signal
       },
       deps
     );
@@ -332,11 +350,12 @@ describe("图片输入透传（image-input 路线 B）", () => {
 
     const bare = makePort();
     const second = makeDeps();
-    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port: bare, signal: "sig" }, second.deps);
+    await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port: bare, signal }, second.deps);
     expect(second.calls.streamChat[0].userImages).toBeUndefined();
   });
 
   it("追问压缩路径：同样透传；Map-Reduce 主路径不带图（各段现造 user 消息）", async () => {
+    const signal = new AbortController().signal;
     const port = makePort();
     const { deps, calls } = makeDeps({
       buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
@@ -344,7 +363,7 @@ describe("图片输入透传（image-input 路线 B）", () => {
     });
 
     await runLadderChat(
-      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port, signal: "sig" },
+      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port, signal },
       deps
     );
     expect(calls.streamChat[0].userImages).toEqual([VALID]);
@@ -359,7 +378,7 @@ describe("图片输入透传（image-input 路线 B）", () => {
       })
     });
     await runLadderChat(
-      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port: overflowPort, signal: "sig" },
+      { msg: { ...makeMsg(), images: [VALID] }, provider: { id: "p" }, port: overflowPort, signal },
       overflowDeps.deps
     );
     expect(overflowDeps.calls.mapReduce).toHaveLength(1);
