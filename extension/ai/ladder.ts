@@ -34,6 +34,10 @@ export interface ChatMsg {
   [key: string]: unknown;
 }
 
+// 本模块只把 provider 原样透传给 deps，从不读它的任何字段：id/apiKey 是给
+// 调用方看的文档性声明，承重的是索引签名。刻意不换成 types.ts 的
+// ProviderRequest——本文件的 deps 契约用结构化窄面，让注入的 fake 少填字段
+// （同下文 BuildBudgetPlanFn 的刻意不合并先例）。
 export interface ChatProvider {
   id?: string;
   apiKey?: string;
