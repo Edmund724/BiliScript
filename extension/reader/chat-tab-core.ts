@@ -811,21 +811,14 @@ async function ensureCurrentContextForSend(): Promise<boolean | string> {
   await conversationReplayInFlight;
   return true;
 }
-// 时间戳跳转依赖包（注入 timestamp-nav）。reader 适配：seek 走进程内直调
-// seekReadingTarget（reader 域唯一定位入口，content script 无 chrome.tabs 消息
-// 链），deps 形状保持 timestamp-nav 契约——getActiveTab 恒返回当前页伪 tab、
-// matchContextUrl 恒 true（同一页面）、sendMessageToActiveTab 折算成 seek 回包。
+// 时间戳跳转依赖包（注入 timestamp-nav）。reader 适配：seek 直接包进程内单入口
+// seekReadingTarget（content script 无 chrome.tabs 消息链，无跨标签导航可言），
+// 返回 null = 未绑定到视频，由 nav 侧降级为失败播报。
 function getTimestampNavDeps() {
   return {
     contextUrl: String(chatSessionState.contextData?.url || chatSessionState.currentConversationMeta?.contextUrl || "").trim(),
     notice: showConversationContextNotice,
-    getActiveTab: async () => ({ id: 0, url: location.href }),
-    matchContextUrl: () => true,
-    sendMessageToActiveTab: async (_tabId: number, message: unknown) => {
-      const seconds = Number((message as { seconds?: unknown } | null)?.seconds ?? 0);
-      const applied = seekReadingTarget(seconds);
-      return applied === null ? { ok: false, error: "视频时间跳转失败" } : { ok: true };
-    }
+    seek: (seconds: number) => seekReadingTarget(seconds)
   };
 }
 // 【整段迁移自 sidepanel.ts】重启对话：清流状态 + 清会话状态 + 重置消息区

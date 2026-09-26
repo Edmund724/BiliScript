@@ -1,14 +1,15 @@
 // timestamp-nav.ts — "assistant answer timestamp → clickable seek button" concern,
 // extracted out of extension/pages/sidepanel.js (ticket 04 of sidepanel-split).
 //
-// Domain: ui (same dir as markdown.js / ui-renderer.js). Pure of sidepanel
-// module-level state: every sidepanel dependency arrives via the injected deps
-// object — no direct reads of sidepanel globals, no chrome/window imports here.
+// Domain: ui (same dir as markdown.js / ui-renderer.js). Every dependency
+// arrives via the injected deps object — no chrome/window imports here.
 //
-// NOTE (ticket 08): the seek flow reuses the sidepanel's own retrying
-// `sendMessageToActiveTab` via the injected deps field (it is NOT reimplemented
-// here). The tab-polling helpers `waitForTabComplete` / `delay` are sourced
-// from the shared transport helpers (../shared/tab-utils.js).
+// Seek contract: the tab-message round trip is gone. `deps.seek(seconds)`
+// performs the seek in-process and returns the applied position, or `null` when
+// no video is bound (downgraded to a failure notice). The only production
+// adapter is reader/chat-tab-core's getTimestampNavDeps, which wraps the reader
+// domain's seekReadingTarget. `deps.contextUrl` still guards the "no video
+// context" case (empty → notice, no seek).
 //
 // TIMESTAMP_PATTERN has a single home in ./markdown.js — this module imports
 // it instead of keeping a parallel copy.
@@ -19,15 +20,12 @@
 //   - jumpToAssistantTimestamp(seconds, label, deps)  async seek; deps injected at call time
 
 import { formatClock, parseClock } from "../shared/clock-text.js";
-import { waitForTabComplete } from "../shared/tab-utils.js";
 import { isTimestampOnlyInlineCode, TIMESTAMP_PATTERN } from "./markdown.js";
 
 export interface TimestampNavDeps {
   contextUrl?: string;
   notice?: (message: string, autoHideMs?: number) => void;
-  getActiveTab?: () => Promise<{ id?: number; url?: string } | null>;
-  matchContextUrl?: (tabUrl: string, targetUrl: string) => boolean;
-  sendMessageToActiveTab?: (tabId: number, message: unknown) => Promise<{ ok?: boolean; error?: string } | null>;
+  seek?: (seconds: number) => number | null;
 }
 
 // 对话时间戳解析（arch-slim-2/08 归一）：容错规则单源 shared/clock-text.ts 的
@@ -114,30 +112,16 @@ async function jumpToAssistantTimestamp(
     return;
   }
 
-  const tab = await deps.getActiveTab?.().catch(() => null);
-  // 守卫只拒「没有 tab 对象」与「没有数字 id 的 tab」（真实 tab 流程没 id 无法
-  // 导航）；id 0 是合法值——reader 对话 tab 的注入方（reader/chat-tab.ts
-  // getTimestampNavDeps）恒给伪 tab { id: 0, url }，seek 走进程内直调，旧检查
-  // !tab?.id 把 0 当假值，reader 内点击时间戳恒误报「找不到当前标签页」。
-  if (!tab || typeof tab.id !== "number") {
-    deps.notice?.("找不到当前标签页。", 2200);
-    return;
-  }
-
   deps.notice?.(`正在跳转到 ${label || formatClock(safeSeconds, { hours: "auto" })}...`, 1800);
 
   try {
-    const sameVideo = deps.matchContextUrl?.(tab.url || "", targetUrl);
-    if (!sameVideo) {
-      await chrome.tabs.update(tab.id, { url: targetUrl });
-      await waitForTabComplete(tab.id);
-    }
-    const response = await deps.sendMessageToActiveTab?.(tab.id, {
-      type: "reader-seek-video-time",
-      seconds: safeSeconds
-    });
-    if (!response?.ok) {
-      throw new Error(response?.error || "视频时间跳转失败");
+    // 进程内定位：content script 无 tab 消息链，seek 不经 chrome.tabs /
+    // 跨标签导航，直接调注入的 seek（唯一生产实现是 reader 域单入口
+    // seekReadingTarget）。返回 null = 未绑定到视频，与旧 { ok:false, error }
+    // 回包同型降级。
+    const seekedTo = deps.seek?.(safeSeconds);
+    if (seekedTo === null) {
+      throw new Error("视频时间跳转失败");
     }
   } catch (error) {
     deps.notice?.(`时间跳转失败：${(error as Error)?.message || error}`, 2600);
