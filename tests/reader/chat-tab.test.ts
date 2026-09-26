@@ -632,7 +632,7 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
       },
       { role: "assistant", content: "回答见 [1]。" }
     ];
-    (await import("../../extension/reader/chat-tab-core.js")).renderInitialState();
+    (await import("../../extension/reader/chat-tab.js")).renderInitialState();
 
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     await waitFor(() => Boolean(messages.querySelector(".chat-search-card")));
