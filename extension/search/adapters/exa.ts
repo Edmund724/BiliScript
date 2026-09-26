@@ -7,7 +7,8 @@ import {
   truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
-  type ParsedSearchResponse
+  type ParsedSearchResponse,
+  type SearchAdapter
 } from "./types.js";
 
 export function buildExaSearchRequest({ baseUrl, apiKey, query, count }: BuildSearchRequestInput): BuiltSearchRequest {
@@ -51,3 +52,11 @@ export function parseExaSearchResponse(payload: unknown): ParsedSearchResponse {
     ...(credits !== undefined ? { credits: Number(credits) } : {})
   };
 }
+
+// 注册表项（search/search-adapters.ts 登记）：具名函数保持导出，测试直调零改动。
+export const exaAdapter: SearchAdapter = {
+  type: "exa",
+  name: "Exa",
+  build: buildExaSearchRequest,
+  parse: parseExaSearchResponse
+};

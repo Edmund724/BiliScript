@@ -1,15 +1,13 @@
 // extension/search/search-executor.ts
-// 搜索执行器（spec §2.4）：按 provider type 选适配器构造 BuiltSearchRequest，
-// 经 providerFetchViaBackground 发起（provider-http 消息通道，background SW
-// 收口——URL 合法性 / host 权限预检 / 15s 超时都在 SW 端，密钥不出 SW），
-// 响应按 type 调对应 parse*SearchResponse 归一为 { title, url, snippet }[]。
+// 搜索执行器（spec §2.4）：按 provider type 经 SEARCH_ADAPTERS 取适配器构造
+// BuiltSearchRequest，经 providerFetchViaBackground 发起（provider-http 消息
+// 通道，background SW 收口——URL 合法性 / host 权限预检 / 15s 超时都在 SW 端，
+// 密钥不出 SW），响应交同一适配器归一为 { title, url, snippet }[]。
 // offscreen 文档可 import（纯 runtime 消息，无 chrome.storage 依赖）；测试经
 // deps.fetchImpl 注入。
 import { providerFetchViaBackground } from "../core/provider-http.js";
 import type { SearchProviderType } from "../core/presets.js";
-import { buildTavilySearchRequest, parseTavilySearchResponse } from "./adapters/tavily.js";
-import { buildExaSearchRequest, parseExaSearchResponse } from "./adapters/exa.js";
-import { buildBraveSearchRequest, parseBraveSearchResponse } from "./adapters/brave.js";
+import { resolveSearchAdapter } from "./search-adapters.js";
 import type { ParsedSearchResponse } from "./adapters/types.js";
 
 // 每家默认条数（spec §3.1：对应各自的 max_results / numResults / count 字段）。
@@ -43,7 +41,13 @@ export async function executeWebSearch(
   signal?: AbortSignal | null
 ): Promise<WebSearchOutcome> {
   const fetchImpl = deps?.fetchImpl ?? providerFetchViaBackground;
-  const built = buildSearchRequest(config, query);
+  const adapter = resolveSearchAdapter(config.type);
+  const built = adapter.build({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    query,
+    count: SEARCH_RESULT_COUNT
+  });
 
   const response = await fetchImpl(built.url, {
     method: built.method,
@@ -60,40 +64,6 @@ export async function executeWebSearch(
   } catch (e) {
     throw new Error(`搜索响应解析失败：${(e as { message?: unknown })?.message || e}`);
   }
-  const parsed = parseSearchResponse(config.type, payload);
-  return { ...parsed, platform: platformName(config.type) };
-}
-
-function buildSearchRequest(config: SearchExecutorConfig, query: string) {
-  const input = { baseUrl: config.baseUrl, apiKey: config.apiKey, query, count: SEARCH_RESULT_COUNT };
-  switch (config.type) {
-    case "tavily":
-      return buildTavilySearchRequest(input);
-    case "exa":
-      return buildExaSearchRequest(input);
-    case "brave":
-      return buildBraveSearchRequest(input);
-  }
-}
-
-function parseSearchResponse(type: SearchProviderType, payload: unknown): ParsedSearchResponse {
-  switch (type) {
-    case "tavily":
-      return parseTavilySearchResponse(payload);
-    case "exa":
-      return parseExaSearchResponse(payload);
-    case "brave":
-      return parseBraveSearchResponse(payload);
-  }
-}
-
-export function platformName(type: SearchProviderType): string {
-  switch (type) {
-    case "tavily":
-      return "Tavily";
-    case "exa":
-      return "Exa";
-    case "brave":
-      return "Brave";
-  }
+  const parsed = adapter.parse(payload);
+  return { ...parsed, platform: adapter.name };
 }

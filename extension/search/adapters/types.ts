@@ -3,6 +3,8 @@
 // { title, url, snippet }[]，tool-loop（后续 effort）据 BuiltSearchRequest 走
 // provider-http 通道由 SW 发请求。纯类型，零运行时依赖。
 
+import type { SearchProviderType } from "../../core/presets.js";
+
 // 统一结果条目：Tavily content / Exa summary / Brave description 都映射到
 // snippet，单条截断 500 字符（spec §5，解析期收口）。
 export interface NormalizedSearchResult {
@@ -30,6 +32,16 @@ export interface BuildSearchRequestInput {
 export interface ParsedSearchResponse {
   results: NormalizedSearchResult[];
   credits?: number;
+}
+
+// 搜索适配器接口：type 自陈归属（注册表登记即多态），name 为展示名
+// （tool-status / UI）。请求构造与响应解析两件事，由 search-adapters.ts 的
+// SEARCH_ADAPTERS 注册表收编执行器分派。
+export interface SearchAdapter {
+  readonly type: SearchProviderType;
+  readonly name: string;
+  build(input: BuildSearchRequestInput): BuiltSearchRequest;
+  parse(payload: unknown): ParsedSearchResponse;
 }
 
 // snippet 截断上限（spec §5 单源）

@@ -8,7 +8,8 @@ import {
   truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
-  type ParsedSearchResponse
+  type ParsedSearchResponse,
+  type SearchAdapter
 } from "./types.js";
 
 export function buildTavilySearchRequest({ baseUrl, apiKey, query, count }: BuildSearchRequestInput): BuiltSearchRequest {
@@ -49,3 +50,11 @@ export function parseTavilySearchResponse(payload: unknown): ParsedSearchRespons
     ...(Number.isFinite(Number(data.usage?.credits)) ? { credits: Number(data.usage?.credits) } : {})
   };
 }
+
+// 注册表项（search/search-adapters.ts 登记）：具名函数保持导出，测试直调零改动。
+export const tavilyAdapter: SearchAdapter = {
+  type: "tavily",
+  name: "Tavily",
+  build: buildTavilySearchRequest,
+  parse: parseTavilySearchResponse
+};

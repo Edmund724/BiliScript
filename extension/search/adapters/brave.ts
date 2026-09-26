@@ -7,7 +7,8 @@ import {
   truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
-  type ParsedSearchResponse
+  type ParsedSearchResponse,
+  type SearchAdapter
 } from "./types.js";
 
 export function buildBraveSearchRequest({ baseUrl, apiKey, query, count }: BuildSearchRequestInput): BuiltSearchRequest {
@@ -43,3 +44,11 @@ export function parseBraveSearchResponse(payload: unknown): ParsedSearchResponse
     })
   };
 }
+
+// 注册表项（search/search-adapters.ts 登记）：具名函数保持导出，测试直调零改动。
+export const braveAdapter: SearchAdapter = {
+  type: "brave",
+  name: "Brave",
+  build: buildBraveSearchRequest,
+  parse: parseBraveSearchResponse
+};
