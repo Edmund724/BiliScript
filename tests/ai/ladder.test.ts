@@ -154,7 +154,8 @@ describe("runLadderChat 分派", () => {
 
     expect(deps.streamChat).toHaveBeenCalledTimes(1);
     expect(calls.mapReduce).toHaveLength(1);
-    expect(calls.mapReduce[0].plan).toEqual({ mode: "single" });
+    // 不注入 single 档的空 plan（segments 为空会直接产出空草稿），由 map-reduce 重算。
+    expect(calls.mapReduce[0].plan).toBeNull();
   });
 
   it("⑤ 追问压缩后 streamChat 抛 overflow 标记错误 → postMessage 追问溢出错误，不转 Map-Reduce", async () => {
@@ -303,6 +304,7 @@ describe("联网搜索透传与 Map-Reduce 剥离（spec Q12/Q13）", () => {
     await runLadderChat({ msg: makeMsg(), provider: { id: "p" }, port, signal, webSearch }, deps);
     expect(port.messages.some((m) => m.type === "notice" && m.data === "超长内容归约中，本轮不联网")).toBe(true);
     expect(calls.mapReduce.length).toBe(1);
+    expect(calls.mapReduce[0].plan).toBeNull();
   });
 
   it("无 webSearch：归约轮不发 notice（行为回归）", async () => {
@@ -383,5 +385,6 @@ describe("图片输入透传（image-input 路线 B）", () => {
     );
     expect(overflowDeps.calls.mapReduce).toHaveLength(1);
     expect(overflowDeps.calls.mapReduce[0].userImages).toBeUndefined();
+    expect(overflowDeps.calls.mapReduce[0].plan).toBeNull();
   });
 });

@@ -78,7 +78,8 @@ export type StreamChatFn = (args: StreamChatArgs) => Promise<unknown>;
 export interface OrchestrateMapReduceArgs {
   provider: ChatProvider;
   context: ChatContext;
-  plan: BudgetPlan;
+  // null = 不注入调用方预算计划，由 map-reduce 现场重算（单次路径溢出重转用）。
+  plan: BudgetPlan | null;
   port: ChatPort;
   signal: AbortSignal | null;
   thinkingLevel?: string;
@@ -316,7 +317,10 @@ async function runLadderChatDispatch(
     await orchestrateMapReduce({
       provider,
       context: msg.context || {},
-      plan,
+      // 不复用 single 档的 plan：它的 segments 为空，原样注入会让 Map-Reduce
+      // 首轮跳过重算、直接产出空草稿（小窗口模型真实溢出而预算判定为 single
+      // 时的典型故障）。传 null 由 map-reduce 现场重算。
+      plan: null,
       port,
       signal,
       thinkingLevel: msg.thinkingLevel,
