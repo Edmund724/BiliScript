@@ -5,10 +5,14 @@
      document.title（BILISCRIPT_SMOKE_PASS / BILISCRIPT_SMOKE_FAIL），供浏览器侧读取断言。
 
      覆盖：sequence + flow 各一张最小 fixture 在真实 Chrome 渲染出 SVG、
-     全程无 console.error / window.onerror；flow 节点 hover（mermaid 11 的
-     setupToolTips/bindFunctions 在 flowchart-v2/sequence 渲染路径不再被调用，
+     全程无 console.error / window.onerror；flow 节点 hover（mermaid 12 的
+     setupToolTips/bindFunctions 在 flowchart-v2/sequence 渲染路径不被调用——
+     12.0.0 实跑复验：全 vendored dist 内 bindFunctions 调用点为零，
      此处仅证明合成 hover 事件不报错）与 vendor-d3-slim.mjs 的 transition
-     补丁契约由 tests/ui/vendor-d3-slim.test.ts 单测钉住。 -->
+     补丁契约由 tests/ui/vendor-d3-slim.test.ts 单测钉住。另有两条常驻断言：
+     被引用的 SVG 内部 id（url(#…)/href）以根 id 为前缀、<style> 规则选择器
+     以 #<根 id> 为前缀（mermaid-render 换 id 逻辑依赖的隐含保证；sequence
+     的未引用裸 id actor<N>/root-<N> 为 11/12 一致的上游行为）。 -->
 <html lang="zh">
 <head>
 <meta charset="utf-8">
@@ -77,7 +81,7 @@ async function main() {
   check("sequence actor text", !!seqSvg && seqSvg.textContent.includes("Alice"));
   check("flow node text", !!flowSvg && flowSvg.textContent.includes("Start"));
 
-  // flow hover：mermaid 11 的 flowchart-v2/sequence 渲染不再调用 bindFunctions，
+  // flow hover：mermaid 12 的 flowchart-v2/sequence 渲染不调用 bindFunctions，
   // g.node 上没有 d3 事件监听——合成 hover 只证明不报错；transition 补丁的
   // 行为契约由 tests/ui/vendor-d3-slim.test.ts 钉住。
   const node = flow.querySelector("g.node");
@@ -87,6 +91,31 @@ async function main() {
     for (const type of ["mouseover", "mouseout"]) {
       node.dispatchEvent(new MouseEvent(type, { bubbles: true }));
     }
+  }
+
+  // 常驻断言（mermaid-12-upgrade/06，自 spike 探针提升）：mermaid-render 的
+  // mountDiagram 换 id 逻辑依赖的隐含保证——它不是 mermaid 的文档化契约，在此钉住。
+  // 钉的是真实成立的那半条：**被引用的**内部 id（url(#…)/href）与全部 style 规则
+  // 选择器都以根 id 为前缀。12.0.0 实跑发现 sequence 有未被引用的裸 id
+  // （actor<N>/root-<N>），溯源 11.17.2 dist 一致存在——既有上游行为，不在断言内。
+  for (const [name, svgEl] of [["sequence", seqSvg], ["flow", flowSvg]]) {
+    if (!svgEl) continue;
+    const rootId = svgEl.id;
+    const html = svgEl.outerHTML;
+    const refIds = new Set();
+    for (const m of html.matchAll(/url\(#([^)]+)\)/g)) refIds.add(m[1]);
+    for (const m of html.matchAll(/(?:href|xlink:href)="#([^"]+)"/g)) refIds.add(m[1]);
+    const badRefs = [...refIds].filter((v) => !v.startsWith(rootId));
+    check(`${name}: referenced ids prefixed`,
+      refIds.size > 0 && badRefs.length === 0,
+      badRefs.join(",") || `${rootId} / ${refIds.size} refs`);
+    // 走 CSSOM 而非文本切分：@keyframes 等 at-rule 不是选择器，文本切分会误伤。
+    const rules = [...(svgEl.querySelector("style")?.sheet?.cssRules ?? [])];
+    const styleRules = rules.filter((r) => r instanceof CSSStyleRule);
+    const badSel = styleRules.filter((r) => !r.selectorText.startsWith("#" + rootId));
+    check(`${name}: style selectors prefixed`,
+      styleRules.length > 0 && badSel.length === 0,
+      badSel.map((r) => r.selectorText).join(",").slice(0, 80));
   }
 
   check("no console/page errors", errors.length === 0, errors.join(" | "));

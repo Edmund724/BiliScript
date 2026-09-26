@@ -43,7 +43,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawn } = require("child_process");
 const { build, context } = require("esbuild");
-const { createLocalImportGuard, sourcesFromMap } = require("./build-guards.js");
+const { createLocalImportGuard, sourcesFromMap, BUILD_TARGET } = require("./build-guards.js");
 
 // --watch（npm run dev）：首轮走与发布完全一致的全量构建 + 自检 + 报表，之后
 // esbuild context 监听三个构建任务原地重建 dist/，content 部分拉起
@@ -202,7 +202,7 @@ function restJsOptions() {
     platform: "browser",
     minify: true,
     sourcemap: true,
-    target: "chrome120",
+    target: BUILD_TARGET,
     metafile: true,
     logLevel: "warning",
     plugins: [localImportGuard],
@@ -228,7 +228,7 @@ function offscreenOptions() {
     platform: "browser",
     minify: true,
     sourcemap: true,
-    target: "chrome120",
+    target: BUILD_TARGET,
     metafile: true,
     logLevel: "warning",
     plugins: [localImportGuard],

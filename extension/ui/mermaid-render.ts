@@ -75,6 +75,14 @@ function ensureConfigured(theme: string): void {
     startOnLoad: false,
     theme: mermaidTheme(theme),
     fontFamily: PANEL_FONT_FAMILY,
+    // mermaid 12 起 look / layout 有了按图表类型的默认值（look: "neo" /
+    // layout: "elk"），且 look 不吃全局值（上游 release notes 写的全局
+    // look: "classic" 实测无效）——必须按图表分节给。分节名 flowchart /
+    // sequence 对应探测类型 flowchart-v2 / sequence，两者不同名。layout
+    // 吃全局值（getConfig() 里没有 flowchart.layout 键），设一处就够。
+    layout: "dagre",
+    flowchart: { look: "classic" },
+    sequence: { look: "classic" },
     // 图表源码来自模型输出：strict 走 mermaid 内置的 DOMPurify 标签清洗，并
     // 关掉点击交互与链接改写（与 MarkText 等集成同一档）。
     securityLevel: "strict",
@@ -123,8 +131,9 @@ function renderDiagram(source: string, theme: string): Promise<RenderedDiagram> 
 
 function mountDiagram(block: Element, diagram: RenderedDiagram, theme: string): void {
   // 每次插入换一个新 id：同一张图（缓存命中）在页面上出现两份时 id 不会重复。
-  // mermaid 的内部 id 全以根 id 为前缀，整体替换即覆盖 <style> 选择器与
-  // url(#…) 引用。
+  // 被引用的内部 id（<style> 选择器、marker/gradient 的 url(#…)）都以根 id 为
+  // 前缀，整体替换即一致覆盖。sequence 另有未被引用的裸 id（actor<N> /
+  // root-<N>，mermaid 11/12 一致），不参与替换也不破坏一致性。
   const freshId = `biliscript-mermaid-${++idSeq}`;
   const holder = document.createElement("div");
   holder.className = "biliscript-md-mermaid-svg";
@@ -173,7 +182,7 @@ export async function hydrateMermaidPlaceholders(
   options: HydrateMermaidOptions = {}
 ): Promise<void> {
   const { theme = "light", force = false } = options;
-  // detectType 依赖 mermaid 模块初始化时注册的图表探测器（mermaid 11 的
+  // detectType 依赖 mermaid 模块初始化时注册的图表探测器（mermaid 12 的
   // initialize 内部会 addDiagrams 完成注册），必须先配置再检测——否则首个
   // 水合会话里 detectors 为空，全部图表被误判 unsupported（真实浏览器冒烟
   // 抓到的回归）。ensureConfigured 按主题幂等，渲染路径里的再次调用是空转。

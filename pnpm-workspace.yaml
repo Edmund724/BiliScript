@@ -4,3 +4,12 @@ allowBuilds:
   '@google/genai': false
   esbuild: true
   protobufjs: false
+
+overrides:
+  # mermaid@12 新增的 chevrotain@11 把 lodash-es 精确锁在 4.17.23（带两条未修
+  # 公告），产物里实际跑的是 dagre-d3-es 带入的 4.18.1——chevrotain 及其
+  # lodash-es 一行都不进产物。此 override 只让 lockfile 说实话、让
+  # pnpm audit 从 2 条回到 0，不往产物加任何代码（判据与考证见
+  # docs/agents/transitive-deps.md）。chevrotain 13 起不再依赖 lodash-es，
+  # 届时删掉这条。
+  lodash-es: 4.18.1

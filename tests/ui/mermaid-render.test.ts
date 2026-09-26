@@ -171,7 +171,16 @@ describe("hydrateMermaidPlaceholders", () => {
 
     await hydrateMermaidPlaceholders(document.body, { theme: "light" });
     expect(mermaidMock.render).toHaveBeenCalledTimes(1);
-    expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "default" }));
+    // mermaid 12 起 look/layout 获得按图表类型的默认值（neo / elk）且 look 不吃
+    // 全局 initialize 值（上游 release notes 写的全局 look 实测无效），必须钉住
+    // layout:"dagre" 与按 flowchart/sequence 分节的 look:"classic"——防止有人把
+    // 配置「简化」回只设 theme，而那个坑恰恰是上游文档自己给的。
+    expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({
+      theme: "default",
+      layout: "dagre",
+      flowchart: { look: "classic" },
+      sequence: { look: "classic" }
+    }));
 
     // 同主题 force：块记录的渲染主题一致 → 跳过（applyReadingViewPresentation
     // 在进入阅读模式等路径上会重复调用，不能白闪一次）
@@ -181,7 +190,12 @@ describe("hydrateMermaidPlaceholders", () => {
     // 异主题 force：重渲染
     await hydrateMermaidPlaceholders(document.body, { theme: "dark", force: true });
     expect(mermaidMock.render).toHaveBeenCalledTimes(2);
-    expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ theme: "dark" }));
+    expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({
+      theme: "dark",
+      layout: "dagre",
+      flowchart: { look: "classic" },
+      sequence: { look: "classic" }
+    }));
     expect(mermaidMock.initialize).toHaveBeenCalledTimes(2);
     expect(block.getAttribute("data-biliscript-mermaid")).toBe("done");
   });

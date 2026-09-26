@@ -1,9 +1,10 @@
-// vendor-d3-slim.mjs 契约单测：mermaid 11 的 flow tooltip（chunk-SHT3W25Y.mjs
-// 的 setupToolTips）调用 `selection.transition().duration(n).style(k, v)` 链；
-// mermaid 11.17.2 里 flowchart-v2/sequence 渲染路径实际不再调用 bindFunctions，
-// 该链是保留代码里的死路径，但补丁契约仍要钉住——style 必须立即落到元素上
-// （tooltip 初值 opacity 0，纯 no-op 会让 tooltip 永不出现），duration/delay/ease
-// 等保持链式可调用，interrupt 返回 selection 自身。
+// vendor-d3-slim.mjs 契约单测：mermaid 12 的 flow tooltip（FlowDB 的
+// setupToolTips，flowchart 共享 DB chunk）调用 `transition().duration(n).style(k, v)`
+// 链；该链仍是死路径（12.0.0 实跑复验：FlowDB 仍把 setupToolTips 压入 this.funs，
+// 但 funs 的唯一消费者 bindFunctions 在整个 vendored dist 内调用点为零，
+// flowchart-v2/sequence 渲染路径不会触达），但补丁契约仍要钉住——style 必须
+// 立即落到元素上（tooltip 初值 opacity 0，纯 no-op 会让 tooltip 永不出现），
+// duration/delay/ease 等保持链式可调用，interrupt 返回 selection 自身。
 
 import { describe, expect, it } from "vitest";
 import { select } from "../../scripts/vendor-d3-slim.mjs";

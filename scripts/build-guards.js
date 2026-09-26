@@ -6,6 +6,13 @@
 
 const path = require("path");
 
+// esbuild target 单一来源（mermaid-12-upgrade/08）：build-content.js（轮 A/轮 B/
+// bootstrap）、build.js（SW / offscreen）、vendor-mermaid-slim.mjs（探针轮）六处
+// 原本各写死 "chrome120"，零处互校验，现统一从这里取。manifest.json 的
+// minimum_chrome_version 是签入的静态文件、构建零改写，无法从此派生——
+// 它与本常量的一致性由 build-content.js 的 manifest 守卫块逐构建断言。
+const BUILD_TARGET = "chrome120";
+
 // 双实例守卫（build-content.js 的 assertDualInstanceAllowlist 专用，纯函数收在此
 // 是为了让 tests/ 能不经构建直接喂 fixture 对账）：content 两轮构建把共享底座
 // 各装一份实例，「允许双实例模块清单」必须与构建产物 sourcemap 的交集逐字一致
@@ -70,4 +77,4 @@ function diffDualInstanceAllowlist(actualSources, allowlistSources) {
   };
 }
 
-module.exports = { createLocalImportGuard, sourcesFromMap, diffDualInstanceAllowlist };
+module.exports = { createLocalImportGuard, sourcesFromMap, diffDualInstanceAllowlist, BUILD_TARGET };
