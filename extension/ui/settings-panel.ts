@@ -53,7 +53,7 @@ import {
   setAiBeforeDeleteHandler,
   setAiRowEditHandler
 } from "./options-rows.js";
-import type { ProviderRowItem } from "./provider-row.js";
+import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import {
   renderAsrProviders,
   generateAsrProviderId,
@@ -302,6 +302,82 @@ async function loadSearchProviders(): Promise<ProviderRowItem[]> {
   }
 }
 
+// ===== provider 三族分派表 =====
+
+// 三族 list/save/delete 响应的形状一致（条目按行渲染的宽松形状，见
+// shared/messaging-protocol 的 Ai/Asr/SearchProviders*Response）。
+type ProviderListResponse = {
+  ok: boolean;
+  providers?: ProviderRowItem[];
+  error?: string;
+};
+
+// 族 → 设置面板分派表。AI/ASR/搜索三族在本面板的分派点（整列表消息、新平台 id
+// 生成、现查列表、预设装载、列表重渲、optional host 权限策略）完全同构，差异
+// 只在这张表里，调用点收敛为一次查表（对齐 core/settings-snapshot.ts 的
+// FAMILY_STORES 先例：Record 全键覆盖，新增族漏配即编译报错）。
+// 各族的消息 type 写在本族箭头函数体内、保持单字面量（联合 type 会让
+// ResponseOf 推断塌成 never，见 saveProviderSingle 处的说明），故本表是回调表
+// 而非 type 字段表。
+interface ProviderFamilyUi {
+  // 整列表现查（upsert 前的权威列表，失败由调用方兜底）
+  list: () => Promise<ProviderListResponse>;
+  // 现查列表并兜底成空数组（编辑 Modal 打开前用）
+  loadProviders: () => Promise<ProviderRowItem[]>;
+  // 整列表替换保存（回最新列表，含 hasSavedKey）
+  save: (providers: ProviderRowItem[]) => Promise<ProviderListResponse>;
+  // 单条删除（回删除后存活列表）
+  remove: (providerId: string) => Promise<ProviderListResponse>;
+  // 新平台 id 生成（沿用各行 id 前缀）
+  generateId: () => string;
+  // 编辑 Modal 的预设来源（AI/ASR 为后端动态装载的模块态，搜索为纯数据常量）
+  presets: () => readonly ProviderRowPreset[];
+  // 列表重渲（选用态从当前 DOM radio 读取）
+  rerender: (elements: SettingsElements, providers: ProviderRowItem[]) => void;
+  // 域名是否走 optional host 权限（content 语境经 background 代申请）。
+  // 搜索是 manifest 静态 host 权限（spec §2.4），不代申请、也不参与 orphan 回收
+  optionalHostPermission: boolean;
+}
+
+const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
+  ai: {
+    list: () => sendRuntimeMessage({ type: "ai-providers-list" }),
+    loadProviders: loadAiProviders,
+    save: (providers) => sendRuntimeMessage({ type: "ai-providers-save", providers }),
+    remove: (providerId) => sendRuntimeMessage({ type: "ai-providers-delete", providerId }),
+    generateId: generateAiProviderId,
+    presets: () => aiPresets,
+    rerender: (elements, providers) => renderAiProviders(elements.aiProvidersList, elements.aiProvidersEmpty, providers),
+    optionalHostPermission: true
+  },
+  asr: {
+    list: () => sendRuntimeMessage({ type: "asr-providers-list" }),
+    loadProviders: loadAsrProviders,
+    save: (providers) => sendRuntimeMessage({ type: "asr-providers-save", providers }),
+    remove: (providerId) => sendRuntimeMessage({ type: "asr-providers-delete", providerId }),
+    generateId: generateAsrProviderId,
+    presets: () => asrPresets,
+    rerender: (elements, providers) => renderAsrProviders(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
+      presets: asrPresets,
+      activeId: getActiveAsrProviderId(elements.asrProvidersList)
+    }),
+    optionalHostPermission: true
+  },
+  search: {
+    list: () => sendRuntimeMessage({ type: "search-providers-list" }),
+    loadProviders: loadSearchProviders,
+    save: (providers) => sendRuntimeMessage({ type: "search-providers-save", providers }),
+    remove: (providerId) => sendRuntimeMessage({ type: "search-providers-delete", providerId }),
+    generateId: generateSearchProviderId,
+    presets: () => SEARCH_PROVIDER_PRESETS,
+    rerender: (elements, providers) => renderSearchProviders(elements.searchProvidersList, elements.searchProvidersEmpty, providers, {
+      presets: SEARCH_PROVIDER_PRESETS,
+      activeId: getActiveSearchProviderId(elements.searchProvidersList)
+    }),
+    optionalHostPermission: false
+  }
+};
+
 // ===== 单平台保存与编辑 Modal（provider-master-detail/01） =====
 
 // 单平台 upsert 保存（provider-editor Modal 的保存回调）。与整表 saveSettings
@@ -315,33 +391,26 @@ async function saveProviderSingle(
   kind: ProviderEditorKind,
   upsert: ProviderRowItem
 ): Promise<{ ok: boolean; error?: string; providers?: ProviderRowItem[] }> {
+  const family = PROVIDER_FAMILY_UI[kind];
   // 搜索平台域名是静态 host 权限（manifest host_permissions，spec §2.4），不走
   // optional 权限代申请
-  if (kind !== "search" && upsert.baseUrl) {
+  if (family.optionalHostPermission && upsert.baseUrl) {
     const permission = await requestProviderOriginsViaBackground([String(upsert.baseUrl)]);
     if (!permission.ok) {
       return { ok: false, error: permission.error };
     }
   }
   try {
-    // 消息 type 用三元直发单字面量（联合 type 会让 ResponseOf 推断塌成 never）
-    const listResp = kind === "ai"
-      ? await sendRuntimeMessage({ type: "ai-providers-list" })
-      : kind === "search"
-        ? await sendRuntimeMessage({ type: "search-providers-list" })
-        : await sendRuntimeMessage({ type: "asr-providers-list" });
+    // 消息 type 由分派表各族保持单字面量直发（联合 type 会让 ResponseOf 推断
+    // 塌成 never）
+    const listResp = await family.list();
     const list: ProviderRowItem[] =
       listResp?.ok && Array.isArray(listResp.providers) ? listResp.providers : [];
-    const providerId = String(upsert.id || "")
-      || (kind === "ai" ? generateAiProviderId() : kind === "search" ? generateSearchProviderId() : generateAsrProviderId());
+    const providerId = String(upsert.id || "") || family.generateId();
     const next = list.some((p) => String(p?.id || "") === providerId)
       ? list.map((p) => (String(p?.id || "") === providerId ? { ...p, ...upsert, id: providerId } : p))
       : [...list, { ...upsert, id: providerId }];
-    const saveResp = kind === "ai"
-      ? await sendRuntimeMessage({ type: "ai-providers-save", providers: next })
-      : kind === "search"
-        ? await sendRuntimeMessage({ type: "search-providers-save", providers: next })
-        : await sendRuntimeMessage({ type: "asr-providers-save", providers: next });
+    const saveResp = await family.save(next);
     if (!saveResp?.ok) {
       return { ok: false, error: saveResp?.error || "保存失败" };
     }
@@ -359,19 +428,7 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
     return;
   }
   const elements = collectElements(host);
-  if (kind === "ai") {
-    renderAiProviders(elements.aiProvidersList, elements.aiProvidersEmpty, providers);
-  } else if (kind === "search") {
-    renderSearchProviders(elements.searchProvidersList, elements.searchProvidersEmpty, providers, {
-      presets: SEARCH_PROVIDER_PRESETS,
-      activeId: getActiveSearchProviderId(elements.searchProvidersList)
-    });
-  } else {
-    renderAsrProviders(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
-      presets: asrPresets,
-      activeId: getActiveAsrProviderId(elements.asrProvidersList)
-    });
-  }
+  PROVIDER_FAMILY_UI[kind].rerender(elements, providers);
 }
 
 // provider-editor 的 onSave：单平台落盘 + 成功后重渲列表。错误由 Modal 状态行
@@ -394,8 +451,9 @@ async function deleteFromEditor(
   kind: ProviderEditorKind,
   target: { id: string; baseUrl: string }
 ): Promise<{ ok: boolean; error?: string }> {
+  const family = PROVIDER_FAMILY_UI[kind];
   try {
-    if (kind !== "search") {
+    if (family.optionalHostPermission) {
       // 搜索平台域名是静态 host 权限（无 optional 授权可回收），跳过 orphan
       // origin 判定
       const [aiProviders, asrProviders] = await Promise.all([loadAiProviders(), loadAsrProviders()]);
@@ -408,11 +466,7 @@ async function deleteFromEditor(
         setStatus(collectElements(host), permissionRevokeErrorMessage(origins), true);
       }
     }
-    const resp = kind === "ai"
-      ? await sendRuntimeMessage({ type: "ai-providers-delete", providerId: target.id })
-      : kind === "search"
-        ? await sendRuntimeMessage({ type: "search-providers-delete", providerId: target.id })
-        : await sendRuntimeMessage({ type: "asr-providers-delete", providerId: target.id });
+    const resp = await family.remove(target.id);
     if (!resp?.ok) {
       return { ok: false, error: resp?.error || "删除失败" };
     }
@@ -430,7 +484,8 @@ async function deleteFromEditor(
 // openProviderEditor 按需动态装载（provider-editor 连同其探针链整体进动态
 // chunk），装载失败落抽屉状态条，不静默。
 async function openProviderEditorById(kind: ProviderEditorKind, providerId: string): Promise<void> {
-  const providers = kind === "ai" ? await loadAiProviders() : kind === "search" ? await loadSearchProviders() : await loadAsrProviders();
+  const family = PROVIDER_FAMILY_UI[kind];
+  const providers = await family.loadProviders();
   const item = providerId ? providers.find((p) => String(p?.id || "") === providerId) || null : null;
   if (providerId && !item) {
     return;
@@ -440,7 +495,7 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
     openProviderEditor({
       kind,
       item,
-      presets: kind === "ai" ? aiPresets : kind === "search" ? SEARCH_PROVIDER_PRESETS : asrPresets,
+      presets: family.presets(),
       onSave: saveFromEditor,
       onDelete: deleteFromEditor
     });
