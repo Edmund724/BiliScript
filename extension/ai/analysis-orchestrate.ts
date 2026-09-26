@@ -14,6 +14,8 @@ import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
 import { buildCostGuardNotice as _buildCostGuardNotice } from "./cost-guard.js";
 import { chatCompletion as _chatCompletion } from "./completion.js";
 import { parseLooseJson } from "./json-repair.js";
+// 空正文重试的触发判定与预算（empty-text-retry.ts，与 chat 链同源）。
+import { isEmptyTextRetryable, retryBudget } from "./empty-text-retry.js";
 import { buildProgressNotice } from "./map-reduce.js";
 import { runMapBounded, DEFAULT_MAP_CONCURRENCY } from "./pool.js";
 import { budgetScaleSuffix, segmentCacheKeyFields } from "./segment-cache.js";
@@ -53,8 +55,8 @@ const ANALYSIS_CONTEXT_CHARS = 400;
 // 空正文重试的输出预算上限：思考型模型（如 step-3.7-flash）会无视关思考字段族
 // 强制思考，思考把 max_tokens 耗尽（finish_reason=length）后 content 空串返回，
 // parseLooseJson 只会抛出难懂的「Unexpected end of JSON input」。首次调用空正文
-// 时按原估算加倍（封顶此处）重试一次，给思考之后的正文留出落出空间。
-const EMPTY_TEXT_RETRY_MAX_TOKENS_CEILING = 16384;
+// 时按原估算加倍（封顶 + 触发判定见 empty-text-retry.ts）重试一次，给思考之后的
+// 正文留出落出空间。
 
 // ============================================================
 // 缓存（chrome.storage.local + 统一 LRU 淘汰；读取失败静默返回 null）
@@ -249,8 +251,8 @@ function makeEmptyAnalysisError(): Error {
 // 调用形态为流式（stream: true）——网关对非流式长请求整体超时（实测 19 分钟后
 // HTTP 500 Request timed out），流式既躲开它又给面板真实进度；正文只能从 token
 // 事件聚合（流式成功返回 { done: true }）。空正文（含纯空白）按「思考占满输出
-// 预算」加倍预算重试一次，仍空则抛可读错误（EMPTY_TEXT_RETRY_MAX_TOKENS_CEILING
-// 处有根因说明）。
+// 预算」加倍预算重试一次，仍空则抛可读错误（判定与预算见 empty-text-retry.ts，
+// 根因见本模块上方空正文重试的说明）。
 async function requestValidatedPart({
   provider,
   systemPrompt,
@@ -314,10 +316,10 @@ async function requestValidatedPart({
     }
   };
   await chatCompletionImpl({ ...requestBase, maxTokens: baseMaxTokens });
-  if (!text.trim()) {
+  if (isEmptyTextRetryable({ hasBody: Boolean(text.trim()) })) {
     await chatCompletionImpl({
       ...requestBase,
-      maxTokens: Math.min(baseMaxTokens * 2, EMPTY_TEXT_RETRY_MAX_TOKENS_CEILING)
+      maxTokens: retryBudget(baseMaxTokens)
     });
   }
   if (!text.trim()) {

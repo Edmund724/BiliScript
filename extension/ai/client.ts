@@ -3,7 +3,7 @@
 // 类型化错误映射回 offscreen port 协议：token/reasoning/notice/done/stopped/
 // error），外加 token 合帧、读流重试后的 stream-reset、空正文截断重跑这几件
 // 本层特有的回吐纪律。请求构造、SSE 解析、溢出判定、重试策略全部下沉到
-// ai/completion.js。
+// ai/completion.js；空正文重跑的判定与预算在 ai/empty-text-retry.ts。
 // 显式不变式：素材预算判定的唯一入口是 ai/ladder.ts（分派前一次 buildBudgetPlan
 // 定档）。本模块不做预算重判，给什么发什么——绕过 ladder 直喂超预算 body 时，
 // 平台会原样收下（今天无此路径：调用方只有 ladder 与其追问分支）。
@@ -18,19 +18,18 @@ import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
 // 07 票 token 合帧：流式 token 按窗口预算批传，削减结构化克隆次数；
 // 单 token 批次仍走普通 token 事件（慢速流线格式与旧一致）。
 import { TokenBatcher } from "./token-batcher.js";
+// 空正文截断重跑的判定与预算（empty-text-retry.ts，与 analysis 链同源）。
+import { isEmptyTextRetryable, retryBudget } from "./empty-text-retry.js";
 
 // 截断提示（finishReason="length"）：命中 max_tokens 后 SSE 只是结束，界面上没有
 // 任何迹象——不提示的话用户只会觉得「模型没答完」。文案只陈述事实，不猜是思考
 // 吃掉了预算还是问题本身太长。
 export const TRUNCATED_NOTICE = "回答被截断（达到模型输出上限）";
 
-// 空正文重跑的输出预算：思考型模型会把输出预算全烧在思考上、正文以空串收尾
-// （仓库已记录的 step-3.7-flash 故障：finish_reason=length + 正文空，见
-// analysis-orchestrate 的空正文重试）。命中时显式传该预算重跑一次——首发不传
-// 预算（由平台默认决定，openai 系平台此时干脆不发该字段），故「加倍」是相对
-// anthropic adapter 的兜底上限 8192。取值与 analysis 的封顶同源（16384）。
-// 只重跑一次：再空就挂常驻截断徽标，不无限重试（每轮都是整笔额度）。
-const EMPTY_TEXT_RETRY_MAX_TOKENS = 16384;
+// 空正文截断重跑（思考型模型把输出预算全烧在思考上、正文以空串收尾，仓库已
+// 记录的 step-3.7-flash 故障）的判定与预算在 ai/empty-text-retry.ts 单源，本层
+// 只负责重放纪律（stream-reset 后整轮重跑一次——再空就挂常驻截断徽标，每轮都是
+// 整笔额度）。
 
 interface StreamChatInput {
   provider: AiProvider;
@@ -58,7 +57,7 @@ interface StreamChatInput {
  * - 读流中断重试：新流事件前回吐一条 stream-reset（代际重置信号，渲染层
  *   清空本条消息缓冲整体重放，避免两代流拼接成重复文本）；
  * - 空正文截断重跑：最后一轮 finishReason="length" 而正文压根没吐出来（思考型模型
- *   把预算全烧在思考上）时，显式带 EMPTY_TEXT_RETRY_MAX_TOKENS 重跑一轮（联网轮
+ *   把预算全烧在思考上）时，显式带 ai/empty-text-retry 的重试预算重跑一轮（联网轮
  *   重跑整条工具循环），并先回吐一条 stream-reset 作废已吐的思考；仍空才提示；
  * - 重试提示经 notice（读流中断重试保持旧现状：不打扰用户）；
  * - 截断提示经 notice 的 code 分支（不新增事件类型）：最后一轮 finishReason="length"
@@ -204,15 +203,15 @@ export async function streamChat({ provider, context, userPrompt, history, userI
         });
 
     await runTurn();
-    // 空正文截断（长思考把预算烧光、正文空串收尾，见 EMPTY_TEXT_RETRY_MAX_TOKENS）：
+    // 空正文截断（长思考把预算烧光、正文空串收尾，判定与预算见 empty-text-retry.ts）：
     // 显式带加倍预算重跑一轮。已吐的思考/工具状态由 stream-reset 作废、宿主清空本条
     // 缓冲整体重放（与读流中断重试同款信号），只重跑一次——预算已翻倍，再空就是
     // 模型确实给不出正文，交给收口处的截断徽标如实提示。
-    if (lastFinishReason === "length" && emittedNoText) {
+    if (isEmptyTextRetryable({ finishReason: lastFinishReason, hasBody: !emittedNoText })) {
       flushTokens();
       port.postMessage({ type: "stream-reset" } satisfies ChatPortMessage);
       lastFinishReason = null;
-      await runTurn(EMPTY_TEXT_RETRY_MAX_TOKENS);
+      await runTurn(retryBudget());
     }
   } catch (e) {
     if ((e as { overflow?: boolean })?.overflow) {
