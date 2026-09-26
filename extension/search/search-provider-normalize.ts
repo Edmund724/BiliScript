@@ -7,7 +7,7 @@
 // 不做自定义预设（spec 非目标）：type 只接受三个预设值，未知 type 的存量条目
 // 在归一化期被丢弃（列表读取与保存共用同一收口）。
 
-import type { SearchProviderType } from "../core/presets.js";
+import { normalizeBaseUrl, type SearchProviderType } from "../core/presets.js";
 
 // 合法的搜索适配器类型，决定请求构造与响应解析方式
 const SEARCH_PROVIDER_TYPES = new Set<string>(["tavily", "exa", "brave"]);
@@ -33,7 +33,7 @@ export function normalizeSearchProvider(item: unknown): SearchProvider | null {
     presetId: String(raw.presetId || "custom").trim(),
     name: String(raw.name || "自定义").trim() || "自定义",
     type: type as SearchProviderType,
-    baseUrl: String(raw.baseUrl || "").trim().replace(/\/+$/, ""),
+    baseUrl: normalizeBaseUrl(raw.baseUrl),
     enabled: raw.enabled !== false
   };
 }

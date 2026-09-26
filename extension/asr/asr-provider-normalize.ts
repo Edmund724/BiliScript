@@ -8,6 +8,8 @@
 // "明文可回传"字段，apiKey 单独存放在 chrome.storage.local，不进列表，
 // 故此处不带 apiKey。
 
+import { normalizeBaseUrl } from "../core/presets.js";
+
 // 合法的 ASR 适配器类型，决定请求构造与响应解析方式
 const ASR_PROVIDER_TYPES = new Set([
   "openai-transcriptions"
@@ -22,6 +24,12 @@ export interface AsrProvider {
   model: string;
   supportsTimestamps: boolean;
   enabled: boolean;
+  // 以下两个字段不落盘（normalize 不产出）：apiKey 单独存放在
+  // chrome.storage.local，language 归全局设置 asrLanguage 管（normalizeAsrLanguage
+  // 处理），运行时由消费方注入——offscreen 侧 entry/offscreen-asr 在解析激活
+  // provider 时补 apiKey 与生效语言。
+  apiKey?: string;
+  language?: string;
 }
 
 export function normalizeAsrProvider(item: unknown): AsrProvider | null {
@@ -36,7 +44,7 @@ export function normalizeAsrProvider(item: unknown): AsrProvider | null {
     presetId: String(raw.presetId || "custom"),
     name: String(raw.name || "自定义").trim() || "自定义",
     type,
-    baseUrl: String(raw.baseUrl || "").trim().replace(/\/+$/, ""),
+    baseUrl: normalizeBaseUrl(raw.baseUrl),
     model: String(raw.model || "").trim(),
     supportsTimestamps: raw.supportsTimestamps !== false,
     enabled: raw.enabled !== false

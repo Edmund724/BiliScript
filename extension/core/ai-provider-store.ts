@@ -10,6 +10,7 @@
 //（arch-slim-2/09：探针是 ai 域知识，core/ 回归纯共享底座）。
 
 import { createProviderStore } from "./provider-store.js";
+import { normalizeBaseUrl } from "./presets.js";
 import { AI_PROTOCOLS, type AiProtocol } from "../ai/protocol-vocab.js";
 
 export interface AiProvider {
@@ -63,7 +64,7 @@ function normalizeAiProvider(item: unknown): AiProvider | null {
     id,
     presetId: String(raw.presetId || "custom"),
     name: String(raw.name || "自定义").trim() || "自定义",
-    baseUrl: String(raw.baseUrl || "").trim().replace(/\/+$/, ""),
+    baseUrl: normalizeBaseUrl(raw.baseUrl),
     models: models.length ? models : legacyModel ? [legacyModel] : [],
     requiresKey: raw.requiresKey !== false,
     enabled: raw.enabled !== false
