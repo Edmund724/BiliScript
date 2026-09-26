@@ -17,7 +17,7 @@
 // 命中项),loadAll 不再批量发起分页补水——本文件的补水用例已按新入口改写。
 //
 // 模块纪元注意:chatSessionState 是模块级单例,beforeEach resetModules 后与被测
-// 模块同纪元导入并手动重置字段(与 events 测试同款)。
+// 模块同纪元导入并经 resetChatSessionStateForTests 重置字段(与 events 测试同款)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
@@ -29,6 +29,10 @@ import type {
 
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+// 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
+let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
+let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 const URL_A = "https://www.bilibili.com/video/BV1abc";
 
@@ -133,40 +137,35 @@ function makeOrderLog(deps: StoreDeps, storage: ReturnType<typeof makeStorage>) 
 }
 
 function seedCurrentConversation(id = "c1", overrides: ConversationOverrides = {}) {
-  chatSessionState.savedConversations = [makeConversation(id, overrides)];
-  chatSessionState.currentConversationId = id;
-  chatSessionState.currentConversationMeta = {
+  setSavedConversations([makeConversation(id, overrides)]);
+  applyConversationIdentity({
     id,
-    title: `对话${id}`,
-    pinnedContext: true,
-    contextKey: overrides.contextKey || "",
-    contextRef: null,
-    resolvedContext: null
-  };
-  chatSessionState.chatHistory = [
-    { role: "user", content: "hi" },
-    { role: "assistant", content: "hello" }
-  ];
-}
-
-function resetStateFields() {
-  chatSessionState.savedConversations = [];
-  chatSessionState.currentConversationId = "";
-  chatSessionState.currentConversationMeta = null;
-  chatSessionState.chatHistory = [];
-  chatSessionState.contextData = null;
-  chatSessionState.currentContextKey = "";
-  chatSessionState.liveContextData = null;
-  chatSessionState.liveContextKey = "";
-  chatSessionState.liveTabUrl = "";
+    meta: {
+      id,
+      title: `对话${id}`,
+      pinnedContext: true,
+      contextKey: overrides.contextKey || "",
+      contextRef: null,
+      resolvedContext: null
+    },
+    history: [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" }
+    ]
+  });
 }
 
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
   ({ createConversationStore } = await import("../../extension/chat/conversation-store.js"));
-  ({ chatSessionState } = await import("../../extension/chat/chat-state.js"));
-  resetStateFields();
+  ({
+    chatSessionState,
+    applyConversationIdentity,
+    setSavedConversations,
+    resetChatSessionStateForTests
+  } = await import("../../extension/chat/chat-state.js"));
+  resetChatSessionStateForTests();
 });
 
 afterEach(() => {
@@ -399,7 +398,7 @@ describe("公开接口面", () => {
 
   it("内部 apply 经 applyById 存活:身份/历史/事件面照常", () => {
     const { store, deps } = makeHarness();
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
 
     store.applyById("c1");
 
@@ -416,19 +415,21 @@ describe("公开接口面", () => {
         return { bvid: "BV1abc", cid: "1", url: URL_A, title: "视频A", isVideoContext: true };
       })
     });
-    chatSessionState.currentConversationMeta = {
-      id: "conv-1",
-      title: "视频A",
-      createdAt: 1,
-      updatedAt: 1,
-      contextKey: "k-1",
-      contextTitle: "视频A",
-      contextUrl: URL_A,
-      isVideoContext: true,
-      pinnedContext: true,
-      contextRef: { bvid: "BV1abc", cid: "1", url: URL_A },
-      resolvedContext: null
-    };
+    applyConversationIdentity({
+      meta: {
+        id: "conv-1",
+        title: "视频A",
+        createdAt: 1,
+        updatedAt: 1,
+        contextKey: "k-1",
+        contextTitle: "视频A",
+        contextUrl: URL_A,
+        isVideoContext: true,
+        pinnedContext: true,
+        contextRef: { bvid: "BV1abc", cid: "1", url: URL_A },
+        resolvedContext: null
+      }
+    });
 
     const ok = await store.hydratePinned();
 

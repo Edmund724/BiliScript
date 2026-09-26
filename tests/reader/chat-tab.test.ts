@@ -68,6 +68,9 @@ let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 let lazyChat: typeof import("../../extension/reader/lazy-chat-tab.js");
 let explainIntent: typeof import("../../extension/reader/explain-intent.js");
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+// 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
+let chatState: typeof import("../../extension/chat/chat-state.js");
+let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let statusBus: typeof import("../../extension/shared/subtitle-status-bus.js");
 
 // 假 offscreen 端口（chat-runtime 经 chrome.runtime.connect 取用）
@@ -155,7 +158,9 @@ async function loadShell() {
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
   lazyChat = await import("../../extension/reader/lazy-chat-tab.js");
   explainIntent = await import("../../extension/reader/explain-intent.js");
-  chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  chatState = await import("../../extension/chat/chat-state.js");
+  chatSessionState = chatState.chatSessionState;
+  applyConversationIdentity = chatState.applyConversationIdentity;
   statusBus = await import("../../extension/shared/subtitle-status-bus.js");
   uiRenderer.ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
@@ -618,7 +623,7 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
 
     // 激活流程会用会话存档覆盖 chatHistory：先激活载入 providers，再播入
     // 带工具轮的历史并触发回放（renderInitialState → renderConversationMessages）。
-    chatSessionState.chatHistory = [
+    applyConversationIdentity({ history: [
       { role: "user", content: "视频里提到的 MoE 后来有什么进展？" },
       {
         role: "assistant",
@@ -631,7 +636,7 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
         content: JSON.stringify([{ title: "来源A", url: "https://a.example.com/x", snippet: "摘录A" }])
       },
       { role: "assistant", content: "回答见 [1]。" }
-    ];
+    ] });
     (await import("../../extension/reader/chat-tab.js")).renderInitialState();
 
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;

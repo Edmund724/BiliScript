@@ -49,6 +49,10 @@ interface TestRuntimeDeps extends CreateChatRuntimeDeps {
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: ChatSessionState;
+// 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
+let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
+let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 const URL_A = "https://www.bilibili.com/video/BV1abc";
 
@@ -147,26 +151,19 @@ function makeStreamHarness(storeDepsOverrides: Partial<CreateConversationStoreDe
   return { store, ui, storage, stream, stopCalls, persistCalls, startStream, simulateStreamEnd };
 }
 
-function resetStateFields() {
-  chatSessionState.savedConversations = [];
-  chatSessionState.currentConversationId = "";
-  chatSessionState.currentConversationMeta = null;
-  chatSessionState.chatHistory = [];
-  chatSessionState.contextData = null;
-  chatSessionState.currentContextKey = "";
-  chatSessionState.liveContextData = null;
-  chatSessionState.liveContextKey = "";
-  chatSessionState.liveTabUrl = "";
-}
-
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
   // 同一模块纪元内新鲜导入（先 resetModules 再 import，被测模块与 state 同图解析）
   ({ createConversationStore } = await import("../../extension/chat/conversation-store.js"));
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
-  ({ chatSessionState } = await import("../../extension/chat/chat-state.js"));
-  resetStateFields();
+  ({
+    chatSessionState,
+    applyConversationIdentity,
+    setSavedConversations,
+    resetChatSessionStateForTests
+  } = await import("../../extension/chat/chat-state.js"));
+  resetChatSessionStateForTests();
 });
 
 afterEach(() => {
@@ -180,7 +177,7 @@ afterEach(() => {
 describe("conversation-store reset 路径在流式中的停流", () => {
   it("deleteById 当前会话（流式中）：先同步停流，状态清空，流结束不复活", async () => {
     const h = makeStreamHarness();
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
     h.store.applyById("c1");
     expect(chatSessionState.currentConversationId).toBe("c1");
     h.startStream("在途问题");
@@ -204,7 +201,7 @@ describe("conversation-store reset 路径在流式中的停流", () => {
 
   it("deleteById 当前会话（非流式中）：回调幂等空操作，状态照常清空", async () => {
     const h = makeStreamHarness();
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
     h.store.applyById("c1");
 
     await h.store.deleteById("c1");
@@ -216,7 +213,7 @@ describe("conversation-store reset 路径在流式中的停流", () => {
 
   it("deleteById 非当前会话（流式中）：不停流，原流式行为保留", async () => {
     const h = makeStreamHarness();
-    chatSessionState.savedConversations = [makeConversation("c1"), makeConversation("c2")];
+    setSavedConversations([makeConversation("c1"), makeConversation("c2")]);
     h.store.applyById("c1");
     h.startStream("在途问题");
 
@@ -232,7 +229,7 @@ describe("conversation-store reset 路径在流式中的停流", () => {
 
   it("clearAll（流式中）：先同步停流再清空，流结束不复活", async () => {
     const h = makeStreamHarness({ confirmClearAll: () => true });
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
     h.store.applyById("c1");
     h.startStream("在途问题");
 
@@ -251,7 +248,7 @@ describe("conversation-store reset 路径在流式中的停流", () => {
 
   it("clearAll（非流式中）：回调幂等空操作，状态照常清空", async () => {
     const h = makeStreamHarness({ confirmClearAll: () => true });
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
     h.store.applyById("c1");
 
     await h.store.clearAll();
@@ -274,10 +271,10 @@ describe("conversation-store reset 路径在流式中的停流", () => {
   it("restoreLatest 无匹配（非流式中）：停流回调幂等，当前会话状态清空", async () => {
     const h = makeStreamHarness();
     // 当前会话绑定另一个视频，上下文状态为空 → 与当前上下文无匹配
-    chatSessionState.savedConversations = [makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })];
-    chatSessionState.currentConversationId = "c1";
-    chatSessionState.currentConversationMeta = { id: "c1", pinnedContext: true, contextKey: "" };
-    chatSessionState.chatHistory = makeConversation("c1").messages;
+    setSavedConversations([makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })]);
+    applyConversationIdentity({ id: "c1" });
+    applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "" } });
+    applyConversationIdentity({ history: makeConversation("c1").messages });
 
     const result = await h.store.restoreLatest();
 
@@ -290,10 +287,10 @@ describe("conversation-store reset 路径在流式中的停流", () => {
 
   it("restoreLatest 无匹配（防御性流式中）：同样先停流，流结束不复活", async () => {
     const h = makeStreamHarness();
-    chatSessionState.savedConversations = [makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })];
-    chatSessionState.currentConversationId = "c1";
-    chatSessionState.currentConversationMeta = { id: "c1", pinnedContext: true, contextKey: "" };
-    chatSessionState.chatHistory = makeConversation("c1").messages;
+    setSavedConversations([makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })]);
+    applyConversationIdentity({ id: "c1" });
+    applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "" } });
+    applyConversationIdentity({ history: makeConversation("c1").messages });
     h.startStream("在途问题");
 
     const result = await h.store.restoreLatest();
@@ -308,7 +305,7 @@ describe("conversation-store reset 路径在流式中的停流", () => {
 
   it("restoreLatest 有匹配：照常 apply，不停流", async () => {
     const h = makeStreamHarness();
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
 
     const result = await h.store.restoreLatest();
@@ -326,19 +323,19 @@ describe("conversation-store reset 路径在流式中的停流", () => {
 describe("store.isCurrent 会话身份守卫", () => {
   it("当前会话命中：id 与 currentConversationId 相等 → true", async () => {
     const { store } = makeStreamHarness();
-    chatSessionState.currentConversationId = "c1";
+    applyConversationIdentity({ id: "c1" });
 
     expect(store.isCurrent("c1")).toBe(true);
   });
 
   it("非当前：id 不等（切换/恢复了另一会话）或当前已删（空串）→ false", async () => {
     const { store } = makeStreamHarness();
-    chatSessionState.currentConversationId = "c1";
+    applyConversationIdentity({ id: "c1" });
 
     expect(store.isCurrent("c2")).toBe(false);
 
     // 流式中当前会话被删：currentConversationId 已清空，旧快照不再命中
-    chatSessionState.currentConversationId = "";
+    applyConversationIdentity({ id: "" });
     expect(store.isCurrent("c1")).toBe(false);
   });
 
@@ -346,11 +343,11 @@ describe("store.isCurrent 会话身份守卫", () => {
     const { store } = makeStreamHarness();
 
     // 新会话首发：快照与当前 id 均为空串 → 照常写回并 persist（与旧内联比对等价）
-    chatSessionState.currentConversationId = "";
+    applyConversationIdentity({ id: "" });
     expect(store.isCurrent("")).toBe(true);
 
     // 当前已有会话 → 空快照不命中（流式中恢复/新建了会话）
-    chatSessionState.currentConversationId = "c1";
+    applyConversationIdentity({ id: "c1" });
     expect(store.isCurrent("")).toBe(false);
   });
 });
@@ -404,8 +401,8 @@ describe("chat-runtime 流结束的会话身份校验", () => {
   }
 
   it("finalize：发送后当前会话已删（id 已变）→ 只渲染 DOM，不 push 不 persist", async () => {
-    chatSessionState.currentConversationId = "c1";
-    chatSessionState.currentConversationMeta = { id: "c1", pinnedContext: true, contextKey: "k1" };
+    applyConversationIdentity({ id: "c1" });
+    applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "k1" } });
     chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
@@ -413,8 +410,8 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     expect(deps.connectPort).toHaveBeenCalledTimes(1);
 
     // 流式中当前会话被删（状态被清、流回调尚未生效的竞态窗口）
-    chatSessionState.currentConversationId = "";
-    chatSessionState.currentConversationMeta = null;
+    applyConversationIdentity({ id: "" });
+    applyConversationIdentity({ meta: null });
 
     emit({ type: "token", data: "回答" });
     emit({ type: "done" });
@@ -427,14 +424,14 @@ describe("chat-runtime 流结束的会话身份校验", () => {
   });
 
   it("stopped：发送后当前会话已删 → 同样不 push 不 persist", async () => {
-    chatSessionState.currentConversationId = "c1";
-    chatSessionState.currentConversationMeta = { id: "c1", pinnedContext: true, contextKey: "k1" };
+    applyConversationIdentity({ id: "c1" });
+    applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "k1" } });
     chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
     await runtime.sendMessage();
-    chatSessionState.currentConversationId = "";
-    chatSessionState.currentConversationMeta = null;
+    applyConversationIdentity({ id: "" });
+    applyConversationIdentity({ meta: null });
 
     emit({ type: "token", data: "半截回答" });
     emit({ type: "stopped", reason: "已停止生成" });
@@ -457,16 +454,16 @@ describe("chat-runtime 流结束的会话身份校验", () => {
   });
 
   it("流式中切换到另一会话（applyById 改 id）→ finalize 不把回答串进新会话", async () => {
-    chatSessionState.currentConversationId = "c1";
-    chatSessionState.currentConversationMeta = { id: "c1", pinnedContext: true, contextKey: "k1" };
+    applyConversationIdentity({ id: "c1" });
+    applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "k1" } });
     chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
     await runtime.sendMessage();
 
     // 用户在流式中从历史列表打开了另一会话
-    chatSessionState.currentConversationId = "c2";
-    chatSessionState.chatHistory = makeConversation("c2").messages;
+    applyConversationIdentity({ id: "c2" });
+    applyConversationIdentity({ history: makeConversation("c2").messages });
 
     emit({ type: "token", data: "回答" });
     emit({ type: "done" });

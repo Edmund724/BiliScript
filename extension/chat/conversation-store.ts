@@ -48,7 +48,13 @@ import {
 import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
 import type { AiContext } from "../ai/types.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
-import { chatSessionState, type ChatSessionMessage } from "./chat-state.js";
+import {
+  applyConversationIdentity,
+  chatSessionState,
+  detachConversationIdentity,
+  setSavedConversations,
+  type ChatSessionMessage
+} from "./chat-state.js";
 
 // ---------------------------------------------------------------------------
 // 本地类型契约
@@ -244,7 +250,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     return chatSessionState.savedConversations as Conversation[];
   }
   function commitSaved(next: Conversation[] | ReturnType<typeof normalizeConversations>): void {
-    chatSessionState.savedConversations = next as Conversation[];
+    setSavedConversations(next as Conversation[]);
   }
 
   // =========================================================================
@@ -257,9 +263,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   // deleteById 当前会话 / clearAll 在落盘后经 repopulateLive 回填。
   function detachCurrent(): void {
     onStreamInterrupted();
-    chatSessionState.currentConversationId = "";
-    chatSessionState.currentConversationMeta = null;
-    chatSessionState.chatHistory = [];
+    detachConversationIdentity();
   }
 
   // 原语二 repopulateLive：live 上下文回填——拆除当前会话后把活跃标签页快照
@@ -380,32 +384,37 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     if (!conversation) {
       return;
     }
-    chatSessionState.currentConversationId = conversation.id;
-    chatSessionState.currentConversationMeta = {
+    applyConversationIdentity({
       id: conversation.id,
-      title: conversation.title,
-      createdAt: conversation.createdAt,
-      updatedAt: conversation.updatedAt,
-      contextKey: conversation.contextKey,
-      contextTitle: conversation.contextTitle,
-      contextUrl: conversation.contextUrl,
-      isVideoContext: conversation.isVideoContext !== false,
-      pinnedContext: true,
-      contextRef: conversation.contextRef || null,
-      resolvedContext: null
-    };
-    chatSessionState.chatHistory = Array.isArray(conversation.messages)
-      ? conversation.messages.map((item) => normalizeHistoryMessage(item))
-      : [];
+      meta: {
+        id: conversation.id,
+        title: conversation.title,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        contextKey: conversation.contextKey,
+        contextTitle: conversation.contextTitle,
+        contextUrl: conversation.contextUrl,
+        isVideoContext: conversation.isVideoContext !== false,
+        pinnedContext: true,
+        contextRef: conversation.contextRef || null,
+        resolvedContext: null
+      },
+      history: Array.isArray(conversation.messages)
+        ? conversation.messages.map((item) => normalizeHistoryMessage(item))
+        : []
+    });
     const liveData = chatSessionState.liveContextData;
     const liveKey = chatSessionState.liveContextKey;
     if (liveData && conversation.contextKey && conversation.contextKey === liveKey) {
       chatSessionState.contextData = { ...liveData };
       chatSessionState.currentContextKey = liveKey;
-      chatSessionState.currentConversationMeta = {
-        ...chatSessionState.currentConversationMeta,
-        resolvedContext: { ...liveData }
-      };
+      // 读-改-写依赖上一步刚落进状态袋的 meta，故仍从状态袋读回再补字段
+      applyConversationIdentity({
+        meta: {
+          ...chatSessionState.currentConversationMeta,
+          resolvedContext: { ...liveData }
+        }
+      });
     } else if (conversation.contextRef) {
       chatSessionState.contextData = buildContextPlaceholder(conversation.contextRef);
       chatSessionState.currentContextKey = conversation.contextKey || buildContextKey(chatSessionState.contextData);
@@ -489,7 +498,6 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     let meta = chatSessionState.currentConversationMeta;
     if (!currentId) {
       currentId = generateConversationId();
-      chatSessionState.currentConversationId = currentId;
       meta = {
         id: currentId,
         title: buildConversationTitle(context),
@@ -503,7 +511,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         contextRef: buildAiContextRef(context),
         resolvedContext: { ...context }
       };
-      chatSessionState.currentConversationMeta = meta;
+      applyConversationIdentity({ id: currentId, meta });
     }
     const nextConversation: Conversation = {
       id: currentId,
@@ -522,19 +530,21 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     };
     const filtered = saved().filter((item) => item.id !== currentId);
     commitSaved([nextConversation, ...filtered].slice(0, maxSavedConversations));
-    chatSessionState.currentConversationMeta = {
-      id: nextConversation.id,
-      title: nextConversation.title,
-      createdAt: nextConversation.createdAt,
-      updatedAt: nextConversation.updatedAt,
-      contextKey: nextConversation.contextKey,
-      contextTitle: nextConversation.contextTitle,
-      contextUrl: nextConversation.contextUrl,
-      isVideoContext: nextConversation.isVideoContext,
-      pinnedContext: true,
-      contextRef: nextConversation.contextRef,
-      resolvedContext: meta?.resolvedContext ? { ...meta.resolvedContext } : { ...context }
-    };
+    applyConversationIdentity({
+      meta: {
+        id: nextConversation.id,
+        title: nextConversation.title,
+        createdAt: nextConversation.createdAt,
+        updatedAt: nextConversation.updatedAt,
+        contextKey: nextConversation.contextKey,
+        contextTitle: nextConversation.contextTitle,
+        contextUrl: nextConversation.contextUrl,
+        isVideoContext: nextConversation.isVideoContext,
+        pinnedContext: true,
+        contextRef: nextConversation.contextRef,
+        resolvedContext: meta?.resolvedContext ? { ...meta.resolvedContext } : { ...context }
+      }
+    });
     await saveConversations();
   }
 
@@ -556,10 +566,12 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       if (ok && context) {
         chatSessionState.currentContextKey = targetKey;
         meta = chatSessionState.currentConversationMeta;
-        chatSessionState.currentConversationMeta = {
-          ...meta,
-          resolvedContext: { ...context }
-        };
+        applyConversationIdentity({
+          meta: {
+            ...meta,
+            resolvedContext: { ...context }
+          }
+        });
         emitChange({ refreshContextChip: true });
         onContextNotice({ kind: "clear" });
         return true;
@@ -593,14 +605,16 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     chatSessionState.contextData = resolved;
     chatSessionState.currentContextKey = targetKey || buildContextKey(resolved);
     meta = chatSessionState.currentConversationMeta;
-    chatSessionState.currentConversationMeta = {
-      ...meta,
-      contextKey: chatSessionState.currentContextKey,
-      contextTitle: String(resolved.title || meta?.contextTitle || "").trim(),
-      contextUrl: String(resolved.url || meta?.contextUrl || "").trim(),
-      contextRef: buildAiContextRef(resolved),
-      resolvedContext: { ...resolved }
-    };
+    applyConversationIdentity({
+      meta: {
+        ...meta,
+        contextKey: chatSessionState.currentContextKey,
+        contextTitle: String(resolved.title || meta?.contextTitle || "").trim(),
+        contextUrl: String(resolved.url || meta?.contextUrl || "").trim(),
+        contextRef: buildAiContextRef(resolved),
+        resolvedContext: { ...resolved }
+      }
+    });
     emitChange({ refreshContextChip: true });
     onContextNotice({ kind: "clear" });
     return true;

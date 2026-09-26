@@ -53,6 +53,9 @@ let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").cre
 let createSubtitleWaiter: typeof import("../../extension/chat/subtitle-wait.js").createSubtitleWaiter;
 let isContextPending: typeof import("../../extension/chat/subtitle-wait.js").isContextPending;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+// 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
+let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 let noSubtitle: typeof import("../../extension/chat/no-subtitle.js");
 
 const VIDEO_URL = "https://www.bilibili.com/video/BV1test000000/";
@@ -78,7 +81,10 @@ async function importModules() {
   createSubtitleWaiter = waitModule.createSubtitleWaiter;
   isContextPending = waitModule.isContextPending;
   noSubtitle = await import("../../extension/chat/no-subtitle.js");
-  chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  const stateModule = await import("../../extension/chat/chat-state.js");
+  chatSessionState = stateModule.chatSessionState;
+  applyConversationIdentity = stateModule.applyConversationIdentity;
+  resetChatSessionStateForTests = stateModule.resetChatSessionStateForTests;
 }
 
 // content 侧 state.clip 的受控替身（字段与 core/state.ts 的 ClipBusinessState
@@ -220,15 +226,7 @@ beforeEach(async () => {
   document.body.innerHTML = "";
   gatewayMock.fetchHotCommentsWithLedger.mockReset();
   await importModules();
-  chatSessionState.contextData = null;
-  chatSessionState.currentContextKey = "";
-  chatSessionState.chatHistory = [];
-  chatSessionState.currentConversationId = "";
-  chatSessionState.currentConversationMeta = null;
-  chatSessionState.liveContextData = null;
-  chatSessionState.liveContextKey = "";
-  chatSessionState.liveTabUrl = "";
-  chatSessionState.asrTranscribingActive = false;
+  resetChatSessionStateForTests();
 });
 
 afterEach(() => {
@@ -600,19 +598,21 @@ describe("pinned 补水身份短路（工单 04）", () => {
       storage: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) }
     });
     // 重开后 live 键缺失（分支 2 的键比较不命中）→ 补水落到 context 解析 dep
-    chatSessionState.currentConversationMeta = {
-      id: "conv-1",
-      title: "测试视频",
-      createdAt: 1,
-      updatedAt: 1,
-      contextKey: CONTEXT_KEY,
-      contextTitle: "测试视频",
-      contextUrl: VIDEO_URL,
-      isVideoContext: true,
-      pinnedContext: true,
-      contextRef: makePinnedRef(),
-      resolvedContext: null
-    };
+    applyConversationIdentity({
+      meta: {
+        id: "conv-1",
+        title: "测试视频",
+        createdAt: 1,
+        updatedAt: 1,
+        contextKey: CONTEXT_KEY,
+        contextTitle: "测试视频",
+        contextUrl: VIDEO_URL,
+        isVideoContext: true,
+        pinnedContext: true,
+        contextRef: makePinnedRef(),
+        resolvedContext: null
+      }
+    });
     chatSessionState.liveContextKey = "";
 
     const ok = await store.hydratePinned({ silent: true });

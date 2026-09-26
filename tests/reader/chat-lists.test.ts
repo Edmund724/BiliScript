@@ -14,7 +14,7 @@
 // - insertPresetPrompt：空输入 / 追加换行拼接 / focus。
 //
 // 模块纪元注意：chatSessionState 是模块级单例，beforeEach resetModules 后与被测
-// 模块同纪元导入，并手动重置字段。
+// 模块同纪元导入，并经 resetChatSessionStateForTests 重置字段。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -23,12 +23,19 @@ import type { CreateReaderChatListsDeps } from "../../extension/reader/chat-list
 
 let createReaderChatLists: typeof import("../../extension/reader/chat-lists.js").createReaderChatLists;
 let chatSessionState: ChatSessionState;
+// 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
+let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
+let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 async function importModule() {
   const module = await import("../../extension/reader/chat-lists.js");
-  const state = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  const state = await import("../../extension/chat/chat-state.js");
   createReaderChatLists = module.createReaderChatLists;
-  chatSessionState = state;
+  chatSessionState = state.chatSessionState;
+  applyConversationIdentity = state.applyConversationIdentity;
+  setSavedConversations = state.setSavedConversations;
+  resetChatSessionStateForTests = state.resetChatSessionStateForTests;
 }
 
 function makeDeps(overrides: Partial<CreateReaderChatListsDeps> = {}) {
@@ -78,17 +85,11 @@ const VIDEO_CONTEXT = { isVideoContext: true, title: "测试视频", url: "https
 beforeEach(async () => {
   resetModuleState();
   await importModule();
+  resetChatSessionStateForTests();
   chatSessionState.providers = [{ id: "p1", name: "平台一", enabled: true }];
   chatSessionState.contextData = { ...VIDEO_CONTEXT };
-  chatSessionState.chatHistory = [];
   chatSessionState.aiPrefs.aiInitialQuickPrompts = ["总结视频", "整理笔记"];
   chatSessionState.aiPrefs.aiPresetPrompts = [];
-  chatSessionState.savedConversations = [];
-  chatSessionState.currentConversationId = "";
-  chatSessionState.currentConversationMeta = null;
-  chatSessionState.liveContextData = null;
-  chatSessionState.liveTabUrl = "";
-  chatSessionState.liveContextKey = "";
 });
 
 describe("renderSuggestions（建议提示词）", () => {
@@ -124,7 +125,7 @@ describe("renderSuggestions（建议提示词）", () => {
   });
 
   it("有会话历史（流式中）：清空建议区", () => {
-    chatSessionState.chatHistory = [{ role: "user", content: "hi" }];
+    applyConversationIdentity({ history: [{ role: "user", content: "hi" }] });
     const { lists, setSuggestionsNode } = makeDeps();
     const node = document.createElement("div");
     setSuggestionsNode(node);
@@ -191,11 +192,11 @@ describe("renderHistoryList（历史会话）", () => {
   });
 
   it("有会话：清空按钮显示，渲染条目，open 点击触发 applyById + 关历史 popover", () => {
-    chatSessionState.savedConversations = [
+    setSavedConversations([
       { id: "c1", title: "会话一", contextKey: "", contextTitle: "", contextUrl: "", isVideoContext: true, createdAt: 0, updatedAt: 0, contextRef: null, messages: [] },
       { id: "c2", title: "会话二", contextKey: "", contextTitle: "", contextUrl: "", isVideoContext: true, createdAt: 0, updatedAt: 0, contextRef: null, messages: [] }
-    ];
-    chatSessionState.currentConversationId = "c2";
+    ]);
+    applyConversationIdentity({ id: "c2" });
     const { lists, deps, historyList, historyClearBtn } = makeDeps();
     lists.renderHistoryList();
 
@@ -211,9 +212,9 @@ describe("renderHistoryList（历史会话）", () => {
   });
 
   it("remove 点击：调用 deleteById 回调", async () => {
-    chatSessionState.savedConversations = [
+    setSavedConversations([
       { id: "c1", title: "会话一", contextKey: "", contextTitle: "", contextUrl: "", isVideoContext: true, createdAt: 0, updatedAt: 0, contextRef: null, messages: [] }
-    ];
+    ]);
     const { lists, deps, historyList } = makeDeps();
     lists.renderHistoryList();
 

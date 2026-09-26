@@ -19,7 +19,8 @@
 // Messages）不进本对象：它们只被单一模块使用，留在各自模块里。
 //
 // 测试注意：本对象是模块级单例，测试里若配合 vi.resetModules 切换模块纪元，
-// 需重新 import 本模块取新鲜实例；单纪元内复用时请在 beforeEach 手动重置字段。
+// 需重新 import 本模块取新鲜实例；单纪元内复用时经
+// resetChatSessionStateForTests() 重置全部字段（见文件末尾）。
 
 import { DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_PRESET_PROMPTS } from "../core/default-prompts.js";
 import type { AiContext, ImagePart } from "../ai/types.js";
@@ -95,15 +96,13 @@ export interface ChatSessionSavedConversation {
   [key: string]: unknown;
 }
 
-export interface ChatSessionState {
-  // ---- 上下文（loadContextState 写，UI 渲染读） ----
-  // 当前应用的上下文快照（视频信息/字幕等）；null = 无上下文
-  contextData: ChatSessionContextSnapshot | null;
-  // contextData 对应的上下文键（buildContextKey 产物）
-  currentContextKey: string;
-  // 可用 AI 平台列表（loadProvidersAndPrefs 过滤 enabled 后写入）
-  providers: ChatSessionProvider[];
-  // ---- 对话（conversation-store 与 chat-runtime 双侧读写） ----
+// 写纪律切片（工单 chat-state 写纪律，仿 core/state.ts 的 Readonly + setter
+// 白名单三段交叉）：会话身份三件套（currentConversationId /
+// currentConversationMeta / chatHistory）与 savedConversations 收进
+// ChatSessionGuardedState，公开类型上整段 Readonly——生产写入点一律经本文件
+// 末尾的意图级原语。其余 10 个字段暂留裸 mutable（写方跨文件且粒度混写，
+// 详见 ADR-0011 的 B 档记录）。
+type ChatSessionGuardedState = {
   // 当前会话的一问一答数组 [{ role, content }]
   chatHistory: ChatSessionMessage[];
   // 持久化的历史会话列表（storage 的内存镜像）
@@ -112,6 +111,18 @@ export interface ChatSessionState {
   currentConversationId: string;
   // 当前会话元信息（id/标题/上下文绑定等）；null = 无当前会话
   currentConversationMeta: CurrentConversationMeta | null;
+};
+
+// 未收纪律的散字段（contextData / currentContextKey / providers / live 三键 /
+// aiPrefs / asrTranscribingActive / aiThinkingLevel / webSearchEnabled）。
+type ChatSessionOpenState = {
+  // ---- 上下文（loadContextState 写，UI 渲染读） ----
+  // 当前应用的上下文快照（视频信息/字幕等）；null = 无上下文
+  contextData: ChatSessionContextSnapshot | null;
+  // contextData 对应的上下文键（buildContextKey 产物）
+  currentContextKey: string;
+  // 可用 AI 平台列表（loadProvidersAndPrefs 过滤 enabled 后写入）
+  providers: ChatSessionProvider[];
   // ---- 实时上下文（loadContextState 维护的"活跃标签页"快照，与 contextData
   // 分离：流式守卫冻结 contextData 时 live 侧继续断供更新） ----
   liveContextData: ChatSessionContextSnapshot | null;
@@ -138,46 +149,119 @@ export interface ChatSessionState {
   // 联网搜索开关（spec §2.1/§4）：全局记忆（sync settings.webSearchEnabled），
   // 默认关；写点在 providers.ts 的 setWebSearchEnabled / loadProvidersAndPrefs。
   webSearchEnabled: boolean;
+};
+
+export type ChatSessionState = Readonly<ChatSessionGuardedState> & ChatSessionOpenState;
+type ChatSessionStateWritable = ChatSessionGuardedState & ChatSessionOpenState;
+
+// 初值的唯一出处：模块单例与测试注入口 resetChatSessionStateForTests 共用，
+// 免得「重置到哪一版初值」成为第二处需要人肉对齐的地方（aiPrefs 的两个词表
+// 每次现取 slice，调用方就地改写不会污染常量）。
+function createInitialChatSessionState(): ChatSessionStateWritable {
+  return {
+    // ---- 上下文（loadContextState 写，UI 渲染读） ----
+    // 当前应用的上下文快照（视频信息/字幕等）；null = 无上下文
+    contextData: null,
+    // contextData 对应的上下文键（buildContextKey 产物）
+    currentContextKey: "",
+    // 可用 AI 平台列表（loadProvidersAndPrefs 过滤 enabled 后写入）
+    providers: [],
+    // ---- 对话（conversation-store 与 chat-runtime 双侧读写） ----
+    // 当前会话的一问一答数组 [{ role, content }]
+    chatHistory: [],
+    // 持久化的历史会话列表（storage 的内存镜像）
+    savedConversations: [],
+    // 当前会话 id（"" = 无当前会话）
+    currentConversationId: "",
+    // 当前会话元信息（id/标题/上下文绑定等）；null = 无当前会话
+    currentConversationMeta: null,
+    // ---- 实时上下文（loadContextState 维护的"活跃标签页"快照，与 contextData
+    // 分离：流式守卫冻结 contextData 时 live 侧继续断供更新） ----
+    liveContextData: null,
+    liveContextKey: "",
+    // 活跃标签页 URL（isBoundConversationMismatched / 历史列表 live 匹配读）
+    liveTabUrl: "",
+    // ---- AI 偏好（loadProvidersAndPrefs 整体替换，modelSelect/预设局部改写） ----
+    aiPrefs: {
+      aiSystemPrompt: "",
+      aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
+      aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
+    },
+    // ---- 杂项标志 ----
+    // content 侧音频转写进行中的兜底信号（biliscript-subtitle-status 广播写，
+    // subtitleWaiter 轮询读）
+    asrTranscribingActive: false,
+    // 思考档位（off/low/high）。双持久化：chrome.storage.local
+    // biliscript_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
+    // 读取以 settings ?? storage 为准（写点在 providers.ts 的 setThinkingLevel /
+    // loadProvidersAndPrefs）。
+    aiThinkingLevel: "off",
+    // 联网搜索开关（spec §2.1/§4）：全局记忆，默认关。
+    webSearchEnabled: false
+  };
 }
 
-export const chatSessionState: ChatSessionState = {
-  // ---- 上下文（loadContextState 写，UI 渲染读） ----
-  // 当前应用的上下文快照（视频信息/字幕等）；null = 无上下文
-  contextData: null,
-  // contextData 对应的上下文键（buildContextKey 产物）
-  currentContextKey: "",
-  // 可用 AI 平台列表（loadProvidersAndPrefs 过滤 enabled 后写入）
-  providers: [],
-  // ---- 对话（conversation-store 与 chat-runtime 双侧读写） ----
-  // 当前会话的一问一答数组 [{ role, content }]
-  chatHistory: [],
-  // 持久化的历史会话列表（storage 的内存镜像）
-  savedConversations: [],
-  // 当前会话 id（"" = 无当前会话）
-  currentConversationId: "",
-  // 当前会话元信息（id/标题/上下文绑定等）；null = 无当前会话
-  currentConversationMeta: null,
-  // ---- 实时上下文（loadContextState 维护的"活跃标签页"快照，与 contextData
-  // 分离：流式守卫冻结 contextData 时 live 侧继续断供更新） ----
-  liveContextData: null,
-  liveContextKey: "",
-  // 活跃标签页 URL（isBoundConversationMismatched / 历史列表 live 匹配读）
-  liveTabUrl: "",
-  // ---- AI 偏好（loadProvidersAndPrefs 整体替换，modelSelect/预设局部改写） ----
-  aiPrefs: {
-    aiSystemPrompt: "",
-    aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
-    aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
-  },
-  // ---- 杂项标志 ----
-  // content 侧音频转写进行中的兜底信号（biliscript-subtitle-status 广播写，
-  // subtitleWaiter 轮询读）
-  asrTranscribingActive: false,
-  // 思考档位（off/low/high）。双持久化：chrome.storage.local
-  // biliscript_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
-  // 读取以 settings ?? storage 为准（写点在 providers.ts 的 setThinkingLevel /
-  // loadProvidersAndPrefs）。
-  aiThinkingLevel: "off",
-  // 联网搜索开关（spec §2.1/§4）：全局记忆，默认关。
-  webSearchEnabled: false
-};
+const chatSessionStateMutable: ChatSessionStateWritable = createInitialChatSessionState();
+
+export const chatSessionState: ChatSessionState = chatSessionStateMutable;
+
+// ---------------------------------------------------------------------------
+// 意图级写入原语（会话身份切片；先例 core/state.ts 的 suppressUntil +
+// transitionReaderShell——调用方表达意图，不碰具体槽位）
+// ---------------------------------------------------------------------------
+
+// 会话身份的一次写入。id / meta / history 三键各自可选：整组换身份走全参，
+// 读-改-写（只补一个字段）只传被改的那几项。
+export interface ConversationIdentityInput {
+  id?: string;
+  meta?: CurrentConversationMeta | null;
+  history?: ChatSessionMessage[];
+}
+
+export function applyConversationIdentity({ id, meta, history }: ConversationIdentityInput): void {
+  if (id !== undefined) {
+    chatSessionStateMutable.currentConversationId = id;
+  }
+  if (meta !== undefined) {
+    chatSessionStateMutable.currentConversationMeta = meta;
+  }
+  if (history !== undefined) {
+    chatSessionStateMutable.chatHistory = history;
+  }
+}
+
+// 拆除会话（conversation-store 的 detachCurrent 原语）：身份三键一并清空。
+export function detachConversationIdentity(): void {
+  applyConversationIdentity({ id: "", meta: null, history: [] });
+}
+
+// 发送前上下文失配守卫（chat-runtime）：只清身份两键，历史留在视图里延续
+// ——与 detachConversationIdentity 的差别就在 chatHistory 不动。
+export function clearConversationIdentity(): void {
+  applyConversationIdentity({ id: "", meta: null });
+}
+
+// 会话 id 物化（chat-runtime 发送前）：已有身份时 no-op——本原语只补空位，
+// 不改写既有 id。
+export function ensureConversationId(id: string): void {
+  if (chatSessionStateMutable.currentConversationId) {
+    return;
+  }
+  chatSessionStateMutable.currentConversationId = id;
+}
+
+// 在途一问一答写回（chat-runtime 的 done / stopped 共享收尾）：整组追加，
+// 免去调用方逐条 push。
+export function appendChatHistory(...messages: ChatSessionMessage[]): void {
+  chatSessionStateMutable.chatHistory.push(...messages);
+}
+
+export function setSavedConversations(next: ChatSessionSavedConversation[]): void {
+  chatSessionStateMutable.savedConversations = next;
+}
+
+// 测试注入口：把全部字段重置到初值（单纪元内复用模块单例的 beforeEach 用）。
+// 生产代码不得调用——先例 core/state.ts 的 force-set 仅为测试脚手架保留。
+export function resetChatSessionStateForTests(): void {
+  Object.assign(chatSessionStateMutable, createInitialChatSessionState());
+}

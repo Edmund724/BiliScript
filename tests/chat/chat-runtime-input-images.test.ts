@@ -14,6 +14,7 @@ import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: ChatSessionState;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 interface FakePort {
   name: string;
@@ -71,9 +72,11 @@ function firstPosted(ports: FakePort[]): Record<string, unknown> {
 beforeEach(async () => {
   resetModuleState();
   createChatRuntime = (await import("../../extension/chat/chat-runtime.js")).createChatRuntime;
-  chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  const stateModule = await import("../../extension/chat/chat-state.js");
+  chatSessionState = stateModule.chatSessionState;
+  resetChatSessionStateForTests = stateModule.resetChatSessionStateForTests;
+  resetChatSessionStateForTests();
   chatSessionState.contextData = { title: "测试视频", url: "https://www.bilibili.com/video/BV1test" };
-  chatSessionState.chatHistory = [];
   chatSessionState.currentContextKey = "video:BV1test";
 });
 

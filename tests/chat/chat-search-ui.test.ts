@@ -10,6 +10,7 @@ import type { ChatPortMessage } from "../../extension/chat/chat-runtime.js";
 
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 type ChatRuntime = ReturnType<typeof createChatRuntime>;
 
@@ -80,9 +81,8 @@ beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
-  ({ chatSessionState } = await import("../../extension/chat/chat-state.js"));
-  chatSessionState.chatHistory = [];
-  chatSessionState.currentConversationId = "";
+  ({ chatSessionState, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
+  resetChatSessionStateForTests();
 });
 
 afterEach(() => {

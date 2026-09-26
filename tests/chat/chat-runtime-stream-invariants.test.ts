@@ -30,6 +30,7 @@ import type { ChatPort, ChatPortMessage } from "../../extension/chat/chat-runtim
 
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 // 假 port（chat-runtime 经 connectPort 取用；方法保留 mock 引用以便断言载荷）
 interface FakePort {
@@ -147,12 +148,8 @@ beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
-  ({ chatSessionState } = await import("../../extension/chat/chat-state.js"));
-  chatSessionState.contextData = null;
-  chatSessionState.currentContextKey = "";
-  chatSessionState.chatHistory = [];
-  chatSessionState.currentConversationId = "";
-  chatSessionState.currentConversationMeta = null;
+  ({ chatSessionState, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
+  resetChatSessionStateForTests();
 });
 
 afterEach(() => {

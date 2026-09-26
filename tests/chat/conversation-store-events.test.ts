@@ -35,7 +35,7 @@
 // hydratePinned 用 "context"(组合根在该用途接工单 04 的进程内短路复合适配器)。
 //
 // 模块纪元注意:chatSessionState 是模块级单例,beforeEach resetModules 后与被测
-// 模块同纪元导入并手动重置字段。
+// 模块同纪元导入,并经 resetChatSessionStateForTests 重置字段。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
@@ -44,6 +44,10 @@ import type { CreateConversationStoreDeps } from "../../extension/chat/conversat
 
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+// 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
+let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
+let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 const URL_A = "https://www.bilibili.com/video/BV1abc";
 
@@ -144,24 +148,17 @@ function makePinnedMeta(overrides: PinnedMetaOverrides = {}) {
   };
 }
 
-function resetStateFields() {
-  chatSessionState.savedConversations = [];
-  chatSessionState.currentConversationId = "";
-  chatSessionState.currentConversationMeta = null;
-  chatSessionState.chatHistory = [];
-  chatSessionState.contextData = null;
-  chatSessionState.currentContextKey = "";
-  chatSessionState.liveContextData = null;
-  chatSessionState.liveContextKey = "";
-  chatSessionState.liveTabUrl = "";
-}
-
 beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
   ({ createConversationStore } = await import("../../extension/chat/conversation-store.js"));
-  ({ chatSessionState } = await import("../../extension/chat/chat-state.js"));
-  resetStateFields();
+  ({
+    chatSessionState,
+    applyConversationIdentity,
+    setSavedConversations,
+    resetChatSessionStateForTests
+  } = await import("../../extension/chat/chat-state.js"));
+  resetChatSessionStateForTests();
 });
 
 afterEach(() => {
@@ -176,7 +173,7 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
   it("loadAll:change 恰一次且 detail 为空(不触 chip——无上下文写入)", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
 
     await store.loadAll();
 
@@ -196,10 +193,10 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
     });
     const log = makeOrderLog(deps);
     // 两条候选:补水只落命中项,非命中项零请求
-    chatSessionState.savedConversations = [
+    setSavedConversations([
       makeConversation("c1"),
       makeConversation("c2", { url: "https://www.bilibili.com/video/BVother" })
-    ];
+    ]);
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionState.liveContextKey = "k-1";
 
@@ -219,10 +216,10 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
     makeOrderLog(deps);
     chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A", isVideoContext: true };
     chatSessionState.currentContextKey = "k-1";
-    chatSessionState.chatHistory = [
+    applyConversationIdentity({ history: [
       { role: "user", content: "q" },
       { role: "assistant", content: "a" }
-    ];
+    ] });
 
     await store.persistCurrent();
 
@@ -236,10 +233,10 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
     const images = [{ mime: "image/webp", data: "QUJD" }];
     chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A", isVideoContext: true };
     chatSessionState.currentContextKey = "k-1";
-    chatSessionState.chatHistory = [
+    applyConversationIdentity({ history: [
       { role: "user", content: "这张图里是什么", images },
       { role: "assistant", content: "是截图" }
-    ];
+    ] });
 
     await store.persistCurrent();
 
@@ -255,12 +252,12 @@ describe("loadAll / 命中项补水 / persistCurrent 的 change 时序", () => {
     const latest = { mime: "image/webp", data: "WFla" };
     chatSessionState.contextData = { bvid: "BV1abc", cid: "1", url: URL_A, title: "视频A", isVideoContext: true };
     chatSessionState.currentContextKey = "k-1";
-    chatSessionState.chatHistory = [
+    applyConversationIdentity({ history: [
       { role: "user", content: "第一张图", images: [earlier] },
       { role: "assistant", content: "是截图" },
       { role: "user", content: "这张呢", images: [latest] },
       { role: "assistant", content: "也是截图" }
-    ];
+    ] });
 
     await store.persistCurrent();
 
@@ -301,7 +298,7 @@ describe("restoreLatest / applyById 的 change 时序", () => {
     // 标题已带 -P 分 P 后缀:needsConversationPageHydration 早退,补水零请求,
     // 保持「单次 chip change」的最小恢复面。
     conversation.title = "视频A-P1";
-    chatSessionState.savedConversations = [conversation];
+    setSavedConversations([conversation]);
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionState.liveContextKey = "k-1";
 
@@ -317,8 +314,8 @@ describe("restoreLatest / applyById 的 change 时序", () => {
   it("restoreLatest 无匹配:恰一次断流,change/notice 零次(原编排不重渲任何面)", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
-    chatSessionState.savedConversations = [makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })];
-    chatSessionState.currentConversationId = "c1";
+    setSavedConversations([makeConversation("c1", { url: "https://www.bilibili.com/video/BVother" })]);
+    applyConversationIdentity({ id: "c1" });
 
     const result = await store.restoreLatest();
 
@@ -339,7 +336,7 @@ describe("restoreLatest / applyById 的 change 时序", () => {
       })
     });
     const log = makeOrderLog(deps);
-    chatSessionState.savedConversations = [makeConversation("c1", { contextKey: "k-other" })];
+    setSavedConversations([makeConversation("c1", { contextKey: "k-other" })]);
 
     store.applyById("c1");
 
@@ -357,7 +354,7 @@ describe("restoreLatest / applyById 的 change 时序", () => {
 
   it("applyById(键与 live 一致):change = {refreshContextChip, resetView},不发 pending 也不补水", () => {
     const { store, deps } = makeHarness();
-    chatSessionState.savedConversations = [makeConversation("c1", { contextKey: "k-1" })];
+    setSavedConversations([makeConversation("c1", { contextKey: "k-1" })]);
     chatSessionState.liveContextKey = "k-1";
 
     store.applyById("c1");
@@ -376,7 +373,7 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
   it("deleteById 当前会话:onStreamInterrupted 同步先于一切 change;尾次 change = {refreshContextChip, resetView}", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionState.liveContextKey = "k-1";
     store.applyById("c1");
@@ -397,8 +394,8 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
   it("deleteById 非当前会话:无断流,change = {}(仅存档列表面)", async () => {
     const { store, deps } = makeHarness();
     makeOrderLog(deps);
-    chatSessionState.savedConversations = [makeConversation("c1"), makeConversation("c2")];
-    chatSessionState.currentConversationId = "c1";
+    setSavedConversations([makeConversation("c1"), makeConversation("c2")]);
+    applyConversationIdentity({ id: "c1" });
 
     await store.deleteById("c2");
 
@@ -414,7 +411,7 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
     // 缺省确认通道用例：不注入 confirmClearAll——确认走面板内弹层
     //（ui/confirm-dialog.js），须挂 #biliscript-reading-view 供其挂载
     document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
     chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
     chatSessionState.liveContextKey = "k-1";
     store.applyById("c1");
@@ -446,7 +443,7 @@ describe("deleteById / clearAll 的断流与 change 时序", () => {
     expect(deps.onConversationChanged).not.toHaveBeenCalled();
     expect(deps.onStreamInterrupted).not.toHaveBeenCalled();
 
-    chatSessionState.savedConversations = [makeConversation("c1")];
+    setSavedConversations([makeConversation("c1")]);
     await store.clearAll();
 
     expect(deps.onConversationChanged).not.toHaveBeenCalled();
@@ -461,9 +458,9 @@ describe("hydratePinned 的 change / notice 时序", () => {
   it("resolvedContext 缓存命中:change = {refreshContextChip} → notice clear,不走解析", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
-    chatSessionState.currentConversationMeta = makePinnedMeta({
+    applyConversationIdentity({ meta: makePinnedMeta({
       resolvedContext: { bvid: "BV1abc", url: URL_A, title: "视频A" }
-    });
+    }) });
 
     const ok = await store.hydratePinned();
 
@@ -479,7 +476,7 @@ describe("hydratePinned 的 change / notice 时序", () => {
   it("contextKey 与 live 键一致(分支 2):先经 loadContextState 静默刷新 live,再 change {refreshContextChip} → notice clear", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
-    chatSessionState.currentConversationMeta = makePinnedMeta();
+    applyConversationIdentity({ meta: makePinnedMeta() });
     chatSessionState.liveContextKey = "k-1";
     chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
 
@@ -499,7 +496,7 @@ describe("hydratePinned 的 change / notice 时序", () => {
       resolveAiConversationRef: vi.fn(async () => ({ bvid: "BV1abc", url: URL_A, title: "视频A" }))
     });
     const log = makeOrderLog(deps);
-    chatSessionState.currentConversationMeta = makePinnedMeta();
+    applyConversationIdentity({ meta: makePinnedMeta() });
 
     const ok = await store.hydratePinned();
 
@@ -518,7 +515,7 @@ describe("hydratePinned 的 change / notice 时序", () => {
       })
     });
     const log = makeOrderLog(deps);
-    chatSessionState.currentConversationMeta = makePinnedMeta();
+    applyConversationIdentity({ meta: makePinnedMeta() });
 
     const ok = await store.hydratePinned();
 
@@ -537,7 +534,7 @@ describe("hydratePinned 的 change / notice 时序", () => {
       })
     });
     makeOrderLog(deps);
-    chatSessionState.currentConversationMeta = makePinnedMeta();
+    applyConversationIdentity({ meta: makePinnedMeta() });
 
     const ok = await store.hydratePinned({ silent: true });
 
@@ -549,7 +546,7 @@ describe("hydratePinned 的 change / notice 时序", () => {
   it("缺少 contextRef:notice clear → notice error(非 silent),不走解析", async () => {
     const { store, deps } = makeHarness();
     const log = makeOrderLog(deps);
-    chatSessionState.currentConversationMeta = makePinnedMeta({ contextRef: null });
+    applyConversationIdentity({ meta: makePinnedMeta({ contextRef: null }) });
 
     const ok = await store.hydratePinned();
 

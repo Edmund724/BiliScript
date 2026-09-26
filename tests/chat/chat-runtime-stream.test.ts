@@ -46,6 +46,7 @@ interface TestDeps extends CreateChatRuntimeDeps {
 
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: ChatSessionState;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 const SLOW_NOTICE_TEXT = "模型响应较慢，可能正在思考，请稍候…";
 
@@ -137,13 +138,9 @@ beforeEach(async () => {
   document.body.innerHTML = "";
   // 同一模块纪元内新鲜导入（先 resetModules 再 import，两个模块同图解析）：
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
-  ({ chatSessionState } = await import("../../extension/chat/chat-state.js"));
-  // chatSessionState 是模块级单例，手动重置本文件用到的字段
-  chatSessionState.contextData = null;
-  chatSessionState.currentContextKey = "";
-  chatSessionState.chatHistory = [];
-  chatSessionState.currentConversationId = "";
-  chatSessionState.currentConversationMeta = null;
+  ({ chatSessionState, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
+  // chatSessionState 是模块级单例，经测试注入口重置本文件用到的字段
+  resetChatSessionStateForTests();
 });
 
 afterEach(() => {

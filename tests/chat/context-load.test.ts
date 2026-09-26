@@ -24,12 +24,17 @@ import type { ContextFetchOutcome } from "../../extension/core/context-assembly.
 
 let createContextLoad: typeof import("../../extension/chat/context-load.js").createContextLoad;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+// 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
+let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
+let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 async function importModule() {
   const module = await import("../../extension/chat/context-load.js");
-  const state = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  const state = await import("../../extension/chat/chat-state.js");
   createContextLoad = module.createContextLoad;
-  chatSessionState = state;
+  chatSessionState = state.chatSessionState;
+  applyConversationIdentity = state.applyConversationIdentity;
+  resetChatSessionStateForTests = state.resetChatSessionStateForTests;
 }
 
 const ACTIVE_TAB = { id: 42, url: "https://www.bilibili.com/video/BV1" };
@@ -84,12 +89,7 @@ function makeHarness({
 beforeEach(async () => {
   resetModuleState();
   await importModule();
-  chatSessionState.contextData = null;
-  chatSessionState.currentContextKey = "";
-  chatSessionState.liveContextData = null;
-  chatSessionState.liveContextKey = "";
-  chatSessionState.liveTabUrl = "";
-  chatSessionState.currentConversationMeta = null;
+  resetChatSessionStateForTests();
 });
 
 describe("loadContextState 动作分支", () => {
@@ -151,7 +151,7 @@ describe("loadContextState 动作分支", () => {
   });
 
   it("apply-pinned：只落地 live 快照（不进主上下文、不触发对话恢复）", async () => {
-    chatSessionState.currentConversationMeta = { pinnedContext: true };
+    applyConversationIdentity({ meta: { pinnedContext: true } });
     const payload = makePayload({ signature: "sig-2" });
     const { deps, contextLoad } = makeHarness({
       fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload })
@@ -263,7 +263,7 @@ describe("updateContextChip", () => {
 
   it("pinned 对话绑定视频与当前页不符：is-mismatch 标记", () => {
     chatSessionState.contextData = { title: "视频", url: "https://www.bilibili.com/video/BV1" };
-    chatSessionState.currentConversationMeta = { pinnedContext: true, contextUrl: "https://www.bilibili.com/video/BVother" };
+    applyConversationIdentity({ meta: { pinnedContext: true, contextUrl: "https://www.bilibili.com/video/BVother" } });
     chatSessionState.liveTabUrl = "https://www.bilibili.com/video/BVxyz999";
     const { contextLoad, contextChip } = makeHarness();
 

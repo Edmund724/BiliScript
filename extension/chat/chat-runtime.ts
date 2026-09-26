@@ -51,7 +51,13 @@ import { generateConversationId } from "../ai/conversation.js";
 // 绘制在浏览器窗口正中央，面板停靠右侧时可能落在可视区外。
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import type { ConversationStore } from "./conversation-store.js";
-import { chatSessionState, type ChatSessionMessage } from "./chat-state.js";
+import {
+  appendChatHistory,
+  chatSessionState,
+  clearConversationIdentity,
+  ensureConversationId,
+  type ChatSessionMessage
+} from "./chat-state.js";
 // offscreen → 宿主的出向 port 消息联合（ticket 08 单源，原本处手抄八分派）。
 // 注意：ChatPort 不从 protocol re-export——本侧消费的是 chrome.runtime.Port
 // 全视图（监听/断连半边），protocol 的 ChatPort 是生产侧 postMessage 窄视图。
@@ -414,11 +420,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 发送前上下文失配守卫（CONTEXT.md「拆除会话」词条出口五）：刻意只清身份
       // 两键（id/meta）——不清 chatHistory、不发断流（此点流式尚未发起，无断流
       // 可言；旧会话的消息史仍在视图中延续，仅会话身份随上下文键失配作废）。
-      // 不收编进 store 的 detachCurrent 原语：不为半序列强造抽象
-      //（工单 arch-slim-2/07 D/E 半场裁定）。
+      // 不收编进 store 的 detachCurrent 原语（它连带清历史）：本守卫只表达
+      // 「身份作废」这一个意图，写纪律经 chat-state 的
+      // clearConversationIdentity 原语（工单 arch-slim-2/07 D/E 半场裁定）。
       if (!currentMeta?.pinnedContext && currentMeta?.contextKey && currentMeta.contextKey !== chatSessionState.currentContextKey) {
-        chatSessionState.currentConversationId = "";
-        chatSessionState.currentConversationMeta = null;
+        clearConversationIdentity();
       }
 
       deps.ui.removeCenteredState();
@@ -444,7 +450,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 据此做到「每会话一个稳定标识、新会话新标识」；persistCurrent 见已有 id
       // 直接沿用，落盘与身份守卫（isCurrent 快照比对）语义都不变。
       if (!chatSessionState.currentConversationId) {
-        chatSessionState.currentConversationId = generateConversationId();
+        ensureConversationId(generateConversationId());
       }
       activeConversationId = chatSessionState.currentConversationId;
       activeAssistantNode = appendAssistantPlaceholder();
@@ -603,13 +609,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 字段——无图历史逐字节不变），「最近一条用户消息的图」由此进历史。
   function commitAssistantTurn(raw: string): void {
     if (activeUserPrompt && raw && deps.store.isCurrent(activeConversationId)) {
-      chatSessionState.chatHistory.push({
-        role: "user",
-        content: activeUserPrompt,
-        ...(activeUserImages.length ? { images: activeUserImages } : {})
-      });
-      chatSessionState.chatHistory.push(...pendingToolMessages);
-      chatSessionState.chatHistory.push({ role: "assistant", content: raw });
+      appendChatHistory(
+        {
+          role: "user",
+          content: activeUserPrompt,
+          ...(activeUserImages.length ? { images: activeUserImages } : {})
+        },
+        ...pendingToolMessages,
+        { role: "assistant", content: raw }
+      );
       void deps.store.persistCurrent();
     }
     pendingToolMessages = [];
