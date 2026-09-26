@@ -31,6 +31,23 @@ Its one external writer — `reader/shell.ts` (`enterReaderShell`) — goes
 through the intent-level `suppressUntil(timestamp)` helper exported by that module, so callers
 outside `ai/` never touch player-AI slots directly.
 
+### The `chatSessionState` bag (`extension/chat/chat-state.ts`)
+
+The sidepanel conversation bag is a **second state namespace**, owned by the `chat` domain and
+exported as the module-level singleton `chatSessionState` (14 business fields, see
+[ADR-0011](adr/0011-chat-state-write-discipline.md)). It follows the same Readonly + setter
+split, but only over the conversation-identity slice:
+
+| Field                                                    | Write discipline                                                       |
+| -------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `currentConversationId`, `currentConversationMeta`, `chatHistory` | `Readonly` on the public type — written through `applyConversationIdentity` / `detachConversationIdentity` / `clearConversationIdentity` / `ensureConversationId` / `appendChatHistory` |
+| `savedConversations`                                      | `Readonly` — written through `setSavedConversations`                    |
+| `contextData`, `currentContextKey`, `providers`, `liveContextData`, `liveContextKey`, `liveTabUrl`, `aiPrefs`, `asrTranscribingActive`, `aiThinkingLevel`, `webSearchEnabled` | still plain mutable — their writers span several files and mix granularities, so a slice-sized discipline (not a full sweep) is the honest scope |
+
+Tests that reuse the singleton inside one module epoch reset it through the test-only injection
+point `resetChatSessionStateForTests()` (the `force-set`-for-scaffolding precedent of
+`readingViewOpen` above), instead of hand-resetting field by field. Production code must not call it.
+
 Plus a single flat settings object:
 
 - `state.settings` — current settings (a copy of `DEFAULT_SETTINGS`).
