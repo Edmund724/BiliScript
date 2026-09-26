@@ -1,4 +1,4 @@
-// ai/followup-router.js 跨会话回退测试（原始字幕缓存跨会话接线）：
+// ai/followup-context.js 跨会话回退测试（原始字幕缓存跨会话接线）：
 // (c) plan.segments 为空（恢复会话/新会话，内存原始段已不在）时，追问上下文回退到
 //     段缓存落盘的原始字幕段（loadRawSegments 家族键），分段小结与按需检索都恢复；
 //     内存 plan.segments 存在时仍完全优先内存路径（不触达段缓存枚举）；
@@ -10,7 +10,7 @@ import type { BudgetPlan } from "../../extension/ai/types.js";
 
 let storage: ReturnType<typeof createMemoryStorage>;
 let segCache: typeof import("../../extension/ai/segment-cache.js");
-let router: typeof import("../../extension/ai/followup-router.js");
+let router: typeof import("../../extension/ai/followup-context.js");
 let sendMessageMock: ReturnType<typeof vi.fn>;
 
 // 内存 Map 实现的 chrome.storage.local：get 需支持 null（全量枚举）。
@@ -64,7 +64,7 @@ async function importModules() {
     runtime: { sendMessage: sendMessageMock }
   });
   segCache = await import("../../extension/ai/segment-cache.js");
-  router = await import("../../extension/ai/followup-router.js");
+  router = await import("../../extension/ai/followup-context.js");
 }
 
 // 预置某视频 3 段的原始字幕段 + 分段小结（键位与 map-reduce 落盘一致）。

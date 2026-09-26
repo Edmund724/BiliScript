@@ -86,7 +86,7 @@ export function createSegmentCacheHandler(): (
           return { ok: result.ok, summarySaved: opResult, rawSaved: opResult };
         }
         if (message.op === "load-stored-raw") {
-          // String 归一与迁移前 followup-router 调用点的口径逐字一致
+          // String 归一与迁移前 followup-context 调用点的口径逐字一致
           const stored = await loadStoredRawSegments({
             bvid: String(fields.bvid || ""),
             cid: String(fields.cid || ""),

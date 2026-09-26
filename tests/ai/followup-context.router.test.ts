@@ -1,5 +1,5 @@
-// ai/followup-router.js 测试：追问路由——超预算视频总结后追问改走压缩上下文 + 按需检索；
-// 首轮 / 尚未成稿 / ≤200k → 返回 null（交给完整 Map-Reduce）。
+// ai/followup-context.js 编排侧测试：追问路由——超预算视频总结后追问改走压缩上下文 +
+// 按需检索；首轮 / 尚未成稿 / ≤200k → 返回 null（交给完整 Map-Reduce）。
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -7,7 +7,7 @@ import {
   loadSegmentSummaries,
   buildRetrieveRaw,
   resolveFollowupContext
-} from "../../extension/ai/followup-router.js";
+} from "../../extension/ai/followup-context.js";
 import { buildBudgetPlan } from "../../extension/ai/budgeter.js";
 
 // 构造 >200k 的 map-reduce plan（5 段）
@@ -48,11 +48,16 @@ describe("lastAssistantContent", () => {
 });
 
 describe("loadSegmentSummaries", () => {
-  it("按段序加载非空小结，注入 loader 生效", async () => {
-    const loader = vi.fn(async ({ segmentIndex }) => (segmentIndex === 1 ? "小结一" : null));
-    const summaries = await loadSegmentSummaries({ context, plan, loadSummary: loader });
-    expect(loader).toHaveBeenCalledTimes(5);
-    expect(summaries).toEqual(["小结一"]);
+  it("按段序批量加载非空小结，注入 loader 生效（一次往返、null/空被过滤、段序保持）", async () => {
+    let seenIndexes: Array<number | string> | undefined;
+    const loader = vi.fn(async (input: { segmentIndexes?: Array<number | string> }) => {
+      seenIndexes = input.segmentIndexes;
+      return ["小结一", null, "   ", "小结四", "小结五"];
+    });
+    const summaries = await loadSegmentSummaries({ context, plan, loadSummaries: loader });
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(seenIndexes).toEqual([1, 2, 3, 4, 5]);
+    expect(summaries).toEqual(["小结一", "小结四", "小结五"]);
   });
 
   it("缺省 loader 走段缓存消息代理（无 SW 回路 → 未命中 → 空）", async () => {

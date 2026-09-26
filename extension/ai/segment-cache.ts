@@ -76,7 +76,7 @@ interface SegmentCacheKeyFieldsResult {
 
 // AI 上下文对象 → 段缓存键位字段的唯一映射（bvid/cid + 字幕轨 source key 三元组，
 // 上下文字段名 selectedSubtitleId/selectedSubtitleUrl/subtitleLang 映射为键位入参
-// subtitleId/subtitleUrl/lang）。落盘（map-reduce）与复用（followup-router）共用，
+// subtitleId/subtitleUrl/lang）。落盘（map-reduce）与复用（followup-context）共用，
 // 键位不再各自手拼，预热缓存永不因键位漂移而失效。
 export function segmentCacheKeyFields(context: Record<string, unknown> | undefined | null): SegmentCacheKeyFieldsResult {
   if (!context) {

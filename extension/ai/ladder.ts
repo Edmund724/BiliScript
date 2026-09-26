@@ -9,8 +9,7 @@
 import { streamChat as _streamChat } from "./client.js";
 import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
 import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
-import { resolveFollowupContext as _resolveFollowupContext } from "./followup-router.js";
-import { trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
+import { resolveFollowupContext as _resolveFollowupContext, trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
 import { buildCostGuardNotice as _buildCostGuardNotice } from "./cost-guard.js";
 import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } from "./sw-keepalive.js";
 // 图片合法性白名单（image-input 路线 B）：与历史加载侧同一份判定（01 号票的
