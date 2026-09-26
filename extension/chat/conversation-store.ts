@@ -48,7 +48,7 @@ import {
 import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
 import type { AiContext } from "../ai/types.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
-import { chatSessionState as _chatSessionState, type ChatSessionMessage } from "./chat-state.js";
+import { chatSessionState, type ChatSessionMessage } from "./chat-state.js";
 
 // ---------------------------------------------------------------------------
 // 本地类型契约
@@ -65,6 +65,9 @@ export interface Conversation {
   updatedAt: number;
   contextRef: AiContext;
   messages: ChatSessionMessage[];
+  // 反向赋值用：store 写入状态袋的存档镜像按宽形态（ChatSessionSavedConversation
+  // 的索引签名）声明，见 chat-state.ts。
+  [key: string]: unknown;
 }
 
 // 历史消息压平的单点（加载/持久化两处共用）：{ role, content } 基础形状上
@@ -97,26 +100,9 @@ export interface ConversationMeta {
   pinnedContext: boolean;
   contextRef: AiContext | null;
   resolvedContext?: AiContext | null;
-}
-
-export interface ChatSessionState {
-  contextData: AiContext | null;
-  currentContextKey: string;
-  providers: unknown[];
-  chatHistory: ChatSessionMessage[];
-  savedConversations: Conversation[];
-  currentConversationId: string;
-  currentConversationMeta: ConversationMeta | null;
-  liveContextData: AiContext | null;
-  liveContextKey: string;
-  liveTabUrl: string;
-  aiPrefs: {
-    aiSystemPrompt: string;
-    aiInitialQuickPrompts: string[];
-    aiPresetPrompts: string[];
-  };
-  asrTranscribingActive: boolean;
-  aiThinkingLevel: string;
+  // 反向赋值用：store 把 currentConversationMeta 的产物写回存档条目时按
+  // ChatSessionSavedConversation 的宽形态落盘（其索引签名在 chat-state.ts）。
+  [key: string]: unknown;
 }
 
 export interface StorageArea {
@@ -195,10 +181,6 @@ export interface ConversationStore {
   hydratePinned: (opts?: HydratePinnedOptions) => Promise<boolean>;
 }
 
-// 本地窄视图（store 实际读写的字段形态）经断言对齐 chat-state 的宽类型：
-// currentConversationMeta 的完整形态由 ConversationMeta 承载，宽侧只约束读写面。
-const chatSessionState = _chatSessionState as ChatSessionState;
-
 // ---------------------------------------------------------------------------
 // 纯函数（直接 export，无需 store 实例即可测试）
 // ---------------------------------------------------------------------------
@@ -255,11 +237,14 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     onConversationChanged(change);
   }
 
+  // 存档条目的窄视图：状态袋声明的是持久化镜像的宽形态（ChatSessionSaved-
+  // Conversation，contextRef/messages 走 unknown），store 内部一律按 Conversation
+  // 消费——收窄点唯一即此。
   function saved(): Conversation[] {
-    return chatSessionState.savedConversations;
+    return chatSessionState.savedConversations as Conversation[];
   }
-  function commitSaved(next: Conversation[]): void {
-    chatSessionState.savedConversations = next;
+  function commitSaved(next: Conversation[] | ReturnType<typeof normalizeConversations>): void {
+    chatSessionState.savedConversations = next as Conversation[];
   }
 
   // =========================================================================
@@ -420,7 +405,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       chatSessionState.currentConversationMeta = {
         ...chatSessionState.currentConversationMeta,
         resolvedContext: { ...liveData }
-      } as ConversationMeta;
+      };
     } else if (conversation.contextRef) {
       chatSessionState.contextData = buildContextPlaceholder(conversation.contextRef);
       chatSessionState.currentContextKey = conversation.contextKey || buildContextKey(chatSessionState.contextData);
@@ -574,7 +559,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         chatSessionState.currentConversationMeta = {
           ...meta,
           resolvedContext: { ...context }
-        } as ConversationMeta;
+        };
         emitChange({ refreshContextChip: true });
         onContextNotice({ kind: "clear" });
         return true;
@@ -615,7 +600,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       contextUrl: String(resolved.url || meta?.contextUrl || "").trim(),
       contextRef: buildAiContextRef(resolved),
       resolvedContext: { ...resolved }
-    } as ConversationMeta;
+    };
     emitChange({ refreshContextChip: true });
     onContextNotice({ kind: "clear" });
     return true;

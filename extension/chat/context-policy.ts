@@ -27,7 +27,6 @@ export interface LoadContextResponse {
 // 会话绑定判定输入（chatSessionState.currentConversationMeta 的窄视图）
 export interface CurrentConversationMetaLike {
   pinnedContext?: unknown;
-  [key: string]: unknown;
 }
 
 // 动作枚举：loadContextState 一次调用可能采取的全部动作（编排壳据此执行）。

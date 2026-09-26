@@ -48,14 +48,21 @@ export interface ChatSessionProvider {
   enabled?: boolean;
 }
 
-// 当前会话元信息。这里只列 sidepanel.js / chat-runtime 直接读写的字段；完整
-// 形态（含 id/createdAt/contextRef 等）由 conversation-store 的 ConversationMeta
-// 承载，写入方经其本地类型构造后落进本状态。
+// 当前会话元信息。字段集与 conversation-store 的 ConversationMeta 对齐（工单
+// chat-state 写纪律：显式列出，删掉原先的 [key: string]: unknown 开口子）——
+// 全部可选，写入方（conversation-store）按场景只落自己用到的那几项。
 export interface CurrentConversationMeta {
-  pinnedContext?: boolean;
+  id?: string;
+  title?: string;
+  createdAt?: number;
+  updatedAt?: number;
   contextKey?: string;
+  contextTitle?: string;
   contextUrl?: string;
-  [key: string]: unknown;
+  isVideoContext?: boolean;
+  pinnedContext?: boolean;
+  contextRef?: AiContext | null;
+  resolvedContext?: AiContext | null;
 }
 
 // 一问一答条目（{ role, content }）；role 的取值由写入方约束为 user/assistant。
