@@ -8,7 +8,7 @@
 
 import { hasFinalNote, buildFollowupSubtitleMarkdown } from "./followup-context.js";
 import { retrieveRawSegments, type RawSegment } from "./raw-retrieval.js";
-import { formatSegmentItem } from "./map-reduce.js";
+import { formatSegmentItem } from "./subtitle-prompt.js";
 import { segmentCacheProxy } from "./segment-cache-proxy.js";
 import type { BudgetPlan, BudgetPlanSegment } from "./types.js";
 

@@ -43,7 +43,7 @@ export function shouldUseHours(seconds: unknown): boolean {
 
 /**
  * 条目级 withHours 判定：一个区间（字幕项 from/to、片段起止）的两端任一达到
- * 小时级即整条带小时位（沿 ai/map-reduce.ts formatSegmentItem 的既有口径）。
+ * 小时级即整条带小时位（沿 ai/subtitle-prompt.ts formatSegmentItem 的既有口径）。
  */
 export function shouldUseHoursForRange(from: unknown, to: unknown): boolean {
   return shouldUseHours(from) || shouldUseHours(to);

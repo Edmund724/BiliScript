@@ -10,7 +10,7 @@
 // - buildSubtitlePrompt({...})：发模型场景，输出与 buildAiConversationMarkdown 等价
 //   的 markdown；body 为空时返回空串，由调用方决定占位文案（如「（暂无字幕）」）。
 
-import { formatClock } from "../shared/clock-text.js";
+import { formatClock, shouldUseHoursForRange } from "../shared/clock-text.js";
 import { buildSubtitleSectionLines, shouldShowHoursInNote } from "../notes/section-lines.js";
 import type { ChapterItem, SubtitleBodyItem } from "./types.js";
 
@@ -20,6 +20,19 @@ import type { ChapterItem, SubtitleBodyItem } from "./types.js";
 // 必须逐字一致，漂移即成稿与追问的分段语义分叉。单源于此（arch-slim-2/03）。
 export function formatSegmentHeading(index: number): string {
   return `### 片段 ${index + 1}`;
+}
+
+/**
+ * 把一条字幕项渲染成 `[起点-终点] 内容`（时间点格式对齐蓝本 segments_to_prompt）。
+ * 与 formatSegmentHeading 同理：分段 prompt（map-reduce）与追问注入渲染（followup 链）
+ * 两条管线对同一字幕项的行渲染必须逐字一致，单源于此。
+ */
+export function formatSegmentItem(item: unknown): string {
+  const content = String(item && (item as { content?: unknown }).content != null ? (item as { content?: unknown }).content : "").trim();
+  const from = Number(item && (item as { from?: unknown }).from) || 0;
+  const to = Number(item && (item as { to?: unknown }).to) || from;
+  const withHours = shouldUseHoursForRange(from, to);
+  return `[${formatClock(from, { hours: withHours })}-${formatClock(to, { hours: withHours })}] ${content}`;
 }
 
 interface AiConversationMeta {
