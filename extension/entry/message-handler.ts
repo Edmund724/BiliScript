@@ -8,11 +8,6 @@ import {
   isStaleRunError
 } from "../shared/error-helpers.js";
 
-// 候选02 分层惰性：video-probe（getRuntimeVideoElement/findReaderPlayerHost）
-// 原被本模块与 reader 域共享而提升为常驻静态 chunk；其常驻侧唯一消费点是
-// seek 联动处理器（异步），改为处理器内动态 import 后随 reader 域/总结链
-// 切进动态 chunk（详见 reader-seek-video-time 处理器）。
-
 // 总结链（fetcher/ui + notes/render）经加载器按需引入（候选02 分层惰性）：
 // 链内符号一律先 await ensureSummarizeChain() 再取用。一键总结
 // 热路径上的装载是本地 chunk 动态 import（~10ms），被消息往返掩盖。
@@ -62,9 +57,6 @@ import type {
 // ui/script-button.ts 等页内触发源经它进同一条处理器路径，本组合根在
 // bindRuntimeEvents 时把分发主体注册进去。
 import { registerContentScriptDispatcher } from "../shared/messaging.js";
-// 候选02 分层惰性：gateway（getCurrentAid/fetchHotComments）原被本模块与总结
-// 链共享而提升为常驻静态 chunk；其常驻侧唯一消费点是热评消息处理器（异步），
-// 改为处理器内动态 import 后，gateway/bili-api-shared 随总结链切进动态 chunk。
 
 export function bindRuntimeEvents() {
   if (state.ui.runtimeEventsBound) {
@@ -143,67 +135,6 @@ function handleReaderClose(_message: Msg<"reader-close">, sendResponse: SendResp
   return true;
 }
 
-function handleReaderGetHotComments(_message: Msg<"reader-get-hot-comments">, sendResponse: SendResponse): boolean {
-  (async () => {
-    try {
-      // gateway 动态装载（候选02，见文件头 import 注）：本地 chunk 加载 ~10ms，
-      // 被热评网络往返掩盖。编排单源在 gateway.fetchHotCommentsWithLedger
-      //（arch-review-2026-09/07：aid 判空 / clipState 落账 / 失败降级空列表 + note），
-      // 本处理器只包 sendResponse 外壳；装载失败与「无法获取 aid」同型降级。
-      const { fetchHotCommentsWithLedger } = await import("../bilibili/gateway.js");
-      const { comments, note } = await fetchHotCommentsWithLedger();
-      sendResponse(note ? { ok: true, comments, note } : { ok: true, comments });
-    } catch (error) {
-      clipState.setHotComments([]);
-      sendResponse({ ok: true, comments: [], note: String((error as Error)?.message || error) });
-    }
-  })();
-  return true;
-}
-
-function handleReaderSeekVideoTime(message: Msg<"reader-seek-video-time">, sendResponse: SendResponse): boolean {
-  (async () => {
-    try {
-      // video-probe 动态装载（候选02，见文件头 import 注）：本地 chunk ~10ms，
-      // 被用户点击到执行的时间差掩盖；响应形状与搬迁前一致（ok/currentTime）。
-      // 候选06 seek 深入口：reader 开着时定位收敛为 reader 域单入口
-      // seekReadingTarget（规范序：清暂停 → 设跟随 → currentTime → 同步），
-      // resumePlayback:false = 暂停中不自动播放（与旧侧栏行为等价）；reader
-      // 未开时保持旧行为：只 seek 视频，正在播放才续播，不触碰 reader 状态。
-      const { getRuntimeVideoElement } = await import("../bilibili/video-probe.js");
-      const video = getRuntimeVideoElement();
-      if (!video) {
-        sendResponse({ ok: false, error: "当前页面没有找到可联动的视频播放器。" });
-        return;
-      }
-      if (isReaderViewOpen()) {
-        // 视图开 ⇒ 域已装载（ensure 即命中缓存）；装载/执行失败统一走
-        // 下方 catch 的错误口径回包。
-        const reader = await ensureReaderDomain();
-        const seekedTo = reader.seekReadingTarget(message.seconds ?? 0, { resumePlayback: false });
-        if (seekedTo === null) {
-          // reader 域内未绑定到视频（与无视频同型降级）。
-          sendResponse({ ok: false, error: "当前页面没有找到可联动的视频播放器。" });
-          return;
-        }
-        sendResponse({ ok: true, currentTime: seekedTo });
-        return;
-      }
-      const seconds = Number(message.seconds);
-      const nextTime = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
-      const wasPaused = Boolean(video.paused);
-      video.currentTime = nextTime;
-      if (!wasPaused) {
-        video.play().catch(() => {});
-      }
-      sendResponse({ ok: true, currentTime: nextTime });
-    } catch (error) {
-      sendResponse({ ok: false, error: getErrorMessage(error) });
-    }
-  })();
-  return true;
-}
-
 // 编译期穷尽路由表（与 SW 侧 background.ts 的 messageHandlerTable 同款收敛，
 // arch-slim-3/04）：字面量表经 satisfies 对
 // { [K in ContentScriptMessageType]: ContentScriptHandler<K> } 校验——消息名
@@ -213,9 +144,7 @@ function handleReaderSeekVideoTime(message: Msg<"reader-seek-video-time">, sendR
 const contentMessageHandlerTable = {
   "reader-enter": handleReaderShellEnter,
   "reader-restore": handleReaderShellEnter,
-  "reader-close": handleReaderClose,
-  "reader-get-hot-comments": handleReaderGetHotComments,
-  "reader-seek-video-time": handleReaderSeekVideoTime
+  "reader-close": handleReaderClose
 } satisfies { [K in ContentScriptMessageType]: ContentScriptHandler<K> };
 
 const contentMessageHandlers = new Map<

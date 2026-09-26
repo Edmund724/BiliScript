@@ -259,9 +259,9 @@ describe("isBiliUrl 边界", () => {
   });
 });
 
-// fetchHotCommentsWithLedger（arch-review-2026-09/07 编排单源）：message-handler
-// 的 reader-get-hot-comments 与 context-assembly 缺省热评实现共用的
-// 「aid 判空 → fetchHotComments(20) → clipState 落账 → 失败降级空列表 + note」。
+// fetchHotCommentsWithLedger（arch-review-2026-09/07 编排单源）：context-assembly
+// 缺省热评实现使用的「aid 判空 → fetchHotComments(20) → clipState 落账 → 失败降级
+// 空列表 + note」。
 // deps 全注入（ledger/aid/拉取替身），另有一条缺省 deps 接线对账（落账到真实
 // core/state 的 clipState）。
 describe("fetchHotCommentsWithLedger：热评编排单源", () => {

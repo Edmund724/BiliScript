@@ -12,7 +12,7 @@
 
 import type { Settings } from "../core/defaults.js";
 import type { AiProviderPreset, AsrProviderPreset, SearchProviderPreset } from "../core/presets.js";
-import type { AiProvider, HotComment, ImagePart } from "../ai/types.js";
+import type { AiProvider, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 
@@ -56,37 +56,10 @@ export type ReaderRestoreMessage = {
 // 即答语义，恒 { ok: true }。
 export type ReaderRestoreResponse = { ok: boolean };
 
-export type ReaderGetHotCommentsMessage = {
-  type: "reader-get-hot-comments";
-};
-
-// 响应锚点：entry/message-handler.ts hot-comments 处理器——无失败分支，无法获取
-// aid / 拉取失败都降级为空列表 + note 说明。
-export type ReaderGetHotCommentsResponse = {
-  ok: boolean;
-  comments: HotComment[];
-  note?: string;
-};
-
-export type ReaderSeekVideoTimeMessage = {
-  type: "reader-seek-video-time";
-  seconds?: number | string;
-};
-
-// 响应锚点：entry/message-handler.ts reader-seek-video-time 处理器——成功带定位后
-// 的 currentTime，失败（无播放器/未绑定）带可读 error。
-export type ReaderSeekVideoTimeResponse = {
-  ok: boolean;
-  currentTime?: number;
-  error?: string;
-};
-
 export type ContentScriptMessage =
   | ReaderEnterMessage
   | ReaderCloseMessage
-  | ReaderRestoreMessage
-  | ReaderGetHotCommentsMessage
-  | ReaderSeekVideoTimeMessage;
+  | ReaderRestoreMessage;
 
 export type ContentScriptMessageType = ContentScriptMessage["type"];
 
@@ -544,8 +517,6 @@ export type SendResponse = (response?: MessageResponse) => void;
 export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends ReaderCloseMessage ? ReaderCloseResponse
   : M extends ReaderRestoreMessage ? ReaderRestoreResponse
-  : M extends ReaderGetHotCommentsMessage ? ReaderGetHotCommentsResponse
-  : M extends ReaderSeekVideoTimeMessage ? ReaderSeekVideoTimeResponse
   : M extends GetSettingsMessage ? GetSettingsResponse
   : M extends SaveSettingsMessage ? SaveSettingsResponse
   : M extends RequestProviderOriginsMessage ? RequestProviderOriginsResponse

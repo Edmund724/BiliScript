@@ -63,8 +63,7 @@ vi.mock("../../extension/reader/lazy-chat-tab.js", () => ({
   ensureReaderChatTab: mocks.ensureReaderChatTab,
   isReaderChatTabLoaded: vi.fn(() => false)
 }));
-// bilibili/gateway.js（reader-get-hot-comments 处理器动态 import）：别名校验用例
-// 只走 get-context 路径，不需要真热评。
+// bilibili/gateway.js：别名校验用例只走 get-context 路径，不需要真热评。
 vi.mock("../../extension/bilibili/gateway.js", () => ({
   getCurrentAid: vi.fn(() => ""),
   fetchHotComments: vi.fn(async () => [])
