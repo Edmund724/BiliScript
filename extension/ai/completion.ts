@@ -20,8 +20,8 @@
 import { makeAbortedError, isRetryableNetworkError } from "../shared/error-helpers.js";
 import { resolveAdapter } from "./protocol-adapter.js";
 import { presetRequestHeaders } from "./preset-headers.js";
-import type { AiProtocol, ChatRequest, ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
-import type { ChatMessage, ChatToolCall, StreamChatEvent } from "./types.js";
+import type { ChatRequest, ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
+import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 
 // 思考档位词表唯一主人在 thinking-profiles（表与档位同域）；此处 re-export
 // 保住既有 import 路径（completion 曾是词表主人）。
@@ -148,7 +148,7 @@ interface ChatCompletionInput {
   // 缺省/未知值经 resolveAdapter 兜底 openai，存量记录零变化。
   // sessionId 是本轮所属会话的稳定标识（宿主填 chat 会话 id），只喂
   // preset-headers 的平台会话头；无会话的调用（探针/解释）不填。
-  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string; protocol?: AiProtocol; sessionId?: string };
+  provider: ProviderRequest;
   messages: ChatMessage[];
   stream?: boolean;
   signal?: AbortSignal | null;

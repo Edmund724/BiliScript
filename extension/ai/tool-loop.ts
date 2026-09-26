@@ -13,7 +13,7 @@
 // - 平台不支持 tools（4xx）：notice + 摘除 tools 无联网重发一次；
 // - 中止 / context-length 溢出照 chatCompletion 原语义上抛。
 import { chatCompletion, parseToolArgs, type ChatToolDefinition } from "./completion.js";
-import type { ChatMessage, ChatToolCall, StreamChatEvent } from "./types.js";
+import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 
 // web_search 工具定义（spec §2.1 原文）：对话链版本带 §4 引用要求——正文引用
@@ -66,7 +66,7 @@ export interface ToolStatusPayload {
 }
 
 export interface RunToolLoopInput {
-  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
+  provider: ProviderRequest;
   // 循环中就地追加 assistant(tool_calls) / tool / system 消息（调用方持有数组）。
   messages: ChatMessage[];
   stream?: boolean;

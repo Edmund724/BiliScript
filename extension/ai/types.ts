@@ -64,6 +64,20 @@ export interface AiProvider {
   [key: string]: unknown;
 }
 
+// 「请求就绪 provider」：编排链各环节（completion / map-reduce /
+// analysis-orchestrate / tool-loop）统一入参形状，六个字段全可选（缺省由
+// resolveAdapter / preset 查表兜底）。与存储记录 AiProvider 区分：后者是
+// chrome.storage 里的落盘记录（带 id/enabled/任意扩展键），本类型只描述
+// 一次请求真正会读的字段。
+export interface ProviderRequest {
+  baseUrl?: string;
+  apiKey?: string;
+  model?: string;
+  presetId?: string;
+  protocol?: AiProtocol;
+  sessionId?: string;
+}
+
 export interface AiContext {
   title?: string;
   url?: string;

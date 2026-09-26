@@ -36,7 +36,7 @@ import {
   type BuiltAnalysisPrompt,
   type OutlineChapter,
 } from "./analysis-prompts.js";
-import type { BudgetPlan, BudgetPlanSegment, ChatMessage } from "./types.js";
+import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
 
 // FNV-1a 32 位哈希与字幕签名族已迁 subtitle/cache.ts（arch-slim-3 #1，键族同居）；
 // 本模块经上方 import 消费同一实现。
@@ -135,7 +135,7 @@ export function buildAnalysisSegmentCacheKey(
 // 字面量无需引用类型；ladder.ts 的同名类型声明形状不同（宽松 BudgetPlan，
 // 供测试 fake 只填 mode 等少数字段），刻意不合并（见工单 Comments 裁定）。
 type ChatCompletionFn = (input: {
-  provider: { baseUrl?: string; apiKey?: string; model?: string };
+  provider: ProviderRequest;
   messages: ChatMessage[];
   thinkingLevel?: string;
   signal?: AbortSignal | null;
@@ -166,7 +166,7 @@ type BuildCostGuardNoticeFn = (args: { estimatedCalls?: unknown; estimatedTokens
 };
 
 interface RunOverviewAnalysisArgs {
-  provider: { baseUrl?: string; apiKey?: string; model?: string };
+  provider: ProviderRequest;
   /** AI 上下文（AiContext 形状）：bvid/cid/字幕轨三键位 + title/author/videoDescription + subtitleBody/chapters。 */
   context: Record<string, unknown>;
   signal?: AbortSignal | null;
@@ -262,7 +262,7 @@ async function requestValidatedPart({
   chatCompletionImpl,
   onTokenProgress
 }: {
-  provider: { baseUrl?: string; apiKey?: string; model?: string };
+  provider: ProviderRequest;
   systemPrompt: string;
   built: BuiltAnalysisPrompt;
   minSeconds: number;
@@ -444,7 +444,7 @@ export function runOverviewAnalysis(
 }
 
 interface ExecuteOverviewRunArgs {
-  provider: { baseUrl?: string; apiKey?: string; model?: string };
+  provider: ProviderRequest;
   ctx: Record<string, unknown>;
   body: unknown[];
   shortPath: boolean;

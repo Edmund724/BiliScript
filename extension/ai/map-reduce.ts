@@ -19,7 +19,7 @@ import { chatCompletion } from "./completion.js";
 import { runMapBounded, DEFAULT_MAP_CONCURRENCY } from "./pool.js";
 import { shouldReduce, reduceSummaries } from "./reduce.js";
 import { segmentCacheProxy, type SegmentCacheOps } from "./segment-cache-proxy.js";
-import type { BudgetPlan, BudgetPlanSegment } from "./types.js";
+import type { BudgetPlan, BudgetPlanSegment, ProviderRequest } from "./types.js";
 // port 回吐的消息联合单源在 chat/protocol.ts（ticket 08）：原「StreamChatEvent |
 // { type: string; data?: string; reason?: string }」手抄变体删除，改引协议联合。
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
@@ -43,7 +43,7 @@ const OVERFLOW_STILL_MESSAGE = "该视频素材在调低分段量后仍超出模
 
 interface ChatCompletionImpl {
   (input: {
-    provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
+    provider: ProviderRequest;
     messages: Array<{ role: string; content: string }>;
     thinkingLevel?: string;
     signal?: AbortSignal | null;
@@ -122,7 +122,7 @@ function buildMaterial(summaries: unknown[]): string {
 }
 
 interface SummarizeSegmentInput {
-  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
+  provider: ProviderRequest;
   context: Record<string, unknown>;
   segment: BudgetPlanSegment;
   total: number;
@@ -210,7 +210,7 @@ async function summarizeSegment({
 }
 
 interface OrchestrateMapReduceInput {
-  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string };
+  provider: ProviderRequest;
   context?: Record<string, unknown> | null;
   plan?: BudgetPlan | null;
   port?: ChatPort | null;

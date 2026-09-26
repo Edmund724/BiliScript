@@ -7,15 +7,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
+import type { ProviderRequest } from "../../extension/ai/types.js";
 
 let mod: typeof import("../../extension/ai/analysis.js");
 let jsonRepairMod: typeof import("../../extension/ai/json-repair.js");
 let cacheMod: typeof import("../../extension/subtitle/cache.js");
 let storage: ReturnType<typeof createMemoryStorage>;
 
-// chatCompletion 的入参形状（编排层 ChatCompletionFn 未导出，按本测试用到的字段就地声明）。
+// chatCompletion 的入参形状（编排层 ChatCompletionFn 未导出，按本测试用到的字段就地声明）；
+// provider 请求形状单源引用 ai/types.js 的 ProviderRequest。
 type ChatCompletionCall = {
-  provider: { baseUrl?: string; apiKey?: string; model?: string; presetId?: string; sessionId?: string };
+  provider: ProviderRequest;
   messages: Array<{ role: string; content: string }>;
   thinkingLevel?: string;
   signal?: AbortSignal | null;
