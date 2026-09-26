@@ -11,8 +11,9 @@
 // 此前 ASR 行复用 ai-provider-remove / ai-provider-status 类名的既有耦合
 // 随行内状态行退役一并收口：删除按钮统一 provider-row-remove。
 //
-// 两行差异通过参数注入：显示名 / 模型名的解析、（ASR）选用 radio 及其
-// 即时持久化回调、删除报文。行构建器自身的状态只依赖参数与回调；唯一例外
+// 两行差异通过参数注入：显示名 / 模型名的解析、删除报文；选用 radio
+// （ASR / 搜索同款）由本模块的 buildActiveRadioTail 统一收口。行构建器自身
+// 的状态只依赖参数与回调；唯一例外
 // 是删除确认走 ui/confirm-dialog.js 的面板内弹层（该模块自持挂载与结算）。
 
 import { escapeHtml } from "../shared/string-utils.js";
@@ -119,6 +120,69 @@ export interface ProviderRowController {
   updateEmptyState: (listNode: HTMLElement, emptyNode: HTMLElement) => void;
   setDeleteHandler: (handler: ProviderRowHandler) => void;
   setBeforeDeleteHandler: (handler: ProviderRowBeforeDeleteHandler) => void;
+}
+
+// 选用 radio 的共享实现（ASR / 搜索两行同款，差异仅类名前缀、radio 组名、
+// 提示文案与即时持久化的设置键）：由本模块统一产出 buildTailFields /
+// wireTailExtras 与选中态读写，行构建器只做薄调用。DOM 类名与设置键由
+// 调用方给定并逐字保持（CSS 与测试锚点）。
+export interface ActiveRadioTailConfig {
+  // 类名前缀（"asr" / "search"）：派生 asr-provider-active-radio、
+  // asr-provider-row、asrActiveProvider 三处锚点
+  classPrefix: string;
+  // radio 的 title 提示文案（两族语义不同）
+  title: string;
+  // 选中后即时落库的设置键（activeAsrProviderId / activeSearchProviderId）
+  settingsKey: string;
+}
+
+export interface ActiveRadioTail {
+  buildTailFields: (ctx: { id: string; isActive: boolean }) => string;
+  wireTailExtras: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
+  // 把列表里 radio 选中态同步到指定平台 id（传空串则全部取消）
+  setActive: (listNode: HTMLElement, activeId: string) => void;
+  // 当前列表选中的平台 id（无则空串）
+  getActiveId: (listNode: HTMLElement) => string;
+}
+
+export function buildActiveRadioTail({ classPrefix, title, settingsKey }: ActiveRadioTailConfig): ActiveRadioTail {
+  const radioClass = `${classPrefix}-provider-active-radio`;
+  const rowClass = `${classPrefix}-provider-row`;
+
+  function buildTailFields({ isActive }: { id: string; isActive: boolean }): string {
+    return `
+    <label class="${classPrefix}-provider-active" title="${title}">
+      <input class="${radioClass}" type="radio" name="${classPrefix}ActiveProvider" ${isActive ? "checked" : ""} />
+      选用
+    </label>`;
+  }
+
+  function wireTailExtras(row: ProviderRowElement, { listNode }: { listNode: HTMLElement }): void {
+    row.querySelector(`.${radioClass}`)?.addEventListener("change", async () => {
+      if (!(row.querySelector(`.${radioClass}`) as HTMLInputElement).checked) return;
+      const providerId = row.dataset.providerId || "";
+      try {
+        await sendRuntimeMessage({ type: "save-settings", settings: { [settingsKey]: providerId } });
+      } catch {}
+      setActive(listNode, providerId);
+    });
+  }
+
+  function setActive(listNode: HTMLElement, activeId: string): void {
+    const target = String(activeId || "");
+    listNode.querySelectorAll<HTMLInputElement>(`.${radioClass}`).forEach((radio) => {
+      const row = radio.closest(`.${rowClass}`) as HTMLElement | null;
+      radio.checked = Boolean(row && row.dataset.providerId === target);
+    });
+  }
+
+  function getActiveId(listNode: HTMLElement): string {
+    const checked = listNode.querySelector<HTMLInputElement>(`.${radioClass}:checked`);
+    const row = checked?.closest(`.${rowClass}`) as HTMLElement | null;
+    return row?.dataset.providerId || "";
+  }
+
+  return { buildTailFields, wireTailExtras, setActive, getActiveId };
 }
 
 export function createProviderRow({
