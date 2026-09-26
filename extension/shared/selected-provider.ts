@@ -3,8 +3,8 @@
 // 选中项落 chrome.storage.local，值是复合值「平台 id\u0001模型 id」（multi-model-catalog
 // 拍板 Q8：一模型一选项，选模型即隐式选定平台）。两侧消费必须同一套编解码，禁止
 // 各自手拆分隔符：
-//   - 对话侧：模型选择器渲染与选中回落（chat/providers.ts）、change 监听
-//     （reader/chat-tab-lifecycle.ts）、思考档位提示（chat-tab-core.ts）；
+//   - 对话侧：模型选择器渲染与选中回落（chat/providers.ts）、change 监听与
+//     思考档位提示（reader/chat-tab.ts）；
 //   - AI 链侧：概览 / 选区解释没有模型选择器，跟随对话 tab 的选中模型发请求
 //     （ai/active-provider.ts）——不同步就会出现「对话正常、概览与解释失败」。
 //

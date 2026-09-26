@@ -197,7 +197,7 @@ export interface CreateChatRuntimeDeps {
  *     resetStreamState,            // () => void  (clear + disconnect + null state)
  *     // ---- 协议测试入口：offscreen port 消息对象进、UI/状态变化出 ----
  *     handleChatPortMessage,       // (msg) => void  (与 port.onMessage 监听器同分派)
- *     // ---- 回放重建：历史聚合结果 → 静态时间线卡 DOM（chat-tab-core 消费）----
+ *     // ---- 回放重建：历史聚合结果 → 静态时间线卡 DOM（reader/chat-tab.ts 消费）----
  *     buildSearchTimelineCard,     // (turn: HistorySearchTurn) => HTMLElement
  *   }
  */
@@ -426,7 +426,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       // 图片输入（image-input 路线 B）：闸都过了（发送确已受理）才消费附件区——
       // 被 provider/上下文/无字幕拦下的发送不清空用户的图片。读取与清空同一次
-      // 调用（takeInputImages = 附件区的读+清，见 reader/chat-tab-core 的接线）。
+      // 调用（takeInputImages = 附件区的读+清，见 reader/chat-tab.ts 的接线）。
       const images = deps.takeInputImages?.() ?? [];
 
       appendUserMessage(text);

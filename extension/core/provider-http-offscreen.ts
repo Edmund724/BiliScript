@@ -65,7 +65,7 @@ export async function providerFetchViaOffscreen(
   }
 
   // 文档不存在时 connect 连上即断（chat/offscreen-ensure.ts 的既有事实），故先经
-  // SW 幂等 ensure；ensure 失败不阻断 connect（对齐 reader/chat-tab-core 的
+  // SW 幂等 ensure；ensure 失败不阻断 connect（对齐 reader/chat-tab.ts 的
   // connectPort），由断连错误回执兜底。
   await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
 

@@ -95,7 +95,7 @@ export interface CreateChatTabDomainDeps {
   // 选中模型 id（multi-model-catalog，可选）：chat-runtime 透传进 chat 消息
   getSelectedModel?: () => string;
   // 图片附件（image-input 02 号票，可选）：发送受理时消费附件区，随 chat 消息的
-  // images 字段下发（组合根接 reader/chat-tab-core 的 inputImages.takeImages）。
+  // images 字段下发（组合根接 reader/chat-tab.ts 的 inputImages.takeImages）。
   takeInputImages?: () => ImagePart[];
   getTimestampNavDeps: () => TimestampNavDeps;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;

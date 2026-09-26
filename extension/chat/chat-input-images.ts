@@ -10,7 +10,7 @@
 //   - 纯文本与其它非图片剪贴板内容**不拦截**（不 preventDefault），既有粘贴行为
 //     逐字不变；
 //   - 附件只在会话内存中，不落 chrome.storage（04 号票的落盘策略另票实现）；
-//   - 事件注册在组合根（reader/chat-tab-lifecycle 的 bindEvents：paste 与容器委托
+//   - 事件注册在组合根（reader/chat-tab.ts 的 bindEvents：paste 与容器委托
 //     的删除键），本模块只给方法——与 chat-lists / chat-popovers 同款分工。
 
 import type { ImagePart } from "../ai/types.js";

@@ -7,7 +7,7 @@
 // Seek contract: the tab-message round trip is gone. `deps.seek(seconds)`
 // performs the seek in-process and returns the applied position, or `null` when
 // no video is bound (downgraded to a failure notice). The only production
-// adapter is reader/chat-tab-core's getTimestampNavDeps, which wraps the reader
+// adapter is reader/chat-tab.ts's getTimestampNavDeps, which wraps the reader
 // domain's seekReadingTarget. `deps.contextUrl` still guards the "no video
 // context" case (empty → notice, no seek).
 //

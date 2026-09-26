@@ -3,7 +3,7 @@
 // - buildSubtitlePrompt：章节分节、时间戳开关、withHours（videoDuration 判定）、
 //   空 body 返回空串；
 // - 「预算按 body、发送按渲染产物」的一致性锚点：同一份 body 的渲染产物即
-//   resolveSubtitleForContext / buildMessages 的实际发送物。
+//   buildMessages（extension/ai/context.ts）的实际发送物。
 
 import { describe, expect, it } from "vitest";
 import { buildSubtitlePrompt } from "../../extension/ai/subtitle-prompt.js";

@@ -29,7 +29,7 @@
 //     （setViewOpen(true) + requestUiCommand("reset-tabs")，lifecycle.ts:272-283）；
 //   - runQuickActionPrompt 桩复刻 chat-tab.runQuickActionPrompt 的 tab 相关
 //     行为（requestUiCommand("set-tab:chat", {consumeIntent:false})，
-//     chat-tab.ts:655）。
+//     chat-tab.ts:756）。
 // 两个写手之间的派发链（message-handler → shell → reader-bus 订阅者 →
 // setReaderScriptTab）全部走真实模块。
 

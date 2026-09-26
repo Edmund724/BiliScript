@@ -2,7 +2,7 @@
 // tool 消息内容（{ title, url, snippet }[] 的 JSON 序列化，持久化截断 2,000
 // 字符）容错解析为来源数组；历史回合聚合（assistant(tool_calls) 的查询词 +
 // tool 结果 → 重开会话后时间线卡与内联引用的重建输入）。零 DOM / chrome 依赖，
-// chat-tab-core 回放与测试共用。纯数据，不知 port / 存储。
+// reader/chat-tab.ts 回放与测试共用。纯数据，不知 port / 存储。
 import type { ChatMessage } from "../ai/types.js";
 import type { ChatSessionMessage } from "./chat-state.js";
 

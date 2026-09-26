@@ -4,7 +4,7 @@
 // 两条哨兵/容错路径的端到端行为：非法时刻「99:99」按 0 秒跳转（原实现会换算成
 // 6039 秒，归一后拒绝），合法「1:02」按 62 秒跳转。
 // 跳转经注入的窄接口 deps.seek 进程内直调（content script 无 tab 消息链，
-// reader/chat-tab-core 的 getTimestampNavDeps 直接包 seekReadingTarget），
+// reader/chat-tab.ts 的 getTimestampNavDeps 直接包 seekReadingTarget），
 // seek 返回 null（未绑定到视频）时降级为失败 notice。
 
 import { describe, expect, it, vi, afterEach } from "vitest";

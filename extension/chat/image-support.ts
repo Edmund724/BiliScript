@@ -39,7 +39,7 @@ export type ImageSupportLookup = (
 export interface ImageSupportGateDeps {
   // 选中项的复合值（chat/providers.ts 的 MODEL_OPTION_SEPARATOR 编码）。平台记录
   //（presetId / baseUrl）沿 chatSessionState.providers 读——与思考档位提示
-  //（reader/chat-tab-core 的 updateThinkingHint）同一套识别入参，不开新消息链。
+  //（reader/chat-tab.ts 的 updateThinkingHint）同一套识别入参，不开新消息链。
   getSelectedModelValue: () => string;
   // 用户可见提示出口（组合根接消息区通知条 showConversationContextNotice）
   notify: (message: string) => void;
