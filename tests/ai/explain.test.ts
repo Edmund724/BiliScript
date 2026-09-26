@@ -11,18 +11,8 @@ const completionMock = vi.hoisted(() => ({
   chatCompletion: vi.fn(async (_args?: any): Promise<any> => "  解释文本  ")
 }));
 
-// parseToolArgs 用真实实现（tool-loop 回填 tool 消息复用；JSON 宽容解析）。
 vi.mock("../../extension/ai/completion.js", () => ({
-  chatCompletion: completionMock.chatCompletion,
-  parseToolArgs: (raw: string) => {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && typeof parsed.query === "string") {
-        return { query: parsed.query };
-      }
-    } catch {}
-    return { query: raw };
-  }
+  chatCompletion: completionMock.chatCompletion
 }));
 
 let explain: typeof import("../../extension/ai/explain.js");

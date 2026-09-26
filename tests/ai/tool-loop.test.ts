@@ -16,7 +16,7 @@ import {
   type ToolStatusPayload
 } from "../../extension/ai/tool-loop.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
-import type { ChatToolDefinition } from "../../extension/ai/completion.js";
+import type { ChatToolDefinition } from "../../extension/ai/protocol-adapter.js";
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 

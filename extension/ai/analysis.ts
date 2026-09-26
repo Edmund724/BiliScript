@@ -4,6 +4,8 @@
 
 // arch-slim-3 #11 起按纯度切三片，本文件只是再导出壳（对外导出面与导入路径不变，
 // 三片同属按需 analysis chunk）：
+// 本文件是 build-content.js lazyTargets 的 chunk entry 声明落点，
+// assertAnalysisNotInReaderGraph 按 ai/analysis.ts 字面匹配——消费方不得直引三片。
 // - analysis-validate.ts：概览 shape 校验/合并纯函数与产物类型（纯，零 import）；
 // - analysis-prompts.ts：系统/用户提示词装配与 token 估算（纯，只依赖 subtitle/cache
 //   与 analysis-validate 的 MAX_ANALYSIS_CHAPTERS）；

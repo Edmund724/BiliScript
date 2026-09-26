@@ -110,8 +110,7 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
 
 // 从 arguments JSON 宽容解析 query（spec §2.2 的 args 形状）：对象带 query 字符串
 // 直取；其余（含非 JSON / 非对象）以原文包 { query } 兜底，工具调用方总有词可搜。
-// tool-loop 回填 tool 消息时复用同一解析（收口单源；经 completion.js re-export
-// 保住既有 import 路径）。
+// tool-loop 回填 tool 消息时复用同一解析（收口单源）。
 export function parseToolArgs(rawArguments: string): { query: string } {
   try {
     const parsed = JSON.parse(rawArguments) as { query?: unknown };

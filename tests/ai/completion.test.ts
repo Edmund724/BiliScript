@@ -9,13 +9,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   chatCompletion,
-  buildChatRequestBody,
-  normalizeThinkingLevel,
   isContextLengthOverflow,
-  makeOverflowError,
-  OPENAI_CHAT_PATH,
-  type ChatToolDefinition
+  makeOverflowError
 } from "../../extension/ai/completion.js";
+import { buildChatRequestBody, OPENAI_CHAT_PATH } from "../../extension/ai/adapters/openai.js";
+import { normalizeThinkingLevel } from "../../extension/ai/thinking-profiles.js";
+import type { ChatToolDefinition } from "../../extension/ai/protocol-adapter.js";
 import type { StreamChatEvent } from "../../extension/ai/types.js";
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
@@ -377,7 +376,7 @@ describe("token 参数名映射（maxTokens 随类换名，04 号票）", () => 
   });
 });
 
-describe("buildChatRequestBody / normalizeThinkingLevel（自 client.js 迁入）", () => {
+describe("buildChatRequestBody / normalizeThinkingLevel（主人：adapters/openai、thinking-profiles）", () => {
   it("off：按平台表发显式关闭字段（OpenAI gpt-5.1 例外 effort none；DeepSeek v4 模式表 thinking disabled）", () => {
     const base = { messages: [], stream: true };
     expect(buildChatRequestBody({

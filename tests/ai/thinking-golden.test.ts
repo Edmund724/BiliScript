@@ -5,7 +5,7 @@
 // offUnavailable 标记的语义断言在 thinking-profiles.test.js（请求体不携带该标记）。
 
 import { describe, expect, it } from "vitest";
-import { buildChatRequestBody } from "../../extension/ai/completion.js";
+import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
 
 const MESSAGES: ChatMessage[] = [{ role: "user", content: "hi" }];

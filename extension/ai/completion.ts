@@ -23,18 +23,6 @@ import { presetRequestHeaders } from "./preset-headers.js";
 import type { ChatRequest, ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 
-// 思考档位词表唯一主人在 thinking-profiles（表与档位同域）；此处 re-export
-// 保住既有 import 路径（completion 曾是词表主人）。
-export { normalizeThinkingLevel } from "./thinking-profiles.js";
-
-// OpenAI 兼容协议的请求构造/路径/tool-args 解析随迁 adapters/openai.ts，此处
-// re-export 保住既有 import 路径（行为不变）。
-export { buildChatRequestBody, OPENAI_CHAT_PATH, parseToolArgs } from "./adapters/openai.js";
-
-// tools 定义词表随迁 protocol-adapter.ts（adapter 内翻译成协议线格式），
-// 此处 re-export 保住既有 import 路径。
-export type { ChatToolDefinition } from "./protocol-adapter.js";
-
 interface OverflowError extends Error {
   overflow: true;
 }

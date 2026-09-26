@@ -30,8 +30,7 @@
 import { hostOf, presetIdForHost } from "../core/preset-host-index.js";
 
 // ===== 档位词表 =====
-// UI 三档按钮与全局档位键的取值域（唯一主人自本票起收口至此；
-// completion.ts re-export normalizeThinkingLevel 保住既有 import 路径）。
+// UI 三档按钮与全局档位键的取值域（唯一主人自本票起收口至此）。
 export const AI_THINKING_LEVELS = ["off", "low", "high"] as const;
 export type ThinkingLevel = (typeof AI_THINKING_LEVELS)[number];
 

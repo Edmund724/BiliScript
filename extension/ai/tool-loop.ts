@@ -12,7 +12,9 @@
 // - 搜索失败：tool 消息写「搜索失败：<原因>」+ notice，回答不中断；
 // - 平台不支持 tools（4xx）：notice + 摘除 tools 无联网重发一次；
 // - 中止 / context-length 溢出照 chatCompletion 原语义上抛。
-import { chatCompletion, parseToolArgs, type ChatToolDefinition } from "./completion.js";
+import { chatCompletion } from "./completion.js";
+import { parseToolArgs } from "./adapters/openai.js";
+import type { ChatToolDefinition } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 
