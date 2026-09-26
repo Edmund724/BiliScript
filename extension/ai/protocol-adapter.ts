@@ -72,6 +72,13 @@ export interface ProtocolAdapter {
    * 以词表单源为准）。声明侧是词表、接纳侧是这里，测试期由
    * `validateCompatVocab` 对账——声明了没人接纳 / 接纳了没声明都报错。
    * 这是纯自陈，不参与请求构造（行为零变化）。
+   *
+   * 「接纳」= 本协议线格式栈对该怪癖负责，兑现形态有三种：① adapter 内
+   * 实现（如 authHeaderScheme 在 authHeaders）；② 卫星模块实现、adapter
+   * 挂名负责（如 sessionHeader 由 preset-headers 按词表派生、
+   * overrideEffortVocabulary 由 thinking-profiles 兑现）；③ 显式登记的
+   * 有意缺口（如 thinkingSignatureNotReplayed 刻意不回传，同时落
+   * capabilities.unsupported）。
    */
   readonly consumes: readonly CompatQuirk[];
 

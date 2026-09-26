@@ -12,7 +12,11 @@
 // - ProtocolAdapter.consumes 是「该协议 adapter 接纳哪些怪癖」的自陈；校验器
 //   validateCompatVocab 对账两侧（测试期跑，不进运行时）：声明了却没人接纳、
 //   接纳了却没声明，都报错；平台侧另查平台 id 是否为真实预设、怪癖绑定的协议
-//   该平台有没有登记端点。
+//   该平台有没有登记端点。「接纳」= 该协议线格式栈对怪癖负责，兑现形态三种：
+//   adapter 内实现 / 卫星模块（thinking-profiles、preset-headers）实现 /
+//   显式登记的有意缺口——consumes 对三态一视同仁。
+// 新增怪癖三步闭环：本词表登记（COMPAT_QUIRKS）→ PLATFORM_QUIRKS 声明平台 →
+// adapter consumes 自陈；缺一环对账即红。
 //
 // 词表里只放**协议线格式层面的怪癖**（请求体字段名、思考词汇、消息历史要求、
 // 会话头、流式哨兵…）。模型血统事实（哪档发什么字段）不在这里——那是
