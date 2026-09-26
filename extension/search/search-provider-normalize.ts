@@ -7,10 +7,10 @@
 // 不做自定义预设（spec 非目标）：type 只接受三个预设值，未知 type 的存量条目
 // 在归一化期被丢弃（列表读取与保存共用同一收口）。
 
-import { normalizeBaseUrl, type SearchProviderType } from "../core/presets.js";
+import { normalizeBaseUrl, SEARCH_PROVIDER_PRESETS, type SearchProviderType } from "../core/presets.js";
 
-// 合法的搜索适配器类型，决定请求构造与响应解析方式
-const SEARCH_PROVIDER_TYPES = new Set<string>(["tavily", "exa", "brave"]);
+// 合法的搜索适配器类型，决定请求构造与响应解析方式；派生自预设表，新增预设免手改
+const SEARCH_PROVIDER_TYPES = new Set<string>(SEARCH_PROVIDER_PRESETS.map((p) => p.type));
 
 export interface SearchProvider {
   id: string;

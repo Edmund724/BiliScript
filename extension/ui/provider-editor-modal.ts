@@ -14,6 +14,7 @@
 // Modal，与接线同属一条点击链。函数体自原 provider-editor.ts 逐字节搬移。
 
 import { escapeHtml } from "../shared/string-utils.js";
+import { DEFAULT_SEARCH_PROVIDER_PRESET } from "../core/presets.js";
 import { validateAiProviders } from "../core/validators.js";
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
@@ -194,9 +195,9 @@ export function collectUpsert(): { upsert: ProviderRowItem; validationError?: st
     return {
       upsert: {
         id: state.editingId,
-        presetId: preset?.id || "tavily",
+        presetId: preset?.id || DEFAULT_SEARCH_PROVIDER_PRESET.id,
         name,
-        type: preset?.type || "tavily",
+        type: preset?.type || DEFAULT_SEARCH_PROVIDER_PRESET.type,
         baseUrl,
         apiKey,
         hasSavedKey: state.hasSavedKey

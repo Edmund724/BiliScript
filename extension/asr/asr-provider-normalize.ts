@@ -41,7 +41,7 @@ export function normalizeAsrProvider(item: unknown): AsrProvider | null {
   if (!ASR_PROVIDER_TYPES.has(type)) return null;
   return {
     id,
-    presetId: String(raw.presetId || "custom"),
+    presetId: String(raw.presetId || "custom").trim(),
     name: String(raw.name || "自定义").trim() || "自定义",
     type,
     baseUrl: normalizeBaseUrl(raw.baseUrl),

@@ -127,13 +127,17 @@ export interface SearchProviderPreset {
   note?: string;
 }
 
+// 搜索平台缺省预设：编辑 Modal 解析不到所选 preset 时的兜底（引用此处，
+// 不再硬编码 "tavily" 字面量）。即预设表首项 tavily。
+export const DEFAULT_SEARCH_PROVIDER_PRESET: SearchProviderPreset = {
+  id: "tavily",
+  name: "Tavily",
+  type: "tavily",
+  baseUrl: "https://api.tavily.com"
+};
+
 export const SEARCH_PROVIDER_PRESETS: readonly SearchProviderPreset[] = [
-  {
-    id: "tavily",
-    name: "Tavily",
-    type: "tavily",
-    baseUrl: "https://api.tavily.com"
-  },
+  DEFAULT_SEARCH_PROVIDER_PRESET,
   {
     id: "exa",
     name: "Exa",

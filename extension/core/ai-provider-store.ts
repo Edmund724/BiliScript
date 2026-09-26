@@ -62,7 +62,7 @@ function normalizeAiProvider(item: unknown): AiProvider | null {
   const models = normalizeModelsField(raw.models);
   const normalized: AiProvider = {
     id,
-    presetId: String(raw.presetId || "custom"),
+    presetId: String(raw.presetId || "custom").trim(),
     name: String(raw.name || "自定义").trim() || "自定义",
     baseUrl: normalizeBaseUrl(raw.baseUrl),
     models: models.length ? models : legacyModel ? [legacyModel] : [],
