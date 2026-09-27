@@ -116,6 +116,9 @@ describe("统一 文摘面板三标签", () => {
     expect(chatMessages.querySelectorAll(".chat-msg, .chat-center-error").length).toBe(0);
     expect((chatMessages.querySelector(".chat-suggestions") as HTMLElement).innerHTML).toBe("");
     expect(((document.getElementById(ids.readingChatInput) as HTMLTextAreaElement).value) || "").toBe("");
+    // 输入框单行起步（省空间）：未聚焦高度由模板 rows=1 定，聚焦展开见
+    // chat-tab.ts 的 autosizeInput（行内 min-height）。
+    expect((document.getElementById(ids.readingChatInput) as HTMLTextAreaElement).getAttribute("rows")).toBe("1");
     // 待解释意图引用卡默认隐藏
     expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(true);
   });

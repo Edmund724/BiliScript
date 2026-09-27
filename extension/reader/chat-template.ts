@@ -89,9 +89,12 @@ export function buildChatTabBodyHtml(): string {
             <!-- 图片附件区（image-input 02 号票）：粘贴（Ctrl+V）的图片缩略图 +
                  单个删除键；无附件时 hidden。内容由 chat/chat-input-images.ts 渲染。 -->
             <div id="${ids.readingChatImageStrip}" class="chat-image-strip" hidden></div>
+            <!-- 输入框默认单行（省空间）：未聚焦高度就由 rows=1 定，聚焦（有光标）
+                 才展开——展开与随内容长高是 chat-tab.ts 的 autosizeInput 写行内
+                 min-height（主轴上 flex-basis:0% 让 height 失效）。 -->
             <textarea
               id="${ids.readingChatInput}"
-              rows="2"
+              rows="1"
               placeholder="回车发送，Shift+Enter 换行"
               autocomplete="off"
             ></textarea>

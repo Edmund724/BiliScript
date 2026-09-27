@@ -1271,9 +1271,11 @@
   background: var(--biliscript-reader-surface-3);
 }
 
+/* 输入框：未聚焦恒一行（模板 rows=1，省空间），聚焦才展开——聚焦下限与随内容
+ * 长高都由 chat-tab.ts 的 autosizeInput 写行内 min-height；主轴上 flex 项的
+ * flex-basis:0% 让 height 失效（实测），min-height 才是活的杠杆，失焦清空即收回一行。 */
 .biliscript-reading-chat #biliscript-reading-chat-input {
   flex: 1;
-  min-height: 76px;
   max-height: 320px;
   padding: 2px 4px;
   border: 0;
@@ -1284,10 +1286,6 @@
   line-height: 1.45;
   resize: none;
   outline: none;
-}
-
-.biliscript-reading-chat.chat-non-video-context #biliscript-reading-chat-input {
-  min-height: 60px;
 }
 
 

@@ -896,6 +896,9 @@ function bindEvents(): void {
     autosizeInput();
     updateSendBtnState();
   });
+  // 输入框高度两态：聚焦（有光标）展开、失焦收回一行。
+  els.input.addEventListener("focus", autosizeInput);
+  els.input.addEventListener("blur", autosizeInput);
   els.messages.addEventListener("scroll", scheduleScrollAutoScrollSync);
   els.contextChip.addEventListener("click", () => {
     void openCurrentContextInReader();
@@ -1021,11 +1024,24 @@ async function openCurrentContextInReader(): Promise<void> {
   } catch {}
 }
 
+// 输入框高度两态：未聚焦恒一行（模板 rows=1，省空间），聚焦（有光标）才展开——
+// 下限两行、之上随内容长高、上限 320。杠杆必须是 min-height 而非 height：主轴上
+// flex 项的 flex-basis:0% 让 height 失效（headless Chromium 实测：行内 height 写了
+// 高度不变，只有 min-height 抬得动盒子），故失焦清空行内 min-height 即收回一行。
+const INPUT_MAX_HEIGHT = 320;
+// 聚焦下限按内容高写：textarea 是 content-box，屏上盒子另加 4px 内边距 → 56/48。
+const INPUT_FOCUS_MIN_HEIGHT = 52;
+const INPUT_FOCUS_MIN_HEIGHT_NON_VIDEO = 44;
+
 function autosizeInput(): void {
-  els.input.style.height = "auto";
-  const next = Math.min(els.input.scrollHeight, 320);
-  const minHeight = els.root.classList.contains("chat-non-video-context") ? 72 : 94;
-  els.input.style.height = `${Math.max(next, minHeight)}px`;
+  if (document.activeElement === els.input) {
+    const focusMin = els.root.classList.contains("chat-non-video-context")
+      ? INPUT_FOCUS_MIN_HEIGHT_NON_VIDEO
+      : INPUT_FOCUS_MIN_HEIGHT;
+    els.input.style.minHeight = `${Math.min(Math.max(els.input.scrollHeight, focusMin), INPUT_MAX_HEIGHT)}px`;
+  } else {
+    els.input.style.minHeight = "";
+  }
   // 发送受理/重启会话等路径是程序化清输入框（不触发 input 事件），发送键禁用
   // 态统一在每次自适应时同步（autosizeInput 是所有这些路径的公共尾部）。
   updateSendBtnState();

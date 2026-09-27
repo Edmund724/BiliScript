@@ -906,3 +906,51 @@ describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归）"
     await waitFor(() => !settingsPanel.hidden);
   });
 });
+
+// 输入框高度两态（省空间改造）：未聚焦恒一行（模板 rows=1、无行内 min-height），
+// 聚焦（有光标）才展开——下限两行、之上随内容长高、上限 320。杠杆是 min-height
+// 而非 height：主轴上 flex 项的 flex-basis:0% 让 height 失效（headless Chromium
+// 实测行内 height 写了高度不变）。
+describe("输入框高度两态：未聚焦一行、聚焦才展开", () => {
+  async function mountChat(): Promise<HTMLTextAreaElement> {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    return document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+  }
+
+  it("未聚焦不写行内 min-height（高度交回模板单行）；聚焦展开到两行下限；失焦收回", async () => {
+    const input = await mountChat();
+
+    // 初始未聚焦：没有任何行内高度——单行高度由模板 rows=1 定
+    expect(input.style.minHeight).toBe("");
+
+    // jsdom 无布局：scrollHeight 恒 0 → 落到聚焦下限（内容高 52，屏上两行 + 4px 内边距）
+    input.focus();
+    expect(input.style.minHeight).toBe("52px");
+
+    input.blur();
+    expect(input.style.minHeight).toBe("");
+  });
+
+  it("内容长高、封顶 320", async () => {
+    const input = await mountChat();
+    input.focus();
+
+    Object.defineProperty(input, "scrollHeight", { value: 140, configurable: true });
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("140px");
+
+    Object.defineProperty(input, "scrollHeight", { value: 500, configurable: true });
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("320px");
+  });
+
+  it("非视频上下文：聚焦下限更小（内容高 44，屏上 48）", async () => {
+    const input = await mountChat();
+    (document.getElementById(ids.readingChatRoot) as HTMLElement).classList.add("chat-non-video-context");
+
+    input.focus();
+    expect(input.style.minHeight).toBe("44px");
+  });
+});
