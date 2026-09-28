@@ -1239,13 +1239,38 @@
   padding: 8px 10px;
 }
 
+/* 头部即折叠开关：<button> 取按钮语义与 Enter/Space 激活，故归零浏览器默认
+ * 外观（字体/边框/底色/内边距）；箭头 ▾/▸ 经 ::after 呈现，与思考块同族语言。 */
 .biliscript-reading-chat .chat-search-card-head {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
   color: var(--biliscript-reader-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-search-card-head::after {
+  content: "▾";
+  font-weight: 400;
+}
+
+.biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-head::after {
+  content: "▸";
+}
+
+/* 折叠态（建卡默认）：整卡正文（步骤行 + 来源 chip 行）收进头部一行，只由
+ * CSS 隐藏——DOM 保留，展开是纯类切换、不重建。 */
+.biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-steps,
+.biliscript-reading-chat .chat-search-card-collapsed .chat-search-chips {
+  display: none;
 }
 
 .biliscript-reading-chat .chat-search-card-icon {

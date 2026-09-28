@@ -122,7 +122,10 @@ describe("搜索时间线卡", () => {
     const step = card.querySelector(".chat-search-step")!;
     expect(step.classList.contains("is-running")).toBe(false);
     expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("2 条");
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toContain("Tavily · 完成（");
+    // 折叠行状态 = 完成耗时 + 卡内累计来源数；平台名不再出现在文案里
+    const status = card.querySelector(".chat-search-card-status")!.textContent!;
+    expect(status).toMatch(/^完成（[\d.]+s）· 2 条来源$/);
+    expect(status).not.toContain("Tavily");
     const chips = card.querySelectorAll(".chat-search-chip");
     expect(chips).toHaveLength(2);
     expect(chips[0].querySelector(".chat-search-chip-idx")!.textContent).toBe("1");
@@ -166,6 +169,66 @@ describe("搜索时间线卡", () => {
     feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 1, platform: "Tavily", sources: [SOURCES[0]] });
     (deps.messages.querySelector(".chat-search-chip") as HTMLElement).click();
     expect(opened).toHaveBeenCalledWith("https://arxiv.org/a", "_blank", "noopener");
+  });
+
+  it("默认折叠：头部是可点击按钮（aria-expanded=false），步骤与来源仍在 DOM 只由 CSS 隐藏", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 2, platform: "Tavily", sources: SOURCES });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const head = card.querySelector<HTMLElement>(".chat-search-card-head")!;
+    // <button> 自带 Enter/Space 激活与按钮语义，无需自造键盘处理
+    expect(head.tagName).toBe("BUTTON");
+    expect(head.getAttribute("type")).toBe("button");
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+    expect(card.classList.contains("chat-search-card-collapsed")).toBe(true);
+    // 内容不因折叠而丢弃：展开是纯类切换，不重建 DOM
+    expect(card.querySelectorAll(".chat-search-step")).toHaveLength(1);
+    expect(card.querySelectorAll(".chat-search-chip")).toHaveLength(2);
+  });
+
+  it("点击头部展开／收起：折叠类与 aria-expanded 同步", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 1, platform: "Tavily", sources: [SOURCES[0]] });
+
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    const head = card.querySelector<HTMLElement>(".chat-search-card-head")!;
+    head.click();
+    expect(card.classList.contains("chat-search-card-collapsed")).toBe(false);
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    head.click();
+    expect(card.classList.contains("chat-search-card-collapsed")).toBe(true);
+    expect(head.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("用户展开后本卡记忆展开态：后续 searching／done 事件不把它折回", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 1, platform: "Tavily", sources: [SOURCES[0]] });
+    const card = deps.messages.querySelector<HTMLElement>(".chat-search-card")!;
+    card.querySelector<HTMLElement>(".chat-search-card-head")!.click();
+    expect(card.classList.contains("chat-search-card-collapsed")).toBe(false);
+
+    feed(runtime, { type: "tool-status", status: "searching", query: "q2" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q2", resultCount: 1, platform: "Tavily", sources: [{ title: "第三条", url: "https://c.example.com", snippet: "s3" }] });
+
+    expect(card.classList.contains("chat-search-card-collapsed")).toBe(false);
+    expect(card.querySelector(".chat-search-card-head")!.getAttribute("aria-expanded")).toBe("true");
+    expect(card.querySelectorAll(".chat-search-step")).toHaveLength(2);
+  });
+
+  it("新回合的新卡不继承上一张卡的展开态：默认仍折叠", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
+    deps.messages.querySelector<HTMLElement>(".chat-search-card-head")!.click();
+    await startNextTurn(deps, runtime);
+    feed(runtime, { type: "tool-status", status: "searching", query: "q2" });
+
+    const cards = deps.messages.querySelectorAll<HTMLElement>(".chat-search-card");
+    expect(cards).toHaveLength(2);
+    expect(cards[1].classList.contains("chat-search-card-collapsed")).toBe(true);
   });
 
   it("stream-reset：时间线卡清除（整体重放含重新搜索）", async () => {

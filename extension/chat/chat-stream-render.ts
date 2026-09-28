@@ -507,11 +507,16 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
   // 联网搜索时间线卡（spec §4，变体 B + 内联引用）
   // =========================================================================
   // tool-status 事件驱动的独立卡片，插在用户消息与回答（assistant 节点）之间：
-  // 头部 = 地球图标 +「联网搜索」+ 状态（进行中「搜索中…」，完成「平台 · 完成
-  // （Xs）」）；每步一行 = 弹点 + 查询词 + 结果数；完成后底部（虚线分隔）追加
+  // 头部 = 地球图标 +「联网搜索」+ 状态（进行中「搜索中…」，完成「完成（Xs）·
+  // N 条来源」）；每步一行 = 弹点 + 查询词 + 结果数；完成后底部（虚线分隔）追加
   // 来源 chip 行（编号 pill + 标题，点击新标签打开 URL）。状态按 assistant 节点
   // 隔离（WeakMap，与 token 流累加器同契约：随占位节点建立、跨消息天然隔离，
   // stream-reset 整卡清除重放）。
+  //
+  // 默认折叠（用户决议：卡片常驻展开太占空间）：头部一行即全部可见面，
+  // 整卡正文（步骤行 + 来源 chip 行）收在折叠类后由 CSS 隐藏，点击头部展开回看。
+  // 记忆只在本次会话内、按卡隔离（展开后后续 tool-status 事件不折回）；不落盘，
+  // 新卡 / 历史回放 / stream-reset 重建一律回到默认折叠。
   //
   // 来源编号跨搜索累计（到达顺序），与正文 [n] 内联引用、tool-loop 描述里的
   // 编号契约对齐（spec §4/§5）。悬停预览卡与 chip/cite 点击的新标签打开走
@@ -595,12 +600,20 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
   }
 
   // 卡骨架共享构建器（live 与回放同构，spec §4）：头部（地球图标 +「联网搜索」
-  // + 状态）+ 步骤容器。
+  // + 状态）+ 步骤容器。头部建卡即折叠态：整卡正文只由 CSS 隐藏，展开是纯类
+  // 切换、不重建 DOM。头部用 <button> 取按钮语义与 Enter/Space 激活（不另造
+  // 键盘处理），aria-expanded 与折叠类同步。
   function createSearchCardShell(statusText: string): { card: HTMLElement; statusEl: HTMLElement; stepsEl: HTMLElement } {
     const card = document.createElement("div");
-    card.className = "chat-search-card";
-    const head = document.createElement("div");
+    card.className = "chat-search-card chat-search-card-collapsed";
+    const head = document.createElement("button");
+    head.type = "button";
     head.className = "chat-search-card-head";
+    head.setAttribute("aria-expanded", "false");
+    head.addEventListener("click", () => {
+      const collapsed = card.classList.toggle("chat-search-card-collapsed");
+      head.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    });
     const icon = document.createElement("span");
     icon.className = "chat-search-card-icon";
     icon.innerHTML = SEARCH_GLOBE_ICON_SVG;
@@ -712,7 +725,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
       state.statusEl.textContent = "搜索失败";
       return;
     }
-    // done：步骤行补结果数 + 头部平台与累计耗时 + 来源 chips。
+    // done：步骤行补结果数 + 头部累计耗时与来源数 + 来源 chips。
     if (runningRow) {
       runningRow.classList.remove("is-running");
       const note = runningRow.querySelector(".chat-search-step-note");
@@ -723,9 +736,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     if (Array.isArray(msg.sources) && msg.sources.length) {
       appendSourceChips(state, msg.sources);
     }
-    const platform = typeof msg.platform === "string" && msg.platform ? msg.platform : "联网搜索";
     const elapsed = Math.max(0, (Date.now() - state.startedAt) / 1000);
-    state.statusEl.textContent = `${platform} · 完成（${elapsed.toFixed(1)}s）`;
+    state.statusEl.textContent = `完成（${elapsed.toFixed(1)}s）· ${state.sources.length} 条来源`;
   }
 
   // 终态收口取本回合累计来源（finalize / stopped 传给 renderAssistantMessage

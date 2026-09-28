@@ -645,6 +645,13 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
     expect((card.querySelector(".chat-search-step-query") as HTMLElement).textContent).toBe("MoE 新进展");
     expect((card.querySelector(".chat-search-step-note") as HTMLElement).textContent).toBe("1 条");
     expect(card.querySelectorAll(".chat-search-chip")).toHaveLength(1);
+    // 回放卡与 live 卡同构：默认折叠（重建一律回到折叠态，不落盘）
+    expect(card.classList.contains("chat-search-card-collapsed")).toBe(true);
+    expect(card.querySelector(".chat-search-card-head")!.getAttribute("aria-expanded")).toBe("false");
+    expect((card.querySelector(".chat-search-card-status") as HTMLElement).textContent).toBe("1 条来源");
+    // 回放卡同样可点击展开
+    (card.querySelector(".chat-search-card-head") as HTMLElement).click();
+    expect(card.classList.contains("chat-search-card-collapsed")).toBe(false);
     // tool 消息 JSON 不落正文；[n] 重建为内联引用
     expect(messages.textContent).not.toContain('{"title"');
     expect(messages.querySelectorAll("sup.chat-cite")).toHaveLength(1);
