@@ -917,12 +917,20 @@
   display: block;
 }
 
-/* 两个弹层（历史 / 模型面板）的共同壳：卡片外观 + 内滚；各自的锚点见下面两条
- * 独立规则（历史弹层锚 footer 全宽，模型面板锚 chip 容器）。 */
-.biliscript-reading-chat .chat-history-popover,
+/* ===== 模型面板弹层（发送框紧凑化）=====
+ * 面板的唯一浮层：卡片外观 + 内滚。锚点从 footer 换成 chip 容器
+ * .chat-model-anchor——right:0 让面板右缘对齐 chip 右缘（即 chevron 正上方），
+ * bottom 落在 chip 顶边上方 6px，面板于是压在输入框（textarea）区域上，而不是
+ * 浮在整张输入卡片上方；宽度由 chat-model-panel 打开时按 chip 可见宽快照写内联
+ *（夹在 [240, 320]），不再占满列宽。内联宽按 border-box 计算，面板外宽才与 chip
+ * 外宽逐像素一致（chip 是 button，UA 样式本就是 border-box）。 */
 .biliscript-reading-chat .chat-model-panel {
   position: absolute;
   z-index: 10;
+  left: auto;
+  right: 0;
+  bottom: calc(100% + 6px);
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -935,46 +943,84 @@
   overflow-y: auto;
 }
 
-/* 历史弹层：锚在 footer 顶边之上（bottom: calc(100% + 4px) 相对 .chat-footer——
- * footer 高度即发送卡片高度，不再随输入框行高硬编码），占满对话列宽。 */
-.biliscript-reading-chat .chat-history-popover {
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 4px);
-}
-
-/* 模型面板（发送框紧凑化）：锚点从 footer 换成 chip 容器 .chat-model-anchor——
- * right:0 让面板右缘对齐 chip 右缘（即 chevron 正上方），bottom 落在 chip 顶边
- * 上方 6px，面板于是压在输入框（textarea）区域上，而不是浮在整张输入卡片上方；
- * 宽度由 chat-model-panel 打开时按 chip 可见宽快照写内联（夹在 [240, 320]），
- * 不再占满列宽。内联宽按 border-box 计算，面板外宽才与 chip 外宽逐像素一致
- * （chip 是 button，UA 样式本就是 border-box）。 */
-.biliscript-reading-chat .chat-model-panel {
-  left: auto;
-  right: 0;
-  bottom: calc(100% + 6px);
-  box-sizing: border-box;
-}
-
-.biliscript-reading-chat .chat-history-popover[hidden],
 .biliscript-reading-chat .chat-model-panel[hidden] {
   display: none !important;
 }
 
+/* ===== 历史对话整页接管（2026-09 用户决议）=====
+ * 历史对话不再是 footer 上方弹出的框：它是对话根的第一个子元素，流内 flex:1
+ * 占满整个对话内容区（tab 网格第 4 行），上方 字幕/概览/AI 对话 标签条保留。
+ * 材质与开合动效照抄设置抽屉壳层（reader-settings-shell.css）：overlay 半透明底
+ * + blur/saturate 毛玻璃、0.2s spring 淡入淡出 + display allow-discrete +
+ * @starting-style。纯属性反应：[hidden] 由 chat-popovers 单点切换（toggle 语义
+ * 与 Esc/外点判定全不变），非 hidden 时下一条兄弟选择器把对话内容整体
+ * display:none——与设置抽屉隐藏同级 .biliscript-reading-tabs / tab-body 同构。
+ * 头部固定、列表区独立滚动（见 .chat-history-list）。 */
+.biliscript-reading-chat .chat-history-popover {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--biliscript-reader-overlay-bg, var(--biliscript-reader-surface));
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
+}
+
+.biliscript-reading-chat .chat-history-popover[hidden] {
+  display: none;
+  opacity: 0;
+  transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
+}
+
+@starting-style {
+  .biliscript-reading-chat .chat-history-popover:not([hidden]) {
+    opacity: 0;
+  }
+}
+
+/* 整页接管：历史页非 hidden 时，其后的对话内容整体让位（顺序即契约，模板里
+ * 历史页是第一个子元素）。 */
+.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-header,
+.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .biliscript-reading-chat-intent,
+.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-asr-notice,
+.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-messages,
+.biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-footer {
+  display: none;
+}
+
+/* 减弱透明度：材质退回近实色（token 已在 gate 段覆盖为实色），毛玻璃一并关停 */
+@media (prefers-reduced-transparency: reduce) {
+  .biliscript-reading-chat .chat-history-popover {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* 整页头部（Q9 决议：返回键最左、标题紧随、清空全部最右）：固定不滚，分隔线
+ * 与对话工具条同款；页内滚动只发生在下面的列表区。 */
 .biliscript-reading-chat .chat-history-popover-head {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--biliscript-reader-border);
 }
 
+/* 页面标题走设置分区标题的字号档（16-700）：整页的标题不再是弹层里的小字标签 */
 .biliscript-reading-chat .chat-history-popover-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--biliscript-reader-muted);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--biliscript-reader-text);
 }
 
+/* 列表区独立滚动（头部固定）：长历史不把标题与「清空全部」滚出视野 */
 .biliscript-reading-chat .chat-history-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1058,6 +1104,7 @@
 }
 
 .biliscript-reading-chat .chat-history-clear-btn {
+  margin-left: auto;
   border: 0;
   background: transparent;
   color: var(--biliscript-reader-faint);

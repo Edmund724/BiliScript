@@ -78,6 +78,9 @@ export const ids = {
   readingChatHistoryPopover: "biliscript-reading-chat-history-popover",
   readingChatHistoryList: "biliscript-reading-chat-history-list",
   readingChatHistoryClearBtn: "biliscript-reading-chat-history-clear-btn",
+  // 历史整页头部的返回键（历史对话已从浮层改为盖住对话内容区的整页，入口键
+  // 自身也在被盖住的一侧，退出只能靠本键/Esc/切走标签条）。
+  readingChatHistoryBackBtn: "biliscript-reading-chat-history-back-btn",
   readingChatInput: "biliscript-reading-chat-input",
   readingChatInputBar: "biliscript-reading-chat-input-bar",
   // 图片附件区（image-input 02 号票）：粘贴图片的缩略图条目 + 单个删除键，

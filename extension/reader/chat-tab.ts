@@ -152,6 +152,8 @@ const els = {
   historyPopover: document.getElementById(ids.readingChatHistoryPopover) as HTMLElement,
   historyList: document.getElementById(ids.readingChatHistoryList) as HTMLElement,
   historyClearBtn: document.getElementById(ids.readingChatHistoryClearBtn) as HTMLButtonElement | null,
+  // 历史整页头部的返回键（历史入口本身在对话工具条里，整页一开就被盖住，退出靠本键）
+  historyBackBtn: document.getElementById(ids.readingChatHistoryBackBtn) as HTMLButtonElement | null,
   messages: document.getElementById(ids.readingChatMessages) as HTMLElement,
   input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
   // 图片附件区（image-input 02 号票，模板默认 hidden）
@@ -912,6 +914,11 @@ function bindEvents(): void {
   els.historyBtn.addEventListener("click", popovers.toggleHistoryPopover);
   els.historyClearBtn?.addEventListener("click", () => {
     void conversationStore.clearAll();
+  });
+  // 历史整页的退出键（整页盖住对话工具条，toggle 入口自己也被盖住；Esc 与
+  // 「切走标签条」走既有的 window keydown / 文档级外点转发，不另挂监听）。
+  els.historyBackBtn?.addEventListener("click", () => {
+    popovers.hideHistoryPopover();
   });
   // 模型 chip：点开模型 + 思考档位面板。
   els.modelChip.addEventListener("click", popovers.toggleModelPanel);

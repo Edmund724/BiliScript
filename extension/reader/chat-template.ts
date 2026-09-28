@@ -11,12 +11,32 @@
 // pending 意图渲染，自动发送成功即消费隐藏；卡上的取消按钮清意图。
 // 工单 03 增量：档位切换区内的「关不掉思考」提示行（默认 hidden，唯一的
 // 档位区 UI 增量，三档按钮本身不变）。
+// 2026-09 用户决议：历史对话从「输入卡上方弹出的浮层」改为盖住 AI 对话 tab
+// 内容区的整页（详见 reader-chat.css 的接管规则）。因此历史页是对话根的第一个
+// 子元素——开合仍是 [hidden] 单源，靠「历史页:not([hidden]) ~ 对话内容」把
+// header/意图卡/转写行/消息区/输入卡一起 display:none，与设置抽屉接管面板第
+// 3–4 行同一套纯属性反应；类名沿用 chat-history-popover（历史包袱，语义已是
+// 整页而非 popover）。
 
 import { ids } from "./state.js";
 
 export function buildChatTabBodyHtml(): string {
   return `
       <div id="${ids.readingChatRoot}" class="biliscript-reading-chat">
+        <!-- 历史对话整页：必须排在全部对话内容之前，兄弟选择器才成立（顺序即契约） -->
+        <section id="${ids.readingChatHistoryPopover}" class="chat-history-popover" hidden>
+          <div class="chat-history-popover-head">
+            <button id="${ids.readingChatHistoryBackBtn}" type="button" class="chat-icon-btn" title="返回对话" aria-label="返回对话">
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                <path d="m15 18-6-6 6-6"></path>
+              </svg>
+            </button>
+            <span class="chat-history-popover-title">历史对话</span>
+            <button id="${ids.readingChatHistoryClearBtn}" type="button" class="chat-history-clear-btn">清空全部</button>
+          </div>
+          <div id="${ids.readingChatHistoryList}" class="chat-history-list"></div>
+        </section>
+
         <header class="chat-header biliscript-reading-chat-header">
           <button type="button" class="chat-context-chip" id="${ids.readingChatContextChip}" title="">加载中...</button>
           <button id="${ids.readingChatHistoryBtn}" type="button" class="chat-toolbar-btn" title="历史对话">
@@ -53,13 +73,6 @@ export function buildChatTabBodyHtml(): string {
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>
         </main>
         <footer class="chat-footer">
-          <div id="${ids.readingChatHistoryPopover}" class="chat-history-popover" hidden>
-            <div class="chat-history-popover-head">
-              <span class="chat-history-popover-title">历史对话</span>
-              <button id="${ids.readingChatHistoryClearBtn}" type="button" class="chat-history-clear-btn">清空全部</button>
-            </div>
-            <div id="${ids.readingChatHistoryList}" class="chat-history-list"></div>
-          </div>
           <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
                键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">

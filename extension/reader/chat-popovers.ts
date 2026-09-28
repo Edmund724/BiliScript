@@ -1,6 +1,10 @@
-// reader/chat-popovers.ts — 对话 tab 历史/模型面板两个弹层的开合、互斥与
+// reader/chat-popovers.ts — 对话 tab 历史整页与模型面板的开合、互斥与
 // 文档级外点关闭（PR5 自 extension/pages/sidepanel-popovers.ts 重建；发送框重构
-// 起模型 + 思考档位面板并入本协调器：任一弹层打开先关另一个，Esc 全关，外点全关）。
+// 起模型 + 思考档位面板并入本协调器：任一打开先关另一个，Esc 全关，外点全关）。
+// 2026-09 用户决议：历史对话由「输入卡上方的弹层」改为「盖住对话内容区的整页」
+//（模板见 chat-template.ts、接管样式见 reader-chat.css），本模块的开合判定
+// 一字未改——history 仍是 hidden 单源，只是非 hidden 时由 CSS 兄弟选择器把
+// 对话内容整体让位，浮层几何只剩模型面板一份。
 //
 // 两处换壳（盘点报告 §1.1 popovers 判定行 + 风险 6 决议，历史定案）：
 //   1. 外点关闭的 id 选择器换 reader 的 readingChat* id（原 #sp* 硬编码）；
@@ -31,7 +35,7 @@ export interface ReaderChatPopovers {
 export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): ReaderChatPopovers {
   const { historyPopover, modelPanel } = deps;
 
-  // 互斥基准：任一弹层打开前先关另一个（同一时刻至多一层浮在发送框上）。
+  // 互斥基准：任一打开前先关另一个（同一时刻至多一层开着）。
   // 模型面板的 hidden 统一经 setModelPanelHidden 写（同步 chip 箭头方向）。
   function hideOthers(except: HTMLElement): void {
     for (const popover of [historyPopover, modelPanel]) {

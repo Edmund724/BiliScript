@@ -679,6 +679,24 @@ describe("外点关闭单委托（chat-tab-bridge 并入 ui-renderer 文档级�
   });
 });
 
+describe("历史对话整页（返回键关闭）", () => {
+  it("点返回键收起整页：hidden 回到 true，对话内容随之恢复显示", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    const historyBtn = document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement;
+    const historyPage = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
+    const backBtn = document.getElementById(ids.readingChatHistoryBackBtn) as HTMLButtonElement;
+
+    historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(historyPage.hidden).toBe(false);
+
+    backBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(historyPage.hidden).toBe(true);
+  });
+});
+
 describe("player-ai 快捷动作 seam（PR4b 概览笔记按钮同款）", () => {
   it("runQuickActionPrompt：定位对话 tab + 自动发送快捷提示词", async () => {
     seedReadyContext();

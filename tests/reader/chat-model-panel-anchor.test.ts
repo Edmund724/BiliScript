@@ -5,10 +5,10 @@
 //   容器是输入行的 flex 项），面板不再是 footer 直下、不再与输入卡片同级——面板
 //   的定位父级就是 chip 本身所在容器，bottom: calc(100% + …) 才落在 chip 上方；
 // - CSS（reader-chat.css）：面板锚点改 right:0 + bottom: calc(100% + 6px)
-//   （右缘对齐 chip 右缘、底边压在输入框上），与历史弹层的全宽锚点（left:0/right:0）
-//   彻底分家；锚点容器 position:relative 并接管 margin-left:auto；窄面板里模型名
-//   换行（最多 2 行）保持可辨。
-// 防倒退：面板几何一旦回流成「与历史弹层同一条全宽规则」，本文件红。
+//   （右缘对齐 chip 右缘、底边压在输入框上），与历史对话（2026-09 起改为整页
+//   接管、不再是弹层）彻底分家；锚点容器 position:relative 并接管
+//   margin-left:auto；窄面板里模型名换行（最多 2 行）保持可辨。
+// 防倒退：面板几何一旦回流成「与历史同一条全宽弹层规则」，本文件红。
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -82,18 +82,14 @@ describe("模型面板锚点（CSS 契约）", () => {
     expect(body).toContain("box-sizing: border-box");
   });
 
-  it("历史弹层保持全宽锚点，且不再与面板共享同一条锚定规则", () => {
+  it("历史页不再是 footer 上方的全宽浮层，且与面板不共享弹层壳规则", () => {
+    // 历史对话改整页接管后不再有 footer 锚点（浮层几何的唯一合法持有者是模型面板）
     const historyBody = ruleBody(HISTORY_POPOVER);
-    expect(historyBody).toContain("left: 0");
-    expect(historyBody).toContain("right: 0");
-    expect(historyBody).toContain("bottom: calc(100% + 4px)");
+    expect(historyBody).not.toContain("position: absolute");
+    expect(historyBody).not.toContain("bottom: calc(100% + 4px)");
 
-    // 无一条规则同时以「历史弹层 + 模型面板」为选择器还带全宽锚定
     const shared = cssRules().filter(
-      (rule) =>
-        rule.head.includes("chat-history-popover") &&
-        rule.head.includes("chat-model-panel") &&
-        /left:\s*0/.test(rule.body)
+      (rule) => rule.head.includes("chat-history-popover") && rule.head.includes("chat-model-panel")
     );
     expect(shared).toEqual([]);
   });
