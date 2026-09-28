@@ -136,7 +136,6 @@ const NON_VIDEO_CONTEXT_MESSAGE = "当前页非 B 站视频页面，<br>无法�
 const els = {
   root: document.getElementById(ids.readingChatRoot) as HTMLElement,
   contextChip: document.getElementById(ids.readingChatContextChip) as HTMLButtonElement,
-  refreshBtn: document.getElementById(ids.readingChatRefreshBtn) as HTMLButtonElement,
   modelSelect: document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement,
   modelChip: document.getElementById(ids.readingChatModelChip) as HTMLButtonElement,
   modelPanel: document.getElementById(ids.readingChatModelPanel) as HTMLElement,
@@ -169,10 +168,10 @@ function requireShell(): void {
   }
 }
 
-// 无字幕视频做音频转写时，转写编排经进程内相位镜像广播阶段；刷新键转圈等待
-// 期间据此显示一行转写提示，替代仅有图标旋转却没有说明的状态。只在转写阶段
-// 展示，其余阶段（含转写结束后未再发布的情况）经由 setRefreshing(false) 与
-// phase 判断隐藏。asr-done/asr-failed：一键总结若正在等待转写
+// 无字幕视频做音频转写时，转写编排经进程内相位镜像广播阶段；本条状态行据此
+// 在转写期间显示一行转写提示，替代仅有「无字幕」却不说在做什么的状态。只在
+// 转写阶段展示，其余阶段（含转写结束后未再发布的情况）由 phase 判断隐藏。
+// asr-done/asr-failed：一键总结若正在等待转写
 //（subtitleWaiter.wait），立即触发一轮上下文轮询，不必等 4 秒间隔。
 // （sidepanel 版监听 chrome.runtime.onMessage 的 biliscript-subtitle-status 广播；
 // reader 与转写编排同进程收不到自己的广播，改订阅 shared/subtitle-status-bus。）
@@ -910,7 +909,6 @@ function bindEvents(): void {
   els.newChatBtn.addEventListener("click", () => {
     void startNewConversation();
   });
-  els.refreshBtn.addEventListener("click", () => refreshContextManually());
   els.historyBtn.addEventListener("click", popovers.toggleHistoryPopover);
   els.historyClearBtn?.addEventListener("click", () => {
     void conversationStore.clearAll();
@@ -1171,49 +1169,12 @@ function updateChatLayoutState(): void {
   }
 }
 
-// 【整段迁移自 sidepanel.ts】手动刷新（含刷新键 loading 与转写提示收尾）。
-async function refreshContextManually(): Promise<void> {
-  if (els.refreshBtn.disabled) {
-    return;
-  }
-  setRefreshing(true);
-  try {
-    const ok = await loadContextState({ forceRefresh: true });
-    if (ok) {
-      if (!chatSessionState.contextData || !chatSessionState.providers.length || !chatSessionState.chatHistory.length) {
-        renderInitialState();
-      } else {
-        lists.renderSuggestions();
-      }
-    }
-  } finally {
-    setRefreshing(false);
-  }
-}
-
-function setRefreshing(isRefreshing: boolean): void {
-  els.refreshBtn.disabled = isRefreshing;
-  els.refreshBtn.classList.toggle("is-loading", isRefreshing);
-  if (isRefreshing) {
-    els.refreshBtn.setAttribute("aria-busy", "true");
-  } else {
-    els.refreshBtn.removeAttribute("aria-busy");
-    // 刷新结束即转写（若有）收尾，收起“正在音频转写”提示（非转写相位时隐藏）。
-    updateAsrNotice();
-  }
-}
-
 // 【整段迁移自 sidepanel.ts】开启新会话：隐藏 popover → 强刷静默取上下文 →
 // live 快照落地主上下文 → restartChat(keepContext) → 初始态渲染。
 async function startNewConversation(): Promise<void> {
   popovers.hideHistoryPopover();
   popovers.hideModelPanel();
-  setRefreshing(true);
-  try {
-    await loadContextState({ forceRefresh: true, silent: true });
-  } finally {
-    setRefreshing(false);
-  }
+  await loadContextState({ forceRefresh: true, silent: true });
   if (chatSessionState.liveContextData) {
     chatSessionState.contextData = { ...chatSessionState.liveContextData };
     chatSessionState.currentContextKey = chatSessionState.liveContextKey || buildContextKey(chatSessionState.liveContextData);

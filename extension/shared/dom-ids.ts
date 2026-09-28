@@ -50,7 +50,7 @@ export const ids = {
   // PR3 占位期的待解释意图卡（PR5 起由对话 tab 组合根渲染/消费）
   readingChatIntent: "biliscript-reading-chat-intent",
   // PR5 AI 对话 tab（readingChat* 前缀，不用 sp 前缀）：对话区全部元素 id。
-  // 结构与 sidepanel.html 的 sp* 树一一对应（context chip / 刷新 / 设置 / 新对话、
+  // 结构与 sidepanel.html 的 sp* 树一一对应（context chip / 设置 / 新对话、
   // 转写提示行、消息区、模型/思考档/历史、输入卡片），逻辑内核
   // 在 reader/chat-tab.ts（组合根）+ reader/chat-{lists,notices,popovers}.ts
   //（重建壳）+ ../chat/*（内核）。
@@ -59,7 +59,6 @@ export const ids = {
   // 联网搜索开关 pill（spec §4，chat header 工具条，历史按钮同排）
   readingChatWebSearchPill: "biliscript-reading-chat-web-search-pill",
   readingChatHistoryBtn: "biliscript-reading-chat-history-btn",
-  readingChatRefreshBtn: "biliscript-reading-chat-refresh-btn",
   readingChatNewBtn: "biliscript-reading-chat-new-btn",
   readingChatOpenSettings: "biliscript-reading-chat-open-settings",
   readingChatAsrNotice: "biliscript-reading-chat-asr-notice",

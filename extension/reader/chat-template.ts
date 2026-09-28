@@ -42,14 +42,6 @@ export function buildChatTabBodyHtml(): string {
           <button id="${ids.readingChatHistoryBtn}" type="button" class="chat-toolbar-btn" title="历史对话">
             <span>历史对话</span>
           </button>
-          <button id="${ids.readingChatRefreshBtn}" type="button" class="chat-icon-btn" title="刷新当前视频上下文" aria-label="刷新上下文">
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
-              <path d="M21 3v5h-5"></path>
-              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
-              <path d="M8 16H3v5"></path>
-            </svg>
-          </button>
           <button id="${ids.readingChatNewBtn}" type="button" class="chat-icon-btn" title="开启新会话" aria-label="开启新会话">
             <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
               <path d="M12 5v14"></path>

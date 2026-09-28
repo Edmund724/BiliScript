@@ -169,12 +169,6 @@
   stroke-linejoin: round;
 }
 
-/* 转圈时长与解释卡的细环转圈对齐（0.8s linear）：同一面板里两个 loading
- * 指示器不该两个转速。 */
-.biliscript-reading-chat .chat-icon-btn.is-loading svg {
-  animation: biliscript-chat-icon-rotate 0.8s linear infinite;
-}
-
 .biliscript-reading-chat .chat-icon-btn + .chat-icon-btn {
   margin-left: -3px;
 }
@@ -182,15 +176,6 @@
 .biliscript-reading-chat .chat-icon-btn:hover {
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-text);
-}
-
-@keyframes biliscript-chat-icon-rotate {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .biliscript-reading-chat .chat-messages {
