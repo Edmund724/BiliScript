@@ -1,6 +1,7 @@
 # Edge 加载项上架清单 — BiliScript｜B站视频文摘
 
-> 状态：准备稿。按 Partner Center 的六个页面组织，每节内容可直接粘贴。
+> 状态：**已提交，审核中**（首版随 v2.3.0 提交，见 §7 的状态流转）。
+> 按 Partner Center 的六个页面组织，每节内容可直接粘贴。
 > 事实与风险基线见 `.scratch/tickets/edge-store-publishing/spec.md`。
 
 ## 0. 提交前阻塞项
@@ -87,12 +88,12 @@ Edge 表单会把 manifest 里的每个权限单独列出并配一个输入框�
 
 ## 5. Store listings（简体中文，单语言）
 
-包内没有 `_locales`，Partner Center 只会检测出一个语言行，填这一行即可。
+包内 `_locales` 只有 `zh_CN`（manifest 里 `default_locale: "zh_CN"`），扩展名与简短描述取自 `_locales/zh_CN/messages.json` 的 `appName` / `appDesc`；Partner Center 的语言检测会识别为**中文（简体）**，填这一行即可。
 
 | 字段 | 内容 |
 |---|---|
-| Extension name | 「BiliScript｜B站视频文摘」—**只读**，取自 manifest |
-| Short description | 「在 B 站视频页阅读带时间戳字幕，生成摘要与 AI 对话。」—**只读**，取自 manifest |
+| Extension name | 「BiliScript｜B站视频文摘」—**只读**，取自 `_locales/zh_CN/messages.json` |
+| Short description | 「在 B 站视频页阅读带时间戳字幕，生成摘要与 AI 对话。」—**只读**，取自 `_locales/zh_CN/messages.json` |
 | Category | Productivity |
 | Store logo | 300×300（1:1） |
 | Screenshots | 3–6 张，均 1280×800 |
