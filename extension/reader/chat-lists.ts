@@ -15,7 +15,8 @@ import {
   buildConversationTitleDisplay
 } from "../ai/conversation.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { normalizeAiInitialQuickPrompts } from "../core/validators.js";
+import { resolveInitialQuickPrompts } from "../chat/quick-prompts.js";
+import { readCachedQuickPrompts } from "../chat/quick-prompt-cache.js";
 import { chatSessionState } from "../chat/chat-state.js";
 
 export interface CreateReaderChatListsDeps {
@@ -51,7 +52,12 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       suggestionsNode.innerHTML = "";
       return;
     }
-    const prompts = normalizeAiInitialQuickPrompts(chatSessionState.aiPrefs.aiInitialQuickPrompts).filter(Boolean);
+    // 三档取用：设置里的自定义问题 → 本视频的生成结果（预热缓存）→ 固定三条
+    // 兜底（生成不可用时的诚实降级，见 chat/quick-prompts.ts）。
+    const prompts = resolveInitialQuickPrompts(
+      chatSessionState.aiPrefs.aiInitialQuickPrompts,
+      readCachedQuickPrompts(chatSessionState.currentContextKey)
+    );
     suggestionsNode.innerHTML = prompts
       .map((prompt) => `<button type="button" class="chat-chip">${escapeHtml(prompt)}</button>`)
       .join("");

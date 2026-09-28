@@ -97,6 +97,8 @@ import {
   resetReaderOverviewState,
   triggerReaderOverviewGeneration
 } from "./overview.js";
+// 初始快捷问题的逐视频预热（字幕就绪即后台生成三个问题，对话 tab 直接取用）。
+import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
 
 // ===== 候选06 端口半边：reader 域唯一显式端口的单点注册 =====
 //
@@ -204,7 +206,24 @@ function reconcileReaderAfterSubtitleFetch() {
   renderReadingView();
   if (state.clip.subtitleBody.length > 0) {
     triggerReaderOverviewGeneration();
+    warmUpReaderQuickPrompts();
   }
+}
+
+// 初始快捷问题的预热触发（与概览生成同位同语义）：字幕已就绪就后台起跑，
+// 无字幕时不起（没有素材可生成）；重复触发在 warmUpInitialQuickPrompts 内按
+// 视频身份去重（缓存 + 在飞 promise），因此这里 fire-and-forget、不 await。
+function warmUpReaderQuickPrompts() {
+  if (!state.clip.subtitleBody.length) {
+    return;
+  }
+  void warmUpInitialQuickPrompts({
+    bvid: state.clip.bvid,
+    cid: state.clip.cid,
+    aid: state.clip.aid,
+    title: state.clip.title,
+    subtitleBody: state.clip.subtitleBody
+  });
 }
 
 // Presenter seam 通知的 reader 侧处理体（原 bindReaderPresenter 回调函数体
@@ -226,6 +245,8 @@ export function handleReaderPresenterNotification(kind: string, text?: string | 
         // PR4：字幕就绪即自动生成概览（基线决议「打开即自动生成并缓存」）。
         // 无字幕时保持诚实空态不触发；生成中重复触发被状态机与管线 promise 复用去重。
         triggerReaderOverviewGeneration();
+        // 同理：字幕就绪即预热本视频的三个初始问题（对话 tab 打开时直接可用）。
+        warmUpReaderQuickPrompts();
       }
       break;
     case "rerender":

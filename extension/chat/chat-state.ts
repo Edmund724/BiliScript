@@ -7,11 +7,11 @@
 // 收拢为一个可变状态对象，chat/* 子模块与 sidepanel.js（过渡期组合根）直接
 // import 它，deps 里只剩 UI/transport 回调、storage 抽象与常量。
 //
-// 依赖方向（无环）：本文件是零依赖叶子——唯一 import 是 ../core/default-prompts.js
-// 的纯常量（DEFAULT_INITIAL_QUICK_PROMPTS，纯数据无
-// 逻辑），用于给出 aiPrefs 的初始值；AiContext 类型仅供编译期（import type，
-// 运行时零依赖）。sidepanel.js / conversation-store.ts / chat-runtime.ts 单向
-// import 本文件。
+// 依赖方向（无环）：本文件是零运行时依赖叶子——唯一 import 是编译期的
+// AiContext/ImagePart（import type，运行时零依赖）；aiPrefs 的初始问题列表
+// 现取空数组（空 = 按视频即时生成，见 aiPrefs 字段注释），不再静态取
+// core/default-prompts 的固定文案。sidepanel.js / conversation-store.ts /
+// chat-runtime.ts 单向 import 本文件。
 //
 // 纯局部单例（suggestionsNode / contextNoticeTimer / liveContextSyncTimer /
 // liveContextSyncForceRefresh / modelSelectMeasureCanvas / initCompleted / els /
@@ -22,7 +22,6 @@
 // 需重新 import 本模块取新鲜实例；单纪元内复用时经
 // resetChatSessionStateForTests() 重置全部字段（见文件末尾）。
 
-import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../core/default-prompts.js";
 import type { AiContext, ImagePart } from "../ai/types.js";
 
 // 上下文快照 = ContextFetch 全量 payload 的落地形态（core/context-assembly
@@ -183,7 +182,10 @@ function createInitialChatSessionState(): ChatSessionStateWritable {
     // ---- AI 偏好（loadProvidersAndPrefs 整体替换，modelSelect 局部改写） ----
     aiPrefs: {
       aiSystemPrompt: "",
-      aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice()
+      // 初始快捷问题：空数组 = 按视频即时生成（设置里留空即此态），加载前的
+      // 初值同样是空——不预置固定文案，免得首帧闪一批马上要被生成结果替换掉的
+      // chip（renderSuggestions 对「空 + 无缓存」才回落固定三条兜底）。
+      aiInitialQuickPrompts: []
     },
     // ---- 杂项标志 ----
     // content 侧音频转写进行中的兜底信号（biliscript-subtitle-status 广播写，

@@ -86,6 +86,9 @@ import {
   type NoSubtitleReason
 } from "../chat/tab-domain.js";
 import { scheduleModelSelectWidthUpdate, updateModelSelectWidth, type ModelSelectWidthEls } from "../chat/model-select-width.js";
+// 初始快捷问题的预热缓存（写方 reader/quick-prompts.ts 由 lifecycle 触发）：
+// 缓存落定时若建议区正开着，就地换成生成结果。
+import { subscribeQuickPromptsChange } from "../chat/quick-prompt-cache.js";
 // reader 触发源与进程内相位（content script 收不到自己的 runtime 广播）。
 import { BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
 import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
@@ -605,6 +608,7 @@ function bindGlobalTriggers(): void {
   bindSubtitleStatusBus();
   bindUrlChangeTrigger();
   bindStorageWatcher();
+  bindQuickPromptRefresh();
   // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（chat-tab-bridge）。
   setChatTabOutsideClickHandler(popovers.handleDocumentClick);
   // Esc 关闭三个弹层（window 级监听，与文档级 click 委托不同事件，不互踩）。
@@ -615,12 +619,35 @@ function unbindGlobalTriggers(): void {
   unbindSubtitleStatusBus();
   unbindUrlChangeTrigger();
   unbindStorageWatcher();
+  unbindQuickPromptRefresh();
   setChatTabOutsideClickHandler(null);
   window.removeEventListener("keydown", onWindowEscapeKey);
 }
 
 function onWindowEscapeKey(event: KeyboardEvent): void {
   popovers.handleEscapeKey(event);
+}
+
+// 预热落定 → 重渲建议区：字幕就绪后后台生成的问题到位时，建议区若正显示兜底
+// 三条（用户手速快，刚进对话 tab 就撞上预热还在飞），就地换成逐视频生成的结果。
+// 有会话历史时 renderSuggestions 自身会清空建议区，这里不必另判。
+let unsubscribeQuickPrompts: (() => void) | null = null;
+
+function bindQuickPromptRefresh(): void {
+  if (unsubscribeQuickPrompts) {
+    return;
+  }
+  unsubscribeQuickPrompts = subscribeQuickPromptsChange(() => {
+    if (!initialized || chatRuntime.isStreaming()) {
+      return;
+    }
+    lists.renderSuggestions();
+  });
+}
+
+function unbindQuickPromptRefresh(): void {
+  unsubscribeQuickPrompts?.();
+  unsubscribeQuickPrompts = null;
 }
 
 async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promise<void> {

@@ -65,12 +65,11 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">AI 对话 - 初始问题</div>
-      <p class="biliscript-set-hint">新视频没有历史对话时显示，最多 4 条，留空则不显示。</p>
+      <p class="biliscript-set-hint">新视频没有历史对话时显示，最多 3 条；留空则按视频内容自动生成。</p>
       <div class="biliscript-set-quick-prompts">
         <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 1" />
         <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 2" />
         <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 3" />
-        <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 4" />
       </div>
     </section>
 

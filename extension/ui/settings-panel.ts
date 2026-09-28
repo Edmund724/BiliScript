@@ -25,8 +25,8 @@
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
-  DEFAULT_INITIAL_QUICK_PROMPTS,
-  DEFAULT_PLAYER_AI_QUICK_PROMPT
+  DEFAULT_PLAYER_AI_QUICK_PROMPT,
+  MAX_INITIAL_QUICK_PROMPTS
 } from "../core/default-prompts.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
 import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
@@ -514,9 +514,9 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
 }
 
 function renderInitialQuickPromptInputs(elements: SettingsElements, value: unknown): void {
-  // 空数组同样回落默认：getSettings 以 DEFAULT_SETTINGS 合并缺键，新装/缺键时
-  // 占位值是 []，与 default-prompts 的当前默认同语义。
-  const prompts = Array.isArray(value) && value.length ? value : DEFAULT_INITIAL_QUICK_PROMPTS;
+  // 留空 = 按视频内容自动生成（见 chat/quick-prompts.ts 的三档取用）：空数组
+  // 是合法值，输入位就留空——不再把固定文案铺进去假装用户配置过。
+  const prompts = Array.isArray(value) ? value : [];
   elements.aiInitialQuickPrompts.forEach((input, index) => {
     input.value = String(prompts[index] || "");
   });
@@ -525,7 +525,8 @@ function renderInitialQuickPromptInputs(elements: SettingsElements, value: unkno
 function collectInitialQuickPrompts(elements: SettingsElements): string[] {
   return Array.from(elements.aiInitialQuickPrompts || [])
     .map((input) => String(input.value || "").trim())
-    .slice(0, 4);
+    .filter(Boolean)
+    .slice(0, MAX_INITIAL_QUICK_PROMPTS);
 }
 
 function setBusy(elements: SettingsElements, isBusy: boolean): void {
@@ -551,7 +552,8 @@ function buildDefaultPreferencePayload() {
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
-    aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice()
+    // 初始问题的默认态 = 留空（按视频内容自动生成），不写固定文案。
+    aiInitialQuickPrompts: []
   };
 }
 

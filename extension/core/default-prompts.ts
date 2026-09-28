@@ -23,11 +23,18 @@ export const DEFAULT_PLAYER_AI_QUICK_PROMPT = [
   "5. （若附带评论）观众反响：提炼高赞评论的主要观点与争议点"
 ].join("\n");
 
+// 初始快捷问题的条数上限：设置面板的输入位、归一化与建议区渲染共用同一常量
+//（chat/quick-prompts.ts 从本模块取用并再导出）。
+export const MAX_INITIAL_QUICK_PROMPTS = 3;
+
+// 初始快捷问题的固定三条：默认不再预先展示（设置里留空 = 按视频即时生成，
+// 见 chat/quick-prompts.ts），只在生成不可用时兜底——没配 AI 平台、请求失败、
+// 模型输出解析不出。三条按「整体结论 / 要点清单 / 时间脉络」三个角度铺开，
+// 故意不含依赖热评的提问（评论可能没抓到时那条会答非所问）。
 export const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",
   "提炼这个视频的 5 个重点",
-  "按时间顺序整理这期视频的内容",
-  "根据评论总结观众的看法"
+  "按时间顺序整理这期视频的内容"
 ];
 
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [

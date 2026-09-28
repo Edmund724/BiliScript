@@ -15,11 +15,14 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/default-prompts.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 import type { CreateReaderChatListsDeps } from "../../extension/reader/chat-lists.js";
 
 let createReaderChatLists: typeof import("../../extension/reader/chat-lists.js").createReaderChatLists;
 let chatSessionState: ChatSessionState;
+let writeCachedQuickPrompts: typeof import("../../extension/chat/quick-prompt-cache.js").writeCachedQuickPrompts;
+let resetQuickPromptCacheForTests: typeof import("../../extension/chat/quick-prompt-cache.js").resetQuickPromptCacheForTests;
 // 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
@@ -28,11 +31,14 @@ let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-stat
 async function importModule() {
   const module = await import("../../extension/reader/chat-lists.js");
   const state = await import("../../extension/chat/chat-state.js");
+  const cache = await import("../../extension/chat/quick-prompt-cache.js");
   createReaderChatLists = module.createReaderChatLists;
   chatSessionState = state.chatSessionState;
   applyConversationIdentity = state.applyConversationIdentity;
   setSavedConversations = state.setSavedConversations;
   resetChatSessionStateForTests = state.resetChatSessionStateForTests;
+  writeCachedQuickPrompts = cache.writeCachedQuickPrompts;
+  resetQuickPromptCacheForTests = cache.resetQuickPromptCacheForTests;
 }
 
 function makeDeps(overrides: Partial<CreateReaderChatListsDeps> = {}) {
@@ -77,6 +83,7 @@ beforeEach(async () => {
   resetModuleState();
   await importModule();
   resetChatSessionStateForTests();
+  resetQuickPromptCacheForTests();
   chatSessionState.providers = [{ id: "p1", name: "平台一", enabled: true }];
   chatSessionState.contextData = { ...VIDEO_CONTEXT };
   chatSessionState.aiPrefs.aiInitialQuickPrompts = ["总结视频", "整理笔记"];
@@ -130,6 +137,33 @@ describe("renderSuggestions（建议提示词）", () => {
     setSuggestionsNode(node);
     lists.renderSuggestions();
     expect(node.innerHTML).toBe("");
+  });
+
+  it("自定义留空（留空即自动生成）：渲染该视频的生成结果", () => {
+    chatSessionState.aiPrefs.aiInitialQuickPrompts = [];
+    chatSessionState.currentContextKey = "video:BV1|1";
+    writeCachedQuickPrompts("video:BV1|1", ["生成一", "生成二", "生成三"]);
+    const { lists, container } = makeDeps();
+    lists.renderSuggestions();
+    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
+      .toEqual(["生成一", "生成二", "生成三"]);
+  });
+
+  it("自定义留空且该视频还没有生成结果：回落固定三条兜底", () => {
+    chatSessionState.aiPrefs.aiInitialQuickPrompts = [];
+    chatSessionState.currentContextKey = "video:BV1|1";
+    const { lists, container } = makeDeps();
+    lists.renderSuggestions();
+    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
+      .toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+  });
+
+  it("自定义超过三条：只渲染前三条", () => {
+    chatSessionState.aiPrefs.aiInitialQuickPrompts = ["一", "二", "三", "四"];
+    const { lists, container } = makeDeps();
+    lists.renderSuggestions();
+    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
+      .toEqual(["一", "二", "三"]);
   });
 });
 

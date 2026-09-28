@@ -5,14 +5,14 @@
 // default-prompts.ts; provider presets in presets.ts.
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
-  DEFAULT_INITIAL_QUICK_PROMPTS,
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4,
   LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT,
-  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2
+  LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2,
+  MAX_INITIAL_QUICK_PROMPTS
 } from "./default-prompts.js";
 import {
   DEFAULT_SETTINGS,
@@ -72,15 +72,18 @@ export function normalizeAiSystemPrompt(value: unknown): string {
   return normalized;
 }
 
+// 初始快捷问题：留空 = 按视频即时生成（空数组是合法值，不再回落固定文案——
+// 固定三条只在生成不可用时由渲染侧兜底，见 chat/quick-prompts.ts）。
+// 用户填了则归一为最多三条、去空白项，供建议区原样使用（不限长：可能是一整句
+// 指令，静默截短会改变语义）。
 export function normalizeAiInitialQuickPrompts(value: unknown): string[] {
   if (!Array.isArray(value)) {
-    return DEFAULT_INITIAL_QUICK_PROMPTS.slice();
+    return [];
   }
-  const prompts = value
+  return value
     .map(function (item: unknown) { return toString(item).trim(); })
-    .slice(0, 4);
-  // 空数组（DEFAULT_SETTINGS 空占位）回落当前默认，与 !Array.isArray 分支同语义。
-  return prompts.length ? prompts : DEFAULT_INITIAL_QUICK_PROMPTS.slice();
+    .filter(function (prompt: string) { return Boolean(prompt); })
+    .slice(0, MAX_INITIAL_QUICK_PROMPTS);
 }
 
 export function normalizeDefaultModel(value: unknown): string {

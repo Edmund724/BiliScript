@@ -9,7 +9,6 @@ import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
-  DEFAULT_INITIAL_QUICK_PROMPTS,
   DEFAULT_PLAYER_AI_QUICK_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT,
   LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2,
@@ -110,13 +109,14 @@ describe("normalizeSettings 纯函数", () => {
   });
 
   // defaults 拆分（first-button-ux/03）：DEFAULT_SETTINGS 的 prompt 字段是空占位，
-  // 读路径归一化必须回落当前默认——新装/缺键不能得到空串/空数组。
-  it("新装缺键：空占位 prompt 字段经归一化回落当前默认，不落空串/空数组", async () => {
+  // 读路径归一化必须回落当前默认——新装/缺键不能得到空串。
+  // 例外：aiInitialQuickPrompts 空数组是合法值（留空 = 按视频自动生成），不回落。
+  it("新装缺键：提示词字段回落当前默认；初始问题留空保持空数组（自动生成）", async () => {
     const { normalizeSettings } = await loadStoreModule();
     const out = normalizeSettings({ ...DEFAULT_SETTINGS });
     expect(out.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(out.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
-    expect(out.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+    expect(out.aiInitialQuickPrompts).toEqual([]);
   });
 
   // 「清空 prompt 保存 = 恢复默认」：用户把提示词清空后保存，空串（含纯空白）
@@ -161,8 +161,9 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     expect(syncSetMock.mock.calls[0][0].aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
   });
 
-  // 写路径同款：清空后的空串/空数组不落盘为占位值，落盘即当前默认。
-  it("写路径：清空的 prompt 落盘为当前默认而非空串/空数组", async () => {
+  // 写路径同款：清空后的提示词空串不落盘为占位值，落盘即当前默认；
+  // 初始问题清空 = 回到「按视频自动生成」，同样落空数组。
+  it("写路径：清空的提示词落盘为当前默认，初始问题清空落空数组", async () => {
     const { saveSettings } = await loadStoreModule();
 
     await saveSettings({
@@ -176,7 +177,7 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     const persisted = syncSetMock.mock.calls[0][0];
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
-    expect(persisted.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+    expect(persisted.aiInitialQuickPrompts).toEqual([]);
   });
 
   // 笔记导出删除后的写路径收敛：整对象写回里的被删字段（旧存储残留 / 陈旧
@@ -253,7 +254,7 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
   });
 
   // 新装路径：sync.get 原样返回 DEFAULT_SETTINGS（prompt 字段为空占位），迁移
-  // 落盘的必须是当前默认文本，不能是空串/空数组。
+  // 落盘的必须是当前默认文本，不能是空串（初始问题除外：空数组即自动生成）。
   it("onInstalled 新装迁移：空占位 prompt 落盘为当前默认，不产生空串", async () => {
     await import("../../extension/entry/background.js");
     const onInstalledListener = vi.mocked(chrome.runtime.onInstalled.addListener).mock
@@ -266,6 +267,6 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
     const persisted = syncSetMock.mock.calls[0][0];
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);
-    expect(persisted.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+    expect(persisted.aiInitialQuickPrompts).toEqual([]);
   });
 });

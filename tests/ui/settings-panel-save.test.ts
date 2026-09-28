@@ -23,7 +23,7 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
-import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
+import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
 
 // AI 探针 mock：测试连接按钮直调 provider-test（不经 SW 消息），固定成功
 vi.mock("../../extension/ai/provider-test.js", () => ({
@@ -195,7 +195,8 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     ]) {
       expect(saveMessage.settings, `${key} 不应出现在负载里`).not.toHaveProperty(key);
     }
-    expect(saveMessage.settings!.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+    // 初始问题留空 = 按视频自动生成：收集口径落空数组，不回落固定文案
+    expect(saveMessage.settings!.aiInitialQuickPrompts).toEqual([]);
 
     // 状态条与 busy 复位
     const status = lastStatus(host);
