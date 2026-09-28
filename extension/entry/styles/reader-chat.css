@@ -1229,7 +1229,8 @@
  * ============================================================ */
 
 /* 搜索时间线卡：插在用户消息与回答之间，占满消息区宽度（align-self:stretch
- * 对抗助手气泡的 flex-start）；头部 = 地球图标 +「联网搜索」+ 状态右对齐。 */
+ * 对抗助手气泡的 flex-start）；头部 = 左置 chevron +「联网搜索」+ 最近一条
+ * 查询词 + 状态右对齐。 */
 .biliscript-reading-chat .chat-search-card {
   align-self: stretch;
   max-width: 100%;
@@ -1240,7 +1241,7 @@
 }
 
 /* 头部即折叠开关：<button> 取按钮语义与 Enter/Space 激活，故归零浏览器默认
- * 外观（字体/边框/底色/内边距）；箭头 ▾/▸ 经 ::after 呈现，与思考块同族语言。 */
+ * 外观（字体/边框/底色/内边距）；chevron 左置（::before）▸/▾，与思考块同族语言。 */
 .biliscript-reading-chat .chat-search-card-head {
   display: flex;
   align-items: center;
@@ -1257,36 +1258,49 @@
   cursor: pointer;
 }
 
-.biliscript-reading-chat .chat-search-card-head::after {
+.biliscript-reading-chat .chat-search-card-head::before {
   content: "▾";
   font-weight: 400;
 }
 
-.biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-head::after {
+.biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-head::before {
   content: "▸";
 }
 
-/* 折叠态（建卡默认）：整卡正文（步骤行 + 来源 chip 行）收进头部一行，只由
- * CSS 隐藏——DOM 保留，展开是纯类切换、不重建。 */
-.biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-steps,
-.biliscript-reading-chat .chat-search-card-collapsed .chat-search-chips {
+/* 工具名不参与收缩：中文可在任意字间断行，长查询词会把「联网搜索」挤成竖条。 */
+.biliscript-reading-chat .chat-search-card-label {
+  flex: none;
+}
+
+/* 头部查询词（最近一条）：正体、单行省略，空串时整段连分隔点一起收起。 */
+.biliscript-reading-chat .chat-search-card-query {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.biliscript-reading-chat .chat-search-card-query:empty {
   display: none;
 }
 
-.biliscript-reading-chat .chat-search-card-icon {
-  display: inline-flex;
-  flex: none;
-  color: var(--biliscript-reader-faint);
+.biliscript-reading-chat .chat-search-card-query::before {
+  content: "·";
+  margin-right: 5px;
 }
 
-.biliscript-reading-chat .chat-search-card-icon svg {
-  display: block;
-  width: 12px;
-  height: 12px;
+/* 折叠态（建卡默认）：整卡正文（步骤行 + 来源列表）收进头部一行，只由
+ * CSS 隐藏——DOM 保留，展开是纯类切换、不重建。 */
+.biliscript-reading-chat .chat-search-card-collapsed .chat-search-card-steps,
+.biliscript-reading-chat .chat-search-card-collapsed .chat-search-sources {
+  display: none;
 }
 
 .biliscript-reading-chat .chat-search-card-status {
   margin-left: auto;
+  flex: none;
   font-weight: 400;
   font-size: 12px;
   color: var(--biliscript-reader-faint);
@@ -1343,51 +1357,54 @@
   color: var(--biliscript-reader-faint);
 }
 
-/* 来源 chip 行（时间线卡底部，虚线分隔）：横向滚动 chip = 编号 pill + 来源标题。 */
-.biliscript-reading-chat .chat-search-chips {
+/* 来源列表（时间线卡底部，虚线分隔）：纵向 = 序号 + 标题（两行截断），整行可点
+ * 开原文、悬停出预览卡。限高内滚（条目上限 = 5 条/次 × 单轮最多 10 次搜索），
+ * 滚动条退回细淡一档（同思考块）。 */
+.biliscript-reading-chat .chat-search-sources {
   border-top: 1px dashed var(--biliscript-reader-border);
   margin-top: 4px;
-}
-
-.biliscript-reading-chat .chat-search-chip-row {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding: 6px 0 2px;
+  max-height: 240px;
+  overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--biliscript-reader-faint) transparent;
 }
 
-.biliscript-reading-chat .chat-search-chip {
-  flex: none;
-  max-width: 160px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 999px;
-  background: var(--biliscript-reader-card);
-  color: var(--biliscript-reader-text);
+.biliscript-reading-chat .chat-search-source-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: baseline;
+  width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: none;
   font: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
+  color: var(--biliscript-reader-text);
+  text-align: left;
   cursor: pointer;
 }
 
-.biliscript-reading-chat .chat-search-chip:hover {
-  border-color: var(--biliscript-reader-accent);
+.biliscript-reading-chat .chat-search-source-row + .chat-search-source-row {
+  border-top: 1px dashed var(--biliscript-reader-border);
 }
 
-.biliscript-reading-chat .chat-search-chip-idx {
+.biliscript-reading-chat .chat-search-source-idx {
   color: var(--biliscript-reader-accent);
   font-weight: 700;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
-.biliscript-reading-chat .chat-search-chip span:last-child {
+.biliscript-reading-chat .chat-search-source-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+}
+
+.biliscript-reading-chat .chat-search-source-row:hover .chat-search-source-title {
+  color: var(--biliscript-reader-accent);
 }
 
 /* 正文内联 [n] 引用：accent 上标，悬停出预览卡，点击新标签打开来源 URL。 */

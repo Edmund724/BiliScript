@@ -644,7 +644,9 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
     const card = messages.querySelector(".chat-search-card") as HTMLElement;
     expect((card.querySelector(".chat-search-step-query") as HTMLElement).textContent).toBe("MoE 新进展");
     expect((card.querySelector(".chat-search-step-note") as HTMLElement).textContent).toBe("1 条");
-    expect(card.querySelectorAll(".chat-search-chip")).toHaveLength(1);
+    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(1);
+    // 头部 = 最近一条查询词 + 来源条数
+    expect((card.querySelector(".chat-search-card-query") as HTMLElement).textContent).toBe("MoE 新进展");
     // 回放卡与 live 卡同构：默认折叠（重建一律回到折叠态，不落盘）
     expect(card.classList.contains("chat-search-card-collapsed")).toBe(true);
     expect(card.querySelector(".chat-search-card-head")!.getAttribute("aria-expanded")).toBe("false");

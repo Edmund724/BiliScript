@@ -1427,7 +1427,7 @@ describe("tool-turn 持久化与 tool-status 最小消费", () => {
     expect(card).toBeTruthy();
     expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("搜索中…");
     feed(runtime, { type: "tool-status", status: "done", query: "x", resultCount: 3, platform: "Tavily" });
-    expect(card.querySelector(".chat-search-card-status")!.textContent).toMatch(/^完成（[\d.]+s）· 0 条来源$/);
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("0 条来源");
     expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("3 条");
     runRafFrames(raf);
   });

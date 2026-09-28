@@ -90,7 +90,7 @@ afterEach(() => {
 });
 
 describe("搜索时间线卡", () => {
-  it("tool-status searching：卡片插在 assistant 节点之前，步骤行含查询词与「搜索中…」", async () => {
+  it("tool-status searching：卡片插在 assistant 节点之前，头部查询词 + 步骤行「搜索中…」", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "MoE 新进展" });
 
@@ -99,6 +99,7 @@ describe("搜索时间线卡", () => {
     expect(card).toBeTruthy();
     expect(card.nextElementSibling).toBe(assistant);
     expect(card.querySelector(".chat-search-card-head")).toBeTruthy();
+    expect(card.querySelector(".chat-search-card-query")!.textContent).toBe("MoE 新进展");
     expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("搜索中…");
     const step = card.querySelector(".chat-search-step")!;
     expect(step.classList.contains("is-running")).toBe(true);
@@ -106,7 +107,7 @@ describe("搜索时间线卡", () => {
     expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("搜索中…");
   });
 
-  it("tool-status done：步骤行补结果数、头部平台与耗时、来源 chip 行（虚线分隔）", async () => {
+  it("tool-status done：步骤行补结果数、头部来源数、来源列表（序号 + 标题 + 完整 URL 属性）", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, {
@@ -122,18 +123,21 @@ describe("搜索时间线卡", () => {
     const step = card.querySelector(".chat-search-step")!;
     expect(step.classList.contains("is-running")).toBe(false);
     expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("2 条");
-    // 折叠行状态 = 完成耗时 + 卡内累计来源数；平台名不再出现在文案里
+    // 头部右端 = 卡内累计来源数；平台名与耗时不再出现在文案里
     const status = card.querySelector(".chat-search-card-status")!.textContent!;
-    expect(status).toMatch(/^完成（[\d.]+s）· 2 条来源$/);
+    expect(status).toBe("2 条来源");
     expect(status).not.toContain("Tavily");
-    const chips = card.querySelectorAll(".chat-search-chip");
-    expect(chips).toHaveLength(2);
-    expect(chips[0].querySelector(".chat-search-chip-idx")!.textContent).toBe("1");
-    expect(chips[1].querySelector(".chat-search-chip-idx")!.textContent).toBe("2");
-    expect(chips[0].querySelector("span:last-child")!.textContent).toBe("DeepSeek-V3 技术报告");
+    const rows = card.querySelectorAll(".chat-search-source-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelector(".chat-search-source-idx")!.textContent).toBe("1");
+    expect(rows[1].querySelector(".chat-search-source-idx")!.textContent).toBe("2");
+    expect(rows[0].querySelector(".chat-search-source-title")!.textContent).toBe("DeepSeek-V3 技术报告");
+    // title 属性给完整 URL（标题只显示一行文本，地址不占版面）
+    expect(rows[0].getAttribute("title")).toBe("https://arxiv.org/a");
+    expect(rows[1].getAttribute("title")).toBe("https://juejin.cn/b");
   });
 
-  it("二次搜索：来源编号跨搜索累计（3 号 chip 起）", async () => {
+  it("二次搜索：来源编号跨搜索累计（3 号起），头部查询词与来源数随最近一次刷", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 2, platform: "Tavily", sources: SOURCES });
@@ -142,13 +146,15 @@ describe("搜索时间线卡", () => {
 
     const card = deps.messages.querySelector(".chat-search-card")!;
     expect(card.querySelectorAll(".chat-search-step")).toHaveLength(2);
-    const chips = card.querySelectorAll(".chat-search-chip");
-    expect(chips).toHaveLength(3);
-    expect(chips[2].querySelector(".chat-search-chip-idx")!.textContent).toBe("3");
-    expect(chips[2].querySelector("span:last-child")!.textContent).toBe("第三条");
+    const rows = card.querySelectorAll(".chat-search-source-row");
+    expect(rows).toHaveLength(3);
+    expect(rows[2].querySelector(".chat-search-source-idx")!.textContent).toBe("3");
+    expect(rows[2].querySelector(".chat-search-source-title")!.textContent).toBe("第三条");
+    expect(card.querySelector(".chat-search-card-query")!.textContent).toBe("q2");
+    expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("3 条来源");
   });
 
-  it("tool-status failed：步骤行标记失败，不产生 chips", async () => {
+  it("tool-status failed：步骤行标记失败，不产生来源列表", async () => {
     const { deps, runtime } = await makeRuntime();
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, { type: "tool-status", status: "failed", query: "q1" });
@@ -157,18 +163,34 @@ describe("搜索时间线卡", () => {
     const step = card.querySelector(".chat-search-step")!;
     expect(step.classList.contains("is-failed")).toBe(true);
     expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("搜索失败");
-    expect(card.querySelectorAll(".chat-search-chip")).toHaveLength(0);
+    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(0);
     expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("搜索失败");
   });
 
-  it("chip 点击：新标签打开来源 URL", async () => {
+  it("来源行点击：新标签打开来源 URL", async () => {
     const { deps, runtime } = await makeRuntime();
     const opened = vi.fn();
     vi.stubGlobal("open", opened);
     feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
     feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 1, platform: "Tavily", sources: [SOURCES[0]] });
-    (deps.messages.querySelector(".chat-search-chip") as HTMLElement).click();
+    (deps.messages.querySelector(".chat-search-source-row") as HTMLElement).click();
     expect(opened).toHaveBeenCalledWith("https://arxiv.org/a", "_blank", "noopener");
+  });
+
+  it("来源行悬停：出预览卡（标题 + 域名 + 摘录），移出移除", async () => {
+    const { deps, runtime } = await makeRuntime();
+    feed(runtime, { type: "tool-status", status: "searching", query: "q1" });
+    feed(runtime, { type: "tool-status", status: "done", query: "q1", resultCount: 1, platform: "Tavily", sources: [SOURCES[0]] });
+
+    const row = deps.messages.querySelector<HTMLElement>(".chat-search-source-row")!;
+    row.dispatchEvent(new window.Event("mouseenter"));
+    const preview = deps.messages.querySelector(".chat-search-preview")!;
+    expect(preview).toBeTruthy();
+    expect(preview.querySelector(".chat-search-preview-title")!.textContent).toBe("DeepSeek-V3 技术报告");
+    expect(preview.querySelector(".chat-search-preview-host")!.textContent).toBe("arxiv.org");
+    expect(preview.querySelector(".chat-search-preview-excerpt")!.textContent).toBe("专家并行与 FP8 训练……");
+    row.dispatchEvent(new window.Event("mouseleave"));
+    expect(deps.messages.querySelector(".chat-search-preview")).toBeNull();
   });
 
   it("默认折叠：头部是可点击按钮（aria-expanded=false），步骤与来源仍在 DOM 只由 CSS 隐藏", async () => {
@@ -185,7 +207,7 @@ describe("搜索时间线卡", () => {
     expect(card.classList.contains("chat-search-card-collapsed")).toBe(true);
     // 内容不因折叠而丢弃：展开是纯类切换，不重建 DOM
     expect(card.querySelectorAll(".chat-search-step")).toHaveLength(1);
-    expect(card.querySelectorAll(".chat-search-chip")).toHaveLength(2);
+    expect(card.querySelectorAll(".chat-search-source-row")).toHaveLength(2);
   });
 
   it("点击头部展开／收起：折叠类与 aria-expanded 同步", async () => {
