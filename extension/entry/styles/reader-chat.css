@@ -1385,10 +1385,6 @@
   cursor: pointer;
 }
 
-.biliscript-reading-chat .chat-search-source-row + .chat-search-source-row {
-  border-top: 1px dashed var(--biliscript-reader-border);
-}
-
 .biliscript-reading-chat .chat-search-source-idx {
   color: var(--biliscript-reader-accent);
   font-weight: 700;
