@@ -14,6 +14,7 @@
 // 聚合形状与 openai adapter 同型（DrainResult），编排层零改动。
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
+import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
 import { normalizeThinkingLevel, resolveThinkingProfile, resolveThinkingProviderId } from "../thinking-profiles.js";
 import { hasPlatformQuirk } from "../compat-vocab.js";
 import { parseToolArgs } from "./openai.js";
@@ -23,14 +24,16 @@ import type { ChatMessage, ChatToolCall } from "../types.js";
 // 怪癖 maxTokensRequired（语义见 compat-vocab 词表单源）：max_tokens 必填且无
 // 默认，调用方未传时 adapter 兜底。兜底值的语义 =「调用方不关心时给一个合理上限」
 // （OpenAI 系平台此时干脆不发字段、由平台自身默认决定），故按「思考预算之外还
-// 留得下正文」取值。思考是否计入 max_tokens 看平台：官方文档计入（budget_tokens
+// 留得下正文」取值；具体数字单源在 ai/output-budget.ts（core 也读它做「被平台
+// 拒收后退回保守值」的判定，本 adapter 的 defaultMaxTokens 声明同一个值）。
+// 思考是否计入 max_tokens 看平台：官方文档计入（budget_tokens
 // 是目标而非硬上限）；ModelScope 实测分模型——Qwen3.8-Flash-Next 不计入
 // （max_tokens=8192 时 output_tokens 可达 15805，stop_reason 仍 end_turn），
 // step-3.7-flash 计入、会把正文挤成空串（即 analysis-orchestrate 的
 // finish_reason=length 空正文记录）。中文长答本身也吃额度：实测 4096 下六千字散文
-// 在 5637 字处截断（stop_reason=max_tokens），同一请求 8192 完整收尾。
-// 8192 = 默认思考预算 2048 + 6144 正文余量。
-const DEFAULT_MAX_TOKENS = 8192;
+// 在 5637 字处截断（stop_reason=max_tokens），同一请求 8192 完整收尾——旧兜底
+// 8192 = 默认思考预算 2048 + 正文余量，只够旧模型，现降级为退回下限
+// （CONSERVATIVE_MAX_TOKENS，见 output-budget.ts）。
 // 怪癖 thinkingBudgetTokens（语义见 compat-vocab）：开思考的 budget_tokens 下限
 // （Anthropic 硬性要求 ≥1024）与默认预算；budget 计入 max_tokens，故必须 < max_tokens。
 const MIN_BUDGET_TOKENS = 1024;
@@ -212,6 +215,7 @@ interface AnthropicStreamEvent {
 
 export const anthropicAdapter: ProtocolAdapter = {
   protocol: "anthropic",
+  defaultMaxTokens: DEFAULT_MAX_TOKENS,
   capabilities: {
     tools: true,
     thinkingProfiles: true,

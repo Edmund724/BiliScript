@@ -66,6 +66,15 @@ export interface DrainContext {
 
 export interface ProtocolAdapter {
   readonly protocol: AiProtocol;
+
+  /**
+   * 调用方未指定输出上限时本协议会实际发出的值（输出上限参数必填的协议才声明，
+   * 如 anthropic 的 max_tokens；可选参数协议不声明 = 不发字段、由平台默认决定）。
+   * 取值单源在 ai/output-budget.ts：core 以它为「本轮生效上限」，平台按超上限
+   * 拒绝时据此退回保守值重发（completion.ts 的唯一 fetch 点）。
+   */
+  readonly defaultMaxTokens?: number;
+
   readonly capabilities: ProtocolCapabilities;
   /**
    * 本 adapter 接纳的平台怪癖（compat-vocab 词表的稳定键，语义与适用协议

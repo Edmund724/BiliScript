@@ -659,6 +659,100 @@ describe("溢出端到端：抛 .overflow 标记错误且不重试", () => {
   });
 });
 
+// 输出上限过大：协议兜底（anthropic 的 max_tokens）给新模型放的宽值会被上限低的
+// 模型拒绝——退回保守值重发一次即可，不能整轮失败，也不能当成上下文溢出（不转
+// Map-Reduce、不报「上下文过长」）。
+describe("输出上限过大 → 退回保守值重发一次", () => {
+  const ANTHROPIC = {
+    baseUrl: "https://api.anthropic.com",
+    model: "claude-x",
+    apiKey: "sk-ant",
+    protocol: "anthropic" as const
+  };
+  const TOO_LARGE = JSON.stringify({
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      message: "max_tokens: 32768 > 8192, which is the maximum allowed number of output tokens for claude-x"
+    }
+  });
+  const anthropicToken = (text: string) =>
+    `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text } })}\n\n`;
+
+  it("兜底 32768 被拒 → 以 8192 重发并正常返回；不报 onRetry（自动降级，非失败重试）", async () => {
+    const fetchMock = mockFetch(async (_url, init) => {
+      const budget = JSON.parse(String((init as InitLike).body)).max_tokens;
+      return budget === 8192
+        ? jsonResponse({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" })
+        : textResponse(TOO_LARGE, false, 400);
+    });
+    const retries: RetryInfo[] = [];
+
+    const result = await chatCompletion({
+      provider: ANTHROPIC,
+      messages: [],
+      fetchImpl: fetchMock,
+      onRetry: (payload) => retries.push(payload)
+    });
+
+    expect(result).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body).max_tokens).toBe(32768);
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as InitLike).body).max_tokens).toBe(8192);
+    expect(retries).toEqual([]);
+  });
+
+  it("流式路径同样退回，且退回后照常收流", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(textResponse(TOO_LARGE, false, 400))
+      .mockResolvedValueOnce(sseResponse([anthropicToken("ok")]));
+    const events: StreamChatEvent[] = [];
+
+    await chatCompletion({
+      provider: ANTHROPIC,
+      messages: [],
+      stream: true,
+      fetchImpl: fetchMock,
+      onEvent: (event) => events.push(event)
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as InitLike).body).max_tokens).toBe(8192);
+    expect(events).toEqual([{ type: "token", data: "ok" }]);
+  });
+
+  it("退回只发生一次：保守值仍被拒 → 抛普通 HTTP 400，不带 overflow 标记", async () => {
+    const fetchMock = mockFetch(async () => textResponse(TOO_LARGE, false, 400));
+
+    const error = await chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock }).catch((e) => e);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(error.status).toBe(400);
+    expect(error.overflow).toBeUndefined();
+  });
+
+  it("无可退（显式预算不超过保守值，如探针 maxTokens=1）→ 不重发，直接抛错", async () => {
+    const fetchMock = mockFetch(async () => textResponse(TOO_LARGE, false, 400));
+
+    const error = await chatCompletion({ provider: ANTHROPIC, messages: [], probe: true, fetchImpl: fetchMock }).catch((e) => e);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(error.overflow).toBeUndefined();
+  });
+
+  it("上下文溢出文案不被退回分支抢走：仍抛 overflow 标记且只请求一次", async () => {
+    const fetchMock = mockFetch(async () =>
+      textResponse("This model's maximum context length is 8192 tokens, but you requested 12000 tokens.", false, 400)
+    );
+
+    await expect(
+      chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock })
+    ).rejects.toMatchObject({ overflow: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("重试 policy：流式默认 2 次，onRetry 时序", () => {
   it("fetch 抛错 → 重试 2 次（共 3 次调用）后成功；onRetry 依次 attempt 1/2，kind=fetch", async () => {
     const fetchMock = vi.fn()

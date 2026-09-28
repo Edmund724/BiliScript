@@ -497,7 +497,7 @@ describe("输出上限截断（finish_reason=length）", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // 首发维持「不显式传预算、由平台默认决定」现状；只有重试才显式加倍。
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBeUndefined();
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(16384);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(65536);
     expect(port.messages).toEqual([
       { type: "stream-reset" },
       { type: "token", data: "正文" },
@@ -505,7 +505,7 @@ describe("输出上限截断（finish_reason=length）", () => {
     ]);
   });
 
-  it("anthropic 协议：空正文截断 → 首发走 adapter 兜底 8192、重试显式 16384，思考随 reset 重放", async () => {
+  it("anthropic 协议：空正文截断 → 首发走 adapter 兜底 32768、重试显式 65536，思考随 reset 重放", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(sseResponse([
         anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "想" } }),
@@ -520,8 +520,8 @@ describe("输出上限截断（finish_reason=length）", () => {
 
     await streamChat({ provider: { ...PROVIDER, protocol: "anthropic" }, context: {}, userPrompt: "问", history: [], port });
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(8192);
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(16384);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(32768);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(65536);
     // 第一代的思考已回吐，随即被 stream-reset 作废（宿主清空本条缓冲整体重放）。
     expect(port.messages).toEqual([
       { type: "reasoning", data: "想" },
@@ -579,7 +579,7 @@ describe("输出上限截断（finish_reason=length）", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(16384);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(65536);
     expect(port.messages.filter((m) => m.type === "stream-reset")).toHaveLength(1);
     expect(port.messages.at(-1)?.type).toBe("done");
   });
@@ -593,7 +593,7 @@ describe("输出上限截断（finish_reason=length）", () => {
     expect(port.messages.map((m) => m.type)).toEqual(["token", "done"]);
   });
 
-  it("anthropic 协议未传 maxTokens：请求体走 adapter 兜底 8192（放得下思考预算）", async () => {
+  it("anthropic 协议未传 maxTokens：请求体走 adapter 兜底 32768（放得下思考预算）", async () => {
     const fetchMock = vi.fn(async (_url: unknown, _init: { body: string }) =>
       sseResponse([
         anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "正文" } }),
@@ -611,7 +611,38 @@ describe("输出上限截断（finish_reason=length）", () => {
       port
     });
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(8192);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(32768);
+  });
+
+  it("anthropic 协议：兜底 32768 被平台按超上限拒收 → 自动退回 8192 重发，界面只见正常回答", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(textResponse(JSON.stringify({
+        type: "error",
+        error: {
+          type: "invalid_request_error",
+          message: "max_tokens: 32768 > 8192, which is the maximum allowed number of output tokens for Qwen/Qwen3-8B"
+        }
+      })))
+      .mockResolvedValueOnce(sseResponse([
+        anthropicSseData({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "正文" } }),
+        anthropicSseData({ type: "message_delta", delta: { stop_reason: "end_turn" } })
+      ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const port = makePort();
+
+    const result = await streamChat({
+      provider: { baseUrl: "https://api-inference.modelscope.cn", model: "Qwen/Qwen3-8B", apiKey: "k", protocol: "anthropic" },
+      context: {},
+      userPrompt: "总结",
+      history: [],
+      port
+    });
+
+    expect(result).toEqual({ done: true });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_tokens).toBe(32768);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).max_tokens).toBe(8192);
+    // 退回是自动降级（不报 onRetry 语义的 notice，也不是 error）：界面只收到正常回答。
+    expect(port.messages).toEqual([{ type: "token", data: "正文" }, { type: "done" }]);
   });
 
   it("联网轮：工具轮的 finish_reason 不外泄成截断提示（最终轮 stop → 无 notice）", async () => {

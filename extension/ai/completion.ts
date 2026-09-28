@@ -18,9 +18,10 @@
 //   重试触发条件与旧 client 现状一致：fetch 抛错与非溢出 !response.ok
 //   （及流式读流中断）都重试，与状态码无关。
 import { makeAbortedError, isRetryableNetworkError } from "../shared/error-helpers.js";
+import { CONSERVATIVE_MAX_TOKENS, isOutputBudgetTooLarge } from "./output-budget.js";
 import { resolveAdapter } from "./protocol-adapter.js";
 import { presetRequestHeaders } from "./preset-headers.js";
-import type { ChatRequest, ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
+import type { ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 
 interface OverflowError extends Error {
@@ -190,6 +191,10 @@ interface ChatCompletionInput {
  *   不重复注入」语义。
  * - thinkingLevel / maxTokens / signal / fetchImpl（默认 globalThis.fetch）；
  *   思考字段由 adapter 内经 thinking-profiles 按平台×模型查表。
+ *   maxTokens 缺省时取 adapter.defaultMaxTokens（输出上限必填的协议，
+ *   ai/output-budget.ts 单源）；若平台按「超出上限」拒收（Anthropic 比较式 /
+ *   「valid range」等），core 自动退回 CONSERVATIVE_MAX_TOKENS 重发一次，不消耗
+ *   重试次数也不报 onRetry——见 output-budget.ts 的取舍说明。
  * 错误模型见文件头注释；HTTP 错误 detail 经 adapter.extractErrorDetail 提取、
  * core 统一加 `[协议名] ` 前缀并截前 200 字符（spec：错误归一化，调用层零改动）。
  */
@@ -250,19 +255,65 @@ export async function chatCompletion({
     "Content-Type": "application/json"
   };
 
-  const request: ChatRequest = {
-    model,
-    messages,
-    stream,
-    probe,
-    baseUrl,
-    apiKey: provider.apiKey,
-    presetId: provider.presetId,
-    thinkingLevel,
-    maxTokens: probe ? (maxTokens ?? 1) : maxTokens,
-    tools
+  // 本轮生效的输出上限：调用方显式值优先；未指定时取 adapter 声明的兜底
+  // （输出上限必填的协议才有，如 anthropic 的 max_tokens；openai 系为 null =
+  // 不发字段、由平台默认决定）。adapter 内对必填参数仍留一层同源兜底，这里显式
+  // 解析是为了让「被平台按超上限拒绝 → 退回保守值重发」知道发出的是多少。
+  let effectiveMaxTokens: number | null = probe ? (maxTokens ?? 1) : (maxTokens ?? adapter.defaultMaxTokens ?? null);
+
+  // 请求体按当前生效上限组装；退回保守值后要整份重装，故抽成函数。
+  const buildBody = (): Record<string, unknown> =>
+    adapter.buildBody({
+      model,
+      messages,
+      stream,
+      probe,
+      baseUrl,
+      apiKey: provider.apiKey,
+      presetId: provider.presetId,
+      thinkingLevel,
+      maxTokens: effectiveMaxTokens,
+      tools
+    });
+  let body = buildBody();
+
+  // 错误 detail 归一（协议 error envelope 解析进 adapter，如 OpenAI 的
+  // error.message；core 统一加 `[协议名] ` 前缀并截前 200 字符，spec：归一化到
+  // 现有错误形状、调用层零改动）：HTTP 失败路径的判定与抛错文案共用一份。
+  const errorDetail = (bodyText: string): string => {
+    const extracted = adapter.extractErrorDetail(bodyText);
+    return extracted ? `[${adapter.protocol}] ${extracted}`.slice(0, 200) : "";
   };
-  const body = adapter.buildBody(request);
+
+  // 单次发送（含「输出上限被平台拒收 → 退回保守值重发一次」的自动降级）：网络层
+  // 抛错原样上抛给外层重试分支，非 2xx 的响应体读一次随结果带回（外层判定还要用）。
+  // 退回不是失败重试——不消耗外层重试次数、不报 onRetry（对用户无感）；sentBudget
+  // 落到保守值后不再退，故至多重发一次。
+  const sendOnce = async (): Promise<{ response: Response; bodyText: string }> => {
+    let sentBudget = effectiveMaxTokens;
+    for (;;) {
+      const response = await fetchImpl(adapter.endpoint(baseUrl), {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal
+      });
+      if (response.ok) {
+        return { response, bodyText: "" };
+      }
+      let bodyText = "";
+      try {
+        bodyText = await response.text();
+      } catch {}
+      if (sentBudget != null && sentBudget > CONSERVATIVE_MAX_TOKENS && isOutputBudgetTooLarge(errorDetail(bodyText))) {
+        sentBudget = CONSERVATIVE_MAX_TOKENS;
+        effectiveMaxTokens = sentBudget;
+        body = buildBody();
+        continue;
+      }
+      return { response, bodyText };
+    }
+  };
 
   // 上一次失败（kind + 错误）：attempt > 0 时经 onRetry 上报后再退避重试。
   let lastFailure: { kind: "fetch" | "http" | "stream"; error: Error } | null = null;
@@ -279,13 +330,9 @@ export async function chatCompletion({
     }
 
     let response: Response;
+    let bodyText = "";
     try {
-      response = await fetchImpl(adapter.endpoint(baseUrl), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal
-      });
+      ({ response, bodyText } = await sendOnce());
     } catch (e) {
       // 中止（真实 signal 中止 / 注入实现抛出的中止标记 / AbortError）统一收束。
       if (signal?.aborted || (e as { aborted?: boolean })?.aborted || (e as { name?: string }).name === "AbortError") {
@@ -300,16 +347,11 @@ export async function chatCompletion({
     }
 
     if (!response.ok) {
-      let bodyText = "";
-      try {
-        bodyText = await response.text();
-      } catch {}
-      // 错误 detail 提取进 adapter（协议 error envelope 解析，如 OpenAI 的
-      // error.message）；core 统一加 `[协议名] ` 前缀并截前 200 字符
-      // （spec：归一化到现有错误形状，调用层零改动）。
-      const extracted = adapter.extractErrorDetail(bodyText);
-      const detail = extracted ? `[${adapter.protocol}] ${extracted}`.slice(0, 200) : "";
-      if (isContextLengthOverflow(detail)) {
+      const detail = errorDetail(bodyText);
+      // 输出上限给大了（平台硬拒；sendOnce 里已试过退回保守值，走到这里=无可退）：
+      // 按普通 HTTP 错误抛出，不冒充上下文溢出——「上下文过长」提示与 Map-Reduce
+      // 分流都指错方向。
+      if (!isOutputBudgetTooLarge(detail) && isContextLengthOverflow(detail)) {
         // context-length 溢出：不重试，带 overflow 标记抛出供调用方分流。
         throw makeOverflowError(`HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
       }

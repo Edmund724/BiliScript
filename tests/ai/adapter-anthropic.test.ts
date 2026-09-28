@@ -84,8 +84,11 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
   });
 
-  it("max_tokens 必填兜底 8192；显式值透传（限制点 1）", () => {
-    expect(anthropicAdapter.buildBody({ ...base, messages: [] }).max_tokens).toBe(8192);
+  it("max_tokens 必填兜底 32768（与 adapter 声明的 defaultMaxTokens 同源）；显式值透传", () => {
+    expect(anthropicAdapter.buildBody({ ...base, messages: [] }).max_tokens).toBe(32768);
+    // core 以 defaultMaxTokens 为「本轮实际发出的上限」，退回保守值时据此判断——
+    // 两处取值必须同源，否则退回逻辑算错。
+    expect(anthropicAdapter.defaultMaxTokens).toBe(32768);
     expect(anthropicAdapter.buildBody({ ...base, messages: [], maxTokens: 4096 }).max_tokens).toBe(4096);
     // 探针由 core 代劳传 1：直接透传不兜底。
     expect(anthropicAdapter.buildBody({ ...base, messages: [], maxTokens: 1 }).max_tokens).toBe(1);
@@ -158,7 +161,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 2048 });
     // 兜底上限必须放得下思考预算：思考 token 计入 max_tokens，兜底过小正文会被挤没。
-    expect(body.max_tokens).toBe(8192);
+    expect(body.max_tokens).toBe(32768);
   });
 
   it("关思考三种词汇殊途同归：翻译成 thinking:{type:disabled} 发出", () => {
@@ -337,14 +340,14 @@ describe("images 线格式（image-input 路线 B：content 翻译）", () => {
       ]
     });
     expect(JSON.stringify(body)).toBe(
-      '{"model":"claude-x","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}],"stream":false,"max_tokens":8192}'
+      '{"model":"claude-x","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}],"stream":false,"max_tokens":32768}'
     );
   });
 
   it("images: []（空数组）与缺省同形：content 保持字符串", () => {
     const body = anthropicAdapter.buildBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
     expect(JSON.stringify(body)).toBe(
-      '{"model":"claude-x","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":8192}'
+      '{"model":"claude-x","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":32768}'
     );
   });
 

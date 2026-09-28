@@ -3,10 +3,13 @@
 // 各自的触发条件，注释互指。本模块只收口「判不判 / 给多少预算」，重放机制
 // （stream-reset 整轮重跑 vs 静默重发）、提示纪律（notice vs 抛错）仍归各链。
 
-// 重试时的输出预算（定值）。语义锚点是 anthropic adapter 的兜底上限 8192 的
-// 倍加（adapters/anthropic.ts 的 DEFAULT_MAX_TOKENS）——首发不带预算、由平台
-// 默认决定（openai 协议首发干脆不发 max_tokens 字段），「加倍」只能相对这层兜底。
-export const EMPTY_TEXT_RETRY_MAX_TOKENS = 16384;
+import { DEFAULT_MAX_TOKENS } from "./output-budget.js";
+
+// 重试时的输出预算（派生值）。语义锚点是协议必填参数的兜底上限
+// （adapters/anthropic.ts 声明、ai/output-budget.ts 单源）——首发不带预算、由该
+// 兜底决定（openai 协议首发干脆不发 max_tokens 字段），「加倍」只能相对这层兜底；
+// 兜底上调后这里必须同步，否则重试反而比首发更小。
+export const EMPTY_TEXT_RETRY_MAX_TOKENS = DEFAULT_MAX_TOKENS * 2;
 
 // 触发判定单源：正文为空（纯空白算空；思考不算正文）才值得重试。
 // finishReason 可选——传入时要求 "length"（仅 chat 链接 onFinishReason，「截断」
