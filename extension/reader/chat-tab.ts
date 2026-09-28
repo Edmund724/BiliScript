@@ -483,6 +483,7 @@ const modelPanel = createReaderChatModelPanel({
   chipModel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-model") as HTMLElement,
   chipLevel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-level") as HTMLElement,
   panelList: els.modelPanelList,
+  panel: els.modelPanel,
   hidePanel: () => popovers.hideModelPanel()
 });
 

@@ -14,7 +14,7 @@
 // popovers 实例，组装点以箭头函数接线）经工厂 deps 注入。本模块不 import
 // 组合根与 popovers。
 import { chatSessionState } from "../chat/chat-state.js";
-import { updateModelSelectWidth } from "../chat/model-select-width.js";
+import { measureModelPanelWidth, updateModelSelectWidth } from "../chat/model-select-width.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 export interface CreateReaderChatModelPanelDeps {
@@ -23,6 +23,8 @@ export interface CreateReaderChatModelPanelDeps {
   chipModel: HTMLElement;
   chipLevel: HTMLElement;
   panelList: HTMLElement;
+  // 面板根（定位/宽度写在它身上：宽度 = 打开时按 chip 可见宽的快照）
+  panel: HTMLElement;
   // 惰性互引（组装点以箭头函数接线，回调执行时 popovers 实例已存在）
   hidePanel: () => void;
 }
@@ -39,7 +41,7 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
 };
 
 export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps): ReaderChatModelPanel {
-  const { modelSelect, chip, chipModel, chipLevel, panelList } = deps;
+  const { modelSelect, chip, chipModel, chipLevel, panelList, panel } = deps;
 
   // chip 文案 = 平台名·选中模型名 + 当前思考档位（截图形态「ModelScope·DeepSeek
   // V4.1 Flash High」）。平台名取选中 option 所属 optgroup 的 label（与面板分组
@@ -66,7 +68,12 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // 面板列表：按 select optgroup 分组渲染（平台名 = 组标题），当前选中项打勾。
   // 值源不变：点选项 = 写 value + 派生 change（组合根的 change 监听负责持久化、
   // 宽度重算与提示重判），随后关面板。
+  //
+  // 宽度：打开时按 chip 可见宽快照写内联（[240, 320] 夹取见 chat/model-select-width
+  // 的 measureModelPanelWidth）——面板从 chip 上方呼出、宽度与「模型名显示区域」
+  // 同宽；打开期间不重算，故点档位改 chip 文案时面板宽度不抖，重开才更新。
   function renderPanel(): void {
+    panel.style.width = `${measureModelPanelWidth({ chip, chipModel, chipLevel })}px`;
     if (modelSelect.disabled) {
       panelList.innerHTML = '<span class="chat-model-empty">未配置平台</span>';
       return;

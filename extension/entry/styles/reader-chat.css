@@ -790,11 +790,21 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-/* 底部控件行：联网搜索 pill 在左，模型 chip 与发送键在右（chip margin-left:auto 顶开）。 */
+/* 底部控件行：联网搜索 pill 在左，模型 chip 锚点与发送键在右（锚点 margin-left:auto
+ * 顶开）。 */
 .biliscript-reading-chat .chat-input-bar {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 模型 chip 的锚点容器：右推（margin-left:auto）与模型面板的定位父级都收在这里
+ * ——面板从 chip 正上方呼出（见 .chat-model-panel 的锚点规则）。 */
+.biliscript-reading-chat .chat-model-anchor {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  margin-left: auto;
 }
 
 /* 模型 chip：隐藏 select 的展示层。内联 width（model-select-width 按内容度量,
@@ -805,7 +815,6 @@
   align-items: center;
   gap: 4px;
   height: 30px;
-  margin-left: auto;
   padding: 0 10px;
   border: 0;
   background: transparent;
@@ -908,14 +917,11 @@
   display: block;
 }
 
-/* 两个弹层（历史 / 模型面板）：锚在 footer 顶边之上（bottom: calc(100%+4px)
- * 相对 .chat-footer——footer 高度即发送卡片高度，不再随输入框行高硬编码）。 */
+/* 两个弹层（历史 / 模型面板）的共同壳：卡片外观 + 内滚；各自的锚点见下面两条
+ * 独立规则（历史弹层锚 footer 全宽，模型面板锚 chip 容器）。 */
 .biliscript-reading-chat .chat-history-popover,
 .biliscript-reading-chat .chat-model-panel {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 4px);
   z-index: 10;
   display: flex;
   flex-direction: column;
@@ -927,6 +933,27 @@
   background: var(--biliscript-reader-card);
   box-shadow: var(--biliscript-reader-shadow);
   overflow-y: auto;
+}
+
+/* 历史弹层：锚在 footer 顶边之上（bottom: calc(100% + 4px) 相对 .chat-footer——
+ * footer 高度即发送卡片高度，不再随输入框行高硬编码），占满对话列宽。 */
+.biliscript-reading-chat .chat-history-popover {
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+}
+
+/* 模型面板（发送框紧凑化）：锚点从 footer 换成 chip 容器 .chat-model-anchor——
+ * right:0 让面板右缘对齐 chip 右缘（即 chevron 正上方），bottom 落在 chip 顶边
+ * 上方 6px，面板于是压在输入框（textarea）区域上，而不是浮在整张输入卡片上方；
+ * 宽度由 chat-model-panel 打开时按 chip 可见宽快照写内联（夹在 [240, 320]），
+ * 不再占满列宽。内联宽按 border-box 计算，面板外宽才与 chip 外宽逐像素一致
+ * （chip 是 button，UA 样式本就是 border-box）。 */
+.biliscript-reading-chat .chat-model-panel {
+  left: auto;
+  right: 0;
+  bottom: calc(100% + 6px);
+  box-sizing: border-box;
 }
 
 .biliscript-reading-chat .chat-history-popover[hidden],
@@ -1003,11 +1030,18 @@
   color: var(--biliscript-reader-accent);
 }
 
+/* 选项名：面板宽度跟 chip 可见宽（窄），长模型名换行显示、最多 2 行，超出再
+ * 省略号（-webkit-line-clamp，Chromium 系扩展可用）——窄面板里仍能分辨模型名，
+ * 不因截断退化成同名。 */
 .biliscript-reading-chat .chat-model-option-name {
   min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
   overflow: hidden;
+  overflow-wrap: anywhere;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .biliscript-reading-chat .chat-model-check {

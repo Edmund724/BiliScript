@@ -18,6 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  measureModelPanelWidth,
   measureTextWidth,
   scheduleModelSelectWidthUpdate,
   updateModelSelectWidth
@@ -46,6 +47,12 @@ function makeChip(modelText: string | undefined, levelText = "Off") {
 function makeEls(modelText: string | undefined, levelText = "Off") {
   const { chip, chipModel, chipLevel } = makeChip(modelText, levelText);
   return { chip, chipModel, chipLevel };
+}
+
+// chip 可见宽桩：面板宽度跟的是「chip 在输入行里实际占多宽」（flex 挤压后的
+// 渲染宽，非 canvas 度量宽），jsdom 无布局，只能显式给。
+function stubChipVisibleWidth(chip: HTMLElement, width: number) {
+  chip.getBoundingClientRect = () => ({ width } as DOMRect);
 }
 
 describe("model-select-width", () => {
@@ -87,6 +94,46 @@ describe("model-select-width", () => {
     const els = makeEls(undefined, ""); // 5×8 + 44 = 84 < 92
     updateModelSelectWidth(els);
     expect(els.chip.style.width).toBe("92px");
+  });
+});
+
+// 模型面板宽度（发送框紧凑化）：面板从 chip 上方呼出且宽度跟 chip 的**可见宽**
+// （渲染宽，非 canvas 度量宽——度量宽只会更大，长名撞 420 上限），夹在 [240, 320]：
+// 下限保「思考 Off/Low/High」一行放得下，上限防面板占满对话列。chip 尚未布局
+//（可见宽 0）或整体缺失时回落 canvas 度量宽再夹取，行为与 chip 宽度度量同源。
+describe("measureModelPanelWidth", () => {
+  it("可见宽在区间内：按可见宽取整（252.4 → 253）", () => {
+    const els = makeEls("ModelScope·deepseek-ai/DeepSeek-V4.1-Flash");
+    stubChipVisibleWidth(els.chip, 252.4);
+    expect(measureModelPanelWidth(els)).toBe(253);
+  });
+
+  it("可见宽低于下限：触底 240（短模型名的窄 chip 也让档位行放得下）", () => {
+    const els = makeEls("AI");
+    stubChipVisibleWidth(els.chip, 150);
+    expect(measureModelPanelWidth(els)).toBe(240);
+  });
+
+  it("可见宽高于上限：截断 320（防面板占满列宽）", () => {
+    const els = makeEls("x".repeat(60));
+    stubChipVisibleWidth(els.chip, 500);
+    expect(measureModelPanelWidth(els)).toBe(320);
+  });
+
+  it("可见宽为 0（未布局）：回落 canvas 度量宽再夹取（长名触 320 上限）", () => {
+    const els = makeEls("x".repeat(60)); // 60×8 + 3×8 + 44 = 548 > 320
+    stubChipVisibleWidth(els.chip, 0);
+    expect(measureModelPanelWidth(els)).toBe(320);
+  });
+
+  it("可见宽为 0 且文案短：仍触 240 下限，不塌到 chip 的 92 下限", () => {
+    const els = makeEls("AI", ""); // 2×8 + 44 = 60
+    stubChipVisibleWidth(els.chip, 0);
+    expect(measureModelPanelWidth(els)).toBe(240);
+  });
+
+  it("chip 缺失：不抛错，回落「未配置平台」测宽并触 240 下限", () => {
+    expect(measureModelPanelWidth({ chip: null, chipModel: null, chipLevel: null })).toBe(240);
   });
 });
 

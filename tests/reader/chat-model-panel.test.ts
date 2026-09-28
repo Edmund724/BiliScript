@@ -9,7 +9,9 @@
 //   High）；optgroup label 缺失时只显示模型名；select 禁用（未配置平台）→ chip
 //   同步禁用并回落占位文案；
 // - renderPanel：按 optgroup 分组渲染、当前选中项 is-selected + ✓、点击选项写
-//   值源并派生 change 后关面板；点当前已选项不改值但仍关面板。
+//   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；
+// - renderPanel 的面板宽度：打开时按 chip 可见宽快照写内联宽（打开期间档位/模型
+//   变化不重算，重开才更新）。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -48,10 +50,11 @@ function makeHarness(select = makeSelect()) {
   const chipLevel = document.createElement("span");
   chip.append(chipModel, chipLevel);
   const panelList = document.createElement("div");
-  document.body.append(chip, panelList);
+  const panel = document.createElement("div");
+  document.body.append(chip, panelList, panel);
   const hidePanel = vi.fn();
-  const modelPanel = createReaderChatModelPanel({ modelSelect: select, chip, chipModel, chipLevel, panelList, hidePanel });
-  return { select, chip, chipModel, chipLevel, panelList, hidePanel, modelPanel };
+  const modelPanel = createReaderChatModelPanel({ modelSelect: select, chip, chipModel, chipLevel, panelList, panel, hidePanel });
+  return { select, chip, chipModel, chipLevel, panelList, panel, hidePanel, modelPanel };
 }
 
 describe("renderChip", () => {
@@ -149,5 +152,34 @@ describe("renderPanel", () => {
 
     expect(panelList.querySelector(".chat-model-empty")).not.toBe(null);
     expect(panelList.querySelectorAll(".chat-model-option")).toHaveLength(0);
+  });
+});
+
+describe("renderPanel 的面板宽度（打开时快照）", () => {
+  it("打开时按 chip 可见宽写面板内联宽", () => {
+    const { chip, panel, modelPanel } = makeHarness();
+    chip.getBoundingClientRect = () => ({ width: 252 } as DOMRect);
+
+    modelPanel.renderPanel();
+
+    expect(panel.style.width).toBe("252px");
+  });
+
+  it("打开期间 chip 宽度变化不重算（再次 renderPanel 才更新）", () => {
+    const { chip, panel, modelPanel } = makeHarness();
+    let visibleWidth = 252;
+    chip.getBoundingClientRect = () => ({ width: visibleWidth } as DOMRect);
+
+    modelPanel.renderPanel();
+    expect(panel.style.width).toBe("252px");
+
+    // 档位点击等路径会重渲 chip（chip 自身宽度变了），但面板未重开 → 宽度快照不动
+    visibleWidth = 300;
+    modelPanel.renderChip();
+    expect(panel.style.width).toBe("252px");
+
+    // 重开（再次 renderPanel）才取新值
+    modelPanel.renderPanel();
+    expect(panel.style.width).toBe("300px");
   });
 });

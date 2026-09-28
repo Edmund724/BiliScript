@@ -60,22 +60,6 @@ export function buildChatTabBodyHtml(): string {
             </div>
             <div id="${ids.readingChatHistoryList}" class="chat-history-list"></div>
           </div>
-          <!-- 模型 + 思考档位面板：点发送框底部模型 chip 弹出。上部分组模型列表
-               （滚动），底部固定思考档位行 + 「关不掉」提示行（工单 03）。 -->
-          <div id="${ids.readingChatModelPanel}" class="chat-model-panel" hidden>
-            <div id="${ids.readingChatModelList}" class="chat-model-list"></div>
-            <div class="chat-model-panel-foot">
-              <div class="chat-model-panel-thinking">
-                <span class="chat-model-thinking-label">思考</span>
-                <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-toggle" role="group" aria-label="思考档位">
-                  <button type="button" class="chat-thinking-btn" data-level="off">Off</button>
-                  <button type="button" class="chat-thinking-btn" data-level="low">Low</button>
-                  <button type="button" class="chat-thinking-btn" data-level="high">High</button>
-                </div>
-              </div>
-              <div id="${ids.readingChatThinkingHint}" class="chat-thinking-hint" role="note" hidden></div>
-            </div>
-          </div>
           <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
                键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">
@@ -98,14 +82,35 @@ export function buildChatTabBodyHtml(): string {
               <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-pressed="false">
                 <span>联网搜索</span>
               </button>
-              <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位">
-                <!-- 模型名与档位分 span：溢出截断只作用于模型名，档位与 chevron 恒完整 -->
-                <span class="chat-model-chip-model">未配置平台</span>
-                <span class="chat-model-chip-level">Off</span>
-                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <path d="m6 9 6 6 6-6"></path>
-                </svg>
-              </button>
+              <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、
+                   浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在
+                   输入框上）。右推 margin-left:auto 也收在这里（chip 自己不再右推）。 -->
+              <div class="chat-model-anchor">
+                <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位">
+                  <!-- 模型名与档位分 span：溢出截断只作用于模型名，档位与 chevron 恒完整 -->
+                  <span class="chat-model-chip-model">未配置平台</span>
+                  <span class="chat-model-chip-level">Off</span>
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                    <path d="m6 9 6 6 6-6"></path>
+                  </svg>
+                </button>
+                <!-- 模型 + 思考档位面板：点 chip 弹出。上部分组模型列表（滚动），
+                     底部固定思考档位行 + 「关不掉」提示行（工单 03）。 -->
+                <div id="${ids.readingChatModelPanel}" class="chat-model-panel" hidden>
+                  <div id="${ids.readingChatModelList}" class="chat-model-list"></div>
+                  <div class="chat-model-panel-foot">
+                    <div class="chat-model-panel-thinking">
+                      <span class="chat-model-thinking-label">思考</span>
+                      <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-toggle" role="group" aria-label="思考档位">
+                        <button type="button" class="chat-thinking-btn" data-level="off">Off</button>
+                        <button type="button" class="chat-thinking-btn" data-level="low">Low</button>
+                        <button type="button" class="chat-thinking-btn" data-level="high">High</button>
+                      </div>
+                    </div>
+                    <div id="${ids.readingChatThinkingHint}" class="chat-thinking-hint" role="note" hidden></div>
+                  </div>
+                </div>
+              </div>
               <button id="${ids.readingChatSendBtn}" type="button" class="chat-send-btn" disabled aria-label="发送">
                 <svg class="chat-send-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
                   <path d="M12 19V5"></path>
