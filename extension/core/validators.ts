@@ -72,16 +72,6 @@ export function normalizeAiSystemPrompt(value: unknown): string {
   return normalized;
 }
 
-export function normalizeAiPresetPrompts(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map(function (item: unknown) { return toString(item).trim(); })
-    .filter(Boolean)
-    .slice(0, 12);
-}
-
 export function normalizeAiInitialQuickPrompts(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return DEFAULT_INITIAL_QUICK_PROMPTS.slice();

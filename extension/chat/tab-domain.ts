@@ -65,7 +65,6 @@ export {
 export { CONTEXT_READ_FAILED_MESSAGE, isPinnedContextTruthy } from "./context-policy.js";
 // offscreen 聊天端口名单源（chat/protocol.ts，ticket 08，原裸写字面量收口）。
 export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
-export { createPresetPrompts } from "./presets.js";
 export { createProviderPrefs, parseModelOptionValue } from "./providers.js";
 
 export interface CreateChatTabDomainDeps {

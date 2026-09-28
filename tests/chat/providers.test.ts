@@ -5,15 +5,14 @@
 //
 // 覆盖：
 // - loadProvidersAndPrefs：双消息（ai-providers-list + get-settings）+ storage
-//   读取并行、enabled 过滤、aiPrefs 归一化落 chatSessionState、空预设回落
-//   DEFAULT_PRESET_PROMPTS 并触发持久化、渲染回调（modelSelect/思考档位/预设
-//   列表）；
+//   读取并行、enabled 过滤、aiPrefs 归一化落 chatSessionState、渲染回调
+//  （modelSelect/思考档位）；
 // - renderModelSelect：无平台 → disabled +「未配置平台」；有平台 → 按优先级
 //   preferredProviderId > chrome.storage 选中（复合值，精确到模型）>
 //   aiPrefs.defaultModel（裸平台 id，只解析到平台首个模型）；
 // - setThinkingLevel：归一化 + 渲染 + chrome.storage 写 + save-settings 单键。
 //
-// 模板同 tests/chat/presets.test.ts：vi.hoisted mock shared/messaging；
+// 模板同 tests/chat/chat-state 系测试：vi.hoisted mock shared/messaging；
 // resetModules 切纪元后同纪元 import chat-state 单例；storage fake 注入 deps。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -75,8 +74,6 @@ function makeHarness(storage = makeStorageFake()) {
     modelSelect,
     thinkingBtns,
     widthEls: { modelSelect } as ModelSelectWidthEls,
-    renderPresetPrompts: vi.fn(),
-    persistAiPresetPrompts: vi.fn(async () => {}),
     storage
   };
   const providerPrefs = createProviderPrefs(deps);
@@ -103,7 +100,6 @@ describe("loadProvidersAndPrefs", () => {
       return { ok: true, settings: {
         aiSystemPrompt: "  系统提示  ",
         aiInitialQuickPrompts: ["快速一"],
-        aiPresetPrompts: ["预设一"],
         defaultModel: "p3",
         aiThinkingLevel: "low"
       } };
@@ -119,32 +115,14 @@ describe("loadProvidersAndPrefs", () => {
     expect(chatSessionState.aiPrefs).toEqual({
       aiSystemPrompt: "系统提示",
       aiInitialQuickPrompts: ["快速一"],
-      aiPresetPrompts: ["预设一"],
       defaultModel: "p3"
     });
     expect(chatSessionState.aiThinkingLevel).toBe("low");
-    expect(deps.renderPresetPrompts).toHaveBeenCalledTimes(1);
-    expect(deps.persistAiPresetPrompts).not.toHaveBeenCalled();
     // 默认选中 defaultModel 对应平台：裸平台 id 回落该平台首个模型（复合值）
     expect(deps.modelSelect.value).toBe(buildModelOptionValue("p3", "模型三"));
     expect(deps.modelSelect.disabled).toBe(false);
     // 思考档位高亮 low
     expect(deps.thinkingBtns.map((btn) => btn.classList.contains("is-active"))).toEqual([false, true, false]);
-  });
-
-  it("空预设回落 DEFAULT_PRESET_PROMPTS 并触发持久化", async () => {
-    sendRuntimeMessageMock.mockImplementation(async (message) => {
-      if (message.type === "ai-providers-list") {
-        return { providers: [{ id: "p1", enabled: true }] };
-      }
-      return { ok: true, settings: {} };
-    });
-    const { deps, providerPrefs } = makeHarness();
-
-    await providerPrefs.loadProvidersAndPrefs();
-
-    expect(chatSessionState.aiPrefs.aiPresetPrompts.length).toBeGreaterThan(0);
-    expect(deps.persistAiPresetPrompts).toHaveBeenCalledTimes(1);
   });
 
   it("get-settings 失败不阻断：aiPrefs 全走默认兜底", async () => {

@@ -790,45 +790,11 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-/* 底部控件行：+ 在左，模型 chip 与发送键在右（chip margin-left:auto 顶开）。 */
+/* 底部控件行：联网搜索 pill 在左，模型 chip 与发送键在右（chip margin-left:auto 顶开）。 */
 .biliscript-reading-chat .chat-input-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.biliscript-reading-chat .chat-add-btn {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--biliscript-reader-muted);
-  cursor: pointer;
-  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
-}
-
-.biliscript-reading-chat .chat-add-btn:hover {
-  background: var(--biliscript-reader-surface-2);
-  color: var(--biliscript-reader-text);
-}
-
-.biliscript-reading-chat .chat-add-btn:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-.biliscript-reading-chat .chat-add-btn svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
 }
 
 /* 模型 chip：隐藏 select 的展示层。内联 width（model-select-width 按内容度量,
@@ -942,9 +908,8 @@
   display: block;
 }
 
-/* 三个弹层（预设 / 历史 / 模型面板）：锚在 footer 顶边之上（bottom: calc(100%+4px)
+/* 两个弹层（历史 / 模型面板）：锚在 footer 顶边之上（bottom: calc(100%+4px)
  * 相对 .chat-footer——footer 高度即发送卡片高度，不再随输入框行高硬编码）。 */
-.biliscript-reading-chat .chat-preset-popover,
 .biliscript-reading-chat .chat-history-popover,
 .biliscript-reading-chat .chat-model-panel {
   position: absolute;
@@ -964,7 +929,6 @@
   overflow-y: auto;
 }
 
-.biliscript-reading-chat .chat-preset-popover[hidden],
 .biliscript-reading-chat .chat-history-popover[hidden],
 .biliscript-reading-chat .chat-model-panel[hidden] {
   display: none !important;
@@ -983,19 +947,12 @@
   color: var(--biliscript-reader-muted);
 }
 
-.biliscript-reading-chat .chat-preset-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 .biliscript-reading-chat .chat-history-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.biliscript-reading-chat .chat-preset-empty,
 .biliscript-reading-chat .chat-history-empty,
 .biliscript-reading-chat .chat-model-empty {
   color: var(--biliscript-reader-faint);
@@ -1181,85 +1138,6 @@
 .biliscript-reading-chat .chat-history-remove:hover {
   color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
-}
-
-.biliscript-reading-chat .chat-preset-item {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 999px;
-  background: var(--biliscript-reader-surface);
-  overflow: hidden;
-}
-
-.biliscript-reading-chat .chat-preset-chip {
-  max-width: 200px;
-  padding: 5px 10px;
-  border: 0;
-  background: transparent;
-  color: var(--biliscript-reader-muted);
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.biliscript-reading-chat .chat-preset-chip:hover {
-  color: var(--biliscript-reader-text);
-}
-
-.biliscript-reading-chat .chat-preset-remove {
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-left: 1px solid var(--biliscript-reader-border);
-  background: transparent;
-  color: var(--biliscript-reader-faint);
-  font: inherit;
-  font-size: 15px;
-  cursor: pointer;
-}
-
-.biliscript-reading-chat .chat-preset-remove:hover {
-  color: var(--biliscript-reader-accent);
-  background: var(--biliscript-reader-accent-soft);
-}
-
-.biliscript-reading-chat .chat-preset-editor {
-  display: flex;
-  gap: 6px;
-}
-
-.biliscript-reading-chat .chat-preset-input {
-  flex: 1;
-  min-width: 0;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 999px;
-  background: var(--biliscript-reader-surface);
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 15px;
-}
-
-.biliscript-reading-chat .chat-preset-add-btn {
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--biliscript-reader-surface-2);
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 15px;
-  cursor: pointer;
-}
-
-.biliscript-reading-chat .chat-preset-add-btn:hover {
-  background: var(--biliscript-reader-surface-3);
 }
 
 /* 输入框：未聚焦恒一行（模板 rows=1，省空间），聚焦才展开——聚焦下限与随内容

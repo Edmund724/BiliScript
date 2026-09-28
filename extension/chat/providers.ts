@@ -17,15 +17,10 @@
 // 依赖方向（无环）：共享可变状态（providers / aiPrefs / aiThinkingLevel）直接
 // import；sendRuntimeMessage（shared 传输层）、chrome.storage 抽象（可注入，
 // 缺省全局 chrome.storage.local）、DOM 元素（modelSelect / thinkingBtns /
-// updateModelSelectWidth 的 els 引用包）、渲染回调（renderPresetPrompts、
-// persistAiPresetPrompts 惰性互引 presets 实例）经工厂 deps 注入。本模块不
+// updateModelSelectWidth 的 els 引用包）经工厂 deps 注入。本模块不
 // import 组合根。
 import {
-  DEFAULT_PRESET_PROMPTS
-} from "../core/default-prompts.js";
-import {
   normalizeAiInitialQuickPrompts,
-  normalizeAiPresetPrompts,
   normalizeAiThinkingLevel
 } from "../core/validators.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -61,9 +56,6 @@ export interface CreateProviderPrefsDeps {
   // updateModelSelectWidth 的 els 引用包（含 chip/chipLabel/inputBar——发送框
   // 重构起度量对象是模型 chip 而非 select）
   widthEls: ModelSelectWidthEls;
-  renderPresetPrompts: () => void;
-  // 惰性互引（组装点以箭头函数接线，回调执行时 presets 实例已存在）
-  persistAiPresetPrompts: () => Promise<void>;
   // chrome.storage.local 抽象（PR5 改造：原 localStorage 通道换此注入点；
   // 缺省取全局 chrome.storage.local）
   storage?: ProviderPrefsStorage;
@@ -175,7 +167,6 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     chatSessionState.aiPrefs = {
       aiSystemPrompt: String(settings?.aiSystemPrompt || "").trim(),
       aiInitialQuickPrompts: normalizeAiInitialQuickPrompts(settings?.aiInitialQuickPrompts),
-      aiPresetPrompts: normalizeAiPresetPrompts(settings?.aiPresetPrompts),
       defaultModel: String(settings?.defaultModel || "").trim()
     };
     chatSessionState.aiThinkingLevel = normalizeAiThinkingLevel(
@@ -183,14 +174,9 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     );
     // 联网搜索开关（spec §2.1/§4）：全局记忆（sync settings），默认关。
     chatSessionState.webSearchEnabled = Boolean(settings?.webSearchEnabled);
-    if (!chatSessionState.aiPrefs.aiPresetPrompts.length) {
-      chatSessionState.aiPrefs.aiPresetPrompts = DEFAULT_PRESET_PROMPTS.slice();
-      void deps.persistAiPresetPrompts();
-    }
     renderModelSelect(preferredProviderId);
     renderThinkingLevel();
     renderWebSearchEnabled();
-    deps.renderPresetPrompts();
   }
 
   // 选中值回落：依次尝试传入优先值 / chrome.storage 选中值（复合值，精确到

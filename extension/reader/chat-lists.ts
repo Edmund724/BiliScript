@@ -1,13 +1,13 @@
-// reader/chat-lists.ts — 对话 tab 三列表渲染 + 预设提示词插入（PR5 自
+// reader/chat-lists.ts — 对话 tab 两列表渲染（建议/历史）（PR5 自
 // extension/pages/sidepanel-lists.ts 重建；原 sidepanel 孪生模块已随侧边栏
-// 形态删除，本文件是对话 tab 三列表的唯一实现，逻辑改动不再需要与孪生同步，
+// 形态删除，本文件是对话 tab 列表渲染的唯一实现，逻辑改动不再需要与孪生同步，
 // 行为契约由 tests/reader/chat-lists.test.ts 钉住。DOM 壳：元素经 deps 注入
 // reader 的 readingChat* id 节点，class 名沿用 .chat-*（样式段在 styles/
 // reader-chat.css，随对话域按需装载，token 化两主题））。
 //
 // 依赖方向（无环）：共享可变状态（../chat/chat-state）与 ai/conversation 纯辅助
-// 直接 import；DOM 元素、会话动作、预设 CRUD、布局回调、建议点击发送、
-// suggestionsNode 单例钩子经工厂 deps 注入。本模块不 import 组合根。
+// 直接 import；DOM 元素、会话动作、布局回调、建议点击发送、suggestionsNode
+// 单例钩子经工厂 deps 注入。本模块不 import 组合根。
 import {
   doesConversationMatchCurrentContext,
   doesTabMatchContextUrl,
@@ -19,35 +19,28 @@ import { normalizeAiInitialQuickPrompts } from "../core/validators.js";
 import { chatSessionState } from "../chat/chat-state.js";
 
 export interface CreateReaderChatListsDeps {
-  presetList: HTMLElement;
   historyList: HTMLElement;
   historyClearBtn: HTMLButtonElement | null;
   input: HTMLTextAreaElement;
   // 会话动作（conversation-store 实例的窄接口）
   applyById: (id: string) => void;
   deleteById: (id: string) => Promise<void>;
-  // 预设 CRUD（../chat/presets 实例的窄接口）
-  removePresetPrompt: (index: number) => Promise<void>;
   // 布局 / 发送回调（组合根提供）
   autosizeInput: () => void;
   onSuggestionClick: (prompt: string) => void;
   // suggestionsNode 单例 getter（组合根持有）
   getSuggestionsNode: () => HTMLElement | null;
   // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
-  insertPresetPrompt: (prompt: string) => void;
-  hidePresetPopover: () => void;
   hideHistoryPopover: () => void;
 }
 
 export interface ReaderChatLists {
   renderSuggestions: () => void;
-  renderPresetPrompts: () => void;
   renderHistoryList: () => void;
-  insertPresetPrompt: (prompt: string) => void;
 }
 
 export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderChatLists {
-  const { presetList, historyList, historyClearBtn, input, getSuggestionsNode } = deps;
+  const { historyList, historyClearBtn, input, getSuggestionsNode } = deps;
 
   function renderSuggestions(): void {
     const suggestionsNode = getSuggestionsNode();
@@ -67,38 +60,6 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
         input.value = btn.textContent || "";
         deps.autosizeInput();
         deps.onSuggestionClick(btn.textContent || "");
-      });
-    });
-  }
-
-  function renderPresetPrompts(): void {
-    if (!presetList) {
-      return;
-    }
-    const prompts = Array.isArray(chatSessionState.aiPrefs.aiPresetPrompts) ? chatSessionState.aiPrefs.aiPresetPrompts : [];
-    if (!prompts.length) {
-      presetList.innerHTML = '<span class="chat-preset-empty">还没有预设提示词</span>';
-      return;
-    }
-    presetList.innerHTML = prompts
-      .map((prompt, index) => `
-        <span class="chat-preset-item">
-          <button type="button" class="chat-preset-chip" data-index="${index}" title="${escapeHtml(prompt)}">${escapeHtml(prompt)}</button>
-          <button type="button" class="chat-preset-remove" data-index="${index}" aria-label="删除预设提示词">×</button>
-        </span>
-      `)
-      .join("");
-    presetList.querySelectorAll(".chat-preset-chip").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const index = Number(btn.getAttribute("data-index") || -1);
-        deps.insertPresetPrompt(prompts[index] || "");
-        deps.hidePresetPopover();
-      });
-    });
-    presetList.querySelectorAll(".chat-preset-remove").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const index = Number(btn.getAttribute("data-index") || -1);
-        await deps.removePresetPrompt(index);
       });
     });
   }
@@ -165,16 +126,5 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
     });
   }
 
-  function insertPresetPrompt(prompt: string): void {
-    const text = String(prompt || "").trim();
-    if (!text) {
-      return;
-    }
-    const current = input.value.trim();
-    input.value = current ? `${current}\n${text}` : text;
-    input.focus();
-    deps.autosizeInput();
-  }
-
-  return { renderSuggestions, renderPresetPrompts, renderHistoryList, insertPresetPrompt };
+  return { renderSuggestions, renderHistoryList };
 }

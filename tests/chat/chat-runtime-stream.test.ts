@@ -33,7 +33,6 @@ interface TestDeps extends CreateChatRuntimeDeps {
     setStreamingUiState: MockFn;
     showConversationContextNotice: MockFn;
     removeConversationContextNotice: MockFn;
-    hidePresetPopover: MockFn;
     hideHistoryPopover: MockFn;
     removeCenteredState: MockFn;
     removeSuggestions: MockFn;
@@ -85,7 +84,6 @@ function makeDeps(): TestDeps {
       setStreamingUiState: vi.fn(),
       showConversationContextNotice: vi.fn(),
       removeConversationContextNotice: vi.fn(),
-      hidePresetPopover: vi.fn(),
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),

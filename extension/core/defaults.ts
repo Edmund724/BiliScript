@@ -39,7 +39,6 @@ export interface Settings {
   readerThemeUserSet: boolean;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
-  aiPresetPrompts: string[];
   defaultModel: string;
   aiThinkingLevel: "off" | "low" | "high";
   activeAsrProviderId: string;
@@ -74,7 +73,6 @@ export const DEFAULT_SETTINGS: Settings = {
   readerThemeUserSet: false,
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],
-  aiPresetPrompts: [],
   defaultModel: "",
   aiThinkingLevel: "off",
   // ===== ASR（语音转写）回退配置 =====

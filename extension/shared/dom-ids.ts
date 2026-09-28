@@ -51,7 +51,7 @@ export const ids = {
   readingChatIntent: "biliscript-reading-chat-intent",
   // PR5 AI 对话 tab（readingChat* 前缀，不用 sp 前缀）：对话区全部元素 id。
   // 结构与 sidepanel.html 的 sp* 树一一对应（context chip / 刷新 / 设置 / 新对话、
-  // 转写提示行、消息区、模型/思考档/预设/历史、输入卡片），逻辑内核
+  // 转写提示行、消息区、模型/思考档/历史、输入卡片），逻辑内核
   // 在 reader/chat-tab.ts（组合根）+ reader/chat-{lists,notices,popovers}.ts
   //（重建壳）+ ../chat/*（内核）。
   readingChatRoot: "biliscript-reading-chat",
@@ -75,11 +75,6 @@ export const ids = {
   // 思考档位「关不掉」提示行（工单 03）：档位行之后（面板底部固定区），
   // 默认 hidden，对话组合根（reader/chat-tab.ts）按 resolver 判定显隐。
   readingChatThinkingHint: "biliscript-reading-chat-thinking-hint",
-  readingChatPresetBtn: "biliscript-reading-chat-preset-btn",
-  readingChatPresetPopover: "biliscript-reading-chat-preset-popover",
-  readingChatPresetList: "biliscript-reading-chat-preset-list",
-  readingChatPresetInput: "biliscript-reading-chat-preset-input",
-  readingChatPresetAddBtn: "biliscript-reading-chat-preset-add-btn",
   readingChatHistoryPopover: "biliscript-reading-chat-history-popover",
   readingChatHistoryList: "biliscript-reading-chat-history-list",
   readingChatHistoryClearBtn: "biliscript-reading-chat-history-clear-btn",

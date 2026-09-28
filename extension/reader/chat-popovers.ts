@@ -1,7 +1,6 @@
-// reader/chat-popovers.ts — 对话 tab 预设/历史/模型面板三个弹层的开合、互斥与
+// reader/chat-popovers.ts — 对话 tab 历史/模型面板两个弹层的开合、互斥与
 // 文档级外点关闭（PR5 自 extension/pages/sidepanel-popovers.ts 重建；发送框重构
-// 起预设触发键移进发送框左下角「+」，模型 + 思考档位面板并入本协调器：
-// 任一弹层打开先关其余两个，Esc 全关，外点全关）。
+// 起模型 + 思考档位面板并入本协调器：任一弹层打开先关另一个，Esc 全关，外点全关）。
 //
 // 两处换壳（盘点报告 §1.1 popovers 判定行 + 风险 6 决议，历史定案）：
 //   1. 外点关闭的 id 选择器换 reader 的 readingChat* id（原 #sp* 硬编码）；
@@ -12,21 +11,15 @@
 import { ids } from "./state.js";
 
 export interface CreateReaderChatPopoversDeps {
-  presetPopover: HTMLElement;
   historyPopover: HTMLElement;
   modelPanel: HTMLElement;
-  presetBtn: HTMLElement;
   historyBtn: HTMLElement;
   modelChipBtn: HTMLElement;
-  presetInput: HTMLInputElement;
-  renderPresetPrompts: () => void;
   renderHistoryList: () => void;
   renderModelPanel: () => void;
 }
 
 export interface ReaderChatPopovers {
-  togglePresetPopover: (event?: Event) => void;
-  hidePresetPopover: () => void;
   toggleHistoryPopover: (event?: Event) => void;
   hideHistoryPopover: () => void;
   toggleModelPanel: (event?: Event) => void;
@@ -36,12 +29,12 @@ export interface ReaderChatPopovers {
 }
 
 export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): ReaderChatPopovers {
-  const { presetPopover, historyPopover, modelPanel, presetInput } = deps;
+  const { historyPopover, modelPanel } = deps;
 
-  // 互斥基准：任一弹层打开前先关其余两个（同一时刻至多一层浮在发送框上）。
+  // 互斥基准：任一弹层打开前先关另一个（同一时刻至多一层浮在发送框上）。
   // 模型面板的 hidden 统一经 setModelPanelHidden 写（同步 chip 箭头方向）。
   function hideOthers(except: HTMLElement): void {
-    for (const popover of [presetPopover, historyPopover, modelPanel]) {
+    for (const popover of [historyPopover, modelPanel]) {
       if (popover === except) {
         continue;
       }
@@ -58,22 +51,6 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
   function setModelPanelHidden(hidden: boolean): void {
     modelPanel.hidden = hidden;
     deps.modelChipBtn.classList.toggle("is-open", !hidden);
-  }
-
-  function togglePresetPopover(event?: Event): void {
-    event?.stopPropagation();
-    hideOthers(presetPopover);
-    const willShow = presetPopover.hidden;
-    presetPopover.hidden = !willShow;
-    if (willShow) {
-      deps.renderPresetPrompts();
-      presetInput.value = "";
-      presetInput.focus();
-    }
-  }
-
-  function hidePresetPopover(): void {
-    presetPopover.hidden = true;
   }
 
   function toggleHistoryPopover(event?: Event): void {
@@ -107,16 +84,12 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
   // 外点关闭（由组合根经 chat-tab-bridge 注册进 ui-renderer 的单一文档级委托）：
   // 判定分支与 sidepanel 孪生逐字一致，仅 id 选择器换 readingChat* 前缀。
   function handleDocumentClick(event: MouseEvent): void {
-    if (presetPopover.hidden && historyPopover.hidden && modelPanel.hidden) {
+    if (historyPopover.hidden && modelPanel.hidden) {
       return;
     }
     if (!(event.target instanceof Element)) {
-      hidePresetPopover();
       hideHistoryPopover();
       hideModelPanel();
-      return;
-    }
-    if (event.target.closest(`#${ids.readingChatPresetPopover}`) || event.target.closest(`#${ids.readingChatPresetBtn}`)) {
       return;
     }
     if (event.target.closest(`#${ids.readingChatHistoryPopover}`) || event.target.closest(`#${ids.readingChatHistoryBtn}`)) {
@@ -125,7 +98,6 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (event.target.closest(`#${ids.readingChatModelPanel}`) || event.target.closest(`#${ids.readingChatModelChip}`)) {
       return;
     }
-    hidePresetPopover();
     hideHistoryPopover();
     hideModelPanel();
   }
@@ -135,14 +107,11 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     if (event.key !== "Escape") {
       return;
     }
-    hidePresetPopover();
     hideHistoryPopover();
     hideModelPanel();
   }
 
   return {
-    togglePresetPopover,
-    hidePresetPopover,
     toggleHistoryPopover,
     hideHistoryPopover,
     toggleModelPanel,

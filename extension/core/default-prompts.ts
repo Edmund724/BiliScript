@@ -1,5 +1,5 @@
 // extension/core/default-prompts.ts
-// AI prompt 默认文本：当前第五代系统提示词 + 各代 legacy 冻结常量 + 快捷/预设
+// AI prompt 默认文本：当前第五代系统提示词 + 各代 legacy 冻结常量 + 快捷
 // 提示词默认列表。从 defaults.ts 拆出（first-button-ux/03），让常驻底座
 // （version + DEFAULT_SETTINGS + state）不搭车 prompt 文本；DEFAULT_SETTINGS
 // 的 prompt 字段是空占位，空串/空数组/legacy 经 validators.ts 归一化回落到
@@ -22,12 +22,6 @@ export const DEFAULT_PLAYER_AI_QUICK_PROMPT = [
   "4. 结论与可执行启发：看完能带走什么、可以怎么做",
   "5. （若附带评论）观众反响：提炼高赞评论的主要观点与争议点"
 ].join("\n");
-
-export const DEFAULT_PRESET_PROMPTS = [
-  "生成视频摘要和结论",
-  "按章节整理视频内容",
-  "生成带时间轴的笔记"
-];
 
 export const DEFAULT_INITIAL_QUICK_PROMPTS = [
   "用 3 句话总结这个视频",

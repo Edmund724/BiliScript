@@ -53,13 +53,6 @@ export function buildChatTabBodyHtml(): string {
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>
         </main>
         <footer class="chat-footer">
-          <div id="${ids.readingChatPresetPopover}" class="chat-preset-popover" hidden>
-            <div id="${ids.readingChatPresetList}" class="chat-preset-list"></div>
-            <div class="chat-preset-editor">
-              <input id="${ids.readingChatPresetInput}" class="chat-preset-input" type="text" placeholder="添加预设提示词" />
-              <button id="${ids.readingChatPresetAddBtn}" type="button" class="chat-preset-add-btn">添加</button>
-            </div>
-          </div>
           <div id="${ids.readingChatHistoryPopover}" class="chat-history-popover" hidden>
             <div class="chat-history-popover-head">
               <span class="chat-history-popover-title">历史对话</span>
@@ -83,8 +76,8 @@ export function buildChatTabBodyHtml(): string {
               <div id="${ids.readingChatThinkingHint}" class="chat-thinking-hint" role="note" hidden></div>
             </div>
           </div>
-          <!-- 发送卡片：上方输入区 + 下方控件行（+ / 模型 chip / 发送键），整体一个
-               圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
+          <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
+               键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">
             <!-- 图片附件区（image-input 02 号票）：粘贴（Ctrl+V）的图片缩略图 +
                  单个删除键；无附件时 hidden。内容由 chat/chat-input-images.ts 渲染。 -->
@@ -99,12 +92,6 @@ export function buildChatTabBodyHtml(): string {
               autocomplete="off"
             ></textarea>
             <div id="${ids.readingChatInputBar}" class="chat-input-bar">
-              <button id="${ids.readingChatPresetBtn}" type="button" class="chat-add-btn" title="预设提示词" aria-label="预设提示词">
-                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <path d="M12 5v14"></path>
-                  <path d="M5 12h14"></path>
-                </svg>
-              </button>
               <!-- 联网搜索开关（spec §4）：输入行 + 右侧的 pill，点击即改全局记忆；
                    开启态 accent-soft 底 + accent 字（DeepSeek 输入框工具 pill 同款位）。
                    只留文字、不带图标：输入行宽度留给模型名（模型名是这里最长的变量）。 -->

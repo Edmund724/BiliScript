@@ -17,7 +17,7 @@
 //     可用）+ context-load（编排壳）+ 装配链（createInProcessContextFetch /
 //     createInProcessPinnedContextResolver：AiContext 装配唯一入口，工单 07
 //     收口到 core/context-assembly，锚定 context-payload 的形状/签名单源；
-//     工单 08 三事已配测试）+ providers + presets +
+//     工单 08 三事已配测试）+ providers +
 //     subtitle-wait + no-subtitle + notices/lists/popovers（三壳重建于
 //     reader/chat-{notices,lists,popovers}.ts，逻辑照抄）。URL 变化的实时上下文
 //     同步调度（原 chat/context-sync.ts 的防抖状态机，工单 05 并回为本地闭包）
@@ -68,7 +68,7 @@ import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
 // conversation-store + context-load（含内联 createInProcessContextFetch 进程内
 // 直读装配策略）+ chat-runtime）在 ../chat/tab-domain.ts 组装；chat 域其余出口
 //（状态单例、subtitle-wait、no-subtitle 文案、context-policy 谓词、offscreen
-// 端口名、presets/providers 工厂）统一经该门面转出——本文件的 chat 域 import
+// 端口名、providers 工厂）统一经该门面转出——本文件的 chat 域 import
 // 面收敛为一处（10 → 1）。
 import {
   CONTEXT_READ_FAILED_MESSAGE,
@@ -77,7 +77,6 @@ import {
   buildNoSubtitleNotice,
   chatSessionState,
   createChatTabDomain,
-  createPresetPrompts,
   createProviderPrefs,
   createSubtitleWaiter,
   isContextPending,
@@ -146,12 +145,7 @@ const els = {
   // 思考档位「关不掉」提示行（工单 03，模板默认 hidden）
   thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
   newChatBtn: document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement,
-  presetBtn: document.getElementById(ids.readingChatPresetBtn) as HTMLButtonElement,
   historyBtn: document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement,
-  presetPopover: document.getElementById(ids.readingChatPresetPopover) as HTMLElement,
-  presetList: document.getElementById(ids.readingChatPresetList) as HTMLElement,
-  presetInput: document.getElementById(ids.readingChatPresetInput) as HTMLInputElement,
-  presetAddBtn: document.getElementById(ids.readingChatPresetAddBtn) as HTMLButtonElement,
   historyPopover: document.getElementById(ids.readingChatHistoryPopover) as HTMLElement,
   historyList: document.getElementById(ids.readingChatHistoryList) as HTMLElement,
   historyClearBtn: document.getElementById(ids.readingChatHistoryClearBtn) as HTMLButtonElement | null,
@@ -283,7 +277,6 @@ function bindStorageWatcher(): void {
       "aiProviders",
       "aiSystemPrompt",
       "aiInitialQuickPrompts",
-      "aiPresetPrompts",
       "defaultModel",
       "aiThinkingLevel"
     ],
@@ -383,7 +376,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad } = createCh
     setStreamingUiState,
     showConversationContextNotice,
     removeConversationContextNotice,
-    hidePresetPopover: () => popovers.hidePresetPopover(),
     hideHistoryPopover: () => popovers.hideHistoryPopover(),
     removeCenteredState,
     removeSuggestions,
@@ -454,37 +446,28 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad } = createCh
 
 const { loadContextState, updateContextChip } = contextLoad;
 
-// 三列表渲染（建议/预设/历史）+ 预设提示词插入。insertPresetPrompt /
-// hidePresetPopover / hideHistoryPopover 与本实例/popovers 实例互引，惰性
+// 两列表渲染（建议/历史）。hideHistoryPopover 与本实例/popovers 实例互引，惰性
 // 箭头接线（回调执行时实例已存在）。
 const lists = createReaderChatLists({
-  presetList: els.presetList,
   historyList: els.historyList,
   historyClearBtn: els.historyClearBtn,
   input: els.input,
   applyById: (id) => conversationStore.applyById(id),
   deleteById: (id) => conversationStore.deleteById(id),
-  removePresetPrompt: (index) => presets.removePresetPrompt(index),
   autosizeInput,
   onSuggestionClick: () => void sendFromUi(),
   getSuggestionsNode: () => suggestionsNode,
-  insertPresetPrompt: (prompt) => lists.insertPresetPrompt(prompt),
-  hidePresetPopover: () => popovers.hidePresetPopover(),
   hideHistoryPopover: () => popovers.hideHistoryPopover()
 });
 
-// 预设/历史/模型面板三个弹层的开合与互斥；文档级外点关闭经 chat-tab-bridge 并入
+// 历史/模型面板两个弹层的开合与互斥；文档级外点关闭经 chat-tab-bridge 并入
 // ui-renderer 的单一 document click 委托（组合根在激活/收尾时注册/摘除，见
 // bindGlobalTriggers）；Esc 关闭走组合根的 window keydown 监听（同一时机挂载）。
 const popovers = createReaderChatPopovers({
-  presetPopover: els.presetPopover,
   historyPopover: els.historyPopover,
   modelPanel: els.modelPanel,
-  presetBtn: els.presetBtn,
   historyBtn: els.historyBtn,
   modelChipBtn: els.modelChip,
-  presetInput: els.presetInput,
-  renderPresetPrompts: () => lists.renderPresetPrompts(),
   renderHistoryList: () => lists.renderHistoryList(),
   renderModelPanel: () => modelPanel.renderPanel()
 });
@@ -512,24 +495,16 @@ const widthEls: ModelSelectWidthEls = {
 //（../chat/chat-runtime.ts）均已收进上面的 createChatTabDomain 组装；本文件
 // 经解构消费 contextLoad（loadContextState / updateContextChip，见上）与
 // chatRuntime 实例方法。
-// 预设提示词 CRUD（deps 注入本文件的编排回调与 DOM 引用）。
-const presets = createPresetPrompts({
-  presetInput: els.presetInput,
-  renderPresetPrompts: () => lists.renderPresetPrompts()
-});
-
 // AI 平台加载渲染 + 思考档位（widthEls 见上：度量对象是 chip/chipModel/chipLevel
 // 引用包；providers 内部的 updateModelSelectWidth 调用随 select 渲染刷新 chip
-// 宽度）；persistAiPresetPrompts 惰性互引 presets。
-// 思考档位「关不掉」提示（工单 03）的 DOM 与判定在本文件（updateThinkingHint），
-// baseUrl 识别入参由 providers 模块自 ai-providers-list 载荷透传。
+// 宽度）。思考档位「关不掉」提示（工单 03）的 DOM 与判定在本文件
+//（updateThinkingHint），baseUrl 识别入参由 providers 模块自 ai-providers-list
+// 载荷透传。
 const providerPrefs = createProviderPrefs({
   modelSelect: els.modelSelect,
   thinkingBtns: els.thinkingBtns,
   widthEls,
-  webSearchPill: els.webSearchPill,
-  renderPresetPrompts: () => lists.renderPresetPrompts(),
-  persistAiPresetPrompts: () => presets.persistAiPresetPrompts()
+  webSearchPill: els.webSearchPill
 });
 const { loadProvidersAndPrefs, setThinkingLevel, setWebSearchEnabled } = providerPrefs;
 
@@ -732,7 +707,6 @@ export function closeChatSession(): void {
   // 挂起中的 subtitle-wait 立即失效（pollContext 的 closed 闸 → wait 兑现
   // false → 发送流程提前返回并清等待提示）。
   subtitleWaiter.kick();
-  popovers.hidePresetPopover();
   popovers.hideHistoryPopover();
   popovers.hideModelPanel();
   removeConversationContextNotice();
@@ -907,7 +881,6 @@ function bindEvents(): void {
     void startNewConversation();
   });
   els.refreshBtn.addEventListener("click", () => refreshContextManually());
-  els.presetBtn.addEventListener("click", popovers.togglePresetPopover);
   els.historyBtn.addEventListener("click", popovers.toggleHistoryPopover);
   els.historyClearBtn?.addEventListener("click", () => {
     void conversationStore.clearAll();
@@ -921,13 +894,6 @@ function bindEvents(): void {
       return;
     }
     void sendFromUi();
-  });
-  els.presetAddBtn.addEventListener("click", () => presets.addPresetPrompt());
-  els.presetInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      presets.addPresetPrompt();
-    }
   });
   els.modelSelect.addEventListener("change", () => {
     // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的
@@ -1134,7 +1100,7 @@ export function renderInitialState(): void {
   resetConversationView("");
 }
 
-// 【迁移自 sidepanel.ts resetConversationView】消息区重建 + 建议区/预设列表刷新。
+// 【迁移自 sidepanel.ts resetConversationView】消息区重建 + 建议区刷新。
 function resetConversationView(stateHtml = ""): void {
   // 清场即作废进行中的回放分片（P2-1）：过期分片不得写进重建后的消息区。
   invalidateConversationReplay();
@@ -1151,7 +1117,6 @@ function resetConversationView(stateHtml = ""): void {
   suggestionsNode.id = ids.readingChatSuggestions;
   els.messages.appendChild(suggestionsNode);
   lists.renderSuggestions();
-  lists.renderPresetPrompts();
   chatRuntime.setAutoScroll(true);
   chatRuntime.scrollToBottom(true);
 }
@@ -1206,7 +1171,6 @@ function setRefreshing(isRefreshing: boolean): void {
 // 【整段迁移自 sidepanel.ts】开启新会话：隐藏 popover → 强刷静默取上下文 →
 // live 快照落地主上下文 → restartChat(keepContext) → 初始态渲染。
 async function startNewConversation(): Promise<void> {
-  popovers.hidePresetPopover();
   popovers.hideHistoryPopover();
   popovers.hideModelPanel();
   setRefreshing(true);

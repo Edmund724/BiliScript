@@ -196,7 +196,6 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
       expect(saveMessage.settings, `${key} 不应出现在负载里`).not.toHaveProperty(key);
     }
     expect(saveMessage.settings!.aiInitialQuickPrompts).toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
-    expect(saveMessage.settings!.aiPresetPrompts).toHaveLength(3);
 
     // 状态条与 busy 复位
     const status = lastStatus(host);

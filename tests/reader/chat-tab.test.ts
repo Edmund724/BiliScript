@@ -660,22 +660,22 @@ describe("外点关闭单委托（chat-tab-bridge 并入 ui-renderer 文档级�
 
     // 文档级 click 委托已由 ensureUiReady 首建时绑定（含对话 tab 外点转发）
 
-    const presetBtn = document.getElementById(ids.readingChatPresetBtn) as HTMLButtonElement;
-    const presetPopover = document.getElementById(ids.readingChatPresetPopover) as HTMLElement;
+    const historyBtn = document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement;
+    const historyPopover = document.getElementById(ids.readingChatHistoryPopover) as HTMLElement;
     // dispatchEvent 恰好一次（setup 的 click 补丁会双触发，toggle 会开又关）
-    presetBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(presetPopover.hidden).toBe(false);
+    historyBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(historyPopover.hidden).toBe(false);
 
     // 点击 popover 内部（冒泡到 document）：不关闭
-    const presetList = document.getElementById(ids.readingChatPresetList) as HTMLElement;
-    presetList.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(presetPopover.hidden).toBe(false);
+    const historyList = document.getElementById(ids.readingChatHistoryList) as HTMLElement;
+    historyList.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(historyPopover.hidden).toBe(false);
 
     // 点击外部（冒泡到 document 的单一委托）：关闭
     const outside = document.createElement("div");
     document.body.appendChild(outside);
     outside.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    expect(presetPopover.hidden).toBe(true);
+    expect(historyPopover.hidden).toBe(true);
   });
 });
 

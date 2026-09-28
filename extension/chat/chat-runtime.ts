@@ -97,7 +97,6 @@ export interface ChatRuntimeUi {
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
   showConversationContextNotice: (message: string, autoHideMs?: number, options?: { openSettingsAction?: boolean }) => void;
   removeConversationContextNotice: () => void;
-  hidePresetPopover: () => void;
   hideHistoryPopover: () => void;
   removeCenteredState: () => void;
   removeSuggestions: () => void;
@@ -160,7 +159,6 @@ export interface CreateChatRuntimeDeps {
  *       setStreamingUiState,               // (isStreaming, { stopping }) => void
  *       showConversationContextNotice,     // (message, autoHideMs) => void
  *       removeConversationContextNotice,   // () => void
- *       hidePresetPopover,                 // () => void
  *       hideHistoryPopover,                // () => void
  *       removeCenteredState,               // () => void
  *       removeSuggestions,                 // () => void  (removes + nulls suggestionsNode)
@@ -394,13 +392,12 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     //（ensureCurrentContextForSend / connectPort 的 await 窗口内端口未建、
     // 但 UI 已进流式态）都直接忽略——否则窗口内第二次 sendMessage 会开出
     // 第二条流（第一、二条回执交错到两个 assistant 节点）。返回契约不变：
-    // 调用方（sidepanel.js keydown / 快捷动作 / 预设 chip）不读返回值。
+    // 调用方（sidepanel.js keydown / 快捷动作）不读返回值。
     if (!text || activePort || sendInFlight) {
       return;
     }
     sendInFlight = true;
     try {
-      deps.ui.hidePresetPopover();
       deps.ui.hideHistoryPopover();
 
       const providerId = deps.getProviderId();

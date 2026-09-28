@@ -17,8 +17,8 @@
 // 2026-09 大文件拆分：抽屉 HTML 模板（buildSettingsHtml，纯字符串零逻辑）
 // 迁往 ui/settings-panel-html.ts，本模块只留流程编排（模板挂载/装载/收集
 // 校验/保存/事件绑定/编辑 Modal 接线）。未再继续拆「表单收集校验 vs 事件
-// 绑定与保存流程」两半：collectFormPayload 读取本模块状态
-//（savedAiPresetPrompts），且 options-save-gesture.test.js 的调用方闭包与
+// 绑定与保存流程」两半：collectFormPayload 读取本模块状态，且
+// options-save-gesture.test.js 的调用方闭包与
 // 手势链扫描把 saveProviderSingle / saveSettings / saveBtn 绑定钉在本文件，
 // 再拆需改签名/外移共享状态，收益不抵扰动。
 
@@ -26,8 +26,7 @@ import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import {
   DEFAULT_AI_SYSTEM_PROMPT,
   DEFAULT_INITIAL_QUICK_PROMPTS,
-  DEFAULT_PLAYER_AI_QUICK_PROMPT,
-  DEFAULT_PRESET_PROMPTS
+  DEFAULT_PLAYER_AI_QUICK_PROMPT
 } from "../core/default-prompts.js";
 import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
 import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
@@ -105,7 +104,6 @@ interface SettingsFormPayload {
   enableDebugLogs: boolean;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
-  aiPresetPrompts: string[];
 }
 
 // ===== 分区渲染隔离（interactions-in-complex-layouts 指南，M15）=====
@@ -245,9 +243,6 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
-  savedAiPresetPrompts = Array.isArray(settings.aiPresetPrompts) && settings.aiPresetPrompts.length
-    ? settings.aiPresetPrompts
-    : DEFAULT_PRESET_PROMPTS.slice();
 
   // AI 配置
   const providers = await loadAiProviders();
@@ -269,8 +264,6 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
     activeId: settings.activeSearchProviderId || ""
   });
 }
-
-let savedAiPresetPrompts: string[] = [];
 
 async function loadAiProviders(): Promise<ProviderRowItem[]> {
   try {
@@ -516,8 +509,7 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     enableDebugLogs: elements.enableDebugLogs.checked,
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
-    aiInitialQuickPrompts: collectInitialQuickPrompts(elements),
-    aiPresetPrompts: Array.isArray(savedAiPresetPrompts) ? savedAiPresetPrompts.slice(0, 12) : []
+    aiInitialQuickPrompts: collectInitialQuickPrompts(elements)
   };
 }
 
@@ -559,8 +551,7 @@ function buildDefaultPreferencePayload() {
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
-    aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
-    aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
+    aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice()
   };
 }
 

@@ -25,7 +25,6 @@ const CHAT_MARKERS = [
   "chat-context-chip",
   "chat-thinking",
   "chat-suggestions",
-  "chat-preset-",
   "chat-history-",
   "chat-center-error",
   "chat-timestamp-link",

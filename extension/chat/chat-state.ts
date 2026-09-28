@@ -8,7 +8,7 @@
 // import 它，deps 里只剩 UI/transport 回调、storage 抽象与常量。
 //
 // 依赖方向（无环）：本文件是零依赖叶子——唯一 import 是 ../core/default-prompts.js
-// 的纯常量（DEFAULT_INITIAL_QUICK_PROMPTS / DEFAULT_PRESET_PROMPTS，纯数据无
+// 的纯常量（DEFAULT_INITIAL_QUICK_PROMPTS，纯数据无
 // 逻辑），用于给出 aiPrefs 的初始值；AiContext 类型仅供编译期（import type，
 // 运行时零依赖）。sidepanel.js / conversation-store.ts / chat-runtime.ts 单向
 // import 本文件。
@@ -22,7 +22,7 @@
 // 需重新 import 本模块取新鲜实例；单纪元内复用时经
 // resetChatSessionStateForTests() 重置全部字段（见文件末尾）。
 
-import { DEFAULT_INITIAL_QUICK_PROMPTS, DEFAULT_PRESET_PROMPTS } from "../core/default-prompts.js";
+import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../core/default-prompts.js";
 import type { AiContext, ImagePart } from "../ai/types.js";
 
 // 上下文快照 = ContextFetch 全量 payload 的落地形态（core/context-assembly
@@ -129,11 +129,10 @@ type ChatSessionOpenState = {
   liveContextKey: string;
   // 活跃标签页 URL（isBoundConversationMismatched / 历史列表 live 匹配读）
   liveTabUrl: string;
-  // ---- AI 偏好（loadProvidersAndPrefs 整体替换，modelSelect/预设局部改写） ----
+  // ---- AI 偏好（loadProvidersAndPrefs 整体替换，modelSelect 局部改写） ----
   aiPrefs: {
     aiSystemPrompt: string;
     aiInitialQuickPrompts: string[];
-    aiPresetPrompts: string[];
     // modelSelect change 时局部写入（loadProvidersAndPrefs 整体替换前不存在）
     defaultModel?: string;
   };
@@ -181,11 +180,10 @@ function createInitialChatSessionState(): ChatSessionStateWritable {
     liveContextKey: "",
     // 活跃标签页 URL（isBoundConversationMismatched / 历史列表 live 匹配读）
     liveTabUrl: "",
-    // ---- AI 偏好（loadProvidersAndPrefs 整体替换，modelSelect/预设局部改写） ----
+    // ---- AI 偏好（loadProvidersAndPrefs 整体替换，modelSelect 局部改写） ----
     aiPrefs: {
       aiSystemPrompt: "",
-      aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice(),
-      aiPresetPrompts: DEFAULT_PRESET_PROMPTS.slice()
+      aiInitialQuickPrompts: DEFAULT_INITIAL_QUICK_PROMPTS.slice()
     },
     // ---- 杂项标志 ----
     // content 侧音频转写进行中的兜底信号（biliscript-subtitle-status 广播写，

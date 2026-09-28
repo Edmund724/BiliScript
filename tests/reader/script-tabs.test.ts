@@ -102,16 +102,18 @@ describe("统一 文摘面板三标签", () => {
     expect(overviewBody.querySelector(".biliscript-reading-ov-chapter, .biliscript-reading-ov-quote")).toBe(null);
     expect(tabBody("Overview").querySelector("input, textarea, button, select")).toBe(null);
 
-    // AI 对话（PR5 落地）：真对话 UI 壳（消息区/输入框/模型与思考档/预设历史），
+    // AI 对话（PR5 落地）：真对话 UI 壳（消息区/输入框/模型与思考档/历史），
     // 未激活前保持静默空态——空消息区、无假消息节点、无占位文案。
     const chatRoot = document.getElementById(ids.readingChatRoot) as HTMLElement;
     expect(chatRoot).not.toBe(null);
     expect(document.getElementById(ids.readingChatMessages)).not.toBe(null);
     expect(document.getElementById(ids.readingChatInput)).not.toBe(null);
     expect(document.getElementById(ids.readingChatModelSelect)).not.toBe(null);
-    expect(document.getElementById(ids.readingChatPresetBtn)).not.toBe(null);
     expect(document.getElementById(ids.readingChatHistoryBtn)).not.toBe(null);
     expect(document.getElementById(ids.readingChatSendBtn)).not.toBe(null);
+    // 预设提示词入口（输入框左下角「+」）已删除：壳内不再有该触发键与弹层
+    expect(document.getElementById("biliscript-reading-chat-preset-btn")).toBe(null);
+    expect(document.getElementById("biliscript-reading-chat-preset-popover")).toBe(null);
     // 联网搜索 pill 只留文字：左侧地球图标已去掉，输入行的横向空间让给模型名。
     const searchPill = document.getElementById(ids.readingChatWebSearchPill) as HTMLButtonElement;
     expect(searchPill.querySelector("svg")).toBe(null);
