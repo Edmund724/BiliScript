@@ -664,12 +664,12 @@
 }
 
 /* 联网搜索开关（spec §4）：输入行 + 右侧的描边 pill（DeepSeek 输入框工具
- * pill 同款位）；开启态 accent-soft 底 + accent 字与关闭态灰字区分。 */
+ * pill 同款位）；开启态 accent-soft 底 + accent 字与关闭态灰字区分。只留文字、
+ * 不带图标——输入行的横向空间留给模型名（这一行里最长的变量）。 */
 .biliscript-reading-chat .chat-web-search-pill {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   height: 28px;
   padding: 0 10px;
   border: 1px solid var(--biliscript-reader-border);
@@ -690,15 +690,6 @@
 
 .biliscript-reading-chat .chat-web-search-pill:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-.biliscript-reading-chat .chat-web-search-pill svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
 }
 
 .biliscript-reading-chat .chat-web-search-pill span {

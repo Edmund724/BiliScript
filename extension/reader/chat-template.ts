@@ -106,13 +106,9 @@ export function buildChatTabBodyHtml(): string {
                 </svg>
               </button>
               <!-- 联网搜索开关（spec §4）：输入行 + 右侧的 pill，点击即改全局记忆；
-                   开启态 accent-soft 底 + accent 字（DeepSeek 输入框工具 pill 同款位） -->
+                   开启态 accent-soft 底 + accent 字（DeepSeek 输入框工具 pill 同款位）。
+                   只留文字、不带图标：输入行宽度留给模型名（模型名是这里最长的变量）。 -->
               <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-pressed="false">
-                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9"></circle>
-                  <path d="M3 12h18"></path>
-                  <path d="M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18"></path>
-                </svg>
                 <span>联网搜索</span>
               </button>
               <button id="${ids.readingChatModelChip}" type="button" class="chat-model-chip" aria-label="选择模型与思考档位">

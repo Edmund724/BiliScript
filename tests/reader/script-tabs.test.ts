@@ -112,6 +112,10 @@ describe("统一 文摘面板三标签", () => {
     expect(document.getElementById(ids.readingChatPresetBtn)).not.toBe(null);
     expect(document.getElementById(ids.readingChatHistoryBtn)).not.toBe(null);
     expect(document.getElementById(ids.readingChatSendBtn)).not.toBe(null);
+    // 联网搜索 pill 只留文字：左侧地球图标已去掉，输入行的横向空间让给模型名。
+    const searchPill = document.getElementById(ids.readingChatWebSearchPill) as HTMLButtonElement;
+    expect(searchPill.querySelector("svg")).toBe(null);
+    expect(searchPill.textContent?.trim()).toBe("联网搜索");
     const chatMessages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(chatMessages.querySelectorAll(".chat-msg, .chat-center-error").length).toBe(0);
     expect((chatMessages.querySelector(".chat-suggestions") as HTMLElement).innerHTML).toBe("");
