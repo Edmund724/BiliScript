@@ -28,6 +28,8 @@ type ChatCompletionCall = {
   // 中断重试的代际重置信号（清零已聚合正文，两代流不拼接）
   onEvent?: (event: unknown) => void;
   onStreamReset?: () => void;
+  // 收尾原因回报（"length" = 正文被输出上限截断）：截断重跑的唯一触发信号
+  onFinishReason?: (reason: string | null) => void;
   // 传输层注入（overview-offscreen-transport）：概览请求必须带 offscreen 代发，
   // 不得回落 globalThis.fetch（页面源直发撞平台网关的 CORS 预检）
   fetchImpl?: unknown;
@@ -475,6 +477,78 @@ describe("空正文重试", () => {
       )
     ).rejects.toThrow(/模型没有返回正文/);
     expect(chatCompletion).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ============================================================
+// 截断重跑（finish_reason=length）：正文被输出上限截断
+// ============================================================
+
+describe("截断重跑", () => {
+  const GOOD = JSON.stringify({
+    chapters: [{ title: "章1", timestampSeconds: 5, summary: "甲" }],
+    keyQuotes: [{ quote: "金句1", timestampSeconds: 30 }]
+  });
+
+  it("首发截断 → 加倍预算重跑一次，取重跑结果（首发半截正文作废，不拼接）", async () => {
+    const calls: ChatCompletionCall[] = [];
+    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+      calls.push(input);
+      if (calls.length === 1) {
+        // 首发：JSON 停在数组中间，只救得回半截内容
+        emitTokens(input, '{"chapters":[{"title":"半截","timestampSeconds":5}],"keyQuotes":');
+        input.onFinishReason?.("length");
+        return { done: true };
+      }
+      emitTokens(input, GOOD);
+      input.onFinishReason?.("stop");
+      return { done: true };
+    });
+
+    const result = await mod.runOverviewAnalysis(
+      { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
+      { chatCompletion }
+    );
+
+    expect(chatCompletion).toHaveBeenCalledTimes(2);
+    expect(calls[1].maxTokens).toBe(calls[0].maxTokens! * 2);
+    expect(calls[1].messages).toEqual(calls[0].messages);
+    // 只有重跑那一代的章节：首发的半截必须被清掉，否则会拼成两章/解析失败
+    expect(result.chapters.map((c) => c.title)).toEqual(["章1"]);
+  });
+
+  it("finish_reason=stop（正常收尾）→ 不重跑", async () => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+      emitTokens(input, GOOD);
+      input.onFinishReason?.("stop");
+      return { done: true };
+    });
+
+    const result = await mod.runOverviewAnalysis(
+      { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
+      { chatCompletion }
+    );
+
+    expect(chatCompletion).toHaveBeenCalledTimes(1);
+    expect(result.chapters.map((c) => c.title)).toEqual(["章1"]);
+  });
+
+  it("平台学到的上限已到顶 → 不重跑（加倍请求会与首发完全相同，白花一次调用）", async () => {
+    const learned = await import("../../extension/ai/learned-budget.js");
+    learned.noteLearnedMaxTokens({ baseUrl: "https://api.example.com/v1", model: "test-model" }, 8192);
+    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+      emitTokens(input, GOOD);
+      input.onFinishReason?.("length");
+      return { done: true };
+    });
+
+    const result = await mod.runOverviewAnalysis(
+      { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
+      { chatCompletion }
+    );
+
+    expect(chatCompletion).toHaveBeenCalledTimes(1);
+    expect(result.chapters.map((c) => c.title)).toEqual(["章1"]);
   });
 });
 

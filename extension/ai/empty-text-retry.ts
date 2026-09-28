@@ -21,8 +21,9 @@ export function isEmptyTextRetryable({ finishReason, hasBody }: { finishReason?:
 }
 
 // 重试预算：base 缺省 → 定值（chat/stream 链）；base 有值 → 按原估算加倍并封顶
-// （analysis 链）。封顶当前不咬合：estimateOutputTokens 的 ceiling 默认 8192，
-// base*2 至多 16384，恒不超过定值——保留 min 是防 ceiling 未来上调后加倍失控。
+// （analysis 链）。封顶与 estimateOutputTokens 的 ceiling 同源（两处都锚在
+// DEFAULT_MAX_TOKENS）：analysis 的 base ≤ DEFAULT，加倍至多 2×DEFAULT 恰好抵到
+// 定值——两条链的「上限的倍加」是同一个数，不再各写一份。
 // 预算策略本身（该给多少）是独立议题，本模块只固定「加倍 + 封顶」这一形状。
 export function retryBudget(base?: number): number {
   return base === undefined ? EMPTY_TEXT_RETRY_MAX_TOKENS : Math.min(base * 2, EMPTY_TEXT_RETRY_MAX_TOKENS);

@@ -18,6 +18,7 @@
 //   重试触发条件与旧 client 现状一致：fetch 抛错与非溢出 !response.ok
 //   （及流式读流中断）都重试，与状态码无关。
 import { makeAbortedError, isRetryableNetworkError } from "../shared/error-helpers.js";
+import { clampToLearnedMaxTokens, noteLearnedMaxTokens } from "./learned-budget.js";
 import { CONSERVATIVE_MAX_TOKENS, isOutputBudgetTooLarge } from "./output-budget.js";
 import { resolveAdapter } from "./protocol-adapter.js";
 import { presetRequestHeaders } from "./preset-headers.js";
@@ -257,9 +258,15 @@ export async function chatCompletion({
 
   // 本轮生效的输出上限：调用方显式值优先；未指定时取 adapter 声明的兜底
   // （输出上限必填的协议才有，如 anthropic 的 max_tokens；openai 系为 null =
-  // 不发字段、由平台默认决定）。adapter 内对必填参数仍留一层同源兜底，这里显式
-  // 解析是为了让「被平台按超上限拒绝 → 退回保守值重发」知道发出的是多少。
-  let effectiveMaxTokens: number | null = probe ? (maxTokens ?? 1) : (maxTokens ?? adapter.defaultMaxTokens ?? null);
+  // 不发字段、由平台默认决定）。再夹一层「会话学到的平台上限」（learned-budget.ts）
+  // ——平台拒过大预算时，后续请求直接用已验证可用的值，不再各撞一次 400。
+  // adapter 内对必填参数仍留一层同源兜底；这里显式解析是为了让退避路径知道
+  // 发出的是多少。
+  const budgetScope = { baseUrl, model };
+  let effectiveMaxTokens = clampToLearnedMaxTokens(
+    probe ? (maxTokens ?? 1) : (maxTokens ?? adapter.defaultMaxTokens ?? null),
+    budgetScope
+  );
 
   // 请求体按当前生效上限组装；退回保守值后要整份重装，故抽成函数。
   const buildBody = (): Record<string, unknown> =>
@@ -291,6 +298,7 @@ export async function chatCompletion({
   // 落到保守值后不再退，故至多重发一次。
   const sendOnce = async (): Promise<{ response: Response; bodyText: string }> => {
     let sentBudget = effectiveMaxTokens;
+    let retreatedTo: number | null = null;
     for (;;) {
       const response = await fetchImpl(adapter.endpoint(baseUrl), {
         method: "POST",
@@ -299,6 +307,11 @@ export async function chatCompletion({
         signal
       });
       if (response.ok) {
+        // 「退回保守值之后仍然成功」= 平台上限的确切证据，记进会话内存：同平台
+        // 后续请求直接按它发，不再各撞一次 400（learning 纪律见 learned-budget.ts）。
+        if (retreatedTo != null) {
+          noteLearnedMaxTokens(budgetScope, retreatedTo);
+        }
         return { response, bodyText: "" };
       }
       let bodyText = "";
@@ -307,6 +320,7 @@ export async function chatCompletion({
       } catch {}
       if (sentBudget != null && sentBudget > CONSERVATIVE_MAX_TOKENS && isOutputBudgetTooLarge(errorDetail(bodyText))) {
         sentBudget = CONSERVATIVE_MAX_TOKENS;
+        retreatedTo = sentBudget;
         effectiveMaxTokens = sentBudget;
         body = buildBody();
         continue;

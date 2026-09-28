@@ -14,6 +14,7 @@ import {
 } from "../../extension/ai/completion.js";
 import { buildChatRequestBody, OPENAI_CHAT_PATH } from "../../extension/ai/adapters/openai.js";
 import { normalizeThinkingLevel } from "../../extension/ai/thinking-profiles.js";
+import { resetLearnedBudgetsForTests } from "../../extension/ai/learned-budget.js";
 import type { ChatToolDefinition } from "../../extension/ai/protocol-adapter.js";
 import type { StreamChatEvent } from "../../extension/ai/types.js";
 
@@ -35,6 +36,9 @@ type RetryInfo = { attempt: number; maxRetries: number; kind: "fetch" | "http" |
 
 beforeEach(() => {
   vi.useRealTimers();
+  // 「平台学到的输出上限」是模块级会话状态：用例之间清零，否则前一条的退回结果
+  // 会让后一条的首发预算直接变小（顺序相关的假红）。
+  resetLearnedBudgetsForTests();
 });
 
 afterEach(() => {
@@ -750,6 +754,52 @@ describe("输出上限过大 → 退回保守值重发一次", () => {
     ).rejects.toMatchObject({ overflow: true });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("退回成功后记住平台上限：同平台后续请求直接按 8192 发，不再各撞一次 400", async () => {
+    const fetchMock = mockFetch(async (_url, init) => {
+      const budget = JSON.parse(String((init as InitLike).body)).max_tokens;
+      return budget === 8192
+        ? jsonResponse({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" })
+        : textResponse(TOO_LARGE, false, 400);
+    });
+
+    await chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fetchMock.mockClear();
+    const second = await chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock });
+
+    expect(second).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body).max_tokens).toBe(8192);
+  });
+
+  it("首发就成功（没有退回）不记上限：后续请求仍按兜底 32768 发", async () => {
+    const fetchMock = mockFetch(async () =>
+      jsonResponse({ content: [{ type: "text", text: "ok" }], stop_reason: "end_turn" })
+    );
+
+    await chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock });
+    fetchMock.mockClear();
+    await chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body).max_tokens).toBe(32768);
+  });
+
+  it("退回后仍失败 → 不记上限（一次失败不固化成整会话策略）", async () => {
+    const fetchMock = mockFetch(async () => textResponse(TOO_LARGE, false, 400));
+
+    await chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock }).catch(() => {});
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fetchMock.mockClear();
+    await chatCompletion({ provider: ANTHROPIC, messages: [], fetchImpl: fetchMock }).catch(() => {});
+
+    // 仍先试兜底 32768（再退回 8192），不是直接按学到的值发。
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as InitLike).body).max_tokens).toBe(32768);
   });
 });
 

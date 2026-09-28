@@ -8,6 +8,7 @@
 import { normalizeSubtitleItems } from "../subtitle/cache.js";
 import { formatClock, parseClock } from "../shared/clock-text.js";
 import { MAX_ANALYSIS_CHAPTERS } from "./analysis-validate.js";
+import { DEFAULT_MAX_TOKENS } from "./output-budget.js";
 import type { SubtitleBodyItem } from "./types.js";
 
 // 热门评论（HotComment[]）→ 可解析文本：只取 message 正文，一行一条。
@@ -252,18 +253,25 @@ function analysisTimingVariables(
 
 /**
  * 按输入长度估算输出 token 上限（整搬 lib/ai.js:202-210）。max_tokens 是上限
- * 而非配额，给宽不花钱；但超过模型自身上限会被拒，所以给有余量的估算。
+ * 而非配额，给宽不花钱；但给窄必然截断——旧的 ceiling 8192 与 ADR-0001 的
+ * 「分段小结 ≤10k / 成稿 ≤16k」意图脱节：5 万字的段按 ratio 0.5 本应拿 25k，却被
+ * 砍到 8k，截断后靠 json-repair 静默救回（用户拿到缺章的概览）。
+ * 现 ceiling 与协议兜底同源（ai/output-budget.ts 的 DEFAULT_MAX_TOKENS）；「超过
+ * 模型自身上限」的那一半风险由 core 的退避路径接住（completion.ts，ADR-0012）。
  * 概览是摘要，产出远小于原文：调用方按 ratio 0.5、floor 2048 传入（对齐
  * 参考仓库 analyzeChunk），前情回顾只进输入不进输出。
  */
 export function estimateOutputTokens(
   inputChars: unknown,
-  { ratio = 1, floor = 1024, ceiling = 8192 }: { ratio?: number; floor?: number; ceiling?: number } = {}
+  { ratio = 1, floor = 1024, ceiling = DEFAULT_MAX_TOKENS }: { ratio?: number; floor?: number; ceiling?: number } = {}
 ): number {
   const chars = Number.isFinite(Number(inputChars)) && Number(inputChars) > 0 ? Number(inputChars) : 0;
   // 中文约一字一 token；固定量留给 JSON 结构与转义字符。
   const estimated = Math.ceil(chars * ratio) + 512;
-  return Math.min(Math.ceil(Number(ceiling) || 8192), Math.max(Math.ceil(Number(floor) || 1024), estimated));
+  return Math.min(
+    Math.ceil(Number(ceiling) || DEFAULT_MAX_TOKENS),
+    Math.max(Math.ceil(Number(floor) || 1024), estimated)
+  );
 }
 
 // ============================================================

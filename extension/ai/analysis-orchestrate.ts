@@ -16,6 +16,9 @@ import { chatCompletion as _chatCompletion } from "./completion.js";
 import { parseLooseJson } from "./json-repair.js";
 // 空正文重试的触发判定与预算（empty-text-retry.ts，与 chat 链同源）。
 import { isEmptyTextRetryable, retryBudget } from "./empty-text-retry.js";
+// 「加倍重跑还值不值得发」的判定（learned-budget.ts）：平台学到的上限已到顶时，
+// 加倍请求会与上一次完全相同，重跑只是白花一次调用。
+import { canRaiseBudget } from "./learned-budget.js";
 import { buildProgressNotice } from "./map-reduce.js";
 import { runMapBounded, DEFAULT_MAP_CONCURRENCY } from "./pool.js";
 import { budgetScaleSuffix, segmentCacheKeyFields } from "./segment-cache.js";
@@ -282,10 +285,15 @@ async function requestValidatedPart({
     { role: "user", content: built.prompt }
   ];
   const baseMaxTokens = estimateOutputTokens(built.transcriptChars, { ratio: 0.5, floor: 2048 });
+  // 重跑预算（加倍，见 empty-text-retry.ts）：空正文与截断两个出口共用。
+  const raisedMaxTokens = retryBudget(baseMaxTokens);
   // 正文从流式事件聚合（流式成功的返回值只有 { done: true }）；读流中断重试的
   // 代际切换由下方 onStreamReset 归零。
   let text = "";
   let reasoningChars = 0;
+  // 最后一次收尾原因（"length" = 正文被输出上限截断）：截断的 JSON 会被 json-repair
+  // 静默救回，用户拿到的是「少两章少几句」的概览，故与空正文同槽位重跑一次。
+  let truncated = false;
   const onEvent = (event: unknown): void => {
     const streamEvent = event as { type?: string; data?: unknown } | null;
     if (streamEvent?.type === "token") {
@@ -313,13 +321,27 @@ async function requestValidatedPart({
     // 否则两代流拼接成重复文本（completion.ts 的 onStreamReset 契约）。
     onStreamReset: () => {
       text = "";
+    },
+    onFinishReason: (reason: string | null) => {
+      truncated = reason === "length";
     }
   };
   await chatCompletionImpl({ ...requestBase, maxTokens: baseMaxTokens });
-  if (isEmptyTextRetryable({ hasBody: Boolean(text.trim()) })) {
+  // 空正文（思考吃光预算）或正文被截断（要更多空间）都重跑一次；前提是「更多空间」
+  // 真的还买得到——平台学到的上限已经压到顶时，加倍请求会与前一次完全相同
+  // （ai/learned-budget.ts 的 canRaiseBudget）。
+  if (
+    canRaiseBudget(provider, baseMaxTokens, raisedMaxTokens) &&
+    (isEmptyTextRetryable({ hasBody: Boolean(text.trim()) }) || truncated)
+  ) {
+    // 首发的半截正文必须先作废（同 onStreamReset 语义），否则重跑代的原样拼接会
+    // 拼成两段 JSON、解析出重复章节。
+    text = "";
+    reasoningChars = 0;
+    truncated = false;
     await chatCompletionImpl({
       ...requestBase,
-      maxTokens: retryBudget(baseMaxTokens)
+      maxTokens: raisedMaxTokens
     });
   }
   if (!text.trim()) {
