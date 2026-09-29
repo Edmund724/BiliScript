@@ -1411,9 +1411,8 @@
 .biliscript-reading-ov-strip.is-generating {
   border-color: transparent;
   background: var(--biliscript-reader-accent-soft);
-  /* 生成中状态条只有一句进度文案（无操作按钮）：单槽居中，不与 partial/error
-   * 条的「左说事、右给按钮」对齐冲突。 */
-  justify-content: center;
+  /* 生成中状态条：左进度文案、右取消键（生成中唯一的面板内出口）——与
+   * partial/error 条的「左说事、右给按钮」同排法，故不再居中。 */
 }
 
 .biliscript-reading-ov-strip.is-partial,

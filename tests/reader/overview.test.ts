@@ -727,3 +727,173 @@ describe("closeReadingView 清理", () => {
   });
 });
 
+// 取消生成与等待计时（ADR-0010：通道不设硬超时，但面板内必须有出口）。
+// 失败模式：网关收下请求却不回首字节时，生成中状态条只有固定文案、面板内没有
+// 任何按钮（retry 只在 error/partial 条），关阅读模式又不取消请求——用户没有出路。
+describe("取消生成与等待计时", () => {
+  function cancelButton(): HTMLButtonElement | null {
+    return overviewBody().querySelector<HTMLButtonElement>("button[data-overview-action='cancel']");
+  }
+
+  function regenerateButton(): HTMLButtonElement | null {
+    return overviewBody().querySelector<HTMLButtonElement>("button[data-overview-action='retry']");
+  }
+
+  function clickButton(button: HTMLButtonElement): void {
+    bindOverviewDelegation();
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  }
+
+  function runSignal(index: number): AbortSignal | undefined {
+    return (runOverviewMock.mock.calls[index]?.[0] as { signal?: AbortSignal } | undefined)?.signal;
+  }
+
+  // 挂起且不响应 abort 的编排：用于断言「取消即中止信号」与「取消后不自动重启」
+  function pendingRun(): void {
+    runOverviewMock.mockImplementation(() => new Promise<OverviewAnalysis>(() => {}));
+  }
+
+  it("生成中出现「取消」：点击即中止在飞请求，状态条转「已取消」并给出「重新生成」", async () => {
+    seedClip();
+    pendingRun();
+
+    void reader.triggerReaderOverviewGeneration();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+
+    const button = cancelButton();
+    expect(button).not.toBe(null);
+    // 生成中条单槽：文案 + 取消键
+    expect(overviewText()).toContain("正在生成概览…");
+    clickButton(button!);
+
+    expect(runSignal(0)?.aborted).toBe(true);
+    expect(overviewText()).toContain("已取消概览生成");
+    expect(regenerateButton()).not.toBe(null);
+  });
+
+  it("取消后切 tab / 再 ensure 不自动重跑（cancelled 态进短路表）", async () => {
+    seedClip();
+    pendingRun();
+
+    void reader.triggerReaderOverviewGeneration();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    clickButton(cancelButton()!);
+
+    reader.ensureReaderOverviewTab();
+    await Promise.resolve();
+    expect(runOverviewMock).toHaveBeenCalledTimes(1);
+    expect(overviewText()).toContain("已取消概览生成");
+  });
+
+  it("取消后「重新生成」以 forceRefresh 重跑（绕过 cancelled 短路，换新信号）", async () => {
+    seedClip();
+    pendingRun();
+
+    void reader.triggerReaderOverviewGeneration();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    clickButton(cancelButton()!);
+    expect(runSignal(0)?.aborted).toBe(true);
+
+    runOverviewMock.mockClear();
+    runOverviewMock.mockResolvedValue({ ...SAMPLE_ANALYSIS });
+    clickButton(regenerateButton()!);
+
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    expect((runOverviewMock.mock.calls[0][0] as { forceRefresh?: boolean }).forceRefresh).toBe(true);
+    // 已中止的 controller 不被复用：新请求拿到未中止的新信号
+    expect(runSignal(0)?.aborted).toBe(false);
+    await vi.waitFor(() => expect(overviewText()).toContain("开场"));
+    expect(cancelButton()).toBe(null);
+  });
+
+  it("取消后管线以 aborted 上浮：停在「已取消」，不落回 idle 触发自动重跑", async () => {
+    seedClip();
+    let rejectRun!: (reason: unknown) => void;
+    runOverviewMock.mockImplementation(
+      (args: { signal?: AbortSignal }) =>
+        new Promise<OverviewAnalysis>((_resolve, reject) => {
+          rejectRun = reject;
+          args.signal?.addEventListener("abort", () => {
+            reject(Object.assign(new Error("请求已中止"), { aborted: true }));
+          });
+        })
+    );
+
+    const run = reader.triggerReaderOverviewGeneration();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    clickButton(cancelButton()!);
+    rejectRun(Object.assign(new Error("请求已中止"), { aborted: true }));
+    await run;
+
+    expect(overviewText()).toContain("已取消概览生成");
+    reader.ensureReaderOverviewTab();
+    await Promise.resolve();
+    expect(runOverviewMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("closeReadingView 仍不取消在飞请求；重开同视频复用同一信号，取消键仍能取消它", async () => {
+    seedClip();
+    pendingRun();
+
+    void reader.triggerReaderOverviewGeneration();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    const firstSignal = runSignal(0);
+
+    reader.closeReadingView();
+    expect(firstSignal?.aborted).toBe(false);
+
+    state.reader.readingViewOpen = true;
+    void reader.triggerReaderOverviewGeneration();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(2));
+    expect(runSignal(1)).toBe(firstSignal);
+
+    clickButton(cancelButton()!);
+    expect(firstSignal?.aborted).toBe(true);
+    expect(overviewText()).toContain("已取消概览生成");
+  });
+
+  it("首字节未至：等待超过阈值后状态条给出等待计时，且不设硬超时（请求不被中止）", async () => {
+    vi.useFakeTimers();
+    try {
+      seedClip();
+      pendingRun();
+
+      void reader.triggerReaderOverviewGeneration();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(overviewText()).toContain("正在生成概览…");
+      expect(overviewText()).not.toContain("正在等待平台响应");
+
+      await vi.advanceTimersByTimeAsync(11_000);
+      expect(overviewText()).toContain("正在等待平台响应…（已等待 11 秒）");
+      expect(runSignal(0)?.aborted).toBe(false);
+      expect(cancelButton()).not.toBe(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("已有进度时不叠加等待计时（管线文案优先）", async () => {
+    vi.useFakeTimers();
+    try {
+      seedClip();
+      let notify!: (notice: string) => void;
+      runOverviewMock.mockImplementation(
+        (_args: unknown, deps?: { onProgress?: (notice: string) => void }) => {
+          notify = (notice) => deps?.onProgress?.(notice);
+          return new Promise<OverviewAnalysis>(() => {});
+        }
+      );
+
+      void reader.triggerReaderOverviewGeneration();
+      await vi.advanceTimersByTimeAsync(0);
+      notify("正在生成概览…（已接收 1195 字）");
+      await vi.advanceTimersByTimeAsync(11_000);
+
+      expect(overviewText()).toContain("已接收 1195 字");
+      expect(overviewText()).not.toContain("正在等待平台响应");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+

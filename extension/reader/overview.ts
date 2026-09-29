@@ -3,8 +3,9 @@
 //
 // 数据管线：ai/analysis.ts 的 runOverviewAnalysis（PR4a 已定稿，本模块只接线）——
 // 缓存读取、分段产物复用、生成中 promise 复用都在管线内；本模块负责：
-//   1. 状态机：idle / generating（含进度文案）/ ready / partial（带 failedRanges）/
-//      error（带错误信息）/ empty（无字幕诚实空态），产物引用存模块内闭包。
+//   1. 状态机：idle / generating（含进度文案、取消键、首字节前等待计时）/ ready /
+//      partial（带 failedRanges）/ error（带错误信息）/ cancelled（用户取消，可重新
+//      生成）/ empty（无字幕诚实空态），产物引用存模块内闭包。
 //   2. 触发时机（基线决议「打开即自动生成并缓存」）：
 //        - enterReaderMode 打开视图（lifecycle 调用，字幕已在则直接生成）；
 //        - subtitle-ready reader-bus 通知（lifecycle 调用，转写/抓取完成后兜住）；
@@ -18,7 +19,9 @@
 //      阅读视图内点击语义 resumePlayback:true）；金句卡选中文本时不跳转。
 //   5. 清理：closeReadingView 调 resetReaderOverviewState 归位状态；不取消进行中
 //      的生成（管线后台跑完落缓存，重开阅读模式读缓存命中；落定回执因
-//      generatedFor 已清而被丢弃，不会写进新会话）。
+//      generatedFor 已清而被丢弃，不会写进新会话）。生成中要中断只能走状态条的
+//      「取消」键（cancelReaderOverview）：通道不设硬超时（ADR-0010），首字节前
+//      等待超阈值只给计时提示，不中断。
 //
 // 分章来源标注：按 07 票决议从入参推断——用 shared/chapter-outline 的
 // resolveChapterSource 裁定来源，只有 AI 自由分章（简介/评论时间轴与官方章节都没有）
@@ -49,7 +52,14 @@ import { jumpReadingTarget } from "./sync.js";
 // 状态（模块内闭包，对齐 scroll-state/explain-intent 的 reader 域叶子模式）
 // ============================================================
 
-export type ReaderOverviewPhase = "idle" | "generating" | "ready" | "partial" | "error" | "empty";
+export type ReaderOverviewPhase =
+  | "idle"
+  | "generating"
+  | "ready"
+  | "partial"
+  | "error"
+  | "empty"
+  | "cancelled";
 
 interface ReaderOverviewState {
   phase: ReaderOverviewPhase;
@@ -73,6 +83,26 @@ const overview: ReaderOverviewState = {
   generatedFor: "",
   inflight: null
 };
+
+// 生成中的中止句柄：与 overview.inflight 不同寿命——关闭阅读模式只归位状态、不取消
+// 在飞请求（ADR-0010 不变式），重开同视频时编排 promise 会按 finalKey 复用，所以
+// controller 必须活到编排落定：否则重开后的「取消」键取消的是一个没人听的信号。
+// startedAt / lastActivityAt 供首字节前的等待计时用。
+interface ReaderOverviewInflightAbort {
+  key: string;
+  controller: AbortController;
+  /** 本次编排的发起时刻（等待计时基准） */
+  startedAt: number;
+  /** 最近一次管线进度回吐时刻；0 = 尚无任何可观察活动 */
+  lastActivityAt: number;
+}
+
+let inflightAbort: ReaderOverviewInflightAbort | null = null;
+let waitTicker: ReturnType<typeof setInterval> | null = null;
+/** 用户主动取消（区别于其它 abort 来源）：决定 aborted 上浮后停在哪个态 */
+let cancelRequested = false;
+/** 首字节前多久把固定文案换成等待计时：只提示，不设硬超时 */
+const WAIT_NOTE_THRESHOLD_MS = 10_000;
 
 function getClipBody(): { from: number; to: number; content: string }[] {
   return Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
@@ -158,6 +188,76 @@ function dropOverviewProduct(): void {
   overview.errorText = "";
 }
 
+// ============================================================
+// 等待计时与取消（生成中的面板内出口，ADR-0010：通道不设硬超时）
+// ============================================================
+
+// 首字节未至时的等待文案：已有管线进度就把文案交给管线（不叠加计时，避免把「模型
+// 在长思考」读成故障）；不足阈值返回空串，渲染回落到固定文案。
+function waitingNoteText(): string {
+  const slot = inflightAbort;
+  if (!slot || slot.lastActivityAt) {
+    return "";
+  }
+  const waitedMs = Date.now() - slot.startedAt;
+  if (waitedMs < WAIT_NOTE_THRESHOLD_MS) {
+    return "";
+  }
+  return `正在等待平台响应…（已等待 ${Math.floor(waitedMs / 1000)} 秒）`;
+}
+
+function stopWaitTicker(): void {
+  if (waitTicker !== null) {
+    clearInterval(waitTicker);
+    waitTicker = null;
+  }
+}
+
+// 每秒就地刷新状态条那句文案：不整块 renderReadingOverview——重试场景下屏上已有旧
+// 产物的章节/金句，重建 innerHTML 会丢滚动位置与选区。
+function tickWaitNote(): void {
+  if (overview.phase !== "generating") {
+    stopWaitTicker();
+    return;
+  }
+  const text = overview.progressText || waitingNoteText();
+  const stripText = document
+    .getElementById(ids.readingOverviewBody)
+    ?.querySelector(".biliscript-reading-ov-strip-text");
+  if (stripText) {
+    if (text) {
+      stripText.textContent = text;
+    }
+    return;
+  }
+  renderIfOpen();
+}
+
+function startWaitTicker(): void {
+  stopWaitTicker();
+  waitTicker = setInterval(tickWaitNote, 1000);
+}
+
+// 取消进行中的生成：生成中唯一的面板内出口（retry 只在 error/partial 条，而关闭
+// 阅读模式按 ADR-0010 不取消在飞请求）。立即转 cancelled 态让点击有反馈；管线以
+// aborted 上浮时据 cancelRequested 停在同一态，不落回 idle——那会让切 tab 的自动
+// 触发立刻重跑一次刚被取消的请求。
+export function cancelReaderOverview(): void {
+  if (overview.phase !== "generating") {
+    return;
+  }
+  cancelRequested = true;
+  stopWaitTicker();
+  inflightAbort?.controller.abort();
+  // 放开去重绑定：cancel 后「重新生成」必须能立刻重跑，不必等被中止的编排落定。
+  // 旧编排的迟到回执由 startOverviewRun 的 slot 身份守卫丢弃（新触发换了 slot）。
+  overview.inflight = null;
+  overview.phase = "cancelled";
+  overview.progressText = "";
+  overview.errorText = "";
+  renderIfOpen();
+}
+
 /**
  * 触发概览生成（fire-and-forget；返回编排 promise 供测试/去重方 await）。
  * 去重语义：
@@ -188,26 +288,41 @@ export function triggerReaderOverviewGeneration(
   if (
     !forceRefresh &&
     overview.generatedFor === clipKey &&
-    (overview.phase === "ready" || overview.phase === "partial" || overview.phase === "error")
+    (overview.phase === "ready" ||
+      overview.phase === "partial" ||
+      overview.phase === "error" ||
+      overview.phase === "cancelled")
   ) {
     return Promise.resolve();
   }
   if (overview.generatedFor !== clipKey) {
     dropOverviewProduct();
   }
+  // 中止句柄按视频身份复用：同 key 的重复触发（含关闭阅读模式后重开）拿同一个
+  // signal，取消才作用在真正在飞的那次请求上；已中止的句柄不复用（取消后重跑要新
+  // controller）。
+  let slot = inflightAbort;
+  if (!slot || slot.key !== clipKey || slot.controller.signal.aborted) {
+    slot = { key: clipKey, controller: new AbortController(), startedAt: Date.now(), lastActivityAt: 0 };
+    inflightAbort = slot;
+  }
+  cancelRequested = false;
   overview.generatedFor = clipKey;
   overview.aiChapters = currentChapterSource().kind === "auto";
   overview.phase = "generating";
   overview.progressText = "";
   overview.errorText = "";
+  startWaitTicker();
   renderIfOpen();
 
-  const run = startOverviewRun(clipKey, forceRefresh);
+  const run = startOverviewRun(clipKey, forceRefresh, slot);
   overview.inflight = run;
   const cleanup = () => {
     if (overview.inflight === run) {
       overview.inflight = null;
     }
+    // 编排落定即停表（句柄本身留到下次触发或取消处理——见 inflightAbort 注释）
+    stopWaitTicker();
   };
   void (async () => {
     try {
@@ -221,7 +336,11 @@ export function triggerReaderOverviewGeneration(
   return run;
 }
 
-async function startOverviewRun(clipKey: string, forceRefresh: boolean): Promise<void> {
+async function startOverviewRun(
+  clipKey: string,
+  forceRefresh: boolean,
+  slot: ReaderOverviewInflightAbort
+): Promise<void> {
   try {
     // 动态 import：AI 管线（analysis → map-reduce/pool/budgeter…）只在生成触发
     // 时装载，reader chunk 保持轻（守卫见 scripts/build-content.js）。并发首触
@@ -233,12 +352,21 @@ async function startOverviewRun(clipKey: string, forceRefresh: boolean): Promise
       // 章节/金句生成不开放思考档位，省略档位虽会在协议层归一化落到 off，
       // 显式传参让「查表关思考」（thinking-profiles → 平台关闭字段/级联）的
       // 行为成为契约而非默认值巧合（协议层改动时不会被静默带走）。
-      { provider, context: buildOverviewContext(), forceRefresh, thinkingLevel: "off" },
+      // signal：取消键据此中止在飞请求（content → offscreen 代发端口断连即 abort）。
+      {
+        provider,
+        context: buildOverviewContext(),
+        forceRefresh,
+        thinkingLevel: "off",
+        signal: slot.controller.signal
+      },
       {
         // 分段进度文案（buildProgressNotice：「正在整理第 x/y 段（n%）」）注入：
         // 生成中状态条实时跟随（管线 onProgress 为可选注入，分段路径才回调）。
+        // 回调同时刷新 lastActivityAt：有过进度就不再叠「已等待」计时。
         onProgress: (notice) => {
           overview.progressText = String(notice || "");
+          slot.lastActivityAt = Date.now();
           renderIfOpen();
         },
         // 成本护栏（分段路径预估 ≥5 次调用时）：面板内确认弹层
@@ -247,8 +375,8 @@ async function startOverviewRun(clipKey: string, forceRefresh: boolean): Promise
         askCostGuard: (message) => confirmDialog({ message, confirmText: "继续" })
       }
     );
-    if (overview.generatedFor !== clipKey) {
-      return; // 会话已收尾/已换片：产物丢弃（closeReadingView 清理语义）
+    if (inflightAbort !== slot || overview.generatedFor !== clipKey) {
+      return; // 会话已收尾/已换片/已被新一轮取代：产物丢弃
     }
     overview.analysis = analysis;
     overview.phase = Array.isArray(analysis.failedRanges) && analysis.failedRanges.length > 0 ? "partial" : "ready";
@@ -256,11 +384,20 @@ async function startOverviewRun(clipKey: string, forceRefresh: boolean): Promise
     overview.errorText = "";
     renderIfOpen();
   } catch (error) {
-    if (overview.generatedFor !== clipKey) {
-      return; // 同上：过期回执丢弃
+    if (inflightAbort !== slot || overview.generatedFor !== clipKey) {
+      return; // 同上：过期回执丢弃（含取消后新一轮已接手的旧编排）
     }
     const err = error as { cancelled?: unknown; aborted?: unknown } | null;
     if (err?.cancelled || err?.aborted) {
+      if (cancelRequested) {
+        // 用户主动取消：停在 cancelled 态（有「重新生成」出口），不回 idle——
+        // 那会让切 tab 的自动触发立刻重跑一次刚被取消的请求。
+        overview.phase = "cancelled";
+        overview.progressText = "";
+        overview.errorText = "";
+        renderIfOpen();
+        return;
+      }
       // 用户拒绝成本护栏 / 请求被中止：回到未生成态，不算失败
       dropOverviewProduct();
       renderIfOpen();
@@ -329,6 +466,8 @@ function buildOverviewBodyHtml(): string {
       return buildPartialStrip() + buildResultSectionsHtml();
     case "error":
       return buildErrorStrip();
+    case "cancelled":
+      return buildCancelledStrip();
     case "ready":
       return buildResultSectionsHtml();
     case "idle":
@@ -372,17 +511,30 @@ function buildEmptyStateHtml(): string {
   `;
 }
 
-// 生成中状态条：单槽居中显示管线进度文案（onProgress，分段路径实时推进；
-// 单发路径为「正在生成概览…（已接收 N 字）」/「模型正在思考…」），管线还没
-// 报过进度时回落固定文案——同一句只渲染一次，不再「固定标签 + 带前缀的
-// 进度文案」并排两遍。细进度条复用转写横幅的 biliscript-asr-pulse 不确定
-// 动画（页面侧拿不到确定进度）。
+// 生成中状态条：单槽显示管线进度文案（onProgress，分段路径实时推进；单发路径为
+// 「正在生成概览…（已接收 N 字）」/「模型正在思考…」）+ 取消键——生成中唯一的面板内
+// 出口。管线还没报过进度且首字节等待超过阈值时，文案换成等待计时（只提示，不设硬
+// 超时）。细进度条复用转写横幅的 biliscript-asr-pulse 不确定动画（页面侧拿不到确定
+// 进度）。
 function buildGeneratingStrip(): string {
+  const text = overview.progressText || waitingNoteText() || "正在生成概览…";
   return `
     <div class="biliscript-reading-ov-strip is-generating">
-      <span class="biliscript-reading-ov-strip-text">${escapeHtml(overview.progressText || "正在生成概览…")}</span>
+      <span class="biliscript-reading-ov-strip-text">${escapeHtml(text)}</span>
+      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="cancel">取消</button>
     </div>
     <div class="biliscript-reading-ov-track" aria-hidden="true"><div class="biliscript-reading-ov-fill"></div></div>
+  `;
+}
+
+// 取消后的收场条：已无在飞请求，给出显式重跑入口（forceRefresh；整份缓存不读、
+// 段缓存照常复用，与 partial/error 重试同一语义）。
+function buildCancelledStrip(): string {
+  return `
+    <div class="biliscript-reading-ov-strip">
+      <span class="biliscript-reading-ov-strip-text">已取消概览生成。</span>
+      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重新生成</button>
+    </div>
   `;
 }
 
@@ -513,6 +665,11 @@ export function onReadingOverviewClick(event: MouseEvent): void {
       void triggerReaderOverviewGeneration({ forceRefresh: true });
       return;
     }
+    if (action === "cancel") {
+      // 生成中取消：中止在飞请求并停在 cancelled 态（见 cancelReaderOverview）
+      cancelReaderOverview();
+      return;
+    }
     if (action === "copy-quote") {
       void copyQuoteToClipboard(target);
       return;
@@ -564,9 +721,12 @@ async function copyQuoteToClipboard(quoteEl: HTMLElement): Promise<void> {
 /**
  * 会话收尾：状态与产物引用归位。不取消进行中的生成——管线后台跑完落缓存，
  * 重开阅读模式读缓存命中；落定回执因 generatedFor 已清而被丢弃（见
- * startOverviewRun 的回执守卫），不会写进新会话。
+ * startOverviewRun 的回执守卫），不会写进新会话。inflightAbort 同理保留：重开同
+ * 视频时与编排 promise 一起复用，「取消」键才作用在真正在飞的那次请求上。
  */
 export function resetReaderOverviewState(): void {
+  stopWaitTicker();
+  cancelRequested = false;
   overview.phase = "idle";
   overview.analysis = null;
   overview.aiChapters = false;
