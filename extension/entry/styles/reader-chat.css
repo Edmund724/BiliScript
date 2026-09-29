@@ -29,7 +29,6 @@
   gap: 5px;
   min-height: 42px;
   padding: 6px 0 8px;
-  border-bottom: 1px solid var(--biliscript-reader-border);
   flex-shrink: 0;
 }
 
@@ -612,7 +611,6 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px 0 0;
-  border-top: 1px solid var(--biliscript-reader-border);
   flex-shrink: 0;
   position: relative;
 }
@@ -996,7 +994,8 @@
 }
 
 /* 整页头部（Q9 决议：返回键最左、标题紧随、清空全部最右）：固定不滚，分隔线
- * 与对话工具条同款；页内滚动只发生在下面的列表区。 */
+ * 划开标题与滚动列表；页内滚动只发生在下面的列表区。（对话工具条与输入区
+ * 原有的同款分隔线已按 2026-09 用户决议删除——两条横线造成割裂感。） */
 .biliscript-reading-chat .chat-history-popover-head {
   flex-shrink: 0;
   display: flex;
