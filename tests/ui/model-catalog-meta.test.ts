@@ -42,6 +42,18 @@ async function mountDialog(options: { presetId: string; baseUrl: string; models:
   state.host = document.querySelector<HTMLElement>(".provider-editor-host")!;
   state.open = true;
   state.kind = "ai";
+  // 片 3 起 draft 是真源：手工挂载同样先建初稿（addModelRow 与输入事件都写 draft），
+  // 行 DOM 是它的投影
+  state.draft = {
+    presetId: options.presetId,
+    name: "",
+    baseUrl: options.baseUrl,
+    apiKey: "",
+    protocol: "openai",
+    models: [],
+    model: ""
+  };
+  state.baselineDraft = null;
   const catalog = await import("../../extension/ui/provider-editor-catalog.js");
   for (const model of options.models) {
     catalog.addModelRow(model);

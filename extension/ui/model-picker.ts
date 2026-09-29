@@ -166,6 +166,8 @@ export function wireModelPicker(
     const modelInput = row.querySelector(`.${inputClass}`);
     if (modelInput && option.dataset.model) {
       (modelInput as HTMLInputElement).value = option.dataset.model;
+      // 选值即输入：draft 模型（provider-editor 片 3）靠 input 事件回写真源
+      modelInput.dispatchEvent(new Event("input", { bubbles: true }));
     }
     const dropdown = row.querySelector(".ai-provider-model-dropdown") as HTMLElement | null;
     if (dropdown) dropdown.hidden = true;

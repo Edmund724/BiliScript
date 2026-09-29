@@ -22,20 +22,6 @@ export function modelRowCount(): number {
   return getDialog()?.querySelectorAll(".provider-editor-model-row").length || 0;
 }
 
-// 收集层口径（拍板 Q7）：trim / 去空行 / 静默去重（保序），normalize 同逻辑
-export function readModelIds(): string[] {
-  const seen = new Set<string>();
-  const ids: string[] = [];
-  getDialog()?.querySelectorAll<HTMLInputElement>(".provider-editor-model-id").forEach((input) => {
-    const value = input.value.trim();
-    if (value && !seen.has(value)) {
-      seen.add(value);
-      ids.push(value);
-    }
-  });
-  return ids;
-}
-
 export function syncCatalogEmpty(): void {
   const empty = getDialog()?.querySelector<HTMLElement>(".provider-editor-catalog-empty");
   if (empty) {
@@ -54,12 +40,22 @@ export function showCatalogError(message: string): void {
 export function addModelRow(value = ""): void {
   const list = getDialog()?.querySelector<HTMLElement>(".provider-editor-model-list");
   if (!list) return;
+  // draft 是真源（候选 4 片 3）：行 DOM 是 draft.models 的投影，先写 draft 再渲染
+  state.draft?.models.push(value);
   list.insertAdjacentHTML("beforeend", modelRowHtml(value));
   refreshModelCatalogMeta();
   syncCatalogEmpty();
 }
 
 export function removeModelRow(row: HTMLElement | null): void {
+  // 行序与 draft.models 一一对应，按索引摘除（含手工增删的目录行）
+  const list = row?.closest<HTMLElement>(".provider-editor-model-list");
+  if (row && list && state.draft) {
+    const index = Array.from(list.children).indexOf(row);
+    if (index >= 0) {
+      state.draft.models.splice(index, 1);
+    }
+  }
   row?.remove();
   syncCatalogEmpty();
 }
@@ -68,12 +64,15 @@ export function removeModelRow(row: HTMLElement | null): void {
 // 反馈（spinner → ✓/✕，失败原因在 title 悬停查看）；多行可并发，同一行重复
 // 点击忽略前一个（dataset.testToken 代际比对）；测试不落盘——成功也不写设置。
 export async function runModelTest(row: HTMLElement | null): Promise<void> {
-  if (!row || state.kind !== "ai") return;
-  const input = row.querySelector<HTMLInputElement>(".provider-editor-model-id");
+  const draft = state.draft;
+  if (!row || state.kind !== "ai" || !draft) return;
   const result = row.querySelector<HTMLElement>(".provider-editor-model-result");
   const button = row.querySelector<HTMLButtonElement>(".provider-editor-model-test");
-  const model = String(input?.value || "").trim();
-  const baseUrl = readField(".provider-editor-baseurl");
+  // 行序与 draft.models 一一对应：该行模型 ID 按行索引从 draft 取
+  const list = row.closest<HTMLElement>(".provider-editor-model-list");
+  const index = list ? Array.from(list.children).indexOf(row) : -1;
+  const model = String(draft.models[index] ?? "").trim();
+  const baseUrl = draft.baseUrl.trim();
   const fail = (message: string): void => {
     if (!result) return;
     result.hidden = false;
@@ -88,14 +87,11 @@ export async function runModelTest(row: HTMLElement | null): Promise<void> {
     fail("请先填写 API 地址");
     return;
   }
-  const apiKey = readField(".provider-editor-apikey");
-  // 协议下拉当前值随探针下发（multi-protocol-ai）：新增/改协议未保存时探针也按
-  // 表单所选协议走 adapter（端点/鉴权自然切换）；未传时探针回落已存记录的协议。
-  const protocol = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value || "";
-  // 平台下拉当前值同穿线（平台身份 → 平台要求的额外请求头，见 ai/preset-headers.ts）：
-  // 新增平台没有已存记录，身份只能来自表单——只按记录代查会漏掉平台头（Opencode Go
-  // 缺会话头请求不被接受），表现为「测试不通但对话能通」。
-  const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "";
+  // 协议/平台身份按 draft 下发（multi-protocol-ai / preset-headers）：新增或未保存
+  // 的表单改动探针也按 draft 走；未传时探针回落已存记录的协议/平台头
+  const protocol = draft.protocol;
+  const presetId = draft.presetId;
+  const apiKey = draft.apiKey.trim();
   const generation = state.generation;
   const token = (Number(row.dataset.testToken) || 0) + 1;
   row.dataset.testToken = String(token);
@@ -225,8 +221,11 @@ export function refreshModelCatalogMeta(): void {
   const host = state.host;
   if (!host) return;
   const catalog = loadedModelCatalog();
-  const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "";
-  const baseUrl = readField(".provider-editor-baseurl");
+  // 平台身份按 draft 取（真源），无 draft（手工挂载 DOM 的测试）回落 DOM 投影
+  const draft = state.draft;
+  const presetId =
+    draft?.presetId ?? getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value ?? "";
+  const baseUrl = draft ? draft.baseUrl.trim() : readField(".provider-editor-baseurl");
   host.querySelectorAll<HTMLElement>("[data-model-meta]").forEach((slot) => {
     const row = slot.closest<HTMLElement>(".provider-editor-model-row, .provider-editor-fetch-item");
     const modelId =

@@ -25,9 +25,12 @@ import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
 import type { ProviderRowElement, ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import {
+  cloneDraft,
+  draftsEqual,
   getDialog,
-  readField,
+  normalizeDraftModels,
   state,
+  type EditorDraft,
   type ProviderEditorKind,
   type ProviderEditorOpenOptions
 } from "./provider-editor-state.js";
@@ -35,7 +38,6 @@ import {
   addModelRow,
   modelRowHtml,
   primeModelCatalogMeta,
-  readModelIds,
   refreshModelCatalogMeta,
   removeModelRow,
   runModelTest
@@ -105,36 +107,15 @@ function protocolNotes(protocol: unknown): string {
   return text ? `该协议限制：${text}` : "";
 }
 
-// ===== dirty 快照（拍板 Q6） =====
-
-export function currentSnapshot(): string {
-  const family = PROVIDER_FAMILY_ROWS[state.kind];
-  // 快照模型段按能力位取：catalog 族含模型目录行（拍板 Q10 草稿语义：增删行
-  // 即脏——行数进快照，否则加一行空白行与 0 行的拼接结果相同）；input 族是
-  // 单模型输入；none 族无模型概念
-  const modelInputs = family.editor.modelSource === "catalog"
-    ? Array.from(getDialog()?.querySelectorAll<HTMLInputElement>(".provider-editor-model-id") || [])
-    : [];
-  const modelsPart = family.editor.modelSource === "catalog"
-    ? `${modelInputs.length}\u0001${modelInputs.map((input) => input.value).join("\u0001")}`
-    : family.editor.modelSource === "input"
-      ? readField(".provider-editor-model")
-      : "";
-  return [
-    getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "",
-    readField(".provider-editor-name"),
-    readField(".provider-editor-baseurl"),
-    readField(".provider-editor-apikey"),
-    // AI 协议下拉进快照：切协议即脏（multi-protocol-ai）
-    family.editor.usesProtocol
-      ? getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value || ""
-      : "",
-    modelsPart
-  ].join("\u0000");
-}
+// ===== dirty（拍板 Q6；候选 4 片 3：draft 逐字段对比，DOM 不参与） =====
 
 export function isDirty(): boolean {
-  return state.open && currentSnapshot() !== state.dirtySnapshot;
+  return (
+    state.open &&
+    state.draft !== null &&
+    state.baselineDraft !== null &&
+    !draftsEqual(state.draft, state.baselineDraft)
+  );
 }
 
 // ===== 关闭（幂等；force 跳过 dirty 确认弹层） =====
@@ -156,6 +137,8 @@ export function closeProviderEditor(force = false): void {
   document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
   state.host?.remove();
   state.host = null;
+  state.draft = null;
+  state.baselineDraft = null;
 }
 
 // 取消 / Esc / 遮罩 / 面板外点击的统一关闭入口（拍板 Q6）：dirty 才拦——
@@ -186,22 +169,21 @@ export async function confirmDiscardChanges(): Promise<void> {
 
 export function collectUpsert(): { upsert: ProviderRowItem; validationError?: string } {
   const family = PROVIDER_FAMILY_ROWS[state.kind];
-  const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "custom";
+  // draft 是真源（候选 4 片 3）：保存只读 draft，不读 DOM——裸改投影不混入保存链
+  const draft = state.draft!;
   // 预设回落与序列化都走族声明（每族知识唯一来源，行/编辑器同源）
-  const preset = family.resolvePreset(state.presets, presetId);
+  const preset = family.resolvePreset(state.presets, draft.presetId);
   return family.editor.serializeUpsert({
     id: state.editingId,
     preset,
-    name: readField(".provider-editor-name") || preset?.name || "自定义",
-    baseUrl: readField(".provider-editor-baseurl").replace(/\/+$/, ""),
-    apiKey: readField(".provider-editor-apikey"),
+    name: draft.name.trim() || preset?.name || "自定义",
+    baseUrl: draft.baseUrl.trim().replace(/\/+$/, ""),
+    apiKey: draft.apiKey.trim(),
     hasSavedKey: state.hasSavedKey,
-    models: readModelIds(),
-    model: readField(".provider-editor-model"),
+    models: normalizeDraftModels(draft.models),
+    model: draft.model.trim(),
     // 协议显式落盘（multi-protocol-ai）：存量记录编辑保存即写入显式值
-    protocol: normalizeProtocolValue(
-      getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value
-    )
+    protocol: normalizeProtocolValue(draft.protocol)
   });
 }
 
@@ -275,8 +257,9 @@ export async function deleteActive(): Promise<void> {
 export async function runTest(): Promise<void> {
   // 平台级测试能力按族声明（仅 ASR）；函数体仍按 ASR 探针直写，非 ASR 族走不到
   if (!PROVIDER_FAMILY_ROWS[state.kind].editor.supportsPlatformTest) return;
-  const baseUrl = readField(".provider-editor-baseurl");
-  const model = readField(".provider-editor-model");
+  const draft = state.draft!;
+  const baseUrl = draft.baseUrl.trim();
+  const model = draft.model.trim();
   if (!baseUrl) {
     showStatus("请填写 baseUrl", true);
     return;
@@ -288,10 +271,9 @@ export async function runTest(): Promise<void> {
   setBusy(true);
   showStatus("正在测试...");
   const generation = state.generation;
-  const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "custom";
-  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, presetId);
-  const apiKey = readField(".provider-editor-apikey");
-  const name = readField(".provider-editor-name") || preset?.name || "自定义";
+  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
+  const apiKey = draft.apiKey.trim();
+  const name = draft.name.trim() || preset?.name || "自定义";
   // 新增时 editingId 为空，探针按空 id 代查 Key 落空，用户重输的 Key 随参数携带。
   const resp: { ok?: boolean; error?: string } = await testAsrConnection({
     id: state.editingId,
@@ -319,35 +301,55 @@ export function editorTitle(kind: ProviderEditorKind, editing: boolean): string 
   const label = PROVIDER_FAMILY_ROWS[kind].editor.title;
   return editing ? `编辑${label}` : `添加${label}`;
 }
+// 初稿（候选 4 片 3）：打开时把编辑对象/预设默认推导成 draft——模板与联动只
+// 认 draft，DOM 是它的投影。协议口径：编辑按记录值（存量缺字段/未知值显示
+// 「OpenAI」，不得跟随预设默认漂移）；新增才回落预设默认归属（拍板
+// 05-ui-protocol-selector）。名称沿用拍板 Q7：AI 值留空 + 占位（≠预设名才回填），
+// ASR/搜索是实值语义
+function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
+  const item = options.item || null;
+  const family = PROVIDER_FAMILY_ROWS[options.kind];
+  // 新增默认「自定义」（与平铺行空白行的 presetId 默认一致，baseUrl 空）；
+  // 编辑按列表项 presetId（未知值由 resolvePreset 回落，AI 回落最后一个预设）
+  const presetId = String(item?.presetId || family.editor.defaultPresetId(options.presets));
+  const preset = family.resolvePreset(options.presets, presetId);
+  const isAi = options.kind === "ai";
+  const protocol = normalizeProtocolValue(item ? item.protocol : presetProtocol(preset));
+  const presetName = preset?.name || "";
+  const rawName = String(item?.name || "");
+  return {
+    presetId,
+    name: isAi ? (rawName && rawName !== presetName ? rawName : "") : rawName || presetName,
+    // 无存量 baseUrl 时按协议取预设端点（DeepSeek 预设默认 Anthropic，新建即填
+    // /anthropic；其余预设未登记 protocolBaseUrls，回落 preset.baseUrl）
+    baseUrl: String(item?.baseUrl ?? (isAi ? presetBaseUrlForProtocol(preset, protocol) : preset?.baseUrl) ?? ""),
+    apiKey: "",
+    protocol: isAi ? protocol : "",
+    // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
+    models: isAi && Array.isArray(item?.models) ? item.models.map(String) : [],
+    model: isAi ? "" : String(item?.model ?? preset?.model ?? "")
+  };
+}
+
 export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const item = options.item || null;
   const presets = options.presets;
   const family = PROVIDER_FAMILY_ROWS[options.kind];
-  // 新增默认「自定义」（与平铺行空白行的 presetId 默认一致，baseUrl 空）；
-  // 编辑按列表项 presetId（未知值由 resolvePreset 回落，AI 回落最后一个预设）
-  const presetId = String(item?.presetId || family.editor.defaultPresetId(presets));
-  const preset = family.resolvePreset(presets, presetId);
+  // 模板是 draft 的投影：字段值一律读 state.draft（openProviderEditor 先建初稿
+  // 再渲染）；模板不再做任何推导
+  const draft = state.draft!;
+  const preset = family.resolvePreset(presets, draft.presetId);
   const hasSavedKey = Boolean(item?.hasSavedKey);
   const isAi = options.kind === "ai";
-  // 协议下拉：编辑按记录值（存量缺字段/未知值显示「OpenAI」，无提示，事实即
-  // 如此——不得跟随预设默认漂移，运行时 resolveAdapter 也是 openai）；新增才
-  // 回落预设默认归属。限制点小字仅 capabilities.unsupported 非空时露出
-  //（拍板 05-ui-protocol-selector）。
-  const protocol = normalizeProtocolValue(item ? item.protocol : presetProtocol(preset));
-  // 无存量 baseUrl 时按协议取预设端点（DeepSeek 预设默认 Anthropic，新建即填
-  // /anthropic；其余预设未登记 protocolBaseUrls，回落 preset.baseUrl）
-  const baseUrl = String(item?.baseUrl ?? (isAi ? presetBaseUrlForProtocol(preset, protocol) : preset?.baseUrl) ?? "");
+  const presetId = draft.presetId;
   const isSearch = options.kind === "search";
-  // AI 名称是拍板 Q7 新增的可选项：历史数据 name=预设名，值留空 + 占位符展示
-  // 预设名（保存时空值回落预设名）；用户自定义过（≠预设名）才回填实值。
-  // ASR 名称是实值语义（与平铺行一致：初始即预设名）。
   const presetName = preset?.name || "";
-  const rawName = String(item?.name || "");
-  const nameValue = isAi ? (rawName && rawName !== presetName ? rawName : "") : rawName || presetName;
+  const nameValue = draft.name;
   const namePlaceholder = isAi ? presetName : "平台名称";
-  // AI 模型目录：编辑预填全部模型行（阶段2）；ASR 单模型回落预设
-  const models = isAi && Array.isArray(item?.models) ? item.models.map(String) : [];
-  const model = isAi ? "" : String(item?.model ?? preset?.model ?? "");
+  const models = draft.models;
+  const model = draft.model;
+  const protocol = draft.protocol;
+  const baseUrl = draft.baseUrl;
   const notes = isAi ? protocolNotes(protocol) : "";
 
   return `
@@ -544,52 +546,63 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
   };
   syncApiKeyRequired(family.resolvePreset(options.presets, presetSelect?.value || ""));
 
-  // 预设切换：baseUrl 未改过（空或仍是上一预设默认值）才跟随（平铺行同款规则）。
-  // AI 名称留过实值（≠当前预设名）视为用户自定义，切预设不覆盖；否则跟随新
-  // 预设名（仅占位符与空值）。ASR 名称/模型无条件跟随、Key 清空（平铺行同款）。
-  // 不代申请权限——Modal 的 host 权限在保存时统一收口（拍板 Q5 推论）。
+  // 预设切换（候选 4 片 3：改 draft 后重投影）：baseUrl 未改过（空或仍是上一
+  // 预设默认值）才跟随（平铺行同款规则）。AI 名称留过实值（≠当前预设名）视为
+  // 用户自定义，切预设不覆盖；否则跟随新预设名（仅占位符与空值）。ASR 名称/
+  // 模型无条件跟随、Key 清空（平铺行同款）。不代申请权限——Modal 的 host 权限
+  // 在保存时统一收口（拍板 Q5 推论）
   presetSelect?.addEventListener("change", () => {
     const next = family.resolvePreset(options.presets, presetSelect.value);
-    if (!next) return;
-    const previous = family.resolvePreset(options.presets, presetSelect.dataset.previousPresetId || "");
-    const currentBaseUrl = baseUrlInput?.value.trim() || "";
+    const draft = state.draft;
+    if (!next || !draft) return;
+    const previous = family.resolvePreset(options.presets, draft.presetId);
+    const currentBaseUrl = draft.baseUrl.trim();
+    draft.presetId = next.id;
     if (options.kind === "ai") {
       // 协议先联动（拍板 05-ui-protocol-selector）：当前值仍是上一预设默认值
       //（或空）才跟随新预设；用户改过的选择不覆盖。随后 baseUrl 按「上一预设 +
       // 当时协议」的端点判是否未改过——两处联动共用一条判据，否则 DeepSeek 这类
-      // 默认 Anthropic 的预设会把 /v1 当成用户手改值。
+      // 默认 Anthropic 的预设会把 /v1 当成用户手改值
+      if (!draft.protocol || draft.protocol === presetProtocol(previous)) {
+        draft.protocol = presetProtocol(next);
+      }
       if (protocolSelect) {
-        const currentProtocol = protocolSelect.value;
-        if (!currentProtocol || currentProtocol === presetProtocol(previous)) {
-          protocolSelect.value = presetProtocol(next);
+        protocolSelect.value = draft.protocol;
+      }
+      syncProtocolNotes(draft.protocol);
+      const previousBaseUrl = previous ? presetBaseUrlForProtocol(previous, draft.protocol) : "";
+      if (!currentBaseUrl || currentBaseUrl === previousBaseUrl) {
+        draft.baseUrl = presetBaseUrlForProtocol(next, draft.protocol);
+      }
+      const currentName = draft.name.trim();
+      if (!currentName || (previous && currentName === previous.name)) {
+        draft.name = "";
+        if (nameInput) {
+          nameInput.value = "";
+          nameInput.placeholder = next.name || "";
         }
-        protocolSelect.dataset.previousProtocol = protocolSelect.value;
-        syncProtocolNotes(protocolSelect.value);
       }
-      const currentProtocol = normalizeProtocolValue(protocolSelect?.value ?? presetProtocol(next));
-      const previousBaseUrl = previous ? presetBaseUrlForProtocol(previous, currentProtocol) : "";
-      if (baseUrlInput && (!currentBaseUrl || currentBaseUrl === previousBaseUrl)) {
-        baseUrlInput.value = presetBaseUrlForProtocol(next, currentProtocol);
-      }
-      const currentName = nameInput?.value.trim() || "";
-      if (nameInput && (!currentName || (previous && currentName === previous.name))) {
-        nameInput.value = "";
-        nameInput.placeholder = next.name || "";
+      if (baseUrlInput) {
+        baseUrlInput.value = draft.baseUrl;
       }
       if (apikeyInput) {
         apikeyInput.placeholder = family.editor.apiKeyPlaceholder(next, state.hasSavedKey);
       }
     } else {
-      if (baseUrlInput && (!currentBaseUrl || (previous && currentBaseUrl === previous.baseUrl))) {
-        baseUrlInput.value = next.baseUrl;
+      if (!currentBaseUrl || (previous && currentBaseUrl === String(previous.baseUrl || ""))) {
+        draft.baseUrl = next.baseUrl || "";
       }
       // ASR 名称/模型无条件跟随、Key 清空（平铺行同款）；搜索平台同款语义，
       // 只是无模型字段可跟
       if (options.kind === "asr") {
+        draft.model = next.model || "";
         const modelInput = dialog.querySelector<HTMLInputElement>(".provider-editor-model");
-        if (modelInput) modelInput.value = next.model || "";
+        if (modelInput) modelInput.value = draft.model;
       }
-      if (nameInput) nameInput.value = next.name || "";
+      draft.name = next.name || "";
+      draft.apiKey = "";
+      if (baseUrlInput) baseUrlInput.value = draft.baseUrl;
+      if (nameInput) nameInput.value = draft.name;
       if (apikeyInput) apikeyInput.value = "";
     }
     // Key 必填随预设挂摘（requiresKey 与已存 Key 态同占位符口径）
@@ -597,10 +610,8 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
     clearStatus();
     // 元数据跟着平台身份走（presetId 变了、baseUrl 可能被联动改掉）
     refreshModelCatalogMeta();
-    presetSelect.dataset.previousPresetId = next.id;
   });
   if (presetSelect) {
-    presetSelect.dataset.previousPresetId = presetSelect.value;
     // AI / ASR 一律接管（ADR-0007）：原生 select 的弹层由浏览器绘制，圆角与
     // 高亮都是系统外观，与 Modal 内其余 8px 框/12px 弹层割裂。
     initCustomSelect(presetSelect, "custom-select-wrapper provider-editor-preset-wrapper");
@@ -609,7 +620,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
   // 协议下拉（multi-protocol-ai，仅 AI）：切协议即刷新底部限制点小字。
   // baseUrl 联动（拍板同预设切换惯例）：当前值仍是上一协议在该预设下的默认
   // 端点（或空）才跟随新协议的默认端点；用户手改过不覆盖（同 baseUrl 切协议
-  // 的代理平台用例不受影响——前后端点相同，跟随是 no-op）。
+  // 的代理平台用例不受影响——前后端点相同，跟随是 no-op）
   const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol");
   const syncProtocolNotes = (value: unknown): void => {
     const notesNode = dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes");
@@ -620,32 +631,60 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
   };
   if (protocolSelect) {
     initCustomSelect(protocolSelect, "custom-select-wrapper provider-editor-protocol-wrapper");
-    protocolSelect.dataset.previousProtocol = protocolSelect.value;
     protocolSelect.addEventListener("change", () => {
-      if (options.kind === "ai" && baseUrlInput) {
-        const preset = family.resolvePreset(options.presets, presetSelect?.value || "");
-        const previous = normalizeProtocolValue(protocolSelect.dataset.previousProtocol);
+      const draft = state.draft;
+      if (!draft) return;
+      if (options.kind === "ai") {
+        const preset = family.resolvePreset(options.presets, draft.presetId);
+        const previous = normalizeProtocolValue(draft.protocol);
         const next = normalizeProtocolValue(protocolSelect.value);
-        const current = baseUrlInput.value.trim();
+        draft.protocol = next;
+        const current = draft.baseUrl.trim();
         if (preset && (!current || current === presetBaseUrlForProtocol(preset, previous))) {
-          baseUrlInput.value = presetBaseUrlForProtocol(preset, next);
+          draft.baseUrl = presetBaseUrlForProtocol(preset, next);
+        }
+        if (baseUrlInput) {
+          baseUrlInput.value = draft.baseUrl;
         }
       }
-      protocolSelect.dataset.previousProtocol = protocolSelect.value;
-      syncProtocolNotes(protocolSelect.value);
+      syncProtocolNotes(draft.protocol);
       // 切协议可能联动改 baseUrl（protocolBaseUrls 端点），元数据跟着重算
       refreshModelCatalogMeta();
     });
   }
 
-  // 输入即清错误状态行（修正输入即清错）；字段级校验态由 :user-invalid CSS
-  // 随原生约束自动摘除，无需 JS 介入
-  [nameInput, baseUrlInput, apikeyInput].forEach((input) => {
+  // 输入即写 draft（候选 4 片 3：draft 是真源，input 事件是文本字段的唯一写
+  // 通道）并清错误状态行（修正输入即清错）；字段级校验态由 :user-invalid CSS
+  // 随原生约束自动摘除，无需 JS 介入。ASR 单模型输入只回写 draft（状态行由
+  // model-picker 自持）；其下拉选值已在 model-picker 内补派 input 事件
+  const syncDraftInput = (input: HTMLInputElement | null, key: "name" | "baseUrl" | "apiKey") => {
     input?.addEventListener("input", () => {
+      if (state.draft) {
+        state.draft[key] = input.value;
+      }
       if (statusIsError()) {
         clearStatus();
       }
     });
+  };
+  syncDraftInput(nameInput, "name");
+  syncDraftInput(baseUrlInput, "baseUrl");
+  syncDraftInput(apikeyInput, "apiKey");
+  dialog.querySelector<HTMLInputElement>(".provider-editor-model")?.addEventListener("input", (event) => {
+    if (state.draft) {
+      state.draft.model = (event.target as HTMLInputElement).value;
+    }
+  });
+  // AI 目录行：行动态增删，输入事件按当前行序整列回写 draft.models（行 DOM
+  // 就是 draft.models 的投影，一一对应）
+  dialog.querySelector<HTMLElement>(".provider-editor-model-list")?.addEventListener("input", (event) => {
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains("provider-editor-model-id") || !state.draft) return;
+    const list = target.closest<HTMLElement>(".provider-editor-model-list");
+    if (!list) return;
+    state.draft.models = Array.from(list.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).map(
+      (input) => input.value
+    );
   });
 
   // 只读模型元数据（model-catalog/04）：改 API 地址（custom/未知预设的身份来源）
@@ -710,9 +749,11 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   state.openBaseUrl = String(options.item?.baseUrl || "");
   state.hasSavedKey = Boolean(options.item?.hasSavedKey);
   state.open = true;
+  // draft 真源与 dirty 基线先就位，模板渲染（buildDialogHtml）只是它的投影
+  state.draft = buildInitialDraft(options);
+  state.baselineDraft = cloneDraft(state.draft);
   host.innerHTML = buildDialogHtml(options);
   wireDialog(options);
-  state.dirtySnapshot = currentSnapshot();
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
   // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是

@@ -13,9 +13,9 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
-import { getDialog, readField, state } from "./provider-editor-state.js";
+import { normalizeDraftModels, state } from "./provider-editor-state.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
-import { addModelRow, readModelIds, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
+import { addModelRow, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
 
 // ===== 「获取可用模型」勾选弹窗（拍板 Q5/Q11）：搜索 / 全选 / 已添加置灰 =====
 
@@ -81,7 +81,7 @@ export function renderFetchItems(filter: string): void {
   const list = dialog?.querySelector<HTMLElement>(".provider-editor-fetch-list");
   if (!dialog || !list) return;
   // 已添加置灰（拍板 Q11）：与当前草稿目录比对，勾选添加只会追加目录外模型
-  const existing = new Set(readModelIds());
+  const existing = new Set(normalizeDraftModels(state.draft?.models ?? []));
   const kw = filter.trim().toLowerCase();
   const visible = fetchModelsCache.filter((m) => !kw || m.toLowerCase().includes(kw));
   list.innerHTML = visible.length
@@ -162,10 +162,11 @@ export async function loadFetchModels(baseUrl: string, apiKey: string): Promise<
 // 手势同步链：本函数开头到 requestProviderOriginsViaBackground 之间零先行
 // await（tests/ui/options-save-gesture.test.ts 锁定）——点击直达代申请。
 export async function openFetchDialog(): Promise<void> {
-  const baseUrl = readField(".provider-editor-baseurl");
-  const apiKey = readField(".provider-editor-apikey");
-  const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "custom";
-  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, presetId);
+  const draft = state.draft;
+  if (!draft) return;
+  const baseUrl = draft.baseUrl.trim();
+  const apiKey = draft.apiKey.trim();
+  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
   if (!baseUrl || (!apiKey && !state.hasSavedKey && preset?.requiresKey !== false)) {
     showCatalogError("请先填写 API 地址和 Key");
     return;

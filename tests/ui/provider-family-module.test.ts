@@ -93,6 +93,24 @@ describe("编辑器消费族声明（候选 3 片 2）", () => {
     expect(body).toContain("serializeUpsert(");
   });
 
+  it("片 3：collectUpsert 以 draft 为真源，不读 DOM", () => {
+    const source = readSource("../../extension/ui/provider-editor-modal.ts");
+    const body = functionBody(source, "export function collectUpsert(");
+    expect(body).toContain("state.draft");
+    expect(body).not.toContain("readField");
+  });
+
+  it("片 3：draft 投影——modal 无 currentSnapshot/dirtySnapshot，isDirty 走 draftsEqual", () => {
+    const source = readSource("../../extension/ui/provider-editor-modal.ts");
+    expect(source).not.toContain("currentSnapshot");
+    expect(source).not.toContain("dirtySnapshot");
+    const dirty = functionBody(source, "export function isDirty(");
+    expect(dirty).toContain("draftsEqual");
+    const state = readSource("../../extension/ui/provider-editor-state.ts");
+    expect(state).toContain("interface EditorDraft");
+    expect(state).toContain("export function draftsEqual");
+  });
+
   it("resolvePreset / apiKeyPlaceholder 从 state 片迁出：state 不再定义，消费方不再从 state 导入", () => {
     const state = readSource("../../extension/ui/provider-editor-state.ts");
     expect(state).not.toContain("export function resolvePreset");
@@ -103,11 +121,8 @@ describe("编辑器消费族声明（候选 3 片 2）", () => {
     }
   });
 
-  it("kind 门收敛为能力位：快照模型段看 modelSource，平台测试门看 supportsPlatformTest", () => {
+  it("kind 门收敛为能力位：平台测试门看 supportsPlatformTest（快照门片 3 由 draft 锁接管）", () => {
     const source = readSource("../../extension/ui/provider-editor-modal.ts");
-    const snapshot = functionBody(source, "export function currentSnapshot(");
-    expect(snapshot).toContain("modelSource");
-    expect(snapshot).not.toContain('state.kind === "ai"');
     const runTest = functionBody(source, "export async function runTest(");
     expect(runTest).toContain("supportsPlatformTest");
     expect(runTest).not.toContain('state.kind !== "asr"');

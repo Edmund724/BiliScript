@@ -113,6 +113,13 @@ function fireClick(node: Element | null) {
   node!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
+// 片 3 起 Modal 以 draft 为真源、DOM 为投影：模拟用户输入必须走 input 事件；
+// 裸写 .value 不进 draft（draft 投影语义 describe 有专门用例锁这条）
+function setFieldValue(input: HTMLInputElement, value: string) {
+  input.value = value;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 // 纯微任务冲刷：等待事件处理器里 await 消息链走完
 async function flushMicrotasks() {
   for (let i = 0; i < 12; i++) {
@@ -151,11 +158,11 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe("");
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.placeholder).toBe("API Key");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
     fireClick(dialog.querySelector(".provider-editor-model-add"));
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o-mini";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -200,8 +207,8 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     const { dialog } = await openEditor(host, "#addAsrProviderBtn");
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.placeholder).toBe("API Key");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://asr.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model")!.value = "whisper-1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -226,9 +233,9 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     const { sent, host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     fireClick(dialog.querySelector(".provider-editor-model-add"));
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o-mini";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -246,11 +253,11 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
     fireClick(dialog.querySelector(".provider-editor-model-add"));
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o-mini";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -267,11 +274,11 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     // 模型目录：「+ 添加模型」加空白行，行内输入模型 ID
     fireClick(dialog.querySelector(".provider-editor-model-add"));
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o-mini";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
 
     fireClick(dialog.querySelector(".provider-editor-save"));
 
@@ -306,7 +313,7 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
     // AI 自定义名称（≠预设名）回填实值
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-name")!.value).toBe("我的端点");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4");
     fireClick(dialog.querySelector(".provider-editor-save"));
 
     await vi.waitFor(() => {
@@ -326,10 +333,10 @@ describe("provider-editor：编辑预填与 upsert 替换（拍板 Q3）", () =>
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     // 留空 → 预设名「自定义」
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-model-add"));
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o-mini";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
     fireClick(dialog.querySelector(".provider-editor-save"));
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
@@ -351,10 +358,10 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     // openai 的 capabilities.unsupported 为空：限制点小字不露出
     expect(dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes")!.hidden).toBe(true);
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-model-add"));
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o-mini";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
     fireClick(dialog.querySelector(".provider-editor-save"));
 
     await vi.waitFor(() => {
@@ -466,7 +473,7 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(baseUrlInput.value).toBe("https://api.deepseek.com/v1");
 
     // 用户手改过 baseUrl：切协议不再覆盖
-    baseUrlInput.value = "https://my-proxy.example.com/v1";
+    setFieldValue(baseUrlInput, "https://my-proxy.example.com/v1");
     protocolSelect.value = "anthropic";
     protocolSelect.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://my-proxy.example.com/v1");
@@ -599,7 +606,7 @@ describe("provider-editor：头部删除按钮（用户拍板：× 改警示删�
 
     // 未保存的输入改动：baseUrl 被改成一个从未配置/授权的地址
     const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
-    baseUrlInput.value = "https://never-configured.example.com/v1";
+    setFieldValue(baseUrlInput, "https://never-configured.example.com/v1");
     baseUrlInput.dispatchEvent(new Event("input", { bubbles: true }));
 
     fireClick(dialog.querySelector(".provider-editor-delete"));
@@ -624,7 +631,7 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
 
     // 取消按钮：dirty 确认弹层（ui/confirm-dialog.js，与删除二次确认同源）
     fireClick(dialog.querySelector(".provider-editor-cancel"));
@@ -675,10 +682,10 @@ describe("provider-editor：dirty 保护与关闭语义（拍板 Q6）", () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-model-add"));
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o-mini";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
     fireClick(dialog.querySelector(".provider-editor-save"));
 
     await vi.waitFor(() => expect(editorGone()).toBe(true));
@@ -723,16 +730,16 @@ describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", ()
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     // 三行：带空白、重复 ID、纯空行
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     const inputs = dialog.querySelectorAll<HTMLInputElement>(".provider-editor-model-id");
-    inputs[0].value = "  gpt-4o-mini ";
-    inputs[1].value = "gpt-4o-mini";
-    inputs[2].value = "   ";
+    setFieldValue(inputs[0], "  gpt-4o-mini ");
+    setFieldValue(inputs[1], "gpt-4o-mini");
+    setFieldValue(inputs[2], "   ");
 
     fireClick(dialog.querySelector(".provider-editor-save"));
     await vi.waitFor(() => {
@@ -747,8 +754,8 @@ describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", ()
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
 
     fireClick(dialog.querySelector(".provider-editor-save"));
     await vi.waitFor(() => {
@@ -767,7 +774,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
   function addModelRowWithValue(dialog: HTMLElement, value: string) {
     fireClick(dialog.querySelector(".provider-editor-model-add"));
     const row = dialog.querySelector<HTMLElement>(".provider-editor-model-row:last-child")!;
-    row.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = value;
+    setFieldValue(row.querySelector<HTMLInputElement>(".provider-editor-model-id")!, value);
     return row;
   }
 
@@ -778,8 +785,8 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
 
     expect(dialog.querySelector(".provider-editor-test")).toBeNull();
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     const row = addModelRowWithValue(dialog, "gpt-4o-mini");
 
     fireClick(row.querySelector(".provider-editor-model-test"));
@@ -815,7 +822,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const { sent, host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     const row = addModelRowWithValue(dialog, "gpt-4o-mini");
 
     fireClick(row.querySelector(".provider-editor-model-test"));
@@ -838,7 +845,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("error");
     expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.title).toBe("请先填写模型 ID");
 
-    row.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o-mini";
+    setFieldValue(row.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
     fireClick(row.querySelector(".provider-editor-model-test"));
     expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.title).toBe("请先填写 API 地址");
     expect(testAiProviderConnection).not.toHaveBeenCalled();
@@ -849,7 +856,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
     protocolSelect.value = "anthropic";
     protocolSelect.dispatchEvent(new Event("change"));
@@ -872,7 +879,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
     presetSelect.value = "opencodego";
     presetSelect.dispatchEvent(new Event("change"));
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://opencode.ai/zen/go/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://opencode.ai/zen/go/v1");
     const row = addModelRowWithValue(dialog, "glm-5.1");
 
     fireClick(row.querySelector(".provider-editor-model-test"));
@@ -893,7 +900,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     const rowA = addModelRowWithValue(dialog, "gpt-4o-mini");
     const rowB = addModelRowWithValue(dialog, "gpt-4o");
 
@@ -922,12 +929,12 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
     const row = addModelRowWithValue(dialog, "gpt-4o-mini");
 
     fireClick(row.querySelector(".provider-editor-model-test"));
     // 在飞中重复点击：发第二次探针（行内当前值），前一个结果随后被忽略
-    row.querySelector<HTMLInputElement>(".provider-editor-model-id")!.value = "gpt-4o";
+    setFieldValue(row.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o");
     fireClick(row.querySelector(".provider-editor-model-test"));
     expect(testAiProviderConnection).toHaveBeenCalledTimes(2);
 
@@ -946,8 +953,8 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
 
     expect(dialog.querySelector(".provider-editor-test")).not.toBeNull();
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://asr.example.com/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model")!.value = "whisper-1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
 
     fireClick(dialog.querySelector(".provider-editor-test"));
 
@@ -998,7 +1005,7 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAsrProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://asr.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
     // 模型下拉已在 DOM（hidden），置开再点组件外空白验证收起
     const dropdown = dialog.querySelector<HTMLElement>(".ai-provider-model-dropdown")!;
     dropdown.hidden = false;
@@ -1011,7 +1018,7 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://api.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
 
     document.getElementById("biliscript-reading-settings-panel")!.hidden = true;
     await vi.waitFor(() => {
@@ -1035,7 +1042,7 @@ describe("provider-editor：预设切换（Modal 内不代申请权限）", () =
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.placeholder).toBe("API Key（可选）");
 
     // 用户改过 baseUrl → 不覆盖
-    baseUrlInput.value = "https://my-proxy.example.com/v1";
+    setFieldValue(baseUrlInput, "https://my-proxy.example.com/v1");
     select.value = "deepseek";
     select.dispatchEvent(new Event("change"));
     expect(baseUrlInput.value).toBe("https://my-proxy.example.com/v1");
@@ -1049,7 +1056,7 @@ describe("provider-editor：预设切换（Modal 内不代申请权限）", () =
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAsrProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-old";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-old");
     const select = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
 
     select.value = "local-whisper";
@@ -1087,8 +1094,8 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://token.sensenova.cn/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://token.sensenova.cn/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
 
     fireClick(dialog.querySelector(".provider-editor-fetch"));
 
@@ -1155,8 +1162,8 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://token.sensenova.cn/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://token.sensenova.cn/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-fetch"));
 
     await vi.waitFor(() => {
@@ -1179,8 +1186,8 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://token.sensenova.cn/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://token.sensenova.cn/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-fetch"));
 
     await vi.waitFor(() => {
@@ -1199,8 +1206,8 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://token.sensenova.cn/v1";
-    dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.value = "sk-test";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://token.sensenova.cn/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".provider-editor-fetch"));
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(1);
@@ -1227,7 +1234,7 @@ describe("provider-editor：ASR 模型下拉箭头先申请域名权限（model-
     const { sent, host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAsrProviderBtn");
 
-    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://asr.example.com/v1";
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
     fireClick(dialog.querySelector(".ai-provider-model-toggle"));
 
     await vi.waitFor(() => {
@@ -1338,5 +1345,41 @@ describe("provider-editor：平台预设走 custom-select（AI/ASR 两侧）", (
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe(option.textContent);
     // change 由组件派生：预设切换的既有接线（baseUrl/名称/Key 跟随）照常生效
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe(expectedBaseUrl);
+  });
+});
+
+// 候选 4 片 3：draft model——DOM 退化为投影，draft 是唯一真源。用户输入路径
+// （input/change 事件）之外的裸 DOM 写入不得影响保存/脏判定。
+describe("provider-editor：draft 投影语义（候选 4 片 3）", () => {
+  it("裸写 DOM 不进保存：落盘的是经 input 事件写入 draft 的值", async () => {
+    const { sent, host } = await mountPanel({
+      "ai-providers-save": () => ({ ok: true, providers: [] })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+    fireClick(dialog.querySelector(".provider-editor-model-add"));
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o-mini");
+    // 投影被裸改（无 input 事件）：真源不变，保存链不受影响
+    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://tampered.example.com/v1";
+
+    fireClick(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
+    });
+    const saveMessage = sent.find((message) => message.type === "ai-providers-save")!;
+    expect(saveMessage.providers[0].baseUrl).toBe("https://api.example.com/v1");
+  });
+
+  it("裸写 DOM 不产生 dirty：取消直关，不弹确认弹层", async () => {
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value = "https://tampered.example.com/v1";
+
+    fireClick(dialog.querySelector(".provider-editor-cancel"));
+    expect(document.querySelector(".confirm-dialog-host")).toBeNull();
+    expect(editorGone()).toBe(true);
   });
 });
