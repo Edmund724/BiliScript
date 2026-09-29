@@ -64,3 +64,52 @@ describe("家族行模块收敛（候选 3 片 1）", () => {
     expect(source).not.toContain("setActiveSearchProvider");
   });
 });
+
+// 取函数体（到第一个顶格右花括号为止，与 provider-delete-origin-union 同款口径）
+function functionBody(source: string, signature: string): string {
+  const start = source.indexOf(signature);
+  expect(start, `找不到函数：${signature}`).toBeGreaterThan(-1);
+  const end = source.indexOf("\n}", start);
+  expect(end, `找不到函数体结尾：${signature}`).toBeGreaterThan(start);
+  return source.slice(start, end);
+}
+
+describe("编辑器消费族声明（候选 3 片 2）", () => {
+  it("声明带 editor 段：序列化 + 能力位 + 模板元数据（全键覆盖编译兜底）", () => {
+    const source = readSource("../../extension/ui/provider-family.ts");
+    expect(source).toContain("FamilyEditorDeclaration");
+    expect(source).toContain("serializeUpsert");
+    expect(source).toContain("modelSource");
+    expect(source).toContain("usesProtocol");
+    expect(source).toContain("supportsPlatformTest");
+  });
+
+  it("collectUpsert 不再按 kind 分支：字段直收，序列化委派族声明", () => {
+    const source = readSource("../../extension/ui/provider-editor-modal.ts");
+    const body = functionBody(source, "export function collectUpsert(");
+    expect(body).not.toContain('state.kind === "search"');
+    expect(body).not.toContain('state.kind === "asr"');
+    expect(body).toContain("PROVIDER_FAMILY_ROWS[state.kind]");
+    expect(body).toContain("serializeUpsert(");
+  });
+
+  it("resolvePreset / apiKeyPlaceholder 从 state 片迁出：state 不再定义，消费方不再从 state 导入", () => {
+    const state = readSource("../../extension/ui/provider-editor-state.ts");
+    expect(state).not.toContain("export function resolvePreset");
+    expect(state).not.toContain("export function apiKeyPlaceholder");
+    const importFromState = /import\s*\{[^}]*\b(resolvePreset|apiKeyPlaceholder)\b[^}]*\}\s*from\s*"\.\/provider-editor-state\.js"/;
+    for (const file of ["../../extension/ui/provider-editor-modal.ts", "../../extension/ui/provider-editor-fetch-dialog.ts"]) {
+      expect(readSource(file), `${file} 不得再从 state 片导入 resolvePreset/apiKeyPlaceholder`).not.toMatch(importFromState);
+    }
+  });
+
+  it("kind 门收敛为能力位：快照模型段看 modelSource，平台测试门看 supportsPlatformTest", () => {
+    const source = readSource("../../extension/ui/provider-editor-modal.ts");
+    const snapshot = functionBody(source, "export function currentSnapshot(");
+    expect(snapshot).toContain("modelSource");
+    expect(snapshot).not.toContain('state.kind === "ai"');
+    const runTest = functionBody(source, "export async function runTest(");
+    expect(runTest).toContain("supportsPlatformTest");
+    expect(runTest).not.toContain('state.kind !== "asr"');
+  });
+});

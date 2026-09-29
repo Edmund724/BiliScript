@@ -13,7 +13,8 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
-import { getDialog, readField, resolvePreset, state } from "./provider-editor-state.js";
+import { getDialog, readField, state } from "./provider-editor-state.js";
+import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { addModelRow, readModelIds, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
 
 // ===== 「获取可用模型」勾选弹窗（拍板 Q5/Q11）：搜索 / 全选 / 已添加置灰 =====
@@ -164,7 +165,7 @@ export async function openFetchDialog(): Promise<void> {
   const baseUrl = readField(".provider-editor-baseurl");
   const apiKey = readField(".provider-editor-apikey");
   const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "custom";
-  const preset = resolvePreset(state.presets, presetId, state.kind);
+  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, presetId);
   if (!baseUrl || (!apiKey && !state.hasSavedKey && preset?.requiresKey !== false)) {
     showCatalogError("请先填写 API 地址和 Key");
     return;

@@ -1,10 +1,10 @@
 // extension/ui/provider-editor-state.ts — 平台编辑 Modal 的状态袋 + 字段/DOM 原语
 //（provider-editor 拆分片，工单 12）。
 //
-// 为什么单独成片：Modal 的编辑态（open / kind / editingId / hasSavedKey /
-// presets / onSave / onDelete / dirtySnapshot / generation / host / observer）
-// 与「按类名读字段 / 写状态行 / 置忙」原语被 Modal 本体与另两片（模型目录、拉取
-// 弹窗）共用。把它们放在最底层，三片之间才没有环：
+// 为什么单独成片：Modal 的编辑态（open / kind / editingId / openBaseUrl /
+// hasSavedKey / presets / onSave / onDelete / dirtySnapshot / generation / host /
+// observer）与「按类名读字段 / 写状态行 / 置忙」原语被 Modal 本体与另两片
+//（模型目录、拉取弹窗）共用。把它们放在最底层，三片之间才没有环：
 //
 //   provider-editor-state ← provider-editor-catalog
 //                         ← provider-editor-fetch-dialog
@@ -13,6 +13,9 @@
 //
 // 片内只有单例状态与纯读取/写入原语，零运行时 import（类型除外）——沿用
 // analysis-validate.ts「纯片」先例。函数体自原 provider-editor.ts 逐字节搬移。
+//
+// 片 2 起预设回落 / Key 占位符 / 序列化等每族知识收进 provider-family.ts 声明
+// 的 editor 段（行/编辑器同源合一），本片不再承载。
 
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 
@@ -88,21 +91,5 @@ export function getDialog(): HTMLElement | null {
 export function readField(selector: string): string {
   const input = getDialog()?.querySelector<HTMLInputElement>(selector);
   return String(input?.value || "").trim();
-}
-
-// AI 行历史语义：未知 presetId 回落最后一个预设（自定义）；ASR / 搜索平台
-// 回落 null（搜索平台无自定义预设，spec 非目标）
-export function resolvePreset(presets: readonly ProviderRowPreset[], presetId: string, kind: ProviderEditorKind): ProviderRowPreset | null {
-  const found = presets.find((p) => p.id === presetId) || null;
-  if (found) return found;
-  return kind === "ai" ? presets[presets.length - 1] || null : null;
-}
-
-export function apiKeyPlaceholder(kind: ProviderEditorKind, preset: ProviderRowPreset | null, hasSavedKey: boolean): string {
-  if (kind === "asr" || kind === "search") {
-    return hasSavedKey ? "已保存" : "API Key";
-  }
-  const requiresKey = preset?.requiresKey !== false;
-  return hasSavedKey ? "已保存" : (requiresKey ? "API Key" : "API Key（可选）");
 }
 

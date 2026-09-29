@@ -14,8 +14,6 @@
 // Modal，与接线同属一条点击链。函数体自原 provider-editor.ts 逐字节搬移。
 
 import { escapeHtml } from "../shared/string-utils.js";
-import { DEFAULT_SEARCH_PROVIDER_PRESET } from "../core/presets.js";
-import { validateAiProviders } from "../core/validators.js";
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
 import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
@@ -25,11 +23,10 @@ import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
 import type { ProviderRowElement, ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
+import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import {
-  apiKeyPlaceholder,
   getDialog,
   readField,
-  resolvePreset,
   state,
   type ProviderEditorKind,
   type ProviderEditorOpenOptions
@@ -111,21 +108,25 @@ function protocolNotes(protocol: unknown): string {
 // ===== dirty 快照（拍板 Q6） =====
 
 export function currentSnapshot(): string {
-  // AI 快照含模型目录行（拍板 Q10 草稿语义：增删行即脏——行数进快照，否则
-  // 加一行空白行与 0 行的拼接结果相同）；ASR 是单模型输入
-  const modelInputs = state.kind === "ai"
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
+  // 快照模型段按能力位取：catalog 族含模型目录行（拍板 Q10 草稿语义：增删行
+  // 即脏——行数进快照，否则加一行空白行与 0 行的拼接结果相同）；input 族是
+  // 单模型输入；none 族无模型概念
+  const modelInputs = family.editor.modelSource === "catalog"
     ? Array.from(getDialog()?.querySelectorAll<HTMLInputElement>(".provider-editor-model-id") || [])
     : [];
-  const modelsPart = state.kind === "ai"
+  const modelsPart = family.editor.modelSource === "catalog"
     ? `${modelInputs.length}\u0001${modelInputs.map((input) => input.value).join("\u0001")}`
-    : readField(".provider-editor-model");
+    : family.editor.modelSource === "input"
+      ? readField(".provider-editor-model")
+      : "";
   return [
     getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "",
     readField(".provider-editor-name"),
     readField(".provider-editor-baseurl"),
     readField(".provider-editor-apikey"),
     // AI 协议下拉进快照：切协议即脏（multi-protocol-ai）
-    state.kind === "ai"
+    family.editor.usesProtocol
       ? getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value || ""
       : "",
     modelsPart
@@ -184,64 +185,24 @@ export async function confirmDiscardChanges(): Promise<void> {
 // ===== 保存（拍板 Q2：单平台 upsert 委托注入的 onSave） =====
 
 export function collectUpsert(): { upsert: ProviderRowItem; validationError?: string } {
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
   const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "custom";
-  const preset = resolvePreset(state.presets, presetId, state.kind);
-  const name = readField(".provider-editor-name") || preset?.name || "自定义";
-  const baseUrl = readField(".provider-editor-baseurl").replace(/\/+$/, "");
-  const apiKey = readField(".provider-editor-apikey");
-
-  if (state.kind === "search") {
-    // 搜索平台无模型概念（spec §3.3）：只收预设 / 名称 / baseUrl / Key
-    return {
-      upsert: {
-        id: state.editingId,
-        presetId: preset?.id || DEFAULT_SEARCH_PROVIDER_PRESET.id,
-        name,
-        type: preset?.type || DEFAULT_SEARCH_PROVIDER_PRESET.type,
-        baseUrl,
-        apiKey,
-        hasSavedKey: state.hasSavedKey
-      }
-    };
-  }
-
-  if (state.kind === "asr") {
-    const model = readField(".provider-editor-model");
-    return {
-      upsert: {
-        id: state.editingId,
-        presetId: preset?.id || "custom",
-        name,
-        type: preset?.type || "openai-transcriptions",
-        baseUrl,
-        model,
-        apiKey,
-        hasSavedKey: state.hasSavedKey
-      }
-    };
-  }
-
-  // 模型目录：收集时 trim / 去空行 / 去重（拍板 Q7，与 normalize 同逻辑）；
-  // 空目录合法（拍板 Q13：平台只是不出现在聊天模型选择器，目录外 ID 仍可发送）
-  const upsert: ProviderRowItem = {
+  // 预设回落与序列化都走族声明（每族知识唯一来源，行/编辑器同源）
+  const preset = family.resolvePreset(state.presets, presetId);
+  return family.editor.serializeUpsert({
     id: state.editingId,
-    presetId: preset?.id || "custom",
-    name,
-    baseUrl,
-    models: readModelIds(),
-    requiresKey: preset?.requiresKey !== false,
-    enabled: true,
-    apiKey,
+    preset,
+    name: readField(".provider-editor-name") || preset?.name || "自定义",
+    baseUrl: readField(".provider-editor-baseurl").replace(/\/+$/, ""),
+    apiKey: readField(".provider-editor-apikey"),
     hasSavedKey: state.hasSavedKey,
+    models: readModelIds(),
+    model: readField(".provider-editor-model"),
     // 协议显式落盘（multi-protocol-ai）：存量记录编辑保存即写入显式值
     protocol: normalizeProtocolValue(
       getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-protocol")?.value
     )
-  };
-  // 单平台校验与整表保存共用 validateAiProviders（报文语义一致：baseUrl 格式 /
-  // requiresKey 缺 Key / 缺模型名）。校验失败只报状态行，不关 Modal。
-  const validation = validateAiProviders([upsert]);
-  return validation.ok ? { upsert } : { upsert, validationError: validation.message };
+  });
 }
 
 export async function save(): Promise<void> {
@@ -312,7 +273,8 @@ export async function deleteActive(): Promise<void> {
 // 免 SW 往返），成功回报连通性，不写设置。
 
 export async function runTest(): Promise<void> {
-  if (state.kind !== "asr") return;
+  // 平台级测试能力按族声明（仅 ASR）；函数体仍按 ASR 探针直写，非 ASR 族走不到
+  if (!PROVIDER_FAMILY_ROWS[state.kind].editor.supportsPlatformTest) return;
   const baseUrl = readField(".provider-editor-baseurl");
   const model = readField(".provider-editor-model");
   if (!baseUrl) {
@@ -327,7 +289,7 @@ export async function runTest(): Promise<void> {
   showStatus("正在测试...");
   const generation = state.generation;
   const presetId = getDialog()?.querySelector<HTMLSelectElement>(".provider-editor-preset")?.value || "custom";
-  const preset = resolvePreset(state.presets, presetId, state.kind);
+  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, presetId);
   const apiKey = readField(".provider-editor-apikey");
   const name = readField(".provider-editor-name") || preset?.name || "自定义";
   // 新增时 editingId 为空，探针按空 id 代查 Key 落空，用户重输的 Key 随参数携带。
@@ -354,16 +316,17 @@ export async function runTest(): Promise<void> {
 // ===== 模板 =====
 
 export function editorTitle(kind: ProviderEditorKind, editing: boolean): string {
-  const label = kind === "ai" ? "AI 平台" : kind === "search" ? "搜索平台" : "语音转写平台";
+  const label = PROVIDER_FAMILY_ROWS[kind].editor.title;
   return editing ? `编辑${label}` : `添加${label}`;
 }
 export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const item = options.item || null;
   const presets = options.presets;
+  const family = PROVIDER_FAMILY_ROWS[options.kind];
   // 新增默认「自定义」（与平铺行空白行的 presetId 默认一致，baseUrl 空）；
   // 编辑按列表项 presetId（未知值由 resolvePreset 回落，AI 回落最后一个预设）
-  const presetId = String(item?.presetId || (options.kind === "search" ? presets[0]?.id || "custom" : "custom"));
-  const preset = resolvePreset(presets, presetId, options.kind);
+  const presetId = String(item?.presetId || family.editor.defaultPresetId(presets));
+  const preset = family.resolvePreset(presets, presetId);
   const hasSavedKey = Boolean(item?.hasSavedKey);
   const isAi = options.kind === "ai";
   // 协议下拉：编辑按记录值（存量缺字段/未知值显示「OpenAI」，无提示，事实即
@@ -420,7 +383,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         </div>
         <div class="provider-editor-field">
           <label class="provider-editor-label">API Key</label>
-          <input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(apiKeyPlaceholder(options.kind, preset, hasSavedKey))}" autocomplete="off" ${!hasSavedKey && preset?.requiresKey !== false ? "required" : ""} />
+          <input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(family.editor.apiKeyPlaceholder(preset, hasSavedKey))}" autocomplete="off" ${!hasSavedKey && preset?.requiresKey !== false ? "required" : ""} />
         </div>
         ${isAi
           ? `
@@ -515,6 +478,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
   const dialog = getDialog();
   const host = state.host;
   if (!dialog || !host) return;
+  const family = PROVIDER_FAMILY_ROWS[options.kind];
 
   // 委托挂 host（mask 与 dialog 的共同父级）：遮罩是 dialog 的兄弟，挂 dialog
   // 上收不到遮罩点击（explain-card 同款：委托在容器上）。
@@ -578,16 +542,16 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
       apikeyInput.required = preset?.requiresKey !== false && !state.hasSavedKey;
     }
   };
-  syncApiKeyRequired(resolvePreset(options.presets, presetSelect?.value || "", options.kind));
+  syncApiKeyRequired(family.resolvePreset(options.presets, presetSelect?.value || ""));
 
   // 预设切换：baseUrl 未改过（空或仍是上一预设默认值）才跟随（平铺行同款规则）。
   // AI 名称留过实值（≠当前预设名）视为用户自定义，切预设不覆盖；否则跟随新
   // 预设名（仅占位符与空值）。ASR 名称/模型无条件跟随、Key 清空（平铺行同款）。
   // 不代申请权限——Modal 的 host 权限在保存时统一收口（拍板 Q5 推论）。
   presetSelect?.addEventListener("change", () => {
-    const next = resolvePreset(options.presets, presetSelect.value, options.kind);
+    const next = family.resolvePreset(options.presets, presetSelect.value);
     if (!next) return;
-    const previous = resolvePreset(options.presets, presetSelect.dataset.previousPresetId || "", options.kind);
+    const previous = family.resolvePreset(options.presets, presetSelect.dataset.previousPresetId || "");
     const currentBaseUrl = baseUrlInput?.value.trim() || "";
     if (options.kind === "ai") {
       // 协议先联动（拍板 05-ui-protocol-selector）：当前值仍是上一预设默认值
@@ -613,7 +577,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
         nameInput.placeholder = next.name || "";
       }
       if (apikeyInput) {
-        apikeyInput.placeholder = apiKeyPlaceholder("ai", next, state.hasSavedKey);
+        apikeyInput.placeholder = family.editor.apiKeyPlaceholder(next, state.hasSavedKey);
       }
     } else {
       if (baseUrlInput && (!currentBaseUrl || (previous && currentBaseUrl === previous.baseUrl))) {
@@ -659,7 +623,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
     protocolSelect.dataset.previousProtocol = protocolSelect.value;
     protocolSelect.addEventListener("change", () => {
       if (options.kind === "ai" && baseUrlInput) {
-        const preset = resolvePreset(options.presets, presetSelect?.value || "", options.kind);
+        const preset = family.resolvePreset(options.presets, presetSelect?.value || "");
         const previous = normalizeProtocolValue(protocolSelect.dataset.previousProtocol);
         const next = normalizeProtocolValue(protocolSelect.value);
         const current = baseUrlInput.value.trim();
@@ -754,9 +718,9 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是
   // 关掉一切，confirm 无意义。自治监听 hidden 属性变化，零跨模块状态。
   observeSettingsPanelHidden(() => closeProviderEditor(true), state);
-  // 只读模型元数据（model-catalog/04）：只有 AI Modal 用得上，打开后才动态 import
-  // 目录 chunk（85KB），首屏不为它买单；加载完补齐已渲染的目录行与拉取弹窗
-  if (options.kind === "ai") {
+  // 只读模型元数据（model-catalog/04）：只有目录族的 Modal 用得上，打开后才动态
+  // import 目录 chunk（85KB），首屏不为它买单；加载完补齐已渲染的目录行与拉取弹窗
+  if (PROVIDER_FAMILY_ROWS[options.kind].editor.modelSource === "catalog") {
     void primeModelCatalogMeta();
   }
 }
