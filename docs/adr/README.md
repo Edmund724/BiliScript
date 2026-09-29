@@ -6,7 +6,7 @@
 
 | 编号 | 标题（简称） | 状态 | 关系 |
 | --- | --- | --- | --- |
-| [0001](0001-long-video-summarization-map-reduce.md) | 长视频总结阶梯 + Map-Reduce | 有效 | 1 处修订：预算抬至 200k 字符 |
+| [0001](0001-long-video-summarization-map-reduce.md) | 长视频总结阶梯 + Map-Reduce | 有效 | 2 处修订：预算抬至 200k 字符；补预算口径与「窗口 ≥256k」使用前提 |
 | [0002](0002-chrome-only.md) | 扩展仅支持 Chrome | 有效 | — |
 | [0003](0003-background-no-runtime-lazy.md) | background 不做运行时惰性加载 | 有效 | — |
 | [0004](0004-shadow-dom-boundary.md) | Shadow DOM 适用边界：不迁 | 裁决有效，但事实依据 2 已失效 | 见 ADR-0006 |
