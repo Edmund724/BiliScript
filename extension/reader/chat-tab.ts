@@ -55,7 +55,6 @@
 import { state } from "../core/state.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
 import { extractBvid } from "../bilibili/video-id-shared.js";
-import { buildContextKey } from "../ai/conversation.js";
 // 思考档位「关不掉」提示的判定入口（工单 03）：纯查表 resolver，host 推断 +
 // 模型名 taxonomy，无 DOM 依赖（后台路径同款判定天然不渲染提示）。
 import { resolveThinkingProfile } from "../ai/thinking-profiles.js";
@@ -63,26 +62,20 @@ import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
-// 对话域单一深入口（arch-review-2026-09/08）：内核链五件（pinned 补水解析器 +
+// 对话域单一深入口（arch-review-2026-09/08）：内核链七件（pinned 补水解析器 +
 // conversation-store + context-load（含内联 createInProcessContextFetch 进程内
-// 直读装配策略）+ chat-runtime）在 ../chat/tab-domain.ts 组装；chat 域其余出口
-//（状态单例、subtitle-wait、no-subtitle 文案、context-policy 谓词、offscreen
-// 端口名、providers 工厂）统一经该门面转出——本文件的 chat 域 import
-// 面收敛为一处（10 → 1）。
+// 直读装配策略）+ 发送闸 + chat-runtime + 历史回放）在 ../chat/tab-domain.ts
+// 组装；chat 域其余出口（状态单例、providers 工厂等）统一经该门面转出——
+// 本文件的 chat 域 import 面收敛为一处（10 → 1）。
 import {
-  CONTEXT_READ_FAILED_MESSAGE,
-  NO_SUBTITLE_SEND_BLOCKED,
   OFFSCREEN_CHAT_PORT_NAME,
-  buildNoSubtitleNotice,
+  applyLiveContextToMain,
   chatSessionState,
   createChatTabDomain,
   createProviderPrefs,
-  createSubtitleWaiter,
-  isContextPending,
-  isNoSubtitleEmptyContext,
-  isPinnedContextTruthy,
+  noteDefaultModelChoice,
   parseModelOptionValue,
-  type NoSubtitleReason
+  rebuildCurrentContextKeyFromContext
 } from "../chat/tab-domain.js";
 import { scheduleModelSelectWidthUpdate, updateModelSelectWidth, type ModelSelectWidthEls } from "../chat/model-select-width.js";
 // 初始快捷问题的预热缓存（写方 reader/quick-prompts.ts 由 lifecycle 触发）：
@@ -172,59 +165,9 @@ function requireShell(): void {
 // asr-done/asr-failed：一键总结若正在等待转写
 //（subtitleWaiter.wait），立即触发一轮上下文轮询，不必等 4 秒间隔。
 // （sidepanel 版监听 chrome.runtime.onMessage 的 biliscript-subtitle-status 广播；
-// reader 与转写编排同进程收不到自己的广播，改订阅 shared/subtitle-status-bus。）
-let unsubscribeStatusBus: (() => void) | null = null;
-
-// 无字幕转写提示：本行只在转写相位（含等待发送期间）显示。原实现等待发送时在
-// 消息区另起一条 .chat-context-notice（「正在等待音频转写完成…」），与状态行
-// 「该视频无字幕，正在音频转写…」同屏重复——现按等待原因路由：转写中的等待并入
-// 本行切换为合并句（唯一提示），仅字幕抓取中的等待走消息区通知（抓取文案，该
-// 场景状态行隐藏，无重复）。
-const ASR_TRANSCRIBING_NOTICE = "该视频无字幕，正在音频转写…";
-const ASR_WAITING_NOTICE = "该视频无字幕，正在音频转写，完成后自动开始总结…";
-const SUBTITLE_FETCHING_NOTICE = "正在抓取字幕，完成后自动开始总结…";
-let asrWaitingActive = false;
-
-function updateAsrNotice(): void {
-  if (!els.asrNotice) {
-    return;
-  }
-  // 转写判定与字幕 tab 横幅同源（isReaderTranscribing：相位 transcribing 且
-  // 字幕体为空——防御切视频后的相位残留压住有字幕视频的对话栏）。
-  els.asrNotice.hidden = !isReaderTranscribing() && !asrWaitingActive;
-  els.asrNotice.textContent = asrWaitingActive ? ASR_WAITING_NOTICE : ASR_TRANSCRIBING_NOTICE;
-}
-
-function bindSubtitleStatusBus(): void {
-  if (unsubscribeStatusBus) {
-    return;
-  }
-  unsubscribeStatusBus = subscribeSubtitleStatusPhase((phase) => {
-    if (phase === "asr-transcribing") {
-      chatSessionState.asrTranscribingActive = true;
-      // 转写相位开始：清掉等待闸此前落下的「正在抓取字幕…」消息区通知。那条
-      // 通知描述的是抓取阶段，与转写状态行同屏即为自相矛盾的两条提示（用户
-      // 报障：一闪两条重复且不正确的提示）；等待期间的正确提示由下一轮轮询
-      // 把状态行切到合并句，消息区不再需要通知。
-      removeConversationContextNotice();
-    } else if (phase === "asr-done" || phase === "asr-failed") {
-      chatSessionState.asrTranscribingActive = false;
-      subtitleWaiter.kick();
-    }
-    if (phase !== "asr-transcribing") {
-      // 转写相位结束：状态行从合并句回落基础句/隐藏，等待提示回消息区通知。
-      asrWaitingActive = false;
-    }
-    updateAsrNotice();
-  });
-  // 订阅不回放当前相位：按当前相位恢复提示行呈现（打开晚于转写发起的窗口）。
-  updateAsrNotice();
-}
-
-function unbindSubtitleStatusBus(): void {
-  unsubscribeStatusBus?.();
-  unsubscribeStatusBus = null;
-}
+// 转写相位订阅、等待提示路由、asrNotice 状态行维护已随发送闸整段迁入
+// ../chat/send-gate.ts（CONTEXT.md 词条「发送闸」），本文件经 sendGate 实例
+// 持有 bindStatusBus/unbindStatusBus/kickSubtitleWait/refreshAsrNotice 四件。
 
 // reader 触发源：biliscript:urlchange（core/url-watcher 广播）→ 强刷快档（切 P/切视频
 // 必须全网络重拉）。调度状态机原在 chat/context-sync.ts 的
@@ -370,7 +313,7 @@ const imageSupportGate = createImageSupportGate({
 //    （非流式时为无害空操作）。
 //   - onContextNotice：上下文补水提示生命周期（pending 展示 / clear 撤除 /
 //     error 展示）。
-const { runtime: chatRuntime, store: conversationStore, contextLoad, replay: conversationReplay } = createChatTabDomain({
+const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, replay: conversationReplay } = createChatTabDomain({
   messages: els.messages,
   input: els.input,
   // 历史回放事务的编排回调：updateChatLayoutState 进 replay 首行（紧凑输入
@@ -419,7 +362,16 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, replay: con
   storage: chrome.storage.local,
   clip: () => state.clip,
   settings: () => state.settings,
-  ensureCurrentContextForSend,
+  // 发送闸编排六件（send-gate 消费，见 tab-domain 头注）：会话关闭闸读组合根
+  // 模块级 sessionClosed；转写相位判定与字幕 tab 横幅同源；状态行/页 BV 取
+  // 壳元素与当前地址；主动起跑 = 确保总结链装载 + reader 刷新请求（读
+  // state.clip 的判定已随闸迁移，此处只剩起跑动作本体）。
+  isSessionClosed: () => sessionClosed,
+  isReaderTranscribing,
+  asrNotice: els.asrNotice,
+  pageBvid: () => extractBvid(location.href),
+  startSubtitleFetch,
+  subscribeStatusPhase: subscribeSubtitleStatusPhase,
   getProviderId: () => parseModelOptionValue(els.modelSelect.value).providerId,
   // 选中模型 id（multi-model-catalog）：随 chat 消息下发，offscreen 覆盖平台
   // 目录首项；复合值编码见 chat/providers.ts 的 MODEL_OPTION_SEPARATOR。
@@ -558,56 +510,15 @@ function updateThinkingHint(): void {
 }
 
 // 抓取/音频转写进行中（content 的 subtitleFetchState 为 loading 且字幕体为空）
-// 时等待其完成再放行发送流程，状态机本体在 ../chat/subtitle-wait.ts（可测）。
-// 这里只组装 deps：轮询读当前上下文、提示走消息区 notice、定时器用 window。
-// 引用的 loadContextState / 通知函数都是组装后的实例方法（惰性接线）。
-const SUBTITLE_WAIT_POLL_MS = 4000;
-const subtitleWaiter = createSubtitleWaiter({
-  pollIntervalMs: SUBTITLE_WAIT_POLL_MS,
-  pollContext: async () => {
-    // 会话已收尾：立即失败放行（wait 兑现 false → 发送流程提前返回），
-    // 不让关闭后的后台轮询继续养着一次「迟早会发」的发送。
-    if (sessionClosed) {
-      return { ok: false, pending: false };
-    }
-    const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
-    // loadContextState 无论走哪个分支都会先更新 liveContextData；等待期间
-    // 可能有流式守卫冻结 contextData，读 liveContextData 保证数据不断供。
-    const snapshot = ok ? (chatSessionState.liveContextData || chatSessionState.contextData) : null;
-    return {
-      ok: Boolean(snapshot),
-      pending: isContextPending(snapshot, { asrTranscribingActive: chatSessionState.asrTranscribingActive })
-    };
-  },
-  // 等待提示按原因路由：转写中的等待并入转写状态行（合成一句，不另起消息区
-  // 通知，顺带清掉此前抓取文案残留的消息区通知）；仅字幕抓取中的等待（状态行
-  // 隐藏）走消息区抓取文案，两者互斥不重复。
-  showWaitingNotice: () => {
-    if (isReaderTranscribing()) {
-      asrWaitingActive = true;
-      removeConversationContextNotice();
-      updateAsrNotice();
-      return;
-    }
-    showConversationContextNotice(SUBTITLE_FETCHING_NOTICE, 0);
-  },
-  removeNotice: () => {
-    if (asrWaitingActive) {
-      asrWaitingActive = false;
-      updateAsrNotice();
-    }
-    removeConversationContextNotice();
-  },
-  setTimer: (fn, ms) => window.setTimeout(fn, ms),
-  clearTimer: (handle) => window.clearTimeout(handle)
-});
+// 时等待其完成再放行发送流程——等待闸状态机与提示路由已随发送闸迁入
+// ../chat/send-gate.ts，本文件不直接持有 subtitleWaiter。
 
 // ============================================================
 // 激活 / 会话收尾（对外入口，经 reader/lazy-chat-tab 暴露）
 // ============================================================
 
 function bindGlobalTriggers(): void {
-  bindSubtitleStatusBus();
+  sendGate.bindStatusBus();
   bindUrlChangeTrigger();
   bindStorageWatcher();
   bindQuickPromptRefresh();
@@ -618,7 +529,7 @@ function bindGlobalTriggers(): void {
 }
 
 function unbindGlobalTriggers(): void {
-  unbindSubtitleStatusBus();
+  sendGate.unbindStatusBus();
   unbindUrlChangeTrigger();
   unbindStorageWatcher();
   unbindQuickPromptRefresh();
@@ -735,11 +646,11 @@ export function closeChatSession(): void {
   setStreamingUiState(false);
   // 挂起中的 subtitle-wait 立即失效（pollContext 的 closed 闸 → wait 兑现
   // false → 发送流程提前返回并清等待提示）。
-  subtitleWaiter.kick();
+  sendGate.kickSubtitleWait();
   popovers.hideHistoryPopover();
   popovers.hideModelPanel();
   removeConversationContextNotice();
-  updateAsrNotice();
+  sendGate.refreshAsrNotice();
   // 会话收尾（意图已被 lifecycle.clearPendingExplainIntent 清掉）：引用卡随之
   // 隐藏，下次激活按无意图渲染。
   hideExplainIntentCard();
@@ -934,10 +845,10 @@ function bindEvents(): void {
     const providerId = selected.providerId;
     if (providerId) {
       providerPrefs.setSelectedProvider(els.modelSelect.value);
-      chatSessionState.aiPrefs.defaultModel = providerId;
+      noteDefaultModelChoice(providerId);
       chrome.storage.sync.set({ defaultModel: providerId }).catch(() => {});
     } else {
-      chatSessionState.aiPrefs.defaultModel = "";
+      noteDefaultModelChoice("");
       chrome.storage.sync.set({ defaultModel: "" }).catch(() => {});
     }
     updateModelSelectWidth(widthEls);
@@ -1154,8 +1065,7 @@ async function startNewConversation(): Promise<void> {
   popovers.hideModelPanel();
   await loadContextState({ forceRefresh: true, silent: true });
   if (chatSessionState.liveContextData) {
-    chatSessionState.contextData = { ...chatSessionState.liveContextData };
-    chatSessionState.currentContextKey = chatSessionState.liveContextKey || buildContextKey(chatSessionState.liveContextData);
+    applyLiveContextToMain();
   }
   restartChat({ keepContext: true });
   renderInitialState();
@@ -1169,40 +1079,19 @@ async function startNewConversation(): Promise<void> {
 // 「历史回放」），在 createChatTabDomain 内组装；本文件经 conversationReplay 的
 // render/invalidate/inFlight 三件持有——世代作废、分片预算、发送前让位语义不变。
 
-// 发送前主动起跑字幕抓取（finding 有字幕视频点 AI 键发出空上下文）：等待闸
-// （isContextPending）只认 subtitleFetchState === "loading"——面板打开后的后台
-// 抓取要等播放器元数据（最多 5 秒）才起跑，这段「还没开始抓」的窗口里状态是
-// idle，闸判定「非 pending」直接放行，字幕体为空就发给模型，只能得到凭标题
-// 编造「无公开字幕」的总结（截图形态：状态行还停在「正在获取可用字幕...」，
-// 对话里已经是一条无效回答）。这里在发送路径上补上抓取发起方：idle 且无字幕
-// 体时主动起跑一轮，随后的 wait() 首轮轮询必见 loading，提示词被挂住直到
-// 抓取落定（ready 放行完整字幕 / empty 走无字幕拦截）。
-// 其余状态各有归属不重起一轮：loading 交给等待闸、ready 有字幕体、empty 走
-// 无字幕拦截、error 由用户「刷新抓取」重试（不改其现状）。非 BV 视频页不抓
-// （对话在非视频页仍可用，起跑只会换来一条「无法抓取字幕」的失败状态行）。
-// 判定读 state.clip（进程内权威状态）而非上下文快照：快照是「装配时刻的投影」
-//——createInProcessContextFetch 的载荷在拉热评之前组装（core/context-assembly），
-// 热评那次网络往返期间落账的字幕不在快照里。按快照判定会在「另一轮抓取刚好
-// 落账」时误判「还没抓」而多起一轮：这一轮把刚落账的抓取顶成 STALE_RUN，它的
-// 终态文案（状态行「抓取完成…」）随之丢失，状态行停在「正在获取可用字幕...」，
-// 而字幕列表已由前一轮填好、对话侧却还在等这轮多余抓取。
-// 返回 false 只在总结链装载失败（抓取没能起跑）时，调用方按上下文读取失败拦截。
-async function startSubtitleFetchIfNeeded(): Promise<boolean> {
-  const pageBvid = extractBvid(location.href);
-  if (!pageBvid) {
-    return true;
-  }
-  const clipMatchesPage = String(state.clip.bvid || "") === pageBvid;
-  if (clipMatchesPage && state.clip.subtitleBody.length > 0) {
-    return true;
-  }
-  if (state.clip.subtitleFetchState !== "idle") {
-    return true;
-  }
+// 发送闸事务（ensureCurrentContextForSend G1-G7 + 字幕等待闸 + 转写相位订阅 +
+// 主动起跑字幕抓取的读侧判定）已抽进 ../chat/send-gate.ts（createSendGate，
+// CONTEXT.md 词条「发送闸」），在 createChatTabDomain 内组装；本文件经 sendGate
+// 实例持有。
+
+// 主动起跑字幕抓取的动作本体（finding 有字幕视频点 AI 键发出空上下文：等待闸
+// 只认 loading，idle 窗口会放行空字幕上下文，须由发送路径补发起跑方）：与
+// reader/lifecycle 同一次序——先确保总结链装载（refreshClip 注册进
+// reader-bus seam），再发刷新请求。refreshClip 的同步前缀即写 loading（首个
+// await 之前），因此等待闸不会抢在起跑前放行。返回 false 只在总结链装载失败
+//（抓取没能起跑）时，调用方按上下文读取失败拦截。
+async function startSubtitleFetch(): Promise<boolean> {
   try {
-    // 与 reader/lifecycle 同一次序：先确保总结链装载（refreshClip 注册进
-    // reader-bus seam），再发刷新请求。refreshClip 的同步前缀即写 loading
-    //（首个 await 之前），因此 wait() 不会抢在起跑前放行。
     await ensureSummarizeChain();
     requestSubtitleRefresh().catch(() => {});
   } catch (error) {
@@ -1212,55 +1101,6 @@ async function startSubtitleFetchIfNeeded(): Promise<boolean> {
   return true;
 }
 
-// 【整段迁移自 sidepanel.ts】发送前确保当前上下文就绪（pinned 对话补水 / 普通
-// 对话读当前页；抓取或音频转写进行中时先等待，避免空字幕上下文直接发给模型；
-// 还没起跑时主动起跑，见 startSubtitleFetchIfNeeded）。
-// 最终快照若是「无字幕收尾」（empty 且字幕体为空）则拦截发送：返回
-// NO_SUBTITLE_SEND_BLOCKED 类型化信号让 sendMessage 提前返回（不追加用户消息、
-// 不落 chatHistory、不发起 port），并按 noSubtitleReason 显示对应 notice。
-async function ensureCurrentContextForSend(): Promise<boolean | string> {
-  // pinned 判定沿用本调用点的原始语义（真值判断，与 loadContextState 的严格
-  // 相等不同——见 ../chat/context-policy.ts 两个谓词的疑义记录）。
-  if (isPinnedContextTruthy(chatSessionState.currentConversationMeta)) {
-    await loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
-    return conversationStore.hydratePinned();
-  }
-  // 失败闸把「无标签页」与「读取失败」合并为同一文案（与策略模块的
-  // resolveNoTabPlan 语义不同：这里即使静默加载也会重置视图），保持原状。
-  const ok = await loadContextState({ forceRefresh: false, silent: true });
-  if (!ok || !chatSessionState.contextData) {
-    resetConversationView(CONTEXT_READ_FAILED_MESSAGE);
-    return false;
-  }
-  // 抓取还没起跑（idle）时主动起跑，再进等待闸——否则等待闸见不到 loading，
-  // 空字幕上下文会被直接放行。
-  if (!(await startSubtitleFetchIfNeeded())) {
-    resetConversationView(CONTEXT_READ_FAILED_MESSAGE);
-    return false;
-  }
-  const ready = await subtitleWaiter.wait();
-  if (!ready) {
-    resetConversationView(CONTEXT_READ_FAILED_MESSAGE);
-    return false;
-  }
-  // 等待期间 contextData 可能停在旧快照（守卫分支或就绪瞬间），放行前重取
-  // 一次，确保发送出去的是转写完成后的完整字幕。
-  await loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
-  if (!chatSessionState.contextData) {
-    resetConversationView(CONTEXT_READ_FAILED_MESSAGE);
-    return false;
-  }
-  if (isNoSubtitleEmptyContext(chatSessionState.contextData)) {
-    const notice = buildNoSubtitleNotice(chatSessionState.contextData.noSubtitleReason as NoSubtitleReason);
-    showConversationContextNotice(notice.message, 0, { openSettingsAction: notice.openSettings });
-    return NO_SUBTITLE_SEND_BLOCKED;
-  }
-  // 本函数内的 loadContextState 可能因上下文变化触发一轮新的历史回放
-  //（applyContextPayload → renderInitialState）；等它落定再返回，否则调用方
-  // 紧随的 appendUserMessage 会插进这轮回放的中间（P2-1）。
-  await conversationReplay.inFlight;
-  return true;
-}
 
 // 时间戳跳转依赖包（注入 timestamp-nav）。reader 适配：seek 直接包进程内单入口
 // seekReadingTarget（content script 无 chrome.tabs 消息链，无跨标签导航可言），
@@ -1284,7 +1124,7 @@ function restartChat({ keepContext = false }: { keepContext?: boolean } = {}): v
   // 本收口）——store 事件管断流通知，防再造第三轨。
   conversationStore.detachForRestart();
   if (!keepContext) {
-    chatSessionState.currentContextKey = buildContextKey(chatSessionState.contextData);
+    rebuildCurrentContextKeyFromContext();
   }
   resetConversationView("");
   setStreamingUiState(false);

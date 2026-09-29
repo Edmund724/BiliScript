@@ -1,17 +1,21 @@
 // extension/chat/tab-domain.ts — 对话 tab 内核链组装（arch-review-2026-09/08，
 // 自 reader/chat-tab.ts 收口）。createChatTabDomain(deps) 是 chat 域对对话 tab
 // 组合根的单一深入口：pinned 补水解析器（core/context-assembly）+
-// conversation-store + chat-runtime + context-load（含内联
-// createInProcessContextFetch）+ 历史回放 replay 六件在本模块组装；DOM 编排六件
+// conversation-store + context-load（含内联 createInProcessContextFetch）+
+// sendGate（发送闸：发送前上下文就绪事务）+ chat-runtime + 历史回放 replay
+// 七件在本模块组装；DOM 编排六件
 //（feedback/lists/popovers/presets/providers/subtitle-wait）与页面级编排函数
 // 留在 reader/chat-tab.ts，经 deps 注入。
 //
 // 组装内的实例级硬边顺序（唯一顺序约束，逐字保持自 chat-tab 原组装位）：
-//   pinnedResolver → store → contextLoad → runtime（→ replay 消费 runtime）。
+//   pinnedResolver → store → contextLoad → sendGate → runtime（→ replay 消费
+//   runtime）。sendGate 夹在 contextLoad 与 runtime 之间：它消费前两件的实例
+//   方法（loadContextState / hydratePinned），runtime 的 ensureCurrentContextForSend
+//   又指向它的 ensureContextForSend。
 // 其余跨实例引用一律惰性箭头（回调执行时实例已存在），不显式化：
 //   store.loadContextState → contextLoad（后建）；contextLoad.restoreLatest →
 //   store（先建）；contextLoad.isStreaming / hasPendingUserPrompt → runtime
-//（后建）。
+//（后建）；sendGate.replayInFlight → replay（后建）。
 //
 // deps 面（reader/chat-tab 侧实现注入）：
 //   - DOM 元素：messages / input（对话 tab 壳的 readingChat* id）；
@@ -22,16 +26,18 @@
 //   - storage：store 存档读写（测试可注入，缺省 chrome.storage.local）；
 //   - 状态 getter：clip / settings（进程内装配链两条路的运行时输入，与
 //     core/context-assembly 的注入口径一致）；
-//   - runtime 传输/AI 回调：ensureCurrentContextForSend / getProviderId /
+//   - 发送闸编排：isSessionClosed / isReaderTranscribing / asrNotice /
+//     pageBvid / startSubtitleFetch / subscribeStatusPhase（发送闸消费的
+//     页面级读侧与通知面，组合根闭包注入）；
+//   - runtime 传输/AI 回调：getProviderId /
 //     getSelectedModel（multi-model-catalog 起，可选）/ takeInputImages
 //     （image-input 02 号票起，可选：发送受理时消费图片附件区）/
 //     getTimestampNavDeps / normalizeMarkdownForSectionPaste / connectPort
 //    （闭包连着组合根的页面级状态与 DOM，留在 chat-tab）。
 //
-// 门面 re-exports：组合根仍需的 chat 域零散出口（chatSessionState、
-// subtitle-wait、no-subtitle、context-policy 文案与谓词、offscreen 端口名、
-// presets/providers 工厂）统一自本模块转出——chat-tab 的 chat 域 import 面
-// 收敛为本模块一处（工单 08 验收：10 → 1）。
+// 门面 re-exports：组合根仍需的 chat 域零散出口（chatSessionState 与三个
+// B 档写方归并原语、offscreen 端口名、presets/providers 工厂）统一自本模块
+// 转出——chat-tab 的 chat 域 import 面收敛为本模块一处（工单 08 验收：10 → 1）。
 import type { TimestampNavDeps } from "../ui/timestamp-nav.js";
 import type { ImagePart } from "../ai/types.js";
 import type { ClipState } from "../core/state.js";
@@ -52,18 +58,16 @@ import {
   type StorageArea
 } from "./conversation-store.js";
 import { createContextLoad, type ContextLoad } from "./context-load.js";
+import { createSendGate, type SendGate } from "./send-gate.js";
 import { createConversationReplay, type ConversationReplay } from "./replay.js";
 
 // ---- 门面 re-exports（对话 tab 组合根的单点 chat 域出口，见头注）----
-export { chatSessionState } from "./chat-state.js";
-export { createSubtitleWaiter, isContextPending } from "./subtitle-wait.js";
 export {
-  NO_SUBTITLE_SEND_BLOCKED,
-  buildNoSubtitleNotice,
-  isNoSubtitleEmptyContext,
-  type NoSubtitleReason
-} from "./no-subtitle.js";
-export { CONTEXT_READ_FAILED_MESSAGE, isPinnedContextTruthy } from "./context-policy.js";
+  chatSessionState,
+  applyLiveContextToMain,
+  noteDefaultModelChoice,
+  rebuildCurrentContextKeyFromContext
+} from "./chat-state.js";
 // offscreen 聊天端口名单源（chat/protocol.ts，ticket 08，原裸写字面量收口）。
 export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
 export { createProviderPrefs, parseModelOptionValue } from "./providers.js";
@@ -91,8 +95,20 @@ export interface CreateChatTabDomainDeps {
   // ---- 状态 getter（进程内装配链的运行时输入）----
   clip: () => Partial<ClipState>;
   settings: () => Partial<Settings>;
+  // ---- 发送闸编排（sendGate 消费，组合根闭包）----
+  // 会话关闭闸：pollContext 首行判定（关闭后等待立即兑现 false）。
+  isSessionClosed: () => boolean;
+  // 转写相位判定（与字幕 tab 横幅同源）。
+  isReaderTranscribing: () => boolean;
+  // 转写状态行元素（reader 壳 asrNotice；null = 壳未提供）。
+  asrNotice: HTMLElement | null;
+  // 当前页 BV（发送闸主动起跑字幕抓取的判定门输入）。
+  pageBvid: () => string | null;
+  // 主动起跑字幕抓取（ensure 总结链装载 + reader 刷新请求；失败返回 false）。
+  startSubtitleFetch: () => Promise<boolean>;
+  // 字幕状态总线订阅具名入口。
+  subscribeStatusPhase: (listener: (phase: string) => void) => () => void;
   // ---- chat-runtime 传输/AI 回调（组合根闭包）----
-  ensureCurrentContextForSend: () => Promise<boolean | string>;
   getProviderId: () => string;
   // 选中模型 id（multi-model-catalog，可选）：chat-runtime 透传进 chat 消息
   getSelectedModel?: () => string;
@@ -108,6 +124,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   runtime: ReturnType<typeof createChatRuntime>;
   store: ConversationStore;
   contextLoad: ContextLoad;
+  sendGate: SendGate;
   replay: ConversationReplay;
 } {
   // pinned 补水的 context 解析（工单 04 身份短路）接在 resolveAiConversationRef
@@ -151,6 +168,25 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     isStreaming: () => runtime.isStreaming(),
     hasPendingUserPrompt: () => runtime.hasPendingUserPrompt()
   });
+  // 发送闸（CONTEXT.md 词条「发送闸」）：发送前上下文就绪事务（G1-G7 + 字幕
+  // 等待闸 + 转写相位订阅）。消费前两件的实例方法（loadContextState /
+  // hydratePinned）；replayInFlight 惰性取后建的 replay 实例（箭头推迟到回调
+  // 执行期，无 TDZ）。
+  const sendGate = createSendGate({
+    loadContextState: (opts) => contextLoad.loadContextState(opts),
+    hydratePinned: () => store.hydratePinned(),
+    resetView: deps.ui.resetConversationView,
+    showContextNotice: deps.ui.showConversationContextNotice,
+    removeContextNotice: deps.ui.removeConversationContextNotice,
+    replayInFlight: () => replay?.inFlight ?? null,
+    isSessionClosed: deps.isSessionClosed,
+    isReaderTranscribing: deps.isReaderTranscribing,
+    asrNotice: deps.asrNotice,
+    pageBvid: deps.pageBvid,
+    clip: () => deps.clip() as ClipState,
+    startSubtitleFetch: deps.startSubtitleFetch,
+    subscribeStatusPhase: deps.subscribeStatusPhase
+  });
   // chat 流状态机：自身流状态（activePort 等）与自动滚动标志（shouldAutoScroll-
   // Messages）都在 runtime 闭包内；会话状态读 chatSessionState；deps 只剩 DOM
   // 容器/元素引用、store 实例与 UI/transport 回调。
@@ -164,7 +200,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     // ---- UI 门面 ----
     ui: deps.ui,
     // ---- AI 域 / 上下文 / 传输辅助 ----
-    ensureCurrentContextForSend: deps.ensureCurrentContextForSend,
+    ensureCurrentContextForSend: () => sendGate.ensureContextForSend(),
     getProviderId: deps.getProviderId,
     getSelectedModel: deps.getSelectedModel,
     takeInputImages: deps.takeInputImages,
@@ -181,5 +217,5 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     resetView: deps.ui.resetConversationView,
     clearSuggestions: deps.clearSuggestions
   });
-  return { runtime, store, contextLoad, replay };
+  return { runtime, store, contextLoad, sendGate, replay };
 }

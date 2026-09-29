@@ -597,12 +597,25 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
     // 本文件源码。
     const source = readSource("../../extension/reader/chat-tab.js");
     // contextData：非视频页判定（isVideoContext，含 asr notice 显隐与发送守卫）、
-    // 无字幕发送拦截（noSubtitleReason）、时间戳跳转（url）；
-    // chip 文案与 live 匹配已随候选5 拆分迁往 chat/context-load.js
+    // 时间戳跳转（url）；无字幕发送拦截（noSubtitleReason）已随发送闸迁往
+    // chat/send-gate.js（见下方独立对账点）；chip 文案与 live 匹配已随候选5
+    // 拆分迁往 chat/context-load.js
     assertReconciliation(
       scanFields(source, "contextData"),
-      ["url", "isVideoContext", "noSubtitleReason"],
+      ["url", "isVideoContext"],
       "chat-tab contextData"
+    );
+  });
+
+  it("chat/send-gate.js：发送闸读取的快照字段", () => {
+    const source = readSource("../../extension/chat/send-gate.js");
+    // 发送闸（CONTEXT.md 词条「发送闸」）自组合根迁入：G6 无字幕发送拦截读
+    // noSubtitleReason（与 buildNoSubtitleNotice 的理由路由配套），其余闸口只
+    // 经谓词/助手整体消费快照，不逐字段读。
+    assertReconciliation(
+      scanFields(source, "contextData"),
+      ["noSubtitleReason"],
+      "send-gate contextData"
     );
   });
 

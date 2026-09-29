@@ -89,3 +89,18 @@ playerAi 单切片迁出的结论不变；`core/message-handler.ts` 对 player-A
 原 `0011-chat-state-write-discipline.md` 与本条同源同形（其自身亦声明「不推翻 ADR-0005，
 判断原样适用」），分篇维护只会互相解释范围关系；合并为本条的「适用范围二」，0011 编号退役
 不复用。两袋的实质决策、原语清单与 B 档记录均未改动。
+
+## 修订（2026-10：chat B 档写方归并第一轮落地）
+
+重开条件的第一半（chat 的 B 档散字段先有一轮写方归并）已兑现一轮：`reader/chat-tab.ts`
+组合根的 7 处 B 档直写（`contextData` / `currentContextKey` / `aiPrefs.defaultModel` /
+`asrTranscribingActive`）随发送闸事务抽取（chat/send-gate.ts，CONTEXT.md 词条「发送闸」）
+归并进 `chat/chat-state.ts` 的意图级原语：`applyLiveContextToMain()`（live 快照浅拷贝落地 +
+key 回退重算，原组合根 startNewConversation 内联两行的整组意图）、
+`rebuildCurrentContextKeyFromContext()`（restartChat 按当前 contextData 重算 key）、
+`noteDefaultModelChoice(providerId)`（aiPrefs.defaultModel 连同空串清档）、
+`setAsrTranscribingActive(flag)`（转写相位写，原 bindSubtitleStatusBus 内联写）。原语均为
+成组意图（与 `applyConversationIdentity` 同一先例），不是逐字段 setter 白名单——白名单
+半句的条件（写方归并已存在）刚具备，是否再落编译期白名单留待下一轮评审。
+`conversation-store.ts` / `context-load.ts` 内的同名字段写方是第二轮归并对象，本轮未动
+（Q7 裁决：只并已迁移的 7 处）。归属搬迁红线（本 ADR 共同约束第 73 行）不受影响。

@@ -7,8 +7,9 @@
 // 收拢为一个可变状态对象，chat/* 子模块与 sidepanel.js（过渡期组合根）直接
 // import 它，deps 里只剩 UI/transport 回调、storage 抽象与常量。
 //
-// 依赖方向（无环）：本文件是零运行时依赖叶子——唯一 import 是编译期的
-// AiContext/ImagePart（import type，运行时零依赖）；aiPrefs 的初始问题列表
+// 依赖方向（无环）：本文件 import 纯函数 buildContextKey（ai/conversation.js，
+// 无状态无 Chrome API）与编译期 AiContext/ImagePart（import type）；aiPrefs 的
+// 初始问题列表
 // 现取空数组（空 = 按视频即时生成，见 aiPrefs 字段注释），不再静态取
 // core/default-prompts 的固定文案。sidepanel.js / conversation-store.ts /
 // chat-runtime.ts 单向 import 本文件。
@@ -23,6 +24,7 @@
 // resetChatSessionStateForTests() 重置全部字段（见文件末尾）。
 
 import type { AiContext, ImagePart } from "../ai/types.js";
+import { buildContextKey } from "../ai/conversation.js";
 
 // 上下文快照 = ContextFetch 全量 payload 的落地形态（core/context-assembly
 // 装配链组出）。结构上与 AI 域的 AiContext 同形（含 subtitleBody /
@@ -258,6 +260,36 @@ export function appendChatHistory(...messages: ChatSessionMessage[]): void {
 
 export function setSavedConversations(next: ChatSessionSavedConversation[]): void {
   chatSessionStateMutable.savedConversations = next;
+}
+
+// ---------------------------------------------------------------------------
+// B 档散字段写方归并（arch-review：ADR-0005 重开条件的落地轮——先归并写方，
+// setter 白名单留待后续；会话主键/历史等 A 档切片归上文的意图原语）
+// ---------------------------------------------------------------------------
+
+// 转写相位订阅方（chat-tab 的状态总线回调 → send-gate）的写口。
+export function setAsrTranscribingActive(active: boolean): void {
+  chatSessionStateMutable.asrTranscribingActive = active;
+}
+
+// 模型下拉选中（reader/chat-tab 的 change 回调）：sync defaultModel 的进程内镜像。
+export function noteDefaultModelChoice(providerId: string): void {
+  chatSessionStateMutable.aiPrefs.defaultModel = providerId;
+}
+
+// 拆除会话（restartChat !keepContext 分支）：按当前主上下文重算 key。
+export function rebuildCurrentContextKeyFromContext(): void {
+  chatSessionStateMutable.currentContextKey = buildContextKey(chatSessionStateMutable.contextData);
+}
+
+// 开启新会话（startNewConversation）：live 快照落地主上下文（浅拷贝，与迁移前
+// { ...live } 逐字一致）；liveContextKey 缺省时回退 key 重算。
+export function applyLiveContextToMain(): void {
+  if (chatSessionStateMutable.liveContextData) {
+    chatSessionStateMutable.contextData = { ...chatSessionStateMutable.liveContextData };
+    chatSessionStateMutable.currentContextKey =
+      chatSessionStateMutable.liveContextKey || buildContextKey(chatSessionStateMutable.liveContextData);
+  }
 }
 
 // 测试注入口：把全部字段重置到初值（单纪元内复用模块单例的 beforeEach 用）。
