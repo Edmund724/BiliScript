@@ -5,10 +5,20 @@
 // 两半守卫：
 // - 模板（chat-template）：历史页是对话根的首个子元素（兄弟选择器成立的前提）、
 //   返回键在头部内、不再挂在 .chat-footer 里；
-// - CSS（reader-chat.css）：历史页流内接管（flex:1 占满对话区，不再绝对定位锚
-//   footer 上方），`[hidden]` 单源 + `~ 对话内容` 兄弟选择器把 header/意图卡/
-//   转写状态行/消息区/输入卡整体 display:none（与设置抽屉接管面板第 3–4 行同一
-//   套纯属性反应）；材质与动效照抄设置壳层；模型面板仍是绝对定位弹层。
+// - CSS（reader-chat.css）：历史页脱流覆盖层（position:absolute + inset:0 铺满
+//   对话区，不再绝对定位锚 footer 上方，也不再以 flex:1 参与对话列），`[hidden]`
+//   单源 + `~ 对话内容` 兄弟选择器把 header/意图卡/转写状态行/消息区/输入卡整体
+//   display:none（与设置抽屉接管面板第 3–4 行同一套纯属性反应）；材质与动效照抄
+//   设置壳层；模型面板仍是绝对定位弹层。
+// 为什么必须是脱流覆盖层（2026-10 关闭卡顿修复）：display 参与 allow-discrete 的
+// 0.2s 淡出期间，历史页仍按 before-change 值渲染——若它是对话列的 flex 项，
+// 淡出的这 0.2s 内它与 .chat-messages 平分列高，视频标题所在的 .chat-header
+// 被挤到对话区中部，等 display 到点翻转才弹回顶部。脱流后对话内容从关闭首帧起
+// 就按最终布局排好，历史页在它上方淡走（与设置抽屉「同占网格行」同一原理的
+// flex 版：flex 列无法重叠，故用绝对定位顶替 grid 同行落位）。
+// 局限：jsdom 无布局，本文件只能锁机制（脱流 + 接管规则），真正的位置回归由
+// 真实浏览器验证；防倒退：历史页一旦回到流内（flex:1）或不再脱流，本文件红。
+//
 // 防倒退：历史页一旦回流成 footer 上方的绝对定位浮层，或对话内容不再被接管
 //（浮层又盖在消息区之上），本文件红。
 
@@ -19,8 +29,10 @@ import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 
 const ROOT = process.cwd();
 const CHAT_CSS = "extension/entry/styles/reader-chat.css";
+const CHAT_ROOT = ".biliscript-reading-chat";
 const HISTORY_PAGE = ".biliscript-reading-chat .chat-history-popover";
 const MODEL_PANEL = ".biliscript-reading-chat .chat-model-panel";
+const MESSAGES = ".biliscript-reading-chat .chat-messages";
 
 let ids: typeof import("../../extension/reader/state.js").ids;
 let buildChatTabBodyHtml: typeof import("../../extension/reader/chat-template.js").buildChatTabBodyHtml;
@@ -101,12 +113,25 @@ describe("历史整页（模板结构）", () => {
 });
 
 describe("历史整页（CSS 契约）", () => {
-  it("流内接管：flex:1 占满对话区，不再绝对定位锚在 footer 上方", () => {
+  it("脱流覆盖层：absolute + inset:0 铺满对话区，不再以 flex:1 参与对话列", () => {
     const body = ruleBody(HISTORY_PAGE);
 
-    expect(body).toContain("flex: 1");
-    expect(body).not.toContain("position: absolute");
+    expect(body).toContain("position: absolute");
+    expect(body).toContain("inset: 0");
+    // 参与对话列（flex:1）正是关闭淡出期把 header 挤到中部的原因，必须不回流
+    expect(body).not.toContain("flex: 1");
     expect(body).not.toContain("bottom: calc(100% + 4px)");
+  });
+
+  it("覆盖层定位上下文 = 对话根（.biliscript-reading-chat 的 position: relative）", () => {
+    expect(ruleBody(CHAT_ROOT)).toContain("position: relative");
+  });
+
+  it("覆盖层盖得住对话内容：z-index 高于消息区里的绝对定位元素（z-index 20）", () => {
+    const z = /z-index:\s*(\d+)/.exec(ruleBody(HISTORY_PAGE));
+    expect(z, "历史页缺 z-index，position:relative 的 .chat-messages 会按 DOM 顺序压在上面").not.toBe(null);
+    expect(Number(z![1])).toBeGreaterThan(20);
+    expect(ruleBody(MESSAGES)).toContain("position: relative");
   });
 
   it("[hidden] 单源 + 兄弟选择器隐藏全部对话内容（与设置抽屉接管同款）", () => {

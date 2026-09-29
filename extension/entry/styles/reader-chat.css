@@ -933,17 +933,29 @@
 }
 
 /* ===== 历史对话整页接管（2026-09 用户决议）=====
- * 历史对话不再是 footer 上方弹出的框：它是对话根的第一个子元素，流内 flex:1
- * 占满整个对话内容区（tab 网格第 4 行），上方 字幕/概览/AI 对话 标签条保留。
+ * 历史对话不再是 footer 上方弹出的框：它是对话根的第一个子元素，作为脱流覆盖层
+ * 铺满整个对话内容区（tab 网格第 4 行），上方 字幕/概览/AI 对话 标签条保留。
  * 材质与开合动效照抄设置抽屉壳层（reader-settings-shell.css）：overlay 半透明底
  * + blur/saturate 毛玻璃、0.2s spring 淡入淡出 + display allow-discrete +
  * @starting-style。纯属性反应：[hidden] 由 chat-popovers 单点切换（toggle 语义
  * 与 Esc/外点判定全不变），非 hidden 时下一条兄弟选择器把对话内容整体
  * display:none——与设置抽屉隐藏同级 .biliscript-reading-tabs / tab-body 同构。
+ * 为什么是脱流覆盖层而不是流内 flex:1（2026-10 关闭卡顿修复）：display 走
+ * allow-discrete 的 0.2s 淡出期间，历史页仍按 before-change 值渲染。留在对话列里
+ * 就与 .chat-messages 平分列高，视频标题所在的 .chat-header 被挤到对话区中部，
+ * 等 display 到点翻转才弹回顶部（用户报「标题先卡在屏幕中间半秒再复位」）。
+ * 脱流后对话内容从关闭首帧起即是最终布局，历史页在它上方淡走——与设置抽屉
+ * 「抽屉与标签区同占网格行」同一原理，flex 列无法重叠，故用绝对定位顶替。
  * 头部固定、列表区独立滚动（见 .chat-history-list）。 */
 .biliscript-reading-chat .chat-history-popover {
-  flex: 1;
-  min-height: 0;
+  /* 定位上下文是对话根（.biliscript-reading-chat 的 position: relative）；
+   * inset:0 = 原流内占位的那块对话内容区，视觉占位不变。
+   * z-index 必须显式高于消息区内浮层：.chat-messages 自身 position:relative
+   * 且 DOM 在后，不写就被它按顺序压住；.chat-search-preview(z-index:20) /
+   * .chat-model-panel(z-index:10) 同处一个层叠上下文，故取 30。 */
+  position: absolute;
+  inset: 0;
+  z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 8px;
