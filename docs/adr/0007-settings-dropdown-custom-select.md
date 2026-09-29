@@ -30,4 +30,6 @@
 - trigger 的可访问名只有当前值（「SRT，按钮」），字段名丢失——`label[for]` 指向的是那个已藏起来的 select。改用 `aria-labelledby` 指向「字段标签 + 当前值」两个节点（无 `for` 的 Modal 形态按同级前置 label 认），名字随值自动重算；label 的 `for` 一并重指到 trigger，点标签不再把焦点送进隐藏控件。
 - Tab 从展开列表离开时，焦点落在已隐藏的 li 上会掉回 body，默认 Tab 于是从文档头重新起算。改为收拢列表并把焦点交还 trigger（不 preventDefault），默认动作从 trigger 续行。
 
-判据本身的**真机读屏验收尚未做**：上面的 5 例只核验了被读屏消费的结构（Tab 序、名字拼接、焦点归位），不能代替「读屏念得出当前值与角色」这一条。
+**实测（2026-09-29，Chrome 无障碍树）**：取浏览器计算的 AX 树，折叠态的 trigger 为 `button`，名字 `下载格式 SRT`（字段标签 + 当前值），`hasPopup=listbox`、`expanded=false`；展开后出现 `listbox`（名字 `下载格式`、`orientation=vertical`）与两个 `option`（`SRT selected=true` / `TXT selected=false`）；隐藏的原生 select 不再出现在树里，全页只有这一份控件。纯键盘用真实 trusted `Tab` 事件核验：从展开的列表按 Tab 后 dropdown `hidden=true`、`aria-expanded=false`，焦点落在 trigger 之后的**下一个控件**（而不是文档头）——修复前它在已隐藏的 li 上掉回 body，默认 Tab 会从文档头重新起算。
+
+仍未做的是**真读屏的语序/措辞实测**（NVDA/讲述人念出来的样子）：AX 树能证明控件名、角色与状态正确，不能证明读起来是否别扭。这是本条已知缺口。
