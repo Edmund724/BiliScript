@@ -23,11 +23,22 @@
   color: var(--biliscript-reader-text);
 }
 
+/* 对话面板的板面顶距覆写（2026-10 用户决议，第二轮）：.biliscript-reading-tab-body
+ * 给三个 tab 共用的 padding: 14px 16px 16px 是正文级板面留白（字幕/概览首行是正文，
+ * 见 reader.css），而对话面板首行是右对齐的 32px 工具条——14px 顶距在工具条上方
+ * 又叠出空档（用户报「上边还是空」）。按面板结构往下收：:has(> .biliscript-reading-chat)
+ * 只命中对话面板（Chrome 120 起 :has 可用，manifest 的 minimum_chrome_version 即
+ * 120），特异性 (0,2,0) 高于 reader.css 的 .biliscript-reading-tab-body (0,1,0)，
+ * 与样式注入顺序无关。左右/下内边距不动。 */
+.biliscript-reading-tab-body:has(> .biliscript-reading-chat) {
+  padding-top: 4px;
+}
+
 /* 头部工具条：2026-10 用户决议删除视频标题 chip 后只剩「历史对话」+「新会话」，
  * 右对齐接住 chip 原先 flex:1 顶出的位置（两键位置与删 chip 前一致）。
  * 2026-10 用户决议（截图）：头部盒不再预留 42px——盒高收为控件等高 32px，
- * 上下留白 6/8 → 2/4，消掉「历史对话」上方与下方两处空档（上方 = 2 + tab-body
- * 的 14px 面板边距，下方 = 4 + 消息区的 12px，两侧观感对称）。 */
+ * 上下留白 6/8 → 2/4，消掉「历史对话」上方与下方两处空档（上方 = 2 + 面板板面
+ * 顶距，下方 = 4 + 消息区的 12px）。 */
 .biliscript-reading-chat .chat-header {
   display: flex;
   align-items: center;
