@@ -1,8 +1,10 @@
 // tests/chat/context-load.test.ts
-// createContextLoad（上下文状态加载 + 跳转）行为契约（候选5 拆分直测；PR5 自
+// createContextLoad（上下文状态加载）行为契约（候选5 拆分直测；PR5 自
 // tests/sidepanel 随迁并适配 ContextFetch 策略注入——组装面更新，行为断言与
 // 迁移前一致）。头部标题 chip 已于 2026-10 删除，updateContextChip 随之下线，
-// 本文件不再覆盖 chip 文案/mismatch 标记。
+// 本文件不再覆盖 chip 文案/mismatch 标记。跳转编排 openCurrentContextUrl 与它的
+// getActiveTab transport 已于 2026-10 随 sidepanel 退役一并下线（生产无调用方，
+// 时间戳跳转走 reader 壳自己的 contextUrl 路径），本文件不再覆盖跳转用例。
 //
 // 覆盖 loadContextState 的策略动作分支（表驱动，注入替身 ContextFetch）：
 //   skip-unchanged（短路返回 true，不动任何状态）
@@ -10,7 +12,7 @@
 //   apply-pinned（只落地 live 快照，不进主上下文）
 //   blocked-streaming（同 pinned 执行体）
 //   apply-live（正常落地 + 上下文变化时 restoreLatest + renderInitialState）
-// 以及 openCurrentContextUrl（同视频不跳转、跨视频更新 URL + 等待加载 + 强刷）。
+// 以及 ContextLoad 的接口面（只暴露 loadContextState）。
 // （原消息链包装器用例——no-tab/error 信封/参数透传——随消息链策略退役，见
 // ticket arch-slim-4/01；no-tab/error 的落地动作契约由 context-policy 与
 // context-inprocess.test.js 覆盖。）
@@ -37,26 +39,24 @@ async function importModule() {
   resetChatSessionStateForTests = state.resetChatSessionStateForTests;
 }
 
-const ACTIVE_TAB = { id: 42, url: "https://www.bilibili.com/video/BV1" };
+// 跳转（openCurrentContextUrl）曾用 id 发起 chrome.tabs.update；跳转下线后仅剩 URL。
+const ACTIVE_TAB = { url: "https://www.bilibili.com/video/BV1" };
 
 function makePayload(overrides: Partial<ChatSessionContextSnapshot> = {}) {
   return { signature: "sig-1", title: "测试视频", url: "https://www.bilibili.com/video/BV1", isVideoContext: true, ...overrides };
 }
 
 function makeHarness({
-  tab = ACTIVE_TAB,
   fetchOutcome
 }: {
-  tab?: { id?: number; url?: string } | null;
   fetchOutcome?: () => ContextFetchOutcome;
 } = {}) {
   const deps = {
-    getActiveTab: vi.fn(async () => tab),
     fetchContext: vi.fn(async (): Promise<ContextFetchOutcome> => {
       if (fetchOutcome) {
         return fetchOutcome();
       }
-      return { kind: "payload", tabUrl: tab?.url || "", payload: makePayload() };
+      return { kind: "payload", tabUrl: ACTIVE_TAB.url, payload: makePayload() };
     }),
     renderHistoryList: vi.fn(),
     renderInitialState: vi.fn(),
@@ -69,7 +69,6 @@ function makeHarness({
   };
   const contextLoad = createContextLoad({
     fetchContext: deps.fetchContext,
-    getActiveTab: deps.getActiveTab,
     renderHistoryList: deps.renderHistoryList,
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.renderSuggestions,
@@ -234,43 +233,10 @@ describe("loadContextState 动作分支", () => {
   });
 });
 
-describe("openCurrentContextUrl", () => {
-  it("无目标 URL：no-op", async () => {
-    const { deps, contextLoad } = makeHarness();
-    deps.getActiveTab.mockClear();
+describe("ContextLoad 接口面", () => {
+  it("只暴露 loadContextState（跳转编排 openCurrentContextUrl 与 getActiveTab 已下线）", () => {
+    const { contextLoad } = makeHarness();
 
-    await contextLoad.openCurrentContextUrl();
-
-    expect(deps.getActiveTab).not.toHaveBeenCalled();
-  });
-
-  it("同视频：不更新 URL，但强刷一轮上下文", async () => {
-    chatSessionState.contextData = { title: "视频", url: "https://www.bilibili.com/video/BV1" };
-    const { deps, contextLoad } = makeHarness();
-    const updateSpy = vi.fn(async (): Promise<chrome.tabs.Tab> => ({ status: "complete" }));
-    window.chrome = window.chrome || ({} as typeof window.chrome);
-    window.chrome.tabs = { ...window.chrome.tabs, update: updateSpy };
-
-    await contextLoad.openCurrentContextUrl();
-
-    expect(updateSpy).not.toHaveBeenCalled();
-    expect(deps.fetchContext).toHaveBeenCalledWith({ forceRefresh: true, ifSignature: "" });
-  });
-
-  it("跨视频：更新 URL 后强刷（waitForTabComplete 需 chrome.tabs.get stub）", async () => {
-    chatSessionState.contextData = { title: "视频", url: "https://www.bilibili.com/video/BV1" };
-    const { deps, contextLoad } = makeHarness({ tab: { id: 42, url: "https://www.bilibili.com/video/BVother" } });
-    const updateSpy = vi.fn(async (): Promise<chrome.tabs.Tab> => ({ status: "complete" }));
-    window.chrome = window.chrome || ({} as typeof window.chrome);
-    window.chrome.tabs = {
-      ...window.chrome.tabs,
-      update: updateSpy,
-      get: vi.fn(async () => ({ status: "complete" }))
-    };
-
-    await contextLoad.openCurrentContextUrl();
-
-    expect(updateSpy).toHaveBeenCalledWith(42, { url: "https://www.bilibili.com/video/BV1" });
-    expect(deps.fetchContext).toHaveBeenCalled();
+    expect(Object.keys(contextLoad).sort()).toEqual(["loadContextState"]);
   });
 });

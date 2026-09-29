@@ -606,13 +606,13 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
     );
   });
 
-  it("chat/context-load.js：上下文加载读 url（跳转兜底）与 signature（回传）", () => {
+  it("chat/context-load.js：上下文加载不读 contextData 字段，只回传 signature", () => {
     const source = readSource("../../extension/chat/context-load.js");
-    // openCurrentContextUrl 的目标 URL 读取（url）；标题 chip 已于 2026-10 删除，
-    // contextData.title 不再被本模块读取
+    // 跳转编排 openCurrentContextUrl 已于 2026-10 下线：本模块只写 contextData
+    // （落地/清空），不再读取它的任何字段 → 对账点为空集（非空即新增读取，必须过对账）。
     assertReconciliation(
       scanFields(source, "contextData"),
-      ["url"],
+      [],
       "context-load contextData"
     );
     // ifSignature 回传来源：上次全量快照的签名

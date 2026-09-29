@@ -127,7 +127,6 @@ function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { 
   });
   const deps = {
     fetchContext,
-    getActiveTab: vi.fn(async () => null),
     renderHistoryList: vi.fn(),
     renderInitialState: vi.fn(),
     renderSuggestions: vi.fn(),

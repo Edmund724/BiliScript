@@ -50,8 +50,10 @@ export type ReaderContextPayload = {
 
 // AiContext 快照全量 payload 的字段清单。每个字段注明消费方（对账于
 // reader/chat-tab.ts 对话壳、core/context-assembly 装配链、offscreen/ai 层）：
-//   url                   会话 contextUrl 兜底（chat/context-load 的
-//                         openCurrentContextUrl 目标）；无 bvid/cid/aid 时经
+//   url                   会话 contextUrl 兜底（reader/chat-tab.ts 的
+//                         getTimestampNavDeps 跳转目标；chat/context-load 的
+//                         openCurrentContextUrl 已于 2026-10 下线，不再读取）；
+//                         无 bvid/cid/aid 时经
 //                         ai/conversation.js buildContextKey / buildAiContextRef 回落。
 //   title                 会话标题与 background hasLoadedClip 判定；offscreen
 //                         渲染 prompt 首段（ai/context.js buildMessages）。对话侧

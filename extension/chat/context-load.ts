@@ -1,11 +1,12 @@
 // extension/chat/context-load.ts — 上下文状态加载编排壳（候选5 自
 // sidepanel.ts 迁出，PR5 自 pages/sidepanel-context-load.ts 迁入 chat 域并
 // 改造；PR5c 随 sidepanel 摘除，chat/* 为对话内核唯一宿主）：
-// loadContextState（拉上下文 → 按策略动作执行编排副作用）、
-// openCurrentContextUrl。
+// loadContextState（拉上下文 → 按策略动作执行编排副作用）。
 // 分支判定收敛在 ./context-policy.ts（纯函数，继续直 import），本模块只负责
 // 拉数据、按动作执行。（头部标题 chip 已于 2026-10 删除：updateContextChip 与
-// 只服务它的 isBoundConversationMismatched 一并下线，上下文装载链不变。）
+// 只服务它的 isBoundConversationMismatched 一并下线，上下文装载链不变。同一时期
+// 下线的还有跳转编排 openCurrentContextUrl 与只服务它的 getActiveTab transport：
+// sidepanel 退役后生产已无调用方，reader 壳的时间戳跳转走自己的 contextUrl 路径。）
 //
 // arch-slim/07 装配收口：「拉数据」的 ContextFetch 策略（扩展页消息链 /
 // 进程内直读 / pinned 补水身份短路）连同 AiContext 装配知识一并迁往
@@ -15,14 +16,12 @@
 //
 // 依赖方向（无环）：共享可变状态（contextData / currentContextKey /
 // liveContextData / liveContextKey / liveTabUrl / currentConversationMeta）直接
-// import；上下文组装策略（fetchContext）与 openCurrentContextUrl 的 transport
-//（getActiveTab——扩展页专属跳转，reader 壳可不注入）经工厂 deps 注入；
+// import；上下文组装策略（fetchContext）经工厂 deps 注入；
 // 渲染/编排回调（renderHistoryList、resetConversationView、
 // restartChat、renderSuggestions、restoreLatest、流式守卫判定 isStreaming /
 // hasPendingUserPrompt 惰性互引 chatRuntime 实例）同样经 deps 注入。本模块
 // 不 import 组合根。
-import { buildContextKey, doesTabMatchContextUrl } from "../ai/conversation.js";
-import { waitForTabComplete } from "../shared/tab-utils.js";
+import { buildContextKey } from "../ai/conversation.js";
 import { LOAD_CONTEXT_ACTION, isPinnedContextStrict, resolveLoadContextAction, resolveNoTabPlan } from "./context-policy.js";
 import { chatSessionState } from "./chat-state.js";
 import type { ChatSessionContextSnapshot } from "./chat-state.js";
@@ -36,9 +35,6 @@ import type { LoadContextStateOptions } from "./conversation-store.js";
 export interface CreateContextLoadDeps {
   // 上下文组装策略（core/context-assembly 的 createInProcessContextFetch）
   fetchContext: ContextFetch;
-  // openCurrentContextUrl 的 transport（扩展页专属跳转；reader 壳可不注入——
-  // 缺省时 openCurrentContextUrl 为 no-op）
-  getActiveTab?: () => Promise<{ id?: number; url?: string } | null>;
   renderHistoryList: () => void;
   renderInitialState: () => void;
   renderSuggestions: () => void;
@@ -52,7 +48,6 @@ export interface CreateContextLoadDeps {
 
 export interface ContextLoad {
   loadContextState: (opts?: LoadContextStateOptions) => Promise<boolean>;
-  openCurrentContextUrl: () => Promise<void>;
 }
 
 export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
@@ -163,27 +158,5 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     return contextChanged;
   }
 
-  async function openCurrentContextUrl(): Promise<void> {
-    if (!deps.getActiveTab) {
-      return;
-    }
-    const targetUrl = String(chatSessionState.contextData?.url || chatSessionState.currentConversationMeta?.contextUrl || "").trim();
-    if (!targetUrl) {
-      return;
-    }
-    const tab = await deps.getActiveTab().catch(() => null);
-    if (!tab?.id) {
-      return;
-    }
-    try {
-      const sameVideo = doesTabMatchContextUrl(tab.url || "", targetUrl);
-      if (!sameVideo) {
-        await chrome.tabs.update(tab.id, { url: targetUrl });
-        await waitForTabComplete(tab.id);
-      }
-      await loadContextState({ forceRefresh: true, silent: true });
-    } catch {}
-  }
-
-  return { loadContextState, openCurrentContextUrl };
+  return { loadContextState };
 }
