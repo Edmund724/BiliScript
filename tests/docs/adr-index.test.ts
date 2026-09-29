@@ -38,6 +38,15 @@ const firstLineAfterTitle = (text: string): string => {
   return "";
 };
 
+// 文末修订块：二级标题以「修订」开头（体例规则 2）。
+const revisionBlocks = (text: string): number =>
+  text.split("\n").filter((line) => /^##\s*修订/.test(line.trim())).length;
+
+// 声明的修订处数：`2 处修订` / `2 条修订` / `2 次修订`。只收阿拉伯数字——中文数字
+// （「两处「留待下一轮评审」」）与正文里的历史叙述都不是声明，误收会把别处的话算成本篇。
+const declaredRevisionCounts = (text: string): number[] =>
+  [...text.matchAll(/(\d+)\s*(?:处|条|次)修订/g)].map((match) => Number(match[1]));
+
 describe("docs/adr 体例守卫", () => {
   it("每篇 ADR 都在 README 索引里被提到", () => {
     const index = read(README);
@@ -67,5 +76,56 @@ describe("docs/adr 体例守卫", () => {
     const offenders = adrFiles()
       .filter((name) => !firstLineAfterTitle(read(join(ADR_DIR, name))).includes("> 状态："));
     expect(offenders, `下列 ADR 标题后首条非空行不是「> 状态：…」：${offenders.join("、")}`).toEqual([]);
+  });
+
+  it("声明的修订处数与文末「## 修订」块数一致（状态行 / 索引行）", () => {
+    const files = adrFiles();
+    expect(files.length).toBeGreaterThan(0); // 防空转：目录读空时下面的断言恒真
+    const offenders: string[] = [];
+    let declaredSites = 0;
+    const check = (site: string, declared: number[], blocks: number) => {
+      declaredSites += declared.length;
+      for (const count of declared) {
+        if (count !== blocks) {
+          offenders.push(`${site} 声明 ${count} 处修订，实际 ${blocks} 个「## 修订」块`);
+        }
+      }
+    };
+    for (const name of files) {
+      const text = read(join(ADR_DIR, name));
+      check(`${name} 状态行`, declaredRevisionCounts(firstLineAfterTitle(text)), revisionBlocks(text));
+    }
+    for (const row of indexRows()) {
+      const name = files.find((file) => file.startsWith(`${row.id}-`));
+      if (!name) continue; // 退役编号行没有本体，无从对账
+      check(`README 索引 ${row.id} 行`, declaredRevisionCounts(row.line), revisionBlocks(read(join(ADR_DIR, name))));
+    }
+    // 防空转：一条声明都没有时上面的循环恒真，守卫形同删除——留出这个断言，
+    // 让「不再声明处数」变成一次显式决定而不是静默失效。
+    expect(declaredSites, "没有任何 ADR 在状态行或索引行声明修订处数，守卫已空转").toBeGreaterThan(0);
+    expect(offenders, `修订处数声明漂移：\n${offenders.join("\n")}`).toEqual([]);
+  });
+
+  it("修订处数判据能识别漂移（合成样本）", () => {
+    const drifted = [
+      "# 某篇",
+      "",
+      "> 状态：有效｜2 处修订：甲；乙",
+      "",
+      "正文",
+      "",
+      "## 修订（A）",
+      "",
+      "## 修订（B）",
+      "",
+      "## 修订（C）",
+      ""
+    ].join("\n");
+    expect(declaredRevisionCounts(firstLineAfterTitle(drifted))).toEqual([2]);
+    expect(revisionBlocks(drifted)).toBe(3);
+    // 未声明即不判（声明是自愿的，判的是「声明了就别漂移」）；
+    // 中文数字（「两处修订」）与正文历史叙述不参与，避免误判到别篇头上。
+    expect(declaredRevisionCounts("> 状态：有效｜见 ADR-0006")).toEqual([]);
+    expect(revisionBlocks("> 状态：有效")).toBe(0);
   });
 });
