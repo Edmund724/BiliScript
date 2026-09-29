@@ -23,7 +23,7 @@
 // 不 import 组合根。
 import { buildContextKey } from "../ai/conversation.js";
 import { LOAD_CONTEXT_ACTION, isPinnedContextStrict, resolveLoadContextAction, resolveNoTabPlan } from "./context-policy.js";
-import { chatSessionState } from "./chat-state.js";
+import { applyContextSnapshot, chatSessionState, clearMainContext } from "./chat-state.js";
 import type { ChatSessionContextSnapshot } from "./chat-state.js";
 import type { ContextFetch, ContextFetchOutcome } from "../core/context-assembly.js";
 import type { LoadContextStateOptions } from "./conversation-store.js";
@@ -67,8 +67,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       chatSessionState.liveContextKey = "";
       chatSessionState.liveTabUrl = "";
       if (plan.clearContext) {
-        chatSessionState.contextData = null;
-        chatSessionState.currentContextKey = "";
+        clearMainContext();
       }
       if (plan.resetView) {
         deps.resetConversationView(plan.message as string);
@@ -109,8 +108,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       chatSessionState.liveContextData = null;
       chatSessionState.liveContextKey = "";
       if (plan.clearContext) {
-        chatSessionState.contextData = null;
-        chatSessionState.currentContextKey = "";
+        clearMainContext();
       }
       if (plan.resetView) {
         deps.resetConversationView(plan.message as string);
@@ -143,12 +141,9 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
   }
 
   function applyContextPayload(payload: ChatSessionContextSnapshot | null): boolean {
-    const nextContext = payload && typeof payload === "object" ? payload : null;
-    const nextKey = buildContextKey(nextContext);
-    const contextChanged = Boolean(chatSessionState.currentContextKey && nextKey && nextKey !== chatSessionState.currentContextKey);
-
-    chatSessionState.contextData = nextContext;
-    chatSessionState.currentContextKey = nextKey;
+    // 写入半（落地 + key 重算 + 写前变化判定）已归并进 chat-state 的
+    // applyContextSnapshot 原语；本壳只留变化后的编排副作用。
+    const contextChanged = applyContextSnapshot(payload);
 
     if (contextChanged && !deps.isStreaming() && !deps.hasPendingUserPrompt()) {
       deps.restartChat({ keepContext: true });

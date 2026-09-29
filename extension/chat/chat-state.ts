@@ -286,10 +286,44 @@ export function rebuildCurrentContextKeyFromContext(): void {
 // { ...live } 逐字一致）；liveContextKey 缺省时回退 key 重算。
 export function applyLiveContextToMain(): void {
   if (chatSessionStateMutable.liveContextData) {
-    chatSessionStateMutable.contextData = { ...chatSessionStateMutable.liveContextData };
-    chatSessionStateMutable.currentContextKey =
-      chatSessionStateMutable.liveContextKey || buildContextKey(chatSessionStateMutable.liveContextData);
+    applyContextToMain(
+      { ...chatSessionStateMutable.liveContextData },
+      chatSessionStateMutable.liveContextKey
+    );
   }
+}
+
+// 落地解析后的上下文（hydratePinned 三支 / apply 占位与 live 命中分支）：按引用
+// 写入，拷贝语义由调用方决定（各写点原状有 { ...x } 拷贝与不拷贝两种，逐字保持）；
+// preferredKey 为空时回退 buildContextKey(next)。
+export function applyContextToMain(next: AiContext | null, preferredKey?: string): void {
+  chatSessionStateMutable.contextData = next;
+  chatSessionStateMutable.currentContextKey = preferredKey || buildContextKey(next);
+}
+
+// 整组换上下文（context-load 的 applyContextPayload 写入半）：变化判定必须在
+// 写入前读旧 key，故判定与落地内聚为同一原语，返回 contextChanged。
+export function applyContextSnapshot(payload: unknown): boolean {
+  const next = payload && typeof payload === "object" ? (payload as AiContext) : null;
+  const nextKey = buildContextKey(next);
+  const contextChanged = Boolean(
+    chatSessionStateMutable.currentContextKey && nextKey && nextKey !== chatSessionStateMutable.currentContextKey
+  );
+  chatSessionStateMutable.contextData = next;
+  chatSessionStateMutable.currentContextKey = nextKey;
+  return contextChanged;
+}
+
+// hydratePinned 复读 live 分支的只写 key：loadContextState 已落地新上下文，
+// 这里把 key 钉到会话 targetKey，data 不动。
+export function pinCurrentContextKey(key: string): void {
+  chatSessionStateMutable.currentContextKey = key;
+}
+
+// no-tab / error 计划里的 clearContext 分支：主上下文两键一并清空。
+export function clearMainContext(): void {
+  chatSessionStateMutable.contextData = null;
+  chatSessionStateMutable.currentContextKey = "";
 }
 
 // 测试注入口：把全部字段重置到初值（单纪元内复用模块单例的 beforeEach 用）。

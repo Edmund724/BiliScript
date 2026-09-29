@@ -33,7 +33,6 @@
 
 import {
   buildAiContextRef,
-  buildContextKey,
   buildContextPlaceholder,
   buildConversationTitle,
   generateConversationId,
@@ -49,9 +48,12 @@ import { extractPageIndexFromUrl } from "../bilibili/video-id-shared.js";
 import type { AiContext } from "../ai/types.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import {
+  applyContextToMain,
   applyConversationIdentity,
+  applyLiveContextToMain,
   chatSessionState,
   detachConversationIdentity,
+  pinCurrentContextKey,
   setSavedConversations,
   type ChatSessionMessage
 } from "./chat-state.js";
@@ -270,11 +272,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
   // 注意：apply 内的 live 写入不是本原语的同型体——它条件于会话键 === live 键
   // 且额外写 meta.resolvedContext，语义不同，保持独立。
   function repopulateLive(): void {
-    const liveData = chatSessionState.liveContextData;
-    if (liveData) {
-      chatSessionState.contextData = { ...liveData };
-      chatSessionState.currentContextKey = chatSessionState.liveContextKey || buildContextKey(liveData);
-    }
+    applyLiveContextToMain();
   }
 
   async function loadAll(): Promise<void> {
@@ -403,8 +401,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     const liveData = chatSessionState.liveContextData;
     const liveKey = chatSessionState.liveContextKey;
     if (liveData && conversation.contextKey && conversation.contextKey === liveKey) {
-      chatSessionState.contextData = { ...liveData };
-      chatSessionState.currentContextKey = liveKey;
+      applyContextToMain({ ...liveData }, liveKey);
       // 读-改-写依赖上一步刚落进状态袋的 meta，故仍从状态袋读回再补字段
       applyConversationIdentity({
         meta: {
@@ -413,8 +410,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         }
       });
     } else if (conversation.contextRef) {
-      chatSessionState.contextData = buildContextPlaceholder(conversation.contextRef);
-      chatSessionState.currentContextKey = conversation.contextKey || buildContextKey(chatSessionState.contextData);
+      applyContextToMain(buildContextPlaceholder(conversation.contextRef), conversation.contextKey);
     }
     emitChange(change);
   }
@@ -550,8 +546,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     const targetKey = String(meta?.contextKey || "").trim();
     const cachedResolvedContext = meta?.resolvedContext;
     if (cachedResolvedContext && typeof cachedResolvedContext === "object") {
-      chatSessionState.contextData = { ...cachedResolvedContext };
-      chatSessionState.currentContextKey = targetKey || buildContextKey(chatSessionState.contextData);
+      applyContextToMain({ ...cachedResolvedContext }, targetKey);
       emitChange();
       onContextNotice({ kind: "clear" });
       return true;
@@ -561,7 +556,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       const ok = await loadContextState({ forceRefresh: false, silent: true });
       const context = chatSessionState.contextData;
       if (ok && context) {
-        chatSessionState.currentContextKey = targetKey;
+        pinCurrentContextKey(targetKey);
         meta = chatSessionState.currentConversationMeta;
         applyConversationIdentity({
           meta: {
@@ -599,8 +594,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
 
     const resolved = response.payload as AiContext;
-    chatSessionState.contextData = resolved;
-    chatSessionState.currentContextKey = targetKey || buildContextKey(resolved);
+    applyContextToMain(resolved, targetKey);
     meta = chatSessionState.currentConversationMeta;
     applyConversationIdentity({
       meta: {

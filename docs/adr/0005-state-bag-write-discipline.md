@@ -104,3 +104,16 @@ key 回退重算，原组合根 startNewConversation 内联两行的整组意图
 半句的条件（写方归并已存在）刚具备，是否再落编译期白名单留待下一轮评审。
 `conversation-store.ts` / `context-load.ts` 内的同名字段写方是第二轮归并对象，本轮未动
 （Q7 裁决：只并已迁移的 7 处）。归属搬迁红线（本 ADR 共同约束第 73 行）不受影响。
+
+## 修订（2026-10 第二轮：B 档写方归并完成，全仓写点清零）
+
+第二轮随遗留清理落地：`conversation-store.ts` 6 处（repopulateLive 并入既有
+`applyLiveContextToMain`；apply 的 live 命中 / 占位两分支与 `hydratePinned` 三支并入新原语
+`applyContextToMain(next, preferredKey?)`——按引用落地、拷贝语义由调用方决定，逐字保持各
+写点原状；hydratePinned 复读分支的只写 key 收进 `pinCurrentContextKey`）与
+`context-load.ts` 3 处（no-tab / error 的清上下文分支收进 `clearMainContext`；
+`applyContextPayload` 的写入半——写前变化判定与落地——内聚为 `applyContextSnapshot(payload):
+boolean` 并返回 contextChanged，编排壳只留 restart/render 副作用）全部改走原语。至此
+`extension/` 全仓对 `chatSessionState.contextData` / `currentContextKey` 的直写为零，
+写方归并这一重开条件完全兑现；setter 白名单是否再落编译期约束，留待下一轮评审
+（原语已成组意图，白名单的漂移面只剩原语内部）。
