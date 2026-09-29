@@ -215,13 +215,26 @@ interface AnthropicStreamEvent {
   content_block?: { type?: string; id?: string; name?: string };
 }
 
-// 响应 usage 单字段取数（ai-usage-telemetry T1）：input_tokens 在
-// message_start.message.usage、output_tokens 在 message_delta.usage（形状由本
-// adapter 自陈，core 不认）；容器形状不符 / 字段缺失 / null / 非有限数一律缺省
-// ——不抛错、不降级。
+// 响应 usage 单字段取数（ai-usage-telemetry T1）：流式 input_tokens 在
+// message_start.message.usage、output_tokens 在 message_delta.usage；非流式两者同在
+// 响应体 json.usage（形状由本 adapter 自陈，core 不认）。容器形状不符 / 字段缺失 /
+// null / 非有限数一律缺省——不抛错、不降级。两字段全缺省时由调用方决定是否产生
+// usage 对象。
 function usageTokenCount(container: unknown, field: "input_tokens" | "output_tokens"): number | undefined {
   const value = (container as Record<string, unknown> | null | undefined)?.[field];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+// 单容器双字段归一（非流式响应体 json.usage）：两字段全缺省 → undefined，调用方据此
+// 不产生 usage（与 openai 侧 parseOpenAiUsage 的同名纪律一致，值域不过滤）。
+function usageFromContainer(container: unknown): ChatUsage | undefined {
+  const inputTokens = usageTokenCount(container, "input_tokens");
+  const outputTokens = usageTokenCount(container, "output_tokens");
+  if (inputTokens == null && outputTokens == null) return undefined;
+  return {
+    ...(inputTokens != null ? { inputTokens } : {}),
+    ...(outputTokens != null ? { outputTokens } : {})
+  };
 }
 
 export const anthropicAdapter: ProtocolAdapter = {
@@ -422,6 +435,7 @@ export const anthropicAdapter: ProtocolAdapter = {
     const data = json as {
       content?: Array<{ type?: string; text?: string; id?: string; name?: string; input?: unknown }>;
       stop_reason?: unknown;
+      usage?: unknown;
     };
     let content = "";
     const toolCalls: ChatToolCall[] = [];
@@ -435,10 +449,15 @@ export const anthropicAdapter: ProtocolAdapter = {
         });
       }
     }
+    // 响应 usage（ai-usage-telemetry T1）：Messages API 非流式响应体带顶层
+    // json.usage（map-reduce 段/概览全走非流式，不补则本协议零采样）；形状不符 /
+    // 缺字段一律缺省，不改既有 content/toolCalls/finishReason 控制流。
+    const usage = usageFromContainer(data.usage);
     return {
       content,
       toolCalls,
-      finishReason: typeof data.stop_reason === "string" && data.stop_reason ? mapStopReason(data.stop_reason) : null
+      finishReason: typeof data.stop_reason === "string" && data.stop_reason ? mapStopReason(data.stop_reason) : null,
+      ...(usage ? { usage } : {})
     };
   }
 };

@@ -1,7 +1,7 @@
 // ai-usage-telemetry T1 单测：响应 usage 采集管道（零行为变更）。
 // 三面：
 // 1. 各 adapter 自陈解析（core 不认协议形状）：openai 非流式 / openai 流式末块 /
-//    anthropic message_start + message_delta 跨事件累积；
+//    anthropic message_start + message_delta 跨事件累积 / anthropic 非流式响应体；
 // 2. 形状不符 / 缺字段 / null / 非有限数 → 对应字段缺省：不抛错、不降级、不改控制流；
 // 3. 请求体零新增字段（一期不发 stream_options）：断言整个 body（两协议 × 流式/非流式）。
 // 消费方（usage-stats / 成本护栏）属 T2，本文件不涉及。
@@ -230,6 +230,49 @@ describe("anthropic 流式 drainStream（message_start + message_delta 跨事件
   });
 });
 
+describe("anthropic 非流式 parseResponse（json.usage 映射）", () => {
+  it("有 usage：input_tokens / output_tokens 归一；content/toolCalls/finishReason 逐字节不变", () => {
+    const result = anthropicAdapter.parseResponse({
+      content: [{ type: "text", text: "ok" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 25, output_tokens: 15 }
+    });
+    expect(result.usage).toEqual({ inputTokens: 25, outputTokens: 15 });
+    expect(result.content).toBe("ok");
+    expect(result.toolCalls).toEqual([]);
+    expect(result.finishReason).toBe("stop");
+  });
+
+  it("无 usage / usage 非对象（字符串、数组、null）→ usage 缺省，不抛错", () => {
+    expect(anthropicAdapter.parseResponse({ content: [{ type: "text", text: "ok" }] }).usage).toBeUndefined();
+    expect(anthropicAdapter.parseResponse({ content: [], usage: null }).usage).toBeUndefined();
+    expect(anthropicAdapter.parseResponse({ content: [], usage: "25" }).usage).toBeUndefined();
+    expect(anthropicAdapter.parseResponse({ content: [], usage: [25, 15] }).usage).toBeUndefined();
+  });
+
+  it("字段为 null / 字符串 / NaN / Infinity → 该字段缺省，其余字段照常", () => {
+    expect(anthropicAdapter.parseResponse({ content: [], usage: { input_tokens: null, output_tokens: "15" } }).usage).toBeUndefined();
+    expect(
+      anthropicAdapter.parseResponse({ content: [], usage: { input_tokens: Number.NaN, output_tokens: 15 } }).usage
+    ).toEqual({ outputTokens: 15 });
+    expect(
+      anthropicAdapter.parseResponse({ content: [], usage: { input_tokens: 25, output_tokens: Number.POSITIVE_INFINITY } }).usage
+    ).toEqual({ inputTokens: 25 });
+  });
+
+  it("只有单侧字段 → 只该字段入账（reasoningTokens 本协议无来源，不出现在对象里）", () => {
+    expect(anthropicAdapter.parseResponse({ content: [], usage: { input_tokens: 25 } }).usage).toEqual({ inputTokens: 25 });
+    expect(anthropicAdapter.parseResponse({ content: [], usage: { output_tokens: 15 } }).usage).toEqual({ outputTokens: 15 });
+  });
+
+  it("0 与负数照原值入账（是否算有效样本由 T2 的样本过滤裁决，T1 只做形状归一）", () => {
+    expect(anthropicAdapter.parseResponse({ content: [], usage: { input_tokens: 0, output_tokens: -1 } }).usage).toEqual({
+      inputTokens: 0,
+      outputTokens: -1
+    });
+  });
+});
+
 describe("请求体不含 stream_options（一期零新增字段：两协议 × 流式/非流式）", () => {
   const PROVIDER_OPENAI = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
   const PROVIDER_ANTHROPIC = { baseUrl: "https://api.anthropic.com", model: "claude-x", apiKey: "sk-ant", protocol: "anthropic" as const };
@@ -307,6 +350,32 @@ describe("请求体不含 stream_options（一期零新增字段：两协议 × 
       messages: [{ role: "user", content: "hi" }],
       stream: true,
       max_tokens: 32768
+    });
+    expect(body).not.toHaveProperty("stream_options");
+  });
+
+  // Object.assign(body, thinking.fields)（openai adapter buildBody）是表驱动注键进
+  // body 的唯一通道：上面四条都是空 patch，锁不住它。本用例用非空 patch（deepseek
+  // 血统 × high → reasoning_effort）证明该通道真注了键（不是空 patch 的假绿），
+  // 并同时锁整份 body 无 stream_options。
+  it("openai 流式 + 非空 thinking patch：注入 reasoning_effort，整份 body 仍无 stream_options", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse([openaiData({ choices: [{ delta: { content: "甲" } }] }), "data: [DONE]\n\n"])
+    );
+    await chatCompletion({
+      provider: { baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-flash", apiKey: "sk-test", presetId: "deepseek" },
+      messages: [{ role: "user", content: "hi" }],
+      stream: true,
+      thinkingLevel: "high",
+      fetchImpl: fetchMock as unknown as typeof fetch
+    });
+    const body = bodyOf(fetchMock);
+    expect(body.reasoning_effort).toBe("high");
+    expect(body).toEqual({
+      model: "deepseek-v4-flash",
+      messages: [{ role: "user", content: "hi" }],
+      stream: true,
+      reasoning_effort: "high"
     });
     expect(body).not.toHaveProperty("stream_options");
   });
