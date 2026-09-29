@@ -18,7 +18,7 @@ import { chatCompletion } from "./completion.js";
 import { runMapBounded, DEFAULT_MAP_CONCURRENCY } from "./pool.js";
 import { shouldReduce, reduceSummaries } from "./reduce.js";
 import { segmentCacheProxy, type SegmentCacheOps } from "./segment-cache-proxy.js";
-import type { BudgetPlan, BudgetPlanSegment, ProviderRequest } from "./types.js";
+import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
 // port 回吐的消息联合单源在 chat/protocol.ts（ticket 08）：原「StreamChatEvent |
 // { type: string; data?: string; reason?: string }」手抄变体删除，改引协议联合。
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
@@ -40,14 +40,10 @@ const OVERFLOW_RETRY_BUDGET_SCALE = 0.5;
 const OVERFLOW_RETRY_NOTICE = "模型上下文不足，已自动调低单段素材量并重试";
 const OVERFLOW_STILL_MESSAGE = "该视频素材在调低分段量后仍超出模型上下文，请更换上下文窗口更大的模型后重试";
 
-interface ChatCompletionImpl {
-  (input: {
-    provider: ProviderRequest;
-    messages: Array<{ role: string; content: string }>;
-    thinkingLevel?: string;
-    signal?: AbortSignal | null;
-  }): Promise<unknown>;
-}
+// 注入协作形状单源（arch-review-2026-09 候选 2 第一步）：取 ai/completion.js
+// chatCompletion 的函数类型本身，不再手抄窄面入参（旧手抄版少了 stream /
+// onEvent / fetchImpl 等字段，靠 as unknown as 硬转）。
+type ChatCompletionImpl = typeof chatCompletion;
 
 /**
  * 进度文案纯函数：percent = round(index / total * 100)。
@@ -234,7 +230,7 @@ export async function orchestrateMapReduce({
   signal,
   thinkingLevel,
   onProgress,
-  chatCompletion: chatCompletionImpl = chatCompletion as unknown as ChatCompletionImpl,
+  chatCompletion: chatCompletionImpl = chatCompletion,
   segmentCache = segmentCacheProxy
 }: OrchestrateMapReduceInput): Promise<MapReduceResult> {
   const ctx = context || {};
@@ -356,7 +352,7 @@ export async function orchestrateMapReduce({
           runPrompts: async ({ prompt, messages }: { prompt?: string; messages?: unknown[] }) => {
             const text = await chatCompletionImpl({
               provider,
-              messages: (messages as Array<{ role: string; content: string }> | undefined) || [
+              messages: (messages as ChatMessage[] | undefined) || [
                 { role: "system", content: NOTE_EDITOR_SYSTEM_PROMPT },
                 { role: "user", content: prompt || "" }
               ],

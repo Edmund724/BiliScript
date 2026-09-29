@@ -141,26 +141,12 @@ export function buildAnalysisSegmentCacheKey(
 // 编排入口：双路径分派 + promise 复用 + 成本护栏
 // ============================================================
 
-// 以下三个依赖注入类型仅本模块的编排签名使用（runOverviewAnalysis 的入参 /
-// deps 形状），arch-slim-2/08 转私有：生产消费方（reader/overview.ts）传对象
-// 字面量无需引用类型；ladder.ts 的同名类型声明形状不同（宽松 BudgetPlan，
-// 供测试 fake 只填 mode 等少数字段），刻意不合并（见工单 Comments 裁定）。
-type ChatCompletionFn = (input: {
-  provider: ProviderRequest;
-  messages: ChatMessage[];
-  thinkingLevel?: string;
-  signal?: AbortSignal | null;
-  retries?: number;
-  maxTokens?: number | null;
-  // 传输层注入（overview-offscreen-transport）：概览一律经 offscreen 代发
-  fetchImpl?: typeof fetch;
-  // 流式（概览改流式）：正文增量经 onEvent 吐出（{ type: "token", data }，思考
-  // 增量是 { type: "reasoning", data }），流式成功返回 { done: true }；读流中断
-  // 重试时 onStreamReset 通报代际切换（completion.ts 的契约）。
-  stream?: boolean;
-  onEvent?: (event: unknown) => void;
-  onStreamReset?: () => void;
-}) => Promise<unknown>;
+// 注入缝的协作形状单源：以下三个类型一律取对应真实导出函数的 typeof——
+// arch-review-2026-09 候选 2 第一步推翻 arch-slim-2/08「同名类型各自私有、
+// 刻意不合并」裁定：旧裁定消的是平行导出；单源归各实现模块后手抄副本（含
+// 测试就地声明）合一，交界处的 as unknown as 随引用消除。与 ladder 侧的窄面
+// deps 声明仍不合并（那边是候选 5 的 deps 仪式问题，单独裁决）。
+type ChatCompletionFn = typeof _chatCompletion;
 
 // 流式进度计数（requestValidatedPart 的 onTokenProgress 契约）：正文与思考各自
 // 已接收的字符数，文案与节流由消费侧（单发路径）负责。
@@ -169,12 +155,9 @@ interface TokenProgressState {
   reasoningChars: number;
 }
 
-type BuildBudgetPlanFn = (args: { body?: unknown[]; chapters?: unknown[] }) => BudgetPlan;
+type BuildBudgetPlanFn = typeof _buildBudgetPlan;
 
-type BuildCostGuardNoticeFn = (args: { estimatedCalls?: unknown; estimatedTokens?: unknown }) => {
-  shouldPrompt: boolean;
-  message: string;
-};
+type BuildCostGuardNoticeFn = typeof _buildCostGuardNotice;
 
 interface RunOverviewAnalysisArgs {
   provider: ProviderRequest;
@@ -461,10 +444,10 @@ export function runOverviewAnalysis(
     signal,
     thinkingLevel,
     forceRefresh,
-    chatCompletionImpl: deps.chatCompletion ?? (_chatCompletion as unknown as ChatCompletionFn),
-    buildBudgetPlanImpl: deps.buildBudgetPlan ?? (_buildBudgetPlan as unknown as BuildBudgetPlanFn),
+    chatCompletionImpl: deps.chatCompletion ?? _chatCompletion,
+    buildBudgetPlanImpl: deps.buildBudgetPlan ?? _buildBudgetPlan,
     buildCostGuardNoticeImpl:
-      deps.buildCostGuardNotice ?? (_buildCostGuardNotice as unknown as BuildCostGuardNoticeFn),
+      deps.buildCostGuardNotice ?? _buildCostGuardNotice,
     askCostGuard: deps.askCostGuard,
     onProgress: deps.onProgress
   });

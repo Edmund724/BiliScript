@@ -15,26 +15,10 @@ let jsonRepairMod: typeof import("../../extension/ai/json-repair.js");
 let cacheMod: typeof import("../../extension/subtitle/cache.js");
 let storage: ReturnType<typeof createMemoryStorage>;
 
-// chatCompletion 的入参形状（编排层 ChatCompletionFn 未导出，按本测试用到的字段就地声明）；
+// chatCompletion 的入参形状单源引用 ai/completion.js 的 ChatCompletionInput
+// （arch-review-2026-09 候选 2 第一步：原就地手抄声明删除，防形状漂移不再报错）；
 // provider 请求形状单源引用 ai/types.js 的 ProviderRequest。
-type ChatCompletionCall = {
-  provider: ProviderRequest;
-  messages: Array<{ role: string; content: string }>;
-  thinkingLevel?: string;
-  signal?: AbortSignal | null;
-  retries?: number;
-  maxTokens?: number | null;
-  stream?: boolean;
-  // 流式事件出口（概览改流式后正文只从 { type: "token", data } 聚合）与读流
-  // 中断重试的代际重置信号（清零已聚合正文，两代流不拼接）
-  onEvent?: (event: unknown) => void;
-  onStreamReset?: () => void;
-  // 收尾原因回报（"length" = 正文被输出上限截断）：截断重跑的唯一触发信号
-  onFinishReason?: (reason: string | null) => void;
-  // 传输层注入（overview-offscreen-transport）：概览请求必须带 offscreen 代发，
-  // 不得回落 globalThis.fetch（页面源直发撞平台网关的 CORS 预检）
-  fetchImpl?: unknown;
-};
+import type { ChatCompletionInput } from "../../extension/ai/completion.js";
 
 // 概览请求的传输层单点（content 发起 → offscreen 执行）；断言逐调用比对同一
 // 函数引用，防回归直发。
@@ -116,7 +100,7 @@ function makeContext(overrides = {}) {
 // 流式回吐：正文按固定步长分片经 token 事件吐出。概览已改流式，chatCompletion
 // 成功只返回 { done: true }，正文只能从事件聚合——fake 必须走这条路，否则
 // 聚合逻辑不会被测到。
-function emitTokens(input: { onEvent?: (event: unknown) => void }, text: string, step = 7): void {
+function emitTokens(input: Pick<ChatCompletionInput, "onEvent">, text: string, step = 7): void {
   for (let i = 0; i < text.length; i += step) {
     input.onEvent?.({ type: "token", data: text.slice(i, i + step) });
   }
@@ -145,8 +129,8 @@ function catalogChapters(user: string): { seconds: number; title: string }[] {
 function buildCompletionFake(
   { failedSegments = new Set<number>(), parts = null as Record<number, unknown> | null } = {}
 ) {
-  const calls: ChatCompletionCall[] = [];
-  const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+  const calls: ChatCompletionInput[] = [];
+  const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
     calls.push(input);
     const system = input.messages[0]?.content || "";
     const user = input.messages.at(-1)?.content || "";
@@ -159,7 +143,7 @@ function buildCompletionFake(
     if (parts) {
       const raw = parts[index] || parts[1];
       emitTokens(input, typeof raw === "string" ? raw : JSON.stringify(raw));
-      return { done: true };
+      return { done: true } as const;
     }
     // 时间戳落在段区间内：分段按 50k 预算切，每段 50 条（5s/条），段 i 起点 = (i-1)*250。
     // 末段只有 10 条（50s 跨度），章/金句时间戳取段起点 +5/+40 才能三段全部有效。
@@ -183,7 +167,7 @@ function buildCompletionFake(
           keyQuotes: [{ quote: `金句${index}`, timestampSeconds: base + 30 }]
         };
     emitTokens(input, JSON.stringify(payload));
-    return { done: true };
+    return { done: true } as const;
   });
   return { chatCompletion, calls };
 }
@@ -453,20 +437,20 @@ describe("空正文重试", () => {
   // 真实故障：step-3.7-flash 无视关思考字段族，思考耗尽 max_tokens（finish_reason=length）
   // 后 content 空串返回 → parseLooseJson("") 抛「Unexpected end of JSON input」。
   it("首次调用空正文 → 加倍 max_tokens 重试一次并正常解析", async () => {
-    const calls: ChatCompletionCall[] = [];
+    const calls: ChatCompletionInput[] = [];
     const good = JSON.stringify({
       chapters: [{ title: "章1", timestampSeconds: 5, summary: "甲" }],
       keyQuotes: [{ quote: "金句1", timestampSeconds: 30 }]
     });
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       calls.push(input);
       // 流式：首代只吐思考不吐正文（空正文），重试代才吐正文
       if (calls.length === 1) {
         input.onEvent?.({ type: "reasoning", data: "把预算花在思考上" });
-        return { done: true };
+        return { done: true } as const;
       }
       emitTokens(input, good);
-      return { done: true };
+      return { done: true } as const;
     });
     const result = await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -496,7 +480,7 @@ describe("空正文重试", () => {
   });
 
   it("重试后仍空正文 → 抛可读错误，而不是「Unexpected end of JSON input」", async () => {
-    const chatCompletion = vi.fn(async () => ({ done: true }));
+    const chatCompletion = vi.fn(async () => ({ done: true }) as const);
     await expect(
       mod.runOverviewAnalysis(
         { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -518,18 +502,18 @@ describe("截断重跑", () => {
   });
 
   it("首发截断 → 加倍预算重跑一次，取重跑结果（首发半截正文作废，不拼接）", async () => {
-    const calls: ChatCompletionCall[] = [];
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const calls: ChatCompletionInput[] = [];
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       calls.push(input);
       if (calls.length === 1) {
         // 首发：JSON 停在数组中间，只救得回半截内容
         emitTokens(input, '{"chapters":[{"title":"半截","timestampSeconds":5}],"keyQuotes":');
         input.onFinishReason?.("length");
-        return { done: true };
+        return { done: true } as const;
       }
       emitTokens(input, GOOD);
       input.onFinishReason?.("stop");
-      return { done: true };
+      return { done: true } as const;
     });
 
     const result = await mod.runOverviewAnalysis(
@@ -545,10 +529,10 @@ describe("截断重跑", () => {
   });
 
   it("finish_reason=stop（正常收尾）→ 不重跑", async () => {
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       emitTokens(input, GOOD);
       input.onFinishReason?.("stop");
-      return { done: true };
+      return { done: true } as const;
     });
 
     const result = await mod.runOverviewAnalysis(
@@ -563,10 +547,10 @@ describe("截断重跑", () => {
   it("平台学到的上限已到顶 → 不重跑（加倍请求会与首发完全相同，白花一次调用）", async () => {
     const learned = await import("../../extension/ai/learned-budget.js");
     learned.noteLearnedMaxTokens({ baseUrl: "https://api.example.com/v1", model: "test-model" }, 8192);
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       emitTokens(input, GOOD);
       input.onFinishReason?.("length");
-      return { done: true };
+      return { done: true } as const;
     });
 
     const result = await mod.runOverviewAnalysis(
@@ -585,10 +569,10 @@ describe("截断重跑", () => {
 
 describe("流式聚合与 onStreamReset", () => {
   it("正文来自多次 token 事件的拼接（分片切开 JSON 也能解析）", async () => {
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       // 逐字吐，故意把 JSON 结构切在任意位置（token 步长 1）
       emitTokens(input, JSON.stringify({ chapters: [{ title: "章1", timestampSeconds: 5 }], keyQuotes: [] }), 1);
-      return { done: true };
+      return { done: true } as const;
     });
     const result = await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -603,14 +587,14 @@ describe("流式聚合与 onStreamReset", () => {
       chapters: [{ title: "新代章", timestampSeconds: 5 }],
       keyQuotes: [{ quote: "金句1", timestampSeconds: 30 }]
     });
-    const calls: ChatCompletionCall[] = [];
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const calls: ChatCompletionInput[] = [];
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       calls.push(input);
       // 第一代流吐到一半中断：completion 发代际信号（onStreamReset）后重试整条流
       emitTokens(input, stale, 5);
       input.onStreamReset?.();
       emitTokens(input, fresh, 5);
-      return { done: true };
+      return { done: true } as const;
     });
     const result = await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -673,9 +657,9 @@ describe("部分失败降级", () => {
   });
 
   it("模型产出全被校验丢弃（空产物）：抛空产物错误", async () => {
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       emitTokens(input, JSON.stringify({ chapters: [], keyQuotes: [] }));
-      return { done: true };
+      return { done: true } as const;
     });
     await expect(
       mod.runOverviewAnalysis(
@@ -964,7 +948,7 @@ describe("promise 复用去重", () => {
     const gate = new Promise((resolve) => {
       release = resolve;
     });
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       await gate;
       emitTokens(
         input,
@@ -974,7 +958,7 @@ describe("promise 复用去重", () => {
           keyQuotes: [{ quote: "金句1", timestampSeconds: 30 }]
         })
       );
-      return { done: true };
+      return { done: true } as const;
     });
     const context = makeContext({ subtitleBody: makeSubtitleBody(50000) });
     const args = { provider: makeProvider(), context };
@@ -998,7 +982,7 @@ describe("promise 复用去重", () => {
 
   it("失败的生成 promise 落定后移除：下次触发可重试（清缓存重跑）", async () => {
     let calls = 0;
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       calls += 1;
       if (calls === 1) {
         throw new Error("第一次失败");
@@ -1011,7 +995,7 @@ describe("promise 复用去重", () => {
           keyQuotes: []
         })
       );
-      return { done: true };
+      return { done: true } as const;
     });
     const args = { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) };
     await expect(mod.runOverviewAnalysis(args, { chatCompletion })).rejects.toThrow("第一次失败");
@@ -1076,13 +1060,13 @@ describe("成本护栏与进度", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-24T12:00:00Z"));
     const notices: string[] = [];
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       input.onEvent?.({ type: "reasoning", data: "先想一想" });
       vi.advanceTimersByTime(1500);
       input.onEvent?.({ type: "reasoning", data: "再想一想" });
       vi.advanceTimersByTime(1500);
       emitTokens(input, JSON.stringify({ chapters: [{ title: "章1", timestampSeconds: 5 }], keyQuotes: [] }));
-      return { done: true };
+      return { done: true } as const;
     });
     await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },
@@ -1099,7 +1083,7 @@ describe("成本护栏与进度", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-24T12:00:00Z"));
     const notices: string[] = [];
-    const chatCompletion = vi.fn(async (input: ChatCompletionCall) => {
+    const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
       input.onEvent?.({ type: "token", data: "a" });
       vi.advanceTimersByTime(100);
       input.onEvent?.({ type: "token", data: "b" });
@@ -1107,7 +1091,7 @@ describe("成本护栏与进度", () => {
       input.onEvent?.({ type: "token", data: "c" });
       vi.advanceTimersByTime(100);
       emitTokens(input, JSON.stringify({ chapters: [{ title: "章1", timestampSeconds: 5 }], keyQuotes: [] }));
-      return { done: true };
+      return { done: true } as const;
     });
     await mod.runOverviewAnalysis(
       { provider: makeProvider(), context: makeContext({ subtitleBody: makeSubtitleBody(50000) }) },

@@ -160,8 +160,8 @@ export async function runLadderChat(
   const streamChat: StreamChatFn = deps.streamChat ?? (_streamChat as unknown as StreamChatFn);
   const orchestrateMapReduce: OrchestrateMapReduceFn = deps.orchestrateMapReduce ?? (_orchestrateMapReduce as unknown as OrchestrateMapReduceFn);
   const resolveFollowupContext: ResolveFollowupContextFn = deps.resolveFollowupContext ?? (_resolveFollowupContext as unknown as ResolveFollowupContextFn);
-  const buildBudgetPlan: BuildBudgetPlanFn = deps.buildBudgetPlan ?? (_buildBudgetPlan as unknown as BuildBudgetPlanFn);
-  const buildCostGuardNotice: BuildCostGuardNoticeFn = deps.buildCostGuardNotice ?? (_buildCostGuardNotice as unknown as BuildCostGuardNoticeFn);
+  const buildBudgetPlan: BuildBudgetPlanFn = deps.buildBudgetPlan ?? _buildBudgetPlan;
+  const buildCostGuardNotice: BuildCostGuardNoticeFn = deps.buildCostGuardNotice ?? _buildCostGuardNotice;
   const trimRecentTurns: TrimRecentTurnsFn = deps.trimRecentTurns ?? (_trimRecentTurns as unknown as TrimRecentTurnsFn);
   const { askCostGuard, onActivity, pauseIdleTimeout } = deps;
 

@@ -131,7 +131,9 @@ interface ChatCompletionToolResult {
   toolCalls: ChatToolCall[];
 }
 
-interface ChatCompletionInput {
+// 导出（arch-review-2026-09 候选 2 第一步）：协作形状单源——编排层注入缝
+// （analysis-orchestrate / map-reduce）与测试 fake 一律引用本类型，不再手抄。
+export interface ChatCompletionInput {
   // provider 记录形状：presetId 是 preset 词表键（core/ai-provider-store 归一化
   // 缺省 "custom"），思考参数查表的平台识别主路径——02 号票穿线，未命中（custom/
   // 旧记录）回落 baseUrl host 推断。protocol 是平台协议字段（multi-protocol-ai），
