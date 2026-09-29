@@ -100,7 +100,8 @@ _Avoid_: 窗口、配额、限额
 _Avoid_: 降级、回退
 
 **概览**:
-文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：章节列表（含分段小结）+ 金句。视频无自带章节时由 AI 分章。
+文摘面板三大标签之一（对应 YouTube Digest 的 Overview）：章节列表（逐章带简介）+ 金句。分章来源优先级：视频简介/热门评论里的时间戳目录 > B 站官方章节（`view_points`）> AI 自由分章（前两者都没有时，最后一章须过 75% 后段门槛）。前两者按目录照抄标题与边界，模型只补每章简介。
+代码名：`ai/analysis.js`（`runOverviewAnalysis`）/ `shared/chapter-outline.js`（`resolveChapterSource`）
 _Avoid_: 总览
 
 **金句**:

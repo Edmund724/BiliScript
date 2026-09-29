@@ -364,7 +364,7 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(overviewText()).toContain("AI 生成");
     expect(sectionHead).toBeDefined();
 
-    // 自带章节（短路径）：重开生成后不标「AI 生成」
+    // 官方章节作给定分章来源：重开生成后不标「AI 生成」
     seedClip({ chapters: [{ title: "自带章节", from: 0 }] });
     runOverviewMock.mockClear();
     runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
@@ -666,6 +666,27 @@ describe("概览 tab 切换接线（ui-renderer → ensureReaderOverviewTab）",
     reader.ensureReaderOverviewTab();
     await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(overviewText()).toContain("开场"));
+  });
+
+  it("简介出现时间轴目录后旧产物退场：分章来源从 AI 自由分章变时间轴，重新生成且不再标「AI 生成」", async () => {
+    seedClip();
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+    await reader.triggerReaderOverviewGeneration();
+    expect(overviewText()).toContain("开场");
+    expect(overviewText()).toContain("AI 生成"); // 无目录 → 自由分章，带标注
+
+    // 简介里补上评论/简介时间轴目录（分章来源变 outline）：身份键随之变化，
+    // 渲染层让旧产物退场，不把 AI 自由分章的旧章节当时间轴产物展示
+    state.clip.description = "视频简介\n00:00 评论区开场\n01:40 评论区正题";
+    reader.renderReadingOverview();
+    expect(overviewText()).toContain("概览还未生成");
+
+    runOverviewMock.mockClear();
+    runOverviewMock.mockResolvedValue(SAMPLE_ANALYSIS);
+    reader.ensureReaderOverviewTab();
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(overviewText()).toContain("开场"));
+    expect(overviewText()).not.toContain("AI 生成"); // 时间轴作给定来源，章节不是 AI 分的
   });
 });
 

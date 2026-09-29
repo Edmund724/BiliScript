@@ -20,9 +20,9 @@
 //      的生成（管线后台跑完落缓存，重开阅读模式读缓存命中；落定回执因
 //      generatedFor 已清而被丢弃，不会写进新会话）。
 //
-// 分章来源标注：管线产物不带来源信息，按 07 票决议从入参推断——生成发起时
-// state.clip.chapters 为空即 AI 分章（章节标头带「AI 生成」小标注），自带章节
-// 走短路径不标。
+// 分章来源标注：按 07 票决议从入参推断——用 shared/chapter-outline 的
+// resolveChapterSource 裁定来源，只有 AI 自由分章（简介/评论时间轴与官方章节都没有）
+// 才标「AI 生成」；时间轴或官方章节作给定来源时不标。
 
 import { state } from "../core/state.js";
 import { escapeHtml } from "../shared/string-utils.js";
@@ -35,6 +35,9 @@ import { resolveActiveProvider } from "../ai/active-provider.js";
 // type-only 引用（编译期擦除），运行时在 startOverviewRun 内动态 import 按需
 // 装载——reader 装载图不拖整条 AI 管线（build-content 守卫钉住）。
 import { buildSubtitleSignature } from "../subtitle/cache.js";
+// 分章来源裁定（简介/评论时间轴 > B 站官方章节 > AI 自由分章）住在 shared 叶子：
+// 身份键与「AI 生成」标注都取同一份裁定，禁止与管线各判一次。
+import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import type { AnalysisChapter, AnalysisQuote, OverviewAnalysis } from "../ai/analysis.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
@@ -75,16 +78,26 @@ function getClipBody(): { from: number; to: number; content: string }[] {
   return Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
 }
 
-// 当前视频/字幕轨身份：与整份概览缓存键同一构成（bvid + cid + 字幕签名；
-// 签名含自带章节模式位——章节出现/消失切换短路径，产物与「AI 生成」标注一并换血）。
+// 当前分章来源（与概览管线同一份裁定）：身份键与「AI 生成」标注共用，避免两处
+// 各判一次导致标注与实际章节来源不一致。
+function currentChapterSource(): ChapterSource {
+  const clip = state.clip;
+  return resolveChapterSource(clip.description, clip.hotComments, clip.chapters);
+}
+
+// 当前视频/字幕轨身份：与整份概览缓存键同一构成（bvid + cid + 字幕签名）。签名口径
+// 由 shared/chapter-outline 的 resolveChapterSource 与管线同源裁定——简介/评论时间轴、
+// 官方章节、AI 自由分章三种来源切换，或目录内容变化，都会换键让旧产物退场。
 function currentOverviewKey(): string {
   const clip = state.clip;
+  const chapterSource = currentChapterSource();
   const signature = buildSubtitleSignature({
     lang: clip.selectedSubtitleLang,
     subtitleId: clip.selectedSubtitleId,
     subtitleUrl: clip.selectedSubtitleUrl,
     body: getClipBody(),
-    chapters: Array.isArray(clip.chapters) ? clip.chapters : []
+    chapters: chapterSource.signatureChapters,
+    chapterOutline: chapterSource.chapters
   });
   return `${clip.bvid}|${clip.cid}|${signature}`;
 }
@@ -183,7 +196,7 @@ export function triggerReaderOverviewGeneration(
     dropOverviewProduct();
   }
   overview.generatedFor = clipKey;
-  overview.aiChapters = !Array.isArray(state.clip.chapters) || state.clip.chapters.length === 0;
+  overview.aiChapters = currentChapterSource().kind === "auto";
   overview.phase = "generating";
   overview.progressText = "";
   overview.errorText = "";
@@ -438,8 +451,8 @@ function buildResultSectionsHtml(): string {
   }
 
   // —— 有章节：章节与金句分区呈现——章节 section 只放章节卡，金句单列独立
-  // section（卡片按 from 平铺），不与章节混排。两条路径（AI 分章 / 自带章节
-  // 短路径）产物同构，UI 不区分来源（概览票 07 决议）。
+  // section（卡片按 from 平铺），不与章节混排。三种分章来源（时间轴目录 / 官方
+  // 章节 / AI 自由分章）产物同构，UI 只按来源决定是否标「AI 生成」。
   const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours)).join("");
   return `
     <section class="biliscript-reading-ov-section">

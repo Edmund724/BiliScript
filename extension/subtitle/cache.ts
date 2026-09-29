@@ -155,16 +155,17 @@ function chapterOutlineText(chapterOutline: unknown): string {
     : "";
 }
 
-// 「自带章节（模式位）」：非空切换只挑金句短路径，产物形态不同，签名须区分；
-// 「chapterOutline」：简介/评论现成目录（切进「照抄边界」提示词路径），同样改变产物形态。
+// 「官方章节（模式位）」：非空表示官方章节是给定分章来源（官方章节兜底路径），
+// 与空（时间轴目录 / AI 自由分章）产物形态不同，签名须区分；
+// 「chapterOutline」：给定章节目录（时间轴目录或官方章节）的指纹，换目录即换签名。
 interface SubtitleSignatureInput {
   lang?: unknown;
   subtitleId?: unknown;
   subtitleUrl?: unknown;
   body?: unknown;
-  /** 自带章节（模式位）：非空切换只挑金句短路径，产物形态不同，签名须区分。 */
+  /** 官方章节（模式位）：非空 = 官方章节作给定分章来源，产物形态不同，签名须区分。 */
   chapters?: unknown;
-  /** 简介/评论现成章节目录（OutlineChapter[]）：目录出现/消失改变分章来源，签名须区分。 */
+  /** 给定章节目录（OutlineChapter[]）：目录出现/消失/换内容改变分章来源，签名须区分。 */
   chapterOutline?: unknown;
 }
 
@@ -172,8 +173,9 @@ interface SubtitleSignatureInput {
  * 字幕签名：按概览票决议定义的确定性轻量签名——构成 = 轨道来源 source key +
  * lang + 有效条数 + 首末时间戳 + 总字符数（FNV-1a 32 位 → base36）。重抓字幕 /
  * 换轨 / 切分P 后条数、时间戳或文本量变化即签名变化，概览缓存自然 miss，不做
- * 主动失效（07 票决议）。模式位（有无自带章节）一并纳入：章节出现/消失会切换
- * 短路径，产物形态不同。算法必须逐位稳定——历史概览缓存键依赖它。
+ * 主动失效（07 票决议）。分章模式位（官方章节 / 给定目录指纹）一并纳入：分章
+ * 来源变化会换提示词与产物形态，概览分章票 03 起还进段键（防新键装旧段）。
+ * 算法必须逐位稳定——历史概览缓存键依赖它；语义变更须升 basis 版本位（当前 v2）。
  */
 
 // 候选10 批1：body 遍历度量（条数/首末时间戳/总字符数）按「输入数组引用」缓存
@@ -219,16 +221,19 @@ export function buildSubtitleSignature({ lang, subtitleId, subtitleUrl, body, ch
   const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
   const { count, firstFrom, lastTo, totalChars } = measureSubtitleBody(body);
   const basis = [
-    "v1",
+    // 版本位 v2：概览产物语义变了（给定章节路径会产出逐章 summary、无目录时章节不再
+    // 恒空），旧 v1 键下的产物不再同构——升版让它们整体失效重生成，而不是被当成命中。
+    "v2",
     sourceKey,
     String(lang ?? ""),
     String(count),
     String(firstFrom),
     String(lastTo),
     String(totalChars),
-    // 模式位：自带章节非空（短路径）与空（AI 分章）产物不同构，签名必须区分
+    // 模式位：官方章节作给定来源（signatureChapters）非空与空（时间轴目录 / AI 分章）
+    // 产物不同构，签名必须区分
     String(Array.isArray(chapters) && chapters.length > 0),
-    // 模式位：现成目录的 FNV 指纹（出现/消失/换目录 → 缓存 miss 重生成）
+    // 模式位：给定章节清单的 FNV 指纹（出现/消失/换目录/改标题 → 缓存 miss 重生成）
     String(fnv1a32(chapterOutlineText(chapterOutline)))
   ].join("|");
   return `sig${fnv1a32(basis).toString(36)}`;

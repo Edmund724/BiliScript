@@ -9,7 +9,7 @@ import { logInfo, logWarn } from "../shared/logging.js";
 import {
   buildSubtitleInfoRequests,
   buildBiliApiError,
-  normalizeHotComments,
+  mergeHotCommentsFromPayload,
   type HotComment,
   type SubtitleInfoRequest
 } from "./bili-api-shared.js";
@@ -306,17 +306,8 @@ async function fetchHotCommentsJson(
 
   const url = `https://api.bilibili.com/x/v2/reply/main?type=1&oid=${safeAid}&mode=3&ps=${safeCount}&pn=1`;
   const payload = await transport(url).catch(() => null);
-  const replies = Array.isArray(
-    (payload as { data?: { replies?: unknown } })?.data?.replies
-  )
-    ? (payload as { data: { replies: unknown[] } }).data.replies
-    : [];
-  return normalizeHotComments(
-    replies.map((item) => ({
-      uname: (item as { member?: { uname?: unknown } })?.member?.uname || "匿名",
-      like: (item as { like?: unknown })?.like || 0,
-      message: (item as { content?: { message?: unknown } })?.content?.message || ""
-    })),
-    safeCount
-  );
+  // 置顶评论只出现在 data.top_replies / data.upper.top，不在 data.replies（详见
+  // mergeHotCommentsFromPayload 注释）：挑/合并且去重的纯逻辑下沉到 bili-api-shared，
+  // 这里只保留「拿不到就降级为 []」的错误语义（catch 已把失败折成 null）。
+  return mergeHotCommentsFromPayload(payload, safeCount);
 }

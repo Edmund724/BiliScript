@@ -24,7 +24,7 @@ interface AnalysisFailureRange {
   to: number;
 }
 
-/** 概览产物（含短路径与分段合并后的整份形态）；failedRanges 仅在分段路径有失败段时存在。 */
+/** 概览产物（含给定章节与分段合并后的整份形态）；failedRanges 仅在分段路径有失败段时存在。 */
 export interface OverviewAnalysis {
   chapters: AnalysisChapter[];
   quotes: AnalysisQuote[];

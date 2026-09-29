@@ -31,6 +31,72 @@ export function normalizeHotComments(comments: unknown, limit = 20): HotComment[
     .slice(0, limit);
 }
 
+// 单条对象与数组都容错收口：数组逐项过滤，非对象/null 一律丢弃，避免产生空条目。
+function toReplyList(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value.filter(isReplyObject);
+  }
+  return isReplyObject(value) ? [value] : [];
+}
+
+function isReplyObject(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// rpid 缺失/类型不对时返回 null（该条不参与去重，原样保留，宁可多不可丢）。
+function replyRpidKey(item: unknown): string | null {
+  const rpid = (item as { rpid?: unknown })?.rpid;
+  if (typeof rpid === "number" && Number.isFinite(rpid)) {
+    return String(rpid);
+  }
+  if (typeof rpid === "string" && rpid) {
+    return rpid;
+  }
+  return null;
+}
+
+// 热评接口（x/v2/reply/main）的置顶评论不在 data.replies 里：实跑证实 UP 置顶的
+// 时间轴目录只出现在 data.top_replies[]（data.upper.top 同为该条，data.top 常为
+// null），data.replies[] 只有普通评论——只读 replies 会整条漏掉置顶目录。
+// 故把 data.top（单条或 null）、data.top_replies[]、data.upper.top（单条或 null）
+// 与 data.replies[] 合并，置顶来源前置，按 rpid 去重（保留首个），再走既有
+// normalizeHotComments 归一与 limit 裁剪。
+export function mergeHotCommentsFromPayload(payload: unknown, limit = 20): HotComment[] {
+  const data = (payload as { data?: unknown })?.data as
+    | { top?: unknown; top_replies?: unknown; upper?: unknown; replies?: unknown }
+    | null
+    | undefined;
+
+  const merged: unknown[] = [
+    ...toReplyList(data?.top),
+    ...toReplyList(data?.top_replies),
+    ...toReplyList((data?.upper as { top?: unknown } | null | undefined)?.top),
+    ...toReplyList(data?.replies)
+  ];
+
+  const seenRpid = new Set<string>();
+  const picked: unknown[] = [];
+  for (const item of merged) {
+    const key = replyRpidKey(item);
+    if (key !== null) {
+      if (seenRpid.has(key)) {
+        continue;
+      }
+      seenRpid.add(key);
+    }
+    picked.push(item);
+  }
+
+  return normalizeHotComments(
+    picked.map((item) => ({
+      uname: (item as { member?: { uname?: unknown } })?.member?.uname || "匿名",
+      like: (item as { like?: unknown })?.like || 0,
+      message: (item as { content?: { message?: unknown } })?.content?.message || ""
+    })),
+    limit
+  );
+}
+
 export interface SubtitleInfoRequest {
   source: string;
   url: string;

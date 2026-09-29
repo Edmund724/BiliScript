@@ -1,25 +1,14 @@
 // 「概览数据管线」三片之提示词装配（arch-slim-3 #11 自 ai/analysis.ts 切出，纯函数；
-// 对外经 analysis.ts 壳再导出，只依赖 subtitle/cache 与 analysis-validate 的
-// MAX_ANALYSIS_CHAPTERS）。
+// 对外经 analysis.ts 壳再导出，只依赖 subtitle/cache 与 shared/chapter-outline 叶子）。
 // 提示词整搬参考仓库 .scratch/bilibili-script/prompts/analysis.md（系统提示词
 // 全静态、逐字节一致；script-only-ui 起顶层 "summary" 概述字段已随概览 UI 的
 // 总结区块一并移除）。
 
 import { normalizeSubtitleItems } from "../subtitle/cache.js";
-import { formatClock, parseClock } from "../shared/clock-text.js";
-import { MAX_ANALYSIS_CHAPTERS } from "./analysis-validate.js";
+import { formatClock } from "../shared/clock-text.js";
+import type { OutlineChapter } from "../shared/chapter-outline.js";
 import { DEFAULT_MAX_TOKENS } from "./output-budget.js";
 import type { SubtitleBodyItem } from "./types.js";
-
-// 热门评论（HotComment[]）→ 可解析文本：只取 message 正文，一行一条。
-// 评论缺失/形状不对返回空串；作者与点赞数不参与目录解析（避免噪声行）。
-export function hotCommentsText(hotComments: unknown): string {
-  if (!Array.isArray(hotComments)) return "";
-  return hotComments
-    .map((item) => String((item as { message?: unknown })?.message ?? ""))
-    .filter(Boolean)
-    .join("\n");
-}
 
 // ============================================================
 // 系统提示词（全静态，逐字节可前缀缓存；变量全部在用户提示词侧）
@@ -67,6 +56,16 @@ const TIMESTAMP_TEACHING_BLOCK = `⚠️ 关键：时间戳的取法 ⚠️
 - timestamp: "2:30"
 - timestampSeconds: 150`;
 
+// 两份系统提示词逐字共享的「现成章节目录」块（概览分章票 03 决议起统一到这里）：
+// 分章来源由用户消息注入（简介/评论时间轴或 B 站官方章节），模型只许照抄、只补 summary。
+const CHAPTER_OUTLINE_BLOCK = `⚠️ 关于「现成章节目录」⚠️
+用户消息里如果给出「视频章节/简介/评论中的章节目录」（形如「00:00 开场」的时间戳行），
+**章节边界必须完全采用那份目录**：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，
+不得增删章节、不得改动任何时间戳——哪怕目录的分章与字幕的话题转折对不上。
+你的职责只是为每一章补写 summary（这一段讲了什么），依据是目录时间戳之间的字幕内容。
+目录存在时「后段门槛」不适用：最后一章的时间戳以目录为准，不必晚于门槛。
+前情回顾（分段路径）里的时间戳依然不能用：目录时间戳早于本段起点时，那一章归上一段管。`;
+
 // 整搬自 .scratch/bilibili-script/prompts/analysis.md「系统提示词」代码块；
 // script-only-ui 起 JSON 输出 schema 顶层的 "summary" 概述字段已移除。
 // 导出仅测试面：冻结断言（tests/ai/analysis-prompt-freeze.test.ts）逐字节比对合成串。
@@ -80,13 +79,7 @@ ${ASR_CORRECTION_BLOCK}
 
 ${TIMESTAMP_TEACHING_BLOCK}
 
-⚠️ 关于「现成章节目录」⚠️
-用户消息里如果给出「视频简介/评论中的章节目录」（形如「00:00 开场」的时间戳行），
-**章节边界必须完全采用那份目录**：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，
-不得增删章节、不得改动任何时间戳——哪怕目录的分章与字幕的话题转折对不上。
-你的职责只是为每一章补写 summary（这一段讲了什么），依据是目录时间戳之间的字幕内容。
-目录存在时「后段门槛」不适用：最后一章的时间戳以目录为准，不必晚于门槛。
-前情回顾（分段路径）里的时间戳依然不能用：目录时间戳早于本段起点时，那一章归上一段管。
+${CHAPTER_OUTLINE_BLOCK}
 
 ⚠️ 关于「前情回顾」⚠️
 长视频会切成多段分别处理。用户消息里如果出现「前情回顾」，那是上一段结尾的字幕，
@@ -120,32 +113,41 @@ ${TIMESTAMP_TEACHING_BLOCK}
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
 
-// 自带章节短路径的「只挑金句」短提示词：金句规则 + ASR 纠错段；
-// 章节由视频自带，不再让模型分章（概览票 07 决议）。导出仅测试面（同上）。
-export const QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为它挑选金句。
+// 给定章节（简介/评论时间轴目录或 B 站官方章节）的系统提示词：章节不是模型的活儿，
+// 它只负责照抄目录、补写每章 summary、挑金句。概览分章票 03 决议：来源优先级
+// 时间轴 > 官方章节，两者都走这份提示词（差别只在用户消息里的目录内容）。
+// 导出仅测试面（冻结断言同上）。
+export const GIVEN_CHAPTERS_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录补写每章大意，并挑选金句。
 
 你需要给出：
+- 严格按用户消息里给出的「现成章节目录」产出章节：目录里的每个时间戳 = 一章的起点，标题也用目录里的标题，不得增删章节、不得改动任何时间戳；你只为每章补写 summary（这一段讲了什么），依据是目录时间戳之间的字幕内容。
 - 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
 
 ${ASR_CORRECTION_BLOCK}
 
 ${TIMESTAMP_TEACHING_BLOCK}
 
+${CHAPTER_OUTLINE_BLOCK}
+
 ⚠️ 关于「前情回顾」⚠️
 长视频会切成多段分别处理。用户消息里如果出现「前情回顾」，那是上一段结尾的字幕，
 给你的唯一用途是理解本段开头在承接什么话题、把跨越切点的内容看完整。
-不要从前情回顾里挑金句——它已经由上一段负责。
-前情回顾里的时间戳一律不能用。
+不要为前情回顾里的内容单独开章节，也不要从里面挑金句——它已经由上一段负责。
+本段没有覆盖到的目录章节由别的段负责，不要替它们出章。
 
 绝对不要：
 - 编造字幕里根本不存在的时间戳
 - 拿 0:00 当默认值——去字幕里找真实的那一行
-- 使用早于起始时刻、或晚于结束时刻的时间戳
+- 使用早于起始时刻、或晚于结束时刻的时间戳（前情回顾里的时间戳一律不能用）
 
+章节：用目录里那一章的时间戳
 金句：找到包含该句的那一行，用那行的时间戳
 
 输出 JSON（不要加 markdown 代码围栏）：
 {
+  "chapters": [
+    {"title": "章节标题", "timestamp": "0:00", "timestampSeconds": 0, "summary": "这一段讲了什么"}
+  ],
   "keyQuotes": [
     {"quote": "整理后的原话", "timestamp": "2:30", "timestampSeconds": 150}
   ]
@@ -172,18 +174,6 @@ UP 主：{ownerName}
 视频简介（用它来校正人名、品牌名与术语的写法）：
 {videoDescription}
 {chapterOutlineNote}{contextNote}
-字幕：
-{transcriptText}`;
-
-// 短路径用户提示词模板：无章节产出，去掉「后段门槛」行，其余一致。
-const QUOTES_USER_TEMPLATE = `视频标题：{videoTitle}
-UP 主：{ownerName}
-{rangeNote}
-本次字幕从 {startFormatted}（第 {minTimestampSeconds} 秒）到 {durationFormatted}（第 {maxTimestampSeconds} 秒）——时间戳必须落在这个区间内！
-
-视频简介（用它来校正人名、品牌名与术语的写法）：
-{videoDescription}
-{contextNote}
 字幕：
 {transcriptText}`;
 
@@ -278,50 +268,9 @@ export function estimateOutputTokens(
 // 用户提示词装配（单一渲染收口：变量全部在这里从 body / 段 items 现场装配）
 // ============================================================
 
-/** 简介/评论时间戳目录里的单条章节：秒数 + 标题（原样保留，不让模型改写）。 */
-export interface OutlineChapter {
-  seconds: number;
-  title: string;
-}
-
-// 时间戳行识别：行首（可带列表符号/引用符号）后跟 M:SS / MM:SS / H:MM:SS，
-// 后接标题文字（标题与时间戳之间也可用「・」「·」等间隔符）。纯时间戳行（无标题）
-// 不算章节条目。上游正则约束形状，数值容错（2 段分钟位不封顶、拒 ss≥60/
-// 3 段 mm≥60/hh≥24）单源到 shared/clock-text.ts 的 parseClock。
-const OUTLINE_LINE_RE = /^(?:[-*•>#\s]|\d+[.、)])*\s*(\d{1,2}:\d{2}(?::\d{2})?)[\s・·]+(.{1,120}?)\s*$/;
-
-// 目录时间戳解析：容错规则单源（parseClock），哨兵语义保留——解不出
-// 返回 -1，parseChapterOutline 丢弃该条（原 parseOutlineClock 无范围校验，
-// 「99:99」这类非法时刻归一后按拍板拒绝）。
-function parseOutlineClock(text: string): number {
-  return parseClock(text) ?? -1;
-}
-
-/**
- * 从简介/评论文本提取「时间戳目录」：形如「00:00 开场 / 03:25 安装」的行。
- * 至少 2 条才认定为现成章节划分（单条时间戳行不构成划分）；重复秒数去重、
- * 按秒排序；上限 MAX_ANALYSIS_CHAPTERS 对齐产物裁剪。不足 2 条或识别不了
- * 返回空数组，调用方回落到 AI 自由分章（现状行为）。
- */
-export function parseChapterOutline(text: unknown): OutlineChapter[] {
-  const lines = String(text ?? "").split(/\r?\n/);
-  const out: OutlineChapter[] = [];
-  const seen = new Set<number>();
-  for (const line of lines) {
-    const match = line.match(OUTLINE_LINE_RE);
-    if (!match) continue;
-    const seconds = parseOutlineClock(match[1]);
-    const title = match[2].trim();
-    if (seconds < 0 || !title || seen.has(seconds)) continue;
-    seen.add(seconds);
-    out.push({ seconds, title });
-  }
-  if (out.length < 2) {
-    return [];
-  }
-  out.sort((a, b) => a.seconds - b.seconds);
-  return out.slice(0, MAX_ANALYSIS_CHAPTERS);
-}
+// 目录解析（parseChapterOutline / hotCommentsText / OutlineChapter）已下沉
+// shared/chapter-outline.ts 叶子：reader 概览 tab 的身份键要用同一份裁定，而它
+// 不得静态引 AI 管线（build-content 装载图守卫）。
 
 /**
  * 现成章节目录 → 用户提示词注入块。有空目录返回空串（模板行变空行），
@@ -336,7 +285,7 @@ function buildChapterOutlineNote(outline: OutlineChapter[] | undefined): string 
     (item) => `${formatClock(item.seconds)} ${item.title}`
   );
   return (
-    `\n现成章节目录（来自视频简介/评论，共 ${outline.length} 章）：\n` +
+    `\n现成章节目录（来自视频章节/简介/评论，共 ${outline.length} 章）：\n` +
     `${lines.join("\n")}\n` +
     `按系统提示词的要求：章节边界与标题必须完全照抄这份目录，不要增删或改动时间戳，只需为每章补写 summary。` +
     `后段门槛不适用，最后一章以目录为准。\n`
@@ -358,7 +307,7 @@ interface BuildAnalysisPromptInput {
   /** 分段信息（1-based）；与 totalSegments 一起 >1 时产出 rangeNote。 */
   segmentIndex?: unknown;
   totalSegments?: unknown;
-  /** 简介/评论中解析出的现成章节目录（parseChapterOutline 产物）；非空时章节边界照抄目录。 */
+  /** 给定章节目录（简介/评论时间轴或 B 站官方章节）；非空时章节照抄目录、只补 summary。 */
   chapterOutline?: OutlineChapter[];
 }
 
@@ -369,10 +318,8 @@ export interface BuiltAnalysisPrompt {
   transcriptChars: number;
 }
 
-// rangeNote / contextNote 措辞整搬参考仓库 lib/analysis-service.js analyzeChunk；
-// 短路径（只挑金句）把「章节与金句」改为「金句」。
+// rangeNote / contextNote 措辞整搬参考仓库 lib/analysis-service.js analyzeChunk。
 function buildRangeNote(
-  mode: "full" | "quotes",
   segmentIndex: unknown,
   totalSegments: unknown,
   startSeconds: number,
@@ -383,29 +330,28 @@ function buildRangeNote(
   if (total <= 1) {
     return "";
   }
-  const scope = mode === "full" ? "只为这一段产出章节与金句" : "只为这一段挑选金句";
   return (
     `注意：这是长视频切分后的第 ${index} / ${total} 段，` +
     `覆盖 ${formatClock(startSeconds)} 到 ${formatClock(endSeconds)}。` +
-    `${scope}，不要涉及其它时间段。`
+    `只为这一段产出章节与金句，不要涉及其它时间段。`
   );
 }
 
-function buildContextNote(mode: "full" | "quotes", contextItems: unknown): string {
+function buildContextNote(contextItems: unknown): string {
   const text = renderAnalysisTranscript(contextItems);
   if (!text) {
     return "";
   }
-  const clause = mode === "full" ? "不要为它开章节或挑金句" : "不要从中挑金句";
-  return `\n前情回顾（上一段的结尾，只用来理解本段承接什么，${clause}）：\n${text}\n`;
+  return `\n前情回顾（上一段的结尾，只用来理解本段承接什么，不要为它开章节或挑金句）：\n${text}\n`;
 }
 
 /**
- * 概览用户提示词装配（mode=full 整份分章+金句；mode=quotes 自带章节短路径只挑金句）。
+ * 概览用户提示词装配：单次路径与分段路径每段共用同一份模板；有给定章节目录时
+ * 模板注入「现成章节目录」块并把后段门槛换成「不适用」（目录权威优先）。
  * 输入与素材预算判定（buildBudgetPlan 的 body / 段 items）同源；时长变量按本段
  * 区间算（videoDuration 传段尾秒或视频时长），让模型只覆盖这一段。
  */
-function buildAnalysisUserPrompt(mode: "full" | "quotes", input: BuildAnalysisPromptInput = {}): BuiltAnalysisPrompt {
+function buildAnalysisUserPrompt(input: BuildAnalysisPromptInput = {}): BuiltAnalysisPrompt {
   const items = normalizeSubtitleItems(input.items);
   const timing = analysisTimingVariables(items, input.videoDuration);
   const startSeconds = Math.max(0, Math.floor(Number(input.startSeconds) || (items.length ? Number(items[0]?.from) || 0 : 0)));
@@ -415,10 +361,10 @@ function buildAnalysisUserPrompt(mode: "full" | "quotes", input: BuildAnalysisPr
     : startSeconds;
 
   const transcriptText = renderAnalysisTranscript(items);
-  const prompt = fillTemplate(mode === "full" ? ANALYSIS_USER_TEMPLATE : QUOTES_USER_TEMPLATE, {
+  const prompt = fillTemplate(ANALYSIS_USER_TEMPLATE, {
     videoTitle: String(input.title ?? "").trim() || "未知",
     ownerName: String(input.ownerName ?? "").trim() || "未知",
-    rangeNote: buildRangeNote(mode, input.segmentIndex, input.totalSegments, startSeconds, endSeconds),
+    rangeNote: buildRangeNote(input.segmentIndex, input.totalSegments, startSeconds, endSeconds),
     startFormatted: formatClock(startSeconds),
     minTimestampSeconds: startSeconds,
     durationFormatted: timing.durationFormatted,
@@ -428,18 +374,16 @@ function buildAnalysisUserPrompt(mode: "full" | "quotes", input: BuildAnalysisPr
       : `后段门槛：最后一个章节的时间戳必须晚于 ${timing.lateThreshold}。`,
     videoDescription: String(input.videoDescription ?? "").trim() || "（无简介）",
     chapterOutlineNote: buildChapterOutlineNote(input.chapterOutline),
-    contextNote: buildContextNote(mode, input.contextItems),
+    contextNote: buildContextNote(input.contextItems),
     transcriptText
   });
   return { prompt, timing, transcriptChars: transcriptText.length };
 }
 
-/** 整份分章+金句的用户提示词（单次路径与分段路径的每段共用）。 */
+/**
+ * 用户提示词（单次路径与分段路径的每段共用）。章节由谁也由系统提示词决定：
+ * 有给定目录时是「照抄目录 + 补 summary」，没有时是自由分章 + 后段门槛。
+ */
 export function buildAnalysisPrompt(input: BuildAnalysisPromptInput = {}): BuiltAnalysisPrompt {
-  return buildAnalysisUserPrompt("full", input);
-}
-
-/** 自带章节短路径「只挑金句」的用户提示词（与 buildAnalysisPrompt 同一套变量装配）。 */
-export function buildQuotesPrompt(input: BuildAnalysisPromptInput = {}): BuiltAnalysisPrompt {
-  return buildAnalysisUserPrompt("quotes", input);
+  return buildAnalysisUserPrompt(input);
 }

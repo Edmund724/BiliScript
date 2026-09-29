@@ -1,6 +1,7 @@
-// 「概览数据管线」三片之编排（arch-slim-3 #11 自 ai/analysis.ts 切出）：双路径分派、
+// 「概览数据管线」三片之编排（arch-slim-3 #11 自 ai/analysis.ts 切出）：分章来源裁定、
 // 两级缓存接线、成本护栏与 inflightOverviews promise 复用（全仓唯一的 analysis 模块态）。
-// 静态依赖两个纯片 analysis-validate / analysis-prompts；对外经 analysis.ts 壳再导出。
+// 静态依赖两个纯片 analysis-validate / analysis-prompts 与 shared/chapter-outline 叶子；
+// 对外经 analysis.ts 壳再导出。
 
 import { buildSubtitleSourceKey, buildSubtitleSignature, normalizeSubtitleItems } from "../subtitle/cache.js";
 import { logError } from "../shared/logging.js";
@@ -31,16 +32,15 @@ import {
 } from "./analysis-validate.js";
 import {
   ANALYSIS_SYSTEM_PROMPT,
-  QUOTES_SYSTEM_PROMPT,
+  GIVEN_CHAPTERS_SYSTEM_PROMPT,
   buildAnalysisPrompt,
-  buildQuotesPrompt,
   estimateOutputTokens,
-  hotCommentsText,
-  parseChapterOutline,
   tailItems,
   type BuiltAnalysisPrompt,
-  type OutlineChapter,
 } from "./analysis-prompts.js";
+// 分章来源裁定（简介/评论时间轴 > B 站官方章节 > AI 自由分章）住在 shared 叶子：
+// 与 reader 概览 tab 的身份键同源，禁止两处各判一次（见该文件头注）。
+import { resolveChapterSource, type ChapterSource, type OutlineChapter } from "../shared/chapter-outline.js";
 import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
 
 // FNV-1a 32 位哈希与字幕签名族已迁 subtitle/cache.ts（arch-slim-3 #1，键族同居）；
@@ -119,16 +119,22 @@ export function buildAnalysisFinalCacheKey(context: Record<string, unknown> | un
 }
 
 /**
- * 概览分段产物缓存键：与 biliscript_lvs_summary_ 同族键形（…+ 段序号 [+ 预算代]），
- * 仅族前缀不同——产物不共享、键位机制共享（07 票决议）；预算代后缀逻辑继承
- * segment-cache 的 budgetScaleSuffix（_b50 等），段边界漂移不串内容。
+ * 概览分段产物缓存键：与 biliscript_lvs_summary_ 同族键形（…+ 段序号 [+ 预算代]，
+ * 尾部再挂字幕签名），仅族前缀不同——产物不共享、键位机制共享（07 票决议）；
+ * 预算代后缀逻辑继承 segment-cache 的 budgetScaleSuffix（_b50 等），段边界漂移不串内容。
+ * 签名进段键是概览分章票 03 决议的一部分：段产物形态随分章来源（目录/官方章节/
+ * 自由分章）与字幕内容变化，只按段序号复用会给新签名装旧段（重抓字幕 0 调用出旧内容）。
  */
 export function buildAnalysisSegmentCacheKey(
   context: Record<string, unknown> | undefined | null,
   segmentIndex: number | string | unknown,
+  signature: unknown,
   budgetScale: number | string | unknown = 1
 ): string {
-  return analysisSegmentFamily.key(contextKeyFields(context), `${segmentIndex}${budgetScaleSuffix(budgetScale)}`);
+  return analysisSegmentFamily.key(
+    contextKeyFields(context),
+    `${segmentIndex}${budgetScaleSuffix(budgetScale)}_${String(signature ?? "")}`
+  );
 }
 
 // ============================================================
@@ -204,37 +210,55 @@ interface SegmentOutcome {
   error?: unknown;
 }
 
-// 稿件章节 → 产物章节（短路径：章节取稿件标题，模型不再分章）。
-// to 缺失/不合法时回落到下一章 from（末章 maxSeconds），与 AI 分章产物同构。
-function normalizeManuscriptChapters(chapters: unknown, maxSeconds: number): AnalysisChapter[] {
-  const list = (Array.isArray(chapters) ? chapters : [])
-    .map((raw) => {
-      const item = raw as { from?: unknown; to?: unknown; title?: unknown };
-      return {
-        from: Math.floor(Number(item?.from)),
-        to: Math.floor(Number(item?.to)),
-        title: typeof item?.title === "string" ? item.title.trim().slice(0, 300) : ""
-      };
-    })
-    .filter((item) => Number.isFinite(item.from) && item.from >= 0 && item.title)
-    .sort((a, b) => a.from - b.from);
-
+// 给定章节 → 产物章节（概览分章票 03 决议）：标题与边界一律以给定清单为准，模型
+// 只提供每章 summary——按 from 最近邻一对一 graft（每个模型章节最多被认领一次），
+// 对不上的章留空串。时间轴目录没有 to，边界取下一章 from；末章回落 endSeconds。
+function applyGivenChapters(given: OutlineChapter[], modelChapters: AnalysisChapter[], endSeconds: number): AnalysisChapter[] {
+  const remaining = (Array.isArray(modelChapters) ? modelChapters : []).slice();
   const out: AnalysisChapter[] = [];
-  const seen = new Set<number>();
-  for (let i = 0; i < list.length; i += 1) {
-    const item = list[i];
-    if (seen.has(item.from)) continue;
-    seen.add(item.from);
-    const nextFrom = i + 1 < list.length ? list[i + 1].from : null;
+  for (let i = 0; i < given.length; i += 1) {
+    const from = Math.floor(Number(given[i]?.seconds) || 0);
+    const nextFrom = i + 1 < given.length ? Math.floor(Number(given[i + 1]?.seconds) || 0) : null;
+    const explicitTo = Math.floor(Number(given[i]?.to));
     const to =
-      Number.isFinite(item.to) && item.to > item.from
-        ? item.to
-        : nextFrom !== null && nextFrom > item.from
+      Number.isFinite(explicitTo) && explicitTo > from
+        ? explicitTo
+        : nextFrom !== null && nextFrom > from
           ? nextFrom
-          : maxSeconds;
-    out.push({ from: item.from, to, title: item.title, summary: "" });
+          : Math.max(from, Math.floor(Number(endSeconds) || 0));
+    out.push({
+      from,
+      to,
+      title: String(given[i]?.title ?? "").trim().slice(0, 300),
+      summary: takeNearestSummary(remaining, from)
+    });
   }
   return out.slice(0, MAX_ANALYSIS_CHAPTERS);
+}
+
+// 取「from 最接近」的模型章节的 summary，取走即从候选里移除（一对一，不重复认领）。
+function takeNearestSummary(remaining: AnalysisChapter[], from: number): string {
+  if (!remaining.length) {
+    return "";
+  }
+  let bestIndex = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < remaining.length; i += 1) {
+    const distance = Math.abs(Number(remaining[i]?.from) - from);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = i;
+    }
+  }
+  return bestIndex < 0 ? "" : String(remaining.splice(bestIndex, 1)[0]?.summary ?? "");
+}
+
+// 给定章节的末章落界兜底：视频时长与字幕末条时间戳取大（与提示词时长变量同口径）。
+function resolveEndSeconds(ctx: Record<string, unknown>, body: unknown[]): number {
+  const items = normalizeSubtitleItems(body);
+  const last = items.length ? items[items.length - 1] : null;
+  const lastSeconds = last ? Math.max(0, Math.floor(Number(last?.to) || Number(last?.from) || 0)) : 0;
+  return Math.max(Math.floor(Number(ctx.videoDuration) || 0), lastSeconds);
 }
 
 // 取消错误：err.cancelled = true 标记（house style 类型化标记；消费方查标记分流）。
@@ -383,12 +407,13 @@ function buildTokenProgressReporter(
  * 1. 双路径分派：字幕 ≤200k 字符（buildBudgetPlan mode=single）单次流式调用
  *    （显式 retries: 2）；>200k 走 buildBudgetPlan 切段 + runMapBounded 有界并发
  *    每段生成 + 段产物合并。
- * 2. 自带章节短路径：context.chapters 非空时只跑金句挑选调用（短提示词），
- *    章节取稿件标题，产物与 AI 分章完全同构。
+ * 2. 分章来源（概览分章票 03 决议）：简介/评论时间轴目录 > B 站官方章节 > AI 自由
+ *    分章。前两者是「给定章节」——章节标题与边界照抄目录、模型只补每章 summary
+ *    （产物仍与 AI 分章同构）；最后一种才让模型自由分章 + 后段门槛。
  * 3. 失败语义：分段路径段失败 → 跳过出部分结果 + failedRanges 记录（全部段
  *    失败 → 抛第一个真实错误）；单次路径失败 → 抛错由调用方处理。
  * 4. 缓存：整份结果按 (bvid, cid, 字幕轨, 字幕签名) 落 chrome.storage.local；
- *    分段产物按段缓存复用——重试（forceRefresh）天然只重跑未落盘段。
+ *    分段产物按段缓存复用（段键含签名）——重试（forceRefresh）天然只重跑未落盘段。
  * 5. 生成编排：同视频生成中重复触发 → 复用进行中的 promise（ensureSummarizeChain
  *    手法：promise 缓存按 finalKey 去重、落定即清），与笔记管线互不阻塞。
  * 返回归一化产物；abort / 取消 / 失败以异常上浮（err.aborted / err.cancelled 标记）。
@@ -400,20 +425,17 @@ export function runOverviewAnalysis(
 ): Promise<OverviewAnalysis> {
   const ctx = context || {};
   const body = Array.isArray(ctx.subtitleBody) ? (ctx.subtitleBody as unknown[]) : [];
-  // 短路径判定：自带章节非空 → 只挑金句（章节取稿件标题）。
-  const manuscriptChapters = Array.isArray(ctx.chapters) ? ctx.chapters : [];
-  const shortPath = manuscriptChapters.length > 0;
-  // 现成章节目录：简介 + 热门评论里的时间戳目录（「00:00 开场」行）。
-  // 短路径（稿件自带章节）不需要目录——章节边界已有权威来源。
-  const chapterOutline = shortPath ? [] : parseChapterOutline([ctx.videoDescription, hotCommentsText(ctx.hotComments)].join("\n"));
+  // 分章来源裁定（概览分章票 03 决议）：简介/评论时间轴目录 > B 站官方章节 >
+  // AI 自由分章。签名的模式位与目录指纹都取裁定结果——与 reader 概览 tab 同源。
+  const chapterSource = resolveChapterSource(ctx.videoDescription, ctx.hotComments, ctx.chapters);
 
   const signature = buildSubtitleSignature({
     lang: ctx.subtitleLang,
     subtitleId: ctx.selectedSubtitleId,
     subtitleUrl: ctx.selectedSubtitleUrl,
     body,
-    chapters: manuscriptChapters,
-    chapterOutline
+    chapters: chapterSource.signatureChapters,
+    chapterOutline: chapterSource.chapters
   });
   const finalKey = buildAnalysisFinalCacheKey(ctx, signature);
 
@@ -433,9 +455,8 @@ export function runOverviewAnalysis(
     provider: runProvider,
     ctx,
     body,
-    shortPath,
-    manuscriptChapters,
-    chapterOutline,
+    chapterSource,
+    signature,
     finalKey,
     signal,
     thinkingLevel,
@@ -471,9 +492,8 @@ interface ExecuteOverviewRunArgs {
   provider: ProviderRequest;
   ctx: Record<string, unknown>;
   body: unknown[];
-  shortPath: boolean;
-  manuscriptChapters: unknown[];
-  chapterOutline: OutlineChapter[];
+  chapterSource: ChapterSource;
+  signature: string;
   finalKey: string;
   signal?: AbortSignal | null;
   thinkingLevel?: string;
@@ -489,9 +509,8 @@ async function executeOverviewRun({
   provider,
   ctx,
   body,
-  shortPath,
-  manuscriptChapters,
-  chapterOutline,
+  chapterSource,
+  signature,
   finalKey,
   signal,
   thinkingLevel,
@@ -505,25 +524,42 @@ async function executeOverviewRun({
   if (normalizeSubtitleItems(body).length === 0) {
     throw new Error("没有可用的字幕");
   }
-  const systemPrompt = shortPath ? QUOTES_SYSTEM_PROMPT : ANALYSIS_SYSTEM_PROMPT;
-  const buildPrompt = shortPath ? buildQuotesPrompt : buildAnalysisPrompt;
-  // 整份缓存命中直接复用（短路径的章节取自稿件，返回前以稿件现值覆盖，防章节晚于字幕更新）。
+  // 整份缓存命中直接复用：签名已含分章来源位与目录指纹（含官方章节标题/秒数），
+  // 章节晚到或改名都会换键，不再需要「返回前用稿件现值覆盖章节」的兜底。
   if (!forceRefresh) {
     const cached = await analysisFinalFamily.load(finalKey);
     if (cached) {
-      return shortPath
-        ? { ...cached, chapters: normalizeManuscriptChapters(manuscriptChapters, cached.chapters.at(-1)?.to ?? 0) }
-        : cached;
+      return cached;
     }
   }
+
+  // 给定章节（时间轴目录或官方章节）非空 → 章节不是模型的活儿，走「照抄 + 补 summary」
+  // 提示词；空则自由分章（概览分章票 03 决议）。先按可覆盖时长裁一遍：评论时间轴里
+  // 可能混进别的视频/片尾之后的时间戳，越界条目不进提示词也不进产物（两者一致）。
+  const endSeconds = resolveEndSeconds(ctx, body);
+  const givenChapters = chapterSource.chapters.filter((chapter) => chapter.seconds <= endSeconds);
+  const hasGivenChapters = givenChapters.length > 0;
+  const systemPrompt = hasGivenChapters ? GIVEN_CHAPTERS_SYSTEM_PROMPT : ANALYSIS_SYSTEM_PROMPT;
 
   const promptVars = {
     title: ctx.title,
     ownerName: ctx.author,
     videoDescription: ctx.videoDescription,
-    chapterOutline
+    chapterOutline: givenChapters
   };
-  const plan = buildBudgetPlanImpl({ body, chapters: manuscriptChapters });
+  // 分段计划：只有官方章节进切段对齐——平台章节由 UP 维护、间隔以分钟计，对齐能让
+  // 每章字幕落在同一段里；简介/评论时间轴可能每几十秒一条（切段会碎成多条小请求，
+  // 调用数按目录条数放大），故时间轴只决定章节与提示词，不参与预算切段。
+  const plan = buildBudgetPlanImpl({
+    body,
+    chapters:
+      chapterSource.kind === "manuscript"
+        ? chapterSource.signatureChapters.map((chapter) => {
+            const item = chapter as { from?: unknown; title?: unknown };
+            return { from: item?.from, title: item?.title };
+          })
+        : []
+  });
   const segments = Array.isArray(plan.segments) ? plan.segments : [];
   const segmented = plan.mode === "map-reduce" && segments.length > 0;
 
@@ -549,7 +585,7 @@ async function executeOverviewRun({
     // —— 单次路径：预算内一次调用，失败整体抛错由调用方处理（07 票决议）——
     const items = normalizeSubtitleItems(body);
     const startSeconds = Math.max(0, Math.floor(Number(items[0]?.from) || 0));
-    const built = buildPrompt({
+    const built = buildAnalysisPrompt({
       ...promptVars,
       items: body,
       contextItems: [],
@@ -571,11 +607,8 @@ async function executeOverviewRun({
       // 分段路径接流式进度会与「正在整理第 x/y 段」抢同一条文案，故不接。
       onTokenProgress: buildTokenProgressReporter(onProgress)
     });
-    const analysis = shortPath
-      ? {
-          ...part,
-          chapters: normalizeManuscriptChapters(manuscriptChapters, built.timing.maxTimestampSeconds)
-        }
+    const analysis = hasGivenChapters
+      ? { ...part, chapters: applyGivenChapters(givenChapters, part.chapters, built.timing.maxTimestampSeconds) }
       : part;
     if (!analysis.chapters.length && !analysis.quotes.length) {
       throw makeEmptyAnalysisError();
@@ -589,7 +622,7 @@ async function executeOverviewRun({
   let done = 0;
 
   const analyzeSegment = async (segment: BudgetPlanSegment, index: number): Promise<OverviewAnalysis> => {
-    const segKey = buildAnalysisSegmentCacheKey(ctx, segment.index, 1);
+    const segKey = buildAnalysisSegmentCacheKey(ctx, segment.index, signature);
     const cached = await analysisSegmentFamily.load(segKey);
     if (cached) {
       return cached;
@@ -599,7 +632,7 @@ async function executeOverviewRun({
     }
     // 前情回顾：上一段结尾字幕（只作上下文，产出限定在本段区间，靠 minSeconds 兜底）。
     const contextItems = index > 0 ? tailItems(segments[index - 1]?.items, ANALYSIS_CONTEXT_CHARS) : [];
-    const built = buildPrompt({
+    const built = buildAnalysisPrompt({
       ...promptVars,
       items: segment.items,
       contextItems,
@@ -670,11 +703,9 @@ async function executeOverviewRun({
   }
 
   const merged = mergeAnalyses(parts);
-  const analysis: OverviewAnalysis = shortPath
-    ? {
-        ...merged,
-        chapters: normalizeManuscriptChapters(manuscriptChapters, merged.chapters.at(-1)?.to ?? 0)
-      }
+  // 给定章节：合并后的章节仍以给定清单为准（各段只贡献 summary），边界不随段漂移。
+  const analysis: OverviewAnalysis = hasGivenChapters
+    ? { ...merged, chapters: applyGivenChapters(givenChapters, merged.chapters, endSeconds) }
     : merged;
   if (!analysis.chapters.length && !analysis.quotes.length) {
     throw makeEmptyAnalysisError();

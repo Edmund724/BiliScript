@@ -8,9 +8,9 @@
 // assertAnalysisNotInReaderGraph 按 ai/analysis.ts 字面匹配——消费方不得直引三片。
 // - analysis-validate.ts：概览 shape 校验/合并纯函数与产物类型（纯，零 import）；
 // - analysis-prompts.ts：系统/用户提示词装配与 token 估算（纯，只依赖 subtitle/cache
-//   与 analysis-validate 的 MAX_ANALYSIS_CHAPTERS）；
-// - analysis-orchestrate.ts：双路径编排、两级缓存接线、inflightOverviews promise 复用
-//   （全仓唯一的 analysis 模块态）。
+//   与 shared/chapter-outline 叶子）；
+// - analysis-orchestrate.ts：分章来源裁定、两级缓存接线、inflightOverviews promise
+//   复用（全仓唯一的 analysis 模块态）。
 //
 // 与笔记管线的关系（07 票决议）：产物不共享、只共享机制——分段边界沿用
 // buildBudgetPlan.splitByBudget（同一 200k 判定线与 50k 单段预算），缓存走
@@ -33,10 +33,11 @@ export {
 } from "./analysis-validate.js";
 export {
   ANALYSIS_SYSTEM_PROMPT,
-  QUOTES_SYSTEM_PROMPT,
-  parseChapterOutline,
+  GIVEN_CHAPTERS_SYSTEM_PROMPT,
   buildAnalysisPrompt,
 } from "./analysis-prompts.js";
+// 目录解析工具住在 shared 叶子（reader 概览 tab 也要用）：这里再导出保持既有导入路径。
+export { parseChapterOutline, resolveChapterSource } from "../shared/chapter-outline.js";
 export {
   buildAnalysisFinalCacheKey,
   buildAnalysisSegmentCacheKey,
