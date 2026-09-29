@@ -19,3 +19,15 @@
 ## 重开条件
 
 若自定义下拉的读屏/键控体验明显劣于原生（实测口径：读屏念得出当前值与角色、纯键盘能改值），退回 A1 并接受两族 affordance。决策与验收记录见 commit 5a4f28b。
+
+**这条出路已被外观否决**（2026-09-29，真机对照）：原生 select 的弹层由浏览器/系统绘制，圆角、行高与高亮都不可定制，与设置页、编辑 Modal 内其余 12px 弹层不一致，实测观感不可接受（与 [provider-editor-modal.ts:606](extension/ui/provider-editor-modal.ts#L606) 记的同一条理由）。故判据不过时的出路改为**继续修组件**，不再回退 A1。
+
+## 修订（日期：2026-09-29）
+
+按上述判据做了一轮复核，发现三处实现缺陷并修复（commit `e65555a`，`tests/ui/custom-select.test.ts` 5 例结构核验）：
+
+- 隐藏的原生 select 只是视觉隐藏（1px + overflow），仍留在 Tab 序与无障碍树里：同一设置会被念两遍，Tab 还会先停在看不见的那个上。补 `tabindex="-1"` + `aria-hidden="true"`；值源与 `collect*` 系列仍读 `.value`，零改。
+- trigger 的可访问名只有当前值（「SRT，按钮」），字段名丢失——`label[for]` 指向的是那个已藏起来的 select。改用 `aria-labelledby` 指向「字段标签 + 当前值」两个节点（无 `for` 的 Modal 形态按同级前置 label 认），名字随值自动重算；label 的 `for` 一并重指到 trigger，点标签不再把焦点送进隐藏控件。
+- Tab 从展开列表离开时，焦点落在已隐藏的 li 上会掉回 body，默认 Tab 于是从文档头重新起算。改为收拢列表并把焦点交还 trigger（不 preventDefault），默认动作从 trigger 续行。
+
+判据本身的**真机读屏验收尚未做**：上面的 5 例只核验了被读屏消费的结构（Tab 序、名字拼接、焦点归位），不能代替「读屏念得出当前值与角色」这一条。
