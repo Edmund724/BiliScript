@@ -6,10 +6,10 @@
 // 提取）——spec 错误归一化要求，core 统一加 `[协议名] ` 前缀与 200 字符截断。
 // core（completion.ts）只留重试/中止/溢出/探针骨架。
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
-import { parseSsePayload } from "../sse-parser.js";
+import { parseOpenAiUsage, parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
-import type { ChatMessage, ChatToolCall } from "../types.js";
+import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 
 // OpenAI 兼容协议 chat 路径。
@@ -132,7 +132,8 @@ export function parseToolArgs(rawArguments: string): { query: string } {
  * 中止时抛 makeAbortedError，由调用方统一收束。
  * 产物形状即契约 DrainResult：content 为 content 增量拼接（tool 轮 assistant
  * 消息回填用）；toolCalls 为按 index 聚合的 tool_calls；finishReason 取最后一个
- * finish 事件（"stop" | "tool_calls" | ...，缺失为 null）。
+ * finish 事件（"stop" | "tool_calls" | ...，缺失为 null）；usage 取最后一个非空的
+ * usage 块（形状归一在 sse-parser.parseOpenAiUsage），平台未给即缺省。
  */
 async function drainSseStream({ response, signal, onEvent }: { response: Response } & DrainContext): Promise<DrainResult> {
   const reader = response.body!.getReader();
@@ -140,6 +141,9 @@ async function drainSseStream({ response, signal, onEvent }: { response: Respons
   let buffer = "";
   let content = "";
   let finishReason: string | null = null;
+  // 响应 usage（ai-usage-telemetry T1）：同一流可能出现多次（DeepSeek 等在
+  // [DONE] 前最后一个块给出），取最后一个非空；空/形状不符的块不覆盖已有值。
+  let usage: ChatUsage | undefined;
   const fragments = new Map<number, { id: string; name: string; args: string }>();
 
   while (true) {
@@ -178,6 +182,8 @@ async function drainSseStream({ response, signal, onEvent }: { response: Respons
           fragments.set(event.index, existing);
         } else if (event.type === "finish") {
           finishReason = event.reason;
+        } else if (event.type === "usage") {
+          usage = event.usage;
         }
       }
     }
@@ -194,7 +200,7 @@ async function drainSseStream({ response, signal, onEvent }: { response: Respons
   for (const call of toolCalls) {
     onEvent?.({ type: "tool-call", name: call.function.name, args: parseToolArgs(call.function.arguments) });
   }
-  return { content, toolCalls, finishReason };
+  return { content, toolCalls, finishReason, ...(usage ? { usage } : {}) };
 }
 
 export const openaiAdapter: ProtocolAdapter = {
@@ -263,7 +269,9 @@ export const openaiAdapter: ProtocolAdapter = {
 
   parseResponse(json: unknown): DrainResult {
     // 迁入现有非流式提取：choices[0].message.content / tool_calls 宽容归一。
-    const choice = (json as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown }; finish_reason?: unknown }> })?.choices?.[0];
+    // 顶层 usage 走 sse-parser 的同一映射（字段名单源，与流式路径一致）。
+    const data = json as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown }; finish_reason?: unknown }>; usage?: unknown };
+    const choice = data?.choices?.[0];
     const content = choice?.message?.content;
     const rawToolCalls = Array.isArray(choice?.message?.tool_calls) ? choice!.message!.tool_calls : [];
     const toolCalls = (rawToolCalls as Array<Record<string, unknown>>).map((call, index) => {
@@ -277,10 +285,12 @@ export const openaiAdapter: ProtocolAdapter = {
         }
       };
     });
+    const usage = parseOpenAiUsage(data?.usage);
     return {
       content: typeof content === "string" ? content : "",
       toolCalls,
-      finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null
+      finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null,
+      ...(usage ? { usage } : {})
     };
   }
 };

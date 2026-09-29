@@ -30,6 +30,14 @@ export interface ChatMessage {
   tool_call_id?: string;
 }
 
+// 响应 usage 采集（ai-usage-telemetry T1）：字段名随协议，由各 adapter 解析后归一
+// （core 不认协议形状）。缺失 / 形状不符 / 非有限数一律缺省该字段——不报错、不降级。
+export interface ChatUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+}
+
 export interface SubtitleBodyItem {
   from: number;
   to: number;

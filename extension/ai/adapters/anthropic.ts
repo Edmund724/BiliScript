@@ -19,7 +19,7 @@ import { normalizeThinkingLevel, resolveThinkingProfile, resolveThinkingProvider
 import { hasPlatformQuirk } from "../compat-vocab.js";
 import { parseToolArgs } from "./openai.js";
 import type { ChatRequest, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
-import type { ChatMessage, ChatToolCall } from "../types.js";
+import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 
 // 怪癖 maxTokensRequired（语义见 compat-vocab 词表单源）：max_tokens 必填且无
 // 默认，调用方未传时 adapter 兜底。兜底值的语义 =「调用方不关心时给一个合理上限」
@@ -208,9 +208,20 @@ function mapStopReason(reason: string): string {
 interface AnthropicStreamEvent {
   type?: string;
   index?: number;
+  message?: { usage?: unknown };
+  usage?: unknown;
   delta?: { type?: string; text?: string; thinking?: string; partial_json?: string; stop_reason?: string };
   error?: { type?: string; message?: string };
   content_block?: { type?: string; id?: string; name?: string };
+}
+
+// 响应 usage 单字段取数（ai-usage-telemetry T1）：input_tokens 在
+// message_start.message.usage、output_tokens 在 message_delta.usage（形状由本
+// adapter 自陈，core 不认）；容器形状不符 / 字段缺失 / null / 非有限数一律缺省
+// ——不抛错、不降级。
+function usageTokenCount(container: unknown, field: "input_tokens" | "output_tokens"): number | undefined {
+  const value = (container as Record<string, unknown> | null | undefined)?.[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 export const anthropicAdapter: ProtocolAdapter = {
@@ -304,6 +315,9 @@ export const anthropicAdapter: ProtocolAdapter = {
     let buffer = "";
     let content = "";
     let finishReason: string | null = null;
+    // 响应 usage（ai-usage-telemetry T1）：input 来自 message_start、output 来自
+    // message_delta，跨事件累积；各自缺失则不填，全程未采到即缺省。
+    let usage: ChatUsage | undefined;
     const fragments = new Map<number, { id: string; name: string; args: string }>();
 
     while (true) {
@@ -358,20 +372,30 @@ export const anthropicAdapter: ProtocolAdapter = {
             // signature_delta 忽略（怪癖 thinkingSignatureNotReplayed：thinking
             // 不回传，语义见 compat-vocab）。
             break;
-          case "message_delta":
+          case "message_delta": {
             // stop_reason 在 delta 内（message_delta 形状）；词表经 mapStopReason
             // 映射回 OpenAI 词表（怪癖 stopReasonVocabulary，tool-loop 精确匹配
-            // "tool_calls"，见文件头）。
+            // "tool_calls"，见文件头）。usage.output_tokens 同帧（响应 usage 采集）。
             if (typeof event.delta?.stop_reason === "string" && event.delta.stop_reason) {
               finishReason = mapStopReason(event.delta.stop_reason);
             }
+            const outputTokens = usageTokenCount(event.usage, "output_tokens");
+            if (outputTokens != null) usage = { ...usage, outputTokens };
             break;
+          }
+          case "message_start": {
+            // input_tokens 在 message_start.message.usage（响应 usage 采集）；
+            // 其余字段（id/model 等）本 adapter 不消费。
+            const inputTokens = usageTokenCount(event.message?.usage, "input_tokens");
+            if (inputTokens != null) usage = { ...usage, inputTokens };
+            break;
+          }
           case "error":
             // 流内错误（如 overloaded_error）：抛出走 core 的读流中断重试（流式
             // 2 次，retryable 语义与 http ≥500 对齐）；前缀对齐 core HTTP 路径的
             // `[协议名] ` 形状。继续读完只会把截断内容当成功返回。
             throw new Error(`[anthropic] ${event.error?.type ?? "error"}: ${event.error?.message ?? ""}`);
-          // message_start / content_block_stop / ping / 未知事件：一律忽略
+          // content_block_stop / ping / 未知事件：一律忽略
           // （官方要求 graceful 处理未知类型）。
         }
       }
@@ -389,7 +413,7 @@ export const anthropicAdapter: ProtocolAdapter = {
     for (const call of toolCalls) {
       ctx.onEvent?.({ type: "tool-call", name: call.function.name, args: parseToolArgs(call.function.arguments) });
     }
-    return { content, toolCalls, finishReason };
+    return { content, toolCalls, finishReason, ...(usage ? { usage } : {}) };
   },
 
   parseResponse(json: unknown): DrainResult {

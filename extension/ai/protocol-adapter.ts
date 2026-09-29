@@ -6,7 +6,7 @@
 // 探针语义留在 core（completion.ts）不动。
 // 注册表开放：加第四种协议（Gemini 等）= 实现一个 ProtocolAdapter + 登记一行，
 // core 零改动。
-import type { ChatMessage, ChatToolCall, StreamChatEvent } from "./types.js";
+import type { ChatMessage, ChatToolCall, ChatUsage, StreamChatEvent } from "./types.js";
 
 // 词表叶 re-export：类型消费者沿用本模块路径，不感知拆分。分发表键以
 // Record<AiProtocol, ...> 注解强制覆盖词表叶（单源，禁止第二份词表）。
@@ -57,6 +57,9 @@ export interface DrainResult {
   content: string;
   toolCalls: ChatToolCall[];
   finishReason: string | null;
+  // 响应 usage（ai-usage-telemetry T1，可选）：各 adapter 按自身协议形状解析归一，
+  // 平台未给/形状不符即缺省——缺省即今天的行为，判定路径零变化。
+  usage?: ChatUsage;
 }
 
 export interface DrainContext {
