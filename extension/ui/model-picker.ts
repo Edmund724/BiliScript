@@ -1,6 +1,6 @@
 // extension/ui/model-picker.ts
-// 模型名「文本输入 + 下拉拉取」组合控件：AI 平台行（options-rows.js）与
-// ASR 平台行（options-asr-rows.js）共用。点击 toggle 从 baseUrl 拉取可用
+// 模型名「文本输入 + 下拉拉取」组合控件：AI 平台行（provider-family.ts 的 AI
+// 族声明）与 ASR 平台行（同文件 ASR 族）共用。点击 toggle 从 baseUrl 拉取可用
 // 模型列表，选中写回输入框；手输模型或选中选项时收起下拉。
 //
 // 拉取前先申请 baseUrl 所在域名的 host 权限：未授权时那条 GET 只会以 CORS

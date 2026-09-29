@@ -1,11 +1,13 @@
-// options-search-rows.js 行构建器契约：行渲染（Key 状态点 / 名称 / 预设 note
-// 副行 / 选用 radio / 编辑 / 删除）、radio change 即时持久化
-// activeSearchProviderId、删除报文 search-providers-delete、编辑回调转发
-// providerId。shared/messaging.js 整体 mock，避免拖入 content script 依赖图。
+// provider-family.js 搜索族行声明契约（候选 3 片 1 自 options-search-rows.js
+// 收敛）：行渲染（Key 状态点 / 名称 / 预设 note 副行 / 选用 radio / 编辑 /
+// 删除）、radio change 即时持久化 activeSearchProviderId、删除报文
+// search-providers-delete。shared/messaging.js 整体 mock，避免拖入 content
+// script 依赖图。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
+import { createProviderFamilyRows } from "../../extension/ui/provider-family.js";
 
 const { sendRuntimeMessageMock } = vi.hoisted(() => ({
   sendRuntimeMessageMock: vi.fn(async () => ({ ok: true }))
@@ -15,11 +17,9 @@ vi.mock("../../extension/shared/messaging.js", () => ({
   sendRuntimeMessage: sendRuntimeMessageMock
 }));
 
-import {
-  getActiveSearchProviderId,
-  renderSearchProviders,
-  setActiveSearchProvider
-} from "../../extension/ui/options-search-rows.js";
+// 组合点工厂创建行绑定（与 settings-panel 同款接线）；搜索族的编辑回调
+// 转发由 provider-row.test.ts 的 AI/ASR 用例守住同一工厂路径
+const bindings = createProviderFamilyRows({ onRowEdit: () => {} });
 
 function makeContainer() {
   document.body.innerHTML = '<div id="biliscript-reading-view"><section id="biliscript-reading-settings-panel"></section></div>';
@@ -43,10 +43,10 @@ beforeEach(() => {
   sendRuntimeMessageMock.mockClear();
 });
 
-describe("搜索平台行", () => {
+describe("搜索平台行（provider-family.js 的搜索族声明）", () => {
   it("渲染主行 + 预设 note 副行（Brave 免费计划提示），无 note 的行无副行", () => {
     const { listNode, emptyNode } = makeContainer();
-    renderSearchProviders(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "search_1" });
+    bindings.search.render(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "search_1" });
     const rows = listNode.querySelectorAll(".search-provider-row");
     expect(rows).toHaveLength(2);
     expect(rows[0].querySelector(".provider-row-name")!.textContent).toBe("Tavily");
@@ -57,14 +57,14 @@ describe("搜索平台行", () => {
 
   it("空列表显示空态", () => {
     const { listNode, emptyNode } = makeContainer();
-    renderSearchProviders(listNode, emptyNode, [], { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
+    bindings.search.render(listNode, emptyNode, [], { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
     expect(listNode.children).toHaveLength(0);
     expect(emptyNode.hidden).toBe(false);
   });
 
   it("选用 radio change 即时持久化 activeSearchProviderId 并同步选中态", async () => {
     const { listNode, emptyNode } = makeContainer();
-    renderSearchProviders(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
+    bindings.search.render(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
     const radios = listNode.querySelectorAll<HTMLInputElement>(".search-provider-active-radio");
     radios[1].checked = true;
     fireChange(radios[1]);
@@ -75,14 +75,6 @@ describe("搜索平台行", () => {
       });
     });
     expect(radios[1].checked).toBe(true);
-  });
-
-  it("setActiveSearchProvider 同步选中态到指定 id", () => {
-    const { listNode, emptyNode } = makeContainer();
-    renderSearchProviders(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
-    setActiveSearchProvider(listNode, "search_1");
-    const radios = listNode.querySelectorAll<HTMLInputElement>(".search-provider-active-radio");
-    expect(radios[0].checked).toBe(true);
-    expect(getActiveSearchProviderId(listNode)).toBe("search_1");
+    expect(bindings.search.getActiveId!(listNode)).toBe("search_2");
   });
 });

@@ -1,6 +1,6 @@
 /* ===== 设置行级构建器 + 平台行 + 自定义下拉（arch-slim-4/04，2026-09 拆分第二份） =====
  * 自 reader-settings.css 拆出（原单表中段）：AI·ASR 平台的行级规则（行构建器
- * options-rows / options-asr-rows / provider-row 照旧生成）、弹层卡片与选项行
+ * provider-family / provider-row 照旧生成）、弹层卡片与选项行
  * 单源（ai-provider-model-dropdown / custom-select-dropdown 同度量）、以及
  * custom-select 通用下拉（下载格式 / Modal 预设）。
  * 挂载与级联顺序见 reader-settings-shell.css 头注：shell → rows → providers，

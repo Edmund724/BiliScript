@@ -1,7 +1,7 @@
 // tests/ui/provider-row.test.ts
-// createProviderRow 工厂与两个真实配置（options-rows.js 的 AI 平台行 /
-// options-asr-rows.js 的 ASR 平台行）的行为契约（provider-master-detail/02
-// 紧凑形态）。行是纯展示 + 入口，本文件守住：
+// createProviderRow 工厂与两个真实族声明（provider-family.ts 的 AI / ASR 族，
+// 候选 3 片 1 自 options-rows / options-asr-rows 收敛）的行为契约
+//（provider-master-detail/02 紧凑形态）。行是纯展示 + 入口，本文件守住：
 // - 行结构渲染：主行（Key 状态点两态 / 名称回落 /（ASR）选用 radio / 编辑 /
 //   删除）+ 模型名副行（空则不渲染），行内零输入字段（编辑职责在
 //   ui/provider-editor.js 的 Modal，其契约见 provider-editor.test.js）；
@@ -12,7 +12,7 @@
 //   钩子，带行 dataset 的 baseUrl）→ 后台删除消息 → onDelete（ASR 清选用态）；
 //   取消确认则不动；
 // - ASR 选用 radio：change 即时持久化 activeAsrProviderId 并同步选中态；
-// - 「编辑」按钮回调转发 providerId。
+// - 「编辑」按钮回调转发 providerId（经工厂 deps 注入的 onRowEdit）。
 // shared/messaging.js（sendRuntimeMessage）被整体 mock，避免拖入 content
 // script 依赖图。
 
@@ -110,21 +110,20 @@ beforeEach(() => {
   sendRuntimeMessageMock.mockImplementation(async () => ({ ok: true }));
 });
 
-async function loadAiRows() {
-  return import("../../extension/ui/options-rows.js");
+// 组合点工厂创建三族行绑定（候选 3 片 1）：onRowEdit 经 deps 注入，
+// 删除/回收回调经 controller 方法注入——原模块级 setter 单例已退役。
+async function createRows(onEdit: (providerId: string) => void = () => {}) {
+  const { createProviderFamilyRows } = await import("../../extension/ui/provider-family.js");
+  return createProviderFamilyRows({ onRowEdit: (_kind, providerId) => onEdit(providerId) });
 }
 
-async function loadAsrRows() {
-  return import("../../extension/ui/options-asr-rows.js");
-}
-
-describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形态）", () => {
+describe("createProviderRow：AI 平台行（provider-family.js 的 AI 族声明，紧凑形态）", () => {
   const aiItem = { id: "p1", presetId: "openai_compat", name: "我的端点", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" };
 
   it("渲染紧凑行结构与空态：主行 + 模型名副行，行内零输入字段", async () => {
-    const rows = await loadAiRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
-    rows.renderAiProviders(listNode, emptyNode, [
+    bindings.ai.render(listNode, emptyNode, [
       aiItem,
       { id: "p2", presetId: "ollama", baseUrl: "http://localhost:11434/v1", model: "llama3", hasSavedKey: true }
     ], { presets: AI_PRESETS });
@@ -165,9 +164,9 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
   });
 
   it("名称回落：无自定义名回落预设名；模型名空则不渲染副行", async () => {
-    const rows = await loadAiRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
-    rows.renderAiProviders(listNode, emptyNode, [
+    bindings.ai.render(listNode, emptyNode, [
       { id: "p1", presetId: "openai_compat", baseUrl: "https://api.openai.com/v1" },
       { id: "p2", presetId: "ollama", baseUrl: "http://localhost:11434/v1", model: "" }
     ], { presets: AI_PRESETS });
@@ -182,9 +181,9 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
   });
 
   it("模型名副行：models 目录多个时「首项 等 N 个」，单模型只显示模型名（拍板 Q15）", async () => {
-    const rows = await loadAiRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
-    rows.renderAiProviders(listNode, emptyNode, [
+    bindings.ai.render(listNode, emptyNode, [
       { id: "p1", presetId: "openai_compat", name: "我的端点", baseUrl: "https://api.example.com/v1", models: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-reasoner"] },
       { id: "p2", presetId: "ollama", baseUrl: "http://localhost:11434/v1", models: ["llama3"] },
       { id: "p3", presetId: "custom", name: "旧数据", baseUrl: "", model: "gpt-4o-mini" }
@@ -198,19 +197,18 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
   });
 
   it("渲染空列表时显示空态", async () => {
-    const rows = await loadAiRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
-    rows.renderAiProviders(listNode, emptyNode, [], { presets: AI_PRESETS });
+    bindings.ai.render(listNode, emptyNode, [], { presets: AI_PRESETS });
     expect(listNode.children).toHaveLength(0);
     expect(emptyNode.hidden).toBe(false);
   });
 
-  it("「编辑」按钮：回调转发行 providerId", async () => {
-    const rows = await loadAiRows();
-    const { listNode } = makeContainer();
+  it("「编辑」按钮：onRowEdit（工厂 deps 注入）转发行 providerId", async () => {
     const onEdit = vi.fn();
-    rows.setAiRowEditHandler(onEdit);
-    rows.renderAiProviders(listNode, document.createElement("p"), [aiItem], { presets: AI_PRESETS });
+    const bindings = await createRows(onEdit);
+    const { listNode } = makeContainer();
+    bindings.ai.render(listNode, document.createElement("p"), [aiItem], { presets: AI_PRESETS });
 
     const row = listNode.querySelector(".ai-provider-row")!;
     fireClick(row.querySelector(".provider-row-edit")!);
@@ -219,11 +217,11 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
   });
 
   it("删除：确认后先同步触发 onBeforeDelete（带行 dataset 的 baseUrl）再走后台删除；取消确认不触发", async () => {
-    const rows = await loadAiRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
     const onBeforeDelete = vi.fn(async () => {});
-    rows.setAiBeforeDeleteHandler(onBeforeDelete);
-    rows.renderAiProviders(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
+    bindings.ai.controller.setBeforeDeleteHandler(onBeforeDelete);
+    bindings.ai.render(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
     const row = listNode.querySelector(".ai-provider-row")!;
 
     // 弹层点「取消」：钩子与删除消息都不触发
@@ -245,12 +243,12 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
   });
 
   it("删除：onBeforeDelete 抛错不阻断删除（权限回收失败可忽略）", async () => {
-    const rows = await loadAiRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
-    rows.setAiBeforeDeleteHandler(vi.fn(async () => {
+    bindings.ai.controller.setBeforeDeleteHandler(vi.fn(async () => {
       throw new Error("permissions API unavailable");
     }));
-    rows.renderAiProviders(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
+    bindings.ai.render(listNode, emptyNode, [aiItem], { presets: AI_PRESETS });
     const row = listNode.querySelector(".ai-provider-row")!;
 
     fireClick(row.querySelector(".provider-row-remove")!);
@@ -262,7 +260,7 @@ describe("createProviderRow：AI 平台行（options-rows.js 配置，紧凑形�
   });
 });
 
-describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧凑形态）", () => {
+describe("createProviderRow：ASR 平台行（provider-family.js 的 ASR 族声明，紧凑形态）", () => {
   const asrItem = {
     id: "asr1",
     presetId: "siliconflow",
@@ -272,9 +270,9 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
   };
 
   it("渲染紧凑行：名称 + 模型名副行（缺省回落预设 model）+ 选用 radio", async () => {
-    const rows = await loadAsrRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
-    rows.renderAsrProviders(listNode, emptyNode, [asrItem, { id: "asr2", presetId: "local-whisper", hasSavedKey: true }], { presets: ASR_PRESETS, activeId: "asr2" });
+    bindings.asr.render(listNode, emptyNode, [asrItem, { id: "asr2", presetId: "local-whisper", hasSavedKey: true }], { presets: ASR_PRESETS, activeId: "asr2" });
 
     const allRows = listNode.querySelectorAll<HTMLElement>(".asr-provider-row");
     expect(allRows).toHaveLength(2);
@@ -303,9 +301,9 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
   });
 
   it("选用 radio：change 时持久化 activeAsrProviderId 并同步选中态", async () => {
-    const rows = await loadAsrRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
-    rows.renderAsrProviders(listNode, emptyNode, [asrItem, { id: "asr2", presetId: "local-whisper" }], { presets: ASR_PRESETS });
+    bindings.asr.render(listNode, emptyNode, [asrItem, { id: "asr2", presetId: "local-whisper" }], { presets: ASR_PRESETS });
 
     const radios = listNode.querySelectorAll<HTMLInputElement>(".asr-provider-active-radio");
     radios[1].checked = true;
@@ -315,20 +313,17 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
     expect(sendRuntimeMessageMock).toHaveBeenCalledWith({ type: "save-settings", settings: { activeAsrProviderId: "asr2" } });
     expect(radios[0].checked).toBe(false);
     expect(radios[1].checked).toBe(true);
-    expect(rows.getActiveAsrProviderId(listNode)).toBe("asr2");
-
-    rows.setActiveAsrProvider(listNode, "");
-    expect(rows.getActiveAsrProviderId(listNode)).toBe("");
+    expect(bindings.asr.getActiveId!(listNode)).toBe("asr2");
   });
 
   it("删除：后台消息后触发注入的 onDelete（删选用平台时清 activeAsrProviderId 的钩子），并恢复空态", async () => {
-    const rows = await loadAsrRows();
+    const bindings = await createRows();
     const { listNode, emptyNode } = makeContainer();
     const onDelete = vi.fn(async () => {});
-    rows.setAsrDeleteHandler(onDelete);
+    bindings.asr.controller.setDeleteHandler(onDelete);
     const onBeforeDelete = vi.fn(async () => {});
-    rows.setAsrBeforeDeleteHandler(onBeforeDelete);
-    rows.renderAsrProviders(listNode, emptyNode, [asrItem], { presets: ASR_PRESETS });
+    bindings.asr.controller.setBeforeDeleteHandler(onBeforeDelete);
+    bindings.asr.render(listNode, emptyNode, [asrItem], { presets: ASR_PRESETS });
     const row = listNode.querySelector(".asr-provider-row")!;
 
     fireClick(row.querySelector(".provider-row-remove")!);
@@ -341,12 +336,11 @@ describe("createProviderRow：ASR 平台行（options-asr-rows.js 配置，紧�
     expect(emptyNode.hidden).toBe(false);
   });
 
-  it("「编辑」按钮：回调转发行 providerId", async () => {
-    const rows = await loadAsrRows();
-    const { listNode } = makeContainer();
+  it("「编辑」按钮：onRowEdit（工厂 deps 注入）转发行 providerId", async () => {
     const onEdit = vi.fn();
-    rows.setAsrRowEditHandler(onEdit);
-    rows.renderAsrProviders(listNode, document.createElement("p"), [asrItem], { presets: ASR_PRESETS });
+    const bindings = await createRows(onEdit);
+    const { listNode } = makeContainer();
+    bindings.asr.render(listNode, document.createElement("p"), [asrItem], { presets: ASR_PRESETS });
 
     fireClick(listNode.querySelector(".asr-provider-row .provider-row-edit")!);
     expect(onEdit).toHaveBeenCalledWith("asr1");

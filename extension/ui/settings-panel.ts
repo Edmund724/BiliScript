@@ -6,7 +6,7 @@
 //   - 装载（get-settings）→ 渲染平台行（AI/ASR / 搜索平台）与标量设置项；
 //   - 保存（同步收集后分路落盘：settings 经 save-settings，平台经
 //     provider-editor Modal 的单平台 upsert）。平台行构建与验证本体复用
-//     ../ui/options-rows.ts、../ui/options-asr-rows.ts、../core/validators.ts。
+//     ../ui/provider-family.ts、../core/validators.ts。
 //   - 平台测试（AI/ASR 探针）只验证连通性，不落盘——保存只发生在 Modal 的
 //     保存按钮链路上。
 // 与 options 页的唯一实现差异：content script 语境没有 chrome.permissions
@@ -46,29 +46,9 @@ import { buildSettingsHtml } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
-import {
-  renderAiProviders,
-  generateAiProviderId,
-  setAiBeforeDeleteHandler,
-  setAiRowEditHandler
-} from "./options-rows.js";
+import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
-import {
-  renderAsrProviders,
-  generateAsrProviderId,
-  getActiveAsrProviderId,
-  setAsrDeleteHandler,
-  setAsrBeforeDeleteHandler,
-  setAsrRowEditHandler
-} from "./options-asr-rows.js";
 import { SEARCH_PROVIDER_PRESETS, type SearchProviderPreset } from "../core/presets.js";
-import {
-  renderSearchProviders,
-  generateSearchProviderId,
-  getActiveSearchProviderId,
-  setSearchDeleteHandler,
-  setSearchRowEditHandler
-} from "./options-search-rows.js";
 import type { ProviderEditorKind } from "./provider-editor.js";
 import {
   requestProviderOriginsViaBackground,
@@ -126,7 +106,7 @@ function applySectionContainment(host: HTMLElement): void {
 }
 
 // ===== 元素收集（模板渲染后按 id 取自宿主容器，id 与原 options 页保持一致，
-// options-rows / validators 的行级选择器直接复用） =====
+// provider-family / validators 的行级选择器直接复用） =====
 
 function collectElements(host: HTMLElement) {
   const byIdIn = <T extends HTMLElement>(id: string): T =>
@@ -244,14 +224,14 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
 
-  // AI 配置
+  // AI 配置（渲染预设缺省回落内置 PRESETS，原 renderAiProviders 默认参数语义）
   const providers = await loadAiProviders();
-  renderAiProviders(elements.aiProvidersList, elements.aiProvidersEmpty, providers);
+  familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, { presets: PRESETS });
 
   // ASR 配置
   elements.asrAutoFallback.checked = settings.asrAutoFallback !== false;
   const asrProviders = await loadAsrProviders();
-  renderAsrProviders(elements.asrProvidersList, elements.asrProvidersEmpty, asrProviders, {
+  familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, asrProviders, {
     presets: asrPresets,
     activeId: settings.activeAsrProviderId || ""
   });
@@ -259,7 +239,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
   elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(settings.webSearchMaxToolCalls));
   const searchProviders = await loadSearchProviders();
-  renderSearchProviders(elements.searchProvidersList, elements.searchProvidersEmpty, searchProviders, {
+  familyRows.search.render(elements.searchProvidersList, elements.searchProvidersEmpty, searchProviders, {
     presets: SEARCH_PROVIDER_PRESETS,
     activeId: settings.activeSearchProviderId || ""
   });
@@ -338,9 +318,9 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     loadProviders: loadAiProviders,
     save: (providers) => sendRuntimeMessage({ type: "ai-providers-save", providers }),
     remove: (providerId) => sendRuntimeMessage({ type: "ai-providers-delete", providerId }),
-    generateId: generateAiProviderId,
+    generateId: () => familyRows.ai.controller.generateId(),
     presets: () => aiPresets,
-    rerender: (elements, providers) => renderAiProviders(elements.aiProvidersList, elements.aiProvidersEmpty, providers),
+    rerender: (elements, providers) => familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers),
     optionalHostPermission: true
   },
   asr: {
@@ -348,9 +328,9 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     loadProviders: loadAsrProviders,
     save: (providers) => sendRuntimeMessage({ type: "asr-providers-save", providers }),
     remove: (providerId) => sendRuntimeMessage({ type: "asr-providers-delete", providerId }),
-    generateId: generateAsrProviderId,
+    generateId: () => familyRows.asr.controller.generateId(),
     presets: () => asrPresets,
-    rerender: (elements, providers) => renderAsrProviders(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
+    rerender: (elements, providers) => familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
       presets: asrPresets,
       activeId: getActiveAsrProviderId(elements.asrProvidersList)
     }),
@@ -361,9 +341,9 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     loadProviders: loadSearchProviders,
     save: (providers) => sendRuntimeMessage({ type: "search-providers-save", providers }),
     remove: (providerId) => sendRuntimeMessage({ type: "search-providers-delete", providerId }),
-    generateId: generateSearchProviderId,
+    generateId: () => familyRows.search.controller.generateId(),
     presets: () => SEARCH_PROVIDER_PRESETS,
-    rerender: (elements, providers) => renderSearchProviders(elements.searchProvidersList, elements.searchProvidersEmpty, providers, {
+    rerender: (elements, providers) => familyRows.search.render(elements.searchProvidersList, elements.searchProvidersEmpty, providers, {
       presets: SEARCH_PROVIDER_PRESETS,
       activeId: getActiveSearchProviderId(elements.searchProvidersList)
     }),
@@ -379,6 +359,22 @@ async function loadOriginSharingProviders(): Promise<ProviderRowItem[]> {
   const eligible = Object.values(PROVIDER_FAMILY_UI).filter((family) => family.optionalHostPermission);
   const lists = await Promise.all(eligible.map((family) => family.loadProviders()));
   return lists.flat();
+}
+
+// 三族行控制器（候选 3 片 1）：组合点创建，行「编辑」回调直注进工厂 deps，
+// 原三 rows 文件的模块级 setter 单例随收敛退役。删除/回收回调经 controller
+// 方法在 bindSettingsEvents 里注入（闭包态，可后设）。
+const familyRows = createProviderFamilyRows({
+  onRowEdit: (kind, providerId) => void openProviderEditorById(kind, providerId)
+});
+
+// 选用态读取（ASR / 搜索；AI 无 radio）：原 options-asr/search-rows 的
+// getActiveXxxProviderId 导出收敛为绑定上的 getActiveId
+function getActiveAsrProviderId(listNode: HTMLElement): string {
+  return familyRows.asr.getActiveId?.(listNode) || "";
+}
+function getActiveSearchProviderId(listNode: HTMLElement): string {
+  return familyRows.search.getActiveId?.(listNode) || "";
 }
 
 // ===== 单平台保存与编辑 Modal（provider-master-detail/01） =====
@@ -626,12 +622,12 @@ function bindSettingsEvents(host: HTMLElement): void {
     initCustomSelect(elements.downloadFormat, "custom-select-wrapper");
   }
 
-  setAsrDeleteHandler(async (providerId) => {
+  familyRows.asr.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveAsrProviderId(elements.asrProvidersList) || "") === providerId) {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: "" } });
     }
   });
-  setSearchDeleteHandler(async (providerId) => {
+  familyRows.search.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveSearchProviderId(elements.searchProvidersList) || "") === providerId) {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeSearchProviderId: "" } });
     }
@@ -647,8 +643,8 @@ function bindSettingsEvents(host: HTMLElement): void {
       setStatus(elements, permissionRevokeErrorMessage(origins), true);
     }
   };
-  setAiBeforeDeleteHandler(revokeOriginOnDelete);
-  setAsrBeforeDeleteHandler(revokeOriginOnDelete);
+  familyRows.ai.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
+  familyRows.asr.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
 
   elements.saveBtn.addEventListener("click", () => saveSettings(elements));
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
@@ -657,9 +653,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   elements.addAiProviderBtn.addEventListener("click", () => void openProviderEditorById("ai", ""));
   elements.addAsrProviderBtn.addEventListener("click", () => void openProviderEditorById("asr", ""));
   elements.addSearchProviderBtn.addEventListener("click", () => void openProviderEditorById("search", ""));
-  setAiRowEditHandler((providerId) => void openProviderEditorById("ai", providerId));
-  setAsrRowEditHandler((providerId) => void openProviderEditorById("asr", providerId));
-  setSearchRowEditHandler((providerId) => void openProviderEditorById("search", providerId));
+  // 行「编辑」回调已在 familyRows 工厂 deps 里注入（候选 3 片 1），此处不再注册
   // 外点关闭委托。快速通道（M15 INP）：监听器挂在 document 上，宿主页每一次
   // 点击都会进来，常态是两类弹层全关——此时旧实现无条件做两轮扫描（Modal
   // 模型下拉 + 自定义下拉，均全文档）。先做一次合并存在性检查，全关即返回；

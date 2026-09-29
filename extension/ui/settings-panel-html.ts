@@ -5,7 +5,7 @@
 // 表——模板是纯 HTML 字符串零逻辑，不触碰任何状态，单独成模块后模板结构
 //（分节、id、类名契约）与流程代码互不干扰，模板改动只落本文件。
 // id 契约与原 options 页保持一致：settings-panel.ts 的 collectElements 按 id
-// 取自宿主容器，options-rows / validators 的行级选择器直接复用；分节顺序即
+// 取自宿主容器，provider-family / validators 的行级选择器直接复用；分节顺序即
 // 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 → AI 对话 →
 // 导出 → 保存行）。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
