@@ -264,7 +264,13 @@ describe("ASR 转写中并发调用（共享转写、成果落缓存）", () => 
     await vi.waitFor(() => expect(deps.runAsrPipeline).toHaveBeenCalledTimes(1));
 
     const waiter = fallback.awaitActiveAsrTranscribe({ runId: 2, bvid: BVID, cid: CID });
-    pending[0].reject(new Error("音频解码失败"));
+    pending[0].reject(
+      Object.assign(new Error("HTTP 401: {\"message\":\"Invalid token\"}"), {
+        kind: "asr-auth",
+        status: 401,
+        detail: "{\"message\":\"Invalid token\"}"
+      })
+    );
 
     // 等待者静默退出；发起者走自己的 catch（error 收尾）
     await expect(waiter).resolves.toBeUndefined();
@@ -274,6 +280,8 @@ describe("ASR 转写中并发调用（共享转写、成果落缓存）", () => 
     expect(deps.acceptSubtitle).not.toHaveBeenCalled();
     expect(deps.commitNoSubtitle).toHaveBeenCalledTimes(1);
     expect(state.clip.subtitleFetchState).toBe("empty");
+    // 失败原因按 kind 归类（旧字面量 asr-failed 已删除）
+    expect(clipState.noSubtitleReason).toBe("asr-auth");
   });
 });
 

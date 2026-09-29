@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vite
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import type { OverviewAnalysis } from "../../extension/ai/analysis.js";
+import { getAsrFailureNotice } from "../../extension/core/asr-failure-notice.js";
 import type { TestState } from "./reader-test-env.d.ts";
 
 // 数据管线 mock：runOverviewAnalysis 换成 vi.fn（每次用例自行给实现），
@@ -169,6 +170,37 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     expect(runOverviewMock).not.toHaveBeenCalled();
     expect(overviewText()).toContain("字幕抓取中");
     expect(overviewText()).not.toContain("该视频没有可用字幕");
+  });
+
+  it("无字幕且已归因（noSubtitleReason）：空态跟着原因走（标题=病因、正文=补救），不带详情行", async () => {
+    seedClip();
+    state.clip.subtitleBody = [];
+    state.clip.subtitleFetchState = "empty";
+    state.clip.noSubtitleReason = "asr-auth";
+    state.clip.noSubtitleDetail = "（错误详情：HTTP 401: invalid token）";
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(runOverviewMock).not.toHaveBeenCalled();
+    // 标题与正文逐字来自 core 的单一真源（票 07 Q4：只跟随 reason，不新写文案）
+    const notice = getAsrFailureNotice("asr-auth");
+    const text = overviewText();
+    expect(text).toContain(notice.cause);
+    expect(text).toContain(notice.remedyText);
+    expect(text).not.toContain("该视频没有可用字幕");
+    // 详情行是单行宿主的设计，不塞进空态排版
+    expect(text).not.toContain("错误详情");
+  });
+
+  it("无字幕且原因为 null：维持通用兜底空态", async () => {
+    seedClip();
+    state.clip.subtitleBody = [];
+    state.clip.subtitleFetchState = "empty";
+    state.clip.noSubtitleReason = null;
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(overviewText()).toContain("该视频没有可用字幕");
   });
 
   it("idle 触发 → 生成 → ready 渲染：章节/金句 + 上下文与 provider 入参正确", async () => {

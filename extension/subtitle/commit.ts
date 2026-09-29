@@ -3,8 +3,8 @@
 //
 // 一段字幕成为当前视频生效字幕的六步序列——稳定排序（from 升序，读路径
 // findActiveSubtitleIndex 二分依赖）→ 写 state（selectedSubtitleId/Url/Lang +
-// subtitleBody）→ fetchState="ready" → 清 noSubtitleReason → await
-// refreshHotComments()（热评拉取；markdown/SRT/TXT 派生三件套改为首次消费时
+// subtitleBody）→ fetchState="ready" → 清 noSubtitleReason/noSubtitleDetail →
+// await refreshHotComments()（热评拉取；markdown/SRT/TXT 派生三件套改为首次消费时
 // 懒生成并缓存，见 core.js ensureDerivedContent，opt-backlog-2026-09/04）→
 // 通知 "subtitle-ready"
 //（发射无条件：视图门控的裁决权归 reader 侧 init-essentials 分派链，见
@@ -19,11 +19,18 @@
 //（selection.js 的排序注释）活在第三个文件里。本模块收口后一处持有事务：
 // bug 只会发生在一个地方、也只修一个地方。
 //
+// **无字幕出口是失败文案的唯一出口**（asr-error-reporting/07 Q1）：reader 通知
+// 与状态栏吃同一句 buildNoSubtitleStatusMessage()（= 基础句 + core/
+// asr-failure-notice 的病因/补救 + 可选详情行），skip 与失败不再分叉
+//（调用方 asr/fallback 自拼的失败/空结果文案已删——它们会在同一轮里被这里的
+// 基础句覆盖）。基础句恒在 → 恒命中 reading-status-line 的 /无字幕/ 常驻词表
+//（票 07 Q2 的不变量，由 tests/subtitle/commit.test.ts 钉住）。
+//
 // 静态图无环约束（本设计的核心）：本模块禁止静态 import ui/ui-renderer.js 与
 // subtitle/ui.js——二者是链层渲染/UI 模块（ui.js 还静态引用 fetcher），被
-// commit 静态引用会把渲染闭包拖进事务层并成环。renderMeta /
-// renderSubtitleSelect / setStatus 由 fetcher 在模块求值期经 configureCommitUi
-// 注入一次。其余依赖全部是叶子或常驻轻模块：core/state、subtitle/selection、
+// commit 静态引用会把渲染闭包拖进事务层并成环。setStatus 由 fetcher 在模块
+// 求值期经 configureCommitUi 注入一次。其余依赖全部是叶子或常驻轻模块：
+// core/state、core/asr-failure-notice（叶子纯模块）、subtitle/selection、
 // subtitle/core、reader/reader-bus（常驻轻 seam，arch-slim-2/03 自 presenter.ts
 // 改名）、reader/view-state（常驻微
 // 模块，纯 state 读取）、shared/logging。
@@ -31,6 +38,7 @@
 
 import { clipState } from "../core/state.js";
 import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
+import { STATUS_LINE_BASE, getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { sortSubtitleBodyByFrom } from "./selection.js";
 import { refreshHotComments } from "./core.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
@@ -40,17 +48,16 @@ export interface CommitUiCallbacks {
   setStatus(message: string): void;
 }
 
-// 渲染/状态栏回调（fetcher 注入，见模块头注）。接受事务本身不渲染（历史行为：
+// 状态栏回调（fetcher 注入，见模块头注）。接受事务本身不渲染（历史行为：
 // loadSubtitle / fallback 的四个接受点均不调 renderMeta，渲染由调用方编排负责）；
-// 无字幕出口只回 reader 的 subtitle-ready 通知（renderReadingView 落空态）与
-// setStatus（skip 分支的引导文案）。
+// 无字幕出口回 reader 的 subtitle-ready 通知（renderReadingView 落空态）与
+// setStatus（与通知同一句文案）。
 //（script-only-ui：经典侧栏面板的 renderMeta/renderSubtitleSelect 已随旧壳
 // 删除——无字幕出口对面板的元信息/下拉渲染改由 reader-bus 通知驱动。）
 let commitUi: CommitUiCallbacks | null = null;
 
-// 由 fetcher 在模块求值期注入一次（取自 subtitle/ui.js 的 setStatus 与
-// ui-renderer 的 setStatus）。重复调用以最后一次为准
-//（测试换纪元时随 fetcher 重新求值，天然幂等）。
+// 由 fetcher 在模块求值期注入一次（取自 core/ui-status 的 setStatus）。
+// 重复调用以最后一次为准（测试换纪元时随 fetcher 重新求值，天然幂等）。
 export function configureCommitUi({ setStatus }: CommitUiCallbacks) {
   commitUi = { setStatus };
 }
@@ -91,6 +98,8 @@ export async function acceptSubtitle({
   clipState.setSubtitleBody(sortedBody as SubtitleBodyItem[]);
   clipState.setSubtitleFetchState("ready");
   clipState.setNoSubtitleReason(null);
+  // 详情与原因同生命周期：字幕就绪后不留上一轮失败的报文明细
+  clipState.setNoSubtitleDetail("");
   await refreshHotComments();
   // 发射无条件：视图门控的裁决权归 reader 侧（init-essentials 分派链按
   // readingViewOpen 跳过、lifecycle 处理体再按当前 state 投影）。这里按视图
@@ -102,7 +111,6 @@ export async function acceptSubtitle({
 
 export interface CommitNoSubtitleArgs {
   noSubtitleReason?: NoSubtitleReason;
-  asrResult?: string;
   // 发起方抓取代次（可选，语义同 AcceptSubtitleArgs.runId）：传入则出口前
   // 自检，代次已被推进时抛 STALE_RUN 让位，不再把「无字幕」写进新视频的 state。
   runId?: number;
@@ -110,18 +118,17 @@ export interface CommitNoSubtitleArgs {
 
 // 无字幕出口（逆事务，applyNoSubtitleState + 两处收尾段的唯一实现）：清空选中
 // 三项 + body + 派生内容，fetchState 落 "empty"，写 noSubtitleReason，
-// 通知（renderReadingView 落空态），skip 时状态栏落引导文案。
+// 通知（renderReadingView 落空态），状态栏落完整文案。
 //（script-only-ui：经典侧栏面板的 preview DOM 与 renderMeta/renderSubtitleSelect
 // 回调已删除——无字幕出口对阅读视图的呈现收敛到 subtitle-ready 通知。）与接受互为逆：
 // 两者写齐同一组字段，任何时刻 state 不落在半事务态。
 //
 // noSubtitleReason 缺省（undefined）时保留现有值——fetcher 出口的原因已由
-// maybeRunAsrFallback 各终态分支写入（asr-disabled / no-asr-config /
-// asr-empty / asr-failed / null），这里不得覆盖；显式传参（含 null）则写入。
+// maybeRunAsrFallback 各终态分支写入，这里不得覆盖；显式传参（含 null）则写入。
 //
 // maybeRunAsrFallback → done 即 return 的守卫属抓取编排（fallback 内部已走
 // 接受事务收尾），留在 fetcher 的 finishNoSubtitle，不进本事务。
-export async function commitNoSubtitle({ noSubtitleReason, asrResult, runId }: CommitNoSubtitleArgs = {}): Promise<void> {
+export async function commitNoSubtitle({ noSubtitleReason, runId }: CommitNoSubtitleArgs = {}): Promise<void> {
   if (!commitUi) {
     throw new Error("字幕接受事务的 UI 回调未注入（configureCommitUi），无字幕出口拒绝执行。");
   }
@@ -141,24 +148,27 @@ export async function commitNoSubtitle({ noSubtitleReason, asrResult, runId }: C
   if (noSubtitleReason !== undefined) {
     clipState.setNoSubtitleReason(noSubtitleReason);
   }
+  // 通知与状态栏同一句（失败文案的唯一出口）：reader 侧 renderReadingStatus
+  // 直接显示这句，状态栏不另拼——两处漂移的口子就此关闭。
   // 发射无条件（同 acceptSubtitle）：裁决权归 reader 侧门控。
-  notifyReaderPresenter("subtitle-ready", "当前视频无字幕。");
-  if (asrResult === "skip") {
-    commitUi.setStatus(buildNoSubtitleStatusMessage());
-  }
+  const message = buildNoSubtitleStatusMessage();
+  notifyReaderPresenter("subtitle-ready", message);
+  commitUi.setStatus(message);
 }
 
-// 无字幕提示（skip 分支）：基础文案 + 引导句。reason 取 clipState.noSubtitleReason
-//（可显式传参覆盖）：未配置语音识别平台（no-asr-config）时引导用户去硅基流动
-// 免费申请 API Key 并填入设置页；其余维持通用引导句。返回完整提示文案。
-// 自 fetcher.js 随迁：文案是无字幕出口事务的一部分，唯一消费点在上面的
-// commitNoSubtitle。
+// 无字幕文案（状态栏面 + reader 通知面共用）：基础句「当前视频无字幕。」+ 病因 +
+// 补救 +（可选）详情行。三段文案逐字来自单一真源 core/asr-failure-notice
+//（票 06 的文案表）；本函数只负责拼装与默认取值：reason/detailLine 缺省读
+// clipState（原因由 asr/fallback 各终态分支写入、详情由同一分支经该模块的
+// getAsrFailureNotice 落 state）。空段过滤后单空格连接，不留双空格。
+//
+// 基础句冻结（票 06 Q10）且恒在（ticket 07 Q2 的常驻不变量）：new文案永远命中
+// reading-status-line 的 /无字幕/ 常驻词表，5 秒自动收起不会吞掉失败原因。
 export function buildNoSubtitleStatusMessage(
-  base = "当前视频无字幕。",
-  reason: NoSubtitleReason = clipState.noSubtitleReason
+  base = STATUS_LINE_BASE,
+  reason: NoSubtitleReason = clipState.noSubtitleReason,
+  detailLine = clipState.noSubtitleDetail
 ): string {
-  if (reason === "no-asr-config") {
-    return `${base} 可免费申请硅基流动 API Key 并填入设置页，自动生成字幕。`;
-  }
-  return `${base} 可在设置页配置语音识别平台自动生成字幕。`;
+  const notice = getAsrFailureNotice(reason);
+  return [base, notice.cause, notice.remedyText, detailLine].filter(Boolean).join(" ");
 }

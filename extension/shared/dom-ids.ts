@@ -43,6 +43,11 @@ export const ids = {
   readingExportSubtitleBtn: "biliscript-reading-export-subtitle",
   readingFollowBtn: "biliscript-reading-follow-btn",
   readingTranscribeBanner: "biliscript-reading-transcribe-banner",
+  // 转写横幅的标题与副文案：文案按相位取（reader/transcribe-banner.ts 的相位
+  // 文案表），id 用于把「按相位写文案」落到具体节点——不靠 class 选择器走私
+  // 字符串（样式类不是文案契约）。
+  readingTranscribeBannerTitle: "biliscript-reading-transcribe-banner-title",
+  readingTranscribeBannerCopy: "biliscript-reading-transcribe-banner-copy",
   readingTranscribeProgress: "biliscript-reading-transcribe-progress",
   readingExplainPop: "biliscript-reading-explain-pop",
   // 选区「解释」卡片宿主（面板内弹层；状态机与渲染在 reader/explain-card.ts）

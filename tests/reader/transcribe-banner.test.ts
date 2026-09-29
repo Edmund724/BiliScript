@@ -24,6 +24,7 @@ let state: TestState;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let statusBus: typeof import("../../extension/shared/subtitle-status-bus.js");
+let bannerCopy: typeof import("../../extension/reader/transcribe-banner.js");
 let video: HTMLVideoElement;
 
 async function loadReaderModules() {
@@ -32,6 +33,7 @@ async function loadReaderModules() {
   state = (await import("../../extension/core/state.js")).state as TestState;
   shell = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
+  bannerCopy = await import("../../extension/reader/transcribe-banner.js");
 }
 
 function banner(): HTMLElement {
@@ -44,6 +46,14 @@ function tabBodySubtitle(): HTMLElement {
 
 function progressText(): string {
   return (document.getElementById(ids.readingTranscribeProgress) as HTMLElement).textContent || "";
+}
+
+function bannerTitleText(): string {
+  return (document.getElementById(ids.readingTranscribeBannerTitle) as HTMLElement).textContent || "";
+}
+
+function bannerCopyText(): string {
+  return (document.getElementById(ids.readingTranscribeBannerCopy) as HTMLElement).textContent || "";
 }
 
 beforeEach(async () => {
@@ -123,6 +133,31 @@ describe("转写中间态横幅", () => {
 
     expect(banner().hidden).toBe(false);
     expect(tabBodySubtitle().classList.contains("is-transcribing")).toBe(true);
+  });
+
+  it("横幅文案按相位取：标题/副文案写入 id 节点（不是硬编码在模板里）", () => {
+    // 票 07 Q3：文案表的单源在 transcribe-banner.ts，渲染时按当前相位写入
+    // id 节点——模板自带的串只是首拍前的初始值，不是契约。
+    statusBus.publishSubtitleStatusPhase("asr-transcribing");
+    shell.updateReadingTranscribeBanner();
+
+    expect(bannerTitleText()).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].title);
+    expect(bannerCopyText()).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].copy);
+    // 逐字与归一化前的硬编码串一致（本次无可见变化）
+    expect(bannerTitleText()).toBe("该视频无字幕，正在进行音频转写…");
+    expect(bannerCopyText()).toBe("转写完成后字幕与概览将自动出现，期间可先看视频");
+  });
+
+  it("横幅文案幂等：同相位重复收敛不改写节点（脏检查）", () => {
+    statusBus.publishSubtitleStatusPhase("asr-transcribing");
+    shell.updateReadingTranscribeBanner();
+    const titleNode = document.getElementById(ids.readingTranscribeBannerTitle) as HTMLElement;
+
+    shell.updateReadingTranscribeBanner();
+
+    // 内容相同即不赋值（textContent 赋值会换文本节点，脏检查保证零 DOM 写）
+    expect(titleNode.textContent).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].title);
+    expect(bannerTitleText()).toBe("该视频无字幕，正在进行音频转写…");
   });
 
   it("renderReadingView 恢复呈现：打开视图晚于转写发起（相位先于渲染发布）", () => {

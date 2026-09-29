@@ -12,10 +12,12 @@ import { state, clipState } from "../../extension/core/state.js";
 import {
   findActiveSubtitleIndex,
   getReadingSubtitleItems,
+  getReadingSubtitlePlaceholderText,
   ensureDerivedContent,
   rebuildDerivedContent,
   refreshHotComments
 } from "../../extension/subtitle/core.js";
+import { getAsrFailureNotice } from "../../extension/core/asr-failure-notice.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
 
 // 热评抓取链路（opt-backlog-2026-09/04）：笔记导出删除后热评仍有非导出的消费方
@@ -369,5 +371,48 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
 
     await refreshHotComments({ refreshComments: true });
     expect(gateway.fetchHotComments).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 票 07 Q4：字幕 tab 空态只跟随 reason（病因 + 补救，**不带基础句、不带详情行**），
+// 与状态栏/概览的排版约束不同——这是占位块，基础句已在标题行语义里。
+describe("getReadingSubtitlePlaceholderText：空态跟随 reason", () => {
+  it("loading / error：维持原有文案", () => {
+    state.clip.setSubtitleFetchState("loading");
+    expect(getReadingSubtitlePlaceholderText()).toBe("正在加载字幕...");
+    state.clip.setSubtitleFetchState("error");
+    expect(getReadingSubtitlePlaceholderText()).toBe("字幕加载失败，请刷新重试。");
+  });
+
+  it("empty 且已归因：病因 + 补救（无基础句、无详情行）", () => {
+    state.clip.setSubtitleFetchState("empty");
+    state.clip.setNoSubtitleReason("asr-auth");
+    state.clip.setNoSubtitleDetail("（错误详情：HTTP 401）");
+
+    const notice = getAsrFailureNotice("asr-auth");
+    expect(getReadingSubtitlePlaceholderText()).toBe(`${notice.cause} ${notice.remedyText}`);
+    expect(getReadingSubtitlePlaceholderText()).not.toContain("当前视频无字幕。");
+    expect(getReadingSubtitlePlaceholderText()).not.toContain("错误详情");
+  });
+
+  it("empty 且原因为 null：维持通用句「当前视频无字幕。」", () => {
+    state.clip.setSubtitleFetchState("empty");
+    state.clip.setNoSubtitleReason(null);
+    expect(getReadingSubtitlePlaceholderText()).toBe("当前视频无字幕。");
+  });
+
+  it("非 empty 态（idle/ready）：维持通用句", () => {
+    state.clip.setNoSubtitleReason("asr-ratelimit");
+    state.clip.setSubtitleFetchState("idle");
+    expect(getReadingSubtitlePlaceholderText()).toBe("当前视频无字幕。");
+    state.clip.setSubtitleFetchState("ready");
+    expect(getReadingSubtitlePlaceholderText()).toBe("当前视频无字幕。");
+  });
+
+  it("asr-empty（平台成功但无人声）：补救句为空 → 只余病因，不留尾空格", () => {
+    state.clip.setSubtitleFetchState("empty");
+    state.clip.setNoSubtitleReason("asr-empty");
+    expect(getReadingSubtitlePlaceholderText()).toBe("未识别到语音内容，这个视频可能没有人声。");
+    expect(getReadingSubtitlePlaceholderText()).not.toMatch(/\s$/);
   });
 });

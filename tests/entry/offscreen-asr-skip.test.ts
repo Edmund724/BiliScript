@@ -137,6 +137,8 @@ describe("handleAsrDecodeTask 错误消息携带 reason（port 透传契约）",
     taskListener({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
 
     await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledTimes(1));
+    // 配置级失败不带 kind 字段（asr-skip 的属性归 reason，不是失败类别）——
+    // 这里用严格相等断言「不多出键」；kind 仅随非 skip 的错误路径出现
     expect(port.postMessage.mock.calls[0][0]).toEqual({
       type: "error",
       error: "没有激活的语音识别平台",
@@ -171,5 +173,69 @@ describe("handleAsrDecodeTask 错误消息携带 reason（port 透传契约）",
     expect(payload.type).toBe("error");
     expect(payload.code).toBe("asr-skip");
     expect(payload.reason).toBeUndefined();
+    expect(payload.kind).toBeUndefined();
+  });
+});
+
+// 管线级失败的 kind（票 03 Q2）：ERROR 是**管线级**语义的载体——音轨下载/解码/
+// 切片这类媒体来源抛出点由 offscreen 侧按 media 来源就地分类；两处配置抛出点
+// （域名未授权 / baseUrl 未配置）自带 platform 来源的 kind。这里用本文件现成的
+// 「真 offscreen.js 接线 + 假端口」手法断言 port 上的实际 payload。
+describe("handleAsrDecodeTask 管线级失败携带 kind（port 透传契约）", () => {
+  // 全套运行时配置 + 已授权，让链路走过配置与权限预检，一路到下载
+  const CONFIG_WITH_PROVIDER = {
+    ok: true,
+    asrAutoFallback: true,
+    activeAsrProviderId: "p1",
+    providers: [
+      {
+        id: "p1",
+        type: "openai-transcriptions",
+        name: "硅基流动",
+        presetId: "preset-siliconflow",
+        baseUrl: "https://api.siliconflow.cn/v1",
+        model: "FunASR-Nano-2512",
+        supportsTimestamps: true,
+        enabled: true
+      }
+    ],
+    activeKey: "sk-test",
+    asrLanguage: "auto"
+  };
+
+  async function runWithDownloadFailure() {
+    await loadOffscreen();
+    vi.stubGlobal("chrome", {
+      ...globalThis.chrome,
+      runtime: {
+        ...globalThis.chrome.runtime,
+        onConnect: { addListener: vi.fn((fn) => onConnectListeners.push(fn)) },
+        sendMessage: vi.fn(async (message: { type?: string }) => {
+          if (message?.type === "get-asr-runtime-config") {
+            return CONFIG_WITH_PROVIDER;
+          }
+          if (message?.type === "check-provider-origin") {
+            return { granted: true };
+          }
+          return { ok: true };
+        })
+      }
+    });
+    // 下载一律失败（HEAD/GET 都非 ok）→ streamAudioSegments 抛「音频下载失败」
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500 })));
+    const { port, taskListener } = connectAsrDecodePort();
+    taskListener({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
+    await vi.waitFor(() => expect(port.postMessage).toHaveBeenCalledTimes(1));
+    return port.postMessage.mock.calls[0][0] as Record<string, unknown>;
+  }
+
+  it("音轨下载失败（媒体来源）→ kind=asr-media", async () => {
+    const payload = await runWithDownloadFailure();
+
+    expect(payload.type).toBe("error");
+    expect(payload.error).toBe("音频下载失败");
+    // media 来源：音轨从 B 站 CDN 下来，绝不能落进平台语义（CDN 的 403/404
+    // 与 ASR 平台同形，误判会把 CDN 拦截报成「API Key 无效」）
+    expect(payload.kind).toBe("asr-media");
   });
 });

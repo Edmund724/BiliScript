@@ -10,8 +10,9 @@
 // provider 元数据（name/model）经注入的 loadProviders 取（asrProviders 已摘出
 // settings——列表归 provider-store，Key 不再进页面——组装移到 offscreen）；
 // 重点断言：skip 闸门（开关关 / 无激活平台 / 平台不在 provider 列表 / offscreen
-// asr-skip）、缓存命中（时长校验过 → done；不过 → 清缓存重新生成）、空结果诊
-// 断、错误路径（asr-failed 广播 + 无字幕出口逆事务）、成功路径（写缓存 +
+// asr-skip）、缓存命中（时长校验过 → done；不过 → 清缓存重新生成）、空结果归类
+//（failedChunks>0 按 kind 归因、=0 归 asr-empty）、错误路径（asr-failed 广播 +
+// 无字幕出口逆事务 + 按 kind 归因）、成功路径（写缓存 +
 // clearStaleAsrSubtitleCache 孤儿清理 + 伪轨道收尾）、stale run。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,6 +32,7 @@ import {
   configureCommitUi
 } from "../../extension/subtitle/commit.js";
 import { subscribeReaderPresenter } from "../../extension/reader/reader-bus.js";
+import { getAsrFailureNotice } from "../../extension/core/asr-failure-notice.js";
 
 const BVID = "BV1test000000";
 const CID = "101";
@@ -371,8 +373,9 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
       { from: 2, to: 290, content: "足够长的缓存字幕" }
     ];
     await seedCache(asrCacheKey(), cachedBody);
-    // 预放陈旧的无字幕原因：缓存命中 ready 收尾必须清 null
-    clipState.setNoSubtitleReason("asr-failed");
+    // 预放陈旧的无字幕原因与详情：缓存命中 ready 收尾必须清 null / 清空
+    clipState.setNoSubtitleReason("asr-auth");
+    clipState.setNoSubtitleDetail("（错误详情：HTTP 401）");
 
     const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
 
@@ -382,6 +385,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(state.clip.subtitleBody).toEqual(cachedBody);
     expect(clipState.noSubtitleReason).toBe(null);
+    expect(clipState.noSubtitleDetail).toBe("");
     // 缓存命中同样经字幕接受事务收尾
     expect(deps.acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(deps.acceptSubtitle).toHaveBeenCalledWith({
@@ -425,56 +429,120 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
 });
 
 describe("maybeRunAsrFallback 空结果与失败", () => {
-  it("空结果：文案「未识别到语音内容」+ asr-done 广播，不写缓存", async () => {
+  it("纯空结果（failedChunks=0，无人声）：原因 asr-empty、detail 清空、asr-done 广播，不写缓存", async () => {
+    // 预放旧失败的详情：新终态必须把它清掉（detail 与 reason 同生命周期）
+    clipState.setNoSubtitleDetail("（错误详情：HTTP 401）");
     deps.runAsrPipeline.mockResolvedValue([]);
 
     const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
 
     expect(result).toBe("empty");
-    const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
-    expect(statusCalls.some((s) => s.includes("未识别到语音内容"))).toBe(true);
     expect(deps.broadcastSubtitleStatus).toHaveBeenCalledWith("asr-done");
     expect(deps.commitNoSubtitle).not.toHaveBeenCalled(); // empty 由调用点收尾
     expect(memoryStorage.has(asrCacheKey())).toBe(false);
-    // 无字幕原因：未识别到语音内容
+    // 无字幕原因：未识别到语音内容；详情位不留旧报文（asr-empty 本就不带详情）
     expect(clipState.noSubtitleReason).toBe("asr-empty");
-  });
-
-  it("空结果带诊断：onEmptyDiagnostic 的信息拼进状态栏", async () => {
-    deps.runAsrPipeline.mockImplementation(async ({ onEmptyDiagnostic }) => {
-      onEmptyDiagnostic!("音频解码为空");
-      return [];
-    });
-
-    const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
-
-    expect(result).toBe("empty");
+    expect(clipState.noSubtitleDetail).toBe("");
+    // 自拼文案已退役（票 07 Q1）：失败/空结果文案的唯一出口是 commit，
+    // 本路径（调用方走 commitNoSubtitle）不再自己写状态栏
     const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
-    expect(
-      statusCalls.some((s) => s.includes("未识别到语音内容") && s.includes("（诊断：音频解码为空）"))
-    ).toBe(true);
+    expect(statusCalls.some((s) => s.includes("未识别到语音内容"))).toBe(false);
   });
 
-  it("管线失败：语音识别失败文案 + asr-failed 广播 + 无字幕出口逆事务，不崩", async () => {
+  it("管线失败（带 kind）：按 kind 归类 reason、无字幕出口逆事务，文案由出口统一拼", async () => {
     // 预放脏数据：失败出口必须清空（逆事务的端到端效果）
     clipState.setSelectedSubtitleId("asr");
     clipState.setSubtitleBody(TRANSCRIBED_BODY);
+    // 面级注入的失败必须显式带 kind（分类已移到 offscreen 侧，票 08 A4）。
+    // 管线级 ERROR 只带 kind（票 03 Q2 冻结的字段）——状态码与截断报文只随 DONE
+    // 的 failed* 上来，故本路径详情位为空串（详情行的正向用例见下方空结果路径）。
+    deps.runAsrPipeline.mockRejectedValue(
+      Object.assign(new Error("HTTP 401: {\"message\":\"Invalid token\"}"), { kind: "asr-auth" })
+    );
+
+    const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
+
+    expect(result).toBe("error");
+    // 自拼的「语音识别失败：…」已删除——状态栏由 commit 出口写同一句
+    const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
+    expect(statusCalls.some((s) => s.includes("语音识别失败："))).toBe(false);
+    expect(deps.broadcastSubtitleStatus).toHaveBeenCalledWith("asr-failed");
+    // 失败出口走 commit.commitNoSubtitle（逆事务），原因随出口写入
+    expect(deps.commitNoSubtitle).toHaveBeenCalledTimes(1);
+    expect(deps.commitNoSubtitle).toHaveBeenCalledWith({ noSubtitleReason: "asr-auth" });
+    expect(state.clip.subtitleFetchState).toBe("empty");
+    expect(state.clip.subtitleBody).toEqual([]);
+    expect(state.clip.selectedSubtitleId).toBe("");
+    // 无字幕原因：语音识别平台拒绝（按 kind 归类）
+    expect(clipState.noSubtitleReason).toBe("asr-auth");
+    // ERROR 不带 status/detail（票 03 Q2）→ 详情位空串（整段不出现，不写「无」）
+    expect(clipState.noSubtitleDetail).toBe("");
+  });
+
+  it("管线失败只带 kind（无 status/detail）：归类照旧，详情位空串", async () => {
+    deps.runAsrPipeline.mockRejectedValue(Object.assign(new Error("boom"), { kind: "asr-media" }));
+
+    await expect(fallback.maybeRunAsrFallback({ runId: RUN_ID })).resolves.toBe("error");
+
+    expect(clipState.noSubtitleReason).toBe("asr-media");
+    expect(clipState.noSubtitleDetail).toBe("");
+  });
+
+  it("管线失败未携带 kind：归 asr-unknown（不退回已删除的 asr-failed）", async () => {
     deps.runAsrPipeline.mockRejectedValue(new Error("音频解码失败"));
 
     const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
 
     expect(result).toBe("error");
-    const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
-    expect(statusCalls.some((s) => s.includes("语音识别失败：音频解码失败"))).toBe(true);
-    expect(deps.broadcastSubtitleStatus).toHaveBeenCalledWith("asr-failed");
-    // 失败出口走 commit.commitNoSubtitle（逆事务），原因随出口写入
-    expect(deps.commitNoSubtitle).toHaveBeenCalledTimes(1);
-    expect(deps.commitNoSubtitle).toHaveBeenCalledWith({ noSubtitleReason: "asr-failed", asrResult: "error" });
-    expect(state.clip.subtitleFetchState).toBe("empty");
-    expect(state.clip.subtitleBody).toEqual([]);
-    expect(state.clip.selectedSubtitleId).toBe("");
-    // 无字幕原因：语音识别失败
-    expect(clipState.noSubtitleReason).toBe("asr-failed");
+    expect(deps.commitNoSubtitle).toHaveBeenCalledWith({ noSubtitleReason: "asr-unknown" });
+    expect(clipState.noSubtitleReason).toBe("asr-unknown");
+    // 无结构化报文可展示：详情位空串（整段不出现，不写「无」）
+    expect(clipState.noSubtitleDetail).toBe("");
+  });
+
+  it("管线失败的可展示状态码非 401（kind 缺失但带 status）：reason 与详情都不猜状态码", async () => {
+    // 分类归 offscreen 侧（failure-kind.ts）；页面侧拿不到 kind 时不得自行按状态码
+    // 归类。管线级 ERROR 也不承诺携带 status/detail（票 03 Q2），故这里即使夹带
+    // 了 status 也只当没看见——既不改变 reason，也不生出详情行。
+    deps.runAsrPipeline.mockRejectedValue(
+      Object.assign(new Error("HTTP 500"), { status: 500, detail: "internal error" })
+    );
+
+    await expect(fallback.maybeRunAsrFallback({ runId: RUN_ID })).resolves.toBe("error");
+
+    expect(clipState.noSubtitleReason).toBe("asr-unknown");
+    expect(clipState.noSubtitleDetail).toBe("");
+  });
+
+  it("同一视频内的失败原因不清：第二次失败覆盖 reason/detail，不被 reset", async () => {
+    // Q14 重裁：reason 在同一视频内不主动清除；只有切视频（resetClipState）与
+    // 字幕接受事务（acceptSubtitle）才清。
+    // 第一轮走空结果路径（DONE 的 failed* 上来）→ 详情位有值。
+    deps.runAsrPipeline.mockImplementation(async ({ onAttemptOutcome }) => {
+      onAttemptOutcome?.({
+        totalChunks: 3,
+        failedChunks: 3,
+        elapsedMs: 61000,
+        failedKind: "asr-auth",
+        failedStatus: 401,
+        failedDetail: "{\"message\":\"Invalid token\"}"
+      });
+      return [];
+    });
+    await expect(fallback.maybeRunAsrFallback({ runId: RUN_ID })).resolves.toBe("empty");
+    expect(clipState.noSubtitleReason).toBe("asr-auth");
+    expect(clipState.noSubtitleDetail).toContain("HTTP 401");
+
+    // 同一视频内再抓一轮（runId 前进、bvid/cid 不变）→ 新终态覆盖旧值，
+    // 新的失败不得残留上一轮的报文（本类不带详情行 → 必须清空）
+    clipState.setFetchRunId(2);
+    deps.runAsrPipeline.mockRejectedValue(
+      Object.assign(new Error("HTTP 429"), { kind: "asr-ratelimit" })
+    );
+    await expect(fallback.maybeRunAsrFallback({ runId: 2 })).resolves.toBe("error");
+
+    expect(clipState.noSubtitleReason).toBe("asr-ratelimit");
+    expect(clipState.noSubtitleDetail).toBe("");
   });
 
   it("stale run（转写中切换视频）：任务不中止、缓存照落、asr-done 照发、UI 零写入", async () => {
@@ -624,9 +692,16 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(statusCalls.some((s) => s.includes("语音识别完成，已生成 3 条字幕。"))).toBe(true);
   });
 
-  it("自动重试后仍空（failedChunks>0）：终态 empty、原因 asr-failed、asr-done 只广播一次", async () => {
+  it("自动重试后仍空（failedChunks>0，带 kind）：终态 empty、按 kind 归类、asr-done 只广播一次", async () => {
     deps.runAsrPipeline.mockImplementation(async ({ onAttemptOutcome }) => {
-      onAttemptOutcome?.({ totalChunks: 3, failedChunks: 3, elapsedMs: 1500 });
+      onAttemptOutcome?.({
+        totalChunks: 3,
+        failedChunks: 3,
+        elapsedMs: 1500,
+        failedKind: "asr-auth",
+        failedStatus: 401,
+        failedDetail: "{\"message\":\"Invalid token\"}"
+      });
       return [];
     });
 
@@ -634,7 +709,10 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
 
     expect(result).toBe("empty");
     expect(deps.runAsrPipeline).toHaveBeenCalledTimes(2);
-    expect(clipState.noSubtitleReason).toBe("asr-failed");
+    expect(clipState.noSubtitleReason).toBe("asr-auth");
+    expect(clipState.noSubtitleDetail).toBe(
+      getAsrFailureNotice("asr-auth", { status: 401, detail: "{\"message\":\"Invalid token\"}" }).detail
+    );
     expect(deps.broadcastSubtitleStatus.mock.calls.map((c) => c[0])).toEqual([
       "asr-transcribing",
       "asr-done"
@@ -642,13 +720,29 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(deps.commitNoSubtitle).not.toHaveBeenCalled(); // empty 由调用点收尾
     const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
     expect(statusCalls.some((s) => s.includes("正在自动重试"))).toBe(true);
-    expect(statusCalls.some((s) => s.includes("3 片转写未成功"))).toBe(true);
+    // 自拼的「N 片转写未成功」已退役（票 06 Q6：诊断串退役、计数不再拼文案）
+    expect(statusCalls.some((s) => s.includes("片转写未成功"))).toBe(false);
     expect(memoryStorage.has(asrCacheKey())).toBe(false);
   });
 
-  it("存在片失败但非快速失败（elapsed 超阈值）：不自动重试，原因 asr-failed", async () => {
+  it("自动重试后仍空（failedChunks>0，无 kind）：归 asr-unknown、detail 清空", async () => {
     deps.runAsrPipeline.mockImplementation(async ({ onAttemptOutcome }) => {
-      onAttemptOutcome?.({ totalChunks: 5, failedChunks: 5, elapsedMs: 61000 });
+      // 预放旧详情：新终态必须覆盖它
+      clipState.setNoSubtitleDetail("（错误详情：HTTP 999）");
+      onAttemptOutcome?.({ totalChunks: 3, failedChunks: 3, elapsedMs: 1500 });
+      return [];
+    });
+
+    const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
+
+    expect(result).toBe("empty");
+    expect(clipState.noSubtitleReason).toBe("asr-unknown");
+    expect(clipState.noSubtitleDetail).toBe("");
+  });
+
+  it("存在片失败但非快速失败（elapsed 超阈值）：不自动重试，按 kind 归类", async () => {
+    deps.runAsrPipeline.mockImplementation(async ({ onAttemptOutcome }) => {
+      onAttemptOutcome?.({ totalChunks: 5, failedChunks: 5, elapsedMs: 61000, failedKind: "asr-server" });
       return [];
     });
 
@@ -657,10 +751,10 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(result).toBe("empty");
     expect(deps.runAsrPipeline).toHaveBeenCalledTimes(1);
     expect(deps.sleepFor).not.toHaveBeenCalled();
-    expect(clipState.noSubtitleReason).toBe("asr-failed");
+    expect(clipState.noSubtitleReason).toBe("asr-server");
   });
 
-  it("纯空结果（failedChunks=0，无人声）：不自动重试，原因 asr-empty、文案不变", async () => {
+  it("纯空结果（failedChunks=0，无人声）：不自动重试，原因 asr-empty（文案出口不在本路径）", async () => {
     deps.runAsrPipeline.mockImplementation(async ({ onAttemptOutcome }) => {
       onAttemptOutcome?.({ totalChunks: 3, failedChunks: 0, elapsedMs: 4000 });
       return [];
@@ -672,8 +766,10 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(deps.runAsrPipeline).toHaveBeenCalledTimes(1);
     expect(deps.sleepFor).not.toHaveBeenCalled();
     expect(clipState.noSubtitleReason).toBe("asr-empty");
+    expect(clipState.noSubtitleDetail).toBe("");
+    // 空结果自拼文案退役（票 07 Q1）：调用方（fetcher）随后走 commitNoSubtitle
     const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
-    expect(statusCalls.some((s) => s.includes("未识别到语音内容，该视频可能没有人声。"))).toBe(true);
+    expect(statusCalls.some((s) => s.includes("未识别到语音内容"))).toBe(false);
   });
 
   it("重试窗口内切视频：重试照跑、终态静默让位（asr-done 广播 + 零 UI 写入）", async () => {
@@ -693,6 +789,7 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(deps.sleepFor).toHaveBeenCalledTimes(1);
 
     // 重试进行中切视频
+    const statusCallsAtSwitch = deps.setStatus.mock.calls.length;
     clipState.setBvid("BV1other");
     clipState.setFetchRunId(2);
     deferred[1]([]);
@@ -703,9 +800,8 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
       "asr-transcribing",
       "asr-done"
     ]);
-    // 终态空结果文案不上新视频 UI
-    const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
-    expect(statusCalls.some((s) => s.includes("3 片转写未成功"))).toBe(false);
+    // 终态空结果不写新视频 UI（自拼文案已退役，状态栏只剩发起阶段的写入）
+    expect(deps.setStatus).toHaveBeenCalledTimes(statusCallsAtSwitch);
     expect(deps.commitNoSubtitle).not.toHaveBeenCalled();
   });
 });
@@ -731,5 +827,26 @@ describe("工厂单元导出", () => {
     ).resolves.toBeUndefined();
     expect(deps.setStatus).not.toHaveBeenCalled();
     expect(deps.broadcastSubtitleStatus).not.toHaveBeenCalled();
+  });
+
+  it("awaitActiveAsrTranscribe 空结果（带 kind）：写原因与详情，并经状态栏出完整文案", async () => {
+    // 这条路径没有 commitNoSubtitle 调用方（fetcher 失败兜底跟着共享转写收尾），
+    // 所以状态栏文案由本模块自己拼（buildAsrNoSubtitleMessage 的 status-line 面）。
+    const pending = stubPendingPipeline();
+    const first = fallback.maybeRunAsrFallback({ runId: RUN_ID });
+    await vi.waitFor(() => expect(deps.runAsrPipeline).toHaveBeenCalledTimes(1));
+
+    const waiter = fallback.awaitActiveAsrTranscribe({ runId: RUN_ID, bvid: BVID, cid: CID });
+    pending[0].resolve([]);
+    await expect(waiter).resolves.toBeUndefined();
+    await first;
+
+    expect(clipState.noSubtitleReason).toBe("asr-empty");
+    expect(clipState.noSubtitleDetail).toBe("");
+    const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
+    expect(
+      statusCalls.some((s) => s.includes("当前视频无字幕。") && s.includes("未识别到语音内容"))
+    ).toBe(true);
+    expect(deps.broadcastSubtitleStatus).toHaveBeenCalledWith("asr-done");
   });
 });

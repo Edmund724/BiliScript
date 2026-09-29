@@ -16,8 +16,17 @@
 //     `HTTP <status>`（err.status 带状态码），不再降级——重试与否交给调用方
 //     retryAsync 按状态码判定（408/429/5xx 可重试，其余 4xx 不重试），避免
 //     38MB 级 wav 对注定失败的请求做第二次全量重传。
+//
+// 失败信号（票 03 / 04）：本模块是**唯一拿得到完整响应体**的一层，故类别判定
+// （err.kind，规则住 asr/failure-kind.js）在这里做完——截断到 200 字符的
+// err.detail 只作展示，判定喂的是未截断原文（429 的 error.type 可能落在第 200
+// 字符之后）。响应体原文全量只进本 context（offscreen）的 logWarn，绝不跨 port。
 
 import type { AsrProvider } from "../asr-provider-store.js";
+import { classifyAsrFailure } from "../failure-kind.js";
+import type { AsrFailureProviderLike } from "../failure-kind.js";
+import { logWarn } from "../../shared/logging.js";
+import { getErrorMessage } from "../../shared/error-helpers.js";
 
 // 句级时间戳条目（verbose_json segments 归一化后的形状）
 export interface TranscriptSegment {
@@ -48,12 +57,60 @@ export interface TranscribeArgs {
 }
 
 // 单次 POST 的归一化结果：status=0 表示 2xx 且 JSON 解析成功；status=HTTP 码
-// 表示非 2xx；status=-1 表示响应体解析失败。detail 为错误上下文片段。
+// 表示非 2xx；status=-1 表示响应体解析失败。detail 为**展示用**上下文片段
+// （截到 200 字符），raw 为响应体**原文**——判定类别必须基于完整报文（票 03
+// 硬约束），截断后关键词可能已丢（如 429 的 error.type 落在第 200 字符之后）。
 interface PostTranscriptionResult {
   status: number;
   detail: string;
+  raw: string;
   text: string;
   segments?: TranscriptSegment[];
+}
+
+// 适配器抛出物的失败信号（票 03）：status 供重试判定（isRetryableNetworkError），
+// detail 截到 200 字符只作展示，kind 是判定类别——跨 port 只带得走这个小字符串。
+type AsrTranscriptionError = Error & { status?: number; detail?: string; kind?: string };
+
+// 统一挂失败信号：本适配器有四处抛出点（非 2xx / 降级失败 / 非 JSON 哨兵 /
+// 未配置 baseUrl），标签组装收在一处，四个调用点各只声明自己的 status 与报文。
+// status 可选：**只有真的是 HTTP 失败才带**（票 02/04：`平台 baseUrl 未配置`
+// 无状态码、无网络交互，凭空造一个 -1 会让 isRetryableNetworkError 走进状态码
+// 分支，改变重试判定）。
+function makeTranscriptionError(
+  message: string,
+  { status, detail, kind }: { status?: number; detail: string; kind: string }
+): AsrTranscriptionError {
+  const error = new Error(message) as AsrTranscriptionError;
+  if (status !== undefined) {
+    error.status = status;
+  }
+  error.detail = detail;
+  error.kind = kind;
+  return error;
+}
+
+// 分类输入：完整报文（未截断）+ status + provider（baseUrl 决定 429 的 host
+// 分流）。source 恒为 platform——音轨 CDN 的 403/404 走的是 offscreen 管线
+// 抛出点，绝不在本模块判定，否则 CDN 拦截会被误报成「API Key 无效」。
+function classifyPlatformFailure(
+  provider: AsrProvider,
+  status: number | null | undefined,
+  body: string
+): string {
+  return classifyAsrFailure({
+    source: "platform",
+    status,
+    body,
+    provider: provider as AsrFailureProviderLike
+  });
+}
+
+// 全量响应体只进 offscreen 的日志：跨 port 只带 kind / 截断 detail，报文原文
+// 全文留在这里（页面侧的 logWarn 拿不到它，也不该拿到）。平台错误报文不含音频
+// 与 Key（Q4 已评估过这条风险）。
+function logPlatformFailure(status: number, raw: string): void {
+  logWarn("[BILISCRIPT] asr platform rejected transcription request", { status, body: raw });
 }
 
 // 把识别语言转成平台查询参数：?language=zh / ?language=english。
@@ -102,7 +159,7 @@ function normalizeSegments(segments: unknown): TranscriptSegment[] | undefined {
 }
 
 // 单次 POST 请求。HTTP 2xx 且 JSON 解析成功 → status=0 并带 text/segments；
-// 否则 status=HTTP 码（-1 表示响应体解析失败）并附响应体片段 detail。
+// 否则 status=HTTP 码（-1 表示响应体解析失败）并附响应体片段 detail 与原文 raw。
 // 不抛错，交给调用方决定降级或重试（网络错误/Abort 除外）。
 async function postTranscription({ wavBlob, provider, signal, responseFormat }: {
   wavBlob: Blob;
@@ -112,7 +169,12 @@ async function postTranscription({ wavBlob, provider, signal, responseFormat }: 
 }): Promise<PostTranscriptionResult> {
   const baseUrl = String(provider?.baseUrl || "").trim().replace(/\/+$/, "");
   if (!baseUrl) {
-    throw new Error("平台 baseUrl 未配置");
+    // 同步抛出、无网络交互：配置类（no-asr-config），补救动作是「去设置填 baseUrl」。
+    // **不带 status**——票 02/04 明确这条「无状态码、无网络交互」。
+    throw makeTranscriptionError("平台 baseUrl 未配置", {
+      detail: "平台 baseUrl 未配置",
+      kind: classifyPlatformFailure(provider, undefined, "平台 baseUrl 未配置")
+    });
   }
   const form = buildTranscriptionForm(wavBlob, provider, responseFormat);
   const headers: Record<string, string> = {};
@@ -135,17 +197,27 @@ async function postTranscription({ wavBlob, provider, signal, responseFormat }: 
       abortError.name = "AbortError";
       throw abortError;
     }
+    // 网络层错误原样上抛（instanceof / message 不变，交 retryAsync 消息启发式
+    // 判定可重试），只**附加** kind 供归类点用：AbortError 分支在上方已返回，
+    // 用户取消绝不在这里被重新贴标签。
+    (error as AsrTranscriptionError).kind = classifyPlatformFailure(
+      provider,
+      undefined,
+      getErrorMessage(error)
+    );
     throw error;
   }
 
   if (!response.ok) {
-    let detail = "";
+    let raw = "";
     try {
-      detail = (await response.text()).slice(0, 200);
+      raw = await response.text();
     } catch {
-      // 忽略响应体读取失败
+      // 忽略响应体读取失败：raw 留空，判定按无报文走
     }
-    return { status: response.status, detail, text: "", segments: undefined };
+    const detail = raw.slice(0, 200);
+    logPlatformFailure(response.status, raw);
+    return { status: response.status, detail, raw, text: "", segments: undefined };
   }
 
   try {
@@ -153,13 +225,17 @@ async function postTranscription({ wavBlob, provider, signal, responseFormat }: 
     return {
       status: 0,
       detail: "",
+      raw: "",
       text: String(data?.text || "").trim(),
       segments: normalizeSegments(data?.segments)
     };
   } catch {
-    return { status: -1, detail: "响应体不是合法 JSON", text: "", segments: undefined };
+    return { status: -1, detail: "响应体不是合法 JSON", raw: "", text: "", segments: undefined };
   }
 }
+
+// 错误对象的可读文本（网络层失败的关键词判定）走 shared/error-helpers 的单源
+// 实现——不在这里另抄一份近似版本；它是 shared 叶子，本 context 的 engine 已引它。
 
 // 统一入口。返回 { text, segments? }；segments 缺省表示该平台无时间戳，
 // 调用方（pipeline）据此合成整片粗粒度字幕。
@@ -185,11 +261,14 @@ export async function transcribe({ wavBlob, startSec, durationSec, provider, sig
 
   // HTTP 非 2xx：确定性失败直接抛，不再发第二次全量 POST（单片 wav 38MB 级，
   // 对 401/403/400 这类重试也注定失败的请求是纯浪费）。可重试性（408/429/5xx）
-  // 由调用方 retryAsync 按 err.status 判定。
+  // 由调用方 retryAsync 按 err.status 判定；kind 的判定在**完整报文**上做完
+  //（first.raw 未截断），消息格式与 err.status 保持不变（既有断言锁定）。
   if (first.status > 0) {
-    const err: Error & { status?: number } = new Error(`HTTP ${first.status}${first.detail ? `: ${first.detail}` : ""}`);
-    err.status = first.status;
-    throw err;
+    throw makeTranscriptionError(`HTTP ${first.status}${first.detail ? `: ${first.detail}` : ""}`, {
+      status: first.status,
+      detail: first.detail,
+      kind: classifyPlatformFailure(provider, first.status, first.raw)
+    });
   }
 
   // 兼容性降级（唯一合法场景）：2xx 但响应体无 segments（平台不支持
@@ -202,7 +281,17 @@ export async function transcribe({ wavBlob, startSec, durationSec, provider, sig
   }
 
   // json 降级也失败：抛 HTTP 错误（5xx/网络错误由调用方 retryAsync 重试）。
-  const err: Error & { status?: number } = new Error(second.status > 0 ? `HTTP ${second.status}${second.detail ? `: ${second.detail}` : ""}` : (second.detail || "转写请求失败"));
-  err.status = second.status;
+  // status=-1（两次都是 2xx 但体不是合法 JSON）走判定次序 0a：asr-unknown。
+  const err = makeTranscriptionError(
+    second.status > 0 ? `HTTP ${second.status}${second.detail ? `: ${second.detail}` : ""}` : (second.detail || "转写请求失败"),
+    {
+      status: second.status,
+      detail: second.detail,
+      kind: classifyPlatformFailure(provider, second.status, second.raw || second.detail)
+    }
+  );
+  if (second.status > 0) {
+    logPlatformFailure(second.status, second.raw);
+  }
   throw err;
 }

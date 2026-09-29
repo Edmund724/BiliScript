@@ -29,6 +29,7 @@
 
 import { state } from "../core/state.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { setMessage } from "../core/ui-status.js";
@@ -486,6 +487,11 @@ function buildOverviewBodyHtml(): string {
 // 一致；字幕抓取中（subtitleFetchState=loading，点 Script 后台抓取未落定）
 // 同为预期态，不误显「该视频没有可用字幕」——字幕就绪后 subtitle-ready 通知
 // / 落定对账会自动触发生成。
+//
+// 已归因（noSubtitleReason 非空）时跟随原因（票 07 Q4）：标题 = 病因、正文 =
+// 补救，逐字来自 core/asr-failure-notice 的单一真源，**不带详情行**（详情行是
+// 单行宿主的设计，塞进标题 + 正文占位块会破排版）；任一段缺失时回退到通用
+// 标题/正文。
 function buildEmptyStateHtml(): string {
   if (isReaderTranscribing()) {
     return `
@@ -503,10 +509,17 @@ function buildEmptyStateHtml(): string {
       </div>
     `;
   }
+  let title = "该视频没有可用字幕";
+  let copy = "概览（章节与金句）需要字幕才能生成。";
+  if (state.clip.noSubtitleReason) {
+    const notice = getAsrFailureNotice(state.clip.noSubtitleReason);
+    title = notice.cause || title;
+    copy = notice.remedyText || copy;
+  }
   return `
     <div class="biliscript-reading-placeholder">
-      <div class="biliscript-reading-placeholder-title">该视频没有可用字幕</div>
-      <p class="biliscript-reading-placeholder-copy">概览（章节与金句）需要字幕才能生成。</p>
+      <div class="biliscript-reading-placeholder-title">${escapeHtml(title)}</div>
+      <p class="biliscript-reading-placeholder-copy">${escapeHtml(copy)}</p>
     </div>
   `;
 }

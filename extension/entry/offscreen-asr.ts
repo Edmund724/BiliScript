@@ -10,6 +10,16 @@
 // onTaskTerminal(port) 回调通知入口层做自关判定——本模块不感知簿记状态。
 // chrome.runtime / AudioContext 等全局在 offscreen 环境固定可直接用；纯逻辑
 // （resolveAsrProvider / makeAsrSkipError）保持模块级可导出可测。
+//
+// 失败信号与快速中止（票 03 / 05）：
+//   - 类别（kind）在本 context 判完——适配器用**完整报文**判平台的 HTTP 失败，
+//     管线的下载/解码/切片抛出点按 media 来源判，两处配置抛出点自带 kind；
+//     跨 port 只带 kind 这个小字符串（截断 detail 只作展示，响应体原文只进
+//     本 context 的 logWarn）；
+//   - 首个**不可重试**的片级失败即中止整轮（不再切完整条音轨、不再上传后续片）：
+//     置位在注入的 transcribe 闭包内（fatalAbort），引擎经只读的 isAborted
+//     消费它；stop() 同步抛 ASR_ABORT_SENTINEL 停掉上游切片流水（否则内存上限
+//     文案会顶替真正的失败原因）；收尾走与普通空结果失败同一个出口（DONE）。
 
 import {
   MAX_AUDIO_BYTES,
@@ -22,6 +32,7 @@ import {
   ASR_MSG_ERROR
 } from "../asr/protocol.js";
 import { buildChunkPlan } from "../asr/chunker.js";
+import { classifyAsrFailure } from "../asr/failure-kind.js";
 import { streamWavChunks } from "../asr/stream-chunker.js";
 import { createTranscriptionEngine } from "../asr/engine.js";
 import { transcribe as transcribeOpenAi } from "../asr/adapters/openai-transcriptions.js";
@@ -29,7 +40,7 @@ import { isFragmentedMp4, createAdtsExtractor, parseAudioSpecificConfig } from "
 import { hasHostPermissionFromOffscreen, HOST_PERMISSION_HINT } from "../core/host-permissions.js";
 import { ASR_CONCURRENCY } from "../shared/offscreen-constants.js";
 import { concatBytes } from "../shared/bytes.js";
-import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
+import { getErrorMessage, isRetryableNetworkError, withTimeout } from "../shared/error-helpers.js";
 import { safePostMessage } from "../shared/messaging.js";
 import { logWarn } from "../shared/logging.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
@@ -37,7 +48,35 @@ import type { GetAsrRuntimeConfigResponse } from "../shared/messaging-protocol.j
 
 // ASR 解码任务中止哨兵：decodeSegment/onChunk 检查 aborted 后抛出，
 // 外层 catch 识别后静默退出（不 post error），与「断连视为取消」语义一致。
+// 真断连（aborted）与确定性失败中止（fatalAbort，票 05）共用本哨兵——两者都是
+// 「停止一切新增工作」，但收尾不同：前者是用户已走（静默），后者要报出失败。
 const ASR_ABORT_SENTINEL = Object.freeze({ asrAborted: true });
+
+// 确定性失败中止时捕获的失败摘要（片级失败信号，随 ASR_MSG_DONE 过界）。
+interface AsrFatalFailure {
+  kind?: string;
+  status?: number;
+  detail?: string;
+}
+
+// 把抛出的错误投影为片级失败信号：kind 由产出侧判定好（适配器在完整报文上判的）；
+// 没带 kind 的（注入的 transcribe 未标注、旧适配器）在此就地补一次分类——错误
+// 消息是那时唯一还在手上的文本，故按 platform 来源走关键词/无状态码分支。
+function summarizeFailure(error: unknown, provider: AsrProvider | null): AsrFatalFailure {
+  const err = error as { kind?: unknown; status?: unknown; detail?: unknown } | null;
+  const kind = typeof err?.kind === "string" && err.kind
+    ? err.kind
+    : classifyAsrFailure({ source: "platform", body: getErrorMessage(error), provider });
+  const status = Number(err?.status);
+  const summary: AsrFatalFailure = { kind };
+  if (Number.isFinite(status)) {
+    summary.status = status;
+  }
+  if (typeof err?.detail === "string" && err.detail) {
+    summary.detail = err.detail;
+  }
+  return summary;
+}
 
 // type → 适配器映射（原 pipeline.js ADAPTERS 表随转写迁入 offscreen）。
 // 映射表缺 type 时发 error，页面显示「暂不支持的平台类型」。并发上限与
@@ -128,6 +167,21 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
   return async function handleAsrDecodeTask(rawTask: unknown, port: AsrDecodePort): Promise<void> {
     const task = rawTask as AsrTask;
     let aborted = false;
+    // 确定性失败中止（票 05）：首个不可重试的片级失败即中止整轮，不再为注定
+    // 失败的任务切完整条音轨、逐片上传（2 小时视频上限 200MB，见 PRIVACY.md）。
+    // 与 aborted（真断连）分开记：收尾不同——aborted 静默取消，fatalAbort 要
+    // 把失败原因报出去。
+    let fatalAbort = false;
+    let fatalFailure: AsrFatalFailure | null = null;
+    // 闭包写入、catch 读取：控制流分析在 catch 处只看得到初值 null（transcribe
+    // 闭包里的赋值不改外层收窄），直接写 fatalFailure?.kind 会被判成 never。
+    // 经函数读取即绕过收窄（函数返回值不参与 CFA）。
+    const readFatalFailure = (): AsrFatalFailure | null => fatalFailure;
+    // provider 引用供外层 catch 做管线级失败分类（分类要 baseUrl 判 host）。
+    let providerRef: AsrProvider | null = null;
+    // 已跳过的解码失败段数：中止收尾（catch 的 fatalAbort 分支）也要如实上报它，
+    // 故在 try 之外声明——作用域留在 try 内会让中止路径拿不到这个计数。
+    let skippedSegments = 0;
     port.onDisconnect.addListener(() => {
       // 断连视为取消：下载/解码/调度各处检查标志并静默退出（原 asr-audio 通道风格）
       aborted = true;
@@ -145,6 +199,7 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       let provider: AsrProvider;
       try {
         provider = resolveAsrProvider(await requestAsrRuntimeConfig());
+        providerRef = provider;
       } catch (error) {
         if ((error as { code?: string }).code === "asr-skip") {
           throw error;
@@ -161,7 +216,10 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       // 即以可操作文案失败，连音频都不下载（否则白下载解码一场，最后只报一个看不出
       // 原因的「网络错误：Failed to fetch」）。
       if (!(await hasHostPermissionFromOffscreen(provider.baseUrl))) {
-        throw new Error(HOST_PERMISSION_HINT);
+        // 域名未授权归 no-asr-config（票 04 Q1：平台/模型不可用，补救动作是去设置）
+        throw Object.assign(new Error(HOST_PERMISSION_HINT), {
+          kind: classifyAsrFailure({ source: "platform", body: HOST_PERMISSION_HINT, provider })
+        });
       }
 
       // 适配器与切片计划由 provider.type 决定（原 pipeline 的 ADAPTERS 表与
@@ -175,16 +233,30 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       // 转写调度引擎：解码流式产片 push 进活队列（解码与转写流水线重叠），
       // 每片完成即经 onChunkResult 把文本结果发回页面，不等全部完成。
       const engine = createTranscriptionEngine({
-        transcribe: (chunk, { onProgress }) =>
-          adapterEntry.adapter({
-            wavBlob: chunk.wavBlob,
-            startSec: chunk.startSec,
-            durationSec: chunk.durationSec,
-            provider,
-            signal: undefined,
-            onProgress
-          }),
-        isAborted: () => aborted,
+        transcribe: async (chunk, { onProgress }) => {
+          try {
+            return await adapterEntry.adapter({
+              wavBlob: chunk.wavBlob,
+              startSec: chunk.startSec,
+              durationSec: chunk.durationSec,
+              provider,
+              signal: undefined,
+              onProgress
+            });
+          } catch (error) {
+            // 首个不可重试失败 → 中止整轮（票 05）。置位点在这里而不在 engine.ts：
+            // engine 的 isAborted 是**只读注入**（设计如此，且票 05 明确禁止给它加
+            // 新选项），engine 只消费它——push 拒绝、排队片丢弃并计 droppedByAbort。
+            // 本闭包正是「重试耗尽后的那片」所在处（retryAsync 在 engine 的
+            // transcribeChunk 内层），故这就是「首个非重试失败中止整轮」的落点。
+            if (!aborted && !isRetryableNetworkError(error)) {
+              fatalAbort = true;
+              fatalFailure = summarizeFailure(error, provider);
+            }
+            throw error;
+          }
+        },
+        isAborted: () => aborted || fatalAbort,
         concurrency: adapterEntry.concurrency,
         onChunkResult: (chunk, result) => {
           // engine 交付的单片形状 AsrTranscribeResult & { durationSec }；拆开
@@ -220,7 +292,6 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       }
 
       let totalChunks: number | undefined;
-      let skippedSegments = 0;
       // fMP4 音轨拆 ADTS 分段，逐段解码 + 流式切片喂入转写引擎（有界
       // 内存）。历史背景：旧实现把整条音轨一次性 decodeAudioData——4 小时视频在
       // 48kHz 双声道下产出 ~6.4GB Float32 AudioBuffer，offscreen 渲染进程被 OOM
@@ -233,7 +304,10 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       const audioCtx = new AudioCtor();
       try {
         const stop = () => {
-          if (aborted) throw ASR_ABORT_SENTINEL;
+          // fatalAbort 也在这里抛哨兵：中止必须**同时停上游切片**（票 05 义务 1）——
+          // 否则 stream-chunker 会把 push() 的 false 变成 ASR_PENDING_CHUNKS_LIMIT_MESSAGE，
+          // 用内存上限文案顶替真正的失败原因。下载生成器的 finally 会 cancel 连接。
+          if (aborted || fatalAbort) throw ASR_ABORT_SENTINEL;
         };
         // 段来源：首个已就绪的段 + 下载流后续段（下载/提帧/解码/切片全流水，
         // 任何时刻至多持有一个待解码段）。判为 fMP4 但整流后无音帧时生成器
@@ -279,16 +353,48 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       if (!(summary.acceptedChunks > 0)) {
         throw new Error("音频切片为空，无法转写");
       }
+      // 片级失败摘要随 DONE 过界（票 03 Q2：不新开消息类型，ERROR 的管线级语义
+      // 不动）：代表失败取首个不可重试的那片（engine 侧已选好），无失败则三个
+      // 字段都不出现——页面据此区分「真无人声」与「说得出原因的失败」。
+      const failedSummary = summary.representativeFailure
+        ? summarizeFailure(summary.representativeFailure.error, provider)
+        : null;
       port.postMessage({
         type: ASR_MSG_DONE,
         totalChunks: summary.acceptedChunks,
         skippedSegments,
-        failedChunks: summary.failedChunks
+        failedChunks: summary.failedChunks,
+        ...(failedSummary?.kind ? { failedKind: failedSummary.kind } : {}),
+        ...(failedSummary?.status !== undefined ? { failedStatus: failedSummary.status } : {}),
+        ...(failedSummary?.detail ? { failedDetail: failedSummary.detail } : {})
       });
       // 终态消息发完才通知入口层自关判定（文档关闭后无法再 postMessage）
       onTaskTerminal(port);
     } catch (e) {
+      // 收尾次序不可调换（票 05 义务 2：中止必须优先判，否则会被别的文案顶替）：
+      // 1) 真断连 → 静默退出（用户已走，与既有语义一致）；
+      // 2) 确定性失败中止 → 走**与普通空结果失败相同的出口**：发 DONE（带
+      //    failedChunks: 1 与片级失败摘要）而不是 ERROR。中止是片级失败，借
+      //    ERROR 会改变它「管线级错误」的语义（票 03 Q2）；而两条路径在 fallback
+      //    的同一条空结果分支上落到同一个无字幕出口与同一个 reason（票 05 锁的
+      //    是出口与 reason，不锁消息类型）；
+      // 3) 其余管线错误 → ERROR + 管线级 kind（媒体来源：下载/解码/切片/空片/
+      //    排队上限；未带 kind 的按 media 来源就地补一次分类）。
       if (aborted) {
+        return;
+      }
+      if (fatalAbort) {
+        const failure = readFatalFailure();
+        safePostMessage(port, {
+          type: ASR_MSG_DONE,
+          totalChunks: 0,
+          skippedSegments,
+          failedChunks: 1,
+          ...(failure?.kind ? { failedKind: failure.kind } : {}),
+          ...(failure?.status !== undefined ? { failedStatus: failure.status } : {}),
+          ...(failure?.detail ? { failedDetail: failure.detail } : {})
+        });
+        onTaskTerminal(port);
         return;
       }
       // error 终态消息经 safePostMessage 收口（port 已断开则吞掉异常），发完
@@ -300,6 +406,15 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       }
       if ((e as { reason?: string }).reason) {
         payload.reason = (e as { reason: string }).reason;
+      }
+      // 管线级 kind：两处配置抛出点（域名未授权 / baseUrl 未配置）与适配器已自
+      // 带 kind，其余（媒体来源的下载/解码/切片）在此就地分类。asr-skip 是
+      // 「配置级跳过」而非失败（页面按 code 静默走 skip，reason 归 noSubtitleReason），
+      // 不贴失败类别——它与 ERROR 的失败语义是两条路，贴了反而会被误当失败展示。
+      // 注意「暂不支持的平台类型：…」**不特判**：票 04 没给规则，故故意落 asr-unknown。
+      if ((e as { code?: string }).code !== "asr-skip") {
+        payload.kind = (e as { kind?: string }).kind
+          || classifyAsrFailure({ source: "media", body: getErrorMessage(e), provider: providerRef });
       }
       safePostMessage(port, payload);
       onTaskTerminal(port);

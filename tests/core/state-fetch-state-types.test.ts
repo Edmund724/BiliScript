@@ -23,11 +23,24 @@ describe("并发状态字段类型收窄（编译期负向用例）", () => {
     void typo;
   });
 
+  it("noSubtitleReason：已删除的 asr-failed 编译被拒", () => {
+    // 历史字面量已随 asr-error-reporting/04 删除（reason 从不落盘，无兼容对象）
+    // @ts-expect-error "asr-failed" 已不在 NoSubtitleReason 联合内
+    const removed: NoSubtitleReason = "asr-failed";
+    void removed;
+  });
+
   it("chat 侧读边界类型 = core 联合 | undefined（单源不漂移）", () => {
     // 若 chat 镜像类型漂移回 string|null|undefined，typo 会被放行、负向指令变
     // 「未使用」而红——锁定单源指向 core 联合
     // @ts-expect-error "asr-fail" 不在 core 联合 | undefined 内
     const typo: ChatNoSubtitleReason = "asr-fail";
     void typo;
+  });
+
+  it("chat 侧读边界：已删除的 asr-failed 编译被拒", () => {
+    // @ts-expect-error "asr-failed" 已不在 core 联合内
+    const removed: ChatNoSubtitleReason = "asr-failed";
+    void removed;
   });
 });

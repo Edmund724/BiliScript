@@ -24,6 +24,9 @@ import { logWarn } from "../shared/logging.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import { isProgrammaticScrolling, ids } from "./state.js";
 import { withReader } from "../ui/reader-gate.js";
+// 相位 → 横幅文案表的单源在 transcribe-banner.ts（驱动方与文案同居）；模板只
+// 借用转写相位的两条串做初始内容（唯一可见相位见该模块注释）。
+import { TRANSCRIBE_BANNER_COPY } from "./transcribe-banner.js";
 
 export function buildSubtitleTabBodyHtml(): string {
   return `
@@ -59,12 +62,14 @@ export function buildSubtitleTabBodyHtml(): string {
               <button id="${ids.readingExportSubtitleBtn}" type="button" class="biliscript-reading-mini-btn">导出</button>
             </div>
 
-            <!-- 转写中间态（PR3）：显隐由 reader/transcribe-banner.ts 按
-                 shared/subtitle-status-bus 的进程内相位驱动；进度为不确定样式
-                 （页面侧拿不到片 x/y），进度行实时显示状态栏文本 -->
+            <!-- 转写中间态（PR3）：显隐与文案由 reader/transcribe-banner.ts 按
+                 shared/subtitle-status-bus 的进程内相位驱动（标题/副文案按相位
+                 取，见该模块的相位文案表）；进度为不确定样式（页面侧拿不到片
+                 x/y），进度行实时显示状态栏文本。初始文案是转写中相位的同款，
+                 供骨架先于首拍驱动的窗口期显示 -->
             <aside id="${ids.readingTranscribeBanner}" class="biliscript-reading-asr-banner" hidden>
-              <div class="biliscript-reading-asr-title">该视频无字幕，正在进行音频转写…</div>
-              <p class="biliscript-reading-asr-copy">转写完成后字幕与概览将自动出现，期间可先看视频</p>
+              <div id="${ids.readingTranscribeBannerTitle}" class="biliscript-reading-asr-title">${TRANSCRIBE_BANNER_COPY["asr-transcribing"].title}</div>
+              <p id="${ids.readingTranscribeBannerCopy}" class="biliscript-reading-asr-copy">${TRANSCRIBE_BANNER_COPY["asr-transcribing"].copy}</p>
               <div class="biliscript-reading-asr-track" aria-hidden="true"><div class="biliscript-reading-asr-fill"></div></div>
               <div id="${ids.readingTranscribeProgress}" class="biliscript-reading-asr-foot">正在准备转写…</div>
             </aside>

@@ -173,11 +173,12 @@ describe("事务级 runId 自检（commit.acceptSubtitle / commitNoSubtitle）",
     clipState.setSubtitleBody(GOOD_BODY);
     clipState.setFetchRunId(3);
 
-    await expect(commitNoSubtitle({ asrResult: "empty", runId: 2 })).rejects.toMatchObject({ code: "STALE_RUN" });
+    // asrResult 参数已随失败文案归一删除（票 07 Q1），出口只认 reason + runId
+    await expect(commitNoSubtitle({ runId: 2 })).rejects.toMatchObject({ code: "STALE_RUN" });
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(state.clip.subtitleBody).toEqual(GOOD_BODY);
 
-    await expect(commitNoSubtitle({ asrResult: "empty", runId: 3 })).resolves.toBeUndefined();
+    await expect(commitNoSubtitle({ runId: 3 })).resolves.toBeUndefined();
     expect(state.clip.subtitleFetchState).toBe("empty");
     expect(state.clip.subtitleBody).toEqual([]);
   });

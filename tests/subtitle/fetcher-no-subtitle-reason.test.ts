@@ -1,12 +1,12 @@
 // fetcher.js 无字幕原因（noSubtitleReason）与状态栏文案测试。
 //
 // 覆盖三块契约：
-//   - resetClipState：无字幕原因清 null（切视频/失败清上下文不留陈旧原因）；
+//   - resetClipState：无字幕原因与详情清空（切视频/失败清上下文不留陈旧原因）；
 //     keepFetchState 参数保留当前 fetchState（586c61b 纪律：错误路径不得把
 //     状态洗回 idle，见 refreshClip catch 与 sidepanel-subtitle-wait.js）。
-//   - loadSubtitle 两条 ready 路径（缓存命中 / 网络成功）：ready 收尾清 null，
-//     且两条路径都经字幕接受事务（commit.acceptSubtitle，vi.fn 包装真实实现
-//     可观察调用）；缓存命中喂乱序 body，锁「接受事务单点稳定排序」。
+//   - loadSubtitle 两条 ready 路径（缓存命中 / 网络成功）：ready 收尾清空原因与
+//     详情，且两条路径都经字幕接受事务（commit.acceptSubtitle，vi.fn 包装真实
+//     实现可观察调用）；缓存命中喂乱序 body，锁「接受事务单点稳定排序」。
 //   - buildNoSubtitleStatusMessage 的文案契约已随事务迁入
 //     tests/subtitle/commit.test.ts（文案属无字幕出口事务的一部分）。
 // mock 结构与 fetcher-logging.test.js 相同：重依赖 mock，state/selection/
@@ -137,14 +137,17 @@ beforeEach(() => {
 // tests/subtitle/commit.test.ts（fetcher 不再导出该函数）。
 
 describe("noSubtitleReason 清除点", () => {
-  it("resetClipState：陈旧原因清 null", () => {
+  it("resetClipState：陈旧原因与详情清空", () => {
     clipState.setSubtitleFetchState("empty");
     clipState.setNoSubtitleReason("asr-empty");
+    clipState.setNoSubtitleDetail("（错误详情：HTTP 402）");
     expect(clipState.noSubtitleReason).toBe("asr-empty");
 
     fetcher.resetClipState();
 
     expect(clipState.noSubtitleReason).toBe(null);
+    // 切视频即清详情：下一个视频不得继承上一个视频的报文明细
+    expect(clipState.noSubtitleDetail).toBe("");
     expect(clipState.subtitleFetchState).toBe("idle");
   });
 
@@ -157,11 +160,13 @@ describe("noSubtitleReason 清除点", () => {
     expect(clipState.subtitleFetchState).toBe("loading");
     expect(clipState.subtitleBody).toEqual([]);
     expect(clipState.noSubtitleReason).toBe(null);
+    expect(clipState.noSubtitleDetail).toBe("");
     expect(clipState.subtitles).toEqual([]);
   });
 
-  it("loadSubtitle 缓存命中 ready：陈旧原因清 null，且经字幕接受事务（乱序缓存条目被稳定排序）", async () => {
+  it("loadSubtitle 缓存命中 ready：陈旧原因与详情清空，且经字幕接受事务（乱序缓存条目被稳定排序）", async () => {
     clipState.setNoSubtitleReason("no-asr-config");
+    clipState.setNoSubtitleDetail("（错误详情：HTTP 404）");
     // 旧缓存条目可能无序：接受事务单点负责排序（findActiveSubtitleIndex 二分依赖）
     const unsortedBody = [SUBTITLE_BODY[2], SUBTITLE_BODY[0], SUBTITLE_BODY[1]];
     vi.mocked(loadSubtitleFromCache).mockResolvedValue(unsortedBody);
@@ -171,6 +176,7 @@ describe("noSubtitleReason 清除点", () => {
     expect(clipState.subtitleFetchState).toBe("ready");
     expect(clipState.subtitleBody).toEqual(SUBTITLE_BODY);
     expect(clipState.noSubtitleReason).toBe(null);
+    expect(clipState.noSubtitleDetail).toBe("");
     // 调用了 commit.acceptSubtitle（fetcher 不再手抄接受序列）；runId 随行
     // 供事务提交前自检代次（M23 runId 协调）
     expect(acceptSubtitle).toHaveBeenCalledTimes(1);
@@ -185,8 +191,9 @@ describe("noSubtitleReason 清除点", () => {
     expect(fetchBodyMock).not.toHaveBeenCalled();
   });
 
-  it("loadSubtitle 网络成功 ready：陈旧原因清 null，且经字幕接受事务", async () => {
-    clipState.setNoSubtitleReason("asr-failed");
+  it("loadSubtitle 网络成功 ready：陈旧原因与详情清空，且经字幕接受事务", async () => {
+    clipState.setNoSubtitleReason("asr-auth");
+    clipState.setNoSubtitleDetail("（错误详情：HTTP 401）");
     vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", true);
@@ -194,6 +201,7 @@ describe("noSubtitleReason 清除点", () => {
     expect(clipState.subtitleFetchState).toBe("ready");
     expect(clipState.subtitleBody).toEqual(SUBTITLE_BODY);
     expect(clipState.noSubtitleReason).toBe(null);
+    expect(clipState.noSubtitleDetail).toBe("");
     expect(acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(acceptSubtitle).toHaveBeenCalledWith({
       body: SUBTITLE_BODY,

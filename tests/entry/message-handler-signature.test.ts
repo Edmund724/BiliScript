@@ -198,7 +198,7 @@ describe("computeContextStateSignature 纯函数", () => {
     state.clip.setTitle("换了标题");
     state.clip.setPageCount(7);
     state.clip.setSelectedSubtitleUrl("u1?alt=signed");
-    state.clip.setNoSubtitleReason("asr-failed");
+    state.clip.setNoSubtitleReason("asr-unknown");
     const payload = buildPayload();
     payload.url = "https://www.bilibili.com/video/BV1sig/?p=9&t=1";
     payload.hotComments = [{ uname: "u", like: 1, message: "m" }];
@@ -368,7 +368,7 @@ describe("context-payload 形状快照与签名三分类对账", () => {
       videoDuration: 12345,
       selectedSubtitleUrl: "https://subtitle/9?alt=signed",
       // 基础 payload 里为 null（"" || null），扰动为非空原因
-      noSubtitleReason: "asr-failed"
+      noSubtitleReason: "asr-unknown"
     };
     expect(Object.keys(mutations).sort()).toEqual([...SIGNATURE_EXCLUDED_FIELDS].sort());
 

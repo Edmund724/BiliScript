@@ -47,11 +47,17 @@ export const ASR_MSG_PROGRESS = "progress" as const;
 // 单片转写结果 { index, startSec, durationSec, result }，result 为适配器
 // 单片结果 { text, segments?, _asrDiag? }，原样透传（纯 JSON 文本）
 export const ASR_MSG_CHUNK_RESULT = "chunk-result" as const;
-// 终态汇总 { totalChunks, skippedSegments, failedChunks }
+// 终态汇总 { totalChunks, skippedSegments, failedChunks } + 片级失败摘要
+// （failedKind / failedStatus / failedDetail，可选）。片级失败不挤进 error：
+// 引擎「个别失败不整体失败」的既有口径（Q8a）不变，失败类别作为**附加信号**
+// 随同一个终态消息到站。首片确定性失败触发的中止（票 05）也走本消息——它是
+// 片级失败收尾，与普通空结果失败同一个出口，不借用 error 的管线级语义。
 export const ASR_MSG_DONE = "done" as const;
-// 终态错误 { error, code?, reason? }：code（如 "asr-skip"）与结构化 reason
-// （asr-skip 的 "asr-disabled" / "no-asr-config"）随错误对象透传，最终落
-// clipState.noSubtitleReason（asr/fallback.js）
+// 终态错误 { error, code?, reason?, kind? }：code（如 "asr-skip"）与结构化
+// reason（asr-skip 的 "asr-disabled" / "no-asr-config"）随错误对象透传，最终落
+// clipState.noSubtitleReason（asr/fallback.js）。kind 为**管线级**失败的类别
+// （音轨下载 / 解码 / 切片 / 域名未授权 / baseUrl 未配置，判定在 offscreen 侧
+// 用完整报文做完）——逐片转写失败仍只走 done，不得挤进本条（语义会变）。
 export const ASR_MSG_ERROR = "error" as const;
 
 export type AsrPortMessageType =
@@ -74,12 +80,22 @@ export type AsrDoneMessage = {
   totalChunks: number;
   skippedSegments: number;
   failedChunks: number;
+  // 片级失败摘要（可选，仅在有失败片时携带）：kind 是判定类别（分类规则住
+  // asr/failure-kind.js，判定在完整报文还在手上的 offscreen 侧做完），status /
+  // detail 只作展示。响应体**全量**只进 offscreen 的 logWarn，绝不跨 port
+  //（Q4）——这里过界的 detail 已被适配器截到 200 字符。
+  failedKind?: string;
+  failedStatus?: number;
+  failedDetail?: string;
 };
 export type AsrErrorMessage = {
   type: typeof ASR_MSG_ERROR;
   error: string;
   code?: string;
   reason?: string;
+  // 管线级失败的判定类别（如 no-asr-config / asr-media）：与 code / reason 同款，
+  // 有则附、无则不加（旧宿主不认得本条，页面按 asr-unknown 收口）。
+  kind?: string;
 };
 
 export type AsrPortMessage =
@@ -89,11 +105,15 @@ export type AsrPortMessage =
   | AsrErrorMessage;
 
 // ===== 页面侧任务结果形状（createOffscreenChunkHost 的 resolve 值） =====
-//   { results, totalChunks, skippedSegments, failedChunks }
+//   { results, totalChunks, skippedSegments, failedChunks,
+//     failedKind?, failedStatus?, failedDetail? }
 //   results 为按片 index 排序的 [{ index, startSec, durationSec, result }]；
 //   totalChunks 为产出片数，skippedSegments 为解码失败跳过的段数，
 //   failedChunks 为转写失败跳过的片数（Q8a 口径：个别失败不整体失败，
 //   全部段解码失败零片产出才算整体失败）。
+//   三个 failed* 字段是片级失败摘要，**只在终态消息携带时出现**（键不存在 =
+//   无失败信号，页面据此判定空结果的原因）；失败类别在此只作搬运，归类点
+//   （asr/fallback.js）按 kind 落 noSubtitleReason。
 
 // ===== 共享数值常量 =====
 

@@ -46,12 +46,17 @@ export interface OffscreenChunkHostArgs {
 // 任务结果：results 为按片 index 排序的单片记录；totalChunks 为产出片数，
 // skippedSegments 为解码失败跳过的段数，failedChunks 为转写失败跳过的片数
 // （Q8a 口径：个别失败不整体失败，全部段解码失败零片产出才算整体失败，
-// 见 asr/protocol.js）。
+// 见 asr/protocol.js）。failedKind / failedStatus / failedDetail 为片级失败
+// 摘要，**只在终态消息携带时出现**（键不存在 = 无失败信号；页面侧按严格形状
+// 断言，不能凭空多出 undefined 键）。
 export interface OffscreenChunkHostResult {
   results: AsrChunkRecord[];
   totalChunks: number;
   skippedSegments: number;
   failedChunks: number;
+  failedKind?: string;
+  failedStatus?: number;
+  failedDetail?: string;
 }
 
 // 页面侧客户端契约：
@@ -137,11 +142,22 @@ export function createOffscreenChunkHost(): OffscreenChunkHost {
           skippedSegments = Number(msg.skippedSegments) || 0;
           failedChunks = Number(msg.failedChunks) || 0;
           results.sort((a, b) => a.index - b.index);
-          finish(resolve, { results, totalChunks, skippedSegments, failedChunks });
+          // 片级失败摘要：**有则附、无则不加**（下游 asr/pipeline 与 fallback 按
+          // 键是否存在判定「有无失败信号」，凭空多出 undefined 键会让形状断言失真）
+          const { failedKind, failedStatus, failedDetail } = msg;
+          finish(resolve, {
+            results,
+            totalChunks,
+            skippedSegments,
+            failedChunks,
+            ...(failedKind !== undefined ? { failedKind } : {}),
+            ...(failedStatus !== undefined ? { failedStatus } : {}),
+            ...(failedDetail !== undefined ? { failedDetail } : {})
+          });
           return;
         }
         if (msg.type === ASR_MSG_ERROR) {
-          const error: Error & { code?: string; reason?: string } = new Error(msg.error || "音频转写失败");
+          const error: Error & { code?: string; reason?: string; kind?: string } = new Error(msg.error || "音频转写失败");
           if (msg.code) {
             error.code = msg.code;
           }
@@ -149,6 +165,11 @@ export function createOffscreenChunkHost(): OffscreenChunkHost {
           // 对象透传，最终落 clipState.noSubtitleReason（asr/fallback.js）
           if (msg.reason) {
             error.reason = msg.reason;
+          }
+          // 管线级失败类别（音轨下载/解码/切片/域名未授权/baseUrl 未配置）同款
+          // 透传：归类点据 kind 落 noSubtitleReason，未携带则归 asr-unknown
+          if (msg.kind) {
+            error.kind = msg.kind;
           }
           finish(reject, error);
         }

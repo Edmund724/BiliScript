@@ -77,11 +77,16 @@ function mergeChunkResults(chunkResults: AsrChunkRecord[]): SubtitleItem[] {
 // chunkHost 为可选注入的任务宿主（测试传合成宿主，生产默认走
 // createOffscreenChunkHost）；onEmptyDiagnostic 承接空结果诊断文案。
 // 单次转写尝试的失败面结果（整轮自动重试判定用）：totalChunks 为产出片数、
-// failedChunks 为转写失败跳过片数、elapsedMs 为本次尝试墙钟耗时。
+// failedChunks 为转写失败跳过片数、elapsedMs 为本次尝试墙钟耗时；
+// failedKind / failedStatus / failedDetail 为片级失败摘要（宿主结果原样转发，
+// 归类点据 kind 落 noSubtitleReason），未携带失败信号时这三个键不出现。
 export interface AsrAttemptOutcome {
   totalChunks: number;
   failedChunks: number;
   elapsedMs: number;
+  failedKind?: string;
+  failedStatus?: number;
+  failedDetail?: string;
 }
 
 export interface RunAsrPipelineArgs {
@@ -111,7 +116,7 @@ export async function runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmpty
   // 每片完成即把文本结果经 port 发回；音频字节与 API Key 都不出 offscreen。
   // 防盗链规则由 prepare 阶段在 background 加上。
   onProgress?.("音频下载与解码中…");
-  const { results, totalChunks, skippedSegments, failedChunks } = await host({
+  const { results, totalChunks, skippedSegments, failedChunks, failedKind, failedStatus, failedDetail } = await host({
     audioUrl: source.url,
     backupUrls: source.backupUrls || [],
     onProgress
@@ -148,12 +153,17 @@ export async function runAsrPipeline({ bvid, cid, onProgress, chunkHost, onEmpty
     }
   }
   // 失败面结果上报（整轮自动重试判定用，fallback 空结果分支消费）：每次尝试
-  // 完成都会调用，非空结果同样上报（failedChunks 反映片失败计数）。
+  // 完成都会调用，非空结果同样上报（failedChunks 反映片失败计数）。片级失败
+  // 摘要原样转发（键缺失即无失败信号，不补 undefined——fallback 按有无 kind
+  // 区分「说得出原因」与「归 asr-unknown」）。
   if (typeof onAttemptOutcome === "function") {
     onAttemptOutcome({
       totalChunks: Number(totalChunks) > 0 ? Number(totalChunks) : results.length,
       failedChunks: Number(failedChunks) || 0,
-      elapsedMs: Date.now() - startedAt
+      elapsedMs: Date.now() - startedAt,
+      ...(failedKind !== undefined ? { failedKind } : {}),
+      ...(failedStatus !== undefined ? { failedStatus } : {}),
+      ...(failedDetail !== undefined ? { failedDetail } : {})
     });
   }
   return merged;

@@ -25,14 +25,40 @@
 
 import { state } from "../core/state.js";
 import { isReaderTranscribing } from "../core/reader-transcribing.js";
-import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
+import { getSubtitleStatusPhase, subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { ids } from "./state.js";
 
 // 转写中判定与面板状态行策略同源（core/reader-transcribing.js）；reader 域既有
 // 引用（chat-tab/overview/index）继续从本模块取这个名字。
 export { isReaderTranscribing };
 
-// 显隐 + 列表淡出禁用 + 进度行文本的一次性收敛写（脏检查：状态没变零 DOM 写）。
+// 相位 → 横幅文案（标题 + 副文案）。票 07 Q3：文案按相位取，不再硬编码在模板里
+// ——模板曾自带一组串、驱动方另有一套判定，改文案要同时改两处且两处会静默漂移。
+//
+// 目前只有转写相位会显示横幅（其余相位一律隐藏，见下），故表里只有一项；留着
+// 表结构是为了让「以后给失败相位出横幅」只加一行、不动渲染逻辑。两条串逐字与
+// 原模板一致（本次是无可见变化的归一化，不是改文案）。
+export interface TranscribeBannerCopy {
+  title: string;
+  copy: string;
+}
+
+export const TRANSCRIBE_BANNER_COPY: Record<string, TranscribeBannerCopy> = {
+  "asr-transcribing": {
+    title: "该视频无字幕，正在进行音频转写…",
+    copy: "转写完成后字幕与概览将自动出现，期间可先看视频"
+  }
+};
+
+// 缺失项兜底：表外相位用转写中相位的文案（横幅本身也会被隐藏，兜底只为防
+// 「表被改漏 → 横幅留空文案」）。
+const FALLBACK_BANNER_COPY = TRANSCRIBE_BANNER_COPY["asr-transcribing"];
+
+function bannerCopyForPhase(phase: string): TranscribeBannerCopy {
+  return TRANSCRIBE_BANNER_COPY[phase] || FALLBACK_BANNER_COPY;
+}
+
+// 显隐 + 列表淡出禁用 + 文案/进度行文本的一次性收敛写（脏检查：状态没变零 DOM 写）。
 export function updateReadingTranscribeBanner(): void {
   const banner = document.getElementById(ids.readingTranscribeBanner);
   if (!banner) {
@@ -46,6 +72,16 @@ export function updateReadingTranscribeBanner(): void {
   const tabBody = document.getElementById(ids.readingTabBodySubtitle);
   tabBody?.classList.toggle("is-transcribing", transcribing);
   if (transcribing) {
+    // 文案按当前相位取（横幅只在此相位可见；模板自带的同款串只是首拍前的初始值）。
+    const copy = bannerCopyForPhase(getSubtitleStatusPhase());
+    const titleNode = document.getElementById(ids.readingTranscribeBannerTitle);
+    if (titleNode && titleNode.textContent !== copy.title) {
+      titleNode.textContent = copy.title;
+    }
+    const copyNode = document.getElementById(ids.readingTranscribeBannerCopy);
+    if (copyNode && copyNode.textContent !== copy.copy) {
+      copyNode.textContent = copy.copy;
+    }
     // 进度行显示实时状态栏文本（「音频下载与解码中…」「语音识别中 2 片…」等，
     // 由 ASR 管线 onProgress 写入）；空文案时给兜底句。
     const progressNode = document.getElementById(ids.readingTranscribeProgress);

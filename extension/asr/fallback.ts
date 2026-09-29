@@ -5,8 +5,9 @@
 //
 // 依赖分层：
 //   - 直 import（传递 import 闭包不触及 subtitle/fetcher.js）：shared/
-//     error-helpers、shared/logging、shared/utils、core/state、subtitle/cache、
-//     subtitle/selection；
+//     error-helpers、shared/logging、shared/utils、core/state、
+//     core/asr-failure-notice（叶子纯模块：kind → reason 映射 + 病因/补救/详情
+//     文案的唯一真源）、subtitle/cache、subtitle/selection；
 //   - 注入 deps（传递闭包含 runtime.js→fetcher 或随 UI/上下文成环）：
 //     getSettings、loadProviders（provider 列表，asrProviders 已摘出 settings，
 //     fetcher 经 asr-providers-list 消息直读 provider-store）、setStatus、
@@ -22,6 +23,7 @@ import { ensureRunActive, isStaleRunError, getErrorMessage, makeStaleRunError } 
 import { logInfo, logWarn } from "../shared/logging.js";
 import { state, clipState } from "../core/state.js";
 import type { NoSubtitleReason } from "../core/state.js";
+import { getAsrFailureNotice, reasonFromFailureKind, buildAsrNoSubtitleMessage } from "../core/asr-failure-notice.js";
 import {
   getSubtitleCacheKey,
   loadSubtitleFromCache,
@@ -39,16 +41,6 @@ const ASR_RUN_RETRIES = 1;
 const ASR_RETRY_DELAY_MS = 2000;
 const ASR_RETRY_MAX_ELAPSED_MS = 60000;
 
-// 空结果终态文案：按片失败计数区分「真实无人声」与「转写服务层失败」。
-// failedChunks > 0（存在片失败）→ 定位为服务层失败（reason 归 asr-failed，
-// 引导重新抓取）；failedChunks = 0 → 未识别到语音内容（reason 归 asr-empty）。
-function buildAsrEmptyStatusText({ failedChunks, diag = "" }: { failedChunks: number; diag?: string }): string {
-  if (failedChunks > 0) {
-    return `语音识别失败，${failedChunks} 片转写未成功，未生成字幕。${diag ? `（诊断：${diag}）` : "请稍后点击重新抓取。"}`;
-  }
-  return `未识别到语音内容，该视频可能没有人声。${diag ? `（诊断：${diag}）` : ""}`;
-}
-
 // STALE_RUN 信号（构造单源在 shared/error-helpers.ts 的 makeStaleRunError，
 // arch-slim-2/03 收口）：在本模块里只表示"调用方让位、零 UI 写入"（fetcher 的
 // catch 对 STALE_RUN 静默返回），不再表示转写被中止——切视频不取消任务。
@@ -64,6 +56,23 @@ function noSubtitleReasonFromAsrSkipError(error: unknown): NoSubtitleReason {
   return typeof reason === "string" && KNOWN_ASR_SKIP_REASONS.has(reason)
     ? (reason as NoSubtitleReason)
     : null;
+}
+
+// 空结果的终态归类（票 04 判定表 + 票 07 Q1）：failedChunks > 0 说明有片失败，
+// 按 offscreen 侧判出的 kind 归类（缺失 → asr-unknown）；= 0 是「平台成功但没人声」
+// → asr-empty。返回 reason 与已格式化截断的详情行（经单一真源 notice 模块），
+// 两者同写同清——绝不让上一轮的详情残留在新终态里。
+function classifyEmptyOutcome(outcome?: AsrRunAttemptOutcome | null): { reason: NoSubtitleReason; detail: string } {
+  const failed = Number(outcome?.failedChunks) || 0;
+  const reason: NoSubtitleReason = failed > 0 ? reasonFromFailureKind(outcome?.failedKind) : "asr-empty";
+  const detail = getAsrFailureNotice(reason, { status: outcome?.failedStatus, detail: outcome?.failedDetail }).detail;
+  return { reason, detail };
+}
+
+// 统一的「写原因 + 写详情」落点：任何终态分支都不许只写其中一个。
+function setNoSubtitleReasonWithDetail(reason: NoSubtitleReason, detail: string): void {
+  clipState.setNoSubtitleReason(reason);
+  clipState.setNoSubtitleDetail(detail);
 }
 
 export interface AsrSettings {
@@ -94,13 +103,19 @@ export interface AcceptSubtitleArgs {
 
 export interface CommitNoSubtitleArgs {
   noSubtitleReason: NoSubtitleReason;
-  asrResult: string;
 }
 
 export interface AsrRunAttemptOutcome {
   totalChunks: number;
   failedChunks: number;
   elapsedMs: number;
+  // 代表失败的结构化信号（与 asr/pipeline.ts 的 AsrAttemptOutcome 同形，跨 port
+  // 边界由 offscreen 侧携带上来）：failedKind 是 failure-kind.ts 判出的类别，
+  // failedStatus / failedDetail 是平台状态码与已截断报文（详情行的展示输入）。
+  // 三者都可选——无片失败或旧形态回包时缺失，取「无 kind → asr-unknown」。
+  failedKind?: string;
+  failedStatus?: number;
+  failedDetail?: string;
 }
 
 export interface AsrPipelineArgs {
@@ -207,11 +222,11 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       const enabled = settings.asrAutoFallback === true;
       const activeId = String(settings.activeAsrProviderId || "").trim();
       if (!enabled) {
-        clipState.setNoSubtitleReason("asr-disabled");
+        setNoSubtitleReasonWithDetail("asr-disabled", "");
         return "skip";
       }
       if (!activeId) {
-        clipState.setNoSubtitleReason("no-asr-config");
+        setNoSubtitleReasonWithDetail("no-asr-config", "");
         return "skip";
       }
 
@@ -224,7 +239,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       const providers = await loadProviders();
       const activeProvider = (Array.isArray(providers) ? providers : []).find((p) => p.id === activeId);
       if (!activeProvider) {
-        clipState.setNoSubtitleReason("no-asr-config");
+        setNoSubtitleReasonWithDetail("no-asr-config", "");
         return "skip";
       }
       const language = String(settings.asrLanguage || "").trim() || "auto";
@@ -289,9 +304,11 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
             // 切走后共享转写以空结果到站：终态广播由发起者负责，这里静默让位
             throw makeStaleRunError();
           }
-          const failed = Number(shared.outcome?.failedChunks) || 0;
-          clipState.setNoSubtitleReason(failed > 0 ? "asr-failed" : "asr-empty");
-          setStatus(buildAsrEmptyStatusText({ failedChunks: failed }));
+          // 空结果归类（原因 + 详情同行写入）；文案出口归 commit（票 07 Q1）：
+          // 调用方（fetcher 的 finishNoSubtitle）紧接着走无字幕出口逆事务；终态
+          // 广播由发起者负责——这里不补广播，避免同一轮相位双发。
+          const { reason, detail } = classifyEmptyOutcome(shared.outcome);
+          setNoSubtitleReasonWithDetail(reason, detail);
           return "empty";
         }
         return finishAsrFallback({ runId, body: sharedBody, sourceLabel });
@@ -373,11 +390,13 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
 
       const { body, outcome } = await transcribePromise;
 
-      // 空结果（首试或重试后的最终态）：全部为空白 → 返回 "empty"。有诊断信息
-      // 时直接拼进状态栏；存在片失败（failedChunks>0）→ 定位为服务层失败而非
-      // 无人声，reason 归 asr-failed 供 sidepanel 按「语音识别未成功」引导。
-      // 切走后到站的空结果：不写任何 UI（新视频的状态栏不能被旧视频的文案
-      // 占用），但 asr-done 终态广播照发，让 sidepanel 的全局等待标志归位。
+      // 空结果（首试或重试后的最终态）：全部为空白 → 返回 "empty"。归类按片
+      // 失败面（failedChunks>0 → 按 kind 归失败类；=0 → asr-empty），原因与
+      // 详情同行写入 state；**文案出口归 commit**（票 07 Q1）——调用方
+      // （fetcher 的 finishNoSubtitle）紧接着走无字幕出口逆事务，状态栏与
+      // reader 通知都由事务拼装。切走后到站的空结果：不写任何 UI（新视频的
+      // 状态栏不能被旧视频的文案占用），但 asr-done 终态广播照发，让 sidepanel
+      // 的全局等待标志归位。
       if (!Array.isArray(body) || body.length === 0) {
         if (isStale()) {
           logInfo("[BILISCRIPT] asr transcribe finished empty after video switch; terminal broadcast only", {
@@ -388,9 +407,8 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
           broadcastSubtitleStatus("asr-done");
           throw makeStaleRunError();
         }
-        const failed = Number(outcome?.failedChunks) || 0;
-        clipState.setNoSubtitleReason(failed > 0 ? "asr-failed" : "asr-empty");
-        setStatus(buildAsrEmptyStatusText({ failedChunks: failed, diag: emptyDiag }));
+        const { reason, detail } = classifyEmptyOutcome(outcome);
+        setNoSubtitleReasonWithDetail(reason, detail);
         broadcastSubtitleStatus("asr-done");
         return "empty";
       }
@@ -437,17 +455,34 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       // 补一个 asr-done 终态广播解除 sidepanel 一键总结的等待标志。
       // 结构化原因（error.reason）随 skip 落 state：开关关 → asr-disabled，
       // 无激活平台 → no-asr-config，未知（config 消息失败/超时）→ null。
+      // 详情同行清空：skip 没有可展示的报文（原因本身已是配置级结论）。
       if ((error as { code?: string }).code === "asr-skip") {
         broadcastSubtitleStatus("asr-done");
-        clipState.setNoSubtitleReason(noSubtitleReasonFromAsrSkipError(error));
+        setNoSubtitleReasonWithDetail(noSubtitleReasonFromAsrSkipError(error), "");
         return "skip";
       }
-      setStatus(`语音识别失败：${getErrorMessage(error)}`);
+      // 其余失败：分类只认 offscreen 侧带上来的 kind（票 04：消歧在完整报文还在
+      // 手上的那一层做），缺失即 asr-unknown——绝不退回已删除的 asr-failed，也
+      // 不按状态码在页面侧二次猜测。ERROR 只带 kind（票 03 Q2 冻结的字段），
+      // 详情行在本路径不出现；结构化报文只可能随 DONE 的 failed* 上来（走空结果
+      // 分支的 classifyEmptyOutcome）。
+      const failureError = error as { kind?: unknown };
+      const reason = reasonFromFailureKind(failureError.kind);
+      // 失败终态留痕（此前本分支零日志；调试门缺省关，经 logWarn 走调试门，
+      // 全量报文在 offscreen 侧已记）。
+      logWarn("[BILISCRIPT] asr fallback failed", {
+        bvid,
+        cid,
+        reason,
+        kind: failureError.kind,
+        message: getErrorMessage(error)
+      });
+      setNoSubtitleReasonWithDetail(reason, "");
       broadcastSubtitleStatus("asr-failed");
       // 无字幕出口走字幕接受事务的逆操作（subtitle/commit.js）：清空选中态/
-      // body/派生内容，fetchState 落 empty。失败原因随出口写入事务（不再提前
-      // 直写）；asrResult 非 skip，不出引导文案。
-      await commitNoSubtitle({ noSubtitleReason: "asr-failed", asrResult: "error" });
+      // body/派生内容，fetchState 落 empty，并由事务发出唯一一句失败文案
+      //（基础句 + 病因 + 补救 + 详情；本模块不再自拼状态栏文案）。
+      await commitNoSubtitle({ noSubtitleReason: reason });
       return "error";
     }
   }
@@ -473,8 +508,12 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       const shared = await active.promise;
       const sharedBody = shared.body;
       if (!Array.isArray(sharedBody) || sharedBody.length === 0) {
-        const failed = Number(shared.outcome?.failedChunks) || 0;
-        setStatus(buildAsrEmptyStatusText({ failedChunks: failed }));
+        // 本路径没有 commitNoSubtitle 调用方（fetcher 的抓取失败兜底跟着共享
+        // 转写收尾，不落无字幕出口），故这里自己写状态栏——文案仍取同一真源
+        //（status-line 面 = 基础句 + 病因 + 补救），不另拼一套。
+        const { reason, detail } = classifyEmptyOutcome(shared.outcome);
+        setNoSubtitleReasonWithDetail(reason, detail);
+        setStatus(buildAsrNoSubtitleMessage("status-line", reason, { status: shared.outcome?.failedStatus, detail: shared.outcome?.failedDetail }));
         broadcastSubtitleStatus("asr-done");
         return;
       }

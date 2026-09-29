@@ -12,6 +12,7 @@ import {
 } from "../../extension/chat/send-gate.js";
 import { chatSessionState, chatSessionStateForTests, resetChatSessionStateForTests } from "../../extension/chat/chat-state.js";
 import { CONTEXT_READ_FAILED_MESSAGE } from "../../extension/chat/context-policy.js";
+import { buildAsrNoSubtitleMessage } from "../../extension/core/asr-failure-notice.js";
 import type { AiContext } from "../../extension/ai/types.js";
 import type { ClipState } from "../../extension/core/state.js";
 
@@ -219,6 +220,57 @@ describe("发送闸 createSendGate", () => {
       );
       expect(h.mocks.resetView).not.toHaveBeenCalled();
     });
+
+    it("鉴权失败（asr-auth）：文案走单一真源，附「前往设置」链接", async () => {
+      chatSessionStateForTests.contextData = ctx({
+        subtitleBody: [],
+        subtitleFetchState: "empty",
+        noSubtitleReason: "asr-auth"
+      });
+      const h = makeHarness();
+      await expect(h.gate.ensureContextForSend()).resolves.toBe(NO_SUBTITLE_SEND_BLOCKED);
+      // 文案逐字来自 core 的单一真源（sidepanel 面），不再由 chat 侧自写分支表
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+        buildAsrNoSubtitleMessage("sidepanel", "asr-auth"),
+        0,
+        { openSettingsAction: true }
+      );
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+        expect.stringContaining("当前视频没有字幕，无法总结。"),
+        0,
+        expect.anything()
+      );
+    });
+
+    it("额度不足（asr-quota）：不附设置入口（补救是充值 / 稍后重试）", async () => {
+      chatSessionStateForTests.contextData = ctx({
+        subtitleBody: [],
+        subtitleFetchState: "empty",
+        noSubtitleReason: "asr-quota"
+      });
+      const h = makeHarness();
+      await expect(h.gate.ensureContextForSend()).resolves.toBe(NO_SUBTITLE_SEND_BLOCKED);
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+        buildAsrNoSubtitleMessage("sidepanel", "asr-quota"),
+        0,
+        { openSettingsAction: false }
+      );
+    });
+
+    it("未知原因（null）：通用文案 + 通用补救句", async () => {
+      chatSessionStateForTests.contextData = ctx({
+        subtitleBody: [],
+        subtitleFetchState: "empty",
+        noSubtitleReason: null
+      });
+      const h = makeHarness();
+      await expect(h.gate.ensureContextForSend()).resolves.toBe(NO_SUBTITLE_SEND_BLOCKED);
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
+        buildAsrNoSubtitleMessage("sidepanel", null),
+        0,
+        { openSettingsAction: true }
+      );
+    });
   });
 
   describe("G7 回放让位", () => {
@@ -257,7 +309,7 @@ describe("发送闸 createSendGate", () => {
       expect(h.state.unsubscribed).toBe(true);
     });
 
-    it("asr-failed 同样置 false", () => {
+    it("asr-failed 相位（转写失败终态广播）同样置 false", () => {
       const h = makeHarness();
       h.gate.bindStatusBus();
       h.firePhase("asr-transcribing");

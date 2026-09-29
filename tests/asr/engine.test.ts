@@ -201,6 +201,7 @@ describe("createTranscriptionEngine 活队列调度", () => {
       failedChunks: 0,
       droppedByAbort: 0,
       failures: [],
+      representativeFailure: null,
       aborted: false
     });
     expect(engine.push(makeChunk(0))).toBe(false);
@@ -298,6 +299,81 @@ describe("失败计数（Q8a）与逐片交付", () => {
   });
 });
 
+describe("代表失败（representativeFailure：首个不可重试失败优先）", () => {
+  it("无失败 → null", async () => {
+    const engine = createTranscriptionEngine({ transcribe: async () => ({ text: "x" }) });
+    engine.push(makeChunk(0));
+    const summary = await engine.close();
+
+    expect(summary.failures).toEqual([]);
+    expect(summary.representativeFailure).toBeNull();
+  });
+
+  it("只有可重试失败 → 取首个失败（没有更好的候选）", async () => {
+    const engine = createTranscriptionEngine({
+      transcribe: async () => {
+        throw makeHttpErrorForSummary(500, "internal error");
+      }
+    });
+    engine.push(makeChunk(0));
+    const summary = await engine.close();
+
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.representativeFailure).toBe(summary.failures[0]);
+  });
+
+  it("首个可重试失败在前、不可重试失败在后 → 取后者（401 不被网络抖动淹没）", async () => {
+    // 真实的「网络抖动在前、确定性失败在后」顺序：不能只看 failures[0]。
+    // 两片同时启动：可重试那片**同步**失败一次后进退避重试（500ms 后第二次
+    // 尝试），确定性那片立即失败入列——错峰不靠计时器也成立。
+    const transcribe = vi.fn(async (chunk: TranscribeChunk) => {
+      if (chunk.index === 0) {
+        throw makeHttpErrorForSummary(503, "service unavailable"); // 可重试，重试耗尽仍失败
+      }
+      throw makeHttpErrorForSummary(401, "invalid api key"); // 确定性失败
+    });
+    const engine = createTranscriptionEngine({ transcribe });
+
+    engine.push(makeChunk(0));
+    engine.push(makeChunk(1));
+    const summary = await engine.close();
+
+    // 完成次序：片 1（401，无重试）先入 failures；片 0 在 500ms 退避后才落列
+    expect(summary.failures.map((f) => f.chunk.index)).toEqual([1, 0]);
+    expect(summary.failures[0].error).toMatchObject({ status: 401 });
+    expect(summary.failures[1].error).toMatchObject({ status: 503 });
+    expect(summary.failedChunks).toBe(2);
+    // failures[] 与计数语义不变，只是「代表失败」挑不可重试的那一片
+    expect(summary.representativeFailure?.chunk.index).toBe(1);
+    expect(summary.representativeFailure?.error).toMatchObject({ status: 401 });
+  });
+
+  it("不可重试失败（无状态码的配置类错误）同样优先于在前的可重试失败", async () => {
+    const engine = createTranscriptionEngine({
+      transcribe: async (chunk) => {
+        if (chunk.index === 0) {
+          throw makeHttpErrorForSummary(429, "rate limited"); // 可重试（同样先退避）
+        }
+        throw Object.assign(new Error("平台 baseUrl 未配置"), { kind: "no-asr-config" }); // 不可重试
+      }
+    });
+
+    engine.push(makeChunk(0));
+    engine.push(makeChunk(1));
+    const summary = await engine.close();
+
+    // 429 那片后入列（重试耗尽），仍排在 failures 末位；代表失败取配置类那片
+    expect(summary.failures.map((f) => f.chunk.index)).toEqual([1, 0]);
+    expect(summary.representativeFailure?.chunk.index).toBe(1);
+    expect(summary.representativeFailure?.error).toMatchObject({ kind: "no-asr-config" });
+  });
+});
+
+// 代表失败用例专用的 HTTP 错误工厂（形状对齐适配器抛出物：message + status）
+function makeHttpErrorForSummary(status: number, detail = "") {
+  return Object.assign(new Error(`HTTP ${status}${detail ? `: ${detail}` : ""}`), { status });
+}
+
 describe("中止探针", () => {
   it("isAborted 置真后不再发起新转写，排队片丢弃清点，close 如实返回", async () => {
     let aborted = false;
@@ -333,6 +409,7 @@ describe("中止探针", () => {
       failedChunks: 0,
       droppedByAbort: 3,
       failures: [],
+      representativeFailure: null,
       aborted: true
     });
     expect(delivered).toHaveLength(5); // 在途片成果仍交付
@@ -371,6 +448,73 @@ describe("中止探针", () => {
     expect(summary.failedChunks).toBe(1);
     expect(summary.droppedByAbort).toBe(2);
     expect(summary.aborted).toBe(true);
+  });
+
+  // 票 05 的机制：中止复用注入的 isAborted（不给 engine 加新选项）。置位点在
+  // 注入的 transcribe 闭包内（offscreen-asr 的 catch），故此处直接模拟该置位
+  // 时序——首片以确定性失败收场的同时 isAborted 翻真。
+  it("首片不可重试失败即置位 isAborted：排队片一个都不启动，全部计入 droppedByAbort", async () => {
+    const gate = makeDeferred<AsrTranscribeResult>();
+    let aborted = false;
+    const started: number[] = [];
+    const transcribe = vi.fn(async (chunk: TranscribeChunk) => {
+      started.push(chunk.index);
+      // 首片挂在半空：先让 10 片全部进队列（9 片排队），再放行它失败——否则
+      // 失败的置位会赶在后续 push 之前，那些片根本不会被接受，droppedByAbort
+      // 也就无从谈起
+      await gate.promise;
+      aborted = true; // 真实链路上 offscreen-asr 的 catch 正是在这里置位
+      throw makeHttpErrorForSummary(401, "invalid api key");
+    });
+    const engine = createTranscriptionEngine({
+      transcribe,
+      // 并发 1：首片启动（随后失败）时第 2 片还停在排队位，中止置位后它从未启动
+      concurrency: 1,
+      isAborted: () => aborted
+    });
+
+    // 10 片一次性喂入：第 1 片在途，其余 9 片排队
+    for (let i = 0; i < 10; i += 1) {
+      expect(engine.push(makeChunk(i))).toBe(true);
+    }
+    expect(transcribe).toHaveBeenCalledTimes(1);
+
+    gate.resolve({ text: "不会用到" });
+    const summary = await engine.close();
+
+    // 中止后不再启动任何新的排队片：整轮只发出过第 1 个请求（省下的是后续
+    // 9 片的切、编、传）
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    expect(started).toEqual([0]);
+    expect(summary.acceptedChunks).toBe(10);
+    expect(summary.failedChunks).toBe(1);
+    expect(summary.completedChunks).toBe(0);
+    // 真实语义：中止只影响**尚未启动**的排队片（并发上的在途片收不回来）。
+    // 生产并发 ASR_CONCURRENCY=10，故 401 时最多还有 9 片已经在途。
+    expect(summary.droppedByAbort).toBe(9);
+    expect(summary.aborted).toBe(true);
+    // 中止是「片级失败」，代表失败仍是那片 401（不是中止本身）
+    expect(summary.representativeFailure?.error).toMatchObject({ status: 401 });
+  });
+
+  it("中止置位后 push 立即拒绝：不再接受新片（上游切片据此停止新增工作）", async () => {
+    let aborted = false;
+    const engine = createTranscriptionEngine({
+      transcribe: async () => {
+        aborted = true; // 首片确定性失败 → 置位
+        throw makeHttpErrorForSummary(403, "forbidden");
+      },
+      concurrency: 1,
+      isAborted: () => aborted
+    });
+
+    engine.push(makeChunk(0));
+    await vi.waitFor(() => expect(aborted).toBe(true));
+
+    expect(engine.push(makeChunk(1))).toBe(false);
+    const summary = await engine.close();
+    expect(summary.acceptedChunks).toBe(1);
+    expect(summary.droppedByAbort).toBe(0);
   });
 });
 

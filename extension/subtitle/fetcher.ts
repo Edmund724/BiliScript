@@ -168,6 +168,8 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
     clipState.setSubtitleFetchState("idle");
   }
   clipState.setNoSubtitleReason(null);
+  // 详情与原因同生命周期：切视频不继承上一个视频的失败报文明细
+  clipState.setNoSubtitleDetail("");
   clipState.setChapters([]);
   clipState.setHotComments([]);
   clipState.setMarkdown("");
@@ -394,9 +396,10 @@ async function handleClipFetchError(error: unknown, runId: number): Promise<void
 // 无字幕出口编排（refreshClip 两处守卫分支共用，原为逐行相同的两段手抄）：
 // 先给 ASR 回退一个机会——done 时转写成果已在 fallback 内经字幕接受事务
 //（commit.acceptSubtitle）收尾，这里直接 return；skip / empty / error 三种
-// 都落回无字幕状态（逆事务 commit.commitNoSubtitle；状态栏失败/空结果文案
-// 已由 fallback 各终态分支写好，事务只在 skip 分支补引导句）。STALE_RUN
-//（发起前被顶掉 / 切走视频）原样上抛，由 refreshClip 的 catch 静默吞掉。
+// 都落回无字幕状态（逆事务 commit.commitNoSubtitle）。失败/空结果/配置原因
+// 已由 fallback 各终态分支写进 clipState（reason + detail），出口只负责清空
+// 与呈现——状态栏与 reader 通知的文案由事务统一拼装（唯一出口）。
+// STALE_RUN（发起前被顶掉 / 切走视频）原样上抛，由 refreshClip 的 catch 静默吞掉。
 async function finishNoSubtitle(runId: number): Promise<void> {
   const { loadActiveAsrFallback } = await import("../asr/active-fallback.js");
   const asrResult = await (await loadActiveAsrFallback()).maybeRunAsrFallback({ runId });
@@ -406,7 +409,7 @@ async function finishNoSubtitle(runId: number): Promise<void> {
   // 无字幕出口逆事务随行 runId 自检（M23）：maybeRunAsrFallback 的 skip/empty
   // 判定与出口提交之间隔着 await，reset/新抓取推进代次后不把「无字幕」写进
   // 新视频的 state（STALE_RUN 上抛，refreshClip catch 静默吞掉）。
-  await commitNoSubtitle({ asrResult, runId });
+  await commitNoSubtitle({ runId });
 }
 
 // 签名 URL 失效重试（refreshClip 的 catch 路径）：字幕签名 URL 可能快速过期

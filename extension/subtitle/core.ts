@@ -1,6 +1,7 @@
 import { state, clipState } from "../core/state.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { logWarn } from "../shared/logging.js";
+import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { fetchHotComments } from "../bilibili/gateway.js";
 import { normalizeChapters } from "./chapters.js";
 import {
@@ -107,12 +108,24 @@ function buildReadingSubtitleItems(body: SubtitleBodyItemLike[]): ReadingSubtitl
     .filter((item) => item.content);
 }
 
+// 字幕列表空态占位文案（reader/lifecycle 渲染 .biliscript-reading-empty）。
+// 无字幕且已归因（subtitleFetchState === "empty" + noSubtitleReason）时跟随原因：
+// 只出「病因 + 补救」（票 07 Q4）——**不带基础句**（这里不是状态栏，基础句会让
+// 占位块变成一句没用的套话）**也不带详情行**（详情行是单行宿主的设计，塞进
+// 空态排版会破版）。原因缺失（null）或未归因时维持通用句。
 export function getReadingSubtitlePlaceholderText(): string {
   if (state.clip.subtitleFetchState === "loading") {
     return "正在加载字幕...";
   }
   if (state.clip.subtitleFetchState === "error") {
     return "字幕加载失败，请刷新重试。";
+  }
+  if (state.clip.subtitleFetchState === "empty" && clipState.noSubtitleReason) {
+    const notice = getAsrFailureNotice(clipState.noSubtitleReason);
+    const text = [notice.cause, notice.remedyText].filter(Boolean).join(" ");
+    if (text) {
+      return text;
+    }
   }
   return "当前视频无字幕。";
 }

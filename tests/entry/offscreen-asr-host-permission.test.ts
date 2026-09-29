@@ -127,7 +127,9 @@ describe("ASR 转写链 host 权限预检", () => {
 
     const { payload } = await runDecodeTask();
 
-    expect(payload).toEqual({ type: "error", error: HOST_PERMISSION_HINT });
+    // kind 随 ERROR 到站（asr-error-reporting/03 Q2）：域名未授权是配置类问题，
+    // 不是平台拒绝，故归 no-asr-config（票 04 判定次序第 0 步）。
+    expect(payload).toEqual({ type: "error", error: HOST_PERMISSION_HINT, kind: "no-asr-config" });
     expect(fetchMock).not.toHaveBeenCalled();
     // 预检排在配置解析之后、没有任何下载请求
     expect(events.indexOf("msg:check-provider-origin")).toBeGreaterThan(events.indexOf("msg:get-asr-runtime-config"));
@@ -140,8 +142,9 @@ describe("ASR 转写链 host 权限预检", () => {
 
     const { payload } = await runDecodeTask();
 
-    // 走到下载才失败（stub 的下载一律 500），而非被预检拦下
-    expect(payload).toEqual({ type: "error", error: "音频下载失败" });
+    // 走到下载才失败（stub 的下载一律 500），而非被预检拦下；音轨下载失败属
+    // 媒体来源（票 04 判定次序第 0 步：音轨下载 / 解码 / 切片类 → asr-media）
+    expect(payload).toEqual({ type: "error", error: "音频下载失败", kind: "asr-media" });
     expect(events.indexOf("msg:check-provider-origin")).toBeLessThan(events.indexOf("fetch:HEAD"));
     expect(fetchMock).toHaveBeenCalled();
   });
@@ -152,7 +155,7 @@ describe("ASR 转写链 host 权限预检", () => {
 
     const { payload } = await runDecodeTask();
 
-    expect(payload).toEqual({ type: "error", error: "音频下载失败" });
+    expect(payload).toEqual({ type: "error", error: "音频下载失败", kind: "asr-media" });
     expect(payload.code).toBeUndefined();
     expect(fetchMock).toHaveBeenCalled();
   });

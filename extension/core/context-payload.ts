@@ -150,8 +150,9 @@ export function createReaderContextPayload({
     // idle/loading/ready/error：loading 且 subtitleBody 为空表示抓取（可能含小时级
     // ASR 转写）仍在进行，对话侧据此等待而非把空字幕直接发给模型。
     subtitleFetchState: c.subtitleFetchState || "idle",
-    // empty 时的无字幕原因归类（null | "no-asr-config" | "asr-disabled" |
-    // "asr-failed" | "asr-empty"），对话侧拦截总结发送时按原因提示。
+    // empty 时的无字幕原因归类（取值范围见 core/state 的 NoSubtitleReason：
+    // null + 十个字面量），对话侧拦截总结发送时按原因提示。注意**只有原因过界**
+    // ——失败详情（clipState.noSubtitleDetail）留在页面侧，状态栏单行宿主才用。
     noSubtitleReason: c.noSubtitleReason || null,
     subtitleLang: c.selectedSubtitleLang || "",
     selectedSubtitleId: c.selectedSubtitleId || "",

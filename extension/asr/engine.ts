@@ -28,7 +28,7 @@
 // mergeChunkResults 对 Error 结果静默跳过的口径一致；close() 汇总
 // completedChunks / failedChunks / failures。
 
-import { getErrorMessage, retryAsync } from "../shared/error-helpers.js";
+import { getErrorMessage, isRetryableNetworkError, retryAsync } from "../shared/error-helpers.js";
 import { logWarn } from "../shared/logging.js";
 import { ASR_CONCURRENCY } from "../shared/offscreen-constants.js";
 import { ASR_MAX_PENDING_CHUNKS } from "./protocol.js";
@@ -103,6 +103,11 @@ export interface TranscriptionEngineSummary {
   failedChunks: number;
   droppedByAbort: number;
   failures: TranscriptionEngineFailure[];
+  // 代表失败：优先首个**不可重试**的确定性失败（isRetryableNetworkError 的
+  // 否定），没有才取首个失败，无失败为 null。failures[] 仍是原样的追加序列、
+  // 计数语义不变——本字段只解决「要带哪一个失败过界」：只看 failures[0] 会让
+  // 排在前面的网络抖动（可重试、重试耗尽）淹没真正的 401。
+  representativeFailure: TranscriptionEngineFailure | null;
   aborted: boolean;
 }
 
@@ -153,10 +158,13 @@ export async function transcribeChunk({
 //       failedChunks,    // 重试耗尽仍失败、跳过计数的片数（Q8a）
 //       droppedByAbort,  // 中止后未启动即丢弃的排队片数
 //       failures,        // [{ chunk, error }] 失败片明细（诊断用）
+//       representativeFailure, // 代表失败：首个不可重试失败，否则首个失败，无则 null
 //       aborted          // 结算时 isAborted() 的取值
 //     }
 //   isAborted() 须单调：一旦置真不再回退（offscreen 的 aborted 标志语义，
-//   port.onDisconnect 置位后取消）。
+//   port.onDisconnect 置位后取消）。**引擎不自己决定中止**：isAborted 是只读
+//   注入，置位责任在接线层（entry/offscreen-asr.js 的 transcribe 闭包——首个
+//   不可重试失败即置位，票 05），引擎只消费它（push 拒绝 + 排队片丢弃清点）。
 export function createTranscriptionEngine({
   transcribe,
   isAborted,
@@ -193,8 +201,19 @@ export function createTranscriptionEngine({
       failedChunks,
       droppedByAbort,
       failures,
+      representativeFailure: pickRepresentativeFailure(),
       aborted: aborted()
     };
+  }
+
+  // 代表失败选择（票 03 Q3）：首个不可重试的确定性失败优先，没有才退到首个
+  // 失败。判据复用 shared/error-helpers 的 isRetryableNetworkError——与重试层、
+  // 与票 05 的「确定性失败即中止」同一口径，全仓不许出现第二套可重试性判定。
+  function pickRepresentativeFailure(): TranscriptionEngineFailure | null {
+    if (failures.length === 0) {
+      return null;
+    }
+    return failures.find((failure) => !isRetryableNetworkError(failure.error)) || failures[0];
   }
 
   // 调度循环：并发有空位且队列非空就启动下一片；已中止则剩余排队片全部

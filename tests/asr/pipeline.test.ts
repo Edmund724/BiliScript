@@ -211,7 +211,7 @@ describe("openai-transcriptions 适配器", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("fetch 网络拒绝：错误原样上抛，消息形态可被 isRetryableNetworkError 命中", async () => {
+  it("fetch 网络拒绝：错误原样上抛并挂 kind=asr-network，消息形态可被 isRetryableNetworkError 命中", async () => {
     const fetchMock = vi.fn(async () => {
       throw new TypeError("Failed to fetch");
     });
@@ -219,7 +219,7 @@ describe("openai-transcriptions 适配器", () => {
     const adapter = await import("../../extension/asr/adapters/openai-transcriptions.js");
     const { isRetryableNetworkError } = await import("../../extension/shared/error-helpers.js");
 
-    let caught: Error | null = null;
+    let caught: (Error & { kind?: string }) | null = null;
     try {
       await adapter.transcribe({
         wavBlob: new Blob([new Uint8Array(8)]),
@@ -228,7 +228,7 @@ describe("openai-transcriptions 适配器", () => {
         provider: OPENAI_PROVIDER
       });
     } catch (error) {
-      caught = error as Error;
+      caught = error as Error & { kind?: string };
     }
 
     // 网络层错误不被适配器包装：原样上抛，交 retryAsync 消息启发式判定可重试
@@ -236,6 +236,111 @@ describe("openai-transcriptions 适配器", () => {
     expect(caught?.message).toBe("Failed to fetch");
     expect(isRetryableNetworkError(caught)).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // ===== 失败信号的 kind 标注（票 03：判定在完整报文还在手上的层做）=====
+  // 适配器是唯一拿到**未截断**响应体的地方，故状态码 → kind 的判定在此落定；
+  // 跨 port 只传 kind 这个小字符串，报文全量只进 offscreen 的 logWarn。
+  // 判定表与次序的唯一实现在 asr/failure-kind.js（本组用例锁的是「接线」：
+  // 适配器把 status + 完整 raw + provider 喂进分类模块，并把结果挂上 error）。
+  describe("抛出物携带 kind / detail（分类在完整报文还在手上时完成）", () => {
+    function stubHttpResponse({ status, body }: { status: number; body: string }) {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status,
+        text: async () => body
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    async function catchTranscribeError(): Promise<Record<string, unknown>> {
+      const adapter = await import("../../extension/asr/adapters/openai-transcriptions.js");
+      try {
+        await adapter.transcribe({
+          wavBlob: new Blob([new Uint8Array(8)]),
+          startSec: 0,
+          durationSec: 60,
+          provider: OPENAI_PROVIDER
+        });
+      } catch (error) {
+        return error as Record<string, unknown>;
+      }
+      throw new Error("transcribe 应当抛出");
+    }
+
+    it.each([
+      [401, "invalid api key", "asr-auth"],
+      [402, '{"code":30014,"message":"余额不足"}', "asr-quota"],
+      [403, '{"detail":"Invalid API key."}', "asr-auth"],
+      [404, "Not Found", "no-asr-config"],
+      [415, '{"detail":"Failed to decode audio. The provided file type is not supported."}', "asr-media"],
+      [500, "internal error", "asr-server"],
+      // 429 双义：只能靠报文 error.type 消歧（纯状态码表在这条上不成立）
+      [429, '{"error":{"message":"You exceeded your current quota","type":"insufficient_quota"}}', "asr-quota"],
+      [429, '{"error":{"message":"Rate limit reached","type":"rate_limit_exceeded"}}', "asr-ratelimit"]
+    ])("HTTP %s → kind=%s（message 与 status 形状不变）", async (status, body, kind) => {
+      const fetchMock = stubHttpResponse({ status: status as number, body: body as string });
+
+      const error = await catchTranscribeError();
+
+      expect(error).toMatchObject({ status, kind, detail: String(body).slice(0, 200) });
+      expect(error.message).toBe(`HTTP ${status}: ${String(body).slice(0, 200)}`);
+      // 非 2xx 不再降级：绝不发生第二次全量重传（单片 wav 38MB 级）
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("detail 为截断到 200 字符的展示片段，kind 判定仍基于完整报文", async () => {
+      // 关键词藏在第 200 字符之后：截断片段已不含它，分类必须以完整报文为准
+      const body = `{"error":"${"x".repeat(300)}","type":"insufficient_quota"}`;
+      stubHttpResponse({ status: 429, body });
+
+      const error = await catchTranscribeError();
+
+      expect(error.kind).toBe("asr-quota");
+      expect((error.detail as string).length).toBe(200);
+      expect(error.detail).not.toContain("insufficient_quota");
+    });
+
+    it("响应体非 JSON（status=-1 哨兵）：走 json 降级，降级也失败则 kind=asr-unknown", async () => {
+      // 首次 verbose_json 与降级 json 两次都是 2xx 但体不可解析 → 第二次以 -1 抛出
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError("Unexpected token < in JSON");
+        }
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const error = await catchTranscribeError();
+
+      expect(error).toMatchObject({ status: -1, kind: "asr-unknown", detail: "响应体不是合法 JSON" });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("平台 baseUrl 未配置：无网络交互，kind=no-asr-config", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      const adapter = await import("../../extension/asr/adapters/openai-transcriptions.js");
+
+      let caught: Record<string, unknown> | null = null;
+      try {
+        await adapter.transcribe({
+          wavBlob: new Blob([new Uint8Array(8)]),
+          startSec: 0,
+          durationSec: 60,
+          provider: { ...OPENAI_PROVIDER, baseUrl: "" }
+        });
+      } catch (error) {
+        caught = error as Record<string, unknown>;
+      }
+
+      expect(caught).toMatchObject({ message: "平台 baseUrl 未配置", kind: "no-asr-config" });
+      // 票 02/04：这条**无状态码**（同步抛出、无网络交互），不许凭空造一个
+      expect((caught as { status?: unknown }).status).toBeUndefined();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 
   it("FormData 字段断言：body 为 FormData、model 正确、绝无 Content-Type 头、apiKey 带 Bearer", async () => {
@@ -569,5 +674,43 @@ describe("pipeline onAttemptOutcome（整轮重试判定用失败面）", () => 
     expect(body).toEqual([{ from: 0, to: 60, content: "有内容" }]);
     expect(onAttemptOutcome).toHaveBeenCalledTimes(1);
     expect(onAttemptOutcome.mock.calls[0][0].failedChunks).toBe(1);
+  });
+
+  it("失败信号透传：宿主结果的 failedKind/failedStatus/failedDetail 进 outcome", async () => {
+    const onAttemptOutcome = vi.fn();
+    const host = vi.fn(async () => ({
+      results: [],
+      totalChunks: 2,
+      skippedSegments: 0,
+      failedChunks: 2,
+      failedKind: "asr-quota",
+      failedStatus: 402,
+      failedDetail: '{"code":30014,"message":"余额不足"}'
+    }));
+
+    await pipeline.runAsrPipeline({ bvid: "BV1test", cid: "101", chunkHost: host, onAttemptOutcome });
+
+    expect(onAttemptOutcome.mock.calls[0][0]).toMatchObject({
+      failedKind: "asr-quota",
+      failedStatus: 402,
+      failedDetail: '{"code":30014,"message":"余额不足"}'
+    });
+  });
+
+  it("宿主未带失败信号（成功路径）→ outcome 不多出失败字段", async () => {
+    const onAttemptOutcome = vi.fn();
+    const host = vi.fn(async () => ({
+      results: [{ index: 0, startSec: 0, durationSec: 60, result: { text: "有内容" } }],
+      totalChunks: 1,
+      skippedSegments: 0,
+      failedChunks: 0
+    }));
+
+    await pipeline.runAsrPipeline({ bvid: "BV1test", cid: "101", chunkHost: host, onAttemptOutcome });
+
+    const outcome = onAttemptOutcome.mock.calls[0][0];
+    expect("failedKind" in outcome).toBe(false);
+    expect("failedStatus" in outcome).toBe(false);
+    expect("failedDetail" in outcome).toBe(false);
   });
 });

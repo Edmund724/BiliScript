@@ -203,6 +203,91 @@ describe("createOffscreenChunkHost 文本结果收包", () => {
     await expect(promise).rejects.toThrow("音频解码中断：后台连接已断开");
   });
 
+  // ===== 失败信号透传契约（票 03：跨 port 只传 kind 这个小字符串）=====
+  // DONE 带片级失败摘要（failedKind/failedStatus/failedDetail），ERROR 带管线级
+  // 失败类别（kind）。字段「有则附、无则不加」：页面侧结果形状按严格相等断言，
+  // 无失败的任务不得凭空多出 undefined 字段。
+  describe("失败信号字段透传", () => {
+    it("done 带 failedKind/failedStatus/failedDetail → 原样进结果对象", async () => {
+      const { connections } = installConnectMock();
+      const bridge = await import("../../extension/asr/offscreen-bridge.page.js");
+      const host = bridge.createOffscreenChunkHost();
+
+      const promise = host({ audioUrl: "https://x/a.m4s", backupUrls: [] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const port = connections[0];
+      port._emit({
+        type: "done",
+        totalChunks: 3,
+        skippedSegments: 0,
+        failedChunks: 3,
+        failedKind: "asr-auth",
+        failedStatus: 401,
+        failedDetail: "invalid api key"
+      });
+
+      await expect(promise).resolves.toEqual({
+        results: [],
+        totalChunks: 3,
+        skippedSegments: 0,
+        failedChunks: 3,
+        failedKind: "asr-auth",
+        failedStatus: 401,
+        failedDetail: "invalid api key"
+      });
+    });
+
+    it("done 不带失败字段（成功/真无人声）→ 结果对象不多出这些键", async () => {
+      const { connections } = installConnectMock();
+      const bridge = await import("../../extension/asr/offscreen-bridge.page.js");
+      const host = bridge.createOffscreenChunkHost();
+
+      const promise = host({ audioUrl: "https://x/a.m4s", backupUrls: [] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      connections[0]._emit({ type: "done", totalChunks: 1, skippedSegments: 0, failedChunks: 0 });
+
+      const out = await promise;
+      expect(out).toEqual({ results: [], totalChunks: 1, skippedSegments: 0, failedChunks: 0 });
+      expect("failedKind" in out).toBe(false);
+      expect("failedStatus" in out).toBe(false);
+      expect("failedDetail" in out).toBe(false);
+    });
+
+    it("error 带 kind → reject 的错误对象挂上 kind（与 code/reason 同款）", async () => {
+      const { connections } = installConnectMock();
+      const bridge = await import("../../extension/asr/offscreen-bridge.page.js");
+      const host = bridge.createOffscreenChunkHost();
+
+      const promise = host({ audioUrl: "https://x/a.m4s", backupUrls: [] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      connections[0]._emit({
+        type: "error",
+        error: "该平台域名未授权，请在保存时允许权限",
+        kind: "no-asr-config"
+      });
+
+      await expect(promise).rejects.toMatchObject({
+        message: "该平台域名未授权，请在保存时允许权限",
+        kind: "no-asr-config"
+      });
+    });
+
+    it("error 不带 kind（旧宿主/无归类）→ 错误对象不多出 kind 键", async () => {
+      const { connections } = installConnectMock();
+      const bridge = await import("../../extension/asr/offscreen-bridge.page.js");
+      const host = bridge.createOffscreenChunkHost();
+
+      const promise = host({ audioUrl: "https://x/a.m4s", backupUrls: [] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      connections[0]._emit({ type: "error", error: "音频下载失败" });
+
+      const error = (await promise.catch((caught: unknown) => caught)) as Record<string, unknown>;
+      expect(error.message).toBe("音频下载失败");
+      expect("kind" in error).toBe(false);
+      expect("code" in error).toBe(false);
+    });
+  });
+
   it("prepare 返回非 ok → 直接 reject，不建端口", async () => {
     const { connect, sendMessage } = installConnectMock();
     sendMessage.mockImplementation((message, callback) => {

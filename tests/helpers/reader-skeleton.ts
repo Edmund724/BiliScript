@@ -185,12 +185,22 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   exportSubtitleBtn.className = "biliscript-reading-mini-btn";
   subToolbar.appendChild(exportSubtitleBtn);
 
-  // PR3 转写中间态横幅（默认隐藏）+ 进度行
+  // PR3 转写中间态横幅（默认隐藏）+ 标题/副文案 + 进度行
   const transcribeBanner = doc.createElement("aside");
   transcribeBanner.id = ids.readingTranscribeBanner;
   transcribeBanner.className = "biliscript-reading-asr-banner";
   transcribeBanner.setAttribute("hidden", "");
   tabBodySubtitle.appendChild(transcribeBanner);
+
+  const transcribeBannerTitle = doc.createElement("div");
+  transcribeBannerTitle.id = ids.readingTranscribeBannerTitle;
+  transcribeBannerTitle.className = "biliscript-reading-asr-title";
+  transcribeBanner.appendChild(transcribeBannerTitle);
+
+  const transcribeBannerCopy = doc.createElement("p");
+  transcribeBannerCopy.id = ids.readingTranscribeBannerCopy;
+  transcribeBannerCopy.className = "biliscript-reading-asr-copy";
+  transcribeBanner.appendChild(transcribeBannerCopy);
 
   const transcribeProgress = doc.createElement("div");
   transcribeProgress.id = ids.readingTranscribeProgress;
