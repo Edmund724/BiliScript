@@ -24,14 +24,17 @@
 }
 
 /* 头部工具条：2026-10 用户决议删除视频标题 chip 后只剩「历史对话」+「新会话」，
- * 右对齐接住 chip 原先 flex:1 顶出的位置（两键位置与删 chip 前一致）。 */
+ * 右对齐接住 chip 原先 flex:1 顶出的位置（两键位置与删 chip 前一致）。
+ * 2026-10 用户决议（截图）：头部盒不再预留 42px——盒高收为控件等高 32px，
+ * 上下留白 6/8 → 2/4，消掉「历史对话」上方与下方两处空档（上方 = 2 + tab-body
+ * 的 14px 面板边距，下方 = 4 + 消息区的 12px，两侧观感对称）。 */
 .biliscript-reading-chat .chat-header {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 5px;
-  min-height: 42px;
-  padding: 6px 0 8px;
+  min-height: 32px;
+  padding: 2px 0 4px;
   flex-shrink: 0;
 }
 
