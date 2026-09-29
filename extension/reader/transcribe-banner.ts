@@ -24,16 +24,13 @@
 // 调用零 DOM 写）。
 
 import { state } from "../core/state.js";
-import { getSubtitleStatusPhase, subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
+import { isReaderTranscribing } from "../core/reader-transcribing.js";
+import { subscribeSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { ids } from "./state.js";
 
-// 转写中判定：相位为 asr-transcribing 且字幕体仍为空。
-// subtitleBody 非空时强制不算转写中：字幕接受事务（acceptSubtitle）先写 body
-// 再由 finishAsrFallback 广播 asr-done，中间窗口相位仍是 asr-transcribing，
-// 不能让横幅压住已成稿的列表（防御相位残留）。
-export function isReaderTranscribing(): boolean {
-  return getSubtitleStatusPhase() === "asr-transcribing" && !(state.clip.subtitleBody?.length > 0);
-}
+// 转写中判定与面板状态行策略同源（core/reader-transcribing.js）；reader 域既有
+// 引用（chat-tab/overview/index）继续从本模块取这个名字。
+export { isReaderTranscribing };
 
 // 显隐 + 列表淡出禁用 + 进度行文本的一次性收敛写（脏检查：状态没变零 DOM 写）。
 export function updateReadingTranscribeBanner(): void {

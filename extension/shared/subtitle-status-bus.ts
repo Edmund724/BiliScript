@@ -12,6 +12,14 @@
 // 只记「最后相位」+ 同步通知订阅者，不排队的 pub/sub——转写相位是状态而非事件流，
 // 迟到的订阅方（如阅读模式打开晚于转写发起）经 getSubtitleStatusPhase() 读到
 // 当前相位即可恢复呈现。
+//
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态
+//（相位镜像 lastPhase 与订阅者集合 listeners）。2026-09 因 core/reading-status-line.js
+// 的「转写进度不落 header 行」判定被常驻包引入，从而成为双实例（此前只在懒加载区）。
+// 两侧安全的依据：发布方（subtitle/fetcher）与全部转写相位消费方（reader 域转写
+// 横幅与转写判定、转写编排 asr/*）都在懒加载区同一实例内，读写闭环不被拆散；
+// 常驻侧副本的镜像是空串（常驻侧不产生 ASR 进度文案），只让常驻侧的状态行判定
+// 走「非转写中」分支——两侧互不读取对方状态，无跨实例一致性要求。
 
 type SubtitleStatusListener = (phase: string) => void;
 

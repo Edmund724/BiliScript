@@ -578,6 +578,7 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "shared/logging.ts", mutable: true }, // 调试门挂 __BILISCRIPT_LOG_GATE__ 槽
   { source: "shared/messaging.ts", mutable: true }, // 分发槽挂 globalThis
   { source: "shared/style-injector.ts", mutable: true }, // 挂载记录挂 __BILISCRIPT_STYLE_INJECTOR__ 槽
+  { source: "shared/subtitle-status-bus.ts", mutable: true }, // 相位镜像/订阅者两侧各一份，读写闭环在懒侧
   { source: "shared/watch-storage-keys.ts", mutable: true }, // 两侧各自注册真实 onChanged 监听
   { source: "ai/lazy-player-ai.ts", mutable: true }, // 模块级 loader 缓存闭包
   { source: "reader/lazy-reader.ts", mutable: true }, // 同上
@@ -587,6 +588,9 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "bilibili/video-id-shared.ts", mutable: false },
   { source: "core/defaults.ts", mutable: false },
   { source: "core/runtime.ts", mutable: false },
+  { source: "core/reader-transcribing.ts", mutable: false },
+  // 计时句柄挂状态行元素（跨实例共享），模块级无可变状态
+  { source: "core/reading-status-line.ts", mutable: false },
   { source: "core/ui-status.ts", mutable: false },
   { source: "reader/presentation-fields.ts", mutable: false },
   { source: "shared/dom-ids.ts", mutable: false },

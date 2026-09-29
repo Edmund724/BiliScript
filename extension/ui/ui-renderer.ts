@@ -56,12 +56,16 @@ export function buildUiHtml(): string {
            AI 对话。rail（章节栏）与 stage（状态栏/播放器槽）已随整页接管退役
            ——章节列表由概览 tab 提供，播放器保持 B 站原生布局不动；
            readingStatus 挪进面板 header 下方（id 不变，subtitle/ai/chat 各域
-           经 core/ui-status.js 持续写入）。三 tab body 的内容模板随各自域
-           叶子（arch-slim-2/06：壳只懂面板骨架与 tab 切换） -->
+           经 core/ui-status.js 持续写入：错误常驻、其余 5s 收起、空闲整行
+           hidden——策略见 core/reading-status-line.js）。三 tab body 的内容
+           模板随各自域叶子（arch-slim-2/06：壳只懂面板骨架与 tab 切换） -->
       <aside id="${ids.readingScriptPanel}" class="biliscript-reading-script-panel" aria-label="文摘面板">
             <header class="biliscript-reading-header">
               <div class="biliscript-reading-header-copy">
-                <div id="${ids.readingMeta}" class="biliscript-reading-meta">bilibili.com</div>
+                <!-- meta 行由 reader/lifecycle.js 的 renderReadingView 填充
+                     （UP主：… · P{n}：… · 字幕：…；网址已按 2026-09 用户决议删除）；
+                     字段全空时整块 hidden，初始态即 hidden -->
+                <div id="${ids.readingMeta}" class="biliscript-reading-meta" hidden></div>
               </div>
               <div class="biliscript-reading-actions">
                 <button id="${ids.readingThemeSelect}" type="button" class="biliscript-reading-icon-btn" title="主题：${themeView.title}" aria-label="主题：${themeView.title}">
@@ -76,7 +80,7 @@ export function buildUiHtml(): string {
               </div>
             </header>
 
-            <p id="${ids.readingStatus}" class="biliscript-reading-status">使用页面原生播放器联动章节和字幕。</p>
+            <p id="${ids.readingStatus}" class="biliscript-reading-status" hidden></p>
 
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
               <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项

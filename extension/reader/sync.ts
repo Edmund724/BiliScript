@@ -27,7 +27,6 @@
 // queueEnsureReaderPlayerMounted 均已删除——video 重绑由 bindReadingViewVideo
 // 兜底（readingVideoEl 变化即重绑）。
 import { state } from "../core/state.js";
-import { formatClock } from "../shared/clock-text.js";
 import { getReaderElement } from "../shared/dom-utils.js";
 import { findActiveSubtitleIndex, findActiveChapterIndex } from "../subtitle/core.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
@@ -109,9 +108,9 @@ export function syncReadingViewPlayback(forceScroll = false) {
   // display:none）时，高亮/滚动段对用户无呈现效果——整段跳过，省掉
   // findActiveSubtitleIndex/findActiveChapterIndex 与高亮/滚动 DOM 写。索引状态
   // 刻意不更新：切回字幕 tab 后的首拍索引必与旧值不同，shouldScroll 自然为真，
-  // 补上高亮与滚动（最多延迟一拍）。状态栏（面板 header，三 tab 常显）、跟随态
-  // 属性（#biliscript-reading-view，header「手动浏览中」标注常显）与转写横幅进度行与
-  // tab 无关，照常收敛。
+  // 补上高亮与滚动（最多延迟一拍）。跟随态属性（#biliscript-reading-view，
+  // header「手动浏览中」标注常显）与转写横幅进度行与 tab 无关，照常收敛；
+  // 面板状态行只由事件文案驱动（播放进度已不再写它，见下）。
   if (isSubtitleTabVisible()) {
     const subtitleIndex = findActiveSubtitleIndex(currentTime);
     const chapterIndex = findActiveChapterIndex(currentTime);
@@ -125,9 +124,11 @@ export function syncReadingViewPlayback(forceScroll = false) {
     setActiveReadingItems(subtitleIndex, chapterIndex, shouldScroll);
   }
   updateReaderFollowState();
-  renderReadingStatus(`当前进度 ${formatClock(currentTime, { hours: "auto" })}`);
-  // PR3：转写横幅随 tick 收敛（转写期间 onProgress 持续改写状态栏文本，进度行
-  // 需要跟着刷新；显隐脏检查在 updateReadingTranscribeBanner 内部）。
+  // 播放进度不再写面板状态行（2026-09 用户决议）：原来每拍把「当前进度 0:12」
+  // 覆写进 header，位置反馈由字幕列表的自动高亮承担。
+  // PR3：转写横幅随 tick 收敛（转写期间 onProgress 持续改写状态文本
+  // state.ui.statusText——header 状态行不落它，见 core/reading-status-line.js；
+  // 进度行需要跟着该文本刷新；显隐脏检查在 updateReadingTranscribeBanner 内部）。
   updateReadingTranscribeBanner();
 }
 

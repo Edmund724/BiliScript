@@ -23,6 +23,7 @@ import { type Settings } from "../core/defaults.js";
 import { getReaderElement } from "../shared/dom-utils.js";
 import { normalizeReaderTheme } from "../core/validators.js";
 import { ids } from "./state.js";
+import { writeReadingStatusLine } from "../core/reading-status-line.js";
 import { refreshThemeButton } from "../ui/theme-button.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { READER_APPLY_FIELDS } from "./presentation-fields.js";
@@ -30,14 +31,10 @@ import { READER_APPLY_FIELDS } from "./presentation-fields.js";
 // ===== 状态栏文案（自 player-host.js 迁入；sync/lifecycle 域内继续经本模块取用） =====
 
 export function renderReadingStatus(text: string | number | null | undefined) {
+  // 节点缺失时仍按原样经 byId 抛错（行为不变）；写入与显隐口径集中在
+  // core/reading-status-line.js（错误常驻、其余 5s 收起、空闲整行 hidden）。
   const node = getReaderElement(ids.readingStatus);
-  const next = String(text ?? "");
-  // 候选10 批1：250ms tick 会反复写同一文案，值未变时跳过 textContent 写入，
-  // 避免无谓的 DOM 变更（节点缺失时仍按原样经 byId 抛错，行为不变）。
-  if (node.textContent === next) {
-    return;
-  }
-  node.textContent = next;
+  writeReadingStatusLine(node, text);
 }
 
 // ===== 内联宿主呈现（PR2 移除） =====

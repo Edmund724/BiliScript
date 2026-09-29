@@ -7,8 +7,9 @@
 // 则整体惰性化。
 //（script-only-ui：经典侧栏面板（#biliscript-status/#biliscript-message）已删除，Script
 // 面板是唯一界面——状态/消息的可见宿主收敛到面板 header 下方的
-// #biliscript-reading-status（renderReadingStatus 同节点：sync tick 的进度文案会覆盖
-// 抓取/操作提示，语义上正是「当前状态行」，阅读视图未开时节点不存在则静默
+// #biliscript-reading-status（renderReadingStatus 同节点，语义上正是「当前状态行」；
+// 显示策略集中在 core/reading-status-line.js：错误常驻、其余 5s 收起、空闲整行
+// hidden，转写进度只留给字幕 tab 的横幅。阅读视图未开时节点不存在则静默
 // 只写 state，clip 快照 payload 与转写横幅仍从 state 取值）。）
 //
 // 02 分层归位：自 shared/ 下沉 core/——本模块要读写 core/state 的状态行，
@@ -17,19 +18,14 @@
 
 import { state, uiState } from "./state.js";
 import { ids } from "../shared/dom-ids.js";
+import { writeReadingStatusLine } from "./reading-status-line.js";
 
 export function setStatus(text: string): void {
   uiState.setStatusText(String(text || ""));
-  const node = document.getElementById(ids.readingStatus);
-  if (node) {
-    node.textContent = state.ui.statusText;
-  }
+  writeReadingStatusLine(document.getElementById(ids.readingStatus), state.ui.statusText);
 }
 
 export function setMessage(text: string): void {
   uiState.setMessageText(String(text || ""));
-  const node = document.getElementById(ids.readingStatus);
-  if (node) {
-    node.textContent = state.ui.messageText;
-  }
+  writeReadingStatusLine(document.getElementById(ids.readingStatus), state.ui.messageText);
 }

@@ -34,7 +34,8 @@ const HOUR_SECONDS = 3600;
 /**
  * 单点秒数的小时位判定（withHours 的最底层单源）。
  * 元数据级消费方（笔记/概览：字幕末尾、章节边界、视频时长取 max 后判定）与
- * 单点消费方（当前进度、锚点时间戳）共用；条目级用 shouldUseHoursForRange。
+ * 单点消费方（锚点/引用时间戳；面板状态行的播放进度已按 2026-09 用户决议删除），
+ * 条目级用 shouldUseHoursForRange。
  * 非有限/负值一律 false。
  */
 export function shouldUseHours(seconds: unknown): boolean {

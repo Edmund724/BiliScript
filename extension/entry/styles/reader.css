@@ -303,10 +303,13 @@
   backdrop-filter: none;
 }
 
-/* 状态行（「当前进度」等）与 header 内容左右对齐（script-only-ui）：
+/* 状态行（错误/操作反馈文案；播放进度与提示类已按 2026-09 用户决议不再写入）与
+ * header 内容左右对齐（script-only-ui）：
  * header/tab-body 各自带 16px 水平内边距，而状态行原是撑满面板宽度的裸
  * block（文本左缘贴面板边缘），与 header 内容不在同一垂直线上——补同款
- * 水平边距 + 与下方 tab 控件的小间距。 */
+ * 水平边距 + 与下方 tab 控件的小间距。空闲态由 core/reading-status-line.js 落
+ * hidden：display:none 让面板网格第 2 行（auto）塌为 0，不占位；本元素没有
+ * display 覆盖规则，[hidden] 直通 UA 默认。 */
 .biliscript-reading-script-panel .biliscript-reading-status {
   margin: 0 16px 8px;
   line-height: 1.4;

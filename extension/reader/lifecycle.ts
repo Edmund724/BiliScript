@@ -329,7 +329,6 @@ function openReaderViewShell(readingView = getReaderElement(ids.readingView)) {
   readingView.classList.add("open", "reader-page");
   readingView.setAttribute("aria-hidden", "false");
   setReadingViewReady(true);
-  renderReadingStatus("阅读视图已就绪，播放视频时字幕会自动高亮。");
 }
 
 export function waitForVideoMetadata(timeoutMs = 5000): Promise<void> {
@@ -429,7 +428,12 @@ export function renderReadingView() {
   const withHours = shouldShowHoursInNote(state, body);
 
   if (metaNode) {
-    metaNode.textContent = buildReadingMetaLine();
+    const metaLine = buildReadingMetaLine();
+    metaNode.textContent = metaLine;
+    // 字段全空（无作者/单P/未选字幕语言）时整块隐藏：header 不留空行。
+    // 只隐藏 meta 本体——.biliscript-reading-header-copy 的「手动浏览中」::after
+    // 挂在其父节点上（reader-gate.css），隐藏父节点会连带吃掉该标注。
+    metaNode.hidden = !metaLine;
   }
 
   const subtitleList = getReaderElement(ids.readingSubtitleList);
@@ -516,21 +520,20 @@ export function renderReaderPanels() {
 }
 
 // renderReadingInfoPanel / buildReadingSummaryItems 已随「视频摘要」「视频简介」
-// 区块删除（script-only-ui：面板 header 下的 meta 行只留作者/来源/分P/字幕语言，
-// 标题随 AI 对话 chip 展示，日期左侧视频区已有，均不占面板空间）。
-
+// 区块删除（script-only-ui：面板 header 下的 meta 行只留作者/分P/字幕语言，
+// 标题随 AI 对话 chip 展示，日期左侧视频区已有，均不占面板空间；网址零信息量，
+// 2026-09 用户决议删除）。
+// 2026-09 用户决议：作者加「UP主：」前缀，与「字幕：…」统一为「标签：值」口径。
 function buildReadingMetaLine() {
   const parts = [];
   if (state.clip.author) {
-    parts.push(state.clip.author);
+    parts.push(`UP主：${state.clip.author}`);
   }
-  parts.push("bilibili.com");
   if (Number(state.clip.pageCount) > 1) {
-    const pageParts = [`P${Number(state.clip.pageIndex) > 0 ? Number(state.clip.pageIndex) : 1}`];
-    if (state.clip.pageTitle) {
-      pageParts.push(state.clip.pageTitle);
-    }
-    parts.push(pageParts.join(" "));
+    const page = `P${Number(state.clip.pageIndex) > 0 ? Number(state.clip.pageIndex) : 1}`;
+    const pageTitle = String(state.clip.pageTitle || "").trim();
+    // 无分P标题时只留 P{n}，不落一个悬空的全角冒号。
+    parts.push(pageTitle ? `${page}：${pageTitle}` : page);
   }
   if (state.clip.selectedSubtitleLang) {
     parts.push(`字幕：${state.clip.selectedSubtitleLang}`);
