@@ -294,14 +294,16 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     expect(state.clip.subtitleBody).toEqual(TRANSCRIBED_BODY);
     // ready 收尾清除无字幕原因
     expect(clipState.noSubtitleReason).toBe(null);
+    // 伪轨的来源串自产即显示串（2026-09 用户决议）：语言档位 auto 不附语言，
+    // 平台名（本地 Whisper）不进任何字幕标签。
     expect(state.clip.subtitles[0]).toEqual({
       id: "asr",
       lan: "asr-zh",
-      lanDoc: "语音识别（本地 Whisper）",
+      lanDoc: "自配平台转写",
       subtitleUrl: ""
     });
     expect(state.clip.selectedSubtitleId).toBe("asr");
-    expect(state.clip.selectedSubtitleLang).toBe("语音识别（本地 Whisper）");
+    expect(state.clip.selectedSubtitleLang).toBe("自配平台转写");
 
     // 收尾走字幕接受事务（vi.fn 包装真实实现：state 断言如上即事务效果）
     expect(deps.acceptSubtitle).toHaveBeenCalledTimes(1);
@@ -309,8 +311,13 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
       body: TRANSCRIBED_BODY,
       selectedSubtitleId: "asr",
       selectedSubtitleUrl: "",
-      selectedSubtitleLang: "语音识别（本地 Whisper）"
+      selectedSubtitleLang: "自配平台转写"
     });
+
+    // 转写期间的状态栏同样不点平台名
+    const runningStatus = deps.setStatus.mock.calls.map((c) => String(c[0]));
+    expect(runningStatus.some((s) => s.includes("无字幕轨，正在使用语音转写生成字幕…"))).toBe(true);
+    expect(runningStatus.some((s) => s.includes("本地 Whisper"))).toBe(false);
 
     // 成果落缓存 + 孤儿清理：新键写入、旧变体被移除
     const cacheKey = asrCacheKey();
@@ -324,6 +331,23 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     ]);
     const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
     expect(statusCalls.some((s) => s.includes("语音识别完成，已生成 3 条字幕。"))).toBe(true);
+  });
+
+  it("语言档位 zh：来源串附「（中文）」，缓存键仍按 zh 档位", async () => {
+    state.settings.asrLanguage = "zh";
+    deps.runAsrPipeline.mockResolvedValue(TRANSCRIBED_BODY);
+
+    await fallback.maybeRunAsrFallback({ runId: RUN_ID });
+
+    expect(state.clip.selectedSubtitleLang).toBe("自配平台转写（中文）");
+    expect(state.clip.subtitles[0]).toEqual({
+      id: "asr",
+      lan: "asr-zh",
+      lanDoc: "自配平台转写（中文）",
+      subtitleUrl: ""
+    });
+    // 语言只体现在来源串与缓存键上（缓存键规则零变化）
+    expect(memoryStorage.get(asrCacheKey({ lang: "zh" }))?.body).toEqual(TRANSCRIBED_BODY);
   });
 
   it("阅读视图打开时收尾通知 reader-bus：subtitle-ready（通知职责在字幕接受事务内）", async () => {
@@ -364,7 +388,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
       body: cachedBody,
       selectedSubtitleId: "asr",
       selectedSubtitleUrl: "",
-      selectedSubtitleLang: "语音识别（本地 Whisper）"
+      selectedSubtitleLang: "自配平台转写"
     });
     const statusCalls = deps.setStatus.mock.calls.map((c) => String(c[0]));
     expect(statusCalls.some((s) => s.includes("缓存命中"))).toBe(true);

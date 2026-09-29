@@ -29,7 +29,7 @@ import {
   saveSubtitleToCache,
   clearStaleAsrSubtitleCache
 } from "../subtitle/cache.js";
-import { validateSubtitleByDuration } from "../subtitle/selection.js";
+import { validateSubtitleByDuration, buildAsrSubtitleLabel } from "../subtitle/selection.js";
 import { sleep } from "../shared/utils.js";
 
 // 整轮转写失败自动重试：至多一次全量重跑、固定退避、仅快速失败才触发（见
@@ -135,13 +135,15 @@ export interface CreateAsrFallbackDeps {
 // 工厂内 Map 注释的不变量一一对应：
 //   - promise：共享转写 promise——同视频并发抓取命中后等待同一成果，不重启
 //     转写；缓存写入由发起者的 promise 链负责，任务终态按自身 cacheKey 除名；
-//   - platformName：发起时激活平台名（共享命中方的收尾文案复用同一名字）；
+//   - sourceLabel：发起时定型的来源串（自配平台转写（中文/英文），语言档位
+//     只有发起那一刻知道；2026-09 用户决议：平台名不进字幕标签）——共享命中
+//     方的收尾复用同一串；
 //   - videoKey：发起转写时的 "bvid|cid" 视频身份快照——与转写解耦的关键：
 //     切视频不取消任务，fetcher 失败兜底按"当前视频"探针/等待
 //    （hasActiveAsrTranscribe / awaitActiveAsrTranscribe 只匹配 videoKey）。
 export interface ActiveAsrTranscribe {
   promise: Promise<AsrSharedTranscribeResult>;
-  platformName: string;
+  sourceLabel: string;
   videoKey: string;
 }
 
@@ -164,7 +166,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     sleepFor = sleep
   } = deps;
 
-  // 进行中的 ASR 转写共享单元（Map<cacheKey, { promise, platformName, videoKey }>）：
+  // 进行中的 ASR 转写共享单元（Map<cacheKey, { promise, sourceLabel, videoKey }>）：
   // 同视频并发 refreshClip（侧边栏 focus/切 tab 的 sync 都会触发新一轮抓取）
   // 与"切走再切回"在此命中后等待同一 promise，不再重启转写。
   // 历史上每次 refreshClip 都 fetchRunId+1，几小时的长视频转写会被下一次 sync
@@ -214,7 +216,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       }
 
       // provider 元数据（name/model，无 Key——Key 单独存储、组装在 offscreen）
-      // 从 provider-store 列表取（注入的 loadProviders），仅用于平台名展示与
+      // 从 provider-store 列表取（注入的 loadProviders），仅用于模型名与
       // 缓存键；激活平台不在列表中 → skip。转写所需的完整 provider+Key+语言由
       // offscreen 直调 background 的 get-asr-runtime-config 获取（配置级缺失/
       // 关闭时 offscreen 回 asr-skip，由下方 catch 静默跳过），apiKey 不再进
@@ -226,7 +228,9 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         return "skip";
       }
       const language = String(settings.asrLanguage || "").trim() || "auto";
-      const platformName = activeProvider.name || "语音识别平台";
+      // 来源串在发起时定型（语言档位只有此刻知道）：伪轨、selectedSubtitleLang、
+      // 共享单元的收尾文案全部复用它。
+      const sourceLabel = buildAsrSubtitleLabel(language);
       const model = String(activeProvider.model || "").trim();
       // 固定本轮视频身份：孤儿清理/缓存键/过期判据都以发起转写时的 bvid+cid
       // 快照为准；videoKey 同时作为共享单元的"当前视频"探针键。
@@ -257,7 +261,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
             body: cachedBody as SubtitleItem[],
             selectedSubtitleId: "asr",
             selectedSubtitleUrl: "",
-            selectedSubtitleLang: `语音识别（${platformName}）`
+            selectedSubtitleLang: sourceLabel
           });
           setStatus("语音识别完成（缓存命中）。");
           return "done";
@@ -270,7 +274,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         ensureRunActive(runId, state.clip.fetchRunId);
       }
 
-      setStatus(`无字幕轨，正在使用语音识别（${platformName}）生成字幕…`);
+      setStatus("无字幕轨，正在使用语音转写生成字幕…");
       broadcastSubtitleStatus("asr-transcribing");
 
       // 同视频并发抓取（侧边栏 sync 触发的 refreshClip 等）与"切走再切回"
@@ -290,7 +294,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
           setStatus(buildAsrEmptyStatusText({ failedChunks: failed }));
           return "empty";
         }
-        return finishAsrFallback({ runId, body: sharedBody, platformName });
+        return finishAsrFallback({ runId, body: sharedBody, sourceLabel });
       }
 
       let emptyDiag = "";
@@ -365,7 +369,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
           activeAsrTranscribes.delete(cacheKey);
         }
       })();
-      activeAsrTranscribes.set(cacheKey, { promise: transcribePromise, platformName, videoKey });
+      activeAsrTranscribes.set(cacheKey, { promise: transcribePromise, sourceLabel, videoKey });
 
       const { body, outcome } = await transcribePromise;
 
@@ -405,7 +409,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         return "done";
       }
 
-      return finishAsrFallback({ runId, body, platformName });
+      return finishAsrFallback({ runId, body, sourceLabel });
     } catch (error) {
       // 发起前/收尾守卫的 STALE_RUN（调用方被更新的抓取顶掉）：原样上抛，
       // fetcher catch 对 STALE_RUN 静默返回，零 UI 写入。
@@ -474,7 +478,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
         broadcastSubtitleStatus("asr-done");
         return;
       }
-      await finishAsrFallback({ runId, body: sharedBody, platformName: active.platformName });
+      await finishAsrFallback({ runId, body: sharedBody, sourceLabel: active.sourceLabel });
     } catch {
       // 共享转写失败/中止：发起者路径已负责状态与文案
     }
@@ -485,17 +489,17 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
   // 事务内幂等再收口一次（含共享转写/缓存副本路径），「subtitleBody 按 from
   // 升序」不变量单点保证。缓存写入已在转写共享单元内完成。runId 只守卫 UI
   // 状态收尾（被更新的抓取顶掉时静默让位，转写成果本身已落缓存）。
-  async function finishAsrFallback({ runId, body, platformName }: { runId: number; body: SubtitleItem[]; platformName: string }): Promise<"done"> {
+  async function finishAsrFallback({ runId, body, sourceLabel }: { runId: number; body: SubtitleItem[]; sourceLabel: string }): Promise<"done"> {
     ensureRunActive(runId, state.clip.fetchRunId);
     clipState.setSubtitles([
-      { id: "asr", lan: "asr-zh", lanDoc: `语音识别（${platformName}）`, subtitleUrl: "" },
+      { id: "asr", lan: "asr-zh", lanDoc: sourceLabel, subtitleUrl: "" },
       ...(state.clip.subtitles || [])
     ]);
     await acceptSubtitle({
       body,
       selectedSubtitleId: "asr",
       selectedSubtitleUrl: "",
-      selectedSubtitleLang: `语音识别（${platformName}）`
+      selectedSubtitleLang: sourceLabel
     });
     setStatus(`语音识别完成，已生成 ${body.length} 条字幕。`);
     broadcastSubtitleStatus("asr-done");

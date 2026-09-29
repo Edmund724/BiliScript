@@ -91,6 +91,13 @@
   color: var(--biliscript-reader-muted, #6b7280);
 }
 
+/* meta 行两行结构（2026-09/10 用户决议）：`UP主/P` 一行、`字幕：…` 独占一行，
+ * 由 reader/lifecycle 的 buildReadingMetaLine 落 `\n`，这里只负责让换行可见
+ *（长字幕来源不再从中间折断）。不挂到上面的共用选择器：状态行不需要该语义。 */
+.biliscript-reading-meta {
+  white-space: pre-line;
+}
+
 /* 面板壳网格第 2 行（见 .biliscript-reading-script-panel）；其他容器里该属性无效 */
 .biliscript-reading-status {
   grid-row: 2;

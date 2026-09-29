@@ -27,7 +27,7 @@ import {
   getReadingSubtitlePlaceholderText
 } from "../subtitle/core.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { buildSubtitleOptionViews } from "../subtitle/selection.js";
+import { buildSubtitleOptionViews, buildSubtitleSourceLabel } from "../subtitle/selection.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, requestUiCommand, subscribeReaderPresenter } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
@@ -278,11 +278,12 @@ function renderReadingSubtitleSelect() {
     state.clip.selectedSubtitleUrl
   )
     .map((option) => {
-      const label = option.lang;
+      // 显示标签走归一口径（B站 AI 轨 lanDoc 的「（自动生成）」与 [AI] 标重复，
+      // 不再双标）；data-lang 仍是接口原文——切轨写回 state 的是原始语言值。
       const aiTag = option.isAi ? " [AI]" : "";
-      const optionLabel = `${label}${aiTag}`;
+      const optionLabel = `${option.label}${aiTag}`;
       return `<option value="${escapeHtml(option.url)}" data-lang="${escapeHtml(
-        label
+        option.lang
       )}" data-id="${escapeHtml(option.id)}" data-isai="${option.isAi}" ${
         option.selected ? "selected" : ""
       }>${escapeHtml(optionLabel)}</option>`;
@@ -524,21 +525,41 @@ export function renderReaderPanels() {
 // 标题随 AI 对话 chip 展示，日期左侧视频区已有，均不占面板空间；网址零信息量，
 // 2026-09 用户决议删除）。
 // 2026-09 用户决议：作者加「UP主：」前缀，与「字幕：…」统一为「标签：值」口径。
+// 2026-09/10 用户决议：字幕段固定另起一行（本函数返回带 \n 的文本，视觉换行由
+// .biliscript-reading-meta 的 white-space:pre-line 落地）——长字幕来源不再从
+// 中间折断；来源口径见 subtitle/selection 的来源投影（人工上传 / B站 AI 识别 /
+// 自配平台转写），三行同一套「标签：值」，分类不了的退回原始语言值。
 function buildReadingMetaLine() {
-  const parts = [];
+  const head = [];
   if (state.clip.author) {
-    parts.push(`UP主：${state.clip.author}`);
+    head.push(`UP主：${state.clip.author}`);
   }
   if (Number(state.clip.pageCount) > 1) {
     const page = `P${Number(state.clip.pageIndex) > 0 ? Number(state.clip.pageIndex) : 1}`;
     const pageTitle = String(state.clip.pageTitle || "").trim();
     // 无分P标题时只留 P{n}，不落一个悬空的全角冒号。
-    parts.push(pageTitle ? `${page}：${pageTitle}` : page);
+    head.push(pageTitle ? `${page}：${pageTitle}` : page);
   }
-  if (state.clip.selectedSubtitleLang) {
-    parts.push(`字幕：${state.clip.selectedSubtitleLang}`);
+  const subtitlePart = buildReadingSubtitlePart();
+  const headLine = head.join(" · ");
+  if (!subtitlePart) {
+    return headLine;
   }
-  return parts.join(" · ");
+  return headLine ? `${headLine}\n${subtitlePart}` : subtitlePart;
+}
+
+// 「字幕：」值：选中轨经同一份 option 视图投影取来源标签（选中态匹配规则单源），
+// 轨道找不到（如 ASR 缓存命中尚未塞伪轨）退回归一后的原始语言值。
+function buildReadingSubtitlePart() {
+  const selected = buildSubtitleOptionViews(
+    state.clip.subtitles,
+    state.clip.selectedSubtitleId,
+    state.clip.selectedSubtitleUrl
+  ).find((option) => option.selected);
+  const label = selected
+    ? selected.sourceLabel
+    : buildSubtitleSourceLabel(null, state.clip.selectedSubtitleLang);
+  return label ? `字幕：${label}` : "";
 }
 
 function setReadingViewReady(ready: boolean) {
