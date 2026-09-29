@@ -21,7 +21,7 @@ import { isEmptyTextRetryable, retryBudget } from "./empty-text-retry.js";
 // 加倍请求会与上一次完全相同，重跑只是白花一次调用。
 import { canRaiseBudget } from "./learned-budget.js";
 import { buildProgressNotice } from "./map-reduce.js";
-import { runMapBounded, DEFAULT_MAP_CONCURRENCY } from "./pool.js";
+import { runCachedMap } from "./pool.js";
 import { budgetScaleSuffix, segmentCacheKeyFields } from "./segment-cache.js";
 import {
   MAX_ANALYSIS_CHAPTERS,
@@ -604,44 +604,38 @@ async function executeOverviewRun({
   const total = segments.length;
   let done = 0;
 
-  const analyzeSegment = async (segment: BudgetPlanSegment, index: number): Promise<OverviewAnalysis> => {
-    const segKey = buildAnalysisSegmentCacheKey(ctx, segment.index, signature);
-    const cached = await analysisSegmentFamily.load(segKey);
-    if (cached) {
-      return cached;
-    }
-    if (signal?.aborted) {
-      throw makeAbortedError();
-    }
-    // 前情回顾：上一段结尾字幕（只作上下文，产出限定在本段区间，靠 minSeconds 兜底）。
-    const contextItems = index > 0 ? tailItems(segments[index - 1]?.items, ANALYSIS_CONTEXT_CHARS) : [];
-    const built = buildAnalysisPrompt({
-      ...promptVars,
-      items: segment.items,
-      contextItems,
-      // 时长变量按本段区间算（对齐参考仓库 analyzeChunk 传 chunk.endSeconds）。
-      videoDuration: segment.to,
-      startSeconds: segment.from,
-      segmentIndex: index + 1,
-      totalSegments: total
-    });
-    const part = await requestValidatedPart({
-      provider,
-      systemPrompt,
-      built,
-      minSeconds: segment.from,
-      thinkingLevel,
-      signal,
-      chatCompletionImpl
-    });
-    // 先落盘再返回：失败重试只重跑未落盘段（segment-cache 复用语义）。
-    await analysisSegmentFamily.save(segKey, part);
-    return part;
-  };
-
-  const worker = async (segment: BudgetPlanSegment, index: number): Promise<SegmentOutcome> => {
+  // 未命中路径（含「段失败跳过出部分结果」的收束差异——07 票决议，留在 run 闭包；
+  // 删除测试否决了 runner 统一持有落盘/收束的方案，候选 2 原方案否决点）。
+  // 查缓存 → 命中短路归 runCachedMap（候选 2 第二步：「查缓存 → 命中复用」骨架
+  // pool.js 单源）；命中即跳过 prompt 构造与调用。
+  const analyzeSegment = async (segment: BudgetPlanSegment, index: number): Promise<SegmentOutcome> => {
     try {
-      const part = await analyzeSegment(segment, index);
+      if (signal?.aborted) {
+        throw makeAbortedError();
+      }
+      // 前情回顾：上一段结尾字幕（只作上下文，产出限定在本段区间，靠 minSeconds 兜底）。
+      const contextItems = index > 0 ? tailItems(segments[index - 1]?.items, ANALYSIS_CONTEXT_CHARS) : [];
+      const built = buildAnalysisPrompt({
+        ...promptVars,
+        items: segment.items,
+        contextItems,
+        // 时长变量按本段区间算（对齐参考仓库 analyzeChunk 传 chunk.endSeconds）。
+        videoDuration: segment.to,
+        startSeconds: segment.from,
+        segmentIndex: index + 1,
+        totalSegments: total
+      });
+      const part = await requestValidatedPart({
+        provider,
+        systemPrompt,
+        built,
+        minSeconds: segment.from,
+        thinkingLevel,
+        signal,
+        chatCompletionImpl
+      });
+      // 先落盘再返回：失败重试只重跑未落盘段（segment-cache 复用语义）。
+      await analysisSegmentFamily.save(buildAnalysisSegmentCacheKey(ctx, segment.index, signature), part);
       return { ok: true, part };
     } catch (e) {
       // 中止仍整体上抛（池层收束）；其余失败按 07 票决议跳过该段、记录区间。
@@ -654,10 +648,13 @@ async function executeOverviewRun({
 
   let outcomes: SegmentOutcome[];
   try {
-    outcomes = await runMapBounded({
+    outcomes = await runCachedMap({
       items: segments,
-      worker,
-      concurrency: DEFAULT_MAP_CONCURRENCY,
+      loadCached: async (segment) => {
+        const cached = await analysisSegmentFamily.load(buildAnalysisSegmentCacheKey(ctx, segment.index, signature));
+        return cached ? { ok: true, part: cached } : null;
+      },
+      run: analyzeSegment,
       signal,
       onItemDone: () => {
         done += 1;

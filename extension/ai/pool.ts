@@ -26,6 +26,42 @@ interface RunMapBoundedOptions<T, R> {
   onItemDone?: (result: R, index: number) => void;
 }
 
+interface RunCachedMapOptions<T, R> {
+  items: T[];
+  // 查缓存：返回非 null/undefined 即命中（短路，不调 run）。
+  loadCached: (item: T, index: number) => Promise<R | null | undefined> | R | null | undefined;
+  // 未命中路径（调模型、clamp、落盘）。落盘时序（先落盘再返回）与失败策略
+  // （跳过 / 通知后继续 / 上抛）是两条管线各自的真实差异，留在 run 闭包里表达——
+  // 删除测试否决了 runner 统一持有 persist 的方案（候选 2 第二步结论）。
+  run: (item: T, index: number) => Promise<R>;
+  concurrency?: number;
+  signal?: AbortSignal | null;
+  onItemDone?: (result: R, index: number) => void;
+}
+
+/**
+ * runMapBounded 的缓存短路变体（arch-review-2026-09 候选 2 第二步）：每个 item
+ * 走「查缓存 → 命中短路 / 未命中 run」，并发 / 重试 / 中止 / 下标排布语义全部
+ * 继承 runMapBounded。命中口径（null 与 undefined 都是未命中）此处单源。
+ */
+export async function runCachedMap<T, R>({
+  items,
+  loadCached,
+  run,
+  concurrency,
+  signal,
+  onItemDone
+}: RunCachedMapOptions<T, R>): Promise<R[]> {
+  const worker = async (item: T, index: number): Promise<R> => {
+    const cached = await loadCached(item, index);
+    if (cached !== null && cached !== undefined) {
+      return cached;
+    }
+    return await run(item, index);
+  };
+  return await runMapBounded({ items, worker, concurrency, signal, onItemDone });
+}
+
 /**
  * 以受限并发执行 map worker，产出按原始下标排布的结果数组。
  * worker(item, index) → Promise<result>；每完成一项调用 onItemDone(result, index)。

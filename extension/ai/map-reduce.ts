@@ -15,7 +15,7 @@ import { makeAbortedError } from "../shared/error-helpers.js";
 import { formatSegmentHeading, formatSegmentItem } from "./subtitle-prompt.js";
 import { buildBudgetPlan, FINAL_OUTPUT_CHARS, SEGMENT_SUMMARY_CHARS, SEGMENT_INPUT_CHARS, REDUCE_GROUP_INPUT_CHARS } from "./budgeter.js";
 import { chatCompletion } from "./completion.js";
-import { runMapBounded, DEFAULT_MAP_CONCURRENCY } from "./pool.js";
+import { runCachedMap } from "./pool.js";
 import { shouldReduce, reduceSummaries } from "./reduce.js";
 import { segmentCacheProxy, type SegmentCacheOps } from "./segment-cache-proxy.js";
 import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
@@ -119,7 +119,9 @@ interface SummarizeSegmentInput {
 }
 
 /**
- * 单段小结：先查缓存命中直接复用（04 填空后生效），未命中则构造 prompt 调模型并落盘。
+ * 单段小结（未命中路径）：构造 prompt 调模型并落盘。缓存命中短路归并发层的
+ * runCachedMap（候选 2 第二步：「查缓存 → 命中复用」骨架 pool.js 单源），命中即
+ * 跳过本函数——包括无谓的原始段落盘。
  * budgetScale：本轮预算档（默认 1）——小结缓存 key 按档隔离（防段边界漂移后命中
  * 错位小结）；原始段只按常态档（scale=1）落盘（供 followup 跨会话检索，检索侧
  * 永远按常态档切段，非常态档写入反而污染检索数据）。
@@ -141,12 +143,6 @@ async function summarizeSegment({
   notifyCacheWriteError,
   budgetScale = 1
 }: SummarizeSegmentInput): Promise<string> {
-  // 缓存命中直接复用，跳过 map 调用与无谓的原始段落盘（04 填空后生效）。
-  const cached = await segmentCache.loadSummary({ context, segmentIndex: segment.index, budgetScale });
-  if (cached != null) {
-    return cached;
-  }
-
   // 原始字幕段落盘（04 实现落盘；06 按需检索时可跨会话复用；仅常态档）。
   // fire-and-forget 不阻塞模型调用（追问用的按需缓存，缺段时追问路径回落完整
   // Map-Reduce）；淘汰后重试仍失败 → 上浮一次（编排层去重），不中断本段小结。
@@ -215,7 +211,7 @@ interface MapReduceResult {
 
 /**
  * 编排主函数（签名固定，04/07/08 只换内部实现）：
- * 切片 → 逐段小结（串行 runMapBounded）→ 成稿（shouldReduce 为真先归并）→ 回吐正文。
+ * 切片 → 逐段小结（runCachedMap 有界并发）→ 成稿（shouldReduce 为真先归并）→ 回吐正文。
  * 溢出兜底：任一阶段模型调用抛带 .overflow 标记的错误时，按 0.5 倍收紧入口侧预算
  * （单段输入 / 归并组输入）整轮重跑一次——重跑用新预算重切段，小结缓存 key 按档
  * 隔离（非常态档不会命中常态档的小结，段边界漂移不串内容）。重跑仍溢出则带明确
@@ -301,28 +297,32 @@ export async function orchestrateMapReduce({
       }
     };
 
-    const worker = async (segment: BudgetPlanSegment): Promise<{ segment: BudgetPlanSegment; summary: string }> => {
-      const summary = await summarizeSegment({
-        provider,
-        context: ctx,
-        segment,
-        total,
-        signal,
-        thinkingLevel,
-        chatCompletionImpl,
-        segmentCache,
-        notifyCacheWriteError,
-        budgetScale
-      });
-      return { segment, summary };
-    };
-
     let done: { segment: BudgetPlanSegment; summary: string }[];
     try {
-      done = await runMapBounded({
+      // 查缓存 → 命中短路归 runCachedMap；rawsave 时机、abort 检查与缓存写失败
+      // 「通知一次不中断」都是本管线收束差异，留在 summarizeSegment（run 闭包）里
+      // ——删除测试否决了 runner 统一持有落盘的方案（候选 2 原方案否决点）。
+      done = await runCachedMap({
         items: segments,
-        worker,
-        concurrency: DEFAULT_MAP_CONCURRENCY,
+        loadCached: async (segment) => {
+          const cached = await segmentCache.loadSummary({ context: ctx, segmentIndex: segment.index, budgetScale });
+          return cached != null ? { segment, summary: cached } : null;
+        },
+        run: async (segment) => ({
+          segment,
+          summary: await summarizeSegment({
+            provider,
+            context: ctx,
+            segment,
+            total,
+            signal,
+            thinkingLevel,
+            chatCompletionImpl,
+            segmentCache,
+            notifyCacheWriteError,
+            budgetScale
+          })
+        }),
         signal,
         onItemDone: (result, index) => {
           segmentSummaries[index] = result?.summary || "";

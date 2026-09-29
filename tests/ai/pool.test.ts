@@ -252,6 +252,82 @@ describe("重试语义", () => {
   });
 });
 
+describe("runCachedMap（缓存短路并发 map，arch-review-2026-09 候选 2 第二步）", () => {
+  it("缓存命中：不调 run，结果直接取缓存值", async () => {
+    const items = ["a", "b"];
+    const loadCached = vi.fn(async (item: string) => (item === "a" ? "cached-a" : null));
+    const run = vi.fn(async (item: string) => `computed-${item}`);
+
+    const results = await mod.runCachedMap({ items, loadCached, run });
+
+    expect(results).toEqual(["cached-a", "computed-b"]);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith("b", 1);
+    // 命中项的 load 也按项调用
+    expect(loadCached).toHaveBeenCalledTimes(2);
+  });
+
+  it("load 返回 undefined 视为未命中", async () => {
+    const loadCached = vi.fn(async () => undefined as string | undefined);
+    const run = vi.fn(async (item: string) => `computed-${item}`);
+
+    const results = await mod.runCachedMap({ items: ["x"], loadCached, run });
+
+    expect(results).toEqual(["computed-x"]);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("先落盘再返回由 run 闭包保证：run 未落定前 onItemDone 不触发", async () => {
+    const release: Array<(value?: unknown) => void> = [];
+    const gate = new Promise((resolve) => release.push(resolve));
+    const onItemDone = vi.fn();
+
+    const promise = mod.runCachedMap({
+      items: ["only"],
+      loadCached: async () => null,
+      // 未命中路径含落盘：run 返回前 await 落盘（各管线 run 闭包的纪律）
+      run: async () => {
+        await gate;
+        return "result";
+      },
+      onItemDone
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(onItemDone).not.toHaveBeenCalled();
+    release[0]();
+    await promise;
+    expect(onItemDone).toHaveBeenCalledTimes(1);
+    expect(onItemDone).toHaveBeenCalledWith("result", 0);
+  });
+
+  it("缓存命中项也照常触发 onItemDone（进度口径与池层一致）", async () => {
+    const onItemDone = vi.fn();
+    await mod.runCachedMap({
+      items: ["a", "b"],
+      loadCached: async () => "hit",
+      run: async () => "computed",
+      onItemDone
+    });
+    expect(onItemDone).toHaveBeenCalledTimes(2);
+  });
+
+  it("run 抛错：按池语义重试后上抛", async () => {
+    const failError = new Error("boom");
+    let calls = 0;
+    await expect(
+      mod.runCachedMap({
+        items: ["x"],
+        loadCached: async () => null,
+        run: async () => {
+          calls += 1;
+          throw failError;
+        }
+      })
+    ).rejects.toBe(failError);
+    expect(calls).toBe(mod.MAX_MAP_RETRIES + 1);
+  });
+});
+
 describe("溢出错误不重试（同素材重发必然再溢出，交上层放宽预算重跑）", () => {
   it("worker 抛 overflow 标记错误 → 不重试（调用 1 次）、整体 rethrow", async () => {
     const overflowError: Error & { overflow?: boolean } = new Error("上下文超出模型限制");
