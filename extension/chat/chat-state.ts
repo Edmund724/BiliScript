@@ -100,7 +100,7 @@ export interface ChatSessionSavedConversation {
 // currentConversationMeta / chatHistory）与 savedConversations 收进
 // ChatSessionGuardedState，公开类型上整段 Readonly——生产写入点一律经本文件
 // 末尾的意图级原语。其余 10 个字段暂留裸 mutable（写方跨文件且粒度混写，
-// 详见 ADR-0011 的 B 档记录）。
+// 详见 ADR-0005 适用范围二的 B 档记录）。
 type ChatSessionGuardedState = {
   // 当前会话的一问一答数组 [{ role, content }]
   chatHistory: ChatSessionMessage[];

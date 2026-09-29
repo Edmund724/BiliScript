@@ -35,7 +35,7 @@ outside `ai/` never touch player-AI slots directly.
 
 The sidepanel conversation bag is a **second state namespace**, owned by the `chat` domain and
 exported as the module-level singleton `chatSessionState` (14 business fields, see
-[ADR-0011](adr/0011-chat-state-write-discipline.md)). It follows the same Readonly + setter
+[ADR-0005](adr/0005-state-bag-write-discipline.md) 适用范围二). It follows the same Readonly + setter
 split, but only over the conversation-identity slice:
 
 | Field                                                    | Write discipline                                                       |
