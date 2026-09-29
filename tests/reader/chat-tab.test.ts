@@ -4,7 +4,7 @@
 //
 // 覆盖（验收清单）：
 // - 组合根装配：懒加载边界（开壳不装载，首切对话 tab 才装载）、init 一次性
-//   （重复激活幂等）、context chip / 模型选择器 / 消息区初始态；
+//   （重复激活幂等）、上下文装载 / 模型选择器 / 消息区初始态；
 // - explain 意图消费：激活时 peek → 渲染引用卡（时间戳 pill）→ 自动发送解释
 //   提示词 → 发送成功即 consume（一次意图只发一次）；取消按钮清意图；
 // - subtitle-wait kick 总线接线：转写中发送被挂起（意图/输入保持 pending），
@@ -204,10 +204,14 @@ describe("组合根装配与懒加载边界", () => {
     expect(modelSelect.disabled).toBe(false);
     // multi-model-catalog：选项值为「平台 id\u0001模型 id」复合值（选中回落首平台首模型）
     expect(modelSelect.value).toBe("p1\u0001模型一");
-    // - 上下文加载（进程内直读 state.clip）→ context chip 显示视频标题
-    const chip = document.getElementById(ids.readingChatContextChip) as HTMLButtonElement;
-    expect(chip.textContent).toContain("测试视频");
-    expect(chip.disabled).toBe(false);
+    // - 上下文装载（进程内直读 state.clip）→ 主上下文落到视频标题（标题不再上屏：
+    //   头部标题 chip 已删，2026-10 用户决议）
+    expect(chatSessionState.contextData?.title).toContain("测试视频");
+    const header = document.querySelector(`#${ids.readingChatRoot} > .chat-header`);
+    expect(Array.from(header!.children).map((node) => (node as HTMLElement).id)).toEqual([
+      ids.readingChatHistoryBtn,
+      ids.readingChatNewBtn
+    ]);
     // - 初始态：无会话历史 → 空消息区 + 建议区（无居中错误）
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(messages.querySelectorAll(".chat-center-error")).toHaveLength(0);

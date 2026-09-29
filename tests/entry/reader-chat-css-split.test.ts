@@ -22,7 +22,7 @@ const CHAT_TAB = "extension/reader/chat-tab.ts";
 // 与三 tab 共享滚动条（.biliscript-reading-chat .chat-messages 滚动条）合法引用同前缀。
 const CHAT_MARKERS = [
   "chat-header",
-  "chat-context-chip",
+  "chat-model-panel",
   "chat-thinking",
   "chat-suggestions",
   "chat-history-",

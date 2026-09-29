@@ -606,13 +606,13 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
     );
   });
 
-  it("chat/context-load.js：上下文加载读 title/url（chip）与 signature（回传）", () => {
+  it("chat/context-load.js：上下文加载读 url（跳转兜底）与 signature（回传）", () => {
     const source = readSource("../../extension/chat/context-load.js");
-    // updateContextChip 文案/跳转提示（title/url）+ isBoundConversationMismatched
-    // / openCurrentContextUrl 的目标 URL 读取（url）
+    // openCurrentContextUrl 的目标 URL 读取（url）；标题 chip 已于 2026-10 删除，
+    // contextData.title 不再被本模块读取
     assertReconciliation(
       scanFields(source, "contextData"),
-      ["title", "url"],
+      ["url"],
       "context-load contextData"
     );
     // ifSignature 回传来源：上次全量快照的签名

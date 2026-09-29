@@ -1,7 +1,8 @@
 // tests/chat/context-load.test.ts
-// createContextLoad（上下文状态加载 + context chip + 跳转）行为契约（候选5 拆分
-// 直测；PR5 自 tests/sidepanel 随迁并适配 ContextFetch 策略注入——组装面更新，
-// 行为断言与迁移前一致）。
+// createContextLoad（上下文状态加载 + 跳转）行为契约（候选5 拆分直测；PR5 自
+// tests/sidepanel 随迁并适配 ContextFetch 策略注入——组装面更新，行为断言与
+// 迁移前一致）。头部标题 chip 已于 2026-10 删除，updateContextChip 随之下线，
+// 本文件不再覆盖 chip 文案/mismatch 标记。
 //
 // 覆盖 loadContextState 的策略动作分支（表驱动，注入替身 ContextFetch）：
 //   skip-unchanged（短路返回 true，不动任何状态）
@@ -9,8 +10,7 @@
 //   apply-pinned（只落地 live 快照，不进主上下文）
 //   blocked-streaming（同 pinned 执行体）
 //   apply-live（正常落地 + 上下文变化时 restoreLatest + renderInitialState）
-// 以及 updateContextChip（空上下文/标题截断/mismatch 标记）与 openCurrentContextUrl
-//（同视频不跳转、跨视频更新 URL + 等待加载 + 强刷）。
+// 以及 openCurrentContextUrl（同视频不跳转、跨视频更新 URL + 等待加载 + 强刷）。
 // （原消息链包装器用例——no-tab/error 信封/参数透传——随消息链策略退役，见
 // ticket arch-slim-4/01；no-tab/error 的落地动作契约由 context-policy 与
 // context-inprocess.test.js 覆盖。）
@@ -50,8 +50,6 @@ function makeHarness({
   tab?: { id?: number; url?: string } | null;
   fetchOutcome?: () => ContextFetchOutcome;
 } = {}) {
-  const contextChip = document.createElement("button");
-  document.body.appendChild(contextChip);
   const deps = {
     getActiveTab: vi.fn(async () => tab),
     fetchContext: vi.fn(async (): Promise<ContextFetchOutcome> => {
@@ -60,7 +58,6 @@ function makeHarness({
       }
       return { kind: "payload", tabUrl: tab?.url || "", payload: makePayload() };
     }),
-    contextChip,
     renderHistoryList: vi.fn(),
     renderInitialState: vi.fn(),
     renderSuggestions: vi.fn(),
@@ -73,7 +70,6 @@ function makeHarness({
   const contextLoad = createContextLoad({
     fetchContext: deps.fetchContext,
     getActiveTab: deps.getActiveTab,
-    contextChip: deps.contextChip,
     renderHistoryList: deps.renderHistoryList,
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.renderSuggestions,
@@ -83,7 +79,7 @@ function makeHarness({
     isStreaming: deps.isStreaming,
     hasPendingUserPrompt: deps.hasPendingUserPrompt
   });
-  return { deps, contextLoad, contextChip };
+  return { deps, contextLoad };
 }
 
 beforeEach(async () => {
@@ -235,42 +231,6 @@ describe("loadContextState 动作分支", () => {
     expect(chatSessionState.contextData).toEqual(makePayload());
     expect(deps.restartChat).not.toHaveBeenCalled();
     expect(deps.restoreLatest).not.toHaveBeenCalled();
-  });
-});
-
-describe("updateContextChip", () => {
-  it("无上下文：文案「无上下文」+ disabled + 去 mismatch", () => {
-    const { contextLoad, contextChip } = makeHarness();
-    contextChip.disabled = false;
-    contextChip.classList.add("is-mismatch");
-
-    contextLoad.updateContextChip();
-
-    expect(contextChip.textContent).toBe("无上下文");
-    expect(contextChip.disabled).toBe(true);
-    expect(contextChip.classList.contains("is-mismatch")).toBe(false);
-  });
-
-  it("有上下文：标题整串写入 chip（溢出交 CSS ellipsis）+ disabled 随 url 有无", () => {
-    chatSessionState.contextData = { title: "一".repeat(30), url: "https://x" };
-    const { contextLoad, contextChip } = makeHarness();
-
-    contextLoad.updateContextChip();
-
-    expect(contextChip.textContent).toBe("一".repeat(30));
-    expect(contextChip.disabled).toBe(false);
-  });
-
-  it("pinned 对话绑定视频与当前页不符：is-mismatch 标记", () => {
-    chatSessionState.contextData = { title: "视频", url: "https://www.bilibili.com/video/BV1" };
-    applyConversationIdentity({ meta: { pinnedContext: true, contextUrl: "https://www.bilibili.com/video/BVother" } });
-    chatSessionState.liveTabUrl = "https://www.bilibili.com/video/BVxyz999";
-    const { contextLoad, contextChip } = makeHarness();
-
-    contextLoad.updateContextChip();
-
-    expect(contextChip.classList.contains("is-mismatch")).toBe(true);
-    expect(contextChip.title).toContain("当前页不是这个对话绑定的视频");
   });
 });
 

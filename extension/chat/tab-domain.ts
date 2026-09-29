@@ -14,7 +14,7 @@
 //（后建）。
 //
 // deps 面（reader/chat-tab 侧实现注入）：
-//   - DOM 元素：messages / input / contextChip（对话 tab 壳的 readingChat* id）；
+//   - DOM 元素：messages / input（对话 tab 壳的 readingChat* id）；
 //   - ui 门面：ChatRuntimeUi（chat-runtime 的布局/UI 回调纯分组，8 件回调由
 //     组合根实现）+ store 能力事件三件（渲染编排反转：store 编排时机，组合根
 //     订阅结果）+ contextLoad 的四个渲染编排回调（renderHistoryList /
@@ -68,10 +68,9 @@ export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
 export { createProviderPrefs, parseModelOptionValue } from "./providers.js";
 
 export interface CreateChatTabDomainDeps {
-  // ---- DOM 元素（reader/chat-tab 模块级 `els` 的壳三件）----
+  // ---- DOM 元素（reader/chat-tab 模块级 `els` 的壳两件）----
   messages: HTMLElement;
   input: HTMLTextAreaElement;
-  contextChip: HTMLButtonElement;
   // ---- ui 门面（ChatRuntimeUi，组合根实现注入）----
   ui: ChatRuntimeUi;
   // ---- store 能力事件（渲染编排反转，组合根订阅结果）----
@@ -118,7 +117,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   // 会话状态（会话列表/当前会话/上下文）收拢在 chatSessionState，store 直接
   // import 读写；能力事件三件由组合根订阅（工单 05 渲染编排反转：store 自己
   // 编排渲染时机，组合根只订阅结果——历史列表恒随 onConversationChanged 重渲，
-  // 标志驱动 chip/popover/视图重建）。
+  // 标志驱动 popover/视图重建）。
   const store = createConversationStore({
     loadContextState: (opts) => contextLoad.loadContextState(opts),
     resolveAiConversationRef: (contextRef, purpose) =>
@@ -128,7 +127,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     onContextNotice: deps.onContextNotice,
     storage: deps.storage
   });
-  // 上下文状态加载（读当前页状态 → 按策略动作执行编排副作用）+ context chip。
+  // 上下文状态加载（读当前页状态 → 按策略动作执行编排副作用）。
   // 流式守卫判定惰性取 runtime（回调执行时实例已存在）。
   // 拉数据一段为 ContextFetch 策略注入——reader 与 content 同进程，用
   // createInProcessContextFetch 直读 state.clip（不走扩展页消息链；装配策略
@@ -138,7 +137,6 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
       clip: deps.clip,
       settings: deps.settings
     }),
-    contextChip: deps.contextChip,
     renderHistoryList: deps.renderHistoryList,
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.renderSuggestions,

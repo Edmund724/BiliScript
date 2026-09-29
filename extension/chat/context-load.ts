@@ -1,10 +1,11 @@
-// extension/chat/context-load.ts — 上下文状态加载编排壳与上下文 chip（候选5 自
+// extension/chat/context-load.ts — 上下文状态加载编排壳（候选5 自
 // sidepanel.ts 迁出，PR5 自 pages/sidepanel-context-load.ts 迁入 chat 域并
 // 改造；PR5c 随 sidepanel 摘除，chat/* 为对话内核唯一宿主）：
-// loadContextState（拉上下文 → 按策略动作执行编排副作用）、applyContextPayload、
-// updateContextChip、isBoundConversationMismatched、openCurrentContextUrl。
+// loadContextState（拉上下文 → 按策略动作执行编排副作用）、
+// openCurrentContextUrl。
 // 分支判定收敛在 ./context-policy.ts（纯函数，继续直 import），本模块只负责
-// 拉数据、按动作执行。
+// 拉数据、按动作执行。（头部标题 chip 已于 2026-10 删除：updateContextChip 与
+// 只服务它的 isBoundConversationMismatched 一并下线，上下文装载链不变。）
 //
 // arch-slim/07 装配收口：「拉数据」的 ContextFetch 策略（扩展页消息链 /
 // 进程内直读 / pinned 补水身份短路）连同 AiContext 装配知识一并迁往
@@ -16,7 +17,7 @@
 // liveContextData / liveContextKey / liveTabUrl / currentConversationMeta）直接
 // import；上下文组装策略（fetchContext）与 openCurrentContextUrl 的 transport
 //（getActiveTab——扩展页专属跳转，reader 壳可不注入）经工厂 deps 注入；
-// 渲染/编排回调（contextChip 的 DOM、renderHistoryList、resetConversationView、
+// 渲染/编排回调（renderHistoryList、resetConversationView、
 // restartChat、renderSuggestions、restoreLatest、流式守卫判定 isStreaming /
 // hasPendingUserPrompt 惰性互引 chatRuntime 实例）同样经 deps 注入。本模块
 // 不 import 组合根。
@@ -35,10 +36,9 @@ import type { LoadContextStateOptions } from "./conversation-store.js";
 export interface CreateContextLoadDeps {
   // 上下文组装策略（core/context-assembly 的 createInProcessContextFetch）
   fetchContext: ContextFetch;
-  // openCurrentContextUrl 的 transport（扩展页专属：chip 点击跳转目标视频；
-  // reader 壳可不注入——缺省时 openCurrentContextUrl 为 no-op）
+  // openCurrentContextUrl 的 transport（扩展页专属跳转；reader 壳可不注入——
+  // 缺省时 openCurrentContextUrl 为 no-op）
   getActiveTab?: () => Promise<{ id?: number; url?: string } | null>;
-  contextChip: HTMLButtonElement;
   renderHistoryList: () => void;
   renderInitialState: () => void;
   renderSuggestions: () => void;
@@ -52,13 +52,10 @@ export interface CreateContextLoadDeps {
 
 export interface ContextLoad {
   loadContextState: (opts?: LoadContextStateOptions) => Promise<boolean>;
-  updateContextChip: () => void;
   openCurrentContextUrl: () => Promise<void>;
 }
 
 export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
-  const { contextChip } = deps;
-
   async function loadContextState({ forceRefresh = false, silent = false }: LoadContextStateOptions = {}): Promise<boolean> {
     const hasPinnedConversation = isPinnedContextStrict(chatSessionState.currentConversationMeta);
     // 上下文组装策略注入点（PR5）。ifSignature 沿用迁移前口径：上次全量快照
@@ -78,7 +75,6 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         chatSessionState.contextData = null;
         chatSessionState.currentContextKey = "";
       }
-      updateContextChip();
       if (plan.resetView) {
         deps.resetConversationView(plan.message as string);
       }
@@ -121,7 +117,6 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         chatSessionState.contextData = null;
         chatSessionState.currentContextKey = "";
       }
-      updateContextChip();
       if (plan.resetView) {
         deps.resetConversationView(plan.message as string);
       }
@@ -139,7 +134,6 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       plan.action === LOAD_CONTEXT_ACTION.BLOCKED_STREAMING
     ) {
       deps.renderHistoryList();
-      updateContextChip();
       return plan.returnValue;
     }
 
@@ -160,7 +154,6 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
 
     chatSessionState.contextData = nextContext;
     chatSessionState.currentContextKey = nextKey;
-    updateContextChip();
 
     if (contextChanged && !deps.isStreaming() && !deps.hasPendingUserPrompt()) {
       deps.restartChat({ keepContext: true });
@@ -168,40 +161,6 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       deps.renderSuggestions();
     }
     return contextChanged;
-  }
-
-  function updateContextChip(): void {
-    if (!chatSessionState.contextData) {
-      contextChip.textContent = "无上下文";
-      contextChip.title = "";
-      contextChip.disabled = true;
-      contextChip.classList.remove("is-mismatch");
-      return;
-    }
-
-    // 标题不按字数硬截：chip 已占满 header 剩余宽度，溢出交给 CSS
-    // text-overflow: ellipsis 按真实盒宽裁（短标题也能铺满整个 chip）。
-    contextChip.textContent = chatSessionState.contextData.title || "未知视频";
-    const mismatch = isBoundConversationMismatched();
-    contextChip.classList.toggle("is-mismatch", mismatch);
-    contextChip.title = chatSessionState.contextData.url
-      ? `${chatSessionState.contextData.title || ""}${mismatch ? "\n当前页不是这个对话绑定的视频" : ""}\n点击跳转目标视频，或开启新对话`
-      : chatSessionState.contextData.title || "";
-    contextChip.disabled = !String(chatSessionState.contextData.url || "").trim();
-  }
-
-  function isBoundConversationMismatched(): boolean {
-    if (chatSessionState.currentConversationMeta?.pinnedContext !== true) {
-      return false;
-    }
-    const targetUrl = String(chatSessionState.currentConversationMeta?.contextUrl || chatSessionState.contextData?.url || "").trim();
-    if (!targetUrl) {
-      return false;
-    }
-    if (!chatSessionState.liveTabUrl) {
-      return true;
-    }
-    return !doesTabMatchContextUrl(chatSessionState.liveTabUrl, targetUrl);
   }
 
   async function openCurrentContextUrl(): Promise<void> {
@@ -226,5 +185,5 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     } catch {}
   }
 
-  return { loadContextState, updateContextChip, openCurrentContextUrl };
+  return { loadContextState, openCurrentContextUrl };
 }

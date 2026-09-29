@@ -11,6 +11,8 @@
 // pending 意图渲染，自动发送成功即消费隐藏；卡上的取消按钮清意图。
 // 工单 03 增量：档位切换区内的「关不掉思考」提示行（默认 hidden，唯一的
 // 档位区 UI 增量，三档按钮本身不变）。
+// 2026-10 用户决议：头部不再显示视频标题（标题 chip 连同点击跳转一并删除），
+// 工具条只剩「历史对话」+「新会话」；右对齐由 CSS 接住（原先靠 chip 的 flex:1）。
 // 2026-09 用户决议：历史对话从「输入卡上方弹出的浮层」改为盖住 AI 对话 tab
 // 内容区的整页（详见 reader-chat.css 的接管规则）。因此历史页是对话根的第一个
 // 子元素——开合仍是 [hidden] 单源，靠「历史页:not([hidden]) ~ 对话内容」把
@@ -38,7 +40,6 @@ export function buildChatTabBodyHtml(): string {
         </section>
 
         <header class="chat-header biliscript-reading-chat-header">
-          <button type="button" class="chat-context-chip" id="${ids.readingChatContextChip}" title="">加载中...</button>
           <button id="${ids.readingChatHistoryBtn}" type="button" class="chat-toolbar-btn" title="历史对话">
             <span>历史对话</span>
           </button>

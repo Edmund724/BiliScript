@@ -29,7 +29,7 @@
 //（deps.input.focus()）本就经 deps 注入，无需改动。
 //
 // Boundary: this module does NOT touch sidepanel module-level layout variables
-// or the surrounding chrome (header/popovers/context chip). Conversation state
+// or the surrounding chrome (header/popovers). Conversation state
 // (chatHistory / conversation meta / context / aiPrefs / thinking level) lives
 // in ./chat-state.js and is imported directly; everything else it needs —
 // layout callback, context notices, DOM container references, input/stop-button

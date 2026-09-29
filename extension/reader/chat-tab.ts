@@ -53,10 +53,9 @@
 // 曾按 dom / core / lifecycle 浅拆四片（bc1498b），浅拆分并回本单文件。
 
 import { state } from "../core/state.js";
-import { buildReaderModeUrl } from "../bilibili/reader-url.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
 import { extractBvid } from "../bilibili/video-id-shared.js";
-import { buildContextKey, doesTabMatchContextUrl } from "../ai/conversation.js";
+import { buildContextKey } from "../ai/conversation.js";
 // 思考档位「关不掉」提示的判定入口（工单 03）：纯查表 resolver，host 推断 +
 // 模型名 taxonomy，无 DOM 依赖（后台路径同款判定天然不渲染提示）。
 import { resolveThinkingProfile } from "../ai/thinking-profiles.js";
@@ -135,7 +134,6 @@ const NON_VIDEO_CONTEXT_MESSAGE = "当前页非 B 站视频页面，<br>无法�
 
 const els = {
   root: document.getElementById(ids.readingChatRoot) as HTMLElement,
-  contextChip: document.getElementById(ids.readingChatContextChip) as HTMLButtonElement,
   modelSelect: document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement,
   modelChip: document.getElementById(ids.readingChatModelChip) as HTMLButtonElement,
   modelPanel: document.getElementById(ids.readingChatModelPanel) as HTMLElement,
@@ -375,7 +373,6 @@ const imageSupportGate = createImageSupportGate({
 const { runtime: chatRuntime, store: conversationStore, contextLoad } = createChatTabDomain({
   messages: els.messages,
   input: els.input,
-  contextChip: els.contextChip,
   ui: {
     setStreamingUiState,
     showConversationContextNotice,
@@ -388,9 +385,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad } = createCh
   },
   onConversationChanged: (change) => {
     lists.renderHistoryList();
-    if (change.refreshContextChip) {
-      contextLoad.updateContextChip();
-    }
     if (change.historyCleared) {
       popovers.hideHistoryPopover();
     }
@@ -448,7 +442,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad } = createCh
   }
 });
 
-const { loadContextState, updateContextChip } = contextLoad;
+const { loadContextState } = contextLoad;
 
 // 两列表渲染（建议/历史）。hideHistoryPopover 与本实例/popovers 实例互引，惰性
 // 箭头接线（回调执行时实例已存在）。
@@ -498,7 +492,7 @@ const widthEls: ModelSelectWidthEls = {
 
 // 上下文状态加载编排壳（../chat/context-load.ts）与 chat 流状态机
 //（../chat/chat-runtime.ts）均已收进上面的 createChatTabDomain 组装；本文件
-// 经解构消费 contextLoad（loadContextState / updateContextChip，见上）与
+// 经解构消费 contextLoad（loadContextState，见上）与
 // chatRuntime 实例方法。
 // AI 平台加载渲染 + 思考档位（widthEls 见上：度量对象是 chip/chipModel/chipLevel
 // 引用包；providers 内部的 updateModelSelectWidth 调用随 select 渲染刷新 chip
@@ -903,9 +897,6 @@ function bindEvents(): void {
   els.input.addEventListener("focus", autosizeInput);
   els.input.addEventListener("blur", autosizeInput);
   els.messages.addEventListener("scroll", scheduleScrollAutoScrollSync);
-  els.contextChip.addEventListener("click", () => {
-    void openCurrentContextInReader();
-  });
   els.newChatBtn.addEventListener("click", () => {
     void startNewConversation();
   });
@@ -1005,24 +996,6 @@ function onWindowResize(): void {
   scheduleModelSelectWidthUpdate(widthEls);
 }
 
-// chip 点击的 reader 适配（sidepanel 版为 openCurrentContextUrl：chrome.tabs.update
-// 跳转活动标签页）。content script 无 chrome.tabs：同视频只做静默强刷；绑定会话
-// 指向别的视频时页内导航到目标 URL（保留 biliscript_reader=1，阅读模式随 URL 恢复）。
-// URL 拼法单源在 bilibili/reader-url.ts 的 buildReaderModeUrl（arch-slim-2/03）。
-async function openCurrentContextInReader(): Promise<void> {
-  const targetUrl = String(chatSessionState.contextData?.url || chatSessionState.currentConversationMeta?.contextUrl || "").trim();
-  if (!targetUrl) {
-    return;
-  }
-  try {
-    if (doesTabMatchContextUrl(location.href, targetUrl)) {
-      await loadContextState({ forceRefresh: true, silent: true });
-      return;
-    }
-    location.href = buildReaderModeUrl(targetUrl);
-  } catch {}
-}
-
 // 输入框高度两态：未聚焦恒一行（模板 rows=1，省空间），聚焦（有光标）才展开——
 // 下限两行、之上随内容长高、上限 320。杠杆必须是 min-height 而非 height：主轴上
 // flex 项的 flex-basis:0% 让 height 失效（headless Chromium 实测：行内 height 写了
@@ -1085,7 +1058,7 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
 }
 
 // ============================================================
-// 上下文状态加载 / context chip：编排壳在 ../chat/context-load.ts（装配策略在
+// 上下文状态加载：编排壳在 ../chat/context-load.ts（装配策略在
 // ../core/context-assembly.ts，动作判定在 ../chat/context-policy.ts）；下方为
 // 整段迁自 sidepanel.ts 的页面级编排函数。
 // ============================================================
@@ -1094,7 +1067,6 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
 async function syncLiveContextState(forceRefresh = false): Promise<void> {
   const ok = await loadContextState({ forceRefresh, silent: true }).catch(() => false);
   if (chatSessionState.currentConversationMeta?.pinnedContext || chatRuntime.isStreaming() || chatRuntime.hasPendingUserPrompt()) {
-    updateContextChip();
     return;
   }
   if (!ok || !chatSessionState.contextData || !chatSessionState.providers.length || !chatSessionState.chatHistory.length) {
@@ -1178,7 +1150,6 @@ async function startNewConversation(): Promise<void> {
   if (chatSessionState.liveContextData) {
     chatSessionState.contextData = { ...chatSessionState.liveContextData };
     chatSessionState.currentContextKey = chatSessionState.liveContextKey || buildContextKey(chatSessionState.liveContextData);
-    updateContextChip();
   }
   restartChat({ keepContext: true });
   renderInitialState();
@@ -1423,7 +1394,6 @@ function restartChat({ keepContext = false }: { keepContext?: boolean } = {}): v
   if (!keepContext) {
     chatSessionState.currentContextKey = buildContextKey(chatSessionState.contextData);
   }
-  updateContextChip();
   resetConversationView("");
   setStreamingUiState(false);
   els.input.value = "";

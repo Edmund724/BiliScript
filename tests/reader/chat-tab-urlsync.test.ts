@@ -51,8 +51,8 @@ vi.mock("../../extension/bilibili/gateway-core.js", () => ({
 }));
 
 let state: TestState;
-let ids: typeof import("../../extension/reader/state.js").ids;
 let lazyChat: typeof import("../../extension/reader/lazy-chat-tab.js");
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 
 type Sendstub = ReturnType<typeof vi.fn>;
 function stubChromeByType(): void {
@@ -113,7 +113,7 @@ beforeEach(async () => {
   document.body.removeAttribute("data-biliscript-reader-mode");
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
-  ids = (await import("../../extension/reader/state.js")).ids;
+  chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
   lazyChat = await import("../../extension/reader/lazy-chat-tab.js");
   (await import("../../extension/ui/ui-renderer.js")).ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
@@ -145,7 +145,7 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     reopened.closeChatSession();
   });
 
-  it("防抖到期的强刷反映最新 clip 状态（context chip 更新为新标题）", async () => {
+  it("防抖到期的强刷反映最新 clip 状态（live 上下文快照更新为新标题）", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
     await chat.ensureChatTabActivated();
@@ -155,8 +155,9 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     window.dispatchEvent(new Event("biliscript:urlchange"));
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    const chip = document.getElementById(ids.readingChatContextChip) as HTMLButtonElement;
-    expect(chip.textContent).toContain("防抖后的新标题");
+    // 标题的呈现面（头部 chip）已删：强刷结果改在 live 上下文快照上对账
+    //（与「无标题可上屏但装载链照旧」同源）。
+    expect(chatSessionState.liveContextData?.title).toBe("防抖后的新标题");
     chat.closeChatSession();
   });
 });

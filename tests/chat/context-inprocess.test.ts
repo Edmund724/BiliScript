@@ -125,12 +125,9 @@ function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { 
     url: () => VIDEO_URL,
     fetchHotComments
   });
-  const contextChip = document.createElement("button");
-  document.body.appendChild(contextChip);
   const deps = {
     fetchContext,
     getActiveTab: vi.fn(async () => null),
-    contextChip,
     renderHistoryList: vi.fn(),
     renderInitialState: vi.fn(),
     renderSuggestions: vi.fn(),
@@ -141,7 +138,7 @@ function makeContextHarness(clipRef: ClipRef, { hotComments = HOT_COMMENTS }: { 
     hasPendingUserPrompt: vi.fn(() => false)
   };
   const contextLoad = createContextLoad(deps);
-  return { fetchHotComments, contextLoad, deps, contextChip };
+  return { fetchHotComments, contextLoad, deps };
 }
 
 // 宿主 → offscreen 的 chat port 消息（sendMessage 的发火载荷；port.postMessage

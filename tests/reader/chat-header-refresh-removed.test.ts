@@ -3,8 +3,8 @@
 // 只服务它的后端（点击绑定 → refreshContextManually → 刷新键 loading 态）一并删除。
 //
 // 三半守卫（防「半删」留孤儿）：
-// - 模板（chat-template）：头部工具条只剩上下文 chip / 历史对话 / 新会话，刷新键
-//   不再渲染；
+// - 模板（chat-template）：头部工具条只剩历史对话 / 新会话（标题 chip 后于本键删除，
+//   见 chat-header-context-chip-removed.test.ts），刷新键不再渲染；
 // - id 契约表（shared/dom-ids）：readingChatRefreshBtn 不再暴露；
 // - CSS（reader-chat.css）：该键专用的 .is-loading 转圈规则与其 @keyframes 一并
 //   移除——唯一消费方已不存在。
@@ -35,12 +35,11 @@ beforeEach(async () => {
 });
 
 describe("对话头部刷新键删除（模板）", () => {
-  it("头部工具条只剩上下文 chip / 历史对话 / 新会话，刷新键不再渲染", () => {
+  it("头部工具条只剩历史对话 / 新会话，刷新键不再渲染", () => {
     const header = document.querySelector(`#${ids.readingChatRoot} > .chat-header`);
 
     expect(header).not.toBe(null);
     expect(Array.from(header!.children).map((node) => (node as HTMLElement).id)).toEqual([
-      ids.readingChatContextChip,
       ids.readingChatHistoryBtn,
       ids.readingChatNewBtn
     ]);

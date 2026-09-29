@@ -23,9 +23,12 @@
   color: var(--biliscript-reader-text);
 }
 
+/* 头部工具条：2026-10 用户决议删除视频标题 chip 后只剩「历史对话」+「新会话」，
+ * 右对齐接住 chip 原先 flex:1 顶出的位置（两键位置与删 chip 前一致）。 */
 .biliscript-reading-chat .chat-header {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 5px;
   min-height: 42px;
   padding: 6px 0 8px;
@@ -34,42 +37,6 @@
 
 .biliscript-reading-chat .chat-header .chat-toolbar-btn {
   flex-shrink: 0;
-}
-
-.biliscript-reading-chat .chat-context-chip {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 6px 10px;
-  border: 0;
-  background: var(--biliscript-reader-surface-2);
-  color: var(--biliscript-reader-muted);
-  border-radius: 999px;
-  font-size: 14px;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
-}
-
-.biliscript-reading-chat .chat-context-chip:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-.biliscript-reading-chat .chat-context-chip:hover {
-  background: var(--biliscript-reader-surface-3);
-  color: var(--biliscript-reader-text);
-}
-
-.biliscript-reading-chat .chat-context-chip.is-mismatch {
-  background: var(--biliscript-reader-highlight);
-  color: var(--biliscript-reader-accent);
-}
-
-.biliscript-reading-chat .chat-context-chip:disabled {
-  cursor: default;
-  opacity: 0.72;
 }
 
 /* 思考档位分段控件（模型面板底部）：浅色容器内嵌分段药丸——inactive 档纯
