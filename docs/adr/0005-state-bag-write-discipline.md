@@ -128,7 +128,8 @@ boolean` 并返回 contextChanged，编排壳只留 restart/render 副作用）�
 上文两处「留待下一轮评审」（适用范围二的两条修订）在本轮裁决并落地：
 
 - **裁决：不做逐字段 setter 白名单，改为把 B 档 10 个字段的公开类型整段只读**
-  （`aiPrefs` 再深一层只读），写入全部收进 `chat-state.ts` 的意图级原语——与身份切片
+  （`aiPrefs` / `contextData` / `liveContextData` 再深一层只读），写入全部收进
+  `chat-state.ts` 的意图级原语——与身份切片
   同一形状。否定逐字段白名单的理由沿用「共同判断」：写方仍以整组/单字段混写为主，
   一一对应的 setter 只是把误写面换成白名单漂移面。
 - **新原语**（成组意图，与 `suppressUntil` / `applyConversationIdentity` 同一先例）：
@@ -142,7 +143,10 @@ boolean` 并返回 contextChanged，编排壳只留 restart/render 副作用）�
   `resetChatSessionStateForTests`），生产代码不得 import；两面看守：
   `tests/chat/chat-state-readonly.types.ts` 的 `@ts-expect-error` 编译期负向断言
   （由 `pnpm typecheck` 执行）与 `tests/chat/chat-state-b-bag.test.ts` 的源码守卫。
-- **有意保留的可写面**：`Readonly` 是浅层——`providers` / `chatHistory` 等数组的就地
-  push/patch 不在编译期约束内（与身份切片现状一致，非本轮新增缺口）；类型断言仍可绕过
-  只读面，不做运行期拦截（与「共同判断」否决 Proxy 同一取向）。B 档重开条件
-  自此改为：出现一次实际误写事故，或数组就地改写构成真实误写面。
+- **有意保留的可写面**：`Readonly` 只在被点名的三键上加深一层——`aiPrefs` / `contextData` /
+  `liveContextData` 的嵌套标量字段（含快照 index signature 上的键，如
+  `liveContextData.signature`）写即编译错误；再往下的数组与更深层级（`providers` /
+  `chatHistory` / `savedConversations` 等数组的就地 push/patch）仍不在编译期约束内（与
+  身份切片现状一致，非本轮新增缺口）；类型断言仍可绕过只读面，不做运行期拦截（与「共同
+  判断」否决 Proxy 同一取向）。B 档重开条件自此改为：出现一次实际误写事故，或数组就地
+  改写构成真实误写面。

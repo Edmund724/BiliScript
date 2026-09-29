@@ -36,17 +36,18 @@ outside `ai/` never touch player-AI slots directly.
 The sidepanel conversation bag is a **second state namespace**, owned by the `chat` domain and
 exported as the module-level singleton `chatSessionState` (14 business fields, see
 [ADR-0005](adr/0005-state-bag-write-discipline.md) 适用范围二). It follows the same Readonly + setter
-split, but only over the conversation-identity slice:
+split, and both slices are covered — every field is `Readonly` on the public type:
 
 | Field                                                    | Write discipline                                                       |
 | -------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `currentConversationId`, `currentConversationMeta`, `chatHistory` | `Readonly` on the public type — written through `applyConversationIdentity` / `detachConversationIdentity` / `clearConversationIdentity` / `ensureConversationId` / `appendChatHistory` |
 | `savedConversations`                                      | `Readonly` — written through `setSavedConversations`                    |
-| `contextData`, `currentContextKey`, `providers`, `liveContextData`, `liveContextKey`, `liveTabUrl`, `aiPrefs`, `asrTranscribingActive`, `aiThinkingLevel`, `webSearchEnabled` | still plain mutable — their writers span several files and mix granularities, so a slice-sized discipline (not a full sweep) is the honest scope |
+| `contextData`, `currentContextKey`, `providers`, `liveContextData`, `liveContextKey`, `liveTabUrl`, `aiPrefs`, `asrTranscribingActive`, `aiThinkingLevel`, `webSearchEnabled` | `Readonly` on the public type, with `aiPrefs` / `contextData` / `liveContextData` readonly one level deeper (nested scalar fields and index-signature keys are compile errors) — written through the intent-level primitives in `chat/chat-state.ts` (`applyProviderPrefs`, `applyContextToMain`, `applyLiveContextSnapshot`, `resetLiveContext`, `setAiThinkingLevel`, …; ADR-0005 修订 2026-09-29). Array in-place edits one level below those keys are still unconstrained |
 
 Tests that reuse the singleton inside one module epoch reset it through the test-only injection
-point `resetChatSessionStateForTests()` (the `force-set`-for-scaffolding precedent of
-`readingViewOpen` above), instead of hand-resetting field by field. Production code must not call it.
+point `resetChatSessionStateForTests()`, and arrange preconditions through the writable handle
+`chatSessionStateForTests` (the `force-set`-for-scaffolding precedent of `readingViewOpen` above),
+instead of hand-resetting field by field. Production code must not touch either.
 
 Plus a single flat settings object:
 

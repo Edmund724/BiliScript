@@ -32,8 +32,14 @@ export function assertChatSessionReadonlySurface(): void {
   chatSessionState.aiThinkingLevel = "high";
   // @ts-expect-error B 档对外只读：webSearchEnabled 直写必须编译失败
   chatSessionState.webSearchEnabled = true;
+  // @ts-expect-error B 档对外只读：contextData 嵌套字段直写必须编译失败（快照深一层只读）
+  chatSessionState.contextData!.title = "t";
+  // @ts-expect-error B 档对外只读：liveContextData 嵌套字段直写必须编译失败（快照深一层只读）
+  chatSessionState.liveContextData!.signature = "s";
 
   // 正向对照：测试把手是可写形状（测试布置前置状态用；生产代码不得 import）。
   chatSessionStateForTests.contextData = null;
+  chatSessionStateForTests.liveContextData = { title: "t" };
+  chatSessionStateForTests.liveContextData!.signature = "s";
   chatSessionStateForTests.aiPrefs.defaultModel = "p1";
 }

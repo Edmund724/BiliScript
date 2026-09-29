@@ -102,9 +102,9 @@ export interface ChatSessionSavedConversation {
 // currentConversationMeta / chatHistory）与 savedConversations 收进
 // ChatSessionGuardedState；B 档 10 个散字段（contextData / currentContextKey /
 // providers / live 三键 / aiPrefs / 杂项标志）收进 ChatSessionOpenState。两段在
-// 公开类型 ChatSessionState 上整段 Readonly（aiPrefs 再深一层只读），生产写入
-// 一律经本文件末尾的意图级原语——B 档写方归并与只读面收口见文末原语块
-// （ADR-0005 适用范围二的 B 档记录已与此刻口径对齐）。
+// 公开类型 ChatSessionState 上整段 Readonly（aiPrefs / contextData / liveContextData
+// 再深一层只读），生产写入一律经本文件末尾的意图级原语——B 档写方归并与只读面收口
+// 见文末原语块（ADR-0005 适用范围二的 B 档记录已与此刻口径对齐）。
 type ChatSessionGuardedState = {
   // 当前会话的一问一答数组 [{ role, content }]
   chatHistory: ChatSessionMessage[];
@@ -159,11 +159,15 @@ type ChatSessionOpenState = {
   webSearchEnabled: boolean;
 };
 
-// 公开视图：两段切片整段只读（aiPrefs 再深一层只读）。写入一律走本文件原语——
-// 在别处直写是编译期错误（编译期断言见 tests/chat/chat-state-readonly.types.ts）。
+// 公开视图：两段切片整段只读，三键（aiPrefs / contextData / liveContextData）再深一层
+// 只读——整组只经原语替换，嵌套标量字段（含快照 index signature 上的键）写即编译错误。
+// 数组与更深层级不在约束内（浅 Readonly 的固有边界，见 ADR-0005「有意保留的可写面」）。
+// 写入一律走本文件原语（编译期断言见 tests/chat/chat-state-readonly.types.ts）。
 export type ChatSessionState = Readonly<ChatSessionGuardedState> &
-  Readonly<Omit<ChatSessionOpenState, "aiPrefs">> & {
+  Readonly<Omit<ChatSessionOpenState, "aiPrefs" | "contextData" | "liveContextData">> & {
     readonly aiPrefs: Readonly<ChatSessionPreferences>;
+    readonly contextData: Readonly<ChatSessionContextSnapshot> | null;
+    readonly liveContextData: Readonly<ChatSessionContextSnapshot> | null;
   };
 type ChatSessionStateWritable = ChatSessionGuardedState & ChatSessionOpenState;
 

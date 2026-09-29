@@ -526,7 +526,8 @@ describe("发送前主动起跑字幕抓取（抓取未起跑的 idle 窗口不�
     // 让本轮全量装配读到「无字幕体 + idle」：签名对不上 → 走全量；载荷组装在
     // 热评往返之前，字幕在这段往返里落账（另一轮抓取刚完成）。
     if (chatSessionState.liveContextData) {
-      chatSessionState.liveContextData.signature = "stale-signature";
+      // 快照嵌套字段在公开只读面内（ADR-0005），测试布置前置状态走测试把手。
+      chatState.chatSessionStateForTests.liveContextData!.signature = "stale-signature";
     }
     gatewayMock.getCurrentAid.mockReturnValueOnce(7100);
     gatewayMock.fetchHotComments.mockImplementationOnce(async () => {
