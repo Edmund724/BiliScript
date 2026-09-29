@@ -26,7 +26,7 @@ import {
   isNoSubtitleEmptyContext,
   type NoSubtitleReason
 } from "./no-subtitle.js";
-import { CONTEXT_READ_FAILED_MESSAGE, isPinnedContextTruthy } from "./context-policy.js";
+import { CONTEXT_READ_FAILED_MESSAGE, isPinnedContextStrict } from "./context-policy.js";
 import type { ClipState } from "../core/state.js";
 
 export { NO_SUBTITLE_SEND_BLOCKED };
@@ -203,7 +203,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   async function ensureContextForSend(): Promise<boolean | string> {
     // pinned 判定沿用原调用点的真值语义（与 loadContextState 的严格相等不同
     // ——见 ./context-policy.ts 两个谓词的疑义记录；统一收口是后续步骤）。
-    if (isPinnedContextTruthy(chatSessionState.currentConversationMeta)) {
+    if (isPinnedContextStrict(chatSessionState.currentConversationMeta)) {
       await deps.loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
       return deps.hydratePinned();
     }

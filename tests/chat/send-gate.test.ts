@@ -120,6 +120,13 @@ describe("发送闸 createSendGate", () => {
       await expect(h.gate.ensureContextForSend()).resolves.toBe(false);
       expect(h.mocks.resetView).not.toHaveBeenCalled();
     });
+
+    it("pinnedContext 为真值非 true 时不走 pinned 分流（全仓统一严格判定）", async () => {
+      Object.assign(chatSessionState, { currentConversationMeta: { pinnedContext: 1 } as never });
+      const h = makeHarness();
+      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      expect(h.mocks.hydratePinned).not.toHaveBeenCalled();
+    });
   });
 
   describe("G2 读取失败闸", () => {

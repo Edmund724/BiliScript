@@ -1,6 +1,6 @@
 // sidepanel-context-policy 纯函数测试：loadContextState 的「输入 → 动作」映射。
 // 策略模块只做判定不做 I/O，这里直接对 resolveLoadContextAction /
-// resolveNoTabPlan / 两个 isPinned 谓词断言，锁定与 sidepanel.js 旧内联分支
+// resolveNoTabPlan / isPinnedContextStrict 谓词断言，锁定与 sidepanel.js 旧内联分支
 // 一一对应的判定优先级：skip-unchanged > error > apply-pinned >
 // blocked-streaming > apply-live；no-tab 在消息往返之前由 resolveNoTabPlan
 // 单独给出。forceRefresh 只随消息透传给 content（手动刷新时 content 忽略签名
@@ -13,7 +13,6 @@ import {
   LOAD_CONTEXT_ACTION,
   NO_TAB_MESSAGE,
   isPinnedContextStrict,
-  isPinnedContextTruthy,
   resolveLoadContextAction,
   resolveNoTabPlan
 } from "../../extension/chat/context-policy.js";
@@ -236,8 +235,8 @@ describe("resolveNoTabPlan — 消息往返之前的决策点", () => {
   });
 });
 
-describe("isPinned 两个谓词的差异", () => {
-  it("strict：只有字面量 true 成立（loadContextState 的历史语义）", () => {
+describe("isPinnedContextStrict 单一谓词（pinned 判定已统一）", () => {
+  it("只有字面量 true 成立（原 loadContextState 严格语义，现为全部调用点唯一语义）", () => {
     expect(isPinnedContextStrict({ pinnedContext: true })).toBe(true);
     expect(isPinnedContextStrict({ pinnedContext: 1 })).toBe(false);
     expect(isPinnedContextStrict({ pinnedContext: "true" })).toBe(false);
@@ -246,19 +245,9 @@ describe("isPinned 两个谓词的差异", () => {
     expect(isPinnedContextStrict(null)).toBe(false);
   });
 
-  it("truthy：任何真值成立（ensureCurrentContextForSend 的历史语义）", () => {
-    expect(isPinnedContextTruthy({ pinnedContext: true })).toBe(true);
-    expect(isPinnedContextTruthy({ pinnedContext: 1 })).toBe(true);
-    expect(isPinnedContextTruthy({ pinnedContext: "true" })).toBe(true);
-    expect(isPinnedContextTruthy({})).toBe(false);
-    expect(isPinnedContextTruthy(undefined)).toBe(false);
-    expect(isPinnedContextTruthy(null)).toBe(false);
-  });
-
-  it("分歧点：pinnedContext 为真值非 true 时两谓词结果不同（锁定历史现状）", () => {
+  it("真值非 true 一律不成立（原 truthy 调用点——发送闸 G1 与组合根两处——已并入严格判定）", () => {
     const meta = { pinnedContext: 1 };
     expect(isPinnedContextStrict(meta)).toBe(false);
-    expect(isPinnedContextTruthy(meta)).toBe(true);
   });
 });
 

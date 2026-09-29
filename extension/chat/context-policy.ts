@@ -56,16 +56,13 @@ export interface LoadContextPlan {
 export const NO_TAB_MESSAGE = "找不到当前标签页。";
 export const CONTEXT_READ_FAILED_MESSAGE = "当前页面上下文读取失败。";
 
-// pinned 判定（疑义记录，本轮不改行为）：loadContextState 用严格相等
-//（pinnedContext === true），ensureCurrentContextForSend 用真值判断。当前
-// conversation-store 只会写入字面量 true，两者实际等价，但严格度不同是历史
-// 现状——为保证行为逐字节保持，分别提供两个谓词，调用点各用其原始语义。
+// pinned 判定（2026-10 已统一为严格相等）：全部调用点——loadContextState 的
+// 策略动作、发送闸 G1、组合根两处真值读——只用 isPinnedContextStrict。历史上
+// ensureCurrentContextForSend 曾用真值判断，与严格谓词并存；conversation-store
+// 只写字面量 true，两者实际等价，统一后疑义面收敛为单一谓词（疑义记录见
+// 本文件 git 历史与 ADR-0005 修订）。
 export function isPinnedContextStrict(currentConversationMeta: CurrentConversationMetaLike | null | undefined): boolean {
   return currentConversationMeta?.pinnedContext === true;
-}
-
-export function isPinnedContextTruthy(currentConversationMeta: CurrentConversationMetaLike | null | undefined): boolean {
-  return Boolean(currentConversationMeta?.pinnedContext);
 }
 
 // 决策点一（消息往返之前）：无可用标签页（策略回 no-tab 信封）。

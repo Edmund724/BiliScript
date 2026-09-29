@@ -77,6 +77,9 @@ import {
   parseModelOptionValue,
   rebuildCurrentContextKeyFromContext
 } from "../chat/tab-domain.js";
+// pinned 判定单一谓词（context-policy.ts）：全仓统一严格 === true，两处真值读
+// 已并入。
+import { isPinnedContextStrict } from "../chat/context-policy.js";
 import { scheduleModelSelectWidthUpdate, updateModelSelectWidth, type ModelSelectWidthEls } from "../chat/model-select-width.js";
 // 初始快捷问题的预热缓存（写方 reader/quick-prompts.ts 由 lifecycle 触发）：
 // 缓存落定时若建议区正开着，就地换成生成结果。
@@ -983,7 +986,7 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
 // 【整段迁移自 sidepanel.ts】post-sync 分支编排：流式守卫 + 三个渲染回调。
 async function syncLiveContextState(forceRefresh = false): Promise<void> {
   const ok = await loadContextState({ forceRefresh, silent: true }).catch(() => false);
-  if (chatSessionState.currentConversationMeta?.pinnedContext || chatRuntime.isStreaming() || chatRuntime.hasPendingUserPrompt()) {
+  if (isPinnedContextStrict(chatSessionState.currentConversationMeta) || chatRuntime.isStreaming() || chatRuntime.hasPendingUserPrompt()) {
     return;
   }
   if (!ok || !chatSessionState.contextData || !chatSessionState.providers.length || !chatSessionState.chatHistory.length) {
@@ -1050,7 +1053,7 @@ function updateChatLayoutState(): void {
     chatSessionState.contextData &&
     chatSessionState.contextData.isVideoContext === false &&
     !chatSessionState.chatHistory.length &&
-    !chatSessionState.currentConversationMeta?.pinnedContext
+    !isPinnedContextStrict(chatSessionState.currentConversationMeta)
   );
   els.root.classList.toggle("chat-non-video-context", useCompactInput);
   if (els.input) {
