@@ -371,6 +371,16 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
   }
 };
 
+// orphan origin 回收的存活并集：问分派表里所有 optionalHostPermission 的族
+// （当前 ai+asr；搜索是 manifest 静态 host 权限不参与）。两条删除路径
+// （deleteFromEditor / revokeOriginOnDelete）共用，新增一族只改表，这里自动
+// 跟随——不再在函数体里点名牌。
+async function loadOriginSharingProviders(): Promise<ProviderRowItem[]> {
+  const eligible = Object.values(PROVIDER_FAMILY_UI).filter((family) => family.optionalHostPermission);
+  const lists = await Promise.all(eligible.map((family) => family.loadProviders()));
+  return lists.flat();
+}
+
 // ===== 单平台保存与编辑 Modal（provider-master-detail/01） =====
 
 // 单平台 upsert 保存（provider-editor Modal 的保存回调）。与整表 saveSettings
@@ -448,11 +458,11 @@ async function deleteFromEditor(
   try {
     if (family.optionalHostPermission) {
       // 搜索平台域名是静态 host 权限（无 optional 授权可回收），跳过 orphan
-      // origin 判定
-      const [aiProviders, asrProviders] = await Promise.all([loadAiProviders(), loadAsrProviders()]);
+      // origin 判定；参与判定的存活并集由分派表推导（见 loadOriginSharingProviders）
+      const providers = await loadOriginSharingProviders();
       const { origins, revoked } = await revokeOrphanOrigin(
         { id: target.id, baseUrl: target.baseUrl },
-        [...aiProviders, ...asrProviders]
+        providers
       );
       const host = settingsHostRef;
       if (origins.length > 0 && !revoked && host) {
@@ -626,13 +636,12 @@ function bindSettingsEvents(host: HTMLElement): void {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeSearchProviderId: "" } });
     }
   });
-  // 删除平台时回收 host 权限：AI 与 ASR 两组共用同一条判定——origin 不再被任何
-  // 存活平台使用（含另一组）才 remove。存活列表从后端现查（紧凑行不再承载
-  // baseUrl 输入框，被删行的 baseUrl 由行 dataset 传入钩子）。回收失败不阻断
-  // 删除，状态条给出可操作文案。
+  // 删除平台时回收 host 权限：判定是「origin 不再被任何参与族（分派表里
+  // optionalHostPermission 的并集，当前 ai+asr）的存活平台使用才 remove」。
+  // 存活列表从后端现查（紧凑行不再承载 baseUrl 输入框，被删行的 baseUrl 由行
+  // dataset 传入钩子）。回收失败不阻断删除，状态条给出可操作文案。
   const revokeOriginOnDelete = async (providerId: string, baseUrl: string): Promise<void> => {
-    const [aiProviders, asrProviders] = await Promise.all([loadAiProviders(), loadAsrProviders()]);
-    const providers = [...aiProviders, ...asrProviders];
+    const providers = await loadOriginSharingProviders();
     const { origins, revoked } = await revokeOrphanOrigin({ id: providerId, baseUrl }, providers);
     if (origins.length > 0 && !revoked) {
       setStatus(elements, permissionRevokeErrorMessage(origins), true);
