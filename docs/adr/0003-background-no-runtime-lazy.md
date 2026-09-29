@@ -1,5 +1,7 @@
 # background 不做运行时惰性加载——收益走打包 minify 与源码拆链
 
+> 状态：有效
+
 MV3 service worker 在平台层面**不支持动态 `import()`**（Chrome 官方文档明确说明；crbug.com/40760920 至今未实现）。我们决定：**SW 的静态 import 图保持全静态**，体积与解析成本优化只走两条路——多入口打包 minify（scripts/build.js）与源码级拆链（把「为小用途拖入大模块」的静态边拆掉，例如 provider-store 的静音 WAV 探针不再拖入整个 chunker.js、连通性测试移出 SW）。动态 import 惰性化只允许在页面环境使用（content script、offscreen 文档、扩展页面）。
 
 ## 考虑过的方案

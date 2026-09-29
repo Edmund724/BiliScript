@@ -1,5 +1,7 @@
 # 设置页下拉选择器统一到 custom-select 组件，放弃原生 select
 
+> 状态：有效｜带重开条件
+
 设置页视觉统一（settings-ui-coherence 轮）收尾时，页面上还剩最后一个原生下拉「正文附加段落 - 段落位置」，它与已换壳的「下载格式」、Modal ASR 预设形成两族 affordance：原生一族渐变三角、自定义一族 chevron。我们决定：**设置页所有下拉选择器统一到 `custom-select` 组件**（`ui/custom-select.ts`），段落位置一并换壳；代价是原生 select 自带的键盘与读屏语义改由组件自担——listbox 键盘（↑/↓ 漫游不循环、Home/End、Enter/Space 开合与选中、Esc 归焦、Tab 穿行）+ ARIA（`aria-haspopup/expanded/controls`、`role=listbox/option`、`aria-selected`，选项以程序化 focus 漫游），不做首字符 typeahead（选项都是 3~5 项短列表）。
 
 ## 考虑过的方案
@@ -16,4 +18,4 @@
 
 ## 重开条件
 
-若自定义下拉的读屏/键控体验明显劣于原生（实测口径：读屏念得出当前值与角色、纯键盘能改值），退回 A1 并接受两族 affordance。决策与验收记录见 `.scratch/tickets/settings-ui-coherence/issues/04-note-position-custom-select.md`。
+若自定义下拉的读屏/键控体验明显劣于原生（实测口径：读屏念得出当前值与角色、纯键盘能改值），退回 A1 并接受两族 affordance。决策与验收记录见 commit 5a4f28b。

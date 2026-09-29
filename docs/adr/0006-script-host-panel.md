@@ -1,5 +1,7 @@
 # 阅读模式采用右栏 文摘面板，整页接管退役
 
+> 状态：有效｜取代整页接管路线
+
 阅读模式曾有两条路线：**整页接管**（把 B 站 main 节点就地搬进扩展壳、播放器挂进扩展布局、剪枝页面噪声分支）与 **右栏 文摘面板**（不碰 B 站 DOM，面板贴右栏 fixed 定位）。我们决定：**阅读模式 = 右栏 文摘面板**——`reader/script-host.ts` 负责算右栏 rect 并写进 `#biliscript-reading-view` 的四个 CSS 变量（`--biliscript-script-left/top/width/height`），面板 `position: fixed` 贴栏；锚点失效或视口过窄时降级为居中浮层。整页接管体系（player-host、hover-chrome、page-frame、剪枝门控）全部退役。
 
 本裁决取代旧 ADR 中依赖整页接管的描述：ADR-0004（shadow DOM 边界）的结论本身不受影响——**文摘面板仍留在 light DOM**（`#biliscript-reading-view` 是扩展自有子树，与 B 站节点同文档），但 ADR-0004 事实依据 2 描述的「B 站 main 节点就地搬移」链路已不存在，阅读模式不再搬移任何 B 站节点。
@@ -42,7 +44,7 @@
 
 ## 修订（2026-09-07：面板重锚自查 800ms → 2s）
 
-「800ms 定时自查重锚」节拍降为 2s（`script-host.ts` 的 `REANCHOR_INTERVAL_MS` 改本地常量）：核实事件路径（resize/scroll 的 rAF 合帧 + `applyScriptRect` 每拍锚点比对换锚）自带重锚后，定时自查只是「用户完全不动 + 无 observer 事件」期间的兜底，面板跑位是降级表现而非功能失效（与本 ADR「对抗面」一节的定性一致），2s 自愈可接受；按钮自愈（`shared/self-heal.ts` 800ms）是功能失效恢复，语义本就独立，不再共用单源常量。决策与验收记录见 `.scratch/tickets/arch-slim-4/issues/06-p2-script-host-one-pass.md`。
+「800ms 定时自查重锚」节拍降为 2s（`script-host.ts` 的 `REANCHOR_INTERVAL_MS` 改本地常量）：核实事件路径（resize/scroll 的 rAF 合帧 + `applyScriptRect` 每拍锚点比对换锚）自带重锚后，定时自查只是「用户完全不动 + 无 observer 事件」期间的兜底，面板跑位是降级表现而非功能失效（与本 ADR「对抗面」一节的定性一致），2s 自愈可接受；按钮自愈（`shared/self-heal.ts` 800ms）是功能失效恢复，语义本就独立，不再共用单源常量。决策与验收记录见 commit 836e711。
 
 ## 修订（2026-09-12：readerContentWidth 档位机制退役）
 

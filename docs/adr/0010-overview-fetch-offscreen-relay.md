@@ -1,5 +1,7 @@
 # 概览链的平台请求改由 offscreen 代发（content 发起、offscreen 执行）
 
+> 状态：有效｜输出预算部分已由 ADR-0012 收口
+
 概览是唯一还在 **bilibili 页面源**直发的 AI 链（`reader/overview.ts` 动态 import `ai/analysis.js`，`analysis-orchestrate` 不传 `fetchImpl` → `completion.ts` 的 `globalThis.fetch`），因此要先过平台网关的 CORS 预检，而预检白名单是平台单方面定的。2026-09-24 实测（OPTIONS `https://api-inference.modelscope.cn/v1/messages`，Origin `https://www.bilibili.com`，阿里云网关）：`Access-Control-Allow-Headers` 固定为 `…,Content-Type,Range,Authorization`，**不含 `x-api-key` 与 `anthropic-version`**——Anthropic 适配器必须发这两个头，于是概览在 ModelScope 的 Anthropic 端点上必然失败（`net::ERR_FAILED` / Failed to fetch），而对话（offscreen 直发）、探针/选区解释/联网搜索（SW 代发）都因扩展源免 CORS 而正常。
 
 **决策**：概览链的每一次平台请求经 **content 发起 → offscreen 文档执行**的代发通道（`core/provider-http-offscreen.ts`，端口 `provider-http-offscreen`，一请求一端口，两端同文件）；一律代发，不按协议分叉。
@@ -11,7 +13,7 @@
 
 ## 与既有决议的关系
 
-`.scratch/tickets/protocol-vocab-leaf/spec.md` 的「offscreen 链改直发被否决」「不动各链路的 fetch 发起方」在本条上**被显式推翻**：那两条针对的是「offscreen 客户端自己直发平台」与「为探针/模型列表改道 ensure-offscreen」（后者换取 2-7KB 体积、每条消息多一跳，收益风险倒挂，仍被否决）。概览的场景不同——请求时长以分钟计，SW 代发的 15s 超时与 SW 生命周期两条都不可用，而 offscreen 本就是仓库既定的长 AI 请求宿主（`entry/offscreen.ts` 头注）。
+原 `protocol-vocab-leaf` 议题的两条决议「offscreen 链改直发被否决」「不动各链路的 fetch 发起方」在本条上**被显式推翻**：那两条针对的是「offscreen 客户端自己直发平台」与「为探针/模型列表改道 ensure-offscreen」（后者换取 2-7KB 体积、每条消息多一跳，收益风险倒挂，仍被否决）。概览的场景不同——请求时长以分钟计，SW 代发的 15s 超时与 SW 生命周期两条都不可用，而 offscreen 本就是仓库既定的长 AI 请求宿主（`entry/offscreen.ts` 头注）。
 
 ## 考虑过的方案
 
