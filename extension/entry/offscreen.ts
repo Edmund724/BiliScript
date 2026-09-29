@@ -48,6 +48,7 @@ import { OFFSCREEN_CHAT_PORT_NAME } from "../chat/protocol.js";
 // 概览链的平台请求代发（overview-offscreen-transport）：端口名常量与两端同址
 // 在 core/provider-http-offscreen.ts；本文档只认领端口并按活跃端口集簿记生命周期。
 import { PROVIDER_HTTP_OFFSCREEN_PORT_NAME, attachProviderHttpPort } from "../core/provider-http-offscreen.js";
+import { hasHostPermissionFromOffscreen, HOST_PERMISSION_HINT } from "../core/host-permissions.js";
 import type { ChatPortMessage } from "../chat/protocol.js";
 // 写聚合（段缓存写聚合 ticket）：abort/超时/异常路径把 proxy 缓冲的同段 raw 落盘；
 // 新 chat 消息开始时亦 await flush 一次（上一轮的残留接力落盘——追问是缓冲 raw 的
@@ -241,6 +242,14 @@ chrome.runtime.onConnect.addListener((port) => {
         ackedPort.postMessage({ type: "notice", data: "未配置搜索平台，本轮未联网" });
       }
       const { provider, apiKey } = resolved;
+
+      // host 权限预检（ADR-0010 收口）：对话链的平台请求也在本文档内直发
+      //（ai/completion.ts 的默认 globalThis.fetch），而 offscreen 查不了
+      // chrome.permissions——经 SW 代查一跳，未授权先给可操作文案，免得权限缺失只
+      // 表现为「网络错误：Failed to fetch」。SW 代发 / 概览代发两条通道一直有此预检。
+      if (!(await hasHostPermissionFromOffscreen(provider?.baseUrl))) {
+        throw new Error(HOST_PERMISSION_HINT);
+      }
 
       armIdleTimeout(activeAbortController, ackedPort);
 

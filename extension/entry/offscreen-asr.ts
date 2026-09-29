@@ -26,6 +26,7 @@ import { streamWavChunks } from "../asr/stream-chunker.js";
 import { createTranscriptionEngine } from "../asr/engine.js";
 import { transcribe as transcribeOpenAi } from "../asr/adapters/openai-transcriptions.js";
 import { isFragmentedMp4, createAdtsExtractor, parseAudioSpecificConfig } from "../asr/adts.js";
+import { hasHostPermissionFromOffscreen, HOST_PERMISSION_HINT } from "../core/host-permissions.js";
 import { ASR_CONCURRENCY } from "../shared/offscreen-constants.js";
 import { concatBytes } from "../shared/bytes.js";
 import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
@@ -153,6 +154,14 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
           error: getErrorMessage(error)
         });
         throw makeAsrSkipError(error);
+      }
+
+      // host 权限预检（ADR-0010 收口）：转写请求在本文档内直发，而 offscreen 查不了
+      // chrome.permissions——经 hasHostPermissionFromOffscreen 走 SW 代查一跳，未授权
+      // 即以可操作文案失败，连音频都不下载（否则白下载解码一场，最后只报一个看不出
+      // 原因的「网络错误：Failed to fetch」）。
+      if (!(await hasHostPermissionFromOffscreen(provider.baseUrl))) {
+        throw new Error(HOST_PERMISSION_HINT);
       }
 
       // 适配器与切片计划由 provider.type 决定（原 pipeline 的 ADAPTERS 表与

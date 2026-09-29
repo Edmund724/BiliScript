@@ -6,6 +6,9 @@
 //   （多平台合并成单次调用）、授权通过 → ok、拒绝 → 明确错误不静默、异常与缺失
 //   chrome API 的兜底、无 origin 可申请时连 request 都不发；
 // - 探针预检（hasHostPermission）：已授权/未授权/取不到 chrome.permissions；
+// - 跨语境代查（hasHostPermissionViaBackground / hasHostPermissionFromOffscreen）：
+//   content 与 offscreen 两种发送方式各自一问，fail-open 语义同一份（返回 false
+//   的唯一来源是 SW 明确回 { granted: false }）；
 // - 删除时 origin 回收判定（collectOrphanOrigins / revokeOrphanOrigin）：无主才回收、
 //   仍被 AI/ASR 任一 provider 使用则不回收、被删行自身按 id 剔除、回收失败回报。
 
@@ -17,6 +20,7 @@ import {
   requestProviderOrigins,
   hasHostPermission,
   hasHostPermissionViaBackground,
+  hasHostPermissionFromOffscreen,
   collectOrphanOrigins,
   revokeOrphanOrigin,
   permissionRevokeErrorMessage
@@ -189,6 +193,52 @@ describe("hasHostPermissionViaBackground（content 语境的权限代查）", ()
     vi.stubGlobal("chrome", {});
     expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
     expect(await hasHostPermissionViaBackground("oops")).toBe(true);
+  });
+});
+
+describe("hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", () => {
+  // 对话链（entry/offscreen.ts）与 ASR 转写链（entry/offscreen-asr.ts）的平台请求
+  // 都在 offscreen 内直发，而该语境只有 chrome.runtime——代查走同一条
+  // check-provider-origin 消息，只是发送方式按本语境的 promise 风格直发
+  //（无回调签名约定，见 entry/offscreen.ts 的 resolveProviderWithKey）。
+  it("SW 明确回 { granted: false } → false（唯一的拦下来源），消息带 match pattern", async () => {
+    const sendMessage = vi.fn(async () => ({ granted: false }));
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+
+    expect(await hasHostPermissionFromOffscreen("https://api.siliconflow.cn/v1")).toBe(false);
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: "check-provider-origin",
+      origin: "https://api.siliconflow.cn/*"
+    });
+  });
+
+  it("已授权 → true；无回包 / 消息抛错 / 非扩展环境 / URL 非法 → 按已授权处理（fail-open）", async () => {
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => ({ granted: true })) } });
+    expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
+
+    // 无回包（旧 SW 不认识这条消息）：fail-open，让请求照旧发出去
+    vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => undefined) } });
+    expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
+
+    // 消息抛错（SW 无接收方 / 文档正在关闭）
+    vi.stubGlobal("chrome", {
+      runtime: {
+        sendMessage: vi.fn(async () => {
+          throw new Error("Could not establish connection");
+        })
+      }
+    });
+    expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
+
+    // 非扩展环境（单测）：连 runtime 都没有
+    vi.stubGlobal("chrome", {});
+    expect(await hasHostPermissionFromOffscreen("https://api.openai.com/v1")).toBe(true);
+
+    // URL 非法：连消息都不发
+    const sendMessage = vi.fn(async () => ({ granted: false }));
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+    expect(await hasHostPermissionFromOffscreen("oops")).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });
 

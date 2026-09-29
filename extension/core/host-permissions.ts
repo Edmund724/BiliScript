@@ -22,6 +22,7 @@
 //   永远判定「仍被占用」。
 
 import { sendRuntimeMessage } from "../shared/messaging.js";
+import type { CheckProviderOriginMessage, CheckProviderOriginResponse } from "../shared/messaging-protocol.js";
 
 // 探针/权限缺失时的统一可操作文案（AI 探针、ASR 探针共享）
 export const HOST_PERMISSION_HINT = "该平台域名未授权，请在保存时允许权限";
@@ -136,26 +137,55 @@ export async function hasHostPermission(
   }
 }
 
-// host 权限代查（content 语境的只读一面）：概览/快捷提示词的 offscreen 代发在
-// content 侧发起，而 content 没有 chrome.permissions——与
-// requestProviderOriginsViaBackground 同一条通道，只是问「有没有」而不弹窗（申请
-// 需要用户手势，这里不需要）。fail-open：无回包（旧 SW 不认识这条消息）、消息抛错、
-// 非扩展环境、URL 非法一律按已授权处理，不把这条预检变成新的拦截面。返回 false 的
-// 唯一来源是 SW 明确回了 { granted: false }。
-export async function hasHostPermissionViaBackground(target: unknown): Promise<boolean> {
-  if (typeof globalThis.chrome?.permissions?.contains === "function") {
-    return hasHostPermission(target);
-  }
+// host 权限代查一跳的共体（两种语境共用，fail-open 语义单源）：返回 false 的唯一
+// 来源是 SW 明确回了 { granted: false }——无回包（旧 SW 不认识这条消息）、消息
+// 抛错、URL 非法一律按已授权处理，不把这条预检变成新的拦截面。两种语境的差别只在
+// 消息发送方式（下面的两个导出各自定）。
+type CheckProviderOriginSender = (
+  message: CheckProviderOriginMessage
+) => Promise<CheckProviderOriginResponse | null | undefined>;
+
+async function checkProviderOriginViaSW(target: unknown, send: CheckProviderOriginSender): Promise<boolean> {
   const origin = extractOriginFromBaseUrl(target);
-  if (!origin || typeof globalThis.chrome?.runtime?.sendMessage !== "function") {
+  if (!origin) {
     return true;
   }
   try {
-    const resp = await sendRuntimeMessage({ type: "check-provider-origin", origin });
+    const resp = await send({ type: "check-provider-origin", origin });
     return resp?.granted !== false;
   } catch {
     return true;
   }
+}
+
+// host 权限代查（content 语境的只读一面）：概览/快捷提示词的 offscreen 代发在
+// content 侧发起，而 content 没有 chrome.permissions——与
+// requestProviderOriginsViaBackground 同一条通道，只是问「有没有」而不弹窗（申请
+// 需要用户手势，这里不需要）。
+export async function hasHostPermissionViaBackground(target: unknown): Promise<boolean> {
+  if (typeof globalThis.chrome?.permissions?.contains === "function") {
+    return hasHostPermission(target);
+  }
+  if (typeof globalThis.chrome?.runtime?.sendMessage !== "function") {
+    return true;
+  }
+  return checkProviderOriginViaSW(target, sendRuntimeMessage);
+}
+
+// offscreen 语境的同款代查：对话链（entry/offscreen.ts）与 ASR 转写链
+//（entry/offscreen-asr.ts）的平台请求都在 offscreen 内直发，而本语境的文档只有
+// chrome.runtime、同样查不了 chrome.permissions。差别只在发送方式：本语境的消息
+// 按 promise 风格直发（无回调签名约定，见 entry/offscreen.ts 的
+// resolveProviderWithKey / entry/offscreen-asr.ts 的 requestAsrRuntimeConfig），
+// 故走 chrome.runtime.sendMessage(...) 的 Promise 形态；fail-open 语义与 content
+// 侧逐字一致（同一份 checkProviderOriginViaSW）。
+export async function hasHostPermissionFromOffscreen(target: unknown): Promise<boolean> {
+  // 回包是 unknown（chrome.runtime.sendMessage 的 Promise 形态不携带响应类型）：
+  // 传输边界这一次收窄，与 entry/offscreen.ts 的 resolveProviderWithKey 同款。
+  return checkProviderOriginViaSW(
+    target,
+    async (message) => (await chrome.runtime.sendMessage(message)) as CheckProviderOriginResponse | null | undefined
+  );
 }
 
 interface ProviderLike {
