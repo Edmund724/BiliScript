@@ -287,7 +287,9 @@ export async function deleteActive(): Promise<void> {
   try {
     const result = await state.onDelete(state.kind, {
       id: state.editingId,
-      baseUrl: readField(".provider-editor-baseurl")
+      // 回收目标锚定打开时的权威列表项：DOM 现值可能含未保存改动，拿来回收
+      // 会漏收旧 origin / 误收从未授予过的 origin
+      baseUrl: state.openBaseUrl
     });
     if (generation !== state.generation || !state.open) return;
     if (result.ok) {
@@ -741,6 +743,7 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   state.onSave = options.onSave;
   state.onDelete = options.onDelete || null;
   state.editingId = String(options.item?.id || "");
+  state.openBaseUrl = String(options.item?.baseUrl || "");
   state.hasSavedKey = Boolean(options.item?.hasSavedKey);
   state.open = true;
   host.innerHTML = buildDialogHtml(options);

@@ -577,6 +577,41 @@ describe("provider-editor：头部删除按钮（用户拍板：× 改警示删�
     expect(editorGone()).toBe(true);
   });
 
+  it("删除回收 orphan origin 用已存列表项的 baseUrl：未保存的输入改动不混入回收目标", async () => {
+    // deleteActive 的回收目标应锚定打开时的权威列表项，而非 DOM 现值——
+    // 用户在 baseUrl 输入框里改了又删，回收判定若拿到未保存的新地址，
+    // 会漏收旧 origin / 误收一个从未授予过的 origin
+    document.body.innerHTML = `
+      <div id="biliscript-reading-view">
+        <section id="biliscript-reading-settings-panel"></section>
+      </div>
+    `;
+    const onDelete = vi.fn(async () => ({ ok: true }));
+    const editor = await import("../../extension/ui/provider-editor.js");
+    editor.openProviderEditor({
+      kind: "ai",
+      item: aiItem,
+      presets: [{ id: "custom", name: "自定义", baseUrl: "", requiresKey: true }],
+      onSave: async () => ({ ok: true }),
+      onDelete
+    });
+    const dialog = document.querySelector<HTMLElement>(".provider-editor-dialog")!;
+
+    // 未保存的输入改动：baseUrl 被改成一个从未配置/授权的地址
+    const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!;
+    baseUrlInput.value = "https://never-configured.example.com/v1";
+    baseUrlInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+    fireClick(dialog.querySelector(".provider-editor-delete"));
+    fireClick(document.querySelector(".confirm-dialog-confirm"));
+    await flushMicrotasks();
+
+    expect(onDelete).toHaveBeenCalledWith("ai", {
+      id: "p1",
+      baseUrl: "https://api.example.com/v1"
+    });
+  });
+
   it("新增态：不渲染删除按钮（无可删对象）", async () => {
     const { host } = await mountPanel();
     const { dialog } = await openEditor(host, "#addAiProviderBtn");

@@ -27,7 +27,8 @@ export type ProviderEditorSave = (
 ) => Promise<{ ok: boolean; error?: string }>;
 
 // 删除回调（settings-panel 注入，仅编辑态提供）：回收 orphan origin + 删除
-// 消息 + 列表重渲都收口在 settings-panel，本模块只传目标（id + 行内 baseUrl）。
+// 消息 + 列表重渲都收口在 settings-panel，本模块只传目标（id + 已存列表项
+// baseUrl——锚定打开时的权威项，不收 DOM 里的未保存输入改动）。
 export type ProviderEditorDelete = (
   kind: ProviderEditorKind,
   target: { id: string; baseUrl: string }
@@ -48,6 +49,8 @@ interface EditorState {
   kind: ProviderEditorKind;
   editingId: string;
   hasSavedKey: boolean;
+  // 打开时锚定的已存列表项 baseUrl（删除回收 orphan origin 的目标地址）
+  openBaseUrl: string;
   // 打开参数直达（collectUpsert / runTest / 预设切换读取）
   presets: readonly ProviderRowPreset[];
   onSave: ProviderEditorSave;
@@ -65,6 +68,7 @@ export const state: EditorState = {
   kind: "ai",
   editingId: "",
   hasSavedKey: false,
+  openBaseUrl: "",
   presets: [],
   onSave: async () => ({ ok: false, error: "保存回调未注入" }),
   onDelete: null,
