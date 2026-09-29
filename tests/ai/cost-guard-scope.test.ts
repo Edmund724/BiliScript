@@ -93,7 +93,7 @@ describe("成本护栏数字两链同源", () => {
   });
 
   it("有样本：两链都用同一实测比（2.5）算出同一个数字", async () => {
-    noteUsageSample(PROVIDER, { payloadChars: 1000, inputTokens: 400, finishReason: "stop" });
+    noteUsageSample(PROVIDER, { payloadChars: 1000, inputTokens: 400 });
 
     const ladder = await runLadderGuard(MATERIAL_CHARS, PROVIDER);
     const overview = await runOverviewGuard(MATERIAL_CHARS, PROVIDER);
@@ -103,7 +103,7 @@ describe("成本护栏数字两链同源", () => {
   });
 
   it("scope 隔离：别的模型无样本时两链一起回落（不是全局混样）", async () => {
-    noteUsageSample(PROVIDER, { payloadChars: 1000, inputTokens: 400, finishReason: "stop" });
+    noteUsageSample(PROVIDER, { payloadChars: 1000, inputTokens: 400 });
 
     const ladder = await runLadderGuard(MATERIAL_CHARS, OTHER_MODEL);
     const overview = await runOverviewGuard(MATERIAL_CHARS, OTHER_MODEL);
@@ -114,7 +114,7 @@ describe("成本护栏数字两链同源", () => {
 
   it("token 数字纯展示：实测比把数字拉小，shouldPrompt 仍只由调用数决定", async () => {
     // 比 20 → 数字 12,500（远小于字符数），调用数仍是 6/5 ≥ 5。
-    noteUsageSample(PROVIDER, { payloadChars: 2000, inputTokens: 100, finishReason: "stop" });
+    noteUsageSample(PROVIDER, { payloadChars: 2000, inputTokens: 100 });
 
     const ladder = await runLadderGuard(MATERIAL_CHARS, PROVIDER);
     const overview = await runOverviewGuard(MATERIAL_CHARS, PROVIDER);
@@ -125,7 +125,7 @@ describe("成本护栏数字两链同源", () => {
   });
 
   it("阶梯判定路径未改：100k 字符仍走单次（不弹护栏、不进分段）", async () => {
-    noteUsageSample(PROVIDER, { payloadChars: 2000, inputTokens: 100, finishReason: "stop" });
+    noteUsageSample(PROVIDER, { payloadChars: 2000, inputTokens: 100 });
 
     const ladder = await runLadderGuard(100000, PROVIDER);
 

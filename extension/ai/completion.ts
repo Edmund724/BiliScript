@@ -294,7 +294,7 @@ export async function chatCompletion({
   // 由此换出的 token 数倾向偏高，属保守方向。作用域键与 learned-budget 同源：就是
   // 上面那一个 budgetScope（(baseUrl, model)），不在此另拼一份。usage 缺失即不记
   // 样本；采样纯内存、不上浮给调用方（无新增对外 API）。
-  const noteResponseUsage = (usage: ChatUsage | undefined, finishReason: string | null): void => {
+  const noteResponseUsage = (usage: ChatUsage | undefined): void => {
     if (!usage) {
       return;
     }
@@ -304,9 +304,7 @@ export async function chatCompletion({
     );
     noteUsageSample(budgetScope, {
       payloadChars,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      finishReason
+      inputTokens: usage.inputTokens
     });
   };
 
@@ -425,7 +423,7 @@ export async function chatCompletion({
       }
       // 截断感知出口（返回形状不变）：reason="length" 即 max_tokens 命中。
       onFinishReason?.(streamResult.finishReason);
-      noteResponseUsage(streamResult.usage, streamResult.finishReason);
+      noteResponseUsage(streamResult.usage);
       if (streamResult.toolCalls.length) {
         return {
           done: true,
@@ -444,7 +442,7 @@ export async function chatCompletion({
       throw new Error(`响应解析失败：${(e as { message?: unknown })?.message || e}`);
     }
     const parsed = adapter.parseResponse(json);
-    noteResponseUsage(parsed.usage, parsed.finishReason);
+    noteResponseUsage(parsed.usage);
     if (parsed.toolCalls.length) {
       // 非流式 tool_calls（后续解释链接入用）：adapter 已宽容归一为 ChatToolCall[]。
       return {

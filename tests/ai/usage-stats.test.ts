@@ -1,17 +1,15 @@
 // ai-usage-telemetry T2a 单测：ai/usage-stats.ts（响应 usage 的实测 chars→token 比学习）。
-// 四面：比例学习（首样本即可用 / 丢弃规则 / 中位数抗单点异常 / 只留最近 8 个 / per-scope
-// 隔离）、observedOutputCap（T3 的数据源，本票不消费）、estimateTokensFromChars
-// （无样本回落 CHAR_PER_TOKEN、有样本用实测比）。
+// 三面：比例学习（首样本即可用 / 丢弃规则 / 中位数抗单点异常 / 只留最近 8 个 / per-scope
+// 隔离）、estimateTokensFromChars（无样本回落 CHAR_PER_TOKEN、有样本用实测比）。
 // 纯内存模块：用例间经 resetUsageStatsForTests 清桶（与 learned-budget 同纪律）。
 // 失败方式先行：首样本被当噪声丢掉、越界样本污染中位数、窗口不生效（旧样本不淘汰）、
-// 非 length 的截断证据被记进 cap、作用域不隔离导致跨平台混样、换算回落错系数。
+// 作用域不隔离导致跨平台混样、换算回落错系数。
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   estimateTokensFromChars,
   learnedCharsPerToken,
   noteUsageSample,
-  observedOutputCap,
   resetUsageStatsForTests
 } from "../../extension/ai/usage-stats.js";
 import { CHAR_PER_TOKEN } from "../../extension/ai/budgeter.js";
@@ -21,8 +19,8 @@ const OTHER_MODEL = { baseUrl: SCOPE.baseUrl, model: "other-model" };
 const OTHER_HOST = { baseUrl: "https://api.other.com/v1", model: SCOPE.model };
 
 // 记一个 payloadChars / inputTokens = ratio 的样本（inputTokens 固定 100，便于心算）。
-function noteRatio(ratio: number, extra: Record<string, unknown> = {}): void {
-  noteUsageSample(SCOPE, { payloadChars: ratio * 100, inputTokens: 100, ...extra });
+function noteRatio(ratio: number): void {
+  noteUsageSample(SCOPE, { payloadChars: ratio * 100, inputTokens: 100 });
 }
 
 beforeEach(() => {
@@ -113,43 +111,6 @@ describe("learnedCharsPerToken：比例学习", () => {
     // 尾斜杠归一（budgetScopeKey 口径）：同一平台写法不同不另开桶。
     noteUsageSample({ baseUrl: `${SCOPE.baseUrl}/`, model: SCOPE.model }, { payloadChars: 400, inputTokens: 100 });
     expect(learnedCharsPerToken(SCOPE)).toBeCloseTo(3); // [2, 4] 的中位数
-  });
-});
-
-describe("observedOutputCap：截断证据（供 T3，本票不消费）", () => {
-  it("无 length 样本 → undefined；stop 样本即使 outputTokens 更大也不影响", () => {
-    noteRatio(1, { outputTokens: 99999, finishReason: "stop" });
-    expect(observedOutputCap(SCOPE)).toBeUndefined();
-  });
-
-  it("length 样本记 outputTokens，取最大值", () => {
-    noteRatio(1, { outputTokens: 8192, finishReason: "length" });
-    expect(observedOutputCap(SCOPE)).toBe(8192);
-
-    noteRatio(1, { outputTokens: 4096, finishReason: "length" });
-    expect(observedOutputCap(SCOPE)).toBe(8192);
-
-    noteRatio(1, { outputTokens: 16384, finishReason: "length" });
-    expect(observedOutputCap(SCOPE)).toBe(16384);
-  });
-
-  it("length 但 outputTokens 缺失 / 非有限 / ≤0 → 不更新 cap", () => {
-    for (const bad of [undefined, Number.NaN, Number.POSITIVE_INFINITY, 0, -5]) {
-      resetUsageStatsForTests();
-      noteUsageSample(SCOPE, { payloadChars: 100, inputTokens: 100, outputTokens: bad, finishReason: "length" });
-      expect(observedOutputCap(SCOPE), `outputTokens=${String(bad)} 不应入 cap`).toBeUndefined();
-    }
-  });
-
-  it("被丢弃的样本不参与：比值越界的 length 样本不入 cap（样本丢弃是整条丢弃）", () => {
-    noteUsageSample(SCOPE, { payloadChars: 10, inputTokens: 1000, outputTokens: 8192, finishReason: "length" });
-    expect(learnedCharsPerToken(SCOPE)).toBeUndefined();
-    expect(observedOutputCap(SCOPE)).toBeUndefined();
-  });
-
-  it("per-scope 隔离", () => {
-    noteRatio(1, { outputTokens: 8192, finishReason: "length" });
-    expect(observedOutputCap(OTHER_MODEL)).toBeUndefined();
   });
 });
 
