@@ -6,7 +6,10 @@
 
 import type { BudgetPlan, BudgetPlanSegment, ChapterItem, SubtitleBodyItem } from "./types.js";
 
-// 字符 → token 系数：每字符≈1 token（保守，宁可早进 Map-Reduce，溢出兜底保证正确性）。
+// 字符 → token 系数：每字符≈1 token。只用于成本护栏的展示数字，不参与任何判定——
+// 「阶梯」比的是字符数与 MATERIAL_BUDGET_CHARS（下方常量）。它的"保守"属于 200k 字符
+// 预算对 256k 窗口的拟合前提，不是"宁可早进 Map-Reduce"（系数进不了那个判定）。
+// 换成实测比例要等按窗口自适应预算那轮，见 ADR-0001「使用前提」条的重开条件。
 export const CHAR_PER_TOKEN = 1.0;
 // 素材预算（200k 字符 ≈ 256k 窗口 − 16k 输出 − 余量）：预算内一次成稿，7h 级
 // 长视频必单发；超出（15h+ 级或更小窗口模型）即进入分段 + 归并，由溢出回落
@@ -54,7 +57,8 @@ function toSeconds(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// 估 token：非字符串 / 空串返回 0；其余 = 字符数 × CHAR_PER_TOKEN。
+// 估 token（仅供展示：成本护栏的数字；不参与阶梯判定）：非字符串 / 空串返回 0；
+// 其余 = 字符数 × CHAR_PER_TOKEN。
 export function estimateTokens(text: unknown): number {
   if (typeof text !== "string" || text.length === 0) {
     return 0;
