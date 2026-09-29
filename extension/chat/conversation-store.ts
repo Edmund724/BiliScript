@@ -8,18 +8,18 @@
 // 的 chatSessionState，本模块直接 import 读写。
 //
 // 工单 05（渲染编排反转）：原 14 键 deps 里 9 个 caller 必学的渲染/行为回调
-// （renderHistoryList / renderInitialState / updateContextChip /
-// show·removeConversationContextNotice / showConversationContextError /
-// hideHistoryPopover / stopActiveChat）收窄为 3 个能力事件——store 自己编排
-// 渲染时机，caller 只订阅结果：
+// （renderHistoryList / renderInitialState / show·removeConversationContextNotice /
+// showConversationContextError / hideHistoryPopover / stopActiveChat）收窄为 3 个
+// 能力事件——store 自己编排渲染时机，caller 只订阅结果：
 //   - onConversationChanged(change)：会话相关状态已写入后发出；历史列表恒随
-//     事件重渲，change 标志（refreshContextChip / historyCleared / resetView）
-//     声明其余需要刷新的呈现面。发火点与反转前各渲染回调的位点逐一对齐：
-//     loadAll/save（仅列表）、apply/hydratePinned 成功（列表+chip）、
-//     applyById/删当前/清空（列表+chip+视图重建；清空另收 popover）。
+//     事件重渲，change 标志（historyCleared / resetView）声明其余需要刷新的
+//     呈现面。上下文快照本身写进 chatSessionState，由需要它的 caller 自行读。
+//     发火点与反转前各渲染回调的位点逐一对齐：loadAll/save（仅列表）、
+//     apply/hydratePinned 成功（仅列表）、applyById/删当前/清空（列表+视图重建；
+//     清空另收 popover）。
 //     分页补水（hydrateConversationPage，opt-backlog-2026-09/05 自 hydratePages
-//     收敛）只在 restoreLatest 命中项上发起：变更经 save 落盘（列表）+ apply
-//     （chip）。
+//     收敛）只在 restoreLatest 命中项上发起：变更经 save 落盘（列表）后 apply。
+//     （原「chip 刷新」标志 refreshContextChip 随 2026-10 删除头部标题 chip 下线。）
 //   - onStreamInterrupted()：当前会话被拆除（恢复无匹配 / 删当前会话 / 清空
 //     全部 / 新会话重启经 detachForRestart）时同步发出——必须先于任何 await
 //     落盘（原 stopActiveChat dep 的承重时序：流式身份守卫在 id 清空前依赖
@@ -128,8 +128,6 @@ export interface HydratePinnedOptions {
 // 能力事件一：会话相关状态变更声明。历史列表恒随事件重渲；其余呈现面由标志
 // 声明（store 编排「何时」，caller 只实现「各表面怎么刷」）。
 export interface ConversationChange {
-  // 上下文绑定呈现需刷新（contextData / currentContextKey / currentConversationMeta 已写入）
-  refreshContextChip?: boolean;
   // 存档已整体清空（clearAll）——caller 收起历史 popover
   historyCleared?: boolean;
   // 当前会话视图需按最新会话状态重建（applyById / 流式中删除当前会话 / clearAll）
@@ -363,14 +361,14 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     );
     if (!latest) {
       // 当前会话拆除（出口一 = detachCurrent 原语：断流先于状态清空，无落盘、
-      // 无 live 回填——原编排此处不重渲列表/chip/视图）。
+      // 无 live 回填——原编排此处不重渲列表/视图）。
       detachCurrent();
       return false;
     }
     // opt-backlog-2026-09/05：分页补水收敛到命中项单条——首开对话 tab 不再为
     // 至多 12 条历史会话各发一次串行视频元数据请求（恢复逻辑只消费命中项，
     // 其余列表项保持存档原样）。补水有变更先落盘（历史列表重渲），apply 随后
-    // 重渲 chip/视图；无变更则保持原编排的单次 chip change。
+    // 再发一次 change；无变更则保持原编排的单次发火。
     if (needsConversationPageHydration(latest) && (await hydrateConversationPage(latest))) {
       await saveConversations();
     }
@@ -378,8 +376,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     return true;
   }
 
-  // change 缺省仅声明 chip 刷新（apply 的上下文写入语义）；resetView 由
-  // applyById 等会话重建入口追加。
+  // change 缺省为空（仅历史列表重渲）；resetView 由 applyById 等会话重建入口追加。
   function apply(conversation: Conversation | null | undefined, change: ConversationChange = {}): void {
     if (!conversation) {
       return;
@@ -419,7 +416,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
       chatSessionState.contextData = buildContextPlaceholder(conversation.contextRef);
       chatSessionState.currentContextKey = conversation.contextKey || buildContextKey(chatSessionState.contextData);
     }
-    emitChange({ refreshContextChip: true, ...change });
+    emitChange(change);
   }
 
   function applyById(id: string): void {
@@ -427,9 +424,9 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     if (!conversation) {
       return;
     }
-    // 单次 change 声明全部呈现面（反转前为 apply 的 chip+列表、随后的
-    // renderInitialState 两段渲染；合成一次发火，次序 list→chip→reset 与
-    // 原 chip→list→reset 的最终 DOM 一致——各面均为幂等状态投影）。
+    // 单次 change 声明全部呈现面（反转前为 apply 的列表刷新、随后
+    // renderInitialState 的视图重建两段；合成一次发火，最终 DOM 与原两段一致
+    //——各面均为幂等状态投影）。
     apply(conversation, { resetView: true });
     if (conversation.contextKey && conversation.contextKey !== chatSessionState.liveContextKey) {
       onContextNotice({ kind: "pending", message: "正在加载原视频上下文..." });
@@ -450,9 +447,9 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     if (!wasCurrent) {
       return;
     }
-    // 落盘后 live 回填 + 重建视图（拆除事务的收尾面，标志逐字不动）
+    // 落盘后 live 回填 + 重建视图（拆除事务的收尾面）
     repopulateLive();
-    emitChange({ refreshContextChip: true, resetView: true });
+    emitChange({ resetView: true });
   }
 
   async function clearAll(): Promise<void> {
@@ -468,17 +465,17 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     detachCurrent();
     await saveConversations();
     repopulateLive();
-    // 原编排：save 后收起 popover → live 回填 + chip → renderInitialState；
+    // 原编排：save 后收起 popover → live 回填 → renderInitialState；
     // 合成一次发火（历史列表已随 save 的 change 重渲，此处各面幂等）。
-    emitChange({ refreshContextChip: true, historyCleared: true, resetView: true });
+    emitChange({ historyCleared: true, resetView: true });
   }
 
   // 「拆除会话」出口四：新会话重启（reader/chat-tab 的 restartChat 消费）。
   // 公开窄方法（工单 arch-slim-2/07 D 半场）——断流双轨统一：caller 不再直调
   // chatRuntime.resetStreamState，经本方法发出 onStreamInterrupted（组合根订阅
   // 处是 resetStreamState 的唯一接线点），断流仍先于会话身份清空（时序与直调
-  // 时代一致）。不回填 live、不发 change——原 restartChat 编排即不重渲列表/
-  // chip，视图重建由 caller 在清键后自行编排（防第三轨的边界注记在 restartChat）。
+  // 时代一致）。不回填 live、不发 change——原 restartChat 编排即不重渲列表，
+  // 视图重建由 caller 在清键后自行编排（防第三轨的边界注记在 restartChat）。
   function detachForRestart(): void {
     detachCurrent();
   }
@@ -555,7 +552,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     if (cachedResolvedContext && typeof cachedResolvedContext === "object") {
       chatSessionState.contextData = { ...cachedResolvedContext };
       chatSessionState.currentContextKey = targetKey || buildContextKey(chatSessionState.contextData);
-      emitChange({ refreshContextChip: true });
+      emitChange();
       onContextNotice({ kind: "clear" });
       return true;
     }
@@ -572,7 +569,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
             resolvedContext: { ...context }
           }
         });
-        emitChange({ refreshContextChip: true });
+        emitChange();
         onContextNotice({ kind: "clear" });
         return true;
       }
@@ -615,7 +612,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
         resolvedContext: { ...resolved }
       }
     });
-    emitChange({ refreshContextChip: true });
+    emitChange();
     onContextNotice({ kind: "clear" });
     return true;
   }

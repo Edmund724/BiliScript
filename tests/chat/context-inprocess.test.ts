@@ -580,8 +580,6 @@ describe("pinned 补水身份短路（工单 04）", () => {
   it("hydratePinned 经身份短路补水当前视频的置顶对话（dep 接线对账）", async () => {
     const clipRef = { current: makeClip() };
     const { resolve, network } = makeResolver(clipRef);
-    const contextChip = document.createElement("button");
-    document.body.appendChild(contextChip);
     const store = createConversationStore({
       loadContextState: vi.fn(async () => true),
       // purpose="context" 走被测的身份短路复合适配器；"page" 无关本用例

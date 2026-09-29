@@ -361,8 +361,8 @@ const imageSupportGate = createImageSupportGate({
 // 会话状态（会话列表/当前会话/上下文）已收拢至 chatSessionState，store 直接
 // import 读写。能力事件三件（工单 05 渲染编排反转：store 自己编排渲染时机，
 // 本组合根只订阅结果）：
-//   - onConversationChanged：历史列表恒随事件重渲，change 标志（refreshContext-
-//     Chip / historyCleared / resetView）声明其余需要刷新的呈现面；
+//   - onConversationChanged：历史列表恒随事件重渲，change 标志（historyCleared /
+//     resetView）声明其余需要刷新的呈现面；
 //   - onStreamInterrupted：流式中删除当前会话 / 清空全部 / restoreLatest 无匹配
 //     时由 store 同步发出——断 port、清在途一问一答、清消息区并退出流式 UI 态
 //    （对应 restartChat 的清理动作，但不清会话状态——那由 store 自己做）。

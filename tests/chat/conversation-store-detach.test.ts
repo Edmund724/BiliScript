@@ -286,7 +286,7 @@ describe("出口一 restoreLatest 无匹配", () => {
 // 出口二 deleteById 当前会话:detach + 回填 + 尾次 change 标志逐字
 // ===========================================================================
 describe("出口二 deleteById 当前会话", () => {
-  it("事件次序 = [interrupt, persist, change {}, change {refreshContextChip, resetView}];live 回填发生", async () => {
+  it("事件次序 = [interrupt, persist, change {}, change {resetView}];live 回填发生", async () => {
     const { store, deps, storage } = makeHarness();
     const { log } = makeOrderLog(deps, storage);
     seedCurrentConversation("c1");
@@ -300,7 +300,7 @@ describe("出口二 deleteById 当前会话", () => {
       ["interrupt"],
       ["persist", ["biliscript_ai_conversations_v1"]],
       ["change", {}],
-      ["change", { refreshContextChip: true, resetView: true }]
+      ["change", { resetView: true }]
     ]);
     // live 回填:主上下文持有最新页面快照(浅拷贝,非同引用)
     expect(chatSessionState.contextData).toEqual(liveData);
@@ -325,7 +325,7 @@ describe("出口二 deleteById 当前会话", () => {
 // 出口三 clearAll:commitSaved([]) 先于 detach、回填在 save 后
 // ===========================================================================
 describe("出口三 clearAll", () => {
-  it("事件次序 = [interrupt, persist, change {}, change {refreshContextChip, historyCleared, resetView}];detach 瞬间存档已清(commitSaved([]) 在 detach 前)", async () => {
+  it("事件次序 = [interrupt, persist, change {}, change {historyCleared, resetView}];detach 瞬间存档已清(commitSaved([]) 在 detach 前)", async () => {
     const { store, deps, storage } = makeHarness({ confirmClearAll: () => true });
     const { log, interruptedWith } = makeOrderLog(deps, storage);
     seedCurrentConversation("c1");
@@ -339,7 +339,7 @@ describe("出口三 clearAll", () => {
       ["interrupt"],
       ["persist", ["biliscript_ai_conversations_v1"]],
       ["change", {}],
-      ["change", { refreshContextChip: true, historyCleared: true, resetView: true }]
+      ["change", { historyCleared: true, resetView: true }]
     ]);
     // clearAll 组合次序:commitSaved([])(内存) → detach → save → 回填
     expect(interruptedWith[0].savedCount).toBe(0);
@@ -405,7 +405,7 @@ describe("公开接口面", () => {
     expect(chatSessionState.currentConversationId).toBe("c1");
     expect(chatSessionState.currentConversationMeta!.pinnedContext).toBe(true);
     expect(chatSessionState.chatHistory.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(deps.onConversationChanged).toHaveBeenCalledWith({ refreshContextChip: true, resetView: true });
+    expect(deps.onConversationChanged).toHaveBeenCalledWith({ resetView: true });
   });
 
   it("内部 resolveContext 经 hydratePinned 网络路径存活:purpose=context 解析成功落回", async () => {
@@ -437,7 +437,7 @@ describe("公开接口面", () => {
     expect(chatSessionState.currentContextKey).toBe("k-1");
   });
 
-  it("分页补水收敛到 restoreLatest 命中项:loadAll 零请求,命中项一条(purpose=page),变更追加 save 的 {} 与 apply 的 {chip}", async () => {
+  it("分页补水收敛到 restoreLatest 命中项:loadAll 零请求,命中项一条(purpose=page),变更追加 save 的 {} 与 apply 的 {}", async () => {
     const { store, deps, storage } = makeHarness({
       resolveAiConversationRef: vi.fn(async () => ({ pageIndex: 2, url: `${URL_A}?p=2`, cid: "2", pageTitle: "第二P" }))
     });
@@ -450,9 +450,9 @@ describe("公开接口面", () => {
     expect(deps.resolveAiConversationRef).not.toHaveBeenCalled();
     await store.restoreLatest();
 
-    // 次序:loadAll 的 {} → 补水落盘的 {} → apply 的 {chip}
+    // 次序:loadAll 的 {} → 补水落盘的 {} → apply 的 {}
     expect(deps.onConversationChanged).toHaveBeenNthCalledWith(2, {});
-    expect(deps.onConversationChanged).toHaveBeenNthCalledWith(3, { refreshContextChip: true });
+    expect(deps.onConversationChanged).toHaveBeenNthCalledWith(3, {});
     expect(deps.resolveAiConversationRef).toHaveBeenCalledTimes(1);
   });
 });
