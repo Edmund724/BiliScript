@@ -170,167 +170,133 @@ export async function runLadderChat(
   // 覆盖成本护栏等待与追问小结加载，结束/异常经 finally 释放。
   const keepalive = (deps.acquireSwKeepalive ?? _acquireSwKeepalive)();
   try {
-    await runLadderChatDispatch({ msg, provider, port, signal, webSearch }, {
-      streamChat,
-      orchestrateMapReduce,
-      resolveFollowupContext,
-      buildBudgetPlan,
-      buildCostGuardNotice,
-      trimRecentTurns,
-      askCostGuard,
-      onActivity,
-      pauseIdleTimeout
+    // 阶梯分派：预算内（≤200k 字符）走单次流式；超预算走 Map-Reduce 分段编排。
+    const plan = buildBudgetPlan({
+      body: Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : [],
+      chapters: Array.isArray(msg.context?.chapters) ? msg.context.chapters : []
     });
-  } finally {
-    keepalive?.release();
-  }
-}
-
-// 阶梯分派本体的依赖面：RunLadderChatDeps 的分派字段（保活缝由外层持有，不在列）。
-type LadderDispatchDeps = Required<Pick<RunLadderChatDeps,
-  "streamChat" | "orchestrateMapReduce" | "resolveFollowupContext" | "buildBudgetPlan" |
-  "buildCostGuardNotice" | "trimRecentTurns" | "askCostGuard">> &
-  Pick<RunLadderChatDeps, "onActivity" | "pauseIdleTimeout">;
-
-// 阶梯分派本体：与保活生命周期解耦，runLadderChat 统一 try/finally 释放端口。
-async function runLadderChatDispatch(
-  { msg, provider, port, signal, webSearch }: RunLadderChatArgs,
-  {
-    streamChat,
-    orchestrateMapReduce,
-    resolveFollowupContext,
-    buildBudgetPlan,
-    buildCostGuardNotice,
-    trimRecentTurns,
-    askCostGuard,
-    onActivity,
-    pauseIdleTimeout
-  }: LadderDispatchDeps
-): Promise<void> {
-  // 阶梯分派：预算内（≤200k 字符）走单次流式；超预算走 Map-Reduce 分段编排。
-  const plan = buildBudgetPlan({
-    body: Array.isArray(msg.context?.subtitleBody) ? msg.context.subtitleBody : [],
-    chapters: Array.isArray(msg.context?.chapters) ? msg.context.chapters : []
-  });
-  // 图片输入（image-input 路线 B）：本轮用户消息的图片经白名单归一后随两条
-  // streamChat 路径（追问压缩 / 单次）下发；非法项丢弃、空则 undefined。
-  // Map-Reduce 主路径不进 history、各段现造 user 消息，图片不参与（04 号票）。
-  const userImages = normalizeImageParts(msg.images);
-  if (plan.mode === "map-reduce") {
-    // 追问压缩：已有成稿笔记 + 分段小结时，改走「压缩摘要 + 检索注入 + 单次调用」，
-    // 不再重跑 Map-Reduce（token 随追问近乎常数）。
-    const followupContext = await resolveFollowupContext({
-      context: msg.context || {},
-      plan,
-      history: Array.isArray(msg.history) ? msg.history : [],
-      userPrompt: msg.prompt || ""
-    });
-    if (followupContext) {
-      // 近 N 轮 verbatim 封顶：只带最近几轮历史，token 不随追问轮数增长。
-      const trimmedHistory = trimRecentTurns(msg.history);
-      try {
-        await streamChat({
-          provider,
-          context: followupContext,
-          userPrompt: msg.prompt || "",
-          history: trimmedHistory,
-          userImages,
-          thinkingLevel: msg.thinkingLevel,
-          port,
-          signal,
-          onActivity,
-          // 追问压缩路径是单次流式调用（非归约轮），联网可用（spec Q12）。
-          webSearch
-        });
-      } catch (e) {
-        // 兜底：压缩摘要 + 检索注入仍意外溢出（HTTP context-length）时，绝不静默无输出。
-        // streamChat 仅在溢出时抛带 .overflow 标记的错误（其余失败经 port error 回吐）。
-        if (!(e as { overflow?: boolean }).overflow) {
-          throw e;
+    // 图片输入（image-input 路线 B）：本轮用户消息的图片经白名单归一后随两条
+    // streamChat 路径（追问压缩 / 单次）下发；非法项丢弃、空则 undefined。
+    // Map-Reduce 主路径不进 history、各段现造 user 消息，图片不参与（04 号票）。
+    const userImages = normalizeImageParts(msg.images);
+    if (plan.mode === "map-reduce") {
+      // 追问压缩：已有成稿笔记 + 分段小结时，改走「压缩摘要 + 检索注入 + 单次调用」，
+      // 不再重跑 Map-Reduce（token 随追问近乎常数）。
+      const followupContext = await resolveFollowupContext({
+        context: msg.context || {},
+        plan,
+        history: Array.isArray(msg.history) ? msg.history : [],
+        userPrompt: msg.prompt || ""
+      });
+      if (followupContext) {
+        // 近 N 轮 verbatim 封顶：只带最近几轮历史，token 不随追问轮数增长。
+        const trimmedHistory = trimRecentTurns(msg.history);
+        try {
+          await streamChat({
+            provider,
+            context: followupContext,
+            userPrompt: msg.prompt || "",
+            history: trimmedHistory,
+            userImages,
+            thinkingLevel: msg.thinkingLevel,
+            port,
+            signal,
+            onActivity,
+            // 追问压缩路径是单次流式调用（非归约轮），联网可用（spec Q12）。
+            webSearch
+          });
+        } catch (e) {
+          // 兜底：压缩摘要 + 检索注入仍意外溢出（HTTP context-length）时，绝不静默无输出。
+          // streamChat 仅在溢出时抛带 .overflow 标记的错误（其余失败经 port error 回吐）。
+          if (!(e as { overflow?: boolean }).overflow) {
+            throw e;
+          }
+          port.postMessage({ type: "error", error: "追问内容仍超出上下文预算，请换个更具体的问题重试" });
         }
-        port.postMessage({ type: "error", error: "追问内容仍超出上下文预算，请换个更具体的问题重试" });
+        return;
       }
+
+      // 成本护栏：发起 Map-Reduce 前预估 ≥5 次调用 → 弹确认，可取消。
+      const guard = buildCostGuardNotice({
+        estimatedCalls: plan.estimatedCalls,
+        estimatedTokens: plan.estimatedTokens
+      });
+      if (guard.shouldPrompt) {
+        // 等待用户成本确认期间暂停空闲超时计时。
+        pauseIdleTimeout?.();
+        const confirmed = Boolean(await askCostGuard(port, guard.message));
+        if (!confirmed) {
+          port.postMessage({ type: "stopped", reason: "已取消" });
+          return;
+        }
+      }
+
+      // 编排期间整体暂停空闲超时：Map-Reduce 全部为非流式 chatCompletion，段调用
+      // 期间没有任何流式活动可重挂 90 秒窗口，慢模型单段超窗会误杀整个运行（根治
+      // [90s-idle] 诊断）。进度仍逐段回吐；真正挂死由用户「停止」兜底。
+      pauseIdleTimeout?.();
+      // 联网开关开启时归约轮静默禁用搜索（spec Q12：归约轮不联网）。
+      if (webSearch) {
+        port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
+      }
+      await orchestrateMapReduce({
+        provider,
+        context: msg.context || {},
+        plan,
+        port,
+        signal,
+        thinkingLevel: msg.thinkingLevel,
+        onProgress: function (notice: string) {
+          // 进度回吐；不重挂空闲超时（本路径计时已整体暂停，见上）。
+          port.postMessage({ type: "notice", data: notice });
+        }
+      });
       return;
     }
 
-    // 成本护栏：发起 Map-Reduce 前预估 ≥5 次调用 → 弹确认，可取消。
-    const guard = buildCostGuardNotice({
-      estimatedCalls: plan.estimatedCalls,
-      estimatedTokens: plan.estimatedTokens
-    });
-    if (guard.shouldPrompt) {
-      // 等待用户成本确认期间暂停空闲超时计时。
+    // 单次路径 context-length 溢出 → 自动转 Map-Reduce 重试一次
+    //（仅一次：map-reduce 各调用自身更短，再溢出就抛出错误；abort controller 复用，stop 仍可中止）。
+    // streamChat 仅在 HTTP context-length 溢出时抛带 .overflow 标记的错误。
+    try {
+      await streamChat({
+        provider,
+        context: msg.context || {},
+        userPrompt: msg.prompt || "",
+        history: Array.isArray(msg.history) ? msg.history : [],
+        userImages,
+        thinkingLevel: msg.thinkingLevel,
+        port,
+        signal,
+        onActivity,
+        webSearch
+      });
+    } catch (e) {
+      if (!(e as { overflow?: boolean }).overflow) {
+        throw e;
+      }
+      // 编排期间整体暂停空闲超时（语义同上方 map-reduce 主路径）。
       pauseIdleTimeout?.();
-      const confirmed = Boolean(await askCostGuard(port, guard.message));
-      if (!confirmed) {
-        port.postMessage({ type: "stopped", reason: "已取消" });
-        return;
+      // 溢出转 Map-Reduce 同为归约轮：静默禁用搜索 + notice（spec Q12）。
+      if (webSearch) {
+        port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
       }
+      await orchestrateMapReduce({
+        provider,
+        context: msg.context || {},
+        // 不复用 single 档的 plan：它的 segments 为空，原样注入会让 Map-Reduce
+        // 首轮跳过重算、直接产出空草稿（小窗口模型真实溢出而预算判定为 single
+        // 时的典型故障）。传 null 由 map-reduce 现场重算。
+        plan: null,
+        port,
+        signal,
+        thinkingLevel: msg.thinkingLevel,
+        onProgress: function (notice: string) {
+          // 进度回吐；不重挂空闲超时（本路径计时已整体暂停，见上）。
+          port.postMessage({ type: "notice", data: notice });
+        }
+      });
     }
-
-    // 编排期间整体暂停空闲超时：Map-Reduce 全部为非流式 chatCompletion，段调用
-    // 期间没有任何流式活动可重挂 90 秒窗口，慢模型单段超窗会误杀整个运行（根治
-    // [90s-idle] 诊断）。进度仍逐段回吐；真正挂死由用户「停止」兜底。
-    pauseIdleTimeout?.();
-    // 联网开关开启时归约轮静默禁用搜索（spec Q12：归约轮不联网）。
-    if (webSearch) {
-      port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
-    }
-    await orchestrateMapReduce({
-      provider,
-      context: msg.context || {},
-      plan,
-      port,
-      signal,
-      thinkingLevel: msg.thinkingLevel,
-      onProgress: function (notice: string) {
-        // 进度回吐；不重挂空闲超时（本路径计时已整体暂停，见上）。
-        port.postMessage({ type: "notice", data: notice });
-      }
-    });
-    return;
-  }
-
-  // 单次路径 context-length 溢出 → 自动转 Map-Reduce 重试一次
-  //（仅一次：map-reduce 各调用自身更短，再溢出就抛出错误；abort controller 复用，stop 仍可中止）。
-  // streamChat 仅在 HTTP context-length 溢出时抛带 .overflow 标记的错误。
-  try {
-    await streamChat({
-      provider,
-      context: msg.context || {},
-      userPrompt: msg.prompt || "",
-      history: Array.isArray(msg.history) ? msg.history : [],
-      userImages,
-      thinkingLevel: msg.thinkingLevel,
-      port,
-      signal,
-      onActivity,
-      webSearch
-    });
-  } catch (e) {
-    if (!(e as { overflow?: boolean }).overflow) {
-      throw e;
-    }
-    // 编排期间整体暂停空闲超时（语义同上方 map-reduce 主路径）。
-    pauseIdleTimeout?.();
-    // 溢出转 Map-Reduce 同为归约轮：静默禁用搜索 + notice（spec Q12）。
-    if (webSearch) {
-      port.postMessage({ type: "notice", data: "超长内容归约中，本轮不联网" });
-    }
-    await orchestrateMapReduce({
-      provider,
-      context: msg.context || {},
-      // 不复用 single 档的 plan：它的 segments 为空，原样注入会让 Map-Reduce
-      // 首轮跳过重算、直接产出空草稿（小窗口模型真实溢出而预算判定为 single
-      // 时的典型故障）。传 null 由 map-reduce 现场重算。
-      plan: null,
-      port,
-      signal,
-      thinkingLevel: msg.thinkingLevel,
-      onProgress: function (notice: string) {
-        // 进度回吐；不重挂空闲超时（本路径计时已整体暂停，见上）。
-        port.postMessage({ type: "notice", data: notice });
-      }
-    });
+  } finally {
+    keepalive?.release();
   }
 }
