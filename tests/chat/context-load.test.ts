@@ -26,6 +26,7 @@ import type { ContextFetchOutcome } from "../../extension/core/context-assembly.
 
 let createContextLoad: typeof import("../../extension/chat/context-load.js").createContextLoad;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 // 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
@@ -35,6 +36,7 @@ async function importModule() {
   const state = await import("../../extension/chat/chat-state.js");
   createContextLoad = module.createContextLoad;
   chatSessionState = state.chatSessionState;
+  chatSessionStateForTests = state.chatSessionStateForTests;
   applyConversationIdentity = state.applyConversationIdentity;
   resetChatSessionStateForTests = state.resetChatSessionStateForTests;
 }
@@ -89,7 +91,7 @@ beforeEach(async () => {
 
 describe("loadContextState 动作分支", () => {
   it("skip-unchanged：短路返回 true，不动任何状态不重渲染", async () => {
-    chatSessionState.liveContextData = makePayload();
+    chatSessionStateForTests.liveContextData = makePayload();
     const prevContextData = chatSessionState.contextData;
     const { deps, contextLoad } = makeHarness({
       fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload: { unchanged: true } })
@@ -130,9 +132,9 @@ describe("loadContextState 动作分支", () => {
   });
 
   it("no-tab 信封：清 live 快照（进程内策略不产生该分支，信封语义由 policy 锁定）", async () => {
-    chatSessionState.contextData = makePayload();
-    chatSessionState.currentContextKey = "k1";
-    chatSessionState.liveContextData = makePayload();
+    chatSessionStateForTests.contextData = makePayload();
+    chatSessionStateForTests.currentContextKey = "k1";
+    chatSessionStateForTests.liveContextData = makePayload();
     const { deps, contextLoad } = makeHarness({
       fetchOutcome: () => ({ kind: "no-tab" })
     });
@@ -179,8 +181,8 @@ describe("loadContextState 动作分支", () => {
   });
 
   it("apply-live：主上下文落地；上下文变化时 restartChat + restoreLatest + renderInitialState", async () => {
-    chatSessionState.currentContextKey = "old-key";
-    chatSessionState.contextData = makePayload();
+    chatSessionStateForTests.currentContextKey = "old-key";
+    chatSessionStateForTests.contextData = makePayload();
     const payload = makePayload({ signature: "sig-4", title: "新视频" });
     const { deps, contextLoad } = makeHarness({
       fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload })
@@ -214,8 +216,8 @@ describe("loadContextState 动作分支", () => {
   });
 
   it("apply-live：上下文变化但流式中 → 动作被 policy 判为 blocked-streaming（只落地 live 快照）", async () => {
-    chatSessionState.currentContextKey = "old-key";
-    chatSessionState.contextData = makePayload();
+    chatSessionStateForTests.currentContextKey = "old-key";
+    chatSessionStateForTests.contextData = makePayload();
     const { deps, contextLoad } = makeHarness({
       fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload: makePayload({ signature: "sig-5", title: "新视频" }) })
     });

@@ -15,15 +15,22 @@
 //（reader/chat-tab.ts）注入进程内直读策略；测试可注入消息链策略。
 //
 // 依赖方向（无环）：共享可变状态（contextData / currentContextKey /
-// liveContextData / liveContextKey / liveTabUrl / currentConversationMeta）直接
-// import；上下文组装策略（fetchContext）经工厂 deps 注入；
+// liveContextData / liveContextKey / liveTabUrl / currentConversationMeta）经
+// chat-state 的只读视图读、经其意图原语写；上下文组装策略（fetchContext）经工厂
+// deps 注入；
 // 渲染/编排回调（renderHistoryList、resetConversationView、
 // restartChat、renderSuggestions、restoreLatest、流式守卫判定 isStreaming /
 // hasPendingUserPrompt 惰性互引 chatRuntime 实例）同样经 deps 注入。本模块
 // 不 import 组合根。
-import { buildContextKey } from "../ai/conversation.js";
 import { LOAD_CONTEXT_ACTION, isPinnedContextStrict, resolveLoadContextAction, resolveNoTabPlan } from "./context-policy.js";
-import { applyContextSnapshot, chatSessionState, clearMainContext } from "./chat-state.js";
+import {
+  applyContextSnapshot,
+  applyLiveContextSnapshot,
+  chatSessionState,
+  clearMainContext,
+  noteLiveTabUrl,
+  resetLiveContext
+} from "./chat-state.js";
 import type { ChatSessionContextSnapshot } from "./chat-state.js";
 import type { ContextFetch, ContextFetchOutcome } from "../core/context-assembly.js";
 import type { LoadContextStateOptions } from "./conversation-store.js";
@@ -63,9 +70,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
       // 决策点一：无可用标签页，按计划做失败清理（文案/清上下文/
       // 重置视图的取舍全部来自策略计划）。
       const plan = resolveNoTabPlan({ hasPinnedConversation, silent });
-      chatSessionState.liveContextData = null;
-      chatSessionState.liveContextKey = "";
-      chatSessionState.liveTabUrl = "";
+      resetLiveContext();
       if (plan.clearContext) {
         clearMainContext();
       }
@@ -77,7 +82,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
 
     // no-tab 之外的分支都刷新 liveTabUrl（error 亦然——迁移前行为：往返
     // 结束后即使失败也写入 tab.url）。
-    chatSessionState.liveTabUrl = outcome.tabUrl || "";
+    noteLiveTabUrl(outcome.tabUrl || "");
 
     // 决策点二（消息往返之后）：「输入 → 动作」映射全部交给策略模块。unchanged
     // 信封折算成 policy 的响应形态；forceRefresh 只随策略透传，不参与动作判定；
@@ -105,8 +110,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     }
 
     if (plan.action === LOAD_CONTEXT_ACTION.ERROR) {
-      chatSessionState.liveContextData = null;
-      chatSessionState.liveContextKey = "";
+      applyLiveContextSnapshot(null);
       if (plan.clearContext) {
         clearMainContext();
       }
@@ -118,8 +122,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
 
     // 三个成功动作（pinned / 流式守卫 / live）的公共前缀：live 快照照常落地，
     // 保证轮询与补水的数据源不断供。
-    chatSessionState.liveContextData = resp.payload as ChatSessionContextSnapshot;
-    chatSessionState.liveContextKey = buildContextKey(resp.payload as ChatSessionContextSnapshot);
+    applyLiveContextSnapshot(resp.payload as ChatSessionContextSnapshot);
 
     // pinned 与流式守卫的执行体逐字节相同：只落地 live 快照，不进主上下文。
     if (

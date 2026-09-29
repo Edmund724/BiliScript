@@ -18,12 +18,13 @@ const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 
 let mod: typeof import("../../extension/chat/image-support.js");
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let buildModelOptionValue: typeof import("../../extension/chat/providers.js").buildModelOptionValue;
 
 // 选中平台记录（providers.ts 自 ai-providers-list 载荷透传进 chatSessionState.providers
 // 的形状：id 必填，presetId / baseUrl 可选）。
 function seedProvider(provider: { id: string; presetId?: string; baseUrl?: string }): void {
-  chatSessionState.providers = [
+  chatSessionStateForTests.providers = [
     { id: provider.id, presetId: provider.presetId, baseUrl: provider.baseUrl, models: ["m1"] }
   ];
 }
@@ -69,6 +70,7 @@ beforeEach(async () => {
   resetModuleState();
   mod = await import("../../extension/chat/image-support.js");
   chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  chatSessionStateForTests = (await import("../../extension/chat/chat-state.js")).chatSessionStateForTests;
   buildModelOptionValue = (await import("../../extension/chat/providers.js")).buildModelOptionValue;
 });
 

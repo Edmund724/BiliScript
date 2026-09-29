@@ -14,11 +14,11 @@
 // 扩展页退役一并移除：迁移只能发生在扩展页上下文（reader 上下文读不到扩展
 // localStorage），该页面已不存在，无可迁移存量（最坏损失 = 重选一次平台）。
 //
-// 依赖方向（无环）：共享可变状态（providers / aiPrefs / aiThinkingLevel）直接
-// import；sendRuntimeMessage（shared 传输层）、chrome.storage 抽象（可注入，
-// 缺省全局 chrome.storage.local）、DOM 元素（modelSelect / thinkingBtns /
-// updateModelSelectWidth 的 els 引用包）经工厂 deps 注入。本模块不
-// import 组合根。
+// 依赖方向（无环）：共享可变状态（providers / aiPrefs / aiThinkingLevel）经
+// chat-state 的只读视图读、经其意图原语写；sendRuntimeMessage（shared 传输层）、
+// chrome.storage 抽象（可注入，缺省全局 chrome.storage.local）、DOM 元素
+//（modelSelect / thinkingBtns / updateModelSelectWidth 的 els 引用包）经工厂
+// deps 注入。本模块不 import 组合根。
 import {
   normalizeAiInitialQuickPrompts,
   normalizeAiThinkingLevel
@@ -35,7 +35,13 @@ import {
   parseModelOptionValue
 } from "../shared/selected-provider.js";
 import { updateModelSelectWidth } from "./model-select-width.js";
-import { chatSessionState } from "./chat-state.js";
+import {
+  applyProviderPrefs,
+  chatSessionState,
+  setAiThinkingLevel,
+  // 与本地同名（本模块对外导出的 setWebSearchEnabled 工厂件）：状态写走别名
+  setWebSearchEnabled as setWebSearchEnabledState
+} from "./chat-state.js";
 import type { ModelSelectWidthEls } from "./model-select-width.js";
 
 export const THINKING_LEVEL_KEY = "biliscript_ai_thinking_level";
@@ -147,33 +153,37 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     storedSelectedProviderId = String(storedPrefs[SELECTED_PROVIDER_KEY] || "").trim();
     // 与迁移前同语义：只看 providers 载荷，不查 ok（ok:false / 缺 key 一律空列表）
     const providers = Array.isArray(providersResp?.providers) ? providersResp.providers : [];
-    chatSessionState.providers = providers
-      .filter((p) => p.enabled)
-      .map((p) => ({
-        id: String(p.id || ""),
-        // name 不在 AiProvider 显式字段里（走索引签名，unknown），按串收窄
-        name: typeof p.name === "string" ? p.name : undefined,
-        model: p.model,
-        // 模型目录（multi-model-catalog）：渲染分组选项与选中回落的口径来源
-        models: normalizeProviderModels(p),
-        // baseUrl / presetId 透传（AiProvider 显式字段）：思考档位「关不掉」提示的
-        // resolver 识别入参（工单 03，沿本消息链读取、不开新链）。presetId 是
-        // 识别主路径（02 票纪律），baseUrl 供 custom/反代场景的 host 兜底。
-        baseUrl: typeof p.baseUrl === "string" ? p.baseUrl : undefined,
-        presetId: typeof p.presetId === "string" ? p.presetId : undefined,
-        enabled: p.enabled
-      }));
     const settings = settingsResp?.ok ? settingsResp.settings : null;
-    chatSessionState.aiPrefs = {
-      aiSystemPrompt: String(settings?.aiSystemPrompt || "").trim(),
-      aiInitialQuickPrompts: normalizeAiInitialQuickPrompts(settings?.aiInitialQuickPrompts),
-      defaultModel: String(settings?.defaultModel || "").trim()
-    };
-    chatSessionState.aiThinkingLevel = normalizeAiThinkingLevel(
-      settingsResp?.settings?.aiThinkingLevel ?? storedPrefs[THINKING_LEVEL_KEY]
-    );
-    // 联网搜索开关（spec §2.1/§4）：全局记忆（sync settings），默认关。
-    chatSessionState.webSearchEnabled = Boolean(settings?.webSearchEnabled);
+    // 四组偏好同出一份加载结果（平台列表 / aiPrefs / 思考档位 / 联网开关）：
+    // 整组经 chat-state 的意图原语落地（B 档只读面，ADR-0005）。
+    applyProviderPrefs({
+      providers: providers
+        .filter((p) => p.enabled)
+        .map((p) => ({
+          id: String(p.id || ""),
+          // name 不在 AiProvider 显式字段里（走索引签名，unknown），按串收窄
+          name: typeof p.name === "string" ? p.name : undefined,
+          model: p.model,
+          // 模型目录（multi-model-catalog）：渲染分组选项与选中回落的口径来源
+          models: normalizeProviderModels(p),
+          // baseUrl / presetId 透传（AiProvider 显式字段）：思考档位「关不掉」提示的
+          // resolver 识别入参（工单 03，沿本消息链读取、不开新链）。presetId 是
+          // 识别主路径（02 票纪律），baseUrl 供 custom/反代场景的 host 兜底。
+          baseUrl: typeof p.baseUrl === "string" ? p.baseUrl : undefined,
+          presetId: typeof p.presetId === "string" ? p.presetId : undefined,
+          enabled: p.enabled
+        })),
+      aiPrefs: {
+        aiSystemPrompt: String(settings?.aiSystemPrompt || "").trim(),
+        aiInitialQuickPrompts: normalizeAiInitialQuickPrompts(settings?.aiInitialQuickPrompts),
+        defaultModel: String(settings?.defaultModel || "").trim()
+      },
+      aiThinkingLevel: normalizeAiThinkingLevel(
+        settingsResp?.settings?.aiThinkingLevel ?? storedPrefs[THINKING_LEVEL_KEY]
+      ),
+      // 联网搜索开关（spec §2.1/§4）：全局记忆（sync settings），默认关。
+      webSearchEnabled: Boolean(settings?.webSearchEnabled)
+    });
     renderModelSelect(preferredProviderId);
     renderThinkingLevel();
     renderWebSearchEnabled();
@@ -257,7 +267,7 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
   }
 
   async function setThinkingLevel(level: string): Promise<void> {
-    chatSessionState.aiThinkingLevel = normalizeAiThinkingLevel(level);
+    setAiThinkingLevel(normalizeAiThinkingLevel(level));
     renderThinkingLevel();
     if (storage) {
       await storage.set({ [THINKING_LEVEL_KEY]: chatSessionState.aiThinkingLevel }).catch(() => {});
@@ -273,7 +283,7 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
   }
 
   async function setWebSearchEnabled(enabled: boolean): Promise<void> {
-    chatSessionState.webSearchEnabled = Boolean(enabled);
+    setWebSearchEnabledState(Boolean(enabled));
     renderWebSearchEnabled();
     await sendRuntimeMessage({ type: "save-settings", settings: { webSearchEnabled: chatSessionState.webSearchEnabled } }).catch(() => null);
   }

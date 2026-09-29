@@ -14,6 +14,7 @@ import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: ChatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 interface FakePort {
@@ -73,10 +74,11 @@ beforeEach(async () => {
   createChatRuntime = (await import("../../extension/chat/chat-runtime.js")).createChatRuntime;
   const stateModule = await import("../../extension/chat/chat-state.js");
   chatSessionState = stateModule.chatSessionState;
+  chatSessionStateForTests = stateModule.chatSessionStateForTests;
   resetChatSessionStateForTests = stateModule.resetChatSessionStateForTests;
   resetChatSessionStateForTests();
-  chatSessionState.contextData = { title: "测试视频", url: "https://www.bilibili.com/video/BV1test" };
-  chatSessionState.currentContextKey = "video:BV1test";
+  chatSessionStateForTests.contextData = { title: "测试视频", url: "https://www.bilibili.com/video/BV1test" };
+  chatSessionStateForTests.currentContextKey = "video:BV1test";
 });
 
 describe("发送受理时消费附件区", () => {

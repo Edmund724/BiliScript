@@ -100,9 +100,11 @@ export interface ChatSessionSavedConversation {
 // 写纪律切片（工单 chat-state 写纪律，仿 core/state.ts 的 Readonly + setter
 // 白名单三段交叉）：会话身份三件套（currentConversationId /
 // currentConversationMeta / chatHistory）与 savedConversations 收进
-// ChatSessionGuardedState，公开类型上整段 Readonly——生产写入点一律经本文件
-// 末尾的意图级原语。其余 10 个字段暂留裸 mutable（写方跨文件且粒度混写，
-// 详见 ADR-0005 适用范围二的 B 档记录）。
+// ChatSessionGuardedState；B 档 10 个散字段（contextData / currentContextKey /
+// providers / live 三键 / aiPrefs / 杂项标志）收进 ChatSessionOpenState。两段在
+// 公开类型 ChatSessionState 上整段 Readonly（aiPrefs 再深一层只读），生产写入
+// 一律经本文件末尾的意图级原语——B 档写方归并与只读面收口见文末原语块
+// （ADR-0005 适用范围二的 B 档记录已与此刻口径对齐）。
 type ChatSessionGuardedState = {
   // 当前会话的一问一答数组 [{ role, content }]
   chatHistory: ChatSessionMessage[];
@@ -114,8 +116,19 @@ type ChatSessionGuardedState = {
   currentConversationMeta: CurrentConversationMeta | null;
 };
 
-// 未收纪律的散字段（contextData / currentContextKey / providers / live 三键 /
-// aiPrefs / asrTranscribingActive / aiThinkingLevel / webSearchEnabled）。
+// 思考档位（off/low/high）。持久化口径见 ChatSessionOpenState.aiThinkingLevel。
+export type ChatThinkingLevel = "off" | "low" | "high";
+
+// 平台偏好三键（loadProvidersAndPrefs 整体替换，modelSelect 局部改写）。
+export interface ChatSessionPreferences {
+  aiSystemPrompt: string;
+  aiInitialQuickPrompts: string[];
+  // modelSelect change 时局部写入（loadProvidersAndPrefs 整体替换前不存在）
+  defaultModel?: string;
+}
+
+// B 档散字段（contextData / currentContextKey / providers / live 三键 / aiPrefs /
+// asrTranscribingActive / aiThinkingLevel / webSearchEnabled）。
 type ChatSessionOpenState = {
   // ---- 上下文（loadContextState 写，UI 渲染读） ----
   // 当前应用的上下文快照（视频信息/字幕等）；null = 无上下文
@@ -130,13 +143,8 @@ type ChatSessionOpenState = {
   liveContextKey: string;
   // 活跃标签页 URL（isBoundConversationMismatched / 历史列表 live 匹配读）
   liveTabUrl: string;
-  // ---- AI 偏好（loadProvidersAndPrefs 整体替换，modelSelect 局部改写） ----
-  aiPrefs: {
-    aiSystemPrompt: string;
-    aiInitialQuickPrompts: string[];
-    // modelSelect change 时局部写入（loadProvidersAndPrefs 整体替换前不存在）
-    defaultModel?: string;
-  };
+  // ---- AI 偏好（形状与写入意图见 ChatSessionPreferences / applyProviderPrefs） ----
+  aiPrefs: ChatSessionPreferences;
   // ---- 杂项标志 ----
   // content 侧音频转写进行中的兜底信号（biliscript-subtitle-status 广播写，
   // subtitleWaiter 轮询读）
@@ -145,13 +153,18 @@ type ChatSessionOpenState = {
   // biliscript_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
   // 读取以 settings ?? storage 为准（写点在 providers.ts 的 setThinkingLevel /
   // loadProvidersAndPrefs）。
-  aiThinkingLevel: "off" | "low" | "high";
+  aiThinkingLevel: ChatThinkingLevel;
   // 联网搜索开关（spec §2.1/§4）：全局记忆（sync settings.webSearchEnabled），
   // 默认关；写点在 providers.ts 的 setWebSearchEnabled / loadProvidersAndPrefs。
   webSearchEnabled: boolean;
 };
 
-export type ChatSessionState = Readonly<ChatSessionGuardedState> & ChatSessionOpenState;
+// 公开视图：两段切片整段只读（aiPrefs 再深一层只读）。写入一律走本文件原语——
+// 在别处直写是编译期错误（编译期断言见 tests/chat/chat-state-readonly.types.ts）。
+export type ChatSessionState = Readonly<ChatSessionGuardedState> &
+  Readonly<Omit<ChatSessionOpenState, "aiPrefs">> & {
+    readonly aiPrefs: Readonly<ChatSessionPreferences>;
+  };
 type ChatSessionStateWritable = ChatSessionGuardedState & ChatSessionOpenState;
 
 // 初值的唯一出处：模块单例与测试注入口 resetChatSessionStateForTests 共用，
@@ -206,6 +219,11 @@ function createInitialChatSessionState(): ChatSessionStateWritable {
 const chatSessionStateMutable: ChatSessionStateWritable = createInitialChatSessionState();
 
 export const chatSessionState: ChatSessionState = chatSessionStateMutable;
+
+// 仅供测试：可写把手（先例 resetChatSessionStateForTests，用例布置前置状态用）。
+// 生产代码只 import 只读视图 chatSessionState，写入一律走意图原语；本把手不得出现在
+// extension/ 的其它文件里（源码守卫见 tests/chat/chat-state-b-bag.test.ts）。
+export const chatSessionStateForTests = chatSessionStateMutable;
 
 // ---------------------------------------------------------------------------
 // 意图级写入原语（会话身份切片；先例 core/state.ts 的 suppressUntil +
@@ -324,6 +342,59 @@ export function pinCurrentContextKey(key: string): void {
 export function clearMainContext(): void {
   chatSessionStateMutable.contextData = null;
   chatSessionStateMutable.currentContextKey = "";
+}
+
+// ---------------------------------------------------------------------------
+// B 档只读面收口（arch-review：B 档写方归并后的第二半——10 个散字段对外整段
+// 只读，写方全部收在本块；形状与上文的 A 档原语一致：成组意图，不做逐字段
+// setter 白名单）
+// ---------------------------------------------------------------------------
+
+// 平台与偏好一次加载结果的整组落地（providers.ts 的 loadProvidersAndPrefs）：
+// 四组字段同出一份 settings/平台载荷，一次调用表达「本次加载结果」这一个意图。
+export interface ChatSessionPrefsSnapshot {
+  providers: ChatSessionProvider[];
+  aiPrefs: ChatSessionPreferences;
+  aiThinkingLevel: ChatThinkingLevel;
+  webSearchEnabled: boolean;
+}
+
+export function applyProviderPrefs(snapshot: ChatSessionPrefsSnapshot): void {
+  chatSessionStateMutable.providers = snapshot.providers;
+  chatSessionStateMutable.aiPrefs = snapshot.aiPrefs;
+  chatSessionStateMutable.aiThinkingLevel = snapshot.aiThinkingLevel;
+  chatSessionStateMutable.webSearchEnabled = snapshot.webSearchEnabled;
+}
+
+// 思考档位切换（providers.ts 的 setThinkingLevel）：档位归一化留在调用方
+// （词表在 core/validators，本模块不引第二个领域依赖）。
+export function setAiThinkingLevel(level: ChatThinkingLevel): void {
+  chatSessionStateMutable.aiThinkingLevel = level;
+}
+
+// 联网搜索开关切换（providers.ts 的 setWebSearchEnabled）。
+export function setWebSearchEnabled(enabled: boolean): void {
+  chatSessionStateMutable.webSearchEnabled = enabled;
+}
+
+// 往返结束后刷新活跃标签页 URL（context-load 的非 no-tab 分支：error 也写，
+// 与迁移前同语义）。
+export function noteLiveTabUrl(url: string): void {
+  chatSessionStateMutable.liveTabUrl = url;
+}
+
+// live 快照落地 / 失效（context-load 的成功前缀与 ERROR 分支）：payload 非空时
+// data 按引用落地、key 由 buildContextKey 派生；null 时快照两键一并清空（tabUrl
+// 不动——它由 noteLiveTabUrl 单独维护）。
+export function applyLiveContextSnapshot(payload: ChatSessionContextSnapshot | null): void {
+  chatSessionStateMutable.liveContextData = payload;
+  chatSessionStateMutable.liveContextKey = buildContextKey(payload);
+}
+
+// 无可用标签页：live 三键一并清空（context-load 的 no-tab 分支）。
+export function resetLiveContext(): void {
+  applyLiveContextSnapshot(null);
+  chatSessionStateMutable.liveTabUrl = "";
 }
 
 // 测试注入口：把全部字段重置到初值（单纪元内复用模块单例的 beforeEach 用）。

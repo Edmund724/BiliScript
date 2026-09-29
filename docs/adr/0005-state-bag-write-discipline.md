@@ -1,5 +1,7 @@
 # 状态袋写纪律：Readonly 切片 + 意图级 setter，不做全域化
 
+> 状态：有效｜并入原 ADR-0011（编号退役不复用）
+
 本 ADR 是同一条纪律在两个状态袋上的适用记录：`core/state.ts`（reader/clip/ui 三命名空间 + settings）与 `extension/chat/chat-state.ts`（对话域 14 字段袋，sidepanel 时代的模块级可变量迁入 chat 域时收拢而成）。纪律本身只有一条：**状态袋不做全域化收敛、不做归属搬迁，只把完全内聚的切片收进「Readonly 业务字段 + setter 白名单」**。
 
 ## 共同判断
@@ -101,7 +103,8 @@ key 回退重算，原组合根 startNewConversation 内联两行的整组意图
 `noteDefaultModelChoice(providerId)`（aiPrefs.defaultModel 连同空串清档）、
 `setAsrTranscribingActive(flag)`（转写相位写，原 bindSubtitleStatusBus 内联写）。原语均为
 成组意图（与 `applyConversationIdentity` 同一先例），不是逐字段 setter 白名单——白名单
-半句的条件（写方归并已存在）刚具备，是否再落编译期白名单留待下一轮评审。
+半句的条件（写方归并已存在）刚具备，是否再落编译期白名单留待下一轮评审
+（已裁决：不做白名单、改落 B 档只读面，见文末 2026-09-29 修订）。
 `conversation-store.ts` / `context-load.ts` 内的同名字段写方是第二轮归并对象，本轮未动
 （Q7 裁决：只并已迁移的 7 处）。归属搬迁红线（本 ADR 共同约束第 73 行）不受影响。
 
@@ -116,4 +119,30 @@ key 回退重算，原组合根 startNewConversation 内联两行的整组意图
 boolean` 并返回 contextChanged，编排壳只留 restart/render 副作用）全部改走原语。至此
 `extension/` 全仓对 `chatSessionState.contextData` / `currentContextKey` 的直写为零，
 写方归并这一重开条件完全兑现；setter 白名单是否再落编译期约束，留待下一轮评审
-（原语已成组意图，白名单的漂移面只剩原语内部）。
+（原语已成组意图，白名单的漂移面只剩原语内部）。**更正（2026-09-29）**：本句的「完全
+兑现」当时只对这两个字段成立——B 档其余 9 处直写仍在（`chat/providers.ts` 6 处、
+`chat/context-load.ts` 3 处），白名单议题的裁决见文末修订。
+
+## 修订（2026-09-29：B 档只读面收口，setter 白名单议题关闭）
+
+上文两处「留待下一轮评审」（适用范围二的两条修订）在本轮裁决并落地：
+
+- **裁决：不做逐字段 setter 白名单，改为把 B 档 10 个字段的公开类型整段只读**
+  （`aiPrefs` 再深一层只读），写入全部收进 `chat-state.ts` 的意图级原语——与身份切片
+  同一形状。否定逐字段白名单的理由沿用「共同判断」：写方仍以整组/单字段混写为主，
+  一一对应的 setter 只是把误写面换成白名单漂移面。
+- **新原语**（成组意图，与 `suppressUntil` / `applyConversationIdentity` 同一先例）：
+  `applyProviderPrefs`（providers + aiPrefs + 思考档位 + 联网开关的「一次加载结果」整组
+  落地）、`setAiThinkingLevel`、`setWebSearchEnabled`、`noteLiveTabUrl`、
+  `applyLiveContextSnapshot`（payload 非空按引用落地 + key 派生；null 清快照两键）、
+  `resetLiveContext`（no-tab 的 live 三键清空）。`contextData` / `currentContextKey`
+  侧沿用第一轮既有原语。前文补正的 9 处直写全部改走原语后，`extension/` 对 B 档字段的
+  袋外直写为零。
+- **测试侧唯一的可写出口**是 `chatSessionStateForTests`（先例
+  `resetChatSessionStateForTests`），生产代码不得 import；两面看守：
+  `tests/chat/chat-state-readonly.types.ts` 的 `@ts-expect-error` 编译期负向断言
+  （由 `pnpm typecheck` 执行）与 `tests/chat/chat-state-b-bag.test.ts` 的源码守卫。
+- **有意保留的可写面**：`Readonly` 是浅层——`providers` / `chatHistory` 等数组的就地
+  push/patch 不在编译期约束内（与身份切片现状一致，非本轮新增缺口）；类型断言仍可绕过
+  只读面，不做运行期拦截（与「共同判断」否决 Proxy 同一取向）。B 档重开条件
+  自此改为：出现一次实际误写事故，或数组就地改写构成真实误写面。

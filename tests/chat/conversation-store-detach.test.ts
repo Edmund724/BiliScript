@@ -29,6 +29,7 @@ import type {
 
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 // 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
@@ -161,6 +162,7 @@ beforeEach(async () => {
   ({ createConversationStore } = await import("../../extension/chat/conversation-store.js"));
   ({
     chatSessionState,
+    chatSessionStateForTests,
     applyConversationIdentity,
     setSavedConversations,
     resetChatSessionStateForTests
@@ -269,8 +271,8 @@ describe("出口一 restoreLatest 无匹配", () => {
     const { store, deps, storage } = makeHarness();
     const { log } = makeOrderLog(deps, storage);
     seedCurrentConversation("c1", { url: "https://www.bilibili.com/video/BVother" });
-    chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
-    chatSessionState.liveContextKey = "k-live";
+    chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
+    chatSessionStateForTests.liveContextKey = "k-live";
 
     const result = await store.restoreLatest();
 
@@ -291,8 +293,8 @@ describe("出口二 deleteById 当前会话", () => {
     const { log } = makeOrderLog(deps, storage);
     seedCurrentConversation("c1");
     const liveData = { bvid: "BV1abc", url: URL_A, title: "视频A", isVideoContext: true };
-    chatSessionState.liveContextData = liveData;
-    chatSessionState.liveContextKey = "k-live";
+    chatSessionStateForTests.liveContextData = liveData;
+    chatSessionStateForTests.liveContextKey = "k-live";
 
     await store.deleteById("c1");
 
@@ -330,8 +332,8 @@ describe("出口三 clearAll", () => {
     const { log, interruptedWith } = makeOrderLog(deps, storage);
     seedCurrentConversation("c1");
     const liveData = { bvid: "BV1abc", url: URL_A, title: "视频A", isVideoContext: true };
-    chatSessionState.liveContextData = liveData;
-    chatSessionState.liveContextKey = "k-live";
+    chatSessionStateForTests.liveContextData = liveData;
+    chatSessionStateForTests.liveContextKey = "k-live";
 
     await store.clearAll();
 
@@ -357,8 +359,8 @@ describe("出口四 detachForRestart(新会话重启)", () => {
     const { store, deps, storage } = makeHarness();
     const { log } = makeOrderLog(deps, storage);
     seedCurrentConversation("c1");
-    chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
-    chatSessionState.liveContextKey = "k-live";
+    chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
+    chatSessionStateForTests.liveContextKey = "k-live";
 
     store.detachForRestart();
 
@@ -442,8 +444,8 @@ describe("公开接口面", () => {
       resolveAiConversationRef: vi.fn(async () => ({ pageIndex: 2, url: `${URL_A}?p=2`, cid: "2", pageTitle: "第二P" }))
     });
     await storage.set({ biliscript_ai_conversations_v1: [makeConversation("c1")] });
-    chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
-    chatSessionState.liveContextKey = "k-1";
+    chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
+    chatSessionStateForTests.liveContextKey = "k-1";
 
     await store.loadAll();
     // opt-backlog-2026-09/05:loadAll 不再批量发起分页补水

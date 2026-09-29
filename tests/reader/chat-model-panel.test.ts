@@ -18,10 +18,12 @@ import { resetModuleState } from "../setup.js";
 
 let createReaderChatModelPanel: typeof import("../../extension/reader/chat-model-panel.js").createReaderChatModelPanel;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 
 beforeEach(async () => {
   resetModuleState();
   chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  chatSessionStateForTests = (await import("../../extension/chat/chat-state.js")).chatSessionStateForTests;
   createReaderChatModelPanel = (await import("../../extension/reader/chat-model-panel.js")).createReaderChatModelPanel;
   document.body.innerHTML = "";
 });
@@ -59,7 +61,7 @@ function makeHarness(select = makeSelect()) {
 
 describe("renderChip", () => {
   it("模型名带平台名前缀（中点分隔）与档位分写两个 span（默认 off → Off）", () => {
-    chatSessionState.aiThinkingLevel = "off";
+    chatSessionStateForTests.aiThinkingLevel = "off";
     const { chip, chipModel, chipLevel, modelPanel } = makeHarness();
 
     modelPanel.renderChip();
@@ -80,7 +82,7 @@ describe("renderChip", () => {
   });
 
   it("档位 span 随 chatSessionState.aiThinkingLevel（high → High），模型名不动", () => {
-    chatSessionState.aiThinkingLevel = "high";
+    chatSessionStateForTests.aiThinkingLevel = "high";
     const { chipModel, chipLevel, modelPanel } = makeHarness();
 
     modelPanel.renderChip();

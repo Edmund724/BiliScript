@@ -17,6 +17,7 @@ import type { ChatPort } from "../../extension/chat/chat-runtime.js";
 
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 // 假 port（chat-runtime 经 connectPort 取用；方法保留 mock 引用以便断言载荷）
@@ -89,14 +90,14 @@ function makeRuntime() {
 }
 
 function seedVideoContext() {
-  chatSessionState.contextData = {
+  chatSessionStateForTests.contextData = {
     bvid: "BV1body",
     cid: "101",
     title: "长视频",
     url: "https://www.bilibili.com/video/BV1body/",
     subtitleBody: SUBTITLE_BODY
   };
-  chatSessionState.currentContextKey = CONTEXT_KEY;
+  chatSessionStateForTests.currentContextKey = CONTEXT_KEY;
 }
 
 // 发送一条消息（sendMessage 会清空 input.value，每条消息需重新赋值）
@@ -117,7 +118,7 @@ beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
-  ({ chatSessionState, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
+  ({ chatSessionState, chatSessionStateForTests, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
   resetChatSessionStateForTests();
 });
 
@@ -141,7 +142,7 @@ describe("追问消息的字幕体省略传输", () => {
 
   it("收到 cachedContextKey 回执后：追问 context 省略 subtitleBody，元数据/history 照常全量", async () => {
     seedVideoContext();
-    chatSessionState.aiPrefs.aiSystemPrompt = "你是助手";
+    chatSessionStateForTests.aiPrefs.aiSystemPrompt = "你是助手";
     const { runtime, deps, ports } = makeRuntime();
 
     // 第一条：发送 → offscreen 确认缓存（token 回执带 cachedContextKey）→ 正常收尾
@@ -219,8 +220,8 @@ describe("追问消息的字幕体省略传输", () => {
 
 describe("无字幕体上下文的兜底行为", () => {
   it("contextData 无 subtitleBody 字段时照常发送（省略条件不满足）", async () => {
-    chatSessionState.contextData = { title: "无字幕页面", isVideoContext: false };
-    chatSessionState.currentContextKey = "url:https://www.bilibili.com/";
+    chatSessionStateForTests.contextData = { title: "无字幕页面", isVideoContext: false };
+    chatSessionStateForTests.currentContextKey = "url:https://www.bilibili.com/";
     const { runtime, deps, ports } = makeRuntime();
 
     await send(runtime, deps, "随便聊聊");

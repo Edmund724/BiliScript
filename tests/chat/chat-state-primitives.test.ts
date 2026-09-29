@@ -3,6 +3,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   chatSessionState,
+  chatSessionStateForTests,
   resetChatSessionStateForTests,
   applyLiveContextToMain,
   rebuildCurrentContextKeyFromContext,
@@ -73,7 +74,7 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
     });
 
     it("liveContextData 为 null 时 no-op（不动主上下文）", () => {
-      chatSessionState.contextData = liveContext();
+      chatSessionStateForTests.contextData = liveContext();
       applyLiveContextToMain();
       expect(chatSessionState.contextData?.bvid).toBe("BV1live");
     });
@@ -81,7 +82,7 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
 
   describe("rebuildCurrentContextKeyFromContext", () => {
     it("按当前 contextData 重算 key（无 bvid 时走 url 归一化）", () => {
-      chatSessionState.contextData = {
+      chatSessionStateForTests.contextData = {
         url: "https://www.bilibili.com/read/cv123/?foo=1#frag"
       } as unknown as AiContext;
       rebuildCurrentContextKeyFromContext();
@@ -90,8 +91,8 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
     });
 
     it("contextData 为 null 时 key 清空", () => {
-      chatSessionState.currentContextKey = "video:stale|";
-      chatSessionState.contextData = null;
+      chatSessionStateForTests.currentContextKey = "video:stale|";
+      chatSessionStateForTests.contextData = null;
       rebuildCurrentContextKeyFromContext();
       expect(chatSessionState.currentContextKey).toBe("");
     });
@@ -111,8 +112,8 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
     });
 
     it("next 为 null 且无 key → 主上下文与 key 一并清空", () => {
-      chatSessionState.contextData = liveContext();
-      chatSessionState.currentContextKey = "video:stale|";
+      chatSessionStateForTests.contextData = liveContext();
+      chatSessionStateForTests.currentContextKey = "video:stale|";
       applyContextToMain(null);
       expect(chatSessionState.contextData).toBeNull();
       expect(chatSessionState.currentContextKey).toBe("");
@@ -121,7 +122,7 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
 
   describe("applyContextSnapshot（context-load 的 applyContextPayload 写入半）", () => {
     it("key 变化时返回 true 并落地新快照", () => {
-      chatSessionState.currentContextKey = "video:OLD|";
+      chatSessionStateForTests.currentContextKey = "video:OLD|";
       const changed = applyContextSnapshot(liveContext());
       expect(changed).toBe(true);
       expect(chatSessionState.contextData?.bvid).toBe("BV1live");
@@ -129,18 +130,18 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
     });
 
     it("key 未变（或旧 key 为空）时返回 false，但仍落地", () => {
-      chatSessionState.currentContextKey = "video:BV1live|";
+      chatSessionStateForTests.currentContextKey = "video:BV1live|";
       const changed = applyContextSnapshot(liveContext());
       expect(changed).toBe(false);
       expect(chatSessionState.currentContextKey).toBe("video:BV1live|");
       // 旧 key 为空串：首载不算变化（与迁移前 contextChanged 判定逐字一致）。
-      chatSessionState.currentContextKey = "";
+      chatSessionStateForTests.currentContextKey = "";
       expect(applyContextSnapshot(liveContext())).toBe(false);
     });
 
     it("payload 为 null → 清空主上下文，返回 false", () => {
-      chatSessionState.currentContextKey = "video:OLD|";
-      chatSessionState.contextData = liveContext();
+      chatSessionStateForTests.currentContextKey = "video:OLD|";
+      chatSessionStateForTests.contextData = liveContext();
       const changed = applyContextSnapshot(null);
       expect(changed).toBe(false);
       expect(chatSessionState.contextData).toBeNull();
@@ -151,7 +152,7 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
   describe("pinCurrentContextKey（hydratePinned 复读分支的只写 key）", () => {
     it("只钉 key，contextData 不动", () => {
       const kept = liveContext();
-      chatSessionState.contextData = kept;
+      chatSessionStateForTests.contextData = kept;
       pinCurrentContextKey("video:PIN|");
       expect(chatSessionState.currentContextKey).toBe("video:PIN|");
       expect(chatSessionState.contextData).toBe(kept);
@@ -160,8 +161,8 @@ describe("chat-state 意图原语（发送闸/新会话写方归并）", () => {
 
   describe("clearMainContext（no-tab/error 计划的清上下文分支）", () => {
     it("contextData 置 null、currentContextKey 置空串", () => {
-      chatSessionState.contextData = liveContext();
-      chatSessionState.currentContextKey = "video:stale|";
+      chatSessionStateForTests.contextData = liveContext();
+      chatSessionStateForTests.currentContextKey = "video:stale|";
       clearMainContext();
       expect(chatSessionState.contextData).toBeNull();
       expect(chatSessionState.currentContextKey).toBe("");

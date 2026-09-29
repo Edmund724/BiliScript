@@ -21,6 +21,7 @@ import type { CreateReaderChatListsDeps } from "../../extension/reader/chat-list
 
 let createReaderChatLists: typeof import("../../extension/reader/chat-lists.js").createReaderChatLists;
 let chatSessionState: ChatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let writeCachedQuickPrompts: typeof import("../../extension/chat/quick-prompt-cache.js").writeCachedQuickPrompts;
 let resetQuickPromptCacheForTests: typeof import("../../extension/chat/quick-prompt-cache.js").resetQuickPromptCacheForTests;
 // 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
@@ -34,6 +35,7 @@ async function importModule() {
   const cache = await import("../../extension/chat/quick-prompt-cache.js");
   createReaderChatLists = module.createReaderChatLists;
   chatSessionState = state.chatSessionState;
+  chatSessionStateForTests = state.chatSessionStateForTests;
   applyConversationIdentity = state.applyConversationIdentity;
   setSavedConversations = state.setSavedConversations;
   resetChatSessionStateForTests = state.resetChatSessionStateForTests;
@@ -84,9 +86,9 @@ beforeEach(async () => {
   await importModule();
   resetChatSessionStateForTests();
   resetQuickPromptCacheForTests();
-  chatSessionState.providers = [{ id: "p1", name: "平台一", enabled: true }];
-  chatSessionState.contextData = { ...VIDEO_CONTEXT };
-  chatSessionState.aiPrefs.aiInitialQuickPrompts = ["总结视频", "整理笔记"];
+  chatSessionStateForTests.providers = [{ id: "p1", name: "平台一", enabled: true }];
+  chatSessionStateForTests.contextData = { ...VIDEO_CONTEXT };
+  chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = ["总结视频", "整理笔记"];
 });
 
 describe("renderSuggestions（建议提示词）", () => {
@@ -104,7 +106,7 @@ describe("renderSuggestions（建议提示词）", () => {
   });
 
   it("无上下文：清空建议区", () => {
-    chatSessionState.contextData = null;
+    chatSessionStateForTests.contextData = null;
     const { lists, setSuggestionsNode } = makeDeps();
     const node = document.createElement("div");
     setSuggestionsNode(node);
@@ -113,7 +115,7 @@ describe("renderSuggestions（建议提示词）", () => {
   });
 
   it("非视频上下文（isVideoContext === false）：清空建议区", () => {
-    chatSessionState.contextData = { ...VIDEO_CONTEXT, isVideoContext: false };
+    chatSessionStateForTests.contextData = { ...VIDEO_CONTEXT, isVideoContext: false };
     const { lists, setSuggestionsNode } = makeDeps();
     const node = document.createElement("div");
     setSuggestionsNode(node);
@@ -131,7 +133,7 @@ describe("renderSuggestions（建议提示词）", () => {
   });
 
   it("无可用平台：清空建议区", () => {
-    chatSessionState.providers = [];
+    chatSessionStateForTests.providers = [];
     const { lists, setSuggestionsNode } = makeDeps();
     const node = document.createElement("div");
     setSuggestionsNode(node);
@@ -140,8 +142,8 @@ describe("renderSuggestions（建议提示词）", () => {
   });
 
   it("自定义留空（留空即自动生成）：渲染该视频的生成结果", () => {
-    chatSessionState.aiPrefs.aiInitialQuickPrompts = [];
-    chatSessionState.currentContextKey = "video:BV1|1";
+    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
+    chatSessionStateForTests.currentContextKey = "video:BV1|1";
     writeCachedQuickPrompts("video:BV1|1", ["生成一", "生成二", "生成三"]);
     const { lists, container } = makeDeps();
     lists.renderSuggestions();
@@ -150,8 +152,8 @@ describe("renderSuggestions（建议提示词）", () => {
   });
 
   it("自定义留空且该视频还没有生成结果：回落固定三条兜底", () => {
-    chatSessionState.aiPrefs.aiInitialQuickPrompts = [];
-    chatSessionState.currentContextKey = "video:BV1|1";
+    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
+    chatSessionStateForTests.currentContextKey = "video:BV1|1";
     const { lists, container } = makeDeps();
     lists.renderSuggestions();
     expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
@@ -159,7 +161,7 @@ describe("renderSuggestions（建议提示词）", () => {
   });
 
   it("自定义超过三条：只渲染前三条", () => {
-    chatSessionState.aiPrefs.aiInitialQuickPrompts = ["一", "二", "三", "四"];
+    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = ["一", "二", "三", "四"];
     const { lists, container } = makeDeps();
     lists.renderSuggestions();
     expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))

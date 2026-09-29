@@ -32,14 +32,16 @@ const THINKING_LEVEL_KEY = "biliscript_ai_thinking_level";
 
 let createProviderPrefs: typeof import("../../extension/chat/providers.js").createProviderPrefs;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let buildModelOptionValue: typeof import("../../extension/chat/providers.js").buildModelOptionValue;
 let parseModelOptionValue: typeof import("../../extension/chat/providers.js").parseModelOptionValue;
 
 async function importModule() {
   const module = await import("../../extension/chat/providers.js");
-  const state = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  const state = await import("../../extension/chat/chat-state.js");
   createProviderPrefs = module.createProviderPrefs;
-  chatSessionState = state;
+  chatSessionState = state.chatSessionState;
+  chatSessionStateForTests = state.chatSessionStateForTests;
   buildModelOptionValue = module.buildModelOptionValue;
   parseModelOptionValue = module.parseModelOptionValue;
 }
@@ -158,7 +160,7 @@ describe("loadProvidersAndPrefs", () => {
 
 describe("renderModelSelect", () => {
   it("无平台：disabled + 「未配置平台」占位", () => {
-    chatSessionState.providers = [];
+    chatSessionStateForTests.providers = [];
     const { modelSelect, providerPrefs } = makeHarness();
 
     providerPrefs.renderModelSelect();
@@ -168,7 +170,7 @@ describe("renderModelSelect", () => {
   });
 
   it("按平台 optgroup 分组、一模型一选项；零模型平台不进选择器；value 为「平台 id+模型 id」复合值", () => {
-    chatSessionState.providers = [
+    chatSessionStateForTests.providers = [
       { id: "p1", name: "DeepSeek", model: "deepseek-v4-flash", enabled: true },
       { id: "p2", name: "无模型平台", enabled: true },
       { id: "p3", model: "裸模型", enabled: true }
@@ -194,7 +196,7 @@ describe("renderModelSelect", () => {
   });
 
   it("多模型平台渲染为同组多选项（models 载荷）", () => {
-    chatSessionState.providers = [
+    chatSessionStateForTests.providers = [
       { id: "p1", name: "DeepSeek", models: ["deepseek-v4-flash", "deepseek-v4-pro"], enabled: true }
     ];
     const { modelSelect, providerPrefs } = makeHarness();
@@ -210,7 +212,7 @@ describe("renderModelSelect", () => {
   });
 
   it("全部平台零模型：等同未配置（disabled + 占位）", () => {
-    chatSessionState.providers = [
+    chatSessionStateForTests.providers = [
       { id: "p1", name: "空目录平台", models: [], enabled: true }
     ];
     const { modelSelect, providerPrefs } = makeHarness();
@@ -229,11 +231,11 @@ describe("renderModelSelect", () => {
   });
 
   it("preferredProviderId 优先于 aiPrefs.defaultModel 与 chrome.storage 选中", () => {
-    chatSessionState.providers = [
+    chatSessionStateForTests.providers = [
       { id: "p1", name: "平台一", models: ["m1"], enabled: true },
       { id: "p2", name: "平台二", models: ["m2"], enabled: true }
     ];
-    chatSessionState.aiPrefs.defaultModel = "p2";
+    chatSessionStateForTests.aiPrefs.defaultModel = "p2";
     const storage = makeStorageFake({ [SELECTED_PROVIDER_KEY]: "p2" });
     const { modelSelect, providerPrefs } = makeHarness(storage);
 
@@ -317,7 +319,7 @@ describe("renderModelSelect", () => {
   });
 
   it("闭包缓存未预取（未经过 loadProvidersAndPrefs）时回退到首个平台首个模型", () => {
-    chatSessionState.providers = [
+    chatSessionStateForTests.providers = [
       { id: "p1", name: "平台一", models: ["m1"], enabled: true },
       { id: "p2", name: "平台二", models: ["m2"], enabled: true }
     ];

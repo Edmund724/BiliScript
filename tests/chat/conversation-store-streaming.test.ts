@@ -48,6 +48,7 @@ interface TestRuntimeDeps extends CreateChatRuntimeDeps {
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: ChatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 // 写纪律：身份三件套 / 存档列表只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
@@ -158,6 +159,7 @@ beforeEach(async () => {
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
   ({
     chatSessionState,
+    chatSessionStateForTests,
     applyConversationIdentity,
     setSavedConversations,
     resetChatSessionStateForTests
@@ -305,7 +307,7 @@ describe("conversation-store reset 路径在流式中的停流", () => {
   it("restoreLatest 有匹配：照常 apply，不停流", async () => {
     const h = makeStreamHarness();
     setSavedConversations([makeConversation("c1")]);
-    chatSessionState.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
+    chatSessionStateForTests.liveContextData = { bvid: "BV1abc", url: URL_A, isVideoContext: true };
 
     const result = await h.store.restoreLatest();
 
@@ -401,7 +403,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
   it("finalize：发送后当前会话已删（id 已变）→ 只渲染 DOM，不 push 不 persist", async () => {
     applyConversationIdentity({ id: "c1" });
     applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "k1" } });
-    chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
+    chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
     await runtime.sendMessage();
@@ -424,7 +426,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
   it("stopped：发送后当前会话已删 → 同样不 push 不 persist", async () => {
     applyConversationIdentity({ id: "c1" });
     applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "k1" } });
-    chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
+    chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
     await runtime.sendMessage();
@@ -439,7 +441,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
   });
 
   it("身份未变（新会话发送，id 均为空串）→ 照常写回并 persist（回归保护）", async () => {
-    chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
+    chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
     await runtime.sendMessage();
@@ -454,7 +456,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
   it("流式中切换到另一会话（applyById 改 id）→ finalize 不把回答串进新会话", async () => {
     applyConversationIdentity({ id: "c1" });
     applyConversationIdentity({ meta: { id: "c1", pinnedContext: true, contextKey: "k1" } });
-    chatSessionState.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
+    chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
     await runtime.sendMessage();

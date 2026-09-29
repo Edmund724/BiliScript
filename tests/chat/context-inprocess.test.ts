@@ -53,6 +53,7 @@ let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").cre
 let createSubtitleWaiter: typeof import("../../extension/chat/subtitle-wait.js").createSubtitleWaiter;
 let isContextPending: typeof import("../../extension/chat/subtitle-wait.js").isContextPending;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 // 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
@@ -83,6 +84,7 @@ async function importModules() {
   noSubtitle = await import("../../extension/chat/no-subtitle.js");
   const stateModule = await import("../../extension/chat/chat-state.js");
   chatSessionState = stateModule.chatSessionState;
+  chatSessionStateForTests = stateModule.chatSessionStateForTests;
   applyConversationIdentity = stateModule.applyConversationIdentity;
   resetChatSessionStateForTests = stateModule.resetChatSessionStateForTests;
 }
@@ -306,7 +308,7 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     };
     const { fetchHotComments, contextLoad } = makeContextHarness(clipRef);
     await contextLoad.loadContextState({ silent: true });
-    chatSessionState.asrTranscribingActive = true;
+    chatSessionStateForTests.asrTranscribingActive = true;
 
     // 组合根同款等待状态机组装（sidepanel.ts 的 pollContext 装配，数据源换成
     // 进程内 loadContextState 的 live 快照）
@@ -382,7 +384,7 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     // 转写完成：字幕体落账 + fetchState ready + 广播兜底信号熄灭（签名随之
     // 变化：subtitleBody 长度与 fetchState 参与签名投影）→ kick 立即补轮
     clipRef.current = makeClip();
-    chatSessionState.asrTranscribingActive = false;
+    chatSessionStateForTests.asrTranscribingActive = false;
     subtitleWaiter.kick();
     await sendPromise;
 
@@ -606,7 +608,7 @@ describe("pinned 补水身份短路（工单 04）", () => {
         resolvedContext: null
       }
     });
-    chatSessionState.liveContextKey = "";
+    chatSessionStateForTests.liveContextKey = "";
 
     const ok = await store.hydratePinned({ silent: true });
 
