@@ -87,6 +87,17 @@ export type RequestProviderOriginsMessage = {
 // 响应锚点：entry/background.ts handleRequestProviderOrigins——用户拒绝 / 环境
 // 不支持 / SW 报错时 error 为可操作提示文案。
 export type RequestProviderOriginsResponse = { ok: boolean; error?: string };
+// offscreen 代发（content 侧发起）的 host 权限预检：content script 没有
+// chrome.permissions，经此消息问 SW「这个 origin 授权了吗」——只问不申请（申请走
+// request-provider-origins，需用户手势）。
+export type CheckProviderOriginMessage = {
+  type: "check-provider-origin";
+  /** 已提取的 match pattern（core/host-permissions 的 extractOriginFromBaseUrl 产物） */
+  origin?: unknown;
+};
+// 响应锚点：entry/background.ts handleCheckProviderOrigin——granted 即该 origin 是否已获
+// host 权限；origin 缺失/非法时按已授权回 true（fail-open，不新造拦截面）。
+export type CheckProviderOriginResponse = { granted: boolean };
 // PR5：对话 tab（content script）发送前的 offscreen 文档自愈 ensure——
 // chrome.offscreen / getContexts 仅扩展上下文可用，content script 经此消息
 // 委托 background 幂等创建（扩展页内直调 ensureChatOffscreenDocument 的
@@ -382,6 +393,7 @@ export type BackgroundMessage =
   | GetSettingsMessage
   | SaveSettingsMessage
   | RequestProviderOriginsMessage
+  | CheckProviderOriginMessage
   | EnsureOffscreenChatMessage
   | PlayerAiQuickActionMessage
   | FetchJsonMessage
@@ -520,6 +532,7 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends GetSettingsMessage ? GetSettingsResponse
   : M extends SaveSettingsMessage ? SaveSettingsResponse
   : M extends RequestProviderOriginsMessage ? RequestProviderOriginsResponse
+  : M extends CheckProviderOriginMessage ? CheckProviderOriginResponse
   : M extends EnsureOffscreenChatMessage ? EnsureOffscreenChatResponse
   : M extends PlayerAiQuickActionMessage ? PlayerAiQuickActionResponse
   : M extends FetchJsonMessage ? FetchJsonResponse

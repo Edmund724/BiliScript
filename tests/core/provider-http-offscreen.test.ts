@@ -22,6 +22,7 @@
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
 
 // 端口回吐消息（offscreen → content，同一端口严格按序）：
 // 响应头 { ok, status } → 分片 { ok, status, chunk } → 收束 { ok, status, done }；
@@ -40,6 +41,7 @@ let fetchMock: Mock;
 let connected: { name?: string }[];
 let ensureCalls: number;
 let sentRuntimeMessages: unknown[];
+let permissionGranted: boolean;
 let lastPort: FakePort | null;
 
 async function loadModule() {
@@ -97,6 +99,10 @@ function stubChrome(overrides: Record<string, unknown> = {}) {
         if ((message as { type?: string })?.type === "ensure-offscreen-chat") {
           ensureCalls += 1;
         }
+        if ((message as { type?: string })?.type === "check-provider-origin") {
+          callback?.({ granted: permissionGranted });
+          return undefined;
+        }
         callback?.({ ok: true, ensured: true });
         return undefined;
       }),
@@ -118,6 +124,7 @@ beforeEach(() => {
   connected = [];
   ensureCalls = 0;
   sentRuntimeMessages = [];
+  permissionGranted = true;
   lastPort = null;
   stubChrome();
 });
@@ -132,8 +139,12 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     lastPort!.send({ ok: true, status: 200, done: true });
     await pending;
 
+    // 代发前的两跳：权限代查（SW）→ ensure 文档；随后才连端口
     expect(ensureCalls).toBe(1);
-    expect(sentRuntimeMessages[0]).toEqual({ type: "ensure-offscreen-chat" });
+    expect(sentRuntimeMessages).toEqual([
+      { type: "check-provider-origin", origin: "https://api.example.com/*" },
+      { type: "ensure-offscreen-chat" }
+    ]);
     expect(connected[0]).toEqual({ name: PROVIDER_HTTP_OFFSCREEN_PORT_NAME });
   });
 
@@ -249,7 +260,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     expect(lastPort!.disconnectMock).toHaveBeenCalledTimes(1);
   });
 
-  it("signal 已中止 → 同步以 AbortError 拒绝，不发 ensure/connect", async () => {
+  it("signal 已中止 → 同步以 AbortError 拒绝，不发 ensure/预检/connect", async () => {
     const { providerFetchViaOffscreen } = await loadModule();
     const controller = new AbortController();
     controller.abort();
@@ -261,7 +272,42 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
       })
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(ensureCalls).toBe(0);
+    expect(sentRuntimeMessages).toHaveLength(0);
     expect(connected).toHaveLength(0);
+  });
+
+  it("host 权限未授权 → 抛可操作提示，不发 ensure / 不连端口（与 SW 代发同口径）", async () => {
+    const { providerFetchViaOffscreen } = await loadModule();
+    permissionGranted = false;
+
+    await expect(
+      providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" })
+    ).rejects.toThrow(HOST_PERMISSION_HINT);
+
+    // 预检在 ensure 之前：连 offscreen 文档都不必创建，更不发注定失败的请求
+    expect(ensureCalls).toBe(0);
+    expect(connected).toHaveLength(0);
+    expect(sentRuntimeMessages).toEqual([
+      { type: "check-provider-origin", origin: "https://api.example.com/*" }
+    ]);
+  });
+
+  it("host 权限已授权 → 照旧 ensure + connect（预检不改变成功路径）", async () => {
+    const { providerFetchViaOffscreen } = await loadModule();
+
+    const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
+    await vi.waitFor(() => expect(lastPort).toBeTruthy());
+    lastPort!.send({ ok: true, status: 200 });
+    const resp = await pending;
+    lastPort!.send({ ok: true, status: 200, done: true });
+    await resp.text();
+
+    expect(ensureCalls).toBe(1);
+    expect(connected).toHaveLength(1);
+    expect(sentRuntimeMessages).toEqual([
+      { type: "check-provider-origin", origin: "https://api.example.com/*" },
+      { type: "ensure-offscreen-chat" }
+    ]);
   });
 
   it("等待中中止 → AbortError 且断开端口（offscreen 侧据此 abort 在飞请求）", async () => {

@@ -136,6 +136,28 @@ export async function hasHostPermission(
   }
 }
 
+// host 权限代查（content 语境的只读一面）：概览/快捷提示词的 offscreen 代发在
+// content 侧发起，而 content 没有 chrome.permissions——与
+// requestProviderOriginsViaBackground 同一条通道，只是问「有没有」而不弹窗（申请
+// 需要用户手势，这里不需要）。fail-open：无回包（旧 SW 不认识这条消息）、消息抛错、
+// 非扩展环境、URL 非法一律按已授权处理，不把这条预检变成新的拦截面。返回 false 的
+// 唯一来源是 SW 明确回了 { granted: false }。
+export async function hasHostPermissionViaBackground(target: unknown): Promise<boolean> {
+  if (typeof globalThis.chrome?.permissions?.contains === "function") {
+    return hasHostPermission(target);
+  }
+  const origin = extractOriginFromBaseUrl(target);
+  if (!origin || typeof globalThis.chrome?.runtime?.sendMessage !== "function") {
+    return true;
+  }
+  try {
+    const resp = await sendRuntimeMessage({ type: "check-provider-origin", origin });
+    return resp?.granted !== false;
+  } catch {
+    return true;
+  }
+}
+
 interface ProviderLike {
   id?: string | number;
   baseUrl?: unknown;

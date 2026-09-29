@@ -25,7 +25,8 @@
 ## 后果
 
 - 概览请求的发起方从 content 变为 offscreen，message 载荷经端口多一跳（请求体最大 200k 字符级，端口结构化克隆可承受）。
-- **已知限制（有意接受）**：offscreen 侧不做 host 权限预检（offscreen 只有 `chrome.runtime`，无 `chrome.permissions`），权限缺失仍表现为「网络错误：Failed to fetch」；通道不设超时（与改动前的直发同口径）。平台侧完全不发字节时面板停在生成中，**出口是生成中状态条的「取消」键**（2026-09-29 修订补入；此前无面板内出口——`重试` 只在失败/部分失败条上，关阅读模式又不取消在飞请求）；首字节等待超过 10s 状态条改显等待计时但不中断请求。
+- **host 权限预检**：offscreen 文档只有 `chrome.runtime`，查不了 `chrome.permissions`——预检因此落在 content 侧（`core/host-permissions.ts` 的 `hasHostPermissionViaBackground` 经一条 `check-provider-origin` 消息由 SW 代查），未授权即以 `HOST_PERMISSION_HINT` 失败，不建文档、不发注定失败的请求（2026-09-29 修订补入；此前权限缺失只表现为「网络错误：Failed to fetch」，与 SW 代发通道的口径不一致——`core/provider-http.ts` 一直在传输层做同款预检）。
+- **已知限制（有意接受）**：通道不设超时（与改动前的直发同口径）。平台侧完全不发字节时面板停在生成中，**出口是生成中状态条的「取消」键**（2026-09-29 修订补入；此前无面板内出口——`重试` 只在失败/部分失败条上，关阅读模式又不取消在飞请求）；首字节等待超过 10s 状态条改显等待计时但不中断请求。
 - offscreen 文档在概览期间常驻（ASR 终态自关判定已把「有在飞代发端口」计入保留条件），与既有聊天链同量级。
 - 概览请求不再受**任何**平台网关预检白名单影响；协议适配器（`anthropic.ts` 的 `x-api-key` / `anthropic-version`）维持原样，不为单个平台定制。
 
@@ -44,7 +45,7 @@
 
 上方「平台侧挂起时面板停在正在生成概览…」**有意保留**：通道仍不设超时（流式下没有整体超时问题，但网关完全不发字节时仍会静默等待）。本轮**不动** `max_tokens` 预算（`estimateOutputTokens` 的 ceiling 与空正文重试的加倍上限）——思考吃预算导致的空正文是同一根因的第二个出口，留作独立议题（**已由 [ADR-0012](0012-output-budget-wide-default-retreat-learned-cap.md) 收口**：封顶与协议兜底同源、超上限退回保守值、会话内记住平台上限，概览链补截断重跑）。
 
-## 修订（2026-09-29：生成中补取消与等待计时，通道仍不设超时）
+## 修订（2026-09-29：生成中补取消与等待计时，代发补 host 权限预检）
 
 「后果」原句「用户可用重试或关闭页面收场」与事实不符，已就地改写：`重试` 只在失败 / 部分失败条上，生成中没有任何按钮，关阅读模式又不取消在飞请求——面板内没有出口。本轮（`reader/overview.ts`）：
 
@@ -53,3 +54,4 @@
 - **仍不设硬超时**：等待计时只提示、不中断。中途无新数据的提示与首字节阈值定值，留到有首字节实测分布之后再定（现有实测只有「非流式 19 分钟后 500 Request timed out」，流式首字节无数据）。
 - 关闭阅读模式仍不取消在飞请求（不变式未变）。中止句柄按视频身份保活到编排落定，重开同视频时与按 finalKey 复用的编排 promise 一起复用——否则重开后的取消键取消的是一个没人听的信号。
 - 旧编排在取消后被新一轮取代时，迟到回执按 slot 身份丢弃（与既有 `generatedFor` 过期丢弃同一处守卫），不覆盖新一轮状态。
+- **host 权限预检补入 content 侧**（见「后果」第一条）：`providerFetchViaOffscreen` 在 `ensure` 之前经 SW 代查（新消息 `check-provider-origin` → `core/host-permissions.ts` 的 `hasHostPermissionViaBackground`），未授权直接抛 `HOST_PERMISSION_HINT`，不连端口。探测/模型列表四处与 SW 代发通道一直有此预检，本通道此前只报「Failed to fetch」，是口径不一致而非有意选择。**残留**：凡在 offscreen 内发起的平台请求都还没有这层预检——对话链（`chat/completion.ts` 的默认 fetch，经 `offscreen-chat` 端口）与 ASR 转写链（`entry/offscreen-asr.ts` 内的 fetch），另开票收。

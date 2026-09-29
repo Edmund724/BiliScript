@@ -19,15 +19,18 @@
 // - 接收端 attachProviderHttpPort 在 offscreen 里跑。一请求一端口（概览分段路径
 //   有并发，免 id 关联；端口断连即 abort 在飞请求），对齐 asr-decode 一任务一端口。
 //
-// 不做 host 权限预检：offscreen 只有 chrome.runtime（无 chrome.permissions，见
-// host-permissions.ts:101-103 对 content 侧的同款记录），与既有 offscreen 聊天链
-//（completion.ts 默认 fetch）同口径；权限缺失仍表现为「网络错误：Failed to fetch」。
-// URL 合法性预检保留，与 provider-http.ts 一致。
+// host 权限预检在 content 侧做（offscreen 只有 chrome.runtime，没有
+// chrome.permissions，见 host-permissions.ts 对 content 侧的同款记录）：经
+// hasHostPermissionViaBackground 走 SW 代查一跳，未授权即以可操作文案失败、不连
+// 端口——与 SW 代发通道（provider-http.ts 的 hasHostPermission 预检）同口径，
+// 免得权限缺失只表现为「网络错误：Failed to fetch」。URL 合法性预检保留，与
+// provider-http.ts 一致。
 // 不加超时：与改动前的 content 直发同口径（那时也没有），避免误杀长视频生成；
-// 流式本身不再有「整体超时」问题。
+// 流式本身不再有「整体超时」问题。面板内的出口是生成中状态条的「取消」键
+//（reader/overview.ts），首字节前的等待计时只提示、不中断。
 
 import { safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
-import { extractOriginFromBaseUrl } from "./host-permissions.js";
+import { extractOriginFromBaseUrl, hasHostPermissionViaBackground, HOST_PERMISSION_HINT } from "./host-permissions.js";
 import type {
   OffscreenProviderHttpPortMessage,
   OffscreenProviderHttpPortReply
@@ -62,6 +65,12 @@ export async function providerFetchViaOffscreen(
   // 已中止时不发消息（调用方已不关心结果，白跑一趟 offscreen 无意义）
   if (init?.signal?.aborted) {
     throw makeAbortError();
+  }
+  // host 权限预检（content 语境经 SW 代查）：未授权时连 offscreen 文档都不必建，
+  // 更不发注定失败的跨域请求。文案与 SW 代发通道一致（completion 包装后成
+  // 「网络错误：<HOST_PERMISSION_HINT>」落进概览错误条）。
+  if (!(await hasHostPermissionViaBackground(url))) {
+    throw new Error(HOST_PERMISSION_HINT);
   }
 
   // 文档不存在时 connect 连上即断（chat/offscreen-ensure.ts 的既有事实），故先经

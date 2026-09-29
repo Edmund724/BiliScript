@@ -16,6 +16,7 @@ import {
   collectOrigins,
   requestProviderOrigins,
   hasHostPermission,
+  hasHostPermissionViaBackground,
   collectOrphanOrigins,
   revokeOrphanOrigin,
   permissionRevokeErrorMessage
@@ -137,6 +138,57 @@ describe("hasHostPermission（探针/模型列表的权限预检）", () => {
       throw new Error("no permissions API");
     });
     expect(await hasHostPermission("https://api.openai.com/v1", throwing)).toBe(true);
+  });
+});
+
+describe("hasHostPermissionViaBackground（content 语境的权限代查）", () => {
+  // 概览/快捷提示词的 offscreen 代发在 content 侧发起，而 content 没有
+  // chrome.permissions——与 requestProviderOriginsViaBackground 同一条代查通道。
+  it("扩展页面语境（有 chrome.permissions）→ 直查，不发消息", async () => {
+    const contains = vi.fn(async () => true);
+    const sendMessage = vi.fn();
+    vi.stubGlobal("chrome", { permissions: { contains }, runtime: { sendMessage } });
+
+    expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
+    expect(contains).toHaveBeenCalledWith({ origins: ["https://api.openai.com/*"] });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("content 语境（无 chrome.permissions）→ 发 check-provider-origin 代查", async () => {
+    const sendMessage = vi.fn((message: unknown, callback?: (resp: unknown) => void) => {
+      callback?.({ granted: false });
+      return undefined;
+    });
+    vi.stubGlobal("chrome", { runtime: { sendMessage } });
+
+    expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(false);
+    expect(sendMessage).toHaveBeenCalledWith(
+      { type: "check-provider-origin", origin: "https://api.openai.com/*" },
+      expect.any(Function)
+    );
+  });
+
+  it("已授权 → true；无回包 / 非扩展环境 / URL 非法 → 按已授权处理（不阻塞既有路径）", async () => {
+    const granted = vi.fn((_message: unknown, callback?: (resp: unknown) => void) => {
+      callback?.({ granted: true });
+      return undefined;
+    });
+    vi.stubGlobal("chrome", { runtime: { sendMessage: granted } });
+    expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
+
+    // 无回包（旧 SW 不认识这条消息 / 消息未送达）：fail-open，让请求照旧发出去，
+    // 不新造拦截面
+    const unanswered = vi.fn((_message: unknown, callback?: (resp: unknown) => void) => {
+      callback?.(undefined);
+      return undefined;
+    });
+    vi.stubGlobal("chrome", { runtime: { sendMessage: unanswered } });
+    expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
+
+    // 非扩展环境（单测）：连消息都发不出
+    vi.stubGlobal("chrome", {});
+    expect(await hasHostPermissionViaBackground("https://api.openai.com/v1")).toBe(true);
+    expect(await hasHostPermissionViaBackground("oops")).toBe(true);
   });
 });
 

@@ -53,8 +53,9 @@ import { isSwKeepalivePort } from "../ai/sw-keepalive.js";
 // SW 静态图只进传输叶（arch-slim-2/04）：bgFetchJson/isBiliUrl 拆至 gateway-core，
 // 不经 gateway 拖入 state/video-probe/selection→cache 链。
 import { bgFetchJson, isBiliUrl } from "../bilibili/gateway-core.js";
-// script-only-ui：侧边栏设置面板的 host 权限代申请（collectOrigins 纯函数）
-import { collectOrigins } from "../core/host-permissions.js";
+// script-only-ui：侧边栏设置面板的 host 权限代申请（collectOrigins 纯函数）与
+// content 侧 offscreen 代发的权限代查（hasHostPermission）
+import { collectOrigins, hasHostPermission } from "../core/host-permissions.js";
 // PR5：对话 tab 的 offscreen 文档 ensure 通道（background 侧唯一合法创建点）
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
 import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose, isOffscreenDocumentSender, reapAllSessionRules } from "../asr/offscreen-bridge.bg.js";
@@ -129,6 +130,15 @@ function handleRequestProviderOrigins(message: Msg<"request-provider-origins">, 
     sendResponse,
     (error) => `申请域名权限失败：${(error as Error).message}`
   );
+  return true;
+}
+
+// content 侧（概览/快捷提示词的 offscreen 代发）的 host 权限代查：只读一问，无手势
+// 要求、无副作用。未授权时 content 侧直接以可操作文案失败，不再建 offscreen 文档、
+// 也不发注定失败的跨域请求——与 SW 代发通道（core/provider-http.ts）的预检同口径。
+// origin 缺失/非法按已授权回 true（core/host-permissions 的同款 fail-open）。
+function handleCheckProviderOrigin(message: Msg<"check-provider-origin">, _sender: MessageSender, sendResponse: SendResponse): boolean {
+  void hasHostPermission(message.origin).then((granted) => sendResponse({ granted }));
   return true;
 }
 
@@ -447,6 +457,7 @@ const messageHandlerTable = {
   "get-settings": handleGetSettings,
   "save-settings": handleSaveSettings,
   "request-provider-origins": handleRequestProviderOrigins,
+  "check-provider-origin": handleCheckProviderOrigin,
   "ensure-offscreen-chat": handleEnsureOffscreenChat,
   "player-ai-quick-action": handlePlayerAiQuickAction,
   "fetch-json": handleFetchJson,
