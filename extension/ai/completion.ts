@@ -22,8 +22,9 @@ import { clampToLearnedMaxTokens, noteLearnedMaxTokens } from "./learned-budget.
 import { CONSERVATIVE_MAX_TOKENS, isOutputBudgetTooLarge } from "./output-budget.js";
 import { resolveAdapter } from "./protocol-adapter.js";
 import { presetRequestHeaders } from "./preset-headers.js";
+import { noteUsageSample } from "./usage-stats.js";
 import type { ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
-import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
+import type { ChatMessage, ChatToolCall, ChatUsage, ProviderRequest, StreamChatEvent } from "./types.js";
 
 interface OverflowError extends Error {
   overflow: true;
@@ -286,6 +287,29 @@ export async function chatCompletion({
     });
   let body = buildBody();
 
+  // 响应 usage 采样点（ai-usage-telemetry T2）：流式与非流式两条成功返回路径共用
+  // 这一处，不各写一份。分子口径 = 本次请求 messages[].content 的字符合计（含
+  // system/instructions），刻意不用整份 JSON body 长度——JSON 语法与 tools 定义会
+  // 污染比值。分子含 prompt 开销（system 指令、分段前情等都由 messages 承载），故
+  // 由此换出的 token 数倾向偏高，属保守方向。作用域键与 learned-budget 同源：就是
+  // 上面那一个 budgetScope（(baseUrl, model)），不在此另拼一份。usage 缺失即不记
+  // 样本；采样纯内存、不上浮给调用方（无新增对外 API）。
+  const noteResponseUsage = (usage: ChatUsage | undefined, finishReason: string | null): void => {
+    if (!usage) {
+      return;
+    }
+    const payloadChars = (Array.isArray(messages) ? messages : []).reduce(
+      (sum, message) => sum + (typeof message?.content === "string" ? message.content.length : 0),
+      0
+    );
+    noteUsageSample(budgetScope, {
+      payloadChars,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      finishReason
+    });
+  };
+
   // 错误 detail 归一（协议 error envelope 解析进 adapter，如 OpenAI 的
   // error.message；core 统一加 `[协议名] ` 前缀并截前 200 字符，spec：归一化到
   // 现有错误形状、调用层零改动）：HTTP 失败路径的判定与抛错文案共用一份。
@@ -401,6 +425,7 @@ export async function chatCompletion({
       }
       // 截断感知出口（返回形状不变）：reason="length" 即 max_tokens 命中。
       onFinishReason?.(streamResult.finishReason);
+      noteResponseUsage(streamResult.usage, streamResult.finishReason);
       if (streamResult.toolCalls.length) {
         return {
           done: true,
@@ -419,6 +444,7 @@ export async function chatCompletion({
       throw new Error(`响应解析失败：${(e as { message?: unknown })?.message || e}`);
     }
     const parsed = adapter.parseResponse(json);
+    noteResponseUsage(parsed.usage, parsed.finishReason);
     if (parsed.toolCalls.length) {
       // 非流式 tool_calls（后续解释链接入用）：adapter 已宽容归一为 ChatToolCall[]。
       return {
