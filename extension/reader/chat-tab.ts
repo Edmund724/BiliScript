@@ -109,9 +109,9 @@ import { setChatTabOutsideClickHandler } from "./chat-tab-bridge.js";
 import { createChatInputImages } from "../chat/chat-input-images.js";
 // 发图门控（image-input 05 号票）：带图发送受理时按目录乐观放行（提示不阻断）。
 import { createImageSupportGate } from "../chat/image-support.js";
-// 联网搜索回放重建（spec §4）：历史中的 tool 轮消息聚合为搜索回合（查询词 +
-// 来源），时间线卡挂在回合的回答消息上；tool 消息本体不作为正文渲染。
-import { collectHistorySearchTurns } from "../chat/search-sources.js";
+// 联网搜索回放重建（spec §4）已随历史回放事务移入 ../chat/replay.ts
+//（collectHistorySearchTurns 由其消费）。
+
 // 壳命令通道（arch-review-2026-09/10 依赖反转）：快捷动作定位对话 tab 与空态
 // 「前往设置」改发 reader-bus 具名命令，由 ui-renderer 注册的 handler 执行——
 // 本文件不再静态 import ui/ui-renderer。
@@ -370,9 +370,15 @@ const imageSupportGate = createImageSupportGate({
 //    （非流式时为无害空操作）。
 //   - onContextNotice：上下文补水提示生命周期（pending 展示 / clear 撤除 /
 //     error 展示）。
-const { runtime: chatRuntime, store: conversationStore, contextLoad } = createChatTabDomain({
+const { runtime: chatRuntime, store: conversationStore, contextLoad, replay: conversationReplay } = createChatTabDomain({
   messages: els.messages,
   input: els.input,
+  // 历史回放事务的编排回调：updateChatLayoutState 进 replay 首行（紧凑输入
+  // 判定），clearSuggestions 置空模块级 suggestionsNode 引用。
+  updateChatLayoutState,
+  clearSuggestions: () => {
+    suggestionsNode = null;
+  },
   ui: {
     setStreamingUiState,
     showConversationContextNotice,
@@ -827,7 +833,7 @@ async function sendViaInputBox(text: string): Promise<boolean> {
   els.input.value = text;
   autosizeInput();
   // 回放让出期发送同样先等回放落定（否则新消息插进未完成回放的中间）。
-  await conversationReplayInFlight;
+  await conversationReplay.inFlight;
   // sendMessage 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
   await chatRuntime.sendMessage();
   return els.input.value === "" || chatRuntime.hasPendingUserPrompt();
@@ -849,7 +855,7 @@ async function autoSendPrompt(text: string): Promise<boolean> {
 // 中间。所有 UI 发送入口（回车/建议 chip/解释意图自动发送）先 await 进行中的
 // 回放再交给 chatRuntime；无进行中回放时为无害 no-op。
 async function sendFromUi(): Promise<void> {
-  await conversationReplayInFlight;
+  await conversationReplay.inFlight;
   await chatRuntime.sendMessage();
 }
 
@@ -1094,8 +1100,8 @@ export function renderInitialState(): void {
   }
   if (chatSessionState.chatHistory.length) {
     // 回放改为按预算分片让出（P2-1）：fire-and-forget——本函数保持同步返回，
-    // 首片同步上屏，其余在让出点续跑，末尾由 renderConversationMessages 统一收尾。
-    void renderConversationMessages();
+    // 首片同步上屏，其余在让出点续跑，末尾由 conversationReplay 统一收尾。
+    conversationReplay.render();
     return;
   }
   if (chatSessionState.contextData.isVideoContext === false) {
@@ -1108,7 +1114,7 @@ export function renderInitialState(): void {
 // 【迁移自 sidepanel.ts resetConversationView】消息区重建 + 建议区刷新。
 function resetConversationView(stateHtml = ""): void {
   // 清场即作废进行中的回放分片（P2-1）：过期分片不得写进重建后的消息区。
-  invalidateConversationReplay();
+  conversationReplay.invalidate();
   updateChatLayoutState();
   els.messages.innerHTML = "";
   if (stateHtml) {
@@ -1159,123 +1165,9 @@ async function startNewConversation(): Promise<void> {
 // 消息区渲染（历史对话回放 → chat-runtime 渲染）
 // ============================================================
 
-// 回放分片预算（P2-1）：单帧同步渲染上限 50ms——长会话（数百条 markdown +
-// 时间戳 linkify）一次性同步 append 会把主线程占满，期间输入/滚动全部卡住。
-// 超过预算即让出（scheduler.yield 优先，setTimeout 0 兜底），让浏览器处理
-// 输入与重绘后继续，末尾仍由本函数统一 scrollToBottom。
-const REPLAY_FRAME_BUDGET_MS = 50;
-
-// 回放世代号：每次重建消息区（重渲/清场）自增。让出点据此判定本轮是否已被
-// 更新的一轮取代（切会话、新消息上屏、resetConversationView 清场）——过期
-// 分片直接丢弃，不写进已重建的消息区，杜绝交错 append。
-let conversationReplayGeneration = 0;
-// 进行中的回放（让出点未落定时非 null）。发送路径先 await 它再 append：否则
-// 用户回放途中回车/建议 chip/解释意图自动发送会把新消息插进未完成回放的中间。
-let conversationReplayInFlight: Promise<void> | null = null;
-
-function invalidateConversationReplay(): void {
-  conversationReplayGeneration += 1;
-}
-
-// 让出主线程：优先 scheduler.yield（续跑排到队列前部），无 scheduler 的浏览器
-// 退回 setTimeout 0（续跑排到队尾，仅作兜底，语义仍是「先让浏览器喘一口气」）。
-function yieldToMainThread(): Promise<void> {
-  const schedulerApi = (globalThis as typeof globalThis & { scheduler?: { yield?: () => Promise<void> } }).scheduler;
-  if (typeof schedulerApi?.yield === "function") {
-    return schedulerApi.yield();
-  }
-  return new Promise((resolve) => window.setTimeout(resolve, 0));
-}
-
-async function renderConversationMessages(): Promise<void> {
-  const task = runConversationReplay();
-  conversationReplayInFlight = task;
-  try {
-    await task;
-  } finally {
-    if (conversationReplayInFlight === task) {
-      conversationReplayInFlight = null;
-    }
-  }
-}
-
-async function runConversationReplay(): Promise<void> {
-  updateChatLayoutState();
-  els.messages.innerHTML = "";
-  suggestionsNode = null;
-  if (!chatSessionState.chatHistory.length) {
-    resetConversationView("");
-    return;
-  }
-  invalidateConversationReplay();
-  const generation = conversationReplayGeneration;
-  const history = chatSessionState.chatHistory;
-  // 联网搜索回合（spec §4）：历史中的 assistant(tool_calls) + tool 消息聚合为
-  // 搜索回合，按回答消息下标对位——时间线卡插在回答前，来源随正文重建成
-  // [n] 内联引用；tool 消息本体（含 JSON 结果）不作为消息渲染。
-  const searchTurnByAssistantIndex = new Map(
-    collectHistorySearchTurns(history).map((turn) => [turn.assistantIndex, turn])
-  );
-  // 与原 forEach 同语义：只遍历开跑时的长度，渲染期间新追加的消息不在此列
-  //（流式写回走各自的 append 路径）。
-  const total = history.length;
-  let deadline = performance.now() + REPLAY_FRAME_BUDGET_MS;
-  for (let index = 0; index < total; index += 1) {
-    if (generation !== conversationReplayGeneration) {
-      return;
-    }
-    const message = history[index];
-    if (message.role === "user") {
-      chatRuntime.appendUserMessage(message.content, false);
-    } else if (message.role === "tool" || (Array.isArray(message.tool_calls) && message.tool_calls.length && !String(message.content || "").trim())) {
-      // 工具轮消息（spec §2.5）：查询与结果由回合回答消息上的搜索时间线卡
-      // 承载，消息本体不渲染（assistant(tool_calls) 无正文，tool 是 JSON）；
-      // 带正文 + tool_calls 的混合消息照常渲染（正文不丢）。
-      continue;
-    } else {
-      const node = document.createElement("div");
-      node.className = "chat-msg chat-msg-assistant";
-      const searchTurn = searchTurnByAssistantIndex.get(index);
-      chatRuntime.renderAssistantMessage(node, String(message.content || ""), {
-        userPrompt: findPreviousUserPrompt(index),
-        ...(searchTurn ? { sources: searchTurn.sources } : {})
-      });
-      els.messages.appendChild(node);
-      if (searchTurn) {
-        // 卡片插在回答节点之前（先 append 节点再插卡——insertBefore 的参照
-        // 节点必须已在 DOM 内）。
-        els.messages.insertBefore(chatRuntime.buildSearchTimelineCard(searchTurn), node);
-      }
-    }
-    if (performance.now() >= deadline) {
-      await yieldToMainThread();
-      if (generation !== conversationReplayGeneration) {
-        return;
-      }
-      deadline = performance.now() + REPLAY_FRAME_BUDGET_MS;
-    }
-  }
-  if (generation !== conversationReplayGeneration) {
-    return;
-  }
-  chatRuntime.setAutoScroll(true);
-  // instant（同发送路径，见 chat-stream-render scrollToBottom 注释）：回放
-  // 渲染的历史消息全部带 c-v 块，平滑动画扫过时估算块逐块弹回真实高，视口
-  // 突跳且动画终点落后于真实底部，终点距底会被 scroll-sync 判定读成关闭
-  // 自动跟随——回放后追问流式不跟随。
-  chatRuntime.scrollToBottom(true, { instant: true });
-}
-
-// 历史回放时找该助手消息的前一条用户消息（注入 renderAssistantMessage 的 userPrompt）
-function findPreviousUserPrompt(index: number): string {
-  for (let i = Number(index) - 1; i >= 0; i -= 1) {
-    const item = chatSessionState.chatHistory[i];
-    if (item?.role === "user" && typeof item.content === "string") {
-      return item.content;
-    }
-  }
-  return "";
-}
+// 历史回放事务已抽进 ../chat/replay.ts（createConversationReplay，CONTEXT.md 词条
+// 「历史回放」），在 createChatTabDomain 内组装；本文件经 conversationReplay 的
+// render/invalidate/inFlight 三件持有——世代作废、分片预算、发送前让位语义不变。
 
 // 发送前主动起跑字幕抓取（finding 有字幕视频点 AI 键发出空上下文）：等待闸
 // （isContextPending）只认 subtitleFetchState === "loading"——面板打开后的后台
@@ -1366,7 +1258,7 @@ async function ensureCurrentContextForSend(): Promise<boolean | string> {
   // 本函数内的 loadContextState 可能因上下文变化触发一轮新的历史回放
   //（applyContextPayload → renderInitialState）；等它落定再返回，否则调用方
   // 紧随的 appendUserMessage 会插进这轮回放的中间（P2-1）。
-  await conversationReplayInFlight;
+  await conversationReplay.inFlight;
   return true;
 }
 

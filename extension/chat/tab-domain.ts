@@ -2,12 +2,12 @@
 // 自 reader/chat-tab.ts 收口）。createChatTabDomain(deps) 是 chat 域对对话 tab
 // 组合根的单一深入口：pinned 补水解析器（core/context-assembly）+
 // conversation-store + chat-runtime + context-load（含内联
-// createInProcessContextFetch）五件在本模块组装；DOM 编排六件
+// createInProcessContextFetch）+ 历史回放 replay 六件在本模块组装；DOM 编排六件
 //（feedback/lists/popovers/presets/providers/subtitle-wait）与页面级编排函数
 // 留在 reader/chat-tab.ts，经 deps 注入。
 //
 // 组装内的实例级硬边顺序（唯一顺序约束，逐字保持自 chat-tab 原组装位）：
-//   pinnedResolver → store → contextLoad → runtime。
+//   pinnedResolver → store → contextLoad → runtime（→ replay 消费 runtime）。
 // 其余跨实例引用一律惰性箭头（回调执行时实例已存在），不显式化：
 //   store.loadContextState → contextLoad（后建）；contextLoad.restoreLatest →
 //   store（先建）；contextLoad.isStreaming / hasPendingUserPrompt → runtime
@@ -52,6 +52,7 @@ import {
   type StorageArea
 } from "./conversation-store.js";
 import { createContextLoad, type ContextLoad } from "./context-load.js";
+import { createConversationReplay, type ConversationReplay } from "./replay.js";
 
 // ---- 门面 re-exports（对话 tab 组合根的单点 chat 域出口，见头注）----
 export { chatSessionState } from "./chat-state.js";
@@ -82,6 +83,9 @@ export interface CreateChatTabDomainDeps {
   renderInitialState: () => void;
   renderSuggestions: () => void;
   restartChat: (opts?: { keepContext?: boolean }) => void;
+  // ---- 历史回放事务的编排回调（replay 消费，组合根注入）----
+  updateChatLayoutState: () => void;
+  clearSuggestions: () => void;
   // ---- 存储（可选；测试注入，缺省 chrome.storage.local）----
   storage?: StorageArea;
   // ---- 状态 getter（进程内装配链的运行时输入）----
@@ -104,6 +108,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   runtime: ReturnType<typeof createChatRuntime>;
   store: ConversationStore;
   contextLoad: ContextLoad;
+  replay: ConversationReplay;
 } {
   // pinned 补水的 context 解析（工单 04 身份短路）接在 resolveAiConversationRef
   // 的 purpose="context" 用途上：会话 contextRef 与当前 clip 一致 → 进程内快照
@@ -167,5 +172,14 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort
   });
-  return { runtime, store, contextLoad };
+  // 历史回放事务（CONTEXT.md 词条「历史回放」）：消费 runtime 的五件渲染方法，
+  // 组装必须在 runtime 之后（实例互引由本调用点显式持有，回调侧不再绕箭头）。
+  const replay = createConversationReplay({
+    messages: deps.messages,
+    renderer: runtime,
+    updateLayout: deps.updateChatLayoutState,
+    resetView: deps.ui.resetConversationView,
+    clearSuggestions: deps.clearSuggestions
+  });
+  return { runtime, store, contextLoad, replay };
 }

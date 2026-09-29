@@ -184,3 +184,13 @@ _Avoid_: 附件图片、贴图、content parts 升级（被否的路线 A）、�
 把「当前会话」从对话视图与存储中摘除的唯一事务：断流通知先于任何 await 与落盘 → 清会话 id/meta/历史 → 需要时做 live 上下文回填。删除单个会话、清空全部、恢复最新、开启新会话、发送前上下文失配各出口都必须经此收口，禁止手抄序列（与「字幕接受」「阅读壳」同款收口纪律）。
 代码名：`detachCurrent` / `repopulateLive`（conversation-store 内部原语）
 _Avoid_: 清会话、重置对话、手抄拆除序列
+
+**发送闸**:
+发送一条 AI 对话消息前确保上下文就绪的有序守卫序列：pinned 补水短路 → 上下文读取 → 主动起跑字幕抓取 → 字幕等待闸 → 放行前重取 → 无字幕拦截 → 回放让位，全部放行才受理发送。chat 域内组装的唯一事务，编排壳只消费受理结果（true / false / 无字幕拦截信号）。
+代码名：`extension/chat/send-gate.ts`（`createSendGate`）/ `ensureCurrentContextForSend`（chat-runtime 的 deps 缝，发送闸对编排壳的唯一出口）
+_Avoid_: 发送前检查、发送前置条件散落各调用点
+
+**历史回放**:
+把当前会话历史整段重建进消息区的分片渲染事务：世代号作废过期分片（清场/新轮）、50ms 帧预算让出主线程、发送路径先等待在途回放让位再追加消息。唯一事务，chat 域内组装，编排壳经 render/invalidate/inFlight 三件持有。
+代码名：`extension/chat/replay.ts`（`createConversationReplay`）/ `render` / `invalidate` / `inFlight`
+_Avoid_: 重渲消息区、逐条 append 重建、绕过世代号直接清场
