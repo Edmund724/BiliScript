@@ -15,6 +15,15 @@ export function closeAllCustomSelects(except?: HTMLElement): void {
   });
 }
 
+// 字段名的来路：显式 label（labels / label[for]）优先，否则认同级前置 label
+// ——Modal 里的 label 既没有 for 也没包住 select，只能按位置认。
+function resolveFieldLabel(select: HTMLSelectElement): HTMLLabelElement | null {
+  const explicit = select.labels?.[0] ?? (select.id ? document.querySelector<HTMLLabelElement>(`label[for="${select.id}"]`) : null);
+  if (explicit) return explicit;
+  const prev = select.previousElementSibling;
+  return prev instanceof HTMLLabelElement ? prev : null;
+}
+
 export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "custom-select-wrapper"): void {
   if (select.dataset.customSelectInitialized === "1") return;
   select.dataset.customSelectInitialized = "1";
@@ -36,8 +45,27 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
   trigger.setAttribute("aria-haspopup", "listbox");
   trigger.setAttribute("aria-expanded", "false");
 
+  // 可访问名落在 trigger 上：隐藏 select 退出无障碍树后，label[for] 指向一个用户
+  // 碰不到的控件，只念当前值（"SRT，按钮"）等于丢了「这是哪个设置」。名字由
+  // 「字段标签 + 当前值」两个节点拼成，值改名字自动重算，无需在写回处同步。
+  const fieldLabel = resolveFieldLabel(select);
+  if (fieldLabel) {
+    if (!fieldLabel.id) {
+      fieldLabel.id = `custom-select-label-${++customSelectSeq}`;
+    }
+    // 标签的 for 就近重指到 trigger：不重指的话点标签会把焦点送进那个已
+    // aria-hidden 的隐藏 select（用户看不到任何反应）。select 自身的 id 保留，
+    // byIdIn / collect* 系列仍按 id 取值。
+    trigger.id = `custom-select-trigger-${++customSelectSeq}`;
+    fieldLabel.htmlFor = trigger.id;
+  }
+
   const valueSpan = document.createElement("span");
   valueSpan.className = "custom-select-value";
+  if (fieldLabel) {
+    valueSpan.id = `custom-select-value-${++customSelectSeq}`;
+    trigger.setAttribute("aria-labelledby", `${fieldLabel.id} ${valueSpan.id}`);
+  }
   const currentOption = options.find((o) => o.value === currentValue) || options[0];
   valueSpan.textContent = currentOption?.label || "";
 
@@ -54,7 +82,9 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
   dropdown.id = `custom-select-dropdown-${++customSelectSeq}`;
   dropdown.setAttribute("role", "listbox");
   const selectLabel = select.getAttribute("aria-label");
-  if (selectLabel) {
+  if (fieldLabel) {
+    dropdown.setAttribute("aria-labelledby", fieldLabel.id);
+  } else if (selectLabel) {
     dropdown.setAttribute("aria-label", selectLabel);
   }
   trigger.setAttribute("aria-controls", dropdown.id);
@@ -79,6 +109,11 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
   select.parentElement!.insertBefore(wrapper, select);
   wrapper.appendChild(select);
   select.classList.add("custom-select-hidden");
+  // 视觉隐藏（1px + overflow）不等于退出无障碍树：不摘 Tab 序、不 aria-hidden
+  // 就会留下一个看不见的可聚焦控件——它在 DOM 里排在 trigger 之前，Tab 会先停上去，
+  // 读屏也会把同一设置念两遍。值源与 collect* 系列照读 .value，不受影响。
+  select.tabIndex = -1;
+  select.setAttribute("aria-hidden", "true");
   wrapper.appendChild(trigger);
   wrapper.appendChild(dropdown);
 
@@ -162,9 +197,9 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
       e.preventDefault();
       closeList(true);
     } else if (e.key === "Tab") {
-      // 只收拢列表，不抢焦点：Tab 正常离开组件
-      dropdown.hidden = true;
-      setExpanded(false);
+      // 收拢列表并把焦点交还 trigger（不 preventDefault）：焦点还在已隐藏的 li 上时
+      // 会掉回 body，默认 Tab 就会从 body 重新起算（跳到文档第一个控件）而不是续行
+      closeList(true);
     }
   });
 

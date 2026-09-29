@@ -114,3 +114,94 @@ describe("custom-select 键盘语义（settings-ui-coherence/04）", () => {
     expect(options[0].getAttribute("aria-selected")).toBe("false");
   });
 });
+
+// aria-labelledby 的名字拼接：浏览器把引用节点的文本按空格连起来
+// （逐节点 trim）。jsdom 无平台无障碍树，只能按同一口径自行拼。
+function labelledbyText(node: Element): string {
+  const ids = (node.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
+  expect(ids.length, `${node.className} 缺 aria-labelledby`).toBeGreaterThan(0);
+  return ids
+    .map((id) => {
+      const target = document.getElementById(id);
+      expect(target, `aria-labelledby 引用的 #${id} 不存在`).not.toBeNull();
+      return target!.textContent!.trim();
+    })
+    .join(" ");
+}
+
+// ADR-0007 重开条件（读屏念得出当前值与角色、纯键盘能改值）的结构核验：
+// jsdom 既无无障碍树也无 Tab 序，故核验被读屏与 Tab 序消费的那几项结构——
+// 隐藏 select 是否退出、名字是否带字段标签、Tab 离开时焦点是否交还 trigger。
+describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验）", () => {
+  it("隐藏的原生 select 退出 Tab 序与无障碍树，值源不变", async () => {
+    installMessageBus();
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "downloadFormat");
+    const options = Array.from(
+      select.closest<HTMLElement>(".custom-select-wrapper")!.querySelectorAll<HTMLElement>(".custom-select-option")
+    );
+
+    // 1px + overflow:hidden 只是视觉隐藏，不等于退出无障碍树：不摘 Tab 序、不 aria-hidden
+    // 就会留下一个看不见的可聚焦控件，读屏也会把同一设置念两遍
+    expect(select.tabIndex).toBe(-1);
+    expect(select.getAttribute("aria-hidden")).toBe("true");
+
+    // 值源与收集链零改：组件写回原生 select
+    fireClick(options[1]);
+    expect(select.value).toBe("txt");
+  });
+
+  it("trigger / listbox 的可访问名 = 字段标签 + 当前值，随值重算", async () => {
+    installMessageBus();
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "downloadFormat");
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
+    const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    const options = Array.from(dropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
+
+    // 只念当前值（"SRT，按钮"）等于丢了「这是哪个设置」；字段名必须进名字
+    expect(labelledbyText(trigger)).toBe("下载格式 SRT");
+    expect(labelledbyText(dropdown)).toBe("下载格式");
+    // 标签的 for 也得指向用户碰得到的控件：不然点标签把焦点送进已 aria-hidden 的隐藏 select
+    const fieldLabel = document.getElementById(trigger.getAttribute("aria-labelledby")!.split(" ")[0])!;
+    expect(fieldLabel.tagName).toBe("LABEL");
+    expect(fieldLabel.getAttribute("for")).toBe(trigger.id);
+
+    fireClick(options[1]);
+    expect(labelledbyText(trigger)).toBe("下载格式 TXT");
+  });
+
+  it("label 没有 for 时按同级前置 label 认名（Modal 预设/协议下拉的形态）", async () => {
+    document.body.innerHTML =
+      '<label class="provider-editor-label">协议</label>' +
+      '<select id="protocolSelect"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select>';
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(document.getElementById("protocolSelect") as HTMLSelectElement);
+    const trigger = document.querySelector<HTMLElement>(".custom-select-trigger")!;
+    expect(labelledbyText(trigger)).toBe("协议 OpenAI");
+  });
+
+  it("Tab 从展开列表离开：收拢列表、焦点交还 trigger、不吞默认动作", async () => {
+    installMessageBus();
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "downloadFormat");
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
+    const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    const options = Array.from(dropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
+
+    trigger.focus();
+    fireClick(trigger);
+    expect(document.activeElement).toBe(options[0]);
+
+    // 焦点在 li 上时收拢列表会让焦点掉回 body，默认 Tab 会从 body 重新起算
+    // （跳到文档第一个控件）；必须先把焦点交还 trigger，再放行默认动作
+    const event = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    options[0].dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(dropdown.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+  });
+});
