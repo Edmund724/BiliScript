@@ -23,6 +23,9 @@ import { canRaiseBudget } from "./learned-budget.js";
 import { buildProgressNotice } from "./map-reduce.js";
 import { runCachedMap } from "./pool.js";
 import { budgetScaleSuffix, segmentCacheKeyFields } from "./segment-cache.js";
+// 成本护栏 token 数字的唯一换算函数（实测比 / CHAR_PER_TOKEN 回落）：与阶梯链
+// （ai/ladder.ts）共用同一实现，两条链的数字因此同源。
+import { estimateTokensFromChars } from "./usage-stats.js";
 import {
   MAX_ANALYSIS_CHAPTERS,
   mergeAnalyses,
@@ -547,11 +550,13 @@ async function executeOverviewRun({
   const segmented = plan.mode === "map-reduce" && segments.length > 0;
 
   // 成本护栏：分段路径预估 ≥5 次调用时经注入的确认钩子询问（对齐 ladder 手法；
-  // 钩子未注入则不阻塞——护栏 UI 接线由集成步骤负责）。
+  // 钩子未注入则不阻塞——护栏 UI 接线由集成步骤负责）。token 数字传字符数经唯一
+  // 换算函数得出（与阶梯链同源，收口此前直传 plan.totalChars 的分叉）；它纯展示，
+  // 触发仍只看调用数。
   if (segmented) {
     const guard = buildCostGuardNoticeImpl({
       estimatedCalls: segments.length,
-      estimatedTokens: plan.totalChars
+      estimatedTokens: estimateTokensFromChars(provider, plan.totalChars)
     });
     if (guard.shouldPrompt && typeof askCostGuard === "function") {
       if (signal?.aborted) {

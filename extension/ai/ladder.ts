@@ -12,6 +12,9 @@ import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
 import { resolveFollowupContext as _resolveFollowupContext, trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
 import { buildCostGuardNotice as _buildCostGuardNotice } from "./cost-guard.js";
 import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } from "./sw-keepalive.js";
+// 成本护栏数字的唯一换算函数（实测比 / CHAR_PER_TOKEN 回落）：与概览链
+// （analysis-orchestrate）共用同一实现，禁止两处各算一份。
+import { estimateTokensFromChars } from "./usage-stats.js";
 // 图片合法性白名单（image-input 路线 B）：与历史加载侧同一份判定（01 号票的
 // 单点），port 载荷在阶梯入口归一后随 streamChat 下发。
 import { normalizeImageParts } from "./conversation.js";
@@ -34,13 +37,17 @@ export interface ChatMsg {
   [key: string]: unknown;
 }
 
-// 本模块只把 provider 原样透传给 deps，从不读它的任何字段：id/apiKey 是给
+// provider 在本模块只被读两个字段——baseUrl / model，用于成本护栏数字的作用域键
+// （ai/usage-stats.ts 学到的实测 chars→token 比按 (baseUrl, model) 分桶，与
+// learned-budget 同源）；其余字段原样透传给 deps，本模块从不读。id/apiKey 是给
 // 调用方看的文档性声明，承重的是索引签名。刻意不换成 types.ts 的
 // ProviderRequest——本文件的 deps 契约用结构化窄面，让注入的 fake 少填字段
 // （同下文 BuildBudgetPlanFn 的刻意不合并先例）。
 export interface ChatProvider {
   id?: string;
   apiKey?: string;
+  baseUrl?: unknown;
+  model?: unknown;
   [key: string]: unknown;
 }
 
@@ -51,7 +58,7 @@ export interface ChatPort {
 // ladder deps 契约的预算计划窄面：mode 必选，估算字段可选（注入方假实现只给
 // mode 也能过编译）。字段名单源自 ai/types 的同名全量定义，经 Pick 单源收窄。
 export type BudgetPlan = Pick<import("./types.js").BudgetPlan, "mode"> &
-  Partial<Pick<import("./types.js").BudgetPlan, "estimatedCalls" | "estimatedTokens">>;
+  Partial<Pick<import("./types.js").BudgetPlan, "estimatedCalls" | "estimatedTokens" | "totalChars">>;
 
 // executeSearch 的窄面（ai/tool-loop.ts 的 ToolLoopSearchOutcome 同形，此处
 // 结构化窄面，测试注入方少填字段也能过编译）。
@@ -217,9 +224,11 @@ export async function runLadderChat(
       }
 
       // 成本护栏：发起 Map-Reduce 前预估 ≥5 次调用 → 弹确认，可取消。
+      // token 数字由本次字符数经唯一换算函数得出（有实测比用实测比、无样本回落
+      // CHAR_PER_TOKEN）；它纯展示——shouldPrompt 只看调用数，判定路径零变化。
       const guard = buildCostGuardNotice({
         estimatedCalls: plan.estimatedCalls,
-        estimatedTokens: plan.estimatedTokens
+        estimatedTokens: estimateTokensFromChars(provider, plan.totalChars)
       });
       if (guard.shouldPrompt) {
         // 等待用户成本确认期间暂停空闲超时计时。
