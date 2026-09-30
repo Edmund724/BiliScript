@@ -1,76 +1,123 @@
 ---
 name: flyme-design
-description: 按现代魅族 Flyme（9/10/AIOS/AIOS 2）设计语言产出前端 UI 设计方案与高保真单文件 HTML 原型。覆盖 Design Token（#008CFF 品牌蓝、多彩功能图标、胶囊形状语言、毛玻璃、AI 流光渐变、细腻动效）、核心组件（分组卡片列表、控制中心磁贴、通知与实况通知卡片、胶囊按钮、Aicy 唤醒面板与管家简报、弹窗等）、设置页/个人中心/列表页/控制中心等典型布局，内置浅/深双主题与响应式断点。当用户要求 Flyme 风格、魅族风格、Meizu 风格的 App 页面、组件、设计规范或 HTML 原型时使用；触发词：Flyme、魅族、Meizu、魅蓝、AIOS、AIOS 2、Alive Design、Aicy、Flyme 风格页面、Flyme 组件、Flyme 设计规范。
+description: Flyme design language (Alive Design) for the web — light orderly surfaces, capsule controls, colorful icons, frosted glass, AI glow gradients, interruptible springy motion. Use when building Flyme-style app pages, components, settings/control-center/notification layouts, Aicy panels, or single-file HTML prototypes. Trigger: Flyme, 魅族, Meizu, AIOS, Aicy.
 ---
 
-# Flyme 设计风格 Skill（AIOS / AIOS 2 基准）
+# Flyme Design
 
-按最新两代 Flyme（AIOS / AIOS 2，「轻盈有序」+ Alive Design）产出设计方案与可交互单文件 HTML 原型。审美基准是当下真机（AIOS 2 / Flyme 12.5，2025），不复古 Flyme 5 灰阶极简。
+How Flyme builds interfaces that feel light and orderly, then spends color and life only where it pays off. Distilled from Flyme AIOS / AIOS 2 ("轻盈有序" + Alive Design) and translated to the web (CSS custom properties, `backdrop-filter`, compositor-friendly transitions, native `<dialog>`).
 
-## 硬规则（不可违反）
+The through-line: **底色克制、点缀活泼、形状柔和、动效细腻——生命感只给 AI 与壁纸。** 普通界面维持中性有序；色彩集中在功能图标与关键操作；大面积彩色与呼吸感只出现在 Aicy / 实况通知 / Alive 壁纸。
 
-1. **风格锁定**：只产出 Flyme 风格。他系元素黑名单：Material FAB/水波纹、iOS 大标题吸顶导航、HarmonyOS 服务卡片。毛玻璃用于通知/控制中心与浮层是 Flyme 9 官方做法，不视为 iOS 元素。
-2. **参数出处**：色值/字号/间距/圆角/动效一律取自 `references/` 三件套；未覆盖的按「轻盈有序」推导并在产出中标注「推导值」。魅族未公开组件级规范——对外一律表述「按 Flyme 设计语言推导」，不得称「官方规范数值」。SKILL 只定方向，数值以 references 为准。
-3. **形状语言**：操作件一律胶囊；容器大圆角；功能入口图标一律彩色——设置行默认线性彩色图标（AIOS 2 新版真机，见截图），经典版圆形 chip 可选；AI 特性宫格/自定义任务用圆角方形（每项一色）。禁止全灰线性图标列表。具体数值见 `references/design-tokens.md`。
-4. **色彩纪律**：中性底色；主色只用于操作/选中/进度；活泼感由功能图标色板提供。AI 场景（Aicy/问屏/实况通知/AI 生成）使用专属流光渐变 `--ai-*`，其余场景禁用。
-5. **动效纪律**：Alive 手感——可打断、并行、跟手、物理回弹；入场 fade + 位移 + 缩放（逐项 stagger）、弹窗 scale、面板 translateY；AI 流光为 4–6s 环境呼吸、声浪点为唯一重复脉冲；实现 prefers-reduced-motion 降级；禁用无物理依据的弹跳与旋转（加载小圆圈除外）。时长与曲线见 `references/design-tokens.md`。
-6. **组件完整**：每个组件覆盖交互状态（默认/按下/禁用/加载）× 浅/深主题；图标内联 SVG。
-7. **无障碍**：功能文本对比度 ≥4.5:1，触控区域 ≥44×44px；弹窗用原生 `<dialog>` + aria 标注。
+拿不准时选更轻的方案：更少装饰、更轻层级、更短更柔的动效。
+
+## 1. 轻盈有序 — 中性底打底
+
+大面积中性色，靠分组卡片组织信息，而不是靠线条和装饰。
+
+- 页面浅 `#F2F3F5` / 深 `#101114`；卡片浅 `#FFFFFF` / 深 `#1B1C20`；组内默认无分隔线。
+- 主蓝 `#008CFF` 只出现在操作与选中（按钮、开关开启、进度、链接），不做大面积底色。
+- 深色模式用分层灰表达层级，不加阴影。
+
+## 2. 胶囊 — 操作件的形状
+
+> 胶囊只属于操作，容器保持矩形感。
+
+- 按钮、搜索框、滑条做成胶囊（圆角 = 高度一半）；卡片 / 列表组 / 弹窗用大圆角（16 / 20 / 24），不做成胶囊。
+- 需要悬浮操作时用底部全宽胶囊操作条，不画 FAB。
+
+```css
+.btn-primary {
+  height: 44px; border-radius: 22px; /* 胶囊 = 高度一半 */
+  background: var(--primary); color: #fff;
+}
+.btn-primary:active { transform: scale(0.97); }
+```
+
+## 3. 点缀活泼 — 功能入口始终彩色
+
+活泼感由图标提供，不由底色提供。同组内相邻项错开色相。
+
+- 设置行用线性彩色图标（24px，按功能取色）；宫格任务用圆角方形浓彩底 + 白符号。
+- AI 符号（Aicy 双环）只出现在 AI 场景。
+
+## 4. 毛玻璃 — 浮层带来结构
+
+通知中心、控制中心、滚动后的导航/标签栏是实时毛玻璃上的白卡，而不是不透明条带。
+
+```css
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+```
+
+- 浅色浮层配轻阴影，深色零阴影；不支持 `backdrop-filter` 时退化为 0.95 不透明纯色。
+- 每屏毛玻璃层数控制在 4 层以内。
+
+## 5. 流光 — AI 专属视觉层
+
+AI 场景（Aicy 唤醒 / 问屏 / 识屏、AI 生成、实况通知）铺蓝紫流光光晕 + 4–6s 缓慢呼吸；普通按钮、卡片、列表不引用 `--ai-*`。
+
+```css
+.ai-panel { background: linear-gradient(120deg, #2B5BFF, #7B5CFF 55%, #B44BFF); }
+.ai-title {
+  background: linear-gradient(90deg, #7B5CFF, #FF5C8A 50%, #FF9F2E);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+```
+
+## 6. Alive 手感 — 可打断、并行、跟手、回弹
+
+动效基准 200–350ms，曲线 `cubic-bezier(0.32, 0.72, 0, 1)`。四个字记住手感：
+
+- **可打断** — 面板收起手势随时接管，不等动画播完。
+- **并行** — 打开与退出同时存在不串场。
+- **跟手** — 壁纸光晕、滑条随手指线性变化（跟手阶段 `transition: none`）。
+- **回弹** — 只在面板展开收起、应用切换、小窗切换三处用一次小幅回稳；无物理依据的弹跳与旋转不用（加载小圆圈除外）。
+
+入场用 fade + 位移 12px + 缩放 0.98，逐项 40ms stagger；弹窗用 scale(0.94→1) + fade。声浪呼吸是唯一允许的重复脉冲。
+
+## 7. 典型布局 — 分组卡片是默认答案
+
+- **设置页**：胶囊搜索 → 分组白卡（页面边距 16，组距 12，行高 56）→ 右侧值文字 + chevron / 开关。
+- **控制中心 / 通知中心**：全屏毛玻璃面板；顶部大时钟；白卡 + 竖向胶囊滑条 + 磁贴网格；通知卡白底圆角 16，任务型通知升级为实况通知（状态栏胶囊常驻，点击悬浮展开）。
+- **Aicy 面板**：流光背景 → 白色建议胶囊行 → 聆听条 → 问屏入口 → 模式白卡；系统内唯一允许大面积彩色的界面。
+
+弹窗一律原生 `<dialog>` + `showModal`，点遮罩与 Esc 关闭，配 `aria-labelledby`。
 
 ## 参考文件（按需加载）
 
+数值以 `references/` 为准，SKILL 只定方向。每次只读当下分支需要的一个：
+
 | 文件 | 内容 | 何时加载 |
 |------|------|---------|
-| `references/design-tokens.md` | 色彩/形状/间距/字体/材质/动效（可打断·并行·跟手·物理回弹·流光视效）/图标/禁忌 | 每次生成 Design Token 前 |
-| `references/components.md` | 沉浸导航/分组卡片列表/胶囊按钮/输入/开关/滑条/控制中心（自定义·分页·实时模糊）/通知卡片/实况通知（悬浮展开·息屏）/弹窗/Toast/底部操作条/标签栏/Aicy 管家简报（含十二时辰）/Aicy 唤醒面板（呼吸感·问屏·识屏）/小圆圈 | 涉及对应组件时 |
-| `references/layout-patterns.md` | 页面骨架/典型页面模式（含控制中心与通知中心手势分区）/外观中心与 Alive 壁纸（跟手渐变·长虹/波浪/雾花·多彩相框）/设置归纳/桌面堆叠与分层图标/安全区/断点/性能降级 | 搭建页面结构时 |
-| `assets/prototype-template/index.html` | 含全部 CSS 变量与基础组件的现代原型样板 | 生成 HTML 原型时复制为起点 |
+| `references/design-tokens.md` | 色彩 / 形状 / 间距 / 字体 / 材质 / 动效 / 图标 | 生成 Design Token 前 |
+| `references/components.md` | 导航 / 列表 / 按钮 / 输入 / 开关 / 浮层 / 控制中心 / 通知 / Aicy / 实况通知 | 实现对应组件时 |
+| `references/layout-patterns.md` | 页面骨架 / 设置 / 个人中心 / 列表 / 控制与通知中心 / 外观与壁纸 / 断点 / 降级 | 搭建页面结构时 |
+| `assets/prototype-template/index.html` | 全部 CSS 变量与基础组件样板 | 生成 HTML 原型时复制为起点 |
 
-## 工作流
+## Process
 
-### Step 1：确认需求
+1. **确认需求** — 页面类型、浅/深双主题（默认都要）、目标设备（默认手机 375dp）、是否含 AI 场景（含则启用流光层）。
+2. **Token → 布局 → 组件** — 读对应参考文件，输出双主题 CSS 变量，按骨架排布，逐组件实现默认 / 按下 / 禁用 / 加载态，图标内联 SVG。
+3. **生成原型** — 以 template 为起点产出单文件 HTML：沉浸式状态栏、滚动后毛玻璃导航、主题切换、入场 stagger、触屏反馈；`prefers-reduced-motion` 下退化为 ≤100ms fade，流光静态化。
+4. **自检** — 逐条核对，不通过返工：图标全彩色；操作件全胶囊；毛玻璃只在浮层；主色只在操作与选中；流光只在 AI 场景；分组白卡 + 无 FAB + 无水波纹；触控区 ≥44px，对比度 ≥4.5:1。
 
-确认四件事（用户已明确则跳过）：页面类型（设置页/个人中心/列表页/表单页/控制中心/外观中心等）、主题偏好（默认浅色优先，双主题必备）、目标设备（默认手机 375dp，可含平板 840dp 断点）、是否涉及 AI 场景（Aicy 唤醒/问屏/识屏/AI 简报/实况通知；涉及则启用 AI 流光层与呼吸感动效）。
+## Quick Reference
 
-### Step 2：生成 Design Token
-
-读取 `references/design-tokens.md`，输出 CSS 自定义属性（浅/深双套，`[data-theme="dark"]` 切换）。只输出 Token，不夹带解释。
-
-### Step 3：搭建布局
-
-读取 `references/layout-patterns.md`，按页面骨架（沉浸式状态栏 → 导航栏 → 内容区 → 底部标签栏）排布，套用对应页面模式。
-
-### Step 4：实现组件
-
-读取 `references/components.md` 中涉及的部分，逐组件实现全部规定的状态与变体。
-
-### Step 5：生成原型
-
-复制 `assets/prototype-template/index.html` 为起点，产出单文件 HTML：
-
-- 375dp 手机视口；沉浸式状态栏 + 滚动后毛玻璃导航；浅/深主题切换
-- 触屏反馈（按压 scale、音量条拉伸）、列表入场 stagger、控制中心/通知中心下拉面板（涉及系统级页面时；控制中心按自定义分页 + 实时模糊实现）
-- 实况通知按胶囊悬浮展开 + 息屏样式实现（涉及任务型通知时）
-- Aicy 面板带呼吸感光晕 + 问屏/识屏入口（涉及 AI 场景时）
-- 弹窗用原生 `<dialog>` + showModal + closedby 回退；支持 prefers-reduced-motion
-- 所有图标内联 SVG；图片仅本地文件或真实链接，禁止空 src
-
-### Step 6：自检清单
-
-逐条核对，不通过则返工：
-
-- [ ] 功能图标全部彩色（设置行默认线性彩色图标，经典版圆形 chip 可选；宫格任务圆角方形；无全灰图标列表）
-- [ ] 操作件全胶囊；卡片 / 磁贴 / 弹窗圆角符合 Token（容器保持矩形感，不做成胶囊）
-- [ ] 通知/控制中心面板为实时毛玻璃 + 白卡（深色分层灰零阴影）
-- [ ] 主色只出现在操作与选中态
-- [ ] AI 流光渐变只出现在 AI 场景；Aicy 双环交织 logo 为渐变 SVG（圆角方形渐变底 + 白双环为 App 形态），AI 文字强调用 `--ai-text`（紫左橙右）
-- [ ] 列表组白卡 + 16px 页面边距 + 12px 组距；组内无分隔线（长组例外）
-- [ ] 动效可打断、退出与切换支持并行；控制中心/应用切换带物理回弹；Alive 壁纸跟手渐变；prefers-reduced-motion 已处理
-- [ ] 无 FAB、无水波纹、无大标题吸顶导航
-- [ ] 实况通知可悬浮展开；行程类支持息屏样式
-- [ ] 触控区域 ≥44×44px；功能文本对比度 ≥4.5:1
-- [ ] 图标全部内联 SVG
-
-## 输出
-
-默认交付：Design Token（CSS 变量）+ 完整页面原型（单 HTML 文件）。用户需要时可另附设计规范 Markdown 文档。
+| Need | Technique | Concrete value |
+| --- | --- | --- |
+| 主蓝 | 操作与选中专用 | `#008CFF`（深 `#3D9BFF`） |
+| 页面 / 卡片 | 中性分层 | 浅 `#F2F3F5` / `#FFFFFF`；深 `#101114` / `#1B1C20` |
+| 胶囊 | 操作件圆角 | 高度一半（按钮 44 高 → 22） |
+| 容器圆角 | 卡片 / 磁贴 / 弹窗 | `16 / 20 / 24` |
+| 列表组 | 白卡 + 边距 + 组距 | `16 / 12`，行高 `56` |
+| 毛玻璃 | 浮层配方 | `rgba(255,255,255,0.72) + blur(24px) saturate(180%)` |
+| AI 流光 | 仅 AI 场景 | 蓝紫 `--ai-glow`；渐变字 `--ai-text` |
+| 动效基线 | 时长 + 曲线 | `200–350ms`，`cubic-bezier(0.32, 0.72, 0, 1)` |
+| 入场 | fade + 位移 + 缩放 | `translateY(12px) + scale(0.98)`，stagger `40ms` |
+| 按压 | 缩放反馈 | `scale(0.97)`，`120ms` |
+| 回弹 | 仅三处，一次回稳 | `cubic-bezier(0.3, 1.2, 0.4, 1)`，位移 ≤8px |
+| 弹窗 | 原生 dialog | 宽 ≤320，圆角 24，`closedby="any"` |
+| 降级 | reduced-motion | ≤100ms fade，流光静态 |
