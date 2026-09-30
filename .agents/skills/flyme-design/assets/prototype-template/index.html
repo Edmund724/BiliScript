@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Flyme 原型模板（现代 · Flyme 9/10/AIOS/AIOS 2 基准）</title>
+<title>Flyme 原型模板（AIOS / AIOS 2 · Flyme 12.5 基准）</title>
 <!--
-  现代 Flyme 原型样板：生成原型时复制本文件为起点。
-  设计基准：轻盈有序（Flyme 9/10/AIOS/AIOS 2 · Alive Design）——中性底色 + 多彩功能图标 + 胶囊操作件 +
-  大圆角容器 + 浅色毛玻璃浮层 + 细腻动效；AI 场景专用流光渐变（--ai-*）。
+  Flyme 原型样板：生成原型时复制本文件为起点。
+  设计基准：AIOS / AIOS 2 / Flyme 12.5（轻盈有序 + Alive Design）——中性底色 + 多彩功能图标 + 胶囊操作件 +
+  大圆角容器 + 实时毛玻璃浮层 + 可打断并行物理回弹动效；AI 场景专用流光渐变（--ai-*）+ 呼吸感 + 问屏/实况。
   参数出处见 references/design-tokens.md。
-  旧版（Flyme 5 灰阶极简、FAB、下划线输入框）已废止。
+  旧版（Flyme 5 灰阶极简、FAB、下划线输入框、无物理依据弹跳）已废止。
 -->
 <style>
 /* ============ Flyme Design Tokens（现代） ============ */
@@ -34,6 +34,7 @@
   --toast-bg: rgba(29, 30, 34, 0.92);
   --shadow-float: 0 8px 24px rgba(17, 18, 26, 0.10);
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --spring: cubic-bezier(0.3, 1.2, 0.4, 1); /* Alive 物理回弹：面板/应用切换收尾一次回稳 */
   --font: system-ui, "PingFang SC", "HarmonyOS Sans SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
 }
 [data-theme="dark"] {
@@ -191,12 +192,14 @@ svg { display: block; }
 .cc-net-label { font-size: 14px; font-weight: 500; line-height: 18px; }
 .cc-net-status { font-size: 11px; color: var(--text-2); }
 .cc-net .chev { width: 16px; height: 16px; }
-/* 竖向胶囊滑条（亮度/音量） */
-.vslider { position: relative; min-height: 150px; border-radius: 24px; background: var(--card); overflow: hidden; }
+/* 竖向胶囊滑条（亮度/音量，Flyme 12.5 音量条拉伸动效） */
+.vslider { position: relative; min-height: 150px; border-radius: 24px; background: var(--card); overflow: hidden; transition: transform .2s var(--ease); }
+.vslider:active { transform: scaleY(1.02); }
 .vslider-fill {
   position: absolute; left: 0; right: 0; bottom: 0; height: var(--v, 50%);
   background: var(--primary); border-radius: 24px;
   display: flex; align-items: center; justify-content: center;
+  transition: height .25s var(--ease);
 }
 .vslider-fill svg { width: 22px; height: 22px; color: #fff; }
 
@@ -247,7 +250,7 @@ svg { display: block; }
 .tab.active .ic-line { display: none; }
 .tab.active .ic-fill { display: block; }
 
-/* ============ 控制中心 / 通知中心（下拉毛玻璃面板） ============ */
+/* ============ 控制中心 / 通知中心（下拉实时毛玻璃面板，可打断 + 物理回弹） ============ */
 .cc { position: fixed; inset: 0; z-index: 70; visibility: hidden; transition: visibility 0s linear 320ms; }
 .cc.open { visibility: visible; transition-delay: 0s; }
 .cc-sheet {
@@ -256,7 +259,8 @@ svg { display: block; }
   border-radius: 0 0 28px 28px;
   padding: 44px 16px 32px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 16px;
-  transition: transform 320ms var(--ease);
+  transition: transform 320ms var(--spring); /* 可打断：手势随时接管；结尾轻微回弹 */
+  /* 实时动态模糊：经典面板不降级为静态图（低端机才用纯色回退，见 .glass） */
 }
 .cc.open .cc-sheet { transform: translate(-50%, 0); }
 .cc-head { display: flex; align-items: flex-start; justify-content: space-between; }
@@ -321,6 +325,29 @@ svg { display: block; }
 .dlg-body { font-size: 15px; color: var(--text-2); text-align: center; margin-top: 8px; }
 .dlg-actions { display: flex; gap: 12px; margin-top: 20px; }
 
+/* ============ 实况通知：状态栏胶囊常驻 + 点击悬浮展开（AIOS 核心） ============ */
+.live-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 12px; border-radius: 14px;
+  background: var(--card); font-size: 12px; color: var(--text);
+  box-shadow: var(--shadow-float);
+}
+.live-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ai-logo, var(--primary)); }
+.live-float { background: var(--card); border-radius: 16px; padding: 12px 16px; }
+.live-status {
+  margin-left: auto; font-size: 11px; font-weight: 500;
+  background: var(--ai-text); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+/* ============ Aicy 呼吸感光晕（AIOS 2，仅 AI 场景） ============ */
+.ai-breathe { position: relative; overflow: hidden; isolation: isolate; }
+.ai-breathe::before {
+  content: ""; position: absolute; inset: -20%; z-index: -1;
+  background: var(--ai-glow); opacity: .35; filter: blur(32px);
+  animation: ai-drift 5s ease-in-out infinite alternate;
+}
+@keyframes ai-drift { from { transform: translate3d(-4%, -2%, 0) rotate(-4deg); } to { transform: translate3d(4%, 3%, 0) rotate(4deg); } }
+
 /* ============ Toast ============ */
 .toast {
   position: fixed; bottom: calc(120px + env(safe-area-inset-bottom, 0px)); left: 50%;
@@ -337,11 +364,13 @@ svg { display: block; }
 .rise { animation: rise-in .3s var(--ease) both; animation-delay: calc(var(--i, 0) * 40ms); }
 @keyframes rise-in { from { opacity: 0; transform: translateY(12px) scale(.98); } }
 
-/* ============ Reduced motion 降级 ============ */
+/* ============ Reduced motion 降级（含 AI 呼吸与跟手） ============ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .1s !important; animation-delay: 0s !important; }
   .rise { animation: none; }
+  .ai-breathe::before { animation: none; opacity: .25; }
   .cc { transition: none; }
+  .cc-sheet { transition-timing-function: ease-out; }
   .dlg { transition-property: opacity, display, overlay; }  /* 退化为纯 fade */
 }
 </style>
@@ -605,6 +634,16 @@ svg { display: block; }
         </div>
         <div class="notif-title">Flyme AIOS 2 已准备就绪</div>
         <div class="notif-body">新增 Alive 壁纸多彩相框样式与 Aicy 管家简报，建议在 Wi-Fi 环境下安装。</div>
+      </div>
+      <div class="notif live-float">
+        <div class="notif-head">
+          <span class="notif-app" style="background:var(--ic-purple);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>
+          </span>
+          <span>Aicy 行程</span><span class="notif-time">实况</span><span class="live-status">登机中</span>
+        </div>
+        <div class="notif-title">川航 3U8888 · 登机口 A12</div>
+        <div class="notif-body">19:20 起飞 · 点击悬浮展开查看登机牌（行程类支持息屏显示）。</div>
       </div>
     </div>
 
