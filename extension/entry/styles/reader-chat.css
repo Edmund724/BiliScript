@@ -60,7 +60,11 @@
  * 它的顶边 = 本行底边，内容一滚动就被裁在按钮下边框上（用户报「下方依然有间距
  * 问题」并附滚动截图）。margin 不是行自身的盒高（上面「无额外纵高」仍成立），
  * 它是行与下方一切内容的间隔：意图卡 / 转写行 / 消息区（含滚动裁剪线）三处同源，
- * 新增后继块自动继承。取值与板面顶距同档（10px）。 */
+ * 新增后继块自动继承。取值与板面顶距同档（10px）。
+ * 2026-11 用户决议（截图，第八轮）：用户按「下方要与上方差不多宽」的尺子量，报
+ * 10px 偏紧、14px 偏松，定 12px——与上方几何间距（板面顶距 10 + 标签槽内边距 4
+ * = 14px，见 reader.css 的 .biliscript-reading-tabs）相差 2px 以内；
+ * chat-header-compact-spacing.test.ts 按 ±2px 公差锁住两边。 */
 .biliscript-reading-chat .chat-header {
   display: flex;
   align-items: center;
@@ -68,7 +72,7 @@
   gap: 8px;
   align-self: flex-end;
   flex-shrink: 0;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 /* 两键的框形态与面板 header 三键同源（reader.css 的「8px = 一切框」明文决议：
@@ -212,6 +216,19 @@
   color: var(--biliscript-reader-text);
 }
 
+/* 消息区顶部渐隐（2026-11 用户决议，第八轮）：下方的 12px 几何留白解决「贴住」，
+ * 但滚动中的接缝仍是硬切——半行字被裁在容器顶边、笔画实打实顶在按钮下缘，肉眼
+ * 会把这段读成「比上方窄」。给消息区加 10px 的顶部渐隐（纯 mask 无色值，不画线、
+ * 不占额外高度）：那半行字在 10px 内淡出，肉眼读到的下方留白才与上方的 14px 相当。
+ * 为什么用 mask 而不是「加不透明顶带」或「再加大留白」：后两者只是把切痕往下推，
+ * 那一行被整段盖掉（等于永久少看一行），切痕本身没变；mask 不占高度、暗色主题
+ * 自动跟随（stop 只有 transparent 与 #000，不掺主题色）。
+ * 为什么常开而不按滚动位置开关：滚到顶时这 10px 里只有容器自身的 12px 内边距
+ * （本来就是空的），渐隐不产生可见差异，无需 JS 监听滚动。
+ * 代价（用户已知）：滚动条顶端那段（上箭头）会一起淡掉，几乎看不出。
+ * 注意：mask 会让本元素成为层叠上下文——.chat-search-preview(z-index:20) 与
+ * .chat-model-panel(z-index:10) 的叠放次序随之改由 DOM 序决定（原本靠 z-index
+ * 跨层比大小）；两者不会在同一处出现，实际无差。 */
 .biliscript-reading-chat .chat-messages {
   flex: 1;
   min-height: 0;
@@ -221,6 +238,8 @@
   flex-direction: column;
   gap: 10px;
   scroll-behavior: smooth;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 10px);
   /* 联网搜索来源悬停预览卡的定位父容器（chat-stream-render showSourcePreview）。 */
   position: relative;
 }

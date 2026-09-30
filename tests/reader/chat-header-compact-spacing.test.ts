@@ -92,8 +92,37 @@ function px(value: string): number {
   return Number.parseFloat(value);
 }
 
+// 上方几何间距（肉眼看到的那段）= 对话面板板面顶距 + 标签槽自身的内边距
+//（reader.css 的「凹槽」4px）——即「粉色药丸下缘 → 工具条按钮上缘」。
+function aboveGap(): number {
+  const tabs = ruleBody(readCss(READER_CSS), "\\.biliscript-reading-tabs");
+  const padding = tabs.match(/(?:^|;)\s*padding:\s*([^;]+);/);
+  expect(padding, "reader.css 的标签槽应有 padding（凹槽内边距）").not.toBe(null);
+  return px(chatPanelPaddingTop()) + px(padding![1].trim().split(/\s+/)[0]);
+}
+
+// 消息区规则块（渐隐遮罩的唯一落点）。
+function chatMessagesBlock(): string {
+  return ruleBody(readChatCss(), "\\.biliscript-reading-chat \\.chat-messages");
+}
+
+function maskImage(block: string, prop: "mask-image" | "-webkit-mask-image"): string {
+  const match = block.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+);`));
+  expect(match, `消息区应有 ${prop} 顶部渐隐声明`).not.toBe(null);
+  return match![1].trim();
+}
+
+// 渐隐长度：从 transparent 0 淡到 #000 <N>px，返回 N。
+function fadeLength(block: string): number {
+  const mask = maskImage(block, "mask-image").replace(/\s+/g, " ");
+  const match = mask.match(/^linear-gradient\(to bottom, transparent 0(?:px)?, #000 (\d+(?:\.\d+)?)px\)$/);
+  expect(match, `渐隐应是 transparent → #000 的纵向渐变（无色值）：${mask}`).not.toBe(null);
+  return Number.parseFloat(match![1]);
+}
+
 const SAME_DECK_MIN = 8;
 const SAME_DECK_MAX = 16;
+const TOP_BOTTOM_TOLERANCE = 2;
 
 describe("对话头部工具条紧凑化", () => {
   it("头部行不再预留自身纵高：块内既无 min-height 也无 padding", () => {
@@ -136,6 +165,46 @@ describe("对话头部工具条紧凑化", () => {
 
     expect(total).toBeGreaterThanOrEqual(SAME_DECK_MIN);
     expect(total).toBeLessThanOrEqual(SAME_DECK_MAX);
+  });
+
+  it("下方几何间距与上方对齐（肉眼上两边差不多宽）", () => {
+    const above = aboveGap();
+    const below = px(chatHeaderBottomGap());
+
+    expect(Math.abs(below - above)).toBeLessThanOrEqual(TOP_BOTTOM_TOLERANCE);
+  });
+
+  it("消息区顶部有同档长度的渐隐：滚动的硬切变成淡出", () => {
+    const length = fadeLength(chatMessagesBlock());
+
+    expect(length).toBeGreaterThanOrEqual(SAME_DECK_MIN);
+    expect(length).toBeLessThanOrEqual(SAME_DECK_MAX);
+  });
+
+  it("渐隐前缀双写且数值一致（-webkit- 与标准属性同值）", () => {
+    const block = chatMessagesBlock();
+    const standard = maskImage(block, "mask-image").replace(/\s+/g, " ");
+    const prefixed = maskImage(block, "-webkit-mask-image").replace(/\s+/g, " ");
+
+    expect(prefixed).toBe(standard);
+  });
+
+  it("渐隐只挂在消息区：工具条与对话根不被遮罩（否则按钮一起淡）", () => {
+    const css = readChatCss();
+    const header = chatHeaderBlock();
+    const root = ruleBody(css, "\\.biliscript-reading-chat");
+
+    expect(header).not.toMatch(/-?webkit-?mask|mask-image/);
+    expect(root).not.toMatch(/-?webkit-?mask|mask-image/);
+  });
+
+  it("渐隐用无色 stop（transparent / #000），不写死主题色 → 暗色不破相", () => {
+    const standard = maskImage(chatMessagesBlock(), "mask-image");
+
+    expect(standard).not.toMatch(/var\(/);
+    expect(standard).not.toMatch(/rgba?\(/);
+    // 只允许 #000（透明 → 黑的无色遮罩）；出现别的色值就是写死了主题色
+    expect(standard.replace(/#000\b/g, "")).not.toMatch(/#[0-9a-fA-F]{3,8}/);
   });
 });
 
