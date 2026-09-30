@@ -294,8 +294,9 @@ svg { display: block; }
   transform: translate(-50%, -102%);
   border-radius: 0 0 28px 28px;
   padding: 44px 16px 32px; overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex; flex-direction: column; gap: 16px;
-  transition: transform 320ms var(--spring); /* 可打断：手势随时接管；结尾轻微回弹 */
+  transition: transform 320ms var(--spring); /* 非手势开 / 关的退路；手势期间由 JS 接管（transition: none） */
   /* 实时动态模糊：经典面板不降级为静态图（低端机才用纯色回退，见 .glass） */
 }
 .cc.open .cc-sheet { transform: translate(-50%, 0); }
@@ -865,15 +866,99 @@ document.querySelectorAll('.tile').forEach(t => {
   });
 });
 
-/* 控制中心面板 */
+/* ============ Alive 动效引擎：弹簧 + 速度交接（手势驱动动效的唯一"播动画"方式） ============ */
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* 极简半隐式欧拉弹簧：从当前值与当前速度起跳，返回取消函数 = 可打断 */
+function spring({ from, to, velocity = 0, stiffness = 300, damping = 30, onUpdate, onDone }) {
+  if (reduceMotion) { onUpdate(to, 0); onDone?.(); return () => {}; }
+  let x = from, v = velocity, last, raf;
+  const tick = (t) => {
+    const dt = Math.min((t - last) / 1000, 0.032); last = t;
+    v += (-stiffness * (x - to) - damping * v) * dt;
+    x += v * dt;
+    onUpdate(x, v);
+    if (Math.abs(x - to) < 0.002 && Math.abs(v) < 0.02) { onUpdate(to, 0); onDone?.(); return; }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame((t) => { last = t; raf = requestAnimationFrame(tick); });
+  return () => cancelAnimationFrame(raf);
+}
+
+/* 松手速度：最近 100ms 滑动窗口，px/s */
+function releaseVelocity(trail, now) {
+  const recent = trail.filter(p => now - p.t < 100);
+  if (recent.length < 2) return 0;
+  const a = recent[0], b = recent[recent.length - 1];
+  return (b.y - a.y) / (b.t - a.t) * 1000;
+}
+
+/* 动量投影：落点 = 当前位置 + 指数衰减投影（决定提交方向用落点，不用松手位置） */
+const project = (v, d = 0.998) => (v / 1000) * d / (1 - d);
+
+/* 控制中心面板：单进度源 p（0 收起 / 1 展开），点击走弹簧，手势 1:1 跟手，全程可打断 */
 const cc = $('#cc');
+const sheet = cc.querySelector('.cc-sheet');
+let ccP = 0, cancelSpring = null;
+
+function renderCC(p) {
+  ccP = p;
+  sheet.style.transition = 'none';
+  sheet.style.transform = `translate(-50%, ${-(1 - p) * 102}%)`;
+}
+function settleCC(target, velocity = 0) {
+  cancelSpring?.(); /* 打断在途动画：从当前 p 与当前速度重新起跳 */
+  cancelSpring = spring({
+    from: ccP, to: target, velocity,
+    onUpdate: renderCC,
+    onDone: () => {
+      cancelSpring = null;
+      sheet.style.transition = '';
+      sheet.style.transform = '';
+      if (target === 0) { cc.classList.remove('open'); cc.setAttribute('aria-hidden', 'true'); }
+    },
+  });
+}
 const setCC = open => {
-  cc.classList.toggle('open', open);
-  cc.setAttribute('aria-hidden', String(!open));
+  if (open) { cc.classList.add('open'); cc.setAttribute('aria-hidden', 'false'); }
+  settleCC(open ? 1 : 0);
 };
 $('#ccOpen').addEventListener('click', () => setCC(true));
 $('#ccClose').addEventListener('click', () => setCC(false));
 document.addEventListener('keydown', e => { if (e.key === 'Escape') setCC(false); });
+
+/* 跟手拖动：上滑收起（触屏从顶部时钟区起手，鼠标任意位置；10px 后才认领手势） */
+let drag = null;
+sheet.addEventListener('pointerdown', e => {
+  if (e.target.closest('button, input, .vslider, a')) return;
+  if (e.pointerType !== 'mouse' && !e.target.closest('.cc-head')) return;
+  drag = { id: e.pointerId, y0: e.clientY, engaged: false, trail: [{ t: e.timeStamp, y: e.clientY }] };
+});
+sheet.addEventListener('pointermove', e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const dy = e.clientY - drag.y0;
+  if (!drag.engaged) {
+    if (Math.abs(dy) < 10) return;                       /* hysteresis */
+    if (dy > 0 || sheet.scrollTop > 0) { drag = null; return; } /* 只认领上滑收起 */
+    drag.engaged = true;
+    sheet.setPointerCapture(e.pointerId);
+    cancelSpring?.(); cancelSpring = null;               /* 手势接管：打断弹簧 */
+  }
+  drag.trail.push({ t: e.timeStamp, y: e.clientY });
+  if (drag.trail.length > 8) drag.trail.shift();
+  renderCC(Math.min(1, Math.max(0, 1 + dy / sheet.offsetHeight))); /* 1:1 跟手，无 transition */
+});
+const endDrag = e => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const { engaged, trail } = drag; drag = null;
+  if (!engaged) return;
+  const v = releaseVelocity(trail, e.timeStamp);
+  const h = sheet.offsetHeight;
+  const landing = ccP + project(v) / h;                  /* 投影落点定目标 */
+  settleCC(landing > 0.5 ? 1 : 0, v / h);                /* 速度原样交接给弹簧 */
+};
+sheet.addEventListener('pointerup', endDrag);
+sheet.addEventListener('pointercancel', endDrag);
 
 /* 弹窗 */
 const dlg = $('#dlg');

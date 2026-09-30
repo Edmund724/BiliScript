@@ -51,4 +51,6 @@ Display 30 Light / Title 20 Medium / Headline 17 Medium / 列表标题 16 / Body
 
 毛玻璃：浅 `rgba(255,255,255,0.72) + blur(24px) saturate(180%)`，深 `rgba(16,17,20,0.72)`；用于通知 / 控制中心 / 滚动后导航 / 标签栏。不支持时用 0.95 纯色。浅色浮层阴影 `0 8px 24px rgba(17,18,26,0.10)`，深色零阴影。
 
-动效基线 200–350ms，`cubic-bezier(0.32, 0.72, 0, 1)`；回弹曲线 `cubic-bezier(0.3, 1.2, 0.4, 1)` 仅用于面板 / 应用切换 / 小窗。按压 scale(0.97) 120ms；入场 fade + translateY(12px) + scale(0.98)，stagger 40ms；AI 呼吸 4–6s，声浪 1.2s。`prefers-reduced-motion` 下全退化为 ≤100ms fade。
+动效基线 200–350ms，`cubic-bezier(0.32, 0.72, 0, 1)`；回弹曲线 `cubic-bezier(0.3, 1.2, 0.4, 1)` 仅用于面板 / 应用切换 / 小窗（CSS 近似，手势驱动必须用弹簧，见 `motion.md`）。按压 scale(0.97) 120ms；入场 fade + translateY(12px) + scale(0.98)，stagger 40ms；AI 呼吸 4–6s，声浪 1.2s。`prefers-reduced-motion` 下全退化为 ≤100ms fade。
+
+弹簧手感档（位移归一化 0–1，ζ = damping / 2√stiffness）：默认 340/37（ζ≈1.0 无过冲）；面板 / 应用切换 / 小窗 300/30（ζ≈0.87 一次回稳，过冲 ≤2%）；抛掷 260/24（ζ≈0.74）。松手一律速度交接 + 动量投影定目标（`project(v) = v/1000 · d/(1−d)`，d≈0.998），公式与编排细节见 `references/motion.md`。
