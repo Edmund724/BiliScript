@@ -16,26 +16,42 @@
 // 2026-11 用户决议（截图，第六轮）：4px 顶距 + 转写状态行 0 顶距又走到了另一头——
 // 用户报「历史对话上下太挤了，转写的时候甚至略有重叠」。实测（headless Chromium，
 // .scratch/chat-spacing-preview）：标签槽底到按钮顶 8px、按钮底到转写行顶 **0px**
-//（转写行上边框与按钮下边框贴着）。本轮把上下都加回同档留白：板面顶距 4 → 10px，
-// 转写行 margin-top 0 → 10px（消息区自身 padding-top 12px 不动）。
+//（转写行上边框与按钮下边框贴着）。本轮把板面顶距 4 → 10px、转写状态行 margin-top
+// 0 → 10px（消息区自身 padding-top 12px 不动）。
+// 2026-11 第七轮（同一份用户反馈的后半句「下方依然有间距问题」+ 截图）：上方好了，
+// 下方只修了转写行——消息区滚动起来后，被裁剪的消息内容仍然正好贴在按钮下边框上
+//（消息区顶边 = 头部行底边，容器内的内容滚到顶边即被裁在 0px 处）。散落在每个后继
+// 块上的间隔无法覆盖消息区这条路径（它没有 margin），故改由**头部行自己承担下方
+// 间隔**：.chat-header 加 margin-bottom，转写行的自备 margin-top 退回 0。于是意图卡 /
+// 转写行 / 消息区（含滚动裁剪线）三处间隔同源同值，新增后继块也自动继承。
 // 局限与 chat-history-page 同：jsdom 无布局，本文件只能锁 CSS 取值与作用域，真正的
-// 几何回归由 .scratch/chat-spacing-preview 的真实浏览器测量兜；防倒退：顶距再回到
-// 单数字、或转写行贴回工具条（0/负边距）、或顶距覆写丢了 :has 作用域，本文件红。
+// 几何回归由 .scratch/chat-spacing-preview 的真实浏览器测量兜；防倒退：板面顶距再回到
+// 单数字、头部行丢掉 margin-bottom（消息区又贴回按钮）、任一块再自备一份顶距（间隔
+// 叠成双倍）、或顶距覆写丢了 :has 作用域，本文件红。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const CHAT_CSS = "extension/entry/styles/reader-chat.css";
+const READER_CSS = "extension/entry/styles/reader.css";
+
+function readCss(path: string): string {
+  return readFileSync(join(ROOT, path), "utf8");
+}
 
 function readChatCss(): string {
-  return readFileSync(join(ROOT, CHAT_CSS), "utf8");
+  return readCss(CHAT_CSS);
+}
+
+function ruleBody(css: string, selector: string): string {
+  const match = css.match(new RegExp(`${selector} \\{([^}]*)\\}`));
+  expect(match, `应存在 ${selector} 规则块`).not.toBe(null);
+  return match![1];
 }
 
 function chatHeaderBlock(): string {
-  const match = readChatCss().match(/\.biliscript-reading-chat \.chat-header \{([^}]*)\}/);
-  expect(match, "reader-chat.css 中应存在 .chat-header 规则块").not.toBe(null);
-  return match![1];
+  return ruleBody(readChatCss(), "\\.biliscript-reading-chat \\.chat-header");
 }
 
 // 对话面板的板面顶距覆写（只命中对话面板，字幕/概览两 tab 不受影响）。
@@ -47,24 +63,37 @@ function chatPanelPaddingTop(): string {
   return paddingTop![1].trim();
 }
 
-// 转写状态行与工具条之间的间隔：简写 `margin` 的首值或 `margin-top`。
-function asrNoticeTopGap(): string {
-  const match = readChatCss().match(/\.biliscript-reading-chat \.chat-asr-notice \{([^}]*)\}/s);
-  expect(match, "reader-chat.css 中应存在 .chat-asr-notice 规则块").not.toBe(null);
-  const block = match![1];
+// 某条规则的纵向顶距：简写 `margin` 的首值（缺省即 0），或显式 `margin-top`。
+function topGap(block: string): string {
   const shorthand = block.match(/(?:^|;)\s*margin:\s*([^;]+);/);
   if (shorthand) {
     return shorthand[1].trim().split(/\s+/)[0];
   }
   const marginTop = block.match(/(?:^|;)\s*margin-top:\s*([^;]+);/);
-  expect(marginTop, "转写状态行的规则里应有纵向间隔声明（margin / margin-top）").not.toBe(null);
-  return marginTop![1].trim();
+  return marginTop ? marginTop![1].trim() : "0px";
+}
+
+function chatHeaderBottomGap(): string {
+  const marginBottom = chatHeaderBlock().match(/(?:^|;)\s*margin-bottom:\s*([^;]+);/);
+  expect(marginBottom, "头部行应自备 margin-bottom（下方间隔的唯一来源）").not.toBe(null);
+  return marginBottom![1].trim();
+}
+
+function asrNoticeTopGap(): string {
+  return topGap(ruleBody(readChatCss(), "\\.biliscript-reading-chat \\.chat-asr-notice"));
+}
+
+function intentCardTopGap(): string {
+  return topGap(ruleBody(readCss(READER_CSS), "\\.biliscript-reading-chat-intent"));
 }
 
 function px(value: string): number {
-  expect(value, `间距应是 px 字面值：${value}`).toMatch(/^-?\d+(\.\d+)?px$/);
+  expect(value, `间距应是 px 字面值（0 可省单位）：${value}`).toMatch(/^-?\d+(\.\d+)?(px)?$/);
   return Number.parseFloat(value);
 }
+
+const SAME_DECK_MIN = 8;
+const SAME_DECK_MAX = 16;
 
 describe("对话头部工具条紧凑化", () => {
   it("头部行不再预留自身纵高：块内既无 min-height 也无 padding", () => {
@@ -77,8 +106,8 @@ describe("对话头部工具条紧凑化", () => {
   it("对话面板板面顶距加回到同档留白：工具条不再贴住标签槽", () => {
     const paddingTop = px(chatPanelPaddingTop());
 
-    expect(paddingTop).toBeGreaterThanOrEqual(8);
-    expect(paddingTop).toBeLessThanOrEqual(16);
+    expect(paddingTop).toBeGreaterThanOrEqual(SAME_DECK_MIN);
+    expect(paddingTop).toBeLessThanOrEqual(SAME_DECK_MAX);
   });
 
   it("板面顶距覆写仍只作用域对话面板（字幕/概览两 tab 保持 reader.css 的 14px）", () => {
@@ -90,10 +119,23 @@ describe("对话头部工具条紧凑化", () => {
     expect(css).not.toMatch(/\.biliscript-reading-tab-body\s*(?:,|\{)[^{}]*\{[^}]*\bpadding-top:/s);
   });
 
-  it("转写状态行与工具条之间留出纵向间隔（不再以 0 贴合按钮下边框）", () => {
-    const gap = px(asrNoticeTopGap());
+  it("下方间隔由头部行自己承担（消息区滚动裁剪的那条线也拉开）", () => {
+    const gap = px(chatHeaderBottomGap());
 
-    expect(gap).toBeGreaterThanOrEqual(8);
-    expect(gap).toBeLessThanOrEqual(16);
+    expect(gap).toBeGreaterThanOrEqual(SAME_DECK_MIN);
+    expect(gap).toBeLessThanOrEqual(SAME_DECK_MAX);
+  });
+
+  it("意图卡 / 转写行不再自备顶距：三处间隔同源，不叠成双倍", () => {
+    expect(px(intentCardTopGap())).toBe(0);
+    expect(px(asrNoticeTopGap())).toBe(0);
+  });
+
+  it("转写行与工具条的总间隔仍是同档留白（头部行 margin-bottom 单份）", () => {
+    const total = px(chatHeaderBottomGap()) + px(asrNoticeTopGap());
+
+    expect(total).toBeGreaterThanOrEqual(SAME_DECK_MIN);
+    expect(total).toBeLessThanOrEqual(SAME_DECK_MAX);
   });
 });
+

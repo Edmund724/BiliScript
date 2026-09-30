@@ -32,9 +32,10 @@
  * 与样式注入顺序无关。左右/下内边距不动。
  * 2026-11 用户决议（截图，第六轮）：收到 4px 后反方向过头——用户报「历史对话上下太挤
  * 了，转写的时候甚至略有重叠」。实测（.scratch/chat-spacing-preview，headless
- * Chromium）标签槽底到按钮顶 8px、按钮底到转写行顶 0px。本轮与下方
- * .chat-asr-notice 的 10px 同步取值：工具条上下各 10px，既不再贴槽、也不再贴转写行，
- * 又没回到第二轮的 14px 板面留白。 */
+ * Chromium）标签槽底到按钮顶 8px、按钮底到转写行顶 0px。本轮把顶部板面顶距加回
+ * 10px；下方间隔在第七轮改由头部行的 margin-bottom 统一承担（见 .chat-header），
+ * 本行只管上方——工具条上下各 10px，既不再贴槽、也不再贴转写行，又没回到第二轮的
+ * 14px 板面留白。 */
 .biliscript-reading-tab-body:has(> .biliscript-reading-chat) {
   padding-top: 10px;
 }
@@ -53,7 +54,13 @@
  * 主题/设置/退出三键（.biliscript-reading-icon-btn：34px / 8px 圆角方框）不成一致
  * （用户报「完全没有符合一致性」，指定按 flyme-design 统一）→ 两键改用面板既有的
  * 「8px = 一切框」形态（见下方框规则）。行自身的 min-height/padding 随之删除：
- * 键高已从 32px 升到 34px（含边框 36px），行再留白就是白占空档。 */
+ * 键高已从 32px 升到 34px（含边框 36px），行再留白就是白占空档。
+ * 2026-11 用户决议（截图，第七轮）：下方间隔改由本行自备 margin-bottom——第六轮
+ * 把间隔挂在各后继块上（转写行 margin-top），漏掉了消息区：消息区没有 margin，
+ * 它的顶边 = 本行底边，内容一滚动就被裁在按钮下边框上（用户报「下方依然有间距
+ * 问题」并附滚动截图）。margin 不是行自身的盒高（上面「无额外纵高」仍成立），
+ * 它是行与下方一切内容的间隔：意图卡 / 转写行 / 消息区（含滚动裁剪线）三处同源，
+ * 新增后继块自动继承。取值与板面顶距同档（10px）。 */
 .biliscript-reading-chat .chat-header {
   display: flex;
   align-items: center;
@@ -61,6 +68,7 @@
   gap: 8px;
   align-self: flex-end;
   flex-shrink: 0;
+  margin-bottom: 10px;
 }
 
 /* 两键的框形态与面板 header 三键同源（reader.css 的「8px = 一切框」明文决议：
@@ -653,13 +661,13 @@
 }
 
 /* 转写状态行（无字幕时音频转写中的提示条）。2026-11 用户决议（截图，第六轮）：
- * 原来只有下边距、没有上边距，紧贴在工具条的按钮下边框上（headless Chromium 实测
- * 间距 0px，用户报「转写的时候甚至略有重叠」）——补 10px 顶距，与工具条上方的板面
- * 顶距同值（见 .biliscript-reading-tab-body:has(> .biliscript-reading-chat)），
- * 转写中的版面与无转写行时（消息区自身 padding-top 12px）同一档留白。 */
+ * 原来只挂在工具条上（间距 0px，headless Chromium 实测转写行上边框与按钮下边框
+ * 贴着，用户报「转写的时候甚至略有重叠」）。第七轮起间隔统一由头部行的
+ * margin-bottom 提供（见 .chat-header），本行不再自备顶距——同一份间隔只写一处，
+ * 否则与头部行的 10px 叠成 20px。 */
 .biliscript-reading-chat .chat-asr-notice {
   flex: 0 0 auto;
-  margin: 10px 0 6px;
+  margin: 0 0 6px;
   padding: 7px 10px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 10px;
