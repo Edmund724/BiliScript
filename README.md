@@ -6,6 +6,8 @@
 
 API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 ModelScope 都提供免费额度，日常使用基本够用。项目本身不送 Key，也不经手中转你的请求。
 
+[![Edge 应用市场立即安装](https://img.shields.io/badge/Edge%20%E5%BA%94%E7%94%A8%E5%B8%82%E5%9C%BA-%E7%AB%8B%E5%8D%B3%E5%AE%89%E8%A3%85-0078D4?logo=microsoftedge)](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) [![GitHub Releases 下载 zip](https://img.shields.io/badge/GitHub%20Releases-%E4%B8%8B%E8%BD%BD%20zip-24292F?logo=github)](https://github.com/Edmund724/BiliScript/releases) [![安装方式](#安装方式)](https://img.shields.io/badge/%E5%AE%89%E8%A3%85%E6%96%B9%E5%BC%8F-%E5%85%A8%E9%83%A8%E5%9C%A8%E8%BF%99%E9%87%8C-8957E5)
+
 ## 功能
 
 ### 字幕与时间戳跳转
@@ -45,10 +47,19 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 ## 安装方式
 
 > 支持 Chrome 120 或更高版本，不支持 Firefox。核心功能依赖 offscreen 等 Chromium 专属 API。
->
-> **Edge 用户**：[BiliScript｜B站视频文摘](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) 已上架 Edge 加载项商店，点链接安装即可，之后的版本由商店自动更新。Chrome 用户走下方 unpacked 方式。
 
-### 方式一：下载打包版本（推荐）
+### 方式一：Edge 应用市场（推荐）
+
+| 浏览器 | 安装链接 | 状态 |
+|---|---|---|
+| Edge | [Edge 加载项商店](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) | 已上架，商店自动更新 |
+| Chrome | 无 | 暂未上架，走下方方式二 |
+
+装完即用，之后的版本由商店自动更新。Edge 商店每次版本更新都要重走审核，新版过审前商店里仍是旧版。
+
+### 方式二：手动安装（下载打包版本）
+
+打不开商店时，从 [GitHub Releases](https://github.com/Edmund724/BiliScript/releases) 下载最新的 `BiliScript-v<版本>-edge.zip`：
 
 1. 解压下载的 zip 包到任意长期保留的文件夹
 
@@ -62,7 +73,7 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 
 4. 点击"加载已解压的扩展程序"，选择解压后的文件夹
 
-### 方式二：从源码构建
+### 方式三：从源码构建
 
 ```bash
 git clone https://github.com/Edmund724/BiliScript.git
@@ -75,7 +86,7 @@ pnpm run build:release  # 生成发布包到 release/（zip 不含 sourcemap）
 
 日常开发跑 `npm run dev`，在扩展管理页「加载已解压的扩展程序」选择 `dist/`，重建后点扩展的刷新按钮即可。
 
-### 方式三：让编程 Agent 帮你安装
+### 方式四：让编程 Agent 帮你安装
 
 无需编程基础，也不用命令行操作。把下面这段话发送给你的编程 Agent：
 
