@@ -1314,9 +1314,17 @@
 
 /* 输入框：未聚焦恒一行（模板 rows=1，省空间），聚焦才展开——聚焦下限与随内容
  * 长高都由 chat-tab.ts 的 autosizeInput 写行内 min-height；主轴上 flex 项的
- * flex-basis:0% 让 height 失效（实测），min-height 才是活的杠杆，失焦清空即收回一行。 */
+ * flex-basis:0% 让 height 失效（实测），min-height 才是活的杠杆，失焦清空即收回一行。
+ * 2026-11 用户报障「每敲/删一键就长高一行」的病灶在这里：textarea 是 UA 默认的
+ * content-box，而 `scrollHeight` 含上下内边距（2+2=4px）、`min-height` 不含——
+ * autosizeInput 把 scrollHeight 写回 min-height，两者不同坐标系，每次回写都被
+ * 自己放大 4px，下一个 input 事件再把放大后的高读回来（headless Chromium 实测，
+ * .scratch/input-autosize-probe：旧实现逐键 +4px，200 字时封顶还多出内边距）。
+ * `box-sizing: border-box` 是 CSS 侧的必要不变量：两个量从此同为 padding-box 高，
+ * 上限与下限也都按屏上盒高取值（56/48/320），不再额外叠加内边距。 */
 .biliscript-reading-chat #biliscript-reading-chat-input {
   flex: 1;
+  box-sizing: border-box;
   max-height: 320px;
   padding: 2px 4px;
   border: 0;

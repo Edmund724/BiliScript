@@ -920,13 +920,21 @@ function onWindowResize(): void {
 // 下限两行、之上随内容长高、上限 320。杠杆必须是 min-height 而非 height：主轴上
 // flex 项的 flex-basis:0% 让 height 失效（headless Chromium 实测：行内 height 写了
 // 高度不变，只有 min-height 抬得动盒子），故失焦清空行内 min-height 即收回一行。
+// 取值都是**屏上盒高**（border-box，见 reader-chat.css 的 box-sizing 声明）：下限
+// 56/48、上限 320 与 CSS max-height 同值，不再叠加 4px 内边距。
 const INPUT_MAX_HEIGHT = 320;
-// 聚焦下限按内容高写：textarea 是 content-box，屏上盒子另加 4px 内边距 → 56/48。
-const INPUT_FOCUS_MIN_HEIGHT = 52;
-const INPUT_FOCUS_MIN_HEIGHT_NON_VIDEO = 44;
+const INPUT_FOCUS_MIN_HEIGHT = 56;
+const INPUT_FOCUS_MIN_HEIGHT_NON_VIDEO = 48;
 
 function autosizeInput(): void {
   if (document.activeElement === els.input) {
+    // 测量前先清空行内 min-height（2026-11 用户报障「每敲/删一键长高一行」的 JS
+    // 那一半）：不清空时 textarea 一旦带行内高，scrollHeight 会返回**自身撑开后的
+    // 高度**而非内容自然高——每敲一键把上次写进去的高读回来再加一点，只增不减
+    //（连删除键都会继续长）。先塌回内容高，读到的才是真实自然高；配合 CSS 的
+    // border-box 让 scrollHeight 与 min-height 同一坐标系。无布局的 jsdom 下
+    // scrollHeight 恒 0，仍落到 focusMin，行为不变。
+    els.input.style.minHeight = "";
     const focusMin = els.root.classList.contains("chat-non-video-context")
       ? INPUT_FOCUS_MIN_HEIGHT_NON_VIDEO
       : INPUT_FOCUS_MIN_HEIGHT;

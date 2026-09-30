@@ -957,9 +957,10 @@ describe("输入框高度两态：未聚焦一行、聚焦才展开", () => {
     // 初始未聚焦：没有任何行内高度——单行高度由模板 rows=1 定
     expect(input.style.minHeight).toBe("");
 
-    // jsdom 无布局：scrollHeight 恒 0 → 落到聚焦下限（内容高 52，屏上两行 + 4px 内边距）
+    // jsdom 无布局：scrollHeight 恒 0 → 落到聚焦下限（屏上两行 = 56，
+    // border-box 后不再额外叠加 4px 内边距）
     input.focus();
-    expect(input.style.minHeight).toBe("52px");
+    expect(input.style.minHeight).toBe("56px");
 
     input.blur();
     expect(input.style.minHeight).toBe("");
@@ -978,11 +979,90 @@ describe("输入框高度两态：未聚焦一行、聚焦才展开", () => {
     expect(input.style.minHeight).toBe("320px");
   });
 
-  it("非视频上下文：聚焦下限更小（内容高 44，屏上 48）", async () => {
+  it("非视频上下文：聚焦下限更小（屏上 48）", async () => {
     const input = await mountChat();
     (document.getElementById(ids.readingChatRoot) as HTMLElement).classList.add("chat-non-video-context");
 
     input.focus();
-    expect(input.style.minHeight).toBe("44px");
+    expect(input.style.minHeight).toBe("48px");
+  });
+});
+
+// 「每敲一键就长高一行」bug（2026-11 用户报障）的 JS 侧回归。
+//
+// 真实浏览器的耦合（headless Chromium 实测，.scratch/input-autosize-probe）：
+// textarea 是 content-box，`scrollHeight` 含 4px 上下内边距、`min-height` 不含，
+// 于是「把 scrollHeight 写回 min-height」每次都被自己放大 4px；下一个 input 事件
+// 再把放大后的高读回来 → 逐键 +4px，删除键同样 +4px（用户看到的「增长方向无关」）。
+// 修复有两半，本文件锁 JS 那一半：**测量前先清空行内 min-height**，读到的才是内容
+// 自然高（CSS 那一半 = border-box 让两个量同坐标系，见
+// tests/reader/chat-input-autosize.test.ts）。
+// 下方 getter 逐字复刻上述耦合：行内有值时 scrollHeight = 行内值 + 内边距，
+// 没有时才是内容自然高——这正是浏览器里那面「把自己读回来」的镜子。
+describe("输入框自适应高度：逐键回写不得被自己放大", () => {
+  const PADDING = 4;
+
+  async function mountAutosizingInput(): Promise<HTMLTextAreaElement> {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    // 内容自然高：单行 52，每满 10 字换一行 +21.75（约 line-height: 1.45 × 15px）。
+    const naturalContentHeight = () => 52 + Math.floor(input.value.length / 10) * 21.75;
+    Object.defineProperty(input, "scrollHeight", {
+      configurable: true,
+      get: () => {
+        const inline = Number.parseFloat(input.style.minHeight || "0");
+        return Math.max(naturalContentHeight(), inline) + PADDING;
+      }
+    });
+    input.focus();
+    return input;
+  }
+
+  function typeChar(input: HTMLTextAreaElement, ch: string): void {
+    input.value += ch;
+    input.dispatchEvent(new Event("input"));
+  }
+
+  it("短输入逐字敲：盒高稳在聚焦下限，不逐键 +4px", async () => {
+    const input = await mountAutosizingInput();
+
+    for (let i = 0; i < 5; i += 1) {
+      typeChar(input, "d");
+    }
+
+    // 五行文字仍在单行内：高度必须稳在聚焦下限（border-box 后 52 + 4 = 56）
+    expect(input.style.minHeight).toBe("56px");
+  });
+
+  it("删除逐字退格：长内容删除后高度跟着缩回，不朝反向继续长", async () => {
+    const input = await mountAutosizingInput();
+
+    // 先敲够三行（30 字），让内容自然高越过聚焦下限
+    for (let i = 0; i < 30; i += 1) {
+      typeChar(input, "d");
+    }
+    const grown = Number.parseFloat(input.style.minHeight);
+    expect(grown).toBeGreaterThan(56);
+
+    // 再删到只剩一行
+    for (let i = 0; i < 25; i += 1) {
+      input.value = input.value.slice(0, -1);
+      input.dispatchEvent(new Event("input"));
+    }
+
+    // 剩 5 字 → 回到单行：高度必须缩回聚焦下限，而不是比 grown 更高
+    expect(input.style.minHeight).toBe("56px");
+  });
+
+  it("内容真的变长时仍然长高并封顶 320（屏上盒高，不再多出内边距）", async () => {
+    const input = await mountAutosizingInput();
+
+    for (let i = 0; i < 200; i += 1) {
+      typeChar(input, "d");
+    }
+
+    expect(input.style.minHeight).toBe("320px");
   });
 });
