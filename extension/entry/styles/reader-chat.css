@@ -225,8 +225,11 @@
 /* 建议 chip（2026-10 用户决议，参考抖音 AI 对话面板）：填充式无描边大圆角块。
  * 原先是 1px 描边 + 10px 圆角 + surface 底的窄 chip（用户报「太丑了」）；
  * align-self: flex-start 让 chip 贴内容宽而不是撑满整行（列方向默认 stretch），
- * 长问题由 max-width 兜住换行。悬停只升一档底色（无描边可改，故 transition
- * 里删掉 border-color）。 */
+ * 长问题由 max-width 兜住换行。
+ * 底色取 surface-3：中性色阶的顶档（亮色最深、暗色最亮），两块方案里对比最「实」
+ *（用户按对照图选定）。代价是中性「悬停升一档」在此已无落点（surface-3 之上没有
+ * 第四档），悬停改走全仓既有的可点母题 accent-soft 底 + accent 字（同时间戳 pill、
+ * 联网搜索开启态、思考档位选中态）。 */
 .biliscript-reading-chat .chat-chip {
   align-self: flex-start;
   max-width: 100%;
@@ -234,11 +237,11 @@
   padding: 12px 16px;
   border: 0;
   border-radius: 14px;
-  background: var(--biliscript-reader-surface-2);
+  background: var(--biliscript-reader-surface-3);
   color: var(--biliscript-reader-text);
   font: inherit;
   cursor: pointer;
-  transition: background 0.15s, transform 100ms ease-out;
+  transition: background 0.15s, color 0.15s, transform 100ms ease-out;
 }
 
 .biliscript-reading-chat .chat-chip:active {
@@ -246,7 +249,8 @@
 }
 
 .biliscript-reading-chat .chat-chip:hover {
-  background: var(--biliscript-reader-surface-3);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
 }
 
 /* 建议区提示行（chat-lists.ts 渲染，紧随其后的 chips 与前一行同左缘）：小图标 +

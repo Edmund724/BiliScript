@@ -26,20 +26,23 @@ function ruleBody(selector: string): string {
 }
 
 describe("建议问题区块（参考抖音）", () => {
-  it("chip 是填充式大圆角块：无描边、surface-2 底、14px 圆角、12/16 内边距", () => {
+  it("chip 是填充式大圆角块：无描边、surface-3 底、14px 圆角、12/16 内边距", () => {
     const block = ruleBody("\\.biliscript-reading-chat \\.chat-chip");
 
     expect(block).not.toMatch(/border:\s*1px/);
     expect(block).toMatch(/border-radius:\s*14px;/);
-    expect(block).toMatch(/background:\s*var\(--biliscript-reader-surface-2\);/);
+    expect(block).toMatch(/background:\s*var\(--biliscript-reader-surface-3\);/);
     expect(block).toMatch(/padding:\s*12px 16px;/);
   });
 
-  it("chip 贴内容宽（不撑满整行），悬停升一档底色", () => {
+  it("chip 贴内容宽（不撑满整行），悬停走 accent-soft + accent 字母题", () => {
     expect(ruleBody("\\.biliscript-reading-chat \\.chat-chip")).toMatch(/align-self:\s*flex-start;/);
-    expect(ruleBody("\\.biliscript-reading-chat \\.chat-chip:hover")).toMatch(
-      /background:\s*var\(--biliscript-reader-surface-3\);/
-    );
+
+    const hover = ruleBody("\\.biliscript-reading-chat \\.chat-chip:hover");
+    // 底色已占满中性色阶顶档（暗色最亮 / 亮色最深），中性「升一档」无落点，
+    // 悬停改走全仓既有的 accent-soft 底 + accent 字（可点/选中母题）。
+    expect(hover).toMatch(/background:\s*var\(--biliscript-reader-accent-soft\);/);
+    expect(hover).toMatch(/color:\s*var\(--biliscript-reader-accent\);/);
   });
 
   it("chip 上方有提示行：横排 + 小图标 + 次要色 14px 文案", () => {

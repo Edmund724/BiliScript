@@ -111,7 +111,7 @@ describe("renderSuggestions（建议提示词）", () => {
 
     const hint = container.querySelector(".chat-suggestions-hint");
     expect(hint).not.toBe(null);
-    expect(hint!.textContent).toBe("这段视频你可能想问");
+    expect(hint!.textContent).toBe("看到视频这一段，你可能想问");
     expect(hint!.querySelector(".chat-suggestions-hint-icon svg")).not.toBe(null);
 
     // 顺序即契约：提示行是建议区的第一个节点，chips 依次跟在后面。
