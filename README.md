@@ -6,7 +6,7 @@
 
 API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 ModelScope 都提供免费额度，日常使用基本够用。项目本身不送 Key，也不经手中转你的请求。
 
-[![Edge 应用市场立即安装](https://img.shields.io/badge/Edge%20%E5%BA%94%E7%94%A8%E5%B8%82%E5%9C%BA-%E7%AB%8B%E5%8D%B3%E5%AE%89%E8%A3%85-0078D4?logo=microsoftedge)](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) [![GitHub Releases 下载 zip](https://img.shields.io/badge/GitHub%20Releases-%E4%B8%8B%E8%BD%BD%20zip-24292F?logo=github)](https://github.com/Edmund724/BiliScript/releases) [![安装方式](#安装方式)](https://img.shields.io/badge/%E5%AE%89%E8%A3%85%E6%96%B9%E5%BC%8F-%E5%85%A8%E9%83%A8%E5%9C%A8%E8%BF%99%E9%87%8C-8957E5)
+[![Edge 应用市场立即安装](https://img.shields.io/badge/Edge%20%E5%BA%94%E7%94%A8%E5%B8%82%E5%9C%BA-%E7%AB%8B%E5%8D%B3%E5%AE%89%E8%A3%85-0078D4?logo=microsoftedge)](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) [![GitHub Releases 下载 zip](https://img.shields.io/badge/GitHub%20Releases-%E4%B8%8B%E8%BD%BD%20zip-24292F?logo=github)](https://github.com/Edmund724/BiliScript/releases) · [安装方式](#安装方式) · [设置 API Key](#设置-api-key) · [常见问题](#常见问题)
 
 ## 功能
 
