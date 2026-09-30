@@ -1,6 +1,6 @@
 # Edge 加载项上架清单 — BiliScript｜B站视频文摘
 
-> 状态：**已提交，审核中**（首版随 v2.3.0 提交，见 §7 的状态流转）。
+> 状态：**已上架**（listing：<https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn>，状态流转见 §7）。
 > 按 Partner Center 的六个页面组织，每节内容可直接粘贴。
 > 事实与风险基线见 `.scratch/tickets/edge-store-publishing/spec.md`。
 

@@ -44,7 +44,9 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 
 ## 安装方式
 
-> 支持 Chrome 120 或更高版本，不支持 Firefox。核心功能依赖 offscreen 等 Chromium 专属 API。Edge 加载项商店版本已提交审核，审核通过后可直接安装，当前可用下方 unpacked 方式。
+> 支持 Chrome 120 或更高版本，不支持 Firefox。核心功能依赖 offscreen 等 Chromium 专属 API。
+>
+> **Edge 用户**：[BiliScript｜B站视频文摘](https://microsoftedge.microsoft.com/addons/detail/nhjeecahklhcjknimgapihnjbeiolpmn) 已上架 Edge 加载项商店，点链接安装即可，之后的版本由商店自动更新。Chrome 用户走下方 unpacked 方式。
 
 ### 方式一：下载打包版本（推荐）
 
