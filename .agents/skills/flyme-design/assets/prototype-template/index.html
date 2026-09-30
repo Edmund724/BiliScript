@@ -19,10 +19,15 @@
   --primary-tint: rgba(0, 140, 255, 0.10);
   --ic-blue: #008CFF; --ic-teal: #13B8C4; --ic-green: #34B37A;
   --ic-amber: #F5A623; --ic-orange: #FF7A45; --ic-red: #F5484D; --ic-purple: #7B61FF;
-  /* AI 流光渐变（AIOS 2；仅 AI 场景：Aicy/AI 生成/实况通知，浅深同值） */
+  /* AI 流光渐变（AIOS 2；仅 AI 场景：Aicy/问屏/实况/AI 生成，浅深同值；读图校准：渐变字紫左橙右） */
   --ai-glow: linear-gradient(120deg, #2B5BFF, #7B5CFF 55%, #B44BFF);
-  --ai-text: linear-gradient(90deg, #FFB13D, #FF5C8A 50%, #8A5CFF);
+  --ai-text: linear-gradient(90deg, #7B5CFF, #FF5C8A 50%, #FF9F2E);
   --ai-logo: linear-gradient(135deg, #FF9F2E, #B44BFF 55%, #4E5BFF);
+  --ai-orb: radial-gradient(circle at 35% 35%, #3DF0B6, #4E8CFF 55%, #B44BFF);
+  --ai-pill-line: linear-gradient(90deg, #7B5CFF, #FF5C8A 50%, #FF9F2E);
+  --alive-warm: linear-gradient(135deg, #FFB13D, #FF5C3D 55%, #FF2E7E);
+  --tint-mint: #DDF3EF; --tint-lavender: #EFEAFF; --tint-blue: #EDF3FD;
+  --bubble-user: #FFE9CF;
   --bg: #F2F3F5; --card: #FFFFFF; --field: #F0F1F3;
   --glass: rgba(255, 255, 255, 0.72);
   --glass-solid: rgba(250, 251, 252, 0.95);
@@ -348,6 +353,33 @@ svg { display: block; }
 }
 @keyframes ai-drift { from { transform: translate3d(-4%, -2%, 0) rotate(-4deg); } to { transform: translate3d(4%, 3%, 0) rotate(4deg); } }
 
+/* ============ AI 营销组件（读图新增）：渐变描边胶囊 / 圆角方形浓彩图标 / 蜜桃气泡 / 多彩声浪条 ============ */
+.pill-gradient {
+  display: inline-flex; align-items: center; height: 40px; padding: 0 20px; border-radius: 20px;
+  background: var(--card); position: relative; font-size: 15px; font-weight: 600;
+  border: 1.5px solid transparent;
+  background-image: linear-gradient(var(--card), var(--card)), var(--ai-pill-line);
+  background-origin: border-box; background-clip: padding-box, border-box;
+}
+.pill-gradient span { background: var(--ai-text); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.squircle {
+  width: 48px; height: 48px; border-radius: 14px; color: #fff; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.squircle svg { width: 26px; height: 26px; }
+.bubble-user {
+  background: var(--bubble-user); border-radius: 16px 16px 4px 16px;
+  padding: 10px 14px; font-size: 15px; max-width: 78%;
+}
+.wave { display: inline-flex; align-items: center; gap: 3px; }
+.wave i { width: 3px; border-radius: 2px; animation: wave 1.2s ease-in-out infinite; }
+.wave i:nth-child(1) { height: 8px; background: #FF9F2E; }
+.wave i:nth-child(2) { height: 14px; background: #FF5C8A; animation-delay: .15s; }
+.wave i:nth-child(3) { height: 18px; background: #B44BFF; animation-delay: .3s; }
+.wave i:nth-child(4) { height: 12px; background: #4E5BFF; animation-delay: .45s; }
+.wave i:nth-child(5) { height: 7px; background: #2FC6D1; animation-delay: .6s; }
+@keyframes wave { 50% { transform: scaleY(.45); opacity: .7; } }
+
 /* ============ Toast ============ */
 .toast {
   position: fixed; bottom: calc(120px + env(safe-area-inset-bottom, 0px)); left: 50%;
@@ -369,6 +401,7 @@ svg { display: block; }
   *, *::before, *::after { transition-duration: .1s !important; animation-delay: 0s !important; }
   .rise { animation: none; }
   .ai-breathe::before { animation: none; opacity: .25; }
+  .wave i { animation: none; }
   .cc { transition: none; }
   .cc-sheet { transition-timing-function: ease-out; }
   .dlg { transition-property: opacity, display, overlay; }  /* 退化为纯 fade */
@@ -547,18 +580,16 @@ svg { display: block; }
     <article class="card rise">
       <header class="aicy-head">
         <span class="aicy-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round">
             <defs>
-              <linearGradient id="aicyGrad" x1="0" y1="1" x2="1" y2="0">
-                <stop offset="0" stop-color="#4E5BFF"/><stop offset=".5" stop-color="#B44BFF"/><stop offset="1" stop-color="#FF9F2E"/>
+              <linearGradient id="aicyGrad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#FF9F2E"/><stop offset=".5" stop-color="#B44BFF"/><stop offset="1" stop-color="#4E5BFF"/>
               </linearGradient>
             </defs>
+            <!-- Aicy 双环交织（AIOS 2 读图校准：两环交织如连续单线结，非五环） -->
             <g stroke="url(#aicyGrad)">
-              <ellipse cx="12" cy="12" rx="9" ry="3.6"/>
-              <ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(36 12 12)"/>
-              <ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(72 12 12)"/>
-              <ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(108 12 12)"/>
-              <ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(144 12 12)"/>
+              <ellipse cx="12" cy="12" rx="9" ry="4.4" transform="rotate(32 12 12)"/>
+              <ellipse cx="12" cy="12" rx="9" ry="4.4" transform="rotate(-32 12 12)"/>
             </g>
           </svg>
         </span>
