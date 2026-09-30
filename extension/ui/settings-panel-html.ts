@@ -97,9 +97,9 @@ export function buildSettingsHtml(): string {
     </section>
 
     <div class="biliscript-set-actions">
+      <p id="biliscriptSettingsStatus" class="biliscript-set-status"></p>
       <button id="biliscriptSettingsResetBtn" type="button" class="add-property-btn">恢复默认偏好</button>
       <button id="biliscriptSettingsSaveBtn" type="button" class="biliscript-set-save-btn">保存设置</button>
     </div>
-    <p id="biliscriptSettingsStatus" class="biliscript-set-status"></p>
   `;
 }

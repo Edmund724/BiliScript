@@ -341,3 +341,31 @@ describe("恢复默认偏好按钮", () => {
     expect(lastStatus(host).textContent).not.toContain("已恢复默认设置");
   });
 });
+
+// ===== 保存行贴底（2026-10 用户决议）=====
+// 抽屉滚到最低时「保存设置」行必须是内容末行：状态提示原本是保存行之后的独立
+// 网格行（min-height 16px + 14px 网格间距），滚到底还会多滑出一段空白，按钮
+// 悬在末行之上。状态提示并入保存行后 DOM 末节点即该行，且提示与按钮同排
+//（DOM 顺序 = flex 行内顺序：提示在左、动作按钮在右）。
+describe("设置抽屉保存行：末行贴底 + 状态提示同排", () => {
+  it("保存行是 host 内最后一个内容块，其下不得再有节点", async () => {
+    installMessageBus();
+    const host = await mountPanel();
+
+    const actions = host.querySelector(".biliscript-set-actions");
+    expect(actions).toBeTruthy();
+    expect(host.lastElementChild).toBe(actions);
+  });
+
+  it("状态提示挂在保存行内（与按钮同排），提示在左、动作按钮在右", async () => {
+    installMessageBus();
+    const host = await mountPanel();
+
+    const status = lastStatus(host);
+    expect(status.closest(".biliscript-set-actions")).toBe(host.querySelector(".biliscript-set-actions"));
+    expect(status.nextElementSibling?.id).toBe("biliscriptSettingsResetBtn");
+    expect(host.querySelector("#biliscriptSettingsResetBtn")!.nextElementSibling?.id).toBe(
+      "biliscriptSettingsSaveBtn"
+    );
+  });
+});

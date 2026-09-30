@@ -256,9 +256,20 @@
   gap: 8px;
 }
 
+/* 保存行 = 抽屉内容末行（2026-10 用户决议）：状态提示与动作按钮同排（提示在左、
+ * 按钮在右，DOM 顺序即 flex 行内顺序）——状态提示原本是保存行之后的独立网格行
+ *（min-height 16px + 14px 网格间距），滚到最低时按钮下方还挂着一段空行余量，
+ * 末行不是保存行。并入同行后 actions 即末节点，贴底时保存行就是最后一行。
+ * 按钮 flex: 0 0 auto：长错误文案下状态提示先收缩，动作按钮不被挤压换行。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-actions > button {
+  flex: 0 0 auto;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-save-btn {
@@ -284,8 +295,9 @@
   cursor: default;
 }
 
+/* 状态提示：保存行内的左侧占位（auto 右边距把按钮推到行尾），与按钮同排居中。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-status {
-  margin: 0;
+  margin: 0 auto 0 0;
   min-height: 16px;
   font-size: 14px;
   line-height: 1.4;
