@@ -41,32 +41,57 @@
  * 顶距，下方 = 4 + 消息区的 12px）。
  * 2026-10 用户决议（截图，第三轮）：删标题后工具条成了两个裸控件，与下方消息
  * 正文糊成一片（用户报「应该有个框」）→ 给工具条加框。
- * 2026-10 用户决议（截图，第四轮）：改为分成两个槽——框不落在容器上，而是每键
- * 各一个描边胶囊（用户报「分成两个槽，不要在一个槽里」）。容器据此退回纯布局行：
- * 只留右对齐与两槽间距（align-self: flex-end 让行贴内容宽；列方向 flex 的默认
- * stretch 会横贯整行，与上方分段控件打架）。行内上下留白 2px，两键各 34px
- *（32 + 上下 1px 边框）= 38px，与第三轮前逐像素一致——原留白位仍是描边。 */
+ * 2026-10 用户决议（截图，第四轮）：框不落在容器上，每键各一个（用户报「分成两个
+ * 槽，不要在一个槽里」）→ 容器退回纯布局行：只留右对齐与组距（align-self: flex-end
+ * 让行贴内容宽；列方向 flex 的默认 stretch 会横贯整行，与上方分段控件打架）。
+ * 2026-10 用户决议（截图，第五轮）：两键原先是 999px 胶囊/圆形，与面板 header 的
+ * 主题/设置/退出三键（.biliscript-reading-icon-btn：34px / 8px 圆角方框）不成一致
+ * （用户报「完全没有符合一致性」，指定按 flyme-design 统一）→ 两键改用面板既有的
+ * 「8px = 一切框」形态（见下方框规则）。行自身的 min-height/padding 随之删除：
+ * 键高已从 32px 升到 34px（含边框 36px），行再留白就是白占空档。 */
 .biliscript-reading-chat .chat-header {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 5px;
+  gap: 8px;
   align-self: flex-end;
-  min-height: 32px;
-  padding: 2px 0;
   flex-shrink: 0;
 }
 
-/* 两个槽（选择器组同时命中文字键与图标键）：1px 边框 + surface 底 + 全圆角胶囊，
- * 母题同下方 .chat-input-card（border + surface），圆角取按钮自身原有的 999px。
+/* 两键的框形态与面板 header 三键同源（reader.css 的「8px = 一切框」明文决议：
+ * .biliscript-reading-icon-btn 及其覆写
+ * #biliscript-reading-view .biliscript-reading-actions button.biliscript-reading-icon-btn）：
+ * 34px 键高、1px 边框 + surface 底、8px 圆角。改了这里就得同步改那边——
+ * chat-header-toolbox.test.ts 断的是「两边同值」而非字面值。
  * 悬停底由本文件更靠后的 .chat-toolbar-btn:hover / .chat-icon-btn:hover 接住
  *（与本节同特异性 (0,3,0)，靠源序取胜），故本规则不能挪到按钮基础规则之后。 */
 .biliscript-reading-chat .chat-header .chat-toolbar-btn,
 .biliscript-reading-chat .chat-header .chat-icon-btn {
   flex-shrink: 0;
+  height: 34px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--biliscript-reader-surface);
+}
+
+/* 图标键：照 header 三键补成 34×34 方键（基础段是 32×32，聊天工具条里只有「新会话」
+ * 一个图标键；历史整页头部的返回键不在 .chat-header 内，不受影响）。 */
+.biliscript-reading-chat .chat-header .chat-icon-btn {
+  width: 34px;
+  padding: 0;
+}
+
+/* 图标键内的「+」与 header 三键的图标同尺寸（基础段 14px → 18px）。 */
+.biliscript-reading-chat .chat-header .chat-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 文字键：横向内边距与字号走面板文字动作按钮（reader.css
+ * .biliscript-reading-actions button 的 0 14px / 15px），两处同值才算一致。 */
+.biliscript-reading-chat .chat-header .chat-toolbar-btn {
+  padding: 0 14px;
+  font-size: 15px;
 }
 
 /* 思考档位分段控件（模型面板底部）：浅色容器内嵌分段药丸——inactive 档纯
