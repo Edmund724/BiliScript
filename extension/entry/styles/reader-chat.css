@@ -40,13 +40,12 @@
  * 上下留白 6/8 → 2/4，消掉「历史对话」上方与下方两处空档（上方 = 2 + 面板板面
  * 顶距，下方 = 4 + 消息区的 12px）。
  * 2026-10 用户决议（截图，第三轮）：删标题后工具条成了两个裸控件，与下方消息
- * 正文糊成一片（用户报「应该有个框」）。据此把它收进一个「槽」——1px 边框 +
- * surface 底 + 全圆角胶囊，只包住两键（align-self: flex-end 让槽贴内容宽；
- * 列方向 flex 的默认 stretch 会横贯整行，与上方分段控件打架）。母题同上方
- * .biliscript-reading-tabs（凹槽 + 槽内控件）与下方 .chat-input-card（border +
- * surface 卡片），不引入新的视觉语言；justify-content: flex-end 保留作槽退化
- * 成整行时的兜底。纵向占位与原决议逐像素一致：旧 2 + 32 + 4，新 1 + 2 + 32 + 2 + 1
- * ——「空档」原位换成框，消息区高度不变。 */
+ * 正文糊成一片（用户报「应该有个框」）→ 给工具条加框。
+ * 2026-10 用户决议（截图，第四轮）：改为分成两个槽——框不落在容器上，而是每键
+ * 各一个描边胶囊（用户报「分成两个槽，不要在一个槽里」）。容器据此退回纯布局行：
+ * 只留右对齐与两槽间距（align-self: flex-end 让行贴内容宽；列方向 flex 的默认
+ * stretch 会横贯整行，与上方分段控件打架）。行内上下留白 2px，两键各 34px
+ *（32 + 上下 1px 边框）= 38px，与第三轮前逐像素一致——原留白位仍是描边。 */
 .biliscript-reading-chat .chat-header {
   display: flex;
   align-items: center;
@@ -54,21 +53,20 @@
   gap: 5px;
   align-self: flex-end;
   min-height: 32px;
-  padding: 2px 4px;
+  padding: 2px 0;
+  flex-shrink: 0;
+}
+
+/* 两个槽（选择器组同时命中文字键与图标键）：1px 边框 + surface 底 + 全圆角胶囊，
+ * 母题同下方 .chat-input-card（border + surface），圆角取按钮自身原有的 999px。
+ * 悬停底由本文件更靠后的 .chat-toolbar-btn:hover / .chat-icon-btn:hover 接住
+ *（与本节同特异性 (0,3,0)，靠源序取胜），故本规则不能挪到按钮基础规则之后。 */
+.biliscript-reading-chat .chat-header .chat-toolbar-btn,
+.biliscript-reading-chat .chat-header .chat-icon-btn {
+  flex-shrink: 0;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 999px;
   background: var(--biliscript-reader-surface);
-  flex-shrink: 0;
-}
-
-.biliscript-reading-chat .chat-header .chat-toolbar-btn {
-  flex-shrink: 0;
-}
-
-/* 槽内图标键跟随槽的胶囊形状：.chat-icon-btn 的 8px 方角悬停底贴在 999px 槽端
- * 会露出方角（历史整页头部的返回键不在槽内，不受此覆写影响）。 */
-.biliscript-reading-chat .chat-header .chat-icon-btn {
-  border-radius: 999px;
 }
 
 /* 思考档位分段控件（模型面板底部）：浅色容器内嵌分段药丸——inactive 档纯

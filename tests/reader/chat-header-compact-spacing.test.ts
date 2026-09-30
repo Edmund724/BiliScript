@@ -8,10 +8,10 @@
 // 14px 不动（规则在 reader.css 域）。
 // 形状同 chat-header-context-chip-removed：直接断言 CSS 文本，防「改一半」
 //（只改 min-height 忘 padding、或只改头部忘上方板面顶距）。
-// 2026-10 第三轮（工具条加槽，见 chat-header-toolbox.test.ts）：头部盒的 0/4
-// 左右内边距与 2/4 上下留白被槽的 border+padding 取代——纵向总高仍是 38px
-// （旧 2 + 32 + 4，新 1 + 2 + 32 + 2 + 1），本条断言的「无额外纵高」意图不变，
-// 故这里改断对称内边距 2px 4px。
+// 2026-10 第三轮（工具条加框）与第四轮（改分成两个槽，见 chat-header-toolbox.test.ts）：
+// 头部盒的 0/4 左右内边距与 2/4 上下留白先后被槽/双槽的边框取代——纵向总高仍是
+// 38px（旧 2 + 32 + 4，今 2 + 34 + 2，两键各 34px = 32 + 上下 1px 边框），本条断言的
+// 「无额外纵高」意图不变，故这里断行内对称留白 2px 0。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -34,8 +34,8 @@ describe("对话头部工具条紧凑化", () => {
     expect(chatHeaderBlock()).toMatch(/min-height:\s*32px;/);
   });
 
-  it("盒高不含额外留白：对称内边距 2px / 4px（含 1px 边框共 38px，与加槽前等值）", () => {
-    expect(chatHeaderBlock()).toMatch(/padding:\s*2px 4px;/);
+  it("行内留白对称 2px 0：加两键各 1px 边框后总高仍是 38px，无额外纵高", () => {
+    expect(chatHeaderBlock()).toMatch(/padding:\s*2px 0;/);
   });
 
   it("对话面板的板面顶距单独收到 4px（首行是工具条，不留正文级 14px）", () => {
