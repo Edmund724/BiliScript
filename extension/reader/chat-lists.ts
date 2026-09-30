@@ -41,11 +41,12 @@ export interface ReaderChatLists {
 }
 
 // 建议区提示行（2026-10 用户决议，参考抖音 AI 对话面板）：chip 上方一行小标题，
-// 说明这三条建议是什么。文案照抖音原文（用户选定）；图标与 ui/icons.ts 的 sparkles、
-// chat-stream-render 的思考图标同族（24 视框 / stroke 1.8 / currentColor），本模块
-// 自带一份、不引外部资源；纯装饰，随 svg 自带 aria-hidden。文案是静态常量，
-// 随 chips 一起渲染/清空。
-const SUGGESTIONS_HINT_TEXT = "看到视频这一段，你可能想问";
+// 说明这三条建议是什么。文案按面板口径收短（抖音原文「看到视频这一段，你可能想问」
+// 的「这一段」指当前播放片段，而建议是按整视频生成的，口径不符——用户改回）；
+// 图标与 ui/icons.ts 的 sparkles、chat-stream-render 的思考图标同族（24 视框 /
+// stroke 1.8 / currentColor），本模块自带一份、不引外部资源；纯装饰，随 svg 自带
+// aria-hidden。文案是静态常量，随 chips 一起渲染/清空。
+const SUGGESTIONS_HINT_TEXT = "这段视频你可能想问";
 const SUGGESTIONS_HINT_ICON_SVG =
   '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6l1.84 4.96 4.96 1.84-4.96 1.84L12 17.2l-1.84-4.96L5.2 10.4l4.96-1.84L12 3.6z"/></svg>';
 
