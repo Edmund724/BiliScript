@@ -40,6 +40,14 @@ export interface ReaderChatLists {
   renderHistoryList: () => void;
 }
 
+// 建议区提示行（2026-10 用户决议，参考抖音 AI 对话面板）：chip 上方一行小标题，
+// 说明这三条建议是什么。图标与 ui/icons.ts 的 sparkles、chat-stream-render 的思考
+// 图标同族（24 视框 / stroke 1.8 / currentColor），本模块自带一份、不引外部资源；
+// 纯装饰，随 svg 自带 aria-hidden。文案是静态常量，随 chips 一起渲染/清空。
+const SUGGESTIONS_HINT_TEXT = "这段视频你可能想问";
+const SUGGESTIONS_HINT_ICON_SVG =
+  '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6l1.84 4.96 4.96 1.84-4.96 1.84L12 17.2l-1.84-4.96L5.2 10.4l4.96-1.84L12 3.6z"/></svg>';
+
 export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderChatLists {
   const { historyList, historyClearBtn, input, getSuggestionsNode } = deps;
 
@@ -58,9 +66,12 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       chatSessionState.aiPrefs.aiInitialQuickPrompts,
       readCachedQuickPrompts(chatSessionState.currentContextKey)
     );
-    suggestionsNode.innerHTML = prompts
-      .map((prompt) => `<button type="button" class="chat-chip">${escapeHtml(prompt)}</button>`)
-      .join("");
+    // 顺序即契约（测试与样式都依赖）：提示行在前，chips 依次在后。
+    suggestionsNode.innerHTML =
+      `<p class="chat-suggestions-hint"><span class="chat-suggestions-hint-icon">${SUGGESTIONS_HINT_ICON_SVG}</span><span>${SUGGESTIONS_HINT_TEXT}</span></p>` +
+      prompts
+        .map((prompt) => `<button type="button" class="chat-chip">${escapeHtml(prompt)}</button>`)
+        .join("");
     suggestionsNode.querySelectorAll(".chat-chip").forEach((btn) => {
       btn.addEventListener("click", () => {
         input.value = btn.textContent || "";

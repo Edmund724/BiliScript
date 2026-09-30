@@ -105,6 +105,21 @@ describe("renderSuggestions（建议提示词）", () => {
     expect(deps.onSuggestionClick).toHaveBeenCalledWith("整理笔记");
   });
 
+  it("有建议时先渲染一行提示（图标 + 文案），chips 紧随其后", () => {
+    const { lists, container } = makeDeps();
+    lists.renderSuggestions();
+
+    const hint = container.querySelector(".chat-suggestions-hint");
+    expect(hint).not.toBe(null);
+    expect(hint!.textContent).toBe("这段视频你可能想问");
+    expect(hint!.querySelector(".chat-suggestions-hint-icon svg")).not.toBe(null);
+
+    // 顺序即契约：提示行是建议区的第一个节点，chips 依次跟在后面。
+    const children = [...container.querySelectorAll(".chat-suggestions-hint, .chat-chip")];
+    expect(children[0]).toBe(hint);
+    expect(children.slice(1).map((el) => el.textContent)).toEqual(["总结视频", "整理笔记"]);
+  });
+
   it("无上下文：清空建议区", () => {
     chatSessionStateForTests.contextData = null;
     const { lists, setSuggestionsNode } = makeDeps();

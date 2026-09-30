@@ -222,16 +222,23 @@
   padding: 8px 0 8px;
 }
 
+/* 建议 chip（2026-10 用户决议，参考抖音 AI 对话面板）：填充式无描边大圆角块。
+ * 原先是 1px 描边 + 10px 圆角 + surface 底的窄 chip（用户报「太丑了」）；
+ * align-self: flex-start 让 chip 贴内容宽而不是撑满整行（列方向默认 stretch），
+ * 长问题由 max-width 兜住换行。悬停只升一档底色（无描边可改，故 transition
+ * 里删掉 border-color）。 */
 .biliscript-reading-chat .chat-chip {
+  align-self: flex-start;
+  max-width: 100%;
   text-align: left;
-  padding: 10px 12px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
-  background: var(--biliscript-reader-surface);
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-text);
   font: inherit;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 100ms ease-out;
+  transition: background 0.15s, transform 100ms ease-out;
 }
 
 .biliscript-reading-chat .chat-chip:active {
@@ -239,8 +246,33 @@
 }
 
 .biliscript-reading-chat .chat-chip:hover {
-  background: var(--biliscript-reader-surface-2);
-  border-color: var(--biliscript-reader-surface-3);
+  background: var(--biliscript-reader-surface-3);
+}
+
+/* 建议区提示行（chat-lists.ts 渲染，紧随其后的 chips 与前一行同左缘）：小图标 +
+ * 次要色文案。left padding 2px 只作视觉微调——chip 自身还有 16px 内边距，文案不
+ * 与 chip 内文字对齐，而是与 chip 框左缘对齐（抖音同款）。 */
+.biliscript-reading-chat .chat-suggestions-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 2px;
+  color: var(--biliscript-reader-muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.biliscript-reading-chat .chat-suggestions-hint-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--biliscript-reader-faint);
+}
+
+.biliscript-reading-chat .chat-suggestions-hint-icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
 }
 
 /* 气泡是「内容排版域」的形状与字号档：正文 16px（与字幕正文的
