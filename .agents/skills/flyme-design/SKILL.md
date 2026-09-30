@@ -1,6 +1,10 @@
 ---
 name: flyme-design
-description: Flyme design language (Alive Design) for the web — light orderly surfaces, capsule controls, colorful icons, frosted glass, AI glow gradients, interruptible springy motion. Use when building Flyme-style app pages, components, settings/control-center/notification layouts, Aicy panels, or single-file HTML prototypes. Trigger: Flyme, 魅族, Meizu, AIOS, Aicy.
+description: >-
+  Flyme design language (Alive Design) for the web — light orderly surfaces, capsule controls,
+  colorful icons, frosted glass, AI glow gradients, interruptible springy motion. Use when building
+  Flyme-style app pages, components, settings/control-center/notification layouts, Aicy panels, or
+  single-file HTML prototypes. Trigger: Flyme, 魅族, Meizu, AIOS, Aicy.
 ---
 
 # Flyme Design
