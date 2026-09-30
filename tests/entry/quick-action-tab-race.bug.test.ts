@@ -12,7 +12,8 @@
 // 新形状（单命令）：background 的 handlePlayerAiQuickAction 只发一条带 chat
 // 负载的 reader-enter（经 triggerReaderModeInTab 的重试/注入链）；content 侧
 // 对话激活收进 shell 进入事务体内（reader/shell.ts chat 档，单飞队列排尾），
-// 在进入事务收敛（含 reset-tabs）后才落地——race 防护语义由事务队列保住。
+// 在进入事务收敛（含按持久值恢复 tab 的 set-tab 命令）后才落地——race 防护
+// 语义由事务队列保住。
 //
 // 本文件两段验证：
 //   1. background 半边（handlePlayerAiQuickAction → triggerReaderChatInTab →
@@ -26,7 +27,8 @@
 // 保真边界（content 半边；两个 tab 写手均为单行 reader-bus 命令，其余代码只
 // 决定到达次序）：
 //   - enterReaderMode 桩复刻 lifecycle.enterReaderMode 的 tab 相关行为
-//     （setViewOpen(true) + requestUiCommand("reset-tabs")，lifecycle.ts:272-283）；
+//     （setViewOpen(true) + 按持久值 requestUiCommand("set-tab", { tab })，
+//     lifecycle.ts 的进入链）；
 //   - runQuickActionPrompt 桩复刻 chat-tab.runQuickActionPrompt 的 tab 相关
 //     行为（requestUiCommand("set-tab:chat", {consumeIntent:false})，
 //     chat-tab.ts:756）。
@@ -212,7 +214,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     m.state.reader.setViewOpen(false);
     m.state.reader.setViewReady(false);
 
-    // 预热壳：装载真实 ui-renderer（注册 set-tab:chat / reset-tabs 订阅者）并
+    // 预热壳：装载真实 ui-renderer（注册 set-tab / set-tab:chat 订阅者）并
     // 构建 文摘面板 DOM。消息链的 ensureUiReady 桩走幂等 no-op，把「模块装载
     // 快慢」这一生产随机项从回路里钉掉，只留我们要测的事务序。
     uiRenderer.ensureUiReady();
@@ -244,13 +246,14 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
       releaseEnter = resolve;
     });
     (m.ensureReaderDomain as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ensureReaderOverviewTab: vi.fn(),
       enterReaderMode: async () => {
         m.state.reader.setViewOpen(true);
         order.push("enter-start");
         await enterGate;
-        order.push("reset-tabs");
-        // lifecycle.enterReaderMode 的 tab 相关行为（lifecycle.ts:272-283）
-        m.requestUiCommand("reset-tabs");
+        order.push("restore-tab");
+        // lifecycle.enterReaderMode 的 tab 相关行为：按持久值恢复所在标签
+        m.requestUiCommand("set-tab", { tab: "overview" });
       }
     });
 
@@ -264,12 +267,12 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     // 进入事务被 gate 卡住 ⇒ 对话激活只能排尾，此时还没触碰对话 tab
     expect(m.ensureReaderChatTab).not.toHaveBeenCalled();
 
-    // 放行 enterReaderMode 尾段：reset-tabs 落地、进入事务收敛
+    // 放行 enterReaderMode 尾段：tab 恢复落地、进入事务收敛
     releaseEnter();
-    await vi.waitFor(() => expect(order).toContain("reset-tabs"));
+    await vi.waitFor(() => expect(order).toContain("restore-tab"));
 
     // 事务收敛后 chat 档才激活对话 tab：用户最终停在 AI 对话 tab
-    //（双消息直发时代，无防护时 reset-tabs 后落会把对话 tab 盖回字幕 tab）
+    //（双消息直发时代，无防护时晚落的 tab 写手会把对话 tab 盖回字幕 tab）
     await vi.waitFor(() => expectTabActive(m.ids, "Chat", true));
     expectTabActive(m.ids, "Chat", true);
     expectTabActive(m.ids, "Subtitle", false);
@@ -279,16 +282,17 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
   it("对照（赢序）：enterReaderMode 先收敛、chat 激活后落 ⇒ 停在对话 tab（绿灯）", async () => {
     const order: string[] = [];
     (m.ensureReaderDomain as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ensureReaderOverviewTab: vi.fn(),
       enterReaderMode: async () => {
         m.state.reader.setViewOpen(true);
-        m.requestUiCommand("reset-tabs");
+        // 进入事务先把 tab 恢复到持久值（此处概览），随后被 chat 档激活覆盖
+        m.requestUiCommand("set-tab", { tab: "overview" });
         order.push("enter-done");
       }
     });
 
     m.dispatch({ type: "reader-enter", readerUrl: "", chat: { prompt: "总结" } }, vi.fn());
-    // 进入事务先收敛：tab 重置到默认字幕（信号用事务尾，不用 DOM——模板默认
-    // 字幕 tab 即 active，DOM 判定分不出「进入事务已跑完」）
+    // 进入事务先收敛（信号用事务尾，不用 DOM——命令落地后 DOM 还可能是模板初值）
     await vi.waitFor(() => expect(order).toContain("enter-done"));
 
     await vi.waitFor(() => expectTabActive(m.ids, "Chat", true));
@@ -298,11 +302,12 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
     expect(m.getReaderActiveScriptTab()).toBe("chat");
   });
 
-  it("无 chat 负载：纯 open 意图，零对话激活", async () => {
+  it("无 chat 负载：纯 open 意图，零对话激活，tab 停在持久值（概览）", async () => {
     (m.ensureReaderDomain as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ensureReaderOverviewTab: vi.fn(),
       enterReaderMode: async () => {
         m.state.reader.setViewOpen(true);
-        m.requestUiCommand("reset-tabs");
+        m.requestUiCommand("set-tab", { tab: "overview" });
       }
     });
 
@@ -314,6 +319,7 @@ describe("单命令 reader-enter（带 chat 负载）的进入事务序", () => 
 
     expect(m.ensureReaderChatTab).not.toHaveBeenCalled();
     expectTabActive(m.ids, "Chat", false);
-    expectTabActive(m.ids, "Subtitle", true);
+    expectTabActive(m.ids, "Overview", true);
+    expectTabActive(m.ids, "Subtitle", false);
   });
 });

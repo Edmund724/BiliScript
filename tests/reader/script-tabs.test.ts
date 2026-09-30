@@ -8,7 +8,8 @@
 //      为静默真壳（消息区/输入框等节点齐备，未激活前空态无假数据）；
 //   C. tab 切换：点击 tab 按钮 → is-active/aria-selected/hidden 三通道一致，
 //      字幕 tab 与概览/AI 对话互斥显示；
-//   D. 进入阅读模式重置到默认「字幕」tab（概览停留状态不跨会话保留）；
+//   D. 进入阅读模式恢复上次所在标签（2026-10 用户决议：刷新不跳回字幕 tab；
+//      当前标签落 chrome.storage.local）；无值/脏值回落「字幕」；
 //   E. 视图开着期间 renderReadingView（切轨重渲）不重置 tab——不打断用户
 //      所在标签。
 
@@ -129,14 +130,18 @@ describe("统一 文摘面板三标签", () => {
     expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(true);
   });
 
-  it("C. 点击 tab 按钮：三通道（is-active/aria-selected/hidden）一致切换", async () => {
+  it("C. 点击 tab 按钮：三通道（is-active/aria-selected/hidden）一致切换，并写穿持久化", async () => {
     // bindUiEvents 由 ensureUiReady 首建时绑定；forceRecreate 后需重绑
     uiRenderer.bindUiEvents();
+    vi.mocked(chrome.storage.local.set).mockClear();
 
     (tabButton("Overview") as HTMLButtonElement).click();
     expectTabActive("Overview", true);
     expectTabActive("Subtitle", false);
     expectTabActive("Chat", false);
+    expect(vi.mocked(chrome.storage.local.set)).toHaveBeenCalledWith({
+      readerActiveScriptTab: "overview"
+    });
 
     (tabButton("Chat") as HTMLButtonElement).click();
     expectTabActive("Chat", true);
@@ -145,29 +150,58 @@ describe("统一 文摘面板三标签", () => {
     (tabButton("Subtitle") as HTMLButtonElement).click();
     expectTabActive("Subtitle", true);
     expectTabActive("Chat", false);
+    // 切回字幕同样落盘：否则刷新后会被上一次的非字幕值恢复
+    expect(vi.mocked(chrome.storage.local.set)).toHaveBeenLastCalledWith({
+      readerActiveScriptTab: "subtitle"
+    });
   });
 
-  it("D. 进入阅读模式：重置回默认「字幕」tab", async () => {
+  it("D1. 进入阅读模式：恢复上次所在标签（概览）——刷新不跳回字幕", async () => {
     seedSubtitleBody();
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
     document.body.setAttribute("data-biliscript-reader-mode", "1");
-
-    // 先手动切到概览（模拟上一次会话的停留状态）
-    uiRenderer.setReaderScriptTab("overview");
-    expectTabActive("Overview", true);
-    expect(getReaderActiveScriptTab()).toBe("overview");
+    // 唯一输入是持久值：DOM 与状态位由进入链按它重建
+    vi.mocked(chrome.storage.local.get).mockResolvedValue({ readerActiveScriptTab: "overview" });
 
     await reader.enterReaderMode();
+
+    expect(state.reader.readingViewOpen).toBe(true);
+    expectTabActive("Overview", true);
+    expectTabActive("Subtitle", false);
+    expectTabActive("Chat", false);
+    // 状态位与 DOM 三通道同源（single source of truth，见 reader/state.js）
+    expect(getReaderActiveScriptTab()).toBe("overview");
+  });
+
+  it("D2. 进入阅读模式：无持久值回落默认「字幕」tab", async () => {
+    seedSubtitleBody();
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
+    vi.mocked(chrome.storage.local.get).mockResolvedValue({});
+
+    await reader.enterReaderMode();
+
     expect(state.reader.readingViewOpen).toBe(true);
     expectTabActive("Subtitle", true);
     expectTabActive("Overview", false);
     expectTabActive("Chat", false);
-    // 状态位与 DOM 三通道同源（single source of truth，见 reader/state.js）
     expect(getReaderActiveScriptTab()).toBe("subtitle");
 
     // 字幕列表在打开后正常渲染进字幕 tab
     const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
     expect(subtitleList.querySelectorAll(".biliscript-reading-item").length).toBe(2);
+  });
+
+  it("D3. 进入阅读模式：脏持久值回落「字幕」tab（不把未知值当标签）", async () => {
+    seedSubtitleBody();
+    document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+    document.body.setAttribute("data-biliscript-reader-mode", "1");
+    vi.mocked(chrome.storage.local.get).mockResolvedValue({ readerActiveScriptTab: "ghost" });
+
+    await reader.enterReaderMode();
+
+    expectTabActive("Subtitle", true);
+    expect(getReaderActiveScriptTab()).toBe("subtitle");
   });
 
   it("E. 视图开着期间重渲（切轨/subtitle-ready）不重置所在 tab", async () => {

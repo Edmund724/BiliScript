@@ -57,12 +57,14 @@ import { ids } from "./state.js";
 // 只剩 video-bind + script-host。
 import { openScriptHost, closeScriptHost } from "./script-host.js";
 import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
-// PR2 统一 文摘面板：进入阅读模式时把右侧面板重置回默认「字幕」标签。
-// tab 切换是纯壳交互，实现在 ui/ui-renderer（bindUiEvents 的标签绑定同文件），
-// 本域只做打开时机上的重置触发（重渲 renderReadingView 不重置，避免打断用户）。
-// 工单 arch-review-2026-09/10 依赖反转：重置改经 reader-bus 的 reset-tabs 命令
-// 触达壳，本域不再静态 import ui-renderer（壳未装载时命令静默丢弃，与原
-// DOM 缺失时 setter 空转同形）。
+// tab 位置持久化叶子（2026-10 用户决议）：进入阅读模式时恢复上次所在标签，
+// 不再一律重置回「字幕」——取值在 reader/script-tab-persistence（chrome.storage
+// .local），落值单点在 ui 壳的 setReaderScriptTab。本域只做打开时机上的恢复
+// 触发（重渲 renderReadingView 不重置，避免打断用户所在标签），并沿用
+// arch-review-2026-09/10 的依赖反转：经 reader-bus 的 set-tab 命令触达壳，
+// 本域不静态 import ui-renderer（壳未装载时命令静默丢弃，与原 DOM 缺失时
+// setter 空转同形）。
+import { loadReaderScriptTab } from "./script-tab-persistence.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -298,10 +300,12 @@ export async function enterReaderMode() {
   document.body.setAttribute("data-biliscript-reading-active", "1");
   hydrateReaderStateFromSettings(state.settings);
   applyReadingViewPresentation();
-  // PR2：每次打开阅读视图都回到默认「字幕」标签（概览/AI 对话关闭前的停留
-  // 状态不跨会话保留；视图开着期间的重渲不打断用户所在标签）。重置经
-  // reader-bus reset-tabs 命令触达 ui 壳（arch-review-2026-09/10 依赖反转）。
-  requestUiCommand("reset-tabs");
+  // 2026-10 用户决议：打开阅读视图恢复上次所在标签（概览/AI 对话的停留状态
+  // 跨刷新与跨视频保留；无记录或脏值回落「字幕」）。读取失败静默回落，不新增
+  // 进入失败面；进入链内的命令落地先于 shell chat 档的对话激活（单飞事务队列
+  // 保证），故「AI 键进对话」仍以对话 tab 收尾。
+  const restoredScriptTab = await loadReaderScriptTab();
+  requestUiCommand("set-tab", { tab: restoredScriptTab });
   await sleep(0);
   openReaderViewShell(readingView);
   renderReadingView();

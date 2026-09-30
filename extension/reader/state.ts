@@ -40,12 +40,15 @@ export function isReaderViewOpen() {
 //
 // 当前激活标签的唯一状态位（DOM is-active/aria-selected/hidden 三通道只是本
 // 状态的投影，写手是 ui/ui-renderer.js 的 setReaderScriptTab）。此前 tab 状态
-// 只存在于 DOM，两个并发写手（shell 进入事务的 reset-tabs 与对话 seam 的
-// set-tab:chat）竞态时无从判定与排查——收口成可读状态位后，断言、日志与
-// 未来消费方都有单源可依。
+// 只存在于 DOM，两个并发写手（shell 进入事务的 set-tab（按持久值恢复）与对话
+// seam 的 set-tab:chat）竞态时无从判定与排查——收口成可读状态位后，断言、日志
+// 与未来消费方都有单源可依。
 //
-// 放本叶子而非 core/state：与 scroll-state 同型的瞬态 UI 状态（不持久化、
-// 不进 settings 水合），模块级变量随 resetModules 时代自然重置。
+// 放本叶子而非 core/state：与 scroll-state 同型的瞬态 UI 状态（不进 settings 域
+// 水合），模块级变量随文档/测试重置自然重置。2026-10 用户决议：当前标签跨刷新
+// 保留——持久值在 chrome.storage.local，读写单点 reader/script-tab-persistence，
+// 进入阅读模式时经壳命令 set-tab 回灌本状态位；本状态位仍是页内 single source
+// of truth，持久值只是下一次进入的输入。
 //
 // 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本文件含模块级可变状态
 // （readingActiveScriptTab、两个滚动截止位），content 两轮构建下常驻包与懒加载
