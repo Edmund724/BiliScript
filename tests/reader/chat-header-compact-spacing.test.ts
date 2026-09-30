@@ -13,6 +13,14 @@
 // 自身的边框取代——第五轮两键改成 34px 方框后，键高（34 + 上下 1px 边框 = 36px）
 // 已高于原 32px 控件，头部行不再需要任何自身留白：min-height 与 padding 一并删掉，
 // 「无额外纵高」改由「块内既无 min-height 也无 padding」接住。
+// 2026-11 用户决议（截图，第六轮）：4px 顶距 + 转写状态行 0 顶距又走到了另一头——
+// 用户报「历史对话上下太挤了，转写的时候甚至略有重叠」。实测（headless Chromium，
+// .scratch/chat-spacing-preview）：标签槽底到按钮顶 8px、按钮底到转写行顶 **0px**
+//（转写行上边框与按钮下边框贴着）。本轮把上下都加回同档留白：板面顶距 4 → 10px，
+// 转写行 margin-top 0 → 10px（消息区自身 padding-top 12px 不动）。
+// 局限与 chat-history-page 同：jsdom 无布局，本文件只能锁 CSS 取值与作用域，真正的
+// 几何回归由 .scratch/chat-spacing-preview 的真实浏览器测量兜；防倒退：顶距再回到
+// 单数字、或转写行贴回工具条（0/负边距）、或顶距覆写丢了 :has 作用域，本文件红。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -30,6 +38,34 @@ function chatHeaderBlock(): string {
   return match![1];
 }
 
+// 对话面板的板面顶距覆写（只命中对话面板，字幕/概览两 tab 不受影响）。
+function chatPanelPaddingTop(): string {
+  const match = readChatCss().match(/\.biliscript-reading-tab-body:has\(> \.biliscript-reading-chat\) \{([^}]*)\}/s);
+  expect(match, "reader-chat.css 中应有对话面板的板面内边距覆写规则").not.toBe(null);
+  const paddingTop = match![1].match(/padding-top:\s*([^;]+);/);
+  expect(paddingTop, "板面覆写规则里应有 padding-top 声明").not.toBe(null);
+  return paddingTop![1].trim();
+}
+
+// 转写状态行与工具条之间的间隔：简写 `margin` 的首值或 `margin-top`。
+function asrNoticeTopGap(): string {
+  const match = readChatCss().match(/\.biliscript-reading-chat \.chat-asr-notice \{([^}]*)\}/s);
+  expect(match, "reader-chat.css 中应存在 .chat-asr-notice 规则块").not.toBe(null);
+  const block = match![1];
+  const shorthand = block.match(/(?:^|;)\s*margin:\s*([^;]+);/);
+  if (shorthand) {
+    return shorthand[1].trim().split(/\s+/)[0];
+  }
+  const marginTop = block.match(/(?:^|;)\s*margin-top:\s*([^;]+);/);
+  expect(marginTop, "转写状态行的规则里应有纵向间隔声明（margin / margin-top）").not.toBe(null);
+  return marginTop![1].trim();
+}
+
+function px(value: string): number {
+  expect(value, `间距应是 px 字面值：${value}`).toMatch(/^-?\d+(\.\d+)?px$/);
+  return Number.parseFloat(value);
+}
+
 describe("对话头部工具条紧凑化", () => {
   it("头部行不再预留自身纵高：块内既无 min-height 也无 padding", () => {
     const block = chatHeaderBlock();
@@ -38,10 +74,26 @@ describe("对话头部工具条紧凑化", () => {
     expect(block).not.toMatch(/\bpadding:/);
   });
 
-  it("对话面板的板面顶距单独收到 4px（首行是工具条，不留正文级 14px）", () => {
-    const match = readChatCss().match(/\.biliscript-reading-tab-body:has\(> \.biliscript-reading-chat\) \{([^}]*)\}/s);
+  it("对话面板板面顶距加回到同档留白：工具条不再贴住标签槽", () => {
+    const paddingTop = px(chatPanelPaddingTop());
 
-    expect(match, "reader-chat.css 中应有对话面板的板面内边距覆写规则").not.toBe(null);
-    expect(match![1]).toMatch(/padding-top:\s*4px;/);
+    expect(paddingTop).toBeGreaterThanOrEqual(8);
+    expect(paddingTop).toBeLessThanOrEqual(16);
+  });
+
+  it("板面顶距覆写仍只作用域对话面板（字幕/概览两 tab 保持 reader.css 的 14px）", () => {
+    const css = readChatCss();
+
+    expect(css).toMatch(/\.biliscript-reading-tab-body:has\(> \.biliscript-reading-chat\)\s*\{[^}]*padding-top:/s);
+    // 无作用域的 `.biliscript-reading-tab-body { … padding-top: … }` 覆写会把
+    // 字幕/概览面板的首行正文一起下推，禁止出现。
+    expect(css).not.toMatch(/\.biliscript-reading-tab-body\s*(?:,|\{)[^{}]*\{[^}]*\bpadding-top:/s);
+  });
+
+  it("转写状态行与工具条之间留出纵向间隔（不再以 0 贴合按钮下边框）", () => {
+    const gap = px(asrNoticeTopGap());
+
+    expect(gap).toBeGreaterThanOrEqual(8);
+    expect(gap).toBeLessThanOrEqual(16);
   });
 });
