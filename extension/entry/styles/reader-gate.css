@@ -189,14 +189,14 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
   --biliscript-reader-surface-3: #e9ebef;
   --biliscript-reader-card: #ffffff;
   --biliscript-reader-border: #e3e5ea;
-  /* 文字三级取文档中性灰值：主 #17181a（在 #f2f3f5 上 16.0:1）/ 次 #6b6e75
-   * （4.6:1，正文级过 4.5 线，card 上 5.1:1、surface-2 上 4.5:1）/ 提示 #8a8e96
-   * （3.0:1）。faint 是三级微标注档，文档值本就低于 4.5 线——与 light/dark 两档
-   * 同纪律（4.5:1 门只卡正文/次文字）。唯一的洼底例外：muted 落在推导的
-   * surface-3 井上只有 4.28:1（如概览章节行 hover 的 desc 文字）；要全层过线就
-   * 把 muted 压深一档到 #666a71（同族），此处先以文档值为准。 */
+  /* 文字三级：主 #17181a（文档中性灰，在 #f2f3f5 上 16.0:1）/ 次 #666a71
+   * （4.89:1，全层过 4.5 线——card 上 5.43:1、surface-2 上 4.81:1、推导的
+   * surface-3 上 4.55:1）/ 提示 #8a8e96（文档值，3.0:1）。faint 是三级微标注档，
+   * 文档值本就低于 4.5 线——与 light/dark 两档同纪律（4.5:1 门只卡正文/次文字）。
+   * muted 未取文档值 #6b6e75：那档落在推导的 surface-3 井上只有 4.28:1（如概览
+   * 章节行 hover 的 desc 文字），已压深一档到同族 #666a71，最洼层也过线。 */
   --biliscript-reader-text: #17181a;
-  --biliscript-reader-muted: #6b6e75;
+  --biliscript-reader-muted: #666a71;
   --biliscript-reader-faint: #8a8e96;
   /* 主蓝只做操作/选中：实底 accent-soft 取文档浅底 10%，accent-ink 恒白
    * （Flyme 官方配对；白字在 #008cff 上 3.4:1，达大号/粗体文字的 3:1 档）。 */
