@@ -332,6 +332,8 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     expect(executeWebSearchMock.mock.calls[0][1]).toBe("联网搜索测试");
     // ① 测试不走也不写查询缓存（缓存族消息零出站）
     expect(sentTypes(sent).filter((type) => type.includes("search-cache"))).toEqual([]);
+    // ①' 测试动作不走回退链 → 零健康度记账（探针不得扰动运行时状态，spec §12.4 第 2 条）
+    expect(sentTypes(sent).filter((type) => type === "search-health")).toEqual([]);
     // ③ 不落盘：只有「保存」写设置——测试动作无 save-settings / 平台保存消息
     expect(sentTypes(sent)).not.toContain("save-settings");
     expect(sentTypes(sent).filter((type) => type.endsWith("-providers-save"))).toEqual([]);

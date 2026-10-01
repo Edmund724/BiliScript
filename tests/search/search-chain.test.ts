@@ -694,6 +694,172 @@ describe("executeSearchChain 链级预算（§4 / §10 第 16 行）", () => {
   });
 });
 
+// ===== 健康度记账接线（spec §12.4 第 1–2 条 / §12.5 第 7 行 / §10 第 72 行）=====
+// 记账粒度 = 引擎级（候选 provider.presetId）；每次真实出网尝试记一次（成功 / 失败
+// 各一次）；调用方中止（已中止 / 在飞中止）与自伤中止不构成引擎失败的口径见实现注释。
+describe("executeSearchChain 健康度记账（§12.4 第 1–2 条 / §12.5 第 7 行）", () => {
+  interface Recorded {
+    presetId: string;
+    ok: boolean;
+    latencyMs: number;
+  }
+
+  function recorder(): { calls: Recorded[]; record: (presetId: string, ok: boolean, latencyMs: number) => void } {
+    const calls: Recorded[] = [];
+    return {
+      calls,
+      record: (presetId, ok, latencyMs) => {
+        calls.push({ presetId, ok, latencyMs });
+      }
+    };
+  }
+
+  // 注入时钟：按顺序返回（延迟 = 两次读数之差）
+  function clock(values: number[]): () => number {
+    let index = 0;
+    return () => values[Math.min(index++, values.length - 1)];
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("成功一次：按候选 presetId 记一次 ok + 实际延迟（now 注入，不取墙钟）", async () => {
+    const { calls, record } = recorder();
+
+    const outcome = await executeSearchChain([FIRECRAWL_CHAIN], "q", {
+      execute: async () => ({ results: [RESULT], platform: "Firecrawl" }),
+      recordAttempt: record,
+      nowMs: clock([1000, 1042])
+    });
+
+    expect(outcome).toEqual({ results: [RESULT], platform: "Firecrawl" });
+    expect(calls).toEqual([{ presetId: "firecrawl", ok: true, latencyMs: 42 }]);
+  });
+
+  it("失败回退：每次尝试各记一次，保序且按 presetId（引擎级，不按记录 id）", async () => {
+    const { calls, record } = recorder();
+
+    await executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute: async (candidate) => {
+        if (candidate.provider.id === "search_firecrawl") throw httpError(503);
+        return { results: [RESULT], platform: candidate.provider.name };
+      },
+      recordAttempt: record,
+      nowMs: clock([0, 10, 20, 35])
+    });
+
+    expect(calls).toEqual([
+      { presetId: "firecrawl", ok: false, latencyMs: 10 },
+      { presetId: "tavily", ok: true, latencyMs: 15 }
+    ]);
+  });
+
+  it("全部失败：每候选各一次 ok:false（额度类失败也照记，账不参与分类）", async () => {
+    const { calls, record } = recorder();
+
+    await executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute: async (candidate) => {
+        throw candidate.provider.id === "search_firecrawl" ? httpError(503) : httpError(429);
+      },
+      recordAttempt: record,
+      nowMs: clock([0, 5, 10, 25])
+    }).catch((thrown) => thrown);
+
+    expect(calls).toEqual([
+      { presetId: "firecrawl", ok: false, latencyMs: 5 },
+      { presetId: "tavily", ok: false, latencyMs: 15 }
+    ]);
+  });
+
+  it("调用方中止：已中止 signal 零候选执行、零记账；在飞中止不试下一家也不记账（§12.4 第 2 条）", async () => {
+    const aborted = recorder();
+    const controller = new AbortController();
+    controller.abort();
+    const execute = vi.fn(async () => ({ results: [RESULT], platform: "Firecrawl" }));
+
+    await expect(
+      executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+        execute,
+        signal: controller.signal,
+        recordAttempt: aborted.record
+      })
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(execute).not.toHaveBeenCalled();
+    expect(aborted.calls).toEqual([]);
+
+    const inflight = recorder();
+    const running = new AbortController();
+    const pending = executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute: (_candidate, _query, signal) =>
+        new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("请求已中止"), { name: "AbortError" })),
+            { once: true }
+          );
+        }),
+      signal: running.signal,
+      recordAttempt: inflight.record
+    });
+    const settled = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    running.abort();
+    await settled;
+
+    expect(inflight.calls).toEqual([]);
+  });
+
+  it("预算到点中止的在飞候选记一次失败（真实出网、未拿到结果），此前已归类的失败照记", async () => {
+    vi.useFakeTimers();
+    const { calls, record } = recorder();
+    const execute = (candidate: SearchChainCandidate, _query: string, signal?: AbortSignal | null) => {
+      if (candidate.provider.id === "search_firecrawl") {
+        return Promise.reject(httpError(503));
+      }
+      return new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => reject(Object.assign(new Error("请求已中止"), { name: "AbortError" })),
+          { once: true }
+        );
+      });
+    };
+
+    const pending = executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute,
+      recordAttempt: record,
+      nowMs: clock([0, 10, 100, 30_100])
+    });
+    const settled = expect(pending).rejects.toMatchObject({ message: "HTTP 503" });
+
+    await vi.advanceTimersByTimeAsync(SEARCH_CHAIN_BUDGET_MS);
+    await settled;
+
+    expect(calls).toEqual([
+      { presetId: "firecrawl", ok: false, latencyMs: 10 },
+      { presetId: "tavily", ok: false, latencyMs: 30_000 }
+    ]);
+  });
+
+  it("记账抛错 / 返回 rejected promise 都不影响链结果（账失败静默）", async () => {
+    const throwing = await executeSearchChain([FIRECRAWL_CHAIN], "q", {
+      execute: async () => ({ results: [RESULT], platform: "Firecrawl" }),
+      recordAttempt: () => {
+        throw new Error("record boom");
+      }
+    });
+    const rejecting = await executeSearchChain([FIRECRAWL_CHAIN], "q", {
+      execute: async () => ({ results: [RESULT], platform: "Firecrawl" }),
+      recordAttempt: async () => {
+        throw new Error("record rejected");
+      }
+    });
+
+    expect(throwing).toEqual({ results: [RESULT], platform: "Firecrawl" });
+    expect(rejecting).toEqual({ results: [RESULT], platform: "Firecrawl" });
+  });
+});
+
 describe("executeSearchChain 调用方中止出口（§4：不写缓存、不上 notice）", () => {
   it("已中止的 signal → 立即抛出、零候选执行", async () => {
     const controller = new AbortController();

@@ -16,7 +16,8 @@ import { resolveWebSearchRuntime } from "../../extension/search/search-runtime.j
 import type {
   ResolveSearchProviderResponse,
   SearchCacheMessage,
-  SearchCacheResponse
+  SearchCacheResponse,
+  SearchHealthMessage
 } from "../../extension/shared/messaging-protocol.js";
 
 // 链夹具（spec §1 S4）：有序候选 + 各自 Key；keyless 候选的 apiKey 允许空串；
@@ -46,6 +47,7 @@ const FIRECRAWL_CANDIDATE = {
 // chrome.runtime 三通道替身（sendRuntimeMessage 走 callback + lastError；解析器
 // 与缓存 proxy 直发走 Promise 风格，两种风格都回）：resolve-search-provider 回
 // resp；search-cache 的 get 回 cacheGet（缺省未命中）、put 回 {ok:true} 并记账；
+// search-health 的 record 回 {ok:true}（记账不占 provider-http 的调用计数）；
 // provider-http 按顺序回 httpPayloads（最后一个重复用于后续调用；载荷是
 // SW 端 ok/status 透传的形状，单候选失败即 !ok 或 status >= 400）。
 function stubRuntime(
@@ -62,6 +64,9 @@ function stubRuntime(
     }
     if (msg?.type === "search-cache") {
       return msg.op === "get" ? cacheGet : { ok: true };
+    }
+    if (msg?.type === "search-health") {
+      return { ok: true };
     }
     const payload = httpPayloads[Math.min(httpCall, httpPayloads.length - 1)];
     httpCall += 1;
@@ -101,6 +106,13 @@ function cacheMessages(): SearchCacheMessage[] {
   return vi.mocked(globalThis.chrome.runtime.sendMessage).mock.calls
     .map((call) => call[0] as SearchCacheMessage)
     .filter((message) => message?.type === "search-cache");
+}
+
+// search-health 通道收到的记账消息（引擎级 presetId + ok + 延迟）。
+function healthMessages(): SearchHealthMessage[] {
+  return vi.mocked(globalThis.chrome.runtime.sendMessage).mock.calls
+    .map((call) => call[0] as SearchHealthMessage)
+    .filter((message) => message?.type === "search-health");
 }
 
 afterEach(() => {
@@ -190,6 +202,14 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
       "https://api.firecrawl.dev/v2/search",
       "https://api.tavily.com/search"
     ]);
+    // 记账（spec §12.4 第 1 条）：每次真实出网尝试各一次、按引擎级 presetId 保序
+    expect(healthMessages().map(({ presetId, ok }) => ({ presetId, ok }))).toEqual([
+      { presetId: "firecrawl", ok: false },
+      { presetId: "tavily", ok: true }
+    ]);
+    expect(healthMessages().every((message) => typeof message.latencyMs === "number" && message.latencyMs >= 0)).toBe(
+      true
+    );
   });
 
   it("全部候选失败（其余类）→ 抛末条既有文案的链错误（§10 第 44 行）", async () => {
@@ -208,6 +228,11 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
       message: "HTTP 500",
       failures: ["other", "other"]
     });
+    // 引擎级记账：两条记录同 presetId（firecrawl）各记一次失败（不是按记录 id 各立一户）
+    expect(healthMessages().map(({ presetId, ok }) => ({ presetId, ok }))).toEqual([
+      { presetId: "firecrawl", ok: false },
+      { presetId: "firecrawl", ok: false }
+    ]);
   });
 
   it("全部候选失败（额度类在列）→ 抛 §6.4 额度文案（§10 第 44 行）", async () => {
@@ -245,6 +270,8 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
     // 只有 resolve 与一次 search-cache get：无 provider-http、无 put
     expect(sentTypes()).toEqual(["resolve-search-provider", "search-cache"]);
     expect(cacheMessages().map((message) => message.op)).toEqual(["get"]);
+    // 缓存命中没有引擎被尝试 → 零记账（spec §12.4 第 2 条）
+    expect(healthMessages()).toEqual([]);
   });
 
   it("缓存未命中：跑链成功后 put（query / results / platform，§5）", async () => {
@@ -292,6 +319,8 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
 
     expect(cacheMessages().map((message) => message.op)).toEqual(["get"]);
     expect(sentHttpMessage(0)).toBeUndefined();
+    // 用户中止不是引擎的失败 → 零记账（spec §12.4 第 2 条）
+    expect(healthMessages()).toEqual([]);
   });
 
   it("消息失败 / 无接收方（SW 冷启动竞态）→ undefined，不抛", async () => {
