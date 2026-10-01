@@ -156,8 +156,8 @@ _Avoid_: 把「content 发起、offscreen 执行」与「offscreen 客户端直�
 _Avoid_: Key 进 sync、自定义预设、offscreen 直发搜索请求
 
 **零成本组**:
-搜索时按固定顺序逐家尝试的平台集合——零 Key 引擎无条件入组，免费额度引擎配了 Key 才入组；顺序 = 预设表顺序。它的**执行形态**称「回退链」：组内前一家失败（超时 / 网络 / 额度耗尽，分类见 spec §6.4 的三等映射表）即试下一家，全组无果才提示用户。词表作「零 Key」、UI 文案作「免 Key」。
-代码名：`SearchProviderAccess` / `SEARCH_PROVIDER_PRESETS`
+搜索时按固定顺序逐家尝试的平台集合——零 Key 引擎无条件入组，免费额度引擎配了 Key 才入组；顺序 = `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER`（内置默认序；预设表序只管预设目录）。它的**执行形态**称「回退链」：组内前一家失败（超时 / 网络 / 额度耗尽，分类见 spec §6.4 的三等映射表）即试下一家，全组无果才提示用户。词表作「零 Key」、UI 文案作「免 Key」。
+代码名：`SearchProviderAccess` / `SEARCH_PROVIDER_PRESETS` / `DEFAULT_SEARCH_PROVIDER_ORDER`
 _Avoid_: 把回退理解成「任何平台之间互相兜底」；用「免 Key」当组的定义（配 Key 的豆包也在组内）
 
 **链首平台**:

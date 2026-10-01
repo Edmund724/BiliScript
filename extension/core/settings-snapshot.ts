@@ -10,7 +10,7 @@
 //     明文 Key 映射（keys 只活在 SW，回包仍只带 hasSavedKey 占位）；
 //   - searchProviderOrder 原始值（sync；2026-10-01 增补，spec §12.3 / §12.5 第 9 行）：
 //     归一在读取时对当前记录集合做（normalizeSearchProviderOrder 单源在
-//     search/search-chain.ts）；
+//     search/search-order.ts）；
 //   - 引擎健康度图（local 单键 biliscript_search_health；2026-10-01 增补，spec §12.4
 //     第 6 条 / §12.5 第 9 行）：链解析期产冷却图，读失败按空图。
 // 命中时热路径 storage 读降为 0。设置 UI 的 list/get CRUD 读（*-providers-list /
@@ -41,7 +41,7 @@ import { aiProviderStore, type AiProvider } from "./ai-provider-store.js";
 import { asrProviderStore, type AsrProvider } from "../asr/asr-provider-store.js";
 import { searchProviderStore, SEARCH_PROVIDER_ORDER_STORAGE } from "../search/search-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
-import { normalizeSearchProviderOrder } from "../search/search-chain.js";
+import { normalizeSearchProviderOrder } from "../search/search-order.js";
 import { SEARCH_HEALTH_KEY, readSearchHealth, type SearchHealthMap } from "../search/search-health.js";
 import { withTimeout } from "../shared/error-helpers.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";

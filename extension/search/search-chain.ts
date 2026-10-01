@@ -5,8 +5,9 @@
 //      access）、两模式排序（单选 = 独苗链、无回退；智能 = 归一 order 序 > 内置默认序）、
 //      按 presetId 去重（代表 = 排序最靠前的合格记录）、智能链冷却跳过，产出
 //      「有序候选 + 各自 Key」（S4 的单趟回传形状，SW 是唯一知道 Key 的一侧）；
-//   ①' 纯函数 normalizeSearchProviderOrder——searchProviderOrder 归一（非数组 /
-//      元素非字符串或空串 / 未知 id / 重复 id → 整体作废 []）；
+//   ①' 顺序规则不在此处：归一（normalizeSearchProviderOrder）与排序键
+//      （providerOrderRank）单源在零依赖叶 search/search-order.ts（票 15 Q1-a），
+//      本模块 import 消费——存储键归一与键算法各只有一份实现；
 //   ② 执行器 executeSearchChain / classifySearchFailure / SEARCH_CHAIN_BUDGET_MS
 //      ——顺序逐候选调一次既有 executeWebSearch（单候选失败静默、分类保序收集）、
 //      链级预算 30s 到点主动放弃、调用方中止立即抛出、每次真实出网尝试按 presetId
@@ -14,12 +15,9 @@
 // 纯函数纪律：resolveSearchChain 零 Chrome API / 零 DOM / 不改写入参 / 不取时间
 // （now 由调用方注入）；Key 只经返回值中转，不进日志。执行器只经 deps.fetchImpl →
 // provider-http 出网。
-import {
-  DEFAULT_SEARCH_PROVIDER_ORDER,
-  type SearchProviderPreset,
-  type SearchProviderType
-} from "../core/presets.js";
+import { type SearchProviderPreset, type SearchProviderType } from "../core/presets.js";
 import { type SearchMode } from "../core/search-mode.js";
+import { normalizeSearchProviderOrder, providerOrderRank } from "./search-order.js";
 import { executeWebSearch } from "./search-executor.js";
 import { recordSearchAttempt } from "./search-health-client.js";
 import type { NormalizedSearchResult } from "./adapters/types.js";
@@ -43,25 +41,6 @@ export interface SearchChainOptions {
   cooldownUntil?: Record<string, number> | null;
   // 注入时钟（epoch ms）
   now?: number;
-}
-
-/**
- * searchProviderOrder 归一（spec §12.2）：整个键要么可信、要么不用——非数组 /
- * 元素非字符串或空串 / 含未知 id（不在当前记录集合中）/ 含重复 id → 返回 []（=
- * 无自定义顺序，回落内置默认序），不部分采纳、不抛错、不上报。
- */
-export function normalizeSearchProviderOrder(raw: unknown, knownRecordIds: Iterable<string>): string[] {
-  if (!Array.isArray(raw)) return [];
-  const known = new Set<string>(knownRecordIds);
-  const seen = new Set<string>();
-  const order: string[] = [];
-  for (const value of raw) {
-    if (typeof value !== "string" || value.trim() === "") return [];
-    if (!known.has(value) || seen.has(value)) return [];
-    seen.add(value);
-    order.push(value);
-  }
-  return order;
 }
 
 /**
@@ -128,17 +107,14 @@ export function resolveSearchChain(
 
   // 智能：排序键规则（spec §12.2）——① 在 order 中的按数组下标；② 不在数组中的排到
   // 所有在数组中的记录之后，相互之间按内置默认序；键相同的保持输入序（稳定排序）。
+  // 键算法单源在 search-order.ts 的 providerOrderRank（设置列表侧同调），此处只做
+  // Schwartzian 装饰以保留单趟键计算。
   const ranked: Array<{ candidate: SearchChainCandidate; orderIndex: number; defaultIndex: number }> = [];
   for (const record of providers) {
     const candidate = qualify(record);
     if (!candidate) continue;
-    const orderIndex = order.indexOf(record.id);
-    const defaultIndex = DEFAULT_SEARCH_PROVIDER_ORDER.indexOf(candidate.provider.presetId);
-    ranked.push({
-      candidate,
-      orderIndex: orderIndex === -1 ? Number.POSITIVE_INFINITY : orderIndex,
-      defaultIndex: defaultIndex === -1 ? DEFAULT_SEARCH_PROVIDER_ORDER.length : defaultIndex
-    });
+    const [orderIndex, defaultIndex] = providerOrderRank(record.id, candidate.provider.presetId, order);
+    ranked.push({ candidate, orderIndex, defaultIndex });
   }
   ranked.sort((a, b) =>
     a.orderIndex !== b.orderIndex ? a.orderIndex - b.orderIndex : a.defaultIndex - b.defaultIndex

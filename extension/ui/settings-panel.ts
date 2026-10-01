@@ -50,13 +50,12 @@ import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from ".
 import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
-import {
-  DEFAULT_SEARCH_PROVIDER_ORDER,
-  SEARCH_PROVIDER_PRESETS,
-  type SearchProviderPreset
-} from "../core/presets.js";
+import { SEARCH_PROVIDER_PRESETS, type SearchProviderPreset } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
-import { normalizeSearchProviderOrder } from "../search/search-chain.js";
+// 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js（票 15 Q1-a）：
+// 本模块不再 import search-chain（那条边会把 search-executor → 六适配器拖进设置
+// 抽屉的懒 chunk）；归一与键算法两侧各只有一份实现。
+import { normalizeSearchProviderOrder, providerOrderRank } from "../search/search-order.js";
 import { SEARCH_PROVIDER_ORDER_STORAGE } from "../search/search-provider-store.js";
 import type { ProviderEditorKind } from "./provider-editor.js";
 import {
@@ -298,22 +297,22 @@ async function loadSearchProviderOrder(providers: ProviderRowItem[]): Promise<st
 }
 
 // 列表渲染顺序 = 链序（spec §12.2）：在 order 中的按数组下标排在先，不在数组中的
-// 排到其后、相互之间按内置默认序（sort 稳定 → 键相同的记录保持输入序）。
+// 排到其后、相互之间按内置默认序（sort 稳定 → 键相同的记录保持输入序）。键算法
+// 单源在 search-order.js 的 providerOrderRank（链解析侧同调），此处只做单趟装饰。
 function sortSearchProviders(providers: ProviderRowItem[]): ProviderRowItem[] {
-  const orderIndex = new Map(searchProviderOrder.map((id, index) => [id, index]));
-  const rank = (provider: ProviderRowItem): [number, number] => {
-    const byOrder = orderIndex.get(String(provider?.id || ""));
-    const presetIndex = DEFAULT_SEARCH_PROVIDER_ORDER.indexOf(String(provider?.presetId || ""));
-    return [
-      byOrder === undefined ? Number.POSITIVE_INFINITY : byOrder,
-      presetIndex === -1 ? DEFAULT_SEARCH_PROVIDER_ORDER.length : presetIndex
-    ];
-  };
-  return providers.slice().sort((left, right) => {
-    const [leftOrder, leftDefault] = rank(left);
-    const [rightOrder, rightDefault] = rank(right);
-    return leftOrder !== rightOrder ? leftOrder - rightOrder : leftDefault - rightDefault;
-  });
+  return providers
+    .map((provider) => ({
+      provider,
+      rank: providerOrderRank(
+        String(provider?.id || ""),
+        String(provider?.presetId || ""),
+        searchProviderOrder
+      )
+    }))
+    .sort((left, right) =>
+      left.rank[0] !== right.rank[0] ? left.rank[0] - right.rank[0] : left.rank[1] - right.rank[1]
+    )
+    .map((entry) => entry.provider);
 }
 
 // 「恢复默认顺序」按钮态（spec §6.10 / §12.3）：无自定义顺序就无可恢复的目标，

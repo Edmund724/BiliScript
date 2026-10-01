@@ -358,6 +358,60 @@ describe("设置页搜索节：列表渲染顺序（spec §12.2 / 票 15 §6 第
   });
 });
 
+describe("设置页搜索节：列表集合语义（管理面列出全部记录，链成员资格是另一层）", () => {
+  // 票 15 后的实况：设置列表 = 管理面（按记录展示，用户要能看见 / 编辑 / 删除），
+  // 链成员资格 = resolveSearchChain 的 qualify 判据（enabled / access / presetId
+  // 去重）。两层语义正当分化，本组用例把分化钉住：列表侧**不过滤、不去重**。
+  it("停用记录（enabled:false）仍渲染行——停用只影响链成员资格，不是从列表消失", async () => {
+    const { host } = await mountPanel({
+      "search-providers-list": () => ({
+        ok: true,
+        providers: [{ ...SEARCH_ITEMS[0], enabled: false }]
+      })
+    });
+    await waitForSearchRows(host, 1);
+    expect(recordRowIds(host)).toEqual(["search_firecrawl"]);
+  });
+
+  it("free-quota 无 Key 记录（豆包 hasSavedKey:false）仍渲染行，状态点 missing", async () => {
+    const { host } = await mountPanel({
+      "search-providers-list": () => ({
+        ok: true,
+        providers: [{ ...SEARCH_ITEMS[2], hasSavedKey: false }]
+      })
+    });
+    await waitForSearchRows(host, 1);
+    expect(recordRowIds(host)).toEqual(["search_doubao"]);
+    // 无 Key 状态照实渲染；「无 Key 不进链」是链侧判据，不迁移到列表侧
+    expect(recordRows(host)[0].querySelector(".provider-row-dot")!.getAttribute("data-state")).toBe(
+      "missing"
+    );
+  });
+
+  it("同 presetId 双记录渲染两行（去重只在链解析侧，列表按记录展示）", async () => {
+    const picked = {
+      ...SEARCH_ITEMS[0],
+      id: "firecrawl-picked",
+      name: "Firecrawl（自备 Key）",
+      hasSavedKey: true
+    };
+    const { host } = await mountPanel({
+      "search-providers-list": () => ({ ok: true, providers: [...SEARCH_ITEMS.slice(0, 1), picked, ...SEARCH_ITEMS.slice(1)] })
+    });
+    await waitForSearchRows(host, 7);
+    // 同 presetId 两条键相同 → 稳定排序保持输入序（链侧在此只取排序最靠前一条）
+    expect(recordRowIds(host)).toEqual([
+      "search_exa",
+      "search_doubao",
+      "search_tavily",
+      "search_firecrawl",
+      "firecrawl-picked",
+      "search_anysearch",
+      "search_parallel"
+    ]);
+  });
+});
+
 describe("设置页搜索节：拖拽落库（spec §6.10 / §10 第 78–79 行）", () => {
   it("跨行落定写 searchProviderOrder = DOM 记录行 id 顺序，逐项相等且不含哨兵", async () => {
     const { host } = await mountPanel({

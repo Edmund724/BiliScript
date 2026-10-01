@@ -6,8 +6,8 @@
 //   ② 智能（哨兵 / 空串）= 全部在组记录按「归一 order 下标 > 内置默认序
 //      DEFAULT_SEARCH_PROVIDER_ORDER」排序 → 同 presetId 取排序最靠前的合格记录
 //      → 剔除 cooldownUntil[presetId] > now 的引擎（单选不消费冷却）。
-// 另覆盖 normalizeSearchProviderOrder 的脏值整体作废（非数组 / 元素非字符串或空串 /
-// 未知 id / 重复 id → []）与候选形状（provider 增 presetId）。
+// 另覆盖候选形状（provider 增 presetId）；顺序规则（归一 + 排序键）的实现与用例
+// 已随票 15 迁往零依赖叶 search/search-order.ts（tests/search/search-order.test.ts）。
 // 执行器面：classifySearchFailure 的三等映射（§6.4 / §10 第 44/45 行）、
 // executeSearchChain 的顺序回退 / 失败静默保序 / 额度与其余两类终态文案 /
 // 链级预算 30s（§4 / §10 第 16 行）/ 调用方中止出口。时间一律走 fake timers 或
@@ -21,7 +21,6 @@ import {
   SEARCH_CHAIN_BUDGET_MS,
   classifySearchFailure,
   executeSearchChain,
-  normalizeSearchProviderOrder,
   resolveSearchChain,
   type SearchChainCandidate,
   type SearchChainError,
@@ -111,39 +110,6 @@ describe("链序常量（spec §12.2 / §10 第 63 行）", () => {
     ]);
     // 表序只管预设目录（Firecrawl 起头），不再是链序
     expect(DEFAULT_SEARCH_PROVIDER_ORDER).not.toEqual(SEARCH_PROVIDER_PRESETS.map((preset) => preset.id));
-  });
-});
-
-describe("normalizeSearchProviderOrder 归一（spec §12.2 / §10 第 65 行）", () => {
-  const KNOWN = ["tavily-picked", "search_firecrawl"];
-
-  it("数组内全为已知记录 id → 原样返回（空数组 = 无自定义顺序）", () => {
-    expect(normalizeSearchProviderOrder(["search_firecrawl", "tavily-picked"], KNOWN)).toEqual([
-      "search_firecrawl",
-      "tavily-picked"
-    ]);
-    expect(normalizeSearchProviderOrder([], KNOWN)).toEqual([]);
-  });
-
-  it("非数组（含 null / undefined / 字符串 / 对象）→ 整体作废 []", () => {
-    for (const raw of [null, undefined, "tavily-picked", 7, { 0: "tavily-picked" }]) {
-      expect(normalizeSearchProviderOrder(raw, KNOWN)).toEqual([]);
-    }
-  });
-
-  it("元素非字符串 / 空串 / 空白串 → 整体作废 []", () => {
-    for (const raw of [["tavily-picked", 7], ["tavily-picked", ""], ["tavily-picked", "   "], ["tavily-picked", null]]) {
-      expect(normalizeSearchProviderOrder(raw, KNOWN)).toEqual([]);
-    }
-  });
-
-  it("含未知 id（不在当前记录集合中）→ 整体作废 []，不部分采纳", () => {
-    expect(normalizeSearchProviderOrder(["tavily-picked", "search_ghost"], KNOWN)).toEqual([]);
-    expect(normalizeSearchProviderOrder(["search_ghost"], KNOWN)).toEqual([]);
-  });
-
-  it("含重复 id → 整体作废 []", () => {
-    expect(normalizeSearchProviderOrder(["tavily-picked", "tavily-picked"], KNOWN)).toEqual([]);
   });
 });
 
