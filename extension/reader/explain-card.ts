@@ -25,6 +25,9 @@ import { renderMarkdown } from "../ui/markdown.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { getSettings } from "../core/runtime.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
+import { confirmDialog } from "../ui/confirm-dialog.js";
+import { SEARCH_OPT_IN_CONFIRM_TEXT, SEARCH_OPT_IN_NOTICE_MESSAGE } from "../search/opt-in-notice.js";
 import { resolveWebSearchRuntime } from "../search/search-runtime.js";
 import { setMessage } from "../core/ui-status.js";
 import { logWarn } from "../shared/logging.js";
@@ -175,9 +178,30 @@ function startExplainRequest(): void {
       // 联网搜索（spec §2.1：选区解释链同样可用）：toggle 开启才解析运行时；
       // 未配置激活平台时解析器返回 undefined，如实走原无工具路径（搜索是增强，
       // 缺失不阻塞解释）。中止复用本卡 abort controller，关闭/重试可断在途搜索。
+      // opt-in 一次性说明闸（spec §6.7）：开关已开且位未置位时，在解析搜索运行时
+      // **之前**先弹说明——未获同意不外发查询词。同意 = 先写位（写失败沿用
+      // sendRuntimeMessage(...).catch(() => null) 形态，本轮照常继续）再解析；
+      // 取消 = 跳过解析（不传 webSearch），解释照常发起；阅读视图未挂载时
+      // confirmDialog 直接 false（fail-closed），即该轮不搜索。
       let webSearch;
-      if ((await getSettings()).webSearchEnabled) {
-        webSearch = await resolveWebSearchRuntime(controller?.signal ?? null);
+      const settings = await getSettings();
+      if (settings.webSearchEnabled) {
+        let acknowledged = settings.searchOptInNoticeAcknowledged;
+        if (!acknowledged) {
+          acknowledged = await confirmDialog({
+            message: SEARCH_OPT_IN_NOTICE_MESSAGE,
+            confirmText: SEARCH_OPT_IN_CONFIRM_TEXT
+          });
+          if (acknowledged) {
+            await sendRuntimeMessage({
+              type: "save-settings",
+              settings: { searchOptInNoticeAcknowledged: true }
+            }).catch(() => null);
+          }
+        }
+        if (acknowledged) {
+          webSearch = await resolveWebSearchRuntime(controller?.signal ?? null);
+        }
       }
       const text = await explainSelection({
         provider,

@@ -19,6 +19,7 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { confirmDialog } from "./confirm-dialog.js";
+import type { SearchProviderAccess } from "../core/presets.js";
 import type { BackgroundMessage, ContentScriptMessage } from "../shared/messaging-protocol.js";
 
 // 垃圾桶图标路径：固定属性行 / 笔记段落行 / 平台行共用同一份 path 定义。
@@ -58,7 +59,8 @@ export interface ProviderRowItem {
 }
 
 // 平台预设的结构子集：AiProviderPreset（core/presets）与 AsrProviderPreset
-// 均按结构兼容传入。
+// 均按结构兼容传入；搜索族额外带接入与额度形态 access（spec §7 单一真源，
+// AI/ASR 预设无该字段，不受影响）。
 export interface ProviderRowPreset {
   id: string;
   name: string;
@@ -66,6 +68,9 @@ export interface ProviderRowPreset {
   model?: string;
   type?: string;
   requiresKey?: boolean;
+  // 接入与额度形态（仅搜索预设表提供）：keyless 无 Key 即可调用；
+  // free-quota 必须自带 Key。行状态点第三态与徽章都由它派生。
+  access?: SearchProviderAccess;
   // 协议默认归属（multi-protocol-ai）：选中预设时编辑 Modal 协议下拉的联动默认值。
   protocol?: string;
   // 个别协议的差异化端点（multi-protocol-ai）：切协议时 baseUrl 未改过即跟随
@@ -102,6 +107,9 @@ export interface CreateProviderRowConfig {
   // 显示模型名：AI=item.models（多个时「首项 等 N 个」，拍板 Q15）或历史
   // item.model；ASR=item.model ?? preset.model。空串不渲染副行
   displayModel: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
+  // 额度形态徽章文案（spec §6.2，由族声明同源产出：搜索=免 Key / 免费额度，
+  // AI / ASR 无徽章 → 空串）。空串不渲染。
+  resolveBadge?: (preset: ProviderRowPreset | null) => string;
   // （仅 ASR）选用 radio：change 即时持久化 activeAsrProviderId（平铺形态同款语义）
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;
   wireTailExtras?: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
@@ -193,6 +201,7 @@ export function createProviderRow({
   resolvePreset,
   displayName,
   displayModel,
+  resolveBadge,
   buildTailFields,
   wireTailExtras,
   onRowEdit,
@@ -235,10 +244,20 @@ export function createProviderRow({
       row.dataset.baseUrl = baseUrl;
 
       const model = displayModel(item, preset);
+      // Key 状态点第三态（spec §6.1 判据 f(access, hasSavedKey)）：keyless 预设
+      // 无 Key 也标「可用」（第三色由 CSS 复用 success 变量，不新增颜色）；
+      // free-quota 无 Key 恒 missing（与「无 Key 不进链」自洽）。
+      const keyState = hasSavedKey ? "saved" : preset?.access === "keyless" ? "keyless" : "missing";
+      const keyStateTitle =
+        keyState === "saved" ? "已保存 API Key" : keyState === "keyless" ? "免 Key 可用" : "未保存 API Key";
+      // 额度形态徽章（spec §6.2）：讲额度形态，不讲是否已配（free-quota 有 Key
+      // 也不消失）；文案由族声明同源产出，空串不渲染。
+      const badge = String(resolveBadge?.(preset) || "");
       row.innerHTML = `
         <div class="provider-row-line">
-          <span class="provider-row-dot" data-state="${hasSavedKey ? "saved" : "missing"}" title="${hasSavedKey ? "已保存 API Key" : "未保存 API Key"}"></span>
+          <span class="provider-row-dot" data-state="${keyState}" title="${keyStateTitle}"></span>
           <span class="provider-row-name">${escapeHtml(displayName(item, preset))}</span>
+          ${badge ? `<span class="provider-row-badge">${escapeHtml(badge)}</span>` : ""}
           ${buildTailFields ? buildTailFields({ id, isActive }) : ""}
           <button type="button" class="${editClass}">编辑</button>
           <button type="button" class="${removeClass}" aria-label="删除" title="删除">

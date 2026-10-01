@@ -41,7 +41,8 @@ import { searchProviderStore } from "../search/search-provider-store.js";
 import { resolveSearchChain } from "../search/search-chain.js";
 // 查询缓存 SW 叶（spec §5）：宿主是 SW（offscreen 无 chrome.storage），offscreen
 // 工具循环与 content 侧解释卡都经 search-cache 消息族读写；归一单源在本叶。
-import { getSearchCacheEntry, putSearchCacheEntry } from "../search/search-cache.js";
+// clearSearchCache 只在本文件被两个撤回入口调用（§6.7）：不给消息族加 clear op。
+import { clearSearchCache, getSearchCacheEntry, putSearchCacheEntry } from "../search/search-cache.js";
 // 模型列表探测（fetch 原语）归 ai 域（arch-slim-2/09）；纯存储仍在 core/。
 import { handleAiProvidersModels as fetchAiProviderModels } from "../ai/provider-models.js";
 // 平台请求代发（AI 探针传输层）：content script 的跨域 fetch 服从网页 CORS，
@@ -96,10 +97,23 @@ function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender
 function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSender, sendResponse: SendResponse): boolean {
   withOkResponse(
     (async () => {
+      // 显式取撤回判据（settings 是 unknown 线格式，落盘与失效各自照旧收口）
+      const payload = (message.settings || {}) as { webSearchEnabled?: unknown };
       await saveSettings(message.settings || {});
       // 写后 inline 失效：payload 键全集交给快照按键域映射（白名单外键自然
       // 落空）；onChanged 不在写入方上下文触发，这里必须显式失效。
       invalidateSettingsSnapshot(Object.keys(message.settings || {}));
+      // 撤回同意的主入口（spec §6.7 / §10 第 40 行）：关 pill 是显式
+      // webSearchEnabled === false 的保存——缓存里存着 query 哈希与结果，
+      // 撤回后本地继续留着说不通；清空失败静默（logWarn 同既有形态），
+      // 不因缓存清理失败阻断设置保存的回包。
+      if (payload.webSearchEnabled === false) {
+        try {
+          await clearSearchCache();
+        } catch (error) {
+          logWarn("[BILISCRIPT] search cache clear on opt-out failed", error);
+        }
+      }
       return { ok: true };
     })(),
     sendResponse
@@ -416,12 +430,29 @@ const asrProviderHandlers = createProviderMessageHandlers({
   loadKeys: asrProviderStore.loadKeys
 });
 
+// 删除搜索平台记录 + 清空整张查询缓存（spec §6.7 / §10 第 40 行）：删除是撤回的
+// 次入口（「不想这家收到」），删除本身走与 CRUD 同一条写后失效包装；清缓存失败
+// 静默（logWarn 同既有形态），不影响删除回包。
+async function deleteSearchProviderAndClearCache(providerId: string): Promise<unknown[]> {
+  const providers = await invalidateAfterWrite(
+    searchProviderStore.deleteProvider,
+    PROVIDER_FAMILY_STORAGE_KEYS.search
+  )(providerId);
+  try {
+    await clearSearchCache();
+  } catch (error) {
+    logWarn("[BILISCRIPT] search cache clear on provider delete failed", error);
+  }
+  return providers;
+}
+
 // 搜索平台 CRUD 处理器（spec §3.3）：与 AI / ASR 家族共用同一套契约（列表 /
-// Key 的消息路由），连通性测试随后续 tool-loop 迭代再议。
+// Key 的消息路由），连通性测试随后续 tool-loop 迭代再议。删除入口挂撤回清缓存
+// （§6.7 / §10 第 40 行）：删掉记录即本地不再留 query 哈希与结果。
 const searchProviderHandlers = createProviderMessageHandlers({
   loadProviders: searchProviderStore.loadProviders,
   saveProviders: invalidateAfterWrite(searchProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.search),
-  deleteProvider: invalidateAfterWrite(searchProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.search),
+  deleteProvider: deleteSearchProviderAndClearCache,
   loadKeys: searchProviderStore.loadKeys
 });
 

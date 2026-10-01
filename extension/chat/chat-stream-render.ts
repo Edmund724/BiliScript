@@ -731,12 +731,17 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
       state.statusEl.textContent = "搜索失败";
       return;
     }
-    // done：步骤行补结果数 + 头部来源数 + 来源列表。
+    // done：步骤行补「N 条 · <实际引擎>」+ 头部来源数 + 来源列表。平台名来自
+    // tool-status.platform（命中缓存时 runtime 已把它换成缓存记录的那家），
+    // 缺省时退回纯条数；头部「N 条来源」保持只讲条数。
     if (runningRow) {
       runningRow.classList.remove("is-running");
       const note = runningRow.querySelector(".chat-search-step-note");
       if (note) {
-        note.textContent = typeof msg.resultCount === "number" ? `${msg.resultCount} 条` : "";
+        const platform = String(msg.platform || "").trim();
+        note.textContent = typeof msg.resultCount === "number"
+          ? `${msg.resultCount} 条${platform ? ` · ${platform}` : ""}`
+          : "";
       }
     }
     if (Array.isArray(msg.sources) && msg.sources.length) {

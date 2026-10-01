@@ -7,8 +7,8 @@
 // 语义（spec §2.3）：
 // - finish_reason=tool_calls 时不回 done：回填 assistant(tool_calls) 消息 →
 //   逐条搜索回填 tool 结果消息 → 二次调用继续流式回吐；
-// - 单条 tool call 计入配额；达 maxToolCalls 后摘除 tools 并注入「额度用尽」
-//   system 提示（不进持久化历史，buildMessages 的历史过滤自动丢弃）；
+// - 单条 tool call 计入配额；达 maxToolCalls 后摘除 tools 并注入「本轮次数已达
+//   上限」system 提示（不进持久化历史，buildMessages 的历史过滤自动丢弃）；
 // - 搜索失败：tool 消息写「搜索失败：<原因>」+ notice，回答不中断；
 // - 平台不支持 tools（4xx）：notice + 摘除 tools 无联网重发一次；
 // - 中止 / context-length 溢出照 chatCompletion 原语义上抛。
@@ -50,10 +50,13 @@ export const TOOL_CONTENT_MAX_CHARS = 4000;
 // tool 结果持久化截断（spec §2.5：完整结果只活在当轮请求里）。
 export const TOOL_MESSAGE_MAX_CHARS = 2000;
 
-// executeSearch 的统一产物：platform 为平台名（tool-status / UI 展示用）。
+// executeSearch 的统一产物：platform 为平台名（tool-status / UI 展示用）；
+// downgradedFrom 仅在回退链跳过链首换到下一家成功时带上（§6.5 模型侧降级注记），
+// 链首成功不出现该字段。
 export interface ToolLoopSearchOutcome {
   results: NormalizedSearchResult[];
   platform: string;
+  downgradedFrom?: string;
 }
 
 export type ExecuteSearchFn = (query: string) => Promise<ToolLoopSearchOutcome>;
@@ -114,7 +117,7 @@ function serializeSearchResults(results: NormalizedSearchResult[]): string {
 /**
  * 工具调用流式循环：包住 chatCompletion 的多轮调用（spec §2.3）。
  * - 每轮配额未满带 WEB_SEARCH_TOOL；finish_reason=tool_calls 时回填消息续跑；
- * - 达 maxToolCalls 后摘除 tools + 注入「额度用尽」system 提示（一次性）；
+ * - 达 maxToolCalls 后摘除 tools + 注入「本轮次数已达上限」system 提示（一次性）；
  * - 搜索失败降级 + notice；平台 4xx（非溢出/中止）摘除 tools 单次重发 + notice；
  * - 中止/溢出原语义上抛，由调用方（streamChat）既有 catch 收口。
  * 返回最终回答文本（非流式链消费；流式链文本走 onEvent，返回值被忽略）。
@@ -228,6 +231,11 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       try {
         const outcome = await executeSearch(query);
         toolContent = serializeSearchResults(outcome.results);
+        // 模型侧降级注记（§6.5）：只在回退链跳过链首时附恰一行——该行由我们写就，
+        // 不属不可信外部数据，可以进 tool 内容；「以下结果」指其后紧跟的结果体。
+        if (outcome.downgradedFrom) {
+          toolContent = `注：首选 ${outcome.downgradedFrom} 未成功，以下结果来自 ${outcome.platform}。\n${toolContent}`;
+        }
         onToolStatus?.({
           status: "done",
           query,
@@ -257,12 +265,13 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
     ]);
 
     if (toolCallCount >= maxToolCalls) {
-      // 额度用尽：摘除 tools（下轮 withTools=false），注入提示后继续作答。
+      // 本轮次数达上限：摘除 tools（下轮 withTools=false），注入提示后继续作答。
+      // 同名收口（§6.4）：全局「额度」只指平台额度，「次数」只指本轮调用。
       messages.push({
         role: "system",
-        content: `搜索额度已用尽（${maxToolCalls} 次上限），请基于已有搜索结果作答。`
+        content: `本轮的搜索次数已达上限（${maxToolCalls} 次），请基于已有搜索结果作答。`
       });
-      onNotice?.("搜索额度已用尽，请基于已有搜索结果查看回答");
+      onNotice?.("本轮的搜索次数已达上限，请基于已有结果作答");
     }
   }
 }

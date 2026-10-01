@@ -35,9 +35,10 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">搜索平台</div>
-      <p class="biliscript-set-hint">AI 对话与选区解释可联网搜索视频内容之外的信息（function calling，由模型决定何时搜）。当前选用平台提供搜索结果。</p>
+      <p class="biliscript-set-hint">AI 对话与选区解释可联网搜索视频内容之外的信息（function calling，由模型决定何时搜）。联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回。</p>
+      <p id="searchProvidersDanglingHint" class="biliscript-set-hint" hidden>原选用平台已不可用，当前按默认链搜索</p>
       <div id="searchProvidersList" class="ai-providers-list"></div>
-      <p id="searchProvidersEmpty" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Tavily / Exa / Brave）。</p>
+      <p id="searchProvidersEmpty" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa）——四条免 Key 预设装上即可用。</p>
       <button id="addSearchProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
       <div class="biliscript-set-row">
         <label class="biliscript-set-label" for="webSearchMaxToolCalls">单轮搜索次数上限</label>

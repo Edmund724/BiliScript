@@ -127,6 +127,7 @@ function collectElements(host: HTMLElement) {
     asrAutoFallback: byIdIn<HTMLInputElement>("asrAutoFallback"),
     searchProvidersList: byIdIn<HTMLElement>("searchProvidersList"),
     searchProvidersEmpty: byIdIn<HTMLElement>("searchProvidersEmpty"),
+    searchProvidersDanglingHint: byIdIn<HTMLElement>("searchProvidersDanglingHint"),
     addSearchProviderBtn: byIdIn<HTMLButtonElement>("addSearchProviderBtn"),
     webSearchMaxToolCalls: byIdIn<HTMLInputElement>("webSearchMaxToolCalls"),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>("aiSystemPrompt"),
@@ -243,6 +244,21 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
     presets: SEARCH_PROVIDER_PRESETS,
     activeId: settings.activeSearchProviderId || ""
   });
+  // 悬空链首提示（spec §6.8）：链首指向已不存在的记录时露条件提示行；用户改选
+  // （或链首本就为空 / 指向在场记录）即隐藏。判据只读当前设置与列表，无新存储位。
+  syncSearchDanglingHint(elements, String(settings.activeSearchProviderId || ""), searchProviders);
+}
+
+// 悬空链首提示行的显隐（spec §6.8）：activeSearchProviderId 指向不存在记录才出现。
+function syncSearchDanglingHint(
+  elements: SettingsElements,
+  activeSearchProviderId: string,
+  providers: ProviderRowItem[]
+): void {
+  const hint = elements.searchProvidersDanglingHint;
+  if (!hint) return;
+  const activeId = activeSearchProviderId.trim();
+  hint.hidden = !activeId || providers.some((provider) => String(provider?.id || "") === activeId);
 }
 
 async function loadAiProviders(): Promise<ProviderRowItem[]> {
@@ -630,6 +646,13 @@ function bindSettingsEvents(host: HTMLElement): void {
   familyRows.search.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveSearchProviderId(elements.searchProvidersList) || "") === providerId) {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeSearchProviderId: "" } });
+    }
+  });
+  // 悬空链首提示随用户改选消失（spec §6.8）：选中任一在场记录即不再悬空。
+  // 只读行内 radio 选中态，不写设置——持久化仍由 radio 自身的 save-settings 承担。
+  elements.searchProvidersList?.addEventListener("change", () => {
+    if (getActiveSearchProviderId(elements.searchProvidersList)) {
+      elements.searchProvidersDanglingHint.hidden = true;
     }
   });
   // 删除平台时回收 host 权限：判定是「origin 不再被任何参与族（分派表里

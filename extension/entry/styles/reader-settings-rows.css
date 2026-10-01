@@ -142,6 +142,26 @@
   background: var(--biliscript-reader-success);
 }
 
+/* 第三态：免 Key 预设无 Key 也标「就绪」（spec §6.1）——复用同一 success 变量，
+   不新增颜色；「免 Key / 自带 Key」这条轴由徽章承担 */
+#biliscript-reading-view .biliscript-reading-settings-host .provider-row-dot[data-state="keyless"] {
+  background: var(--biliscript-reader-success);
+}
+
+/* 额度形态徽章（spec §6.2）：挂在行内名字之后，与「选用 / 编辑」同排，
+   颜色沿用既有变量（不新增色值） */
+#biliscript-reading-view .biliscript-reading-settings-host .provider-row-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 999px;
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .provider-row-name {
   flex: 1 1 auto;
   min-width: 0;

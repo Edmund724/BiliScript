@@ -153,6 +153,81 @@ describe("查询缓存消息族：来源守卫与 SW 叶往返（spec §5 / §10
   });
 });
 
+describe("撤回同意：清空查询缓存（spec §6.7 / §10 第 40 行）", () => {
+  type BackgroundListener = (
+    message: unknown,
+    sender: MessageSender,
+    sendResponse: (response: unknown) => void
+  ) => unknown;
+
+  // 先写一条缓存（走真实 search-cache handler → SW 叶 → 内存 storage），
+  // 撤回入口执行后必须整张清空。
+  async function seedCacheEntry(listener: BackgroundListener, query: string): Promise<void> {
+    const respond = vi.fn();
+    listener(
+      {
+        type: "search-cache",
+        op: "put",
+        query,
+        results: [{ title: "t", url: "https://example.com", snippet: "s" }],
+        platform: "Firecrawl"
+      },
+      TAB_SENDER(7),
+      respond
+    );
+    await vi.waitFor(() => expect(respond).toHaveBeenCalledWith({ ok: true }));
+    expect(localFixture[SEARCH_CACHE_KEY]).toBeTruthy();
+  }
+
+  async function expectCacheMiss(listener: BackgroundListener, query: string): Promise<void> {
+    const respond = vi.fn();
+    listener({ type: "search-cache", op: "get", query }, TAB_SENDER(7), respond);
+    await vi.waitFor(() =>
+      expect(respond).toHaveBeenCalledWith(expect.objectContaining({ ok: true, hit: false }))
+    );
+  }
+
+  it("关 pill（save-settings 显式 webSearchEnabled:false）→ 整张缓存清空、随后读未命中", async () => {
+    const listener = await importBackground();
+    await seedCacheEntry(listener, "bilibili ai");
+
+    const saveResponse = vi.fn();
+    listener({ type: "save-settings", settings: { webSearchEnabled: false } }, TAB_SENDER(7), saveResponse);
+    await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ ok: true }));
+
+    expect(localFixture[SEARCH_CACHE_KEY]).toBeUndefined();
+    await expectCacheMiss(listener, "bilibili ai");
+  });
+
+  it("删搜索平台记录（search-providers-delete）→ 整张缓存清空、随后读未命中", async () => {
+    const listener = await importBackground();
+    await seedCacheEntry(listener, "bilibili ai");
+
+    const deleteResponse = vi.fn();
+    listener({ type: "search-providers-delete", providerId: "search_firecrawl" }, TAB_SENDER(7), deleteResponse);
+    await vi.waitFor(() => expect(deleteResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true })));
+
+    expect(localFixture[SEARCH_CACHE_KEY]).toBeUndefined();
+    await expectCacheMiss(listener, "bilibili ai");
+  });
+
+  it("其它设置变更（未显式传 webSearchEnabled:false）→ 缓存不动、仍命中", async () => {
+    const listener = await importBackground();
+    await seedCacheEntry(listener, "bilibili ai");
+
+    const saveResponse = vi.fn();
+    listener({ type: "save-settings", settings: { aiThinkingLevel: "high" } }, TAB_SENDER(7), saveResponse);
+    await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ ok: true }));
+
+    expect(localFixture[SEARCH_CACHE_KEY]).toBeTruthy();
+    const getResponse = vi.fn();
+    listener({ type: "search-cache", op: "get", query: "bilibili ai" }, TAB_SENDER(7), getResponse);
+    await vi.waitFor(() =>
+      expect(getResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true, hit: true }))
+    );
+  });
+});
+
 describe("消息入口守卫：内部消息 schema", () => {
   it.each([
     ["save-settings", { type: "save-settings", settings: "junk" }],

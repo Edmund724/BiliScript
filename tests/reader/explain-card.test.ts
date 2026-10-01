@@ -191,6 +191,7 @@ afterEach(async () => {
   await new Promise((resolve) => setTimeout(resolve, 150));
   document.body.innerHTML = "";
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("选区「解释」浮层", () => {
@@ -295,8 +296,9 @@ describe("面板内解释卡片", () => {
     expect(args.provider.baseUrl).toBe("https://thinking-proxy.example.com/v1");
   });
 
-  it("webSearchEnabled 开启：解释请求带联网运行时（resolve-search-provider 往返组装）", async () => {
-    // 覆盖 setup 层的 chrome stub：get-settings 回开启态，resolve-search-provider
+  it("webSearchEnabled 开启（位已置位）：解释请求带联网运行时（resolve-search-provider 往返组装）", async () => {
+    // 覆盖 setup 层的 chrome stub：get-settings 回开启态 + opt-in 位已置位
+    //（位未置位时先出一次性说明，见下方 §6.7 用例）；resolve-search-provider
     // 回链（S4 形状；此处刻意用 apiKey:"" 的 keyless 候选——免 Key 家必须能到达
     // 解释链，第二道闸不再按 apiKey 非空判「未配置」）；其余消息回 ok
     //（sendRuntimeMessage callback 风格）。
@@ -307,7 +309,7 @@ describe("面板内解释卡片", () => {
         sendMessage: (msg: { type?: string }, cb?: (r: unknown) => void) => {
           const payload =
             msg?.type === "get-settings"
-              ? { ok: true, settings: { webSearchEnabled: true } }
+              ? { ok: true, settings: { webSearchEnabled: true, searchOptInNoticeAcknowledged: true } }
               : msg?.type === "resolve-search-provider"
                 ? {
                     ok: true,
@@ -349,6 +351,87 @@ describe("面板内解释卡片", () => {
     await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
     const args = aiMock.explainSelection.mock.calls[0][0] as { webSearch?: unknown };
     expect(args.webSearch).toBeUndefined();
+  });
+
+  // ===== opt-in 一次性说明闸（§6.7 / §10 第 58 行）=====
+  // 开关开 + 位未置位 → 解析搜索运行时**之前**先弹说明（ui/confirm-dialog，阅读
+  // 视图宿主内）：同意 → 写位并继续；取消 → 本轮不联网（不传 webSearch），解释
+  // 照常发起、不写位（下次再问）。
+  function stubOptInChrome(acknowledged: boolean): Array<Record<string, unknown>> {
+    const sent: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("chrome", {
+      runtime: {
+        lastError: null,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        sendMessage: (msg: Record<string, unknown>, cb?: (r: unknown) => void) => {
+          sent.push(msg);
+          const payload =
+            msg?.type === "get-settings"
+              ? { ok: true, settings: { webSearchEnabled: true, searchOptInNoticeAcknowledged: acknowledged } }
+              : msg?.type === "resolve-search-provider"
+                ? {
+                    ok: true,
+                    chain: [
+                      {
+                        provider: { id: "p", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+                        apiKey: ""
+                      }
+                    ],
+                    maxToolCalls: 2
+                  }
+                : { ok: true };
+          if (typeof cb === "function") {
+            cb(payload);
+            return undefined;
+          }
+          return Promise.resolve(payload);
+        }
+      }
+    });
+    return sent;
+  }
+
+  it("位未置位 + 开关开：解析搜索运行时之前先弹说明；同意 → 写位并继续带联网运行时", async () => {
+    const sent = stubOptInChrome(false);
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    const dialog = document.querySelector<HTMLElement>(".confirm-dialog")!;
+    const message = dialog.querySelector(".confirm-dialog-message")!.textContent!;
+    expect(message).toContain("联网搜索会把查询词发往内置的免 Key 服务");
+    expect(message).toContain("关闭搜索开关可随时撤回");
+    expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
+    expect(dialog.querySelector(".confirm-dialog-confirm")!.textContent).toBe("同意并继续");
+    // 说明弹出时尚未解析搜索运行时（闸在解析之前）
+    expect(sent.some((m) => m.type === "resolve-search-provider")).toBe(false);
+
+    dialog.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
+
+    await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
+    const args = aiMock.explainSelection.mock.calls[0][0] as { webSearch?: { maxToolCalls: number } };
+    expect(args.webSearch).toMatchObject({ maxToolCalls: 2 });
+    expect(sent).toContainEqual({ type: "save-settings", settings: { searchOptInNoticeAcknowledged: true } });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("位未置位 + 开关开：取消 → 不带 webSearch、不写位，解释照常发起", async () => {
+    const sent = stubOptInChrome(false);
+
+    selectInItem(1, "工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel")!.click();
+
+    await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
+    const args = aiMock.explainSelection.mock.calls[0][0] as { webSearch?: unknown };
+    expect(args.webSearch).toBeUndefined();
+    // 位未置位（下次再问）、运行时未解析（本轮不外发查询词）
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+    expect(sent.some((m) => m.type === "resolve-search-provider")).toBe(false);
+
+    vi.unstubAllGlobals();
   });
 
   it("卡片「去对话追问」：写意图（含 selection）+ 切到 AI 对话 tab + 引用卡展示选中片段", async () => {

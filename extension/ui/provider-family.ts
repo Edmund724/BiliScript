@@ -56,12 +56,23 @@ export interface FamilyEditorDeclaration {
   // 新增态预设下拉默认选中项
   defaultPresetId: (presets: readonly ProviderRowPreset[]) => string;
   apiKeyPlaceholder: (preset: ProviderRowPreset | null, hasSavedKey: boolean) => string;
+  // Key 是否必填（spec §6.3 单一真源）：模板 required 属性与切预设同步共用同一
+  // 判据，防「占位符说可选、required 仍卡住」的不同源分叉
+  isKeyRequired: (preset: ProviderRowPreset | null) => boolean;
+  // 额度形态徽章文案（spec §6.2，行内名字之后）：搜索族由 access 派生；
+  // 无徽章的族返回空串（行不渲染徽章节点）
+  accessBadge: (preset: ProviderRowPreset | null) => string;
   // 能力位：Modal 快照 / 接线的 kind 门（新族漏配由 Record 全键覆盖编译兜底）
   modelSource: "catalog" | "input" | "none";
   usesProtocol: boolean;
   supportsPlatformTest: boolean;
   // 收集后序列化（原 Modal collectUpsert 的每族分支）
   serializeUpsert: (fields: EditorUpsertFields) => { upsert: ProviderRowItem; validationError?: string };
+}
+
+// AI / ASR 的 Key 必填判据：预设的 requiresKey，缺省视为必填（既有口径）。
+function presetKeyRequired(preset: ProviderRowPreset | null): boolean {
+  return preset?.requiresKey !== false;
 }
 
 // ===== 每族行声明（createProviderRow 配置中除 onRowEdit 外的全部每族差异） =====
@@ -75,7 +86,7 @@ interface FamilyRowDeclaration {
   // 显示名（AI：自定义名回落预设名，拍板 Q7；三族同规则）
   displayName: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
   // 副行模型名：AI=models 多值「首项 等 N 个」（拍板 Q15）/历史单模型；
-  // ASR=model 回落预设；搜索=预设 note（如 Brave「免费计划需绑信用卡」），空不渲染
+  // ASR=model 回落预设；搜索=预设 note（如豆包「每月 500 次免费」），空不渲染
   displayModel: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
   // 选用 radio 尾（ASR / 搜索；AI 无）：类名前缀 / 提示文案 / 即时持久化设置键
   activeRadio?: ActiveRadioTailConfig;
@@ -105,11 +116,14 @@ const AI_FAMILY: FamilyRowDeclaration = {
   editor: {
     title: "AI 平台",
     defaultPresetId: () => "custom",
-    // requiresKey=false（如 ollama）时占位符提示可省；ASR / 搜索无此变体
+    // requiresKey=false（如 ollama）时占位符提示可省；搜索族由 access 派生同款
+    // 三态（ASR 无此变体）
     apiKeyPlaceholder: (preset, hasSavedKey) => {
-      const requiresKey = preset?.requiresKey !== false;
+      const requiresKey = presetKeyRequired(preset);
       return hasSavedKey ? "已保存" : (requiresKey ? "API Key" : "API Key（可选）");
     },
+    isKeyRequired: presetKeyRequired,
+    accessBadge: () => "",
     modelSource: "catalog",
     usesProtocol: true,
     // 平台级测试按钮已退役（拍板 Q4：行级测试替代），目录行级测试在 catalog 片
@@ -156,9 +170,11 @@ const ASR_FAMILY: FamilyRowDeclaration = {
     title: "语音转写平台",
     defaultPresetId: () => "custom",
     apiKeyPlaceholder: (_preset, hasSavedKey) => (hasSavedKey ? "已保存" : "API Key"),
+    isKeyRequired: presetKeyRequired,
+    accessBadge: () => "",
     modelSource: "input",
     usesProtocol: false,
-    // 平台级连通测试仅 ASR 保留（AI 由目录行级测试替代，搜索无探针）
+    // 平台级连通测试仅 ASR 保留（AI 由目录行级测试替代，搜索走 §6.6 搜索测试）
     supportsPlatformTest: true,
     serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey, model }) => ({
       upsert: {
@@ -174,6 +190,20 @@ const ASR_FAMILY: FamilyRowDeclaration = {
     })
   }
 };
+
+// 搜索族：Key 是否必填与额度形态徽章都由预设的 access 派生（spec §6.3/§6.2
+// 单一真源）——判据表达式只写在这一处，模板 required / 切预设 sync / 占位符 /
+// 行状态点与徽章全部同源。
+function searchKeyRequired(preset: ProviderRowPreset | null): boolean {
+  return (preset as SearchProviderPreset | null)?.access !== "keyless";
+}
+
+function searchAccessBadge(preset: ProviderRowPreset | null): string {
+  const access = (preset as SearchProviderPreset | null)?.access;
+  if (access === "keyless") return "免 Key";
+  if (access === "free-quota") return "免费额度";
+  return "";
+}
 
 // 搜索平台
 const SEARCH_FAMILY: FamilyRowDeclaration = {
@@ -194,10 +224,16 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
     title: "搜索平台",
     // 搜索平台无自定义预设（spec 非目标）：新增默认选第一个预设
     defaultPresetId: (presets) => presets[0]?.id || "custom",
-    apiKeyPlaceholder: (_preset, hasSavedKey) => (hasSavedKey ? "已保存" : "API Key"),
+    // 三态与 AI 同款（:109-111）：keyless 预设的 Key 可选·可填（无 Key 走匿名
+    // 额度、有 Key 走自己账号提额）
+    apiKeyPlaceholder: (preset, hasSavedKey) =>
+      hasSavedKey ? "已保存" : searchKeyRequired(preset) ? "API Key" : "API Key（可选）",
+    isKeyRequired: searchKeyRequired,
+    accessBadge: searchAccessBadge,
     modelSource: "none",
     usesProtocol: false,
-    supportsPlatformTest: false,
+    // 平台级测试：搜索族走 §6.6 的搜索测试动作（真实发起一次搜索，不落盘）
+    supportsPlatformTest: true,
     serializeUpsert: ({ id, preset, name, baseUrl, apiKey, hasSavedKey }) => ({
       upsert: {
         id,
@@ -253,6 +289,7 @@ export function createProviderFamilyRows(deps: CreateFamilyRowsDeps): ProviderFa
         resolvePreset: decl.resolvePreset,
         displayName: decl.displayName,
         displayModel: decl.displayModel,
+        resolveBadge: decl.editor.accessBadge,
         buildTailFields: activeRadio?.buildTailFields,
         wireTailExtras: activeRadio?.wireTailExtras,
         onRowEdit: (row) => deps.onRowEdit(kind, row.dataset.providerId || ""),

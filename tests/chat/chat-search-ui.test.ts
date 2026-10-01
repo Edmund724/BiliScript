@@ -122,11 +122,11 @@ describe("搜索时间线卡", () => {
     const card = deps.messages.querySelector(".chat-search-card")!;
     const step = card.querySelector(".chat-search-step")!;
     expect(step.classList.contains("is-running")).toBe(false);
-    expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("2 条");
-    // 头部右端 = 卡内累计来源数；平台名与耗时不再出现在文案里
+    // 步骤行 note 现在带实际引擎（§6.5：tool-status.platform 就地接线）
+    expect(step.querySelector(".chat-search-step-note")!.textContent).toBe("2 条 · Tavily");
+    // 头部右端仍是「N 条来源」（卡内累计来源数），文案不含平台名与耗时
     const status = card.querySelector(".chat-search-card-status")!.textContent!;
     expect(status).toBe("2 条来源");
-    expect(status).not.toContain("Tavily");
     const rows = card.querySelectorAll(".chat-search-source-row");
     expect(rows).toHaveLength(2);
     expect(rows[0].querySelector(".chat-search-source-idx")!.textContent).toBe("1");

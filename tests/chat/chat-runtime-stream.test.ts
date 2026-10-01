@@ -45,6 +45,7 @@ interface TestDeps extends CreateChatRuntimeDeps {
 
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let chatSessionState: ChatSessionState;
+let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
 
 const SLOW_NOTICE_TEXT = "模型响应较慢，可能正在思考，请稍候…";
@@ -136,7 +137,7 @@ beforeEach(async () => {
   document.body.innerHTML = "";
   // 同一模块纪元内新鲜导入（先 resetModules 再 import，两个模块同图解析）：
   ({ createChatRuntime } = await import("../../extension/chat/chat-runtime.js"));
-  ({ chatSessionState, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
+  ({ chatSessionState, chatSessionStateForTests, resetChatSessionStateForTests } = await import("../../extension/chat/chat-state.js"));
   // chatSessionState 是模块级单例，经测试注入口重置本文件用到的字段
   resetChatSessionStateForTests();
 });
@@ -144,6 +145,7 @@ beforeEach(async () => {
 afterEach(() => {
   document.body.innerHTML = "";
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -1428,7 +1430,123 @@ describe("tool-turn 持久化与 tool-status 最小消费", () => {
     expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("搜索中…");
     feed(runtime, { type: "tool-status", status: "done", query: "x", resultCount: 3, platform: "Tavily" });
     expect(card.querySelector(".chat-search-card-status")!.textContent).toBe("0 条来源");
-    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("3 条");
+    // 步骤行 note 带实际引擎（§6.5），头部来源数半句不变
+    expect(card.querySelector(".chat-search-step-note")!.textContent).toBe("3 条 · Tavily");
     runRafFrames(raf);
+  });
+});
+
+// ==========================================================================
+// opt-in 一次性说明闸（spec §6.7 / §10 第 58 行）
+// ==========================================================================
+// 判据 = 开关已开（chatSessionState.webSearchEnabled）且位未置位
+// （settings.searchOptInNoticeAcknowledged）：说明弹在 port.postMessage 之前。
+// 同意 → 写位并继续；取消 → 该条 ChatMsg.webSearchEnabled=false（消息照常发）；
+// 位已置位 → 不打扰；阅读视图未挂载 → confirmDialog 直接 false（fail-closed）。
+describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
+  // 覆盖 setup 层 chrome stub：get-settings 回开关态 + 位，其余回 ok；记录出向
+  // 消息以便断言 save-settings 写位。
+  function stubSettingsChrome(acknowledged: boolean): Array<Record<string, unknown>> {
+    const sent: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("chrome", {
+      runtime: {
+        lastError: null,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        sendMessage: (msg: Record<string, unknown>, cb?: (r: unknown) => void) => {
+          sent.push(msg);
+          const payload =
+            msg?.type === "get-settings"
+              ? { ok: true, settings: { webSearchEnabled: true, searchOptInNoticeAcknowledged: acknowledged } }
+              : { ok: true };
+          if (typeof cb === "function") {
+            cb(payload);
+            return undefined;
+          }
+          return Promise.resolve(payload);
+        }
+      }
+    });
+    return sent;
+  }
+
+  function mountReadingView(): void {
+    document.body.innerHTML = '<div id="biliscript-reading-view"></div>';
+  }
+
+  function chatMessageOf(deps: TestDeps): { action: string; webSearchEnabled: boolean } {
+    return deps.ports[0].port.postMessage.mock.calls[0][0] as { action: string; webSearchEnabled: boolean };
+  }
+
+  it("存量开关开 + 位未置位 → 发送前弹说明；同意并继续 → 写位且该条 webSearchEnabled 仍为 true", async () => {
+    const sent = stubSettingsChrome(false);
+    // 存量用户：webSearchEnabled 直接为 true（不依赖「用户点过 pill」），同样先出说明
+    chatSessionStateForTests.webSearchEnabled = true;
+    mountReadingView();
+
+    const deps = makeDeps();
+    deps.input.value = "开搜的问题";
+    const runtime = createChatRuntime(deps);
+    const sending = runtime.sendMessage();
+
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    // 说明未确认前无 chat 外发（闸在 port.postMessage 之前）
+    expect(deps.ports).toHaveLength(0);
+    const dialog = document.querySelector<HTMLElement>(".confirm-dialog")!;
+    expect(dialog.querySelector(".confirm-dialog-message")!.textContent).toBe(
+      "联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回。"
+    );
+    expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
+    expect(dialog.querySelector(".confirm-dialog-confirm")!.textContent).toBe("同意并继续");
+
+    dialog.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
+    await sending;
+
+    expect(sent).toContainEqual({ type: "save-settings", settings: { searchOptInNoticeAcknowledged: true } });
+    const chatMsg = chatMessageOf(deps);
+    expect(chatMsg.action).toBe("chat");
+    expect(chatMsg.webSearchEnabled).toBe(true);
+  });
+
+  it("位未置位 → 点取消：该条 ChatMsg.webSearchEnabled === false、位仍 false（下次再问），消息照常发出", async () => {
+    const sent = stubSettingsChrome(false);
+    chatSessionStateForTests.webSearchEnabled = true;
+    mountReadingView();
+
+    const deps = makeDeps();
+    deps.input.value = "只问不搜";
+    const runtime = createChatRuntime(deps);
+    const sending = runtime.sendMessage();
+
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel")!.click();
+    await sending;
+
+    expect(chatMessageOf(deps).webSearchEnabled).toBe(false);
+    // 位未置位：既不写设置，下次发送仍会问
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+    expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("只问不搜");
+  });
+
+  it("位已置位 → 不弹层且该条 webSearchEnabled 为 true", async () => {
+    const sent = stubSettingsChrome(true);
+    chatSessionStateForTests.webSearchEnabled = true;
+    mountReadingView();
+
+    const { deps, session } = await makeRuntime("已同意过");
+
+    expect(document.querySelector(".confirm-dialog")).toBeNull();
+    expect(chatMessageOf(deps).webSearchEnabled).toBe(true);
+    expect(sent.some((m) => m.type === "save-settings")).toBe(false);
+  });
+
+  it("阅读视图未挂载 → confirmDialog 直接 false，按「本轮不搜索」走（fail-closed）", async () => {
+    stubSettingsChrome(false);
+    chatSessionStateForTests.webSearchEnabled = true;
+    // 无 #biliscript-reading-view：弹层无处可挂，未获同意即不外发
+    const { deps } = await makeRuntime("未挂载");
+
+    expect(document.querySelector(".confirm-dialog")).toBeNull();
+    expect(chatMessageOf(deps).webSearchEnabled).toBe(false);
+    expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("未挂载");
   });
 });

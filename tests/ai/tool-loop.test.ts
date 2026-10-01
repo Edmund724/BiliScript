@@ -11,6 +11,7 @@ import {
   runToolLoop,
   webSearchTool,
   WEB_SEARCH_TOOL,
+  TOOL_CONTENT_MAX_CHARS,
   TOOL_MESSAGE_MAX_CHARS,
   type RunToolLoopInput,
   type ToolStatusPayload
@@ -161,7 +162,7 @@ describe("runToolLoop 工具调用循环", () => {
     expect(capture.statuses[0]).toMatchObject({ status: "searching", query: "bilibili ai" });
   });
 
-  it("配额用尽：摘除 tools + system 额度提示注入 + notice，后续轮无工具", async () => {
+  it("本轮次数达上限：摘除 tools + system 次数提示注入 + notice，后续轮无工具", async () => {
     capture = makeCapture();
     // maxToolCalls=1：首轮搜索后计数达上限，第二轮不带 tools 出最终回答。
     await runToolLoop(makeInput({ fetchImpl: capture.fetchImpl, maxToolCalls: 1, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
@@ -169,8 +170,9 @@ describe("runToolLoop 工具调用循环", () => {
     expect(capture.calls.length).toBe(2);
     expect(capture.calls[1].tools).toBeUndefined();
     const followup = capture.calls[1].messages;
-    expect(followup.some((m) => m.role === "system" && m.content.includes("搜索额度已用尽（1 次上限）"))).toBe(true);
-    expect(capture.notices.some((t) => t.includes("搜索额度已用尽"))).toBe(true);
+    // 同名收口（§6.4）：本条只讲「本轮的搜索次数」，平台额度另有文案
+    expect(followup.some((m) => m.role === "system" && m.content === "本轮的搜索次数已达上限（1 次），请基于已有搜索结果作答。")).toBe(true);
+    expect(capture.notices).toContain("本轮的搜索次数已达上限，请基于已有结果作答");
   });
 
   it("搜索失败降级：「搜索失败」tool 消息 + failed 状态 + notice，回答不中断", async () => {
@@ -268,6 +270,78 @@ describe("runToolLoop 工具调用循环", () => {
     // 持久化副本截 2,000
     const persistedTool = capture.toolTurns[0].find((m) => m.role === "tool");
     expect(persistedTool!.content.length).toBe(TOOL_MESSAGE_MAX_CHARS);
+  });
+
+  // §8 验收断言三条（§10 第 52、54、55 行的缺口部分）：500 档 5×500 全保 5 条、
+  // 条数按算术递减、极端长正文硬截；序列化真裁条时来源 chip 仍取全量；产物不含
+  // truncated 标注。
+  it("结果正文预算：500 档 5×500 全保 5 条，条数按算术递减（§10 第 52 行）", async () => {
+    const cases = [
+      { snippet: 500, kept: 5 },
+      { snippet: 1000, kept: 3 },
+      { snippet: 1500, kept: 2 },
+      { snippet: 2000, kept: 1 }
+    ];
+    for (const { snippet, kept } of cases) {
+      capture = makeCapture();
+      const results = Array.from({ length: 5 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(snippet) }));
+      await runToolLoop(makeInput({
+        fetchImpl: capture.fetchImpl,
+        executeSearch: async () => ({ results, platform: "Tavily" })
+      }));
+
+      const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
+      expect(content.length).toBeLessThanOrEqual(TOOL_CONTENT_MAX_CHARS);
+      expect(JSON.parse(content), `snippet=${snippet} 的保留条数`).toHaveLength(kept);
+    }
+  });
+
+  it("结果正文预算：极端 4546×5 → 无完整条目、硬截到 4,000（§10 第 52 行）", async () => {
+    capture = makeCapture();
+    const results = Array.from({ length: 5 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(4546) }));
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: async () => ({ results, platform: "Firecrawl" })
+    }));
+
+    const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
+    // 单条 JSON 结构开销 + 4546 已超总预算，裁到仅剩 1 条后仍超限 → 硬截字符串
+    expect(content.length).toBe(TOOL_CONTENT_MAX_CHARS);
+    expect(() => JSON.parse(content)).toThrow();
+  });
+
+  it("来源 chip 取全量：序列化真裁条时 tool-status.sources 仍为全量结果集（§8 新不变量 / §10 第 54 行）", async () => {
+    capture = makeCapture();
+    const results = Array.from({ length: 10 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(2000) }));
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: async () => ({ results, platform: "Exa" })
+    }));
+
+    // 序列化确实裁了（先裁 8 条上限，再按总量裁到 1 条），用户侧仍是全部 10 条
+    const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
+    expect(JSON.parse(content)).toHaveLength(1);
+    const done = capture.statuses.find((s) => s.status === "done")!;
+    expect(done.resultCount).toBe(10);
+    expect(done.sources).toBe(results);
+  });
+
+  it("序列化产物不含 truncated 标注（§8「不加截断标注」/ §10 第 55 行）", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: async () => ({
+        // 2000 字正文 5 条 → 序列化真裁条，正是最容易被加标注的路径
+        results: Array.from({ length: 5 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(2000) })),
+        platform: "Tavily"
+      })
+    }));
+
+    const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
+    expect(content).not.toContain("truncated");
+    for (const entry of JSON.parse(content) as Array<Record<string, unknown>>) {
+      expect(Object.keys(entry)).toEqual(["title", "url", "snippet"]);
+    }
   });
 
   it("done 状态带搜索结果 sources（时间线卡 chip 行 / 内联引用数据源）", async () => {
@@ -409,5 +483,41 @@ describe("回退链 × 工具链接缝", () => {
       { status: "searching", query: "bilibili ai" },
       { status: "failed", query: "bilibili ai" }
     ]);
+  });
+
+  // §6.5 模型侧引擎注记（§10 第 50 行）：只在降级时附一行，链首成功不附。
+  it("链首成功：tool 内容为纯结果 JSON，不附引擎注记（§6.5 / §10 第 50 行）", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: (query) =>
+        executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
+          execute: async (candidate) => ({ results: [CHAIN_RESULT], platform: candidate.provider.name })
+        })
+    }));
+
+    const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
+    expect(content).not.toContain("注：");
+    expect(JSON.parse(content)).toEqual([CHAIN_RESULT]);
+  });
+
+  it("回退成功：tool 内容附恰一行「注：首选 <X> 未成功，以下结果来自 <Y>。」（§6.5 / §10 第 50 行）", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: (query) =>
+        executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
+          execute: async (candidate) => {
+            if (candidate.provider.id === "search_firecrawl") throw httpError(503);
+            return { results: [CHAIN_RESULT], platform: candidate.provider.name };
+          }
+        })
+    }));
+
+    const content = capture.calls[1].messages.find((m) => m.role === "tool")!.content;
+    const notes = content.split("\n").filter((line) => line.startsWith("注："));
+    expect(notes).toEqual(["注：首选 Firecrawl 未成功，以下结果来自 Tavily。"]);
+    // 注记之外结果本体照常进内容
+    expect(content).toContain(JSON.stringify([CHAIN_RESULT]));
   });
 });

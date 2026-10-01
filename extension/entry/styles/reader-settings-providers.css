@@ -267,7 +267,7 @@
  * 测试 + 删除，Q3/Q9 无展示名/展开箭头）+「获取可用模型」勾选弹窗（Q5/Q11）。
  * 度量沿用 settings-ui-coherence：控件高 32、圆角 8/999、字号 15/14、
  * pill=文字按钮；主题变量 --biliscript-reader-*。AI 平台级测试按钮已退役
- *（Q4 行级替代），.provider-editor-test 仅剩 ASR 消费。 */
+ *（Q4 行级替代），.provider-editor-test 由 ASR 探针与搜索测试动作（spec §6.6）消费。 */
 #biliscript-reading-view .provider-editor-catalog-head {
   display: flex;
   align-items: center;

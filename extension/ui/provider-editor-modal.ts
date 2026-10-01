@@ -16,6 +16,10 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
+import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
+import { executeWebSearch } from "../search/search-executor.js";
+import { classifySearchFailure } from "../search/search-chain.js";
+import { searchProviderStore } from "../search/search-provider-store.js";
 import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { buildModelPickerField, wireModelPicker } from "./model-picker.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
@@ -251,12 +255,16 @@ export async function deleteActive(): Promise<void> {
 // ===== 测试连接（只验证连通性，成功也不落盘；保存只在点「保存」时发生） =====
 //
 // AI：行级测试（拍板 Q4/Q12，runModelTest），平台级按钮已退役；本函数只剩
-// ASR 平台级测试。两侧同一语义：探针直调（与平铺行同源，options 页本地执行
-// 免 SW 往返），成功回报连通性，不写设置。
+// ASR 平台级测试与搜索测试动作（spec §6.6）。三者同一语义：探针直调（与平铺行
+// 同源，options 页本地执行免 SW 往返），成功回报连通性，不写设置。
 
 export async function runTest(): Promise<void> {
-  // 平台级测试能力按族声明（仅 ASR）；函数体仍按 ASR 探针直写，非 ASR 族走不到
+  // 平台级测试能力按族声明（ASR 探针 / 搜索测试动作）；函数体仍按族直写
   if (!PROVIDER_FAMILY_ROWS[state.kind].editor.supportsPlatformTest) return;
+  if (state.kind === "search") {
+    await runSearchTest();
+    return;
+  }
   const draft = state.draft!;
   const baseUrl = draft.baseUrl.trim();
   const model = draft.model.trim();
@@ -295,6 +303,78 @@ export async function runTest(): Promise<void> {
   setBusy(false);
   showStatus("连接成功");
 }
+
+// ===== 搜索测试动作（spec §6.6） =====
+//
+// 三条硬约束：① 测试走单引擎执行路径（executeWebSearch）——不经回退链，也不走、
+// 不写查询缓存；② 探针词是设置页常量；③ 不落盘（只有「保存」写设置）。
+// 前置（baseUrl 空 / Key 必填但空）是本地校验，不是测试态：不发起请求。
+export const SEARCH_TEST_QUERY = "联网搜索测试";
+
+// 五态：HTTP 200 有结果 →「连接成功 · N 条结果」；200 且 0 条 →「未返回结果」
+// （失败态）；额度类 →「额度已用尽」；鉴权类 →「Key 无效或无权限」；其余类 →
+//「连接失败：<原因>」。分类复用 search-chain 的 classifySearchFailure（单一映射表）。
+export async function runSearchTest(): Promise<void> {
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
+  const draft = state.draft!;
+  const preset = family.resolvePreset(state.presets, draft.presetId) as SearchProviderPreset | null;
+  const baseUrl = draft.baseUrl.trim();
+  if (!baseUrl) {
+    showStatus("请填写 baseUrl", true);
+    return;
+  }
+  let apiKey = draft.apiKey.trim();
+  // 编辑已存 Key 的平台时空输入沿用已存 Key（与保存链同语义）：只读存储，不写
+  if (!apiKey && state.hasSavedKey && state.editingId) {
+    try {
+      apiKey = (await searchProviderStore.getKey(state.editingId)) || "";
+    } catch {
+      apiKey = "";
+    }
+  }
+  // Key 必填判据与占位符 / required 同源（族声明的 isKeyRequired）
+  if (!apiKey && family.editor.isKeyRequired(preset)) {
+    showStatus("请先填写 API Key", true);
+    return;
+  }
+  setBusy(true);
+  showStatus("正在测试...");
+  const generation = state.generation;
+  try {
+    const outcome = await executeWebSearch(
+      {
+        type: preset?.type || DEFAULT_SEARCH_PROVIDER_PRESET.type,
+        baseUrl,
+        apiKey
+      },
+      SEARCH_TEST_QUERY
+    );
+    if (generation !== state.generation || !state.open) {
+      return; // 过期回执：Modal 已关/已重开，不打扰
+    }
+    setBusy(false);
+    // 200 但 0 条是失败态（空结果不能假装连通成功）
+    if (!outcome.results.length) {
+      showStatus("未返回结果", true);
+      return;
+    }
+    showStatus(`连接成功 · ${outcome.results.length} 条结果`);
+  } catch (error) {
+    if (generation !== state.generation || !state.open) return;
+    setBusy(false);
+    const failure = classifySearchFailure(error);
+    if (failure === "quota") {
+      showStatus("额度已用尽", true);
+      return;
+    }
+    if (failure === "auth") {
+      showStatus("Key 无效或无权限", true);
+      return;
+    }
+    showStatus(`连接失败：${(error as Error)?.message || "未知错误"}`, true);
+  }
+}
+
 // ===== 模板 =====
 
 export function editorTitle(kind: ProviderEditorKind, editing: boolean): string {
@@ -385,7 +465,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         </div>
         <div class="provider-editor-field">
           <label class="provider-editor-label">API Key</label>
-          <input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(family.editor.apiKeyPlaceholder(preset, hasSavedKey))}" autocomplete="off" ${!hasSavedKey && preset?.requiresKey !== false ? "required" : ""} />
+          <input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(family.editor.apiKeyPlaceholder(preset, hasSavedKey))}" autocomplete="off" ${!hasSavedKey && family.editor.isKeyRequired(preset) ? "required" : ""} />
         </div>
         ${isAi
           ? `
@@ -405,7 +485,10 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
         <p class="provider-editor-protocol-notes" ${notes ? "" : "hidden"}>${escapeHtml(notes)}</p>`
           : isSearch
             ? `
-        <p class="provider-editor-status" hidden></p>`
+        <div class="provider-editor-testrow">
+          <button type="button" class="provider-editor-test" data-provider-editor-action="test" title="会真实发起一次搜索，占用一次平台额度">测试</button>
+          <p class="provider-editor-status" hidden></p>
+        </div>`
             : `
         <div class="provider-editor-field">
           <label class="provider-editor-label">模型</label>
@@ -534,14 +617,14 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
 
   // 原生约束（reader-settings-providers.css 的 :user-invalid/:user-valid 校验态消费）：
   // ASR 模型名输入由 model-picker 模板生成（构建器契约不含属性注入），在此补
-  // required；Key 必填随预设 requiresKey 与已存 Key 态挂摘（与占位符同口径）。
+  // required；Key 必填随预设的 isKeyRequired 与已存 Key 态挂摘（与占位符同源）。
   // AI 模型目录行无原生必填（空目录合法，拍板 Q13），required 不适用于目录。
   if (options.kind === "asr") {
     dialog.querySelector<HTMLInputElement>(".provider-editor-model")?.setAttribute("required", "");
   }
   const syncApiKeyRequired = (preset: ProviderRowPreset | null): void => {
     if (apikeyInput) {
-      apikeyInput.required = preset?.requiresKey !== false && !state.hasSavedKey;
+      apikeyInput.required = family.editor.isKeyRequired(preset) && !state.hasSavedKey;
     }
   };
   syncApiKeyRequired(family.resolvePreset(options.presets, presetSelect?.value || ""));
@@ -603,9 +686,14 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
       draft.apiKey = "";
       if (baseUrlInput) baseUrlInput.value = draft.baseUrl;
       if (nameInput) nameInput.value = draft.name;
-      if (apikeyInput) apikeyInput.value = "";
+      // 占位符随预设的 access / requiresKey 重算（搜索族三态：免 Key 预设「API Key
+      // （可选）」）；与 :691 的 required 挂摘同源，防「占位符说可选、required 仍卡住」
+      if (apikeyInput) {
+        apikeyInput.value = "";
+        apikeyInput.placeholder = family.editor.apiKeyPlaceholder(next, state.hasSavedKey);
+      }
     }
-    // Key 必填随预设挂摘（requiresKey 与已存 Key 态同占位符口径）
+    // Key 必填随预设挂摘（isKeyRequired 与已存 Key 态同占位符口径）
     syncApiKeyRequired(next);
     clearStatus();
     // 元数据跟着平台身份走（presetId 变了、baseUrl 可能被联动改掉）

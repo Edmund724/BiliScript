@@ -166,8 +166,11 @@ export async function openFetchDialog(): Promise<void> {
   if (!draft) return;
   const baseUrl = draft.baseUrl.trim();
   const apiKey = draft.apiKey.trim();
-  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
-  if (!baseUrl || (!apiKey && !state.hasSavedKey && preset?.requiresKey !== false)) {
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
+  const preset = family.resolvePreset(state.presets, draft.presetId);
+  // Key 必填判据与 Modal / 行的占位符同源（family.editor.isKeyRequired）：
+  // AI 侧公式一致才不留分叉（搜索族走不到本弹窗）
+  if (!baseUrl || (!apiKey && !state.hasSavedKey && family.editor.isKeyRequired(preset))) {
     showCatalogError("请先填写 API 地址和 Key");
     return;
   }
