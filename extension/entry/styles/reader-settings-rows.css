@@ -391,3 +391,15 @@
   overflow: hidden;
   white-space: nowrap;
 }
+
+#biliscript-reading-view .biliscript-reading-settings-host .custom-select-hidden,
+#biliscript-reading-view .provider-editor-dialog .custom-select-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  background: transparent;
+}
