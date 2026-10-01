@@ -346,3 +346,28 @@ describe("createProviderRow：ASR 平台行（provider-family.js 的 ASR 族声�
     expect(onEdit).toHaveBeenCalledWith("asr1");
   });
 });
+
+describe("拖拽把手只搜索族渲染（spec §6.10 / §10 第 81 行）", () => {
+  it("AI / ASR 行内 .provider-row-drag-handle 零命中，行尾仍是删除按钮", async () => {
+    const bindings = await createRows();
+    const ai = makeContainer();
+    const asr = makeContainer();
+    bindings.ai.render(ai.listNode, ai.emptyNode, [{ id: "p1", presetId: "openai_compat", name: "我的端点", baseUrl: "https://api.openai.com/v1" }], {
+      presets: AI_PRESETS
+    });
+    bindings.asr.render(asr.listNode, asr.emptyNode, [{ id: "asr1", presetId: "siliconflow", name: "我的 ASR" }], {
+      presets: ASR_PRESETS
+    });
+
+    [ai.listNode, asr.listNode].forEach((listNode) => {
+      expect(listNode.querySelectorAll(".provider-row-drag-handle")).toHaveLength(0);
+    });
+    [
+      [ai.listNode, ".ai-provider-row"],
+      [asr.listNode, ".asr-provider-row"]
+    ].forEach(([listNode, selector]) => {
+      const line = (listNode as HTMLElement).querySelector<HTMLElement>(`${selector} .provider-row-line`)!;
+      expect(line.lastElementChild!.classList.contains("provider-row-remove")).toBe(true);
+    });
+  });
+});

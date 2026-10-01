@@ -10,12 +10,19 @@
 // - 徽章「免 Key」×4 / 「免费额度」×2 挂在行内名字之后，free-quota 有 Key 时
 //   徽章不消失；副行仍只放 preset.note；
 // - CSS 复用既有变量，不新增颜色。
+//
+// 智能模式与拖拽（spec §6.10 / §10 第 80–81 行，2026-10-01 增补）：
+// - 搜索族渲染置顶的「智能」虚拟行（class 与记录行同族、dataset.providerId =
+//   哨兵），归入 .search-provider-row；**记录行** = 带拖拽把手的行；
+// - 只有记录行渲染 .provider-row-drag-handle。
 
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
 import { createProviderFamilyRows } from "../../extension/ui/provider-family.js";
+
+const SMART_ID = "__smart__";
 
 const { sendRuntimeMessageMock } = vi.hoisted(() => ({
   sendRuntimeMessageMock: vi.fn(async () => ({ ok: true }))
@@ -51,9 +58,16 @@ const ITEMS = [
   { id: "search_exa", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai", hasSavedKey: false }
 ];
 
+// 记录行 = 带拖拽把手的行（置顶的「智能」虚拟行无把手，spec §6.10）
+function recordRows(listNode: HTMLElement): HTMLElement[] {
+  return Array.from(listNode.querySelectorAll<HTMLElement>(".search-provider-row")).filter(
+    (row) => row.querySelector(".provider-row-drag-handle") !== null
+  );
+}
+
 function renderPresets(listNode: HTMLElement, emptyNode: HTMLElement, items: typeof ITEMS) {
   bindings.search.render(listNode, emptyNode, items, { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
-  return Array.from(listNode.querySelectorAll<HTMLElement>(".search-provider-row"));
+  return recordRows(listNode);
 }
 
 function dotOf(row: HTMLElement): HTMLElement {
@@ -77,17 +91,22 @@ describe("搜索平台行（provider-family.js 的搜索族声明）", () => {
     expect(emptyNode.hidden).toBe(true);
   });
 
-  it("空列表显示空态", () => {
+  it("空列表：无记录行、空态照常显示，但「智能」虚拟行仍在（spec §6.10）", () => {
     const { listNode, emptyNode } = makeContainer();
     bindings.search.render(listNode, emptyNode, [], { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
-    expect(listNode.children).toHaveLength(0);
+    expect(recordRows(listNode)).toHaveLength(0);
+    const smart = listNode.querySelector<HTMLElement>(`.search-provider-row[data-provider-id="${SMART_ID}"]`);
+    expect(smart).toBeTruthy();
+    expect(listNode.children[0]).toBe(smart);
     expect(emptyNode.hidden).toBe(false);
   });
 
   it("选用 radio change 即时持久化 activeSearchProviderId 并同步选中态", async () => {
     const { listNode, emptyNode } = makeContainer();
     bindings.search.render(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "" });
-    const radios = listNode.querySelectorAll<HTMLInputElement>(".search-provider-active-radio");
+    const radios = recordRows(listNode).map(
+      (row) => row.querySelector<HTMLInputElement>(".search-provider-active-radio")!
+    );
     radios[1].checked = true;
     fireChange(radios[1]);
     await vi.waitFor(() => {
@@ -198,6 +217,47 @@ describe("搜索平台行：状态点与徽章的样式（spec §6.1/§6.2）", 
     expect(rule, "CSS 缺 .provider-row-badge 规则").toBeTruthy();
     const body = rule![1];
     expect(body).toContain("flex: 0 0 auto");
+    expect(body).toContain("var(--biliscript-reader-");
+    expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+  });
+});
+
+describe("搜索平台行：拖拽把手渲染与样式（spec §6.10 / §10 第 80–81 行）", () => {
+  function readCss(): string {
+    return readFileSync("extension/entry/styles/reader-settings-rows.css", "utf8");
+  }
+
+  it("记录行最右端渲染 .provider-row-drag-handle；虚拟「智能」行零命中", () => {
+    const { listNode, emptyNode } = makeContainer();
+    const rows = renderPresets(listNode, emptyNode, ITEMS);
+    rows.forEach((row) => {
+      const line = row.querySelector<HTMLElement>(".provider-row-line")!;
+      const handle = line.querySelector<HTMLElement>(".provider-row-drag-handle")!;
+      expect(handle, "记录行缺拖拽把手").toBeTruthy();
+      // 位置：行内最后一个元素（删除按钮之后）
+      expect(line.lastElementChild).toBe(handle);
+    });
+    const smart = listNode.querySelector<HTMLElement>(`.search-provider-row[data-provider-id="${SMART_ID}"]`)!;
+    expect(smart.querySelector(".provider-row-drag-handle")).toBeNull();
+  });
+
+  it("把手 CSS：touch-action: none + cursor: grab，颜色复用既有变量、不新增色值", () => {
+    const css = readCss();
+    const rule = /\.provider-row-drag-handle\s*\{([^}]*)\}/.exec(css);
+    expect(rule, "CSS 缺 .provider-row-drag-handle 规则").toBeTruthy();
+    const body = rule![1];
+    expect(body).toContain("touch-action: none");
+    expect(body).toContain("cursor: grab");
+    expect(body).toContain("flex: 0 0 auto");
+    expect(body).toContain("var(--biliscript-reader-");
+    expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+  });
+
+  it("拖拽态 CSS 用既有变量、不新增色值（视觉反馈从简）", () => {
+    const css = readCss();
+    const rule = /\.search-provider-row-dragging\s*\{([^}]*)\}/.exec(css);
+    expect(rule, "CSS 缺 .search-provider-row-dragging 规则").toBeTruthy();
+    const body = rule![1];
     expect(body).toContain("var(--biliscript-reader-");
     expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
   });

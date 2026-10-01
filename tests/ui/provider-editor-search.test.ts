@@ -188,7 +188,9 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     const { host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: [item] })
     });
-    const row = host.querySelector<HTMLElement>("#searchProvidersList .search-provider-row")!;
+    const row = host.querySelector<HTMLElement>(
+      '#searchProvidersList .search-provider-row:not([data-provider-id="__smart__"])'
+    )!;
     const dialog = await openSearchEditor(host, row.querySelector(".provider-row-edit")!);
     const key = apiKeyInput(dialog);
 
@@ -279,7 +281,9 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     const { sent, host } = await mountPanel({
       "search-providers-list": () => ({ ok: true, providers: [item] })
     });
-    const row = host.querySelector<HTMLElement>("#searchProvidersList .search-provider-row")!;
+    const row = host.querySelector<HTMLElement>(
+      '#searchProvidersList .search-provider-row:not([data-provider-id="__smart__"])'
+    )!;
     const dialog = await openSearchEditor(host, row.querySelector(".provider-row-edit")!);
     (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       searchProviderKeys: { search_exa: "sk-stored" }
