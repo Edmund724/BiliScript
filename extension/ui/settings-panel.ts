@@ -221,6 +221,14 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   const settings = await getSettings();
   elements.readerThemeFamily.value = normalizeReaderThemeFamily(settings.readerThemeFamily);
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
+  // ADR-0007 两个下拉的挂载点必须在「水合之后」：initCustomSelect 初始化时读一次
+  // select.value 生成 trigger 显示值，此后外部写 select.value 不会回流 trigger（组件
+  // 只在自己选项被点时同步）。挂在 bindSettingsEvents（水合之前）会让 trigger 显示
+  // 模板默认项——存量值是 flyme / txt 时抽屉里却写着 Bilibili / SRT。口径与
+  // provider-editor-modal 一致（那份模板先用 selected 把值定死，再 initCustomSelect）。
+  // 初始化标记（dataset.customSelectInitialized）使重复装载幂等。
+  initCustomSelect(elements.readerThemeFamily, "custom-select-wrapper");
+  initCustomSelect(elements.downloadFormat, "custom-select-wrapper");
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
@@ -639,10 +647,6 @@ async function saveSettings(elements: SettingsElements): Promise<void> {
 
 function bindSettingsEvents(host: HTMLElement): void {
   const elements = collectElements(host);
-
-  if (elements.downloadFormat) {
-    initCustomSelect(elements.downloadFormat, "custom-select-wrapper");
-  }
 
   familyRows.asr.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveAsrProviderId(elements.asrProvidersList) || "") === providerId) {

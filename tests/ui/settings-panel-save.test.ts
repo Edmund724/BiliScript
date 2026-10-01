@@ -111,12 +111,12 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
 
     // 组件自开（trigger 监听器 stopPropagation，不经外点委托；openList 对
     // closeAllCustomSelects 的内部调用走模块内局部绑定，不经命名空间，不计入 spy）
-    const trigger = host
-      .querySelector("#downloadFormat")!
-      .closest(".custom-select-wrapper")!
-      .querySelector(".custom-select-trigger")!;
+    const wrapper = host.querySelector("#downloadFormat")!.closest<HTMLElement>(".custom-select-wrapper")!;
+    const trigger = wrapper.querySelector(".custom-select-trigger")!;
     fireClick(trigger);
-    const dropdown = host.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    // 抽屉里不止一个自定义下拉了（外观分区的主题族也已接管）：dropdown 必须取本
+    // wrapper 内的那个，按 host 全局取第一个会取到外观分区的下拉。
+    const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
     expect(dropdown.hidden).toBe(false);
 
     fireClick(document.body);

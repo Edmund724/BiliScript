@@ -63,6 +63,17 @@ function fireClick(node: Element): void {
   node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
+// 接管壳按初始化标记等待（tests/ui/custom-select.test.ts 同款）：挂载点在
+// loadSettings（fire-and-forget）内，等标记比等异步消息更贴真实就绪时刻。
+async function waitForCustomSelect(host: HTMLElement, selectId: string): Promise<HTMLSelectElement> {
+  let select: HTMLSelectElement | null = null;
+  await vi.waitFor(() => {
+    select = host.querySelector<HTMLSelectElement>(`#${selectId}`);
+    expect(select?.dataset.customSelectInitialized, `#${selectId} 的自定义下拉壳未挂载`).toBe("1");
+  });
+  return select!;
+}
+
 beforeEach(() => {
   resetModuleState();
 });
@@ -144,5 +155,69 @@ describe("设置抽屉「外观」分区：主题族下拉", () => {
     const resetPayload = sent.find((message) => message.settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT)!.settings!;
     expect(resetPayload.readerThemeFamily).toBe(DEFAULT_SETTINGS.readerThemeFamily);
     expect(resetPayload.readerThemeFamily).toBe("bilibili");
+  });
+});
+
+// ADR-0007：设置页下拉统一到 ui/custom-select.ts。主题族下拉曾漏接（原生 select
+// 在 Windows 上弹系统方角菜单，与已接管的下载格式不是一族观感）。本组守三件事：
+// 结构接管、水合显示与值一致、选项点击后的值/收集链同步。
+describe("设置抽屉「外观」分区：主题族下拉接入 custom-select（ADR-0007）", () => {
+  it("原生 select 被组件接管：落在 wrapper 内，有 trigger，视觉隐藏且退出 Tab 序", async () => {
+    installMessageBus();
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "readerThemeFamily");
+
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper");
+    expect(wrapper, "#readerThemeFamily 未落进 .custom-select-wrapper").toBeTruthy();
+    expect(wrapper!.querySelector<HTMLElement>(".custom-select-trigger")).toBeTruthy();
+    expect(wrapper!.querySelector<HTMLElement>(".custom-select-dropdown")).toBeTruthy();
+    expect(select.classList.contains("custom-select-hidden")).toBe(true);
+    // 1px + overflow 只是视觉隐藏，Tab 序与无障碍树也要退出（ADR-0007 修订）
+    expect(select.tabIndex).toBe(-1);
+    expect(select.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("水合值（flyme）与 trigger 显示值一致（Flyme）", async () => {
+    installMessageBus({ "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "flyme" } }) });
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "readerThemeFamily");
+
+    const trigger = select.closest<HTMLElement>(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-trigger")!;
+    expect(select.value).toBe("flyme");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Flyme");
+  });
+
+  it("经 trigger 选项选中：select.value 写回且保存载荷取到新值", async () => {
+    const sent = installMessageBus();
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "readerThemeFamily");
+    const option = select
+      .closest<HTMLElement>(".custom-select-wrapper")!
+      .querySelector<HTMLElement>('.custom-select-option[data-value="flyme"]')!;
+
+    fireClick(option);
+    expect(select.value).toBe("flyme");
+
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "save-settings")).toBe(true);
+    });
+    expect(sent.find((message) => message.type === "save-settings")!.settings).toMatchObject({
+      readerThemeFamily: "flyme"
+    });
+  });
+});
+
+// 主题族下拉挂的挂载点与下载格式同一个（loadSettings 水合之后）：组件初始化时读一次
+// select.value 生成 trigger 显示值，挂早一步就会写模板默认项。这条守住那处口径。
+describe("设置抽屉下拉的统一挂载口径（水合值 → trigger 显示值）", () => {
+  it("下载格式水合 txt：trigger 显示 TXT（不是模板默认 SRT）", async () => {
+    installMessageBus({ "get-settings": () => ({ ok: true, settings: { downloadFormat: "txt" } }) });
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "downloadFormat");
+
+    const trigger = select.closest<HTMLElement>(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-trigger")!;
+    expect(select.value).toBe("txt");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("TXT");
   });
 });
