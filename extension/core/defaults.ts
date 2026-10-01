@@ -34,6 +34,10 @@ export interface Settings {
   includeTimestampInBody: boolean;
   enableDebugLogs: boolean;
   readerTheme: string;
+  // 主题族：整套色板的归属（bilibili | flyme），与 readerTheme 的明暗模式正交；
+  // 设置抽屉里手选（header 按钮只切 readerTheme）。存量三值制里写进 readerTheme
+  // 的 "flyme" 由 validators 的归一化迁移到此键。
+  readerThemeFamily: string;
   // 主题手动选择哨兵：header 按钮点击循环置 true（updateReaderPreferences），
   // 从未手动选过则水合时按 prefers-color-scheme 定初始主题（不落盘）。
   readerThemeUserSet: boolean;
@@ -78,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   includeTimestampInBody: true,
   enableDebugLogs: false,
   readerTheme: "light",
+  readerThemeFamily: "bilibili",
   readerThemeUserSet: false,
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],

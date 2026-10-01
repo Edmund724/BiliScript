@@ -67,6 +67,16 @@ _Avoid_: popup- 词根消息名、进入阅读模式手抄序列
 代码名：`player-ai.ts` / `findPlayerAiQuickActionHost` / `findPlayerSubtitleControlNode`（校准探针，非定位/行为依赖）/ `playerAiSubtitleControlCalibrated`
 _Avoid_: 把字幕控件门当硬门回退、降级位先挂后迁移
 
+**主题族**:
+整套色板的归属：`bilibili`（B 站原生配色）| `flyme`（Flyme 设计语言浅色系）。与明暗模式正交的第二轴，在设置抽屉里手选。存量三值制里写进 `readerTheme` 的 `"flyme"` 由归一化迁移到此键。
+代码名：`readerThemeFamily`（默认 `bilibili`）/ `readingThemeFamily` / `setThemeFamily`
+_Avoid_: 把 `readerTheme` 当主题族、用「主题」单字同时指两轴
+
+**明暗模式**:
+浅色 / 深色两档：`light` | `dark`。header 主题按钮切换与系统跟随（从未手选时按 `prefers-color-scheme` 定初始档）只驱动它，不换主题族。
+代码名：`readerTheme` / `normalizeReaderTheme` / `readingTheme` / `setTheme`
+_Avoid_: 用 `readerTheme` 表示主题族、把 `flyme` 当第三档明暗
+
 ### 总结流程
 
 **成稿笔记**:

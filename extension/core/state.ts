@@ -70,6 +70,7 @@ export type ReaderShellState = "closed" | "entering" | "open" | "exiting";
 type ReaderBusinessState = {
   readingViewOpen: boolean;
   readingTheme: string;
+  readingThemeFamily: string;
   readingSettingsExpanded: boolean;
   readingActiveSubtitleIndex: number;
   readingActiveChapterIndex: number;
@@ -88,6 +89,7 @@ type ReaderInternalState = {
 type ReaderSetters = {
   setViewOpen(value: boolean): void;
   setTheme(value: string): void;
+  setThemeFamily(value: string): void;
   setSettingsExpanded(value: boolean): void;
   setActiveSubtitleIndex(value: number): void;
   setActiveChapterIndex(value: number): void;
@@ -106,6 +108,8 @@ const localReaderState: ReaderStateWritable = {
   get readingViewOpen() { return this.readingShellState === "open"; },
   set readingViewOpen(value: boolean) { this.readingShellState = value ? "open" : "closed"; },
   readingTheme: "light",
+  // 主题族与 readerTheme 明暗模式正交，默认 bilibili（见 core/defaults.ts）。
+  readingThemeFamily: "bilibili",
   readingSettingsExpanded: false,
   readingActiveSubtitleIndex: -1,
   readingActiveChapterIndex: -1,
@@ -115,6 +119,7 @@ const localReaderState: ReaderStateWritable = {
   readingViewReady: false,
   setViewOpen(value) { this.readingViewOpen = value; },
   setTheme(value) { this.readingTheme = value; },
+  setThemeFamily(value) { this.readingThemeFamily = value; },
   setSettingsExpanded(value) { this.readingSettingsExpanded = value; },
   setActiveSubtitleIndex(value) { this.readingActiveSubtitleIndex = value; },
   setActiveChapterIndex(value) { this.readingActiveChapterIndex = value; },

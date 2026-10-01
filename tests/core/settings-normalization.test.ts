@@ -129,12 +129,14 @@ describe("normalizeSettings 纯函数", () => {
   });
 });
 
-// 阅读主题从两值制（light | dark）扩为三值（light | dark | flyme）：归一化原样
-// 放行 flyme，其余脏值仍回落 light。
+// 主题两轴正交：readerTheme 只存明暗模式（light | dark），readerThemeFamily
+// 存主题族（bilibili | flyme）。上一版短暂存在的三值制把 flyme 写进
+// readerTheme，归一化只认明暗两值（flyme 不再原样放行），拆轴迁移在
+// normalizeSettings 层一次性完成（见下方迁移用例）。
 describe("normalizeReaderTheme", () => {
-  it("flyme 原样放行，light/dark 不受影响", async () => {
+  it("light/dark 原样放行；上一版三值制的 flyme 收敛为 light", async () => {
     const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
-    expect(normalizeReaderTheme("flyme")).toBe("flyme");
+    expect(normalizeReaderTheme("flyme")).toBe("light");
     expect(normalizeReaderTheme("light")).toBe("light");
     expect(normalizeReaderTheme("dark")).toBe("dark");
   });
@@ -150,6 +152,75 @@ describe("normalizeReaderTheme", () => {
   it("已退役纸色档 paper 归一为 light", async () => {
     const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
     expect(normalizeReaderTheme("paper")).toBe("light");
+  });
+});
+
+// 主题族（整套色板归属）：与明暗模式正交的第二轴，默认族 bilibili。
+describe("normalizeReaderThemeFamily", () => {
+  it("DEFAULT_SETTINGS 声明主题族，默认 bilibili", () => {
+    expect(DEFAULT_SETTINGS.readerThemeFamily).toBe("bilibili");
+  });
+
+  it("flyme / bilibili 原样放行", async () => {
+    const { normalizeReaderThemeFamily } = await import("../../extension/core/validators.js");
+    expect(normalizeReaderThemeFamily("flyme")).toBe("flyme");
+    expect(normalizeReaderThemeFamily("bilibili")).toBe("bilibili");
+  });
+
+  it("非法值回落 bilibili", async () => {
+    const { normalizeReaderThemeFamily } = await import("../../extension/core/validators.js");
+    for (const dirty of ["neon", "light", "dark", "", null, undefined, 1, {}, []]) {
+      expect(normalizeReaderThemeFamily(dirty), `脏值 ${JSON.stringify(dirty)} 应回落 bilibili`).toBe("bilibili");
+    }
+  });
+});
+
+// 迁移（上一版三值制 → 两轴）：输入 readerTheme === "flyme" 时输出
+// readerTheme: "light" 且 readerThemeFamily: "flyme"。readerThemeFamily 是新键，
+// 存量数据里不会有，无键值冲突；其余输入族落默认 bilibili。
+//
+// ⚠ 下面三条挂在 skip 上：normalizeSettings 不在 validators.ts，它在
+// extension/core/settings-store.ts 的 SETTINGS_NORMALIZER_STEPS 步骤表里，而该
+// 文件不在本次写范围内。新键的「键面」（读合并 / 写白名单 / 快照失效键集）已随
+// DEFAULT_SETTINGS 自动覆盖，但「值归一化 + flyme 拆轴迁移」必须在步骤表显式登记，
+// 只差这一行（import 后加在 ["readerTheme", ...] 之后）：
+//   ["readerThemeFamily", (m) => normalizeReaderThemeFamily(m.readerThemeFamily)],
+// 接线后删掉 .skip 即生效——注意：在它落地前，存量 readerTheme="flyme" 会随
+// normalizeReaderTheme 收敛为 light 而丢掉族信息（迁移与本步是同一笔改动）。
+describe.skip("normalizeSettings：主题两轴与 flyme 迁移（待 settings-store 接线）", () => {
+  it("上一版三值制 readerTheme=flyme 拆到两轴：明暗回 light，族落 flyme", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    const out = normalizeSettings({ readerTheme: "flyme" });
+    expect(out.readerTheme).toBe("light");
+    expect(out.readerThemeFamily).toBe("flyme");
+  });
+
+  it("readerTheme=dark / 非法值时族落默认 bilibili，明暗照常归一", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    for (const theme of ["dark", "light", "neon", undefined]) {
+      const out = normalizeSettings({ readerTheme: theme });
+      expect(out.readerTheme, `readerTheme ${JSON.stringify(theme)}`).toBe(theme === "dark" ? "dark" : "light");
+      expect(out.readerThemeFamily, `readerTheme ${JSON.stringify(theme)} 的族`).toBe("bilibili");
+    }
+  });
+
+  it("readerThemeFamily 归一化：flyme 保留，非法值回落 bilibili", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(normalizeSettings({ readerThemeFamily: "flyme" }).readerThemeFamily).toBe("flyme");
+    expect(normalizeSettings({ readerThemeFamily: "bilibili" }).readerThemeFamily).toBe("bilibili");
+    expect(normalizeSettings({ readerThemeFamily: "neon" }).readerThemeFamily).toBe("bilibili");
+    expect(normalizeSettings({}).readerThemeFamily).toBe("bilibili");
+  });
+});
+
+// 步骤表未接线时也能成立的部分：显式键值经写路径白名单原样透传（键面随
+// DEFAULT_SETTINGS 自动覆盖），两轴互不干扰。
+describe("normalizeSettings：主题两轴透传", () => {
+  it("两轴互不干扰：flyme 族 + dark 明暗同时立住", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    const out = normalizeSettings({ readerTheme: "dark", readerThemeFamily: "flyme" });
+    expect(out.readerTheme).toBe("dark");
+    expect(out.readerThemeFamily).toBe("flyme");
   });
 });
 

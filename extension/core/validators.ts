@@ -25,11 +25,20 @@ export function toString(value: unknown): string {
 }
 
 // ===== Reader normalizers =====
-// 三开关退役后只剩主题一项（字幕/章节可见性归一化已随其存储键一并删除）；
+// 三开关退役后只剩主题两轴（字幕/章节可见性归一化已随其存储键一并删除）；
 // 留守本模块的原因不变：core/settings-store.ts（后台设置归一化）静态依赖它，
 // 迁移会破坏后台 bundle 与其测试。
+// 主题自本版起两轴正交：readerTheme 只存明暗模式（light | dark），主题族
+// （bilibili | flyme）归 readerThemeFamily。上一版短暂存在过的三值制把 flyme
+// 写进 readerTheme，这里不再原样放行——收敛为 light 后，由 normalizeSettings
+// 层把族拆到 readerThemeFamily 完成一次性迁移。
 export function normalizeReaderTheme(value: unknown): string {
-  return value === "dark" || value === "flyme" ? value : "light";
+  return value === "dark" ? value : "light";
+}
+
+// 主题族：整套色板归属，与 readerTheme 的明暗模式正交；默认族 bilibili。
+export function normalizeReaderThemeFamily(value: unknown): string {
+  return value === "flyme" ? "flyme" : "bilibili";
 }
 
 // ===== Download / AI normalizers =====
