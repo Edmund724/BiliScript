@@ -200,6 +200,21 @@ describe("hydrateMermaidPlaceholders", () => {
     expect(block.getAttribute("data-biliscript-mermaid")).toBe("done");
   });
 
+  it("主题：flyme 与 light 同走 default（Flyme 是浅色档，不另配 mermaid 主题）", async () => {
+    const { hydrateMermaidPlaceholders } = await loadModule();
+    const block = mountBlock("graph TD");
+
+    await hydrateMermaidPlaceholders(document.body, { theme: "flyme" });
+
+    expect(mermaidMock.initialize).toHaveBeenLastCalledWith(expect.objectContaining({
+      theme: "default",
+      layout: "dagre",
+      flowchart: { look: "classic" },
+      sequence: { look: "classic" }
+    }));
+    expect(block.getAttribute("data-biliscript-mermaid")).toBe("done");
+  });
+
   it("非 force 水合不动已渲染的块（换主题不经 force 不会重做）", async () => {
     const { hydrateMermaidPlaceholders } = await loadModule();
     mountBlock("graph TD");

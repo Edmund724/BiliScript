@@ -156,6 +156,47 @@ describe("设置变更与 data-attribute", () => {
     expect(chromeStub.storage.onChanged.addListener).toHaveBeenCalled();
   });
 
+  it("header 主题按钮：点击按 light → dark → flyme → light 循环，文案随档更新", async () => {
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    const themeButton = document.createElement("button");
+    themeButton.id = ids.readingThemeSelect;
+    readingView.appendChild(themeButton);
+    // bindUiEvents 对关闭按钮同样直接 byId（阅读骨架不含，与 sync.test 同款补齐）
+    const closeBtn = document.createElement("button");
+    closeBtn.id = ids.readingCloseBtn;
+    readingView.appendChild(closeBtn);
+
+    const uiRenderer = await import("../../extension/ui/ui-renderer.js");
+    uiRenderer.bindUiEvents();
+
+    expect(state.reader.readingTheme).toBe("light");
+
+    themeButton.click();
+    await vi.waitFor(() => {
+      expect(state.reader.readingTheme).toBe("dark");
+    });
+    expect(themeButton.title).toBe("主题：深色");
+    const darkIcon = themeButton.innerHTML;
+
+    themeButton.click();
+    await vi.waitFor(() => {
+      expect(state.reader.readingTheme).toBe("flyme");
+    });
+    expect(themeButton.title).toBe("主题：Flyme");
+    expect(themeButton.getAttribute("aria-label")).toBe("主题：Flyme");
+    const flymeIcon = themeButton.innerHTML;
+
+    themeButton.click();
+    await vi.waitFor(() => {
+      expect(state.reader.readingTheme).toBe("light");
+    });
+    expect(themeButton.title).toBe("主题：浅色");
+    expect(themeButton.getAttribute("aria-label")).toBe("主题：浅色");
+
+    // 三档各用一枚图标：flyme 不复用太阳/月亮
+    expect(new Set([darkIcon, flymeIcon, themeButton.innerHTML]).size).toBe(3);
+  });
+
   it("settings 变更后：storage.onChanged 回调应用新主题", async () => {
     initEssentials.bindSettingsWatcher();
     const listener = chromeStub.storage.onChanged.addListener.mock.calls[0][0];
