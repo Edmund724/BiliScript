@@ -9,7 +9,8 @@
 //      元素非字符串或空串 / 未知 id / 重复 id → 整体作废 []）；
 //   ② 执行器 executeSearchChain / classifySearchFailure / SEARCH_CHAIN_BUDGET_MS
 //      ——顺序逐候选调一次既有 executeWebSearch（单候选失败静默、分类保序收集）、
-//      链级预算 30s 到点主动放弃、调用方中止立即抛出。
+//      链级预算 30s 到点主动放弃、调用方中止立即抛出、每次真实出网尝试按 presetId
+//      记一次引擎级健康度（§12.4 第 1–2 条，调用方中止不记）。
 // 纯函数纪律：resolveSearchChain 零 Chrome API / 零 DOM / 不改写入参 / 不取时间
 // （now 由调用方注入）；Key 只经返回值中转，不进日志。执行器只经 deps.fetchImpl →
 // provider-http 出网。
@@ -20,6 +21,7 @@ import {
 } from "../core/presets.js";
 import { type SearchMode } from "../core/search-mode.js";
 import { executeWebSearch } from "./search-executor.js";
+import { recordSearchAttempt } from "./search-health-client.js";
 import type { NormalizedSearchResult } from "./adapters/types.js";
 import type { SearchProvider } from "./search-provider-normalize.js";
 
@@ -197,6 +199,13 @@ export interface ExecuteSearchChainDeps {
   fetchImpl?: typeof fetch;
   // 调用方中止信号（聊天 abort controller / 解释卡中止器）：中止即抛出、不试下一家。
   signal?: AbortSignal | null;
+  // 健康度记账（spec §12.4 第 1–2 条 / §12.5 第 7 行）：每次真实出网尝试记一次
+  // （成功 / 失败各一次，键 = 候选 provider.presetId）；调用方中止不记
+  // （不是引擎的失败）。缺省 = search-health-client 的 fire-and-forget 消息侧。
+  // 记账抛错 / 返回 rejected promise 都不影响链结果。
+  recordAttempt?: (presetId: string, ok: boolean, latencyMs: number) => void | Promise<void>;
+  // 延迟度量时钟（注入以满足可测：纯逻辑不取时间）；缺省 Date.now。
+  nowMs?: () => number;
 }
 
 const QUOTA_HTTP_STATUSES = new Set([402, 429]);
@@ -281,6 +290,9 @@ function defaultChainExecute(deps: ExecuteSearchChainDeps) {
  * （不上 notice、不进 tool 结果），失败经 classifySearchFailure 保序收集；首个成功
  * 即返回（带 platform 与实际降级来源）；链级预算 30s 到点主动放弃（真中止在飞候选）
  * 并如实报失败；调用方 AbortSignal 中止立即抛出（不写缓存、不上 notice）。
+ * 每次真实出网尝试按 presetId 记一次健康度（§12.4 第 1–2 条）：成功 / 失败各一次
+ * （预算到点中止的在飞候选也算一次「出网未拿到结果」的失败），**调用方中止不记**
+ * ——那不是引擎的失败；记账失败不影响链结果。
  */
 export async function executeSearchChain(
   candidates: readonly SearchChainCandidate[],
@@ -292,6 +304,19 @@ export async function executeSearchChain(
     throw makeSearchAbortError();
   }
   const execute = deps.execute ?? defaultChainExecute(deps);
+  const nowMs = deps.nowMs ?? Date.now;
+  const recordAttempt = deps.recordAttempt ?? recordSearchAttempt;
+  // 记账安全网：同步抛错与 rejected promise 都吞掉（账失败静默，绝不影响链结果）。
+  const noteAttempt = (presetId: string, ok: boolean, latencyMs: number): void => {
+    try {
+      const pending: unknown = recordAttempt(presetId, ok, Math.max(0, latencyMs));
+      if (typeof (pending as Promise<void> | null | undefined)?.catch === "function") {
+        void (pending as Promise<void>).catch(() => {});
+      }
+    } catch {
+      // 静默
+    }
+  };
   const headName = candidates.length > 0 ? candidates[0].provider.name : "";
   const failures: SearchFailureClass[] = [];
   // 内部控制器：预算到点真中止在飞候选；调用方中止经外部 signal 转发过来。
@@ -316,15 +341,22 @@ export async function executeSearchChain(
   const run = async (): Promise<SearchChainOutcome> => {
     for (let index = 0; index < candidates.length; index += 1) {
       if (externalSignal?.aborted) throw makeSearchAbortError();
+      const presetId = candidates[index].provider.presetId;
+      const startedAt = nowMs();
       try {
         const outcome = await execute(candidates[index], query, controller.signal);
+        noteAttempt(presetId, true, nowMs() - startedAt);
         return index > 0 && headName
           ? { results: outcome.results, platform: outcome.platform, downgradedFrom: headName }
           : { results: outcome.results, platform: outcome.platform };
       } catch (error) {
+        // 调用方中止不是引擎的失败：不记账、不试下一家（§12.4 第 2 条）。
+        if (externalSignal?.aborted) throw error;
+        // 自伤中止（预算到点）也确实出网且没拿到结果：照记一次失败，随后退出循环。
+        if (!budgetExpired && isAbortError(error)) throw error;
+        noteAttempt(presetId, false, nowMs() - startedAt);
         // 预算到点：中止由预算造成，不再试下一家（最后一类的错误留待终态文案）。
         if (budgetExpired) break;
-        if (externalSignal?.aborted || isAbortError(error)) throw error;
         lastError = error;
         failures.push(classifySearchFailure(error));
       }

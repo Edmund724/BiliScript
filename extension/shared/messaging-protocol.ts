@@ -392,6 +392,24 @@ export type SearchCacheResponse = {
   error?: string;
 };
 
+// ===== 引擎健康度记账消息族（spec §12.4 第 7–8 条 / §12.5 第 5 行）=====
+// 消费方是链执行侧（offscreen 工具循环 / content 选区解释卡，经 search-chain.ts
+// 的 deps.recordAttempt 缺省 = search-health-client）：执行侧无 chrome.storage，
+// 记账交 SW 落 search/search-health.ts 单源（**时间戳由 SW 侧盖**）。
+// fire-and-forget：失败 / 无回包静默，绝不影响搜索与回答。
+// 来源守卫：本族**不进** entry/background.ts 的 offscreen-only 名单（发送者含 content）。
+export type SearchHealthMessage = {
+  type: "search-health";
+  op: "record";
+  // 引擎级记账键（链候选 provider.presetId）
+  presetId?: string;
+  // 本次尝试的成败与延迟 ms（记账范围 = 真实出网尝试）
+  ok?: boolean;
+  latencyMs?: number;
+};
+// 响应锚点：entry/background.ts handleSearchHealth。
+export type SearchHealthResponse = { ok: boolean; error?: string };
+
 export type OffloadTaskMessage = {
   type: "offload-task";
   taskType?: string;
@@ -450,6 +468,7 @@ export type BackgroundMessage =
   | SearchProvidersDeleteMessage
   | ResolveSearchProviderMessage
   | SearchCacheMessage
+  | SearchHealthMessage
   | SegmentCacheMessage
   | OffloadTaskMessage
   | OffscreenRequestCloseMessage
@@ -590,6 +609,7 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends SearchProvidersDeleteMessage ? SearchProvidersDeleteResponse
   : M extends ResolveSearchProviderMessage ? ResolveSearchProviderResponse
   : M extends SearchCacheMessage ? SearchCacheResponse
+  : M extends SearchHealthMessage ? SearchHealthResponse
   : M extends SegmentCacheMessage ? SegmentCacheResponse
   : M extends OffloadTaskMessage ? OffloadTaskResponse
   : M extends OffscreenRequestCloseMessage ? OffscreenRequestCloseResponse

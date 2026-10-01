@@ -19,6 +19,7 @@ import {
   getSettings as getSettingsSnapshot,
   getProviderStore as getProviderStoreSnapshot,
   getSearchProviderOrder,
+  getSearchHealth,
   invalidate as invalidateSettingsSnapshot,
   PROVIDER_FAMILY_STORAGE_KEYS
 } from "../core/settings-snapshot.js";
@@ -47,6 +48,9 @@ import { resolveSearchChain } from "../search/search-chain.js";
 // 工具循环与 content 侧解释卡都经 search-cache 消息族读写；归一单源在本叶。
 // clearSearchCache 只在本文件被两个撤回入口调用（§6.7）：不给消息族加 clear op。
 import { clearSearchCache, getSearchCacheEntry, putSearchCacheEntry } from "../search/search-cache.js";
+// 引擎健康度 SW 叶（spec §12.4）：记账落 chrome.storage.local 单键
+// biliscript_search_health（引擎级 presetId），链解析期经快照读产冷却图。
+import { SEARCH_HEALTH_KEY, cooldownUntilByPresetId, recordSearchAttempt } from "../search/search-health.js";
 // 模型列表探测（fetch 原语）归 ai 域（arch-slim-2/09）；纯存储仍在 core/。
 import { handleAiProvidersModels as fetchAiProviderModels } from "../ai/provider-models.js";
 // 平台请求代发（AI 探针传输层）：content script 的跨域 fetch 服从网页 CORS，
@@ -367,7 +371,8 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
 // offscreen 文档无 chrome.storage，工具循环的搜索配置（**有序候选链 + 各自 Key** +
 // 单轮上限）经本消息单趟往返。链成员是记录，成员资格由记录的 presetId 查预设表得出；
 // 模式由 activeSearchProviderId 判定（记录 id = 单选独苗链 / 哨兵或空串 = 智能回退链），
-// 智能链序 = searchProviderOrder 归一序 > 内置默认序；无任何在组记录时 chain 缺省
+// 智能链序 = searchProviderOrder 归一序 > 内置默认序，冷却中的引擎（健康度图里
+// cooldownUntil > now 的 presetId）跳过；无任何在组记录时 chain 缺省
 // ——调用方 notice 后走原无工具路径，不算错误（搜索是增强，缺失不阻塞对话）。
 function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: SendResponse): boolean {
   withOkResponse(
@@ -377,13 +382,15 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
       const { providers, keys } = await getProviderStoreSnapshot("search");
       const order = await getSearchProviderOrder();
       const activeId = settings.activeSearchProviderId;
+      // 冷却图（spec §12.4 第 6 条）：健康度快照 → 只含 cooldownUntil > now 的项；
+      // 只有智能链消费它（单选不拦但账照记）。now 注入纯函数，与快照同一次取时。
+      const now = Date.now();
+      const cooldownUntil = cooldownUntilByPresetId(await getSearchHealth(), now);
       const chain = resolveSearchChain(providers, keys, activeId, SEARCH_PROVIDER_PRESETS, {
         mode: resolveSearchMode(activeId),
         order,
-        // 冷却图（spec §12.4 第 6 条）由健康度记账切片接线：本轮 search-health 叶与
-        // 其快照位尚未落地，传空图 = 无引擎冷却（与「健康度存储从未写入」的当前事实一致）。
-        cooldownUntil: {},
-        now: Date.now()
+        cooldownUntil,
+        now
       });
       if (chain.length === 0) {
         return { ok: true };
@@ -421,6 +428,28 @@ function handleSearchCache(message: Msg<"search-cache">, _sender: MessageSender,
         return { ok: true };
       }
       throw new Error("不支持的搜索缓存操作：" + String((message as { op?: unknown }).op));
+    })(),
+    sendResponse,
+    (error) => (error as Error | undefined)?.message || String(error)
+  );
+  return true;
+}
+
+// 引擎健康度记账消息族 SW 端 handler（spec §12.4 第 7–8 条 / §12.5 第 11 行）：执行侧
+// （offscreen / content）无 chrome.storage，记账经本族落到 SW 叶 search/search-health.ts
+// 单源（脏载荷静默 no-op、写失败静默、SW 侧盖时间戳）；落盘后 **inline 失效**健康度
+// 快照，写后读（紧随其后的 resolve-search-provider）立刻消费新冷却图。
+// **不得**进 illegalMessageReason 的 offscreen-only 名单——本族发送者含 content
+//（reader/explain-card.ts 与 offscreen 工具循环共用 search-chain.ts 的缺省记账）。
+function handleSearchHealth(message: Msg<"search-health">, _sender: MessageSender, sendResponse: SendResponse): boolean {
+  withOkResponse(
+    (async () => {
+      if (message.op !== "record") {
+        throw new Error("不支持的搜索健康度操作：" + String((message as { op?: unknown }).op));
+      }
+      await recordSearchAttempt(message.presetId, message.ok, message.latencyMs);
+      invalidateSettingsSnapshot([SEARCH_HEALTH_KEY]);
+      return { ok: true };
     })(),
     sendResponse,
     (error) => (error as Error | undefined)?.message || String(error)
@@ -587,6 +616,7 @@ const messageHandlerTable = {
   "search-providers-delete": searchProviderHandlers.remove,
   "resolve-search-provider": handleResolveSearchProvider,
   "search-cache": handleSearchCache,
+  "search-health": handleSearchHealth,
   "segment-cache": handleSegmentCache,
   "offload-task": handleOffloadTask,
   "offscreen-request-close": handleOffscreenRequestCloseMsg,

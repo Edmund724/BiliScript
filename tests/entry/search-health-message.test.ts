@@ -361,8 +361,12 @@ describe("resolve 路由消费冷却图（§12.4 第 5–6 条 / §10 第 66–6
     await resolveProvider(listener);
     expect(healthReads()).toBe(1);
 
+    // 记账 handler 自身读-改-写读一次（第 2 次），落盘后 inline 失效健康度快照
     await recordHealth(listener, { type: "search-health", op: "record", presetId: "tavily", ok: true, latencyMs: 3 });
-    await resolveProvider(listener);
     expect(healthReads()).toBe(2);
+
+    // inline 失效后 resolve 重读一次（若缺失效则是缓存命中，仍为 2）
+    await resolveProvider(listener);
+    expect(healthReads()).toBe(3);
   });
 });

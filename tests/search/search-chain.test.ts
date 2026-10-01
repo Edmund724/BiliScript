@@ -772,6 +772,28 @@ describe("executeSearchChain 健康度记账（§12.4 第 1–2 条 / §12.5 第
     ]);
   });
 
+  it("单选链（独苗候选）照记账：不消费冷却但账照记（§12.4 第 1 条）", async () => {
+    const { calls, record } = recorder();
+    const chain = resolveSearchChain(
+      [FIRECRAWL, TAVILY_USER],
+      {},
+      "search_firecrawl",
+      SEARCH_PROVIDER_PRESETS,
+      single()
+    );
+
+    await executeSearchChain(chain, "q", {
+      execute: async () => {
+        throw httpError(429);
+      },
+      recordAttempt: record,
+      nowMs: clock([0, 8])
+    }).catch((thrown) => thrown);
+
+    expect(chain).toHaveLength(1);
+    expect(calls).toEqual([{ presetId: "firecrawl", ok: false, latencyMs: 8 }]);
+  });
+
   it("调用方中止：已中止 signal 零候选执行、零记账；在飞中止不试下一家也不记账（§12.4 第 2 条）", async () => {
     const aborted = recorder();
     const controller = new AbortController();

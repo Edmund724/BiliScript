@@ -10,7 +10,9 @@
 //     明文 Key 映射（keys 只活在 SW，回包仍只带 hasSavedKey 占位）；
 //   - searchProviderOrder 原始值（sync；2026-10-01 增补，spec §12.3 / §12.5 第 9 行）：
 //     归一在读取时对当前记录集合做（normalizeSearchProviderOrder 单源在
-//     search/search-chain.ts）。
+//     search/search-chain.ts）；
+//   - 引擎健康度图（local 单键 biliscript_search_health；2026-10-01 增补，spec §12.4
+//     第 6 条 / §12.5 第 9 行）：链解析期产冷却图，读失败按空图。
 // 命中时热路径 storage 读降为 0。设置 UI 的 list/get CRUD 读（*-providers-list /
 // get-*-provider-key）不在快照范围：低频且要与写后响应负载严格同帧，维持直读
 // provider-store。
@@ -40,6 +42,7 @@ import { asrProviderStore, type AsrProvider } from "../asr/asr-provider-store.js
 import { searchProviderStore, SEARCH_PROVIDER_ORDER_STORAGE } from "../search/search-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import { normalizeSearchProviderOrder } from "../search/search-chain.js";
+import { SEARCH_HEALTH_KEY, readSearchHealth, type SearchHealthMap } from "../search/search-health.js";
 import { withTimeout } from "../shared/error-helpers.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 
@@ -92,6 +95,10 @@ const familyCaches: Record<ProviderFamily, Promise<ProviderStoreSnapshot> | null
 // 调用时对「当前记录集合」做（记录集合由 search 族快照缓存保证零读）——归一判据依赖
 // 当前记录，缓存归一结果会在记录增删后失真。失效只订阅该键本身（§12.3 跨上下文）。
 let searchOrderCache: Promise<unknown> | null = null;
+// 引擎健康度快照位（spec §12.4 第 6 条 / §12.5 第 9 行）：local 单键，读失败 / 超时按
+// 空图（= 无引擎冷却，不拦任何链）；写入方在 SW 内（search-health 消息 handler），故
+// 失效靠落盘后的 inline invalidate（onChanged 不在写入方触发）。
+let searchHealthCache: Promise<SearchHealthMap> | null = null;
 
 export function getSettings(): Promise<Settings> {
   // getMergedSettings 内部已吞错（超时回落默认值），永不 reject，直接缓存。
@@ -136,12 +143,29 @@ export async function getSearchProviderOrder(): Promise<string[]> {
   }
 }
 
+// 引擎健康度快照位（spec §12.4 第 6 条 / §12.5 第 9 行）：链解析期读一次交
+// cooldownUntilByPresetId 产冷却图；读失败 / 超时按空图（不拦任何链）。返回值按引用
+// 缓存——调用方不得原地改写（handler 回包经序列化天然隔离）。
+export async function getSearchHealth(): Promise<SearchHealthMap> {
+  try {
+    searchHealthCache ??= withTimeout(
+      readSearchHealth(),
+      5000,
+      new Error("storage timeout")
+    ).catch(() => ({}));
+    return await searchHealthCache;
+  } catch {
+    return {};
+  }
+}
+
 // 按 storage 键失效：命中 settings 键面清 settings 快照；命中某族 list/keys
 // 键清该族快照（一族共享一个缓存条目）。未知键忽略——写 handler 直接传
 // payload 键全集，白名单外的键自然落空。
 export function invalidate(storageKeys: readonly string[]): void {
   let settingsDirty = false;
   let searchOrderDirty = false;
+  let searchHealthDirty = false;
   const dirtyFamilies = new Set<ProviderFamily>();
   for (const key of storageKeys) {
     if (SETTINGS_DOMAIN_KEYS.has(key)) {
@@ -149,6 +173,9 @@ export function invalidate(storageKeys: readonly string[]): void {
     }
     if (key === SEARCH_PROVIDER_ORDER_STORAGE) {
       searchOrderDirty = true;
+    }
+    if (key === SEARCH_HEALTH_KEY) {
+      searchHealthDirty = true;
     }
     for (const family of PROVIDER_FAMILIES) {
       if (PROVIDER_FAMILY_STORAGE_KEYS[family].includes(key)) {
@@ -162,20 +189,24 @@ export function invalidate(storageKeys: readonly string[]): void {
   if (searchOrderDirty) {
     searchOrderCache = null;
   }
+  if (searchHealthDirty) {
+    searchHealthCache = null;
+  }
   for (const family of dirtyFamilies) {
     familyCaches[family] = null;
   }
 }
 
 // onChanged 兜底：订阅键面 = settings 键面 ∪ 三族 list（sync）∪ 三族 keys（local）
-// ∪ searchProviderOrder（sync，面板直写）；命中即按键域失效。写入方上下文不触发本
-// 事件，跨设备 sync 与其它扩展上下文（content 直写等）的变更经此通道进快照。
+// ∪ searchProviderOrder（sync，面板直写）∪ biliscript_search_health（local）；命中即
+// 按键域失效。写入方上下文不触发本事件，跨设备 sync 与其它扩展上下文（content 直写等）
+// 的变更经此通道进快照。
 watchStorageKeys(
   (changes) => {
     invalidate(Object.keys(changes));
   },
   {
     sync: [...SETTINGS_DOMAIN_KEYS, "aiProviders", "asrProviders", "searchProviders", SEARCH_PROVIDER_ORDER_STORAGE],
-    local: ["aiProviderKeys", "asrProviderKeys", "searchProviderKeys"]
+    local: ["aiProviderKeys", "asrProviderKeys", "searchProviderKeys", SEARCH_HEALTH_KEY]
   }
 );
