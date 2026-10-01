@@ -200,7 +200,9 @@ function startExplainRequest(): void {
           }
         }
         if (acknowledged) {
-          webSearch = await resolveWebSearchRuntime(controller?.signal ?? null);
+          // 运行时缺省 = 本轮不联网；本卡对「链为空」无用户文案通道（notice 只由
+          // 工具循环的搜索失败给出），故只取 runtime（spec §6.4 / §12.7 第 6 条）。
+          webSearch = (await resolveWebSearchRuntime(controller?.signal ?? null)).runtime;
         }
       }
       const text = await explainSelection({

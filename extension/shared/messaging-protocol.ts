@@ -348,8 +348,11 @@ export type SearchProvidersDeleteResponse = {
 // （spec §12.1）：`activeSearchProviderId` = 某条在场记录 id → **单选**（只有该家、
 // 无回退）；= 哨兵 `SMART_SEARCH_ACTIVE_ID` 或空串 → **智能**（全组按
 // `searchProviderOrder` 归一序 > 内置默认序串行回退，冷却中的引擎跳过）。
-// 无任何在组记录时 chain 缺省——调用方（entry/offscreen.ts）据此 notice「未配置搜索平台」
-// 并走原无工具路径，不算错误（搜索是增强，缺失不阻塞对话）。
+// 无任何合格记录时 chain 缺省——调用方（entry/offscreen.ts）据此 notice「未配置搜索平台」
+// 并走原无工具路径，不算错误（搜索是增强，缺失不阻塞对话）。**空链归因**（spec
+// §12.7 第 6 条，2026-10-01 翻案）：智能模式下若合格记录全部处于冷却中，空链的原因
+// 不是「未配置」，回包附 `chainEmptyReason` 供调用方分文案；新增**可选**字段，
+// 既有消费方（把 chain 缺省一律当未配置）不受影响。
 export type ResolveSearchProviderMessage = { type: "resolve-search-provider" };
 // 响应锚点：entry/background.ts handleResolveSearchProvider。
 export type ResolveSearchProviderResponse = {
@@ -363,6 +366,9 @@ export type ResolveSearchProviderResponse = {
   }>;
   // settings.webSearchMaxToolCalls（单轮搜索次数上限，区间 1–10）。
   maxToolCalls?: number;
+  // 空链归因：只取 `"cooldown"`（合格记录全部在冷却中而被过滤成空链，spec §12.7 第 6 条）。
+  // 缺省 = 真的没有合格记录（未配置）。只在 chain 缺省时有意义。
+  chainEmptyReason?: "cooldown";
   error?: string;
 };
 

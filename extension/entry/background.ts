@@ -372,8 +372,11 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
 // 单轮上限）经本消息单趟往返。链成员是记录，成员资格由记录的 presetId 查预设表得出；
 // 模式由 activeSearchProviderId 判定（记录 id = 单选独苗链 / 哨兵或空串 = 智能回退链），
 // 智能链序 = searchProviderOrder 归一序 > 内置默认序，冷却中的引擎（健康度图里
-// cooldownUntil > now 的 presetId）跳过；无任何在组记录时 chain 缺省
+// cooldownUntil > now 的 presetId）跳过；无任何合格记录时 chain 缺省
 // ——调用方 notice 后走原无工具路径，不算错误（搜索是增强，缺失不阻塞对话）。
+// **空链归因**（spec §12.7 第 6 条，2026-10-01 翻案）：空链有因不分——「真的没有
+// 合格记录」与「合格记录全在冷却中」不是一回事，后者回 `chainEmptyReason:"cooldown"`
+// 供调用方出专属文案（不再误报「未配置搜索平台」）。
 function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: SendResponse): boolean {
   withOkResponse(
     (async () => {
@@ -386,14 +389,22 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
       // 只有智能链消费它（单选不拦但账照记）。now 注入纯函数，与快照同一次取时。
       const now = Date.now();
       const cooldownUntil = cooldownUntilByPresetId(await getSearchHealth(), now);
+      const mode = resolveSearchMode(activeId);
       const chain = resolveSearchChain(providers, keys, activeId, SEARCH_PROVIDER_PRESETS, {
-        mode: resolveSearchMode(activeId),
+        mode,
         order,
         cooldownUntil,
         now
       });
       if (chain.length === 0) {
-        return { ok: true };
+        // 判空因（纯函数同参重跑，只是不消费冷却）：同一批记录在不消费冷却时非空
+        // → 空的原因是合格记录全部在冷却中（单选不消费冷却，故单选空链在此必为空口径）。
+        const unfiltered = resolveSearchChain(providers, keys, activeId, SEARCH_PROVIDER_PRESETS, {
+          mode,
+          order,
+          now
+        });
+        return unfiltered.length > 0 ? { ok: true, chainEmptyReason: "cooldown" } : { ok: true };
       }
       return {
         ok: true,

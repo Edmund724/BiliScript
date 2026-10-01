@@ -36,10 +36,14 @@ import type {
   OffscreenChatPortMessage,
   ResolveAiProviderResponse
 } from "../shared/messaging-protocol.js";
-import type { ChatMsg, WebSearchRuntime } from "../ai/ladder.js";
+import type { ChatMsg } from "../ai/ladder.js";
 // 联网搜索运行时解析器（spec §2.3/§2.4）：resolve-search-provider 往返 + executeSearch
 // 闭包组装收口单源（search/search-runtime.ts，选区解释链同走此解析）。
-import { resolveWebSearchRuntime } from "../search/search-runtime.js";
+import {
+  resolveWebSearchRuntime,
+  SEARCH_NOT_CONFIGURED_NOTICE,
+  type WebSearchRuntimeResolution
+} from "../search/search-runtime.js";
 // 出向回吐协议单源（chat/protocol.ts，ticket 08）：聊天端口名常量收口两处
 // 裸写（本文件 onConnect 判定与宿主 connect），withCachedContextKey 包装的
 // postMessage 入参从 Record<string, unknown> 收为协议联合——下游
@@ -227,19 +231,26 @@ chrome.runtime.onConnect.addListener((port) => {
       // 不崩文档；provider 解析出错短路并清理活动请求态。联网开关开启时并行
       // 解析搜索配置（resolve-search-provider 单趟往返，spec §2.3/§2.4）。
       const webSearchRequested = (msg as ChatMsg).webSearchEnabled === true;
-      const [resolved, runLadderChat, searchRuntime] = await Promise.all([
+      const [resolved, runLadderChat, searchResolution] = await Promise.all([
         resolveProviderWithKey(ackedPort, msg.providerId),
         ladderLoader.load(),
         webSearchRequested ? resolveSearchRuntime() : Promise.resolve(undefined)
       ]);
+      // runtime 缺省 = 本轮不联网（未配置 / 解析失败）；notice 文案随解析产物单源给出
+      //（空链两类归因，spec §12.7 第 6 条翻案）。
+      const searchRuntime: WebSearchRuntimeResolution["runtime"] = searchResolution?.runtime;
       if (resolved.error) {
         clearActiveRequestState();
         return;
       }
       if (webSearchRequested && !searchRuntime) {
-        // 开关开启但未配置激活搜索平台（或解析失败）：如实提示后走原无工具路径
-        //（搜索是增强，缺失不阻塞对话）。
-        ackedPort.postMessage({ type: "notice", data: "未配置搜索平台，本轮未联网" });
+        // 开关开启但无可用链：如实提示后走原无工具路径（搜索是增强，缺失不阻塞
+        // 对话）。文案单源在解析侧——真未配置 / 智能链全冷却两类归因分文案
+        //（spec §12.7 第 6 条翻案：全冷却不是未配置）。
+        ackedPort.postMessage({
+          type: "notice",
+          data: searchResolution?.notice ?? SEARCH_NOT_CONFIGURED_NOTICE
+        });
       }
       const { provider, apiKey } = resolved;
 
@@ -417,9 +428,10 @@ function withCachedContextKey<T extends ChatPortMessage>(port: PostMessagePort, 
 
 // 取联网搜索运行时（spec §2.3/§2.4）：委托 search/search-runtime.ts 的共享解析
 //（resolve-search-provider 往返 + executeSearch 闭包，选区解释链同源）；中止
-// 复用本次聊天的 abort controller，停止可中断在途搜索。未配置 / 解析失败返回
-// undefined，调用方 notice 后走原无工具路径——搜索是增强，缺失不阻塞对话。
-async function resolveSearchRuntime(): Promise<WebSearchRuntime | undefined> {
+// 复用本次聊天的 abort controller，停止可中断在途搜索。runtime 缺省（未配置 /
+// 全冷却 / 解析失败）时另带 notice 文案，调用方 notice 后走原无工具路径——搜索是
+// 增强，缺失不阻塞对话。
+async function resolveSearchRuntime(): Promise<WebSearchRuntimeResolution> {
   return resolveWebSearchRuntime(activeAbortController?.signal ?? null);
 }
 
