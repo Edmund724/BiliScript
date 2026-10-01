@@ -49,7 +49,15 @@ import { confirmDialog } from "./confirm-dialog.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
-import { SEARCH_PROVIDER_PRESETS, type SearchProviderPreset } from "../core/presets.js";
+import { wireProviderRowDrag } from "./provider-row-drag.js";
+import {
+  DEFAULT_SEARCH_PROVIDER_ORDER,
+  SEARCH_PROVIDER_PRESETS,
+  type SearchProviderPreset
+} from "../core/presets.js";
+import { isSmartSearchActive } from "../core/search-mode.js";
+import { normalizeSearchProviderOrder } from "../search/search-chain.js";
+import { SEARCH_PROVIDER_ORDER_STORAGE } from "../search/search-provider-store.js";
 import type { ProviderEditorKind } from "./provider-editor.js";
 import {
   requestProviderOriginsViaBackground,
@@ -137,6 +145,7 @@ function collectElements(host: HTMLElement) {
     searchProvidersEmpty: byIdIn<HTMLElement>("searchProvidersEmpty"),
     searchProvidersDanglingHint: byIdIn<HTMLElement>("searchProvidersDanglingHint"),
     addSearchProviderBtn: byIdIn<HTMLButtonElement>("addSearchProviderBtn"),
+    resetSearchProviderOrderBtn: byIdIn<HTMLButtonElement>("resetSearchProviderOrderBtn"),
     webSearchMaxToolCalls: byIdIn<HTMLInputElement>("webSearchMaxToolCalls"),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>("aiSystemPrompt"),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
@@ -257,16 +266,74 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
   elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(settings.webSearchMaxToolCalls));
   const searchProviders = await loadSearchProviders();
-  familyRows.search.render(elements.searchProvidersList, elements.searchProvidersEmpty, searchProviders, {
+  // 列表顺序 = 链序（spec §12.2 / §12.5 第 15 行）：先取用户拖拽序（归一后），
+  // 再按「order 下标 > 内置默认序」排序渲染。
+  searchProviderOrder = await loadSearchProviderOrder(searchProviders);
+  familyRows.search.render(elements.searchProvidersList, elements.searchProvidersEmpty, sortSearchProviders(searchProviders), {
     presets: SEARCH_PROVIDER_PRESETS,
     activeId: settings.activeSearchProviderId || ""
   });
+  syncResetSearchOrderButton(elements);
   // 悬空链首提示（spec §6.8）：链首指向已不存在的记录时露条件提示行；用户改选
   // （或链首本就为空 / 指向在场记录）即隐藏。判据只读当前设置与列表，无新存储位。
   syncSearchDanglingHint(elements, String(settings.activeSearchProviderId || ""), searchProviders);
 }
 
+// 面板当前生效的用户拖拽顺序（记录 id 数组；空 = 无自定义顺序，按内置默认序
+// 渲染）。searchProviderOrder 与列表同侧（chrome.storage.sync，spec §12.3）：面板
+// 直读直写，读失败 / 脏值按无自定义顺序，写失败静默——顺序是偏好不是数据。
+let searchProviderOrder: string[] = [];
+
+async function loadSearchProviderOrder(providers: ProviderRowItem[]): Promise<string[]> {
+  try {
+    const stored = await chrome.storage.sync.get([SEARCH_PROVIDER_ORDER_STORAGE]);
+    // 归一判据依赖当前记录集合（未知 id / 重复 id → 整体作废，§12.2）
+    return normalizeSearchProviderOrder(
+      stored?.[SEARCH_PROVIDER_ORDER_STORAGE],
+      providers.map((provider) => String(provider?.id || ""))
+    );
+  } catch {
+    return [];
+  }
+}
+
+// 列表渲染顺序 = 链序（spec §12.2）：在 order 中的按数组下标排在先，不在数组中的
+// 排到其后、相互之间按内置默认序（sort 稳定 → 键相同的记录保持输入序）。
+function sortSearchProviders(providers: ProviderRowItem[]): ProviderRowItem[] {
+  const orderIndex = new Map(searchProviderOrder.map((id, index) => [id, index]));
+  const rank = (provider: ProviderRowItem): [number, number] => {
+    const byOrder = orderIndex.get(String(provider?.id || ""));
+    const presetIndex = DEFAULT_SEARCH_PROVIDER_ORDER.indexOf(String(provider?.presetId || ""));
+    return [
+      byOrder === undefined ? Number.POSITIVE_INFINITY : byOrder,
+      presetIndex === -1 ? DEFAULT_SEARCH_PROVIDER_ORDER.length : presetIndex
+    ];
+  };
+  return providers.slice().sort((left, right) => {
+    const [leftOrder, leftDefault] = rank(left);
+    const [rightOrder, rightDefault] = rank(right);
+    return leftOrder !== rightOrder ? leftOrder - rightOrder : leftDefault - rightDefault;
+  });
+}
+
+// 「恢复默认顺序」按钮态（spec §6.10 / §12.3）：无自定义顺序就无可恢复的目标，
+// 取更保守的禁用态（spec 未明说，见验收第 77 行）。
+function syncResetSearchOrderButton(elements: SettingsElements): void {
+  elements.resetSearchProviderOrderBtn.disabled = searchProviderOrder.length === 0;
+}
+
+// 列表重渲（保存 / 编辑 / 恢复默认顺序后）：顺序按当前生效的拖拽序，选中态仍从
+// 行内 radio 现读（与既有 rerender 语义一致）。
+function rerenderSearchProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
+  familyRows.search.render(elements.searchProvidersList, elements.searchProvidersEmpty, sortSearchProviders(providers), {
+    presets: SEARCH_PROVIDER_PRESETS,
+    activeId: getActiveSearchProviderId(elements.searchProvidersList)
+  });
+  syncResetSearchOrderButton(elements);
+}
+
 // 悬空链首提示行的显隐（spec §6.8）：activeSearchProviderId 指向不存在记录才出现。
+// 哨兵不算悬空（spec §12.1 / §10 第 82 行）：选中「智能」不得误露「原选用平台已不可用」。
 function syncSearchDanglingHint(
   elements: SettingsElements,
   activeSearchProviderId: string,
@@ -275,7 +342,10 @@ function syncSearchDanglingHint(
   const hint = elements.searchProvidersDanglingHint;
   if (!hint) return;
   const activeId = activeSearchProviderId.trim();
-  hint.hidden = !activeId || providers.some((provider) => String(provider?.id || "") === activeId);
+  hint.hidden =
+    !activeId ||
+    isSmartSearchActive(activeId) ||
+    providers.some((provider) => String(provider?.id || "") === activeId);
 }
 
 async function loadAiProviders(): Promise<ProviderRowItem[]> {
@@ -376,10 +446,7 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     remove: (providerId) => sendRuntimeMessage({ type: "search-providers-delete", providerId }),
     generateId: () => familyRows.search.controller.generateId(),
     presets: () => SEARCH_PROVIDER_PRESETS,
-    rerender: (elements, providers) => familyRows.search.render(elements.searchProvidersList, elements.searchProvidersEmpty, providers, {
-      presets: SEARCH_PROVIDER_PRESETS,
-      activeId: getActiveSearchProviderId(elements.searchProvidersList)
-    }),
+    rerender: (elements, providers) => rerenderSearchProviders(elements, providers),
     optionalHostPermission: false
   }
 };
@@ -662,6 +729,27 @@ function bindSettingsEvents(host: HTMLElement): void {
     if (providerId && String(getActiveSearchProviderId(elements.searchProvidersList) || "") === providerId) {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeSearchProviderId: "" } });
     }
+  });
+  // 搜索平台列表拖拽排序（spec §6.10 / §12.3 / §12.5 第 14–15 行）：落定即直写
+  // sync（与列表同侧；content 有完整 storage 权限）。写失败静默——顺序是偏好不是
+  // 数据；列表本身已在 DOM 上反映新顺序，不回滚。
+  wireProviderRowDrag(elements.searchProvidersList, {
+    onCommit: async (ids) => {
+      searchProviderOrder = ids;
+      syncResetSearchOrderButton(elements);
+      try {
+        await chrome.storage.sync.set({ [SEARCH_PROVIDER_ORDER_STORAGE]: ids });
+      } catch {}
+    }
+  });
+  // 「恢复默认顺序」= 删除该 storage key（不写 []，否则 initializeSettingsStorage 会把
+  // 「删除」重建成空数组）+ 按内置默认序重渲染；非破坏性动作，无二次确认。
+  elements.resetSearchProviderOrderBtn.addEventListener("click", async () => {
+    try {
+      await chrome.storage.sync.remove(SEARCH_PROVIDER_ORDER_STORAGE);
+    } catch {}
+    searchProviderOrder = [];
+    rerenderSearchProviders(elements, await loadSearchProviders());
   });
   // 悬空链首提示随用户改选消失（spec §6.8）：选中任一在场记录即不再悬空。
   // 只读行内 radio 选中态，不写设置——持久化仍由 radio 自身的 save-settings 承担。

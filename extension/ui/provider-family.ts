@@ -18,6 +18,7 @@
 // 访问、零模块态；预设列表由调用方按族传入（AI 可走后端动态预设）。
 
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
+import { SMART_SEARCH_ACTIVE_ID } from "../core/search-mode.js";
 import { validateAiProviders } from "../core/validators.js";
 import type { AiProtocol } from "../ai/protocol-vocab.js";
 import type { ProviderEditorKind } from "./provider-editor-state.js";
@@ -27,7 +28,8 @@ import {
   type ActiveRadioTailConfig,
   type ProviderRowController,
   type ProviderRowItem,
-  type ProviderRowPreset
+  type ProviderRowPreset,
+  type ProviderRowVirtualRow
 } from "./provider-row.js";
 import type { BackgroundMessage, ContentScriptMessage } from "../shared/messaging-protocol.js";
 
@@ -91,6 +93,10 @@ interface FamilyRowDeclaration {
   displayModel: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
   // 选用 radio 尾（ASR / 搜索；AI 无）：类名前缀 / 提示文案 / 即时持久化设置键
   activeRadio?: ActiveRadioTailConfig;
+  // 拖拽把手类名（spec §6.10 / §12.5 第 13 行）：仅搜索族给；AI / ASR 不渲染
+  dragHandleClass?: string;
+  // 置顶虚拟条目（spec §6.10）：仅搜索族给（「智能」= 模式不是平台）
+  virtualRow?: ProviderRowVirtualRow;
   buildDeleteMessage: (providerId: string) => BackgroundMessage | ContentScriptMessage;
   // 编辑器每族知识（片 2 收敛）
   editor: FamilyEditorDeclaration;
@@ -222,6 +228,14 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
     title: "选用该平台联网搜索",
     settingsKey: "activeSearchProviderId"
   },
+  // 行尾拖拽把手与置顶「智能」虚拟条目的类名 / 文案（spec §6.10）：哨兵 id 与
+  // 模式判定同源 import（core/search-mode.js），此处不写字面量。
+  dragHandleClass: "provider-row-drag-handle",
+  virtualRow: {
+    id: SMART_SEARCH_ACTIVE_ID,
+    label: "智能",
+    hint: "自动选择可用平台并按顺序回退，自动跳过故障平台"
+  },
   buildDeleteMessage: (providerId) => ({ type: "search-providers-delete", providerId }),
   editor: {
     title: "搜索平台",
@@ -293,6 +307,8 @@ export function createProviderFamilyRows(deps: CreateFamilyRowsDeps): ProviderFa
         displayName: decl.displayName,
         displayModel: decl.displayModel,
         resolveBadge: decl.editor.accessBadge,
+        dragHandleClass: decl.dragHandleClass,
+        virtualRow: decl.virtualRow,
         buildTailFields: activeRadio?.buildTailFields,
         wireTailExtras: activeRadio?.wireTailExtras,
         onRowEdit: (row) => deps.onRowEdit(kind, row.dataset.providerId || ""),

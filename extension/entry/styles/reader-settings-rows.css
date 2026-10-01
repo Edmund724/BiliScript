@@ -386,3 +386,39 @@
   height: 8px;
   stroke-width: 3;
 }
+
+/* 拖拽把手（spec §6.10 / §12.5 第 17 行）：仅搜索族记录行渲染，行内最右端。
+ * touch-action: none 是触控必需（否则拖拽被滚动吞掉）；颜色一律复用既有变量，
+ * 不新增颜色（同 §6.1 纪律）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .provider-row-drag-handle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 32px;
+  color: var(--biliscript-reader-faint);
+  cursor: grab;
+  touch-action: none;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .provider-row-drag-handle svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: none;
+}
+
+/* 拖拽态（spec §6.10）：被拖行浮起（半透明 + 底色提示）——目标位置由被拖行的
+ * 实际落点表达，不另画指示线，视觉反馈从简。 */
+#biliscript-reading-view .biliscript-reading-settings-host .search-provider-row-dragging {
+  opacity: 0.6;
+  background: var(--biliscript-reader-surface-2);
+  cursor: grabbing;
+}
+
+/* 智能虚拟行（spec §6.10）：**恒为列表首个子元素**（记录行都在其后），仅用虚线
+ * 边框与记录行区分（不新增颜色、不加重点强调）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .search-provider-row:first-child {
+  border-style: dashed;
+}

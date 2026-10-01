@@ -1,7 +1,8 @@
 // extension/ui/provider-row.ts
 // AI 平台行与 ASR 平台行构建器的共享工厂 createProviderRow（紧凑形态，
 // provider-master-detail/02）：行是纯展示 + 入口——Key 状态点 + 名称 +
-// 模型名 +（ASR）选用 radio +「编辑 / 删除」两个动作，行内零输入字段。
+// 模型名 +（ASR）选用 radio +「编辑 / 删除」两个动作（搜索族另有行尾拖拽把手，
+// spec §6.10），行内零输入字段。
 // 编辑（预设 / baseUrl / API Key / 模型 / 测试）全部在 ui/provider-editor.js
 // 的 Modal 里（01），保存走单平台 upsert（settings-panel.saveProviderSingle）。
 //
@@ -29,6 +30,13 @@ export const TRASH_ICON_PATHS: string = [
   '<path d="M10 11v6"></path>',
   '<path d="M14 11v6"></path>',
   '<path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path>'
+].join("");
+
+// 拖拽把手图标（竖排点阵，spec §6.10）：仅搜索族记录行渲染。
+const DRAG_HANDLE_ICON_PATHS: string = [
+  '<circle cx="12" cy="6" r="1.7"></circle>',
+  '<circle cx="12" cy="12" r="1.7"></circle>',
+  '<circle cx="12" cy="18" r="1.7"></circle>'
 ].join("");
 
 // 行元素：HTMLElement 之上承载行级 dataset——providerId / hasSavedKey /
@@ -96,6 +104,17 @@ export type ProviderRowBeforeDeleteHandler = (
 // 删除完成后的回调（ASR：删的是当前选用平台时清 activeAsrProviderId）。
 export type ProviderRowHandler = (providerId: string) => Promise<void> | void;
 
+// 虚拟条目（spec §6.10 的「智能」虚拟行；仅搜索族声明）：不是平台记录，按同一
+// 行类 + 同一 activeRadio 渲染——选中态读写因此复用既有单源，不新增第二条路径。
+export interface ProviderRowVirtualRow {
+  // 行 id（写进 dataset.providerId；搜索族 = 哨兵 SMART_SEARCH_ACTIVE_ID）
+  id: string;
+  label: string;
+  // 副行说明（同时作为行 title 的缺省值）
+  hint?: string;
+  title?: string;
+}
+
 export interface CreateProviderRowConfig {
   rowClass: string;
   editClass: string;
@@ -111,6 +130,12 @@ export interface CreateProviderRowConfig {
   // 免费额度，后两者按 access 与 hasSavedKey 判定；AI / ASR 无徽章 → 空串）。
   // 空串不渲染。
   resolveBadge?: (preset: ProviderRowPreset | null, hasSavedKey: boolean) => string;
+  // 拖拽把手类名（spec §6.10 / §12.5 第 13 行）：**仅搜索族给**，给了才在
+  // `.provider-row-line` 最右端（删除按钮之后）渲染把手；AI / ASR 行零变化。
+  dragHandleClass?: string;
+  // 置顶虚拟条目（spec §6.10）：渲染在记录行之前，零记录时也在；不渲染状态点 /
+  // 徽章 / 编辑 / 删除，也不参与空态计数。
+  virtualRow?: ProviderRowVirtualRow;
   // （仅 ASR）选用 radio：change 即时持久化 activeAsrProviderId（平铺形态同款语义）
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;
   wireTailExtras?: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
@@ -203,6 +228,8 @@ export function createProviderRow({
   displayName,
   displayModel,
   resolveBadge,
+  dragHandleClass,
+  virtualRow,
   buildTailFields,
   wireTailExtras,
   onRowEdit,
@@ -216,9 +243,34 @@ export function createProviderRow({
     return `${idPrefix}${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   }
 
+  // 空态计数只认**记录行**：置顶虚拟条目在场不代表配置了平台（spec §6.10）
   function updateEmptyState(listNode: HTMLElement, emptyNode: HTMLElement): void {
-    const hasRows = listNode.children.length > 0;
+    const virtualId = virtualRow?.id;
+    const hasRows = Array.from(listNode.children).some(
+      (child) => (child as HTMLElement).dataset?.["providerId"] !== virtualId
+    );
     emptyNode.hidden = hasRows;
+  }
+
+  // 虚拟条目（spec §6.10）：置顶、复用同一 activeRadio 的 buildTailFields /
+  // wireTailExtras（选中即写哨兵走既有单源）；不渲染把手，故拖拽天然跳过它。
+  function renderVirtualRow(listNode: HTMLElement, activeId: string): void {
+    if (!virtualRow) return;
+    const hint = String(virtualRow.hint || "");
+    const row = document.createElement("div") as unknown as ProviderRowElement;
+    row.className = rowClass;
+    row.dataset.providerId = virtualRow.id;
+    row.title = String(virtualRow.title || hint || "");
+    const isActive = activeId === virtualRow.id;
+    row.innerHTML = `
+      <div class="provider-row-line">
+        <span class="provider-row-name">${escapeHtml(virtualRow.label)}</span>
+        ${buildTailFields ? buildTailFields({ id: virtualRow.id, isActive }) : ""}
+      </div>
+      ${hint ? `<div class="provider-row-model" title="${escapeHtml(hint)}">${escapeHtml(hint)}</div>` : ""}
+    `;
+    wireTailExtras?.(row, { listNode });
+    listNode.appendChild(row);
   }
 
   function render(
@@ -228,6 +280,8 @@ export function createProviderRow({
     addOptions: { presets?: readonly ProviderRowPreset[]; activeId?: string } = {}
   ): ProviderRowItem[] {
     listNode.innerHTML = "";
+    const activeId = String(addOptions.activeId || "");
+    renderVirtualRow(listNode, activeId);
     const list: ProviderRowItem[] = Array.isArray(items) ? (items as ProviderRowItem[]) : [];
     list.forEach((item) => {
       const id = String(item.id || generateId());
@@ -235,7 +289,7 @@ export function createProviderRow({
       const preset = resolvePreset(addOptions.presets || [], presetId);
       const baseUrl = String(item.baseUrl ?? preset?.baseUrl ?? "");
       const hasSavedKey = Boolean(item.hasSavedKey);
-      const isActive = String(addOptions.activeId || "") === id;
+      const isActive = activeId === id;
 
       const row = document.createElement("div") as unknown as ProviderRowElement;
       row.className = rowClass;
@@ -255,6 +309,11 @@ export function createProviderRow({
       // Key 也不消失；keyless 是否已配自己的 Key 会改口径（免 Key ↔ 已配 Key，
       // 免得配了 Key 还自称免 Key）。文案由族声明同源产出，空串不渲染。
       const badge = String(resolveBadge?.(preset, hasSavedKey) || "");
+      // 拖拽把手（spec §6.10）：行内最右端（删除按钮之后）的独立元素，仅搜索族
+      // 记录行渲染；只认它的 pointerdown（wireProviderRowDrag）。
+      const dragHandle = dragHandleClass
+        ? `<span class="${dragHandleClass}" title="拖拽调整搜索顺序"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${DRAG_HANDLE_ICON_PATHS}</svg></span>`
+        : "";
       row.innerHTML = `
         <div class="provider-row-line">
           <span class="provider-row-dot" data-state="${keyState}" title="${keyStateTitle}"></span>
@@ -265,6 +324,7 @@ export function createProviderRow({
           <button type="button" class="${removeClass}" aria-label="删除" title="删除">
             <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${TRASH_ICON_PATHS}</svg>
           </button>
+          ${dragHandle}
         </div>
         ${model ? `<div class="provider-row-model" title="${escapeHtml(model)}">${escapeHtml(model)}</div>` : ""}
       `;

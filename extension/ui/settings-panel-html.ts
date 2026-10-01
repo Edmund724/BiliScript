@@ -51,6 +51,7 @@ export function buildSettingsHtml(): string {
       <div id="searchProvidersList" class="ai-providers-list"></div>
       <p id="searchProvidersEmpty" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa）——四条免 Key 预设装上即可用。</p>
       <button id="addSearchProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
+      <button id="resetSearchProviderOrderBtn" class="add-property-btn" type="button">恢复默认顺序</button>
       <div class="biliscript-set-row">
         <label class="biliscript-set-label" for="webSearchMaxToolCalls">单轮搜索次数上限</label>
         <input id="webSearchMaxToolCalls" class="biliscript-set-input" type="number" min="1" max="10" step="1" />
