@@ -233,6 +233,10 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         toolContent = serializeSearchResults(outcome.results);
         // 模型侧降级注记（§6.5）：只在回退链跳过链首时附恰一行——该行由我们写就，
         // 不属不可信外部数据，可以进 tool 内容；「以下结果」指其后紧跟的结果体。
+        // 取舍声明（用户裁定，零行为）：该行前置在 serializeSearchResults 的
+        // ≤TOOL_CONTENT_MAX_CHARS(4000) 之外，回退时 tool 内容可超 4000 约 30 字符。
+        // §8 的封顶对象是序列化产物本身（serializeSearchResults 的输出），本行是固定
+        // 一行元信息、不是结果正文，明示不计入该预算；4000 / 2000 两个常量均不变。
         if (outcome.downgradedFrom) {
           toolContent = `注：首选 ${outcome.downgradedFrom} 未成功，以下结果来自 ${outcome.platform}。\n${toolContent}`;
         }

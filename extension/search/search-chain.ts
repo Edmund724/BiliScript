@@ -24,9 +24,11 @@ export interface SearchChainCandidate {
 //   - 查不到预设表（脏值 / 未知 presetId）→ 不进候选（最保守）；
 //   - 记录须 enabled !== false；
 //   - access === "keyless" 无条件进；access === "free-quota" 仅该记录有 Key 才进；
-//   - 排序 = activeId 指向的在组记录排链首，其余按预设表顺序（同表项保持记录
-//     输入顺序）；activeId 为空或悬空（不存在 / 不在组）→ 无链首，严格按表序；
-//   - 按记录 id 去重（链首不重复出现）；
+//   - 排序 = activeId 指向的在组记录排链首，其余按预设表顺序；activeId 为空或悬空
+//     （不存在 / 不在组）→ 无链首，严格按表序；
+//   - 按 presetId 去重（用户裁定②）：同一家只入链一次，代表记录 = activeId 指向的
+//     该预设在组记录（含它的 Key），否则取输入顺序首条符合条件记录；同 presetId 的
+//     其余记录不进链、不试第二次（链首亦不重复出现）；
 //   - keyless 无 Key 时候选的 apiKey 为 ""（适配器据此不产鉴权头）。
 export function resolveSearchChain(
   providers: ReadonlyArray<SearchProvider>,
@@ -40,35 +42,43 @@ export function resolveSearchChain(
     if (!presetById.has(preset.id)) presetById.set(preset.id, { index, access: preset.access });
   });
 
+  // 按 presetId 去重（用户裁定②）：同一家只入链一次。代表记录选取——activeId 指向
+  // 该预设的某条在组记录时以该条为代表（保「链首 = 用户手选记录」语义，含它的 Key）；
+  // 否则取输入顺序的首条符合条件记录。其余同 presetId 记录不进链（不试第二次）。
+  const headId = String(activeId || "").trim();
   const included: Array<{ candidate: SearchChainCandidate; index: number }> = [];
-  // 按记录 id 去重：seenIds 只装已进组的 id（同 id 的后续记录一律跳过）
-  const seenIds = new Set<string>();
+  const representativeIndex = new Map<string, number>(); // presetId → included 下标
   for (const record of providers) {
-    if (seenIds.has(record.id)) continue;
     if (record.enabled === false) continue;
-    const preset = presetById.get(String(record.presetId || "").trim());
+    const presetId = String(record.presetId || "").trim();
+    const preset = presetById.get(presetId);
     if (!preset) continue;
     const apiKey = String(keys?.[record.id] ?? "").trim();
     if (preset.access === "free-quota" && !apiKey) continue;
-    seenIds.add(record.id);
-    included.push({
-      candidate: {
-        provider: {
-          id: record.id,
-          name: record.name,
-          type: record.type,
-          baseUrl: record.baseUrl
-        },
-        apiKey
+    const candidate: SearchChainCandidate = {
+      provider: {
+        id: record.id,
+        name: record.name,
+        type: record.type,
+        baseUrl: record.baseUrl
       },
-      index: preset.index
-    });
+      apiKey
+    };
+    const existing = representativeIndex.get(presetId);
+    if (existing === undefined) {
+      representativeIndex.set(presetId, included.length);
+      included.push({ candidate, index: preset.index });
+      continue;
+    }
+    // 该预设已有代表：仅当 activeId 指向本记录时以本记录替换（Key 随之取本记录的）
+    if (headId && record.id === headId) {
+      included[existing] = { candidate, index: preset.index };
+    }
   }
 
-  // 稳定按预设表顺序（同表项保持记录输入顺序）
+  // 稳定按预设表顺序（去重后每个 presetId 只余一条，表内序唯一）
   included.sort((a, b) => a.index - b.index);
 
-  const headId = String(activeId || "").trim();
   const headIndex = headId ? included.findIndex((entry) => entry.candidate.provider.id === headId) : -1;
   const ordered =
     headIndex > 0

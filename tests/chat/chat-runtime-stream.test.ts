@@ -1493,7 +1493,7 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     expect(deps.ports).toHaveLength(0);
     const dialog = document.querySelector<HTMLElement>(".confirm-dialog")!;
     expect(dialog.querySelector(".confirm-dialog-message")!.textContent).toBe(
-      "联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回。"
+      "联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止该家接收查询。"
     );
     expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
     expect(dialog.querySelector(".confirm-dialog-confirm")!.textContent).toBe("同意并继续");

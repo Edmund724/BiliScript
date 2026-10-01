@@ -274,7 +274,17 @@ describe("写后读失效：写消息落盘后读 handler 拿新值", () => {
     const before = await callHandler(listener, { type: "resolve-search-provider" });
     expect(before).toEqual({ ok: true });
 
-    const EXA = { ...SEARCH_PROVIDER, id: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai" };
+    // presetId 显式改为 exa：链成员资格由 presetId 查预设表得出，而去重口径是
+    // 「同一 presetId 只入链一次」（用户裁定②）——沿用 SEARCH_PROVIDER 的
+    // presetId:"tavily" 会让这条记录与上一条被并成一条，夹具不再表达「两个平台」。
+    const EXA = {
+      ...SEARCH_PROVIDER,
+      id: "exa",
+      presetId: "exa",
+      name: "Exa",
+      type: "exa",
+      baseUrl: "https://api.exa.ai"
+    };
     await callHandler(listener, {
       type: "search-providers-save",
       providers: [SEARCH_PROVIDER, { ...EXA, apiKey: "exa-key" }]

@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { buildSettingsHtml } from "../../extension/ui/settings-panel-html.js";
+import { SEARCH_OPT_IN_NOTICE_MESSAGE } from "../../extension/search/opt-in-notice.js";
 
 type SentMessage = { type: string } & Record<string, any>;
 type MessageResponder = (message: SentMessage) => unknown;
@@ -64,12 +65,18 @@ beforeEach(() => {
 describe("设置页搜索节文案（spec §6.9）", () => {
   const html = buildSettingsHtml();
 
-  it("说明行 = function calling 说明 + opt-in 常驻版（同一套词）", () => {
+  it("说明行 = function calling 说明 + opt-in 常驻版（两处撤回入口：关开关 + 删记录）", () => {
     expect(html).toContain("function calling");
     expect(html).toContain(
-      "联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回。"
+      "联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止该家接收查询。"
     );
+    // 次入口单独成句（用户裁定③）：删记录停止该家接收查询
+    expect(html).toContain("删除对应平台记录可停止该家接收查询");
     expect(html).not.toContain("当前选用平台提供搜索结果");
+  });
+
+  it("常驻行与一次性说明文案逐字一致（该行自己持文，不 import 单源）", () => {
+    expect(html).toContain(SEARCH_OPT_IN_NOTICE_MESSAGE);
   });
 
   it("空态 = 六预设 + 四条免 Key 装上即可用；添加按钮与次数上限文案不变", () => {

@@ -401,6 +401,8 @@ describe("面板内解释卡片", () => {
     const message = dialog.querySelector(".confirm-dialog-message")!.textContent!;
     expect(message).toContain("联网搜索会把查询词发往内置的免 Key 服务");
     expect(message).toContain("关闭搜索开关可随时撤回");
+    // 次入口（用户裁定③）：删记录停止该家接收查询
+    expect(message).toContain("删除对应平台记录可停止该家接收查询");
     expect(dialog.querySelector(".confirm-dialog-cancel")!.textContent).toBe("取消");
     expect(dialog.querySelector(".confirm-dialog-confirm")!.textContent).toBe("同意并继续");
     // 说明弹出时尚未解析搜索运行时（闸在解析之前）
