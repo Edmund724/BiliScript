@@ -19,7 +19,10 @@
     "https://*.bilivideo.com/*",
     "https://api.tavily.com/*",
     "https://api.exa.ai/*",
-    "https://api.search.brave.com/*"
+    "https://api.firecrawl.dev/*",
+    "https://open.feedcoopapi.com/*",
+    "https://api.anysearch.com/*",
+    "https://search.parallel.ai/*"
   ],
   "optional_host_permissions": [
     "http://*/*",

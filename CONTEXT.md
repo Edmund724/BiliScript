@@ -42,7 +42,7 @@ _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 f
 _Avoid_: 长记忆、向量库
 
 **缓存宿主**:
-缓存族落在哪个进程的判据：由**消费方进程的 storage 可达性**决定，与缓存数据的重要性/大小无关。offscreen 文档没有 chrome.storage（平台只开放 chrome.runtime）→ offscreen 消费的缓存族一律 SW 宿主、经消息族读写；content/reader 有完整 storage 权限 → 消费处直写。三族现状对照：字幕缓存（`biliscript_subtitle_cache_*`）content 直写；原始字幕缓存/分段小结（`biliscript_lvs_*`）SW 宿主、offscreen 经 `segment-cache` 消息族（机制见「原始字幕缓存」）；概览缓存（按 bvid/cid/轨/签名落盘）content 直写。淘汰/LRU 布局与宿主判据正交，单源 `core/cache-lru.js` 族工厂（两进程共用同一纯叶）。本判据只管 chrome.storage.local 上的可淘汰缓存族；provider/设置存储（sync+local 分层）不受管辖（见「激活平台」「设置快照」）。
+缓存族落在哪个进程的判据：由**消费方进程的 storage 可达性**决定，与缓存数据的重要性/大小无关。offscreen 文档没有 chrome.storage（平台只开放 chrome.runtime）→ offscreen 消费的缓存族一律 SW 宿主、经消息族读写；content/reader 有完整 storage 权限 → 消费处直写。四族现状对照：字幕缓存（`biliscript_subtitle_cache_*`）content 直写；原始字幕缓存/分段小结（`biliscript_lvs_*`）SW 宿主、offscreen 经 `segment-cache` 消息族（机制见「原始字幕缓存」）；概览缓存（按 bvid/cid/轨/签名落盘）content 直写；查询缓存（`biliscript_search_cache`）SW 宿主，offscreen 与 content 都经 `search-cache` 消息族读写。淘汰/LRU 布局与宿主判据正交，单源 `core/cache-lru.js` 族工厂（两进程共用同一纯叶）。本判据只管 chrome.storage.local 上的可淘汰缓存族；provider/设置存储（sync+local 分层）不受管辖（见「激活平台」「设置快照」）。
 代码名：`core/cache-lru.js`（族工厂）/ `ai/segment-cache-proxy.js`（SW 宿主族的 offscreen 出站点）/ `subtitle/cache.js` / `ai/analysis-orchestrate.js`（content 直写两族）
 _Avoid_: 凭缓存数据重要性/大小选宿主、offscreen 侧引入 storage 垫片
 
@@ -136,17 +136,27 @@ _Avoid_: 每条协议复制编排链、编排层感知协议
 _Avoid_: 在 adapter 注释里回抄怪癖语义（只指键名）、给 pi-ai 的 compat 值开运行时入口、把模型血统事实搬进词表、词表叶里 value-import 协议栈
 
 **平台请求代发**:
-扩展上下文代 content script 发起平台 HTTP 请求的通道总称——content script 的跨域 fetch 服从**网页** CORS，而平台网关的预检白名单常拒扩展自带的鉴权头（实测 ModelScope 的 Anthropic 端点拒 `x-api-key` / `anthropic-version`）。两条通道按请求时长分工：**SW 代发**（探针 / 选区解释 / 联网搜索三链）硬编码 15s 超时、受 MV3 service worker 生命周期约束，只服务短请求；**offscreen 代发**（概览链，一请求一端口、无超时、一律分块回吐）服务分钟级流式长请求（ADR-0010）。两端同文件组织 = 发送端在 content 用分块回吐合成标准 Response（响应头先落定，status/ok 立即可用；`.json()`/`.text()` 与流式读 body 同一形状），接收端在承载上下文执行 fetch 并按到达顺序回吐响应头 / 正文分片 / done。
+扩展上下文代 content script 发起平台 HTTP 请求的通道总称——content script 的跨域 fetch 服从**网页** CORS，而平台网关的预检白名单常拒扩展自带的鉴权头（实测 ModelScope 的 Anthropic 端点拒 `x-api-key` / `anthropic-version`）。两条通道按请求时长分工：**SW 代发**（探针 / 选区解释 / 联网搜索三链）单档 15s 覆盖整段请求（响应头 + 正文）且超时真中止，受 MV3 service worker 生命周期约束，只服务短请求；**offscreen 代发**（概览链，一请求一端口、无超时、一律分块回吐）服务分钟级流式长请求（ADR-0010）。联网搜索的链级预算 30s，由链持有。两端同文件组织 = 发送端在 content 用分块回吐合成标准 Response（响应头先落定，status/ok 立即可用；`.json()`/`.text()` 与流式读 body 同一形状），接收端在承载上下文执行 fetch 并按到达顺序回吐响应头 / 正文分片 / done。
 代码名：`providerFetchViaBackground` / `handleProviderHttpRequest`（SW 代发）；`providerFetchViaOffscreen` / `attachProviderHttpPort` / `PROVIDER_HTTP_OFFSCREEN_PORT_NAME`（offscreen 代发）
 _Avoid_: 把「content 发起、offscreen 执行」与「offscreen 客户端直发平台」混为一谈（后者仍被否决）；让概览回落页面源直发
 
 **搜索平台**:
-联网搜索平台（spec ai-chat-web-search，Tavily/Exa/Brave 三预设，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（单选激活，对齐 ASR radio 心智，"" = 无激活）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起 fetch：key 经消息中转（SW → offscreen 内存 →（消息 header）→ SW），SW 只做 fetch 发起方，key 不落 offscreen 存储/日志（protocol-vocab-leaf 文档语义修正，替代旧「密钥不出 SW」表述）；三家域为常驻 host 权限。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
+联网搜索平台（spec keyless-web-search，**六预设**（Tavily/Exa + Firecrawl/豆包/AnySearch/Parallel），其中四条零 Key 引擎 + 两条免费额度引擎构成零成本组，成员的接入与额度形态见「零成本组」，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（= **链首**，手选平台排链最前，空 = 无链首，链即零成本组按预设顺序）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起 fetch：key 经消息中转（SW → offscreen 内存 →（消息 header）→ SW），SW 只做 fetch 发起方，key 不落 offscreen 存储/日志（protocol-vocab-leaf 文档语义修正，替代旧「密钥不出 SW」表述）；Tavily / Exa 沿用常驻 host 权限，新增 Firecrawl / 豆包 / AnySearch / Parallel，删 Brave。Key 对 `keyless` 预设可选（不再是「Key 前置」）；`resolve-search-provider` 解析的是**链**（有序候选 + 各自 Key）。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
 代码名：`searchProviderStore`（extension/search/search-provider-store.js）/ `normalizeSearchProvider` / `SEARCH_PROVIDER_PRESETS`（core/presets.js）/ 适配器 `extension/search/adapters/`
 _Avoid_: Key 进 sync、自定义预设、offscreen 直发搜索请求
 
+**零成本组**:
+搜索时按固定顺序逐家尝试的平台集合——零 Key 引擎无条件入组，免费额度引擎配了 Key 才入组；顺序 = 预设表顺序。它的**执行形态**称「回退链」：组内前一家失败（超时 / 网络 / 额度耗尽，分类见 spec §6.4 的三等映射表）即试下一家，全组无果才提示用户。词表作「零 Key」、UI 文案作「免 Key」。
+代码名：`SearchProviderAccess` / `SEARCH_PROVIDER_PRESETS`
+_Avoid_: 把回退理解成「任何平台之间互相兜底」；用「免 Key」当组的定义（配 Key 的豆包也在组内）
+
+**链首平台**:
+用户手选的搜索平台，排在回退链最前；未手选即无链首。
+代码名：`activeSearchProviderId`（沿用代码名，语义收缩）
+_Avoid_: 把链首理解成「只有它会被使用」
+
 **工具循环**:
-AI 对话链与选区解释链共用的联网搜索执行管线（function calling，spec §2.3）：`runToolLoop` 包住 chatCompletion 多轮调用——finish_reason=tool_calls 时回填 assistant(tool_calls)+tool 消息续跑，单条 tool call 计入 `webSearchMaxToolCalls` 配额；搜索配置经 `resolve-search-provider` 单趟消息解析，解析单点 `resolveWebSearchRuntime`（search/search-runtime.ts，offscreen 与解释卡同走，无 chrome.storage）。port 回吐单源在 streamChat（TokenBatcher/flush 纪律不变）；搜索执行单点 `executeWebSearch`（extension/search/search-executor.js）。失败降级 + notice（回答不中断）；平台不支持 tools（不可重试 4xx）摘除重发一次；Map-Reduce 归约轮静默禁用 + notice。tool 轮消息持久化进会话历史（tool 内容截 2,000，完整结果只活在当轮请求）。解释链（非流式）取 runToolLoop 返回值为最终文本，工具定义经 `webSearchTool` 变体（不带 [n] 引用要求）。
+AI 对话链与选区解释链共用的联网搜索执行管线（function calling，spec §2.3）：`runToolLoop` 包住 chatCompletion 多轮调用——finish_reason=tool_calls 时回填 assistant(tool_calls)+tool 消息续跑，单条 tool call 计入 `webSearchMaxToolCalls` 配额；搜索配置经 `resolve-search-provider` 单趟消息解析**回退链**（有序候选 + 各自 Key + 单轮上限），解析单点 `resolveWebSearchRuntime`（search/search-runtime.ts，offscreen 与解释卡同走，无 chrome.storage）。port 回吐单源在 streamChat（TokenBatcher/flush 纪律不变）；搜索执行单点 `executeWebSearch`（extension/search/search-executor.js）。**链内失败静默**，整链无果才一条 notice，回答不中断；额度类与超时/网络类分两条文案，且单轮调用次数的「本轮的搜索次数已达上限」与平台侧的「搜索额度已用尽」在措辞上分开（同名收口，§6.4）。平台不支持 tools（不可重试 4xx）摘除重发一次；Map-Reduce 归约轮静默禁用 + notice。tool 轮消息持久化进会话历史（tool 内容截 2,000，完整结果只活在当轮请求）。解释链（非流式）取 runToolLoop 返回值为最终文本，工具定义经 `webSearchTool` 变体（不带 [n] 引用要求）。
 代码名：`runToolLoop` / `WEB_SEARCH_TOOL` / `webSearchTool`（ai/tool-loop.ts）/ `executeWebSearch`（search/search-executor.ts）/ `resolveWebSearchRuntime`（search/search-runtime.ts）/ `resolve-search-provider`（background handler）/ `tool-status` / `tool-turn`（chat/protocol.ts port 事件）
 _Avoid_: 手抄第二份循环、offscreen 读 chrome.storage、tool 结果全文进历史
 
