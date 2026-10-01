@@ -106,7 +106,7 @@ _Avoid_: 窗口、配额、限额
 
 **阶梯**:
 素材在预算内直接一次成稿；超出预算才进入「分段 + 归并」。分派实现在 ai/ladder.js。
-代码名：`ai/ladder.js` / `runLadderChat`
+代码名：`ai/ladder.js` / `runLadderChat`（deps 注入面为测试 seam——每条缺省缝均有测试 adapter 驱动真实分支，2026-10-02 已裁定保留，勿再提议拆缝；详见 `extension/ai/ladder.ts` 头注）
 _Avoid_: 降级、回退
 
 **概览**:

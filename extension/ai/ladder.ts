@@ -111,6 +111,16 @@ export type ResolveFollowupContextFn = (args: ResolveFollowupContextArgs) => Pro
 // 裁定：与 ai/analysis.ts 的同名私有声明形状不同——本侧严格（必选参数/number 档）、
 // analysis 侧宽松（可选属性/unknown 档，供测试 fake 少填字段），刻意不合并、各自
 // 私有，消除「同名平行导出」）。
+//
+// 2026-10-02 重评估（B2 卡片重提「10 deps 中 6 个假想 seam」，并称重开 09 候选 5）：
+// 结论不采纳拆缝。保留依据：六条带缺省缝（streamChat / orchestrateMapReduce /
+// resolveFollowupContext / buildBudgetPlan / buildCostGuardNotice / trimRecentTurns）
+// 每条都有测试 adapter 驱动真实分支（tests/ai/ladder.test.ts、tests/ai/cost-guard-scope
+// 刻意跑真实 buildBudgetPlan/buildCostGuardNotice）；onActivity 是 ladder → streamChat
+// 调用结构的必然透传（本模块只转发，不自身调用），非假想缝。强收的负收益：18+5 例测试
+// 须改 vi.mock，`as unknown as` 从生产 4 处挪到测试更多处，窄面「让注入 fake 少填字段」
+// 的价值一并丧失。不再重开的条件：仅当某条缝出现第二个生产 adapter（而非测试 adapter）
+// 时再评估。
 type BuildBudgetPlanFn = (args: { body: unknown[]; chapters: unknown[] }) => BudgetPlan;
 
 interface CostGuardNotice {
