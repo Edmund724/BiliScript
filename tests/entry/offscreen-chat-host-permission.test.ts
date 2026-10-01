@@ -12,12 +12,17 @@
 // offscreen-chat-presetid.test.js。
 //
 // 同一 harness 另覆盖搜索运行时解析的 notice 面（spec §10 第 10 行）：
-// entry/offscreen.ts:239-243 的「未配置搜索平台，本轮未联网」判据是
-// resolveWebSearchRuntime 的返回是否为 undefined——keyless 无 Key 的链（S4
-// 形状 chain 非空、apiKey:""）必须放行、不弹该 notice。
+// entry/offscreen.ts 的 notice 判据是解析产物的 runtime 是否为缺省——keyless 无 Key
+// 的链（S4 形状 chain 非空、apiKey:""）必须放行、不弹该 notice；空链的两类归因
+// （真未配置 / 智能链全冷却）分别落既有「未配置」文案与冷却专属文案
+//（spec §12.7 第 6 条翻案：全冷却 ≠ 未配置）。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
+import {
+  SEARCH_COOLDOWN_NOTICE,
+  SEARCH_NOT_CONFIGURED_NOTICE
+} from "../../extension/search/search-runtime.js";
 
 const BASE_URL = "https://api.siliconflow.cn/v1";
 
@@ -237,7 +242,20 @@ describe("offscreen 对话链搜索运行时的未配置 notice（spec §10 第 
 
     const session = await runChatTurn({ webSearchEnabled: true });
 
-    expect(postedNotices(session).some((data) => data.includes("未配置搜索平台，本轮未联网"))).toBe(true);
+    expect(postedNotices(session)).toContain(SEARCH_NOT_CONFIGURED_NOTICE);
     expect(postedTypes(session)).toContain("done");
+  });
+
+  it("智能链合格记录全在冷却中 → 弹冷却专属文案，不误报「未配置」（spec §12.7 第 6 条翻案）", async () => {
+    await importOffscreen();
+    searchReply = { ok: true, chainEmptyReason: "cooldown" };
+
+    const session = await runChatTurn({ webSearchEnabled: true });
+
+    const notices = postedNotices(session);
+    expect(notices).toContain(SEARCH_COOLDOWN_NOTICE);
+    expect(notices.some((data) => data.includes("未配置搜索平台"))).toBe(false);
+    expect(postedTypes(session)).toContain("done");
+    expect(postedErrors(session)).toHaveLength(0);
   });
 });

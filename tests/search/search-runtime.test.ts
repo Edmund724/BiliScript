@@ -5,14 +5,19 @@
 // 覆盖：
 // 1. 成功组装：链夹具（有序候选 + 各自 Key）/ maxToolCalls 透传 / executeSearch 真跑 /
 //    abort signal 透传；
-// 2. 第二道闸：chain 空（未配置）→ undefined；chain 有候选且 apiKey:"" → 放行组装
-//    （keyless 无 Key，出向请求头不含鉴权头）；
+// 2. 第二道闸：chain 空 → runtime 缺省 + notice 单源（未配置文案）；空链带
+//    chainEmptyReason:'cooldown' → 冷却专属文案（不误报未配置，spec §12.7 第 6 条翻案）；
+//    chain 有候选且 apiKey:"" → 放行组装（keyless 无 Key，出向请求头不含鉴权头）；
 // 3. 链内单候选失败静默试下一个，platform 取实际成功家 + downgradedFrom 透传；
 //    全败抛分类错误（额度类走额度文案，其余类用末条原因）；
 // 4. 缓存：命中直回（链与 provider-http 零调用）/ 未命中成功后 put / 失败与中止不写；
 // 5. maxToolCalls 缺省 / 非法回落 5。
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveWebSearchRuntime } from "../../extension/search/search-runtime.js";
+import {
+  resolveWebSearchRuntime,
+  SEARCH_COOLDOWN_NOTICE,
+  SEARCH_NOT_CONFIGURED_NOTICE
+} from "../../extension/search/search-runtime.js";
 import type {
   ResolveSearchProviderResponse,
   SearchCacheMessage,
@@ -123,7 +128,7 @@ afterEach(() => {
 describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
   it("成功组装：maxToolCalls 透传，executeSearch 经 provider-http 真跑并归一", async () => {
     vi.stubGlobal("chrome", { runtime: stubRuntime(CHAIN_OK) });
-    const runtime = (await resolveWebSearchRuntime())!;
+    const runtime = ((await resolveWebSearchRuntime()).runtime)!;
     expect(runtime.maxToolCalls).toBe(3);
     const outcome = await runtime.executeSearch("bilibili ai");
     expect(outcome.platform).toBe("Tavily");
@@ -138,7 +143,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
   it("abort signal 透传 executeSearch（调用方停止可中断在途搜索）", async () => {
     vi.stubGlobal("chrome", { runtime: stubRuntime(CHAIN_OK) });
     const controller = new AbortController();
-    const runtime = (await resolveWebSearchRuntime(controller.signal))!;
+    const runtime = ((await resolveWebSearchRuntime(controller.signal)).runtime)!;
     const { providerFetchViaBackground } = await import("../../extension/core/provider-http.js");
     controller.abort();
     await expect(runtime.executeSearch("q")).rejects.toMatchObject({ name: "AbortError" });
@@ -146,18 +151,39 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
     expect(typeof providerFetchViaBackground).toBe("function");
   });
 
-  it("chain 缺省 / 空（未配置搜索平台）→ undefined", async () => {
+  it("chain 缺省 / 空（未配置搜索平台）→ runtime 缺省 + 未配置文案（notice 单源）", async () => {
     for (const resp of [{ ok: true }, { ok: true, chain: [] }]) {
       vi.stubGlobal("chrome", { runtime: stubRuntime(resp as ResolveSearchProviderResponse) });
-      await expect(resolveWebSearchRuntime()).resolves.toBeUndefined();
+      await expect(resolveWebSearchRuntime()).resolves.toEqual({ notice: SEARCH_NOT_CONFIGURED_NOTICE });
     }
+  });
+
+  it("chain 空且 chainEmptyReason:'cooldown' → runtime 缺省 + 冷却专属文案（不误报未配置）", async () => {
+    vi.stubGlobal("chrome", { runtime: stubRuntime({ ok: true, chainEmptyReason: "cooldown" }) });
+
+    const resolution = await resolveWebSearchRuntime();
+
+    expect(resolution.runtime).toBeUndefined();
+    expect(resolution.notice).toBe(SEARCH_COOLDOWN_NOTICE);
+    expect(resolution.notice).not.toContain("未配置");
+  });
+
+  it("chain 非空（脏 chainEmptyReason）→ 照常组装运行时、无 notice", async () => {
+    vi.stubGlobal("chrome", {
+      runtime: stubRuntime({ ...CHAIN_OK, chainEmptyReason: "cooldown" })
+    });
+
+    const resolution = await resolveWebSearchRuntime();
+
+    expect(resolution.runtime?.maxToolCalls).toBe(3);
+    expect(resolution.notice).toBeUndefined();
   });
 
   it("chain 有候选且 apiKey:''（keyless）→ 组装成功，出向请求头不含鉴权头", async () => {
     vi.stubGlobal("chrome", {
       runtime: stubRuntime({ ok: true, chain: [FIRECRAWL_CANDIDATE], maxToolCalls: 4 })
     });
-    const runtime = (await resolveWebSearchRuntime())!;
+    const runtime = ((await resolveWebSearchRuntime()).runtime)!;
     expect(runtime.maxToolCalls).toBe(4);
 
     const outcome = await runtime.executeSearch("q");
@@ -190,7 +216,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
         ]
       )
     });
-    const runtime = (await resolveWebSearchRuntime())!;
+    const runtime = ((await resolveWebSearchRuntime()).runtime)!;
 
     const outcome = await runtime.executeSearch("q");
 
@@ -222,7 +248,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
         ]
       )
     });
-    const runtime = (await resolveWebSearchRuntime())!;
+    const runtime = ((await resolveWebSearchRuntime()).runtime)!;
 
     await expect(runtime.executeSearch("q")).rejects.toMatchObject({
       message: "HTTP 500",
@@ -245,7 +271,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
         ]
       )
     });
-    const runtime = (await resolveWebSearchRuntime())!;
+    const runtime = ((await resolveWebSearchRuntime()).runtime)!;
 
     await expect(runtime.executeSearch("q")).rejects.toMatchObject({
       message: "搜索额度已用尽：可稍后再试，或在设置中为搜索平台配置 API Key 提升额度",
@@ -262,7 +288,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
     vi.stubGlobal("chrome", {
       runtime: stubRuntime(CHAIN_OK, [], { ok: true, hit: true, entry })
     });
-    const runtime = (await resolveWebSearchRuntime())!;
+    const runtime = ((await resolveWebSearchRuntime()).runtime)!;
 
     const outcome = await runtime.executeSearch("bilibili ai");
 
@@ -276,7 +302,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
 
   it("缓存未命中：跑链成功后 put（query / results / platform，§5）", async () => {
     vi.stubGlobal("chrome", { runtime: stubRuntime(CHAIN_OK) });
-    const runtime = (await resolveWebSearchRuntime())!;
+    const runtime = ((await resolveWebSearchRuntime()).runtime)!;
 
     const outcome = await runtime.executeSearch("bilibili ai");
 
@@ -302,7 +328,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
     vi.stubGlobal("chrome", {
       runtime: stubRuntime({ ok: true, chain: [FIRECRAWL_CANDIDATE] }, [payload])
     });
-    const runtime = (await resolveWebSearchRuntime())!;
+    const runtime = ((await resolveWebSearchRuntime()).runtime)!;
 
     await expect(runtime.executeSearch("q")).rejects.toBeTruthy();
 
@@ -312,7 +338,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
   it("用户中止 → 不写缓存（§10 第 34 行）", async () => {
     vi.stubGlobal("chrome", { runtime: stubRuntime({ ok: true, chain: [FIRECRAWL_CANDIDATE] }) });
     const controller = new AbortController();
-    const runtime = (await resolveWebSearchRuntime(controller.signal))!;
+    const runtime = ((await resolveWebSearchRuntime(controller.signal)).runtime)!;
     controller.abort();
 
     await expect(runtime.executeSearch("q")).rejects.toMatchObject({ name: "AbortError" });
@@ -323,20 +349,20 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
     expect(healthMessages()).toEqual([]);
   });
 
-  it("消息失败 / 无接收方（SW 冷启动竞态）→ undefined，不抛", async () => {
+  it("消息失败 / 无接收方（SW 冷启动竞态）→ runtime 缺省 + 未配置文案，不抛", async () => {
     vi.stubGlobal("chrome", { runtime: { sendMessage: vi.fn(async () => { throw new Error("Could not establish connection"); }) } });
-    await expect(resolveWebSearchRuntime()).resolves.toBeUndefined();
+    await expect(resolveWebSearchRuntime()).resolves.toEqual({ notice: SEARCH_NOT_CONFIGURED_NOTICE });
   });
 
   it("maxToolCalls 缺省 / 非法回落 5", async () => {
     vi.stubGlobal("chrome", {
       runtime: stubRuntime({ ...CHAIN_OK, maxToolCalls: 0 })
     });
-    await expect(resolveWebSearchRuntime()).resolves.toMatchObject({ maxToolCalls: 5 });
+    await expect(resolveWebSearchRuntime()).resolves.toMatchObject({ runtime: { maxToolCalls: 5 } });
     vi.stubGlobal("chrome", {
       runtime: stubRuntime({ ...CHAIN_OK, maxToolCalls: undefined })
     });
-    await expect(resolveWebSearchRuntime()).resolves.toMatchObject({ maxToolCalls: 5 });
+    await expect(resolveWebSearchRuntime()).resolves.toMatchObject({ runtime: { maxToolCalls: 5 } });
   });
 });
 

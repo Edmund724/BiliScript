@@ -3,7 +3,8 @@
 //   ① 记账消息族：content（tab）来源不被来源守卫拦（不进 offscreen-only 名单）、
 //      落 chrome.storage.local 单键、SW 侧盖时间戳、脏载荷不落盘、未知 op → ok:false；
 //   ② 冷却消费：连败触发后 resolve 路由跳过该引擎（inline 失效保证写后读）、
-//      到期回链、全部冷却 → chain 缺省走既有「未配置」路径、单选不拦但账照记；
+//      到期回链、全部冷却 → chain 缺省 + chainEmptyReason:'cooldown'（专属文案，
+//      不误报未配置，spec §12.7 第 6 条翻案）、单选不拦但账照记；
 //   ③ 快照位：健康度读命中零重复读、写 handler 落盘后 inline 失效（下一次 resolve
 //      重读）；脏存储 / 读失败按无冷却（不拦任何链）。
 // chrome stub 手法与 tests/entry/background-resolve-search-provider.test.ts 同款
@@ -288,9 +289,24 @@ describe("resolve 路由消费冷却图（§12.4 第 5–6 条 / §10 第 66–6
     const response = await resolveProvider(listener);
 
     expect(response.chain).toEqual([TAVILY_CANDIDATE, FIRECRAWL_CANDIDATE]);
+    // 到期即回链：链非空 → 无空链归因（恢复正常，不残留冷却文案）
+    expect(response.chainEmptyReason).toBeUndefined();
   });
 
-  it("全部引擎冷却 → chain 缺省（走既有「未配置搜索平台」路径）", async () => {
+  it("部分引擎冷却 → chain = 未冷却记录，回包不带 chainEmptyReason", async () => {
+    stubStorage({
+      syncSeed: { activeSearchProviderId: "", searchProviders: [TAVILY_ENTRY, FIRECRAWL_ENTRY] },
+      localSeed: { [SEARCH_HEALTH_KEY]: cooled("tavily", Date.now() + 600_000) }
+    });
+    const listener = await importBackground();
+
+    const response = await resolveProvider(listener);
+
+    expect(response.chain).toEqual([FIRECRAWL_CANDIDATE]);
+    expect(response.chainEmptyReason).toBeUndefined();
+  });
+
+  it("全部引擎冷却 → chain 缺省 + chainEmptyReason:'cooldown'（专属文案，不误报未配置）", async () => {
     stubStorage({
       syncSeed: { activeSearchProviderId: "", searchProviders: [TAVILY_ENTRY, FIRECRAWL_ENTRY] },
       localSeed: {
@@ -301,7 +317,7 @@ describe("resolve 路由消费冷却图（§12.4 第 5–6 条 / §10 第 66–6
 
     const response = await resolveProvider(listener);
 
-    expect(response).toEqual({ ok: true });
+    expect(response).toEqual({ ok: true, chainEmptyReason: "cooldown" });
     expect(response.chain).toBeUndefined();
   });
 

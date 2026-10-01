@@ -5,7 +5,9 @@
 //   ① 单选（activeId = 记录 id）：只回那一条记录（无回退）；
 //   ② 智能（activeId = 哨兵 / 空串）：按 searchProviderOrder 归一序 > 内置默认序排；
 //   ③ keyless 无 Key 仍产出候选（apiKey:""）；free-quota 无 Key / 未知 presetId 不进链；
-//   ④ 无任何在组记录：ok:true 且 chain 缺省（不算错误）。
+//   ④ 无任何合格记录：ok:true 且 chain 缺省（不算错误，不带空链归因）；
+//      单选空链（未配 Key 的 free-quota）同样不带归因——空链归因只给「智能链
+//      合格记录全在冷却中」这一类（spec §12.7 第 6 条翻案）。
 // chrome stub 手法与 tests/entry/offscreen-request-close.test.ts 同款（真实
 // background 入口 + 路由监听器直调）。
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -213,7 +215,7 @@ describe("resolve-search-provider 路由", () => {
     expect(response.chain).toEqual([TAVILY_CANDIDATE]);
   });
 
-  it("无任何在组记录：ok:true 且 chain 缺省（不算错误）", async () => {
+  it("无任何在组记录：ok:true 且 chain 缺省（不算错误，也不带空链归因）", async () => {
     stubStorage({ syncFixture: {} });
     await import("../../extension/entry/background.js");
     const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
@@ -222,6 +224,22 @@ describe("resolve-search-provider 路由", () => {
 
     expect(response).toEqual({ ok: true });
     expect(response.chain).toBeUndefined();
+    // 真的没有合格记录 = 未配置路径：不带 chainEmptyReason（spec §12.7 第 6 条翻案）
+    expect(response.chainEmptyReason).toBeUndefined();
+  });
+
+  it("单选空链（选了未配 Key 的 free-quota）→ 不带空链归因（仍走「未配置」路径）", async () => {
+    stubStorage({
+      syncFixture: { activeSearchProviderId: "exa", searchProviders: [EXA_ENTRY, PROVIDER_ENTRY] },
+      localFixture: {}
+    });
+    await import("../../extension/entry/background.js");
+    const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
+
+    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
+
+    expect(response.chain).toBeUndefined();
+    expect(response.chainEmptyReason).toBeUndefined();
   });
 
   it("free-quota 无 Key 不进链（同批 keyless 记录仍在链）", async () => {
