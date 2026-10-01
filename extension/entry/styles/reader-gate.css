@@ -79,13 +79,19 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
 
 /* ===== 主题 token =====
  * PR2 统一 文摘面板按 prototype/direction-approved.md 定稿色板重排：
- * light（默认）= 暖白纸感底 + B 站粉 accent（#fb7299）；dark 沿用其底色，
- * accent 换亮粉可读变体，暗色主题不破相（纸色档已随两档制退役删除）。
+ * light（默认）= 暖白纸感底 + B 站粉 accent（#fb7299），保持不动。
+ * 主题为三值制 light | dark | flyme（纸色档已随两档制退役删除）：
+ *   flyme = Flyme 浅色（致敬 Flyme 设计语言：中性灰页底 + 白卡 + #008CFF 主蓝
+ *     只用于操作/选中）——暖纸色系 token 逐项覆写，一个都不许从 light 继承，
+ *     动效也换 Flyme 基准曲线（见下方 flyme 块）。
+ *   dark  = 2026-09 产品决定整体换底为 Flyme 深色（非微调）：页面 #101114 /
+ *     卡片（列表组）#1B1C20 / 主蓝 #3D9BFF，层级只用分层灰表达、阴影置零
+ *     （Flyme 深色零阴影，见 --biliscript-reader-shadow 注释）。
  * 新增 card（白卡片）/faint（三级文字）/accent-ink（accent 实底上的文字）/
  * pill-bg（分段控件底）/highlight（提示横幅底，PR3 转写横幅消费）。
  * 时间戳 pill 母题消费 accent-soft 底 + accent 字。
- * 后补组件级 token：mask-bg（弹层遮罩底，两主题同值深纱）/on-fill（实底
- * 强调与警示按钮上的文字，两主题恒白——与暗色为深墨的 accent-ink 分开）/
+ * 后补组件级 token：mask-bg（弹层遮罩底，三档同值深纱）/on-fill（实底
+ * 强调与警示按钮上的文字，三档恒白——与暗色为深墨的 accent-ink 分开）/
  * font-sans、font-mono（面板字体栈）。 */
 html[data-biliscript-reader-mode="1"],
 body[data-biliscript-reader-mode="1"],
@@ -104,18 +110,18 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-pill-bg: #f0e9df;
   --biliscript-reader-highlight: #fdeeda;
   /* 进度轨底色（转写横幅 / 概览不确定进度条）：黑色半透明在深色面上不可见，
-   * 两主题各给一份。 */
+   * 三档主题各给一份。 */
   --biliscript-reader-track: rgba(0, 0, 0, 0.08);
-  /* 语义色（Key 状态点 / 校验通过 / 删除警示 / 朗读高亮）：success 绿两主题
-   * 同值（此处定义即可，dark 块不重复），danger 红深色换更亮档保证对比。 */
+  /* 语义色（Key 状态点 / 校验通过 / 删除警示 / 朗读高亮）：success 绿三档
+   * 同值（此处定义即可，dark/flyme 块不重复），danger 红深色换更亮档保证对比。 */
   --biliscript-reader-success: #3fb950;
   --biliscript-reader-danger: #d93025;
   --biliscript-reader-danger-soft: rgba(217, 48, 37, 0.14);
   /* 组件级：弹层遮罩底（解释卡 / 确认弹层 / 编辑 Modal / 获取弹窗四处 mask
-   * 共用）——深色沿用同一深纱，暗面上本就无差异，无需两份。 */
+   * 共用）——深色沿用同一深纱，暗面上本就无差异，无需多份。 */
   --biliscript-reader-mask-bg: rgba(20, 16, 12, 0.28);
   /* 实底强调/警示按钮上的文字（发送键 / 确认键 / 保存键 / 删除键 hover）：
-   * 两主题恒白。与 accent-ink 不同（其暗色档是深墨），历史行为如此。 */
+   * 三档恒白。与 accent-ink 不同（其暗色档是深墨），历史行为如此。 */
   --biliscript-reader-on-fill: #ffffff;
   --biliscript-reader-shadow: 0 18px 40px rgba(112, 93, 64, 0.1);
   --biliscript-reader-subtitle-font-size: 16px;
@@ -132,7 +138,7 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-ease-bounce: cubic-bezier(0.34, 1.4, 0.64, 1);
   --biliscript-reader-press-scale: 0.97;
   /* 半透明材质底（reader header / 设置抽屉，backdrop-filter 消费方在
-   * reader.css / reader-settings-shell.css）：surface 加 alpha 的 rgba，两主题各调。 */
+   * reader.css / reader-settings-shell.css）：surface 加 alpha 的 rgba，三档各调。 */
   --biliscript-reader-header-bg: rgba(253, 251, 247, 0.72);
   --biliscript-reader-overlay-bg: rgba(253, 251, 247, 0.8);
   color: var(--biliscript-reader-text);
@@ -141,30 +147,78 @@ body[data-biliscript-reader-mode="1"],
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 #biliscript-reading-view[data-theme="dark"] {
-  --biliscript-reader-surface: #0f172a;
-  --biliscript-reader-surface-2: #132038;
-  --biliscript-reader-surface-3: #1a2a46;
-  --biliscript-reader-card: #132038;
-  --biliscript-reader-border: rgba(148, 163, 184, 0.22);
-  --biliscript-reader-text: #e5eefb;
-  --biliscript-reader-muted: #9fb0c8;
-  --biliscript-reader-faint: #7e8ea6;
-  --biliscript-reader-accent: #fc8bab;
-  --biliscript-reader-accent-soft: rgba(251, 114, 153, 0.18);
-  --biliscript-reader-accent-ink: #2b1220;
-  --biliscript-reader-pill-bg: #1a2a46;
-  --biliscript-reader-highlight: rgba(253, 238, 218, 0.1);
-  --biliscript-reader-track: rgba(226, 232, 240, 0.18);
+  /* Flyme 深色三层：页面 #101114 / 卡片·列表组 #1B1C20 / 输入框底 #222327
+   * （design-tokens.md 背景层表）。层级靠分层灰，不靠投影。 */
+  --biliscript-reader-surface: #101114;
+  --biliscript-reader-surface-2: #1b1c20;
+  --biliscript-reader-surface-3: #222327;
+  --biliscript-reader-card: #1b1c20;
+  --biliscript-reader-border: rgba(255, 255, 255, 0.12);
+  --biliscript-reader-text: #ecedef;
+  --biliscript-reader-muted: #9ca0a8;
+  --biliscript-reader-faint: #6a6e76;
+  --biliscript-reader-accent: #3d9bff;
+  --biliscript-reader-accent-soft: rgba(61, 155, 255, 0.16);
+  /* accent-ink 按对比度定：#3d9bff 实底上白字只有 2.9:1（连 3:1 都不够，
+   * 与 light 档白字 accent-ink 的处境相反），故取与页面同色的深墨 #101114
+   * ——6.6:1，远超 4.5:1。 */
+  --biliscript-reader-accent-ink: #101114;
+  --biliscript-reader-pill-bg: #222327;
+  --biliscript-reader-highlight: rgba(255, 159, 10, 0.14);
+  --biliscript-reader-track: rgba(236, 237, 239, 0.18);
+  /* danger 保留深色亮档纪律（#d93025 的亮档 + 提亮 soft），不随换底改。 */
   --biliscript-reader-danger: #f2555a;
   --biliscript-reader-danger-soft: rgba(242, 85, 90, 0.2);
-  --biliscript-reader-shadow: 0 18px 42px rgba(2, 6, 23, 0.42);
-  --biliscript-reader-header-bg: rgba(15, 23, 42, 0.72);
-  --biliscript-reader-overlay-bg: rgba(15, 23, 42, 0.8);
+  /* 零阴影（Flyme「深色零阴影」）：先确认消费方用法——--biliscript-reader-shadow
+   * 的 9 处消费（reader.css 面板族/设置抽屉/编辑 Modal/解释卡 4 处、
+   * reader-chat.css 气泡卡 2 处、reader-settings-providers.css 2 处、本文件
+   * 浮层降级段 1 处）全部是独立的 `box-shadow: var(--biliscript-reader-shadow);`
+   * 单值声明，没有跟其他阴影拼成多重列表，故 none 合法且不牵连任何别的阴影。 */
+  --biliscript-reader-shadow: none;
+  --biliscript-reader-header-bg: rgba(16, 17, 20, 0.72);
+  --biliscript-reader-overlay-bg: rgba(16, 17, 20, 0.8);
+}
+
+html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
+body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
+#biliscript-reading-view[data-theme="flyme"] {
+  --biliscript-reader-surface: #f2f3f5;
+  /* surface-2/3：Flyme 无二级页面底色，取文档的输入框底 #f0f1f3 作凹陷井，
+   * 再深一档 #e9ebef 作选中/按压井（推导值，同族中性灰）。 */
+  --biliscript-reader-surface-2: #f0f1f3;
+  --biliscript-reader-surface-3: #e9ebef;
+  --biliscript-reader-card: #ffffff;
+  --biliscript-reader-border: #e3e5ea;
+  /* 文字三级取文档中性灰值：主 #17181a（在 #f2f3f5 上 16.0:1）/ 次 #6b6e75
+   * （4.6:1，正文级过 4.5 线，card 上 5.1:1、surface-2 上 4.5:1）/ 提示 #8a8e96
+   * （3.0:1）。faint 是三级微标注档，文档值本就低于 4.5 线——与 light/dark 两档
+   * 同纪律（4.5:1 门只卡正文/次文字）。唯一的洼底例外：muted 落在推导的
+   * surface-3 井上只有 4.28:1（如概览章节行 hover 的 desc 文字）；要全层过线就
+   * 把 muted 压深一档到 #666a71（同族），此处先以文档值为准。 */
+  --biliscript-reader-text: #17181a;
+  --biliscript-reader-muted: #6b6e75;
+  --biliscript-reader-faint: #8a8e96;
+  /* 主蓝只做操作/选中：实底 accent-soft 取文档浅底 10%，accent-ink 恒白
+   * （Flyme 官方配对；白字在 #008cff 上 3.4:1，达大号/粗体文字的 3:1 档）。 */
+  --biliscript-reader-accent: #008cff;
+  --biliscript-reader-accent-soft: rgba(0, 140, 255, 0.1);
+  --biliscript-reader-accent-ink: #ffffff;
+  --biliscript-reader-pill-bg: #f0f1f3;
+  --biliscript-reader-highlight: rgba(255, 159, 10, 0.14);
+  --biliscript-reader-track: rgba(23, 24, 26, 0.1);
+  --biliscript-reader-shadow: 0 8px 24px rgba(17, 18, 26, 0.1);
+  --biliscript-reader-header-bg: rgba(255, 255, 255, 0.72);
+  --biliscript-reader-overlay-bg: rgba(255, 255, 255, 0.8);
+  /* 动效：light/dark 不动，只 flyme 档换 Flyme 手感。spring 是 Flyme 非手势
+   * 基准曲线（200–350ms 档）；bounce 是文档「面板/应用切换/小窗」回弹近似，
+   * 过冲 ≤2%（真机手势仍须弹簧，CSS 只近似）。 */
+  --biliscript-reader-ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --biliscript-reader-ease-bounce: cubic-bezier(0.3, 1.2, 0.4, 1);
 }
 
 /* ===== 减弱透明度 =====
  * 半透明材质（header/设置抽屉）退回近实色：退回值即 surface 令牌（var 引用，
- * 两主题各自跟随），消费方（reader.css / reader-settings-shell.css）只需各自关掉
+ * 三档各自跟随），消费方（reader.css / reader-settings-shell.css）只需各自关掉
  * backdrop-filter。 */
 @media (prefers-reduced-transparency: reduce) {
   html[data-biliscript-reader-mode="1"],
@@ -177,6 +231,13 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   #biliscript-reading-view[data-theme="dark"] {
+    --biliscript-reader-header-bg: var(--biliscript-reader-surface);
+    --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
+  }
+
+  html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
+  body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
+  #biliscript-reading-view[data-theme="flyme"] {
     --biliscript-reader-header-bg: var(--biliscript-reader-surface);
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
   }
