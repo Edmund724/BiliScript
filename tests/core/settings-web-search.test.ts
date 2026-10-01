@@ -32,4 +32,23 @@ describe("normalizeSettings：联网搜索标量", () => {
     expect(normalizeSettings({ webSearchMaxToolCalls: 7.6 }).webSearchMaxToolCalls).toBe(8);
     expect(normalizeSettings({ webSearchMaxToolCalls: "abc" }).webSearchMaxToolCalls).toBe(5);
   });
+
+  // searchProviderOrder 是偏好（记录 id 数组）不是可调设置项（spec §12.3 / §10 第 76 行）：
+  // 无默认值 → 不进 DEFAULT_SETTINGS（否则 initializeSettingsStorage 会把「删除该键」
+  // 重建成 []，「恢复默认顺序」失效），也不在 save-settings 白名单。
+  it("searchProviderOrder 不在 DEFAULT_SETTINGS 键集，也不在 save-settings 白名单", async () => {
+    const setMock = vi.fn(async (_payload: Record<string, unknown>) => {});
+    vi.stubGlobal("chrome", { ...globalThis.chrome, storage: { ...globalThis.chrome?.storage, sync: { set: setMock } } });
+    const { DEFAULT_SETTINGS } = await import("../../extension/core/defaults.js");
+    const { saveSettings } = await import("../../extension/core/settings-store.js");
+
+    expect(Object.keys(DEFAULT_SETTINGS)).not.toContain("searchProviderOrder");
+
+    await saveSettings({ searchProviderOrder: ["tavily"], defaultModel: "openai" });
+
+    expect(setMock).toHaveBeenCalledTimes(1);
+    const payload = setMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("searchProviderOrder");
+    expect(payload.defaultModel).toBe("openai");
+  });
 });

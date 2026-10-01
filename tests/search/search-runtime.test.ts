@@ -19,12 +19,13 @@ import type {
   SearchCacheResponse
 } from "../../extension/shared/messaging-protocol.js";
 
-// 链夹具（spec §1 S4）：有序候选 + 各自 Key；keyless 候选的 apiKey 允许空串。
+// 链夹具（spec §1 S4）：有序候选 + 各自 Key；keyless 候选的 apiKey 允许空串；
+// provider 带 presetId（链候选形状）。
 const CHAIN_OK: ResolveSearchProviderResponse = {
   ok: true,
   chain: [
     {
-      provider: { id: "p1", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+      provider: { id: "p1", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
       apiKey: "tvly-k"
     }
   ],
@@ -32,7 +33,13 @@ const CHAIN_OK: ResolveSearchProviderResponse = {
 };
 
 const FIRECRAWL_CANDIDATE = {
-  provider: { id: "search_firecrawl", name: "Firecrawl", type: "firecrawl", baseUrl: "https://api.firecrawl.dev" },
+  provider: {
+    id: "search_firecrawl",
+    presetId: "firecrawl",
+    name: "Firecrawl",
+    type: "firecrawl",
+    baseUrl: "https://api.firecrawl.dev"
+  },
   apiKey: ""
 };
 
@@ -159,7 +166,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
           chain: [
             FIRECRAWL_CANDIDATE,
             {
-              provider: { id: "p1", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+              provider: { id: "p1", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
               apiKey: "tvly-k"
             }
           ],

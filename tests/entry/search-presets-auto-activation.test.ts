@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
+import { SMART_SEARCH_ACTIVE_ID } from "../../extension/core/search-mode.js";
 import { planSearchPresetsAutoActivation } from "../../extension/entry/settings-migration.js";
 
 const KEYLESS_PRESETS = SEARCH_PROVIDER_PRESETS.filter((preset) => preset.access === "keyless");
@@ -25,11 +26,11 @@ const EXPECTED_KEYLESS_RECORDS = KEYLESS_PRESETS.map((preset) => ({
 }));
 
 describe("planSearchPresetsAutoActivation 决策", () => {
-  it("未置位：补齐四条 keyless 记录 + 链首 search_firecrawl + 置 flag", () => {
+  it("未置位：补齐四条 keyless 记录 + 写智能哨兵 + 置 flag（§10 第 84 行）", () => {
     const decision = planSearchPresetsAutoActivation({}, []);
 
     expect(decision.providersToAdd).toEqual(EXPECTED_KEYLESS_RECORDS);
-    expect(decision.activeSearchProviderId).toBe("search_firecrawl");
+    expect(decision.activeSearchProviderId).toBe(SMART_SEARCH_ACTIVE_ID);
     expect(decision.shouldWriteFlag).toBe(true);
   });
 
@@ -60,14 +61,23 @@ describe("planSearchPresetsAutoActivation 决策", () => {
     expect(decision.shouldWriteFlag).toBe(true);
   });
 
-  it("链首为空或悬空（指向不存在的记录）→ 写 search_firecrawl", () => {
+  it("链首为空或悬空（指向不存在的记录）→ 写智能哨兵（不再写 search_firecrawl）", () => {
     for (const activeId of ["", "  ", "search_brave"]) {
       const decision = planSearchPresetsAutoActivation({ activeSearchProviderId: activeId }, [
         { id: "tavily-picked", presetId: "tavily" }
       ]);
 
-      expect(decision.activeSearchProviderId).toBe("search_firecrawl");
+      expect(decision.activeSearchProviderId).toBe(SMART_SEARCH_ACTIVE_ID);
     }
+  });
+
+  it("链首已是智能哨兵 → 不重写（哨兵不算悬空，§6.8）", () => {
+    const decision = planSearchPresetsAutoActivation({ activeSearchProviderId: SMART_SEARCH_ACTIVE_ID }, [
+      { id: "tavily-picked", presetId: "tavily" }
+    ]);
+
+    expect(decision.activeSearchProviderId).toBeUndefined();
+    expect(decision.shouldWriteFlag).toBe(true);
   });
 
   it("flag 已置位 → 整体跳过：不加记录、不动链首、不重写 flag", () => {
@@ -176,13 +186,13 @@ beforeEach(() => {
 });
 
 describe("onInstalled 免 Key 预设自动激活接线", () => {
-  it("首次安装：补齐四条 keyless 记录 + 链首 search_firecrawl，flag 最后写，且不写任何 Key", async () => {
+  it("首次安装：补齐四条 keyless 记录 + 写智能哨兵，flag 最后写，且不写任何 Key", async () => {
     const onInstalled = await importOnInstalledListener();
 
     await onInstalled();
 
     expect(syncFixture.searchProviders).toEqual(EXPECTED_KEYLESS_RECORDS);
-    expect(syncFixture.activeSearchProviderId).toBe("search_firecrawl");
+    expect(syncFixture.activeSearchProviderId).toBe(SMART_SEARCH_ACTIVE_ID);
     expect(syncFixture.searchPresetsAutoActivated).toBe(true);
     // 自动补齐的记录不带 Key：local 侧只有 provider-store 写回的同一份空映射
     expect(localFixture.searchProviderKeys).toEqual({});

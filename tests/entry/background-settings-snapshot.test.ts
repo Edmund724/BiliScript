@@ -169,7 +169,13 @@ describe("热路径命中：四个读 handler 二次调用 storage 读为 0", ()
         ok: true,
         chain: [
           {
-            provider: { id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+            provider: {
+              id: "tavily",
+              presetId: "tavily",
+              name: "Tavily",
+              type: "tavily",
+              baseUrl: "https://api.tavily.com"
+            },
             apiKey: "tvly-key"
           }
         ],
@@ -263,7 +269,8 @@ describe("写后读失效：写消息落盘后读 handler 拿新值", () => {
   it("search-providers-save 后 resolve-search-provider 命中新激活平台", async () => {
     stubStorage({
       syncFixture: {
-        activeSearchProviderId: "exa",
+        // 智能模式（空串）：链序 = 内置默认序，写后读断言不依赖手选平台
+        activeSearchProviderId: "",
         webSearchMaxToolCalls: 3,
         searchProviders: []
       },
@@ -295,11 +302,11 @@ describe("写后读失效：写消息落盘后读 handler 拿新值", () => {
       ok: true,
       chain: [
         {
-          provider: { id: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai" },
+          provider: { id: "exa", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai" },
           apiKey: "exa-key"
         },
         {
-          provider: { id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+          provider: { id: "tavily", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
           apiKey: ""
         }
       ],

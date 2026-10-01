@@ -405,11 +405,23 @@ describe("runToolLoop 工具调用循环", () => {
 // 行）、整链无果恰好一条终态 notice（第 43 行）、额度类与其余类两条文案（第 44 行）
 // 都在既有 onNotice / onToolStatus 通道上断言，不改动第 47/48 行的既有用例。
 const CHAIN_FIRECRAWL: SearchChainCandidate = {
-  provider: { id: "search_firecrawl", name: "Firecrawl", type: "firecrawl", baseUrl: "https://api.firecrawl.dev" },
+  provider: {
+    id: "search_firecrawl",
+    presetId: "firecrawl",
+    name: "Firecrawl",
+    type: "firecrawl",
+    baseUrl: "https://api.firecrawl.dev"
+  },
   apiKey: ""
 };
 const CHAIN_TAVILY: SearchChainCandidate = {
-  provider: { id: "search_tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+  provider: {
+    id: "search_tavily",
+    presetId: "tavily",
+    name: "Tavily",
+    type: "tavily",
+    baseUrl: "https://api.tavily.com"
+  },
   apiKey: "tvly-k"
 };
 const CHAIN_RESULT = { title: "t2", url: "u2", snippet: "s2" };

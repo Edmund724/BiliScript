@@ -249,3 +249,87 @@ describe("onChanged 兜底：跨上下文/跨设备变更按键域失效", () =>
     expect(vi.mocked(chrome.storage.sync.get)).not.toHaveBeenCalled();
   });
 });
+
+// spec §12.3 / §12.5 第 9 行：searchProviderOrder 是 sync 上的记录 id 数组偏好，
+// 由本模块提供归一后的快照读（键缺席 = 无自定义顺序；脏值整体作废 → []；读失败 → []）。
+// 归一判据要拿「当前记录集合」：本模块内部经 search 族快照取，两个位共享同一份缓存。
+describe("order 快照位：searchProviderOrder（spec §12.3 / §12.5 第 9 行）", () => {
+  const ORDER_RECORDS = [
+    {
+      id: "search_firecrawl",
+      presetId: "firecrawl",
+      name: "Firecrawl",
+      type: "firecrawl",
+      baseUrl: "https://api.firecrawl.dev",
+      enabled: true
+    },
+    SEARCH_PROVIDER
+  ];
+
+  function stubWithOrder(order?: unknown) {
+    const syncFixture: Record<string, unknown> = { searchProviders: ORDER_RECORDS };
+    if (order !== undefined) syncFixture.searchProviderOrder = order;
+    vi.stubGlobal("chrome", makeStub({ syncFixture, localFixture: { searchProviderKeys: {} } }));
+  }
+
+  it("归一：数组内全为在册记录 id → 原样返回；键缺席 → []", async () => {
+    stubWithOrder(["search_firecrawl", "tavily"]);
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+    expect(await snapshot.getSearchProviderOrder()).toEqual(["search_firecrawl", "tavily"]);
+
+    resetModuleState();
+    stubWithOrder();
+    const fresh = await import("../../extension/core/settings-snapshot.js");
+    expect(await fresh.getSearchProviderOrder()).toEqual([]);
+  });
+
+  it("脏值整体作废（非数组 / 未知 id / 重复 id / 元素非字符串）→ []", async () => {
+    for (const order of ["tavily", 7, ["tavily", "search_ghost"], ["tavily", "tavily"], ["tavily", 7]]) {
+      resetModuleState();
+      stubWithOrder(order);
+      const snapshot = await import("../../extension/core/settings-snapshot.js");
+      expect(await snapshot.getSearchProviderOrder()).toEqual([]);
+    }
+  });
+
+  it("读失败 → []（快照不抛，顺序读失败按无自定义顺序）", async () => {
+    stubWithOrder(["tavily"]);
+    vi.mocked(chrome.storage.sync.get).mockRejectedValue(new Error("storage down"));
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+
+    await expect(snapshot.getSearchProviderOrder()).resolves.toEqual([]);
+  });
+
+  it("二次读取零 storage 调用；invalidate 该键后重读", async () => {
+    stubWithOrder(["search_firecrawl", "tavily"]);
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+
+    const first = await snapshot.getSearchProviderOrder();
+    expect(first).toEqual(["search_firecrawl", "tavily"]);
+
+    vi.mocked(chrome.storage.sync.get).mockClear();
+    vi.mocked(chrome.storage.local.get).mockClear();
+    expect(await snapshot.getSearchProviderOrder()).toEqual(first);
+    expect(storageGetCalls()).toBe(0);
+
+    snapshot.invalidate(["searchProviderOrder"]);
+    vi.mocked(chrome.storage.sync.get).mockClear();
+    await snapshot.getSearchProviderOrder();
+    expect(vi.mocked(chrome.storage.sync.get)).toHaveBeenCalled();
+  });
+
+  it("跨上下文：onChanged sync 区该键变更 → 快照失效重读", async () => {
+    stubWithOrder(["tavily"]);
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+
+    await snapshot.getSearchProviderOrder();
+
+    // 面板直写 sync（content 有完整 storage 权限）后事件先到 storage 再到 onChanged
+    const listener = vi.mocked(chrome.storage.onChanged.addListener).mock.calls[0][0];
+    listener({ searchProviderOrder: { newValue: ["search_firecrawl", "tavily"] } }, "sync");
+
+    vi.mocked(chrome.storage.sync.get).mockClear();
+    await snapshot.getSearchProviderOrder();
+    expect(vi.mocked(chrome.storage.sync.get)).toHaveBeenCalled();
+  });
+});

@@ -5,7 +5,10 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { searchProviderStore } from "../../extension/search/search-provider-store.js";
+import {
+  SEARCH_PROVIDER_ORDER_STORAGE,
+  searchProviderStore
+} from "../../extension/search/search-provider-store.js";
 
 let syncStorage: Record<string, unknown>;
 let localStorage: Record<string, unknown>;
@@ -76,5 +79,19 @@ describe("searchProviderStore", () => {
     const rest = await searchProviderStore.deleteProvider("a");
     expect(rest).toEqual([]);
     expect(localStorage.searchProviderKeys).toEqual({});
+  });
+
+  // 自定义顺序的键字面量单源在本模块（spec §12.3 / §12.5 第 8 行）：与列表同侧
+  // （sync）、粒度 = 记录级；不随 provider 列表 CRUD 写坏（没默认值、不在白名单）。
+  it("searchProviderOrder 键字面量单源，且列表 CRUD 不碰该键", async () => {
+    expect(SEARCH_PROVIDER_ORDER_STORAGE).toBe("searchProviderOrder");
+
+    syncStorage[SEARCH_PROVIDER_ORDER_STORAGE] = ["search_1"];
+    await searchProviderStore.saveProviders([
+      { id: "search_1", presetId: "tavily", type: "tavily", name: "Tavily", baseUrl: "https://api.tavily.com" }
+    ]);
+    await searchProviderStore.deleteProvider("search_1");
+
+    expect(syncStorage[SEARCH_PROVIDER_ORDER_STORAGE]).toEqual(["search_1"]);
   });
 });

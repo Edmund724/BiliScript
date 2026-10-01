@@ -1,22 +1,31 @@
-// search/search-chain.ts 测试（spec §1 S1/S3/S4、§3 落点表第 8 行）。
-// 覆盖 resolveSearchChain：进组判据（access × 有无 Key）、预设表序 + 链首排序、
-// 按 presetId 去重（代表记录 = activeId 指向的该预设记录，否则输入顺序首条）、
-// 脏 presetId / enabled 的保守排除、候选形状与纯函数不变式。
-// 另覆盖执行器面：classifySearchFailure 的三等映射（§6.4 / §10 第 44/45
-// 行）、executeSearchChain 的顺序回退 / 失败静默保序 / 额度与其余两类终态文案 /
+// search/search-chain.ts 测试（spec §1 S1/S4/S6-S8、§3 落点表第 8 行、§6.4、§12.1–§12.3、
+// §10 第 59–67、83 行）。
+// 覆盖 resolveSearchChain 的两模式：
+//   ① 单选（activeId = 记录 id）= 独苗链，无回退；悬空按空处理走智能链；进组判据不变
+//      （free-quota 无 Key 不进 → 单选它得到空链，走既有「未配置」路径）；
+//   ② 智能（哨兵 / 空串）= 全部在组记录按「归一 order 下标 > 内置默认序
+//      DEFAULT_SEARCH_PROVIDER_ORDER」排序 → 同 presetId 取排序最靠前的合格记录
+//      → 剔除 cooldownUntil[presetId] > now 的引擎（单选不消费冷却）。
+// 另覆盖 normalizeSearchProviderOrder 的脏值整体作废（非数组 / 元素非字符串或空串 /
+// 未知 id / 重复 id → []）与候选形状（provider 增 presetId）。
+// 执行器面：classifySearchFailure 的三等映射（§6.4 / §10 第 44/45 行）、
+// executeSearchChain 的顺序回退 / 失败静默保序 / 额度与其余两类终态文案 /
 // 链级预算 30s（§4 / §10 第 16 行）/ 调用方中止出口。时间一律走 fake timers 或
 // 注入桩，不测真实网络与墙钟（§10 非断言节）。
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
+import { DEFAULT_SEARCH_PROVIDER_ORDER, SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
+import { SMART_SEARCH_ACTIVE_ID } from "../../extension/core/search-mode.js";
 import type { SearchProvider } from "../../extension/search/search-provider-normalize.js";
 import { parseDoubaoSearchResponse } from "../../extension/search/adapters/doubao.js";
 import {
   SEARCH_CHAIN_BUDGET_MS,
   classifySearchFailure,
   executeSearchChain,
+  normalizeSearchProviderOrder,
   resolveSearchChain,
   type SearchChainCandidate,
-  type SearchChainError
+  type SearchChainError,
+  type SearchChainOptions
 } from "../../extension/search/search-chain.js";
 
 // 记录夹具：presetId 是链成员资格的唯一判据（spec §7「只挂预设表，记录不带副本」）。
@@ -28,22 +37,21 @@ const FIRECRAWL: SearchProvider = {
   baseUrl: "https://api.firecrawl.dev",
   enabled: true
 };
-// 用户手加的同一家：生成式 id（ui/provider-row.ts），presetId 仍是 tavily
-const TAVILY_USER: SearchProvider = {
-  id: "tavily-picked",
-  presetId: "tavily",
-  name: "Tavily",
-  type: "tavily",
-  baseUrl: "https://api.tavily.com",
-  enabled: true
-};
-// 同一条预设（firecrawl）的第二条记录：用户手加过、生成式 id + 自带 Key
+// 用户手加的同一家：生成式 id（ui/provider-row.ts），presetId 仍是 firecrawl
 const FIRECRAWL_USER: SearchProvider = {
   id: "firecrawl-picked",
   presetId: "firecrawl",
   name: "Firecrawl",
   type: "firecrawl",
   baseUrl: "https://api.firecrawl.dev",
+  enabled: true
+};
+const TAVILY_USER: SearchProvider = {
+  id: "tavily-picked",
+  presetId: "tavily",
+  name: "Tavily",
+  type: "tavily",
+  baseUrl: "https://api.tavily.com",
   enabled: true
 };
 const DOUBAO: SearchProvider = {
@@ -62,65 +70,288 @@ const ANYSEARCH: SearchProvider = {
   baseUrl: "https://api.anysearch.com",
   enabled: true
 };
+const PARALLEL: SearchProvider = {
+  id: "search_parallel",
+  presetId: "parallel",
+  name: "Parallel",
+  type: "parallel",
+  baseUrl: "https://search.parallel.ai",
+  enabled: true
+};
+const EXA: SearchProvider = {
+  id: "search_exa",
+  presetId: "exa",
+  name: "Exa",
+  type: "exa",
+  baseUrl: "https://api.exa.ai",
+  enabled: true
+};
+
+// options 夹具：mode 由消费方（background 的 resolveSearchMode）给出，纯函数不自己取时间。
+function smart(overrides: Partial<SearchChainOptions> = {}): SearchChainOptions {
+  return { mode: "smart", order: [], cooldownUntil: {}, now: 0, ...overrides };
+}
+function single(overrides: Partial<SearchChainOptions> = {}): SearchChainOptions {
+  return { mode: "single", order: [], cooldownUntil: {}, now: 0, ...overrides };
+}
 
 function ids(chain: Array<{ provider: { id: string } }>): string[] {
   return chain.map((candidate) => candidate.provider.id);
 }
 
-describe("resolveSearchChain 回退链解析", () => {
+describe("链序常量（spec §12.2 / §10 第 63 行）", () => {
+  it("DEFAULT_SEARCH_PROVIDER_ORDER = Exa → 豆包 → Tavily → Firecrawl → AnySearch → Parallel，且 ≠ 预设表序", () => {
+    expect(DEFAULT_SEARCH_PROVIDER_ORDER).toEqual([
+      "exa",
+      "doubao",
+      "tavily",
+      "firecrawl",
+      "anysearch",
+      "parallel"
+    ]);
+    // 表序只管预设目录（Firecrawl 起头），不再是链序
+    expect(DEFAULT_SEARCH_PROVIDER_ORDER).not.toEqual(SEARCH_PROVIDER_PRESETS.map((preset) => preset.id));
+  });
+});
+
+describe("normalizeSearchProviderOrder 归一（spec §12.2 / §10 第 65 行）", () => {
+  const KNOWN = ["tavily-picked", "search_firecrawl"];
+
+  it("数组内全为已知记录 id → 原样返回（空数组 = 无自定义顺序）", () => {
+    expect(normalizeSearchProviderOrder(["search_firecrawl", "tavily-picked"], KNOWN)).toEqual([
+      "search_firecrawl",
+      "tavily-picked"
+    ]);
+    expect(normalizeSearchProviderOrder([], KNOWN)).toEqual([]);
+  });
+
+  it("非数组（含 null / undefined / 字符串 / 对象）→ 整体作废 []", () => {
+    for (const raw of [null, undefined, "tavily-picked", 7, { 0: "tavily-picked" }]) {
+      expect(normalizeSearchProviderOrder(raw, KNOWN)).toEqual([]);
+    }
+  });
+
+  it("元素非字符串 / 空串 / 空白串 → 整体作废 []", () => {
+    for (const raw of [["tavily-picked", 7], ["tavily-picked", ""], ["tavily-picked", "   "], ["tavily-picked", null]]) {
+      expect(normalizeSearchProviderOrder(raw, KNOWN)).toEqual([]);
+    }
+  });
+
+  it("含未知 id（不在当前记录集合中）→ 整体作废 []，不部分采纳", () => {
+    expect(normalizeSearchProviderOrder(["tavily-picked", "search_ghost"], KNOWN)).toEqual([]);
+    expect(normalizeSearchProviderOrder(["search_ghost"], KNOWN)).toEqual([]);
+  });
+
+  it("含重复 id → 整体作废 []", () => {
+    expect(normalizeSearchProviderOrder(["tavily-picked", "tavily-picked"], KNOWN)).toEqual([]);
+  });
+});
+
+describe("resolveSearchChain 单选模式（spec §12.1 / §10 第 59 行）", () => {
+  it("chain 只含 activeId 那一条记录（无回退），apiKey 取该记录自己的", () => {
+    const chain = resolveSearchChain(
+      [FIRECRAWL, TAVILY_USER],
+      { "tavily-picked": "tvly-k" },
+      "tavily-picked",
+      SEARCH_PROVIDER_PRESETS,
+      single()
+    );
+
+    expect(ids(chain)).toEqual(["tavily-picked"]);
+    expect(chain[0].apiKey).toBe("tvly-k");
+  });
+
+  it("单选不消费冷却（尊重用户明示选择，§12.4 第 5 条）", () => {
+    const chain = resolveSearchChain(
+      [FIRECRAWL, TAVILY_USER],
+      { "tavily-picked": "tvly-k" },
+      "tavily-picked",
+      SEARCH_PROVIDER_PRESETS,
+      single({ cooldownUntil: { tavily: 9_999_999_999 }, now: 1 })
+    );
+
+    expect(ids(chain)).toEqual(["tavily-picked"]);
+  });
+
+  it("单选选了未配 Key 的 free-quota → chain 空（收口裁定 2，走既有「未配置」路径）", () => {
+    const chain = resolveSearchChain(
+      [DOUBAO, TAVILY_USER],
+      {},
+      "search_doubao",
+      SEARCH_PROVIDER_PRESETS,
+      single()
+    );
+
+    expect(chain).toEqual([]);
+  });
+
+  it("单选选了 enabled:false 的记录 → chain 空（进组判据不变）", () => {
+    const disabled: SearchProvider = { ...TAVILY_USER, enabled: false };
+    const chain = resolveSearchChain([disabled], {}, "tavily-picked", SEARCH_PROVIDER_PRESETS, single());
+
+    expect(chain).toEqual([]);
+  });
+
+  it("单选 + activeId 悬空（不存在记录）→ 按空处理走智能链（§6.8 / §10 第 82 行）", () => {
+    const chain = resolveSearchChain(
+      [TAVILY_USER, FIRECRAWL],
+      {},
+      "search_ghost",
+      SEARCH_PROVIDER_PRESETS,
+      single()
+    );
+
+    expect(ids(chain)).toEqual(["tavily-picked", "search_firecrawl"]);
+  });
+
+  it("单选链（单候选）失败即抛：执行器只调一次、无第二次（§10 第 59 行）", async () => {
+    const chain = resolveSearchChain([FIRECRAWL, TAVILY_USER], {}, "search_firecrawl", SEARCH_PROVIDER_PRESETS, single());
+    const calls: string[] = [];
+
+    const error = (await executeSearchChain(chain, "q", {
+      execute: async (candidate) => {
+        calls.push(candidate.provider.id);
+        throw httpError(503);
+      }
+    }).catch((thrown) => thrown)) as SearchChainError;
+
+    expect(calls).toEqual(["search_firecrawl"]);
+    expect(error.failures).toEqual(["other"]);
+    expect(error.message).toBe("HTTP 503");
+  });
+});
+
+describe("resolveSearchChain 智能模式（spec §12.2 / §10 第 61–64 行）", () => {
+  it("无自定义 order → 全部在组记录按内置默认序（free-quota 无 Key 跳过）", () => {
+    const chain = resolveSearchChain(
+      [ANYSEARCH, PARALLEL, FIRECRAWL, TAVILY_USER, EXA, DOUBAO],
+      { search_doubao: "db-key" },
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart()
+    );
+
+    expect(ids(chain)).toEqual([
+      "search_doubao",
+      "tavily-picked",
+      "search_firecrawl",
+      "search_anysearch",
+      "search_parallel"
+    ]);
+  });
+
+  it("哨兵与空串同解（都是智能链）", () => {
+    const records = [ANYSEARCH, TAVILY_USER];
+    expect(ids(resolveSearchChain(records, {}, SMART_SEARCH_ACTIVE_ID, SEARCH_PROVIDER_PRESETS, smart()))).toEqual([
+      "tavily-picked",
+      "search_anysearch"
+    ]);
+    expect(ids(resolveSearchChain(records, {}, "", SEARCH_PROVIDER_PRESETS, smart()))).toEqual([
+      "tavily-picked",
+      "search_anysearch"
+    ]);
+  });
+
+  it("chain 顺序 = 归一 order 顺序，逐项相等（§10 第 61 行）", () => {
+    const chain = resolveSearchChain(
+      [TAVILY_USER, FIRECRAWL, ANYSEARCH, PARALLEL],
+      {},
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart({ order: ["search_parallel", "search_firecrawl", "tavily-picked", "search_anysearch"] })
+    );
+
+    expect(ids(chain)).toEqual(["search_parallel", "search_firecrawl", "tavily-picked", "search_anysearch"]);
+  });
+
+  it("不在 order 里的记录排到数组内记录之后，相互之间按内置默认序（§10 第 62 行）", () => {
+    const chain = resolveSearchChain(
+      [ANYSEARCH, FIRECRAWL, TAVILY_USER, PARALLEL],
+      {},
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart({ order: ["tavily-picked"] })
+    );
+
+    expect(ids(chain)).toEqual(["tavily-picked", "search_firecrawl", "search_anysearch", "search_parallel"]);
+  });
+
+  it("脏 order（未知 id）→ 整体作废回落到内置默认序（§10 第 65 行）", () => {
+    const chain = resolveSearchChain(
+      [TAVILY_USER, FIRECRAWL],
+      {},
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart({ order: ["search_ghost", "tavily-picked"] })
+    );
+
+    expect(ids(chain)).toEqual(["tavily-picked", "search_firecrawl"]);
+  });
+
+  it("同 presetId 多记录：链代表 = 排序最靠前的合格记录（其 Key 生效），该家只入链一次（§10 第 64 行）", () => {
+    const keys = { search_firecrawl: "auto-key", "firecrawl-picked": "user-key" };
+    const userFirst = resolveSearchChain(
+      [FIRECRAWL, FIRECRAWL_USER, TAVILY_USER],
+      keys,
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart({ order: ["firecrawl-picked", "search_firecrawl"] })
+    );
+    const autoFirst = resolveSearchChain(
+      [FIRECRAWL, FIRECRAWL_USER, TAVILY_USER],
+      keys,
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart({ order: ["search_firecrawl", "firecrawl-picked"] })
+    );
+
+    expect(ids(userFirst)).toEqual(["firecrawl-picked", "tavily-picked"]);
+    expect(userFirst[0].apiKey).toBe("user-key");
+    expect(ids(autoFirst)).toEqual(["search_firecrawl", "tavily-picked"]);
+    expect(autoFirst[0].apiKey).toBe("auto-key");
+  });
+
+  it("同 presetId 两条都不在 order 里 → 代表 = 输入顺序首条（稳定排序保输入序）", () => {
+    const chain = resolveSearchChain(
+      [FIRECRAWL, FIRECRAWL_USER],
+      { search_firecrawl: "auto-key", "firecrawl-picked": "user-key" },
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart()
+    );
+
+    expect(ids(chain)).toEqual(["search_firecrawl"]);
+    expect(chain[0].apiKey).toBe("auto-key");
+  });
+});
+
+describe("resolveSearchChain 进组判据与冷却（spec §2 / §12.4 / §10 第 66–67 行）", () => {
   it("keyless 无 Key 无条件进候选（apiKey:''）；free-quota 无 Key 不进", () => {
-    const chain = resolveSearchChain([DOUBAO, FIRECRAWL], {}, "", SEARCH_PROVIDER_PRESETS);
+    const chain = resolveSearchChain([DOUBAO, FIRECRAWL], {}, "", SEARCH_PROVIDER_PRESETS, smart());
 
     expect(ids(chain)).toEqual(["search_firecrawl"]);
     expect(chain[0].apiKey).toBe("");
   });
 
-  it("free-quota 有 Key 进候选，apiKey 取该记录自己的 Key", () => {
-    const chain = resolveSearchChain(
+  it("free-quota 有 Key 进候选，apiKey 取该记录自己的 Key；空白 Key 视为无 Key", () => {
+    const withKey = resolveSearchChain(
       [DOUBAO, FIRECRAWL],
       { search_doubao: "db-key" },
       "",
-      SEARCH_PROVIDER_PRESETS
+      SEARCH_PROVIDER_PRESETS,
+      smart()
     );
-
-    expect(ids(chain)).toEqual(["search_firecrawl", "search_doubao"]);
-    expect(chain.map((candidate) => candidate.apiKey)).toEqual(["", "db-key"]);
-  });
-
-  it("空白 Key 视为无 Key（free-quota 不进候选）", () => {
-    const chain = resolveSearchChain([DOUBAO], { search_doubao: "   " }, "", SEARCH_PROVIDER_PRESETS);
-
-    expect(chain).toEqual([]);
-  });
-
-  it("排序 = 预设表顺序，与记录输入顺序无关", () => {
-    const chain = resolveSearchChain(
-      [ANYSEARCH, DOUBAO, TAVILY_USER, FIRECRAWL],
-      { search_doubao: "db-key" },
+    const blankKey = resolveSearchChain(
+      [DOUBAO],
+      { search_doubao: "   " },
       "",
-      SEARCH_PROVIDER_PRESETS
+      SEARCH_PROVIDER_PRESETS,
+      smart()
     );
 
-    expect(ids(chain)).toEqual(["search_firecrawl", "tavily-picked", "search_doubao", "search_anysearch"]);
-  });
-
-  it("activeId 指向的在组记录排链首，链首不重复出现", () => {
-    const chain = resolveSearchChain(
-      [ANYSEARCH, TAVILY_USER, FIRECRAWL],
-      {},
-      "search_anysearch",
-      SEARCH_PROVIDER_PRESETS
-    );
-
-    expect(ids(chain)).toEqual(["search_anysearch", "search_firecrawl", "tavily-picked"]);
-  });
-
-  it("activeId 为空或悬空（不存在 / 不在组）→ 无链首，严格按预设表顺序", () => {
-    for (const activeId of ["", null, undefined, "search_missing", "search_doubao"]) {
-      const chain = resolveSearchChain([FIRECRAWL, TAVILY_USER, DOUBAO], {}, activeId, SEARCH_PROVIDER_PRESETS);
-
-      expect(ids(chain)).toEqual(["search_firecrawl", "tavily-picked"]);
-    }
+    expect(ids(withKey)).toEqual(["search_doubao", "search_firecrawl"]);
+    expect(withKey[0].apiKey).toBe("db-key");
+    expect(blankKey).toEqual([]);
   });
 
   it("presetId 查不到预设表（脏值 / 未知）→ 不进候选（最保守）", () => {
@@ -133,107 +364,79 @@ describe("resolveSearchChain 回退链解析", () => {
       enabled: true
     };
 
-    const chain = resolveSearchChain([orphan, FIRECRAWL], {}, "", SEARCH_PROVIDER_PRESETS);
+    const chain = resolveSearchChain([orphan, FIRECRAWL], {}, "", SEARCH_PROVIDER_PRESETS, smart());
 
     expect(ids(chain)).toEqual(["search_firecrawl"]);
   });
 
-  it("enabled === false 的记录不进候选（含链首指向它的情形）", () => {
+  it("enabled === false 的记录不进候选（智能链与单选链同判据）", () => {
     const disabled: SearchProvider = { ...FIRECRAWL, enabled: false };
-    const chain = resolveSearchChain([disabled, TAVILY_USER], {}, "search_firecrawl", SEARCH_PROVIDER_PRESETS);
-
-    expect(ids(chain)).toEqual(["tavily-picked"]);
-  });
-
-  // 去重口径（用户裁定②）：同一 presetId 只入链一次——旧口径按记录 id 去重，会让
-  // 「手加的生成式 id Firecrawl + 自动激活的 search_firecrawl」两条都进链、同一家被
-  // 试第二次；本用例逐条锁新口径（代表记录选取 + 不重复消耗预算）。
-  it("同 presetId 只入链一次（重复记录只留一条，链首不重复出现）", () => {
-    const chain = resolveSearchChain(
-      [FIRECRAWL, { ...FIRECRAWL }, TAVILY_USER],
+    const smartChain = resolveSearchChain([disabled, TAVILY_USER], {}, "", SEARCH_PROVIDER_PRESETS, smart());
+    const singleChain = resolveSearchChain(
+      [disabled, TAVILY_USER],
       {},
       "search_firecrawl",
-      SEARCH_PROVIDER_PRESETS
+      SEARCH_PROVIDER_PRESETS,
+      single()
     );
 
-    expect(ids(chain)).toEqual(["search_firecrawl", "tavily-picked"]);
+    expect(ids(smartChain)).toEqual(["tavily-picked"]);
+    expect(singleChain).toEqual([]);
   });
 
-  it("同 presetId 的两条记录（自动激活的 search_firecrawl + 手加的生成式 id）→ 该家只出现一次", () => {
-    const chain = resolveSearchChain([FIRECRAWL, FIRECRAWL_USER, TAVILY_USER], {}, "", SEARCH_PROVIDER_PRESETS);
-
-    expect(ids(chain)).toEqual(["search_firecrawl", "tavily-picked"]);
-  });
-
-  it("activeId 指向同 presetId 的第二条 → 代表 = 第二条（apiKey 取第二条的）且排链首", () => {
-    const chain = resolveSearchChain(
-      [FIRECRAWL, FIRECRAWL_USER, TAVILY_USER],
-      { "firecrawl-picked": "fc-user-key" },
-      "firecrawl-picked",
-      SEARCH_PROVIDER_PRESETS
-    );
-
-    expect(ids(chain)).toEqual(["firecrawl-picked", "tavily-picked"]);
-    expect(chain[0].apiKey).toBe("fc-user-key");
-  });
-
-  it("activeId 为空 → 代表 = 输入顺序的首条符合条件记录（含它的 Key）", () => {
-    const chain = resolveSearchChain(
-      [FIRECRAWL, FIRECRAWL_USER],
-      { search_firecrawl: "fc-auto-key", "firecrawl-picked": "fc-user-key" },
+  it("智能：cooldownUntil[presetId] > now 的引擎全部记录跳过；now ≥ cooldownUntil 回链（§10 第 66 行）", () => {
+    const records = [FIRECRAWL, FIRECRAWL_USER, TAVILY_USER, ANYSEARCH];
+    const cooled = resolveSearchChain(
+      records,
+      {},
       "",
-      SEARCH_PROVIDER_PRESETS
+      SEARCH_PROVIDER_PRESETS,
+      smart({ cooldownUntil: { firecrawl: 2000 }, now: 1000 })
+    );
+    const expired = resolveSearchChain(
+      records,
+      {},
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart({ cooldownUntil: { firecrawl: 1000 }, now: 1000 })
     );
 
-    expect(ids(chain)).toEqual(["search_firecrawl"]);
-    expect(chain[0].apiKey).toBe("fc-auto-key");
+    expect(ids(cooled)).toEqual(["tavily-picked", "search_anysearch"]);
+    expect(ids(expired)).toEqual(["tavily-picked", "search_firecrawl", "search_anysearch"]);
   });
 
-  it("activeId 指向同 presetId 的不在组记录（free-quota 无 Key）→ 不代表权，取首条在组记录", () => {
-    const doubaoKeyless: SearchProvider = { ...DOUBAO, id: "doubao-nokey" };
-    const doubaoKeyed: SearchProvider = { ...DOUBAO, id: "doubao-keyed" };
+  it("全部引擎冷却 → chain === []（§10 第 67 行，调用方走既有「未配置」路径）", () => {
     const chain = resolveSearchChain(
-      [doubaoKeyless, doubaoKeyed],
-      { "doubao-keyed": "db-key" },
-      "doubao-nokey",
-      SEARCH_PROVIDER_PRESETS
+      [FIRECRAWL, TAVILY_USER],
+      {},
+      "",
+      SEARCH_PROVIDER_PRESETS,
+      smart({ cooldownUntil: { firecrawl: 5000, tavily: 5000 }, now: 1000 })
     );
 
-    expect(ids(chain)).toEqual(["doubao-keyed"]);
-    expect(chain[0].apiKey).toBe("db-key");
+    expect(chain).toEqual([]);
   });
 
-  it("同 presetId 去重后执行器只调该家一次（预算不被同家二次消耗）", async () => {
-    const chain = resolveSearchChain([FIRECRAWL, FIRECRAWL_USER], {}, "firecrawl-picked", SEARCH_PROVIDER_PRESETS);
-    const calls: string[] = [];
-
-    await executeSearchChain(chain, "q", {
-      execute: async (candidate) => {
-        calls.push(candidate.provider.id);
-        throw httpError(503);
-      }
-    }).catch((thrown) => thrown);
-
-    expect(calls).toEqual(["firecrawl-picked"]);
-  });
-
-  it("候选形状 = { provider:{id,name,type,baseUrl}, apiKey }，且不改写入参与 keys", () => {
+  it("候选形状 = { provider:{id,presetId,name,type,baseUrl}, apiKey }，且不改写入参（§1 S4）", () => {
     const records = [FIRECRAWL, DOUBAO];
     const keys = { search_doubao: "db-key" };
-    const before = JSON.stringify({ records, keys });
+    const order = ["search_firecrawl"];
+    const cooldownUntil = { firecrawl: 0 };
+    const before = JSON.stringify({ records, keys, order, cooldownUntil });
 
-    const chain = resolveSearchChain(records, keys, "", SEARCH_PROVIDER_PRESETS);
+    const chain = resolveSearchChain(records, keys, "", SEARCH_PROVIDER_PRESETS, smart({ order, cooldownUntil, now: 1 }));
 
     expect(chain[0]).toEqual({
       provider: {
         id: "search_firecrawl",
+        presetId: "firecrawl",
         name: "Firecrawl",
         type: "firecrawl",
         baseUrl: "https://api.firecrawl.dev"
       },
       apiKey: ""
     });
-    expect(JSON.stringify({ records, keys })).toBe(before);
+    expect(JSON.stringify({ records, keys, order, cooldownUntil })).toBe(before);
   });
 });
 
@@ -243,11 +446,23 @@ const RESULT = { title: "t", url: "https://example.com", snippet: "s" };
 
 // 链候选夹具（= ResolveSearchProviderResponse.chain 的元素，S4 单一形状）。
 const FIRECRAWL_CHAIN: SearchChainCandidate = {
-  provider: { id: "search_firecrawl", name: "Firecrawl", type: "firecrawl", baseUrl: "https://api.firecrawl.dev" },
+  provider: {
+    id: "search_firecrawl",
+    presetId: "firecrawl",
+    name: "Firecrawl",
+    type: "firecrawl",
+    baseUrl: "https://api.firecrawl.dev"
+  },
   apiKey: ""
 };
 const TAVILY_CHAIN: SearchChainCandidate = {
-  provider: { id: "tavily-picked", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+  provider: {
+    id: "tavily-picked",
+    presetId: "tavily",
+    name: "Tavily",
+    type: "tavily",
+    baseUrl: "https://api.tavily.com"
+  },
   apiKey: "tvly-k"
 };
 
