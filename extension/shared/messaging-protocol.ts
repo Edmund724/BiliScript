@@ -1,6 +1,7 @@
 // 三条通道（content script、service worker、offscreen document）之间的消息协议。
 // 所有 runtime 消息与 offscreen port 消息统一建模为 discriminated union，
-// 以既有代码中的协议字面量为事实来源，不引入新的运行时常量。
+// 以既有代码中的协议字面量为事实来源。本文件以类型为主体；唯一运行时导出是
+// OFFSCREEN_ONLY_MESSAGE_TYPES（来源守卫单源，理由：来源语义属协议契约）。
 //
 // 响应半边（arch-slim-2/02）：每条请求消息在其声明处并列声明响应类型（服务端
 // 处理器的 sendResponse 载荷即事实锚点），汇成 ResponseOf<T> 条件映射——
@@ -8,7 +9,8 @@
 // 响应形状取「平面接口」（ok 恒为 boolean；payload 字段仅在成功分支实发，失败
 // 分支可带 error），与全部消费点既有的防御式读取（resp?.x || 兜底）同构。本文件
 // 引用的域类型一律 type-only import：编译期擦除，不向 core/ai/asr 引入任何
-// 运行时依赖边。
+// 运行时依赖边；唯一的运行时值（OFFSCREEN_ONLY_MESSAGE_TYPES）是零依赖字面量
+// 常量，同样不新增依赖边。
 
 import type { Settings } from "../core/defaults.js";
 import type { AiProviderPreset, AsrProviderPreset, SearchProviderPreset } from "../core/presets.js";
@@ -16,6 +18,17 @@ import type { AiProvider, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
+
+// ===== 来源守卫的单源：只接受 offscreen 文档发送的消息族 =====
+// 「谁能发」属协议契约，名单归协议层（不就近硬编码在 entry/background.ts）：
+// background.ts 的非法来源判定消费本常量，增减一项只改这里。语义 = 扩展级副作用
+// 能力只开放给 offscreen 文档本身（SW 代执行的另一面），来源判定与关闭执行器
+// 共用 asr/offscreen-bridge.bg.ts 的 isOffscreenDocumentSender；名单外消息默认
+// 放行（发送者含 content，见 search-cache / search-health 段的例外注释）。
+export const OFFSCREEN_ONLY_MESSAGE_TYPES = [
+  "segment-cache",
+  "offscreen-request-close"
+] as const satisfies ReadonlyArray<BackgroundMessageType>;
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -225,6 +238,7 @@ export type ResolveAiProviderResponse = {
 };
 
 // ===== offscreen 段缓存消息族 =====
+// 来源守卫：本族在 OFFSCREEN_ONLY_MESSAGE_TYPES 名单内（只接受 offscreen 文档发送）。
 // 平台事实（chrome.offscreen 官方文档）：offscreen 文档仅支持 chrome.runtime，
 // 无 chrome.storage。段缓存（ai/segment-cache.js 的 biliscript_lvs_summary_* /
 // biliscript_lvs_raw_* 两族）宿主是 SW——offscreen 的 Map-Reduce / 追问链经本族消息
@@ -443,8 +457,8 @@ export type OffloadTaskResponse = {
 };
 
 // 工单 03：offscreen 文档自关闭的 SW 代执行（offscreen 无 chrome.offscreen，
-// 自关请求经 runtime 消息委托 SW）。仅接受 offscreen 文档本身的请求（SW 侧
-// 校验 sender.url / sender.tab）。
+// 自关请求经 runtime 消息委托 SW）。仅接受 offscreen 文档本身的请求（名单项 =
+// 协议层 OFFSCREEN_ONLY_MESSAGE_TYPES，SW 侧守卫消费后校验 sender.url / sender.tab）。
 export type OffscreenRequestCloseMessage = { type: "offscreen-request-close" };
 // 响应锚点：asr/offscreen-bridge.bg.ts handleOffscreenRequestClose——关闭成功
 // { ok: true }；拒绝（非 offscreen 发送者）或 closeDocument 抛错 { ok:false, error }。
@@ -493,15 +507,6 @@ export type BackgroundMessage =
   | GetDebugLogGateMessage;
 
 export type BackgroundMessageType = BackgroundMessage["type"];
-
-// ===== offscreen document 发出的 runtime 请求 =====
-
-export type OffscreenRuntimeRequest =
-  | ResolveAiProviderMessage
-  | GetAsrRuntimeConfigMessage
-  | SegmentCacheMessage
-  | OffscreenRequestCloseMessage
-  | GetDebugLogGateMessage;
 
 // ===== SW 广播（非请求响应式）=====
 

@@ -175,6 +175,11 @@ _Avoid_: 手抄第二份循环、offscreen 读 chrome.storage、tool 结果全�
 代码名：`settingsSnapshot`（extension/core/settings-snapshot.js）/ `getSettings()` / `getProviderStore(family)` / `invalidate(keys)` / `PROVIDER_FAMILY_STORAGE_KEYS`（族键面，从单表 `PROVIDER_FAMILY_KEY_PAIRS` 派生）；失效粒度 = storage 键（settings 键面 = DEFAULT_SETTINGS 键集，族键面键字面量真源 = 各族 store 模块导出的 `*_PROVIDERS_STORAGE`（list，sync）/ `*_PROVIDER_KEYS_STORAGE`（keys，local）常量）
 _Avoid_: 热路径 handler 直读 storage、给快照加写接口、绕过快照手抄第二次归一化
 
+**消息入口守卫**:
+SW 的 `chrome.runtime.onMessage` 入口在**路由之后、处理器执行之前**的拒绝闸：只拦形状明显非法/来源不合法的请求，业务归一仍归处理器；被拒请求明确回 `{ ok:false, error }`（不静默吞、不让调用方空等）且**零副作用**。两项检查：①**来源 denylist**——只有协议层名单内的 2 个类型（`segment-cache` / `offscreen-request-close`）要求发送者是 offscreen 文档本身（扩展级副作用能力只开放给 offscreen，即 SW 代执行的另一面），其余消息**默认放行**（发送者含 content，search-cache / search-health 显式在名单外）；②**payload 最小 schema**——save-settings 的对象形状、三家 providers-save 的数组形状、player-ai-quick-action 的 tabId 有限数，只是形状判据，不替代处理器内的业务校验。
+代码名：`illegalMessageReason`（entry/background.ts，守卫单点）/ `OFFSCREEN_ONLY_MESSAGE_TYPES`（shared/messaging-protocol.ts，名单**单源**，归属协议层：来源语义属协议契约）/ `isOffscreenDocumentSender`（asr/offscreen-bridge.bg.ts，只判来源、不持名单）
+_Avoid_: 把「offscreen 会发」当「只准 offscreen 发」（已删的 `OffscreenRuntimeRequest` 是「offscreen 发出的请求」事实枚举，被误读成来源守卫名单）；在 background.ts 回抄第二份名单字面量；默认拒绝式白名单（名单外的 content 发信方会被拦掉）
+
 ### 模型目录（model-catalog）
 
 设置页平台编辑 Modal 里的**只读**模型元数据（上下文窗口 / 是否支持思考 / 是否收图）。数据来自构建期从 `@earendil-works/pi-ai`（MIT，devDependency 精确 pin）目录裁剪出的零依赖叶子产物，不是运行时依赖；决策与反例证据见 [ADR-0009](docs/adr/0009-model-catalog-borrow-not-embed.md)。

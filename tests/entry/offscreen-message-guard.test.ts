@@ -12,11 +12,17 @@
 //   - 查询缓存消息族（spec §5 / §10 第 39 行）：search-cache 的发送者含
 //     content（选区解释卡），**不得**进 offscreen-only 名单；tab 来源的
 //     get/put 照常落到 SW 叶（跑通 put → get 命中往返）。
+//   - 名单单源（B4）：offscreen 专属族由协议层 OFFSCREEN_ONLY_MESSAGE_TYPES
+//     单源派生（「谁能发」属协议契约），background.ts 侧不得私藏第二份抄本；
+//     resolve-ai-provider 的 tab 来源负向用例 pin 住「名单误扩」方向。
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 import { SEARCH_CACHE_KEY } from "../../extension/search/search-cache.js";
+import { OFFSCREEN_ONLY_MESSAGE_TYPES } from "../../extension/shared/messaging-protocol.js";
 import type { MessageSender } from "../../extension/shared/messaging-protocol.js";
 
 vi.mock("../../extension/shared/tab-utils.js", () => ({
@@ -124,6 +130,56 @@ describe("消息入口守卫：发送者来源", () => {
       const resp = sendResponse.mock.calls[0]?.[0];
       expect(resp?.ok).toBe(true);
     });
+  });
+
+  it("resolve-ai-provider 以 tab 来源发送：不得回「仅接受 offscreen 文档发送」（发送者含 content）", async () => {
+    const listener = await importBackground();
+
+    const sendResponse = vi.fn();
+    const keepOpen = listener({ type: "resolve-ai-provider" }, TAB_SENDER(7), sendResponse);
+
+    expect(keepOpen).toBe(true);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+    expect(sendResponse).not.toHaveBeenCalledWith(
+      expect.objectContaining({ error: "仅接受 offscreen 文档发送" })
+    );
+    // 夹具下无任何 AI 平台记录：放行后按 handler 既有行为明确回「未配置平台」
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("还没有配置 AI 平台")
+    });
+  });
+});
+
+describe("来源守卫名单：协议常量单源（B4）", () => {
+  it("OFFSCREEN_ONLY_MESSAGE_TYPES 导出且恰为协议约定的两项", () => {
+    // 期望值取自协议契约本身（offscreen 专属族 = 这两个 type 字面量），
+    // 不复用实现内部结构，避免等于自身的同义断言。
+    expect([...OFFSCREEN_ONLY_MESSAGE_TYPES]).toEqual(["segment-cache", "offscreen-request-close"]);
+  });
+
+  it("名单每一项从 tab 来源都被拒：守卫拒绝集与常量一致", async () => {
+    const listener = await importBackground();
+
+    for (const type of OFFSCREEN_ONLY_MESSAGE_TYPES) {
+      const sendResponse = vi.fn();
+      const keepOpen = listener({ type }, TAB_SENDER(7), sendResponse);
+
+      expect(keepOpen, `${type} 应被来源守卫拒绝`).toBe(false);
+      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: "仅接受 offscreen 文档发送" });
+    }
+  });
+
+  it("守卫消费常量：background.ts 的非法来源判定不得私藏第二份名单抄本", () => {
+    // 行为用例在「守卫抄本 = 常量」时恒绿（两侧同集），拦不住「列表回抄」这种
+    // 单源回退；只有源码级结构断言能拦（沿用 tests/shared/messaging-response-scan
+    // 的文本扫描先例）。
+    const source = readFileSync(join(process.cwd(), "extension/entry/background.ts"), "utf8");
+    const body = source.match(/function illegalMessageReason\([\s\S]*?\n\}/)?.[0];
+    expect(body, "background.ts 缺少 illegalMessageReason").toBeDefined();
+    expect(body).toContain("OFFSCREEN_ONLY_MESSAGE_TYPES");
+    expect(body).not.toContain('"segment-cache"');
+    expect(body).not.toContain('"offscreen-request-close"');
   });
 });
 

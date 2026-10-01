@@ -79,12 +79,13 @@ import { collectOrigins, hasHostPermission } from "../core/host-permissions.js";
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
 import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose, isOffscreenDocumentSender, reapAllSessionRules } from "../asr/offscreen-bridge.bg.js";
 import { ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
-import type {
-  BackgroundMessage,
-  BackgroundMessageType,
-  MessageHandler,
-  MessageSender,
-  SendResponse
+import {
+  OFFSCREEN_ONLY_MESSAGE_TYPES,
+  type BackgroundMessage,
+  type BackgroundMessageType,
+  type MessageHandler,
+  type MessageSender,
+  type SendResponse
 } from "../shared/messaging-protocol.js";
 
 // ===== 消息路由表 =====
@@ -742,12 +743,15 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 // ===== 消息入口守卫（工单 03）：发送者来源 + 内部 schema =====
 
 // 内部消息 schema 的最小校验 + offscreen 专属消息族的来源校验（只拦形状
-// 明显非法/来源不合法的请求，业务归一仍归处理器）。offscreen 专属族：扩展级
-// 副作用能力只开放给 offscreen 文档本身（SW 代执行的另一面），判定与关闭
-// 执行器共用 isOffscreenDocumentSender（asr/offscreen-bridge.bg.ts）。
+// 明显非法/来源不合法的请求，业务归一仍归处理器）。offscreen 专属族：名单单源
+// 在协议层 shared/messaging-protocol.ts 的 OFFSCREEN_ONLY_MESSAGE_TYPES（「谁能发」
+// 属协议契约，此处只消费，不私藏抄本）；语义 = 扩展级副作用能力只开放给 offscreen
+// 文档本身（SW 代执行的另一面），来源判定与关闭执行器共用
+// isOffscreenDocumentSender（asr/offscreen-bridge.bg.ts）。
 function illegalMessageReason(message: BackgroundMessage, sender: MessageSender): string | null {
   if (
-    (message.type === "segment-cache" || message.type === "offscreen-request-close")
+    // 宽化读：常量是窄字面量联合（协议层单源），includes 的参数是 BackgroundMessageType 全集
+    (OFFSCREEN_ONLY_MESSAGE_TYPES as ReadonlyArray<BackgroundMessageType>).includes(message.type)
     && !isOffscreenDocumentSender(sender)
   ) {
     return "仅接受 offscreen 文档发送";
