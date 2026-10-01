@@ -1,0 +1,118 @@
+// 设置抽屉「外观」分区（主题族 readerThemeFamily）模板与设置链直测。
+//
+// 两轴正交（2026-09）：主题族 bilibili | flyme 在设置抽屉手选，明暗
+// light | dark 由 header 按钮两态切换（tests/reader/settings.test.ts 守链路）。
+// 本文件守三件事：
+//   1. 分区位置与模板契约（最前，AI 模型平台之前；id/类名/选项文案）；
+//   2. 装载填值经 normalizeReaderThemeFamily（未知存量值回落 bilibili，
+//      不是把非法值硬塞给 select 变成空选）；
+//   3. 保存载荷携带 readerThemeFamily（collectFormPayload 收集口径）。
+// 骨架与消息总线复用 tests/ui/settings-panel-save.test.ts 的同款手法。
+
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { resetModuleState } from "../setup.js";
+
+type SentMessage = { type: string; settings?: Record<string, unknown>; [key: string]: unknown };
+type MessageResponder = (message: SentMessage) => Record<string, unknown>;
+type SendMessageMock = Mock<(message: SentMessage, callback?: (response?: unknown) => void) => undefined>;
+
+let sendMessageMock: SendMessageMock | null = null;
+
+function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
+  const responders: Record<string, MessageResponder> = {
+    "get-settings": () => ({ ok: true, settings: {} }),
+    // 预设列表返回失败 → settings-panel 回落内置预设，装载链照常走完
+    "ai-presets-list": () => ({ ok: false }),
+    "asr-presets-list": () => ({ ok: false }),
+    "ai-providers-list": () => ({ ok: true, providers: [] }),
+    "asr-providers-list": () => ({ ok: true, providers: [] }),
+    "search-providers-list": () => ({ ok: true, providers: [] }),
+    "save-settings": () => ({ ok: true }),
+    ...overrides
+  };
+  const sent: SentMessage[] = [];
+  const mock: SendMessageMock = vi.fn((message: SentMessage, callback?: (response?: unknown) => void) => {
+    sent.push(message);
+    const respond = responders[message.type];
+    callback?.(respond ? respond(message) : { ok: true });
+    return undefined;
+  });
+  sendMessageMock = mock;
+  chrome.runtime.sendMessage = mock as unknown as typeof chrome.runtime.sendMessage;
+  return sent;
+}
+
+async function mountPanel(): Promise<HTMLElement> {
+  document.body.innerHTML =
+    '<div id="biliscript-reading-view"><div id="biliscript-reading-settings-host"></div></div>';
+  const panel = await import("../../extension/ui/settings-panel.js");
+  panel.renderReaderSettingsPanel();
+  const host = document.getElementById("biliscript-reading-settings-host")!;
+  // loadSettings 是 fire-and-forget：等装载链末路（search-providers-list）走完
+  await vi.waitFor(() => {
+    expect(sendMessageMock!.mock.calls.some(([message]) => message.type === "search-providers-list")).toBe(true);
+  });
+  return host;
+}
+
+function fireClick(node: Element): void {
+  node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+}
+
+beforeEach(() => {
+  resetModuleState();
+});
+
+describe("设置抽屉「外观」分区：主题族下拉", () => {
+  it("分区排在最前（AI 模型平台之前），标题/标签/选项文案齐备", async () => {
+    installMessageBus();
+    const host = await mountPanel();
+
+    const firstGroup = host.querySelector<HTMLElement>(".biliscript-set-group")!;
+    expect(firstGroup.querySelector(".biliscript-set-h")?.textContent).toBe("外观");
+    const select = firstGroup.querySelector<HTMLSelectElement>("#readerThemeFamily")!;
+    expect(select, "外观分区应含 #readerThemeFamily 下拉").toBeTruthy();
+    expect(select.classList.contains("biliscript-set-select")).toBe(true);
+    expect(firstGroup.querySelector(".biliscript-set-label")?.textContent).toBe("主题");
+
+    const groups = [...host.querySelectorAll<HTMLElement>(".biliscript-set-group")];
+    const aiIndex = groups.findIndex(
+      (group) => group.querySelector(".biliscript-set-h")?.textContent === "AI 模型平台"
+    );
+    expect(aiIndex, "AI 模型平台分区应在场").toBeGreaterThan(0);
+
+    const options = [...select.options].map((option) => [option.value, option.textContent]);
+    expect(options).toEqual([
+      ["bilibili", "Bilibili"],
+      ["flyme", "Flyme"]
+    ]);
+  });
+
+  it("装载时按设置填值（flyme）", async () => {
+    installMessageBus({ "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "flyme" } }) });
+    const host = await mountPanel();
+
+    expect(host.querySelector<HTMLSelectElement>("#readerThemeFamily")!.value).toBe("flyme");
+  });
+
+  it("装载时未知存量值经归一化回落 bilibili（不落空选）", async () => {
+    installMessageBus({ "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "paper" } }) });
+    const host = await mountPanel();
+
+    expect(host.querySelector<HTMLSelectElement>("#readerThemeFamily")!.value).toBe("bilibili");
+  });
+
+  it("保存载荷携带主题族（选 flyme → save-settings.readerThemeFamily = flyme）", async () => {
+    const sent = installMessageBus();
+    const host = await mountPanel();
+
+    host.querySelector<HTMLSelectElement>("#readerThemeFamily")!.value = "flyme";
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "save-settings")).toBe(true);
+    });
+    const saveMessage = sent.find((message) => message.type === "save-settings")!;
+    expect(saveMessage.settings).toMatchObject({ readerThemeFamily: "flyme" });
+  });
+});

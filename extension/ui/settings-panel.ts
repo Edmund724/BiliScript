@@ -33,6 +33,7 @@ import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
 import {
   normalizeDownloadFormat,
   normalizePlayerAiQuickPrompt,
+  normalizeReaderThemeFamily,
   normalizeWebSearchMaxToolCalls
 } from "../core/validators.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -76,6 +77,7 @@ let settingsHostRef: HTMLElement | null = null;
 
 // collectFormPayload 的产物形态（save-settings 报文的 settings 载荷）
 interface SettingsFormPayload {
+  readerThemeFamily: string;
   downloadFormat: string;
   includeDateInFilename: boolean;
   enablePlayerAiQuickAction: boolean;
@@ -112,6 +114,7 @@ function collectElements(host: HTMLElement) {
   const byIdIn = <T extends HTMLElement>(id: string): T =>
     host.querySelector(`#${id}`) as T;
   return {
+    readerThemeFamily: byIdIn<HTMLSelectElement>("readerThemeFamily"),
     downloadFormat: byIdIn<HTMLSelectElement>("downloadFormat"),
     includeDateInFilename: byIdIn<HTMLInputElement>("includeDateInFilename"),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>("enablePlayerAiQuickAction"),
@@ -216,6 +219,7 @@ function setStatus(elements: SettingsElements, text: unknown, isError = false): 
 async function loadSettings(elements: SettingsElements): Promise<void> {
   await ensurePresetsLoaded();
   const settings = await getSettings();
+  elements.readerThemeFamily.value = normalizeReaderThemeFamily(settings.readerThemeFamily);
   elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
@@ -524,6 +528,7 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
 
 function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
   return {
+    readerThemeFamily: normalizeReaderThemeFamily(elements.readerThemeFamily.value),
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,

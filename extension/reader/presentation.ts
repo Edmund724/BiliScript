@@ -21,7 +21,7 @@
 import { state } from "../core/state.js";
 import { type Settings } from "../core/defaults.js";
 import { getReaderElement } from "../shared/dom-utils.js";
-import { normalizeReaderTheme } from "../core/validators.js";
+import { normalizeReaderTheme, normalizeReaderThemeFamily } from "../core/validators.js";
 import { ids } from "./state.js";
 import { writeReadingStatusLine } from "../core/reading-status-line.js";
 import { refreshThemeButton } from "../ui/theme-button.js";
@@ -45,13 +45,17 @@ export function renderReadingStatus(text: string | number | null | undefined) {
 
 // ===== 设置水合与排版应用（自 lifecycle.js 迁入） =====
 //
-// 三开关退役（滚动/字幕/章节不再可关，2026-09）：水合只剩主题一项，不再
-// 读取 readerChapterVisible / readerTranscriptVisible（其存储键已随开关删除）。
+// 三开关退役（滚动/字幕/章节不再可关，2026-09）：水合只剩主题两轴——明暗
+//（readerTheme）与主题族（readerThemeFamily）——不再读取 readerChapterVisible /
+// readerTranscriptVisible（其存储键已随开关删除）。
 
 export function hydrateReaderStateFromSettings(settings: Partial<Settings> = state.settings) {
+  // 主题族与明暗正交：族在任何分支都先落到 state（含下方未手动选过主题的早退
+  // 分支，否则系统跟随会连带把族重置）。
+  state.reader.setThemeFamily(normalizeReaderThemeFamily(settings?.readerThemeFamily));
   // 用户从未手动选过主题（readerThemeUserSet=false）时按系统深浅定初始主题，
-  // 手动切换过则尊重存储选择。系统跟随只发生在水合期，不写回设置（用户日后
-  // 改系统偏好，下次水合重新跟随；matchMedia 在非浏览器环境缺失时回落浅色）。
+  // 手动切换过则尊重存储选择。系统跟随只发生在水合期、只驱动明暗，不写回设置
+  //（用户日后改系统偏好，下次水合重新跟随；matchMedia 在非浏览器环境缺失时回落浅色）。
   if (settings?.readerThemeUserSet !== true) {
     state.reader.setTheme(systemPrefersDark() ? "dark" : "light");
     return;

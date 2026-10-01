@@ -297,9 +297,9 @@ export function bindUiEvents(): void {
     exitReaderShell().catch((error) => logWarn("[BILISCRIPT] close reading view failed", error));
   });
   readingThemeSelect.addEventListener("click", () => {
-    // 三档循环 light → dark → flyme → light（档位文案/图标映射见 ui/theme-button.ts）。
-    const current = state.reader.readingTheme;
-    const next = current === "light" ? "dark" : current === "dark" ? "flyme" : "light";
+    // 明暗两态循环 light ↔ dark（按钮只管明暗轴；主题族在设置抽屉手选，
+    // 档位文案/图标映射见 ui/theme-button.ts）。
+    const next = state.reader.readingTheme === "dark" ? "light" : "dark";
     withReader("reader theme switch", (reader) => {
       reader.updateReaderPreferences({ readerTheme: next }, { persist: true });
       readingThemeSelect.classList.add("is-active");

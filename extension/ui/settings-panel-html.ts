@@ -6,13 +6,24 @@
 //（分节、id、类名契约）与流程代码互不干扰，模板改动只落本文件。
 // id 契约与原 options 页保持一致：settings-panel.ts 的 collectElements 按 id
 // 取自宿主容器，provider-family / validators 的行级选择器直接复用；分节顺序即
-// 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 → AI 对话 →
-// 导出 → 保存行）。
+// 抽屉内展示顺序（外观 → AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 →
+// AI 对话 → 导出 → 保存行）。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
 // chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。
 
 export function buildSettingsHtml(): string {
   return `
+    <section class="biliscript-set-group">
+      <div class="biliscript-set-h">外观</div>
+      <div class="biliscript-set-row">
+        <label class="biliscript-set-label" for="readerThemeFamily">主题</label>
+        <select id="readerThemeFamily" class="biliscript-set-select">
+          <option value="bilibili">Bilibili</option>
+          <option value="flyme">Flyme</option>
+        </select>
+      </div>
+    </section>
+
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">AI 模型平台</div>
       <p class="biliscript-set-hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / Qwen / GLM / Kimi / MiniMax / Ollama 等）。在下方点击 + 添加平台，填写名称、API Base URL、API Key 与模型名称，点「测试」可验证连通性，点「保存」后才会写入设置。</p>
