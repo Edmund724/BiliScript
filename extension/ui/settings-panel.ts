@@ -578,6 +578,7 @@ function buildDefaultPreferencePayload() {
     includeTimestampInBody: DEFAULT_SETTINGS.includeTimestampInBody,
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
+    readerThemeFamily: DEFAULT_SETTINGS.readerThemeFamily,
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
     // 初始问题的默认态 = 留空（按视频内容自动生成），不写固定文案。
     aiInitialQuickPrompts: []

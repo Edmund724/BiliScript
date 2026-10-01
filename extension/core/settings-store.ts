@@ -18,6 +18,7 @@ import {
   normalizeEnablePlayerAiQuickAction,
   normalizePlayerAiQuickPrompt,
   normalizeReaderTheme,
+  normalizeReaderThemeFamily,
   normalizeAiSystemPrompt,
   normalizeAiInitialQuickPrompts,
   normalizeDefaultModel,
@@ -44,6 +45,12 @@ const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   ["enablePlayerAiQuickAction", (m) => normalizeEnablePlayerAiQuickAction(m.enablePlayerAiQuickAction)],
   ["playerAiQuickPrompt", (m) => normalizePlayerAiQuickPrompt(m.playerAiQuickPrompt)],
   ["readerTheme", (m) => normalizeReaderTheme(m.readerTheme)],
+  // 主题两轴：明暗由上一步归一（退役三值制的 "flyme" 收敛为 light），族在此
+  // 拆轴迁移——readerTheme 是退役值 "flyme" 时族落 flyme（存量数据没有 family
+  // 键，只按新键归一会丢族）；其余情况按新键归一，缺省/脏值回落 bilibili。
+  // 这里读的 readerTheme 是归一化前的原始值（见 normalizeSettings 的读视图）。
+  ["readerThemeFamily", (m) =>
+    m.readerTheme === "flyme" ? "flyme" : normalizeReaderThemeFamily(m.readerThemeFamily)],
   ["readerThemeUserSet", (m) => m.readerThemeUserSet === true],
   ["aiSystemPrompt", (m) => normalizeAiSystemPrompt(m.aiSystemPrompt)],
   ["aiInitialQuickPrompts", (m) => normalizeAiInitialQuickPrompts(m.aiInitialQuickPrompts)],
@@ -68,10 +75,16 @@ const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
 // 更新迁移（background 的 initializeSettingsStorage）统一经由这里。
 // aiSystemPrompt 在此把 LEGACY 默认提示词映射为当前默认（LEGACY 常量保留
 // 一个版本周期）；落盘收口后，存储里的旧值会被一次性改写而非反复映射。
+// 步骤读的是归一化前的输入视图（source），结果写进 normalized：跨字段步骤
+// （readerThemeFamily 要读 readerTheme 的退役值 "flyme" 才能迁移，见步骤表）
+// 必须看到原始值——若把就地改写的 normalized 递进去，"flyme" 已被前置的
+// readerTheme 步骤收敛为 "light"，族会随新键缺省回落 bilibili 而丢族。
+// 单键步骤读的是自己那个键的原值，与此前逐键就地归一的行为一致。
 export function normalizeSettings(merged: Record<string, unknown>): Settings {
+  const source: Record<string, unknown> = { ...merged };
   const normalized: Record<string, unknown> = { ...merged };
   for (const [key, normalizeField] of SETTINGS_NORMALIZER_STEPS) {
-    normalized[key] = normalizeField(normalized);
+    normalized[key] = normalizeField(source);
   }
   return normalized as Settings;
 }
@@ -102,9 +115,11 @@ export async function saveSettings(settings: unknown): Promise<void> {
   }
   // 写路径收口：与 normalizeSettings 共用同一套步骤表，但只归一化 payload 中
   // 实际存在的 key；缺失的 key 不写入，避免部分保存（如只传 aiThinkingLevel）
-  // 把其它设置覆盖成默认值。
+  // 把其它设置覆盖成默认值。读视图同 normalizeSettings：跨字段步骤见原始值，
+  // 两条路径对同一份输入给出同一结果。
+  const source: Record<string, unknown> = { ...syncPayload };
   for (const [key, normalizeField] of SETTINGS_NORMALIZER_STEPS) {
-    if (key in syncPayload) syncPayload[key] = normalizeField(syncPayload);
+    if (key in syncPayload) syncPayload[key] = normalizeField(source);
   }
   // 写入边界（白名单）：只落盘 settings 键面内的 key，payload 里的非设置键
   // （如 content.js 整对象写回里的 asrProviders）不再经 save-settings 落盘、

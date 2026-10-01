@@ -6,11 +6,15 @@
 //   1. 分区位置与模板契约（最前，AI 模型平台之前；id/类名/选项文案）；
 //   2. 装载填值经 normalizeReaderThemeFamily（未知存量值回落 bilibili，
 //      不是把非法值硬塞给 select 变成空选）；
-//   3. 保存载荷携带 readerThemeFamily（collectFormPayload 收集口径）。
+//   3. 保存载荷携带 readerThemeFamily（collectFormPayload 收集口径）；
+//   4. 「恢复默认偏好」载荷把族写回默认 bilibili——族是偏好键面的一部分，
+//      重置后不留旧族（否则 UI 回 bilibili 而存储仍旧族）。
 // 骨架与消息总线复用 tests/ui/settings-panel-save.test.ts 的同款手法。
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
+import { DEFAULT_AI_SYSTEM_PROMPT } from "../../extension/core/default-prompts.js";
 
 type SentMessage = { type: string; settings?: Record<string, unknown>; [key: string]: unknown };
 type MessageResponder = (message: SentMessage) => Record<string, unknown>;
@@ -114,5 +118,31 @@ describe("设置抽屉「外观」分区：主题族下拉", () => {
     });
     const saveMessage = sent.find((message) => message.type === "save-settings")!;
     expect(saveMessage.settings).toMatchObject({ readerThemeFamily: "flyme" });
+  });
+
+  // 恢复默认的二次确认走 ui/confirm-dialog.js 面板内弹层：点确认后按
+  // buildDefaultPreferencePayload 的键面落盘。装载值是 flyme，重置载荷必须回
+  // bilibili（证明写的是默认值而不是回写装载值）。
+  it("恢复默认偏好：载荷把主题族写回默认 bilibili", async () => {
+    const sent = installMessageBus({
+      "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "flyme" } })
+    });
+    const host = await mountPanel();
+
+    fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
+    fireClick(
+      await vi.waitFor(() => {
+        const node = document.querySelector(".confirm-dialog-confirm");
+        if (!node) throw new Error("确认弹层未打开");
+        return node;
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT)).toBe(true);
+    });
+    const resetPayload = sent.find((message) => message.settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT)!.settings!;
+    expect(resetPayload.readerThemeFamily).toBe(DEFAULT_SETTINGS.readerThemeFamily);
+    expect(resetPayload.readerThemeFamily).toBe("bilibili");
   });
 });

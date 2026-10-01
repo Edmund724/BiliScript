@@ -179,15 +179,12 @@ describe("normalizeReaderThemeFamily", () => {
 // readerTheme: "light" 且 readerThemeFamily: "flyme"。readerThemeFamily 是新键，
 // 存量数据里不会有，无键值冲突；其余输入族落默认 bilibili。
 //
-// ⚠ 下面三条挂在 skip 上：normalizeSettings 不在 validators.ts，它在
-// extension/core/settings-store.ts 的 SETTINGS_NORMALIZER_STEPS 步骤表里，而该
-// 文件不在本次写范围内。新键的「键面」（读合并 / 写白名单 / 快照失效键集）已随
-// DEFAULT_SETTINGS 自动覆盖，但「值归一化 + flyme 拆轴迁移」必须在步骤表显式登记，
-// 只差这一行（import 后加在 ["readerTheme", ...] 之后）：
-//   ["readerThemeFamily", (m) => normalizeReaderThemeFamily(m.readerThemeFamily)],
-// 接线后删掉 .skip 即生效——注意：在它落地前，存量 readerTheme="flyme" 会随
-// normalizeReaderTheme 收敛为 light 而丢掉族信息（迁移与本步是同一笔改动）。
-describe.skip("normalizeSettings：主题两轴与 flyme 迁移（待 settings-store 接线）", () => {
+// 迁移与归一化合在步骤表的同一步（settings-store.ts）：该步读的是归一化前的
+// 原始 readerTheme，故退役值 "flyme" 仍可见——为 "flyme" 时族直接迁移为 flyme，
+// 否则走 normalizeReaderThemeFamily。若只按新键归一
+// （(m) => normalizeReaderThemeFamily(m.readerThemeFamily)），存量
+// { readerTheme: "flyme" } 没有 family 键，族会随上一步收敛为 bilibili——丢族。
+describe("normalizeSettings：主题两轴与 flyme 迁移", () => {
   it("上一版三值制 readerTheme=flyme 拆到两轴：明暗回 light，族落 flyme", async () => {
     const { normalizeSettings } = await loadStoreModule();
     const out = normalizeSettings({ readerTheme: "flyme" });
@@ -306,6 +303,21 @@ describe("normalizeSettings 是唯一归一化路径", () => {
     const rawMerge = { ...DEFAULT_SETTINGS, ...stored };
     expect(merged).toEqual(normalizeSettings(rawMerge));
     expect(merged.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
+  });
+
+  // 写路径与读路径共用同一张步骤表与同一个读视图：全量写回里带退役
+  // readerTheme="flyme"（老客户端 / 老快照整对象写回）时，族同样拆轴迁移，
+  // 不会被前置的 readerTheme 步骤就地改写吃掉。
+  it("写路径同口径：全量写回带退役 readerTheme=flyme 时族迁移为 flyme", async () => {
+    const { saveSettings, normalizeSettings } = await loadStoreModule();
+    const payload = { ...DEFAULT_SETTINGS, readerTheme: "flyme" };
+
+    await saveSettings(payload);
+
+    expect(syncSetMock).toHaveBeenCalledTimes(1);
+    expect(syncSetMock.mock.calls[0][0]).toEqual(normalizeSettings(payload));
+    expect(syncSetMock.mock.calls[0][0].readerTheme).toBe("light");
+    expect(syncSetMock.mock.calls[0][0].readerThemeFamily).toBe("flyme");
   });
 
   it("写路径：全量 payload 落盘值等于 normalizeSettings 的输出", async () => {
