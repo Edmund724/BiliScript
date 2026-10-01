@@ -4,7 +4,8 @@
 //   ① 纯函数 resolveSearchChain——链解析：进组判据（记录的 presetId 查预设表得
 //      access）、两模式排序（单选 = 独苗链、无回退；智能 = 归一 order 序 > 内置默认序）、
 //      按 presetId 去重（代表 = 排序最靠前的合格记录）、智能链冷却跳过，产出
-//      「有序候选 + 各自 Key」（S4 的单趟回传形状，SW 是唯一知道 Key 的一侧）；
+//      「有序候选 + 各自 Key + 空链归因」（S4 的单趟回传形状，SW 是唯一知道 Key 的一侧）；
+//      归因随链**一趟返回**：调用方不再同参重跑判因（票 16 C3）。
 //   ①' 顺序规则不在此处：归一（normalizeSearchProviderOrder）与排序键
 //      （providerOrderRank）单源在零依赖叶 search/search-order.ts（票 15 Q1-a），
 //      本模块 import 消费——存储键归一与键算法各只有一份实现；
@@ -43,6 +44,15 @@ export interface SearchChainOptions {
   now?: number;
 }
 
+// 链解析产物（spec §1 S4 单趟回传形状 + §12.7 第 6 条空链归因）：
+// chain = 有序候选；emptyCause 只取 "cooldown"（链空且确有合格候选在冷却处被剔）；
+// 缺省 = 空链无冷却剔除（真的没有合格记录）或链非空——调用方据此分「未配置」与
+// 冷却专属文案，不必再拿同一批入参重跑一次。
+export interface SearchChainResolution {
+  chain: SearchChainCandidate[];
+  emptyCause?: "cooldown";
+}
+
 /**
  * 解析回退链：链成员是**记录**（S1），成员资格由记录的 presetId 查预设表得出
  * （§7「只挂预设表，记录不带副本」）：
@@ -56,6 +66,10 @@ export interface SearchChainOptions {
  *   - 按 presetId 去重（裁定②）：同一家只入链一次，代表 = 排序最靠前的合格记录
  *     （含它自己的 Key）；同 presetId 的其余记录不进链、不试第二次；
  *   - 智能链剔除 cooldownUntil[presetId] > now 的引擎（单选不消费冷却，§12.4 第 5 条）；
+ *   - 空链归因（§12.7 第 6 条翻案）：冷却是链上最后一个过滤器，故「链空且确有合格
+ *     幸存者（含去重赢家）在冷却处被剔」⟺「去掉冷却后链非空」；此时返回
+ *     emptyCause:"cooldown"。单选短路分支**永远不带**归因（单选不消费冷却，空链只
+ *     可能是真未配置）；qualify / 去重的静默丢弃不参与归因（只保留二元）。
  *   - keyless 无 Key 时候选的 apiKey 为 ""（适配器据此不产鉴权头）。
  */
 export function resolveSearchChain(
@@ -64,7 +78,7 @@ export function resolveSearchChain(
   activeId: string | null | undefined,
   presets: readonly SearchProviderPreset[],
   options: SearchChainOptions
-): SearchChainCandidate[] {
+): SearchChainResolution {
   // presetId → 预设（access）；同 id 重复预设取表内首个
   const presetById = new Map<string, SearchProviderPreset>();
   for (const preset of presets) {
@@ -99,10 +113,11 @@ export function resolveSearchChain(
 
   // 单选（spec §12.1）：只有该记录一家——它不合格（未配 Key 的 free-quota / 停用 /
   // 未知 presetId）就是空链，调用方走既有「未配置搜索平台」路径（§12.7 第 2 条）。
+  // 不带归因：单选不消费冷却，空链不可能是「全在冷却中」。
   if (mode === "single") {
     const record = providers.find((item) => item.id === activeRecordId);
     const candidate = record ? qualify(record) : null;
-    return candidate ? [candidate] : [];
+    return { chain: candidate ? [candidate] : [] };
   }
 
   // 智能：排序键规则（spec §12.2）——① 在 order 中的按数组下标；② 不在数组中的排到
@@ -124,16 +139,22 @@ export function resolveSearchChain(
   const now = Number.isFinite(options.now) ? Number(options.now) : 0;
   const seen = new Set<string>();
   const chain: SearchChainCandidate[] = [];
+  let cooledFiltered = false;
   for (const { candidate } of ranked) {
     const presetId = candidate.provider.presetId;
     // 同 presetId 只入链一次，代表 = 排序最靠前的合格记录（裁定②）
     if (seen.has(presetId)) continue;
     seen.add(presetId);
     // 冷却按 presetId 判（不按记录 id）；过滤后为空也如实返回空链（§12.7 第 6 条）
-    if (Number(cooldownUntil[presetId] ?? 0) > now) continue;
+    if (Number(cooldownUntil[presetId] ?? 0) > now) {
+      cooledFiltered = true;
+      continue;
+    }
     chain.push(candidate);
   }
-  return chain;
+  // 归因随链一趟返回（票 16 C3）：冷却是最后一个过滤器且去重代表唯一，"有幸存者被剔"
+  // ⟺ "去掉冷却后链非空"，故等价于旧的同参重跑判据。
+  return chain.length === 0 && cooledFiltered ? { chain, emptyCause: "cooldown" } : { chain };
 }
 
 // ===== 执行器（spec §4 / §6.4 / §3 落点表第 8 行②）=====

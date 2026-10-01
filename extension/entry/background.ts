@@ -390,25 +390,23 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
       const now = Date.now();
       const cooldownUntil = cooldownUntilByPresetId(await getSearchHealth(), now);
       const mode = resolveSearchMode(activeId);
-      const chain = resolveSearchChain(providers, keys, activeId, SEARCH_PROVIDER_PRESETS, {
+      const resolved = resolveSearchChain(providers, keys, activeId, SEARCH_PROVIDER_PRESETS, {
         mode,
         order,
         cooldownUntil,
         now
       });
-      if (chain.length === 0) {
-        // 判空因（纯函数同参重跑，只是不消费冷却）：同一批记录在不消费冷却时非空
-        // → 空的原因是合格记录全部在冷却中（单选不消费冷却，故单选空链在此必为空口径）。
-        const unfiltered = resolveSearchChain(providers, keys, activeId, SEARCH_PROVIDER_PRESETS, {
-          mode,
-          order,
-          now
-        });
-        return unfiltered.length > 0 ? { ok: true, chainEmptyReason: "cooldown" } : { ok: true };
+      if (resolved.chain.length === 0) {
+        // 判空因随链一趟给出（票 16 C3，不再同参重跑）：链空且确有合格候选在冷却处
+        // 被剔 → 冷却专属归因；否则真的没有合格记录。单选不消费冷却，故单选空链
+        // 在此必为「未配置」口径（§12.4 第 5 条 / §12.7 第 6 条）。
+        return resolved.emptyCause === "cooldown"
+          ? { ok: true, chainEmptyReason: "cooldown" }
+          : { ok: true };
       }
       return {
         ok: true,
-        chain,
+        chain: resolved.chain,
         maxToolCalls: settings.webSearchMaxToolCalls
       };
     })(),
