@@ -81,10 +81,9 @@ describe("resolveLoadContextAction — skip-unchanged 短路", () => {
 });
 
 describe("resolveLoadContextAction — error 分类", () => {
-  it("!ok 响应 → ERROR：只清 live 不清 liveTabUrl，透传 error 文案", () => {
+  it("!ok 响应 → ERROR：清 live 快照与主上下文、重置视图，透传 error 文案", () => {
     expect(resolveLoadContextAction(liveInput({ response: RESP_ERROR }))).toEqual({
       action: LOAD_CONTEXT_ACTION.ERROR,
-      clearTabUrl: false,
       clearContext: true,
       resetView: true,
       message: "boom",
@@ -140,7 +139,6 @@ describe("resolveLoadContextAction — apply-pinned 优先于流式守卫", () =
       liveInput({ hasPinnedConversation: true, isStreaming: true, hasPendingUserPrompt: true })
     );
     expect(plan.action).toBe(LOAD_CONTEXT_ACTION.APPLY_PINNED);
-    expect(plan.applyToMainContext).toBe(false);
     expect(plan.returnValue).toBe(true);
   });
 
@@ -155,7 +153,6 @@ describe("resolveLoadContextAction — apply-pinned 优先于流式守卫", () =
     const plan = resolveLoadContextAction(liveInput({ hasPinnedConversation: true }));
     expect(plan).toEqual({
       action: LOAD_CONTEXT_ACTION.APPLY_PINNED,
-      applyToMainContext: false,
       returnValue: true
     });
   });
@@ -173,7 +170,6 @@ describe("resolveLoadContextAction — blocked-streaming", () => {
     const plan = resolveLoadContextAction(liveInput({ isStreaming: true }));
     expect(plan).toEqual({
       action: LOAD_CONTEXT_ACTION.BLOCKED_STREAMING,
-      applyToMainContext: false,
       returnValue: true
     });
   });
@@ -181,7 +177,6 @@ describe("resolveLoadContextAction — blocked-streaming", () => {
   it("有待发送 prompt → 同样冻结", () => {
     const plan = resolveLoadContextAction(liveInput({ hasPendingUserPrompt: true }));
     expect(plan.action).toBe(LOAD_CONTEXT_ACTION.BLOCKED_STREAMING);
-    expect(plan.applyToMainContext).toBe(false);
   });
 });
 
@@ -189,7 +184,6 @@ describe("resolveLoadContextAction — apply-live", () => {
   it("非 pinned 非流式的全量响应 → 应用到主上下文", () => {
     expect(resolveLoadContextAction(liveInput())).toEqual({
       action: LOAD_CONTEXT_ACTION.APPLY_LIVE,
-      applyToMainContext: true,
       returnValue: true
     });
   });
@@ -199,7 +193,6 @@ describe("resolveNoTabPlan — 消息往返之前的决策点", () => {
   it("默认（非 pinned 非静默）→ 全量清理 + 重置视图 + 找不到标签页文案", () => {
     expect(resolveNoTabPlan({ hasPinnedConversation: false, silent: false })).toEqual({
       action: LOAD_CONTEXT_ACTION.NO_TAB,
-      clearTabUrl: true,
       clearContext: true,
       resetView: true,
       message: NO_TAB_MESSAGE,
@@ -211,9 +204,8 @@ describe("resolveNoTabPlan — 消息往返之前的决策点", () => {
     expect(resolveNoTabPlan()).toEqual(resolveNoTabPlan({ hasPinnedConversation: false, silent: false }));
   });
 
-  it("pinned 对话 → 保留主上下文且不重置视图，但 liveTabUrl 照清", () => {
+  it("pinned 对话 → 计划保留主上下文、不重置视图，文案与返回值照旧", () => {
     const plan = resolveNoTabPlan({ hasPinnedConversation: true, silent: false });
-    expect(plan.clearTabUrl).toBe(true);
     expect(plan.clearContext).toBe(false);
     expect(plan.resetView).toBe(false);
     expect(plan.message).toBe(NO_TAB_MESSAGE);
@@ -226,7 +218,7 @@ describe("resolveNoTabPlan — 消息往返之前的决策点", () => {
     expect(plan.resetView).toBe(false);
   });
 
-  it("pinned + silent → 除清 liveTabUrl 外全部保留现状", () => {
+  it("pinned + silent → 计划保留主上下文、不重置视图", () => {
     const plan = resolveNoTabPlan({ hasPinnedConversation: true, silent: true });
     expect(plan.clearContext).toBe(false);
     expect(plan.resetView).toBe(false);

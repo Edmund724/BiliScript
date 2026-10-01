@@ -43,12 +43,10 @@ export const LOAD_CONTEXT_ACTION = Object.freeze({
 // 可选字段只在其动作需要时出现，与旧分支的返回对象逐字段一致。
 export interface LoadContextPlan {
   action: (typeof LOAD_CONTEXT_ACTION)[keyof typeof LOAD_CONTEXT_ACTION];
-  clearTabUrl?: boolean;
   clearContext?: boolean;
   resetView?: boolean;
   message?: unknown;
   returnValue: boolean;
-  applyToMainContext?: boolean;
 }
 
 // 失败分支的用户可见文案（loadContextState 的兜底与 ensureCurrentContextForSend
@@ -66,12 +64,13 @@ export function isPinnedContextStrict(currentConversationMeta: CurrentConversati
 }
 
 // 决策点一（消息往返之前）：无可用标签页（策略回 no-tab 信封）。
-// 直接走失败清理。clearTabUrl 为 true：no-tab 分支连 liveTabUrl
-// 一起清（error 分支刚用 tab.url 刷新过它，故为 false，见 resolveLoadContextAction）。
+// 直接走失败清理。liveTabUrl 的清理由编排壳承担：no-tab 分支一律
+// resetLiveContext()（连 liveTabUrl 一起清），error 分支不调它——error 往返刚用
+// tab.url 刷新过 liveTabUrl，故保留（见 context-load.ts 两分支与
+// resolveLoadContextAction 的注释）。
 export function resolveNoTabPlan({ hasPinnedConversation = false, silent = false } = {}): LoadContextPlan {
   return {
     action: LOAD_CONTEXT_ACTION.NO_TAB,
-    clearTabUrl: true,
     // pinned 对话的主上下文（contextData/currentContextKey）被对话锁定，不清
     clearContext: !hasPinnedConversation,
     // 静默轮询（silent）不打扰消息区；pinned 对话同样不重置视图
@@ -89,12 +88,12 @@ export function resolveNoTabPlan({ hasPinnedConversation = false, silent = false
 //   isStreaming           chatRuntime.isStreaming()
 //   hasPendingUserPrompt  chatRuntime.hasPendingUserPrompt()
 // 输出计划字段：
-//   clearTabUrl         是否连 liveTabUrl 一起清（仅 no-tab 为 true）
 //   clearContext        失败时是否连主上下文一起清（!pinned）
 //   resetView / message 失败时是否 resetConversationView 及所用文案
-//   applyToMainContext  成功时 live 快照是否进一步应用到主上下文
-//                      （pinned / 流式守卫为 false：只落地 live 快照）
 //   returnValue         loadContextState 的返回值契约
+// 「成功时 live 快照是否进一步应用到主上下文」不设字段：由 action 决定——
+// apply-live 进主上下文，apply-pinned / blocked-streaming 只落地 live 快照
+//（编排壳 context-load.ts 按 action 分派）。
 export interface ResolveLoadContextActionOptions {
   response?: LoadContextResponse | null;
   hasPinnedConversation?: boolean;
@@ -126,7 +125,6 @@ export function resolveLoadContextAction({
   if (!response?.ok || !response.payload) {
     return {
       action: LOAD_CONTEXT_ACTION.ERROR,
-      clearTabUrl: false,
       clearContext: !hasPinnedConversation,
       resetView: !silent && !hasPinnedConversation,
       message: response?.error || CONTEXT_READ_FAILED_MESSAGE,
@@ -137,16 +135,16 @@ export function resolveLoadContextAction({
   // pinned 对话：live 快照只做数据源（轮询判定 / 后续补水），不进主上下文、
   // 不触发对话恢复；旧代码此分支与流式守卫分支的执行体逐字节相同。
   if (hasPinnedConversation) {
-    return { action: LOAD_CONTEXT_ACTION.APPLY_PINNED, applyToMainContext: false, returnValue: true };
+    return { action: LOAD_CONTEXT_ACTION.APPLY_PINNED, returnValue: true };
   }
 
   // 流式守卫：回复渲染中或有待发送 prompt 时冻结主上下文，避免中途换上下文
   // 打断进行中的对话；live 快照照常落地供后续使用。
   if (isStreaming || hasPendingUserPrompt) {
-    return { action: LOAD_CONTEXT_ACTION.BLOCKED_STREAMING, applyToMainContext: false, returnValue: true };
+    return { action: LOAD_CONTEXT_ACTION.BLOCKED_STREAMING, returnValue: true };
   }
 
   // 正常路径：live 快照落地并应用到主上下文；上下文变化时由编排壳恢复最近
   // 对话并重渲染初始态（applyContextPayload 的返回值决定）。
-  return { action: LOAD_CONTEXT_ACTION.APPLY_LIVE, applyToMainContext: true, returnValue: true };
+  return { action: LOAD_CONTEXT_ACTION.APPLY_LIVE, returnValue: true };
 }

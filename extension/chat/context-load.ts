@@ -148,7 +148,11 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     // applyContextSnapshot 原语；本壳只留变化后的编排副作用。
     const contextChanged = applyContextSnapshot(payload);
 
-    if (contextChanged && !deps.isStreaming() && !deps.hasPendingUserPrompt()) {
+    // 不再重判流式守卫：能走到这里只有 APPLY_LIVE——策略层选中它即蕴含「非流式
+    // 且无待发 prompt」（apply-pinned / blocked-streaming 已按 action 提前返回，
+    // 只落地 live 快照）。守卫由策略层单独承重，context-policy.ts 的
+    // isStreaming / hasPendingUserPrompt 是唯一判定点。
+    if (contextChanged) {
       deps.restartChat({ keepContext: true });
     } else {
       deps.renderSuggestions();

@@ -205,6 +205,11 @@ _Avoid_: 附件图片、贴图、content parts 升级（被否的路线 A）、�
 代码名：`detachCurrent` / `repopulateLive`（conversation-store 内部原语）
 _Avoid_: 清会话、重置对话、手抄拆除序列
 
+**上下文装载**:
+一次 `loadContextState` 调用：拉当前标签页上下文 → 纯函数策略给出动作计划 → 编排壳按 action 执行副作用。两个决策点：no-tab 在消息往返之前（`resolveNoTabPlan`），其余五个在往返之后按响应分类（`resolveLoadContextAction`），优先级自上而下 no-tab → skip-unchanged → error → apply-pinned → blocked-streaming → apply-live（pinned 优先于流式守卫，skip-unchanged 短路优先于两者）。分层纪律：判定全在 policy 纯函数（无 I/O、不写状态、不渲染），效果全在编排壳（按 action 分派，不自行复判守卫）；pinned / 流式守卫只落地 live 快照，apply-live 才进主上下文。唯一例外是拆除事务的绕过点：新会话（reader 壳的 `startNewConversation`）在策略调用后有意做一次 live 兜底同步，不经 action 分派。
+代码名：`extension/chat/context-policy.ts`（判定纯函数：`resolveNoTabPlan` / `resolveLoadContextAction` / `LOAD_CONTEXT_ACTION` / `LoadContextPlan`）/ `extension/chat/context-load.ts`（效果壳：`createContextLoad` / `loadContextState`）/ `ContextFetch`（`extension/core/context-assembly.ts` 注入的装配策略）
+_Avoid_: 在效果壳重判流式守卫、按计划字段而非 action 反推是否进主上下文、给计划加无消费方的字段（`clearTabUrl` / `applyToMainContext` 已因零消费删除）
+
 **发送闸**:
 发送一条 AI 对话消息前确保上下文就绪的有序守卫序列：pinned 补水短路 → 上下文读取 → 主动起跑字幕抓取 → 字幕等待闸 → 放行前重取 → 无字幕拦截 → 回放让位，全部放行才受理发送。chat 域内组装的唯一事务，受理结论是显式接口返回值而非副作用推断：`sendMessage` 返回 `SendVerdict`（accepted / blocked / ignored，blocked = 被平台或闸拦下），闸本身返回 `GateOutcome`（`{pass:true}` / `{pass:false,kind:"read-failed"|"no-subtitle"}`，取代字符串哨兵）；回放让位在两条放行路径（G1 提前返回与直通）统一 await。
 代码名：`extension/chat/send-gate.ts`（`createSendGate` / `GateOutcome`）/ `ensureCurrentContextForSend`（chat-runtime 的 deps 缝，发送闸对编排壳的唯一出口）/ `SendVerdict`（chat-runtime 的 `sendMessage` 返回）

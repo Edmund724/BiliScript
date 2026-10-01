@@ -1078,6 +1078,13 @@ async function startNewConversation(): Promise<void> {
   popovers.hideHistoryPopover();
   popovers.hideModelPanel();
   await loadContextState({ forceRefresh: true, silent: true });
+  // 组合根绕过点（有意，不经 plan.action 分支）：live 快照非空即落到主上下文。
+  // startNewConversation 是拆除事务——下一句 restartChat 才断流并清会话身份
+  //（conversation-store.detachForRestart），所以流式中点「新对话」（策略给
+  // blocked-streaming）与 pinned 会话（apply-pinned）都在此被绕过：新会话要在
+  // 当前页上下文上起跑，两个守卫在此让位，与策略守卫正交；live 为空时空操作
+  //（no-tab / error 的非 pinned 路径已由 loadContextState 自行清空主上下文），
+  // skip-unchanged 同步的则是上一轮保留的 live 读。
   if (chatSessionState.liveContextData) {
     applyLiveContextToMain();
   }

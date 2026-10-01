@@ -208,8 +208,9 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   // { pass: false, kind: "no-subtitle" } 让 sendMessage 提前返回（不追加用户
   // 消息、不落 chatHistory、不发起 port），并按 noSubtitleReason 显示对应 notice。
   async function ensureContextForSend(): Promise<GateOutcome> {
-    // pinned 判定沿用原调用点的真值语义（与 loadContextState 的严格相等不同
-    // ——见 ./context-policy.ts 两个谓词的疑义记录；统一收口是后续步骤）。
+    // pinned 判定用与 loadContextState 同一个严格谓词 isPinnedContextStrict
+    //（=== true）：本调用点历史上曾是真值判断，2026-10 已统一收口，疑义记录见
+    // ./context-policy.ts 的 isPinnedContextStrict 注释与 ADR-0005 修订。
     if (isPinnedContextStrict(chatSessionState.currentConversationMeta)) {
       await deps.loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
       if (!(await deps.hydratePinned())) {

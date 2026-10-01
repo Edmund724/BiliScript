@@ -225,8 +225,10 @@ describe("loadContextState 动作分支", () => {
 
     const ok = await contextLoad.loadContextState({ silent: true });
 
-    // 流式守卫优先于 apply-live（policy 判定），主上下文冻结、不进恢复流程；
-    // applyContextPayload 内部的 isStreaming 检查是双保险（此路径不可达）。
+    // 流式守卫优先于 apply-live（policy 判定），主上下文冻结、不进恢复流程。
+    // 守卫的唯一判定点在策略层（context-policy.ts 的 isStreaming /
+    // hasPendingUserPrompt）；编排壳的 applyContextPayload 不再重判——能走到
+    // 那里只有 APPLY_LIVE，故本用例的 restartChat 未调用断言即守卫承重证据。
     expect(ok).toBe(true);
     expect(chatSessionState.liveContextData).not.toBeNull();
     expect(chatSessionState.contextData).toEqual(makePayload());
