@@ -78,21 +78,30 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
 }
 
 /* ===== 主题 token =====
- * PR2 统一 文摘面板按 prototype/direction-approved.md 定稿色板重排：
- * light（默认）= 暖白纸感底 + B 站粉 accent（#fb7299），保持不动。
- * 主题为三值制 light | dark | flyme（纸色档已随两档制退役删除）：
- *   flyme = Flyme 浅色（致敬 Flyme 设计语言：中性灰页底 + 白卡 + #008CFF 主蓝
- *     只用于操作/选中）——暖纸色系 token 逐项覆写，一个都不许从 light 继承，
- *     动效也换 Flyme 基准曲线（见下方 flyme 块）。
- *   dark  = 2026-09 产品决定整体换底为 Flyme 深色（非微调）：页面 #101114 /
- *     卡片（列表组）#1B1C20 / 主蓝 #3D9BFF，层级只用分层灰表达、阴影置零
- *     （Flyme 深色零阴影，见 --biliscript-reader-shadow 注释）。
+ * PR2 统一 文摘面板按 prototype/direction-approved.md 定稿色板重排。
+ * 2026-09 主题模型改为两轴正交：主题族 readerThemeFamily（bilibili | flyme）
+ * × 明暗模式 readerTheme（light | dark）。DOM 侧：html/body 写
+ * data-biliscript-reader-family / data-biliscript-reader-theme，面板节点
+ * (#biliscript-reading-view) 写 data-family / data-theme，家族恒写、默认
+ * bilibili。本表按四色板落地：
+ *   bilibili × light = 基础块（无属性选择器）：暖白纸感底 + B 站粉 accent #fb7299。
+ *   bilibili × dark  = 板岩深色：页面 #0f172a，accent 换亮粉可读变体 #fc8bab。
+ *   flyme × light    = Flyme 浅色（致敬 Flyme 设计语言：中性灰页底 + 白卡 +
+ *     #008CFF 主蓝只用于操作/选中）——暖纸色系 token 逐项覆写，一个都不许从
+ *     基础块继承。
+ *   flyme × dark     = Flyme 深色：页面 #101114 / 卡片（列表组）#1B1C20 /
+ *     主蓝 #3D9BFF，层级只用分层灰表达、阴影置零。
+ * 选择器层叠策略：深色块的选择器只带 data-biliscript-reader-theme="dark"，
+ * 而该属性不区分家族——故它同时命中 bilibili+dark 与 flyme+dark（有意设计）；
+ * flyme+dark 由后面的 family+theme 双属性块覆写，多带一个属性、特异性更高，
+ * 不依赖书写顺序。flyme 浅色块按 family 匹配，同样命中 flyme 的明暗两档：
+ * 它同时是 flyme 动效曲线的唯一来源，flyme 深色块只覆写色板、动效从它继承。
  * 新增 card（白卡片）/faint（三级文字）/accent-ink（accent 实底上的文字）/
  * pill-bg（分段控件底）/highlight（提示横幅底，PR3 转写横幅消费）。
  * 时间戳 pill 母题消费 accent-soft 底 + accent 字。
- * 后补组件级 token：mask-bg（弹层遮罩底，三档同值深纱）/on-fill（实底
- * 强调与警示按钮上的文字，三档恒白——与暗色为深墨的 accent-ink 分开）/
- * font-sans、font-mono（面板字体栈）。 */
+ * 后补组件级 token：mask-bg（弹层遮罩底，四色板共用同一个深纱，只在基础块
+ * 定义一次）/on-fill（实底强调与警示按钮上的文字，四色板恒白——与两个深色
+ * 档为深墨的 accent-ink 分开）/font-sans、font-mono（面板字体栈）。 */
 html[data-biliscript-reader-mode="1"],
 body[data-biliscript-reader-mode="1"],
 #biliscript-reading-view {
@@ -144,44 +153,42 @@ body[data-biliscript-reader-mode="1"],
   color: var(--biliscript-reader-text);
 }
 
+/* bilibili × dark：板岩深色板——取值是三值制改造前的原 dark 块原值
+ * （git ff21078:extension/entry/styles/reader-gate.css），accent 换亮粉可读变体，
+ * 暗色主题不破相。选择器只带 data-biliscript-reader-theme="dark"，故
+ * flyme+dark 也会命中本块——有意设计：dark 属性不给家族分叉，家族属性由
+ * 写入方恒写但选择器不消费它。后面的 flyme 深色块用 family+theme 双属性
+ * 选择器覆写全部色板，特异性更高。 */
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 #biliscript-reading-view[data-theme="dark"] {
-  /* Flyme 深色三层：页面 #101114 / 卡片·列表组 #1B1C20 / 输入框底 #222327
-   * （design-tokens.md 背景层表）。层级靠分层灰，不靠投影。 */
-  --biliscript-reader-surface: #101114;
-  --biliscript-reader-surface-2: #1b1c20;
-  --biliscript-reader-surface-3: #222327;
-  --biliscript-reader-card: #1b1c20;
-  --biliscript-reader-border: rgba(255, 255, 255, 0.12);
-  --biliscript-reader-text: #ecedef;
-  --biliscript-reader-muted: #9ca0a8;
-  --biliscript-reader-faint: #6a6e76;
-  --biliscript-reader-accent: #3d9bff;
-  --biliscript-reader-accent-soft: rgba(61, 155, 255, 0.16);
-  /* accent-ink 按对比度定：#3d9bff 实底上白字只有 2.9:1（连 3:1 都不够，
-   * 与 light 档白字 accent-ink 的处境相反），故取与页面同色的深墨 #101114
-   * ——6.6:1，远超 4.5:1。 */
-  --biliscript-reader-accent-ink: #101114;
-  --biliscript-reader-pill-bg: #222327;
-  --biliscript-reader-highlight: rgba(255, 159, 10, 0.14);
-  --biliscript-reader-track: rgba(236, 237, 239, 0.18);
-  /* danger 保留深色亮档纪律（#d93025 的亮档 + 提亮 soft），不随换底改。 */
+  --biliscript-reader-surface: #0f172a;
+  --biliscript-reader-surface-2: #132038;
+  --biliscript-reader-surface-3: #1a2a46;
+  --biliscript-reader-card: #132038;
+  --biliscript-reader-border: rgba(148, 163, 184, 0.22);
+  --biliscript-reader-text: #e5eefb;
+  --biliscript-reader-muted: #9fb0c8;
+  --biliscript-reader-faint: #7e8ea6;
+  --biliscript-reader-accent: #fc8bab;
+  --biliscript-reader-accent-soft: rgba(251, 114, 153, 0.18);
+  --biliscript-reader-accent-ink: #2b1220;
+  --biliscript-reader-pill-bg: #1a2a46;
+  --biliscript-reader-highlight: rgba(253, 238, 218, 0.1);
+  --biliscript-reader-track: rgba(226, 232, 240, 0.18);
   --biliscript-reader-danger: #f2555a;
   --biliscript-reader-danger-soft: rgba(242, 85, 90, 0.2);
-  /* 零阴影（Flyme「深色零阴影」）：先确认消费方用法——--biliscript-reader-shadow
-   * 的 9 处消费（reader.css 面板族/设置抽屉/编辑 Modal/解释卡 4 处、
-   * reader-chat.css 气泡卡 2 处、reader-settings-providers.css 2 处、本文件
-   * 浮层降级段 1 处）全部是独立的 `box-shadow: var(--biliscript-reader-shadow);`
-   * 单值声明，没有跟其他阴影拼成多重列表，故 none 合法且不牵连任何别的阴影。 */
-  --biliscript-reader-shadow: none;
-  --biliscript-reader-header-bg: rgba(16, 17, 20, 0.72);
-  --biliscript-reader-overlay-bg: rgba(16, 17, 20, 0.8);
+  --biliscript-reader-shadow: 0 18px 42px rgba(2, 6, 23, 0.42);
+  --biliscript-reader-header-bg: rgba(15, 23, 42, 0.72);
+  --biliscript-reader-overlay-bg: rgba(15, 23, 42, 0.8);
 }
 
-html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
-body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
-#biliscript-reading-view[data-theme="flyme"] {
+/* flyme × light：Flyme 浅色板。选择器按家族匹配、不带 theme，故同时命中 flyme
+ * 的明暗两档；动效曲线只在此块覆写——它是 flyme 档唯一来源，后面的 flyme
+ * 深色块只换色板，ease-spring / ease-bounce 从本块继承。 */
+html[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
+body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
+#biliscript-reading-view[data-family="flyme"] {
   --biliscript-reader-surface: #f2f3f5;
   /* surface-2/3：Flyme 无二级页面底色，取文档的输入框底 #f0f1f3 作凹陷井，
    * 再深一档 #e9ebef 作选中/按压井（推导值，同族中性灰）。 */
@@ -216,11 +223,50 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
   --biliscript-reader-ease-bounce: cubic-bezier(0.3, 1.2, 0.4, 1);
 }
 
+/* flyme × dark：Flyme 深色板。family+theme 双属性选择器比上面的
+ * [data-biliscript-reader-theme="dark"] 块多带一个属性，特异性更高，故覆写它
+ * 对 flyme+dark 的命中；动效曲线不在此块出现——从 flyme 浅色块继承。 */
+html[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][data-biliscript-reader-theme="dark"],
+body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][data-biliscript-reader-theme="dark"],
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] {
+  /* Flyme 深色三层：页面 #101114 / 卡片·列表组 #1B1C20 / 输入框底 #222327
+   * （design-tokens.md 背景层表）。层级靠分层灰，不靠投影。 */
+  --biliscript-reader-surface: #101114;
+  --biliscript-reader-surface-2: #1b1c20;
+  --biliscript-reader-surface-3: #222327;
+  --biliscript-reader-card: #1b1c20;
+  --biliscript-reader-border: rgba(255, 255, 255, 0.12);
+  --biliscript-reader-text: #ecedef;
+  --biliscript-reader-muted: #9ca0a8;
+  --biliscript-reader-faint: #6a6e76;
+  --biliscript-reader-accent: #3d9bff;
+  --biliscript-reader-accent-soft: rgba(61, 155, 255, 0.16);
+  /* accent-ink 按对比度定：#3d9bff 实底上白字只有 2.9:1（连 3:1 都不够，
+   * 与 light 档白字 accent-ink 的处境相反），故取与页面同色的深墨 #101114
+   * ——6.6:1，远超 4.5:1。 */
+  --biliscript-reader-accent-ink: #101114;
+  --biliscript-reader-pill-bg: #222327;
+  --biliscript-reader-highlight: rgba(255, 159, 10, 0.14);
+  --biliscript-reader-track: rgba(236, 237, 239, 0.18);
+  /* danger 保留深色亮档纪律（#d93025 的亮档 + 提亮 soft），不随换底改。 */
+  --biliscript-reader-danger: #f2555a;
+  --biliscript-reader-danger-soft: rgba(242, 85, 90, 0.2);
+  /* 零阴影（Flyme「深色零阴影」）：先确认消费方用法——--biliscript-reader-shadow
+   * 的 9 处消费（reader.css 面板族/设置抽屉/编辑 Modal/解释卡 4 处、
+   * reader-chat.css 气泡卡 2 处、reader-settings-providers.css 2 处、本文件
+   * 浮层降级段 1 处）全部是独立的 `box-shadow: var(--biliscript-reader-shadow);`
+   * 单值声明，没有跟其他阴影拼成多重列表，故 none 合法且不牵连任何别的阴影。 */
+  --biliscript-reader-shadow: none;
+  --biliscript-reader-header-bg: rgba(16, 17, 20, 0.72);
+  --biliscript-reader-overlay-bg: rgba(16, 17, 20, 0.8);
+}
+
 /* ===== 减弱透明度 =====
  * 半透明材质（header/设置抽屉）退回近实色：退回值即 surface 令牌（var 引用，
- * 三档各自跟随），消费方（reader.css / reader-settings-shell.css）只需各自关掉
- * backdrop-filter。 */
+ * 四色板各自跟随），消费方（reader.css / reader-settings-shell.css）只需各自
+ * 关掉 backdrop-filter。 */
 @media (prefers-reduced-transparency: reduce) {
+  /* bilibili × light：基础块，无属性选择器 */
   html[data-biliscript-reader-mode="1"],
   body[data-biliscript-reader-mode="1"],
   #biliscript-reading-view {
@@ -228,6 +274,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
   }
 
+  /* bilibili × dark */
   html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   #biliscript-reading-view[data-theme="dark"] {
@@ -235,9 +282,11 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
   }
 
-  html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
-  body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="flyme"],
-  #biliscript-reading-view[data-theme="flyme"] {
+  /* flyme 明暗两档：按 family 一条覆盖即可——退回值是 var(--...-surface)，
+   * 两档各自解析到自己的 surface，无需再分一条深色规则。 */
+  html[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
+  body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
+  #biliscript-reading-view[data-family="flyme"] {
     --biliscript-reader-header-bg: var(--biliscript-reader-surface);
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
   }
