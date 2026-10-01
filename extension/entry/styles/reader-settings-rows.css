@@ -376,30 +376,3 @@
   height: 8px;
   stroke-width: 3;
 }
-
-/* 隐藏 select（custom-select 接管后）：会被设置宿主与 Modal 的高优先级规则
- * 压掉尺寸/描边，后两条再补回被压属性——隐藏不依赖 clip 兜底。 */
-#biliscript-reading-view .custom-select-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  min-width: 0;
-  padding: 0;
-  margin: -1px;
-  border: 0;
-  background: transparent;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .custom-select-hidden,
-#biliscript-reading-view .provider-editor-dialog .custom-select-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  min-width: 0;
-  padding: 0;
-  margin: -1px;
-  border: 0;
-  background: transparent;
-}

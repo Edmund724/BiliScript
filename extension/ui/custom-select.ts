@@ -108,12 +108,12 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
 
   select.parentElement!.insertBefore(wrapper, select);
   wrapper.appendChild(select);
-  select.classList.add("custom-select-hidden");
-  // 视觉隐藏（1px + overflow）不等于退出无障碍树：不摘 Tab 序、不 aria-hidden
-  // 就会留下一个看不见的可聚焦控件——它在 DOM 里排在 trigger 之前，Tab 会先停上去，
-  // 读屏也会把同一设置念两遍。值源与 collect* 系列照读 .value，不受影响。
-  select.tabIndex = -1;
-  select.setAttribute("aria-hidden", "true");
+  // 隐藏用内联样式：内联样式不进选择器特异性比较（只有宿主 !important 能压过），
+  // 无需再跟宿主里 100%×32px 的原生 select 规则打特异性战争——旧的 1px 视觉隐藏靠
+  // 提权补偿规则续命，CSS 拆分时丢一次就把原生 select 盖回 trigger 上。
+  // display:none 天然退出无障碍树与 Tab 序，tabIndex / aria-hidden 由此冗余；
+  // select 仍是值源，collect* 系列按 id 读 .value，不受影响。
+  select.style.display = "none";
   wrapper.appendChild(trigger);
   wrapper.appendChild(dropdown);
 

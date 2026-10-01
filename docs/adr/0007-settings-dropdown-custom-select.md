@@ -12,7 +12,7 @@
 ## 后果
 
 - 原生 select 仍是值源与收集链：`collect*` 系列照读 `select.value`，组件写回值并派生 bubbling `change`，收集与校验逻辑零改。
-- 隐藏正确性依赖 03 的提权规则：`.custom-select-hidden` 的尺寸/描边由宿主前置规则覆盖回，不依赖 clip 兜底；新增下拉来路必须落在带该提权的选择器域内。
+- 隐藏由组件置内联样式 `select.style.display = "none"`：内联样式不进特异性比较（只有宿主 `!important` 能压过），隐藏不再依赖任何 CSS 规则的特异性，原「依赖 03 提权规则」的约束随之失效。
 - 页面上多一份非原生控件的 a11y 维护责任：键盘与 ARIA 语义收在 `custom-select.ts` 单文件内，三处调用点（下载格式、Modal ASR 预设、段落位置）共用；模型选择不套本方案——它是可输入的 combobox 语义，硬套 listbox 会误导读屏。
 - 校验失败的 `input-error` 与焦点落在组件壳（`.custom-select-trigger`）上，原生 select 已被隐藏，直接标错会掉 1px 黑洞。
 
