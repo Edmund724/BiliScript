@@ -6,7 +6,7 @@
 // offscreen 一律按「响应头 → 正文分片 → done」分块回吐，content 侧合成带
 // ReadableStream body 的标准 Response——非流式调用方（.json()/.text()）行为不变，
 // 流式调用方（response.body.getReader()）拿增量。SW 代发的 15s 超时
-//（provider-http.ts:56）与 MV3 service worker 生命周期都不适用；offscreen 是
+//（provider-http.ts:72）与 MV3 service worker 生命周期都不适用；offscreen 是
 // 扩展源、不过网页 CORS 预检（ModelScope 的 Anthropic 端点拒 anthropic-version /
 // x-api-key 预检头即此因）。
 //

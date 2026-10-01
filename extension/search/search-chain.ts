@@ -17,6 +17,9 @@
 // （now 由调用方注入）；Key 只经返回值中转，不进日志。执行器只经 deps.fetchImpl →
 // provider-http 出网。
 import { type SearchProviderPreset, type SearchProviderType } from "../core/presets.js";
+// 中止形状单源在 core/provider-http-shared.ts 的 makeAbortError（tool-loop 据
+// name 判中止），与两条平台请求代发通道共用。
+import { makeAbortError } from "../core/provider-http-shared.js";
 import { type SearchMode } from "../core/search-mode.js";
 import { normalizeSearchProviderOrder, providerOrderRank } from "./search-order.js";
 import { executeWebSearch } from "./search-executor.js";
@@ -231,13 +234,6 @@ export function classifySearchFailure(error: unknown): SearchFailureClass {
   return "other";
 }
 
-// 中止形状与 provider-http 的 makeAbortError 一致（tool-loop 据 name 判中止）。
-function makeSearchAbortError(): Error {
-  const error = new Error("请求已中止");
-  error.name = "AbortError";
-  return error;
-}
-
 function isAbortError(error: unknown): boolean {
   return (
     (error as { aborted?: unknown } | null | undefined)?.aborted === true ||
@@ -298,7 +294,7 @@ export async function executeSearchChain(
 ): Promise<SearchChainOutcome> {
   const externalSignal = deps.signal ?? null;
   if (externalSignal?.aborted) {
-    throw makeSearchAbortError();
+    throw makeAbortError();
   }
   const execute = deps.execute ?? defaultChainExecute(deps);
   const nowMs = deps.nowMs ?? Date.now;
@@ -337,7 +333,7 @@ export async function executeSearchChain(
 
   const run = async (): Promise<SearchChainOutcome> => {
     for (let index = 0; index < candidates.length; index += 1) {
-      if (externalSignal?.aborted) throw makeSearchAbortError();
+      if (externalSignal?.aborted) throw makeAbortError();
       const presetId = candidates[index].provider.presetId;
       const startedAt = nowMs();
       try {
@@ -358,7 +354,7 @@ export async function executeSearchChain(
         failures.push(classifySearchFailure(error));
       }
     }
-    if (externalSignal?.aborted) throw makeSearchAbortError();
+    if (externalSignal?.aborted) throw makeAbortError();
     throw createSearchChainError(failures, lastError, budgetExpired);
   };
 

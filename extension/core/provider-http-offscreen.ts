@@ -2,7 +2,7 @@
 // 概览链的平台请求代发：content script 发起 → offscreen 文档执行
 //（overview-offscreen-transport）。与 core/provider-http.ts（content → service
 // worker 代发）同形，差别在「谁来发这一跳 + 超时/取消策略 + 回吐形态」：
-// - SW 代发硬编码 15s 超时（provider-http.ts:56）且有 MV3 service worker 生命
+// - SW 代发硬编码 15s 超时（provider-http.ts:72）且有 MV3 service worker 生命
 //   周期上限，服务的是探针/选区解释这类短请求；
 // - 概览是分钟级长请求，宿主取 offscreen（entry/offscreen.ts 头注：长 AI 请求
 //   的既定宿主）。扩展源 fetch 只受 host 权限约束，**不过网页 CORS 预检**——
@@ -18,6 +18,8 @@
 // - 发送端 providerFetchViaOffscreen 在 content script 里跑，合成标准 Response；
 // - 接收端 attachProviderHttpPort 在 offscreen 里跑。一请求一端口（概览分段路径
 //   有并发，免 id 关联；端口断连即 abort 在飞请求），对齐 asr-decode 一任务一端口。
+// 传输层的公共件（URL / Headers / 中止形状 / 接收端预检与 fetch init / 出向载荷）
+// 单源在 core/provider-http-shared.ts，与 SW 代发共用。
 //
 // host 权限预检在 content 侧做（offscreen 只有 chrome.runtime，没有
 // chrome.permissions，见 host-permissions.ts 对 content 侧的同款记录）：经
@@ -31,6 +33,15 @@
 
 import { safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
 import { extractOriginFromBaseUrl, hasHostPermissionViaBackground, HOST_PERMISSION_HINT } from "./host-permissions.js";
+import {
+  buildProviderFetchInit,
+  buildProviderRequestPayload,
+  errorText,
+  isRequestAborted,
+  makeAbortError,
+  normalizeResponseStatus,
+  resolveRequestTarget
+} from "./provider-http-shared.js";
 import type {
   OffscreenProviderHttpPortMessage,
   OffscreenProviderHttpPortReply
@@ -56,20 +67,15 @@ export async function providerFetchViaOffscreen(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
-  const url =
-    typeof input === "string" ? input : input instanceof URL ? input.href : String(input?.url || "");
-  const headers: Record<string, string> = {};
-  new Headers(init?.headers).forEach((value, key) => {
-    headers[key] = value;
-  });
+  const payload = buildProviderRequestPayload(input, init);
   // 已中止时不发消息（调用方已不关心结果，白跑一趟 offscreen 无意义）
-  if (init?.signal?.aborted) {
+  if (isRequestAborted(init?.signal)) {
     throw makeAbortError();
   }
   // host 权限预检（content 语境经 SW 代查）：未授权时连 offscreen 文档都不必建，
   // 更不发注定失败的跨域请求。文案与 SW 代发通道一致（completion 包装后成
   // 「网络错误：<HOST_PERMISSION_HINT>」落进概览错误条）。
-  if (!(await hasHostPermissionViaBackground(url))) {
+  if (!(await hasHostPermissionViaBackground(payload.url))) {
     throw new Error(HOST_PERMISSION_HINT);
   }
 
@@ -79,17 +85,7 @@ export async function providerFetchViaOffscreen(
   await sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null);
 
   const port = chrome.runtime.connect({ name: PROVIDER_HTTP_OFFSCREEN_PORT_NAME });
-  return openProviderStream(
-    port,
-    {
-      action: "provider-http",
-      url,
-      method: String(init?.method || "GET"),
-      headers,
-      body: typeof init?.body === "string" ? init.body : undefined
-    },
-    init?.signal
-  );
+  return openProviderStream(port, { action: "provider-http", ...payload }, init?.signal);
 }
 
 // 打开一次代发请求：首条回吐（响应头 / 失败）落定 promise，其后的分片写入
@@ -177,7 +173,7 @@ function openProviderStream(
       if (!settled) {
         // 响应头到达即落定：非流式调用方据此读 status/text，流式调用方开始读 body。
         settled = true;
-        resolve(new Response(stream, { status: Number(reply.status) || 200 }));
+        resolve(new Response(stream, { status: normalizeResponseStatus(reply.status) }));
         return;
       }
       if (streamDone) {
@@ -204,14 +200,6 @@ function openProviderStream(
     signal?.addEventListener("abort", onAbort, { once: true });
     port.postMessage(payload);
   });
-}
-
-// 中止即拒绝（name="AbortError"，与浏览器 fetch 的中止形状一致）：completion 的
-// fetch 失败分支按名字识别中止，转 makeAbortedError 让调用方静默丢弃。
-function makeAbortError(): Error {
-  const error = new Error("请求已中止");
-  error.name = "AbortError";
-  return error;
 }
 
 // ===== 接收端（offscreen 域）=====
@@ -253,19 +241,17 @@ async function forwardProviderRequest(
   message: OffscreenProviderHttpPortMessage,
   signal: AbortSignal
 ): Promise<void> {
-  const target = String(message.url || "").trim();
-  if (!extractOriginFromBaseUrl(target)) {
+  const target = resolveRequestTarget(message.url, extractOriginFromBaseUrl);
+  if (!target) {
     safePostMessage(port, { ok: false, error: "请求地址不合法" });
     return;
   }
   let resp: Response;
   try {
-    resp = await fetch(target, {
-      method: String(message.method || "GET"),
-      headers: message.headers,
-      body: message.body == null ? undefined : message.body,
-      signal
-    });
+    resp = await fetch(
+      target,
+      buildProviderFetchInit({ method: message.method, headers: message.headers, body: message.body }, signal)
+    );
   } catch (error) {
     safePostMessage(port, { ok: false, error: errorText(error) });
     return;
@@ -302,8 +288,4 @@ async function forwardProviderRequest(
     return;
   }
   safePostMessage(port, { ok: true, status: resp.status, done: true });
-}
-
-function errorText(error: unknown): string {
-  return (error as Error | undefined)?.message || String(error);
 }

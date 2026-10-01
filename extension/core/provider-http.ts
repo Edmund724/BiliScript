@@ -10,10 +10,21 @@
 // 同款组织）：
 // - 接收端 handleProviderHttpRequest 在 SW 里跑（entry/background.ts 路由）；
 // - 发送端 providerFetchViaBackground 在 content script 里跑，合成标准 Response。
+// 传输层的公共件（URL / Headers / 中止形状 / 接收端预检与 fetch init / 出向载荷）
+// 单源在 core/provider-http-shared.ts，与 offscreen 代发共用。
 
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { withTimeout } from "../shared/error-helpers.js";
 import { extractOriginFromBaseUrl, HOST_PERMISSION_HINT, hasHostPermission } from "./host-permissions.js";
+import {
+  buildProviderFetchInit,
+  buildProviderRequestPayload,
+  errorText,
+  isRequestAborted,
+  makeAbortError,
+  normalizeResponseStatus,
+  resolveRequestTarget
+} from "./provider-http-shared.js";
 
 export interface ProviderHttpRequestMessage {
   url?: string;
@@ -39,8 +50,8 @@ export async function handleProviderHttpRequest({
   headers,
   body
 }: ProviderHttpRequestMessage): Promise<ProviderHttpRequestResult> {
-  const target = String(url || "").trim();
-  if (!extractOriginFromBaseUrl(target)) {
+  const target = resolveRequestTarget(url, extractOriginFromBaseUrl);
+  if (!target) {
     return { ok: false, error: "请求地址不合法" };
   }
   if (!(await hasHostPermission(target))) {
@@ -54,12 +65,7 @@ export async function handleProviderHttpRequest({
   try {
     const { status, body: responseText } = await withTimeout(
       (async () => {
-        const resp = await fetch(target, {
-          method: String(method || "GET"),
-          headers,
-          body: body == null ? undefined : body,
-          signal: controller.signal
-        });
+        const resp = await fetch(target, buildProviderFetchInit({ method, headers, body }, controller.signal));
         // 响应体以文本回传（探针只读状态码与报错正文；流式响应不走本通道）
         return { status: resp.status, body: await resp.text() };
       })(),
@@ -73,7 +79,7 @@ export async function handleProviderHttpRequest({
     if (error === timeoutError) {
       controller.abort();
     }
-    return { ok: false, error: (error as Error | undefined)?.message || String(error) };
+    return { ok: false, error: errorText(error) };
   }
 }
 
@@ -87,32 +93,18 @@ export async function handleProviderHttpRequest({
 // makeAbortedError（解释卡片换选区/关闭时的中止路径）。已在飞的 SW 请求无法
 // 撤回（消息无取消通道），取消只作用于本端等待——请求会安静跑完并被丢弃。
 export async function providerFetchViaBackground(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const url =
-    typeof input === "string" ? input : input instanceof URL ? input.href : String(input?.url || "");
-  const headers: Record<string, string> = {};
-  new Headers(init?.headers).forEach((value, key) => {
-    headers[key] = value;
-  });
+  const payload = buildProviderRequestPayload(input, init);
   // 已中止时不发消息（中止意味着调用方已不关心结果，白跑一趟 SW 无意义）
-  if (init?.signal?.aborted) {
+  if (isRequestAborted(init?.signal)) {
     throw makeAbortError();
   }
-  const resp = await raceWithAbort(
-    sendRuntimeMessage({
-      type: "provider-http",
-      url,
-      method: String(init?.method || "GET"),
-      headers,
-      body: typeof init?.body === "string" ? init.body : undefined
-    }),
-    init?.signal
-  );
+  const resp = await raceWithAbort(sendRuntimeMessage({ type: "provider-http", ...payload }), init?.signal);
   if (!resp?.ok) {
     // 抛出的 message 经 completion 的网络错误包装后落到探针的
     //「无法连接：<message>」文案（与本地 fetch 抛错同形）。
     throw new Error(resp?.error || "请求失败");
   }
-  return new Response(resp.body ?? "", { status: Number(resp.status) || 200 });
+  return new Response(resp.body ?? "", { status: normalizeResponseStatus(resp.status) });
 }
 
 // 中止即拒绝（name="AbortError"，与浏览器 fetch 的中止形状一致）：已中止的
@@ -129,10 +121,4 @@ function raceWithAbort<T>(pending: Promise<T>, signal?: AbortSignal | null): Pro
     signal.addEventListener("abort", onAbort, { once: true });
     pending.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
   });
-}
-
-function makeAbortError(): Error {
-  const error = new Error("请求已中止");
-  error.name = "AbortError";
-  return error;
 }
