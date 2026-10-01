@@ -177,7 +177,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
 
     expect(outcome.platform).toBe("Tavily");
     expect(outcome.results[0]).toEqual({ title: "t2", url: "u2", snippet: "c2" });
-    // 降级成功：downgradedFrom = 链首 provider.name（供批次③模型侧注记）
+    // 降级成功：downgradedFrom = 链首 provider.name（模型侧降级注记的输入）
     expect(outcome.downgradedFrom).toBe("Firecrawl");
     expect([sentHttpMessage(0).url, sentHttpMessage(1).url]).toEqual([
       "https://api.firecrawl.dev/v2/search",

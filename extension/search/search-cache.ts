@@ -128,9 +128,9 @@ export async function putSearchCacheEntry(
 }
 
 /**
- * 清空整张查询缓存（spec §6.7 撤回）：批次③在 SW 的两个既有入口
- * （save-settings 收到显式 webSearchEnabled === false、search-providers-delete）
- * 接线，本批只导出、不给消息族加 clear op。清空失败静默。
+ * 清空整张查询缓存（spec §6.7 撤回）：SW 的两个既有入口
+ * （save-settings 的 webSearchEnabled true→false、search-providers-delete）已接线，
+ * 不给消息族加 clear op。清空失败静默。
  */
 export async function clearSearchCache(): Promise<void> {
   try {

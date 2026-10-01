@@ -251,7 +251,14 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         const reason = String((e as { message?: unknown })?.message ?? e);
         toolContent = `搜索失败：${reason}`;
         onToolStatus?.({ status: "failed", query });
-        onNotice?.(`联网搜索失败：${reason}`);
+        // 终态文案（spec §6.4）：额度类错误的 message 已是终态句（链的
+        // SEARCH_QUOTA_MESSAGE，带 searchFailureClass: "quota"），套前缀会二包；
+        // 其余类（含鉴权）维持既有「联网搜索失败：<原因>」形态。
+        onNotice?.(
+          (e as { searchFailureClass?: unknown })?.searchFailureClass === "quota"
+            ? reason
+            : `联网搜索失败：${reason}`
+        );
       }
       toolMessages.push({ role: "tool", tool_call_id: call.id, content: toolContent });
     }

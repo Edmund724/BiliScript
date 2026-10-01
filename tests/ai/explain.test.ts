@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import type { ToolStatusPayload } from "../../extension/ai/tool-loop.js";
+import { SEARCH_QUOTA_MESSAGE } from "../../extension/search/search-chain.js";
 
 // chatCompletion 替身：非流式返回文本，工具轮返回 tool_calls 结果对象
 // （返回类型放宽到 any——mockResolvedValueOnce 两种形态都要能塞进去）。
@@ -223,7 +224,7 @@ describe("explainSelection", () => {
     expect(notices).toEqual([]);
   });
 
-  it("联网链搜索失败降级：「搜索失败」tool 消息 + notice，回答不中断", async () => {
+  it("联网链搜索失败降级（其余类）：「搜索失败」tool 消息 + notice，回答不中断", async () => {
     completionMock.chatCompletion
       .mockResolvedValueOnce({
         done: true,
@@ -242,7 +243,9 @@ describe("explainSelection", () => {
       webSearch: {
         maxToolCalls: 2,
         executeSearch: async () => {
-          throw new Error("HTTP 429");
+          // 夹具用其余类（HTTP 503）——429 已归额度类（spec §6.4 第 ① 行），
+          // 本用例锁的是「解释链与工具链 notice 同形」这条不变量。
+          throw new Error("HTTP 503");
         }
       },
       onSearchStatus: (p) => statuses.push(p),
@@ -252,10 +255,53 @@ describe("explainSelection", () => {
     expect(text).toBe("解释");
     const second = completionMock.chatCompletion.mock.calls[1][0];
     expect(second.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ role: "tool", tool_call_id: "call_1", content: expect.stringContaining("搜索失败：HTTP 429") })
+      expect.objectContaining({ role: "tool", tool_call_id: "call_1", content: expect.stringContaining("搜索失败：HTTP 503") })
     ]));
     expect(statuses.at(-1)!.status).toBe("failed");
-    expect(notices).toEqual([expect.stringContaining("联网搜索失败")]);
+    expect(notices).toEqual(["联网搜索失败：HTTP 503"]);
+  });
+
+  it("联网链额度类终态：notice 为额度句原文（与工具链同形，不加前缀）", async () => {
+    completionMock.chatCompletion
+      .mockResolvedValueOnce({
+        done: true,
+        finishReason: "tool_calls",
+        assistantContent: "",
+        toolCalls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"术语"}' } }]
+      })
+      .mockResolvedValueOnce("解释");
+    const statuses: ToolStatusPayload[] = [];
+    const notices: string[] = [];
+    const text = await explain.explainSelection({
+      provider: { baseUrl: "https://api.test/v1", apiKey: "sk", model: "m" },
+      selection: "术语",
+      line: "句",
+      from: 0,
+      webSearch: {
+        maxToolCalls: 2,
+        // 回退链整链无果且额度类在列时的错误形状（search/search-chain.ts）：message
+        // 已是终态额度句，searchFailureClass === "quota"。
+        executeSearch: async () => {
+          throw Object.assign(new Error(SEARCH_QUOTA_MESSAGE), { searchFailureClass: "quota" });
+        }
+      },
+      onSearchStatus: (p) => statuses.push(p),
+      onNotice: (n) => notices.push(n)
+    });
+
+    expect(text).toBe("解释");
+    const second = completionMock.chatCompletion.mock.calls[1][0];
+    expect(second.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "tool",
+        tool_call_id: "call_1",
+        // tool 内容维持「搜索失败：<reason>」形态（§10 第 48 行）
+        content: `搜索失败：${SEARCH_QUOTA_MESSAGE}`
+      })
+    ]));
+    expect(statuses.at(-1)!.status).toBe("failed");
+    // notice 原文即额度句，不套「联网搜索失败：」前缀
+    expect(notices).toEqual([SEARCH_QUOTA_MESSAGE]);
   });
 
   it("联网变体提示词：允许 web_search 核实 + 依据口径收口（纯函数）", () => {

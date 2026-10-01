@@ -20,6 +20,7 @@ import type { ChatMessage } from "../../extension/ai/types.js";
 import type { ChatToolDefinition } from "../../extension/ai/protocol-adapter.js";
 import {
   executeSearchChain,
+  SEARCH_QUOTA_MESSAGE,
   type SearchChainCandidate
 } from "../../extension/search/search-chain.js";
 
@@ -457,13 +458,31 @@ describe("回退链 × 工具链接缝", () => {
     }));
 
     expect(capture.notices).toEqual(["联网搜索失败：HTTP 500"]);
+    // 其余类（含鉴权）与额度类的分界：这里不带 searchFailureClass，notice 仍是
+    // 「联网搜索失败：<原因>」形态，不落到额度终态句。
+    expect(capture.notices[0]).not.toBe(SEARCH_QUOTA_MESSAGE);
     expect(capture.statuses).toEqual([
       { status: "searching", query: "bilibili ai" },
       { status: "failed", query: "bilibili ai" }
     ]);
   });
 
-  it("整链无果且额度类在列：终态 notice 用 §6.4 额度文案（§10 第 44 行）", async () => {
+  it("整链无果且鉴权类在列：notice 沿用其余类文案（§6.4 第 ② 行不单开第三条）", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: (query) =>
+        executeSearchChain([CHAIN_TAVILY], query, {
+          execute: async () => {
+            throw httpError(401);
+          }
+        })
+    }));
+
+    expect(capture.notices).toEqual(["联网搜索失败：HTTP 401"]);
+  });
+
+  it("整链无果且额度类在列：终态 notice 用 §6.4 额度文案原文（§6.4 第 ① 行 / §10 第 44 行）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
       fetchImpl: capture.fetchImpl,
@@ -475,10 +494,11 @@ describe("回退链 × 工具链接缝", () => {
         })
     }));
 
-    expect(capture.notices).toHaveLength(1);
-    expect(capture.notices[0]).toContain(
-      "搜索额度已用尽：可稍后再试，或在设置中为搜索平台配置 API Key 提升额度"
-    );
+    // 额度句已是终态文案：不再套「联网搜索失败：」前缀（全等原文）。
+    expect(capture.notices).toEqual([SEARCH_QUOTA_MESSAGE]);
+    // tool 内容维持「搜索失败：<reason>」既有形状（§10 第 47/48 行），reason 即额度句。
+    const toolMessage = capture.calls[1].messages.find((m) => m.role === "tool")!;
+    expect(toolMessage.content).toBe(`搜索失败：${SEARCH_QUOTA_MESSAGE}`);
     expect(capture.statuses).toEqual([
       { status: "searching", query: "bilibili ai" },
       { status: "failed", query: "bilibili ai" }

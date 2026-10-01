@@ -1,7 +1,7 @@
 // search/search-chain.ts 测试（spec §1 S1/S3/S4、§3 落点表第 8 行）。
 // 覆盖 resolveSearchChain：进组判据（access × 有无 Key）、预设表序 + 链首排序、
 // 按记录 id 去重、脏 presetId / enabled 的保守排除、候选形状与纯函数不变式。
-// 另覆盖批次②的执行器面：classifySearchFailure 的三等映射（§6.4 / §10 第 44/45
+// 另覆盖执行器面：classifySearchFailure 的三等映射（§6.4 / §10 第 44/45
 // 行）、executeSearchChain 的顺序回退 / 失败静默保序 / 额度与其余两类终态文案 /
 // 链级预算 30s（§4 / §10 第 16 行）/ 调用方中止出口。时间一律走 fake timers 或
 // 注入桩，不测真实网络与墙钟（§10 非断言节）。
@@ -166,7 +166,7 @@ describe("resolveSearchChain 回退链解析", () => {
   });
 });
 
-// ===== 批次② 执行器面（spec §4 / §6.4 / §10 第 16、42–45 行）=====
+// ===== 执行器面（spec §4 / §6.4 / §10 第 16、42–45 行）=====
 
 const RESULT = { title: "t", url: "https://example.com", snippet: "s" };
 

@@ -175,7 +175,7 @@ describe("search-cache 叶容错与 clear（§5：缓存绝不影响回答）", 
     await expect(getSearchCacheEntry("q")).resolves.toBeNull();
   });
 
-  it("clearSearchCache 清空整键（批次③撤回接线用，本批只导出）", async () => {
+  it("clearSearchCache 清空整键（撤回入口已接线，见 entry/background.ts 两处）", async () => {
     stubLocalStorage();
     await putSearchCacheEntry("q", { results: [RESULT], platform: "Firecrawl" });
 

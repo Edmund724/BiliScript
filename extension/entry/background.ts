@@ -99,15 +99,20 @@ function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSende
     (async () => {
       // 显式取撤回判据（settings 是 unknown 线格式，落盘与失效各自照旧收口）
       const payload = (message.settings || {}) as { webSearchEnabled?: unknown };
+      // 撤回同意的主入口（spec §6.7 / §10 第 40 行）：只有 webSearchEnabled
+      // **从 true 变 false** 才是「关 pill」的撤回——content 侧整份
+      // state.settings 落盘时 pill 恒 false，按 payload === false 判会把与撤回
+      // 无关的保存误判成撤回。判据取**保存前**的快照值（判定用保存前的值，
+      // 失效顺序维持既有形态）；payload 不带该键、false→false、true→true 都不清。
+      const searchOptOut =
+        payload.webSearchEnabled === false && (await getSettingsSnapshot()).webSearchEnabled;
       await saveSettings(message.settings || {});
       // 写后 inline 失效：payload 键全集交给快照按键域映射（白名单外键自然
       // 落空）；onChanged 不在写入方上下文触发，这里必须显式失效。
       invalidateSettingsSnapshot(Object.keys(message.settings || {}));
-      // 撤回同意的主入口（spec §6.7 / §10 第 40 行）：关 pill 是显式
-      // webSearchEnabled === false 的保存——缓存里存着 query 哈希与结果，
-      // 撤回后本地继续留着说不通；清空失败静默（logWarn 同既有形态），
-      // 不因缓存清理失败阻断设置保存的回包。
-      if (payload.webSearchEnabled === false) {
+      if (searchOptOut) {
+        // 缓存里存着 query 哈希与结果，撤回后本地继续留着说不通；清空失败静默
+        // （logWarn 同既有形态），不因缓存清理失败阻断设置保存的回包。
         try {
           await clearSearchCache();
         } catch (error) {

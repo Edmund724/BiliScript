@@ -1,5 +1,5 @@
 // tests/ui/settings-panel-search.test.ts
-// 设置抽屉搜索节的免 Key 批次③文案与悬空链首提示：
+// 设置抽屉搜索节的免 Key 文案与悬空链首提示：
 // - spec §6.9 / §10：说明行承载 opt-in 常驻版（同一套词）、空态改六预设；
 // - spec §6.8：activeSearchProviderId 指向不存在记录时出现条件提示行
 //   「原选用平台已不可用，当前按默认链搜索」，用户改选即消失、不新增存储位。

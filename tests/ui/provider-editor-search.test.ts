@@ -1,5 +1,5 @@
 // tests/ui/provider-editor-search.test.ts
-// 搜索平台编辑 Modal 的两处免 Key 批次③契约：
+// 搜索平台编辑 Modal 的两处免 Key 契约：
 // - spec §6.3 / §10 第 31 行：Key 输入三态（占位符 + required）与预设 access 同源
 //   —— keyless 无 Key「API Key（可选）」+ required=false；keyless 有 Key「已保存」
 //   不 required；free-quota 无 Key「API Key」+ required；切预设 sync 与初始模板同源；

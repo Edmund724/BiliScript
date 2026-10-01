@@ -29,6 +29,9 @@ const TAB_SENDER = (id: number): MessageSender => ({ tab: { id }, url: "https://
 
 // storage.local 内存 fixture：查询缓存 handler 的落盘面要能读回（单键映射）。
 let localFixture: Record<string, unknown>;
+// storage.sync 内存 fixture：撤回判据「保存前的 webSearchEnabled 值」由此播种
+// （settings 快照读的旧值来源）。
+let syncFixture: Record<string, unknown>;
 
 function readFixture(fixture: Record<string, unknown>, keys: unknown): Record<string, unknown> {
   const requested = (
@@ -41,9 +44,10 @@ function readFixture(fixture: Record<string, unknown>, keys: unknown): Record<st
   return out;
 }
 
-async function importBackground() {
+async function importBackground(syncSeed: Record<string, unknown> = {}) {
   resetModuleState();
   localFixture = {};
+  syncFixture = { ...syncSeed };
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
@@ -67,7 +71,15 @@ async function importBackground() {
           for (const key of (Array.isArray(keys) ? keys : [keys]) as string[]) delete localFixture[key];
         })
       },
-      sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
+      sync: {
+        get: vi.fn(async (keys: unknown) => readFixture(syncFixture, keys)),
+        set: vi.fn(async (items: Record<string, unknown>) => {
+          Object.assign(syncFixture, items);
+        }),
+        remove: vi.fn(async (keys: unknown) => {
+          for (const key of (Array.isArray(keys) ? keys : [keys]) as string[]) delete syncFixture[key];
+        })
+      },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() }
     }
   });
@@ -187,8 +199,10 @@ describe("撤回同意：清空查询缓存（spec §6.7 / §10 第 40 行）", 
     );
   }
 
-  it("关 pill（save-settings 显式 webSearchEnabled:false）→ 整张缓存清空、随后读未命中", async () => {
-    const listener = await importBackground();
+  it("关 pill（保存前 true、payload 显式 false）→ 整张缓存清空、随后读未命中", async () => {
+    // 撤回判据收窄（spec §6.7）：只有「从 true 变 false」才是关 pill 的撤回，
+    // 旧值由 sync 里的 settings 播种。
+    const listener = await importBackground({ webSearchEnabled: true });
     await seedCacheEntry(listener, "bilibili ai");
 
     const saveResponse = vi.fn();
@@ -211,8 +225,29 @@ describe("撤回同意：清空查询缓存（spec §6.7 / §10 第 40 行）", 
     await expectCacheMiss(listener, "bilibili ai");
   });
 
-  it("其它设置变更（未显式传 webSearchEnabled:false）→ 缓存不动、仍命中", async () => {
-    const listener = await importBackground();
+  it("pill 已关（保存前 false）时整份 state.settings 落盘（payload 带 webSearchEnabled:false）→ 缓存不动、仍命中", async () => {
+    // content 侧整份 state.settings 落盘时 pill 恒 false：false→false 不是撤回。
+    const listener = await importBackground({ webSearchEnabled: false });
+    await seedCacheEntry(listener, "bilibili ai");
+
+    const saveResponse = vi.fn();
+    listener(
+      { type: "save-settings", settings: { webSearchEnabled: false, aiThinkingLevel: "high" } },
+      TAB_SENDER(7),
+      saveResponse
+    );
+    await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ ok: true }));
+
+    expect(localFixture[SEARCH_CACHE_KEY]).toBeTruthy();
+    const getResponse = vi.fn();
+    listener({ type: "search-cache", op: "get", query: "bilibili ai" }, TAB_SENDER(7), getResponse);
+    await vi.waitFor(() =>
+      expect(getResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true, hit: true }))
+    );
+  });
+
+  it("payload 不含 webSearchEnabled 键（pill 开着）→ 缓存不动、仍命中", async () => {
+    const listener = await importBackground({ webSearchEnabled: true });
     await seedCacheEntry(listener, "bilibili ai");
 
     const saveResponse = vi.fn();

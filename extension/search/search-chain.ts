@@ -78,7 +78,7 @@ export function resolveSearchChain(
   return ordered.map((entry) => entry.candidate);
 }
 
-// ===== 批次② 执行器（spec §4 / §6.4 / §3 落点表第 8 行②）=====
+// ===== 执行器（spec §4 / §6.4 / §3 落点表第 8 行②）=====
 
 // 链级预算（spec §4）：由链持有、按「单次搜索调用」计。算术依据 = 最坏现实成功
 // 路径「首家吃满 15s + 第二家正常 ≈5.5s」≈21s 必须容得下；无预算时最坏 6×15s=90s。
@@ -92,7 +92,8 @@ export const SEARCH_QUOTA_MESSAGE =
 export type SearchFailureClass = "quota" | "auth" | "other";
 
 // 首个成功即返回的产物：platform = 实际产出结果的引擎名；成功家不是链首时
-// downgradedFrom = 链首 provider.name（供批次③模型侧注记，本批不接线）。
+// downgradedFrom = 链首 provider.name（模型侧降级注记的输入，已接线于
+// ai/tool-loop.ts 的降级注记行）。
 export interface SearchChainOutcome {
   results: NormalizedSearchResult[];
   platform: string;

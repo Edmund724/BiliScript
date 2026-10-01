@@ -4,7 +4,7 @@
 // 删除报文 search-providers-delete。shared/messaging.js 整体 mock，避免拖入
 // content script 依赖图。
 //
-// 免 Key 批次③（spec §6.1/§6.2/§6.3）：
+// 免 Key（spec §6.1/§6.2/§6.3）：
 // - 状态点第三态 keyless（判据 = f(preset.access, hasSavedKey)），free-quota
 //   无 Key 恒 missing；
 // - 徽章「免 Key」×4 / 「免费额度」×2 挂在行内名字之后，free-quota 有 Key 时

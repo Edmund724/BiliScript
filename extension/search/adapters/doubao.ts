@@ -4,8 +4,8 @@
 // （Query/SearchType/Count/NeedSummary）。响应 Result.WebResults[].Title/.Url，
 // 摘要按 Summary → Content → Snippet 三级回退。额度与限流藏在 HTTP 200 信封
 // （ResponseMetadata.Error，按 Code/CodeN 双查，码可能是字符串）：命中即抛带
-// providerCode 的错，让链侧分类（本批只原样抛出，不做映射）。纯函数，零 Chrome
-// API / 零 DOM。
+// providerCode 的错，让链侧分类（search-chain.ts 的 classifySearchFailure；
+// 适配器只原样抛出，不做映射）。纯函数，零 Chrome API / 零 DOM。
 
 import {
   truncateSnippet,

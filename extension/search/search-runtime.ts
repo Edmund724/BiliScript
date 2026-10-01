@@ -14,7 +14,7 @@ import type { ResolveSearchProviderResponse } from "../shared/messaging-protocol
 
 // executeSearch 的产物面：results 用归一形状（对 ai/ladder 的 WebSearchRuntime 窄面
 // unknown[] 与 ai/explain 的 ToolLoopSearchOutcome 均结构兼容）；downgradedFrom 供
-// 批次③模型侧降级注记（本批只透传，不接线）。
+// 模型侧降级注记（透传至 ai/tool-loop.ts 的注记行）。
 export interface WebSearchRuntime {
   maxToolCalls: number;
   executeSearch: (query: string) => Promise<{
