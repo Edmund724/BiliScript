@@ -206,3 +206,89 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
     expect(document.activeElement).toBe(trigger);
   });
 });
+
+// 外部写值的收口（ADR-0007 修订）：组件此前只在选项被点时同步显示，外部直接写
+// select.value 不回流 trigger——真机现象是 Modal 预设切到 DeepSeek（协议默认
+// Anthropic），协议下拉的 trigger 仍写着「OpenAI Chat Completions」。修法是组件
+// 导出 setCustomSelectValue 作为外部写值唯一入口，与 chooseOption 共用同一条
+// 「写值 + 同步显示」路径，「显示 = 现值」由此成为组件内部不变式。
+describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
+  const bareMarkup =
+    '<label for="downloadFormat">下载格式</label>' +
+    '<select id="downloadFormat"><option value="srt">SRT</option><option value="txt">TXT</option></select>';
+
+  async function mountBareSelect() {
+    document.body.innerHTML = bareMarkup;
+    const select = document.getElementById("downloadFormat") as HTMLSelectElement;
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(select);
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    return {
+      select,
+      trigger: wrapper.querySelector<HTMLElement>(".custom-select-trigger")!,
+      options: Array.from(wrapper.querySelectorAll<HTMLElement>(".custom-select-option"))
+    };
+  }
+
+  it("init 后写值：trigger 文本、可访问名与选中态跟随现值", async () => {
+    const { setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
+    const { select, trigger, options } = await mountBareSelect();
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("SRT");
+
+    setCustomSelectValue(select, "txt");
+
+    expect(select.value).toBe("txt");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("TXT");
+    // 可访问名 = 字段标签 + 当前值：值文本更新后名字自动重算
+    expect(labelledbyText(trigger)).toBe("下载格式 TXT");
+    expect(options[1].getAttribute("aria-selected")).toBe("true");
+    expect(options[0].getAttribute("aria-selected")).toBe("false");
+    expect(options[1].dataset.selected).toBe("true");
+    expect(options[0].dataset.selected).toBe("false");
+  });
+
+  it("不派发 change：外部写值不是用户改选（水合不得触发即时保存）", async () => {
+    const { setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
+    const { select } = await mountBareSelect();
+    let changes = 0;
+    select.addEventListener("change", () => {
+      changes += 1;
+    });
+
+    setCustomSelectValue(select, "txt");
+
+    expect(select.value).toBe("txt");
+    expect(changes).toBe(0);
+  });
+
+  it("未初始化的 select：只写值不建壳，init 时按现值派生显示", async () => {
+    document.body.innerHTML = bareMarkup;
+    const select = document.getElementById("downloadFormat") as HTMLSelectElement;
+    const { initCustomSelect, setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
+
+    setCustomSelectValue(select, "txt");
+
+    expect(select.value).toBe("txt");
+    expect(select.closest(".custom-select-wrapper"), "未初始化时不应越界建壳").toBeNull();
+
+    initCustomSelect(select);
+    const trigger = select
+      .closest<HTMLElement>(".custom-select-wrapper")!
+      .querySelector<HTMLElement>(".custom-select-trigger")!;
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("TXT");
+  });
+
+  it("写未知 value 镜像原生：写入后实际值为空，显示从实际值派生且不抛错", async () => {
+    const { setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
+    const { select, trigger, options } = await mountBareSelect();
+
+    expect(() => setCustomSelectValue(select, "nope")).not.toThrow();
+
+    // 原生语义：赋不存在的值后实际 value 为 ""、selectedIndex 为 -1
+    expect(select.value).toBe("");
+    expect(select.selectedIndex).toBe(-1);
+    // 显示从写入后的实际值派生（与 init 同款：无选中项时文本回落首项、无选中态）
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("SRT");
+    expect(options.every((option) => option.getAttribute("aria-selected") === "false")).toBe(true);
+  });
+});

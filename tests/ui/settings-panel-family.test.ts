@@ -260,17 +260,20 @@ describe("设置抽屉「外观」分区：主题族下拉选中即生效（不�
     });
     const host = await mountPanel();
     const select = await waitForCustomSelect(host, "readerThemeFamily");
+    const trigger = select.closest<HTMLElement>(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-trigger")!;
     expect(select.value).toBe("flyme");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Flyme");
     expect(saveMessages(sent)).toEqual([]);
 
     // 抽屉二次打开：loadSettings 再跑一轮（select 已接管，initCustomSelect 幂等），
-    // 这轮程序化写值同样不得被当成用户改选。
+    // 这轮程序化写值同样不得被当成用户改选；显示同样从现值派生（不滞留旧值）。
     const panel = await import("../../extension/ui/settings-panel.js");
     panel.renderReaderSettingsPanel();
     await vi.waitFor(() => {
       expect(sent.filter((message) => message.type === "search-providers-list").length).toBe(2);
     });
     expect(select.value).toBe("flyme");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Flyme");
     expect(saveMessages(sent)).toEqual([]);
   });
 });
@@ -286,5 +289,35 @@ describe("设置抽屉下拉的统一挂载口径（水合值 → trigger 显示
     const trigger = select.closest<HTMLElement>(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-trigger")!;
     expect(select.value).toBe("txt");
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("TXT");
+  });
+
+  it("恢复默认偏好：trigger 跟随默认值（重置写值后显示随之派生）", async () => {
+    let resetSaved = false;
+    installMessageBus({
+      // 重置前存量值是 flyme；重置落盘后按默认值读取（模拟后台已写入默认）
+      "get-settings": () => ({ ok: true, settings: resetSaved ? {} : { readerThemeFamily: "flyme" } }),
+      "save-settings": () => {
+        resetSaved = true;
+        return { ok: true };
+      }
+    });
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "readerThemeFamily");
+    const trigger = select.closest<HTMLElement>(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-trigger")!;
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Flyme");
+
+    fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
+    fireClick(
+      await vi.waitFor(() => {
+        const node = document.querySelector(".confirm-dialog-confirm");
+        if (!node) throw new Error("确认弹层未打开");
+        return node;
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(select.value).toBe("bilibili");
+    });
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Bilibili");
   });
 });

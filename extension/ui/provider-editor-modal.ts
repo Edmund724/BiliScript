@@ -22,7 +22,7 @@ import { classifySearchFailure } from "../search/search-chain.js";
 import { searchProviderStore } from "../search/search-provider-store.js";
 import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { buildModelPickerField, wireModelPicker } from "./model-picker.js";
-import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
+import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
@@ -650,7 +650,8 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
         draft.protocol = presetProtocol(next);
       }
       if (protocolSelect) {
-        protocolSelect.value = draft.protocol;
+        // 经组件入口写值：裸写 select.value 不会回流 trigger 显示（协议下拉已换壳）
+        setCustomSelectValue(protocolSelect, draft.protocol);
       }
       syncProtocolNotes(draft.protocol);
       const previousBaseUrl = previous ? presetBaseUrlForProtocol(previous, draft.protocol) : "";

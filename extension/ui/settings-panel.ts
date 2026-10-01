@@ -46,7 +46,7 @@ import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
-import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
+import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
@@ -233,14 +233,14 @@ function setStatus(elements: SettingsElements, text: unknown, isError = false): 
 async function loadSettings(elements: SettingsElements): Promise<void> {
   await ensurePresetsLoaded();
   const settings = await getSettings();
-  elements.readerThemeFamily.value = normalizeReaderThemeFamily(settings.readerThemeFamily);
-  elements.downloadFormat.value = normalizeDownloadFormat(settings.downloadFormat);
-  // ADR-0007 两个下拉的挂载点必须在「水合之后」：initCustomSelect 初始化时读一次
-  // select.value 生成 trigger 显示值，此后外部写 select.value 不会回流 trigger（组件
-  // 只在自己选项被点时同步）。挂在 bindSettingsEvents（水合之前）会让 trigger 显示
-  // 模板默认项——存量值是 flyme / txt 时抽屉里却写着 Bilibili / SRT。口径与
-  // provider-editor-modal 一致（那份模板先用 selected 把值定死，再 initCustomSelect）。
-  // 初始化标记（dataset.customSelectInitialized）使重复装载幂等。
+  // ADR-0007：两个下拉的显示从原生 select 现值派生——initCustomSelect 建壳时读一次，
+  // 此后每次外部写值经 setCustomSelectValue 重新派生（与组件内选项点击同一条路径）。
+  // 挂载点因此不再有「必须在写值之后」的约束：setCustomSelectValue 对未初始化的
+  // select 只写值，先挂壳后水合也显示现值。口径与 provider-editor-modal 一致（那份
+  // 模板先用 selected 把值定死，再 initCustomSelect）。初始化标记
+  // （dataset.customSelectInitialized）使重复装载幂等。
+  setCustomSelectValue(elements.readerThemeFamily, normalizeReaderThemeFamily(settings.readerThemeFamily));
+  setCustomSelectValue(elements.downloadFormat, normalizeDownloadFormat(settings.downloadFormat));
   initCustomSelect(elements.readerThemeFamily, "custom-select-wrapper");
   initCustomSelect(elements.downloadFormat, "custom-select-wrapper");
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;

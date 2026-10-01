@@ -5,6 +5,20 @@
 
 let customSelectSeq = 0;
 
+// 已初始化 select 的「按现值重派生显示」函数（initCustomSelect 建壳时登记）：
+// 未初始化的 select 查不到，外部写值退化为裸写原生 select。
+const displaySyncs = new WeakMap<HTMLSelectElement, () => void>();
+
+// 外部写值的唯一入口（ADR-0007 修订）：与 chooseOption 共用同一条「写值 + 同步
+// 显示」路径，「显示 = 现值」由此成为组件内部不变式。不 dispatch change——水合
+// 是程序化写值，派发会被即时保存监听（readerThemeFamily 的 change 即落盘）误判成
+// 用户改选；change 只属于用户选中。未初始化的 select 只写值：initCustomSelect
+// 随后按现值派生显示，故「先写值后初始化」与「先初始化后写值」同一条路径。
+export function setCustomSelectValue(select: HTMLSelectElement, value: string): void {
+  select.value = value;
+  displaySyncs.get(select)?.();
+}
+
 // 关闭全部下拉并同步 aria-expanded（外点关闭委托与组件内切换共用，避免
 // hidden 复位了 aria 没复位）
 export function closeAllCustomSelects(except?: HTMLElement): void {
@@ -132,6 +146,25 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
     option.setAttribute("aria-selected", "true");
   };
 
+  // 显示是「原生 select 现值」的投影：文本与选中态都从写入后的实际 select.value
+  // 派生（同值多选项取首个，与原生写值的选中规则一致），chooseOption 与外部
+  // setCustomSelectValue 共用此路径。值不在选项里时镜像原生——写未知值时原生已
+  // 把实际值变为 ""，这里随之无选中项、文本按 init 同款回落首项，不另造兜底。
+  const syncDisplayFromValue = (): void => {
+    const option = optionNodes.find((o) => o.dataset.value === select.value);
+    if (option) {
+      valueSpan.textContent = option.textContent || "";
+      markSelected(option);
+      return;
+    }
+    valueSpan.textContent = optionNodes[0]?.textContent || "";
+    optionNodes.forEach((o) => {
+      o.dataset.selected = "false";
+      o.setAttribute("aria-selected", "false");
+    });
+  };
+  displaySyncs.set(select, syncDisplayFromValue);
+
   // 展开时收掉同族其它下拉（外点关闭委托只管 click，键盘路径在此自持）
   const openList = (): void => {
     closeAllCustomSelects(dropdown);
@@ -149,9 +182,7 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
   const chooseOption = (option: HTMLElement): void => {
     const value = option.dataset.value;
     if (value === undefined) return;
-    select.value = value;
-    valueSpan.textContent = option.textContent || "";
-    markSelected(option);
+    setCustomSelectValue(select, value);
     closeList(true);
     select.dispatchEvent(new Event("change", { bubbles: true }));
   };

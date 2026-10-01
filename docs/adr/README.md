@@ -12,7 +12,7 @@
 | [0004](0004-shadow-dom-boundary.md) | Shadow DOM 适用边界：不迁 | 裁决有效，但事实依据 2 已失效 | 见 ADR-0006 |
 | [0005](0005-state-bag-write-discipline.md) | 状态袋写纪律 | 有效 | 并入原 ADR-0011 |
 | [0006](0006-script-host-panel.md) | 阅读模式采用右栏 文摘面板 | 有效 | 取代整页接管路线 |
-| [0007](0007-settings-dropdown-custom-select.md) | 设置页下拉统一 custom-select | 有效 | 带重开条件；1 处修订：A1 出路被弹层外观否决、补 a11y 三处修复 |
+| [0007](0007-settings-dropdown-custom-select.md) | 设置页下拉统一 custom-select | 有效 | 带重开条件；2 处修订：A1 出路被弹层外观否决、补 a11y 三处修复；外部写值收口 setCustomSelectValue（显示从现值派生）+ 调用点清单校正 |
 | [0008](0008-content-two-round-build.md) | content 两轮构建与双实例纪律 | 有效 | — |
 | [0009](0009-model-catalog-borrow-not-embed.md) | 模型目录只借 pi-ai 数据不内置运行时 | 有效 | — |
 | [0010](0010-overview-fetch-offscreen-relay.md) | 概览请求改由 offscreen 代发 | 有效 | 输出预算部分已由 ADR-0012 收口 |

@@ -500,6 +500,39 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
   });
 
 
+  // 真机 bug 复现路径：预设下拉走自定义壳（点击选项经 chooseOption 写值 + 派发
+  // change），change 处理器联动改的是 select.value——协议下拉的 trigger 显示滞留
+  // 旧值「OpenAI Chat Completions」，用户看到 A 而实际落盘 B。
+  it("经自定义下拉切到协议为 Anthropic 的预设：协议 trigger 显示与落盘值一致", async () => {
+    // 预设列表回落内置 PRESETS：deepseek 预设的协议默认 Anthropic
+    const { sent, host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
+    const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
+    const presetWrapper = presetSelect.closest<HTMLElement>(".custom-select-wrapper")!;
+    const protocolWrapper = protocolSelect.closest<HTMLElement>(".custom-select-wrapper")!;
+    const protocolShown = () => protocolWrapper.querySelector(".custom-select-value")!.textContent;
+    expect(protocolShown()).toBe("OpenAI Chat Completions");
+
+    // 用户路径：点开预设下拉 → 点 DeepSeek 选项
+    fireClick(presetWrapper.querySelector<HTMLElement>(".custom-select-trigger")!);
+    fireClick(presetWrapper.querySelector<HTMLElement>('.custom-select-option[data-value="deepseek"]')!);
+
+    expect(presetSelect.value).toBe("deepseek");
+    expect(protocolSelect.value, "切预设应联动 draft.protocol").toBe("anthropic");
+    expect(protocolShown(), "协议 trigger 显示滞留旧协议").toBe("Anthropic Messages");
+
+    // 落盘值取表单下拉当前值：显示与落盘必须同源
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+    fireClick(dialog.querySelector(".provider-editor-save"));
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "ai-providers-save")).toBe(true);
+    });
+    expect(sent.find((message) => message.type === "ai-providers-save")!.providers[0].protocol).toBe("anthropic");
+  });
+
+
   it("编辑 DeepSeek 记录（protocol=anthropic，baseUrl /anthropic）→ 切回 openai 联动 /v1（该预设协议端点）", async () => {
     const presets = [
       { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", requiresKey: true, protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
