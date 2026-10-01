@@ -20,6 +20,8 @@
 // 双触发会把保存链并发跑两趟（第二趟收集到的可能已被第一趟重渲染清空）。产线
 // 监听器对 dispatchEvent 与真实点击同样响应。
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
@@ -133,6 +135,31 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     groups.forEach((group) => {
       expect(group.style.contain).toBe("layout style");
       expect(group.style.contentVisibility).toBe("");
+    });
+  });
+
+  // 源码级守卫（jsdom 不计算绘制堆叠，与 reader-settings-css-split.test.js 同
+  // 口径）：contain: layout 会让分区自建堆叠上下文，把分区内 .custom-select-dropdown
+  // 的 z-index: 30 囚在区内——被 DOM 序在后的兄弟分区整段盖住（主题下拉叠印在
+  // 「AI 模型平台」区下、点击穿透）。配对手段：分区内存在展开中的下拉时整区抬升。
+  it("分区含展开中的下拉时整区抬升（:has 配对 layout containment 的堆叠上下文）", () => {
+    const css = readFileSync(
+      join(process.cwd(), "extension/entry/styles/reader-settings-rows.css"),
+      "utf8"
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
+      selector: match[1].replace(/\s+/g, " ").trim(),
+      body: match[2]
+    }));
+    const lifting = rules.filter((rule) => rule.selector.includes(":has(.custom-select-dropdown:not([hidden]))"));
+
+    expect(lifting.length, "缺少「分区含展开中的下拉即抬升」规则").toBeGreaterThan(0);
+    lifting.forEach((rule) => {
+      expect(rule.selector).toContain("#biliscript-reading-view");
+      expect(rule.selector).toContain(".biliscript-reading-settings-host");
+      expect(rule.selector).toContain(".biliscript-set-group");
+      expect(rule.body).toMatch(/position:\s*relative/);
+      expect(rule.body).toMatch(/z-index:\s*\d+/);
     });
   });
 

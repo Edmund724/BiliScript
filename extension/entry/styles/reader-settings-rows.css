@@ -29,6 +29,16 @@
   margin: 0;
 }
 
+/* 分区抬升（与 settings-panel.js applySectionContainment 的 contain: layout style
+ * 配对）：layout containment 会让分区自建堆叠上下文，把分区内弹层的 z-index: 30
+ * 囚在区内，被 DOM 序在后的兄弟分区整段盖住（主题下拉叠印在「AI 模型平台」区下、
+ * 点击穿透）。分区内含展开中的下拉时把整区抬到 z-auto 的兄弟分区之上，z-30 随区
+ * 生效；收起即回落，零常态开销（:has() 与仓库既有 :user-valid 同档特性）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-group:has(.custom-select-dropdown:not([hidden])) {
+  position: relative;
+  z-index: 1;
+}
+
 /* 选项行全表唯一一份：button 型（模型选项、下拉选项）与 li 型（下拉
  * 选项、模型加载/提示项）共用度量，cursor: pointer 对 li 无害。 */
 #biliscript-reading-view .provider-editor-host .ai-provider-model-option,

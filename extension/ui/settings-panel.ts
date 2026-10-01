@@ -98,6 +98,11 @@ interface SettingsFormPayload {
 // 高度，菜单必被分区底边截断——用户可见回归。也因此不走 content-visibility:auto：
 // 按 CSS Containment L2 / MDN，cv:auto 恒含 paint containment（含屏上态），
 // 裁剪问题相同。
+// 但「无 paint 即无弹层风险」不成立（M15 漏判）：layout containment 本身就让
+// 分区建立堆叠上下文，把弹层的 z-index 囚在分区内，被 DOM 序在后的兄弟分区压住
+// （主题下拉叠印在「AI 模型平台」区下）。配对手段在样式表侧：分区含展开中的下拉
+// 时整区抬升（reader-settings-rows.css 的 .biliscript-set-group:has(...) 规则），
+// 本函数不改。
 // 经 TS 内联应用而非落 reader-settings-*.css 样式表：真实原因是样式表文件不在
 // 本任务 scope（M15 只放行 settings-panel 等五个文件）；内联也让应用时机与
 // 模板构建同处一地。仅首建调用一次，非每次交互。
