@@ -107,9 +107,10 @@ export interface CreateProviderRowConfig {
   // 显示模型名：AI=item.models（多个时「首项 等 N 个」，拍板 Q15）或历史
   // item.model；ASR=item.model ?? preset.model。空串不渲染副行
   displayModel: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
-  // 额度形态徽章文案（spec §6.2，由族声明同源产出：搜索=免 Key / 免费额度，
-  // AI / ASR 无徽章 → 空串）。空串不渲染。
-  resolveBadge?: (preset: ProviderRowPreset | null) => string;
+  // 额度形态徽章文案（spec §6.2，由族声明同源产出：搜索=免 Key / 自带 Key /
+  // 免费额度，后两者按 access 与 hasSavedKey 判定；AI / ASR 无徽章 → 空串）。
+  // 空串不渲染。
+  resolveBadge?: (preset: ProviderRowPreset | null, hasSavedKey: boolean) => string;
   // （仅 ASR）选用 radio：change 即时持久化 activeAsrProviderId（平铺形态同款语义）
   buildTailFields?: (ctx: { id: string; isActive: boolean }) => string;
   wireTailExtras?: (row: ProviderRowElement, ctx: { listNode: HTMLElement }) => void;
@@ -250,9 +251,10 @@ export function createProviderRow({
       const keyState = hasSavedKey ? "saved" : preset?.access === "keyless" ? "keyless" : "missing";
       const keyStateTitle =
         keyState === "saved" ? "已保存 API Key" : keyState === "keyless" ? "免 Key 可用" : "未保存 API Key";
-      // 额度形态徽章（spec §6.2）：讲额度形态，不讲是否已配（free-quota 有 Key
-      // 也不消失）；文案由族声明同源产出，空串不渲染。
-      const badge = String(resolveBadge?.(preset) || "");
+      // 额度形态徽章（spec §6.2）：讲额度形态而非是否存在 Key——free-quota 有
+      // Key 也不消失；keyless 是否已配自己的 Key 会改口径（免 Key ↔ 自带 Key，
+      // 免得配了 Key 还自称免 Key）。文案由族声明同源产出，空串不渲染。
+      const badge = String(resolveBadge?.(preset, hasSavedKey) || "");
       row.innerHTML = `
         <div class="provider-row-line">
           <span class="provider-row-dot" data-state="${keyState}" title="${keyStateTitle}"></span>

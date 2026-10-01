@@ -156,6 +156,16 @@ describe("搜索平台行：额度形态徽章（spec §6.2）", () => {
     expect(line.nextElementSibling!.querySelector(".provider-row-badge")).toBeNull();
   });
 
+  it("keyless 已配 Key → 徽章改「自带 Key」，不再自称「免 Key」", () => {
+    const { listNode, emptyNode } = makeContainer();
+    const rows = renderPresets(listNode, emptyNode, [
+      { ...ITEMS[1], hasSavedKey: true },
+      { ...ITEMS[1], id: "search_tavily_keyless", hasSavedKey: false }
+    ]);
+    expect(rows[0].querySelector(".provider-row-badge")!.textContent).toBe("自带 Key");
+    expect(rows[1].querySelector(".provider-row-badge")!.textContent).toBe("免 Key");
+  });
+
   it("free-quota 有 Key 时徽章不消失（徽章讲额度形态，不讲是否已配）", () => {
     const { listNode, emptyNode } = makeContainer();
     const rows = renderPresets(listNode, emptyNode, [
