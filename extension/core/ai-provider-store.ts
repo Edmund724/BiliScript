@@ -36,7 +36,10 @@ export interface AiProvider {
 // “apiKey 永不进同步列表”由工厂统一保证。直接导出绑定好的 store 实例，
 // 消费方（background 消息路由）调用实例方法。
 
-const AI_PROVIDER_KEYS_STORAGE = "aiProviderKeys";
+// 存储键字面量单源（跟随 search-provider-store.ts:16-24 先例）：settings-snapshot
+// 的族键面与 onChanged 订阅键面从这两个常量派生，别处不再复写字面量。
+export const AI_PROVIDER_KEYS_STORAGE = "aiProviderKeys";
+export const AI_PROVIDERS_STORAGE = "aiProviders";
 
 function normalizeModelsField(raw: unknown): string[] {
   const list = Array.isArray(raw) ? raw : [];
@@ -79,7 +82,7 @@ function normalizeAiProvider(item: unknown): AiProvider | null {
 }
 
 export const aiProviderStore = createProviderStore<AiProvider>({
-  listStorageKey: "aiProviders",
+  listStorageKey: AI_PROVIDERS_STORAGE,
   keysStorageKey: AI_PROVIDER_KEYS_STORAGE,
   normalizeProvider: normalizeAiProvider
 });

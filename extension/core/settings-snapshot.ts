@@ -37,9 +37,9 @@
 import { DEFAULT_SETTINGS, type Settings } from "./defaults.js";
 import { getMergedSettings } from "./settings-store.js";
 import type { ProviderBase, ProviderKeys } from "./provider-store.js";
-import { aiProviderStore, type AiProvider } from "./ai-provider-store.js";
-import { asrProviderStore, type AsrProvider } from "../asr/asr-provider-store.js";
-import { searchProviderStore, SEARCH_PROVIDER_ORDER_STORAGE } from "../search/search-provider-store.js";
+import { aiProviderStore, AI_PROVIDERS_STORAGE, AI_PROVIDER_KEYS_STORAGE, type AiProvider } from "./ai-provider-store.js";
+import { asrProviderStore, ASR_PROVIDERS_STORAGE, ASR_PROVIDER_KEYS_STORAGE, type AsrProvider } from "../asr/asr-provider-store.js";
+import { searchProviderStore, SEARCH_PROVIDER_ORDER_STORAGE, SEARCH_PROVIDERS_STORAGE, SEARCH_PROVIDER_KEYS_STORAGE } from "../search/search-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import { normalizeSearchProviderOrder } from "../search/search-order.js";
 import { SEARCH_HEALTH_KEY, readSearchHealth, type SearchHealthMap } from "../search/search-health.js";
@@ -60,12 +60,31 @@ export interface ProviderStoreSnapshot<T extends ProviderBase = ProviderBase> {
   keys: ProviderKeys;
 }
 
-// 族 → storage 键面（失效映射与 onChanged 订阅键面共用；列表进 sync、
-// Key 明文进 local，与 provider-store 存储布局不变式一致）。
+// 族键对表（唯一真源，键字面量来自各族 store 模块的导出常量）：list → sync 区、
+// keys → local 区——分区不是自由选择，与 provider-store 存储布局不变式一致
+// （列表进 sync、明文 Key 只进 local），写进错区会被 shared/watch-storage-keys
+// 的区过滤静默丢弃。
+interface ProviderFamilyKeyPair {
+  list: string;
+  keys: string;
+}
+
+const PROVIDER_FAMILY_KEY_PAIRS: Record<ProviderFamily, ProviderFamilyKeyPair> = {
+  ai: { list: AI_PROVIDERS_STORAGE, keys: AI_PROVIDER_KEYS_STORAGE },
+  asr: { list: ASR_PROVIDERS_STORAGE, keys: ASR_PROVIDER_KEYS_STORAGE },
+  search: { list: SEARCH_PROVIDERS_STORAGE, keys: SEARCH_PROVIDER_KEYS_STORAGE }
+};
+
+// 族 → storage 键面（invalidate 失效映射与 onChanged 订阅共用；从键对表派生，
+// 顺序恒为 [list, keys]——background 的 invalidateAfterWrite 与失效判据都吃这个形状）。
+function keyFace({ list, keys }: ProviderFamilyKeyPair): readonly string[] {
+  return [list, keys];
+}
+
 export const PROVIDER_FAMILY_STORAGE_KEYS: Record<ProviderFamily, readonly string[]> = {
-  ai: ["aiProviders", "aiProviderKeys"],
-  asr: ["asrProviders", "asrProviderKeys"],
-  search: ["searchProviders", "searchProviderKeys"]
+  ai: keyFace(PROVIDER_FAMILY_KEY_PAIRS.ai),
+  asr: keyFace(PROVIDER_FAMILY_KEY_PAIRS.asr),
+  search: keyFace(PROVIDER_FAMILY_KEY_PAIRS.search)
 };
 
 const PROVIDER_FAMILIES = Object.keys(PROVIDER_FAMILY_STORAGE_KEYS) as ProviderFamily[];
@@ -197,16 +216,23 @@ export function invalidate(storageKeys: readonly string[]): void {
   }
 }
 
-// onChanged 兜底：订阅键面 = settings 键面 ∪ 三族 list（sync）∪ 三族 keys（local）
-// ∪ searchProviderOrder（sync，面板直写）∪ biliscript_search_health（local）；命中即
-// 按键域失效。写入方上下文不触发本事件，跨设备 sync 与其它扩展上下文（content 直写等）
-// 的变更经此通道进快照。
+// onChanged 兜底：订阅键面 = settings 键面 ∪ 从上表派生的三族 list（sync）∪ 三族
+// keys（local）∪ searchProviderOrder（sync，面板直写）∪ biliscript_search_health
+// （local）；命中即按键域失效。写入方上下文不触发本事件，跨设备 sync 与其它扩展
+// 上下文（content 直写等）的变更经此通道进快照。
 watchStorageKeys(
   (changes) => {
     invalidate(Object.keys(changes));
   },
   {
-    sync: [...SETTINGS_DOMAIN_KEYS, "aiProviders", "asrProviders", "searchProviders", SEARCH_PROVIDER_ORDER_STORAGE],
-    local: ["aiProviderKeys", "asrProviderKeys", "searchProviderKeys", SEARCH_HEALTH_KEY]
+    sync: [
+      ...SETTINGS_DOMAIN_KEYS,
+      ...PROVIDER_FAMILIES.map((family) => PROVIDER_FAMILY_KEY_PAIRS[family].list),
+      SEARCH_PROVIDER_ORDER_STORAGE
+    ],
+    local: [
+      ...PROVIDER_FAMILIES.map((family) => PROVIDER_FAMILY_KEY_PAIRS[family].keys),
+      SEARCH_HEALTH_KEY
+    ]
   }
 );

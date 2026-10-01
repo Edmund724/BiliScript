@@ -20,6 +20,16 @@ const AI_PROVIDER = {
   enabled: true
 };
 
+const ASR_PROVIDER = {
+  id: "whisper",
+  presetId: "custom",
+  name: "Whisper",
+  type: "openai-transcriptions",
+  baseUrl: "https://api.example.com/v1",
+  model: "whisper-1",
+  enabled: true
+};
+
 const SEARCH_PROVIDER = {
   id: "tavily",
   presetId: "tavily",
@@ -216,7 +226,7 @@ describe("onChanged 兜底：跨上下文/跨设备变更按键域失效", () =>
     expect(vi.mocked(chrome.storage.sync.get)).toHaveBeenCalled();
   });
 
-  it("local 区 providerKeys 变更 → family 快照失效（sync 区 provider 列表键同理）", async () => {
+  it("local 区 providerKeys 变更 → family 快照失效", async () => {
     const syncFixture = { aiProviders: [AI_PROVIDER] };
     const localFixture = { aiProviderKeys: { openai: "sk-test" } };
     vi.stubGlobal("chrome", makeStub({ syncFixture, localFixture }));
@@ -232,6 +242,72 @@ describe("onChanged 兜底：跨上下文/跨设备变更按键域失效", () =>
     const reloaded = await snapshot.getProviderStore("ai");
     expect(storageGetCalls()).toBeGreaterThan(0);
     expect(reloaded.keys).toEqual({ openai: "sk-new" });
+  });
+
+  it("sync 区 provider 列表键变更 → family 快照失效（收编原用例标题声称的覆盖）", async () => {
+    const syncFixture: Record<string, unknown> = { aiProviders: [AI_PROVIDER] };
+    vi.stubGlobal("chrome", makeStub({ syncFixture, localFixture: { aiProviderKeys: { openai: "sk-test" } } }));
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+
+    await snapshot.getProviderStore("ai");
+    // 跨设备 sync 落盘先到 storage 再到 onChanged：fixture 先行变更，再触发事件
+    syncFixture.aiProviders = [{ ...AI_PROVIDER, name: "OpenAI 2" }];
+    fireOnChanged({ aiProviders: { newValue: syncFixture.aiProviders } }, "sync");
+
+    vi.mocked(chrome.storage.sync.get).mockClear();
+    vi.mocked(chrome.storage.local.get).mockClear();
+    const reloaded = await snapshot.getProviderStore("ai");
+    expect(storageGetCalls()).toBeGreaterThan(0);
+    expect(reloaded.providers[0].name).toBe("OpenAI 2");
+  });
+
+  it("三族 × 两区：list 键 fire 在 sync、keys 键 fire 在 local → 对应族失效（分区约定）", async () => {
+    // 键面分区不是自由选择：watch-storage-keys 按区过滤，声明进错区的键在该区
+    // 事件里被静默丢弃（shared/watch-storage-keys.ts:39-43）。逐族逐区各 fire 一次，
+    // 谁把 list 键挪进 local（或反之）这里立刻红。
+    const cases = [
+      {
+        family: "ai",
+        syncFixture: { aiProviders: [AI_PROVIDER] },
+        localFixture: { aiProviderKeys: { openai: "sk-test" } },
+        listKey: "aiProviders",
+        keysKey: "aiProviderKeys"
+      },
+      {
+        family: "asr",
+        syncFixture: { asrProviders: [ASR_PROVIDER] },
+        localFixture: { asrProviderKeys: { whisper: "sk-asr" } },
+        listKey: "asrProviders",
+        keysKey: "asrProviderKeys"
+      },
+      {
+        family: "search",
+        syncFixture: { searchProviders: [SEARCH_PROVIDER] },
+        localFixture: { searchProviderKeys: { tavily: "tvly-key" } },
+        listKey: "searchProviders",
+        keysKey: "searchProviderKeys"
+      }
+    ] as const;
+
+    for (const entry of cases) {
+      for (const area of ["sync", "local"] as const) {
+        const key = area === "sync" ? entry.listKey : entry.keysKey;
+        resetModuleState();
+        vi.stubGlobal("chrome", makeStub({
+          syncFixture: { ...entry.syncFixture },
+          localFixture: { ...entry.localFixture }
+        }));
+        const snapshot = await import("../../extension/core/settings-snapshot.js");
+
+        await snapshot.getProviderStore(entry.family);
+        fireOnChanged({ [key]: { newValue: {} } }, area);
+
+        vi.mocked(chrome.storage.sync.get).mockClear();
+        vi.mocked(chrome.storage.local.get).mockClear();
+        await snapshot.getProviderStore(entry.family);
+        expect(storageGetCalls(), `${entry.family} 族的 ${key}（${area} 区）应使该族快照失效`).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("未订阅键变更 → 缓存不失效（零 storage 重读）", async () => {

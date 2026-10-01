@@ -151,7 +151,7 @@ _Avoid_: 在 adapter 注释里回抄怪癖语义（只指键名）、给 pi-ai �
 _Avoid_: 把「content 发起、offscreen 执行」与「offscreen 客户端直发平台」混为一谈（后者仍被否决）；让概览回落页面源直发
 
 **搜索平台**:
-联网搜索平台（spec keyless-web-search，**六预设**（Tavily/Exa + Firecrawl/豆包/AnySearch/Parallel），其中四条零 Key 引擎 + 两条免费额度引擎构成零成本组，成员的接入与额度形态见「零成本组」，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（= **链首**，手选平台排链最前，空 = 无链首，链按 `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER` 内置默认序）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起 fetch：key 经消息中转（SW → offscreen 内存 →（消息 header）→ SW），SW 只做 fetch 发起方，key 不落 offscreen 存储/日志（protocol-vocab-leaf 文档语义修正，替代旧「密钥不出 SW」表述）；Tavily / Exa 沿用常驻 host 权限，新增 Firecrawl / 豆包 / AnySearch / Parallel，删 Brave。Key 对 `keyless` 预设可选（不再是「Key 前置」）；`resolve-search-provider` 解析的是**链**（有序候选 + 各自 Key）。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
+联网搜索平台（spec keyless-web-search，**六预设**（Tavily/Exa + Firecrawl/豆包/AnySearch/Parallel），其中四条零 Key 引擎 + 两条免费额度引擎构成零成本组，成员的接入与额度形态见「零成本组」，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（= **模式选择 + 单选目标**：记录 id = **单选**（只用该家、无回退），哨兵 `SMART_SEARCH_ACTIVE_ID` 或空串 = **智能**（链按 `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER` 内置默认序回退），见「链首平台」词条）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起 fetch：key 经消息中转（SW → offscreen 内存 →（消息 header）→ SW），SW 只做 fetch 发起方，key 不落 offscreen 存储/日志（protocol-vocab-leaf 文档语义修正，替代旧「密钥不出 SW」表述）；Tavily / Exa 沿用常驻 host 权限，新增 Firecrawl / 豆包 / AnySearch / Parallel，删 Brave。Key 对 `keyless` 预设可选（不再是「Key 前置」）；`resolve-search-provider` 解析的是**链**（有序候选 + 各自 Key）。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
 代码名：`searchProviderStore`（extension/search/search-provider-store.js）/ `normalizeSearchProvider` / `SEARCH_PROVIDER_PRESETS`（core/presets.js）/ 适配器 `extension/search/adapters/`
 _Avoid_: Key 进 sync、自定义预设、offscreen 直发搜索请求
 
@@ -161,9 +161,9 @@ _Avoid_: Key 进 sync、自定义预设、offscreen 直发搜索请求
 _Avoid_: 把回退理解成「任何平台之间互相兜底」；用「免 Key」当组的定义（配 Key 的豆包也在组内）
 
 **链首平台**:
-用户手选的搜索平台，排在回退链最前；未手选即无链首。
-代码名：`activeSearchProviderId`（沿用代码名，语义收缩）
-_Avoid_: 把链首理解成「只有它会被使用」
+**单选模式**下用户手选的搜索平台（`activeSearchProviderId` = 某条记录 id）：它是链里**唯一一家**、**无回退**，该家失败即整链无果。**智能模式**（哨兵 `SMART_SEARCH_ACTIVE_ID` 或空串）下无手选链首——链 = 零成本组按 `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER` 回退，链序第一家 ≠ 链首。
+代码名：`activeSearchProviderId`（沿用代码名，语义收缩为「模式选择 + 单选目标」）/ `SMART_SEARCH_ACTIVE_ID` / `resolveSearchMode`（core/search-mode.ts，spec §12.1）
+_Avoid_: 把链首理解成「排链最前、失败自动回退下一家」（无回退是它的定义）；把智能模式的链序第一家也称作链首
 
 **工具循环**:
 AI 对话链与选区解释链共用的联网搜索执行管线（function calling，spec §2.3）：`runToolLoop` 包住 chatCompletion 多轮调用——finish_reason=tool_calls 时回填 assistant(tool_calls)+tool 消息续跑，单条 tool call 计入 `webSearchMaxToolCalls` 配额；搜索配置经 `resolve-search-provider` 单趟消息解析**回退链**（有序候选 + 各自 Key + 单轮上限），解析单点 `resolveWebSearchRuntime`（search/search-runtime.ts，offscreen 与解释卡同走，无 chrome.storage）。port 回吐单源在 streamChat（TokenBatcher/flush 纪律不变）；搜索执行单点 `executeWebSearch`（extension/search/search-executor.js）。**链内失败静默**，整链无果才一条 notice，回答不中断；额度类与超时/网络类分两条文案，且单轮调用次数的「本轮的搜索次数已达上限」与平台侧的「搜索额度已用尽」在措辞上分开（同名收口，§6.4）。平台不支持 tools（不可重试 4xx）摘除重发一次；Map-Reduce 归约轮静默禁用 + notice。tool 轮消息持久化进会话历史（tool 内容截 2,000，完整结果只活在当轮请求）。解释链（非流式）取 runToolLoop 返回值为最终文本，工具定义经 `webSearchTool` 变体（不带 [n] 引用要求）。
@@ -172,7 +172,7 @@ _Avoid_: 手抄第二份循环、offscreen 读 chrome.storage、tool 结果全�
 
 **设置快照**:
 四个热路径读 handler（resolve-ai-provider / resolve-search-provider / get-asr-runtime-config / get-settings）读设置/平台存储的唯一读路径（sw-settings-snapshot 票；设置 UI 的 `*-providers-list` / `get-*-provider-key` 低频 CRUD 读维持直读 provider-store，不入快照）：settings 归一化产物 + 三 providerStore（ai/asr/search）normalize + hasSavedKey 装配产物各缓存一份，命中时热路径（每条聊天消息）storage 读降为 0。失效双通道：SW 内写消息 handler 落盘 await 完成后 inline 按 storage 键失效（onChanged 不在写入方上下文触发，inline 失效是「写后读」语义的唯一保证）；`storage.onChanged` 订阅兜底其它扩展上下文与跨设备 sync 变更。写路径纪律：快照只服务读路径，load-modify-write 继续直读存储不经快照；interface 不提供写（write-through 须先解决并发写交错丢 Key）。
-代码名：`settingsSnapshot`（extension/core/settings-snapshot.js）/ `getSettings()` / `getProviderStore(family)` / `invalidate(keys)`；失效粒度 = storage 键（settings 键面 = DEFAULT_SETTINGS 键集，族键面 = `xxxProviders`（sync）+ `xxxProviderKeys`（local））
+代码名：`settingsSnapshot`（extension/core/settings-snapshot.js）/ `getSettings()` / `getProviderStore(family)` / `invalidate(keys)` / `PROVIDER_FAMILY_STORAGE_KEYS`（族键面，从单表 `PROVIDER_FAMILY_KEY_PAIRS` 派生）；失效粒度 = storage 键（settings 键面 = DEFAULT_SETTINGS 键集，族键面键字面量真源 = 各族 store 模块导出的 `*_PROVIDERS_STORAGE`（list，sync）/ `*_PROVIDER_KEYS_STORAGE`（keys，local）常量）
 _Avoid_: 热路径 handler 直读 storage、给快照加写接口、绕过快照手抄第二次归一化
 
 ### 模型目录（model-catalog）

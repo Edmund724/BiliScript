@@ -19,8 +19,10 @@ export type { AsrProvider } from "./asr-provider-normalize.js";
 
 // ===== ASR 平台列表存储 =====
 
-const ASR_PROVIDER_KEYS_STORAGE = "asrProviderKeys";
-const ASR_PROVIDERS_STORAGE = "asrProviders";
+// 存储键字面量单源（跟随 search-provider-store.ts:16-24 先例）：settings-snapshot
+// 的族键面与 onChanged 订阅键面从这两个常量派生，别处不再复写字面量。
+export const ASR_PROVIDER_KEYS_STORAGE = "asrProviderKeys";
+export const ASR_PROVIDERS_STORAGE = "asrProviders";
 
 export const asrProviderStore = createProviderStore<AsrProvider>({
   listStorageKey: ASR_PROVIDERS_STORAGE,
