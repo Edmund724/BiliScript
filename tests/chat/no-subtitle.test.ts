@@ -6,13 +6,12 @@
 //     动作位。本模块已退化为薄适配层（票 06）：文案逐字来自 core 的单一真源
 //     （buildAsrNoSubtitleMessage 的 sidepanel 面），openSettings 由 remedy
 //     枚举映射（open-settings → true，其余 → false）。
-//   - NO_SUBTITLE_SEND_BLOCKED：ensureCurrentContextForSend 的类型化拦截信号
-//     （chat-runtime 以 !== true 判定提前返回）。
+// 拦截信号本身已不是字符串哨兵：发送闸经 GateOutcome（send-gate.ts 的
+// { pass: false, kind: "no-subtitle" }）显式返回，本模块不再导出该常量。
 
 import { describe, expect, it } from "vitest";
 import type { SubtitleBodyItem } from "../../extension/ai/types.js";
 import {
-  NO_SUBTITLE_SEND_BLOCKED,
   buildNoSubtitleNotice,
   isNoSubtitleEmptyContext
 } from "../../extension/chat/no-subtitle.js";
@@ -25,13 +24,6 @@ import {
   SIDEPANEL_EMPTY_NOTICE,
   getAsrFailureNotice
 } from "../../extension/core/asr-failure-notice.js";
-
-describe("NO_SUBTITLE_SEND_BLOCKED", () => {
-  it("类型化拦截信号：真值但严格不等 true（chat-runtime 以 !== true 放行）", () => {
-    expect(NO_SUBTITLE_SEND_BLOCKED).toBeTruthy();
-    expect(NO_SUBTITLE_SEND_BLOCKED).not.toBe(true);
-  });
-});
 
 describe("isNoSubtitleEmptyContext", () => {
   it("empty 且字幕体为空：拦截", () => {

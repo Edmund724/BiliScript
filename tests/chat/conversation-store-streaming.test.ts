@@ -389,7 +389,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
         resetConversationView: vi.fn(),
         autosizeInput: vi.fn()
       },
-      ensureCurrentContextForSend: vi.fn(async () => true),
+      ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
       getProviderId: () => "test-provider",
       getTimestampNavDeps: () => ({}),
       normalizeMarkdownForSectionPaste,

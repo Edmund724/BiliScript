@@ -65,6 +65,7 @@ import {
 // 注意：ChatPort 不从 protocol re-export——本侧消费的是 chrome.runtime.Port
 // 全视图（监听/断连半边），protocol 的 ChatPort 是生产侧 postMessage 窄视图。
 import type { ChatPortMessage } from "./protocol.js";
+import type { GateOutcome } from "./send-gate.js";
 import { createChatStreamRenderer } from "./chat-stream-render.js";
 // 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
 import { imageUnsupportedErrorHint } from "./image-support.js";
@@ -88,6 +89,15 @@ export interface ChatPort {
 }
 
 export type { ChatPortMessage };
+
+// 发送受理结论（Q1-b 拍板）：sendMessage 的显式返回值，取代调用方按副作用
+// （输入框是否被清空 / hasPendingUserPrompt）反推受理。
+//   "accepted" 已受理（用户消息已 append、输入框已清、port 已发起，或 port
+//              建立失败但受理已完成）
+//   "blocked"  被闸拦下（无可用平台 / 发送闸 GateOutcome 非 pass）——未追加
+//              用户消息、未清输入框、未落 chatHistory、未发起 port
+//   "ignored"  入口早退（空文本 / 流式中 / 发送流程在进行）——输入框保持不清
+export type SendVerdict = "accepted" | "blocked" | "ignored";
 
 // chat-runtime 消费的最窄 store 面（会话身份守卫 + 在途一问一答持久化）
 export interface ChatRuntimeStore {
@@ -116,7 +126,9 @@ export interface CreateChatRuntimeDeps {
   // ---- UI 门面 ----
   ui: ChatRuntimeUi;
   // ---- context/transport helpers (AI domain, chat local) ----
-  ensureCurrentContextForSend: () => Promise<boolean | string>;
+  // 发送闸出口：{pass:true} 放行；{pass:false,kind} 拦截（read-failed 已清场 /
+  // no-subtitle 无字幕，notice 已显示）。
+  ensureCurrentContextForSend: () => Promise<GateOutcome>;
   getProviderId: () => string;
   // 选中模型 id（multi-model-catalog）：chat 模型选择器一模型一选项后随
   // port 消息下发，offscreen 以它覆盖解析平台的目录首项。可选——未注入的
@@ -169,9 +181,10 @@ export interface CreateChatRuntimeDeps {
  *       autosizeInput,                     // () => void
  *     },
  *     // ---- context/transport helpers (AI domain, sidepanel local) ----
- *     ensureCurrentContextForSend,       // () => Promise<boolean | NO_SUBTITLE_SEND_BLOCKED>
- *                                        //    true=放行；false=读取失败；
- *                                        //    "no-subtitle-send-blocked"=无字幕拦截（notice 已显示）
+ *     ensureCurrentContextForSend,       // () => Promise<GateOutcome>
+ *                                        //    {pass:true}=放行；
+ *                                        //    {pass:false,kind:"read-failed"}=读取失败；
+ *                                        //    {pass:false,kind:"no-subtitle"}=无字幕拦截（notice 已显示）
  *     getProviderId,                     // () => els.modelSelect.value
  *     getTimestampNavDeps,               // () => timestamp-nav deps object
  *     normalizeMarkdownForSectionPaste,  // (raw, baseLevel) => string
@@ -189,7 +202,7 @@ export interface CreateChatRuntimeDeps {
  *   化，测试经 sendMessage + 假 port 或 handleChatPortMessage 以协议消息驱动，
  *   不直接戳内部步骤：
  *   {
- *     sendMessage,                 // () => Promise<void>
+ *     sendMessage,                 // () => Promise<SendVerdict>（accepted / blocked / ignored）
  *     stopActiveStream,            // () => void
  *     renderAssistantMessage,      // (node, raw, { userPrompt, sources? }) => void
  *     appendUserMessage,           // (text, shouldScroll) => void
@@ -389,15 +402,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // =========================================================================
   // sendMessage — entry point of the chat flow
   // =========================================================================
-  async function sendMessage(): Promise<void> {
+  async function sendMessage(): Promise<SendVerdict> {
     const text = deps.input.value.trim();
     // 双发竞态闸：activePort 已建（流式进行中）或发送流程已在进行
     //（ensureCurrentContextForSend / connectPort 的 await 窗口内端口未建、
     // 但 UI 已进流式态）都直接忽略——否则窗口内第二次 sendMessage 会开出
-    // 第二条流（第一、二条回执交错到两个 assistant 节点）。返回契约不变：
-    // 调用方（sidepanel.js keydown / 快捷动作）不读返回值。
+    // 第二条流（第一、二条回执交错到两个 assistant 节点）。受理结论显式返回
+    // "ignored"：调用方（chat-tab 的折算 / 快捷动作）不再按副作用反推。
     if (!text || activePort || sendInFlight) {
-      return;
+      return "ignored";
     }
     sendInFlight = true;
     try {
@@ -406,15 +419,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const providerId = deps.getProviderId();
       if (!providerId) {
         deps.ui.resetConversationView("请先在设置页配置并启用一个 AI 平台。");
-        return;
+        return "blocked";
       }
 
-      const hasContext = await deps.ensureCurrentContextForSend();
-      // 严格判 true：false（上下文读取失败）与 NO_SUBTITLE_SEND_BLOCKED（无字幕
-      // 拦截，notice 已由 ensure 侧显示）都在此提前返回——不追加用户消息、
+      const outcome = await deps.ensureCurrentContextForSend();
+      // 非 pass 一律在此提前返回：read-failed（上下文读取失败，已由闸侧清场）
+      // 与 no-subtitle（无字幕拦截，notice 已由闸侧显示）都不追加用户消息、
       // 不落 chatHistory、不发起 port。
-      if (hasContext !== true) {
-        return;
+      if (!outcome.pass) {
+        return "blocked";
       }
       const currentMeta = chatSessionState.currentConversationMeta;
       // 发送前上下文失配守卫（CONTEXT.md「拆除会话」词条出口五）：刻意只清身份
@@ -547,6 +560,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 态而 isStreaming() 为 false（activePort 从未置位，但 setStreamingUiState
       // (true) 已调用）。这里恢复全部半置位流状态并走用户可见错误路径——
       // 与 showAssistantError 同款机制（endStream 收口六步 + .chat-msg-error 占位）。
+      // 受理结论仍是 "accepted"：用户消息已 append、输入框已清，失败发生在受理
+      // 之后（与旧 sendViaInputBox「看到空输入框判受理」的语义等价）。
       console.error("[chat-runtime] sendMessage 失败：", err);
       sendInFlight = false;
       thinkingEnded = false;
@@ -559,9 +574,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         setStreamingUiState(false);
       }
       activeAssistantNode = null;
-      return;
+      return "accepted";
     }
     sendInFlight = false;
+    return "accepted";
   }
 
 

@@ -6,8 +6,9 @@
 //   1. ensureContextForSend（原 ensureCurrentContextForSend，G1-G7）——发送前
 //      确保当前上下文就绪：pinned 对话补水（G1）/ 普通对话读当前页（G2）/
 //      抓取未起跑时主动起跑（G3）/ 字幕等待闸 poll-wait（G4）/ 放行前重取
-//      快照（G5）/ 无字幕空上下文拦截（G6，返回 NO_SUBTITLE_SEND_BLOCKED
-//      类型化信号）/ 历史回放让位（G7，await replayInFlight）。
+//      快照（G5）/ 无字幕空上下文拦截（G6）/ 历史回放让位（G7，放行路径
+//      await replayInFlight）。受理结论经 GateOutcome 显式返回，不再用字符串
+//      哨兵与调用方的副作用推断。
 //   2. subtitleWaiter 组装（等待闸状态机本体在 ./subtitle-wait.ts）：pollContext
 //      的 live-first 快照读法、等待提示按「是否转写中」路由（转写并入状态行，
 //      抓取走消息区 notice）、4 秒轮询定时器。
@@ -21,7 +22,6 @@
 import { chatSessionState, setAsrTranscribingActive } from "./chat-state.js";
 import { createSubtitleWaiter, isContextPending } from "./subtitle-wait.js";
 import {
-  NO_SUBTITLE_SEND_BLOCKED,
   buildNoSubtitleNotice,
   isNoSubtitleEmptyContext,
   type NoSubtitleReason
@@ -29,7 +29,13 @@ import {
 import { CONTEXT_READ_FAILED_MESSAGE, isPinnedContextStrict } from "./context-policy.js";
 import type { ClipState } from "../core/state.js";
 
-export { NO_SUBTITLE_SEND_BLOCKED };
+// 发送闸的受理结论（Q2-a 拍板）：显式返回值取代「boolean | 字符串哨兵」。
+//   { pass: true }                        放行（上下文就绪，回放已让位）
+//   { pass: false, kind: "read-failed" }  读取失败（resetView 已清场）
+//   { pass: false, kind: "no-subtitle" }  无字幕空上下文拦截（notice 已显示）
+export type GateOutcome =
+  | { pass: true }
+  | { pass: false; kind: "read-failed" | "no-subtitle" };
 
 // 等待/状态行文案（自 chat-tab 原文件迁入，逐字保持）。
 export const ASR_TRANSCRIBING_NOTICE = "该视频无字幕，正在音频转写…";
@@ -68,8 +74,9 @@ export interface CreateSendGateDeps {
 }
 
 export interface SendGate {
-  /** 发送前上下文就绪闸：true 放行 / false 读取失败（已清场）/ NO_SUBTITLE_SEND_BLOCKED 无字幕拦截。 */
-  ensureContextForSend: () => Promise<boolean | string>;
+  /** 发送前上下文就绪闸：{pass:true} 放行；{pass:false,kind:"read-failed"} 读取失败（已清场）；
+   *  {pass:false,kind:"no-subtitle"} 无字幕拦截（notice 已显示）。 */
+  ensureContextForSend: () => Promise<GateOutcome>;
   /** 挂起中的等待闸立即补一轮（asr-done/failed 广播、会话关闭路径用）。 */
   kickSubtitleWait: () => void;
   /** 订阅字幕状态总线（幂等；重复调用不重复订阅）。 */
@@ -198,50 +205,62 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   // 普通对话读当前页；抓取或音频转写进行中时先等待，避免空字幕上下文直接发
   // 给模型；还没起跑时主动起跑）。
   // 最终快照若是「无字幕收尾」（empty 且字幕体为空）则拦截发送：返回
-  // NO_SUBTITLE_SEND_BLOCKED 类型化信号让 sendMessage 提前返回（不追加用户
+  // { pass: false, kind: "no-subtitle" } 让 sendMessage 提前返回（不追加用户
   // 消息、不落 chatHistory、不发起 port），并按 noSubtitleReason 显示对应 notice。
-  async function ensureContextForSend(): Promise<boolean | string> {
+  async function ensureContextForSend(): Promise<GateOutcome> {
     // pinned 判定沿用原调用点的真值语义（与 loadContextState 的严格相等不同
     // ——见 ./context-policy.ts 两个谓词的疑义记录；统一收口是后续步骤）。
     if (isPinnedContextStrict(chatSessionState.currentConversationMeta)) {
       await deps.loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
-      return deps.hydratePinned();
+      if (!(await deps.hydratePinned())) {
+        return { pass: false, kind: "read-failed" };
+      }
+      // G1 的提前返回同样要过回放让位点（Q3-a 查证结论）：hydratePinned 自身
+      // 三支都不起回放——分支 1/3 只 applyContextToMain + emitChange()（仅历史
+      // 列表），分支 2 经 loadContextState 在 pinned 会话上走 APPLY_PINNED
+      //（context-load.ts:128-134，只落地 live 快照）；但在途回放确实可与本
+      // 分支并存：applyById（历史项点击）经 emitChange({ resetView: true }) →
+      // renderInitialState → replay.render() 起跑回放，紧随其后的发送仍走 pinned
+      // 分支。不等待则新消息会插进未完成回放的中间。
+      await deps.replayInFlight();
+      return { pass: true };
     }
     // 失败闸把「无标签页」与「读取失败」合并为同一文案（与策略模块的
     // resolveNoTabPlan 语义不同：这里即使静默加载也会重置视图），保持原状。
     const ok = await deps.loadContextState({ forceRefresh: false, silent: true });
     if (!ok || !chatSessionState.contextData) {
       deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
-      return false;
+      return { pass: false, kind: "read-failed" };
     }
     // 抓取还没起跑（idle）时主动起跑，再进等待闸——否则等待闸见不到 loading，
     // 空字幕上下文会被直接放行。
     if (!(await startSubtitleFetchIfNeeded())) {
       deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
-      return false;
+      return { pass: false, kind: "read-failed" };
     }
     const ready = await subtitleWaiter.wait();
     if (!ready) {
       deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
-      return false;
+      return { pass: false, kind: "read-failed" };
     }
     // 等待期间 contextData 可能停在旧快照（守卫分支或就绪瞬间），放行前重取
     // 一次，确保发送出去的是转写完成后的完整字幕。
     await deps.loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
     if (!chatSessionState.contextData) {
       deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
-      return false;
+      return { pass: false, kind: "read-failed" };
     }
     if (isNoSubtitleEmptyContext(chatSessionState.contextData)) {
       const notice = buildNoSubtitleNotice(chatSessionState.contextData.noSubtitleReason as NoSubtitleReason);
       deps.showContextNotice(notice.message, 0, { openSettingsAction: notice.openSettings });
-      return NO_SUBTITLE_SEND_BLOCKED;
+      return { pass: false, kind: "no-subtitle" };
     }
     // 本函数内的 loadContextState 可能因上下文变化触发一轮新的历史回放
     //（applyContextPayload → renderInitialState）；等它落定再返回，否则调用方
-    // 紧随的 appendUserMessage 会插进这轮回放的中间（P2-1）。
+    // 紧随的 appendUserMessage 会插进这轮回放的中间（P2-1）。拦截路径不需要
+    // 让位（没有消息要 append），故只在放行前等待。
     await deps.replayInFlight();
-    return true;
+    return { pass: true };
   }
 
   return {

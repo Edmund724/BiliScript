@@ -45,7 +45,7 @@ function makeDeps(overrides: Partial<CreateChatRuntimeDeps> = {}) {
       resetConversationView: vi.fn(),
       autosizeInput: vi.fn()
     },
-    ensureCurrentContextForSend: vi.fn(async () => true),
+    ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
@@ -132,7 +132,7 @@ describe("被拒绝的发送不消费附件区", () => {
     const takeInputImages = vi.fn(() => [IMAGE]);
     const { deps, input, ports } = makeDeps({
       takeInputImages,
-      ensureCurrentContextForSend: vi.fn(async () => false)
+      ensureCurrentContextForSend: vi.fn(async () => ({ pass: false, kind: "read-failed" }) as const)
     });
     input.value = "这张图里是什么";
 

@@ -292,7 +292,9 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
     expect(posted.prompt).toContain("第二句话待解释");
     expect(posted.prompt).toContain("0:10"); // arch-slim-2/08 拍板 Q1：不补零
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
-    expect(input.value).toBe(""); // 发送受理后输入框清空
+    // 受理的副作用（不是受理判据）：受理结论来自 sendMessage 的 SendVerdict，
+    // 下方 consumePendingExplainIntent 断言才是受理信号。
+    expect(input.value).toBe("");
 
     // 发送成功即消费：一次意图只发一次，引用卡随之隐藏
     expect(explainIntent.consumePendingExplainIntent()).toBe(null);
@@ -722,10 +724,30 @@ describe("player-ai 快捷动作 seam（PR4b 概览笔记按钮同款）", () =>
     const tabBodyChat = document.getElementById(ids.readingTabBodyChat) as HTMLElement;
     expect(tabBodyChat.classList.contains("is-active")).toBe(true);
     const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
-    expect(input.value).toBe(""); // 发送受理后输入框清空
+    // 受理判据是上面的返回值 accepted；输入框清空只是受理副作用。
+    expect(input.value).toBe("");
     expect(ports).toHaveLength(1);
     const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string };
     expect(posted.prompt).toBe("整理这期视频的内容，输出结构化总结。");
+  });
+
+  it("runQuickActionPrompt 被无字幕闸拦下：返回 false、无 port、输入框保留（受理结论来自返回值）", async () => {
+    // 无字幕收尾（empty 且字幕体为空）：发送闸 G6 拦截，sendMessage 返回 blocked
+    // → sendViaInputBox 折算 false。旧实现靠「输入框是否被清空」推断，本用例把
+    // 判据钉在返回值上：即使输入框残留，结论也只由 SendVerdict 决定。
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "empty";
+    state.clip.subtitleBody = [];
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    const accepted = await chat.runQuickActionPrompt("整理这期视频的内容，输出结构化总结。");
+
+    expect(accepted).toBe(false);
+    expect(ports).toHaveLength(0);
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    expect(input.value).toBe("整理这期视频的内容，输出结构化总结。");
   });
 
   it("快捷动作不消费待解释意图（与解释自动发送互不踩踏）", async () => {

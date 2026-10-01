@@ -742,22 +742,23 @@ async function consumeExplainIntentIfPending(): Promise<void> {
 }
 
 // 发送芯（runQuickActionPrompt / autoSendPrompt 的共同尾部）：填输入框 →
-// autosize → sendMessage → 折算是否受理。两函数头部的闸（新会话 vs 双发闸、
-// 空串聚焦 vs 空串直 false）语义不同，不并入本芯。
-// 受理成功 = 发送路径清空了输入框（ensureCurrentContextForSend 通过后才会清）；
-// false = 被 provider/上下文/无字幕闸拦下（notice 已显示）。
+// autosize → sendMessage → 按返回值折算是否受理。两函数头部的闸（新会话 vs
+// 双发闸、空串聚焦 vs 空串直 false）语义不同，不并入本芯。
+// 受理结论来自 sendMessage 的 SendVerdict（accepted/ignored → true，blocked →
+// false）；ignored 当前不可达（autoSendPrompt :766 的前置闸 / runQuickActionPrompt
+// :686 先 startNewConversation 断开在途流），映射保留是为防御。回放让位不再手抄：
+// 等待已收敛进发送闸（send-gate.ts 的 G7，放行路径统一 await replayInFlight）。
 async function sendViaInputBox(text: string): Promise<boolean> {
   els.input.value = text;
   autosizeInput();
-  // 回放让出期发送同样先等回放落定（否则新消息插进未完成回放的中间）。
-  await conversationReplay.inFlight;
   // sendMessage 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
-  await chatRuntime.sendMessage();
-  return els.input.value === "" || chatRuntime.hasPendingUserPrompt();
+  const verdict = await chatRuntime.sendMessage();
+  return verdict !== "blocked";
 }
 
 // 自动发送共用体：填输入框 → sendMessage → 折算是否受理。流式中/有待发 prompt
-// 时不注入第二次发送（双发竞态闸也会拦下），返回 false 让意图保持 pending。
+// 时不注入第二次发送（双发竞态闸也会拦下并返回 ignored），返回 false 让意图保持
+// pending。
 async function autoSendPrompt(text: string): Promise<boolean> {
   if (!text.trim()) {
     return false;
@@ -768,11 +769,10 @@ async function autoSendPrompt(text: string): Promise<boolean> {
   return sendViaInputBox(text);
 }
 
-// 发送闸（P2-1 回放期）：回放让出期间新消息若直接 append，会插进未完成回放的
-// 中间。所有 UI 发送入口（回车/建议 chip/解释意图自动发送）先 await 进行中的
-// 回放再交给 chatRuntime；无进行中回放时为无害 no-op。
+// 发送入口（回车/建议 chip/解释意图自动发送）直接交给 chatRuntime；回放让位
+// （P2-1）已收敛进发送闸的放行路径（send-gate.ts 对 G1 与直通路径统一 await
+// replayInFlight），此处不再手抄等待——借口径等价于发送闸必须等到其放行。
 async function sendFromUi(): Promise<void> {
-  await conversationReplay.inFlight;
   await chatRuntime.sendMessage();
 }
 
@@ -1091,7 +1091,9 @@ async function startNewConversation(): Promise<void> {
 
 // 历史回放事务已抽进 ../chat/replay.ts（createConversationReplay，CONTEXT.md 词条
 // 「历史回放」），在 createChatTabDomain 内组装；本文件经 conversationReplay 的
-// render/invalidate/inFlight 三件持有——世代作废、分片预算、发送前让位语义不变。
+// render/invalidate 两件持有（起跑 / 清场作废），inFlight 的发送前让位消费方
+// 已收敛进发送闸（send-gate.ts 的 G7，经 tab-domain 的 replayInFlight 注入）——
+// 世代作废、分片预算语义不变。
 
 // 发送闸事务（ensureCurrentContextForSend G1-G7 + 字幕等待闸 + 转写相位订阅 +
 // 主动起跑字幕抓取的读侧判定）已抽进 ../chat/send-gate.ts（createSendGate，

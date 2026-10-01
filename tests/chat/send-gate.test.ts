@@ -6,7 +6,6 @@ import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import {
   createSendGate,
   type CreateSendGateDeps,
-  NO_SUBTITLE_SEND_BLOCKED,
   SUBTITLE_FETCHING_NOTICE,
   ASR_TRANSCRIBING_NOTICE
 } from "../../extension/chat/send-gate.js";
@@ -100,7 +99,7 @@ describe("发送闸 createSendGate", () => {
   });
 
   describe("G1 pinned 分流", () => {
-    it("pinned 会话走静默补水 + hydratePinned，不碰 resetView", async () => {
+    it("pinned 会话走静默补水 + hydratePinned，放行 GateOutcome {pass:true}，不碰 resetView", async () => {
       Object.assign(chatSessionStateForTests, {
         currentConversationMeta: {
           id: "c1",
@@ -109,38 +108,38 @@ describe("发送闸 createSendGate", () => {
         } as never
       });
       const h = makeHarness();
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(h.mocks.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true });
       expect(h.mocks.hydratePinned).toHaveBeenCalledTimes(1);
       expect(h.mocks.resetView).not.toHaveBeenCalled();
     });
 
-    it("pinned 时 hydratePinned 的 false 原样上抛（闸不重置视图）", async () => {
+    it("pinned 时 hydratePinned 的 false → {pass:false, kind:'read-failed'}（闸不重置视图）", async () => {
       Object.assign(chatSessionStateForTests, { currentConversationMeta: { pinnedContext: true } as never });
       const h = makeHarness({ hydratePinned: vi.fn(async () => false) });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(false);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
       expect(h.mocks.resetView).not.toHaveBeenCalled();
     });
 
     it("pinnedContext 为真值非 true 时不走 pinned 分流（全仓统一严格判定）", async () => {
       Object.assign(chatSessionStateForTests, { currentConversationMeta: { pinnedContext: 1 } as never });
       const h = makeHarness();
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(h.mocks.hydratePinned).not.toHaveBeenCalled();
     });
   });
 
   describe("G2 读取失败闸", () => {
-    it("loadContextState false → resetView(CONTEXT_READ_FAILED_MESSAGE) + false", async () => {
+    it("loadContextState false → resetView(CONTEXT_READ_FAILED_MESSAGE) + {pass:false, kind:'read-failed'}", async () => {
       const h = makeHarness({ loadContextState: vi.fn(async () => false) });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(false);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
       expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
     });
 
     it("读取成功但 contextData 为空 → 同一路径拦截", async () => {
       chatSessionStateForTests.contextData = null;
       const h = makeHarness();
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(false);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
       expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
     });
   });
@@ -148,32 +147,32 @@ describe("发送闸 createSendGate", () => {
   describe("G3 主动起跑字幕抓取", () => {
     it("clip 与页同 BV 且已有字幕体 → 不起跑，直接进等待闸", async () => {
       const h = makeHarness({ clip: () => clip({ subtitleBody: ["x"] }) });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(h.mocks.startSubtitleFetch).not.toHaveBeenCalled();
     });
 
     it("抓取已在跑（非 idle）→ 不起跑", async () => {
       const h = makeHarness({ clip: () => clip({ subtitleFetchState: "loading" }) });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(h.mocks.startSubtitleFetch).not.toHaveBeenCalled();
     });
 
     it("非 BV 页（pageBvid null）→ 不起跑", async () => {
       const h = makeHarness({ pageBvid: () => null });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(h.mocks.startSubtitleFetch).not.toHaveBeenCalled();
     });
 
-    it("idle 且无字幕体 → 起跑；起跑失败 → resetView + false", async () => {
+    it("idle 且无字幕体 → 起跑；起跑失败 → resetView + read-failed", async () => {
       const h = makeHarness({ startSubtitleFetch: vi.fn(async () => false) });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(false);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
       expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
       expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
     });
   });
 
   describe("G4 等待闸", () => {
-    it("抓取中（loading 且字幕体空）→ 等待，就绪后放行 true", async () => {
+    it("抓取中（loading 且字幕体空）→ 等待，就绪后放行 {pass:true}", async () => {
       chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
       let polls = 0;
       const h = makeHarness({
@@ -187,14 +186,14 @@ describe("发送闸 createSendGate", () => {
           return true;
         })
       });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(polls).toBeGreaterThanOrEqual(2);
       // 等待期间展示过抓取文案 notice，结束时清理。
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(SUBTITLE_FETCHING_NOTICE, 0);
       expect(h.mocks.removeContextNotice).toHaveBeenCalled();
     });
 
-    it("等待闸兑现 false（读取失败）→ resetView + false", async () => {
+    it("等待闸兑现 false（读取失败）→ resetView + read-failed", async () => {
       chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
       const h = makeHarness({
         loadContextState: vi.fn(async () => {
@@ -203,16 +202,16 @@ describe("发送闸 createSendGate", () => {
           return true;
         })
       });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(false);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
       expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
     });
   });
 
   describe("G5 放行前重取快照", () => {
-    it("最终快照无字幕收尾 → NO_SUBTITLE_SEND_BLOCKED + 对应 notice，不重置视图", async () => {
+    it("最终快照无字幕收尾（G6）→ {pass:false, kind:'no-subtitle'} + 对应 notice，不重置视图", async () => {
       chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "empty", noSubtitleReason: "asr-disabled" });
       const h = makeHarness();
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(NO_SUBTITLE_SEND_BLOCKED);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         expect.stringContaining("语音转写开关已关闭"),
         0,
@@ -228,7 +227,7 @@ describe("发送闸 createSendGate", () => {
         noSubtitleReason: "asr-auth"
       });
       const h = makeHarness();
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(NO_SUBTITLE_SEND_BLOCKED);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       // 文案逐字来自 core 的单一真源（sidepanel 面），不再由 chat 侧自写分支表
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", "asr-auth"),
@@ -249,7 +248,7 @@ describe("发送闸 createSendGate", () => {
         noSubtitleReason: "asr-quota"
       });
       const h = makeHarness();
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(NO_SUBTITLE_SEND_BLOCKED);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", "asr-quota"),
         0,
@@ -264,7 +263,7 @@ describe("发送闸 createSendGate", () => {
         noSubtitleReason: null
       });
       const h = makeHarness();
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(NO_SUBTITLE_SEND_BLOCKED);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
         buildAsrNoSubtitleMessage("sidepanel", null),
         0,
@@ -274,7 +273,7 @@ describe("发送闸 createSendGate", () => {
   });
 
   describe("G7 回放让位", () => {
-    it("返回前 await replayInFlight（防新消息插进回放中间）", async () => {
+    it("直通放行路径返回前 await replayInFlight（防新消息插进回放中间）", async () => {
       let replaySettled = false;
       const h = makeHarness({
         replayInFlight: () =>
@@ -285,8 +284,44 @@ describe("发送闸 createSendGate", () => {
             }, 5);
           })
       });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(replaySettled).toBe(true);
+    });
+
+    // G1（pinned）路径同样必须等待：该分支的提前返回绕开了直通路径的等待点，
+    // 而在途回放确实可能与本路径并存——applyById（历史项点击）经
+    // emitChange({resetView:true}) → renderInitialState → replay.render() 起跑回放，
+    // hydratePinned 自身三支都不触发回放（见 send-gate.ts 头注查证）。
+    it("pinned 放行（G1 提前返回）路径也 await replayInFlight", async () => {
+      Object.assign(chatSessionStateForTests, {
+        currentConversationMeta: { id: "c1", pinnedContext: true } as never
+      });
+      let replaySettled = false;
+      const h = makeHarness({
+        replayInFlight: () =>
+          new Promise<void>((resolve) => {
+            setTimeout(() => {
+              replaySettled = true;
+              resolve();
+            }, 5);
+          })
+      });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      expect(h.mocks.hydratePinned).toHaveBeenCalledTimes(1);
+      expect(replaySettled).toBe(true);
+    });
+
+    it("拦截（G6 无字幕）不等待回放：拦截后无消息可插", async () => {
+      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "empty" });
+      let replayRequested = 0;
+      const h = makeHarness({
+        replayInFlight: () => {
+          replayRequested += 1;
+          return null;
+        }
+      });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+      expect(replayRequested).toBe(0);
     });
   });
 
@@ -345,7 +380,7 @@ describe("发送闸 createSendGate", () => {
           return true;
         })
       });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(true);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       // 状态行可见且呈转写/等待语义；消息区从未收到抓取文案 notice。
       expect(asrNotice.hidden).toBe(false);
       expect(
@@ -367,7 +402,7 @@ describe("发送闸 createSendGate", () => {
           return true;
         })
       });
-      await expect(h.gate.ensureContextForSend()).resolves.toBe(false);
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
       expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
     });
   });

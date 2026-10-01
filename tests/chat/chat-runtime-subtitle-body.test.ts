@@ -76,7 +76,7 @@ function makeRuntime() {
       resetConversationView: vi.fn(),
       autosizeInput: vi.fn()
     },
-    ensureCurrentContextForSend: vi.fn(async () => true),
+    ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,

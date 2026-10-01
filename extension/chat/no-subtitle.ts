@@ -33,10 +33,9 @@ import type { ChatSessionContextSnapshot } from "./chat-state.js";
 import type { NoSubtitleReason as ClipNoSubtitleReason } from "../core/state.js";
 import { buildAsrNoSubtitleMessage, getAsrFailureNotice } from "../core/asr-failure-notice.js";
 
-// ensureCurrentContextForSend 的类型化拦截信号：非 true 的返回值一律让
-// chat-runtime 的 sendMessage 提前返回（不追加用户消息、不落 chatHistory、
-// 不发起 port）。与既有 boolean false（上下文读取失败）区分开。
-export const NO_SUBTITLE_SEND_BLOCKED = "no-subtitle-send-blocked";
+// 拦截信号不再是本模块导出的字符串哨兵：发送闸经 GateOutcome
+//（send-gate.ts 的 { pass: false, kind: "no-subtitle" }）显式返回，调用方按
+// 结构化字段判定，不经副作用（输入框是否清空）反推受理结论。
 
 // noSubtitleReason 的可能取值：单源 core/state 的字面量联合（快照经 AiContext
 // 的开放索引签名读出为 unknown，调用点显式收窄），此处只叠加读边界的

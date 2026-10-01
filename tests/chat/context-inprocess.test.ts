@@ -197,7 +197,7 @@ function makeChatDeps(overrides: Partial<ChatRuntimeDeps> = {}) {
       resetConversationView: vi.fn(),
       autosizeInput: vi.fn()
     },
-    ensureCurrentContextForSend: vi.fn(async () => true),
+    ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),
     getProviderId: () => "test-provider",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
@@ -344,26 +344,27 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
     });
 
     // 组合根同款发送前编排（ensureCurrentContextForSend 的非 pinned 分支）：
-    // 静默加载 → subtitle-wait → 放行前重取 → 无字幕拦截判定
+    // 静默加载 → subtitle-wait → 放行前重取 → 无字幕拦截判定；结论按 GateOutcome
+    // 形状显式返回（无字幕拦截 = kind:"no-subtitle"，不再是字符串哨兵）
     const { deps } = makeChatDeps();
     deps.ensureCurrentContextForSend = vi.fn(async () => {
       const ok = await contextLoad.loadContextState({ forceRefresh: false, silent: true });
       if (!ok || !chatSessionState.contextData) {
-        return false;
+        return { pass: false, kind: "read-failed" } as const;
       }
       const ready = await subtitleWaiter.wait();
       if (!ready) {
-        return false;
+        return { pass: false, kind: "read-failed" } as const;
       }
       // 等待期间快照可能停在旧状态：放行前重取一次（组合根同款）
       await contextLoad.loadContextState({ forceRefresh: false, silent: true });
       if (!chatSessionState.contextData) {
-        return false;
+        return { pass: false, kind: "read-failed" } as const;
       }
       if (noSubtitle.isNoSubtitleEmptyContext(chatSessionState.contextData)) {
-        return noSubtitle.NO_SUBTITLE_SEND_BLOCKED;
+        return { pass: false, kind: "no-subtitle" } as const;
       }
-      return true;
+      return { pass: true } as const;
     });
     const runtime = createChatRuntime(deps);
 

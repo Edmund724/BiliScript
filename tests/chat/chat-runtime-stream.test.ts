@@ -91,7 +91,7 @@ function makeDeps(): TestDeps {
       resetConversationView: vi.fn(),
       autosizeInput: vi.fn()
     },
-    ensureCurrentContextForSend: vi.fn(async () => true),
+    ensureCurrentContextForSend: vi.fn(async () => ({ pass: true })),
     getProviderId: () => "test-provider",
     getTimestampNavDeps: () => ({}),
     normalizeMarkdownForSectionPaste,
@@ -197,12 +197,13 @@ describe("sendMessage 建流与协议入口", () => {
     expect(tail.textContent).toContain("第二帧");
   });
 
-  it("流式中重复 sendMessage 被拒（activePort 占用）：不发起第二条 port、不清输入", async () => {
+  it("流式中重复 sendMessage 被拒（activePort 占用）：verdict=ignored、不发起第二条 port、不清输入", async () => {
     const { deps, runtime } = await makeRuntime("第一条");
 
     deps.input.value = "第二条";
-    await runtime.sendMessage();
+    const verdict = await runtime.sendMessage();
 
+    expect(verdict).toBe("ignored");
     expect(deps.ports).toHaveLength(1);
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
     expect(deps.input.value).toBe("第二条");
@@ -211,7 +212,7 @@ describe("sendMessage 建流与协议入口", () => {
   // 双发竞态：ensureCurrentContextForSend 的 await 窗口内（port 尚未建立、
   // activePort 仍为 null）第二次 sendMessage 必须被拒绝——否则开出第二条流，
   // 两条流的回执交错到两个 assistant 节点。
-  it("发送中（ensure 窗口内）重复 sendMessage 被拒：不发起第二条 port、不开第二条流", async () => {
+  it("发送中（ensure 窗口内）重复 sendMessage 被拒：verdict=ignored、不发起第二条 port、不开第二条流", async () => {
     const deps = makeDeps();
     deps.input.value = "第一条";
     let releaseEnsure!: (value: unknown) => void;
@@ -225,18 +226,31 @@ describe("sendMessage 建流与协议入口", () => {
 
     // 第二次 sendMessage（用户又按了一次回车）：必须被闸住
     deps.input.value = "第二条";
-    await runtime.sendMessage();
+    const secondVerdict = await runtime.sendMessage();
+    expect(secondVerdict).toBe("ignored");
     expect(deps.ports).toHaveLength(0);
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(0);
     expect(deps.input.value).toBe("第二条");
     expect(deps.ui.setStreamingUiState).not.toHaveBeenCalledWith(true, expect.anything());
 
     // 释放第一个发送，流正常建立
-    releaseEnsure(true);
-    await send1;
+    releaseEnsure({ pass: true });
+    await expect(send1).resolves.toBe("accepted");
     expect(deps.ports).toHaveLength(1);
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(1);
     expect(deps.input.value).toBe("");
+  });
+
+  it("空文本 sendMessage：verdict=ignored，输入框保持空、无 port", async () => {
+    const deps = makeDeps();
+    deps.input.value = "   ";
+    const runtime = createChatRuntime(deps);
+
+    await expect(runtime.sendMessage()).resolves.toBe("ignored");
+
+    expect(deps.ensureCurrentContextForSend).not.toHaveBeenCalled();
+    expect(deps.ports).toHaveLength(0);
+    expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
   });
 });
 
@@ -840,28 +854,28 @@ describe("自动滚动开关对渲染的影响", () => {
 });
 
 // ==========================================================================
-// sendMessage 无字幕拦截的提前返回
+// sendMessage 受理结论（SendVerdict）与闸拦截的提前返回
 // ==========================================================================
-describe("sendMessage 无字幕拦截的提前返回", () => {
-  // ensureCurrentContextForSend 的类型化信号（NO_SUBTITLE_SEND_BLOCKED）让
-  // sendMessage 在用户消息上屏前中止：不追加用户/助手节点、不清输入框、
+describe("sendMessage 受理结论与闸拦截的提前返回", () => {
+  // ensureCurrentContextForSend 返回 GateOutcome：非 pass 让 sendMessage 在用户
+  // 消息上屏前中止（verdict=blocked）：不追加用户/助手节点、不清输入框、
   // 不落 chatHistory、不发起 offscreen port、不进入流式 UI 状态。
-  // notice 文案本身由 sidepanel（ensureCurrentContextForSend 调用方）负责。
-  function makeSendDeps(ensureResult: boolean | string) {
+  // notice 文案本身由发送闸（GateOutcome 产出方）负责。
+  function makeSendDeps(outcome: { pass: true } | { pass: false; kind: string }) {
     const deps = makeDeps();
     deps.input.value = "总结一下这个视频";
     deps.connectPort = vi.fn(async () => {
       throw new Error("不应发起 port");
     });
-    deps.ensureCurrentContextForSend = vi.fn(async () => ensureResult);
+    deps.ensureCurrentContextForSend = vi.fn(async () => outcome);
     return { deps };
   }
 
-  it("NO_SUBTITLE_SEND_BLOCKED（无字幕拦截）：不追加消息、不清输入、不发起 port", async () => {
-    const { deps } = makeSendDeps("no-subtitle-send-blocked");
+  it("gate no-subtitle：verdict=blocked，不追加消息、不清输入、不发起 port", async () => {
+    const { deps } = makeSendDeps({ pass: false, kind: "no-subtitle" });
     const runtime = createChatRuntime(deps);
 
-    await runtime.sendMessage();
+    await expect(runtime.sendMessage()).resolves.toBe("blocked");
 
     expect(deps.ensureCurrentContextForSend).toHaveBeenCalledTimes(1);
     expect(deps.connectPort).not.toHaveBeenCalled();
@@ -872,23 +886,36 @@ describe("sendMessage 无字幕拦截的提前返回", () => {
     expect(chatSessionState.chatHistory).toEqual([]);
   });
 
-  it("false（上下文读取失败）：同样提前返回，行为与拦截一致", async () => {
-    const { deps } = makeSendDeps(false);
+  it("gate read-failed（上下文读取失败）：同样 verdict=blocked，行为与拦截一致", async () => {
+    const { deps } = makeSendDeps({ pass: false, kind: "read-failed" });
     const runtime = createChatRuntime(deps);
 
-    await runtime.sendMessage();
+    await expect(runtime.sendMessage()).resolves.toBe("blocked");
 
     expect(deps.connectPort).not.toHaveBeenCalled();
     expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
     expect(chatSessionState.chatHistory).toEqual([]);
   });
 
-  it("true（放行）：照常追加用户消息并发起 port（非 empty 不受影响）", async () => {
+  it("无可用平台：verdict=blocked（不发起 port、不清输入）", async () => {
+    const deps = makeDeps();
+    deps.input.value = "总结一下这个视频";
+    deps.getProviderId = () => "";
+    const runtime = createChatRuntime(deps);
+
+    await expect(runtime.sendMessage()).resolves.toBe("blocked");
+
+    expect(deps.ensureCurrentContextForSend).not.toHaveBeenCalled();
+    expect(deps.ports).toHaveLength(0);
+    expect(deps.input.value).toBe("总结一下这个视频");
+  });
+
+  it("gate pass：verdict=accepted，照常追加用户消息并发起 port（非 empty 不受影响）", async () => {
     const deps = makeDeps();
     deps.input.value = "总结一下这个视频";
     const runtime = createChatRuntime(deps);
 
-    await runtime.sendMessage();
+    await expect(runtime.sendMessage()).resolves.toBe("accepted");
 
     expect(deps.connectPort).toHaveBeenCalledTimes(1);
     expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("总结一下这个视频");
@@ -898,7 +925,9 @@ describe("sendMessage 无字幕拦截的提前返回", () => {
 
   // connectPort 失败（ensure offscreen 文档/建连抛错）必须回退：恢复流式 UI、
   // 清理半置位状态、向用户可见的错误路径回报（.chat-msg-error 占位）。
-  it("connectPort 失败：退出流式 UI、isStreaming() 为 false、assistant 占位变错误占位、port 未建", async () => {
+  // 受理结论仍是 accepted：消息已 append、输入框已清空（与旧 sendViaInputBox
+  // 「看到空输入框判受理」的语义等价），失败发生在受理之后。
+  it("connectPort 失败：verdict=accepted，退出流式 UI、assistant 占位变错误占位、port 未建", async () => {
     const deps = makeDeps();
     deps.input.value = "总结一下这个视频";
     deps.connectPort = vi.fn(async () => {
@@ -906,8 +935,11 @@ describe("sendMessage 无字幕拦截的提前返回", () => {
     });
     const runtime = createChatRuntime(deps);
 
-    await runtime.sendMessage();
+    await expect(runtime.sendMessage()).resolves.toBe("accepted");
 
+    // 消息已 append、输入框已清（受理副作用）
+    expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("总结一下这个视频");
+    expect(deps.input.value).toBe("");
     // 用户可见错误：占位节点变为错误占位（同 error 终态机制）
     const node = assistantNode(deps);
     expect(node.querySelector(".chat-msg-error")?.textContent).toBe("错误：offscreen 文档创建失败");
