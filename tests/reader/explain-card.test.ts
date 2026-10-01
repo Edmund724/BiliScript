@@ -297,7 +297,9 @@ describe("面板内解释卡片", () => {
 
   it("webSearchEnabled 开启：解释请求带联网运行时（resolve-search-provider 往返组装）", async () => {
     // 覆盖 setup 层的 chrome stub：get-settings 回开启态，resolve-search-provider
-    // 回激活平台；其余消息回 ok（sendRuntimeMessage callback 风格）。
+    // 回链（S4 形状；此处刻意用 apiKey:"" 的 keyless 候选——免 Key 家必须能到达
+    // 解释链，第二道闸不再按 apiKey 非空判「未配置」）；其余消息回 ok
+    //（sendRuntimeMessage callback 风格）。
     vi.stubGlobal("chrome", {
       runtime: {
         lastError: null,
@@ -307,7 +309,16 @@ describe("面板内解释卡片", () => {
             msg?.type === "get-settings"
               ? { ok: true, settings: { webSearchEnabled: true } }
               : msg?.type === "resolve-search-provider"
-                ? { ok: true, provider: { id: "p", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" }, apiKey: "tvly-k", maxToolCalls: 2 }
+                ? {
+                    ok: true,
+                    chain: [
+                      {
+                        provider: { id: "p", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+                        apiKey: ""
+                      }
+                    ],
+                    maxToolCalls: 2
+                  }
                 : { ok: true };
           if (typeof cb === "function") {
             cb(payload);

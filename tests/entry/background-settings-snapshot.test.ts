@@ -167,8 +167,12 @@ describe("热路径命中：四个读 handler 二次调用 storage 读为 0", ()
     await assertSecondCallZeroReads({ type: "resolve-search-provider" }, (response) => {
       expect(response).toEqual({
         ok: true,
-        provider: { id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
-        apiKey: "tvly-key",
+        chain: [
+          {
+            provider: { id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+            apiKey: "tvly-key"
+          }
+        ],
         maxToolCalls: 5
       });
     });
@@ -261,7 +265,7 @@ describe("写后读失效：写消息落盘后读 handler 拿新值", () => {
       syncFixture: {
         activeSearchProviderId: "exa",
         webSearchMaxToolCalls: 3,
-        searchProviders: [SEARCH_PROVIDER]
+        searchProviders: []
       },
       localFixture: { searchProviderKeys: {} }
     });
@@ -279,8 +283,16 @@ describe("写后读失效：写消息落盘后读 handler 拿新值", () => {
     const after = await callHandler(listener, { type: "resolve-search-provider" });
     expect(after).toEqual({
       ok: true,
-      provider: { id: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai" },
-      apiKey: "exa-key",
+      chain: [
+        {
+          provider: { id: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai" },
+          apiKey: "exa-key"
+        },
+        {
+          provider: { id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+          apiKey: ""
+        }
+      ],
       maxToolCalls: 3
     });
   });

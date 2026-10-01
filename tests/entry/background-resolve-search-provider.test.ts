@@ -1,7 +1,8 @@
-// resolve-search-provider SW 端路由测试（spec §2.3/§2.4）。
-// offscreen 文档无 chrome.storage，工具循环的搜索配置（激活平台 + Key + 单轮
-// 上限）经本消息单趟往返——锁三种分支：命中（provider + apiKey + maxToolCalls）、
-// 未配置激活平台（ok:true 且 provider 缺省，不算错误）、Key 缺失。
+// resolve-search-provider SW 端路由测试（spec §1 S4、§2、§3 落点表第 11 行）。
+// offscreen 文档无 chrome.storage，工具循环的搜索配置（**有序候选链 + 各自 Key**
+// + 单轮上限）经本消息单趟往返——链的形状锁在回包全等断言里；三种分支：命中
+// （ok + chain + maxToolCalls）、keyless 无 Key（仍产出候选，apiKey:""）、
+// 无任何在组记录（ok:true 且 chain 缺省，不算错误）。
 // chrome stub 手法与 tests/entry/offscreen-request-close.test.ts 同款（真实
 // background 入口 + 路由监听器直调）。
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +16,21 @@ const PROVIDER_ENTRY = {
   type: "tavily",
   baseUrl: "https://api.tavily.com",
   enabled: true
+};
+
+// free-quota 家（Exa）：无 Key 不进链、有 Key 才进（spec §2 调用形状表）
+const EXA_ENTRY = {
+  id: "exa",
+  presetId: "exa",
+  name: "Exa",
+  type: "exa",
+  baseUrl: "https://api.exa.ai",
+  enabled: true
+};
+
+const TAVILY_CANDIDATE = {
+  provider: { id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+  apiKey: ""
 };
 
 function stubStorage({ syncFixture = {}, localFixture = {} }: { syncFixture?: Record<string, unknown>; localFixture?: Record<string, unknown> } = {}) {
@@ -85,7 +101,7 @@ beforeEach(() => {
 });
 
 describe("resolve-search-provider 路由", () => {
-  it("命中：激活平台 + Key + webSearchMaxToolCalls 一起回传", async () => {
+  it("命中：有序候选链（各自 Key）+ webSearchMaxToolCalls 一起回传", async () => {
     stubStorage({
       syncFixture: {
         activeSearchProviderId: "tavily",
@@ -101,24 +117,17 @@ describe("resolve-search-provider 路由", () => {
 
     expect(response).toEqual({
       ok: true,
-      provider: { id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
-      apiKey: "tvly-key",
+      chain: [
+        {
+          provider: { id: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+          apiKey: "tvly-key"
+        }
+      ],
       maxToolCalls: 5
     });
   });
 
-  it("未配置激活平台：ok:true 且 provider 缺省（不算错误）", async () => {
-    stubStorage({ syncFixture: {} });
-    await import("../../extension/entry/background.js");
-    const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
-
-    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
-
-    expect(response).toEqual({ ok: true });
-    expect(response.provider).toBeUndefined();
-  });
-
-  it("激活平台缺 Key：provider 缺省，走无联网路径", async () => {
+  it("keyless 无 Key 也产出 chain 候选（apiKey:''），必填性按预设 access 判", async () => {
     stubStorage({
       syncFixture: { activeSearchProviderId: "tavily", searchProviders: [PROVIDER_ENTRY] },
       localFixture: {}
@@ -128,7 +137,68 @@ describe("resolve-search-provider 路由", () => {
 
     const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
 
+    expect(response.chain).toEqual([TAVILY_CANDIDATE]);
+  });
+
+  it("无任何在组记录：ok:true 且 chain 缺省（不算错误）", async () => {
+    stubStorage({ syncFixture: {} });
+    await import("../../extension/entry/background.js");
+    const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
+
+    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
+
     expect(response).toEqual({ ok: true });
-    expect(response.apiKey).toBeUndefined();
+    expect(response.chain).toBeUndefined();
+  });
+
+  it("free-quota 无 Key 不进链（同批 keyless 记录仍在链）", async () => {
+    stubStorage({
+      syncFixture: { activeSearchProviderId: "", searchProviders: [EXA_ENTRY, PROVIDER_ENTRY] },
+      localFixture: {}
+    });
+    await import("../../extension/entry/background.js");
+    const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
+
+    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
+
+    expect(response.chain).toEqual([TAVILY_CANDIDATE]);
+  });
+
+  it("free-quota 有 Key 进链，排序按预设表（链首在最前）", async () => {
+    stubStorage({
+      syncFixture: { activeSearchProviderId: "exa", searchProviders: [PROVIDER_ENTRY, EXA_ENTRY] },
+      localFixture: { searchProviderKeys: { exa: "exa-key" } }
+    });
+    await import("../../extension/entry/background.js");
+    const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
+
+    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
+
+    expect(response.chain).toEqual([
+      {
+        provider: { id: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai" },
+        apiKey: "exa-key"
+      },
+      TAVILY_CANDIDATE
+    ]);
+  });
+
+  it("presetId 查不到预设表的记录不进链（脏值按最保守处理）", async () => {
+    stubStorage({
+      syncFixture: {
+        activeSearchProviderId: "",
+        searchProviders: [
+          { id: "search_brave", presetId: "brave", name: "Brave", type: "tavily", baseUrl: "https://api.search.brave.com", enabled: true },
+          PROVIDER_ENTRY
+        ]
+      },
+      localFixture: {}
+    });
+    await import("../../extension/entry/background.js");
+    const listener = vi.mocked(chrome.runtime.onMessage.addListener).mock.calls[0][0];
+
+    const response = (await callHandler(listener, { type: "resolve-search-provider" })) as ResolveSearchProviderResponse;
+
+    expect(response.chain).toEqual([TAVILY_CANDIDATE]);
   });
 });

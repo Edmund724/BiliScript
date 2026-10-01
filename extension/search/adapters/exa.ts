@@ -17,7 +17,7 @@ export function buildExaSearchRequest({ baseUrl, apiKey, query, count }: BuildSe
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": apiKey
+      "x-api-key": apiKey || ""
     },
     body: JSON.stringify({
       query,

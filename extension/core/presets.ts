@@ -111,45 +111,80 @@ export const NO_CATALOG_PRESETS = [
 ] as const;
 
 // ===== 联网搜索平台预设 =====
-// type 决定走哪个适配器（extension/search/adapters/），三家均为纯 HTTP：
-//   tavily：POST /search，Authorization: Bearer
-//   exa：POST /search，x-api-key
-//   brave：GET /res/v1/web/search，X-Subscription-Token
-// note 显示在设置行副行（如 Brave 免费计划提示）。不做自定义预设（spec 非目标）。
+// type 决定走哪个适配器（extension/search/adapters/），六家均为纯 HTTP：
+//   firecrawl：POST /v2/search，无鉴权头（keyless 模式完全不发 Authorization）
+//   tavily：POST /search，无 Key 走 x-tavily-access-mode: keyless，有 Key 走 Authorization: Bearer
+//   doubao：POST /search_api/web_search，authorization: Bearer（必填）
+//   anysearch：POST /v1/search，无鉴权头
+//   parallel：POST /mcp（JSON-RPC tools/call + web_search），无鉴权头
+//   exa：POST /search，x-api-key（必填）
+// access 是接入与额度形态的单一真源（spec §7）：keyless 无 Key 即可调用（配 Key
+// 走自己账号提额，不改形态）；free-quota 必须自带 Key，耗用服务方赠予的额度。
+// note 显示在设置行副行。不做自定义预设（spec 非目标）。
 
-export type SearchProviderType = "tavily" | "exa" | "brave";
+export type SearchProviderAccess = "keyless" | "free-quota";
+
+export type SearchProviderType = "firecrawl" | "tavily" | "doubao" | "anysearch" | "parallel" | "exa";
 
 export interface SearchProviderPreset {
   id: string;
   name: string;
   type: SearchProviderType;
   baseUrl: string;
+  access: SearchProviderAccess;
   note?: string;
 }
 
 // 搜索平台缺省预设：编辑 Modal 解析不到所选 preset 时的兜底（引用此处，
-// 不再硬编码 "tavily" 字面量）。即预设表首项 tavily。
+// 不再硬编码字面量）。即预设表首项 firecrawl。
 export const DEFAULT_SEARCH_PROVIDER_PRESET: SearchProviderPreset = {
-  id: "tavily",
-  name: "Tavily",
-  type: "tavily",
-  baseUrl: "https://api.tavily.com"
+  id: "firecrawl",
+  name: "Firecrawl",
+  type: "firecrawl",
+  baseUrl: "https://api.firecrawl.dev",
+  access: "keyless"
 };
 
+// 表顺序 = 回退链顺序（spec §1 S3）：Firecrawl（首选）→ Tavily → 豆包 → AnySearch
+// → Parallel → Exa；free-quota 两家仅已配 Key 时参与。
 export const SEARCH_PROVIDER_PRESETS: readonly SearchProviderPreset[] = [
   DEFAULT_SEARCH_PROVIDER_PRESET,
+  {
+    id: "tavily",
+    name: "Tavily",
+    type: "tavily",
+    baseUrl: "https://api.tavily.com",
+    access: "keyless"
+  },
+  {
+    id: "doubao",
+    name: "豆包",
+    type: "doubao",
+    baseUrl: "https://open.feedcoopapi.com",
+    access: "free-quota",
+    note: "每月 500 次免费（需在火山控制台申请 Key）"
+  },
+  {
+    id: "anysearch",
+    name: "AnySearch",
+    type: "anysearch",
+    baseUrl: "https://api.anysearch.com",
+    access: "keyless"
+  },
+  {
+    id: "parallel",
+    name: "Parallel",
+    type: "parallel",
+    baseUrl: "https://search.parallel.ai",
+    access: "keyless"
+  },
   {
     id: "exa",
     name: "Exa",
     type: "exa",
-    baseUrl: "https://api.exa.ai"
-  },
-  {
-    id: "brave",
-    name: "Brave Search",
-    type: "brave",
-    baseUrl: "https://api.search.brave.com",
-    note: "免费计划需绑信用卡"
+    baseUrl: "https://api.exa.ai",
+    access: "free-quota",
+    note: "每月 $10 赠送额度（新账户另赠 $10）"
   }
 ];
 

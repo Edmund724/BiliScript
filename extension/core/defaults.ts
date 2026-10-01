@@ -52,6 +52,14 @@ export interface Settings {
   activeSearchProviderId: string; // 当前选用的搜索平台 id
   webSearchEnabled: boolean;      // 对话/选区解释链联网开关，全局记住上次状态，默认关
   webSearchMaxToolCalls: number;  // 单轮搜索次数上限（区间 1–10）
+  // 两个非可调一次性状态位（不在设置页渲染、无校验区间，spec §3 落点表 20–21）。
+  // searchPresetsAutoActivated：安装/更新时四条免 Key 预设记录已自动补齐的一次性
+  // 旗标，置位后永不再自动激活；落 sync 是刻意的——同账号另一台设备不应重建已删
+  // 记录（否则「删除即撤回」不成立）。
+  searchPresetsAutoActivated: boolean;
+  // searchOptInNoticeAcknowledged：联网搜索 opt-in 一次性说明已确认，只在用户点
+  // 「同意并继续」时置位。
+  searchOptInNoticeAcknowledged: boolean;
 }
 
 // ===== Merged default settings =====
@@ -84,5 +92,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // ===== 联网搜索标量（spec §3.2，走 save-settings 白名单）=====
   activeSearchProviderId: "", // 当前选用的搜索平台 id（单选激活，对齐 ASR radio）
   webSearchEnabled: false,    // 全局记住上次开关状态，默认关
-  webSearchMaxToolCalls: 5    // 单轮搜索次数上限（1–10）
+  webSearchMaxToolCalls: 5,   // 单轮搜索次数上限（1–10）
+  // 两个一次性状态位默认 false（含义见 Settings 声明处）；设置页不渲染。
+  searchPresetsAutoActivated: false,
+  searchOptInNoticeAcknowledged: false
 };

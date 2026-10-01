@@ -10,6 +10,11 @@
 //
 // 不 mock ladder（真链路）+ promise 风格 sendMessage stub，手法沿
 // offscreen-chat-presetid.test.js。
+//
+// 同一 harness 另覆盖搜索运行时解析的 notice 面（spec §10 第 10 行）：
+// entry/offscreen.ts:239-243 的「未配置搜索平台，本轮未联网」判据是
+// resolveWebSearchRuntime 的返回是否为 undefined——keyless 无 Key 的链（S4
+// 形状 chain 非空、apiKey:""）必须放行、不弹该 notice。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
@@ -22,6 +27,8 @@ let fetchMock: ReturnType<typeof vi.fn>;
 let events: string[] = [];
 // check-provider-origin 的回包（undefined = 无回包，fail-open 用例）
 let checkReply: unknown;
+// resolve-search-provider 的回包（缺省 = 无链：走「未配置搜索平台」notice 分支）
+let searchReply: unknown = { ok: true };
 
 function stubChromeRuntime() {
   vi.stubGlobal("chrome", {
@@ -49,6 +56,9 @@ function stubChromeRuntime() {
         }
         if (message?.type === "check-provider-origin") {
           return checkReply;
+        }
+        if (message?.type === "resolve-search-provider") {
+          return searchReply;
         }
         return { ok: true };
       })
@@ -87,6 +97,7 @@ async function importOffscreen() {
   onConnectListeners = [];
   events = [];
   checkReply = { granted: true };
+  searchReply = { ok: true };
   stubChromeRuntime();
   fetchMock = vi.fn(async () => {
     events.push("fetch");
@@ -117,7 +128,8 @@ function makeChatPort() {
 }
 
 // 连一条聊天端口并完整跑完一轮（监听器本身是 async：await 即等到本轮收尾）。
-async function runChatTurn() {
+// extra 追加进 chat 消息体（如 webSearchEnabled: true）。
+async function runChatTurn(extra: Record<string, unknown> = {}) {
   const session = makeChatPort();
   expect(onConnectListeners).toHaveLength(1);
   onConnectListeners[0](session.port);
@@ -131,9 +143,17 @@ async function runChatTurn() {
       cid: "1000",
       subtitleBody: [{ from: 0, to: 5, content: "第一句话" }]
     },
-    prompt: "总结一下"
+    prompt: "总结一下",
+    ...extra
   });
   return session;
+}
+
+function postedNotices(session: { port: { postMessage: ReturnType<typeof vi.fn> } }): string[] {
+  return session.port.postMessage.mock.calls
+    .map((call) => call[0] as { type?: string; data?: unknown } | null)
+    .filter((message): message is { type?: string; data?: unknown } => message?.type === "notice")
+    .map((message) => String(message.data || ""));
 }
 
 function postedTypes(session: { port: { postMessage: ReturnType<typeof vi.fn> } }): Array<string | undefined> {
@@ -186,5 +206,38 @@ describe("offscreen 对话链 host 权限预检", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(postedTypes(session)).toContain("done");
     expect(postedErrors(session)).toHaveLength(0);
+  });
+});
+
+describe("offscreen 对话链搜索运行时的未配置 notice（spec §10 第 10 行）", () => {
+  it("keyless 无 Key（链非空、apiKey:''）→ 不弹「未配置搜索平台，本轮未联网」", async () => {
+    await importOffscreen();
+    searchReply = {
+      ok: true,
+      chain: [
+        {
+          provider: { id: "search_firecrawl", name: "Firecrawl", type: "firecrawl", baseUrl: "https://api.firecrawl.dev" },
+          apiKey: ""
+        }
+      ],
+      maxToolCalls: 2
+    };
+
+    const session = await runChatTurn({ webSearchEnabled: true });
+
+    expect(events).toContain("msg:resolve-search-provider");
+    expect(postedNotices(session).some((data) => data.includes("未配置搜索平台"))).toBe(false);
+    expect(postedTypes(session)).toContain("done");
+    expect(postedErrors(session)).toHaveLength(0);
+  });
+
+  it("对照：chain 缺省（未配置）→ 仍弹该 notice（缺省分支未被动过）", async () => {
+    await importOffscreen();
+    searchReply = { ok: true };
+
+    const session = await runChatTurn({ webSearchEnabled: true });
+
+    expect(postedNotices(session).some((data) => data.includes("未配置搜索平台，本轮未联网"))).toBe(true);
+    expect(postedTypes(session)).toContain("done");
   });
 });

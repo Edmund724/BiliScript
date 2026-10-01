@@ -5,8 +5,9 @@
 
 import type { SearchProviderType } from "../../core/presets.js";
 
-// 统一结果条目：Tavily content / Exa summary / Brave description 都映射到
-// snippet，单条截断 500 字符（spec §5，解析期收口）。
+// 统一结果条目：Tavily content / Exa summary / Firecrawl description / 豆包 Summary
+// / AnySearch snippet / Parallel excerpts[0] 都映射到 snippet，单条截断 500 字符
+// （spec §8，解析期收口）。
 export interface NormalizedSearchResult {
   title: string;
   url: string;
@@ -22,7 +23,9 @@ export interface BuiltSearchRequest {
 
 export interface BuildSearchRequestInput {
   baseUrl: string;
-  apiKey: string;
+  // keyless 预设无 Key 也可调用（spec §3 第 2 行）：空 / 缺省即不产鉴权头
+  // （Tavily 是唯一按有无 Key 分岔的一家，见 adapters/tavily.ts）。
+  apiKey?: string;
   query: string;
   count: number;
 }

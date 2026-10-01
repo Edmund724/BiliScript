@@ -129,6 +129,73 @@ describe("normalizeSettings 纯函数", () => {
   });
 });
 
+// 两个非可调一次性状态位（spec §2「flag 的家」、§3 落点表第 20–21 行、§6.7
+// 「状态位」、§9.7 第 4 条）：不在设置页渲染、无校验区间，归一化与
+// normalizeWebSearchEnabled 同型（布尔，仅显式 true 置位，其余回落 false）。
+describe("normalizeSettings：两个一次性状态位", () => {
+  it("searchPresetsAutoActivated：缺省/脏值回落 false，显式 true 保留", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(DEFAULT_SETTINGS.searchPresetsAutoActivated).toBe(false);
+    expect(normalizeSettings({}).searchPresetsAutoActivated).toBe(false);
+    expect(normalizeSettings({ searchPresetsAutoActivated: true }).searchPresetsAutoActivated).toBe(true);
+    for (const dirty of ["true", 1, 0, null, undefined, {}]) {
+      expect(
+        normalizeSettings({ searchPresetsAutoActivated: dirty }).searchPresetsAutoActivated,
+        `脏值 ${JSON.stringify(dirty)} 应回落 false`
+      ).toBe(false);
+    }
+  });
+
+  it("searchOptInNoticeAcknowledged：缺省/脏值回落 false，显式 true 保留", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(DEFAULT_SETTINGS.searchOptInNoticeAcknowledged).toBe(false);
+    expect(normalizeSettings({}).searchOptInNoticeAcknowledged).toBe(false);
+    expect(normalizeSettings({ searchOptInNoticeAcknowledged: true }).searchOptInNoticeAcknowledged).toBe(true);
+    for (const dirty of ["true", 1, 0, null, undefined, {}]) {
+      expect(
+        normalizeSettings({ searchOptInNoticeAcknowledged: dirty }).searchOptInNoticeAcknowledged,
+        `脏值 ${JSON.stringify(dirty)} 应回落 false`
+      ).toBe(false);
+    }
+  });
+
+  // 写路径：两位都在 DEFAULT_SETTINGS 键面内（save-settings 白名单），且写前
+  // 经同一套步骤表归一化。
+  it("写路径：两个状态位在白名单内且经归一化落盘", async () => {
+    const { saveSettings } = await loadStoreModule();
+
+    await saveSettings({ searchPresetsAutoActivated: true, searchOptInNoticeAcknowledged: "yes" });
+
+    expect(syncSetMock).toHaveBeenCalledTimes(1);
+    const persisted = syncSetMock.mock.calls[0][0];
+    expect(persisted).toHaveProperty("searchPresetsAutoActivated", true);
+    expect(persisted).toHaveProperty("searchOptInNoticeAcknowledged", false);
+  });
+
+  // validators.ts 的两个 normalizer 与 normalizeWebSearchEnabled 同型同列。
+  it("normalizeSearchPresetsAutoActivated / normalizeSearchOptInNoticeAcknowledged 与 normalizeWebSearchEnabled 同型", async () => {
+    const {
+      normalizeSearchPresetsAutoActivated,
+      normalizeSearchOptInNoticeAcknowledged,
+      normalizeWebSearchEnabled
+    } = await import("../../extension/core/validators.js");
+
+    for (const normalize of [
+      normalizeSearchPresetsAutoActivated,
+      normalizeSearchOptInNoticeAcknowledged,
+      normalizeWebSearchEnabled
+    ]) {
+      expect(normalize(true)).toBe(true);
+      expect(normalize(false)).toBe(false);
+      expect(normalize(undefined)).toBe(false);
+      expect(normalize("true")).toBe(false);
+      expect(normalize(1)).toBe(false);
+      expect(normalize(null)).toBe(false);
+      expect(normalize({})).toBe(false);
+    }
+  });
+});
+
 describe("normalizeSettings 是唯一归一化路径", () => {
   it("读路径：getMergedSettings 输出等于对原始合并结果应用 normalizeSettings", async () => {
     const { getMergedSettings, normalizeSettings } = await loadStoreModule();
@@ -225,7 +292,8 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
 
     await onInstalledListener();
 
-    expect(syncSetMock).toHaveBeenCalledTimes(1);
+    // 同一 onInstalled 还跑免 Key 预设自动激活（spec §1 S2）——它会追加「记录 →
+    // 链首 → flag」几次 sync.set；设置域的全量写恒是第一次调用（键面全在一次里）。
     const persisted = syncSetMock.mock.calls[0][0];
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.aiSystemPrompt).not.toBe(LEGACY_DEFAULT_AI_SYSTEM_PROMPT);
@@ -263,7 +331,7 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
 
     await onInstalledListener();
 
-    expect(syncSetMock).toHaveBeenCalledTimes(1);
+    // 与上方同：自动激活的记录 / 链首 / flag 写在其后，设置全量写仍是第一次调用
     const persisted = syncSetMock.mock.calls[0][0];
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.playerAiQuickPrompt).toBe(DEFAULT_PLAYER_AI_QUICK_PROMPT);

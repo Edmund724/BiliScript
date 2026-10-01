@@ -341,17 +341,22 @@ export type SearchProvidersDeleteResponse = {
   error?: string;
 };
 
-// ===== 联网搜索运行时解析（spec §2.3/§2.4）=====
-// offscreen 文档无 chrome.storage，工具循环的搜索配置（激活平台 + Key + 上限）
-// 经本消息单趟往返解析（仿 resolve-ai-provider）。未配置激活平台时 ok:true 且
-// provider 缺省——调用方（entry/offscreen.ts）据此 notice「未配置搜索平台」并
-// 走原无工具路径，不算错误。
+// ===== 联网搜索运行时解析（spec §1 S4 / §2.3/§2.4）=====
+// offscreen 文档无 chrome.storage，工具循环的搜索配置（**回退链**：有序候选 +
+// 各自 Key + 单轮上限）经本消息单趟往返解析（仿 resolve-ai-provider）。链语义 =
+// 零成本组按预设表顺序，手选平台（activeSearchProviderId）排链首；无任何在组
+// 记录时 chain 缺省——调用方（entry/offscreen.ts）据此 notice「未配置搜索平台」
+// 并走原无工具路径，不算错误（搜索是增强，缺失不阻塞对话）。
 export type ResolveSearchProviderMessage = { type: "resolve-search-provider" };
 // 响应锚点：entry/background.ts handleResolveSearchProvider。
 export type ResolveSearchProviderResponse = {
   ok: boolean;
-  provider?: { id: string; name: string; type: string; baseUrl: string };
-  apiKey?: string;
+  // 有序候选：每项自带 provider 身份与它的 Key。apiKey 允许空串（keyless 预设
+  // 无 Key 也进链，spec §2）；顶层不再有 provider / apiKey（那会形成两套形状）。
+  chain?: Array<{
+    provider: { id: string; name: string; type: string; baseUrl: string };
+    apiKey: string;
+  }>;
   // settings.webSearchMaxToolCalls（单轮搜索次数上限，区间 1–10）。
   maxToolCalls?: number;
   error?: string;

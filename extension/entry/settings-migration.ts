@@ -16,6 +16,12 @@
 // 取舍（有意为之）：存量用户里曾刻意关闭按钮的会被这次迁移重新打开一次，
 // 需要再手动关一次——在不引入用户可见确认弹窗的前提下无法区分两种 false，
 // 而不改写则默认翻转对全部存量安装（含提出该诉求用户的浏览器）无效。
+//
+// 2026-09 免 Key 搜索预设自动激活（spec §1 S2）：同一钩子上的第二件一次性迁移，
+// 决策半边同样写成纯函数（planSearchPresetsAutoActivation），写入（记录 → 链首 →
+// flag，flag 最后写）归 background 的 autoActivateSearchPresets。
+
+import { SEARCH_PROVIDER_PRESETS, type SearchProviderPreset, type SearchProviderType } from "../core/presets.js";
 
 // 旗标未置位 → 无条件置旗标（存量显式 false 一并改写回 true）；旗标已置位 →
 // 原样返回。旗标键
@@ -31,4 +37,76 @@ export function applyPlayerAiQuickActionDefaultOnMigration(
     syncCurrent.aiBtnDefaultOnMigrated = true;
   }
   return syncCurrent;
+}
+
+// ===== 免 Key 预设自动激活（spec §1 S2 / §2「自动激活规则（S2 展开）」）=====
+
+// 自动补齐的搜索记录形状：记录仍只有 id / presetId / name / type / baseUrl /
+// enabled 六个字段（search/search-provider-normalize.ts），access 只挂预设表。
+export interface SearchPresetAutoRecord {
+  id: string;
+  presetId: string;
+  name: string;
+  type: SearchProviderType;
+  baseUrl: string;
+  enabled: boolean;
+}
+
+export interface SearchPresetsAutoActivationSettings {
+  searchPresetsAutoActivated?: boolean;
+  activeSearchProviderId?: string;
+}
+
+export interface SearchPresetsAutoActivationPlan {
+  // 需补缺的记录（已有同 presetId 记录不在此列，也就不会被改写）
+  providersToAdd: SearchPresetAutoRecord[];
+  // 仅在链首为空或悬空时携带（值 = 预设表首项的生成 id，即 search_firecrawl）
+  activeSearchProviderId?: string;
+  // flag 未置位即需写（即使本轮一条记录都没补也要写，否则判定会在每次启动重跑）
+  shouldWriteFlag: boolean;
+}
+
+// 决策半边（纯函数，不触碰 storage）：安装/更新时按 presetId 对四条 keyless 预设
+// 查缺补齐、链首仅在为空或悬空时写、并置一次性 flag。写入顺序（记录 → 链首 →
+// flag）与 flag 最后写的理由见 background 的 autoActivateSearchPresets（任一步
+// 失败时 flag 未落盘，下一次 onInstalled 重试整段；判据按 presetId 使重试安全）。
+export function planSearchPresetsAutoActivation(
+  settings: SearchPresetsAutoActivationSettings,
+  providers: ReadonlyArray<{ id: string; presetId?: string }>,
+  presets: readonly SearchProviderPreset[] = SEARCH_PROVIDER_PRESETS
+): SearchPresetsAutoActivationPlan {
+  // ① flag 已置位 = 唯一整体跳过的情形（不加记录、不动链首、不重写 flag）
+  if (settings.searchPresetsAutoActivated === true) {
+    return { providersToAdd: [], shouldWriteFlag: false };
+  }
+
+  const existingIds = new Set(providers.map((provider) => provider.id));
+  const existingPresetIds = new Set(providers.map((provider) => String(provider.presetId || "").trim()));
+
+  // ② 补齐四条 keyless 预设（豆包 / Exa 两条 free-quota 一律不建）：判据是
+  // presetId 而非 id——用户手加过的同一家（生成式 id）不会被误判为缺失。
+  const providersToAdd: SearchPresetAutoRecord[] = [];
+  for (const preset of presets) {
+    if (preset.access !== "keyless") continue;
+    if (existingPresetIds.has(preset.id)) continue;
+    providersToAdd.push({
+      id: `search_${preset.id}`,
+      presetId: preset.id,
+      name: preset.name,
+      type: preset.type,
+      baseUrl: preset.baseUrl,
+      enabled: true
+    });
+  }
+
+  // ③ 链首：空或悬空（指向不存在的记录）时写预设表首项的生成 id；已有且指向
+  // 存在记录的链首原样不动（不重排、不改写）。
+  const activeId = String(settings.activeSearchProviderId || "").trim();
+  const headPreset = presets[0];
+  const headId = headPreset ? `search_${headPreset.id}` : "";
+  const plan: SearchPresetsAutoActivationPlan = { providersToAdd, shouldWriteFlag: true };
+  if (headId && (!activeId || !existingIds.has(activeId))) {
+    plan.activeSearchProviderId = headId;
+  }
+  return plan;
 }

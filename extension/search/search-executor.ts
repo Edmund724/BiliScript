@@ -16,7 +16,8 @@ export const SEARCH_RESULT_COUNT = 5;
 export interface SearchExecutorConfig {
   type: SearchProviderType;
   baseUrl: string;
-  apiKey: string;
+  // keyless 预设无 Key 也可执行（spec §3 第 7 行）：空 / 缺省即由适配器不产鉴权头。
+  apiKey?: string;
 }
 
 export interface ExecuteWebSearchDeps {
@@ -31,7 +32,7 @@ export interface WebSearchOutcome extends ParsedSearchResponse {
 
 /**
  * 单次搜索（tool-loop 的 executeSearch 实现）。!response.ok 抛 `HTTP <status>`
- * （SW 端 4xx/5xx 以 ok:true + status 透传，本端统一抛错）；中止照
+ * 并附 status 属性（渲染面不变；供链侧 classifySearchFailure 分类）；中止照
  * providerFetchViaBackground 的 AbortError 形状上抛，tool-loop 收口为中止。
  */
 export async function executeWebSearch(
@@ -56,7 +57,7 @@ export async function executeWebSearch(
     signal: signal ?? undefined
   });
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    throw Object.assign(new Error(`HTTP ${response.status}`), { status: response.status });
   }
   let payload: unknown = null;
   try {

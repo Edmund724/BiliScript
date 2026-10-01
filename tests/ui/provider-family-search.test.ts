@@ -35,7 +35,7 @@ function fireChange(el: Element) {
 
 const ITEMS = [
   { id: "search_1", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com", hasSavedKey: true },
-  { id: "search_2", presetId: "brave", name: "Brave Search", type: "brave", baseUrl: "https://api.search.brave.com", hasSavedKey: false }
+  { id: "search_2", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai", hasSavedKey: false }
 ];
 
 beforeEach(() => {
@@ -44,14 +44,14 @@ beforeEach(() => {
 });
 
 describe("搜索平台行（provider-family.js 的搜索族声明）", () => {
-  it("渲染主行 + 预设 note 副行（Brave 免费计划提示），无 note 的行无副行", () => {
+  it("渲染主行 + 预设 note 副行（Exa 免费额度提示），无 note 的行无副行", () => {
     const { listNode, emptyNode } = makeContainer();
     bindings.search.render(listNode, emptyNode, ITEMS, { presets: SEARCH_PROVIDER_PRESETS, activeId: "search_1" });
     const rows = listNode.querySelectorAll(".search-provider-row");
     expect(rows).toHaveLength(2);
     expect(rows[0].querySelector(".provider-row-name")!.textContent).toBe("Tavily");
     expect(rows[0].querySelector(".provider-row-model")).toBeNull();
-    expect(rows[1].querySelector(".provider-row-model")!.textContent).toContain("免费计划需绑信用卡");
+    expect(rows[1].querySelector(".provider-row-model")!.textContent).toContain("每月 $10 赠送额度（新账户另赠 $10）");
     expect(emptyNode.hidden).toBe(true);
   });
 

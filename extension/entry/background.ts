@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../core/default-prompts.js";
-import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
+import { PRESETS, ASR_PROVIDER_PRESETS, SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { normalizePlayerAiQuickPrompt } from "../core/validators.js";
 import { buildReaderModeUrl, isSupportedBilibiliPage } from "../bilibili/video-id-shared.js";
 import {
@@ -21,8 +21,12 @@ import {
   invalidate as invalidateSettingsSnapshot,
   PROVIDER_FAMILY_STORAGE_KEYS
 } from "../core/settings-snapshot.js";
-// 安装/更新一次性设置迁移（2026-09 AI 键默认开：存量显式 false 清位）
-import { applyPlayerAiQuickActionDefaultOnMigration } from "./settings-migration.js";
+// 安装/更新一次性设置迁移（2026-09 AI 键默认开：存量显式 false 清位；免 Key 搜索
+// 预设自动激活的决策半边）
+import {
+  applyPlayerAiQuickActionDefaultOnMigration,
+  planSearchPresetsAutoActivation
+} from "./settings-migration.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 import { logWarn } from "../shared/logging.js";
@@ -32,6 +36,9 @@ import {
 import { asrProviderStore } from "../asr/asr-provider-store.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
 import { searchProviderStore } from "../search/search-provider-store.js";
+// 回退链解析（spec §1 S1/S4）：链 = 记录集合按 presetId 查预设表定类，SW 是唯一
+// 知道 Key 的一侧（链解析回包一次带出有序候选 + 各自 Key）
+import { resolveSearchChain } from "../search/search-chain.js";
 // 模型列表探测（fetch 原语）归 ai 域（arch-slim-2/09）；纯存储仍在 core/。
 import { handleAiProvidersModels as fetchAiProviderModels } from "../ai/provider-models.js";
 // 平台请求代发（AI 探针传输层）：content script 的跨域 fetch 服从网页 CORS，
@@ -330,30 +337,29 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
 
 // ===== 联网搜索消息处理 =====
 
-// 联网搜索运行时解析（spec §2.3/§2.4）：offscreen 文档无 chrome.storage，工具
-// 循环的搜索配置（激活平台 + Key + 单轮上限）经本消息单趟往返。激活平台未配置
-// / 未启用 / Key 缺失时 ok:true 且 provider 缺省——调用方 notice 后走原无工具
-// 路径，不算错误（搜索是增强，缺失不阻塞对话）。
+// 联网搜索运行时解析（spec §1 S4、§3 落点表第 11 行）：offscreen 文档无
+// chrome.storage，工具循环的搜索配置（**有序候选链 + 各自 Key** + 单轮上限）经本
+// 消息单趟往返。链成员是记录，成员资格由记录的 presetId 查预设表得出；无任何在组
+// 记录时 chain 缺省——调用方 notice 后走原无工具路径，不算错误（搜索是增强，
+// 缺失不阻塞对话）。
 function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: SendResponse): boolean {
   withOkResponse(
     (async () => {
       // settings 标量 + 搜索平台列表 + Key 一次快照读取（命中时零 storage 调用）
       const settings = await getSettingsSnapshot();
       const { providers, keys } = await getProviderStoreSnapshot("search");
-      const active = providers.find(
-        (p) => p.id === settings.activeSearchProviderId && p.enabled !== false
+      const chain = resolveSearchChain(
+        providers,
+        keys,
+        settings.activeSearchProviderId,
+        SEARCH_PROVIDER_PRESETS
       );
-      if (!active) {
-        return { ok: true };
-      }
-      const apiKey = String(keys[active.id] || "").trim();
-      if (!apiKey) {
+      if (chain.length === 0) {
         return { ok: true };
       }
       return {
         ok: true,
-        provider: { id: active.id, name: active.name, type: active.type, baseUrl: active.baseUrl },
-        apiKey,
+        chain,
         maxToolCalls: settings.webSearchMaxToolCalls
       };
     })(),
@@ -387,6 +393,13 @@ const searchProviderHandlers = createProviderMessageHandlers({
   deleteProvider: invalidateAfterWrite(searchProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.search),
   loadKeys: searchProviderStore.loadKeys
 });
+
+// 自动激活的记录写走与 CRUD 同一条写后失效包装（spec §2 落点③）：落盘后失效
+// search 族快照，写后读（resolve-search-provider）拿新链。
+const saveSearchProvidersWithInvalidate = invalidateAfterWrite(
+  searchProviderStore.saveProviders,
+  PROVIDER_FAMILY_STORAGE_KEYS.search
+);
 
 // 内容脚本 ASR 回退的运行时配置：settings 标量 + provider-store 列表 + 激活
 // 平台 Key 一次回包，provider-store 存储层不再进内容 bundle（契约见
@@ -507,6 +520,13 @@ chrome.runtime.onInstalled.addListener(async () => {
     // 安装/更新迁移失败不进 SW unhandled rejection，只记日志（下次安装/更新
     // 会重试整段迁移）。
     logWarn("[BILISCRIPT] settings storage init on install/update failed", error);
+  }
+  try {
+    await autoActivateSearchPresets();
+  } catch (error) {
+    // 自动激活失败只记日志：flag 最后写，任一步失败都留着 flag 未置位，下一次
+    // 安装/更新重试整段；判据按 presetId 查缺使重试安全（已补的不会重复写）。
+    logWarn("[BILISCRIPT] search presets auto activation on install/update failed", error);
   }
 });
 
@@ -642,4 +662,28 @@ async function initializeSettingsStorage() {
   // 迁移直写 storage（不经 save-settings），写后 inline 失效 settings 快照：
   // SW 存活期内的 onInstalled（扩展 reload/update）可能带着热缓存跑。
   invalidateSettingsSnapshot(Object.keys(DEFAULT_SETTINGS));
+}
+
+// 免 Key 搜索预设自动激活（spec §1 S2 / §2 展开，落点 §3 第 12 行）：决策走纯函数
+// （输入 = 当前 settings 标量 + 当前搜索记录），写入顺序固定「记录 → 链首 → flag」。
+// ① 记录写走 CRUD 同款写后失效包装（无记录要补时整步跳过；只追加不覆盖，已有
+// 同 presetId 记录连同它的 Key 与 enabled 原样不动）；② 链首仅在为空或悬空时
+// 直写 storage；③ flag **最后写**——即使本轮一条记录都没补也要写，否则判定会在
+// 每次启动重跑；任一步失败时 flag 未落盘，下一次 onInstalled 重试整段。
+async function autoActivateSearchPresets(): Promise<void> {
+  const settings = await getSettingsSnapshot();
+  const { providers } = await getProviderStoreSnapshot("search");
+  const plan = planSearchPresetsAutoActivation(settings, providers);
+  if (plan.providersToAdd.length > 0) {
+    await saveSearchProvidersWithInvalidate([...providers, ...plan.providersToAdd]);
+  }
+  if (plan.activeSearchProviderId !== undefined) {
+    await chrome.storage.sync.set({ activeSearchProviderId: plan.activeSearchProviderId });
+    // 直写 storage 后 inline 失效（写后读语义靠这里保证，onChanged 不在写入方触发）
+    invalidateSettingsSnapshot(["activeSearchProviderId"]);
+  }
+  if (plan.shouldWriteFlag) {
+    await chrome.storage.sync.set({ searchPresetsAutoActivated: true });
+    invalidateSettingsSnapshot(["searchPresetsAutoActivated"]);
+  }
 }

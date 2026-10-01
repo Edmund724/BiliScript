@@ -48,13 +48,17 @@ describe("normalizeSearchProvider", () => {
     expect(normalizeSearchProvider("tavily")).toBeNull();
   });
 
-  it("预设目录三家平台 type 与 baseUrl 与 spec §3.1 一致", async () => {
-    const { SEARCH_PROVIDER_PRESETS } = await import("../../extension/core/presets.js");
-    expect(SEARCH_PROVIDER_PRESETS.map((p) => [p.id, p.type, p.baseUrl])).toEqual([
-      ["tavily", "tavily", "https://api.tavily.com"],
-      ["exa", "exa", "https://api.exa.ai"],
-      ["brave", "brave", "https://api.search.brave.com"]
+  it("预设目录六家平台按链序（Firecrawl 起头）登记 id/name/type/baseUrl/access/note", async () => {
+    const { SEARCH_PROVIDER_PRESETS, DEFAULT_SEARCH_PROVIDER_PRESET } = await import("../../extension/core/presets.js");
+    expect(SEARCH_PROVIDER_PRESETS.map((p) => [p.id, p.name, p.type, p.baseUrl, p.access, p.note])).toEqual([
+      ["firecrawl", "Firecrawl", "firecrawl", "https://api.firecrawl.dev", "keyless", undefined],
+      ["tavily", "Tavily", "tavily", "https://api.tavily.com", "keyless", undefined],
+      ["doubao", "豆包", "doubao", "https://open.feedcoopapi.com", "free-quota", "每月 500 次免费（需在火山控制台申请 Key）"],
+      ["anysearch", "AnySearch", "anysearch", "https://api.anysearch.com", "keyless", undefined],
+      ["parallel", "Parallel", "parallel", "https://search.parallel.ai", "keyless", undefined],
+      ["exa", "Exa", "exa", "https://api.exa.ai", "free-quota", "每月 $10 赠送额度（新账户另赠 $10）"]
     ]);
-    expect(SEARCH_PROVIDER_PRESETS.find((p) => p.id === "brave")?.note).toContain("免费计划需绑信用卡");
+    // 单源关系（spec §1 S3）：兜底预设恒等于表首项
+    expect(DEFAULT_SEARCH_PROVIDER_PRESET).toBe(SEARCH_PROVIDER_PRESETS[0]);
   });
 });

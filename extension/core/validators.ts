@@ -100,6 +100,18 @@ export function normalizeWebSearchEnabled(value: unknown): boolean {
   return value === true;
 }
 
+// 两个非可调一次性状态位（spec §2 flag 的家 / §6.7 状态位）：与
+// normalizeWebSearchEnabled 同型的布尔归一，非 boolean 一律回落 false。
+// searchPresetsAutoActivated：安装/更新时免 Key 预设已自动补齐的旗标。
+export function normalizeSearchPresetsAutoActivated(value: unknown): boolean {
+  return value === true;
+}
+
+// searchOptInNoticeAcknowledged：联网搜索 opt-in 说明已确认（仅「同意并继续」置位）。
+export function normalizeSearchOptInNoticeAcknowledged(value: unknown): boolean {
+  return value === true;
+}
+
 // 单轮搜索次数上限：整数，区间 1–10，越界夹取，非法值回落默认 5（spec §3.2）
 export function normalizeWebSearchMaxToolCalls(value: unknown): number {
   const parsed = Number(value);
