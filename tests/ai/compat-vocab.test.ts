@@ -19,6 +19,7 @@ import {
   validateCompatVocab,
   type CompatQuirk
 } from "../../extension/ai/compat-vocab.js";
+import { resolvePlatformQuirkId } from "../../extension/ai/platform-quirk-id.js";
 import { PROTOCOL_ADAPTERS } from "../../extension/ai/protocol-adapter.js";
 import { PRESETS } from "../../extension/core/presets.js";
 import { presetRequestHeaders, sessionIdFor } from "../../extension/ai/preset-headers.js";
@@ -196,5 +197,37 @@ describe("平台声明派生（词表是唯一主人，adapter/preset-headers �
     const headers = presetRequestHeaders({ presetId: "opencodego", sessionId: "conv_a1" });
     expect(headers["x-opencode-session"]).toBe(sessionIdFor("conv_a1"));
     expect(presetRequestHeaders({ presetId: "deepseek", sessionId: "conv_a1" })).toEqual({});
+  });
+});
+
+// 查表口径单点（识别器在 ai/platform-quirk-id.ts，词表叶外）：
+// presetId 主路径 + baseUrl host 兜底，键空间 = PLATFORM_QUIRKS。
+// 为什么不能复用 resolveThinkingProviderId：那个函数的键空间是 thinking 的 PROVIDERS
+// 表（PROVIDERS ⊋ PLATFORM_QUIRKS，如 siliconflow 有思考档位但没有怪癖声明），
+// 拿它当词表识别口径会把非词表平台也认成词表成员。
+describe("resolvePlatformQuirkId（词表查表的唯一识别口径）", () => {
+  it("presetId 直中：词表成员原样返回（trim 后判定）", () => {
+    expect(resolvePlatformQuirkId("opencodego")).toBe("opencodego");
+    expect(resolvePlatformQuirkId("  stepfun  ")).toBe("stepfun");
+  });
+
+  it("presetId 未命中（custom/未知值）时按 baseUrl host 兜底", () => {
+    expect(resolvePlatformQuirkId("custom", "https://opencode.ai/zen/go/v1")).toBe("opencodego");
+    expect(resolvePlatformQuirkId("", "https://api.stepfun.com/step_plan")).toBe("stepfun");
+  });
+
+  it("兜底不成立 → undefined：无 baseUrl / host 不认识 / host 命中非词表平台", () => {
+    expect(resolvePlatformQuirkId("custom")).toBeUndefined();
+    expect(resolvePlatformQuirkId("custom", "not a url")).toBeUndefined();
+    expect(resolvePlatformQuirkId("custom", "https://unknown.example.com/v1")).toBeUndefined();
+    // api.deepseek.com 在 host 索引里（→ deepseek），但 deepseek 没声明任何怪癖
+    expect(resolvePlatformQuirkId("custom", "https://api.deepseek.com/v1")).toBeUndefined();
+  });
+
+  it("键空间是 PLATFORM_QUIRKS 而非 PROVIDERS：siliconflow 有思考档位但无怪癖 → undefined", () => {
+    // 钉住口径：resolveThinkingProviderId 会把 siliconflow 认出来（PROVIDERS 成员），
+    // 词表识别口径必须拒绝它——否则 anthropic 的 effort 词汇查表会按错误的键空间判。
+    expect(resolvePlatformQuirkId("siliconflow", "https://api.siliconflow.cn/v1")).toBeUndefined();
+    expect(resolvePlatformQuirkId("deepseek", "https://api.deepseek.com/v1")).toBeUndefined();
   });
 });

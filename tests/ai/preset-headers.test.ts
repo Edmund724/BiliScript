@@ -21,6 +21,20 @@ describe("presetRequestHeaders", () => {
     expect(send("conv_a1")).not.toBe(send("conv_b2"));
   });
 
+  it("custom 平台直填 Opencode Go 域（host 兜底）：同样补 x-opencode-session", () => {
+    // presetId="custom" 的用户直填 baseUrl 是常见路径；platform 身份只看 presetId 会
+    // 静默漏头（平台要求该头，缺失则请求不被接受），故识别口径须带 host 兜底。
+    const headers = presetRequestHeaders({
+      presetId: "custom",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      sessionId: "conv_a1"
+    });
+    expect(Object.keys(headers)).toEqual(["x-opencode-session"]);
+    expect(headers["x-opencode-session"]).toBe(sessionIdFor("conv_a1"));
+    // 兜底不得过触发：非会话头平台（deepseek 域）不补任何头。
+    expect(presetRequestHeaders({ presetId: "custom", baseUrl: "https://api.deepseek.com/v1" })).toEqual({});
+  });
+
   it("无会话身份（选区解释/连通性探针/旧宿主）：造随机 UUID，两次调用不同", () => {
     const first = presetRequestHeaders({ presetId: "opencodego" })["x-opencode-session"];
     const second = presetRequestHeaders({ presetId: "opencodego", sessionId: "  " })["x-opencode-session"];

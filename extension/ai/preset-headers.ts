@@ -15,15 +15,17 @@
 // 旧宿主）现造一个随机 id：这些调用本身就不构成「一个对话」。
 
 import { quirkWireValue } from "./compat-vocab.js";
+import { resolvePlatformQuirkId } from "./platform-quirk-id.js";
 
 export interface PresetHeaderInput {
-  presetId?: unknown;
+  presetId?: string;
+  baseUrl?: string;
   sessionId?: unknown;
 }
 
 // 该预设要求的额外请求头；无要求返回空对象（调用方展开合并）。
 export function presetRequestHeaders(provider?: PresetHeaderInput | null): Record<string, string> {
-  const header = quirkWireValue(String(provider?.presetId || "").trim(), "sessionHeader");
+  const header = quirkWireValue(resolvePlatformQuirkId(provider?.presetId, provider?.baseUrl), "sessionHeader");
   if (!header) {
     return {};
   }

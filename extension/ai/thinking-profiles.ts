@@ -428,10 +428,10 @@ export function resolveThinkingProfile({ presetId, baseUrl, model, level, stream
 }
 
 // provider 识别：presetId 优先（02 穿线），host 推断兜底（本票对 custom/直填
-// baseUrl 的平台生效）。识别结果以 id 形式另开一口给需要「是哪家平台」的消费方
-// ——目前只有 anthropic adapter 的平台专属思考词汇（怪癖 effortVocabMessages：
-// stepfun / amd 的 Messages 通道只认 output_config.effort，词表 PLATFORM_QUIRKS
-// 是那份名单的唯一主人）；开这口是为了不让那边复制一份识别规则。
+// baseUrl 的平台生效）。结果现只供本模块的档位查表（resolveProvider）消费；
+// 「是哪家平台」给怪癖词表的那一口已另立 ai/platform-quirk-id.ts——那边键空间
+// 是 PLATFORM_QUIRKS（PROVIDERS ⊋ PLATFORM_QUIRKS，siliconflow 有思考档位但
+// 无怪癖声明），且不让词表反向依赖思考表。
 export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): string | undefined {
   const byId = String(presetId || "").trim();
   if (byId && PROVIDERS[byId]) {

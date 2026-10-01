@@ -15,8 +15,9 @@
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
-import { normalizeThinkingLevel, resolveThinkingProfile, resolveThinkingProviderId } from "../thinking-profiles.js";
+import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
 import { hasPlatformQuirk } from "../compat-vocab.js";
+import { resolvePlatformQuirkId } from "../platform-quirk-id.js";
 import { parseToolArgs } from "./openai.js";
 import type { ChatRequest, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
@@ -59,7 +60,7 @@ const DEFAULT_BUDGET_TOKENS = 2048;
 //   （amd-aim.github.io/radeon-cloud-docs/zh-cn/api/messages/）。
 // effort 取矩阵已算好的 reasoning_effort（同域词表），不自造映射。
 function usesEffortVocabulary(presetId?: string, baseUrl?: string): boolean {
-  return hasPlatformQuirk(resolveThinkingProviderId(presetId, baseUrl), "effortVocabMessages");
+  return hasPlatformQuirk(resolvePlatformQuirkId(presetId, baseUrl), "effortVocabMessages");
 }
 
 function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest): void {
