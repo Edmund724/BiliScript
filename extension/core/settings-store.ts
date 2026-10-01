@@ -40,6 +40,10 @@ type NormalizerStep = [string, (m: Record<string, unknown>) => unknown];
 
 // 归一化步骤表：[key, normalizeField]，normalizeField 接收完整对象、返回该 key
 // 的归一化值。步骤顺序即历史内联顺序，不可调整。
+//
+// 键面三分（见文件末白名单注释）：步骤表键 ∪ 透传键（SETTINGS_PASSTHROUGH_KEYS）
+// = DEFAULT_SETTINGS 键面全集。本表不导出（步骤函数是实现细节），只导出由它
+// 派生的键清单 SETTINGS_NORMALIZER_KEYS 供对账测试读面。
 const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   ["downloadFormat", (m) => normalizeDownloadFormat(m.downloadFormat)],
   ["enablePlayerAiQuickAction", (m) => normalizeEnablePlayerAiQuickAction(m.enablePlayerAiQuickAction)],
@@ -89,6 +93,22 @@ export function normalizeSettings(merged: Record<string, unknown>): Settings {
   return normalized as Settings;
 }
 
+// 步骤表键清单：从步骤表单源派生（不是第二份字面量），供键面对账测试读面
+// （tests/core/settings-normalizer-keys.test.ts：步骤表键 ∪ 透传名单 = 键面全集）。
+export const SETTINGS_NORMALIZER_KEYS: readonly string[] = Object.freeze(
+  SETTINGS_NORMALIZER_STEPS.map(([key]) => key)
+);
+
+// 透传键名单：经 save-settings 落盘但不做值归一化的字段（值由各自的写入方
+// 保证形状），此前的「透传四键」注释在此升为可校验结构——与 SETTINGS_NORMALIZER_KEYS
+// 无交集、并集恰为键面全集，两条都由上述对账测试钉住（加键忘写归一步即红）。
+export const SETTINGS_PASSTHROUGH_KEYS: readonly string[] = Object.freeze([
+  "includeDateInFilename",
+  "includeTimestampInBody",
+  "enableDebugLogs",
+  "aiBtnDefaultOnMigrated"
+]);
+
 export async function getMergedSettings(timeoutMs = 5000): Promise<Settings> {
   const syncSettings = await withTimeout(
     chrome.storage.sync.get(DEFAULT_SETTINGS),
@@ -99,10 +119,11 @@ export async function getMergedSettings(timeoutMs = 5000): Promise<Settings> {
   return normalizeSettings({ ...DEFAULT_SETTINGS, ...(syncSettings as Record<string, unknown>) });
 }
 
-// 写入白名单：settings 域的键面 = DEFAULT_SETTINGS 声明的键集。除归一化步骤表
-// 覆盖的字段外，includeDateInFilename 等透传字段也经 save-settings 落盘，因此
-// 白名单取键面全集而非步骤表键集。saveSettings 据此剔除键面外的键（笔记导出
-// 删除后旧存储里残留的字段也在此被自然丢弃，无需迁移）。
+// 写入白名单：settings 域的键面 = DEFAULT_SETTINGS 声明的键集，等于归一步骤表键
+// （SETTINGS_NORMALIZER_KEYS）∪ 透传键（SETTINGS_PASSTHROUGH_KEYS）——includeDateInFilename
+// 等透传字段也经 save-settings 落盘，因此白名单取键面全集而非步骤表键集。
+// saveSettings 据此剔除键面外的键（笔记导出删除后旧存储里残留的字段也在此被自然
+// 丢弃，无需迁移）。
 const SETTINGS_STORAGE_KEYS = new Set<string>(Object.keys(DEFAULT_SETTINGS));
 
 export async function saveSettings(settings: unknown): Promise<void> {

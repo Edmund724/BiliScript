@@ -846,17 +846,20 @@ function bindEvents(): void {
     // multi-model-catalog：选项值是「平台 id\u0001模型 id」复合值。选中项的
     // 持久化 = 复合值进 chrome.storage.local（providers 模块的 setSelectedProvider，
     // renderModelSelect 的选中回落直接消费）；sync settings 的 defaultModel 仍是
-    // 裸平台 id（SW 激活平台解析的消费口径不变）。
+    // 裸平台 id（SW 激活平台解析的消费口径不变），但落盘收编进 save-settings
+    // 通道（C5）：此前直写 chrome.storage.sync.set 绕过写白名单与
+    // normalizeDefaultModel（trim），也不触发 SW 设置快照的写后 inline 失效；
+    // 现与 aiThinkingLevel / webSearchEnabled 同一条口径（见 chat/providers.ts 的
+    // setThinkingLevel）。
     const selected = parseModelOptionValue(els.modelSelect.value);
     const providerId = selected.providerId;
     if (providerId) {
       providerPrefs.setSelectedProvider(els.modelSelect.value);
       noteDefaultModelChoice(providerId);
-      chrome.storage.sync.set({ defaultModel: providerId }).catch(() => {});
     } else {
       noteDefaultModelChoice("");
-      chrome.storage.sync.set({ defaultModel: "" }).catch(() => {});
     }
+    void sendRuntimeMessage({ type: "save-settings", settings: { defaultModel: providerId } }).catch(() => null);
     updateModelSelectWidth(widthEls);
     // 模型选择变化：重渲 chip 文案（模型名）+ 重判提示（含从「关不掉」模型
     // 切回可关模型时消失）。

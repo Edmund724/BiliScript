@@ -276,6 +276,70 @@ describe("组合根装配与懒加载边界", () => {
   });
 });
 
+// C5「defaultModel 直写收编」：模型选择变化的持久化原先在 change 监听里直写
+// chrome.storage.sync（绕过 save-settings 的归一化与白名单、也不触发 SW 设置快照
+// 失效），现改走既有 save-settings 通道（同 aiThinkingLevel / webSearchEnabled）。
+// 断言面：出站消息 = save-settings{defaultModel}，且 sync 直写不再收到 defaultModel 键。
+describe("模型选择变化的 defaultModel 落盘（C5 直写收编）", () => {
+  async function activateWithModelSelect() {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const chromeStub = window.chrome as unknown as {
+      runtime: { sendMessage: Sendstub };
+      storage: { sync: { set: Sendstub } };
+    };
+    chromeStub.runtime.sendMessage.mockClear();
+    chromeStub.storage.sync.set.mockClear();
+    const modelSelect = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
+    return { chromeStub, modelSelect };
+  }
+
+  function directDefaultModelWrites(syncSet: Sendstub): unknown[][] {
+    return syncSet.mock.calls.filter(([payload]) =>
+      Object.prototype.hasOwnProperty.call((payload as Record<string, unknown>) ?? {}, "defaultModel")
+    );
+  }
+
+  it("选中平台模型：发 save-settings{defaultModel: 裸平台 id}，sync 直写不再出现 defaultModel", async () => {
+    const { chromeStub, modelSelect } = await activateWithModelSelect();
+
+    modelSelect.value = "p1\u0001模型一";
+    modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // 直写断言放前：旧实现下这里立刻红，红证据直接给出被直写的载荷
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(directDefaultModelWrites(chromeStub.storage.sync.set)).toEqual([]);
+    await waitFor(() =>
+      chromeStub.runtime.sendMessage.mock.calls.some(
+        ([message]) =>
+          (message as { type?: string })?.type === "save-settings" &&
+          (message as { settings?: { defaultModel?: unknown } })?.settings?.defaultModel === "p1"
+      )
+    );
+    // 进程内镜像同趟更新（noteDefaultModelChoice 语义不变）
+    expect(chatSessionState.aiPrefs.defaultModel).toBe("p1");
+  });
+
+  it("清空选择：同路写回空串，sync 直写不再出现 defaultModel", async () => {
+    const { chromeStub, modelSelect } = await activateWithModelSelect();
+
+    modelSelect.value = "";
+    modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(directDefaultModelWrites(chromeStub.storage.sync.set)).toEqual([]);
+    await waitFor(() =>
+      chromeStub.runtime.sendMessage.mock.calls.some(
+        ([message]) =>
+          (message as { type?: string })?.type === "save-settings" &&
+          (message as { settings?: { defaultModel?: unknown } })?.settings?.defaultModel === ""
+      )
+    );
+    expect(chatSessionState.aiPrefs.defaultModel).toBe("");
+  });
+});
+
 describe("explain 意图消费（自动发送 + consume 一次）", () => {
   it("激活时渲染引用卡并自动发送解释提示词，发送成功即 consume", async () => {
     seedReadyContext();

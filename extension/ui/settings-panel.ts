@@ -645,7 +645,12 @@ function setBusy(elements: SettingsElements, isBusy: boolean): void {
 // 键面，天然不受影响）。defaultModel 与 ASR 标量（activeAsrProviderId /
 // asrAutoFallback / asrLanguage）是平台域配置，不参与重置（拍板：偏好类）。
 // aiBtnDefaultOnMigrated 是安装/更新迁移旗标，重置为 false 会重触发一次迁移
-// 翻转，同样不参与。
+// 翻转，同样不参与。readerThemeUserSet 不参与：它是一次性哨兵（用户经 header
+// 按钮手动改过主题才置位，见 reader/lifecycle.ts 的 updateReaderPreferences），
+// 重置成 false 会让 presentation 的水合重新按 prefers-color-scheme 定主题，
+// 把刚重置的 readerTheme 覆盖掉。webSearchMaxToolCalls 不参与：它是即时保存键
+//（change 事件直发 save-settings，见 bindSettingsEvents），与 asrAutoFallback
+// 同口径，不进表单收集也不进重置载荷。
 function buildDefaultPreferencePayload() {
   return {
     downloadFormat: DEFAULT_SETTINGS.downloadFormat,

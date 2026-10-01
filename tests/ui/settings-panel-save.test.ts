@@ -234,6 +234,24 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     expect(saveBtn.textContent).toBe("保存设置");
   });
 
+  // 对账（C5）：本面板手写的收集子集必须落在 settings 键面内——键面外的键经
+  // save-settings 会被白名单静默丢弃（改键名/加错键时本用例红，而不是静默不落盘）。
+  it("保存载荷键面 ⊆ DEFAULT_SETTINGS 键面", async () => {
+    const sent = installMessageBus();
+    const host = await mountPanel();
+
+    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "save-settings")).toBe(true);
+    });
+
+    const saveMessage = sent.find((message) => message.type === "save-settings")!;
+    expect(saveMessage.settings).toBeTruthy();
+    const keyFace = new Set(Object.keys(DEFAULT_SETTINGS));
+    const stray = Object.keys(saveMessage.settings!).filter((key) => !keyFace.has(key));
+    expect(stray, `保存载荷含键面外键：${stray.join(", ")}`).toEqual([]);
+  });
+
   it("save-settings 失败：状态条报错，busy 复位", async () => {
     const sent = installMessageBus({ "save-settings": () => ({ ok: false, error: "写入失败" }) });
     const host = await mountPanel();
@@ -349,6 +367,30 @@ describe("恢复默认偏好按钮", () => {
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toContain("已恢复默认设置");
     });
+  });
+
+  // 对账（C5）：重置载荷同样必须落在 settings 键面内。readerTheme 是唯一不来自
+  // collectFormPayload 的重置键（它在键面内，合法）；键面外的键由白名单静默丢弃。
+  it("重置载荷键面 ⊆ DEFAULT_SETTINGS 键面（readerTheme 在内）", async () => {
+    const sent = installMessageBus();
+    const host = await mountPanel();
+
+    fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
+    const confirmBtn = await openResetDialog();
+    fireClick(confirmBtn);
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === "save-settings")).toBe(true);
+    });
+    const payload = sent
+      .filter((message) => message.type === "save-settings")
+      .map((message) => message.settings)
+      .find((settings) => settings?.readerTheme !== undefined)!;
+    expect(payload).toBeTruthy();
+    const keyFace = new Set(Object.keys(DEFAULT_SETTINGS));
+    const stray = Object.keys(payload).filter((key) => !keyFace.has(key));
+    expect(stray, `重置载荷含键面外键：${stray.join(", ")}`).toEqual([]);
+    expect(keyFace.has("readerTheme")).toBe(true);
   });
 
   it("确认弹层点「取消」时不发任何保存消息", async () => {

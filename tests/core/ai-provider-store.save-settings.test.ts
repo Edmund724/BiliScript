@@ -65,6 +65,14 @@ describe("saveSettings 部分保存", () => {
 });
 
 describe("saveSettings 全量保存", () => {
+  // C5 收编依据：defaultModel 经 save-settings 落盘时过 normalizeDefaultModel
+  //（trim）——原 chat-tab 直写 sync 绕过这一步，带空白的裸平台 id 会原样进存储。
+  it("defaultModel 归一化：两侧空白剥掉", async () => {
+    const { saveSettings } = await loadModule();
+    await saveSettings({ defaultModel: "  p1  " });
+    expect(extractSetPayload()).toEqual({ defaultModel: "p1" });
+  });
+
   it("全量 payload 时所有 key 仍被归一化（options.js 保存路径不受影响）", async () => {
     const { saveSettings } = await loadModule();
     await saveSettings({
