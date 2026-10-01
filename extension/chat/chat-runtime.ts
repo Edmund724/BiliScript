@@ -4,8 +4,8 @@
 //
 // 12 票浅拆：DOM 渲染/滚动/水合（流式双容器增量渲染/思考节点/用户与助手消息
 // 装配/终态重渲染/自动滚动）已迁 ./chat-stream-render.ts（createChatStreamRenderer
-// 工厂，闭包自持流式渲染状态）。本文件保留流状态机与 port 协议分派，经解构以
-// 原名消费渲染片返回面——调用点与返回面键名零改动。
+// 工厂，闭包自持流式渲染状态）。本文件保留流状态机与 port 协议分派，经对象解构
+// 以原名消费渲染片具名返回面——调用点与返回面键名零改动。
 //
 // Responsibility: orchestrate "send message → stream receive → render assistant
 // tokens → stop/error handling". It owns the stream runtime state
@@ -286,9 +286,9 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // =========================================================================
   // DOM 渲染/滚动/水合片（./chat-stream-render.ts）的跨片消费面
   // =========================================================================
-  // 函数体已整体迁入渲染片且逐字节未变，此处经解构保留原名——本文件所有
+  // 函数体已整体迁入渲染片且逐字节未变，此处经对象解构保留原名——本文件所有
   // 调用点与返回面键名零改动。
-  const [
+  const {
     scrollToBottom,
     appendUserMessage,
     appendAssistantPlaceholder,
@@ -304,7 +304,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     takeTurnSearchSources,
     clearSearchCard,
     buildSearchTimelineCard
-  ] = createChatStreamRenderer(deps);
+  } = createChatStreamRenderer(deps);
   // =========================================================================
   // dispatchChatPortMessage — offscreen port 消息的协议分派（八分派 + 代际重置）
   // =========================================================================

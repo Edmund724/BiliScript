@@ -7,9 +7,10 @@
 // 拆分手法：本片是工厂 createChatStreamRenderer(deps)，闭包自持流式渲染状态
 //（shouldAutoScrollMessages / tokenFlushFrame / tokenFlushEpoch / 两个按节点隔离
 // 的 WeakMap）——每个 createChatRuntime 实例调用一次，实例间隔离语义与拆分前
-// 一致。流状态机与 port 协议分派留在 chat-runtime.ts，经解构以原名消费本片
-// 返回面（调用点零改动）；deps 只需 messages 与两个渲染回调（ChatStreamRendererDeps
-// 结构子集，createChatRuntime 直接传入完整 deps）。
+// 一致。流状态机与 port 协议分派留在 chat-runtime.ts，经对象解构以原名消费本片
+// 返回面（具名对象，见 ChatStreamRenderer；调用点零改动）；deps 只需 messages
+// 与两个渲染回调（ChatStreamRendererDeps 结构子集，createChatRuntime 直接传入
+// 完整 deps）。
 
 import {
   createMarkdownTailCursor,
@@ -32,6 +33,33 @@ export interface ChatStreamRendererDeps {
   messages: HTMLElement;
   normalizeMarkdownForSectionPaste: (raw: string, baseLevel?: number) => string;
   getTimestampNavDeps: () => TimestampNavDeps;
+}
+
+// 渲染片的具名返回面（工厂 createChatStreamRenderer 的返回类型）：字段名 = 函数名，
+// 替代 15 元组位置面——扩展只需加字段，消费方按名字取件，不再靠调用两侧按位置
+// lockstep 对齐。各字段是闭包内函数声明的签名（模块层取不到闭包的 typeof，故按签名
+// 书写；返回处由本接口标注，签名漂移仍被 tsc 拦下）。命名与同域窄门面先例
+// ConversationReplayRenderer（replay.ts）一致。
+export interface ChatStreamRenderer {
+  scrollToBottom: (force?: boolean, opts?: { instant?: boolean }) => void;
+  appendUserMessage: (text: string, shouldScroll?: boolean) => void;
+  appendAssistantPlaceholder: () => HTMLDivElement;
+  appendToken: (node: HTMLDivElement | null, token: unknown) => void;
+  appendThinkingText: (node: HTMLDivElement | null, text: unknown) => void;
+  createThinkingNode: (assistantNode: HTMLDivElement | null) => HTMLDivElement | null;
+  resetTokenStreamState: (node: HTMLElement) => void;
+  cancelTokenFlush: () => void;
+  getStreamRaw: (node: HTMLElement) => string;
+  renderAssistantMessage: (
+    node: HTMLDivElement | null,
+    raw: unknown,
+    opts?: { userPrompt?: string; sources?: ChatSearchSource[] }
+  ) => void;
+  setAutoScroll: (value: boolean) => void;
+  applySearchStatus: (node: HTMLDivElement | null, msg: ChatToolStatusEvent) => void;
+  takeTurnSearchSources: (node: HTMLDivElement | null) => ChatSearchSource[];
+  clearSearchCard: (node: HTMLDivElement | null) => void;
+  buildSearchTimelineCard: (turn: HistorySearchTurn) => HTMLElement;
 }
 
 // 流式 token 累加器（按节点存放在 WeakMap）：base = 已 flush 的全量原文，
@@ -71,7 +99,7 @@ interface ThinkingDisplayState {
  * collapseThinking / ensureStreamContainers / freshTokenStreamState /
  * getTokenStreamState / yieldToMain 仅本片内部消费，不外露。
  */
-export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
+export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStreamRenderer {
 
   // 自动滚动标志（原 sidepanel 模块级 shouldAutoScrollMessages，归位到本闭包）：
   // scroll 监听与恢复点经 setAutoScroll 写入，token flush / finalize /
@@ -945,9 +973,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     shouldAutoScrollMessages = Boolean(value);
   }
 
-  // 跨片消费面：chat-runtime.ts（流状态机片）经解构消费以下函数——函数名与
-  // 拆分前一致，调用点与 createChatRuntime 返回面键名零改动。
-  return [
+  // 跨片消费面：chat-runtime.ts（流状态机片）经对象解构消费以下函数——函数名与
+  // 拆分前一致，调用点与 createChatRuntime 返回面键名零改动。具名对象返回面替代
+  // 15 元组位置面：字段名即函数名，增删件只改字段，不按位置对齐。
+  return {
     scrollToBottom,
     appendUserMessage,
     appendAssistantPlaceholder,
@@ -963,5 +992,5 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps) {
     takeTurnSearchSources,
     clearSearchCard,
     buildSearchTimelineCard
-  ] as const;
+  };
 }
