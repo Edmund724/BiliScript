@@ -129,6 +129,30 @@ describe("normalizeSettings 纯函数", () => {
   });
 });
 
+// 阅读主题从两值制（light | dark）扩为三值（light | dark | flyme）：归一化原样
+// 放行 flyme，其余脏值仍回落 light。
+describe("normalizeReaderTheme", () => {
+  it("flyme 原样放行，light/dark 不受影响", async () => {
+    const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
+    expect(normalizeReaderTheme("flyme")).toBe("flyme");
+    expect(normalizeReaderTheme("light")).toBe("light");
+    expect(normalizeReaderTheme("dark")).toBe("dark");
+  });
+
+  it("非法值回落 light", async () => {
+    const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
+    for (const dirty of ["neon", "", null, undefined, 1, {}, []]) {
+      expect(normalizeReaderTheme(dirty), `脏值 ${JSON.stringify(dirty)} 应回落 light`).toBe("light");
+    }
+  });
+
+  // 纸色档已退役：存量 "paper" 静默归一为 light（不迁移存储、不改写其他字段）。
+  it("已退役纸色档 paper 归一为 light", async () => {
+    const { normalizeReaderTheme } = await import("../../extension/core/validators.js");
+    expect(normalizeReaderTheme("paper")).toBe("light");
+  });
+});
+
 // 两个非可调一次性状态位（spec §2「flag 的家」、§3 落点表第 20–21 行、§6.7
 // 「状态位」、§9.7 第 4 条）：不在设置页渲染、无校验区间，归一化与
 // normalizeWebSearchEnabled 同型（布尔，仅显式 true 置位，其余回落 false）。
