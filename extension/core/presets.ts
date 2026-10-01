@@ -136,7 +136,8 @@ export interface SearchProviderPreset {
 }
 
 // 搜索平台缺省预设：编辑 Modal 解析不到所选 preset 时的兜底（引用此处，
-// 不再硬编码字面量）。即预设表首项 firecrawl。
+// 不再硬编码字面量）。即预设表首项 firecrawl；**不再是链首选**（spec §1 S3
+// 2026-10-01 修订：链序见 DEFAULT_SEARCH_PROVIDER_ORDER）。
 export const DEFAULT_SEARCH_PROVIDER_PRESET: SearchProviderPreset = {
   id: "firecrawl",
   name: "Firecrawl",
@@ -145,8 +146,9 @@ export const DEFAULT_SEARCH_PROVIDER_PRESET: SearchProviderPreset = {
   access: "keyless"
 };
 
-// 表顺序 = 回退链顺序（spec §1 S3）：Firecrawl（首选）→ Tavily → 豆包 → AnySearch
-// → Parallel → Exa；free-quota 两家仅已配 Key 时参与。
+// 表顺序 = 预设目录序（spec §1 S3 2026-10-01 修订：徽章 / access / 编辑 Modal 的
+// defaultPresetId / DEFAULT_SEARCH_PROVIDER_PRESET 兜底的来源），**不再是链序**。
+// 链序 = searchProviderOrder 归一序 > DEFAULT_SEARCH_PROVIDER_ORDER（spec §12.2）。
 export const SEARCH_PROVIDER_PRESETS: readonly SearchProviderPreset[] = [
   DEFAULT_SEARCH_PROVIDER_PRESET,
   {
@@ -186,6 +188,20 @@ export const SEARCH_PROVIDER_PRESETS: readonly SearchProviderPreset[] = [
     access: "free-quota",
     note: "每月 $10 赠送额度（新账户另赠 $10）"
   }
+];
+
+// 内置默认链序（spec §2「内置默认链序」/ §12.2）：Exa → 豆包 → Tavily → Firecrawl
+// → AnySearch → Parallel。与 SEARCH_PROVIDER_PRESETS 的表序解耦（表序只管预设目录）；
+// free-quota 两家（Exa / 豆包）没配 Key 时自动跳过，故无 Key 用户的实际首家 = Tavily。
+// 用户拖拽顺序（searchProviderOrder）优先于本表；不在用户数组中的记录按本表位次排在
+// 数组内记录之后（spec §12.2 排序键规则）。
+export const DEFAULT_SEARCH_PROVIDER_ORDER: readonly string[] = [
+  "exa",
+  "doubao",
+  "tavily",
+  "firecrawl",
+  "anysearch",
+  "parallel"
 ];
 
 export function normalizeBaseUrl(value: unknown): string {

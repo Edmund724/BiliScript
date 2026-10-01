@@ -15,6 +15,13 @@ import { createProviderStore } from "../core/provider-store.js";
 
 export const SEARCH_PROVIDER_KEYS_STORAGE = "searchProviderKeys";
 export const SEARCH_PROVIDERS_STORAGE = "searchProviders";
+// 用户拖拽的搜索顺序（spec §12.3）：`chrome.storage.sync` 上的**记录 id 数组**
+// （粒度 = 记录级，不是 presetId），与 searchProviders 同侧。**无默认值**——键缺席
+// = 无自定义顺序；不进 DEFAULT_SETTINGS / save-settings 白名单（否则
+// initializeSettingsStorage 会把「删除该键」重建成 []，「恢复默认顺序」失效）。
+// 面板拖拽落点直写 sync，恢复默认 = sync.remove（UI 侧接线）；本模块只提供字面量单源，
+// 列表 CRUD（loadProviders / saveProviders / deleteProvider）不碰该键。
+export const SEARCH_PROVIDER_ORDER_STORAGE = "searchProviderOrder";
 
 export const searchProviderStore = createProviderStore({
   listStorageKey: SEARCH_PROVIDERS_STORAGE,

@@ -18,6 +18,7 @@ import { normalizeSettings, saveSettings } from "../core/settings-store.js";
 import {
   getSettings as getSettingsSnapshot,
   getProviderStore as getProviderStoreSnapshot,
+  getSearchProviderOrder,
   invalidate as invalidateSettingsSnapshot,
   PROVIDER_FAMILY_STORAGE_KEYS
 } from "../core/settings-snapshot.js";
@@ -35,9 +36,12 @@ import {
 } from "../core/ai-provider-store.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
-import { searchProviderStore } from "../search/search-provider-store.js";
-// 回退链解析（spec §1 S1/S4）：链 = 记录集合按 presetId 查预设表定类，SW 是唯一
-// 知道 Key 的一侧（链解析回包一次带出有序候选 + 各自 Key）
+import { SEARCH_PROVIDER_ORDER_STORAGE, searchProviderStore } from "../search/search-provider-store.js";
+// 搜索模式单源（spec §1 S6 / §12.1）：activeSearchProviderId 两义——记录 id = 单选、
+// 哨兵 / 空串 = 智能（链解析按模式产出独苗链或有序回退链）
+import { resolveSearchMode } from "../core/search-mode.js";
+// 回退链解析（spec §1 S1/S4/S6、§12.1–§12.3）：链 = 记录集合按 presetId 查预设表定类，
+// SW 是唯一知道 Key 的一侧（链解析回包一次带出有序候选 + 各自 Key）
 import { resolveSearchChain } from "../search/search-chain.js";
 // 查询缓存 SW 叶（spec §5）：宿主是 SW（offscreen 无 chrome.storage），offscreen
 // 工具循环与 content 侧解释卡都经 search-cache 消息族读写；归一单源在本叶。
@@ -359,23 +363,28 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
 
 // ===== 联网搜索消息处理 =====
 
-// 联网搜索运行时解析（spec §1 S4、§3 落点表第 11 行）：offscreen 文档无
-// chrome.storage，工具循环的搜索配置（**有序候选链 + 各自 Key** + 单轮上限）经本
-// 消息单趟往返。链成员是记录，成员资格由记录的 presetId 查预设表得出；无任何在组
-// 记录时 chain 缺省——调用方 notice 后走原无工具路径，不算错误（搜索是增强，
-// 缺失不阻塞对话）。
+// 联网搜索运行时解析（spec §1 S4/S6、§3 落点表第 11 行、§12.1–§12.3、§12.5 第 10 行）：
+// offscreen 文档无 chrome.storage，工具循环的搜索配置（**有序候选链 + 各自 Key** +
+// 单轮上限）经本消息单趟往返。链成员是记录，成员资格由记录的 presetId 查预设表得出；
+// 模式由 activeSearchProviderId 判定（记录 id = 单选独苗链 / 哨兵或空串 = 智能回退链），
+// 智能链序 = searchProviderOrder 归一序 > 内置默认序；无任何在组记录时 chain 缺省
+// ——调用方 notice 后走原无工具路径，不算错误（搜索是增强，缺失不阻塞对话）。
 function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: SendResponse): boolean {
   withOkResponse(
     (async () => {
-      // settings 标量 + 搜索平台列表 + Key 一次快照读取（命中时零 storage 调用）
+      // settings 标量 + 搜索平台列表 + Key + 用户顺序一次快照读取（命中时零 storage 调用）
       const settings = await getSettingsSnapshot();
       const { providers, keys } = await getProviderStoreSnapshot("search");
-      const chain = resolveSearchChain(
-        providers,
-        keys,
-        settings.activeSearchProviderId,
-        SEARCH_PROVIDER_PRESETS
-      );
+      const order = await getSearchProviderOrder();
+      const activeId = settings.activeSearchProviderId;
+      const chain = resolveSearchChain(providers, keys, activeId, SEARCH_PROVIDER_PRESETS, {
+        mode: resolveSearchMode(activeId),
+        order,
+        // 冷却图（spec §12.4 第 6 条）由健康度记账切片接线：本轮 search-health 叶与
+        // 其快照位尚未落地，传空图 = 无引擎冷却（与「健康度存储从未写入」的当前事实一致）。
+        cooldownUntil: {},
+        now: Date.now()
+      });
       if (chain.length === 0) {
         return { ok: true };
       }
@@ -438,11 +447,30 @@ const asrProviderHandlers = createProviderMessageHandlers({
 // 删除搜索平台记录 + 清空整张查询缓存（spec §6.7 / §10 第 40 行）：删除是撤回的
 // 次入口（「不想这家收到」），删除本身走与 CRUD 同一条写后失效包装；清缓存失败
 // 静默（logWarn 同既有形态），不影响删除回包。
+// 另把该 id 从 searchProviderOrder 剔除（spec §12.2 末条 / §12.5 第 11 行）：不改的话
+// 「删掉一个平台」会让顺序数组含未知 id → 整份自定义顺序被「脏值整体作废」丢掉。
+// 仅在数组确实含该 id 时写回 + inline 失效；键缺席 / 脏值 / 写失败都静默跳过
+//（顺序是偏好不是数据）。
+async function pruneSearchProviderOrder(providerId: string): Promise<void> {
+  const stored = await chrome.storage.sync.get([SEARCH_PROVIDER_ORDER_STORAGE]);
+  const raw = stored?.[SEARCH_PROVIDER_ORDER_STORAGE];
+  if (!Array.isArray(raw) || !raw.includes(providerId)) return;
+  await chrome.storage.sync.set({
+    [SEARCH_PROVIDER_ORDER_STORAGE]: raw.filter((id) => id !== providerId)
+  });
+  invalidateSettingsSnapshot([SEARCH_PROVIDER_ORDER_STORAGE]);
+}
+
 async function deleteSearchProviderAndClearCache(providerId: string): Promise<unknown[]> {
   const providers = await invalidateAfterWrite(
     searchProviderStore.deleteProvider,
     PROVIDER_FAMILY_STORAGE_KEYS.search
   )(providerId);
+  try {
+    await pruneSearchProviderOrder(providerId);
+  } catch (error) {
+    logWarn("[BILISCRIPT] search provider order prune on provider delete failed", error);
+  }
   try {
     await clearSearchCache();
   } catch (error) {

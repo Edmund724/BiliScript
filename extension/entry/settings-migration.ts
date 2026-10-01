@@ -22,6 +22,7 @@
 // flag，flag 最后写）归 background 的 autoActivateSearchPresets。
 
 import { SEARCH_PROVIDER_PRESETS, type SearchProviderPreset, type SearchProviderType } from "../core/presets.js";
+import { SMART_SEARCH_ACTIVE_ID, isSmartSearchActive } from "../core/search-mode.js";
 
 // 旗标未置位 → 无条件置旗标（存量显式 false 一并改写回 true）；旗标已置位 →
 // 原样返回。旗标键
@@ -60,14 +61,16 @@ export interface SearchPresetsAutoActivationSettings {
 export interface SearchPresetsAutoActivationPlan {
   // 需补缺的记录（已有同 presetId 记录不在此列，也就不会被改写）
   providersToAdd: SearchPresetAutoRecord[];
-  // 仅在链首为空或悬空时携带（值 = 预设表首项的生成 id，即 search_firecrawl）
+  // 仅在链首为空或悬空时携带（值 = 智能哨兵 SMART_SEARCH_ACTIVE_ID，spec §1 S2
+  // 2026-10-01 修订：写记录 id 会把新装 / 悬空用户锁进「单选 + 无回退」，而自动写入
+  // 不是用户明示选择）
   activeSearchProviderId?: string;
   // flag 未置位即需写（即使本轮一条记录都没补也要写，否则判定会在每次启动重跑）
   shouldWriteFlag: boolean;
 }
 
 // 决策半边（纯函数，不触碰 storage）：安装/更新时按 presetId 对四条 keyless 预设
-// 查缺补齐、链首仅在为空或悬空时写、并置一次性 flag。写入顺序（记录 → 链首 →
+// 查缺补齐、链首仅在为空或悬空时写哨兵、并置一次性 flag。写入顺序（记录 → 链首 →
 // flag）与 flag 最后写的理由见 background 的 autoActivateSearchPresets（任一步
 // 失败时 flag 未落盘，下一次 onInstalled 重试整段；判据按 presetId 使重试安全）。
 export function planSearchPresetsAutoActivation(
@@ -99,14 +102,13 @@ export function planSearchPresetsAutoActivation(
     });
   }
 
-  // ③ 链首：空或悬空（指向不存在的记录）时写预设表首项的生成 id；已有且指向
-  // 存在记录的链首原样不动（不重排、不改写）。
+  // ③ 链首（spec §1 S2 2026-10-01 修订）：空或悬空（指向不存在的记录）时写智能哨兵
+  // ——新装 / 升级后默认即智能模式（链 = 内置默认序），不再是「单选 Firecrawl + 无回退」。
+  // 已有且指向存在记录的链首原样不动（不重排、不改写）；已是哨兵的不算悬空（§6.8），不重写。
   const activeId = String(settings.activeSearchProviderId || "").trim();
-  const headPreset = presets[0];
-  const headId = headPreset ? `search_${headPreset.id}` : "";
   const plan: SearchPresetsAutoActivationPlan = { providersToAdd, shouldWriteFlag: true };
-  if (headId && (!activeId || !existingIds.has(activeId))) {
-    plan.activeSearchProviderId = headId;
+  if (!activeId || (!isSmartSearchActive(activeId) && !existingIds.has(activeId))) {
+    plan.activeSearchProviderId = SMART_SEARCH_ACTIVE_ID;
   }
   return plan;
 }

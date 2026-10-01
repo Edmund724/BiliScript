@@ -7,7 +7,10 @@
 // 25 步归一化）。本模块缓存两族读取产物：
 //   - settings 全量：getMergedSettings 的 normalizeSettings 产物；
 //   - 三 providerStore（ai/asr/search）：normalize + hasSavedKey 装配产物 +
-//     明文 Key 映射（keys 只活在 SW，回包仍只带 hasSavedKey 占位）。
+//     明文 Key 映射（keys 只活在 SW，回包仍只带 hasSavedKey 占位）；
+//   - searchProviderOrder 原始值（sync；2026-10-01 增补，spec §12.3 / §12.5 第 9 行）：
+//     归一在读取时对当前记录集合做（normalizeSearchProviderOrder 单源在
+//     search/search-chain.ts）。
 // 命中时热路径 storage 读降为 0。设置 UI 的 list/get CRUD 读（*-providers-list /
 // get-*-provider-key）不在快照范围：低频且要与写后响应负载严格同帧，维持直读
 // provider-store。
@@ -34,8 +37,10 @@ import { getMergedSettings } from "./settings-store.js";
 import type { ProviderBase, ProviderKeys } from "./provider-store.js";
 import { aiProviderStore, type AiProvider } from "./ai-provider-store.js";
 import { asrProviderStore, type AsrProvider } from "../asr/asr-provider-store.js";
-import { searchProviderStore } from "../search/search-provider-store.js";
+import { searchProviderStore, SEARCH_PROVIDER_ORDER_STORAGE } from "../search/search-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
+import { normalizeSearchProviderOrder } from "../search/search-chain.js";
+import { withTimeout } from "../shared/error-helpers.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 
 export type ProviderFamily = "ai" | "asr" | "search";
@@ -83,6 +88,10 @@ const familyCaches: Record<ProviderFamily, Promise<ProviderStoreSnapshot> | null
   asr: null,
   search: null
 };
+// searchProviderOrder 的**原始值**读缓存（spec §12.3 / §12.5 第 9 行）：归一在每次
+// 调用时对「当前记录集合」做（记录集合由 search 族快照缓存保证零读）——归一判据依赖
+// 当前记录，缓存归一结果会在记录增删后失真。失效只订阅该键本身（§12.3 跨上下文）。
+let searchOrderCache: Promise<unknown> | null = null;
 
 export function getSettings(): Promise<Settings> {
   // getMergedSettings 内部已吞错（超时回落默认值），永不 reject，直接缓存。
@@ -106,15 +115,40 @@ export function getProviderStore<F extends ProviderFamily>(
   return read as Promise<ProviderStoreSnapshot<ProviderFamilyMap[F]>>;
 }
 
+// 用户拖拽的搜索顺序快照位（spec §12.3 / §12.5 第 9 行）：sync 键缺席 = 无自定义
+// 顺序；值为记录 id 数组，按**当前搜索记录集合**归一（脏值整体作废 → []）；读失败 /
+// 超时按 [] ——顺序是偏好不是数据，任何失败都不得阻塞链解析。
+export async function getSearchProviderOrder(): Promise<string[]> {
+  try {
+    searchOrderCache ??= withTimeout(
+      chrome.storage.sync.get([SEARCH_PROVIDER_ORDER_STORAGE]),
+      5000,
+      new Error("storage timeout")
+    ).catch(() => undefined);
+    const stored = (await searchOrderCache) as Record<string, unknown> | undefined;
+    const { providers } = await getProviderStore("search");
+    return normalizeSearchProviderOrder(
+      stored?.[SEARCH_PROVIDER_ORDER_STORAGE],
+      providers.map((provider) => provider.id)
+    );
+  } catch {
+    return [];
+  }
+}
+
 // 按 storage 键失效：命中 settings 键面清 settings 快照；命中某族 list/keys
 // 键清该族快照（一族共享一个缓存条目）。未知键忽略——写 handler 直接传
 // payload 键全集，白名单外的键自然落空。
 export function invalidate(storageKeys: readonly string[]): void {
   let settingsDirty = false;
+  let searchOrderDirty = false;
   const dirtyFamilies = new Set<ProviderFamily>();
   for (const key of storageKeys) {
     if (SETTINGS_DOMAIN_KEYS.has(key)) {
       settingsDirty = true;
+    }
+    if (key === SEARCH_PROVIDER_ORDER_STORAGE) {
+      searchOrderDirty = true;
     }
     for (const family of PROVIDER_FAMILIES) {
       if (PROVIDER_FAMILY_STORAGE_KEYS[family].includes(key)) {
@@ -125,20 +159,23 @@ export function invalidate(storageKeys: readonly string[]): void {
   if (settingsDirty) {
     settingsCache = null;
   }
+  if (searchOrderDirty) {
+    searchOrderCache = null;
+  }
   for (const family of dirtyFamilies) {
     familyCaches[family] = null;
   }
 }
 
-// onChanged 兜底：订阅键面 = settings 键面 ∪ 三族 list（sync）∪ 三族 keys
-// （local）；命中即按键域失效。写入方上下文不触发本事件，跨设备 sync 与
-// 其它扩展上下文（content 直写等）的变更经此通道进快照。
+// onChanged 兜底：订阅键面 = settings 键面 ∪ 三族 list（sync）∪ 三族 keys（local）
+// ∪ searchProviderOrder（sync，面板直写）；命中即按键域失效。写入方上下文不触发本
+// 事件，跨设备 sync 与其它扩展上下文（content 直写等）的变更经此通道进快照。
 watchStorageKeys(
   (changes) => {
     invalidate(Object.keys(changes));
   },
   {
-    sync: [...SETTINGS_DOMAIN_KEYS, "aiProviders", "asrProviders", "searchProviders"],
+    sync: [...SETTINGS_DOMAIN_KEYS, "aiProviders", "asrProviders", "searchProviders", SEARCH_PROVIDER_ORDER_STORAGE],
     local: ["aiProviderKeys", "asrProviderKeys", "searchProviderKeys"]
   }
 );
