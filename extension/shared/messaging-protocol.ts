@@ -231,15 +231,27 @@ export type ResolveAiProviderResponse = {
 // 读写（arch-review-2026-09/05，替下 storage-local-bridge 垫片），SW 端 handler
 // 直调 segment-cache 单源（键位装配也在 SW 完成，消息只带 context 字段）。
 // 写聚合（段缓存写聚合 ticket）：Map-Reduce 未命中段的 saveRaw 由 offscreen 侧
-// proxy 缓冲、随 saveSummary 合成一条 save-summary-raw 合并 op（写路径 3N→2N，
-// SW 侧每段 2get+4set→1get+3set）；abort/异常路径 proxy 把缓冲的 raw 按
-// save-raw 逐个 flush，port 断开 / offscreen 自关则随文档销毁丢弃。
+// run-scoped 写会话缓冲、随 saveSummary 合成一条 save-summary-raw 合并 op
+//（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set）；本次运行收尾经会话 close 把残留
+// raw 按 save-raw 落盘，port 断开 / offscreen 自关则随文档销毁丢弃。
+//
+// 段缓存 context 的协议形状：出站点已投影为键位字段（5 字段，字段口径与 SW 端
+// segment-cache.ts 的 segmentCacheKeyFields 同源）——整份 AiContext（含 ≥200k 字符
+// 的 subtitleBody）不再过线；chapters 只为 load-stored-raw 的命中段预过滤保留
+//（SW 侧 retrieveRawSegments 的章节名档输入，读行为依赖）。
+export type SegmentCacheContext = {
+  bvid?: unknown;
+  cid?: unknown;
+  selectedSubtitleId?: unknown;
+  selectedSubtitleUrl?: unknown;
+  subtitleLang?: unknown;
+  chapters?: unknown;
+};
 export type SegmentCacheMessage = {
   type: "segment-cache";
   op: "load-summary" | "load-summaries" | "save-summary" | "save-raw" | "save-summary-raw" | "load-stored-raw";
-  // context 形字段（bvid/cid/selectedSubtitleId/selectedSubtitleUrl/subtitleLang），
-  // SW 端经 segmentCacheKeyFields 归一为键位字段
-  context?: Record<string, unknown>;
+  // 键位字段载荷（出站点投影后的窄对象），SW 端经 segmentCacheKeyFields 归一为键位字段
+  context?: SegmentCacheContext;
   segmentIndex?: number | string;
   // load-summaries 批量（08 票）：段序号清单，一次消息读 N 个键（追问 N 段 = N 次
   // 往返 → 常数级），SW 端按序装配键位

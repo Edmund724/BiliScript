@@ -17,7 +17,7 @@ import { buildBudgetPlan, FINAL_OUTPUT_CHARS, SEGMENT_SUMMARY_CHARS, SEGMENT_INP
 import { chatCompletion } from "./completion.js";
 import { runCachedMap } from "./pool.js";
 import { shouldReduce, reduceSummaries } from "./reduce.js";
-import { segmentCacheProxy, type SegmentCacheOps } from "./segment-cache-proxy.js";
+import { createSegmentCacheWriteSession, type SegmentCacheOps, type SegmentCacheWriteSession } from "./segment-cache-proxy.js";
 import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
 // port 回吐的消息联合单源在 chat/protocol.ts（ticket 08）：原「StreamChatEvent |
 // { type: string; data?: string; reason?: string }」手抄变体删除，改引协议联合。
@@ -126,10 +126,12 @@ interface SummarizeSegmentInput {
  * 错位小结）；原始段只按常态档（scale=1）落盘（供 followup 跨会话检索，检索侧
  * 永远按常态档切段，非常态档写入反而污染检索数据）。
  * 段缓存读写经 segmentCache 注入缝（arch-review-2026-09/05：宿主迁 SW，缺省实现
- * 是 segment-cache-proxy 消息代理；键位装配在 SW 的 segment-cache 单源完成）。
+ * 是 run-scoped 写会话 createSegmentCacheWriteSession；键位装配在 SW 的
+ * segment-cache 单源完成）。
  * 返回小结字符串；中止（signal.aborted）时抛出标记 aborted 的错误，由上层统一收束。
- * 落盘经段缓存的 LRU 淘汰写入；淘汰后重试仍失败时经 notifyCacheWriteError 上浮
- * （编排层保证整个运行期只提示一次），不再中断编排。
+ * 小结落盘经段缓存的 LRU 淘汰写入；淘汰后重试仍失败时经 notifyCacheWriteError 上浮
+ * （编排层保证整个运行期只提示一次），不再中断编排；原始段只入写会话缓冲，
+ * 落盘与失败上浮由会话（合并 op / 收尾 close）承担。
  */
 async function summarizeSegment({
   provider,
@@ -144,19 +146,11 @@ async function summarizeSegment({
   budgetScale = 1
 }: SummarizeSegmentInput): Promise<string> {
   // 原始字幕段落盘（04 实现落盘；06 按需检索时可跨会话复用；仅常态档）。
-  // fire-and-forget 不阻塞模型调用（追问用的按需缓存，缺段时追问路径回落完整
-  // Map-Reduce）；淘汰后重试仍失败 → 上浮一次（编排层去重），不中断本段小结。
+  // saveRaw 只入写会话缓冲（同步、不声明 per-op 成败，也不阻塞模型调用），落盘时机
+  // 是「命中 saveSummary 的合并 op」或「本次运行收尾的会话 close」——追问用的按需
+  // 缓存，缺段时追问路径回落完整 Map-Reduce。
   if (budgetScale === 1) {
-    void (async () => {
-      try {
-        const savedRaw = await segmentCache.saveRaw({ context, segmentIndex: segment.index, budgetScale, segments: segment.items || [] });
-        if (savedRaw && savedRaw.ok === false && typeof notifyCacheWriteError === "function") {
-          notifyCacheWriteError();
-        }
-      } catch {
-        notifyCacheWriteError();
-      }
-    })();
+    segmentCache.saveRaw({ context, segmentIndex: segment.index, budgetScale, segments: segment.items || [] });
   }
 
   if (signal?.aborted) {
@@ -198,9 +192,10 @@ interface OrchestrateMapReduceInput {
   thinkingLevel?: string;
   onProgress?: (notice: string) => void;
   chatCompletion?: ChatCompletionImpl;
-  // 段缓存读写缝（arch-review-2026-09/05）：缺省 segmentCacheProxy（消息到 SW），
-  // 测试注入可控桩。
-  segmentCache?: SegmentCacheOps;
+  // 段缓存写会话工厂注入缝（arch-review-2026-09/05 写单元 run-scoped 化）：缺省
+  // createSegmentCacheWriteSession（消息到 SW），测试注入可控桩；会话由本函数创建、
+  // 生命周期 = 整个 orchestrateMapReduce 调用（跨溢出重跑两轮），收尾统一 close。
+  createWriteSession?: typeof createSegmentCacheWriteSession;
 }
 
 interface MapReduceResult {
@@ -217,6 +212,9 @@ interface MapReduceResult {
  * 隔离（非常态档不会命中常态档的小结，段边界漂移不串内容）。重跑仍溢出则带明确
  * 文案抛出；中止（aborted）在任何阶段都收束为 stopped 回吐，不触发重跑。
  * 返回 { draft, segmentSummaries, aborted }；aborted 时已回吐内容不串数据、不再 post done。
+ * 段缓存写单元 run-scoped：本次调用创建一个写会话（跨溢出重跑两轮共用），所有出口
+ * （done / stopped / 溢出重跑 / 异常上抛）都经 finally 统一 close 落盘残留原始段，
+ * close 的失败经 notifyCacheWriteError 上浮。
  */
 export async function orchestrateMapReduce({
   provider,
@@ -227,7 +225,7 @@ export async function orchestrateMapReduce({
   thinkingLevel,
   onProgress,
   chatCompletion: chatCompletionImpl = chatCompletion,
-  segmentCache = segmentCacheProxy
+  createWriteSession = createSegmentCacheWriteSession
 }: OrchestrateMapReduceInput): Promise<MapReduceResult> {
   const ctx = context || {};
   const post = (message: ChatPortMessage) => {
@@ -253,6 +251,10 @@ export async function orchestrateMapReduce({
     cacheWriteNoticeShown = true;
     post({ type: "notice", data: "本地字幕缓存写入失败（已自动清理旧视频缓存仍失败），本次结果可能无法跨会话复用。" });
   };
+
+  // 本次运行的写会话（run-scoped 写单元）：生命周期 = 整个 orchestrateMapReduce
+  // 调用（跨溢出重跑两轮共用同一个会话）。close 的落盘失败接入同一个去重门。
+  const segmentCache: SegmentCacheWriteSession = createWriteSession({ onWriteError: notifyCacheWriteError });
 
   interface RunOnceInput {
     budgetScale: number;
@@ -436,5 +438,10 @@ export async function orchestrateMapReduce({
       }
       throw e2;
     }
+  } finally {
+    // 写会话收尾（本运行唯一的残留落盘点，覆盖 done / stopped / 溢出重跑 / 异常
+    // 上抛全部出口）：残留缓冲按 save-raw 逐条 await 落盘；单条失败经 onWriteError
+    // → notifyCacheWriteError 去重上浮，不抛、不改变上面的返回/抛出结果。
+    await segmentCache.close();
   }
 }

@@ -54,11 +54,6 @@ import { OFFSCREEN_CHAT_PORT_NAME } from "../chat/protocol.js";
 import { PROVIDER_HTTP_OFFSCREEN_PORT_NAME, attachProviderHttpPort } from "../core/provider-http-offscreen.js";
 import { hasHostPermissionFromOffscreen, HOST_PERMISSION_HINT } from "../core/host-permissions.js";
 import type { ChatPortMessage } from "../chat/protocol.js";
-// 写聚合（段缓存写聚合 ticket）：abort/超时/异常路径把 proxy 缓冲的同段 raw 落盘；
-// 新 chat 消息开始时亦 await flush 一次（上一轮的残留接力落盘——追问是缓冲 raw 的
-// 唯一消费者，必以新 chat 进场；port 断开 / offscreen 自关不 flush，缓冲随文档
-// 销毁丢弃，见 proxy 模块头注）。
-import { flushSegmentCacheRawBuffer } from "../ai/segment-cache-proxy.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 
@@ -136,8 +131,8 @@ function armIdleTimeout(abortController: AbortController, port: PostMessagePort)
   idleTimeoutId = setTimeout(function () {
     if (abortController && !abortController.signal.aborted) {
       abortController.abort();
-      // 超时中断同样 flush 缓冲的原始段（异常路径，保住已切好的段缓存）
-      void flushSegmentCacheRawBuffer();
+      // 超时中断只 abort：原始段缓冲的落盘已收口到 map-reduce 写会话的收尾
+      // close（本次 abort 令编排走 abort 收束，close 随该轮 finally 落盘）
       port.postMessage({
         type: "error",
         error: "请求超时（90 秒未返回任何数据），已自动中断"
@@ -186,9 +181,9 @@ chrome.runtime.onConnect.addListener((port) => {
     const msg = rawMsg as OffscreenChatPortMessage;
     if (!msg) return;
     if (msg.action === "stop") {
+      // 只 abort：Map-Reduce 的写会话在该轮收束（abortReturn）的 finally 里 close
+      // 落盘残留原始段，供跨会话追问复用
       abortActiveRequest();
-      // 「用户主动停止」主场景：缓冲的同段 raw 落盘，供跨会话追问复用
-      void flushSegmentCacheRawBuffer();
       return;
     }
     if (msg.action === "cost-guard-confirm") {
@@ -218,9 +213,8 @@ chrome.runtime.onConnect.addListener((port) => {
 
     try {
       abortActiveRequest();
-      // 新会话接力：上一轮残留缓冲（如 overflow 重跑后首轮在途段的 raw）在此落盘，
-      // await 保证先于本轮的段缓存读（追问 load-stored-raw 无竞态）
-      await flushSegmentCacheRawBuffer();
+      // 新会话接力无需 flush：上一轮的写会话已在该轮 return 前 close 落盘
+      //（会话收尾即落盘），本轮开始时没有遗留缓冲——本轮的段缓存读无竞态。
       activeAbortController = new AbortController();
 
       // 候选04/10-6：首次聊天并行拉取两件互不依赖的前置——provider 解析
@@ -308,8 +302,7 @@ chrome.runtime.onConnect.addListener((port) => {
         }
       );
     } catch (e) {
-      // 异常路径：编排中断，缓冲的同段 raw 落盘（不随本次失败丢弃）
-      void flushSegmentCacheRawBuffer();
+      // 异常路径同样由编排收尾的会话 close 落盘残留原始段（不随本次失败丢弃）
       ackedPort.postMessage({ type: "error", error: String((e as Error | undefined)?.message || e) });
     } finally {
       clearIdleTimeout();
@@ -327,6 +320,8 @@ chrome.runtime.onConnect.addListener((port) => {
     abortActiveRequest();
     clearIdleTimeout();
     clearActiveRequestState();
+    // 段缓存写会话不在此 close：会话随 offscreen 文档销毁废弃（文档可被回收，
+    // 断连时无法保证落盘——丢弃语义的显式化，见 ai/segment-cache-proxy.js 头注）
   });
 });
 

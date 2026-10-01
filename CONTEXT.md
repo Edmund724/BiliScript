@@ -37,13 +37,13 @@ _Avoid_: 补零/不补零双约定并存、各处手写 withHours 启发式、�
 _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 fetchRunId（须同步先行于装载链，否则新视频抓取可能被迟到的递增误杀）
 
 **原始字幕缓存**:
-按时间戳/章节切好的原始字幕段，可随取随用；仅在压缩摘要之外的细节追问时按需检索注入。宿主注记（arch-review-2026-09/05）：storage 真实宿主是 SW，offscreen（Map-Reduce/追问链）经 `segment-cache` 消息族读写——offscreen 侧唯一出站点 `ai/segment-cache-proxy.ts`，SW 端 `ai/segment-cache-handler.ts` 直调 segment-cache 单源（键位装配在 SW 完成）。写聚合注记（段缓存写聚合 ticket）：Map-Reduce 未命中段的 saveRaw 由 proxy 缓冲、随 saveSummary 合成 `save-summary-raw` 合并 op（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set，两族索引/manifest 打包一次 set）；abort/异常路径 proxy 把缓冲 raw 按 save-raw flush，port 断开 / offscreen 自关随文档销毁丢弃；proxy 从纯直通变有状态缓冲，是出站点收口的既有纪律内演化。
+按时间戳/章节切好的原始字幕段，可随取随用；仅在压缩摘要之外的细节追问时按需检索注入。宿主注记（arch-review-2026-09/05）：storage 真实宿主是 SW，offscreen（Map-Reduce/追问链）经 `segment-cache` 消息族读写——offscreen 侧唯一出站点 `ai/segment-cache-proxy.ts`，SW 端 `ai/segment-cache-handler.ts` 直调 segment-cache 单源（键位装配在 SW 完成）。写单元注记（段缓存写聚合 ticket 重构）：写路径是 run-scoped 写会话（`createSegmentCacheWriteSession`，一次编排运行一个、跨溢出重跑两轮共用），saveRaw 只入会话缓冲、不声明 per-op 成败（返回 void），随 saveSummary 合成 `save-summary-raw` 合并 op（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set，两族索引/manifest 打包一次 set）；会话收尾统一 close 落盘残留 raw（正常 done / 停止 abort / idle 超时 / 异常上抛都经编排收尾统一 close），port 断开 / offscreen 自关不 close、会话随文档销毁废弃。失败通道 = awaited saveSummary 的 `{ok:false}` + close 的 onWriteError（编排层去重后只提示一次）。出站点载荷按 SW 键位字段投影收窄（context 只带 bvid/cid/字幕轨三元组；load-stored-raw 另带 chapters 供命中段预过滤），整份 AiContext 的 subtitleBody 不再过线。
 代码名：`ai/segment-cache.js`（`biliscript_lvs_raw_*`）/ `ai/raw-retrieval.js`
 _Avoid_: 长记忆、向量库
 
 **缓存宿主**:
 缓存族落在哪个进程的判据：由**消费方进程的 storage 可达性**决定，与缓存数据的重要性/大小无关。offscreen 文档没有 chrome.storage（平台只开放 chrome.runtime）→ offscreen 消费的缓存族一律 SW 宿主、经消息族读写；content/reader 有完整 storage 权限 → 消费处直写。四族现状对照：字幕缓存（`biliscript_subtitle_cache_*`）content 直写；原始字幕缓存/分段小结（`biliscript_lvs_*`）SW 宿主、offscreen 经 `segment-cache` 消息族（机制见「原始字幕缓存」）；概览缓存（按 bvid/cid/轨/签名落盘）content 直写；查询缓存（`biliscript_search_cache`）SW 宿主，offscreen 与 content 都经 `search-cache` 消息族读写。淘汰/LRU 布局与宿主判据正交，单源 `core/cache-lru.js` 族工厂（两进程共用同一纯叶）。本判据只管 chrome.storage.local 上的可淘汰缓存族；provider/设置存储（sync+local 分层）不受管辖（见「激活平台」「设置快照」）。
-代码名：`core/cache-lru.js`（族工厂）/ `ai/segment-cache-proxy.js`（SW 宿主族的 offscreen 出站点）/ `subtitle/cache.js` / `ai/analysis-orchestrate.js`（content 直写两族）
+代码名：`core/cache-lru.js`（族工厂）/ `ai/segment-cache-proxy.js`（SW 宿主族的 offscreen 出站点，读半边 `segmentCacheProxy` + 写会话工厂 `createSegmentCacheWriteSession`）/ `subtitle/cache.js` / `ai/analysis-orchestrate.js`（content 直写两族）
 _Avoid_: 凭缓存数据重要性/大小选宿主、offscreen 侧引入 storage 垫片
 
 **文摘面板**:
