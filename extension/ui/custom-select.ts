@@ -54,7 +54,7 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
       fieldLabel.id = `custom-select-label-${++customSelectSeq}`;
     }
     // 标签的 for 就近重指到 trigger：不重指的话点标签会把焦点送进那个已
-    // aria-hidden 的隐藏 select（用户看不到任何反应）。select 自身的 id 保留，
+    // display:none 的隐藏 select（用户看不到任何反应）。select 自身的 id 保留，
     // byIdIn / collect* 系列仍按 id 取值。
     trigger.id = `custom-select-trigger-${++customSelectSeq}`;
     fieldLabel.htmlFor = trigger.id;
