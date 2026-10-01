@@ -60,7 +60,7 @@ export interface FamilyEditorDeclaration {
   // 判据，防「占位符说可选、required 仍卡住」的不同源分叉
   isKeyRequired: (preset: ProviderRowPreset | null) => boolean;
   // 额度形态徽章文案（spec §6.2，行内名字之后）：搜索族由 access 与
-  // hasSavedKey 派生（keyless 无 Key「免 Key」、配了 Key「自带 Key」）；
+  // hasSavedKey 派生（keyless 无 Key「免 Key」、配了 Key「已配 Key」）；
   // 无徽章的族返回空串（行不渲染徽章节点）
   accessBadge: (preset: ProviderRowPreset | null, hasSavedKey: boolean) => string;
   // 能力位：Modal 快照 / 接线的 kind 门（新族漏配由 Record 全键覆盖编译兜底）
@@ -203,7 +203,7 @@ function searchKeyRequired(preset: ProviderRowPreset | null): boolean {
 // 账号提额——徽章必须跟着改口，否则「已配 Key + 免 Key」自相矛盾。
 function searchAccessBadge(preset: ProviderRowPreset | null, hasSavedKey: boolean): string {
   const access = (preset as SearchProviderPreset | null)?.access;
-  if (access === "keyless") return hasSavedKey ? "自带 Key" : "免 Key";
+  if (access === "keyless") return hasSavedKey ? "已配 Key" : "免 Key";
   if (access === "free-quota") return "免费额度";
   return "";
 }

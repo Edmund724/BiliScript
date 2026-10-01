@@ -156,13 +156,13 @@ describe("搜索平台行：额度形态徽章（spec §6.2）", () => {
     expect(line.nextElementSibling!.querySelector(".provider-row-badge")).toBeNull();
   });
 
-  it("keyless 已配 Key → 徽章改「自带 Key」，不再自称「免 Key」", () => {
+  it("keyless 已配 Key → 徽章改「已配 Key」，不再自称「免 Key」", () => {
     const { listNode, emptyNode } = makeContainer();
     const rows = renderPresets(listNode, emptyNode, [
       { ...ITEMS[1], hasSavedKey: true },
       { ...ITEMS[1], id: "search_tavily_keyless", hasSavedKey: false }
     ]);
-    expect(rows[0].querySelector(".provider-row-badge")!.textContent).toBe("自带 Key");
+    expect(rows[0].querySelector(".provider-row-badge")!.textContent).toBe("已配 Key");
     expect(rows[1].querySelector(".provider-row-badge")!.textContent).toBe("免 Key");
   });
 

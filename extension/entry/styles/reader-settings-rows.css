@@ -143,7 +143,7 @@
 }
 
 /* 第三态：免 Key 预设无 Key 也标「就绪」（spec §6.1）——复用同一 success 变量，
-   不新增颜色；「免 Key / 自带 Key」这条轴由徽章承担 */
+   不新增颜色；「免 Key / 已配 Key」这条轴由徽章承担 */
 #biliscript-reading-view .biliscript-reading-settings-host .provider-row-dot[data-state="keyless"] {
   background: var(--biliscript-reader-success);
 }

@@ -107,7 +107,7 @@ export interface CreateProviderRowConfig {
   // 显示模型名：AI=item.models（多个时「首项 等 N 个」，拍板 Q15）或历史
   // item.model；ASR=item.model ?? preset.model。空串不渲染副行
   displayModel: (item: ProviderRowItem, preset: ProviderRowPreset | null) => string;
-  // 额度形态徽章文案（spec §6.2，由族声明同源产出：搜索=免 Key / 自带 Key /
+  // 额度形态徽章文案（spec §6.2，由族声明同源产出：搜索=免 Key / 已配 Key /
   // 免费额度，后两者按 access 与 hasSavedKey 判定；AI / ASR 无徽章 → 空串）。
   // 空串不渲染。
   resolveBadge?: (preset: ProviderRowPreset | null, hasSavedKey: boolean) => string;
@@ -252,7 +252,7 @@ export function createProviderRow({
       const keyStateTitle =
         keyState === "saved" ? "已保存 API Key" : keyState === "keyless" ? "免 Key 可用" : "未保存 API Key";
       // 额度形态徽章（spec §6.2）：讲额度形态而非是否存在 Key——free-quota 有
-      // Key 也不消失；keyless 是否已配自己的 Key 会改口径（免 Key ↔ 自带 Key，
+      // Key 也不消失；keyless 是否已配自己的 Key 会改口径（免 Key ↔ 已配 Key，
       // 免得配了 Key 还自称免 Key）。文案由族声明同源产出，空串不渲染。
       const badge = String(resolveBadge?.(preset, hasSavedKey) || "");
       row.innerHTML = `
