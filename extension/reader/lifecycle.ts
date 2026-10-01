@@ -15,7 +15,6 @@
 // 不动），close 拆 script-host 并清理会话态；reader-bus reset 通知只停同步。
 import { state, transitionReaderShell } from "../core/state.js";
 import { getReaderElement } from "../shared/dom-utils.js";
-import { sleep } from "../shared/utils.js";
 // 候选02：updateReaderPreferences/renderReaderPanels 自 presentation.js 移回
 //（script-only-ui：排版档位机制退役，validators 只剩主题归一化）。
 import { normalizeReaderTheme } from "../core/validators.js";
@@ -29,7 +28,7 @@ import {
 import { escapeHtml } from "../shared/string-utils.js";
 import { buildSubtitleOptionViews, buildSubtitleSourceLabel } from "../subtitle/selection.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
-import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, requestUiCommand, subscribeReaderPresenter } from "./reader-bus.js";
+import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
 // 候选02 分层惰性：链未装载 ⇒ refreshClip 未注册进 reader-bus seam。懒装载
 // 触达自 seam 移到调用方（arch-slim-2/03），见 maybeRefreshReaderSubtitleInBackground。
@@ -59,12 +58,12 @@ import { openScriptHost, closeScriptHost } from "./script-host.js";
 import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
 // tab 位置持久化叶子（2026-10 用户决议）：进入阅读模式时恢复上次所在标签，
 // 不再一律重置回「字幕」——取值在 reader/script-tab-persistence（chrome.storage
-// .local），落值单点在 ui 壳的 setReaderScriptTab。本域只做打开时机上的恢复
-// 触发（重渲 renderReadingView 不重置，避免打断用户所在标签），并沿用
-// arch-review-2026-09/10 的依赖反转：经 reader-bus 的 set-tab 命令触达壳，
-// 本域不静态 import ui-renderer（壳未装载时命令静默丢弃，与原 DOM 缺失时
-// setter 空转同形）。
+// .local）。落值与二级激活单点在标签激活属主 reader/script-tab-activation
+//（本域只做打开时机上的恢复触发；重渲 renderReadingView 不重置，避免打断用户
+// 所在标签）。读者域仍不静态 import ui-renderer：属主经 reader-bus 投影命令
+// 触达壳，壳未装载时命令静默丢弃，与原 DOM 缺失时 setter 空转同形。
 import { loadReaderScriptTab } from "./script-tab-persistence.js";
+import { activateScriptTab } from "./script-tab-activation.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
@@ -302,11 +301,12 @@ export async function enterReaderMode() {
   applyReadingViewPresentation();
   // 2026-10 用户决议：打开阅读视图恢复上次所在标签（概览/AI 对话的停留状态
   // 跨刷新与跨视频保留；无记录或脏值回落「字幕」）。读取失败静默回落，不新增
-  // 进入失败面；进入链内的命令落地先于 shell chat 档的对话激活（单飞事务队列
-  // 保证），故「AI 键进对话」仍以对话 tab 收尾。
+  // 进入失败面；恢复经标签激活属主（reader/script-tab-activation）落地——状态位、
+  // 投影与二级激活一处收口，persist:false 表示「恢复不是一次用户切换」、不写回
+  // 存储。进入链内的恢复先于 shell chat 档的对话激活（单飞事务队列保证），故
+  // 「AI 键进对话」仍以对话 tab 收尾。
   const restoredScriptTab = await loadReaderScriptTab();
-  requestUiCommand("set-tab", { tab: restoredScriptTab });
-  await sleep(0);
+  await activateScriptTab(restoredScriptTab, { persist: false });
   openReaderViewShell(readingView);
   renderReadingView();
   // 打开即启动播放同步并立即定位：subtitle-ready 只在字幕新抓取落定时到达，

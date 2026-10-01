@@ -455,7 +455,9 @@ describe("面板内解释卡片", () => {
 
     // 卡片自身收起（切 tab 后留在字幕 tab 里会残留）
     await vi.waitFor(() => expect(explainCard().hidden).toBe(true));
-    expect(tabBody("Chat").classList.contains("is-active")).toBe(true);
+    // 切对话 tab 经标签激活属主（reader/script-tab-activation 的串行队列）落地：
+    // 卡片只上报意图，投影命令随后到达，DOM 三通道异步切换。
+    await vi.waitFor(() => expect(tabBody("Chat").classList.contains("is-active")).toBe(true));
 
     const chatTab = await ensureReaderChatTab();
     await chatTab.ensureChatTabActivated();

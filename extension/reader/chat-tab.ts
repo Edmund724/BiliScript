@@ -108,10 +108,14 @@ import { createImageSupportGate } from "../chat/image-support.js";
 // 联网搜索回放重建（spec §4）已随历史回放事务移入 ../chat/replay.ts
 //（collectHistorySearchTurns 由其消费）。
 
-// 壳命令通道（arch-review-2026-09/10 依赖反转）：快捷动作定位对话 tab 与空态
-// 「前往设置」改发 reader-bus 具名命令，由 ui-renderer 注册的 handler 执行——
-// 本文件不再静态 import ui/ui-renderer。
+// 壳命令通道（arch-review-2026-09/10 依赖反转）：空态「前往设置」改发 reader-bus
+// 具名命令，由 ui-renderer 注册的 handler 执行——本文件不再静态 import
+// ui/ui-renderer。切对话 tab 的回头调不走壳命令，改经标签激活属主
+// ./script-tab-activation（见 runQuickActionPrompt）。
 import { requestSubtitleRefresh, requestUiCommand } from "./reader-bus.js";
+// 标签激活属主（工单：标签激活收口 reader 域）：快捷动作的「定位对话 tab + 激活」
+// 经它执行，不再各写一半（收口前 = set-tab:chat 壳命令 + 显式 ensureChatTabActivated 双写）。
+import { activateScriptTab } from "./script-tab-activation.js";
 // 发送前主动起跑抓取的装载边（与 reader/lifecycle 同一条链：先 ensure 再经
 // reader-bus 发刷新请求）。本模块是动态 chunk，静态 import 本叶子不拖常驻图。
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
@@ -666,14 +670,13 @@ export function closeChatSession(): void {
 // ============================================================
 
 export async function runQuickActionPrompt(prompt: string): Promise<boolean> {
-  // 定位/聚焦对话 tab（不触达字幕 tab 的滚动状态）。切 tab + 激活由壳经
-  // set-tab:chat 命令统一执行（arch-review-2026-09/10）；consumeIntent:false
-  // 透传给壳的激活入口——与快捷发送互不踩踏，不消费待解释意图。下方再显式
-  // await 激活：命令是 fire-and-forget，发送流程必须等装载/恢复落定。
-  requestUiCommand("set-tab:chat", { consumeIntent: false });
-  // 首次调用完成装载；已装载时为幂等 no-op（不消费待解释意图——与快捷动作
-  // 发送互不踩踏）。
-  await ensureChatTabActivated({ consumeIntent: false });
+  // 定位/聚焦对话 tab（不触达字幕 tab 的滚动状态）：切 tab + 写状态位/持久化 +
+  // 对话组合根激活统一由标签激活属主执行（reader/script-tab-activation），
+  // consumeIntent:false 透传——与快捷发送互不踩踏，不消费待解释意图。属主的
+  // promise 在其激活（含装载/恢复）落定后才 resolve，本函数后续的发送流程因此
+  // 天然等到装载落定，无需再单独 await ensureChatTabActivated（收口前的
+  // fire-and-forget 壳命令 + 显式补 await 的双写已退役）。
+  await activateScriptTab("chat", { consumeIntent: false });
   const text = String(prompt || "").trim();
   if (!text) {
     autosizeInput();

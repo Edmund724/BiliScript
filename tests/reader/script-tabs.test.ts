@@ -6,12 +6,17 @@
 //      tab body 内（分批渲染的目标容器随搬家保持可用）；
 //   B. 概览 tab（PR4 状态机宿主）初始为「未生成」诚实态；AI 对话 tab（PR5）
 //      为静默真壳（消息区/输入框等节点齐备，未激活前空态无假数据）；
-//   C. tab 切换：点击 tab 按钮 → is-active/aria-selected/hidden 三通道一致，
-//      字幕 tab 与概览/AI 对话互斥显示；
+//   C. tab 切换：点击 tab 按钮（壳上报意图 → 属主写状态位后再投影）→
+//      is-active/aria-selected/hidden 三通道一致，字幕 tab 与概览/AI 对话互斥
+//      显示；
 //   D. 进入阅读模式恢复上次所在标签（2026-10 用户决议：刷新不跳回字幕 tab；
 //      当前标签落 chrome.storage.local）；无值/脏值回落「字幕」；
 //   E. 视图开着期间 renderReadingView（切轨重渲）不重置 tab——不打断用户
 //      所在标签。
+//
+// 标签激活属主收口后：状态位的直接读口（getReaderActiveScriptTab）已随「写手
+// 唯一」收口删除，状态侧断言一律走可见性谓词（isReadingSubtitleBodyVisible 读
+// 唯一状态位），投影侧断言走 DOM 三通道。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -21,15 +26,15 @@ import type { TestState } from "./reader-test-env.js";
 let state: TestState;
 let reader: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
+let readerState: typeof import("../../extension/reader/state.js");
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
-let getReaderActiveScriptTab: typeof import("../../extension/reader/state.js").getReaderActiveScriptTab;
 
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   reader = await import("../../extension/reader/index.js");
-  ids = (await import("../../extension/reader/state.js")).ids;
-  getReaderActiveScriptTab = (await import("../../extension/reader/state.js")).getReaderActiveScriptTab;
+  readerState = await import("../../extension/reader/state.js");
+  ids = readerState.ids;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
 }
 
@@ -135,8 +140,10 @@ describe("统一 文摘面板三标签", () => {
     uiRenderer.bindUiEvents();
     vi.mocked(chrome.storage.local.set).mockClear();
 
+    // 点击只上报意图（reader-bus 反向槽），属主写状态位/持久化后才发投影命令
+    // 回来——投影是异步落地的，断言前等它落定。
     (tabButton("Overview") as HTMLButtonElement).click();
-    expectTabActive("Overview", true);
+    await vi.waitFor(() => expectTabActive("Overview", true));
     expectTabActive("Subtitle", false);
     expectTabActive("Chat", false);
     expect(vi.mocked(chrome.storage.local.set)).toHaveBeenCalledWith({
@@ -144,11 +151,11 @@ describe("统一 文摘面板三标签", () => {
     });
 
     (tabButton("Chat") as HTMLButtonElement).click();
-    expectTabActive("Chat", true);
+    await vi.waitFor(() => expectTabActive("Chat", true));
     expectTabActive("Overview", false);
 
     (tabButton("Subtitle") as HTMLButtonElement).click();
-    expectTabActive("Subtitle", true);
+    await vi.waitFor(() => expectTabActive("Subtitle", true));
     expectTabActive("Chat", false);
     // 切回字幕同样落盘：否则刷新后会被上一次的非字幕值恢复
     expect(vi.mocked(chrome.storage.local.set)).toHaveBeenLastCalledWith({
@@ -169,8 +176,8 @@ describe("统一 文摘面板三标签", () => {
     expectTabActive("Overview", true);
     expectTabActive("Subtitle", false);
     expectTabActive("Chat", false);
-    // 状态位与 DOM 三通道同源（single source of truth，见 reader/state.js）
-    expect(getReaderActiveScriptTab()).toBe("overview");
+    // 状态位与 DOM 三通道同源：谓词（唯一状态位）不再判定字幕可见
+    expect(readerState.isReadingSubtitleBodyVisible()).toBe(false);
   });
 
   it("D2. 进入阅读模式：无持久值回落默认「字幕」tab", async () => {
@@ -185,7 +192,7 @@ describe("统一 文摘面板三标签", () => {
     expectTabActive("Subtitle", true);
     expectTabActive("Overview", false);
     expectTabActive("Chat", false);
-    expect(getReaderActiveScriptTab()).toBe("subtitle");
+    expect(readerState.isReadingSubtitleBodyVisible()).toBe(true);
 
     // 字幕列表在打开后正常渲染进字幕 tab
     const subtitleList = document.getElementById(ids.readingSubtitleList) as HTMLElement;
@@ -201,7 +208,7 @@ describe("统一 文摘面板三标签", () => {
     await reader.enterReaderMode();
 
     expectTabActive("Subtitle", true);
-    expect(getReaderActiveScriptTab()).toBe("subtitle");
+    expect(readerState.isReadingSubtitleBodyVisible()).toBe(true);
   });
 
   it("E. 视图开着期间重渲（切轨/subtitle-ready）不重置所在 tab", async () => {
@@ -210,13 +217,15 @@ describe("统一 文摘面板三标签", () => {
     document.body.setAttribute("data-biliscript-reader-mode", "1");
 
     await reader.enterReaderMode();
-    uiRenderer.setReaderScriptTab("overview");
+    // 用户切到概览 tab（真实点击路径：壳上报意图 → 属主写状态位 + 投影）
+    (tabButton("Overview") as HTMLButtonElement).click();
+    await vi.waitFor(() => expectTabActive("Overview", true));
 
     reader.renderReadingView();
 
     expectTabActive("Overview", true);
     expectTabActive("Subtitle", false);
-    // 重渲不重置：状态位同样保持用户所在标签
-    expect(getReaderActiveScriptTab()).toBe("overview");
+    // 重渲不重置：状态位同样保持用户所在标签（谓词读唯一状态位）
+    expect(readerState.isReadingSubtitleBodyVisible()).toBe(false);
   });
 });

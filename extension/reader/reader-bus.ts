@@ -29,18 +29,23 @@
 //     registered by content.js, because importing ai/player-ai.js would pull
 //     core/runtime.js (and thus an import cycle) into the reader graph.
 //   reader → ui 壳 (shell commands):
-//     reader 侧三处对 ui 壳交互的回头调（lifecycle enterReaderMode 的 tab 重置、
-//     explain-card「去对话追问」的切 tab + 激活、chat-tab 快捷动作定位与空态
-//     「前往设置」）改发具名命令 requestUiCommand(name, payload?)；ui-renderer
-//     在模块装载时经 subscribeUiCommand 注册单 handler 执行壳操作。reader 域
-//     从此不再静态 import ui/ui-renderer（arch-review-2026-09/10 依赖反向边
-//     清零），壳缺失（未装载/命令名未注册）时命令静默丢弃——与原先 DOM 缺失
-//     时 setter 空转同形。
+//     reader 侧对 ui 壳交互的回头调（reader/script-tab-activation 的标签投影、
+//     chat-tab 空态「前往设置」）改发具名命令 requestUiCommand(name, payload?)；
+//     ui-renderer 在模块装载时经 subscribeUiCommand 注册单 handler 执行壳操作。
+//     reader 域从此不再静态 import ui/ui-renderer（arch-review-2026-09/10 依赖
+//     反向边清零），壳缺失（未装载/命令名未注册）时命令静默丢弃——与原先 DOM
+//     缺失时 setter 空转同形。
+//   ui 壳 → reader (tab intents):
+//     反方向的同款通道：文摘面板的 tab 按钮在 ui 壳里，点击经 reportTabIntent(tab)
+//     上报意图，属主（reader/script-tab-activation）在模块装载时经
+//     subscribeTabIntent 注册单 handler 写状态位/持久化并做二级激活。壳不直接写
+//     tab（那会绕过唯一状态位成了第二条真源），也不静态 import reader 重域。
 //
 // All payloads are read from the shared state at notification time, so the
 // callbacks need no arguments.
 
 import { logWarn } from "../shared/logging.js";
+import type { ReaderScriptTab } from "./state.js";
 
 type ReaderPresenterHandler = (kind: string, ...payload: unknown[]) => void;
 type SubtitleRefreshHandler = () => unknown;
@@ -48,6 +53,7 @@ type SettingsPersistHandler = () => void;
 type SettingsLoadHandler = () => unknown;
 type PlayerAiSyncHandler = (delayMs?: number, options?: { resetRetry?: boolean }) => void;
 type UiCommandHandler = (name: string, payload?: unknown) => void;
+type TabIntentHandler = (tab: ReaderScriptTab) => void;
 
 // 槽表挂 globalThis 而非模块级变量：两轮构建（scripts/build-content.js）把常驻
 // 底座在轮 B 懒 chunk 区重复一份，本模块在 content-main 与 chunks/ 共享 chunk
@@ -67,6 +73,7 @@ interface ReaderBusSlots {
   loadSettingsHandler: SettingsLoadHandler | null;
   playerAiSyncHandler: PlayerAiSyncHandler | null;
   uiCommandHandler: UiCommandHandler | null;
+  tabIntentHandler: TabIntentHandler | null;
 }
 
 const READER_BUS_SLOT_KEY = "__BILISCRIPT_READER_BUS__";
@@ -81,7 +88,8 @@ function readerBusSlots(): ReaderBusSlots {
       persistSettingsHandler: null,
       loadSettingsHandler: null,
       playerAiSyncHandler: null,
-      uiCommandHandler: null
+      uiCommandHandler: null,
+      tabIntentHandler: null
     };
     host[READER_BUS_SLOT_KEY] = slots;
   }
@@ -214,8 +222,8 @@ export function requestPlayerAiSync(delayMs?: number, options?: { resetRetry?: b
   }
 }
 
-// Registers the ui-renderer callback that executes shell commands (tab
-// reset/switch, settings drawer). reader 域经 requestUiCommand 发命令而不静态
+// Registers the ui-renderer callback that executes shell commands (tab 投影,
+// settings drawer). reader 域经 requestUiCommand 发命令而不静态
 // import ui-renderer（依赖反向边清零，arch-review-2026-09/10）；单 handler 槽，
 // 与 settings persist/load、player-ai sync 两个能力槽同形。
 export function subscribeUiCommand(handler: UiCommandHandler) {
@@ -234,5 +242,25 @@ export function requestUiCommand(name: string, payload?: unknown) {
     handler(name, payload);
   } catch (error) {
     logWarn("[BILISCRIPT] ui command handler failed", { name, error });
+  }
+}
+
+// 反向槽（ui → reader）：ui 壳的 tab 点击经 reportTabIntent 上报标签意图，属主
+// reader/script-tab-activation 在模块装载时经 subscribeTabIntent 注册单 handler。
+// 与上方的壳命令槽同形（同步直调、无回执；槽缺席静默丢弃——壳点击早于 reader
+// 域装载是合法时序，DOM 反馈由属主的投影命令完成）。
+export function subscribeTabIntent(handler: TabIntentHandler) {
+  readerBusSlots().tabIntentHandler = typeof handler === "function" ? handler : null;
+}
+
+export function reportTabIntent(tab: ReaderScriptTab) {
+  const handler = readerBusSlots().tabIntentHandler;
+  if (!handler) {
+    return;
+  }
+  try {
+    handler(tab);
+  } catch (error) {
+    logWarn("[BILISCRIPT] tab intent handler failed", { tab, error });
   }
 }

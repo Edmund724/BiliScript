@@ -55,6 +55,16 @@ describe("reader-bus 槽表跨实例共享", () => {
     expect(sync).toHaveBeenCalledWith(120, { resetRetry: true });
   });
 
+  it("tabIntent 反向槽（ui→reader）：一侧实例注册，另一侧实例上报命中", () => {
+    const intent = vi.fn();
+    resident.subscribeTabIntent(intent);
+
+    lazy.reportTabIntent("chat");
+
+    expect(intent).toHaveBeenCalledTimes(1);
+    expect(intent).toHaveBeenCalledWith("chat");
+  });
+
   it("presenter 订阅表同样跨实例：一侧订阅、另一侧发布可达", () => {
     const received: unknown[][] = [];
     resident.subscribeReaderPresenter((...args: unknown[]) => {

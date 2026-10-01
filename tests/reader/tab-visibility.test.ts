@@ -5,8 +5,9 @@
 // 「反解 DOM class 取当前标签」列为 Avoid。本文件钉住两件事：
 //   A. 谓词真值表：视图开关 × 当前标签 × 设置抽屉展开；
 //   B. 投影一致锁：谓词（状态侧）与 DOM 投影（CSS 侧）在每次切换后逐一相符
-//      ——两侧各自只由单点写出（setReaderScriptTab / renderReaderPanels），
-//      谓词改读状态后这条「写方唯一」不变量必须仍成立。
+//      ——状态位由标签激活属主 activateScriptTab 单点写、DOM 由它的 project-tab
+//      投影命令与 renderReaderPanels 单点写，谓词改读状态位后这条「写方唯一」
+//      不变量必须仍成立。
 // CSS 源守卫在 tests/entry/reader-tab-body-visibility-css.test.ts。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +18,7 @@ import type { TestState } from "./reader-test-env.js";
 let state: TestState;
 let reader: typeof import("../../extension/reader/index.js");
 let readerState: typeof import("../../extension/reader/state.js");
+let activation: typeof import("../../extension/reader/script-tab-activation.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 
@@ -25,6 +27,7 @@ async function loadModules() {
   state = (await import("../../extension/core/state.js")).state as TestState;
   reader = await import("../../extension/reader/index.js");
   readerState = await import("../../extension/reader/state.js");
+  activation = await import("../../extension/reader/script-tab-activation.js");
   ids = readerState.ids;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
 }
@@ -101,11 +104,12 @@ describe("字幕 tab body 可见性谓词（候选 06）", () => {
     expect(readerState.isReadingSubtitleBodyVisible(), "打开默认为字幕 tab").toBe(true);
     expect(domSaysSubtitleBodyVisible(), "DOM 同口径").toBe(true);
 
-    uiRenderer.setReaderScriptTab("overview");
+    // 生产切换路径：属主写状态位 + 投影命令 → DOM（两侧同源）
+    await activation.activateScriptTab("overview");
     expect(readerState.isReadingSubtitleBodyVisible(), "切到概览后谓词").toBe(false);
     expect(domSaysSubtitleBodyVisible(), "切到概览后 DOM").toBe(false);
 
-    uiRenderer.setReaderScriptTab("subtitle");
+    await activation.activateScriptTab("subtitle");
     expect(readerState.isReadingSubtitleBodyVisible(), "切回字幕").toBe(true);
     expect(domSaysSubtitleBodyVisible(), "切回字幕 DOM").toBe(true);
 

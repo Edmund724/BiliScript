@@ -34,6 +34,7 @@ import {
   stripReaderModeUrl
 } from "../bilibili/video-id-shared.js";
 import { ensureReaderChatTab } from "./lazy-chat-tab.js";
+import { activateScriptTab } from "./script-tab-activation.js";
 import { ensureUiReady } from "../ui/lazy-ui.js";
 import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
@@ -104,12 +105,13 @@ interface ReaderEntrySequenceOptions {
 
 // ===== 进入/退出事务单飞队列 =====
 //
-// 为什么要排队：进入链的 enterReaderMode 发 set-tab（按持久值恢复当前标签），
-// chat 档在进入事务内激活对话 tab（set-tab:chat）——不排队的话，后到事务会
-// 盖掉先到事务的 tab 写手（工单：AI 键偶发进的是字幕 tab）。事务在本模块
+// 为什么要排队：进入链的 enterReaderMode 恢复持久值标签（经标签激活属主
+// reader/script-tab-activation），chat 档在进入事务内激活对话 tab——不排队的话，
+// 后到事务会盖掉先到事务的 tab 写手（工单：AI 键偶发进的是字幕 tab）。事务在本模块
 // 收口成单飞队列：后到事务等先到事务收敛（含失败）后再起跑，chat 档的对话
-// 激活因此在进入事务收敛后落地（race 防护语义所在）。退出事务同队列：进入
-// 中收到 close 顺延执行，enter/exiting 不交错。
+// 激活因此在进入事务收敛后落地（race 防护语义所在；属主的激活串行队列是第二层
+// 兜底——并发意图串行化，最终状态 = 最后意图）。退出事务同队列：进入中收到
+// close 顺延执行，enter/exiting 不交错。
 let readerEntryChain: Promise<void> = Promise.resolve();
 
 function runReaderEntryExclusive(run: () => Promise<void>): Promise<void> {
@@ -231,14 +233,15 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
       beforeEntry: intent === "restore" ? restoreSelfHealBeforeEntry : undefined
     });
     if (intent === "chat") {
-      // 进入事务收敛后激活对话 tab 并（带 prompt 时）自动发送快捷提示词。
-      // 快捷动作路径传 consumeIntent:false（与快捷发送互不踩踏）；无 prompt
-      // 则只定位/聚焦对话 tab。
-      const chat = await ensureReaderChatTab();
+      // 进入事务收敛后激活对话 tab（带 prompt 时另自动发送快捷提示词）。两条
+      // 分支都经标签激活属主收口（runQuickActionPrompt 内部同样调它）：状态位/
+      // 持久化 + DOM 投影 + 对话组合根激活一处落地。
       if (prompt) {
+        // 快捷动作路径传 consumeIntent:false（与快捷发送互不踩踏，不消费待解释意图）
+        const chat = await ensureReaderChatTab();
         await chat.runQuickActionPrompt(prompt);
       } else {
-        await chat.ensureChatTabActivated({ consumeIntent: false });
+        await activateScriptTab("chat", { consumeIntent: false });
       }
     }
   }, onFailed);

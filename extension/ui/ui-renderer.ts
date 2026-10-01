@@ -3,9 +3,6 @@ import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { themeButtonView } from "./theme-button.js";
-// PR5 AI 对话 tab 的二级惰性加载器（常驻轻叶子，动态边在 reader/lazy-chat-tab 内）：
-// 首次切到对话 tab / 解释卡片「去对话追问」触达时才装载对话组合根（reader/chat-tab.ts）。
-import { ensureReaderChatTab } from "../reader/lazy-chat-tab.js";
 // PR5 外点关闭单委托：对话 tab popovers 的文档级外点关闭经桥接叶子并入本模块
 // 的单一 document click 委托（原双监听互踩风险收口，见 chat-tab-bridge.ts）。
 import { dispatchChatTabOutsideClick } from "../reader/chat-tab-bridge.js";
@@ -14,21 +11,20 @@ import { dispatchChatTabOutsideClick } from "../reader/chat-tab-bridge.js";
 //（./reader/state.js，含 ids/view-state/scroll-state）、轻状态栏写入器
 //（../core/ui-status.js）、reader 域懒加载转发助手（./reader-gate.js，动态边
 // 在 reader/lazy-reader 内部）。
-import { getReaderActiveScriptTab, ids, isReaderViewOpen, setReaderActiveScriptTab } from "../reader/state.js";
+import { ids, isReaderViewOpen } from "../reader/state.js";
 import type { ReaderScriptTab } from "../reader/state.js";
-// tab 位置持久化叶子（2026-10 用户决议）：切 tab 时写穿 chrome.storage.local；
-// 进入阅读模式时由 reader 域读回并具名命令 set-tab 触达本壳应用。壳只负责
-// 「应用标签 + 二级激活」，不碰存储读写时机（读在 reader/lifecycle，写在本地
-// setReaderScriptTab 单点）。
-import { isReaderScriptTab, saveReaderScriptTab } from "../reader/script-tab-persistence.js";
+// tab 位置持久化叶子（2026-10 用户决议）：写穿与读回都已收口 reader 域属主
+//（reader/script-tab-activation 的 activateScriptTab）；本壳只剩 isReaderScriptTab
+// ——project-tab 投影命令的载荷守卫（未知标签不动当前投影）。
+import { isReaderScriptTab } from "../reader/script-tab-persistence.js";
 // 日志直接取自 shared/logging.js（不再经 reader/index.js 转发）
 import { logWarn } from "../shared/logging.js";
 // 阅读壳（工单 arch-slim/02）：关闭按钮的关闭链退化为退出事务委托
 //（URL 收敛 → closeReadingView → 摘阅读表，唯一实现在 reader/shell.ts）。
 import { exitReaderShell } from "../reader/shell.js";
-// 对话分区表（arch-slim-4/07）：切到对话 tab 的全部入口都先经
-// setReaderScriptTab("chat")，chat 分支同步挂载（reader/chat-tab.ts 模块顶层
-// 另兜底挂一次）；不建 onload 门控——无样式窗口只落在未激活的静默空态上。
+// 对话分区表（arch-slim-4/07）：投影到对话 tab 时（project-tab 命令 / 恢复链）
+// 由 setReaderScriptTab 的 chat 分支同步挂载（reader/chat-tab.ts 模块顶层另兜底
+// 挂一次）；不建 onload 门控——无样式窗口只落在未激活的静默空态上。
 import { ensureReaderChatStyles } from "../shared/style-injector.js";
 // arch-slim-2/06 ui 按 tab 全量收口：三 tab 的模板段+绑定段同居各自域叶子，
 // 壳只组装与接线。叶子均为轻模块（ids 表 + reader-gate 转发助手，动态边在
@@ -44,11 +40,11 @@ import { ensureReaderChatStyles } from "../shared/style-injector.js";
 //   - ui/reader-gate.ts：withReader/whenReaderReady 转发助手单源（壳与 tab
 //     叶子共用，禁止复制）。
 import { withReader } from "./reader-gate.js";
-// 壳命令通道（arch-review-2026-09/10 reader→ui 反转）：reader 域三处壳回头调
-//（lifecycle 按持久值恢复 tab / explain-card 去对话追问 / chat-tab 快捷动作与
-//「前往设置」）改发 reader-bus 命令，本壳注册 handler 执行——reader 域不再静态
-// import 本模块。
-import { subscribeUiCommand } from "../reader/reader-bus.js";
+// 壳命令通道（arch-review-2026-09/10 reader→ui 反转）+ tab 意图反向槽：reader 域
+// 对壳的回头调（属主的标签投影 / chat-tab「前往设置」）改发 reader-bus 命令，本壳
+// 注册 handler 执行；tab 点击反过来经同一 reader-bus 上报意图给属主——两条边都不
+// 需要 reader 域静态 import 本模块。
+import { reportTabIntent, subscribeUiCommand } from "../reader/reader-bus.js";
 import { buildChatTabBodyHtml } from "../reader/chat-template.js";
 import { buildSubtitleTabBodyHtml, bindSubtitleTabEvents } from "../reader/subtitle-tab-ui.js";
 import { buildExplainPopHtml, buildExplainCardHostHtml, bindReadingExplainEvents } from "../reader/explain-pop-ui.js";
@@ -136,8 +132,10 @@ export function buildUiHtml(): string {
 
 // ===== 统一 文摘面板三标签（PR2） =====
 //
-// 标签切换是纯壳交互（class/aria/hidden 写入），不触碰 reader 域状态；唯一
-// 例外是对话 tab 的分区表挂载（arch-slim-4/07，见 setReaderScriptTab）。
+// 壳只剩「投影」一件事（读标签 → class/aria/hidden 三通道写入 + 对话分区表挂载）：
+// 标签切换的状态位、持久化写穿与二级激活（对话组合根 / 概览生成）都已收口 reader
+// 域属主 reader/script-tab-activation 的 activateScriptTab，壳经 project-tab 命令
+// 与之对接、经 reportTabIntent 反向槽接收点击意图（见下方 handler 与 bindUiEvents）。
 // active 态约定：tab 按钮 .is-active + aria-selected，tab body .is-active 且
 // 去 hidden（CSS 双通道：.biliscript-reading-tab-body:not(.is-active) 与 [hidden]
 // 都收敛为 display:none，防 UA 样式被作者 display 覆盖）。
@@ -151,18 +149,12 @@ const SCRIPT_TAB_DEFS: Array<{ name: ReaderScriptTab; buttonId: string; bodyId: 
   { name: "chat", buttonId: ids.readingTabChat, bodyId: ids.readingTabBodyChat }
 ];
 
+// 唯一的 DOM 投影写手（project-tab 命令执行点）。只写 DOM：状态位与持久化都在
+// reader 域属主（reader/script-tab-activation.ts），本函数不得再写它们——否则
+// 当前标签就有了第二条真源（禁止各入口自行组合「写状态位 + 投影」）。
 export function setReaderScriptTab(tab: ReaderScriptTab): void {
-  // 状态位先落（single source of truth，见 reader/state.js script-tab-state 节），
-  // DOM 三通道只是投影。用例：竞态排查断言（reader-state.ts），未来消费方不再
-  // 反解 DOM。
-  setReaderActiveScriptTab(tab);
-  // 写穿持久化（2026-10 用户决议）：当前标签落 chrome.storage.local，刷新/新
-  // 视频/手动进入时由 reader 域读回（见 reader/script-tab-persistence.js）。
-  // 写入失败静默，不阻断切换。
-  saveReaderScriptTab(tab);
-  // 对话分区表按需装载（arch-slim-4/07）：切到对话 tab 的三个入口（tab 点击 /
-  // 解释卡「去对话追问」/ player-ai 快捷动作）都先经本函数，同步挂载保证首开
-  // 即在场；ensure 内部 mounted Map 去重，重入零成本。
+  // 对话分区表按需装载（arch-slim-4/07）：投影到对话 tab 时同步挂载保证首开即
+  // 在场；ensure 内部 mounted Map 去重，重入零成本。
   if (tab === "chat") {
     ensureReaderChatStyles();
   }
@@ -184,42 +176,6 @@ export function setReaderScriptTab(tab: ReaderScriptTab): void {
   }
 }
 
-// 「切到某标签」的统一入口（tab 点击 / 壳命令 set-tab 与 set-tab:chat 三处共用，
-// 禁止各自手抄）：先切标签（含持久化写穿），再按标签做二级激活——对话 tab 经
-// ensureReaderChatTab 装载组合根，概览 tab 触发渲染/生成兜底。视图开着期间的
-// 渲染重渲不呼本函数，因此不打断用户所在标签。
-// consumeIntent 仅对对话 tab 有意义（set-tab:chat 的快捷动作路径传 false，
-// 与快捷发送互不踩踏；其余入口默认 true）。
-export function activateReaderScriptTab(
-  tab: ReaderScriptTab,
-  { consumeIntent = true }: { consumeIntent?: boolean } = {}
-): void {
-  setReaderScriptTab(tab);
-  if (tab === "chat") {
-    activateReaderChatTab({ consumeIntent });
-  }
-  if (tab === "overview") {
-    withReader("overview tab enter", (reader) => reader.ensureReaderOverviewTab());
-  }
-}
-
-// PR5：AI 对话 tab 的二级惰性激活入口。首次切到对话 tab 时经
-// ensureReaderChatTab 装载组合根（reader/chat-tab.ts）并 init；已装载时为
-// 幂等的重开恢复 + 待解释意图消费。装载/激活失败只记日志（对话不可用不拖垮
-// 阅读视图其余两 tab）。consumeIntent 透传（arch-review-2026-09/10）：tab 点击
-// 与 explain-card「去对话追问」走默认 true；chat-tab 快捷动作经 set-tab:chat
-// 命令传 false（与快捷发送互不踩踏，不消费待解释意图）。
-export function activateReaderChatTab({ consumeIntent = true }: { consumeIntent?: boolean } = {}): void {
-  void (async () => {
-    try {
-      const chat = await ensureReaderChatTab();
-      await chat.ensureChatTabActivated({ consumeIntent });
-    } catch (error) {
-      logWarn("[BILISCRIPT] chat tab activate failed", error);
-    }
-  })();
-}
-
 // script-only-ui：打开侧边栏设置抽屉（展开 + 渲染）。原「打开设置页」入口
 //（open-options 消息/options 页）已删除，header 齿轮、对话 tab 设置按钮与
 // 提示条「前往设置」都收敛到本函数；reader 域（lifecycle.renderReaderPanels）
@@ -229,31 +185,25 @@ export function openReaderSettingsPanel(): void {
   withReader("reader panels render", (reader) => reader.renderReaderPanels());
 }
 
-// 壳命令通道 handler（arch-review-2026-09/10）：reader 域三处壳回头调改发
-// reader-bus 具名命令，本壳是唯一执行方。三命令：
-//   - "set-tab"：按持久值恢复当前标签（lifecycle.enterReaderMode 读
-//     chrome.storage.local 后发本命令）——与 tab 点击同款做二级激活；未知/缺失
-//     payload 静默忽略，不动当前标签；
-//   - "set-tab:chat"：切到对话 tab + 激活——原 explain-card「去对话追问」与
-//     下方 tab click 分支的「setReaderScriptTab("chat") + activateReaderChatTab」
-//     重复组合收敛到此一处，reader 侧只发一次命令；payload.consumeIntent ===
-//     false 时透传（chat-tab 快捷动作路径不消费待解释意图）；
+// 壳命令通道 handler（arch-review-2026-09/10 reader→ui 反转 + 标签激活收口）：
+// reader 域对壳的回头调改发 reader-bus 具名命令，本壳是唯一执行方。二命令：
+//   - "project-tab"：把标签投影到 DOM（reader 域属主 reader/script-tab-activation
+//     的 activateScriptTab 在写状态位/持久化之后发本命令）——本命令只做 DOM 三通道
+//     + 对话分区表挂载，不写状态位、不落盘、不做二级激活（那些都在属主）；未知/
+//     缺失 payload 静默忽略，不动当前投影；
 //   - "open-settings"：打开侧边栏设置抽屉（chat-tab 空态「前往设置」与提示条
 //     onOpenSettings）。
+// 旧命令 "set-tab" / "set-tab:chat" 已随标签激活收口 reader 属主退役（本处不再
+// 注册，残留发送方静默丢弃）。
 // 命令到达时壳必然已装载（本模块被装载才注册），但目标 DOM 缺失时各 setter
 // 空转，与原 reader 侧直调的行为同形。
 subscribeUiCommand((name, payload) => {
-  if (name === "set-tab") {
+  if (name === "project-tab") {
     const tab = (payload as { tab?: unknown } | null)?.tab;
     if (!isReaderScriptTab(tab)) {
       return;
     }
-    activateReaderScriptTab(tab);
-    return;
-  }
-  if (name === "set-tab:chat") {
-    const consumeIntent = (payload as { consumeIntent?: boolean } | null)?.consumeIntent !== false;
-    activateReaderScriptTab("chat", { consumeIntent });
+    setReaderScriptTab(tab);
     return;
   }
   if (name === "open-settings") {
@@ -275,14 +225,13 @@ export function bindUiEvents(): void {
   bindReadingExplainEvents();
   bindReadingOverviewEvents();
 
-  // 文摘面板三标签切换（纯壳交互，见上方 setReaderScriptTab 注释）。
-  // 切换统一走 activateReaderScriptTab：切到 AI 对话 tab 触发二级惰性激活对话
-  // 组合根（PR5），切到概览 tab 未生成则自动触发生成（PR4，idle 才触发，生成中
-  // 复用进行中 promise，已生成不重跑）——与壳命令 set-tab / set-tab:chat 同款
-  // （arch-review-2026-09/10 收敛，命令执行在本文件）。
+  // 文摘面板三标签切换（标签激活收口 reader 属主，见上方 handler 注释）：点击
+  // 只上报意图（reader-bus 反向槽），由属主写状态位/持久化后经 "project-tab"
+  // 命令投影回 DOM；二级激活（对话组合根 / 概览生成）同属属主的串行队列。壳不
+  // 直接写 tab——那会绕过唯一状态位成为第二条真源。
   for (const def of SCRIPT_TAB_DEFS) {
     byId(def.buttonId).addEventListener("click", () => {
-      activateReaderScriptTab(def.name);
+      reportTabIntent(def.name);
     });
   }
 
@@ -368,4 +317,4 @@ export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boole
 // arch-slim-2/06：三 tab 的模板与专属绑定已同居各自域叶子（对话 reader/
 // chat-template.ts + chat-tab.ts；字幕 reader/subtitle-tab-ui.ts；选区解释
 // reader/explain-pop-ui.ts + explain-card.ts；概览 reader/overview-ui.ts +
-// overview.ts），本壳只保留面板骨架、tab 状态机、文档级委托与懒加载转发。
+// overview.ts），本壳只保留面板骨架、tab 投影与点击意图上报、文档级委托与懒加载转发。

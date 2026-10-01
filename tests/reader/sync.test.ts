@@ -9,6 +9,7 @@ import type { TestState } from "./reader-test-env.js";
 let state: TestState;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
+let readerState: typeof import("../../extension/reader/state.js");
 let sync: typeof shell;
 let playerHost: typeof shell;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
@@ -18,10 +19,20 @@ async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   shell = await import("../../extension/reader/index.js");
-  ids = (await import("../../extension/reader/state.js")).ids;
+  readerState = await import("../../extension/reader/state.js");
+  ids = readerState.ids;
   sync = shell;
   playerHost = shell;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
+}
+
+// 用例按「用户切到某标签」构前置：状态位（谓词读它，sync tick 据此跳过字幕段）
+// 与 DOM 投影各写一次——生产里这两步同属标签激活属主
+//（reader/script-tab-activation.activateScriptTab），本文件不引入属主的二级激活
+// （概览生成）以免把无关链路拖进来。
+function switchReaderScriptTab(tab: "subtitle" | "overview"): void {
+  readerState.setReaderActiveScriptTab(tab);
+  uiRenderer.setReaderScriptTab(tab);
 }
 
 function mountExtraSkeleton() {
@@ -165,7 +176,7 @@ describe("播放同步与高亮", () => {
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
-    uiRenderer.setReaderScriptTab("overview");
+    switchReaderScriptTab("overview");
 
     video.currentTime = 12;
     sync.syncReadingViewPlayback(); // 预热 video 元素缓存（其探测会读 rect）
@@ -189,13 +200,13 @@ describe("播放同步与高亮", () => {
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
     playerHost.bindReadingViewVideo(video);
-    uiRenderer.setReaderScriptTab("overview");
+    switchReaderScriptTab("overview");
 
     video.currentTime = 12;
     sync.syncReadingViewPlayback();
     expect(state.reader.readingActiveSubtitleIndex).toBe(-1);
 
-    uiRenderer.setReaderScriptTab("subtitle");
+    switchReaderScriptTab("subtitle");
     sync.syncReadingViewPlayback();
 
     const readingView = document.getElementById(ids.readingView) as HTMLElement;

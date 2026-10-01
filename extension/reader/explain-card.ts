@@ -12,8 +12,8 @@
 //
 // 依赖方向：本模块属 reader 动态域（reader/index.js 聚合导出，ui-renderer 经
 // ensureReaderDomain 装载后调用），可静态依赖 ai 域；对 ui 壳的「切对话 tab +
-// 激活」回头调经 reader-bus 的 requestUiCommand 命令通道反转（工单
-// arch-review-2026-09/10），本模块不再静态 import ui 壳。
+// 激活」回头调经标签激活属主 reader/script-tab-activation（它再经 reader-bus 的
+// project-tab 命令投影 DOM），本模块不再静态 import ui 壳。
 //
 // 竞态：一次只开一张卡；重复打开（换选区再点）先 abort 上一请求，runId 守卫
 // 丢弃过期回执。关闭阅读视图（lifecycle.closeReadingView）也走 close。
@@ -33,7 +33,7 @@ import { setMessage } from "../core/ui-status.js";
 import { logWarn } from "../shared/logging.js";
 import { ids } from "./state.js";
 import { setPendingExplainIntent } from "./explain-intent.js";
-import { requestUiCommand } from "./reader-bus.js";
+import { activateScriptTab } from "./script-tab-activation.js";
 
 type ExplainCardPhase = "loading" | "ready" | "error";
 
@@ -314,8 +314,9 @@ export function onReaderExplainCardClick(event: MouseEvent): void {
   if (action === "ask-chat") {
     // 意图契约（reader/explain-intent.ts）：selection 带上用户实际选中的片段，
     // 对话 tab 据此出「解释这个词」的提示词；卡片自身负责关（切 tab 后卡片在
-    // 字幕 tab 里，不关会残留）。切 tab + 激活由壳经 set-tab:chat 命令统一做
-    //（arch-review-2026-09/10 依赖反转，壳内与 tab click 分支同款组合）。
+    // 字幕 tab 里，不关会残留）。切 tab + 激活经标签激活属主
+    //（reader/script-tab-activation.activateScriptTab，含状态位/持久化/投影与
+    // 对话组合根激活——收口前是 reader-bus 的 set-tab:chat 壳命令，ui 侧执行）。
     setPendingExplainIntent({
       from: card.from,
       content: card.line,
@@ -323,7 +324,10 @@ export function onReaderExplainCardClick(event: MouseEvent): void {
       createdAt: Date.now()
     });
     closeReaderExplainCard();
-    requestUiCommand("set-tab:chat");
+    // 切对话 tab + 激活（含二级激活）由标签激活属主统一执行：写状态位/持久化 →
+    // 投影命令 → 对话组合根激活（consumeIntent 默认 true，落定即消费上面写入的
+    // 待解释意图）。fire-and-forget：点击反馈（卡片收起、tab 投影）不依赖它。
+    void activateScriptTab("chat");
   }
 }
 

@@ -47,8 +47,8 @@ _Avoid_: 长记忆、向量库
 _Avoid_: 凭缓存数据重要性/大小选宿主、offscreen 侧引入 storage 垫片
 
 **文摘面板**:
-阅读模式的唯一呈现形态：右栏固定定位面板，三标签（字幕 / 概览 / AI 对话）。不接管页面、不搬播放器；贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）。ADR-0006。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 `setReaderScriptTab`）。
-代码名：`#biliscript-reading-view` / `#biliscript-reading-script-panel` / `reader/script-host.ts` / `--biliscript-script-*` / `data-biliscript-script-float` / `readingActiveScriptTab` / `setReaderScriptTab`
+阅读模式的唯一呈现形态：右栏固定定位面板，三标签（字幕 / 概览 / AI 对话）。不接管页面、不搬播放器；贴栏 rect 由锚点链决定，失败逐级降级（贴播放器 → 居中浮层）。ADR-0006。当前激活标签的唯一状态位在 `reader/state.ts`（DOM 三通道只是投影，写手单点 = `reader/script-tab-activation.ts` 的 `activateScriptTab`：状态位 → 持久化写穿 → `project-tab` 投影命令 → 二级激活，同处一条串行队列；壳侧 `setReaderScriptTab` 只做 DOM 投影）。
+代码名：`#biliscript-reading-view` / `#biliscript-reading-script-panel` / `reader/script-host.ts` / `--biliscript-script-*` / `data-biliscript-script-float` / `readingActiveScriptTab` / `activateScriptTab` / `project-tab` / `reportTabIntent`
 口语同义词：侧边栏（仅兼容用户说法；README 统一为文摘阅读面板，代码与 ADR 沿用 文摘面板）
 _Avoid_: 阅读视图整页接管、播放器槽、rail/stage、剪枝、反解 DOM class 取当前标签
 

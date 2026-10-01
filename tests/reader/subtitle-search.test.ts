@@ -19,6 +19,7 @@ import type { TestState } from "./reader-test-env.js";
 let state: TestState;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
+let readerState: typeof import("../../extension/reader/state.js");
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 let video: HTMLVideoElement;
 
@@ -62,8 +63,17 @@ async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   shell = await import("../../extension/reader/index.js");
-  ids = (await import("../../extension/reader/state.js")).ids;
+  readerState = await import("../../extension/reader/state.js");
+  ids = readerState.ids;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
+}
+
+// 「用户切到某标签」的前置：状态位 + DOM 投影各写一次（生产里两步同属标签
+// 激活属主 reader/script-tab-activation.activateScriptTab；本文件只关心搜索态
+// 是否随 tab 隐藏/切回保持，不引入属主的二级激活）。
+function switchReaderScriptTab(tab: "subtitle" | "overview"): void {
+  readerState.setReaderActiveScriptTab(tab);
+  uiRenderer.setReaderScriptTab(tab);
 }
 
 function subtitleList(): HTMLElement {
@@ -278,13 +288,13 @@ describe("字幕句内搜索", () => {
     shell.refreshReadingSubtitleSearch();
     const marksBefore = searchMarks().length;
 
-    uiRenderer.setReaderScriptTab("overview");
+    switchReaderScriptTab("overview");
     // DOM 不销毁：输入、高亮、计数原样保留
     expect(searchInput().value).toBe("目标词");
     expect(searchMarks().length).toBe(marksBefore);
     expect(searchCount()).toBe("1 / 2");
 
-    uiRenderer.setReaderScriptTab("subtitle");
+    switchReaderScriptTab("subtitle");
     expect(searchMarks().length).toBe(marksBefore);
     expect(currentMark()).not.toBe(null);
   });

@@ -30,7 +30,9 @@ vi.mock("../../extension/reader/lazy-reader.js", () => ({
 }));
 vi.mock("../../extension/reader/state.js", () => ({
   isReaderViewOpen: mocks.isReaderViewOpen,
-  enforceNormalPageStateIfNeeded: vi.fn()
+  enforceNormalPageStateIfNeeded: vi.fn(),
+  // 标签激活属主（reader/script-tab-activation）经它写唯一状态位
+  setReaderActiveScriptTab: vi.fn()
 }));
 vi.mock("../../extension/core/url-watcher.js", () => ({
   startUrlWatcher: vi.fn(),

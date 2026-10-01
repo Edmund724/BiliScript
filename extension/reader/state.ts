@@ -39,31 +39,29 @@ export function isReaderViewOpen() {
 // ===== script-tab-state：文摘面板三标签的 single source of truth =====
 //
 // 当前激活标签的唯一状态位（DOM is-active/aria-selected/hidden 三通道只是本
-// 状态的投影，写手是 ui/ui-renderer.js 的 setReaderScriptTab）。此前 tab 状态
-// 只存在于 DOM，两个并发写手（shell 进入事务的 set-tab（按持久值恢复）与对话
-// seam 的 set-tab:chat）竞态时无从判定与排查——收口成可读状态位后，断言、日志
-// 与未来消费方都有单源可依。
+// 状态的投影）。写手单点在 reader/script-tab-activation.ts 的 activateScriptTab：
+// 状态位 → 持久化写穿 → 投影命令（壳只做 DOM）→ 二级激活（对话组合根/概览生成）
+// 同处一条串行队列。此前 tab 状态只存在于 DOM，两个并发写手（壳侧 set-tab
+// 恢复与对话 seam 的 set-tab:chat，两命令随本次收口退役）竞态时无从判定与排查
+// ——收口成可读状态位后，断言、日志与未来消费方都有单源可依。
 //
 // 放本叶子而非 core/state：与 scroll-state 同型的瞬态 UI 状态（不进 settings 域
 // 水合），模块级变量随文档/测试重置自然重置。2026-10 用户决议：当前标签跨刷新
 // 保留——持久值在 chrome.storage.local，读写单点 reader/script-tab-persistence，
-// 进入阅读模式时经壳命令 set-tab 回灌本状态位；本状态位仍是页内 single source
-// of truth，持久值只是下一次进入的输入。
+// 进入阅读模式时经属主回灌本状态位（persist:false）；本状态位仍是页内 single
+// source of truth，持久值只是下一次进入的输入。
 //
 // 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本文件含模块级可变状态
 // （readingActiveScriptTab、两个滚动截止位），content 两轮构建下常驻包与懒加载
 // 区各一份实例。安全依据：这些状态的读写双方全部在懒加载区 reader 域内
-// （ui-renderer 的 tab 写手、lifecycle/sync 的滚动读写）；常驻侧（content.ts /
-// message-handler）只取 ids/classes、isReaderViewOpen（core 状态读）与纯 DOM
-// 页面守卫，不碰本文件任何模块级可变状态。
+//（属主 script-tab-activation 的 tab 状态位写手、sync 的可见性谓词读取、
+// lifecycle/sync 的滚动读写）；常驻侧（content.ts / message-handler）只取
+// ids/classes、isReaderViewOpen（core 状态读）与纯 DOM 页面守卫，不碰本文件任何
+// 模块级可变状态。
 
 export type ReaderScriptTab = "subtitle" | "overview" | "chat";
 
 let readingActiveScriptTab: ReaderScriptTab = "subtitle";
-
-export function getReaderActiveScriptTab(): ReaderScriptTab {
-  return readingActiveScriptTab;
-}
 
 export function setReaderActiveScriptTab(tab: ReaderScriptTab) {
   readingActiveScriptTab = tab;
@@ -76,7 +74,8 @@ export function setReaderActiveScriptTab(tab: ReaderScriptTab) {
 // 的兄弟选择器压掉三 tab body）→ readingSettingsExpanded。
 //
 // DOM 属性（body 的 is-active/aria-selected/hidden、抽屉的 hidden）只是投影，
-// 写手唯一（ui/ui-renderer.js 的 setReaderScriptTab、reader/lifecycle.js 的
+// 写手唯一（reader/script-tab-activation.ts 的 activateScriptTab 写状态位、
+// ui/ui-renderer.ts 的 setReaderScriptTab 只投影 DOM、reader/lifecycle.js 的
 // renderReaderPanels）；判定侧一律读本谓词，不反解 DOM class（CONTEXT「文摘面板」
 // 词条的 Avoid 项）。sync 域 250ms tick 用它决定是否跳过字幕高亮/滚动段：壳未建
 // 时旧实现按可见处理，与状态默认值（标签 subtitle、抽屉未展开）等价。
