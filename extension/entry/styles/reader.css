@@ -16,7 +16,7 @@
   box-sizing: border-box;
   background: var(--biliscript-reader-surface, #fff);
   border: 1px solid var(--biliscript-reader-border, #e5e7eb);
-  /* 面板族圆角 14、阴影吃 --biliscript-reader-shadow（reader-gate.css 三值档各一份）：
+  /* 面板族圆角 14、阴影吃 --biliscript-reader-shadow（reader-gate.css 四色板各一份）：
    * 与设置抽屉/编辑 Modal/解释卡同档，深色下不再是浅色硬编码投影。 */
   border-radius: 14px;
   box-shadow: var(--biliscript-reader-shadow);

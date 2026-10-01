@@ -5,9 +5,9 @@
  * 为什么需要这层：github-markdown-css 用 primer 的 --fgColor-… / --bgColor-… /
  * --borderColor-… 变量，暗色走 prefers-color-scheme，不跟随阅读视图
  * #biliscript-reading-view[data-theme] 的站内切换，且其蓝灰配色与本项目纸色/深蓝
- * 主题冲突。这里把语义变量映射到 --biliscript-reader-*：三值档 light | dark | flyme
- * 无需各写一份——biliscript 变量自身在 reader-gate.css 的 [data-theme="dark"] 下
- * 翻转，flyme 是浅色档、走本块的默认（浅色）映射。
+ * 主题冲突。这里把语义变量映射到 --biliscript-reader-*：两轴四色板（明暗 × 主题族）
+ * 无需各写一份——biliscript 变量自身在 reader-gate.css 按明暗属性翻转（族轴由该表的
+ * flyme 色板块覆写），flyme 族浅色档走本块的默认（浅色）映射。
  *
  * 特异性口径：#biliscript-reading-view .markdown-body（1-1-0）高于 vendored 文件的
  * .markdown-body（0-1-0）与其暗色媒体查询段 .markdown-body:not(...)（0-2-0），

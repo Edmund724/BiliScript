@@ -119,9 +119,9 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-pill-bg: #f0e9df;
   --biliscript-reader-highlight: #fdeeda;
   /* 进度轨底色（转写横幅 / 概览不确定进度条）：黑色半透明在深色面上不可见，
-   * 三档主题各给一份。 */
+   * 四色板各给一份。 */
   --biliscript-reader-track: rgba(0, 0, 0, 0.08);
-  /* 语义色（Key 状态点 / 校验通过 / 删除警示 / 朗读高亮）：success 绿三档
+  /* 语义色（Key 状态点 / 校验通过 / 删除警示 / 朗读高亮）：success 绿四色板
    * 同值（此处定义即可，dark/flyme 块不重复），danger 红深色换更亮档保证对比。 */
   --biliscript-reader-success: #3fb950;
   --biliscript-reader-danger: #d93025;
@@ -130,7 +130,7 @@ body[data-biliscript-reader-mode="1"],
    * 共用）——深色沿用同一深纱，暗面上本就无差异，无需多份。 */
   --biliscript-reader-mask-bg: rgba(20, 16, 12, 0.28);
   /* 实底强调/警示按钮上的文字（发送键 / 确认键 / 保存键 / 删除键 hover）：
-   * 三档恒白。与 accent-ink 不同（其暗色档是深墨），历史行为如此。 */
+   * 四色板恒白。与 accent-ink 不同（其暗色档是深墨），历史行为如此。 */
   --biliscript-reader-on-fill: #ffffff;
   --biliscript-reader-shadow: 0 18px 40px rgba(112, 93, 64, 0.1);
   --biliscript-reader-subtitle-font-size: 16px;
@@ -147,7 +147,7 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-ease-bounce: cubic-bezier(0.34, 1.4, 0.64, 1);
   --biliscript-reader-press-scale: 0.97;
   /* 半透明材质底（reader header / 设置抽屉，backdrop-filter 消费方在
-   * reader.css / reader-settings-shell.css）：surface 加 alpha 的 rgba，三档各调。 */
+   * reader.css / reader-settings-shell.css）：surface 加 alpha 的 rgba，四色板各调。 */
   --biliscript-reader-header-bg: rgba(253, 251, 247, 0.72);
   --biliscript-reader-overlay-bg: rgba(253, 251, 247, 0.8);
   color: var(--biliscript-reader-text);
