@@ -8,7 +8,9 @@
 //      不是把非法值硬塞给 select 变成空选）；
 //   3. 保存载荷携带 readerThemeFamily（collectFormPayload 收集口径）；
 //   4. 「恢复默认偏好」载荷把族写回默认 bilibili——族是偏好键面的一部分，
-//      重置后不留旧族（否则 UI 回 bilibili 而存储仍旧族）。
+//      重置后不留旧族（否则 UI 回 bilibili 而存储仍旧族）；
+//   5. 主题族下拉选中即生效（change → save-settings），与平台行即时保存同口径，
+//      不需要点「保存设置」；装载水合属程序化写值，不得误判成用户改选。
 // 骨架与消息总线复用 tests/ui/settings-panel-save.test.ts 的同款手法。
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
@@ -205,6 +207,70 @@ describe("设置抽屉「外观」分区：主题族下拉接入 custom-select�
     expect(sent.find((message) => message.type === "save-settings")!.settings).toMatchObject({
       readerThemeFamily: "flyme"
     });
+  });
+});
+
+// 主题族选中即生效：与平台行的即时保存同口径（settings-panel.ts 里 provider 删除
+// 处理器直接发 save-settings），改选即落盘，不依赖「保存设置」按钮——用户以为切了
+// 就生效、实际要再点一次保存的错位是最容易踩的坑。水合是程序化写 select.value，
+// 不派发 change，天然不该落盘；拿它当反例守住「监听的是用户改选而不是值变化」。
+describe("设置抽屉「外观」分区：主题族下拉选中即生效（不经「保存设置」）", () => {
+  function saveMessages(sent: SentMessage[]): SentMessage[] {
+    return sent.filter((message) => message.type === "save-settings");
+  }
+
+  function optionOf(select: HTMLSelectElement, value: string): HTMLElement {
+    return select
+      .closest<HTMLElement>(".custom-select-wrapper")!
+      .querySelector<HTMLElement>(`.custom-select-option[data-value="${value}"]`)!;
+  }
+
+  it("经自定义下拉选中 Flyme：不点保存设置，save-settings 立即发出且只带族", async () => {
+    const sent = installMessageBus();
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "readerThemeFamily");
+
+    fireClick(optionOf(select, "flyme"));
+
+    await vi.waitFor(() => {
+      expect(saveMessages(sent).length, "选中 Flyme 后未立即发出 save-settings").toBe(1);
+    });
+    expect(saveMessages(sent)[0].settings).toEqual({ readerThemeFamily: "flyme" });
+  });
+
+  it("经自定义下拉选回 Bilibili：立即落盘 bilibili", async () => {
+    const sent = installMessageBus({
+      "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "flyme" } })
+    });
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "readerThemeFamily");
+
+    fireClick(optionOf(select, "bilibili"));
+
+    await vi.waitFor(() => {
+      expect(saveMessages(sent).length, "选回 Bilibili 后未立即发出 save-settings").toBe(1);
+    });
+    expect(saveMessages(sent)[0].settings).toEqual({ readerThemeFamily: "bilibili" });
+  });
+
+  it("装载水合（含二次装载）不触发即时保存", async () => {
+    const sent = installMessageBus({
+      "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "flyme" } })
+    });
+    const host = await mountPanel();
+    const select = await waitForCustomSelect(host, "readerThemeFamily");
+    expect(select.value).toBe("flyme");
+    expect(saveMessages(sent)).toEqual([]);
+
+    // 抽屉二次打开：loadSettings 再跑一轮（select 已接管，initCustomSelect 幂等），
+    // 这轮程序化写值同样不得被当成用户改选。
+    const panel = await import("../../extension/ui/settings-panel.js");
+    panel.renderReaderSettingsPanel();
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === "search-providers-list").length).toBe(2);
+    });
+    expect(select.value).toBe("flyme");
+    expect(saveMessages(sent)).toEqual([]);
   });
 });
 

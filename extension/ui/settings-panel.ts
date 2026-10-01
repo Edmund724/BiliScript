@@ -709,6 +709,16 @@ function bindSettingsEvents(host: HTMLElement): void {
       closeAllCustomSelects();
     }
   });
+  // 主题族：改选即时持久化（与平台行的即时保存同口径——不写面板状态行，改选成功
+  // 与否不由状态条播报）。一个挂点两路通吃：自定义下拉选中时对原 select 派发
+  // change，原生回退路径也是 change。装载水合是程序化写 select.value，不派发
+  // change，不会落盘（否则每次打开抽屉都会把当前值回写一遍）。
+  elements.readerThemeFamily.addEventListener("change", async () => {
+    await sendRuntimeMessage({
+      type: "save-settings",
+      settings: { readerThemeFamily: normalizeReaderThemeFamily(elements.readerThemeFamily.value) }
+    });
+  });
   // ASR：总开关即时持久化
   elements.asrAutoFallback?.addEventListener("change", async () => {
     await sendRuntimeMessage({ type: "save-settings", settings: { asrAutoFallback: elements.asrAutoFallback.checked } });
