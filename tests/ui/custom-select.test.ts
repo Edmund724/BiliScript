@@ -141,10 +141,11 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
       select.closest<HTMLElement>(".custom-select-wrapper")!.querySelectorAll<HTMLElement>(".custom-select-option")
     );
 
-    // 1px + overflow:hidden 只是视觉隐藏，不等于退出无障碍树：不摘 Tab 序、不 aria-hidden
-    // 就会留下一个看不见的可聚焦控件，读屏也会把同一设置念两遍
-    expect(select.tabIndex).toBe(-1);
-    expect(select.getAttribute("aria-hidden")).toBe("true");
+    // display:none 让 select 天然退出无障碍树与 Tab 序，无需再摘 Tab 序、加 aria-hidden；
+    // 隐藏走内联样式，宿主里那些原生 select 外观规则的优先级压不回它
+    expect(select.style.display).toBe("none");
+    expect(select.getAttribute("tabindex")).toBeNull();
+    expect(select.getAttribute("aria-hidden")).toBeNull();
 
     // 值源与收集链零改：组件写回原生 select
     fireClick(options[1]);
@@ -163,7 +164,7 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
     // 只念当前值（"SRT，按钮"）等于丢了「这是哪个设置」；字段名必须进名字
     expect(labelledbyText(trigger)).toBe("下载格式 SRT");
     expect(labelledbyText(dropdown)).toBe("下载格式");
-    // 标签的 for 也得指向用户碰得到的控件：不然点标签把焦点送进已 aria-hidden 的隐藏 select
+    // 标签的 for 也得指向用户碰得到的控件：不然点标签把焦点送进已 display:none 隐藏的 select
     const fieldLabel = document.getElementById(trigger.getAttribute("aria-labelledby")!.split(" ")[0])!;
     expect(fieldLabel.tagName).toBe("LABEL");
     expect(fieldLabel.getAttribute("for")).toBe(trigger.id);

@@ -1332,7 +1332,10 @@ describe("provider-editor：平台预设走 custom-select（AI/ASR 两侧）", (
     const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
     expect(wrapper).toBeTruthy();
     expect(select.dataset.customSelectInitialized).toBe("1");
-    expect(select.classList.contains("custom-select-hidden")).toBe(true);
+    // 接管即隐藏：内联 display:none（不再是 CSS 类），Modal 的 select 外观规则压不回
+    expect(select.style.display).toBe("none");
+    expect(select.getAttribute("tabindex")).toBeNull();
+    expect(select.getAttribute("aria-hidden")).toBeNull();
     expect(select.closest(".provider-editor-host")).toBeTruthy();
 
     const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;

@@ -173,10 +173,11 @@ describe("设置抽屉「外观」分区：主题族下拉接入 custom-select�
     expect(wrapper, "#readerThemeFamily 未落进 .custom-select-wrapper").toBeTruthy();
     expect(wrapper!.querySelector<HTMLElement>(".custom-select-trigger")).toBeTruthy();
     expect(wrapper!.querySelector<HTMLElement>(".custom-select-dropdown")).toBeTruthy();
-    expect(select.classList.contains("custom-select-hidden")).toBe(true);
-    // 1px + overflow 只是视觉隐藏，Tab 序与无障碍树也要退出（ADR-0007 修订）
-    expect(select.tabIndex).toBe(-1);
-    expect(select.getAttribute("aria-hidden")).toBe("true");
+    // 隐藏走内联 display:none：select 天然退出 Tab 序与无障碍树，不再加类/tabIndex/
+    // aria-hidden，也不被宿主里 100%×32px 的原生 select 外观规则压回
+    expect(select.style.display).toBe("none");
+    expect(select.getAttribute("tabindex")).toBeNull();
+    expect(select.getAttribute("aria-hidden")).toBeNull();
   });
 
   it("水合值（flyme）与 trigger 显示值一致（Flyme）", async () => {
