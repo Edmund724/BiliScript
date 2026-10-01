@@ -1,12 +1,22 @@
-// search/search-chain.ts 的链解析纯函数测试（spec §1 S1/S3/S4、§3 落点表第 8 行①）。
+// search/search-chain.ts 测试（spec §1 S1/S3/S4、§3 落点表第 8 行）。
 // 覆盖 resolveSearchChain：进组判据（access × 有无 Key）、预设表序 + 链首排序、
 // 按记录 id 去重、脏 presetId / enabled 的保守排除、候选形状与纯函数不变式。
-// 执行器 executeSearchChain / classifySearchFailure / SEARCH_CHAIN_BUDGET_MS 属
-// 批次②（§10 第 16 行），届时在本文件邻域补链级预算与分类保序用例。
-import { describe, expect, it } from "vitest";
+// 另覆盖批次②的执行器面：classifySearchFailure 的三等映射（§6.4 / §10 第 44/45
+// 行）、executeSearchChain 的顺序回退 / 失败静默保序 / 额度与其余两类终态文案 /
+// 链级预算 30s（§4 / §10 第 16 行）/ 调用方中止出口。时间一律走 fake timers 或
+// 注入桩，不测真实网络与墙钟（§10 非断言节）。
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SEARCH_PROVIDER_PRESETS } from "../../extension/core/presets.js";
 import type { SearchProvider } from "../../extension/search/search-provider-normalize.js";
-import { resolveSearchChain } from "../../extension/search/search-chain.js";
+import { parseDoubaoSearchResponse } from "../../extension/search/adapters/doubao.js";
+import {
+  SEARCH_CHAIN_BUDGET_MS,
+  classifySearchFailure,
+  executeSearchChain,
+  resolveSearchChain,
+  type SearchChainCandidate,
+  type SearchChainError
+} from "../../extension/search/search-chain.js";
 
 // 记录夹具：presetId 是链成员资格的唯一判据（spec §7「只挂预设表，记录不带副本」）。
 const FIRECRAWL: SearchProvider = {
@@ -153,5 +163,284 @@ describe("resolveSearchChain 回退链解析", () => {
       apiKey: ""
     });
     expect(JSON.stringify({ records, keys })).toBe(before);
+  });
+});
+
+// ===== 批次② 执行器面（spec §4 / §6.4 / §10 第 16、42–45 行）=====
+
+const RESULT = { title: "t", url: "https://example.com", snippet: "s" };
+
+// 链候选夹具（= ResolveSearchProviderResponse.chain 的元素，S4 单一形状）。
+const FIRECRAWL_CHAIN: SearchChainCandidate = {
+  provider: { id: "search_firecrawl", name: "Firecrawl", type: "firecrawl", baseUrl: "https://api.firecrawl.dev" },
+  apiKey: ""
+};
+const TAVILY_CHAIN: SearchChainCandidate = {
+  provider: { id: "tavily-picked", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+  apiKey: "tvly-k"
+};
+
+// 既有 executor 的失败形状：!response.ok 时抛 `HTTP <status>` 并附 status。
+function httpError(status: number): Error {
+  return Object.assign(new Error(`HTTP ${status}`), { status });
+}
+
+// 豆包 HTTP 200 信封错误：经真实适配器 parse 抛出（带 providerCode）。
+function doubaoEnvelopeError(error: Record<string, unknown>): unknown {
+  try {
+    parseDoubaoSearchResponse({ ResponseMetadata: { Error: error }, Result: { WebResults: [] } });
+  } catch (thrown) {
+    return thrown;
+  }
+  throw new Error("豆包信封错误未被适配器抛出");
+}
+
+function rejectMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+describe("classifySearchFailure 失败分类（§6.4 唯一映射表）", () => {
+  it("HTTP 402 / 429 → 额度类", () => {
+    for (const status of [402, 429]) {
+      expect(classifySearchFailure(httpError(status))).toBe("quota");
+    }
+  });
+
+  it("HTTP 401 / 403 → 鉴权类", () => {
+    for (const status of [401, 403]) {
+      expect(classifySearchFailure(httpError(status))).toBe("auth");
+    }
+  });
+
+  it("providerCode 额度码（10406 / 10407 / 700429，字符串与数字都认）→ 额度类", () => {
+    for (const providerCode of ["10406", "10407", "700429", 10406, 10407, 700429]) {
+      expect(classifySearchFailure(Object.assign(new Error("豆包信封"), { providerCode }))).toBe("quota");
+    }
+  });
+
+  it("providerCode 鉴权码（700901 / 10403，字符串与数字都认）→ 鉴权类", () => {
+    for (const providerCode of ["700901", "10403", 700901, 10403]) {
+      expect(classifySearchFailure(Object.assign(new Error("豆包信封"), { providerCode }))).toBe("auth");
+    }
+  });
+
+  it("超时 / 网络 / 5xx / 形状 4xx / 解析失败 / 非 Error → 其余类", () => {
+    expect(classifySearchFailure(new Error("请求超时，请检查 baseUrl 或稍后重试"))).toBe("other");
+    expect(classifySearchFailure(new Error("Failed to fetch"))).toBe("other");
+    for (const status of [500, 502, 503, 400, 404, 422]) {
+      expect(classifySearchFailure(httpError(status))).toBe("other");
+    }
+    expect(classifySearchFailure(new Error("搜索响应解析失败：Unexpected token"))).toBe("other");
+    expect(classifySearchFailure(undefined)).toBe("other");
+    expect(classifySearchFailure("boom")).toBe("other");
+    expect(classifySearchFailure(Object.assign(new Error("x"), { providerCode: "999999" }))).toBe("other");
+  });
+
+  it("豆包 HTTP 200 信封码经真实适配器 parse → 分类映射（§10 第 45 行）", () => {
+    for (const code of ["10406", "10407", "700429"]) {
+      expect(classifySearchFailure(doubaoEnvelopeError({ Code: code, Message: "quota" }))).toBe("quota");
+    }
+    for (const code of ["700901", "10403"]) {
+      expect(classifySearchFailure(doubaoEnvelopeError({ CodeN: code }))).toBe("auth");
+    }
+    // Code / CodeN 双查：Code 无效（"0"）时落 CodeN，数字码也认
+    expect(classifySearchFailure(doubaoEnvelopeError({ Code: "0", CodeN: 10406 }))).toBe("quota");
+  });
+});
+
+describe("executeSearchChain 链执行（顺序回退 / 静默 / 保序分类）", () => {
+  it("首个成功即返回：platform 取成功家、无 downgradedFrom、每候选只调一次", async () => {
+    const calls: string[] = [];
+    const outcome = await executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "bilibili ai", {
+      execute: async (candidate, query) => {
+        calls.push(candidate.provider.id);
+        expect(query).toBe("bilibili ai");
+        return { results: [RESULT], platform: candidate.provider.name };
+      }
+    });
+
+    expect(calls).toEqual(["search_firecrawl"]);
+    expect(outcome).toEqual({ results: [RESULT], platform: "Firecrawl" });
+  });
+
+  it("链首失败静默试下一家；成功家非链首 → downgradedFrom = 链首 provider.name（§10 第 42 行）", async () => {
+    const calls: string[] = [];
+    const outcome = await executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute: async (candidate) => {
+        calls.push(candidate.provider.id);
+        if (candidate.provider.id === "search_firecrawl") throw httpError(503);
+        return { results: [RESULT], platform: candidate.provider.name };
+      }
+    });
+
+    expect(calls).toEqual(["search_firecrawl", "tavily-picked"]);
+    expect(outcome).toEqual({ results: [RESULT], platform: "Tavily", downgradedFrom: "Firecrawl" });
+  });
+
+  it("整链无果：分类保序收集成列表，message 用最后一个错误的既有文案（§10 第 44 行）", async () => {
+    const error = (await executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute: async (candidate) => {
+        throw candidate.provider.id === "search_firecrawl" ? httpError(503) : httpError(400);
+      }
+    }).catch((thrown) => thrown)) as SearchChainError;
+
+    expect(error.failures).toEqual(["other", "other"]);
+    expect(error.searchFailureClass).toBe("other");
+    expect(error.message).toBe("HTTP 400");
+  });
+
+  it("额度类在列 → 额度文案 + searchFailureClass:'quota'（其余类保序保留）", async () => {
+    const error = (await executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute: async (candidate) => {
+        throw candidate.provider.id === "search_firecrawl" ? httpError(503) : httpError(429);
+      }
+    }).catch((thrown) => thrown)) as SearchChainError;
+
+    expect(error.failures).toEqual(["other", "quota"]);
+    expect(error.searchFailureClass).toBe("quota");
+    expect(error.message).toBe("搜索额度已用尽：可稍后再试，或在设置中为搜索平台配置 API Key 提升额度");
+  });
+
+  it("鉴权类在列但无额度 → 沿用其余类文案（§6.4 第 ② 行）", async () => {
+    const lastMessage = "豆包联网搜索返回错误码 700901：invalid api key";
+    const error = (await executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute: async (candidate) => {
+        if (candidate.provider.id === "search_firecrawl") throw httpError(401);
+        throw Object.assign(new Error(lastMessage), { providerCode: "700901" });
+      }
+    }).catch((thrown) => thrown)) as SearchChainError;
+
+    expect(error.failures).toEqual(["auth", "auth"]);
+    expect(error.searchFailureClass).toBe("auth");
+    expect(error.message).toBe(lastMessage);
+  });
+
+  it("候选为空 → 抛既有兜底文案（无可用搜索平台）", async () => {
+    const error = (await executeSearchChain([], "q", { execute: async () => ({ results: [], platform: "x" }) }).catch(
+      (thrown) => thrown
+    )) as Error;
+
+    expect(rejectMessage(error)).toBe("搜索失败：无可用搜索平台");
+    expect(classifySearchFailure(error)).toBe("other");
+  });
+});
+
+describe("executeSearchChain 链级预算（§4 / §10 第 16 行）", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("链级预算常量 = 30000ms", () => {
+    expect(SEARCH_CHAIN_BUDGET_MS).toBe(30000);
+  });
+
+  it("15s 超时 + 5.5s 成功 ≈ 20.5s → 整链成功（预算容得下最坏现实成功路径）", async () => {
+    vi.useFakeTimers();
+    const outcomePromise = executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute: (candidate) =>
+        new Promise<{ results: Array<typeof RESULT>; platform: string }>((resolve, reject) => {
+          if (candidate.provider.id === "search_firecrawl") {
+            setTimeout(() => reject(httpError(503)), 15000);
+          } else {
+            setTimeout(() => resolve({ results: [RESULT], platform: candidate.provider.name }), 5500);
+          }
+        })
+    });
+
+    await vi.advanceTimersByTimeAsync(15000);
+    await vi.advanceTimersByTimeAsync(5500);
+
+    await expect(outcomePromise).resolves.toEqual({
+      results: [RESULT],
+      platform: "Tavily",
+      downgradedFrom: "Firecrawl"
+    });
+  });
+
+  it("满 30s：主动放弃（中止在飞候选）并如实报失败，不是静默截断", async () => {
+    vi.useFakeTimers();
+    let abortedSignal = false;
+    const execute = (_candidate: SearchChainCandidate, _query: string, signal?: AbortSignal | null) =>
+      new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => {
+            abortedSignal = true;
+            reject(Object.assign(new Error("请求已中止"), { name: "AbortError" }));
+          },
+          { once: true }
+        );
+      });
+
+    const pending = executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", { execute });
+    const settled = expect(pending).rejects.toMatchObject({ message: "搜索超时", failures: [] });
+
+    await vi.advanceTimersByTimeAsync(SEARCH_CHAIN_BUDGET_MS);
+    await settled;
+
+    expect(abortedSignal).toBe(true);
+  });
+
+  it("预算到点不吞掉已发生的失败：保序分类 + 末条既有原因", async () => {
+    vi.useFakeTimers();
+    const execute = (candidate: SearchChainCandidate, _query: string, signal?: AbortSignal | null) => {
+      if (candidate.provider.id === "search_firecrawl") {
+        return Promise.reject(httpError(503));
+      }
+      return new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => reject(Object.assign(new Error("请求已中止"), { name: "AbortError" })),
+          { once: true }
+        );
+      });
+    };
+
+    const pending = executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", { execute });
+    const settled = expect(pending).rejects.toMatchObject({
+      message: "HTTP 503",
+      failures: ["other"],
+      searchFailureClass: "other"
+    });
+
+    await vi.advanceTimersByTimeAsync(SEARCH_CHAIN_BUDGET_MS);
+    await settled;
+  });
+});
+
+describe("executeSearchChain 调用方中止出口（§4：不写缓存、不上 notice）", () => {
+  it("已中止的 signal → 立即抛出、零候选执行", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const execute = vi.fn(async () => ({ results: [RESULT], platform: "Firecrawl" }));
+
+    await expect(
+      executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", { execute, signal: controller.signal })
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("在飞中止 → 立即抛出且不试下一家", async () => {
+    const controller = new AbortController();
+    const execute = vi.fn(
+      (_candidate: SearchChainCandidate, _query: string, signal?: AbortSignal | null) =>
+        new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("请求已中止"), { name: "AbortError" })),
+            { once: true }
+          );
+        })
+    );
+
+    const pending = executeSearchChain([FIRECRAWL_CHAIN, TAVILY_CHAIN], "q", {
+      execute,
+      signal: controller.signal
+    });
+    const settled = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    controller.abort();
+    await settled;
+
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 });

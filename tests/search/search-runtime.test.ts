@@ -1,15 +1,23 @@
-// search/search-runtime.ts 联网搜索运行时解析器测试（spec §1 S4、§3 落点表第 14 行）。
-// chrome.runtime 双消息通道全覆盖：resolve-search-provider 往返 + provider-http
-// 代发（executeWebSearch 缺省走 providerFetchViaBackground）。覆盖：
+// search/search-runtime.ts 联网搜索运行时解析器测试（spec §1 S4、§3 落点表第 14 行、
+// §5 查询缓存 / §10 第 33–36 行）。chrome.runtime 三消息通道全覆盖：
+// resolve-search-provider 往返 + search-cache get/put（命中直回、未命中跑链后写、
+// 失败一律不写）+ provider-http 代发（executeWebSearch 缺省走 providerFetchViaBackground）。
+// 覆盖：
 // 1. 成功组装：链夹具（有序候选 + 各自 Key）/ maxToolCalls 透传 / executeSearch 真跑 /
 //    abort signal 透传；
 // 2. 第二道闸：chain 空（未配置）→ undefined；chain 有候选且 apiKey:"" → 放行组装
 //    （keyless 无 Key，出向请求头不含鉴权头）；
-// 3. 链内单候选失败静默试下一个，platform 取实际成功家；全败抛最后一个错误；
-// 4. maxToolCalls 缺省 / 非法回落 5。
+// 3. 链内单候选失败静默试下一个，platform 取实际成功家 + downgradedFrom 透传；
+//    全败抛分类错误（额度类走额度文案，其余类用末条原因）；
+// 4. 缓存：命中直回（链与 provider-http 零调用）/ 未命中成功后 put / 失败与中止不写；
+// 5. maxToolCalls 缺省 / 非法回落 5。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveWebSearchRuntime } from "../../extension/search/search-runtime.js";
-import type { ResolveSearchProviderResponse } from "../../extension/shared/messaging-protocol.js";
+import type {
+  ResolveSearchProviderResponse,
+  SearchCacheMessage,
+  SearchCacheResponse
+} from "../../extension/shared/messaging-protocol.js";
 
 // 链夹具（spec §1 S4）：有序候选 + 各自 Key；keyless 候选的 apiKey 允许空串。
 const CHAIN_OK: ResolveSearchProviderResponse = {
@@ -28,20 +36,25 @@ const FIRECRAWL_CANDIDATE = {
   apiKey: ""
 };
 
-// chrome.runtime 双通道替身（sendRuntimeMessage 走 callback + lastError；解析器
-// 直发走 Promise 风格，两种风格都回）：resolve-search-provider 回 resp，
+// chrome.runtime 三通道替身（sendRuntimeMessage 走 callback + lastError；解析器
+// 与缓存 proxy 直发走 Promise 风格，两种风格都回）：resolve-search-provider 回
+// resp；search-cache 的 get 回 cacheGet（缺省未命中）、put 回 {ok:true} 并记账；
 // provider-http 按顺序回 httpPayloads（最后一个重复用于后续调用；载荷是
 // SW 端 ok/status 透传的形状，单候选失败即 !ok 或 status >= 400）。
 function stubRuntime(
   resp: ResolveSearchProviderResponse,
   httpPayloads: Array<Record<string, unknown>> = [
     { ok: true, status: 200, body: JSON.stringify({ results: [{ title: "t", url: "u", content: "c" }] }) }
-  ]
+  ],
+  cacheGet: SearchCacheResponse = { ok: true, hit: false }
 ) {
   let httpCall = 0;
-  const reply = (msg: { type?: string }) => {
+  const reply = (msg: { type?: string; op?: string }) => {
     if (msg?.type === "resolve-search-provider") {
       return resp;
+    }
+    if (msg?.type === "search-cache") {
+      return msg.op === "get" ? cacheGet : { ok: true };
     }
     const payload = httpPayloads[Math.min(httpCall, httpPayloads.length - 1)];
     httpCall += 1;
@@ -60,12 +73,27 @@ function stubRuntime(
   };
 }
 
-function sentMessage(index: number) {
-  return vi.mocked(globalThis.chrome.runtime.sendMessage).mock.calls[index][0] as {
-    type?: string;
-    url?: string;
-    headers: Record<string, string>;
-  };
+// 第 index 个 provider-http 代发消息（search-cache / resolve-search-provider 不计入）。
+function sentHttpMessage(index: number) {
+  const httpMessages = vi
+    .mocked(globalThis.chrome.runtime.sendMessage)
+    .mock.calls.map((call) => call[0] as { type?: string; url?: string; headers: Record<string, string> })
+    .filter((message) => message?.type === "provider-http");
+  return httpMessages[index];
+}
+
+// 发往 chrome.runtime 的消息类型序列（缓存命中时断言「链与 provider-http 零调用」）。
+function sentTypes(): Array<string | undefined> {
+  return vi.mocked(globalThis.chrome.runtime.sendMessage).mock.calls.map(
+    (call) => (call[0] as { type?: string })?.type
+  );
+}
+
+// search-cache 通道收到的消息（get/put 与载荷）。
+function cacheMessages(): SearchCacheMessage[] {
+  return vi.mocked(globalThis.chrome.runtime.sendMessage).mock.calls
+    .map((call) => call[0] as SearchCacheMessage)
+    .filter((message) => message?.type === "search-cache");
 }
 
 afterEach(() => {
@@ -82,7 +110,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
     expect(outcome.platform).toBe("Tavily");
     expect(outcome.results[0]).toEqual({ title: "t", url: "u", snippet: "c" });
     // provider-http 消息带搜索请求形状（url/headers 密钥不出 SW）
-    const httpMsg = sentMessage(1);
+    const httpMsg = sentHttpMessage(0);
     expect(httpMsg.type).toBe("provider-http");
     expect(httpMsg.url).toBe("https://api.tavily.com/search");
     expect(httpMsg.headers.authorization).toBe("Bearer tvly-k");
@@ -116,7 +144,7 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
     const outcome = await runtime.executeSearch("q");
     expect(outcome.platform).toBe("Firecrawl");
 
-    const httpMsg = sentMessage(1);
+    const httpMsg = sentHttpMessage(0);
     expect(httpMsg.type).toBe("provider-http");
     expect(httpMsg.url).toBe("https://api.firecrawl.dev/v2/search");
     const headerNames = Object.keys(httpMsg.headers).map((name) => name.toLowerCase());
@@ -149,13 +177,33 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
 
     expect(outcome.platform).toBe("Tavily");
     expect(outcome.results[0]).toEqual({ title: "t2", url: "u2", snippet: "c2" });
-    expect([sentMessage(1).url, sentMessage(2).url]).toEqual([
+    // 降级成功：downgradedFrom = 链首 provider.name（供批次③模型侧注记）
+    expect(outcome.downgradedFrom).toBe("Firecrawl");
+    expect([sentHttpMessage(0).url, sentHttpMessage(1).url]).toEqual([
       "https://api.firecrawl.dev/v2/search",
       "https://api.tavily.com/search"
     ]);
   });
 
-  it("全部候选失败 → 抛最后一个错误（正式链执行器属批次②）", async () => {
+  it("全部候选失败（其余类）→ 抛末条既有文案的链错误（§10 第 44 行）", async () => {
+    vi.stubGlobal("chrome", {
+      runtime: stubRuntime(
+        { ok: true, chain: [FIRECRAWL_CANDIDATE, { ...FIRECRAWL_CANDIDATE, provider: { ...FIRECRAWL_CANDIDATE.provider, id: "p2" } }] },
+        [
+          { ok: true, status: 503, body: "" },
+          { ok: true, status: 500, body: "" }
+        ]
+      )
+    });
+    const runtime = (await resolveWebSearchRuntime())!;
+
+    await expect(runtime.executeSearch("q")).rejects.toMatchObject({
+      message: "HTTP 500",
+      failures: ["other", "other"]
+    });
+  });
+
+  it("全部候选失败（额度类在列）→ 抛 §6.4 额度文案（§10 第 44 行）", async () => {
     vi.stubGlobal("chrome", {
       runtime: stubRuntime(
         { ok: true, chain: [FIRECRAWL_CANDIDATE, { ...FIRECRAWL_CANDIDATE, provider: { ...FIRECRAWL_CANDIDATE.provider, id: "p2" } }] },
@@ -167,7 +215,76 @@ describe("resolveWebSearchRuntime 联网搜索运行时解析", () => {
     });
     const runtime = (await resolveWebSearchRuntime())!;
 
-    await expect(runtime.executeSearch("q")).rejects.toThrow("HTTP 429");
+    await expect(runtime.executeSearch("q")).rejects.toMatchObject({
+      message: "搜索额度已用尽：可稍后再试，或在设置中为搜索平台配置 API Key 提升额度",
+      failures: ["other", "quota"],
+      searchFailureClass: "quota"
+    });
+  });
+
+  it("缓存命中：直回缓存值，链与 provider-http 零调用（§10 第 33 行）", async () => {
+    const entry = {
+      results: [{ title: "cached", url: "https://cached.example", snippet: "cs" }],
+      platform: "Firecrawl"
+    };
+    vi.stubGlobal("chrome", {
+      runtime: stubRuntime(CHAIN_OK, [], { ok: true, hit: true, entry })
+    });
+    const runtime = (await resolveWebSearchRuntime())!;
+
+    const outcome = await runtime.executeSearch("bilibili ai");
+
+    expect(outcome).toEqual({ results: entry.results, platform: "Firecrawl" });
+    // 只有 resolve 与一次 search-cache get：无 provider-http、无 put
+    expect(sentTypes()).toEqual(["resolve-search-provider", "search-cache"]);
+    expect(cacheMessages().map((message) => message.op)).toEqual(["get"]);
+  });
+
+  it("缓存未命中：跑链成功后 put（query / results / platform，§5）", async () => {
+    vi.stubGlobal("chrome", { runtime: stubRuntime(CHAIN_OK) });
+    const runtime = (await resolveWebSearchRuntime())!;
+
+    const outcome = await runtime.executeSearch("bilibili ai");
+
+    expect(outcome.platform).toBe("Tavily");
+    await vi.waitFor(() => expect(cacheMessages().map((message) => message.op)).toEqual(["get", "put"]));
+    expect(cacheMessages()[1]).toMatchObject({
+      type: "search-cache",
+      op: "put",
+      query: "bilibili ai",
+      results: outcome.results,
+      platform: "Tavily"
+    });
+  });
+
+  it.each([
+    ["HTTP 503", { ok: true, status: 503, body: "" }],
+    ["HTTP 429", { ok: true, status: 429, body: "" }],
+    ["HTTP 402", { ok: true, status: 402, body: "" }],
+    ["HTTP 401", { ok: true, status: 401, body: "" }],
+    ["非 JSON 正文", { ok: true, status: 200, body: "not-json" }],
+    ["网络失败", { ok: false, error: "Failed to fetch" }]
+  ])("链失败（%s）一律不写缓存（§10 第 34 行）", async (_label, payload) => {
+    vi.stubGlobal("chrome", {
+      runtime: stubRuntime({ ok: true, chain: [FIRECRAWL_CANDIDATE] }, [payload])
+    });
+    const runtime = (await resolveWebSearchRuntime())!;
+
+    await expect(runtime.executeSearch("q")).rejects.toBeTruthy();
+
+    expect(cacheMessages().map((message) => message.op)).toEqual(["get"]);
+  });
+
+  it("用户中止 → 不写缓存（§10 第 34 行）", async () => {
+    vi.stubGlobal("chrome", { runtime: stubRuntime({ ok: true, chain: [FIRECRAWL_CANDIDATE] }) });
+    const controller = new AbortController();
+    const runtime = (await resolveWebSearchRuntime(controller.signal))!;
+    controller.abort();
+
+    await expect(runtime.executeSearch("q")).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(cacheMessages().map((message) => message.op)).toEqual(["get"]);
+    expect(sentHttpMessage(0)).toBeUndefined();
   });
 
   it("消息失败 / 无接收方（SW 冷启动竞态）→ undefined，不抛", async () => {

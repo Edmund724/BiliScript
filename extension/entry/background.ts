@@ -39,6 +39,9 @@ import { searchProviderStore } from "../search/search-provider-store.js";
 // 回退链解析（spec §1 S1/S4）：链 = 记录集合按 presetId 查预设表定类，SW 是唯一
 // 知道 Key 的一侧（链解析回包一次带出有序候选 + 各自 Key）
 import { resolveSearchChain } from "../search/search-chain.js";
+// 查询缓存 SW 叶（spec §5）：宿主是 SW（offscreen 无 chrome.storage），offscreen
+// 工具循环与 content 侧解释卡都经 search-cache 消息族读写；归一单源在本叶。
+import { getSearchCacheEntry, putSearchCacheEntry } from "../search/search-cache.js";
 // 模型列表探测（fetch 原语）归 ai 域（arch-slim-2/09）；纯存储仍在 core/。
 import { handleAiProvidersModels as fetchAiProviderModels } from "../ai/provider-models.js";
 // 平台请求代发（AI 探针传输层）：content script 的跨域 fetch 服从网页 CORS，
@@ -369,6 +372,34 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
   return true;
 }
 
+// 查询缓存消息族 SW 端 handler（spec §5 / §3 落点表第 13 行）：get / put 直调
+// search/search-cache.ts 单源（归一 + 64 位哈希键都在那一侧完成，调用方不拼键）。
+// **不得**进 illegalMessageReason 的 offscreen-only 名单——本族发送者含 content
+// （reader/explain-card.ts 与 offscreen 工具循环共用 search/search-runtime.ts）。
+function handleSearchCache(message: Msg<"search-cache">, _sender: MessageSender, sendResponse: SendResponse): boolean {
+  withOkResponse(
+    (async () => {
+      if (message.op === "get") {
+        const entry = await getSearchCacheEntry(message.query);
+        return entry
+          ? { ok: true, hit: true, entry: { results: entry.results, platform: entry.platform } }
+          : { ok: true, hit: false };
+      }
+      if (message.op === "put") {
+        await putSearchCacheEntry(message.query, {
+          results: Array.isArray(message.results) ? message.results : [],
+          platform: String(message.platform ?? "")
+        });
+        return { ok: true };
+      }
+      throw new Error("不支持的搜索缓存操作：" + String((message as { op?: unknown }).op));
+    })(),
+    sendResponse,
+    (error) => (error as Error | undefined)?.message || String(error)
+  );
+  return true;
+}
+
 // ===== ASR 平台消息处理 =====
 
 function handleAsrPresetsList(_message: Msg<"asr-presets-list">, _sender: MessageSender, sendResponse: SendResponse): boolean {
@@ -491,6 +522,7 @@ const messageHandlerTable = {
   "search-providers-save": searchProviderHandlers.save,
   "search-providers-delete": searchProviderHandlers.remove,
   "resolve-search-provider": handleResolveSearchProvider,
+  "search-cache": handleSearchCache,
   "segment-cache": handleSegmentCache,
   "offload-task": handleOffloadTask,
   "offscreen-request-close": handleOffscreenRequestCloseMsg,

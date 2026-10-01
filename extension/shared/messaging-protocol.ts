@@ -15,6 +15,7 @@ import type { AiProviderPreset, AsrProviderPreset, SearchProviderPreset } from "
 import type { AiProvider, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
+import type { NormalizedSearchResult } from "../search/adapters/types.js";
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -362,6 +363,32 @@ export type ResolveSearchProviderResponse = {
   error?: string;
 };
 
+// ===== 查询缓存消息族（spec §5 / §3 落点表第 10 行）=====
+// 消费方是 offscreen 工具循环与 content 侧选区解释卡（都经 search/search-runtime.ts
+// 同一解析器）；offscreen 无 chrome.storage → 宿主是 SW，两个消费方都走本族消息
+// （不设 content 直读的第二条读路径）。归一（trim + 空白折叠 + toLowerCase）与
+// 64 位哈希键在 SW 侧 search/search-cache.ts 单源完成，调用方只传原始 query。
+// 来源守卫：本族**不进** entry/background.ts 的 offscreen-only 名单（发送者含 content）。
+export type SearchCacheMessage = {
+  type: "search-cache";
+  op: "get" | "put";
+  // 归一在 SW 侧单源完成（调用方不拼键）
+  query?: string;
+  // put 载荷（链成功返回的归一结果，含空结果集）
+  results?: NormalizedSearchResult[];
+  // put 载荷：实际产出结果的引擎名
+  platform?: string;
+};
+// 响应锚点：entry/background.ts handleSearchCache。
+export type SearchCacheResponse = {
+  ok: boolean;
+  // get：是否命中未过期条目
+  hit?: boolean;
+  // get 命中回包（不含 ts；引擎名供步骤行「N 条 · <引擎>」与模型侧注记）
+  entry?: { results: NormalizedSearchResult[]; platform: string };
+  error?: string;
+};
+
 export type OffloadTaskMessage = {
   type: "offload-task";
   taskType?: string;
@@ -419,6 +446,7 @@ export type BackgroundMessage =
   | SearchProvidersSaveMessage
   | SearchProvidersDeleteMessage
   | ResolveSearchProviderMessage
+  | SearchCacheMessage
   | SegmentCacheMessage
   | OffloadTaskMessage
   | OffscreenRequestCloseMessage
@@ -558,6 +586,7 @@ export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
   : M extends SearchProvidersSaveMessage ? SearchProvidersSaveResponse
   : M extends SearchProvidersDeleteMessage ? SearchProvidersDeleteResponse
   : M extends ResolveSearchProviderMessage ? ResolveSearchProviderResponse
+  : M extends SearchCacheMessage ? SearchCacheResponse
   : M extends SegmentCacheMessage ? SegmentCacheResponse
   : M extends OffloadTaskMessage ? OffloadTaskResponse
   : M extends OffscreenRequestCloseMessage ? OffscreenRequestCloseResponse

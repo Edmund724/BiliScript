@@ -109,6 +109,57 @@ describe("handleProviderHttpRequest（SW 侧代发）", () => {
 
     expect(await pending).toEqual({ ok: false, error: "请求超时，请检查 baseUrl 或稍后重试" });
   });
+
+  // spec §4 必改 ①：限时范围从「响应头」扩到「响应头 + 正文」。B 类卡死 = 头已到
+  // （fetch 已落定）、正文挂住：旧写法里 `await resp.text()` 在限时之外，永不落定、
+  // 永不触发回退，用户唯一出口是「停止」。
+  it("头已到、正文挂住 → 正文读取仍在 15s 档位内，到点回可操作超时文案", async () => {
+    vi.useFakeTimers();
+    const textMock = vi.fn(() => new Promise<string>(() => {}));
+    fetchMock.mockResolvedValue({ ok: true, status: 200, text: textMock });
+    const { handleProviderHttpRequest } = await loadModule();
+
+    let settled = false;
+    const pending = handleProviderHttpRequest({ url: "https://api.example.com/v1/models" });
+    pending.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+
+    // 到点前：头已回、正文已开始读，但整体不落定（正文也在档位内等）
+    await vi.advanceTimersByTimeAsync(14999);
+    expect(textMock).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await pending).toEqual({ ok: false, error: "请求超时，请检查 baseUrl 或稍后重试" });
+  });
+
+  // spec §4 必改 ②：到点真中止。旧的限时只竞速、不中止 → A / B 两类到点后 socket 仍
+  // 开、继续消耗匿名额度；fetch 必须带 signal，到点 abort，且到点后不再读正文。
+  it("超时到点 → abort 在飞请求（signal.aborted === true），且不再读正文", async () => {
+    vi.useFakeTimers();
+    const textMock = vi.fn(() => new Promise<string>(() => {}));
+    fetchMock.mockResolvedValue({ ok: true, status: 200, text: textMock });
+    const { handleProviderHttpRequest } = await loadModule();
+
+    const pending = handleProviderHttpRequest({ url: "https://api.example.com/v1/models" });
+    await vi.advanceTimersByTimeAsync(14999);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await pending).toEqual({ ok: false, error: "请求超时，请检查 baseUrl 或稍后重试" });
+    expect(init.signal.aborted).toBe(true);
+    // 到点后没有第二次正文读取（正文读取与响应头同处一个已结束的档位）
+    expect(textMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("providerFetchViaBackground（content 侧 fetch 兼容实现）", () => {

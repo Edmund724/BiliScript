@@ -17,6 +17,10 @@ import {
 } from "../../extension/ai/tool-loop.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
 import type { ChatToolDefinition } from "../../extension/ai/protocol-adapter.js";
+import {
+  executeSearchChain,
+  type SearchChainCandidate
+} from "../../extension/search/search-chain.js";
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
 
@@ -318,5 +322,92 @@ describe("runToolLoop 工具调用循环", () => {
     capture = makeCapture();
     await runToolLoop(makeInput({ maxTokens: 320, fetchImpl: capture.fetchImpl, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
     expect(capture.calls[0].max_tokens).toBe(320);
+  });
+});
+
+// ===== 回退链 × 工具链接缝（spec §4 / §6.4 / §10 第 42–44 行）=====
+// 正式 executeSearchChain 作为 executeSearch 注入工具循环：链内失败静默（第 42
+// 行）、整链无果恰好一条终态 notice（第 43 行）、额度类与其余类两条文案（第 44 行）
+// 都在既有 onNotice / onToolStatus 通道上断言，不改动第 47/48 行的既有用例。
+const CHAIN_FIRECRAWL: SearchChainCandidate = {
+  provider: { id: "search_firecrawl", name: "Firecrawl", type: "firecrawl", baseUrl: "https://api.firecrawl.dev" },
+  apiKey: ""
+};
+const CHAIN_TAVILY: SearchChainCandidate = {
+  provider: { id: "search_tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+  apiKey: "tvly-k"
+};
+const CHAIN_RESULT = { title: "t2", url: "u2", snippet: "s2" };
+
+function httpError(status: number): Error {
+  return Object.assign(new Error(`HTTP ${status}`), { status });
+}
+
+describe("回退链 × 工具链接缝", () => {
+  it("链内单家失败静默：不上 notice、无 failed 状态，直接试下一家（§10 第 42 行）", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: (query) =>
+        executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
+          execute: async (candidate) => {
+            if (candidate.provider.id === "search_firecrawl") throw httpError(503);
+            return { results: [CHAIN_RESULT], platform: candidate.provider.name };
+          }
+        })
+    }));
+
+    expect(capture.notices).toEqual([]);
+    expect(capture.statuses).toEqual([
+      { status: "searching", query: "bilibili ai" },
+      {
+        status: "done",
+        query: "bilibili ai",
+        resultCount: 1,
+        platform: "Tavily",
+        sources: [CHAIN_RESULT]
+      }
+    ]);
+  });
+
+  it("整链无果：恰好一条终态 notice，其余类沿用「联网搜索失败：<适配器可读原因>」（§10 第 43、44 行）", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: (query) =>
+        executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
+          execute: async (candidate) => {
+            throw httpError(candidate.provider.id === "search_firecrawl" ? 503 : 500);
+          }
+        })
+    }));
+
+    expect(capture.notices).toEqual(["联网搜索失败：HTTP 500"]);
+    expect(capture.statuses).toEqual([
+      { status: "searching", query: "bilibili ai" },
+      { status: "failed", query: "bilibili ai" }
+    ]);
+  });
+
+  it("整链无果且额度类在列：终态 notice 用 §6.4 额度文案（§10 第 44 行）", async () => {
+    capture = makeCapture();
+    await runToolLoop(makeInput({
+      fetchImpl: capture.fetchImpl,
+      executeSearch: (query) =>
+        executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
+          execute: async (candidate) => {
+            throw httpError(candidate.provider.id === "search_firecrawl" ? 503 : 402);
+          }
+        })
+    }));
+
+    expect(capture.notices).toHaveLength(1);
+    expect(capture.notices[0]).toContain(
+      "搜索额度已用尽：可稍后再试，或在设置中为搜索平台配置 API Key 提升额度"
+    );
+    expect(capture.statuses).toEqual([
+      { status: "searching", query: "bilibili ai" },
+      { status: "failed", query: "bilibili ai" }
+    ]);
   });
 });

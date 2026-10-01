@@ -1,23 +1,31 @@
 // extension/search/search-runtime.ts
-// 联网搜索运行时解析器（spec §1 S4、§3 落点表第 14 行）：resolve-search-provider
+// 联网搜索运行时解析器（spec §1 S4、§3 落点表第 14 行、§5 查询缓存）：resolve-search-provider
 // 单趟往返拿**回退链**（有序候选 + 各自 Key）+ 单轮上限，组装 executeSearch 闭包。
 // offscreen 与选区解释链（reader）同走此解析（纯 runtime 消息，无 chrome.storage
 // 依赖）；chain 为空 / 解析失败返回 undefined，调用方 notice 后走原无工具路径——
 // 搜索是增强，缺失不阻塞问答。
-import { executeWebSearch, type SearchExecutorConfig } from "./search-executor.js";
-import type { SearchProviderType } from "../core/presets.js";
+// executeSearch 的顺序（§5「缓存层次 = 链层·引擎无关」）：先 search-cache get →
+// 命中直回（platform 取缓存记录的那家、跳过整条链）→ 未命中跑 executeSearchChain →
+// 链成功返回（含空结果集）后 put；失败 / 中止在链处抛出，天然不写缓存。
 import type { NormalizedSearchResult } from "./adapters/types.js";
+import { searchCacheClient } from "./search-cache-client.js";
+import { executeSearchChain } from "./search-chain.js";
 import type { ResolveSearchProviderResponse } from "../shared/messaging-protocol.js";
 
-// executeSearch 的产物面：results 用归一形状（对 ai/ladder 的 WebSearchRuntime
-// 窄面 unknown[] 与 ai/explain 的 ToolLoopSearchOutcome 均结构兼容）。
+// executeSearch 的产物面：results 用归一形状（对 ai/ladder 的 WebSearchRuntime 窄面
+// unknown[] 与 ai/explain 的 ToolLoopSearchOutcome 均结构兼容）；downgradedFrom 供
+// 批次③模型侧降级注记（本批只透传，不接线）。
 export interface WebSearchRuntime {
   maxToolCalls: number;
-  executeSearch: (query: string) => Promise<{ results: NormalizedSearchResult[]; platform: string }>;
+  executeSearch: (query: string) => Promise<{
+    results: NormalizedSearchResult[];
+    platform: string;
+    downgradedFrom?: string;
+  }>;
 }
 
-// signal 透传 executeWebSearch：调用方（聊天 abort controller / 解释卡中止器）
-// 停止可中断在途搜索。
+// signal 透传 executeSearchChain → executeWebSearch：调用方（聊天 abort controller /
+// 解释卡中止器）停止可中断在途搜索，且中止不写缓存。
 export async function resolveWebSearchRuntime(
   signal?: AbortSignal | null
 ): Promise<WebSearchRuntime | undefined> {
@@ -33,29 +41,23 @@ export async function resolveWebSearchRuntime(
     if (chain.length === 0) {
       return undefined;
     }
-    const candidates: SearchExecutorConfig[] = chain.map((candidate) => ({
-      type: candidate.provider.type as SearchProviderType,
-      baseUrl: candidate.provider.baseUrl,
-      apiKey: candidate.apiKey
-    }));
-    const platforms = chain.map((candidate) => candidate.provider.name);
     const maxToolCalls = Number(resp?.maxToolCalls) > 0 ? Number(resp?.maxToolCalls) : 5;
     return {
       maxToolCalls,
-      // 最小链执行（批次②换成正式 executeSearchChain）：按候选顺序逐个尝试，
-      // 单候选失败静默试下一个，首个成功返回（platform 取实际成功家）；全部失败
-      // 抛出最后一个错误。链级预算 30s、失败分类与中止出口属批次②。
       executeSearch: async (query) => {
-        let lastError: unknown = new Error("搜索失败：无可用搜索平台");
-        for (let index = 0; index < candidates.length; index += 1) {
-          try {
-            const outcome = await executeWebSearch(candidates[index], query, undefined, signal ?? null);
-            return { results: outcome.results, platform: platforms[index] };
-          } catch (error) {
-            lastError = error;
-          }
+        // 缓存层次 = 链层·引擎无关（§5）：命中即跳过整条链（含链首）。
+        const cached = await searchCacheClient.get(query);
+        if (cached) {
+          return { results: cached.results, platform: cached.platform };
         }
-        throw lastError;
+        const outcome = await executeSearchChain(chain, query, { signal: signal ?? null });
+        // 只有链成功返回（含空结果集）才写；写失败静默、不阻塞回答（fire-and-forget）。
+        void searchCacheClient.put({
+          query,
+          results: outcome.results,
+          platform: outcome.platform
+        });
+        return outcome;
       }
     };
   } catch {

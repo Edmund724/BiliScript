@@ -46,19 +46,33 @@ export async function handleProviderHttpRequest({
   if (!(await hasHostPermission(target))) {
     return { ok: false, error: HOST_PERMISSION_HINT };
   }
+  // 限时覆盖整段请求（响应头 + 正文）：只圈 fetch（响应头）时，头已到而正文中途
+  // 卡死（Firecrawl 境内偶发）会让 `await resp.text()` 落在限时之外——永不落定、
+  // 永不触发回退。到点同时真中止在飞请求，不留继续占 socket / 吃匿名额度的僵尸。
+  const controller = new AbortController();
+  const timeoutError = new Error("请求超时，请检查 baseUrl 或稍后重试");
   try {
-    const resp = await withTimeout(
-      fetch(target, {
-        method: String(method || "GET"),
-        headers,
-        body: body == null ? undefined : body
-      }),
+    const { status, body: responseText } = await withTimeout(
+      (async () => {
+        const resp = await fetch(target, {
+          method: String(method || "GET"),
+          headers,
+          body: body == null ? undefined : body,
+          signal: controller.signal
+        });
+        // 响应体以文本回传（探针只读状态码与报错正文；流式响应不走本通道）
+        return { status: resp.status, body: await resp.text() };
+      })(),
       15000,
-      new Error("请求超时，请检查 baseUrl 或稍后重试")
+      timeoutError
     );
-    // 响应体以文本回传（探针只读状态码与报错正文；流式响应不走本通道）
-    return { ok: true, status: resp.status, body: await resp.text() };
+    return { ok: true, status, body: responseText };
   } catch (error) {
+    // 到点仅竞速、不中止（shared/error-helpers.ts 的 withTimeout）——这里补真中止。
+    // 非超时的失败路径上 fetch / 正文读取已落定，abort 是空操作。
+    if (error === timeoutError) {
+      controller.abort();
+    }
     return { ok: false, error: (error as Error | undefined)?.message || String(error) };
   }
 }
