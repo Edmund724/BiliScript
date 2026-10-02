@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { AI_PROTOCOLS, type AiProtocol } from "../../extension/ai/protocol-vocab.js";
 import {
   COMPAT_QUIRKS,
+  PLATFORM_QUIRKS,
   hasPlatformQuirk,
   quirkWireValue,
   validateCompatVocab,
@@ -163,16 +164,15 @@ describe("二次校验层（声明与接纳对账）", () => {
   });
 
   it("跨协议声明不算违规：判据是端点存不存在，不是记录当前选了哪个协议", () => {
-    // stepfun 两种端点都登记了：effortVocabMessages 绑 anthropic、
-    // overrideEffortVocabulary 绑 openai，两条在同一张表里共存——设置 UI 的协议
-    // 下拉对任何预设都无条件渲染两种协议，怪癖按通道各自生效。stepfun 的 openai
-    // 通道正是它的主通道，绑在 anthropic 上的那条只是不生效，不是违规。
+    // stepfun 两种端点都登记了：effortVocabMessages 绑 anthropic，而该平台的
+    // openai 通道是主通道——设置 UI 的协议下拉对任何预设都无条件渲染两种协议，
+    // 怪癖绑在平台登记过的任一协议上即算有效，与该记录当前选了哪个协议无关。
     expect([...presetProtocols().stepfun].sort()).toEqual(["anthropic", "openai"]);
     expect(
       validateCompatVocab({
         consumes: adapterConsumes(),
         platformProtocols: presetProtocols(),
-        platforms: { stepfun: ["effortVocabMessages", "overrideEffortVocabulary"] }
+        platforms: { stepfun: ["effortVocabMessages"] }
       })
     ).toEqual([]);
   });
@@ -182,6 +182,10 @@ describe("平台声明派生（词表是唯一主人，adapter/preset-headers �
   it("hasPlatformQuirk：effort 词汇平台 = stepfun / amd（anthropic Messages 通道）", () => {
     expect(hasPlatformQuirk("stepfun", "effortVocabMessages")).toBe(true);
     expect(hasPlatformQuirk("amd", "effortVocabMessages")).toBe(true);
+    // stepfun 只声明 anthropic 通道这一条：openai 通道的 effort 词汇由 taxonomy
+    // 的 step-* 族兑现（step37-effort 发 reasoning_effort、step-always 不发），
+    // 补 override 反而会让 step-3 的 off 误发 reasoning_effort:"none"。
+    expect(PLATFORM_QUIRKS.stepfun).toEqual(["effortVocabMessages"]);
     // 未知/缺省平台不开任何怪癖（软失败优于硬 400）
     expect(hasPlatformQuirk("openrouter", "effortVocabMessages")).toBe(false);
     expect(hasPlatformQuirk("", "effortVocabMessages")).toBe(false);

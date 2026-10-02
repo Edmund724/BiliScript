@@ -169,8 +169,13 @@ export type CompatQuirk = keyof typeof COMPAT_QUIRKS;
 export const PLATFORM_QUIRKS: Readonly<Record<string, readonly CompatQuirk[]>> = {
   // Opencode Go：官方文档要求每对话一个稳定会话 id 头（x-opencode-session）。
   opencodego: ["sessionHeader"],
-  // stepfun / amd：Messages 通道只认 output_config.effort，不收 thinking 字段。
-  stepfun: ["effortVocabMessages", "overrideEffortVocabulary"],
+  // stepfun：Messages 通道只认 output_config.effort，不收 thinking 字段。openai
+  // 通道的 effort 词汇由 taxonomy 的 step-* 族兑现（step37-effort 发
+  // reasoning_effort、step-always 不发、未知模型落 unknown 哨兵不发），无需
+  // override——补 override 反会让 step-3 的 off 误发 reasoning_effort:"none"
+  //（该模型无文档化关闭参数，可能 400）。
+  stepfun: ["effortVocabMessages"],
+  // amd：Messages 通道只认 output_config.effort，不收 thinking 字段。
   amd: ["effortVocabMessages", "overrideEffortVocabulary"],
   // OpenRouter / SenseNova：严格拒收 thinking 开关的 effort 词汇网关。
   openrouter: ["overrideEffortVocabulary"],
