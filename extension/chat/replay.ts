@@ -9,6 +9,11 @@
 // 回放世代号：每次重建消息区（重渲/清场）自增。让出点据此判定本轮是否已被
 // 更新的一轮取代（切会话、新消息上屏、清场）——过期分片直接丢弃，不写进
 // 已重建的消息区，杜绝交错 append。
+//
+// 方向纪律（C′ 复核）：等待是单向的——发送路径经 send-gate 的 G7 等回放让位，
+// 回放不等任何东西（不感知在途流、不等停流结算）。流式中点历史项的「先体面停流
+// 落盘、再切换」由点击接缝 await chat-runtime 的 settleActiveTurn 之后才调
+// applyById（→ 本事务），此处仍不引入反向等待（否则成结构死锁）。
 import { chatSessionState } from "./chat-state.js";
 import { collectHistorySearchTurns, type HistorySearchTurn } from "./search-sources.js";
 

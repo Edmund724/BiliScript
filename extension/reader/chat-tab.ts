@@ -409,13 +409,30 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
 
 const { loadContextState } = contextLoad;
 
+// 历史项点击的切换接缝（C′：先体面停流落盘、再切换）：在途回合（流式中或已受理
+// 未落定，chatRuntime.isTurnActive）时先 await chatRuntime.settleActiveTurn()——
+// 它发停流并在 stopped/done/error 终态落定后兑现，而终态路径内的
+// commitAssistantTurn 会把在途一问一答（含 partial 正文）写回**原**会话并落盘；
+// 落定后才 applyById 切换。不进 conversation-store（store 不碰 runtime 的分层
+// 不动），也不动 replay（回放仍不感知在途流——等待保持单向，见 ./replay.ts 头注）。
+// 不在途时零延迟零行为差：settle 立即兑现且这里不留 await，applyById 在同一 tick
+// 内完成（characterization 钉在 tests/reader/chat-tab.test.ts）。
+async function openConversationById(id: string): Promise<void> {
+  if (chatRuntime.isTurnActive()) {
+    await chatRuntime.settleActiveTurn();
+  }
+  conversationStore.applyById(id);
+}
+
 // 两列表渲染（建议/历史）。hideHistoryPopover 与本实例/popovers 实例互引，惰性
 // 箭头接线（回调执行时实例已存在）。
 const lists = createReaderChatLists({
   historyList: els.historyList,
   historyClearBtn: els.historyClearBtn,
   input: els.input,
-  applyById: (id) => conversationStore.applyById(id),
+  applyById: (id) => {
+    void openConversationById(id);
+  },
   deleteById: (id) => conversationStore.deleteById(id),
   autosizeInput,
   onSuggestionClick: () => void sendFromUi(),
@@ -984,10 +1001,14 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   // 外部变更可能整体替换平台列表/选中平台/档位：与 init 同口径重渲 chip + 重判提示。
   modelPanel.renderChip();
   updateThinkingHint();
-  if (chatRuntime.isStreaming()) {
+  // 在途回合（含「已受理、端口未建」的窗口）只推迟视图重建：历史列表照刷
+  //（renderHistoryList 提到守卫之前，顺序即契约），in-flight 的流式节点不被
+  // 重建清场。守卫判据是 isTurnActive() 而非 isStreaming()——后者在 connectPort
+  // 之前的窗口为假，旧判据会在这个窗口把消息区重建掉（把已上屏的提问清走）。
+  lists.renderHistoryList();
+  if (chatRuntime.isTurnActive()) {
     return;
   }
-  lists.renderHistoryList();
   renderInitialState();
 }
 

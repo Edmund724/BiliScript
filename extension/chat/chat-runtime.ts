@@ -10,7 +10,8 @@
 // Responsibility: orchestrate "send message → stream receive → render assistant
 // tokens → stop/error handling". It owns the stream runtime state
 // (activePort / activeAssistantNode / activeUserPrompt / activeUserImages /
-// thinkingNode / streamSlowNoticeTimer / streamFirstTokenReceived) and the port
+// thinkingNode / streamSlowNoticeTimer / streamFirstTokenReceived /
+// pendingTurnSettles / stopWhenPortReady) and the port
 // protocol dispatch, delegates persistence (conversation-store, injected via
 // deps), and hands DOM rendering / scrolling / hydration to
 // ./chat-stream-render.js (consumed below by destructuring
@@ -20,8 +21,9 @@
 // error/notice/cost-guard）统一经 dispatchChatPortMessage 分派——真实 port
 // 监听器与公开的协议测试入口 handleChatPortMessage 共用；done/stopped/error
 // 三条终态路径的六步收尾时序收敛为唯一的 endStream 实现。返回面收窄为
-// 9 个 sidepanel 消费方法 + handleChatPortMessage + buildSearchTimelineCard
-//（spec §4 回放重建），内部步骤全部私有化。
+// 11 个 sidepanel 消费方法（含在途回合的 isTurnActive / settleActiveTurn，
+// C′ 停流结算）+ handleChatPortMessage + buildSearchTimelineCard（spec §4
+// 回放重建），内部步骤全部私有化。
 //
 // PR5 改造（宿主解耦补齐）：cost-guard 的确认通道经 deps.confirmCostGuard
 // 注入，缺省为面板内确认弹层（ui/confirm-dialog.js；原生 confirm 绘制在浏
@@ -71,6 +73,13 @@ import { createChatStreamRenderer } from "./chat-stream-render.js";
 import { imageUnsupportedErrorHint } from "./image-support.js";
 
 const STREAM_SLOW_NOTICE_MS = 15000;
+
+// 在途回合结算（C′，见 isTurnActive / settleActiveTurn）的看门狗兜底窗口。
+// 为什么必须有：settle 是历史项点击切换的前置 await，而 offscreen 存在「永不
+// 回终态」的路径——请求已自然收尾时 abortActiveRequest 是空操作（entry/offscreen.ts
+// 的 stop 分支只 abort），文档被回收时本侧也不保证收到断连通知。超窗即按拆除级
+// 原语收口并兑现，settle 绝不悬挂（死锁红线）。
+const TURN_SETTLE_FALLBACK_MS = 4000;
 
 // ---------------------------------------------------------------------------
 // offscreen chat port 的窄视图（chrome.runtime.Port 的结构子集，测试假 port 同构）
@@ -213,6 +222,8 @@ export interface CreateChatRuntimeDeps {
  *     scrollToBottom,              // (force?) => void
  *     // ---- stream state queries / reset (sidepanel reads runtime state) ----
  *     isStreaming,                 // () => boolean   (activePort !== null)
+ *     isTurnActive,                // () => boolean   (sendInFlight || activePort !== null，C′)
+ *     settleActiveTurn,            // () => Promise<void>（在途：停流并在终态落定后兑现）
  *     hasPendingUserPrompt,        // () => boolean   (activeUserPrompt !== "")
  *     resetStreamState,            // () => void  (clear + disconnect + null state)
  *     // ---- 协议测试入口：offscreen port 消息对象进、UI/状态变化出 ----
@@ -273,6 +284,17 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // 端口未建立，但发送流程已在进行）。sendMessage 入口置位、发送完成/失败/
   // 中断后复位；重复进入 sendMessage 直接忽略。
   let sendInFlight = false;
+  // 在途回合结算（C′，CONTEXT.md 词条「历史回放」）：settleActiveTurn 的待决兑现
+  // 队列。落定点单一收在「回合不再在途」的出口——终态 endStream、端口断连、
+  // 闸未放行未起流、拆除类清场 resetStreamState，另加看门狗超时兜底；任一出口
+  // 触发即整批兑现（同一回合可被重入 settle 多次）。
+  let pendingTurnSettles: Array<() => void> = [];
+  // 发送流程已在途、但端口尚未建立（ensure 闸 / opt-in 弹层 / connectPort 的
+  // await 窗口）时收到的停流请求：此刻无处发 stop，登记后在端口就绪、chat 消息
+  // 发出之后补发（见 sendMessage 的 postMessage 之后）。不登记即静默丢失——settle
+  // 要等整段流自然结束才兑现。
+  let stopWhenPortReady = false;
+  let turnSettleFallbackTimer = 0;
   // 候选5：offscreen 侧已确认缓存字幕体的 contextKey（从其每次回执的
   // cachedContextKey 读到）。追问消息据此省略整份 subtitleBody——长视频单份
   // 字幕体可达数 MB，逐条追问经 port 重传纯属浪费。null = 未确认（首条消息、
@@ -402,6 +424,19 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // =========================================================================
   // sendMessage — entry point of the chat flow
   // =========================================================================
+
+  // 未起流的回合终结（provider 缺失 / 闸未放行两条 blocked 提前返回共用）：复位
+  // 双发竞态标志——置位后这两条路径直接 return，历史上没有任何出口复位它，此后
+  // 每次发送都被入口判 "ignored" 而静默发不出去（与本轮修复的 W3 症状同型）；
+  // 同时撤下未兑现的「端口就绪即停」登记并结算已武装的 settle（历史项点击的
+  // await 不能悬挂）。回合已终结 → isTurnActive() 必须回到 false。
+  function finishBlockedTurn(): SendVerdict {
+    sendInFlight = false;
+    stopWhenPortReady = false;
+    resolvePendingTurnSettles();
+    return "blocked";
+  }
+
   async function sendMessage(): Promise<SendVerdict> {
     const text = deps.input.value.trim();
     // 双发竞态闸：activePort 已建（流式进行中）或发送流程已在进行
@@ -419,7 +454,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       const providerId = deps.getProviderId();
       if (!providerId) {
         deps.ui.resetConversationView("请先在设置页配置并启用一个 AI 平台。");
-        return "blocked";
+        return finishBlockedTurn();
       }
 
       const outcome = await deps.ensureCurrentContextForSend();
@@ -427,7 +462,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 与 no-subtitle（无字幕拦截，notice 已由闸侧显示）都不追加用户消息、
       // 不落 chatHistory、不发起 port。
       if (!outcome.pass) {
-        return "blocked";
+        return finishBlockedTurn();
       }
       const currentMeta = chatSessionState.currentConversationMeta;
       // 发送前上下文失配守卫（CONTEXT.md「拆除会话」词条出口五）：刻意只清身份
@@ -526,6 +561,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         lastAckedContextKey = null;
         clearStreamRuntimeState();
         setStreamingUiState(false);
+        // 断连即回合终结（offscreen 文档被回收 / 会话关闭）：结算待决 settle——
+        // 此后不再有终态到来，不兑现则历史项点击的 await 悬挂（settle 兜底红线）。
+        // 收口语义（清哪些字段）保持原状：activeUserPrompt / activeAssistantNode
+        // 是既有行为，本处不动它们。
+        resolvePendingTurnSettles();
       });
 
       // 候选5：字幕体省略传输——offscreen 已确认缓存当前上下文的字幕体
@@ -565,6 +605,15 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         // 不再向 context 里塞 chatHistory 副本（无任何读取方的死负载）。
         history: chatSessionState.chatHistory
       });
+
+      // 闸内登记的停流请求（settleActiveTurn 在端口就绪前收到，见 stopActiveStream）：
+      // 端口已就绪、chat 消息已发出，此处立刻补发 stop——本轮尽快走 stopped 终态
+      // 落定（写回 partial 后 settle 兑现）。必须排在 postMessage 之后：stop 早于
+      // chat 到达会被 offscreen 当无活动请求而空转，终态也就永不回来。
+      if (stopWhenPortReady) {
+        stopWhenPortReady = false;
+        stopActiveStream();
+      }
     } catch (err) {
       // connectPort 失败（ensure offscreen 文档/建连抛错）无回退：UI 卡流式
       // 态而 isStreaming() 为 false（activePort 从未置位，但 setStreamingUiState
@@ -575,6 +624,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       console.error("[chat-runtime] sendMessage 失败：", err);
       sendInFlight = false;
       thinkingEnded = false;
+      // 异常路径同样是回合终结：撤下未兑现的「端口就绪即停」登记并结算 settle。
+      stopWhenPortReady = false;
       const node = activeAssistantNode;
       if (node) {
         showAssistantError(node, (err as Error)?.message || String(err));
@@ -584,6 +635,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         setStreamingUiState(false);
       }
       activeAssistantNode = null;
+      resolvePendingTurnSettles();
       return "accepted";
     }
     sendInFlight = false;
@@ -649,6 +701,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     setStreamingUiState(false);
     deps.input.focus();
     scrollToBottom();
+    // 终态落定（step ③ 内的 commitAssistantTurn 已把在途一问一答写回、port 已断）：
+    // 结算待决 settle。放在收口末尾——兑现者（历史项切换）拿到的必然是终态后的
+    // 一致状态（落盘已发起、isStreaming() 已为假），不再有在途流写旧节点。
+    resolvePendingTurnSettles();
   }
 
   // 在途一问一答写回（done / stopped 共享）：身份守卫判定收在 store
@@ -748,6 +804,12 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // =========================================================================
   function stopActiveStream(): void {
     if (!activePort) {
+      // 端口未建立（ensure 闸 / opt-in 弹层 / connectPort 的 await 窗口）：此刻
+      // 无处发 stop。本轮发送仍在途时登记「端口就绪即停」——sendMessage 在 chat
+      // 消息发出后补发；不登记则这条停流请求静默丢失，settle 悬到整段流自然结束。
+      if (sendInFlight) {
+        stopWhenPortReady = true;
+      }
       return;
     }
     // 按钮终态（disabled + 「停止中...」）由 ui.setStreamingUiState 的 stopping
@@ -812,12 +874,63 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   // =========================================================================
-  // isStreaming / hasPendingUserPrompt / resetStreamState — state queries and
-  // the reset entry point for sidepanel (replaces direct reads of the old
-  // module-level variables)
+  // isStreaming / hasPendingUserPrompt / isTurnActive / settleActiveTurn /
+  // resetStreamState — state queries and the reset entry point for sidepanel
+  // (replaces direct reads of the old module-level variables)
   // =========================================================================
   function isStreaming(): boolean {
     return activePort !== null;
+  }
+
+  // 「在途回合」判据（C′）：覆盖「发送受理 → 回合落定」全程——sendInFlight 管
+  // connectPort await 之前的窗口（此时 activePort 尚未置位，isStreaming() 为假），
+  // activePort 管流式窗口。两者都假 = 回合已落定（无流可停、无写回在途）。
+  function isTurnActive(): boolean {
+    return sendInFlight || activePort !== null;
+  }
+
+  // 结算待决 settle（幂等）：回合落定的各出口（endStream / 断连 / 闸未放行 /
+  // resetStreamState / 看门狗）统一经此兑现，并撤下看门狗。
+  function resolvePendingTurnSettles(): void {
+    if (turnSettleFallbackTimer) {
+      window.clearTimeout(turnSettleFallbackTimer);
+      turnSettleFallbackTimer = 0;
+    }
+    if (!pendingTurnSettles.length) {
+      return;
+    }
+    const resolvers = pendingTurnSettles;
+    pendingTurnSettles = [];
+    for (const resolve of resolvers) {
+      resolve();
+    }
+  }
+
+  // 在途回合体面结算（C′：流式中点历史项 = 先停流落盘、再切换）：不在途时立即
+  // 兑现——调用方（历史项点击接缝）零延迟零行为差；在途时发停流，并在 stopped/
+  // done/error 终态落定后兑现（stopped 路径经 endStream → commitAssistantTurn 在
+  // 会话身份未换前把在途一问一答写回**原**会话）。绝不悬挂：端口尚未建立时的
+  // 停流请求由 stopWhenPortReady 在端口就绪后补发，另有断连与看门狗两条兜底。
+  function settleActiveTurn(): Promise<void> {
+    if (!isTurnActive()) {
+      return Promise.resolve();
+    }
+    const settled = new Promise<void>((resolve) => {
+      pendingTurnSettles.push(resolve);
+    });
+    stopActiveStream();
+    if (!turnSettleFallbackTimer) {
+      turnSettleFallbackTimer = window.setTimeout(() => {
+        turnSettleFallbackTimer = 0;
+        stopWhenPortReady = false;
+        // 兜底放弃：按拆除级原语收口（断端口、取消挂起渲染帧、清在途状态）、退出
+        // 流式 UI，并兑现 settle——紧随的 applyById 会重建消息区，故本处不清 DOM。
+        resetStreamState();
+        setStreamingUiState(false);
+        resolvePendingTurnSettles();
+      }, TURN_SETTLE_FALLBACK_MS);
+    }
+    return settled;
   }
 
   function hasPendingUserPrompt(): boolean {
@@ -842,6 +955,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     //（store reset / restartChat 路径）。sendMessage 恢复后仍会继续完成发送
     //（与旧行为一致），但标志若不清，此后用户的新发送会被永久拦下。
     sendInFlight = false;
+    // 拆除类入口同样终结回合：已武装的 settle 一并兑现（不留悬挂）。
+    resolvePendingTurnSettles();
   }
 
   // =========================================================================
@@ -855,11 +970,11 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     dispatchChatPortMessage(msg, activePort);
   }
 
-  // 返回面 11 键（候选07：sidepanel 消费的 9 个方法 + 1 个协议测试入口 +
+  // 返回面 13 键（候选07：sidepanel 消费的 11 个方法 + 1 个协议测试入口 +
   // 1 个回放重建入口）。内部步骤（handleFirstStreamToken / clearStreamRuntimeState /
   // startStreamSlowNoticeTimer / appendAssistantPlaceholder / appendToken /
   // finalizeAssistant / handleAssistantStopped / showAssistantError /
-  // createThinkingNode / appendThinkingText）不再外露。
+  // createThinkingNode / appendThinkingText / resolvePendingTurnSettles）不再外露。
   return {
     sendMessage,
     stopActiveStream,
@@ -868,6 +983,8 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     setAutoScroll,
     scrollToBottom,
     isStreaming,
+    isTurnActive,
+    settleActiveTurn,
     hasPendingUserPrompt,
     resetStreamState,
     handleChatPortMessage,

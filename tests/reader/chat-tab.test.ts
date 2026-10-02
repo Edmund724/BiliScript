@@ -71,6 +71,7 @@ let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSe
 // 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
 let chatState: typeof import("../../extension/chat/chat-state.js");
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
+let setSavedConversations: typeof import("../../extension/chat/chat-state.js").setSavedConversations;
 let statusBus: typeof import("../../extension/shared/subtitle-status-bus.js");
 
 // 假 offscreen 端口（chat-runtime 经 chrome.runtime.connect 取用）
@@ -161,6 +162,7 @@ async function loadShell() {
   chatState = await import("../../extension/chat/chat-state.js");
   chatSessionState = chatState.chatSessionState;
   applyConversationIdentity = chatState.applyConversationIdentity;
+  setSavedConversations = chatState.setSavedConversations;
   statusBus = await import("../../extension/shared/subtitle-status-bus.js");
   uiRenderer.ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
@@ -962,6 +964,264 @@ describe("历史回放分片让出（P2-1：50ms 预算 + scheduler.yield/setTim
     expect(texts[REPLAY_MESSAGES.length + 1]).toBe("");
     const posted = ports[0].postMessage.mock.calls[0][0] as { prompt?: string; history?: unknown[] };
     expect(posted.prompt).toBe("回放中的新问题");
+  });
+});
+
+// ===========================================================================
+// 在途回合点历史项（C′：先体面停流落盘、再切换）
+// ---------------------------------------------------------------------------
+// 缺陷（W3）：流式中点历史项 → applyById 直接切走视图（回放清场）→ 在途流继续
+// 写脱离 DOM 的旧节点，终态又因 store 身份守卫（isCurrent）被丢弃 → 一问一答
+// 双双消失、此后发送还被双发闸判 ignored（静默窗口）。修法：历史项点击路径在
+// store.applyById 之前先 await runtime.settleActiveTurn()——先停流并让 stopped
+// 终态把在途一问一答写回**原**会话，落定后才切换。拆除类入口（删除/清空/
+// 新对话/关闭）不走本接缝，维持有意拆除语义。
+// ===========================================================================
+describe("在途回合点历史项（C′：先体面停流落盘、再切换）", () => {
+  // 同一视频下的两条会话（contextKey 与 seedReadyContext 的 bvid/cid 一致）：
+  // restoreLatest 命中第一条 A → 激活后当前会话 = A；B 供历史项点击切换。
+  // 两条同 contextKey 是真实形态（同一视频多个会话），也让 apply(B) 走 live
+  // 命中分支、不触发 pinned 补水网络路径。
+  function seedTwoConversations(): void {
+    const chromeStub = window.chrome as unknown as {
+      storage: { local: { get: ReturnType<typeof vi.fn> } };
+    };
+    const conversation = (id: string, label: string) => ({
+      id,
+      title: `会话 ${label}`,
+      contextKey: "video:BV1test000000|101",
+      contextTitle: "测试视频",
+      contextUrl: "https://www.bilibili.com/video/BV1test000000/",
+      isVideoContext: true,
+      createdAt: 1000,
+      updatedAt: 2000,
+      contextRef: {
+        bvid: "BV1test000000",
+        cid: "101",
+        url: "https://www.bilibili.com/video/BV1test000000/"
+      },
+      messages: [
+        { role: "user", content: `${label} 的历史问题` },
+        { role: "assistant", content: `${label} 的历史答案` }
+      ]
+    });
+    chromeStub.storage.local.get = vi.fn(async () => ({
+      biliscript_ai_conversations_v1: [conversation("conv-a", "A"), conversation("conv-b", "B")]
+    }));
+  }
+
+  function firePort(port: FakePort, msg: unknown): void {
+    (port as FakePort & { __fire: (message: unknown) => void }).__fire(msg);
+  }
+
+  function els() {
+    return {
+      messages: document.getElementById(ids.readingChatMessages) as HTMLElement,
+      input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
+      historyList: document.getElementById(ids.readingChatHistoryList) as HTMLElement
+    };
+  }
+
+  function clickHistoryOpen(historyList: HTMLElement, id: string): void {
+    const btn = historyList.querySelector(`.chat-history-open[data-id="${id}"]`);
+    expect(btn).not.toBe(null);
+    btn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  }
+
+  function stopRequests(port: FakePort): unknown[][] {
+    return port.postMessage.mock.calls.filter((call) => (call[0] as { action?: unknown })?.action === "stop");
+  }
+
+  it("流式中点历史项：先停流、stopped 落定把 partial 写回原会话并落盘，然后才切换回放", async () => {
+    seedReadyContext();
+    seedTwoConversations();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    expect(chatSessionState.currentConversationId).toBe("conv-a");
+
+    const { messages, input, historyList } = els();
+    input.value = "原会话的新问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 1);
+    firePort(ports[0], { type: "token", data: "部分正文" });
+    await waitFor(() => messages.textContent!.includes("部分正文"));
+
+    clickHistoryOpen(historyList, "conv-b");
+    await waitFor(() => stopRequests(ports[0]).length === 1);
+    // 停流尚未落定：不切换（仍在 A，A 的流式内容还在屏上）
+    expect(chatSessionState.currentConversationId).toBe("conv-a");
+    expect(messages.textContent).toContain("原会话的新问题");
+
+    // stopped 终态：endStream 六步 + commitAssistantTurn 在身份未换前写回 A
+    firePort(ports[0], { type: "stopped", reason: "已停止生成" });
+    await waitFor(() => chatSessionState.currentConversationId === "conv-b");
+
+    // 原会话一问一答（含 partial 正文）写回存档
+    const saved = chatSessionState.savedConversations as unknown as Array<{
+      id: string;
+      messages: Array<{ content: string }>;
+    }>;
+    expect(saved.find((item) => item.id === "conv-a")!.messages.map((m) => m.content)).toEqual([
+      "A 的历史问题",
+      "A 的历史答案",
+      "原会话的新问题",
+      "部分正文"
+    ]);
+    // 且已落盘（persistCurrent → saveConversations 的 storage 写）
+    const chromeStub = window.chrome as unknown as {
+      storage: { local: { set: ReturnType<typeof vi.fn> } };
+    };
+    const writes = chromeStub.storage.local.set.mock.calls
+      .map((call) => (call[0] as Record<string, unknown>).biliscript_ai_conversations_v1)
+      .filter(Boolean) as Array<Array<{ id: string; messages: Array<{ content: string }> }>>;
+    expect(writes.length).toBeGreaterThan(0);
+    expect(writes[writes.length - 1].find((item) => item.id === "conv-a")!.messages.map((m) => m.content))
+      .toContain("部分正文");
+
+    // 切换后回放的是目标会话 B
+    await waitFor(() => messages.textContent!.includes("B 的历史答案"));
+    expect(messages.textContent).not.toContain("部分正文");
+    expect(messages.textContent).not.toContain("原会话的新问题");
+  });
+
+  it("[characterization] 不在途点历史项：同一 tick 内切换、不发 stop（零延迟零行为差）", async () => {
+    seedReadyContext();
+    seedTwoConversations();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    expect(chatSessionState.currentConversationId).toBe("conv-a");
+
+    const { historyList } = els();
+    clickHistoryOpen(historyList, "conv-b");
+
+    // 无在途回合：settle 立即兑现，applyById 不留一拍（与旧实现逐点一致）
+    expect(chatSessionState.currentConversationId).toBe("conv-b");
+    expect(ports).toHaveLength(0);
+  });
+
+  it("拆除类入口（流式中删除当前会话）：走既有断连路径、不发 stop（不触发 settle）", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const { messages, input, historyList } = els();
+
+    // 第一条：跑完一轮把会话落进存档（当前会话才有历史项与删除键）
+    input.value = "第一问";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 1);
+    firePort(ports[0], { type: "token", data: "第一答" });
+    firePort(ports[0], { type: "done" });
+    await waitFor(() => chatSessionState.savedConversations.length === 1);
+    const currentId = chatSessionState.currentConversationId;
+
+    // 第二条：流式中删除当前会话——拆除事务有意断流，不经 settle 接缝
+    input.value = "第二问";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 2);
+
+    const removeBtn = historyList.querySelector(`.chat-history-remove[data-id="${currentId}"]`);
+    expect(removeBtn).not.toBe(null);
+    removeBtn!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await waitFor(() => chatSessionState.currentConversationId === "");
+
+    // 无 stop 请求（settle 未被触发）；断流走 resetStreamState 的 disconnect
+    expect(stopRequests(ports[1])).toHaveLength(0);
+    expect(ports[1].disconnect).toHaveBeenCalledTimes(1);
+    // 视图按拆除语义重建（在途用户消息被清掉）
+    expect(messages.querySelector(".chat-msg-user")).toBe(null);
+  });
+});
+
+// ===========================================================================
+// 外部设置变更（refreshProviders）与在途回合
+// ---------------------------------------------------------------------------
+// 守卫从 isStreaming() 换成 isTurnActive()（含「已受理、端口未建」的在途窗口），
+// 且历史列表刷新提到守卫之前——在途只推迟视图重建，不动历史列表。
+// ===========================================================================
+describe("外部设置变更与在途回合（refreshProviders 守卫）", () => {
+  // 把 ensure-offscreen-chat 关在 gate 后：发送流程停在 connectPort 之前——
+  // hasPendingUserPrompt 已置位、isStreaming() 仍为假（在途未流式窗口）。
+  function holdOffscreenEnsure(): () => void {
+    const chromeStub = window.chrome as unknown as {
+      runtime: { sendMessage: (message: { type?: string }, callback?: (resp: unknown) => void) => unknown };
+    };
+    const original = chromeStub.runtime.sendMessage;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    chromeStub.runtime.sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
+      if (String(message?.type || "") === "ensure-offscreen-chat") {
+        void gate.then(() => callback?.({ ok: true }));
+        return undefined;
+      }
+      return original(message, callback);
+    });
+    return () => release();
+  }
+
+  function seedSavedConversationForList(id: string, title: string): void {
+    setSavedConversations([
+      {
+        id,
+        title,
+        contextKey: "",
+        contextTitle: "",
+        contextUrl: "",
+        isVideoContext: true,
+        createdAt: 0,
+        updatedAt: 0,
+        contextRef: null,
+        messages: []
+      }
+    ]);
+  }
+
+  it("在途未流式（待发 prompt 窗口）：不重建视图，历史列表照刷", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const releaseOffscreen = holdOffscreenEnsure();
+
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const historyList = document.getElementById(ids.readingChatHistoryList) as HTMLElement;
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    input.value = "在途问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => Boolean(messages.querySelector(".chat-msg-user")));
+    expect(ports).toHaveLength(0); // 未起流：停在 connectPort 之前
+
+    seedSavedConversationForList("conv-x", "设置变更后可见");
+    expect(historyList.textContent).not.toContain("设置变更后可见");
+    const innerBefore = messages.innerHTML;
+
+    fireStorageChange({ aiProviders: { newValue: [], oldValue: [] } }, "sync");
+    await waitFor(() => historyList.textContent!.includes("设置变更后可见"));
+
+    // 在途：视图不重建（消息区原样），历史列表已照刷
+    expect(messages.innerHTML).toBe(innerBefore);
+    releaseOffscreen();
+  });
+
+  it("流式窗口：历史列表照刷（顺序在视图重建之前），视图不重建", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    const historyList = document.getElementById(ids.readingChatHistoryList) as HTMLElement;
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    input.value = "流式问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => ports.length === 1); // 已起流
+
+    seedSavedConversationForList("conv-y", "流式期可见");
+    const innerBefore = messages.innerHTML;
+
+    fireStorageChange({ aiProviders: { newValue: [], oldValue: [] } }, "sync");
+    await waitFor(() => historyList.textContent!.includes("流式期可见"));
+
+    expect(messages.innerHTML).toBe(innerBefore);
   });
 });
 

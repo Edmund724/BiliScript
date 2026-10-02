@@ -216,11 +216,11 @@ _Avoid_: 清会话、重置对话、手抄拆除序列
 _Avoid_: 在效果壳重判流式守卫、按计划字段而非 action 反推是否进主上下文、给计划加无消费方的字段（`clearTabUrl` / `applyToMainContext` 已因零消费删除）
 
 **发送闸**:
-发送一条 AI 对话消息前确保上下文就绪的有序守卫序列：pinned 补水短路 → 上下文读取 → 主动起跑字幕抓取 → 字幕等待闸 → 放行前重取 → 无字幕拦截 → 回放让位，全部放行才受理发送。chat 域内组装的唯一事务，受理结论是显式接口返回值而非副作用推断：`sendMessage` 返回 `SendVerdict`（accepted / blocked / ignored，blocked = 被平台或闸拦下），闸本身返回 `GateOutcome`（`{pass:true}` / `{pass:false,kind:"read-failed"|"no-subtitle"}`，取代字符串哨兵）；回放让位在两条放行路径（G1 提前返回与直通）统一 await。
+发送一条 AI 对话消息前确保上下文就绪的有序守卫序列：pinned 补水短路 → 上下文读取 → 主动起跑字幕抓取 → 字幕等待闸 → 放行前重取 → 无字幕拦截 → 回放让位，全部放行才受理发送。chat 域内组装的唯一事务，受理结论是显式接口返回值而非副作用推断：`sendMessage` 返回 `SendVerdict`（accepted / blocked / ignored，blocked = 被平台或闸拦下），闸本身返回 `GateOutcome`（`{pass:true}` / `{pass:false,kind:"read-failed"|"no-subtitle"}`，取代字符串哨兵）；回放让位在两条放行路径（G1 提前返回与直通）统一 await。等待方向单向：发送等回放让位，回放不等任何东西；回合终结的两个维度的标志必须成对收口——`sendInFlight` 与 `activePort`（`isTurnActive()` 的判据）在 blocked 提前返回、异常与终态三条出口都复位，否则此后发送被入口判 ignored（静默发不出去）。
 代码名：`extension/chat/send-gate.ts`（`createSendGate` / `GateOutcome`）/ `ensureCurrentContextForSend`（chat-runtime 的 deps 缝，发送闸对编排壳的唯一出口）/ `SendVerdict`（chat-runtime 的 `sendMessage` 返回）
 _Avoid_: 发送前检查、发送前置条件散落各调用点、按输入框是否清空反推受理
 
 **历史回放**:
-把当前会话历史整段重建进消息区的分片渲染事务：世代号作废过期分片（清场/新轮）、50ms 帧预算让出主线程、发送路径先等待在途回放让位再追加消息。唯一事务，chat 域内组装，编排壳经 render/invalidate/inFlight 三件持有。
-代码名：`extension/chat/replay.ts`（`createConversationReplay`）/ `render` / `invalidate` / `inFlight`
-_Avoid_: 重渲消息区、逐条 append 重建、绕过世代号直接清场
+把当前会话历史整段重建进消息区的分片渲染事务：世代号作废过期分片（清场/新轮）、50ms 帧预算让出主线程、发送路径先等待在途回放让位再追加消息。唯一事务，chat 域内组装，编排壳经 render/invalidate/inFlight 三件持有。回放本身不感知在途回合（方向纪律：单向等待，回放不等任何东西）——流式中点历史项（或点同一会话重放）由点击接缝先 `await runtime.settleActiveTurn()`：在途时发停流、等 stopped/done/error 终态落定（终态路径把在途一问一答含 partial 正文写回**原**会话并落盘）后才 `store.applyById`；不在途时零延迟零行为差。拆除类入口（删除/清空/新对话/关闭会话）不经此接缝，维持有意断流。
+代码名：`extension/chat/replay.ts`（`createConversationReplay`）/ `render` / `invalidate` / `inFlight` / `settleActiveTurn` / `isTurnActive`（chat-runtime 返回面）
+_Avoid_: 重渲消息区、逐条 append 重建、绕过世代号直接清场、让回放等待在途回合（结构死锁方向）

@@ -24,6 +24,8 @@ export interface CreateReaderChatListsDeps {
   historyClearBtn: HTMLButtonElement | null;
   input: HTMLTextAreaElement;
   // 会话动作（conversation-store 实例的窄接口）
+  // applyById 由组合根包一层 C′ 接缝：在途回合先由 chat-runtime 体面停流落盘
+  //（settleActiveTurn）再切换，故其兑现晚于本次点击——不在途时同一 tick 内完成。
   applyById: (id: string) => void;
   deleteById: (id: string) => Promise<void>;
   // 布局 / 发送回调（组合根提供）
