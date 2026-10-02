@@ -21,18 +21,17 @@ import { type SearchProviderPreset, type SearchProviderType } from "../core/pres
 // name 判中止），与两条平台请求代发通道共用。
 import { makeAbortError } from "../core/provider-http-shared.js";
 import { type SearchMode } from "../core/search-mode.js";
+// 链候选形状单源在协议层（shared/messaging-protocol.ts，chain 是线格式、主人归
+// 协议层）：本模块反向 import 消费（search → shared 为顺向），不再自持结构副本。
+import type { SearchChainCandidate } from "../shared/messaging-protocol.js";
 import { normalizeSearchProviderOrder, providerOrderRank } from "./search-order.js";
 import { executeWebSearch } from "./search-executor.js";
 import { recordSearchAttempt } from "./search-health-client.js";
 import type { NormalizedSearchResult } from "./adapters/types.js";
 import type { SearchProvider } from "./search-provider-normalize.js";
 
-// 链候选（= ResolveSearchProviderResponse.chain 的元素形状，S4 单一形状）：
-// presetId 供健康度按引擎（而非记录）记账（spec §12.4 第 1/7 条）。
-export interface SearchChainCandidate {
-  provider: { id: string; presetId: string; name: string; type: string; baseUrl: string };
-  apiKey: string;
-}
+// 既有消费方（本域调用方与 tests/）仍从本模块取该类型：原样 re-export，避免 churn。
+export type { SearchChainCandidate };
 
 // 链解析选项（spec §1 S4 第五参）：模式由消费方经 core/search-mode.ts 的
 // resolveSearchMode 判定后传入；order / cooldownUntil 是 SW 侧快照的归一产物

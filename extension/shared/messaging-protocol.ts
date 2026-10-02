@@ -380,16 +380,23 @@ export type SearchProvidersDeleteResponse = {
 // 不是「未配置」，回包附 `chainEmptyReason` 供调用方分文案；新增**可选**字段，
 // 既有消费方（把 chain 缺省一律当未配置）不受影响。
 export type ResolveSearchProviderMessage = { type: "resolve-search-provider" };
+
+// 链候选（= ResolveSearchProviderResponse.chain 的元素形状，S4 单一形状）：
+// presetId 供健康度按引擎（而非记录）记账（spec §12.4 第 1/7 条）。
+// 形状单源在此（此前 search/search-chain.ts 自持同名副本、本文件再内联重写一份）——
+// chain 是线格式，主人归协议层；search-chain 反向 import 消费（search → shared 顺向）。
+export type SearchChainCandidate = {
+  provider: { id: string; presetId: string; name: string; type: string; baseUrl: string };
+  apiKey: string;
+};
+
 // 响应锚点：entry/background.ts handleResolveSearchProvider。
 export type ResolveSearchProviderResponse = {
   ok: boolean;
   // 有序候选：每项自带 provider 身份（含 presetId，供引擎级健康度记账）与它的 Key。
   // apiKey 允许空串（keyless 预设无 Key 也进链，spec §2）；顶层不再有 provider /
   // apiKey（那会形成两套形状）。
-  chain?: Array<{
-    provider: { id: string; presetId: string; name: string; type: string; baseUrl: string };
-    apiKey: string;
-  }>;
+  chain?: SearchChainCandidate[];
   // settings.webSearchMaxToolCalls（单轮搜索次数上限，区间 1–10）。
   maxToolCalls?: number;
   // 空链归因：只取 `"cooldown"`（合格记录全部在冷却中而被过滤成空链，spec §12.7 第 6 条）。
