@@ -6,7 +6,7 @@
 
 ## 0. 提交前阻塞项
 
-- [x] 重做截图到 **1280×800**（三张已就绪：`docs/images/store/01~03`）
+- [x] 重做截图到 **1280×800**（六张已就绪：`docs/images/store/01~06`，Bilibili / Flyme 两主题族的浅色与深色各一张）
 - [x] 生成 **300×300** 商店 logo（`docs/images/store/logo-300.png`）
 - [x] 生成 **440×280** 小促销图（`docs/images/store/promo-440x280.png`，产品实拍方向）
 - [x] 确认 `PRIVACY.md` 已去掉浏览器绑定表述（本轮已改）
@@ -101,7 +101,7 @@ Edge 表单会把 manifest 里的每个权限单独列出并配一个输入框�
 | Short description | 「在 B 站视频页阅读带时间戳字幕，生成摘要与 AI 对话。」—**只读**，取自 `_locales/zh_CN/messages.json` |
 | Category | Productivity |
 | Store logo | 300×300（1:1） |
-| Screenshots | 3–6 张，均 1280×800 |
+| Screenshots | 6 张，均 1280×800（`docs/images/store/01~06`：字幕 / 概览 / AI 对话 三个标签页，Bilibili 与 Flyme 两个主题族的浅色、深色） |
 | Small promotional tile | 440×280 |
 | Large promotional tile | 1400×560（可选） |
 | YouTube video URL | 无 |
