@@ -1571,6 +1571,38 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     expect(sent.some((m) => m.type === "save-settings")).toBe(false);
   });
 
+  // A1 残余窗口（方案①：append 上移）：闸已放行即受理——用户消息上屏、输入框
+  // 清空必须发生在弹层之前。否则弹层等待期间起新一轮历史回放（分片让出点）
+  // 会重建消息区，紧随的 append 插进回放中间（P2-1 同一失效形态；P2-1 只让位
+  // 到 send-gate 放行，未覆盖弹层这段 await）。
+  it("弹窗挂起（未 resolve）时用户消息已上屏、输入框已清：append 在 opt-in 弹层之前，但闸下游仍在其后", async () => {
+    stubSettingsChrome(false);
+    chatSessionStateForTests.webSearchEnabled = true;
+    mountReadingView();
+
+    const deps = makeDeps();
+    deps.input.value = "先上屏的问题";
+    const runtime = createChatRuntime(deps);
+    const sending = runtime.sendMessage();
+
+    await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
+    // 受理即上屏：弹层未定下本条是否带搜索，但消息与输入框已归位
+    expect(deps.messages.querySelector<HTMLElement>(".chat-msg-user")?.textContent).toBe("先上屏的问题");
+    expect(deps.input.value).toBe("");
+    expect(deps.ui.autosizeInput).toHaveBeenCalledTimes(1);
+    // 弹层之下的下游未动：未定案不发 port、不进流式态、不建助手占位
+    expect(deps.ports).toHaveLength(0);
+    expect(deps.ui.setStreamingUiState).not.toHaveBeenCalled();
+    expect(deps.messages.querySelector(".chat-msg-assistant")).toBeNull();
+    // 弹层仍在等待用户裁决（上移没有把弹层挤掉）
+    expect(document.querySelector(".confirm-dialog")).not.toBeNull();
+
+    document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!.click();
+    await sending;
+    // 上移不改取值：该条仍带搜索（同意分支，取值回归见上「同意并继续」用例）
+    expect(chatMessageOf(deps).webSearchEnabled).toBe(true);
+  });
+
   it("阅读视图未挂载 → confirmDialog 直接 false，按「本轮不搜索」走（fail-closed）", async () => {
     stubSettingsChrome(false);
     chatSessionStateForTests.webSearchEnabled = true;

@@ -443,6 +443,16 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.ui.removeCenteredState();
       deps.ui.removeSuggestions();
 
+      // 受理即上屏（A1 残余窗口，方案①）：闸已放行即受理——用户消息与输入框
+      // 在此归位，不再等下面的 opt-in 弹层。弹层要 await 用户裁决，把 append
+      // 留在其后时，等待期间起的新一轮历史回放（分片让出点）会重建消息区，
+      // 紧随的 append 就插进回放中间（P2-1 同一失效形态；P2-1 的回放让位点只
+      // 等到 send-gate 放行，够不到弹层这段 await）。弹层结果从不取消发送
+      //（取消只是本条不带搜索），与 append 零数据依赖，故上移不改任何取值。
+      appendUserMessage(text);
+      deps.input.value = "";
+      deps.ui.autosizeInput();
+
       // 联网搜索 opt-in 一次性说明闸（spec §6.7，零协议改动）：开关已开且位未置位
       // 时，发送前先经面板内弹层取得同意——未获同意不外发查询词。判据不依赖
       // 「用户点过 pill」，故存量 webSearchEnabled=true 的用户同样先看到说明。
@@ -451,6 +461,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 本就按条生效），消息照常发出——不动 pill、不改任何持久设置（撤回由 pill
       // 承担）。阅读视图未挂载时 confirmDialog 直接 false（fail-closed），按
       // 「本轮不搜索」走。位读取放在开关判断之后：开关关时不付这次往返。
+      // 弹层位于 append（见上）之后：此时用户消息已上屏，弹层只决定本条带不带搜索。
       let webSearchEnabled = chatSessionState.webSearchEnabled;
       if (webSearchEnabled && !(await getSettings()).searchOptInNoticeAcknowledged) {
         const agreed = await confirmDialog({
@@ -470,11 +481,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       // 图片输入（image-input 路线 B）：闸都过了（发送确已受理）才消费附件区——
       // 被 provider/上下文/无字幕拦下的发送不清空用户的图片。读取与清空同一次
       // 调用（takeInputImages = 附件区的读+清，见 reader/chat-tab.ts 的接线）。
+      // 附件消费位置不动（仍在弹层之后——上面只上移了 append 三联）：受理口径
+      // 仍是「闸放行」，与弹层结果无关。
       const images = deps.takeInputImages?.() ?? [];
 
-      appendUserMessage(text);
-      deps.input.value = "";
-      deps.ui.autosizeInput();
       setStreamingUiState(true);
       activeUserPrompt = text;
       // 本代际图片随 prompt 一起记下（04 号票：写回 chatHistory 时挂在那条 user
