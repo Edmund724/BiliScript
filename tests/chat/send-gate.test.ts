@@ -109,8 +109,11 @@ describe("发送闸 createSendGate", () => {
       });
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
-      expect(h.mocks.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true });
+      // preserveInput: true = 本闸调用链的上下文装载（见 deps 注记）：闸内 apply-live
+      // 的重启不清输入框与附件区。
+      expect(h.mocks.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true, preserveInput: true });
       expect(h.mocks.hydratePinned).toHaveBeenCalledTimes(1);
+      expect(h.mocks.hydratePinned).toHaveBeenCalledWith({ preserveInput: true });
       expect(h.mocks.resetView).not.toHaveBeenCalled();
     });
 

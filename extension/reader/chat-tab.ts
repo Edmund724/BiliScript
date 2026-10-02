@@ -1162,7 +1162,12 @@ function getTimestampNavDeps() {
 
 // 【整段迁移自 sidepanel.ts】重启对话：清流状态 + 清会话状态 + 重置消息区
 //（编排入口，被新对话/上下文切换复用）。
-function restartChat({ keepContext = false }: { keepContext?: boolean } = {}): void {
+// preserveInput（发送闸调用链专用）：闸内 apply-live 的重启是「上下文跟随」，
+// 不是用户语义上的「新会话」——不清输入框与附件区。附件在闸之后才被
+// takeInputImages 消费，闸内清场会把随本条消息附的图片静默吞掉（正文照发）；
+// 被闸拦下时用户已打好的文本也会一起没。用户主动点「新会话」（startNewConversation）
+// 与上下文切换的其它路径不带该标志，仍照旧清场。
+function restartChat({ keepContext = false, preserveInput = false }: { keepContext?: boolean; preserveInput?: boolean } = {}): void {
   // 「拆除会话」出口四（CONTEXT.md 词条；工单 arch-slim-2/07 D 半场）：断流
   // 双轨统一——经 conversationStore.detachForRestart 发出 onStreamInterrupted，
   // 本函数不再直调 chatRuntime.resetStreamState。断流仍先于会话身份清空（订阅
@@ -1175,8 +1180,10 @@ function restartChat({ keepContext = false }: { keepContext?: boolean } = {}): v
   }
   resetConversationView("");
   setStreamingUiState(false);
-  els.input.value = "";
-  // 附件随输入框一起清场（新会话/上下文切换后不带着上一轮的图片）。
-  inputImages.clear();
+  if (!preserveInput) {
+    els.input.value = "";
+    // 附件随输入框一起清场（新会话/上下文切换后不带着上一轮的图片）。
+    inputImages.clear();
+  }
   autosizeInput();
 }

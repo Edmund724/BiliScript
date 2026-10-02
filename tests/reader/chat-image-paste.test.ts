@@ -298,12 +298,81 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     const strip = imageStrip();
     dispatchPaste(input, [imageItem()]);
     await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+    // 输入框里的草稿与附件同属「本轮未发出的输入」：新会话（用户语义的清场）
+    // 两者一起清——本断言把「清输入」半边也钉进同一用例（此前只钉了附件）。
+    input.value = "草稿一句";
 
     const newChatBtn = document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement;
     newChatBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 
     await waitFor(() => strip.hidden === true);
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
+    expect(input.value).toBe("");
+  });
+});
+
+// ===========================================================================
+// 闸内上下文变化与附件（image-input）：发送闸调用链上的 restartChat 是「上下文
+// 跟随」，不是用户语义上的「新会话」——不得清输入框与附件区。修复前它照走
+// restartChat 的清场，而 takeInputImages 在闸之后才消费附件区 → 随消息附的图片
+// 被静默吞掉（正文照发）；被闸拦下时连用户已打好的文本也一起没了。
+// ===========================================================================
+describe("闸内上下文变化（apply-live → restartChat）与附件", () => {
+  // 换分P（cid 变 → contextKey 变）：闸内 loadContextState 走 apply-live 且
+  // contextChanged → 编排壳调 restartChat({ keepContext: true })。
+  function switchPageCid(cid: string): void {
+    state.clip.cid = cid;
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: `第 ${cid} P 的字幕` }];
+  }
+
+  it("发送带图 + 闸内 context 变化：发出的 chat 消息仍带 images，附件随受理清空", async () => {
+    await activateChat();
+    const input = inputEl();
+    const strip = imageStrip();
+    dispatchPaste(input, [imageItem()]);
+    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+
+    switchPageCid("202");
+    input.value = "这张图里是什么";
+    sendEnter();
+    await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+
+    const posted = ports[0].postMessage.mock.calls[0][0] as {
+      prompt?: string;
+      images?: Array<{ mime: string; data: string }>;
+    };
+    expect(posted.prompt).toBe("这张图里是什么");
+    expect(posted.images).toHaveLength(1);
+    expect(posted.images?.[0].mime).toBe("image/webp");
+    expect(atob(String(posted.images?.[0].data))).toBe("\x89PNG");
+    // 受理语义不变：附件被 takeInputImages 消费（清空）、输入框清空
+    expect(strip.hidden).toBe(true);
+    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
+    expect(input.value).toBe("");
+  });
+
+  it("发送带图 + 闸内 context 变化 + 无字幕拦截：附件不消费、输入框文本保留", async () => {
+    await activateChat();
+    const input = inputEl();
+    const strip = imageStrip();
+    dispatchPaste(input, [imageItem()]);
+    await waitFor(() => strip.querySelectorAll(".chat-image-item").length === 1);
+
+    // 换 P（触发闸内 restartChat）且新上下文是无字幕收尾：闸 G6 拦截发送
+    state.clip.cid = "202";
+    state.clip.subtitleFetchState = "empty";
+    state.clip.subtitleBody = [];
+    input.value = "这张图里是什么";
+    sendEnter();
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // 被拦下 = 未受理：不发起 port、附件留在附件区、输入框文本保留
+    expect(ports).toHaveLength(0);
+    expect(input.value).toBe("这张图里是什么");
+    expect(strip.hidden).toBe(false);
+    expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(1);
   });
 });
 

@@ -485,12 +485,27 @@ describe("hydratePinned 的 change / notice 时序", () => {
     const ok = await store.hydratePinned();
 
     expect(ok).toBe(true);
-    expect(deps.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true });
+    // preserveInput 缺省 false（非闸内调用：历史项点击/恢复路径照旧清场）
+    expect(deps.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true, preserveInput: false });
     expect(deps.resolveAiConversationRef).not.toHaveBeenCalled();
     expect(log).toEqual([
       ["change", {}],
       ["notice", { kind: "clear" }]
     ]);
+  });
+
+  it("hydratePinned({preserveInput:true}):分支 2 的 loadContextState 原样透传(发送闸调用链)", async () => {
+    const { store, deps } = makeHarness();
+    applyConversationIdentity({ meta: makePinnedMeta() });
+    chatSessionStateForTests.liveContextKey = "k-1";
+    chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
+
+    const ok = await store.hydratePinned({ preserveInput: true });
+
+    expect(ok).toBe(true);
+    // pinned 补水的内部装载同样在发送闸调用链上：闸内 apply-live 的重启不清
+    // 输入框与附件区（附件在闸之后才被 takeInputImages 消费）。
+    expect(deps.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true, preserveInput: true });
   });
 
   it("网络补水成功:change = {} → notice clear(次序与反转前「先发 change 再撤提示」一致)", async () => {

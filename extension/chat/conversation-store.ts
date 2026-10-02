@@ -121,10 +121,16 @@ export interface StorageArea {
 export interface LoadContextStateOptions {
   forceRefresh?: boolean;
   silent?: boolean;
+  // 闸内重启（发送闸调用链）保留输入框与附件区：闸内 apply-live 的 restartChat
+  // 是上下文跟随，不是用户语义上的「新会话」——带了它才不会被清场把随本条消息
+  // 附的图片吞掉（消费方是 context-load 的 restartChat 调用点）。
+  preserveInput?: boolean;
 }
 
 export interface HydratePinnedOptions {
   silent?: boolean;
+  // 同上：pinned 补水内部的 loadContextState 也在发送闸调用链上。
+  preserveInput?: boolean;
 }
 
 // 能力事件一：会话相关状态变更声明。历史列表恒随事件重渲；其余呈现面由标志
@@ -541,7 +547,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     await saveConversations();
   }
 
-  async function hydratePinned({ silent = false }: HydratePinnedOptions = {}): Promise<boolean> {
+  async function hydratePinned({ silent = false, preserveInput = false }: HydratePinnedOptions = {}): Promise<boolean> {
     let meta = chatSessionState.currentConversationMeta;
     const targetKey = String(meta?.contextKey || "").trim();
     const cachedResolvedContext = meta?.resolvedContext;
@@ -553,7 +559,7 @@ export function createConversationStore(deps: CreateConversationStoreDeps): Conv
     }
 
     if (targetKey && chatSessionState.liveContextKey && targetKey === chatSessionState.liveContextKey) {
-      const ok = await loadContextState({ forceRefresh: false, silent: true });
+      const ok = await loadContextState({ forceRefresh: false, silent: true, preserveInput });
       const context = chatSessionState.contextData;
       if (ok && context) {
         pinCurrentContextKey(targetKey);

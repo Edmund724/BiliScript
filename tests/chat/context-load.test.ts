@@ -193,11 +193,28 @@ describe("loadContextState 动作分支", () => {
     expect(ok).toBe(true);
     expect(chatSessionState.contextData).toEqual(payload);
     // 与迁移前一致：变化 + 非流式 → restartChat({keepContext:true}) 冻结上下文，
-    // 再 restoreLatest + renderInitialState
-    expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true });
+    // 再 restoreLatest + renderInitialState。preserveInput 缺省 false：非闸内
+    // 调用（tab 切换/URL 变化）照旧清输入框与附件区。
+    expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: false });
     expect(deps.renderHistoryList).toHaveBeenCalledTimes(1);
     expect(deps.restoreLatest).toHaveBeenCalledTimes(1);
     expect(deps.renderInitialState).toHaveBeenCalledTimes(1);
+  });
+
+  it("apply-live：preserveInput 透传到 restartChat（发送闸调用链不清输入/附件）", async () => {
+    chatSessionStateForTests.currentContextKey = "old-key";
+    chatSessionStateForTests.contextData = makePayload();
+    const payload = makePayload({ signature: "sig-4b", title: "换P后的视频" });
+    const { deps, contextLoad } = makeHarness({
+      fetchOutcome: () => ({ kind: "payload", tabUrl: ACTIVE_TAB.url, payload })
+    });
+
+    const ok = await contextLoad.loadContextState({ silent: true, preserveInput: true });
+
+    expect(ok).toBe(true);
+    // 闸内重启是上下文跟随：编排壳必须把标志原样交给 restartChat，否则闸后才
+    // 被 takeInputImages 消费的附件已在本轮清场里被吞掉（image-input 缺陷）。
+    expect(deps.restartChat).toHaveBeenCalledWith({ keepContext: true, preserveInput: true });
   });
 
   it("apply-live：上下文未变化（首次落地）不触发对话恢复，走 renderSuggestions", async () => {

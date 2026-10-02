@@ -46,7 +46,7 @@ export interface CreateContextLoadDeps {
   renderInitialState: () => void;
   renderSuggestions: () => void;
   resetConversationView: (stateHtml?: string) => void;
-  restartChat: (opts?: { keepContext?: boolean }) => void;
+  restartChat: (opts?: { keepContext?: boolean; preserveInput?: boolean }) => void;
   restoreLatest: () => Promise<boolean>;
   // 惰性互引（组装点以箭头函数接线，回调执行时 chatRuntime 实例已存在）
   isStreaming: () => boolean;
@@ -58,7 +58,7 @@ export interface ContextLoad {
 }
 
 export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
-  async function loadContextState({ forceRefresh = false, silent = false }: LoadContextStateOptions = {}): Promise<boolean> {
+  async function loadContextState({ forceRefresh = false, silent = false, preserveInput = false }: LoadContextStateOptions = {}): Promise<boolean> {
     const hasPinnedConversation = isPinnedContextStrict(chatSessionState.currentConversationMeta);
     // 上下文组装策略注入点（PR5）。ifSignature 沿用迁移前口径：上次全量快照
     // 的签名；liveContextData 为空（首次/此前失败）时签名为空串，策略必走全量。
@@ -134,7 +134,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     }
 
     // apply-live：正常路径，上下文变化时恢复最近对话并重渲染初始态。
-    const contextChanged = applyContextPayload(resp.payload as ChatSessionContextSnapshot | null);
+    const contextChanged = applyContextPayload(resp.payload as ChatSessionContextSnapshot | null, preserveInput);
     deps.renderHistoryList();
     if (contextChanged) {
       await deps.restoreLatest();
@@ -143,7 +143,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     return plan.returnValue;
   }
 
-  function applyContextPayload(payload: ChatSessionContextSnapshot | null): boolean {
+  function applyContextPayload(payload: ChatSessionContextSnapshot | null, preserveInput: boolean): boolean {
     // 写入半（落地 + key 重算 + 写前变化判定）已归并进 chat-state 的
     // applyContextSnapshot 原语；本壳只留变化后的编排副作用。
     const contextChanged = applyContextSnapshot(payload);
@@ -153,7 +153,11 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
     // 只落地 live 快照）。守卫由策略层单独承重，context-policy.ts 的
     // isStreaming / hasPendingUserPrompt 是唯一判定点。
     if (contextChanged) {
-      deps.restartChat({ keepContext: true });
+      // preserveInput（发送闸调用链，见 LoadContextStateOptions）：闸内重启是
+      // 上下文跟随，不是用户语义上的「新会话」——不清输入框与附件区，否则闸后
+      // 才消费的 takeInputImages 拿不到随本条消息附的图片（正文照发、图片静默
+      // 吞掉）。用户主动「新会话」的 restartChat 不带该标志，仍照旧清场。
+      deps.restartChat({ keepContext: true, preserveInput });
     } else {
       deps.renderSuggestions();
     }

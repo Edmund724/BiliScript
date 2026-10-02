@@ -48,9 +48,12 @@ const SUBTITLE_WAIT_POLL_MS = 4000;
 
 export interface CreateSendGateDeps {
   // 静默加载当前上下文（context-load 实例方法，组合根惰性接线）。
-  loadContextState: (opts: { forceRefresh: boolean; silent: boolean }) => Promise<boolean>;
-  // pinned 会话的历史补水（conversation-store 实例方法）。
-  hydratePinned: () => Promise<boolean>;
+  // preserveInput：本闸的调用链是「发送受理中」——闸内 apply-live 重启（上下文
+  // 跟随）不得清输入框与附件区（附件在闸之后才被 takeInputImages 消费）。
+  loadContextState: (opts: { forceRefresh: boolean; silent: boolean; preserveInput?: boolean }) => Promise<boolean>;
+  // pinned 会话的历史补水（conversation-store 实例方法）。同样透传 preserveInput
+  // 到其内部的 loadContextState（pinned 分支也可能触发闸内重启）。
+  hydratePinned: (opts?: { preserveInput?: boolean }) => Promise<boolean>;
   // 上下文读取失败的清场（resetConversationView）。
   resetView: (stateHtml: string) => void;
   // 消息区通知两件（showContextNotice 第三参为 no-subtitle 的「前往设置」链接开关）。
@@ -210,12 +213,14 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   // { pass: false, kind: "no-subtitle" } 让 sendMessage 提前返回（不追加用户
   // 消息、不落 chatHistory、不发起 port），并按 noSubtitleReason 显示对应 notice。
   async function ensureContextForSend(): Promise<GateOutcome> {
+    // 本闸调用链上的每一次上下文装载都带 preserveInput（见 deps.loadContextState
+    // 注记）：闸内 apply-live 的 restartChat 是上下文跟随，不得清输入框与附件区。
     // pinned 判定用与 loadContextState 同一个严格谓词 isPinnedContextStrict
     //（=== true）：本调用点历史上曾是真值判断，2026-10 已统一收口，疑义记录见
     // ./context-policy.ts 的 isPinnedContextStrict 注释与 ADR-0005 修订。
     if (isPinnedContextStrict(chatSessionState.currentConversationMeta)) {
-      await deps.loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
-      if (!(await deps.hydratePinned())) {
+      await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => null);
+      if (!(await deps.hydratePinned({ preserveInput: true }))) {
         return { pass: false, kind: "read-failed" };
       }
       // G1 的提前返回同样要过回放让位点（Q3-a 查证结论）：hydratePinned 自身
@@ -230,7 +235,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     }
     // 失败闸把「无标签页」与「读取失败」合并为同一文案（与策略模块的
     // resolveNoTabPlan 语义不同：这里即使静默加载也会重置视图），保持原状。
-    const ok = await deps.loadContextState({ forceRefresh: false, silent: true });
+    const ok = await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true });
     if (!ok || !chatSessionState.contextData) {
       deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
       return { pass: false, kind: "read-failed" };
@@ -248,7 +253,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     }
     // 等待期间 contextData 可能停在旧快照（守卫分支或就绪瞬间），放行前重取
     // 一次，确保发送出去的是转写完成后的完整字幕。
-    await deps.loadContextState({ forceRefresh: false, silent: true }).catch(() => null);
+    await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => null);
     if (!chatSessionState.contextData) {
       deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
       return { pass: false, kind: "read-failed" };

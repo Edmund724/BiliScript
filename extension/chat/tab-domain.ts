@@ -86,7 +86,7 @@ export interface CreateChatTabDomainDeps {
   renderHistoryList: () => void;
   renderInitialState: () => void;
   renderSuggestions: () => void;
-  restartChat: (opts?: { keepContext?: boolean }) => void;
+  restartChat: (opts?: { keepContext?: boolean; preserveInput?: boolean }) => void;
   // ---- 历史回放事务的编排回调（replay 消费，组合根注入）----
   updateChatLayoutState: () => void;
   clearSuggestions: () => void;
@@ -174,7 +174,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   // 执行期，无 TDZ）。
   const sendGate = createSendGate({
     loadContextState: (opts) => contextLoad.loadContextState(opts),
-    hydratePinned: () => store.hydratePinned(),
+    hydratePinned: (opts) => store.hydratePinned(opts),
     resetView: deps.ui.resetConversationView,
     showContextNotice: deps.ui.showConversationContextNotice,
     removeContextNotice: deps.ui.removeConversationContextNotice,
