@@ -26,6 +26,9 @@ import {
   resolveRequestTarget
 } from "./provider-http-shared.js";
 
+// 本地线格式类型不按协议层 ProviderHttpMessage 收编：那边多一个必填判别键
+// type（信封由发送端自包，见 providerFetchViaBackground），两侧不等价——
+// 收编（Q4 尝试）已判定失败，勿再重试。
 export interface ProviderHttpRequestMessage {
   url?: string;
   method?: string;

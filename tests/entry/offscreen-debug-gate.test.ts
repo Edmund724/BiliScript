@@ -46,6 +46,9 @@ const OFFSCREEN_SOURCES = [
   // 概览代发通道的 offscreen 半边（overview-offscreen-transport）：接收端在
   // core/provider-http-offscreen.ts，同文件另有 content 侧发送端（不在本文档内运行）
   "../../extension/core/provider-http-offscreen.ts",
+  // 概览代发链的传输层公共件叶（两端共用）：叶子纪律零 chrome.*，已由
+  // tests/core/provider-http-shared.test.ts 钉住，此处双保险
+  "../../extension/core/provider-http-shared.ts",
   // 页面半边（内容脚本侧，见上方注释）：纵深防御收编（r1 审查 P2）
   "../../extension/asr/offscreen-bridge.page.ts"
 ];
