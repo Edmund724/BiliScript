@@ -146,9 +146,10 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --biliscript-reader-ease-bounce: cubic-bezier(0.34, 1.4, 0.64, 1);
   --biliscript-reader-press-scale: 0.97;
-  /* 半透明材质底（reader header / 设置抽屉，backdrop-filter 消费方在
-   * reader.css / reader-settings-shell.css）：surface 加 alpha 的 rgba，四色板各调。 */
-  --biliscript-reader-header-bg: rgba(253, 251, 247, 0.72);
+  /* 半透明材质底（设置抽屉，backdrop-filter 消费方在
+   * reader-settings-shell.css）：surface 加 alpha 的 rgba，四色板各调。
+   *（reader header 曾是另一消费方，2026-12 配色定稿移除——它叠在不透明
+   * surface 面板壳上恒等于 surface，纯冗余且与 tab 区形成断层。） */
   --biliscript-reader-overlay-bg: rgba(253, 251, 247, 0.8);
   color: var(--biliscript-reader-text);
 }
@@ -179,7 +180,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   --biliscript-reader-danger: #f2555a;
   --biliscript-reader-danger-soft: rgba(242, 85, 90, 0.2);
   --biliscript-reader-shadow: 0 18px 42px rgba(2, 6, 23, 0.42);
-  --biliscript-reader-header-bg: rgba(15, 23, 42, 0.72);
   --biliscript-reader-overlay-bg: rgba(15, 23, 42, 0.8);
 }
 
@@ -210,11 +210,12 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   --biliscript-reader-accent: #008cff;
   --biliscript-reader-accent-soft: rgba(0, 140, 255, 0.1);
   --biliscript-reader-accent-ink: #ffffff;
-  --biliscript-reader-pill-bg: #f0f1f3;
+  /* 分段控件槽底：2026-12 配色定稿由 #f0f1f3（与面板灰 #f2f3f5 仅差 2 阶，
+   * 槽形不可见、选中态蓝胶囊像浮在灰上）加深到 surface-3 同值 #e9ebef。 */
+  --biliscript-reader-pill-bg: #e9ebef;
   --biliscript-reader-highlight: rgba(255, 159, 10, 0.14);
   --biliscript-reader-track: rgba(23, 24, 26, 0.1);
   --biliscript-reader-shadow: 0 8px 24px rgba(17, 18, 26, 0.1);
-  --biliscript-reader-header-bg: rgba(255, 255, 255, 0.72);
   --biliscript-reader-overlay-bg: rgba(255, 255, 255, 0.8);
   /* 动效：light/dark 不动，只 flyme 档换 Flyme 手感。spring 是 Flyme 非手势
    * 基准曲线（200–350ms 档）；bounce 是文档「面板/应用切换/小窗」回弹近似，
@@ -257,20 +258,18 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
    * 浮层降级段 1 处）全部是独立的 `box-shadow: var(--biliscript-reader-shadow);`
    * 单值声明，没有跟其他阴影拼成多重列表，故 none 合法且不牵连任何别的阴影。 */
   --biliscript-reader-shadow: none;
-  --biliscript-reader-header-bg: rgba(16, 17, 20, 0.72);
   --biliscript-reader-overlay-bg: rgba(16, 17, 20, 0.8);
 }
 
 /* ===== 减弱透明度 =====
- * 半透明材质（header/设置抽屉）退回近实色：退回值即 surface 令牌（var 引用，
- * 四色板各自跟随），消费方（reader.css / reader-settings-shell.css）只需各自
+ * 半透明材质（设置抽屉）退回近实色：退回值即 surface 令牌（var 引用，
+ * 四色板各自跟随），消费方（reader-settings-shell.css）只需各自
  * 关掉 backdrop-filter。 */
 @media (prefers-reduced-transparency: reduce) {
   /* bilibili × light：基础块，无属性选择器 */
   html[data-biliscript-reader-mode="1"],
   body[data-biliscript-reader-mode="1"],
   #biliscript-reading-view {
-    --biliscript-reader-header-bg: var(--biliscript-reader-surface);
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
   }
 
@@ -278,7 +277,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
   html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   #biliscript-reading-view[data-theme="dark"] {
-    --biliscript-reader-header-bg: var(--biliscript-reader-surface);
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
   }
 
@@ -287,7 +285,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
   html[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   #biliscript-reading-view[data-family="flyme"] {
-    --biliscript-reader-header-bg: var(--biliscript-reader-surface);
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
   }
 }

@@ -581,13 +581,13 @@ describe("script-host 滚动进行中材质降级（M19）", () => {
     vi.useRealTimers();
   });
 
-  it("CSS 侧消费滚动属性：header 与设置抽屉各有一条关停毛玻璃规则", () => {
+  it("CSS 侧消费滚动属性：设置抽屉有一条关停毛玻璃规则（header 已无毛玻璃可关停）", () => {
     const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), "utf8");
-    const headerRule =
-      /#biliscript-reading-view\[data-biliscript-script-scrolling="1"\]\s+\.biliscript-reading-script-panel\s+\.biliscript-reading-header\s*\{[^}]*backdrop-filter:\s*none/s;
+    // 2026-12 配色定稿：header 的底色/毛玻璃整体移除（surface 加 alpha 叠在
+    // 不透明 surface 壳上恒等于 surface，纯冗余），滚动降级只剩设置抽屉一条。
     const settingsRule =
       /#biliscript-reading-view\[data-biliscript-script-scrolling="1"\]\s+\.biliscript-reading-settings-panel\s*\{[^}]*backdrop-filter:\s*none/s;
-    expect(read("extension/entry/styles/reader.css")).toMatch(headerRule);
+    expect(read("extension/entry/styles/reader.css")).not.toContain("backdrop-filter");
     expect(read("extension/entry/styles/reader-settings-providers.css")).toMatch(settingsRule);
   });
 });

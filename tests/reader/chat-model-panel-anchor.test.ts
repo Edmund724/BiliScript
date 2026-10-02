@@ -83,13 +83,14 @@ describe("模型面板锚点（CSS 契约）", () => {
   });
 
   it("历史页不再是 footer 上方的小浮层，且与面板不共享弹层壳规则", () => {
-    // 历史对话是整页接管：脱流覆盖层铺满对话区（inset:0），没有任何 footer 锚点
+    // 历史对话是整页接管：脱流覆盖层铺满对话区（2026-12 配色定稿起负 inset
+    // 外溢 tab-body 内边距、盖满整张内容区白卡），没有任何 footer 锚点
     // ——带 footer 锚的浮层几何（bottom: calc(100% + 4px)）与「锚在自己内容上方」
     // 的定位（bottom 表达式）都不得出现；浮层几何的唯一合法持有者是模型面板。
     const historyBody = ruleBody(HISTORY_POPOVER);
     expect(historyBody).not.toContain("bottom: calc(100% + 4px)");
     expect(historyBody).not.toContain("bottom: calc");
-    expect(historyBody).toContain("inset: 0");
+    expect(historyBody).toMatch(/inset:\s*-\d+px\s+-\d+px\s+-\d+px/);
 
     const shared = cssRules().filter(
       (rule) => rule.head.includes("chat-history-popover") && rule.head.includes("chat-model-panel")

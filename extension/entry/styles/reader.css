@@ -286,29 +286,10 @@
   align-items: center;
   padding: 14px 16px 10px;
   gap: 10px;
-  /* 半透明材质：surface 加 alpha 的 rgba（token，gate 段两主题定义）+
-   * blur/saturate 毛玻璃；面板壳自身 z-index 2147483646，与宿主页共存不受影响 */
-  background: var(--biliscript-reader-header-bg, var(--biliscript-reader-surface));
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-}
-
-/* 减弱透明度：材质退回近实色（token 已在 gate 段覆盖），毛玻璃一并关停 */
-@media (prefers-reduced-transparency: reduce) {
-  .biliscript-reading-script-panel .biliscript-reading-header {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
-/* 滚动进行中关停毛玻璃（M19 / M12 巡检 P2-2）：贴栏态面板随 --biliscript-script-top
- * 逐帧位移，header 的 backdrop 跟着每帧重采样。script-host 在滚动期间给
- * #biliscript-reading-view 挂 data-biliscript-script-scrolling，滚动停下（scrollend 或
- * 150ms 静默兜底）摘除。面板壳自身是不透明底，header 的 backdrop 只有面板
- * 底色，关停期间无可感差异；静止态材质与滚动恢复后一字不变。 */
-#biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-script-panel .biliscript-reading-header {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  /* 2026-12 配色定稿：不再有独立底色与毛玻璃——原 header-bg 是 surface 加
+   * alpha 的 rgba，叠在不透明的 surface 面板壳上恒等于 surface（纯冗余），
+   * 而近白的观感在 flyme 浅色下与 tab 区的页面灰形成断层（用户报「很割裂」）。
+   * header 直接落在面板页面灰上，与 tab 区连成同一层。 */
 }
 
 /* 状态行（错误/操作反馈文案；播放进度与提示类已按 2026-09 用户决议不再写入）与
@@ -371,7 +352,14 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 14px 16px 16px;
+  /* 2026-12 配色定稿（Flyme「灰页底 + 白卡」分层）：tab 以下整区原是透明、
+   * 直露面板页面灰，与近白的 tab 槽/header 断层（用户报「字幕、概览那一行
+   * 往下一块灰」）。内容区套 card 白卡：四周 margin 环透出页面灰作页面层，
+   * 圆角 12px 与 tab 槽同档嵌套（同心 ≈ 面板 14px − 环宽）。 */
+  margin: 10px 14px 14px;
+  padding: 12px 14px;
+  background: var(--biliscript-reader-card);
+  border-radius: 12px;
   /* Follow 悬浮按钮、选区「解释」浮层与解释卡片的定位上下文 */
   position: relative;
 }

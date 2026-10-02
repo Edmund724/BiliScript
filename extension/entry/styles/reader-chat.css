@@ -24,7 +24,7 @@
 }
 
 /* 对话面板的板面顶距覆写（2026-10 用户决议，第二轮）：.biliscript-reading-tab-body
- * 给三个 tab 共用的 padding: 14px 16px 16px 是正文级板面留白（字幕/概览首行是正文，
+ * 给三个 tab 共用的 padding: 12px 14px 是正文级板面留白（字幕/概览首行是正文，
  * 见 reader.css），而对话面板首行是右对齐的 32px 工具条——14px 顶距在工具条上方
  * 又叠出空档（用户报「上边还是空」）。按面板结构往下收：:has(> .biliscript-reading-chat)
  * 只命中对话面板（Chrome 120 起 :has 可用，manifest 的 minimum_chrome_version 即
@@ -1027,10 +1027,9 @@
 
 /* ===== 历史对话整页接管（2026-09 用户决议）=====
  * 历史对话不再是 footer 上方弹出的框：它是对话根的第一个子元素，作为脱流覆盖层
- * 铺满整个对话内容区（tab 网格第 4 行），上方 字幕/概览/AI 对话 标签条保留。
- * 材质与开合动效照抄设置抽屉壳层（reader-settings-shell.css）：overlay 半透明底
- * + blur/saturate 毛玻璃、0.2s spring 淡入淡出 + display allow-discrete +
- * @starting-style。纯属性反应：[hidden] 由 chat-popovers 单点切换（toggle 语义
+ * 铺满整个 tab 内容区（tab 网格第 4 行），上方 字幕/概览/AI 对话 标签条保留。
+ * 开合动效：0.2s spring 淡入淡出 + display allow-discrete + @starting-style。
+ * 纯属性反应：[hidden] 由 chat-popovers 单点切换（toggle 语义
  * 与 Esc/外点判定全不变），非 hidden 时下一条兄弟选择器把对话内容整体
  * display:none——与设置抽屉隐藏同级 .biliscript-reading-tabs / tab-body 同构。
  * 为什么是脱流覆盖层而不是流内 flex:1（2026-10 关闭卡顿修复）：display 走
@@ -1039,22 +1038,27 @@
  * 等 display 到点翻转才弹回顶部（用户报「标题先卡在屏幕中间半秒再复位」）。
  * 脱流后对话内容从关闭首帧起即是最终布局，历史页在它上方淡走——与设置抽屉
  * 「抽屉与标签区同占网格行」同一原理，flex 列无法重叠，故用绝对定位顶替。
- * 头部固定、列表区独立滚动（见 .chat-history-list）。 */
+ * 头部固定、列表区独立滚动（见 .chat-history-list）。
+ * 2026-12 配色定稿（用户报「打开历史对话有一圈灰色的框」）：底色由 overlay
+ * 半透明白改为不透明 surface 页面灰——打开时兄弟内容整体 display:none，背后
+ * 本就没有需要透视的内容，毛玻璃一并退役；负 inset 外溢对话面板的 tab-body
+ * 内边距（上 10 / 左右下 14，见上方覆写与 reader.css），把整张内容区白卡盖满，
+ * 四周不再露出异色环。 */
 .biliscript-reading-chat .chat-history-popover {
   /* 定位上下文是对话根（.biliscript-reading-chat 的 position: relative）；
-   * inset:0 = 原流内占位的那块对话内容区，视觉占位不变。
+   * 负 inset = 对话面板的 tab-body 内边距值，覆盖层由此盖满整张内容区白卡。
    * z-index 必须显式高于消息区内浮层：.chat-messages 自身 position:relative
    * 且 DOM 在后，不写就被它按顺序压住；.chat-search-preview(z-index:20) /
    * .chat-model-panel(z-index:10) 同处一个层叠上下文，故取 30。 */
   position: absolute;
-  inset: 0;
+  inset: -10px -14px -14px;
   z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--biliscript-reader-overlay-bg, var(--biliscript-reader-surface));
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  /* 自身内边距替代被外溢吃掉的 tab-body 留白：头部/列表不贴白卡边缘 */
+  padding: 4px 12px 12px;
+  background: var(--biliscript-reader-surface);
   transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
 }
 
@@ -1078,14 +1082,6 @@
 .biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-messages,
 .biliscript-reading-chat .chat-history-popover:not([hidden]) ~ .chat-footer {
   display: none;
-}
-
-/* 减弱透明度：材质退回近实色（token 已在 gate 段覆盖为实色），毛玻璃一并关停 */
-@media (prefers-reduced-transparency: reduce) {
-  .biliscript-reading-chat .chat-history-popover {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 /* 整页头部（Q9 决议：返回键最左、标题紧随、清空全部最右）：固定不滚，分隔线
@@ -1222,9 +1218,12 @@
   grid-template-columns: minmax(0, 1fr) 24px;
   gap: 6px;
   align-items: center;
-  border: 1px solid var(--biliscript-reader-border);
+  /* 2026-12 配色定稿（Flyme「灰页底 + 白卡」）：底色由 surface（与面板同灰，
+   * 读作一排灰盒子）换成 card 白卡；描边退为 transparent——保留 1px 几何，
+   * is-active / is-live-match 换边色时布局不跳。 */
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--biliscript-reader-surface);
+  background: var(--biliscript-reader-card);
   padding: 4px;
   max-width: 100%;
 }
