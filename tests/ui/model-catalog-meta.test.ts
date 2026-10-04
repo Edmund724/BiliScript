@@ -7,17 +7,20 @@
 // - 目录模块懒加载：加载前不渲染，加载完成后补齐（不清掉勾选态）。
 //
 // 手法：不经整套设置面板，直接搭最小 Modal DOM + 状态袋 + 真实 wireDialog，
-// 目录模块用真实产物（85KB 解析，vitest 无压力）——格式化与查表都是真链路。
+// 目录模块用真实产物（103KB 解析 + 02 别名表，vitest 无压力）——格式化与查表都是真链路。
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { UPSTREAM_CATALOG_SOURCE } from "../../extension/ai/catalog/models-dev-catalog.generated.js";
 import { resetModuleState } from "../setup.js";
 
 const MIMO_BASE_URL = "https://api.xiaomimimo.com/v1";
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 
-// 结构子集（ProviderRowPreset）：Modal 只读 id/name/baseUrl/requiresKey
+// 结构子集（ProviderRowPreset）：Modal 只读 id/name/baseUrl/requiresKey。
+// custom = 无身份（host 兜底）、ollama = 有身份但无目录数据（NO_CATALOG_PRESETS）。
 const PRESET_SUBSET = [
   { id: "custom", name: "自定义", baseUrl: "" },
+  { id: "ollama", name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1" },
   { id: "deepseek", name: "DeepSeek", baseUrl: DEEPSEEK_BASE_URL },
   { id: "qwen", name: "Qwen", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" }
 ];
@@ -125,7 +128,11 @@ describe("模型行元数据", () => {
     expect(slot.querySelectorAll(".provider-editor-model-badge")).toHaveLength(2);
     expect(slot.title).toContain("MiMo-V2.5");
     expect(slot.title).toContain("输出上限 131K");
-    expect(slot.title).toContain("目录 @earendil-works/pi-ai 0.87.1");
+    // 数据版本 = 上游来源 URL + 01 产物的 contentHash（不带时间戳，产物幂等）
+    expect(slot.title).toContain(
+      `目录 ${UPSTREAM_CATALOG_SOURCE.source} ${UPSTREAM_CATALOG_SOURCE.contentHash}`
+    );
+    expect(slot.title).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
   });
 
   it("只文本的模型不挂「图片」徽标", async () => {
@@ -155,7 +162,18 @@ describe("模型行元数据", () => {
     expect(slot.hasAttribute("title")).toBe(false);
   });
 
-  it("无数据平台（qwen）整栏不渲染", async () => {
+  it("无数据平台（ollama）整栏不渲染", async () => {
+    const { dialog, catalog } = await mountDialog({
+      presetId: "ollama",
+      baseUrl: "http://localhost:11434/v1",
+      models: ["qwen3.8-max"]
+    });
+    await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
+    catalog.refreshModelCatalogMeta();
+    expect(metaSlot(dialog, 0).hidden).toBe(true);
+  });
+
+  it("原无数据平台（qwen）改源后命中：窗口 + 思考 + 图片徽标（10 号票白名单收缩）", async () => {
     const { dialog, catalog } = await mountDialog({
       presetId: "qwen",
       baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -163,7 +181,9 @@ describe("模型行元数据", () => {
     });
     await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
     catalog.refreshModelCatalogMeta();
-    expect(metaSlot(dialog, 0).hidden).toBe(true);
+    const slot = metaSlot(dialog, 0);
+    expect(slot.hidden).toBe(false);
+    expect(slot.textContent).toBe("1M思考图片");
   });
 
   it("只跟着平台身份与模型 id 走：改 baseUrl / 模型 id / 预设都重算", async () => {
@@ -190,12 +210,12 @@ describe("模型行元数据", () => {
     fireInput(input);
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    // 改回已知 id，再切预设（presetId 优先于 host）：qwen 无目录数据 → 整栏隐藏
+    // 改回已知 id，再切预设（presetId 优先于 host）：ollama 有身份但没有目录数据 → 整栏隐藏
     input.value = "mimo-v2.5";
     fireInput(input);
     expect(metaSlot(dialog, 0).hidden).toBe(false);
     const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
-    presetSelect.value = "qwen";
+    presetSelect.value = "ollama";
     presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 

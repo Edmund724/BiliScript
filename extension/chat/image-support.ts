@@ -2,8 +2,8 @@
 //
 // 决策（spec §门控：乐观放行）：
 //   - 目录有 input 数据且不含 image → 提示「该模型可能不支持图片」，**不阻断发送**；
-//   - 目录查不到（含 7 个永远没有目录数据的 preset）→ 静默放行，支不支持交给平台
-//     400 报错兜底；
+//   - 目录查不到（含 ollama / custom 两家永远没有目录数据的 preset）→ 静默放行，
+//     支不支持交给平台 400 报错兜底；
 //   - 不做严格门控、不手工补一份「哪些模型支持图片」的事实表。
 //
 // 两半职责：
@@ -14,10 +14,11 @@
 //   ② imageUnsupportedErrorHint —— 平台 400 的用户可见文案兜底：平台 detail 自己
 //      说了图片相关（既有 extractErrorDetail 的透传）就不补，无线索才补一句。
 //
-// 目录模块（ai/model-catalog.ts 与它的 85KB 产物）是懒加载的零依赖叶子
+// 目录模块（ai/model-catalog.ts 与它的 103KB 产物）是懒加载的零依赖叶子
 // （model-catalog 不变式 5）：查询只能经 ui/lazy-model-catalog 的动态 import()，
 // 不得进 content script 的静态图。查表口径与设置页只读元数据栏同源
-// （lookupCatalogMeta = resolvePiProvider + lookupModelMeta），不在此另写一份识别。
+// （lookupCatalogMeta = resolveCatalogProvider + 上游 (provider, modelId) 查表，含
+// 折叠大小写与 02 号票的别名表），不在此另写一份识别。
 
 import type { ImagePart } from "../ai/types.js";
 // 对目录模块只取类型（import type 不成运行时边）；值侧走下面这个懒加载器。

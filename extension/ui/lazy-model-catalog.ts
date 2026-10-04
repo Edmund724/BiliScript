@@ -1,10 +1,10 @@
 // ui/lazy-model-catalog.ts — 模型目录模块的按需加载器（model-catalog/04）。
 //
-// 目录产物是构建期数据（81KB，7 provider / 435 模型），只服务设置页平台编辑 Modal
-// 的只读展示与对话侧的发图门控（chat/image-support.ts，image-input 05 号票）——
-// 首屏与 SW 不该为它买单，所以走 import() 懒加载（不触发这些路径就一次都不加载），
-// 不走 fetch(chrome.runtime.getURL)：那要碰 web_accessible_resources、失败降级与
-// SW 中转，纯属自找（spec §产物形态）。
+// 目录产物是构建期数据（103KB，12 上游 provider / 578 模型；upstream-model-facts/10
+// 起源 = models.dev），只服务设置页平台编辑 Modal 的只读展示与对话侧的发图门控
+// （chat/image-support.ts，image-input 05 号票）——首屏与 SW 不该为它买单，所以走
+// import() 懒加载（不触发这些路径就一次都不加载），不走 fetch(chrome.runtime.getURL)：
+// 那要碰 web_accessible_resources、失败降级与 SW 中转，纯属自找（spec §产物形态）。
 //
 // 加载器语义与 reader/lazy-reader.ts / ui/lazy-ui.ts 一致（createLazyLoader）：
 // 同文档内重复调用共享同一 promise，失败清缓存可重试。额外的 loaded 快照给

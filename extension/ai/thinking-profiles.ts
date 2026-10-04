@@ -32,10 +32,10 @@
 // 事实的唯一主人：
 // - 上游逐模型词表 / 指派 / 别名 → 02 产物（构建期生成，勿手改；漂移对账见
 //   `pnpm catalog:check`）；
-// - 平台 preset 列表 / baseUrl → core/presets.ts（host 索引收口在
-//   core/preset-host-index.ts，不复制 baseUrl）；
-// - preset → 上游 provider 的桥接 → 本文件的 UPSTREAM_PROVIDER_BY_PRESET
-//   （临时表，10 号票搬进 core/presets.ts 的 preset 数据）；
+// - 平台 preset 列表 / baseUrl / preset → 上游 provider 的映射 → core/presets.ts
+//   （host 索引收口在 core/preset-host-index.ts，不复制 baseUrl；**10 号票起
+//   preset → 上游 provider 的唯一来源是 PRESETS[].catalogProvider**，本文件的
+//   UPSTREAM_PROVIDER_BY_PRESET 由它派生，见下）；
 // - 无上游平台的模型血统（永远/混合/永不思考）与模型名模式 → 本文件的
 //   TAXONOMY / EXCEPTIONS（每格注释里简写出处域名）；它们同时是「有上游平台但指派表
 //   未覆盖该 id」的兜底（见上「残留清单裁决」）。
@@ -80,6 +80,7 @@
 // unknown）是把同一次解析按来源分层，供 06 号票的三层来源清单（artifacts/06-chip-source.tsv）
 // 与 UI 用例对账——它不是 chip 的第二套推导。
 
+import { PRESETS } from "../core/presets.js";
 import { hostOf, presetIdForHost } from "../core/preset-host-index.js";
 import { lookupThinkingFact, type ThinkingModelFact } from "./catalog/models-dev-thinking.generated.js";
 
@@ -461,28 +462,20 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   }
 };
 
-// ===== 上游桥接：preset → 上游 provider id（04 号票，临时表）=====
-// 键 = core/presets.ts 的 AI preset id（= PROVIDERS 的键空间，识别口径同
-// resolveThinkingProviderId）；值 = 02 产物的上游 provider id。映射依据见
-// spec.md §preset → 上游 provider：11 家按 `api` 字段与 preset baseUrl 逐字相同，
-// minimax 是人工裁定（api.minimaxi.com/v1 ↔ minimax-cn 的 api.minimax.cn/anthropic/v1，
-// 同一家 coding/anthropic 端点）。无上游 2 家（ollama / custom）与 non-preset 的
-// siliconflow 不在表内 → 永远走手写表。
-// **临时**：10 号票把它搬进 core/presets.ts 的 preset 数据（本票不动 presets.ts）。
-export const UPSTREAM_PROVIDER_BY_PRESET: Readonly<Record<string, string>> = {
-  deepseek: "deepseek",
-  qwen: "alibaba-cn",
-  zhipu: "zhipuai",
-  moonshot: "kimi-code-plan-cn",
-  minimax: "minimax-cn",
-  mimo: "xiaomi",
-  opencodego: "opencode-go",
-  openrouter: "openrouter",
-  stepfun: "stepfun-step-plan",
-  modelscope: "modelscope",
-  amd: "amd",
-  sensenova: "sensenova"
-};
+// ===== 上游桥接：preset → 上游 provider id（10 号票起由 PRESETS 派生）=====
+// **单源**：preset → 上游 provider 的唯一映射是 core/presets.ts 的
+// PRESETS[].catalogProvider（映射依据见 spec.md §preset → 上游 provider：11 家按
+// `api` 字段与 preset baseUrl 逐字相同，minimax 是人工裁定——本仓
+// api.minimaxi.com/v1 与上游 minimax-cn 的 api.minimax.cn/anthropic/v1 判为同一家）。
+// 本常量只是同一份事实的查表形状（键 = presetId，值 = 02 产物的上游 provider id），
+// 不再复制第二份表；键顺序 = PRESETS 顺序（= 工件与用例的枚举顺序）。
+// 无 catalogProvider 的 2 家（ollama / custom，同 NO_CATALOG_PRESETS）与 non-preset
+// 的 siliconflow 不在表内 → 永远走手写表。
+export const UPSTREAM_PROVIDER_BY_PRESET: Readonly<Record<string, string>> = Object.fromEntries(
+  PRESETS.flatMap((preset) =>
+    preset.catalogProvider ? [[preset.id, preset.catalogProvider] as const] : []
+  )
+);
 
 // ===== 上游开关形状（平台线格式方言；04 号票）=====
 // 值集里有 toggle 时「关/开」在本平台落成什么字段——线格式方言是平台事实

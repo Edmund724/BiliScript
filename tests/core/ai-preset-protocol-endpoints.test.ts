@@ -9,8 +9,10 @@
 // - moonshot：官方文档 Anthropic Base URL = https://api.kimi.com/coding/，
 //   endpoint 示例 https://api.kimi.com/coding/v1/messages
 //   （https://www.kimi.com/code/docs/en/）。
-// - opencodego：pi-ai 目录中 anthropic-messages 组 baseUrl =
-//   https://opencode.ai/zen/go，openai-completions / responses 组才是 /zen/go/v1。
+// - opencodego：models.dev 的 opencode-go provider 条目（doc
+//   https://opencode.ai/docs/go）登记的 api 是 OpenAI 兼容族
+//   https://opencode.ai/zen/go/v1；Anthropic 兼容族端点按适配器约定去掉那个 /v1
+//   后缀 = https://opencode.ai/zen/go（本表登记值）。
 // - stepfun：官方「推理模型接入」明示路径 https://api.stepfun.com/step_plan/v1/messages，
 //   并警告 Anthropic SDK 的 base_url 不带 /v1（与 adapter 约定一致）。
 // - openrouter：官方 OpenAPI（tag「Anthropic Messages」）路径 /messages、server

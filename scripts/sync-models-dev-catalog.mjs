@@ -36,8 +36,10 @@ import { DEFAULT_SOURCE, UPSTREAM_PROVIDERS } from "./models-dev-upstream-provid
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MODULE_FILE = "extension/ai/catalog/models-dev-catalog.generated.ts";
 
-// preset → 上游 provider 的单源在 scripts/models-dev-upstream-providers.mjs
-// （02 号票的思考事实产物共用同一张表）。
+// preset → 上游 provider 的单源在 extension/core/presets.ts 的 PRESETS[].catalogProvider
+// （10 号票起）：本脚本经 scripts/models-dev-upstream-providers.mjs 读取它（该模块按
+// presets.ts 源码取值并校验完整性），不再自持映射列表；02 号票的思考事实产物共用同一
+// 份投影，两份产物对「12 家是谁」因此是同一口径（新增 preset 漏配即脚本报错）。
 
 // 产物字段白名单（顺序 = 每行字段序）与上游字段的对应关系（spec §范围 3）。
 const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTokens"];

@@ -68,47 +68,46 @@ export interface AiProviderPreset {
   // 切协议时 baseUrl 未改过即跟随对应协议的端点。缺省回落 baseUrl（含同址
   // 多协议平台：Kimi Code、Opencode Go 无需登记）。
   protocolBaseUrls?: Partial<Record<AiProtocol, string>>;
-  // 模型目录归属（model-catalog/02）：本预设对应 @earendil-works/pi-ai 的
-  // provider 目录文件名。presetId 与上游文件名不是一套（zhipu/zai-coding-cn、
-  // mimo/xiaomi…），且实测按 host 自动匹配会错配
+  // 模型目录归属（upstream-model-facts/10）：本预设对应的 models.dev 上游
+  // provider id（= 构建期产物 ai/catalog/models-dev-catalog.generated.ts 与
+  // models-dev-thinking.generated.ts 的上层键）。presetId 与上游 id 不是一套
+  // （qwen/alibaba-cn、moonshot/kimi-code-plan-cn…），且实测按 host 自动匹配会错配
   // （zhipu 同域不同路径、mimo 曾用不解析的 api.mimo.ai），故逐平台显式登记；
   // 查表时 presetId 命中即不再看 baseUrl（host 只兜底 custom/未知预设）。
-  // 没有登记 = 该预设永远没有目录数据（白名单见 ai/model-catalog.ts）。
-  piProvider?: string;
+  // 没有登记 = 该预设永远没有目录数据（白名单见本文的 NO_CATALOG_PRESETS）。
+  // **单源**：preset → 上游 provider 的唯一映射就是本字段——thinking 侧
+  // （ai/thinking-profiles.ts 的 UPSTREAM_PROVIDER_BY_PRESET）由它派生，
+  // 构建期脚本（scripts/models-dev-upstream-providers.mjs）读本文件源码取值。
+  catalogProvider?: string;
 }
 
 export const PRESETS: readonly AiProviderPreset[] = [
-  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true, piProvider: "deepseek", protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
-  { id: "qwen",          name: "Qwen",        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://dashscope.aliyuncs.com/apps/anthropic" } },
-  { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, piProvider: "zai-coding-cn", protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },
-  { id: "moonshot",      name: "Kimi",        baseUrl: "https://api.kimi.com/coding/v1", requiresKey: true, piProvider: "kimi-coding", protocolBaseUrls: { anthropic: "https://api.kimi.com/coding" } },
-  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true, piProvider: "minimax-cn", protocolBaseUrls: { anthropic: "https://api.minimaxi.com/anthropic" } },
-  { id: "mimo",          name: "Mimo",        baseUrl: "https://api.xiaomimimo.com/v1", requiresKey: true, piProvider: "xiaomi", protocolBaseUrls: { anthropic: "https://api.xiaomimimo.com/anthropic" } },
-  { id: "opencodego",    name: "Opencode Go", baseUrl: "https://opencode.ai/zen/go/v1", requiresKey: true, piProvider: "opencode-go", protocolBaseUrls: { anthropic: "https://opencode.ai/zen/go" } },
-  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true, piProvider: "openrouter", protocolBaseUrls: { anthropic: "https://openrouter.ai/api" } },
-  { id: "stepfun",       name: "Stepfun",     baseUrl: "https://api.stepfun.com/step_plan/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api.stepfun.com/step_plan" } },
-  { id: "modelscope",    name: "ModelScope",  baseUrl: "https://api-inference.modelscope.cn/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://api-inference.modelscope.cn" } },
-  { id: "amd",           name: "AMD Radeon Cloud（免费）", baseUrl: "https://developer.amd.com.cn/radeon/api/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://developer.amd.com.cn/radeon/api" } },
-  { id: "sensenova",     name: "SenseNova 商汤（免费）", baseUrl: "https://token.sensenova.cn/v1", requiresKey: true, protocolBaseUrls: { anthropic: "https://token.sensenova.cn" } },
+  { id: "deepseek",      name: "DeepSeek",    baseUrl: "https://api.deepseek.com/v1", requiresKey: true, catalogProvider: "deepseek", protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.deepseek.com/anthropic" } },
+  { id: "qwen",          name: "Qwen",        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", requiresKey: true, catalogProvider: "alibaba-cn", protocolBaseUrls: { anthropic: "https://dashscope.aliyuncs.com/apps/anthropic" } },
+  { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, catalogProvider: "zhipuai", protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },
+  { id: "moonshot",      name: "Kimi",        baseUrl: "https://api.kimi.com/coding/v1", requiresKey: true, catalogProvider: "kimi-code-plan-cn", protocolBaseUrls: { anthropic: "https://api.kimi.com/coding" } },
+  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true, catalogProvider: "minimax-cn", protocolBaseUrls: { anthropic: "https://api.minimaxi.com/anthropic" } },
+  { id: "mimo",          name: "Mimo",        baseUrl: "https://api.xiaomimimo.com/v1", requiresKey: true, catalogProvider: "xiaomi", protocolBaseUrls: { anthropic: "https://api.xiaomimimo.com/anthropic" } },
+  { id: "opencodego",    name: "Opencode Go", baseUrl: "https://opencode.ai/zen/go/v1", requiresKey: true, catalogProvider: "opencode-go", protocolBaseUrls: { anthropic: "https://opencode.ai/zen/go" } },
+  { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true, catalogProvider: "openrouter", protocolBaseUrls: { anthropic: "https://openrouter.ai/api" } },
+  { id: "stepfun",       name: "Stepfun",     baseUrl: "https://api.stepfun.com/step_plan/v1", requiresKey: true, catalogProvider: "stepfun-step-plan", protocolBaseUrls: { anthropic: "https://api.stepfun.com/step_plan" } },
+  { id: "modelscope",    name: "ModelScope",  baseUrl: "https://api-inference.modelscope.cn/v1", requiresKey: true, catalogProvider: "modelscope", protocolBaseUrls: { anthropic: "https://api-inference.modelscope.cn" } },
+  { id: "amd",           name: "AMD Radeon Cloud（免费）", baseUrl: "https://developer.amd.com.cn/radeon/api/v1", requiresKey: true, catalogProvider: "amd", protocolBaseUrls: { anthropic: "https://developer.amd.com.cn/radeon/api" } },
+  { id: "sensenova",     name: "SenseNova 商汤（免费）", baseUrl: "https://token.sensenova.cn/v1", requiresKey: true, catalogProvider: "sensenova", protocolBaseUrls: { anthropic: "https://token.sensenova.cn" } },
   { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false },
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
 
-// 无数据白名单（model-catalog/02）：这些预设在上游 pi-ai 目录里没有对应 provider
-// 文件，模型元数据永远查不到，UI 静默降级（不显示占位）。与上面的 piProvider
-// 字段同源对账：每个预设恰好属于「登记了 piProvider」或「在本清单」之一——新增
-// 预设忘配即测试失败，而不是悄悄进白名单（tests/ai/model-catalog.test.ts）。
-// custom 虽然在白名单里，它的查表仍走 baseUrl host 兜底（ai/model-catalog.ts
-// 的 IDENTITYLESS_PRESETS：custom 的语义就是用户自填端点，presetId 不带身份）。
-export const NO_CATALOG_PRESETS = [
-  "qwen",
-  "stepfun",
-  "modelscope",
-  "amd",
-  "sensenova",
-  "ollama",
-  "custom"
-] as const;
+// 无数据白名单（upstream-model-facts/10）：只有这两家在上游 models.dev 里没有
+// provider 身份，模型元数据永远查不到，UI 静默降级（不显示占位）。
+//   - ollama：本地运行时，模型 id 由用户本地 pull 决定，无上游目录；
+//   - custom：用户自填端点，presetId 不携带平台身份（查表走 baseUrl host 兜底，
+//     见 ai/model-catalog.ts 的 IDENTITYLESS_PRESETS）。
+// 与上面的 catalogProvider 字段同源对账：每个预设恰好属于「登记了 catalogProvider」
+// 或「在本清单」之一——新增预设忘配即测试失败（tests/ai/model-catalog.test.ts），
+// 而不是悄悄进白名单。10 号票前这里还有 qwen / stepfun / modelscope / amd /
+// sensenova 五家（当时的 pi-ai 快照没收录），models.dev 有身份后已全部移出。
+export const NO_CATALOG_PRESETS = ["ollama", "custom"] as const;
 
 // ===== 联网搜索平台预设 =====
 // type 决定走哪个适配器（extension/search/adapters/），六家均为纯 HTTP：

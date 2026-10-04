@@ -492,14 +492,14 @@ describe("models.dev 目录产物（01）", () => {
     expect(lookupUpstreamModelMeta("kimi-code-plan-cn", undefined)).toBeNull();
   });
 
-  it("叶子：产物零 import，且 extension 里还没有静态引用者", () => {
+  it("叶子：产物零 import，唯一的静态引用者是 UI 目录域模块", () => {
     const source = readFileSync(GENERATED_MODULE, "utf8");
     expect(source).not.toMatch(/^\s*import\s/m);
     expect(source).not.toMatch(/^\s*export\s+[^;]*?\s+from\s/m);
     expect(source).not.toMatch(/\bimport\s*\(/);
-    // 10 号票把 UI 目录切到这份产物时才允许出现消费者；在那之前它必须不在
-    // 任何静态图里（更不得进 SW 静态图）。
-    expect(staticImportersOf("models-dev-catalog.generated")).toEqual([]);
+    // 10 号票把 UI 目录切到这份产物：唯一消费者是 ai/model-catalog.ts（它自己只能被
+    // ui/lazy-model-catalog.ts 动态 import，且已在 build.js 的 SW 静态图禁区清单里）。
+    expect(staticImportersOf("models-dev-catalog.generated")).toEqual(["ai/model-catalog.ts"]);
   });
 
   it("红线：请求路径不引用上游目录产物（构建期数据不进请求链）", () => {

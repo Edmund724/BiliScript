@@ -614,15 +614,20 @@ describe("思考事实产物（02）", () => {
     expect(Object.keys(VALUESETS)).toHaveLength(UPSTREAM_THINKING_SOURCE.counts.valuesets);
   });
 
-  it("叶子：产物零 import，静态引用者只有 04 号票的查表消费者，且 build.js 把它列为 SW 静态图禁区", () => {
+  it("叶子：产物零 import，静态引用者只有查表消费者，且 build.js 把它列为 SW 静态图禁区", () => {
     const source = readFileSync(GENERATED_MODULE, "utf8");
     expect(source).not.toMatch(/^\s*import\s/m);
     expect(source).not.toMatch(/^\s*export\s+[^;]*?\s+from\s/m);
     expect(source).not.toMatch(/\bimport\s*\(/);
-    // 02 号票时期本产物没有消费者（"05/06 才用"）；04 号票起有唯一消费者：
-    // ai/thinking-profiles.ts（有上游平台的逐模型档位改由指派表驱动）。
-    // 消费者本身在 SW 静态图禁区清单里，所以产物仍不进 SW（下面的守卫同款断言）。
-    expect(staticImportersOf("models-dev-thinking.generated")).toEqual(["ai/thinking-profiles.ts"]);
+    // 02 号票时期本产物没有消费者（"05/06 才用"）；04 号票起有第一个消费者
+    // ai/thinking-profiles.ts（有上游平台的逐模型档位改由指派表驱动）；10 号票起新增
+    // 第二个 ai/model-catalog.ts（UI 目录查表复用**同一份** MODEL_ID_ALIASES 别名表，
+    // 不复制第二份）。两个消费者自身都在 SW 静态图禁区清单里，所以产物仍不进 SW
+    //（下面的守卫同款断言）。
+    expect(staticImportersOf("models-dev-thinking.generated")).toEqual([
+      "ai/model-catalog.ts",
+      "ai/thinking-profiles.ts"
+    ]);
 
     // SW 静态图守卫（票面 §7）：scripts/build.js 的禁区清单必须点名本文件。
     const build = readFileSync("scripts/build.js", "utf8");

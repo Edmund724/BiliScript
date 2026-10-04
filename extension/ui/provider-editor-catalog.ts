@@ -154,8 +154,8 @@ export function modelRowHtml(value: string): string {
 // 不进对话界面（chat 的模型 chip 宽度由 canvas 量出、硬上限 420px，塞元数据会
 // 挤压截断），也不落盘、不进请求体（spec 只读纪律）。
 //
-// 查不到就整栏静默隐藏——不显示 "—"、不显示"暂无数据"：15 个预设里 7 个永远
-// 没有目录数据，满屏占位比不显示更难看。
+// 查不到就整栏静默隐藏——不显示 "—"、不显示"暂无数据"：14 个预设里 ollama / custom
+// 2 家永远没有目录数据（NO_CATALOG_PRESETS），满屏占位比不显示更难看。
 
 // 上下文窗口短格式（spec §展示）：≥10⁶ 用 M，否则取整到 K；两者都是十进制
 // （1000000→"1M"、524288→"524K"）。
@@ -185,10 +185,12 @@ function modelMetaHtml(meta: CatalogModelMeta): string {
   return parts.join("");
 }
 
-// title 承载完整信息（spec §展示）：展示名 + 窗口 + 输出上限 + 两项能力 + 数据版本
+// title 承载完整信息（spec §展示）：展示名 + 窗口 + 输出上限 + 两项能力 + 数据版本。
+// 数据版本 = 上游来源 URL + 01 产物的 contentHash（**不带时间戳**：产物幂等，同一份
+// 上游数据两次生成同值，见 ai/catalog/models-dev-catalog.generated.ts 头注释）。
 export function modelMetaTitle(
   meta: CatalogModelMeta,
-  source: { package: string; version: string } | null
+  source: { source: string; contentHash: string } | null
 ): string {
   const parts = [
     meta.name,
@@ -198,7 +200,7 @@ export function modelMetaTitle(
     meta.input.includes("image") ? "支持图片" : "仅文本输入"
   ];
   if (source) {
-    parts.push(`目录 ${source.package} ${source.version}`);
+    parts.push(`目录 ${source.source} ${source.contentHash}`);
   }
   return parts.join(" · ");
 }
@@ -208,7 +210,7 @@ function fillMetaSlot(slot: HTMLElement, meta: CatalogModelMeta | null): void {
   slot.hidden = !html;
   slot.innerHTML = html;
   if (meta && html) {
-    slot.title = modelMetaTitle(meta, loadedModelCatalog()?.PI_AI_CATALOG_SOURCE ?? null);
+    slot.title = modelMetaTitle(meta, loadedModelCatalog()?.UPSTREAM_CATALOG_SOURCE ?? null);
   } else {
     slot.removeAttribute("title");
   }
