@@ -1,0 +1,221 @@
+{
+  "deepseek": {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "doc": "https://api-docs.deepseek.com/quick_start/pricing",
+    "models": {
+      "fx-deepseek-chat": {
+        "id": "fx-deepseek-chat",
+        "name": "FX DeepSeek Chat",
+        "reasoning": false,
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 131072, "output": 8192 },
+        "last_updated": "2026-01-01"
+      }
+    }
+  },
+  "alibaba-cn": {
+    "id": "alibaba-cn",
+    "name": "Alibaba Cloud (China)",
+    "doc": "https://www.alibabacloud.com/help/en/model-studio/models",
+    "models": {
+      "qwen3-max": {
+        "id": "qwen3-max",
+        "name": "Qwen3 Max",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "toggle" }, { "type": "budget_tokens", "max": 81920 }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 262144, "output": 32768 },
+        "last_updated": "2026-09-22"
+      }
+    }
+  },
+  "zhipuai": {
+    "id": "zhipuai",
+    "name": "Z.ai",
+    "doc": "https://docs.z.ai/guides/overview/pricing",
+    "models": {
+      "glm-5.2": {
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "effort", "values": ["high", "max"] }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 204800, "output": 131072 },
+        "last_updated": "2026-06-13"
+      },
+      "glm-5.3": {
+        "id": "glm-5.3",
+        "name": "GLM-5.3",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "effort", "values": ["low", "high", "max"] }],
+        "canonical_model_id": "zhipuai/glm-5.3",
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 204800, "output": 131072 },
+        "last_updated": "2026-08-14"
+      }
+    }
+  },
+  "kimi-code-plan-cn": {
+    "id": "kimi-code-plan-cn",
+    "name": "Kimi Code Plan (China)",
+    "doc": "https://www.kimi.com/code/docs/en/kimi-code/models.html",
+    "models": {
+      "k3": {
+        "id": "k3",
+        "name": "K3",
+        "reasoning": true,
+        "reasoning_options": [
+          { "type": "toggle" },
+          { "type": "effort", "values": ["low", "high", "max"] }
+        ],
+        "canonical_model_id": "moonshotai/kimi-k3",
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 262144, "output": 131072 },
+        "last_updated": "2026-07-16"
+      }
+    }
+  },
+  "xiaomi": {
+    "id": "xiaomi",
+    "name": "Xiaomi",
+    "doc": "https://platform.xiaomimimo.com/#/docs",
+    "models": {
+      "mimo-v2.5-pro": {
+        "id": "mimo-v2.5-pro",
+        "name": "MiMo V2.5 Pro",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "toggle" }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 262144, "output": 131072 },
+        "last_updated": "2026-06-24"
+      }
+    }
+  },
+  "opencode-go": {
+    "id": "opencode-go",
+    "name": "OpenCode Go",
+    "doc": "https://opencode.ai/docs/go",
+    "models": {
+      "fx-go-model": {
+        "id": "fx-go-model",
+        "name": "FX Go Model",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "toggle" }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 131072, "output": 32768 },
+        "last_updated": "2026-05-05"
+      }
+    }
+  },
+  "openrouter": {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "doc": "https://openrouter.ai/models",
+    "models": {
+      "fx/router-model": {
+        "id": "fx/router-model",
+        "name": "FX Router Model",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "effort", "values": ["low", "high"] }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 131072, "output": 32768 },
+        "last_updated": "2026-05-05"
+      }
+    }
+  },
+  "stepfun-step-plan": {
+    "id": "stepfun-step-plan",
+    "name": "StepFun Step Plan",
+    "doc": "https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api",
+    "models": {
+      "step-9-preview": {
+        "id": "step-9-preview",
+        "name": "Step 9 Preview",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "effort", "values": ["low", "medium", "high"] }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 262144, "output": 131072 },
+        "last_updated": "2026-09-20"
+      }
+    }
+  },
+  "modelscope": {
+    "id": "modelscope",
+    "name": "ModelScope",
+    "doc": "https://modelscope.cn/docs/model-service/API-Inference/intro",
+    "models": {
+      "fx-scope-model": {
+        "id": "fx-scope-model",
+        "name": "FX Scope Model",
+        "reasoning": true,
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 131072, "output": 32768 },
+        "last_updated": "2026-05-05"
+      }
+    }
+  },
+  "amd": {
+    "id": "amd",
+    "name": "AMD Radeon Cloud",
+    "doc": "https://developer.amd.com.cn/radeon/tokenfactory",
+    "models": {
+      "fx-amd-model": {
+        "id": "fx-amd-model",
+        "name": "FX AMD Model",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "effort", "values": ["low", "medium"] }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 131072, "output": 32768 },
+        "last_updated": "2026-05-05"
+      }
+    }
+  },
+  "sensenova": {
+    "id": "sensenova",
+    "name": "SenseNova",
+    "doc": "https://platform.sensenova.cn/docs",
+    "models": {
+      "fx-sense-model": {
+        "id": "fx-sense-model",
+        "name": "FX Sense Model",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "effort", "values": ["none", "low", "medium", "high"] }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 131072, "output": 32768 },
+        "last_updated": "2026-05-05"
+      }
+    }
+  },
+  "minimax-cn": {
+    "id": "minimax-cn",
+    "name": "MiniMax (China)",
+    "doc": "https://platform.minimaxi.com/docs/guides/quickstart",
+    "models": {
+      "MiniMax-M2": {
+        "id": "MiniMax-M2",
+        "name": "MiniMax M2",
+        "reasoning": true,
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 204800, "output": 131072 },
+        "last_updated": "2025-10-27"
+      }
+    }
+  },
+  "openai": {
+    "id": "openai",
+    "name": "OpenAI",
+    "doc": "https://platform.openai.com/docs/models",
+    "models": {
+      "fx-gpt-reasoning": {
+        "id": "fx-gpt-reasoning",
+        "name": "FX GPT Reasoning",
+        "reasoning": true,
+        "reasoning_options": [{ "type": "effort", "values": ["low", "high"] }],
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 400000, "output": 128000 },
+        "last_updated": "2026-05-05"
+      }
+    }
+  }
+}

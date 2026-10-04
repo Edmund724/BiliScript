@@ -1,0 +1,8 @@
+[
+  {
+    "provider": "kimi-code-plan-cn",
+    "localId": "kimi-k3",
+    "upstream": "kimi-code-plan-cn/k3",
+    "reason": "fixture：上游没有 kimi-k3，实际 id 是 k3；本仓手写表用 kimi-k3 称呼它（真实表同构）。"
+  }
+]

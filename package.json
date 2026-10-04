@@ -20,6 +20,7 @@
     "catalog:sync": "node scripts/sync-pi-ai-catalog.mjs",
     "catalog:sync:upstream": "node scripts/sync-models-dev-catalog.mjs",
     "catalog:sync:thinking": "node scripts/sync-models-dev-thinking.mjs",
+    "catalog:check": "node scripts/check-models-dev-catalog.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
