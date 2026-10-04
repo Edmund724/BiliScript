@@ -67,7 +67,6 @@ describe("compat-vocab 词表叶", () => {
       "thinkingDisabledMustBeExplicit",
       "probeOmitsThinking",
       "maxTokensRequired",
-      "thinkingBudgetTokens",
       "sessionHeader",
       "systemOutOfBand",
       "toolResultInUserMessage",

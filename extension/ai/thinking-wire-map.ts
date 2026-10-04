@@ -5,13 +5,17 @@
 // - 模型血统表（thinking-profiles.ts）= 事实层：这个模型属于哪类血统、各档发哪套
 //   OpenAI 词汇（reasoning_effort / enable_thinking / thinking:{type}）与 token 参数名事实；
 // - 本表 = 写法层：这套词汇在本协议落成哪个字段、值怎么算——Messages 通道的
-//   effort 词汇改写、budget_tokens 推算、probe 早退、off 三词汇归一，都在表内逐格写出。
+//   effort 词汇改写、开关型血统的开档形状、probe 早退、off 三词汇归一，都在表内逐格写出。
 //
 // 为什么必须显式成表：同一份血统 patch 经 Messages 通道改写时，低档与高档曾被压成
-// 同一个 budget_tokens（塌陷）。塌陷能藏住，正是因为这一层只活在 adapter 的 if 里、
+// 同一个预算（塌陷）。塌陷能藏住，正是因为这一层只活在 adapter 的 if 里、
 // 没有可审的表。表把「哪一档发什么」变成逐格可审、可被 golden 逐字节钉住的事实：
-// Messages 通道的档位词汇按平台在表内逐格登记（含「该平台未登记档位词汇 → 退回按档
-// 预算」这一格），不再有靠 maxTokens 隐式推导档位取值的写法。
+// Messages 通道的档位词汇按平台在表内逐格登记（含「该平台未登记档位词汇 → 发裸
+// effort 词汇」这一格），不再有靠上限隐式推导取值的写法。
+//
+// **硬规则：本表任何一格都不发 `budget_tokens`**——官方没有 effort→预算的换算表，
+// 自造预算只会挤占 max_tokens（各平台已实测：思考计入 max_tokens 会把正文挤成
+// 空串）。开关型血统的开档因此只发 thinking:{type:"enabled"}（不带上限）。
 //
 // 纯叶模块：只 type-import 词表叶（AiProtocol）与血统表类型，零运行时依赖（SW 静态
 // 图安全）。键以 Record<AiProtocol, …> 强制覆盖（沿 protocol-adapter.ts 的既有纪律）：
@@ -22,33 +26,29 @@
 // 且表达得了跨越 option 的条件（探针依赖 maxTokens 等）。
 
 import type { AiProtocol } from "./protocol-vocab.js";
-import type { ClassRule, ThinkingLevel } from "./thinking-profiles.js";
+import type { ClassRule } from "./thinking-profiles.js";
 
 /** 血统表的 token 上限参数名事实（openai-reasoning 系 = max_completion_tokens）。 */
 export type TokenParam = NonNullable<ClassRule["tokenParam"]>;
 
 /**
- * 表入参：**血统 patch（OpenAI 词汇）+ 档位 + 上下文事实 + 平台事实**。
+ * 表入参：**血统 patch（OpenAI 词汇）+ 上下文事实 + 平台事实**。
  * 各协议行按需读取（openai 行只读 fields/tokenParam；anthropic 行读
- * fields/probe/maxTokens/level/platformId/effortVocabularyOnly）。
+ * fields/probe/platformId/effortVocabularyOnly）。
  */
 export interface ThinkingWireInput {
   /** 血统表给出的本档 patch（OpenAI 词汇）；空对象 = 无事实，一律不发字段。 */
   fields: Record<string, unknown>;
-  /** 归一后的档位：off 级联后的 patch 已落在 fields 里，档位本身供退回按档预算取值。 */
-  level: ThinkingLevel;
   /** 本次请求是否流式（血统表的 streamOnly 事实已在 resolver 侧消费）。 */
   stream: boolean;
   /** 探针请求：Messages 通道不发思考字段（怪癖 probeOmitsThinking）。 */
   probe: boolean;
-  /** 请求体里实际要发出的 token 上限（Messages 的预算上限判定用；缺省 = 无此事实）。 */
-  maxTokens?: number;
   /** 血统表的 token 上限参数名事实；缺省按本协议默认（Messages 恒为 max_tokens）。 */
   tokenParam?: TokenParam;
   /**
    * 平台识别（口径：thinking-profiles 的 PROVIDERS 键空间，adapter 传
    * `resolveThinkingProviderId` 的结果）。Messages 通道的档位词汇按平台登记
-   * （MESSAGES_TIER_VOCABULARY）；未登记的平台退回按档分配 budget_tokens。
+   * （MESSAGES_TIER_VOCABULARY）；未登记的平台发裸 `output_config.effort`。
    */
   platformId?: string;
   /** 平台事实：Messages 通道只认 effort 词汇（怪癖 effortVocabMessages，strict 语义）。 */
@@ -73,22 +73,18 @@ function openaiWireMap({ fields, tokenParam }: ThinkingWireInput): ThinkingWireO
 }
 
 // ===== Anthropic Messages =====
-// 怪癖 thinkingBudgetTokens（语义见 compat-vocab）：开思考的 budget_tokens 硬性下限
-// （Anthropic 官方要求 ≥1024）与默认预算；budget 计入 max_tokens，必须 < max_tokens。
-export const MIN_BUDGET_TOKENS = 1024;
-export const DEFAULT_BUDGET_TOKENS = 2048;
-// 未文档化平台的按档回退：高档预算（低档保持默认预算不动）。取值依据见
-// TIER_BUDGET_BY_LEVEL 的注释。
-export const HIGH_BUDGET_TOKENS = 8192;
+// **本行不发 budget_tokens**（硬规则）：官方没有 effort→预算的换算表，自定预算会挤占
+// max_tokens 并把正文挤空；开档一律只发档位词汇或裸开关。
 
 /**
  * 平台在 Messages 通道登记过的档位词汇形态（平台事实，02 号票）：
  * - "effort"：`output_config.effort` + 显式 thinking 开关（平台官方文档登记了该字段与取值词表）；
  * - "effort-bare"：只发 `output_config.effort`——不带 thinking 对象才安全（openrouter 的
- *   `thinking.type:"enabled"` 必带 budget_tokens；opencodego / modelscope 的 thinking 形状
+ *   `thinking.type:"enabled"` 必带预算；opencodego / modelscope 的 thinking 形状
  *   无官方文档，只发档位字段不冒硬 400 风险）；
  * - "reasoning-effort"：顶层 `reasoning_effort`（该端点未登记 thinking 形状）。
- * 未登记的平台（含完全无文档的网关）= 无此行 → 退回按档分配 budget_tokens。
+ * 未登记的平台（含完全无文档的网关）= 无此行 → 发裸 `output_config.effort`
+ * （档位词照发，但不下发预算）。
  */
 export type MessagesTierVocabulary = "effort" | "effort-bare" | "reasoning-effort";
 
@@ -137,18 +133,6 @@ const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
   modelscope: "effort-bare"
 };
 
-// 按档分配的预算（未登记档位词汇的平台的显式回退，02 号票）：低档保持现状默认预算不动，
-// 高档取 HIGH_BUDGET_TOKENS。凭据：Anthropic 官方**没有** effort → budget_tokens 的换算表
-// （官方 SDK 类型与 AWS 托管文档只给定性说明）；唯一公开公式是 OpenRouter 网关自有策略
-// （budget = max(min(max_tokens × ratio, 128000), 1024)，low 0.2 / high 0.8；
-// openrouter.ai/docs/guides/best-practices/reasoning-tokens）——不是官方换算，只作档位单调性
-// 的旁证。off 档只可能是级联落低档（offFallback:"low"），预算随之取低档。
-const TIER_BUDGET_BY_LEVEL: Record<ThinkingLevel, number> = {
-  off: DEFAULT_BUDGET_TOKENS,
-  low: DEFAULT_BUDGET_TOKENS,
-  high: HIGH_BUDGET_TOKENS
-};
-
 // Messages 通道的思考档位改写（怪癖 thinkingFormat）：血统表的 chat 形状字段 →
 // Anthropic 线格式。三种关思考词汇殊途同归为 thinking:{type:"disabled"}——怪癖
 // thinkingDisabledMustBeExplicit：「Anthropic 默认即关、一律不发字段」在默认开思考的
@@ -158,14 +142,15 @@ const TIER_BUDGET_BY_LEVEL: Record<ThinkingLevel, number> = {
 //
 // 开思考分两格（02 号票在这里把「档位塌陷」改成显式的一格一格）：
 // ① effort 血统：按平台官方登记的档位词汇落线（MESSAGES_TIER_VOCABULARY），档位词由血统表
-//    给出、原样透传；平台没有登记档位词汇 → 退回按档分配 budget_tokens（显式回退，
-//    注释注明「未文档化」）。
-// ② 开关型血统：该通道只有开/关两态、无档位词汇 → low/high 同为开档默认预算（显式登记，
-//    依据见各平台官方字段表）。
+//    给出、原样透传；平台没有登记档位词汇 → 发裸 output_config.effort（档位词照发，
+//    不下发预算）。
+// ② 开关型血统：该通道只有开/关两态、无档位词汇 → 开档发裸 thinking:{type:"enabled"}
+//    （不带上限；依据见各平台官方字段表）。
+// 两格都**不发 budget_tokens**（硬规则，见文件头）。
 function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
   const output: ThinkingWireOutput = { fields: {}, tokenParam: "max_tokens" };
-  // 怪癖 probeOmitsThinking：探针不发思考——探针 maxTokens=1，而 budget_tokens ≥1024
-  // 且必须 < max_tokens，任何 thinking 字段都会把探针打成 400（探针语义 = 测连通）。
+  // 怪癖 probeOmitsThinking：探针是连通性测试，一律不发思考字段——发字段只会给探针
+  // 增加 400 变量（部分平台的 enabled 形状要求配套参数），探针语义 = 测连通。
   if (input.probe) return output;
   const { fields } = input;
   // 无事实（unknown 哨兵 / never / always 无档可落）：维持不发——软失败优于硬 400。
@@ -198,46 +183,26 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
 
   // ① effort 血统：档位在这一格显式落线。
   if (bloodLineEffort) {
-    if (!thinkingFitsMaxTokens(input.maxTokens)) return output;
     const vocabulary = input.platformId ? MESSAGES_TIER_VOCABULARY[input.platformId] : undefined;
-    if (vocabulary === "effort" || vocabulary === "effort-bare") {
-      output.fields.output_config = { effort: bloodLineEffort };
-      // "effort" 形态显式带开思考开关（该平台的 thinking.type 不带 budget_tokens 也合法）；
-      // "effort-bare" 形态的 thinking.enabled 必带 budget_tokens，故不发 thinking 对象。
-      if (vocabulary === "effort") output.fields.thinking = { type: "enabled" };
-      return output;
-    }
     if (vocabulary === "reasoning-effort") {
       // 该端点登记的档位字段是顶层 reasoning_effort（未登记 thinking 形状）：只发档位词。
       output.fields.reasoning_effort = bloodLineEffort;
       return output;
     }
-    // 未登记档位词汇的平台（ollama 的 Messages 通道无思考参数文档；custom 直填端点同样
-    // 无平台事实）：退回按档分配 budget_tokens——档位词无官方文档，预算取值是本扩展的
-    // 显式选择（依据见 TIER_BUDGET_BY_LEVEL 注释）。
-    return openThinking(output, TIER_BUDGET_BY_LEVEL[input.level], input.maxTokens);
+    // "effort" 形态显式带开思考开关（该平台的 thinking.type 不带预算也合法）；
+    // "effort-bare" 与「未登记档位词汇」（ollama 的 Messages 通道无思考参数文档、
+    // custom 直填端点无平台事实）都只发档位字段——档位词照发，不下发预算。
+    output.fields.output_config = { effort: bloodLineEffort };
+    if (vocabulary === "effort") output.fields.thinking = { type: "enabled" };
+    return output;
   }
 
-  // ② 开关型血统：Messages 通道无档位词汇，low 与 high 同为开档（显式登记的一格）。
+  // ② 开关型血统：Messages 通道无档位词汇，low 与 high 同为裸开档（显式登记的一格）。
   // 依据：GLM-4.5~5.1、kimi-k2.5/k2.6、doubao-seed 等平台的官方字段表只登记开/关两态
-  // （docs.bigmodel.cn、platform.kimi.ai、volcengine.com）。
-  return openThinking(output, DEFAULT_BUDGET_TOKENS, input.maxTokens);
-}
-
-// 开思考记录：{type:"enabled",budget_tokens}，budget 夹在 [1024, max_tokens) 内；调用方
-// maxTokens 过小（放不下下限）则不发——软失败优于硬 400（怪癖 thinkingBudgetTokens）。
-function openThinking(output: ThinkingWireOutput, tierBudget: number, maxTokens: number | undefined): ThinkingWireOutput {
-  if (!thinkingFitsMaxTokens(maxTokens)) return output;
-  const budget = Math.min(tierBudget, (maxTokens as number) - 1);
-  if (budget < MIN_BUDGET_TOKENS) return output;
-  output.fields.thinking = { type: "enabled", budget_tokens: budget };
+  // （docs.bigmodel.cn、platform.kimi.ai、volcengine.com）；血统表的 enable_thinking /
+  // thinking:{type:"enabled"} 都译成该通道的裸开档形状。
+  output.fields.thinking = { type: "enabled" };
   return output;
-}
-
-// 放得下思考的下限判据：budget 硬性 ≥1024 且必须 < max_tokens ⇒ max_tokens ≥ 1025。
-// 无上限事实（调用方没给 max_tokens）同样按「放不下」处理，不发思考字段。
-function thinkingFitsMaxTokens(maxTokens: number | undefined): boolean {
-  return maxTokens != null && maxTokens - 1 >= MIN_BUDGET_TOKENS;
 }
 
 // 键集合必须覆盖词表叶（Record<AiProtocol, …> 是编译期强制：新增协议漏登记即红）。

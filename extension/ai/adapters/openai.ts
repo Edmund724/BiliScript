@@ -96,10 +96,8 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
   const thinking = resolveThinkingProfile({ presetId, baseUrl, model, level, stream });
   const wire = THINKING_WIRE_MAPS.openai({
     fields: thinking.fields,
-    level,
     stream,
     probe,
-    maxTokens: maxTokens ?? undefined,
     tokenParam: thinking.tokenParam,
     effortVocabularyOnly: false
   });

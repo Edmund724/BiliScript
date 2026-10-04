@@ -64,7 +64,7 @@ export const COMPAT_QUIRKS = {
   },
   /** Anthropic Messages 通道的 effort 词汇平台（stepfun / amd）只收 output_config.effort，不收 thinking。 */
   effortVocabMessages: {
-    summary: "Anthropic Messages 通道只认新式 output_config.effort：发 thinking 字段直接 400（stepfun 官方字段表未列 thinking；amd 带 budget_tokens 的 thinking 报「not supported」）。",
+    summary: "Anthropic Messages 通道只认新式 output_config.effort：发 thinking 字段直接 400（stepfun 官方字段表未列 thinking；amd 对 thinking 形状报「not supported」）。",
     protocols: ["anthropic"]
   },
   /** 默认开思考的网关（ModelScope Messages 端点）必须显式发关思考字段，不能依赖服务端默认。 */
@@ -72,9 +72,9 @@ export const COMPAT_QUIRKS = {
     summary: "平台默认开思考且忽略 enable_thinking:false，只有显式的 thinking:{type:\"disabled\"} 能真正关掉；依赖服务端默认会把正文挤成空串。",
     protocols: ["anthropic"]
   },
-  /** 探针（maxTokens=1）不发任何思考字段：budget_tokens ≥1024 且必须 < max_tokens，发了必 400。 */
+  /** 探针（maxTokens=1）不发任何思考字段：探针只测连通，发思考字段只会给它增加 400 变量。 */
   probeOmitsThinking: {
-    summary: "探针请求不发思考字段——思考预算有硬性下限且必须小于 max_tokens，探针的 maxTokens=1 会把请求打成 400。",
+    summary: "探针请求不发思考字段——探针是连通性测试，部分平台的 thinking 形状要求配套参数（如 enabled 必带预算），发字段只会把探针打成 400。",
     protocols: ["anthropic"]
   },
   /** Anthropic max_tokens 必填且无平台默认值，调用方未传时 adapter 兜底。 */
@@ -82,12 +82,6 @@ export const COMPAT_QUIRKS = {
     summary: "max_tokens 是必填参数且平台不给默认值，调用方未传时由 adapter 兜底（OpenAI 系此时干脆不发字段、由平台自行决定）。",
     protocols: ["anthropic"],
     wire: "max_tokens"
-  },
-  /** Anthropic 思考预算的字段形状与硬性下限。 */
-  thinkingBudgetTokens: {
-    summary: "思考预算走 thinking:{type:\"enabled\",budget_tokens}，budget 硬性 ≥1024 且必须 < max_tokens（思考计入 max_tokens，放不下就不发）。",
-    protocols: ["anthropic"],
-    wire: "thinking.budget_tokens"
   },
   /** 平台要求每个对话带一个稳定会话 id 头（Opencode Go），缺失不被接受。 */
   sessionHeader: {

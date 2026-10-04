@@ -153,9 +153,9 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   it("思考档位分档：effort 血统按平台档位词发 output_config.effort（限制点 11；02 号票修塌陷）", () => {
     // deepseek-v3.2 = hybrid-effort：high → 血统 reasoning_effort "high" → Messages 通道按
     // deepseek 官方登记的档位词汇落线（api-docs.deepseek.com：只支持 thinking 与
-    // output_config.effort，budget_tokens 被忽略），并显式带开思考开关。
+    // output_config.effort），并显式带开思考开关。
     // 旧期望值（thinking:{type:"enabled",budget_tokens:2048}，low 与 high 同值）是把缺陷
-    // 固化的断言，不是契约——塌陷锚点已由 02 号票翻转。
+    // 固化的断言，不是契约——塌陷锚点已由 02 号票翻转，预算通路已整条删除。
     const body = anthropicAdapter.buildBody({
       ...base,
       presetId: "deepseek",
@@ -165,7 +165,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(body.thinking).toEqual({ type: "enabled" });
     expect(body.output_config).toEqual({ effort: "high" });
-    // 兜底上限必须放得下思考预算：思考 token 计入 max_tokens，兜底过小正文会被挤没。
+    // 兜底上限只由 max_tokens 事实决定（本扩展不再下发思考预算，也不按预算推算上限）。
     expect(body.max_tokens).toBe(32768);
   });
 
@@ -223,7 +223,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(cascaded.thinking).toBeUndefined();
   });
 
-  it("probe 不发 thinking：探针 maxTokens=1 与 budget_tokens ≥1024 互斥，发了必 400", () => {
+  it("probe 不发 thinking：探针只测连通，不发任何思考字段", () => {
     const body = anthropicAdapter.buildBody({
       ...base,
       probe: true,
@@ -235,9 +235,10 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(body.max_tokens).toBe(1);
     expect(body.thinking).toBeUndefined();
+    expect(body.output_config).toBeUndefined();
   });
 
-  it("maxTokens 放不下 budget（<1024）时不发 thinking：软失败优于硬 400", () => {
+  it("maxTokens 大小与思考字段无关：预算通路已删，小上限不再吞掉档位字段", () => {
     const body = anthropicAdapter.buildBody({
       ...base,
       maxTokens: 500,
@@ -247,7 +248,8 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       messages: []
     });
     expect(body.max_tokens).toBe(500);
-    expect(body.thinking).toBeUndefined();
+    expect(body.thinking).toEqual({ type: "enabled" });
+    expect(body.output_config).toEqual({ effort: "high" });
   });
 
   it("查不到思考事实（unknown）不发 thinking 字段", () => {
@@ -260,7 +262,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   // stepfun / amd 的 Messages 通道只认 output_config.effort：stepfun 官方字段表未列
-  // thinking；amd 带 budget_tokens 的 thinking 明确 400。
+  // thinking；amd 对 thinking 形状明确 400。
   it("effort 词汇平台（stepfun）：发 output_config.effort，不发 thinking", () => {
     const high = anthropicAdapter.buildBody({
       ...base,

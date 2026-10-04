@@ -15,16 +15,18 @@
 //   zhipu 官方把 low/medium 折成 high——平台侧既有归一化，本文件照实钉住我们发出的请求体；
 //   sensenova 官方词表自相矛盾，保守只用 low/medium/high）。
 // - openrouter / opencodego / modelscope：只发 output_config.effort（不带 thinking 对象——
-//   openrouter 的 thinking.enabled 必带 budget_tokens；opencodego 与 modelscope 的 thinking
-//   形状无官方文档，只发档位字段。后两家官方文档未登记档位词汇，按产品裁定发裸 effort 词汇，
-//   不再退回自定 budget_tokens）。
+//   openrouter 的 thinking.enabled 必带参数；opencodego 与 modelscope 的 thinking 形状
+//   无官方文档，只发档位字段。后两家官方文档未登记档位词汇，按产品裁定发裸 effort 词汇）。
 // - moonshot：仓库 base 是 Kimi Code 端点，档位词是顶层 reasoning_effort（该端点未登记
 //   thinking 形状）→ 只发 reasoning_effort。
-// - 未登记档位词汇的平台（ollama 的 Messages 通道无思考参数文档；custom 直填端点同样无平台
-//   事实）：退回按档分配 thinking.budget_tokens —— low 2048 / high 8192。
+// - 未登记档位词汇的（ollama 的 Messages 通道无思考参数文档；custom 直填端点同样无平台
+//   事实）：发裸 output_config.effort（档位词照发）。
 // - 开关型血统（glm-4.6 / kimi-k2.6 / qwen3-max / mimo-v2.5-pro）与严格 effort 词汇平台
-//   （stepfun / amd）维持原状：前者该通道只有开/关两态，后者已按档发 output_config.effort。
-// 塌陷格（low == high）只应出现在开关型血统的 low 与 high（该通道只有开/关两态，设计使然）。
+//   （stepfun / amd）：前者该通道只有开/关两态，开档发裸 thinking:{type:"enabled"}；
+//   后者已按档发 output_config.effort。
+// **硬规则：本文件任何一格的期望里都不出现 budget_tokens**（官方没有 effort→预算的换算
+// 表，自造预算会挤占 max_tokens）。塌陷格（low == high）只应出现在开关型血统的两档
+// （该通道只有开/关两态，设计使然）。
 
 import { describe, expect, it } from "vitest";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
@@ -60,8 +62,9 @@ interface PlatformGolden {
 }
 
 const DISABLED = { thinking: { type: "disabled" } };
-const BUDGET = { thinking: { type: "enabled", budget_tokens: 2048 } };
-const BUDGET_HIGH = { thinking: { type: "enabled", budget_tokens: 8192 } };
+// 开关型血统的开档：Messages 通道只有开/关两态，发裸 thinking:{type:"enabled"}——
+// 不带上限/预算（硬规则：本通道任何一格都不发 budget_tokens）。
+const SWITCH_ON = { thinking: { type: "enabled" } };
 // 档位词汇平台的两种形态（词表与出处见 ai/thinking-wire-map.ts）：
 // effortWithSwitch = 文档登记 thinking 开关 + output_config.effort；
 // effortOnly = 只登记 output_config.effort（该平台 thinking.enabled 必带预算，故不带 thinking 对象）。
@@ -102,11 +105,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "Qwen/百炼（dashscope.aliyuncs.com/apps/anthropic）",
     cases: [
       {
-        kind: "混合开关（qwen3-max 默认关；low/high 塌陷）",
+        kind: "混合开关（qwen3-max 默认关；low/high 同为裸开档，无档位词汇）",
         model: "qwen3-max",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: SWITCH_ON,
+        high: SWITCH_ON
       },
       {
         kind: "混合 effort（矩阵 high→xhigh；Messages 通道 effort 词表同为 low/xhigh，help.aliyun.com）",
@@ -129,11 +132,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "GLM 智谱（open.bigmodel.cn/api/anthropic）",
     cases: [
       {
-        kind: "混合开关（glm-4.6；low/high 塌陷）",
+        kind: "混合开关（glm-4.6；low/high 同为裸开档，无档位词汇）",
         model: "glm-4.6",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: SWITCH_ON,
+        high: SWITCH_ON
       },
       {
         kind: "混合 effort（glm-5.2；Messages 通道发 output_config.effort，docs.bigmodel.cn）",
@@ -156,11 +159,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "Kimi/moonshot（api.kimi.com/coding）",
     cases: [
       {
-        kind: "混合开关（kimi-k2.6；low/high 塌陷）",
+        kind: "混合开关（kimi-k2.6；low/high 同为裸开档，无档位词汇）",
         model: "kimi-k2.6",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: SWITCH_ON,
+        high: SWITCH_ON
       },
       {
         kind: "永远思考 + effort（kimi-k3：off 级联落 low；Messages 通道发顶层 reasoning_effort，kimi.com/code/docs）",
@@ -196,11 +199,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "Mimo 小米（api.xiaomimimo.com/anthropic）",
     cases: [
       {
-        kind: "混合开关（mimo-v2.5-pro；low/high 塌陷）",
+        kind: "混合开关（mimo-v2.5-pro；low/high 同为裸开档，无档位词汇）",
         model: "mimo-v2.5-pro",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: SWITCH_ON,
+        high: SWITCH_ON
       }
     ]
   },
@@ -255,11 +258,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "ModelScope（api-inference.modelscope.cn）",
     cases: [
       {
-        kind: "org 限定 id → unknownClass 兜底（enable_thinking 词汇；off 显式 thinking:disabled 才能真正关掉，low/high 塌陷）",
+        kind: "org 限定 id → unknownClass 兜底（enable_thinking 词汇；off 显式 thinking:disabled 才能真正关掉，low/high 同为裸开档）",
         model: "deepseek-ai/DeepSeek-V4.1-Flash",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: SWITCH_ON,
+        high: SWITCH_ON
       },
       {
         kind: "命中 effort 血统（直填 id qwen3.8-max → 血统档位词 low/xhigh；端点未登记档位词汇 → 按产品裁定发裸 output_config.effort）",
@@ -301,11 +304,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "Ollama（无 anthropic 端点，baseUrl 代位 http://localhost:11434/v1）",
     cases: [
       {
-        kind: "unknownClass 兜底（openai 侧 effort 词汇平台无规则；Messages 通道无档位词汇文档 → 退回按档预算，docs.ollama.com）",
+        kind: "unknownClass 兜底（openai 侧 effort 词汇平台无规则；Messages 通道未登记档位词汇 → 发裸 output_config.effort，docs.ollama.com）",
         model: "llama3.2",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET_HIGH
+        low: effortOnly("low"),
+        high: effortOnly("high")
       },
       {
         kind: "模式表命中（deepseek-r1:8b 永远思考无档位；三档全不发）",
@@ -349,9 +352,8 @@ for (const platform of PLATFORMS) {
   });
 }
 
-// 探针变体（怪癖 probeOmitsThinking）：探针 maxTokens=1，任何 thinking 字段都会把
-// 探针打成 400（budget_tokens ≥1024 且须 < max_tokens），故 probe=true 一律不发思考
-// 字段——deepseek（有档位可发）与 stepfun（effort 词汇）两条路都要钉住。
+// 探针变体（怪癖 probeOmitsThinking）：探针只测连通，一律不发思考字段——deepseek
+// （有档位可发）与 stepfun（effort 词汇）两条路都要钉住。
 describe("golden：探针变体（probe 不发思考字段）", () => {
   it("deepseek + deepseek-v4-pro + probe + maxTokens:1 + high → 无 thinking", () => {
     expect(bodyFor("deepseek", "deepseek-v4-pro", "high", { probe: true, maxTokens: 1 })).toEqual({
@@ -386,13 +388,13 @@ describe("golden：ModelScope qwen3-32b 关思考仅流式（stream 维度）", 
     });
   });
 
-  it("stream:false + off → 级联落开档（thinking:enabled）", () => {
+  it("stream:false + off → 级联落开档（裸 thinking:enabled，无预算）", () => {
     expect(bodyFor("modelscope", "qwen3-32b", "off", { stream: false })).toEqual({
       model: "qwen3-32b",
       messages: MESSAGES,
       stream: false,
       max_tokens: DEFAULT_MAX_TOKENS,
-      thinking: { type: "enabled", budget_tokens: 2048 }
+      thinking: { type: "enabled" }
     });
   });
 });

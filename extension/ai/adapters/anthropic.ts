@@ -28,24 +28,25 @@ import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 
 // 怪癖 maxTokensRequired（语义见 compat-vocab 词表单源）：max_tokens 必填且无
 // 默认，调用方未传时 adapter 兜底。兜底值的语义 =「调用方不关心时给一个合理上限」
-// （OpenAI 系平台此时干脆不发字段、由平台自身默认决定），故按「思考预算之外还
-// 留得下正文」取值；具体数字单源在 ai/output-budget.ts（core 也读它做「被平台
+// （OpenAI 系平台此时干脆不发字段、由平台自身默认决定），故按「思考之外还留得下
+// 正文」取值；具体数字单源在 ai/output-budget.ts（core 也读它做「被平台
 // 拒收后退回保守值」的判定，本 adapter 的 defaultMaxTokens 声明同一个值）。
-// 思考是否计入 max_tokens 看平台：官方文档计入（budget_tokens
-// 是目标而非硬上限）；ModelScope 实测分模型——Qwen3.8-Flash-Next 不计入
-// （max_tokens=8192 时 output_tokens 可达 15805，stop_reason 仍 end_turn），
-// step-3.7-flash 计入、会把正文挤成空串（即 analysis-orchestrate 的
-// finish_reason=length 空正文记录）。中文长答本身也吃额度：实测 4096 下六千字散文
-// 在 5637 字处截断（stop_reason=max_tokens），同一请求 8192 完整收尾——旧兜底
-// 8192 = 默认思考预算 2048 + 正文余量，只够旧模型，现降级为退回下限
-// （CONSERVATIVE_MAX_TOKENS，见 output-budget.ts）。
-// 思考档位在 Messages 通道的写法（怪癖 thinkingFormat / thinkingBudgetTokens /
-// thinkingDisabledMustBeExplicit / probeOmitsThinking / effortVocabMessages）逐格落在
-// ai/thinking-wire-map.ts 的 anthropic 行；本文件只提供平台事实（本函数给「是否只认
-// effort 词汇」，查表口径 resolvePlatformQuirkId；平台识别见 buildBody）。
-// Anthropic 家族的思考开关有两套词汇：老式 thinking:{type,budget_tokens}（原生各家）
+// 思考是否计入 max_tokens 看平台：官方文档计入；ModelScope 实测分模型——
+// Qwen3.8-Flash-Next 不计入（max_tokens=8192 时 output_tokens 可达 15805，
+// stop_reason 仍 end_turn），step-3.7-flash 计入、会把正文挤成空串（即
+// analysis-orchestrate 的 finish_reason=length 空正文记录）。中文长答本身也吃额度：
+// 实测 4096 下六千字散文在 5637 字处截断（stop_reason=max_tokens），同一请求 8192
+// 完整收尾——旧兜底 8192 = 已废弃的默认思考预算 2048 + 正文余量，只够旧模型，现
+// 降级为退回下限（CONSERVATIVE_MAX_TOKENS，见 output-budget.ts）。
+// 思考档位在 Messages 通道的写法（怪癖 thinkingFormat / thinkingDisabledMustBeExplicit /
+// probeOmitsThinking / effortVocabMessages）逐格落在 ai/thinking-wire-map.ts 的 anthropic
+// 行；本文件只提供平台事实（本函数给「是否只认 effort 词汇」，查表口径
+// resolvePlatformQuirkId；平台识别见 buildBody）。
+// Anthropic 家族的思考控制有两套词汇：老式 thinking:{type} 开关（原生各家）
 // 与新式 output_config.effort。走 Messages 通道而只认后者的平台（stepfun / amd）由
 // 怪癖 effortVocabMessages 登记，词表 PLATFORM_QUIRKS 是唯一主人。
+// 本通道**任何一格都不发 thinking.budget_tokens**（官方没有 effort→预算的换算表，
+// 自造预算会挤占 max_tokens；线格式映射表的文件头是同一条硬规则）。
 function usesEffortVocabulary(presetId?: string, baseUrl?: string): boolean {
   return hasPlatformQuirk(resolvePlatformQuirkId(presetId, baseUrl), "effortVocabMessages");
 }
@@ -197,7 +198,6 @@ export const anthropicAdapter: ProtocolAdapter = {
   consumes: [
     "maxTokensRequired",
     "thinkingFormat",
-    "thinkingBudgetTokens",
     "thinkingDisabledMustBeExplicit",
     "effortVocabMessages",
     "probeOmitsThinking",
@@ -227,7 +227,7 @@ export const anthropicAdapter: ProtocolAdapter = {
   buildBody(request: ChatRequest): Record<string, unknown> {
     const { system, rest } = extractSystem(request.messages);
     // 怪癖 maxTokensRequired：max_tokens 必填，调用方未传兜底 DEFAULT_MAX_TOKENS；
-    // 探针由 core 代劳传 1。同一个值也是线格式映射表推算开思考预算的上限事实。
+    // 探针由 core 代劳传 1。
     const maxTokens = request.maxTokens ?? DEFAULT_MAX_TOKENS;
     const body: Record<string, unknown> = {
       model: request.model,
@@ -256,10 +256,8 @@ export const anthropicAdapter: ProtocolAdapter = {
     });
     const wire = THINKING_WIRE_MAPS.anthropic({
       fields: thinking.fields,
-      level,
       stream: request.stream,
       probe: request.probe,
-      maxTokens,
       tokenParam: thinking.tokenParam,
       platformId: resolveThinkingProviderId(request.presetId, request.baseUrl),
       effortVocabularyOnly: usesEffortVocabulary(request.presetId, request.baseUrl)
