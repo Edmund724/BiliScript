@@ -6,9 +6,14 @@
 // 3. 三层无重叠主人对账（验收第 4 条，测试期静态判据，不进运行时）：Messages 线格式
 //    字面量只在线格式映射表出现；adapter 内不再有思考词汇字面量的构造性写入；
 //    血统表不含 Messages 通道的字段名；**budget_tokens 在 extension/ai 的代码里零出现**。
+// 4（08 号票）：归一化层的词汇主人是 02 值集产物——MESSAGES_TIER_VOCABULARY 只做
+//    「档位折叠 + 线格式出口」，出口上的档位词必须仍在**该模型** 02 值集里（只许收敛、
+//    不许发散）；判据见文件末的「归一化不发散」用例。
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { ASSIGNMENTS, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
+import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, resolveThinkingProfile } from "../../extension/ai/thinking-profiles.js";
 import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
 import { THINKING_WIRE_MAPS, type ThinkingWireInput } from "../../extension/ai/thinking-wire-map.js";
 
@@ -233,5 +238,70 @@ describe("三层无重叠主人对账（验收第 4 条，静态判据）", () =
     for (const gone of ["MIN_BUDGET_TOKENS", "DEFAULT_BUDGET_TOKENS", "HIGH_BUDGET_TOKENS", "TIER_BUDGET_BY_LEVEL", "openThinking", "thinkingFitsMaxTokens"]) {
       expect(owner.includes(gone), `${WIRE_MAP} 仍含 ${gone}`).toBe(false);
     }
+  });
+});
+
+// 08 号票：MESSAGES_TIER_VOCABULARY 降级为**纯归一化层**（档位折叠 + 线格式出口），
+// 「哪些档位词合法」的主人让给 02 号票的值集产物（ai/catalog/models-dev-thinking.generated.ts，
+// 逐模型物化见 thinking-profiles 的 ruleFromUpstreamFact）。归一化只许**收敛**（多档折同词），
+// 不许**发散**——所以对每个有上游事实的模型，Messages 出口上的档位词必须仍是该模型值集里的词。
+describe("归一化不发散（08 号票：像集合 ⊆ 该模型 02 值集）", () => {
+  // override 型平台（openrouter / amd / sensenova / opencodego）：识别层短路，档位词来自
+  // 平台级产品裁定（clamp 原因 platform-vocabulary），spec 不逐模型比上游值集——已登记的
+  // 例外（03 报告 §6），不是本层发散。
+  const OVERRIDE_PRESETS = new Set(["openrouter", "amd", "sensenova", "opencodego"]);
+  const PRESET_BY_UPSTREAM: Readonly<Record<string, string>> = Object.fromEntries(
+    Object.entries(UPSTREAM_PROVIDER_BY_PRESET).map(([presetId, upstreamId]) => [upstreamId, presetId])
+  );
+
+  // 出口上的档位词（与工件 artifacts/08-messages-matrix.ts 的 wire:<档> 列同口径）。
+  function wireWord(fields: Record<string, unknown>): string | undefined {
+    const outputConfig = fields.output_config as { effort?: unknown } | undefined;
+    if (typeof outputConfig?.effort === "string") return outputConfig.effort;
+    return typeof fields.reasoning_effort === "string" ? fields.reasoning_effort : undefined;
+  }
+
+  it("02 指派表逐条 × 7 档：Messages 出口上的档位词 ∈ 该模型值集", () => {
+    let comparedModels = 0;
+    let emittedWords = 0;
+    const skipped = new Set<string>();
+    for (const [upstreamId, table] of Object.entries(ASSIGNMENTS)) {
+      const presetId = PRESET_BY_UPSTREAM[upstreamId];
+      expect(presetId, `指派表 provider ${upstreamId} 没有 preset 桥接`).toBeTruthy();
+      if (OVERRIDE_PRESETS.has(presetId)) {
+        skipped.add(presetId);
+        continue;
+      }
+      for (const model of Object.keys(table)) {
+        const fact = lookupThinkingFact(upstreamId, model);
+        expect(fact, `${upstreamId}/${model} 有指派却查不到值集`).toBeTruthy();
+        const valuesetWords = new Set(fact!.effort ?? []);
+        comparedModels += 1;
+        for (const level of AI_THINKING_LEVELS) {
+          const profile = resolveThinkingProfile({ presetId, model, level, stream: false });
+          // effortVocabularyOnly 留 false：stepfun 走「未登记线格式出口」的裸 effort，与它
+          // 在 runtime 走怪癖 effortVocabMessages 的形态逐字同值（两条路都只发 output_config.effort）。
+          const word = wireWord(anthropicWire({ fields: profile.fields, platformId: presetId }).fields);
+          if (word === undefined) continue;
+          emittedWords += 1;
+          expect(
+            valuesetWords.has(word),
+            `${presetId}/${model} · ${level}：出口发出 "${word}"，不在该模型 02 值集 [${[...valuesetWords].join("/")}]`
+          ).toBe(true);
+        }
+      }
+    }
+    // 口径自检：循环不许空转（02 产物 359+ 条指派 = 4 家 override 平台 + 这 77 行；
+    // 其中大量是 toggle 型不发档位词，故 emittedWords 只在这一量级）。下限按实测留余量。
+    expect(comparedModels).toBeGreaterThanOrEqual(70);
+    expect(emittedWords).toBeGreaterThanOrEqual(120);
+    // 例外集必须恰好是那四个 override 平台：不许静默扩大。
+    expect([...skipped].sort()).toEqual([...OVERRIDE_PRESETS].sort());
+  });
+
+  it("判据非空转：值集不含的档位词不合法（glm-5.2 值集 high-max，无 low 可发）", () => {
+    // glm-5.2 的 02 值集是 high/max——归一化层若「发散」出 low 就会违反上一条断言；
+    // 这里把该值集钉死，证明上一条断言的判据不是恒真。
+    expect(lookupThinkingFact("zhipuai", "glm-5.2")!.effort).toEqual(["high", "max"]);
   });
 });

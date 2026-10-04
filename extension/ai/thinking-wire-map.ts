@@ -10,8 +10,9 @@
 // 为什么必须显式成表：同一份血统 patch 经 Messages 通道改写时，低档与高档曾被压成
 // 同一个预算（塌陷）。塌陷能藏住，正是因为这一层只活在 adapter 的 if 里、
 // 没有可审的表。表把「哪一档发什么」变成逐格可审、可被 golden 逐字节钉住的事实：
-// Messages 通道的档位词汇按平台在表内逐格登记（含「该平台未登记档位词汇 → 发裸
-// effort 词汇」这一格），不再有靠上限隐式推导取值的写法。
+// Messages 通道的档位落线按平台在表内逐格登记（含「该平台未登记线格式出口 → 发裸
+// effort 词汇」这一格），不再有靠上限隐式推导取值的写法。档位词的**合法性不在本表**
+// （08 号票：词汇主人是 02 值集产物，见 MESSAGES_TIER_VOCABULARY 的头注）。
 //
 // **硬规则：本表任何一格都不发 `budget_tokens`**——官方没有 effort→预算的换算表，
 // 自造预算只会挤占 max_tokens（各平台已实测：思考计入 max_tokens 会把正文挤成
@@ -47,7 +48,7 @@ export interface ThinkingWireInput {
   tokenParam?: TokenParam;
   /**
    * 平台识别（口径：thinking-profiles 的 PROVIDERS 键空间，adapter 传
-   * `resolveThinkingProviderId` 的结果）。Messages 通道的档位词汇按平台登记
+   * `resolveThinkingProviderId` 的结果）。Messages 通道的档位落线（线格式出口）按平台登记
    * （MESSAGES_TIER_VOCABULARY）；未登记的平台发裸 `output_config.effort`。
    */
   platformId?: string;
@@ -77,8 +78,11 @@ function openaiWireMap({ fields, tokenParam }: ThinkingWireInput): ThinkingWireO
 // max_tokens 并把正文挤空；开档一律只发档位词汇或裸开关。
 
 /**
- * 平台在 Messages 通道登记过的档位词汇形态（平台事实，02 号票）：
- * - "effort"：`output_config.effort` + 显式 thinking 开关（平台官方文档登记了该字段与取值词表）；
+ * 平台在 Messages 通道的**线格式出口**（平台事实，02 号票建表；08 号票起命名即历史沿革，
+ * 职责按本注读）：只回答「已折好的档位词在这个端点落成哪个字段」，不再回答「这个平台
+ * 有哪些合法档位词」：
+ * - "effort"：`output_config.effort` + 显式 thinking 开关（平台官方文档登记了该字段与
+ *   取值形状）；
  * - "effort-bare"：只发 `output_config.effort`——不带 thinking 对象才安全（openrouter 的
  *   `thinking.type:"enabled"` 必带预算；opencodego / modelscope 的 thinking 形状
  *   无官方文档，只发档位字段不冒硬 400 风险）；
@@ -88,10 +92,19 @@ function openaiWireMap({ fields, tokenParam }: ThinkingWireInput): ThinkingWireO
  */
 export type MessagesTierVocabulary = "effort" | "effort-bare" | "reasoning-effort";
 
-// Messages 通道的档位词汇表（02 号票：塌陷格在这里变成显式的一格）。
+// Messages 通道的**档位归一化层**（08 号票定职责；02 号票建表，9372c78 / 598f0a9 定型）：
 // 键 = 平台识别，口径见 ThinkingWireInput.platformId（thinking-profiles 的 PROVIDERS 键空间）。
+// 只持有两件事：① 线格式出口（本表的值，逐格注释带官方出处）；② 平台侧折叠——把内部档位
+// 折成该端点的线上词，**只许收敛**（多档折同词，如平台把 low/medium 都折成 high），不许
+// **发散**（返回上游值集里没有的词）。
+// **不持有「哪些档位词合法」**：合法性一律来自 02 号票的值集产物
+// （ai/catalog/models-dev-thinking.generated.ts）——thinking-profiles 的 ruleFromUpstreamFact
+// 按逐模型值集物化档位写点，「有写点 = 该档可用」，所以能走到本表的词本就来自该模型的上游
+// 值集（静态判据见 tests/ai/thinking-wire-map.test.ts「归一化不发散」）。
+// 折叠现状：**所有平台恒等**——上游值集已逐模型物化出真实档位，没有已知需要平台侧折叠的
+// 缺口；zhipu 把 low/medium 折成 high 是**服务端**归一化，本表不代平台改写档位词。
 // 与 compat-vocab 的 effortVocabMessages（stepfun / amd，严格只认 output_config.effort）键集
-// 不相交：那种平台在 effortVocabularyOnly 分支就返回，走不到本表。取值一律以官方文档为准，
+// 不相交：那种平台在 effortVocabularyOnly 分支就返回，走不到本表。各格形状一律以官方文档为准，
 // 血统表算出的档位词（reasoning_effort 值）原样作为平台档位词发出，不另造映射。
 const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
   // deepseek：Anthropic 兼容页只支持 thinking 与 output_config（且 "Only effort is supported"），
@@ -101,6 +114,8 @@ const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
   // qwen 百炼：output_config.effort 为平台扩展参数、budget_tokens「即将废弃」；qwen3.8-max
   // 词表 xhigh/medium/low（默认 xhigh，high/max 映射为 xhigh）——血统表的 high 档正是 xhigh
   // （help.aliyun.com/zh/model-studio/anthropic-api-messages）。
+  // qwen3-max **不走本行**：上游值集是 `toggle+b:-81920`（无 effort 词表），low/high 同为
+  // 裸开档、塌陷是唯一形状——上游事实，见 anthropicWireMap 的 ② 格注释。
   qwen: "effort",
   // zhipu：Coding Plan 页登记 Claude Code 走 thinking.type + output_config.effort；GLM-5.2 的
   // 档位词表 max/xhigh/high/medium/low/minimal/none，但官方明确 low/medium 折成 high、xhigh 折成
@@ -141,11 +156,13 @@ const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
 // 只有 thinking:{type:"disabled"} 能真正关掉。
 //
 // 开思考分两格（02 号票在这里把「档位塌陷」改成显式的一格一格）：
-// ① effort 血统：按平台官方登记的档位词汇落线（MESSAGES_TIER_VOCABULARY），档位词由血统表
-//    给出、原样透传；平台没有登记档位词汇 → 发裸 output_config.effort（档位词照发，
-//    不下发预算）。
+// ① effort 血统：档位词的合法性主人在 02 值集（逐模型物化，见 thinking-profiles 的
+//    ruleFromUpstreamFact），本层只选线格式出口（MESSAGES_TIER_VOCABULARY）并把档位折到线上、
+//    原样透传；平台没有登记出口 → 发裸 output_config.effort（档位词照发，不下发预算）。
 // ② 开关型血统：该通道只有开/关两态、无档位词汇 → 开档发裸 thinking:{type:"enabled"}
-//    （不带上限；依据见各平台官方字段表）。
+//    （不带上限；依据见各平台官方字段表）。qwen3-max 即此格：上游值集 `toggle+b:-81920`
+//    （toggle + budget_tokens max 81920，**没有 effort**）→ 没有档位词可发，low 与 high 同为
+//    裸开档——塌陷是上游唯一支持的形状，不是缺陷（塌陷格 04 号票订正）。
 // 两格都**不发 budget_tokens**（硬规则，见文件头）。
 function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
   const output: ThinkingWireOutput = { fields: {}, tokenParam: "max_tokens" };
@@ -181,23 +198,24 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
     return output;
   }
 
-  // ① effort 血统：档位在这一格显式落线。
+  // ① effort 血统：档位词来自 02 值集（合法性主人，逐模型物化）；本格只做归一化（折叠，
+  // 现状恒等——只许收敛不许发散）与线格式出口选择，然后把词原样发出。
   if (bloodLineEffort) {
-    const vocabulary = input.platformId ? MESSAGES_TIER_VOCABULARY[input.platformId] : undefined;
-    if (vocabulary === "reasoning-effort") {
+    const wireExit = input.platformId ? MESSAGES_TIER_VOCABULARY[input.platformId] : undefined;
+    if (wireExit === "reasoning-effort") {
       // 该端点登记的档位字段是顶层 reasoning_effort（未登记 thinking 形状）：只发档位词。
       output.fields.reasoning_effort = bloodLineEffort;
       return output;
     }
     // "effort" 形态显式带开思考开关（该平台的 thinking.type 不带预算也合法）；
-    // "effort-bare" 与「未登记档位词汇」（ollama 的 Messages 通道无思考参数文档、
+    // "effort-bare" 与「未登记线格式出口」（ollama 的 Messages 通道无思考参数文档、
     // custom 直填端点无平台事实）都只发档位字段——档位词照发，不下发预算。
     output.fields.output_config = { effort: bloodLineEffort };
-    if (vocabulary === "effort") output.fields.thinking = { type: "enabled" };
+    if (wireExit === "effort") output.fields.thinking = { type: "enabled" };
     return output;
   }
 
-  // ② 开关型血统：Messages 通道无档位词汇，low 与 high 同为裸开档（显式登记的一格）。
+  // ② 开关型血统：该通道只有开/关两态、无档位词，low 与 high 同为裸开档（显式登记的一格）。
   // 依据：GLM-4.5~5.1、kimi-k2.5/k2.6、doubao-seed 等平台的官方字段表只登记开/关两态
   // （docs.bigmodel.cn、platform.kimi.ai、volcengine.com）；血统表的 enable_thinking /
   // thinking:{type:"enabled"} 都译成该通道的裸开档形状。

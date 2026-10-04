@@ -502,4 +502,19 @@ describe("验收：effort 血统的 low 与 high 请求体互不相同（02 号�
     expect(bodyFor("zhipu", "glm-5.2", "low")).toEqual(bodyFor("zhipu", "glm-5.2", "high"));
     expect(bodyFor("zhipu", "glm-5.2", "low").output_config).toEqual({ effort: "high" });
   });
+
+  it("qwen/qwen3-max：上游值集 toggle+b:-81920 没有 effort → low/high 同为裸开档（塌陷 = 上游事实，逐字节钉住）", () => {
+    // 08 号票：平台归一化层只做「折叠 + 线格式出口」，不发散、不凭空造档位词。qwen3-max 的
+    // 上游 reasoning_options 是 [toggle, budget_tokens max 81920]——没有 effort 词表，所以
+    // 没有档位词可发，low 与 high 只能是同一个裸开档（开关型血统的一格）；表内注释见
+    // ai/thinking-wire-map.ts 的 qwen 行与 anthropicWireMap 的 ② 格。
+    expect(bodyFor("qwen", "qwen3-max", "low")).toEqual(bodyFor("qwen", "qwen3-max", "high"));
+    expect(bodyFor("qwen", "qwen3-max", "low")).toEqual({
+      model: "qwen3-max",
+      messages: MESSAGES,
+      stream: false,
+      max_tokens: DEFAULT_MAX_TOKENS,
+      thinking: { type: "enabled" }
+    });
+  });
 });
