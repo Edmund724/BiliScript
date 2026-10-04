@@ -6,12 +6,9 @@
 // - 平台 preset 列表 / baseUrl 数据唯一主人在 core/presets.ts，host 索引收口在
 //   core/preset-host-index.ts（不复制 baseUrl；与模型目录的 provider 识别共用）；
 // - 模型血统事实（永远/混合/永不思考）只活在 TAXONOMY / EXCEPTIONS；
-// - 参数逐格事实以矩阵报告为准：
-//   .scratch/reports/model-thinking-matrix-20260905.md（13 平台 × 5 问矩阵 +
-//   模型 taxonomy，官方文档确证为主），每格注释里简写出处域名。
+// - 参数逐格事实以各平台官方文档为准（每格注释里简写出处域名）。
 // 设计机制（三层声明表 + 稀疏档位 + 测试期校验器）参考 hana-model-catalog
-// （github.com/liliMozi/hana-model-catalog；无 LICENSE，仅参考未复制数据），
-// 见 spec「出处与致谢」节。
+// （github.com/liliMozi/hana-model-catalog；无 LICENSE，仅参考未复制数据）。
 //
 // 解析语义（spec 最终版）：
 //   provider = PROVIDERS[presetId] ?? HOST索引[baseUrl host] ?? 无
@@ -43,7 +40,7 @@ export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
 // ===== schema =====
 // 单档字段补丁。fields 键白名单：thinking / enable_thinking / reasoning_effort
 // （校验器强制）。温度类字段明令禁止——Kimi 等平台思考模式温度/top_p 固定且
-// 官方明确不要显式传，本扩展从不发 temperature 是安全属性（矩阵报告现状判定节）。
+// 官方明确不要显式传，本扩展从不发 temperature 是安全属性。
 // 三套字段词汇本身是平台怪癖，语义见 compat-vocab 词表的 thinkingFormat；本表
 // 逐格给「哪档发哪个字段」的**事实**，两者分工不重叠。
 export interface ThinkingPatch {
@@ -260,7 +257,7 @@ export const EXCEPTIONS: readonly TaxonomyEntry[] = [
 ];
 
 // ===== TAXONOMY：模型名模式 → class（数组序 = 优先级）=====
-// 矩阵报告「模型 taxonomy」表的逐行落地；模式统一小写前缀匹配（内嵌 * 通配）。
+// 模型 identity → class 的逐行落地；模式统一小写前缀匹配（内嵌 * 通配）。
 export const TAXONOMY: readonly TaxonomyEntry[] = [
   // 百炼永远思考族：qwen3-next-*-thinking / qwen3.7-max-preview /
   // qwen3.8-2.4t-a95b / qwq（thinking-2507 系在例外表前置 carve-out）

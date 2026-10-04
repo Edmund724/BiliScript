@@ -1,8 +1,8 @@
 // 思考参数 golden 测试：13 平台 × {off,low,high} × 代表模型 → 精确请求体。
-// 代表模型按矩阵报告（.scratch/reports/model-thinking-matrix-20260905.md）各平台
-// 实际有的模型选：混合（可开关） / 永远思考 / 永不思考各至少一；平台没有某血统时
-// 用「未列模型」代位断言三档不发（unknown 哨兵）并注明。字段名与值全断言；
-// offUnavailable 标记的语义断言在 thinking-profiles.test.js（请求体不携带该标记）。
+// 代表模型按各平台实际有的模型选：混合（可开关） / 永远思考 / 永不思考各至少一；
+// 平台没有某血统时用「未列模型」代位断言三档不发（unknown 哨兵）并注明。
+// 字段名与值全断言；offUnavailable 标记的语义断言在 thinking-profiles.test.js
+//（请求体不携带该标记）。
 
 import { describe, expect, it } from "vitest";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
