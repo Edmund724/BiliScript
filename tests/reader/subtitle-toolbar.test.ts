@@ -70,7 +70,7 @@ describe("字幕 tab 工具条：语言下拉已删除", () => {
     );
   });
 
-  it("转写落账但无轨道（ASR 缓存命中）：面板内同样不出现「暂无字幕」，正文与来源照常显示", () => {
+  it("转写落账但无轨道（ASR 缓存命中）：面板内同样不出现「暂无字幕」，正文照常显示", () => {
     state.clip.setAuthor("晓舟报告");
     state.clip.setSubtitles([]);
     state.clip.setSelectedSubtitleId("asr");
@@ -82,7 +82,8 @@ describe("字幕 tab 工具条：语言下拉已删除", () => {
     shell.renderReadingView();
 
     expect(panelText()).not.toContain("暂无字幕");
-    expect(panelText()).toContain("字幕：自配平台转写（中文）");
+    // 2026-10-04 用户决议：meta 行不再注明字幕来源，面板里也不该再冒出「字幕：」。
+    expect(panelText()).not.toContain("字幕：");
     expect((document.getElementById(ids.readingSubtitleList) as HTMLElement).textContent).toContain("缓存句");
   });
 });

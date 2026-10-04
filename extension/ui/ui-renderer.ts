@@ -65,7 +65,8 @@ export function buildUiHtml(): string {
             <header class="biliscript-reading-header">
               <div class="biliscript-reading-header-copy">
                 <!-- meta 行由 reader/lifecycle.js 的 renderReadingView 填充
-                     （UP主：… · P{n}：… · 字幕：…；网址已按 2026-09 用户决议删除）；
+                     （「UP主：…」与「P{n}：…」各占一行，2026-10-04 用户决议不再
+                     标注字幕来源；网址已按 2026-09 用户决议删除）；
                      字段全空时整块 hidden，初始态即 hidden -->
                 <div id="${ids.readingMeta}" class="biliscript-reading-meta" hidden></div>
               </div>

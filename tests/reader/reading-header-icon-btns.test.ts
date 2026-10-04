@@ -12,7 +12,11 @@
 //   2. 边框摘了但 hover/is-active 里的 border-color 留着：成无边框的孤儿声明；
 //   3. 边框摘了顺手把 hover 底色也摘：三键彻底不可见；
 //   4. 只写 border-color 不写 border：改一半，边框纹丝不动；
-//   5. 位置没跟着收：只摘框不动位（负 margin 缺失）。
+//   5. 位置没跟着收：只摘框不动位（负 margin 缺失）；
+//   6. 位置没钉住：header 的对齐是 center（`.biliscript-reading-script-panel
+//      .biliscript-reading-header`，reader.css），左侧文案一长高三键就跟着往
+//      下飘 → 动作行自取 align-self: flex-start（2026-10-04 用户决议：三键固定
+//      在右上角，不随信息行数上下居中）。
 // 作用域提示：本文件只管面板 header 三键；对话工具条两键（chat-header-toolbox.test.ts）
 // 仍是 1px 框，那是另一处控件，本次不联动。
 import { readFileSync } from "node:fs";
@@ -73,5 +77,13 @@ describe("面板 header 三键的边框与位置", () => {
     const [top, right] = margin!.split(/\s+/);
     expect(Number.parseFloat(top)).toBeLessThan(0);
     expect(Number.parseFloat(right)).toBeLessThan(0);
+  });
+
+  it("三键钉在 header 右上角：动作行自取 flex-start（左侧文案变高不下移）", () => {
+    const alignSelf = declaration(ruleBody(readCss(), "\\.biliscript-reading-actions"), "align-self");
+
+    expect(alignSelf, "动作行应自取 align-self").toBeTruthy();
+    const [crossAxis] = alignSelf!.split(/\s+/);
+    expect(crossAxis).toBe("flex-start");
   });
 });

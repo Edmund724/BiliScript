@@ -91,9 +91,9 @@
   color: var(--biliscript-reader-muted, #6b7280);
 }
 
-/* meta 行两行结构（2026-09/10 用户决议）：`UP主/P` 一行、`字幕：…` 独占一行，
+/* meta 行多行结构（2026-10-04 用户决议）：`UP主：…` 与 `P{n}：…` 各占一行，
  * 由 reader/lifecycle 的 buildReadingMetaLine 落 `\n`，这里只负责让换行可见
- *（长字幕来源不再从中间折断）。不挂到上面的共用选择器：状态行不需要该语义。 */
+ *（长分P标题不再从中间折断）。不挂到上面的共用选择器：状态行不需要该语义。 */
 .biliscript-reading-meta {
   white-space: pre-line;
 }
@@ -107,10 +107,15 @@
  * .biliscript-reading-script-panel .biliscript-reading-header 的 padding
  * 14px 16px 10px）——那段内边距是三键与左侧文案、下方标签槽共用的，收它会把整行
  * 一起挪走，故由本行单独承担。负值不越出面板：14/16 的 padding 大于 6/6，且面板
- * 的 overflow:hidden 只裁面板外的溢出。 */
+ * 的 overflow:hidden 只裁面板外的溢出。
+ * align-self: flex-start（2026-10-04 用户决议）：header 的交叉轴对齐是 center
+ *（面板作用域覆写，单行文案时把文案块在三键行里居中），左侧文案一变多，三键就跟
+ * 着飘到整块的中线。三键自取 flex-start 钉在右上角、只随 header 顶部走；配合上面
+ * -6px 的负 margin，单行文案下三键中线仍落在首行中线上（现状观感不变）。 */
 .biliscript-reading-actions {
   display: flex;
   align-items: center;
+  align-self: flex-start;
   gap: 8px;
   flex: 0 0 auto;
   flex-wrap: nowrap;

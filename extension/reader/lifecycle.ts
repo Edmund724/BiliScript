@@ -26,7 +26,6 @@ import {
   getReadingSubtitlePlaceholderText
 } from "../subtitle/core.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { buildSubtitleOptionViews, buildSubtitleSourceLabel } from "../subtitle/selection.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
@@ -406,7 +405,7 @@ export function renderReadingView() {
   if (metaNode) {
     const metaLine = buildReadingMetaLine();
     metaNode.textContent = metaLine;
-    // 字段全空（无作者/单P/未选字幕语言）时整块隐藏：header 不留空行。
+    // 字段全空（无作者/单P）时整块隐藏：header 不留空行。
     // 只隐藏 meta 本体——.biliscript-reading-header-copy 的「手动浏览中」::after
     // 挂在其父节点上（reader-gate.css），隐藏父节点会连带吃掉该标注。
     metaNode.hidden = !metaLine;
@@ -495,14 +494,15 @@ export function renderReaderPanels() {
 }
 
 // renderReadingInfoPanel / buildReadingSummaryItems 已随「视频摘要」「视频简介」
-// 区块删除（script-only-ui：面板 header 下的 meta 行只留作者/分P/字幕语言，
+// 区块删除（script-only-ui：面板 header 下的 meta 行只留作者/分P，
 // 标题随 AI 对话 chip 展示，日期左侧视频区已有，均不占面板空间；网址零信息量，
 // 2026-09 用户决议删除）。
-// 2026-09 用户决议：作者加「UP主：」前缀，与「字幕：…」统一为「标签：值」口径。
-// 2026-09/10 用户决议：字幕段固定另起一行（本函数返回带 \n 的文本，视觉换行由
-// .biliscript-reading-meta 的 white-space:pre-line 落地）——长字幕来源不再从
-// 中间折断；来源口径见 subtitle/selection 的来源投影（人工上传 / B站 AI 识别 /
-// 自配平台转写），三行同一套「标签：值」，分类不了的退回原始语言值。
+// 2026-09 用户决议：作者加「UP主：」前缀（「标签：值」口径）。
+// 2026-10-04 用户决议：分P 不再跟在 UP主 后面——`UP主：…` 与 `P{n}：…` 各占一行
+//（本函数返回带 \n 的文本，视觉换行由 .biliscript-reading-meta 的
+// white-space:pre-line 落地），长分P标题不再从中间折断；「字幕：来源（语言）」
+// 整行删除（不再注明字幕来源），meta 行随之不再读字幕轨字段——来源/语言投影已从
+// subtitle/selection 下线。
 function buildReadingMetaLine() {
   const head = [];
   if (state.clip.author) {
@@ -514,26 +514,7 @@ function buildReadingMetaLine() {
     // 无分P标题时只留 P{n}，不落一个悬空的全角冒号。
     head.push(pageTitle ? `${page}：${pageTitle}` : page);
   }
-  const subtitlePart = buildReadingSubtitlePart();
-  const headLine = head.join(" · ");
-  if (!subtitlePart) {
-    return headLine;
-  }
-  return headLine ? `${headLine}\n${subtitlePart}` : subtitlePart;
-}
-
-// 「字幕：」值：选中轨经同一份 option 视图投影取来源标签（选中态匹配规则单源），
-// 轨道找不到（如 ASR 缓存命中尚未塞伪轨）退回归一后的原始语言值。
-function buildReadingSubtitlePart() {
-  const selected = buildSubtitleOptionViews(
-    state.clip.subtitles,
-    state.clip.selectedSubtitleId,
-    state.clip.selectedSubtitleUrl
-  ).find((option) => option.selected);
-  const label = selected
-    ? selected.sourceLabel
-    : buildSubtitleSourceLabel(null, state.clip.selectedSubtitleLang);
-  return label ? `字幕：${label}` : "";
+  return head.join("\n");
 }
 
 function setReadingViewReady(ready: boolean) {

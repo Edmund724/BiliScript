@@ -183,97 +183,20 @@ export function validateSubtitleByDuration(body: unknown[], videoDuration: unkno
   return { ok: true, reason: "ok", videoDuration: duration, maxTo };
 }
 
-export function isAiSubtitle(item: { lan?: string } | null | undefined): boolean {
-  const lan = String(item?.lan || "").toLowerCase();
-  // B站 AI 自动字幕的 lan 以 "ai-" 开头
-  return lan.startsWith("ai-");
-}
-
-export function isAsrSubtitle(item: { lan?: string } | null | undefined): boolean {
-  const lan = String(item?.lan || "").toLowerCase();
-  // 本扩展 ASR 回退的伪轨 lan 以 "asr-" 开头（asr/fallback.js 写入）
-  return lan.startsWith("asr-");
-}
-
-// ===== 来源/语言标签（2026-09 用户决议：三种来源说同一套词） =====
-// 人工上传（非 ai- 前缀的 B站 轨：UP 主上传或观众投稿的 CC 字幕） /
-// B站 AI 识别（lan 前缀 ai-）/ 自配平台转写（本扩展 ASR 回退的伪轨）。
-// 平台名不进任何字幕标签：平台归设置页，标签只回答「这段字幕是怎么来的」。
+// ===== 来源标签（2026-09 用户决议，2026-10-04 收窄） =====
+// 面板 meta 行的「字幕：来源（语言）」投影已按 2026-10-04 用户决议整条删除（不再
+// 注明字幕来源）：人工上传 / B站 AI 识别 两支、语言归一与轨道身份判定一并退场，
+// 此处只留本扩展 ASR 回退伪轨要用的来源串。平台名不进串：平台归设置页，串只回答
+//「这段字幕是怎么来的」。
 export const ASR_SUBTITLE_SOURCE = "自配平台转写";
 
-const AI_LANGUAGE_TAIL = /[（(]\s*ai\s*(?:生成|识别)?\s*[）)]|[（(]\s*自动生成\s*[）)]/gi;
-
-// 语言归一：B站 AI 轨的 lanDoc 自带「（自动生成）」这类机器尾巴，与来源标签
-// 里的 AI 语义重复，剥掉后语言才是纯语言（「中文（简体）」等真实尾巴不动）。
-export function normalizeSubtitleLanguageLabel(value: unknown): string {
-  return String(value ?? "").replace(AI_LANGUAGE_TAIL, "").trim();
-}
-
 // ASR 伪轨的来源串：生成时定型——语言档位只有发起转写那一刻知道，auto 档不附
-// 语言（宁缺勿猜）。同一个串写进伪轨 lanDoc 与 selectedSubtitleLang，meta 行、
-// 下拉、下载文件名、AI 上下文因此自动一致。
+// 语言（宁缺勿猜）。同一个串写进伪轨 lanDoc 与 selectedSubtitleLang，下载文件名
+// 与 AI 上下文因此自动一致。
 export function buildAsrSubtitleLabel(language: unknown): string {
   const lang = String(language ?? "").trim().toLowerCase();
   const doc = lang === "zh" ? "中文" : lang === "en" ? "英文" : "";
   return doc ? `${ASR_SUBTITLE_SOURCE}（${doc}）` : ASR_SUBTITLE_SOURCE;
-}
-
-// meta 行「字幕：」值 = 来源（语言）。ASR 伪轨的 lanDoc 自产即显示串，原样采用；
-// 轨道缺失（分类不了，如 ASR 缓存命中未塞伪轨）退回归一后的原始语言值，不编来源。
-export function buildSubtitleSourceLabel(
-  item: { id?: string | number | null; lan?: string; lanDoc?: string } | null | undefined,
-  fallbackLang = ""
-): string {
-  if (!item) {
-    return normalizeSubtitleLanguageLabel(fallbackLang);
-  }
-  if (isAsrSubtitle(item)) {
-    return String(item.lanDoc || "").trim() || ASR_SUBTITLE_SOURCE;
-  }
-  const lang = normalizeSubtitleLanguageLabel(item.lanDoc || item.lan || "");
-  const source = isAiSubtitle(item) ? "B站 AI 识别" : "人工上传";
-  return lang ? `${source}（${lang}）` : source;
-}
-
-export interface SubtitleOptionView {
-  id: string;
-  url: string | undefined;
-  // lang 是原始语言值（接口 lanDoc||lan||"unknown"）——保持接口原文；label 是
-  // 选项显示的语言名（AI 尾巴已归一）；sourceLabel 是 meta 行「字幕：」值
-  //（来源 + 语言）。2026-10 用户决议删去工具条字幕语言下拉后，label 与 isAi
-  // 暂无消费方（原下拉的 [AI] 标），随投影保留备用；lang 仍是 sourceLabel 的输入。
-  lang: string;
-  label: string;
-  sourceLabel: string;
-  isAi: boolean;
-  selected: boolean;
-}
-
-// 字幕轨 option 视图模型的唯一投影（arch-slim-3/riders R2；2026-09/10 起含
-// 来源/语言标签）：lang 即写回 state 的原始值，sourceLabel 供 meta 行「字幕：」
-// 值取用，选中态按 id（弱比较）或 URL 精确匹配。原消费者（工具条字幕语言下拉
-// 的 select HTML）随该控件删除（2026-10 用户决议），现只剩 reader/lifecycle 的
-// meta 行——选中态匹配规则仍收口在本模型，不在渲染侧另抄一份。
-export function buildSubtitleOptionViews(
-  subtitles: SubtitleTrack[] | RawSubtitleTrack[] | null | undefined,
-  selectedSubtitleId?: string,
-  selectedSubtitleUrl?: string
-): SubtitleOptionView[] {
-  return (subtitles || []).map((item) => {
-    const lang = item.lanDoc || item.lan || "unknown";
-    const isAi = isAiSubtitle(item);
-    const selectedById = selectedSubtitleId && String(item.id || "") === String(selectedSubtitleId);
-    const selectedByUrl = item.subtitleUrl === selectedSubtitleUrl;
-    return {
-      id: String(item.id || ""),
-      url: item.subtitleUrl,
-      lang,
-      label: normalizeSubtitleLanguageLabel(lang),
-      sourceLabel: buildSubtitleSourceLabel(item, lang),
-      isAi,
-      selected: Boolean(selectedById || selectedByUrl)
-    };
-  });
 }
 
 // 候选10 批1：写入端统一保证 subtitleBody 按 from 升序（稳定排序，同 from
