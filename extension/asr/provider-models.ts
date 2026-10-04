@@ -1,12 +1,21 @@
 // extension/asr/provider-models.ts
-// ASR 平台模型列表拉取（options 页模型名下拉的数据源）。
-// 与 asr/provider-test.js 同属「候选 04 拆链」后的 options 页直调模块：
-// 扩展页面 context 下 host_permissions 生效，跨域 fetch 无需 SW 消息往返
-// （对照：AI 侧模型列表仍走 ai-providers-models 消息，由 SW 里的
-// ai/provider-models.js 直连，arch-slim-2/09 起探针归 ai/）。本模块不进 SW 静态图。
+// ASR 平台模型列表拉取（设置面板模型名下拉的数据源）。
+//
+// 传输经 SW 代发（core/provider-http.ts 的 providerFetchViaBackground，与 AI 探针
+// ai/provider-test.ts、搜索执行器 search/search-executor.ts 同款）：本模块跑在
+// content script（设置面板由 content 注入页内，manifest 无 options_page），直连
+// fetch 服从**网页** CORS，带 Authorization 的 GET 必触发预检，网关不回
+// Access-Control-Allow-* 时一律「Failed to fetch」；而同平台的真转写在 offscreen
+// （entry/offscreen-asr.ts 装载适配器，扩展语境 fetch 只受 host 权限约束）——正是
+// 「模型列表拉不到、真转写正常」的失败面。改走代发后这条链与真转写同不受网页 CORS。
+//
+// host 权限判定随之单源在 SW 侧代发通道（handleProviderHttpRequest，未授权回
+// HOST_PERMISSION_HINT）：content 语境没有 chrome.permissions，页面侧那道预检恒
+// fail-open 放行，判不了；申请侧由调用方 model-picker.ts 在用户手势上先行完成。
+// 超时同理归 SW（15s 硬超时，provider-http.ts），本模块不再自持定时器。
 
 import { normalizeBaseUrl } from "../core/presets.js";
-import { HOST_PERMISSION_HINT, hasHostPermission } from "../core/host-permissions.js";
+import { providerFetchViaBackground } from "../core/provider-http.js";
 import { asrProviderStore } from "./asr-provider-store.js";
 
 export interface ListAsrModelsInput {
@@ -24,17 +33,11 @@ export interface ListAsrModelsResult {
 // GET `${baseUrl}/models?sub_type=speech-to-text`：sub_type 是 SiliconFlow 的
 // 语音模型过滤参数，其他 OpenAI 兼容端点会忽略未知查询参数、回全量列表。
 // Key 解析优先用户重输的 apiKey，否则按 providerId 读已存 Key（本地 Whisper
-// 常无 Key，都没有就裸 GET）。
+// 常无 Key，都没有就裸 GET）。请求本体由 SW 代发（见文件头）。
 export async function listAsrModels({ baseUrl, apiKey, providerId }: ListAsrModelsInput): Promise<ListAsrModelsResult> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   if (!normalizedBaseUrl) {
     return { ok: false, error: "请先填写 baseUrl" };
-  }
-  // S2 收紧 host_permissions：平台域名未授权时这条 GET 只会以 CORS 失败，回包是
-  // 「Failed to fetch」这种看不出原因的文案，因此先做权限预检，未授权直接回可操作
-  // 提示（与 AI/ASR 连通性探针共用 core/host-permissions.js 的判定）。
-  if (!(await hasHostPermission(normalizedBaseUrl))) {
-    return { ok: false, error: HOST_PERMISSION_HINT };
   }
 
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -46,22 +49,11 @@ export async function listAsrModels({ baseUrl, apiKey, providerId }: ListAsrMode
     headers.Authorization = `Bearer ${resolvedApiKey}`;
   }
 
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | null = setTimeout(() => controller.abort(), 15000);
-  const cleanup = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
-  };
-
   try {
-    const resp = await fetch(`${normalizedBaseUrl}/models?sub_type=speech-to-text`, {
+    const resp = await providerFetchViaBackground(`${normalizedBaseUrl}/models?sub_type=speech-to-text`, {
       headers,
-      method: "GET",
-      signal: controller.signal
+      method: "GET"
     });
-    cleanup();
     if (!resp.ok) {
       const text = await resp.text();
       return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
@@ -75,10 +67,8 @@ export async function listAsrModels({ baseUrl, apiKey, providerId }: ListAsrMode
     }
     return { ok: true, models };
   } catch (error) {
-    cleanup();
-    if ((error as Error | undefined)?.name === "AbortError") {
-      return { ok: false, error: "请求超时，请检查 baseUrl 或稍后重试" };
-    }
+    // 代发通道把 SW 侧的回包错误（未授权提示 / 15s 超时文案 / URL 不合法）作为
+    // Error 抛出，这里原样透传，不覆盖 HTTP 层错误。
     if (error instanceof SyntaxError) {
       return { ok: false, error: "无法解析模型列表" };
     }
