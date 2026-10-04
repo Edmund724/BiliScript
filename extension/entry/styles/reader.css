@@ -103,6 +103,11 @@
   grid-row: 2;
 }
 
+/* header 动作行：负 margin 把三个图标键往面板右上角收（用户决议，见
+ * .biliscript-reading-script-panel .biliscript-reading-header 的 padding
+ * 14px 16px 10px）——那段内边距是三键与左侧文案、下方标签槽共用的，收它会把整行
+ * 一起挪走，故由本行单独承担。负值不越出面板：14/16 的 padding 大于 6/6，且面板
+ * 的 overflow:hidden 只裁面板外的溢出。 */
 .biliscript-reading-actions {
   display: flex;
   align-items: center;
@@ -110,6 +115,7 @@
   flex: 0 0 auto;
   flex-wrap: nowrap;
   justify-content: flex-end;
+  margin: -6px -6px 0 0;
   transition: opacity 0.3s var(--biliscript-reader-ease-spring, ease);
 }
 
@@ -168,13 +174,16 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
+/* header 的三个纯图标键（主题/设置/退出）：无框幽灵键（用户决议）——键底色与
+ * 面板 surface 同色，1px 框线是画面上唯一多余的一圈线，存在感改由悬停底与点按
+ * 反馈承担。 */
 .biliscript-reading-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 34px;
   height: 34px;
-  border: 1px solid var(--biliscript-reader-border, #e5e7eb);
+  border: 0;
   background: var(--biliscript-reader-surface, #fff);
   border-radius: 8px;
   cursor: pointer;
@@ -195,14 +204,12 @@
 
 .biliscript-reading-icon-btn:hover {
   background: var(--biliscript-reader-surface-2, #f3f4f6);
-  border-color: var(--biliscript-reader-border, #d1d5db);
 }
 
 /* 主题切换按钮点按反馈（ui-renderer 300ms 即摘）：accent-soft 软底 + accent 字，
  * 深浅两主题同源 token */
 .biliscript-reading-icon-btn.is-active {
   background: var(--biliscript-reader-accent-soft, #eff6ff);
-  border-color: var(--biliscript-reader-accent, #2563eb);
   color: var(--biliscript-reader-accent, #2563eb);
 }
 
@@ -615,13 +622,15 @@
 }
 
 /* header 三个纯图标按钮（主题/设置/退出）都带 .biliscript-reading-icon-btn：基础段的
- * .biliscript-reading-actions button（文字动作按钮 pill + min-height 36）与
- * .biliscript-reading-icon-btn（34×34 / 8px）同时命中，min-height 压过 height 让图标
- * 按钮长成 34×36 的胶囊。此处按「8px = 一切框」把图标按钮按回方块。 */
+ * .biliscript-reading-actions button（文字动作按钮 pill + min-height 36 + 1px 边框）与
+ * .biliscript-reading-icon-btn（34×34 / 8px）同时命中，前者的 (0,1,1) 压过后者的
+ * (0,1,0)，min-height 压过 height 让图标按钮长成 34×36 的胶囊，边框也会从它那里漏回。
+ * 此处按「8px = 一切框」把图标按钮按回方块，并把无框决议落到这条更高特异性的规则上。 */
 #biliscript-reading-view .biliscript-reading-actions button.biliscript-reading-icon-btn {
   height: 34px;
   min-height: 0;
   padding: 0;
+  border: 0;
   border-radius: 8px;
 }
 
