@@ -1,0 +1,290 @@
+// tests/ai/thinking-golden-classes.ts
+// 07 号票（golden 按类重构）的**纯数据件**：产物枚举、出口形态命名、工件解析、覆盖矩阵口径、
+// 两条通道的调用缝。刻意不 import vitest/expect——同一份枚举与调用缝要同时服务两个通道的
+// golden 用例与生成器（.scratch/.../artifacts/07-gen-golden-tables.ts）；生成器是 node
+// 脚本，不能把 vitest 塞进它的 bundle。断言注册在 thinking-golden-defenses.ts。
+//
+// 口径（与 04-prune-matrix.ts 逐字同源）：
+// - 平台 = UPSTREAM_PROVIDER_BY_PRESET 的 12 家（preset → 上游 provider）；
+// - 模型 = 02 指派表 ASSIGNMENTS 的 (provider, modelId)，有别名时换成本仓口径 localId
+//   （MODEL_ID_ALIASES），保证与矩阵工件的行键逐字一致；
+// - 类 = 值集 id（02 产物 VALUESETS 的键）；
+// - 「实现」= (类, 平台) 对，每对取排序首个模型做代表——用例只按类 × 出口形态写，
+//   每个实现的行为由归纳完整性防线扫（见 thinking-golden-defenses.ts 的 F2）。
+
+import { readFileSync } from "node:fs";
+import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
+import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
+import { ASSIGNMENTS, MODEL_ID_ALIASES, VALUESETS } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
+import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, type ThinkingLevel } from "../../extension/ai/thinking-profiles.js";
+import { DEFAULT_MAX_TOKENS } from "../../extension/ai/output-budget.js";
+import type { ChatMessage } from "../../extension/ai/types.js";
+import { PRESETS } from "../../extension/core/presets.js";
+
+const ARTIFACTS = ".scratch/tickets/upstream-model-facts/artifacts";
+/** 04-prune-matrix.ts 的产物（06 树跑出，371 行；只读）——来源防线（F3）的对账对象。 */
+export const REQUEST_MATRIX = `${ARTIFACTS}/06-request-matrix.tsv`;
+/** 本票（07）的验收工件：valuesetId × 通道 × 出口形态 → 用例归属。 */
+export const COVERAGE_MATRIX = `${ARTIFACTS}/07-golden-coverage.tsv`;
+
+/** 两条通道共用的请求消息常量（与既有 golden 逐字一致）。 */
+const MESSAGES: ChatMessage[] = [{ role: "user", content: "hi" }];
+
+export type Channel = "openai" | "anthropic";
+
+/**
+ * 按类 golden 用例 = 类（值集 id）× 出口形态（该实现真实落线的线格式）→ 7 档请求字段。
+ * 一个用例承载一个 (类, 出口形态) 组合；同组合的其它平台/模型由 F2 防线扫。
+ */
+export interface ByClassCase {
+  readonly valuesetId: string;
+  readonly presetId: string;
+  readonly model: string;
+  /** 该实现（代表模型）的可用集 A'，档位序；空 = 无档可落（不发思考参数）。 */
+  readonly available: readonly ThinkingLevel[];
+  /** 7 档逐字节期望的思考字段片段，序 = AI_THINKING_LEVELS；{} = 不发任何字段。 */
+  readonly fields: readonly Record<string, unknown>[];
+}
+
+/** 产物里一个 (类, 平台) 实现（代表模型 = 排序首个，确定性）。 */
+export interface Realization {
+  readonly valuesetId: string;
+  readonly presetId: string;
+  readonly upstreamId: string;
+  /** 本仓/矩阵口径的模型 id（别名折叠后）。 */
+  readonly model: string;
+}
+
+/** 上游 (provider, modelId) → 本仓口径 localId（别名折叠，同 04-prune-matrix.ts）。 */
+function localIdOf(upstreamId: string, modelId: string): string {
+  for (const alias of MODEL_ID_ALIASES) {
+    if (alias.upstream === `${upstreamId}/${modelId}`) return alias.localId;
+  }
+  return modelId;
+}
+
+/** 该 (平台, 模型) 命中的值集 id（指派表精确 → 折叠大小写 → 别名表，与 runtime 同序）。 */
+export function valuesetOf(upstreamId: string, model: string): string | undefined {
+  const table = ASSIGNMENTS[upstreamId] ?? {};
+  const exact = table[model];
+  if (exact) return exact;
+  const folded = model.toLowerCase();
+  for (const candidate of Object.keys(table)) {
+    if (candidate.toLowerCase() === folded) return table[candidate];
+  }
+  for (const alias of MODEL_ID_ALIASES) {
+    if (alias.provider === upstreamId && alias.localId.toLowerCase() === folded) return alias.valuesetId;
+  }
+  return undefined;
+}
+
+/**
+ * 产物里的全部 (类, 平台) 实现：指派表 + 别名表指向的 localId，按 (preset, model) 排序后
+ * 每个 (类, 平台) 对取首个模型。这是「哪些行为被 golden 按类承载」的枚举底座。
+ */
+export function productRealizations(): Realization[] {
+  const first = new Map<string, Realization>();
+  for (const [presetId, upstreamId] of Object.entries(UPSTREAM_PROVIDER_BY_PRESET)) {
+    const table = ASSIGNMENTS[upstreamId];
+    if (!table) continue;
+    const models = new Set<string>();
+    for (const modelId of Object.keys(table)) models.add(localIdOf(upstreamId, modelId));
+    // 只有别名、没有直接指派的模型（如 moonshot 的 kimi-k2.6）也要进枚举。
+    for (const alias of MODEL_ID_ALIASES) {
+      if (alias.provider === upstreamId) models.add(alias.localId);
+    }
+    for (const model of [...models].sort()) {
+      const valuesetId = valuesetOf(upstreamId, model);
+      if (!valuesetId) continue;
+      const key = `${valuesetId}\u0001${presetId}`;
+      if (!first.has(key)) first.set(key, { valuesetId, presetId, upstreamId, model });
+    }
+  }
+  return [...first.values()].sort((a, b) =>
+    a.presetId === b.presetId ? a.model.localeCompare(b.model) : a.presetId.localeCompare(b.presetId)
+  );
+}
+
+/** 通道的 baseUrl 口径：anthropic 取 protocolBaseUrls.anthropic（缺省回落 baseUrl）。 */
+export function baseUrlFor(channel: Channel, presetId: string): string {
+  const preset = PRESETS.find((p) => p.id === presetId);
+  if (!preset) throw new Error(`PRESETS 未登记预设：${presetId}`);
+  return channel === "anthropic" ? (preset.protocolBaseUrls?.anthropic ?? preset.baseUrl) : preset.baseUrl;
+}
+
+/**
+ * override 型平台（平台级裁定短路；同 thinking-upstream-facts.test.ts 的清单）：
+ * 这些平台的档位词表由平台声明给出，开关型血统会被它们的档位词细化（low≠high），
+ * 所以「开关型的 low==high」判据只对非 override 平台成立。
+ */
+export const OVERRIDE_PRESETS: readonly string[] = ["openrouter", "amd", "sensenova", "opencodego"];
+
+/** 通道调用缝的入参（presetId 主路径；baseUrl 驱动的无 preset 平台如 openai/siliconflow/doubao）。 */
+export interface BodyRequest {
+  readonly presetId?: string;
+  readonly baseUrl?: string;
+  readonly model: string;
+  readonly level: ThinkingLevel;
+  readonly stream?: boolean;
+  readonly maxTokens?: number;
+  readonly probe?: boolean;
+}
+
+/**
+ * 通道缝：各通道自己的 adapter 调用形状。bodyAt 是**唯一**的运行期入口——golden 断言、
+ * 防线、塌陷判据都从它取片段，口径不会分叉。expectedBody 是同一形状的期望包装（该通道的
+ * 常量键 + 片段），供用例逐字节整 body 比对（不做包含式）。
+ */
+export interface ChannelHarness {
+  readonly channel: Channel;
+  bodyAt: (request: BodyRequest) => Record<string, unknown>;
+  expectedBody: (model: string, fields: Record<string, unknown>) => Record<string, unknown>;
+}
+
+export function channelHarness(channel: Channel): ChannelHarness {
+  if (channel === "openai") {
+    return {
+      channel,
+      bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens, probe = false }) =>
+        buildChatRequestBody({
+          model,
+          messages: MESSAGES,
+          stream,
+          thinkingLevel: level,
+          baseUrl: baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : undefined),
+          presetId,
+          ...(maxTokens != null ? { maxTokens } : {}),
+          probe
+        }) as Record<string, unknown>,
+      expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, ...fields })
+    };
+  }
+  return {
+    channel,
+    bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens, probe = false }) =>
+      anthropicAdapter.buildBody({
+        model,
+        messages: MESSAGES,
+        stream,
+        probe,
+        baseUrl: baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : ""),
+        presetId,
+        thinkingLevel: level,
+        // adapter 默认 max_tokens 走 DEFAULT_MAX_TOKENS（32768）——用例字面钉住该值。
+        ...(maxTokens != null ? { maxTokens } : {})
+      }) as Record<string, unknown>,
+    expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, max_tokens: DEFAULT_MAX_TOKENS, ...fields })
+  };
+}
+
+/**
+ * 出口形态命名（票面六种出口的机械写法）：由**实际发出去的字段组合**命名，不手抄。
+ * 例：`thinking:enabled+output_config.effort:medium` / `enable_thinking:true` / `none`。
+ */
+export function exitFormOf(fields: Record<string, unknown>): string {
+  const parts: string[] = [];
+  const thinking = fields.thinking as { type?: unknown } | undefined;
+  if (thinking) parts.push(`thinking:${String(thinking.type)}`);
+  if (fields.enable_thinking !== undefined) parts.push(`enable_thinking:${fields.enable_thinking ? "true" : "false"}`);
+  if (fields.reasoning_effort !== undefined) parts.push(`reasoning_effort:${String(fields.reasoning_effort)}`);
+  const outputConfig = fields.output_config as { effort?: unknown } | undefined;
+  if (outputConfig) parts.push(`output_config.effort:${String(outputConfig.effort)}`);
+  return parts.length > 0 ? parts.join("+") : "none";
+}
+
+/** 请求体里与思考无关的包装键（矩阵工件保留了 model 与 token 上限，去掉后才是思考片段）。 */
+const BODY_WRAPPER_KEYS = ["model", "messages", "stream", "max_tokens", "max_completion_tokens"];
+
+export function thinkingFragment(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (BODY_WRAPPER_KEYS.includes(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/** 矩阵工件的单元格（JSON 文本）→ 思考字段片段。 */
+export function thinkingFragmentOfCell(cell: string): Record<string, unknown> {
+  return thinkingFragment(JSON.parse(cell) as Record<string, unknown>);
+}
+
+export interface RequestMatrix {
+  readonly header: readonly string[];
+  /** `${platform}\u0001${model}` → 单元格文本（列名见 header）。 */
+  readonly rows: ReadonlyMap<string, readonly string[]>;
+}
+
+function parseRequestMatrix(text: string): RequestMatrix {
+  const lines = text.split("\n").filter((line) => line.length > 0);
+  const header = lines[0].split("\t");
+  const rows = new Map<string, readonly string[]>();
+  for (const line of lines.slice(1)) {
+    const cells = line.split("\t");
+    rows.set(`${cells[0]}\u0001${cells[1]}`, cells);
+  }
+  return { header, rows };
+}
+
+export function readRequestMatrix(path: string = REQUEST_MATRIX): RequestMatrix {
+  return parseRequestMatrix(readFileSync(path, "utf8"));
+}
+
+/** 值集表全部键（覆盖防线 F1 的右侧）。 */
+export function allValuesetIds(): string[] {
+  return Object.keys(VALUESETS).sort();
+}
+
+/** 指派表实际用到的值集 id 集合（产物自洽判据：值集表不该有孤儿）。 */
+export function assignedValuesetIds(): string[] {
+  const used = new Set<string>();
+  for (const table of Object.values(ASSIGNMENTS)) {
+    for (const valuesetId of Object.values(table)) used.add(valuesetId);
+  }
+  return [...used].sort();
+}
+
+/** 用例表里覆盖到的值集 id 集合。 */
+export function coveredValuesetIds(cases: readonly ByClassCase[]): string[] {
+  return [...new Set(cases.map((c) => c.valuesetId))].sort();
+}
+
+/** 用例的 7 档片段签名（同签名 = 同一出口形态组合，用于归纳完整性对账 F2）。 */
+export function fieldsSignature(fields: readonly Record<string, unknown>[]): string {
+  return JSON.stringify(fields);
+}
+
+/** 覆盖矩阵表头（生成器与 F4 防线共用；改这里两边一起改）。 */
+export const COVERAGE_HEADER = [
+  "valuesetId",
+  "channel",
+  "level",
+  "exitForm",
+  "presetId",
+  "model",
+  "inAvailableSet",
+  "caseTitle"
+] as const;
+
+/** 覆盖矩阵的期望行：valuesetId × 通道 × 档位（出口形态）→ 用例归属。 */
+export function coverageRows(channel: Channel, cases: readonly ByClassCase[]): string[] {
+  const rows: string[] = [];
+  for (const case_ of cases) {
+    for (const level of AI_THINKING_LEVELS) {
+      const index = AI_THINKING_LEVELS.indexOf(level);
+      rows.push(
+        [
+          case_.valuesetId,
+          channel,
+          level,
+          exitFormOf(case_.fields[index]),
+          case_.presetId,
+          case_.model,
+          case_.available.includes(level) ? "1" : "0",
+          `${case_.valuesetId} · ${case_.presetId}/${case_.model}`
+        ].join("\t")
+      );
+    }
+  }
+  return rows;
+}
