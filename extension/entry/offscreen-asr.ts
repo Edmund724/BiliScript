@@ -29,10 +29,13 @@ import {
   ASR_MSG_PROGRESS,
   ASR_MSG_CHUNK_RESULT,
   ASR_MSG_DONE,
-  ASR_MSG_ERROR
+  ASR_MSG_ERROR,
+  ASR_MSG_PROBE_RESULT
 } from "../asr/protocol.js";
-import { buildChunkPlan } from "../asr/chunker.js";
+import type { AsrProbeTask, AsrProbeResultMessage } from "../asr/protocol.js";
+import { buildChunkPlan, encodeWav } from "../asr/chunker.js";
 import { classifyAsrFailure } from "../asr/failure-kind.js";
+import type { AsrFailureProviderLike } from "../asr/failure-kind.js";
 import { streamWavChunks } from "../asr/stream-chunker.js";
 import { createTranscriptionEngine } from "../asr/engine.js";
 import { transcribe as transcribeOpenAi } from "../asr/adapters/openai-transcriptions.js";
@@ -155,6 +158,97 @@ export interface AsrDecodePort extends chrome.runtime.Port {}
 
 export interface CreateAsrDecodeHandlerDeps {
   onTaskTerminal: (port: chrome.runtime.Port) => void;
+}
+
+// ===== 平台连通性探针（asr/protocol.js 的 asr-probe） =====
+
+// 探针 provider 的占位 id：只在本 context 内过一遍适配器，不落盘、不参与任何
+// 存储或缓存键。
+const ASR_PROBE_PROVIDER_ID = "__asr-probe__";
+
+// 探针载荷：1 秒 16kHz 单声道静音（全零采样，量化后仍是 0x0000）。经 chunker 的
+// encodeWav 出 Blob——与真实转写上传的 WAV 包装同款。静音即无人声，但链路是否
+// 打通（权限 / Key / 模型名 / URL）与有没有说话无关。
+function buildSilentProbeWavBlob(): Blob {
+  return encodeWav(new Float32Array(16000), 16000);
+}
+
+// 探针任务执行器：不下载、不解码、不切片，只按任务里的**草稿** provider 以静音 WAV
+// 调**真适配器**——与实际转写同一条链：
+//   - 同一道 host 权限预检（hasHostPermissionFromOffscreen）：域名未授权即以
+//     HOST_PERMISSION_HINT 失败、连请求都不发（页面侧探针做不到这一层：content
+//     script 没有 chrome.permissions，那道门必然 fail-open）；
+//   - 同一 transcribe 入口：URL / ?language / FormData 字段 / 无 segments 时的 json
+//     降级 / 失败分类全归适配器，探针不再自抄一份请求构造；
+//   - 失败文案与真跑同源（适配器抛物上的 message / kind / status 原样回页面）。
+// Key 随任务从页面侧过来（草稿探针要能测「填了但还没保存」的 Key）；解码链不受影响，
+// 那边的 Key 仍由本 context 直读 background 的运行时配置。
+export function createAsrProbeHandler({ onTaskTerminal }: CreateAsrDecodeHandlerDeps) {
+  return async function handleAsrProbeTask(rawTask: unknown, port: AsrDecodePort): Promise<void> {
+    const task = (rawTask || {}) as AsrProbeTask;
+    // 回执唯一出口：先 post 再走终态簿记——文档可能在簿记里自关，回执必须已发出。
+    const reply = (payload: Omit<AsrProbeResultMessage, "type">): void => {
+      safePostMessage(port, { type: ASR_MSG_PROBE_RESULT, ...payload });
+      onTaskTerminal(port);
+    };
+    try {
+      const type = String(task.type || "").trim();
+      const adapterEntry = ASR_ADAPTERS[type as keyof typeof ASR_ADAPTERS];
+      if (!adapterEntry) {
+        reply({ ok: false, error: "暂不支持的平台类型：" + type });
+        return;
+      }
+      const baseUrl = String(task.baseUrl || "").trim();
+      if (!baseUrl) {
+        reply({ ok: false, error: "请填写 baseUrl" });
+        return;
+      }
+      const model = String(task.model || "").trim();
+      if (!model) {
+        reply({ ok: false, error: "请填写模型名" });
+        return;
+      }
+      const provider: AsrProvider = {
+        id: ASR_PROBE_PROVIDER_ID,
+        presetId: "probe",
+        name: "probe",
+        type,
+        baseUrl,
+        model,
+        supportsTimestamps: true,
+        enabled: true,
+        apiKey: String(task.apiKey || "").trim(),
+        language: String(task.language || "auto")
+      };
+      // 与解码链同一道预检：未授权即失败，不发注定被拦的跨域请求。类别同解码链
+      // 归 no-asr-config（域名未授权是配置类问题，不是平台拒绝）。
+      if (!(await hasHostPermissionFromOffscreen(provider.baseUrl))) {
+        reply({
+          ok: false,
+          error: HOST_PERMISSION_HINT,
+          kind: classifyAsrFailure({
+            source: "platform",
+            body: HOST_PERMISSION_HINT,
+            provider: provider as AsrFailureProviderLike
+          })
+        });
+        return;
+      }
+      await adapterEntry.adapter({ wavBlob: buildSilentProbeWavBlob(), provider, signal: undefined });
+      reply({ ok: true });
+    } catch (error) {
+      // 适配器抛物上的失败信号（message / kind / status）原样回页面：文案与
+      // 实际转写同一串，分类也已在完整报文还在手上的这一层判完。
+      const err = error as { kind?: unknown; status?: unknown };
+      const status = Number(err?.status);
+      reply({
+        ok: false,
+        error: getErrorMessage(error),
+        ...(typeof err?.kind === "string" && err.kind ? { kind: err.kind } : {}),
+        ...(Number.isFinite(status) ? { status } : {})
+      });
+    }
+  };
 }
 
 // 收 { task: { audioUrl, backupUrls } }：在 offscreen 文档内完成「下载（HEAD

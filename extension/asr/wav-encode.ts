@@ -1,11 +1,10 @@
 // extension/asr/wav-encode.ts
 // 最小 WAV 字节编码微模块（16bit PCM / 单声道）。
-// 从 asr/chunker.js 拆出：asr-provider-store 的连通性探针只需要「把静音采样
-// 编码成 WAV 字节」，此前却要静态 import 整个 chunker.js（切片计划 / 解码
-// 校验 / Blob 包装一起进 SW 图）。ADR-0003：SW 不做运行时惰性（平台禁止动态
-// import()），小用途只能靠拆静态边——本模块只持有 WAV header 手写编码这一
-// 份实现，chunker.js 与探针共同引用，不复制第二份。纯函数、无依赖，
-// Node/vitest 下可独立测试。
+// 从 asr/chunker.js 拆出：连通性探针只需要「把静音采样编码成 WAV 字节」，
+// 此前却要静态 import 整个 chunker.js（切片计划 / 解码校验 / Blob 包装一起
+// 进 SW 图）。ADR-0003：SW 不做运行时惰性（平台禁止动态 import()），小用途
+// 只能靠拆静态边——本模块只持有 WAV header 手写编码这一份实现，chunker.js 与
+// 探针共同引用，不复制第二份。纯函数、无依赖，Node/vitest 下可独立测试。
 
 // ===== WAV 编码 =====
 

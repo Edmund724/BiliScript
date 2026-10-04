@@ -104,6 +104,40 @@ export type AsrPortMessage =
   | AsrDoneMessage
   | AsrErrorMessage;
 
+// ===== 平台连通性探针（页面 → offscreen → 真适配器） =====
+//
+// 探针与实际转写走同一条链：页面侧（content script）把**草稿** provider 交给
+// offscreen，offscreen 以 1 秒静音 WAV 调真实适配器（entry/offscreen-asr.js 的
+// asr-probe 处理）。页面侧自己发 fetch 做不到忠实——content script 没有
+// chrome.permissions（host 权限预检必然 fail-open，见 core/host-permissions.js），
+// 且其 fetch 受网页 CORS 约束，与扩展文档里「只受 host 权限约束」的出口不是同一
+// 件事：平台回一个 ACAO 就能让探针在域名未授权时照样 200。真转写的请求出口
+// （asr/adapters/openai-transcriptions.js）及其权限预检都在 offscreen，故探针也
+// 放在那里跑。
+export const ASR_PROBE_ACTION = "asr-probe" as const;
+
+// 探针回执（offscreen → 页面，同一端口）：error / kind / status 三者都取自适配器
+// 抛出的失败信号（文案与实际转写同一串），页面只展示 error。
+export const ASR_MSG_PROBE_RESULT = "probe-result" as const;
+
+// 探针任务：草稿 provider 的可变字段（Key 随任务过来——要能测「填了但还没保存」的
+// Key；解码链不受影响，那边仍由 offscreen 直读运行时配置）。
+export type AsrProbeTask = {
+  type?: string;
+  baseUrl?: string;
+  model?: string;
+  apiKey?: string;
+  language?: string;
+};
+
+export type AsrProbeResultMessage = {
+  type: typeof ASR_MSG_PROBE_RESULT;
+  ok: boolean;
+  error?: string;
+  kind?: string;
+  status?: number;
+};
+
 // ===== 页面侧任务结果形状（createOffscreenChunkHost 的 resolve 值） =====
 //   { results, totalChunks, skippedSegments, failedChunks,
 //     failedKind?, failedStatus?, failedDetail? }
@@ -121,6 +155,11 @@ export type AsrPortMessage =
 export const MAX_AUDIO_BYTES = 200 * 1024 * 1024;
 // offscreen 文档内的任务超时（解码与下载共用）
 export const ASR_DECODE_TIMEOUT_MS = 10 * 60 * 1000;
+
+// 探针回执的等待上限（页面侧）：1 秒静音 WAV 的转写往返本应秒级，超时只防
+// offscreen 文档未就绪/适配器挂死时测试按钮永远转圈——到点以可读文案收口，
+// 绝不把「没等到」当成通过。
+export const ASR_PROBE_TIMEOUT_MS = 30 * 1000;
 
 // 累计下载量上限（工单 04）：GET 流式读的累计字节最大值（主备 URL 合计）。
 // HEAD 探大小只在 CDN 诚实返回 Content-Length 时预拒超长视频；头部撒谎或

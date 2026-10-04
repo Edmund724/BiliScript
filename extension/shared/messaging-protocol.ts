@@ -558,14 +558,29 @@ export type OffscreenChatPortMessage =
   | OffscreenStopMessage
   | OffscreenCostGuardConfirmMessage;
 
-export type OffscreenAsrPortMessage = {
-  action: "asr-decode";
-  task: {
-    audioUrl?: string;
-    backupUrls?: string[];
-    [key: string]: unknown;
-  };
-};
+// asr-decode 端口上的两类任务（协议常量与契约见 asr/protocol.js）：解码走音轨
+// 下载/解码/切片/转写；探针（asr-probe）只把草稿 provider 交给 offscreen 的真
+// 适配器跑一次静音转写——页面侧探针必须落在扩展文档里，否则权限门 fail-open、
+// 请求还受网页 CORS 约束，与实际转写不是同一条链。
+export type OffscreenAsrPortMessage =
+  | {
+      action: "asr-decode";
+      task: {
+        audioUrl?: string;
+        backupUrls?: string[];
+        [key: string]: unknown;
+      };
+    }
+  | {
+      action: "asr-probe";
+      task: {
+        type?: string;
+        baseUrl?: string;
+        model?: string;
+        apiKey?: string;
+        language?: string;
+      };
+    };
 
 // 概览链的平台请求代发（overview-offscreen-transport）：content script 发起、
 // offscreen 文档执行的一次性请求。概览是分钟级长请求，SW 代发（provider-http）

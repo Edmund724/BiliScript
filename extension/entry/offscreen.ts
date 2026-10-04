@@ -26,7 +26,7 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { logInfo, logWarn, registerDebugGate, shouldDebugLog } from "../shared/logging.js";
 import { safePostMessage, sendRuntimeMessage } from "../shared/messaging.js";
 import { shouldCloseAfterAsrTask } from "./offscreen-lifecycle.js";
-import { ASR_DECODE_PORT_NAME, ASR_DECODE_ACTION, ASR_MSG_ERROR } from "../asr/protocol.js";
+import { ASR_DECODE_PORT_NAME, ASR_DECODE_ACTION, ASR_PROBE_ACTION, ASR_MSG_ERROR, ASR_MSG_PROBE_RESULT } from "../asr/protocol.js";
 // 候选5：聊天字幕体单槽缓存（纯逻辑在 ./offscreen-subtitle-slot.js，可测）。
 import { createSubtitleBodySlot } from "./offscreen-subtitle-slot.js";
 // 候选04：ASR / AI 两族任务链的懒加载器工厂（promise 缓存、失败可重试）。
@@ -107,13 +107,17 @@ let currentChatCount = 0;
 const activeAsrPorts = new Set<chrome.runtime.Port>();
 const activeProviderPorts = new Set<chrome.runtime.Port>();
 
-// ASR 族懒加载：load() 返回「已注入 onTaskTerminal 的任务执行器」——动态
-// import 与工厂装配都在 loadFn 内，工厂只执行一次。任务终态（断连取消 /
-// done / error）经 onTaskTerminal 回调交回本文件的 maybeCloseSelfAfterAsr
-// 自关判定。
+// ASR 族懒加载：load() 返回「已注入 onTaskTerminal 的两个任务执行器」（解码与
+// 连通性探针）——动态 import 与工厂装配都在 loadFn 内，工厂只执行一次。任务终态
+// （断连取消 / done / error / 探针回执）经 onTaskTerminal 回调交回本文件的
+// maybeCloseSelfAfterAsr 自关判定。
 const asrHandlerLoader = createLazyLoader(async () => {
-  const { createAsrDecodeHandler } = await import("./offscreen-asr.js");
-  return createAsrDecodeHandler({ onTaskTerminal: maybeCloseSelfAfterAsr });
+  const { createAsrDecodeHandler, createAsrProbeHandler } = await import("./offscreen-asr.js");
+  const deps = { onTaskTerminal: maybeCloseSelfAfterAsr };
+  return {
+    decode: createAsrDecodeHandler(deps),
+    probe: createAsrProbeHandler(deps)
+  };
 });
 
 // AI 族懒加载：首条 "chat" 消息到达时拉 ../ai/ladder.js 的 runLadderChat。
@@ -156,7 +160,14 @@ chrome.runtime.onConnect.addListener((port) => {
     });
     port.onMessage.addListener((rawMsg) => {
       const msg = rawMsg as OffscreenAsrPortMessage;
-      if (!msg || msg.action !== ASR_DECODE_ACTION) return;
+      if (!msg) return;
+      // 同一端口两类任务：解码（asr-decode）与连通性探针（asr-probe，协议见
+      // asr/protocol.js）。探针不解码不切片，只以静音 WAV 走一次真适配器。
+      if (msg.action === ASR_PROBE_ACTION) {
+        dispatchAsrProbeTask(msg.task || {}, port);
+        return;
+      }
+      if (msg.action !== ASR_DECODE_ACTION) return;
       dispatchAsrDecodeTask(msg.task || {}, port);
     });
     return;
@@ -331,9 +342,9 @@ chrome.runtime.onConnect.addListener((port) => {
 // 才判定；port 已断开时 postMessage 抛错被吞、判定照走，Set.delete 幂等，
 // 两种时序都正确）。
 async function dispatchAsrDecodeTask(task: unknown, port: chrome.runtime.Port) {
-  let handleAsrDecodeTask;
+  let handlers;
   try {
-    handleAsrDecodeTask = await asrHandlerLoader.load();
+    handlers = await asrHandlerLoader.load();
   } catch (error) {
     logWarn("[BILISCRIPT] offscreen-asr.js load failed", { error: getErrorMessage(error) });
     safePostMessage(port, {
@@ -343,7 +354,26 @@ async function dispatchAsrDecodeTask(task: unknown, port: chrome.runtime.Port) {
     maybeCloseSelfAfterAsr(port);
     return;
   }
-  handleAsrDecodeTask(task, port);
+  handlers.decode(task, port);
+}
+
+// asr-probe 任务分发：与解码同一懒装载、同一终态簿记，回执走 probe-result 通道
+// （页面只等这一条；装载失败同样以可读文案回执，绝不把「没等到」留成静默）。
+async function dispatchAsrProbeTask(task: unknown, port: chrome.runtime.Port) {
+  let handlers;
+  try {
+    handlers = await asrHandlerLoader.load();
+  } catch (error) {
+    logWarn("[BILISCRIPT] offscreen-asr.js load failed (probe)", { error: getErrorMessage(error) });
+    safePostMessage(port, {
+      type: ASR_MSG_PROBE_RESULT,
+      ok: false,
+      error: "ASR 模块加载失败：" + getErrorMessage(error)
+    });
+    maybeCloseSelfAfterAsr(port);
+    return;
+  }
+  handlers.probe(task, port);
 }
 
 function abortActiveRequest() {

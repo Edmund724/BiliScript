@@ -1,12 +1,25 @@
-// asr/provider-test.js 按 provider.type 的测试连接分发测试。
-// 覆盖 openai-transcriptions 探针的成功与失败分支、apiKey 缺失时回退
-// 读取已存 Key、非法 provider 的兜底。
-// 探针只与 fetch / chrome.storage 交互，用 vi.stubGlobal 替换 fetch 与 chrome。
-// 本仓库 jsdom 环境里 FormData/Blob 均存在，openai-transcriptions 探针始终构造
-// 真实 FormData；需要脱离全局 fetch 时可注入 options.transport（见文末用例）。
+// asr/provider-test.js 的输入预检与委派测试。
+//
+// 本模块现在只负责「探针入参」这一层：草稿归一化、baseUrl/模型名校验、Key 代查
+// （表单重输优先，否则按 id 读已存 Key）、语言档位取全局设置，然后**把草稿交给
+// offscreen 的真适配器**跑（asr/offscreen-bridge.page.js 的探针客户端）。
+//
+// 回归背景：旧实现在 content script 里自己拼 FormData 发 fetch，于是
+// ① 页面侧没有 chrome.permissions，host 权限门必然 fail-open（域名未授权也照样
+// 放行）；② 请求受网页 CORS 约束，与扩展文档里「只受 host 权限约束」的真转写出口
+// 不是一回事；③ 验的是草稿 Key，真跑用的是已保存配置。三者叠加出「测试连接成功、
+// 实际转写 401」的误导。本文件锁死：页面侧不再发任何请求，失败文案原样透传。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+
+const probeClient = vi.hoisted(() => ({
+  probeAsrProviderViaOffscreen: vi.fn(
+    async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true })
+  )
+}));
+
+vi.mock("../../extension/asr/offscreen-bridge.page.js", () => probeClient);
 
 let fetchMock: ReturnType<typeof vi.fn>;
 let localStorage: Record<string, any>;
@@ -19,6 +32,8 @@ beforeEach(() => {
   vi.resetModules();
   resetModuleState();
   localStorage = {};
+  probeClient.probeAsrProviderViaOffscreen.mockClear();
+  probeClient.probeAsrProviderViaOffscreen.mockResolvedValue({ ok: true });
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal("chrome", {
@@ -47,16 +62,6 @@ beforeEach(() => {
   });
 });
 
-// 构造一个带真实 Response 语义的最小响应对象（含 ok/status/text），
-// 探针代码只消费这三个字段。返回值断言为 Response 以满足 transport 注入签名。
-function jsonResponse(status: number, body: unknown): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    text: vi.fn(async () => JSON.stringify(body))
-  } as unknown as Response;
-}
-
 function baseProvider(overrides: Record<string, unknown> = {}) {
   return {
     id: "p1",
@@ -69,25 +74,54 @@ function baseProvider(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("testAsrConnection 分发与兜底", () => {
-  it("非法 type 的 provider 返回 { ok:false } 且不发请求", async () => {
+describe("testAsrConnection 输入预检（不发请求、不连端口）", () => {
+  it("非法 type 的 provider：回可读错误，探针客户端零调用", async () => {
     const { testAsrConnection } = await loadModule();
     const resp = await testAsrConnection({ id: "p1", type: "random-type", baseUrl: "x", model: "y" });
     expect(resp.ok).toBe(false);
     expect(resp.error).toBeTruthy();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(probeClient.probeAsrProviderViaOffscreen).not.toHaveBeenCalled();
   });
 
-  it("缺失 id / 缺失 type 的 provider 返回 { ok:false }", async () => {
+  it("缺 id 且无 Key 随参（Modal 新增平台的输入残缺态）：同样不可探", async () => {
     const { testAsrConnection } = await loadModule();
     expect((await testAsrConnection({ type: "openai-transcriptions", baseUrl: "x", model: "y" })).ok).toBe(false);
     expect((await testAsrConnection(null)).ok).toBe(false);
+    expect(probeClient.probeAsrProviderViaOffscreen).not.toHaveBeenCalled();
   });
 
-  it("新增平台（无 id、Key 随参携带）放行探针", async () => {
-    // Modal 添加平台时 editingId 为空：归一化缺 id 落空，但 Key 已随参携带、
-    // 不依赖按 id 代查，探针照常执行（回归：修复前误报「平台配置不完整或 type 非法」）
-    fetchMock.mockResolvedValue(jsonResponse(200, { text: "ok" }));
+  it("baseUrl / 模型名缺失：各自的本地文案，不连端口", async () => {
+    const { testAsrConnection } = await loadModule();
+    expect(await testAsrConnection(baseProvider({ baseUrl: "", apiKey: "sk-1" }))).toEqual({
+      ok: false,
+      error: "请填写 baseUrl"
+    });
+    expect(await testAsrConnection(baseProvider({ model: "", apiKey: "sk-1" }))).toEqual({
+      ok: false,
+      error: "请填写模型名"
+    });
+    expect(probeClient.probeAsrProviderViaOffscreen).not.toHaveBeenCalled();
+  });
+});
+
+describe("testAsrConnection 委派：草稿入参原样交给 offscreen 真链路", () => {
+  it("页面侧不发任何请求（请求构造归 offscreen 的真适配器）", async () => {
+    const { testAsrConnection } = await loadModule();
+    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
+    expect(resp).toEqual({ ok: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("已存平台：按 id 代查已存 Key 一并送进探针任务", async () => {
+    localStorage.asrProviderKeys = { p1: "stored-key-1" };
+    const { testAsrConnection } = await loadModule();
+    await testAsrConnection(baseProvider());
+    expect(probeClient.probeAsrProviderViaOffscreen).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "stored-key-1" })
+    );
+  });
+
+  it("新增平台（无 id、Key 随参携带）：占位 id 放行，Key 用表单值", async () => {
     const { testAsrConnection } = await loadModule();
     const resp = await testAsrConnection({
       name: "SiliconFlow 硅基流动（免费）",
@@ -97,130 +131,33 @@ describe("testAsrConnection 分发与兜底", () => {
       apiKey: "sk-1"
     });
     expect(resp.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("openai-transcriptions 探针", () => {
-  it("HTTP 200 即通过，请求发到 /audio/transcriptions", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { text: "ok" }));
-    const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
-    expect(resp.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("https://example.com/v1/audio/transcriptions");
-    expect(init.method).toBe("POST");
-    // apiKey 走 Authorization 头；FormData 分支不应手动设 Content-Type
-    expect(init.headers.Authorization).toBe("Bearer sk-1");
-    expect(init.body).toBeInstanceOf(FormData);
-    expect(init.headers["Content-Type"]).toBeUndefined();
+    expect(probeClient.probeAsrProviderViaOffscreen).toHaveBeenCalledWith({
+      type: "openai-transcriptions",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      model: "XingChenAGI/XingChenASR-V3.2",
+      apiKey: "sk-1",
+      language: "auto"
+    });
   });
 
-  it("全局 asrLanguage=en 时探针 URL 附加 ?language=english（验证英文链路）", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { text: "ok" }));
-    // 语言档位来自全局设置（popup 顶部切换），预置 sync 存储
+  it("语言档位取全局设置 asrLanguage（探针与实际转写验同一条语言链路）", async () => {
     vi.mocked(globalThis.chrome.storage.sync.get).mockResolvedValue({ asrLanguage: "en" });
     const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
-    expect(resp.ok).toBe(true);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("https://example.com/v1/audio/transcriptions?language=english");
-    // 语言不在 multipart 字段里（SiliconFlow 只认查询参数）
-    expect(init.body.get("language")).toBeNull();
+    await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
+    expect(probeClient.probeAsrProviderViaOffscreen).toHaveBeenCalledWith(
+      expect.objectContaining({ language: "en" })
+    );
   });
 
-  it("非 200 报 HTTP 状态码与响应体片段", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(400, { message: "bad request" }));
-    const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
-    expect(resp.ok).toBe(false);
-    expect(resp.error).toContain("HTTP 400");
-    expect(resp.error).toContain("bad request");
-  });
-
-  it("网络错误返回 无法连接", async () => {
-    fetchMock.mockRejectedValue(new Error("network down"));
-    const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
-    expect(resp.ok).toBe(false);
-    expect(resp.error).toContain("无法连接");
-  });
-});
-
-describe("apiKey 缺失时回退读取已存 Key", () => {
-  it("provider 不带 apiKey 时，按 id 从 local 读已存 Key", async () => {
-    // 预置已存 Key 到 local 存储
-    localStorage.asrProviderKeys = { p1: "stored-key-1" };
-    fetchMock.mockResolvedValue(jsonResponse(200, { text: "ok" }));
-    const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider());
-    expect(resp.ok).toBe(true);
-    const [, init] = fetchMock.mock.calls[0];
-    // 请求用的 Authorization 来自已存 Key
-    expect(init.headers.Authorization).toBe("Bearer stored-key-1");
-  });
-});
-
-describe("注入 transport", () => {
-  it("注入 fake transport 时代其发请求，全局 fetch 不被调用", async () => {
-    const transport = vi.fn(async (url, init) => jsonResponse(200, { text: "ok" }));
-    const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }), { transport });
-    expect(resp.ok).toBe(true);
-    expect(transport).toHaveBeenCalledTimes(1);
-    const [url, init] = transport.mock.calls[0];
-    expect(url).toBe("https://example.com/v1/audio/transcriptions");
-    expect(init.method).toBe("POST");
-    expect(init.headers.Authorization).toBe("Bearer sk-1");
-    expect(init.body).toBeInstanceOf(FormData);
-    // 全局 fetch（本文件的 fetchMock）未被触碰
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("host 权限预检（S2：optional_host_permissions 未授权时的可操作提示）", () => {
-  // 门禁在 testAsrConnection 分发前执行（取全局 chrome.permissions.contains），
-  // 未授权直接短路返回提示，不发起注定被 CORS 拦下的请求。
-  it("未授权 → 不发请求，返回可操作提示", async () => {
-    vi.mocked(globalThis.chrome.permissions.contains).mockResolvedValue(false);
-    const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
-    expect(resp).toEqual({ ok: false, error: "该平台域名未授权，请在保存时允许权限" });
-    expect(globalThis.chrome.permissions.contains).toHaveBeenCalledWith({
-      origins: ["https://example.com/*"]
+  it("探针失败：文案原样透传，不二次改写", async () => {
+    probeClient.probeAsrProviderViaOffscreen.mockResolvedValue({
+      ok: false,
+      error: 'HTTP 401: {"code":30014,"message":"Token is invalid."}'
     });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("已授权 → 正常发请求并返回成功", async () => {
-    vi.mocked(globalThis.chrome.permissions.contains).mockResolvedValue(true);
-    fetchMock.mockResolvedValue(jsonResponse(200, { text: "ok" }));
     const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
-    expect(resp.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("注入 transport（不经真实网络）→ 不受权限门禁", async () => {
-    vi.mocked(globalThis.chrome.permissions.contains).mockResolvedValue(false);
-    const transport = vi.fn(async () => jsonResponse(200, { text: "ok" }));
-    const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }), { transport });
-    expect(resp.ok).toBe(true);
-    expect(transport).toHaveBeenCalledTimes(1);
-    expect(globalThis.chrome.permissions.contains).not.toHaveBeenCalled();
-  });
-
-  it("不持有 chrome.permissions 实现时按已授权处理（不阻塞既有探针行为）", async () => {
-    vi.stubGlobal("chrome", {
-      ...globalThis.chrome,
-      permissions: undefined
+    expect(await testAsrConnection(baseProvider({ apiKey: "bad" }))).toEqual({
+      ok: false,
+      error: 'HTTP 401: {"code":30014,"message":"Token is invalid."}'
     });
-    fetchMock.mockResolvedValue(jsonResponse(200, { text: "ok" }));
-    const { testAsrConnection } = await loadModule();
-    const resp = await testAsrConnection(baseProvider({ apiKey: "sk-1" }));
-    expect(resp.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

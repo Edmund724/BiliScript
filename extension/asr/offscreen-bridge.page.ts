@@ -1,10 +1,15 @@
-// ASR offscreen 通道的页面侧客户端（createOffscreenChunkHost）：一次发起
-// 「下载 + 解码 + 切片 + 转写」任务，音频字节与 API Key 全程不出 offscreen
-// （offscreen 自己 fetch、自己取配置），页面只收逐片文本结果。
-// 仅在页面环境加载（bundle 链路：pipeline → fallback → content script），
-// 协议常量与契约注释唯一地址见 asr/protocol.js。
+// ASR offscreen 通道的页面侧客户端：两类任务共用同一个 "asr-decode" 端口——
+// ① createOffscreenChunkHost：一次发起「下载 + 解码 + 切片 + 转写」，音频字节与
+//    API Key 全程不出 offscreen（offscreen 自己 fetch、自己取配置），页面只收逐片
+//    文本结果；
+// ② probeAsrProviderViaOffscreen：连通性探针，把草稿 provider 交给 offscreen 的真
+//    适配器跑一次（端口上表现为 asr-probe 动作，见 asr/protocol.js）。
+// 仅在页面环境加载（bundle 链路：pipeline → fallback → content script，以及设置
+// 抽屉的 provider 测试按钮 → asr/provider-test.js），协议常量与契约注释唯一地址
+// 见 asr/protocol.js。
 
-import { sendOffloadMessage } from "../shared/messaging.js";
+import { sendRuntimeMessage, sendOffloadMessage } from "../shared/messaging.js";
+import { getErrorMessage, withTimeout } from "../shared/error-helpers.js";
 import {
   ASR_DECODE_PORT_NAME,
   ASR_DECODE_ACTION,
@@ -13,9 +18,12 @@ import {
   ASR_MSG_DONE,
   ASR_MSG_ERROR,
   ASR_TASK_PREPARE,
-  ASR_TASK_CLEANUP
+  ASR_TASK_CLEANUP,
+  ASR_PROBE_ACTION,
+  ASR_MSG_PROBE_RESULT,
+  ASR_PROBE_TIMEOUT_MS
 } from "./protocol.js";
-import type { AsrProgressMessage, AsrChunkResultMessage, AsrDoneMessage, AsrErrorMessage } from "./protocol.js";
+import type { AsrProgressMessage, AsrChunkResultMessage, AsrDoneMessage, AsrErrorMessage, AsrProbeResultMessage } from "./protocol.js";
 
 // ===== 页面侧任务契约类型 =====
 
@@ -189,4 +197,88 @@ export function createOffscreenChunkHost(): OffscreenChunkHost {
       });
     });
   };
+}
+
+// ===== 平台连通性探针（页面侧客户端） =====
+
+// 探针入参：草稿 provider 的可变字段（Key 随任务过去——探针要能测「填了但还没
+// 保存」的 Key）。
+export interface AsrProbeInput {
+  type: string;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  language?: string;
+}
+
+// 探针没等到回执时的两处可读文案：端口断连（offscreen 文档未就绪 / 已回收）与超时。
+// 两者一律以失败收口——测试按钮宁可报错，也不把「没等到」显示成连接成功。
+const PROBE_DISCONNECTED_MESSAGE = "探针通道已断开（转写服务未就绪或已回收），请重试";
+const PROBE_TIMEOUT_MESSAGE = `探针超时（${ASR_PROBE_TIMEOUT_MS / 1000} 秒无响应），请重试`;
+
+// 连通性探针：把草稿 provider 交给 offscreen 的真适配器跑一次静音转写，与实际
+// 转写同一条链（权限预检 / 请求构造 / 失败分类全在 offscreen 侧，见 asr/protocol.js）。
+// 页面侧自己发 fetch 做不到忠实：content script 没有 chrome.permissions（权限门
+// 必然 fail-open），且其 fetch 受网页 CORS 约束、与扩展文档里「只受 host 权限
+// 约束」的真出口不是一回事。
+//
+// 与解码链的差别只有两处：① 不经 offload-task 的 prepare/cleanup——探针不发音轨
+// 请求，不需要防盗链 dnr 规则，故也不会占掉一个规则 id；offscreen 文档经
+// "ensure-offscreen-chat" 幂等自愈（同一个文档，探针与解码共用三条通道）；② 只等
+// 一条 probe-result 回执，超时/断连都以可读文案收口。
+// 返回 { ok, error? }；error 为可直接展示的文案（未授权提示 / 平台 HTTP 报文 /
+// 通道故障），本层不改写。
+export async function probeAsrProviderViaOffscreen(
+  input: AsrProbeInput
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const ensured = await sendRuntimeMessage({ type: "ensure-offscreen-chat" });
+    if (ensured?.ok === false) {
+      return { ok: false, error: ensured.error || "转写服务启动失败" };
+    }
+  } catch {
+    // 自愈消息失败不短路：下面的端口断连会兜底成可读错误
+  }
+  const port = chrome.runtime.connect({ name: ASR_DECODE_PORT_NAME });
+  try {
+    return await withTimeout(
+      waitProbeResult(port, input),
+      ASR_PROBE_TIMEOUT_MS,
+      new Error(PROBE_TIMEOUT_MESSAGE)
+    );
+  } catch (error) {
+    return { ok: false, error: getErrorMessage(error) };
+  } finally {
+    // 成功、失败、超时三条路径都断端口：探针不该在 offscreen 侧留活连接
+    try {
+      port.disconnect();
+    } catch {
+      // 已断连：忽略
+    }
+  }
+}
+
+// 等 offscreen 的唯一一条探针回执。端口断连（无回执）以错误拒绝，超时由外层的
+// withTimeout 兜底——两条路径都不会把「没等到」兑现成通过。
+function waitProbeResult(
+  port: chrome.runtime.Port,
+  input: AsrProbeInput
+): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    port.onMessage.addListener((rawMsg) => {
+      if (settled) return;
+      const msg = rawMsg as AsrProbeResultMessage | null;
+      // 只认探针回执：同端口上还可能流过解码通道的消息（探针与真跑并发时）
+      if (!msg || msg.type !== ASR_MSG_PROBE_RESULT) return;
+      settled = true;
+      resolve(msg.ok ? { ok: true } : { ok: false, error: msg.error || "转写请求失败" });
+    });
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(PROBE_DISCONNECTED_MESSAGE));
+    });
+    port.postMessage({ action: ASR_PROBE_ACTION, task: { ...input } });
+  });
 }

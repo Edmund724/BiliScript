@@ -1,55 +1,40 @@
 // extension/asr/provider-test.ts
-// ASR 平台连通性测试探针（候选 04 拆链）。
-// 从 asr/asr-provider-store.js 移出：探针依赖 asr/wav-encode.js 与
-// core/host-permissions.js，留在 asr-provider-store 里会把 wav-encode 链拖进
-// Service Worker 静态图，而 SW 并不需要它（ADR-0003：平台禁止动态 import()，
-// 只能拆静态边）。连通性测试真正需要的上下文是「扩展页面」：options 页直接
-// import 本模块调用，host_permissions 对扩展页面同样生效，跨域 fetch 无需经过
-// SW 消息往返。
+// ASR 平台连通性测试探针的**页面侧入参层**（设置抽屉「测试」按钮的入口）。
 //
-// 职责边界：本模块只负责探针的输入预检、Key 代查与错误形状包装；Provider
-// 列表 CRUD/归一化仍归 asr/asr-provider-store.js（SW 出于消息路由仍要加载它，
-// 但不再经它拖入 wav-encode 链）。本模块只在 options 页 context 加载，不进 SW 图。
+// 职责边界：本模块只做探针入参的预检与组装——草稿归一化、baseUrl / 模型名校验、
+// Key 代查（表单重输优先，否则按 id 读已存 Key）、语言档位取全局设置；**探针本体
+// 在 offscreen 跑真适配器**（asr/offscreen-bridge.page.js 的
+// probeAsrProviderViaOffscreen → entry/offscreen-asr.js 的 asr-probe 处理）。
+//
+// 为什么不再在本模块里发 fetch（本次修复）：设置抽屉是 script-only-ui，跑在
+// B 站页面的 content script 里，那里的探针与真实转写（offscreen 文档）根本不是
+// 一件事——
+//   ① content script 没有 chrome.permissions，页面侧的 host 权限预检必然 fail-open
+//      （core/host-permissions.js），域名未授权也照样放行；
+//   ② content script 的 fetch 受网页 CORS 约束，而扩展文档里的出口只受 host 权限
+//      约束：平台回一个 ACAO 就能让探针在未授权时拿到 200，「连接成功」证明不了
+//      真跑出得去浏览器；
+//   ③ 探针验的是草稿配置，真跑用的是已保存配置（offscreen 直读 background 的
+//      运行时配置），「填了没保存的 Key」会让测试过、真跑 401。
+// 三者叠加正是「测试连接成功、实际转写失败」的成因。现在探针与实际转写同链，
+// 权限门、URL/表单构造、失败文案与分类都由适配器一处给出。
 
-// arch-slim-2/09：AsrProvider 类型与 normalizeAsrProvider 归位 asr/ 域内。
-import { normalizeAsrProvider, type AsrProvider } from "./asr-provider-normalize.js";
-import { normalizeBaseUrl } from "../core/presets.js";
-import { HOST_PERMISSION_HINT, hasHostPermission } from "../core/host-permissions.js";
-import { formatProbeConnectionError, formatProbeHttpError } from "../core/provider-store.js";
+// arch-slim-2/09：AsrProvider 的归一化在 asr/ 域内（asr-provider-normalize.js）。
+import { normalizeAsrProvider } from "./asr-provider-normalize.js";
 import { getMergedSettings } from "../core/settings-store.js";
-import { encodeWavBytes } from "./wav-encode.js";
 import { asrProviderStore } from "./asr-provider-store.js";
-
-export interface AsrProbeOptions {
-  transport?: (url: string, init: RequestInit) => Promise<Response>;
-}
+import { probeAsrProviderViaOffscreen } from "./offscreen-bridge.page.js";
 
 export interface AsrProbeResult {
   ok: boolean;
   error?: string;
 }
 
-// ===== 静音 WAV 生成（探针用） =====
-
-// 构造 durationSec 秒 sampleRate Hz 单声道 16bit PCM 静音 WAV（全零采样）。
-// WAV header 复用 asr/wav-encode.js 的 encodeWavBytes：静音即全零 Float32 采样
-// （量化后仍为 0x0000，data 段全零）。用于 openai-transcriptions 探针。
-export function buildSilentWavBytes(durationSec = 1, sampleRate = 16000): Uint8Array {
-  const sampleCount = Math.max(1, Math.floor(Number(durationSec) * sampleRate));
-  return encodeWavBytes(new Float32Array(sampleCount), sampleRate);
-}
-
-// ===== 连通性探针 =====
-
 // 按 provider.type 分发到对应探针。provider 可直接带 apiKey（前端测试按钮
 // 用户重输的场景），也可不带（由 providerId 从已存 Key 读取）。
-// 可选第二参 options.transport：注入传输函数（测试用 fake transport），
-// 缺省在调用时取全局 fetch（而非模块加载时绑定）。
-// 返回 { ok: boolean, error?: string }。
-export async function testAsrConnection(
-  provider: unknown,
-  { transport }: AsrProbeOptions = {}
-): Promise<AsrProbeResult> {
+// 返回 { ok: boolean, error?: string }，error 为可直接展示的文案（本地预检 /
+// 未授权提示 / 平台 HTTP 报文 / 通道故障），本层不改写探针正文。
+export async function testAsrConnection(provider: unknown): Promise<AsrProbeResult> {
   let normalized = normalizeAsrProvider(provider);
   if (!normalized) {
     // 新增平台场景：Modal 尚未分配 id（editingId 为空），normalizeAsrProvider
@@ -63,13 +48,13 @@ export async function testAsrConnection(
   if (!normalized) {
     return { ok: false, error: "平台配置不完整或 type 非法" };
   }
-
-  // S2 收紧 host_permissions：平台域名未授权时探针的跨域 fetch 只会以 CORS 失败
-  // （「无法连接：Failed to fetch」看不出原因），先换成可操作提示。注入 transport
-  // 的调用方（单测假传输）不经过真实网络，不受这道门禁。判定与 AI 探针共用
-  // core/host-permissions.js 一份实现：取不到 chrome.permissions 时按已授权处理。
-  if (!transport && !(await hasHostPermission(normalized.baseUrl))) {
-    return { ok: false, error: HOST_PERMISSION_HINT };
+  // baseUrl 已由 normalizeAsrProvider 归一（去空白与尾斜杠），空即不可探。
+  // 这两条是本地预检，不建端口、不发请求。
+  if (!normalized.baseUrl) {
+    return { ok: false, error: "请填写 baseUrl" };
+  }
+  if (!normalized.model) {
+    return { ok: false, error: "请填写模型名" };
   }
 
   // 解析 apiKey：优先 provider.apiKey，否则按 id 读已存 Key
@@ -78,95 +63,22 @@ export async function testAsrConnection(
     apiKey = await asrProviderStore.getKey(normalized.id);
   }
 
-  if (normalized.type === "openai-transcriptions") {
-    // 语言档位来自全局设置 asrLanguage（popup 顶部切换）：测试连接时同步
-    // 验证该语言的请求链路（SiliconFlow 辰星只有 ?language=english 才启用
-    // 英文识别，静音探针的 200 即证明该参数被接受）。
-    let language = "";
-    try {
-      const settings = await getMergedSettings();
-      language = (settings?.asrLanguage as string) || "";
-    } catch {
-      // 设置读取失败不阻塞探针：按 auto 处理（不附语言参数）
-    }
-    return probeOpenAiTranscriptions({
-      baseUrl: normalized.baseUrl,
-      apiKey,
-      model: normalized.model,
-      language,
-      transport
-    });
-  }
-  // normalizeAsrProvider 已校验 type，理论上到不了这里
-  return { ok: false, error: "未知的 ASR 平台类型：" + normalized.type };
-}
-
-interface OpenAiTranscriptionsProbeParams {
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  language: string;
-  transport?: AsrProbeOptions["transport"];
-}
-
-// openai-transcriptions 探针：构造 1 秒 16kHz 静音 WAV POST 到
-// `${baseUrl}/audio/transcriptions`，HTTP 200 即通过。
-// 适用于 SiliconFlow / 本地 Whisper / 自定义。
-// 语言档位（provider.language）以查询参数附带：选 zh/en 时同时验证该语言的
-// 请求链路（SiliconFlow 辰星只有 ?language=english 才启用英文识别，静音探针
-// 的 200 即证明该参数被接受）。
-async function probeOpenAiTranscriptions({
-  baseUrl,
-  apiKey,
-  model,
-  language,
-  transport
-}: OpenAiTranscriptionsProbeParams): Promise<AsrProbeResult> {
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  if (!normalizedBaseUrl) {
-    return { ok: false, error: "请填写 baseUrl" };
-  }
-  if (!model) {
-    return { ok: false, error: "请填写模型名" };
-  }
-
-  const wavBytes = buildSilentWavBytes(1, 16000);
-  const headers: Record<string, string> = {};
-  if (apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
-  // 语言档位转查询参数（与适配器 buildTranscriptionUrl 同规则）：
-  // zh → ?language=zh，en → ?language=english，auto 省略
-  const lang = String(language || "").trim().toLowerCase();
-  const query = lang === "zh" || lang === "en"
-    ? `?language=${lang === "zh" ? "zh" : "english"}`
-    : "";
-
-  const form = new FormData();
-  form.append("file", new Blob([wavBytes as BlobPart], { type: "audio/wav" }), "probe.wav");
-  form.append("model", model);
-  form.append("response_format", "verbose_json");
-  // 不把 language 放 multipart 字段（SiliconFlow 只认查询参数）
-  // 千万不要手动设 Content-Type，浏览器自动带 boundary
-
-  // 传输层可注入（测试用 fake transport）；默认在调用时取全局 fetch。
-  const doFetch = transport || ((...args: [string, RequestInit]) => fetch(...args));
-
-  let response: Response;
+  // 语言档位来自全局设置 asrLanguage（popup 顶部切换），与实际转写取同一份
+  // （offscreen 侧 provider.language 也由该设置注入）：探针验的就是真跑的
+  // 语言链路（SiliconFlow 辰星只有 ?language=english 才启用英文识别）。
+  let language = "";
   try {
-    response = await doFetch(`${normalizedBaseUrl}/audio/transcriptions${query}`, {
-      method: "POST",
-      headers,
-      body: form
-    });
-  } catch (error) {
-    return { ok: false, error: formatProbeConnectionError(error) };
+    const settings = await getMergedSettings();
+    language = (settings?.asrLanguage as string) || "";
+  } catch {
+    // 设置读取失败不阻塞探针：按 auto 处理（不附语言参数）
   }
 
-  if (response.ok) {
-    return { ok: true };
-  }
-
-  return { ok: false, error: await formatProbeHttpError(response) };
+  return probeAsrProviderViaOffscreen({
+    type: normalized.type,
+    baseUrl: normalized.baseUrl,
+    model: normalized.model,
+    apiKey,
+    language
+  });
 }
