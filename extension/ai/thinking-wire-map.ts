@@ -106,8 +106,10 @@ const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
   // （help.aliyun.com/zh/model-studio/anthropic-api-messages）。
   qwen: "effort",
   // zhipu：Coding Plan 页登记 Claude Code 走 thinking.type + output_config.effort；GLM-5.2 的
-  // 档位词表 max/xhigh/high/medium/low/minimal/none（官方把 low/medium 折成 high、xhigh 折成 max
-  // ——该折叠是平台侧既有事实，本表不代平台改写档位词，缺口见 02 号票 Comments）
+  // 档位词表 max/xhigh/high/medium/low/minimal/none，但官方明确 low/medium 折成 high、xhigh 折成
+  // max，且「low（轻度推理）」作为**生效档位**仅 GLM-5.3 支持——即 GLM-5.2 实际只有
+  // 放弃思考(none/minimal) / high / max 三态，low 与 high 在服务端同档（平台侧既有归一化，
+  // 本表不代平台改写档位词；缺口见 02 号票 Comments）
   // （docs.bigmodel.cn/cn/guide/capabilities/thinking、docs.bigmodel.cn/cn/coding-plan/latest-model）。
   zhipu: "effort",
   // openrouter：/messages 的 output_config.effort 词表 low/medium/high/xhigh/max；thinking.enabled
