@@ -202,6 +202,14 @@ export async function refreshClip(): Promise<void> {
 
     await resolveClipMeta(runId);
 
+    // 视频身份（作者/分P）此刻已落 state，但字幕还没到手：无字幕轨时更是整轮
+    // ASR 转写（几分钟到几小时）期间不会再有任何渲染通知——subtitle-ready 在
+    // 转写收尾才发，reset 后的空 meta 会一直留在面板 header。身份一确定就按
+    // 当前 state 重投影一次（rerender 是纯 state 投影，幂等）。
+    if (isReaderViewOpen()) {
+      notifyReaderPresenter("rerender");
+    }
+
     setStatus("正在获取可用字幕...");
     const subtitleBundle = await retryAsync(
       () => gatewayFetchSubtitleBundle(contentFetchJson, {
