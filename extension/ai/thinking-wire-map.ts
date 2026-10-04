@@ -84,8 +84,9 @@ export const HIGH_BUDGET_TOKENS = 8192;
 /**
  * 平台在 Messages 通道登记过的档位词汇形态（平台事实，02 号票）：
  * - "effort"：`output_config.effort` + 显式 thinking 开关（平台官方文档登记了该字段与取值词表）；
- * - "effort-bare"：只发 `output_config.effort`——该平台的 `thinking.type:"enabled"` 必带
- *   budget_tokens，不带 thinking 对象才安全；
+ * - "effort-bare"：只发 `output_config.effort`——不带 thinking 对象才安全（openrouter 的
+ *   `thinking.type:"enabled"` 必带 budget_tokens；opencodego / modelscope 的 thinking 形状
+ *   无官方文档，只发档位字段不冒硬 400 风险）；
  * - "reasoning-effort"：顶层 `reasoning_effort`（该端点未登记 thinking 形状）。
  * 未登记的平台（含完全无文档的网关）= 无此行 → 退回按档分配 budget_tokens。
  */
@@ -123,7 +124,17 @@ const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
   // reasoning_effort low/high/max（k3 默认 high）；该端点的 output_config.effort / budget_tokens
   // 无官方文档（开放平台另一端点才是 output_config.effort，不可混用）
   // （kimi.com/code/docs/kimi-code/models.html）。
-  moonshot: "reasoning-effort"
+  moonshot: "reasoning-effort",
+  // opencodego：官方文档（opencode.ai/docs/go、/docs/zen）与 /zen/go/v1/models 元数据都未登记
+  // 思考控制参数；按产品裁定该网关 Messages 端点可正常接收档位词（2026-09，用户确认）→ 发
+  // output_config.effort（裸形态：thinking.enabled 是否必带 budget_tokens 无文档，不冒硬 400
+  // 风险），不再退回自定 budget_tokens。
+  opencodego: "effort-bare",
+  // modelscope：官方（Beta）Anthropic 兼容端点未登记档位字段；命中 effort 血统的托管模型
+  // （如直填 id qwen3.8-max）按同一产品裁定发 output_config.effort（裸形态，
+  // api-inference.modelscope.cn）。该端点已实测收 thinking:{type:"disabled"}
+  // （怪癖 thinkingDisabledMustBeExplicit），但 enabled 形态无文档 → 只发档位字段。
+  modelscope: "effort-bare"
 };
 
 // 按档分配的预算（未登记档位词汇的平台的显式回退，02 号票）：低档保持现状默认预算不动，
@@ -201,10 +212,9 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
       output.fields.reasoning_effort = bloodLineEffort;
       return output;
     }
-    // 未登记档位词汇的平台（如 opencodego：官方文档 opencode.ai/docs/go、docs/zen 与
-    // /zen/go/v1/models 元数据都没有思考控制参数；modelscope / ollama 等代管平台同理）：
-    // 退回按档分配 budget_tokens——档位词无官方文档，预算取值是本扩展的显式选择
-    //（依据见 TIER_BUDGET_BY_LEVEL 注释）。
+    // 未登记档位词汇的平台（ollama 的 Messages 通道无思考参数文档；custom 直填端点同样
+    // 无平台事实）：退回按档分配 budget_tokens——档位词无官方文档，预算取值是本扩展的
+    // 显式选择（依据见 TIER_BUDGET_BY_LEVEL 注释）。
     return openThinking(output, TIER_BUDGET_BY_LEVEL[input.level], input.maxTokens);
   }
 

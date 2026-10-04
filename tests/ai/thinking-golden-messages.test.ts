@@ -14,15 +14,17 @@
 //   （deepseek 词表 low/high/max；qwen3.8-max 词表 low/medium/xhigh，血统的 high 即 xhigh；
 //   zhipu 官方把 low/medium 折成 high——平台侧既有归一化，本文件照实钉住我们发出的请求体；
 //   sensenova 官方词表自相矛盾，保守只用 low/medium/high）。
-// - openrouter：只发 output_config.effort（该平台 thinking.enabled 必带 budget_tokens）。
+// - openrouter / opencodego / modelscope：只发 output_config.effort（不带 thinking 对象——
+//   openrouter 的 thinking.enabled 必带 budget_tokens；opencodego 与 modelscope 的 thinking
+//   形状无官方文档，只发档位字段。后两家官方文档未登记档位词汇，按产品裁定发裸 effort 词汇，
+//   不再退回自定 budget_tokens）。
 // - moonshot：仓库 base 是 Kimi Code 端点，档位词是顶层 reasoning_effort（该端点未登记
 //   thinking 形状）→ 只发 reasoning_effort。
-// - 未登记档位词汇的平台（opencodego 官方文档与模型元数据都没有思考控制参数；ollama 的
-//   Messages 通道同样无文档）：退回按档分配 thinking.budget_tokens —— low 2048 / high 8192。
+// - 未登记档位词汇的平台（ollama 的 Messages 通道无思考参数文档；custom 直填端点同样无平台
+//   事实）：退回按档分配 thinking.budget_tokens —— low 2048 / high 8192。
 // - 开关型血统（glm-4.6 / kimi-k2.6 / qwen3-max / mimo-v2.5-pro）与严格 effort 词汇平台
 //   （stepfun / amd）维持原状：前者该通道只有开/关两态，后者已按档发 output_config.effort。
-// 塌陷格（low == high）只应出现在开关型血统与未登记词汇平台的低档各处——前者是设计使然，
-// 后者见上一条。
+// 塌陷格（low == high）只应出现在开关型血统的 low 与 high（该通道只有开/关两态，设计使然）。
 
 import { describe, expect, it } from "vitest";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
@@ -207,11 +209,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "Opencode Go（opencode.ai/zen/go）",
     cases: [
       {
-        kind: "override effort 平台（矩阵 off 关不掉、级联落 low；网关无档位词汇文档 → 退回按档预算，opencode.ai/docs）",
+        kind: "override effort 平台（矩阵 off 关不掉、级联落 low；网关无档位词汇文档 → 按产品裁定发裸 output_config.effort，opencode.ai/docs）",
         model: "deepseek-v4-flash",
-        off: BUDGET,
-        low: BUDGET,
-        high: BUDGET_HIGH
+        off: effortOnly("low"),
+        low: effortOnly("low"),
+        high: effortOnly("high")
       }
     ]
   },
@@ -258,6 +260,13 @@ const PLATFORMS: PlatformGolden[] = [
         off: DISABLED,
         low: BUDGET,
         high: BUDGET
+      },
+      {
+        kind: "命中 effort 血统（直填 id qwen3.8-max → 血统档位词 low/xhigh；端点未登记档位词汇 → 按产品裁定发裸 output_config.effort）",
+        model: "qwen3.8-max",
+        off: DISABLED,
+        low: effortOnly("low"),
+        high: effortOnly("xhigh")
       }
     ]
   },
@@ -391,7 +400,7 @@ describe("golden：ModelScope qwen3-32b 关思考仅流式（stream 维度）", 
 // 02 号票的验收判据（7 家 × {low, high} 的 Messages 请求体互不相同）。每家的取值依据与
 // 出处域名见 ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY 注释与调研报告
 // （调研未经真实请求，全部结论来自官方文档）。
-describe("验收：7 家 effort 血统的 low 与 high 请求体互不相同（02 号票）", () => {
+describe("验收：8 家 effort 血统的 low 与 high 请求体互不相同（02 号票）", () => {
   const CASES: Array<{ presetId: string; model: string; note: string }> = [
     { presetId: "deepseek", model: "deepseek-v4-pro", note: "output_config.effort（api-docs.deepseek.com）" },
     { presetId: "zhipu", model: "glm-5.2", note: "output_config.effort（docs.bigmodel.cn）" },
@@ -399,7 +408,8 @@ describe("验收：7 家 effort 血统的 low 与 high 请求体互不相同（0
     { presetId: "qwen", model: "qwen3.8-max", note: "output_config.effort（help.aliyun.com）" },
     { presetId: "openrouter", model: "deepseek-v4-pro", note: "output_config.effort（openrouter.ai/docs）" },
     { presetId: "sensenova", model: "deepseek-v4-flash", note: "output_config.effort（platform.sensenova.cn）" },
-    { presetId: "opencodego", model: "deepseek-v4-flash", note: "未文档化 → 退回按档预算（opencode.ai/docs）" }
+    { presetId: "opencodego", model: "deepseek-v4-flash", note: "裸 output_config.effort（产品裁定；opencode.ai/docs 无档位词汇文档）" },
+    { presetId: "modelscope", model: "qwen3.8-max", note: "裸 output_config.effort（产品裁定；api-inference.modelscope.cn 无档位词汇文档）" }
   ];
 
   for (const c of CASES) {

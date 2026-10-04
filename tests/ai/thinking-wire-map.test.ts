@@ -137,10 +137,22 @@ describe("anthropic 行：Messages 通道的写法", () => {
     });
   });
 
-  it("档位分档：openrouter 只发 output_config.effort（该平台 thinking.enabled 必带预算）", () => {
+  it("档位分档：只发 output_config.effort 的平台（openrouter / opencodego / modelscope）", () => {
     expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", platformId: "openrouter" }).fields).toEqual({
       output_config: { effort: "high" }
     });
+    // opencodego / modelscope：官方文档未登记档位词汇，按产品裁定发裸 effort 词汇，
+    // 不再退回自定 budget_tokens（出处见 ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY）。
+    for (const platformId of ["opencodego", "modelscope"]) {
+      expect(
+        anthropicWire({ fields: { reasoning_effort: "low" }, level: "low", platformId }).fields,
+        platformId
+      ).toEqual({ output_config: { effort: "low" } });
+      expect(
+        anthropicWire({ fields: { reasoning_effort: "xhigh" }, level: "high", platformId }).fields,
+        platformId
+      ).toEqual({ output_config: { effort: "xhigh" } });
+    }
   });
 
   it("档位分档：moonshot（Kimi Code 端点）只发顶层 reasoning_effort", () => {
@@ -153,10 +165,10 @@ describe("anthropic 行：Messages 通道的写法", () => {
   });
 
   it("档位分档：未登记档位词汇的平台退回按档分配 budget（off 级联落低档预算）", () => {
-    expect(anthropicWire({ fields: { reasoning_effort: "low" }, level: "low", platformId: "opencodego" }).fields).toEqual({
+    expect(anthropicWire({ fields: { reasoning_effort: "low" }, level: "low", platformId: "ollama" }).fields).toEqual({
       thinking: { type: "enabled", budget_tokens: DEFAULT_BUDGET_TOKENS }
     });
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", platformId: "opencodego" }).fields).toEqual({
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", platformId: "ollama" }).fields).toEqual({
       thinking: { type: "enabled", budget_tokens: HIGH_BUDGET_TOKENS }
     });
     // 平台识别缺失（custom 直填端点）同样走回退，而不是报错。
@@ -164,7 +176,7 @@ describe("anthropic 行：Messages 通道的写法", () => {
       thinking: { type: "enabled", budget_tokens: HIGH_BUDGET_TOKENS }
     });
     // off 级联后的 fields 仍是低档词，但档位事实是 off → 取低档预算（与 offFallback:"low" 同向）。
-    expect(anthropicWire({ fields: { reasoning_effort: "low" }, level: "off", platformId: "opencodego" }).fields).toEqual({
+    expect(anthropicWire({ fields: { reasoning_effort: "low" }, level: "off", platformId: "ollama" }).fields).toEqual({
       thinking: { type: "enabled", budget_tokens: DEFAULT_BUDGET_TOKENS }
     });
   });

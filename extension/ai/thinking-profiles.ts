@@ -366,8 +366,8 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   // 钉的 off 因此真发出最低档，对话 tab 显示「关不掉思考」长版提示），low/high 直传。
   // 不写 off 声明：元数据里只有 gpt-6-luna/hy3 少数模型收 effort none，整域一刀切
   // 发 none 会对其他模型硬 400。走 Messages 协议的模型（minimax-m3、qwen3.7/3.8）
-  // 的档位落线见线格式映射表：该网关无档位词汇文档 → 退回按档分配
-  // thinking:{type:"enabled",budget_tokens}（ai/thinking-wire-map.ts 的 anthropic 行）。
+  // 的档位落线见线格式映射表：该网关无档位词汇文档，按产品裁定发 output_config.effort
+  // （裸形态，ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY）。
   opencodego: {
     override: {
       thinkingClass: "always",
