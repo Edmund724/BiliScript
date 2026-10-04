@@ -79,15 +79,25 @@ import { hostOf, presetIdForHost } from "../core/preset-host-index.js";
 import { lookupThinkingFact, type ThinkingModelFact } from "./catalog/models-dev-thinking.generated.js";
 
 // ===== 档位词表 =====
-// UI 三档按钮与全局档位键的取值域（唯一主人自本票起收口至此）。
-export const AI_THINKING_LEVELS = ["off", "low", "high"] as const;
-export type ThinkingLevel = (typeof AI_THINKING_LEVELS)[number];
+// 档位取值域（UI 按钮与全局档位键的唯一来源）自 05 号票起是**上游词表的 7 档投影**：
+// 词表实体下沉到零 import 的叶 ai/thinking-levels.ts（SW 静态图两侧的消费者同源：
+// 请求路径的本模块与设置归一化的 core/validators.ts），本模块整体再导出，保持
+// 「档位词汇的 import 面 = thinking-profiles」不变。
+export {
+  AI_THINKING_LEVELS,
+  isThinkingLevel,
+  normalizeThinkingLevel,
+  type ThinkingLevel
+} from "./thinking-levels.js";
+import {
+  AI_THINKING_LEVELS,
+  isThinkingLevel,
+  normalizeThinkingLevel,
+  type ThinkingLevel
+} from "./thinking-levels.js";
 
-export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
-  return (AI_THINKING_LEVELS as readonly string[]).includes(String(value))
-    ? (String(value) as ThinkingLevel)
-    : "off";
-}
+// 非 off 档（按档位序），可用集推导与 clamp 共用。
+const NON_OFF_LEVELS: readonly ThinkingLevel[] = AI_THINKING_LEVELS.filter((level) => level !== "off");
 
 // ===== schema =====
 // 单档字段补丁。fields 键白名单：thinking / enable_thinking / reasoning_effort
@@ -107,14 +117,20 @@ export interface ThinkingPatch {
 // 模型血统规则。thinkingClass 是血统事实（校验器强制必填）：
 // always=关不掉（off 缺失时级联）；hybrid=可开关（必有 off 声明，可 streamOnly）；
 // never=从不思考（无任何档位，off 静默）。
-// 开关型平台用 on 作为 low/high 的唯一写点（GLM/Kimi/Mimo/SiliconFlow 等——
-// 档位只表达「开」，无力度差异）；三档型（effort/budget 系）写显式 low/high。
+// 开关型平台用 on 作为任何非 off 档的唯一写点（GLM/Kimi/Mimo/SiliconFlow 等——
+// 档位只表达「开」，无力度差异）；effort 型平台逐档给显式写点（05 号票起 7 档：
+// minimal/low/medium/high/xhigh/max 各一格，**有哪个写点 = 该档可用**——clamp 的
+// 可用集 A 就由这些写点派生，见 availableLevelsOf）。
 export interface ClassRule {
   thinkingClass: "always" | "hybrid" | "never";
   off?: ThinkingPatch;
   on?: ThinkingPatch;
+  minimal?: ThinkingPatch;
   low?: ThinkingPatch;
+  medium?: ThinkingPatch;
   high?: ThinkingPatch;
+  xhigh?: ThinkingPatch;
+  max?: ThinkingPatch;
   // token 上限参数的随表事实（openai-reasoning 系须 max_completion_tokens）；
   // 缺省 = max_tokens。参数名差异的平台语义见 compat-vocab 词表的 maxTokensField
   // （本表只给逐模型事实，词表给"这条怪癖是什么"）；该事实落到某协议线上叫什么名字，
@@ -687,15 +703,19 @@ function frozenDivergenceFor(upstreamId: string, normalizedModel: string): Pendi
   return PENDING_DIVERGENCE_INDEX.get(`${upstreamId}/${normalizedModel}`);
 }
 
-// ===== 上游值集 → 三档投影（04 号票）=====
+// ===== 上游值集 → class 规则（04 号票建，05 号票扩到 7 档）=====
 // 输入是 02 产物的查表结果（值集 + 派生 off + deprecated），输出是本模块的 ClassRule。
-// 规则见文件头「三档投影」；刻意不做的事：不发 budget_tokens、不给未登记方言的平台发明
-// 开关形状、不把 none 当档位、缺档不 clamp（Q12C；clamp 是 05 号票）。
+// 规则：值集里**每一个** effort 档位物化成一个写点（05 号票：7 档词表暴露上游真实档位，
+// 「有写点 = 该档可用」= clamp 的可用集 A）；无 effort 词表时 toggle 型落平台开关的
+// 「开」写点。刻意不做的事：不发 budget_tokens、不给未登记方言的平台发明开关形状、
+// 不把 none 当档位（它只是 off 的线值实现，决策 #7）。
 export type UpstreamThinkingFact = Pick<ThinkingModelFact, "valuesetId" | "toggle" | "effort" | "off">;
 
 export function ruleFromUpstreamFact(fact: UpstreamThinkingFact, providerId: string): ClassRule {
   const shape = UPSTREAM_TOGGLE_SHAPES[providerId];
-  const tiers = (fact.effort ?? []).filter((tier) => tier !== "none");
+  // none 不是档位；阶梯外的值（上游新增词汇）不物化——test 断言 VALUESETS 里不存在
+  // 这种值，故过滤不丢档（tests/ai/thinking-levels.test.ts）。
+  const tiers = (fact.effort ?? []).filter((tier): tier is ThinkingLevel => isThinkingLevel(tier));
   const off: ThinkingPatch | undefined =
     fact.off === "toggle"
       ? shape
@@ -710,16 +730,62 @@ export function ruleFromUpstreamFact(fact: UpstreamThinkingFact, providerId: str
     rule.off = off;
   }
   if (tiers.length > 0) {
-    rule.low = { fields: { reasoning_effort: tiers.includes("low") ? "low" : tiers[0] } };
-    rule.high = { fields: { reasoning_effort: tiers.includes("high") ? "high" : tiers[tiers.length - 1] } };
+    for (const tier of tiers) {
+      rule[tier] = { fields: { reasoning_effort: tier } };
+    }
     return rule;
   }
-  // 无 effort 词表：toggle 型落平台开关的「开」写点（开关型 low/high 唯一写点）。
+  // 无 effort 词表：toggle 型落平台开关的「开」写点（开关型的唯一写点）。
   if (fact.toggle && shape) {
     rule.on = { fields: { ...shape.on } };
   }
   return rule;
 }
+
+// ===== clamp（05 号票，决策 #8）=====
+// 模型可用集 A 由 class 规则的写点派生：有 off 写点 → off 可用；有 on 写点（开关型）
+// → 任何非 off 档都可落（都落同一个「开」写点）；effort 型逐档看有没有写点。
+// 「可用集即写点集合」是刻意的：提示面（resolveThinkingAdjustment）与落线
+// （applyClassRule）读的是同一张规则，两处不可能漂移。
+export function availableLevelsOf(rule: ClassRule): readonly ThinkingLevel[] {
+  if (rule.on) {
+    return rule.off ? [...AI_THINKING_LEVELS] : [...NON_OFF_LEVELS];
+  }
+  const available: ThinkingLevel[] = [];
+  if (rule.off) {
+    available.push("off");
+  }
+  for (const level of NON_OFF_LEVELS) {
+    if (rule[level]) {
+      available.push(level);
+    }
+  }
+  return available;
+}
+
+// 用户偏好 L + 可用集 A → 有效档位（票面写死）：L ∈ A → L；否则 A 中 ≤ L 的最大档
+// （向下取）；A 中没有 ≤ L 的档 → A 的最小档；A 为空 → null（无档可落，维持不发参）。
+// 档位序 = AI_THINKING_LEVELS（off 在其中：偏好 low 而模型只有 {off,high} 时落 off）。
+export function clampThinkingLevel(preference: ThinkingLevel, available: readonly ThinkingLevel[]): ThinkingLevel | null {
+  if (available.length === 0) {
+    return null;
+  }
+  if (available.includes(preference)) {
+    return preference;
+  }
+  const rank = (level: ThinkingLevel): number => AI_THINKING_LEVELS.indexOf(level);
+  const below = available.filter((level) => rank(level) <= rank(preference));
+  if (below.length > 0) {
+    return below.reduce((best, level) => (rank(level) > rank(best) ? level : best), below[0]);
+  }
+  return available.reduce((best, level) => (rank(level) < rank(best) ? level : best), available[0]);
+}
+
+// 被调整的原因（提示面文案分层）：
+//   model-vocabulary    = 该模型的档位词表（02 值集 / 冻结结论）里没有这个档位；
+//   upstream-unlisted   = 上游未登记该模型，档位来自本仓手写表；
+//   platform-vocabulary = 平台级裁定（override 平台整域只认自己的档位词表）。
+export type ThinkingClampReason = "model-vocabulary" | "upstream-unlisted" | "platform-vocabulary";
 
 // ===== resolver =====
 
@@ -754,19 +820,29 @@ export interface ThinkingResolution {
 // 调用方按值消费（不持有引用做变更）。
 const UNKNOWN_RESOLUTION: ThinkingResolution = { fields: {}, offUnavailable: false, offFallback: null, thinkingClass: "unknown" };
 
-export function resolveThinkingProfile({ presetId, baseUrl, model, level, stream }: ResolveThinkingInput): ThinkingResolution {
-  const normalizedLevel = normalizeThinkingLevel(level);
+// 一次解析的中间结论：本模型该用哪张 class 规则，以及这张规则来自哪一层
+// （层决定 clamp 被调整时对用户说的原因）。
+interface ResolvedRule {
+  rule: ClassRule | undefined;
+  reason: ThinkingClampReason | null;
+}
+
+// 规则解析的唯一施加点（resolveThinkingProfile 与 resolveThinkingAdjustment 共用）：
+//   provider override（平台级裁定，识别层短路）
+//   >> 上游平台：行为冻结表（精确 id） >> 02 指派表
+//   >> 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）
+//   >> 无结论（UNKNOWN 哨兵）。
+function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRule {
   const normalizedModel = String(model || "").trim().toLowerCase();
   const providerId = resolveThinkingProviderId(presetId, baseUrl);
   const provider = providerId ? PROVIDERS[providerId] : undefined;
 
   // override 型：对任何模型整体替换 class 规则（识别层直接短路）。
   if (provider?.override) {
-    return applyClassRule(
-      { thinkingClass: provider.override.thinkingClass, ...provider.override.levels },
-      normalizedLevel,
-      stream
-    );
+    return {
+      rule: { thinkingClass: provider.override.thinkingClass, ...provider.override.levels },
+      reason: "platform-vocabulary"
+    };
   }
 
   // 有上游平台：逐模型事实的主人是 02 指派表（04 号票）。优先级 = 行为冻结表（精确 id）
@@ -775,22 +851,57 @@ export function resolveThinkingProfile({ presetId, baseUrl, model, level, stream
   if (upstreamId) {
     const frozen = frozenDivergenceFor(upstreamId, normalizedModel);
     if (frozen) {
-      const frozenRule = frozen.class ? CLASSES[frozen.class] : undefined;
-      return frozenRule ? applyClassRule(frozenRule, normalizedLevel, stream) : UNKNOWN_RESOLUTION;
+      // 冻结结论是逐模型的结论（裁定 2），故原因归「模型词表」。
+      return { rule: frozen.class ? CLASSES[frozen.class] : undefined, reason: "model-vocabulary" };
     }
     const fact = lookupThinkingFact(upstreamId, model);
     if (fact) {
-      return applyClassRule(ruleFromUpstreamFact(fact, providerId!), normalizedLevel, stream);
+      return { rule: ruleFromUpstreamFact(fact, providerId!), reason: "model-vocabulary" };
     }
   }
 
   // 手写兜底：例外表 >> 模式表 >> provider.unknownClass >> UNKNOWN 哨兵。
   const className = matchRuleClass(EXCEPTIONS, normalizedModel) ?? matchRuleClass(TAXONOMY, normalizedModel) ?? provider?.unknownClass;
-  const rule = className ? CLASSES[className] : undefined;
-  if (!rule) {
-    return UNKNOWN_RESOLUTION;
-  }
-  return applyClassRule(rule, normalizedLevel, stream);
+  return {
+    rule: className ? CLASSES[className] : undefined,
+    reason: className ? "upstream-unlisted" : null
+  };
+}
+
+export function resolveThinkingProfile(input: ResolveThinkingInput): ThinkingResolution {
+  const rule = ruleFor(input).rule;
+  return rule ? applyClassRule(rule, normalizeThinkingLevel(input.level), input.stream) : UNKNOWN_RESOLUTION;
+}
+
+// 提示面入口（05 号票）：一次给出「偏好档位 → 实发档位 + 原因」，供对话 UI 渲染
+// 「档位已按模型能力调整：high → medium」。请求字段与这里的 effectiveLevel 同源
+// （同一张规则 + 同一个 clampThinkingLevel），不会出现「提示说 medium、请求发 xhigh」。
+export interface ThinkingLevelAdjustment {
+  // 与请求侧同一个解析结果（UI 的 offUnavailable / offFallback 判定读它）。
+  resolution: ThinkingResolution;
+  requestedLevel: ThinkingLevel;
+  // 模型可用集（档位序）；空 = 该模型无任何档位可落（不发思考参数）。
+  availableLevels: readonly ThinkingLevel[];
+  // 实发档位；null = 无档可落。
+  effectiveLevel: ThinkingLevel | null;
+  // 被调整的原因；null = 未调整（L ∈ A）或无可落档位（不报「已调整」）。
+  reason: ThinkingClampReason | null;
+}
+
+export function resolveThinkingAdjustment(input: ResolveThinkingInput): ThinkingLevelAdjustment {
+  const { rule, reason } = ruleFor(input);
+  const requestedLevel = normalizeThinkingLevel(input.level);
+  const resolution = rule ? applyClassRule(rule, requestedLevel, input.stream) : UNKNOWN_RESOLUTION;
+  const availableLevels = rule ? availableLevelsOf(rule) : [];
+  const effectiveLevel = rule ? clampThinkingLevel(requestedLevel, availableLevels) : null;
+  return {
+    resolution,
+    requestedLevel,
+    availableLevels,
+    effectiveLevel,
+    // 「被调整」= 落了别的档位；无档可落（effectiveLevel null）不是调整，不报文案。
+    reason: rule && effectiveLevel !== null && effectiveLevel !== requestedLevel ? reason : null
+  };
 }
 
 // provider 识别：presetId 优先（02 穿线），host 推断兜底（本票对 custom/直填
@@ -831,9 +942,18 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// 单条 class 规则 + 档位 → 解析结果（off 级联 / streamOnly / 缺档 / tokenParam 的唯一施加点）。
-// 导出供结构用例复算手写侧结论（04 号票的冻结表完整性：不许有静默的第二事实源）。
+// 单条 class 规则 + 档位 → 解析结果（clamp 落线 / off 级联 / streamOnly / 缺档 /
+// tokenParam 的唯一施加点）。导出供结构用例复算手写侧结论（04 号票的冻结表完整性：
+// 不许有静默的第二事实源）。
+//
+// 05 号票（决策 #8）：档位先过 clamp——用户偏好遇到模型不支持的档位时**向下取**
+// 最近可用档（A 由 availableLevelsOf 从写点派生）；落线取值一律走 clamp 后的档位，
+// 所以「提示里说发哪档」与「请求里发哪档」是同一个值。off 的既有判定
+// （offUnavailable / offFallback 级联）不变，只是级联目标 = A 的最小非 off 档。
 export function applyClassRule(rule: ClassRule, level: ThinkingLevel, stream: boolean): ThinkingResolution {
+  const available = availableLevelsOf(rule);
+  const effective = clampThinkingLevel(level, available);
+
   if (level === "off") {
     const offPatch = streamEnabledPatch(rule.off, stream);
     if (offPatch) {
@@ -844,20 +964,34 @@ export function applyClassRule(rule: ClassRule, level: ThinkingLevel, stream: bo
       // 关思考已天然成立：不发、静默（03 号票对 never 不渲染提示）。
       return { fields: {}, offUnavailable: false, offFallback: null, thinkingClass: "never" };
     }
-    const lowPatch = streamEnabledPatch(rule.low ?? rule.on, stream);
+    // 级联目标 = 可用集里最小的非 off 档（关不掉的模型给最低思考档；开关型即 on 写点）。
+    const fallbackLevel = available.find((candidate) => candidate !== "off");
+    const lowPatch = streamEnabledPatch(fallbackLevel ? patchForLevel(rule, fallbackLevel) : undefined, stream);
     if (lowPatch?.fields && Object.keys(lowPatch.fields).length > 0) {
       return withTokenParam({ fields: { ...lowPatch.fields }, offUnavailable: true, offFallback: "low", thinkingClass: rule.thinkingClass }, rule);
     }
-    // 无 low 可落（如 minimax/k2.7-code 无档位参数）：不发 + 标记。
+    // 无档位可落（如 minimax/k2.7-code 无档位参数）：不发 + 标记。
     return withTokenParam({ fields: {}, offUnavailable: true, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
   }
 
-  // low/high：开关型落 on 唯一写点；缺档不 clamp、不发（Q12C）。
-  const patch = streamEnabledPatch(rule[level] ?? rule.on, stream);
+  // 非 off 档：落 clamp 后的档位写点（开关型的档位写点仍是 on）。
+  const patch = streamEnabledPatch(patchForLevel(rule, effective), stream);
   if (patch?.fields && Object.keys(patch.fields).length > 0) {
     return withTokenParam({ fields: { ...patch.fields }, offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
   }
   return withTokenParam({ fields: {}, offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
+}
+
+// 档位 → 该档的写点：effort 型查本档的显式写点，开关型（有 on）任何非 off 档都落 on；
+// off 落 off 写点。null（无档可落）→ undefined。
+function patchForLevel(rule: ClassRule, level: ThinkingLevel | null): ThinkingPatch | undefined {
+  if (level === null) {
+    return undefined;
+  }
+  if (level === "off") {
+    return rule.off;
+  }
+  return rule[level] ?? rule.on;
 }
 
 // Q14A：streamOnly 规则遇非流式按「无事实」处理（返回 undefined，走级联/缺档）。
@@ -882,7 +1016,7 @@ function withTokenParam(resolution: ThinkingResolution, rule: ClassRule): Thinki
 const FIELD_WHITELIST = new Set(["thinking", "enable_thinking", "reasoning_effort"]);
 const CLASS_FACTS = new Set(["always", "hybrid", "never"]);
 const TOKEN_PARAMS = new Set(["max_tokens", "max_completion_tokens"]);
-const LEVEL_KEYS = ["off", "on", "low", "high"] as const;
+const LEVEL_KEYS = ["off", "on", ...NON_OFF_LEVELS] as const;
 
 export interface ThinkingTables {
   classes?: Record<string, ClassRule>;
@@ -911,12 +1045,13 @@ export function validateThinkingTables(tables: ThinkingTables = {}): string[] {
     if (rule.thinkingClass !== "hybrid" && rule.off) {
       errors.push(`${at}: ${rule.thinkingClass} 不得有 off`);
     }
-    if (rule.thinkingClass === "never" && (rule.on || rule.low || rule.high)) {
+    if (rule.thinkingClass === "never" && (rule.on || NON_OFF_LEVELS.some((tier) => rule[tier]))) {
       errors.push(`${at}: never 无任何档位`);
     }
-    // 同级冲突：on 是开关型 low/high 的唯一写点，与显式 low/high 同存即写点歧义。
-    if (rule.on && (rule.low || rule.high)) {
-      errors.push(`${at}: on 与 low/high 同级冲突（开关型 low/high 唯一写点是 on）`);
+    // 同级冲突：on 是开关型（无力度差异）的唯一写点，与显式档位写点同存即写点歧义。
+    const explicitTiers = NON_OFF_LEVELS.filter((tier) => rule[tier]);
+    if (rule.on && explicitTiers.length > 0) {
+      errors.push(`${at}: on 与显式档位（${explicitTiers.join("/")}）同级冲突（开关型的唯一写点是 on）`);
     }
     for (const key of LEVEL_KEYS) {
       checkPatchFields(`${at}.${key}`, rule[key], errors);

@@ -426,11 +426,12 @@ describe("buildChatRequestBody / normalizeThinkingLevel（主人：adapters/open
     }
   });
 
-  it("normalizeThinkingLevel 只接受 off/low/high，其余回落 off", () => {
-    expect(normalizeThinkingLevel("off")).toBe("off");
-    expect(normalizeThinkingLevel("low")).toBe("low");
-    expect(normalizeThinkingLevel("high")).toBe("high");
-    expect(normalizeThinkingLevel("medium")).toBe("off");
+  it("normalizeThinkingLevel 只接受上游 7 档，其余回落 off", () => {
+    for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+      expect(normalizeThinkingLevel(level), level).toBe(level);
+    }
+    expect(normalizeThinkingLevel("none")).toBe("off");
+    expect(normalizeThinkingLevel("ultra")).toBe("off");
     expect(normalizeThinkingLevel(undefined)).toBe("off");
     expect(normalizeThinkingLevel(null)).toBe("off");
   });

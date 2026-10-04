@@ -55,9 +55,9 @@
 import { state } from "../core/state.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
 import { extractBvid } from "../bilibili/video-id-shared.js";
-// 思考档位「关不掉」提示的判定入口（工单 03）：纯查表 resolver，host 推断 +
-// 模型名 taxonomy，无 DOM 依赖（后台路径同款判定天然不渲染提示）。
-import { resolveThinkingProfile } from "../ai/thinking-profiles.js";
+// 思考档位提示的判定入口（工单 03「关不掉」+ 05 号票「被 clamp」）：纯查表 resolver，
+// host 推断 + 上游指派表/taxonomy，无 DOM 依赖（后台路径同款判定天然不渲染提示）。
+import { resolveThinkingAdjustment, type ThinkingClampReason } from "../ai/thinking-profiles.js";
 import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -497,10 +497,21 @@ const { loadProvidersAndPrefs, setThinkingLevel, setWebSearchEnabled } = provide
 const THINKING_OFF_FALLBACK_LOW_HINT = "当前模型不支持在本次请求中关闭思考，已使用最小思考档位";
 const THINKING_OFF_UNAVAILABLE_HINT = "当前模型没办法关掉思考";
 
+// 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本。裁定 A 下
+// 「clamp 有效档 = 实发档」，故文案可如实写源档 → 实发档；原因分三层（模型词表 /
+// 上游未登记 / 平台词表），由 resolver 的 ThinkingClampReason 给出。
+const THINKING_CLAMP_HINT_PREFIX = "档位已按模型能力调整：";
+const THINKING_CLAMP_REASON_TEXT: Record<ThinkingClampReason, string> = {
+  "model-vocabulary": "模型词表没有这个档位",
+  "upstream-unlisted": "上游未登记该模型，档位按本仓词表取",
+  "platform-vocabulary": "平台只登记了这些档位"
+};
+
 // 按当前档位 + 选中平台重判提示显隐。刷新点三处：模型选择 change、档位按钮
-// 点击、平台列表重载（init 与外部设置变更后的 loadProvidersAndPrefs 之后）——
-// 「关不掉」模型切回可关模型时提示随之消失。档位不是 Off、或 resolver 判 off
-// 正常可用（含 never 模型静默与 unknown 哨兵）时一律隐藏。
+// 点击、平台列表重载（init 与 loadProvidersAndPrefs 之后）——模型/档位一变即重判。
+// 两类提示（互斥，前者优先）：
+//   ① 工单 03「关不掉思考」：偏好 off 且 resolver 判 off 不可用（判定与文案都不动）；
+//   ② 05 号票「档位被 clamp」：偏好档位不在模型可用集里时如实给出源档 → 实发档 + 原因。
 function updateThinkingHint(): void {
   const hint = els.thinkingHint;
   if (!hint) {
@@ -508,9 +519,7 @@ function updateThinkingHint(): void {
   }
   hint.textContent = "";
   hint.hidden = true;
-  if (chatSessionState.aiThinkingLevel !== "off") {
-    return;
-  }
+  const level = chatSessionState.aiThinkingLevel;
   // 识别入参：baseUrl / presetId 沿 loadProvidersAndPrefs 已拉的
   // ai-providers-list 载荷（providers.ts 已透传进 chatSessionState.providers，
   // 不开新消息链）；模型名取选中项的模型 id（multi-model-catalog：选项值是
@@ -519,18 +528,31 @@ function updateThinkingHint(): void {
   // enable_thinking:false）在对话里正常可用，不误报提示。
   const selected = parseModelOptionValue(els.modelSelect.value);
   const provider = chatSessionState.providers.find((item) => item.id === selected.providerId);
-  const resolution = resolveThinkingProfile({
+  const adjustment = resolveThinkingAdjustment({
     presetId: String(provider?.presetId || ""),
     baseUrl: String(provider?.baseUrl || ""),
     model: selected.model || String(provider?.model || ""),
-    level: "off",
+    level,
     stream: true
   });
-  if (!resolution.offUnavailable) {
+  // ① 既有 off 判定优先：off 不可用（级联落了最小档 / 无档可落）时按长/短文案提示；
+  //    off 正常可用、never 静默、unknown 哨兵都无提示。
+  if (level === "off") {
+    const { offUnavailable, offFallback } = adjustment.resolution;
+    if (!offUnavailable) {
+      return;
+    }
+    hint.textContent = offFallback === "low" ? THINKING_OFF_FALLBACK_LOW_HINT : THINKING_OFF_UNAVAILABLE_HINT;
+    hint.hidden = false;
     return;
   }
-  hint.textContent = resolution.offFallback === "low" ? THINKING_OFF_FALLBACK_LOW_HINT : THINKING_OFF_UNAVAILABLE_HINT;
-  hint.hidden = false;
+  // ② 被 clamp：只有真的落了别的档位才提示（无档可落 = 维持「不发参」现状，不报文案）。
+  if (adjustment.reason && adjustment.effectiveLevel) {
+    hint.textContent =
+      `${THINKING_CLAMP_HINT_PREFIX}${level} → ${adjustment.effectiveLevel}` +
+      `（${THINKING_CLAMP_REASON_TEXT[adjustment.reason]}）`;
+    hint.hidden = false;
+  }
 }
 
 // 抓取/音频转写进行中（content 的 subtitleFetchState 为 loading 且字幕体为空）

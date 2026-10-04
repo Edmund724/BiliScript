@@ -34,9 +34,10 @@ const SENSENOVA_URL = "https://token.sensenova.cn/v1";
 const resolve = (overrides: Partial<ResolveThinkingInput>) => resolveThinkingProfile({ model: "m", level: "off", stream: false, ...overrides });
 
 describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", () => {
-  it("例外表压过模式表：qwen3.8-max 命中例外（effort 档），qwen3.8- 前缀其余模型走模式表开关", () => {
+  it("例外表压过模式表：qwen3.8-max 走上游值集（effort 档，偏好 high 由 clamp 向下取到 medium），qwen3.8- 前缀其余模型走模式表开关", () => {
+    // 05 号票：决策 #8 clamp 落线，2026-10-04 用户裁定 A —— 上游词表 low/medium/xhigh 无 high。
     expect(resolve({ baseUrl: QWEN_URL, model: "qwen3.8-max", level: "high" }).fields).toEqual({
-      reasoning_effort: "xhigh"
+      reasoning_effort: "medium"
     });
     expect(resolve({ baseUrl: QWEN_URL, model: "qwen3.8-plus", level: "high" }).fields).toEqual({
       enable_thinking: true

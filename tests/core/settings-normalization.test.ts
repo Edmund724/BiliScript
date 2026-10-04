@@ -386,6 +386,51 @@ describe("normalizeSettings 是唯一归一化路径", () => {
   });
 });
 
+// 05 号票（决策 #8）：档位值域扩到上游词表的 7 档；已存的 off/low/high 都是新值域的
+// 子集 → **不需要迁移**（读回/落盘都原样），非法值仍回落 off（口径不变）。
+describe("aiThinkingLevel：7 档值域与存储兼容（05 号票）", () => {
+  const SEVEN = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+  it("读路径：7 档全部原样读回", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    for (const level of SEVEN) {
+      expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: level }).aiThinkingLevel, level).toBe(level);
+    }
+  });
+
+  it("写路径：7 档全部原样落盘", async () => {
+    const { saveSettings } = await loadStoreModule();
+    for (const level of SEVEN) {
+      syncSetMock.mockClear();
+      await saveSettings({ aiThinkingLevel: level });
+      expect(syncSetMock.mock.calls[0][0], level).toEqual({ aiThinkingLevel: level });
+    }
+  });
+
+  it("旧值 off/low/high 不迁移：读回与落盘都原样保留", async () => {
+    const { normalizeSettings, saveSettings } = await loadStoreModule();
+    for (const legacy of ["off", "low", "high"] as const) {
+      expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: legacy }).aiThinkingLevel, legacy).toBe(legacy);
+      syncSetMock.mockClear();
+      await saveSettings({ aiThinkingLevel: legacy });
+      expect(syncSetMock.mock.calls[0][0], legacy).toEqual({ aiThinkingLevel: legacy });
+    }
+  });
+
+  it("非法值（含上游 none）仍回落 off：口径不放宽", async () => {
+    const { normalizeSettings, saveSettings } = await loadStoreModule();
+    for (const bogus of ["bogus", "none", "", "HIGH", null, undefined, 3]) {
+      expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: bogus }).aiThinkingLevel, String(bogus)).toBe("off");
+    }
+    // 写路径：undefined 视为「本次不改这个键」（saveSettings 剔除），故不在此循环。
+    for (const bogus of ["bogus", "none", "", "HIGH", null, 3]) {
+      syncSetMock.mockClear();
+      await saveSettings({ aiThinkingLevel: bogus });
+      expect(syncSetMock.mock.calls[0][0], String(bogus)).toEqual({ aiThinkingLevel: "off" });
+    }
+  });
+});
+
 describe("initializeSettingsStorage 安装/更新迁移", () => {
   it("onInstalled 落盘归一化后的设置：LEGACY 提示词改写为当前默认，非法 aiThinkingLevel 回落", async () => {
     await import("../../extension/entry/background.js");

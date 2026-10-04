@@ -4,6 +4,10 @@
 // Pure data only — no logic; normalizers live in validators.ts /
 // presets.ts, generic utils in shared/utils.ts.
 
+// 思考档位的取值域类型（05 号票：上游词表的 7 档）。type-only import = 编译后无边，
+// 取值域实体在零 import 的词表叶 ai/thinking-levels.ts（core 与请求路径两侧同源）。
+import type { ThinkingLevel } from "../ai/thinking-levels.js";
+
 // ===== Version =====
 // Single source of truth for the extension version; consumed by the content
 // script and the background side panel. Kept in sync with manifest.json's
@@ -44,7 +48,7 @@ export interface Settings {
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   defaultModel: string;
-  aiThinkingLevel: "off" | "low" | "high";
+  aiThinkingLevel: ThinkingLevel;
   activeAsrProviderId: string;
   asrAutoFallback: boolean;
   asrLanguage: string;

@@ -66,10 +66,16 @@ vi.mock("../../extension/bilibili/gateway-core.js", () => ({
 const HINT_LOW_FALLBACK = "当前模型不支持在本次请求中关闭思考，已使用最小思考档位";
 const HINT_UNAVAILABLE = "当前模型没办法关掉思考";
 
+// 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本（源档 → 实发档 + 原因）。
+// 断言逐字——文案与源/目标档是本票的验收面之一。
+const HINT_CLAMP_HIGH_TO_MEDIUM = "档位已按模型能力调整：high → medium（模型词表没有这个档位）";
+const HINT_CLAMP_XHIGH_TO_HIGH = "档位已按模型能力调整：xhigh → high（上游未登记该模型，档位按本仓词表取）";
+
 // Kimi/GLM preset host（core/presets.ts）：resolver host 推断的输入形状。
 const KIMI_BASE_URL = "https://api.kimi.com/coding/v1";
 const GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
+const QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
 // ai-providers-list 载荷条目（providers.ts 显式映射进 chatSessionState.providers
 // 的形状：id 必填，model/baseUrl 走字符串收窄）。
@@ -89,6 +95,8 @@ function provider(overrides: Partial<StubProvider> & { id: string; model: string
 
 // 每用例替换的 ai-providers-list 载荷（stub 的 sendMessage 闭包按引用读取）。
 let providersPayload: StubProvider[] = [];
+// 每用例替换的 get-settings 载荷（05 号票：档位偏好由它进来；缺省 {} = off）。
+let settingsPayload: Record<string, unknown> = {};
 
 type SendStub = ReturnType<typeof vi.fn>;
 function stubChromeByType(): void {
@@ -106,7 +114,7 @@ function stubChromeByType(): void {
       callback?.({ ok: true, providers: providersPayload });
     } else if (type === "get-settings") {
       // 无设置回落：aiThinkingLevel 归一化到默认 off（档位测试的前置态）。
-      callback?.({ ok: true, settings: {} });
+      callback?.({ ok: true, settings: settingsPayload });
     } else {
       callback?.({ ok: true });
     }
@@ -160,6 +168,8 @@ beforeEach(async () => {
   document.body.innerHTML = "";
   document.documentElement.removeAttribute("data-biliscript-reader-mode");
   document.body.removeAttribute("data-biliscript-reader-mode");
+  providersPayload = [];
+  settingsPayload = {};
   await loadShell();
   stubChromeByType();
   seedReadyContext();
@@ -301,5 +311,73 @@ describe("实时刷新：提示随模型切换与档位点击即时显隐", () =
     expect(hint.hidden).toBe(false);
     expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
     expect(getThinkingBtn("off").classList.contains("is-active")).toBe(true);
+  });
+});
+
+// 05 号票（决策 #8 + 裁定 A「clamp 落线 = 实发档位」）：偏好档位被模型词表 clamp 掉时，
+// 提示行如实给出源档 → 实发档 + 原因。off 的既有判定与文案（上面两组）保持不变。
+describe("档位 clamp：提示面给出「源档 → 实发档 + 原因」", () => {
+  it("模型词表没有该档：qwen3.8-max + 偏好 high → 实发 medium（提示逐字）", async () => {
+    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL })];
+    settingsPayload = { aiThinkingLevel: "high" };
+
+    await activateChatTab();
+
+    const hint = getHint();
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toBe(HINT_CLAMP_HIGH_TO_MEDIUM);
+  });
+
+  it("可用的档位不误报：qwen3.8-max + 偏好 low → 无提示", async () => {
+    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL })];
+    settingsPayload = { aiThinkingLevel: "low" };
+
+    await activateChatTab();
+
+    const hint = getHint();
+    expect(hint.hidden).toBe(true);
+    expect(hint.textContent).toBe("");
+  });
+
+  it("上游未登记该模型（手写兜底）：deepseek-v4-pro-2026 + 偏好 xhigh → 实发 high", async () => {
+    providersPayload = [provider({ id: "p1", model: "deepseek-v4-pro-2026", baseUrl: DEEPSEEK_BASE_URL })];
+    settingsPayload = { aiThinkingLevel: "xhigh" };
+
+    await activateChatTab();
+
+    const hint = getHint();
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toBe(HINT_CLAMP_XHIGH_TO_HIGH);
+  });
+
+  it("实时刷新：档位切到被调整的档位即出现、切回可用档位即收起", async () => {
+    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL })];
+    settingsPayload = { aiThinkingLevel: "low" };
+
+    await activateChatTab();
+
+    const hint = getHint();
+    expect(hint.hidden).toBe(true);
+
+    // low → high（被 clamp 到 medium）：提示按说明文本出现。
+    getThinkingBtn("high").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toBe(HINT_CLAMP_HIGH_TO_MEDIUM);
+
+    // high → low（原样可用）：提示收起。
+    getThinkingBtn("low").dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(hint.hidden).toBe(true);
+    expect(hint.textContent).toBe("");
+  });
+
+  it("off 的既有判定优先：qwen3.8-max + 偏好 off → off 可用，静默（不显示 clamp 文案）", async () => {
+    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL })];
+    settingsPayload = { aiThinkingLevel: "off" };
+
+    await activateChatTab();
+
+    const hint = getHint();
+    expect(hint.hidden).toBe(true);
+    expect(hint.textContent).toBe("");
   });
 });

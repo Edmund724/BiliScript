@@ -201,7 +201,7 @@ describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手�
   });
 });
 
-describe("三档投影（上游值集 → ClassRule；规则见 ai/thinking-profiles.ts 文件头）", () => {
+describe("上游值集 → class 规则（05 号票：每个 effort 档物化成一个写点）", () => {
   const fact = (valuesetId: string, toggle: boolean, effort: string[] | null, off: "toggle" | "effort-none" | null) => ({
     valuesetId,
     toggle,
@@ -213,7 +213,7 @@ describe("三档投影（上游值集 → ClassRule；规则见 ai/thinking-prof
     expect(ruleFromUpstreamFact(fact("b", false, null, null), "qwen")).toEqual({ thinkingClass: "always" });
   });
 
-  it("toggle + budget：off 走平台开关、low/high 落开关的开写点（qwen 方言 enable_thinking）", () => {
+  it("toggle + budget：off 走平台开关、非 off 档落开关的开写点（qwen 方言 enable_thinking）", () => {
     expect(ruleFromUpstreamFact(fact("toggle+b:-81920", true, null, "toggle"), "qwen")).toEqual({
       thinkingClass: "hybrid",
       off: { fields: { enable_thinking: false } },
@@ -225,40 +225,41 @@ describe("三档投影（上游值集 → ClassRule；规则见 ai/thinking-prof
     expect(ruleFromUpstreamFact(fact("toggle", true, null, "toggle"), "stepfun")).toEqual({ thinkingClass: "always" });
   });
 
-  it("effort 含 none：off 走 effort none；none 不参与 low/high 选档", () => {
+  it("effort 含 none：off 走 effort none；none 不物化成档位", () => {
     expect(ruleFromUpstreamFact(fact("none-high", false, ["none", "high"], "effort-none"), "qwen")).toEqual({
       thinkingClass: "hybrid",
       off: { fields: { reasoning_effort: "none" } },
-      low: { fields: { reasoning_effort: "high" } },
       high: { fields: { reasoning_effort: "high" } }
     });
   });
 
-  it("high-max（glm-5.2）：low 取词表最小档、high 取同名词 → 两档同值（上游事实）", () => {
+  it("high-max（glm-5.2）：词表两档各一格（clamp 决定偏好落在哪档，投影不再折叠）", () => {
     expect(ruleFromUpstreamFact(fact("high-max", false, ["high", "max"], null), "zhipu")).toEqual({
       thinkingClass: "always",
-      low: { fields: { reasoning_effort: "high" } },
-      high: { fields: { reasoning_effort: "high" } }
+      high: { fields: { reasoning_effort: "high" } },
+      max: { fields: { reasoning_effort: "max" } }
     });
   });
 
-  it("low-medium-xhigh（qwen3.8-max）：high 没有同名词 → 取词表最大档 xhigh", () => {
+  it("low-medium-xhigh（qwen3.8-max）：三个档位逐格物化（偏好 high 由 clamp 向下取到 medium）", () => {
     expect(
       ruleFromUpstreamFact(fact("toggle+low-medium-xhigh+b:0-262144", true, ["low", "medium", "xhigh"], "toggle"), "qwen")
     ).toEqual({
       thinkingClass: "hybrid",
       off: { fields: { enable_thinking: false } },
       low: { fields: { reasoning_effort: "low" } },
-      high: { fields: { reasoning_effort: "xhigh" } }
+      medium: { fields: { reasoning_effort: "medium" } },
+      xhigh: { fields: { reasoning_effort: "xhigh" } }
     });
   });
 
-  it("low-high-max（deepseek-v4-pro）：high 有同名词 → high（不发上游多出来的 max）", () => {
+  it("low-high-max（deepseek-v4-pro）：词表三档各一格", () => {
     expect(ruleFromUpstreamFact(fact("toggle+low-high-max", true, ["low", "high", "max"], "toggle"), "deepseek")).toEqual({
       thinkingClass: "hybrid",
       off: { fields: { thinking: { type: "disabled" } } },
       low: { fields: { reasoning_effort: "low" } },
-      high: { fields: { reasoning_effort: "high" } }
+      high: { fields: { reasoning_effort: "high" } },
+      max: { fields: { reasoning_effort: "max" } }
     });
   });
 });
@@ -318,6 +319,15 @@ describe("冻结表完整性 / 两套匹配不并存（本票核心不变式）"
     let compared = 0;
     const silent: string[] = [];
     const redundant: string[] = [];
+    // 05 号票（决策 #8 + 用户裁定 A）新增的**有意**分歧：上游投影的档位在 clamp 下
+    // 向下取到模型词表里最近的档（qwen3.8-max 词表 low/medium/xhigh，偏好 high → medium），
+    // 而手写条目 qwen-hybrid-effort 的三档结论是 04 时代的「high → effort high」。
+    // 它不是「静默的第二事实源」：命中指派表的行一律走上游投影（下面逐格断言
+    // runtime === 上游投影）；手写条目此时只服务「指派表不认识的 id」兜底
+    // （本仓 modelscope 直填 qwen3.8-max 就走它，结论由 thinking-golden-messages 钉住）。
+    // 该行**不能**进冻结表——冻结 = 回到手写结论 xhigh，与裁定 A 的实发 medium 相反。
+    // clamp 的方向与边界由 tests/ai/thinking-levels.test.ts 逐条钉死。
+    const CLAMP_DIVERGENT = ["alibaba-cn/qwen3.8-max"];
     for (const [upstreamId, table] of Object.entries(ASSIGNMENTS)) {
       const presetId = PRESET_BY_UPSTREAM[upstreamId];
       expect(presetId, `指派表 provider ${upstreamId} 没有 preset 桥接`).toBeTruthy();
@@ -340,7 +350,7 @@ describe("冻结表完整性 / 两套匹配不并存（本票核心不变式）"
         const hand = handRuleOf(presetId, modelId);
         const divergent = LEVELS.some((level) => outcomeOf(projected, level) !== outcomeOf(hand, level));
 
-        if (divergent && !frozen && !flipped) {
+        if (divergent && !frozen && !flipped && !CLAMP_DIVERGENT.includes(key)) {
           silent.push(`${key}（上游投影 vs 手写结论不同，未冻结）`);
         }
         if (!divergent && frozen) {
@@ -380,10 +390,11 @@ describe("冻结表完整性 / 两套匹配不并存（本票核心不变式）"
       JSON.stringify({ fields: { enable_thinking: true }, offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
     // 同一平台上「有事实」的模型：runtime 结论 = 指派表投影，不再等于手写侧结论。
-    // qwen3.8-max 手写是 qwen-hybrid-effort（high=effort high），上游是 low/medium/xhigh → high=xhigh。
+    // 05 号票（决策 #8 + 裁定 A）：qwen3.8-max 词表 low/medium/xhigh 无 high →
+    // 偏好 high 由 clamp 向下取到 medium（实发即 medium）。
     expect(handClassOf("qwen", "qwen3.8-max")).toBe("qwen-hybrid-effort");
     expect(resolveViaRuntime("qwen", "qwen3.8-max", "high")).toBe(
-      JSON.stringify({ fields: { reasoning_effort: "xhigh" }, offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+      JSON.stringify({ fields: { reasoning_effort: "medium" }, offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
     expect(resolveViaRuntime("qwen", "qwen3.8-max", "high")).toBe(
       outcomeOf(ruleFromUpstreamFact(lookupThinkingFact("alibaba-cn", "qwen3.8-max")!, "qwen"), "high")

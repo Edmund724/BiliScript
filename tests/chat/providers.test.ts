@@ -156,6 +156,41 @@ describe("loadProvidersAndPrefs", () => {
 
     expect(chatSessionState.aiThinkingLevel).toBe("high");
   });
+
+  // 05 号票存储兼容：旧存储的三个值都是新值域的子集，读回必须原样（不迁移、不改写）。
+  it("旧值 off/low/high 原样读回，不被迁移或改写", async () => {
+    for (const legacy of ["off", "low", "high"] as const) {
+      const storage = makeStorageFake({ [THINKING_LEVEL_KEY]: legacy });
+      sendRuntimeMessageMock.mockImplementation(async (message) => {
+        if (message.type === "ai-providers-list") {
+          return { providers: [{ id: "p1", enabled: true }] };
+        }
+        return { ok: true, settings: {} };
+      });
+      const { providerPrefs } = makeHarness(storage);
+
+      await providerPrefs.loadProvidersAndPrefs();
+
+      expect(chatSessionState.aiThinkingLevel, legacy).toBe(legacy);
+      expect(storage.data.get(THINKING_LEVEL_KEY), legacy).toBe(legacy);
+    }
+  });
+
+  it("7 档全部原样读回（settings 通道）", async () => {
+    for (const level of ["minimal", "medium", "xhigh", "max"] as const) {
+      sendRuntimeMessageMock.mockImplementation(async (message) => {
+        if (message.type === "ai-providers-list") {
+          return { providers: [{ id: "p1", enabled: true }] };
+        }
+        return { ok: true, settings: { aiThinkingLevel: level } };
+      });
+      const { providerPrefs } = makeHarness();
+
+      await providerPrefs.loadProvidersAndPrefs();
+
+      expect(chatSessionState.aiThinkingLevel, level).toBe(level);
+    }
+  });
 });
 
 describe("renderModelSelect", () => {
@@ -352,6 +387,33 @@ describe("setThinkingLevel", () => {
     const { providerPrefs } = makeHarness();
 
     await providerPrefs.setThinkingLevel("ultra");
+
+    expect(chatSessionState.aiThinkingLevel).toBe("off");
+  });
+
+  // 05 号票（决策 #8）：档位值域扩到上游词表的 7 档；三处写点（内存态 / storage /
+  // save-settings）必须同值，不许有哪一处还停在旧三档。
+  it("7 档全部可设：状态 / chrome.storage / save-settings 三处同值", async () => {
+    const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+    for (const level of levels) {
+      sendRuntimeMessageMock.mockClear();
+      const { providerPrefs, storage } = makeHarness();
+
+      await providerPrefs.setThinkingLevel(level);
+
+      expect(chatSessionState.aiThinkingLevel, level).toBe(level);
+      expect(storage.data.get(THINKING_LEVEL_KEY), level).toBe(level);
+      expect(sendRuntimeMessageMock, level).toHaveBeenCalledWith({
+        type: "save-settings",
+        settings: { aiThinkingLevel: level }
+      });
+    }
+  });
+
+  it("上游的 none 不是档位：归一化回落 off（不落成 off 之外的任何值）", async () => {
+    const { providerPrefs } = makeHarness();
+
+    await providerPrefs.setThinkingLevel("none");
 
     expect(chatSessionState.aiThinkingLevel).toBe("off");
   });

@@ -11,7 +11,8 @@
 // 档位分档（02 号票）：effort 血统的档位在 Messages 通道按平台**官方登记的档位词汇**落线，
 // 逐格见 ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY（每条注释带出处域名）：
 // - deepseek / qwen / zhipu / sensenova：thinking:{type:"enabled"} + output_config.effort
-//   （deepseek 词表 low/high/max；qwen3.8-max 词表 low/medium/xhigh，血统的 high 即 xhigh；
+//   （deepseek 词表 low/high/max；qwen3.8-max 词表 low/medium/xhigh——05 号票起偏好 high
+//   由 clamp 向下取到 medium，故本文件该行 high 发 medium；
 //   zhipu 官方把 low/medium 折成 high——平台侧既有归一化，本文件照实钉住我们发出的请求体；
 //   sensenova 官方词表自相矛盾，保守只用 low/medium/high）。
 // - openrouter / opencodego / modelscope：只发 output_config.effort（不带 thinking 对象——
@@ -112,11 +113,13 @@ const PLATFORMS: PlatformGolden[] = [
         high: SWITCH_ON
       },
       {
-        kind: "混合 effort（矩阵 high→xhigh；Messages 通道 effort 词表同为 low/xhigh，help.aliyun.com）",
+        // 决策 #8 clamp 落线，2026-10-04 用户裁定 A：词表 low/medium/xhigh 无 high →
+        // 偏好 high 向下取到 medium，实发 output_config.effort: "medium"。
+        kind: "混合 effort（上游词表 low/medium/xhigh，high 向下取 medium；help.aliyun.com）",
         model: "qwen3.8-max",
         off: DISABLED,
         low: effortWithSwitch("low"),
-        high: effortWithSwitch("xhigh")
+        high: effortWithSwitch("medium")
       },
       {
         kind: "永远思考（thinking 系无档位；三档全不发）",

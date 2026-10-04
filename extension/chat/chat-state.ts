@@ -25,6 +25,9 @@
 
 import type { AiContext, ImagePart } from "../ai/types.js";
 import { buildContextKey } from "../ai/conversation.js";
+// 思考档位取值域（type-only import = 编译后无边）：实体在零 import 的词表叶，
+// 与请求路径（ai/thinking-profiles）和设置归一化（core/validators）同源。
+import type { ThinkingLevel } from "../ai/thinking-levels.js";
 
 // 上下文快照 = ContextFetch 全量 payload 的落地形态（core/context-assembly
 // 装配链组出）。结构上与 AI 域的 AiContext 同形（含 subtitleBody /
@@ -116,8 +119,9 @@ type ChatSessionGuardedState = {
   currentConversationMeta: CurrentConversationMeta | null;
 };
 
-// 思考档位（off/low/high）。持久化口径见 ChatSessionOpenState.aiThinkingLevel。
-export type ChatThinkingLevel = "off" | "low" | "high";
+// 思考档位（上游词表 7 档：off/minimal/low/medium/high/xhigh/max，05 号票）。
+// 取值域单源在 ai/thinking-levels 词表叶；持久化口径见 ChatSessionOpenState.aiThinkingLevel。
+export type ChatThinkingLevel = ThinkingLevel;
 
 // 平台偏好三键（loadProvidersAndPrefs 整体替换，modelSelect 局部改写）。
 export interface ChatSessionPreferences {

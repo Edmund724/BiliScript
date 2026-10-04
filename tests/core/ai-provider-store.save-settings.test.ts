@@ -78,11 +78,21 @@ describe("saveSettings 全量保存", () => {
     await saveSettings({
       enablePlayerAiQuickAction: true,
       readerTheme: "neon", // 非法主题，应回落 "light"
-      aiThinkingLevel: "medium" // 非法档位，应回落 "off"
+      aiThinkingLevel: "bogus" // 非法档位，应回落 "off"（05 号票起 7 档合法，见下）
     });
     const payload = extractSetPayload();
     expect(payload.enablePlayerAiQuickAction).toBe(true);
     expect(payload.readerTheme).toBe("light");
     expect(payload.aiThinkingLevel).toBe("off");
+  });
+
+  // 05 号票：档位值域扩到上游 7 档后，medium 等新档必须原样落盘（不得被旧三档口径改写）。
+  it("新档位 medium/xhigh/max 原样落盘，不再被当成非法值", async () => {
+    const { saveSettings } = await loadModule();
+    for (const level of ["minimal", "medium", "xhigh", "max"] as const) {
+      syncSetMock.mockClear();
+      await saveSettings({ aiThinkingLevel: level });
+      expect(extractSetPayload().aiThinkingLevel, level).toBe(level);
+    }
   });
 });

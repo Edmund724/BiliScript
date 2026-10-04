@@ -91,6 +91,26 @@ describe("renderChip", () => {
     expect(chipLevel.textContent).toBe("High");
   });
 
+  // 05 号票：档位词表扩到上游 7 档，标签表同步（口径与既有 Off/Low/High 一致：
+  // 首字母大写、档位词本身照上游写法）。
+  it("7 档标签表：off/minimal/low/medium/high/xhigh/max → Off/Minimal/Low/Medium/High/XHigh/Max", () => {
+    const expected: Array<[string, string]> = [
+      ["off", "Off"],
+      ["minimal", "Minimal"],
+      ["low", "Low"],
+      ["medium", "Medium"],
+      ["high", "High"],
+      ["xhigh", "XHigh"],
+      ["max", "Max"]
+    ];
+    for (const [level, label] of expected) {
+      chatSessionStateForTests.aiThinkingLevel = level as never;
+      const { chipLevel, modelPanel } = makeHarness();
+      modelPanel.renderChip();
+      expect(chipLevel.textContent, level).toBe(label);
+    }
+  });
+
   it("select 禁用（未配置平台）：chip 同步禁用，模型名回落占位、档位清空", () => {
     const select = document.createElement("select");
     select.disabled = true;

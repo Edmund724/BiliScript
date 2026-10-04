@@ -94,11 +94,13 @@ const PLATFORMS = [
         high: { enable_thinking: true }
       },
       {
-        kind: "混合 effort（例外表 qwen3.8-max：high→xhigh）",
+        // 决策 #8 clamp 落线，2026-10-04 用户裁定 A：上游词表 low/medium/xhigh 无 high，
+        // 偏好 high 向下取到 medium（实发档 = 有效档）。
+        kind: "混合 effort（上游词表 qwen3.8-max：low/medium/xhigh，high 向下取 medium）",
         model: "qwen3.8-max",
         off: { enable_thinking: false },
         low: { reasoning_effort: "low" },
-        high: { reasoning_effort: "xhigh" }
+        high: { reasoning_effort: "medium" }
       },
       {
         kind: "永远思考（thinking 系/qwq 无档位）",

@@ -34,10 +34,16 @@ export interface ReaderChatModelPanel {
   renderPanel: () => void;
 }
 
+// 档位标签表（05 号票：上游词表 7 档）。口径与既有 Off/Low/High 一致——首字母
+// 大写、档位词照上游写法（xhigh → XHigh）；未登记档位（脏存储值）回落 Off。
 const THINKING_LEVEL_LABELS: Record<string, string> = {
   off: "Off",
+  minimal: "Minimal",
   low: "Low",
-  high: "High"
+  medium: "Medium",
+  high: "High",
+  xhigh: "XHigh",
+  max: "Max"
 };
 
 export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps): ReaderChatModelPanel {
