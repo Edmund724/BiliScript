@@ -138,19 +138,23 @@ const PLATFORMS: PlatformGolden[] = [
         low: SWITCH_ON,
         high: SWITCH_ON
       },
+      // 04 号票翻转（旧期望值是手写结论的固化，不是契约，见 upstream-model-facts/04）：
+      // 上游值集 high-max → 按 zhipu 档位词汇发 output_config.effort；off 关不掉 →
+      // 级联落最小档 high（low 也折到 high：上游没有 low，官方文档亦称 5.2 的 low/medium 折 high）。
       {
-        kind: "混合 effort（glm-5.2；Messages 通道发 output_config.effort，docs.bigmodel.cn）",
+        kind: "上游 high-max（04 翻转；Messages 通道发 output_config.effort，docs.bigmodel.cn）",
         model: "glm-5.2",
-        off: DISABLED,
-        low: effortWithSwitch("low"),
+        off: effortWithSwitch("high"),
+        low: effortWithSwitch("high"),
         high: effortWithSwitch("high")
       },
+      // 04 号票翻转（同上）：上游值集 low-high-max → 有档位，off 关不掉、级联落 low。
       {
-        kind: "永远思考（glm-5.3 无档位；三档全不发）",
+        kind: "上游 low-high-max（04 翻转：有档位；off 关不掉→级联落 low）",
         model: "glm-5.3",
-        off: {},
-        low: {},
-        high: {}
+        off: effortWithSwitch("low"),
+        low: effortWithSwitch("low"),
+        high: effortWithSwitch("high")
       }
     ]
   },
@@ -165,10 +169,13 @@ const PLATFORMS: PlatformGolden[] = [
         low: SWITCH_ON,
         high: SWITCH_ON
       },
+      // 04 号票翻转（旧期望值是手写结论的固化，不是契约，见 upstream-model-facts/04）：
+      // 上游值集 toggle+low-high-max → off 可用（三种关思考词汇殊途同归 thinking:disabled），
+      // low/high 仍走该端点登记的顶层 reasoning_effort（kimi.com/code/docs）。
       {
-        kind: "永远思考 + effort（kimi-k3：off 级联落 low；Messages 通道发顶层 reasoning_effort，kimi.com/code/docs）",
+        kind: "上游 toggle+low-high-max（04 翻转：off 可用；档位仍走顶层 reasoning_effort，kimi.com/code/docs）",
         model: "kimi-k3",
-        off: reasoningEffort("low"),
+        off: DISABLED,
         low: reasoningEffort("low"),
         high: reasoningEffort("high")
       },
@@ -402,10 +409,14 @@ describe("golden：ModelScope qwen3-32b 关思考仅流式（stream 维度）", 
 // 02 号票的验收判据（7 家 × {low, high} 的 Messages 请求体互不相同）。每家的取值依据与
 // 出处域名见 ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY 注释与调研报告
 // （调研未经真实请求，全部结论来自官方文档）。
-describe("验收：8 家 effort 血统的 low 与 high 请求体互不相同（02 号票）", () => {
+//
+// 04 号票订正：zhipu/glm-5.2 从本清单移出——上游 `reasoning_options` 是 `[effort high/max]`
+// （没有 low；官方 capabilities 页亦写明 GLM-5.2 的 low/medium 折成 high），三档投影下
+// low 与 high 同落 `output_config.effort: "high"`（塌陷是上游事实，不是缺陷）。原用例
+// 断言的是手写表旧结论（low=effort low），不是契约（见 upstream-model-facts/04）。
+describe("验收：effort 血统的 low 与 high 请求体互不相同（02 号票，04 号票订正为 7 家）", () => {
   const CASES: Array<{ presetId: string; model: string; note: string }> = [
     { presetId: "deepseek", model: "deepseek-v4-pro", note: "output_config.effort（api-docs.deepseek.com）" },
-    { presetId: "zhipu", model: "glm-5.2", note: "output_config.effort（docs.bigmodel.cn）" },
     { presetId: "moonshot", model: "kimi-k3", note: "顶层 reasoning_effort（kimi.com/code/docs）" },
     { presetId: "qwen", model: "qwen3.8-max", note: "output_config.effort（help.aliyun.com）" },
     { presetId: "openrouter", model: "deepseek-v4-pro", note: "output_config.effort（openrouter.ai/docs）" },
@@ -421,4 +432,9 @@ describe("验收：8 家 effort 血统的 low 与 high 请求体互不相同（0
       expect(JSON.stringify(low)).not.toBe(JSON.stringify(high));
     });
   }
+
+  it("zhipu/glm-5.2：上游只有 effort[high,max] → low 折 high（塌陷 = 上游事实，逐字节钉住）", () => {
+    expect(bodyFor("zhipu", "glm-5.2", "low")).toEqual(bodyFor("zhipu", "glm-5.2", "high"));
+    expect(bodyFor("zhipu", "glm-5.2", "low").output_config).toEqual({ effort: "high" });
+  });
 });

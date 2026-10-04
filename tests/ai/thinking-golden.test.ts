@@ -127,20 +127,24 @@ const PLATFORMS = [
         low: { thinking: { type: "enabled" } },
         high: { thinking: { type: "enabled" } }
       },
+      // 04 号票翻转（旧期望值是手写结论的固化，不是契约，见 upstream-model-facts/04）：
+      // 上游值集 high-max（无 toggle、无 none）→ off 关不掉、级联落最小档 high；low 没有
+      // 同名词，向上取到词表最小档 high（三档投影规则见 ai/thinking-profiles.ts）。
       {
-        kind: "混合三档（glm-5.2 起 effort）",
+        kind: "上游 high-max（04 翻转：off 关不掉→级联落 high；low 折 high）",
         model: "glm-5.2",
-        off: { thinking: { type: "disabled" } },
+        off: { reasoning_effort: "high" },
+        low: { reasoning_effort: "high" },
+        high: { reasoning_effort: "high" }
+      },
+      // 04 号票翻转（同上）：上游值集 low-high-max → 有档位；off 关不掉、级联落 low。
+      {
+        kind: "上游 low-high-max（04 翻转：有档位；off 关不掉→级联落 low）",
+        model: "glm-5.3",
+        off: { reasoning_effort: "low" },
         low: { reasoning_effort: "low" },
         high: { reasoning_effort: "high" }
       },
-      {
-        kind: "永远思考（glm-5.3 disabled 直接报错；无档位 → off 不发 + offUnavailable）",
-        model: "glm-5.3",
-        off: {},
-        low: {},
-        high: {}
-      }
     ]
   },
   {
@@ -154,10 +158,12 @@ const PLATFORMS = [
         low: { thinking: { type: "enabled" } },
         high: { thinking: { type: "enabled" } }
       },
+      // 04 号票翻转（旧期望值是手写结论的固化，不是契约，见 upstream-model-facts/04）：
+      // 上游值集 toggle+low-high-max → off 可用（走 Kimi 的 thinking 开关），low/high 不变。
       {
-        kind: "永远思考 + effort（kimi-k3；off 级联落 low）",
+        kind: "上游 toggle+low-high-max（04 翻转：off 可用走 toggle；low/high 仍 effort）",
         model: "kimi-k3",
-        off: { reasoning_effort: "low" },
+        off: { thinking: { type: "disabled" } },
         low: { reasoning_effort: "low" },
         high: { reasoning_effort: "high" }
       },

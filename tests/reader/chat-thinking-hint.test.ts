@@ -8,22 +8,27 @@
 // 锁定，本文件不重复。
 //
 // 覆盖（工单 AC）：
-// - 档位 Off + 关不掉模型：级联落 low（kimi-k3）→ 长文案；无 low 可落
-//   （kimi-k2.7-code，baseUrl 空）→ 短文案；两条文案与工单逐字一致；
-// - never 模型（kimi-k2-instruct / deepseek-chat）与 off 正常可用模型
-//   （glm-4.6）选 Off 均静默无提示；
+// - 档位 Off + 关不掉模型：级联落 low（glm-5.3，04 号票翻转后接棒 kimi-k3）→ 长文案；
+//   无 low 可落（kimi-k2.7-code，baseUrl 空）→ 短文案；两条文案与工单逐字一致；
+// - 04 号票翻转：kimi-k3 上游值集带 toggle（off 可用）→ 选 Off 静默无提示；
+// - never 模型（kimi-k2-instruct / deepseek-chat）与 off 正常可用模型（glm-4.6）
+//   选 Off 均静默无提示；
 // - 实时刷新：模型 change 切回可关模型提示消失、切回再现；档位 Off→Low 收起、
 //   Low→Off（关不掉模型）再现。
 //
-// 模型选型依据（extension/ai/thinking-profiles.ts 表，勿凭记忆）：
+// 模型选型依据（extension/ai/thinking-profiles.ts 表 + 02 产物指派表，勿凭记忆）：
 // - kimi-k2.7-code → EXCEPTIONS kimi-always：always 且无 low/on → offUnavailable
 //   + offFallback:null（短文案）；taxonomy 按模型名命中，baseUrl 刻意留空；
-// - kimi-k3 → EXCEPTIONS kimi-k3-effort：always 且 low=reasoning_effort:"low"
-//   → offUnavailable + offFallback:"low"（长文案）；baseUrl 取 Kimi preset host
-//   （core/presets.ts），顺带覆盖 resolver 的 host 推断识别路径；
+// - glm-5.3 → 04 号票翻转后走上游指派表（值集 low-high-max：有档位、关不掉）→
+//   offUnavailable + offFallback:"low"（长文案）；baseUrl 取 GLM preset host
+//   （core/presets.ts），顺带覆盖 resolver 的 host 推断识别路径。
+//   04 号票之前这个角色由 kimi-k3 担任（旧手写结论 kimi-k3-effort：always + effort）；
+//   翻转后 kimi-k3 的 off 可用了，长文案覆盖由同为三处翻转之一的 glm-5.3 接棒。
+// - kimi-k3 → 04 号票翻转后上游指派表（值集 toggle+low-high-max）→ off 可用 → 静默；
+//   baseUrl 取 Kimi preset host（host 推断路径不回归）。
 // - kimi-k2-instruct → TAXONOMY kimi-instruct-never（"kimi-k2-" 前缀）、
 //   deepseek-chat → TAXONOMY deepseek-chat-never：never → off 天然成立，静默；
-// - glm-4.6 → TAXONOMY glm-hybrid-switch：off 正常可用 → offUnavailable:false。
+// - glm-4.6 → 上游指派表（zhipuai，值集 toggle）：off 正常可用 → offUnavailable:false。
 //
 // 模块纪元注意（与 chat-tab.test.ts 同款）：chatSessionState 与组合根闭包都是
 // 模块级单例，beforeEach resetModules 后同纪元导入；chrome.storage / runtime
@@ -201,14 +206,24 @@ describe("Off + 关不掉模型：resolver 判定 → 档位区提示（文案�
     expect(getThinkingBtn("off").classList.contains("is-active")).toBe(true);
   });
 
-  it("级联落 low → 长文案：Kimi host 推断 + kimi-k3（offFallback:\"low\"）", async () => {
-    providersPayload = [provider({ id: "p1", model: "kimi-k3", baseUrl: KIMI_BASE_URL })];
+  it("级联落 low → 长文案：GLM host 推断 + glm-5.3（04 号票翻转后 offFallback:\"low\"）", async () => {
+    providersPayload = [provider({ id: "p1", model: "glm-5.3", baseUrl: GLM_BASE_URL })];
 
     await activateChatTab();
 
     const hint = getHint();
     expect(hint.hidden).toBe(false);
     expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
+  });
+
+  it("04 号票翻转：kimi-k3 上游带 toggle（off 可用）→ 选 Off 静默无提示", async () => {
+    providersPayload = [provider({ id: "p1", model: "kimi-k3", baseUrl: KIMI_BASE_URL })];
+
+    await activateChatTab();
+
+    const hint = getHint();
+    expect(hint.hidden).toBe(true);
+    expect(hint.textContent).toBe("");
   });
 });
 
@@ -266,7 +281,8 @@ describe("实时刷新：提示随模型切换与档位点击即时显隐", () =
   });
 
   it("档位 click：Off→Low 提示收起；Low→Off（关不掉模型）提示再现且文案不变", async () => {
-    providersPayload = [provider({ id: "p1", model: "kimi-k3", baseUrl: KIMI_BASE_URL })];
+    // 模型 = glm-5.3（04 号票翻转后关不掉、级联落 low）；翻转前这个角色是 kimi-k3。
+    providersPayload = [provider({ id: "p1", model: "glm-5.3", baseUrl: GLM_BASE_URL })];
 
     await activateChatTab();
 

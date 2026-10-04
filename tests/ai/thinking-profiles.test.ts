@@ -21,6 +21,7 @@ import {
 const OPENAI_URL = "https://api.openai.com/v1";
 const DEEPSEEK_URL = "https://api.deepseek.com/v1";
 const QWEN_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4";
 const KIMI_URL = "https://api.kimi.com/coding/v1";
 const MIMO_URL = "https://api.xiaomimimo.com/v1";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1";
@@ -42,10 +43,13 @@ describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", 
     });
   });
 
-  it("模式表数组序=优先级：glm-5.2 条目先于 glm-5 前缀命中（effort 而非开关）", () => {
-    expect(resolve({ baseUrl: "https://open.bigmodel.cn/api/paas/v4", model: "glm-5.2", level: "high" }).fields).toEqual({
+  it("模式表数组序=优先级：step-3.7 条目先于 step-3 前缀命中（effort 而非无档位）", () => {
+    // 刻意用无上游平台的 host：本用例只钉手写正则表的数组序（有上游平台的
+    // stepfun-step-plan 会先被指派表接走，属另一条路径）。
+    expect(resolve({ baseUrl: "https://api.example.com/v1", model: "step-3.7-flash", level: "high" }).fields).toEqual({
       reasoning_effort: "high"
     });
+    expect(resolve({ baseUrl: "https://api.example.com/v1", model: "step-3", level: "high" }).thinkingClass).toBe("always");
   });
 
   it("模式为前缀匹配：日期快照/变体后缀自然命中（gpt-5.1-2025-11-13 off → effort none）", () => {
@@ -110,10 +114,18 @@ describe("off 级联（spec 最终版）", () => {
     expect(r.thinkingClass).toBe("always");
   });
 
-  it("always 有 low 档：off 落 low patch + offUnavailable（kimi-k3 → effort low）", () => {
-    const r = resolve({ baseUrl: KIMI_URL, model: "kimi-k3", level: "off" });
+  it("always 有 low 档：off 落 low patch + offUnavailable（glm-5.3 → effort low）", () => {
+    const r = resolve({ baseUrl: ZHIPU_URL, model: "glm-5.3", level: "off" });
     expect(r.fields).toEqual({ reasoning_effort: "low" });
     expect(r.offUnavailable).toBe(true);
+    expect(r.thinkingClass).toBe("always");
+  });
+
+  it("04 号票翻转：kimi-k3 的 off 走上游 toggle（可关，hybrid，无级联无标记）", () => {
+    const r = resolve({ baseUrl: KIMI_URL, model: "kimi-k3", level: "off" });
+    expect(r.fields).toEqual({ thinking: { type: "disabled" } });
+    expect(r.offUnavailable).toBe(false);
+    expect(r.thinkingClass).toBe("hybrid");
   });
 
   it("hybrid off 声明存在时直接发（无级联、无标记）", () => {
@@ -129,8 +141,8 @@ describe("off 级联（spec 最终版）", () => {
 });
 
 describe("offFallback：off 级联去向的显式字段（03 号票 UI 长短版文案区分）", () => {
-  it("级联落 low：offFallback=\"low\"（kimi-k3 → effort low，UI 长版提示）", () => {
-    expect(resolve({ baseUrl: KIMI_URL, model: "kimi-k3", level: "off" }).offFallback).toBe("low");
+  it("级联落 low：offFallback=\"low\"（glm-5.3 → effort low，UI 长版提示）", () => {
+    expect(resolve({ baseUrl: ZHIPU_URL, model: "glm-5.3", level: "off" }).offFallback).toBe("low");
   });
 
   it("无 low 可落：offFallback=null 且 offUnavailable=true（minimax 无档位参数，UI 短版提示）", () => {

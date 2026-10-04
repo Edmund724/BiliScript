@@ -209,18 +209,27 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       messages: []
     });
     expect(native.thinking).toEqual({ type: "disabled" });
-    // always 级联 low（reasoning_effort low 是开思考词汇）→ 发档位词：kimi-k3 的 base 是
-    // Kimi Code 端点，登记的档位字段是顶层 reasoning_effort（该端点未登记 thinking 形状）
-    // （kimi.com/code/docs/kimi-code/models.html）。
-    const cascaded = anthropicAdapter.buildBody({
+    // 04 号票翻转（旧期望值是手写结论的固化，不是契约，见 upstream-model-facts/04）：
+    // kimi-k3 的上游值集是 toggle+low-high-max → off 可用，走 Kimi 的 thinking 开关词汇
+    // （off 三种词汇殊途同归 thinking:disabled；该端点档位字段仍是顶层 reasoning_effort）。
+    const offAvailable = anthropicAdapter.buildBody({
       ...base,
       presetId: "moonshot",
       thinkingLevel: "off",
       model: "kimi-k3",
       messages: []
     });
-    expect(cascaded.reasoning_effort).toBe("low");
-    expect(cascaded.thinking).toBeUndefined();
+    expect(offAvailable.thinking).toEqual({ type: "disabled" });
+    expect(offAvailable.reasoning_effort).toBeUndefined();
+    // 档位仍按该端点登记的顶层 reasoning_effort 落线（仅流式无关）。
+    const tiered = anthropicAdapter.buildBody({
+      ...base,
+      presetId: "moonshot",
+      thinkingLevel: "high",
+      model: "kimi-k3",
+      messages: []
+    });
+    expect(tiered.reasoning_effort).toBe("high");
   });
 
   it("probe 不发 thinking：探针只测连通，不发任何思考字段", () => {
