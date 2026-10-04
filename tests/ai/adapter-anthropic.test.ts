@@ -150,8 +150,12 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     ]);
   });
 
-  it("思考档位改写：effort 词汇 → thinking enabled + budget_tokens（限制点 11）", () => {
-    // deepseek-v3.2 = hybrid-effort：high → reasoning_effort high → Anthropic 开思考。
+  it("思考档位分档：effort 血统按平台档位词发 output_config.effort（限制点 11；02 号票修塌陷）", () => {
+    // deepseek-v3.2 = hybrid-effort：high → 血统 reasoning_effort "high" → Messages 通道按
+    // deepseek 官方登记的档位词汇落线（api-docs.deepseek.com：只支持 thinking 与
+    // output_config.effort，budget_tokens 被忽略），并显式带开思考开关。
+    // 旧期望值（thinking:{type:"enabled",budget_tokens:2048}，low 与 high 同值）是把缺陷
+    // 固化的断言，不是契约——塌陷锚点已由 02 号票翻转。
     const body = anthropicAdapter.buildBody({
       ...base,
       presetId: "deepseek",
@@ -159,9 +163,26 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       messages: [{ role: "user", content: "hi" }],
       model: "deepseek-v3.2"
     });
-    expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 2048 });
+    expect(body.thinking).toEqual({ type: "enabled" });
+    expect(body.output_config).toEqual({ effort: "high" });
     // 兜底上限必须放得下思考预算：思考 token 计入 max_tokens，兜底过小正文会被挤没。
     expect(body.max_tokens).toBe(32768);
+  });
+
+  it("deepseek 预设（默认 anthropic）+ deepseek-v4-pro：low 与 high 的请求体不同（02 号票的用户可感知判据）", () => {
+    const build = (thinkingLevel: string) =>
+      anthropicAdapter.buildBody({
+        ...base,
+        presetId: "deepseek",
+        thinkingLevel,
+        messages: [{ role: "user", content: "hi" }],
+        model: "deepseek-v4-pro"
+      });
+    const low = build("low");
+    const high = build("high");
+    expect(low.output_config).toEqual({ effort: "low" });
+    expect(high.output_config).toEqual({ effort: "high" });
+    expect(JSON.stringify(low)).not.toBe(JSON.stringify(high));
   });
 
   it("关思考三种词汇殊途同归：翻译成 thinking:{type:disabled} 发出", () => {
@@ -188,7 +209,9 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       messages: []
     });
     expect(native.thinking).toEqual({ type: "disabled" });
-    // always 级联 low（reasoning_effort low 是开思考词汇）→ 开。
+    // always 级联 low（reasoning_effort low 是开思考词汇）→ 发档位词：kimi-k3 的 base 是
+    // Kimi Code 端点，登记的档位字段是顶层 reasoning_effort（该端点未登记 thinking 形状）
+    // （kimi.com/code/docs/kimi-code/models.html）。
     const cascaded = anthropicAdapter.buildBody({
       ...base,
       presetId: "moonshot",
@@ -196,7 +219,8 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       model: "kimi-k3",
       messages: []
     });
-    expect(cascaded.thinking).toEqual({ type: "enabled", budget_tokens: 2048 });
+    expect(cascaded.reasoning_effort).toBe("low");
+    expect(cascaded.thinking).toBeUndefined();
   });
 
   it("probe 不发 thinking：探针 maxTokens=1 与 budget_tokens ≥1024 互斥，发了必 400", () => {
@@ -313,7 +337,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(body.thinking).toBeUndefined();
   });
 
-  it("非 effort 词汇平台（openrouter）维持 thinking + budget_tokens：其 schema 两者都收", () => {
+  it("openrouter：档位走 output_config.effort，不发 thinking（其 thinking.enabled 必带预算）", () => {
     const body = anthropicAdapter.buildBody({
       ...base,
       baseUrl: "https://openrouter.ai/api",
@@ -322,8 +346,8 @@ describe("buildBody（请求映射，research §2/§4）", () => {
       model: "deepseek/deepseek-v4",
       messages: []
     });
-    expect(body.thinking).toEqual({ type: "enabled", budget_tokens: 2048 });
-    expect(body.output_config).toBeUndefined();
+    expect(body.output_config).toEqual({ effort: "high" });
+    expect(body.thinking).toBeUndefined();
   });
 });
 

@@ -8,15 +8,21 @@
 // 请求构造单缝：anthropicAdapter.buildBody，不传 maxTokens（走 adapter 默认
 // DEFAULT_MAX_TOKENS = 32768，见 ai/output-budget.ts；golden 按字面值钉住）。
 //
-// ⚠ 已知缺陷（另一张票修，非本文件契约）：Messages 通道上 low 与 high **塌陷**——
-// 矩阵算出的档位在翻译成 Anthropic 线形状时只保留「关 / 开」二值，开档一律
-// thinking:{type:"enabled",budget_tokens:2048}（budget 只随 max_tokens 夹取
-// [1024, max_tokens)，不随档位变化），故所有走 thinking 形状的平台
-// low==high=={type:"enabled",budget_tokens:2048}。同理 qwen3.8-max 的
-// high→xhigh 例外在 Messages 通道不可见（矩阵给 reasoning_effort，翻译时被丢弃）。
-// 这些塌陷格是**待翻转的锚点**：档位传递修好后它们会被改写，本文件届时失败即预期信号。
-// 唯一不做二值塌陷的是 effortVocabMessages 平台（stepfun / amd）——它们原样透传
-// 矩阵的 reasoning_effort，故 low/high 保持 "low"/"high" 区分。
+// 档位分档（02 号票）：effort 血统的档位在 Messages 通道按平台**官方登记的档位词汇**落线，
+// 逐格见 ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY（每条注释带出处域名）：
+// - deepseek / qwen / zhipu / sensenova：thinking:{type:"enabled"} + output_config.effort
+//   （deepseek 词表 low/high/max；qwen3.8-max 词表 low/medium/xhigh，血统的 high 即 xhigh；
+//   zhipu 官方把 low/medium 折成 high——平台侧既有归一化，本文件照实钉住我们发出的请求体；
+//   sensenova 官方词表自相矛盾，保守只用 low/medium/high）。
+// - openrouter：只发 output_config.effort（该平台 thinking.enabled 必带 budget_tokens）。
+// - moonshot：仓库 base 是 Kimi Code 端点，档位词是顶层 reasoning_effort（该端点未登记
+//   thinking 形状）→ 只发 reasoning_effort。
+// - 未登记档位词汇的平台（opencodego 官方文档与模型元数据都没有思考控制参数；ollama 的
+//   Messages 通道同样无文档）：退回按档分配 thinking.budget_tokens —— low 2048 / high 8192。
+// - 开关型血统（glm-4.6 / kimi-k2.6 / qwen3-max / mimo-v2.5-pro）与严格 effort 词汇平台
+//   （stepfun / amd）维持原状：前者该通道只有开/关两态，后者已按档发 output_config.effort。
+// 塌陷格（low == high）只应出现在开关型血统与未登记词汇平台的低档各处——前者是设计使然，
+// 后者见上一条。
 
 import { describe, expect, it } from "vitest";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
@@ -53,6 +59,13 @@ interface PlatformGolden {
 
 const DISABLED = { thinking: { type: "disabled" } };
 const BUDGET = { thinking: { type: "enabled", budget_tokens: 2048 } };
+const BUDGET_HIGH = { thinking: { type: "enabled", budget_tokens: 8192 } };
+// 档位词汇平台的两种形态（词表与出处见 ai/thinking-wire-map.ts）：
+// effortWithSwitch = 文档登记 thinking 开关 + output_config.effort；
+// effortOnly = 只登记 output_config.effort（该平台 thinking.enabled 必带预算，故不带 thinking 对象）。
+const effortWithSwitch = (effort: string) => ({ thinking: { type: "enabled" }, output_config: { effort } });
+const effortOnly = (effort: string) => ({ output_config: { effort } });
+const reasoningEffort = (word: string) => ({ reasoning_effort: word });
 
 const PLATFORMS: PlatformGolden[] = [
   {
@@ -60,11 +73,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "DeepSeek（api.deepseek.com/anthropic）",
     cases: [
       {
-        kind: "混合（off=矩阵 thinking 开关词汇；low/high 塌陷为同一开档）",
+        kind: "混合（off=矩阵 thinking 开关词汇；low/high=output_config.effort 分档，api-docs.deepseek.com）",
         model: "deepseek-v4-pro",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: effortWithSwitch("low"),
+        high: effortWithSwitch("high")
       },
       {
         kind: "永远思考（reasoner 无档位；三档全不发 + offUnavailable）",
@@ -94,11 +107,11 @@ const PLATFORMS: PlatformGolden[] = [
         high: BUDGET
       },
       {
-        kind: "混合 effort（矩阵 high→xhigh，Messages 通道翻译时丢弃 → 塌陷）",
+        kind: "混合 effort（矩阵 high→xhigh；Messages 通道 effort 词表同为 low/xhigh，help.aliyun.com）",
         model: "qwen3.8-max",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: effortWithSwitch("low"),
+        high: effortWithSwitch("xhigh")
       },
       {
         kind: "永远思考（thinking 系无档位；三档全不发）",
@@ -121,11 +134,11 @@ const PLATFORMS: PlatformGolden[] = [
         high: BUDGET
       },
       {
-        kind: "混合 effort（glm-5.2；Messages 通道丢弃 effort → 塌陷）",
+        kind: "混合 effort（glm-5.2；Messages 通道发 output_config.effort，docs.bigmodel.cn）",
         model: "glm-5.2",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: effortWithSwitch("low"),
+        high: effortWithSwitch("high")
       },
       {
         kind: "永远思考（glm-5.3 无档位；三档全不发）",
@@ -148,11 +161,11 @@ const PLATFORMS: PlatformGolden[] = [
         high: BUDGET
       },
       {
-        kind: "永远思考 + effort（kimi-k3：off 级联落 low → 三档全发开档，low/high 塌陷）",
+        kind: "永远思考 + effort（kimi-k3：off 级联落 low；Messages 通道发顶层 reasoning_effort，kimi.com/code/docs）",
         model: "kimi-k3",
-        off: BUDGET,
-        low: BUDGET,
-        high: BUDGET
+        off: reasoningEffort("low"),
+        low: reasoningEffort("low"),
+        high: reasoningEffort("high")
       },
       {
         kind: "永远思考（kimi-k2.7-code 强制 keep:all 无档位；三档全不发）",
@@ -194,11 +207,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "Opencode Go（opencode.ai/zen/go）",
     cases: [
       {
-        kind: "override effort 平台（矩阵 off 关不掉、级联落 low → 三档全发开档；Messages 通道不认 effort 词汇）",
+        kind: "override effort 平台（矩阵 off 关不掉、级联落 low；网关无档位词汇文档 → 退回按档预算，opencode.ai/docs）",
         model: "deepseek-v4-flash",
         off: BUDGET,
         low: BUDGET,
-        high: BUDGET
+        high: BUDGET_HIGH
       }
     ]
   },
@@ -207,11 +220,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "OpenRouter（openrouter.ai/api）",
     cases: [
       {
-        kind: "override effort 平台（openai 侧 off=effort none；Messages 通道不发 effort，改用 thinking 开关词汇）",
+        kind: "override effort 平台（openai 侧 off=effort none；Messages 通道只发 output_config.effort，openrouter.ai/docs）",
         model: "deepseek-v4-pro",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: effortOnly("low"),
+        high: effortOnly("high")
       }
     ]
   },
@@ -266,11 +279,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "SenseNova 商汤（token.sensenova.cn）",
     cases: [
       {
-        kind: "override effort 平台（openai 侧 effort 词表；Messages 通道改用 thinking 开关词汇，low/high 塌陷）",
+        kind: "override effort 平台（openai 侧 effort 词表；Messages 通道发 output_config.effort，platform.sensenova.cn 保守取 low/medium/high）",
         model: "deepseek-v4-flash",
         off: DISABLED,
-        low: BUDGET,
-        high: BUDGET
+        low: effortWithSwitch("low"),
+        high: effortWithSwitch("high")
       }
     ]
   },
@@ -279,11 +292,11 @@ const PLATFORMS: PlatformGolden[] = [
     name: "Ollama（无 anthropic 端点，baseUrl 代位 http://localhost:11434/v1）",
     cases: [
       {
-        kind: "unknownClass 兜底（openai 侧 effort 词汇平台无规则；Messages 通道无 effortVocabMessages 登记 → 落 thinking 形状，low/high 塌陷）",
+        kind: "unknownClass 兜底（openai 侧 effort 词汇平台无规则；Messages 通道无档位词汇文档 → 退回按档预算，docs.ollama.com）",
         model: "llama3.2",
         off: DISABLED,
         low: BUDGET,
-        high: BUDGET
+        high: BUDGET_HIGH
       },
       {
         kind: "模式表命中（deepseek-r1:8b 永远思考无档位；三档全不发）",
@@ -373,4 +386,27 @@ describe("golden：ModelScope qwen3-32b 关思考仅流式（stream 维度）", 
       thinking: { type: "enabled", budget_tokens: 2048 }
     });
   });
+});
+
+// 02 号票的验收判据（7 家 × {low, high} 的 Messages 请求体互不相同）。每家的取值依据与
+// 出处域名见 ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY 注释与调研报告
+// （调研未经真实请求，全部结论来自官方文档）。
+describe("验收：7 家 effort 血统的 low 与 high 请求体互不相同（02 号票）", () => {
+  const CASES: Array<{ presetId: string; model: string; note: string }> = [
+    { presetId: "deepseek", model: "deepseek-v4-pro", note: "output_config.effort（api-docs.deepseek.com）" },
+    { presetId: "zhipu", model: "glm-5.2", note: "output_config.effort（docs.bigmodel.cn）" },
+    { presetId: "moonshot", model: "kimi-k3", note: "顶层 reasoning_effort（kimi.com/code/docs）" },
+    { presetId: "qwen", model: "qwen3.8-max", note: "output_config.effort（help.aliyun.com）" },
+    { presetId: "openrouter", model: "deepseek-v4-pro", note: "output_config.effort（openrouter.ai/docs）" },
+    { presetId: "sensenova", model: "deepseek-v4-flash", note: "output_config.effort（platform.sensenova.cn）" },
+    { presetId: "opencodego", model: "deepseek-v4-flash", note: "未文档化 → 退回按档预算（opencode.ai/docs）" }
+  ];
+
+  for (const c of CASES) {
+    it(`${c.presetId}/${c.model}：low ≠ high（${c.note}）`, () => {
+      const low = bodyFor(c.presetId, c.model, "low");
+      const high = bodyFor(c.presetId, c.model, "high");
+      expect(JSON.stringify(low)).not.toBe(JSON.stringify(high));
+    });
+  }
 });

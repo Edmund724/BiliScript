@@ -1,8 +1,8 @@
 // ai/thinking-wire-map.ts 的单测（thinking-wire-map 票 01）。三件事在此钉死：
 // 1. 表结构：键覆盖词表叶（Record<AiProtocol, …> 注解的运行时对账），两行各自可调用；
 // 2. 逐行写法：openai 行 = 血统词汇原样并入 + token 参数名随血统事实；anthropic 行 =
-//    Messages 通道的写法（probe 早退 / off 三词汇归一 / effort 词汇平台改写 / budget
-//    推算）。本票**逐字节钉住现状，含 02 号票要翻转的塌陷格**；
+//    Messages 通道的写法（probe 早退 / off 三词汇归一 / effort 档位分档与档位词汇表 /
+//    开关型血统的显式一格 / 未文档化平台的按档预算回退）；
 // 3. 三层无重叠主人对账（验收第 4 条，测试期静态判据，不进运行时）：Messages 线格式
 //    字面量只在线格式映射表出现；adapter 内不再有思考词汇字面量的构造性写入；
 //    血统表不含 Messages 通道的字段名。
@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
-import { DEFAULT_BUDGET_TOKENS, MIN_BUDGET_TOKENS, THINKING_WIRE_MAPS, type ThinkingWireInput } from "../../extension/ai/thinking-wire-map.js";
+import { DEFAULT_BUDGET_TOKENS, HIGH_BUDGET_TOKENS, MIN_BUDGET_TOKENS, THINKING_WIRE_MAPS, type ThinkingWireInput } from "../../extension/ai/thinking-wire-map.js";
 
 // 便捷入参：默认「非探针、流式关、上限 32768、非 effort 词汇平台、血统给 low 档」，
 // 用例只覆盖自己关心的维度（不改的维度保持默认）。
@@ -122,13 +122,76 @@ describe("anthropic 行：Messages 通道的写法", () => {
     expect(anthropicWire({ tokenParam: "max_completion_tokens" }).tokenParam).toBe("max_tokens");
   });
 
-  // 塌陷格：02 号票的修复锚点。同一血统的 low 与 high 在 Messages 通道线上完全同值
-  //（档位的值不参与计算）——本票有意保持，golden 逐字节钉住；翻转由 02 号票显式做。
-  it("塌陷格：effort 血统的 low 与 high 同值（02 号票在此翻转）", () => {
-    const low = anthropicWire({ fields: { reasoning_effort: "low" }, level: "low" });
-    const high = anthropicWire({ fields: { reasoning_effort: "high" }, level: "high" });
-    expect(low).toEqual(high);
-    expect(high.fields).toEqual({ thinking: { type: "enabled", budget_tokens: DEFAULT_BUDGET_TOKENS } });
+  // 分档（02 号票）：effort 血统的档位词在各平台官方登记的档位字段上落线；未登记档位词汇
+  // 的平台退回按档分配 budget。修复前这里 low 与 high 同值（塌陷），现在逐格可区分。
+  it("档位分档：文档登记 output_config.effort 的平台带 thinking 开关落 effort 词", () => {
+    const low = anthropicWire({ fields: { reasoning_effort: "low" }, level: "low", platformId: "deepseek" });
+    const high = anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", platformId: "deepseek" });
+    expect(low.fields).toEqual({ thinking: { type: "enabled" }, output_config: { effort: "low" } });
+    expect(high.fields).toEqual({ thinking: { type: "enabled" }, output_config: { effort: "high" } });
+    expect(low.fields).not.toEqual(high.fields);
+    // 血统的档位词原样透传（qwen3.8-max 的高档词就是平台词表里的 xhigh）。
+    expect(anthropicWire({ fields: { reasoning_effort: "xhigh" }, level: "high", platformId: "qwen" }).fields).toEqual({
+      thinking: { type: "enabled" },
+      output_config: { effort: "xhigh" }
+    });
+  });
+
+  it("档位分档：openrouter 只发 output_config.effort（该平台 thinking.enabled 必带预算）", () => {
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", platformId: "openrouter" }).fields).toEqual({
+      output_config: { effort: "high" }
+    });
+  });
+
+  it("档位分档：moonshot（Kimi Code 端点）只发顶层 reasoning_effort", () => {
+    expect(anthropicWire({ fields: { reasoning_effort: "low" }, level: "low", platformId: "moonshot" }).fields).toEqual({
+      reasoning_effort: "low"
+    });
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", platformId: "moonshot" }).fields).toEqual({
+      reasoning_effort: "high"
+    });
+  });
+
+  it("档位分档：未登记档位词汇的平台退回按档分配 budget（off 级联落低档预算）", () => {
+    expect(anthropicWire({ fields: { reasoning_effort: "low" }, level: "low", platformId: "opencodego" }).fields).toEqual({
+      thinking: { type: "enabled", budget_tokens: DEFAULT_BUDGET_TOKENS }
+    });
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", platformId: "opencodego" }).fields).toEqual({
+      thinking: { type: "enabled", budget_tokens: HIGH_BUDGET_TOKENS }
+    });
+    // 平台识别缺失（custom 直填端点）同样走回退，而不是报错。
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", platformId: undefined }).fields).toEqual({
+      thinking: { type: "enabled", budget_tokens: HIGH_BUDGET_TOKENS }
+    });
+    // off 级联后的 fields 仍是低档词，但档位事实是 off → 取低档预算（与 offFallback:"low" 同向）。
+    expect(anthropicWire({ fields: { reasoning_effort: "low" }, level: "off", platformId: "opencodego" }).fields).toEqual({
+      thinking: { type: "enabled", budget_tokens: DEFAULT_BUDGET_TOKENS }
+    });
+  });
+
+  it("档位分档：高档预算同样受 max_tokens 夹取与下限约束", () => {
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", maxTokens: 4096 }).fields).toEqual({
+      thinking: { type: "enabled", budget_tokens: 4095 }
+    });
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, level: "high", maxTokens: 1024 }).fields).toEqual({});
+  });
+
+  it("严格 effort 词汇平台（怪癖 effortVocabMessages）优先：stepfun / amd 仍是原样 effort，不发 thinking", () => {
+    expect(
+      anthropicWire({
+        fields: { reasoning_effort: "high" },
+        level: "high",
+        platformId: "stepfun",
+        effortVocabularyOnly: true
+      }).fields
+    ).toEqual({ output_config: { effort: "high" } });
+  });
+
+  it("开关型血统显式登记：无档位词汇，low 与 high 同为开档默认预算", () => {
+    const low = anthropicWire({ fields: { enable_thinking: true }, level: "low" });
+    const high = anthropicWire({ fields: { enable_thinking: true }, level: "high" });
+    expect(low.fields).toEqual({ thinking: { type: "enabled", budget_tokens: DEFAULT_BUDGET_TOKENS } });
+    expect(high.fields).toEqual(low.fields);
   });
 });
 

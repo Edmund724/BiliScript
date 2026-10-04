@@ -18,7 +18,7 @@
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
-import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
+import { normalizeThinkingLevel, resolveThinkingProfile, resolveThinkingProviderId } from "../thinking-profiles.js";
 import { THINKING_WIRE_MAPS } from "../thinking-wire-map.js";
 import { hasPlatformQuirk } from "../compat-vocab.js";
 import { resolvePlatformQuirkId } from "../platform-quirk-id.js";
@@ -41,8 +41,8 @@ import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 // （CONSERVATIVE_MAX_TOKENS，见 output-budget.ts）。
 // 思考档位在 Messages 通道的写法（怪癖 thinkingFormat / thinkingBudgetTokens /
 // thinkingDisabledMustBeExplicit / probeOmitsThinking / effortVocabMessages）逐格落在
-// ai/thinking-wire-map.ts 的 anthropic 行；本文件只提供「该平台是否只认 effort 词汇」
-// 这一条平台事实（查表口径 resolvePlatformQuirkId，键成员资格见 compat-vocab）。
+// ai/thinking-wire-map.ts 的 anthropic 行；本文件只提供平台事实（本函数给「是否只认
+// effort 词汇」，查表口径 resolvePlatformQuirkId；平台识别见 buildBody）。
 // Anthropic 家族的思考开关有两套词汇：老式 thinking:{type,budget_tokens}（原生各家）
 // 与新式 output_config.effort。走 Messages 通道而只认后者的平台（stepfun / amd）由
 // 怪癖 effortVocabMessages 登记，词表 PLATFORM_QUIRKS 是唯一主人。
@@ -243,6 +243,9 @@ export const anthropicAdapter: ProtocolAdapter = {
     }
     // 思考档位：血统表（thinking-profiles）给 OpenAI 词汇 patch，本通道的线格式由
     // 映射表（ai/thinking-wire-map.ts 的 anthropic 行）决定——adapter 只做取表 → 并入。
+    // 两条平台事实各按自己的键空间识别（口径差异见 ai/platform-quirk-id.ts 头注）：
+    // effortVocabularyOnly = 词表怪癖（PLATFORM_QUIRKS 键空间，stepfun / amd 的严格拒收），
+    // platformId = 思考平台识别（PROVIDERS 键空间，映射表按它查 Messages 档位词汇）。
     const level = normalizeThinkingLevel(request.thinkingLevel);
     const thinking = resolveThinkingProfile({
       presetId: request.presetId,
@@ -258,6 +261,7 @@ export const anthropicAdapter: ProtocolAdapter = {
       probe: request.probe,
       maxTokens,
       tokenParam: thinking.tokenParam,
+      platformId: resolveThinkingProviderId(request.presetId, request.baseUrl),
       effortVocabularyOnly: usesEffortVocabulary(request.presetId, request.baseUrl)
     });
     Object.assign(body, wire.fields);
