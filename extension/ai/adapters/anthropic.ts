@@ -12,10 +12,14 @@
 //   消费方矛盾，spec「编排层零改动」优先。
 // 另修正 prototype 的线形状错误：message_delta 的 stop_reason 在 delta 内。
 // 聚合形状与 openai adapter 同型（DrainResult），编排层零改动。
+// 思考字段的写法（off 三词汇归一 / probe 早退 / budget 推算 / effort 词汇平台改写）
+// 不落在本文件：那是线格式映射表 ai/thinking-wire-map.ts 的一格，本文件只把血统
+// patch 与平台事实（是否只认 effort 词汇）传进去、把出参并入请求体。
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
 import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
+import { THINKING_WIRE_MAPS } from "../thinking-wire-map.js";
 import { hasPlatformQuirk } from "../compat-vocab.js";
 import { resolvePlatformQuirkId } from "../platform-quirk-id.js";
 import { parseToolArgs } from "./openai.js";
@@ -35,80 +39,15 @@ import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 // 在 5637 字处截断（stop_reason=max_tokens），同一请求 8192 完整收尾——旧兜底
 // 8192 = 默认思考预算 2048 + 正文余量，只够旧模型，现降级为退回下限
 // （CONSERVATIVE_MAX_TOKENS，见 output-budget.ts）。
-// 怪癖 thinkingBudgetTokens（语义见 compat-vocab）：开思考的 budget_tokens 下限
-// （Anthropic 硬性要求 ≥1024）与默认预算；budget 计入 max_tokens，故必须 < max_tokens。
-const MIN_BUDGET_TOKENS = 1024;
-const DEFAULT_BUDGET_TOKENS = 2048;
-
-// 思考档位改写（怪癖 thinkingFormat，语义见 compat-vocab）：chat 形状字段 →
-// Anthropic thinking 形状。thinking-profiles 表本身不改（OpenAI 词汇），改写发生
-// 在此；关思考的三种词汇殊途同归为 thinking:{type:"disabled"}——见怪癖
-// thinkingDisabledMustBeExplicit：「Anthropic 默认即关、一律不发字段」在默认开
-// 思考的网关上不成立（ModelScope Messages 端点实测 2026-09，
-// deepseek-ai/DeepSeek-V4.1-Flash 默认开思考、enable_thinking:false 被忽略、
-// 思考计入 max_tokens 会把正文挤成空串，即概览卡「模型正在思考…」的根因），只有
-// thinking:{type:"disabled"} 能真正关掉。
-//
+// 思考档位在 Messages 通道的写法（怪癖 thinkingFormat / thinkingBudgetTokens /
+// thinkingDisabledMustBeExplicit / probeOmitsThinking / effortVocabMessages）逐格落在
+// ai/thinking-wire-map.ts 的 anthropic 行；本文件只提供「该平台是否只认 effort 词汇」
+// 这一条平台事实（查表口径 resolvePlatformQuirkId，键成员资格见 compat-vocab）。
 // Anthropic 家族的思考开关有两套词汇：老式 thinking:{type,budget_tokens}（原生各家）
-// 与新式 output_config.effort。走 Messages 通道而只认后者的平台由怪癖
-// effortVocabMessages 登记（stepfun / amd，词表 PLATFORM_QUIRKS 是唯一主人，
-// 本文件不再自建名单）：
-// - stepfun：官方请求字段表列 output_config.effort、未列 thinking
-//   （platform.stepfun.com/docs/zh/api-reference/chat/messages-create）。
-// - amd：带 budget_tokens 的 thinking 明确 400（"thinking" is not supported for
-//   this model），官方指引用 output_config.effort
-//   （amd-aim.github.io/radeon-cloud-docs/zh-cn/api/messages/）。
-// effort 取矩阵已算好的 reasoning_effort（同域词表），不自造映射。
+// 与新式 output_config.effort。走 Messages 通道而只认后者的平台（stepfun / amd）由
+// 怪癖 effortVocabMessages 登记，词表 PLATFORM_QUIRKS 是唯一主人。
 function usesEffortVocabulary(presetId?: string, baseUrl?: string): boolean {
   return hasPlatformQuirk(resolvePlatformQuirkId(presetId, baseUrl), "effortVocabMessages");
-}
-
-function applyThinkingFields(body: Record<string, unknown>, request: ChatRequest): void {
-  // 怪癖 probeOmitsThinking：探针不发 thinking——探针 maxTokens=1，而
-  // budget_tokens ≥1024 且必须 < max_tokens，任何 thinking 字段都会把探针打成
-  // 400（探针语义 = 测连通，成功判定 response.ok）。
-  if (request.probe) return;
-  const thinking = resolveThinkingProfile({
-    presetId: request.presetId,
-    baseUrl: request.baseUrl,
-    model: request.model,
-    level: normalizeThinkingLevel(request.thinkingLevel),
-    stream: request.stream
-  });
-  const fields = thinking.fields;
-  // 无事实（unknown 哨兵 / never / always 无档可落）：维持不发——软失败优于硬 400。
-  if (!Object.keys(fields).length) return;
-  const effortVocab = usesEffortVocabulary(request.presetId, request.baseUrl);
-  const off =
-    fields.reasoning_effort === "none" ||
-    fields.enable_thinking === false ||
-    (fields.thinking as { type?: unknown } | undefined)?.type === "disabled";
-  if (off) {
-    // 查表给出关思考声明 = 该平台此模型可关思考：翻译成 Anthropic 原生
-    // thinking:{type:"disabled"} 显式发出，不能依赖服务端默认（怪癖
-    // thinkingDisabledMustBeExplicit，默认开思考的网关见文件头 ModelScope 实测）。
-    // effort 词汇平台（stepfun/amd）的 Messages 通道不收 thinking 字段：维持不发。
-    if (effortVocab) return;
-    body.thinking = { type: "disabled" };
-    return;
-  }
-  // 怪癖 effortVocabMessages：只认 effort 词汇的平台，矩阵给的就是
-  // reasoning_effort，原样作为 effort 发出；若矩阵给的是别的开关词汇（无
-  // reasoning_effort）则不发——软失败优于硬 400。
-  if (effortVocab) {
-    const effort = fields.reasoning_effort;
-    if (typeof effort === "string" && effort !== "none") {
-      body.output_config = { effort };
-    }
-    return;
-  }
-  // 开思考（怪癖 thinkingBudgetTokens）：{ type: "enabled", budget_tokens }；
-  // budget 夹在 [1024, max_tokens) 内，放不下（调用方 maxTokens 过小）则不发
-  // ——软失败优于硬 400。
-  const maxTokens = (body.max_tokens as number) ?? DEFAULT_MAX_TOKENS;
-  const budget = Math.min(DEFAULT_BUDGET_TOKENS, maxTokens - 1);
-  if (budget < MIN_BUDGET_TOKENS) return;
-  body.thinking = { type: "enabled", budget_tokens: budget };
 }
 
 // system 剥出（怪癖 systemOutOfBand，语义见 compat-vocab）：Anthropic messages
@@ -287,13 +226,14 @@ export const anthropicAdapter: ProtocolAdapter = {
 
   buildBody(request: ChatRequest): Record<string, unknown> {
     const { system, rest } = extractSystem(request.messages);
+    // 怪癖 maxTokensRequired：max_tokens 必填，调用方未传兜底 DEFAULT_MAX_TOKENS；
+    // 探针由 core 代劳传 1。同一个值也是线格式映射表推算开思考预算的上限事实。
+    const maxTokens = request.maxTokens ?? DEFAULT_MAX_TOKENS;
     const body: Record<string, unknown> = {
       model: request.model,
       messages: toAnthropicMessages(rest),
       stream: request.stream,
-      // 怪癖 maxTokensRequired：max_tokens 必填，调用方未传兜底
-      // DEFAULT_MAX_TOKENS；探针由 core 代劳传 1。
-      max_tokens: request.maxTokens ?? DEFAULT_MAX_TOKENS
+      max_tokens: maxTokens
     };
     if (system) body.system = system;
     const tools = toAnthropicTools(request.tools);
@@ -301,7 +241,26 @@ export const anthropicAdapter: ProtocolAdapter = {
       body.tools = tools;
       body.tool_choice = { type: "auto", disable_parallel_tool_use: true };
     }
-    applyThinkingFields(body, request);
+    // 思考档位：血统表（thinking-profiles）给 OpenAI 词汇 patch，本通道的线格式由
+    // 映射表（ai/thinking-wire-map.ts 的 anthropic 行）决定——adapter 只做取表 → 并入。
+    const level = normalizeThinkingLevel(request.thinkingLevel);
+    const thinking = resolveThinkingProfile({
+      presetId: request.presetId,
+      baseUrl: request.baseUrl,
+      model: request.model,
+      level,
+      stream: request.stream
+    });
+    const wire = THINKING_WIRE_MAPS.anthropic({
+      fields: thinking.fields,
+      level,
+      stream: request.stream,
+      probe: request.probe,
+      maxTokens,
+      tokenParam: thinking.tokenParam,
+      effortVocabularyOnly: usesEffortVocabulary(request.presetId, request.baseUrl)
+    });
+    Object.assign(body, wire.fields);
     return body;
   },
 

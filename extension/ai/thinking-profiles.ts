@@ -1,6 +1,11 @@
-// ai/thinking-profiles.ts — 思考档位（off/low/high）→ 平台请求字段的纯查表模块。
+// ai/thinking-profiles.ts — 思考档位（off/low/high）→ 模型血统事实的纯查表模块。
 // 无 DOM/port/chrome 依赖；resolveThinkingProfile 是导出纯函数，请求构造单缝
-// （ai/completion.ts）与后续 UI 票（对话 offUnavailable 提示）都直接调用。
+// （ai/completion.ts）与对话 UI（offUnavailable 提示）都直接调用。
+//
+// 三层事实里的**事实层**，只回答「这个模型属于哪类血统、哪档发哪套 OpenAI 词汇、
+// off 怎么级联」——本模块输出的 fields 是**协议无关的中转词汇**（OpenAI 词汇），
+// 不回答「这套词汇在某协议请求体里长什么样」：那是线格式映射表
+// （ai/thinking-wire-map.ts）的职责，adapter 不再各自 if 着改写。
 //
 // 每个事实唯一主人：
 // - 平台 preset 列表 / baseUrl 数据唯一主人在 core/presets.ts，host 索引收口在
@@ -41,8 +46,9 @@ export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
 // 单档字段补丁。fields 键白名单：thinking / enable_thinking / reasoning_effort
 // （校验器强制）。温度类字段明令禁止——Kimi 等平台思考模式温度/top_p 固定且
 // 官方明确不要显式传，本扩展从不发 temperature 是安全属性。
-// 三套字段词汇本身是平台怪癖，语义见 compat-vocab 词表的 thinkingFormat；本表
-// 逐格给「哪档发哪个字段」的**事实**，两者分工不重叠。
+// 这三套字段词汇是**中转词汇**：语义见 compat-vocab 词表的 thinkingFormat，
+// 「本协议线上怎么落」见线格式映射表（thinking-wire-map）；本表逐格给「哪档发
+// 哪套词汇」的**血统事实**，三层分工不重叠。
 export interface ThinkingPatch {
   fields?: Record<string, unknown>;
   // 仅流式可发（如 qwen3-235b/32b/30b 的 enable_thinking:false，百炼限制）；
@@ -64,7 +70,8 @@ export interface ClassRule {
   high?: ThinkingPatch;
   // token 上限参数的随表事实（openai-reasoning 系须 max_completion_tokens）；
   // 缺省 = max_tokens。参数名差异的平台语义见 compat-vocab 词表的 maxTokensField
-  // （本表只给逐模型事实，词表给"这条怪癖是什么"）。
+  // （本表只给逐模型事实，词表给"这条怪癖是什么"）；该事实落到某协议线上叫什么名字，
+  // 由线格式映射表的出参决定（本表不决定协议写法）。
   tokenParam?: "max_tokens" | "max_completion_tokens";
 }
 

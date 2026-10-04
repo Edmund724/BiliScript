@@ -9,6 +9,7 @@
 import { parseOpenAiUsage, parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
+import { THINKING_WIRE_MAPS } from "../thinking-wire-map.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 
@@ -26,6 +27,8 @@ interface BuildChatRequestBodyInput {
   // baseUrl host 推断兜底（custom/旧记录）。
   baseUrl?: string;
   presetId?: string;
+  // 探针请求（core 代劳传 maxTokens=1）；线格式映射表按需读（OpenAI 通道现状照发思考字段）。
+  probe?: boolean;
   // 联网搜索管线：传入即随请求体带 tools + tool_choice: "auto"。
   tools?: ChatToolDefinition[];
 }
@@ -42,18 +45,16 @@ interface WireMessage extends Omit<ChatMessage, "content" | "images"> {
 
 // type 而非 interface：对象字面量类型可隐式赋给 Record<string, unknown>
 //（adapter.buildBody 的返回签名），interface 无此隐式索引签名。
+// 思考字段名与 token 上限参数名不在此逐字列出：它们由线格式映射表
+// （ai/thinking-wire-map.ts 的 openai 行）产出后按名并入，adapter 不回抄线格式取值
+//（对账见 tests/ai/thinking-wire-map.test.ts）。
 type ChatRequestBody = {
   model: string;
   messages: WireMessage[];
   stream: boolean;
-  reasoning_effort?: string;
-  max_tokens?: number;
-  max_completion_tokens?: number;
-  thinking?: { type: string };
-  enable_thinking?: boolean;
   tools?: ChatToolDefinition[];
   tool_choice?: "auto";
-}
+} & Record<string, unknown>;
 
 // 消息翻译（怪癖 contentPartsAsArray，语义见 compat-vocab）：带 images 的消息把
 // content 翻成 content parts（text 块 + 每张图一个 image_url 块，url 为
@@ -74,36 +75,41 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
 /**
  * 构造 chat/completions 请求体（纯函数，便于单测；请求构造单点）。
  * stream 显式传递（流式 true / 非流式 false）；maxTokens 供探针传 1。
- * 思考字段由 thinking-profiles 的 resolveThinkingProfile 查表决定（怪癖
+ * 思考字段由 thinking-profiles 的血统表（resolveThinkingProfile）查表决定（怪癖
  * thinkingFormat，语义见 compat-vocab）：平台（presetId / baseUrl host）× 模型
- * （例外表 >> 模式表）→ 档位 patch；查不到事实（unknown 哨兵）或缺档一律不发
- * 字段——软失败优于硬 400。resolver 返回的 offUnavailable / thinkingClass
- * （03 对话提示）本函数不消费；tokenParam（04 token 参数映射，见怪癖
- * maxTokensField）在 maxTokens 写入时消费：openai-reasoning 系写
+ * （例外表 >> 模式表）→ 档位 patch（OpenAI 词汇）；该词汇在本协议的线上写法由
+ * 线格式映射表（ai/thinking-wire-map.ts 的 openai 行）给出——本协议即原样并入，
+ * 查不到事实（unknown 哨兵）或缺档一律不发字段——软失败优于硬 400。resolver 返回的
+ * offUnavailable / thinkingClass（03 对话提示）本函数不消费；tokenParam（04 token
+ * 参数映射，见怪癖 maxTokensField）由映射表的出参决定：openai-reasoning 系写
  * max_completion_tokens，其余类与 unknown 维持 max_tokens 现状。
  * messages 经 toWireMessages 翻译：带图消息的 content → text/image_url 块数组，
  * 无图消息原字段原值透传。
  */
-export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools }: BuildChatRequestBodyInput): ChatRequestBody {
+export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools, probe = false }: BuildChatRequestBodyInput): ChatRequestBody {
   const body: ChatRequestBody = { model, messages: toWireMessages(messages), stream };
   if (tools && tools.length) {
     body.tools = tools;
     body.tool_choice = "auto";
   }
-  const thinking = resolveThinkingProfile({
-    presetId,
-    baseUrl,
-    model,
-    level: normalizeThinkingLevel(thinkingLevel),
-    stream
+  const level = normalizeThinkingLevel(thinkingLevel);
+  const thinking = resolveThinkingProfile({ presetId, baseUrl, model, level, stream });
+  const wire = THINKING_WIRE_MAPS.openai({
+    fields: thinking.fields,
+    level,
+    stream,
+    probe,
+    maxTokens: maxTokens ?? undefined,
+    tokenParam: thinking.tokenParam,
+    effortVocabularyOnly: false
   });
-  Object.assign(body, thinking.fields);
+  Object.assign(body, wire.fields);
   if (maxTokens != null) {
     // 怪癖 maxTokensField（语义见 compat-vocab）：token 上限参数名随表（04 号票）——
     // openai-reasoning 系不认 max_tokens（严格 400），写 max_completion_tokens；其余类与
     // unknown（resolver 不返回 tokenParam）维持 max_tokens 现状。探针（maxTokens 默认 1）
     // 与概览/分析的估算预算（含空正文加倍重试）同走此接缝，自动生效、无需调用方特判。
-    body[thinking.tokenParam ?? "max_tokens"] = maxTokens;
+    body[wire.tokenParam] = maxTokens;
   }
   return body;
 }
@@ -239,9 +245,9 @@ export const openaiAdapter: ProtocolAdapter = {
   },
 
   buildBody(request: ChatRequest): Record<string, unknown> {
-    // 迁入现有 buildChatRequestBody：thinking-profiles 查表（presetId 主路径 +
-    // baseUrl host 兜底）+ tokenParam 分流（openai-reasoning 系写 max_completion_tokens）
-    // + tools 透传。行为与迁移前逐字节一致。
+    // 迁入现有 buildChatRequestBody：血统表查表（presetId 主路径 + baseUrl host 兜底）
+    // + 线格式映射表（openai 行）出 tokenParam 分流（openai-reasoning 系写
+    // max_completion_tokens）+ tools 透传。行为与迁移前逐字节一致。
     return buildChatRequestBody({
       model: request.model,
       messages: request.messages,
@@ -250,7 +256,8 @@ export const openaiAdapter: ProtocolAdapter = {
       maxTokens: request.maxTokens,
       baseUrl: request.baseUrl,
       presetId: request.presetId,
-      tools: request.tools
+      tools: request.tools,
+      probe: request.probe
     });
   },
 
