@@ -213,45 +213,10 @@
   color: var(--biliscript-reader-accent, #2563eb);
 }
 
-/* 下拉框单一 box（语言下拉/工具栏 select 共用）：8px 框 + 自绘 chevron，
- * 与设置页下拉（.biliscript-set-select / 自定义下拉组件）同形；此前两条规则各写
- * 一半（padding 2 值、原生箭头）靠源序取胜。 */
-.biliscript-reading-select,
-.biliscript-reading-select-sm {
-  width: auto;
-  height: 32px;
-  min-height: 32px;
-  margin: 0;
-  padding: 0 26px 0 12px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
-  background-color: var(--biliscript-reader-card);
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 15px;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--biliscript-reader-faint) 50%),
-    linear-gradient(135deg, var(--biliscript-reader-faint) 50%, transparent 50%);
-  background-position:
-    calc(100% - 14px) calc(50% - 1px),
-    calc(100% - 10px) calc(50% - 1px);
-  background-size: 5px 5px, 5px 5px;
-  background-repeat: no-repeat;
-}
-
-.biliscript-reading-select:focus,
-.biliscript-reading-select-sm:focus {
-  outline: none;
-  border-color: var(--biliscript-reader-accent);
-  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
-}
-
 /* .biliscript-reading-subtitle 的几何在下方基础段单份声明（width/box-sizing/flex/
  * padding/overflow），此处不留空壳。 */
+/* 字幕工具条「字幕语言」下拉的 .biliscript-reading-select/-sm 框形态已随该控件
+ * 删除（2026-10 用户决议，见 reader/subtitle-tab-ui.ts 头注）。 */
 
 /* ===== 统一 文摘面板（PR2）：右侧面板壳 + 三标签 =====
  * 视口定位（fixed 右侧、全高卡片）在 reader-gate.css 门控段；这里只定义
@@ -601,8 +566,7 @@
 #biliscript-reading-view .biliscript-reading-meta,
 #biliscript-reading-view .biliscript-reading-status,
 #biliscript-reading-view .biliscript-reading-item,
-#biliscript-reading-view .biliscript-reading-panel,
-#biliscript-reading-view .biliscript-reading-select {
+#biliscript-reading-view .biliscript-reading-panel {
   color: var(--biliscript-reader-text);
 }
 
@@ -616,8 +580,7 @@
   gap: 10px;
 }
 
-#biliscript-reading-view .biliscript-reading-actions button,
-#biliscript-reading-view .biliscript-reading-select {
+#biliscript-reading-view .biliscript-reading-actions button {
   box-shadow: none;
 }
 
@@ -639,22 +602,8 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 字幕 tab 工具条内的语言下拉（三开关退役后自设置面板移入，2026-09）：
- * 形状/高度/字号走基础段统一框形态（8px / 32px / 15px，与设置页下拉一致）；
- * 这里只留差异项：token 换色（border/card 底/muted 字）与 max-width 限宽，
- * 行内对齐由 flex 工具条的 align-items:center 保证。 */
-#biliscript-reading-view .biliscript-reading-sub-toolbar .biliscript-reading-select-sm {
-  border-color: var(--biliscript-reader-border);
-  /* 长写：background 简写会把基础段的自绘 chevron（background-image）一起清掉 */
-  background-color: var(--biliscript-reader-card);
-  color: var(--biliscript-reader-muted);
-  max-width: 130px;
-}
-
-#biliscript-reading-view .biliscript-reading-sub-toolbar .biliscript-reading-select-sm:hover {
-  border-color: var(--biliscript-reader-accent);
-  color: var(--biliscript-reader-accent);
-}
+/* 字幕 tab 工具条内的语言下拉（三开关退役后自设置面板移入，2026-09；2026-10
+ * 用户决议整条删除）的专属规则已随控件一并摘去，不再留空壳。 */
 
 #biliscript-reading-view .biliscript-reading-panel {
   border-radius: 14px;

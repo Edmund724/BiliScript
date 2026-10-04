@@ -1,24 +1,28 @@
 // 字幕 tab 的模板段 + 绑定段（arch-slim-2/06：自 ui/ui-renderer.ts 下放同居）。
 //
-// 覆盖字幕 tab body 的四段壳结构：工具条（句内搜索 + 字幕轨 select + 复制/
-// 导出，PR3）、转写中间态横幅（显隐由 reader/transcribe-banner.ts 驱动，
-// 「谁绑定谁拥有」裁定：横幅无事件绑定、布局上属字幕 tab 排版序列，模板随
-// 字幕 tab 叶子走；驱动逻辑不动）、字幕列表容器（分批渲染目标）、Follow
-// playback 悬浮按钮。绑定段为对应交互接线，handler 逻辑保持各域单源：
+// 覆盖字幕 tab body 的四段壳结构：工具条（句内搜索 + 复制/导出，PR3）、转写
+// 中间态横幅（显隐由 reader/transcribe-banner.ts 驱动，「谁绑定谁拥有」裁定：
+// 横幅无事件绑定、布局上属字幕 tab 排版序列，模板随字幕 tab 叶子走；驱动逻辑
+// 不动）、字幕列表容器（分批渲染目标）、Follow playback 悬浮按钮。绑定段为对应
+// 交互接线，handler 逻辑保持各域单源：
 //   - 搜索输入/键盘 → reader/subtitle-search.ts（refresh/move 转发，重域经
 //     ui/reader-gate.ts 的 withReader 动态装载）；
-//   - 字幕轨切换 → subtitle/lazy.ts 的 ensureSummarizeChain（loadSubtitle 属
-//     总结链）+ reader 域重渲/同步串联；
 //   - 复制/导出 → 总结链 copySubtitleTranscript/downloadSubtitle（实现就在
 //     subtitle/ui.ts，零转发）；
 //   - Follow 按钮 / 列表 scroll/wheel/pointerdown/click → reader/sync.ts
 //     （noteManualReaderInteraction/onReadingSubtitleClick/resumeReaderFollowPlayback）。
 //
+// 2026-10 用户决议：工具条内的「字幕语言」下拉（三开关退役时自设置面板移入）
+// 整条删除——B站原生轨以中文为主，不需要手动选语言；ASR 转写轨此前走缓存命中
+// 收尾时不进 clip.subtitles，下拉恒停在「暂无字幕」与已落账的正文自相矛盾。
+// 轨选择仍由启用抓取时的中文优先自动选轨负责（subtitle/selection），字幕来源/
+// 语言在面板 meta 行「字幕：…」显示。本删除由 tests/reader/subtitle-toolbar
+// 的回归锁钉住。
+//
 // 本模块是壳可静态携带的轻叶子：不 import reader 重域与总结链重实现，动态
 // 边全部在 ui/reader-gate.ts 与 subtitle/lazy.ts 内部（chunk 边不变形）。
 // 绑定随壳构建（bindUiEvents）同步执行、forceRecreate 重建后随壳重绑。
 
-import { state } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
 import { logWarn } from "../shared/logging.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
@@ -57,7 +61,6 @@ export function buildSubtitleTabBodyHtml(): string {
                   disabled
                 >↓</button>
               </div>
-              <select id="${ids.readingSubtitleSelect}" class="biliscript-reading-select biliscript-reading-select-sm" aria-label="字幕语言"></select>
               <button id="${ids.readingCopySubtitleBtn}" type="button" class="biliscript-reading-mini-btn">复制</button>
               <button id="${ids.readingExportSubtitleBtn}" type="button" class="biliscript-reading-mini-btn">导出</button>
             </div>
@@ -85,22 +88,6 @@ export function buildSubtitleTabBodyHtml(): string {
 }
 
 export function bindSubtitleTabEvents(): void {
-  // ===== 字幕轨切换 =====
-  // loadSubtitle 属总结链；重渲/同步由 loadSubtitle 内字幕接受事务的
-  // subtitle-ready 通知驱动（唯一 emit 点，见 commit.ts），此处补调即双渲染。
-  byId(ids.readingSubtitleSelect).addEventListener("change", async (event) => {
-    const selectTarget = event.target as HTMLSelectElement;
-    const option = selectTarget.options[selectTarget.selectedIndex];
-    const url = String(option?.value || "");
-    if (!url) return;
-    try {
-      const chain = await ensureSummarizeChain();
-      await chain.loadSubtitle(url, String(option.dataset.lang || "unknown"), state.clip.fetchRunId, String(option.dataset.id || ""));
-    } catch (error) {
-      logWarn("[BILISCRIPT] failed to switch subtitle in reading view", error);
-    }
-  });
-
   const readingSearchInput = byId(ids.readingSearchInput) as HTMLInputElement;
   // ===== PR3 句内搜索（输入/键盘/上下条）：搜索状态与高亮逻辑在
   // reader/subtitle-search.ts（重域：补渲染走分批渲染状态机），交互回调经

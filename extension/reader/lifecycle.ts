@@ -263,35 +263,6 @@ export function handleReaderPresenterNotification(kind: string, text?: string | 
   }
 }
 
-function renderReadingSubtitleSelect() {
-  const select = getReaderElement(ids.readingSubtitleSelect) as HTMLSelectElement;
-  const subtitles = state.clip.subtitles || [];
-
-  if (subtitles.length === 0) {
-    select.innerHTML = '<option value="">暂无字幕</option>';
-    select.disabled = true;
-    return;
-  }
-
-  select.innerHTML = buildSubtitleOptionViews(
-    subtitles,
-    state.clip.selectedSubtitleId,
-    state.clip.selectedSubtitleUrl
-  )
-    .map((option) => {
-      // 显示标签走归一口径（B站 AI 轨 lanDoc 的「（自动生成）」与 [AI] 标重复，
-      // 不再双标）；data-lang 仍是接口原文——切轨写回 state 的是原始语言值。
-      const aiTag = option.isAi ? " [AI]" : "";
-      const optionLabel = `${option.label}${aiTag}`;
-      return `<option value="${escapeHtml(option.url)}" data-lang="${escapeHtml(
-        option.lang
-      )}" data-id="${escapeHtml(option.id)}" data-isai="${option.isAi}" ${
-        option.selected ? "selected" : ""
-      }>${escapeHtml(optionLabel)}</option>`;
-    })
-    .join("");
-  select.disabled = false;
-}
 export async function enterReaderMode() {
   const readingView = getReaderElement(ids.readingView);
   // 视图打开走状态机迁移（entering→open；直开路径 closed→open）
@@ -465,7 +436,6 @@ export function renderReadingView() {
     }
   }
 
-  renderReadingSubtitleSelect();
   renderReaderPanels();
   applyReadingViewPresentation();
   // PR3：渲染尾部收敛字幕 tab 的会话态——

@@ -17,7 +17,6 @@ export const ids = {
   readingThemeSelect: "biliscript-reading-theme-select",
   readingSettingsBtn: "biliscript-reading-settings-btn",
   readingSettingsPanel: "biliscript-reading-settings-panel",
-  readingSubtitleSelect: "biliscript-reading-subtitle-select",
   readingSettingsHost: "biliscript-reading-settings-host",
   readingMeta: "biliscript-reading-meta",
   readingSubtitleList: "biliscript-reading-subtitle",

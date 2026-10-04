@@ -238,9 +238,10 @@ export function buildSubtitleSourceLabel(
 export interface SubtitleOptionView {
   id: string;
   url: string | undefined;
-  // lang 是原始语言值（接口 lanDoc||lan||"unknown"）：写回 state 用（data-lang），
-  // 保持接口原文；label 是下拉显示的语言名（AI 尾巴已归一）；sourceLabel 是
-  // meta 行「字幕：」值（来源 + 语言）。
+  // lang 是原始语言值（接口 lanDoc||lan||"unknown"）——保持接口原文；label 是
+  // 选项显示的语言名（AI 尾巴已归一）；sourceLabel 是 meta 行「字幕：」值
+  //（来源 + 语言）。2026-10 用户决议删去工具条字幕语言下拉后，label 与 isAi
+  // 暂无消费方（原下拉的 [AI] 标），随投影保留备用；lang 仍是 sourceLabel 的输入。
   lang: string;
   label: string;
   sourceLabel: string;
@@ -249,9 +250,10 @@ export interface SubtitleOptionView {
 }
 
 // 字幕轨 option 视图模型的唯一投影（arch-slim-3/riders R2；2026-09/10 起含
-// 来源/语言标签）：lang 即写回 state 的原始值，label 供下拉显示（isAi 标 [AI]），
-// sourceLabel 供 meta 行「字幕：」值取用，选中态按 id（弱比较）或 URL 精确匹配。
-// reader/lifecycle 的 select HTML 与 meta 行共用本模型，不各抄一份投影。
+// 来源/语言标签）：lang 即写回 state 的原始值，sourceLabel 供 meta 行「字幕：」
+// 值取用，选中态按 id（弱比较）或 URL 精确匹配。原消费者（工具条字幕语言下拉
+// 的 select HTML）随该控件删除（2026-10 用户决议），现只剩 reader/lifecycle 的
+// meta 行——选中态匹配规则仍收口在本模型，不在渲染侧另抄一份。
 export function buildSubtitleOptionViews(
   subtitles: SubtitleTrack[] | RawSubtitleTrack[] | null | undefined,
   selectedSubtitleId?: string,

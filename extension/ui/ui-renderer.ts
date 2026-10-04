@@ -87,8 +87,9 @@ export function buildUiHtml(): string {
             <section id="${ids.readingSettingsPanel}" class="biliscript-reading-panel biliscript-reading-settings-panel" hidden>
               <!-- 扩展设置宿主（script-only-ui）：原独立 options 页的全部设置项
                    由 ui/settings-panel.js 渲染进此容器（分节、可滚动），options
-                   页面本体已删除。顶部滚动/字幕/章节三开关与字幕语言下拉已随
-                   三开关退役移除——语言下拉移入字幕 tab 工具条（复制按钮左侧）。 -->
+                   页面本体已删除。顶部滚动/字幕/章节三开关已随三开关退役移除；
+                   三开关退役时移入字幕 tab 工具条的字幕语言下拉也已删除
+                   （2026-10 用户决议）。 -->
               <section class="biliscript-reading-settings-group biliscript-reading-settings-extension">
                 <div id="${ids.readingSettingsHost}" class="biliscript-reading-settings-host"></div>
               </section>

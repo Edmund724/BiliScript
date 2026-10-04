@@ -265,12 +265,8 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   chatIntent.appendChild(intentQuote);
 
   // 三开关退役（2026-09）：滚动/字幕/章节三个 checkbox 从设置面板删除，不再
-  // 在骨架中搭建（对应 id 已从 ids 表移除）。
-  const readingSubtitleSelect = doc.createElement("select");
-  readingSubtitleSelect.id = ids.readingSubtitleSelect;
-  readingSubtitleSelect.className = "biliscript-reading-select biliscript-reading-select-sm";
-  subToolbar.insertBefore(readingSubtitleSelect, copySubtitleBtn);
-
+  // 在骨架中搭建（对应 id 已从 ids 表移除）。工具条「字幕语言」下拉同样已删除
+  //（2026-10 用户决议，见 reader/subtitle-tab-ui.ts 头注），不再搭建。
   const readingSettingsBtn = doc.createElement("button");
   readingSettingsBtn.id = ids.readingSettingsBtn;
   scriptPanel.appendChild(readingSettingsBtn);
