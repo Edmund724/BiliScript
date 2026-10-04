@@ -18,6 +18,7 @@
     "build:content": "node scripts/build-content.js",
     "build:release": "python3 scripts/build_release.py || python scripts/build_release.py",
     "catalog:sync": "node scripts/sync-pi-ai-catalog.mjs",
+    "catalog:sync:upstream": "node scripts/sync-models-dev-catalog.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
