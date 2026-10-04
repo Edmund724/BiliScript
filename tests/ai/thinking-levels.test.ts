@@ -13,23 +13,25 @@
 //      偏好 low 时该落到 off，而不是被"向上取"到 high；
 //   5. 可用集推错：开关型（on 写点）被当成只有一档、effort 型的 none 被物化成档位；
 //   6. 落线与提示面漂移：提示说 medium、请求仍发 xhigh（本文件用同一次解析钉死）；
-//   7. 行为冻结被 clamp 破坏：PENDING_DIVERGENCES 的 31 行对 off/low/high 必须恒等；
+//   7. 裁决被 clamp 破坏：残留清单 31 行（2026-10-04 用户裁定：全部按上游）里定义域的
+//      档位必须由该模型自己的上游投影派生的可用集决定，不许回到旧手写结论；
 //   8. 上游 effort 值集出现阶梯外的档位（物化时被静默丢掉）。
 
 import { describe, expect, it } from "vitest";
 import {
   AI_THINKING_LEVELS,
   CLASSES,
-  PENDING_DIVERGENCES,
+  applyClassRule,
   availableLevelsOf,
   clampThinkingLevel,
   isThinkingLevel,
   normalizeThinkingLevel,
   resolveThinkingAdjustment,
   resolveThinkingProfile,
+  ruleFromUpstreamFact,
   type ClassRule
 } from "../../extension/ai/thinking-profiles.js";
-import { VALUESETS } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
+import { VALUESETS, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 
 const QWEN_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4";
@@ -241,19 +243,62 @@ describe("resolveThinkingAdjustment：提示面的「源档 → 目标档 + 原�
   });
 });
 
-describe("行为冻结（PENDING_DIVERGENCES 31 行）：clamp 不得改变 off/low/high 的落线", () => {
-  it("每条冻结 class 对 low/high 恒等（A ⊆ {off,low,high}）；无档位的 always 类仍无档可落", () => {
-    const frozen = Object.entries(PENDING_DIVERGENCES).filter(([, entry]) => entry.class !== null);
-    expect(frozen.length).toBeGreaterThanOrEqual(19);
-    for (const [key, entry] of frozen) {
-      const available = availableLevelsOf(CLASSES[entry.class!]);
-      for (const level of ["low", "high"] as const) {
-        // 冻结行的逐字节结论由 tests/ai/thinking-upstream-facts.test.ts 钉住；此处只锁
-        // 本票新增的 clamp 不移动它们：要么原样（A 含该档），要么无档可落（A 为空）。
-        const effective = clampThinkingLevel(level, available);
-        expect(effective, `${key} @ ${level}`).toBe(available.length === 0 ? null : level);
+describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定）：clamp 只在模型自己的词表内移动", () => {
+  // 12 号票删掉 04 的行为冻结表后，这 31 行的档位全部来自 02 指派表的 7 档投影；
+  // 本用例是「clamp 不改变裁决行落线」的新形态：逐行、逐档（含 05 号票新增的
+  // minimal/medium/xhigh/max）断言 runtime 结论 === 该行上游投影的结论，
+  // 即旧手写结论不再有任何落线入口（对照表见 artifacts/12-adjudication-log.md）。
+  const ADJUDICATED: Array<[presetId: string, upstreamId: string, model: string]> = [
+    ["qwen", "alibaba-cn", "deepseek-v4-flash"],
+    ["qwen", "alibaba-cn", "deepseek-v4-pro"],
+    ["qwen", "alibaba-cn", "glm-5.2"],
+    ["qwen", "alibaba-cn", "glm-5.3"],
+    ["zhipu", "zhipuai", "glm-5.3-flash"],
+    ["zhipu", "zhipuai", "glm-5.3-flashx"],
+    ["qwen", "alibaba-cn", "siliconflow/deepseek-v3.2"],
+    ["minimax", "minimax-cn", "MiniMax-M3"],
+    ["stepfun", "stepfun-step-plan", "step-3.5-flash"],
+    ["stepfun", "stepfun-step-plan", "step-3.5-flash-2603"],
+    ["deepseek", "deepseek", "deepseek-flash"],
+    ["qwen", "alibaba-cn", "qwen3-14b"],
+    ["qwen", "alibaba-cn", "qwen3-8b"],
+    ["qwen", "alibaba-cn", "qwen3-omni-flash"],
+    ["qwen", "alibaba-cn", "qwen3-vl-plus"],
+    ["qwen", "alibaba-cn", "siliconflow/deepseek-v3.1-terminus"],
+    ["moonshot", "kimi-code-plan-cn", "k3-256k"],
+    ["moonshot", "kimi-code-plan-cn", "kimi-for-coding"],
+    ["stepfun", "stepfun-step-plan", "step-5-preview"],
+    ["qwen", "alibaba-cn", "deepseek-v4.1-flash"],
+    ["qwen", "alibaba-cn", "glm-5"],
+    ["qwen", "alibaba-cn", "glm-5.1"],
+    ["qwen", "alibaba-cn", "kimi-k2.5"],
+    ["qwen", "alibaba-cn", "kimi-k2.6"],
+    ["qwen", "alibaba-cn", "kimi/kimi-k2.5"],
+    ["qwen", "alibaba-cn", "qwen3-235b-a22b"],
+    ["qwen", "alibaba-cn", "qwen3-32b"],
+    ["qwen", "alibaba-cn", "qwen3.8-flash"],
+    ["qwen", "alibaba-cn", "qwen3.8-omni-flash"],
+    ["modelscope", "modelscope", "GLM-4.5"],
+    ["modelscope", "modelscope", "GLM-4.6"]
+  ];
+
+  it("31 行 × 7 档：落线 = 上游投影（可用集由投影写点派生，clamp 不引入旧手写事实）", () => {
+    expect(ADJUDICATED.length).toBe(31);
+    for (const [presetId, upstreamId, model] of ADJUDICATED) {
+      const projected = ruleFromUpstreamFact(lookupThinkingFact(upstreamId, model)!, presetId);
+      for (const level of AI_THINKING_LEVELS) {
+        expect(resolveThinkingProfile({ presetId, model, level, stream: true }), `${presetId}/${model} · ${level}`).toEqual(
+          applyClassRule(projected, level, true)
+        );
       }
     }
+  });
+
+  // minimax-m3：上游 `reasoning_options:[toggle]` 与厂商文档矛盾（platform.minimax.cn：思考
+  // 不可关闭）→ 2026-10-04 用户裁定 hand-wins（已裁决分歧，不是缺口，不补开关方言）。
+  it("无档位可落的裁决行仍无档可落（minimax-always 一类的空可用集不被 clamp 造出档位）", () => {
+    expect(availableLevelsOf(CLASSES["minimax-always"])).toEqual([]);
+    expect(clampThinkingLevel("high", availableLevelsOf(CLASSES["minimax-always"]))).toBe(null);
   });
 });
 

@@ -452,6 +452,67 @@ for (const platform of PLATFORMS) {
   });
 }
 
+// 12 号票（残留清单裁决，2026-10-04 用户裁定「冻结的都按上游，复审以后发现以前的确实
+// 都是错的」）：04 行为冻结表 31 行里出现在请求体矩阵的 30 行，其落线按上游投影逐格钉住。
+// 第 31 行 minimax-cn/minimax-m3 行为不变（上游 toggle，但本仓没登记 minimax 平台的开关
+// 方言 → 投影 fail-closed，与旧手写 minimax-always 同结论）；逐行对照见
+// artifacts/12-adjudication-log.md，逐字节矩阵 diff 见 artifacts/12-adjudication-matrix.diff.txt。
+// 上面各平台矩阵里的既有 golden 行不受本裁决影响（这 30 行此前没有 golden 覆盖）。
+const ADJUDICATED_BODIES: readonly {
+  presetId: string;
+  model: string;
+  off: Record<string, unknown>;
+  low: Record<string, unknown>;
+  high: Record<string, unknown>;
+}[] = [
+  { presetId: "qwen", model: "deepseek-v4-flash", off: { enable_thinking: false }, low: { enable_thinking: false }, high: { reasoning_effort: "high" } },
+  { presetId: "qwen", model: "deepseek-v4-pro", off: { enable_thinking: false }, low: { enable_thinking: false }, high: { reasoning_effort: "high" } },
+  { presetId: "qwen", model: "glm-5.2", off: { reasoning_effort: "high" }, low: { reasoning_effort: "high" }, high: { reasoning_effort: "high" } },
+  { presetId: "qwen", model: "glm-5.3", off: { reasoning_effort: "low" }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "zhipu", model: "glm-5.3-flash", off: { reasoning_effort: "low" }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "zhipu", model: "glm-5.3-flashx", off: { reasoning_effort: "low" }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "qwen", model: "siliconflow/deepseek-v3.2", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "minimax", model: "MiniMax-M3", off: {}, low: {}, high: {} },
+  { presetId: "stepfun", model: "step-3.5-flash", off: { reasoning_effort: "low" }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "stepfun", model: "step-3.5-flash-2603", off: { reasoning_effort: "low" }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "deepseek", model: "deepseek-flash", off: { thinking: { type: "disabled" } }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "qwen", model: "qwen3-14b", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "qwen3-8b", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "qwen3-omni-flash", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "qwen3-vl-plus", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "siliconflow/deepseek-v3.1-terminus", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "moonshot", model: "k3-256k", off: { reasoning_effort: "low" }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "moonshot", model: "kimi-for-coding", off: { thinking: { type: "disabled" } }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "stepfun", model: "step-5-preview", off: { reasoning_effort: "low" }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "qwen", model: "deepseek-v4.1-flash", off: { enable_thinking: false }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "high" } },
+  { presetId: "qwen", model: "glm-5", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "glm-5.1", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "kimi-k2.5", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "kimi-k2.6", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "kimi/kimi-k2.5", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "qwen3-235b-a22b", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "qwen3-32b", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "qwen", model: "qwen3.8-flash", off: { enable_thinking: false }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "medium" } },
+  { presetId: "qwen", model: "qwen3.8-omni-flash", off: { reasoning_effort: "none" }, low: { reasoning_effort: "low" }, high: { reasoning_effort: "medium" } },
+  { presetId: "modelscope", model: "GLM-4.5", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } },
+  { presetId: "modelscope", model: "GLM-4.6", off: { enable_thinking: false }, low: { enable_thinking: true }, high: { enable_thinking: true } }
+];
+
+describe("golden：残留清单裁决 31 行（2026-10-04 用户裁定：全部按上游 02 指派表投影）", () => {
+  for (const c of ADJUDICATED_BODIES) {
+    for (const level of ["off", "low", "high"] as const) {
+      it(`${c.presetId}/${c.model} · ${level}`, () => {
+        expect(bodyFor({ presetId: c.presetId, model: c.model, level })).toEqual({
+          model: c.model,
+          messages: MESSAGES,
+          stream: false,
+          ...c[level]
+        });
+      });
+    }
+  }
+});
+
 // token 参数名映射（04 号票）：openai-reasoning 系类声明 tokenParam=
 // "max_completion_tokens"（reasoning 模型不认 max_tokens，传了 400），maxTokens
 // 写入请求体时随表换名且不得再出现 max_tokens；其余类与 unknown（resolver 不

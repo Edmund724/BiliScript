@@ -1,12 +1,14 @@
 // tests/ai/thinking-upstream-facts.test.ts
-// 票据 04（upstream-model-facts/04）：有上游平台的模型结论改由 02 号票的指派表驱动，
-// 手写表退为「产品语义 + 上游未覆盖兜底」，并留一张显式的**行为冻结表**。
+// 票据 04（upstream-model-facts/04）+ 12（残留清单裁决落地）：有上游平台的模型结论改由
+// 02 号票的指派表驱动，手写表退为「产品语义 + 上游未覆盖兜底」。
 //
-// 交互方式（用户裁决 B1：指派表优先 + 手写降级兜底）：
-//   PENDING_DIVERGENCES（精确 id 冻结）→ 指派表命中 + 三档投影 → 手写表（EXCEPTIONS >> TAXONOMY
-//   >> unknownClass）→ UNKNOWN 哨兵。点名翻转的三处原手写专条**留在原表但已降级**：
-//   它们只服务「指派表不认识的 id」（用户自填 / 上游新变体）。真删会让这些无界 id 的请求体
-//   跟着变，与「只翻三处、其余行为冻结」冲突（实测见 artifacts/04-prune-matrix.external-ids.*）。
+// 交互方式（12 号票，用户 2026-10-04 裁决「冻结的都按上游，复审以后发现以前的确实都是
+// 错的」）：override 短路 → 02 指派表命中 + 档位投影 → 手写表（EXCEPTIONS >> TAXONOMY
+// >> unknownClass）→ UNKNOWN 哨兵。04 号票的行为冻结表 PENDING_DIVERGENCES（31 行）连同
+// 其查表 / 校验 / 导出一并删除；31 行逐行按上游（对照表 artifacts/12-adjudication-log.md，
+// 矩阵逐字节证据 artifacts/12-adjudication-matrix.diff.txt）。点名翻转的三处原手写专条
+// **留在原表但已降级**：它们只服务「指派表不认识的 id」（用户自填 / 上游新变体）。真删会让
+// 这些无界 id 的请求体跟着变，是尚未裁决的开放问题（12 号票非目标）。
 //
 // 先列系统可能失败的方式（每条都有对应用例）：
 //   1. 三处翻转没翻到 / 翻错方向：指派表被手写专条抢答（或反过来翻多了）；
@@ -14,19 +16,18 @@
 //   3. 三档投影规则漂移：off 关不掉时臆造参数、none 被当档位、low/high 取错词、
 //      budget-only 的模型被塞参数；
 //   4. 平台方言丢失：值集 toggle 落到没登记开关形状的平台上被发明出字段；
-//   5. **静默的第二事实源**（本票核心风险）：某模型既有上游事实、手写侧也有结论，
-//      两者不同却没进冻结表 → 请求体被悄悄改了，没人知道；
-//   6. 冻结表不忠实：冻结的 class 与手写侧原本的结论不一致 → 冻结本身改变了行为；
-//   7. 只翻三处被破坏：冻结表里混进了点名的三处，或表外的分歧没有逐条冻结；
-//   8. 冻结表条目不可审：class 悬挂 / 理由或上游证据为空 / 键写成通配模式；
-//   9. override 平台被上游/手写抢走（识别层短路必须最先）。
+//   5. **静默的第二事实源**（本票核心风险）：某非 override 行既有上游事实、手写侧也有
+//      结论，两者不同却没进残留清单的 31 行 → 请求体被悄悄改了，没人知道；
+//   6. 裁决不彻底：清单里某一行的旧手写结论仍能抢答（残留冻结语义）；
+//   7. 目录外 id 被波及：B1 三条专条被删或降级链断掉；
+//   8. override 平台被上游/手写抢走（识别层短路必须最先）。
 
 import { describe, expect, it } from "vitest";
 import { ASSIGNMENTS, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import {
+  AI_THINKING_LEVELS,
   CLASSES,
   EXCEPTIONS,
-  PENDING_DIVERGENCES,
   PROVIDERS,
   TAXONOMY,
   UPSTREAM_PROVIDER_BY_PRESET,
@@ -41,6 +42,7 @@ import {
 import { PRESETS } from "../../extension/core/presets.js";
 
 const LEVELS: readonly ThinkingLevel[] = ["off", "low", "high"];
+const ALL_LEVELS = AI_THINKING_LEVELS;
 const STREAM = false;
 
 // 上游 provider id → preset id（桥接表的反向，用于拿 preset baseUrl / 手写 unknownClass）。
@@ -98,6 +100,75 @@ const DOWNGRADED_HAND_ENTRIES: Array<{ upstreamId: string; presetId: string; pat
   { upstreamId: "kimi-code-plan-cn", presetId: "moonshot", pattern: "kimi-k3", className: "kimi-k3-effort" }
 ];
 
+// ===== 残留清单 31 行（04-prune-matrix.residual.md §2；model = 矩阵行口径的模型 id）=====
+// 决策 #8 后续裁决：31 行按上游，2026-10-04 用户裁定「冻结的都按上游」。
+const ADJUDICATED: readonly { presetId: string; model: string; key: string; oldHand: string | null }[] = [
+  { presetId: "qwen", model: "deepseek-v4-flash", key: "alibaba-cn/deepseek-v4-flash", oldHand: "deepseek-hybrid-effort" },
+  { presetId: "qwen", model: "deepseek-v4-pro", key: "alibaba-cn/deepseek-v4-pro", oldHand: "deepseek-hybrid-effort" },
+  { presetId: "qwen", model: "glm-5.2", key: "alibaba-cn/glm-5.2", oldHand: "glm-hybrid-effort" },
+  { presetId: "qwen", model: "glm-5.3", key: "alibaba-cn/glm-5.3", oldHand: "glm-always" },
+  { presetId: "zhipu", model: "glm-5.3-flash", key: "zhipuai/glm-5.3-flash", oldHand: "glm-always" },
+  { presetId: "zhipu", model: "glm-5.3-flashx", key: "zhipuai/glm-5.3-flashx", oldHand: "glm-always" },
+  { presetId: "qwen", model: "siliconflow/deepseek-v3.2", key: "alibaba-cn/siliconflow/deepseek-v3.2", oldHand: null },
+  { presetId: "minimax", model: "MiniMax-M3", key: "minimax-cn/minimax-m3", oldHand: "minimax-always" },
+  { presetId: "stepfun", model: "step-3.5-flash", key: "stepfun-step-plan/step-3.5-flash", oldHand: "step-always" },
+  { presetId: "stepfun", model: "step-3.5-flash-2603", key: "stepfun-step-plan/step-3.5-flash-2603", oldHand: "step-always" },
+  { presetId: "deepseek", model: "deepseek-flash", key: "deepseek/deepseek-flash", oldHand: null },
+  { presetId: "qwen", model: "qwen3-14b", key: "alibaba-cn/qwen3-14b", oldHand: null },
+  { presetId: "qwen", model: "qwen3-8b", key: "alibaba-cn/qwen3-8b", oldHand: null },
+  { presetId: "qwen", model: "qwen3-omni-flash", key: "alibaba-cn/qwen3-omni-flash", oldHand: null },
+  { presetId: "qwen", model: "qwen3-vl-plus", key: "alibaba-cn/qwen3-vl-plus", oldHand: null },
+  { presetId: "qwen", model: "siliconflow/deepseek-v3.1-terminus", key: "alibaba-cn/siliconflow/deepseek-v3.1-terminus", oldHand: null },
+  { presetId: "moonshot", model: "k3-256k", key: "kimi-code-plan-cn/k3-256k", oldHand: null },
+  { presetId: "moonshot", model: "kimi-for-coding", key: "kimi-code-plan-cn/kimi-for-coding", oldHand: null },
+  { presetId: "stepfun", model: "step-5-preview", key: "stepfun-step-plan/step-5-preview", oldHand: null },
+  { presetId: "qwen", model: "deepseek-v4.1-flash", key: "alibaba-cn/deepseek-v4.1-flash", oldHand: "deepseek-hybrid-effort" },
+  { presetId: "qwen", model: "glm-5", key: "alibaba-cn/glm-5", oldHand: "glm-hybrid-switch" },
+  { presetId: "qwen", model: "glm-5.1", key: "alibaba-cn/glm-5.1", oldHand: "glm-hybrid-switch" },
+  { presetId: "qwen", model: "kimi-k2.5", key: "alibaba-cn/kimi-k2.5", oldHand: "kimi-hybrid-switch" },
+  { presetId: "qwen", model: "kimi-k2.6", key: "alibaba-cn/kimi-k2.6", oldHand: "kimi-hybrid-switch" },
+  { presetId: "qwen", model: "kimi/kimi-k2.5", key: "alibaba-cn/kimi/kimi-k2.5", oldHand: null },
+  { presetId: "qwen", model: "qwen3-235b-a22b", key: "alibaba-cn/qwen3-235b-a22b", oldHand: "qwen-hybrid-switch-streamonly" },
+  { presetId: "qwen", model: "qwen3-32b", key: "alibaba-cn/qwen3-32b", oldHand: "qwen-hybrid-switch-streamonly" },
+  { presetId: "qwen", model: "qwen3.8-flash", key: "alibaba-cn/qwen3.8-flash", oldHand: "qwen-hybrid-switch" },
+  { presetId: "qwen", model: "qwen3.8-omni-flash", key: "alibaba-cn/qwen3.8-omni-flash", oldHand: "qwen-hybrid-switch" },
+  { presetId: "modelscope", model: "GLM-4.5", key: "modelscope/glm-4.5", oldHand: "glm-hybrid-switch" },
+  { presetId: "modelscope", model: "GLM-4.6", key: "modelscope/glm-4.6", oldHand: "glm-hybrid-switch" }
+];
+
+// 31 行里行为**不变**的那一行（逐条登记，防止「裁决行都该变」的误读）：
+// minimax-cn/minimax-m3：上游 `reasoning_options:[toggle]` 与厂商文档矛盾——platform.minimax.cn
+// 官方文档写明**思考不可关闭**，所以这条 toggle 不可采信、不投 wire；fail-closed
+// （thinkingClass always、无字段）恰与厂商口径一致，手写 `minimax-always` 是对的。
+// 用户 2026-10-04 裁定：这是「上游事实 vs 厂商文档」的**已裁决分歧（hand-wins）**，不是缺口，
+// 不需要给 minimax 补开关方言。故该行逐字节不变。
+const NON_DIVERGENT = ["minimax-cn/minimax-m3"];
+
+// 残留清单里两行 modelscope 的键是**本仓口径裸 id**（调用方传 GLM-4.5/GLM-4.6）——
+// 它们的矩阵行确实按上游翻转（thinking:{type} → enable_thinking）；指派表里的上游写法
+// ZhipuAI/GLM-4.x 那行才是不变的（手写 unknownClass 与投影同结论）。
+const MODELSCOPE_UPSTREAM_ID_ROWS = ["modelscope/glm-4.5", "modelscope/glm-4.6"];
+
+// 非 override 指派行的「上游投影 vs 手写结论」分歧键集（指定档位口径下计算）。
+function divergentKeys(levels: readonly ThinkingLevel[]): string[] {
+  const divergent = new Set<string>();
+  for (const [upstreamId, table] of Object.entries(ASSIGNMENTS)) {
+    const presetId = PRESET_BY_UPSTREAM[upstreamId];
+    expect(presetId, `指派表 provider ${upstreamId} 没有 preset 桥接`).toBeTruthy();
+    if (OVERRIDE_PRESETS.has(presetId)) continue;
+    for (const modelId of Object.keys(table)) {
+      const fact = lookupThinkingFact(upstreamId, modelId);
+      expect(fact, `${upstreamId}/${modelId} 有指派却查不到值集`).toBeTruthy();
+      const projected = ruleFromUpstreamFact(fact!, presetId);
+      const hand = handRuleOf(presetId, modelId);
+      if (levels.some((level) => outcomeOf(projected, level) !== outcomeOf(hand, level))) {
+        divergent.add(`${upstreamId}/${modelId.toLowerCase()}`);
+      }
+    }
+  }
+  return [...divergent];
+}
+
 describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5.3、kimi-code-plan-cn/k3）", () => {
   it("zhipuai/glm-5.2：上游 high-max → off 关不掉、级联落最小档 high；low 折 high", () => {
     for (const level of LEVELS) {
@@ -137,10 +208,7 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
     expect(resolveViaRuntime("moonshot", "k3", "high")).toBe(resolveViaRuntime("moonshot", "kimi-k3", "high"));
   });
 
-  it("点名的三处不在冻结表里；三处照翻，尽管手写专条还在且结论相反", () => {
-    for (const key of FLIPPED) {
-      expect(PENDING_DIVERGENCES[key], `${key} 不该被冻结`).toBeUndefined();
-    }
+  it("三处照翻，尽管手写专条还在且结论相反（12 号票后专条只兜指派表不认识的 id）", () => {
     // 手写专条仍在（B1 降级而非删除）……
     for (const entry of DOWNGRADED_HAND_ENTRIES) {
       const table = entry.className === "glm-hybrid-effort" ? TAXONOMY : EXCEPTIONS;
@@ -155,8 +223,8 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
 });
 
 describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手写结论", () => {
-  // 这些 id 不在 02 指派表里（用户自填 / 上游新变体），也没有冻结条目：
-  // 它们必须仍然走手写专条 —— 真删专条就会改变它们的请求体。
+  // 这些 id 不在 02 指派表里（用户自填 / 上游新变体）：
+  // 它们必须仍然走手写专条 —— 真删专条就会改变它们的请求体（12 号票非目标）。
   const CASES: Array<[string, string]> = [
     ["zhipu", "glm-5.2-air"],
     ["qwen", "glm-5.3-air"],
@@ -264,114 +332,113 @@ describe("上游值集 → class 规则（05 号票：每个 effort 档物化成
   });
 });
 
-describe("冻结表（PENDING_DIVERGENCES）：不翻的行逐条可审、可查、忠实", () => {
-  it("每条都有非空理由与上游证据，键是精确 `上游 provider/模型 id`", () => {
-    const keys = Object.keys(PENDING_DIVERGENCES);
-    expect(keys.length).toBeGreaterThanOrEqual(19);
-    for (const [key, entry] of Object.entries(PENDING_DIVERGENCES)) {
-      expect(key.includes("*"), key).toBe(false);
-      expect(key, key).toMatch(/^[^/]+\/.+$/);
-      expect(entry.reason.trim().length, key).toBeGreaterThan(0);
-      expect(entry.upstream, key).toMatch(/last_updated|https?:\/\//);
-      if (entry.class !== null) {
-        expect(CLASSES[entry.class], `${key} 冻结到不存在的 class`).toBeTruthy();
+describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决策 #8 后续）", () => {
+  it("31 行逐行按上游投影（7 档全锁，不允许旧手写结论抢答）", () => {
+    expect(ADJUDICATED.length).toBe(31);
+    for (const row of ADJUDICATED) {
+      const fact = lookupThinkingFact(row.key.slice(0, row.key.indexOf("/")), row.model);
+      expect(fact, `${row.key} 应有上游事实`).toBeTruthy();
+      const projected = ruleFromUpstreamFact(fact!, row.presetId);
+      for (const level of ALL_LEVELS) {
+        expect(resolveViaRuntime(row.presetId, row.model, level), `${row.key} · ${level}`).toBe(outcomeOf(projected, level));
       }
     }
-    // 表自检（表校验器）也把冻结表算进去。
+  });
+
+  it("04 口径（off/low/high）下与旧手写结论不同的非 override 指派行，恰好是这 31 行的 28 行 + 点名三处 + clamp 分歧", () => {
+    const divergent = divergentKeys(LEVELS);
+    // 期望 = 残留清单 31 行里的 28 行（另 3 行逐条见 NON_DIVERGENT / MODELSCOPE_UPSTREAM_ID_ROWS 说明）
+    //   + 用户裁定 2 点名的三处（04 号票起就按上游）
+    //   + 05 号票 clamp 的有意分歧 qwen3.8-max（词表 low/medium/xhigh，偏好 high 落 medium）。
+    const expected = [
+      ...ADJUDICATED.map((row) => row.key).filter((key) => !NON_DIVERGENT.includes(key) && !MODELSCOPE_UPSTREAM_ID_ROWS.includes(key)),
+      ...FLIPPED,
+      "alibaba-cn/qwen3.8-max"
+    ].sort();
+    expect([...divergent].sort()).toEqual(expected);
+  });
+
+  it("7 档口径下多出的 5 行：旧手写 class 缺 05 号票新增档位写点（清单外的「分歧」与新档位无关）", () => {
+    // 05 号票把词表扩到 7 档后，下面 5 行的上游值集带 max 档而旧手写 class 没有 max 写点
+    // （偏好 max 在手写侧被 clamp 到 high）——它们从未进过 04 冻结表（04 口径只比 off/low/high），
+    // 也不构成「静默第二事实源」：命中指派表的行一律走上游投影（见下一个 describe）。
+    const EXTRA_TIERS: Record<string, string> = {
+      "alibaba-cn/kimi-k3": "上游 low-high-max；手写 kimi-k3-effort 无 max 写点",
+      "deepseek/deepseek-v4-flash": "上游 toggle+low-high-max；手写 deepseek-hybrid-effort 无 max 写点",
+      "deepseek/deepseek-v4-flash-vision-exp": "同上（同族变体）",
+      "deepseek/deepseek-v4-pro": "同上（同族变体）",
+      "stepfun-step-plan/step-3.7-flash": "上游含 max；手写 step37-effort 无 max 写点"
+    };
+    const divergent7 = divergentKeys(ALL_LEVELS);
+    const divergent3 = divergentKeys(LEVELS);
+    expect([...divergent7].sort()).toEqual([...divergent3, ...Object.keys(EXTRA_TIERS)].sort());
+  });
+
+  it("唯一行为不变的裁决行：minimax-cn/minimax-m3（上游 toggle 与厂商文档矛盾，2026-10-04 裁定 hand-wins）", () => {
+    const key = NON_DIVERGENT[0];
+    const row = ADJUDICATED.find((candidate) => candidate.key === key)!;
+    const projected = ruleFromUpstreamFact(lookupThinkingFact("minimax-cn", row.model)!, row.presetId);
+    // 成因写死在断言里：上游 toggle 与厂商文档矛盾（platform.minimax.cn：思考不可关闭）→
+    // 不可投 wire，fail-closed 恰与厂商口径一致（2026-10-04 用户裁定 hand-wins，不是缺口）。
+    expect(projected).toEqual({ thinkingClass: "always" });
+    for (const level of ALL_LEVELS) {
+      expect(resolveViaRuntime(row.presetId, row.model, level), `${key} · ${level}`).toBe(
+        outcomeOf(row.oldHand ? CLASSES[row.oldHand] : undefined, level)
+      );
+    }
+  });
+
+  it("modelscope 两行：清单键 = 本仓口径裸 id（矩阵行），该行确实翻转（上游 id 那行才是不变的）", () => {
+    // 残留清单的键 `modelscope/glm-4.5|4.6` 是**调用方传入的本仓口径裸 id**；指派表/别名表里的
+    // 上游写法是 ZhipuAI/GLM-4.x。裸 id 行：手写 TAXONOMY glm-4.x → thinking:{type}，投影按
+    // modelscope preset 方言 → enable_thinking（翻转，矩阵与 golden 逐字节钉住）；
+    // 上游 id 行：手写落 unknownClass qwen-hybrid-switch（enable_thinking）与投影相同（不变）。
+    for (const key of MODELSCOPE_UPSTREAM_ID_ROWS) {
+      const row = ADJUDICATED.find((candidate) => candidate.key === key)!;
+      expect(handClassOf(row.presetId, row.model)).toBe(row.oldHand);
+      const bare = outcomeOf(CLASSES[row.oldHand!], "off");
+      expect(resolveViaRuntime(row.presetId, row.model, "off")).not.toBe(bare);
+      expect(resolveViaRuntime(row.presetId, row.model, "off")).toBe(
+        JSON.stringify({ fields: { enable_thinking: false }, offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+      );
+      // 上游 id 写法（ZhipuAI/GLM-4.x）的兜底路径与投影同结论——这行行为不变。
+      const upstreamIdModel = `ZhipuAI/${row.model}`;
+      expect(handClassOf(row.presetId, upstreamIdModel)).toBe("qwen-hybrid-switch");
+      for (const level of ALL_LEVELS) {
+        const projected = ruleFromUpstreamFact(lookupThinkingFact(row.presetId, upstreamIdModel)!, row.presetId);
+        expect(outcomeOf(handRuleOf(row.presetId, upstreamIdModel), level), `${key} · ${level}`).toBe(outcomeOf(projected, level));
+      }
+    }
+  });
+
+  it("表校验器仍把 CLASSES/TAXONOMY/EXCEPTIONS/PROVIDERS 校验干净（冻结表一节随裁决删除）", () => {
     expect(validateThinkingTables()).toEqual([]);
-  });
-
-  it("冻结是忠实的：冻结的 class = 手写侧原本的结论（null = 原本也没有结论）", () => {
-    for (const [key, entry] of Object.entries(PENDING_DIVERGENCES)) {
-      const [upstreamId, modelId] = key.split("/");
-      const presetId = PRESET_BY_UPSTREAM[upstreamId];
-      expect(handClassOf(presetId, modelId) ?? null, key).toBe(entry.class);
-      // 冻结后逐档结果必须与「该手写规则直接施加」一致；无结论的行维持 unknown。
-      const frozen = entry.class ? CLASSES[entry.class] : undefined;
-      for (const level of LEVELS) {
-        expect(resolveViaRuntime(presetId, modelId, level), `${key} · ${level}`).toBe(outcomeOf(frozen, level));
-      }
-    }
-  });
-
-  it("表校验器抓得住冻结表的坏条目（悬挂 class / 空理由 / 通配键）", () => {
-    const dangling = JSON.parse(JSON.stringify(PENDING_DIVERGENCES));
-    dangling["deepseek/deepseek-flash"].class = "no-such-class";
-    expect(validateThinkingTables({ divergences: dangling }).join("\n")).toContain("no-such-class");
-
-    const noReason = JSON.parse(JSON.stringify(PENDING_DIVERGENCES));
-    noReason["deepseek/deepseek-flash"].reason = "  ";
-    expect(validateThinkingTables({ divergences: noReason }).join("\n")).toContain("冻结理由");
-
-    const wildcard = JSON.parse(JSON.stringify(PENDING_DIVERGENCES));
-    wildcard["deepseek/*"] = wildcard["deepseek/deepseek-flash"];
-    delete wildcard["deepseek/deepseek-flash"];
-    expect(validateThinkingTables({ divergences: wildcard }).join("\n")).toContain("精确");
   });
 });
 
-describe("冻结表完整性 / 两套匹配不并存（本票核心不变式）", () => {
-  // 逐格遍历 02 指派表的全部 (provider, modelId)：算「上游投影」与「手写侧结论」，
-  // 两者只要有一档不同，就**必须**是点名翻转的三处之一、或在冻结表里 —— 不允许静默的
-  // 第二事实源。同时：非冻结且非翻转的非 override 平台行，runtime 结果必须等于上游投影
-  // （即**对指派表命中的模型**，手写正则不再参与）。
-  it("02 指派表逐条：对命中的模型，结论只来自上游投影或冻结表（两套不并存）", () => {
+describe("完整性：对指派表命中的模型，结论只来自上游投影（无静默第二事实源）", () => {
+  it("02 指派表逐条 × 7 档：非 override 行 runtime === 上游投影", () => {
     let compared = 0;
-    const silent: string[] = [];
-    const redundant: string[] = [];
-    // 05 号票（决策 #8 + 用户裁定 A）新增的**有意**分歧：上游投影的档位在 clamp 下
-    // 向下取到模型词表里最近的档（qwen3.8-max 词表 low/medium/xhigh，偏好 high → medium），
-    // 而手写条目 qwen-hybrid-effort 的三档结论是 04 时代的「high → effort high」。
-    // 它不是「静默的第二事实源」：命中指派表的行一律走上游投影（下面逐格断言
-    // runtime === 上游投影）；手写条目此时只服务「指派表不认识的 id」兜底
-    // （本仓 modelscope 直填 qwen3.8-max 就走它，结论由 thinking-golden-messages 钉住）。
-    // 该行**不能**进冻结表——冻结 = 回到手写结论 xhigh，与裁定 A 的实发 medium 相反。
-    // clamp 的方向与边界由 tests/ai/thinking-levels.test.ts 逐条钉死。
-    const CLAMP_DIVERGENT = ["alibaba-cn/qwen3.8-max"];
+    let total = 0;
     for (const [upstreamId, table] of Object.entries(ASSIGNMENTS)) {
       const presetId = PRESET_BY_UPSTREAM[upstreamId];
       expect(presetId, `指派表 provider ${upstreamId} 没有 preset 桥接`).toBeTruthy();
-      const override = OVERRIDE_PRESETS.has(presetId);
       for (const modelId of Object.keys(table)) {
         const fact = lookupThinkingFact(upstreamId, modelId);
         expect(fact, `${upstreamId}/${modelId} 有指派却查不到值集`).toBeTruthy();
+        total += 1;
+        if (OVERRIDE_PRESETS.has(presetId)) continue;
         compared += 1;
-
-        const key = `${upstreamId}/${String(modelId).toLowerCase()}`;
-        const frozen = PENDING_DIVERGENCES[key];
-        const flipped = FLIPPED.includes(key);
-        if (override) {
-          // override 平台：识别层短路，与上游/手写逐格对比无关（03 §6）。
-          expect(frozen, `${key} 是 override 平台，不该进冻结表`).toBeUndefined();
-          continue;
-        }
-
         const projected = ruleFromUpstreamFact(fact!, presetId);
-        const hand = handRuleOf(presetId, modelId);
-        const divergent = LEVELS.some((level) => outcomeOf(projected, level) !== outcomeOf(hand, level));
-
-        if (divergent && !frozen && !flipped && !CLAMP_DIVERGENT.includes(key)) {
-          silent.push(`${key}（上游投影 vs 手写结论不同，未冻结）`);
-        }
-        if (!divergent && frozen) {
-          redundant.push(key);
-        }
-        if (frozen || flipped) {
-          continue;
-        }
-        for (const level of LEVELS) {
-          expect(resolveViaRuntime(presetId, modelId, level), `${key} · ${level}`).toBe(outcomeOf(projected, level));
+        for (const level of ALL_LEVELS) {
+          expect(resolveViaRuntime(presetId, modelId, level), `${upstreamId}/${modelId} · ${level}`).toBe(outcomeOf(projected, level));
         }
       }
     }
-    expect(silent, `静默分歧（未冻结也不是点名翻转）：\n${silent.join("\n")}`).toEqual([]);
-    // 冻结了但按当前投影其实同结论的行：这是**有意的**过度冻结（裁定 2 点名的行照冻），
-    // 逐条登记在此，防止以后悄悄多冻。minimax-cn/MiniMax-M3：上游有 toggle 但本仓没登记
-    // MiniMax 的开关方言 → 投影 fail-closed，与手写 minimax-always 同结论；仍冻结，以免
-    // 将来补了方言就静默翻转。
-    expect(redundant).toEqual(["minimax-cn/minimax-m3"]);
-    // 口径自检：指派表规模没被误读（02 产物 359 条指派）。
-    expect(compared).toBeGreaterThanOrEqual(359);
+    // 口径自检：指派表规模没被误读（02 产物 359 条指派；override 平台 4 家不走上游投影）。
+    expect(total).toBeGreaterThanOrEqual(359);
+    expect(compared).toBeGreaterThan(0);
+    expect(compared).toBeLessThan(total);
   });
 
   it("override 平台仍然无视模型身份（上游与手写都不参与）", () => {
@@ -399,9 +466,12 @@ describe("冻结表完整性 / 两套匹配不并存（本票核心不变式）"
     expect(resolveViaRuntime("qwen", "qwen3.8-max", "high")).toBe(
       outcomeOf(ruleFromUpstreamFact(lookupThinkingFact("alibaba-cn", "qwen3.8-max")!, "qwen"), "high")
     );
-    // 冻结的行照样按冻结结论走（alibaba-cn/glm-5.2 手写=上游，冻结只是把结论钉死）。
+    // 裁决行同样按上游：托管 alibaba-cn/glm-5.2 与原生 zhipuai/glm-5.2 同值集（high-max）。
     expect(handClassOf("qwen", "glm-5.2")).toBe("glm-hybrid-effort");
-    expect(resolveViaRuntime("qwen", "glm-5.2", "off")).toBe(outcomeOf(CLASSES["glm-hybrid-effort"], "off"));
+    expect(resolveViaRuntime("qwen", "glm-5.2", "off")).toBe(
+      JSON.stringify({ fields: { reasoning_effort: "high" }, offUnavailable: true, offFallback: "low", thinkingClass: "always" })
+    );
+    expect(resolveViaRuntime("qwen", "glm-5.2", "off")).toBe(resolveViaRuntime("zhipu", "glm-5.2", "off"));
   });
 
   it("无上游平台的解析结果与手写表逐格一致（ollama / custom / 未知 host 不被上游影响）", () => {

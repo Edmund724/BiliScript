@@ -15,15 +15,15 @@
 //      缺口、非 reasoning 模型）同样回落手写表；两边都没事实 → UNKNOWN 哨兵
 //      （fail-closed，不发参）。
 //
-// **本票的过渡态（用户裁定：指派表优先 + 手写降级兜底）**：点名翻转的三处
-// （zhipuai/glm-5.2、zhipuai/glm-5.3、kimi-code-plan-cn/k3）原先是手写专条
-// （TAXONOMY `glm-5.2`、EXCEPTIONS `glm-5.3` / `kimi-k3`）说了算；现在这三条
-// **留在原处但已降级**——解析顺序上指派表在先，命中即不看手写表，所以原生模型照上游翻转；
-// 手写专条只剩「指派表不认识的 id」兜底职责（用户自填 / 上游新变体，如 glm-5.3-air）。
-// 为什么不真删：那些 id 是无界的，删了正则就会改变它们的请求体，既与「其余行为冻结」
-// 冲突，又无法用精确 id 的 PENDING_DIVERGENCES 覆盖（冻结表刻意不是正则）。
-// 待残留清单逐条裁完（.scratch/tickets/upstream-model-facts/artifacts/
-// 04-prune-matrix.residual.md）再决定是否完成删除。
+// **残留清单裁决（决策 #8 后续，2026-10-04 用户裁定）**：04 号票按当时的「其余行为冻结」
+// 裁定，把 31 行分歧冻结进 PENDING_DIVERGENCES 待逐条裁决；用户复审残留清单后裁定
+// 「冻结的都按上游，复审以后发现以前的确实都是错的」——冻结机制连同 31 行一并删除
+// （12 号票），逐行「旧手写结论 → 上游结论」对照见
+// .scratch/tickets/upstream-model-facts/artifacts/12-adjudication-log.md。
+// 点名翻转的三处（zhipuai/glm-5.2、zhipuai/glm-5.3、kimi-code-plan-cn/k3）与手写专条
+// （TAXONOMY `glm-5.2`、EXCEPTIONS `glm-5.3` / `kimi-k3`）的关系不变：专条**留在原处**，
+// 只兜「指派表不认识的 id」（用户自填 / 上游新变体，如 glm-5.3-air）——那些 id 无界，
+// 真删会让它们的请求体跟着变，是尚未裁决的开放问题（12 号票非目标）。
 //
 // 本模块输出的 fields 是**协议无关的中转词汇**（OpenAI 词汇），不回答「这套词汇在
 // 某协议请求体里长什么样」：那是线格式映射表（ai/thinking-wire-map.ts）的职责，
@@ -38,9 +38,7 @@
 //   （临时表，10 号票搬进 core/presets.ts 的 preset 数据）；
 // - 无上游平台的模型血统（永远/混合/永不思考）与模型名模式 → 本文件的
 //   TAXONOMY / EXCEPTIONS（每格注释里简写出处域名）；它们同时是「有上游平台但指派表
-//   未覆盖该 id」的兜底（见上 B 与过渡态说明）；
-// - 已确认分歧的**行为冻结** → 本文件的 PENDING_DIVERGENCES（逐条精确 id + 理由 +
-//   上游证据；用户裁定 2：本轮只翻点名三处，其余维持现状）。
+//   未覆盖该 id」的兜底（见上「残留清单裁决」）。
 // 设计机制（三层声明表 + 稀疏档位 + 测试期校验器）参考 hana-model-catalog
 // （github.com/liliMozi/hana-model-catalog；无 LICENSE，仅参考未复制数据）。
 //
@@ -50,8 +48,7 @@
 //      levels[level] 对任何模型整体替换 class 规则（识别层短路）——平台级产品裁定，
 //      不逐格比上游（03 报告 §6）。
 //   ② 有上游平台（UPSTREAM_PROVIDER_BY_PRESET 命中）：
-//      PENDING_DIVERGENCES（精确 id 冻结表）→ 手写结论；
-//      否则查指派表 → ruleFromUpstreamFact（值集 → 三档投影）；
+//      查 02 指派表 → ruleFromUpstreamFact（值集 → 档位投影）；
 //      指派表未命中 → 回落 ③。
 //   ③ 手写表兜底：EXCEPTIONS（精确/前缀模型） >> TAXONOMY（模式→class）
 //      >> provider.unknownClass >> UNKNOWN 哨兵。
@@ -224,18 +221,18 @@ export const CLASSES: Record<string, ClassRule> = {
     on: { fields: { thinking: { type: "enabled" } } }
   },
   // glm-5.2 起 effort 三档（关闭仍走 thinking 开关）。
-  // 04 号票后只服务行为冻结行 alibaba-cn/glm-5.2（PENDING_DIVERGENCES）+ 指派表不认识的
-  // glm-5.2* id（用户自填 / 上游新变体）兜底；原生 zhipuai/glm-5.2 已按上游指派表翻转
-  // （值集 high-max：关不掉 + effort 档，见文件头「两套匹配不并存」）。
+  // 04 号票起只服务指派表不认识的 glm-5.2* id（用户自填 / 上游新变体）兜底；命中指派表的
+  // 模型（原生 zhipuai/glm-5.2、托管 alibaba-cn/glm-5.2）一律按上游投影
+  // （值集 high-max：关不掉 + effort 档，见文件头）。
   "glm-hybrid-effort": {
     thinkingClass: "hybrid",
     off: { fields: { thinking: { type: "disabled" } } },
     low: { fields: { reasoning_effort: "low" } },
     high: { fields: { reasoning_effort: "high" } }
   },
-  // 永远思考：04 号票后只服务行为冻结行 zhipuai/glm-5.3-flash|-flashx 与 alibaba-cn/glm-5.3
-  // + 指派表不认识的 glm-5.3* id 兜底（原「例外表成员 glm-5.3*」；原生 zhipuai/glm-5.3 已按
-  // 上游指派表翻转成 effort low-high-max）。
+  // 永远思考：04 号票起只服务指派表不认识的 glm-5.3* id 兜底（原「例外表成员 glm-5.3*」）；
+  // 命中指派表的 glm-5.3 族（含 zhipuai/glm-5.3-flash|-flashx、alibaba-cn/glm-5.3、原生
+  // zhipuai/glm-5.3）一律按上游投影 effort low-high-max。
   "glm-always": { thinkingClass: "always" },
 
   // --- Kimi（platform.kimi.ai / kimi.com/code/docs）---
@@ -322,11 +319,9 @@ export const EXCEPTIONS: readonly TaxonomyEntry[] = [
   // qwen3-235b*/qwen3-32b/qwen3-30b*：off 规则仅流式（alibabacloud.com）
   { class: "qwen-hybrid-switch-streamonly", patterns: ["qwen3-235b", "qwen3-32b", "qwen3-30b"] },
   // 注（04 号票·降级兜底）：下表两条 + TAXONOMY 的 glm-5.2 专条**保留原处**，但逐模型事实
-  // 已让位给 02 指派表（解析顺序：指派表命中 → 手写兜底 → unknownClass → fail-closed）。
+  // 已让位给 02 指派表（解析顺序：override 短路 → 指派表 → 手写兜底 → unknownClass → fail-closed）。
   // 它们现在只服务「指派表不认识的 id」：用户自填 / 上游新变体（如 glm-5.3-air、kimi-k3-air）。
-  // 真删会让这些无界 id 的请求体跟着变，与「只翻点名三处、其余行为冻结」冲突；上游不一致的
-  // 托管/变体行（zhipuai/glm-5.3-flash(x)、alibaba-cn/glm-5.3 等）另在 PENDING_DIVERGENCES
-  // 逐条冻结。
+  // 真删会让这些无界 id 的请求体跟着变，是尚未裁决的开放问题（12 号票非目标）。
   // glm-5.3*：disabled 直接报错 → 永远思考（docs.bigmodel.cn）
   { class: "glm-always", patterns: ["glm-5.3"] },
   // kimi-k2.7*：强制 keep:all → 永远思考（platform.kimi.ai）
@@ -504,205 +499,6 @@ export const UPSTREAM_TOGGLE_SHAPES: Readonly<
   modelscope: { off: { enable_thinking: false }, on: { enable_thinking: true } }
 };
 
-// ===== 行为冻结表（PENDING_DIVERGENCES；04 号票）=====
-// 键 = `${上游 provider id}/${调用方传来的模型 id}`，模型 id 小写（查表时折叠大小写，
-// 与 02 产物的查表口径一致）——**调用方传什么 id 就查什么键**（不做别名词干归并：
-// modelscope 的本仓口径 id 是裸 GLM-4.6，上游 id 是 ZhipuAI/GLM-4.6，两者的手写结论
-// 不同源，各自按自己的键守现状）。
-//
-// 命中 = 该模型**不改走上游指派表**：结论回到 CLASSES[class]；class: null = 手写侧
-// 本来也无结论，维持 fail-closed（行为同今日）。
-//
-// 为什么冻结（用户裁定 2，2026-10-04）：本轮**只翻点名三处**
-// （zhipuai/glm-5.2、zhipuai/glm-5.3、kimi-code-plan-cn/k3），其余分歧一律维持手写
-// 现状、挂残留清单待逐条裁决。表里每条都写「冻结理由 + 上游证据（值集 / last_updated /
-// doc URL）」，供以后有人问「为什么这行没让位」。三类：
-//   ① upstream-wins（03 §2 除点名三处）：上游与手写不相容；
-//   ② upstream-new（03 §3）：上游有词表、手写侧无结论 → 不采纳（冻结为 unknown）；
-//   ③ 03 未列（04 逐格枚举新发现）：字段方言差（托管第三方模型）、streamOnly 产品语义、
-//      上游有词表而手写无结论的行——同样按裁定 2 冻结。
-// 表不含点名的三处（它们正是本轮要翻的）；静态用例断言这三处不在表里、且表里每条都
-// 与手写侧结论一致、02 指派表里「手写侧也有话说且两边不同」的行一条不漏。
-export interface PendingDivergence {
-  // 冻结到的手写 class（CLASSES 键）；null = 手写侧无结论（fail-closed，不发参）。
-  class: string | null;
-  reason: string;
-  upstream: string;
-}
-
-export const PENDING_DIVERGENCES: Readonly<Record<string, PendingDivergence>> = {
-  // --- ① upstream-wins（03 报告 §2 除点名的三处）---
-  "alibaba-cn/deepseek-v4-flash": {
-    class: "deepseek-hybrid-effort",
-    reason: "03 §2 根因1（upstream-wins）：上游 toggle+effort[high,max] 无 low 档，手写 low=effort low 不相容；裁定 2 冻结。",
-    upstream: "toggle+high-max ｜ last_updated 2026-04-24 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/deepseek-v4-pro": {
-    class: "deepseek-hybrid-effort",
-    reason: "03 §2 根因1（upstream-wins）：同根因（上游无 low、手写 low=effort low）；裁定 2 冻结。",
-    upstream: "toggle+high-max ｜ last_updated 2026-04-24 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/glm-5.2": {
-    class: "glm-hybrid-effort",
-    reason: "03 §2 根因2（upstream-wins）：上游 high-max 无 toggle、无 none（关不掉）而手写声明可关闭 + low 档；裁定 2 冻结（翻的是原生 zhipuai/glm-5.2）。",
-    upstream: "high-max ｜ last_updated 2026-06-13 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/glm-5.3": {
-    class: "glm-always",
-    reason: "03 §2 根因3（upstream-wins）：上游 effort[low,high,max]，手写未表达档位；裁定 2 冻结（翻的是原生 zhipuai/glm-5.3）。",
-    upstream: "low-high-max ｜ last_updated 2026-08-14 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "zhipuai/glm-5.3-flash": {
-    class: "glm-always",
-    reason: "03 §2 根因3（upstream-wins）：同族变体，手写未表达档位；裁定 2 冻结。",
-    upstream: "low-high-max ｜ last_updated 2026-08-26 ｜ https://docs.z.ai/guides/overview/pricing"
-  },
-  "zhipuai/glm-5.3-flashx": {
-    class: "glm-always",
-    reason: "03 §2 根因3（upstream-wins）：同族变体，手写未表达档位；裁定 2 冻结。",
-    upstream: "low-high-max ｜ last_updated 2026-09-18 ｜ https://docs.z.ai/guides/overview/pricing"
-  },
-  "alibaba-cn/siliconflow/deepseek-v3.2": {
-    class: null,
-    reason: "03 §2 根因4（upstream-wins）：上游只有 toggle（无 effort）。**实测订正**：03 报告说手写经 TAXONOMY 模式 deepseek-v3.2 命中 deepseek-hybrid-effort，但 resolver 的匹配是前缀 startsWith，org 前缀 id siliconflow/deepseek-v3.2 不命中 → 手写侧实际无结论（今日不发参）；裁定 2 维持现状（冻结为 unknown）。",
-    upstream: "toggle ｜ last_updated 2025-12-03 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "minimax-cn/minimax-m3": {
-    class: "minimax-always",
-    reason: "03 §2 根因7（upstream-wins）：上游 toggle（可关），手写声明关不掉；裁定 2 冻结。",
-    upstream: "toggle ｜ last_updated 2026-06-25 ｜ https://platform.minimaxi.com/docs/guides/quickstart"
-  },
-  "stepfun-step-plan/step-3.5-flash": {
-    class: "step-always",
-    reason: "03 §2 根因6（upstream-wins）：上游 effort[low,high]，手写未表达档位；裁定 2 冻结。",
-    upstream: "low-high ｜ last_updated 2026-02-13 ｜ https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api"
-  },
-  "stepfun-step-plan/step-3.5-flash-2603": {
-    class: "step-always",
-    reason: "03 §2 根因6（upstream-wins）：同族变体，手写未表达档位；裁定 2 冻结。",
-    upstream: "low-high ｜ last_updated 2026-04-02 ｜ https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api"
-  },
-
-  // --- ② upstream-new（03 报告 §3：上游有词表、手写表未覆盖）---
-  // 用户裁定 2：不采纳 → 冻结为 unknown（fail-closed，请求侧不发参，行为同今日）。
-  "deepseek/deepseek-flash": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧 EXCEPTIONS/TAXONOMY/unknownClass 都没命中；裁定 2 不采纳 → 维持不发参。",
-    upstream: "toggle+low-high-max ｜ last_updated 2026-09-10 ｜ https://api-docs.deepseek.com/quick_start/pricing"
-  },
-  "alibaba-cn/qwen3-14b": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧无结论；裁定 2 不采纳 → 维持不发参。",
-    upstream: "toggle+b:-38912 ｜ last_updated 2025-04 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/qwen3-8b": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧无结论；裁定 2 不采纳 → 维持不发参。",
-    upstream: "toggle+b:-38912 ｜ last_updated 2025-04 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/qwen3-omni-flash": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧无结论；裁定 2 不采纳 → 维持不发参。",
-    upstream: "toggle ｜ last_updated 2025-09-15 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/qwen3-vl-plus": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧无结论；裁定 2 不采纳 → 维持不发参。",
-    upstream: "toggle+b:-81920 ｜ last_updated 2025-09-23 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/siliconflow/deepseek-v3.1-terminus": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧无结论；裁定 2 不采纳 → 维持不发参。",
-    upstream: "toggle ｜ last_updated 2025-11-25 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "kimi-code-plan-cn/k3-256k": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧无结论；裁定 2 不采纳 → 维持不发参。",
-    upstream: "low-high-max ｜ last_updated 2026-07-16 ｜ https://www.kimi.com/code/docs/en/kimi-code/models.html"
-  },
-  "kimi-code-plan-cn/kimi-for-coding": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧无结论；裁定 2 不采纳 → 维持不发参。",
-    upstream: "toggle+low-high-max ｜ last_updated 2026-09-11 ｜ https://www.kimi.com/code/docs/en/kimi-code/models.html"
-  },
-  "stepfun-step-plan/step-5-preview": {
-    class: null,
-    reason: "03 §3（upstream-new）：上游有词表、手写侧无结论；裁定 2 不采纳 → 维持不发参。",
-    upstream: "low-medium-high ｜ last_updated 2026-09-20 ｜ https://platform.stepfun.com/docs/zh/step-plan/integrations/reasoning-api"
-  },
-
-  // --- ③ 03 报告未列（04 逐格枚举新发现：同根因族 / 字段方言 / 产品语义）---
-  // 这些行 03 的分类器没覆盖（03 只覆盖 404/415 个 reasoning 模型；未分类的 11 个 +
-  // 别名/方言差异行都落在这里）。裁定 2 同款处置：冻结维持现状，逐条挂残留清单。
-  "alibaba-cn/deepseek-v4.1-flash": {
-    class: "deepseek-hybrid-effort",
-    reason: "03 未列：上游 toggle+effort[low,high,max]，手写按 deepseek 模型族发 thinking 关思考、指派表按 qwen preset 方言发 enable_thinking（字段方言不同）。裁定 2 冻结。",
-    upstream: "toggle+low-high-max ｜ last_updated 2026-09-10 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/glm-5": {
-    class: "glm-hybrid-switch",
-    reason: "03 §5 判为「不是分歧」（只比了档位/开关有无），但字段方言不同：手写按 GLM 血统发 thinking:{type}，指派表按 qwen preset 方言发 enable_thinking。裁定 2 冻结。",
-    upstream: "toggle+b:-32768 ｜ last_updated 2026-02-11 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/glm-5.1": {
-    class: "glm-hybrid-switch",
-    reason: "03 §5 同族行（字段方言差：thinking vs enable_thinking）。裁定 2 冻结。",
-    upstream: "toggle+b:-131072 ｜ last_updated 2026-04-14 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/kimi-k2.5": {
-    class: "kimi-hybrid-switch",
-    reason: "03 §5 同族行（字段方言差：手写按 Kimi 血统发 thinking:{type}，指派表按 qwen preset 方言发 enable_thinking）。裁定 2 冻结。",
-    upstream: "toggle+b:-81920 ｜ last_updated 2026-01-27 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/kimi-k2.6": {
-    class: "kimi-hybrid-switch",
-    reason: "03 §5 同族行（字段方言差同 kimi-k2.5）。裁定 2 冻结。",
-    upstream: "toggle+b:-81920 ｜ last_updated 2026-04-21 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/kimi/kimi-k2.5": {
-    class: null,
-    reason: "03 未列：上游有 toggle，手写侧无结论（org 前缀 id 不匹配模式表、qwen 平台无 unknownClass）；裁定 2 冻结为 unknown（不新增发参）。",
-    upstream: "toggle ｜ last_updated 2026-01-27 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/qwen3-235b-a22b": {
-    class: "qwen-hybrid-switch-streamonly",
-    reason: "03 §5 判为「不是分歧」（只比档位塌陷），但手写带 streamOnly 产品语义（关思考仅流式），指派表投影没有该语义、非流式会真发关思考参数；streamOnly 属本票不动产品语义。裁定 2 冻结。",
-    upstream: "toggle+b:-38912 ｜ last_updated 2025-04 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/qwen3-32b": {
-    class: "qwen-hybrid-switch-streamonly",
-    reason: "03 §5 同族行（streamOnly 产品语义同上）。裁定 2 冻结。",
-    upstream: "toggle+b:-38912 ｜ last_updated 2025-04 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/qwen3.8-flash": {
-    class: "qwen-hybrid-switch",
-    reason: "03 未列：上游 toggle+effort[low,medium,xhigh]，手写当开关型（low/high 同 on 写点塌陷）；裁定 2 冻结。",
-    upstream: "toggle+low-medium-xhigh+b:-262144 ｜ last_updated 2026-08-26 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "alibaba-cn/qwen3.8-omni-flash": {
-    class: "qwen-hybrid-switch",
-    reason: "03 未列：上游 effort[none,low,medium,xhigh]（off 走 effort none），手写当开关型；裁定 2 冻结。",
-    upstream: "none-low-medium-xhigh ｜ last_updated 2026-09-17 ｜ https://www.alibabacloud.com/help/en/model-studio/models"
-  },
-  "modelscope/glm-4.5": {
-    class: "glm-hybrid-switch",
-    reason: "03 未列：本仓口径裸 id GLM-4.5 在手写侧命中 TAXONOMY glm-4.5（摸 thinking:{type}），指派表按 modelscope preset 方言发 enable_thinking（字段方言差）。裁定 2 冻结。",
-    upstream: "toggle ｜ last_updated 2025-07-28 ｜ https://modelscope.cn/docs/model-service/API-Inference/intro"
-  },
-  "modelscope/glm-4.6": {
-    class: "glm-hybrid-switch",
-    reason: "03 未列：同 GLM-4.5（字段方言差）。裁定 2 冻结。注：上游 id 写法 ZhipuAI/GLM-4.6 不在本表——它手写落在 unknownClass qwen-hybrid-switch（enable_thinking），与指派表投影逐字节相同。",
-    upstream: "toggle ｜ last_updated 2025-09-30 ｜ https://modelscope.cn/docs/model-service/API-Inference/intro"
-  }
-};
-
-const PENDING_DIVERGENCE_INDEX = new Map<string, PendingDivergence>(Object.entries(PENDING_DIVERGENCES));
-
-// 冻结表查表：键 = `${上游 provider}/${模型 id 小写}`（调用方传什么 id 就查什么键）。
-function frozenDivergenceFor(upstreamId: string, normalizedModel: string): PendingDivergence | undefined {
-  return PENDING_DIVERGENCE_INDEX.get(`${upstreamId}/${normalizedModel}`);
-}
-
 // ===== 上游值集 → class 规则（04 号票建，05 号票扩到 7 档）=====
 // 输入是 02 产物的查表结果（值集 + 派生 off + deprecated），输出是本模块的 ClassRule。
 // 规则：值集里**每一个** effort 档位物化成一个写点（05 号票：7 档词表暴露上游真实档位，
@@ -782,7 +578,7 @@ export function clampThinkingLevel(preference: ThinkingLevel, available: readonl
 }
 
 // 被调整的原因（提示面文案分层）：
-//   model-vocabulary    = 该模型的档位词表（02 值集 / 冻结结论）里没有这个档位；
+//   model-vocabulary    = 该模型的档位词表（02 值集）里没有这个档位；
 //   upstream-unlisted   = 上游未登记该模型，档位来自本仓手写表；
 //   platform-vocabulary = 平台级裁定（override 平台整域只认自己的档位词表）。
 export type ThinkingClampReason = "model-vocabulary" | "upstream-unlisted" | "platform-vocabulary";
@@ -829,7 +625,7 @@ interface ResolvedRule {
 
 // 规则解析的唯一施加点（resolveThinkingProfile 与 resolveThinkingAdjustment 共用）：
 //   provider override（平台级裁定，识别层短路）
-//   >> 上游平台：行为冻结表（精确 id） >> 02 指派表
+//   >> 上游平台：02 指派表
 //   >> 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）
 //   >> 无结论（UNKNOWN 哨兵）。
 function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRule {
@@ -845,15 +641,11 @@ function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRu
     };
   }
 
-  // 有上游平台：逐模型事实的主人是 02 指派表（04 号票）。优先级 = 行为冻结表（精确 id）
-  // >> 指派表 >> 手写兜底（上游未覆盖：用户自填 id / 上游缺口 / 非 reasoning 模型）。
+  // 有上游平台：逐模型事实的主人是 02 指派表（04 号票）——12 号票删掉冻结表后，
+  // 残留清单裁决过的行也一律按上游投影。指派表未命中 → 手写兜底
+  // （上游未覆盖：用户自填 id / 上游缺口 / 非 reasoning 模型）。
   const upstreamId = providerId ? UPSTREAM_PROVIDER_BY_PRESET[providerId] : undefined;
   if (upstreamId) {
-    const frozen = frozenDivergenceFor(upstreamId, normalizedModel);
-    if (frozen) {
-      // 冻结结论是逐模型的结论（裁定 2），故原因归「模型词表」。
-      return { rule: frozen.class ? CLASSES[frozen.class] : undefined, reason: "model-vocabulary" };
-    }
     const fact = lookupThinkingFact(upstreamId, model);
     if (fact) {
       return { rule: ruleFromUpstreamFact(fact, providerId!), reason: "model-vocabulary" };
@@ -943,8 +735,8 @@ function escapeRegExp(text: string): string {
 }
 
 // 单条 class 规则 + 档位 → 解析结果（clamp 落线 / off 级联 / streamOnly / 缺档 /
-// tokenParam 的唯一施加点）。导出供结构用例复算手写侧结论（04 号票的冻结表完整性：
-// 不许有静默的第二事实源）。
+// tokenParam 的唯一施加点）。导出供结构用例复算手写侧结论（04 号票：对指派表未覆盖的
+// id，runtime 结论必须等于手写表结论）。
 //
 // 05 号票（决策 #8）：档位先过 clamp——用户偏好遇到模型不支持的档位时**向下取**
 // 最近可用档（A 由 availableLevelsOf 从写点派生）；落线取值一律走 clamp 后的档位，
@@ -1023,7 +815,6 @@ export interface ThinkingTables {
   taxonomy?: readonly TaxonomyEntry[];
   exceptions?: readonly TaxonomyEntry[];
   providers?: Record<string, ProviderRule>;
-  divergences?: Record<string, PendingDivergence>;
 }
 
 export function validateThinkingTables(tables: ThinkingTables = {}): string[] {
@@ -1031,7 +822,6 @@ export function validateThinkingTables(tables: ThinkingTables = {}): string[] {
   const taxonomy = tables.taxonomy ?? TAXONOMY;
   const exceptions = tables.exceptions ?? EXCEPTIONS;
   const providers = tables.providers ?? PROVIDERS;
-  const divergences = tables.divergences ?? PENDING_DIVERGENCES;
   const errors: string[] = [];
 
   for (const [name, rule] of Object.entries(classes)) {
@@ -1094,23 +884,8 @@ export function validateThinkingTables(tables: ThinkingTables = {}): string[] {
     }
   }
 
-  // 行为冻结表（04 号票）：键必须是精确 id（不含通配/正则元字符）、引用的 class 必须存在、
-  // 冻结理由与上游证据不得为空——冻结是给人裁决的账，不许静默空转。
-  for (const [key, entry] of Object.entries(divergences)) {
-    const at = `PENDING_DIVERGENCES.${key}`;
-    if (key.includes("*") || !key.includes("/")) {
-      errors.push(`${at}: 键必须是精确的 \`上游 provider/模型 id\`（不得有通配符）`);
-    }
-    if (entry.class !== null && !classes[entry.class]) {
-      errors.push(`${at}: 冻结的 class "${entry.class}" 不存在（null 表示手写侧也无结论）`);
-    }
-    if (!entry.reason.trim()) {
-      errors.push(`${at}: 冻结理由不能为空`);
-    }
-    if (!entry.upstream.trim()) {
-      errors.push(`${at}: 上游证据不能为空`);
-    }
-  }
+  // 行为冻结表（04 号票）随残留清单裁决（2026-10-04 用户裁定：31 行全部按上游）删除，
+  // 本校验器不再有冻结表一节。
 
   return errors;
 }

@@ -108,7 +108,7 @@ describe("off 级联（spec 最终版）", () => {
     expect(r.thinkingClass).toBe("never");
   });
 
-  it("always 无 low 档：off 不发但标记 offUnavailable（minimax 无档位参数）", () => {
+  it("always 无 low 档：off 不发但标记 offUnavailable（minimax 无档位参数；官方文档：思考不可关闭）", () => {
     const r = resolve({ baseUrl: "https://api.minimaxi.com/v1", model: "minimax-m2", level: "off" });
     expect(r.fields).toEqual({});
     expect(r.offUnavailable).toBe(true);
@@ -146,7 +146,7 @@ describe("offFallback：off 级联去向的显式字段（03 号票 UI 长短版
     expect(resolve({ baseUrl: ZHIPU_URL, model: "glm-5.3", level: "off" }).offFallback).toBe("low");
   });
 
-  it("无 low 可落：offFallback=null 且 offUnavailable=true（minimax 无档位参数，UI 短版提示）", () => {
+  it("无 low 可落：offFallback=null 且 offUnavailable=true（minimax 无档位参数，官方文档：思考不可关闭；UI 短版提示）", () => {
     const r = resolve({ baseUrl: "https://api.minimaxi.com/v1", model: "minimax-m2", level: "off" });
     expect(r.offUnavailable).toBe(true);
     expect(r.offFallback).toBe(null);
@@ -167,14 +167,26 @@ describe("offFallback：off 级联去向的显式字段（03 号票 UI 长短版
 });
 
 describe("streamOnly（Q14A：流式限制规则遇非流式按无事实处理）", () => {
-  it("流式：off 照发 enable_thinking:false", () => {
-    const r = resolve({ baseUrl: QWEN_URL, model: "qwen3-32b", level: "off", stream: true });
+  // 12 号票（残留清单裁决，2026-10-04 用户裁定：31 行按上游）：qwen3-32b 是裁决行
+  // （上游 alibaba-cn/qwen3-32b = toggle+b:-38912），off 走上游开关、streamOnly 产品语义
+  // 不再参与；streamOnly（Q14A）仍由「指派表不认识的 id」承担（如用户自填 qwen3-32b-air）。
+  it("裁决行 qwen3-32b：off 走上游 toggle，流式与非流式同结论（不再有 streamOnly 阻断）", () => {
+    for (const stream of [true, false]) {
+      const r = resolve({ baseUrl: QWEN_URL, model: "qwen3-32b", level: "off", stream });
+      expect(r.fields, `stream=${stream}`).toEqual({ enable_thinking: false });
+      expect(r.offUnavailable, `stream=${stream}`).toBe(false);
+      expect(r.offFallback, `stream=${stream}`).toBe(null);
+    }
+  });
+
+  it("流式：off 照发 enable_thinking:false（手写兜底路径 qwen3-32b-air）", () => {
+    const r = resolve({ baseUrl: QWEN_URL, model: "qwen3-32b-air", level: "off", stream: true });
     expect(r.fields).toEqual({ enable_thinking: false });
     expect(r.offUnavailable).toBe(false);
   });
 
   it("非流式：off 被阻断 → 级联落 low（开关型=on 写点）+ offUnavailable", () => {
-    const r = resolve({ baseUrl: QWEN_URL, model: "qwen3-32b", level: "off", stream: false });
+    const r = resolve({ baseUrl: QWEN_URL, model: "qwen3-32b-air", level: "off", stream: false });
     expect(r.fields).toEqual({ enable_thinking: true });
     expect(r.offUnavailable).toBe(true);
     expect(r.thinkingClass).toBe("hybrid");

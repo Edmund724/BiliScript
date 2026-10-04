@@ -362,6 +362,68 @@ for (const platform of PLATFORMS) {
   });
 }
 
+// 12 号票（残留清单裁决，2026-10-04 用户裁定「冻结的都按上游」）：04 行为冻结表 31 行里
+// 出现在请求体矩阵的 30 行，Messages 通道落线逐格钉住（形状由本通道的线格式映射表决定：
+// 开关词汇落 thinking、档位词汇落 output_config.effort / 顶层 reasoning_effort，见
+// ai/thinking-wire-map.ts）。第 31 行 minimax-cn/minimax-m3 行为不变（上游 toggle，但本仓
+// 没登记 minimax 平台的开关方言 → 投影 fail-closed）；逐行对照见
+// artifacts/12-adjudication-log.md，逐字节矩阵 diff 见 artifacts/12-adjudication-matrix.diff.txt。
+const ADJUDICATED_MESSAGES: readonly {
+  presetId: string;
+  model: string;
+  off: Record<string, unknown>;
+  low: Record<string, unknown>;
+  high: Record<string, unknown>;
+}[] = [
+  { presetId: "qwen", model: "deepseek-v4-flash", off: DISABLED, low: DISABLED, high: effortWithSwitch("high") },
+  { presetId: "qwen", model: "deepseek-v4-pro", off: DISABLED, low: DISABLED, high: effortWithSwitch("high") },
+  { presetId: "qwen", model: "glm-5.2", off: effortWithSwitch("high"), low: effortWithSwitch("high"), high: effortWithSwitch("high") },
+  { presetId: "qwen", model: "glm-5.3", off: effortWithSwitch("low"), low: effortWithSwitch("low"), high: effortWithSwitch("high") },
+  { presetId: "zhipu", model: "glm-5.3-flash", off: effortWithSwitch("low"), low: effortWithSwitch("low"), high: effortWithSwitch("high") },
+  { presetId: "zhipu", model: "glm-5.3-flashx", off: effortWithSwitch("low"), low: effortWithSwitch("low"), high: effortWithSwitch("high") },
+  { presetId: "qwen", model: "siliconflow/deepseek-v3.2", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "minimax", model: "MiniMax-M3", off: {}, low: {}, high: {} },
+  { presetId: "stepfun", model: "step-3.5-flash", off: effortOnly("low"), low: effortOnly("low"), high: effortOnly("high") },
+  { presetId: "stepfun", model: "step-3.5-flash-2603", off: effortOnly("low"), low: effortOnly("low"), high: effortOnly("high") },
+  { presetId: "deepseek", model: "deepseek-flash", off: DISABLED, low: effortWithSwitch("low"), high: effortWithSwitch("high") },
+  { presetId: "qwen", model: "qwen3-14b", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "qwen3-8b", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "qwen3-omni-flash", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "qwen3-vl-plus", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "siliconflow/deepseek-v3.1-terminus", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "moonshot", model: "k3-256k", off: reasoningEffort("low"), low: reasoningEffort("low"), high: reasoningEffort("high") },
+  { presetId: "moonshot", model: "kimi-for-coding", off: DISABLED, low: reasoningEffort("low"), high: reasoningEffort("high") },
+  { presetId: "stepfun", model: "step-5-preview", off: effortOnly("low"), low: effortOnly("low"), high: effortOnly("high") },
+  { presetId: "qwen", model: "deepseek-v4.1-flash", off: DISABLED, low: effortWithSwitch("low"), high: effortWithSwitch("high") },
+  { presetId: "qwen", model: "glm-5", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "glm-5.1", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "kimi-k2.5", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "kimi-k2.6", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "kimi/kimi-k2.5", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "qwen3-235b-a22b", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "qwen3-32b", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "qwen", model: "qwen3.8-flash", off: DISABLED, low: effortWithSwitch("low"), high: effortWithSwitch("medium") },
+  { presetId: "qwen", model: "qwen3.8-omni-flash", off: DISABLED, low: effortWithSwitch("low"), high: effortWithSwitch("medium") },
+  { presetId: "modelscope", model: "GLM-4.5", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON },
+  { presetId: "modelscope", model: "GLM-4.6", off: DISABLED, low: SWITCH_ON, high: SWITCH_ON }
+];
+
+describe("golden：残留清单裁决 31 行（2026-10-04 用户裁定：全部按上游 02 指派表投影）", () => {
+  for (const c of ADJUDICATED_MESSAGES) {
+    for (const level of ["off", "low", "high"] as const) {
+      it(`${c.presetId}/${c.model} · ${level}`, () => {
+        expect(bodyFor(c.presetId, c.model, level)).toEqual({
+          model: c.model,
+          messages: MESSAGES,
+          stream: false,
+          max_tokens: DEFAULT_MAX_TOKENS,
+          ...c[level]
+        });
+      });
+    }
+  }
+});
+
 // 探针变体（怪癖 probeOmitsThinking）：探针只测连通，一律不发思考字段——deepseek
 // （有档位可发）与 stepfun（effort 词汇）两条路都要钉住。
 describe("golden：探针变体（probe 不发思考字段）", () => {
