@@ -31,32 +31,13 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_SOURCE, UPSTREAM_PROVIDERS } from "./models-dev-upstream-providers.mjs";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_SOURCE = "https://models.dev/api.json";
 const MODULE_FILE = "extension/ai/catalog/models-dev-catalog.generated.ts";
 
-// preset → 上游 provider。**临时单源**：10 号票会把它搬到
-// extension/core/presets.ts（那里已有 baseUrl 与 piProvider），本票先留在脚本里。
-// spec §preset → 上游 provider 的 11 家按 api 字段逐字相同匹配，minimax 是人工
-// 裁定的一家（本仓 api.minimaxi.com/v1 与上游 minimax-cn 的
-// api.minimax.cn/anthropic/v1 判为同一平台）。ollama（本地）/ custom（用户自填
-// 端点）没有上游身份，不进产物。
-// 顺序 = 产物内键序，固定以保证幂等；不按字母排是为了让产物读者按 spec 的表演表核对。
-const UPSTREAM_PROVIDERS = [
-  { preset: "deepseek", id: "deepseek" },
-  { preset: "qwen", id: "alibaba-cn" },
-  { preset: "zhipu", id: "zhipuai" },
-  { preset: "moonshot", id: "kimi-code-plan-cn" },
-  { preset: "mimo", id: "xiaomi" },
-  { preset: "opencodego", id: "opencode-go" },
-  { preset: "openrouter", id: "openrouter" },
-  { preset: "stepfun", id: "stepfun-step-plan" },
-  { preset: "modelscope", id: "modelscope" },
-  { preset: "amd", id: "amd" },
-  { preset: "sensenova", id: "sensenova" },
-  { preset: "minimax", id: "minimax-cn" }
-];
+// preset → 上游 provider 的单源在 scripts/models-dev-upstream-providers.mjs
+// （02 号票的思考事实产物共用同一张表）。
 
 // 产物字段白名单（顺序 = 每行字段序）与上游字段的对应关系（spec §范围 3）。
 const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTokens"];
