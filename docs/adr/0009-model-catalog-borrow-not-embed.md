@@ -1,6 +1,7 @@
 # 模型目录只借 pi-ai 的数据与设计，不内置它的运行时
 
-> 状态：有效
+> 状态：superseded（被 [ADR-0013](0013-upstream-model-facts-borrow-not-embed.md) 取代）
+> 换代指引：数据源已换成 models.dev 的构建期快照、pi-ai devDependency 已删除，现行裁决见 [ADR-0013](0013-upstream-model-facts-borrow-not-embed.md)；本条正文一字不删，作为历史记录保留，其中的反例证据由 ADR-0013 以引用方式沿用。
 
 设置页平台编辑 Modal 要展示模型元数据（上下文窗口 / 是否支持思考 / 是否收图）。上游 `@earendil-works/pi-ai`（MIT）已经为 1354 个模型登记过这些字段，但**我们决定不把 pi-ai 引入运行时**：它只作**数据来源与设计参照**——`devDependency` 精确 pin，构建期脚本从它的 `providers/data/*.json` 裁剪出 7 个文件 / 435 个模型的零依赖叶子产物（`extension/ai/catalog/pi-ai-catalog.generated.ts`），提交进仓库；UI 只在打开平台编辑 Modal 时动态 `import()` 这份产物。
 

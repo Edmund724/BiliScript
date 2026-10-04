@@ -4,8 +4,10 @@
 //   - preset → catalogProvider 的覆盖/反向对账（单源 = core/presets.ts）；
 //   - 查表语义：键 = (上游 provider, modelId)，protocol 不参与；精确 → 折叠大小写
 //     → 别名表（唯一一份在 02 产物里）；
-//   - 切源带来的**集合变化**按 09 §7.1 的裁定钉死（用户 2026-10-04 明确接受），
-//     防止后来者把已接受的后果当 bug 修。
+//   - 切源带来的**集合变化**按 09 §7.1 的裁定被接受（用户 2026-10-04）：11 号票删掉
+//     pi-ai 快照后，逐格比较不再可执行（重算需要已删的 pi 表），守卫改写成
+//     「后果冻结」——只钉与 pi 数据无关的现状事实（zhipu → zhipuai 的登记值、
+//     提示面消失的 8 条在新目录里有意缺席），完整历史数字见 commit e255e64 与 ADR-0013。
 //
 // 叶子不变式与"只准懒加载"两条在这里静态把关（对齐
 // tests/ai/protocol-vocab.test.ts 的读源码手法 + tests/layer-deps.test.ts 的
@@ -23,11 +25,9 @@ import {
   lookupUpstreamModelMeta
 } from "../../extension/ai/catalog/models-dev-catalog.generated.js";
 import { MODEL_ID_ALIASES } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
-import { PI_AI_CATALOG, PI_AI_CATALOG_SOURCE } from "../../extension/ai/catalog/pi-ai-catalog.generated.js";
 
 // 静态引用形状里的路径口径 = 相对 extension/（walk 的口径）
 const CATALOG_CONSUMER = "ai/model-catalog.ts";
-const PI_GENERATED_MODULE = "extension/ai/catalog/pi-ai-catalog.generated.ts";
 const UPSTREAM_GENERATED_MODULE = "extension/ai/catalog/models-dev-catalog.generated.ts";
 const THINKING_GENERATED_MODULE = "extension/ai/catalog/models-dev-thinking.generated.ts";
 
@@ -48,18 +48,11 @@ const EXPECTED_CATALOG_PROVIDERS: ReadonlyArray<readonly [string, string]> = [
   ["sensenova", "sensenova"]
 ];
 
-// pi-ai 快照（旧数据源，11 号票删除）7 个 vendor → 10 号票的 12 家上游 provider 映射。
-// 注意 zai-coding-cn → `zhipuai`（preset zhipu 的登记值，spec §preset → 上游 provider），
-// **不是** 09 号票做 pi-ai vendor 逐对比时用的兄弟家 `zhipuai-coding-plan`。
-const PI_TO_UPSTREAM: ReadonlyArray<readonly [string, string]> = [
-  ["deepseek", "deepseek"],
-  ["zai-coding-cn", "zhipuai"],
-  ["kimi-coding", "kimi-code-plan-cn"],
-  ["minimax-cn", "minimax-cn"],
-  ["xiaomi", "xiaomi"],
-  ["opencode-go", "opencode-go"],
-  ["openrouter", "openrouter"]
-];
+// pi-ai ↔ 上游的 7 家逐家映射（旧 PI_TO_UPSTREAM 常量）随 11 号票删除 pi-ai 快照一并
+// 删除：逐格比较需要 pi 表才可执行，而本 effort 的方向正是「不内置上游数据」。留下的
+// 「后果冻结」用例只断言与 pi 数据无关的现状事实；完整历史数字（共有 355 / 只 pi
+// 80(图 72) / 只上游 109(图 47)；贴图提示面 消失 8 / 新增 62，差额 100% 出自 zhipu
+// 一行）见 commit e255e64 的 tests/ai/model-catalog.test.ts 与 ADR-0013「后果」。
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -103,42 +96,6 @@ function extensionFilesReferencing(pattern: RegExp): string[] {
     .map((file) => relative("extension", file).split(sep).join("/"))
     .sort();
 }
-
-describe("pi-ai 目录产物（01 时期的数据源；10 号票切源后无消费者，11 号票删除）", () => {
-  it("vendor 了 7 个 provider、435 个模型（pin 未变，产物不动）", () => {
-    expect(Object.keys(PI_AI_CATALOG)).toEqual([
-      "deepseek",
-      "zai-coding-cn",
-      "kimi-coding",
-      "minimax-cn",
-      "xiaomi",
-      "opencode-go",
-      "openrouter"
-    ]);
-    const total = Object.values(PI_AI_CATALOG).reduce(
-      (sum, models) => sum + Object.keys(models).length,
-      0
-    );
-    expect(total).toBe(435);
-  });
-
-  it("产物头的数据版本 = package.json 里的精确 pin（升 pin 忘重跑即红）", () => {
-    const pkg = JSON.parse(readFileSync("package.json", "utf8"));
-    expect(PI_AI_CATALOG_SOURCE.package).toBe("@earendil-works/pi-ai");
-    expect(pkg.devDependencies[PI_AI_CATALOG_SOURCE.package]).toBe(PI_AI_CATALOG_SOURCE.version);
-  });
-
-  it("叶子：产物零 import（静态与动态都没有），切源不影响这一点", () => {
-    const source = readFileSync(PI_GENERATED_MODULE, "utf8");
-    expect(source).not.toMatch(/^\s*import\s/m);
-    expect(source).not.toMatch(/^\s*export\s+[^;]*?\s+from\s/m);
-    expect(source).not.toMatch(/\bimport\s*\(/);
-  });
-
-  it("切源后 extension/ 里已无静态消费者（消费点只出不进；删除归 11 号票）", () => {
-    expect(staticImportersOf("pi-ai-catalog.generated")).toEqual([]);
-  });
-});
 
 describe("models.dev 上游目录产物（10 号票起的 UI 数据源）", () => {
   it("12 家上游 / 578 个模型，preset 登记的 provider 全在其中", () => {
@@ -325,70 +282,38 @@ describe("查表（10 号票：精确 → 折叠大小写 → 别名表）", () 
   });
 });
 
-// 09 §7.1 的裁定（用户 2026-10-04：接受目录集合可见变化，不做 deprecated 保留标记）：
-// 切源后模型集合会变——只 pi 有的元数据消失、只上游有的出现，贴图提示面 ±N。
-// 这些数字是**已接受的后果**，钉在这里防止后来者当 bug 修。
-//
-// 与 09 §7.1 的差：09 做的是「pi-ai vendor ↔ 同名兄弟家」逐对比（zai-coding-cn ↔
-// zhipuai-coding-plan，4 个模型），本票落地的是 spec/工单的 preset 映射
-// （zhipu → zhipuai，17 个模型）。差额全部出在 zhipu 这一行：共有 −1（glm-5.3-highspeed
-// 只 pi 有）、只上游 +14（4 条带图）、提示面 消失 +1 / 新增 +10。09 的数（356 / 79(72)
-// / 95(43) / ±7 / +52）与本次实测（355 / 80(72) / 109(47) / ±8 / +62）逐项对得上这条解释。
-describe("集合变化（09 §7.1 用户裁定接受的后果，不是 bug）", () => {
-  it("切源后：共有 0 翻转，只 pi 消失 80（72 带图），只上游出现 109（47 带图）", () => {
-    let shared = 0;
-    let imageFlips = 0;
-    let onlyPi = 0;
-    let onlyPiImage = 0;
-    let onlyUpstream = 0;
-    let onlyUpstreamImage = 0;
-    const promptLost: string[] = [];
-    for (const [piId, upstreamId] of PI_TO_UPSTREAM) {
-      const piTable = PI_AI_CATALOG[piId] ?? {};
-      const upstreamTable = UPSTREAM_CATALOG[upstreamId] ?? {};
-      for (const [modelId, meta] of Object.entries(piTable)) {
-        const upstream = upstreamTable[modelId];
-        if (upstream) {
-          shared += 1;
-          if (meta.input.includes("image") !== upstream.input.includes("image")) imageFlips += 1;
-          continue;
-        }
-        onlyPi += 1;
-        if (meta.input.includes("image")) {
-          onlyPiImage += 1;
-        } else {
-          promptLost.push(`${piId}/${modelId}`);
-        }
-      }
-      for (const [modelId, meta] of Object.entries(upstreamTable)) {
-        if (piTable[modelId]) continue;
-        onlyUpstream += 1;
-        if (meta.input.includes("image")) onlyUpstreamImage += 1;
-      }
+// 09 §7.1 后果冻结（用户 2026-10-04 裁定接受，不做 deprecated 保留标记）：pi-ai 快照
+// 已在 11 号票删除，逐格比较不再可执行（重算需要已删的 pi 表，而本 effort 的方向正是
+// 不内置上游数据）。这里只钉**与 pi 数据无关**的现状事实与裁决本身，防后人误修：
+//   - 2026-10-05 裁定：`zhipu` 登记 `zhipuai`（spec §preset → 上游 provider），**不改**
+//     `zhipuai-coding-plan`——那是 09 号票做 pi-ai 对账时用的兄弟家 id，不是本仓登记值；
+//   - 09 §7.1 的「提示面消失 8 条」按 id 逐个断言在新目录查不到（= 有意缺席，不是缺口）。
+// 完整集合差（共有 355 / 只 pi 80(图 72) / 只上游 109(图 47)；提示面 消失 8 / 新增 62，
+// 差额 100% 出自 zhipu 一行）见 commit e255e64 的 tests/ai/model-catalog.test.ts 与
+// 10 号票工件 10-catalog-coverage.tsv / 10-report.md；本条不再持有 pi 侧数据。
+describe("09 §7.1 后果冻结（用户裁定接受的后果，不是 bug）", () => {
+  it("zhipu 的上游 identity = zhipuai（不是 09 对账用的兄弟家 zhipuai-coding-plan）", () => {
+    const preset = PRESETS.find((item) => item.id === "zhipu")!;
+    expect(resolveCatalogProvider("zhipu", preset.baseUrl)).toBe("zhipuai");
+    expect(Object.keys(UPSTREAM_CATALOG["zhipuai"] ?? {})).toHaveLength(17);
+    expect(UPSTREAM_CATALOG["zhipuai-coding-plan"]).toBeUndefined();
+  });
+
+  it("提示面消失的 8 条：新目录查不到（有意缺席，不回落猜测值）", () => {
+    // [本仓 presetId, 模型 id, 历史出处：pi-ai 口径的 (provider, modelId)]
+    const deliberatelyAbsent: ReadonlyArray<readonly [string, string, string]> = [
+      ["opencodego", "glm-5.1", "opencode-go/glm-5.1"],
+      ["openrouter", "inclusionai/ling-3.0-flash-fin:free", "openrouter/inclusionai/ling-3.0-flash-fin:free"],
+      ["openrouter", "mistralai/codestral-2508:batch", "openrouter/mistralai/codestral-2508:batch"],
+      ["openrouter", "openai/gpt-3.5-turbo:batch", "openrouter/openai/gpt-3.5-turbo:batch"],
+      ["openrouter", "openai/gpt-oss-20b:batch", "openrouter/openai/gpt-oss-20b:batch"],
+      ["openrouter", "openai/o3-mini:batch", "openrouter/openai/o3-mini:batch"],
+      ["openrouter", "z-ai/glm-5.3:batch", "openrouter/z-ai/glm-5.3:batch"],
+      ["zhipu", "glm-5.3-highspeed", "zai-coding-cn/glm-5.3-highspeed"]
+    ];
+    for (const [presetId, modelId, origin] of deliberatelyAbsent) {
+      expect(lookupCatalogMeta(presetId, "", modelId), `${origin} 不该在新目录里查到`).toBeNull();
     }
-    expect({ shared, imageFlips, onlyPi, onlyPiImage, onlyUpstream, onlyUpstreamImage }).toEqual({
-      shared: 355,
-      imageFlips: 0,
-      onlyPi: 80,
-      onlyPiImage: 72,
-      onlyUpstream: 109,
-      onlyUpstreamImage: 47
-    });
-    // 贴图提示面（chat/image-support.ts：查不到 → 静默放行；查到且不含 image → 提示）：
-    // 元数据消失的 8 条非图条目从「会提示」变「静默放行」，出现的 62 条非图条目反向。
-    expect(promptLost.sort()).toEqual(
-      [
-        "opencode-go/glm-5.1",
-        "openrouter/inclusionai/ling-3.0-flash-fin:free",
-        "openrouter/mistralai/codestral-2508:batch",
-        "openrouter/openai/gpt-3.5-turbo:batch",
-        "openrouter/openai/gpt-oss-20b:batch",
-        "openrouter/openai/o3-mini:batch",
-        "openrouter/z-ai/glm-5.3:batch",
-        "zai-coding-cn/glm-5.3-highspeed"
-      ].sort()
-    );
-    expect(onlyUpstream - onlyUpstreamImage).toBe(62);
   });
 
   it("模态列口径（09 §6）：只看该 provider 条目的 input 是否含 image，pdf/video/audio 不进判定", () => {

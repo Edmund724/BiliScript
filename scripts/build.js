@@ -352,9 +352,8 @@ function assertBackgroundBundleSize() {
 //   - 协议栈：SW 对协议栈的唯一值引用已拆到词表叶，adapters / thinking-profiles /
 //     sse-parser / protocol-adapter 若再次出现在 background.js 的 map sources，
 //     说明某条新 import 把整条协议栈拖回了 SW；
-//   - 模型目录：models.dev 上游目录产物（103KB 构建期数据，upstream-model-facts/10
-//     起取代 pi-ai 快照）与它的域模块只服务设置 UI 的只读展示，只准经
-//     ui/lazy-model-catalog.ts 动态 import；
+//   - 模型目录：models.dev 上游目录产物（103KB 构建期数据）与它的域模块只服务设置
+//     UI 的只读展示，只准经 ui/lazy-model-catalog.ts 动态 import；
 //   - 请求路径事实：models.dev 的思考事实编译产物（值集表 + 指派表，02 号票）是构建期
 //     数据的编译结果，只准由调用侧显式引入，不得被 SW 静态图吞进来。
 // 三类都 fail fast。
@@ -363,7 +362,6 @@ const BACKGROUND_FORBIDDEN_STATIC_SOURCES = [
   /(^|\/)ai\/thinking-profiles\.ts$/,
   /(^|\/)ai\/sse-parser\.ts$/,
   /(^|\/)ai\/protocol-adapter\.ts$/,
-  /(^|\/)ai\/catalog\/pi-ai-catalog\.generated\.ts$/,
   /(^|\/)ai\/catalog\/models-dev-catalog\.generated\.ts$/,
   /(^|\/)ai\/catalog\/models-dev-thinking\.generated\.ts$/,
   /(^|\/)ai\/model-catalog\.ts$/,

@@ -466,10 +466,9 @@ describe.skipIf(!hasSnapshot)("catalog:check（真产物 + 提交快照）", () 
 
 // 接线与红线：不依赖快照，任何克隆都必须跑。
 describe("catalog:check 接线与红线", () => {
-  it("package.json 接线：catalog:check 只加一行，既有三条命令不动", () => {
+  it("package.json 接线：catalog:check 只加一行，既有两条命令不动（11 号票删 pi-ai 后 catalog:sync 已移除）", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8"));
     expect(pkg.scripts["catalog:check"]).toBe("node scripts/check-models-dev-catalog.mjs");
-    expect(pkg.scripts["catalog:sync"]).toBe("node scripts/sync-pi-ai-catalog.mjs");
     expect(pkg.scripts["catalog:sync:upstream"]).toBe("node scripts/sync-models-dev-catalog.mjs");
     expect(pkg.scripts["catalog:sync:thinking"]).toBe("node scripts/sync-models-dev-thinking.mjs");
 

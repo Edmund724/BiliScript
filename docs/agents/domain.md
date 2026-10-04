@@ -18,7 +18,7 @@ Architecture review — human or AI — must not re-propose the directions below
 - **ADR-0003**: SW 运行时惰性化（重开条件：crbug/40760920 落地）。
 - **ADR-0005**: reader/clip/ui 或 chat 散字段的归属搬迁与全域收敛。
 - **ADR-0008**: 常驻请求结构仍是体验瓶颈期间，content 单轮化 / seam external。
-- **ADR-0009**: 把 pi-ai 接进请求链；用目录数据回填 `thinking-profiles.ts`。
+- **ADR-0013**（取代 ADR-0009）：把原始上游数据接进请求链或运行时；用 UI 目录产物回填 `thinking-profiles.ts`；让 `protocol` 参与目录查表。
 
 本条只是发现入口：原文摘引、重开条件与完整措辞以 `docs/adr/README.md`「审查红线」为准。红线只覆盖「已被否决过的方向」，不是「没裁过就不许做」。
 

@@ -14,10 +14,11 @@
 | [0006](0006-script-host-panel.md) | 阅读模式采用右栏 文摘面板 | 有效 | 取代整页接管路线 |
 | [0007](0007-settings-dropdown-custom-select.md) | 设置页下拉统一 custom-select | 有效 | 带重开条件；2 处修订：A1 出路被弹层外观否决、补 a11y 三处修复；外部写值收口 setCustomSelectValue（显示从现值派生）+ 调用点清单校正 |
 | [0008](0008-content-two-round-build.md) | content 两轮构建与双实例纪律 | 有效 | — |
-| [0009](0009-model-catalog-borrow-not-embed.md) | 模型目录只借 pi-ai 数据不内置运行时 | 有效 | — |
+| [0009](0009-model-catalog-borrow-not-embed.md) | 模型目录只借 pi-ai 数据不内置运行时 | 被取代 | 见 ADR-0013（正文保留为历史；反例证据由 0013 引用） |
 | [0010](0010-overview-fetch-offscreen-relay.md) | 概览请求改由 offscreen 代发 | 有效 | 输出预算部分已由 ADR-0012 收口 |
 | 0011 | —— | 已退役 | 并入 ADR-0005「适用范围二」，编号不复用 |
 | [0012](0012-output-budget-wide-default-retreat-learned-cap.md) | 输出上限给宽、被拒退回、学过就记住 | 有效 | — |
+| [0013](0013-upstream-model-facts-borrow-not-embed.md) | 上游模型事实以 models.dev 构建期快照为源 | 有效 | 取代 ADR-0009；覆盖 UI 目录 + 请求塑形两个域 |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
 
@@ -31,8 +32,8 @@
   「共同约束」原文：「架构评审（含 AI 代理）不得再提议 reader/clip/ui 或 chat 散字段的归属搬迁与全域收敛。」
 - **ADR-0008：不得提议 content 单轮化或 seam external**。
   「后果」原文：「常驻请求结构（2 请求）是体验瓶颈期间，架构评审（含 AI 代理）不得再提议单轮化或 seam external。」
-- **ADR-0009：不得把 pi-ai 接进请求链、不得用目录数据回填 `thinking-profiles.ts`**。
-  「后果」原文：「架构评审（含 AI 代理）不得再提议把 pi-ai 接进请求链，也不得用目录数据回填 `thinking-profiles.ts`；重开条件：目录需要参与请求塑形（那要先论证它如何成为该事实的唯一主人）。」
+- **ADR-0013：不得把原始上游数据接进请求链或运行时、不得用 UI 目录产物回填 `thinking-profiles.ts`、不得让 `protocol` 参与目录查表**（取代 ADR-0009 的同名红线）。
+  「后果」原文：「架构评审（含 AI 代理）不得再提议：把**原始**上游数据接进请求链或运行时；用 **UI 目录产物**回填 `thinking-profiles.ts`；让 `protocol` 参与目录查表。重开条件见决定 2。」
 
 红线只覆盖「已被否决过的方向」，不是「本文没写就不许做」；没裁过的事按常规评审走。
 
