@@ -385,11 +385,14 @@ const PLATFORMS = [
         high: { reasoning_effort: "high" }
       },
       {
-        kind: "托管的 qwen 血统模型同样被 override（任何模型不走血统表）",
+        // 2026-10-04 用户裁定（06 号票）：A' = 上游词表 ∩ 平台可表达 —— amd 平台声明
+        // off/low/high，该模型上游词表是 low/medium/xhigh → A' = {low}；off 关不掉级联
+        // 落 low，high 向下取到 low（上游没有 high）。
+        kind: "托管的 qwen 血统模型：A' = 上游词表 ∩ 平台档位（{low}，off/high 都落 low）",
         model: "Qwen3.8-Flash-Next",
-        off: { reasoning_effort: "none" },
+        off: { reasoning_effort: "low" },
         low: { reasoning_effort: "low" },
-        high: { reasoning_effort: "high" }
+        high: { reasoning_effort: "low" }
       }
     ]
   },
@@ -398,10 +401,12 @@ const PLATFORMS = [
     baseUrl: "https://token.sensenova.cn/v1",
     cases: [
       {
-        kind: "托管 deepseek-v4-flash（off=effort none；发 thinking 开关无效）",
+        // 2026-10-04 用户裁定（06 号票）：该模型上游词表是 none/high → A' = {off, high}
+        // （sensenova 声明的 low/medium 模型侧没有）→ 偏好 low 向下取 off，线上词 none。
+        kind: "托管 deepseek-v4-flash（A' = 上游 none/high：low 向下取 off → effort none）",
         model: "deepseek-v4-flash",
         off: { reasoning_effort: "none" },
-        low: { reasoning_effort: "low" },
+        low: { reasoning_effort: "none" },
         high: { reasoning_effort: "high" }
       },
       {

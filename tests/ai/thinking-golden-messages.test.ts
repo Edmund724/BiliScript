@@ -301,10 +301,12 @@ const PLATFORMS: PlatformGolden[] = [
     name: "SenseNova 商汤（token.sensenova.cn）",
     cases: [
       {
-        kind: "override effort 平台（openai 侧 effort 词表；Messages 通道发 output_config.effort，platform.sensenova.cn 保守取 low/medium/high）",
+        // 2026-10-04 用户裁定（06 号票）：该模型上游词表是 none/high → A' = {off, high}
+        // → 偏好 low 向下取 off，Messages 出口即关思考（thinking:{type:"disabled"}）。
+        kind: "override effort 平台（A' = 上游 none/high：low 向下取 off → 关思考）",
         model: "deepseek-v4-flash",
         off: DISABLED,
-        low: effortWithSwitch("low"),
+        low: DISABLED,
         high: effortWithSwitch("high")
       }
     ]

@@ -441,13 +441,22 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
     expect(compared).toBeLessThan(total);
   });
 
-  it("override 平台仍然无视模型身份（上游与手写都不参与）", () => {
+  it("override 平台：可用集 = 上游词表 ∩ 平台声明（06 号票裁定），写点形状仍只由平台决定", () => {
     for (const presetId of OVERRIDE_PRESETS) {
-      // 有上游事实的模型（glm-5.2 三档上游是 high-max）在 override 平台照走平台裁定。
+      // 有上游事实的模型（glm-5.2 上游是 high-max）在 override 平台不再整域放宽：
+      // A' = 平台声明 ∩ 上游词表；off 关不掉（关闭落点仍是平台的 effort 词汇）。
       const off = JSON.stringify(resolveThinkingProfile({ presetId, model: "glm-5.2", level: "off", stream: STREAM }));
       const high = JSON.stringify(resolveThinkingProfile({ presetId, model: "glm-5.2", level: "high", stream: STREAM }));
       expect(off, presetId).not.toBe(high);
       expect(off, presetId).toContain("reasoning_effort");
+    }
+    // 裁定点名的边界格：opencodego/hy4-preview（上游 none-high，平台无 off 写点）
+    // → A' = {high}，偏好 off/low 都落 high（平台表达不了 off）。
+    for (const level of ["off", "low", "high"] as const) {
+      expect(
+        JSON.stringify(resolveThinkingProfile({ presetId: "opencodego", model: "hy4-preview", level, stream: STREAM })),
+        level
+      ).toContain('"reasoning_effort":"high"');
     }
   });
 

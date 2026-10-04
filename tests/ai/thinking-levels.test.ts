@@ -153,7 +153,9 @@ describe("落线：clamp 后的档位就是实发档位", () => {
     expect(r.fields).toEqual({ reasoning_effort: "high" });
   });
 
-  it("override 平台：声明的档位键就是可用集（amd 的 medium → low）", () => {
+  it("override 平台（无上游词表的模型）：声明的档位键就是可用集（amd 的 medium → low）", () => {
+    // 06 号票（2026-10-04 用户裁定）后，有上游词表的模型 A' = 上游词表 ∩ 平台声明；
+    // 本格是「无上游词表 → 维持平台声明口径」的分支（any-model 查不到值集）。
     const r = resolveThinkingProfile({
       presetId: "amd",
       baseUrl: "https://developer.amd.com.cn/radeon/api/v1",

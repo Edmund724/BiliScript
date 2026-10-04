@@ -112,7 +112,9 @@
 }
 
 /* 思考档位分段控件（模型面板底部）：浅色容器内嵌分段药丸——inactive 档纯
- * 文字（次要色），active 档白底圆角药丸 + 细边框 + 主题文字色，无主题色填充。 */
+ * 文字（次要色），active 档白底圆角药丸 + 细边框 + 主题文字色，无主题色填充。
+ * 06 号票：上游 7 档词表的模型一次最多显示 7 个 pill，面板宽只有 240–320px，
+ * 故允许分段控件在需要时收窄并换行（三档模型的内容宽 < 可用宽，外观不变）。 */
 .biliscript-reading-chat .chat-model-panel-thinking {
   display: flex;
   align-items: center;
@@ -126,8 +128,11 @@
 }
 
 .biliscript-reading-chat .chat-thinking-toggle {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   padding: 2px;
   border: 1px solid var(--biliscript-reader-border);

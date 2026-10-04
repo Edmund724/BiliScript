@@ -71,6 +71,14 @@
 //   平台没有登记开关形状（UPSTREAM_TOGGLE_SHAPES 缺该平台）时不发开关——不发明形状。
 // 上游数据只在构建期被读；本模块消费的是编译产物，且本模块与产物都不在 SW 静态图里
 // （scripts/build.js 的 assertBackgroundStaticGraphSlim 对两者都 fail fast）。
+//
+// chip 集合（06 号票）：面板上的档位 chip 不再固定三档，而是**渲染
+// resolveThinkingAdjustment().availableLevels**（= availableLevelsOf(rule) = A'，与请求
+// 落线同一次解析、同一张规则）：只显示存在的档位、不置灰，被 clamp 掉的偏好由对话 UI 的
+// 说明文本呈现（2026-10-04 用户裁定：「只显示实际存在的档位」；全局偏好不迁移，逐模型
+// clamp 向下取，实发档 = 有效档）。`source` 字段（upstream / override / handwritten /
+// unknown）是把同一次解析按来源分层，供 06 号票的三层来源清单（artifacts/06-chip-source.tsv）
+// 与 UI 用例对账——它不是 chip 的第二套推导。
 
 import { hostOf, presetIdForHost } from "../core/preset-host-index.js";
 import { lookupThinkingFact, type ThinkingModelFact } from "./catalog/models-dev-thinking.generated.js";
@@ -374,6 +382,8 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
 // StepFun）不给，未知模型落 unknown 哨兵。override 型：OpenRouter / AMD /
 // SenseNova / Opencode Go（严格拒收 thinking 开关、整域只认 effort 词汇的网关，
 // 平台语义见 compat-vocab 词表的 overrideEffortVocabulary）。
+// 06 号票（2026-10-04 用户裁定）：override 的 levels 是**平台可表达集**，有上游词表的
+// 模型还要与上游词表相交出 A'（ruleFor 里按模型收窄）；本表只声明平台口径，不逐模型写。 
 export const PROVIDERS: Record<string, ProviderRule> = {
   deepseek: {},      // 协议按模型定（api-docs.deepseek.com）
   qwen: {},          // 百炼模型族已覆盖 taxonomy；未列模型白名单制风险高，不发
@@ -507,6 +517,23 @@ export const UPSTREAM_TOGGLE_SHAPES: Readonly<
 // 不把 none 当档位（它只是 off 的线值实现，决策 #7）。
 export type UpstreamThinkingFact = Pick<ThinkingModelFact, "valuesetId" | "toggle" | "effort" | "off">;
 
+// 上游逐模型词表的 7 档投影（06 号票裁定的模型侧集合 U，2026-10-04 用户裁定）：
+//   off    = 值集有 toggle 或 effort 含 none（关得掉）；
+//   档位   = effort 词表里的 7 档（none 不是档位）；
+//   开关型（有 toggle 无 effort）：非 off 域整体可表达——「开」是唯一写点，任何非 off
+//          档都落它（05 语义），故 U 的非 off 部分是全部非 off 档。
+// 与 ruleFromUpstreamFact 的写点推导同源，但用途不同：这是 A' 的**模型侧**（哪些档位
+// 该模型真的有），平台侧可表达集由规则写点/override 声明给出，两者相交即 A'。
+export function upstreamVocabularyOf(fact: UpstreamThinkingFact): readonly ThinkingLevel[] {
+  const tiers = (fact.effort ?? []).filter((tier): tier is ThinkingLevel => isThinkingLevel(tier));
+  const levels: ThinkingLevel[] = [];
+  if (fact.off) {
+    levels.push("off");
+  }
+  levels.push(...(tiers.length > 0 ? tiers : fact.toggle ? NON_OFF_LEVELS : []));
+  return AI_THINKING_LEVELS.filter((level) => levels.includes(level));
+}
+
 export function ruleFromUpstreamFact(fact: UpstreamThinkingFact, providerId: string): ClassRule {
   const shape = UPSTREAM_TOGGLE_SHAPES[providerId];
   // none 不是档位；阶梯外的值（上游新增词汇）不物化——test 断言 VALUESETS 里不存在
@@ -538,11 +565,15 @@ export function ruleFromUpstreamFact(fact: UpstreamThinkingFact, providerId: str
   return rule;
 }
 
-// ===== clamp（05 号票，决策 #8）=====
-// 模型可用集 A 由 class 规则的写点派生：有 off 写点 → off 可用；有 on 写点（开关型）
-// → 任何非 off 档都可落（都落同一个「开」写点）；effort 型逐档看有没有写点。
-// 「可用集即写点集合」是刻意的：提示面（resolveThinkingAdjustment）与落线
-// （applyClassRule）读的是同一张规则，两处不可能漂移。
+// ===== clamp（05 号票，决策 #8；06 号票改 A'）=====
+// 可用集 A'（2026-10-04 用户裁定：「希望只显示实际存在的档位」）=
+// **上游逐模型词表 ∩ 平台线格式可表达集**，且由**一次解析**的同一张规则承载：
+//   - 非 override 平台：规则本身就是「值集 ∩ 平台已登记方言」的产物（ruleFromUpstreamFact
+//     只物化平台表达得了的写点；未登记开关形状的平台连 off 都不发明）→ 写点集 == A'；
+//   - override 平台：平台级裁定声明的档位键是平台侧，再与上游词表 U 相交（ruleFor）；
+//   - 无上游词表的模型（上游缺口 56 / 用户自填 id / ollama / custom）：维持今日手写口径。
+// 「可用集即写点集合」不变：提示面（resolveThinkingAdjustment）与落线（applyClassRule）
+// 读同一张规则，两处不可能漂移。
 export function availableLevelsOf(rule: ClassRule): readonly ThinkingLevel[] {
   if (rule.on) {
     return rule.off ? [...AI_THINKING_LEVELS] : [...NON_OFF_LEVELS];
@@ -583,6 +614,47 @@ export function clampThinkingLevel(preference: ThinkingLevel, available: readonl
 //   platform-vocabulary = 平台级裁定（override 平台整域只认自己的档位词表）。
 export type ThinkingClampReason = "model-vocabulary" | "upstream-unlisted" | "platform-vocabulary";
 
+// 规则来源层（06 号票三层来源清单的审计列）：与 ruleFor 的解析分支一一对应，由
+// **同一次解析**给出，不是第二套推导——chip 集合本身仍只由 availableLevelsOf 派生
+// （06 号票：清单是「哪一层的规则服务了该模型」的视图，不是 chip 的第二来源）。
+//   upstream    = 02 指派表命中（上游逐模型词表；构建期按 canonical_model_id / 别名
+//                 借到词表的行也走这一支——产物里 7 条借词已折叠进指派表，
+//                 运行期看不出「直接 / 借词」，逐条借词来源在 06 工件里用 02 矩阵对账）；
+//   override    = 平台级裁定短路（openrouter / amd / sensenova / opencodego，03 报告 §6）；
+//   adjudicated = 用户点名的单点裁决行（ADJUDICATED_MODEL_RULES，见下）；
+//   handwritten = 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）；
+//   unknown     = 无结论（fail-closed，三档不发）。
+export type ThinkingRuleSource = "upstream" | "override" | "adjudicated" | "handwritten" | "unknown";
+
+// ===== 单点裁决条目（06 号票，2026-10-04 用户裁定）=====
+// 场景：A' = 上游词表 ∩ 平台可表达集 = ∅（上游唯一登记的词平台表达不了），但**用户点名**
+// 要按该模型的原生厂商方言发参的单点例外——不适用「向下兼容」（没有可落的档），也不再
+// fail-closed。与 CLASSES / EXCEPTIONS / TAXONOMY 的分工：那些是「上游没有事实时」的手写
+// 兜底；这里是「上游有事实、却被平台词表挡住」的逐条裁决，所以写成带理由的显式表、范围
+// 最小：只对 presetId + model 精确命中生效（用户裁定原文：不许扩到 opencodego 的其它模型，
+// 也不许扩到其它平台托管的同名模型）。
+// 条目只登记「按谁家的方言」：规则 = 镜像行按上游值集投影出的写点（ruleFromUpstreamFact），
+// 线格式出口沿用镜像行的平台（已登记的厂商方言）。镜像事实缺失时退回 A' 收窄（fail-closed），
+// 绝不发明写点。
+export interface AdjudicatedModelRule {
+  presetId: string;
+  model: string;
+  /** 方言来源行：规则按这一行的上游事实投影（写点形状与档位词表都随之）。 */
+  mirrorOf: { presetId: string; model: string };
+  /** 裁决理由（报告 / 06 工件的审计列，逐条引用用户原话与出处）。 */
+  reason: string;
+}
+
+export const ADJUDICATED_MODEL_RULES: readonly AdjudicatedModelRule[] = [
+  {
+    presetId: "opencodego",
+    model: "kimi-k3",
+    mirrorOf: { presetId: "moonshot", model: "kimi-k3" },
+    reason:
+      "2026-10-04 用户裁定：openCodeGo 的 kimi-k3 按 kimi 官方 k3 方言发参（上游值集只有 max、与平台词 low/high 无交集，不 fail-closed）"
+  }
+];
+
 // ===== resolver =====
 
 export type ResolvedThinkingClass = ClassRule["thinkingClass"] | "unknown";
@@ -617,38 +689,91 @@ export interface ThinkingResolution {
 const UNKNOWN_RESOLUTION: ThinkingResolution = { fields: {}, offUnavailable: false, offFallback: null, thinkingClass: "unknown" };
 
 // 一次解析的中间结论：本模型该用哪张 class 规则，以及这张规则来自哪一层
-// （层决定 clamp 被调整时对用户说的原因）。
+// （层决定 clamp 被调整时对用户说的原因，06 号票起同时是 chip 来源清单的审计列）。
 interface ResolvedRule {
   rule: ClassRule | undefined;
   reason: ThinkingClampReason | null;
+  source: ThinkingRuleSource;
+}
+
+// 单点裁决命中 → 直接用镜像行的规则（不经 A' 收窄）；未命中 / 镜像事实缺失返回 null
+// （后者退回 A' 收窄，fail-closed）。
+function adjudicatedRuleFor(providerId: string, model: string): ResolvedRule | null {
+  const normalizedModel = String(model || "").trim().toLowerCase();
+  const entry = ADJUDICATED_MODEL_RULES.find(
+    (rule) => rule.presetId === providerId && rule.model.toLowerCase() === normalizedModel
+  );
+  if (!entry) {
+    return null;
+  }
+  const mirrorUpstreamId = UPSTREAM_PROVIDER_BY_PRESET[entry.mirrorOf.presetId];
+  const mirrorFact = mirrorUpstreamId ? lookupThinkingFact(mirrorUpstreamId, entry.mirrorOf.model) : null;
+  if (!mirrorFact) {
+    return null;
+  }
+  return {
+    rule: ruleFromUpstreamFact(mirrorFact, entry.mirrorOf.presetId),
+    reason: "model-vocabulary",
+    source: "adjudicated"
+  };
 }
 
 // 规则解析的唯一施加点（resolveThinkingProfile 与 resolveThinkingAdjustment 共用）：
-//   provider override（平台级裁定，识别层短路）
+//   provider override（平台级裁定，识别层短路；06 号票起再与上游词表相交出 A'，其中用户
+//                       点名的单点裁决行先短路，见 ADJUDICATED_MODEL_RULES）
 //   >> 上游平台：02 指派表
 //   >> 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）
 //   >> 无结论（UNKNOWN 哨兵）。
-function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRule {
+function ruleFor({ presetId, baseUrl, model, level }: ResolveThinkingInput): ResolvedRule {
   const normalizedModel = String(model || "").trim().toLowerCase();
   const providerId = resolveThinkingProviderId(presetId, baseUrl);
   const provider = providerId ? PROVIDERS[providerId] : undefined;
+  const upstreamId = providerId ? UPSTREAM_PROVIDER_BY_PRESET[providerId] : undefined;
 
-  // override 型：对任何模型整体替换 class 规则（识别层直接短路）。
+  // override 型：对任何模型整体替换 class 规则（识别层直接短路——上游与手写血统都
+  // 不参与**写点形状**）。06 号票（2026-10-04 用户裁定）：该模型有上游词表时，
+  // A' = 上游逐模型词表 ∩ 平台可表达档（平台侧 = override 声明的档位键），把 A' 之外的
+  // 档位写点从规则里去掉——「只显示实际存在的档位」+「不发平台表达不了的词」。
+  // 没有上游词表的模型（用户自填 id / 上游缺口）维持平台声明口径（今日三档）。
   if (provider?.override) {
+    // 用户点名的单点裁决行先于收窄（该行按原生厂商方言发参，不受平台声明限制）。
+    const adjudicated = providerId ? adjudicatedRuleFor(providerId, model) : null;
+    if (adjudicated) {
+      return adjudicated;
+    }
+    const overrideLevels = provider.override.levels;
+    const fact = upstreamId ? lookupThinkingFact(upstreamId, model) : null;
+    if (!fact) {
+      return {
+        rule: { thinkingClass: provider.override.thinkingClass, ...overrideLevels },
+        reason: "platform-vocabulary",
+        source: "override"
+      };
+    }
+    const upstreamLevels = new Set<ThinkingLevel>(upstreamVocabularyOf(fact));
+    const levels: Partial<Record<ThinkingLevel, ThinkingPatch>> = {};
+    for (const tier of AI_THINKING_LEVELS) {
+      const patch = overrideLevels[tier];
+      if (patch && upstreamLevels.has(tier)) {
+        levels[tier] = patch;
+      }
+    }
+    const requested = normalizeThinkingLevel(level);
     return {
-      rule: { thinkingClass: provider.override.thinkingClass, ...provider.override.levels },
-      reason: "platform-vocabulary"
+      rule: { thinkingClass: provider.override.thinkingClass, ...levels },
+      // 偏好档被哪一侧排除：平台声明里有、上游词表没有 → 模型词表；否则平台词表。
+      reason: overrideLevels[requested] && !upstreamLevels.has(requested) ? "model-vocabulary" : "platform-vocabulary",
+      source: "override"
     };
   }
 
   // 有上游平台：逐模型事实的主人是 02 指派表（04 号票）——12 号票删掉冻结表后，
   // 残留清单裁决过的行也一律按上游投影。指派表未命中 → 手写兜底
   // （上游未覆盖：用户自填 id / 上游缺口 / 非 reasoning 模型）。
-  const upstreamId = providerId ? UPSTREAM_PROVIDER_BY_PRESET[providerId] : undefined;
   if (upstreamId) {
     const fact = lookupThinkingFact(upstreamId, model);
     if (fact) {
-      return { rule: ruleFromUpstreamFact(fact, providerId!), reason: "model-vocabulary" };
+      return { rule: ruleFromUpstreamFact(fact, providerId!), reason: "model-vocabulary", source: "upstream" };
     }
   }
 
@@ -656,7 +781,8 @@ function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRu
   const className = matchRuleClass(EXCEPTIONS, normalizedModel) ?? matchRuleClass(TAXONOMY, normalizedModel) ?? provider?.unknownClass;
   return {
     rule: className ? CLASSES[className] : undefined,
-    reason: className ? "upstream-unlisted" : null
+    reason: className ? "upstream-unlisted" : null,
+    source: className ? "handwritten" : "unknown"
   };
 }
 
@@ -673,15 +799,19 @@ export interface ThinkingLevelAdjustment {
   resolution: ThinkingResolution;
   requestedLevel: ThinkingLevel;
   // 模型可用集（档位序）；空 = 该模型无任何档位可落（不发思考参数）。
+  // **06 号票起这就是面板 chip 集合的唯一来源**（UI 只渲染这个集合里的档位，不置灰、
+  // 不显示请求不发的选择）：与落线同一次解析、同一张规则，两处不可能漂移。
   availableLevels: readonly ThinkingLevel[];
   // 实发档位；null = 无档可落。
   effectiveLevel: ThinkingLevel | null;
   // 被调整的原因；null = 未调整（L ∈ A）或无可落档位（不报「已调整」）。
   reason: ThinkingClampReason | null;
+  // 这张规则来自哪一层（06 号票：三层来源清单的审计列，与 availableLevels 同源）。
+  source: ThinkingRuleSource;
 }
 
 export function resolveThinkingAdjustment(input: ResolveThinkingInput): ThinkingLevelAdjustment {
-  const { rule, reason } = ruleFor(input);
+  const { rule, reason, source } = ruleFor(input);
   const requestedLevel = normalizeThinkingLevel(input.level);
   const resolution = rule ? applyClassRule(rule, requestedLevel, input.stream) : UNKNOWN_RESOLUTION;
   const availableLevels = rule ? availableLevelsOf(rule) : [];
@@ -692,7 +822,8 @@ export function resolveThinkingAdjustment(input: ResolveThinkingInput): Thinking
     availableLevels,
     effectiveLevel,
     // 「被调整」= 落了别的档位；无档可落（effectiveLevel null）不是调整，不报文案。
-    reason: rule && effectiveLevel !== null && effectiveLevel !== requestedLevel ? reason : null
+    reason: rule && effectiveLevel !== null && effectiveLevel !== requestedLevel ? reason : null,
+    source
   };
 }
 
@@ -739,9 +870,10 @@ function escapeRegExp(text: string): string {
 // id，runtime 结论必须等于手写表结论）。
 //
 // 05 号票（决策 #8）：档位先过 clamp——用户偏好遇到模型不支持的档位时**向下取**
-// 最近可用档（A 由 availableLevelsOf 从写点派生）；落线取值一律走 clamp 后的档位，
-// 所以「提示里说发哪档」与「请求里发哪档」是同一个值。off 的既有判定
-// （offUnavailable / offFallback 级联）不变，只是级联目标 = A 的最小非 off 档。
+// 最近可用档（A' 由 availableLevelsOf 从写点派生：06 号票起 = 上游词表 ∩ 平台可表达）；
+// 落线取值一律走 clamp 后的档位，所以「提示里说发哪档」与「请求里发哪档」是同一个值。
+// off 的既有判定（offUnavailable / offFallback 级联）不变，只是级联目标 = A' 的最小
+// 非 off 档（none/high 类模型偏好 low → 落 off，线上发 effort none）。
 export function applyClassRule(rule: ClassRule, level: ThinkingLevel, stream: boolean): ThinkingResolution {
   const available = availableLevelsOf(rule);
   const effective = clampThinkingLevel(level, available);

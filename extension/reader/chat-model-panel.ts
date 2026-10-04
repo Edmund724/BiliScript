@@ -9,12 +9,17 @@
 // 模型名 span，档位与 chevron 恒完整（model-select-width 只决定 chip 整体宽度，
 // 不参与截断）。
 //
+// 06 号票：面板底部的档位 chip 不再固定三档——renderThinkingChips 按该模型可用集
+// （resolveThinkingAdjustment().availableLevels，与请求落线同源）显示/隐藏模板里的
+// 7 个静态按钮；本模块不改 chip 的视觉与交互。
+//
 // 依赖方向（无环）：共享状态（../chat/chat-state 的 aiThinkingLevel）与
 // chat/model-select-width 直接 import；DOM 元素与面板关闭回调（惰性互引
 // popovers 实例，组装点以箭头函数接线）经工厂 deps 注入。本模块不 import
 // 组合根与 popovers。
 import { chatSessionState } from "../chat/chat-state.js";
 import { measureModelPanelWidth, updateModelSelectWidth } from "../chat/model-select-width.js";
+import type { ThinkingLevel } from "../ai/thinking-levels.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 export interface CreateReaderChatModelPanelDeps {
@@ -25,6 +30,8 @@ export interface CreateReaderChatModelPanelDeps {
   panelList: HTMLElement;
   // 面板根（定位/宽度写在它身上：宽度 = 打开时按 chip 可见宽的快照）
   panel: HTMLElement;
+  // 思考档位 chip 容器（模板里的 7 个静态按钮的父级；可用集渲染改它的子按钮）
+  thinkingToggle: HTMLElement;
   // 惰性互引（组装点以箭头函数接线，回调执行时 popovers 实例已存在）
   hidePanel: () => void;
 }
@@ -32,11 +39,14 @@ export interface CreateReaderChatModelPanelDeps {
 export interface ReaderChatModelPanel {
   renderChip: () => void;
   renderPanel: () => void;
+  renderThinkingChips: (availableLevels: readonly ThinkingLevel[]) => void;
 }
 
 // 档位标签表（05 号票：上游词表 7 档）。口径与既有 Off/Low/High 一致——首字母
 // 大写、档位词照上游写法（xhigh → XHigh）；未登记档位（脏存储值）回落 Off。
-const THINKING_LEVEL_LABELS: Record<string, string> = {
+// 06 号票起导出：模板里 7 个静态按钮的文案与 06 号票的 chip 集合工件同源（避免
+// 「标签」出现第三份字面量）。
+export const THINKING_LEVEL_LABELS: Record<string, string> = {
   off: "Off",
   minimal: "Minimal",
   low: "Low",
@@ -47,7 +57,7 @@ const THINKING_LEVEL_LABELS: Record<string, string> = {
 };
 
 export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps): ReaderChatModelPanel {
-  const { modelSelect, chip, chipModel, chipLevel, panelList, panel } = deps;
+  const { modelSelect, chip, chipModel, chipLevel, panelList, panel, thinkingToggle } = deps;
 
   // chip 文案 = 平台名·选中模型名 + 当前思考档位（截图形态「ModelScope·DeepSeek
   // V4.1 Flash High」）。平台名取选中 option 所属 optgroup 的 label（与面板分组
@@ -112,5 +122,19 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     });
   }
 
-  return { renderChip, renderPanel };
+  // 档位 chip 集合（06 号票）：按该模型**实际可用的档位**渲染——只显示存在的档位，
+  // 不置灰（被 05 号票 clamp 掉的选择由 chat-tab.ts 的说明文本呈现，不做成禁用 chip）；
+  // 空可用集（如 minimax-m3：关不掉思考、也没有已登记档位）→ 一个 chip 都不显示。
+  // 可用集是调用方从 resolveThinkingAdjustment（与请求落线同一次解析）取来的，本模块
+  // 不自己推导档位，只决定「哪些出现 + 叫什么」：文案与模板同源，避免两处标签漂移。
+  function renderThinkingChips(availableLevels: readonly ThinkingLevel[]): void {
+    const available = new Set<string>(availableLevels);
+    thinkingToggle.querySelectorAll<HTMLElement>(".chat-thinking-btn").forEach((btn) => {
+      const level = btn.dataset.level || "";
+      btn.textContent = THINKING_LEVEL_LABELS[level] || level;
+      btn.hidden = !available.has(level);
+    });
+  }
+
+  return { renderChip, renderPanel, renderThinkingChips };
 }

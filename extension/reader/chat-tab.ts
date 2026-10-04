@@ -461,6 +461,7 @@ const modelPanel = createReaderChatModelPanel({
   chipLevel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-level") as HTMLElement,
   panelList: els.modelPanelList,
   panel: els.modelPanel,
+  thinkingToggle: els.thinkingToggle,
   hidePanel: () => popovers.hideModelPanel()
 });
 
@@ -478,8 +479,8 @@ const widthEls: ModelSelectWidthEls = {
 // chatRuntime 实例方法。
 // AI 平台加载渲染 + 思考档位（widthEls 见上：度量对象是 chip/chipModel/chipLevel
 // 引用包；providers 内部的 updateModelSelectWidth 调用随 select 渲染刷新 chip
-// 宽度）。思考档位「关不掉」提示（工单 03）的 DOM 与判定在本文件
-//（updateThinkingHint），baseUrl 识别入参由 providers 模块自 ai-providers-list
+// 宽度）。思考档位区的 DOM 与判定在本文件（refreshThinkingUi：档位 chip 集合 +
+// 「关不掉」提示），baseUrl 识别入参由 providers 模块自 ai-providers-list
 // 载荷透传。
 const providerPrefs = createProviderPrefs({
   modelSelect: els.modelSelect,
@@ -490,7 +491,7 @@ const providerPrefs = createProviderPrefs({
 const { loadProvidersAndPrefs, setThinkingLevel, setWebSearchEnabled } = providerPrefs;
 
 // ============================================================
-// 思考档位「关不掉」提示（工单 03，对话 tab 档位区唯一的 UI 增量）
+// 思考档位区刷新（chip 集合 + 提示行；工单 03 的提示 + 06 号票的 chip）
 // ============================================================
 
 // 文案逐字给定（工单 03，勿改写）：长版 = 级联落了 low 档；短版 = 连 low 都没有。
@@ -507,18 +508,15 @@ const THINKING_CLAMP_REASON_TEXT: Record<ThinkingClampReason, string> = {
   "platform-vocabulary": "平台只登记了这些档位"
 };
 
-// 按当前档位 + 选中平台重判提示显隐。刷新点三处：模型选择 change、档位按钮
-// 点击、平台列表重载（init 与 loadProvidersAndPrefs 之后）——模型/档位一变即重判。
+// 档位区刷新（06 号票：一次解析同时决定「哪些 chip 存在」与「提示文案」）。
+// 刷新点三处：模型选择 change、档位按钮点击、平台列表重载（init 与
+// loadProvidersAndPrefs 之后）——模型/档位一变即重判。
+//   chip 集合 = adjustment.availableLevels（与请求落线同一次解析、同一张规则）：
+//   只显示存在的档位、不置灰；被 clamp 掉的偏好没有 chip，由下面两类文案说明。
 // 两类提示（互斥，前者优先）：
 //   ① 工单 03「关不掉思考」：偏好 off 且 resolver 判 off 不可用（判定与文案都不动）；
 //   ② 05 号票「档位被 clamp」：偏好档位不在模型可用集里时如实给出源档 → 实发档 + 原因。
-function updateThinkingHint(): void {
-  const hint = els.thinkingHint;
-  if (!hint) {
-    return;
-  }
-  hint.textContent = "";
-  hint.hidden = true;
+function refreshThinkingUi(): void {
   const level = chatSessionState.aiThinkingLevel;
   // 识别入参：baseUrl / presetId 沿 loadProvidersAndPrefs 已拉的
   // ai-providers-list 载荷（providers.ts 已透传进 chatSessionState.providers，
@@ -535,6 +533,14 @@ function updateThinkingHint(): void {
     level,
     stream: true
   });
+  // chip 集合先落（提示行元素缺失也不影响档位 chip 的显隐）。
+  modelPanel.renderThinkingChips(adjustment.availableLevels);
+  const hint = els.thinkingHint;
+  if (!hint) {
+    return;
+  }
+  hint.textContent = "";
+  hint.hidden = true;
   // ① 既有 off 判定优先：off 不可用（级联落了最小档 / 无档可落）时按长/短文案提示；
   //    off 正常可用、never 静默、unknown 哨兵都无提示。
   if (level === "off") {
@@ -623,7 +629,7 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
     loadProvidersAndPrefs().then(() => {
       // 平台列表/档位落定后：首判「关不掉」提示（此后由模型切换/档位点击/
       // 外部刷新续判）+ 模型 chip 首渲（renderModelSelect 已把选中项写进 select）。
-      updateThinkingHint();
+      refreshThinkingUi();
       modelPanel.renderChip();
     }),
     conversationStore.loadAll(),
@@ -649,7 +655,7 @@ async function restoreChatSession(): Promise<void> {
   // 与 init / 外部变更刷新同口径三件：平台列表 + 模型 chip + 档位提示。
   await loadProvidersAndPrefs().catch(() => null);
   modelPanel.renderChip();
-  updateThinkingHint();
+  refreshThinkingUi();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
     return;
@@ -903,7 +909,7 @@ function bindEvents(): void {
     // 模型选择变化：重渲 chip 文案（模型名）+ 重判提示（含从「关不掉」模型
     // 切回可关模型时消失）。
     modelPanel.renderChip();
-    updateThinkingHint();
+    refreshThinkingUi();
   });
   els.thinkingBtns.forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -912,7 +918,7 @@ function bindEvents(): void {
       void setThinkingLevel(btn.dataset.level || "off");
       // chip 上的档位文案随新档位重渲。
       modelPanel.renderChip();
-      updateThinkingHint();
+      refreshThinkingUi();
     });
   });
   // 联网搜索开关（spec §4）：点击即改全局记忆（sync settings.webSearchEnabled）。
@@ -1022,7 +1028,7 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
   // 外部变更可能整体替换平台列表/选中平台/档位：与 init 同口径重渲 chip + 重判提示。
   modelPanel.renderChip();
-  updateThinkingHint();
+  refreshThinkingUi();
   // 在途回合（含「已受理、端口未建」的窗口）只推迟视图重建：历史列表照刷
   //（renderHistoryList 提到守卫之前，顺序即契约），in-flight 的流式节点不被
   // 重建清场。守卫判据是 isTurnActive() 而非 isStreaming()——后者在 connectPort

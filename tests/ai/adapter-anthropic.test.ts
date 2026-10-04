@@ -232,6 +232,33 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(tiered.reasoning_effort).toBe("high");
   });
 
+  it("06 号票单点裁决：opencodego/kimi-k3 按 kimi 官方 k3 方言发参（off = thinking:disabled）", () => {
+    // 2026-10-04 用户裁定：该行上游值集只有 max、与平台词 low/high 无交集，不 fail-closed，
+    // 按 kimi 官方 k3 方言发参（ADJUDICATED_MODEL_RULES，规则与 moonshot/kimi-k3 同源）。
+    // off 之后由本通道的关思考词汇统一翻成 thinking:{type:"disabled"}（见上一条）。
+    const off = anthropicAdapter.buildBody({
+      ...base,
+      presetId: "opencodego",
+      thinkingLevel: "off",
+      model: "kimi-k3",
+      messages: []
+    });
+    expect(off.thinking).toEqual({ type: "disabled" });
+    // 档位走**本平台已登记的 Messages 出口**（opencodego = 裸 output_config.effort，见
+    // ai/thinking-wire-map.ts 的平台表）；openai 通道的档位才是顶层 reasoning_effort
+    // （tests/ai/thinking-chips.test.ts 的单点裁决用例）。这一格是「线格式出口 = 平台事实」
+    // 与「该行说 kimi 官方方言」的交叉点，已在 06-report.md §6.6 标为待确认项。
+    const tiered = anthropicAdapter.buildBody({
+      ...base,
+      presetId: "opencodego",
+      thinkingLevel: "high",
+      model: "kimi-k3",
+      messages: []
+    });
+    expect(tiered.output_config).toEqual({ effort: "high" });
+    expect(tiered.thinking).toBeUndefined();
+  });
+
   it("probe 不发 thinking：探针只测连通，不发任何思考字段", () => {
     const body = anthropicAdapter.buildBody({
       ...base,

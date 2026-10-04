@@ -9,8 +9,9 @@
 //（reader/chat-tab.ts）首次激活时接线；未激活前壳保持静默空态（空消息区 +
 // 空输入框），不放假数据。待解释意图引用卡（PR3 契约）由对话组合根按
 // pending 意图渲染，自动发送成功即消费隐藏；卡上的取消按钮清意图。
-// 工单 03 增量：档位切换区内的「关不掉思考」提示行（默认 hidden，唯一的
-// 档位区 UI 增量，三档按钮本身不变）。
+// 工单 03 增量：档位切换区内的「关不掉思考」提示行（默认 hidden）。
+// 06 号票增量：档位 chip 由 3 档静态按钮改为 7 档静态占位（激活后由
+// reader/chat-model-panel.ts 按该模型可用集改写显隐与文案——只显示存在的档位）。
 // 2026-10 用户决议：头部不再显示视频标题（标题 chip 连同点击跳转一并删除），
 // 工具条只剩「历史对话」+「新会话」；右对齐由 CSS 接住（原先靠 chip 的 flex:1）。
 // 2026-09 用户决议：历史对话从「输入卡上方弹出的浮层」改为盖住 AI 对话 tab
@@ -107,10 +108,18 @@ export function buildChatTabBodyHtml(): string {
                   <div class="chat-model-panel-foot">
                     <div class="chat-model-panel-thinking">
                       <span class="chat-model-thinking-label">思考</span>
+                      <!-- 档位 chip：模板给全 7 档静态占位（激活前的形态），激活后由
+                           reader/chat-model-panel.ts 的 renderThinkingChips 按该模型
+                           实际可用集改写「显示/隐藏 + 文案」（06 号票：只显示存在的
+                           档位，不置灰；上游 none 不产生 chip，off 是独立档）。 -->
                       <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-toggle" role="group" aria-label="思考档位">
                         <button type="button" class="chat-thinking-btn" data-level="off">Off</button>
+                        <button type="button" class="chat-thinking-btn" data-level="minimal">Minimal</button>
                         <button type="button" class="chat-thinking-btn" data-level="low">Low</button>
+                        <button type="button" class="chat-thinking-btn" data-level="medium">Medium</button>
                         <button type="button" class="chat-thinking-btn" data-level="high">High</button>
+                        <button type="button" class="chat-thinking-btn" data-level="xhigh">XHigh</button>
+                        <button type="button" class="chat-thinking-btn" data-level="max">Max</button>
                       </div>
                     </div>
                     <div id="${ids.readingChatThinkingHint}" class="chat-thinking-hint" role="note" hidden></div>

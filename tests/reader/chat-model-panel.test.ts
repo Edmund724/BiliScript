@@ -11,12 +11,15 @@
 // - renderPanel：按 optgroup 分组渲染、当前选中项 is-selected + ✓、点击选项写
 //   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；
 // - renderPanel 的面板宽度：打开时按 chip 可见宽快照写内联宽（打开期间档位/模型
-//   变化不重算，重开才更新）。
+//   变化不重算，重开才更新）；
+// - renderThinkingChips（06 号票）：按可用集显示/隐藏模板里的 7 个静态 chip——
+//   只显示存在的档位、不置灰（hidden 而非 disabled）、文案与标签表同源。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
 let createReaderChatModelPanel: typeof import("../../extension/reader/chat-model-panel.js").createReaderChatModelPanel;
+let THINKING_LEVEL_LABELS: typeof import("../../extension/reader/chat-model-panel.js").THINKING_LEVEL_LABELS;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 
@@ -24,7 +27,9 @@ beforeEach(async () => {
   resetModuleState();
   chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
   chatSessionStateForTests = (await import("../../extension/chat/chat-state.js")).chatSessionStateForTests;
-  createReaderChatModelPanel = (await import("../../extension/reader/chat-model-panel.js")).createReaderChatModelPanel;
+  const panelModule = await import("../../extension/reader/chat-model-panel.js");
+  createReaderChatModelPanel = panelModule.createReaderChatModelPanel;
+  THINKING_LEVEL_LABELS = panelModule.THINKING_LEVEL_LABELS;
   document.body.innerHTML = "";
 });
 
@@ -46,6 +51,22 @@ function makeSelect() {
   return select;
 }
 
+// 档位 chip 容器：模板里 7 个静态按钮（chat-template.ts 的同一份数据级与文案）。
+function makeThinkingToggle() {
+  const toggle = document.createElement("div");
+  toggle.innerHTML = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+    .map((level) => `<button type="button" class="chat-thinking-btn" data-level="${level}">${THINKING_LEVEL_LABELS[level]}</button>`)
+    .join("");
+  document.body.appendChild(toggle);
+  return toggle;
+}
+
+function visibleLevels(toggle: HTMLElement): string[] {
+  return [...toggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn")]
+    .filter((btn) => !btn.hidden)
+    .map((btn) => btn.dataset.level || "");
+}
+
 function makeHarness(select = makeSelect()) {
   const chip = document.createElement("button");
   const chipModel = document.createElement("span");
@@ -53,10 +74,20 @@ function makeHarness(select = makeSelect()) {
   chip.append(chipModel, chipLevel);
   const panelList = document.createElement("div");
   const panel = document.createElement("div");
+  const thinkingToggle = makeThinkingToggle();
   document.body.append(chip, panelList, panel);
   const hidePanel = vi.fn();
-  const modelPanel = createReaderChatModelPanel({ modelSelect: select, chip, chipModel, chipLevel, panelList, panel, hidePanel });
-  return { select, chip, chipModel, chipLevel, panelList, panel, hidePanel, modelPanel };
+  const modelPanel = createReaderChatModelPanel({
+    modelSelect: select,
+    chip,
+    chipModel,
+    chipLevel,
+    panelList,
+    panel,
+    thinkingToggle,
+    hidePanel
+  });
+  return { select, chip, chipModel, chipLevel, panelList, panel, thinkingToggle, hidePanel, modelPanel };
 }
 
 describe("renderChip", () => {
@@ -203,5 +234,67 @@ describe("renderPanel 的面板宽度（打开时快照）", () => {
     // 重开（再次 renderPanel）才取新值
     modelPanel.renderPanel();
     expect(panel.style.width).toBe("300px");
+  });
+});
+
+describe("renderThinkingChips（06 号票：按可用集渲染 chip 集合）", () => {
+  it("只显示可用集里的档位：{off,low,medium,xhigh} → 隐藏 minimal/high/max", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+
+    modelPanel.renderThinkingChips(["off", "low", "medium", "xhigh"]);
+
+    expect(visibleLevels(thinkingToggle)).toEqual(["off", "low", "medium", "xhigh"]);
+  });
+
+  it("不置灰：隐藏走 hidden（CSS 不显示），不是 disabled（无禁用态 chip）", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+
+    modelPanel.renderThinkingChips(["off", "high"]);
+
+    expect(visibleLevels(thinkingToggle)).toEqual(["off", "high"]);
+    for (const btn of thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn")) {
+      expect(btn.disabled, btn.dataset.level).toBe(false);
+      expect(btn.hasAttribute("disabled")).toBe(false);
+    }
+  });
+
+  it("空可用集：7 个 chip 全隐藏（minimax-m3：连 off 也不可用）", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+
+    modelPanel.renderThinkingChips([]);
+
+    expect(visibleLevels(thinkingToggle)).toEqual([]);
+    expect(thinkingToggle.querySelectorAll(".chat-thinking-btn")).toHaveLength(7);
+  });
+
+  it("可复现：可用集变化后重渲染，隐藏的 chip 会回来", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+
+    modelPanel.renderThinkingChips(["off", "high"]);
+    expect(visibleLevels(thinkingToggle)).toEqual(["off", "high"]);
+
+    modelPanel.renderThinkingChips(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+    expect(visibleLevels(thinkingToggle)).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("chip 文案由标签表改写（模板占位不是唯一来源，7 档标签一处定义）", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+    const expected: Record<string, string> = {
+      off: "Off",
+      minimal: "Minimal",
+      low: "Low",
+      medium: "Medium",
+      high: "High",
+      xhigh: "XHigh",
+      max: "Max"
+    };
+
+    modelPanel.renderThinkingChips(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+    for (const btn of thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn")) {
+      const level = btn.dataset.level || "";
+      expect(btn.textContent, level).toBe(expected[level]);
+      expect(btn.textContent, level).toBe(THINKING_LEVEL_LABELS[level]);
+    }
   });
 });
