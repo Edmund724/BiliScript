@@ -14,6 +14,7 @@
 // Modal，与接线同属一条点击链。函数体自原 provider-editor.ts 逐字节搬移。
 
 import { escapeHtml } from "../shared/string-utils.js";
+import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { testAsrConnection } from "../asr/provider-test.js";
 import { listAsrModels } from "../asr/provider-models.js";
 import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../core/presets.js";
@@ -255,14 +256,17 @@ export async function deleteActive(): Promise<void> {
 // ===== 测试连接（只验证连通性，成功也不落盘；保存只在点「保存」时发生） =====
 //
 // AI：行级测试（拍板 Q4/Q12，runModelTest），平台级按钮已退役；本函数只剩
-// ASR 平台级测试与搜索测试动作（spec §6.6）。三者同一语义：探针直调（与平铺行
-// 同源，options 页本地执行免 SW 往返），成功回报连通性，不写设置。
+// ASR 平台级测试与搜索测试动作（spec §6.6）。ASR 的探针经 port 走 offscreen，
+// 与实际转写同一条链路（dc6c4c1：探针与真跑曾分叉，才会「未授权却测出连接成功」）；
+// 探针的 host 权限前置在这里补齐——点按钮这次点击就是唯一的手势，弹窗只此一次机会。
 
 export async function runTest(): Promise<void> {
   // 平台级测试能力按族声明（ASR 探针 / 搜索测试动作）；函数体仍按族直写
   if (!PROVIDER_FAMILY_ROWS[state.kind].editor.supportsPlatformTest) return;
   if (state.kind === "search") {
-    await runSearchTest();
+    // 不同步 await：搜索域名是 manifest 静态 host 权限（settings-panel 保存链同款
+    // 判据），不代申请；这里让出控制权也不影响手势（该分支直接返回，从不到申请处）
+    void runSearchTest();
     return;
   }
   const draft = state.draft!;
@@ -274,6 +278,14 @@ export async function runTest(): Promise<void> {
   }
   if (!model) {
     showStatus("请填写模型名", true);
+    return;
+  }
+  // 手势不变式：本次点击直达权限代申请（此前零 await，见 tests/ui/
+  // options-save-gesture.test.ts 的调用方扫描）。已授权时 Chrome 直接放行不弹窗；
+  // 未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
+  const permission = await requestProviderOriginsViaBackground([baseUrl]);
+  if (!permission.ok) {
+    showStatus(permission.error || "未取得该平台域名权限，无法测试连接", true);
     return;
   }
   setBusy(true);

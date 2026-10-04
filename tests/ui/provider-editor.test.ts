@@ -11,7 +11,8 @@
 // - 模型目录（multi-model-catalog 阶段2，拍板 Q3/Q7/Q9/Q10/Q13）：行增删只改
 //   草稿（加行即脏），收集 trim/去空行/去重，空目录合法有空态提示；
 // - 行级连通测试（拍板 Q4/Q12）：行内 spinner→✓/✕，多行并发、同行重复点击
-//   忽略前一个，测试不落盘（绝无保存与权限消息）；ASR 平台级测试保留；
+//   忽略前一个，测试不落盘（绝无保存与权限消息）；ASR 平台级测试保留，且在点击
+//   手势同步链上先代申请域名权限再发探针（拒绝则不探针，提示可原地重试）；
 // - 「获取可用模型」弹窗（拍板 Q5/Q11）：地址/Key 前置校验、权限在点击同步
 //   链（先于模型请求）、搜索/全选、已添加置灰、失败原位重试、Esc 逐层退出；
 // - dirty 保护（拍板 Q6）：有改动弹面板内确认（ui/confirm-dialog.js），无改
@@ -979,9 +980,20 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.title).toBe("失败：model not found");
   });
 
-  it("ASR 保留平台级测试按钮且行为不变（ASR 侧不动）", async () => {
+  it("ASR 保留平台级测试按钮：权限代申请先于探针，成功回「连接成功」", async () => {
     const { testAsrConnection } = await import("../../extension/asr/provider-test.js");
-    const { host } = await mountPanel();
+    // 顺序账本：权限代申请 → 探针，二者都落地才算「先申请权限再真发请求」
+    const order: string[] = [];
+    vi.mocked(testAsrConnection).mockImplementationOnce(async () => {
+      order.push("probe");
+      return { ok: true };
+    });
+    const { sent, host } = await mountPanel({
+      "request-provider-origins": () => {
+        order.push("permission");
+        return { ok: true };
+      }
+    });
     const { dialog } = await openEditor(host, "#addAsrProviderBtn");
 
     expect(dialog.querySelector(".provider-editor-test")).not.toBeNull();
@@ -992,11 +1004,36 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     fireClick(dialog.querySelector(".provider-editor-test"));
 
     await vi.waitFor(() => {
-      expect(testAsrConnection).toHaveBeenCalled();
-    });
-    await vi.waitFor(() => {
       expect(dialog.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toBe("连接成功");
     });
+    expect(order).toEqual(["permission", "probe"]);
+    const granted = sent.find((message) => message.type === "request-provider-origins");
+    expect(granted?.baseUrls).toEqual(["https://asr.example.com/v1"]);
+  });
+
+  it("ASR 平台级测试：权限被拒 → 状态行报可操作提示，不发探针、不卡 busy", async () => {
+    const { testAsrConnection } = await import("../../extension/asr/provider-test.js");
+    const { host } = await mountPanel({
+      "request-provider-origins": () => ({
+        ok: false,
+        error: "未授权 https://asr.example.com/*，操作已中止：请在权限弹窗中选择允许后重试"
+      })
+    });
+    const { dialog } = await openEditor(host, "#addAsrProviderBtn");
+
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
+
+    fireClick(dialog.querySelector(".provider-editor-test"));
+
+    await vi.waitFor(() => {
+      expect(dialog.querySelector<HTMLElement>(".provider-editor-status")!.dataset.error).toBe("true");
+    });
+    const status = dialog.querySelector<HTMLElement>(".provider-editor-status")!;
+    expect(status.textContent).toContain("操作已中止");
+    expect(testAsrConnection).not.toHaveBeenCalled();
+    // 拒绝不等于失败态：按钮必须可再点（用户改完权限可原地重试）
+    expect(dialog.querySelector<HTMLButtonElement>(".provider-editor-test")!.disabled).toBe(false);
   });
 });
 
