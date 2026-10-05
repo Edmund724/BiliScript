@@ -19,6 +19,8 @@ import { runCachedMap } from "./pool.js";
 import { shouldReduce, reduceSummaries } from "./reduce.js";
 import { createSegmentCacheWriteSession, type SegmentCacheOps, type SegmentCacheWriteSession } from "./segment-cache-proxy.js";
 import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
+// 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
+import type { ThinkingLevelInput } from "./thinking-levels.js";
 // port 回吐的消息联合单源在 chat/protocol.ts（ticket 08）：原「StreamChatEvent |
 // { type: string; data?: string; reason?: string }」手抄变体删除，改引协议联合。
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
@@ -111,7 +113,8 @@ interface SummarizeSegmentInput {
   segment: BudgetPlanSegment;
   total: number;
   signal?: AbortSignal | null;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
+  thinkingLevel?: ThinkingLevelInput;
   chatCompletionImpl: ChatCompletionImpl;
   segmentCache: SegmentCacheOps;
   notifyCacheWriteError: () => void;
@@ -189,7 +192,8 @@ interface OrchestrateMapReduceInput {
   plan?: BudgetPlan | null;
   port?: ChatPort | null;
   signal?: AbortSignal | null;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
+  thinkingLevel?: ThinkingLevelInput;
   onProgress?: (notice: string) => void;
   chatCompletion?: ChatCompletionImpl;
   // 段缓存写会话工厂注入缝（arch-review-2026-09/05 写单元 run-scoped 化）：缺省

@@ -37,6 +37,23 @@ export function isThinkingLevelValue(value: unknown): value is ThinkingLevelValu
   return typeof value === "string" && VALUE_SET.has(value);
 }
 
+// 「未归一的档位外部值」——**归一化边界以外的值**的声明面（端口载荷 / 请求字段 / 存储值）。
+//
+// 归一化的施加点就是下面那条**一条归一化、两处消费**：请求侧的 resolveThinkingProfile /
+// resolveThinkingAdjustment（它们的 ResolveThinkingInput.level 声明的就是本类型的值——那是
+// 「未归一的外部值」，见 thinking-profiles）与设置 / 面板侧的 normalizeThinkingLevel 消费者。
+// 所以**从端口载荷到请求构造的整条链（ladder / client / completion / map-reduce / tool-loop /
+// analysis-orchestrate / adapter 的 ChatRequest）传的都是本类型的值**：合法档位、缺省、以及
+// 端口里真实可到的任意脏值（非字符串、空串、上游的 `none`、编造词——
+// tests/ai/thinking-default-fallback.test.ts 钉着这条路径）。链上只透传：不判、不归、不拒
+//（归一化只在边界做一次）。
+//
+// 为什么是 unknown 而不是 string（票 thinking-seam-tightening/02）：`string` 是**假装已经
+// 合法**的收窄，而这条路径上的值恰恰可能是任何东西；收成 `string` 会让链上的值重新长出
+// 字符串语义、让「哪一层是归一化边界」重新变得看不见。链上签名一律用它，编译期断言见
+// tests/ai/thinking-level-boundary.types.ts。
+export type ThinkingLevelInput = unknown;
+
 // 缺省 / 无法识别的脏值（含未定义、空串、上游的 none）一律归 `default`（不干预）：
 // **一条归一化、两处消费**（2026-10-05 用户裁定两轮落地，见 docs/adr/0015 文末修订块）——
 //   - 请求路径：thinking-profiles 的两个解析入口（resolveThinkingProfile /

@@ -7,6 +7,9 @@
 // 注册表开放：加第四种协议（Gemini 等）= 实现一个 ProtocolAdapter + 登记一行，
 // core 零改动。
 import type { ChatMessage, ChatToolCall, ChatUsage, StreamChatEvent } from "./types.js";
+// 未归一的档位外部值的声明面（词表叶；adapter 只把它交给解析层，自己不看值）。
+// 纯类型引入：无运行时依赖边（叶本身零 import，SW 静态图安全）。
+import type { ThinkingLevelInput } from "./thinking-levels.js";
 
 // 词表叶 re-export：类型消费者沿用本模块路径，不感知拆分。分发表键以
 // Record<AiProtocol, ...> 注解强制覆盖词表叶（单源，禁止第二份词表）。
@@ -46,7 +49,9 @@ export interface ChatRequest {
   apiKey?: string;
   /** 思考档位查表的平台识别输入（presetId 主路径，custom/旧记录靠 baseUrl host 兜底） */
   presetId?: string;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传给 adapter 的请求构造；归一施加点是 thinking-profiles
+  // 的两个解析入口，见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
+  thinkingLevel?: ThinkingLevelInput;
   maxTokens?: number | null;
   tools?: ChatToolDefinition[];
 }

@@ -18,6 +18,8 @@ import { estimateTokensFromChars } from "./usage-stats.js";
 // 图片合法性白名单（image-input 路线 B）：与历史加载侧同一份判定（01 号票的
 // 单点），port 载荷在阶梯入口归一后随 streamChat 下发。
 import { normalizeImageParts } from "./conversation.js";
+// 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
+import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type { ChatMessage, ImagePart } from "./types.js";
 
 export interface ChatContext {
@@ -30,7 +32,11 @@ export interface ChatMsg {
   context?: ChatContext;
   history?: ChatMessage[];
   prompt?: string;
-  thinkingLevel?: string;
+  // 档位偏好：**未归一的外部值**——端口载荷（wire 值是外部输入，按设计宽容解析：合法档位 /
+  // 缺省 / 脏值都可能到）。本层只透传，归一施加点在请求侧的两个解析入口
+  // （resolveThinkingProfile / resolveThinkingAdjustment，见 ai/thinking-levels.ts 的
+  // ThinkingLevelInput）：链上再归一次 = 二次归一，解析入口「未归一外部值」的声明失真。
+  thinkingLevel?: ThinkingLevelInput;
   // 图片输入（image-input 路线 B）：本轮用户消息的图片（宿主粘贴 → content 侧
   // 压缩后的 WebP base64）。port 载荷宽容解析（normalizeImageParts 白名单）。
   images?: unknown;
@@ -74,7 +80,8 @@ export interface StreamChatArgs {
   history: ChatMessage[];
   // 图片输入（image-input 路线 B）：本轮用户消息的图片（无图时 undefined）。
   userImages?: ImagePart[];
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
+  thinkingLevel?: ThinkingLevelInput;
   port: ChatPort;
   signal: AbortSignal | null;
   onActivity?: () => void;
@@ -92,7 +99,8 @@ export interface OrchestrateMapReduceArgs {
   plan: BudgetPlan | null;
   port: ChatPort;
   signal: AbortSignal | null;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
+  thinkingLevel?: ThinkingLevelInput;
   onProgress: (notice: string) => void;
 }
 

@@ -16,6 +16,8 @@ import { chatCompletion } from "./completion.js";
 import { parseToolArgs } from "./adapters/openai.js";
 import type { ChatToolDefinition } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
+// 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
+import type { ThinkingLevelInput } from "./thinking-levels.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 
 // web_search 工具定义（spec §2.1 原文）：对话链版本带 §4 引用要求——正文引用
@@ -76,7 +78,9 @@ export interface RunToolLoopInput {
   messages: ChatMessage[];
   stream?: boolean;
   signal?: AbortSignal | null;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层逐轮透传给 chatCompletion；归一施加点在解析入口，
+  // 见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
+  thinkingLevel?: ThinkingLevelInput;
   maxToolCalls: number;
   executeSearch: ExecuteSearchFn;
   // 工具定义变体：缺省 WEB_SEARCH_TOOL（对话链带 [n] 引用要求）；选区解释链

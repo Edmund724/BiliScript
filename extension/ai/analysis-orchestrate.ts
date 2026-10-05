@@ -45,6 +45,8 @@ import {
 // 与 reader 概览 tab 的身份键同源，禁止两处各判一次（见该文件头注）。
 import { resolveChapterSource, type ChapterSource, type OutlineChapter } from "../shared/chapter-outline.js";
 import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
+// 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
+import type { ThinkingLevelInput } from "./thinking-levels.js";
 
 // FNV-1a 32 位哈希与字幕签名族已迁 subtitle/cache.ts（arch-slim-3 #1，键族同居）；
 // 本模块经上方 import 消费同一实现。
@@ -167,7 +169,8 @@ interface RunOverviewAnalysisArgs {
   /** AI 上下文（AiContext 形状）：bvid/cid/字幕轨三键位 + title/author/videoDescription + subtitleBody/chapters。 */
   context: Record<string, unknown>;
   signal?: AbortSignal | null;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
+  thinkingLevel?: ThinkingLevelInput;
   /** 跳过整份缓存读取重新生成（分段缓存仍复用——重试只重跑未落盘段）。 */
   forceRefresh?: boolean;
 }
@@ -281,7 +284,8 @@ async function requestValidatedPart({
   systemPrompt: string;
   built: BuiltAnalysisPrompt;
   minSeconds: number;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
+  thinkingLevel?: ThinkingLevelInput;
   signal?: AbortSignal | null;
   retries?: number;
   chatCompletionImpl: ChatCompletionFn;
@@ -482,7 +486,8 @@ interface ExecuteOverviewRunArgs {
   signature: string;
   finalKey: string;
   signal?: AbortSignal | null;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
+  thinkingLevel?: ThinkingLevelInput;
   forceRefresh: boolean;
   chatCompletionImpl: ChatCompletionFn;
   buildBudgetPlanImpl: BuildBudgetPlanFn;

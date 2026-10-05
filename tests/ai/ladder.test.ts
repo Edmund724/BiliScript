@@ -388,3 +388,77 @@ describe("图片输入透传（image-input 路线 B）", () => {
     expect(overflowDeps.calls.mapReduce[0].plan).toBeNull();
   });
 });
+
+describe("档位透传（票 thinking-seam-tightening/02：链上只透传，归一施加点只在解析入口）", () => {
+  // 端口载荷里的档位值是**未归一的外部值**（合法档位 / 缺省 / 脏值都可能到），链上任何
+  // 一处都不许改写它：改写 = 链内二次归一，解析入口「未归一外部值」的声明随之失真
+  //（见 ai/thinking-levels.ts 的 ThinkingLevelInput、ai/thinking-profiles.ts 的两个解析
+  // 入口与 docs/adr/0015 的 2026-10-05 修订块）。判据 = 到达下游的值逐字相同：链路任一环
+  // 提前归一（脏值 → default）这里立刻红。编译期同一条分层的断言见
+  // tests/ai/thinking-level-boundary.types.ts。
+  const DIRTY: unknown[] = ["none", "", 7, null, { weird: true }];
+
+  it("单次路径：端口脏值（含非字符串）逐字到达 streamChat，不判、不归、不拒", async () => {
+    for (const dirty of DIRTY) {
+      const { deps, calls } = makeDeps();
+
+      await runLadderChat(
+        { msg: { ...makeMsg(), thinkingLevel: dirty }, provider: { id: "p" }, port: makePort(), signal: new AbortController().signal },
+        deps
+      );
+
+      expect(calls.streamChat[0].thinkingLevel, `thinkingLevel=${JSON.stringify(dirty)}`).toBe(dirty);
+    }
+  });
+
+  it("合法档位同样逐字透传（透传不挑值）", async () => {
+    const { deps, calls } = makeDeps();
+
+    await runLadderChat(
+      { msg: { ...makeMsg(), thinkingLevel: "high" }, provider: { id: "p" }, port: makePort(), signal: new AbortController().signal },
+      deps
+    );
+
+    expect(calls.streamChat[0].thinkingLevel).toBe("high");
+  });
+
+  it("追问压缩 / Map-Reduce 主路径 / 单次溢出转 Map-Reduce：三条边同样逐字透传", async () => {
+    const dirty = { weird: true };
+    const msg = { ...makeMsg(), thinkingLevel: dirty };
+
+    // 追问压缩路径（压缩摘要 + 单次流式）
+    const followup = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      resolveFollowupContext: vi.fn(async () => ({ compressedSummaryMarkdown: "压缩摘要" }))
+    });
+    await runLadderChat(
+      { msg, provider: { id: "p" }, port: makePort(), signal: new AbortController().signal },
+      followup.deps
+    );
+    expect(followup.calls.streamChat[0].thinkingLevel).toBe(dirty);
+
+    // Map-Reduce 主路径（逐段小结 / 成稿共用同一个值）
+    const main = makeDeps({
+      buildBudgetPlan: () => ({ mode: "map-reduce", estimatedCalls: 8 }),
+      resolveFollowupContext: vi.fn(async () => null)
+    });
+    await runLadderChat(
+      { msg, provider: { id: "p" }, port: makePort(), signal: new AbortController().signal },
+      main.deps
+    );
+    expect(main.calls.mapReduce[0].thinkingLevel).toBe(dirty);
+
+    // 单次路径溢出 → 转 Map-Reduce 重试一次
+    const overflow = makeDeps({
+      buildBudgetPlan: () => ({ mode: "single" }),
+      streamChat: vi.fn(async () => {
+        throw makeOverflowError();
+      })
+    });
+    await runLadderChat(
+      { msg, provider: { id: "p" }, port: makePort(), signal: new AbortController().signal },
+      overflow.deps
+    );
+    expect(overflow.calls.mapReduce[0].thinkingLevel).toBe(dirty);
+  });
+});

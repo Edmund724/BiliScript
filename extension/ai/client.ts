@@ -15,6 +15,8 @@ import type { AiContext, AiProvider, ImagePart, StreamChatEvent } from "./types.
 // 出向 port 协议单源（ticket 08）：port 回吐点经 ChatPortMessage 联合标注，
 // 裸 postMessage 字面量获得编译期约束（事件名 typo / 形状漂移编译被拒）。
 import type { ChatPort, ChatPortMessage } from "../chat/protocol.js";
+// 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
+import type { ThinkingLevelInput } from "./thinking-levels.js";
 // 07 票 token 合帧：流式 token 按窗口预算批传，削减结构化克隆次数；
 // 单 token 批次仍走普通 token 事件（慢速流线格式与旧一致）。
 import { TokenBatcher } from "./token-batcher.js";
@@ -42,7 +44,8 @@ interface StreamChatInput {
   port: ChatPort;
   signal?: AbortSignal | null;
   onActivity?: () => void;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传；归一施加点在解析入口，见 ai/thinking-levels.ts）。
+  thinkingLevel?: ThinkingLevelInput;
   // 联网搜索管线（spec §2.3）：传入即走 ai/tool-loop.ts 的工具循环（对话 tab
   // toggle 开启且已配置搜索平台时由 offscreen 注入；Map-Reduce 轮由 ladder 剥离）。
   webSearch?: { maxToolCalls: number; executeSearch: (query: string) => Promise<ToolLoopSearchOutcome> };

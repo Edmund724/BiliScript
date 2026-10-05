@@ -25,6 +25,9 @@ import { presetRequestHeaders } from "./preset-headers.js";
 import { noteUsageSample } from "./usage-stats.js";
 import type { ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage, ProviderRequest, StreamChatEvent } from "./types.js";
+// 未归一的档位外部值的声明面（词表叶；本层只透传进 adapter 的请求构造，不判不归）。
+// 纯类型引入：无运行时依赖边。
+import type { ThinkingLevelInput } from "./thinking-levels.js";
 
 interface OverflowError extends Error {
   overflow: true;
@@ -145,7 +148,9 @@ export interface ChatCompletionInput {
   messages: ChatMessage[];
   stream?: boolean;
   signal?: AbortSignal | null;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本层只透传进 adapter 的请求构造；归一施加点在解析入口，
+  // 见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
+  thinkingLevel?: ThinkingLevelInput;
   retries?: number;
   probe?: boolean;
   maxTokens?: number | null;

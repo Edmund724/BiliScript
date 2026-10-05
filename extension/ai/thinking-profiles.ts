@@ -711,6 +711,9 @@ export interface ResolveThinkingInput {
   // 档位偏好的**外部值**（端口消息 / 请求字段 / 存储值，均未归一）：请求侧的归一入口
   // 就是本接口的两个消费者，缺省与脏值在此归 `default`（不干预，见
   // normalizeThinkingLevel）——所以类型刻意是 unknown，不假装它已经是合法档位。
+  // **本接口就是归一化边界的施加点**：链上（端口载荷 → ladder → client → completion →
+  // adapter 的 ChatRequest）传的就是同一批未归一的值的声明面（ai/thinking-levels.ts
+  // 的 ThinkingLevelInput），链上不判、不归、不拒；由此往内才是 ThinkingLevelValue。
   level: unknown;
   stream: boolean;
 }

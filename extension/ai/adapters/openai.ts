@@ -10,6 +10,8 @@ import { parseOpenAiUsage, parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { resolveThinkingProfile } from "../thinking-profiles.js";
 import { THINKING_WIRE_MAPS } from "../thinking-wire-map.js";
+// 未归一的档位外部值的声明面（词表叶；本文件只透传给解析层）。纯类型引入：无运行时依赖边。
+import type { ThinkingLevelInput } from "../thinking-levels.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 
@@ -21,7 +23,9 @@ interface BuildChatRequestBodyInput {
   model: string;
   messages: ChatRequest["messages"];
   stream?: boolean;
-  thinkingLevel?: string;
+  // 未归一的档位外部值（本函数只把它交给解析层：归一施加点是 resolveThinkingProfile，
+  // 见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
+  thinkingLevel?: ThinkingLevelInput;
   maxTokens?: number | null;
   // 思考参数查表的 provider 识别输入：presetId（preset 词表键）是主路径，
   // baseUrl host 推断兜底（custom/旧记录）。
