@@ -85,14 +85,14 @@ vi.mock("../../extension/bilibili/gateway-core.js", () => ({
 const HINT_LOW_FALLBACK = "当前模型不支持在本次请求中关闭思考，已使用最小思考档位";
 const HINT_UNAVAILABLE = "当前模型没办法关掉思考";
 
-// 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本（源档 → 实发档 + 原因）。
-// 断言逐字——文案与源/目标档是本票的验收面之一。
-const HINT_CLAMP_HIGH_TO_MEDIUM = "档位已按模型能力调整：high → medium（模型词表没有这个档位）";
-const HINT_CLAMP_XHIGH_TO_HIGH = "档位已按模型能力调整：xhigh → high（上游未登记该模型，档位按本仓词表取）";
+// 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本（源档 → 实发档）。
+// 2026-10-05 复审裁定：句式与「关不掉思考」那句对齐，不附原因 → 断言也逐字。
+const HINT_CLAMP_HIGH_TO_MEDIUM = "当前模型不支持思考强度 high，已使用 medium";
+const HINT_CLAMP_XHIGH_TO_HIGH = "当前模型不支持思考强度 xhigh，已使用 high";
 // 06 号票（2026-10-04 用户裁定：A' = 上游词表 ∩ 平台可表达）：平台声明里有 low、上游
 // 词表没有 → 原因层是「模型词表」。13 号票 canonical 优先后 sensenova/glm-5.2 的模型侧
 // 词表只剩 high（canonical = high-max），偏好 low 没有 ≤ low 的档 → 向上落最小可用档 high。
-const HINT_CLAMP_LOW_TO_HIGH = "档位已按模型能力调整：low → high（模型词表没有这个档位）";
+const HINT_CLAMP_LOW_TO_HIGH = "当前模型不支持思考强度 low，已使用 high";
 
 // Kimi/GLM preset host（core/presets.ts）：resolver host 推断的输入形状。
 const KIMI_BASE_URL = "https://api.kimi.com/coding/v1";
@@ -272,6 +272,17 @@ function thinkingRow(): HTMLButtonElement {
   return document.getElementById(ids.readingChatThinkingRow) as HTMLButtonElement;
 }
 
+// chip 上的档位字与一级行右侧的值（口径 ③：两处同源显示，偏好 ≠ 实发时写实发档）。
+function chipLevelText(): string {
+  const node = document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement | null;
+  return node?.textContent || "";
+}
+
+function levelRowValueText(): string {
+  const node = document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement | null;
+  return node?.textContent || "";
+}
+
 describe("Off + 关不掉模型：resolver 判定 → 档位区提示（文案逐字）", () => {
   it("无 low 可落 → 短文案：baseUrl 空 + kimi-k2.7-code（激活前模板默认 hidden，提示只由组合根驱动）", async () => {
     providersPayload = [provider({ id: "p1", model: "kimi-k2.7-code" })];
@@ -406,10 +417,11 @@ describe("实时刷新：提示随模型切换与档位点击即时显隐", () =
 });
 
 // 05 号票（决策 #8 + 裁定 A「clamp 落线 = 实发档位」）：偏好档位被模型词表 clamp 掉时，
-// 提示行如实给出源档 → 实发档 + 原因。off 的既有判定与文案（上面两组）保持不变。
-describe("档位 clamp：提示面给出「源档 → 实发档 + 原因」", () => {
-  it("模型词表没有该档：qwen3.8-max + 偏好 high → 实发 medium（提示逐字）", async () => {
-    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL })];
+// 提示行如实给出源档 → 实发档（2026-10-05 复审：句式与「关不掉」那句对齐、不附原因）。
+// off 的既有判定与文案（上面两组）保持不变。
+describe("档位 clamp：提示面给出「源档 → 实发档」（句式与关不掉提示对齐）", () => {
+  it("模型词表没有该档：qwen3.8-max + 偏好 high → 实发 medium（提示逐字 + chip 同源）", async () => {
+    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL, presetId: "qwen" })];
     settingsPayload = { aiThinkingLevel: "high" };
 
     await activateChatTab();
@@ -417,6 +429,9 @@ describe("档位 clamp：提示面给出「源档 → 实发档 + 原因」", ()
     const hint = getHint();
     expect(hint.hidden).toBe(false);
     expect(hint.textContent).toBe(HINT_CLAMP_HIGH_TO_MEDIUM);
+    // 2026-10-05 复审：chip 与一级行显示实发档，不再显示被裁掉的偏好（High）。
+    expect(chipLevelText()).toBe("Medium");
+    expect(levelRowValueText()).toBe("Medium");
   });
 
   it("可用的档位不误报：qwen3.8-max + 偏好 low → 无提示", async () => {
@@ -480,6 +495,93 @@ describe("档位 clamp：提示面给出「源档 → 实发档 + 原因」", ()
     const hint = getHint();
     expect(hint.hidden).toBe(true);
     expect(hint.textContent).toBe("");
+  });
+});
+
+// ============================================================
+// 显示口径统一（2026-10-05 复审裁定，票据 chat-thinking-submenu/05）：偏好 ≠ 实发档时
+// 一级行/chip 一律显示**实发档**，两格（档位型 clamp / off 关不掉）各有一处真相；列表
+// 仍按偏好打勾（列表那一半是 05 号票未完成的部分，见票）。
+// 走查同时写出可复现工件（.scratch/tickets/chat-thinking-submenu/artifacts/05-showing-effective-level.txt）。
+// 先列可能失败的方式：① clamp 格 chip 仍写被裁掉的偏好；② 两格提示句式不一致（一个带原因）；
+// ③ 列表替实发档打勾（点它不写偏好）；④ 偏好被迁移（换回原模型不回落）。
+// ============================================================
+describe("口径 ③ 统一：偏好 ≠ 实发档 → 一级行/chip 写实发档（走查 + 工件）", () => {
+  it("clamp 格（qwen3.8-max）与 off 关不掉格（sensenova/glm-5.2）逐行对齐，偏好不迁移", async () => {
+    providersPayload = [
+      provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL, presetId: "qwen" }),
+      provider({ id: "p2", model: "glm-5.2", baseUrl: SENSENOVA_BASE_URL, presetId: "sensenova" })
+    ];
+    settingsPayload = { aiThinkingLevel: "high" };
+
+    await activateChatTab();
+
+    const select = getModelSelect();
+    const steps: string[] = [];
+    function snap(label: string): void {
+      steps.push(
+        [
+          label,
+          `偏好=${chatSessionState.aiThinkingLevel}`,
+          `条目=[${renderedThinkingLevels().join(",")}]`,
+          `显示名=[${renderedThinkingLabels().join(",")}]`,
+          `选中=[${activeThinkingLevels().join(",")}]`,
+          `chip=${chipLevelText()}`,
+          `一级行=${levelRowValueText()}`,
+          `提示=${getHint().hidden ? "-" : getHint().textContent}`
+        ].join(" | ")
+      );
+    }
+
+    // ① 档位型 clamp：偏好 high 被裁到 medium → chip/一级行 Medium、列表无人打勾、提示两句式。
+    expect(renderedThinkingLevels()).toEqual(["off", "low", "medium", "xhigh"]);
+    expect(activeThinkingLevels()).toEqual([]);
+    expect(chipLevelText()).toBe("Medium");
+    expect(levelRowValueText()).toBe("Medium");
+    expect(getHint().textContent).toBe(HINT_CLAMP_HIGH_TO_MEDIUM);
+    snap("1 qwen/qwen3.8-max（偏好 high → 实发 medium）");
+
+    // ② 走真实持久化链把偏好改成 off：chip 照实发档回 Off、提示收起。
+    clickThinking("off");
+    expect(chatSessionState.aiThinkingLevel).toBe("off");
+    expect(chipLevelText()).toBe("Off");
+    expect(getHint().hidden).toBe(true);
+    snap("2 qwen/qwen3.8-max（偏好落盘 off）");
+
+    // ③ off 关不掉：偏好 off 被级联到 high → chip/一级行 High、列表无人打勾、长版提示。
+    select.value = modelOptionValue("p2", "glm-5.2");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(renderedThinkingLevels()).toEqual(["high", "max"]);
+    expect(activeThinkingLevels()).toEqual([]);
+    expect(chipLevelText()).toBe("High");
+    expect(levelRowValueText()).toBe("High");
+    expect(getHint().textContent).toBe(HINT_LOW_FALLBACK);
+    snap("3 sensenova/glm-5.2（偏好 off → 实发 high）");
+
+    // ④ 偏好不迁移：换回支持 off 的模型，偏好原样解析（仍是 off、不是被级联改写的 high）。
+    select.value = modelOptionValue("p1", "qwen3.8-max");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(chatSessionState.aiThinkingLevel).toBe("off");
+    expect(chipLevelText()).toBe("Off");
+    expect(getHint().hidden).toBe(true);
+    snap("4 qwen/qwen3.8-max（偏好仍 off，未被 ③ 迁移）");
+
+    expect(steps).toHaveLength(4);
+
+    const artifactDir = join(process.cwd(), ".scratch", "tickets", "chat-thinking-submenu", "artifacts");
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(
+      join(artifactDir, "05-showing-effective-level.txt"),
+      [
+        "# 显示口径统一走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
+        "# 用例：偏好 ≠ 实发档的两格（档位型 clamp / off 关不掉）逐行看 chip、一级行、列表勾、提示",
+        "# 判据：chip 与一级行写实发档（Medium / High）、列表按偏好打勾（两格都无人打勾）、",
+        "#       提示句式同为「当前模型不支持思考强度 X，已使用 Y」、偏好不迁移（换回原模型回落 off）",
+        "# 每行 = 一步；同命令重跑逐字节一致",
+        ...steps,
+        ""
+      ].join("\n")
+    );
   });
 });
 
@@ -635,11 +737,10 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     expect(renderedThinkingLevels()).toEqual(["off", "low", "medium", "xhigh"]);
     expect(getThinkingBtn("high")).toBe(null);
     // 偏好档位没有对应条目 → 没有 active 条目（档位页的语义 = 「这个模型有哪些档位」，
-    // 偏好的偏差由说明文本承担），而 chip 与一级行仍照偏好显示 High。
+    // 偏好的偏差由说明文本承担），而 chip 与一级行按口径 ③ 显示**实发档** Medium。
     expect(activeThinkingLevels()).toEqual([]);
     expect(getHint().textContent).toBe(HINT_CLAMP_HIGH_TO_MEDIUM);
-    const chipLevel = document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement;
-    expect(chipLevel.textContent).toBe("High");
+    expect(chipLevelText()).toBe("Medium");
   });
 
   it("模型切换即重渲条目：开关型（2 项）→ 三档模型 → 空集模型 → 切回", async () => {

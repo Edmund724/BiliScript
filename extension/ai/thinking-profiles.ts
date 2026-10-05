@@ -676,7 +676,8 @@ export function resolveThinkingProfile(input: ResolveThinkingInput): ThinkingRes
 }
 
 // 提示面入口（05 号票）：一次给出「偏好档位 → 实发档位 + 原因」，供对话 UI 渲染
-// 「档位已按模型能力调整：high → medium」。请求字段与这里的 effectiveLevel 同源
+// 「当前模型不支持思考强度 high，已使用 medium」（2026-10-05 复审定的句式；原因仍由
+// reason 给出，UI 今天不展示）。请求字段与这里的 effectiveLevel 同源
 // （同一张规则 + 同一个 clampThinkingLevel），不会出现「提示说 medium、请求发 xhigh」。
 export interface ThinkingLevelAdjustment {
   // 与请求侧同一个解析结果（UI 的 offUnavailable / offFallback 判定读它）。

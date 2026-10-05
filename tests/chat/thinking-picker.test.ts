@@ -11,7 +11,9 @@
 //   6. 偏好落在可用集外时仍显示 On——与提示行的「low → off」自相矛盾；
 //   7. 显示名出现第二套推导（chip 与列表不同源）；
 //   8. 标签表键集漂移（多了 none / 少了档位）；
-//   9. 关不掉（off ∉ A'）却显示 Off——一级行与线上实发的档位不符（口径 ③，2026-10-05 复审）。
+//   9. 偏好 ≠ 实发档却显示偏好——一级行与线上实发的档位不符（口径 ③，2026-10-05 两轮复审：
+//      关不掉那一格先改，随后统一到档位型 clamp）；
+//  10. 无实发档信息（effectiveLevel null，A' = ∅）时不回落偏好词（面板整行隐藏，显示名仍需确定值）。
 
 import { describe, expect, it } from "vitest";
 import {
@@ -23,8 +25,8 @@ import {
 } from "../../extension/chat/thinking-picker.js";
 import { AI_THINKING_LEVELS, type ThinkingLevel } from "../../extension/ai/thinking-profiles.js";
 
-// 入参工厂：effectiveLevel 缺省 null = 「没有实发档信息」（口径 ③ 只在偏好 off 且
-// off ∉ A' 且实发档非 off 时才替换显示档，缺省值即那条回退路径）。
+// 入参工厂：effectiveLevel 缺省 null = 「没有实发档信息」（口径 ③ 的回退路径：显示档回落
+// 偏好词；真实调用方总带同一次解析的实发档，只有 A' = ∅ 的零档行才是 null）。
 function input(
   availableLevels: readonly ThinkingLevel[],
   requestedLevel: ThinkingLevel,
@@ -124,9 +126,12 @@ describe("thinkingPickerLabel（chip 档位 span 与一级行右侧同源）", (
     expect(thinkingPickerLabel(input(["off", "high"], "high"))).toBe("On");
   });
 
-  it("偏好落在可用集外：显示偏好自己的档位词，不显示 On（避免与「low → off」提示矛盾）", () => {
+  it("没有实发档信息（effectiveLevel null）：回落偏好自己的档位词", () => {
+    // 真实调用方只有 A' = ∅ 的零档行才会传 null（那时面板整行隐藏）；此处同时钉住
+    // 「显示档落在可用集外不给 On」的兜底分支：偏好不在可用集里、又不知实发档 → 不显示 On。
     expect(thinkingPickerLabel(input(["off", "high"], "low"))).toBe("Low");
     expect(thinkingPickerLabel(input(["high", "max"], "medium"))).toBe("Medium");
+    expect(thinkingPickerLabel(input(["low", "high"], "off"))).toBe("Off");
   });
 
   it("普通多档：逐档用上游词", () => {
@@ -137,18 +142,20 @@ describe("thinkingPickerLabel（chip 档位 span 与一级行右侧同源）", (
   });
 });
 
-// 口径 ③（2026-10-05 复审裁定）：偏好 off 而该模型关不掉时，一级行与 chip 显示
-// **实发档**——线上发 high 就写 High，不再一边写 Off 一边发 high。列表不替实发档打勾：
-// 打勾是「点它不写偏好」的判据，替实发档打勾会让用户点了 High 却什么都没落盘。
-describe("口径 ③：off 关不掉 → 一级行显示实发档（列表仍按偏好打勾）", () => {
-  it("多档模型：{high,max} + 偏好 off + 实发 high → 一级行 High；列表条目不变、无人打勾", () => {
+// 口径 ③（2026-10-05 两轮复审裁定）：偏好 ≠ 实发档时，一级行/chip **一律显示实发档**——
+// 线上发 high 就写 High、被裁到 medium 就写 Medium，不再显示线上没发的东西（第一轮只改
+// off 关不掉那一格，第二轮统一到档位型 clamp）。列表不替实发档打勾：打勾是「点它不写偏好」
+// 的判据，替实发档打勾会让用户点了 High 却什么都没落盘（列表那一半见
+// .scratch/tickets/chat-thinking-submenu/issues/05-picker-effective-level-marker.md）。
+describe("口径 ③：偏好 ≠ 实发档 → 一级行/chip 显示实发档（列表仍按偏好打勾）", () => {
+  it("off 关不掉·多档模型：{high,max} + 偏好 off + 实发 high → 一级行 High；列表条目不变、无人打勾", () => {
     const view = input(["high", "max"], "off", false, "high");
     expect(thinkingPickerLabel(view)).toBe("High");
     expect(levelsOf(thinkingPickerEntries(view))).toEqual(["high", "max"]);
     expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
   });
 
-  it("单档模型（上游只登记一个真实档位）：实发 high → 一级行照这里的 On 口径显示", () => {
+  it("off 关不掉·单档模型（上游只登记一个真实档位）：实发 high → 一级行照 On 口径显示", () => {
     const view = input(["high"], "off", false, "high");
     expect(thinkingPickerLabel(view)).toBe("On");
     expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
@@ -160,15 +167,33 @@ describe("口径 ③：off 关不掉 → 一级行显示实发档（列表仍按
     expect(activeOf(thinkingPickerEntries(view))).toEqual(["off"]);
   });
 
-  it("无档可落（effectiveLevel null，A' = ∅）：维持 Off（面板整行隐藏，显示名无人消费）", () => {
-    const view = input([], "off", false, null);
-    expect(thinkingPickerLabel(view)).toBe("Off");
-    expect(thinkingPickerEntries(view)).toEqual([]);
+  it("无档可落（effectiveLevel null，A' = ∅）：维持偏好词（面板整行隐藏，显示名无人消费）", () => {
+    const off = input([], "off", false, null);
+    expect(thinkingPickerLabel(off)).toBe("Off");
+    expect(thinkingPickerEntries(off)).toEqual([]);
+
+    const high = input([], "high", false, null);
+    expect(thinkingPickerLabel(high)).toBe("High");
+    expect(thinkingPickerEntries(high)).toEqual([]);
   });
 
-  it("偏好非 off 时不受影响：档位型 clamp 仍显示偏好自己的档位词、不替它打勾（05 号票口径）", () => {
-    const view = input(["high", "max"], "medium", false, "high");
+  it("档位型 clamp（偏好 high、A' = {low,medium}）→ 一级行显示实发档 Medium，不显示 High", () => {
+    const view = input(["low", "medium"], "high", false, "medium");
     expect(thinkingPickerLabel(view)).toBe("Medium");
+    expect(levelsOf(thinkingPickerEntries(view))).toEqual(["low", "medium"]);
     expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
+  });
+
+  it("档位型 clamp·偏好落在可用集下方（{off,high} + 偏好 low → 实发 off）：一级行 Off", () => {
+    const view = input(["off", "high"], "low", false, "off");
+    expect(thinkingPickerLabel(view)).toBe("Off");
+    expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
+  });
+
+  it("档位型 clamp·单档模型（{high,max} + 偏好 medium → 实发 high）：一级行 On，不是 Medium", () => {
+    const view = input(["high", "max"], "medium", false, "high");
+    expect(thinkingPickerLabel(view)).toBe("High");
+    const single = input(["high"], "medium", false, "high");
+    expect(thinkingPickerLabel(single)).toBe("On");
   });
 });

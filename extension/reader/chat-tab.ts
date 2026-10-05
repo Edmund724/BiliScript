@@ -57,7 +57,7 @@ import { state } from "../core/state.js";
 import { extractBvid } from "../bilibili/video-id-shared.js";
 // 思考档位提示的判定入口（工单 03「关不掉」+ 05 号票「被 clamp」）：纯查表 resolver，
 // host 推断 + 上游指派表/taxonomy，无 DOM 依赖（后台路径同款判定天然不渲染提示）。
-import { resolveThinkingAdjustment, type ThinkingClampReason } from "../ai/thinking-profiles.js";
+import { resolveThinkingAdjustment } from "../ai/thinking-profiles.js";
 // 思考强度二级菜单的显示条目与显示名（纯函数；面板只画结果）。
 import { thinkingPickerEntries, thinkingPickerLabel } from "../chat/thinking-picker.js";
 import { formatClock } from "../shared/clock-text.js";
@@ -511,13 +511,11 @@ const THINKING_OFF_FALLBACK_LOW_HINT = "当前模型不支持在本次请求中�
 const THINKING_OFF_UNAVAILABLE_HINT = "当前模型没办法关掉思考";
 
 // 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本。裁定 A 下
-// 「clamp 有效档 = 实发档」，故文案可如实写源档 → 实发档；原因分两层（模型词表 /
-// 上游未登记），由 resolver 的 ThinkingClampReason 给出。
-const THINKING_CLAMP_HINT_PREFIX = "档位已按模型能力调整：";
-const THINKING_CLAMP_REASON_TEXT: Record<ThinkingClampReason, string> = {
-  "model-vocabulary": "模型词表没有这个档位",
-  "upstream-unlisted": "上游未登记该模型，档位按本仓词表取"
-};
+// 「clamp 有效档 = 实发档」，故文案可如实写源档 → 实发档。
+// 2026-10-05 复审裁定：句式与「关不掉思考」那句对齐（「不支持 X，已使用 Y」），
+// 不再附原因（模型词表 / 上游未登记的分层文案随之删除）。
+const THINKING_CLAMP_HINT = (requested: string, effective: string): string =>
+  `当前模型不支持思考强度 ${requested}，已使用 ${effective}`;
 
 // 档位区刷新（06 号票：一次解析同时决定「哪些 chip 存在」与「提示文案」）。
 // 刷新点三处：模型选择 change、档位按钮点击、平台列表重载（init 与
@@ -526,7 +524,8 @@ const THINKING_CLAMP_REASON_TEXT: Record<ThinkingClampReason, string> = {
 //   只显示存在的档位、不置灰；被 clamp 掉的偏好没有 chip，由下面两类文案说明。
 // 两类提示（互斥，前者优先）：
 //   ① 工单 03「关不掉思考」：偏好 off 且 resolver 判 off 不可用（判定与文案都不动）；
-//   ② 05 号票「档位被 clamp」：偏好档位不在模型可用集里时如实给出源档 → 实发档 + 原因。
+//   ② 05 号票「档位被 clamp」：偏好档位不在模型可用集里时如实给出源档 → 实发档
+//      （2026-10-05 复审裁定：句式与①对齐，不再附原因）。
 function refreshThinkingUi(): void {
   const level = chatSessionState.aiThinkingLevel;
   // 识别入参：baseUrl / presetId 沿 loadProvidersAndPrefs 已拉的
@@ -547,8 +546,9 @@ function refreshThinkingUi(): void {
   // 档位条先落（提示行元素缺失也不影响档位的显隐与显示名）。条目与显示名都由
   // chat/thinking-picker 从同一次解析派生：面板只画结果（二级菜单换页 + 选中打勾），
   // 开关型模型在这里被收成 Off/On 两项、chip 与一级行同步显示 On。
-  // effectiveLevel 一并用上：偏好 off 而该模型关不掉时，一级行/chip 显示实发档
-  // （如 {high,max} → High），不再显示线上没发的 Off（2026-10-05 复审裁定）。
+  // effectiveLevel 一并用上：偏好 ≠ 实发档时，一级行/chip 显示**实发档**（关不掉 →
+  // {high,max} 显示 High；档位型 clamp → 偏好 high 而 A' = {low,medium} 显示 Medium），
+  // 不再显示线上没发的东西（2026-10-05 两轮复审裁定）。
   const pickerInput = {
     availableLevels: adjustment.availableLevels,
     switchOnly: adjustment.switchOnly,
@@ -578,9 +578,7 @@ function refreshThinkingUi(): void {
   }
   // ② 被 clamp：只有真的落了别的档位才提示（无档可落 = 维持「不发参」现状，不报文案）。
   if (adjustment.reason && adjustment.effectiveLevel) {
-    hint.textContent =
-      `${THINKING_CLAMP_HINT_PREFIX}${level} → ${adjustment.effectiveLevel}` +
-      `（${THINKING_CLAMP_REASON_TEXT[adjustment.reason]}）`;
+    hint.textContent = THINKING_CLAMP_HINT(level, adjustment.effectiveLevel);
     hint.hidden = false;
   }
 }
