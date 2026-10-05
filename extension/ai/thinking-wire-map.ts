@@ -5,11 +5,11 @@
 // - 模型档位事实（ai/catalog/models-dev-thinking.generated.ts 构建期编译产物，由
 //   thinking-profiles.ts 解析并补兜底）= 事实层：各档发哪套 OpenAI 词汇
 //   （reasoning_effort / enable_thinking / thinking:{type}）；这个模型属于哪类血统
-//   （thinkingClass 三态）由 thinking-profiles.ts 解析时定；token 参数名事实仍由血统表给；
+//   （thinkingClass 三态）由 thinking-profiles.ts 解析时定；token 参数名事实仍由解析层给；
 // - 本表 = 写法层：这套词汇在本协议落成哪个字段、值怎么算——Messages 通道的
 //   effort 词汇改写、开关型血统的开档形状、probe 早退、off 三词汇归一，都在表内逐格写出。
 //
-// 为什么必须显式成表：同一份血统 patch 经 Messages 通道改写时，低档与高档曾被压成
+// 为什么必须显式成表：同一份档位规则 patch 经 Messages 通道改写时，低档与高档曾被压成
 // 同一个预算（塌陷）。塌陷能藏住，正是因为这一层只活在 adapter 的 if 里、
 // 没有可审的表。表把「哪一档发什么」变成逐格可审、可被 golden 逐字节钉住的事实：
 // Messages 通道的档位落线按平台在表内逐格登记（含「该平台未登记线格式出口 → 发裸
@@ -20,9 +20,9 @@
 // 自造预算只会挤占 max_tokens（各平台已实测：思考计入 max_tokens 会把正文挤成
 // 空串）。开关型血统的开档因此只发 thinking:{type:"enabled"}（不带上限）。
 //
-// 纯叶模块：只 type-import 词表叶（AiProtocol）与血统表类型，零运行时依赖（SW 静态
+// 纯叶模块：只 type-import 词表叶（AiProtocol）与 thinking-profiles.ts 类型，零运行时依赖（SW 静态
 // 图安全）。键以 Record<AiProtocol, …> 强制覆盖（沿 protocol-adapter.ts 的既有纪律）：
-// 新增协议必须在本表登记一行；adapter 只做「取血统表 → 取本表 → 并入请求体」，
+// 新增协议必须在本表登记一行；adapter 只做「取档位规则 → 取本表 → 并入请求体」，
 // 不在 adapter 里回抄任何思考字段名或预算取值（对账测试 tests/ai/thinking-wire-map.test.ts）。
 //
 // 不引入表达式引擎（票内被否决的备选）：线格式是代码不是字符串——受 TS 类型检查，
@@ -31,22 +31,22 @@
 import type { AiProtocol } from "./protocol-vocab.js";
 import type { ClassRule } from "./thinking-profiles.js";
 
-/** 血统表的 token 上限参数名事实（openai-reasoning 系 = max_completion_tokens）。 */
+/** 档位规则的 token 上限参数名事实（openai-reasoning 系 = max_completion_tokens）。 */
 export type TokenParam = NonNullable<ClassRule["tokenParam"]>;
 
 /**
- * 表入参：**血统 patch（OpenAI 词汇）+ 上下文事实 + 平台事实**。
+ * 表入参：**档位规则 patch（OpenAI 词汇）+ 上下文事实 + 平台事实**。
  * 各协议行按需读取（openai 行只读 fields/tokenParam；anthropic 行读
  * fields/probe/platformId/effortVocabularyOnly）。
  */
 export interface ThinkingWireInput {
-  /** 血统表给出的本档 patch（OpenAI 词汇）；空对象 = 无事实，一律不发字段。 */
+  /** 档位规则给出的本档 patch（OpenAI 词汇）；空对象 = 无事实，一律不发字段。 */
   fields: Record<string, unknown>;
-  /** 本次请求是否流式（血统表的 streamOnly 事实已在 resolver 侧消费）。 */
+  /** 本次请求是否流式（档位规则的 streamOnly 事实已在 resolver 侧消费）。 */
   stream: boolean;
   /** 探针请求：Messages 通道不发思考字段（怪癖 probeOmitsThinking）。 */
   probe: boolean;
-  /** 血统表的 token 上限参数名事实；缺省按本协议默认（Messages 恒为 max_tokens）。 */
+  /** 档位规则的 token 上限参数名事实；缺省按本协议默认（Messages 恒为 max_tokens）。 */
   tokenParam?: TokenParam;
   /**
    * 平台识别（口径：thinking-profiles 的 PROVIDERS 键空间，adapter 传
@@ -67,8 +67,8 @@ export interface ThinkingWireOutput {
 export type ThinkingWireMap = (input: ThinkingWireInput) => ThinkingWireOutput;
 
 // ===== OpenAI chat completions =====
-// 血统表的词汇就是本协议的线格式（reasoning_effort / enable_thinking /
-// thinking:{type} 三套直写）→ 映射是原样并入；token 上限参数名随血统事实
+// 档位规则的词汇就是本协议的线格式（reasoning_effort / enable_thinking /
+// thinking:{type} 三套直写）→ 映射是原样并入；token 上限参数名随档位规则事实
 // （怪癖 maxTokensField：openai-reasoning 系只认 max_completion_tokens）。
 // 探针不特化：探针请求照发思考字段（现状不变；probeOmitsThinking 是 Messages 侧事实）。
 function openaiWireMap({ fields, tokenParam }: ThinkingWireInput): ThinkingWireOutput {
@@ -107,14 +107,14 @@ export type MessagesTierVocabulary = "effort" | "effort-bare" | "reasoning-effor
 // 缺口；zhipu 把 low/medium 折成 high 是**服务端**归一化，本表不代平台改写档位词。
 // 与 compat-vocab 的 effortVocabMessages（stepfun / amd，严格只认 output_config.effort）键集
 // 不相交：那种平台在 effortVocabularyOnly 分支就返回，走不到本表。各格形状一律以官方文档为准，
-// 血统表算出的档位词（reasoning_effort 值）原样作为平台档位词发出，不另造映射。
+// 档位规则算出的档位词（reasoning_effort 值）原样作为平台档位词发出，不另造映射。
 const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
   // deepseek：Anthropic 兼容页只支持 thinking 与 output_config（且 "Only effort is supported"），
   // budget_tokens 被忽略；档位词 low/high/max（默认 high）
   // （api-docs.deepseek.com/guides/anthropic_api、api-docs.deepseek.com/guides/thinking_mode）。
   deepseek: "effort",
   // qwen 百炼：output_config.effort 为平台扩展参数、budget_tokens「即将废弃」；qwen3.8-max
-  // 词表 xhigh/medium/low（默认 xhigh，high/max 映射为 xhigh）——血统表的 high 档正是 xhigh
+  // 词表 xhigh/medium/low（默认 xhigh，high/max 映射为 xhigh）——档位规则的 high 档正是 xhigh
   // （help.aliyun.com/zh/model-studio/anthropic-api-messages）。
   // qwen3-max **不走本行**：上游值集是 `toggle+b:-81920`（无 effort 词表），low/high 同为
   // 裸开档、塌陷是唯一形状——上游事实，见 anthropicWireMap 的 ② 格注释。
@@ -150,7 +150,7 @@ const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
   modelscope: "effort-bare"
 };
 
-// Messages 通道的思考档位改写（怪癖 thinkingFormat）：血统表的 chat 形状字段 →
+// Messages 通道的思考档位改写（怪癖 thinkingFormat）：档位规则的 chat 形状字段 →
 // Anthropic 线格式。三种关思考词汇殊途同归为 thinking:{type:"disabled"}——怪癖
 // thinkingDisabledMustBeExplicit：「Anthropic 默认即关、一律不发字段」在默认开思考的
 // 网关上不成立（ModelScope Messages 端点实测 2026-09：deepseek-ai/DeepSeek-V4.1-Flash
@@ -193,8 +193,8 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
   const effort = fields.reasoning_effort;
   const bloodLineEffort = typeof effort === "string" && effort !== "none" ? effort : undefined;
 
-  // 怪癖 effortVocabMessages（stepfun / amd）：只认 output_config.effort，血统的档位词原样
-  // 作为 effort 发出；若血统给的是别的开关词汇则不发——软失败优于硬 400。
+  // 怪癖 effortVocabMessages（stepfun / amd）：只认 output_config.effort，解析层的档位词原样
+  // 作为 effort 发出；若档位规则给的是别的开关词汇则不发——软失败优于硬 400。
   if (input.effortVocabularyOnly) {
     if (bloodLineEffort) output.fields.output_config = { effort: bloodLineEffort };
     return output;
@@ -219,7 +219,7 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
 
   // ② 开关型血统：该通道只有开/关两态、无档位词，low 与 high 同为裸开档（显式登记的一格）。
   // 依据：GLM-4.5~5.1、kimi-k2.5/k2.6、doubao-seed 等平台的官方字段表只登记开/关两态
-  // （docs.bigmodel.cn、platform.kimi.ai、volcengine.com）；血统表的 enable_thinking /
+  // （docs.bigmodel.cn、platform.kimi.ai、volcengine.com）；档位规则的 enable_thinking /
   // thinking:{type:"enabled"} 都译成该通道的裸开档形状。
   output.fields.thinking = { type: "enabled" };
   return output;

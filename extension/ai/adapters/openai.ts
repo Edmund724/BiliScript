@@ -75,7 +75,7 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
 /**
  * 构造 chat/completions 请求体（纯函数，便于单测；请求构造单点）。
  * stream 显式传递（流式 true / 非流式 false）；maxTokens 供探针传 1。
- * 思考字段由 thinking-profiles 的血统表（resolveThinkingProfile）查表决定（怪癖
+ * 思考字段由 thinking-profiles 的档位规则（resolveThinkingProfile）查表决定（怪癖
  * thinkingFormat，语义见 compat-vocab）：平台（presetId / baseUrl host）× 模型
  * （有上游平台时先查上游编译产物的指派表，未命中才回落例外表 >> 模式表）→ 档位
  * patch（OpenAI 词汇）；该词汇在本协议的线上写法由
@@ -244,7 +244,7 @@ export const openaiAdapter: ProtocolAdapter = {
   },
 
   buildBody(request: ChatRequest): Record<string, unknown> {
-    // 迁入现有 buildChatRequestBody：血统表查表（presetId 主路径 + baseUrl host 兜底）
+    // 迁入现有 buildChatRequestBody：解析层查表（presetId 主路径 + baseUrl host 兜底）
     // + 线格式映射表（openai 行）出 tokenParam 分流（openai-reasoning 系写
     // max_completion_tokens）+ tools 透传。行为与迁移前逐字节一致。
     return buildChatRequestBody({

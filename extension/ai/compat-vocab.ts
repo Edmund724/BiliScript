@@ -60,7 +60,7 @@ export const COMPAT_QUIRKS = {
   },
   /** 严格拒收 thinking 开关的网关（AMD / SenseNova / OpenRouter）整域只认 effort 词汇。 */
   overrideEffortVocabulary: {
-    summary: "网关对未知字段严格 400，整域只认 effort 词汇（reasoning_effort 含 none），任何模型不走血统表的开关词汇。",
+    summary: "网关对未知字段严格 400，整域只认 effort 词汇（reasoning_effort 含 none），任何模型不走 thinking-profiles 的开关词汇。",
     protocols: ["openai"]
   },
   /** Anthropic Messages 通道的 effort 词汇平台（stepfun / amd）只收 output_config.effort，不收 thinking。 */

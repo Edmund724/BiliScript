@@ -13,7 +13,7 @@
 // 另修正 prototype 的线形状错误：message_delta 的 stop_reason 在 delta 内。
 // 聚合形状与 openai adapter 同型（DrainResult），编排层零改动。
 // 思考字段的写法（off 三词汇归一 / probe 早退 / budget 推算 / effort 词汇平台改写）
-// 不落在本文件：那是线格式映射表 ai/thinking-wire-map.ts 的一格，本文件只把血统
+// 不落在本文件：那是线格式映射表 ai/thinking-wire-map.ts 的一格，本文件只把档位规则
 // patch 与平台事实（是否只认 effort 词汇）传进去、把出参并入请求体。
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
@@ -241,7 +241,7 @@ export const anthropicAdapter: ProtocolAdapter = {
       body.tools = tools;
       body.tool_choice = { type: "auto", disable_parallel_tool_use: true };
     }
-    // 思考档位：血统表（thinking-profiles）给 OpenAI 词汇 patch，本通道的线格式由
+    // 思考档位：解析层（thinking-profiles）给 OpenAI 词汇 patch，本通道的线格式由
     // 映射表（ai/thinking-wire-map.ts 的 anthropic 行）决定——adapter 只做取表 → 并入。
     // 两条平台事实各按自己的键空间识别（口径差异见 ai/platform-quirk-id.ts 头注）：
     // effortVocabularyOnly = 词表怪癖（PLATFORM_QUIRKS 键空间，stepfun / amd 的严格拒收），
