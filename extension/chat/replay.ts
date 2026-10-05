@@ -16,6 +16,7 @@
 // applyById（→ 本事务），此处仍不引入反向等待（否则成结构死锁）。
 import { chatSessionState } from "./chat-state.js";
 import { collectHistorySearchTurns, type HistorySearchTurn } from "./search-sources.js";
+import type { ChatMessageArea } from "./chat-stream-render.js";
 
 // 回放分片预算：单帧同步渲染上限 50ms——长会话（数百条 markdown + 时间戳
 // linkify）一次性同步 append 会把主线程占满，期间输入/滚动全部卡住。超过预算
@@ -23,24 +24,19 @@ import { collectHistorySearchTurns, type HistorySearchTurn } from "./search-sour
 // 继续，末尾仍统一 scrollToBottom。
 const REPLAY_FRAME_BUDGET_MS = 50;
 
-// 回放渲染窄门面：只含本事务消费的五件 chat-runtime 方法（实例级互引由组装
-// 方经惰性箭头解决，本文件不 import chat-runtime）。
+// 回放渲染窄门面：消息区句柄（渲染片产出，节点装配形状只有那边一个主人）+ 两个
+// 滚动窄入口（实例级互引由组装方经惰性箭头解决，本文件不 import chat-runtime）。
+// 回放只经句柄表达顺序：清场 → 追加用户消息 → 追加助手回合（finish 收尾 → 可选
+// 挂时间线卡）；不再自拼 `.chat-msg-assistant` 节点、不再直读消息容器。
 export interface ConversationReplayRenderer {
-  appendUserMessage: (text: string, shouldScroll: boolean) => void;
-  // 参数形状对齐 chat-runtime 的实现签名（node 可为 null 是历史遗留宽口，本
-  // 事务恒传非 null div；raw 原样透传未知类型由实现侧 String 化——保持调用
-  // 点与原 chat-tab 逐字一致）。
-  renderAssistantMessage: (
-    node: HTMLDivElement,
-    raw: unknown,
-    opts?: { userPrompt?: string; sources?: HistorySearchTurn["sources"] }
-  ) => void;
-  buildSearchTimelineCard: (turn: HistorySearchTurn) => HTMLElement;
+  messageArea: ChatMessageArea;
   setAutoScroll: (value: boolean) => void;
   scrollToBottom: (force?: boolean, opts?: { instant?: boolean }) => void;
 }
 
 export interface CreateConversationReplayDeps {
+  // 保留：组装方（chat/tab-domain.ts）仍注入该容器引用。本事务不再直读它——
+  // 清场与节点装配都已收进消息区句柄（messageArea）。
   messages: HTMLElement;
   renderer: ConversationReplayRenderer;
   // 布局状态（紧凑输入判定）与空历史整页清场：编排壳回调，组合根注入。
@@ -85,7 +81,7 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
     }
   }
 
-  // 历史回放时找该助手消息的前一条用户消息（注入 renderAssistantMessage 的 userPrompt）
+  // 历史回放时找该助手消息的前一条用户消息（注入回合句柄 finish 的 userPrompt）
   function findPreviousUserPrompt(index: number): string {
     for (let i = Number(index) - 1; i >= 0; i -= 1) {
       const item = chatSessionState.chatHistory[i];
@@ -102,7 +98,8 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
 
   async function runConversationReplay(): Promise<void> {
     deps.updateLayout();
-    deps.messages.innerHTML = "";
+    // 清场经消息区句柄（助手节点形状不出台；容器不再由本事务直写）。
+    deps.renderer.messageArea.clear();
     deps.clearSuggestions();
     if (!chatSessionState.chatHistory.length) {
       deps.resetView("");
@@ -127,25 +124,25 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
       }
       const message = history[index];
       if (message.role === "user") {
-        deps.renderer.appendUserMessage(message.content, false);
+        deps.renderer.messageArea.appendUserMessage(message.content, { source: "replay" });
       } else if (message.role === "tool" || (Array.isArray(message.tool_calls) && message.tool_calls.length && !String(message.content || "").trim())) {
         // 工具轮消息（spec §2.5）：查询与结果由回合回答消息上的搜索时间线卡
         // 承载，消息本体不渲染（assistant(tool_calls) 无正文，tool 是 JSON）；
         // 带正文 + tool_calls 的混合消息照常渲染（正文不丢）。
         continue;
       } else {
-        const node = document.createElement("div");
-        node.className = "chat-msg chat-msg-assistant";
+        // 助手回合：节点装配（含终态直出形状）归消息区句柄；本事务只表达
+        // 「先收尾正文、再挂时间线卡」的顺序。来源恒显式传（含空数组）——
+        // 回放不触发 live 路径的「收走悬停预览卡」副作用。
         const searchTurn = searchTurnByAssistantIndex.get(index);
-        deps.renderer.renderAssistantMessage(node, String(message.content || ""), {
+        const streamTurn = deps.renderer.messageArea.appendAssistantMessage({ source: "replay" });
+        streamTurn.finish({
+          raw: String(message.content || ""),
           userPrompt: findPreviousUserPrompt(index),
-          ...(searchTurn ? { sources: searchTurn.sources } : {})
+          sources: searchTurn ? searchTurn.sources : []
         });
-        deps.messages.appendChild(node);
         if (searchTurn) {
-          // 卡片插在回答节点之前（先 append 节点再插卡——insertBefore 的参照
-          // 节点必须已在 DOM 内）。
-          deps.messages.insertBefore(deps.renderer.buildSearchTimelineCard(searchTurn), node);
+          streamTurn.attachSearchTimelineCard(searchTurn);
         }
       }
       if (performance.now() >= deadline) {

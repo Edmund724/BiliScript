@@ -4,13 +4,21 @@
 // 生命周期与滚动合帧、用户/助手消息 DOM 装配（占位 / 终态重渲染 / mermaid 水合 /
 // 时间戳链接 / 复制按钮）、自动滚动标志与 scrollToBottom。
 //
+// 句柄化（渲染片 seam 收口）：本片对外只给两个句柄 + 滚动/自动滚动窄入口——
+//   - 消息区句柄（ChatMessageArea）：追加用户/助手消息（带来源 live/replay）与
+//     清场。「助手消息节点长什么样」只有本片一个主人：live = 流式占位（流式豁免
+//     类 + 光标），replay = 终态直出；回放只表达顺序。
+//   - 回合节点句柄（ChatAssistantTurn）：一个助手消息节点的操作面（token /
+//     思考 / 重置流式 / 收尾成形态 / 三终态徽标 / 时间线卡）。
+// 节点装配、选择器、token flush 与思考节点状态全部退回本片 implementation：
+// chat-runtime 不再出现选择器与 createElement，replay 不再自拼节点；15 键返回面
+// 随之缩为 3 键。
+//
 // 拆分手法：本片是工厂 createChatStreamRenderer(deps)，闭包自持流式渲染状态
-//（shouldAutoScrollMessages / tokenFlushFrame / tokenFlushEpoch / 两个按节点隔离
+//（shouldAutoScrollMessages / tokenFlushFrame / tokenFlushEpoch / 三个按节点隔离
 // 的 WeakMap）——每个 createChatRuntime 实例调用一次，实例间隔离语义与拆分前
-// 一致。流状态机与 port 协议分派留在 chat-runtime.ts，经对象解构以原名消费本片
-// 返回面（具名对象，见 ChatStreamRenderer；调用点零改动）；deps 只需 messages
-// 与两个渲染回调（ChatStreamRendererDeps 结构子集，createChatRuntime 直接传入
-// 完整 deps）。
+// 一致。deps 只需 messages 与两个渲染回调（ChatStreamRendererDeps 结构子集，
+// createChatRuntime 直接传入完整 deps）。
 
 import {
   createMarkdownTailCursor,
@@ -35,6 +43,48 @@ export interface ChatStreamRendererDeps {
   getTimestampNavDeps: () => TimestampNavDeps;
 }
 
+// 消息来源（渲染片装配形状的唯一开关）：
+//   live   —— 发送/流式路径：接管自动滚动并强制滚底；助手节点是流式占位
+//             （chat-msg-streaming + 光标 + 独立 token 累加器）；
+//   replay —— 历史回放：静默追加（不滚底、不动自动滚动标志）；助手节点是
+//             终态直出形态（无流式类、无光标），等回合句柄 finish 填正文。
+export type ChatMessageSource = "live" | "replay";
+
+// 消息区句柄：追加用户/助手消息与清场——回放侧只表达顺序，节点装配形状不出台。
+export interface ChatMessageArea {
+  /** 追加用户消息（source 决定滚底与自动滚动接管）。 */
+  appendUserMessage: (text: string, opts?: { source?: ChatMessageSource }) => void;
+  /** 追加助手消息节点并返回其回合操作面（source 决定装配形态）。 */
+  appendAssistantMessage: (opts?: { source?: ChatMessageSource }) => ChatAssistantTurn;
+  /** 清场：整段重建消息区（回放启动）。 */
+  clear: () => void;
+}
+
+// 回合节点句柄：一个助手消息节点的操作面（状态机不再出现选择器与节点创建；
+// 一代际的 token 缓冲、思考节点状态都由本句柄闭包持有）。
+export interface ChatAssistantTurn {
+  /** 灌入 token 增量（帧合批；未 flush 的增量同样进终态原文）。 */
+  appendToken: (token: unknown) => void;
+  /** 灌入思考增量；本回合尚无打开的思考节点时新建（token 后的收尾 reasoning 新建第二个）。 */
+  appendThinking: (text: unknown) => void;
+  /** 重置流式（读流中断重试整体重放）：清已渲染容器 / 思考盒 / 时间线卡与累加器，光标归位。 */
+  resetStream: () => void;
+  /** 取消本回合挂起的流式渲染帧（终态收口 / 拆除级清场）。 */
+  cancelPendingFrame: () => void;
+  /** 收尾成终态形态（正文 + 操作行，折叠思考行）；返回本次渲染所用原文。 */
+  finish: (opts?: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[] }) => string;
+  /** 挂错误占位（清空节点内容，只留给定文案）。 */
+  fail: (text: string) => void;
+  /** 挂停止态：有正文则收尾成形态 + 停止徽标；无正文清空节点只留徽标。 */
+  stop: (reason: string, opts?: { userPrompt?: string }) => { raw: string; body: boolean };
+  /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
+  markTruncated: (text: string) => void;
+  /** 联网搜索 tool-status → 时间线卡（插在本节点之前）。 */
+  applySearchStatus: (msg: ChatToolStatusEvent) => void;
+  /** 回放：把该回合的静态时间线卡插在本节点之前（回放只表达顺序）。 */
+  attachSearchTimelineCard: (turn: HistorySearchTurn) => void;
+}
+
 // 渲染片的具名返回面（工厂 createChatStreamRenderer 的返回类型）：字段名 = 函数名，
 // 替代 15 元组位置面——扩展只需加字段，消费方按名字取件，不再靠调用两侧按位置
 // lockstep 对齐。各字段是闭包内函数声明的签名（模块层取不到闭包的 typeof，故按签名
@@ -42,24 +92,8 @@ export interface ChatStreamRendererDeps {
 // ConversationReplayRenderer（replay.ts）一致。
 export interface ChatStreamRenderer {
   scrollToBottom: (force?: boolean, opts?: { instant?: boolean }) => void;
-  appendUserMessage: (text: string, shouldScroll?: boolean) => void;
-  appendAssistantPlaceholder: () => HTMLDivElement;
-  appendToken: (node: HTMLDivElement | null, token: unknown) => void;
-  appendThinkingText: (node: HTMLDivElement | null, text: unknown) => void;
-  createThinkingNode: (assistantNode: HTMLDivElement | null) => HTMLDivElement | null;
-  resetTokenStreamState: (node: HTMLElement) => void;
-  cancelTokenFlush: () => void;
-  getStreamRaw: (node: HTMLElement) => string;
-  renderAssistantMessage: (
-    node: HTMLDivElement | null,
-    raw: unknown,
-    opts?: { userPrompt?: string; sources?: ChatSearchSource[] }
-  ) => void;
   setAutoScroll: (value: boolean) => void;
-  applySearchStatus: (node: HTMLDivElement | null, msg: ChatToolStatusEvent) => void;
-  takeTurnSearchSources: (node: HTMLDivElement | null) => ChatSearchSource[];
-  clearSearchCard: (node: HTMLDivElement | null) => void;
-  buildSearchTimelineCard: (turn: HistorySearchTurn) => HTMLElement;
+  messageArea: ChatMessageArea;
 }
 
 // 流式 token 累加器（按节点存放在 WeakMap）：base = 已 flush 的全量原文，
@@ -95,9 +129,13 @@ interface ThinkingDisplayState {
  * createChatStreamRenderer(deps) — chat 消息 DOM 渲染/滚动/水合的工厂。
  *
  * 由 createChatRuntime(deps) 在工厂体内调用一次；闭包状态（自动滚动标志 /
- * flush 帧调度 / 按节点 WeakMap）随实例隔离。返回面只含跨片消费的函数——
- * collapseThinking / ensureStreamContainers / freshTokenStreamState /
- * getTokenStreamState / yieldToMain 仅本片内部消费，不外露。
+ * flush 帧调度 / 按节点 WeakMap）随实例隔离。返回面只含跨片消费的三件——
+ * 两个句柄（消息区 / 回合节点，见 ChatMessageArea / ChatAssistantTurn）与
+ * 滚动/自动滚动窄入口；collapseThinking / ensureStreamContainers /
+ * freshTokenStreamState / getTokenStreamState / yieldToMain / createThinkingNode /
+ * appendThinkingText / appendTokenToNode / renderAssistantMessage /
+ * takeTurnSearchSources / clearSearchCard / buildSearchTimelineCard 仅本片内部
+ * 消费，不外露。
  */
 export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStreamRenderer {
 
@@ -112,7 +150,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // scroll-behavior:smooth（reader-chat.css 对 .chat-messages 的设定），避免
   // 流式期间每帧都重启一次平滑滚动动画。注意不能用 behavior:"auto"——按
   // CSSOM View 规范它取 CSS scroll-behavior 值，CSS 是 smooth 时压不住。
-  // 发送路径（appendUserMessage / appendAssistantPlaceholder 的强制滚底）同用
+  // 发送路径（消息区句柄的 live 装配强制滚底）同用
   // instant：CSS smooth 会启动动画扫过上一条长消息刚被 c-v 塌缩的块，估算
   // 占位高逐块弹回真实高（视口突跳），且动画目标固化于调用时刻、落后于
   // 弹高后的真实底部——终点距底被 scroll-sync 判定读到，会把自动跟随关死
@@ -130,14 +168,15 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
   }
   // =========================================================================
-  // appendUserMessage
+  // 消息区句柄的两处节点装配（appendUserMessage / appendAssistantMessage）
   // =========================================================================
-  function appendUserMessage(text: string, shouldScroll = true): void {
+  function appendUserMessageNode(text: string, source: ChatMessageSource): void {
     const node = document.createElement("div");
     node.className = "chat-msg chat-msg-user";
     node.textContent = text;
     deps.messages.appendChild(node);
-    if (shouldScroll) {
+    // 只有发送路径（live）接管自动滚动并强制滚底；回放（replay）静默追加。
+    if (source === "live") {
       shouldAutoScrollMessages = true;
       // instant：见 scrollToBottom 注释——发送路径的平滑动画会扫过上一条
       // 长消息 c-v 塌缩后的估算块，弹高突跳且动画终点落后于真实底部。
@@ -146,9 +185,17 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   }
 
   // =========================================================================
-  // appendAssistantPlaceholder
+  // appendAssistantMessageNode
   // =========================================================================
-  function appendAssistantPlaceholder(): HTMLDivElement {
+  function appendAssistantMessageNode(source: ChatMessageSource): HTMLDivElement {
+    // 回放：终态直出形态（无流式豁免类、无光标）——与 live 收尾后的节点逐字
+    // 同形（差流式类），正文等回合句柄 finish 填。回放不清场外的东西、不滚底。
+    if (source === "replay") {
+      const replayed = document.createElement("div");
+      replayed.className = "chat-msg chat-msg-assistant";
+      deps.messages.appendChild(replayed);
+      return replayed;
+    }
     // 上一条消息的流式豁免（chat-msg-streaming）到此为止，回归历史消息的
     // content-visibility 跳过渲染待遇。切换刻意放在新消息上屏、强制滚底的
     // 同一时刻，且滚底走 instant（见 scrollToBottom 注释）：c-v 首次施加拿
@@ -241,7 +288,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // 思考盒钉底恢复阈值：用户回滚到距底 24px 内视为「回到底部」，恢复跟随
   const THINKING_NEAR_BOTTOM_PX = 24;
 
-  // 思考文本的滚动合帧（与 appendToken 的 rAF 合帧同款机制）：textContent
+  // 思考文本的滚动合帧（与 token flush 的 rAF 合帧同款机制）：textContent
   // 写入无布局成本，保持逐 token 同步；scrollTop=scrollHeight 每次读
   // scrollHeight 都强制布局——按帧合批，同帧多条增量只滚动一次。挂起帧
   // 标志存放在按 textNode 的 WeakMap 状态里（scrollFrame）：不同消息的
@@ -317,7 +364,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     scheduleThinkingScroll(textNode, state);
   }
   // =========================================================================
-  // appendToken
+  // appendTokenToNode
   // =========================================================================
   // 流式渲染优化：流式过程中按帧做"稳定前缀 + 末块"增量 markdown 渲染。
   // 流式节点的 DOM 为两个堆叠的块级容器（.chat-stream-stable / .chat-stream-tail，
@@ -350,7 +397,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // 正比，总复制量 O(n)。stableText/stableCut 记录上次渲染过的稳定前缀，用于
   // 跳过未增长的 stable 重渲染（切点只增不减，切点不变即 stable 不变）。
   // finalize / stopped 从 base + pending 取全量原文。
-  // 随占位节点初始化（appendAssistantPlaceholder），跨消息天然隔离。
+  // 随占位节点初始化（回合句柄的 live 装配），跨消息天然隔离。
   const tokenStreamStates = new WeakMap<HTMLElement, TokenStreamState>();
 
   function freshTokenStreamState(): TokenStreamState {
@@ -430,7 +477,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     });
   }
 
-  function appendToken(node: HTMLDivElement | null, token: unknown): void {
+  function appendTokenToNode(node: HTMLDivElement | null, token: unknown): void {
     if (!node) {
       return;
     }
@@ -730,7 +777,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
    * searching 追加步骤行、done 补结果数与来源列表、failed 标记失败行；头部
    * 右端状态随最近事件推进（进行中「搜索中…」/ 失败「搜索失败」/ 完成「N 条来源」）。
    */
-  function applySearchStatus(node: HTMLDivElement | null, msg: ChatToolStatusEvent): void {
+  function applySearchStatusToNode(node: HTMLDivElement | null, msg: ChatToolStatusEvent): void {
     if (!node || !node.parentNode) {
       return;
     }
@@ -967,30 +1014,144 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   }
   // =========================================================================
   // setAutoScroll — 自动滚动标志的窄写入口（sidepanel scroll 监听与消息区
-  // 重建点调用；appendUserMessage / appendAssistantPlaceholder 直接写闭包）
+  // 重建点调用；消息区句柄的 live 装配直接写闭包）
   // =========================================================================
   function setAutoScroll(value: boolean): void {
     shouldAutoScrollMessages = Boolean(value);
   }
 
-  // 跨片消费面：chat-runtime.ts（流状态机片）经对象解构消费以下函数——函数名与
-  // 拆分前一致，调用点与 createChatRuntime 返回面键名零改动。具名对象返回面替代
-  // 15 元组位置面：字段名即函数名，增删件只改字段，不按位置对齐。
+  // =========================================================================
+  // 终态徽标 / 回合节点句柄（ChatAssistantTurn）/ 消息区句柄（ChatMessageArea）
+  // =========================================================================
+  // 终态徽标（截断 / 停止 / 错误）在节点上的唯一装配点：class 与文案由调用方给，
+  // 位置语义由本片决定（错误占位清空节点后挂；截断/停止挂在操作行之后）。
+  function appendBadge(node: HTMLElement, className: string, text: string): void {
+    const badge = document.createElement("div");
+    badge.className = className;
+    badge.textContent = text;
+    node.appendChild(badge);
+  }
+
+  // 回合节点句柄：一个助手消息节点的操作面。两处一代际状态由句柄闭包持有
+  // （原 chat-runtime 闭包的 thinkingNode / thinkingEnded 换持有方式：从「每实例
+  // 一份、跨消息复位」改为「每回合一份」，语义逐字不变）：
+  //   - thinkingNode：本回合尚在累积的思考节点（null = 未创建或已收尾）；
+  //   - thinkingEnded：本回合思考已收尾（token 到达即收尾）——其后到达的收尾
+  //     reasoning 事件新建节点（附着本回合节点），不写进已折叠的旧节点。
+  function createTurnHandle(node: HTMLDivElement): ChatAssistantTurn {
+    let thinkingNode: HTMLDivElement | null = null;
+    let thinkingEnded = false;
+
+    function appendToken(token: unknown): void {
+      // token 到达即思考收尾（首帧渲染把旧节点折叠保留）。
+      thinkingNode = null;
+      thinkingEnded = true;
+      appendTokenToNode(node, token);
+    }
+
+    function appendThinking(text: unknown): void {
+      if (!thinkingNode && thinkingEnded) {
+        thinkingEnded = false;
+      }
+      if (!thinkingNode) {
+        thinkingNode = createThinkingNode(node);
+      }
+      appendThinkingText(thinkingNode, text);
+    }
+
+    // 重置流式（读流中断重试：整体重放）：清空本条消息的流式缓冲与已渲染内容，
+    // 从头接收重试流——取消挂起 flush、重置 token 累加器（base/pending 清零）、
+    // 移除 stable/tail 容器与思考节点（光标先摘下来放回节点末尾，flush 时机随
+    // 下一帧恢复）、清时间线卡（整体重放含重新搜索）；思考节点随下一个 reasoning
+    // 事件重建。不走收口六步：流并未终止（port 不断开、流式 UI 不退出）。
+    function resetStream(): void {
+      cancelTokenFlush();
+      resetTokenStreamState(node);
+      const cursor = node.querySelector(".chat-msg-cursor");
+      node.querySelectorAll(".chat-stream-stable, .chat-stream-tail, .chat-thinking").forEach((el) => el.remove());
+      clearSearchCard(node);
+      if (cursor) {
+        node.appendChild(cursor);
+      }
+      thinkingNode = null;
+      thinkingEnded = false;
+    }
+
+    // 收尾成终态形态：raw 缺省 = 本回合累计原文（live 路径），回放显式传历史正文；
+    // sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），回放显式传来源
+    //（含空数组），不触发这条消费副作用。
+    function finish({ raw, userPrompt = "", sources }: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[] } = {}): string {
+      const text = raw === undefined ? getStreamRaw(node) : String(raw ?? "");
+      renderAssistantMessage(node, text, { userPrompt, sources: sources ?? takeTurnSearchSources(node) });
+      return text;
+    }
+
+    function fail(text: string): void {
+      node.innerHTML = "";
+      appendBadge(node, "chat-msg-error", text);
+    }
+
+    function stop(reason: string, { userPrompt = "" }: { userPrompt?: string } = {}): { raw: string; body: boolean } {
+      const text = getStreamRaw(node);
+      const label = reason || "已停止生成";
+      if (text.trim()) {
+        renderAssistantMessage(node, text, { userPrompt, sources: takeTurnSearchSources(node) });
+        appendBadge(node, "chat-msg-stopped", label);
+        return { raw: text, body: true };
+      }
+      node.innerHTML = "";
+      appendBadge(node, "chat-msg-stopped", label);
+      return { raw: text, body: false };
+    }
+
+    function markTruncated(text: string): void {
+      appendBadge(node, "chat-msg-truncated", text);
+    }
+
+    function applySearchStatus(msg: ChatToolStatusEvent): void {
+      applySearchStatusToNode(node, msg);
+    }
+
+    function attachSearchTimelineCard(turn: HistorySearchTurn): void {
+      // 卡片插在回答节点之前（装配时节点已在消息区内；先收尾再挂卡——回放只
+      // 表达这个顺序，插卡落点由本片决定）。
+      deps.messages.insertBefore(buildSearchTimelineCard(turn), node);
+    }
+
+    return {
+      appendToken,
+      appendThinking,
+      resetStream,
+      cancelPendingFrame: cancelTokenFlush,
+      finish,
+      fail,
+      stop,
+      markTruncated,
+      applySearchStatus,
+      attachSearchTimelineCard
+    };
+  }
+
+  // 消息区句柄：追加用户/助手消息（带来源）与清场——「助手消息节点长什么样」
+  // 只有本片一个主人，回放只表达顺序。
+  const messageArea: ChatMessageArea = {
+    appendUserMessage(text, { source = "live" } = {}) {
+      appendUserMessageNode(text, source);
+    },
+    appendAssistantMessage({ source = "live" } = {}) {
+      return createTurnHandle(appendAssistantMessageNode(source));
+    },
+    clear() {
+      deps.messages.innerHTML = "";
+    }
+  };
+
+  // 跨片消费面：chat-runtime.ts（流状态机片）经对象解构取滚动窄入口与消息区
+  // 句柄；回合节点句柄由消息区句柄产出（状态机不再出现选择器与节点创建）。具名
+  // 对象返回面替代 15 元组位置面：字段名即函数名，增删件只改字段，不按位置对齐。
   return {
     scrollToBottom,
-    appendUserMessage,
-    appendAssistantPlaceholder,
-    appendToken,
-    appendThinkingText,
-    createThinkingNode,
-    resetTokenStreamState,
-    cancelTokenFlush,
-    getStreamRaw,
-    renderAssistantMessage,
     setAutoScroll,
-    applySearchStatus,
-    takeTurnSearchSources,
-    clearSearchCard,
-    buildSearchTimelineCard
+    messageArea
   };
 }

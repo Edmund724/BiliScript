@@ -829,22 +829,22 @@ describe("自动滚动开关对渲染的影响", () => {
     expect(deps.messages.scrollTop).toBe(deps.messages.scrollHeight);
   });
 
-  it("appendUserMessage(text, false)（历史回放路径）不滚动不重置标志；默认 shouldScroll 强制滚动并重置标志", async () => {
+  it("消息区句柄的来源语义：replay 追加不滚动不重置标志；live 追加强制滚动并重置标志", async () => {
     const { deps, runtime } = await makeRuntime();
     const raf = holdRaf();
 
     runtime.setAutoScroll(false);
     deps.messages.scrollTop = 42;
 
-    // 历史回放（shouldScroll=false）：不滚动、不动开关
-    runtime.appendUserMessage("回放消息", false);
+    // 历史回放（source=replay）：不滚动、不动开关
+    runtime.messageArea.appendUserMessage("回放消息", { source: "replay" });
     expect(deps.messages.scrollTop).toBe(42);
     feed(runtime, { type: "token", data: "一帧" });
     raf.mock.calls[0][0]();
     expect(deps.messages.scrollTop).toBe(42);
 
-    // 默认（shouldScroll=true）：强制滚动，并把自动滚动开关重置为开
-    runtime.appendUserMessage("新消息");
+    // 发送路径（source=live）：强制滚动，并把自动滚动开关重置为开
+    runtime.messageArea.appendUserMessage("新消息", { source: "live" });
     expect(deps.messages.scrollTop).toBe(deps.messages.scrollHeight);
     deps.messages.scrollTop = 9;
     feed(runtime, { type: "token", data: "又一帧" });
@@ -1129,7 +1129,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
   // 调用时刻、落后于弹高后的真实底部，终点距底被 scroll-sync 判定读到会
   // 把自动跟随关死。发送路径必须 instant 一步落底，重估算在落底同帧被
   // clamp 吸收。
-  it("发送路径滚动瞬时化：appendUserMessage 走 instant scrollTo，endStream 收尾保留直写", async () => {
+  it("发送路径滚动瞬时化：消息区句柄 appendUserMessage(source=live) 走 instant scrollTo，endStream 收尾保留直写", async () => {
     const { deps, runtime } = await makeRuntime();
     const raf = holdRaf();
     const scrollToSpy = vi.fn();
@@ -1137,7 +1137,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
 
     // appendUserMessage 强制滚动：instant scrollTo（顶掉 CSS smooth 动画）
     deps.messages.scrollTop = 0;
-    runtime.appendUserMessage("新消息");
+    runtime.messageArea.appendUserMessage("新消息", { source: "live" });
     expect(scrollToSpy).toHaveBeenCalledWith({ top: deps.messages.scrollHeight, behavior: "instant" });
 
     // flush 路径走 instant scrollTo；done 收尾（endStream）仍是直写
