@@ -33,7 +33,9 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const PRESETS_MODULE = "extension/core/presets.ts";
 
 // 产物键序（见文件头）：preset id，provider id 由 presets.ts 提供。
-const UPSTREAM_PRESET_ORDER = [
+// 导出供测试期只读消费（登记覆盖视图 buildOrder 面的唯一来源；视图不 import
+// scripts/，由调用方注入——不复制第二份序位清单）。
+export const UPSTREAM_PRESET_ORDER = [
   "deepseek",
   "qwen",
   "zhipu",
