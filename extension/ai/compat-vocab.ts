@@ -34,7 +34,7 @@ export interface CompatQuirkSpec {
   protocols: readonly AiProtocol[];
   /**
    * 线格式取值：怪癖在线上表现为哪个字段名 / 头名。缺省表示该怪癖没有固定
-   * 字面量（如"思考字段格式随平台变"这类由 thinking-profiles 决定的怪癖）。
+   * 字面量（如"思考字段格式随平台变"这类由思考档位解析结果决定的怪癖）。
    */
   wire?: string;
 }

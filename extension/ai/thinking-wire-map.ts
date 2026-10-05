@@ -3,9 +3,9 @@
 //
 // - 平台怪癖词表（compat-vocab.ts）= 名词层：这个平台有哪些怪癖、各自的键叫什么；
 // - 模型档位事实（ai/catalog/models-dev-thinking.generated.ts 构建期编译产物，由
-//   thinking-profiles.ts 解析并补兜底）= 事实层：这个模型属于哪类血统、各档发哪套
-//   OpenAI 词汇（reasoning_effort / enable_thinking / thinking:{type}）；token 参数名事实
-//   仍由血统表给；
+//   thinking-profiles.ts 解析并补兜底）= 事实层：各档发哪套 OpenAI 词汇
+//   （reasoning_effort / enable_thinking / thinking:{type}）；这个模型属于哪类血统
+//   （thinkingClass 三态）由 thinking-profiles.ts 解析时定；token 参数名事实仍由血统表给；
 // - 本表 = 写法层：这套词汇在本协议落成哪个字段、值怎么算——Messages 通道的
 //   effort 词汇改写、开关型血统的开档形状、probe 早退、off 三词汇归一，都在表内逐格写出。
 //
