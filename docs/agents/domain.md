@@ -13,12 +13,13 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 ## Red-line index (directions already ruled out)
 
-Architecture review — human or AI — must not re-propose the directions below. They are 已裁死 in four separate ADR bodies, so reading only the ADR that "looks relevant" misses the other three. Check all four before writing a proposal:
+Architecture review — human or AI — must not re-propose the directions below. They are 已裁死 in five separate ADR bodies, so reading only the ADR that "looks relevant" misses the other four. Check all five before writing a proposal:
 
 - **ADR-0003**: SW 运行时惰性化（重开条件：crbug/40760920 落地）。
 - **ADR-0005**: reader/clip/ui 或 chat 散字段的归属搬迁与全域收敛。
 - **ADR-0008**: 常驻请求结构仍是体验瓶颈期间，content 单轮化 / seam external。
 - **ADR-0013**（取代 ADR-0009）：把原始上游数据接进请求链或运行时；用 UI 目录产物回填 `thinking-profiles.ts`；让 `protocol` 参与目录查表。
+- **ADR-0014**: 为消除「转写」而按协议拆分档位事实（重开条件：某平台两通道的 off / 档位词被证实不同形）。写法层以协议为键不属于此列。
 
 本条只是发现入口：原文摘引、重开条件与完整措辞以 `docs/adr/README.md`「审查红线」为准。红线只覆盖「已被否决过的方向」，不是「没裁过就不许做」。
 
