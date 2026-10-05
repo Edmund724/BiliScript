@@ -5,8 +5,8 @@
 // 随抽屉滚动），行为与 options 页逐条对应：
 //   - 装载（get-settings）→ 渲染平台行（AI/ASR / 搜索平台）与标量设置项；
 //   - 保存（同步收集后分路落盘：settings 经 save-settings，平台经
-//     provider-editor Modal 的单平台 upsert）。平台行构建与验证本体复用
-//     ../ui/provider-family.ts、../core/validators.ts。
+//     provider-editor Modal 的单平台事务 provider-transaction）。平台行构建与
+//     验证本体复用 ../ui/provider-family.ts、../core/validators.ts。
 //   - 平台测试（AI/ASR 探针）只验证连通性，不落盘——保存只发生在 Modal 的
 //     保存按钮链路上。
 // 与 options 页的唯一实现差异：content script 语境没有 chrome.permissions
@@ -17,10 +17,9 @@
 // 2026-09 大文件拆分：抽屉 HTML 模板（buildSettingsHtml，纯字符串零逻辑）
 // 迁往 ui/settings-panel-html.ts，本模块只留流程编排（模板挂载/装载/收集
 // 校验/保存/事件绑定/编辑 Modal 接线）。未再继续拆「表单收集校验 vs 事件
-// 绑定与保存流程」两半：collectFormPayload 读取本模块状态，且
-// options-save-gesture.test.js 的调用方闭包与
-// 手势链扫描把 saveProviderSingle / saveSettings / saveBtn 绑定钉在本文件，
-// 再拆需改签名/外移共享状态，收益不抵扰动。
+// 绑定与保存流程」两半：collectFormPayload 读取本模块状态，且 saveSettings /
+// saveBtn 的绑定与手势链（settings-panel 侧）钉在本文件，再拆需改签名/外移
+// 共享状态，收益不抵扰动。
 
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import {
@@ -63,6 +62,7 @@ import {
   revokeOrphanOrigin,
   permissionRevokeErrorMessage
 } from "../core/host-permissions.js";
+import { createProviderTransactions, loadOriginSharingProviders } from "./provider-transaction.js";
 import { ids } from "../reader/state.js";
 // 设置分区样式随本 chunk 按需装载（arch-slim-4/04）：本模块只在抽屉打开时被
 // lifecycle.renderReaderPanels 动态 import（player-ai.ts:29 模块顶挂载先例），
@@ -392,8 +392,8 @@ type ProviderListResponse = {
 // 只在这张表里，调用点收敛为一次查表（对齐 core/settings-snapshot.ts 的
 // FAMILY_STORES 先例：Record 全键覆盖，新增族漏配即编译报错）。
 // 各族的消息 type 写在本族箭头函数体内、保持单字面量（联合 type 会让
-// ResponseOf 推断塌成 never，见 saveProviderSingle 处的说明），故本表是回调表
-// 而非 type 字段表。
+// ResponseOf 推断塌成 never，见 provider-transaction 的事务入口说明），故本表是
+// 回调表而非 type 字段表。
 interface ProviderFamilyUi {
   // 整列表现查（upsert 前的权威列表，失败由调用方兜底）
   list: () => Promise<ProviderListResponse>;
@@ -451,14 +451,10 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
 };
 
 // orphan origin 回收的存活并集：问分派表里所有 optionalHostPermission 的族
-// （当前 ai+asr；搜索是 manifest 静态 host 权限不参与）。两条删除路径
-// （deleteFromEditor / revokeOriginOnDelete）共用，新增一族只改表，这里自动
-// 跟随——不再在函数体里点名牌。
-async function loadOriginSharingProviders(): Promise<ProviderRowItem[]> {
-  const eligible = Object.values(PROVIDER_FAMILY_UI).filter((family) => family.optionalHostPermission);
-  const lists = await Promise.all(eligible.map((family) => family.loadProviders()));
-  return lists.flat();
-}
+// （当前 ai+asr；搜索是 manifest 静态 host 权限不参与）。单平台删除事务与行删除
+// 路径（revokeOriginOnDelete）共用同一推导（provider-transaction 的
+// loadOriginSharingProviders），新增一族只改表，调用点自动跟随——不再在函数体里
+// 点名牌。
 
 // 三族行控制器（候选 3 片 1）：组合点创建，行「编辑」回调直注进工厂 deps，
 // 原三 rows 文件的模块级 setter 单例随收敛退役。删除/回收回调经 controller
@@ -476,49 +472,28 @@ function getActiveSearchProviderId(listNode: HTMLElement): string {
   return familyRows.search.getActiveId?.(listNode) || "";
 }
 
-// ===== 单平台保存与编辑 Modal（provider-master-detail/01） =====
+// ===== 单平台保存与删除（一次保存 / 删除事务，owner 3） =====
 
-// 单平台 upsert 保存（provider-editor Modal 的保存回调）。与整表 saveSettings
-// 的区别：只保存这一个平台——列表从后端现查（权威数据），平铺行未保存的行内
-// 编辑不混入；upsert 按 id 替换 / 追加后发整列表消息（ai-providers-save /
-// asr-providers-save 本就是整列表替换语义，SW 协议零改动）。API Key 仍单独落
-// chrome.storage.local（saveProviders 后台语义：空输入沿用已存 Key 不清除）。
-// 手势不变式：权限申请前零先行 await——baseUrl 由 upsert 参数直供，无需先
-// 查列表（tests/ui/options-save-gesture.test.ts 锁定）。
-async function saveProviderSingle(
-  kind: ProviderEditorKind,
-  upsert: ProviderRowItem
-): Promise<{ ok: boolean; error?: string; providers?: ProviderRowItem[] }> {
-  const family = PROVIDER_FAMILY_UI[kind];
-  // 搜索平台域名是静态 host 权限（manifest host_permissions，spec §2.4），不走
-  // optional 权限代申请
-  if (family.optionalHostPermission && upsert.baseUrl) {
-    const permission = await requestProviderOriginsViaBackground([String(upsert.baseUrl)]);
-    if (!permission.ok) {
-      return { ok: false, error: permission.error };
+// 单平台 upsert / 删除的全部宿主侧动作收进 provider-transaction 的单点事务
+//（权限代申请 → 现查权威列表 → 按 id 合并/追加或回收 orphan origin → 落盘/删除
+// → 用响应存活列表重渲）。本模块只注入三样：族分派表、列表重渲、抽屉状态条；
+// Modal 的 onSave / onDelete 拿到的事务实现只回 {ok, error?}（保存成功与否由
+// Modal 的结算原语自证，不再横跨两个 module）。
+const providerTransactions = createProviderTransactions({
+  families: PROVIDER_FAMILY_UI,
+  // 手势不变式：事务入口直接以 upsert.baseUrl 代申请，无需先查列表
+  requestOrigins: requestProviderOriginsViaBackground,
+  rerender: rerenderProviderList,
+  // 回收失败不阻断删除（与列表行同语义），错误文案落抽屉状态条
+  reportOriginRevokeFailure: (message) => {
+    const host = settingsHostRef;
+    if (host) {
+      setStatus(collectElements(host), message, true);
     }
   }
-  try {
-    // 消息 type 由分派表各族保持单字面量直发（联合 type 会让 ResponseOf 推断
-    // 塌成 never）
-    const listResp = await family.list();
-    const list: ProviderRowItem[] =
-      listResp?.ok && Array.isArray(listResp.providers) ? listResp.providers : [];
-    const providerId = String(upsert.id || "") || family.generateId();
-    const next = list.some((p) => String(p?.id || "") === providerId)
-      ? list.map((p) => (String(p?.id || "") === providerId ? { ...p, ...upsert, id: providerId } : p))
-      : [...list, { ...upsert, id: providerId }];
-    const saveResp = await family.save(next);
-    if (!saveResp?.ok) {
-      return { ok: false, error: saveResp?.error || "保存失败" };
-    }
-    return { ok: true, providers: saveResp.providers || [] };
-  } catch (error) {
-    return { ok: false, error: (error as Error).message || "保存失败" };
-  }
-}
+});
 
-// 单平台保存后用响应最新列表（含 hasSavedKey）重渲对应列表（与整表保存后的
+// 单平台保存/删除后用响应最新列表（含 hasSavedKey）重渲对应列表（与整表保存后的
 // 重渲同源语义；ASR 选用态从当前 DOM radio 读取）。
 function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowItem[]): void {
   const host = settingsHostRef;
@@ -527,54 +502,6 @@ function rerenderProviderList(kind: ProviderEditorKind, providers: ProviderRowIt
   }
   const elements = collectElements(host);
   PROVIDER_FAMILY_UI[kind].rerender(elements, providers);
-}
-
-// provider-editor 的 onSave：单平台落盘 + 成功后重渲列表。错误由 Modal 状态行
-// 显示（不走抽屉状态条——保存的是单个平台，Modal 自身就是错误语境）。
-async function saveFromEditor(
-  kind: ProviderEditorKind,
-  upsert: ProviderRowItem
-): Promise<{ ok: boolean; error?: string }> {
-  const result = await saveProviderSingle(kind, upsert);
-  if (result.ok && result.providers) {
-    rerenderProviderList(kind, result.providers);
-  }
-  return result;
-}
-
-// provider-editor 的 onDelete（编辑态头部删除按钮）：回收 orphan origin（与
-// 列表行删除共用判定，存活列表现查）→ 删除消息 → 用响应存活列表重渲。回收
-// 失败不阻断删除（与列表行同语义），错误文案落抽屉状态条。
-async function deleteFromEditor(
-  kind: ProviderEditorKind,
-  target: { id: string; baseUrl: string }
-): Promise<{ ok: boolean; error?: string }> {
-  const family = PROVIDER_FAMILY_UI[kind];
-  try {
-    if (family.optionalHostPermission) {
-      // 搜索平台域名是静态 host 权限（无 optional 授权可回收），跳过 orphan
-      // origin 判定；参与判定的存活并集由分派表推导（见 loadOriginSharingProviders）
-      const providers = await loadOriginSharingProviders();
-      const { origins, revoked } = await revokeOrphanOrigin(
-        { id: target.id, baseUrl: target.baseUrl },
-        providers
-      );
-      const host = settingsHostRef;
-      if (origins.length > 0 && !revoked && host) {
-        setStatus(collectElements(host), permissionRevokeErrorMessage(origins), true);
-      }
-    }
-    const resp = await family.remove(target.id);
-    if (!resp?.ok) {
-      return { ok: false, error: resp?.error || "删除失败" };
-    }
-    if (Array.isArray(resp.providers)) {
-      rerenderProviderList(kind, resp.providers);
-    }
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, error: (error as Error).message || "删除失败" };
-  }
 }
 
 // 打开编辑 Modal：编辑按 id 现查后端权威列表项（API Key 不在行 DOM 上，平铺行
@@ -594,8 +521,8 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
       kind,
       item,
       presets: family.presets(),
-      onSave: saveFromEditor,
-      onDelete: deleteFromEditor
+      onSave: providerTransactions.upsertProvider,
+      onDelete: providerTransactions.deleteProvider
     });
   } catch (error) {
     const host = settingsHostRef;
@@ -697,7 +624,8 @@ async function resetPreferences(elements: SettingsElements): Promise<void> {
 }
 
 // 保存设置（provider-master-detail/02 起：只承载其余设置项）。AI/ASR 平台的
-// 保存已整体移交 provider-editor Modal 的单平台 upsert（saveProviderSingle），
+// 保存已整体移交 provider-editor Modal 的单平台事务（provider-transaction 的
+// upsertProvider，本模块只注入分派表/重渲/状态条），
 // 本函数不再收集/校验/落盘平台列表，也不再申请平台 host 权限（平台域名的
 // 授权在 Modal 保存与探针/模型列表预检的链路上收口）。笔记导出字段删除后
 // 本链只剩收集 → 单路落盘：面板已无条件必填项，故不再有校验/清错步骤。
@@ -767,7 +695,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   // 存活列表从后端现查（紧凑行不再承载 baseUrl 输入框，被删行的 baseUrl 由行
   // dataset 传入钩子）。回收失败不阻断删除，状态条给出可操作文案。
   const revokeOriginOnDelete = async (providerId: string, baseUrl: string): Promise<void> => {
-    const providers = await loadOriginSharingProviders();
+    const providers = await loadOriginSharingProviders(PROVIDER_FAMILY_UI);
     const { origins, revoked } = await revokeOrphanOrigin({ id: providerId, baseUrl }, providers);
     if (origins.length > 0 && !revoked) {
       setStatus(elements, permissionRevokeErrorMessage(origins), true);

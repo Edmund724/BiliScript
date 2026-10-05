@@ -16,23 +16,12 @@ import { testAiProviderConnection } from "../ai/provider-test.js";
 import type { CatalogModelMeta } from "../ai/model-catalog.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { TRASH_ICON_PATHS } from "./provider-row.js";
-import { getDialog, readField, state } from "./provider-editor-state.js";
+import { captureSession, editDraft, getDialog, readField, runIfCurrent, state } from "./provider-editor-state.js";
+import { renderProjection } from "./provider-editor-projection.js";
 import { loadModelCatalog, loadedModelCatalog } from "./lazy-model-catalog.js";
 
 // ===== AI 模型目录（multi-model-catalog 阶段2：内联行 + 行级测试 + 拉取弹窗） =====
 
-export function modelRowCount(): number {
-  return getDialog()?.querySelectorAll(".provider-editor-model-row").length || 0;
-}
-
-export function syncCatalogEmpty(): void {
-  const empty = getDialog()?.querySelector<HTMLElement>(".provider-editor-catalog-empty");
-  if (empty) {
-    empty.hidden = modelRowCount() > 0;
-  }
-}
-
-// 目录行红字错误（「获取可用模型」前置校验等）；空串即清除
 export function showCatalogError(message: string): void {
   const error = getDialog()?.querySelector<HTMLElement>(".provider-editor-catalog-error");
   if (!error) return;
@@ -44,23 +33,28 @@ export function addModelRow(value = ""): void {
   const list = getDialog()?.querySelector<HTMLElement>(".provider-editor-model-list");
   if (!list) return;
   // draft 是真源（候选 4 片 3）：行 DOM 是 draft.models 的投影，先写 draft 再渲染
-  state.draft?.models.push(value);
+  editDraft((draft) => {
+    draft.models.push(value);
+  });
   list.insertAdjacentHTML("beforeend", modelRowHtml(value));
   refreshModelCatalogMeta();
-  syncCatalogEmpty();
+  // 目录空态属投影表（投影规则与模板同源）：行增删后重投影一次
+  renderProjection();
 }
 
 export function removeModelRow(row: HTMLElement | null): void {
   // 行序与 draft.models 一一对应，按索引摘除（含手工增删的目录行）
   const list = row?.closest<HTMLElement>(".provider-editor-model-list");
-  if (row && list && state.draft) {
+  if (row && list) {
     const index = Array.from(list.children).indexOf(row);
     if (index >= 0) {
-      state.draft.models.splice(index, 1);
+      editDraft((draft) => {
+        draft.models.splice(index, 1);
+      });
     }
   }
   row?.remove();
-  syncCatalogEmpty();
+  renderProjection();
 }
 
 // 行级连通测试（拍板 Q4/Q12）：用该行输入框当前的模型 ID 发 ping，行内原地
@@ -111,7 +105,6 @@ export async function runModelTest(row: HTMLElement | null, dirtyDraft = false):
   const protocol = draft.protocol;
   const presetId = draft.presetId;
   const apiKey = draft.apiKey.trim();
-  const generation = state.generation;
   const token = (Number(row.dataset.testToken) || 0) + 1;
   row.dataset.testToken = String(token);
   if (result) {
@@ -123,55 +116,67 @@ export async function runModelTest(row: HTMLElement | null, dirtyDraft = false):
   if (button) {
     button.disabled = true;
   }
+  // 会话结算（owner 2）：权限回执的过期判据 = 代际/open + 行仍在文档（与既有
+  // 口径一致——权限被拒时另有同行重复点击的 token 判据）；探针结果的过期判据
+  // 再加 token（后点者的结果落定，前一个被忽略）。会话句柄在权限 await 之前
+  // 捕获，两处判据共用同一代际。
+  const session = captureSession(() => row.isConnected);
+  const resultSession = captureSession(() => row.isConnected && Number(row.dataset.testToken) === token);
   // 权限代申请排在 loading/禁用之后：权限弹窗挂着时行内已是在飞态、按钮不可重复
   // 点（同页 model-picker 下拉箭头先铺「正在拉取…」再申请的既有形态）；拒绝再按
-  // 下面的 token 守卫回滚成可再点的错误态。
-  const permission = await requestProviderOriginsViaBackground([baseUrl]);
-  if (!permission.ok) {
-    if (generation !== state.generation || !state.open || !row.isConnected) {
-      return; // 过期回执：Modal 已关/已重开或行已删，不打扰
+  // 会话判据回滚成可再点的错误态。
+  await session.run(
+    () => requestProviderOriginsViaBackground([baseUrl]),
+    {
+      ok: (permission) => {
+        if (!permission.ok) {
+          if (Number(row.dataset.testToken) !== token) {
+            return; // 同一行重复点击：拒绝回执已被后点者取代
+          }
+          if (button) {
+            button.disabled = false;
+          }
+          fail(permission.error || "未取得该平台域名权限，无法测试连接");
+          return;
+        }
+        // 探针照发（与既有语义一致：后点者只取代结果，不取消先前已发起的探测）
+        void resultSession.run(
+          () =>
+            testAiProviderConnection({
+              providerId: state.editingId,
+              baseUrl,
+              apiKey,
+              model,
+              protocol,
+              presetId
+            }),
+          {
+            ok: (resp) => {
+              if (button) {
+                button.disabled = false;
+              }
+              if (!result) {
+                return;
+              }
+              if (resp?.ok) {
+                result.dataset.state = "ok";
+                if (dirtyDraft) {
+                  result.dataset.unsaved = "true";
+                  result.title = "连接成功（当前表单未保存）";
+                } else {
+                  result.title = "连接成功";
+                }
+              } else {
+                result.dataset.state = "error";
+                result.title = `失败：${resp?.error || "未知错误"}`;
+              }
+            }
+            // fail 缺省：探针异常原样上抛（与 void runModelTest 的既有语义一致）
+          }
+        );
+      }
     }
-    if (Number(row.dataset.testToken) !== token) {
-      return; // 同一行重复点击：前一个结果被忽略
-    }
-    if (button) {
-      button.disabled = false;
-    }
-    fail(permission.error || "未取得该平台域名权限，无法测试连接");
-    return;
-  }
-  const resp: { ok?: boolean; error?: string } = await testAiProviderConnection({
-    providerId: state.editingId,
-    baseUrl,
-    apiKey,
-    model,
-    protocol,
-    presetId
-  });
-  if (generation !== state.generation || !state.open || !row.isConnected) {
-    return; // 过期回执：Modal 已关/已重开或行已删，不打扰
-  }
-  if (Number(row.dataset.testToken) !== token) {
-    return; // 同一行重复点击：前一个结果被忽略
-  }
-  if (button) {
-    button.disabled = false;
-  }
-  if (!result) {
-    return;
-  }
-  if (resp?.ok) {
-    result.dataset.state = "ok";
-    if (dirtyDraft) {
-      result.dataset.unsaved = "true";
-      result.title = "连接成功（当前表单未保存）";
-    } else {
-      result.title = "连接成功";
-    }
-  } else {
-    result.dataset.state = "error";
-    result.title = `失败：${resp?.error || "未知错误"}`;
-  }
+  );
 }
 
 // 模型目录行模板（拍板 Q3/Q9：只有模型 ID，无展示名 / 展开箭头）。
@@ -284,15 +289,17 @@ export function refreshModelCatalogMeta(): void {
 // 失败（扩展刚更新的过渡窗口里旧 chunk 404）静默降级：没有元数据不影响任何
 // 既有功能，下次打开 Modal 会重试（createLazyLoader 失败清缓存）。
 export async function primeModelCatalogMeta(): Promise<boolean> {
-  const generation = state.generation;
-  try {
-    await loadModelCatalog();
-  } catch {
-    return false;
-  }
-  if (generation !== state.generation || !state.open) {
-    return false; // 过期回执：Modal 已关/已重开，新的一轮自己会补
-  }
-  refreshModelCatalogMeta();
-  return true;
+  let primed = false;
+  await runIfCurrent(
+    () => loadModelCatalog(),
+    {
+      ok: () => {
+        refreshModelCatalogMeta();
+        primed = true;
+      },
+      // 加载失败静默降级：没有元数据不影响任何既有功能，下次打开 Modal 会重试
+      fail: () => {}
+    }
+  );
+  return primed;
 }

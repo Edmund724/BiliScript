@@ -837,6 +837,9 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const row = addModelRowWithValue(dialog, "gpt-4o-mini");
 
     fireClick(row.querySelector(".provider-editor-model-test"));
+    // 手势同步链：权限代申请必须在点击当拍出站（垫任何先行 await 即红——
+    // 等价于原 options-save-gesture 对 runModelTest 的源码扫描）
+    expect(order, "权限代申请必须在点击同步链上（零先行 await）").toEqual(["permission"]);
     // 在飞：loading 态 + 按钮禁用（权限弹窗挂着时已是在飞态，按钮不可重复点）
     expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("loading");
     expect(row.querySelector<HTMLButtonElement>(".provider-editor-model-test")!.disabled).toBe(true);
@@ -1116,6 +1119,9 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
 
     fireClick(dialog.querySelector(".provider-editor-test"));
 
+    // 手势同步链：权限代申请必须在点击当拍出站（垫任何先行 await 即红——
+    // 等价于原 options-save-gesture 对 runTest 的源码扫描）
+    expect(order, "权限代申请必须在点击同步链上（零先行 await）").toEqual(["permission"]);
     await vi.waitFor(() => {
       expect(dialog.querySelector<HTMLElement>(".provider-editor-status")!.textContent).toBe("连接成功");
     });
@@ -1269,6 +1275,19 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
     expect(sent.some((message) => message.type === "request-provider-origins")).toBe(false);
     expect(sent.some((message) => message.type === "ai-providers-models")).toBe(false);
+  });
+
+  it("权限代申请落在点击同步链上：点「获取可用模型」当拍即出站（零先行 await）", async () => {
+    const { sent, host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://token.sensenova.cn/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+
+    // 手势同步链等价判据（原 options-save-gesture 的 openFetchDialog 源码扫描）：
+    // 点击当拍权限消息必须已出站；垫任何先行 await 这里就还是 0 条。
+    expect(messageTypes(sent).filter((type) => type === "request-provider-origins")).toHaveLength(1);
   });
 
   it("拉取成功：权限先于模型请求；搜索过滤；全选；勾选追加为目录行（草稿，不落盘）", async () => {

@@ -41,22 +41,25 @@ async function mountDialog(options: { presetId: string; baseUrl: string; models:
         </section>
       </div>
     </div>`;
-  const { state } = await import("../../extension/ui/provider-editor-state.js");
-  state.host = document.querySelector<HTMLElement>(".provider-editor-host")!;
-  state.open = true;
-  state.kind = "ai";
-  // 片 3 起 draft 是真源：手工挂载同样先建初稿（addModelRow 与输入事件都写 draft），
-  // 行 DOM 是它的投影
-  state.draft = {
-    presetId: options.presetId,
-    name: "",
-    baseUrl: options.baseUrl,
-    apiKey: "",
-    protocol: "openai",
-    models: [],
-    model: ""
-  };
-  state.baselineDraft = null;
+  const { beginEditorSession } = await import("../../extension/ui/provider-editor-state.js");
+  // 会话走状态片的意图级原语（state 的控制字段对外只读）：手工挂载同样先建初稿
+  //（addModelRow 与输入事件都写 draft），行 DOM 是它的投影
+  beginEditorSession({
+    kind: "ai",
+    host: document.querySelector<HTMLElement>(".provider-editor-host")!,
+    presets: PRESET_SUBSET,
+    draft: {
+      presetId: options.presetId,
+      name: "",
+      baseUrl: options.baseUrl,
+      apiKey: "",
+      protocol: "openai",
+      models: [],
+      model: ""
+    },
+    baselineDraft: null
+  });
+  const state = await import("../../extension/ui/provider-editor-state.js");
   const catalog = await import("../../extension/ui/provider-editor-catalog.js");
   for (const model of options.models) {
     catalog.addModelRow(model);
@@ -88,9 +91,8 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  const { state } = await import("../../extension/ui/provider-editor-state.js");
-  state.host = null;
-  state.open = false;
+  const { endEditorSession } = await import("../../extension/ui/provider-editor-state.js");
+  endEditorSession();
 });
 
 describe("元数据短格式（spec §展示）", () => {
@@ -193,7 +195,7 @@ describe("模型行元数据", () => {
       models: ["mimo-v2.5"]
     });
     const { wireDialog } = await import("../../extension/ui/provider-editor-modal.js");
-    wireDialog({ kind: "ai", presets: PRESET_SUBSET, onSave: async () => ({ ok: true }) });
+    wireDialog();
     await (await import("../../extension/ui/lazy-model-catalog.js")).loadModelCatalog();
     catalog.refreshModelCatalogMeta();
     expect(metaSlot(dialog, 0).hidden).toBe(true); // 无身份来源：查不到
@@ -219,9 +221,8 @@ describe("模型行元数据", () => {
     presetSelect.dispatchEvent(new Event("change", { bubbles: true }));
     expect(metaSlot(dialog, 0).hidden).toBe(true);
 
-    // 关 Modal 后过期回执不再写 DOM
-    state.generation += 1;
-    state.open = false;
+    // 关 Modal 后过期回执不再写 DOM（会话结束即代际作废）
+    state.endEditorSession();
     catalog.refreshModelCatalogMeta();
     expect(metaSlot(dialog, 0).hidden).toBe(true);
   });

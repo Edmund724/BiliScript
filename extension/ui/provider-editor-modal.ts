@@ -2,16 +2,19 @@
 // 工单 12）。
 //
 // 原 provider-editor.ts 三片分层后的顶片：Modal 的打开/关闭（含 dirty 保护）、
-// 字段模板、宿主挂载与全局监听、事件委托接线。依赖方向单向向下：
+// 字段模板（经投影片的字段表拼装）、宿主挂载与全局监听、事件委托接线。依赖方向
+// 单向向下：
 //
-//   provider-editor-state  ← 状态袋 + 字段/DOM 原语（零运行时依赖）
+//   provider-editor-state  ← 状态袋 + 会话写入/结算原语（owner 2，零运行时依赖）
+//   provider-editor-projection ← 字段投影表：DOM 形态 + 目标态规则（owner 1）
 //   provider-editor-catalog ← AI 模型目录（行模板 / 增删 / 空态 / 行级测试）
 //   provider-editor-fetch-dialog ← 「获取可用模型」勾选弹窗
-//   provider-editor-modal（本文件）→ 以上三片
+//   provider-editor-modal（本文件）→ 以上各片
 //   provider-editor.ts → 本文件（对外导出壳，导入路径零变化）
 //
 // 动作三件（保存 / 删除 / 测试连接）随接线留在本片：它们读写状态袋并关闭
-// Modal，与接线同属一条点击链。函数体自原 provider-editor.ts 逐字节搬移。
+// Modal，与接线同属一条点击链；三个动作的过期回执判据一律走状态片的结算原语
+//（runIfCurrent / captureSession），不再手抄代际比对。
 
 import { escapeHtml } from "../shared/string-utils.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
@@ -21,24 +24,36 @@ import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../co
 import { executeWebSearch } from "../search/search-executor.js";
 import { classifySearchFailure } from "../search/search-chain.js";
 import { searchProviderStore } from "../search/search-provider-store.js";
-import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
-import { buildModelPickerField, wireModelPicker } from "./model-picker.js";
-import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from "./custom-select.js";
+import { wireModelPicker } from "./model-picker.js";
+import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
-import type { ProviderRowElement, ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
+import type { ProviderRowElement, ProviderRowItem } from "./provider-row.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import {
-  cloneDraft,
+  beginEditorSession,
+  captureSession,
   draftsEqual,
+  editDraft,
+  endEditorSession,
   getDialog,
   normalizeDraftModels,
+  runIfCurrent,
+  sessionObserver,
   state,
   type EditorDraft,
   type ProviderEditorKind,
   type ProviderEditorOpenOptions
 } from "./provider-editor-state.js";
+import {
+  DRAFT_INPUTS,
+  normalizeProtocolValue,
+  presetBaseUrlForProtocol,
+  presetProtocol,
+  projectionBlocks,
+  renderProjection
+} from "./provider-editor-projection.js";
 import {
   addModelRow,
   modelRowHtml,
@@ -83,34 +98,9 @@ export function setBusy(isBusy: boolean): void {
     .forEach((button) => (button.disabled = isBusy));
 }
 
-// ===== 协议助手（multi-protocol-ai 设置 UI 章） =====
-
-// 任意来源的协议值收敛到注册表词表；缺省/未知值兜底 openai（与 resolveAdapter
-// 同口径——存量记录缺 protocol 字段时编辑 Modal 直接显示「OpenAI」，
-// 无提示，事实即如此）。
-function normalizeProtocolValue(value: unknown): AiProtocol {
-  return typeof value === "string" && value in PROTOCOL_ADAPTERS ? (value as AiProtocol) : "openai";
-}
-
-// 预设的协议默认归属：词表内值原样返回，缺省 openai（15 个预设现状全部
-// OpenAI compatible；逐平台多协议归属实测后由 preset 词表显式填写）。
-function presetProtocol(preset: ProviderRowPreset | null): AiProtocol {
-  return normalizeProtocolValue(preset?.protocol);
-}
-
-// 预设在某协议下的端点：protocolBaseUrls 登记了差异化端点（multi-protocol-ai，
-// preset-protocol-audit 表）用登记值，否则回落预设 baseUrl（同址多协议平台）。
-function presetBaseUrlForProtocol(preset: ProviderRowPreset | null, protocol: AiProtocol): string {
-  return preset?.protocolBaseUrls?.[protocol] ?? preset?.baseUrl ?? "";
-}
-
-// 限制点文案（capabilities.unsupported 的说明串）：表单底部小字，仅非空时
-// 露出（openai 为空自然隐藏）。稳定键不进文案，只给人读的说明。
-function protocolNotes(protocol: unknown): string {
-  const unsupported = resolveAdapter(protocol).capabilities.unsupported;
-  const text = Object.values(unsupported).join("；");
-  return text ? `该协议限制：${text}` : "";
-}
+// ===== 协议/预设投影口径（provider-editor-projection）=====
+// normalizeProtocolValue / presetProtocol / presetBaseUrlForProtocol / protocolNotes
+// 收在投影片：它们同时是「模板与联动」的共用口径与字段投影的输入（唯一一份）。
 
 // ===== dirty（拍板 Q6；候选 4 片 3：draft 逐字段对比，DOM 不参与） =====
 
@@ -134,16 +124,10 @@ export function closeProviderEditor(force = false): void {
     void confirmDiscardChanges();
     return;
   }
-  state.generation += 1;
-  state.open = false;
-  state.observer?.disconnect();
-  state.observer = null;
   document.removeEventListener("click", onDocumentClickCapture, true);
   document.removeEventListener("keydown", onDocumentKeyDownCapture, true);
-  state.host?.remove();
-  state.host = null;
-  state.draft = null;
-  state.baselineDraft = null;
+  // 会话控制字段的唯一写入点在状态片（代际作废 + 摘宿主/观察器 + 清草稿）
+  endEditorSession();
 }
 
 // 取消 / Esc / 遮罩 / 面板外点击的统一关闭入口（拍板 Q6）：dirty 才拦——
@@ -200,30 +184,33 @@ export async function save(): Promise<void> {
   }
   setBusy(true);
   showStatus("正在保存...");
-  const generation = state.generation;
-  try {
-    const result = await state.onSave(state.kind, upsert);
-    if (generation !== state.generation || !state.open) {
-      return; // Modal 已关/已重开：过期回执丢弃
+  // 会话结算（owner 2）：落盘回执落定时 Modal 已关/已重开即静默丢弃，否则
+  // 成功关 Modal / 失败复位 busy 并写状态行——动作只写这两支。
+  await runIfCurrent(
+    () => state.onSave(state.kind, upsert),
+    {
+      ok: (result) => {
+        if (result.ok) {
+          closeProviderEditor(true);
+          return;
+        }
+        setBusy(false);
+        showStatus(result.error || "保存失败", true);
+      },
+      // void save() 会吞 rejection——任何异常都必须落到状态行，不允许无反馈
+      fail: (error) => {
+        setBusy(false);
+        showStatus(`保存失败：${(error as Error).message || "未知错误"}`, true);
+      }
     }
-    if (result.ok) {
-      closeProviderEditor(true);
-    } else {
-      setBusy(false);
-      showStatus(result.error || "保存失败", true);
-    }
-  } catch (error) {
-    // void save() 会吞 rejection——任何异常都必须落到状态行，不允许无反馈
-    if (generation !== state.generation || !state.open) return;
-    setBusy(false);
-    showStatus(`保存失败：${(error as Error).message || "未知错误"}`, true);
-  }
+  );
 }
 
 // ===== 删除（编辑态，Modal 头部警示按钮；回收权限/删除消息/重渲在 onDelete） =====
 
 export async function deleteActive(): Promise<void> {
-  if (!state.editingId || !state.onDelete) return;
+  const onDelete = state.onDelete;
+  if (!state.editingId || !onDelete) return;
   // 面板内二次确认（ui/confirm-dialog.js）：原生 confirm 绘制在浏览器窗口中央，
   // 面板停靠右侧时可能看不到；确认期间编辑器的文档级监听整体让位
   if (!(await confirmDialog({ message: "确定要删除这个平台吗？删除后需要重新配置。", confirmText: "删除", danger: true }))) {
@@ -231,26 +218,29 @@ export async function deleteActive(): Promise<void> {
   }
   setBusy(true);
   showStatus("正在删除...");
-  const generation = state.generation;
-  try {
-    const result = await state.onDelete(state.kind, {
-      id: state.editingId,
-      // 回收目标锚定打开时的权威列表项：DOM 现值可能含未保存改动，拿来回收
-      // 会漏收旧 origin / 误收从未授予过的 origin
-      baseUrl: state.openBaseUrl
-    });
-    if (generation !== state.generation || !state.open) return;
-    if (result.ok) {
-      closeProviderEditor(true);
-    } else {
-      setBusy(false);
-      showStatus(result.error || "删除失败", true);
+  await runIfCurrent(
+    () =>
+      onDelete(state.kind, {
+        id: state.editingId,
+        // 回收目标锚定打开时的权威列表项：DOM 现值可能含未保存改动，拿来回收
+        // 会漏收旧 origin / 误收从未授予过的 origin
+        baseUrl: state.openBaseUrl
+      }),
+    {
+      ok: (result) => {
+        if (result.ok) {
+          closeProviderEditor(true);
+          return;
+        }
+        setBusy(false);
+        showStatus(result.error || "删除失败", true);
+      },
+      fail: (error) => {
+        setBusy(false);
+        showStatus(`删除失败：${(error as Error).message || "未知错误"}`, true);
+      }
     }
-  } catch (error) {
-    if (generation !== state.generation || !state.open) return;
-    setBusy(false);
-    showStatus(`删除失败：${(error as Error).message || "未知错误"}`, true);
-  }
+  );
 }
 
 // ===== 测试连接（只验证连通性，成功也不落盘；保存只在点「保存」时发生） =====
@@ -269,7 +259,8 @@ export async function runTest(): Promise<void> {
     void runSearchTest();
     return;
   }
-  const draft = state.draft!;
+  const draft = state.draft;
+  if (!draft) return;
   const baseUrl = draft.baseUrl.trim();
   const model = draft.model.trim();
   if (!baseUrl) {
@@ -280,40 +271,51 @@ export async function runTest(): Promise<void> {
     showStatus("请填写模型名", true);
     return;
   }
-  // 手势不变式：本次点击直达权限代申请（此前零 await，见 tests/ui/
-  // options-save-gesture.test.ts 的调用方扫描）。已授权时 Chrome 直接放行不弹窗；
-  // 未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
-  const permission = await requestProviderOriginsViaBackground([baseUrl]);
-  if (!permission.ok) {
-    showStatus(permission.error || "未取得该平台域名权限，无法测试连接", true);
-    return;
-  }
-  setBusy(true);
-  showStatus("正在测试...");
-  const generation = state.generation;
-  const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
-  const apiKey = draft.apiKey.trim();
-  const name = draft.name.trim() || preset?.name || "自定义";
-  // 新增时 editingId 为空，探针按空 id 代查 Key 落空，用户重输的 Key 随参数携带。
-  const resp: { ok?: boolean; error?: string } = await testAsrConnection({
-    id: state.editingId,
-    name,
-    type: preset?.type || "openai-transcriptions",
-    baseUrl,
-    model,
-    ...(apiKey ? { apiKey } : {})
-  });
-  if (generation !== state.generation || !state.open) {
-    return; // 过期回执：Modal 已关/已重开，不打扰
-  }
-  if (!resp?.ok) {
-    setBusy(false);
-    showStatus(`失败：${resp?.error || "未知错误"}`, true);
-    return;
-  }
-  // 测试成功：只回报连通性，不写设置——用户显式点「保存」才落盘
-  setBusy(false);
-  showStatus("连接成功");
+  // 手势不变式：本次点击直达权限代申请（此前零 await，等价行为断言见
+  // tests/ui/provider-editor.test.ts 的点击当拍核验）。已授权时 Chrome 直接放行
+  // 不弹窗；未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」。
+  const session = captureSession();
+  await session.run(
+    () => requestProviderOriginsViaBackground([baseUrl]),
+    {
+      ok: (permission) => {
+        if (!permission.ok) {
+          showStatus(permission.error || "未取得该平台域名权限，无法测试连接", true);
+          return;
+        }
+        setBusy(true);
+        showStatus("正在测试...");
+        const preset = PROVIDER_FAMILY_ROWS[state.kind].resolvePreset(state.presets, draft.presetId);
+        const apiKey = draft.apiKey.trim();
+        const name = draft.name.trim() || preset?.name || "自定义";
+        // 新增时 editingId 为空，探针按空 id 代查 Key 落空，用户重输的 Key 随参数携带。
+        void session.run(
+          () =>
+            testAsrConnection({
+              id: state.editingId,
+              name,
+              type: preset?.type || "openai-transcriptions",
+              baseUrl,
+              model,
+              ...(apiKey ? { apiKey } : {})
+            }),
+          {
+            ok: (resp) => {
+              if (!resp?.ok) {
+                setBusy(false);
+                showStatus(`失败：${resp?.error || "未知错误"}`, true);
+                return;
+              }
+              // 测试成功：只回报连通性，不写设置——用户显式点「保存」才落盘
+              setBusy(false);
+              showStatus("连接成功");
+            }
+            // fail 缺省：探针异常原样上抛（与既有 void 调用语义一致）
+          }
+        );
+      }
+    }
+  );
 }
 
 // ===== 搜索测试动作（spec §6.6） =====
@@ -328,7 +330,8 @@ export const SEARCH_TEST_QUERY = "联网搜索测试";
 //「连接失败：<原因>」。分类复用 search-chain 的 classifySearchFailure（单一映射表）。
 export async function runSearchTest(): Promise<void> {
   const family = PROVIDER_FAMILY_ROWS[state.kind];
-  const draft = state.draft!;
+  const draft = state.draft;
+  if (!draft) return;
   const preset = family.resolvePreset(state.presets, draft.presetId) as SearchProviderPreset | null;
   const baseUrl = draft.baseUrl.trim();
   if (!baseUrl) {
@@ -351,40 +354,42 @@ export async function runSearchTest(): Promise<void> {
   }
   setBusy(true);
   showStatus("正在测试...");
-  const generation = state.generation;
-  try {
-    const outcome = await executeWebSearch(
-      {
-        type: preset?.type || DEFAULT_SEARCH_PROVIDER_PRESET.type,
-        baseUrl,
-        apiKey
+  // 会话结算（owner 2）：五态映射只写在成功与失败两支，过期回执静默丢弃
+  await runIfCurrent(
+    () =>
+      executeWebSearch(
+        {
+          type: preset?.type || DEFAULT_SEARCH_PROVIDER_PRESET.type,
+          baseUrl,
+          apiKey
+        },
+        SEARCH_TEST_QUERY
+      ),
+    {
+      ok: (outcome) => {
+        setBusy(false);
+        // 200 但 0 条是失败态（空结果不能假装连通成功）
+        if (!outcome.results.length) {
+          showStatus("未返回结果", true);
+          return;
+        }
+        showStatus(`连接成功 · ${outcome.results.length} 条结果`);
       },
-      SEARCH_TEST_QUERY
-    );
-    if (generation !== state.generation || !state.open) {
-      return; // 过期回执：Modal 已关/已重开，不打扰
+      fail: (error) => {
+        setBusy(false);
+        const failure = classifySearchFailure(error);
+        if (failure === "quota") {
+          showStatus("额度已用尽", true);
+          return;
+        }
+        if (failure === "auth") {
+          showStatus("Key 无效或无权限", true);
+          return;
+        }
+        showStatus(`连接失败：${(error as Error)?.message || "未知错误"}`, true);
+      }
     }
-    setBusy(false);
-    // 200 但 0 条是失败态（空结果不能假装连通成功）
-    if (!outcome.results.length) {
-      showStatus("未返回结果", true);
-      return;
-    }
-    showStatus(`连接成功 · ${outcome.results.length} 条结果`);
-  } catch (error) {
-    if (generation !== state.generation || !state.open) return;
-    setBusy(false);
-    const failure = classifySearchFailure(error);
-    if (failure === "quota") {
-      showStatus("额度已用尽", true);
-      return;
-    }
-    if (failure === "auth") {
-      showStatus("Key 无效或无权限", true);
-      return;
-    }
-    showStatus(`连接失败：${(error as Error)?.message || "未知错误"}`, true);
-  }
+  );
 }
 
 // ===== 模板 =====
@@ -425,60 +430,33 @@ function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
 
 export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
   const item = options.item || null;
-  const presets = options.presets;
-  const family = PROVIDER_FAMILY_ROWS[options.kind];
-  // 模板是 draft 的投影：字段值一律读 state.draft（openProviderEditor 先建初稿
-  // 再渲染）；模板不再做任何推导
-  const draft = state.draft!;
-  const preset = family.resolvePreset(presets, draft.presetId);
-  const hasSavedKey = Boolean(item?.hasSavedKey);
+  // 模板是 draft 的投影：字段片段一律来自投影片（字段的 DOM 形态与目标态规则
+  // 各一份），本函数只做布局拼装（哪个 kind 出哪些块）
+  const draft = state.draft;
+  if (!draft) return "";
+  const blocks = projectionBlocks(draft, {
+    kind: options.kind,
+    presets: options.presets,
+    hasSavedKey: Boolean(item?.hasSavedKey)
+  });
   const isAi = options.kind === "ai";
-  const presetId = draft.presetId;
   const isSearch = options.kind === "search";
-  const presetName = preset?.name || "";
-  const nameValue = draft.name;
-  const namePlaceholder = isAi ? presetName : "平台名称";
   const models = draft.models;
-  const model = draft.model;
-  const protocol = draft.protocol;
-  const baseUrl = draft.baseUrl;
-  const notes = isAi ? protocolNotes(protocol) : "";
+  const title = editorTitle(options.kind, Boolean(item?.id));
 
   return `
     <div class="provider-editor-mask" data-provider-editor-action="close"></div>
-    <section class="provider-editor-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(editorTitle(options.kind, Boolean(item?.id)))}" tabindex="-1">
+    <section class="provider-editor-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" tabindex="-1">
       <header class="provider-editor-head">
-        <span class="provider-editor-title">${escapeHtml(editorTitle(options.kind, Boolean(item?.id)))}</span>
+        <span class="provider-editor-title">${escapeHtml(title)}</span>
         ${item?.id && options.onDelete ? `<button type="button" class="provider-editor-delete" data-provider-editor-action="delete" title="删除该平台">删除</button>` : ""}
       </header>
       <div class="provider-editor-body">
-        <div class="provider-editor-field">
-          <label class="provider-editor-label">平台预设</label>
-          <select class="provider-editor-preset">
-            ${presets.map((p) => `<option value="${escapeHtml(p.id)}" ${p.id === presetId ? "selected" : ""}>${escapeHtml(p.name)}</option>`).join("")}
-          </select>
-        </div>
-        ${isAi
-          ? `
-        <div class="provider-editor-field">
-          <label class="provider-editor-label">协议</label>
-          <select class="provider-editor-protocol">
-            ${PROTOCOL_OPTIONS.map((option) => `<option value="${option.value}" ${option.value === protocol ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-          </select>
-        </div>`
-          : ""}
-        <div class="provider-editor-field">
-          <label class="provider-editor-label">名称</label>
-          <input class="provider-editor-name" type="text" placeholder="${escapeHtml(namePlaceholder)}" value="${escapeHtml(nameValue)}" />
-        </div>
-        <div class="provider-editor-field">
-          <label class="provider-editor-label">API 地址</label>
-          <input class="provider-editor-baseurl" type="text" required pattern="https?://.+" placeholder="baseUrl（如 https://api.openai.com/v1）" value="${escapeHtml(baseUrl)}" />
-        </div>
-        <div class="provider-editor-field">
-          <label class="provider-editor-label">API Key</label>
-          <input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(family.editor.apiKeyPlaceholder(preset, hasSavedKey))}" autocomplete="off" ${!hasSavedKey && family.editor.isKeyRequired(preset) ? "required" : ""} />
-        </div>
+        ${blocks.preset}
+        ${isAi ? `\n        ${blocks.protocol}` : ""}
+        ${blocks.name}
+        ${blocks.baseUrl}
+        ${blocks.apiKey}
         ${isAi
           ? `
         <div class="provider-editor-field provider-editor-catalog">
@@ -489,12 +467,12 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
           <div class="provider-editor-model-list">
             ${models.map((m) => modelRowHtml(m)).join("")}
           </div>
-          <p class="provider-editor-catalog-empty" ${models.length ? "hidden" : ""}>模型选择器中将不显示任何模型；目录外 ID 仍可直接发送。</p>
+          ${blocks.catalogEmpty}
           <p class="provider-editor-catalog-error" hidden></p>
           <button type="button" class="provider-editor-model-add" data-provider-editor-action="add-model">+ 添加模型</button>
         </div>
         <p class="provider-editor-status" hidden></p>
-        <p class="provider-editor-protocol-notes" ${notes ? "" : "hidden"}>${escapeHtml(notes)}</p>`
+        ${blocks.protocolNotes}`
           : isSearch
             ? `
         <div class="provider-editor-testrow">
@@ -502,14 +480,7 @@ export function buildDialogHtml(options: ProviderEditorOpenOptions): string {
           <p class="provider-editor-status" hidden></p>
         </div>`
             : `
-        <div class="provider-editor-field">
-          <label class="provider-editor-label">模型</label>
-          ${buildModelPickerField({
-            inputClass: "provider-editor-model",
-            placeholder: "模型名（点右侧箭头拉取可选模型）",
-            value: model
-          })}
-        </div>
+        ${blocks.model}
         <div class="provider-editor-testrow">
           <button type="button" class="provider-editor-test" data-provider-editor-action="test">测试</button>
           <p class="provider-editor-status" hidden></p>
@@ -571,11 +542,13 @@ export function onDocumentKeyDownCapture(event: KeyboardEvent): void {
 
 // ===== 接线 =====
 
-export function wireDialog(options: ProviderEditorOpenOptions): void {
+// 接线只认状态袋（会话控制字段的唯一写入点在状态片）：字段 DOM 形态来自投影片，
+// 联动处理器只改 draft 再 renderProjection。模板已渲染、会话已就位时才有效。
+export function wireDialog(): void {
   const dialog = getDialog();
   const host = state.host;
   if (!dialog || !host) return;
-  const family = PROVIDER_FAMILY_ROWS[options.kind];
+  const family = PROVIDER_FAMILY_ROWS[state.kind];
 
   // 委托挂 host（mask 与 dialog 的共同父级）：遮罩是 dialog 的兄弟，挂 dialog
   // 上收不到遮罩点击（explain-card 同款：委托在容器上）。
@@ -623,91 +596,56 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
   });
 
   const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset");
-  const nameInput = dialog.querySelector<HTMLInputElement>(".provider-editor-name");
-  const baseUrlInput = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl");
-  const apikeyInput = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
 
-  // 原生约束（reader-settings-providers.css 的 :user-invalid/:user-valid 校验态消费）：
-  // ASR 模型名输入由 model-picker 模板生成（构建器契约不含属性注入），在此补
-  // required；Key 必填随预设的 isKeyRequired 与已存 Key 态挂摘（与占位符同源）。
-  // AI 模型目录行无原生必填（空目录合法，拍板 Q13），required 不适用于目录。
-  if (options.kind === "asr") {
-    dialog.querySelector<HTMLInputElement>(".provider-editor-model")?.setAttribute("required", "");
-  }
-  const syncApiKeyRequired = (preset: ProviderRowPreset | null): void => {
-    if (apikeyInput) {
-      apikeyInput.required = family.editor.isKeyRequired(preset) && !state.hasSavedKey;
-    }
-  };
-  syncApiKeyRequired(family.resolvePreset(options.presets, presetSelect?.value || ""));
+  // 原生约束（reader-settings-providers.css 的 :user-invalid/:user-valid 校验态消费）
+  // 由字段投影负责：Key 的 required 随 isKeyRequired / 已存 Key 态、ASR 模型名的
+  // required 都在投影片的字段表内挂摘（与占位符同源，模板与联动同一份规则）。
 
   // 预设切换（候选 4 片 3：改 draft 后重投影）：baseUrl 未改过（空或仍是上一
   // 预设默认值）才跟随（平铺行同款规则）。AI 名称留过实值（≠当前预设名）视为
   // 用户自定义，切预设不覆盖；否则跟随新预设名（仅占位符与空值）。ASR 名称/
   // 模型无条件跟随、Key 清空（平铺行同款）。不代申请权限——Modal 的 host 权限
-  // 在保存时统一收口（拍板 Q5 推论）
+  // 在保存时统一收口（拍板 Q5 推论）。DOM 写入一律经 renderProjection。
   presetSelect?.addEventListener("change", () => {
-    const next = family.resolvePreset(options.presets, presetSelect.value);
+    const next = family.resolvePreset(state.presets, presetSelect.value);
     const draft = state.draft;
     if (!next || !draft) return;
-    const previous = family.resolvePreset(options.presets, draft.presetId);
+    const previous = family.resolvePreset(state.presets, draft.presetId);
     const currentBaseUrl = draft.baseUrl.trim();
-    draft.presetId = next.id;
-    if (options.kind === "ai") {
-      // 协议先联动（拍板 05-ui-protocol-selector）：当前值仍是上一预设默认值
-      //（或空）才跟随新预设；用户改过的选择不覆盖。随后 baseUrl 按「上一预设 +
-      // 当时协议」的端点判是否未改过——两处联动共用一条判据，否则 DeepSeek 这类
-      // 默认 Anthropic 的预设会把 /v1 当成用户手改值
-      if (!draft.protocol || draft.protocol === presetProtocol(previous)) {
-        draft.protocol = presetProtocol(next);
-      }
-      if (protocolSelect) {
-        // 经组件入口写值：裸写 select.value 不会回流 trigger 显示（协议下拉已换壳）
-        setCustomSelectValue(protocolSelect, draft.protocol);
-      }
-      syncProtocolNotes(draft.protocol);
-      const previousBaseUrl = previous ? presetBaseUrlForProtocol(previous, draft.protocol) : "";
-      if (!currentBaseUrl || currentBaseUrl === previousBaseUrl) {
-        draft.baseUrl = presetBaseUrlForProtocol(next, draft.protocol);
-      }
-      const currentName = draft.name.trim();
-      if (!currentName || (previous && currentName === previous.name)) {
-        draft.name = "";
-        if (nameInput) {
-          nameInput.value = "";
-          nameInput.placeholder = next.name || "";
+    editDraft((current) => {
+      current.presetId = next.id;
+      if (state.kind === "ai") {
+        // 协议先联动（拍板 05-ui-protocol-selector）：当前值仍是上一预设默认值
+        //（或空）才跟随新预设；用户改过的选择不覆盖。随后 baseUrl 按「上一预设 +
+        // 当时协议」的端点判是否未改过——两处联动共用一条判据，否则 DeepSeek 这类
+        // 默认 Anthropic 的预设会把 /v1 当成用户手改值
+        if (!current.protocol || current.protocol === presetProtocol(previous)) {
+          current.protocol = presetProtocol(next);
         }
+        const previousBaseUrl = previous ? presetBaseUrlForProtocol(previous, current.protocol) : "";
+        if (!currentBaseUrl || currentBaseUrl === previousBaseUrl) {
+          current.baseUrl = presetBaseUrlForProtocol(next, current.protocol);
+        }
+        const currentName = current.name.trim();
+        if (!currentName || (previous && currentName === previous.name)) {
+          current.name = "";
+        }
+      } else {
+        if (!currentBaseUrl || (previous && currentBaseUrl === String(previous.baseUrl || ""))) {
+          current.baseUrl = next.baseUrl || "";
+        }
+        // ASR 名称/模型无条件跟随、Key 清空（平铺行同款）；搜索平台同款语义，
+        // 只是无模型字段可跟
+        if (state.kind === "asr") {
+          current.model = next.model || "";
+        }
+        current.name = next.name || "";
+        current.apiKey = "";
       }
-      if (baseUrlInput) {
-        baseUrlInput.value = draft.baseUrl;
-      }
-      if (apikeyInput) {
-        apikeyInput.placeholder = family.editor.apiKeyPlaceholder(next, state.hasSavedKey);
-      }
-    } else {
-      if (!currentBaseUrl || (previous && currentBaseUrl === String(previous.baseUrl || ""))) {
-        draft.baseUrl = next.baseUrl || "";
-      }
-      // ASR 名称/模型无条件跟随、Key 清空（平铺行同款）；搜索平台同款语义，
-      // 只是无模型字段可跟
-      if (options.kind === "asr") {
-        draft.model = next.model || "";
-        const modelInput = dialog.querySelector<HTMLInputElement>(".provider-editor-model");
-        if (modelInput) modelInput.value = draft.model;
-      }
-      draft.name = next.name || "";
-      draft.apiKey = "";
-      if (baseUrlInput) baseUrlInput.value = draft.baseUrl;
-      if (nameInput) nameInput.value = draft.name;
-      // 占位符随预设的 access / requiresKey 重算（搜索族三态：免 Key 预设「API Key
-      // （可选）」）；与 :691 的 required 挂摘同源，防「占位符说可选、required 仍卡住」
-      if (apikeyInput) {
-        apikeyInput.value = "";
-        apikeyInput.placeholder = family.editor.apiKeyPlaceholder(next, state.hasSavedKey);
-      }
-    }
-    // Key 必填随预设挂摘（isKeyRequired 与已存 Key 态同占位符口径）
-    syncApiKeyRequired(next);
+    });
+    // 一次重投影覆盖全部字段：协议 trigger 显示 / Key 占位与 required / 名称
+    // 占位 / baseUrl / 模型，不再逐字段手写
+    renderProjection();
     clearStatus();
     // 元数据跟着平台身份走（presetId 变了、baseUrl 可能被联动改掉）
     refreshModelCatalogMeta();
@@ -718,37 +656,29 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
     initCustomSelect(presetSelect, "custom-select-wrapper provider-editor-preset-wrapper");
   }
 
-  // 协议下拉（multi-protocol-ai，仅 AI）：切协议即刷新底部限制点小字。
-  // baseUrl 联动（拍板同预设切换惯例）：当前值仍是上一协议在该预设下的默认
-  // 端点（或空）才跟随新协议的默认端点；用户手改过不覆盖（同 baseUrl 切协议
-  // 的代理平台用例不受影响——前后端点相同，跟随是 no-op）
+  // 协议下拉（multi-protocol-ai，仅 AI）：切协议即重投影（限制点小字 + trigger
+  // 显示 + baseUrl 联动）。baseUrl 联动（拍板同预设切换惯例）：当前值仍是上一
+  // 协议在该预设下的默认端点（或空）才跟随新协议的默认端点；用户手改过不覆盖
+  //（同 baseUrl 切协议的代理平台用例不受影响——前后端点相同，跟随是 no-op）
   const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol");
-  const syncProtocolNotes = (value: unknown): void => {
-    const notesNode = dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes");
-    if (!notesNode) return;
-    const text = protocolNotes(value);
-    notesNode.hidden = !text;
-    notesNode.textContent = text;
-  };
   if (protocolSelect) {
     initCustomSelect(protocolSelect, "custom-select-wrapper provider-editor-protocol-wrapper");
     protocolSelect.addEventListener("change", () => {
       const draft = state.draft;
       if (!draft) return;
-      if (options.kind === "ai") {
-        const preset = family.resolvePreset(options.presets, draft.presetId);
+      if (state.kind === "ai") {
         const previous = normalizeProtocolValue(draft.protocol);
         const next = normalizeProtocolValue(protocolSelect.value);
-        draft.protocol = next;
-        const current = draft.baseUrl.trim();
-        if (preset && (!current || current === presetBaseUrlForProtocol(preset, previous))) {
-          draft.baseUrl = presetBaseUrlForProtocol(preset, next);
-        }
-        if (baseUrlInput) {
-          baseUrlInput.value = draft.baseUrl;
-        }
+        editDraft((current) => {
+          current.protocol = next;
+          const preset = family.resolvePreset(state.presets, current.presetId);
+          const currentBaseUrl = current.baseUrl.trim();
+          if (preset && (!currentBaseUrl || currentBaseUrl === presetBaseUrlForProtocol(preset, previous))) {
+            current.baseUrl = presetBaseUrlForProtocol(preset, next);
+          }
+        });
       }
-      syncProtocolNotes(draft.protocol);
+      renderProjection();
       // 切协议可能联动改 baseUrl（protocolBaseUrls 端点），元数据跟着重算
       refreshModelCatalogMeta();
     });
@@ -756,41 +686,38 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
 
   // 输入即写 draft（候选 4 片 3：draft 是真源，input 事件是文本字段的唯一写
   // 通道）并清错误状态行（修正输入即清错）；字段级校验态由 :user-invalid CSS
-  // 随原生约束自动摘除，无需 JS 介入。ASR 单模型输入只回写 draft（状态行由
-  // model-picker 自持）；其下拉选值已在 model-picker 内补派 input 事件
-  const syncDraftInput = (input: HTMLInputElement | null, key: "name" | "baseUrl" | "apiKey") => {
+  // 随原生约束自动摘除，无需 JS 介入。选择器、draft 键与「是否清错」都由投影片
+  // 的字段表声明（DRAFT_INPUTS），这里只做一次统一接线。
+  // ASR 单模型输入只回写 draft（状态行由 model-picker 自持）；其下拉选值已在
+  // model-picker 内补派 input 事件。
+  for (const field of DRAFT_INPUTS) {
+    const input = dialog.querySelector<HTMLInputElement>(field.selector);
     input?.addEventListener("input", () => {
-      if (state.draft) {
-        state.draft[key] = input.value;
-      }
-      if (statusIsError()) {
+      editDraft((draft) => {
+        draft[field.key] = input.value;
+      });
+      if (field.clearStatus && statusIsError()) {
         clearStatus();
       }
     });
-  };
-  syncDraftInput(nameInput, "name");
-  syncDraftInput(baseUrlInput, "baseUrl");
-  syncDraftInput(apikeyInput, "apiKey");
-  dialog.querySelector<HTMLInputElement>(".provider-editor-model")?.addEventListener("input", (event) => {
-    if (state.draft) {
-      state.draft.model = (event.target as HTMLInputElement).value;
-    }
-  });
+  }
   // AI 目录行：行动态增删，输入事件按当前行序整列回写 draft.models（行 DOM
   // 就是 draft.models 的投影，一一对应）
   dialog.querySelector<HTMLElement>(".provider-editor-model-list")?.addEventListener("input", (event) => {
     const target = event.target as HTMLElement;
-    if (!target.classList.contains("provider-editor-model-id") || !state.draft) return;
+    if (!target.classList.contains("provider-editor-model-id")) return;
     const list = target.closest<HTMLElement>(".provider-editor-model-list");
     if (!list) return;
-    state.draft.models = Array.from(list.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).map(
-      (input) => input.value
-    );
+    editDraft((draft) => {
+      draft.models = Array.from(list.querySelectorAll<HTMLInputElement>(".provider-editor-model-id")).map(
+        (input) => input.value
+      );
+    });
   });
 
   // 只读模型元数据（model-catalog/04）：改 API 地址（custom/未知预设的身份来源）
   // 或改模型 ID 都要重算；目录行是动态增删的，用委托收 input
-  baseUrlInput?.addEventListener("input", () => refreshModelCatalogMeta());
+  dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")?.addEventListener("input", () => refreshModelCatalogMeta());
   dialog
     .querySelector<HTMLElement>(".provider-editor-model-list")
     ?.addEventListener("input", () => refreshModelCatalogMeta());
@@ -820,7 +747,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
 
   // ASR 侧模型下拉接线（AI 目录无下拉，「获取可用模型」弹窗另行委托）；
   // 直调 provider-models（与平铺行一致）
-  if (options.kind === "asr") {
+  if (state.kind === "asr") {
     wireModelPicker(dialog as unknown as ProviderRowElement, {
       inputClass: "provider-editor-model",
       baseUrlClass: "provider-editor-baseurl",
@@ -841,25 +768,29 @@ export function openProviderEditor(options: ProviderEditorOpenOptions): void {
   if (!host) {
     return;
   }
-  state.host = host;
-  state.kind = options.kind;
-  state.presets = options.presets;
-  state.onSave = options.onSave;
-  state.onDelete = options.onDelete || null;
-  state.editingId = String(options.item?.id || "");
-  state.openBaseUrl = String(options.item?.baseUrl || "");
-  state.hasSavedKey = Boolean(options.item?.hasSavedKey);
-  state.open = true;
-  // draft 真源与 dirty 基线先就位，模板渲染（buildDialogHtml）只是它的投影
-  state.draft = buildInitialDraft(options);
-  state.baselineDraft = cloneDraft(state.draft);
+  // 会话控制字段的唯一写入点（状态片原语）：draft 真源与 dirty 基线先就位，
+  // 模板渲染（buildDialogHtml）只是它的投影
+  beginEditorSession({
+    kind: options.kind,
+    host,
+    presets: options.presets,
+    onSave: options.onSave,
+    onDelete: options.onDelete || null,
+    editingId: String(options.item?.id || ""),
+    openBaseUrl: String(options.item?.baseUrl || ""),
+    hasSavedKey: Boolean(options.item?.hasSavedKey),
+    draft: buildInitialDraft(options)
+  });
   host.innerHTML = buildDialogHtml(options);
-  wireDialog(options);
+  // 投影水合：模板已按同一份字段表渲染，这里再走一遍 apply，把「投影规则」
+  //（含 required 挂摘、Key 占位符等）统一落到 DOM，随后联动只调 renderProjection
+  renderProjection();
+  wireDialog();
   document.addEventListener("click", onDocumentClickCapture, true);
   document.addEventListener("keydown", onDocumentKeyDownCapture, true);
   // 设置抽屉收起时强制关闭（含 dirty 改动）：抽屉被外点/齿轮收起时用户意图是
   // 关掉一切，confirm 无意义。自治监听 hidden 属性变化，零跨模块状态。
-  observeSettingsPanelHidden(() => closeProviderEditor(true), state);
+  observeSettingsPanelHidden(() => closeProviderEditor(true), sessionObserver);
   // 只读模型元数据（model-catalog/04）：只有目录族的 Modal 用得上，打开后才动态
   // import 目录 chunk（85KB），首屏不为它买单；加载完补齐已渲染的目录行与拉取弹窗
   if (PROVIDER_FAMILY_ROWS[options.kind].editor.modelSource === "catalog") {

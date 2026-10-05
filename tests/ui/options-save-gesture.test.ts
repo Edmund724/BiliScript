@@ -9,15 +9,21 @@
 // 代申请已收口为 core/host-permissions.ts 的单一实现
 // requestProviderOriginsViaBackground（content script 语境无 chrome.permissions
 // API，经 request-provider-origins 消息由 SW 代为申请；扩展页面语境直调）。
-// 手势链条上的每一环都必须零先行 await，本文件锁定两段：
-// 1. 每个调用方：从手势函数入口到代申请调用之间零先行 await（保存链的调用
-//    被直接 await；模型下拉箭头同样直接 await，拒绝只在下拉内提示）；
+// 本文件锁定两段源码级不变量：
+// 1. 调用方：从手势函数入口到代申请调用之间零先行 await。provider-editor 三处
+//    （runTest / runModelTest / openFetchDialog）与保存事务 upsertProvider 的等价
+//    判据已改为接口驱动的行为断言（点击/调用后同步观察权限发起），不再扫源码：
+//      - tests/ui/provider-editor-session.test.ts（S5 同步观察 pendingPermission）
+//      - tests/ui/provider-editor.test.ts（点击后同步断言权限消息已出站）
+//      - tests/ui/provider-transaction.test.ts（T2 同步断言 requestOrigins 已调用）
+//    仍留在本文件的 model-picker 是当前唯一没有等价行为入口的调用方（下拉箭头
+//    的权限发起先于网络，jsdom 无法同步观察），继续扫源码。
 // 2. SW 处理器（handleRequestProviderOrigins）：从入口到
 //    chrome.permissions.request 之间零 await——手势经一次 runtime 消息传导，
 //    SW 侧垫任何 await 都会让弹窗被 Chrome 拒绝。
 //
 // 另锁一条设置面板侧的既有契约：provider-master-detail/02 起 saveSettings 不再
-// 申请平台权限（平台授权收口在 provider-editor Modal 的 saveProviderSingle /
+// 申请平台权限（平台授权收口在 provider-editor Modal 的单平台事务 /
 // 探针与模型列表预检链路），平铺行「测试连接」自动保存与预设切换代申请随之退役。
 //
 // 断言刻意只认「await 的位置」而不认变量名/文案，改注释、换字段名都不该红。
@@ -83,21 +89,6 @@ describe("host 权限代申请：单一实现", () => {
 });
 
 describe("调用方手势同步链（调用前零先行 await）", () => {
-  it("settings-panel saveProviderSingle：函数体开头到权限申请调用之间没有先行 await", () => {
-    const source = readSource("../../extension/ui/settings-panel.js");
-    const start = source.indexOf("async function saveProviderSingle(");
-    const request = source.indexOf("requestProviderOriginsViaBackground(", start);
-    expect(start).toBeGreaterThan(-1);
-    expect(request).toBeGreaterThan(start);
-
-    // 单平台保存（provider-master-detail/01）：baseUrl 由 upsert 参数直供，
-    // 无需先查列表——request 之前的任何 await 都会丢手势，必须红。
-    const prefix = source.slice(start, request);
-    expect(/(?:^|[\s(=])await\s*$/.test(prefix), "requestProviderOriginsViaBackground 应被直接 await").toBe(true);
-    const before = prefix.replace(/\s*await\s*$/, "");
-    expect(before.match(/\bawait\b/g) || [], "申请权限之前不得有先行 await").toEqual([]);
-  });
-
   it("model-picker 下拉箭头 click：函数体开头到权限申请调用之间没有先行 await", () => {
     const source = readSource("../../extension/ui/model-picker.js");
     const start = source.indexOf('.addEventListener("click", async');
@@ -107,57 +98,6 @@ describe("调用方手势同步链（调用前零先行 await）", () => {
 
     // 箭头点击即用户手势本体：申请之前垫任何 await（哪怕读一次 DOM 之外的
     // 异步值）都会让 Chrome 以「缺少用户手势」拒掉授权弹窗，必须红。
-    const prefix = source.slice(start, request);
-    expect(/(?:^|[\s(=])await\s*$/.test(prefix), "requestProviderOriginsViaBackground 应被直接 await").toBe(true);
-    const before = prefix.replace(/\s*await\s*$/, "");
-    expect(before.match(/\bawait\b/g) || [], "申请权限之前不得有先行 await").toEqual([]);
-  });
-
-  it("provider-editor runTest：函数体开头到权限申请调用之间没有先行 await", () => {
-    const source = readSource("../../extension/ui/provider-editor-modal.js");
-    const start = source.indexOf("export async function runTest(");
-    const request = source.indexOf("requestProviderOriginsViaBackground(", start);
-    expect(start).toBeGreaterThan(-1);
-    expect(request).toBeGreaterThan(start);
-
-    // 点「测试连接」即手势本体：搜索族分派与本地校验（baseUrl / 模型名）必须
-    // 全是同步的，申请之前垫任何 await 都会让 Chrome 以「缺少用户手势」拒掉
-    // 授权弹窗——探针就会退回「未授权」而不真发请求，正是 dc6c4c1 那条链，必须红。
-    const prefix = source.slice(start, request);
-    expect(/(?:^|[\s(=])await\s*$/.test(prefix), "requestProviderOriginsViaBackground 应被直接 await").toBe(true);
-    const before = prefix.replace(/\s*await\s*$/, "");
-    expect(before.match(/\bawait\b/g) || [], "申请权限之前不得有先行 await").toEqual([]);
-  });
-
-  it("provider-editor runModelTest（AI 行级测试）：函数体开头到权限申请调用之间没有先行 await", () => {
-    // 扫描锚点随工单 12 分片改指 catalog 片——runModelTest 整体搬过去了。
-    const source = readSource("../../extension/ui/provider-editor-catalog.js");
-    const start = source.indexOf("export async function runModelTest(");
-    const request = source.indexOf("requestProviderOriginsViaBackground(", start);
-    expect(start).toBeGreaterThan(-1);
-    expect(request).toBeGreaterThan(start);
-
-    // 点行内「测试」即手势本体（与 ASR 平台级 runTest 同款）：本地校验（模型 ID /
-    // API 地址）与 loading/禁用态全是同步的，申请之前垫任何 await 都会让 Chrome 以
-    // 「缺少用户手势」拒掉授权弹窗——探针就会退回「未授权」而不真发请求，必须红。
-    const prefix = source.slice(start, request);
-    expect(/(?:^|[\s(=])await\s*$/.test(prefix), "requestProviderOriginsViaBackground 应被直接 await").toBe(true);
-    const before = prefix.replace(/\s*await\s*$/, "");
-    expect(before.match(/\bawait\b/g) || [], "申请权限之前不得有先行 await").toEqual([]);
-  });
-
-  it("provider-editor「获取可用模型」openFetchDialog：函数体开头到权限申请调用之间没有先行 await", () => {
-    // 扫描锚点随工单 12 分片改指 fetch 片——openFetchDialog 整体搬过去了，
-    // 原 provider-editor.ts 只剩逐名再导出壳（权限申请处仍在点击同步链上）。
-    const source = readSource("../../extension/ui/provider-editor-fetch-dialog.js");
-    const start = source.indexOf("async function openFetchDialog(");
-    const request = source.indexOf("requestProviderOriginsViaBackground(", start);
-    expect(start).toBeGreaterThan(-1);
-    expect(request).toBeGreaterThan(start);
-
-    // 「获取可用模型」点击即用户手势本体（multi-model-catalog 拍板 Q5：host
-    // 权限申请保持在点击同步链）：弹骨架等动作全是同步 DOM 操作，申请之前垫
-    // 任何 await 都会让 Chrome 以「缺少用户手势」拒掉授权弹窗，必须红。
     const prefix = source.slice(start, request);
     expect(/(?:^|[\s(=])await\s*$/.test(prefix), "requestProviderOriginsViaBackground 应被直接 await").toBe(true);
     const before = prefix.replace(/\s*await\s*$/, "");
@@ -178,14 +118,10 @@ describe("SW 处理器零 await（手势经 runtime 消息传导的最后一环�
   });
 });
 
-describe("设置面板保存链的既有契约", () => {
-  it("saveSettings 不再申请平台权限（provider-master-detail/02：平台授权收口在 provider-editor 单平台链）", () => {
-    const source = readSource("../../extension/ui/settings-panel.js");
-    const start = source.indexOf("async function saveSettings(");
-    const end = source.indexOf("\n}", start);
-    const body = source.slice(start, end);
-    expect(body).not.toContain("requestProviderOriginsViaBackground(");
-    expect(body).not.toContain("ai-providers-save");
-    expect(body).not.toContain("asr-providers-save");
-  });
-});
+// 说明：原「设置面板保存链的既有契约」是 saveSettings 的 functionBody 切片
+//（函数体不得出现 requestProviderOriginsViaBackground / providers-save）。
+// owner 3 把平台保存整体搬进 provider-transaction 之后，等价判据已由
+// tests/ui/settings-panel-save.test.ts「saveSettings 保存链（保存按钮手势）」经
+// 真实点击驱动：报文里只许有 save-settings，不得出现 request-provider-origins /
+// ai-providers-save / asr-providers-save。按「replace 不 layer」删除源码切片。
+

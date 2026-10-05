@@ -7,13 +7,14 @@
 //（./provider-editor-catalog.js），不反向依赖 Modal 本体。
 //
 // 手势不变式：openFetchDialog 从函数体开头到 requestProviderOriginsViaBackground
-// 之间零先行 await（tests/ui/options-save-gesture.test.ts 扫描本文件锁定——该用例
-// 原扫 provider-editor.ts，随本片搬移改锚）。函数体自原 provider-editor.ts 逐字节搬移。
+// 之间零先行 await——等价行为断言（点击当拍权限已出站）在
+// tests/ui/provider-editor.test.ts 与 tests/ui/provider-editor-session.test.ts。
+// 拉取回执的过期判据收进结算原语（captureSession / runIfCurrent，弹窗存活判据）。
 
 import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
-import { normalizeDraftModels, state } from "./provider-editor-state.js";
+import { normalizeDraftModels, captureSession, runIfCurrent, state } from "./provider-editor-state.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { addModelRow, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
 
@@ -141,26 +142,32 @@ export function renderFetchError(message: string): void {
 }
 
 export async function loadFetchModels(baseUrl: string, apiKey: string): Promise<void> {
-  const generation = state.generation;
-  let resp: { ok?: boolean; models?: string[]; error?: string } | null = null;
-  try {
-    resp = await sendRuntimeMessage({ type: "ai-providers-models", baseUrl, apiKey, providerId: state.editingId });
-  } catch (error) {
-    resp = { ok: false, error: (error as Error | undefined)?.message || "拉取失败" };
-  }
-  if (generation !== state.generation || !getFetchDialog()) {
-    return; // 过期回执：Modal 已关/已重开或弹窗已关
-  }
-  if (resp?.ok && Array.isArray(resp.models)) {
-    renderFetchList(resp.models);
-  } else {
-    renderFetchError(String(resp?.error || "拉取失败"));
-  }
+  await runIfCurrent(
+    async (): Promise<{ ok?: boolean; models?: string[]; error?: string }> => {
+      try {
+        return await sendRuntimeMessage({ type: "ai-providers-models", baseUrl, apiKey, providerId: state.editingId });
+      } catch (error) {
+        return { ok: false, error: (error as Error | undefined)?.message || "拉取失败" };
+      }
+    },
+    {
+      ok: (resp) => {
+        if (resp?.ok && Array.isArray(resp.models)) {
+          renderFetchList(resp.models);
+        } else {
+          renderFetchError(String(resp?.error || "拉取失败"));
+        }
+      }
+    },
+    // 存活判据：Modal 已关/已重开或弹窗已关，过期回执不打扰
+    () => getFetchDialog() !== null
+  );
 }
 
 // 「获取可用模型」入口：校验地址/Key → 弹窗骨架 → 权限代申请 → 拉列表。
 // 手势同步链：本函数开头到 requestProviderOriginsViaBackground 之间零先行
-// await（tests/ui/options-save-gesture.test.ts 锁定）——点击直达代申请。
+// await——点击直达代申请（等价行为断言见 tests/ui/provider-editor.test.ts 与
+// tests/ui/provider-editor-session.test.ts 的同步出站核验）。
 export async function openFetchDialog(): Promise<void> {
   const draft = state.draft;
   if (!draft) return;
@@ -176,16 +183,21 @@ export async function openFetchDialog(): Promise<void> {
   }
   showCatalogError("");
   renderFetchSkeleton();
-  const generation = state.generation;
-  const permission = await requestProviderOriginsViaBackground([baseUrl]);
-  if (generation !== state.generation || !state.open || !getFetchDialog()) {
-    return;
-  }
-  if (!permission.ok) {
-    renderFetchError(permission.error || "未取得该平台域名权限，无法拉取模型列表");
-    return;
-  }
-  await loadFetchModels(baseUrl, apiKey);
+  // 会话结算（owner 2）：权限回执落定时 Modal 已关/已重开或弹窗已关即丢弃，
+  // 不再触发注定过期的模型请求。
+  const session = captureSession(() => getFetchDialog() !== null);
+  await session.run(
+    () => requestProviderOriginsViaBackground([baseUrl]),
+    {
+      ok: (permission) => {
+        if (!permission.ok) {
+          renderFetchError(permission.error || "未取得该平台域名权限，无法拉取模型列表");
+          return;
+        }
+        void loadFetchModels(baseUrl, apiKey);
+      }
+    }
+  );
 }
 
 // 勾选确认：所选模型以行形式追加进目录（草稿态，拍板 Q10——不触发落盘）

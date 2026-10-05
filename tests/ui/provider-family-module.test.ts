@@ -66,13 +66,12 @@ describe("家族行模块收敛（候选 3 片 1）", () => {
 });
 
 // 取函数体（到第一个顶格右花括号为止，与 provider-delete-origin-union 同款口径）
-function functionBody(source: string, signature: string): string {
-  const start = source.indexOf(signature);
-  expect(start, `找不到函数：${signature}`).toBeGreaterThan(-1);
-  const end = source.indexOf("\n}", start);
-  expect(end, `找不到函数体结尾：${signature}`).toBeGreaterThan(start);
-  return source.slice(start, end);
-}
+// 说明：原先四条按 functionBody 切片锁 provider-editor-modal 内部实现的断言
+//（collectUpsert 字段直收 / draft 真源 / isDirty 走 draftsEqual / runTest 能力位）
+// 已按「replace 不 layer」删除，等价判据改由接口驱动的行为断言承接：
+//   - 三族保存报文各自带本族字段、不带他族字段 → tests/ui/provider-editor-save.test.ts
+//   - 平台级测试按钮在场性 = 能力位 → 同上
+//   - draft 全键穷举判脏 / 联动写 draft / input 回写 → tests/ui/provider-editor-projection.test.ts
 
 describe("编辑器消费族声明（候选 3 片 2）", () => {
   it("声明带 editor 段：序列化 + 能力位 + 模板元数据（全键覆盖编译兜底）", () => {
@@ -84,33 +83,6 @@ describe("编辑器消费族声明（候选 3 片 2）", () => {
     expect(source).toContain("supportsPlatformTest");
   });
 
-  it("collectUpsert 不再按 kind 分支：字段直收，序列化委派族声明", () => {
-    const source = readSource("../../extension/ui/provider-editor-modal.ts");
-    const body = functionBody(source, "export function collectUpsert(");
-    expect(body).not.toContain('state.kind === "search"');
-    expect(body).not.toContain('state.kind === "asr"');
-    expect(body).toContain("PROVIDER_FAMILY_ROWS[state.kind]");
-    expect(body).toContain("serializeUpsert(");
-  });
-
-  it("片 3：collectUpsert 以 draft 为真源，不读 DOM", () => {
-    const source = readSource("../../extension/ui/provider-editor-modal.ts");
-    const body = functionBody(source, "export function collectUpsert(");
-    expect(body).toContain("state.draft");
-    expect(body).not.toContain("readField");
-  });
-
-  it("片 3：draft 投影——modal 无 currentSnapshot/dirtySnapshot，isDirty 走 draftsEqual", () => {
-    const source = readSource("../../extension/ui/provider-editor-modal.ts");
-    expect(source).not.toContain("currentSnapshot");
-    expect(source).not.toContain("dirtySnapshot");
-    const dirty = functionBody(source, "export function isDirty(");
-    expect(dirty).toContain("draftsEqual");
-    const state = readSource("../../extension/ui/provider-editor-state.ts");
-    expect(state).toContain("interface EditorDraft");
-    expect(state).toContain("export function draftsEqual");
-  });
-
   it("resolvePreset / apiKeyPlaceholder 从 state 片迁出：state 不再定义，消费方不再从 state 导入", () => {
     const state = readSource("../../extension/ui/provider-editor-state.ts");
     expect(state).not.toContain("export function resolvePreset");
@@ -119,12 +91,5 @@ describe("编辑器消费族声明（候选 3 片 2）", () => {
     for (const file of ["../../extension/ui/provider-editor-modal.ts", "../../extension/ui/provider-editor-fetch-dialog.ts"]) {
       expect(readSource(file), `${file} 不得再从 state 片导入 resolvePreset/apiKeyPlaceholder`).not.toMatch(importFromState);
     }
-  });
-
-  it("kind 门收敛为能力位：平台测试门看 supportsPlatformTest（快照门片 3 由 draft 锁接管）", () => {
-    const source = readSource("../../extension/ui/provider-editor-modal.ts");
-    const runTest = functionBody(source, "export async function runTest(");
-    expect(runTest).toContain("supportsPlatformTest");
-    expect(runTest).not.toContain('state.kind !== "asr"');
   });
 });
