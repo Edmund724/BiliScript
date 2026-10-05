@@ -254,7 +254,9 @@ function renderedThinkingLabels(): string[] {
   );
 }
 
-function activeThinkingLevels(): string[] {
+// 列表里带勾（is-active）的档位值。2026-10-05 裁定 B 起：勾 = **实发档**（口径 ⑤），
+// 不再是「偏好落在哪一项」——偏好 ≠ 实发时勾随实发走，点它即把该档写成偏好。
+function effectiveThinkingLevels(): string[] {
   return [...document.querySelectorAll<HTMLButtonElement>(`#${ids.readingChatThinkingToggle} .chat-thinking-btn.is-active`)].map(
     (btn) => btn.dataset.level || ""
   );
@@ -438,6 +440,12 @@ describe("档位 clamp：提示面给出「源档 → 实发档」（句式与�
     // 2026-10-05 复审：chip 与一级行显示实发档，不再显示被裁掉的偏好（High）。
     expect(chipLevelText()).toBe("Medium");
     expect(levelRowValueText()).toBe("Medium");
+    // 2026-10-05 裁定 B：勾也落在实发档；点勾住的 medium 即把偏好写成 medium（提示随之收起）。
+    expect(effectiveThinkingLevels()).toEqual(["medium"]);
+    clickThinking("medium");
+    expect(chatSessionState.aiThinkingLevel).toBe("medium");
+    expect(chipLevelText()).toBe("Medium");
+    expect(hint.hidden).toBe(true);
   });
 
   it("可用的档位不误报：qwen3.8-max + 偏好 low → 无提示", async () => {
@@ -505,14 +513,16 @@ describe("档位 clamp：提示面给出「源档 → 实发档」（句式与�
 });
 
 // ============================================================
-// 显示口径统一（2026-10-05 复审裁定，票据 chat-thinking-submenu/05）：偏好 ≠ 实发档时
-// 一级行/chip 一律显示**实发档**，两格（档位型 clamp / off 关不掉）各有一处真相；列表
-// 仍按偏好打勾（列表那一半是 05 号票未完成的部分，见票）。
+// 显示口径统一（2026-10-05 复审 + 裁定 B，票据 chat-thinking-submenu/05）：偏好 ≠ 实发档时
+// 一级行/chip/列表的勾**一律写实发档**，两格（档位型 clamp / off 关不掉）各有一处真相；
+// 勾 = 实发档，点勾住的那一项即把该档写成偏好（用户显式接受本次 clamp），偏好的偏差由
+// 面板底部提示行说明。
 // 走查同时写出可复现工件（.scratch/tickets/chat-thinking-submenu/artifacts/05-showing-effective-level.txt）。
 // 先列可能失败的方式：① clamp 格 chip 仍写被裁掉的偏好；② 两格提示句式不一致（一个带原因）；
-// ③ 列表替实发档打勾（点它不写偏好）；④ 偏好被迁移（换回原模型不回落）。
+// ③ 勾仍按偏好算（两格无人打勾，答不出线上实际发什么）；④ 偏好被迁移（换回原模型不回落）；
+// ⑤ 勾住的那一项点下去不写偏好（用户以为选了、存储里还是旧偏好）。
 // ============================================================
-describe("口径 ③ 统一：偏好 ≠ 实发档 → 一级行/chip 写实发档（走查 + 工件）", () => {
+describe("口径 ③/⑤ 统一：偏好 ≠ 实发档 → 一级行/chip/勾都落在实发档（走查 + 工件）", () => {
   it("clamp 格（qwen3.8-max）与 off 关不掉格（sensenova/glm-5.2）逐行对齐，偏好不迁移", async () => {
     providersPayload = [
       provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL, presetId: "qwen" }),
@@ -531,7 +541,7 @@ describe("口径 ③ 统一：偏好 ≠ 实发档 → 一级行/chip 写实发�
           `偏好=${chatSessionState.aiThinkingLevel}`,
           `条目=[${renderedThinkingLevels().join(",")}]`,
           `显示名=[${renderedThinkingLabels().join(",")}]`,
-          `选中=[${activeThinkingLevels().join(",")}]`,
+          `勾=[${effectiveThinkingLevels().join(",")}]`,
           `chip=${chipLevelText()}`,
           `一级行=${levelRowValueText()}`,
           `提示=${getHint().hidden ? "-" : getHint().textContent}`
@@ -539,50 +549,70 @@ describe("口径 ③ 统一：偏好 ≠ 实发档 → 一级行/chip 写实发�
       );
     }
 
-    // ① 档位型 clamp：偏好 high 被裁到 medium → chip/一级行 Medium、列表无人打勾、提示两句式。
+    // ① 档位型 clamp：偏好 high 被裁到 medium → chip/一级行 Medium、勾随实发落在 medium、提示两句式。
     expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "medium", "xhigh"]);
-    expect(activeThinkingLevels()).toEqual([]);
+    expect(effectiveThinkingLevels()).toEqual(["medium"]);
     expect(chipLevelText()).toBe("Medium");
     expect(levelRowValueText()).toBe("Medium");
     expect(getHint().textContent).toBe(HINT_CLAMP_HIGH_TO_MEDIUM);
     snap("1 qwen/qwen3.8-max（偏好 high → 实发 medium）");
 
-    // ② 走真实持久化链把偏好改成 off：chip 照实发档回 Off、提示收起。
+    // ② 点勾住的实发档 medium（裁定 B：点它即把该档写成偏好）→ 偏好落盘 medium、提示收起。
+    clickThinking("medium");
+    expect(chatSessionState.aiThinkingLevel).toBe("medium");
+    expect(chipLevelText()).toBe("Medium");
+    expect(getHint().hidden).toBe(true);
+    snap("2 qwen/qwen3.8-max（点勾住的 medium → 偏好落盘 medium）");
+
+    // ③ 走真实持久化链把偏好改成 off：chip 照实发档回 Off、勾落 off、提示仍收起。
     clickThinking("off");
     expect(chatSessionState.aiThinkingLevel).toBe("off");
     expect(chipLevelText()).toBe("Off");
+    expect(effectiveThinkingLevels()).toEqual(["off"]);
     expect(getHint().hidden).toBe(true);
-    snap("2 qwen/qwen3.8-max（偏好落盘 off）");
+    snap("3 qwen/qwen3.8-max（偏好落盘 off）");
 
-    // ③ off 关不掉：偏好 off 被级联到 high → chip/一级行 High、列表无人打勾、长版提示。
+    // ④ off 关不掉：偏好 off 被级联到 high → chip/一级行 High、勾随实发落在 high、长版提示。
     select.value = modelOptionValue("p2", "glm-5.2");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(renderedThinkingLevels()).toEqual(["default", "high", "max"]);
-    expect(activeThinkingLevels()).toEqual([]);
+    expect(effectiveThinkingLevels()).toEqual(["high"]);
     expect(chipLevelText()).toBe("High");
     expect(levelRowValueText()).toBe("High");
     expect(getHint().textContent).toBe(HINT_LOW_FALLBACK);
-    snap("3 sensenova/glm-5.2（偏好 off → 实发 high）");
+    snap("4 sensenova/glm-5.2（偏好 off → 实发 high）");
 
-    // ④ 偏好不迁移：换回支持 off 的模型，偏好原样解析（仍是 off、不是被级联改写的 high）。
+    // ⑤ 偏好不迁移：换回支持 off 的模型，偏好原样解析（仍是 off、不是被级联改写的 high）。
     select.value = modelOptionValue("p1", "qwen3.8-max");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(chatSessionState.aiThinkingLevel).toBe("off");
     expect(chipLevelText()).toBe("Off");
     expect(getHint().hidden).toBe(true);
-    snap("4 qwen/qwen3.8-max（偏好仍 off，未被 ③ 迁移）");
+    snap("5 qwen/qwen3.8-max（偏好仍 off，未被 ④ 迁移）");
 
-    expect(steps).toHaveLength(4);
+    // ⑥ 关不掉那一格点勾住的实发档 high：偏好这才迁移成 high、长文案收起、勾仍在 high。
+    select.value = modelOptionValue("p2", "glm-5.2");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    clickThinking("high");
+    expect(chatSessionState.aiThinkingLevel).toBe("high");
+    expect(chipLevelText()).toBe("High");
+    expect(effectiveThinkingLevels()).toEqual(["high"]);
+    expect(getHint().hidden).toBe(true);
+    snap("6 sensenova/glm-5.2（点勾住的 high → 偏好落盘 high，提示收起）");
+
+    expect(steps).toHaveLength(6);
 
     const artifactDir = join(process.cwd(), ".scratch", "tickets", "chat-thinking-submenu", "artifacts");
     mkdirSync(artifactDir, { recursive: true });
     writeFileSync(
       join(artifactDir, "05-showing-effective-level.txt"),
       [
-        "# 显示口径统一走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
-        "# 用例：偏好 ≠ 实发档的两格（档位型 clamp / off 关不掉）逐行看 chip、一级行、列表勾、提示",
-        "# 判据：chip 与一级行写实发档（Medium / High）、列表按偏好打勾（两格都无人打勾）、",
-        "#       提示句式同为「当前模型不支持思考强度 X，已使用 Y」、偏好不迁移（换回原模型回落 off）",
+        "# 显示口径统一 + 勾语义走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
+        "# 用例：偏好 ≠ 实发档的两格（档位型 clamp / off 关不掉）逐行看 chip、一级行、列表的勾、提示，",
+        "#       并各走一遍「点勾」语义（点勾住的实发档 = 把该档写成偏好，提示随之收起）",
+        "# 判据：chip 与一级行写实发档（Medium / High）、勾也落在实发档（列 =「勾」）、",
+        "#       提示句式同为「当前模型不支持思考强度 X，已使用 Y」、",
+        "#       切模型不迁移偏好（换回原模型回落 off）、点勾住的实发档 → 偏好落盘该档 + 提示收起（2026-10-05 裁定 B）",
         "# 每行 = 一步；同命令重跑逐字节一致",
         ...steps,
         ""
@@ -679,10 +709,10 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     expect(getThinkingBtn("low")).toBe(null);
   });
 
-  // 口径 ③（2026-10-05 复审裁定）：关不掉时一级行与 chip 显示**实发档**，不再显示线上
-  // 没发的 Off；偏好本身不迁移（换到能关的模型仍按 off 解析），列表也不替实发档打勾
-  // （打勾会把「点 High」变成重复选择——点了不写偏好）。
-  it("偏好 off 且关不掉（sensenova/glm-5.2 → 级联发 high）：一级行 High、实发档条目可点、长文案在场", async () => {
+  // 口径 ③/⑤（2026-10-05 复审 + 裁定 B）：关不掉时一级行/chip/勾都显示**实发档**，不再显示
+  // 线上没发的 Off；偏好本身不迁移（换到能关的模型仍按 off 解析），但点勾住的实发档即把该档
+  // 写成偏好（用户显式接受本次 clamp），所以它不是「重复选择」。
+  it("偏好 off 且关不掉（sensenova/glm-5.2 → 级联发 high）：一级行 High、勾在 high、长文案在场", async () => {
     providersPayload = [
       provider({ id: "p1", model: "glm-5.2", baseUrl: SENSENOVA_URL, presetId: "sensenova" }),
       provider({ id: "p2", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" })
@@ -696,30 +726,31 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     // A' = {high,max}：off 关不掉 → 级联落最小可用档 high（线上发 output_config.effort high）。
     expect(renderedThinkingLevels()).toEqual(["default", "high", "max"]);
     expect(renderedThinkingLabels()).toEqual(["Default", "High", "Max"]);
-    expect(activeThinkingLevels()).toEqual([]);
+    expect(effectiveThinkingLevels()).toEqual(["high"]);
     expect(chipLevel()).toBe("High");
     expect((document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement).textContent).toBe("High");
     // 工单 03 的长文案不动：它说的是「已使用最小思考档位」，与一级行的 High 一致。
     expect(getHint().hidden).toBe(false);
     expect(getHint().textContent).toBe(HINT_LOW_FALLBACK);
 
-    // 偏好没有被迁移：切到能关的模型仍按 off 解析（一级行回 Off、条目勾 off、提示收起）。
+    // 偏好没有被迁移：切到能关的模型仍按 off 解析（一级行回 Off、勾落 off、提示收起）。
     const select = getModelSelect();
     select.value = modelOptionValue("p2", "deepseek-v4-pro");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(chatSessionState.aiThinkingLevel).toBe("off");
     expect(chipLevel()).toBe("Off");
-    expect(activeThinkingLevels()).toEqual(["off"]);
+    expect(effectiveThinkingLevels()).toEqual(["off"]);
     expect(getHint().hidden).toBe(true);
 
-    // 切回来点实发档那一项：偏好这才迁移成 high（打勾跟着落定，一级行仍是 High）。
+    // 切回来点勾住的实发档：偏好这才迁移成 high（存储 + 提示收起，勾仍在 high）。
     select.value = modelOptionValue("p1", "glm-5.2");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(chipLevel()).toBe("High");
     clickThinking("high");
     expect(chatSessionState.aiThinkingLevel).toBe("high");
-    expect(activeThinkingLevels()).toEqual(["high"]);
+    expect(effectiveThinkingLevels()).toEqual(["high"]);
     expect(chipLevel()).toBe("High");
+    expect(getHint().hidden).toBe(true);
   });
 
   it("18 号票：上游 none-high 的托管行仍可关思考（opencodego/hy4-preview：条目 = {off,high}，那一档叫 On）", async () => {
@@ -744,9 +775,9 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     // 上游词表 toggle+low-medium-xhigh：High 不存在（不现渲、不置灰）。
     expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "medium", "xhigh"]);
     expect(getThinkingBtn("high")).toBe(null);
-    // 偏好档位没有对应条目 → 没有 active 条目（档位页的语义 = 「这个模型有哪些档位」，
-    // 偏好的偏差由说明文本承担），而 chip 与一级行按口径 ③ 显示**实发档** Medium。
-    expect(activeThinkingLevels()).toEqual([]);
+    // 偏好档位没有对应条目 → 勾落在**实发档** medium（口径 ⑤ 裁定 B：勾 = 线上实际发的那一档），
+    // 且 chip 与一级行同样显示 Medium；偏好的偏差由说明文本承担。
+    expect(effectiveThinkingLevels()).toEqual(["medium"]);
     expect(getHint().textContent).toBe(HINT_CLAMP_HIGH_TO_MEDIUM);
     expect(chipLevelText()).toBe("Medium");
   });
@@ -826,7 +857,7 @@ describe("二级菜单端到端走查（04 号票）", () => {
           `档位页=${page.hidden ? "隐" : "显"}`,
           `一级行=${row.hidden ? "隐" : "显"}`,
           `条目=[${renderedThinkingLevels().join(",")}]`,
-          `选中=[${activeThinkingLevels().join(",")}]`,
+          `勾=[${effectiveThinkingLevels().join(",")}]`,
           `chip=${chipLevel.textContent}`,
           `偏好=${chatSessionState.aiThinkingLevel}`,
           `提示=${hint.hidden ? "-" : hint.textContent}`
@@ -927,7 +958,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
           label,
           `条目=[${renderedThinkingLevels().join(",")}]`,
           `显示名=[${renderedThinkingLabels().join(",")}]`,
-          `选中=[${activeThinkingLevels().join(",")}]`,
+          `勾=[${effectiveThinkingLevels().join(",")}]`,
           `chip=${chipLevel.textContent}`,
           `提示=${getHint().hidden ? "-" : getHint().textContent}`
         ].join(" | ")
@@ -937,17 +968,17 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
     // ① 目录内·原生（zhipu 方言 thinking:{type}）：Off 条目在场、偏好 off 满足、无提示。
     expect(renderedThinkingLevels()).toEqual(["default", "off", "high", "max"]);
     expect(renderedThinkingLabels()).toEqual(["Default", "Off", "High", "Max"]);
-    expect(activeThinkingLevels()).toEqual(["off"]);
+    expect(effectiveThinkingLevels()).toEqual(["off"]);
     expect(getHint().hidden).toBe(true);
     snap("1 zhipu/glm-5.2（目录内·原生）");
 
     // 走一遍真实点击：Off → Max → 回 Off，chip 与落盘同步（补声明新开的 Off 条目真能选中）。
     clickThinking("max");
-    expect(activeThinkingLevels()).toEqual(["max"]);
+    expect(effectiveThinkingLevels()).toEqual(["max"]);
     expect(chatSessionState.aiThinkingLevel).toBe("max");
     expect(chipLevel.textContent).toBe("Max");
     clickThinking("off");
-    expect(activeThinkingLevels()).toEqual(["off"]);
+    expect(effectiveThinkingLevels()).toEqual(["off"]);
     expect(chatSessionState.aiThinkingLevel).toBe("off");
     expect(chipLevel.textContent).toBe("Off");
 
@@ -959,7 +990,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
     snap("2 qwen/glm-5.2（托管·借词）");
 
     // ③ 三家未登记开关形状的行：事实带 toggle 但无写点 → 条目仍是 {high,max}、提示逐字不变，
-    //    一级行与选中项按口径 ③ 落在实发档 high。
+    //    一级行/chip/勾按口径 ③/⑤ 都落在实发档 high。
     const unregistered: ReadonlyArray<[providerId: string, label: string, model: string]> = [
       ["p3", "openrouter/z-ai/glm-5.2", "z-ai/glm-5.2"],
       ["p4", "sensenova/glm-5.2", "glm-5.2"],
@@ -969,7 +1000,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
       select.value = modelOptionValue(providerId, model);
       select.dispatchEvent(new Event("change", { bubbles: true }));
       expect(renderedThinkingLevels(), label).toEqual(["default", "high", "max"]);
-      expect(activeThinkingLevels(), label).toEqual([]);
+      expect(effectiveThinkingLevels(), label).toEqual(["high"]);
       expect(chipLevel.textContent, label).toBe("High");
       expect(getHint().hidden, label).toBe(false);
       expect(getHint().textContent, label).toBe(HINT_LOW_FALLBACK);
@@ -995,7 +1026,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
         "# D1=A2 端到端走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
         "# 用例：6 行本地 glm-5.2（5 行目录内 + glm-5.2-air 兜底），偏好 off，逐行看档位条目与提示",
         "# 判据：zhipu / qwen 多出 Off（静默）；openrouter / sensenova / opencodego 的条目与提示不变（长版提示），",
-        "#       一级行/chip 按口径 ③（2026-10-05 复审）显示实发档 High、列表无人打勾——线上发 high，界面不再写 Off",
+        "#       一级行/chip/勾按口径 ③/⑤（2026-10-05 复审 + 裁定 B）都落在实发档 High——线上发 high，界面不再写 Off",
         "# 每行 = 一步；同命令重跑逐字节一致",
         ...steps,
         ""
@@ -1034,7 +1065,7 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
           label,
           `偏好=${chatSessionState.aiThinkingLevel}`,
           `条目=[${renderedThinkingLevels().join(",")}]`,
-          `选中=[${activeThinkingLevels().join(",")}]`,
+          `勾=[${effectiveThinkingLevels().join(",")}]`,
           `chip=${chipLevel.textContent}`,
           `一级行=${thinkingRowValue.textContent}`,
           `提示=${getHint().hidden ? "-" : getHint().textContent}`
@@ -1045,7 +1076,7 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
     // ① 出厂默认 = default：一级行/chip 都写 Default，列表首项 Default 打勾，无提示。
     expect(chatSessionState.aiThinkingLevel).toBe("default");
     expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high", "max"]);
-    expect(activeThinkingLevels()).toEqual(["default"]);
+    expect(effectiveThinkingLevels()).toEqual(["default"]);
     expect(chipLevel.textContent).toBe("Default");
     expect(thinkingRowValue.textContent).toBe("Default");
     expect(getHint().hidden).toBe(true);
@@ -1054,14 +1085,14 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
     // ② 点 Off：偏好真落盘 off、Default 取消打勾、chip 跟着走。
     clickThinking("off");
     expect(chatSessionState.aiThinkingLevel).toBe("off");
-    expect(activeThinkingLevels()).toEqual(["off"]);
+    expect(effectiveThinkingLevels()).toEqual(["off"]);
     expect(chipLevel.textContent).toBe("Off");
     snap("2 点 Off（显式关思考）");
 
     // ③ 点回 Default：偏好回到不干预（不是「再也没法不说话」）。
     clickThinking("default");
     expect(chatSessionState.aiThinkingLevel).toBe("default");
-    expect(activeThinkingLevels()).toEqual(["default"]);
+    expect(effectiveThinkingLevels()).toEqual(["default"]);
     expect(chipLevel.textContent).toBe("Default");
     snap("3 点回 Default（不干预）");
 
@@ -1069,14 +1100,14 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
     select.value = modelOptionValue("p2", "MiniMax-M3");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(renderedThinkingLevels()).toEqual(["default"]);
-    expect(activeThinkingLevels()).toEqual(["default"]);
+    expect(effectiveThinkingLevels()).toEqual(["default"]);
     expect(thinkingRow().hidden).toBe(false);
     expect(chipLevel.textContent).toBe("Default");
     expect(getHint().hidden).toBe(true);
     snap("4 minimax/MiniMax-M3（零档行，偏好 default）");
 
     // ⑤ 零档行 + 偏好强度档（high）：先在有强度档的模型上把偏好点成 high（走真实持久化链），
-    // 再切到零档行 —— 实发 default、如实报「已使用 default」（不静默、不假装发 high）。
+    // 再切到零档行 —— 实发 default、勾落在 Default（口径 ⑤：勾 = 实发档）、如实报「已使用 default」。
     select.value = modelOptionValue("p1", "deepseek-v4-pro");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     clickThinking("high");
@@ -1084,7 +1115,7 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
     select.value = modelOptionValue("p2", "MiniMax-M3");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(chipLevel.textContent).toBe("Default");
-    expect(activeThinkingLevels()).toEqual([]);
+    expect(effectiveThinkingLevels()).toEqual(["default"]);
     expect(getHint().hidden).toBe(false);
     expect(getHint().textContent).toBe("当前模型不支持思考强度 high，已使用 default");
     snap("5 minimax/MiniMax-M3（零档行，偏好 high）");
@@ -1097,7 +1128,8 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
       [
         "# default（不干预）档端到端走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
         "# 用例：出厂默认（无 aiThinkingLevel 落盘）→ 点 Off → 点回 Default；再切到零档行模型 MiniMax-M3",
-        "# 判据：一级行/chip 写实发档（default 时写 Default）；列表首项恒为 Default 且只在偏好是 default 时打勾；",
+        "# 判据：一级行/chip 写实发档（default 时写 Default）；列表的勾 = 实发档（口径 ⑤，2026-10-05 裁定 B：",
+        "#       零档行 + 强度档偏好时勾落在 Default）；",
         "#       零档行只剩 Default 一项且一级行照旧显示（用户裁定「破例 = 能主动选」）；",
         "#       零档行 + 强度档偏好 → 实发 default + 提示「当前模型不支持思考强度 high，已使用 default」",
         "# 每行 = 一步；同命令重跑逐字节一致",

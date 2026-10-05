@@ -19,6 +19,11 @@
 //   ④ **首项恒为 `Default`**（2026-10-05 用户裁定「所有模型都加一个 default 档位、都可发」）：
 //      default = 不干预（不发思考字段），与 off（显式发关思考字段）不同；可表达的强度档为空时
 //      列表就是只剩 Default 一项，面板**不隐藏**该行（用户裁定「破例 = 能主动选」）。
+//   ⑤ **列表的勾 = 实发档**（2026-10-05 裁定 B）：勾 / 高亮 / aria-current 一律由
+//      `ThinkingPickerEntry.effective` 决定——「勾 = 线上实际发的那一档」，与 chip、一级行
+//      说同一件事（与面板模型页 `is-selected` 的勾同义）。**点击判据是另一个字段**
+//      （`writesPreference`，从 requestedLevel 算、不读勾）：勾住的那一项在偏好 ≠ 实发时
+//      点下去**也写偏好**（用户显式接受本次 clamp）；只有「它已经是偏好落在的那一项」才不写。
 import { THINKING_DEFAULT_LEVEL, type ThinkingLevel, type ThinkingLevelValue } from "../ai/thinking-levels.js";
 
 // 档位标签表（05 号票：上游词表 7 档）。口径与既有 Off/Low/High 一致——首字母大写、
@@ -63,8 +68,13 @@ export interface ThinkingPickerEntry {
   // 点它要写进全局偏好的值（开关型的 On 是 SWITCH_ON_LEVEL；`default` 是「不干预」）。
   level: ThinkingLevelValue;
   label: string;
-  // 当前偏好是否落在它身上（打勾）。
-  active: boolean;
+  // 这一项就是本次解析的**实发档**（口径 ⑤，2026-10-05 裁定 B）：列表据此打勾 / 高亮 /
+  // aria-current。偏好 ≠ 实发时线上发的是它，所以「打不打勾」答的是「线上实际发什么」。
+  effective: boolean;
+  // 点它是否写全局偏好（**点击判据，与打勾分开**）。只有「它已经是偏好落在的那一项」才不写；
+  // 开关型的 On 代表全部非 off 档，必须按语义判（按 canonical high 比会把偏好悄悄搬走），
+  // 其余按值比（口径 ⑤：勾住的那一项在偏好 ≠ 实发时点下去也写偏好）。
+  writesPreference: boolean;
 }
 
 // 非 off 域是否收成一项「On」：rule.on 型（开关）或上游只登记了一个真实档位。
@@ -86,35 +96,64 @@ export function thinkingLevelValueLabel(value: ThinkingLevelValue): string {
 //   **首项恒为 `Default`**（2026-10-05 用户裁定：所有模型都可选「不干预」，落线 = 不发思考字段）；
 //   之后是可关 → `Off`、开关型 → 一项 `On`、其余 → 逐档上游词。
 //   可表达的强度档为空也**不是**空列表：只剩 `Default` 一项（用户裁定「破例 = 能主动选」）。
-//   激活判定按条目的语义走：rule.on 型任何非 off 偏好都落在 On 上（它们发同一个参数），
-//   其余按「偏好 = 该档」逐项比对——被 clamp 的偏好可能一项都不打勾，由一级行/chip 的
-//   实发档 + 面板底部提示行说明（05 号票口径，偏好不迁移）。
-//   **实发档一律不替它打勾**（off 关不掉与档位型 clamp 两格都如此）：打勾是「点它不写偏好」
-//   的判据（面板据此把点击当重复选择），而实发档不是用户存下的偏好——替它打勾会让「点 High」
-//   不再写偏好，用户以为选了 High、存储里却还是旧偏好。列表这一半的改法见
-//   `.scratch/tickets/chat-thinking-submenu/issues/05-picker-effective-level-marker.md`。
+//   两个字段按三条分支各自算（**不能**写 `entry.level === effectiveLevel`）：
+//     `effective`（口径 ⑤，打勾）= 这一项是不是本次解析的实发档。开关型的 On 是**唯一写点**，
+//       实发是任何强度档都落在它身上（`effectiveLevel` 是 minimal/low/… 时也如此）；单档型
+//       按档位值比；Off / Default 按值比。没有解析结论（effectiveLevel null）时谁都不打勾。
+//     `writesPreference`（点击判据）= 它还不是偏好落在的那一项。开关型的 On 只要偏好是非 off
+//       非 default 的强度档就不写（它们发同一个「开」写点——偏好不迁移）；其余按值比。
+//   于是：偏好 ∈ A' → 勾在偏好那一项（口径 ③ 的常规格）；偏好 ∉ A'（off 关不掉 / 档位型 clamp）
+//   → 勾落在实发那一项，点它即把该档写成偏好（用户裁定 B），提示行说明被调整的来源档。
 export function thinkingPickerEntries(input: ThinkingPickerInput): ThinkingPickerEntry[] {
   const { availableLevels, switchOnly, requestedLevel } = input;
+  const effective = input.effectiveLevel;
   const entries: ThinkingPickerEntry[] = [
-    { level: THINKING_DEFAULT_LEVEL, label: THINKING_DEFAULT_LABEL, active: requestedLevel === THINKING_DEFAULT_LEVEL }
+    {
+      level: THINKING_DEFAULT_LEVEL,
+      label: THINKING_DEFAULT_LABEL,
+      effective: effective === THINKING_DEFAULT_LEVEL,
+      writesPreference: requestedLevel !== THINKING_DEFAULT_LEVEL
+    }
   ];
   if (availableLevels.length === 0) {
     return entries;
   }
   const tiers = availableLevels.filter((level) => level !== "off");
   if (availableLevels.includes("off")) {
-    entries.push({ level: "off", label: THINKING_LEVEL_LABELS.off, active: requestedLevel === "off" });
+    entries.push({
+      level: "off",
+      label: THINKING_LEVEL_LABELS.off,
+      effective: effective === "off",
+      writesPreference: requestedLevel !== "off"
+    });
   }
   if (switchOnly) {
-    entries.push({ level: SWITCH_ON_LEVEL, label: THINKING_ON_LABEL, active: requestedLevel !== "off" && requestedLevel !== "default" });
+    entries.push({
+      level: SWITCH_ON_LEVEL,
+      label: THINKING_ON_LABEL,
+      // 非 off 域只由这一个「开」写点服务：实发只要是个强度档就是它发的（口径 ①/⑤）。
+      effective: effective !== null && effective !== "off" && effective !== THINKING_DEFAULT_LEVEL,
+      // 偏好已经是任何非 off 强度档 → 已落在它身上（canonical high ≠ 偏好值时也不许重写）。
+      writesPreference: requestedLevel === "off" || requestedLevel === THINKING_DEFAULT_LEVEL
+    });
     return entries;
   }
   if (tiers.length === 1) {
-    entries.push({ level: tiers[0], label: THINKING_ON_LABEL, active: requestedLevel === tiers[0] });
+    entries.push({
+      level: tiers[0],
+      label: THINKING_ON_LABEL,
+      effective: effective === tiers[0],
+      writesPreference: requestedLevel !== tiers[0]
+    });
     return entries;
   }
   for (const level of tiers) {
-    entries.push({ level, label: THINKING_LEVEL_LABELS[level] ?? level, active: level === requestedLevel });
+    entries.push({
+      level,
+      label: THINKING_LEVEL_LABELS[level] ?? level,
+      effective: effective === level,
+      writesPreference: level !== requestedLevel
+    });
   }
   return entries;
 }

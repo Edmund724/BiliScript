@@ -164,9 +164,10 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // 2026-10-05：`Default`（不干预）是恒在的首项，所以「条目 ≤1 就隐藏整行」的旧规则退休——
   // 唯一只剩一项的情形就是「只有 Default」（模型没有可表达的强度档），而用户裁定那一格
   // **也要能主动选**（破例），因此这里只按是否在档位页决定隐藏。
-  // 点中条目：不是当前选中项才写偏好（05 号票「偏好保留不迁移」——开关型的 On
-  // 是 canonical high，偏好停在别的非 off 档时重写会把偏好悄悄搬走），随后关面板
-  //（用户裁定：选完即关，一次点击完成）。
+  // 2026-10-05 裁定 B：勾 / `is-active` / ✓ 由 `entry.effective`（**实发档**）决定，
+  // aria 用 aria-current（勾 = 「当前生效的那一项」，不承诺「激活即切换」）；**点击判据是
+  // 另一个字段** `entry.writesPreference`——偏好 ≠ 实发时点勾住的那一项也写偏好（用户显式
+  // 接受本次 clamp），只有「已经是偏好落在的那一项」才只关面板。两处分别读各自的字段。
   function renderThinkingPicker(view: ThinkingPickerView): void {
     const entries = view.entries;
     chipLevelLabel = view.label;
@@ -175,17 +176,18 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     thinkingToggle.innerHTML = entries
       .map(
         (entry) =>
-          `<button type="button" class="chat-thinking-btn${entry.active ? " is-active" : ""}"` +
-          ` data-level="${escapeHtml(entry.level)}" data-active="${entry.active ? "true" : "false"}"` +
-          ` aria-pressed="${entry.active ? "true" : "false"}">` +
+          `<button type="button" class="chat-thinking-btn${entry.effective ? " is-active" : ""}"` +
+          ` data-level="${escapeHtml(entry.level)}" data-effective="${entry.effective ? "true" : "false"}"` +
+          ` data-writes="${entry.writesPreference ? "true" : "false"}"` +
+          ` aria-current="${entry.effective ? "true" : "false"}">` +
           `<span class="chat-thinking-btn-label">${escapeHtml(entry.label)}</span>` +
-          (entry.active ? '<span class="chat-thinking-check" aria-hidden="true">✓</span>' : "") +
+          (entry.effective ? '<span class="chat-thinking-check" aria-hidden="true">✓</span>' : "") +
           "</button>"
       )
       .join("");
     thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        if (btn.dataset.active !== "true") {
+        if (btn.dataset.writes === "true") {
           deps.pickLevel(btn.dataset.level || "off");
         }
         deps.hidePanel();

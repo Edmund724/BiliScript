@@ -14,9 +14,11 @@
 //   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；打开即回到模型页；
 // - renderPanel 的面板宽度：打开时按 chip 可见宽快照写内联宽（打开期间档位/模型
 //   变化不重算，重开才更新）；
-// - renderThinkingPicker：条目现渲（顺序 / 显示名 / is-active + aria-pressed +
-//   data-active / 只有选中项带 ✓）；点非选中项 → pickLevel(level) + 关面板；
-//   点已选中项 → 不重写偏好（05 号票「偏好不迁移」）+ 关面板；≤1 条时一级行整行隐藏；
+// - renderThinkingPicker：条目现渲（顺序 / 显示名 / is-active + aria-current +
+//   data-effective / data-writes / 只有实发档带 ✓）；点 writesPreference 的项 →
+//   pickLevel(level) + 关面板；点「已经是自己偏好」的那一项 → 不重写偏好
+//   （05 号票「偏好不迁移」）+ 关面板；勾住的那一项在偏好 ≠ 实发时**也写偏好**
+//   （2026-10-05 裁定 B：勾 = 实发档，点它即接受本次 clamp）；
 // - 换页：点一级行 → 档位页可见 + 模型列表隐藏 + 一级行隐藏（aria-expanded=true）；
 //   点返回行 → 回来。
 
@@ -306,9 +308,9 @@ describe("renderPanel 的面板宽度（打开时快照）", () => {
 });
 
 describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页条目）", () => {
-  const FOUR_LEVELS = { availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: null } as const;
+  const FOUR_LEVELS = { availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: "high" } as const;
 
-  it("逐条现渲：顺序 = 条目顺序，只有选中项带 is-active + aria-pressed + ✓", () => {
+  it("逐条现渲：顺序 = 条目顺序，只有实发档带 is-active + aria-current + ✓", () => {
     const { thinkingToggle, thinkingRowValue, thinkingRow, modelPanel } = makeHarness();
 
     modelPanel.renderThinkingPicker({
@@ -319,11 +321,13 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
     expect(renderedLevels(thinkingToggle)).toEqual(["default", "off", "low", "high", "max"]);
     expect(renderedLabels(thinkingToggle)).toEqual(["Default", "Off", "Low", "High", "Max"]);
     for (const btn of buttons(thinkingToggle)) {
-      const active = btn.dataset.level === "high";
-      expect(btn.classList.contains("is-active"), btn.dataset.level).toBe(active);
-      expect(btn.getAttribute("aria-pressed"), btn.dataset.level).toBe(active ? "true" : "false");
-      expect(btn.dataset.active, btn.dataset.level).toBe(active ? "true" : "false");
-      expect(btn.querySelector(".chat-thinking-check") !== null, btn.dataset.level).toBe(active);
+      const effective = btn.dataset.level === "high";
+      expect(btn.classList.contains("is-active"), btn.dataset.level).toBe(effective);
+      expect(btn.getAttribute("aria-current"), btn.dataset.level).toBe(effective ? "true" : "false");
+      expect(btn.dataset.effective, btn.dataset.level).toBe(effective ? "true" : "false");
+      // 点击判据与打勾分开：偏好落在 high → 只有 high 那一项不写偏好。
+      expect(btn.dataset.writes, btn.dataset.level).toBe(effective ? "false" : "true");
+      expect(btn.querySelector(".chat-thinking-check") !== null, btn.dataset.level).toBe(effective);
     }
     expect(thinkingRowValue.textContent).toBe("High");
     expect(thinkingRow.hidden).toBe(false);
@@ -340,14 +344,32 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
   });
 
   // 05 号票「偏好保留不迁移」：开关型的 On 是 canonical high，偏好停在别的非 off 档
-  // 时重写会把偏好悄悄搬走——已选中的条目只关面板，不写偏好。
-  it("点已选中项：不重写偏好（pickLevel 不调用），仍关面板", () => {
+  // 时重写会把偏好悄悄搬走——已经是自己偏好的那一项只关面板，不写偏好。
+  it("点已经是自己偏好的那一项：不重写偏好（pickLevel 不调用），仍关面板", () => {
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
     modelPanel.renderThinkingPicker({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) });
 
     click(buttons(thinkingToggle)[3]);
 
     expect(pickLevel).not.toHaveBeenCalled();
+    expect(hidePanel).toHaveBeenCalledTimes(1);
+  });
+
+  // 2026-10-05 裁定 B（口径 ⑤）：勾 = 实发档。偏好 ≠ 实发时勾住的那一项点下去**写偏好**
+  // （用户显式接受本次 clamp），不再是「已选中 → 只关面板」。
+  it("点勾住的实发档而偏好 ≠ 实发：写偏好 + 关面板（裁定 B 的新契约）", () => {
+    const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
+    // off 关不掉的格：偏好 off、A' = {high,max} → 实发 high 带勾，偏好 off 在列表里没有对应项。
+    modelPanel.renderThinkingPicker({
+      label: "High",
+      entries: thinkingPickerEntries({ availableLevels: ["high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "high" })
+    });
+
+    const checked = buttons(thinkingToggle).find((btn) => btn.classList.contains("is-active"));
+    expect(checked?.dataset.level).toBe("high");
+    click(checked as HTMLButtonElement);
+
+    expect(pickLevel).toHaveBeenCalledWith("high");
     expect(hidePanel).toHaveBeenCalledTimes(1);
   });
 
