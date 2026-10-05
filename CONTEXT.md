@@ -182,8 +182,8 @@ _Avoid_: 热路径 handler 直读 storage、给快照加写接口、绕过快照
 
 **消息入口守卫**:
 SW 的 `chrome.runtime.onMessage` 入口在**路由之后、处理器执行之前**的拒绝闸：只拦形状明显非法/来源不合法的请求，业务归一仍归处理器；被拒请求明确回 `{ ok:false, error }`（不静默吞、不让调用方空等）且**零副作用**。两项检查：①**来源 denylist**——只有协议层名单内的 2 个类型（`segment-cache` / `offscreen-request-close`）要求发送者是 offscreen 文档本身（扩展级副作用能力只开放给 offscreen，即 SW 代执行的另一面），其余消息**默认放行**（发送者含 content，search-cache / search-health 显式在名单外）；②**payload 最小 schema**——save-settings 的对象形状、三家 providers-save 的数组形状、player-ai-quick-action 的 tabId 有限数，只是形状判据，不替代处理器内的业务校验。
-代码名：`illegalMessageReason`（entry/background.ts，守卫单点）/ `OFFSCREEN_ONLY_MESSAGE_TYPES`（shared/messaging-protocol.ts，名单**单源**，归属协议层：来源语义属协议契约）/ `isOffscreenDocumentSender`（asr/offscreen-bridge.bg.ts，只判来源、不持名单）
-_Avoid_: 把「offscreen 会发」当「只准 offscreen 发」（已删的 `OffscreenRuntimeRequest` 是「offscreen 发出的请求」事实枚举，被误读成来源守卫名单）；在 background.ts 回抄第二份名单字面量；默认拒绝式白名单（名单外的 content 发信方会被拦掉）
+代码名：`illegalMessageReason`（entry/background.ts，守卫单点）/ `BACKGROUND_MESSAGE_REGISTRY`（shared/messaging-protocol.ts，SW 消息注册表：**一条消息一处登记**——声明 + 形状判据 + 回包口径，守卫的两项检查与 `ResponseOf` 由它派生）/ `OFFSCREEN_ONLY_MESSAGE_TYPES`（同上，名单**单源**——由注册表逐条的 `offscreenOnly` 登记派生，归属协议层：来源语义属协议契约）/ `isOffscreenDocumentSender`（asr/offscreen-bridge.bg.ts，只判来源、不持名单）
+_Avoid_: 把「offscreen 会发」当「只准 offscreen 发」（已删的 `OffscreenRuntimeRequest` 是「offscreen 发出的请求」事实枚举，被误读成来源守卫名单）；在 background.ts 回抄第二份名单字面量或按 type 手写形状清单；默认拒绝式白名单（名单外的 content 发信方会被拦掉）
 
 ### 模型目录（model-catalog）
 

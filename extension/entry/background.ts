@@ -80,7 +80,9 @@ import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
 import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose, isOffscreenDocumentSender, reapAllSessionRules } from "../asr/offscreen-bridge.bg.js";
 import { ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
 import {
+  BACKGROUND_MESSAGE_REGISTRY,
   OFFSCREEN_ONLY_MESSAGE_TYPES,
+  resolveReplyKeepOpen,
   type BackgroundMessage,
   type BackgroundMessageType,
   type MessageHandler,
@@ -597,7 +599,9 @@ function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: Mes
 // { [K in BackgroundMessageType]: MessageHandler<Msg<K>> } 校验——
 // 消息名 typo / 漏注册 handler / 多注册未知名在 typecheck 即报错（此前 Map +
 // 逐条 `as BackgroundHandler` 断言对这一切零捕获）；每个条目的处理器同时按其
-// 具体消息形状 Msg<K> 校验，签名与消息类型不匹配同样报错。script-only-ui：
+// 具体消息形状 Msg<K> 校验，签名与消息类型不匹配同样报错。键集与协议层 SW 消息
+// 注册表（BACKGROUND_MESSAGE_REGISTRY）逐键对齐：形状判据与回包口径归注册表，
+// 本表只登记 handler 本体。script-only-ui：
 // open-options 处理器已随 options 页删除（设置已全部并入侧边栏面板，无独立
 // 设置页可开）。
 const messageHandlerTable = {
@@ -741,30 +745,26 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 // ===== 消息入口守卫（工单 03）：发送者来源 + 内部 schema =====
-
-// 内部消息 schema 的最小校验 + offscreen 专属消息族的来源校验（只拦形状
-// 明显非法/来源不合法的请求，业务归一仍归处理器）。offscreen 专属族：名单单源
-// 在协议层 shared/messaging-protocol.ts 的 OFFSCREEN_ONLY_MESSAGE_TYPES（「谁能发」
-// 属协议契约，此处只消费，不私藏抄本）；语义 = 扩展级副作用能力只开放给 offscreen
-// 文档本身（SW 代执行的另一面），来源判定与关闭执行器共用
-// isOffscreenDocumentSender（asr/offscreen-bridge.bg.ts）。
+//
+// 两项检查的判据都逐条登记在协议层的 SW 消息注册表
+// （shared/messaging-protocol.ts 的 BACKGROUND_MESSAGE_REGISTRY，一条消息一处
+// 登记）——本文件只做按键消费，不再手抄 type 清单：
+//   ① 来源 denylist：注册表 offscreenOnly 登记派生的 OFFSCREEN_ONLY_MESSAGE_TYPES
+//      （名单单源仍在协议层；语义 = 扩展级副作用能力只开放给 offscreen 文档本身，
+//      来源判定与关闭执行器共用 isOffscreenDocumentSender）；
+//   ② payload 最小 schema：注册表逐条 shape 判据。
+// 守卫语义不变：路由之后、处理器执行之前；只拦形状明显非法 / 来源不合法的请求，
+// 业务归一仍归处理器；被拒显式回 { ok:false, error }（不静默吞、不让调用方空等）
+// 且零副作用。
 function illegalMessageReason(message: BackgroundMessage, sender: MessageSender): string | null {
   if (
-    // 宽化读：常量是窄字面量联合（协议层单源），includes 的参数是 BackgroundMessageType 全集
-    (OFFSCREEN_ONLY_MESSAGE_TYPES as ReadonlyArray<BackgroundMessageType>).includes(message.type)
+    OFFSCREEN_ONLY_MESSAGE_TYPES.includes(message.type)
     && !isOffscreenDocumentSender(sender)
   ) {
     return "仅接受 offscreen 文档发送";
   }
-  const badShape =
-    (message.type === "save-settings" && message.settings != null
-      && (typeof message.settings !== "object" || Array.isArray(message.settings)))
-    || ((message.type === "ai-providers-save" || message.type === "asr-providers-save"
-      || message.type === "search-providers-save")
-      && message.providers !== undefined && !Array.isArray(message.providers))
-    || (message.type === "player-ai-quick-action" && message.tabId !== undefined
-      && !Number.isFinite(message.tabId));
-  return badShape ? "消息载荷不合法" : null;
+  const shape = BACKGROUND_MESSAGE_REGISTRY[message.type].shape;
+  return shape && !shape(message) ? "消息载荷不合法" : null;
 }
 
 chrome.runtime.onMessage.addListener((rawMessage, rawSender, sendResponse: SendResponse) => {
@@ -787,7 +787,12 @@ chrome.runtime.onMessage.addListener((rawMessage, rawSender, sendResponse: SendR
     return false;
   }
 
-  return handler(message, sender, sendResponse);
+  // 回包口径由协议注册表派生（async 恒持有通道 / sync 恒已答 / branch 处理器
+  // 自持）——收敛前这枚 boolean 散在 30 个 handler 体里，是同一契约的第二份手抄。
+  return resolveReplyKeepOpen(
+    BACKGROUND_MESSAGE_REGISTRY[message.type].reply,
+    handler(message, sender, sendResponse)
+  );
 });
 
 async function initializeSettingsStorage() {

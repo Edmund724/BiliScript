@@ -1,16 +1,18 @@
 // 三条通道（content script、service worker、offscreen document）之间的消息协议。
 // 所有 runtime 消息与 offscreen port 消息统一建模为 discriminated union，
-// 以既有代码中的协议字面量为事实来源。本文件以类型为主体；唯一运行时导出是
-// OFFSCREEN_ONLY_MESSAGE_TYPES（来源守卫单源，理由：来源语义属协议契约）。
+// 以既有代码中的协议字面量为事实来源。本文件以类型为主体；运行时导出只有协议
+// 单源两处：SW 消息注册表 BACKGROUND_MESSAGE_REGISTRY 及其派生面
+// （OFFSCREEN_ONLY_MESSAGE_TYPES 名单 / resolveReplyKeepOpen 回包口径）。
 //
-// 响应半边（arch-slim-2/02）：每条请求消息在其声明处并列声明响应类型（服务端
-// 处理器的 sendResponse 载荷即事实锚点），汇成 ResponseOf<T> 条件映射——
+// 响应半边（arch-slim-2/02 → 消息注册表收敛）：每条请求消息在其声明处并列声明
+// 响应类型（服务端处理器的 sendResponse 载荷即事实锚点），并登记进
+// BACKGROUND_MESSAGE_REGISTRY（文件末节）；ResponseOf<M> 由该注册表派生——
 // sendRuntimeMessage 泛型化后，调用点以消息字面量即得完整响应形状，不再手猜。
 // 响应形状取「平面接口」（ok 恒为 boolean；payload 字段仅在成功分支实发，失败
 // 分支可带 error），与全部消费点既有的防御式读取（resp?.x || 兜底）同构。本文件
 // 引用的域类型一律 type-only import：编译期擦除，不向 core/ai/asr 引入任何
-// 运行时依赖边；唯一的运行时值（OFFSCREEN_ONLY_MESSAGE_TYPES）是零依赖字面量
-// 常量，同样不新增依赖边。
+// 运行时依赖边；注册表与其派生面是零依赖常量 / 纯函数（形状判据是内联闭包），
+// 同样不新增依赖边。
 
 import type { Settings } from "../core/defaults.js";
 import type { AiProviderPreset, AsrProviderPreset, SearchProviderPreset } from "../core/presets.js";
@@ -18,17 +20,6 @@ import type { AiProvider, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
-
-// ===== 来源守卫的单源：只接受 offscreen 文档发送的消息族 =====
-// 「谁能发」属协议契约，名单归协议层（不就近硬编码在 entry/background.ts）：
-// background.ts 的非法来源判定消费本常量，增减一项只改这里。语义 = 扩展级副作用
-// 能力只开放给 offscreen 文档本身（SW 代执行的另一面），来源判定与关闭执行器
-// 共用 asr/offscreen-bridge.bg.ts 的 isOffscreenDocumentSender；名单外消息默认
-// 放行（发送者含 content，见 search-cache / search-health 段的例外注释）。
-export const OFFSCREEN_ONLY_MESSAGE_TYPES = [
-  "segment-cache",
-  "offscreen-request-close"
-] as const satisfies ReadonlyArray<BackgroundMessageType>;
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -620,47 +611,6 @@ export type MessageResponse = unknown;
 
 export type SendResponse = (response?: MessageResponse) => void;
 
-// ===== 响应类型映射（arch-slim-2/02）=====
-
-// ResponseOf<M> 按消息类型分发到其响应类型：sendRuntimeMessage 泛型化后，调用
-// 点以消息字面量（如 { type: "get-settings" }）即得完整响应形状（设计 A 案）。
-// 新增消息漏配响应条目时 M 解析为 never——tests/shared/messaging-response-map.guard.ts
-// 的类型级穷尽断言会在 tsc 门禁报错，不会静默退化为 unknown。
-export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
-  : M extends ReaderCloseMessage ? ReaderCloseResponse
-  : M extends ReaderRestoreMessage ? ReaderRestoreResponse
-  : M extends GetSettingsMessage ? GetSettingsResponse
-  : M extends SaveSettingsMessage ? SaveSettingsResponse
-  : M extends RequestProviderOriginsMessage ? RequestProviderOriginsResponse
-  : M extends CheckProviderOriginMessage ? CheckProviderOriginResponse
-  : M extends EnsureOffscreenChatMessage ? EnsureOffscreenChatResponse
-  : M extends PlayerAiQuickActionMessage ? PlayerAiQuickActionResponse
-  : M extends FetchJsonMessage ? FetchJsonResponse
-  : M extends AiProvidersListMessage ? AiProvidersListResponse
-  : M extends AiPresetsListMessage ? AiPresetsListResponse
-  : M extends GetAiProviderKeyMessage ? GetAiProviderKeyResponse
-  : M extends AiProvidersSaveMessage ? AiProvidersSaveResponse
-  : M extends AiProvidersDeleteMessage ? AiProvidersDeleteResponse
-  : M extends AiProvidersModelsMessage ? AiProvidersModelsResponse
-  : M extends ProviderHttpMessage ? ProviderHttpResponse
-  : M extends ResolveAiProviderMessage ? ResolveAiProviderResponse
-  : M extends AsrPresetsListMessage ? AsrPresetsListResponse
-  : M extends AsrProvidersListMessage ? AsrProvidersListResponse
-  : M extends AsrProvidersSaveMessage ? AsrProvidersSaveResponse
-  : M extends AsrProvidersDeleteMessage ? AsrProvidersDeleteResponse
-  : M extends GetAsrRuntimeConfigMessage ? GetAsrRuntimeConfigResponse
-  : M extends SearchProvidersListMessage ? SearchProvidersListResponse
-  : M extends SearchProvidersSaveMessage ? SearchProvidersSaveResponse
-  : M extends SearchProvidersDeleteMessage ? SearchProvidersDeleteResponse
-  : M extends ResolveSearchProviderMessage ? ResolveSearchProviderResponse
-  : M extends SearchCacheMessage ? SearchCacheResponse
-  : M extends SearchHealthMessage ? SearchHealthResponse
-  : M extends SegmentCacheMessage ? SegmentCacheResponse
-  : M extends OffloadTaskMessage ? OffloadTaskResponse
-  : M extends OffscreenRequestCloseMessage ? OffscreenRequestCloseResponse
-  : M extends GetDebugLogGateMessage ? GetDebugLogGateResponse
-  : never;
-
 export type MessageSender = {
   tab?: { id?: number; url?: string };
   url?: string;
@@ -672,3 +622,259 @@ export type MessageHandler<M> = (
   sender: MessageSender,
   sendResponse: SendResponse
 ) => boolean | void;
+
+// ===== SW 消息注册表（一条消息一处登记）=====
+//
+// 收敛前的「新增一条消息」摩擦：① XxxMessage 声明 ② 并列 XxxResponse（扫描测试
+// 强制）③ ResponseOf 条件分支 ④ entry/background.ts 路由表条目 + handler 本体
+// ⑤ illegalMessageReason 里手写的 type 字面量形状清单（与声明分居两文件，漏抄即
+// 静默缺检）；回包口径（return true 异步持有 / false 同步已答）则散在 30 个
+// handler 体里。现把「声明 + 形状判据 + 回包口径 + 来源登记」收进本表一处，由它
+// 派生：
+//   ① ResponseOf<M>（调用点响应形状推断的唯一事实源）；
+//   ② 消息入口守卫的两项检查——来源 denylist（＝下表 offscreenOnly 登记派生的
+//      OFFSCREEN_ONLY_MESSAGE_TYPES）与 payload 最小 schema（＝下表 shape 判据）；
+//   ③ 入口回包口径（下表 reply，boolean 语义见 MessageReplyMode）。
+// handler 本体留在组合根 entry/background.ts 的路由表（satisfies 穷尽对齐本表
+// 键集；shared 是叶子层，不得反向引用 entry 的 handler）。
+
+// 回包口径：chrome.runtime.onMessage 监听器返回值语义显式化。
+// - async：处理器持有回包通道（可能同步也可能异步回包），入口恒返回 true
+//   （处理器体里历史遗留的 return true / false 由此中立化，契约只在本表）；
+// - sync：处理器返回前已同步回包，入口恒返回 false（通道关闭）；
+// - branch：口径逐分支而定（同步预检失败即答、通过则转异步），handler 自持返回值。
+export type MessageReplyMode = "async" | "sync" | "branch";
+
+// 入口 boolean 的唯一派生点（entry 的 onMessage 监听器消费）。未返回 boolean
+// （undefined）与 false 同义——对齐 onMessage「未持有通道」语义。
+export function resolveReplyKeepOpen(mode: MessageReplyMode, handlerResult: boolean | void): boolean {
+  if (mode === "async") return true;
+  if (mode === "sync") return false;
+  return handlerResult === true;
+}
+
+// 注册条目：消息声明与响应类型是类型层载体（运行期不存在，只供 ResponseOf 与
+// 键对齐校验读），形状判据 / 回包口径 / 来源登记是运行期事实。
+export type BackgroundMessageRegistration<M extends BackgroundMessage, R> = {
+  /** 回包口径（入口按它派生 keepOpen） */
+  readonly reply: MessageReplyMode;
+  /** payload 最小形状判据：返回 false = 形状明显非法，入口守卫拒绝（缺省 = 无判据）。
+   *  存储面入参宽化为 unknown（作者侧经 registerBackgroundMessage 按本条消息
+   *  收窄），守卫按键分发后直接调用，调用点无需断言。 */
+  readonly shape?: (message: unknown) => boolean;
+  /** 来源登记：只接受 offscreen 文档发送（派生 OFFSCREEN_ONLY_MESSAGE_TYPES） */
+  readonly offscreenOnly?: true;
+  /** 本条消息的声明（类型层载体，运行期不存在） */
+  readonly __message?: M;
+  /** 本条消息的响应类型（类型层载体，ResponseOf 的唯一事实源） */
+  readonly __response?: R;
+};
+
+// 登记助手：显式带上本条消息形状 M 与响应类型 R；「键 ↔ M」的对齐由下表
+// satisfies 的 Extract<BackgroundMessage, { type: K }> 钉住。唯一的 cast 是
+// shape 入参由 M 宽化到 unknown（存储面签名一致，见类型定义）。
+function registerBackgroundMessage<M extends BackgroundMessage, R>(registration: {
+  reply: MessageReplyMode;
+  shape?: (message: M) => boolean;
+  offscreenOnly?: true;
+}): BackgroundMessageRegistration<M, R> {
+  return registration as BackgroundMessageRegistration<M, R>;
+}
+
+// 三家 providers-save 共用的 payload 最小 schema 判据：providers 缺省放行，
+// 出现时必须数组（null 也拒——与收敛前的 `!== undefined && !Array.isArray` 逐字同义）。
+function isProvidersArrayOrAbsent(message: {
+  providers?: unknown;
+}): boolean {
+  return message.providers === undefined || Array.isArray(message.providers);
+}
+
+// 逐条登记（键集 = BackgroundMessageType 全集，由 satisfies 穷尽；漏登记 / 多登记
+// 在 tsc 门禁报错）。顺序与 BackgroundMessage 联合一致（名单派生顺序随它）。
+export const BACKGROUND_MESSAGE_REGISTRY = {
+  "get-settings": registerBackgroundMessage<GetSettingsMessage, GetSettingsResponse>({
+    reply: "async"
+  }),
+  "save-settings": registerBackgroundMessage<SaveSettingsMessage, SaveSettingsResponse>({
+    reply: "async",
+    // payload 最小 schema：settings 缺省 / null 放行，非数组对象才合法
+    shape: (message) =>
+      message.settings == null
+      || (typeof message.settings === "object" && !Array.isArray(message.settings))
+  }),
+  "request-provider-origins": registerBackgroundMessage<
+    RequestProviderOriginsMessage,
+    RequestProviderOriginsResponse
+  >({
+    reply: "branch"
+  }),
+  "check-provider-origin": registerBackgroundMessage<
+    CheckProviderOriginMessage,
+    CheckProviderOriginResponse
+  >({
+    reply: "async"
+  }),
+  "ensure-offscreen-chat": registerBackgroundMessage<
+    EnsureOffscreenChatMessage,
+    EnsureOffscreenChatResponse
+  >({
+    reply: "async"
+  }),
+  "player-ai-quick-action": registerBackgroundMessage<
+    PlayerAiQuickActionMessage,
+    PlayerAiQuickActionResponse
+  >({
+    reply: "branch",
+    // payload 最小 schema：tabId 缺省放行，出现时必须有限数
+    shape: (message) => message.tabId === undefined || Number.isFinite(message.tabId)
+  }),
+  "fetch-json": registerBackgroundMessage<FetchJsonMessage, FetchJsonResponse>({
+    reply: "branch"
+  }),
+  "ai-providers-list": registerBackgroundMessage<AiProvidersListMessage, AiProvidersListResponse>({
+    reply: "async"
+  }),
+  "ai-presets-list": registerBackgroundMessage<AiPresetsListMessage, AiPresetsListResponse>({
+    reply: "sync"
+  }),
+  "get-ai-provider-key": registerBackgroundMessage<GetAiProviderKeyMessage, GetAiProviderKeyResponse>({
+    reply: "branch"
+  }),
+  "ai-providers-save": registerBackgroundMessage<AiProvidersSaveMessage, AiProvidersSaveResponse>({
+    reply: "async",
+    shape: isProvidersArrayOrAbsent
+  }),
+  "ai-providers-delete": registerBackgroundMessage<
+    AiProvidersDeleteMessage,
+    AiProvidersDeleteResponse
+  >({
+    reply: "async"
+  }),
+  "ai-providers-models": registerBackgroundMessage<
+    AiProvidersModelsMessage,
+    AiProvidersModelsResponse
+  >({
+    reply: "async"
+  }),
+  "provider-http": registerBackgroundMessage<ProviderHttpMessage, ProviderHttpResponse>({
+    reply: "async"
+  }),
+  "resolve-ai-provider": registerBackgroundMessage<
+    ResolveAiProviderMessage,
+    ResolveAiProviderResponse
+  >({
+    reply: "async"
+  }),
+  "asr-presets-list": registerBackgroundMessage<AsrPresetsListMessage, AsrPresetsListResponse>({
+    reply: "sync"
+  }),
+  "asr-providers-list": registerBackgroundMessage<
+    AsrProvidersListMessage,
+    AsrProvidersListResponse
+  >({
+    reply: "async"
+  }),
+  "asr-providers-save": registerBackgroundMessage<AsrProvidersSaveMessage, AsrProvidersSaveResponse>({
+    reply: "async",
+    shape: isProvidersArrayOrAbsent
+  }),
+  "asr-providers-delete": registerBackgroundMessage<
+    AsrProvidersDeleteMessage,
+    AsrProvidersDeleteResponse
+  >({
+    reply: "async"
+  }),
+  "get-asr-runtime-config": registerBackgroundMessage<
+    GetAsrRuntimeConfigMessage,
+    GetAsrRuntimeConfigResponse
+  >({
+    reply: "async"
+  }),
+  "search-providers-list": registerBackgroundMessage<
+    SearchProvidersListMessage,
+    SearchProvidersListResponse
+  >({
+    reply: "async"
+  }),
+  "search-providers-save": registerBackgroundMessage<
+    SearchProvidersSaveMessage,
+    SearchProvidersSaveResponse
+  >({
+    reply: "async",
+    shape: isProvidersArrayOrAbsent
+  }),
+  "search-providers-delete": registerBackgroundMessage<
+    SearchProvidersDeleteMessage,
+    SearchProvidersDeleteResponse
+  >({
+    reply: "async"
+  }),
+  "resolve-search-provider": registerBackgroundMessage<
+    ResolveSearchProviderMessage,
+    ResolveSearchProviderResponse
+  >({
+    reply: "async"
+  }),
+  "search-cache": registerBackgroundMessage<SearchCacheMessage, SearchCacheResponse>({
+    reply: "async"
+  }),
+  "search-health": registerBackgroundMessage<SearchHealthMessage, SearchHealthResponse>({
+    reply: "async"
+  }),
+  // 段缓存族是 offscreen 专属来源（只接受 offscreen 文档发送）
+  "segment-cache": registerBackgroundMessage<SegmentCacheMessage, SegmentCacheResponse>({
+    reply: "async",
+    offscreenOnly: true
+  }),
+  "offload-task": registerBackgroundMessage<OffloadTaskMessage, OffloadTaskResponse>({
+    reply: "branch"
+  }),
+  // 工单 03：offscreen 自关闭请求同样只接受 offscreen 文档本身
+  "offscreen-request-close": registerBackgroundMessage<
+    OffscreenRequestCloseMessage,
+    OffscreenRequestCloseResponse
+  >({
+    reply: "async",
+    offscreenOnly: true
+  }),
+  "get-debug-log-gate": registerBackgroundMessage<
+    GetDebugLogGateMessage,
+    GetDebugLogGateResponse
+  >({
+    reply: "async"
+  })
+} satisfies {
+  readonly [K in BackgroundMessageType]: BackgroundMessageRegistration<
+    Extract<BackgroundMessage, { type: K }>,
+    unknown
+  >;
+};
+
+export type BackgroundMessageRegistry = typeof BACKGROUND_MESSAGE_REGISTRY;
+
+// 来源守卫的单源（名单从注册表的 offscreenOnly 登记派生，增减一项只改对应登记）：
+// 「谁能发」属协议契约。语义 = 扩展级副作用能力只开放给 offscreen 文档本身
+// （SW 代执行的另一面）；名单外消息默认放行（发送者含 content，见 search-cache /
+// search-health 段的例外注释）。来源判定与关闭执行器共用
+// asr/offscreen-bridge.bg.ts 的 isOffscreenDocumentSender（只判来源、不持名单）。
+export const OFFSCREEN_ONLY_MESSAGE_TYPES: ReadonlyArray<BackgroundMessageType> = (
+  Object.keys(BACKGROUND_MESSAGE_REGISTRY) as BackgroundMessageType[]
+).filter((type) => BACKGROUND_MESSAGE_REGISTRY[type].offscreenOnly === true);
+
+// ===== 响应类型映射（arch-slim-2/02 → 注册表派生）=====
+
+// ResponseOf<M> 按消息类型分发到其响应类型：sendRuntimeMessage 泛型化后，调用点
+// 以消息字面量（如 { type: "get-settings" }）即得完整响应形状。content 侧三条
+// handler 消息仍是并列声明（owner 在 entry/message-handler.ts 的 content 路由表，
+// 不在 SW 注册表）；SW 侧一律查注册表的响应类型载体。新增消息漏登记时注册表的
+// satisfies 在 tsc 门禁报错（tests/shared/messaging-response-map.guard.ts 另有类型级
+// 穷尽断言），不会静默退化为 unknown / never。
+export type BackgroundResponseOf<K extends BackgroundMessageType> =
+  NonNullable<BackgroundMessageRegistry[K]["__response"]>;
+
+export type ResponseOf<M> = M extends ReaderEnterMessage ? ReaderEnterResponse
+  : M extends ReaderCloseMessage ? ReaderCloseResponse
+  : M extends ReaderRestoreMessage ? ReaderRestoreResponse
+  : M extends BackgroundMessage ? BackgroundResponseOf<M["type"]>
+  : never;
+

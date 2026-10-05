@@ -1,13 +1,15 @@
 // 消息协议响应半边扫描（arch-slim-2/02 验收，沿 reader/shell-sequence.test.js
 // 的源码文本级扫描先例）：
 //  1. extension/ 源码内 `as { ok` 型响应形状断言清零——响应形状改由消息类型经
-//     ResponseOf 推断（shared/messaging-protocol.ts 的 ResponseOf 条件映射 +
-//     shared/messaging.ts 的泛型 sendRuntimeMessage），消费点不再手猜形状；
+//     ResponseOf 推断（shared/messaging-protocol.ts 的 ResponseOf 由 SW 消息注册表
+//     派生 + shared/messaging.ts 的泛型 sendRuntimeMessage），消费点不再手猜形状；
 //  2. 每条 ContentScriptMessage / BackgroundMessage 消息别名都有并列声明的
 //     `XxxResponse` 响应类型；
 //  3. entry/background.ts 的 messageHandlerTable 路由表键集与 BackgroundMessage
 //     的消息字面量集全等（编译期由 satisfies 穷尽保证，本扫描是同向的运行期
-//     冗余防线：漏注册 / 多注册未知名 / 消息与路由漂移都在这里再拦一道）。
+//     冗余防线：漏注册 / 多注册未知名 / 消息与路由漂移都在这里再拦一道）；
+//  4. BACKGROUND_MESSAGE_REGISTRY 注册表键集与 BackgroundMessage 的消息字面量集
+//     全等（同上：satisfies 已保证，这里拦「声明与登记漂移」）。
 //
 // 用 .js 落地：扫描要读 node:fs/node:path，tsconfig 未含 node 类型（与
 // shell-sequence 扫描同款选择）。tests/ 不在扫描范围。
@@ -107,8 +109,9 @@ describe("消息协议响应半边（arch-slim-2/02）", () => {
     expect(noResponse).toEqual([]);
   });
 
-  it("ResponseOf 条件映射存在且覆盖消息映射入口", () => {
+  it("ResponseOf 由 SW 消息注册表派生且接到传输层入口", () => {
     expect(protocolText).toContain("export type ResponseOf<M>");
+    expect(protocolText).toContain("const BACKGROUND_MESSAGE_REGISTRY");
     // 传输层把返回类型接到映射上
     expect(read("shared/messaging.ts")).toMatch(/Promise<ResponseOf<M>>/);
   });
@@ -134,5 +137,26 @@ describe("消息协议响应半边（arch-slim-2/02）", () => {
     expect([...routeKeys].sort()).toEqual([...backgroundLiterals].sort());
     // 路由表经 satisfies 穷尽后构建 Map（运行时结构不变）
     expect(read(BACKGROUND)).toContain("new Map<BackgroundMessageType, BackgroundHandler>(");
+  });
+
+  it("BACKGROUND_MESSAGE_REGISTRY 键集与 BackgroundMessage 消息字面量集全等", () => {
+    const registryBlock = protocolText.match(
+      /const BACKGROUND_MESSAGE_REGISTRY = \{([\s\S]*?)\n\} satisfies/
+    );
+    if (!registryBlock) {
+      throw new Error("messaging-protocol.ts 缺少 BACKGROUND_MESSAGE_REGISTRY satisfies 注册表");
+    }
+    const registryKeys = [...registryBlock[1].matchAll(/^[ \t]*"([a-z][a-z0-9-]*)":/gm)].map((m) => m[1]);
+
+    const backgroundLiterals = backgroundMembers.map((alias) => {
+      const literal = messageLiterals.get(alias);
+      if (!literal) {
+        throw new Error(`${alias} 未解析到 type 字面量`);
+      }
+      return literal;
+    });
+
+    expect(registryKeys).toHaveLength(backgroundLiterals.length);
+    expect([...registryKeys].sort()).toEqual([...backgroundLiterals].sort());
   });
 });

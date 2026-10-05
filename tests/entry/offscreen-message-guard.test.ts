@@ -181,6 +181,75 @@ describe("来源守卫名单：协议常量单源（B4）", () => {
     expect(body).not.toContain('"segment-cache"');
     expect(body).not.toContain('"offscreen-request-close"');
   });
+
+  it("payload 形状判据由协议注册表派生：守卫体内不得再有按 type 的手写清单", () => {
+    // 旧实现在守卫里手写 `message.type === "ai-providers-save" || ...` 三连，
+    // 与消息声明分居两文件、漏抄即静默缺检。改由 BACKGROUND_MESSAGE_REGISTRY
+    // 的逐条 shape 判据派生后，守卫体只应出现注册表查找与统一文案：任何
+    // 消息 type 字面量（ASCII 小写连字符形状）出现在守卫体内都是回抄信号。
+    const source = readFileSync(join(process.cwd(), "extension/entry/background.ts"), "utf8");
+    const body = source.match(/function illegalMessageReason\([\s\S]*?\n\}/)?.[0];
+    expect(body, "background.ts 缺少 illegalMessageReason").toBeDefined();
+    expect(body).toContain("BACKGROUND_MESSAGE_REGISTRY");
+    expect(body).not.toMatch(/"[a-z][a-z0-9-]*"/);
+    expect(body).not.toMatch(/message\.type\s*===/);
+  });
+});
+
+describe("消息入口回包口径：同步已答 / 异步持有通道（注册表派生）", () => {
+  it("ai-presets-list（sync）：通道不持有，且返回前已同步回包", async () => {
+    const listener = await importBackground();
+
+    const sendResponse = vi.fn();
+    const keepOpen = listener({ type: "ai-presets-list" }, TAB_SENDER(7), sendResponse);
+
+    expect(keepOpen).toBe(false);
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true });
+  });
+
+  it("get-settings（async）：先持有通道，回包发生在返回之后", async () => {
+    const listener = await importBackground();
+
+    const sendResponse = vi.fn();
+    const keepOpen = listener({ type: "get-settings" }, TAB_SENDER(7), sendResponse);
+
+    expect(keepOpen).toBe(true);
+    // 异步回包：调用返回时尚未回包（快照读是 Promise 链）
+    expect(sendResponse).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
+    );
+  });
+
+  it.each([
+    ["fetch-json 缺 url", { type: "fetch-json" }],
+    ["get-ai-provider-key 缺 providerId", { type: "get-ai-provider-key" }],
+    ["offload-task 未知任务类型", { type: "offload-task", taskType: "no-such-task" }]
+  ])("%s（branch 的同步预检分支）：同步回包 + 通道不持有", async (_label, message) => {
+    const listener = await importBackground();
+
+    const sendResponse = vi.fn();
+    const keepOpen = listener(message, TAB_SENDER(7), sendResponse);
+
+    expect(keepOpen).toBe(false);
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: expect.any(String) });
+  });
+
+  it("request-provider-origins 空申请（branch 的同步分支）：ok:true + 通道不持有", async () => {
+    const listener = await importBackground();
+
+    const sendResponse = vi.fn();
+    const keepOpen = listener(
+      { type: "request-provider-origins", baseUrls: [] },
+      TAB_SENDER(7),
+      sendResponse
+    );
+
+    expect(keepOpen).toBe(false);
+    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+  });
 });
 
 describe("查询缓存消息族：来源守卫与 SW 叶往返（spec §5 / §10 第 39 行）", () => {
@@ -325,6 +394,7 @@ describe("消息入口守卫：内部消息 schema", () => {
     ["save-settings 数组", { type: "save-settings", settings: [1, 2] }],
     ["ai-providers-save", { type: "ai-providers-save", providers: "x" }],
     ["asr-providers-save", { type: "asr-providers-save", providers: 42 }],
+    ["search-providers-save", { type: "search-providers-save", providers: "x" }],
     ["player-ai-quick-action", { type: "player-ai-quick-action", tabId: "7" }]
   ])("%s 的非法载荷被拒：ok:false、零副作用", async (_label, message) => {
     const listener = await importBackground();
