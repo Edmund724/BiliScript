@@ -43,7 +43,7 @@ export const COMPAT_QUIRKS = {
   // ===== 请求体字段名类 =====
   /** token 上限参数名随平台变：openai-reasoning 系只认 max_completion_tokens（传 max_tokens 严格 400），其余 max_tokens。 */
   maxTokensField: {
-    summary: "token 上限参数名随平台/模型血统变（max_tokens ↔ max_completion_tokens），随表事实来自 thinking-profiles 的 tokenParam。",
+    summary: "token 上限参数名随平台/模型血统变（max_tokens ↔ max_completion_tokens），随表事实来自 thinking-profiles 的 tokenParam；该字段是手写表独有写点，上游与 override 平台刻意不产（2026-10-05 用户裁定，登记项 ②）。",
     protocols: ["openai"],
     wire: "max_completion_tokens"
   },

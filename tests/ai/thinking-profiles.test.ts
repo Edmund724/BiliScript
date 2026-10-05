@@ -350,6 +350,22 @@ describe("tokenParam 随表返回（04 票消费；本票请求体仍用 max_tok
     expect(resolve({ baseUrl: OPENROUTER_URL, model: "m", level: "low" }).tokenParam).toBeUndefined();
     expect(resolve({ baseUrl: "https://api.example.com/v1", model: "m", level: "low" }).tokenParam).toBeUndefined();
   });
+
+  // 登记项 ② 收口（2026-10-05 用户裁定）：钉的是**有意裁定**，不是覆盖漏洞。
+  // tokenParam 只在 CLASSES 的 2 个 openai-reasoning 类上有写点，而那两类只由手写兜底
+  // 命中（custom + 自填 api.openai.com/azure，本仓无 openai preset）。上游命中的 OpenAI
+  // 血统模型恰好全住在 override 平台上（上游 12 家里没有 openai provider），故恒 max_tokens。
+  // 不改的理由：override 平台收 max_tokens，改发 max_completion_tokens 会把 reasoning token
+  // 计入预算 → 同数值下正文可见长度变短，是用户可见的行为变更。
+  it("override + 上游命中的 OpenAI 血统模型恒 max_tokens（fields 仍照发，避免落 UNKNOWN 空跑）", () => {
+    const viaOpenRouter = resolve({ baseUrl: OPENROUTER_URL, model: "openai/gpt-5.4", level: "low" });
+    expect(viaOpenRouter.fields).toEqual({ reasoning_effort: "low" });
+    expect(viaOpenRouter.tokenParam).toBeUndefined();
+
+    const viaOpencodeGo = resolve({ presetId: "opencodego", model: "gpt-5.6-luna", level: "low" });
+    expect(viaOpencodeGo.fields).toEqual({ reasoning_effort: "low" });
+    expect(viaOpencodeGo.tokenParam).toBeUndefined();
+  });
 });
 
 // ===== 表校验器（Q2B：omp「编译器」角色的移植；工单 AC 第 6 条逐条用例）=====

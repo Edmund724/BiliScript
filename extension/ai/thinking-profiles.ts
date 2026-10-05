@@ -141,6 +141,21 @@ export interface ClassRule {
   // 缺省 = max_tokens。参数名差异的平台语义见 compat-vocab 词表的 maxTokensField
   // （本表只给逐模型事实，词表给"这条怪癖是什么"）；该事实落到某协议线上叫什么名字，
   // 由线格式映射表的出参决定（本表不决定协议写法）。
+  //
+  // **登记（2026-10-05 用户裁定，上游模型事实 effort 登记项 ② 收口）：本字段是手写表
+  // 独有的写点，上游产物（ai/catalog/models-dev-thinking.generated.ts）与
+  // PROVIDERS[].override 刻意都不产它——不是覆盖漏洞，改了反而是用户可见的行为变更：**
+  //   - 唯一真正的消费者是「custom preset + 用户自填 api.openai.com / azure 端点」：
+  //     本仓无 openai preset、api.openai.com 也不在 core/preset-host-index 的索引里，
+  //     那条路径永远走手写兜底，命中下面两个 openai-reasoning 类；
+  //   - 上游无此事实可借：models.dev 只登记 reasoning_options，limit.output 是数字不是
+  //     参数名（scripts/sync-models-dev-thinking.mjs 的取材口径）；
+  //   - 上游命中的 OpenAI 血统模型恰好全住在 override 平台上（上游 12 家里没有 openai
+  //     provider：openrouter/openai/* 与 opencode-go/gpt-5.6-luna、gpt-6-luna），它们收
+  //     max_tokens；改发 max_completion_tokens 会把 reasoning token 计入预算 → 同数值下
+  //     正文可见长度变短，用户 2026-10-05 明确拒绝该变更。
+  // 现状由 tests/ai/thinking-profiles.test.ts「override + 上游命中的 OpenAI 血统模型恒
+  // max_tokens」钉桩，改本字段前先看那条用例。
   tokenParam?: "max_tokens" | "max_completion_tokens";
 }
 
@@ -340,6 +355,9 @@ export const EXCEPTIONS: readonly TaxonomyEntry[] = [
   // gpt-5.1/5.2：off → reasoning_effort:"none"（developers.openai.com）
   { class: "openai-reasoning-none", patterns: ["gpt-5.1", "gpt-5.2"] },
   // gpt-6*/o3/o4*：无 none（传了 400）→ 永远思考（developers.openai.com）
+  // 注（2026-10-05 用户裁定）：o 系早期型号（o1 / o1-mini / o1-pro 等）已废弃，**刻意不补
+  // 覆盖**——它们不在本表命中即走 UNKNOWN、不发思考字段、token 上限回落 max_tokens。
+  // 这是登记过的取舍，不要当成缺口捡回来补。
   { class: "openai-reasoning", patterns: ["gpt-6", "o3", "o4"] }
 ];
 
@@ -665,7 +683,8 @@ export interface ResolveThinkingInput {
 export interface ThinkingResolution {
   // 要并入请求体的思考字段；空对象 = 不发（软失败优于硬 400）。
   fields: Record<string, unknown>;
-  // token 上限参数事实（04 号票消费）；unknown/override 平台不返回。
+  // token 上限参数事实（04 号票消费）；unknown、override 平台与**上游命中平台**都不返回
+  // （后者两层刻意不产该字段，理由见 ClassRule.tokenParam 上的 2026-10-05 登记）。
   tokenParam?: "max_tokens" | "max_completion_tokens";
   // off 不可用标记：级联落了 low 或无 low 可落时为 true（never 静默与
   // unknown 均为 false）——03 号票对话 UI 据此提示。
