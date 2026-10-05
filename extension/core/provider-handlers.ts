@@ -3,17 +3,20 @@
 // extension/entry/background.js 里 AI 平台与 ASR 平台各有一组形状相同的
 // 消息处理器（列表 / 读取 Key / 保存列表 / 删除），本工厂提取这组共享结构：
 // 调用方注入对应 store 的函数，换回一组 (message, sender, sendResponse) →
-// boolean 形状的标准处理器。background 的路由表保持消息名不变，只换处理器
-// 指向。不持有状态、不直接碰 chrome.storage——存储交互全部经由注入的 store
-// 函数。（连通性 test 处理器与 probe/pickTestProvider 注入面已随 arch-slim-2/03
-// 死能力退役：生产零注入，探针由 options 页直调 ai/provider-test.js 与
-// asr/provider-test.js。）
+// void 形状的标准处理器（get 例外，见下方响应负载契约）。background 的路由表
+// 保持消息名不变，只换处理器指向。不持有状态、不直接碰 chrome.storage——存储
+// 交互全部经由注入的 store 函数。（连通性 test 处理器与 probe/pickTestProvider
+// 注入面已随 arch-slim-2/03 死能力退役：生产零注入，探针由 options 页直调
+// ai/provider-test.js 与 asr/provider-test.js。）
 //
 // 响应负载契约（与被替换的原处理器一致）：
-// - list / save / remove 成功 → { ok: true, providers: items }
+// - list / save / remove 成功 → { ok: true, providers: items }，返回 void：
+//   回包时机（同步已答 / 异步持有通道）的口径唯一主人是协议层
+//   BACKGROUND_MESSAGE_REGISTRY 的 reply 登记，入口 resolveReplyKeepOpen 兑现；
 // - get 成功 → { ok: true, apiKey }；缺 providerId → 同步回包
-//   { ok: false, error: "缺少 providerId" } 并返回 false
-// - 所有 Promise 路径返回 true（异步回包）
+//   { ok: false, error: "缺少 providerId" } 并返回 false。get 保留 boolean 是
+//   **活布尔**：它只服务 get-ai-provider-key，该消息登记为 branch，入口读
+//   handler 返回值派生持有口径（同步预检即答 / 通过后转异步）。
 
 export interface ProviderHandlersMessage {
   providerId?: string | number;
@@ -54,10 +57,11 @@ export interface ProviderMessageHandlersDeps {
 }
 
 export interface ProviderMessageHandlers {
-  list: (message: unknown, sender: unknown, sendResponse: SendResponse) => boolean;
+  list: (message: unknown, sender: unknown, sendResponse: SendResponse) => void;
+  // 活布尔（branch 消息 get-ai-provider-key 的唯一处理器）：返回值即持有口径
   get: (message: unknown, sender: unknown, sendResponse: SendResponse) => boolean;
-  save: (message: unknown, sender: unknown, sendResponse: SendResponse) => boolean;
-  remove: (message: unknown, sender: unknown, sendResponse: SendResponse) => boolean;
+  save: (message: unknown, sender: unknown, sendResponse: SendResponse) => void;
+  remove: (message: unknown, sender: unknown, sendResponse: SendResponse) => void;
 }
 
 export function createProviderMessageHandlers({
@@ -66,12 +70,11 @@ export function createProviderMessageHandlers({
   deleteProvider,
   loadKeys
 }: ProviderMessageHandlersDeps): ProviderMessageHandlers {
-  function list(_message: unknown, _sender: unknown, sendResponse: SendResponse): boolean {
+  function list(_message: unknown, _sender: unknown, sendResponse: SendResponse): void {
     withOkResponse(
       (async () => ({ ok: true, providers: await loadProviders() }))(),
       sendResponse
     );
-    return true;
   }
 
   function get(message: unknown, _sender: unknown, sendResponse: SendResponse): boolean {
@@ -92,16 +95,15 @@ export function createProviderMessageHandlers({
     return true;
   }
 
-  function save(message: unknown, _sender: unknown, sendResponse: SendResponse): boolean {
+  function save(message: unknown, _sender: unknown, sendResponse: SendResponse): void {
     const msg = message as ProviderHandlersMessage;
     withOkResponse(
       (async () => ({ ok: true, providers: await saveProviders(msg.providers || []) }))(),
       sendResponse
     );
-    return true;
   }
 
-  function remove(message: unknown, _sender: unknown, sendResponse: SendResponse): boolean {
+  function remove(message: unknown, _sender: unknown, sendResponse: SendResponse): void {
     const msg = message as ProviderHandlersMessage;
     withOkResponse(
       (async () => ({
@@ -110,7 +112,6 @@ export function createProviderMessageHandlers({
       }))(),
       sendResponse
     );
-    return true;
   }
 
   return { list, get, save, remove };
@@ -139,7 +140,7 @@ export function createAsrRuntimeConfigHandler({
     _message: unknown,
     _sender: unknown,
     sendResponse: SendResponse
-  ): boolean {
+  ): void {
     withOkResponse(
       (async () => {
         const settings = await getMergedSettings();
@@ -160,7 +161,6 @@ export function createAsrRuntimeConfigHandler({
       sendResponse,
       (error) => (error as Error)?.message || String(error)
     );
-    return true;
   };
 }
 
@@ -190,7 +190,7 @@ export function createAiResolvedProviderHandler({
     message: unknown,
     _sender: unknown,
     sendResponse: SendResponse
-  ): boolean {
+  ): void {
     withOkResponse(
       (async () => {
         const requestedId = String((message as { providerId?: unknown })?.providerId || "").trim();
@@ -232,6 +232,5 @@ export function createAiResolvedProviderHandler({
       sendResponse,
       (error) => (error as Error)?.message || String(error)
     );
-    return true;
   };
 }

@@ -1,9 +1,13 @@
 // provider-handlers.js createProviderMessageHandlers 工厂测试。
 // background.js 的 AI / ASR Provider 消息家族共用该工厂：验证标准处理器
-// （list/get/save/remove）的响应负载契约、异步回包返回 true、同步失败回包
-// 返回 false。（原 test 处理器与 probe/pickTestProvider 注入面的用例已随
-// arch-slim-2/03 死能力退役一并删除：生产零注入，探针由 options 页直调
-// ai/provider-test.js 与 asr/provider-test.js。）
+// （list/get/save/remove）的响应负载契约与回包口径归属——list/save/remove
+// 返回 void（回包时机由协议层 BACKGROUND_MESSAGE_REGISTRY 的 reply 登记、
+// 入口 resolveReplyKeepOpen 兑现，工厂返回值不再是口径）；只有 get 保留
+// boolean，它唯一服务 get-ai-provider-key，该消息登记为 branch，入口读
+// 返回值派生「同步预检即答 / 通过后转异步」的持有口径。（原 test 处理器与
+// probe/pickTestProvider 注入面的用例已随 arch-slim-2/03 死能力退役一并删除：
+// 生产零注入，探针由 options 页直调 ai/provider-test.js 与
+// asr/provider-test.js。）
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -34,12 +38,13 @@ beforeEach(() => {
 });
 
 describe("list / save / remove", () => {
-  it("list 回包 { ok: true, providers }，异步路径返回 true", async () => {
+  it("list 回包 { ok: true, providers }，返回 void（回包在返回之后，异步口径归注册表）", async () => {
     const deps = makeDeps();
     const handlers = createProviderMessageHandlers(deps);
     const { sendResponse, response } = makeChannel();
 
-    expect(handlers.list({}, {}, sendResponse)).toBe(true);
+    expect(handlers.list({}, {}, sendResponse)).toBeUndefined();
+    expect(sendResponse).not.toHaveBeenCalled();
     expect(await response).toEqual({
       ok: true,
       providers: [{ id: "p1", name: "P1", hasSavedKey: true }]
@@ -52,7 +57,7 @@ describe("list / save / remove", () => {
     const handlers = createProviderMessageHandlers(deps);
 
     const first = makeChannel();
-    expect(handlers.save({ providers: [{ id: "p1" }] }, {}, first.sendResponse)).toBe(true);
+    expect(handlers.save({ providers: [{ id: "p1" }] }, {}, first.sendResponse)).toBeUndefined();
     expect(await first.response).toEqual({ ok: true, providers: [{ id: "p1", hasSavedKey: false }] });
     expect(deps.saveProviders).toHaveBeenCalledWith([{ id: "p1" }]);
 
@@ -67,7 +72,7 @@ describe("list / save / remove", () => {
     const handlers = createProviderMessageHandlers(deps);
     const { sendResponse, response } = makeChannel();
 
-    expect(handlers.remove({ providerId: 42 }, {}, sendResponse)).toBe(true);
+    expect(handlers.remove({ providerId: 42 }, {}, sendResponse)).toBeUndefined();
     expect(await response).toEqual({
       ok: true,
       providers: [{ id: "p2", name: "P2", hasSavedKey: false }]
@@ -90,11 +95,13 @@ describe("list / save / remove", () => {
 });
 
 describe("get（读取已存 Key）", () => {
-  it("回包 { ok: true, apiKey }（trim 后），异步路径返回 true", async () => {
+  it("回包 { ok: true, apiKey }（trim 后），异步路径返回 true（branch 活布尔：入口据它持有通道）", async () => {
     const deps = makeDeps({ loadKeys: vi.fn(async () => ({ p1: "  spaced  " })) });
     const handlers = createProviderMessageHandlers(deps);
     const { sendResponse, response } = makeChannel();
 
+    // get 是工厂内唯一保留 boolean 的成员（get-ai-provider-key 登记为 branch，
+    // 入口 resolveReplyKeepOpen 读它），故此处继续钉住返回值。
     expect(handlers.get({ providerId: " p1 " }, {}, sendResponse)).toBe(true);
     expect(await response).toEqual({ ok: true, apiKey: "spaced" });
   });
@@ -108,7 +115,7 @@ describe("get（读取已存 Key）", () => {
     expect(await response).toEqual({ ok: true, apiKey: "" });
   });
 
-  it("缺 providerId 同步回包错误并返回 false，不读 Key 存储", () => {
+  it("缺 providerId 同步回包错误并返回 false（branch 活布尔），不读 Key 存储", () => {
     const deps = makeDeps();
     const handlers = createProviderMessageHandlers(deps);
     const { sendResponse } = makeChannel();
@@ -138,12 +145,13 @@ function makeRuntimeDeps(overrides = {}) {
 }
 
 describe("get-asr-runtime-config（createAsrRuntimeConfigHandler）", () => {
-  it("回包一致快照：providers 无 Key，仅激活平台附 activeKey，异步路径返回 true", async () => {
+  it("回包一致快照：providers 无 Key，仅激活平台附 activeKey，返回 void（异步口径归注册表）", async () => {
     const deps = makeRuntimeDeps();
     const handler = createAsrRuntimeConfigHandler(deps);
     const { sendResponse, response } = makeChannel();
 
-    expect(handler({}, {}, sendResponse)).toBe(true);
+    expect(handler({}, {}, sendResponse)).toBeUndefined();
+    expect(sendResponse).not.toHaveBeenCalled();
     expect(await response).toEqual({
       ok: true,
       providers: [{ id: "p1", type: "openai-transcriptions", name: "本地 Whisper", model: "whisper-large-v3" }],
@@ -219,7 +227,7 @@ describe("createAiResolvedProviderHandler（resolve-ai-provider 单趟解析）"
     const handler = createAiResolvedProviderHandler(deps);
     const { sendResponse, response } = makeChannel();
 
-    expect(handler({ providerId: "p2" }, {}, sendResponse)).toBe(true);
+    expect(handler({ providerId: "p2" }, {}, sendResponse)).toBeUndefined();
     expect(await response).toEqual({
       ok: true,
       provider: { id: "p2", name: "P2", model: "m2", enabled: true, hasSavedKey: true },
