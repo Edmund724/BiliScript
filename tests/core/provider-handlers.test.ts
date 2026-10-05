@@ -3,10 +3,10 @@
 // （list/get/save/remove）的响应负载契约与回包口径归属——list/save/remove
 // 返回 void（回包时机由协议层 BACKGROUND_MESSAGE_REGISTRY 的 reply 登记、
 // 入口 resolveReplyKeepOpen 兑现，工厂返回值不再是口径）；只有 get 保留
-// boolean，它唯一服务 get-ai-provider-key，该消息登记为 branch，入口读
-// 返回值派生「同步预检即答 / 通过后转异步」的持有口径。（原 test 处理器与
-// probe/pickTestProvider 注入面的用例已随 arch-slim-2/03 死能力退役一并删除：
-// 生产零注入，探针由 options 页直调 ai/provider-test.js 与
+// 判定（MessageReplyDecision），它唯一服务 get-ai-provider-key，该消息登记为
+// branch，入口读返回值派生「同步预检即答 / 通过后转异步」的持有口径。（原 test
+// 处理器与 probe/pickTestProvider 注入面的用例已随 arch-slim-2/03 死能力退役
+// 一并删除：生产零注入，探针由 options 页直调 ai/provider-test.js 与
 // asr/provider-test.js。）
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -95,14 +95,14 @@ describe("list / save / remove", () => {
 });
 
 describe("get（读取已存 Key）", () => {
-  it("回包 { ok: true, apiKey }（trim 后），异步路径返回 true（branch 活布尔：入口据它持有通道）", async () => {
+  it("回包 { ok: true, apiKey }（trim 后），异步路径返回 \"hold\"（branch 活判定：入口据它持有通道）", async () => {
     const deps = makeDeps({ loadKeys: vi.fn(async () => ({ p1: "  spaced  " })) });
     const handlers = createProviderMessageHandlers(deps);
     const { sendResponse, response } = makeChannel();
 
-    // get 是工厂内唯一保留 boolean 的成员（get-ai-provider-key 登记为 branch，
+    // get 是工厂内唯一保留判定的成员（get-ai-provider-key 登记为 branch，
     // 入口 resolveReplyKeepOpen 读它），故此处继续钉住返回值。
-    expect(handlers.get({ providerId: " p1 " }, {}, sendResponse)).toBe(true);
+    expect(handlers.get({ providerId: " p1 " }, {}, sendResponse)).toBe("hold");
     expect(await response).toEqual({ ok: true, apiKey: "spaced" });
   });
 
@@ -115,12 +115,12 @@ describe("get（读取已存 Key）", () => {
     expect(await response).toEqual({ ok: true, apiKey: "" });
   });
 
-  it("缺 providerId 同步回包错误并返回 false（branch 活布尔），不读 Key 存储", () => {
+  it("缺 providerId 同步回包错误并返回 \"answered\"（branch 活判定），不读 Key 存储", () => {
     const deps = makeDeps();
     const handlers = createProviderMessageHandlers(deps);
     const { sendResponse } = makeChannel();
 
-    expect(handlers.get({}, {}, sendResponse)).toBe(false);
+    expect(handlers.get({}, {}, sendResponse)).toBe("answered");
     expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: "缺少 providerId" });
     expect(deps.loadKeys).not.toHaveBeenCalled();
   });
@@ -135,9 +135,21 @@ function makeRuntimeDeps(overrides = {}) {
       asrLanguage: "auto",
       asrAutoFallback: true
     })),
-    // provider 列表直读 provider-store（asrProviders 已摘出 settings）
+    // provider 列表直读 provider-store（asrProviders 已摘出 settings）；条目形状
+    // 与协议响应 providers?: AsrProviderListEntry[] 逐字段对齐（回包形参按消息键
+    // 收型后，夹具也必须给全族条目的字段）。
     loadProviders: vi.fn(async () => [
-      { id: "p1", type: "openai-transcriptions", name: "本地 Whisper", model: "whisper-large-v3" }
+      {
+        id: "p1",
+        presetId: "custom",
+        type: "openai-transcriptions",
+        name: "本地 Whisper",
+        baseUrl: "https://asr.example/v1",
+        model: "whisper-large-v3",
+        supportsTimestamps: true,
+        enabled: true,
+        hasSavedKey: false
+      }
     ]),
     getAsrProviderKey: vi.fn(async () => "sk-local"),
     ...overrides
@@ -154,7 +166,19 @@ describe("get-asr-runtime-config（createAsrRuntimeConfigHandler）", () => {
     expect(sendResponse).not.toHaveBeenCalled();
     expect(await response).toEqual({
       ok: true,
-      providers: [{ id: "p1", type: "openai-transcriptions", name: "本地 Whisper", model: "whisper-large-v3" }],
+      providers: [
+        {
+          id: "p1",
+          presetId: "custom",
+          type: "openai-transcriptions",
+          name: "本地 Whisper",
+          baseUrl: "https://asr.example/v1",
+          model: "whisper-large-v3",
+          supportsTimestamps: true,
+          enabled: true,
+          hasSavedKey: false
+        }
+      ],
       activeAsrProviderId: "p1",
       activeKey: "sk-local",
       asrLanguage: "auto",

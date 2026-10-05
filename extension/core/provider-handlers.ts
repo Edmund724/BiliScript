@@ -14,9 +14,21 @@
 //   回包时机（同步已答 / 异步持有通道）的口径唯一主人是协议层
 //   BACKGROUND_MESSAGE_REGISTRY 的 reply 登记，入口 resolveReplyKeepOpen 兑现；
 // - get 成功 → { ok: true, apiKey }；缺 providerId → 同步回包
-//   { ok: false, error: "缺少 providerId" } 并返回 false。get 保留 boolean 是
-//   **活布尔**：它只服务 get-ai-provider-key，该消息登记为 branch，入口读
+//   { ok: false, error: "缺少 providerId" } 并返回 "answered"。get 保留判定是
+//   **活判定**：它只服务 get-ai-provider-key，该消息登记为 branch，入口读
 //   handler 返回值派生持有口径（同步预检即答 / 通过后转异步）。
+//
+// 回包形参按族收型（票 message-registry/02）：工厂按「族的条目类型」泛型化，
+// 回包形参收成该族的响应形状；三个族的协议响应类型（providers?: <族条目>[]）
+// 由 background 路由表的 satisfies 逐键对账——响应载荷与消息键配错在 tsc 门禁即红。
+
+import type {
+  AsrProviderListEntry,
+  GetAsrRuntimeConfigResponse,
+  MessageReplyDecision,
+  ProviderListEntry,
+  ResolveAiProviderResponse
+} from "../shared/messaging-protocol.js";
 
 export interface ProviderHandlersMessage {
   providerId?: string | number;
@@ -27,16 +39,20 @@ export interface ProviderHandlersMessage {
   provider?: unknown;
 }
 
-export type SendResponse = (response: unknown) => void;
-
 // ===== 异步错误回包包装单源（arch-slim-2/03）=====
 // 「Promise → sendResponse」协议的唯一收口：task 决议值即完整 ok 负载（原样
 // 回包）；task 拒绝统一映射为 { ok: false, error: <msg> }，缺省取 error.message
 // （与被替换的逐字手抄一致）。文案带前缀/兜底的调用点传 toError（如
 // background 的 request-provider-origins / fetch-json / player-ai-quick-action）。
-export function withOkResponse(
-  task: Promise<unknown>,
-  sendResponse: SendResponse,
+//
+// 失败信封（ok:false + 可读 error）是每种响应类型的共同支：回调面把成功载荷 R
+// 与失败信封并列给出，调用方的窄回包形参必须同时收下两支——「响应类型缺失败支」
+// 同样在 tsc 门禁即红。
+export type MessageErrorEnvelope = { ok: false; error: string };
+
+export function withOkResponse<R>(
+  task: Promise<R>,
+  sendResponse: (response: R | MessageErrorEnvelope) => void,
   toError: (error: unknown) => string = (error) => (error as Error).message
 ): void {
   void (async () => {
@@ -49,40 +65,59 @@ export function withOkResponse(
   })();
 }
 
-export interface ProviderMessageHandlersDeps {
-  loadProviders: () => Promise<unknown[]>;
-  saveProviders: (items: unknown[]) => Promise<unknown[]>;
-  deleteProvider: (providerId: string) => Promise<unknown[]>;
+// 家族回包形状（三个 provider 家族的协议响应同构，只有条目类型不同：工厂按条目
+// 类型泛型化，各族的 protocol 响应类型在 background 路由表处逐键对账）。
+//
+// EntryFace 是条目类型 E 的键面投影（匿名对象面）。为什么不让字段直接收 E：
+// 三个族的协议条目类型里，AI 族那份（ai/types 的 AiProvider，线格式宽松面）带
+// string 索引签名，而 store 产物是 core/ai-provider-store.AiProvider 与
+// {hasSavedKey} 的交叉类型——TS 只给**匿名对象类型**推隐式索引签名，交叉类型
+// 不获得（microsoft/TypeScript#15300），E 直接对线格式条目双向都不可赋值。键面
+// 投影两侧都通：store 的精确交叉类型可赋进来（目标本身不带索引签名要求），投影
+// 面又带隐式索引签名，可赋给线格式条目。条目语义不变，只是换一张等价的脸。
+export type ProviderEntryFace<E> = { [K in keyof E]: E[K] };
+
+export type ProviderProvidersResponse<E> = {
+  ok: boolean;
+  providers?: Array<ProviderEntryFace<E>>;
+  error?: string;
+};
+export type ProviderKeyResponse = { ok: boolean; apiKey?: string; error?: string };
+
+export interface ProviderMessageHandlersDeps<E> {
+  loadProviders: () => Promise<Array<ProviderEntryFace<E>>>;
+  saveProviders: (items: unknown[]) => Promise<Array<ProviderEntryFace<E>>>;
+  deleteProvider: (providerId: string) => Promise<Array<ProviderEntryFace<E>>>;
   loadKeys: () => Promise<Record<string, string>>;
 }
 
-export interface ProviderMessageHandlers {
-  list: (message: unknown, sender: unknown, sendResponse: SendResponse) => void;
-  // 活布尔（branch 消息 get-ai-provider-key 的唯一处理器）：返回值即持有口径
-  get: (message: unknown, sender: unknown, sendResponse: SendResponse) => boolean;
-  save: (message: unknown, sender: unknown, sendResponse: SendResponse) => void;
-  remove: (message: unknown, sender: unknown, sendResponse: SendResponse) => void;
+export interface ProviderMessageHandlers<E> {
+  list: (message: unknown, sender: unknown, sendResponse: (response: ProviderProvidersResponse<E>) => void) => void;
+  // 活判定（branch 消息 get-ai-provider-key 的唯一处理器）：返回值即持有口径
+  get: (message: unknown, sender: unknown, sendResponse: (response: ProviderKeyResponse) => void) => MessageReplyDecision;
+  save: (message: unknown, sender: unknown, sendResponse: (response: ProviderProvidersResponse<E>) => void) => void;
+  remove: (message: unknown, sender: unknown, sendResponse: (response: ProviderProvidersResponse<E>) => void) => void;
 }
 
-export function createProviderMessageHandlers({
+export function createProviderMessageHandlers<E>({
   loadProviders,
   saveProviders,
   deleteProvider,
   loadKeys
-}: ProviderMessageHandlersDeps): ProviderMessageHandlers {
-  function list(_message: unknown, _sender: unknown, sendResponse: SendResponse): void {
+}: ProviderMessageHandlersDeps<E>): ProviderMessageHandlers<E> {
+  function list(_message: unknown, _sender: unknown, sendResponse: (response: ProviderProvidersResponse<E>) => void): void {
     withOkResponse(
       (async () => ({ ok: true, providers: await loadProviders() }))(),
       sendResponse
     );
   }
 
-  function get(message: unknown, _sender: unknown, sendResponse: SendResponse): boolean {
+  function get(message: unknown, _sender: unknown, sendResponse: (response: ProviderKeyResponse) => void): MessageReplyDecision {
     const msg = message as ProviderHandlersMessage;
     const providerId = String(msg.providerId || "").trim();
     if (!providerId) {
       sendResponse({ ok: false, error: "缺少 providerId" });
-      return false;
+      return "answered";
     }
     withOkResponse(
       (async () => {
@@ -92,10 +127,10 @@ export function createProviderMessageHandlers({
       })(),
       sendResponse
     );
-    return true;
+    return "hold";
   }
 
-  function save(message: unknown, _sender: unknown, sendResponse: SendResponse): void {
+  function save(message: unknown, _sender: unknown, sendResponse: (response: ProviderProvidersResponse<E>) => void): void {
     const msg = message as ProviderHandlersMessage;
     withOkResponse(
       (async () => ({ ok: true, providers: await saveProviders(msg.providers || []) }))(),
@@ -103,7 +138,7 @@ export function createProviderMessageHandlers({
     );
   }
 
-  function remove(message: unknown, _sender: unknown, sendResponse: SendResponse): void {
+  function remove(message: unknown, _sender: unknown, sendResponse: (response: ProviderProvidersResponse<E>) => void): void {
     const msg = message as ProviderHandlersMessage;
     withOkResponse(
       (async () => ({
@@ -127,7 +162,9 @@ export interface AsrRuntimeConfigSettings {
 
 export interface AsrRuntimeConfigHandlerDeps {
   getMergedSettings: () => Promise<AsrRuntimeConfigSettings>;
-  loadProviders: () => Promise<unknown[]>;
+  // 族条目类型与协议响应 providers?: AsrProviderListEntry[] 对齐（载荷与消息键
+  // 的配错由这条精确类型在 tsc 门禁拦下）。
+  loadProviders: () => Promise<AsrProviderListEntry[]>;
   getAsrProviderKey: (providerId: string) => Promise<string>;
 }
 
@@ -139,7 +176,7 @@ export function createAsrRuntimeConfigHandler({
   return function handleGetAsrRuntimeConfig(
     _message: unknown,
     _sender: unknown,
-    sendResponse: SendResponse
+    sendResponse: (response: GetAsrRuntimeConfigResponse) => void
   ): void {
     withOkResponse(
       (async () => {
@@ -189,34 +226,34 @@ export function createAiResolvedProviderHandler({
   return function handleResolveAiProvider(
     message: unknown,
     _sender: unknown,
-    sendResponse: SendResponse
+    sendResponse: (response: ResolveAiProviderResponse) => void
   ): void {
     withOkResponse(
       (async () => {
         const requestedId = String((message as { providerId?: unknown })?.providerId || "").trim();
         const providers = (await loadProviders()) || [];
+        // 条目收束（判据在谓词里，收束结果 = 协议声明的线格式条目）：AI 族线格式
+        // 条目（ai/types 的 AiProvider，带 string 索引签名）与 store 产物的精确
+        // 条目（core/ai-provider-store.AiProvider 的交叉类型）是两份声明，交叉类型
+        // 无隐式索引签名（TS #15300），静态上互不可赋值——本条处理器只做「对象 +
+        // enabled 未显式关闭 + id 非空」的形状收束（与收敛前的过滤判据逐字同义）。
         const enabled = providers.filter(
-          (item) =>
-            item &&
-            (item as { enabled?: unknown }).enabled !== false &&
-            String((item as { id?: unknown })?.id || "").trim()
+          (item): item is ProviderListEntry =>
+            Boolean(item)
+            && typeof item === "object"
+            && (item as { enabled?: unknown }).enabled !== false
+            && String((item as { id?: unknown }).id || "").trim() !== ""
         );
-        let provider: Record<string, unknown> | null = null;
+        let provider: ProviderListEntry | null = null;
         if (requestedId) {
-          provider =
-            (enabled.find(
-              (item) => String((item as { id?: unknown }).id) === requestedId
-            ) as Record<string, unknown>) || null;
+          provider = enabled.find((item) => String(item.id) === requestedId) || null;
           if (!provider) {
             throw new Error("未找到选中的平台");
           }
         } else {
           const settings = await getMergedSettings();
           const preferredId = String(settings?.defaultModel || "").trim();
-          provider =
-            (enabled.find((item) => String((item as { id?: unknown }).id) === preferredId) ||
-              enabled[0] ||
-              null) as Record<string, unknown> | null;
+          provider = enabled.find((item) => String(item.id) === preferredId) || enabled[0] || null;
           if (!provider) {
             throw new Error(NO_ACTIVE_PROVIDER_MESSAGE);
           }

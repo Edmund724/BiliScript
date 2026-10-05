@@ -617,11 +617,21 @@ export type MessageSender = {
   id?: string;
 };
 
-export type MessageHandler<M> = (
-  message: M,
+// SW handler 注册面（按消息键收型，票 message-registry/02）：message 与
+// sendResponse 都收成该键的具体形状——响应载荷与消息键配错在 tsc 门禁即红
+//（编译期负向断言见 tests/shared/messaging-handler-types.types.ts）。返回值按
+// 注册表 reply 登记派生（见 BackgroundHandlerResult）：async / sync 档返回值不
+// 承载口径（void），branch 档必须显式返回判定——「handler 返回值承载回包口径」
+// 只剩这一处显式契约。content 侧 handler 面是 entry/message-handler.ts 的局部
+// 类型（本层不持有 content 路由）。
+export type BackgroundHandlerResult<K extends BackgroundMessageType> =
+  BackgroundMessageRegistry[K]["reply"] extends "branch" ? MessageReplyDecision : void;
+
+export type BackgroundMessageHandler<K extends BackgroundMessageType> = (
+  message: Extract<BackgroundMessage, { type: K }>,
   sender: MessageSender,
-  sendResponse: SendResponse
-) => boolean | void;
+  sendResponse: (response: BackgroundResponseOf<K>) => void
+) => BackgroundHandlerResult<K>;
 
 // ===== SW 消息注册表（一条消息一处登记）=====
 //
@@ -634,7 +644,8 @@ export type MessageHandler<M> = (
 //   ① ResponseOf<M>（调用点响应形状推断的唯一事实源）；
 //   ② 消息入口守卫的两项检查——来源 denylist（＝下表 offscreenOnly 登记派生的
 //      OFFSCREEN_ONLY_MESSAGE_TYPES）与 payload 最小 schema（＝下表 shape 判据）；
-//   ③ 入口回包口径（下表 reply，boolean 语义见 MessageReplyMode）。
+//   ③ 入口回包口径（下表 reply；branch 档的 handler 返回值判定见
+//      MessageReplyDecision，handler 注册面的返回值契约由该登记派生）。
 // handler 本体留在组合根 entry/background.ts 的路由表（satisfies 穷尽对齐本表
 // 键集；shared 是叶子层，不得反向引用 entry 的 handler）。
 
@@ -642,22 +653,36 @@ export type MessageHandler<M> = (
 // - async：处理器持有回包通道（可能同步也可能异步回包），入口恒返回 true
 //   （处理器体里历史遗留的 return true / false 由此中立化，契约只在本表）；
 // - sync：处理器返回前已同步回包，入口恒返回 false（通道关闭）；
-// - branch：口径逐分支而定（同步预检失败即答、通过则转异步），handler 自持返回值。
+// - branch：口径逐分支而定（同步预检失败即答、通过则转异步），handler 自持判定
+//   （MessageReplyDecision，见下）——注册表只登记「这条消息是 branch」，具体分支
+//   由 handler 返回值说。
 export type MessageReplyMode = "async" | "sync" | "branch";
 
-// 入口 boolean 的唯一派生点（entry 的 onMessage 监听器消费）。未返回 boolean
-// （undefined）与 false 同义——对齐 onMessage「未持有通道」语义。
-export function resolveReplyKeepOpen(mode: MessageReplyMode, handlerResult: boolean | void): boolean {
+// branch 档 handler 返回值的显式判定（取代裸布尔；handler 面按注册表 reply 只把
+// 它收给 branch 档）：
+// - "answered"：handler 返回前已同步回包，入口关闭通道（keepOpen = false）；
+// - "hold"：handler 未回包、转异步回包，入口保留通道（keepOpen = true）。
+// 取值语义与收敛前裸布尔 true / false 逐字同义（true = 持有通道）。
+export type MessageReplyDecision = "answered" | "hold";
+
+// 入口 boolean 的唯一派生点（entry 的 onMessage 监听器消费）。未返回判定
+// （undefined）与 "answered" 同义——对齐 onMessage「未持有通道」语义。
+export function resolveReplyKeepOpen(mode: MessageReplyMode, handlerResult: MessageReplyDecision | void): boolean {
   if (mode === "async") return true;
   if (mode === "sync") return false;
-  return handlerResult === true;
+  return handlerResult === "hold";
 }
 
 // 注册条目：消息声明与响应类型是类型层载体（运行期不存在，只供 ResponseOf 与
-// 键对齐校验读），形状判据 / 回包口径 / 来源登记是运行期事实。
-export type BackgroundMessageRegistration<M extends BackgroundMessage, R> = {
-  /** 回包口径（入口按它派生 keepOpen） */
-  readonly reply: MessageReplyMode;
+// 键对齐校验读），形状判据 / 回包口径 / 来源登记是运行期事实。Mode 保留每条登记
+// 的 reply 字面量（登记值逐字不变）——handler 注册面的返回值契约由它派生。
+export type BackgroundMessageRegistration<
+  M extends BackgroundMessage,
+  R,
+  Mode extends MessageReplyMode = MessageReplyMode
+> = {
+  /** 回包口径（入口按它派生 keepOpen；字面量供 handler 面派生返回值契约） */
+  readonly reply: Mode;
   /** payload 最小形状判据：返回 false = 形状明显非法，入口守卫拒绝（缺省 = 无判据）。
    *  存储面入参宽化为 unknown（作者侧经 registerBackgroundMessage 按本条消息
    *  收窄），守卫按键分发后直接调用，调用点无需断言。 */
@@ -670,14 +695,28 @@ export type BackgroundMessageRegistration<M extends BackgroundMessage, R> = {
   readonly __response?: R;
 };
 
-// 登记助手：显式带上本条消息形状 M 与响应类型 R；「键 ↔ M」的对齐由下表
-// satisfies 的 Extract<BackgroundMessage, { type: K }> 钉住。唯一的 cast 是
-// shape 入参由 M 宽化到 unknown（存储面签名一致，见类型定义）。
-function registerBackgroundMessage<M extends BackgroundMessage, R>(registration: {
-  reply: MessageReplyMode;
+// 登记助手：显式带上本条消息形状 M 与响应类型 R；回包口径档由重载把**字面量**
+// 带进返回类型（handler 注册面的返回值契约从它派生，见 BackgroundHandlerResult）。
+// 三个重载 = 三档，调用点维持两个显式类型实参（M / R），登记对象的形状与取值
+// 逐字不变。唯一的 cast 是 shape 入参由 M 宽化到 unknown（存储面签名一致）。
+type BackgroundMessageRegistrationArgument<M extends BackgroundMessage, Mode extends MessageReplyMode> = {
+  reply: Mode;
   shape?: (message: M) => boolean;
   offscreenOnly?: true;
-}): BackgroundMessageRegistration<M, R> {
+};
+
+function registerBackgroundMessage<M extends BackgroundMessage, R>(
+  registration: BackgroundMessageRegistrationArgument<M, "async">
+): BackgroundMessageRegistration<M, R, "async">;
+function registerBackgroundMessage<M extends BackgroundMessage, R>(
+  registration: BackgroundMessageRegistrationArgument<M, "sync">
+): BackgroundMessageRegistration<M, R, "sync">;
+function registerBackgroundMessage<M extends BackgroundMessage, R>(
+  registration: BackgroundMessageRegistrationArgument<M, "branch">
+): BackgroundMessageRegistration<M, R, "branch">;
+function registerBackgroundMessage<M extends BackgroundMessage, R>(
+  registration: BackgroundMessageRegistrationArgument<M, MessageReplyMode>
+): BackgroundMessageRegistration<M, R> {
   return registration as BackgroundMessageRegistration<M, R>;
 }
 

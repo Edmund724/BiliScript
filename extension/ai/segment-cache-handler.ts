@@ -17,18 +17,21 @@ import {
   segmentCacheKeyFields
 } from "./segment-cache.js";
 import { retrieveRawSegments } from "./raw-retrieval.js";
-import type { SegmentCacheMessage, SendResponse } from "../shared/messaging-protocol.js";
+import type { SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
 
+// 回包形参按本条消息收型（段缓存响应形状），返回 void——segment-cache 登记为
+// async，回包时机归注册表 reply、入口 resolveReplyKeepOpen 兑现（此前的
+// `: boolean` + `return true` 是死布尔，随 handler 面收型一并清掉）。
 export function createSegmentCacheHandler(): (
   message: SegmentCacheMessage,
   sender: unknown,
-  sendResponse: SendResponse
-) => boolean {
+  sendResponse: (response: SegmentCacheResponse) => void
+) => void {
   return function handleSegmentCache(
     message: SegmentCacheMessage,
     _sender: unknown,
-    sendResponse: SendResponse
-  ): boolean {
+    sendResponse: (response: SegmentCacheResponse) => void
+  ): void {
     withOkResponse(
       (async () => {
         const fields = segmentCacheKeyFields(message.context || {});
@@ -117,6 +120,5 @@ export function createSegmentCacheHandler(): (
       })(),
       sendResponse
     );
-    return true;
   };
 }

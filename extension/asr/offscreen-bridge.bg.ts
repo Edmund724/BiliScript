@@ -12,7 +12,7 @@
 // 声明见本目录 chrome-asr-types.d.ts（共享 chrome-types.d.ts 未覆盖）。
 
 import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASON } from "../shared/offscreen-constants.js";
-import type { MessageSender, SendResponse } from "../shared/messaging-protocol.js";
+import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse } from "../shared/messaging-protocol.js";
 
 // 防盗链规则的目标域与来源页（工单 04：域名唯一事实源，代码与文档注释、
 // manifest host_permissions、测试三处共用同一取值）：
@@ -182,7 +182,7 @@ export async function reapAllSessionRules(): Promise<void> {
 // 任务准备：创建（或复用）offscreen 文档 + 分配一个独立 id 并按它加防盗链
 // 下载规则。页面侧连 "asr-decode" 端口前调用，保证文档与规则就绪；ruleId
 // 随响应带回，页面侧 cleanup 时原样带回，只删自己这条。
-export async function handleAsrDecodePrepare(message: unknown, sender: MessageSender, sendResponse: SendResponse): Promise<void> {
+export async function handleAsrDecodePrepare(message: unknown, sender: MessageSender, sendResponse: (response: OffloadTaskResponse) => void): Promise<void> {
   let ruleId = 0;
   try {
     // 首次分配前对账一次（实例内幂等缓存），避免与上一 SW 实例残留的会话
@@ -217,7 +217,7 @@ export async function handleAsrDecodePrepare(message: unknown, sender: MessageSe
 // cleanup——跨标签页/跨上下文的删除请求回 { ok:false } 且不删规则。簿记不在
 // （SW 冷启动后上一实例的 ruleId：账本对账只收活跃集、无法区分原属）时保持
 // 幂等放行，与冷启动对账语义一致。
-export async function handleAsrDecodeCleanup(message: unknown, sender: MessageSender, sendResponse: SendResponse): Promise<void> {
+export async function handleAsrDecodeCleanup(message: unknown, sender: MessageSender, sendResponse: (response: OffloadTaskResponse) => void): Promise<void> {
   try {
     const ruleId = Number((message as { ruleId?: number } | null)?.ruleId) || 0;
     if (ruleId > 0) {
@@ -244,7 +244,7 @@ export async function handleAsrDecodeCleanup(message: unknown, sender: MessageSe
 // 后的自关闭经 "offscreen-request-close" 消息委托本执行器：校验发送者确为
 // offscreen 文档（sender.url 精确等于文档 URL 且无 sender.tab），执行
 // chrome.offscreen.closeDocument 并明确回成功/失败。
-export async function handleOffscreenRequestClose(_message: unknown, sender: MessageSender, sendResponse: SendResponse): Promise<void> {
+export async function handleOffscreenRequestClose(_message: unknown, sender: MessageSender, sendResponse: (response: OffscreenRequestCloseResponse) => void): Promise<void> {
   if (!isOffscreenDocumentSender(sender)) {
     sendResponse({ ok: false, error: "仅接受 offscreen 文档发送" });
     return;

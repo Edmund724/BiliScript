@@ -86,9 +86,13 @@ import {
   OFFSCREEN_ONLY_MESSAGE_TYPES,
   resolveReplyKeepOpen,
   type BackgroundMessage,
+  type BackgroundMessageHandler,
   type BackgroundMessageType,
-  type MessageHandler,
+  type BackgroundResponseOf,
+  type MessageReplyDecision,
   type MessageSender,
+  type ResolveSearchProviderResponse,
+  type SearchProviderListEntry,
   type SendResponse
 } from "../shared/messaging-protocol.js";
 
@@ -120,10 +124,20 @@ const writeStorageChanges = invalidatingWrite(
 
 // ===== 消息路由表 =====
 
-type BackgroundHandler = MessageHandler<BackgroundMessage>;
-type Msg<T extends BackgroundMessageType> = Extract<BackgroundMessage, { type: T }>;
+// 入口按键调用的统一 handler 面（窄化后的各键 handler 由本处一次性宽化收进 Map；
+// Map 只作分发，不参与契约——逐键契约在下方 messageHandlerTable 的 satisfies）。
+type AnyBackgroundHandler = (
+  message: BackgroundMessage,
+  sender: MessageSender,
+  sendResponse: SendResponse
+) => MessageReplyDecision | void;
 
-function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender, sendResponse: SendResponse): void {
+type Msg<T extends BackgroundMessageType> = Extract<BackgroundMessage, { type: T }>;
+// 回包形参按消息键收型（ResponseOf 的注册表派生面）：响应载荷与消息键配错、
+// 少写多写字段都在 tsc 门禁即红。
+type Reply<T extends BackgroundMessageType> = (response: BackgroundResponseOf<T>) => void;
+
+function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender, sendResponse: Reply<"get-settings">): void {
   // 异步错误回包统一走 withOkResponse（arch-slim-2/03 单源）；同步错误回包
   // （缺参/拒绝处理等）保持处理器内直写。
   withOkResponse(
@@ -132,7 +146,7 @@ function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender
   );
 }
 
-function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSender, sendResponse: Reply<"save-settings">): void {
   withOkResponse(
     (async () => {
       // 显式取撤回判据（settings 是 unknown 线格式，落盘与失效各自照旧收口）
@@ -167,15 +181,15 @@ function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSende
 // 本处理器——chrome.permissions.request 必须是处理器内的第一个动作（任何先行
 // await 都会耗尽手势，被 Chrome 以「缺少用户手势」拒绝，见
 // core/host-permissions.ts 的 requestProviderOriginsViaBackground）。
-function handleRequestProviderOrigins(message: Msg<"request-provider-origins">, _sender: MessageSender, sendResponse: SendResponse): boolean {
+function handleRequestProviderOrigins(message: Msg<"request-provider-origins">, _sender: MessageSender, sendResponse: Reply<"request-provider-origins">): MessageReplyDecision {
   const origins = collectOrigins(message.baseUrls);
   if (origins.length === 0) {
     sendResponse({ ok: true });
-    return false;
+    return "answered";
   }
   if (typeof chrome.permissions?.request !== "function") {
     sendResponse({ ok: false, error: "当前环境不支持申请权限" });
-    return false;
+    return "answered";
   }
   // chrome.permissions.request 仍是处理器内的第一个动作（手势不变式，见上方
   // 注释）：async 函数体在首个 await 前同步执行，request 在其中同步发起、
@@ -195,14 +209,14 @@ function handleRequestProviderOrigins(message: Msg<"request-provider-origins">, 
     sendResponse,
     (error) => `申请域名权限失败：${(error as Error).message}`
   );
-  return true;
+  return "hold";
 }
 
 // content 侧（概览/快捷提示词的 offscreen 代发）的 host 权限代查：只读一问，无手势
 // 要求、无副作用。未授权时 content 侧直接以可操作文案失败，不再建 offscreen 文档、
 // 也不发注定失败的跨域请求——与 SW 代发通道（core/provider-http.ts）的预检同口径。
 // origin 缺失/非法按已授权回 true（core/host-permissions 的同款 fail-open）。
-function handleCheckProviderOrigin(message: Msg<"check-provider-origin">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleCheckProviderOrigin(message: Msg<"check-provider-origin">, _sender: MessageSender, sendResponse: Reply<"check-provider-origin">): void {
   void hasHostPermission(message.origin).then((granted) => sendResponse({ granted }));
 }
 
@@ -212,7 +226,7 @@ function handleCheckProviderOrigin(message: Msg<"check-provider-origin">, _sende
 // 等价通道）。ensure 失败不再吞掉（工单 03）：ensureChatOffscreenDocument 的
 // 原始错误经 withOkResponse 回 { ok:false, error }——调用方 catch 后仍由
 // connect 结果兜底（发送链不中断），但失败原因不再无声丢失。
-function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleEnsureOffscreenChat(_message: Msg<"ensure-offscreen-chat">, _sender: MessageSender, sendResponse: Reply<"ensure-offscreen-chat">): void {
   withOkResponse(
     (async () => ({ ok: true, ensured: await ensureChatOffscreenDocument() }))(),
     sendResponse
@@ -262,7 +276,7 @@ async function triggerReaderChatInTab(
 // 定位对话 tab + 自动发送快捷提示词」——单条带 chat 负载的 reader-enter 走
 // triggerReaderModeInTab 链（空 readerUrl = 已在阅读模式内，只聚焦），
 // 提示词组装后由 content 侧进入事务内的对话 seam runQuickActionPrompt 消费。
-function handlePlayerAiQuickAction(message: Msg<"player-ai-quick-action">, sender: MessageSender, sendResponse: SendResponse): boolean {
+function handlePlayerAiQuickAction(message: Msg<"player-ai-quick-action">, sender: MessageSender, sendResponse: Reply<"player-ai-quick-action">): MessageReplyDecision {
   const senderTabId = Number(sender.tab?.id) || 0;
   const requestedTabId = Number(message.tabId) || 0;
   // 标签页归属（工单 03）：带 sender.tab 的来源（content script）只能操作
@@ -270,12 +284,12 @@ function handlePlayerAiQuickAction(message: Msg<"player-ai-quick-action">, sende
   // 跨标签页伪造，拒绝且不执行任何副作用。
   if (senderTabId && requestedTabId && requestedTabId !== senderTabId) {
     sendResponse({ ok: false, error: "请求目标与发送者标签页不一致，已拒绝。" });
-    return false;
+    return "answered";
   }
   const tabId = senderTabId || requestedTabId;
   if (!tabId) {
     sendResponse({ ok: false, error: "找不到当前标签页。" });
-    return false;
+    return "answered";
   }
 
   withOkResponse(
@@ -286,21 +300,21 @@ function handlePlayerAiQuickAction(message: Msg<"player-ai-quick-action">, sende
     sendResponse,
     (error) => (error as Error).message || "打开 AI 对话失败"
   );
-  return true;
+  return "hold";
 }
 
-function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sendResponse: SendResponse): boolean {
+function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sendResponse: Reply<"fetch-json">): MessageReplyDecision {
   const url = typeof message.url === "string" ? message.url : "";
   if (!url) {
     sendResponse({ ok: false, error: "Missing subtitle URL" });
-    return false;
+    return "answered";
   }
   // 策略收口到通道：本处理器只为 B 站 API/字幕 CDN 带 cookie 代理取数，
   // 非 B 站 URL 一律拒绝——调用方（gateway 的 isBiliUrl 前置过滤）之外再挡一层，
   // 防止未来新调用方漏掉前置过滤时把本通道当成任意 URL 的带凭据代理。
   if (!isBiliUrl(url)) {
     sendResponse({ ok: false, error: "Non-Bilibili URL" });
-    return false;
+    return "answered";
   }
 
   // withOkResponse 收口（arch-slim-2/03）：JSON 解析失败（200 但非 JSON 响应）
@@ -310,7 +324,7 @@ function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sen
     sendResponse,
     (error) => (error instanceof SyntaxError ? "Invalid JSON response" : (error as Error).message)
   );
-  return true;
+  return "hold";
 }
 
 // Provider CRUD 消息：AI / ASR 两个家族形状相同，统一由
@@ -338,11 +352,11 @@ const aiResolvedProviderHandler = createAiResolvedProviderHandler({
   loadKeys: async () => (await getProviderStoreSnapshot("ai")).keys
 });
 
-function handleAiPresetsList(_message: Msg<"ai-presets-list">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleAiPresetsList(_message: Msg<"ai-presets-list">, _sender: MessageSender, sendResponse: Reply<"ai-presets-list">): void {
   sendResponse({ ok: true, presets: PRESETS.slice() });
 }
 
-function handleAiProvidersModels(message: Msg<"ai-providers-models">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleAiProvidersModels(message: Msg<"ai-providers-models">, _sender: MessageSender, sendResponse: Reply<"ai-providers-models">): void {
   const baseUrl = String(message.baseUrl || "").trim();
   if (!baseUrl) {
     sendResponse({ ok: false, error: "请填写 baseUrl" });
@@ -362,7 +376,7 @@ function handleAiProvidersModels(message: Msg<"ai-providers-models">, _sender: M
 // 平台请求代发（AI 探针传输层）：URL 合法性与 host 权限判定收口在
 // core/provider-http.ts；代发结果（含 HTTP 状态与响应体文本）原样回给
 // content 侧合成的 Response，探针的错误文案仍由 completion 链统一拼装。
-function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSender, sendResponse: Reply<"provider-http">): void {
   withOkResponse(
     handleProviderHttpRequest({
       url: message.url,
@@ -387,9 +401,11 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
 // **空链归因**（spec §12.7 第 6 条，2026-10-01 翻案）：空链有因不分——「真的没有
 // 合格记录」与「合格记录全在冷却中」不是一回事，后者回 `chainEmptyReason:"cooldown"`
 // 供调用方出专属文案（不再误报「未配置搜索平台」）。
-function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: Reply<"resolve-search-provider">): void {
   withOkResponse(
-    (async () => {
+    // 返回类型显式收到本条消息的响应类型：三个分支的载荷（含 chainEmptyReason
+    // 的字面量档）在这一行逐字对账（不写死类型则 "cooldown" 会被推宽成 string）。
+    (async (): Promise<ResolveSearchProviderResponse> => {
       // settings 标量 + 搜索平台列表 + Key + 用户顺序一次快照读取（命中时零 storage 调用）
       const settings = await getSettingsSnapshot();
       const { providers, keys } = await getProviderStoreSnapshot("search");
@@ -429,7 +445,7 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
 // search/search-cache.ts 单源（归一 + 64 位哈希键都在那一侧完成，调用方不拼键）。
 // **不得**进 illegalMessageReason 的 offscreen-only 名单——本族发送者含 content
 // （reader/explain-card.ts 与 offscreen 工具循环共用 search/search-runtime.ts）。
-function handleSearchCache(message: Msg<"search-cache">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleSearchCache(message: Msg<"search-cache">, _sender: MessageSender, sendResponse: Reply<"search-cache">): void {
   withOkResponse(
     (async () => {
       if (message.op === "get") {
@@ -458,7 +474,7 @@ function handleSearchCache(message: Msg<"search-cache">, _sender: MessageSender,
 // 快照，写后读（紧随其后的 resolve-search-provider）立刻消费新冷却图。
 // **不得**进 illegalMessageReason 的 offscreen-only 名单——本族发送者含 content
 //（reader/explain-card.ts 与 offscreen 工具循环共用 search-chain.ts 的缺省记账）。
-function handleSearchHealth(message: Msg<"search-health">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleSearchHealth(message: Msg<"search-health">, _sender: MessageSender, sendResponse: Reply<"search-health">): void {
   withOkResponse(
     (async () => {
       if (message.op !== "record") {
@@ -474,7 +490,7 @@ function handleSearchHealth(message: Msg<"search-health">, _sender: MessageSende
 
 // ===== ASR 平台消息处理 =====
 
-function handleAsrPresetsList(_message: Msg<"asr-presets-list">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleAsrPresetsList(_message: Msg<"asr-presets-list">, _sender: MessageSender, sendResponse: Reply<"asr-presets-list">): void {
   sendResponse({ ok: true, presets: ASR_PROVIDER_PRESETS.slice() });
 }
 
@@ -503,7 +519,9 @@ async function pruneSearchProviderOrder(providerId: string): Promise<void> {
   });
 }
 
-async function deleteSearchProviderAndClearCache(providerId: string): Promise<unknown[]> {
+// 删除后存活列表（族条目形状）——provider CRUD 工厂的 delete 载荷，精确到
+// 该族的响应条目类型（响应载荷与消息键配错由工厂的窄回包形参在 tsc 门禁拦下）。
+async function deleteSearchProviderAndClearCache(providerId: string): Promise<SearchProviderListEntry[]> {
   const providers = await invalidatingWrite(
     searchProviderStore.deleteProvider,
     PROVIDER_FAMILY_STORAGE_KEYS.search
@@ -560,31 +578,31 @@ const handleSegmentCache = createSegmentCacheHandler();
 // 把任务转发给"临时创建的 offscreen 文档"执行：asr-decode-prepare 建文档 +
 // 加防盗链规则（页面侧随后直连 offscreen 的 asr-decode 端口传下载解码任务），
 // asr-decode-cleanup 清规则。消息类型分发给对应执行函数。
-const offloadTaskHandlers = new Map<string, (message: unknown, sender: MessageSender, sendResponse: SendResponse) => void>([
+const offloadTaskHandlers = new Map<string, (message: unknown, sender: MessageSender, sendResponse: Reply<"offload-task">) => void>([
   [ASR_TASK_PREPARE, handleAsrDecodePrepare],
   [ASR_TASK_CLEANUP, handleAsrDecodeCleanup]
 ]);
 
-function handleOffloadTask(message: Msg<"offload-task">, _sender: MessageSender, sendResponse: SendResponse): boolean {
+function handleOffloadTask(message: Msg<"offload-task">, _sender: MessageSender, sendResponse: Reply<"offload-task">): MessageReplyDecision {
   const taskType = String(message.taskType || "").trim();
   const handler = offloadTaskHandlers.get(taskType);
   if (!handler) {
     sendResponse({ ok: false, error: "不支持的 offscreen 任务类型：" + taskType });
-    return false;
+    return "answered";
   }
   handler(message, _sender, sendResponse);
-  return true;
+  return "hold";
 }
 
 // 工单 03：offscreen 文档自关闭的代执行（offscreen 无 chrome.offscreen）。
 // 发送者校验在执行器内（isOffscreenDocumentSender，与入口守卫共用判定）。
-function handleOffscreenRequestCloseMsg(_message: Msg<"offscreen-request-close">, sender: MessageSender, sendResponse: SendResponse): void {
+function handleOffscreenRequestCloseMsg(_message: Msg<"offscreen-request-close">, sender: MessageSender, sendResponse: Reply<"offscreen-request-close">): void {
   void handleOffscreenRequestClose(_message, sender, sendResponse);
 }
 
 // 工单 03：offscreen 侧调试日志门的初始开关（offscreen 无 chrome.storage，
 // SW 是 storage 的独占读者；变更经下方 onChanged 监听广播）。
-function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: MessageSender, sendResponse: SendResponse): void {
+function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: MessageSender, sendResponse: Reply<"get-debug-log-gate">): void {
   withOkResponse(
     (async () => {
       const data = await chrome.storage.sync.get("enableDebugLogs");
@@ -594,13 +612,14 @@ function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: Mes
   );
 }
 
-// 编译期穷尽路由表（arch-slim-2/02）：字面量表经 satisfies 对
-// { [K in BackgroundMessageType]: MessageHandler<Msg<K>> } 校验——
-// 消息名 typo / 漏注册 handler / 多注册未知名在 typecheck 即报错（此前 Map +
-// 逐条 `as BackgroundHandler` 断言对这一切零捕获）；每个条目的处理器同时按其
-// 具体消息形状 Msg<K> 校验，签名与消息类型不匹配同样报错。键集与协议层 SW 消息
-// 注册表（BACKGROUND_MESSAGE_REGISTRY）逐键对齐：形状判据与回包口径归注册表，
-// 本表只登记 handler 本体。script-only-ui：
+// 编译期穷尽路由表（arch-slim-2/02；handler 面按消息键收型：message-registry/02）：
+// 字面量表经 satisfies 对 { [K in BackgroundMessageType]: BackgroundMessageHandler<K> }
+// 校验——消息名 typo / 漏注册 handler / 多注册未知名在 typecheck 即报错（此前 Map +
+// 逐条 `as BackgroundHandler` 断言对这一切零捕获）；每个条目的处理器同时按其具体
+// 消息形状收型：sendResponse 形参 = 本条消息的响应类型（响应载荷与消息键配错即红），
+// 返回值 = 注册表 reply 登记的派生面（async / sync 档恒 void，branch 档必须回判定）。
+// 键集与协议层 SW 消息注册表（BACKGROUND_MESSAGE_REGISTRY）逐键对齐：形状判据与
+// 回包口径归注册表，本表只登记 handler 本体。script-only-ui：
 // open-options 处理器已随 options 页删除（设置已全部并入侧边栏面板，无独立
 // 设置页可开）。
 const messageHandlerTable = {
@@ -634,10 +653,10 @@ const messageHandlerTable = {
   "offload-task": handleOffloadTask,
   "offscreen-request-close": handleOffscreenRequestCloseMsg,
   "get-debug-log-gate": handleGetDebugLogGate
-} satisfies { [K in BackgroundMessageType]: MessageHandler<Msg<K>> };
+} satisfies { [K in BackgroundMessageType]: BackgroundMessageHandler<K> };
 
-const messageHandlers = new Map<BackgroundMessageType, BackgroundHandler>(
-  Object.entries(messageHandlerTable) as Array<[BackgroundMessageType, BackgroundHandler]>
+const messageHandlers = new Map<BackgroundMessageType, AnyBackgroundHandler>(
+  Object.entries(messageHandlerTable) as Array<[BackgroundMessageType, AnyBackgroundHandler]>
 );
 
 // EXPECTED_CONTENT_SCRIPT_VERSION 单源在 entry/content-orchestration-wiring.ts

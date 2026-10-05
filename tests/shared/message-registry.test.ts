@@ -7,7 +7,8 @@
 //   1. 注册表键集 = 全部 SW 消息（漏消息 / 多登记都要红）；
 //   2. 回包口径逐条与处理器实际口径对账（记反的后果是调用方空等或通道提前关闭，
 //      故期望值独立手写，不复用注册表自身）；
-//   3. 回包口径三态的入口 boolean 语义（resolveReplyKeepOpen 纯函数）；
+//   3. 回包口径三态的入口 boolean 语义（resolveReplyKeepOpen 纯函数；branch 档的
+//      判定取值 = MessageReplyDecision，"hold" 持有 / "answered" 已答）；
 //   4. offscreen 来源名单由注册表的 offscreenOnly 登记派生（语义与旧手写名单逐字
 //      一致，顺序稳定）；
 //   5. payload 最小 schema 判据：登记项恰好是协议约定的五条，且逐条拒非法、放合法。
@@ -56,7 +57,7 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   // sync：处理器返回前已同步回包，通道不持有
   "ai-presets-list": "sync",
   "asr-presets-list": "sync",
-  // branch：口径逐分支而定（同步预检失败即答 / 通过后转异步），handler 自持返回值
+  // branch：口径逐分支而定（同步预检失败即答 / 通过后转异步），handler 自持判定
   "request-provider-origins": "branch",
   "player-ai-quick-action": "branch",
   "fetch-json": "branch",
@@ -95,16 +96,16 @@ describe("SW 消息注册表：键集与回包口径", () => {
     }
   });
 
-  it("回包口径三态语义：async 恒持有 / sync 恒已答 / branch 处理器自持", () => {
+  it("回包口径三态语义：async 恒持有 / sync 恒已答 / branch 处理器自持判定", () => {
     // async：处理器自持的返回值不参与判定（缺 baseUrl 也同步回包的条目仍是 async）
-    expect(resolveReplyKeepOpen("async", true)).toBe(true);
-    expect(resolveReplyKeepOpen("async", false)).toBe(true);
+    expect(resolveReplyKeepOpen("async", "hold")).toBe(true);
+    expect(resolveReplyKeepOpen("async", "answered")).toBe(true);
     // sync：已同步回包，通道一律不持有
-    expect(resolveReplyKeepOpen("sync", true)).toBe(false);
-    expect(resolveReplyKeepOpen("sync", false)).toBe(false);
-    // branch：处理器返回值即口径（未返回 boolean 与 false 同义，对齐 onMessage 语义）
-    expect(resolveReplyKeepOpen("branch", true)).toBe(true);
-    expect(resolveReplyKeepOpen("branch", false)).toBe(false);
+    expect(resolveReplyKeepOpen("sync", "hold")).toBe(false);
+    expect(resolveReplyKeepOpen("sync", "answered")).toBe(false);
+    // branch：处理器返回的判定即口径（未返回判定与 "answered" 同义，对齐 onMessage 语义）
+    expect(resolveReplyKeepOpen("branch", "hold")).toBe(true);
+    expect(resolveReplyKeepOpen("branch", "answered")).toBe(false);
     expect(resolveReplyKeepOpen("branch", undefined)).toBe(false);
   });
 });
