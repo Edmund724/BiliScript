@@ -106,22 +106,36 @@ export async function probeAiChatCompletion({ baseUrl, apiKey, model, presetId, 
   }
 }
 
-// options 页「测试」按钮的入口：平铺字段 + providerId，替代原 ai-providers-test
-// 消息在 SW 侧的输入装配（provider-handlers.js pickFlatTestProvider 的契约）——
-// Key 解析优先用户重输的 apiKey，否则按 providerId 从已存 Key 代查，都没有为空串。
+// 设置面板「测试」按钮的入口（跑在 content script 语境，manifest 无 options_page）：
+// 平铺字段 + providerId，替代原 ai-providers-test 消息在 SW 侧的输入装配
+//（provider-handlers.js pickFlatTestProvider 的契约）——Key 解析优先用户重输的
+// apiKey，否则按 providerId 从已存 Key 代查，都没有为空串。
 // protocol / presetId 同穿线：直输（表单当前值）优先，否则按 providerId 从已存
 // 记录代查（multi-protocol-ai：探针端点/鉴权随 adapter 切换；平台身份则决定平台
 // 要求的额外请求头，见 ai/preset-headers.ts）。直传优先是新增平台的必要路径：
 // 新增时没有 providerId，身份只可能来自表单，只按记录代查会发出「无预设」的探针
 // （Opencode Go 这类要求平台头的站点因此测不通，而对话走 resolve-ai-provider
 // 拿得到 presetId，于是出现「对话能通、测试不通」）。
+// 探针语义 = 校验**当前表单配置**（不是已保存的激活配置）：baseUrl / Key / 模型 /
+// 协议 / 平台身份一律以调用方直传的表单值为准，不做「先保存再测」的前置——新增平台
+// 没有已存记录可测。真跑（对话 / 概览）由 resolve-ai-provider 解析已保存的激活平台，
+// 两者本就可以不同，属已知取舍：未保存的草稿测通不代表下次对话可用，故行级测试
+//（ui/provider-editor-catalog.ts 的 runModelTest）在草稿有未保存改动时给「未保存」短标。
 // 返回 { ok, error? }，UX 语义与原消息往返完全一致。
 export async function testAiProviderConnection({ providerId, baseUrl, apiKey, model, protocol, presetId }: { providerId?: string; baseUrl?: string; apiKey?: string; model?: string; protocol?: string; presetId?: string }): Promise<TestAiConnectionResult> {
   // S2 收紧 host_permissions：域名未授权时跨域 fetch 只会以 CORS 失败，探针原样
   // 抛出是「无法连接：Failed to fetch」这类看不出原因的文案，所以先把权限缺失换成
   // 可操作提示，不再发起注定失败的请求，也不读一次 Key 存储。
-  // 判定收口在 core/host-permissions.js（与 ASR 探针共用一份）：取不到
-  // chrome.permissions 实现（单测环境）时按已授权处理，不阻塞既有探针行为。
+  //
+  // ⚠ 这道门在 content script 语境里**恒放行**：content 没有 chrome.permissions
+  //（Chromium 只给扩展自有页面 / SW），hasHostPermission 取不到 contains 实现即按
+  // 已授权处理（该 fail-open 只对单测/非扩展环境是设计，在 content 里等于判不了）。
+  // 真正拦下未授权请求的是下游 SW 代发那道门（core/provider-http.ts 的
+  // handleProviderHttpRequest，回同一句 HOST_PERMISSION_HINT）；content 语境要真查
+  // 权限得用 hasHostPermissionViaBackground。本轮只改注释、不动这行：在查得到
+  // chrome.permissions 的语境（扩展自有页面 / 单测注入）它仍按原形状给出提示。要防
+  // 「新入口忘了先申请权限」得防在入口自身（extension/ui/model-picker.ts 先例），不是
+  // 靠这道判不了的门——现唯一生产入口（行级测试 runModelTest）已在点击链上先申请。
   if (!(await hasHostPermission(baseUrl))) {
     return { ok: false, error: HOST_PERMISSION_HINT };
   }

@@ -602,7 +602,7 @@ export function wireDialog(options: ProviderEditorOpenOptions): void {
     else if (action === "delete") void deleteActive();
     else if (action === "add-model") addModelRow();
     else if (action === "remove-model") removeModelRow(target.closest<HTMLElement>(".provider-editor-model-row"));
-    else if (action === "test-model") void runModelTest(target.closest<HTMLElement>(".provider-editor-model-row"));
+    else if (action === "test-model") void runModelTest(target.closest<HTMLElement>(".provider-editor-model-row"), isDirty());
     else if (action === "fetch-models") void openFetchDialog();
     else if (action === "close-fetch") closeFetchDialog();
     else if (action === "confirm-fetch") confirmFetchSelection();

@@ -4,14 +4,17 @@
 // 职责：目录行模板（modelRowHtml）、草稿行增删、空态提示、目录级红字错误、行级
 // 连通测试（multi-model-catalog 阶段2；拍板 Q3/Q4/Q7/Q9/Q10/Q12/Q13），以及只读
 // 模型元数据的渲染与重算（model-catalog/04）。
-// 依赖方向：只用底层的状态袋与字段/DOM 原语（./provider-editor-state.js）与目录
-// 懒加载器（./lazy-model-catalog.js）；对 ai/model-catalog 只取类型（import type，
-// 构建后消失，不把 85KB 产物静态拖进本片）。不反向依赖 Modal 本体。函数体自原
+// 依赖方向：只用底层的状态袋与字段/DOM 原语（./provider-editor-state.js）、目录
+// 懒加载器（./lazy-model-catalog.js）与权限代申请（../core/host-permissions.js，
+// 与 Modal 共用同一实现）；对 ai/model-catalog 只取类型（import type，构建后消失，
+// 不把 85KB 产物静态拖进本片）。不反向依赖 Modal 本体——「草稿是否有未保存改动」
+// 由调用方按 isDirty 传入（见 runModelTest 的 dirtyDraft）。函数体自原
 // provider-editor.ts 逐字节搬移。
 
 import { escapeHtml } from "../shared/string-utils.js";
 import { testAiProviderConnection } from "../ai/provider-test.js";
 import type { CatalogModelMeta } from "../ai/model-catalog.js";
+import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { TRASH_ICON_PATHS } from "./provider-row.js";
 import { getDialog, readField, state } from "./provider-editor-state.js";
 import { loadModelCatalog, loadedModelCatalog } from "./lazy-model-catalog.js";
@@ -63,11 +66,26 @@ export function removeModelRow(row: HTMLElement | null): void {
 // 行级连通测试（拍板 Q4/Q12）：用该行输入框当前的模型 ID 发 ping，行内原地
 // 反馈（spinner → ✓/✕，失败原因在 title 悬停查看）；多行可并发，同一行重复
 // 点击忽略前一个（dataset.testToken 代际比对）；测试不落盘——成功也不写设置。
-export async function runModelTest(row: HTMLElement | null): Promise<void> {
+//
+// 权限（458cb45 的 ASR 平台级测试同款）：点按钮这次点击是唯一手势，直达
+// requestProviderOriginsViaBackground 代申请——已授权时 Chrome 直接放行不弹窗，
+// 未授权时先补齐前置，探针才真发得出去，而不是回一句「该平台域名未授权」让用户
+// 自己去点保存。拒绝回滚成可原地重试的错误态（手势不变式见 tests/ui/
+// options-save-gesture.test.ts 的调用方扫描）。
+//
+// dirtyDraft：探针校验的是**当前表单配置**（draft）——调用方传入「草稿与打开时
+// 基线不同」；成功结果据此带未保存短标，避免「测试过、真跑用已保存配置」的误读。
+export async function runModelTest(row: HTMLElement | null, dirtyDraft = false): Promise<void> {
   const draft = state.draft;
   if (!row || state.kind !== "ai" || !draft) return;
   const result = row.querySelector<HTMLElement>(".provider-editor-model-result");
   const button = row.querySelector<HTMLButtonElement>(".provider-editor-model-test");
+  // 未保存短标（dirtyDraft 时给出）：每一次状态切换都与 title 一同重置，不留上一次
+  // 成功的残留（可见文案由 CSS 从 data-unsaved 渲染，与 ✓/✕/spinner 同款）
+  const clearUnsavedNote = (): void => {
+    if (!result) return;
+    delete result.dataset.unsaved;
+  };
   // 行序与 draft.models 一一对应：该行模型 ID 按行索引从 draft 取
   const list = row.closest<HTMLElement>(".provider-editor-model-list");
   const index = list ? Array.from(list.children).indexOf(row) : -1;
@@ -78,6 +96,7 @@ export async function runModelTest(row: HTMLElement | null): Promise<void> {
     result.hidden = false;
     result.dataset.state = "error";
     result.title = message;
+    clearUnsavedNote();
   };
   if (!model) {
     fail("请先填写模型 ID");
@@ -99,9 +118,27 @@ export async function runModelTest(row: HTMLElement | null): Promise<void> {
     result.hidden = false;
     result.dataset.state = "loading";
     result.title = "";
+    clearUnsavedNote();
   }
   if (button) {
     button.disabled = true;
+  }
+  // 权限代申请排在 loading/禁用之后：权限弹窗挂着时行内已是在飞态、按钮不可重复
+  // 点（同页 model-picker 下拉箭头先铺「正在拉取…」再申请的既有形态）；拒绝再按
+  // 下面的 token 守卫回滚成可再点的错误态。
+  const permission = await requestProviderOriginsViaBackground([baseUrl]);
+  if (!permission.ok) {
+    if (generation !== state.generation || !state.open || !row.isConnected) {
+      return; // 过期回执：Modal 已关/已重开或行已删，不打扰
+    }
+    if (Number(row.dataset.testToken) !== token) {
+      return; // 同一行重复点击：前一个结果被忽略
+    }
+    if (button) {
+      button.disabled = false;
+    }
+    fail(permission.error || "未取得该平台域名权限，无法测试连接");
+    return;
   }
   const resp: { ok?: boolean; error?: string } = await testAiProviderConnection({
     providerId: state.editingId,
@@ -125,7 +162,12 @@ export async function runModelTest(row: HTMLElement | null): Promise<void> {
   }
   if (resp?.ok) {
     result.dataset.state = "ok";
-    result.title = "连接成功";
+    if (dirtyDraft) {
+      result.dataset.unsaved = "true";
+      result.title = "连接成功（当前表单未保存）";
+    } else {
+      result.title = "连接成功";
+    }
   } else {
     result.dataset.state = "error";
     result.title = `失败：${resp?.error || "未知错误"}`;

@@ -11,8 +11,9 @@
 // - 模型目录（multi-model-catalog 阶段2，拍板 Q3/Q7/Q9/Q10/Q13）：行增删只改
 //   草稿（加行即脏），收集 trim/去空行/去重，空目录合法有空态提示；
 // - 行级连通测试（拍板 Q4/Q12）：行内 spinner→✓/✕，多行并发、同行重复点击
-//   忽略前一个，测试不落盘（绝无保存与权限消息）；ASR 平台级测试保留，且在点击
-//   手势同步链上先代申请域名权限再发探针（拒绝则不探针，提示可原地重试）；
+//   忽略前一个，测试不落盘（绝无保存消息）；行级与 ASR 平台级测试一样在点击手势
+//   同步链上先代申请域名权限再发探针（拒绝则不探针，提示可原地重试），草稿有未
+//   保存改动时成功结果带「未保存」短标（探针校验的正是当前表单配置）；
 // - 「获取可用模型」弹窗（拍板 Q5/Q11）：地址/Key 前置校验、权限在点击同步
 //   链（先于模型请求）、搜索/全选、已添加置灰、失败原位重试、Esc 逐层退出；
 // - dirty 保护（拍板 Q6）：有改动弹面板内确认（ui/confirm-dialog.js），无改
@@ -803,7 +804,8 @@ describe("provider-editor：模型目录草稿语义（拍板 Q10/Q7/Q13）", ()
 // 行级连通测试（拍板 Q4/Q12）：每行用该行输入框当前的模型 ID 发 ping（复用
 // testAiProviderConnection 探针路径），行内原地反馈（spinner → ✓/✕，失败原因
 // 在 title）；多行并发、同行重复点击忽略前一个；测试不落盘（8a5f249 语义保持：
-// 绝无保存与权限消息）。平台级测试按钮已被行级替代（AI 侧不渲染）。
+// 绝无保存消息）；权限代申请与 ASR 平台级测试同款落在点击手势同步链上（拒绝则
+// 不发探针、按钮可再点）。平台级测试按钮已被行级替代（AI 侧不渲染）。
 describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通性不落盘）", () => {
   function addModelRowWithValue(dialog: HTMLElement, value: string) {
     fireClick(dialog.querySelector(".provider-editor-model-add"));
@@ -812,9 +814,20 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     return row;
   }
 
-  it("AI 不渲染平台级测试按钮；行级测试成功：spinner→✓、探针直调、不落盘", async () => {
+  it("AI 不渲染平台级测试按钮；行级测试成功：spinner→✓、权限代申请先于探针、不落盘", async () => {
     const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
-    const { sent, host } = await mountPanel();
+    // 顺序账本：权限代申请 → 探针，二者都落地才算「先申请权限再真发请求」
+    const order: string[] = [];
+    vi.mocked(testAiProviderConnection).mockImplementationOnce(async () => {
+      order.push("probe");
+      return { ok: true };
+    });
+    const { sent, host } = await mountPanel({
+      "request-provider-origins": () => {
+        order.push("permission");
+        return { ok: true };
+      }
+    });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
     expect(dialog.querySelector(".provider-editor-test")).toBeNull();
@@ -824,7 +837,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const row = addModelRowWithValue(dialog, "gpt-4o-mini");
 
     fireClick(row.querySelector(".provider-editor-model-test"));
-    // 在飞：loading 态 + 按钮禁用
+    // 在飞：loading 态 + 按钮禁用（权限弹窗挂着时已是在飞态，按钮不可重复点）
     expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("loading");
     expect(row.querySelector<HTMLButtonElement>(".provider-editor-model-test")!.disabled).toBe(true);
 
@@ -843,11 +856,108 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     await vi.waitFor(() => {
       expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("ok");
     });
-    // 测试成功不写设置：绝无保存与权限消息，Modal 不关
+    // 手势同步链：权限代申请先于探针（未授权时探针根本发不出去，先补齐前置）
+    expect(order).toEqual(["permission", "probe"]);
+    expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual(["https://api.example.com/v1"]);
+    // 测试成功不写设置：绝无保存消息，Modal 不关
     expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
-    expect(sent.some((message) => message.type === "request-provider-origins")).toBe(false);
     expect(editorGone()).toBe(false);
     expect(row.querySelector<HTMLButtonElement>(".provider-editor-model-test")!.disabled).toBe(false);
+  });
+
+  it("行级测试：权限被拒 → 行内可操作文案、不发探针、按钮可再点", async () => {
+    const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
+    const order: string[] = [];
+    vi.mocked(testAiProviderConnection).mockImplementationOnce(async () => {
+      order.push("probe");
+      return { ok: true };
+    });
+    const { sent, host } = await mountPanel({
+      "request-provider-origins": () => {
+        order.push("permission");
+        return { ok: false, error: "未授权 https://api.example.com/*，操作已中止：请在权限弹窗中选择允许后重试" };
+      }
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    const row = addModelRowWithValue(dialog, "gpt-4o-mini");
+
+    fireClick(row.querySelector(".provider-editor-model-test"));
+
+    await vi.waitFor(() => {
+      expect(row.querySelector<HTMLElement>(".provider-editor-model-result")!.dataset.state).toBe("error");
+    });
+    expect(order).toEqual(["permission"]);
+    expect(testAiProviderConnection).not.toHaveBeenCalled();
+    const result = row.querySelector<HTMLElement>(".provider-editor-model-result")!;
+    expect(result.title).toContain("操作已中止");
+    expect(result.dataset.unsaved).toBeUndefined();
+    // 拒绝不等于失败态：按钮必须可再点（用户改完权限可原地重试）
+    expect(row.querySelector<HTMLButtonElement>(".provider-editor-model-test")!.disabled).toBe(false);
+    expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual(["https://api.example.com/v1"]);
+  });
+
+  it("行级测试「未保存」短标：草稿有未保存改动 → ✓ 旁显式短标 + title 说明", async () => {
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    const row = addModelRowWithValue(dialog, "gpt-4o-mini");
+
+    fireClick(row.querySelector(".provider-editor-model-test"));
+
+    const result = row.querySelector<HTMLElement>(".provider-editor-model-result")!;
+    await vi.waitFor(() => {
+      expect(result.dataset.state).toBe("ok");
+    });
+    // 探针校验的是当前表单配置，而它还没落盘：行内显式提示，避免「测试过、真跑失败」。
+    // 可见短标由 CSS 从 data-unsaved 渲染（与 ✓/✕/spinner 同款：JS 只置状态属性），
+    // 完整说明在 title。
+    expect(result.dataset.unsaved).toBe("true");
+    expect(result.title).toBe("连接成功（当前表单未保存）");
+  });
+
+  it("行级测试「未保存」短标：编辑已存平台但未改动 → 只有「连接成功」", async () => {
+    const aiItem = { id: "p1", presetId: "custom", name: "我的端点", baseUrl: "https://api.example.com/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
+    const { host } = await mountPanel({
+      "ai-providers-list": () => ({ ok: true, providers: [aiItem] })
+    });
+    const providerRow = host.querySelector<HTMLElement>("#aiProvidersList .ai-provider-row")!;
+    const { dialog } = await openEditor(host, providerRow.querySelector(".provider-row-edit")!);
+
+    const row = dialog.querySelector<HTMLElement>(".provider-editor-model-row")!;
+    fireClick(row.querySelector(".provider-editor-model-test"));
+
+    const result = row.querySelector<HTMLElement>(".provider-editor-model-result")!;
+    await vi.waitFor(() => {
+      expect(result.dataset.state).toBe("ok");
+    });
+    expect(result.dataset.unsaved).toBeUndefined();
+    expect(result.title).toBe("连接成功");
+  });
+
+  it("行级测试「未保存」短标随状态重置：上次成功的短标不残留到本次失败", async () => {
+    const { testAiProviderConnection } = await import("../../extension/ai/provider-test.js");
+    const { host } = await mountPanel();
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://api.example.com/v1");
+    const row = addModelRowWithValue(dialog, "gpt-4o-mini");
+    const result = row.querySelector<HTMLElement>(".provider-editor-model-result")!;
+
+    fireClick(row.querySelector(".provider-editor-model-test"));
+    await vi.waitFor(() => {
+      expect(result.dataset.unsaved).toBe("true");
+    });
+
+    vi.mocked(testAiProviderConnection).mockImplementationOnce(async () => ({ ok: false, error: "quota exceeded" }));
+    fireClick(row.querySelector(".provider-editor-model-test"));
+    await vi.waitFor(() => {
+      expect(result.dataset.state).toBe("error");
+    });
+    expect(result.dataset.unsaved).toBeUndefined();
+    expect(result.title).toBe("失败：quota exceeded");
   });
 
   it("行级测试失败：行内 ✕ + title 原因，不落盘", async () => {
@@ -970,7 +1080,10 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     // 在飞中重复点击：发第二次探针（行内当前值），前一个结果随后被忽略
     setFieldValue(row.querySelector<HTMLInputElement>(".provider-editor-model-id")!, "gpt-4o");
     fireClick(row.querySelector(".provider-editor-model-test"));
-    expect(testAiProviderConnection).toHaveBeenCalledTimes(2);
+    // 代申请先于探针，探针不再同步被调：这里等两趟消息链落地
+    await vi.waitFor(() => {
+      expect(testAiProviderConnection).toHaveBeenCalledTimes(2);
+    });
 
     // 第一次探针慢返回成功，但已被忽略；行内落定的是第二次的 ✕
     resolveFirst!({ ok: true });

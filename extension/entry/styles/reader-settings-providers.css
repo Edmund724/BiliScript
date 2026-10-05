@@ -378,6 +378,22 @@
   content: "✓";
 }
 
+/* 行级测试成功但草稿有未保存改动（探针校验的正是当前表单配置）：✓ 旁补可见短标
+ * （固定 16px 的符号槽放不下文字，故这里放开宽度），完整说明在 title 悬停。
+ * 短标只随成功态出现，状态切换时由 JS 摘除 data-unsaved。 */
+#biliscript-reading-view .provider-editor-model-result[data-unsaved="true"] {
+  width: auto;
+  white-space: nowrap;
+}
+
+#biliscript-reading-view .provider-editor-model-result[data-unsaved="true"]::after {
+  content: "未保存";
+  padding-left: 3px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--biliscript-reader-faint);
+}
+
 #biliscript-reading-view .provider-editor-model-result[data-state="error"] {
   color: var(--biliscript-reader-accent);
 }

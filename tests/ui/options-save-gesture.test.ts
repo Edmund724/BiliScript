@@ -129,6 +129,23 @@ describe("调用方手势同步链（调用前零先行 await）", () => {
     expect(before.match(/\bawait\b/g) || [], "申请权限之前不得有先行 await").toEqual([]);
   });
 
+  it("provider-editor runModelTest（AI 行级测试）：函数体开头到权限申请调用之间没有先行 await", () => {
+    // 扫描锚点随工单 12 分片改指 catalog 片——runModelTest 整体搬过去了。
+    const source = readSource("../../extension/ui/provider-editor-catalog.js");
+    const start = source.indexOf("export async function runModelTest(");
+    const request = source.indexOf("requestProviderOriginsViaBackground(", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(request).toBeGreaterThan(start);
+
+    // 点行内「测试」即手势本体（与 ASR 平台级 runTest 同款）：本地校验（模型 ID /
+    // API 地址）与 loading/禁用态全是同步的，申请之前垫任何 await 都会让 Chrome 以
+    // 「缺少用户手势」拒掉授权弹窗——探针就会退回「未授权」而不真发请求，必须红。
+    const prefix = source.slice(start, request);
+    expect(/(?:^|[\s(=])await\s*$/.test(prefix), "requestProviderOriginsViaBackground 应被直接 await").toBe(true);
+    const before = prefix.replace(/\s*await\s*$/, "");
+    expect(before.match(/\bawait\b/g) || [], "申请权限之前不得有先行 await").toEqual([]);
+  });
+
   it("provider-editor「获取可用模型」openFetchDialog：函数体开头到权限申请调用之间没有先行 await", () => {
     // 扫描锚点随工单 12 分片改指 fetch 片——openFetchDialog 整体搬过去了，
     // 原 provider-editor.ts 只剩逐名再导出壳（权限申请处仍在点击同步链上）。
