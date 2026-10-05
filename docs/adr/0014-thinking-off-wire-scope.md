@@ -4,7 +4,7 @@
 
 修「智谱 glm-5.2 关不掉思考」时（该缺口由**逐模型补声明**修掉，不动协议层），评审提出过一个方向：OpenAI chat completions 与 Anthropic Messages 既然是两个协议，能不能各自直接走、不要「转写」。本条把这次评审的边界钉住：**本仓的线格式层不是通用协议转码器，它只有两条职责；为了消除它而把档位事实拆成两份，是明确不走的路线。**
 
-现状的三层结构（`extension/ai/thinking-wire-map.ts` 头注自称「写法层」）：**事实层** `extension/ai/thinking-profiles.ts` 从上游值集算出「这个模型每一档发哪套 OpenAI 词汇」，输出**协议无关**的 patch；**写法层** `THINKING_WIRE_MAPS: Record<AiProtocol, ThinkingWireMap>` 回答「这套词汇在本协议请求体里长什么样」。写法层的两个事实：`openai` 行是**恒等**（`fields` 原样并入，测试「openai 行：血统词汇即本协议的线格式」）；`anthropic` 行只做两件事——按平台选档位出口（`MESSAGES_TIER_VOCABULARY`，8 家登记、每行带出处 URL，未登记平台回落到裸 `output_config.effort`），以及把三种关思考词汇**归一**成 `thinking:{type:"disabled"}`（例外见决定 2）。
+现状的三层结构（`extension/ai/thinking-wire-map.ts` 头注自称「写法层」）：**事实层** `extension/ai/thinking-profiles.ts` 从上游值集算出「这个模型每一档发哪套 OpenAI 词汇」，输出**协议无关**的中转词汇（封闭联合 `ThinkingVocabulary`，2026-10-05 起取代原无类型 patch 字典；本行是事实细节，随实现就地订正）；**写法层** `THINKING_WIRE_MAPS: Record<AiProtocol, ThinkingWireMap>` 回答「这套词汇在本协议请求体里长什么样」。写法层的两个事实：`openai` 行是**恒等**（词汇经 `openaiVocabularyFields` 投影原样并入，测试「openai 行：血统词汇即本协议的线格式」）；`anthropic` 行只做两件事——按平台选档位出口（`MESSAGES_TIER_VOCABULARY`，8 家登记、每行带出处 URL，未登记平台回落到裸 `output_config.effort`），以及把三种关思考词汇**归一**成 `thinking:{type:"disabled"}`（例外见决定 2）。
 
 ## 决定
 

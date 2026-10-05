@@ -216,7 +216,7 @@ _Avoid_: 附件图片、贴图、content parts 升级（被否的路线 A）、�
 _Avoid_: 清会话、重置对话、手抄拆除序列
 
 **上下文装载**:
-一次 `loadContextState` 调用：拉当前标签页上下文 → 纯函数策略给出动作计划 → 编排壳按 action 执行副作用。两个决策点：no-tab 在消息往返之前（`resolveNoTabPlan`），其余五个在往返之后按响应分类（`resolveLoadContextAction`），优先级自上而下 no-tab → skip-unchanged → error → apply-pinned → blocked-streaming → apply-live（pinned 优先于流式守卫，skip-unchanged 短路优先于两者）。分层纪律：判定全在 policy 纯函数（无 I/O、不写状态、不渲染），效果全在编排壳（按 action 分派，不自行复判守卫）；pinned / 流式守卫只落地 live 快照，apply-live 才进主上下文。唯一例外是拆除事务的绕过点：新会话（reader 壳的 `startNewConversation`）在策略调用后有意做一次 live 兜底同步，不经 action 分派。
+一次 `loadContextState` 调用：拉当前标签页上下文 → 纯函数策略给出动作计划 → 编排壳按 action 执行副作用。两个决策点：no-tab 在消息往返之前（`resolveNoTabPlan`），其余五个在往返之后按响应分类（`resolveLoadContextAction`），优先级自上而下 no-tab → skip-unchanged → error → apply-pinned → blocked-streaming → apply-live（pinned 优先于流式守卫，skip-unchanged 短路优先于两者）。分层纪律：判定全在 policy 纯函数（无 I/O、不写状态、不渲染），效果全在编排壳（按 action 分派，不自行复判守卫）；pinned / 流式守卫只落地 live 快照，apply-live 才进主上下文。流式守卫的判据（`isStreaming` + `hasPendingUserPrompt` 两键）**刻意窄于**「回合在途」（`isTurnActive`，含受理窗口）：发送闸自身也走 `loadContextState`，判据并宽会在受理窗口内把闸自己的装载判成 blocked-streaming、转写完成后发出的消息带空字幕（锚点测试 chat-tab「转写中发送被挂起…」）。唯一例外是拆除事务的绕过点：新会话（reader 壳的 `startNewConversation`）在策略调用后有意做一次 live 兜底同步，不经 action 分派。
 代码名：`extension/chat/context-policy.ts`（判定纯函数：`resolveNoTabPlan` / `resolveLoadContextAction` / `LOAD_CONTEXT_ACTION` / `LoadContextPlan`）/ `extension/chat/context-load.ts`（效果壳：`createContextLoad` / `loadContextState`）/ `ContextFetch`（`extension/core/context-assembly.ts` 注入的装配策略）
 _Avoid_: 在效果壳重判流式守卫、按计划字段而非 action 反推是否进主上下文、给计划加无消费方的字段（`clearTabUrl` / `applyToMainContext` 已因零消费删除）
 
