@@ -377,18 +377,21 @@ describe("setThinkingLevel", () => {
     });
   });
 
-  it("非法档位归一化为 off", async () => {
+  // 归一化口径（2026-10-05 用户裁定两轮，见 docs/adr/0015 的修订块）：缺省 / 脏值一律归
+  // `default`（不干预）——存储 / 面板侧（本入口）与请求侧同一条归一化，不再回落 `off`
+  //（回退值与出厂默认同词，界面写 Default、线上不发思考字段）。
+  it("非法档位归一化为 default（不干预）", async () => {
     const { providerPrefs } = makeHarness();
 
     await providerPrefs.setThinkingLevel("ultra");
 
-    expect(chatSessionState.aiThinkingLevel).toBe("off");
+    expect(chatSessionState.aiThinkingLevel).toBe("default");
   });
 
-  // 05 号票（决策 #8）：档位值域扩到上游词表的 7 档；三处写点（内存态 / storage /
-  // save-settings）必须同值，不许有哪一处还停在旧三档。
-  it("7 档全部可设：状态 / chrome.storage / save-settings 三处同值", async () => {
-    const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+  // 05 号票（决策 #8）：档位值域扩到上游词表的 7 档（+ ADR-0015 的 default）；三处写点
+  //（内存态 / storage / save-settings）必须同值，不许有哪一处还停在旧口径。
+  it("8 个可选值全部可设：状态 / chrome.storage / save-settings 三处同值", async () => {
+    const levels = ["default", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
     for (const level of levels) {
       sendRuntimeMessageMock.mockClear();
       const { providerPrefs, storage } = makeHarness();
@@ -404,12 +407,12 @@ describe("setThinkingLevel", () => {
     }
   });
 
-  it("上游的 none 不是档位：归一化回落 off（不落成 off 之外的任何值）", async () => {
+  it("上游的 none 不是档位：归一化回落 default（不落成任何具体强度档）", async () => {
     const { providerPrefs } = makeHarness();
 
     await providerPrefs.setThinkingLevel("none");
 
-    expect(chatSessionState.aiThinkingLevel).toBe("off");
+    expect(chatSessionState.aiThinkingLevel).toBe("default");
   });
 });
 

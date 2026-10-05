@@ -18,7 +18,7 @@
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
-import { normalizeThinkingLevel, resolveThinkingProfile, resolveThinkingProviderId } from "../thinking-profiles.js";
+import { resolveThinkingProfile, resolveThinkingProviderId } from "../thinking-profiles.js";
 import { THINKING_WIRE_MAPS } from "../thinking-wire-map.js";
 import { hasPlatformQuirk } from "../compat-vocab.js";
 import { resolvePlatformQuirkId } from "../platform-quirk-id.js";
@@ -248,12 +248,14 @@ export const anthropicAdapter: ProtocolAdapter = {
     // （口径差异见 ai/platform-quirk-id.ts 头注）：
     // effortVocabularyOnly = 词表怪癖（PLATFORM_QUIRKS 键空间，stepfun / amd 的严格拒收），
     // platformId = 思考平台识别（PROVIDERS 键空间，映射表按它查 Messages 档位词汇）。
-    const level = normalizeThinkingLevel(request.thinkingLevel);
+    // 档位偏好原样交给解析层（请求侧归一入口在 resolveThinkingProfile）：缺省 / 脏值 =
+    // default（不干预）→ 本行并入空 patch，与 openai 链同表现（2026-10-05 裁定，见
+    // docs/adr/0015 的修订块）；显式 `off` 仍走 MESSAGES_OFF_EXIT 的逐格出口。
     const thinking = resolveThinkingProfile({
       presetId: request.presetId,
       baseUrl: request.baseUrl,
       model: request.model,
-      level,
+      level: request.thinkingLevel,
       stream: request.stream
     });
     const wire = THINKING_WIRE_MAPS.anthropic({

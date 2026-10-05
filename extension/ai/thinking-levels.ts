@@ -37,8 +37,14 @@ export function isThinkingLevelValue(value: unknown): value is ThinkingLevelValu
   return typeof value === "string" && VALUE_SET.has(value);
 }
 
-// 非法值（含未定义/空串/上游的 none）一律回落 off：存储归一化与请求侧同一口径。
-// 合法值（含 default）原样返回。
+// 缺省 / 无法识别的脏值（含未定义、空串、上游的 none）一律归 `default`（不干预）：
+// **一条归一化、两处消费**（2026-10-05 用户裁定两轮落地，见 docs/adr/0015 文末修订块）——
+//   - 请求路径：thinking-profiles 的两个解析入口（resolveThinkingProfile /
+//     resolveThinkingAdjustment）用它归一「偏好值 → 线上发什么」——缺省 / 脏值 = 不干预
+//     （不发任何思考字段），两条协议链都在它们下游，探针语义不可能分叉；
+//   - 存储 / 面板：core/validators.ts 再导出为 normalizeAiThinkingLevel，chat/providers.ts
+//     的落盘与读回落走它——脏值不再被读成「显式关思考」（off），与出厂默认同一说法。
+// 合法值（含 `default` 与 7 档）原样返回；显式 `off` 的语义不变（照旧走该平台的关思考写点）。
 export function normalizeThinkingLevel(value: unknown): ThinkingLevelValue {
-  return isThinkingLevelValue(value) ? value : "off";
+  return isThinkingLevelValue(value) ? value : THINKING_DEFAULT_LEVEL;
 }

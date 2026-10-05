@@ -23,7 +23,7 @@ export function assertThinkingWireInputSplit(): void {
   // ===== 第 2 项：openai 行只收 vocabulary + tokenParam（平台事实与探针都不传） =====
   // @ts-expect-error effortVocabularyOnly 是 Messages 通道的平台事实（怪癖 effortVocabMessages）
   THINKING_WIRE_MAPS.openai({ vocabulary: reasoningEffort("low"), effortVocabularyOnly: false });
-  // @ts-expect-error probeOmitsThinking 是 Messages 侧事实（OpenAI 通道探针照发思考字段）
+  // @ts-expect-error probe 不是 openai 行的入参：本链探针不发思考字段靠请求侧归一（缺省 → default），不靠这一行早退
   THINKING_WIRE_MAPS.openai({ vocabulary: reasoningEffort("low"), probe: true });
   // @ts-expect-error 三张出口表按平台识别，openai 行不查表
   THINKING_WIRE_MAPS.openai({ vocabulary: reasoningEffort("low"), platformId: "deepseek" });

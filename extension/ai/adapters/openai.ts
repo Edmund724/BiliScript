@@ -8,7 +8,7 @@
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { parseOpenAiUsage, parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
-import { normalizeThinkingLevel, resolveThinkingProfile } from "../thinking-profiles.js";
+import { resolveThinkingProfile } from "../thinking-profiles.js";
 import { THINKING_WIRE_MAPS } from "../thinking-wire-map.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
@@ -92,10 +92,13 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
     body.tools = tools;
     body.tool_choice = "auto";
   }
-  const level = normalizeThinkingLevel(thinkingLevel);
-  const thinking = resolveThinkingProfile({ presetId, baseUrl, model, level, stream });
-  // 入参按协议分型：openai 行只收血统词汇与 token 参数名事实（探针与平台事实对它无意义，
-  // 探针请求照发思考字段是既存行为——probeOmitsThinking 是 Messages 侧事实）。
+  // 档位偏好原样交给解析层（请求侧归一入口在 resolveThinkingProfile）：缺省 / 脏值 = default
+  // （不干预）→ 本行并入空 patch，探针不再发关思考字段（2026-10-05 裁定，见
+  // docs/adr/0015 的修订块）；显式 `off` 仍走该平台的关思考写点。
+  const thinking = resolveThinkingProfile({ presetId, baseUrl, model, level: thinkingLevel, stream });
+  // 入参按协议分型：openai 行只收血统词汇与 token 参数名事实（probe 与平台事实对它无意义
+  // ——探针早退 probeOmitsThinking 是 Messages 侧事实；本链探针不发思考字段靠的就是上面
+  // 那条「缺省 → default」的归一）。
   const wire = THINKING_WIRE_MAPS.openai({
     vocabulary: thinking.vocabulary,
     tokenParam: thinking.tokenParam

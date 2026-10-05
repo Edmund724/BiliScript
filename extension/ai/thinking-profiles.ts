@@ -708,7 +708,10 @@ export interface ResolveThinkingInput {
   presetId?: string;
   baseUrl?: string;
   model: string;
-  level: string;
+  // 档位偏好的**外部值**（端口消息 / 请求字段 / 存储值，均未归一）：请求侧的归一入口
+  // 就是本接口的两个消费者，缺省与脏值在此归 `default`（不干预，见
+  // normalizeThinkingLevel）——所以类型刻意是 unknown，不假装它已经是合法档位。
+  level: unknown;
   stream: boolean;
 }
 
@@ -788,6 +791,8 @@ function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRu
   };
 }
 
+// 请求侧归一化的两个施加点之一（另一个是 resolveThinkingAdjustment）：档位偏好的外部值
+// 先归一到「合法档位」——缺省 / 脏值 = default（不干预，2026-10-05 裁定），合法值原样。
 export function resolveThinkingProfile(input: ResolveThinkingInput): ThinkingResolution {
   const rule = ruleFor(input).rule;
   return rule ? applyClassRule(rule, normalizeThinkingLevel(input.level), input.stream) : UNKNOWN_RESOLUTION;
@@ -823,6 +828,8 @@ export interface ThinkingLevelAdjustment {
 
 export function resolveThinkingAdjustment(input: ResolveThinkingInput): ThinkingLevelAdjustment {
   const { rule, reason, source } = ruleFor(input);
+  // 请求侧的档位归一入口（与 resolveThinkingProfile 同一个函数）：缺省 / 脏值 = default
+  // ——不干预，故 requestedLevel 与 effectiveLevel 同为 default、reason 恒 null（用户没被降档）。
   const requestedLevel = normalizeThinkingLevel(input.level);
   const resolution = rule ? applyClassRule(rule, requestedLevel, input.stream) : UNKNOWN_RESOLUTION;
   const availableLevels = rule ? availableLevelsOf(rule) : [];

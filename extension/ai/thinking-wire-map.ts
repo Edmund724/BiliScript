@@ -122,7 +122,9 @@ export function openaiVocabularyFields(vocabulary: ThinkingVocabulary): Record<s
 // 档位规则的词汇就是本协议的线格式（reasoning_effort / enable_thinking /
 // thinking:{type} 三套直写）→ 映射是上一条投影原样并入；token 上限参数名随档位规则事实
 // （怪癖 maxTokensField：openai-reasoning 系只认 max_completion_tokens）。
-// 探针不特化：探针请求照发思考字段（现状不变；probeOmitsThinking 是 Messages 侧事实）。
+// 探针不特化：本行没有 probe 入参。探针不发思考字段靠的是请求侧归一（探针不传档位 →
+// `default` 不干预 → 空 patch，见 ai/thinking-levels.ts 的 normalizeThinkingLevel）；
+// probeOmitsThinking 是 Messages 侧事实（那一行另有早退）。
 function openaiWireMap({ vocabulary, tokenParam }: OpenAiWireInput): ThinkingWireOutput {
   return { fields: openaiVocabularyFields(vocabulary), tokenParam: tokenParam ?? "max_tokens" };
 }

@@ -52,7 +52,7 @@ beforeEach(() => {
 });
 
 describe("normalizeSettings 纯函数", () => {
-  it("LEGACY 默认提示词映射为当前默认，非法 aiThinkingLevel 回落 off", async () => {
+  it("LEGACY 默认提示词映射为当前默认，非法 aiThinkingLevel 回落 default", async () => {
     const { normalizeSettings } = await loadStoreModule();
     const out = normalizeSettings({
       ...DEFAULT_SETTINGS,
@@ -60,7 +60,7 @@ describe("normalizeSettings 纯函数", () => {
       aiThinkingLevel: "bogus"
     });
     expect(out.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
-    expect(out.aiThinkingLevel).toBe("off");
+    expect(out.aiThinkingLevel).toBe("default");
   });
 
   it("返回新对象且不改入参，非受管字段原样保留", async () => {
@@ -387,8 +387,10 @@ describe("normalizeSettings 是唯一归一化路径", () => {
 });
 
 // 05 号票（决策 #8）：档位值域扩到上游词表的 7 档；已存的 off/low/high 都是新值域的
-// 子集 → **不需要迁移**（读回/落盘都原样），非法值仍回落 off（口径不变）。
-// 2026-10-05 用户裁定：再加一个 `default`（不干预）——合法可存，出厂/重置默认就是它。
+// 子集 → **不需要迁移**（读回/落盘都原样）。
+// 2026-10-05 用户裁定（两轮）：再加一个 `default`（不干预）——合法可存，出厂/重置默认
+// 就是它；第二轮把**存储侧的缺省 / 非法值回退也改成 `default`**（此前是 `off`）：同一条
+// 「没有偏好」意图全线一个说法，脏值不再被读成「显式关思考」。
 describe("aiThinkingLevel：7 档 + default 值域与存储兼容（05 号票 + default 档）", () => {
   const SEVEN = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
   const ALL = ["default", ...SEVEN] as const;
@@ -409,15 +411,15 @@ describe("aiThinkingLevel：7 档 + default 值域与存储兼容（05 号票 + 
     }
   });
 
-  it("出厂默认 = default（合并后的设置视图读回 default）；显式垃圾/空值仍回落 off", async () => {
+  it("出厂默认 = default（合并后的设置视图读回 default）；显式垃圾/空值同口径回落 default", async () => {
     const { normalizeSettings } = await loadStoreModule();
     expect(DEFAULT_SETTINGS.aiThinkingLevel).toBe("default");
     // 生产读路径先与 DEFAULT_SETTINGS 合并再归一（见 settings-store 的 getMergedSettings），
     // 故「缺键 = 出厂默认」在这一层表现为「合并后的值就是 default」。
     expect(normalizeSettings({ ...DEFAULT_SETTINGS }).aiThinkingLevel).toBe("default");
-    // 显式给出的非法/空值仍按老口径回落 off（不因为有了 default 就把垃圾值吞成 default）。
-    expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: undefined }).aiThinkingLevel).toBe("off");
-    expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: "" }).aiThinkingLevel).toBe("off");
+    // 显式给出的非法/空值与缺键同一口径（2026-10-05 第二轮裁定：回退值与出厂默认同词）。
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: undefined }).aiThinkingLevel).toBe("default");
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: "" }).aiThinkingLevel).toBe("default");
   });
 
   it("旧值 off/low/high 不迁移：读回与落盘都原样保留", async () => {
@@ -430,22 +432,22 @@ describe("aiThinkingLevel：7 档 + default 值域与存储兼容（05 号票 + 
     }
   });
 
-  it("非法值（含上游 none）仍回落 off：口径不放宽", async () => {
+  it("非法值（含上游 none）回落 default：显式 off 才会走关思考写点", async () => {
     const { normalizeSettings, saveSettings } = await loadStoreModule();
     for (const bogus of ["bogus", "none", "", "HIGH", null, undefined, 3]) {
-      expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: bogus }).aiThinkingLevel, String(bogus)).toBe("off");
+      expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: bogus }).aiThinkingLevel, String(bogus)).toBe("default");
     }
     // 写路径：undefined 视为「本次不改这个键」（saveSettings 剔除），故不在此循环。
     for (const bogus of ["bogus", "none", "", "HIGH", null, 3]) {
       syncSetMock.mockClear();
       await saveSettings({ aiThinkingLevel: bogus });
-      expect(syncSetMock.mock.calls[0][0], String(bogus)).toEqual({ aiThinkingLevel: "off" });
+      expect(syncSetMock.mock.calls[0][0], String(bogus)).toEqual({ aiThinkingLevel: "default" });
     }
   });
 });
 
 describe("initializeSettingsStorage 安装/更新迁移", () => {
-  it("onInstalled 落盘归一化后的设置：LEGACY 提示词改写为当前默认，非法 aiThinkingLevel 回落", async () => {
+  it("onInstalled 落盘归一化后的设置：LEGACY 提示词改写为当前默认，非法 aiThinkingLevel 回落 default", async () => {
     await import("../../extension/entry/background.js");
     const onInstalledListener = vi.mocked(chrome.runtime.onInstalled.addListener).mock
       .calls[0][0] as unknown as () => unknown;
@@ -462,7 +464,7 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
     const persisted = syncSetMock.mock.calls[0][0];
     expect(persisted.aiSystemPrompt).toBe(DEFAULT_AI_SYSTEM_PROMPT);
     expect(persisted.aiSystemPrompt).not.toBe(LEGACY_DEFAULT_AI_SYSTEM_PROMPT);
-    expect(persisted.aiThinkingLevel).toBe("off");
+    expect(persisted.aiThinkingLevel).toBe("default");
     // 仍然全量落盘 DEFAULT_SETTINGS 的所有 key（{ ...DEFAULT_SETTINGS, ...syncCurrent }）
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
       expect(persisted).toHaveProperty(key);

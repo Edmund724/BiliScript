@@ -98,8 +98,9 @@ describe("probeAiChatCompletion { ok, error } 形状", () => {
     expect(request.type).toBe("provider-http");
     expect(request.url).toBe("https://api.example.com/v1/chat/completions");
     expect(request.method).toBe("POST");
-    // 探针省略档位 ⇒ 回落 off ⇒ 经 thinking-profiles 查表：未知平台×模型无事实
-    // → 不发任何思考字段（旧霰弹枪双发 thinking+enable_thinking 会令 OpenAI 探针必 400）
+    // 探针省略档位 ⇒ 请求侧归一为 default（不干预）⇒ 不发任何思考字段（2026-10-05 裁定，
+    // 见 docs/adr/0015 的修订块；此前归 off）；未知平台×模型本就无事实（UNKNOWN 哨兵）
+    // → 同样不发（旧霰弹枪双发 thinking+enable_thinking 会令 OpenAI 探针必 400）
     expect(JSON.parse(request.body)).toEqual({
       model: "gpt",
       messages: [{ role: "user", content: "ping" }],
@@ -114,7 +115,7 @@ describe("probeAiChatCompletion { ok, error } 形状", () => {
     });
   });
 
-  it("OpenAI + reasoning 模型探针：off 查表落 reasoning_effort:none，token 上限写 max_completion_tokens:1（reasoning 系不认 max_tokens）", async () => {
+  it("OpenAI + reasoning 模型探针：缺省档不发关思考字段（2026-10-05 裁定），token 上限写 max_completion_tokens:1（reasoning 系不认 max_tokens）", async () => {
     const { probeAiChatCompletion } = await loadModule();
 
     const resp = await probeAiChatCompletion({
@@ -128,8 +129,7 @@ describe("probeAiChatCompletion { ok, error } 形状", () => {
       model: "gpt-5.1",
       messages: [{ role: "user", content: "ping" }],
       stream: false,
-      max_completion_tokens: 1,
-      reasoning_effort: "none"
+      max_completion_tokens: 1
     });
   });
 
@@ -309,28 +309,44 @@ describe("testAiProviderConnection presetId 穿线", () => {
     });
   }
 
-  it("记录的 presetId 随探针下发：host 反代无规则也按 preset 平台规则出思考字段", async () => {
+  it("记录的 presetId 随探针下发：反代 host 无规则也按预设平台身份解析（token 上限事实为可观察量）", async () => {
     stubProviderStorage([{
       id: "p1",
-      presetId: "ollama",
-      name: "本地 Ollama",
+      presetId: "opencodego",
+      name: "Opencode Go",
       baseUrl: "https://thinking-proxy.example.com/v1",
-      model: "llama3.2",
-      requiresKey: false,
+      model: "gpt-6-luna",
+      requiresKey: true,
       enabled: true
     }]);
-    const { testAiProviderConnection } = await loadModule();
+    const { testAiProviderConnection, probeAiChatCompletion } = await loadModule();
 
     const resp = await testAiProviderConnection({
       providerId: "p1",
       baseUrl: "https://thinking-proxy.example.com/v1",
-      model: "llama3.2"
+      model: "gpt-6-luna"
     });
 
     expect(resp).toEqual({ ok: true });
-    // 探针省略档位 ⇒ off ⇒ ollama unknownClass（effort 词汇）→ reasoning_effort:"none"；
-    // 穿线断裂（host 无规则 + llama3.2 不在模式表）则落 unknown、字段全缺
-    expect(JSON.parse(lastRequest().body)).toMatchObject({ reasoning_effort: "none" });
+    // 穿线：presetId 命中上游指派表（opencode-go/gpt-6-luna）——这些托管行按上游词表投影，
+    // 而上游投影不产 tokenParam → 收 max_tokens（既有登记见 thinking-profiles 的 tokenParam 注）。
+    // 探针的思考字段在缺省档裁定后恒为空，可观察量因此是 token 上限参数名（档位无关的平台事实）。
+    expect(JSON.parse(lastRequest().body)).toEqual({
+      model: "gpt-6-luna",
+      messages: [{ role: "user", content: "ping" }],
+      stream: false,
+      max_tokens: 1
+    });
+
+    // 对照（同 host 同模型、不带 presetId）：host 未入索引 → 手写 OpenAI 血统（EXCEPTIONS 的
+    // gpt-6 前缀）→ token 上限换名 max_completion_tokens。两者不同即证明 presetId 穿线生效。
+    const withoutThreading = await probeAiChatCompletion({
+      baseUrl: "https://thinking-proxy.example.com/v1",
+      apiKey: "sk-1",
+      model: "gpt-6-luna"
+    });
+    expect(withoutThreading).toEqual({ ok: true });
+    expect(JSON.parse(lastRequest().body)).toMatchObject({ max_completion_tokens: 1 });
   });
 
   it("旧记录无 presetId 字段 → normalize 落 custom → 回落 host 推断（与 01 行为一致）", async () => {
@@ -352,8 +368,10 @@ describe("testAiProviderConnection presetId 穿线", () => {
     });
 
     expect(resp).toEqual({ ok: true });
-    // openai host 兜底命中 → gpt-5.1 off = effort none（01 golden 锁定）
-    expect(JSON.parse(lastRequest().body)).toMatchObject({ reasoning_effort: "none" });
+    // 缺省档不发言（2026-10-05 裁定）后，可观察量 = token 上限参数名（01 golden 锁定）：
+    // 手写 openai-reasoning-none 血统 → max_completion_tokens:1（api.openai.com 不在 host 索引里，
+    // 走手写兜底；串线断了则落 unknown、参数名回 max_tokens）。
+    expect(JSON.parse(lastRequest().body)).toMatchObject({ max_completion_tokens: 1 });
   });
 
   // 直传 presetId 优先（新增/改平台未保存场景）：新增平台没有 providerId、没有

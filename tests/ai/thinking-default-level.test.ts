@@ -39,13 +39,15 @@ describe("default 词表分层（不进强度阶梯）", () => {
     expect(THINKING_DEFAULT_LEVEL).toBe("default");
   });
 
-  it("归一化：default 合法（原样）；非法值仍回落 off", () => {
+  // 归一化口径（2026-10-05 两轮裁定）：缺省 / 脏值回落 default——请求侧与存储 / 面板侧
+  // 同一条口径（见 docs/adr/0015 的修订块与 tests/ai/thinking-default-fallback.test.ts 的 F6）。
+  it("归一化：8 个可选值原样；缺省 / 脏值回落 default（不干预）", () => {
     expect(normalizeThinkingLevel("default")).toBe("default");
     for (const level of AI_THINKING_LEVELS) {
       expect(normalizeThinkingLevel(level), level).toBe(level);
     }
     for (const bogus of ["none", "Default", "", null, undefined, 7]) {
-      expect(normalizeThinkingLevel(bogus), String(bogus)).toBe("off");
+      expect(normalizeThinkingLevel(bogus), String(bogus)).toBe("default");
     }
   });
 

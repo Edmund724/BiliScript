@@ -174,8 +174,9 @@ describe("请求构造对照表（url / body / headers）", () => {
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`https://api.example.com/v1${OPENAI_CHAT_PATH}`);
-    // 探针省略档位 ⇒ 回落 off ⇒ 经 thinking-profiles 查表：未知平台×模型无事实
-    // （UNKNOWN 哨兵）→ 不发任何思考字段。旧实现霰弹枪双发 thinking+enable_thinking
+    // 探针省略档位 ⇒ 请求侧归一为 default（不干预）⇒ 不发任何思考字段
+    // （2026-10-05 裁定，见 docs/adr/0015 的修订块；此前归 off）；未知平台×模型本就
+    // 无事实（UNKNOWN 哨兵）→ 同样不发。旧实现霰弹枪双发 thinking+enable_thinking
     // 会让 OpenAI 严格校验的探针必 400；查表后字段跟着平台走（见下一条用例）。
     expect(JSON.parse((init as InitLike).body)).toEqual({
       model: "test-model",
@@ -234,7 +235,7 @@ describe("请求构造对照表（url / body / headers）", () => {
     expect(body.enable_thinking).toBeUndefined();
   });
 
-  it("probe 在 OpenAI reasoning 模型上发 reasoning_effort:none + max_completion_tokens:1（查表后不再带必 400 的字段族）", async () => {
+  it("probe 在 OpenAI reasoning 模型上不发关思考字段（缺省档 = default 不干预，2026-10-05 裁定）；token 上限参数名事实随血统不变", async () => {
     const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
     await chatCompletion({
@@ -248,8 +249,7 @@ describe("请求构造对照表（url / body / headers）", () => {
       model: "gpt-5.1",
       messages: [{ role: "user", content: "ping" }],
       stream: false,
-      max_completion_tokens: 1,
-      reasoning_effort: "none"
+      max_completion_tokens: 1
     });
   });
 
@@ -429,14 +429,14 @@ describe("buildChatRequestBody / normalizeThinkingLevel（主人：adapters/open
     }
   });
 
-  it("normalizeThinkingLevel 只接受上游 7 档，其余回落 off", () => {
-    for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+  it("normalizeThinkingLevel 接受 8 个可选值，缺省 / 脏值回落 default（不干预）", () => {
+    for (const level of ["default", "off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
       expect(normalizeThinkingLevel(level), level).toBe(level);
     }
-    expect(normalizeThinkingLevel("none")).toBe("off");
-    expect(normalizeThinkingLevel("ultra")).toBe("off");
-    expect(normalizeThinkingLevel(undefined)).toBe("off");
-    expect(normalizeThinkingLevel(null)).toBe("off");
+    expect(normalizeThinkingLevel("none")).toBe("default");
+    expect(normalizeThinkingLevel("ultra")).toBe("default");
+    expect(normalizeThinkingLevel(undefined)).toBe("default");
+    expect(normalizeThinkingLevel(null)).toBe("default");
   });
 });
 

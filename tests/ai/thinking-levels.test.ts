@@ -55,12 +55,15 @@ describe("档位词表（7 档，off 第一位）", () => {
     }
   });
 
-  it("normalizeThinkingLevel：7 档原样，非法回落 off", () => {
-    for (const level of AI_THINKING_LEVELS) {
+  // 归一化口径（2026-10-05 两轮裁定）：缺省 / 脏值回落 default（不干预）——请求侧与
+  // 存储 / 面板侧同一条口径，8 个可选值原样。见 docs/adr/0015 的修订块与
+  // tests/ai/thinking-default-fallback.test.ts。
+  it("normalizeThinkingLevel：8 个可选值原样，缺省 / 脏值回落 default", () => {
+    for (const level of ["default", ...AI_THINKING_LEVELS]) {
       expect(normalizeThinkingLevel(level)).toBe(level);
     }
     for (const value of ["none", "ultra", "", null, undefined, 7]) {
-      expect(normalizeThinkingLevel(value)).toBe("off");
+      expect(normalizeThinkingLevel(value)).toBe("default");
     }
   });
 });

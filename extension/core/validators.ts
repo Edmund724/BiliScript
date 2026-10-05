@@ -99,10 +99,11 @@ export function normalizeDefaultModel(value: unknown): string {
   return toString(value).trim();
 }
 
-// 思考档位（上游词表的 7 档：off/minimal/low/medium/high/xhigh/max），off 为默认且
-// 不发任何思考参数。05 号票起值域来自 ai/thinking-levels 词表叶（零 import 的纯叶，
-// 与 SW 静态图里的本模块两侧同源；请求路径的 ai/thinking-profiles 也从同一叶取词表）；
-// 非法值回落 off。函数名保留 core 侧的历史 import 面。
+// 思考档位（8 个可选值：default/off/minimal/low/medium/high/xhigh/max），
+// default = 不干预（不发任何思考参数），缺省 / 非法值回落 default（2026-10-05
+// 裁定，见 docs/adr/0015 修订块）。05 号票起值域来自 ai/thinking-levels 词表叶
+//（零 import 的纯叶，与 SW 静态图里的本模块两侧同源；请求路径的 ai/thinking-profiles
+// 也从同一叶取词表）；函数名保留 core 侧的历史 import 面。
 export { normalizeThinkingLevel as normalizeAiThinkingLevel } from "../ai/thinking-levels.js";
 
 // ===== 联网搜索 normalizers =====

@@ -39,3 +39,13 @@
 ## 重开条件
 
 无。本条是新增档位值与出厂默认的裁决，不推翻既有 ADR：口径 ③ 与 off 写点作用域仍归 ADR-0014，本条只补上「不说话」这一格的语义与它的显示 / 级联边界。
+
+## 修订（2026-10-05：缺省 / 脏值 = `default`（不干预）——请求侧与存储侧同口径，探针两链对齐）
+
+决定 1 只裁了 `default` 这个值本身，没说「**没有值**」（请求链上 `thinkingLevel` 缺省）与「**不认识的值**」（端口消息 / 直接调用传进来的脏串）算哪一档。此前的实现把两者都塞进值域归一化的回退值 `off`，于是同一条「我没有偏好」的意图在两条链上说成两件事：OpenAI chat 链的探针（不传档位）实发一个**关思考**字段，Messages 链的探针（怪癖 `probeOmitsThinking`）刻意什么都不发——两边还各被逐字节用例钉着。
+
+2026-10-05 用户裁定（两轮）：**`thinkingLevel` 缺省或无法识别的脏值一律归 `default`（不干预）**——线上不发任何思考字段，两条探针链对齐到这一表现；显式 `off` 的语义不变（照旧走该平台的关思考写点）。第二轮把**存储 / 面板侧也同口径归过来**（裁定理由：同一条「没有偏好」意图全线一个说法）：`core/validators.ts` 的再导出（`normalizeAiThinkingLevel`，持久化设置的归一化）与 `chat/providers.ts` 的档位落盘 / 读回落都走同一条回退——脏值不再被读成「显式关思考」（`off`），回退值与出厂默认（决定 6）现在是同一个词，界面写 `Default`、线上按「不干预」发。
+
+落地形态：**一条归一化、两处消费**。`normalizeThinkingLevel`（`extension/ai/thinking-levels.ts`）——合法值（`default` + 7 档）原样返回，缺省 / 脏值归 `default`。请求侧的两个解析入口 `resolveThinkingProfile` / `resolveThinkingAdjustment` 是它在请求链上的施加点（`ResolveThinkingInput.level` 因此由 `string` 放宽为 `unknown`：它是未归一的外部值，不该被当成合法档位；两个 adapter 不再各自预归一，只把端口值透传给解析层），两条协议链都在它们下游，探针语义不可能再分叉。回退值两边同口径之后，先落地时「请求侧归 `default`、值域归 `off`」的两条归一化入口随之合并回一条——双入口只剩名字差异，是漂移隐患而不是事实。
+
+行为面：golden（`tests/ai/thinking-golden.test.ts` / `tests/ai/thinking-golden-messages.test.ts`）只用 7 个有效档位，逐字节不变；变化的既有行为两条：**OpenAI 链的探针不再发关思考字段**（token 上限参数名事实与档位无关，`max_tokens` / `max_completion_tokens` 的换名照旧），**持久化的脏档位值不再落成显式 `off`**（改落 `default`，与出厂默认同词）。判据落在 `tests/ai/thinking-default-fallback.test.ts`（缺省 / 脏值 × 两条链 × 探针 × 归一化同口径，逐条对应失败方式：脏值落具体档、显式 `off` 漂移、两链不一致、`default` 误发字段、golden 漂移、存储侧口径分叉）与 `tests/core/shared-defaults-thinking.test.ts`（存储再导出的回退值）。

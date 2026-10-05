@@ -139,8 +139,10 @@ export function channelHarness(channel: Channel): ChannelHarness {
   if (channel === "openai") {
     return {
       channel,
-      // probe 不是 openai 缝的入参：openai 行（写法层）不收 probe，探针照发思考字段
-      // （probeOmitsThinking 是 Messages 侧事实，见 ai/thinking-wire-map.ts 的入参分型）。
+      // probe 不是 openai 缝的入参：openai 行（写法层）不收 probe，probeOmitsThinking 是
+      // Messages 侧事实（见 ai/thinking-wire-map.ts 的入参分型）。本缝下「探针不发思考字段」
+      // 走的是另一条路：探针不传档位 → 请求侧归一为 default（不干预）→ 空 patch
+      // （2026-10-05 裁定，见 docs/adr/0015 的修订块）——两链同表现。
       bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens }) =>
         buildChatRequestBody({
           model,
