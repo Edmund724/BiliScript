@@ -145,15 +145,15 @@ describe("二次校验层（声明与接纳对账）", () => {
     ).toContain("PLATFORM_QUIRKS.opencodgo: 平台 id 不在 core/presets.ts 的 AI 预设词表里");
   });
 
-  it("怪癖绑定的协议该平台没登记端点 → 构造性死声明（anthropic-only 怪癖给了 ollama）", () => {
-    // ollama 只登记了 openai 端点（http://localhost:11434/v1），没有
-    // protocolBaseUrls.anthropic：UI 里选 anthropic 会回落 baseUrl 拼出
-    // /v1/v1/messages，那条声明永远走不到——但"某 adapter 接纳"这道查不出来。
-    expect(presetProtocols().ollama).toEqual(["openai"]);
+  it("怪癖绑定的协议该平台没登记端点 → 构造性死声明（合成：只登记 openai 端点的平台）", () => {
+    // 判据演示用注入的端点面合成「没登记 anthropic 端点」的平台（2026-10-05
+    // ollama 补登记 protocolBaseUrls.anthropic 后，真实表里已无这种样本，别再拿
+    // 真实预设当反例）：UI 里选 anthropic 会回落 baseUrl 拼出错端点，那条声明
+    // 永远走不到——但"某 adapter 接纳"这道查不出来。
     expect(
       validateCompatVocab({
         consumes: adapterConsumes(),
-        platformProtocols: presetProtocols(),
+        platformProtocols: { ...presetProtocols(), ollama: ["openai"] },
         platforms: { ollama: ["thinkingDisabledMustBeExplicit"] }
       })
     ).toContain(

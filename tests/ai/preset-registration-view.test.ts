@@ -482,24 +482,24 @@ describe("端点面（测试手抄 id 清单的派生替代）", () => {
     expect(derived).toEqual(PRESETS.filter((preset) => preset.protocolBaseUrls?.anthropic).map((preset) => preset.id));
     // 家数冻结（审计表的独立 oracle 在 tests/core/ai-preset-protocol-endpoints.test.ts，
     // 那份手抄清单逐个断言这条派生结果——这里只钉住「名单非空且不多不少」这一侧）。
-    expect(derived).toHaveLength(12);
+    expect(derived).toHaveLength(13);
     const auditOracle = readFileSync("tests/core/ai-preset-protocol-endpoints.test.ts", "utf8");
     for (const id of derived) {
       expect(auditOracle, `审计名单里缺 ${id}`).toContain(`"${id}"`);
     }
   });
 
-  it("anthropic 端点回落不重复 /v1：今天唯一带该记号的是 ollama（视图只报不猜）", () => {
+  it("anthropic 端点回落不重复 /v1：欠账已随 ollama 补登记清零（冻结：新增带 /v1 尾 baseUrl 的预设即须复核）", () => {
     const hazardous = reportOf()
       .rows.filter((row) =>
         (faceOf(row, "protocolEndpoints").endpoints ?? []).some((endpoint) => endpoint.fallbackRepeatsV1)
       )
       .map((row) => row.platformId);
-    expect(hazardous).toEqual(["ollama"]);
+    expect(hazardous).toEqual([]);
+    // ollama 曾是唯一欠账（回落拼 /v1/v1/messages），2026-10-05 补显式 anthropic 端点后清账。
     const ollama = viewOf("ollama");
-    expect(ollama.debts.map((debt) => debt.face)).toEqual(["protocolEndpoints"]);
-    expect(faceOf(ollama, "protocolEndpoints").detail).toContain("/v1/v1/messages");
-    // 其余五面都齐全（只有这一处可疑，别把它记成「ollama 到处欠登记」）。
+    expect(ollama.debts).toEqual([]);
+    expect(faceOf(ollama, "protocolEndpoints").status).toBe("registered");
     expect(faceOf(ollama, "messagesExits").status).toBe("registered");
     expect(faceOf(ollama, "catalog").status).toBe("registered");
   });

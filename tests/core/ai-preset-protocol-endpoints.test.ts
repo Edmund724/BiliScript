@@ -3,7 +3,8 @@
 // anthropicAdapter.endpoint() = `${baseUrl}/v1/messages`，所以 protocolBaseUrls
 // 里登记的 anthropic 值**不得再以 /v1 结尾**，否则拼成 /v1/v1/messages。
 // moonshot / opencodego / stepfun 曾因缺 protocolBaseUrls.anthropic 而回落以
-// /v1 结尾的 openai baseUrl，正是这个重复。12 家登记的依据（2026-09-23 核实）：
+// /v1 结尾的 openai baseUrl，正是这个重复。13 家登记的依据（2026-09-23 核实、
+// 2026-10-05 补 ollama）：
 // - deepseek / qwen / zhipu / minimax / mimo：原审计表既有登记，实测 /v1/messages
 //   非 404 且同前缀对照 404（deepseek 该前缀整体先鉴权，另有一手文档）。
 // - moonshot：官方文档 Anthropic Base URL = https://api.kimi.com/coding/，
@@ -25,6 +26,9 @@
 // - sensenova：实测 /v1/messages 401 且同前缀对照 404；sensenova-proxy 的兼容性
 //   研究亦称其 /v1/messages 原生实现 Anthropic Messages 协议（无一手文档，见
 //   research/preset-protocol-audit.md 的证据分级）。
+// - ollama：官方 Anthropic 兼容层文档明示 /v1/messages
+//   （https://docs.ollama.com/api/anthropic-compatibility；实现见 ollama/ollama
+//   commit 2b2cda7）。2026-10-05 由预设登记覆盖视图报出欠账后补登记。
 
 import { describe, expect, it } from "vitest";
 import { PRESETS } from "../../extension/core/presets.js";
@@ -43,7 +47,8 @@ const ANTHROPIC_PRESET_IDS = [
   "stepfun",
   "modelscope",
   "amd",
-  "sensenova"
+  "sensenova",
+  "ollama"
 ];
 
 const anthropicEndpointOf = (presetId: string): string => {
@@ -52,12 +57,12 @@ const anthropicEndpointOf = (presetId: string): string => {
 };
 
 describe("PRESETS 的 Anthropic 端点组装", () => {
-  it("登记 protocolBaseUrls.anthropic 的预设 = 审计表的 12 家（不重不漏）", () => {
+  it("登记 protocolBaseUrls.anthropic 的预设 = 审计表的 13 家（不重不漏）", () => {
     const registered = PRESETS.filter((p) => p.protocolBaseUrls?.anthropic).map((p) => p.id);
     expect(registered).toEqual(ANTHROPIC_PRESET_IDS);
   });
 
-  it("12 家组装结果都只有一个 /v1/（无 /v1/v1 重复）", () => {
+  it("13 家组装结果都只有一个 /v1/（无 /v1/v1 重复）", () => {
     for (const id of ANTHROPIC_PRESET_IDS) {
       expect(anthropicEndpointOf(id).match(/\/v1\//g) ?? [], id).toHaveLength(1);
     }
@@ -71,5 +76,6 @@ describe("PRESETS 的 Anthropic 端点组装", () => {
     expect(anthropicEndpointOf("modelscope")).toBe("https://api-inference.modelscope.cn/v1/messages");
     expect(anthropicEndpointOf("amd")).toBe("https://developer.amd.com.cn/radeon/api/v1/messages");
     expect(anthropicEndpointOf("sensenova")).toBe("https://token.sensenova.cn/v1/messages");
+    expect(anthropicEndpointOf("ollama")).toBe("http://localhost:11434/v1/messages");
   });
 });

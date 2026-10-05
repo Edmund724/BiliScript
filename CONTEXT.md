@@ -203,6 +203,11 @@ _Avoid_: 把「offscreen 会发」当「只准 offscreen 发」（已删的 `Off
 代码名：`UPSTREAM_CATALOG` / `UPSTREAM_CATALOG_SOURCE` / `lookupUpstreamModelMeta`（`ai/catalog/models-dev-catalog.generated.ts`，生成产物）/ `resolveCatalogProvider` / `lookupCatalogMeta`（`ai/model-catalog.ts`）/ `catalogProvider`（preset 字段）/ `ui/lazy-model-catalog.ts`（唯一懒加载入口）/ `pnpm catalog:sync:upstream`
 _Avoid_: 把原始上游数据接进请求链或运行时、用 UI 目录数据补 `thinking-profiles.ts`、让 `protocol` 参与查表、给目录加写路径/落盘、在对话界面塞模型元数据、复制第二份 preset → 上游 provider 映射
 
+**预设登记覆盖**:
+新增一个 AI 平台的登记欠账的只读派生视图：按 presetId（或全量枚举）一次列出六个登记面的现状——预设行（`PRESETS`）、目录身份（`catalogProvider` / `NO_CATALOG_PRESETS`，两者并存也算欠账）、协议端点（`protocolBaseUrls`，含 `/v1` 拼重隐患）、怪癖（`PLATFORM_QUIRKS`，稀疏面、空声明合法）、三张 Messages 出口表逐格（kind + provenance 原样带出）、构建期序位（`UPSTREAM_PRESET_ORDER`）。五态互不吞并：`registered` / `intentional-gap`（有意缺口，不是欠账）/ `missing`（欠账）/ `not-applicable` / `unchecked`（事实源未注入，绝不等于已登记）。纪律：纯只读派生、零缓存、不合并三套键空间（PROVIDERS ⊋ PLATFORM_QUIRKS ⊋ presetId）、protocol 不参与任何事实查表、不进请求执行链与 SW 静态图。它是「新增平台要登记几处」的答案入口，不是新的事实主人。
+代码名：`ai/preset-registration-view.ts`（`presetRegistrationView` / `registrationCoverageReport` / `REGISTRATION_FACES`）
+_Avoid_: 在视图里复制任何事实、把 unchecked 当已登记、把有意缺口记成欠账、拿它当运行时查表入口
+
 ### AI 对话
 
 **图片输入**:

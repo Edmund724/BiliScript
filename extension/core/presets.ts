@@ -98,7 +98,11 @@ export const PRESETS: readonly AiProviderPreset[] = [
   { id: "modelscope",    name: "ModelScope",  baseUrl: "https://api-inference.modelscope.cn/v1", requiresKey: true, catalogProvider: "modelscope", protocolBaseUrls: { anthropic: "https://api-inference.modelscope.cn" } },
   { id: "amd",           name: "AMD Radeon Cloud（免费）", baseUrl: "https://developer.amd.com.cn/radeon/api/v1", requiresKey: true, catalogProvider: "amd", protocolBaseUrls: { anthropic: "https://developer.amd.com.cn/radeon/api" } },
   { id: "sensenova",     name: "SenseNova 商汤（免费）", baseUrl: "https://token.sensenova.cn/v1", requiresKey: true, catalogProvider: "sensenova", protocolBaseUrls: { anthropic: "https://token.sensenova.cn" } },
-  { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false },
+  // ollama 的 anthropic 端点登记（2026-10-05，预设登记覆盖视图报出的欠账）：
+  // Ollama 官方提供 Anthropic Messages 兼容层，路径 /v1/messages
+  // （docs.ollama.com/api/anthropic-compatibility）。适配器拼 `${baseUrl}/v1/messages`，
+  // 故登记值去掉 openai baseUrl 的 /v1 尾——不登记则回落拼出 /v1/v1/messages。
+  { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false, protocolBaseUrls: { anthropic: "http://localhost:11434" } },
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
 
