@@ -322,7 +322,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(low.thinking).toBeUndefined();
   });
 
-  it("effort 词汇平台（amd）：override 表的 reasoning_effort 原样作为 effort", () => {
+  it("effort 词汇平台（amd）：向上游投影出的 reasoning_effort 原样作为 effort", () => {
     const body = anthropicAdapter.buildBody({
       ...base,
       baseUrl: "https://developer.amd.com.cn/radeon/api",
@@ -375,12 +375,13 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("openrouter：档位走 output_config.effort，不发 thinking（其 thinking.enabled 必带预算）", () => {
+    // 18 号票删平台声明后按上游词表：anthropic/claude-opus-4.5 的值集含 high → 直传 effort。
     const body = anthropicAdapter.buildBody({
       ...base,
       baseUrl: "https://openrouter.ai/api",
       presetId: "openrouter",
       thinkingLevel: "high",
-      model: "deepseek/deepseek-v4",
+      model: "anthropic/claude-opus-4.5",
       messages: []
     });
     expect(body.output_config).toEqual({ effort: "high" });

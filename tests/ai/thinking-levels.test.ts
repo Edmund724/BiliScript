@@ -153,17 +153,30 @@ describe("落线：clamp 后的档位就是实发档位", () => {
     expect(r.fields).toEqual({ reasoning_effort: "high" });
   });
 
-  it("override 平台（无上游词表的模型）：声明的档位键就是可用集（amd 的 medium → low）", () => {
-    // 06 号票（2026-10-04 用户裁定）后，有上游词表的模型 A' = 上游词表 ∩ 平台声明；
-    // 本格是「无上游词表 → 维持平台声明口径」的分支（any-model 查不到值集）。
-    const r = resolveThinkingProfile({
+  it("18 号票：平台声明口径已删——amd 上目录外的 id 回落手写/未知，不再有平台兜底档位", () => {
+    // 上游词表只覆盖 preset 目录内的模型；目录外 id 回落手写表。手写侧无命中
+    // （any-model）→ UNKNOWN 哨兵，三档都不发参（原先 override 会凭空发 low）。
+    const unknown = resolveThinkingProfile({
       presetId: "amd",
       baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
       model: "any-model",
       level: "medium",
       stream: true
     });
-    expect(r.fields).toEqual({ reasoning_effort: "low" });
+    expect(unknown.fields).toEqual({});
+    expect(unknown.thinkingClass).toBe("unknown");
+    // 手写侧命中血统的目录外 id（deepseek-v4 前缀）按手写结论落原生 thinking 开关——
+    // AMD 网关对未知字段严格 400，这是 18 号票删 override 后对「目录外 id」的已知代价
+    // （目录内 282 行零缺口，见 artifacts/18-platform-override-removal.txt）。
+    expect(
+      resolveThinkingProfile({
+        presetId: "amd",
+        baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
+        model: "deepseek-v4-pro",
+        level: "off",
+        stream: true
+      }).fields
+    ).toEqual({ thinking: { type: "disabled" } });
   });
 
   it("开关型血统：非 off 档全落 on 写点（clamp 恒等，不误报调整）", () => {
@@ -208,16 +221,26 @@ describe("resolveThinkingAdjustment：提示面的「源档 → 目标档 + 原�
     expect(r.reason).toBe("upstream-unlisted");
   });
 
-  it("override 平台：reason=platform-vocabulary", () => {
-    const r = resolveThinkingAdjustment({
+  it("18 号票：四家托管平台不再有 platform-vocabulary 原因——按各自上游词表 clamp", () => {
+    // amd/Qwen3.8-27B 的值集是 low-medium（无 high），芯片是 [low, medium]：
+    // 偏好 high 被 clamp 到 medium，原因是「模型词表没有这个档位」，不是平台声明裁的。
+    // 口径提醒：删 override 前这行芯片就只剩 [low]（high 早在 06 号票的 A' 交集被裁），
+    // 变的只是 high 偏好的落线档 low → medium。
+    const downgraded = resolveThinkingAdjustment({ presetId: "amd", model: "Qwen3.8-27B", level: "high", stream: true });
+    expect(downgraded.effectiveLevel).toBe("medium");
+    expect(downgraded.reason).toBe("model-vocabulary");
+    expect(downgraded.availableLevels).toEqual(["low", "medium"]);
+    // openrouter 未登记上游词表的 id 不再有「平台声明兜底」这条原因：落 unknown 哨兵。
+    const unknown = resolveThinkingAdjustment({
       presetId: "openrouter",
       baseUrl: "https://openrouter.ai/api/v1",
       model: "any/model",
       level: "max",
       stream: true
     });
-    expect(r.effectiveLevel).toBe("high");
-    expect(r.reason).toBe("platform-vocabulary");
+    expect(unknown.source).toBe("unknown");
+    expect(unknown.reason).toBe(null);
+    expect(unknown.effectiveLevel).toBe(null);
   });
 
   it("可用集为空：effectiveLevel=null 且不报「被调整」（无档可落维持现状）", () => {

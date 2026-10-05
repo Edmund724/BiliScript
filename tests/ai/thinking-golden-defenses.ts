@@ -19,7 +19,6 @@ import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, resolveThinkingAdjustm
 import {
   COVERAGE_HEADER,
   COVERAGE_MATRIX,
-  OVERRIDE_PRESETS,
   REQUEST_MATRIX,
   allValuesetIds,
   assignedValuesetIds,
@@ -179,13 +178,12 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
       expect(checked).toBeGreaterThanOrEqual(10);
     });
 
-    it("开关型 / budget-only 血统：非 override 平台上 low==high 是上游事实（无 effort 词表可发）", () => {
+    it("开关型 / budget-only 血统：low==high 是上游事实（无 effort 词表可发）", () => {
       let checked = 0;
       for (const realization of productRealizations()) {
         if (VALUESETS[realization.valuesetId]?.effort) continue;
-        // override 平台（openrouter/amd/sensenova/opencodego）用自己的档位词表细化开关型血统
-        // （A' = 平台声明 ∩ 上游 toggle 词表 → low/high 自有档位词），塌陷判据不适用。
-        if (OVERRIDE_PRESETS.includes(realization.presetId)) continue;
+        // 18 号票删平台声明后没有例外平台：toggle 值集只在已登记开关形状的平台上产生
+        // 写点（未登记的 → A' = ∅，被下面的 available 判据跳过）。
         const available = availableOf(harness, realization.presetId, realization.model);
         if (!available.includes("low") || !available.includes("high")) continue;
         const low = fieldsAt(harness, realization.presetId, realization.model, "low");

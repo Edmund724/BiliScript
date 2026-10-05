@@ -42,15 +42,15 @@
 // 设计机制（三层声明表 + 稀疏档位 + 测试期校验器）参考 hana-model-catalog
 // （github.com/liliMozi/hana-model-catalog；无 LICENSE，仅参考未复制数据）。
 //
-// 解析语义（04 号票起）：
+// 解析语义（04 号票起；18 号票删掉平台级 override 短路）：
 //   provider = PROVIDERS[presetId] ?? HOST索引[baseUrl host] ?? 无
-//   ① provider override 型（OpenRouter / AMD / SenseNova / Opencode Go）：
-//      levels[level] 对任何模型整体替换 class 规则（识别层短路）——平台级产品裁定，
-//      不逐格比上游（03 报告 §6）。
-//   ② 有上游平台（UPSTREAM_PROVIDER_BY_PRESET 命中）：
+//   ① 有上游平台（UPSTREAM_PROVIDER_BY_PRESET 命中）：
 //      查 02 指派表 → ruleFromUpstreamFact（值集 → 档位投影）；
-//      指派表未命中 → 回落 ③。
-//   ③ 手写表兜底：EXCEPTIONS（精确/前缀模型） >> TAXONOMY（模式→class）
+//      指派表未命中 → 回落 ②。
+//      OpenRouter / AMD / SenseNova / Opencode Go 自 18 号票起也走这一支：它们的
+//      档位词表主人就是上游（用户 2026-10-05：「4 家的平台声明必须压过上游词表这件事取消」），
+//      PROVIDERS 里只留空记录（与 deepseek / qwen / stepfun 同形）。
+//   ② 手写表兜底：EXCEPTIONS（精确/前缀模型） >> TAXONOMY（模式→class）
 //      >> provider.unknownClass >> UNKNOWN 哨兵。
 //   patch = 规则[level]；streamOnly 规则遇非流式按「无事实」处理（Q14A）。
 //   仅 off 级联：never → 不发、静默（关思考已天然成立）；其余有 low 声明
@@ -76,8 +76,8 @@
 // resolveThinkingAdjustment().availableLevels**（= availableLevelsOf(rule) = A'，与请求
 // 落线同一次解析、同一张规则）：只显示存在的档位、不置灰，被 clamp 掉的偏好由对话 UI 的
 // 说明文本呈现（2026-10-04 用户裁定：「只显示实际存在的档位」；全局偏好不迁移，逐模型
-// clamp 向下取，实发档 = 有效档）。`source` 字段（upstream / override / handwritten /
-// unknown）是把同一次解析按来源分层，供 06 号票的三层来源清单（artifacts/06-chip-source.tsv）
+// clamp 向下取，实发档 = 有效档）。`source` 字段（upstream / handwritten / unknown）是把
+// 同一次解析按来源分层，供 06 号票的三层来源清单（artifacts/06-chip-source.tsv）
 // 与 UI 用例对账——它不是 chip 的第二套推导。
 
 import { PRESETS } from "../core/presets.js";
@@ -144,19 +144,20 @@ export interface ClassRule {
   // 由线格式映射表的出参决定（本表不决定协议写法）。
   //
   // **登记（2026-10-05 用户裁定，上游模型事实 effort 登记项 ② 收口）：本字段是手写表
-  // 独有的写点，上游产物（ai/catalog/models-dev-thinking.generated.ts）与
-  // PROVIDERS[].override 刻意都不产它——不是覆盖漏洞，改了反而是用户可见的行为变更：**
+  // 独有的写点，上游产物（ai/catalog/models-dev-thinking.generated.ts）刻意不产它——
+  // 不是覆盖漏洞，改了反而是用户可见的行为变更：**
   //   - 唯一真正的消费者是「custom preset + 用户自填 api.openai.com / azure 端点」：
   //     本仓无 openai preset、api.openai.com 也不在 core/preset-host-index 的索引里，
   //     那条路径永远走手写兜底，命中下面两个 openai-reasoning 类；
   //   - 上游无此事实可借：models.dev 只登记 reasoning_options，limit.output 是数字不是
   //     参数名（scripts/sync-models-dev-thinking.mjs 的取材口径）；
-  //   - 上游命中的 OpenAI 血统模型恰好全住在 override 平台上（上游 12 家里没有 openai
-  //     provider：openrouter/openai/* 与 opencode-go/gpt-5.6-luna、gpt-6-luna），它们收
-  //     max_tokens；改发 max_completion_tokens 会把 reasoning token 计入预算 → 同数值下
-  //     正文可见长度变短，用户 2026-10-05 明确拒绝该变更。
-  // 现状由 tests/ai/thinking-profiles.test.ts「override + 上游命中的 OpenAI 血统模型恒
-  // max_tokens」钉桩，改本字段前先看那条用例。
+  //   - 上游命中的 OpenAI 血统模型住在 openrouter / opencode-go 的托管行里（上游 12 家里
+  //     没有 openai provider：openrouter/openai/* 与 opencode-go/gpt-5.6-luna、gpt-6-luna），
+  //     这些托管行自 18 号票起按上游词表投影、上游投影不产 tokenParam → 收 max_tokens；
+  //     改发 max_completion_tokens 会把 reasoning token 计入预算 → 同数值下正文可见长度
+  //     变短，用户 2026-10-05 明确拒绝该变更。
+  // 现状由 tests/ai/thinking-profiles.test.ts「上游命中的 OpenAI 血统托管行恒 max_tokens」
+  // 钉桩，改本字段前先看那条用例。
   tokenParam?: "max_tokens" | "max_completion_tokens";
 }
 
@@ -167,16 +168,11 @@ export interface TaxonomyEntry {
   patterns: string[];
 }
 
-// 平台规则：unknownClass 给「词汇平台无关」平台的未列模型兜底；override 型
-// （OpenRouter）对任何模型整体替换 class 规则。两者互斥使用。
-export interface ProviderOverride {
-  thinkingClass: "always" | "hybrid" | "never";
-  levels: Partial<Record<ThinkingLevel, ThinkingPatch>>;
-}
-
+// 平台规则：unknownClass 给「词汇平台无关」平台的未列模型兜底。18 号票起平台不再声明
+// 档位（override 机制连同四家的声明块一并删除）：档位词表的唯一主人是上游产物，
+// 手写侧只兜「指派表不认识的 id」。
 export interface ProviderRule {
   unknownClass?: string;
-  override?: ProviderOverride;
 }
 
 // ===== CLASSES：class 规则（参数事实的写点，一格一事实）=====
@@ -344,7 +340,7 @@ export const EXCEPTIONS: readonly TaxonomyEntry[] = [
   // qwen3-235b*/qwen3-32b/qwen3-30b*：off 规则仅流式（alibabacloud.com）
   { class: "qwen-hybrid-switch-streamonly", patterns: ["qwen3-235b", "qwen3-32b", "qwen3-30b"] },
   // 注（04 号票·降级兜底）：下表两条 + TAXONOMY 的 glm-5.2 专条**保留原处**，但逐模型事实
-  // 已让位给 02 指派表（解析顺序：override 短路 → 指派表 → 手写兜底 → unknownClass → fail-closed）。
+  // 已让位给 02 指派表（解析顺序：指派表 → 手写兜底 → unknownClass → fail-closed）。
   // 它们现在只服务「指派表不认识的 id」：用户自填 / 上游新变体（如 glm-5.3-air、kimi-k3-air）。
   // 真删会让这些无界 id 的请求体跟着变，是尚未裁决的开放问题（12 号票非目标）。
   // glm-5.3*：disabled 直接报错 → 永远思考（docs.bigmodel.cn）
@@ -399,11 +395,11 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
 // ===== PROVIDERS：平台规则（键 = core/presets.ts 的 AI preset id）=====
 // unknownClass 分工（spec）：词汇平台无关的（Ollama/SiliconFlow/ModelScope/Mimo）
 // 给 provider 级默认；按模型定协议的（DeepSeek/Qwen/GLM/Kimi/MiniMax/
-// StepFun）不给，未知模型落 unknown 哨兵。override 型：OpenRouter / AMD /
-// SenseNova / Opencode Go（严格拒收 thinking 开关、整域只认 effort 词汇的网关，
-// 平台语义见 compat-vocab 词表的 overrideEffortVocabulary）。
-// 06 号票（2026-10-04 用户裁定）：override 的 levels 是**平台可表达集**，有上游词表的
-// 模型还要与上游词表相交出 A'（ruleFor 里按模型收窄）；本表只声明平台口径，不逐模型写。 
+// StepFun）不给，未知模型落 unknown 哨兵。
+// 18 号票（2026-10-05 用户裁定「4 家的平台声明必须压过上游词表这件事取消」）：
+// 平台级 override 声明机制连同 OpenRouter / AMD / SenseNova / Opencode Go 四家的
+// 声明块一并删除——这四家的档位词表与其它有上游平台一样由 02 指派表投影给出，
+// 只剩 {} 空记录（与 deepseek / qwen / stepfun 同形）。
 export const PROVIDERS: Record<string, ProviderRule> = {
   deepseek: {},      // 协议按模型定（api-docs.deepseek.com）
   qwen: {},          // 百炼模型族已覆盖 taxonomy；未列模型白名单制风险高，不发
@@ -411,78 +407,33 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   moonshot: {},      // platform.kimi.ai（未知字段容忍度未文档化）
   minimax: {},       // platform.minimax.io
   mimo: { unknownClass: "mimo-hybrid-switch" },
-  openrouter: {
-    // override 型：reasoning_effort 是官方顶层合法参数（含 none），对任何模型
-    // 生效、透传上游解释（openrouter.ai/docs）。reasoning:{exclude} 语义是
-    // 「藏思考」不是「关思考」，不用于 off。
-    override: {
-      thinkingClass: "hybrid",
-      levels: {
-        off: { fields: { reasoning_effort: "none" } },
-        low: { fields: { reasoning_effort: "low" } },
-        high: { fields: { reasoning_effort: "high" } }
-      }
-    }
-  },
+  // OpenRouter（openrouter.ai/docs）：reasoning_effort 是官方顶层合法参数（含 none），
+  // 但档位词表不再由本仓声明——18 号票起该平台的档位与 off 可得性完全随上游值集
+  // （未在 UPSTREAM_TOGGLE_SHAPES 登记开关形状，故值集里的 toggle 不产生写点，
+  // off 走既有级联）。reasoning:{exclude} 语义是「藏思考」不是「关思考」，不用于 off。
+  openrouter: {},
   stepfun: {}, // step_plan 订阅端点（platform.stepfun.com），模型族已覆盖 taxonomy
   modelscope: { unknownClass: "qwen-hybrid-switch" }, // 托管模型用原生 enable_thinking（modelscope.cn）
   ollama: { unknownClass: "ollama-effort" },
   siliconflow: { unknownClass: "siliconflow-switch" },
   // AMD Radeon Cloud（developer.amd.com.cn，免费模型 API；AI preset 已收录，识别
-  // 走 presetId 或 host 索引）：网关对未知字段严格 400——发 thinking 直接报错并
-  // 提示改用 reasoning_effort 控制思考（实测 2026-09）→ override 型：整域只认
-  // effort 词汇，任何模型（含托管的 qwen/deepseek 血统）在写点形状上不走档位规则，避免 taxonomy
-  // 命中 deepseek-v4 后发出网关拒收的 thinking 开关。
-  amd: {
-    override: {
-      thinkingClass: "hybrid",
-      levels: {
-        off: { fields: { reasoning_effort: "none" } },
-        low: { fields: { reasoning_effort: "low" } },
-        high: { fields: { reasoning_effort: "high" } }
-      }
-    }
-  },
+  // 走 presetId 或 host 索引）：网关对未知字段严格 400、提示改用 reasoning_effort
+  // 控制思考（实测 2026-09）——18 号票删掉平台级 override 后，本节不再无条件发 effort：
+  // 走线的是该模型自己的上游词表（amd 未在 UPSTREAM_TOGGLE_SHAPES 登记，故值集里的
+  // toggle 不产生写点）。Anthropic Messages 通道的 effort 词汇出口另由怪癖
+  // effortVocabMessages 兑现（compat-vocab 词表）。
+  amd: {},
   // SenseNova 商汤 Token Plan（token.sensenova.cn/v1，OpenAI 兼容；免费额度）：
-  // 托管的 deepseek-v4-flash 官方文档化 reasoning_effort 词表 none/low/medium/high
-  // （openhanako issue #1998/#1682；发 thinking 开关无效）→ override 型同 AMD。
-  // 原生 sensenova-6.7-flash-lite 无已文档化的思考控制参数：effort 字段是否被
-  // 静默忽略未见 400 报告，随 override 照发（软失败优于硬 400）。
-  sensenova: {
-    override: {
-      thinkingClass: "hybrid",
-      levels: {
-        off: { fields: { reasoning_effort: "none" } },
-        low: { fields: { reasoning_effort: "low" } },
-        high: { fields: { reasoning_effort: "high" } }
-      }
-    }
-  },
+  // 托管的 deepseek 血统行官方文档化 reasoning_effort 词表（openhanako issue
+  // #1998/#1682）；原生 sensenova 行的档位与是否发参同样随上游值集，本仓不再声明。
+  sensenova: {},
   // Opencode Go（opencode.ai/zen/go/v1，$10/月订阅网关；官方文档只讲请求头，未
-  // 文档化思考控制参数）：网关自己暴露的模型元数据（models.dev 的 opencode-go，
-  // opencode 客户端发参依据，2026-09 快照）显示 41 个模型里只有 effort 词表
-  // （glm-5.3、deepseek-v4-flash、grok-4.x、qwen3.8-max/flash、muse-spark… 各按
-  // 模型给 low…max）、开关（minimax-m3、qwen3.7/3.8 系）与完全没有档位
-  // （glm-5.1、kimi-k2.6/k2.5/k2.7-code、mimo-*、minimax-m2.x）三类。据产品裁定
-  // 取「整域只认 effort 词表」：off 无关闭声明 → 既有级联落 low（explain/overview
-  // 钉的 off 因此真发出最低档，对话 tab 显示「关不掉思考」长版提示），low/high 直传。
-  // 不写 off 声明：元数据里只有 gpt-6-luna/hy3 少数模型收 effort none，整域一刀切
-  // 发 none 会对其他模型硬 400。走 Messages 协议的模型（minimax-m3、qwen3.7/3.8）
-  // 的档位落线见线格式映射表：该网关无档位词汇文档，按产品裁定发 output_config.effort
-  // （裸形态，ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY）。
-  // 13 号票（2026-10-05）补 max 档声明：canonical 优先后 kimi-k3 的模型侧词表是
-  // low/high/max（moonshotai/kimi-k3 的 canonical 事实），平台声明不该比上游窄——
-  // 否则 canonical 的 max 会被 A' 裁掉，「canonical 是对的」只落实一半。
-  opencodego: {
-    override: {
-      thinkingClass: "always",
-      levels: {
-        low: { fields: { reasoning_effort: "low" } },
-        high: { fields: { reasoning_effort: "high" } },
-        max: { fields: { reasoning_effort: "max" } }
-      }
-    }
-  }
+  // 文档化思考控制参数）：档位词表的主人自 18 号票起是上游——网关自己暴露的模型
+  // 元数据（models.dev 的 opencode-go，opencode 客户端发参依据）给出各模型的
+  // effort 词表、开关与无档位三类，本仓不再用平台级声明补/裁档位。
+  // 走 Messages 协议的模型的档位落线见线格式映射表：该网关无档位词汇文档，按产品
+  // 裁定发 output_config.effort（裸形态，ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY）。
+  opencodego: {}
 };
 
 // ===== 上游桥接：preset → 上游 provider id（10 号票起由 PRESETS 派生）=====
@@ -511,9 +462,10 @@ export const UPSTREAM_PROVIDER_BY_PRESET: Readonly<Record<string, string>> = Obj
 // - mimo 小米：enable_thinking （aliyun.com；同 CLASSES.mimo-hybrid-switch）
 // - modelscope：enable_thinking （modelscope.cn 托管模型用原生开关；
 //   PROVIDERS.modelscope.unknownClass = qwen-hybrid-switch）
-// 未登记的（stepfun / minimax / ollama / custom …）：**不发明开关形状**——上游值集若
-// 只有 toggle，本模块不发参数（关不掉 → 走级联 / fail-closed），宁少发不错发。
-// OpenRouter / AMD / SenseNova / Opencode Go 走 override 短路，永远到不了这张表。
+// 未登记的（stepfun / minimax / ollama / custom / openrouter / amd / sensenova /
+// opencodego …）：**不发明开关形状**——上游值集若只有 toggle，本模块不发参数
+// （关不掉 → 走级联 / fail-closed），宁少发不错发。四家托管平台无平台文档支撑
+// 开关形状，故 18 号票删 override 时**不同步**登记它们（裁定 3）。
 export const UPSTREAM_TOGGLE_SHAPES: Readonly<
   Record<string, { off: Record<string, unknown>; on: Record<string, unknown> } | undefined>
 > = {
@@ -539,7 +491,8 @@ export type UpstreamThinkingFact = Pick<ThinkingModelFact, "valuesetId" | "toggl
 //   开关型（有 toggle 无 effort）：非 off 域整体可表达——「开」是唯一写点，任何非 off
 //          档都落它（05 语义），故 U 的非 off 部分是全部非 off 档。
 // 与 ruleFromUpstreamFact 的写点推导同源，但用途不同：这是 A' 的**模型侧**（哪些档位
-// 该模型真的有），平台侧可表达集由规则写点/override 声明给出，两者相交即 A'。
+// 该模型真的有），平台侧可表达集由规则写点给出，两者相交即 A'（18 号票起四家托管平台
+// 不再另声明平台口径，A' 就是写点集）。
 export function upstreamVocabularyOf(fact: UpstreamThinkingFact): readonly ThinkingLevel[] {
   const tiers = (fact.effort ?? []).filter((tier): tier is ThinkingLevel => isThinkingLevel(tier));
   const levels: ThinkingLevel[] = [];
@@ -583,11 +536,12 @@ export function ruleFromUpstreamFact(fact: UpstreamThinkingFact, providerId: str
 
 // ===== clamp（05 号票，决策 #8；06 号票改 A'）=====
 // 可用集 A'（2026-10-04 用户裁定：「希望只显示实际存在的档位」）=
-// **上游逐模型词表 ∩ 平台线格式可表达集**，且由**一次解析**的同一张规则承载：
-//   - 非 override 平台：规则本身就是「值集 ∩ 平台已登记方言」的产物（ruleFromUpstreamFact
-//     只物化平台表达得了的写点；未登记开关形状的平台连 off 都不发明）→ 写点集 == A'；
-//   - override 平台：平台级裁定声明的档位键是平台侧，再与上游词表 U 相交（ruleFor）；
-//   - 无上游词表的模型（上游缺口 56 / 用户自填 id / ollama / custom）：维持今日手写口径。
+// **上游逐模型词表在平台已登记方言下可表达的部分**，且由**一次解析**的同一张规则承载：
+//   - 规则本身就是「值集 ∩ 平台已登记方言」的产物（ruleFromUpstreamFact 只物化平台
+//     表达得了的写点；未登记开关形状的平台连 off 都不发明）→ 写点集 == A'；
+//   - 18 号票删掉平台级 override 声明后，四家托管平台（openrouter / amd / sensenova /
+//     opencodego）也走同一条链，A' 不再有「平台声明 ∩ 上游词表」这一层；
+//   - 无上游词表的模型（上游缺口 / 用户自填 id / ollama / custom）：维持今日手写口径。
 // 「可用集即写点集合」不变：提示面（resolveThinkingAdjustment）与落线（applyClassRule）
 // 读同一张规则，两处不可能漂移。
 export function availableLevelsOf(rule: ClassRule): readonly ThinkingLevel[] {
@@ -626,9 +580,8 @@ export function clampThinkingLevel(preference: ThinkingLevel, available: readonl
 
 // 被调整的原因（提示面文案分层）：
 //   model-vocabulary    = 该模型的档位词表（02 值集）里没有这个档位；
-//   upstream-unlisted   = 上游未登记该模型，档位来自本仓手写表；
-//   platform-vocabulary = 平台级裁定（override 平台整域只认自己的档位词表）。
-export type ThinkingClampReason = "model-vocabulary" | "upstream-unlisted" | "platform-vocabulary";
+//   upstream-unlisted   = 上游未登记该模型，档位来自本仓手写表。
+export type ThinkingClampReason = "model-vocabulary" | "upstream-unlisted";
 
 // 规则来源层（06 号票三层来源清单的审计列）：与 ruleFor 的解析分支一一对应，由
 // **同一次解析**给出，不是第二套推导——chip 集合本身仍只由 availableLevelsOf 派生
@@ -636,13 +589,13 @@ export type ThinkingClampReason = "model-vocabulary" | "upstream-unlisted" | "pl
 //   upstream    = 02 指派表命中（上游逐模型词表；构建期按 canonical_model_id / 别名
 //                 借到词表的行也走这一支——产物里借词（缺口借词 + 13 号票的 canonical
 //                 优先改写）已折叠进指派表，运行期看不出「直接 / 借词」，逐条借词来源在
-//                 06 工件里用 02 矩阵对账）；
-//   override    = 平台级裁定短路（openrouter / amd / sensenova / opencodego，03 报告 §6）；
+//                 06 工件里用 02 矩阵对账）。18 号票起 openrouter / amd / sensenova /
+//                 opencodego 的模型也走这一支；
 //   handwritten = 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）；
 //   unknown     = 无结论（fail-closed，三档不发）。
 // 13 号票删掉 12 号票的单点裁决层（ADJUDICATED_MODEL_RULES）：canonical 优先后
 // opencodego/kimi-k3 的模型侧词表就是 canonical 的 low/high/max，不再需要跨平台镜像。
-export type ThinkingRuleSource = "upstream" | "override" | "handwritten" | "unknown";
+export type ThinkingRuleSource = "upstream" | "handwritten" | "unknown";
 
 // ===== resolver =====
 
@@ -661,8 +614,8 @@ export interface ResolveThinkingInput {
 export interface ThinkingResolution {
   // 要并入请求体的思考字段；空对象 = 不发（软失败优于硬 400）。
   fields: Record<string, unknown>;
-  // token 上限参数事实（04 号票消费）；unknown、override 平台与**上游命中平台**都不返回
-  // （后者两层刻意不产该字段，理由见 ClassRule.tokenParam 上的 2026-10-05 登记）。
+  // token 上限参数事实（04 号票消费）；unknown 与**上游命中平台**都不返回
+  // （后者刻意不产该字段，理由见 ClassRule.tokenParam 上的 2026-10-05 登记）。
   tokenParam?: "max_tokens" | "max_completion_tokens";
   // off 不可用标记：级联落了 low 或无 low 可落时为 true（never 静默与
   // unknown 均为 false）——03 号票对话 UI 据此提示。
@@ -687,47 +640,14 @@ interface ResolvedRule {
 }
 
 // 规则解析的唯一施加点（resolveThinkingProfile 与 resolveThinkingAdjustment 共用）：
-//   provider override（平台级裁定，识别层短路；06 号票起再与上游词表相交出 A'）
-//   >> 上游平台：02 指派表
+//   上游平台：02 指派表
 //   >> 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）
 //   >> 无结论（UNKNOWN 哨兵）。
-function ruleFor({ presetId, baseUrl, model, level }: ResolveThinkingInput): ResolvedRule {
+function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRule {
   const normalizedModel = String(model || "").trim().toLowerCase();
   const providerId = resolveThinkingProviderId(presetId, baseUrl);
   const provider = providerId ? PROVIDERS[providerId] : undefined;
   const upstreamId = providerId ? UPSTREAM_PROVIDER_BY_PRESET[providerId] : undefined;
-
-  // override 型：对任何模型整体替换 class 规则（识别层直接短路——上游与手写血统都
-  // 不参与**写点形状**）。06 号票（2026-10-04 用户裁定）：该模型有上游词表时，
-  // A' = 上游逐模型词表 ∩ 平台可表达档（平台侧 = override 声明的档位键），把 A' 之外的
-  // 档位写点从规则里去掉——「只显示实际存在的档位」+「不发平台表达不了的词」。
-  // 没有上游词表的模型（用户自填 id / 上游缺口）维持平台声明口径（今日三档）。
-  if (provider?.override) {
-    const overrideLevels = provider.override.levels;
-    const fact = upstreamId ? lookupThinkingFact(upstreamId, model) : null;
-    if (!fact) {
-      return {
-        rule: { thinkingClass: provider.override.thinkingClass, ...overrideLevels },
-        reason: "platform-vocabulary",
-        source: "override"
-      };
-    }
-    const upstreamLevels = new Set<ThinkingLevel>(upstreamVocabularyOf(fact));
-    const levels: Partial<Record<ThinkingLevel, ThinkingPatch>> = {};
-    for (const tier of AI_THINKING_LEVELS) {
-      const patch = overrideLevels[tier];
-      if (patch && upstreamLevels.has(tier)) {
-        levels[tier] = patch;
-      }
-    }
-    const requested = normalizeThinkingLevel(level);
-    return {
-      rule: { thinkingClass: provider.override.thinkingClass, ...levels },
-      // 偏好档被哪一侧排除：平台声明里有、上游词表没有 → 模型词表；否则平台词表。
-      reason: overrideLevels[requested] && !upstreamLevels.has(requested) ? "model-vocabulary" : "platform-vocabulary",
-      source: "override"
-    };
-  }
 
   // 有上游平台：逐模型事实的主人是 02 指派表（04 号票）——12 号票删掉冻结表后，
   // 残留清单裁决过的行也一律按上游投影。指派表未命中 → 手写兜底
@@ -964,17 +884,6 @@ export function validateThinkingTables(tables: ThinkingTables = {}): string[] {
     const at = `PROVIDERS.${id}`;
     if (rule.unknownClass && !classes[rule.unknownClass]) {
       errors.push(`${at}: unknownClass "${rule.unknownClass}" 不存在`);
-    }
-    if (rule.override) {
-      if (!CLASS_FACTS.has(rule.override.thinkingClass)) {
-        errors.push(`${at}: override.thinkingClass 必填，取值 always/hybrid/never`);
-      }
-      if (rule.override.thinkingClass === "hybrid" && !rule.override.levels.off) {
-        errors.push(`${at}: override hybrid 必有 off 档`);
-      }
-      for (const patch of Object.values(rule.override.levels)) {
-        checkPatchFields(`${at}.override`, patch, errors);
-      }
     }
   }
 

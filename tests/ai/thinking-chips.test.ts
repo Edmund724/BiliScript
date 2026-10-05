@@ -1,9 +1,9 @@
 // tests/ai/thinking-chips.test.ts
 // 票据 06（upstream-model-facts/06）：面板档位 chip 的集合来源 —— 只渲染「该模型
 // 实际可用的档位」，来源三层（① 上游逐模型词表 ② 借词类默认 ③ 回落今日口径；
-// override 平台单列），off 独立成 chip、上游 none 不产生 chip。
+// 18 号票删平台声明后不再有平台单列层），off 独立成 chip、上游 none 不产生 chip。
 //
-// 2026-10-04 用户裁定（本文件的核心语义）：**A' = 上游逐模型词表 ∩ 平台线格式可表达集**
+// 2026-10-04 用户裁定（本文件的核心语义）：**A' = 上游逐模型词表在平台线格式下可表达的部分**
 // 既是 chip 集合又是 clamp 的可用集；全局偏好不迁移，逐模型向下取，实发档 = 有效档。
 //
 // 本文件是 **resolver 侧**的守护（UI 侧在 tests/reader/chat-model-panel.test.ts 与
@@ -13,22 +13,21 @@
 //
 // 先列系统可能失败的方式（每条都有对应用例）：
 //   1. chip 集合变成第二套推导（显示某档而请求不发 / 请求发某档而 chip 里没有）；
-//   2. A' 算错：上游词表与平台可表达集只取一侧（上游有 max 就显示 max，或平台声明
-//      三档就显示三档），或交集之外还留着写点；
-//   3. 三层来源判错（上游命中记成手写兜底 / override 记成上游）→ 清单审计失真；
+//   2. A' 算错：写点集之外还留着档位（上游有 max 就显示 max，或 18 号票已删的
+//      平台声明三档还残留）；
+//   3. 来源层判错（上游命中记成手写兜底 / 18 号票后四家托管平台仍记 override）→ 清单审计失真；
 //   4. 上游 `none` 被物化成档位（产生 "None" chip）；off 不是独立 chip；
 //   5. off 可用性判错：toggle 有开关形状、effort 含 none、两者都无（关不掉）；
 //   6. minimax-m3（厂商文档：关不掉）被填成默认三档 → 显示了请求不发的选择；
 //   7. 未登记词表 / 无结论的模型仍显示档位 chip；
 //   8. 无上游平台（ollama / custom）不再回落今日三档；
-//   9. A' 与偏好的「向下兼容」例外格（A' = ∅ 而平台声明非空）被静默吞掉；
-//  10. 06-chip-source.tsv / 06-chip-sets.tsv / 06-chip-changes.tsv 与解析结果漂移。
+//   9. 零档行（budget-only / toggle-only 落到未登记开关形状的平台）被静默塞进字段；
+//  10. 06-chip-source.tsv / 06-chip-sets.tsv 与解析结果漂移
 
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   AI_THINKING_LEVELS,
-  PROVIDERS,
   availableLevelsOf,
   resolveThinkingAdjustment,
   resolveThinkingProfile,
@@ -58,13 +57,6 @@ function adjustment(presetId: string, baseUrl: string, model: string, level = "o
 
 function sent(presetId: string, baseUrl: string, model: string, level: ThinkingLevel) {
   return resolveThinkingProfile({ presetId, baseUrl, model, level, stream: true });
-}
-
-// 平台声明档位（override 表；无 override 的 preset 返回 null）。
-function platformLevelsOf(presetId: string): readonly ThinkingLevel[] | null {
-  const override = PROVIDERS[presetId]?.override;
-  if (!override) return null;
-  return AI_THINKING_LEVELS.filter((level) => Boolean(override.levels[level]));
 }
 
 describe("chip 集合 = A'（与请求落线同源，不是第二套推导）", () => {
@@ -111,9 +103,9 @@ describe("chip 集合 = A'（与请求落线同源，不是第二套推导）", 
   });
 });
 
-describe("A' = 上游词表 ∩ 平台可表达集（2026-10-04 用户裁定）", () => {
+describe("A' = 上游词表在平台已登记方言下可表达的部分（2026-10-04 用户裁定）", () => {
   const cases: Array<[string, string, string, readonly string[], ThinkingRuleSource]> = [
-    // ---- ① 上游逐模型词表（非 override 平台：写点集天然等于 A'）----
+    // ---- ① 上游逐模型词表（写点集天然等于 A'）----
     ["deepseek", DEEPSEEK_URL, "deepseek-v4-pro", ["off", "low", "high", "max"], "upstream"],
     ["zhipu", ZHIPU_URL, "glm-4.6", ["off", "minimal", "low", "medium", "high", "xhigh", "max"], "upstream"],
     ["zhipu", ZHIPU_URL, "glm-5.2", ["high", "max"], "upstream"],
@@ -126,29 +118,29 @@ describe("A' = 上游词表 ∩ 平台可表达集（2026-10-04 用户裁定）"
     ["custom", CUSTOM_URL, "deepseek-v4-pro", ["off", "low", "high"], "handwritten"],
     ["moonshot", KIMI_URL, "kimi-k2.7-code", [], "handwritten"],
     ["custom", CUSTOM_URL, "vendor-future-1", [], "unknown"],
-    // ---- 平台级裁定平台：A' = 平台声明 ∩ 上游词表（本裁定的主战场）----
-    // toggle-only 上游：非 off 域整体可表达 → A' = 平台两档（canonical 优先后模型侧不再有 off，
-    // 见 13 号票「丢 off 照收」）。
-    ["openrouter", OPENROUTER_URL, "anthropic/claude-opus-4.5", ["low", "high"], "override"],
-    // none-low-medium-high：medium 平台没登记 → 不显示
-    ["sensenova", SENSENOVA_URL, "sensenova-6.8-flash-lite", ["off", "low", "high"], "override"],
-    // low-medium：平台有 off/high，模型只有 low → A' = {low}
-    ["amd", AMD_URL, "Qwen3.8-27B", ["low"], "override"],
-    // low-medium-xhigh：同理 A' = {low}
-    ["amd", AMD_URL, "Qwen3.8-Flash-Next", ["low"], "override"],
-    // toggle+low-medium-xhigh：high/xhigh 不在模型词表 → A' = {low}（max 声明补上也不多显示）
-    ["opencodego", OPENCODEGO_URL, "qwen3.8-flash", ["low"], "override"],
-    // toggle+low-high-max：上游多出的 max 平台没有 → 不显示（「发不出去」）
-    ["openrouter", OPENROUTER_URL, "deepseek/deepseek-v4-pro-0813", ["off", "low", "high"], "override"],
-    // low-high-max（模型侧无 off）：平台声明两档也收窄成 {low, high}
-    ["openrouter", OPENROUTER_URL, "z-ai/glm-5.3", ["low", "high"], "override"],
-    // high-max（模型侧无 off、无 low）：平台声明补 max 后 → {high, max}
-    ["opencodego", OPENCODEGO_URL, "glm-5.2", ["high", "max"], "override"],
-    // 13 号票：canonical 优先后 kimi-k3 的模型侧词表是 low/high/max（无 off），平台声明补
-    // max → A' = {low, high, max}（不再需要 12 号票的单点裁决镜像）。
-    ["opencodego", OPENCODEGO_URL, "kimi-k3", ["low", "high", "max"], "override"],
-    // toggle+medium-xhigh：两边只共有 off → chip 只剩 Off
-    ["openrouter", OPENROUTER_URL, "prism-ml/ternary-bonsai-2-27b", ["off"], "override"]
+    // ---- 18 号票：四家托管平台也按自己的上游词表（不再有平台声明那一层）----
+    // low-medium-high：三档都在上游词表里（18 号票前被平台声明裁成 low/high）。
+    ["openrouter", OPENROUTER_URL, "anthropic/claude-opus-4.5", ["low", "medium", "high"], "upstream"],
+    // none-low-medium-high：medium 档现在也显示（上游词表有它）。
+    ["sensenova", SENSENOVA_URL, "sensenova-6.8-flash-lite", ["off", "low", "medium", "high"], "upstream"],
+    // low-medium：平台声明删掉后 high 不再是「凭空多发」的档位 → A' = {low, medium}。
+    ["amd", AMD_URL, "Qwen3.8-27B", ["low", "medium"], "upstream"],
+    // low-medium-xhigh：同理 A' = {low, medium, xhigh}。
+    ["amd", AMD_URL, "Qwen3.8-Flash-Next", ["low", "medium", "xhigh"], "upstream"],
+    // toggle+low-medium-xhigh：toggle 不产生写点（平台未登记开关形状）→ A' = 三个 effort 档。
+    ["opencodego", OPENCODEGO_URL, "qwen3.8-flash", ["low", "medium", "xhigh"], "upstream"],
+    // toggle+low-high-max：toggle 不产生写点 → A' = {low, high, max}（上游的 max 也显示了）。
+    ["openrouter", OPENROUTER_URL, "deepseek/deepseek-v4-pro-0813", ["low", "high", "max"], "upstream"],
+    // low-high-max：同上。
+    ["openrouter", OPENROUTER_URL, "z-ai/glm-5.3", ["low", "high", "max"], "upstream"],
+    // high-max：逐字节与 18 号票前相同（平台声明与上游同形）。
+    ["opencodego", OPENCODEGO_URL, "glm-5.2", ["high", "max"], "upstream"],
+    // 13 号票：canonical 优先后 kimi-k3 的模型侧词表是 low/high/max（无 off），
+    // 18 号票删声明后 A' 仍是 {low, high, max}。
+    ["opencodego", OPENCODEGO_URL, "kimi-k3", ["low", "high", "max"], "upstream"],
+    // toggle+medium-xhigh：平台未登记开关形状 → A' = {medium, xhigh}
+    //（18 号票前平台声明有 off，故 {off}）。
+    ["openrouter", OPENROUTER_URL, "prism-ml/ternary-bonsai-2-27b", ["medium", "xhigh"], "upstream"]
   ];
 
   for (const [presetId, baseUrl, model, levels, source] of cases) {
@@ -159,20 +151,25 @@ describe("A' = 上游词表 ∩ 平台可表达集（2026-10-04 用户裁定）"
     });
   }
 
-  it("非 override 平台：写点集 == 上游词表（A' 不改今日口径）", () => {
+  it("写点集 == 上游词表在平台可表达的部分（A' 不改今日口径）", () => {
     const rows: ReadonlyArray<[string, string, string]> = [
       ["deepseek", "deepseek", "deepseek-v4-pro"],
       ["zhipu", "zhipuai", "glm-5.2"],
       ["qwen", "alibaba-cn", "glm-5.2"],
       ["modelscope", "modelscope", "GLM-4.6"],
-      ["minimax", "minimax-cn", "MiniMax-M3"]
+      ["minimax", "minimax-cn", "MiniMax-M3"],
+      // 18 号票后四家托管平台也在这一条链上。
+      ["openrouter", "openrouter", "deepseek/deepseek-v4-pro-0813"],
+      ["amd", "amd", "Qwen3.8-Flash-Next"],
+      ["sensenova", "sensenova", "glm-5.2"],
+      ["opencodego", "opencode-go", "qwen3.8-flash"]
     ];
     for (const [presetId, upstreamId, model] of rows) {
       const fact = lookupThinkingFact(upstreamId, model);
       expect(fact, `${upstreamId}/${model}`).toBeTruthy();
       const projected = availableLevelsOf(ruleFromUpstreamFact(fact!, presetId));
       expect(adjustment(presetId, "", model).availableLevels, `${presetId}/${model}`).toEqual([...projected]);
-      // 且投影 ⊆ 上游词表（A' 的模型侧约束对非 override 行同样成立）
+      // 且投影 ⊆ 上游词表（A' 的模型侧约束）
       const vocabulary = new Set(upstreamVocabularyOf(fact!));
       for (const level of projected) {
         expect(vocabulary.has(level), `${presetId}/${model} · ${level}`).toBe(true);
@@ -180,25 +177,24 @@ describe("A' = 上游词表 ∩ 平台可表达集（2026-10-04 用户裁定）"
     }
   });
 
-  it("override 平台：A' 同时 ⊆ 上游词表与 ⊆ 平台声明（逐格交集，不取单侧）", () => {
-    const rows: ReadonlyArray<[string, string, string]> = [
-      ["openrouter", "openrouter", "mistralai/mistral-medium-3-5"],
-      ["openrouter", "openrouter", "deepseek/deepseek-v4-pro-0813"],
-      ["openrouter", "openrouter", "z-ai/glm-5.3"],
-      ["opencodego", "opencode-go", "hy4-preview"],
-      ["opencodego", "opencode-go", "deepseek-v4-flash"],
-      ["sensenova", "sensenova", "glm-5.2"],
-      ["amd", "amd", "Qwen3.8-Flash-Next"]
+  it("A' 不收窄成平台声明（18 号票：平台声明已删，写点集即 A'）", () => {
+    // 取行集里 A' 含 upstream 有、平台声明（若还在）就没有的档位的格子：
+    // opencodego/qwen3.8-flash 的 medium 与 amd/Qwen3.8-Flash-Next 的 xhigh。
+    const rows: ReadonlyArray<[string, string, string, readonly string[]]> = [
+      ["opencodego", "opencode-go", "qwen3.8-flash", ["low", "medium", "xhigh"]],
+      ["amd", "amd", "Qwen3.8-Flash-Next", ["low", "medium", "xhigh"]],
+      ["openrouter", "openrouter", "z-ai/glm-5.3", ["low", "high", "max"]]
     ];
-    for (const [presetId, upstreamId, model] of rows) {
+    for (const [presetId, upstreamId, model, expected] of rows) {
       const fact = lookupThinkingFact(upstreamId, model);
       expect(fact, `${upstreamId}/${model}`).toBeTruthy();
-      const vocabulary = new Set(upstreamVocabularyOf(fact!));
-      const platformLevels = new Set(platformLevelsOf(presetId) ?? []);
-      const levels = adjustment(presetId, "", model).availableLevels;
-      for (const level of levels) {
-        expect(vocabulary.has(level), `${presetId}/${model} · ${level} 不在上游词表`).toBe(true);
-        expect(platformLevels.has(level), `${presetId}/${model} · ${level} 不在平台声明`).toBe(true);
+      expect(adjustment(presetId, "", model).availableLevels, `${presetId}/${model}`).toEqual([...expected]);
+      // 逐档都发得出去（medium/xhigh/max 也在写点集里）。
+      for (const level of expected) {
+        expect(
+          Object.keys(sent(presetId, "", model, level as ThinkingLevel).fields).length,
+          `${presetId}/${model} · ${level}`
+        ).toBeGreaterThan(0);
       }
     }
   });
@@ -240,33 +236,30 @@ describe("off / none 分离（决策 #7）", () => {
     expect(adjustment("openrouter", OPENROUTER_URL, "mistralai/mistral-medium-3-5").availableLevels).toContain("off");
     // effort 不含 none 且无 toggle → off 不可用
     expect(adjustment("zhipu", ZHIPU_URL, "glm-5.2").availableLevels).not.toContain("off");
-    // 平台声明里有 off，但模型侧没有（opencodego/hy4-preview：上游 none-high 有 off，
-    // 平台无 off 写点）→ A' 不含 off，偏好 off 落 high + 关不掉文案通道。
+    // 18 号票删平台声明后这条「平台无 off 写点」的边界消失：effort none 与平台方言无关，
+    // 任何托管平台上的 none-high 值集都给出 off 写点 → 偏好 off 落 effort none（不再关不掉）。
     const boundary = adjustment("opencodego", OPENCODEGO_URL, "hy4-preview", "off");
-    expect(boundary.availableLevels).toEqual(["high"]);
+    expect(boundary.availableLevels).toEqual(["off", "high"]);
     expect(sent("opencodego", OPENCODEGO_URL, "hy4-preview", "off")).toEqual({
-      fields: { reasoning_effort: "high" },
-      offUnavailable: true,
-      offFallback: "low",
-      thinkingClass: "always"
+      fields: { reasoning_effort: "none" },
+      offUnavailable: false,
+      offFallback: null,
+      thinkingClass: "hybrid"
     });
   });
 });
 
 describe("验收第一条：none/high 类（13 号票 canonical 优先后剩 3 行，双证据）", () => {
-  // 上游投影 = {off, high}（模型侧事实）；UI chip = A' = 上游词表 ∩ 平台声明；
-  // 偏好 low → 向下取：平台有 off 的行落 off（线上词 none），平台无 off 写点的
-  // opencodego 落 high。三件事都用同一个 resolver 示例钉死。
-  // 13 号票前这一组是 6 行；canonical 优先后 3 行的 canonical 换成别的词表
-  // （sakana/sakana-namazu → toggle、sensenova/glm-5.2 → high-max、
-  // sensenova/deepseek-v4-flash → toggle+low-high-max），见下面的补充用例。
+  // 上游投影 = {off, high}（模型侧事实）；UI chip = A'。18 号票删平台声明后，三家
+  // 托管平台都按上游词表：值集带 effort none → 三行 A' 都是 {off, high}，偏好 low
+  // 向下取落 off（线上词 none）。
   const UPSTREAM_BY_PRESET: Record<string, string> = {
     opencodego: "opencode-go",
     openrouter: "openrouter",
     sensenova: "sensenova"
   };
   const NONE_HIGH: ReadonlyArray<[string, string, string, readonly ThinkingLevel[]]> = [
-    ["opencodego", OPENCODEGO_URL, "hy4-preview", ["high"]],
+    ["opencodego", OPENCODEGO_URL, "hy4-preview", ["off", "high"]],
     ["openrouter", OPENROUTER_URL, "mistralai/mistral-medium-3-5", ["off", "high"]],
     ["openrouter", OPENROUTER_URL, "mistralai/mistral-small-2603", ["off", "high"]]
   ];
@@ -286,10 +279,10 @@ describe("验收第一条：none/high 类（13 号票 canonical 优先后剩 3 �
     }
   });
 
-  it("UI chip = A'（验收第一条：{off,high}，不含 low/medium；opencodego 无 off 写点故 {high}）", () => {
+  it("UI chip = A'（验收第一条：三行都是 {off,high}，不含 low/medium）", () => {
     for (const [presetId, baseUrl, model, levels] of NONE_HIGH) {
       const adj = adjustment(presetId, baseUrl, model);
-      expect(adj.source, `${presetId}/${model}`).toBe("override");
+      expect(adj.source, `${presetId}/${model}`).toBe("upstream");
       expect(adj.availableLevels, `${presetId}/${model}`).toEqual([...levels]);
       expect(adj.availableLevels).not.toContain("low");
       expect(adj.availableLevels).not.toContain("medium");
@@ -317,22 +310,24 @@ describe("验收第一条：none/high 类（13 号票 canonical 优先后剩 3 �
     expect(sent("deepseek", DEEPSEEK_URL, "deepseek-v4-pro", "low").fields).toEqual({ reasoning_effort: "low" });
   });
 
-  it("13 号票 canonical 优先：另外 3 行的模型侧词表已换（off 得/失按新事实）", () => {
-    // openrouter/sakana/sakana-namazu：canonical = toggle → off 保留，low 由不可用变可用。
+  it("13 号票 canonical 优先：另外 3 行的模型侧词表已换（18 号票起按各自上游词表）", () => {
+    // openrouter/sakana/sakana-namazu：canonical = toggle；openrouter 未登记开关形状 →
+    // toggle 不产生任何写点 → A' = ∅（18 号票前平台声明的 off/low/high 是凭空多发）。
     const namazu = adjustment("openrouter", OPENROUTER_URL, "sakana/sakana-namazu");
     expect(lookupThinkingFact("openrouter", "sakana/sakana-namazu")?.valuesetId).toBe("toggle");
-    expect(namazu.availableLevels).toEqual(["off", "low", "high"]);
-    expect(sent("openrouter", OPENROUTER_URL, "sakana/sakana-namazu", "low").fields).toEqual({ reasoning_effort: "low" });
-    // sensenova/glm-5.2：canonical = high-max（模型侧无 off）→ off 失去，A' = {high}。
+    expect(namazu.availableLevels).toEqual([]);
+    expect(namazu.source).toBe("upstream");
+    expect(sent("openrouter", OPENROUTER_URL, "sakana/sakana-namazu", "low").fields).toEqual({});
+    // sensenova/glm-5.2：canonical = high-max（模型侧无 off）→ A' = {high, max}。
     const glm = adjustment("sensenova", SENSENOVA_URL, "glm-5.2");
     expect(lookupThinkingFact("sensenova", "glm-5.2")?.valuesetId).toBe("high-max");
-    expect(glm.availableLevels).toEqual(["high"]);
+    expect(glm.availableLevels).toEqual(["high", "max"]);
     expect(sent("sensenova", SENSENOVA_URL, "glm-5.2", "low").fields).toEqual({ reasoning_effort: "high" });
     // sensenova/deepseek-v4-flash：重定向行（canonical → deepseek-flash = toggle+low-high-max
-    // → 模型侧 off 走 toggle 形态）→ A' = {off, low, high}（low 由不可用变可用）。
+    // → 模型侧 off 走 toggle 形态，sensenova 未登记开关形状）→ A' = {low, high, max}。
     const flash = adjustment("sensenova", SENSENOVA_URL, "deepseek-v4-flash");
     expect(lookupThinkingFact("sensenova", "deepseek-v4-flash")?.valuesetId).toBe("toggle+low-high-max");
-    expect(flash.availableLevels).toEqual(["off", "low", "high"]);
+    expect(flash.availableLevels).toEqual(["low", "high", "max"]);
     expect(sent("sensenova", SENSENOVA_URL, "deepseek-v4-flash", "low").fields).toEqual({ reasoning_effort: "low" });
   });
 });
@@ -380,22 +375,24 @@ describe("无上游平台仍显示今日三档（ollama / custom）", () => {
   });
 });
 
-describe("边界：A' = ∅ 而平台声明非空（openrouter 5 行，2026-10-04 已裁决 fail-closed）", () => {
-  // 上游唯一的档位词平台表达不了（budget-only 值集）→ 交集为空：不显示任何 chip、逐档都
-  // 不发（对齐 minimax-m3 的 fail-closed）。2026-10-04 用户裁定（原话：「openrouter 的不发
-  // 参数」）：openrouter 的这三行**维持不发参**。13 号票 canonical 优先后，
-  // anthropic/claude-haiku-4.5 与 claude-sonnet-4.5 的 canonical 也变成 budget-only →
-  // 同样落入 A' = ∅（丢 off 照收 + 不发参），共 5 行。这些格不属于「向下兼容」，已在
-  // 06-chip-changes.tsv + 06-report.md §6.1 逐条记录。
+describe("边界：A' = ∅ 的零档行（openrouter 5 行 + 18 号票新增的 toggle-only 行，fail-closed）", () => {
+  // 上游唯一的档位词平台表达不了（budget-only 值集；或 toggle 落到未登记开关形状的平台）
+  // → 写点集为空：不显示任何 chip、逐档都不发（对齐 minimax-m3 的 fail-closed）。
+  // 2026-10-04 用户裁定（原话：「openrouter 的不发参数」）：openrouter 的三行**维持不发参**。
+  // 13 号票 canonical 优先后 anthropic/claude-haiku-4.5 与 claude-sonnet-4.5 的 canonical
+  // 也是 budget-only；18 号票删平台声明后 toggle-only 的行（如 sakana/sakana-namazu）同样
+  // 落入 A' = ∅。06 号票时这些格记在 06-chip-changes.tsv（该清单 18 号票后随平台声明层退役，
+  // 见 06-chip-source.ts 的头注）。
   const EMPTY: ReadonlyArray<[string, string, string]> = [
     ["openrouter", OPENROUTER_URL, "google/gemini-2.5-pro"],
     ["openrouter", OPENROUTER_URL, "google/gemini-2.5-pro-preview"],
     ["openrouter", OPENROUTER_URL, "qwen/qwen3-next-80b-a3b-thinking"],
     ["openrouter", OPENROUTER_URL, "anthropic/claude-haiku-4.5"],
-    ["openrouter", OPENROUTER_URL, "anthropic/claude-sonnet-4.5"]
+    ["openrouter", OPENROUTER_URL, "anthropic/claude-sonnet-4.5"],
+    ["openrouter", OPENROUTER_URL, "sakana/sakana-namazu"]
   ];
 
-  it("5 行 chip 为空、逐档都不发（平台声明非空也不再照发）", () => {
+  it("零档行 chip 为空、逐档都不发（不再有平台声明照发）", () => {
     for (const [presetId, baseUrl, model] of EMPTY) {
       const adj = adjustment(presetId, baseUrl, model);
       expect(adj.availableLevels, `${presetId}/${model}`).toEqual([]);
@@ -407,13 +404,13 @@ describe("边界：A' = ∅ 而平台声明非空（openrouter 5 行，2026-10-0
   });
 });
 
-describe("canonical 优先（13 号票）：opencodego/kimi-k3 = 平台声明 ∩ canonical 词表", () => {
+describe("canonical 优先（13 号票）：opencodego/kimi-k3 = canonical 词表的写点集", () => {
   // 12 号票的单点裁决（ADJUDICATED_MODEL_RULES，按 kimi 官方 k3 方言发参）随 13 号票删除：
-  // canonical 优先后 kimi-k3 的模型侧词表就是 low/high/max（上游 canonical 的 toggle 已不在），
-  // 平台声明补 max 后 A' = {low, high, max}——不再需要跨平台镜像。
-  it("chip 集合 = {low, high, max}，来源层 = override（不再走裁决短路）", () => {
+  // canonical 优先后 kimi-k3 的模型侧词表就是 low/high/max；18 号票删平台声明后 A' 仍是
+  // {low, high, max}——不再需要跨平台镜像，也不再需要平台声明补 max。
+  it("chip 集合 = {low, high, max}，来源层 = upstream", () => {
     const adj = adjustment("opencodego", OPENCODEGO_URL, "kimi-k3");
-    expect(adj.source).toBe("override");
+    expect(adj.source).toBe("upstream");
     expect(adj.availableLevels).toEqual(["low", "high", "max"]);
   });
 
@@ -450,13 +447,13 @@ describe("canonical 优先（13 号票）：opencodego/kimi-k3 = 平台声明 �
   it("范围锁：opencodego 其它模型与其它平台的 kimi 托管行都不受影响", () => {
     const others: Array<[string, readonly string[]]> = [
       ["glm-5.2", ["high", "max"]],
-      ["hy4-preview", ["high"]],
-      ["qwen3.8-flash", ["low"]],
-      ["qwen3.8-max", ["low"]]
+      ["hy4-preview", ["off", "high"]],
+      ["qwen3.8-flash", ["low", "medium", "xhigh"]],
+      ["qwen3.8-max", ["low", "medium", "xhigh"]]
     ];
     for (const [model, levels] of others) {
       const adj = adjustment("opencodego", OPENCODEGO_URL, model);
-      expect(adj.source, model).toBe("override");
+      expect(adj.source, model).toBe("upstream");
       expect(adj.availableLevels, model).toEqual([...levels]);
     }
     for (const [presetId, baseUrl, model] of [
@@ -513,10 +510,9 @@ function levelsOf(row: ChipRow): string[] {
 }
 
 // source（运行期分支）↔ layer（工件的来源分层）：一对多（上游行再分直接 / 借词）。
-// 13 号票删掉单点裁决层后剩四层来源（upstream 再分直接 / 借词）。
+// 13 号票删掉单点裁决层、18 号票删掉 platform-override 层后剩四层来源。
 const SOURCE_TO_LAYER: Record<ThinkingRuleSource, string[]> = {
   upstream: ["upstream-direct", "upstream-borrowed"],
-  override: ["platform-override"],
   handwritten: ["fallback-handwritten"],
   unknown: ["fallback-unknown"]
 };
@@ -540,7 +536,7 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
       expect(checked).toBeGreaterThan(300);
     });
 
-    it("A' ⊆ 上游词表（逐条，含 override 行）——这是「只显示实际存在的档位」的机械证据", () => {
+    it("A' ⊆ 上游词表（逐条，含四家托管平台行）——这是「只显示实际存在的档位」的机械证据", () => {
       let withFact = 0;
       for (const row of rows) {
         if (!row.upstreamProvider || row.upstreamValuesetId === "-") continue;
@@ -555,24 +551,27 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
       expect(withFact).toBeGreaterThan(300);
     });
 
-    it("13 号票后不再有单点裁决层：opencodego/kimi-k3 走 platform-override，A' = {low,high,max}", () => {
+    it("13 号票后不再有单点裁决层：opencodego/kimi-k3 走 upstream 层，A' = {low,high,max}", () => {
       // 12 号票的 ADJUDICATED_MODEL_RULES 已删除；canonical 优先后该行的模型侧词表就是
-      // canonical 的 low/high/max，平台声明补 max 后 A' 恰为这三档（收窄/扩张都不是了）。
+      // canonical 的 low/high/max。18 号票删掉 platform-override 层后 layer = upstream-direct。
       expect(rows.filter((row) => row.layer === "adjudicated")).toHaveLength(0);
+      expect(rows.filter((row) => row.layer === "platform-override")).toHaveLength(0);
       const row = rows.find((candidate) => candidate.preset === "opencodego" && candidate.model === "kimi-k3");
-      expect(row?.layer).toBe("platform-override");
+      expect(row?.layer).toBe("upstream-direct");
       expect(levelsOf(row!)).toEqual(["low", "high", "max"]);
       expect(row?.upstreamValuesetId).toBe("low-high-max");
     });
 
-    it("三层来源每层都非空，借词行的来源是 canonical/alias（逐条 canonical id）", () => {
+    it("四层来源每层都非空，借词行的来源是 canonical/alias（逐条 canonical id）", () => {
       const layers = new Map<string, number>();
       for (const row of rows) {
         layers.set(row.layer, (layers.get(row.layer) ?? 0) + 1);
       }
-      for (const layer of ["upstream-direct", "upstream-borrowed", "platform-override", "fallback-handwritten", "fallback-unknown"]) {
+      for (const layer of ["upstream-direct", "upstream-borrowed", "fallback-handwritten", "fallback-unknown"]) {
         expect(layers.get(layer) ?? 0, layer).toBeGreaterThan(0);
       }
+      // 18 号票删掉平台声明机制后 platform-override 层不存在（层数从 5 → 4）。
+      expect(layers.get("platform-override") ?? 0).toBe(0);
       const borrowed = rows.filter((row) => row.layer === "upstream-borrowed");
       expect(borrowed.length).toBeGreaterThan(0);
       expect(
@@ -599,22 +598,12 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
       expect(Object.keys(THINKING_LEVEL_LABELS)).toEqual([...AI_THINKING_LEVELS]);
     });
 
-    it("chip 变化清单（平台声明 → A'）：全部是 platform-override 收窄（裁决扩张行已随 13 号票消失）", () => {
+    it("chip 变化清单随平台声明机制退役：06-chip-changes.tsv 只剩表头（0 行）", () => {
+      // 该清单的定义域是「平台声明档位 → A'」。18 号票删掉 PROVIDERS[].override 后这层
+      // 不存在，清单退化为仅表头；18 号票的用户可见变化清单另见
+      // artifacts/18-platform-override-removal.txt 与 18-report.md。
       const changes = parseTsv(CHIP_CHANGES);
-      expect(changes.length).toBeGreaterThan(0);
-      for (const row of changes) {
-        const platformLevels = platformLevelsOf(row.preset);
-        expect(platformLevels, row.preset).not.toBeNull();
-        // before（平台声明）必须真的不同，否则不该进清单。
-        expect(platformLevels!.join(","), `${row.preset}/${row.model}`).not.toBe(levelsOf(row).join(","));
-        expect(row.layer, `${row.preset}/${row.model}`).toBe("platform-override");
-        for (const level of levelsOf(row)) {
-          expect(platformLevels!.includes(level as ThinkingLevel), `${row.preset}/${row.model} · ${level}`).toBe(true);
-        }
-      }
-      // 12 号票的裁决扩张行（opencodego/kimi-k3：平台声明 ⊂ A'）已不存在。
-      expect(changes.filter((row) => row.layer === "adjudicated")).toHaveLength(0);
-      expect(changes.some((row) => row.preset === "opencodego" && row.model === "kimi-k3")).toBe(false);
+      expect(changes).toHaveLength(0);
     });
 
     it("清单里没有 none 档位（上游 none 只是 off 的线值实现）", () => {
@@ -635,51 +624,47 @@ describe.skipIf(!existsSync(MATRIX_CELLS))("06 请求矩阵逐格变化清单", 
   const traceAt = header.indexOf("trace");
   const rows = lines.slice(1).map((line) => line.split("\t"));
 
-  it("每个变化格都能追到 A'：向下兼容落别的档 / A' = ∅ 不发 / 值集换了线形状变（无第四种）", () => {
-    const empty = rows.filter((cells) => cells[traceAt].includes("实发 (不发)"));
-    const compatible = rows.filter((cells) => !cells[traceAt].includes("实发 (不发)"));
+  it("每个变化格都能追到 A'：向下兼容落别的档 / 零档不发 / 档位词未变而线形状变（无第四种）", () => {
     expect(rows.length).toBeGreaterThan(0);
+    const empty = rows.filter((cells) => cells[traceAt].includes("实发 (不发)"));
     expect(empty.length).toBeGreaterThan(0);
-    expect(compatible.length).toBeGreaterThan(empty.length);
-    // 第三类：偏好档 ∈ A'（没被 clamp，原因=-），字节变化来自**值集换了**（如 toggle 的
-    // off 形态、预算区间）；13 号票 canonical 优先后这类格只出现在值集真变了的行上。
-    const structureOnly: string[] = [];
-    for (const cells of compatible) {
-      const trace = cells[traceAt];
-      if (trace.includes("原因=-")) {
-        structureOnly.push(`${cells[0]}/${cells[1]}`);
-        continue;
-      }
-      // 其余全部是向下兼容：源档 ≠ 实发档，且原因层非空（模型词表 / 平台词表 / 上游未登记）。
-      expect(trace, cells.join("\t")).toMatch(
-        /实发 (off|minimal|low|medium|high|xhigh|max)｜A'=\{[^}]+\}｜原因=(model-vocabulary|platform-vocabulary|upstream-unlisted)/
+    expect(rows.length).toBeGreaterThan(empty.length);
+    // 逐格形状：偏好档 → 实发档（或「不发」）+ A' + 原因（模型词表 / 上游未登记 / 未被 clamp）。
+    // 18 号票后 after 列 = 当前树，变化格累积了 06 之后各票（13 / 18）的请求字节变化
+    // （今日 1592 格），故不再逐行列举可追溯行——行级事实由 06 工件与
+    // artifacts/18-platform-override-removal.txt 承载。
+    for (const cells of rows) {
+      expect(cells[traceAt], cells.join("\t")).toMatch(
+        /^偏好 (off|minimal|low|medium|high|xhigh|max) → 实发 (\(不发\)|off|minimal|low|medium|high|xhigh|max)｜A'=\{[^}]*\}｜原因=(model-vocabulary|upstream-unlisted|-)$/
       );
     }
-    expect([...new Set(structureOnly)].sort()).toEqual([
-      "moonshot/kimi-k3",
-      "qwen/deepseek-v4-flash",
-      "qwen/deepseek-v4-pro"
-    ]);
+    // 「实发 (不发)」= 零档行：与 resolver 的可用集对账（不是靠 trace 自证）。
+    for (const cells of empty) {
+      expect(adjustment(cells[0], "", cells[1]).availableLevels, `${cells[0]}/${cells[1]}`).toEqual([]);
+    }
   });
 
-  it("A' = ∅ 的变化格是 openrouter 5 行（已裁决 fail-closed；每行 7 格）", () => {
+  it("零档行的变化格：101 行 A' = ∅（含 2026-10-04 裁决的 openrouter 5 行，各 9 格）", () => {
     const empty = rows.filter((cells) => cells[traceAt].includes("实发 (不发)"));
     const byModel = new Map<string, number>();
     for (const cells of empty) {
       const key = `${cells[0]}/${cells[1]}`;
       byModel.set(key, (byModel.get(key) ?? 0) + 1);
     }
-    // 13 号票 canonical 优先后新增两行（claude-haiku-4.5 / claude-sonnet-4.5 的 canonical
-    // 是 budget-only）→ A' = ∅ 从 3 行变 5 行，全部维持不发参（丢 off 照收 + fail-closed）。
-    expect([...byModel.keys()].sort()).toEqual([
+    // 18 号票后四家托管平台未登记开关形状，toggle-only / budget-only 的行全部落零档
+    // （06 基线里它们靠平台声明多发 off/low/high）→ 零档行从 5 涨到 101。
+    expect(byModel.size).toBe(101);
+    // 13 号票 canonical 优先后新增的两行（claude-haiku-4.5 / claude-sonnet-4.5 的 canonical
+    // 是 budget-only）与 2026-10-04 已裁决的三行仍在列，全部维持不发参。
+    for (const model of [
       "openrouter/anthropic/claude-haiku-4.5",
       "openrouter/anthropic/claude-sonnet-4.5",
       "openrouter/google/gemini-2.5-pro",
       "openrouter/google/gemini-2.5-pro-preview",
       "openrouter/qwen/qwen3-next-80b-a3b-thinking"
-    ]);
-    for (const count of byModel.values()) {
-      expect(count).toBe(7);
+    ]) {
+      // 每行 9 格 = 两通道 × off/low/high + 三个 resolve 标记。
+      expect(byModel.get(model), model).toBe(9);
     }
   });
 
@@ -696,7 +681,8 @@ describe.skipIf(!existsSync(MATRIX_CELLS))("06 请求矩阵逐格变化清单", 
       "res:low",
       "res:off"
     ]);
-    // opencodego/kimi-k3 在新旧两侧都是 A' = {low,high}（旧侧裁决词的 off 不在 A'），逐格同值。
+    // opencodego/kimi-k3 在新旧两侧都是 A' = {low,high,max}（旧侧平台声明的 off 不在 A'），
+    // 18 号票删平台声明后逐格同值——13 号票对齐结果未被本票带偏。
     expect(rows.filter((cells) => `${cells[0]}/${cells[1]}` === "opencodego/kimi-k3")).toHaveLength(0);
   });
 });

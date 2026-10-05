@@ -88,8 +88,8 @@ export interface ProtocolAdapter {
    * 「接纳」= 本协议线格式栈对该怪癖负责，兑现形态有三种：① adapter 内
    * 实现（如 authHeaderScheme 在 authHeaders）；② 卫星模块实现、adapter
    * 挂名负责（如 sessionHeader 由 preset-headers 按词表派生；
-   * overrideEffortVocabulary 由 thinking-profiles 兑现；thinkingFormat /
-   * probeOmitsThinking / thinkingDisabledMustBeExplicit /
+   * thinkingFormat / probeOmitsThinking /
+   * thinkingDisabledMustBeExplicit /
    * effortVocabMessages 由 thinking-wire-map 的线格式映射兑现）；③ 显式登记的
    * 有意缺口（如 thinkingSignatureNotReplayed 刻意不回传，同时落
    * capabilities.unsupported）。

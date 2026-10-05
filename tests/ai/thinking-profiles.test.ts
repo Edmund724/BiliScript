@@ -251,92 +251,95 @@ describe("presetId 参数位（02 票穿线预留，本票仅 resolver 侧可用
   });
 });
 
-describe("provider override 型（OpenRouter 对任何模型整体替换 class 规则）", () => {
-  it("已知血统模型也走 override（off→effort none，而非该血统的原生关闭字段）", () => {
-    const r = resolve({ baseUrl: OPENROUTER_URL, model: "deepseek-v4-pro", level: "off" });
-    expect(r.fields).toEqual({ reasoning_effort: "none" });
+describe("18 号票：OpenRouter 走上游词表投影（平台 override 已删）", () => {
+  it("上游目录内 id 走投影：值集 toggle+low-high-max 且平台未登记开关形状 → off 关不掉、级联 low", () => {
+    const r = resolve({ baseUrl: OPENROUTER_URL, model: "deepseek/deepseek-v4-pro", level: "off" });
+    expect(r.fields).toEqual({ reasoning_effort: "low" });
+    expect(r.offUnavailable).toBe(true);
+    expect(r.thinkingClass).toBe("always");
   });
 
-  it("未列模型同样生效（override 无视 taxonomy/unknownClass）", () => {
-    expect(resolve({ baseUrl: OPENROUTER_URL, model: "vendor/some-future-model", level: "low" }).fields).toEqual({
-      reasoning_effort: "low"
+  it("上游目录外 id 回落手写表；手写侧也无结论 → UNKNOWN 哨兵（不再有平台声明兜底）", () => {
+    // deepseek-v4-pro 不是 openrouter 的上游 id（上游是 deepseek/deepseek-v4-pro）→ 手写专条。
+    expect(resolve({ baseUrl: OPENROUTER_URL, model: "deepseek-v4-pro", level: "off" }).fields).toEqual({
+      thinking: { type: "disabled" }
     });
+    // vendor/some-future-model 两边都没结论 → 三档不发参（fail-closed）。
+    const unknown = resolve({ baseUrl: OPENROUTER_URL, model: "vendor/some-future-model", level: "low" });
+    expect(unknown.fields).toEqual({});
+    expect(unknown.thinkingClass).toBe("unknown");
   });
 
-  it("永不思考模型也被 override 覆盖（OpenRouter 透传上游，由上游解释）", () => {
+  it("永不思考模型不再被平台声明覆盖：手写 never 静默不发（关思考天然成立）", () => {
     const r = resolve({ baseUrl: OPENROUTER_URL, model: "kimi-k2-instruct", level: "off" });
-    expect(r.fields).toEqual({ reasoning_effort: "none" });
-    expect(r.thinkingClass).toBe("hybrid");
+    expect(r.fields).toEqual({});
+    expect(r.thinkingClass).toBe("never");
   });
 });
 
-describe("provider override 型（AMD Radeon Cloud：preset 收录，严格 400 未知字段）", () => {
-  it("presetId='amd' 主路径命中：deepseek 血统模型也走 effort 词汇（不发网关拒收的 thinking 开关）", () => {
+describe("18 号票：AMD Radeon Cloud 走上游词表投影", () => {
+  it("上游目录内 id 按自己的值集：DeepSeek-V4.1-Flash（toggle+low-high-max）off 关不掉、级联 low", () => {
+    const r = resolve({ presetId: "amd", model: "DeepSeek-V4.1-Flash", level: "off" });
+    expect(r.fields).toEqual({ reasoning_effort: "low" });
+    expect(r.offUnavailable).toBe(true);
+    expect(r.thinkingClass).toBe("always");
+  });
+
+  it("值集含 effort none 的模型仍可关思考：DeepSeek-V4-Flash off → reasoning_effort none", () => {
     const r = resolve({ presetId: "amd", model: "DeepSeek-V4-Flash", level: "off" });
     expect(r.fields).toEqual({ reasoning_effort: "none" });
+    expect(r.offUnavailable).toBe(false);
     expect(r.thinkingClass).toBe("hybrid");
   });
 
-  it("托管的 qwen 血统模型同样被 override（任何模型在写点形状上不走血统表）", () => {
-    expect(resolve({ baseUrl: AMD_URL, model: "Qwen3.8-Flash-Next", level: "low" }).fields).toEqual({
-      reasoning_effort: "low"
-    });
-  });
-
-  it("presetId='custom' 未命中 PROVIDERS → 回落 host 索引仍命中 AMD override", () => {
+  it("presetId='custom' 未命中 PROVIDERS → 回落 host 索引仍命中 amd 的上游投影", () => {
     const r = resolve({ presetId: "custom", baseUrl: AMD_URL, model: "DeepSeek-V4-Flash", level: "high" });
     expect(r.fields).toEqual({ reasoning_effort: "high" });
   });
 });
 
-describe("provider override 型（SenseNova 商汤：托管 deepseek-v4-flash 官方文档化 effort 词表）", () => {
-  it("presetId='sensenova' 命中：托管 deepseek-v4-flash off → effort none（发 thinking 开关无效）", () => {
-    const r = resolve({ presetId: "sensenova", model: "deepseek-v4-flash", level: "off" });
-    expect(r.fields).toEqual({ reasoning_effort: "none" });
-    expect(r.thinkingClass).toBe("hybrid");
+describe("18 号票：SenseNova 商汤走上游词表投影", () => {
+  it("上游目录内 id（glm-5.2 值集 high-max）：off 关不掉、级联到最小非 off 档 high", () => {
+    const r = resolve({ presetId: "sensenova", model: "glm-5.2", level: "off" });
+    expect(r.fields).toEqual({ reasoning_effort: "high" });
+    expect(r.offUnavailable).toBe(true);
+    expect(r.thinkingClass).toBe("always");
   });
 
-  it("原生 sensenova-6.7-flash-lite 随 override 照发 effort 词汇（无已文档化思考控制参数）", () => {
-    expect(resolve({ baseUrl: SENSENOVA_URL, model: "sensenova-6.7-flash-lite", level: "high" }).fields).toEqual({
-      reasoning_effort: "high"
-    });
+  it("目录外的原生 id（sensenova-6.7-flash-lite）无词表也无手写结论 → UNKNOWN 不发参", () => {
+    const r = resolve({ baseUrl: SENSENOVA_URL, model: "sensenova-6.7-flash-lite", level: "high" });
+    expect(r.fields).toEqual({});
+    expect(r.thinkingClass).toBe("unknown");
   });
 });
 
-describe("provider override 型（Opencode Go：网关只暴露 effort 词表，off 关不掉→落最低档）", () => {
-  // 事实来源：models.dev 的 opencode-go（opencode 客户端发参依据）——41 个模型里
-  // 只有 effort 词表（glm-5.3/deepseek-v4-flash/grok-4.x/qwen3.8-max… 各按模型给
-  // low…max）与开关/无选项三类，没有网关级「关思考」参数；gpt-6/hy3 少数模型收
-  // effort none，整域一刀切发 none 会对其余模型硬 400。故不写 off 声明：off 走
-  // 既有级联落 low，UI 显示「关不掉思考」（长版文案）。
-  it("presetId='opencodego' 命中：off 落 effort low + offUnavailable + offFallback=low", () => {
-    expect(resolve({ presetId: "opencodego", model: "glm-5.1", level: "off" })).toEqual({
-      fields: { reasoning_effort: "low" },
+describe("18 号票：Opencode Go 走上游词表投影", () => {
+  it("presetId='opencodego' 命中：deepseek-v4-pro（值集 high-max）off 落 high + offUnavailable", () => {
+    expect(resolve({ presetId: "opencodego", model: "deepseek-v4-pro", level: "off" })).toEqual({
+      fields: { reasoning_effort: "high" },
       offUnavailable: true,
       offFallback: "low",
       thinkingClass: "always"
     });
   });
 
-  it("override 在写点形状上无视血统表：原生可关的族模型（deepseek-v4-flash）也走 effort，不发 thinking 开关", () => {
-    const r = resolve({ presetId: "opencodego", model: "deepseek-v4-flash", level: "off" });
-    expect(r.fields).toEqual({ reasoning_effort: "low" });
-    expect(r.fields).not.toHaveProperty("thinking");
-  });
-
-  it("low/high 直传 effort；网关元数据里无档位声明的模型同样照发（整域唯一词表）", () => {
-    expect(resolve({ presetId: "opencodego", model: "kimi-k2.6", level: "low" }).fields).toEqual({
-      reasoning_effort: "low"
-    });
-    expect(resolve({ presetId: "opencodego", model: "minimax-m3", level: "high" }).fields).toEqual({
-      reasoning_effort: "high"
+  it("13 号票对齐的 kimi-k3 逐字节不变：low/high/max 直传 effort，不发 thinking 开关", () => {
+    const low = resolve({ presetId: "opencodego", model: "kimi-k3", level: "low" });
+    expect(low.fields).toEqual({ reasoning_effort: "low" });
+    expect(low.fields).not.toHaveProperty("thinking");
+    expect(resolve({ presetId: "opencodego", model: "kimi-k3", level: "max" }).fields).toEqual({
+      reasoning_effort: "max"
     });
   });
 
-  it("host 兜底同样命中（custom 平台填网关 baseUrl）", () => {
-    expect(resolve({ baseUrl: "https://opencode.ai/zen/go/v1", model: "whatever", level: "off" }).fields).toEqual({
-      reasoning_effort: "low"
-    });
+  it("值集只有 toggle 的模型（kimi-k2.6）平台未登记开关形状 → 任何档都不发明写点", () => {
+    const r = resolve({ presetId: "opencodego", model: "kimi-k2.6", level: "low" });
+    expect(r.fields).toEqual({});
+    expect(r.thinkingClass).toBe("always");
+  });
+
+  it("目录外 id 不再有一刀切 effort：手写侧无命中的 id 落 UNKNOWN", () => {
+    expect(resolve({ baseUrl: "https://opencode.ai/zen/go/v1", model: "whatever", level: "off" }).fields).toEqual({});
   });
 });
 
@@ -346,19 +349,20 @@ describe("tokenParam 随表返回（04 票消费；本票请求体仍用 max_tok
     expect(resolve({ baseUrl: OPENAI_URL, model: "o3", level: "low" }).tokenParam).toBe("max_completion_tokens");
   });
 
-  it("其余（含 unknown 与 OpenRouter override）不返回 tokenParam（默认 max_tokens 现状）", () => {
-    expect(resolve({ baseUrl: DEEPSEEK_URL, model: "deepseek-v4-pro", level: "low" }).tokenParam).toBeUndefined();
+  it("上游命中的四家托管平台也不返回 tokenParam（默认 max_tokens 现状；18 号票删 override 后不变）", () => {
     expect(resolve({ baseUrl: OPENROUTER_URL, model: "m", level: "low" }).tokenParam).toBeUndefined();
+    expect(resolve({ presetId: "opencodego", model: "deepseek-v4-pro", level: "low" }).tokenParam).toBeUndefined();
     expect(resolve({ baseUrl: "https://api.example.com/v1", model: "m", level: "low" }).tokenParam).toBeUndefined();
   });
 
   // 登记项 ② 收口（2026-10-05 用户裁定）：钉的是**有意裁定**，不是覆盖漏洞。
   // tokenParam 只在 CLASSES 的 2 个 openai-reasoning 类上有写点，而那两类只由手写兜底
   // 命中（custom + 自填 api.openai.com/azure，本仓无 openai preset）。上游命中的 OpenAI
-  // 血统模型恰好全住在 override 平台上（上游 12 家里没有 openai provider），故恒 max_tokens。
-  // 不改的理由：override 平台收 max_tokens，改发 max_completion_tokens 会把 reasoning token
+  // 血统模型住在 openrouter / opencode-go 的托管行里（上游 12 家里没有 openai provider），
+  // 这些行自 18 号票起按上游词表投影、上游投影不产 tokenParam → 恒 max_tokens。
+  // 不改的理由：这些网关收 max_tokens，改发 max_completion_tokens 会把 reasoning token
   // 计入预算 → 同数值下正文可见长度变短，是用户可见的行为变更。
-  it("override + 上游命中的 OpenAI 血统模型恒 max_tokens（fields 仍照发，避免落 UNKNOWN 空跑）", () => {
+  it("上游命中的 OpenAI 血统托管行恒 max_tokens（fields 仍照发，避免落 UNKNOWN 空跑）", () => {
     const viaOpenRouter = resolve({ baseUrl: OPENROUTER_URL, model: "openai/gpt-5.4", level: "low" });
     expect(viaOpenRouter.fields).toEqual({ reasoning_effort: "low" });
     expect(viaOpenRouter.tokenParam).toBeUndefined();

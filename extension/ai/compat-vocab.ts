@@ -44,7 +44,7 @@ export const COMPAT_QUIRKS = {
   // ===== 请求体字段名类 =====
   /** token 上限参数名随平台变：openai-reasoning 系只认 max_completion_tokens（传 max_tokens 严格 400），其余 max_tokens。 */
   maxTokensField: {
-    summary: "token 上限参数名随平台/模型血统变（max_tokens ↔ max_completion_tokens），随表事实来自 thinking-profiles 的 tokenParam；该字段是手写表独有写点，上游与 override 平台刻意不产（2026-10-05 用户裁定，登记项 ②）。",
+    summary: "token 上限参数名随平台/模型血统变（max_tokens ↔ max_completion_tokens），随表事实来自 thinking-profiles 的 tokenParam；该字段是手写表独有写点，上游产物刻意不产（2026-10-05 用户裁定，登记项 ②）。",
     protocols: ["openai"],
     wire: "max_completion_tokens"
   },
@@ -56,11 +56,6 @@ export const COMPAT_QUIRKS = {
   /** 关思考字段仅流式可用（百炼 qwen3-235b/32b/30b），非流式遇此按「无事实」处理走级联。 */
   streamingOnlyThinkingOff: {
     summary: "关思考声明仅流式可用；非流式请求遇此规则按无事实处理（走 off 级联或缺档不发）。",
-    protocols: ["openai"]
-  },
-  /** 严格拒收 thinking 开关的网关（AMD / SenseNova / OpenRouter）整域只认 effort 词汇。 */
-  overrideEffortVocabulary: {
-    summary: "网关对未知字段严格 400，整域只认 effort 词汇（reasoning_effort 含 none），任何模型不走 thinking-profiles 的开关词汇。",
     protocols: ["openai"]
   },
   /** Anthropic Messages 通道的 effort 词汇平台（stepfun / amd）只收 output_config.effort，不收 thinking。 */
@@ -169,15 +164,12 @@ export const PLATFORM_QUIRKS: Readonly<Record<string, readonly CompatQuirk[]>> =
   opencodego: ["sessionHeader"],
   // stepfun：Messages 通道只认 output_config.effort，不收 thinking 字段。openai
   // 通道的 effort 词汇由 taxonomy 的 step-* 族兑现（step37-effort 发
-  // reasoning_effort、step-always 不发、未知模型落 unknown 哨兵不发），无需
-  // override——补 override 反会让 step-3 的 off 误发 reasoning_effort:"none"
-  //（该模型无文档化关闭参数，可能 400）。
+  // reasoning_effort、step-always 不发、未知模型落 unknown 哨兵不发），无需额外
+  // 声明——若给 step-3 的 off 发 reasoning_effort:"none"（该模型无文档化关闭参数），
+  // 可能 400。
   stepfun: ["effortVocabMessages"],
   // amd：Messages 通道只认 output_config.effort，不收 thinking 字段。
-  amd: ["effortVocabMessages", "overrideEffortVocabulary"],
-  // OpenRouter / SenseNova：严格拒收 thinking 开关的 effort 词汇网关。
-  openrouter: ["overrideEffortVocabulary"],
-  sensenova: ["overrideEffortVocabulary"],
+  amd: ["effortVocabMessages"],
   // ModelScope Messages 端点：默认开思考、enable_thinking:false 被忽略。
   modelscope: ["thinkingDisabledMustBeExplicit"]
 };

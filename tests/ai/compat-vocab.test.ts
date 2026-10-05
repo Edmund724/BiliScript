@@ -62,7 +62,6 @@ describe("compat-vocab 词表叶", () => {
       "maxTokensField",
       "thinkingFormat",
       "streamingOnlyThinkingOff",
-      "overrideEffortVocabulary",
       "effortVocabMessages",
       "thinkingDisabledMustBeExplicit",
       "probeOmitsThinking",
@@ -183,7 +182,7 @@ describe("平台声明派生（词表是唯一主人，adapter/preset-headers �
     expect(hasPlatformQuirk("amd", "effortVocabMessages")).toBe(true);
     // stepfun 只声明 anthropic 通道这一条：openai 通道的 effort 词汇由 taxonomy
     // 的 step-* 族兑现（step37-effort 发 reasoning_effort、step-always 不发），
-    // 补 override 反而会让 step-3 的 off 误发 reasoning_effort:"none"。
+    // 补平台声明反而会让 step-3 的 off 误发 reasoning_effort:"none"。
     expect(PLATFORM_QUIRKS.stepfun).toEqual(["effortVocabMessages"]);
     // 未知/缺省平台不开任何怪癖（软失败优于硬 400）
     expect(hasPlatformQuirk("openrouter", "effortVocabMessages")).toBe(false);

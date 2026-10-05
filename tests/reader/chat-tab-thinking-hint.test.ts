@@ -474,16 +474,16 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     expect(visibleThinkingLevels()).toEqual(["off", "low", "high"]);
   });
 
-  // 2026-10-04 用户裁定（A' = 上游词表 ∩ 平台可表达）：override 平台也不再整域放宽。
+  // 2026-10-04 用户裁定（A' = 上游词表在平台可表达的部分）：托管平台也不再整域放宽。
   // 13 号票 canonical 优先：sensenova/glm-5.2 的 canonical（zhipuai/glm-5.2）是 high-max
-  // → 模型侧无 off → A' = {high}（丢 off 照收）。
-  it("high/max 类（sensenova/glm-5.2）：chip = {high}；偏好 low 向上落 high（提示逐字）", async () => {
+  // → 模型侧无 off → A' = {high, max}（丢 off 照收；18 号票删平台声明后 max 也显示出来）。
+  it("high/max 类（sensenova/glm-5.2）：chip = {high,max}；偏好 low 向上落 high（提示逐字）", async () => {
     providersPayload = [provider({ id: "p1", model: "glm-5.2", baseUrl: SENSENOVA_URL, presetId: "sensenova" })];
     settingsPayload = { aiThinkingLevel: "low" };
 
     await activateChatTab();
 
-    expect(visibleThinkingLevels()).toEqual(["high"]);
+    expect(visibleThinkingLevels()).toEqual(["high", "max"]);
     // 偏好 low 保留在存储里（不迁移），本模型无 ≤ low 的档 → 落最小可用档 high。
     expect(getHint().hidden).toBe(false);
     expect(getHint().textContent).toBe(HINT_CLAMP_LOW_TO_HIGH);
@@ -492,13 +492,15 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     expect(getThinkingBtn("low").disabled).toBe(false);
   });
 
-  it("平台无 off 写点（opencodego/hy4-preview，上游 none-high）：chip 只剩 {high}，偏好 off 走「关不掉」长文案", async () => {
+  it("18 号票：上游 none-high 的托管行仍可关思考（opencodego/hy4-preview：chip = {off,high}）", async () => {
     providersPayload = [provider({ id: "p1", model: "hy4-preview", baseUrl: OPENCODEGO_URL, presetId: "opencodego" })];
 
     await activateChatTab();
 
-    expect(visibleThinkingLevels()).toEqual(["high"]);
-    expect(getHint().textContent).toBe(HINT_LOW_FALLBACK);
+    // 上游值集含 effort none（与平台方言无关）→ off 有写点；18 号票前平台声明无 off 写点，
+    // 曾落「关不掉」长文案，现在偏好 off 直接满足。
+    expect(visibleThinkingLevels()).toEqual(["off", "high"]);
+    expect(getHint().hidden).toBe(true);
   });
 
   it("clamp 掉的偏好不做成禁用 chip：qwen3.8-max + high → High 不在（无 active、无 disabled），Medium 在，文案在场", async () => {

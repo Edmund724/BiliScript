@@ -218,7 +218,7 @@ export const openaiAdapter: ProtocolAdapter = {
 
   // 平台怪癖自陈（语义与适用协议见 compat-vocab 词表单源）：
   // maxTokensField（token 上限参数名）/ thinkingFormat（思考词汇三套）/
-  // streamingOnlyThinkingOff（关思考仅流式）/ overrideEffortVocabulary（effort 词汇网关）/
+  // streamingOnlyThinkingOff（关思考仅流式）/
   // contentPartsAsArray（带图消息 content 翻块数组）/ toolCallFragmentsByIndex（分片按 index 聚合）/
   // sessionHeader（会话头由 preset-headers 按词表派生）/
   // bearerOptionalWithoutKey（空 key 不注入 Authorization）。
@@ -226,7 +226,6 @@ export const openaiAdapter: ProtocolAdapter = {
     "maxTokensField",
     "thinkingFormat",
     "streamingOnlyThinkingOff",
-    "overrideEffortVocabulary",
     "contentPartsAsArray",
     "toolCallFragmentsByIndex",
     "sessionHeader",

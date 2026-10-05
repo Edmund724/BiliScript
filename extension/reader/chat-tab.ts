@@ -499,13 +499,12 @@ const THINKING_OFF_FALLBACK_LOW_HINT = "当前模型不支持在本次请求中�
 const THINKING_OFF_UNAVAILABLE_HINT = "当前模型没办法关掉思考";
 
 // 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本。裁定 A 下
-// 「clamp 有效档 = 实发档」，故文案可如实写源档 → 实发档；原因分三层（模型词表 /
-// 上游未登记 / 平台词表），由 resolver 的 ThinkingClampReason 给出。
+// 「clamp 有效档 = 实发档」，故文案可如实写源档 → 实发档；原因分两层（模型词表 /
+// 上游未登记），由 resolver 的 ThinkingClampReason 给出。
 const THINKING_CLAMP_HINT_PREFIX = "档位已按模型能力调整：";
 const THINKING_CLAMP_REASON_TEXT: Record<ThinkingClampReason, string> = {
   "model-vocabulary": "模型词表没有这个档位",
-  "upstream-unlisted": "上游未登记该模型，档位按本仓词表取",
-  "platform-vocabulary": "平台只登记了这些档位"
+  "upstream-unlisted": "上游未登记该模型，档位按本仓词表取"
 };
 
 // 档位区刷新（06 号票：一次解析同时决定「哪些 chip 存在」与「提示文案」）。

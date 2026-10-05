@@ -112,13 +112,6 @@ export function baseUrlFor(channel: Channel, presetId: string): string {
   return channel === "anthropic" ? (preset.protocolBaseUrls?.anthropic ?? preset.baseUrl) : preset.baseUrl;
 }
 
-/**
- * override 型平台（平台级裁定短路；同 thinking-upstream-facts.test.ts 的清单）：
- * 这些平台的档位词表由平台声明给出，开关型血统会被它们的档位词细化（low≠high），
- * 所以「开关型的 low==high」判据只对非 override 平台成立。
- */
-export const OVERRIDE_PRESETS: readonly string[] = ["openrouter", "amd", "sensenova", "opencodego"];
-
 /** 通道调用缝的入参（presetId 主路径；baseUrl 驱动的无 preset 平台如 openai/siliconflow/doubao）。 */
 export interface BodyRequest {
   readonly presetId?: string;

@@ -7,7 +7,23 @@
 // 这里只放 fixture 用得到的条目：六个 class、两条例外、四条模式、12 个平台键
 // （其中 4 个 override 型）。类型只借真表的（本文件只被 03 的检查脚本按文本读，
 // 不会被执行；import type 只为通过 tsc）。
-import type { ClassRule, ProviderRule, TaxonomyEntry } from "../../../extension/ai/thinking-profiles.js";
+//
+// 18 号票从真表删掉 `ProviderRule.override` 后，本 fixture 仍刻意保留 4 个 override
+// 型平台键：检查脚本的「平台级声明」解析分支（## 6）要靠这份小样供样才不退化成
+// 死代码——真表已无 override 可读。故 override 的字段形状在此本地声明，不再借真表类型。
+import type { ClassRule, ProviderRule as UpstreamProviderRule, TaxonomyEntry } from "../../../extension/ai/thinking-profiles.js";
+
+interface FixtureOverrideRule {
+  thinkingClass: "always" | "hybrid" | "never";
+  levels: Record<string, { fields: Record<string, unknown> }>;
+}
+
+// 本地同名类型（不用 import 别名写进 annotation）：下面 PROVIDERS 的声明行必须与检查脚本
+// scripts/check-models-dev-catalog.mjs 的 PROFILE_MARKERS.PROVIDERS 逐字节一致（它按文本
+// `includes` 该行定位解析区），所以 override 只能在这里本地补，不能改 annotation 文本。
+interface ProviderRule extends UpstreamProviderRule {
+  override?: FixtureOverrideRule;
+}
 
 export const CLASSES: Record<string, ClassRule> = {
   // GLM-5.2 起 effort 三档（关闭仍走 thinking 开关）。（docs.bigmodel.cn）
