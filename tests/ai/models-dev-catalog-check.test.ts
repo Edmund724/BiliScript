@@ -135,6 +135,8 @@ beforeAll(() => {
     fixtureAssignments,
     "--aliases",
     FIXTURE_ALIASES,
+    "--redirects",
+    "none",
     "--expect-counts",
     FIXTURE_COUNTS
   ]);
@@ -418,12 +420,12 @@ describe("catalog:check CLI（上游 vs 手写分歧）", () => {
 // ─────────────── 接缝 B：真实文件 + 提交快照（离线，票面验收） ───────────────
 
 // 提交的快照在 `.scratch/`（本仓 gitignore 的构建/抓取工件区，与 01/02 的产物同处），
-// 新克隆里可能没有：没有就跳过这一组（三条已知冲突的形状已由接缝 A 的 fixture 钉住，
+// 新克隆里可能没有：没有就跳过这一组（已知冲突的形状已由接缝 A 的 fixture 钉住，
 // 那两个模型 id 与真表同名）。
 const hasSnapshot = existsSync(SNAPSHOT);
 
 describe.skipIf(!hasSnapshot)("catalog:check（真产物 + 提交快照）", () => {
-  it("快照与提交产物一致 → in sync；三条已知冲突落在 upstream-wins，qwen3-max 落注记", () => {
+  it("快照与提交产物一致 → in sync；两条已知冲突落在 upstream-wins，qwen3-max 落注记", () => {
     // 提交的快照就是 01/02 产物的来源，所以这里必然 in sync（也顺带钉住裁剪口径
     // 与 01 生成器逐字节等效）。
     const run = realFileCheck("real-snapshot");
@@ -431,21 +433,20 @@ describe.skipIf(!hasSnapshot)("catalog:check（真产物 + 提交快照）", () 
     expect(run.stdout).toContain("in sync");
 
     const wins = sectionOf(run.report, "## 2. upstream-wins");
-    // 票面 §5 点名的三条（04 号票删掉手写条目后，这里的断言要跟着改）。
+    // 票面 §5 点名的三条（04 号票删掉手写条目后，这里的断言要跟着改）。13 号票 canonical
+    // 优先后 kimi-code-plan-cn/k3 的上游事实从 toggle+low-high-max 变为 low-high-max ——
+    // 手写专条（always + effort，无 off）与上游不再矛盾，k3 因此离开 upstream-wins
+    // （分歧条数 3 → 2；该行的现状由 13 号票验收与 13-canonical-priority 验证器覆盖）。
     expect(wins).toContain("zhipuai/glm-5.2");
     expect(wins).toContain("zhipuai/glm-5.3");
-    expect(wins).toContain("kimi-code-plan-cn/k3");
-    expect(wins).toContain("别名 kimi-k3");
+    expect(wins).not.toContain("kimi-code-plan-cn/k3");
     // 上游侧证据：真实 last_updated 与 provider doc URL。
     expect(wins).toContain("last_updated 2026-06-13");
     expect(wins).toContain("last_updated 2026-08-14");
-    expect(wins).toContain("last_updated 2026-07-16");
     expect(wins).toContain("https://docs.z.ai/");
-    expect(wins).toContain("https://www.kimi.com/code/docs");
 
     // 本仓出处（手写表注释里的域名）也要带上。
     expect(wins).toContain("docs.bigmodel.cn");
-    expect(wins).toContain("platform.kimi.ai");
 
     // qwen3-max：上游 [toggle, budget_tokens max 81920] 无 effort → 不是分歧。
     const notes = sectionOf(run.report, "## 5. 注记：不是分歧");
@@ -453,6 +454,11 @@ describe.skipIf(!hasSnapshot)("catalog:check（真产物 + 提交快照）", () 
     expect(notes).toContain("81920");
     expect(notes).toContain("不是分歧");
     expect(wins).not.toContain("alibaba-cn/qwen3-max");
+    // k3-256k（同 provider 的另一个 id）落 upstream-new（手写侧没有任何条目命中）。
+    const news = sectionOf(run.report, "## 3. upstream-new");
+    expect(news).toContain("kimi-code-plan-cn/k3-256k");
+    expect(news).toContain("last_updated 2026-07-16");
+    expect(news).toContain("https://www.kimi.com/code/docs");
 
     // 三类分区都在且有计数（报告可读性）。
     expect(run.report).toMatch(/## 3\. upstream-new[^\n]*\d+ 条/);

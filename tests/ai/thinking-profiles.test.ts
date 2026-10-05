@@ -122,11 +122,12 @@ describe("off 级联（spec 最终版）", () => {
     expect(r.thinkingClass).toBe("always");
   });
 
-  it("04 号票翻转：kimi-k3 的 off 走上游 toggle（可关，hybrid，无级联无标记）", () => {
+  it("13 号票 canonical 优先：kimi-k3 的模型侧词表不再有 toggle → off 关不掉，级联落 low", () => {
     const r = resolve({ baseUrl: KIMI_URL, model: "kimi-k3", level: "off" });
-    expect(r.fields).toEqual({ thinking: { type: "disabled" } });
-    expect(r.offUnavailable).toBe(false);
-    expect(r.thinkingClass).toBe("hybrid");
+    expect(r.fields).toEqual({ reasoning_effort: "low" });
+    expect(r.offUnavailable).toBe(true);
+    expect(r.offFallback).toBe("low");
+    expect(r.thinkingClass).toBe("always");
   });
 
   it("hybrid off 声明存在时直接发（无级联、无标记）", () => {

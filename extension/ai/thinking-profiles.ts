@@ -431,7 +431,7 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   // AMD Radeon Cloud（developer.amd.com.cn，免费模型 API；AI preset 已收录，识别
   // 走 presetId 或 host 索引）：网关对未知字段严格 400——发 thinking 直接报错并
   // 提示改用 reasoning_effort 控制思考（实测 2026-09）→ override 型：整域只认
-  // effort 词汇，任何模型（含托管的 qwen/deepseek 血统）在写点形状上不走血统表，避免 taxonomy
+  // effort 词汇，任何模型（含托管的 qwen/deepseek 血统）在写点形状上不走档位规则，避免 taxonomy
   // 命中 deepseek-v4 后发出网关拒收的 thinking 开关。
   amd: {
     override: {
@@ -470,12 +470,16 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   // 发 none 会对其他模型硬 400。走 Messages 协议的模型（minimax-m3、qwen3.7/3.8）
   // 的档位落线见线格式映射表：该网关无档位词汇文档，按产品裁定发 output_config.effort
   // （裸形态，ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY）。
+  // 13 号票（2026-10-05）补 max 档声明：canonical 优先后 kimi-k3 的模型侧词表是
+  // low/high/max（moonshotai/kimi-k3 的 canonical 事实），平台声明不该比上游窄——
+  // 否则 canonical 的 max 会被 A' 裁掉，「canonical 是对的」只落实一半。
   opencodego: {
     override: {
       thinkingClass: "always",
       levels: {
         low: { fields: { reasoning_effort: "low" } },
-        high: { fields: { reasoning_effort: "high" } }
+        high: { fields: { reasoning_effort: "high" } },
+        max: { fields: { reasoning_effort: "max" } }
       }
     }
   }
@@ -630,42 +634,15 @@ export type ThinkingClampReason = "model-vocabulary" | "upstream-unlisted" | "pl
 // **同一次解析**给出，不是第二套推导——chip 集合本身仍只由 availableLevelsOf 派生
 // （06 号票：清单是「哪一层的规则服务了该模型」的视图，不是 chip 的第二来源）。
 //   upstream    = 02 指派表命中（上游逐模型词表；构建期按 canonical_model_id / 别名
-//                 借到词表的行也走这一支——产物里 7 条借词已折叠进指派表，
-//                 运行期看不出「直接 / 借词」，逐条借词来源在 06 工件里用 02 矩阵对账）；
+//                 借到词表的行也走这一支——产物里借词（缺口借词 + 13 号票的 canonical
+//                 优先改写）已折叠进指派表，运行期看不出「直接 / 借词」，逐条借词来源在
+//                 06 工件里用 02 矩阵对账）；
 //   override    = 平台级裁定短路（openrouter / amd / sensenova / opencodego，03 报告 §6）；
-//   adjudicated = 用户点名的单点裁决行（ADJUDICATED_MODEL_RULES，见下）；
 //   handwritten = 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）；
 //   unknown     = 无结论（fail-closed，三档不发）。
-export type ThinkingRuleSource = "upstream" | "override" | "adjudicated" | "handwritten" | "unknown";
-
-// ===== 单点裁决条目（06 号票，2026-10-04 用户裁定）=====
-// 场景：A' = 上游词表 ∩ 平台可表达集 = ∅（上游唯一登记的词平台表达不了），但**用户点名**
-// 要按该模型的原生厂商方言发参的单点例外——不适用「向下兼容」（没有可落的档），也不再
-// fail-closed。与 CLASSES / EXCEPTIONS / TAXONOMY 的分工：那些是「上游没有事实时」的手写
-// 兜底；这里是「上游有事实、却被平台词表挡住」的逐条裁决，所以写成带理由的显式表、范围
-// 最小：只对 presetId + model 精确命中生效（用户裁定原文：不许扩到 opencodego 的其它模型，
-// 也不许扩到其它平台托管的同名模型）。
-// 条目只登记「按谁家的方言」：规则 = 镜像行按上游值集投影出的写点（ruleFromUpstreamFact），
-// 线格式出口沿用镜像行的平台（已登记的厂商方言）。镜像事实缺失时退回 A' 收窄（fail-closed），
-// 绝不发明写点。
-export interface AdjudicatedModelRule {
-  presetId: string;
-  model: string;
-  /** 方言来源行：规则按这一行的上游事实投影（写点形状与档位词表都随之）。 */
-  mirrorOf: { presetId: string; model: string };
-  /** 裁决理由（报告 / 06 工件的审计列，逐条引用用户原话与出处）。 */
-  reason: string;
-}
-
-export const ADJUDICATED_MODEL_RULES: readonly AdjudicatedModelRule[] = [
-  {
-    presetId: "opencodego",
-    model: "kimi-k3",
-    mirrorOf: { presetId: "moonshot", model: "kimi-k3" },
-    reason:
-      "2026-10-04 用户裁定：openCodeGo 的 kimi-k3 按 kimi 官方 k3 方言发参（上游值集只有 max、与平台词 low/high 无交集，不 fail-closed）"
-  }
-];
+// 13 号票删掉 12 号票的单点裁决层（ADJUDICATED_MODEL_RULES）：canonical 优先后
+// opencodego/kimi-k3 的模型侧词表就是 canonical 的 low/high/max，不再需要跨平台镜像。
+export type ThinkingRuleSource = "upstream" | "override" | "handwritten" | "unknown";
 
 // ===== resolver =====
 
@@ -709,31 +686,8 @@ interface ResolvedRule {
   source: ThinkingRuleSource;
 }
 
-// 单点裁决命中 → 直接用镜像行的规则（不经 A' 收窄）；未命中 / 镜像事实缺失返回 null
-// （后者退回 A' 收窄，fail-closed）。
-function adjudicatedRuleFor(providerId: string, model: string): ResolvedRule | null {
-  const normalizedModel = String(model || "").trim().toLowerCase();
-  const entry = ADJUDICATED_MODEL_RULES.find(
-    (rule) => rule.presetId === providerId && rule.model.toLowerCase() === normalizedModel
-  );
-  if (!entry) {
-    return null;
-  }
-  const mirrorUpstreamId = UPSTREAM_PROVIDER_BY_PRESET[entry.mirrorOf.presetId];
-  const mirrorFact = mirrorUpstreamId ? lookupThinkingFact(mirrorUpstreamId, entry.mirrorOf.model) : null;
-  if (!mirrorFact) {
-    return null;
-  }
-  return {
-    rule: ruleFromUpstreamFact(mirrorFact, entry.mirrorOf.presetId),
-    reason: "model-vocabulary",
-    source: "adjudicated"
-  };
-}
-
 // 规则解析的唯一施加点（resolveThinkingProfile 与 resolveThinkingAdjustment 共用）：
-//   provider override（平台级裁定，识别层短路；06 号票起再与上游词表相交出 A'，其中用户
-//                       点名的单点裁决行先短路，见 ADJUDICATED_MODEL_RULES）
+//   provider override（平台级裁定，识别层短路；06 号票起再与上游词表相交出 A'）
 //   >> 上游平台：02 指派表
 //   >> 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）
 //   >> 无结论（UNKNOWN 哨兵）。
@@ -749,11 +703,6 @@ function ruleFor({ presetId, baseUrl, model, level }: ResolveThinkingInput): Res
   // 档位写点从规则里去掉——「只显示实际存在的档位」+「不发平台表达不了的词」。
   // 没有上游词表的模型（用户自填 id / 上游缺口）维持平台声明口径（今日三档）。
   if (provider?.override) {
-    // 用户点名的单点裁决行先于收窄（该行按原生厂商方言发参，不受平台声明限制）。
-    const adjudicated = providerId ? adjudicatedRuleFor(providerId, model) : null;
-    if (adjudicated) {
-      return adjudicated;
-    }
     const overrideLevels = provider.override.levels;
     const fact = upstreamId ? lookupThinkingFact(upstreamId, model) : null;
     if (!fact) {

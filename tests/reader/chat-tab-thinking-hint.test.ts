@@ -14,9 +14,10 @@
 // 锁定，本文件不重复。
 //
 // 覆盖（工单 AC）：
-// - 档位 Off + 关不掉模型：级联落 low（glm-5.3，04 号票翻转后接棒 kimi-k3）→ 长文案；
+// - 档位 Off + 关不掉模型：级联落 low（glm-5.3）→ 长文案；
 //   无 low 可落（kimi-k2.7-code，baseUrl 空）→ 短文案；两条文案与工单逐字一致；
-// - 04 号票翻转：kimi-k3 上游值集带 toggle（off 可用）→ 选 Off 静默无提示；
+// - 13 号票 canonical 优先：kimi-k3 的模型侧词表（canonical = moonshotai/kimi-k3）没有
+//   toggle → off 关不掉 → 长文案（04 号票的「off 可用 → 静默」角色由 glm-4.6 承担）；
 // - never 模型（kimi-k2-instruct / deepseek-chat）与 off 正常可用模型（glm-4.6）
 //   选 Off 均静默无提示；
 // - 实时刷新：模型 change 切回可关模型提示消失、切回再现；档位 Off→Low 收起、
@@ -32,9 +33,11 @@
 //   offUnavailable + offFallback:"low"（长文案）；baseUrl 取 GLM preset host
 //   （core/presets.ts），顺带覆盖 resolver 的 host 推断识别路径。
 //   04 号票之前这个角色由 kimi-k3 担任（旧手写结论 kimi-k3-effort：always + effort）；
-//   翻转后 kimi-k3 的 off 可用了，长文案覆盖由同为三处翻转之一的 glm-5.3 接棒。
-// - kimi-k3 → 04 号票翻转后上游指派表（值集 toggle+low-high-max）→ off 可用 → 静默；
-//   baseUrl 取 Kimi preset host（host 推断路径不回归）。
+//   04 号票翻转后 kimi-k3 的 off 可用了，长文案覆盖由 glm-5.3 接棒；13 号票的 canonical
+//   优先又让 kimi-k3 回到「关不掉」（见下一条），两条用例各覆盖一个语义。
+// - kimi-k3 → 13 号票 canonical 优先后走上游指派表（值集 low-high-max：无 toggle → 关不掉，
+//   长文案）；baseUrl 取 Kimi preset host（host 推断路径不回归）。04 号票时它是
+//   toggle+low-high-max（off 可用），该事实已被 canonical 覆盖。
 // - kimi-k2-instruct → TAXONOMY kimi-instruct-never（"kimi-k2-" 前缀）、
 //   deepseek-chat → TAXONOMY deepseek-chat-never：never → off 天然成立，静默；
 // - glm-4.6 → 上游指派表（zhipuai，值集 toggle）：off 正常可用 → offUnavailable:false。
@@ -80,8 +83,9 @@ const HINT_UNAVAILABLE = "当前模型没办法关掉思考";
 const HINT_CLAMP_HIGH_TO_MEDIUM = "档位已按模型能力调整：high → medium（模型词表没有这个档位）";
 const HINT_CLAMP_XHIGH_TO_HIGH = "档位已按模型能力调整：xhigh → high（上游未登记该模型，档位按本仓词表取）";
 // 06 号票（2026-10-04 用户裁定：A' = 上游词表 ∩ 平台可表达）：平台声明里有 low、上游
-// 词表没有 → 原因层是「模型词表」，偏好 low 向下取到 off。
-const HINT_CLAMP_LOW_TO_OFF = "档位已按模型能力调整：low → off（模型词表没有这个档位）";
+// 词表没有 → 原因层是「模型词表」。13 号票 canonical 优先后 sensenova/glm-5.2 的模型侧
+// 词表只剩 high（canonical = high-max），偏好 low 没有 ≤ low 的档 → 向上落最小可用档 high。
+const HINT_CLAMP_LOW_TO_HIGH = "档位已按模型能力调整：low → high（模型词表没有这个档位）";
 
 // Kimi/GLM preset host（core/presets.ts）：resolver host 推断的输入形状。
 const KIMI_BASE_URL = "https://api.kimi.com/coding/v1";
@@ -249,14 +253,14 @@ describe("Off + 关不掉模型：resolver 判定 → 档位区提示（文案�
     expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
   });
 
-  it("04 号票翻转：kimi-k3 上游带 toggle（off 可用）→ 选 Off 静默无提示", async () => {
+  it("13 号票 canonical 优先：kimi-k3 的模型侧词表无 toggle（off 关不掉）→ 选 Off 走长文案", async () => {
     providersPayload = [provider({ id: "p1", model: "kimi-k3", baseUrl: KIMI_BASE_URL })];
 
     await activateChatTab();
 
     const hint = getHint();
-    expect(hint.hidden).toBe(true);
-    expect(hint.textContent).toBe("");
+    expect(hint.hidden).toBe(false);
+    expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
   });
 });
 
@@ -471,16 +475,18 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
   });
 
   // 2026-10-04 用户裁定（A' = 上游词表 ∩ 平台可表达）：override 平台也不再整域放宽。
-  it("none/high 类（sensenova/glm-5.2）：chip = {off, high}；偏好 low 向下取 off（提示逐字）", async () => {
+  // 13 号票 canonical 优先：sensenova/glm-5.2 的 canonical（zhipuai/glm-5.2）是 high-max
+  // → 模型侧无 off → A' = {high}（丢 off 照收）。
+  it("high/max 类（sensenova/glm-5.2）：chip = {high}；偏好 low 向上落 high（提示逐字）", async () => {
     providersPayload = [provider({ id: "p1", model: "glm-5.2", baseUrl: SENSENOVA_URL, presetId: "sensenova" })];
     settingsPayload = { aiThinkingLevel: "low" };
 
     await activateChatTab();
 
-    expect(visibleThinkingLevels()).toEqual(["off", "high"]);
-    // 偏好 low 保留在存储里（不迁移），本模型 clamp 到 off → 说明文本「源档 → 实发档」。
+    expect(visibleThinkingLevels()).toEqual(["high"]);
+    // 偏好 low 保留在存储里（不迁移），本模型无 ≤ low 的档 → 落最小可用档 high。
     expect(getHint().hidden).toBe(false);
-    expect(getHint().textContent).toBe(HINT_CLAMP_LOW_TO_OFF);
+    expect(getHint().textContent).toBe(HINT_CLAMP_LOW_TO_HIGH);
     // 没有禁用态 chip（被 clamp 掉的 low 是「不存在」而不是「灰色」）。
     expect(getThinkingBtn("low").hidden).toBe(true);
     expect(getThinkingBtn("low").disabled).toBe(false);

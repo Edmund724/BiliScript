@@ -90,15 +90,18 @@ function writeVariant(name: string, mutate: (api: FixtureApi) => void): string {
 
 function generate(name: string, input: string = FIXTURE, extra: string[] = []): string {
   const out = outPath(name);
-  // fixture 是 12 家的合成小快照：本仓真实别名表的目标（k3 / step-3.7-flash /
-  // moonshotai/kimi-k2.6 / ZhipuAI/GLM-4.6）都不在里面，所以默认 --aliases none
-  // （生产默认是脚本里的 MODEL_ID_ALIASES）；要测别名机制就传 --aliases <path>。
+  // fixture 是 12 家的合成小快照：本仓真实别名表与 canonical 重定向表的目标（k3 /
+  // step-3.7-flash / moonshotai/kimi-k2.6 / ZhipuAI/GLM-4.6 / deepseek-flash）都不在里面，
+  // 所以默认 --aliases none --redirects none（生产默认是脚本里的 MODEL_ID_ALIASES /
+  // CANONICAL_MODEL_REDIRECTS）；要测这两张机制就传对应的 <path>。
   const run = runGenerator([
     "--input",
     input,
     "--out",
     out,
     "--aliases",
+    "none",
+    "--redirects",
     "none",
     "--expect-counts",
     FIXTURE_COUNTS,
@@ -221,6 +224,97 @@ describe("思考事实生成器 CLI（02）", () => {
     }
   });
 
+  it("canonical 优先（13 号票）：direct 非空时先借 canonical，悬空才回落 direct；重定向表在两条路径都生效", () => {
+    // (1) canonical 优先：direct 只有窄词表（effort[max]），canonical 指向 xiaomi/fx-mimo
+    // （toggle）→ 命中 canonical 的结构，direct 的窄词表不再登记。
+    const priority = writeVariant("canonical-priority", (api) => {
+      api["deepseek"].models["fx-pdf-first"].reasoning_options = [{ type: "effort", values: ["max"] }];
+      api["deepseek"].models["fx-pdf-first"].canonical_model_id = "xiaomi/fx-mimo";
+    });
+    // effort 值集少一个：effort[max] 只被这一行引用，改写后不再登记（派生计数随产物变）。
+    const priorityBody = bodyOf(generate("canonical-priority", priority, ["--expect-counts", "15/12/9/3/4"]));
+    expect(priorityBody).toContain(`  "deepseek": {\n    "fx-pdf-first": "toggle",\n  },`);
+    expect(priorityBody).not.toContain(`effort: ["max"]`);
+
+    // (2) canonical 悬空（目标存在但无词表）→ 回落 direct，direct 原样登记（改造无影响）。
+    const dangling = writeVariant("canonical-dangling", (api) => {
+      api["zhipuai"].models["fx-glm"].canonical_model_id = "minimax-cn/fx-minimax";
+    });
+    const danglingBody = bodyOf(generate("canonical-dangling", dangling));
+    expect(danglingBody).toContain(`  "zhipuai": {\n    "fx-glm": "high-max",\n  },`);
+
+    // (3) 重定向表：canonical 指向上游不存在的 id → 借重定向目标（direct 非空路径）。
+    const redirectFixture = join(tmpRoot, "redirects.json");
+    writeFileSync(
+      redirectFixture,
+      JSON.stringify([
+        {
+          canonical: "bogus/deepseek-v4.1-flash",
+          redirect: "xiaomi/fx-mimo",
+          reason: "fixture：上游没有 deepseek 4.1-flash 这个 id，改借 xiaomi 的开关词表。"
+        }
+      ])
+    );
+    const redirected = writeVariant("canonical-redirected", (api) => {
+      api["deepseek"].models["fx-pdf-first"].reasoning_options = [{ type: "effort", values: ["max"] }];
+      api["deepseek"].models["fx-pdf-first"].canonical_model_id = "bogus/deepseek-v4.1-flash";
+    });
+    const redirectedBody = bodyOf(
+      generate("canonical-redirected", redirected, ["--redirects", redirectFixture, "--expect-counts", "15/12/9/3/4"])
+    );
+    expect(redirectedBody).toContain(`  "deepseek": {\n    "fx-pdf-first": "toggle",\n  },`);
+
+    // (4) 重定向表在「direct 为空」的缺口路径同样生效（fx-go 原本借 xiaomi/fx-mimo）。
+    const gapRedirected = writeVariant("gap-redirected", (api) => {
+      api["opencode-go"].models["fx-go"].canonical_model_id = "bogus/deepseek-v4.1-flash";
+    });
+    const gapBody = bodyOf(generate("gap-redirected", gapRedirected, ["--redirects", redirectFixture]));
+    expect(gapBody).toContain(`  "opencode-go": {\n    "fx-go": "toggle",\n  },`);
+    expect(gapBody).toContain("    borrowed: 1,");
+
+    // (5) 未传 --redirects 时默认加载生产重定向表并逐条校验；fixture 快照里没有
+    // deepseek/deepseek-flash → 硬错（fail-loud，不是静默落空）。
+    const defaultRedirects = runGenerator([
+      "--input",
+      FIXTURE,
+      "--out",
+      outPath("default-redirects"),
+      "--aliases",
+      "none",
+      "--expect-counts",
+      FIXTURE_COUNTS
+    ]);
+    expect(defaultRedirects.status, "生产重定向表的目标不在 fixture 里应当硬错").not.toBe(0);
+    expect(defaultRedirects.stderr).toContain("sync-models-dev-thinking");
+  });
+
+  it("canonical 重定向表：目标不存在 / 目标无词表 / 缺 provider 前缀 / 缺 reason 一律硬错", () => {
+    const bad: [string, Record<string, string>][] = [
+      ["target-missing", { canonical: "bogus/x", redirect: "no-such-provider/y", reason: "目标 provider 不存在" }],
+      ["target-empty", { canonical: "bogus/x", redirect: "minimax-cn/fx-minimax", reason: "目标没有词表" }],
+      ["malformed", { canonical: "bogus/x", redirect: "fx-mimo", reason: "缺 provider 前缀" }],
+      ["missing-reason", { canonical: "bogus/x", redirect: "xiaomi/fx-mimo", reason: "" }]
+    ];
+    for (const [name, entry] of bad) {
+      const file = join(tmpRoot, `redirects-${name}.json`);
+      writeFileSync(file, JSON.stringify([entry]));
+      const run = runGenerator([
+        "--input",
+        FIXTURE,
+        "--out",
+        outPath(`redirects-${name}-out`),
+        "--aliases",
+        "none",
+        "--redirects",
+        file,
+        "--expect-counts",
+        FIXTURE_COUNTS
+      ]);
+      expect(run.status, `重定向 ${name} 应当硬错`).not.toBe(0);
+      expect(run.stderr).toContain("sync-models-dev-thinking");
+    }
+  });
+
   it("别名表：查表兜底 + 缺口补录，目标指错一律硬错（不许静默落空）", () => {
     // 别名 fixture：一条查表兜底（kimi-k3 → 上游 fx-kimi），一条缺口补录
     // （amd/Fx-AMD-Upper 借 xiaomi/fx-mimo）—— 与真实别名表同一条代码路径。
@@ -269,6 +363,8 @@ describe("思考事实生成器 CLI（02）", () => {
         outPath(`aliases-${name}-out`),
         "--aliases",
         file,
+        "--redirects",
+        "none",
         "--expect-counts",
         FIXTURE_COUNTS
       ]);
@@ -279,7 +375,7 @@ describe("思考事实生成器 CLI（02）", () => {
 
   it("对账：默认常量是真产物的 578/415/352/63/30，fixture 不带覆盖参数必红", () => {
     // 不带 --expect-counts 时按脚本常量（真产物口径）判，fixture 只有 15/12/9/3/5 → 必红。
-    const mismatch = runGenerator(["--input", FIXTURE, "--out", outPath("default-expect"), "--aliases", "none"]);
+    const mismatch = runGenerator(["--input", FIXTURE, "--out", outPath("default-expect"), "--aliases", "none", "--redirects", "none"]);
     expect(mismatch.status).not.toBe(0);
     expect(mismatch.stderr).toContain("578");
     expect(mismatch.stderr).toContain("15");
@@ -290,6 +386,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "--out",
       outPath("wrong-expect"),
       "--aliases",
+      "none",
+      "--redirects",
       "none",
       "--expect-counts",
       "15/12/9/4/5"
@@ -303,6 +401,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "--out",
       outPath("malformed-expect"),
       "--aliases",
+      "none",
+      "--redirects",
       "none",
       "--expect-counts",
       "15/12"
@@ -328,6 +428,8 @@ describe("思考事实生成器 CLI（02）", () => {
         "--out",
         outPath(`drift-${index}`),
         "--aliases",
+        "none",
+        "--redirects",
         "none",
         "--expect-counts",
         FIXTURE_COUNTS
@@ -371,6 +473,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "--out",
       out,
       "--aliases",
+      "none",
+      "--redirects",
       "none",
       "--expect-counts",
       FIXTURE_COUNTS,
@@ -539,8 +643,11 @@ describe("思考事实产物（02）", () => {
       // 63 个缺口里 7 个借到原生词表（6 条 canonical + 1 条别名），其余 56 个标未知。
       borrowed: 7,
       unknown: 56,
-      effortSets: 30,
-      valuesets: 50,
+      // canonical 优先（13 号票）后 effort[max] 只被 opencode-go/kimi-k3 引用，该行改借
+      // canonical 的 low-high-max → 值集 "max" 不再登记：effort 值集 30 → 29。
+      effortSets: 29,
+      // 352 直接行的规范词表 + 新增 7 个 canonical 目标值集 − 6 个不再被引用的 direct 值集。
+      valuesets: 51,
       deprecated: 9,
       aliases: 6
     });
@@ -560,6 +667,38 @@ describe("思考事实产物（02）", () => {
     // 借 xiaomi 的同名模型；alibaba-cn 的 glm-5.2 借 zhipuai。
     expect(ASSIGNMENTS["opencode-go"]?.["mimo-v2.6-pro"]).toBe(ASSIGNMENTS["xiaomi"]?.["mimo-v2.6-pro"]);
     expect(ASSIGNMENTS["alibaba-cn"]?.["glm-5.2"]).toBe(ASSIGNMENTS["zhipuai"]?.["glm-5.2"]);
+  });
+
+  it("canonical 优先 + canonical 重定向表（13 号票）：direct 非空也让 canonical 当词表主人", () => {
+    // 重定向表依据：上游 deepseek provider 没有 4.1-flash 这个 id —— 查表必须落空。
+    expect(lookupThinkingFact("deepseek", "deepseek-v4.1-flash")).toBeNull();
+    const target = lookupThinkingFact("deepseek", "deepseek-flash");
+    expect(target?.valuesetId).toBe("toggle+low-high-max");
+    // 全部 7 行 canonical 指向 deepseek/deepseek-v4.1-flash 的行都改借 deepseek-flash。
+    const redirected: [string, string][] = [
+      ["deepseek", "deepseek-v4-flash-vision-exp"],
+      ["deepseek", "deepseek-flash"],
+      ["deepseek", "deepseek-v4-flash"],
+      ["alibaba-cn", "deepseek-v4.1-flash"],
+      ["opencode-go", "deepseek-v4.1-flash"],
+      ["openrouter", "deepseek/deepseek-v4.1-flash"],
+      ["amd", "DeepSeek-V4.1-Flash"]
+    ];
+    expect(redirected).toHaveLength(7);
+    for (const [provider, model] of redirected) {
+      expect(lookupThinkingFact(provider, model)?.valuesetId, `${provider}/${model}`).toBe(target?.valuesetId);
+    }
+
+    // canonical 优先的主证据：opencode-go/kimi-k3 的 direct 只有 effort[max]，canonical
+    // （moonshotai/kimi-k3）是 low-high-max → 行拿到 canonical 的词表，值集 "max" 消失。
+    expect(lookupThinkingFact("opencode-go", "kimi-k3")?.valuesetId).toBe("low-high-max");
+    expect(lookupThinkingFact("opencode-go", "kimi-k3")?.effort).toEqual(["low", "high", "max"]);
+    expect(VALUESETS.max).toBeUndefined();
+
+    // 悬空 canonical 回落 direct 的实证：deepseek-v4-pro 的 canonical 指向上游不存在的
+    // deepseek-v4-pro-0813（不在快照里）→ 保持 direct 的 toggle+low-high-max。
+    expect(lookupThinkingFact("deepseek", "deepseek-v4-pro")?.valuesetId).toBe("toggle+low-high-max");
+    expect(lookupThinkingFact("deepseek", "deepseek-v4-pro-0813")).toBeNull();
   });
 
   it("deprecated 保留并标记：进表 + fact.deprecated，beta 不算", () => {
@@ -608,7 +747,7 @@ describe("思考事实产物（02）", () => {
     const bytes = new TextEncoder().encode(source).length;
     // 今日 thinking-profiles.ts 是 31,324 B（本产物 31,171 B，更小）；上限 32,768 B 留出
     // 上游漂移余量。反例尺度：pi-ai 目录产物 80,791 B / 435 模型（逐模型记录）；
-    // 本产物是 50 条值集 + 359 条指派。
+    // 本产物是 51 条值集 + 359 条指派。
     expect(bytes).toBeLessThan(32768);
     expect(VALUESETS["toggle"]).toBeTruthy();
     expect(Object.keys(VALUESETS)).toHaveLength(UPSTREAM_THINKING_SOURCE.counts.valuesets);

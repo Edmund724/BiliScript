@@ -32,8 +32,10 @@ import {
   TAXONOMY,
   UPSTREAM_PROVIDER_BY_PRESET,
   applyClassRule,
+  resolveThinkingAdjustment,
   resolveThinkingProfile,
   ruleFromUpstreamFact,
+  upstreamVocabularyOf,
   validateThinkingTables,
   type ClassRule,
   type TaxonomyEntry,
@@ -199,9 +201,14 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
     }
   });
 
-  it("kimi-code-plan-cn/k3：上游 toggle+low-high-max → off 可用（走 Kimi 的 thinking 开关）", () => {
+  it("kimi-code-plan-cn/k3：13 号票 canonical 优先 → 词表 low-high-max（off 关不掉、级联落 low）", () => {
+    // 12 号票的翻转（direct 的 toggle → off 可用）被 13 号票的 canonical 优先覆盖：
+    // canonical（moonshotai/kimi-k3）没有 toggle → off 只走级联落最低可用档。
     expect(resolveViaRuntime("moonshot", "kimi-k3", "off")).toBe(
-      JSON.stringify({ fields: { thinking: { type: "disabled" } }, offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+      JSON.stringify({ fields: { reasoning_effort: "low" }, offUnavailable: true, offFallback: "low", thinkingClass: "always" })
+    );
+    expect(resolveViaRuntime("moonshot", "kimi-k3", "high")).toBe(
+      JSON.stringify({ fields: { reasoning_effort: "high" }, offUnavailable: false, offFallback: null, thinkingClass: "always" })
     );
     // 上游 id 写法（k3）与别名写法（kimi-k3）同源同结论。
     expect(resolveViaRuntime("moonshot", "k3", "off")).toBe(resolveViaRuntime("moonshot", "kimi-k3", "off"));
@@ -497,5 +504,171 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
         expect(JSON.stringify(actual), `${model} · ${level}`).toBe(expected);
       }
     }
+  });
+});
+
+// ===== 13 号票：canonical 优先 + canonical 重定向表 =====
+// 失败方式（每条一个用例）：
+//   1. canonical 悬空时没回落 direct（行变成「未知词表」不发参）；
+//   2. canonical 优先没生效（direct 的窄词表仍当主人，如 opencode-go/kimi-k3 只剩 max）；
+//   3. 重定向表没生效（7 行借不到 deepseek-flash）；
+//   4. 单点裁决删除后 opencodego 的 max 被平台声明裁掉（kimi-k3 的 A' 少了 max）；
+//   5. 丢 off 的行没按新上游事实丢（还发 reasoning_effort:none）；
+//   6. A' = ∅ 的行不再 fail-closed（照平台声明发参）；
+//   7. minimax 的 hand-wins 被 canonical 优先波及（负事实被动过）；
+//   8. 4 家 override 的存在与 A' = 上游词表 ∩ 平台声明 语义被改。
+describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定）", () => {
+  const adjustmentOf = (presetId: string, model: string, level = "high") =>
+    resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level, stream: STREAM });
+  const levelsOf = (presetId: string, model: string): readonly ThinkingLevel[] => adjustmentOf(presetId, model).availableLevels;
+
+  it("canonical 优先：direct 非空的行也按 canonical 的词表服务（opencode-go/kimi-k3 拿到 low-high-max）", () => {
+    // direct 只有 effort[max]；canonical（moonshotai/kimi-k3）是 low-high-max。
+    const fact = lookupThinkingFact("opencode-go", "kimi-k3");
+    expect(fact?.valuesetId).toBe("low-high-max");
+    expect(fact?.effort).toEqual(["low", "high", "max"]);
+    // 平台声明补了 max（范围 2）→ A' = {low, high, max}：恰为三档，不多不少、无 off。
+    expect(levelsOf("opencodego", "kimi-k3")).toEqual(["low", "high", "max"]);
+    expect(adjustmentOf("opencodego", "kimi-k3").source).toBe("override");
+  });
+
+  it("canonical 悬空回落 direct（不变成未知词表）：deepseek-v4-pro 的指针指向不存在的 id", () => {
+    // canonical = deepseek/deepseek-v4-pro-0813，上游没有这个 id → 回落 direct。
+    const fact = lookupThinkingFact("deepseek", "deepseek-v4-pro");
+    expect(fact?.valuesetId).toBe("toggle+low-high-max");
+    expect(fact?.off).toBe("toggle");
+    for (const level of ALL_LEVELS) {
+      expect(resolveViaRuntime("deepseek", "deepseek-v4-pro", level), level).toBe(
+        outcomeOf(ruleFromUpstreamFact(fact!, "deepseek"), level)
+      );
+    }
+  });
+
+  it("重定向表：7 行 canonical 指向 deepseek/deepseek-v4.1-flash 的行，档位集合逐一等于裁定表", () => {
+    const expected: Array<[presetId: string, upstreamId: string, model: string, levels: readonly ThinkingLevel[]]> = [
+      ["deepseek", "deepseek", "deepseek-v4-flash-vision-exp", ["off", "low", "high", "max"]],
+      ["deepseek", "deepseek", "deepseek-flash", ["off", "low", "high", "max"]],
+      ["deepseek", "deepseek", "deepseek-v4-flash", ["off", "low", "high", "max"]],
+      ["qwen", "alibaba-cn", "deepseek-v4.1-flash", ["off", "low", "high", "max"]],
+      ["opencodego", "opencode-go", "deepseek-v4.1-flash", ["low", "high", "max"]],
+      ["openrouter", "openrouter", "deepseek/deepseek-v4.1-flash", ["off", "low", "high"]],
+      ["amd", "amd", "DeepSeek-V4.1-Flash", ["off", "low", "high"]]
+    ];
+    expect(expected).toHaveLength(7);
+    const target = lookupThinkingFact("deepseek", "deepseek-flash");
+    for (const [presetId, upstreamId, model, levels] of expected) {
+      expect(lookupThinkingFact(upstreamId, model)?.valuesetId, `${upstreamId}/${model}`).toBe(target?.valuesetId);
+      expect(levelsOf(presetId, model), `${presetId}/${model}`).toEqual([...levels]);
+    }
+    // amd 从 direct 的 effort[none,…,max] 换成重定向目标的 toggle+low-high-max：
+    // 关得掉（off 走平台的 effort none，不是模型侧 toggle）。
+    const amd = lookupThinkingFact("amd", "DeepSeek-V4.1-Flash");
+    expect(amd?.toggle).toBe(true);
+    expect(amd?.effort).toEqual(["low", "high", "max"]);
+    expect(amd?.off).toBe("toggle");
+  });
+
+  it("丢 off 的行按新上游事实失去 off（22 行 openrouter + sensenova/glm-5.2 + moonshot/k3）", () => {
+    const lost: Array<[presetId: string, upstreamId: string, model: string]> = [
+      ["openrouter", "openrouter", "anthropic/claude-opus-4.5"],
+      ["openrouter", "openrouter", "anthropic/claude-opus-4.6"],
+      ["openrouter", "openrouter", "anthropic/claude-opus-4.7"],
+      ["openrouter", "openrouter", "anthropic/claude-opus-4.8"],
+      ["openrouter", "openrouter", "anthropic/claude-haiku-4.5"],
+      ["openrouter", "openrouter", "anthropic/claude-opus-5"],
+      ["openrouter", "openrouter", "anthropic/claude-sonnet-4.5"],
+      ["openrouter", "openrouter", "anthropic/claude-sonnet-4.6"],
+      ["openrouter", "openrouter", "z-ai/glm-5.2"],
+      ["openrouter", "openrouter", "google/gemini-3.1-flash-image-preview"],
+      ["openrouter", "openrouter", "google/gemini-3.1-flash-image"],
+      ["openrouter", "openrouter", "google/gemini-3.1-flash-lite-image"],
+      ["openrouter", "openrouter", "google/gemini-3-flash-preview"],
+      ["openrouter", "openrouter", "google/gemini-3.1-flash-lite-preview"],
+      ["openrouter", "openrouter", "google/gemini-3.1-flash-lite"],
+      ["openrouter", "openrouter", "moonshotai/kimi-k3"],
+      ["openrouter", "openrouter", "openai/o4-mini"],
+      ["openrouter", "openrouter", "openai/o3-mini"],
+      ["openrouter", "openrouter", "openai/o1"],
+      ["openrouter", "openrouter", "openai/o3-pro"],
+      ["openrouter", "openrouter", "openai/o3"],
+      ["openrouter", "openrouter", "openai/o1-pro"],
+      ["sensenova", "sensenova", "glm-5.2"],
+      ["moonshot", "kimi-code-plan-cn", "k3"]
+    ];
+    expect(lost.filter(([presetId]) => presetId === "openrouter")).toHaveLength(22);
+    for (const [presetId, upstreamId, model] of lost) {
+      const fact = lookupThinkingFact(upstreamId, model);
+      expect(fact, `${upstreamId}/${model}`).toBeTruthy();
+      // 模型侧事实：off 不再可得（无 toggle、effort 不含 none）。
+      expect(fact?.off, `${upstreamId}/${model} 不该再有 off`).toBeNull();
+      expect(upstreamVocabularyOf(fact!), `${upstreamId}/${model} 的词表不该含 off`).not.toContain("off");
+      // 档位层：off 不在 chip 集合里，请求 off 不发 none（级联落最低可用档）。
+      expect(levelsOf(presetId, model), `${presetId}/${model}`).not.toContain("off");
+      const off = resolveThinkingProfile({ presetId, baseUrl: baseUrlOf(presetId), model, level: "off", stream: STREAM });
+      expect(JSON.stringify(off.fields), `${presetId}/${model} 偏好 off`).not.toContain('"none"');
+    }
+  });
+
+  it("A' = ∅ 的行仍 fail-closed（openrouter/anthropic/claude-haiku-4.5、claude-sonnet-4.5 不发参）", () => {
+    for (const model of ["anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-4.5"]) {
+      const adj = adjustmentOf("openrouter", model);
+      expect(adj.availableLevels, model).toEqual([]);
+      expect(adj.effectiveLevel, model).toBeNull();
+      expect(adj.source, model).toBe("override");
+      for (const level of ALL_LEVELS) {
+        // 平台声明是 hybrid（有 off 键），但模型侧词表为 budget-only → A' = ∅：
+        // off 走级联（无档可落 → offUnavailable 标记），非 off 档不发任何字段。
+        expect(resolveViaRuntime("openrouter", model, level), `${model} · ${level}`).toBe(
+          JSON.stringify({
+            fields: {},
+            offUnavailable: level === "off",
+            offFallback: null,
+            thinkingClass: "hybrid"
+          })
+        );
+      }
+    }
+  });
+
+  it("minimax/MiniMax-M3 的 hand-wins 逐字节不变（没有 canonical 指针，改造碰不到它）", () => {
+    const upstream = "minimax-cn";
+    // 负事实没被动过：上游仍是 [toggle]（不可采信），本仓仍不登记 minimax 开关方言。
+    expect(lookupThinkingFact(upstream, "MiniMax-M3")?.valuesetId).toBe("toggle");
+    expect(UPSTREAM_PROVIDER_BY_PRESET.minimax).toBe(upstream);
+    // 本仓仍不给 minimax 登记开关形状（PROVIDERS.minimax 无 override / unknownClass）。
+    expect(PROVIDERS.minimax?.override).toBeUndefined();
+    expect(PROVIDERS.minimax?.unknownClass).toBeUndefined();
+    const expectedOff = JSON.stringify({ fields: {}, offUnavailable: true, offFallback: null, thinkingClass: "always" });
+    const expectedOn = JSON.stringify({ fields: {}, offUnavailable: false, offFallback: null, thinkingClass: "always" });
+    for (const level of ALL_LEVELS) {
+      expect(resolveViaRuntime("minimax", "MiniMax-M3", level), level).toBe(level === "off" ? expectedOff : expectedOn);
+    }
+    expect(levelsOf("minimax", "MiniMax-M3")).toEqual([]);
+  });
+
+  it("4 家 override 的存在与 A' 语义未变（平台声明 ∩ 上游词表）", () => {
+    for (const presetId of OVERRIDE_PRESETS) {
+      const override = PROVIDERS[presetId]?.override;
+      expect(override, `${presetId} 的 override 声明`).toBeTruthy();
+      const declared = new Set(AI_THINKING_LEVELS.filter((level) => Boolean(override!.levels[level])));
+      const upstreamId = UPSTREAM_PROVIDER_BY_PRESET[presetId];
+      expect(upstreamId, `${presetId} 的上游桥接`).toBeTruthy();
+      // 语义未变：可用集 ⊆ 平台声明，且 ⊆ 上游词表。
+      for (const model of Object.keys(ASSIGNMENTS[upstreamId] ?? {}).slice(0, 10)) {
+        const fact = lookupThinkingFact(upstreamId, model);
+        expect(fact, `${upstreamId}/${model}`).toBeTruthy();
+        const vocabulary = new Set(upstreamVocabularyOf(fact!));
+        for (const level of levelsOf(presetId, model)) {
+          expect(declared.has(level), `${presetId}/${model} · ${level} 不在平台声明`).toBe(true);
+          expect(vocabulary.has(level), `${presetId}/${model} · ${level} 不在上游词表`).toBe(true);
+        }
+      }
+    }
+    // 范围 2：opencodego 补了 max 档声明（canonical 的 max 不再被平台声明裁掉）。
+    expect(AI_THINKING_LEVELS.filter((level) => Boolean(PROVIDERS.opencodego.override!.levels[level]))).toEqual([
+      "low",
+      "high",
+      "max"
+    ]);
   });
 });

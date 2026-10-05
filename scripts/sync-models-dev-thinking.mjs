@@ -21,12 +21,14 @@
 //   pnpm catalog:sync:thinking
 //   node scripts/sync-models-dev-thinking.mjs \
 //     [--input <path|url>] [--out <path>] [--expect-counts a/b/c/d/e] \
-//     [--report <path>] [--matrix <path>]
+//     [--aliases <path|none>] [--redirects <path|none>] [--report <path>] [--matrix <path>]
 //
 //   --input          读本地 api.json 快照（默认直连 https://models.dev/api.json）。
 //   --out            产物落点（默认 extension/ai/catalog/models-dev-thinking.generated.ts）。
 //   --expect-counts  对账常量，形如 `<模型数>/<reasoning 数>/<有词表数>/<缺口数>/<effort 值集数>`；
 //                    只给 fixture 用，生产不许改（改了等于关掉对账）。
+//   --aliases        显式别名表（默认脚本里的 MODEL_ID_ALIASES；`none` = 不加载）。
+//   --redirects      canonical 重定向表（默认脚本里的 CANONICAL_MODEL_REDIRECTS；`none` = 不加载）。
 //   --report         另把本次 sync 的摘要 + 63 个缺口的逐条处理写成文件。
 //   --matrix         另把逐 (provider, 模型, 档位空间) 矩阵写成 TSV（后续 golden 的数据来源）。
 
@@ -100,15 +102,34 @@ const MODEL_ID_ALIASES = [
   }
 ];
 
+// canonical 重定向表（13 号票裁定 2）：行的 canonical_model_id 指向上游**并不存在**的 id 时，
+// 改借另一条上游记录的词表。取值序见 compileFacts 第一遍：direct 非空时先查 canonical
+// （→ 本表 → 目标词表）；本表让悬空指针落到真实存在的目标上。
+// 与 MODEL_ID_ALIASES 同纪律：每条必须写清上游依据（可审），生成期逐条 fail-loud 校验
+// redirect 目标存在且有 reasoning_options —— 指错等于静默落空，宁可硬错也不猜档位。
+const CANONICAL_MODEL_REDIRECTS = [
+  {
+    canonical: "deepseek/deepseek-v4.1-flash",
+    redirect: "deepseek/deepseek-flash",
+    reason:
+      "上游 deepseek provider 没有 4.1-flash 这个 id（只有 deepseek-flash / deepseek-v4-flash / " +
+      "deepseek-v4-flash-vision-exp / deepseek-v4-pro）；用户 2026-10-05 裁定「所有的 " +
+      "DeepSeek-v4.1-flash 都可以直接用上游 deepseek provider 的 deepseek-flash 参数」。"
+  }
+];
+
 // 对账常量（spec §词汇覆盖缺口 + §上游形态，主 agent 复核实测）。不是这些数说明上游
 // 内容或路径变了 —— 先确认快照 contentHash 与 spec 记录，再同步本常量、spec 与
 // tests/ai/models-dev-thinking.test.ts 的期望值。
+// effortSets 是**派生计数**（被引用值集里的 effort 词表去重）：13 号票 canonical 优先后
+// effort[max] 只被 opencode-go/kimi-k3 引用，该行改借 canonical 的 low-high-max →
+// 值集 "max" 不再登记，故 30 → 29（上游原始 30 种 effort 值集不变，见 spec §上游形态）。
 const EXPECTED_COUNTS = {
   models: 578,
   reasoning: 415,
   withOptions: 352,
   gaps: 63,
-  effortSets: 30
+  effortSets: 29
 };
 
 function fail(message) {
@@ -123,12 +144,13 @@ function parseArgs(argv) {
     report: null,
     matrix: null,
     aliases: null,
+    redirects: null,
     expectCounts: EXPECTED_COUNTS
   };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if (["--input", "--out", "--report", "--matrix", "--aliases", "--expect-counts"].includes(flag)) {
+    if (["--input", "--out", "--report", "--matrix", "--aliases", "--redirects", "--expect-counts"].includes(flag)) {
       if (value === undefined) fail(`${flag} 缺参数值`);
       i += 1;
       if (flag === "--input") options.input = value;
@@ -136,15 +158,50 @@ function parseArgs(argv) {
       else if (flag === "--report") options.report = value;
       else if (flag === "--matrix") options.matrix = value;
       else if (flag === "--aliases") options.aliases = value;
+      else if (flag === "--redirects") options.redirects = value;
       else options.expectCounts = parseExpectCounts(value);
       continue;
     }
     fail(
       `未知参数 "${flag}"。用法：--input <path|url> --out <path> --aliases <path|none> ` +
-        `--expect-counts <a/b/c/d/e> --report <path> --matrix <path>`
+        `--redirects <path|none> --expect-counts <a/b/c/d/e> --report <path> --matrix <path>`
     );
   }
   return options;
+}
+
+// 重定向表来源：默认脚本里的 CANONICAL_MODEL_REDIRECTS（本仓事实，生产路径）；fixture 用
+// 小表，`none` = 不加载（同 --aliases 的纪律）。表里的条目生成期逐条校验（见 compileFacts）。
+function loadRedirects(option) {
+  if (option === null) {
+    return CANONICAL_MODEL_REDIRECTS;
+  }
+  if (option === "none") {
+    return [];
+  }
+  if (!fs.existsSync(option)) {
+    fail(`--redirects 指向的文件不存在：${option}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(option, "utf8"));
+  } catch (error) {
+    fail(`--redirects 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!Array.isArray(parsed)) {
+    fail(`--redirects 顶层必须是数组（每条 {canonical, redirect, reason}）。`);
+  }
+  for (const [index, entry] of parsed.entries()) {
+    if (!entry || typeof entry !== "object") {
+      fail(`--redirects[${index}] 不是对象。`);
+    }
+    for (const field of ["canonical", "redirect", "reason"]) {
+      if (typeof entry[field] !== "string" || entry[field].length === 0) {
+        fail(`--redirects[${index}] 缺非空字符串字段 ${field}（每条 reason 必填，可审）。`);
+      }
+    }
+  }
+  return parsed;
 }
 
 // 别名表来源：默认脚本里的 MODEL_ID_ALIASES（本仓事实，生产路径）；fixture 用小表，
@@ -322,12 +379,42 @@ function pickUpstreamProvider(api, upstreamId, preset) {
 }
 
 // 编译一遍：值集去重 + 逐模型指派。返回的都是纯数据，渲染与报告共用。
-function compileFacts(api, aliases) {
+function compileFacts(api, aliases, redirects) {
   const valuesets = new Map();
   const structureOf = new Map();
   const gaps = [];
   const counts = { models: 0, reasoning: 0, withOptions: 0, gaps: 0, effortSets: 0 };
   const effortSets = new Set();
+
+  // 重定向表解析：逐条 fail-loud 校验目标存在且有词表（见 CANONICAL_MODEL_REDIRECTS 注释）；
+  // 同一个 canonical 出现两条也硬错（静默取后者等于表里有条死条目）。key = canonical id。
+  const redirectByCanonical = new Map();
+  for (const entry of redirects) {
+    if (redirectByCanonical.has(entry.canonical)) {
+      fail(`canonical 重定向表有重复的 canonical "${entry.canonical}" —— 一条指针只能重定向到一个目标。`);
+    }
+    const parts = splitUpstreamId(entry.redirect);
+    if (!parts) {
+      fail(`canonical 重定向表 ${entry.canonical}: redirect 必须是 "<上游 provider>/<模型 id>"，收到 "${entry.redirect}"。`);
+    }
+    const target = api[parts.providerId]?.models?.[parts.modelId];
+    if (!target || typeof target !== "object") {
+      fail(`canonical 重定向表 ${entry.canonical} 指向的上游模型不存在：${entry.redirect}（上游改 id 了？）。`);
+    }
+    const options = target.reasoning_options;
+    if (!Array.isArray(options) || options.length === 0) {
+      fail(`canonical 重定向表 ${entry.canonical} 指向的 ${entry.redirect} 自己没有 reasoning_options —— 重定向指错了。`);
+    }
+    redirectByCanonical.set(entry.canonical, entry.redirect);
+  }
+
+  // canonical 优先改写（13 号票裁定 1）与回落 direct 的逐行留档（--report 新增节的数据源）。
+  const canonicalPriority = [];
+  const canonicalFallbacks = [];
+  const redirectHits = [];
+  const recordRedirectHit = (key, canonical, target) => {
+    redirectHits.push(`${key} ← canonical:${canonical} → ${target}`);
+  };
 
   // 值集去重 + 登记：同一个 slug 只登记一次；两条不同结构撞同一个 slug 直接 fail
   // （去重过头 = 指派指向错误的档位空间，是最危险的失败方式）。
@@ -380,7 +467,38 @@ function compileFacts(api, aliases) {
       if (Array.isArray(options) && options.length > 0) {
         counts.withOptions += 1;
         stats.assigned += 1;
+        // canonical 优先（13 号票裁定 1）：direct 非空时先查 canonical（→ 重定向表 → 目标
+        // 词表），命中就用 canonical 的结构 —— 上游给了更宽词表的那一行，canonical 才是词表
+        // 主人；direct 的窄词表在命中时不再登记。无指针 / 悬空 / 目标无词表 → 回落 direct
+        // （现行行为不变）。
+        const canonical = borrowOptions(api, model.canonical_model_id, redirectByCanonical);
+        if (canonical) {
+          const where = `${providerId}/${modelId} ← canonical:${canonical.from}`;
+          rows[modelId] = registerValueset(where, normalizeOptions(where, canonical.options));
+          canonicalPriority.push({
+            provider: providerId,
+            modelId,
+            canonical: canonical.redirectedFrom ?? canonical.from,
+            target: canonical.from,
+            redirected: canonical.redirectedFrom !== null,
+            valuesetId: rows[modelId]
+          });
+          if (canonical.redirectedFrom) {
+            recordRedirectHit(`${providerId}/${modelId}`, canonical.redirectedFrom, canonical.from);
+          }
+          continue;
+        }
         rows[modelId] = registerValueset(`${providerId}/${modelId}`, normalizeOptions(`${providerId}/${modelId}`, options));
+        if (typeof model.canonical_model_id === "string" && model.canonical_model_id.length > 0) {
+          canonicalFallbacks.push({
+            provider: providerId,
+            modelId,
+            canonical: model.canonical_model_id,
+            reason: "canonical 悬空（目标不存在或无词表）"
+          });
+        } else {
+          canonicalFallbacks.push({ provider: providerId, modelId, canonical: null, reason: "上游没有 canonical_model_id" });
+        }
         continue;
       }
       // 词表缺口：占位 null，第二遍借词；借不到就删掉（不进表 = 未知词表）。
@@ -408,10 +526,10 @@ function compileFacts(api, aliases) {
   // canonical 可借时看别名表补录；都借不到就标「未知词表」（查表返回 null，请求侧
   // 不发任何思考参数）。借错平台或臆造档位是硬错误，所以两条路径都只认上游原文。
   for (const gap of gaps) {
-    const canonical = borrowOptions(api, gap.canonical);
+    const canonical = borrowOptions(api, gap.canonical, redirectByCanonical);
     const alias = canonical ? null : aliasByLocal.get(`${gap.provider}\u0000${gap.modelId}`);
     const target = canonical
-      ? { from: gap.canonical, options: canonical.options, via: "canonical" }
+      ? { from: canonical.from, options: canonical.options, via: "canonical" }
       : alias
         ? { from: alias.upstream, options: alias.options, via: "alias" }
         : null;
@@ -423,7 +541,12 @@ function compileFacts(api, aliases) {
     }
     const where = `${gap.provider}/${gap.modelId} ← ${target.from}`;
     gap.valuesetId = registerValueset(where, normalizeOptions(where, target.options));
+    // 重定向表在缺口路径同样生效：from = 真实目标（重定向表命中时重定向事实记进
+    // --report 的新节；06 工件的 upstreamSource 列按 "canonical:" 前缀解析）。
     gap.resolution = `${target.via}:${target.from}`;
+    if (canonical?.redirectedFrom) {
+      recordRedirectHit(`${gap.provider}/${gap.modelId}`, canonical.redirectedFrom, canonical.from);
+    }
     rowsByProvider[gap.provider][gap.modelId] = gap.valuesetId;
     statsByProvider[gap.provider].borrowed += 1;
     statsByProvider[gap.provider].assigned += 1;
@@ -470,7 +593,20 @@ function compileFacts(api, aliases) {
     }
   }
 
-  return { valuesets, assignments, deprecated, gaps, coverage, counts, aliases: resolvedAliases, matrix };
+  return {
+    valuesets,
+    assignments,
+    deprecated,
+    gaps,
+    coverage,
+    counts,
+    aliases: resolvedAliases,
+    matrix,
+    canonicalPriority,
+    canonicalFallbacks,
+    redirectHits,
+    redirects
+  };
 }
 
 // 别名解析（见 MODEL_ID_ALIASES 的注释）。返回渲染与借词共用的纯数据。
@@ -501,25 +637,37 @@ function resolveAlias(api, alias, rowsByProvider, registerValueset) {
   return { ...alias, options, valuesetId: registerValueset(where, normalizeOptions(where, options)) };
 }
 
+// "<上游 provider id>/<上游模型 id>" 切分：模型 id 本身可含 "/"（如
+// cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6），按第一个 "/" 切；形状不合法返回 null。
+function splitUpstreamId(id) {
+  if (typeof id !== "string" || id.length === 0) {
+    return null;
+  }
+  const slash = id.indexOf("/");
+  if (slash <= 0 || slash === id.length - 1) {
+    return null;
+  }
+  return { providerId: id.slice(0, slash), modelId: id.slice(slash + 1) };
+}
+
 // canonical 借词：canonical_model_id 形如 "<上游 provider id>/<上游模型 id>"（模型 id
-// 本身可含 "/"，如 cloudflare-workers-ai/@cf/moonshotai/kimi-k2.6），按第一个 "/" 切。
+// 本身可含 "/"），按第一个 "/" 切。先过 canonical 重定向表（13 号票裁定 2），再查目标。
 // 目标 provider 不在快照里 / 没有前缀 / 目标模型本身也没有词表 → 都返回 null（软失败）。
-function borrowOptions(api, canonicalModelId) {
-  if (typeof canonicalModelId !== "string" || canonicalModelId.length === 0) {
+// 返回的 from = 实际借词目标；redirectedFrom = 命中的重定向 key（没命中为 null）。
+function borrowOptions(api, canonicalModelId, redirectByCanonical) {
+  const redirectedFrom = typeof canonicalModelId === "string" ? redirectByCanonical.get(canonicalModelId) ?? null : null;
+  const parts = splitUpstreamId(redirectedFrom ?? canonicalModelId);
+  if (!parts) {
     return null;
   }
-  const slash = canonicalModelId.indexOf("/");
-  if (slash <= 0 || slash === canonicalModelId.length - 1) {
-    return null;
-  }
-  const provider = api[canonicalModelId.slice(0, slash)];
+  const provider = api[parts.providerId];
   const models = provider && typeof provider === "object" ? provider.models : undefined;
-  const model = models && typeof models === "object" ? models[canonicalModelId.slice(slash + 1)] : undefined;
+  const model = models && typeof models === "object" ? models[parts.modelId] : undefined;
   const options = model && typeof model === "object" ? model.reasoning_options : undefined;
   if (!Array.isArray(options) || options.length === 0) {
     return null;
   }
-  return { from: canonicalModelId, options };
+  return { from: `${parts.providerId}/${parts.modelId}`, options, redirectedFrom };
 }
 
 function assertCounts(counts, expected) {
@@ -589,7 +737,9 @@ function renderModule({ source, contentHash, facts }) {
 // 口径：12 个上游 provider 的 reasoning 模型 → 归一值集常量表 VALUESETS + 指派表
 //       ASSIGNMENTS。值集按结构去重；指派只回答「属于哪个值集」，线格式（怎么落请求体）
 //       是 adapter 与 ai/thinking-wire-map.ts 的职责。${facts.counts.withOptions} 个模型直接有
-//       reasoning_options；${facts.counts.gaps} 个缺口里 ${borrowedTotal} 个按 canonical_model_id /
+//       reasoning_options（13 号票起 canonical 优先：direct 非空时也先借 canonical_model_id
+//       的词表，悬空才回落 direct；canonical 重定向表见 --report 的 canonical 优先节）；
+//       ${facts.counts.gaps} 个缺口里 ${borrowedTotal} 个按 canonical_model_id /
 //       别名表借到原生词表，其余 ${unknownTotal} 个标「未知词表」（不进表，查表返回 null =
 //       请求侧不发参）。逐条借词来源与缺口清单在 --report / --matrix 工件。
 //
@@ -791,6 +941,29 @@ function renderReport(summary, facts, capturedAt) {
     }
     lines.push(`  ${key} ← ${gap.resolution} → ${gap.valuesetId}`);
   }
+  // canonical 优先节（13 号票）：改写行数 / 重定向命中行 / 回落 direct 行逐条可追。
+  lines.push(
+    "",
+    `canonical 优先（13 号票）：改写 ${facts.canonicalPriority.length} 行 / 重定向命中 ${facts.redirectHits.length} 行 / ` +
+      `回落 direct ${facts.canonicalFallbacks.length} 行`
+  );
+  lines.push(`  重定向表（${facts.redirects.length}）：`);
+  for (const entry of facts.redirects) {
+    lines.push(`    ${entry.canonical} → ${entry.redirect}：${entry.reason}`);
+  }
+  lines.push(`  改写逐行（← canonical → 值集）：`);
+  for (const row of facts.canonicalPriority) {
+    const via = row.redirected ? `canonical:${row.canonical} → ${row.target}` : `canonical:${row.target}`;
+    lines.push(`    ${row.provider}/${row.modelId} ← ${via} → ${row.valuesetId}`);
+  }
+  lines.push(`  重定向命中逐行（${facts.redirectHits.length}）：`);
+  for (const hit of facts.redirectHits) {
+    lines.push(`    ${hit}`);
+  }
+  lines.push(`  回落 direct 逐行（${facts.canonicalFallbacks.length}）：`);
+  for (const row of facts.canonicalFallbacks) {
+    lines.push(`    ${row.provider}/${row.modelId}（${row.reason}${row.canonical ? `：${row.canonical}` : ""}）`);
+  }
   lines.push("", `别名表（${facts.aliases.length}）：`);
   for (const alias of facts.aliases) {
     lines.push(`  ${alias.provider}/${alias.localId} → ${alias.upstream}（值集 ${alias.valuesetId}）：${alias.reason}`);
@@ -863,7 +1036,7 @@ async function main() {
     fail(`输入顶层不是 provider 表（${options.input}）。`);
   }
 
-  const facts = compileFacts(api, loadAliases(options.aliases));
+  const facts = compileFacts(api, loadAliases(options.aliases), loadRedirects(options.redirects));
   assertCounts(facts.counts, options.expectCounts);
 
   const contentHash = hashFacts(facts);

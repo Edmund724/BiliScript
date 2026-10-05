@@ -27,7 +27,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  ADJUDICATED_MODEL_RULES,
   AI_THINKING_LEVELS,
   PROVIDERS,
   availableLevelsOf,
@@ -118,7 +117,8 @@ describe("A' = 上游词表 ∩ 平台可表达集（2026-10-04 用户裁定）"
     ["deepseek", DEEPSEEK_URL, "deepseek-v4-pro", ["off", "low", "high", "max"], "upstream"],
     ["zhipu", ZHIPU_URL, "glm-4.6", ["off", "minimal", "low", "medium", "high", "xhigh", "max"], "upstream"],
     ["zhipu", ZHIPU_URL, "glm-5.2", ["high", "max"], "upstream"],
-    ["moonshot", KIMI_URL, "kimi-k3", ["off", "low", "high", "max"], "upstream"],
+    // canonical 优先（13 号票）：k3 的 canonical（无 toggle）成为词表主人 → off 不再可得。
+    ["moonshot", KIMI_URL, "kimi-k3", ["low", "high", "max"], "upstream"],
     // ---- ② 借词（qwen 的 glm-5.2 借 zhipuai/glm-5.2 的 high-max）----
     ["qwen", QWEN_URL, "glm-5.2", ["high", "max"], "upstream"],
     // ---- ③ 无上游平台 / 上游缺口（今日口径）----
@@ -127,28 +127,28 @@ describe("A' = 上游词表 ∩ 平台可表达集（2026-10-04 用户裁定）"
     ["moonshot", KIMI_URL, "kimi-k2.7-code", [], "handwritten"],
     ["custom", CUSTOM_URL, "vendor-future-1", [], "unknown"],
     // ---- 平台级裁定平台：A' = 平台声明 ∩ 上游词表（本裁定的主战场）----
-    // toggle-only 上游：非 off 域整体可表达 → A' = 平台三档（不变）
-    ["openrouter", OPENROUTER_URL, "anthropic/claude-opus-4.5", ["off", "low", "high"], "override"],
+    // toggle-only 上游：非 off 域整体可表达 → A' = 平台两档（canonical 优先后模型侧不再有 off，
+    // 见 13 号票「丢 off 照收」）。
+    ["openrouter", OPENROUTER_URL, "anthropic/claude-opus-4.5", ["low", "high"], "override"],
     // none-low-medium-high：medium 平台没登记 → 不显示
     ["sensenova", SENSENOVA_URL, "sensenova-6.8-flash-lite", ["off", "low", "high"], "override"],
     // low-medium：平台有 off/high，模型只有 low → A' = {low}
     ["amd", AMD_URL, "Qwen3.8-27B", ["low"], "override"],
     // low-medium-xhigh：同理 A' = {low}
     ["amd", AMD_URL, "Qwen3.8-Flash-Next", ["low"], "override"],
-    // toggle+low-medium-xhigh：medium/xhigh 平台没有 → A' = {off, low}
+    // toggle+low-medium-xhigh：high/xhigh 不在模型词表 → A' = {low}（max 声明补上也不多显示）
     ["opencodego", OPENCODEGO_URL, "qwen3.8-flash", ["low"], "override"],
     // toggle+low-high-max：上游多出的 max 平台没有 → 不显示（「发不出去」）
     ["openrouter", OPENROUTER_URL, "deepseek/deepseek-v4-pro-0813", ["off", "low", "high"], "override"],
-    // low-high-max（模型侧无 off）：平台声明三档也收窄成 {low, high}
+    // low-high-max（模型侧无 off）：平台声明两档也收窄成 {low, high}
     ["openrouter", OPENROUTER_URL, "z-ai/glm-5.3", ["low", "high"], "override"],
-    // high-max（模型侧无 off、无 low）：平台声明三档也收窄成 {high}
-    ["opencodego", OPENCODEGO_URL, "glm-5.2", ["high"], "override"],
+    // high-max（模型侧无 off、无 low）：平台声明补 max 后 → {high, max}
+    ["opencodego", OPENCODEGO_URL, "glm-5.2", ["high", "max"], "override"],
+    // 13 号票：canonical 优先后 kimi-k3 的模型侧词表是 low/high/max（无 off），平台声明补
+    // max → A' = {low, high, max}（不再需要 12 号票的单点裁决镜像）。
+    ["opencodego", OPENCODEGO_URL, "kimi-k3", ["low", "high", "max"], "override"],
     // toggle+medium-xhigh：两边只共有 off → chip 只剩 Off
-    ["openrouter", OPENROUTER_URL, "prism-ml/ternary-bonsai-2-27b", ["off"], "override"],
-    // ---- ④ 用户点名的单点裁决行（2026-10-04 裁定，ADJUDICATED_MODEL_RULES）----
-    // opencodego/kimi-k3：上游值集只有 max，与平台词 low/high 无交集 → 裁定按 kimi 官方
-    // k3 方言发参（A' = 该模型实际词表，含 off 与 max；它是扩张不是收窄）。
-    ["opencodego", OPENCODEGO_URL, "kimi-k3", ["off", "low", "high", "max"], "adjudicated"]
+    ["openrouter", OPENROUTER_URL, "prism-ml/ternary-bonsai-2-27b", ["off"], "override"]
   ];
 
   for (const [presetId, baseUrl, model, levels, source] of cases) {
@@ -253,10 +253,13 @@ describe("off / none 分离（决策 #7）", () => {
   });
 });
 
-describe("验收第一条：none/high 类 6 个模型（双证据）", () => {
+describe("验收第一条：none/high 类（13 号票 canonical 优先后剩 3 行，双证据）", () => {
   // 上游投影 = {off, high}（模型侧事实）；UI chip = A' = 上游词表 ∩ 平台声明；
   // 偏好 low → 向下取：平台有 off 的行落 off（线上词 none），平台无 off 写点的
   // opencodego 落 high。三件事都用同一个 resolver 示例钉死。
+  // 13 号票前这一组是 6 行；canonical 优先后 3 行的 canonical 换成别的词表
+  // （sakana/sakana-namazu → toggle、sensenova/glm-5.2 → high-max、
+  // sensenova/deepseek-v4-flash → toggle+low-high-max），见下面的补充用例。
   const UPSTREAM_BY_PRESET: Record<string, string> = {
     opencodego: "opencode-go",
     openrouter: "openrouter",
@@ -265,14 +268,11 @@ describe("验收第一条：none/high 类 6 个模型（双证据）", () => {
   const NONE_HIGH: ReadonlyArray<[string, string, string, readonly ThinkingLevel[]]> = [
     ["opencodego", OPENCODEGO_URL, "hy4-preview", ["high"]],
     ["openrouter", OPENROUTER_URL, "mistralai/mistral-medium-3-5", ["off", "high"]],
-    ["openrouter", OPENROUTER_URL, "mistralai/mistral-small-2603", ["off", "high"]],
-    ["openrouter", OPENROUTER_URL, "sakana/sakana-namazu", ["off", "high"]],
-    ["sensenova", SENSENOVA_URL, "glm-5.2", ["off", "high"]],
-    ["sensenova", SENSENOVA_URL, "deepseek-v4-flash", ["off", "high"]]
+    ["openrouter", OPENROUTER_URL, "mistralai/mistral-small-2603", ["off", "high"]]
   ];
 
-  it("6 行的上游值集都是 none-high，上游投影恒为 {off, high}（不含 low/medium）", () => {
-    expect(NONE_HIGH).toHaveLength(6);
+  it("3 行的上游值集都是 none-high，上游投影恒为 {off, high}（不含 low/medium）", () => {
+    expect(NONE_HIGH).toHaveLength(3);
     for (const [presetId, , model] of NONE_HIGH) {
       const provider = UPSTREAM_BY_PRESET[presetId];
       const fact = lookupThinkingFact(provider, model);
@@ -315,6 +315,25 @@ describe("验收第一条：none/high 类 6 个模型（双证据）", () => {
     expect(normal.effectiveLevel).toBe("low");
     expect(normal.reason).toBeNull();
     expect(sent("deepseek", DEEPSEEK_URL, "deepseek-v4-pro", "low").fields).toEqual({ reasoning_effort: "low" });
+  });
+
+  it("13 号票 canonical 优先：另外 3 行的模型侧词表已换（off 得/失按新事实）", () => {
+    // openrouter/sakana/sakana-namazu：canonical = toggle → off 保留，low 由不可用变可用。
+    const namazu = adjustment("openrouter", OPENROUTER_URL, "sakana/sakana-namazu");
+    expect(lookupThinkingFact("openrouter", "sakana/sakana-namazu")?.valuesetId).toBe("toggle");
+    expect(namazu.availableLevels).toEqual(["off", "low", "high"]);
+    expect(sent("openrouter", OPENROUTER_URL, "sakana/sakana-namazu", "low").fields).toEqual({ reasoning_effort: "low" });
+    // sensenova/glm-5.2：canonical = high-max（模型侧无 off）→ off 失去，A' = {high}。
+    const glm = adjustment("sensenova", SENSENOVA_URL, "glm-5.2");
+    expect(lookupThinkingFact("sensenova", "glm-5.2")?.valuesetId).toBe("high-max");
+    expect(glm.availableLevels).toEqual(["high"]);
+    expect(sent("sensenova", SENSENOVA_URL, "glm-5.2", "low").fields).toEqual({ reasoning_effort: "high" });
+    // sensenova/deepseek-v4-flash：重定向行（canonical → deepseek-flash = toggle+low-high-max
+    // → 模型侧 off 走 toggle 形态）→ A' = {off, low, high}（low 由不可用变可用）。
+    const flash = adjustment("sensenova", SENSENOVA_URL, "deepseek-v4-flash");
+    expect(lookupThinkingFact("sensenova", "deepseek-v4-flash")?.valuesetId).toBe("toggle+low-high-max");
+    expect(flash.availableLevels).toEqual(["off", "low", "high"]);
+    expect(sent("sensenova", SENSENOVA_URL, "deepseek-v4-flash", "low").fields).toEqual({ reasoning_effort: "low" });
   });
 });
 
@@ -361,19 +380,22 @@ describe("无上游平台仍显示今日三档（ollama / custom）", () => {
   });
 });
 
-describe("边界：A' = ∅ 而平台声明非空（openrouter 3 行，2026-10-04 已裁决 fail-closed）", () => {
+describe("边界：A' = ∅ 而平台声明非空（openrouter 5 行，2026-10-04 已裁决 fail-closed）", () => {
   // 上游唯一的档位词平台表达不了（budget-only 值集）→ 交集为空：不显示任何 chip、逐档都
   // 不发（对齐 minimax-m3 的 fail-closed）。2026-10-04 用户裁定（原话：「openrouter 的不发
-  // 参数」）：openrouter 的这三行**维持不发参**；同批的 opencodego/kimi-k3 改按 kimi 官方
-  // k3 方言发参（见下一个 describe）。这些格不属于「向下兼容」，已在 06-chip-changes.tsv +
-  // 06-report.md §6.1 逐条记录。
+  // 参数」）：openrouter 的这三行**维持不发参**。13 号票 canonical 优先后，
+  // anthropic/claude-haiku-4.5 与 claude-sonnet-4.5 的 canonical 也变成 budget-only →
+  // 同样落入 A' = ∅（丢 off 照收 + 不发参），共 5 行。这些格不属于「向下兼容」，已在
+  // 06-chip-changes.tsv + 06-report.md §6.1 逐条记录。
   const EMPTY: ReadonlyArray<[string, string, string]> = [
     ["openrouter", OPENROUTER_URL, "google/gemini-2.5-pro"],
     ["openrouter", OPENROUTER_URL, "google/gemini-2.5-pro-preview"],
-    ["openrouter", OPENROUTER_URL, "qwen/qwen3-next-80b-a3b-thinking"]
+    ["openrouter", OPENROUTER_URL, "qwen/qwen3-next-80b-a3b-thinking"],
+    ["openrouter", OPENROUTER_URL, "anthropic/claude-haiku-4.5"],
+    ["openrouter", OPENROUTER_URL, "anthropic/claude-sonnet-4.5"]
   ];
 
-  it("3 行 chip 为空、逐档都不发（平台声明非空也不再照发）", () => {
+  it("5 行 chip 为空、逐档都不发（平台声明非空也不再照发）", () => {
     for (const [presetId, baseUrl, model] of EMPTY) {
       const adj = adjustment(presetId, baseUrl, model);
       expect(adj.availableLevels, `${presetId}/${model}`).toEqual([]);
@@ -385,19 +407,20 @@ describe("边界：A' = ∅ 而平台声明非空（openrouter 3 行，2026-10-0
   });
 });
 
-describe("单点裁决：opencodego/kimi-k3 按 kimi 官方 k3 方言发参（2026-10-04 用户裁定）", () => {
-  // 原话：「opencodego/kimi-k3 按照 kimi 官方的 kimi k3 发参数」。上游值集只有 max、
-  // 与平台词 low/high 无交集 → A' = 该模型实际词表（与 moonshot/kimi-k3 同源）。
-  it("chip 集合 = {off, low, high, max}，来源层 = adjudicated（不是 override 收窄）", () => {
+describe("canonical 优先（13 号票）：opencodego/kimi-k3 = 平台声明 ∩ canonical 词表", () => {
+  // 12 号票的单点裁决（ADJUDICATED_MODEL_RULES，按 kimi 官方 k3 方言发参）随 13 号票删除：
+  // canonical 优先后 kimi-k3 的模型侧词表就是 low/high/max（上游 canonical 的 toggle 已不在），
+  // 平台声明补 max 后 A' = {low, high, max}——不再需要跨平台镜像。
+  it("chip 集合 = {low, high, max}，来源层 = override（不再走裁决短路）", () => {
     const adj = adjustment("opencodego", OPENCODEGO_URL, "kimi-k3");
-    expect(adj.source).toBe("adjudicated");
-    expect(adj.availableLevels).toEqual(["off", "low", "high", "max"]);
+    expect(adj.source).toBe("override");
+    expect(adj.availableLevels).toEqual(["low", "high", "max"]);
   });
 
-  it("逐档落线（chat 通道）：off/minimal → thinking:{type:disabled}，low/high/max → 顶层 reasoning_effort", () => {
+  it("逐档落线（chat 通道）：off 关不掉 → 级联落 low；low/high/max → 顶层 reasoning_effort", () => {
     const expected: Array<[string, Record<string, unknown>]> = [
-      ["off", { thinking: { type: "disabled" } }],
-      ["minimal", { thinking: { type: "disabled" } }],
+      ["off", { reasoning_effort: "low" }],
+      ["minimal", { reasoning_effort: "low" }],
       ["low", { reasoning_effort: "low" }],
       ["medium", { reasoning_effort: "low" }],
       ["high", { reasoning_effort: "high" }],
@@ -407,28 +430,26 @@ describe("单点裁决：opencodego/kimi-k3 按 kimi 官方 k3 方言发参（20
     for (const [level, fields] of expected) {
       expect(sent("opencodego", OPENCODEGO_URL, "kimi-k3", level as ThinkingLevel).fields, level).toEqual(fields);
     }
+    // off 的级联标记：关不掉（平台没声明 off 写点），落最低可用档。
+    const off = sent("opencodego", OPENCODEGO_URL, "kimi-k3", "off");
+    expect(off.offUnavailable).toBe(true);
+    expect(off.offFallback).toBe("low");
+    expect(off.thinkingClass).toBe("always");
   });
 
-  it("与镜像行 moonshot/kimi-k3 同源（同一个规则，7 档逐一相同）", () => {
-    for (const level of AI_THINKING_LEVELS) {
-      expect(
-        sent("opencodego", OPENCODEGO_URL, "kimi-k3", level).fields,
-        `opencodego/kimi-k3 · ${level}`
-      ).toEqual(sent("moonshot", KIMI_URL, "kimi-k3", level).fields);
-    }
+  it("与上游 canonical 同源：模型侧词表 == canonical 目标（moonshotai/kimi-k3）的事实", () => {
+    // canonical 目标 provider（moonshotai）不在 12 家里，故查表只认本产物的指派。
+    expect(lookupThinkingFact("opencode-go", "kimi-k3")?.valuesetId).toBe("low-high-max");
+    expect(lookupThinkingFact("opencode-go", "kimi-k3")?.effort).toEqual(["low", "high", "max"]);
+    expect(lookupThinkingFact("moonshotai", "kimi-k3")).toBeNull();
+    // moonshot（kimi-code-plan-cn）托管的同一个模型也按 canonical（无 toggle）服务。
+    expect(adjustment("moonshot", KIMI_URL, "kimi-k3").availableLevels).toEqual(["low", "high", "max"]);
+    expect(adjustment("moonshot", KIMI_URL, "kimi-k3").source).toBe("upstream");
   });
 
-  it("范围锁：裁决表只有这一行；opencodego 其它模型与其它平台的 kimi 托管行都不受影响", () => {
-    expect(ADJUDICATED_MODEL_RULES).toHaveLength(1);
-    expect(ADJUDICATED_MODEL_RULES[0]).toMatchObject({
-      presetId: "opencodego",
-      model: "kimi-k3",
-      mirrorOf: { presetId: "moonshot", model: "kimi-k3" }
-    });
-    // opencodego 其它模型仍走 A'（平台声明 ∩ 上游词表）
+  it("范围锁：opencodego 其它模型与其它平台的 kimi 托管行都不受影响", () => {
     const others: Array<[string, readonly string[]]> = [
-      ["deepseek-v4-pro", ["high"]],
-      ["glm-5.2", ["high"]],
+      ["glm-5.2", ["high", "max"]],
       ["hy4-preview", ["high"]],
       ["qwen3.8-flash", ["low"]],
       ["qwen3.8-max", ["low"]]
@@ -438,13 +459,14 @@ describe("单点裁决：opencodego/kimi-k3 按 kimi 官方 k3 方言发参（20
       expect(adj.source, model).toBe("override");
       expect(adj.availableLevels, model).toEqual([...levels]);
     }
-    // 其它平台托管的 kimi 行（moonshot / modelscope / qwen 等）来源层不变
-    expect(adjustment("moonshot", KIMI_URL, "kimi-k3").source).toBe("upstream");
     for (const [presetId, baseUrl, model] of [
       ["modelscope", "https://api-inference.modelscope.cn/v1", "kimi-k3"],
       ["qwen", QWEN_URL, "kimi-k3"]
     ] as ReadonlyArray<[string, string, string]>) {
-      expect(adjustment(presetId, baseUrl, model).source, `${presetId}/${model}`).not.toBe("adjudicated");
+      // 单点裁决层已删除（13 号票）：这两行走手写兜底，不是旧裁决短路。
+      expect(["handwritten", "upstream", "unknown"], `${presetId}/${model}`).toContain(
+        adjustment(presetId, baseUrl, model).source
+      );
     }
   });
 });
@@ -491,10 +513,10 @@ function levelsOf(row: ChipRow): string[] {
 }
 
 // source（运行期分支）↔ layer（工件的来源分层）：一对多（上游行再分直接 / 借词）。
+// 13 号票删掉单点裁决层后剩四层来源（upstream 再分直接 / 借词）。
 const SOURCE_TO_LAYER: Record<ThinkingRuleSource, string[]> = {
   upstream: ["upstream-direct", "upstream-borrowed"],
   override: ["platform-override"],
-  adjudicated: ["adjudicated"],
   handwritten: ["fallback-handwritten"],
   unknown: ["fallback-unknown"]
 };
@@ -522,7 +544,6 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
       let withFact = 0;
       for (const row of rows) {
         if (!row.upstreamProvider || row.upstreamValuesetId === "-") continue;
-        if (row.layer === "adjudicated") continue; // 单点裁决行按镜像方言，见下一条
         const fact = lookupThinkingFact(row.upstreamProvider, row.model);
         expect(fact, `${row.upstreamProvider}/${row.model}`).toBeTruthy();
         const vocabulary = new Set<string>(upstreamVocabularyOf(fact!));
@@ -534,21 +555,14 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
       expect(withFact).toBeGreaterThan(300);
     });
 
-    it("单点裁决行（adjudicated）只有 1 条，A' == 镜像行的 A'（用户裁定：按原生方言，不受平台声明限制）", () => {
-      const adjudicated = rows.filter((row) => row.layer === "adjudicated");
-      expect(adjudicated).toHaveLength(ADJUDICATED_MODEL_RULES.length);
-      expect(adjudicated).toHaveLength(1);
-      const entry = ADJUDICATED_MODEL_RULES[0];
-      const row = adjudicated[0];
-      expect(`${row.preset}/${row.model}`).toBe(`${entry.presetId}/${entry.model}`);
-      expect(levelsOf(row)).toEqual(
-        adjustment(entry.mirrorOf.presetId, "", entry.mirrorOf.model).availableLevels
-      );
-      // 该行是裁定要求的**扩张**（平台声明 ⊂ A'），因此不在「A' ⊆ 上游词表」的常规断言里。
-      const platformLevels = platformLevelsOf(row.preset) ?? [];
-      for (const level of platformLevels) {
-        expect(levelsOf(row), `${row.preset}/${row.model} · ${level}`).toContain(level);
-      }
+    it("13 号票后不再有单点裁决层：opencodego/kimi-k3 走 platform-override，A' = {low,high,max}", () => {
+      // 12 号票的 ADJUDICATED_MODEL_RULES 已删除；canonical 优先后该行的模型侧词表就是
+      // canonical 的 low/high/max，平台声明补 max 后 A' 恰为这三档（收窄/扩张都不是了）。
+      expect(rows.filter((row) => row.layer === "adjudicated")).toHaveLength(0);
+      const row = rows.find((candidate) => candidate.preset === "opencodego" && candidate.model === "kimi-k3");
+      expect(row?.layer).toBe("platform-override");
+      expect(levelsOf(row!)).toEqual(["low", "high", "max"]);
+      expect(row?.upstreamValuesetId).toBe("low-high-max");
     });
 
     it("三层来源每层都非空，借词行的来源是 canonical/alias（逐条 canonical id）", () => {
@@ -556,7 +570,7 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
       for (const row of rows) {
         layers.set(row.layer, (layers.get(row.layer) ?? 0) + 1);
       }
-      for (const layer of ["upstream-direct", "upstream-borrowed", "platform-override", "adjudicated", "fallback-handwritten", "fallback-unknown"]) {
+      for (const layer of ["upstream-direct", "upstream-borrowed", "platform-override", "fallback-handwritten", "fallback-unknown"]) {
         expect(layers.get(layer) ?? 0, layer).toBeGreaterThan(0);
       }
       const borrowed = rows.filter((row) => row.layer === "upstream-borrowed");
@@ -564,8 +578,8 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
       expect(
         borrowed.every((row) => row.upstreamSource.startsWith("canonical:") || row.upstreamSource.startsWith("alias:"))
       ).toBe(true);
-      // 02 矩阵里标了借词的 7 行，在清单里要么是 upstream-borrowed（规则真由借来的词表
-      // 服务），要么被记在 upstreamSource 列（override 平台收窄后仍可见借词事实）。
+      // 02 矩阵里标了借词的 7 行（缺口借词；13 号票的 canonical 优先改写仍记 source=direct，
+      // 见 13-report.md「已知副作用」——那是 02 矩阵 source 列的既有口径，本票未改）。
       const borrowedFact = rows.filter(
         (row) => row.upstreamSource.startsWith("canonical:") || row.upstreamSource.startsWith("alias:")
       );
@@ -585,7 +599,7 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
       expect(Object.keys(THINKING_LEVEL_LABELS)).toEqual([...AI_THINKING_LEVELS]);
     });
 
-    it("chip 变化清单（平台声明 → A'）：只有 platform-override 收窄 + 1 行裁决扩张", () => {
+    it("chip 变化清单（平台声明 → A'）：全部是 platform-override 收窄（裁决扩张行已随 13 号票消失）", () => {
       const changes = parseTsv(CHIP_CHANGES);
       expect(changes.length).toBeGreaterThan(0);
       for (const row of changes) {
@@ -593,20 +607,14 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
         expect(platformLevels, row.preset).not.toBeNull();
         // before（平台声明）必须真的不同，否则不该进清单。
         expect(platformLevels!.join(","), `${row.preset}/${row.model}`).not.toBe(levelsOf(row).join(","));
-        if (row.layer === "adjudicated") {
-          // 2026-10-04 裁决行是扩张（平台声明 ⊆ A'），不是收窄。
-          expect(`${row.preset}/${row.model}`).toBe("opencodego/kimi-k3");
-          for (const level of platformLevels!) {
-            expect(levelsOf(row), `${row.preset}/${row.model} · ${level}`).toContain(level);
-          }
-          continue;
-        }
         expect(row.layer, `${row.preset}/${row.model}`).toBe("platform-override");
         for (const level of levelsOf(row)) {
           expect(platformLevels!.includes(level as ThinkingLevel), `${row.preset}/${row.model} · ${level}`).toBe(true);
         }
       }
-      expect(changes.filter((row) => row.layer === "adjudicated")).toHaveLength(1);
+      // 12 号票的裁决扩张行（opencodego/kimi-k3：平台声明 ⊂ A'）已不存在。
+      expect(changes.filter((row) => row.layer === "adjudicated")).toHaveLength(0);
+      expect(changes.some((row) => row.preset === "opencodego" && row.model === "kimi-k3")).toBe(false);
     });
 
     it("清单里没有 none 档位（上游 none 只是 off 的线值实现）", () => {
@@ -627,19 +635,19 @@ describe.skipIf(!existsSync(MATRIX_CELLS))("06 请求矩阵逐格变化清单", 
   const traceAt = header.indexOf("trace");
   const rows = lines.slice(1).map((line) => line.split("\t"));
 
-  it("每个变化格都能追到 A'：向下兼容落别的档 / A' = ∅ 不发 / 单点裁决行换方言（无第四种）", () => {
+  it("每个变化格都能追到 A'：向下兼容落别的档 / A' = ∅ 不发 / 值集换了线形状变（无第四种）", () => {
     const empty = rows.filter((cells) => cells[traceAt].includes("实发 (不发)"));
     const compatible = rows.filter((cells) => !cells[traceAt].includes("实发 (不发)"));
     expect(rows.length).toBeGreaterThan(0);
     expect(empty.length).toBeGreaterThan(0);
     expect(compatible.length).toBeGreaterThan(empty.length);
-    const dialect: string[] = [];
+    // 第三类：偏好档 ∈ A'（没被 clamp，原因=-），字节变化来自**值集换了**（如 toggle 的
+    // off 形态、预算区间）；13 号票 canonical 优先后这类格只出现在值集真变了的行上。
+    const structureOnly: string[] = [];
     for (const cells of compatible) {
       const trace = cells[traceAt];
-      // 单点裁决行（2026-10-04）：偏好档 ∈ A'（没被 clamp），变化来自「换了方言发参」，
-      // 所以这一行的格允许「原因=-」——但仍必须是裁决表里的那一行。
       if (trace.includes("原因=-")) {
-        dialect.push(`${cells[0]}/${cells[1]}`);
+        structureOnly.push(`${cells[0]}/${cells[1]}`);
         continue;
       }
       // 其余全部是向下兼容：源档 ≠ 实发档，且原因层非空（模型词表 / 平台词表 / 上游未登记）。
@@ -647,17 +655,25 @@ describe.skipIf(!existsSync(MATRIX_CELLS))("06 请求矩阵逐格变化清单", 
         /实发 (off|minimal|low|medium|high|xhigh|max)｜A'=\{[^}]+\}｜原因=(model-vocabulary|platform-vocabulary|upstream-unlisted)/
       );
     }
-    expect([...new Set(dialect)]).toEqual(["opencodego/kimi-k3"]);
+    expect([...new Set(structureOnly)].sort()).toEqual([
+      "moonshot/kimi-k3",
+      "qwen/deepseek-v4-flash",
+      "qwen/deepseek-v4-pro"
+    ]);
   });
 
-  it("A' = ∅ 的变化格恰好是 openrouter 那 3 行（已裁决 fail-closed；每行 7 格）", () => {
+  it("A' = ∅ 的变化格是 openrouter 5 行（已裁决 fail-closed；每行 7 格）", () => {
     const empty = rows.filter((cells) => cells[traceAt].includes("实发 (不发)"));
     const byModel = new Map<string, number>();
     for (const cells of empty) {
       const key = `${cells[0]}/${cells[1]}`;
       byModel.set(key, (byModel.get(key) ?? 0) + 1);
     }
+    // 13 号票 canonical 优先后新增两行（claude-haiku-4.5 / claude-sonnet-4.5 的 canonical
+    // 是 budget-only）→ A' = ∅ 从 3 行变 5 行，全部维持不发参（丢 off 照收 + fail-closed）。
     expect([...byModel.keys()].sort()).toEqual([
+      "openrouter/anthropic/claude-haiku-4.5",
+      "openrouter/anthropic/claude-sonnet-4.5",
       "openrouter/google/gemini-2.5-pro",
       "openrouter/google/gemini-2.5-pro-preview",
       "openrouter/qwen/qwen3-next-80b-a3b-thinking"
@@ -665,9 +681,12 @@ describe.skipIf(!existsSync(MATRIX_CELLS))("06 请求矩阵逐格变化清单", 
     for (const count of byModel.values()) {
       expect(count).toBe(7);
     }
-    // 同批裁决的 opencodego/kimi-k3 已是「发参」行：相对 HEAD 只有 5 格变化
-    // （off 两通道 + 三个 resolve 标记），档位格与 HEAD 同值（HEAD 已发 low/high）。
-    const kimiCells = rows.filter((cells) => `${cells[0]}/${cells[1]}` === "opencodego/kimi-k3");
+  });
+
+  it("canonical 优先的逐格证据：moonshot/kimi-k3 相对 06 基线只有 5 格（off 两通道 + 3 个 resolve 标记）", () => {
+    // 06 基线里 kimi-k3 的 direct toggle 让 off 可用；canonical 优先后 off 关不掉 →
+    // 两通道的 off 格与三个 resolve 标记变，low/high 档位格不变。
+    const kimiCells = rows.filter((cells) => `${cells[0]}/${cells[1]}` === "moonshot/kimi-k3");
     expect(kimiCells).toHaveLength(5);
     expect(kimiCells.every((cells) => !cells[traceAt].includes("实发 (不发)"))).toBe(true);
     expect(kimiCells.map((cells) => cells[2]).sort()).toEqual([
@@ -677,5 +696,7 @@ describe.skipIf(!existsSync(MATRIX_CELLS))("06 请求矩阵逐格变化清单", 
       "res:low",
       "res:off"
     ]);
+    // opencodego/kimi-k3 在新旧两侧都是 A' = {low,high}（旧侧裁决词的 off 不在 A'），逐格同值。
+    expect(rows.filter((cells) => `${cells[0]}/${cells[1]}` === "opencodego/kimi-k3")).toHaveLength(0);
   });
 });
