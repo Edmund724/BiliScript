@@ -137,6 +137,8 @@ beforeAll(() => {
     FIXTURE_ALIASES,
     "--redirects",
     "none",
+    "--overrides",
+    "none",
     "--expect-counts",
     FIXTURE_COUNTS
   ]);

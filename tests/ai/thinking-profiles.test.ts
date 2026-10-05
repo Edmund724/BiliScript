@@ -285,11 +285,17 @@ describe("18 号票：AMD Radeon Cloud 走上游词表投影", () => {
     expect(r.thinkingClass).toBe("always");
   });
 
-  it("值集含 effort none 的模型仍可关思考：DeepSeek-V4-Flash off → reasoning_effort none", () => {
-    const r = resolve({ presetId: "amd", model: "DeepSeek-V4-Flash", level: "off" });
-    expect(r.fields).toEqual({ reasoning_effort: "none" });
-    expect(r.offUnavailable).toBe(false);
-    expect(r.thinkingClass).toBe("hybrid");
+  it("19 号票：三个 DeepSeek 兄弟同形 —— DeepSeek-V4-Flash 跟另外两个一样收窄到 low/high/max", () => {
+    // 上游给 amd 的这一行写的是 effort[none,minimal,low,medium,high,xhigh,max]（7 档），但
+    // canonical 指向 deepseek/deepseek-v4-flash-0731（上游没这个 id）→ 19 号票重定向到
+    // deepseek/deepseek-v4-flash 的 toggle+[low,high,max]，与 13 号票已收窄的另两个兄弟对齐。
+    // amd 未在 UPSTREAM_TOGGLE_SHAPES 登记开关形状 → toggle 不产 off 写点 → 关不掉、级联 low。
+    for (const model of ["DeepSeek-V4.1-Flash", "DeepSeek-V4-Flash", "DeepSeek-V4-Flash-Vision-Exp"]) {
+      const r = resolve({ presetId: "amd", model, level: "off" });
+      expect(r.fields, model).toEqual({ reasoning_effort: "low" });
+      expect(r.offUnavailable, model).toBe(true);
+      expect(r.thinkingClass, model).toBe("always");
+    }
   });
 
   it("presetId='custom' 未命中 PROVIDERS → 回落 host 索引仍命中 amd 的上游投影", () => {
@@ -314,13 +320,26 @@ describe("18 号票：SenseNova 商汤走上游词表投影", () => {
 });
 
 describe("18 号票：Opencode Go 走上游词表投影", () => {
-  it("presetId='opencodego' 命中：deepseek-v4-pro（值集 high-max）off 落 high + offUnavailable", () => {
+  it("19 号票值集覆盖：deepseek-v4-pro 借 deepseek/deepseek-v4-pro 的词表，low 拿回", () => {
+    // 上游 opencode-go 这行直挂 effort[high,max] 且无 canonical 指针（重定向表救不了它）；
+    // 19 号票用值集覆盖表把它指向 deepseek/deepseek-v4-pro 的 toggle+[low,high,max]。
+    // opencodego 未登记开关形状 → toggle 不产 off 写点 → 仍关不掉，但 off 级联落到 low 而非 high。
     expect(resolve({ presetId: "opencodego", model: "deepseek-v4-pro", level: "off" })).toEqual({
-      fields: { reasoning_effort: "high" },
+      fields: { reasoning_effort: "low" },
       offUnavailable: true,
       offFallback: "low",
       thinkingClass: "always"
     });
+    expect(resolve({ presetId: "opencodego", model: "deepseek-v4-pro", level: "low" }).fields).toEqual({
+      reasoning_effort: "low"
+    });
+  });
+
+  it("值集含 effort none 的模型仍可关思考：hy3（none+low/high）off → reasoning_effort none", () => {
+    const r = resolve({ presetId: "opencodego", model: "hy3", level: "off" });
+    expect(r.fields).toEqual({ reasoning_effort: "none" });
+    expect(r.offUnavailable).toBe(false);
+    expect(r.thinkingClass).toBe("hybrid");
   });
 
   it("13 号票对齐的 kimi-k3 逐字节不变：low/high/max 直传 effort，不发 thinking 开关", () => {

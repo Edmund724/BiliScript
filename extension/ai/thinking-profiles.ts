@@ -42,7 +42,9 @@
 // 设计机制（三层声明表 + 稀疏档位 + 测试期校验器）参考 hana-model-catalog
 // （github.com/liliMozi/hana-model-catalog；无 LICENSE，仅参考未复制数据）。
 //
-// 解析语义（04 号票起；18 号票删掉平台级 override 短路）：
+// 解析语义（04 号票起；18 号票删掉平台级 override 短路；19 号票的取值序变化见
+// scripts/sync-models-dev-thinking.mjs 的 VOCABULARY_OVERRIDES —— 那是构建期的，本模块
+// 只消费已编译好的指派表，看不出某行是 direct、借词还是被覆盖）：
 //   provider = PROVIDERS[presetId] ?? HOST索引[baseUrl host] ?? 无
 //   ① 有上游平台（UPSTREAM_PROVIDER_BY_PRESET 命中）：
 //      查 02 指派表 → ruleFromUpstreamFact（值集 → 档位投影）；
@@ -586,11 +588,11 @@ export type ThinkingClampReason = "model-vocabulary" | "upstream-unlisted";
 // 规则来源层（06 号票三层来源清单的审计列）：与 ruleFor 的解析分支一一对应，由
 // **同一次解析**给出，不是第二套推导——chip 集合本身仍只由 availableLevelsOf 派生
 // （06 号票：清单是「哪一层的规则服务了该模型」的视图，不是 chip 的第二来源）。
-//   upstream    = 02 指派表命中（上游逐模型词表；构建期按 canonical_model_id / 别名
-//                 借到词表的行也走这一支——产物里借词（缺口借词 + 13 号票的 canonical
-//                 优先改写）已折叠进指派表，运行期看不出「直接 / 借词」，逐条借词来源在
-//                 06 工件里用 02 矩阵对账）。18 号票起 openrouter / amd / sensenova /
-//                 opencodego 的模型也走这一支；
+//   upstream    = 02 指派表命中（上游逐模型词表；构建期按值集覆盖表 / canonical_model_id /
+//                 别名表借到词表的行也走这一支——产物里借词（缺口借词 + 13 号票的 canonical
+//                 优先改写 + 19 号票的值集覆盖）已折叠进指派表，运行期看不出「直接 / 借词 /
+//                 覆盖」，逐条借词来源在 06 工件里用 02 矩阵对账）。18 号票起 openrouter / amd /
+//                 sensenova / opencodego 的模型也走这一支；
 //   handwritten = 手写兜底（EXCEPTIONS >> TAXONOMY >> unknownClass）；
 //   unknown     = 无结论（fail-closed，三档不发）。
 // 13 号票删掉 12 号票的单点裁决层（ADJUDICATED_MODEL_RULES）：canonical 优先后

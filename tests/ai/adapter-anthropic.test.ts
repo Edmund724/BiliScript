@@ -336,16 +336,18 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("effort 词汇平台：off（reasoning_effort none）与探针一律不发 output_config", () => {
+    // 19 号票后 amd 三个 DeepSeek 行都收窄到 toggle+[low,high,max]（amd 未登记开关形状 →
+    // off 关不掉、级联 low，会发 output_config），所以这条改用仍是 none 词表的 sensenova 行。
     const off = anthropicAdapter.buildBody({
       ...base,
-      baseUrl: "https://developer.amd.com.cn/radeon/api",
-      presetId: "amd",
+      baseUrl: "https://token.sensenova.cn/v1",
+      presetId: "sensenova",
       thinkingLevel: "off",
-      model: "DeepSeek-V4-Flash",
+      model: "sensenova-6.8-flash-lite",
       messages: []
     });
     expect(off.output_config).toBeUndefined();
-    expect(off.thinking).toBeUndefined();
+    expect(off.thinking).toEqual({ type: "disabled" });
 
     const probe = anthropicAdapter.buildBody({
       ...base,

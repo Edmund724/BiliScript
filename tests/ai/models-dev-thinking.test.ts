@@ -90,10 +90,11 @@ function writeVariant(name: string, mutate: (api: FixtureApi) => void): string {
 
 function generate(name: string, input: string = FIXTURE, extra: string[] = []): string {
   const out = outPath(name);
-  // fixture 是 12 家的合成小快照：本仓真实别名表与 canonical 重定向表的目标（k3 /
-  // step-3.7-flash / moonshotai/kimi-k2.6 / ZhipuAI/GLM-4.6 / deepseek-flash）都不在里面，
-  // 所以默认 --aliases none --redirects none（生产默认是脚本里的 MODEL_ID_ALIASES /
-  // CANONICAL_MODEL_REDIRECTS）；要测这两张机制就传对应的 <path>。
+  // fixture 是 12 家的合成小快照：本仓真实别名表、canonical 重定向表与值集覆盖表的目标
+  // （k3 / step-3.7-flash / moonshotai/kimi-k2.6 / ZhipuAI/GLM-4.6 / deepseek-flash /
+  // opencode-go/deepseek-v4-pro）都不在里面，所以默认 --aliases none --redirects none
+  // --overrides none（生产默认是脚本里的 MODEL_ID_ALIASES / CANONICAL_MODEL_REDIRECTS /
+  // VOCABULARY_OVERRIDES）；要测这三张机制就传对应的 <path>。
   const run = runGenerator([
     "--input",
     input,
@@ -102,6 +103,8 @@ function generate(name: string, input: string = FIXTURE, extra: string[] = []): 
     "--aliases",
     "none",
     "--redirects",
+    "none",
+    "--overrides",
     "none",
     "--expect-counts",
     FIXTURE_COUNTS,
@@ -273,13 +276,16 @@ describe("思考事实生成器 CLI（02）", () => {
     expect(gapBody).toContain("    borrowed: 1,");
 
     // (5) 未传 --redirects 时默认加载生产重定向表并逐条校验；fixture 快照里没有
-    // deepseek/deepseek-flash → 硬错（fail-loud，不是静默落空）。
+    // deepseek/deepseek-flash → 硬错（fail-loud，不是静默落空）。--overrides 显式置 none，
+    // 否则生产覆盖表会先硬错，这条断言就测不到重定向表的默认加载了。
     const defaultRedirects = runGenerator([
       "--input",
       FIXTURE,
       "--out",
       outPath("default-redirects"),
       "--aliases",
+      "none",
+      "--overrides",
       "none",
       "--expect-counts",
       FIXTURE_COUNTS
@@ -307,12 +313,111 @@ describe("思考事实生成器 CLI（02）", () => {
         "none",
         "--redirects",
         file,
+        "--overrides",
+        "none",
         "--expect-counts",
         FIXTURE_COUNTS
       ]);
       expect(run.status, `重定向 ${name} 应当硬错`).not.toBe(0);
       expect(run.stderr).toContain("sync-models-dev-thinking");
     }
+  });
+
+  it("值集覆盖表（19 号票）：有 direct 词表也生效，且压过 canonical", () => {
+    // 序是「覆盖 > canonical > direct」。fixture 的 deepseek/fx-pdf-first 自带
+    // toggle+[low,high,max]（direct），把它 canonical 指向 zhipuai/fx-glm（high-max），
+    // 再用覆盖表改指 xiaomi/fx-mimo（toggle）—— 结果必须是 toggle：
+    // 若覆盖没生效会拿到 direct 的 toggle+low-high-max，若只压 direct 不压 canonical
+    // 会拿到 high-max。
+    const overrideFixture = join(tmpRoot, "overrides.json");
+    writeFileSync(
+      overrideFixture,
+      JSON.stringify([
+        { key: "deepseek/fx-pdf-first", upstream: "xiaomi/fx-mimo", reason: "fixture：这一行改借 xiaomi 的开关词表。" }
+      ])
+    );
+    const variant = writeVariant("override-variant", (api) => {
+      api["deepseek"].models["fx-pdf-first"].canonical_model_id = "zhipuai/fx-glm";
+    });
+    const matrix = join(tmpRoot, "override-matrix.tsv");
+    const report = join(tmpRoot, "override-report.txt");
+    // 对账计数随变体走：fx-pdf-first 不再贡献 effort[low,high,max] 这个值集 → effortSets 5 → 4。
+    const body = bodyOf(
+      generate("overrides", variant, [
+        "--overrides",
+        overrideFixture,
+        "--expect-counts",
+        "15/12/9/3/4",
+        "--report",
+        report,
+        "--matrix",
+        matrix
+      ])
+    );
+    expect(body).toContain(`  "deepseek": {\n    "fx-pdf-first": "toggle",\n  },`);
+    // 矩阵 source 记成 override:<目标>，与缺口路径的 canonical:/alias: 前缀同形。
+    expect(readFileSync(matrix, "utf8")).toContain(
+      "deepseek\tfx-pdf-first\ttrue\toverride:xiaomi/fx-mimo\ttoggle"
+    );
+    const reportText = readFileSync(report, "utf8");
+    expect(reportText).toContain("值集覆盖（19 号票）：表 1 条 / 命中 1 行");
+    expect(reportText).toContain("命中 deepseek/fx-pdf-first → xiaomi/fx-mimo → toggle");
+  });
+
+  it("值集覆盖表：被覆盖行不存在 / 目标不存在 / 目标无词表 / 重复 key / 缺 reason 一律硬错", () => {
+    const bad: [string, Record<string, string>][] = [
+      ["key-missing", { key: "amd/no-such-model", upstream: "deepseek/fx-pdf-first", reason: "被覆盖的行不存在" }],
+      ["key-malformed", { key: "fx-pdf-first", upstream: "xiaomi/fx-mimo", reason: "缺 provider 前缀" }],
+      ["target-missing", { key: "deepseek/fx-pdf-first", upstream: "no-such-provider/x", reason: "目标 provider 不存在" }],
+      ["target-empty", { key: "deepseek/fx-pdf-first", upstream: "opencode-go/fx-go", reason: "目标没有词表" }],
+      ["upstream-malformed", { key: "deepseek/fx-pdf-first", upstream: "fx-mimo", reason: "缺 provider 前缀" }],
+      ["missing-reason", { key: "deepseek/fx-pdf-first", upstream: "xiaomi/fx-mimo", reason: "" }]
+    ];
+    for (const [name, entry] of bad) {
+      const file = join(tmpRoot, `overrides-${name}.json`);
+      writeFileSync(file, JSON.stringify([entry]));
+      const run = runGenerator([
+        "--input",
+        FIXTURE,
+        "--out",
+        outPath(`overrides-${name}-out`),
+        "--aliases",
+        "none",
+        "--redirects",
+        "none",
+        "--overrides",
+        file,
+        "--expect-counts",
+        FIXTURE_COUNTS
+      ]);
+      expect(run.status, `覆盖 ${name} 应当硬错`).not.toBe(0);
+      expect(run.stderr).toContain("sync-models-dev-thinking");
+    }
+    // 同一个 key 两条 = 一行不能有两个词表主人。
+    const dupFile = join(tmpRoot, "overrides-dup.json");
+    writeFileSync(
+      dupFile,
+      JSON.stringify([
+        { key: "deepseek/fx-pdf-first", upstream: "xiaomi/fx-mimo", reason: "第一条" },
+        { key: "deepseek/fx-pdf-first", upstream: "zhipuai/fx-glm", reason: "第二条" }
+      ])
+    );
+    const dup = runGenerator([
+      "--input",
+      FIXTURE,
+      "--out",
+      outPath("overrides-dup-out"),
+      "--aliases",
+      "none",
+      "--redirects",
+      "none",
+      "--overrides",
+      dupFile,
+      "--expect-counts",
+      FIXTURE_COUNTS
+    ]);
+    expect(dup.status, "重复 key 应当硬错").not.toBe(0);
+    expect(dup.stderr).toContain("重复");
   });
 
   it("别名表：查表兜底 + 缺口补录，目标指错一律硬错（不许静默落空）", () => {
@@ -365,6 +470,8 @@ describe("思考事实生成器 CLI（02）", () => {
         file,
         "--redirects",
         "none",
+        "--overrides",
+        "none",
         "--expect-counts",
         FIXTURE_COUNTS
       ]);
@@ -375,7 +482,20 @@ describe("思考事实生成器 CLI（02）", () => {
 
   it("对账：默认常量是真产物的 578/415/352/63/30，fixture 不带覆盖参数必红", () => {
     // 不带 --expect-counts 时按脚本常量（真产物口径）判，fixture 只有 15/12/9/3/5 → 必红。
-    const mismatch = runGenerator(["--input", FIXTURE, "--out", outPath("default-expect"), "--aliases", "none", "--redirects", "none"]);
+    const mismatch = runGenerator([
+      "--input",
+      FIXTURE,
+      "--out",
+      outPath("default-expect"),
+      "--aliases",
+      "none",
+      "--redirects",
+      "none",
+      "--overrides",
+      "none",
+      "--overrides",
+      "none"
+    ]);
     expect(mismatch.status).not.toBe(0);
     expect(mismatch.stderr).toContain("578");
     expect(mismatch.stderr).toContain("15");
@@ -388,6 +508,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "--aliases",
       "none",
       "--redirects",
+      "none",
+      "--overrides",
       "none",
       "--expect-counts",
       "15/12/9/4/5"
@@ -403,6 +525,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "--aliases",
       "none",
       "--redirects",
+      "none",
+      "--overrides",
       "none",
       "--expect-counts",
       "15/12"
@@ -430,6 +554,8 @@ describe("思考事实生成器 CLI（02）", () => {
         "--aliases",
         "none",
         "--redirects",
+        "none",
+        "--overrides",
         "none",
         "--expect-counts",
         FIXTURE_COUNTS
@@ -475,6 +601,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "--aliases",
       "none",
       "--redirects",
+      "none",
+      "--overrides",
       "none",
       "--expect-counts",
       FIXTURE_COUNTS,
@@ -647,7 +775,9 @@ describe("思考事实产物（02）", () => {
       // canonical 的 low-high-max → 值集 "max" 不再登记：effort 值集 30 → 29。
       effortSets: 29,
       // 352 直接行的规范词表 + 新增 7 个 canonical 目标值集 − 6 个不再被引用的 direct 值集。
-      valuesets: 51,
+      // 19 号票后 −1：sensenova/deepseek-v4-pro 经 -0813 重定向改用 toggle+low-high-max，
+      // 值集 "toggle+high-max" 只剩它一个用户，随之消失（50 个值集 / 50 个被引用 / 0 孤儿）。
+      valuesets: 50,
       deprecated: 9,
       aliases: 6
     });

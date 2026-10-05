@@ -740,19 +740,34 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     });
   });
 
-  it("上游词表更窄的行：chip 就是上游那两档，low 偏好被裁到 high（sensenova/glm-5.2、opencodego/deepseek-v4-pro）", () => {
-    // 口径提醒：low 档**不是 18 号票删掉的**——06 号票的 A' = 上游 ∩ 平台声明 已经把它裁了。
-    // 两行在删 override 前后 chip 都是 [high, max]（见 18-report §5.1 的 24 行「chip 不变」），
+  it("上游词表更窄的行：chip 就是上游那两档，low 偏好被裁到 high（sensenova/glm-5.2）", () => {
+    // 口径提醒：low 档**不是 18 号票删掉的**——06 号票的 A'= 上游 ∩ 平台声明 已经把它裁了。
     // 本例钉的是删后的稳态，不是「消失」事件。
-    for (const [presetId, model] of [
-      ["sensenova", "glm-5.2"],
-      ["opencodego", "deepseek-v4-pro"]
-    ] as Array<[string, string]>) {
-      expect(levelsOf(presetId, model), `${presetId}/${model}`).toEqual(["high", "max"]);
-      expect(resolveThinkingProfile({ presetId, model, level: "low", stream: true }).fields, `${presetId}/${model}`).toEqual({
-        reasoning_effort: "high"
-      });
-    }
+    // （原另一例 opencodego/deepseek-v4-pro 已被 19 号票的值集覆盖表改写：low 拿回，
+    //  另由下面的 19 号票用例承载。）
+    expect(levelsOf("sensenova", "glm-5.2")).toEqual(["high", "max"]);
+    expect(resolveThinkingProfile({ presetId: "sensenova", model: "glm-5.2", level: "low", stream: true }).fields).toEqual({
+      reasoning_effort: "high"
+    });
+  });
+
+  it("19 号票：值集覆盖 / canonical 重定向后的三行逐档钉住", () => {
+    // opencodego/deepseek-v4-pro：覆盖表借 deepseek/deepseek-v4-pro 的 toggle+[low,high,max]
+    //   → opencodego 未登记开关形状，toggle 不产 off 写点，chip = [low, high, max]。
+    expect(levelsOf("opencodego", "deepseek-v4-pro")).toEqual(["low", "high", "max"]);
+    // sensenova/deepseek-v4-pro：-0813 重定向拿回 low（off 仍关不掉 → 级联 low）。
+    expect(levelsOf("sensenova", "deepseek-v4-pro")).toEqual(["low", "high", "max"]);
+    expect(resolveThinkingProfile({ presetId: "sensenova", model: "deepseek-v4-pro", level: "off", stream: true })).toEqual({
+      fields: { reasoning_effort: "low" },
+      offUnavailable: true,
+      offFallback: "low",
+      thinkingClass: "always"
+    });
+    // amd/DeepSeek-V4-Flash：7 档收窄到 3 档，minimal/medium/xhigh 消失、off 关不掉。
+    expect(levelsOf("amd", "DeepSeek-V4-Flash")).toEqual(["low", "high", "max"]);
+    expect(resolveThinkingProfile({ presetId: "amd", model: "DeepSeek-V4-Flash", level: "minimal", stream: true }).fields).toEqual({
+      reasoning_effort: "low"
+    });
   });
 
   it("13 号票刚对齐的行逐字节不变（opencodego/kimi-k3 哨兵，7 档全钉）", () => {
@@ -773,10 +788,11 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     }
   });
 
-  it("off 级联：票面「上游词表含 off」的口径 175 行（152/3/3/17），逐平台钉数", () => {
+  it("off 级联：票面「上游词表含 off」的口径 177 行（152/3/3/19），逐平台钉数", () => {
     // 票面 §实测把这个数百字面记作 off 级联受影响行数：这四家 override 里都显式声明了
     // off 写点（opencodego 除外），故「上游值集含 off」的行就是删声明后会失去/保留关闭
-    // 落点的行。逐平台 152 / 3 / 3 / 17 = 175。
+    // 落点的行。逐平台 152 / 3 / 3 / 17 = 175；19 号票后 opencodego 两行拿到 toggle
+    // （deepseek-v4-flash 走 -0731 重定向、deepseek-v4-pro 走值集覆盖）→ 17 + 2 = 19 = 177。
     const hasOff = (presetId: string): number =>
       modelsOf(presetId).filter((model) => {
         const fact = lookupThinkingFact(UPSTREAM_PROVIDER_BY_PRESET[presetId], model);
@@ -787,11 +803,11 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       amd: hasOff("amd"),
       sensenova: hasOff("sensenova"),
       opencodego: hasOff("opencodego")
-    }).toEqual({ openrouter: 152, amd: 3, sensenova: 3, opencodego: 17 });
-    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(175);
+    }).toEqual({ openrouter: 152, amd: 3, sensenova: 3, opencodego: 19 });
+    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(177);
   });
 
-  it("off 级联：按「thinkingClass=always + offUnavailable」口径是 235 行（与票面 175 的差异见 18-report）", () => {
+  it("off 级联：按「thinkingClass=always + offUnavailable」口径是 236 行（与口径 A 的 177 差异见 18-report）", () => {
     const cascade = (presetId: string): string[] =>
       modelsOf(presetId).filter((model) => {
         const adjustment = resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level: "off", stream: true });
@@ -799,12 +815,14 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       });
     const counts = {
       openrouter: cascade("openrouter").length,
+      // amd 4 → 5：19 号票后 DeepSeek-V4-Flash 收窄到 toggle+[low,high,max]，amd 未登记开关
+      // 形状 → off 关不掉（此前它靠 effort none 关得上，是这五行里唯一新增的）。
       amd: cascade("amd").length,
       sensenova: cascade("sensenova").length,
       opencodego: cascade("opencodego").length
     };
-    expect(counts).toEqual({ openrouter: 202, amd: 4, sensenova: 4, opencodego: 25 });
-    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(235);
+    expect(counts).toEqual({ openrouter: 202, amd: 5, sensenova: 4, opencodego: 25 });
+    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(236);
     // 级联目标 = 可用集里最小的非 off 档：glm-5.2（A={high,max}）偏好 off → high。
     const glm = resolveThinkingAdjustment({ presetId: "sensenova", model: "glm-5.2", level: "off", stream: true });
     expect(glm.effectiveLevel).toBe("high");

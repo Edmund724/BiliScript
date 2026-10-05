@@ -29,6 +29,7 @@
 //                    只给 fixture 用，生产不许改（改了等于关掉对账）。
 //   --aliases        显式别名表（默认脚本里的 MODEL_ID_ALIASES；`none` = 不加载）。
 //   --redirects      canonical 重定向表（默认脚本里的 CANONICAL_MODEL_REDIRECTS；`none` = 不加载）。
+//   --overrides      值集覆盖表（默认脚本里的 VOCABULARY_OVERRIDES；`none` = 不加载）。
 //   --report         另把本次 sync 的摘要 + 63 个缺口的逐条处理写成文件。
 //   --matrix         另把逐 (provider, 模型, 档位空间) 矩阵写成 TSV（后续 golden 的数据来源）。
 
@@ -115,6 +116,49 @@ const CANONICAL_MODEL_REDIRECTS = [
       "上游 deepseek provider 没有 4.1-flash 这个 id（只有 deepseek-flash / deepseek-v4-flash / " +
       "deepseek-v4-flash-vision-exp / deepseek-v4-pro）；用户 2026-10-05 裁定「所有的 " +
       "DeepSeek-v4.1-flash 都可以直接用上游 deepseek provider 的 deepseek-flash 参数」。"
+  },
+  {
+    canonical: "deepseek/deepseek-v4-pro-0813",
+    redirect: "deepseek/deepseek-v4-pro",
+    reason:
+      "上游 deepseek provider 没有 deepseek-v4-pro-0813 这个 id（只有 deepseek-v4-pro，且它自己的 " +
+      "canonical_model_id 正是 -0813 —— 上游对这一族统一用带日期后缀的 id 当指针）；" +
+      "用户 2026-10-05 裁定加。影响面：3 行，其中只有 sensenova/deepseek-v4-pro 的值集真变" +
+      "（toggle+[high,max] → toggle+[low,high,max]，拿回 low）。"
+  },
+  {
+    canonical: "deepseek/deepseek-v4-flash-0731",
+    redirect: "deepseek/deepseek-v4-flash",
+    reason:
+      "上游 deepseek provider 没有 deepseek-v4-flash-0731 这个 id（只有 deepseek-v4-flash，且它自己的 " +
+      "canonical_model_id 正是 -0731）；用户 2026-10-05 裁定加。影响面：3 行，其中只有 " +
+      "amd/DeepSeek-V4-Flash 的值集真变（effort[none,minimal,low,medium,high,xhigh,max] → " +
+      "toggle+[low,high,max]，7 档收窄到 3 档并丢 off）——用户已知悉并接受：与 13 号票已收窄的 " +
+      "amd/DeepSeek-V4.1-Flash、amd/DeepSeek-V4-Flash-Vision-Exp 对齐，三兄弟同形。"
+  }
+];
+
+// 值集覆盖表（19 号票裁定 3）：本仓显式声明「这一行的档位词表主人是另一条上游记录」。
+// 与 CANONICAL_MODEL_REDIRECTS 的分工：后者修的是**指针指向**（上游 canonical_model_id 悬空，
+// 换到同族真实存在的目标）；本表修的是**这一行归谁**——指针没有、或有但不足以代表该网关事实时。
+// 与 MODEL_ID_ALIASES 的分工：别名只对**缺口行**生效（运行期也只在指派表未命中时才查，
+// 见 resolveThinkingKey），对已有 direct 词表的行是死条目；本表在有 direct 词表时就生效。
+// 取值序（19 号票）：本表 > canonical_model_id（13 号票）> direct —— 本表插在最前，
+// 所以「本仓声明的词表主人」压过上游自己写的那一行（两表指向同一条时二者同值，无矛盾）。
+// 纪律同前两张表：每条必须写清上游依据（可审），生成期逐条 fail-loud 校验「被覆盖的行确实存在」
+// 与「目标存在且有 reasoning_options」——覆盖指错等于静默发错档位，宁可硬错也不猜。
+const VOCABULARY_OVERRIDES = [
+  {
+    key: "opencode-go/deepseek-v4-pro",
+    upstream: "deepseek/deepseek-v4-pro",
+    reason:
+      "上游 opencode-go/deepseek-v4-pro 直挂 effort[high,max]（无 canonical 指针），而同网关三个 " +
+      "flash 系兄弟都是 low/high/max，pro 系独缺 low —— 用户查过 opencode.ai 文档未登记思考参数，" +
+      "网关侧无从核实，故采信官方 deepseek/deepseek-v4-pro 的 toggle+[low,high,max]（用户 2026-10-05 " +
+      "裁定）。登记的反向证据：全上游 30 家登记 deepseek-v4-pro，其中 9 家（含 opencode 自己的 Zen " +
+      "网关）写的是 toggle+[high,max]，与 opencode-go 同形 —— 本条与该多数共识相左，是产品判断" +
+      "而非上游事实。opencodego 未在 UPSTREAM_TOGGLE_SHAPES 登记开关形状，故值集里的 toggle 不产 " +
+      "off 写点：chips 只从 high/max 变 low/high/max，thinkingClass 仍 always、offUnavailable 仍 true。"
   }
 ];
 
@@ -145,12 +189,15 @@ function parseArgs(argv) {
     matrix: null,
     aliases: null,
     redirects: null,
+    overrides: null,
     expectCounts: EXPECTED_COUNTS
   };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if (["--input", "--out", "--report", "--matrix", "--aliases", "--redirects", "--expect-counts"].includes(flag)) {
+    if (
+      ["--input", "--out", "--report", "--matrix", "--aliases", "--redirects", "--overrides", "--expect-counts"].includes(flag)
+    ) {
       if (value === undefined) fail(`${flag} 缺参数值`);
       i += 1;
       if (flag === "--input") options.input = value;
@@ -159,12 +206,14 @@ function parseArgs(argv) {
       else if (flag === "--matrix") options.matrix = value;
       else if (flag === "--aliases") options.aliases = value;
       else if (flag === "--redirects") options.redirects = value;
+      else if (flag === "--overrides") options.overrides = value;
       else options.expectCounts = parseExpectCounts(value);
       continue;
     }
     fail(
       `未知参数 "${flag}"。用法：--input <path|url> --out <path> --aliases <path|none> ` +
-        `--redirects <path|none> --expect-counts <a/b/c/d/e> --report <path> --matrix <path>`
+        `--redirects <path|none> --overrides <path|none> --expect-counts <a/b/c/d/e> ` +
+        `--report <path> --matrix <path>`
     );
   }
   return options;
@@ -198,6 +247,40 @@ function loadRedirects(option) {
     for (const field of ["canonical", "redirect", "reason"]) {
       if (typeof entry[field] !== "string" || entry[field].length === 0) {
         fail(`--redirects[${index}] 缺非空字符串字段 ${field}（每条 reason 必填，可审）。`);
+      }
+    }
+  }
+  return parsed;
+}
+
+// 值集覆盖表来源：默认脚本里的 VOCABULARY_OVERRIDES（本仓事实，生产路径）；fixture 用小表，
+// `none` = 不加载（只跑 canonical 优先 + direct 回落路径）。表里的条目生成期逐条校验。
+function loadOverrides(option) {
+  if (option === null) {
+    return VOCABULARY_OVERRIDES;
+  }
+  if (option === "none") {
+    return [];
+  }
+  if (!fs.existsSync(option)) {
+    fail(`--overrides 指向的文件不存在：${option}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(option, "utf8"));
+  } catch (error) {
+    fail(`--overrides 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!Array.isArray(parsed)) {
+    fail(`--overrides 顶层必须是数组（每条 {key, upstream, reason}）。`);
+  }
+  for (const [index, entry] of parsed.entries()) {
+    if (!entry || typeof entry !== "object") {
+      fail(`--overrides[${index}] 不是对象。`);
+    }
+    for (const field of ["key", "upstream", "reason"]) {
+      if (typeof entry[field] !== "string" || entry[field].length === 0) {
+        fail(`--overrides[${index}] 缺非空字符串字段 ${field}（每条 reason 必填，可审）。`);
       }
     }
   }
@@ -379,7 +462,7 @@ function pickUpstreamProvider(api, upstreamId, preset) {
 }
 
 // 编译一遍：值集去重 + 逐模型指派。返回的都是纯数据，渲染与报告共用。
-function compileFacts(api, aliases, redirects) {
+function compileFacts(api, aliases, redirects, overrides) {
   const valuesets = new Map();
   const structureOf = new Map();
   const gaps = [];
@@ -408,10 +491,44 @@ function compileFacts(api, aliases, redirects) {
     redirectByCanonical.set(entry.canonical, entry.redirect);
   }
 
+  // 值集覆盖表解析（19 号票）：本仓声明「被覆盖行的词表主人是另一条上游记录」。
+  // 逐条 fail-loud 校验两件事——被覆盖的行确实在快照里（覆盖一个不存在的行 = 表里有条死条目，
+  // 上游删了模型也不会有人发现）、目标存在且有 reasoning_options（覆盖指错等于静默发错档位）。
+  // 同一个 key 两条也硬错（同 redirect 表的纪律）。
+  const overrideByKey = new Map();
+  for (const entry of overrides) {
+    const keyParts = splitUpstreamId(entry.key);
+    if (!keyParts) {
+      fail(`值集覆盖表 key 必须是 "<上游 provider>/<模型 id>"，收到 "${entry.key}"。`);
+    }
+    if (overrideByKey.has(entry.key)) {
+      fail(`值集覆盖表有重复的 key "${entry.key}" —— 一行只能有一个词表主人。`);
+    }
+    const host = api[keyParts.providerId];
+    const hostModel = host && typeof host === "object" ? host.models?.[keyParts.modelId] : undefined;
+    if (!hostModel || typeof hostModel !== "object") {
+      fail(`值集覆盖表 ${entry.key}: 快照里没有这个模型（上游删了或改了 id？这条覆盖已失效，请删）。`);
+    }
+    const targetParts = splitUpstreamId(entry.upstream);
+    if (!targetParts) {
+      fail(`值集覆盖表 ${entry.key}: upstream 必须是 "<上游 provider>/<模型 id>"，收到 "${entry.upstream}"。`);
+    }
+    const target = api[targetParts.providerId]?.models?.[targetParts.modelId];
+    if (!target || typeof target !== "object") {
+      fail(`值集覆盖表 ${entry.key} 指向的上游模型不存在：${entry.upstream}（上游改 id 了？）。`);
+    }
+    if (!Array.isArray(target.reasoning_options) || target.reasoning_options.length === 0) {
+      fail(`值集覆盖表 ${entry.key} 指向的 ${entry.upstream} 自己没有 reasoning_options —— 覆盖指错了。`);
+    }
+    overrideByKey.set(entry.key, { ...entry, options: target.reasoning_options });
+  }
+
   // canonical 优先改写（13 号票裁定 1）与回落 direct 的逐行留档（--report 新增节的数据源）。
   const canonicalPriority = [];
   const canonicalFallbacks = [];
   const redirectHits = [];
+  const overrideHits = [];
+  const overriddenRows = new Map();
   const recordRedirectHit = (key, canonical, target) => {
     redirectHits.push(`${key} ← canonical:${canonical} → ${target}`);
   };
@@ -462,6 +579,20 @@ function compileFacts(api, aliases, redirects) {
       if (!model.reasoning) continue;
       stats.reasoning += 1;
       counts.reasoning += 1;
+
+      // 值集覆盖优先（19 号票裁定 3，序：覆盖 > canonical > direct）：本仓显式声明了这一行
+      // 的词表主人，压过该行自己的 direct，也压过它的 canonical_model_id。命中即整行改写，
+      // direct / canonical / 缺口三条路径都不再看这条模型 —— 这正是它与别名表的分工。
+      const override = overrideByKey.get(`${providerId}/${modelId}`);
+      if (override) {
+        const where = `${providerId}/${modelId} ← override:${override.upstream}`;
+        rows[modelId] = registerValueset(where, normalizeOptions(where, override.options));
+        overrideHits.push(`${providerId}/${modelId} → ${override.upstream} → ${rows[modelId]}`);
+        overriddenRows.set(`${providerId}/${modelId}`, override.upstream);
+        counts.withOptions += 1;
+        stats.assigned += 1;
+        continue;
+      }
 
       const options = model.reasoning_options;
       if (Array.isArray(options) && options.length > 0) {
@@ -586,7 +717,11 @@ function compileFacts(api, aliases, redirects) {
         provider: providerId,
         modelId,
         deprecated: model.status === "deprecated",
-        source: gap ? gap.resolution : "direct",
+        source: overriddenRows.has(`${providerId}/${modelId}`)
+          ? `override:${overriddenRows.get(`${providerId}/${modelId}`)}`
+          : gap
+            ? gap.resolution
+            : "direct",
         valuesetId: typeof valuesetId === "string" ? valuesetId : null,
         valueset: typeof valuesetId === "string" ? valuesets.get(valuesetId) : null
       });
@@ -605,7 +740,9 @@ function compileFacts(api, aliases, redirects) {
     canonicalPriority,
     canonicalFallbacks,
     redirectHits,
-    redirects
+    redirects,
+    overrideHits,
+    overrides
   };
 }
 
@@ -737,8 +874,9 @@ function renderModule({ source, contentHash, facts }) {
 // 口径：12 个上游 provider 的 reasoning 模型 → 归一值集常量表 VALUESETS + 指派表
 //       ASSIGNMENTS。值集按结构去重；指派只回答「属于哪个值集」，线格式（怎么落请求体）
 //       是 adapter 与 ai/thinking-wire-map.ts 的职责。${facts.counts.withOptions} 个模型直接有
-//       reasoning_options（13 号票起 canonical 优先：direct 非空时也先借 canonical_model_id
-//       的词表，悬空才回落 direct；canonical 重定向表见 --report 的 canonical 优先节）；
+//       reasoning_options（取值序 19 号票：值集覆盖表 > canonical_model_id（13 号票 canonical
+//       优先：direct 非空时也先借 canonical_model_id 的词表，悬空才回落 direct）> direct；
+//       canonical 重定向表见 --report 的 canonical 优先节，值集覆盖表见 --report 的值集覆盖节）；
 //       ${facts.counts.gaps} 个缺口里 ${borrowedTotal} 个按 canonical_model_id /
 //       别名表借到原生词表，其余 ${unknownTotal} 个标「未知词表」（不进表，查表返回 null =
 //       请求侧不发参）。逐条借词来源与缺口清单在 --report / --matrix 工件。
@@ -968,6 +1106,17 @@ function renderReport(summary, facts, capturedAt) {
   for (const alias of facts.aliases) {
     lines.push(`  ${alias.provider}/${alias.localId} → ${alias.upstream}（值集 ${alias.valuesetId}）：${alias.reason}`);
   }
+  // 值集覆盖节（19 号票）：本仓声明的词表主人逐条可追（表内容 + 实际命中的行）。
+  lines.push(
+    "",
+    `值集覆盖（19 号票）：表 ${facts.overrides.length} 条 / 命中 ${facts.overrideHits.length} 行`
+  );
+  for (const entry of facts.overrides) {
+    lines.push(`    ${entry.key} → ${entry.upstream}：${entry.reason}`);
+  }
+  for (const hit of facts.overrideHits) {
+    lines.push(`    命中 ${hit}`);
+  }
   lines.push("", `值集（${facts.valuesets.size}）：`);
   for (const valueset of [...facts.valuesets.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
     const effort = valueset.effort ? valueset.effort.join("/") : "-";
@@ -1036,7 +1185,12 @@ async function main() {
     fail(`输入顶层不是 provider 表（${options.input}）。`);
   }
 
-  const facts = compileFacts(api, loadAliases(options.aliases), loadRedirects(options.redirects));
+  const facts = compileFacts(
+    api,
+    loadAliases(options.aliases),
+    loadRedirects(options.redirects),
+    loadOverrides(options.overrides)
+  );
   assertCounts(facts.counts, options.expectCounts);
 
   const contentHash = hashFacts(facts);
