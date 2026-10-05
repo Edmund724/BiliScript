@@ -26,3 +26,11 @@
 - 架构评审（含 AI 代理）不得再提议「为消除转写而按协议拆分档位事实」，除非重开条件成立。**边界说明**：这不是 [ADR-0013](0013-upstream-model-facts-borrow-not-embed.md) 那条「不得让 `protocol` 参与目录查表」的延伸——那条管的是身份与目录查表（`PRESETS[].catalogProvider`），写法层本来就以协议为键；本条只钉「该拆哪一层、拿什么证据拆」。
 - 新增协议时：写法层加一行出口（`Record<AiProtocol, …>` 编译期强制）；新增平台时：平台形状/出口各加一行；**档位事实照旧只加一份**。
 - 已接受的代价：跨方言等价断言在多数格上没有实测支撑（例：`qwen` 的 chat 通道 off 发 `enable_thinking:false`、Messages 通道发 `thinking:{type:"disabled"}`，后者出处是百炼 Anthropic 兼容页的**档位**出口而非 off 专项；`moonshot` 的 Kimi Code 端点档位走顶层 `reasoning_effort`、off 却发 `thinking:{type:"disabled"}`，该端点的 `thinking` 形状无官方文档）。这类格子若被证实不成立，回滚面 = 形状表 / 出口表里的一行。
+
+## 补注：off 出口表先于重开条件落地（2026-10-05）
+
+`.scratch/tickets/thinking-wire-protocol-split/issues/02-messages-off-exit-table.md` 已落地决定 5 实施形态里的**一半**——「Messages 侧为每格**显式声明** off 出口」——但**先于重开条件**（即先于「两通道 off 被证实不同形」的证据）。补注本条与之的边界：
+
+- **不主张新证据**：本票不测任何新平台，只把今天已登记的 off 事实（12 格归一为同一字面量 + `stepfun` / `amd` 一格不发）从「一条全局默认 + 一个 `if` 例外」变成逐格可审的表（`MESSAGES_OFF_EXIT`：`native` / `word` / `silent` / `unresearched` 四态，每格带 provenance）。这正是本条「考虑过的方案」里记的那笔交易：用一层要同步的真值换「可审、可逐格否决」；本次由两条静态对账收口（表键 = `PROVIDERS` 键空间全覆盖；`owner` 声明的格 ≡ 怪癖词表里开该怪癖的平台）。
+- **行为不变**：本票前后 `(平台, 模型, 7 档, stream, probe)` 的 Messages 思考字段逐字节 diff 为空（工件 `.scratch/tickets/thinking-wire-protocol-split/artifacts/02-neutral-bodies{,.before}.tsv`）。默认仍是原生显式 `thinking:{type:"disabled"}`；`stepfun` / `amd` 的不发仍由怪癖 `effortVocabMessages` 定（表只声明归属，判据取词表的活值），故「`presetId` 与 `baseUrl` 手改指向不同厂」这类既存身份矛盾也与旧实现逐字节相同。
+- **范围**：只碰 Messages 通道的 off 一格。档位词表（`MESSAGES_TIER_VOCABULARY`）与键从平台扩成 **(平台, 协议)** 仍是决定 5 的其余实施形态、属 01 号票；01 触发时本表随之改键形，不另立一层。

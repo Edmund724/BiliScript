@@ -43,6 +43,7 @@
 import { describe, expect, it } from "vitest";
 import { channelHarness, type ByClassCase } from "./thinking-golden-classes.js";
 import { registerByClassDefenses, registerByClassGolden } from "./thinking-golden-defenses.js";
+import { MESSAGES_OFF_EXIT, THINKING_WIRE_MAPS } from "../../extension/ai/thinking-wire-map.js";
 
 const HARNESS = channelHarness("anthropic");
 
@@ -260,5 +261,74 @@ describe("golden：塌陷正当性（上游事实 vs 缺陷）", () => {
     expect(HARNESS.bodyAt({ presetId: "qwen", model: "qwen3-next-80b-a3b-thinking", level: "low" })).toEqual(
       HARNESS.bodyAt({ presetId: "qwen", model: "qwen3-next-80b-a3b-thinking", level: "high" })
     );
+  });
+});
+
+// ===== thinking-wire-protocol-split 02 号票：Messages off 出口逐格 golden（表键全覆盖）=====
+// 表（ai/thinking-wire-map.ts 的 MESSAGES_OFF_EXIT）逐格钉「off 档实发」：键 = PROVIDERS 键空间，
+// 每键配一个**真实可达**的 (presetId, model) 代表——目录内带 off 写点的行，或手写兜底行
+// （stepfun / amd 的静默格、ollama / siliconflow 的 unknownClass 格）。02 号票的失败方式 ④
+// （只覆盖目录内行、漏掉手写表兜底行）由 stepfun / amd 两格承载：它们在目录内没有 off 写点
+// （形状未登记 → Off 走级联），静默格只能由自填 id 走到。
+// 唯一没有端到端 off 路径的是 minimax（目录行 toggle 但形状未登记，PROVIDERS 又无 unknownClass
+// → 手写兜底落 unknown 哨兵）：那一格只能喂线格式层的合成 off 事实，理由写在该用例里。
+const OFF_CELL_REPRESENTATIVES: Readonly<
+  Record<string, { presetId: string; baseUrl?: string; model: string; expect: Record<string, unknown>; note: string }>
+> = {
+  deepseek: { presetId: "deepseek", model: "deepseek-v4-pro", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记" },
+  qwen: { presetId: "qwen", model: "qwen3.8-max", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记（enable_thinking）" },
+  zhipu: { presetId: "zhipu", model: "glm-5.2", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记（thinking.type 原生参数）" },
+  moonshot: { presetId: "moonshot", model: "kimi-for-coding", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记" },
+  minimax: { presetId: "minimax", model: "MiniMax-M3", expect: { thinking: { type: "disabled" } }, note: "无端到端 off 路径 → 线格式层合成输入（见下面的用例）" },
+  mimo: { presetId: "mimo", model: "mimo-v2-flash", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记（enable_thinking）" },
+  openrouter: { presetId: "openrouter", model: "openai/gpt-5.2", expect: { thinking: { type: "disabled" } }, note: "目录行：值集自带 effort-none" },
+  opencodego: { presetId: "opencodego", model: "hy3", expect: { thinking: { type: "disabled" } }, note: "目录行：值集自带 effort-none" },
+  sensenova: { presetId: "sensenova", model: "sensenova-6.8-flash-lite", expect: { thinking: { type: "disabled" } }, note: "目录行：值集自带 effort-none" },
+  modelscope: { presetId: "modelscope", model: "ZhipuAI/GLM-4.6", expect: { thinking: { type: "disabled" } }, note: "目录行 + off 专项实测（怪癖 thinkingDisabledMustBeExplicit）" },
+  stepfun: { presetId: "stepfun", model: "gpt-5.2", expect: {}, note: "手写兜底行：静默格（怪癖 effortVocabMessages；目录行无 off 写点）" },
+  amd: { presetId: "amd", model: "gpt-5.2", expect: {}, note: "手写兜底行：静默格（怪癖 effortVocabMessages；目录行无 off 写点）" },
+  ollama: { presetId: "ollama", model: "llama3.2", expect: { thinking: { type: "disabled" } }, note: "手写兜底行：unknownClass ollama-effort 的 off 写点" },
+  siliconflow: {
+    presetId: "custom",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    model: "llama3",
+    expect: { thinking: { type: "disabled" } },
+    note: "custom 直填 baseUrl → host 索引命中 siliconflow，unknownClass siliconflow-switch 的 off 写点"
+  }
+};
+
+describe("off 出口逐格 golden（thinking-wire-protocol-split 02）：表键全覆盖", () => {
+  it("代表格覆盖表键全集（表新增一格而 golden 没跟 → 红）", () => {
+    expect(Object.keys(OFF_CELL_REPRESENTATIVES).sort()).toEqual(Object.keys(MESSAGES_OFF_EXIT).sort());
+  });
+
+  for (const [platform, rep] of Object.entries(OFF_CELL_REPRESENTATIVES)) {
+    if (platform === "minimax") continue;
+    it(`${platform}（${rep.note}）：off → 整 body 逐字节`, () => {
+      expect(HARNESS.bodyAt({ presetId: rep.presetId, baseUrl: rep.baseUrl, model: rep.model, level: "off" })).toEqual(
+        HARNESS.expectedBody(rep.model, rep.expect)
+      );
+    });
+  }
+
+  it("minimax：无端到端 off 路径（形状未登记、无 unknownClass）→ 线格式层合成 off 事实逐字节", () => {
+    // 端到端产不出这一格：目录唯一一行 MiniMax-M3 的 toggle 不产生 off 写点（minimax 未登记
+    // 开关形状）、手写兜底又落 unknown 哨兵（PROVIDERS.minimax 无 unknownClass）。故本格按
+    // 线格式层（anthropicWireMap）的合成输入钉：off 出口表声明 "unresearched" → 原生。
+    expect(
+      THINKING_WIRE_MAPS.anthropic({
+        fields: { reasoning_effort: "none" },
+        stream: false,
+        probe: false,
+        platformId: "minimax",
+        effortVocabularyOnly: false
+      }).fields
+    ).toEqual(OFF_CELL_REPRESENTATIVES.minimax.expect);
+  });
+
+  it("表外（custom 直填 api.openai.com / gpt-5.2）：未声明 → 原生，逐字节 body", () => {
+    expect(
+      HARNESS.bodyAt({ presetId: "custom", baseUrl: "https://api.openai.com/v1", model: "gpt-5.2", level: "off" })
+    ).toEqual(HARNESS.expectedBody("gpt-5.2", { thinking: { type: "disabled" } }));
   });
 });

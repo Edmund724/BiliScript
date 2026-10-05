@@ -13,9 +13,21 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ASSIGNMENTS, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
-import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, resolveThinkingProfile } from "../../extension/ai/thinking-profiles.js";
+import { hasPlatformQuirk } from "../../extension/ai/compat-vocab.js";
+import {
+  AI_THINKING_LEVELS,
+  PROVIDERS,
+  UPSTREAM_PROVIDER_BY_PRESET,
+  resolveThinkingProfile
+} from "../../extension/ai/thinking-profiles.js";
 import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
-import { THINKING_WIRE_MAPS, type ThinkingWireInput } from "../../extension/ai/thinking-wire-map.js";
+import {
+  MESSAGES_OFF_EXIT,
+  THINKING_WIRE_MAPS,
+  UNRESEARCHED_OFF_EXIT,
+  messagesOffExitCell,
+  type ThinkingWireInput
+} from "../../extension/ai/thinking-wire-map.js";
 
 // 便捷入参：默认「非探针、流式关、非 effort 词汇平台、血统给 low 档」，
 // 用例只覆盖自己关心的维度（不改的维度保持默认）。
@@ -292,5 +304,99 @@ describe("归一化不发散（08 号票：像集合 ⊆ 该模型 02 值集）"
     // glm-5.2 的 02 值集 effort 是 high/max（D1=A2 起带 toggle，off 走平台开关）——
     // 归一化层若「发散」出 low 就会违反上一条断言；这里把该值集钉死，证明上一条断言的判据不是恒真。
     expect(lookupThinkingFact("zhipuai", "glm-5.2")!.effort).toEqual(["high", "max"]);
+  });
+});
+
+// thinking-wire-protocol-split 02 号票：Messages 通道的 off 出口表。票面的失败方式逐条对应下面的用例：
+//   ① 表与真实行为不同步（表说原生、代码走怪癖落不发）→ 逐格行为用例；
+//   ②「未声明」被 falsy 默认吞成「原生」，新增平台静默拿默认 → 键集全覆盖 + 四态可区分；
+//   ③ 怪癖语义抄成第二份事实（怪癖改了表不跟）→ owner 键集对账（表只声明归属）；
+//   ⑤ 无证据格子声称有出处 → provenance 三态 + 出处必填。
+// ④（只覆盖目录内行、漏掉手写表兜底行）由 thinking-golden-messages.test.ts 的 stepfun/amd 格承载。
+describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，行为中立", () => {
+  const PLATFORM_KEYS = Object.keys(PROVIDERS).sort();
+
+  it("键集对账：表 = PROVIDERS 键空间，不多不少（新增平台不表态 → 红）", () => {
+    expect(Object.keys(MESSAGES_OFF_EXIT).sort()).toEqual(PLATFORM_KEYS);
+  });
+
+  it("四态可区分：「未研究过」与「声明为原生」是两个显式值，不许 falsy 默认吞掉", () => {
+    const kinds = new Set(Object.values(MESSAGES_OFF_EXIT).map((cell) => cell.kind));
+    expect(kinds.has("native")).toBe(true);
+    expect(kinds.has("unresearched")).toBe(true);
+    // 无端到端 off 路径的一格是显式「未研究过」，不是缺省项。
+    expect(MESSAGES_OFF_EXIT.minimax.kind).toBe("unresearched");
+    for (const [platform, cell] of Object.entries(MESSAGES_OFF_EXIT)) {
+      expect(["native", "silent", "word", "unresearched"], platform).toContain(cell.kind);
+    }
+  });
+
+  it("provenance 必填：三态取值合法、出处非空；silent 带 reason、word 带载荷", () => {
+    for (const [platform, cell] of Object.entries(MESSAGES_OFF_EXIT)) {
+      expect(["实测", "文档", "推断"], platform).toContain(cell.provenance.level);
+      expect(cell.provenance.source.length, platform).toBeGreaterThan(8);
+      if (cell.kind === "silent") expect(cell.reason, platform).toBeTruthy();
+      if (cell.kind === "word") expect(cell.fields, platform).toBeTruthy();
+    }
+  });
+
+  it("怪癖 owner 对账：声明 owner=effortVocabMessages 的格 ≡ 词表里开该怪癖的平台（不复制键集）", () => {
+    const declared = Object.entries(MESSAGES_OFF_EXIT)
+      .filter(([, cell]) => cell.owner === "effortVocabMessages")
+      .map(([platform]) => platform)
+      .sort();
+    const quirkPlatforms = PLATFORM_KEYS.filter((platform) => hasPlatformQuirk(platform, "effortVocabMessages"));
+    expect(declared).toEqual(quirkPlatforms);
+    expect(declared).toEqual(["amd", "stepfun"]);
+  });
+
+  it("表外 / 未识别平台 → 未声明（原生）；原型链上的键不算表内格", () => {
+    expect(UNRESEARCHED_OFF_EXIT.kind).toBe("unresearched");
+    expect(messagesOffExitCell(undefined).kind).toBe("unresearched");
+    expect(messagesOffExitCell("未登记的平台").kind).toBe("unresearched");
+    expect(messagesOffExitCell("constructor").kind).toBe("unresearched");
+    expect(messagesOffExitCell("toString").kind).toBe("unresearched");
+  });
+
+  it("逐格实发：off 三词汇 × 表内声明（owner 格命中怪癖 → 不发；其余 → 原生）", () => {
+    for (const platform of PLATFORM_KEYS) {
+      const cell = messagesOffExitCell(platform);
+      const quirkOn = hasPlatformQuirk(platform, "effortVocabMessages");
+      for (const fields of [{ reasoning_effort: "none" }, { enable_thinking: false }, { thinking: { type: "disabled" } }]) {
+        const out = anthropicWire({ fields, platformId: platform, effortVocabularyOnly: quirkOn });
+        const expected =
+          cell.kind === "word" && cell.fields
+            ? cell.fields
+            : cell.kind === "silent" && quirkOn
+              ? {}
+              : { thinking: { type: "disabled" } };
+        expect(out.fields, `${platform} kind=${cell.kind} fields=${JSON.stringify(fields)}`).toEqual(expected);
+      }
+    }
+    // 表外（platformId 未识别 / undefined）同样按未声明 → 原生。
+    expect(anthropicWire({ fields: { reasoning_effort: "none" } }).fields).toEqual({ thinking: { type: "disabled" } });
+    expect(anthropicWire({ fields: { enable_thinking: false }, platformId: undefined }).fields).toEqual({
+      thinking: { type: "disabled" }
+    });
+  });
+
+  it("行为中立：owner 的活值优先于表——手改 baseUrl 的身份错配与旧实现逐字节相同", () => {
+    // presetId=ollama + stepfun 的 baseUrl（app 允许手编 baseUrl）：怪癖按 host 命中 stepfun
+    // （effortVocabularyOnly=true），档位词表按 presetId 走 ollama。旧实现在 off 分支只看全局
+    // 布尔 → 不发；表化后由 ② 支保持相同（否则这一格会从静默变成原生 = 行为变更）。
+    expect(
+      anthropicWire({ fields: { reasoning_effort: "none" }, platformId: "ollama", effortVocabularyOnly: true }).fields
+    ).toEqual({});
+    // 反向：stepfun 的格 + 怪癖未开（正常入参形状里不会出现）→ 落原生，与旧实现一致。
+    expect(
+      anthropicWire({ fields: { reasoning_effort: "none" }, platformId: "stepfun", effortVocabularyOnly: false }).fields
+    ).toEqual({ thinking: { type: "disabled" } });
+  });
+
+  it("级联不受本表影响：表只回答「off 写点存在时的出口」，档位级联仍在解析层（ADR-0014 决定 4）", () => {
+    // stepfun 的目录行没有 off 写点（形状未登记）→ 解析层级联出 low；本表不参与该判定。
+    expect(
+      anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "stepfun", effortVocabularyOnly: true }).fields
+    ).toEqual({ output_config: { effort: "low" } });
   });
 });

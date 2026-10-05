@@ -20,14 +20,15 @@
 // 自造预算只会挤占 max_tokens（各平台已实测：思考计入 max_tokens 会把正文挤成
 // 空串）。开关型血统的开档因此只发 thinking:{type:"enabled"}（不带上限）。
 //
-// 纯叶模块：只 type-import 词表叶（AiProtocol）与 thinking-profiles.ts 类型，零运行时依赖（SW 静态
-// 图安全）。键以 Record<AiProtocol, …> 强制覆盖（沿 protocol-adapter.ts 的既有纪律）：
+// 纯叶模块：只 type-import 词表叶（AiProtocol / CompatQuirk）与 thinking-profiles.ts 类型，零运行时
+// 依赖（SW 静态图安全）。键以 Record<AiProtocol, …> 强制覆盖（沿 protocol-adapter.ts 的既有纪律）：
 // 新增协议必须在本表登记一行；adapter 只做「取档位规则 → 取本表 → 并入请求体」，
 // 不在 adapter 里回抄任何思考字段名或预算取值（对账测试 tests/ai/thinking-wire-map.test.ts）。
 //
 // 不引入表达式引擎（票内被否决的备选）：线格式是代码不是字符串——受 TS 类型检查，
 // 且表达得了跨越 option 的条件（探针依赖 maxTokens 等）。
 
+import type { CompatQuirk } from "./compat-vocab.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 import type { ClassRule } from "./thinking-profiles.js";
 
@@ -150,12 +151,193 @@ const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
   modelscope: "effort-bare"
 };
 
+// ===== Messages 通道的 off 出口表（thinking-wire-protocol-split 02；行为中立）=====
+// 本表落地前，「关思考」在本通道只有一个隐式判据：全局归一成 `thinking:{type:"disabled"}`，
+// 除非怪癖 effortVocabMessages（stepfun / amd）命中就什么都不发。那条「全局默认 + 一个
+// 布尔例外」不可审：① 调用方答不出「每个平台的 off 出口是什么、凭什么」；②「未研究过」
+// 与「有依据地声明为原生」在代码里是同一个 falsy 状态，新增平台会自动继承默认而不表态；
+// ③「明确不发」那一格（stepfun / amd）只活在 if 里，没有一行让人看见。
+// 本表把这一格变成逐格可审的显式声明，取值四态（ADR-0014 决定 5 的实施形态，键形仍是平台；
+// 键从平台扩成 (平台, 协议) 是 01 号票的事）：
+// - "native"      = Anthropic 原生 `thinking:{type:"disabled"}`（**必须显式写出**，不靠缺省）；
+// - "word"        = 平台自有词（显式字段载荷；本仓今天没有实例，类型上可表达）；
+// - "silent"      = 明确不发（带 reason）；owner 有值时该格的判据是 compat-vocab 的怪癖活值；
+// - "unresearched"= 没人研究过 → 按原生默认（与 "native" 在类型/静态对账上可区分）。
+// 键集纪律：本表键 = thinking-profiles 的 PROVIDERS 键空间（与 MESSAGES_TIER_VOCABULARY 同口径的
+// 平台识别，但本表**要求全覆盖**：新增平台不表态 → tests/ai/thinking-wire-map.test.ts 红）。
+// 表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明 → 原生，见 messagesOffExitCell。
+// provenance 三态（票面口径，每格必填）：实测（HTTP 状态 + 日期 + 请求体）/ 文档（厂商文档 URL）/
+// 推断（未研究过或不含 off 专项 → 按 Anthropic 原生默认）。本仓与本机无任何平台 API key（既有票
+// 已确认），拿不到实测的格子一律如实标「推断」，负证据（官方字段表未列某字段）在 source 里写明。
+export type MessagesOffExitKind = "native" | "silent" | "word" | "unresearched";
+
+export interface MessagesOffExitCell {
+  kind: MessagesOffExitKind;
+  /**
+   * 该格「明确不发」的判据主人（怪癖词表键）。有值时本表只声明归属、判据取该怪癖的活值，
+   * 不复制它的平台键集（对账测试钉住两者一一对应）。
+   */
+  owner?: CompatQuirk;
+  /** kind="silent" 的依据文案（给人读；出处见 provenance）。 */
+  reason?: string;
+  /** kind="word"：平台自有词的字段载荷（本仓今天无实例）。 */
+  fields?: Record<string, unknown>;
+  provenance: { level: "实测" | "文档" | "推断"; source: string };
+}
+
+export const MESSAGES_OFF_EXIT: Record<string, MessagesOffExitCell> = {
+  // 上游形状表登记 thinking:{type} 开关（UPSTREAM_TOGGLE_SHAPES），off 写点 = thinking:{type:"disabled"}；
+  // 该端点只支持 thinking 与 output_config（api-docs.deepseek.com/guides/anthropic_api）。
+  // Messages 侧未实测 → 推断。
+  deepseek: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "上游形状表 toggle 的 off = thinking:{type:disabled}；api-docs.deepseek.com/guides/anthropic_api（Messages 侧未实测）"
+    }
+  },
+  // 上游形状表 off = enable_thinking:false；百炼 Anthropic 兼容页只登记档位出口、无 off 专项
+  // （help.aliyun.com/zh/model-studio/anthropic-api-messages）→ 推断。
+  qwen: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "上游形状表 toggle 的 off = enable_thinking:false；help.aliyun.com/zh/model-studio/anthropic-api-messages 只登记档位出口"
+    }
+  },
+  // Coding Plan 页登记 Claude Code 走 thinking.type：thinking.type 是该端点原生参数
+  // （docs.bigmodel.cn/cn/guide/capabilities/thinking）。
+  zhipu: {
+    kind: "native",
+    provenance: { level: "文档", source: "docs.bigmodel.cn/cn/guide/capabilities/thinking：thinking.type 为原生参数" }
+  },
+  // Kimi Code 端点（api.kimi.com/coding）只登记顶层 reasoning_effort、未登记 thinking 形状
+  // （kimi.com/code/docs/kimi-code/models.html）→ 推断（跨方言等价无官方支撑，ADR-0014 后果节已登记）。
+  moonshot: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "kimi.com/code/docs/kimi-code/models.html：该端点未登记 thinking 形状，仅顶层 reasoning_effort"
+    }
+  },
+  // 形状未登记（platform.minimax.io 无 Messages 思考参数文档），目录内 toggle 行不产生 off 写点
+  // → 本格在今天没有端到端 off 路径；按「未研究过 → 原生默认」登记。
+  minimax: {
+    kind: "unresearched",
+    provenance: {
+      level: "推断",
+      source: "形状未登记（platform.minimax.io 无 Messages 思考参数文档）；按 Anthropic 原生默认，无端到端 off 路径"
+    }
+  },
+  // 上游形状表 off = enable_thinking:false（aliyun.com 百炼代售页；同 CLASSES.mimo-hybrid-switch）→ 推断。
+  mimo: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "上游形状表 toggle 的 off = enable_thinking:false（aliyun.com 百炼代售页；Messages 侧未实测）"
+    }
+  },
+  // 值集自带 effort-none（reasoning_effort:"none"）；/messages 的 effort 词表见官方参考页。
+  // reasoning:{exclude} 语义是「藏思考」不是「关思考」，不用于 off（PROVIDERS.openrouter 注）→ 推断。
+  openrouter: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "值集自带 effort-none；openrouter.ai/docs/api/api-reference/anthropic-messages/create-a-message（Messages 侧未实测）"
+    }
+  },
+  // 值集自带 effort-none；网关无思考参数文档，2026-09 产品裁定该 Messages 端点可接收档位词
+  // （opencode.ai/docs/zen）→ 推断。
+  opencodego: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "值集自带 effort-none；opencode.ai/docs/zen 未登记思考控制参数（2026-09 产品裁定）"
+    }
+  },
+  // 商汤 Token Plan：值集自带 effort-none（token.sensenova.cn/v1；platform.sensenova.cn/docs）
+  // → 推断。
+  sensenova: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "值集自带 effort-none（platform.sensenova.cn/docs；Messages 侧未实测）"
+    }
+  },
+  // stepfun：Messages 通道只认 output_config.effort，发 thinking 字段直接 400 —— 怪癖
+  // effortVocabMessages 是语义主人（compat-vocab 词表），本格只声明归属。
+  // 证据是**负证据**：stepfun 官方字段表未列 thinking（platform.stepfun.com 模型协议页）。
+  stepfun: {
+    kind: "silent",
+    owner: "effortVocabMessages",
+    reason: "该端点只认 output_config.effort，发 thinking 字段直接 400（怪癖 effortVocabMessages）",
+    provenance: {
+      level: "文档",
+      source: "stepfun 官方字段表未列 thinking（负证据，不主张 400）：platform.stepfun.com 模型协议页；语义见 compat-vocab 的 effortVocabMessages"
+    }
+  },
+  // amd：网关对 thinking 形状报 not supported、提示改用 reasoning_effort（2026-09 实测，
+  // 见 PROVIDERS.amd 注）——同样由怪癖 effortVocabMessages 定，本格只声明归属。
+  amd: {
+    kind: "silent",
+    owner: "effortVocabMessages",
+    reason: "网关对 thinking 形状报 not supported、只收 output_config.effort（怪癖 effortVocabMessages）",
+    provenance: {
+      level: "实测",
+      source: "2026-09 实测：网关对 thinking 形状报 not supported 并提示改用 reasoning_effort（developer.amd.com.cn；原始记录见 thinking-profiles 的 PROVIDERS.amd 注，仓库无响应体留档）"
+    }
+  },
+  // ollama（本地）：手写兜底 unknownClass ollama-effort 的 off = reasoning_effort:"none"
+  // （docs.ollama.com OpenAI 兼容：thinking/enable_thinking 被静默忽略）；Messages 侧未实测 → 推断。
+  ollama: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "手写兜底 unknownClass ollama-effort 的 off = reasoning_effort:none（docs.ollama.com；Messages 侧未实测）"
+    }
+  },
+  // siliconflow：手写兜底 unknownClass siliconflow-switch 的 off = enable_thinking:false
+  // （docs.siliconflow.cn）；Messages 侧未实测 → 推断。
+  siliconflow: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "手写兜底 unknownClass siliconflow-switch 的 off = enable_thinking:false（docs.siliconflow.cn；Messages 侧未实测）"
+    }
+  },
+  // modelscope 是唯一有 off 专项实测的格子（怪癖 thinkingDisabledMustBeExplicit）：该端点默认开
+  // 思考、enable_thinking:false 被忽略、思考计入 max_tokens 会把正文挤成空串，只有
+  // thinking:{type:"disabled"} 能真正关掉。
+  modelscope: {
+    kind: "native",
+    provenance: {
+      level: "实测",
+      source: "2026-09 ModelScope Messages 端点实测：enable_thinking:false 被忽略、思考计入 max_tokens 挤空正文，只有 thinking:{type:disabled} 生效（原始记录见 compat-vocab 的 thinkingDisabledMustBeExplicit，仓库无响应体留档）"
+    }
+  }
+};
+
+// 表外 / platformId 未识别（custom 直填未入 host 索引的端点）：与「未研究过」同态（→ 原生），
+// 但它是**兜底**而不是某平台的一格，故不进 MESSAGES_OFF_EXIT 的键集（键集对账会红）。
+export const UNRESEARCHED_OFF_EXIT: MessagesOffExitCell = {
+  kind: "unresearched",
+  provenance: { level: "推断", source: "platformId 未识别（表外）→ 按 Anthropic 原生默认" }
+};
+
+/** 该平台在 Messages 通道的 off 出口（表外 / 未识别 → 未声明）。 */
+export function messagesOffExitCell(platformId: string | undefined): MessagesOffExitCell {
+  const id = String(platformId || "").trim();
+  if (id && Object.prototype.hasOwnProperty.call(MESSAGES_OFF_EXIT, id)) return MESSAGES_OFF_EXIT[id];
+  return UNRESEARCHED_OFF_EXIT;
+}
+
 // Messages 通道的思考档位改写（怪癖 thinkingFormat）：档位规则的 chat 形状字段 →
-// Anthropic 线格式。三种关思考词汇殊途同归为 thinking:{type:"disabled"}——怪癖
-// thinkingDisabledMustBeExplicit：「Anthropic 默认即关、一律不发字段」在默认开思考的
-// 网关上不成立（ModelScope Messages 端点实测 2026-09：deepseek-ai/DeepSeek-V4.1-Flash
-// 默认开思考、enable_thinking:false 被忽略、思考计入 max_tokens 会把正文挤成空串），
-// 只有 thinking:{type:"disabled"} 能真正关掉。
+// Anthropic 线格式。三种关思考词汇的出口逐格登记在 MESSAGES_OFF_EXIT（thinking-wire-protocol-split 02）——默认
+// thinking:{type:"disabled"}（怪癖 thinkingDisabledMustBeExplicit：「Anthropic 默认即关、
+// 一律不发字段」在默认开思考的网关上不成立：ModelScope Messages 端点实测 2026-09，
+// deepseek-ai/DeepSeek-V4.1-Flash 默认开思考、enable_thinking:false 被忽略、思考计入
+// max_tokens 会把正文挤成空串），只有 thinking:{type:"disabled"} 能真正关掉；
+// stepfun / amd 那两格由怪癖 effortVocabMessages 定为不发。
 //
 // 开思考分两格（02 号票在这里把「档位塌陷」改成显式的一格一格）：
 // ① effort 血统：档位词的合法性主人在 02 值集（逐模型物化，见 thinking-profiles 的
@@ -180,13 +362,24 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
     fields.enable_thinking === false ||
     (fields.thinking as { type?: unknown } | undefined)?.type === "disabled";
   if (off) {
-    // 查表给出关思考声明 = 该平台此模型可关思考：翻译成 Anthropic 原生
-    // thinking:{type:"disabled"} 显式发出，不依赖服务端默认（怪癖
-    // thinkingDisabledMustBeExplicit）。严格 effort 词汇平台（怪癖 effortVocabMessages）
-    // 不收 thinking 字段：维持不发。
-    if (!input.effortVocabularyOnly) {
-      output.fields.thinking = { type: "disabled" };
+    // 关思考出口 = MESSAGES_OFF_EXIT 逐格（thinking-wire-protocol-split 02）：「原生 / 平台自有词 / 明确不发 / 未声明」
+    // 显式登记，「未研究过」不再靠 falsy 默认表达；表外（platformId 未识别）按未声明 → 原生。
+    const cell = messagesOffExitCell(input.platformId);
+    // ①「明确不发」：静态声明的格（owner 缺省）恒不发；声明了怪癖 owner 的格（stepfun / amd）
+    //    判据取 compat-vocab 词表的怪癖活值——本表只声明归属、不复制它的平台键集。
+    if (cell.kind === "silent" && (cell.owner == null || input.effortVocabularyOnly)) return output;
+    // ② owner 的活值对表外/未声明格同样生效：旧实现的 off 判据是**不分格**的全局怪癖布尔，
+    //    这一支保证「presetId 与 baseUrl 手改指向不同厂」（档位词表按 presetId、怪癖按 host）
+    //    这类既存身份矛盾也与旧实现逐字节相同（thinking-wire-protocol-split 02 的行为中立验收）。
+    if (cell.kind !== "silent" && input.effortVocabularyOnly) return output;
+    // ③ 平台自有词的格（今天无实例）：显式载荷原样发出。
+    if (cell.kind === "word" && cell.fields) {
+      Object.assign(output.fields, cell.fields);
+      return output;
     }
+    // ④ 其余（native / unresearched / 表外 / owner 未开的 silent 格）= 翻译成 Anthropic 原生
+    //    thinking:{type:"disabled"} 显式发出，不依赖服务端默认（怪癖 thinkingDisabledMustBeExplicit）。
+    output.fields.thinking = { type: "disabled" };
     return output;
   }
 
