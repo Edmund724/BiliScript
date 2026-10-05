@@ -1,14 +1,17 @@
 // ai/thinking-wire-map.ts 的单测（thinking-wire-map 票 01）。三件事在此钉死：
 // 1. 表结构：键覆盖词表叶（Record<AiProtocol, …> 注解的运行时对账），两行各自可调用；
 // 2. 逐行写法：openai 行 = 血统词汇原样并入 + token 参数名随血统事实；anthropic 行 =
-//    Messages 通道的写法（probe 早退 / off 三词汇归一 / effort 档位分档与档位词汇表 /
-//    开关型血统的裸开档 / 未登记档位词汇的平台发裸 effort）；
+//    Messages 通道的写法（probe 早退 / off 三词汇归一 / effort 档位分档与档位出口表 /
+//    开关型血统的裸开档 / 未登记档位出口的平台发裸 effort）；
 // 3. 三层无重叠主人对账（验收第 4 条，测试期静态判据，不进运行时）：Messages 线格式
 //    字面量只在线格式映射表出现；adapter 内不再有思考词汇字面量的构造性写入；
 //    血统表不含 Messages 通道的字段名；**budget_tokens 在 extension/ai 的代码里零出现**。
-// 4（08 号票）：归一化层的词汇主人是 02 值集产物——MESSAGES_TIER_VOCABULARY 只做
+// 4（08 号票）：归一化层的词汇主人是 02 值集产物——MESSAGES_TIER_EXIT 只做
 //    「档位折叠 + 线格式出口」，出口上的档位词必须仍在**该模型** 02 值集里（只许收敛、
 //    不许发散）；判据见文件末的「归一化不发散」用例。
+// 5（thinking-wire-protocol-split）：Messages 的两张出口表逐格对账——off（02 号票）与
+//    档位（01 号票）各一份「键集全覆盖 + 状态可区分 + provenance 必填 + 怪癖 owner 一致 +
+//    逐格实发」的静态判据。
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -23,9 +26,13 @@ import {
 import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
 import {
   MESSAGES_OFF_EXIT,
+  MESSAGES_TIER_EXIT,
   THINKING_WIRE_MAPS,
   UNRESEARCHED_OFF_EXIT,
+  UNRESEARCHED_TIER_EXIT,
   messagesOffExitCell,
+  messagesTierExitCell,
+  type MessagesTierExitKind,
   type ThinkingWireInput
 } from "../../extension/ai/thinking-wire-map.js";
 
@@ -398,5 +405,125 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
     expect(
       anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "stepfun", effortVocabularyOnly: true }).fields
     ).toEqual({ output_config: { effort: "low" } });
+  });
+});
+
+// thinking-wire-protocol-split 01 号票：Messages 通道的**档位出口表**（建表前是「8 家登记 + 未登记
+// 平台隐式回落裸 effort」）。票面的失败方式逐条对应下面的用例：
+//   ① 表与真实行为不同步（kind 说 reasoning-effort、代码发裸 effort）→ 逐格实发用例；
+//   ②「未研究过」被 falsy 默认吞成「已声明只发裸 effort」，新增平台静默拿默认 → 键集全覆盖 + 四态可区分；
+//   ③ 怪癖语义抄成第二份事实（怪癖改了表不跟）→ owner 键集对账（表只声明归属、判据取活值）；
+//   ⑤ 无证据格子声称有出处 → provenance 三态 + 出处必填；
+//   ④（只覆盖目录内行、漏掉手写表兜底行）由 thinking-golden-messages.test.ts 的逐格 golden 承载。
+describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，行为中立", () => {
+  const PLATFORM_KEYS = Object.keys(PROVIDERS).sort();
+  const ALL_KINDS: readonly MessagesTierExitKind[] = ["effort", "effort-bare", "reasoning-effort", "unresearched"];
+
+  it("键集对账：表 = PROVIDERS 键空间，不多不少（新增平台不表态 → 红）", () => {
+    expect(Object.keys(MESSAGES_TIER_EXIT).sort()).toEqual(PLATFORM_KEYS);
+  });
+
+  it("四态可区分：「未研究过」与「已声明只发裸 effort」是两个显式值，不许 falsy 默认吞掉", () => {
+    // 两态在线上同形（都发裸 output_config.effort），但在表里必须答得不一样——这正是建表的理由。
+    for (const [platform, cell] of Object.entries(MESSAGES_TIER_EXIT)) {
+      expect(ALL_KINDS, platform).toContain(cell.kind);
+    }
+    expect(MESSAGES_TIER_EXIT.minimax.kind).toBe("unresearched");
+    expect(MESSAGES_TIER_EXIT.mimo.kind).toBe("unresearched");
+    expect(MESSAGES_TIER_EXIT.ollama.kind).toBe("unresearched");
+    expect(MESSAGES_TIER_EXIT.siliconflow.kind).toBe("unresearched");
+    // 剩下的落三态出口；「有依据地只发裸 effort」的格（含怪癖托管格）不是 unresearched。
+    expect(MESSAGES_TIER_EXIT.openrouter.kind).toBe("effort-bare");
+    expect(MESSAGES_TIER_EXIT.stepfun.kind).toBe("effort-bare");
+    expect(MESSAGES_TIER_EXIT.deepseek.kind).toBe("effort");
+    expect(MESSAGES_TIER_EXIT.moonshot.kind).toBe("reasoning-effort");
+  });
+
+  it("provenance 必填：三态取值合法、出处非空（每格都答得出「凭什么」）", () => {
+    for (const [platform, cell] of Object.entries(MESSAGES_TIER_EXIT)) {
+      expect(["实测", "文档", "推断"], platform).toContain(cell.provenance.level);
+      expect(cell.provenance.source.length, platform).toBeGreaterThan(8);
+    }
+    expect(UNRESEARCHED_TIER_EXIT.provenance.level).toBe("推断");
+    expect(UNRESEARCHED_TIER_EXIT.provenance.source.length).toBeGreaterThan(8);
+  });
+
+  it("怪癖 owner 对账：声明 owner=effortVocabMessages 的格 ≡ 词表里开该怪癖的平台（不复制键集）", () => {
+    const declared = Object.entries(MESSAGES_TIER_EXIT)
+      .filter(([, cell]) => cell.owner === "effortVocabMessages")
+      .map(([platform]) => platform)
+      .sort();
+    const quirkPlatforms = PLATFORM_KEYS.filter((platform) => hasPlatformQuirk(platform, "effortVocabMessages"));
+    expect(declared).toEqual(quirkPlatforms);
+    expect(declared).toEqual(["amd", "stepfun"]);
+  });
+
+  it("表外 / 未识别平台 → 未声明（裸 effort）；原型链上的键不算表内格", () => {
+    expect(UNRESEARCHED_TIER_EXIT.kind).toBe("unresearched");
+    expect(messagesTierExitCell(undefined).kind).toBe("unresearched");
+    expect(messagesTierExitCell("未登记的平台").kind).toBe("unresearched");
+    expect(messagesTierExitCell("constructor").kind).toBe("unresearched");
+    expect(messagesTierExitCell("toString").kind).toBe("unresearched");
+  });
+
+  it("逐格实发：kind × 形态（effort = 档位词 + 开关；effort-bare / unresearched = 裸档位词；reasoning-effort = 顶层）", () => {
+    for (const platform of PLATFORM_KEYS) {
+      const cell = messagesTierExitCell(platform);
+      // owner 格（stepfun / amd）的判据是怪癖活值：命中时只发裸 output_config.effort。
+      const quirkOn = hasPlatformQuirk(platform, "effortVocabMessages");
+      const out = anthropicWire({
+        fields: { reasoning_effort: "high" },
+        platformId: platform,
+        effortVocabularyOnly: quirkOn
+      });
+      const expected =
+        cell.kind === "reasoning-effort"
+          ? { reasoning_effort: "high" }
+          : cell.kind === "effort"
+            ? { output_config: { effort: "high" }, thinking: { type: "enabled" } }
+            : { output_config: { effort: "high" } };
+      expect(out.fields, `${platform} kind=${cell.kind}${cell.owner ? ` owner=${cell.owner}` : ""}`).toEqual(expected);
+    }
+    // 表外（platformId 未识别 / undefined）按未声明 → 裸 effort，不下发预算。
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: undefined }).fields).toEqual({
+      output_config: { effort: "high" }
+    });
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: "未登记的平台" }).fields).toEqual({
+      output_config: { effort: "high" }
+    });
+  });
+
+  it("同一通道内的擦边格：moonshot 档位走顶层 reasoning_effort、off 走原生 thinking（两表各自表态）", () => {
+    expect(MESSAGES_TIER_EXIT.moonshot.kind).toBe("reasoning-effort");
+    expect(MESSAGES_OFF_EXIT.moonshot.kind).toBe("native");
+    expect(anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "moonshot" }).fields).toEqual({
+      reasoning_effort: "low"
+    });
+    expect(anthropicWire({ fields: { reasoning_effort: "none" }, platformId: "moonshot" }).fields).toEqual({
+      thinking: { type: "disabled" }
+    });
+  });
+
+  it("行为中立：owner 的活值优先于表——手改 baseUrl 的身份错配与建表前的全局布尔逐字节相同", () => {
+    // presetId=deepseek + stepfun 的 baseUrl（app 允许手编 baseUrl）：怪癖按 host 命中 stepfun
+    // （effortVocabularyOnly=true），档位表按 presetId 走 deepseek（kind="effort"）。建表前那一支是
+    // **不分格**的全局布尔 → 只发裸 effort；表化后仍走它（否则这一格会多出 thinking:{type:enabled}，
+    // 就是行为变更）。
+    expect(
+      anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "deepseek", effortVocabularyOnly: true }).fields
+    ).toEqual({ output_config: { effort: "low" } });
+    // 反向：怪癖未开 + stepfun 的格 → 按表声明发裸 effort（与 runtime 走怪癖时同形）。
+    expect(
+      anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "stepfun", effortVocabularyOnly: false }).fields
+    ).toEqual({ output_config: { effort: "low" } });
+  });
+
+  it("档位表不接管开关型血统：fields 只有开关词汇时仍是裸开档（off / 开关走各自的分支）", () => {
+    expect(anthropicWire({ fields: { enable_thinking: true }, platformId: "moonshot" }).fields).toEqual({
+      thinking: { type: "enabled" }
+    });
+    expect(anthropicWire({ fields: { thinking: { type: "enabled" } }, platformId: "deepseek" }).fields).toEqual({
+      thinking: { type: "enabled" }
+    });
   });
 });

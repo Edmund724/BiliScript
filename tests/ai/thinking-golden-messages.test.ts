@@ -41,9 +41,9 @@
 // probe（probeOmitsThinking）与 ModelScope streamOnly（Q14A）语义不是方言钉，原样保留。
 
 import { describe, expect, it } from "vitest";
-import { channelHarness, type ByClassCase } from "./thinking-golden-classes.js";
+import { channelHarness, type BodyRequest, type ByClassCase } from "./thinking-golden-classes.js";
 import { registerByClassDefenses, registerByClassGolden } from "./thinking-golden-defenses.js";
-import { MESSAGES_OFF_EXIT, THINKING_WIRE_MAPS } from "../../extension/ai/thinking-wire-map.js";
+import { MESSAGES_OFF_EXIT, MESSAGES_TIER_EXIT, THINKING_WIRE_MAPS } from "../../extension/ai/thinking-wire-map.js";
 
 const HARNESS = channelHarness("anthropic");
 
@@ -330,5 +330,163 @@ describe("off 出口逐格 golden（thinking-wire-protocol-split 02）：表键�
     expect(
       HARNESS.bodyAt({ presetId: "custom", baseUrl: "https://api.openai.com/v1", model: "gpt-5.2", level: "off" })
     ).toEqual(HARNESS.expectedBody("gpt-5.2", { thinking: { type: "disabled" } }));
+  });
+});
+
+// ===== thinking-wire-protocol-split 01 号票：Messages 档位出口逐格 golden（表键全覆盖）=====
+// 表（ai/thinking-wire-map.ts 的 MESSAGES_TIER_EXIT）逐格钉「解析层给出 effort 档位词时的实发」：
+// 键 = PROVIDERS 键空间，每键配一个**真实可达**的 (presetId, model, 档位) 代表——目录内有 effort
+// 档位的行，或手写兜底行。代表入参与实发值来自工件 artifacts/01-tier-matrix.tsv（同命令重跑逐字节
+// 一致），不手抄；档位一律取「原样发出、未被 clamp 改写」的那一档，好读也好核。
+// 五格（minimax / mimo / modelscope / ollama / siliconflow）的代表是**手写兜底自填 id**：它们的
+// 目录行是 toggle 型（无 effort 词表），档位出口只能由 EXCEPTIONS / TAXONOMY 兜底的行走到——
+// 与 02 号票的 stepfun / amd 静默格同一条路（01 号票的失败方式 ④：只覆盖目录内行）。
+const TIER_CELL_REPRESENTATIVES: Readonly<
+  Record<
+    string,
+    {
+      presetId: string;
+      baseUrl?: string;
+      model: string;
+      /** 档位取值即 harness 的入参档位类型（`ThinkingLevel`），不另立字符串口径。 */
+      level: BodyRequest["level"];
+      expect: Record<string, unknown>;
+      note: string;
+    }
+  >
+> = {
+  deepseek: {
+    presetId: "deepseek",
+    model: "deepseek-flash",
+    level: "low",
+    expect: { output_config: { effort: "low" }, thinking: { type: "enabled" } },
+    note: "目录行：上游 effort 档位 + 形状登记 → output_config.effort + 开思考开关"
+  },
+  qwen: {
+    presetId: "qwen",
+    model: "deepseek-v4-flash",
+    level: "low",
+    expect: { output_config: { effort: "low" }, thinking: { type: "enabled" } },
+    note: "目录行：百炼 Anthropic 兼容页登记 output_config.effort + thinking"
+  },
+  zhipu: {
+    presetId: "zhipu",
+    model: "glm-5.2",
+    level: "high",
+    expect: { output_config: { effort: "high" }, thinking: { type: "enabled" } },
+    note: "目录行：GLM-5.2 词表只有 high/max（low/medium 服务端折成 high）"
+  },
+  moonshot: {
+    presetId: "moonshot",
+    model: "k3-256k",
+    level: "low",
+    expect: { reasoning_effort: "low" },
+    note: "目录行：Kimi Code 端点登记的档位出口是顶层 reasoning_effort（无 thinking 形状）"
+  },
+  minimax: {
+    presetId: "minimax",
+    model: "glm-5.2",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "手写兜底行（目录唯一一行是 toggle 型）→ 档位出口未研究过，裸 output_config.effort"
+  },
+  mimo: {
+    presetId: "mimo",
+    model: "glm-5.2",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "手写兜底行（目录行是 toggle 型）→ Messages 侧档位出口无文档，裸 effort"
+  },
+  openrouter: {
+    presetId: "openrouter",
+    model: "~anthropic/claude-fable-latest",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "目录行：/messages 登记 output_config.effort，但 thinking.enabled 必带预算 → 不带 thinking"
+  },
+  opencodego: {
+    presetId: "opencodego",
+    model: "deepseek-v4-flash",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "目录行：网关未登记思考控制参数，产品裁定发裸 effort"
+  },
+  sensenova: {
+    presetId: "sensenova",
+    model: "deepseek-v4-flash",
+    level: "low",
+    expect: { output_config: { effort: "low" }, thinking: { type: "enabled" } },
+    note: "目录行：thinking.type 与 output_config.effort 均登记"
+  },
+  stepfun: {
+    presetId: "stepfun",
+    model: "step-3.5-flash",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "怪癖托管格（effortVocabMessages）：只发裸 output_config.effort，不发 thinking"
+  },
+  amd: {
+    presetId: "amd",
+    model: "DeepSeek-V4-Flash",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "怪癖托管格（effortVocabMessages）：网关拒 thinking 形状，只发裸 effort"
+  },
+  ollama: {
+    presetId: "ollama",
+    model: "glm-5.2",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "手写兜底行（无上游）：Messages 通道无档位字段文档，裸 effort"
+  },
+  siliconflow: {
+    presetId: "custom",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    model: "glm-5.2",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "custom 直填 baseUrl → host 索引命中 siliconflow（Messages 侧未登记档位字段）"
+  },
+  modelscope: {
+    presetId: "modelscope",
+    model: "glm-5.2",
+    level: "low",
+    expect: { output_config: { effort: "low" } },
+    note: "手写兜底行（目录行是 toggle 型）→ 端点未登记档位字段，产品裁定发裸 effort"
+  }
+};
+
+describe("档位出口逐格 golden（thinking-wire-protocol-split 01）：表键全覆盖", () => {
+  it("代表格覆盖表键全集（表新增一格而 golden 没跟 → 红）", () => {
+    expect(Object.keys(TIER_CELL_REPRESENTATIVES).sort()).toEqual(Object.keys(MESSAGES_TIER_EXIT).sort());
+  });
+
+  for (const [platform, rep] of Object.entries(TIER_CELL_REPRESENTATIVES)) {
+    it(`${platform}（${rep.note}）：${rep.level} → 整 body 逐字节`, () => {
+      expect(
+        HARNESS.bodyAt({ presetId: rep.presetId, baseUrl: rep.baseUrl, model: rep.model, level: rep.level })
+      ).toEqual(HARNESS.expectedBody(rep.model, rep.expect));
+    });
+  }
+
+  it("表外（custom 直填 api.openai.com / gpt-5.2）：未声明 → 裸 output_config.effort", () => {
+    expect(
+      HARNESS.bodyAt({ presetId: "custom", baseUrl: "https://api.openai.com/v1", model: "gpt-5.2", level: "low" })
+    ).toEqual(HARNESS.expectedBody("gpt-5.2", { output_config: { effort: "low" } }));
+  });
+
+  it("同一平台的 off 与档位落在两处不同的写法（两表各自表态；01 号票点名的 moonshot 擦边格）", () => {
+    // moonshot：档位走顶层 reasoning_effort，off 却发原生 thinking:{type:"disabled"}——
+    // 01 号票开工时第一格核的就是它（同通道内 off 与档位不同形）。
+    expect(HARNESS.bodyAt({ presetId: "moonshot", model: "kimi-for-coding", level: "off" })).toEqual(
+      HARNESS.expectedBody("kimi-for-coding", { thinking: { type: "disabled" } })
+    );
+    expect(HARNESS.bodyAt({ presetId: "moonshot", model: "kimi-for-coding", level: "low" })).toEqual(
+      HARNESS.expectedBody("kimi-for-coding", { reasoning_effort: "low" })
+    );
+    // deepseek / qwen / zhipu / sensenova：off 与档位都在 output_config/thinking 这一组形状里。
+    expect(HARNESS.bodyAt({ presetId: "deepseek", model: "deepseek-flash", level: "off" })).toEqual(
+      HARNESS.expectedBody("deepseek-flash", { thinking: { type: "disabled" } })
+    );
   });
 });

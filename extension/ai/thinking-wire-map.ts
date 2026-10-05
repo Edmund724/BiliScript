@@ -14,7 +14,7 @@
 // 没有可审的表。表把「哪一档发什么」变成逐格可审、可被 golden 逐字节钉住的事实：
 // Messages 通道的档位落线按平台在表内逐格登记（含「该平台未登记线格式出口 → 发裸
 // effort 词汇」这一格），不再有靠上限隐式推导取值的写法。档位词的**合法性不在本表**
-// （08 号票：词汇主人是 02 值集产物，见 MESSAGES_TIER_VOCABULARY 的头注）。
+// （08 号票：词汇主人是 02 值集产物，见 MESSAGES_TIER_EXIT 的头注）。
 //
 // **硬规则：本表任何一格都不发 `budget_tokens`**——官方没有 effort→预算的换算表，
 // 自造预算只会挤占 max_tokens（各平台已实测：思考计入 max_tokens 会把正文挤成
@@ -51,8 +51,8 @@ export interface ThinkingWireInput {
   tokenParam?: TokenParam;
   /**
    * 平台识别（口径：thinking-profiles 的 PROVIDERS 键空间，adapter 传
-   * `resolveThinkingProviderId` 的结果）。Messages 通道的档位落线（线格式出口）按平台登记
-   * （MESSAGES_TIER_VOCABULARY）；未登记的平台发裸 `output_config.effort`。
+   * `resolveThinkingProviderId` 的结果）。Messages 通道的档位落线（线格式出口）按平台逐格登记
+   * （MESSAGES_TIER_EXIT）；未登记的平台发裸 `output_config.effort`。
    */
   platformId?: string;
   /** 平台事实：Messages 通道只认 effort 词汇（怪癖 effortVocabMessages，strict 语义）。 */
@@ -80,8 +80,19 @@ function openaiWireMap({ fields, tokenParam }: ThinkingWireInput): ThinkingWireO
 // **本行不发 budget_tokens**（硬规则）：官方没有 effort→预算的换算表，自定预算会挤占
 // max_tokens 并把正文挤空；开档一律只发档位词汇或裸开关。
 
+// ===== 两张出口表（档位 01 / off 02）共用的出处形状 =====
+// 一格一条出处，三级取值（票面口径，每格必填）：实测（HTTP 状态 + 日期 + 请求体）/ 文档
+// （厂商文档 URL）/ 推断（未研究过或不含专项 → 按本轮默认）。本仓与本机没有任何平台 API key
+// （既有票已确认），拿不到实测的格子一律如实标「推断」；**负证据**（官方字段表未列某字段，
+// 如 stepfun 那格）保留三级取值、在 source 里写明「未列（负证据，不主张 400）」并给 URL——
+// 不新增第四态，避免为一种措辞多养一个枚举。
+export interface MessagesExitProvenance {
+  level: "实测" | "文档" | "推断";
+  source: string;
+}
+
 /**
- * 平台在 Messages 通道的**线格式出口**（平台事实，02 号票建表；08 号票起命名即历史沿革，
+ * 平台在 Messages 通道的**线格式出口形态**（平台事实，02 号票建表；08 号票起命名即历史沿革，
  * 职责按本注读）：只回答「已折好的档位词在这个端点落成哪个字段」，不再回答「这个平台
  * 有哪些合法档位词」：
  * - "effort"：`output_config.effort` + 显式 thinking 开关（平台官方文档登记了该字段与
@@ -90,66 +101,217 @@ function openaiWireMap({ fields, tokenParam }: ThinkingWireInput): ThinkingWireO
  *   `thinking.type:"enabled"` 必带预算；opencodego / modelscope 的 thinking 形状
  *   无官方文档，只发档位字段不冒硬 400 风险）；
  * - "reasoning-effort"：顶层 `reasoning_effort`（该端点未登记 thinking 形状）。
- * 未登记的平台（含完全无文档的网关）= 无此行 → 发裸 `output_config.effort`
- * （档位词照发，但不下发预算）。
  */
 export type MessagesTierVocabulary = "effort" | "effort-bare" | "reasoning-effort";
 
-// Messages 通道的**档位归一化层**（08 号票定职责；02 号票建表，9372c78 / 598f0a9 定型）：
-// 键 = 平台识别，口径见 ThinkingWireInput.platformId（thinking-profiles 的 PROVIDERS 键空间）。
-// 只持有两件事：① 线格式出口（本表的值，逐格注释带官方出处）；② 平台侧折叠——把内部档位
-// 折成该端点的线上词，**只许收敛**（多档折同词，如平台把 low/medium 都折成 high），不许
-// **发散**（返回上游值集里没有的词）。
+/**
+ * 档位出口的第四态（thinking-wire-protocol-split 01）：**没人研究过**该端点的档位字段 →
+ * 按「未登记出口」回落成裸 `output_config.effort`（与建表前的隐式默认逐字节相同）。
+ * 与 "effort-bare"（有依据地声明只发档位字段）在类型与静态对账上必须可区分：新增平台不表态
+ * 会被键集对账拦下，而不是静默继承默认——02 号票对 off 那格立的同一条规矩。
+ */
+export type MessagesTierExitKind = MessagesTierVocabulary | "unresearched";
+
+export interface MessagesTierExitCell {
+  kind: MessagesTierExitKind;
+  /**
+   * 该格出口的判据主人（怪癖词表键）。有值时本表只声明归属、判据取该怪癖的**活值**
+   * （`effortVocabularyOnly`），不复制它的平台键集（对账测试钉住两者一一对应）。
+   */
+  owner?: CompatQuirk;
+  provenance: MessagesExitProvenance;
+}
+
+// Messages 通道的**档位出口表**（thinking-wire-protocol-split 01 建表；职责同 08 号票的归一化层）。
+// 键 = 平台识别，口径见 ThinkingWireInput.platformId（thinking-profiles 的 PROVIDERS 键空间），
+// **要求全覆盖**：新增平台不在本表表态 → tests/ai/thinking-wire-map.test.ts 红（02 号票对 off
+// 那格立的同一条键集纪律）。表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明
+// → 裸 effort，见 messagesTierExitCell。
+// 只持有两件事：① 线格式出口（kind，逐格注释带官方出处）；② 平台侧折叠——把内部档位折成该
+// 端点的线上词，**只许收敛**（多档折同词，如平台把 low/medium 都折成 high），不许**发散**
+// （返回上游值集里没有的词）。
 // **不持有「哪些档位词合法」**：合法性一律来自 02 号票的值集产物
 // （ai/catalog/models-dev-thinking.generated.ts）——thinking-profiles 的 ruleFromUpstreamFact
 // 按逐模型值集物化档位写点，「有写点 = 该档可用」，所以能走到本表的词本就来自该模型的上游
 // 值集（静态判据见 tests/ai/thinking-wire-map.test.ts「归一化不发散」）。
 // 折叠现状：**所有平台恒等**——上游值集已逐模型物化出真实档位，没有已知需要平台侧折叠的
 // 缺口；zhipu 把 low/medium 折成 high 是**服务端**归一化，本表不代平台改写档位词。
-// 与 compat-vocab 的 effortVocabMessages（stepfun / amd，严格只认 output_config.effort）键集
-// 不相交：那种平台在 effortVocabularyOnly 分支就返回，走不到本表。各格形状一律以官方文档为准，
-// 档位规则算出的档位词（reasoning_effort 值）原样作为平台档位词发出，不另造映射。
-const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
+// stepfun / amd 两格是怪癖 effortVocabMessages 的托管格：本表声明归属（owner），判据取该怪癖的
+// 活值（只发裸 output_config.effort）——见 anthropicWireMap 的怪癖支。各格形状一律以官方文档
+// 为准，档位规则算出的档位词（reasoning_effort 值）原样作为平台档位词发出，不另造映射。
+export const MESSAGES_TIER_EXIT: Record<string, MessagesTierExitCell> = {
   // deepseek：Anthropic 兼容页只支持 thinking 与 output_config（且 "Only effort is supported"），
   // budget_tokens 被忽略；档位词 low/high/max（默认 high）
   // （api-docs.deepseek.com/guides/anthropic_api、api-docs.deepseek.com/guides/thinking_mode）。
-  deepseek: "effort",
+  deepseek: {
+    kind: "effort",
+    provenance: {
+      level: "文档",
+      source:
+        "api-docs.deepseek.com/guides/anthropic_api（Anthropic 兼容页只登记 thinking 与 output_config，Only effort is supported）+ /guides/thinking_mode（档位词 low/high/max，默认 high）"
+    }
+  },
   // qwen 百炼：output_config.effort 为平台扩展参数、budget_tokens「即将废弃」；qwen3.8-max
   // 词表 xhigh/medium/low（默认 xhigh，high/max 映射为 xhigh）——档位规则的 high 档正是 xhigh
   // （help.aliyun.com/zh/model-studio/anthropic-api-messages）。
   // qwen3-max **不走本行**：上游值集是 `toggle+b:-81920`（无 effort 词表），low/high 同为
   // 裸开档、塌陷是唯一形状——上游事实，见 anthropicWireMap 的 ② 格注释。
-  qwen: "effort",
+  qwen: {
+    kind: "effort",
+    provenance: {
+      level: "文档",
+      source:
+        "help.aliyun.com/zh/model-studio/anthropic-api-messages（output_config.effort 为平台扩展参数、旧式思考预算参数即将废弃；qwen3.8-max 词表 xhigh/medium/low，high/max 映射为 xhigh）"
+    }
+  },
   // zhipu：Coding Plan 页登记 Claude Code 走 thinking.type + output_config.effort；GLM-5.2 的
   // 档位词表 max/xhigh/high/medium/low/minimal/none，但官方明确 low/medium 折成 high、xhigh 折成
   // max，且「low（轻度推理）」作为**生效档位**仅 GLM-5.3 支持——即 GLM-5.2 实际只有
   // 放弃思考(none/minimal) / high / max 三态，low 与 high 在服务端同档（平台侧既有归一化，
   // 本表不代平台改写档位词；缺口见 02 号票 Comments）
   // （docs.bigmodel.cn/cn/guide/capabilities/thinking、docs.bigmodel.cn/cn/coding-plan/latest-model）。
-  zhipu: "effort",
+  zhipu: {
+    kind: "effort",
+    provenance: {
+      level: "文档",
+      source:
+        "docs.bigmodel.cn/cn/guide/capabilities/thinking + docs.bigmodel.cn/cn/coding-plan/latest-model（Claude Code 走 thinking.type + output_config.effort；GLM-5.2 服务端把 low/medium 折成 high、xhigh 折成 max）"
+    }
+  },
   // openrouter：/messages 的 output_config.effort 词表 low/medium/high/xhigh/max；thinking.enabled
   // 分支 required:[type, budget_tokens]（必带预算），故本平台只发 effort、不带 thinking 对象
   // （openrouter.ai/docs/api/api-reference/anthropic-messages/create-a-message）。
-  openrouter: "effort-bare",
+  openrouter: {
+    kind: "effort-bare",
+    provenance: {
+      level: "文档",
+      source:
+        "openrouter.ai/docs/api/api-reference/anthropic-messages/create-a-message（/messages 的 output_config.effort 词表 low/medium/high/xhigh/max；thinking.enabled 分支的 required 里含思考预算字段 → 不带 thinking 对象）"
+    }
+  },
   // sensenova：thinking.type 与 output_config.effort 均登记；词表同页三处冲突，Claude Code FAQ 的
   // 400 文案只允许 low/medium/high（xhigh 被拒）→ 只走这三档（platform.sensenova.cn/docs）。
-  sensenova: "effort",
+  sensenova: {
+    kind: "effort",
+    provenance: {
+      level: "文档",
+      source:
+        "platform.sensenova.cn/docs（thinking.type 与 output_config.effort 均登记；Claude Code FAQ 的 400 文案只允许 low/medium/high，xhigh 被拒）"
+    }
+  },
   // moonshot：仓库 base 是 Kimi Code（api.kimi.com/coding），该端点登记的档位词是顶层
   // reasoning_effort low/high/max（k3 默认 high）；该端点的 output_config.effort / budget_tokens
   // 无官方文档（开放平台另一端点才是 output_config.effort，不可混用）
   // （kimi.com/code/docs/kimi-code/models.html）。
-  moonshot: "reasoning-effort",
+  moonshot: {
+    kind: "reasoning-effort",
+    provenance: {
+      level: "文档",
+      source:
+        "kimi.com/code/docs/kimi-code/models.html（Kimi Code 端点登记的档位词是顶层 reasoning_effort low/high/max；该端点 output_config.effort 与思考预算字段无官方文档）"
+    }
+  },
   // opencodego：官方文档（opencode.ai/docs/go、/docs/zen）与 /zen/go/v1/models 元数据都未登记
   // 思考控制参数；按产品裁定该网关 Messages 端点可正常接收档位词（2026-09，用户确认）→ 发
   // output_config.effort（裸形态：thinking.enabled 是否必带 budget_tokens 无文档，不冒硬 400
   // 风险），不再退回自定 budget_tokens。
-  opencodego: "effort-bare",
+  opencodego: {
+    kind: "effort-bare",
+    provenance: {
+      level: "推断",
+      source:
+        "opencode.ai/docs/go、opencode.ai/docs/zen 与 /zen/go/v1/models 元数据都未登记思考控制参数；按产品裁定（2026-09 用户确认）该网关 Messages 端点可接收档位词 → 发裸 output_config.effort"
+    }
+  },
   // modelscope：官方（Beta）Anthropic 兼容端点未登记档位字段；命中 effort 血统的托管模型
   // （如直填 id qwen3.8-max）按同一产品裁定发 output_config.effort（裸形态，
   // api-inference.modelscope.cn）。该端点已实测收 thinking:{type:"disabled"}
   // （怪癖 thinkingDisabledMustBeExplicit），但 enabled 形态无文档 → 只发档位字段。
-  modelscope: "effort-bare"
+  modelscope: {
+    kind: "effort-bare",
+    provenance: {
+      level: "推断",
+      source:
+        "官方（Beta）Anthropic 兼容端点 api-inference.modelscope.cn 未登记档位字段（该端点只有 off 专项实测）；命中 effort 血统的托管模型按产品裁定发裸 output_config.effort"
+    }
+  },
+  // ===== 怪癖托管格与未研究过的格（01 号票起显式表态，建表前靠隐式默认）=====
+  // stepfun：Messages 通道只认 output_config.effort，发 thinking 字段直接 400 —— 怪癖
+  // effortVocabMessages 是判据主人（compat-vocab 词表），本格只声明归属。
+  // 证据是**负证据**：stepfun 官方字段表未列 thinking（platform.stepfun.com 模型协议页）。
+  stepfun: {
+    kind: "effort-bare",
+    owner: "effortVocabMessages",
+    provenance: {
+      level: "文档",
+      source:
+        "stepfun 官方字段表未列 thinking（负证据，不主张 400）：platform.stepfun.com 模型协议页；判据取 compat-vocab 的 effortVocabMessages 活值（只认 output_config.effort）"
+    }
+  },
+  // amd：网关对 thinking 形状报 not supported、提示改用 effort 词汇（2026-09 实测，
+  // 见 PROVIDERS.amd 注）——同样由怪癖 effortVocabMessages 定，本格只声明归属。
+  amd: {
+    kind: "effort-bare",
+    owner: "effortVocabMessages",
+    provenance: {
+      level: "实测",
+      source:
+        "2026-09 实测：网关对 thinking 形状报 not supported、提示改用 effort 词汇（developer.amd.com.cn；原始记录见 thinking-profiles 的 PROVIDERS.amd 注，仓库无响应体留档）；判据取怪癖 effortVocabMessages 的活值"
+    }
+  },
+  // minimax：platform.minimax.io 没有 Messages 思考参数文档（目录唯一一行 toggle 也不产生档位
+  // 写点）→ 没人研究过档位出口。
+  minimax: {
+    kind: "unresearched",
+    provenance: {
+      level: "推断",
+      source: "platform.minimax.io 无 Messages 思考参数文档 → 未研究过，按未登记出口回落裸 output_config.effort"
+    }
+  },
+  // mimo：百炼代售页只登记 OpenAI 通道的开关（enable_thinking，同 CLASSES.mimo-hybrid-switch），
+  // Messages 侧的档位出口没有文档。
+  mimo: {
+    kind: "unresearched",
+    provenance: {
+      level: "推断",
+      source:
+        "aliyun.com 百炼代售页只登记 OpenAI 通道的开关（enable_thinking，同 CLASSES.mimo-hybrid-switch）；Messages 侧档位出口无文档 → 未研究过"
+    }
+  },
+  // ollama（本地）：OpenAI 兼容文档只讲 OpenAI 通道（手写兜底 unknownClass ollama-effort 的 off
+  // 走 reasoning_effort:"none"），Messages 侧无思考参数文档。
+  ollama: {
+    kind: "unresearched",
+    provenance: {
+      level: "推断",
+      source: "docs.ollama.com（OpenAI 兼容；Messages 通道无思考参数文档）→ 未研究过，按未登记出口回落裸 output_config.effort"
+    }
+  },
+  // siliconflow：手写兜底 unknownClass siliconflow-switch 的 off 走 enable_thinking:false
+  // （docs.siliconflow.cn）；Messages 侧未登记思考参数。
+  siliconflow: {
+    kind: "unresearched",
+    provenance: {
+      level: "推断",
+      source:
+        "docs.siliconflow.cn（Messages 侧未登记思考参数；手写兜底 siliconflow-switch 的 off 走 enable_thinking:false）→ 未研究过"
+    }
+  }
 };
+
+// 表外 / platformId 未识别（custom 直填未入 host 索引的端点）：与"unresearched"同态（→ 裸 effort），
+// 但它是**兜底**而不是某平台的一格，故不进 MESSAGES_TIER_EXIT 的键集（键集对账会红）。
+export const UNRESEARCHED_TIER_EXIT: MessagesTierExitCell = {
+  kind: "unresearched",
+  provenance: { level: "推断", source: "platformId 未识别（表外）→ 按未登记出口回落裸 output_config.effort" }
+};
+
+/** 该平台在 Messages 通道的档位出口（表外 / 未识别 → 未声明）。 */
+export function messagesTierExitCell(platformId: string | undefined): MessagesTierExitCell {
+  const id = String(platformId || "").trim();
+  if (id && Object.prototype.hasOwnProperty.call(MESSAGES_TIER_EXIT, id)) return MESSAGES_TIER_EXIT[id];
+  return UNRESEARCHED_TIER_EXIT;
+}
 
 // ===== Messages 通道的 off 出口表（thinking-wire-protocol-split 02；行为中立）=====
 // 本表落地前，「关思考」在本通道只有一个隐式判据：全局归一成 `thinking:{type:"disabled"}`，
@@ -157,18 +319,16 @@ const MESSAGES_TIER_VOCABULARY: Record<string, MessagesTierVocabulary> = {
 // 布尔例外」不可审：① 调用方答不出「每个平台的 off 出口是什么、凭什么」；②「未研究过」
 // 与「有依据地声明为原生」在代码里是同一个 falsy 状态，新增平台会自动继承默认而不表态；
 // ③「明确不发」那一格（stepfun / amd）只活在 if 里，没有一行让人看见。
-// 本表把这一格变成逐格可审的显式声明，取值四态（ADR-0014 决定 5 的实施形态，键形仍是平台；
-// 键从平台扩成 (平台, 协议) 是 01 号票的事）：
+// 本表把这一格变成逐格可审的显式声明，取值四态（ADR-0014 决定 5 的实施形态；键形仍是平台——
+// 写法层本来就以协议为键，这张表就长在 anthropic 行里，见 docs/adr/0014 的第二条补注）：
 // - "native"      = Anthropic 原生 `thinking:{type:"disabled"}`（**必须显式写出**，不靠缺省）；
 // - "word"        = 平台自有词（显式字段载荷；本仓今天没有实例，类型上可表达）；
 // - "silent"      = 明确不发（带 reason）；owner 有值时该格的判据是 compat-vocab 的怪癖活值；
 // - "unresearched"= 没人研究过 → 按原生默认（与 "native" 在类型/静态对账上可区分）。
-// 键集纪律：本表键 = thinking-profiles 的 PROVIDERS 键空间（与 MESSAGES_TIER_VOCABULARY 同口径的
+// 键集纪律：本表键 = thinking-profiles 的 PROVIDERS 键空间（与 MESSAGES_TIER_EXIT 同口径的
 // 平台识别，但本表**要求全覆盖**：新增平台不表态 → tests/ai/thinking-wire-map.test.ts 红）。
 // 表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明 → 原生，见 messagesOffExitCell。
-// provenance 三态（票面口径，每格必填）：实测（HTTP 状态 + 日期 + 请求体）/ 文档（厂商文档 URL）/
-// 推断（未研究过或不含 off 专项 → 按 Anthropic 原生默认）。本仓与本机无任何平台 API key（既有票
-// 已确认），拿不到实测的格子一律如实标「推断」，负证据（官方字段表未列某字段）在 source 里写明。
+// provenance 每格必填，三级取值与用法见 MessagesExitProvenance 头注（两张出口表共用）。
 export type MessagesOffExitKind = "native" | "silent" | "word" | "unresearched";
 
 export interface MessagesOffExitCell {
@@ -182,7 +342,7 @@ export interface MessagesOffExitCell {
   reason?: string;
   /** kind="word"：平台自有词的字段载荷（本仓今天无实例）。 */
   fields?: Record<string, unknown>;
-  provenance: { level: "实测" | "文档" | "推断"; source: string };
+  provenance: MessagesExitProvenance;
 }
 
 export const MESSAGES_OFF_EXIT: Record<string, MessagesOffExitCell> = {
@@ -341,7 +501,7 @@ export function messagesOffExitCell(platformId: string | undefined): MessagesOff
 //
 // 开思考分两格（02 号票在这里把「档位塌陷」改成显式的一格一格）：
 // ① effort 血统：档位词的合法性主人在 02 值集（逐模型物化，见 thinking-profiles 的
-//    ruleFromUpstreamFact），本层只选线格式出口（MESSAGES_TIER_VOCABULARY）并把档位折到线上、
+//    ruleFromUpstreamFact），本层只选线格式出口（MESSAGES_TIER_EXIT）并把档位折到线上、
 //    原样透传；平台没有登记出口 → 发裸 output_config.effort（档位词照发，不下发预算）。
 // ② 开关型血统：该通道只有开/关两态、无档位词汇 → 开档发裸 thinking:{type:"enabled"}
 //    （不带上限；依据见各平台官方字段表）。qwen3-max 即此格：上游值集 `toggle+b:-81920`
@@ -388,25 +548,29 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
 
   // 怪癖 effortVocabMessages（stepfun / amd）：只认 output_config.effort，解析层的档位词原样
   // 作为 effort 发出；若档位规则给的是别的开关词汇则不发——软失败优于硬 400。
+  // 这一支**不分格**（与建表前的全局布尔实现逐字节相同）：MESSAGES_TIER_EXIT 里那两格用 owner
+  // 声明归属，判据取该怪癖的活值——「presetId 与 baseUrl 手改指向不同厂」这类既存身份矛盾也走
+  // 这里（与 02 号票 off 分支的 ② 支同一条规矩）。
   if (input.effortVocabularyOnly) {
     if (bloodLineEffort) output.fields.output_config = { effort: bloodLineEffort };
     return output;
   }
 
   // ① effort 血统：档位词来自 02 值集（合法性主人，逐模型物化）；本格只做归一化（折叠，
-  // 现状恒等——只许收敛不许发散）与线格式出口选择，然后把词原样发出。
+  // 现状恒等——只许收敛不许发散）与线格式出口选择，然后把词原样发出。出口逐格查
+  // MESSAGES_TIER_EXIT（thinking-wire-protocol-split 01）。
   if (bloodLineEffort) {
-    const wireExit = input.platformId ? MESSAGES_TIER_VOCABULARY[input.platformId] : undefined;
-    if (wireExit === "reasoning-effort") {
+    const cell = messagesTierExitCell(input.platformId);
+    if (cell.kind === "reasoning-effort") {
       // 该端点登记的档位字段是顶层 reasoning_effort（未登记 thinking 形状）：只发档位词。
       output.fields.reasoning_effort = bloodLineEffort;
       return output;
     }
     // "effort" 形态显式带开思考开关（该平台的 thinking.type 不带预算也合法）；
-    // "effort-bare" 与「未登记线格式出口」（ollama 的 Messages 通道无思考参数文档、
+    // "effort-bare" 与 "unresearched"（含表外：ollama 的 Messages 通道无思考参数文档、
     // custom 直填端点无平台事实）都只发档位字段——档位词照发，不下发预算。
     output.fields.output_config = { effort: bloodLineEffort };
-    if (wireExit === "effort") output.fields.thinking = { type: "enabled" };
+    if (cell.kind === "effort") output.fields.thinking = { type: "enabled" };
     return output;
   }
 
