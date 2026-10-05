@@ -989,8 +989,13 @@
   white-space: nowrap;
 }
 
+/* 档位 span：与模型名拉开主次。模型名吃 chip 的正文字色（--biliscript-reader-text），
+ * 档位退一档到 muted——两级同色时 chip 读起来是一串平铺文字，看不出「模型 + 当前
+ * 档位」的两段结构（2026-10-05 用户裁定，参考截图里档位恒比模型名浅）。
+ * chevron 同题退到 faint，与面板一级行的「当前值 + chevron」同配色。 */
 .biliscript-reading-chat .chat-model-chip-level {
   flex: 0 0 auto;
+  color: var(--biliscript-reader-muted);
 }
 
 .biliscript-reading-chat .chat-model-chip svg {
@@ -998,7 +1003,7 @@
   width: 14px;
   height: 14px;
   fill: none;
-  stroke: currentColor;
+  stroke: var(--biliscript-reader-faint);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
