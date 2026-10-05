@@ -27,7 +27,6 @@ export interface CreateProviderStoreDeps<T extends ProviderBase> {
 export interface ProviderStore<T extends ProviderBase> {
   loadKeys: () => Promise<ProviderKeys>;
   getKey: (providerId: string | null | undefined) => Promise<string>;
-  saveKey: (providerId: string, apiKey: string) => Promise<ProviderKeys>;
   loadProviders: () => Promise<Array<T & { hasSavedKey: boolean }>>;
   saveProviders: (items: unknown[]) => Promise<Array<T & { hasSavedKey: boolean }>>;
   deleteProvider: (providerId: string) => Promise<Array<T & { hasSavedKey: boolean }>>;
@@ -51,19 +50,6 @@ export function createProviderStore<T extends ProviderBase>({
     if (!providerId) return "";
     const keys = await loadKeys();
     return String(keys[providerId] || "").trim();
-  }
-
-  // 写入/清除单个 provider 的 Key：非空 trim 后写入，空值视为清除。
-  async function saveKey(providerId: string, apiKey: string): Promise<ProviderKeys> {
-    const keys = await loadKeys();
-    const trimmed = String(apiKey || "").trim();
-    if (trimmed) {
-      keys[providerId] = trimmed;
-    } else {
-      delete keys[providerId];
-    }
-    await chrome.storage.local.set({ [keysStorageKey]: keys });
-    return keys;
   }
 
   // 读取 provider 列表，Key 不明文回传，只带 hasSavedKey 占位。
@@ -121,7 +107,7 @@ export function createProviderStore<T extends ProviderBase>({
     return next.map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
   }
 
-  return { loadKeys, getKey, saveKey, loadProviders, saveProviders, deleteProvider };
+  return { loadKeys, getKey, loadProviders, saveProviders, deleteProvider };
 }
 
 // ===== 探针错误文案拼装（AI / ASR 探针共享） =====

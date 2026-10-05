@@ -161,7 +161,7 @@ describe("deleteProvider", () => {
   });
 });
 
-describe("Key 侧通道：loadKeys / getKey / saveKey", () => {
+describe("Key 侧通道：loadKeys / getKey", () => {
   it("getKey 返回 trim 后的 Key，空 id 返回空串", async () => {
     const store = makeStore();
     await store.saveProviders([provider("p1", { apiKey: "  spaced  " })]);
@@ -169,13 +169,5 @@ describe("Key 侧通道：loadKeys / getKey / saveKey", () => {
     expect(await store.getKey("missing")).toBe("");
     expect(await store.getKey("")).toBe("");
     expect(await store.getKey(null)).toBe("");
-  });
-
-  it("saveKey 非空写入、空值清除", async () => {
-    const store = makeStore();
-    await store.saveKey("p1", "abc");
-    expect(await store.loadKeys()).toEqual({ p1: "abc" });
-    await store.saveKey("p1", "   ");
-    expect(await store.loadKeys()).toEqual({});
   });
 });
