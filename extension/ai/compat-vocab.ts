@@ -20,9 +20,10 @@
 //
 // 词表里只放**协议线格式层面的怪癖**（请求体字段名、思考词汇、消息历史要求、
 // 会话头、流式哨兵…）。三层事实分工：本词表 = 名词层（这个平台有哪些怪癖、键叫什么）；
-// 模型血统事实 = thinking-profiles.ts（这个模型哪档发哪套 OpenAI 词汇）；这套词汇
+// 模型档位事实 = 构建期编译产物（ai/catalog/models-dev-thinking.generated.ts）：这个模型
+// 哪档发哪套 OpenAI 词汇，由 thinking-profiles.ts 解析它、补产品语义与兜底；这套词汇
 // 在本协议请求体里的写法 = thinking-wire-map.ts（字段名与取值怎么算）。词表只登记
-// 名词与它们之间的缝隙，不复制血统事实，也不承载协议写法。
+// 名词与它们之间的缝隙，不复制档位事实，也不承载协议写法。
 
 import type { AiProtocol } from "./protocol-vocab.js";
 
@@ -160,8 +161,9 @@ export type CompatQuirk = keyof typeof COMPAT_QUIRKS;
 
 // ===== 平台声明表（新增平台时"该平台开哪些怪癖"的一处声明）=====
 // 键 = core/presets.ts 的 AI preset id。未列出的平台不开任何怪癖。
-// 事实主人在 thinking-profiles.ts 的 PROVIDERS/CLASSES（思考参数逐格事实）；
-// 这里只登记"平台 × 协议线格式"层面的缝隙，不复制思考档位事实。
+// 思考参数逐格事实的第一主人是构建期编译产物（ai/catalog/models-dev-thinking.generated.ts，
+// 由 thinking-profiles.ts 解析并补兜底）；这里只登记"平台 × 协议线格式"层面的缝隙，
+// 不复制思考档位事实。
 export const PLATFORM_QUIRKS: Readonly<Record<string, readonly CompatQuirk[]>> = {
   // Opencode Go：官方文档要求每对话一个稳定会话 id 头（x-opencode-session）。
   opencodego: ["sessionHeader"],

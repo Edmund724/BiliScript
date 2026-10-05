@@ -276,7 +276,7 @@ describe("provider override 型（AMD Radeon Cloud：preset 收录，严格 400 
     expect(r.thinkingClass).toBe("hybrid");
   });
 
-  it("托管的 qwen 血统模型同样被 override（任何模型不走血统表）", () => {
+  it("托管的 qwen 血统模型同样被 override（任何模型在写点形状上不走血统表）", () => {
     expect(resolve({ baseUrl: AMD_URL, model: "Qwen3.8-Flash-Next", level: "low" }).fields).toEqual({
       reasoning_effort: "low"
     });
@@ -317,7 +317,7 @@ describe("provider override 型（Opencode Go：网关只暴露 effort 词表，
     });
   });
 
-  it("override 无视血统表：原生可关的族模型（deepseek-v4-flash）也走 effort，不发 thinking 开关", () => {
+  it("override 在写点形状上无视血统表：原生可关的族模型（deepseek-v4-flash）也走 effort，不发 thinking 开关", () => {
     const r = resolve({ presetId: "opencodego", model: "deepseek-v4-flash", level: "off" });
     expect(r.fields).toEqual({ reasoning_effort: "low" });
     expect(r.fields).not.toHaveProperty("thinking");

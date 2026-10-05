@@ -77,7 +77,8 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
  * stream 显式传递（流式 true / 非流式 false）；maxTokens 供探针传 1。
  * 思考字段由 thinking-profiles 的血统表（resolveThinkingProfile）查表决定（怪癖
  * thinkingFormat，语义见 compat-vocab）：平台（presetId / baseUrl host）× 模型
- * （例外表 >> 模式表）→ 档位 patch（OpenAI 词汇）；该词汇在本协议的线上写法由
+ * （有上游平台时先查上游编译产物的指派表，未命中才回落例外表 >> 模式表）→ 档位
+ * patch（OpenAI 词汇）；该词汇在本协议的线上写法由
  * 线格式映射表（ai/thinking-wire-map.ts 的 openai 行）给出——本协议即原样并入，
  * 查不到事实（unknown 哨兵）或缺档一律不发字段——软失败优于硬 400。resolver 返回的
  * offUnavailable / thinkingClass（03 对话提示）本函数不消费；tokenParam（04 token

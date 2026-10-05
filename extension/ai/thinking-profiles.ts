@@ -110,8 +110,9 @@ const NON_OFF_LEVELS: readonly ThinkingLevel[] = AI_THINKING_LEVELS.filter((leve
 // （校验器强制）。温度类字段明令禁止——Kimi 等平台思考模式温度/top_p 固定且
 // 官方明确不要显式传，本扩展从不发 temperature 是安全属性。
 // 这三套字段词汇是**中转词汇**：语义见 compat-vocab 词表的 thinkingFormat，
-// 「本协议线上怎么落」见线格式映射表（thinking-wire-map）；本表逐格给「哪档发
-// 哪套词汇」的**血统事实**，三层分工不重叠。
+// 「本协议线上怎么落」见线格式映射表（thinking-wire-map）；「哪档发哪套词汇」的
+// 逐模型事实第一主人是构建期编译产物（ai/catalog/models-dev-thinking.generated.ts），
+// 本文件解析它并补产品语义与兜底，三层分工不重叠。
 export interface ThinkingPatch {
   fields?: Record<string, unknown>;
   // 仅流式可发（如 qwen3-235b/32b/30b 的 enable_thinking:false，百炼限制）；
@@ -430,7 +431,7 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   // AMD Radeon Cloud（developer.amd.com.cn，免费模型 API；AI preset 已收录，识别
   // 走 presetId 或 host 索引）：网关对未知字段严格 400——发 thinking 直接报错并
   // 提示改用 reasoning_effort 控制思考（实测 2026-09）→ override 型：整域只认
-  // effort 词汇，任何模型（含托管的 qwen/deepseek 血统）不走血统表，避免 taxonomy
+  // effort 词汇，任何模型（含托管的 qwen/deepseek 血统）在写点形状上不走血统表，避免 taxonomy
   // 命中 deepseek-v4 后发出网关拒收的 thinking 开关。
   amd: {
     override: {
