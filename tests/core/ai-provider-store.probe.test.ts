@@ -249,12 +249,17 @@ describe("testAiProviderConnection Key 代查", () => {
   });
 });
 
-// S2 收紧 host_permissions 后：探针在发起请求前先确认该平台域名已获 host
-// 权限——缺权限时代发请求也只会以网络错误失败，看不出真正原因，因此权限缺失
-// 直接短路成可操作提示（不消耗一次注定失败的往返）。
-describe("testAiProviderConnection 的 host 权限预检", () => {
-  it("域名未授权 → 返回可操作提示，且不发代发请求", async () => {
-    stubChrome({ permissions: { contains: vi.fn(async () => false) } });
+// S2 收紧 host_permissions 后，未授权由 SW 代发通道拦下（core/provider-http.ts 的
+// handleProviderHttpRequest 在 SW 里跑，那里的 hasHostPermission 真实生效）；页面侧
+// **不再有预检**：content script 没有 chrome.permissions，hasHostPermission 取不到
+// contains 实现即放行，留着只是恒放行的假门（ADR-0010 口径附注，语境守卫见
+// tests/core/host-permissions.test.ts）。于是未授权时探针照发一次代发请求，拿回
+// HOST_PERMISSION_HINT，再经「无法连接：…」包装透传（与任何网络层失败同一形状）。
+describe("testAiProviderConnection 无页面侧权限预检（未授权由 SW 代发通道拦下）", () => {
+  it("SW 回 HOST_PERMISSION_HINT → 可操作文案经「无法连接：」包装透传，页面侧不读 chrome.permissions", async () => {
+    installProxyBus(() => ({ ok: false, error: "该平台域名未授权，请在保存时允许权限" }));
+    const contains = vi.fn(async () => false);
+    stubChrome({ permissions: { contains } });
     const { testAiProviderConnection } = await loadModule();
 
     const resp = await testAiProviderConnection({
@@ -264,16 +269,15 @@ describe("testAiProviderConnection 的 host 权限预检", () => {
       model: "gpt"
     });
 
-    expect(resp).toEqual({ ok: false, error: "该平台域名未授权，请在保存时允许权限" });
-    expect(globalThis.chrome.permissions.contains).toHaveBeenCalledWith({
-      origins: ["https://api.openai.com/*"]
-    });
-    expect(sent).toHaveLength(0);
+    expect(resp).toEqual({ ok: false, error: "无法连接：该平台域名未授权，请在保存时允许权限" });
+    // 页面侧不看 chrome.permissions：代发照发一次，判定权在 SW 侧那道门
+    expect(contains).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(1);
   });
 
-  it("已授权时探针错误原样返回（HTTP 401 不被权限文案覆盖）", async () => {
-    stubChrome({ permissions: { contains: vi.fn(async () => true) } });
+  it("chrome.permissions.contains 恒 false 也不影响：探针结果不由页面侧权限决定（HTTP 401 原样返回）", async () => {
     installProxyBus(() => ({ ok: true, status: 401, body: JSON.stringify({ error: { message: "bad key" } }) }));
+    stubChrome({ permissions: { contains: vi.fn(async () => false) } });
     const { testAiProviderConnection } = await loadModule();
 
     const resp = await testAiProviderConnection({
@@ -286,20 +290,6 @@ describe("testAiProviderConnection 的 host 权限预检", () => {
     expect(resp.ok).toBe(false);
     expect(resp.error).toContain("HTTP 401");
     expect(sent).toHaveLength(1);
-  });
-
-  it("不持有 chrome.permissions 实现时按已授权处理（不阻塞既有探针行为）", async () => {
-    stubChrome({ permissions: undefined });
-    const { testAiProviderConnection } = await loadModule();
-
-    const resp = await testAiProviderConnection({
-      providerId: "p1",
-      baseUrl: "https://api.openai.com/v1",
-      apiKey: "sk-1",
-      model: "gpt"
-    });
-
-    expect(resp).toEqual({ ok: true });
   });
 });
 

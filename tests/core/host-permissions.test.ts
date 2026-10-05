@@ -5,13 +5,16 @@
 // - 保存手势链上的批量申请（requestProviderOrigins）：一次手势只发一次 request
 //   （多平台合并成单次调用）、授权通过 → ok、拒绝 → 明确错误不静默、异常与缺失
 //   chrome API 的兜底、无 origin 可申请时连 request 都不发；
-// - 探针预检（hasHostPermission）：已授权/未授权/取不到 chrome.permissions；
+// - hasHostPermission（扩展页 / SW 语境的真判定）：已授权/未授权/取不到
+//   chrome.permissions；它的语境边界由文末「语境守卫」按源码锁死；
 // - 跨语境代查（hasHostPermissionViaBackground / hasHostPermissionFromOffscreen）：
 //   content 与 offscreen 两种发送方式各自一问，fail-open 语义同一份（返回 false
 //   的唯一来源是 SW 明确回 { granted: false }）；
 // - 删除时 origin 回收判定（collectOrphanOrigins / revokeOrphanOrigin）：无主才回收、
 //   仍被 AI/ASR 任一 provider 使用则不回收、被删行自身按 id 剔除、回收失败回报。
 
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import {
@@ -239,6 +242,81 @@ describe("hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", 
     vi.stubGlobal("chrome", { runtime: { sendMessage } });
     expect(await hasHostPermissionFromOffscreen("oops")).toBe(true);
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ===== 语境守卫：原样 import hasHostPermission 的文件必须全是 SW 语境 =====
+//
+// content script 与 offscreen 文档都拿不到 chrome.permissions（Chromium 只给扩展
+// 自有页面 / SW）。在这两个语境里调 hasHostPermission，取不到 contains 实现即按已
+// 授权放行——那道门是恒放行的假门，只会让维护者以为请求已被拦住（ADR-0010 口径
+// 附注）。两个语境各有代查入口：content 用 hasHostPermissionViaBackground，
+// offscreen 用 hasHostPermissionFromOffscreen。
+//
+// 故本守卫锁一条**零例外**的不变式：原样 import hasHostPermission 的文件只能是下表
+// 三个 SW 语境调用方。白名单不是免死金牌而是复核点——多出第四行，就意味着有人要在
+// 判不了权限的语境里做预检：先确认那个语境到底是谁，再决定是换代查入口还是删门，
+// 不要顺手把文件加进来。
+const HOST_PERMISSION_SW_IMPORTERS: Record<string, string> = {
+  "core/provider-http.ts": "SW 代发接收端（handleProviderHttpRequest）",
+  "ai/provider-models.ts": "SW 消息处理器（handleAiProvidersModels）",
+  "entry/background.ts": "SW 的 check-provider-origin 代查 / request-provider-origins 代申请"
+};
+
+describe("语境守卫：hasHostPermission 只准在 SW 语境界面原样调用", () => {
+  const EXTENSION_ROOT = join(process.cwd(), "extension");
+
+  function listExtensionSources(): string[] {
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (/\.(ts|js)$/.test(entry.name) && !/\.d\.ts$/.test(entry.name)) {
+          files.push(full);
+        }
+      }
+    };
+    walk(EXTENSION_ROOT);
+    return files;
+  }
+
+  // 先去注释：注释里写的 import 例子不算真依赖边（与 tests/ui/options-save-gesture
+  // 及 layer-deps 的扫描同口径）。
+  function stripComments(source: string): string {
+    return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+  }
+
+  // 原样 import 了 hasHostPermission 的文件（\b 收边界：hasHostPermissionViaBackground /
+  // hasHostPermissionFromOffscreen 都不算）。
+  function importersOfRawHasHostPermission(): string[] {
+    const found: string[] = [];
+    for (const file of listExtensionSources()) {
+      const source = stripComments(readFileSync(file, "utf8"));
+      for (const match of source.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+["']([^"']*host-permissions\.js)["']/g)) {
+        if (/\bhasHostPermission\b/.test(match[1])) {
+          found.push(relative(EXTENSION_ROOT, file).split(sep).join("/"));
+          break;
+        }
+      }
+    }
+    return found;
+  }
+
+  it("扫描不空转：三个 SW 语境调用方确实原样 import 了它", () => {
+    const found = importersOfRawHasHostPermission();
+    for (const file of Object.keys(HOST_PERMISSION_SW_IMPORTERS)) {
+      expect(found, `${file} 应原样 import hasHostPermission（否则本守卫在被改名后空转）`).toContain(file);
+    }
+  });
+
+  it("无第四个原样 import：content / offscreen 语境要查权限得走代查入口", () => {
+    const extra = importersOfRawHasHostPermission().filter((file) => !(file in HOST_PERMISSION_SW_IMPORTERS));
+    expect(
+      extra,
+      `content / offscreen 语境不得原样 import hasHostPermission（那里它恒放行）：\n  ${extra.join("\n  ")}`
+    ).toEqual([]);
   });
 });
 

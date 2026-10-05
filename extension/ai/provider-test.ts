@@ -21,7 +21,6 @@ import type { AiProtocol } from "./protocol-adapter.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
 import { formatProbeConnectionError } from "../core/provider-store.js";
 import { aiProviderStore } from "../core/ai-provider-store.js";
-import { HOST_PERMISSION_HINT, hasHostPermission } from "../core/host-permissions.js";
 
 // 把接缝抛出的类型化错误转成探针错误文案：
 // - HTTP 失败（err.status / err.overflow）：接缝 message 与 formatProbeHttpError 同型，直接透传；
@@ -123,22 +122,15 @@ export async function probeAiChatCompletion({ baseUrl, apiKey, model, presetId, 
 //（ui/provider-editor-catalog.ts 的 runModelTest）在草稿有未保存改动时给「未保存」短标。
 // 返回 { ok, error? }，UX 语义与原消息往返完全一致。
 export async function testAiProviderConnection({ providerId, baseUrl, apiKey, model, protocol, presetId }: { providerId?: string; baseUrl?: string; apiKey?: string; model?: string; protocol?: string; presetId?: string }): Promise<TestAiConnectionResult> {
-  // S2 收紧 host_permissions：域名未授权时跨域 fetch 只会以 CORS 失败，探针原样
-  // 抛出是「无法连接：Failed to fetch」这类看不出原因的文案，所以先把权限缺失换成
-  // 可操作提示，不再发起注定失败的请求，也不读一次 Key 存储。
-  //
-  // ⚠ 这道门在 content script 语境里**恒放行**：content 没有 chrome.permissions
-  //（Chromium 只给扩展自有页面 / SW），hasHostPermission 取不到 contains 实现即按
-  // 已授权处理（该 fail-open 只对单测/非扩展环境是设计，在 content 里等于判不了）。
-  // 真正拦下未授权请求的是下游 SW 代发那道门（core/provider-http.ts 的
-  // handleProviderHttpRequest，回同一句 HOST_PERMISSION_HINT）；content 语境要真查
-  // 权限得用 hasHostPermissionViaBackground。本轮只改注释、不动这行：在查得到
-  // chrome.permissions 的语境（扩展自有页面 / 单测注入）它仍按原形状给出提示。要防
-  // 「新入口忘了先申请权限」得防在入口自身（extension/ui/model-picker.ts 先例），不是
-  // 靠这道判不了的门——现唯一生产入口（行级测试 runModelTest）已在点击链上先申请。
-  if (!(await hasHostPermission(baseUrl))) {
-    return { ok: false, error: HOST_PERMISSION_HINT };
-  }
+  // 页面侧（content script）**不做** host 权限预检（2026-10-05 删门）：content 没有
+  // chrome.permissions（Chromium 只给扩展自有页面 / SW），hasHostPermission 取不到
+  // contains 实现即按已授权放行——那道门是恒放行的假门，只会让维护者以为未授权已被
+  // 拦住。未授权由下游 SW 代发通道那道**真门**拦下（core/provider-http.ts 的
+  // handleProviderHttpRequest 在 SW 里跑、回 HOST_PERMISSION_HINT），用户看到的是经
+  // 「无法连接：…」包装的同句提示；唯一的用户手势入口（行级测试 runModelTest）另在
+  // 点击手势链上先申请权限。content / offscreen 语境要查权限得走代查入口
+  //（hasHostPermissionViaBackground / hasHostPermissionFromOffscreen），不许原样调用——
+  // 这条不变式由 tests/core/host-permissions.test.ts 的语境守卫按源码锁死。
   let resolvedApiKey = String(apiKey || "").trim();
   // presetId / protocol 穿线（02 号票 / multi-protocol-ai）：直传值优先，缺省按
   // providerId 从已存列表读记录字段随探针请求下发——host 反代无 host 规则时
