@@ -802,6 +802,12 @@ export function resolveThinkingProfile(input: ResolveThinkingInput): ThinkingRes
 // 「当前模型不支持思考强度 high，已使用 medium」（2026-10-05 复审定的句式；原因仍由
 // reason 给出，UI 今天不展示）。请求字段与这里的 effectiveLevel 同源
 // （同一张规则 + 同一个 clampThinkingLevel），不会出现「提示说 medium、请求发 xhigh」。
+//
+// **产出面（架构评审候选 6）**：本接口就是显示视图（chat/thinking-picker 的
+// thinkingViewOf）的唯一输入面——调用点整份传给它、不手工摘字段，一级行 / chip 条目 /
+// 提示文案三值由同一次解析产出（显示条目的字段面由本接口 Pick 派生，见
+// chat/thinking-picker 的 ThinkingPickerInput）。原先散在组合根的字段投影与提示文案判定
+// 随之退休：换字段就是 tsc 红，漏抄不再无声。
 export interface ThinkingLevelAdjustment {
   // 与请求侧同一个解析结果（UI 的 offUnavailable / offFallback 判定读它）。
   resolution: ThinkingResolution;

@@ -12,8 +12,8 @@
 // 2026-10 用户裁定（票据 chat-thinking-submenu，二级菜单）：面板分两页——
 // 模型页（分组模型列表）与档位页（顶部返回行 + 档位条目）。底部固定区是一行
 // 「思考强度 <当前值> ›」，点它换页到档位页；档位条目点中即写偏好并关面板。
-// 条目与显示名由 chat/thinking-picker 从同一次解析派生（开关型模型收成 Off/On），
-// 本模块只负责画出来与翻页，不自己推导档位。
+// 条目与显示名由 chat/thinking-picker 的 thinkingViewOf 从一次解析给出（开关型模型收成
+// Off/On），本模块只负责画出来与翻页，不自己推导档位。
 //
 // 依赖方向（无环）：共享状态（../chat/chat-state 的 aiThinkingLevel）与
 // chat/model-select-width、chat/thinking-picker 的标签表直接 import；DOM 元素与
@@ -21,7 +21,7 @@
 // 经工厂 deps 注入。本模块不 import 组合根与 popovers。
 import { chatSessionState } from "../chat/chat-state.js";
 import { measureModelPanelWidth, updateModelSelectWidth } from "../chat/model-select-width.js";
-import { thinkingLevelValueLabel, type ThinkingPickerEntry } from "../chat/thinking-picker.js";
+import { thinkingLevelValueLabel, type ThinkingView } from "../chat/thinking-picker.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 export interface CreateReaderChatModelPanelDeps {
@@ -45,13 +45,10 @@ export interface CreateReaderChatModelPanelDeps {
   pickLevel: (level: string) => void;
 }
 
-// 档位条的渲染输入：显示名与条目都由调用方经 chat/thinking-picker 派生——两处
-// 同源，本模块不重算（被 clamp 的偏好没有命中的条目时，显示名仍是偏好自己的词，
-// 由面板底部提示行说明去向）。
-export interface ThinkingPickerView {
-  label: string;
-  entries: readonly ThinkingPickerEntry[];
-}
+// 档位条的渲染输入 = 视图值的渲染子集（显示名 + 条目；提示文案由组合根画，本模块看不到）。
+// 由 chat/thinking-picker 的 ThinkingView 派生（候选 6：调用点整份传视图值，不再手工投影），
+// 本模块不重算。
+export type ThinkingPickerView = Pick<ThinkingView, "label" | "entries">;
 
 export interface ReaderChatModelPanel {
   renderChip: () => void;

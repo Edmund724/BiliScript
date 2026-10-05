@@ -55,11 +55,10 @@
 import { state } from "../core/state.js";
 // 当前地址是否 BV 视频页（抓取起跑的前置闸；非视频页对话仍可用，只是不抓字幕）。
 import { extractBvid } from "../bilibili/video-id-shared.js";
-// 思考档位提示的判定入口（工单 03「关不掉」+ 05 号票「被 clamp」）：纯查表 resolver，
-// host 推断 + 上游指派表/taxonomy，无 DOM 依赖（后台路径同款判定天然不渲染提示）。
-import { resolveThinkingAdjustment } from "../ai/thinking-profiles.js";
-// 思考强度二级菜单的显示条目与显示名（纯函数；面板只画结果）。
-import { thinkingPickerEntries, thinkingPickerLabel } from "../chat/thinking-picker.js";
+// 思考档位的显示视图（一级行 · chip 条目 · 提示文案）：一次解析（偏好 + 上下文）的产出，
+// 纯函数、无 DOM 依赖。候选 6 起本文件不再自己判定提示文案、也不手工摘解析字段——解析
+// 与显示口径的同源关系收在 chat/thinking-picker 的 thinkingViewOf 里。
+import { thinkingViewOf } from "../chat/thinking-picker.js";
 import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -507,28 +506,11 @@ const { loadProvidersAndPrefs, setThinkingLevel, setWebSearchEnabled } = provide
 // 思考档位区刷新（chip 集合 + 提示行；工单 03 的提示 + 06 号票的 chip）
 // ============================================================
 
-// 文案逐字给定（工单 03，勿改写）：长版 = 级联落了 low 档；短版 = 连 low 都没有。
-const THINKING_OFF_FALLBACK_LOW_HINT = "当前模型不支持在本次请求中关闭思考，已使用最小思考档位";
-const THINKING_OFF_UNAVAILABLE_HINT = "当前模型没办法关掉思考";
-
-// 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本。裁定 A 下
-// 「clamp 有效档 = 实发档」，故文案可如实写源档 → 实发档。
-// 2026-10-05 复审裁定：句式与「关不掉思考」那句对齐（「不支持 X，已使用 Y」），
-// 不再附原因（模型词表 / 上游未登记的分层文案随之删除）。
-const THINKING_CLAMP_HINT = (requested: string, effective: string): string =>
-  `当前模型不支持思考强度 ${requested}，已使用 ${effective}`;
-
-// 档位区刷新（06 号票：一次解析同时决定「哪些 chip 存在」与「提示文案」）。
+// 档位区刷新（06 号票：一次解析同时决定「哪些 chip 存在」与「提示文案」；候选 6 起这次
+// 解析直接产出视图值，本函数只把三值画到 DOM）。
 // 刷新点三处：模型选择 change、档位按钮点击、平台列表重载（init 与
 // loadProvidersAndPrefs 之后）——模型/档位一变即重判。
-//   chip 集合 = adjustment.availableLevels（与请求落线同一次解析、同一张规则）：
-//   只显示存在的档位、不置灰；被 clamp 掉的偏好没有 chip，由下面两类文案说明。
-// 两类提示（互斥，前者优先）：
-//   ① 工单 03「关不掉思考」：偏好 off 且 resolver 判 off 不可用（判定与文案都不动）；
-//   ② 05 号票「档位被 clamp」：偏好档位不在模型可用集里时如实给出源档 → 实发档
-//      （2026-10-05 复审裁定：句式与①对齐，不再附原因）。
 function refreshThinkingUi(): void {
-  const level = chatSessionState.aiThinkingLevel;
   // 识别入参：baseUrl / presetId 沿 loadProvidersAndPrefs 已拉的
   // ai-providers-list 载荷（providers.ts 已透传进 chatSessionState.providers，
   // 不开新消息链）；模型名取选中项的模型 id（multi-model-catalog：选项值是
@@ -537,51 +519,27 @@ function refreshThinkingUi(): void {
   // enable_thinking:false）在对话里正常可用，不误报提示。
   const selected = parseModelOptionValue(els.modelSelect.value);
   const provider = chatSessionState.providers.find((item) => item.id === selected.providerId);
-  const adjustment = resolveThinkingAdjustment({
+  // 偏好 + 上下文 → 视图值（chip 集合 = 只显示存在的档位、不置灰；一级行/chip 的显示名 =
+  // 口径 ③ 的实发档；底部提示行 = 口径①②的文案）。解析只发生这一次，显示口径与请求落线
+  // 同源——本文件不再自己判文案，也不手工摘解析字段。
+  const view = thinkingViewOf({
     presetId: String(provider?.presetId || ""),
     baseUrl: String(provider?.baseUrl || ""),
     model: selected.model || String(provider?.model || ""),
-    level,
+    level: chatSessionState.aiThinkingLevel,
     stream: true
   });
-  // 档位条先落（提示行元素缺失也不影响档位的显隐与显示名）。条目与显示名都由
-  // chat/thinking-picker 从同一次解析派生：面板只画结果（二级菜单换页 + 选中打勾），
-  // 开关型模型在这里被收成 Off/On 两项、chip 与一级行同步显示 On。
-  // effectiveLevel 一并用上：偏好 ≠ 实发档时，一级行/chip 显示**实发档**（关不掉 →
-  // {high,max} 显示 High；档位型 clamp → 偏好 high 而 A' = {low,medium} 显示 Medium），
-  // 不再显示线上没发的东西（2026-10-05 两轮复审裁定）。
-  const pickerInput = {
-    availableLevels: adjustment.availableLevels,
-    switchOnly: adjustment.switchOnly,
-    requestedLevel: level,
-    effectiveLevel: adjustment.effectiveLevel
-  };
-  modelPanel.renderThinkingPicker({
-    label: thinkingPickerLabel(pickerInput),
-    entries: thinkingPickerEntries(pickerInput)
-  });
+  // 档位条先落（提示行元素缺失也不影响档位的显隐与显示名）。面板只画结果（二级菜单换页 +
+  // 选中打勾）：开关型模型在这里被收成 Off/On 两项、chip 与一级行同步显示 On；偏好 ≠ 实发档
+  // 时显示**实发档**（关不掉 → {high,max} 显示 High；档位型 clamp → 偏好 high 而 A' =
+  // {low,medium} 显示 Medium），不再显示线上没发的东西（2026-10-05 两轮复审裁定）。
+  modelPanel.renderThinkingPicker(view);
   const hint = els.thinkingHint;
   if (!hint) {
     return;
   }
-  hint.textContent = "";
-  hint.hidden = true;
-  // ① 既有 off 判定优先：off 不可用（级联落了最小档 / 无档可落）时按长/短文案提示；
-  //    off 正常可用、never 静默、unknown 哨兵都无提示。
-  if (level === "off") {
-    const { offUnavailable, offFallback } = adjustment.resolution;
-    if (!offUnavailable) {
-      return;
-    }
-    hint.textContent = offFallback === "low" ? THINKING_OFF_FALLBACK_LOW_HINT : THINKING_OFF_UNAVAILABLE_HINT;
-    hint.hidden = false;
-    return;
-  }
-  // ② 被 clamp：只有真的落了别的档位才提示（无档可落 = 维持「不发参」现状，不报文案）。
-  if (adjustment.reason && adjustment.effectiveLevel) {
-    hint.textContent = THINKING_CLAMP_HINT(level, adjustment.effectiveLevel);
-    hint.hidden = false;
-  }
+  hint.textContent = view.hint ?? "";
+  hint.hidden = view.hint === null;
 }
 
 // 档位落盘出口（面板档位条目的点击经 deps.pickLevel 回到这里）：setThinkingLevel
