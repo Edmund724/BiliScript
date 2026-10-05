@@ -78,9 +78,10 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
  * 思考字段由 thinking-profiles 的档位规则（resolveThinkingProfile）查表决定（怪癖
  * thinkingFormat，语义见 compat-vocab）：平台（presetId / baseUrl host）× 模型
  * （有上游平台时先查上游编译产物的指派表，未命中才回落例外表 >> 模式表）→ 档位
- * patch（OpenAI 词汇）；该词汇在本协议的线上写法由
+ * patch（**中转词汇**：封闭判别联合 ThinkingVocabulary，字段名不在事实层）；
+ * 该词汇在本协议的线上写法由
  * 线格式映射表（ai/thinking-wire-map.ts 的 openai 行）给出——本协议即原样并入，
- * 查不到事实（unknown 哨兵）或缺档一律不发字段——软失败优于硬 400。resolver 返回的
+ * 查不到事实（unknown / noFields 哨兵）或缺档一律不发字段——软失败优于硬 400。resolver 返回的
  * offUnavailable / thinkingClass（03 对话提示）本函数不消费；tokenParam（04 token
  * 参数映射，见怪癖 maxTokensField）由映射表的出参决定：openai-reasoning 系写
  * max_completion_tokens，其余类与 unknown 维持 max_tokens 现状。
@@ -96,7 +97,7 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
   const level = normalizeThinkingLevel(thinkingLevel);
   const thinking = resolveThinkingProfile({ presetId, baseUrl, model, level, stream });
   const wire = THINKING_WIRE_MAPS.openai({
-    fields: thinking.fields,
+    vocabulary: thinking.vocabulary,
     stream,
     probe,
     tokenParam: thinking.tokenParam,

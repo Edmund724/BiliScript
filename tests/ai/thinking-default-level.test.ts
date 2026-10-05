@@ -24,7 +24,7 @@ import {
   resolveThinkingAdjustment,
   resolveThinkingProfile
 } from "../../extension/ai/thinking-profiles.js";
-import { THINKING_WIRE_MAPS } from "../../extension/ai/thinking-wire-map.js";
+import { THINKING_WIRE_MAPS, openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js";
 
 // 指派表 provider → 本仓 preset（与 tests/ai/thinking-wire-map.test.ts 同一处桥接）。
 const PRESET_BY_UPSTREAM: Record<string, string> = Object.fromEntries(
@@ -69,7 +69,7 @@ describe("级联目标不被 default 抢走（用户早前裁定：关不掉 →
     });
     expect(cascade.availableLevels).toEqual(["high", "max"]);
     expect(cascade.effectiveLevel).toBe("high");
-    expect(cascade.resolution.fields).toEqual({ reasoning_effort: "high" });
+    expect(openaiVocabularyFields(cascade.resolution.vocabulary)).toEqual({ reasoning_effort: "high" });
 
     // A' = ∅（budget-only 的零档行，如 openrouter/anthropic/claude-haiku-4.5）：没有强度档可落
     // → default（不发字段）。**不再拿 minimax/MiniMax-M3 当范例**：2026-10-05 登记开关形状
@@ -82,13 +82,13 @@ describe("级联目标不被 default 抢走（用户早前裁定：关不掉 →
     });
     expect(noTiers.availableLevels).toEqual([]);
     expect(noTiers.effectiveLevel).toBe("default");
-    expect(noTiers.resolution.fields).toEqual({});
+    expect(openaiVocabularyFields(noTiers.resolution.vocabulary)).toEqual({});
   });
 
   it("强度档 clamp 仍向下取（preference high、A' = {off,low,medium,xhigh} → medium）", () => {
     const clamped = resolveThinkingAdjustment({ presetId: "qwen", model: "qwen3.8-max", level: "high", stream: true });
     expect(clamped.effectiveLevel).toBe("medium");
-    expect(clamped.resolution.fields).toEqual({ reasoning_effort: "medium" });
+    expect(openaiVocabularyFields(clamped.resolution.vocabulary)).toEqual({ reasoning_effort: "medium" });
     expect(clamped.reason).toBe("model-vocabulary");
   });
 
@@ -96,7 +96,7 @@ describe("级联目标不被 default 抢走（用户早前裁定：关不掉 →
     const r = resolveThinkingAdjustment({ presetId: "qwen", model: "qwen3.8-max", level: "default", stream: true });
     expect(r.effectiveLevel).toBe("default");
     expect(r.reason).toBe(null);
-    expect(r.resolution.fields).toEqual({});
+    expect(openaiVocabularyFields(r.resolution.vocabulary)).toEqual({});
     expect(r.resolution.offUnavailable).toBe(false);
   });
 });
@@ -116,9 +116,9 @@ describe("default 落线 = 空 patch（02 指派表逐行 + 两条通道）", ()
       for (const model of Object.keys(table)) {
         for (const stream of [true, false]) {
           const profile = resolveThinkingProfile({ presetId, model, level: "default", stream });
-          expect(profile.fields, `${presetId}/${model} · stream=${stream}`).toEqual({});
+          expect(openaiVocabularyFields(profile.vocabulary), `${presetId}/${model} · stream=${stream}`).toEqual({});
           const messages = THINKING_WIRE_MAPS.anthropic({
-            fields: profile.fields,
+            vocabulary: profile.vocabulary,
             stream,
             probe: false,
             effortVocabularyOnly: false,

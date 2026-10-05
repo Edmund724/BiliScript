@@ -30,6 +30,7 @@ import { describe, expect, it } from "vitest";
 import {
   AI_THINKING_LEVELS,
   availableLevelsOf,
+  reasoningEffort,
   resolveThinkingAdjustment,
   resolveThinkingProfile,
   ruleFromUpstreamFact,
@@ -37,6 +38,7 @@ import {
   type ThinkingLevel,
   type ThinkingRuleSource
 } from "../../extension/ai/thinking-profiles.js";
+import { openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js";
 import { lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import { THINKING_LEVEL_LABELS } from "../../extension/chat/thinking-picker.js";
 
@@ -75,9 +77,12 @@ describe("chip 集合 = A'（与请求落线同源，不是第二套推导）", 
         const response = sent(presetId, baseUrl, model, level);
         const at = `${presetId}/${model} 偏好 ${level}`;
         if (adj.availableLevels.includes(level)) {
-          expect(Object.keys(response.fields).length, at).toBeGreaterThan(0);
+          expect(Object.keys(openaiVocabularyFields(response.vocabulary)).length, at).toBeGreaterThan(0);
         } else {
-          expect(JSON.stringify(response.fields).includes(`"${level}"`), `${at} 不该被原样发出`).toBe(false);
+          expect(
+            JSON.stringify(openaiVocabularyFields(response.vocabulary)).includes(`"${level}"`),
+            `${at} 不该被原样发出`
+          ).toBe(false);
         }
       }
     }
@@ -89,7 +94,7 @@ describe("chip 集合 = A'（与请求落线同源，不是第二套推导）", 
     // 2026-10-05 default 档：没有可表达的强度档 → 实发 default（不干预 = 不发字段）。
     expect(adj.effectiveLevel).toBe("default");
     for (const level of AI_THINKING_LEVELS) {
-      expect(sent("qwen", QWEN_URL, "qwq-32b", level).fields, level).toEqual({});
+      expect(openaiVocabularyFields(sent("qwen", QWEN_URL, "qwq-32b", level).vocabulary), level).toEqual({});
     }
   });
 
@@ -206,7 +211,7 @@ describe("A' = 上游词表在平台已登记方言下可表达的部分（2026-
       // 逐档都发得出去（medium/xhigh/max 也在写点集里）。
       for (const level of expected) {
         expect(
-          Object.keys(sent(presetId, "", model, level as ThinkingLevel).fields).length,
+          Object.keys(openaiVocabularyFields(sent(presetId, "", model, level as ThinkingLevel).vocabulary)).length,
           `${presetId}/${model} · ${level}`
         ).toBeGreaterThan(0);
       }
@@ -236,9 +241,9 @@ describe("off / none 分离（决策 #7）", () => {
     const fact = lookupThinkingFact("sensenova", "sensenova-6.8-flash-lite");
     expect(fact?.effort).toContain("none");
     const projection = ruleFromUpstreamFact(fact!, "sensenova");
-    expect(projection.off).toEqual({ fields: { reasoning_effort: "none" } });
-    expect(projection.low).toEqual({ fields: { reasoning_effort: "low" } });
-    expect(projection.high).toEqual({ fields: { reasoning_effort: "high" } });
+    expect(projection.off).toEqual({ vocabulary: reasoningEffort("none") });
+    expect(projection.low).toEqual({ vocabulary: reasoningEffort("low") });
+    expect(projection.high).toEqual({ vocabulary: reasoningEffort("high") });
     expect(projection["none" as never]).toBeUndefined();
     expect(adjustment("sensenova", SENSENOVA_URL, "sensenova-6.8-flash-lite").availableLevels).not.toContain("none");
   });
@@ -256,7 +261,7 @@ describe("off / none 分离（决策 #7）", () => {
     const boundary = adjustment("opencodego", OPENCODEGO_URL, "hy4-preview", "off");
     expect(boundary.availableLevels).toEqual(["off", "high"]);
     expect(sent("opencodego", OPENCODEGO_URL, "hy4-preview", "off")).toEqual({
-      fields: { reasoning_effort: "none" },
+      vocabulary: reasoningEffort("none"),
       offUnavailable: false,
       offFallback: null,
       thinkingClass: "hybrid"
@@ -312,17 +317,19 @@ describe("验收第一条：none/high 类（13 号票 canonical 优先后剩 3 �
         // 全局偏好保留不改写：low 不迁移，只是本模型 clamp 到 off（线上 none）。
         expect(adj.effectiveLevel, `${presetId}/${model}`).toBe("off");
         expect(adj.reason, `${presetId}/${model}`).toBe("model-vocabulary");
-        expect(response.fields, `${presetId}/${model}`).toEqual({ reasoning_effort: "none" });
+        expect(openaiVocabularyFields(response.vocabulary), `${presetId}/${model}`).toEqual({ reasoning_effort: "none" });
       } else {
         expect(adj.effectiveLevel, `${presetId}/${model}`).toBe("high");
-        expect(response.fields, `${presetId}/${model}`).toEqual({ reasoning_effort: "high" });
+        expect(openaiVocabularyFields(response.vocabulary), `${presetId}/${model}`).toEqual({ reasoning_effort: "high" });
       }
     }
     // 换回有 low 的正常模型：同一个偏好 low 原样可用（偏好没有被迁移/改写）。
     const normal = adjustment("deepseek", DEEPSEEK_URL, "deepseek-v4-pro", "low");
     expect(normal.effectiveLevel).toBe("low");
     expect(normal.reason).toBeNull();
-    expect(sent("deepseek", DEEPSEEK_URL, "deepseek-v4-pro", "low").fields).toEqual({ reasoning_effort: "low" });
+    expect(openaiVocabularyFields(sent("deepseek", DEEPSEEK_URL, "deepseek-v4-pro", "low").vocabulary)).toEqual({
+      reasoning_effort: "low"
+    });
   });
 
   it("13 号票 canonical 优先：另外 3 行的模型侧词表已换（18 号票起按各自上游词表）", () => {
@@ -332,19 +339,25 @@ describe("验收第一条：none/high 类（13 号票 canonical 优先后剩 3 �
     expect(lookupThinkingFact("openrouter", "sakana/sakana-namazu")?.valuesetId).toBe("toggle");
     expect(namazu.availableLevels).toEqual([]);
     expect(namazu.source).toBe("upstream");
-    expect(sent("openrouter", OPENROUTER_URL, "sakana/sakana-namazu", "low").fields).toEqual({});
+    expect(
+      openaiVocabularyFields(sent("openrouter", OPENROUTER_URL, "sakana/sakana-namazu", "low").vocabulary)
+    ).toEqual({});
     // sensenova/glm-5.2：模型侧词表 = zhipuai/glm-5.2 的 toggle+high-max；sensenova 未登记
     // 开关形状（D3）→ toggle 不产 off 写点 → A' = {high, max}（D1=A2 只补事实，不改平台形状）。
     const glm = adjustment("sensenova", SENSENOVA_URL, "glm-5.2");
     expect(lookupThinkingFact("sensenova", "glm-5.2")?.valuesetId).toBe("toggle+high-max");
     expect(glm.availableLevels).toEqual(["high", "max"]);
-    expect(sent("sensenova", SENSENOVA_URL, "glm-5.2", "low").fields).toEqual({ reasoning_effort: "high" });
+    expect(openaiVocabularyFields(sent("sensenova", SENSENOVA_URL, "glm-5.2", "low").vocabulary)).toEqual({
+      reasoning_effort: "high"
+    });
     // sensenova/deepseek-v4-flash：重定向行（canonical → deepseek-flash = toggle+low-high-max
     // → 模型侧 off 走 toggle 形态，sensenova 未登记开关形状）→ A' = {low, high, max}。
     const flash = adjustment("sensenova", SENSENOVA_URL, "deepseek-v4-flash");
     expect(lookupThinkingFact("sensenova", "deepseek-v4-flash")?.valuesetId).toBe("toggle+low-high-max");
     expect(flash.availableLevels).toEqual(["low", "high", "max"]);
-    expect(sent("sensenova", SENSENOVA_URL, "deepseek-v4-flash", "low").fields).toEqual({ reasoning_effort: "low" });
+    expect(openaiVocabularyFields(sent("sensenova", SENSENOVA_URL, "deepseek-v4-flash", "low").vocabulary)).toEqual({
+      reasoning_effort: "low"
+    });
   });
 });
 
@@ -361,15 +374,17 @@ describe("minimax-cn/minimax-m3：开关型（2026-10-05 裁定登记开关形�
     const response = sent("minimax", MINIMAX_URL, "MiniMax-M3", "off");
     expect(response.offUnavailable).toBe(false);
     expect(response.offFallback).toBeNull();
-    expect(response.fields).toEqual({ thinking: { type: "disabled" } });
+    expect(openaiVocabularyFields(response.vocabulary)).toEqual({ thinking: { type: "disabled" } });
     // 开关型：low 与 high 同形（都落同一个 on 写点），且是平台自己的词不是 enabled。
     for (const level of AI_THINKING_LEVELS.filter((candidate) => candidate !== "off")) {
-      expect(sent("minimax", MINIMAX_URL, "MiniMax-M3", level).fields, level).toEqual({
+      expect(openaiVocabularyFields(sent("minimax", MINIMAX_URL, "MiniMax-M3", level).vocabulary), level).toEqual({
         thinking: { type: "adaptive" }
       });
     }
     // default（不干预）仍不发任何思考字段。
-    expect(adjustment("minimax", MINIMAX_URL, "MiniMax-M3", "default").resolution.fields).toEqual({});
+    expect(
+      openaiVocabularyFields(adjustment("minimax", MINIMAX_URL, "MiniMax-M3", "default").resolution.vocabulary)
+    ).toEqual({});
   });
 
   it("目录外的 M2.x / M3.1 仍走手写兜底：一个档位都没有（不发字段，故也不会发会 400 的 disabled）", () => {
@@ -379,7 +394,10 @@ describe("minimax-cn/minimax-m3：开关型（2026-10-05 裁定登记开关形�
       expect(adj.source, model).toBe("handwritten");
       expect(adj.effectiveLevel, model).toBe("default");
       for (const level of AI_THINKING_LEVELS) {
-        expect(sent("minimax", MINIMAX_URL, model, level).fields, `${model} · ${level}`).toEqual({});
+        expect(
+          openaiVocabularyFields(sent("minimax", MINIMAX_URL, model, level).vocabulary),
+          `${model} · ${level}`
+        ).toEqual({});
       }
     }
   });
@@ -430,7 +448,10 @@ describe("边界：A' = ∅ 的零档行（openrouter 5 行 + 18 号票新增的
       expect(adj.availableLevels, `${presetId}/${model}`).toEqual([]);
       expect(adj.effectiveLevel, `${presetId}/${model}`).toBe("default");
       for (const level of AI_THINKING_LEVELS) {
-        expect(sent(presetId, baseUrl, model, level).fields, `${presetId}/${model} · ${level}`).toEqual({});
+        expect(
+          openaiVocabularyFields(sent(presetId, baseUrl, model, level).vocabulary),
+          `${presetId}/${model} · ${level}`
+        ).toEqual({});
       }
     }
   });
@@ -457,7 +478,10 @@ describe("canonical 优先（13 号票）：opencodego/kimi-k3 = canonical 词�
       ["max", { reasoning_effort: "max" }]
     ];
     for (const [level, fields] of expected) {
-      expect(sent("opencodego", OPENCODEGO_URL, "kimi-k3", level as ThinkingLevel).fields, level).toEqual(fields);
+      expect(
+        openaiVocabularyFields(sent("opencodego", OPENCODEGO_URL, "kimi-k3", level as ThinkingLevel).vocabulary),
+        level
+      ).toEqual(fields);
     }
     // off 的级联标记：关不掉（平台没声明 off 写点），落最低可用档。
     const off = sent("opencodego", OPENCODEGO_URL, "kimi-k3", "off");

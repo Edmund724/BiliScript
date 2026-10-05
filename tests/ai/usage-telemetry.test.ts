@@ -354,10 +354,10 @@ describe("请求体不含 stream_options（一期零新增字段：两协议 × 
     expect(body).not.toHaveProperty("stream_options");
   });
 
-  // Object.assign(body, thinking.fields)（openai adapter buildBody）是表驱动注键进
-  // body 的唯一通道：上面四条都是空 patch，锁不住它。本用例用非空 patch（deepseek
-  // 血统 × high → reasoning_effort）证明该通道真注了键（不是空 patch 的假绿），
-  // 并同时锁整份 body 无 stream_options。
+  // Object.assign(body, wire.fields)（openai adapter buildBody）是表驱动注键进
+  // body 的唯一通道：上面四条都是空事实，锁不住它。本用例用非空词汇（deepseek
+  // 血统 × high → reasoningEffort("high") → reasoning_effort）证明该通道真注了键
+  // （不是空事实的假绿），并同时锁整份 body 无 stream_options。
   it("openai 流式 + 非空 thinking patch：注入 reasoning_effort，整份 body 仍无 stream_options", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse([openaiData({ choices: [{ delta: { content: "甲" } }] }), "data: [DONE]\n\n"])

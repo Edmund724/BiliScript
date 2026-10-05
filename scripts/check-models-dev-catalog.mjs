@@ -481,14 +481,21 @@ function scanObjectEntries(body, keyPattern, inlineKeyPattern, label) {
 function patchFacts(line) {
   if (!line) return null;
   const facts = { fields: [] };
-  if (/\bthinking:/.test(line)) facts.fields.push("thinking");
-  if (/\benable_thinking:/.test(line)) facts.fields.push("enable_thinking");
-  const effort = line.match(/reasoning_effort: "([^"]+)"/);
+  // 两套形状都吃（2026-10-05「封闭词汇」改造后真表换了形状，override 分支仍是旧记录形状）：
+  // - 中转词汇构造子（真表 CLASSES）：thinkingType(...) / enableThinking(...) / reasoningEffort("...")；
+  // - 记录形状（fixture 的平台级 override 分支本地声明）：thinking: / enable_thinking: / reasoning_effort: "..."。
+  if (/\bthinkingType\(/.test(line) || /\bthinking:/.test(line)) facts.fields.push("thinking");
+  if (/\benableThinking\(/.test(line) || /\benable_thinking:/.test(line)) facts.fields.push("enable_thinking");
+  const effort = line.match(/reasoningEffort\("([^"]+)"\)/) ?? line.match(/reasoning_effort: "([^"]+)"/);
   if (effort) {
     facts.fields.push("reasoning_effort");
     facts.effort = effort[1];
   }
   if (/streamOnly: true/.test(line)) facts.streamOnly = true;
+  if (facts.fields.length === 0) {
+    // 静默空读会把整个 class 误报成「未表达任何档位」——与上面「解析不了的行硬错」同一条纪律。
+    fail(`patch 行解析不出任何词汇：${JSON.stringify(line)} —— 手写表结构变了，先核对本脚本的解析口径。`);
+  }
   return facts;
 }
 

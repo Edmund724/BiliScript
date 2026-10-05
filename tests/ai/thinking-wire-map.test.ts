@@ -2,10 +2,14 @@
 // 1. 表结构：键覆盖词表叶（Record<AiProtocol, …> 注解的运行时对账），两行各自可调用；
 // 2. 逐行写法：openai 行 = 血统词汇原样并入 + token 参数名随血统事实；anthropic 行 =
 //    Messages 通道的写法（probe 早退 / off 三词汇归一 / effort 档位分档与档位出口表 /
-//    开关型血统的裸开档 / 未登记档位出口的平台发裸 effort）；
-// 3. 三层无重叠主人对账（验收第 4 条，测试期静态判据，不进运行时）：Messages 线格式
-//    字面量只在线格式映射表出现；adapter 内不再有思考词汇字面量的构造性写入；
-//    血统表不含 Messages 通道的字段名；**budget_tokens 在 extension/ai 的代码里零出现**。
+//    开关型血统的裸开档 / 未登记档位出口的平台发裸 effort）。入参是事实层的**封闭词汇**
+//    （ThinkingVocabulary 判别联合），本文件按 kind 驱动写法用例；
+// 3. 三层无重叠主人对账（测试期静态判据，不进运行时）：Messages 线格式
+//    字面量只在线格式映射表出现；血统表不含 Messages 通道的字段名；
+//    **budget_tokens 在 extension/ai 的代码里零出现**。
+//    词汇字面量「只出现在写法层」这条不变式不再扫 adapter 源码文本对账——封闭联合 +
+//    seam 类型已由 tsc 兜住（adapter 写 `fields: {...}` 或别的形状根本通不过类型），
+//    改写坏处的判据改为**按 kind 断行为**（见 tests/ai/thinking-vocabulary.test.ts）。
 // 4（08 号票）：归一化层的词汇主人是 02 值集产物——MESSAGES_TIER_EXIT 只做
 //    「档位折叠 + 线格式出口」，出口上的档位词必须仍在**该模型** 02 值集里（只许收敛、
 //    不许发散）；判据见文件末的「归一化不发散」用例。
@@ -19,9 +23,15 @@ import { ASSIGNMENTS, lookupThinkingFact } from "../../extension/ai/catalog/mode
 import { hasPlatformQuirk } from "../../extension/ai/compat-vocab.js";
 import {
   AI_THINKING_LEVELS,
+  NO_FIELDS,
   PROVIDERS,
+  UNKNOWN_VOCABULARY,
   UPSTREAM_PROVIDER_BY_PRESET,
-  resolveThinkingProfile
+  enableThinking,
+  reasoningEffort,
+  resolveThinkingProfile,
+  thinkingType,
+  type ThinkingVocabulary
 } from "../../extension/ai/thinking-profiles.js";
 import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
 import {
@@ -44,7 +54,7 @@ import {
 // 用例只覆盖自己关心的维度（不改的维度保持默认）。
 function anthropicWire(overrides: Partial<ThinkingWireInput> = {}) {
   return THINKING_WIRE_MAPS.anthropic({
-    fields: { reasoning_effort: "low" },
+    vocabulary: reasoningEffort("low"),
     stream: false,
     probe: false,
     effortVocabularyOnly: false,
@@ -54,7 +64,7 @@ function anthropicWire(overrides: Partial<ThinkingWireInput> = {}) {
 
 function openaiWire(overrides: Partial<ThinkingWireInput> = {}) {
   return THINKING_WIRE_MAPS.openai({
-    fields: { reasoning_effort: "low" },
+    vocabulary: reasoningEffort("low"),
     stream: false,
     probe: false,
     effortVocabularyOnly: false,
@@ -75,60 +85,61 @@ describe("表结构（Record<AiProtocol, …> 强制覆盖）", () => {
 });
 
 describe("openai 行：血统词汇即本协议的线格式", () => {
-  it("fields 原样并入（新对象，不与入参共享引用）；tokenParam 缺省 max_tokens", () => {
-    const input = { reasoning_effort: "high" };
-    const out = openaiWire({ fields: input });
-    expect(out.fields).toEqual({ reasoning_effort: "high" });
-    expect(out.fields).not.toBe(input);
-    expect(out.tokenParam).toBe("max_tokens");
+  it("词汇原样并入（每次都是新对象）；tokenParam 缺省 max_tokens", () => {
+    const vocabulary = reasoningEffort("high");
+    const first = openaiWire({ vocabulary });
+    expect(first.fields).toEqual({ reasoning_effort: "high" });
+    // 恒等投影不把出参对象当缓存，也不改入参词汇（事实层的成员对象不变量）。
+    expect(first.fields).not.toBe(openaiWire({ vocabulary }).fields);
+    expect(vocabulary).toEqual(reasoningEffort("high"));
+    expect(first.tokenParam).toBe("max_tokens");
   });
 
   it("tokenParam 随血统事实（怪癖 maxTokensField：openai-reasoning 系 max_completion_tokens）", () => {
     expect(openaiWire({ tokenParam: "max_completion_tokens" }).tokenParam).toBe("max_completion_tokens");
   });
 
-  it("无事实（空 patch）出参为空；探针不特化（OpenAI 通道探针照发思考字段，现状不变）", () => {
-    expect(openaiWire({ fields: {} }).fields).toEqual({});
-    expect(openaiWire({ probe: true, fields: { enable_thinking: true } }).fields).toEqual({ enable_thinking: true });
+  it("无事实（两个哨兵）出参为空；探针不特化（OpenAI 通道探针照发思考字段，现状不变）", () => {
+    expect(openaiWire({ vocabulary: NO_FIELDS }).fields).toEqual({});
+    expect(openaiWire({ vocabulary: UNKNOWN_VOCABULARY }).fields).toEqual({});
+    expect(openaiWire({ probe: true, vocabulary: enableThinking(true) }).fields).toEqual({ enable_thinking: true });
   });
 });
 
 describe("anthropic 行：Messages 通道的写法", () => {
   it("探针早退：任何档位都不发思考字段（怪癖 probeOmitsThinking）", () => {
-    const out = anthropicWire({ probe: true, fields: { reasoning_effort: "high" } });
+    const out = anthropicWire({ probe: true, vocabulary: reasoningEffort("high") });
     expect(out).toEqual({ fields: {}, tokenParam: "max_tokens" });
   });
 
-  it("无事实（空 patch）不发字段", () => {
-    expect(anthropicWire({ fields: {} }).fields).toEqual({});
+  it("无事实（两个哨兵：无写点 / 无解析结论）不发字段", () => {
+    expect(anthropicWire({ vocabulary: NO_FIELDS }).fields).toEqual({});
+    expect(anthropicWire({ vocabulary: UNKNOWN_VOCABULARY }).fields).toEqual({});
   });
 
   it("off 三词汇归一为 thinking:{type:disabled}（怪癖 thinkingDisabledMustBeExplicit）", () => {
-    for (const fields of [
-      { reasoning_effort: "none" },
-      { enable_thinking: false },
-      { thinking: { type: "disabled" } }
-    ]) {
-      expect(anthropicWire({ fields }).fields, JSON.stringify(fields)).toEqual({
+    // 三个 off 词汇各自是一个**不同的联合成员**——按 kind 分支，不再嗅探字段字面量。
+    for (const vocabulary of [reasoningEffort("none"), enableThinking(false), thinkingType("disabled")]) {
+      expect(anthropicWire({ vocabulary }).fields, vocabulary.kind).toEqual({
         thinking: { type: "disabled" }
       });
     }
   });
 
   it("effort 词汇平台（怪癖 effortVocabMessages）：off 不发任何字段；开档原样出 output_config.effort", () => {
-    expect(anthropicWire({ fields: { reasoning_effort: "none" }, effortVocabularyOnly: true }).fields).toEqual({});
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, effortVocabularyOnly: true }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("none"), effortVocabularyOnly: true }).fields).toEqual({});
+    expect(anthropicWire({ vocabulary: reasoningEffort("high"), effortVocabularyOnly: true }).fields).toEqual({
       output_config: { effort: "high" }
     });
     // 矩阵给的是别的开关词汇（无 reasoning_effort）→ 不发——软失败优于硬 400。
-    expect(anthropicWire({ fields: { enable_thinking: true }, effortVocabularyOnly: true }).fields).toEqual({});
+    expect(anthropicWire({ vocabulary: enableThinking(true), effortVocabularyOnly: true }).fields).toEqual({});
   });
 
   it("全表不发 budget_tokens：开关型血统的开档只发裸 thinking:{type:enabled}", () => {
-    expect(anthropicWire({ fields: { enable_thinking: true } }).fields).toEqual({ thinking: { type: "enabled" } });
-    expect(anthropicWire({ fields: { thinking: { type: "enabled" } } }).fields).toEqual({ thinking: { type: "enabled" } });
+    expect(anthropicWire({ vocabulary: enableThinking(true) }).fields).toEqual({ thinking: { type: "enabled" } });
+    expect(anthropicWire({ vocabulary: thinkingType("enabled") }).fields).toEqual({ thinking: { type: "enabled" } });
     // 上限事实与档位都不再参与取值：入参里没有它们，字段里也不该有预算。
-    expect(JSON.stringify(anthropicWire({ fields: { enable_thinking: true } }).fields)).not.toContain("budget_tokens");
+    expect(JSON.stringify(anthropicWire({ vocabulary: enableThinking(true) }).fields)).not.toContain("budget_tokens");
   });
 
   it("tokenParam 恒为 max_tokens：血统事实（max_completion_tokens）是 OpenAI 通道的参数名", () => {
@@ -138,52 +149,52 @@ describe("anthropic 行：Messages 通道的写法", () => {
   // 分档（02 号票）：effort 血统的档位词在各平台官方登记的档位字段上落线；未登记档位词汇
   // 的平台发裸 effort 词汇。修复前这里 low 与 high 同值（塌陷），现在逐格可区分。
   it("档位分档：文档登记 output_config.effort 的平台带 thinking 开关落 effort 词", () => {
-    const low = anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "deepseek" });
-    const high = anthropicWire({ fields: { reasoning_effort: "high" }, platformId: "deepseek" });
+    const low = anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "deepseek" });
+    const high = anthropicWire({ vocabulary: reasoningEffort("high"), platformId: "deepseek" });
     expect(low.fields).toEqual({ thinking: { type: "enabled" }, output_config: { effort: "low" } });
     expect(high.fields).toEqual({ thinking: { type: "enabled" }, output_config: { effort: "high" } });
     expect(low.fields).not.toEqual(high.fields);
     // 血统的档位词原样透传（qwen3.8-max 的高档词就是平台词表里的 xhigh）。
-    expect(anthropicWire({ fields: { reasoning_effort: "xhigh" }, platformId: "qwen" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("xhigh"), platformId: "qwen" }).fields).toEqual({
       thinking: { type: "enabled" },
       output_config: { effort: "xhigh" }
     });
   });
 
   it("档位分档：只发 output_config.effort 的平台（openrouter / opencodego / modelscope）", () => {
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: "openrouter" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("high"), platformId: "openrouter" }).fields).toEqual({
       output_config: { effort: "high" }
     });
     // opencodego / modelscope：官方文档未登记档位词汇，按产品裁定发裸 effort 词汇
     // （出处见 ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY）。
     for (const platformId of ["opencodego", "modelscope"]) {
-      expect(anthropicWire({ fields: { reasoning_effort: "low" }, platformId }).fields, platformId).toEqual({
+      expect(anthropicWire({ vocabulary: reasoningEffort("low"), platformId }).fields, platformId).toEqual({
         output_config: { effort: "low" }
       });
-      expect(anthropicWire({ fields: { reasoning_effort: "xhigh" }, platformId }).fields, platformId).toEqual({
+      expect(anthropicWire({ vocabulary: reasoningEffort("xhigh"), platformId }).fields, platformId).toEqual({
         output_config: { effort: "xhigh" }
       });
     }
   });
 
   it("档位分档：moonshot（Kimi Code 端点）只发顶层 reasoning_effort", () => {
-    expect(anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "moonshot" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "moonshot" }).fields).toEqual({
       reasoning_effort: "low"
     });
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: "moonshot" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("high"), platformId: "moonshot" }).fields).toEqual({
       reasoning_effort: "high"
     });
   });
 
   it("档位分档：未登记档位词汇的平台（ollama / custom 直填）同样发裸 effort，不下发预算", () => {
-    expect(anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "ollama" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "ollama" }).fields).toEqual({
       output_config: { effort: "low" }
     });
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: "ollama" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("high"), platformId: "ollama" }).fields).toEqual({
       output_config: { effort: "high" }
     });
     // 平台识别缺失（custom 直填端点）同样发裸 effort，而不是报错、也不退回预算。
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: undefined }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("high"), platformId: undefined }).fields).toEqual({
       output_config: { effort: "high" }
     });
   });
@@ -191,7 +202,7 @@ describe("anthropic 行：Messages 通道的写法", () => {
   it("严格 effort 词汇平台（怪癖 effortVocabMessages）优先：stepfun / amd 仍是原样 effort，不发 thinking", () => {
     expect(
       anthropicWire({
-        fields: { reasoning_effort: "high" },
+        vocabulary: reasoningEffort("high"),
         platformId: "stepfun",
         effortVocabularyOnly: true
       }).fields
@@ -199,8 +210,8 @@ describe("anthropic 行：Messages 通道的写法", () => {
   });
 
   it("开关型血统显式登记：无档位词汇，low 与 high 同为裸开档（不带上限）", () => {
-    const low = anthropicWire({ fields: { enable_thinking: true } });
-    const high = anthropicWire({ fields: { enable_thinking: true } });
+    const low = anthropicWire({ vocabulary: enableThinking(true) });
+    const high = anthropicWire({ vocabulary: enableThinking(true) });
     expect(low.fields).toEqual({ thinking: { type: "enabled" } });
     expect(high.fields).toEqual(low.fields);
   });
@@ -221,8 +232,6 @@ describe("三层无重叠主人对账（验收第 4 条，静态判据）", () =
 
   // Messages 通道独有（或归一后独有）的线格式字面量：唯一主人是线格式映射表。
   const MESSAGES_LITERALS = ["output_config"];
-  // 思考词汇字面量（三套中转词汇的键名 + 预算字段名）。adapter 不得再出现它们的构造性写入。
-  const THINKING_LITERALS = ["enable_thinking", "reasoning_effort", "budget_tokens", "output_config", /(?<![\w.])thinking\s*:/];
 
   it("主人自检：线格式映射表里确实有这个 Messages 字面量（防扫描空转）", () => {
     const owner = read(WIRE_MAP);
@@ -240,15 +249,10 @@ describe("三层无重叠主人对账（验收第 4 条，静态判据）", () =
     }
   });
 
-  it("adapter 内不再有思考词汇字面量的构造性写入（取表 → 并入，取值不含词汇知识）", () => {
-    for (const rel of ADAPTERS) {
-      const source = read(rel);
-      for (const pattern of THINKING_LITERALS) {
-        const hit = typeof pattern === "string" ? source.includes(pattern) : pattern.test(source);
-        expect(hit, `${rel} 出现 ${String(pattern)}——adapter 不得知道线格式词汇`).toBe(false);
-      }
-    }
-  });
+  // 改造前这里还有一条「adapter 内不再有思考词汇字面量的构造性写入」的源码文本扫描
+  // （enable_thinking / reasoning_effort / thinking: 的构造性出现）。seam 换成封闭判别联合后，
+  // adapter 写的 `fields: {...}` / `vocabulary: {...}` 形状由 tsc 直接拒绝，这条不变式不再
+  // 需要扫文本；对应的行为判据改为按 kind 断（tests/ai/thinking-vocabulary.test.ts）。
 
   it("硬规则：budget_tokens 在 extension/ai 的代码里零出现（任何通道、任何平台都不发思考预算）", () => {
     for (const rel of AI_MODULES) {
@@ -295,7 +299,7 @@ describe("归一化不发散（08 号票：像集合 ⊆ 该模型 02 值集）"
           const profile = resolveThinkingProfile({ presetId, model, level, stream: false });
           // effortVocabularyOnly 留 false：stepfun 走「未登记线格式出口」的裸 effort，与它
           // 在 runtime 走怪癖 effortVocabMessages 的形态逐字同值（两条路都只发 output_config.effort）。
-          const word = wireWord(anthropicWire({ fields: profile.fields, platformId: presetId }).fields);
+          const word = wireWord(anthropicWire({ vocabulary: profile.vocabulary, platformId: presetId }).fields);
           if (word === undefined) continue;
           emittedWords += 1;
           expect(
@@ -374,20 +378,20 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
     for (const platform of PLATFORM_KEYS) {
       const cell = messagesOffExitCell(platform);
       const quirkOn = hasPlatformQuirk(platform, "effortVocabMessages");
-      for (const fields of [{ reasoning_effort: "none" }, { enable_thinking: false }, { thinking: { type: "disabled" } }]) {
-        const out = anthropicWire({ fields, platformId: platform, effortVocabularyOnly: quirkOn });
+      for (const vocabulary of [reasoningEffort("none"), enableThinking(false), thinkingType("disabled")]) {
+        const out = anthropicWire({ vocabulary, platformId: platform, effortVocabularyOnly: quirkOn });
         const expected =
           cell.kind === "word" && cell.fields
             ? cell.fields
             : cell.kind === "silent" && quirkOn
               ? {}
               : { thinking: { type: "disabled" } };
-        expect(out.fields, `${platform} kind=${cell.kind} fields=${JSON.stringify(fields)}`).toEqual(expected);
+        expect(out.fields, `${platform} kind=${cell.kind} vocabulary=${vocabulary.kind}`).toEqual(expected);
       }
     }
     // 表外（platformId 未识别 / undefined）同样按未声明 → 原生。
-    expect(anthropicWire({ fields: { reasoning_effort: "none" } }).fields).toEqual({ thinking: { type: "disabled" } });
-    expect(anthropicWire({ fields: { enable_thinking: false }, platformId: undefined }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("none") }).fields).toEqual({ thinking: { type: "disabled" } });
+    expect(anthropicWire({ vocabulary: enableThinking(false), platformId: undefined }).fields).toEqual({
       thinking: { type: "disabled" }
     });
   });
@@ -397,18 +401,18 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
     // （effortVocabularyOnly=true），档位词表按 presetId 走 ollama。旧实现在 off 分支只看全局
     // 布尔 → 不发；表化后由 ② 支保持相同（否则这一格会从静默变成原生 = 行为变更）。
     expect(
-      anthropicWire({ fields: { reasoning_effort: "none" }, platformId: "ollama", effortVocabularyOnly: true }).fields
+      anthropicWire({ vocabulary: reasoningEffort("none"), platformId: "ollama", effortVocabularyOnly: true }).fields
     ).toEqual({});
     // 反向：stepfun 的格 + 怪癖未开（正常入参形状里不会出现）→ 落原生，与旧实现一致。
     expect(
-      anthropicWire({ fields: { reasoning_effort: "none" }, platformId: "stepfun", effortVocabularyOnly: false }).fields
+      anthropicWire({ vocabulary: reasoningEffort("none"), platformId: "stepfun", effortVocabularyOnly: false }).fields
     ).toEqual({ thinking: { type: "disabled" } });
   });
 
   it("级联不受本表影响：表只回答「off 写点存在时的出口」，档位级联仍在解析层（ADR-0014 决定 4）", () => {
     // stepfun 的目录行没有 off 写点（形状未登记）→ 解析层级联出 low；本表不参与该判定。
     expect(
-      anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "stepfun", effortVocabularyOnly: true }).fields
+      anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "stepfun", effortVocabularyOnly: true }).fields
     ).toEqual({ output_config: { effort: "low" } });
   });
 });
@@ -479,7 +483,7 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
       // owner 格（stepfun / amd）的判据是怪癖活值：命中时只发裸 output_config.effort。
       const quirkOn = hasPlatformQuirk(platform, "effortVocabMessages");
       const out = anthropicWire({
-        fields: { reasoning_effort: "high" },
+        vocabulary: reasoningEffort("high"),
         platformId: platform,
         effortVocabularyOnly: quirkOn
       });
@@ -496,10 +500,10 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
       expect(out.fields, `${platform} kind=${cell.kind}${cell.owner ? ` owner=${cell.owner}` : ""}`).toEqual(expected);
     }
     // 表外（platformId 未识别 / undefined）按未声明 → 裸 effort，不下发预算。
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: undefined }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("high"), platformId: undefined }).fields).toEqual({
       output_config: { effort: "high" }
     });
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: "未登记的平台" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("high"), platformId: "未登记的平台" }).fields).toEqual({
       output_config: { effort: "high" }
     });
   });
@@ -507,10 +511,10 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
   it("同一通道内的擦边格：moonshot 档位走顶层 reasoning_effort、off 走原生 thinking（两表各自表态）", () => {
     expect(MESSAGES_TIER_EXIT.moonshot.kind).toBe("reasoning-effort");
     expect(MESSAGES_OFF_EXIT.moonshot.kind).toBe("native");
-    expect(anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "moonshot" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "moonshot" }).fields).toEqual({
       reasoning_effort: "low"
     });
-    expect(anthropicWire({ fields: { reasoning_effort: "none" }, platformId: "moonshot" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("none"), platformId: "moonshot" }).fields).toEqual({
       thinking: { type: "disabled" }
     });
   });
@@ -521,19 +525,19 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
     // **不分格**的全局布尔 → 只发裸 effort；表化后仍走它（否则这一格会多出 thinking:{type:enabled}，
     // 就是行为变更）。
     expect(
-      anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "deepseek", effortVocabularyOnly: true }).fields
+      anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "deepseek", effortVocabularyOnly: true }).fields
     ).toEqual({ output_config: { effort: "low" } });
     // 反向：怪癖未开 + stepfun 的格 → 按表声明发裸 effort（与 runtime 走怪癖时同形）。
     expect(
-      anthropicWire({ fields: { reasoning_effort: "low" }, platformId: "stepfun", effortVocabularyOnly: false }).fields
+      anthropicWire({ vocabulary: reasoningEffort("low"), platformId: "stepfun", effortVocabularyOnly: false }).fields
     ).toEqual({ output_config: { effort: "low" } });
   });
 
-  it("档位表不接管开关型血统：fields 只有开关词汇时仍是裸开档（off / 开关走各自的分支）", () => {
-    expect(anthropicWire({ fields: { enable_thinking: true }, platformId: "moonshot" }).fields).toEqual({
+  it("档位表不接管开关型血统：词汇只有开关时仍是裸开档（off / 开关走各自的分支）", () => {
+    expect(anthropicWire({ vocabulary: enableThinking(true), platformId: "moonshot" }).fields).toEqual({
       thinking: { type: "enabled" }
     });
-    expect(anthropicWire({ fields: { thinking: { type: "enabled" } }, platformId: "deepseek" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: thinkingType("enabled"), platformId: "deepseek" }).fields).toEqual({
       thinking: { type: "enabled" }
     });
   });
@@ -585,7 +589,7 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
       expect(JSON.stringify(cell.fields ?? {}), platform).not.toContain("budget_tokens");
     }
     // 实发同样不得出现预算：两条开档入口都只在开关形状内取值。
-    expect(JSON.stringify(anthropicWire({ fields: { enable_thinking: true }, platformId: "minimax" }).fields)).not.toContain(
+    expect(JSON.stringify(anthropicWire({ vocabulary: enableThinking(true), platformId: "minimax" }).fields)).not.toContain(
       "budget_tokens"
     );
   });
@@ -596,35 +600,35 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
       const expected = cell.kind === "word" && cell.fields ? cell.fields : { thinking: { type: "enabled" } };
       // 入口 A：开关型血统的裸开档。
       expect(
-        anthropicWire({ fields: { enable_thinking: true }, platformId: platform }).fields,
+        anthropicWire({ vocabulary: enableThinking(true), platformId: platform }).fields,
         `${platform} 裸开档`
       ).toEqual(expected);
       // 入口 B：档位出口 kind="effort" 的显式开思考开关（其余 kind 只发档位词）。
       const tierCell = messagesTierExitCell(platform);
       if (tierCell.kind === "effort") {
         expect(
-          anthropicWire({ fields: { reasoning_effort: "high" }, platformId: platform }).fields,
+          anthropicWire({ vocabulary: reasoningEffort("high"), platformId: platform }).fields,
           `${platform} effort 出口`
         ).toEqual({ output_config: { effort: "high" }, ...expected });
       }
     }
     // 表外（platformId 未识别 / undefined）按未声明 → 原生。
-    expect(anthropicWire({ fields: { enable_thinking: true }, platformId: undefined }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: enableThinking(true), platformId: undefined }).fields).toEqual({
       thinking: { type: "enabled" }
     });
   });
 
   it("minimax 专项：开词是 adaptive（该端点的 enum 里没有 enabled）", () => {
-    expect(anthropicWire({ fields: { enable_thinking: true }, platformId: "minimax" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: enableThinking(true), platformId: "minimax" }).fields).toEqual({
       thinking: { type: "adaptive" }
     });
     // 事实层给出的就是平台词（UPSTREAM_TOGGLE_SHAPES.minimax 的 on），两条通道同一形状。
-    expect(anthropicWire({ fields: { thinking: { type: "adaptive" } }, platformId: "minimax" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: thinkingType("adaptive"), platformId: "minimax" }).fields).toEqual({
       thinking: { type: "adaptive" }
     });
     // 档位出口那条路（kind="effort"）同样用平台自有开词——今天没有 minimax 的 effort 档位行，
     // 这一格由写法层直接喂入，防止后人把开词再硬写回 enabled。
-    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: "minimax" }).fields).toEqual({
+    expect(anthropicWire({ vocabulary: reasoningEffort("high"), platformId: "minimax" }).fields).toEqual({
       output_config: { effort: "high" },
       thinking: { type: "adaptive" }
     });
@@ -634,12 +638,12 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
     for (const platform of ["stepfun", "amd"]) {
       // 开关词汇：strict effort 词汇支不透传 → 不发（既不读开词，也不发 enabled）。
       expect(
-        anthropicWire({ fields: { enable_thinking: true }, platformId: platform, effortVocabularyOnly: true }).fields,
+        anthropicWire({ vocabulary: enableThinking(true), platformId: platform, effortVocabularyOnly: true }).fields,
         platform
       ).toEqual({});
       // 档位词汇：只发裸 output_config.effort，不带开思考开关。
       expect(
-        anthropicWire({ fields: { reasoning_effort: "high" }, platformId: platform, effortVocabularyOnly: true }).fields,
+        anthropicWire({ vocabulary: reasoningEffort("high"), platformId: platform, effortVocabularyOnly: true }).fields,
         platform
       ).toEqual({ output_config: { effort: "high" } });
     }

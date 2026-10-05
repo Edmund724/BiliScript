@@ -255,7 +255,7 @@ export const anthropicAdapter: ProtocolAdapter = {
       stream: request.stream
     });
     const wire = THINKING_WIRE_MAPS.anthropic({
-      fields: thinking.fields,
+      vocabulary: thinking.vocabulary,
       stream: request.stream,
       probe: request.probe,
       tokenParam: thinking.tokenParam,

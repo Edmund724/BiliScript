@@ -3,11 +3,15 @@
 //
 // - 平台怪癖词表（compat-vocab.ts）= 名词层：这个平台有哪些怪癖、各自的键叫什么；
 // - 模型档位事实（ai/catalog/models-dev-thinking.generated.ts 构建期编译产物，由
-//   thinking-profiles.ts 解析并补兜底）= 事实层：各档发哪套 OpenAI 词汇
-//   （reasoning_effort / enable_thinking / thinking:{type}）；这个模型属于哪类血统
-//   （thinkingClass 三态）由 thinking-profiles.ts 解析时定；token 参数名事实仍由解析层给；
-// - 本表 = 写法层：这套词汇在本协议落成哪个字段、值怎么算——Messages 通道的
-//   effort 词汇改写、开关型血统的开档形状、probe 早退、off 三词汇归一，都在表内逐格写出。
+//   thinking-profiles.ts 解析并补兜底）= 事实层：各档发**哪套**词汇，出口是封闭判别联合
+//   `ThinkingVocabulary`（reasoningEffort / enableThinking / thinkingType + 两个哨兵）；
+//   这个模型属于哪类血统（thinkingClass 三态）由 thinking-profiles.ts 解析时定；
+//   token 参数名事实仍由解析层给；
+// - 本表 = 写法层：这套词汇在本协议落成哪个字段、值怎么算——**线格式词汇字面量
+//   （reasoning_effort / enable_thinking / thinking:{type} / output_config）只在本文件出现**，
+//   事实层不写字段名（封闭联合 + seam 类型由 tsc 兜住，不再扫源码文本对账）。
+//   Messages 通道的 effort 词汇改写、开关型血统的开档形状、probe 早退、off 三词汇归一，
+//   都在本表内按 vocabulary.kind 逐格写出。
 //
 // 为什么必须显式成表：同一份档位规则 patch 经 Messages 通道改写时，低档与高档曾被压成
 // 同一个预算（塌陷）。塌陷能藏住，正是因为这一层只活在 adapter 的 if 里、
@@ -32,19 +36,19 @@
 
 import type { CompatQuirk } from "./compat-vocab.js";
 import type { AiProtocol } from "./protocol-vocab.js";
-import type { ClassRule } from "./thinking-profiles.js";
+import type { ClassRule, ThinkingVocabulary } from "./thinking-profiles.js";
 
 /** 档位规则的 token 上限参数名事实（openai-reasoning 系 = max_completion_tokens）。 */
 export type TokenParam = NonNullable<ClassRule["tokenParam"]>;
 
 /**
- * 表入参：**档位规则 patch（OpenAI 词汇）+ 上下文事实 + 平台事实**。
- * 各协议行按需读取（openai 行只读 fields/tokenParam；anthropic 行读
- * fields/probe/platformId/effortVocabularyOnly）。
+ * 表入参：**事实层的中转词汇（封闭判别联合）+ 上下文事实 + 平台事实**。
+ * 各协议行按需读取（openai 行只读 vocabulary/tokenParam；anthropic 行读
+ * vocabulary/probe/platformId/effortVocabularyOnly）。
  */
 export interface ThinkingWireInput {
-  /** 档位规则给出的本档 patch（OpenAI 词汇）；空对象 = 无事实，一律不发字段。 */
-  fields: Record<string, unknown>;
+  /** 档位规则给出的本档中转词汇；哨兵（noFields / unknown）= 无事实，一律不发字段。 */
+  vocabulary: ThinkingVocabulary;
   /** 本次请求是否流式（档位规则的 streamOnly 事实已在 resolver 侧消费）。 */
   stream: boolean;
   /** 探针请求：Messages 通道不发思考字段（怪癖 probeOmitsThinking）。 */
@@ -69,13 +73,32 @@ export interface ThinkingWireOutput {
 
 export type ThinkingWireMap = (input: ThinkingWireInput) => ThinkingWireOutput;
 
+// ===== 中转词汇 → OpenAI 通道的线格式字段（本文件唯一的词汇投影）=====
+// 事实层给的是封闭联合（哪套词汇、载荷是什么），「这套词汇的字段名与形状」在本文件落字：
+// 三个载荷成员各对应一套 OpenAI 词汇，两个哨兵（noFields / unknown）一个字段都不发。
+// 导出供事实层的结构用例按同一投影对账（openai 行即本投影，见 ADR-0014 决定/补注；
+// 逐格行为另由 golden 逐字节钉住）。
+export function openaiVocabularyFields(vocabulary: ThinkingVocabulary): Record<string, unknown> {
+  switch (vocabulary.kind) {
+    case "reasoningEffort":
+      return { reasoning_effort: vocabulary.level };
+    case "enableThinking":
+      return { enable_thinking: vocabulary.on };
+    case "thinkingType":
+      return { thinking: { type: vocabulary.type } };
+    case "noFields":
+    case "unknown":
+      return {};
+  }
+}
+
 // ===== OpenAI chat completions =====
 // 档位规则的词汇就是本协议的线格式（reasoning_effort / enable_thinking /
-// thinking:{type} 三套直写）→ 映射是原样并入；token 上限参数名随档位规则事实
+// thinking:{type} 三套直写）→ 映射是上一条投影原样并入；token 上限参数名随档位规则事实
 // （怪癖 maxTokensField：openai-reasoning 系只认 max_completion_tokens）。
 // 探针不特化：探针请求照发思考字段（现状不变；probeOmitsThinking 是 Messages 侧事实）。
-function openaiWireMap({ fields, tokenParam }: ThinkingWireInput): ThinkingWireOutput {
-  return { fields: { ...fields }, tokenParam: tokenParam ?? "max_tokens" };
+function openaiWireMap({ vocabulary, tokenParam }: ThinkingWireInput): ThinkingWireOutput {
+  return { fields: openaiVocabularyFields(vocabulary), tokenParam: tokenParam ?? "max_tokens" };
 }
 
 // ===== Anthropic Messages =====
@@ -672,6 +695,32 @@ function onThinkingFields(platformId: string | undefined): Record<string, unknow
   return { thinking: { type: "enabled" } };
 }
 
+// 中转词汇 → 本行的四态写法（off / effort 档位词 / 开档 / 无事实）。
+// **按 kind 分支**是这次改造的要害：改造前 off 判定是在 `fields` 记录上嗅探三个字面量
+// （reasoning_effort==="none" / enable_thinking===false / thinking.type==="disabled"），
+// 词汇形状一旦发散就静默漏判；判别联合把这件事变成编译器看得见的穷尽 switch。
+type VocabularyWireForm =
+  | { form: "off" }
+  | { form: "effort"; word: string }
+  | { form: "on" }
+  | { form: "none" };
+
+function vocabularyWireForm(vocabulary: ThinkingVocabulary): VocabularyWireForm {
+  switch (vocabulary.kind) {
+    case "reasoningEffort":
+      // "none" 是 off 的一种线值实现（决策 #7），不是档位词：它走 off 出口；
+      // 其余档位词（low/medium/xhigh/…）原样透传本通道。
+      return vocabulary.level === "none" ? { form: "off" } : { form: "effort", word: vocabulary.level };
+    case "enableThinking":
+      return vocabulary.on ? { form: "on" } : { form: "off" };
+    case "thinkingType":
+      return vocabulary.type === "disabled" ? { form: "off" } : { form: "on" };
+    case "noFields":
+    case "unknown":
+      return { form: "none" };
+  }
+}
+
 // Messages 通道的思考档位改写（怪癖 thinkingFormat）：档位规则的 chat 形状字段 →
 // Anthropic 线格式。三种关思考词汇的出口逐格登记在 MESSAGES_OFF_EXIT（thinking-wire-protocol-split 02）——默认
 // thinking:{type:"disabled"}（怪癖 thinkingDisabledMustBeExplicit：「Anthropic 默认即关、
@@ -689,20 +738,18 @@ function onThinkingFields(platformId: string | undefined): Record<string, unknow
 //    （toggle + budget_tokens max 81920，**没有 effort**）→ 没有档位词可发，low 与 high 同为
 //    裸开档——塌陷是上游唯一支持的形状，不是缺陷（塌陷格 04 号票订正）。
 // 两格都**不发 budget_tokens**（硬规则，见文件头）。
+
 function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
   const output: ThinkingWireOutput = { fields: {}, tokenParam: "max_tokens" };
   // 怪癖 probeOmitsThinking：探针是连通性测试，一律不发思考字段——发字段只会给探针
   // 增加 400 变量（部分平台的 enabled 形状要求配套参数），探针语义 = 测连通。
   if (input.probe) return output;
-  const { fields } = input;
-  // 无事实（unknown 哨兵 / never / always 无档可落）：维持不发——软失败优于硬 400。
-  if (!Object.keys(fields).length) return output;
+  const form = vocabularyWireForm(input.vocabulary);
+  // 无事实（两个哨兵：unknown = 没有解析结论 / noFields = 本档不发言）：维持不发——
+  // 软失败优于硬 400。
+  if (form.form === "none") return output;
 
-  const off =
-    fields.reasoning_effort === "none" ||
-    fields.enable_thinking === false ||
-    (fields.thinking as { type?: unknown } | undefined)?.type === "disabled";
-  if (off) {
+  if (form.form === "off") {
     // 关思考出口 = MESSAGES_OFF_EXIT 逐格（thinking-wire-protocol-split 02）：「原生 / 平台自有词 / 明确不发 / 未声明」
     // 显式登记，「未研究过」不再靠 falsy 默认表达；表外（platformId 未识别）按未声明 → 原生。
     const cell = messagesOffExitCell(input.platformId);
@@ -724,34 +771,31 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
     return output;
   }
 
-  const effort = fields.reasoning_effort;
-  const bloodLineEffort = typeof effort === "string" && effort !== "none" ? effort : undefined;
-
   // 怪癖 effortVocabMessages（stepfun / amd）：只认 output_config.effort，解析层的档位词原样
   // 作为 effort 发出；若档位规则给的是别的开关词汇则不发——软失败优于硬 400。
   // 这一支**不分格**（与建表前的全局布尔实现逐字节相同）：MESSAGES_TIER_EXIT 里那两格用 owner
   // 声明归属，判据取该怪癖的活值——「presetId 与 baseUrl 手改指向不同厂」这类既存身份矛盾也走
   // 这里（与 02 号票 off 分支的 ② 支同一条规矩）。
   if (input.effortVocabularyOnly) {
-    if (bloodLineEffort) output.fields.output_config = { effort: bloodLineEffort };
+    if (form.form === "effort") output.fields.output_config = { effort: form.word };
     return output;
   }
 
   // ① effort 血统：档位词来自 02 值集（合法性主人，逐模型物化）；本格只做归一化（折叠，
   // 现状恒等——只许收敛不许发散）与线格式出口选择，然后把词原样发出。出口逐格查
   // MESSAGES_TIER_EXIT（thinking-wire-protocol-split 01）。
-  if (bloodLineEffort) {
+  if (form.form === "effort") {
     const cell = messagesTierExitCell(input.platformId);
     if (cell.kind === "reasoning-effort") {
       // 该端点登记的档位字段是顶层 reasoning_effort（未登记 thinking 形状）：只发档位词。
-      output.fields.reasoning_effort = bloodLineEffort;
+      output.fields.reasoning_effort = form.word;
       return output;
     }
     // "effort" 形态显式带开思考开关（该平台的 thinking.type 不带预算也合法），开词逐格查
     // MESSAGES_ON_EXIT（minimax 的 enum 没有 enabled，开词是 adaptive）；
     // "effort-bare" 与 "unresearched"（含表外：ollama 的 Messages 通道无思考参数文档、
     // custom 直填端点无平台事实）都只发档位字段——档位词照发，不下发预算。
-    output.fields.output_config = { effort: bloodLineEffort };
+    output.fields.output_config = { effort: form.word };
     if (cell.kind === "effort") Object.assign(output.fields, onThinkingFields(input.platformId));
     return output;
   }

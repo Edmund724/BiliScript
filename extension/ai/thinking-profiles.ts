@@ -25,9 +25,9 @@
 // 只兜「指派表不认识的 id」（用户自填 / 上游新变体，如 glm-5.3-air）——那些 id 无界，
 // 真删会让它们的请求体跟着变，是尚未裁决的开放问题（12 号票非目标）。
 //
-// 本模块输出的 fields 是**协议无关的中转词汇**（OpenAI 词汇），不回答「这套词汇在
-// 某协议请求体里长什么样」：那是线格式映射表（ai/thinking-wire-map.ts）的职责，
-// adapter 不再各自 if 着改写。
+// 本模块输出的 vocabulary 是**协议无关的中转词汇**（OpenAI 词汇的封闭判别联合），
+// 不回答「这套词汇在某协议请求体里长什么样」：那是线格式映射表
+// （ai/thinking-wire-map.ts）逐格 switch 的职责，adapter 不再各自 if 着改写。
 //
 // 事实的唯一主人：
 // - 上游逐模型词表 / 指派 / 别名 → 02 产物（构建期生成，勿手改；漂移对账见
@@ -112,16 +112,88 @@ import {
 // 非 off 档（按档位序），可用集推导与 clamp 共用。
 const NON_OFF_LEVELS: readonly ThinkingLevel[] = AI_THINKING_LEVELS.filter((level) => level !== "off");
 
+// ===== 中转词汇（事实层 → 写法层的唯一开口；封闭判别联合）=====
+// 「某档发哪套 OpenAI 词汇」在事实层只有一个定义处：下面这张联合。事实层
+// （CLASSES / UPSTREAM_TOGGLE_SHAPES / ruleFromUpstreamFact / applyClassRule）只到
+// 「构造成员」为止，不再写字段名；「这套词汇在某协议请求体里长什么样」是写法层
+// （ai/thinking-wire-map.ts）逐格的 switch —— 线格式词汇字面量只在那里出现。
+// 成员与改造前的字面词汇一一对应（patch 的 fields 记录收进本联合，词汇单源）：
+//   reasoningEffort(level) → 语义 = `reasoning_effort: level`（level 含 off 的线值 "none"）；
+//   enableThinking(on)     → 语义 = `enable_thinking: on`；
+//   thinkingType(t)        → 语义 = `thinking: { type: t }`（t 的取值域是平台枚举，开放）；
+//   noFields               → 有结论但本档不发言（default 档 / 该档无写点）；
+//   unknown                → 没有解析结论（UNKNOWN 哨兵，fail-closed，三档均不发参）。
+// 两个哨兵在线格式上同形（一个字段都不发），但在类型上可区分：「为什么没有」不许被
+// falsy 默认吞掉（与三张 Messages 出口表「未研究过 vs 声明为原生」同一条纪律）。
+// 词汇字面量「只出现在写法层」这条不变式由本联合的封闭性 + seam 类型兜住（tsc），
+// 不再靠扫源码文本对账。
+/** 词表成员的载荷表：判别键 kind → 成员形状。新增词汇只改这一处（联合由它派生）。 */
+interface ThinkingVocabularyMembers {
+  reasoningEffort: { readonly kind: "reasoningEffort"; readonly level: string };
+  enableThinking: { readonly kind: "enableThinking"; readonly on: boolean };
+  thinkingType: { readonly kind: "thinkingType"; readonly type: string };
+  noFields: { readonly kind: "noFields" };
+  unknown: { readonly kind: "unknown" };
+}
+
+export type ThinkingVocabularyKind = keyof ThinkingVocabularyMembers;
+
+/** 事实层交给写法层的中转词汇（封闭判别联合；旁处构造不出第二种形状）。 */
+export type ThinkingVocabulary = ThinkingVocabularyMembers[ThinkingVocabularyKind];
+
+export function reasoningEffort(level: string): ThinkingVocabulary {
+  return { kind: "reasoningEffort", level };
+}
+
+export function enableThinking(on: boolean): ThinkingVocabulary {
+  return { kind: "enableThinking", on };
+}
+
+export function thinkingType(type: string): ThinkingVocabulary {
+  return { kind: "thinkingType", type };
+}
+
+/** 有结论但本档不发言（default 档 / 无写点）——与 unknown 在类型上可区分。 */
+export const NO_FIELDS: ThinkingVocabulary = { kind: "noFields" };
+
+/** 没有解析结论（UNKNOWN 哨兵）：不发任何思考字段（fail-closed）。 */
+export const UNKNOWN_VOCABULARY: ThinkingVocabulary = { kind: "unknown" };
+
+// 每个 kind 是否带线格式载荷（= 字段白名单成员）。`Record<kind, …>` 是编译期全集检查：
+// 联合新增 kind 而此处不表态 → tsc 红。旧实现手写的第二份词汇清单
+// （["thinking", "enable_thinking", "reasoning_effort"]）随之删除：白名单由联合派生。
+const VOCABULARY_CARRIES_FIELDS: Readonly<Record<ThinkingVocabularyKind, boolean>> = {
+  reasoningEffort: true,
+  enableThinking: true,
+  thinkingType: true,
+  noFields: false,
+  unknown: false
+};
+// 全 kind 集（哨兵在内）：校验器据此把「哨兵误用」与「联合外的脏 kind」分成两种报错。
+const VOCABULARY_KINDS: ReadonlySet<string> = new Set(Object.keys(VOCABULARY_CARRIES_FIELDS));
+const FIELD_WHITELIST: ReadonlySet<string> = new Set(
+  Object.entries(VOCABULARY_CARRIES_FIELDS)
+    .filter(([, carriesFields]) => carriesFields)
+    .map(([kind]) => kind)
+);
+
+// 该词汇是否带线格式载荷（哨兵与脏 kind 都是 false）。写点判定与校验器共用；
+// 判定为真时把 `ThinkingVocabulary | undefined` 收窄成 ThinkingVocabulary。
+function carriesPayload(vocabulary: ThinkingVocabulary | undefined): vocabulary is ThinkingVocabulary {
+  return vocabulary !== undefined && VOCABULARY_CARRIES_FIELDS[vocabulary.kind] === true;
+}
+
 // ===== schema =====
-// 单档字段补丁。fields 键白名单：thinking / enable_thinking / reasoning_effort
-// （校验器强制）。温度类字段明令禁止——Kimi 等平台思考模式温度/top_p 固定且
-// 官方明确不要显式传，本扩展从不发 temperature 是安全属性。
+// 单档写点补丁：vocabulary = 本档要发的中转词汇（封闭判别联合，见上）。词汇白名单由
+// 该联合派生（校验器强制：patch 只许带载荷 kind，哨兵与联合外的脏 kind 都报错）。
+// 温度类字段明令禁止——Kimi 等平台思考模式温度/top_p 固定且官方明确不要显式传，
+// 本扩展从不发 temperature 是安全属性；联合里没有温度的位置，结构上就发不出去。
 // 这三套字段词汇是**中转词汇**：语义见 compat-vocab 词表的 thinkingFormat，
 // 「本协议线上怎么落」见线格式映射表（thinking-wire-map）；「哪档发哪套词汇」的
 // 逐模型事实第一主人是构建期编译产物（ai/catalog/models-dev-thinking.generated.ts），
 // 本文件解析它并补产品语义与兜底，三层分工不重叠。
 export interface ThinkingPatch {
-  fields?: Record<string, unknown>;
+  vocabulary?: ThinkingVocabulary;
   // 仅流式可发（如 qwen3-235b/32b/30b 的 enable_thinking:false，百炼限制）；
   // 非流式请求遇此规则按「无事实」处理，走级联（Q14A）。
   // 该限制的平台语义是怪癖 streamingOnlyThinkingOff（compat-vocab 词表）。
@@ -188,17 +260,17 @@ export const CLASSES: Record<string, ClassRule> = {
   // gpt-5.x/o3/o4/gpt-6 血统：effort 档位，无 none 的模型关不掉 → always，off 级联落 low。
   "openai-reasoning": {
     thinkingClass: "always",
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } },
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("high") },
     // reasoning 模型不认 max_tokens（04 号票消费此事实）
     tokenParam: "max_completion_tokens"
   },
   // 例外表成员 gpt-5.1/5.2：支持 reasoning_effort:"none" → hybrid。
   "openai-reasoning-none": {
     thinkingClass: "hybrid",
-    off: { fields: { reasoning_effort: "none" } },
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } },
+    off: { vocabulary: reasoningEffort("none") },
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("high") },
     tokenParam: "max_completion_tokens"
   },
 
@@ -206,23 +278,23 @@ export const CLASSES: Record<string, ClassRule> = {
   // 开关型：enable_thinking，档位无力度差异 → on 唯一写点。
   "qwen-hybrid-switch": {
     thinkingClass: "hybrid",
-    off: { fields: { enable_thinking: false } },
-    on: { fields: { enable_thinking: true } }
+    off: { vocabulary: enableThinking(false) },
+    on: { vocabulary: enableThinking(true) }
   },
   // 例外表成员 qwen3-235b*/qwen3-32b/qwen3-30b*：enable_thinking:false 仅流式可用。
   // （矩阵矩阵行只点名 235b/32b「仅流式」，spec/工单把 30b 一并标 streamOnly——
   // 从宽处理，非流式落级联最安全。）
   "qwen-hybrid-switch-streamonly": {
     thinkingClass: "hybrid",
-    off: { fields: { enable_thinking: false }, streamOnly: true },
-    on: { fields: { enable_thinking: true } }
+    off: { vocabulary: enableThinking(false), streamOnly: true },
+    on: { vocabulary: enableThinking(true) }
   },
   // 例外表成员 qwen3.8-max*：开关 + effort 三档（high 映射 xhigh）。
   "qwen-hybrid-effort": {
     thinkingClass: "hybrid",
-    off: { fields: { enable_thinking: false } },
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "xhigh" } }
+    off: { vocabulary: enableThinking(false) },
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("xhigh") }
   },
   // thinking-2507 系 / qwen3-next-*-thinking / qwq / qwen3.7-max-preview /
   // qwen3.8-2.4t-a95b：永远思考，无关闭无档位。
@@ -232,9 +304,9 @@ export const CLASSES: Record<string, ClassRule> = {
   // v3.2/v4-pro/flash 现行混合：off 用 thinking 开关、low/high 用 effort。
   "deepseek-hybrid-effort": {
     thinkingClass: "hybrid",
-    off: { fields: { thinking: { type: "disabled" } } },
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } }
+    off: { vocabulary: thinkingType("disabled") },
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("high") }
   },
   // deepseek-reasoner（V3.2 时代）/ deepseek-r1 系：永远思考、无档位。
   "deepseek-reasoner-always": { thinkingClass: "always" },
@@ -245,8 +317,8 @@ export const CLASSES: Record<string, ClassRule> = {
   // glm-4.5~5.1：开关型 thinking.type。
   "glm-hybrid-switch": {
     thinkingClass: "hybrid",
-    off: { fields: { thinking: { type: "disabled" } } },
-    on: { fields: { thinking: { type: "enabled" } } }
+    off: { vocabulary: thinkingType("disabled") },
+    on: { vocabulary: thinkingType("enabled") }
   },
   // glm-5.2 起 effort 三档（关闭仍走 thinking 开关）。
   // 04 号票起只服务指派表不认识的 glm-5.2* id（用户自填 / 上游新变体）兜底；命中指派表的
@@ -254,9 +326,9 @@ export const CLASSES: Record<string, ClassRule> = {
   // （值集 high-max：关不掉 + effort 档，见文件头）。
   "glm-hybrid-effort": {
     thinkingClass: "hybrid",
-    off: { fields: { thinking: { type: "disabled" } } },
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } }
+    off: { vocabulary: thinkingType("disabled") },
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("high") }
   },
   // 永远思考：04 号票起只服务指派表不认识的 glm-5.3* id 兜底（原「例外表成员 glm-5.3*」）；
   // 命中指派表的 glm-5.3 族（含 zhipuai/glm-5.3-flash|-flashx、alibaba-cn/glm-5.3、原生
@@ -267,8 +339,8 @@ export const CLASSES: Record<string, ClassRule> = {
   // kimi-k2.5/k2.6：开关型 thinking.type（k2.x 无档位）。
   "kimi-hybrid-switch": {
     thinkingClass: "hybrid",
-    off: { fields: { thinking: { type: "disabled" } } },
-    on: { fields: { thinking: { type: "enabled" } } }
+    off: { vocabulary: thinkingType("disabled") },
+    on: { vocabulary: thinkingType("enabled") }
   },
   // 例外表成员 kimi-k2.7*：强制 thinking:{type:"enabled",keep:"all"}（仅接受该形状）
   // → 永远思考；无档位 → off 级联不发（泛化的 enabled 形状也不发，缺事实不指定）。
@@ -286,16 +358,16 @@ export const CLASSES: Record<string, ClassRule> = {
   // doubao-seed 系混合开关；depth 档位随模型不同、无逐模型事实 → 不写（Q8A）。
   "doubao-hybrid-switch": {
     thinkingClass: "hybrid",
-    off: { fields: { thinking: { type: "disabled" } } },
-    on: { fields: { thinking: { type: "enabled" } } }
+    off: { vocabulary: thinkingType("disabled") },
+    on: { vocabulary: thinkingType("enabled") }
   },
 
   // --- StepFun（platform.stepfun.com step_plan reasoning API）---
   // 例外表成员 step-3.7：永远思考 + effort 三档（/think off 客户端语义即映射 low 档）。
   "step37-effort": {
     thinkingClass: "always",
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } }
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("high") }
   },
   // step-3 / step-3.5-flash：推理模型，无关闭参数、无已文档化档位参数（3.5 的
   // low-inference 是产品模式非请求参数）→ 不写 patch。
@@ -305,8 +377,8 @@ export const CLASSES: Record<string, ClassRule> = {
   // 开关型 enable_thinking（v2.5-pro 默认开），无官方档位参数。
   "mimo-hybrid-switch": {
     thinkingClass: "hybrid",
-    off: { fields: { enable_thinking: false } },
-    on: { fields: { enable_thinking: true } }
+    off: { vocabulary: enableThinking(false) },
+    on: { vocabulary: enableThinking(true) }
   },
 
   // --- Ollama（docs.ollama.com OpenAI 兼容）---
@@ -314,9 +386,9 @@ export const CLASSES: Record<string, ClassRule> = {
   // 作为 unknownClass 给未列模型兜底（hybrid=平台词汇可用、模型是否思考未知）。
   "ollama-effort": {
     thinkingClass: "hybrid",
-    off: { fields: { reasoning_effort: "none" } },
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } }
+    off: { vocabulary: reasoningEffort("none") },
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("high") }
   },
 
   // --- SiliconFlow（docs.siliconflow.cn）---
@@ -324,8 +396,8 @@ export const CLASSES: Record<string, ClassRule> = {
   // 其 effort/thinking_budget 只对特定模型文档化且未给逐模型事实 → 不写。
   "siliconflow-switch": {
     thinkingClass: "hybrid",
-    off: { fields: { enable_thinking: false } },
-    on: { fields: { enable_thinking: true } }
+    off: { vocabulary: enableThinking(false) },
+    on: { vocabulary: enableThinking(true) }
   }
 };
 
@@ -462,9 +534,10 @@ export const UPSTREAM_PROVIDER_BY_PRESET: Readonly<Record<string, string>> = Obj
 );
 
 // ===== 上游开关形状（平台线格式方言；04 号票）=====
-// 值集里有 toggle 时「关/开」在本平台落成什么字段——线格式方言是平台事实
+// 值集里有 toggle 时「关/开」在本平台落成什么词汇——线格式方言是平台事实
 // （spec 决策 4：preset/平台定线格式方言），与手写表同源同出处，只是从 CLASSES 里
-// 抽出来给上游投影复用：
+// 抽出来给上游投影复用；载荷自封闭词汇改造起是中转词汇（off/on 的取值逐字不变，
+// 「落到请求体哪个字段」见写法层 thinking-wire-map.ts）：
 // - deepseek：thinking:{type} （api-docs.deepseek.com；同 CLASSES.deepseek-hybrid-effort）
 // - qwen 百炼：enable_thinking （alibabacloud.com；同 CLASSES.qwen-hybrid-switch）
 // - zhipu：thinking:{type} （docs.bigmodel.cn；同 CLASSES.glm-hybrid-switch）
@@ -487,16 +560,16 @@ export const UPSTREAM_PROVIDER_BY_PRESET: Readonly<Record<string, string>> = Obj
 // （关不掉 → 走级联 / fail-closed），宁少发不错发。四家托管平台无平台文档支撑
 // 开关形状，故 18 号票删 override 时**不同步**登记它们（裁定 3）。
 export const UPSTREAM_TOGGLE_SHAPES: Readonly<
-  Record<string, { off: Record<string, unknown>; on: Record<string, unknown> } | undefined>
+  Record<string, { off: ThinkingVocabulary; on: ThinkingVocabulary } | undefined>
 > = {
-  deepseek: { off: { thinking: { type: "disabled" } }, on: { thinking: { type: "enabled" } } },
-  qwen: { off: { enable_thinking: false }, on: { enable_thinking: true } },
-  zhipu: { off: { thinking: { type: "disabled" } }, on: { thinking: { type: "enabled" } } },
-  moonshot: { off: { thinking: { type: "disabled" } }, on: { thinking: { type: "enabled" } } },
-  mimo: { off: { enable_thinking: false }, on: { enable_thinking: true } },
-  modelscope: { off: { enable_thinking: false }, on: { enable_thinking: true } },
+  deepseek: { off: thinkingType("disabled"), on: thinkingType("enabled") },
+  qwen: { off: enableThinking(false), on: enableThinking(true) },
+  zhipu: { off: thinkingType("disabled"), on: thinkingType("enabled") },
+  moonshot: { off: thinkingType("disabled"), on: thinkingType("enabled") },
+  mimo: { off: enableThinking(false), on: enableThinking(true) },
+  modelscope: { off: enableThinking(false), on: enableThinking(true) },
   // 开词是 adaptive 而不是 enabled（见头注）。off/on 同词形两通道通用。
-  minimax: { off: { thinking: { type: "disabled" } }, on: { thinking: { type: "adaptive" } } }
+  minimax: { off: thinkingType("disabled"), on: thinkingType("adaptive") }
 };
 
 // ===== 上游值集 → class 规则（04 号票建，05 号票扩到 7 档）=====
@@ -533,10 +606,10 @@ export function ruleFromUpstreamFact(fact: UpstreamThinkingFact, providerId: str
   const off: ThinkingPatch | undefined =
     fact.off === "toggle"
       ? shape
-        ? { fields: { ...shape.off } }
+        ? { vocabulary: shape.off }
         : undefined
       : fact.off === "effort-none"
-        ? { fields: { reasoning_effort: "none" } }
+        ? { vocabulary: reasoningEffort("none") }
         : undefined;
 
   const rule: ClassRule = { thinkingClass: off ? "hybrid" : "always" };
@@ -545,13 +618,13 @@ export function ruleFromUpstreamFact(fact: UpstreamThinkingFact, providerId: str
   }
   if (tiers.length > 0) {
     for (const tier of tiers) {
-      rule[tier] = { fields: { reasoning_effort: tier } };
+      rule[tier] = { vocabulary: reasoningEffort(tier) };
     }
     return rule;
   }
   // 无 effort 词表：toggle 型落平台开关的「开」写点（开关型的唯一写点）。
   if (fact.toggle && shape) {
-    rule.on = { fields: { ...shape.on } };
+    rule.on = { vocabulary: shape.on };
   }
   return rule;
 }
@@ -640,8 +713,9 @@ export interface ResolveThinkingInput {
 }
 
 export interface ThinkingResolution {
-  // 要并入请求体的思考字段；空对象 = 不发（软失败优于硬 400）。
-  fields: Record<string, unknown>;
+  // 要交给写法层的中转词汇（封闭判别联合）：写法层按 kind 断「这套词汇在本协议线上
+  // 长什么样」；哨兵（noFields / unknown）= 不发（软失败优于硬 400）。
+  vocabulary: ThinkingVocabulary;
   // token 上限参数事实（04 号票消费）；unknown 与**上游命中平台**都不返回
   // （后者刻意不产该字段，理由见 ClassRule.tokenParam 上的 2026-10-05 登记）。
   tokenParam?: "max_tokens" | "max_completion_tokens";
@@ -655,9 +729,27 @@ export interface ThinkingResolution {
   thinkingClass: ResolvedThinkingClass;
 }
 
+// 词汇按值交给调用方（浅拷贝）：解析结果不持有表里的成员对象——与改造前「每个返回值
+// 都拷一份 fields」的纪律一致（调用方按值消费，不持有引用做变更）。
+function copyVocabulary(vocabulary: ThinkingVocabulary): ThinkingVocabulary {
+  return { ...vocabulary };
+}
+
+// 解析结果构造：中转词汇出口的唯一组装点（tokenParam 由 withTokenParam 追加）。
+function resolutionOf(
+  vocabulary: ThinkingVocabulary,
+  rest: Pick<ThinkingResolution, "offUnavailable" | "offFallback" | "thinkingClass">
+): ThinkingResolution {
+  return { vocabulary: copyVocabulary(vocabulary), ...rest };
+}
+
 // 无事实的解析结果（UNKNOWN 哨兵：三档均不发、offUnavailable=false）。单例复用，
 // 调用方按值消费（不持有引用做变更）。
-const UNKNOWN_RESOLUTION: ThinkingResolution = { fields: {}, offUnavailable: false, offFallback: null, thinkingClass: "unknown" };
+const UNKNOWN_RESOLUTION: ThinkingResolution = resolutionOf(UNKNOWN_VOCABULARY, {
+  offUnavailable: false,
+  offFallback: null,
+  thinkingClass: "unknown"
+});
 
 // 一次解析的中间结论：本模型该用哪张 class 规则，以及这张规则来自哪一层
 // （层决定 clamp 被调整时对用户说的原因，06 号票起同时是 chip 来源清单的审计列）。
@@ -801,35 +893,38 @@ export function applyClassRule(rule: ClassRule, level: ThinkingLevelValue, strea
   // 「不干预」（2026-10-05 用户裁定）：所有模型都可发——不发任何思考字段，由平台默认行为决定。
   // 与 off 的区别：off 是显式发关思考字段（可能被平台忽略 / 400）。
   if (level === "default") {
-    return withTokenParam({ fields: {}, offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
+    return withTokenParam(resolutionOf(NO_FIELDS, { offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }), rule);
   }
 
   if (level === "off") {
     const offPatch = streamEnabledPatch(rule.off, stream);
     if (offPatch) {
-      return withTokenParam({ fields: { ...(offPatch.fields ?? {}) }, offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
+      return withTokenParam(
+        resolutionOf(offPatch.vocabulary ?? NO_FIELDS, { offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }),
+        rule
+      );
     }
     // off 缺失（含 streamOnly 被非流式阻断）→ 级联。
     if (rule.thinkingClass === "never") {
       // 关思考已天然成立：不发、静默（03 号票对 never 不渲染提示）。
-      return { fields: {}, offUnavailable: false, offFallback: null, thinkingClass: "never" };
+      return resolutionOf(NO_FIELDS, { offUnavailable: false, offFallback: null, thinkingClass: "never" });
     }
     // 级联目标 = 可用集里最小的非 off 档（关不掉的模型给最低思考档；开关型即 on 写点）。
     const fallbackLevel = available.find((candidate) => candidate !== "off");
-    const lowPatch = streamEnabledPatch(fallbackLevel ? patchForLevel(rule, fallbackLevel) : undefined, stream);
-    if (lowPatch?.fields && Object.keys(lowPatch.fields).length > 0) {
-      return withTokenParam({ fields: { ...lowPatch.fields }, offUnavailable: true, offFallback: "low", thinkingClass: rule.thinkingClass }, rule);
+    const lowVocabulary = streamEnabledPatch(fallbackLevel ? patchForLevel(rule, fallbackLevel) : undefined, stream)?.vocabulary;
+    if (carriesPayload(lowVocabulary)) {
+      return withTokenParam(resolutionOf(lowVocabulary, { offUnavailable: true, offFallback: "low", thinkingClass: rule.thinkingClass }), rule);
     }
     // 无档位可落（如 minimax/k2.7-code 无档位参数）：不发 + 标记。
-    return withTokenParam({ fields: {}, offUnavailable: true, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
+    return withTokenParam(resolutionOf(NO_FIELDS, { offUnavailable: true, offFallback: null, thinkingClass: rule.thinkingClass }), rule);
   }
 
   // 非 off 档：落 clamp 后的档位写点（开关型的档位写点仍是 on）。
-  const patch = streamEnabledPatch(patchForLevel(rule, effective), stream);
-  if (patch?.fields && Object.keys(patch.fields).length > 0) {
-    return withTokenParam({ fields: { ...patch.fields }, offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
+  const vocabulary = streamEnabledPatch(patchForLevel(rule, effective), stream)?.vocabulary;
+  if (carriesPayload(vocabulary)) {
+    return withTokenParam(resolutionOf(vocabulary, { offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }), rule);
   }
-  return withTokenParam({ fields: {}, offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
+  return withTokenParam(resolutionOf(NO_FIELDS, { offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }), rule);
 }
 
 // 档位 → 该档的写点：effort 型查本档的显式写点，开关型（有 on）任何非 off 档都落 on；
@@ -862,8 +957,8 @@ function withTokenParam(resolution: ThinkingResolution, rule: ClassRule): Thinki
 // ===== 表校验器（测试期「编译器」，Q2B）=====
 // 校验真实表（无参调用）或注入违规后的表副本；返回中文错误列表（空 = 通过）。
 // 工单 AC 第 6 条的每条规则在此各有一 checks，正反用例见 thinking-profiles.test.js。
+// 词汇白名单来自联合派生（FIELD_WHITELIST，见上「中转词汇」一节），本处不再手写清单。
 
-const FIELD_WHITELIST = new Set(["thinking", "enable_thinking", "reasoning_effort"]);
 const CLASS_FACTS = new Set(["always", "hybrid", "never"]);
 const TOKEN_PARAMS = new Set(["max_tokens", "max_completion_tokens"]);
 const LEVEL_KEYS = ["off", "on", ...NON_OFF_LEVELS] as const;
@@ -902,7 +997,7 @@ export function validateThinkingTables(tables: ThinkingTables = {}): string[] {
       errors.push(`${at}: on 与显式档位（${explicitTiers.join("/")}）同级冲突（开关型的唯一写点是 on）`);
     }
     for (const key of LEVEL_KEYS) {
-      checkPatchFields(`${at}.${key}`, rule[key], errors);
+      checkPatchVocabulary(`${at}.${key}`, rule[key], errors);
     }
     if (rule.tokenParam && !TOKEN_PARAMS.has(rule.tokenParam)) {
       errors.push(`${at}: tokenParam 只允许 max_tokens/max_completion_tokens`);
@@ -937,10 +1032,20 @@ export function validateThinkingTables(tables: ThinkingTables = {}): string[] {
   return errors;
 }
 
-function checkPatchFields(at: string, patch: ThinkingPatch | undefined, errors: string[]): void {
-  for (const field of Object.keys(patch?.fields ?? {})) {
-    if (!FIELD_WHITELIST.has(field)) {
-      errors.push(`${at}: 字段 "${field}" 不在白名单（thinking/enable_thinking/reasoning_effort）`);
-    }
+// 词汇校验（白名单由联合派生，见上）：patch 只许带载荷 kind——哨兵（不发言的成员）
+// 与联合外的脏 kind 都报错。注入脏数据的用例走这里（表是 JSON 可序列化的纯结构，
+// 深拷贝注入违规后本函数是唯一的运行时判据）。
+function checkPatchVocabulary(at: string, patch: ThinkingPatch | undefined, errors: string[]): void {
+  const kind = patch?.vocabulary?.kind;
+  if (kind === undefined) {
+    return;
   }
+  if (FIELD_WHITELIST.has(kind)) {
+    return;
+  }
+  errors.push(
+    VOCABULARY_KINDS.has(kind)
+      ? `${at}: 词汇 "${kind}" 是哨兵（无载荷），patch 不写 vocabulary 即可`
+      : `${at}: 词汇 kind "${kind}" 不在白名单（${[...FIELD_WHITELIST].join("/")}）`
+  );
 }

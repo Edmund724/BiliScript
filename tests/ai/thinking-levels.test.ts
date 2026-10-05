@@ -24,14 +24,17 @@ import {
   applyClassRule,
   availableLevelsOf,
   clampThinkingLevel,
+  enableThinking,
   isThinkingLevel,
   normalizeThinkingLevel,
+  reasoningEffort,
   resolveThinkingAdjustment,
   resolveThinkingProfile,
   ruleFromUpstreamFact,
   type ClassRule
 } from "../../extension/ai/thinking-profiles.js";
 import { VALUESETS, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
+import { openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js";
 
 const QWEN_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4";
@@ -103,10 +106,10 @@ describe("可用集 A：由 class 规则的写点派生（提示面与落线同�
   it("effort 型：物化的档位键 + off 声明，按档位序", () => {
     const rule: ClassRule = {
       thinkingClass: "hybrid",
-      off: { fields: { reasoning_effort: "none" } },
-      xhigh: { fields: { reasoning_effort: "xhigh" } },
-      medium: { fields: { reasoning_effort: "medium" } },
-      low: { fields: { reasoning_effort: "low" } }
+      off: { vocabulary: reasoningEffort("none") },
+      xhigh: { vocabulary: reasoningEffort("xhigh") },
+      medium: { vocabulary: reasoningEffort("medium") },
+      low: { vocabulary: reasoningEffort("low") }
     };
     expect(availableLevelsOf(rule)).toEqual(["off", "low", "medium", "xhigh"]);
   });
@@ -114,8 +117,8 @@ describe("可用集 A：由 class 规则的写点派生（提示面与落线同�
   it("开关型：on 是任何非 off 档的唯一写点 → 全部非 off 档可用", () => {
     const rule: ClassRule = {
       thinkingClass: "hybrid",
-      off: { fields: { enable_thinking: false } },
-      on: { fields: { enable_thinking: true } }
+      off: { vocabulary: enableThinking(false) },
+      on: { vocabulary: enableThinking(true) }
     };
     expect(availableLevelsOf(rule)).toEqual(AI_THINKING_LEVELS);
   });
@@ -129,12 +132,14 @@ describe("可用集 A：由 class 规则的写点派生（提示面与落线同�
 describe("落线：clamp 后的档位就是实发档位", () => {
   it("qwen3.8-max + high：A={off,low,medium,xhigh} 无 high → 实发 medium（决策 #8 的字节变化）", () => {
     const r = resolveThinkingProfile({ presetId: "qwen", model: "qwen3.8-max", level: "high", stream: true });
-    expect(r.fields).toEqual({ reasoning_effort: "medium" });
+    expect(openaiVocabularyFields(r.vocabulary)).toEqual({ reasoning_effort: "medium" });
   });
 
   it("qwen3.8-max：low / medium / xhigh / off 原样落线（只有 high 被调整）", () => {
     const fields = (level: string) =>
-      resolveThinkingProfile({ presetId: "qwen", model: "qwen3.8-max", level, stream: true }).fields;
+      openaiVocabularyFields(
+        resolveThinkingProfile({ presetId: "qwen", model: "qwen3.8-max", level, stream: true }).vocabulary
+      );
     expect(fields("off")).toEqual({ enable_thinking: false });
     expect(fields("low")).toEqual({ reasoning_effort: "low" });
     expect(fields("medium")).toEqual({ reasoning_effort: "medium" });
@@ -146,20 +151,22 @@ describe("落线：clamp 后的档位就是实发档位", () => {
     // D1=A2 前这个样本是 zhipu/glm-5.2；补声明后它的 off 可用（见下一条），同形状且仍关不掉的
     // 代表行换成 sensenova/glm-5.2（未登记开关形状 → toggle 不产写点，A' 不变）。
     const r = resolveThinkingProfile({ presetId: "sensenova", model: "glm-5.2", level: "off", stream: true });
-    expect(r.fields).toEqual({ reasoning_effort: "high" });
+    expect(openaiVocabularyFields(r.vocabulary)).toEqual({ reasoning_effort: "high" });
     expect(r.offUnavailable).toBe(true);
     expect(r.offFallback).toBe("low");
   });
 
   it("D1=A2 本仓补声明：zhipu/glm-5.2 偏好 off 真落 thinking:{type:\"disabled\"}（不再级联）", () => {
     const r = resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "off", stream: true });
-    expect(r.fields).toEqual({ thinking: { type: "disabled" } });
+    expect(openaiVocabularyFields(r.vocabulary)).toEqual({ thinking: { type: "disabled" } });
     expect(r.offUnavailable).toBe(false);
     expect(r.offFallback).toBe(null);
     expect(r.thinkingClass).toBe("hybrid");
     // A' 里没有 low → 偏好 low 向下取到 off（与 qwen3.8-max 的偏好 high 落 medium 同一条 clamp 语义）。
     expect(
-      resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "low", stream: true }).fields
+      openaiVocabularyFields(
+        resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "low", stream: true }).vocabulary
+      )
     ).toEqual({ thinking: { type: "disabled" } });
   });
 
@@ -171,7 +178,7 @@ describe("落线：clamp 后的档位就是实发档位", () => {
       level: "xhigh",
       stream: true
     });
-    expect(r.fields).toEqual({ reasoning_effort: "high" });
+    expect(openaiVocabularyFields(r.vocabulary)).toEqual({ reasoning_effort: "high" });
   });
 
   it("18 号票：平台声明口径已删——amd 上目录外的 id 回落手写/未知，不再有平台兜底档位", () => {
@@ -184,19 +191,21 @@ describe("落线：clamp 后的档位就是实发档位", () => {
       level: "medium",
       stream: true
     });
-    expect(unknown.fields).toEqual({});
+    expect(openaiVocabularyFields(unknown.vocabulary)).toEqual({});
     expect(unknown.thinkingClass).toBe("unknown");
     // 手写侧命中血统的目录外 id（deepseek-v4 前缀）按手写结论落原生 thinking 开关——
     // AMD 网关对未知字段严格 400，这是 18 号票删 override 后对「目录外 id」的已知代价
     // （目录内 282 行零缺口，见 artifacts/18-platform-override-removal.txt）。
     expect(
-      resolveThinkingProfile({
-        presetId: "amd",
-        baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
-        model: "deepseek-v4-pro",
-        level: "off",
-        stream: true
-      }).fields
+      openaiVocabularyFields(
+        resolveThinkingProfile({
+          presetId: "amd",
+          baseUrl: "https://developer.amd.com.cn/radeon/api/v1",
+          model: "deepseek-v4-pro",
+          level: "off",
+          stream: true
+        }).vocabulary
+      )
     ).toEqual({ thinking: { type: "disabled" } });
   });
 
@@ -210,7 +219,7 @@ describe("落线：clamp 后的档位就是实发档位", () => {
     });
     expect(r.effectiveLevel).toBe("xhigh");
     expect(r.reason).toBe(null);
-    expect(r.resolution.fields).toEqual({ thinking: { type: "enabled" } });
+    expect(openaiVocabularyFields(r.resolution.vocabulary)).toEqual({ thinking: { type: "enabled" } });
   });
 });
 
@@ -274,14 +283,14 @@ describe("resolveThinkingAdjustment：提示面的「源档 → 目标档 + 原�
     });
     expect(r.availableLevels).toEqual([]);
     expect(r.effectiveLevel).toBe("default");
-    expect(r.resolution.fields).toEqual({});
+    expect(openaiVocabularyFields(r.resolution.vocabulary)).toEqual({});
     expect(r.reason).toBe("upstream-unlisted");
   });
 
   it("偏好就是 default：实发 default、不发字段、不报「被调整」", () => {
     const r = resolveThinkingAdjustment({ presetId: "deepseek", model: "deepseek-v4-pro", level: "default", stream: true });
     expect(r.effectiveLevel).toBe("default");
-    expect(r.resolution.fields).toEqual({});
+    expect(openaiVocabularyFields(r.resolution.vocabulary)).toEqual({});
     expect(r.reason).toBe(null);
     expect(r.availableLevels).toEqual(["off", "low", "high", "max"]);
   });
@@ -290,9 +299,9 @@ describe("resolveThinkingAdjustment：提示面的「源档 → 目标档 + 原�
     for (const level of AI_THINKING_LEVELS) {
       const r = resolveThinkingAdjustment({ presetId: "qwen", model: "qwen3.8-max", level, stream: true });
       if (r.effectiveLevel === "off") {
-        expect(r.resolution.fields).toEqual({ enable_thinking: false });
+        expect(openaiVocabularyFields(r.resolution.vocabulary)).toEqual({ enable_thinking: false });
       } else if (r.effectiveLevel) {
-        expect(r.resolution.fields).toEqual({ reasoning_effort: r.effectiveLevel });
+        expect(openaiVocabularyFields(r.resolution.vocabulary)).toEqual({ reasoning_effort: r.effectiveLevel });
       }
     }
   });

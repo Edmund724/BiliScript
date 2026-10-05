@@ -3,15 +3,25 @@
 // 格式刻意照抄 extension/ai/thinking-profiles.ts 的被解析面：引号 class 键 + 裸 provider
 // 键、单行条目（`"x": { thinkingClass: "always" },`）与多行条目混排、行尾注释、注释里
 // 写出处域名。解析器必须两种形状都吃，且注释里的域名要能被抄进报告当证据。
+// CLASSES 的 patch 词表自「封闭词汇」改造起写中转词汇构造子（thinkingType /
+// enableThinking / reasoningEffort）；平台级 override 分支（下面 PROVIDERS）仍是
+// **本地声明的记录形状**（真表已无 override，两套形状都不是死代码：检查脚本必须都吃）。
 //
 // 这里只放 fixture 用得到的条目：六个 class、两条例外、四条模式、12 个平台键
 // （其中 4 个 override 型）。类型只借真表的（本文件只被 03 的检查脚本按文本读，
-// 不会被执行；import type 只为通过 tsc）。
+// 不会被执行；import 只为通过 tsc）。
 //
 // 18 号票从真表删掉 `ProviderRule.override` 后，本 fixture 仍刻意保留 4 个 override
 // 型平台键：检查脚本的「平台级声明」解析分支（## 6）要靠这份小样供样才不退化成
 // 死代码——真表已无 override 可读。故 override 的字段形状在此本地声明，不再借真表类型。
-import type { ClassRule, ProviderRule as UpstreamProviderRule, TaxonomyEntry } from "../../../extension/ai/thinking-profiles.js";
+import {
+  enableThinking,
+  reasoningEffort,
+  thinkingType,
+  type ClassRule,
+  type ProviderRule as UpstreamProviderRule,
+  type TaxonomyEntry
+} from "../../../extension/ai/thinking-profiles.js";
 
 interface FixtureOverrideRule {
   thinkingClass: "always" | "hybrid" | "never";
@@ -29,31 +39,31 @@ export const CLASSES: Record<string, ClassRule> = {
   // GLM-5.2 起 effort 三档（关闭仍走 thinking 开关）。（docs.bigmodel.cn）
   "fx-glm-effort": {
     thinkingClass: "hybrid",
-    off: { fields: { thinking: { type: "disabled" } } },
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } }
+    off: { vocabulary: thinkingType("disabled") },
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("high") }
   },
   // glm-5.3 起 disabled 直接报错 → 永远思考，档位无文档化事实。（docs.bigmodel.cn）
   "fx-glm-always": { thinkingClass: "always" },
   // kimi-k3：永远思考 + effort 三档。（platform.kimi.ai）
   "fx-kimi-k3-effort": {
     thinkingClass: "always",
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } }
+    low: { vocabulary: reasoningEffort("low") },
+    high: { vocabulary: reasoningEffort("high") }
   },
   // MiniMax m 系永远思考。（platform.minimax.io）
   "fx-minimax-always": { thinkingClass: "always" },
   // 百炼/托管模型的原生开关词汇。（alibabacloud.com）
   "fx-qwen-switch": {
     thinkingClass: "hybrid",
-    off: { fields: { enable_thinking: false } },
-    on: { fields: { enable_thinking: true } }
+    off: { vocabulary: enableThinking(false) },
+    on: { vocabulary: enableThinking(true) }
   },
   // Mimo v2 系混合开关。（aliyun.com）
   "fx-mimo-switch": {
     thinkingClass: "hybrid",
-    off: { fields: { enable_thinking: false } },
-    on: { fields: { enable_thinking: true } }
+    off: { vocabulary: enableThinking(false) },
+    on: { vocabulary: enableThinking(true) }
   }
 };
 
