@@ -243,7 +243,9 @@ export const anthropicAdapter: ProtocolAdapter = {
     }
     // 思考档位：解析层（thinking-profiles）给 OpenAI 词汇 patch，本通道的线格式由
     // 映射表（ai/thinking-wire-map.ts 的 anthropic 行）决定——adapter 只做取表 → 并入。
-    // 两条平台事实各按自己的键空间识别（口径差异见 ai/platform-quirk-id.ts 头注）：
+    // 入参按协议分型：本行只收自己读得到的字段（本通道恒 max_tokens，故不传 tokenParam；
+    // 流式不再入表，streamOnly 已由解析层消费）。两条平台事实各按自己的键空间识别
+    // （口径差异见 ai/platform-quirk-id.ts 头注）：
     // effortVocabularyOnly = 词表怪癖（PLATFORM_QUIRKS 键空间，stepfun / amd 的严格拒收），
     // platformId = 思考平台识别（PROVIDERS 键空间，映射表按它查 Messages 档位词汇）。
     const level = normalizeThinkingLevel(request.thinkingLevel);
@@ -256,9 +258,7 @@ export const anthropicAdapter: ProtocolAdapter = {
     });
     const wire = THINKING_WIRE_MAPS.anthropic({
       vocabulary: thinking.vocabulary,
-      stream: request.stream,
       probe: request.probe,
-      tokenParam: thinking.tokenParam,
       platformId: resolveThinkingProviderId(request.presetId, request.baseUrl),
       effortVocabularyOnly: usesEffortVocabulary(request.presetId, request.baseUrl)
     });

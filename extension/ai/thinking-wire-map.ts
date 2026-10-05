@@ -27,9 +27,10 @@
 // 关词出口 MESSAGES_OFF_EXIT、开词出口 MESSAGES_ON_EXIT 三张同形表各答一件事。
 //
 // 纯叶模块：只 type-import 词表叶（AiProtocol / CompatQuirk）与 thinking-profiles.ts 类型，零运行时
-// 依赖（SW 静态图安全）。键以 Record<AiProtocol, …> 强制覆盖（沿 protocol-adapter.ts 的既有纪律）：
-// 新增协议必须在本表登记一行；adapter 只做「取档位规则 → 取本表 → 并入请求体」，
-// 不在 adapter 里回抄任何思考字段名或预算取值（对账测试 tests/ai/thinking-wire-map.test.ts）。
+// 依赖（SW 静态图安全）。键以按 AiProtocol 的映射类型强制覆盖（`{[K in AiProtocol]: ThinkingWireMap<K>}`，
+// 沿 protocol-adapter.ts 的既有纪律）：新增协议必须在本表登记一行；**入参按协议分型**——每行只收
+// 自己读得到的字段（见 ThinkingWireInput 与两张逐协议入参）；adapter 只做「取档位规则 → 取本表 →
+// 并入请求体」，不在 adapter 里回抄任何思考字段名或预算取值（对账测试 tests/ai/thinking-wire-map.test.ts）。
 //
 // 不引入表达式引擎（票内被否决的备选）：线格式是代码不是字符串——受 TS 类型检查，
 // 且表达得了跨越 option 的条件（探针依赖 maxTokens 等）。
@@ -42,19 +43,37 @@ import type { ClassRule, ThinkingVocabulary } from "./thinking-profiles.js";
 export type TokenParam = NonNullable<ClassRule["tokenParam"]>;
 
 /**
- * 表入参：**事实层的中转词汇（封闭判别联合）+ 上下文事实 + 平台事实**。
- * 各协议行按需读取（openai 行只读 vocabulary/tokenParam；anthropic 行读
- * vocabulary/probe/platformId/effortVocabularyOnly）。
+ * 表入参的**公共部分**：只有事实层的中转词汇（封闭判别联合）。这套词汇在每个协议落成什么字段
+ * 由本表逐行回答，故每个协议行都读它；其余入参**按协议分型**（OpenAiWireInput / AnthropicWireInput，
+ * 见 THINKING_WIRE_MAPS 的逐协议签名）——每一行只收自己真读的字段，平台事实由调用方一次算好：
+ * 多传一个本行不读的字段、少传一个本行必读的事实，都是编译期错误
+ * （判据 tests/ai/thinking-wire-input.types.ts），不靠注释与自觉。
+ *
+ * `stream` 不在此：档位规则的 streamOnly 事实已在 resolver 侧消费，本表全文无人读它
+ * （宽松事实收口票 01 第 1 项删的死字段）。
  */
 export interface ThinkingWireInput {
   /** 档位规则给出的本档中转词汇；哨兵（noFields / unknown）= 无事实，一律不发字段。 */
   vocabulary: ThinkingVocabulary;
-  /** 本次请求是否流式（档位规则的 streamOnly 事实已在 resolver 侧消费）。 */
-  stream: boolean;
+}
+
+/**
+ * openai 行的入参：血统词汇 + token 上限参数名事实（怪癖 maxTokensField）。
+ * probe / platformId / effortVocabularyOnly 都是别的协议行的事实——本行不收（收下也只能填无意义的值）。
+ */
+export interface OpenAiWireInput extends ThinkingWireInput {
+  /** 档位规则的 token 上限参数名事实；缺省按本协议默认（max_tokens）。 */
+  tokenParam?: TokenParam;
+}
+
+/**
+ * anthropic（Messages）行的入参：血统词汇 + 探针语义 + 平台事实（两张出口表的平台识别与怪癖活值）。
+ * 两张平台事实按各自的键空间识别、由调用方（adapter）一次算好传进来——本表只读值，不自己查表。
+ * tokenParam 不在此：Messages 通道的 token 上限参数名恒为 max_tokens（血统事实只属 OpenAI 通道）。
+ */
+export interface AnthropicWireInput extends ThinkingWireInput {
   /** 探针请求：Messages 通道不发思考字段（怪癖 probeOmitsThinking）。 */
   probe: boolean;
-  /** 档位规则的 token 上限参数名事实；缺省按本协议默认（Messages 恒为 max_tokens）。 */
-  tokenParam?: TokenParam;
   /**
    * 平台识别（口径：thinking-profiles 的 PROVIDERS 键空间，adapter 传
    * `resolveThinkingProviderId` 的结果）。Messages 通道的档位落线（线格式出口）按平台逐格登记
@@ -65,13 +84,20 @@ export interface ThinkingWireInput {
   effortVocabularyOnly: boolean;
 }
 
+/** 写法层的逐协议入参（协议 → 该行真读的字段）。新增协议 = 这里与分发表各登记一行（漏了即红）。 */
+export interface ThinkingWireInputs {
+  openai: OpenAiWireInput;
+  anthropic: AnthropicWireInput;
+}
+
 /** 出参：本协议要并入请求体的思考字段 + 本协议的 token 上限参数名。 */
 export interface ThinkingWireOutput {
   fields: Record<string, unknown>;
   tokenParam: string;
 }
 
-export type ThinkingWireMap = (input: ThinkingWireInput) => ThinkingWireOutput;
+/** 一行映射：入参 = 本协议真读的字段（分型），出参 = 本协议的线上字段与 token 参数名。 */
+export type ThinkingWireMap<K extends AiProtocol> = (input: ThinkingWireInputs[K]) => ThinkingWireOutput;
 
 // ===== 中转词汇 → OpenAI 通道的线格式字段（本文件唯一的词汇投影）=====
 // 事实层给的是封闭联合（哪套词汇、载荷是什么），「这套词汇的字段名与形状」在本文件落字：
@@ -97,7 +123,7 @@ export function openaiVocabularyFields(vocabulary: ThinkingVocabulary): Record<s
 // thinking:{type} 三套直写）→ 映射是上一条投影原样并入；token 上限参数名随档位规则事实
 // （怪癖 maxTokensField：openai-reasoning 系只认 max_completion_tokens）。
 // 探针不特化：探针请求照发思考字段（现状不变；probeOmitsThinking 是 Messages 侧事实）。
-function openaiWireMap({ vocabulary, tokenParam }: ThinkingWireInput): ThinkingWireOutput {
+function openaiWireMap({ vocabulary, tokenParam }: OpenAiWireInput): ThinkingWireOutput {
   return { fields: openaiVocabularyFields(vocabulary), tokenParam: tokenParam ?? "max_tokens" };
 }
 
@@ -148,7 +174,7 @@ export interface MessagesTierExitCell {
 }
 
 // Messages 通道的**档位出口表**（thinking-wire-protocol-split 01 建表；职责同 08 号票的归一化层）。
-// 键 = 平台识别，口径见 ThinkingWireInput.platformId（thinking-profiles 的 PROVIDERS 键空间），
+// 键 = 平台识别，口径见 AnthropicWireInput.platformId（thinking-profiles 的 PROVIDERS 键空间），
 // **要求全覆盖**：新增平台不在本表表态 → tests/ai/thinking-wire-map.test.ts 红（02 号票对 off
 // 那格立的同一条键集纪律）。表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明
 // → 裸 effort，见 messagesTierExitCell。
@@ -739,7 +765,7 @@ function vocabularyWireForm(vocabulary: ThinkingVocabulary): VocabularyWireForm 
 //    裸开档——塌陷是上游唯一支持的形状，不是缺陷（塌陷格 04 号票订正）。
 // 两格都**不发 budget_tokens**（硬规则，见文件头）。
 
-function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
+function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
   const output: ThinkingWireOutput = { fields: {}, tokenParam: "max_tokens" };
   // 怪癖 probeOmitsThinking：探针是连通性测试，一律不发思考字段——发字段只会给探针
   // 增加 400 变量（部分平台的 enabled 形状要求配套参数），探针语义 = 测连通。
@@ -809,8 +835,9 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
   return output;
 }
 
-// 键集合必须覆盖词表叶（Record<AiProtocol, …> 是编译期强制：新增协议漏登记即红）。
-export const THINKING_WIRE_MAPS: Record<AiProtocol, ThinkingWireMap> = {
+// 键集合必须覆盖词表叶（按 AiProtocol 的映射类型是编译期强制：新增协议漏登记即红；
+// 逐协议入参 ThinkingWireInputs 漏一行同样即红）。
+export const THINKING_WIRE_MAPS: { [K in AiProtocol]: ThinkingWireMap<K> } = {
   openai: openaiWireMap,
   anthropic: anthropicWireMap
 };

@@ -198,10 +198,7 @@ describe("写法层按 kind 断行为（替代扫源码文本抓词汇发散）"
   it("openai 行：词汇原样并入，与导出的投影逐条一致", () => {
     for (const testCase of CASES) {
       const wire = THINKING_WIRE_MAPS.openai({
-        vocabulary: testCase.vocabulary,
-        stream: false,
-        probe: false,
-        effortVocabularyOnly: false
+        vocabulary: testCase.vocabulary
       });
       expect(wire.fields, testCase.vocabulary.kind).toEqual(testCase.openai);
       expect(openaiVocabularyFields(testCase.vocabulary), testCase.vocabulary.kind).toEqual(testCase.openai);
@@ -212,7 +209,6 @@ describe("写法层按 kind 断行为（替代扫源码文本抓词汇发散）"
     for (const testCase of CASES) {
       const wire = THINKING_WIRE_MAPS.anthropic({
         vocabulary: testCase.vocabulary,
-        stream: false,
         probe: false,
         effortVocabularyOnly: false,
         platformId: "未研究过的端点"
@@ -233,7 +229,6 @@ describe("写法层按 kind 断行为（替代扫源码文本抓词汇发散）"
     expect(
       THINKING_WIRE_MAPS.anthropic({
         vocabulary: reasoningEffort("xhigh"),
-        stream: false,
         probe: false,
         effortVocabularyOnly: false,
         platformId: "moonshot"
@@ -246,7 +241,6 @@ describe("写法层按 kind 断行为（替代扫源码文本抓词汇发散）"
       expect(
         THINKING_WIRE_MAPS.anthropic({
           vocabulary: testCase.vocabulary,
-          stream: false,
           probe: true,
           effortVocabularyOnly: false,
           platformId: "deepseek"

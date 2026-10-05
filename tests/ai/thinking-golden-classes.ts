@@ -120,6 +120,7 @@ export interface BodyRequest {
   readonly level: ThinkingLevel;
   readonly stream?: boolean;
   readonly maxTokens?: number;
+  /** 探针变体：只有 anthropic 缝消费（Messages 行的 probeOmitsThinking 早退）。 */
   readonly probe?: boolean;
 }
 
@@ -138,7 +139,9 @@ export function channelHarness(channel: Channel): ChannelHarness {
   if (channel === "openai") {
     return {
       channel,
-      bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens, probe = false }) =>
+      // probe 不是 openai 缝的入参：openai 行（写法层）不收 probe，探针照发思考字段
+      // （probeOmitsThinking 是 Messages 侧事实，见 ai/thinking-wire-map.ts 的入参分型）。
+      bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens }) =>
         buildChatRequestBody({
           model,
           messages: MESSAGES,
@@ -146,8 +149,7 @@ export function channelHarness(channel: Channel): ChannelHarness {
           thinkingLevel: level,
           baseUrl: baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : undefined),
           presetId,
-          ...(maxTokens != null ? { maxTokens } : {}),
-          probe
+          ...(maxTokens != null ? { maxTokens } : {})
         }) as Record<string, unknown>,
       expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, ...fields })
     };

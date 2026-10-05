@@ -119,7 +119,6 @@ describe("default 落线 = 空 patch（02 指派表逐行 + 两条通道）", ()
           expect(openaiVocabularyFields(profile.vocabulary), `${presetId}/${model} · stream=${stream}`).toEqual({});
           const messages = THINKING_WIRE_MAPS.anthropic({
             vocabulary: profile.vocabulary,
-            stream,
             probe: false,
             effortVocabularyOnly: false,
             platformId: presetId

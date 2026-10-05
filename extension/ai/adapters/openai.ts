@@ -27,8 +27,6 @@ interface BuildChatRequestBodyInput {
   // baseUrl host 推断兜底（custom/旧记录）。
   baseUrl?: string;
   presetId?: string;
-  // 探针请求（core 代劳传 maxTokens=1）；线格式映射表按需读（OpenAI 通道现状照发思考字段）。
-  probe?: boolean;
   // 联网搜索管线：传入即随请求体带 tools + tool_choice: "auto"。
   tools?: ChatToolDefinition[];
 }
@@ -88,7 +86,7 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
  * messages 经 toWireMessages 翻译：带图消息的 content → text/image_url 块数组，
  * 无图消息原字段原值透传。
  */
-export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools, probe = false }: BuildChatRequestBodyInput): ChatRequestBody {
+export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools }: BuildChatRequestBodyInput): ChatRequestBody {
   const body: ChatRequestBody = { model, messages: toWireMessages(messages), stream };
   if (tools && tools.length) {
     body.tools = tools;
@@ -96,12 +94,11 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
   }
   const level = normalizeThinkingLevel(thinkingLevel);
   const thinking = resolveThinkingProfile({ presetId, baseUrl, model, level, stream });
+  // 入参按协议分型：openai 行只收血统词汇与 token 参数名事实（探针与平台事实对它无意义，
+  // 探针请求照发思考字段是既存行为——probeOmitsThinking 是 Messages 侧事实）。
   const wire = THINKING_WIRE_MAPS.openai({
     vocabulary: thinking.vocabulary,
-    stream,
-    probe,
-    tokenParam: thinking.tokenParam,
-    effortVocabularyOnly: false
+    tokenParam: thinking.tokenParam
   });
   Object.assign(body, wire.fields);
   if (maxTokens != null) {
@@ -255,8 +252,7 @@ export const openaiAdapter: ProtocolAdapter = {
       maxTokens: request.maxTokens,
       baseUrl: request.baseUrl,
       presetId: request.presetId,
-      tools: request.tools,
-      probe: request.probe
+      tools: request.tools
     });
   },
 

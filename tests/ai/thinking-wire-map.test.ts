@@ -45,29 +45,28 @@ import {
   messagesOffExitCell,
   messagesOnExitCell,
   messagesTierExitCell,
+  type AnthropicWireInput,
   type MessagesOnExitKind,
   type MessagesTierExitKind,
-  type ThinkingWireInput
+  type OpenAiWireInput
 } from "../../extension/ai/thinking-wire-map.js";
 
-// 便捷入参：默认「非探针、流式关、非 effort 词汇平台、血统给 low 档」，
+// 便捷入参：默认「非探针、非 effort 词汇平台、血统给 low 档」，
 // 用例只覆盖自己关心的维度（不改的维度保持默认）。
-function anthropicWire(overrides: Partial<ThinkingWireInput> = {}) {
+// 入参按协议分型（宽松事实收口 01 第 2 项）：各行的默认值只含本行真读的字段——
+// openai 行没有 probe / platformId / effortVocabularyOnly 可填（多填是 tsc 错误）。
+function anthropicWire(overrides: Partial<AnthropicWireInput> = {}) {
   return THINKING_WIRE_MAPS.anthropic({
     vocabulary: reasoningEffort("low"),
-    stream: false,
     probe: false,
     effortVocabularyOnly: false,
     ...overrides
   });
 }
 
-function openaiWire(overrides: Partial<ThinkingWireInput> = {}) {
+function openaiWire(overrides: Partial<OpenAiWireInput> = {}) {
   return THINKING_WIRE_MAPS.openai({
     vocabulary: reasoningEffort("low"),
-    stream: false,
-    probe: false,
-    effortVocabularyOnly: false,
     ...overrides
   });
 }
@@ -99,10 +98,10 @@ describe("openai 行：血统词汇即本协议的线格式", () => {
     expect(openaiWire({ tokenParam: "max_completion_tokens" }).tokenParam).toBe("max_completion_tokens");
   });
 
-  it("无事实（两个哨兵）出参为空；探针不特化（OpenAI 通道探针照发思考字段，现状不变）", () => {
+  it("无事实（两个哨兵）出参为空；探针不特化（probe 是 Messages 侧事实，openai 行入参里没有它）", () => {
     expect(openaiWire({ vocabulary: NO_FIELDS }).fields).toEqual({});
     expect(openaiWire({ vocabulary: UNKNOWN_VOCABULARY }).fields).toEqual({});
-    expect(openaiWire({ probe: true, vocabulary: enableThinking(true) }).fields).toEqual({ enable_thinking: true });
+    expect(openaiWire({ vocabulary: enableThinking(true) }).fields).toEqual({ enable_thinking: true });
   });
 });
 
@@ -142,8 +141,10 @@ describe("anthropic 行：Messages 通道的写法", () => {
     expect(JSON.stringify(anthropicWire({ vocabulary: enableThinking(true) }).fields)).not.toContain("budget_tokens");
   });
 
-  it("tokenParam 恒为 max_tokens：血统事实（max_completion_tokens）是 OpenAI 通道的参数名", () => {
-    expect(anthropicWire({ tokenParam: "max_completion_tokens" }).tokenParam).toBe("max_tokens");
+  it("tokenParam 恒为 max_tokens：血统事实（max_completion_tokens）是 OpenAI 通道的参数名，本行入参里没有它", () => {
+    expect(anthropicWire().tokenParam).toBe("max_tokens");
+    // 「本行不收 tokenParam」是编译期断言（见 tests/ai/thinking-wire-input.types.ts）：
+    // 血统的 token 参数名事实只随 OpenAI 行进请求体。
   });
 
   // 分档（02 号票）：effort 血统的档位词在各平台官方登记的档位字段上落线；未登记档位词汇
@@ -647,5 +648,60 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
         platform
       ).toEqual({ output_config: { effort: "high" } });
     }
+  });
+});
+
+// 宽松事实收口（票 thinking-seam-tightening/issues/01 第 1、2 项）：写法层的入参按协议分型，
+// 每一行只收自己真读的字段，平台事实由调用方一次算好。票面的失败方式逐条对应下面的用例：
+//   ① 删 stream 漏改调用点（字段删了还有人传）→ 类型级（多余字段即红）+ 源码扫描（声明也没了）；
+//   ② 分型后某行读到 undefined（必填事实漏传被静默吞成 falsy）→ 类型级（缺必填即红）+ 正对照；
+//   ③ openai 行仍被迫填对它无意义的平台事实 → 类型级（多余字段即红）+ adapter 源码扫描；
+//   ④ 写法层被加上运行时 import（纯叶契约破）→ 源码扫描（每条 import 都须 type-only）。
+describe("入参分型（宽松事实收口 01 的第 1、2 项）：每行只收自己读得到的字段", () => {
+  const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  const WIRE_MAP = "extension/ai/thinking-wire-map.ts";
+  const OPENAI_ADAPTER = "extension/ai/adapters/openai.ts";
+
+  it("第 1 项：stream 从写法层消失——声明与传参都无（无人读的字段不留痕）", () => {
+    const code = stripComments(readFileSync(WIRE_MAP, "utf8"));
+    // 判据非空转：扫描确实看到了本文件的正文（probe 是 Messages 行真读的事实）。
+    expect(code).toContain("probe");
+    expect(code.includes("stream"), `${WIRE_MAP} 仍出现 stream——该字段是票 01 第 1 项要删的死字段`).toBe(false);
+  });
+
+  it("第 2 项：openai 行不再被迫填无意义的平台事实（adapter 里没有这类填值）", () => {
+    const code = stripComments(readFileSync(OPENAI_ADAPTER, "utf8"));
+    // 判据非空转：openai 行真读的 token 参数名事实仍由它传。
+    expect(code).toContain("tokenParam");
+    expect(code.includes("effortVocabularyOnly"), `${OPENAI_ADAPTER} 仍出现 effortVocabularyOnly——该事实对 openai 行无意义`).toBe(
+      false
+    );
+  });
+
+  it("纯叶契约：写法层的每一条 import 都是 type-only（零运行时 import，SW 静态图安全）", () => {
+    const importLines = stripComments(readFileSync(WIRE_MAP, "utf8"))
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("import "));
+    expect(importLines.length, `扫描空转：${WIRE_MAP} 没有 import 行`).toBeGreaterThan(0);
+    for (const line of importLines) {
+      expect(line.startsWith("import type "), `运行时 import：${line}`).toBe(true);
+    }
+  });
+
+  // 「某协议行不收哪些字段」的编译期断言（@ts-expect-error）不在这里：它们一旦被执行就会
+  // 用非法入参真调表。按仓内既有体例（tests/chat/chat-state-readonly.types.ts）落在
+  // tests/ai/thinking-wire-input.types.ts，由 `pnpm typecheck` 执行、vitest 不加载。
+
+  it("判据非空转：同一形状的合法入参照常通过（字段落在正确的行上）", () => {
+    expect(openaiWire({ tokenParam: "max_completion_tokens" }).tokenParam).toBe("max_completion_tokens");
+    expect(
+      anthropicWire({
+        vocabulary: reasoningEffort("high"),
+        probe: false,
+        platformId: "deepseek",
+        effortVocabularyOnly: false
+      }).fields
+    ).toEqual({ thinking: { type: "enabled" }, output_config: { effort: "high" } });
   });
 });
