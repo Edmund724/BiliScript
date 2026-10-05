@@ -28,6 +28,8 @@
 // - 2026-10-05 用户裁定（票据 chat-thinking-submenu）：档位区是二级菜单——底部
 //   一行「思考强度 <当前值> ›」换页到档位列表，开关型模型（rule.on）收成 Off/On，
 //   chip 与一级行显示同一个显示名；文件末的走查用例同时产出可复现工件。
+// - 口径 ③（2026-10-05 复审裁定）：偏好 off 而该模型关不掉时，chip 与一级行显示**实发档**
+//   （如 sensenova/glm-5.2 → High），不再显示线上没发的 Off；偏好本身不迁移。
 //
 // 模型选型依据（extension/ai/thinking-profiles.ts 表 + 02 产物指派表，勿凭记忆）：
 // - kimi-k2.7-code → EXCEPTIONS kimi-always：always 且无 low/on → offUnavailable
@@ -567,6 +569,49 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     expect(getThinkingBtn("low")).toBe(null);
   });
 
+  // 口径 ③（2026-10-05 复审裁定）：关不掉时一级行与 chip 显示**实发档**，不再显示线上
+  // 没发的 Off；偏好本身不迁移（换到能关的模型仍按 off 解析），列表也不替实发档打勾
+  // （打勾会把「点 High」变成重复选择——点了不写偏好）。
+  it("偏好 off 且关不掉（sensenova/glm-5.2 → 级联发 high）：一级行 High、实发档条目可点、长文案在场", async () => {
+    providersPayload = [
+      provider({ id: "p1", model: "glm-5.2", baseUrl: SENSENOVA_URL, presetId: "sensenova" }),
+      provider({ id: "p2", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" })
+    ];
+    settingsPayload = { aiThinkingLevel: "off" };
+
+    await activateChatTab();
+
+    const chipLevel = () =>
+      (document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement).textContent;
+    // A' = {high,max}：off 关不掉 → 级联落最小可用档 high（线上发 output_config.effort high）。
+    expect(renderedThinkingLevels()).toEqual(["high", "max"]);
+    expect(renderedThinkingLabels()).toEqual(["High", "Max"]);
+    expect(activeThinkingLevels()).toEqual([]);
+    expect(chipLevel()).toBe("High");
+    expect((document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement).textContent).toBe("High");
+    // 工单 03 的长文案不动：它说的是「已使用最小思考档位」，与一级行的 High 一致。
+    expect(getHint().hidden).toBe(false);
+    expect(getHint().textContent).toBe(HINT_LOW_FALLBACK);
+
+    // 偏好没有被迁移：切到能关的模型仍按 off 解析（一级行回 Off、条目勾 off、提示收起）。
+    const select = getModelSelect();
+    select.value = modelOptionValue("p2", "deepseek-v4-pro");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(chatSessionState.aiThinkingLevel).toBe("off");
+    expect(chipLevel()).toBe("Off");
+    expect(activeThinkingLevels()).toEqual(["off"]);
+    expect(getHint().hidden).toBe(true);
+
+    // 切回来点实发档那一项：偏好这才迁移成 high（打勾跟着落定，一级行仍是 High）。
+    select.value = modelOptionValue("p1", "glm-5.2");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(chipLevel()).toBe("High");
+    clickThinking("high");
+    expect(chatSessionState.aiThinkingLevel).toBe("high");
+    expect(activeThinkingLevels()).toEqual(["high"]);
+    expect(chipLevel()).toBe("High");
+  });
+
   it("18 号票：上游 none-high 的托管行仍可关思考（opencodego/hy4-preview：条目 = {off,high}，那一档叫 On）", async () => {
     providersPayload = [provider({ id: "p1", model: "hy4-preview", baseUrl: OPENCODEGO_URL, presetId: "opencodego" })];
 
@@ -741,7 +786,8 @@ describe("二级菜单端到端走查（04 号票）", () => {
 // 6 行本地 glm-5.2（5 行目录内 + 1 行目录外兜底）走 DOM 事件切换模型，逐行看档位条目与提示。
 // 先列可能失败的方式：① 误开 off（未登记开关形状的三家冒出 Off 条目 / 提示消失）；
 // ② 少开 off（zhipu / qwen 没有 Off 条目）；③ 提示文案被顺手改动；
-// ④ 目录外 glm-5.2-air 的 off 出口与目录内不一致（两条路径的档位词表本来就不同）。
+// ④ 目录外 glm-5.2-air 的 off 出口与目录内不一致（两条路径的档位词表本来就不同）；
+// ⑤ 关不掉的三家仍显示 Off（一级行与线上实发的 high 不符，口径 ③）。
 // ============================================================
 describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状决定）", () => {
   const OPENROUTER_URL = "https://openrouter.ai/api/v1";
@@ -757,7 +803,8 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
       provider({ id: "p5", model: "glm-5.2", baseUrl: OPENCODEGO_URL, presetId: "opencodego" }),
       provider({ id: "p6", model: "glm-5.2-air", baseUrl: GLM_BASE_URL, presetId: "zhipu" })
     ];
-    // 偏好 off：目录内两行应静默满足；三家未登记形状的行落长版提示（与补声明前逐字相同）。
+    // 偏好 off：目录内两行应静默满足；三家未登记形状的行落长版提示（条目与提示与补声明前
+    // 逐字相同，但一级行/chip 按口径 ③ 显示实发档 high，不再显示线上没发的 Off）。
     settingsPayload = { aiThinkingLevel: "off" };
 
     await activateChatTab();
@@ -802,7 +849,8 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
     expect(getHint().hidden).toBe(true);
     snap("2 qwen/glm-5.2（托管·借词）");
 
-    // ③ 三家未登记开关形状的行：事实带 toggle 但无写点 → 条目仍是 {high,max}，提示逐字不变。
+    // ③ 三家未登记开关形状的行：事实带 toggle 但无写点 → 条目仍是 {high,max}、提示逐字不变，
+    //    一级行与选中项按口径 ③ 落在实发档 high。
     const unregistered: ReadonlyArray<[providerId: string, label: string, model: string]> = [
       ["p3", "openrouter/z-ai/glm-5.2", "z-ai/glm-5.2"],
       ["p4", "sensenova/glm-5.2", "glm-5.2"],
@@ -812,6 +860,8 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
       select.value = modelOptionValue(providerId, model);
       select.dispatchEvent(new Event("change", { bubbles: true }));
       expect(renderedThinkingLevels(), label).toEqual(["high", "max"]);
+      expect(activeThinkingLevels(), label).toEqual([]);
+      expect(chipLevel.textContent, label).toBe("High");
       expect(getHint().hidden, label).toBe(false);
       expect(getHint().textContent, label).toBe(HINT_LOW_FALLBACK);
       snap(`${3 + index} ${label}（平台形状未登记）`);
@@ -835,7 +885,8 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
       [
         "# D1=A2 端到端走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
         "# 用例：6 行本地 glm-5.2（5 行目录内 + glm-5.2-air 兜底），偏好 off，逐行看档位条目与提示",
-        "# 判据：zhipu / qwen 多出 Off（静默）；openrouter / sensenova / opencodego 逐字节不变（长版提示）",
+        "# 判据：zhipu / qwen 多出 Off（静默）；openrouter / sensenova / opencodego 的条目与提示不变（长版提示），",
+        "#       一级行/chip 按口径 ③（2026-10-05 复审）显示实发档 High、列表无人打勾——线上发 high，界面不再写 Off",
         "# 每行 = 一步；同命令重跑逐字节一致",
         ...steps,
         ""

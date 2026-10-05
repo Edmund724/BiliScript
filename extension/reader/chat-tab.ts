@@ -547,10 +547,13 @@ function refreshThinkingUi(): void {
   // 档位条先落（提示行元素缺失也不影响档位的显隐与显示名）。条目与显示名都由
   // chat/thinking-picker 从同一次解析派生：面板只画结果（二级菜单换页 + 选中打勾），
   // 开关型模型在这里被收成 Off/On 两项、chip 与一级行同步显示 On。
+  // effectiveLevel 一并用上：偏好 off 而该模型关不掉时，一级行/chip 显示实发档
+  // （如 {high,max} → High），不再显示线上没发的 Off（2026-10-05 复审裁定）。
   const pickerInput = {
     availableLevels: adjustment.availableLevels,
     switchOnly: adjustment.switchOnly,
-    requestedLevel: level
+    requestedLevel: level,
+    effectiveLevel: adjustment.effectiveLevel
   };
   modelPanel.renderThinkingPicker({
     label: thinkingPickerLabel(pickerInput),

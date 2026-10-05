@@ -10,7 +10,8 @@
 //   5. 开关型的 On 激活判定按 data-level 相等——偏好是别的非 off 档时 On 不打勾；
 //   6. 偏好落在可用集外时仍显示 On——与提示行的「low → off」自相矛盾；
 //   7. 显示名出现第二套推导（chip 与列表不同源）；
-//   8. 标签表键集漂移（多了 none / 少了档位）。
+//   8. 标签表键集漂移（多了 none / 少了档位）；
+//   9. 关不掉（off ∉ A'）却显示 Off——一级行与线上实发的档位不符（口径 ③，2026-10-05 复审）。
 
 import { describe, expect, it } from "vitest";
 import {
@@ -22,8 +23,15 @@ import {
 } from "../../extension/chat/thinking-picker.js";
 import { AI_THINKING_LEVELS, type ThinkingLevel } from "../../extension/ai/thinking-profiles.js";
 
-function input(availableLevels: readonly ThinkingLevel[], requestedLevel: ThinkingLevel, switchOnly = false): ThinkingPickerInput {
-  return { availableLevels, switchOnly, requestedLevel };
+// 入参工厂：effectiveLevel 缺省 null = 「没有实发档信息」（口径 ③ 只在偏好 off 且
+// off ∉ A' 且实发档非 off 时才替换显示档，缺省值即那条回退路径）。
+function input(
+  availableLevels: readonly ThinkingLevel[],
+  requestedLevel: ThinkingLevel,
+  switchOnly = false,
+  effectiveLevel: ThinkingLevel | null = null
+): ThinkingPickerInput {
+  return { availableLevels, switchOnly, requestedLevel, effectiveLevel };
 }
 
 function levelsOf(entries: ReturnType<typeof thinkingPickerEntries>): string[] {
@@ -104,10 +112,11 @@ describe("thinkingPickerEntries", () => {
 });
 
 describe("thinkingPickerLabel（chip 档位 span 与一级行右侧同源）", () => {
-  it("偏好 off 恒显示 Off（即便该模型关不掉：偏好与实发档是两回事，提示行负责说明）", () => {
+  it("off 可用、或没有实发档信息：显示 Off（口径 ③ 只改「关不掉 + 有实发档」那一格）", () => {
+    expect(thinkingPickerLabel(input(["off", "low", "high"], "off", false, "off"))).toBe("Off");
     expect(thinkingPickerLabel(input(["low", "high"], "off"))).toBe("Off");
     expect(thinkingPickerLabel(input([], "off"))).toBe("Off");
-    expect(thinkingPickerLabel(input([...AI_THINKING_LEVELS], "off", true))).toBe("Off");
+    expect(thinkingPickerLabel(input([...AI_THINKING_LEVELS], "off", true, "off"))).toBe("Off");
   });
 
   it("开关型且偏好非 off → On（chip 与菜单同一个词）", () => {
@@ -125,5 +134,41 @@ describe("thinkingPickerLabel（chip 档位 span 与一级行右侧同源）", (
     for (const level of AI_THINKING_LEVELS) {
       expect(thinkingPickerLabel(input(available, level)), level).toBe(THINKING_LEVEL_LABELS[level]);
     }
+  });
+});
+
+// 口径 ③（2026-10-05 复审裁定）：偏好 off 而该模型关不掉时，一级行与 chip 显示
+// **实发档**——线上发 high 就写 High，不再一边写 Off 一边发 high。列表不替实发档打勾：
+// 打勾是「点它不写偏好」的判据，替实发档打勾会让用户点了 High 却什么都没落盘。
+describe("口径 ③：off 关不掉 → 一级行显示实发档（列表仍按偏好打勾）", () => {
+  it("多档模型：{high,max} + 偏好 off + 实发 high → 一级行 High；列表条目不变、无人打勾", () => {
+    const view = input(["high", "max"], "off", false, "high");
+    expect(thinkingPickerLabel(view)).toBe("High");
+    expect(levelsOf(thinkingPickerEntries(view))).toEqual(["high", "max"]);
+    expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
+  });
+
+  it("单档模型（上游只登记一个真实档位）：实发 high → 一级行照这里的 On 口径显示", () => {
+    const view = input(["high"], "off", false, "high");
+    expect(thinkingPickerLabel(view)).toBe("On");
+    expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
+  });
+
+  it("off 可用：不替换显示档（仍 Off、仍勾 off）", () => {
+    const view = input(["off", "high", "max"], "off", false, "off");
+    expect(thinkingPickerLabel(view)).toBe("Off");
+    expect(activeOf(thinkingPickerEntries(view))).toEqual(["off"]);
+  });
+
+  it("无档可落（effectiveLevel null，A' = ∅）：维持 Off（面板整行隐藏，显示名无人消费）", () => {
+    const view = input([], "off", false, null);
+    expect(thinkingPickerLabel(view)).toBe("Off");
+    expect(thinkingPickerEntries(view)).toEqual([]);
+  });
+
+  it("偏好非 off 时不受影响：档位型 clamp 仍显示偏好自己的档位词、不替它打勾（05 号票口径）", () => {
+    const view = input(["high", "max"], "medium", false, "high");
+    expect(thinkingPickerLabel(view)).toBe("Medium");
+    expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
   });
 });

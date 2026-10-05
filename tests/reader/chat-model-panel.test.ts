@@ -184,7 +184,8 @@ describe("renderChip", () => {
       entries: thinkingPickerEntries({
         availableLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         switchOnly: true,
-        requestedLevel: "low"
+        requestedLevel: "low",
+        effectiveLevel: null
       })
     });
     modelPanel.renderChip();
@@ -261,7 +262,7 @@ describe("renderPanel", () => {
 
   it("每次打开都从模型页开始（换页状态不留到下一次）", () => {
     const { panelList, thinkingPage, thinkingRow, modelPanel } = makeHarness();
-    modelPanel.renderThinkingPicker({ label: "Low", entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high"], switchOnly: false, requestedLevel: "low" }) });
+    modelPanel.renderThinkingPicker({ label: "Low", entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high"], switchOnly: false, requestedLevel: "low", effectiveLevel: null }) });
     modelPanel.renderPanel();
     click(thinkingRow);
     expect(thinkingPage.hidden).toBe(false);
@@ -305,7 +306,7 @@ describe("renderPanel 的面板宽度（打开时快照）", () => {
 });
 
 describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页条目）", () => {
-  const FOUR_LEVELS = { availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high" } as const;
+  const FOUR_LEVELS = { availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: null } as const;
 
   it("逐条现渲：顺序 = 条目顺序，只有选中项带 is-active + aria-pressed + ✓", () => {
     const { thinkingToggle, thinkingRowValue, thinkingRow, modelPanel } = makeHarness();
@@ -353,10 +354,10 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
   it("≤1 条：一级行整行隐藏（没有可选的东西）；条数够时回来", () => {
     const { thinkingRow, modelPanel } = makeHarness();
 
-    modelPanel.renderThinkingPicker({ label: "On", entries: thinkingPickerEntries({ availableLevels: ["high"], switchOnly: false, requestedLevel: "high" }) });
+    modelPanel.renderThinkingPicker({ label: "On", entries: thinkingPickerEntries({ availableLevels: ["high"], switchOnly: false, requestedLevel: "high", effectiveLevel: null }) });
     expect(thinkingRow.hidden).toBe(true);
 
-    modelPanel.renderThinkingPicker({ label: "Off", entries: thinkingPickerEntries({ availableLevels: [], switchOnly: false, requestedLevel: "off" }) });
+    modelPanel.renderThinkingPicker({ label: "Off", entries: thinkingPickerEntries({ availableLevels: [], switchOnly: false, requestedLevel: "off", effectiveLevel: null }) });
     expect(thinkingRow.hidden).toBe(true);
 
     modelPanel.renderThinkingPicker({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) });
@@ -377,7 +378,7 @@ describe("换页（点一级行进档位页 / 点返回行回模型页）", () =
     const harness = makeHarness();
     harness.modelPanel.renderThinkingPicker({
       label: "High",
-      entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high" })
+      entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: null })
     });
     harness.modelPanel.renderPanel();
     return harness;
