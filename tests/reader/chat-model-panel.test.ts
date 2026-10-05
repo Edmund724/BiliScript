@@ -155,16 +155,17 @@ describe("renderChip", () => {
     expect(chipLevel.textContent).toBe("High");
   });
 
-  // 05 号票：档位词表扩到上游 7 档，标签表同步（口径与既有 Off/Low/High 一致：
-  // 首字母大写、档位词本身照上游写法）。未渲染过档位条时 chip 回落标签表。
-  it("7 档标签表：off/minimal/low/medium/high/xhigh/max → Off/Minimal/Low/Medium/High/XHigh/Max", () => {
+  // 05 号票：档位词表扩到上游 7 档，标签表同步（口径 = 表内统一构词：首字母大写、
+  // 其余小写；2026-10-05 用户裁定 xhigh → Xhigh，不写 XHigh）。未渲染过档位条时
+  // chip 回落标签表。
+  it("7 档标签表：off/minimal/low/medium/high/xhigh/max → Off/Minimal/Low/Medium/High/Xhigh/Max", () => {
     const expected: Array<[string, string]> = [
       ["off", "Off"],
       ["minimal", "Minimal"],
       ["low", "Low"],
       ["medium", "Medium"],
       ["high", "High"],
-      ["xhigh", "XHigh"],
+      ["xhigh", "Xhigh"],
       ["max", "Max"]
     ];
     for (const [level, label] of expected) {

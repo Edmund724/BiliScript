@@ -40,8 +40,10 @@ import {
 } from "../ai/thinking-profiles.js";
 import { THINKING_DEFAULT_LEVEL, type ThinkingLevel, type ThinkingLevelValue } from "../ai/thinking-levels.js";
 
-// 档位标签表（05 号票：上游词表 7 档）。口径与既有 Off/Low/High 一致——首字母大写、
-// 档位词照上游写法（xhigh → XHigh）；未登记档位（脏存储值）回落原值。
+// 档位标签表（05 号票：上游词表 7 档）。口径 = 表内统一构词：首字母大写、其余小写
+// （xhigh → Xhigh，2026-10-05 用户裁定：三家参考都不写 XHigh——Codex 的档位显示名是
+// "Extra high"，Claude Code 与 dsh 一律用全小写 token xhigh）；未登记档位（脏存储值）
+// 回落原值。
 // 06 号票起导出：模板占位、chip 集合工件（tests/ai/thinking-chips.test.ts）与本模块
 // 同源，避免「标签」出现第三份字面量。
 export const THINKING_LEVEL_LABELS: Record<string, string> = {
@@ -50,7 +52,7 @@ export const THINKING_LEVEL_LABELS: Record<string, string> = {
   low: "Low",
   medium: "Medium",
   high: "High",
-  xhigh: "XHigh",
+  xhigh: "Xhigh",
   max: "Max"
 };
 

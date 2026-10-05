@@ -97,7 +97,7 @@ describe("标签表（05 号票：上游 7 档，与 chip 集合工件同源）"
       low: "Low",
       medium: "Medium",
       high: "High",
-      xhigh: "XHigh",
+      xhigh: "Xhigh",
       max: "Max"
     });
   });
