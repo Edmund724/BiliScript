@@ -59,6 +59,8 @@ import { extractBvid } from "../bilibili/video-id-shared.js";
 // 纯函数、无 DOM 依赖。候选 6 起本文件不再自己判定提示文案、也不手工摘解析字段——解析
 // 与显示口径的同源关系收在 chat/thinking-picker 的 thinkingViewOf 里。
 import { thinkingViewOf } from "../chat/thinking-picker.js";
+// 档位入参的声明面（未归一的外部值；词表叶，纯类型引入、无运行时依赖边）。
+import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -546,7 +548,10 @@ function refreshThinkingUi(): void {
 // 首行同步写 chatSessionState.aiThinkingLevel，紧随的重判读到的是新档位（档位切走
 // 即收提示，切回 Off 再现）；chip 的档位文案与档位条的选中态都随重判重渲。
 // 面板在调用点之后自会关掉（hidePanel，用户裁定：选完即关）。
-function pickThinkingLevel(level: string): void {
+// 入参与 providers 的 setThinkingLevel 同域：**未归一的外部值**（面板传的是 dataset
+// 里的档位词，宽容面见 ai/thinking-levels.ts 的 ThinkingLevelInput）——本函数只转交，
+// 归一化在落盘入口做一次。
+function pickThinkingLevel(level: ThinkingLevelInput): void {
   void setThinkingLevel(level);
   modelPanel.renderChip();
   refreshThinkingUi();

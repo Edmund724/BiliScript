@@ -23,6 +23,8 @@ import { chatSessionState } from "../chat/chat-state.js";
 import { measureModelPanelWidth, updateModelSelectWidth } from "../chat/model-select-width.js";
 import { thinkingLevelValueLabel, type ThinkingView } from "../chat/thinking-picker.js";
 import { escapeHtml } from "../shared/string-utils.js";
+// 档位出口入参的声明面（未归一的外部值；词表叶，纯类型引入、无运行时依赖边）。
+import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 
 export interface CreateReaderChatModelPanelDeps {
   modelSelect: HTMLSelectElement;
@@ -41,8 +43,10 @@ export interface CreateReaderChatModelPanelDeps {
   thinkingRowValue: HTMLElement;
   // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
   hidePanel: () => void;
-  // 档位落盘出口（组合根接 providers 的 setThinkingLevel + chip/提示重判）
-  pickLevel: (level: string) => void;
+  // 档位落盘出口（组合根接 providers 的 setThinkingLevel + chip/提示重判）：入参是**未归一的
+  // 外部值**——本模块传的是档位条目的 dataset 值（DOM 来的脏值也可能到，宽容面见
+  // ai/thinking-levels.ts 的 ThinkingLevelInput），归一化在下游落盘入口做一次。
+  pickLevel: (level: ThinkingLevelInput) => void;
 }
 
 // 档位条的渲染输入 = 视图值的渲染子集（显示名 + 条目；提示文案由组合根画，本模块看不到）。

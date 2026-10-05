@@ -15,12 +15,17 @@
 //      → 链上只透传（ladder / client / completion / adapter 的 ChatRequest）
 //      → 归一化施加点：resolveThinkingProfile / resolveThinkingAdjustment
 //      → 归一之后才是 ThinkingLevelValue（面板 / 存储 / clamp 落线）。
+// 设置 / 面板侧的另两处施加点（providers.ts 的 setThinkingLevel / 面板的 pickLevel）
+// 与请求链同用「未归一的外部值」声明（票 thinking-seam-tightening/03）。
 // 「链上只透传」的运行期判据在 tests/ai/ladder.test.ts（脏值原样到达下游，不判不归）。
 
 import type { ChatMsg, StreamChatArgs } from "../../extension/ai/ladder.js";
 import type { ChatCompletionInput } from "../../extension/ai/completion.js";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
 import type { ChatRequest } from "../../extension/ai/protocol-adapter.js";
+// 设置 / 面板侧的两处归一入口声明面（票 thinking-seam-tightening/03）。
+import type { ProviderPrefs } from "../../extension/chat/providers.js";
+import type { CreateReaderChatModelPanelDeps } from "../../extension/reader/chat-model-panel.js";
 import {
   THINKING_DEFAULT_LEVEL,
   normalizeThinkingLevel,
@@ -54,6 +59,21 @@ export function assertThinkingLevelBoundarySplit(): void {
   // @ts-expect-error 同上（请求构造缝）：边界类型不可直接赋给 string
   const asString: string = null as unknown as NonNullable<ChatRequest["thinkingLevel"]>;
   void asString;
+
+  // ===== 设置 / 面板侧：同一条归一化的另两处施加点，入参域同为「未归一的外部值」（票 03）=====
+  // 设置侧 = chat/providers.ts 的 setThinkingLevel（档位落盘入口，内部就调
+  // normalizeAiThinkingLevel）；面板侧 = 面板档位条目的点击出口——chat-tab.ts 的
+  // pickThinkingLevel 是模块私有实现，钉在它的声明面 chat-model-panel.ts 的 deps.pickLevel
+  // 上（面板传的正是 dataset 里的档位词）。两处与请求链同用 ThinkingLevelInput：收 whatever、
+  // 归一化只在落盘前做一次（缺省 / 脏值 → default），不在这里判、不在这里拒。
+  const atSetThinkingLevel: Parameters<ProviderPrefs["setThinkingLevel"]>[0] = dirtyWireValue;
+  const atPickLevel: Parameters<CreateReaderChatModelPanelDeps["pickLevel"]>[0] = dirtyWireValue;
+  void [atSetThinkingLevel, atPickLevel];
+
+  // @ts-expect-error 设置侧档位入口的形参是未归一外部值，不是 string（unknown 无字符串方法）
+  (null as unknown as Parameters<ProviderPrefs["setThinkingLevel"]>[0]).trim();
+  // @ts-expect-error 面板侧档位出口同上；收窄回 string 即让这两条 @ts-expect-error 变 Unused
+  (null as unknown as Parameters<CreateReaderChatModelPanelDeps["pickLevel"]>[0]).trim();
 
   // ===== 分层：边界值 ≠ 档位值（归一化是唯一转换入口）=====
   // @ts-expect-error 未归一的边界值不能直接当档位值用（先过边界归一）

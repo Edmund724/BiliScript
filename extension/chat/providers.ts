@@ -23,6 +23,8 @@ import {
   normalizeAiInitialQuickPrompts,
   normalizeAiThinkingLevel
 } from "../core/validators.js";
+// 档位入参的声明面（未归一的外部值；词表叶，纯类型引入、无运行时依赖边）。
+import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { GetSettingsResponse } from "../shared/messaging-protocol.js";
@@ -70,7 +72,11 @@ export interface CreateProviderPrefsDeps {
 export interface ProviderPrefs {
   loadProvidersAndPrefs: (opts?: { preferredProviderId?: string }) => Promise<void>;
   renderModelSelect: (preferredProviderId?: string) => void;
-  setThinkingLevel: (level: string) => Promise<void>;
+  // 思考档位落盘（设置 / 面板侧的归一入口）：入参是**未归一的外部值**——合法档位、缺省、
+  // 端口 / 面板里真实可到的脏值都可能到（宽容面见 ai/thinking-levels.ts 的
+  // ThinkingLevelInput）。归一化在下面的实现里做一次（缺省 / 脏值 → default，见 ADR-0015
+  // 修订块），所以这里收的是声明面而不是过滤器。
+  setThinkingLevel: (level: ThinkingLevelInput) => Promise<void>;
   // 联网搜索开关（spec §4）：点击即改全局记忆（sync settings.webSearchEnabled），
   // 默认关。渲染与写入同收口。
   setWebSearchEnabled: (enabled: boolean) => Promise<void>;
@@ -265,7 +271,7 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
   // chat/thinking-picker 的显示条目现渲（二级菜单），它的选中态与显示名由组合根的
   // refreshThinkingUi 每次重算——原先按静态按钮 data-level 打 is-active 的
   // renderThinkingLevel 随 7 个静态按钮一起退役（2026-10 用户裁定）。
-  async function setThinkingLevel(level: string): Promise<void> {
+  async function setThinkingLevel(level: ThinkingLevelInput): Promise<void> {
     setAiThinkingLevel(normalizeAiThinkingLevel(level));
     if (storage) {
       await storage.set({ [THINKING_LEVEL_KEY]: chatSessionState.aiThinkingLevel }).catch(() => {});
