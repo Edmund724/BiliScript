@@ -9,7 +9,7 @@
 //      快照（G5）/ 无字幕空上下文拦截（G6）/ 历史回放让位（G7，放行路径
 //      await replayInFlight）。受理结论经 GateOutcome 显式返回，不再用字符串
 //      哨兵与调用方的副作用推断。等待方向是单向的（C′ 复核）：发送等回放让位，
-//      回放不等任何东西——在途回合的停流结算（runtime.settleActiveTurn）由历史项
+//      回放不等任何东西——在途回合的停流结算（turn-lifecycle 的 settled）由历史项
 //      点击接缝 await，不进本闸、也不进 replay（否则成结构死锁）。
 //   2. subtitleWaiter 组装（等待闸状态机本体在 ./subtitle-wait.ts）：pollContext
 //      的 live-first 快照读法、等待提示按「是否转写中」路由（转写并入状态行，
@@ -210,7 +210,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
   // 普通对话读当前页；抓取或音频转写进行中时先等待，避免空字幕上下文直接发
   // 给模型；还没起跑时主动起跑）。
   // 最终快照若是「无字幕收尾」（empty 且字幕体为空）则拦截发送：返回
-  // { pass: false, kind: "no-subtitle" } 让 sendMessage 提前返回（不追加用户
+  // { pass: false, kind: "no-subtitle" } 让受理体提前返回（不追加用户
   // 消息、不落 chatHistory、不发起 port），并按 noSubtitleReason 显示对应 notice。
   async function ensureContextForSend(): Promise<GateOutcome> {
     // 本闸调用链上的每一次上下文装载都带 preserveInput（见 deps.loadContextState

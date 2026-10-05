@@ -397,6 +397,53 @@ describe("explain 意图消费（自动发送 + consume 一次）", () => {
     expect(intentCard.hidden).toBe(true);
     expect(ports).toHaveLength(0); // 取消不触发发送
   });
+
+  // 实证 bug（受理窗口漏判 + ignored 被折算成受理）：发送流程停在发送闸的 await
+  // 窗口（端口未建、用户消息尚未上屏）时再激活对话 tab，旧判据
+  // isStreaming() || hasPendingUserPrompt() 判「空闲」→ autoSendPrompt 走
+  // sendViaInputBox → sendTurn 返回 ignored 却被 `verdict !== "blocked"` 折算成
+  // 受理成功 → 解释意图被消费、消息从未发出（引用卡消失、时间轴上什么都没有）。
+  // 修法两条同时生效：在途判据收成含受理窗口的一条 + 只有 accepted 才算受理。
+  // 修后行为：窗口内不消费（意图留 pending、引用卡保留），回合落定后激活补发。
+  it("受理窗口内激活：意图不被消费，回合落定后激活才真正发出", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+
+    // 用户先按回车：受理停在 subtitle-wait（受理窗口内，端口未建、未上屏）
+    input.value = "闸中问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
+    expect(ports).toHaveLength(0);
+
+    // 窗口内再激活（走意图消费路径）：不消费意图、不误报受理
+    explainIntent.setPendingExplainIntent({ from: 10, content: "待解释句", createdAt: Date.now() });
+    await chat.ensureChatTabActivated();
+    expect(ports).toHaveLength(0);
+    expect(explainIntent.peekPendingExplainIntent()).not.toBe(null);
+    expect((document.getElementById(ids.readingChatIntent) as HTMLElement).hidden).toBe(false);
+
+    // 闸放行：先发出的是闸里那条，不是解释提示词
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("闸中问题");
+
+    // 第一回合终态落定后再次激活：pending 意图这次真正发出并消费（该发出就发出）
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    await chat.ensureChatTabActivated();
+    await waitFor(() => ports.length === 2 && ports[1].postMessage.mock.calls.length === 1);
+    expect((ports[1].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toContain("待解释句");
+    expect(explainIntent.peekPendingExplainIntent()).toBe(null);
+  });
 });
 
 describe("subtitle-wait kick 总线接线", () => {

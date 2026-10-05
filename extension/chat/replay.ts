@@ -12,7 +12,7 @@
 //
 // 方向纪律（C′ 复核）：等待是单向的——发送路径经 send-gate 的 G7 等回放让位，
 // 回放不等任何东西（不感知在途流、不等停流结算）。流式中点历史项的「先体面停流
-// 落盘、再切换」由点击接缝 await chat-runtime 的 settleActiveTurn 之后才调
+// 落盘、再切换」由点击接缝 await turn-lifecycle 的 settled 之后才调
 // applyById（→ 本事务），此处仍不引入反向等待（否则成结构死锁）。
 import { chatSessionState } from "./chat-state.js";
 import { collectHistorySearchTurns, type HistorySearchTurn } from "./search-sources.js";

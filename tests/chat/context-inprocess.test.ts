@@ -213,7 +213,7 @@ function makeChatDeps(overrides: Partial<ChatRuntimeDeps> = {}) {
 
 async function send(runtime: ReturnType<typeof createChatRuntime>, deps: ChatRuntimeDeps, text: string) {
   deps.input.value = text;
-  await runtime.sendMessage();
+  await runtime.sendTurn(deps.input.value);
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));

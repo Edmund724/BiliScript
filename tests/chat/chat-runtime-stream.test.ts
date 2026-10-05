@@ -108,7 +108,7 @@ async function makeRuntime(text = "帮我写个标题") {
   const deps = makeDeps();
   deps.input.value = text;
   const runtime = createChatRuntime(deps);
-  await runtime.sendMessage();
+  await runtime.sendTurn(deps.input.value);
   return { deps, runtime, session: deps.ports[0] };
 }
 
@@ -201,7 +201,7 @@ describe("sendMessage 建流与协议入口", () => {
     const { deps, runtime } = await makeRuntime("第一条");
 
     deps.input.value = "第二条";
-    const verdict = await runtime.sendMessage();
+    const verdict = await runtime.sendTurn(deps.input.value);
 
     expect(verdict).toBe("ignored");
     expect(deps.ports).toHaveLength(1);
@@ -219,14 +219,14 @@ describe("sendMessage 建流与协议入口", () => {
     deps.ensureCurrentContextForSend = vi.fn(() => new Promise((resolve) => { releaseEnsure = resolve; }));
 
     const runtime = createChatRuntime(deps);
-    const send1 = runtime.sendMessage();
+    const send1 = runtime.sendTurn(deps.input.value);
     // 窗口内：端口未建、无 assistant 占位，但发送流程已在进行
     expect(runtime.isStreaming()).toBe(false);
     expect(deps.messages.querySelector(".chat-msg-assistant")).toBeNull();
 
     // 第二次 sendMessage（用户又按了一次回车）：必须被闸住
     deps.input.value = "第二条";
-    const secondVerdict = await runtime.sendMessage();
+    const secondVerdict = await runtime.sendTurn(deps.input.value);
     expect(secondVerdict).toBe("ignored");
     expect(deps.ports).toHaveLength(0);
     expect(deps.messages.querySelectorAll(".chat-msg-user")).toHaveLength(0);
@@ -246,7 +246,7 @@ describe("sendMessage 建流与协议入口", () => {
     deps.input.value = "   ";
     const runtime = createChatRuntime(deps);
 
-    await expect(runtime.sendMessage()).resolves.toBe("ignored");
+    await expect(runtime.sendTurn(deps.input.value)).resolves.toBe("ignored");
 
     expect(deps.ensureCurrentContextForSend).not.toHaveBeenCalled();
     expect(deps.ports).toHaveLength(0);
@@ -457,7 +457,7 @@ describe("reasoning / thinking 展示", () => {
 
     // 第二条消息：思考累加器全新，不串上一条内容
     deps.input.value = "问题二";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
     feed(runtime, { type: "reasoning", data: "第二条思考" });
     expect(node2.querySelector(".chat-thinking-text")?.textContent).toBe("第二条思考");
@@ -491,7 +491,7 @@ describe("reasoning / thinking 展示", () => {
     // 旧实现把「未创建」与「已结束」都折叠为 thinkingNode === null，
     // 会把新回合的思考写进旧消息的节点
     deps.input.value = "问题二";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
     feed(runtime, { type: "reasoning", data: "" });
     const node2Thinking = node2.querySelector<HTMLElement>(".chat-thinking")!;
@@ -522,7 +522,7 @@ describe("reasoning / thinking 展示", () => {
     // 第二条消息：首帧 flush 前 reasoning 到达（同帧 token 尚未渲染）——
     // 节点必须建在第二条占位内
     deps.input.value = "问题二";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
     feed(runtime, { type: "reasoning", data: "第二轮思考" });
     expect(node2.querySelector(".chat-thinking-text")?.textContent).toBe("第二轮思考");
@@ -641,7 +641,7 @@ describe("notice 与 cost-guard 分派（流中非终态）", () => {
     expect(deps.messages.querySelector(".chat-msg-truncated")).not.toBeNull();
 
     deps.input.value = "问题二";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     const nodes = deps.messages.querySelectorAll(".chat-msg-assistant");
     const node2 = nodes[nodes.length - 1] as HTMLElement;
     feed(runtime, { type: "token", data: "第二轮" });
@@ -796,7 +796,7 @@ describe("慢响应提示计时器（fake timers）", () => {
 
     // 第二条消息：慢响应提示必须照常重新武装并弹出
     deps.input.value = "问题二";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     vi.advanceTimersByTime(15000);
     expect(deps.ui.showConversationContextNotice).toHaveBeenCalledWith(SLOW_NOTICE_TEXT, 0);
 
@@ -875,7 +875,7 @@ describe("sendMessage 受理结论与闸拦截的提前返回", () => {
     const { deps } = makeSendDeps({ pass: false, kind: "no-subtitle" });
     const runtime = createChatRuntime(deps);
 
-    await expect(runtime.sendMessage()).resolves.toBe("blocked");
+    await expect(runtime.sendTurn(deps.input.value)).resolves.toBe("blocked");
 
     expect(deps.ensureCurrentContextForSend).toHaveBeenCalledTimes(1);
     expect(deps.connectPort).not.toHaveBeenCalled();
@@ -890,7 +890,7 @@ describe("sendMessage 受理结论与闸拦截的提前返回", () => {
     const { deps } = makeSendDeps({ pass: false, kind: "read-failed" });
     const runtime = createChatRuntime(deps);
 
-    await expect(runtime.sendMessage()).resolves.toBe("blocked");
+    await expect(runtime.sendTurn(deps.input.value)).resolves.toBe("blocked");
 
     expect(deps.connectPort).not.toHaveBeenCalled();
     expect(deps.messages.querySelector(".chat-msg-user")).toBeNull();
@@ -903,7 +903,7 @@ describe("sendMessage 受理结论与闸拦截的提前返回", () => {
     deps.getProviderId = () => "";
     const runtime = createChatRuntime(deps);
 
-    await expect(runtime.sendMessage()).resolves.toBe("blocked");
+    await expect(runtime.sendTurn(deps.input.value)).resolves.toBe("blocked");
 
     expect(deps.ensureCurrentContextForSend).not.toHaveBeenCalled();
     expect(deps.ports).toHaveLength(0);
@@ -915,7 +915,7 @@ describe("sendMessage 受理结论与闸拦截的提前返回", () => {
     deps.input.value = "总结一下这个视频";
     const runtime = createChatRuntime(deps);
 
-    await expect(runtime.sendMessage()).resolves.toBe("accepted");
+    await expect(runtime.sendTurn(deps.input.value)).resolves.toBe("accepted");
 
     expect(deps.connectPort).toHaveBeenCalledTimes(1);
     expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("总结一下这个视频");
@@ -935,7 +935,7 @@ describe("sendMessage 受理结论与闸拦截的提前返回", () => {
     });
     const runtime = createChatRuntime(deps);
 
-    await expect(runtime.sendMessage()).resolves.toBe("accepted");
+    await expect(runtime.sendTurn(deps.input.value)).resolves.toBe("accepted");
 
     // 消息已 append、输入框已清（受理副作用）
     expect(deps.messages.querySelector(".chat-msg-user")?.textContent).toBe("总结一下这个视频");
@@ -961,7 +961,7 @@ describe("sendMessage 受理结论与闸拦截的提前返回", () => {
       return session.port;
     });
     deps.input.value = "重试发送";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     expect(deps.connectPort).toHaveBeenCalledTimes(2);
     expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(2);
   });
@@ -1188,7 +1188,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
 
     // 第二条消息首条 reasoning：旧帧仍挂起，新节点必须能独立注册滚动帧
     deps.input.value = "问题二";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
     feed(runtime, { type: "reasoning", data: "第二轮思考" });
     expect(raf.mock.calls).toHaveLength(3);
@@ -1284,7 +1284,7 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
 
     // 下一次发送上屏（强制滚底同一时刻）才摘除上一条，新消息自带豁免
     deps.input.value = "问题二";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
     expect(node1.classList.contains("chat-msg-streaming")).toBe(false);
     expect(node2.classList.contains("chat-msg-streaming")).toBe(true);
@@ -1337,7 +1337,7 @@ describe("resetStreamState 对挂起流式渲染帧的清理", () => {
     // tokenFlushFrame 仍持有旧帧 id，appendToken 直接跳过调度，新流
     // 永不渲染（直到旧帧被浏览器执行，若旧帧已被取消则永久卡住）
     deps.input.value = "问题二";
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     feed(runtime, { type: "token", data: "新流正文" });
     expect(raf).toHaveBeenCalledTimes(2);
 
@@ -1518,7 +1518,7 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     const deps = makeDeps();
     deps.input.value = "开搜的问题";
     const runtime = createChatRuntime(deps);
-    const sending = runtime.sendMessage();
+    const sending = runtime.sendTurn(deps.input.value);
 
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     // 说明未确认前无 chat 外发（闸在 port.postMessage 之前）
@@ -1547,7 +1547,7 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     const deps = makeDeps();
     deps.input.value = "只问不搜";
     const runtime = createChatRuntime(deps);
-    const sending = runtime.sendMessage();
+    const sending = runtime.sendTurn(deps.input.value);
 
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     document.querySelector<HTMLButtonElement>(".confirm-dialog-cancel")!.click();
@@ -1583,7 +1583,7 @@ describe("opt-in 一次性说明闸（§6.7 / §10 第 58 行）", () => {
     const deps = makeDeps();
     deps.input.value = "先上屏的问题";
     const runtime = createChatRuntime(deps);
-    const sending = runtime.sendMessage();
+    const sending = runtime.sendTurn(deps.input.value);
 
     await vi.waitFor(() => expect(document.querySelector(".confirm-dialog")).not.toBeNull());
     // 受理即上屏：弹层未定下本条是否带搜索，但消息与输入框已归位

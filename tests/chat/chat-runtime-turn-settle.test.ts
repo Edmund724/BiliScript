@@ -1,11 +1,14 @@
 // tests/chat/chat-runtime-turn-settle.test.ts
-// 在途回合结算（C′：流式中点历史项 = 先体面停流落盘、再切换）的 chat-runtime
-// 侧契约：isTurnActive / settleActiveTurn 两键的语义，以及「settle 绝不悬挂」
-// 的四条落定出口——stopped/done 终态、端口断连、闸拦下未起流、看门狗兜底。
-// 另含 blocked 提前返回的双发闸复位（「静默发不出去」第二条根因，也是新判据
-// isTurnActive 正确性的前提）与一条 characterization：钉住 W3 现状的内部事实
-//（身份守卫在 id 已换时拦下写回、token 继续写脱离 DOM 的旧节点），它是
-//「必须先结算再切换」的动机证据。
+// 回合生命周期在组合根的接线（replace 不 layer：结算协议本体——受理窗口判据的组合、
+// 停流登记与补发、看门狗、兑现幂等——已由 tests/chat/turn-lifecycle.test.ts 在深
+// module 层锁住，本文件不再重复那些用例，只留「真 runtime + 假 port +
+// chatSessionState」才能覆盖的接线面）：
+//   - isTurnActive 覆盖「发送受理 → 终态落定」全程（含闸 await 窗口）；
+//   - settleTurn 经 settleActiveTurn 的旧语义：先停流、终态落定（partial 写回 + 落盘）
+//     后才兑现；不在途零延迟零行为差；
+//   - 四条落定出口的组合根侧表现：终态、端口断连、闸未放行未起流、看门狗兜底；
+//   - blocked 提前返回后双发闸复位（「静默发不出去」的第二条根因）；
+//   - W3 characterization（切换必须挡在落定之后，而非改身份守卫）。
 //
 // 注意：chat-runtime 直接读写 chatSessionState。测试在 beforeEach 里
 // resetModules 后把两个模块放进同一模块纪元导入（跨纪元会拿到两个不同的 state
@@ -18,6 +21,8 @@ import { normalizeMarkdownForSectionPaste } from "../../extension/notes/paste.js
 import type { CreateChatRuntimeDeps } from "../../extension/chat/chat-runtime.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 import { OFFSCREEN_CHAT_PORT_NAME } from "../../extension/chat/protocol.js";
+// 看门狗兜底窗口（真源在回合生命周期模块；不再在测试里硬编码 4000）。
+import { TURN_SETTLE_FALLBACK_MS } from "../../extension/chat/turn-lifecycle.js";
 
 type MockFn = Mock<(...args: any[]) => any>;
 type RafSpy = MockInstance<(callback: () => void) => number>;
@@ -46,10 +51,6 @@ let chatSessionState: ChatSessionState;
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
-
-// 看门狗兜底窗口（chat-runtime 的 TURN_SETTLE_FALLBACK_MS；同款硬编码先例见
-// chat-runtime-stream.test.ts 的 15000 慢响应计时器）。
-const TURN_SETTLE_FALLBACK_MS = 4000;
 
 function makePort() {
   const listeners: { message: ((msg: unknown) => void)[]; disconnect: (() => void)[] } = {
@@ -106,7 +107,7 @@ async function makeRuntime(text = "帮我写个标题") {
   const deps = makeDeps();
   deps.input.value = text;
   const runtime = createChatRuntime(deps);
-  await runtime.sendMessage();
+  await runtime.sendTurn(deps.input.value);
   return { deps, runtime, session: deps.ports[0] };
 }
 
@@ -154,7 +155,7 @@ afterEach(() => {
 });
 
 describe("isTurnActive（在途回合判据）", () => {
-  it("空闲 false；发送闸窗口（sendInFlight）与流式中 true；终态后回到 false", async () => {
+  it("空闲 false；发送闸窗口（受理窗口）与流式中 true；终态后回到 false", async () => {
     const deps = makeDeps();
     deps.input.value = "问题";
     let releaseEnsure!: (value: unknown) => void;
@@ -166,7 +167,7 @@ describe("isTurnActive（在途回合判据）", () => {
     expect(runtime.isTurnActive()).toBe(false);
     expect(runtime.isStreaming()).toBe(false);
 
-    const sending = runtime.sendMessage();
+    const sending = runtime.sendTurn("问题");
     // 闸窗口：端口未建、isStreaming() 仍 false，但发送流程已在进行
     expect(runtime.isStreaming()).toBe(false);
     expect(runtime.isTurnActive()).toBe(true);
@@ -183,12 +184,12 @@ describe("isTurnActive（在途回合判据）", () => {
   });
 });
 
-describe("settleActiveTurn（在途回合结算）", () => {
+describe("settleTurn（在途回合结算）", () => {
   it("不在途：立即兑现、不发 stop、不碰 port", async () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
 
-    const settled = trackSettle(runtime.settleActiveTurn());
+    const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
 
     expect(settled.settled).toBe(true);
@@ -200,7 +201,7 @@ describe("settleActiveTurn（在途回合结算）", () => {
     const raf = holdRaf();
     const { deps, runtime, session } = await makeRuntime("原会话的问题");
 
-    const settled = trackSettle(runtime.settleActiveTurn());
+    const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
 
     // stop 已发出，但回合未落定：settle 不兑现
@@ -225,7 +226,7 @@ describe("settleActiveTurn（在途回合结算）", () => {
 
   it("done 与 stop 竞态：done 先到也结算（终态出口共用一个落定点）", async () => {
     const { runtime, session } = await makeRuntime("问题");
-    const settled = trackSettle(runtime.settleActiveTurn());
+    const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
     expect(postedActions(session)).toEqual(["chat", "stop"]);
 
@@ -237,7 +238,7 @@ describe("settleActiveTurn（在途回合结算）", () => {
     expect(chatSessionState.chatHistory[1]).toMatchObject({ role: "assistant", content: "整段回答" });
   });
 
-  it("发送闸窗口（端口未建）：先武装，端口建立后 chat 之后立刻补发 stop", async () => {
+  it("发送闸窗口（端口未建）：先登记，端口建立后 chat 之后立刻补发 stop", async () => {
     const deps = makeDeps();
     deps.input.value = "闸中问题";
     let releaseEnsure!: (value: unknown) => void;
@@ -245,8 +246,8 @@ describe("settleActiveTurn（在途回合结算）", () => {
       () => new Promise((resolve) => { releaseEnsure = resolve; })
     );
     const runtime = createChatRuntime(deps);
-    const sending = runtime.sendMessage();
-    const settled = trackSettle(runtime.settleActiveTurn());
+    const sending = runtime.sendTurn("闸中问题");
+    const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
     expect(settled.settled).toBe(false);
     expect(deps.ports).toHaveLength(0);
@@ -273,8 +274,8 @@ describe("settleActiveTurn（在途回合结算）", () => {
       () => new Promise((resolve) => { releaseEnsure = resolve; })
     );
     const runtime = createChatRuntime(deps);
-    const sending = runtime.sendMessage();
-    const settled = trackSettle(runtime.settleActiveTurn());
+    const sending = runtime.sendTurn("被拦下的问题");
+    const settled = trackSettle(runtime.settleTurn());
 
     releaseEnsure({ pass: false, kind: "read-failed" });
     await expect(sending).resolves.toBe("blocked");
@@ -293,30 +294,30 @@ describe("settleActiveTurn（在途回合结算）", () => {
     blockedDeps.input.value = "被拦下的问题";
     blockedDeps.ensureCurrentContextForSend = vi.fn(async () => ({ pass: false, kind: "no-subtitle" }));
     const blockedRuntime = createChatRuntime(blockedDeps);
-    await expect(blockedRuntime.sendMessage()).resolves.toBe("blocked");
+    await expect(blockedRuntime.sendTurn("被拦下的问题")).resolves.toBe("blocked");
     expect(blockedRuntime.isTurnActive()).toBe(false);
 
     blockedDeps.ensureCurrentContextForSend = vi.fn(async () => ({ pass: true }));
     blockedDeps.input.value = "字幕就绪后的第二问";
-    await expect(blockedRuntime.sendMessage()).resolves.toBe("accepted");
+    await expect(blockedRuntime.sendTurn("字幕就绪后的第二问")).resolves.toBe("accepted");
     expect(blockedDeps.ports).toHaveLength(1);
 
     const noProviderDeps = makeDeps();
     noProviderDeps.input.value = "无平台时的发送";
     noProviderDeps.getProviderId = () => "";
     const noProviderRuntime = createChatRuntime(noProviderDeps);
-    await expect(noProviderRuntime.sendMessage()).resolves.toBe("blocked");
+    await expect(noProviderRuntime.sendTurn("无平台时的发送")).resolves.toBe("blocked");
     expect(noProviderRuntime.isTurnActive()).toBe(false);
 
     noProviderDeps.getProviderId = () => "test-provider";
     noProviderDeps.input.value = "配置平台后的发送";
-    await expect(noProviderRuntime.sendMessage()).resolves.toBe("accepted");
+    await expect(noProviderRuntime.sendTurn("配置平台后的发送")).resolves.toBe("accepted");
     expect(noProviderDeps.ports).toHaveLength(1);
   });
 
   it("端口断连（offscreen 不回终态）：settle 由断连兜底兑现", async () => {
     const { deps, runtime, session } = await makeRuntime("问题");
-    const settled = trackSettle(runtime.settleActiveTurn());
+    const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
     expect(settled.settled).toBe(false);
 
@@ -332,7 +333,7 @@ describe("settleActiveTurn（在途回合结算）", () => {
   it("看门狗：既不回终态也不断连时，兜底窗口后兑现并断开端口（settle 绝不悬挂）", async () => {
     vi.useFakeTimers();
     const { deps, runtime, session } = await makeRuntime("问题");
-    const settled = trackSettle(runtime.settleActiveTurn());
+    const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
     expect(settled.settled).toBe(false);
 
@@ -344,10 +345,10 @@ describe("settleActiveTurn（在途回合结算）", () => {
     expect(runtime.isTurnActive()).toBe(false);
   });
 
-  it("重入（同一次在途回合两次 settle）：两个请求一起兑现", async () => {
+  it("重入（同一次在途回合两次 settleTurn）：两个请求一起兑现", async () => {
     const { runtime } = await makeRuntime("问题");
-    const first = trackSettle(runtime.settleActiveTurn());
-    const second = trackSettle(runtime.settleActiveTurn());
+    const first = trackSettle(runtime.settleTurn());
+    const second = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
     expect(first.settled).toBe(false);
     expect(second.settled).toBe(false);
@@ -360,7 +361,7 @@ describe("settleActiveTurn（在途回合结算）", () => {
 
   it("拆除类入口（resetStreamState）清场时：已武装的 settle 一并兑现（不留悬挂）", async () => {
     const { runtime } = await makeRuntime("问题");
-    const settled = trackSettle(runtime.settleActiveTurn());
+    const settled = trackSettle(runtime.settleTurn());
     await flushMicrotasks();
     expect(settled.settled).toBe(false);
 

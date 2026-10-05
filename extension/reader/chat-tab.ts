@@ -289,12 +289,13 @@ const {
 } = feedback;
 
 // 图片附件区（image-input 02 号票）：粘贴 → 压缩（03 号票规格）→ 缩略图 + 单个
-// 删除；拒绝提示走消息区通知条（与上下文提示同一出口，自动隐藏）。流式闸含
-// 「在途发送」（hasPendingUserPrompt）——发送流程从受理到落定的窗口里也不收新图。
-// 消费点两处：chat-runtime 发送受理（deps.takeInputImages）与 restartChat 清场。
+// 删除；拒绝提示走消息区通知条（与上下文提示同一出口，自动隐藏）。流式闸问
+// 回合生命周期的一条判据（isTurnActive：受理窗口 ∪ 流段）——发送流程从受理到
+// 落定的整段窗口里都不收新图。消费点两处：chat-runtime 发送受理
+//（deps.takeInputImages）与 restartChat 清场。
 const inputImages = createChatInputImages({
   strip: els.imageStrip,
-  isStreaming: () => chatRuntime.isStreaming() || chatRuntime.hasPendingUserPrompt(),
+  isStreaming: () => chatRuntime.isTurnActive(),
   onReject: (message) => showConversationContextNotice(message, 4000)
 });
 
@@ -416,17 +417,17 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
 
 const { loadContextState } = contextLoad;
 
-// 历史项点击的切换接缝（C′：先体面停流落盘、再切换）：在途回合（流式中或已受理
-// 未落定，chatRuntime.isTurnActive）时先 await chatRuntime.settleActiveTurn()——
+// 历史项点击的切换接缝（C′：先体面停流落盘、再切换）：在途回合（受理窗口 ∪
+// 流段，chatRuntime.isTurnActive 一条判据）时先 await chatRuntime.settleTurn()——
 // 它发停流并在 stopped/done/error 终态落定后兑现，而终态路径内的
 // commitAssistantTurn 会把在途一问一答（含 partial 正文）写回**原**会话并落盘；
 // 落定后才 applyById 切换。不进 conversation-store（store 不碰 runtime 的分层
 // 不动），也不动 replay（回放仍不感知在途流——等待保持单向，见 ./replay.ts 头注）。
-// 不在途时零延迟零行为差：settle 立即兑现且这里不留 await，applyById 在同一 tick
-// 内完成（characterization 钉在 tests/reader/chat-tab.test.ts）。
+// 不在途时零延迟零行为差：这里不留 await，applyById 在同一 tick 内完成
+//（characterization 钉在 tests/reader/chat-tab.test.ts）。
 async function openConversationById(id: string): Promise<void> {
   if (chatRuntime.isTurnActive()) {
-    await chatRuntime.settleActiveTurn();
+    await chatRuntime.settleTurn();
   }
   conversationStore.applyById(id);
 }
@@ -800,10 +801,11 @@ function hideExplainIntentCard(): void {
   }
 }
 
-// peek 意图 → 渲染引用卡 → 自动发送解释提示词；发送成功（发送流程受理）才
+// peek 意图 → 渲染引用卡 → 自动发送解释提示词；发送成功（受理结论 accepted）才
 // consumePendingExplainIntent——一次意图只发一次。发送被 subtitle-wait 挂起时
-// sendMessage 的 promise 不提前兑现（等待在其内部 await），意图保持 pending
-// 直到真正发出或用户取消（引用卡上的取消按钮）。
+// sendTurn 的 promise 不提前兑现（等待在其内部 await），意图保持 pending；回合
+// 已在途（受理窗口 / 流段）时 autoSendPrompt 直接返回 false（不消费，留在 pending，
+// 下一次激活补发）——直到真正发出或用户取消（引用卡上的取消按钮）。
 async function consumeExplainIntentIfPending(): Promise<void> {
   const intent = peekPendingExplainIntent();
   if (!intent || !intent.content) {
@@ -819,38 +821,40 @@ async function consumeExplainIntentIfPending(): Promise<void> {
 }
 
 // 发送芯（runQuickActionPrompt / autoSendPrompt 的共同尾部）：填输入框 →
-// autosize → sendMessage → 按返回值折算是否受理。两函数头部的闸（新会话 vs
-// 双发闸、空串聚焦 vs 空串直 false）语义不同，不并入本芯。
-// 受理结论来自 sendMessage 的 SendVerdict（accepted/ignored → true，blocked →
-// false）；ignored 当前不可达（autoSendPrompt :766 的前置闸 / runQuickActionPrompt
-// :686 先 startNewConversation 断开在途流），映射保留是为防御。回放让位不再手抄：
-// 等待已收敛进发送闸（send-gate.ts 的 G7，放行路径统一 await replayInFlight）。
+// autosize → sendTurn（交出文本，拿回受理结论）→ 按返回值折算是否受理。两函数
+// 头部的闸（新会话 vs 双发闸、空串聚焦 vs 空串直 false）语义不同，不并入本芯。
+// 受理结论来自回合生命周期模块的 SendVerdict（accepted → true，blocked /
+// ignored → false）：ignored 是「入口早退、什么都没发」——折算成受理成功会让
+// 调用方（解释意图）把它消费掉而消息从未发出（时间轴只有一条空档）。回放让位
+// 不再手抄：等待已收敛进发送闸（send-gate.ts 的 G7，放行路径统一 await
+// replayInFlight）。
 async function sendViaInputBox(text: string): Promise<boolean> {
   els.input.value = text;
   autosizeInput();
-  // sendMessage 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
-  const verdict = await chatRuntime.sendMessage();
-  return verdict !== "blocked";
+  // sendTurn 兑现即发送流程已出结果（subtitle-wait 挂起在其内部 await）。
+  const verdict = await chatRuntime.sendTurn(text);
+  return verdict === "accepted";
 }
 
-// 自动发送共用体：填输入框 → sendMessage → 折算是否受理。流式中/有待发 prompt
-// 时不注入第二次发送（双发竞态闸也会拦下并返回 ignored），返回 false 让意图保持
-// pending。
+// 自动发送共用体：填输入框 → sendTurn → 折算是否受理。回合在途（受理窗口 ∪
+// 流段，含「已受理、端口未建、用户消息尚未上屏」的那段窗口）时不注入第二次
+// 发送（双发闸也会拦下并返回 ignored），返回 false 让意图保持 pending——被折算
+// 成 true 就会「意图已消费、消息从未发出」，这正是本判据收口修掉的实证 bug。
 async function autoSendPrompt(text: string): Promise<boolean> {
   if (!text.trim()) {
     return false;
   }
-  if (chatRuntime.isStreaming() || chatRuntime.hasPendingUserPrompt()) {
+  if (chatRuntime.isTurnActive()) {
     return false;
   }
   return sendViaInputBox(text);
 }
 
-// 发送入口（回车/建议 chip/解释意图自动发送）直接交给 chatRuntime；回放让位
-// （P2-1）已收敛进发送闸的放行路径（send-gate.ts 对 G1 与直通路径统一 await
-// replayInFlight），此处不再手抄等待——借口径等价于发送闸必须等到其放行。
+// 发送入口（回车/建议 chip/解释意图自动发送）直接交给 chatRuntime 的回合受理；
+// 回放让位（P2-1）已收敛进发送闸的放行路径（send-gate.ts 对 G1 与直通路径统一
+// await replayInFlight），此处不再手抄等待——借口径等价于发送闸必须等到其放行。
 async function sendFromUi(): Promise<void> {
-  await chatRuntime.sendMessage();
+  await chatRuntime.sendTurn(els.input.value);
 }
 
 // ============================================================
@@ -1036,7 +1040,7 @@ function updateSendBtnState(): void {
 
 function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
   // 流式中输入框不禁用（等待期间可继续打字）：发送闸由双发竞态闸拦——流式中
-  // 回车/发送键走到的 sendMessage 会被 activePort 直接忽略，新消息发不出去。
+  // 回车/发送键走到的 sendTurn 会被在途判据直接忽略，新消息发不出去。
   stopInFlight = stopping;
   // 同键双形态：空闲 = ↑ 发送键（空输入禁用）；流式中 = 停止键（圆形 + 方块
   // 图标，点击 abort 同一条 stopActiveStream 链），停止中禁用防连点。
@@ -1074,7 +1078,7 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
 // 【整段迁移自 sidepanel.ts】post-sync 分支编排：流式守卫 + 三个渲染回调。
 async function syncLiveContextState(forceRefresh = false): Promise<void> {
   const ok = await loadContextState({ forceRefresh, silent: true }).catch(() => false);
-  if (isPinnedContextStrict(chatSessionState.currentConversationMeta) || chatRuntime.isStreaming() || chatRuntime.hasPendingUserPrompt()) {
+  if (isPinnedContextStrict(chatSessionState.currentConversationMeta) || chatRuntime.isTurnActive()) {
     return;
   }
   if (!ok || !chatSessionState.contextData || !chatSessionState.providers.length || !chatSessionState.chatHistory.length) {

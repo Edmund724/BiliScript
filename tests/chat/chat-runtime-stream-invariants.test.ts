@@ -110,7 +110,7 @@ async function makeRuntime(text = "问题") {
   const deps = makeDeps();
   deps.input.value = text;
   const runtime = createChatRuntime(deps);
-  await runtime.sendMessage();
+  await runtime.sendTurn(deps.input.value);
   return { deps, runtime, session: deps.ports[0] };
 }
 

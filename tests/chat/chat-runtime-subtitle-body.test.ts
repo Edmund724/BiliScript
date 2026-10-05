@@ -103,7 +103,7 @@ function seedVideoContext() {
 // 发送一条消息（sendMessage 会清空 input.value，每条消息需重新赋值）
 async function send(runtime: ChatRuntime, deps: ReturnType<typeof makeRuntime>["deps"], text: string) {
   deps.input.value = text;
-  await runtime.sendMessage();
+  await runtime.sendTurn(deps.input.value);
 }
 
 // 断言该会话发过恰好一条 chat 消息并返回消息本体

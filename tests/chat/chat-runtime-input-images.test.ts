@@ -87,7 +87,7 @@ describe("发送受理时消费附件区", () => {
     const { deps, input, ports } = makeDeps({ takeInputImages });
     input.value = "这张图里是什么";
 
-    await createChatRuntime(deps).sendMessage();
+    await createChatRuntime(deps).sendTurn(input.value);
 
     expect(takeInputImages).toHaveBeenCalledTimes(1);
     expect(firstPosted(ports)).toMatchObject({
@@ -101,7 +101,7 @@ describe("发送受理时消费附件区", () => {
     const { deps, input, ports } = makeDeps({ takeInputImages: () => [] });
     input.value = "总结一下";
 
-    await createChatRuntime(deps).sendMessage();
+    await createChatRuntime(deps).sendTurn(input.value);
 
     expect("images" in firstPosted(ports)).toBe(false);
   });
@@ -110,7 +110,7 @@ describe("发送受理时消费附件区", () => {
     const { deps, input, ports } = makeDeps();
     input.value = "总结一下";
 
-    await createChatRuntime(deps).sendMessage();
+    await createChatRuntime(deps).sendTurn(input.value);
 
     expect("images" in firstPosted(ports)).toBe(false);
   });
@@ -122,7 +122,7 @@ describe("被拒绝的发送不消费附件区", () => {
     const { deps, input, ports } = makeDeps({ takeInputImages, getProviderId: () => "" });
     input.value = "这张图里是什么";
 
-    await createChatRuntime(deps).sendMessage();
+    await createChatRuntime(deps).sendTurn(input.value);
 
     expect(ports).toHaveLength(0);
     expect(takeInputImages).not.toHaveBeenCalled();
@@ -136,7 +136,7 @@ describe("被拒绝的发送不消费附件区", () => {
     });
     input.value = "这张图里是什么";
 
-    await createChatRuntime(deps).sendMessage();
+    await createChatRuntime(deps).sendTurn(input.value);
 
     expect(ports).toHaveLength(0);
     expect(takeInputImages).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe("本轮图片写回 chatHistory", () => {
     input.value = "这张图里是什么";
     const runtime = createChatRuntime(deps);
 
-    await runtime.sendMessage();
+    await runtime.sendTurn(input.value);
     runtime.handleChatPortMessage({ type: "token", data: "是截图" });
     runtime.handleChatPortMessage({ type: "done" });
 
@@ -169,7 +169,7 @@ describe("本轮图片写回 chatHistory", () => {
     input.value = "总结一下";
     const runtime = createChatRuntime(deps);
 
-    await runtime.sendMessage();
+    await runtime.sendTurn(input.value);
     runtime.handleChatPortMessage({ type: "token", data: "好" });
     runtime.handleChatPortMessage({ type: "done" });
 
@@ -185,13 +185,13 @@ describe("本轮图片写回 chatHistory", () => {
     const { deps, input } = makeDeps({ takeInputImages });
     input.value = "第一轮带图";
     const runtime = createChatRuntime(deps);
-    await runtime.sendMessage();
+    await runtime.sendTurn(input.value);
     runtime.handleChatPortMessage({ type: "token", data: "答一" });
     runtime.handleChatPortMessage({ type: "done" });
 
     takeInputImages.mockReturnValue([]);
     deps.input.value = "第二轮纯文本";
-    await runtime.sendMessage();
+    await runtime.sendTurn(input.value);
     runtime.handleChatPortMessage({ type: "token", data: "答二" });
     runtime.handleChatPortMessage({ type: "done" });
 
@@ -214,7 +214,7 @@ describe("平台 400 的用户可见文案（带图时补可操作线索）", ()
     const { deps, input } = makeDeps({ takeInputImages: () => images });
     input.value = "这张图里是什么";
     const runtime = createChatRuntime(deps);
-    await runtime.sendMessage();
+    await runtime.sendTurn(input.value);
     runtime.handleChatPortMessage({ type: "error", error });
     return deps.messages;
   }

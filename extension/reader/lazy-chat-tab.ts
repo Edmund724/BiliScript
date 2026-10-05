@@ -29,8 +29,8 @@ export interface ReaderChatTabDomain {
   closeChatSession(): void;
   // player-ai 快捷动作消费 seam（工单 08 决议语义）：定位/聚焦对话 tab +
   // startNewConversation + 输入框填快捷提示词 + 自动发送。返回是否受理成功
-  //（= chat-runtime sendMessage 的 SendVerdict !== "blocked"：accepted/ignored
-  // → true，被闸拦下 → false；不再按输入框是否清空反推）。
+  //（= chat-tab sendTurn 的 SendVerdict === "accepted"：仅 accepted → true，
+  // ignored/blocked → false；不再按输入框是否清空反推）。
   runQuickActionPrompt(prompt: string): Promise<boolean>;
 }
 

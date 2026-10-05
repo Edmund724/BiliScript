@@ -406,7 +406,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     expect(deps.connectPort).toHaveBeenCalledTimes(1);
 
     // 流式中当前会话被删（状态被清、流回调尚未生效的竞态窗口）
@@ -429,7 +429,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     applyConversationIdentity({ id: "" });
     applyConversationIdentity({ meta: null });
 
@@ -444,7 +444,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
     emit({ type: "token", data: "回答" });
     emit({ type: "done" });
 
@@ -459,7 +459,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
     chatSessionStateForTests.contextData = { bvid: "BV1abc", url: URL_A, title: "视频A" };
     const { deps, runtime, emit } = makeSendHarness();
 
-    await runtime.sendMessage();
+    await runtime.sendTurn(deps.input.value);
 
     // 用户在流式中从历史列表打开了另一会话
     applyConversationIdentity({ id: "c2" });

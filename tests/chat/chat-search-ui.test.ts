@@ -54,7 +54,7 @@ async function makeRuntime(text = "这个视频里提到的 MoE 有什么新进�
   const deps = makeDeps();
   deps.input.value = text;
   const runtime = createChatRuntime(deps);
-  await runtime.sendMessage();
+  await runtime.sendTurn(deps.input.value);
   return { deps, runtime };
 }
 
@@ -68,7 +68,7 @@ function feed(runtime: ChatRuntime, msg: ChatPortMessage) {
 async function startNextTurn(deps: ReturnType<typeof makeDeps>, runtime: ChatRuntime, text = "") {
   runtime.resetStreamState();
   deps.input.value = text || "下一问";
-  await runtime.sendMessage();
+  await runtime.sendTurn(deps.input.value);
 }
 
 const SOURCES = [
