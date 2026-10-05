@@ -7,7 +7,7 @@
 // 既是 chip 集合又是 clamp 的可用集；全局偏好不迁移，逐模型向下取，实发档 = 有效档。
 //
 // 本文件是 **resolver 侧**的守护（UI 侧在 tests/reader/chat-model-panel.test.ts 与
-// tests/reader/chat-thinking-hint.test.ts）：chip 集合 = resolveThinkingAdjustment()
+// tests/reader/chat-tab-thinking-hint.test.ts）：chip 集合 = resolveThinkingAdjustment()
 // .availableLevels（= availableLevelsOf(rule)），与请求落线同一次解析；source 字段是
 // 同一次解析按来源分层的审计列（三层来源清单的列，不是 chip 的第二套推导）。
 //

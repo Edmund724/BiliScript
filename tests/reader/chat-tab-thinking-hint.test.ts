@@ -1,4 +1,10 @@
-// tests/reader/chat-thinking-hint.test.ts
+// tests/reader/chat-tab-thinking-hint.test.ts
+// 2026-10-05 由 `tests/reader/chat-thinking-hint.test.ts` 改名：被测函数是
+// `extension/reader/chat-tab.ts` 的 `updateThinkingHint`，仓内没有
+// `extension/reader/chat-thinking-hint.ts`（`chat-thinking-hint` 只是模板上的 CSS
+// class，见 extension/reader/chat-template.ts:125）。原文件名沿用了票面里的一个
+// 不存在的路径，是上游-模型-facts 审计 §10-3 的订正项。
+//
 // 工单 03「对话 Off 关不掉思考」提示行的 UI 回归测试（tests/reader/chat-tab.test.ts
 // 的姊妹篇）：真实模板（ensureUiReady）+ 懒装载组合根，全部用真实 DOM 事件驱动
 //（modelSelect change / 档位按钮 click），不直调组合根内部函数——「档位区只由
