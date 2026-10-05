@@ -35,9 +35,6 @@ export interface ConversationReplayRenderer {
 }
 
 export interface CreateConversationReplayDeps {
-  // 保留：组装方（chat/tab-domain.ts）仍注入该容器引用。本事务不再直读它——
-  // 清场与节点装配都已收进消息区句柄（messageArea）。
-  messages: HTMLElement;
   renderer: ConversationReplayRenderer;
   // 布局状态（紧凑输入判定）与空历史整页清场：编排壳回调，组合根注入。
   updateLayout: () => void;

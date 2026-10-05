@@ -86,7 +86,6 @@ function makeDeps(): {
   const setAutoScroll = vi.fn();
   const scrollToBottom = vi.fn();
   const deps: CreateConversationReplayDeps = {
-    messages,
     renderer: {
       messageArea,
       setAutoScroll,
