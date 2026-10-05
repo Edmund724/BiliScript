@@ -14,13 +14,15 @@ import { normalizeSettings, saveSettings } from "../core/settings-store.js";
 // 的唯一读路径（设置 UI 的 list/get CRUD 读维持直读 provider-store，不入快照）。
 // 读命中时热路径 storage 读为 0；失效双通道 = 写 handler 落盘后 inline
 // invalidate + 快照内 onChanged 订阅兜底跨设备 sync 变更（onChanged 不在写入
-// 方上下文触发，inline 失效是写后读的唯一保证）。
+// 方上下文触发，inline 失效是写后读的唯一保证）。写侧收口：本文件不再手写
+// invalidate 调用——每个落盘点都走唯一写入口 invalidatingWrite（落盘 + 失效
+// 一次做完），键 → 缓存域的映射与失效时机归 core/settings-snapshot。
 import {
   getSettings as getSettingsSnapshot,
   getProviderStore as getProviderStoreSnapshot,
   getSearchProviderOrder,
   getSearchHealth,
-  invalidate as invalidateSettingsSnapshot,
+  invalidatingWrite,
   PROVIDER_FAMILY_STORAGE_KEYS
 } from "../core/settings-snapshot.js";
 // 安装/更新一次性设置迁移（2026-09 AI 键默认开：存量显式 false 清位；免 Key 搜索
@@ -90,6 +92,32 @@ import {
   type SendResponse
 } from "../shared/messaging-protocol.js";
 
+// ===== 写入口（落盘 + 失效一次做完）=====
+// 设置/平台存储的每个落盘点都经这里收口：写点只声明「写哪一族 / 写哪些键」，
+// 键 → 缓存域的映射与失效时机归 core/settings-snapshot。此前「谁在什么时候调
+// invalidate」「本次写入影响哪个域」全在写点脑子里，漏调或键名写错只表现为脏读；
+// 现在写点不再持有 invalidate 调用，直落形态的失效键面还从落盘对象派生。
+// load-modify-write 本体仍直读存储，不经快照（spec Q3 写路径纪律）。
+
+// 设置保存：失效键面从 payload 键集派生（saveSettings 内部按白名单落盘，
+// payload 里的白名单外键在映射表里自然落空）。
+const saveSettingsWithInvalidate = invalidatingWrite(
+  saveSettings,
+  (payload) => Object.keys((payload || {}) as object)
+);
+
+// 引擎健康度记账叶：单键快照位，落盘后立即失效（紧随其后的 resolve 消费新冷却图）。
+const recordSearchAttemptWithInvalidate = invalidatingWrite(recordSearchAttempt, [SEARCH_HEALTH_KEY]);
+
+// 裸 storage 写点（安装/更新迁移、自动激活的链首与 flag、删除记录时的顺序剔除）
+// 共用：区由写点给出（它本来就是一次裸 storage 写入），失效键面从落盘对象派生——
+// 写点不再手抄 storage 键名。
+const writeStorageChanges = invalidatingWrite(
+  (area: "sync" | "local", changes: Record<string, unknown>) =>
+    area === "sync" ? chrome.storage.sync.set(changes) : chrome.storage.local.set(changes),
+  (_area, changes) => Object.keys(changes)
+);
+
 // ===== 消息路由表 =====
 
 type BackgroundHandler = MessageHandler<BackgroundMessage>;
@@ -117,10 +145,9 @@ function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSende
       // 失效顺序维持既有形态）；payload 不带该键、false→false、true→true 都不清。
       const searchOptOut =
         payload.webSearchEnabled === false && (await getSettingsSnapshot()).webSearchEnabled;
-      await saveSettings(message.settings || {});
-      // 写后 inline 失效：payload 键全集交给快照按键域映射（白名单外键自然
-      // 落空）；onChanged 不在写入方上下文触发，这里必须显式失效。
-      invalidateSettingsSnapshot(Object.keys(message.settings || {}));
+      // 写入口自带失效：payload 键全集按键域映射失效（白名单外键自然落空）；
+      // onChanged 不在写入方上下文触发，这里是写后读的唯一保证。
+      await saveSettingsWithInvalidate(message.settings || {});
       if (searchOptOut) {
         // 缓存里存着 query 哈希与结果，撤回后本地继续留着说不通；清空失败静默
         // （logWarn 同既有形态），不因缓存清理失败阻断设置保存的回包。
@@ -296,25 +323,12 @@ function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sen
 // 请求构造仍在 content 侧 ai/provider-test.js（completion 链不进 SW，候选 04
 // 拆链），只有传输经 provider-http 代发；ASR 探针（asr/provider-test.js）仍在
 // content 侧直调，wav-encode 链同样不进 SW。故本工厂不注入 probe。
-//
-// 写后 inline 失效：providers-save/delete 落盘 await 完成后失效对应族快照
-// （onChanged 不在写入方上下文触发，写后读语义靠这里保证；load-modify-write
-// 本体仍直读存储，不经快照——spec Q3 写路径纪律）。
-function invalidateAfterWrite<TArgs extends unknown[], TResult>(
-  write: (...args: TArgs) => Promise<TResult>,
-  storageKeys: readonly string[]
-): (...args: TArgs) => Promise<TResult> {
-  return async (...args: TArgs) => {
-    const result = await write(...args);
-    invalidateSettingsSnapshot(storageKeys);
-    return result;
-  };
-}
-
+// 族 CRUD 的落盘走写入口（族键面直接吃 PROVIDER_FAMILY_STORAGE_KEYS），落盘
+// await 完成后族快照立即失效——load-modify-write 本体仍直读存储，不经快照。
 const aiProviderHandlers = createProviderMessageHandlers({
   loadProviders: aiProviderStore.loadProviders,
-  saveProviders: invalidateAfterWrite(aiProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.ai),
-  deleteProvider: invalidateAfterWrite(aiProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.ai),
+  saveProviders: invalidatingWrite(aiProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.ai),
+  deleteProvider: invalidatingWrite(aiProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.ai),
   loadKeys: aiProviderStore.loadKeys
 });
 
@@ -459,8 +473,7 @@ function handleSearchHealth(message: Msg<"search-health">, _sender: MessageSende
       if (message.op !== "record") {
         throw new Error("不支持的搜索健康度操作：" + String((message as { op?: unknown }).op));
       }
-      await recordSearchAttempt(message.presetId, message.ok, message.latencyMs);
-      invalidateSettingsSnapshot([SEARCH_HEALTH_KEY]);
+      await recordSearchAttemptWithInvalidate(message.presetId, message.ok, message.latencyMs);
       return { ok: true };
     })(),
     sendResponse,
@@ -480,8 +493,8 @@ function handleAsrPresetsList(_message: Msg<"asr-presets-list">, _sender: Messag
 // 消息路由，与 AI 家族共用同一套契约。
 const asrProviderHandlers = createProviderMessageHandlers({
   loadProviders: asrProviderStore.loadProviders,
-  saveProviders: invalidateAfterWrite(asrProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.asr),
-  deleteProvider: invalidateAfterWrite(asrProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.asr),
+  saveProviders: invalidatingWrite(asrProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.asr),
+  deleteProvider: invalidatingWrite(asrProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.asr),
   loadKeys: asrProviderStore.loadKeys
 });
 
@@ -490,20 +503,19 @@ const asrProviderHandlers = createProviderMessageHandlers({
 // 静默（logWarn 同既有形态），不影响删除回包。
 // 另把该 id 从 searchProviderOrder 剔除（spec §12.2 末条 / §12.5 第 11 行）：不改的话
 // 「删掉一个平台」会让顺序数组含未知 id → 整份自定义顺序被「脏值整体作废」丢掉。
-// 仅在数组确实含该 id 时写回 + inline 失效；键缺席 / 脏值 / 写失败都静默跳过
-//（顺序是偏好不是数据）。
+// 仅在数组确实含该 id 时写回 + inline 失效（写回走写入口，失效键面由落盘对象派生）；
+// 键缺席 / 脏值 / 写失败都静默跳过（顺序是偏好不是数据）。
 async function pruneSearchProviderOrder(providerId: string): Promise<void> {
   const stored = await chrome.storage.sync.get([SEARCH_PROVIDER_ORDER_STORAGE]);
   const raw = stored?.[SEARCH_PROVIDER_ORDER_STORAGE];
   if (!Array.isArray(raw) || !raw.includes(providerId)) return;
-  await chrome.storage.sync.set({
+  await writeStorageChanges("sync", {
     [SEARCH_PROVIDER_ORDER_STORAGE]: raw.filter((id) => id !== providerId)
   });
-  invalidateSettingsSnapshot([SEARCH_PROVIDER_ORDER_STORAGE]);
 }
 
 async function deleteSearchProviderAndClearCache(providerId: string): Promise<unknown[]> {
-  const providers = await invalidateAfterWrite(
+  const providers = await invalidatingWrite(
     searchProviderStore.deleteProvider,
     PROVIDER_FAMILY_STORAGE_KEYS.search
   )(providerId);
@@ -525,14 +537,14 @@ async function deleteSearchProviderAndClearCache(providerId: string): Promise<un
 // （§6.7 / §10 第 40 行）：删掉记录即本地不再留 query 哈希与结果。
 const searchProviderHandlers = createProviderMessageHandlers({
   loadProviders: searchProviderStore.loadProviders,
-  saveProviders: invalidateAfterWrite(searchProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.search),
+  saveProviders: invalidatingWrite(searchProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.search),
   deleteProvider: deleteSearchProviderAndClearCache,
   loadKeys: searchProviderStore.loadKeys
 });
 
-// 自动激活的记录写走与 CRUD 同一条写后失效包装（spec §2 落点③）：落盘后失效
+// 自动激活的记录写走与 CRUD 同一条写入口（spec §2 落点③）：落盘后失效
 // search 族快照，写后读（resolve-search-provider）拿新链。
-const saveSearchProvidersWithInvalidate = invalidateAfterWrite(
+const saveSearchProvidersWithInvalidate = invalidatingWrite(
   searchProviderStore.saveProviders,
   PROVIDER_FAMILY_STORAGE_KEYS.search
 );
@@ -802,10 +814,11 @@ async function initializeSettingsStorage() {
   applyPlayerAiQuickActionDefaultOnMigration(syncCurrent);
   // 安装/更新迁移：合并结果先经 normalizeSettings 收口再落盘，存量 LEGACY
   // 默认提示词等旧值在此一次性改写为当前值，而不是每次读取时重复映射。
-  await chrome.storage.sync.set(normalizeSettings({ ...DEFAULT_SETTINGS, ...syncCurrent }));
-  // 迁移直写 storage（不经 save-settings），写后 inline 失效 settings 快照：
-  // SW 存活期内的 onInstalled（扩展 reload/update）可能带着热缓存跑。
-  invalidateSettingsSnapshot(Object.keys(DEFAULT_SETTINGS));
+  await writeStorageChanges("sync", normalizeSettings({ ...DEFAULT_SETTINGS, ...syncCurrent }));
+  // 迁移是裸 storage 写（不经 save-settings），同样走写入口：落盘后 inline 失效
+  // settings 快照——SW 存活期内的 onInstalled（扩展 reload/update）可能带着热缓存跑。
+  // 派生的失效键面 = 落盘对象键面 = DEFAULT_SETTINGS 键面（syncCurrent 取自按
+  // DEFAULT_SETTINGS 的读，只含键面内键），与迁移前手写的显式键面等价。
 }
 
 // 免 Key 搜索预设自动激活（spec §1 S2 / §2 展开，落点 §3 第 12 行）：决策走纯函数
@@ -822,12 +835,11 @@ async function autoActivateSearchPresets(): Promise<void> {
     await saveSearchProvidersWithInvalidate([...providers, ...plan.providersToAdd]);
   }
   if (plan.activeSearchProviderId !== undefined) {
-    await chrome.storage.sync.set({ activeSearchProviderId: plan.activeSearchProviderId });
-    // 直写 storage 后 inline 失效（写后读语义靠这里保证，onChanged 不在写入方触发）
-    invalidateSettingsSnapshot(["activeSearchProviderId"]);
+    // 链首与 flag 都是裸 sync 写：走写入口（失效键面由落盘对象派生，写后读语义
+    // 靠它保证——onChanged 不在写入方触发）。
+    await writeStorageChanges("sync", { activeSearchProviderId: plan.activeSearchProviderId });
   }
   if (plan.shouldWriteFlag) {
-    await chrome.storage.sync.set({ searchPresetsAutoActivated: true });
-    invalidateSettingsSnapshot(["searchPresetsAutoActivated"]);
+    await writeStorageChanges("sync", { searchPresetsAutoActivated: true });
   }
 }

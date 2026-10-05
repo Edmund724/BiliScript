@@ -25,9 +25,15 @@
 //     chrome.storage.onChanged，覆盖其它扩展上下文与跨设备 sync 变更，
 //     按键域（storage 键 → settings / 某 family 快照）失效。
 //
+// 写侧收口：键 → 缓存域的唯一真源是 SNAPSHOT_STORAGE_KEYS（下表）——invalidate 的
+// 判据与 onChanged 订阅面都从它派生，加一个缓存键只动这一张表；写点统一经唯一
+// 写入口 invalidatingWrite（落盘 + 失效一次做完），不再各自手写 invalidate 调用、
+// 也不用知道本次写入影响哪个域。
+//
 // 写路径纪律：快照只服务读路径。provider-store 的 load-modify-write 与
 // saveSettings 继续直读/直写存储，不经快照；加 write-through 必须先解决
-// 并发写交错丢 Key（spec Q3）。
+// 并发写交错丢 Key（spec Q3）。invalidate 与写入口都不写快照缓存、也不写
+// storage——写入口只组合调用方给的落盘动作，落盘语义仍归各族存储单源。
 //
 // 守叶子纪律：本模块拖入的 store/归一化模块本就在 SW 静态图里
 // （background 直 import 三 store 与 settings-store），不新增静态边。
@@ -75,8 +81,8 @@ const PROVIDER_FAMILY_KEY_PAIRS: Record<ProviderFamily, ProviderFamilyKeyPair> =
   search: { list: SEARCH_PROVIDERS_STORAGE, keys: SEARCH_PROVIDER_KEYS_STORAGE }
 };
 
-// 族 → storage 键面（invalidate 失效映射与 onChanged 订阅共用；从键对表派生，
-// 顺序恒为 [list, keys]——background 的 invalidateAfterWrite 与失效判据都吃这个形状）。
+// 族 → storage 键面（写入口失效与 onChanged 订阅共用；从键对表派生，顺序恒为
+// [list, keys]——background 的族写入口吃这个形状）。
 function keyFace({ list, keys }: ProviderFamilyKeyPair): readonly string[] {
   return [list, keys];
 }
@@ -92,6 +98,43 @@ const PROVIDER_FAMILIES = Object.keys(PROVIDER_FAMILY_STORAGE_KEYS) as ProviderF
 // settings 域的 storage 键面 = DEFAULT_SETTINGS 声明的键集（saveSettings
 // 白名单与安装/更新迁移的落盘键集都是它的子集）。
 const SETTINGS_DOMAIN_KEYS: ReadonlySet<string> = new Set(Object.keys(DEFAULT_SETTINGS));
+
+// ===== 键 → 缓存域的唯一真源 =====
+// 一个 storage 键恰好归属一个快照域。这张表同时喂两条判据：
+//   - invalidate(storageKeys)：键命中哪个域就清哪个缓存；
+//   - onChanged 订阅面（文件末）：按 area 投影成 sync / local 两份订阅清单。
+// 键字面量全部来自既有单源（DEFAULT_SETTINGS 键面 + 各族 store 模块导出的
+// *_PROVIDERS_STORAGE / *_PROVIDER_KEYS_STORAGE + 搜索顺序与健康度叶的常量），
+// 加一个缓存键只动这张表——此前「invalidate 判据」与「onChanged 订阅面」是两套
+// 并行手抄逻辑，加键要同时改四处、漏改只表现为脏读。
+// area 也不是自由选择：键写在哪个 storage 区由该键的既有写入方决定（列表与设置
+// 进 sync、明文 Key 与运行态进 local）；声明错区的事件会被 shared/watch-storage-keys
+// 的区过滤静默丢弃（测试逐键逐区钉住）。
+export type SnapshotDomain = ProviderFamily | "settings" | "searchOrder" | "searchHealth";
+
+export interface SnapshotStorageKey {
+  key: string;
+  area: "sync" | "local";
+  domain: SnapshotDomain;
+}
+
+export const SNAPSHOT_STORAGE_KEYS: readonly SnapshotStorageKey[] = Object.freeze([
+  ...[...SETTINGS_DOMAIN_KEYS].map(
+    (key): SnapshotStorageKey => ({ key, area: "sync", domain: "settings" })
+  ),
+  ...PROVIDER_FAMILIES.flatMap(
+    (family): SnapshotStorageKey[] => [
+      { key: PROVIDER_FAMILY_KEY_PAIRS[family].list, area: "sync", domain: family },
+      { key: PROVIDER_FAMILY_KEY_PAIRS[family].keys, area: "local", domain: family }
+    ]
+  ),
+  { key: SEARCH_PROVIDER_ORDER_STORAGE, area: "sync", domain: "searchOrder" },
+  { key: SEARCH_HEALTH_KEY, area: "local", domain: "searchHealth" }
+]);
+
+const SNAPSHOT_DOMAIN_BY_KEY: ReadonlyMap<string, SnapshotDomain> = new Map(
+  SNAPSHOT_STORAGE_KEYS.map(({ key, domain }) => [key, domain] as const)
+);
 
 interface FamilyStoreReader {
   loadProviders: () => Promise<Array<ProviderBase & { hasSavedKey: boolean }>>;
@@ -178,61 +221,56 @@ export async function getSearchHealth(): Promise<SearchHealthMap> {
   }
 }
 
-// 按 storage 键失效：命中 settings 键面清 settings 快照；命中某族 list/keys
-// 键清该族快照（一族共享一个缓存条目）。未知键忽略——写 handler 直接传
-// payload 键全集，白名单外的键自然落空。
+// 按键失效：键 → 域查 SNAPSHOT_DOMAIN_BY_KEY，命中即清该域缓存；未知键落空——
+// 写点传 payload 键全集（save-settings 的白名单外键）与直落形态派生出的运行态键
+// 都自然忽略，不必先过滤。
 export function invalidate(storageKeys: readonly string[]): void {
-  let settingsDirty = false;
-  let searchOrderDirty = false;
-  let searchHealthDirty = false;
-  const dirtyFamilies = new Set<ProviderFamily>();
   for (const key of storageKeys) {
-    if (SETTINGS_DOMAIN_KEYS.has(key)) {
-      settingsDirty = true;
+    const domain = SNAPSHOT_DOMAIN_BY_KEY.get(key);
+    if (domain === "settings") {
+      settingsCache = null;
+    } else if (domain === "searchOrder") {
+      searchOrderCache = null;
+    } else if (domain === "searchHealth") {
+      searchHealthCache = null;
+    } else if (domain) {
+      familyCaches[domain] = null;
     }
-    if (key === SEARCH_PROVIDER_ORDER_STORAGE) {
-      searchOrderDirty = true;
-    }
-    if (key === SEARCH_HEALTH_KEY) {
-      searchHealthDirty = true;
-    }
-    for (const family of PROVIDER_FAMILIES) {
-      if (PROVIDER_FAMILY_STORAGE_KEYS[family].includes(key)) {
-        dirtyFamilies.add(family);
-      }
-    }
-  }
-  if (settingsDirty) {
-    settingsCache = null;
-  }
-  if (searchOrderDirty) {
-    searchOrderCache = null;
-  }
-  if (searchHealthDirty) {
-    searchHealthCache = null;
-  }
-  for (const family of dirtyFamilies) {
-    familyCaches[family] = null;
   }
 }
 
-// onChanged 兜底：订阅键面 = settings 键面 ∪ 从上表派生的三族 list（sync）∪ 三族
-// keys（local）∪ searchProviderOrder（sync，面板直写）∪ biliscript_search_health
-// （local）；命中即按键域失效。写入方上下文不触发本事件，跨设备 sync 与其它扩展
-// 上下文（content 直写等）的变更经此通道进快照。
+// ===== 写入口：落盘 + 失效一次做完（写侧唯一入口）=====
+// 把调用方给的落盘动作（saveSettings / 某族 store 的 CRUD / 记账叶 / 裸
+// chrome.storage.set）包成「落盘 await 完成 → 立即按键域失效」的写函数：
+//   - 失效时机与手写 invalidate 逐字一致，落盘 resolve 之后同步失效（onChanged
+//     不在写入方上下文触发，inline 失效是写后读语义的唯一保证）；落盘 reject 时
+//     原样抛出不失效——没落地就没有需要作废的读缓存。
+//   - storageKeys 给常量（族键面直接吃 PROVIDER_FAMILY_STORAGE_KEYS、单键快照
+//     位给该键）或给按入参派生的函数（裸 storage.set 形态用 Object.keys(changes)
+//     派生）：派生形态让写点不必手抄 storage 键名，「抄错键 = 静默脏读」不再可能。
+//   - 本入口自身不碰 storage、不写快照缓存：落盘语义仍归各族存储单源（白名单、
+//     归一化、Key 合并都在那一侧），快照仍只读（无 write-through）。
+export function invalidatingWrite<TArgs extends unknown[], TResult>(
+  write: (...args: TArgs) => Promise<TResult>,
+  storageKeys: readonly string[] | ((...args: TArgs) => readonly string[])
+): (...args: TArgs) => Promise<TResult> {
+  return async (...args: TArgs) => {
+    const result = await write(...args);
+    invalidate(typeof storageKeys === "function" ? storageKeys(...args) : storageKeys);
+    return result;
+  };
+}
+
+// onChanged 兜底：订阅键面 = SNAPSHOT_STORAGE_KEYS 的区投影（sync 键进 sync 面、
+// local 键进 local 面），命中即按键域失效；写入方上下文不触发本事件，跨设备 sync
+// 与其它扩展上下文（content 直写等）的变更经此通道进快照。订阅面不再手抄第二份
+// 键清单——派生自上面同一张表，与 invalidate 的判据不会分叉。
 watchStorageKeys(
   (changes) => {
     invalidate(Object.keys(changes));
   },
   {
-    sync: [
-      ...SETTINGS_DOMAIN_KEYS,
-      ...PROVIDER_FAMILIES.map((family) => PROVIDER_FAMILY_KEY_PAIRS[family].list),
-      SEARCH_PROVIDER_ORDER_STORAGE
-    ],
-    local: [
-      ...PROVIDER_FAMILIES.map((family) => PROVIDER_FAMILY_KEY_PAIRS[family].keys),
-      SEARCH_HEALTH_KEY
-    ]
+    sync: SNAPSHOT_STORAGE_KEYS.filter((entry) => entry.area === "sync").map((entry) => entry.key),
+    local: SNAPSHOT_STORAGE_KEYS.filter((entry) => entry.area === "local").map((entry) => entry.key)
   }
 );

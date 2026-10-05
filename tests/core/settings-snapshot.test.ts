@@ -1,14 +1,26 @@
 // extension/core/settings-snapshot.js 设置快照模块测试（sw-settings-snapshot 票）。
-// 锁三族不变量：
+// 锁四族不变量：
 //   1. 命中断言：快照建立后二次读取零 storage 调用（热路径 storage 读归 0）；
 //   2. 写后读失效：invalidate(存储键) 后重读拿新值（写路径 inline 失效语义）；
 //   3. onChanged 兜底：跨上下文/跨设备 sync 变更经真实 chrome.storage.onChanged
-//      监听按键域失效（未订阅键不失效）。
+//      监听按键域失效（未订阅键不失效）；
+//   4. 写侧收口：唯一写入口 invalidatingWrite（落盘 await 完成 → 立即失效）+
+//      键 → 域唯一真源 SNAPSHOT_STORAGE_KEYS（invalidate 判据与订阅面共用一张表，
+//      逐键逐区表驱动）。
 // chrome stub 手法与 tests/entry/background-resolve-search-provider.test.ts 同款：
 // 每用例重装 stub + 动态 import（vi.resetModules 换干净模块态）。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
+import { AI_PROVIDER_KEYS_STORAGE, AI_PROVIDERS_STORAGE } from "../../extension/core/ai-provider-store.js";
+import { ASR_PROVIDER_KEYS_STORAGE, ASR_PROVIDERS_STORAGE } from "../../extension/asr/asr-provider-store.js";
+import {
+  SEARCH_PROVIDER_KEYS_STORAGE,
+  SEARCH_PROVIDERS_STORAGE,
+  SEARCH_PROVIDER_ORDER_STORAGE
+} from "../../extension/search/search-provider-store.js";
+import { SEARCH_HEALTH_KEY } from "../../extension/search/search-health.js";
 
 const AI_PROVIDER = {
   id: "openai",
@@ -57,7 +69,9 @@ function makeStub({ syncFixture = {}, localFixture = {} }: { syncFixture?: Recor
           }
           return out;
         }),
-        set: vi.fn(async () => {})
+        set: vi.fn(async (obj: Record<string, unknown>) => {
+          Object.assign(syncFixture, obj);
+        })
       },
       local: {
         get: vi.fn(async (keys: unknown) => {
@@ -68,7 +82,9 @@ function makeStub({ syncFixture = {}, localFixture = {} }: { syncFixture?: Recor
           }
           return out;
         }),
-        set: vi.fn(async () => {})
+        set: vi.fn(async (obj: Record<string, unknown>) => {
+          Object.assign(localFixture, obj);
+        })
       },
       onChanged: { addListener: vi.fn(), removeListener: vi.fn() }
     }
@@ -407,5 +423,265 @@ describe("order 快照位：searchProviderOrder（spec §12.3 / §12.5 第 9 行
     vi.mocked(chrome.storage.sync.get).mockClear();
     await snapshot.getSearchProviderOrder();
     expect(vi.mocked(chrome.storage.sync.get)).toHaveBeenCalled();
+  });
+});
+
+// ===== 写侧收口：写入口 + 键 → 域单源 =====
+// 失败方式 → 用例对照：
+//   ① 写点漏失效 → 脏读：写入口把「落盘」与「按键域失效」绑成一次调用，
+//      时机用例（写未完成不失效 / 完成后立刻失效）+ background 的逐写点用例；
+//   ② 键 → 域映射改一处漏一处：SNAPSHOT_STORAGE_KEYS 的表驱动用例（逐键失效、
+//      逐键 onChanged、区标注、键互异）；
+//   ③ 写点绕过写入口手抄 storage 键名：派生键面形态用例（写什么键失效什么域）
+//      + tests/entry 的源码防线；
+//   ④ onChanged 与 inline 失效两套判据分叉：订阅面与 invalidate 判据都由同一张
+//      表派生，逐键 onChanged 用例与逐键失效用例吃同一份期望。
+// 六个缓存域的探针口径（命中 = 该域特有的 storage.get 形态被打到）：
+//   settings → 默认值对象形态；ai/asr/search → list 键数组 / keys 键数组；
+//   searchOrder → order 键数组；searchHealth → local 单键字符串形态。
+// 只看形态不看次数：order 读取会连带读 search 族，签名判别不受连带影响。
+type SnapshotModule = typeof import("../../extension/core/settings-snapshot.js");
+type SnapshotDomainName = "settings" | "ai" | "asr" | "search" | "searchOrder" | "searchHealth";
+
+const DOMAIN_PROBE_ORDER: readonly SnapshotDomainName[] = [
+  "settings",
+  "ai",
+  "asr",
+  "search",
+  "searchHealth",
+  "searchOrder"
+];
+
+const FAMILY_LIST_STORAGE: Record<string, string> = {
+  ai: AI_PROVIDERS_STORAGE,
+  asr: ASR_PROVIDERS_STORAGE,
+  search: SEARCH_PROVIDERS_STORAGE
+};
+const FAMILY_KEYS_STORAGE: Record<string, string> = {
+  ai: AI_PROVIDER_KEYS_STORAGE,
+  asr: ASR_PROVIDER_KEYS_STORAGE,
+  search: SEARCH_PROVIDER_KEYS_STORAGE
+};
+
+// 六域同时可缓存的夹具（每域都有可读内容）。
+function allDomainFixtures() {
+  return {
+    syncFixture: {
+      defaultModel: "openai",
+      [AI_PROVIDERS_STORAGE]: [AI_PROVIDER],
+      [ASR_PROVIDERS_STORAGE]: [ASR_PROVIDER],
+      [SEARCH_PROVIDERS_STORAGE]: [SEARCH_PROVIDER],
+      [SEARCH_PROVIDER_ORDER_STORAGE]: []
+    },
+    localFixture: {
+      [AI_PROVIDER_KEYS_STORAGE]: { openai: "sk-ai" },
+      [ASR_PROVIDER_KEYS_STORAGE]: { whisper: "sk-asr" },
+      [SEARCH_PROVIDER_KEYS_STORAGE]: { tavily: "sk-search" },
+      [SEARCH_HEALTH_KEY]: {}
+    }
+  };
+}
+
+async function warmAllDomains(snapshot: SnapshotModule): Promise<void> {
+  await snapshot.getSettings();
+  await snapshot.getProviderStore("ai");
+  await snapshot.getProviderStore("asr");
+  await snapshot.getProviderStore("search");
+  await snapshot.getSearchProviderOrder();
+  await snapshot.getSearchHealth();
+}
+
+async function readDomain(snapshot: SnapshotModule, domain: SnapshotDomainName): Promise<void> {
+  if (domain === "settings") await snapshot.getSettings();
+  else if (domain === "searchOrder") await snapshot.getSearchProviderOrder();
+  else if (domain === "searchHealth") await snapshot.getSearchHealth();
+  else await snapshot.getProviderStore(domain);
+}
+
+function syncGetArgs(): unknown[] {
+  return vi.mocked(chrome.storage.sync.get).mock.calls.map((call) => call[0]);
+}
+function localGetArgs(): unknown[] {
+  return vi.mocked(chrome.storage.local.get).mock.calls.map((call) => call[0]);
+}
+function readKeysInclude(args: unknown[], storageKey: string): boolean {
+  return args.some((arg) => Array.isArray(arg) && arg.includes(storageKey));
+}
+
+async function domainWasInvalidated(snapshot: SnapshotModule, domain: SnapshotDomainName): Promise<boolean> {
+  vi.mocked(chrome.storage.sync.get).mockClear();
+  vi.mocked(chrome.storage.local.get).mockClear();
+  await readDomain(snapshot, domain);
+  const syncArgs = syncGetArgs();
+  const localArgs = localGetArgs();
+  switch (domain) {
+    case "settings":
+      // getMergedSettings 传默认值对象：唯一以对象形态读 sync 的域
+      return syncArgs.some((arg) => Boolean(arg) && typeof arg === "object" && !Array.isArray(arg));
+    case "searchOrder":
+      return readKeysInclude(syncArgs, SEARCH_PROVIDER_ORDER_STORAGE);
+    case "searchHealth":
+      // readSearchHealth 传单键字符串：唯一以字符串形态读 local 的域
+      return localArgs.some((arg) => typeof arg === "string");
+    default:
+      return (
+        readKeysInclude(syncArgs, FAMILY_LIST_STORAGE[domain]) ||
+        readKeysInclude(localArgs, FAMILY_KEYS_STORAGE[domain])
+      );
+  }
+}
+
+// 探针本身会把命中的域重新暖上，故顺序固定 DOMAIN_PROBE_ORDER：order 的连带读
+// search 族排在 search 之后，不会把 search 的冷读误记到 order 头上。
+async function invalidatedDomains(snapshot: SnapshotModule): Promise<SnapshotDomainName[]> {
+  const missed: SnapshotDomainName[] = [];
+  for (const domain of DOMAIN_PROBE_ORDER) {
+    if (await domainWasInvalidated(snapshot, domain)) missed.push(domain);
+  }
+  return missed;
+}
+
+describe("写入口：落盘 + 失效一次做完（invalidatingWrite）", () => {
+  it("失效时机 = 落盘 await 完成之后（写未落地时缓存仍命中）", async () => {
+    vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+    await snapshot.getSettings();
+
+    let release!: () => void;
+    const landed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const write = snapshot.invalidatingWrite(() => landed, ["defaultModel"]);
+    const writing = write();
+
+    vi.mocked(chrome.storage.sync.get).mockClear();
+    await snapshot.getSettings();
+    expect(vi.mocked(chrome.storage.sync.get), "落盘未完成前不得失效").not.toHaveBeenCalled();
+
+    release();
+    await writing;
+    await snapshot.getSettings();
+    expect(vi.mocked(chrome.storage.sync.get), "落盘完成即失效").toHaveBeenCalled();
+  });
+
+  it("透传落盘返回值（provider CRUD 的回包负载取它）", async () => {
+    vi.stubGlobal("chrome", makeStub());
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+    const write = snapshot.invalidatingWrite(async () => [{ id: "openai", hasSavedKey: true }], ["aiProviders"]);
+    await expect(write()).resolves.toEqual([{ id: "openai", hasSavedKey: true }]);
+  });
+
+  it("落盘失败：原样 reject 且不失效（没落地就没有要作废的读缓存）", async () => {
+    vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+    await snapshot.getSettings();
+
+    const write = snapshot.invalidatingWrite(async () => {
+      throw new Error("QUOTA_BYTES quota exceeded");
+    }, ["defaultModel"]);
+    await expect(write()).rejects.toThrow("QUOTA_BYTES quota exceeded");
+
+    vi.mocked(chrome.storage.sync.get).mockClear();
+    await snapshot.getSettings();
+    expect(vi.mocked(chrome.storage.sync.get)).not.toHaveBeenCalled();
+  });
+
+  it("族键面形态：包住 store 的 saveProviders 后重读命中新列表与新 Key", async () => {
+    vi.stubGlobal("chrome", makeStub({
+      syncFixture: { [AI_PROVIDERS_STORAGE]: [AI_PROVIDER] },
+      localFixture: { [AI_PROVIDER_KEYS_STORAGE]: { openai: "sk-old" } }
+    }));
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+    const store = await import("../../extension/core/ai-provider-store.js");
+
+    await snapshot.getProviderStore("ai");
+    const save = snapshot.invalidatingWrite(
+      store.aiProviderStore.saveProviders,
+      snapshot.PROVIDER_FAMILY_STORAGE_KEYS.ai
+    );
+    await save([{ ...AI_PROVIDER, apiKey: "sk-new" }]);
+
+    const after = await snapshot.getProviderStore("ai");
+    expect(after.keys).toEqual({ openai: "sk-new" });
+  });
+
+  it("派生键面形态（background 裸 storage 写点同款）：写什么键失效什么域", async () => {
+    vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+    await snapshot.getSettings();
+
+    const writeStorageChanges = snapshot.invalidatingWrite(
+      (area: "sync" | "local", changes: Record<string, unknown>) =>
+        area === "sync" ? chrome.storage.sync.set(changes) : chrome.storage.local.set(changes),
+      (_area: "sync" | "local", changes: Record<string, unknown>) => Object.keys(changes)
+    );
+    await writeStorageChanges("sync", { defaultModel: "anthropic" });
+
+    expect(await snapshot.getSettings()).toMatchObject({ defaultModel: "anthropic" });
+  });
+});
+
+describe("键 → 域单源：SNAPSHOT_STORAGE_KEYS（invalidate 判据与 onChanged 订阅面共用）", () => {
+  it("表 = 键面全集（settings 键面 ∪ 六族键 ∪ 搜索顺序 ∪ 健康度），键互异、区标注正确", async () => {
+    const { SNAPSHOT_STORAGE_KEYS } = await import("../../extension/core/settings-snapshot.js");
+    const expected = [
+      ...Object.keys(DEFAULT_SETTINGS).map((key) => ({ key, area: "sync", domain: "settings" })),
+      { key: AI_PROVIDERS_STORAGE, area: "sync", domain: "ai" },
+      { key: AI_PROVIDER_KEYS_STORAGE, area: "local", domain: "ai" },
+      { key: ASR_PROVIDERS_STORAGE, area: "sync", domain: "asr" },
+      { key: ASR_PROVIDER_KEYS_STORAGE, area: "local", domain: "asr" },
+      { key: SEARCH_PROVIDERS_STORAGE, area: "sync", domain: "search" },
+      { key: SEARCH_PROVIDER_KEYS_STORAGE, area: "local", domain: "search" },
+      { key: SEARCH_PROVIDER_ORDER_STORAGE, area: "sync", domain: "searchOrder" },
+      { key: SEARCH_HEALTH_KEY, area: "local", domain: "searchHealth" }
+    ];
+    const fingerprint = (rows: ReadonlyArray<{ key: string; area: string; domain: string }>) =>
+      rows.map((row) => `${row.key}|${row.area}|${row.domain}`).sort();
+
+    expect(fingerprint(SNAPSHOT_STORAGE_KEYS)).toEqual(fingerprint(expected));
+    // 键互异：同一 storage 键只能归属一个域（重复键会让后来的域吃掉前一个）
+    const keys = SNAPSHOT_STORAGE_KEYS.map((entry) => entry.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("逐键失效：invalidate 只清该键所属的域（表驱动，加键漏映射即红）", async () => {
+    const { SNAPSHOT_STORAGE_KEYS } = await import("../../extension/core/settings-snapshot.js");
+    for (const entry of SNAPSHOT_STORAGE_KEYS) {
+      resetModuleState();
+      vi.stubGlobal("chrome", makeStub(allDomainFixtures()));
+      const snapshot = await import("../../extension/core/settings-snapshot.js");
+      await warmAllDomains(snapshot);
+
+      snapshot.invalidate([entry.key]);
+
+      expect(
+        await invalidatedDomains(snapshot),
+        `${entry.key} 应且只应清 ${entry.domain}`
+      ).toEqual([entry.domain]);
+    }
+  });
+
+  it("逐键 onChanged：声明区命中即清该域，另一区的同一键不触发（表驱动，区写错即红）", async () => {
+    const { SNAPSHOT_STORAGE_KEYS } = await import("../../extension/core/settings-snapshot.js");
+    for (const entry of SNAPSHOT_STORAGE_KEYS) {
+      resetModuleState();
+      vi.stubGlobal("chrome", makeStub(allDomainFixtures()));
+      const snapshot = await import("../../extension/core/settings-snapshot.js");
+      await warmAllDomains(snapshot);
+      const listener = vi.mocked(chrome.storage.onChanged.addListener).mock.calls[0][0];
+
+      // 另一区：键不在该区分发的订阅清单里 → 事件被静默丢弃（区声明写错的判据）
+      listener({ [entry.key]: { newValue: null } }, entry.area === "sync" ? "local" : "sync");
+      expect(
+        await invalidatedDomains(snapshot),
+        `${entry.key} 在另一区不应触发失效`
+      ).toEqual([]);
+
+      listener({ [entry.key]: { newValue: null } }, entry.area);
+      expect(
+        await invalidatedDomains(snapshot),
+        `${entry.key} 应且只应清 ${entry.domain}`
+      ).toEqual([entry.domain]);
+    }
   });
 });
