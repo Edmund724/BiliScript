@@ -28,7 +28,7 @@
 //      （见文件末尾「18 号票」describe 的 9 条）。
 
 import { describe, expect, it } from "vitest";
-import { ASSIGNMENTS, MODEL_ID_ALIASES, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
+import { ASSIGNMENTS, MODEL_ID_ALIASES, VALUESETS, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import {
   AI_THINKING_LEVELS,
   CLASSES,
@@ -193,17 +193,26 @@ function divergentKeys(
 }
 
 describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5.3、kimi-code-plan-cn/k3）", () => {
-  it("zhipuai/glm-5.2：上游 high-max → off 关不掉、级联落最小档 high；low 折 high", () => {
-    for (const level of LEVELS) {
-      expect(resolveViaRuntime("zhipu", "glm-5.2", level)).toBe(
+  it("zhipuai/glm-5.2：D1=A2 本仓补声明补上 toggle → off 可用（落 thinking 开关），档位仍是 high/max", () => {
+    // 04 号票时这一行的上游事实是 effort[high,max]（无 toggle）→ off 关不掉、级联 high；
+    // D1=A2 之后本仓给这一行补了 off 能力（见 OFF_CAPABILITY_DECLARATIONS），zhipu 已登记
+    // 开关形状 → off 有写点：off 与档外的 minimal/low/medium 都落 off 写点，high/xhigh → high。
+    for (const level of ["off", "minimal", "low", "medium"] as const) {
+      expect(resolveViaRuntime("zhipu", "glm-5.2", level), level).toBe(
         JSON.stringify({
-          fields: { reasoning_effort: "high" },
-          offUnavailable: level === "off",
-          offFallback: level === "off" ? "low" : null,
-          thinkingClass: "always"
+          fields: { thinking: { type: "disabled" } },
+          offUnavailable: false,
+          offFallback: null,
+          thinkingClass: "hybrid"
         })
       );
     }
+    expect(resolveViaRuntime("zhipu", "glm-5.2", "high")).toBe(
+      JSON.stringify({ fields: { reasoning_effort: "high" }, offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+    );
+    expect(resolveViaRuntime("zhipu", "glm-5.2", "max")).toBe(
+      JSON.stringify({ fields: { reasoning_effort: "max" }, offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+    );
   });
 
   it("zhipuai/glm-5.3：上游 low-high-max → 有档位；off 关不掉、级联落 low", () => {
@@ -555,12 +564,20 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
     expect(resolveViaRuntime("qwen", "qwen3.8-max", "high")).toBe(
       outcomeOf(ruleFromUpstreamFact(lookupThinkingFact("alibaba-cn", "qwen3.8-max")!, "qwen"), "high")
     );
-    // 裁决行同样按上游：托管 alibaba-cn/glm-5.2 与原生 zhipuai/glm-5.2 同值集（high-max）。
+    // 裁决行同样按上游：托管 alibaba-cn/glm-5.2 与原生 zhipuai/glm-5.2 同值集
+    // （D1=A2 后是 toggle+high-max）——qwen 方言的 off 写点 = enable_thinking:false。
     expect(handClassOf("qwen", "glm-5.2")).toBe("glm-hybrid-effort");
     expect(resolveViaRuntime("qwen", "glm-5.2", "off")).toBe(
-      JSON.stringify({ fields: { reasoning_effort: "high" }, offUnavailable: true, offFallback: "low", thinkingClass: "always" })
+      JSON.stringify({ fields: { enable_thinking: false }, offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
-    expect(resolveViaRuntime("qwen", "glm-5.2", "off")).toBe(resolveViaRuntime("zhipu", "glm-5.2", "off"));
+    // 两条路径的 off 出口是各自的平台方言（zhipu = thinking.type、qwen = enable_thinking），
+    // 不再逐字节相同——补声明保证的是「都关得掉」这个语义，跨平台形状由 UPSTREAM_TOGGLE_SHAPES 定。
+    const zhipuOff = JSON.parse(resolveViaRuntime("zhipu", "glm-5.2", "off"));
+    const qwenOff = JSON.parse(resolveViaRuntime("qwen", "glm-5.2", "off"));
+    expect(qwenOff.offUnavailable).toBe(false);
+    expect(zhipuOff.offUnavailable).toBe(false);
+    expect(qwenOff.thinkingClass).toBe("hybrid");
+    expect(zhipuOff.thinkingClass).toBe("hybrid");
   });
 
   it("无上游平台的解析结果与手写表逐格一致（ollama / custom / 未知 host 不被上游影响）", () => {
@@ -646,7 +663,11 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     expect(levelsOf("amd", "DeepSeek-V4.1-Flash")).not.toContain("off");
   });
 
-  it("丢 off 的行按新上游事实失去 off（22 行 openrouter + sensenova/glm-5.2 + moonshot/k3）", () => {
+  it("丢 off 的行按新上游事实失去 off（21 行 openrouter + moonshot/k3；glm-5.2 已由 D1=A2 补回）", () => {
+    // D1=A2 前本清单还含 openrouter/z-ai/glm-5.2 与 sensenova/glm-5.2（13 号票 canonical 优先把
+    // 它们的 direct off 抹掉）；本仓补声明给 zhipuai/glm-5.2 补上 toggle 后，这两行的**模型侧**
+    // 事实重新带 off，故移出本清单——它们仍未关得掉，但原因换成了「平台形状未登记」（见紧随的
+    // 「D1=A2 不变性」用例）。
     const lost: Array<[presetId: string, upstreamId: string, model: string]> = [
       ["openrouter", "openrouter", "anthropic/claude-opus-4.5"],
       ["openrouter", "openrouter", "anthropic/claude-opus-4.6"],
@@ -656,7 +677,6 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
       ["openrouter", "openrouter", "anthropic/claude-opus-5"],
       ["openrouter", "openrouter", "anthropic/claude-sonnet-4.5"],
       ["openrouter", "openrouter", "anthropic/claude-sonnet-4.6"],
-      ["openrouter", "openrouter", "z-ai/glm-5.2"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-image-preview"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-image"],
       ["openrouter", "openrouter", "google/gemini-3.1-flash-lite-image"],
@@ -670,10 +690,9 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
       ["openrouter", "openrouter", "openai/o3-pro"],
       ["openrouter", "openrouter", "openai/o3"],
       ["openrouter", "openrouter", "openai/o1-pro"],
-      ["sensenova", "sensenova", "glm-5.2"],
       ["moonshot", "kimi-code-plan-cn", "k3"]
     ];
-    expect(lost.filter(([presetId]) => presetId === "openrouter")).toHaveLength(22);
+    expect(lost.filter(([presetId]) => presetId === "openrouter")).toHaveLength(21);
     for (const [presetId, upstreamId, model] of lost) {
       const fact = lookupThinkingFact(upstreamId, model);
       expect(fact, `${upstreamId}/${model}`).toBeTruthy();
@@ -845,11 +864,13 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     }
   });
 
-  it("off 级联：票面「上游词表含 off」的口径 177 行（152/3/3/19），逐平台钉数", () => {
+  it("off 级联：票面「上游词表含 off」的口径 180 行（153/3/4/20），逐平台钉数", () => {
     // 票面 §实测把这个数百字面记作 off 级联受影响行数：这四家 override 里都显式声明了
     // off 写点（opencodego 除外），故「上游值集含 off」的行就是删声明后会失去/保留关闭
     // 落点的行。逐平台 152 / 3 / 3 / 17 = 175；19 号票后 opencodego 两行拿到 toggle
     // （deepseek-v4-flash 走 -0731 重定向、deepseek-v4-pro 走值集覆盖）→ 17 + 2 = 19 = 177。
+    // D1=A2 后 zhipuai/glm-5.2 补上 toggle，canonical 继承到 openrouter（+1）、sensenova
+    // （+1）、opencode-go（+1）三行 → 177 + 3 = 180（152→153 / 3 / 3→4 / 19→20）。
     const hasOff = (presetId: string): number =>
       modelsOf(presetId).filter((model) => {
         const fact = lookupThinkingFact(UPSTREAM_PROVIDER_BY_PRESET[presetId], model);
@@ -860,8 +881,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       amd: hasOff("amd"),
       sensenova: hasOff("sensenova"),
       opencodego: hasOff("opencodego")
-    }).toEqual({ openrouter: 152, amd: 3, sensenova: 3, opencodego: 19 });
-    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(177);
+    }).toEqual({ openrouter: 153, amd: 3, sensenova: 4, opencodego: 20 });
+    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(180);
   });
 
   it("off 级联：按「thinkingClass=always + offUnavailable」口径是 236 行（与口径 A 的 177 差异见 18-report）", () => {
@@ -948,5 +969,105 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     // 「13 号票刚对齐的行逐字节不变（opencodego/kimi-k3 哨兵，7 档全钉）」用例）。
     const divergent7 = divergentKeys(ALL_LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });
     expect(divergent7.filter((key) => !divergent.includes(key)).sort()).toEqual([]);
+  });
+});
+
+// ===== D1=A2：本仓补声明（2026-10-05 用户裁定；交接单 handoff-glm52-toggle §4）=====
+// 失败方式（每条一个用例）：
+//   1. 少开 off：zhipu / qwen 的 glm-5.2 没拿到 off 写点（补声明没生效 / 平台形状没接上）；
+//   2. 误开 off：未登记开关形状的三家（openrouter / sensenova / opencodego）冒出 Off；
+//   3. 补声明越界：家族里别的行被一起改（用「家族 N 行也有 toggle」当依据的后果）；
+//   4. 同一模型两条路径不一致：目录内 glm-5.2 与目录外 glm-5.2-air 的 off 出口不同；
+//   5. 值集孤儿：high-max 没被自然淘汰 / toggle+high-max 没登记。
+describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
+  const levelsOf = (presetId: string, model: string): readonly ThinkingLevel[] =>
+    resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level: "high", stream: STREAM }).availableLevels;
+
+  // 事实 5 行（canonical 全部指向 zhipuai/glm-5.2）+ 行为 2 行的平台。
+  const FIVE_ROWS: ReadonlyArray<[provider: string, model: string]> = [
+    ["zhipuai", "glm-5.2"],
+    ["alibaba-cn", "glm-5.2"],
+    ["opencode-go", "glm-5.2"],
+    ["openrouter", "z-ai/glm-5.2"],
+    ["sensenova", "glm-5.2"]
+  ];
+  const THREE_UNREGISTERED: ReadonlyArray<[preset: string, provider: string, model: string]> = [
+    ["openrouter", "openrouter", "z-ai/glm-5.2"],
+    ["sensenova", "sensenova", "glm-5.2"],
+    ["opencodego", "opencode-go", "glm-5.2"]
+  ];
+
+  it("事实层：5 行都是 toggle+high-max（effort 不变），且只改了这 5 行", () => {
+    const changed: string[] = [];
+    for (const [upstreamId, table] of Object.entries(ASSIGNMENTS)) {
+      for (const [modelId, valuesetId] of Object.entries(table)) {
+        if (valuesetId === "toggle+high-max") changed.push(`${upstreamId}/${modelId}`);
+      }
+    }
+    expect(changed.sort()).toEqual(FIVE_ROWS.map(([provider, model]) => `${provider}/${model}`).sort());
+    for (const [provider, model] of FIVE_ROWS) {
+      const fact = lookupThinkingFact(provider, model);
+      expect(fact?.valuesetId, `${provider}/${model}`).toBe("toggle+high-max");
+      expect(fact?.toggle, `${provider}/${model}`).toBe(true);
+      expect(fact?.off, `${provider}/${model}`).toBe("toggle");
+      // 补声明只补 off 能力，不动档位词表（上游 effort[high,max] 原样）。
+      expect(fact?.effort, `${provider}/${model}`).toEqual(["high", "max"]);
+    }
+    // 值集表：high-max 的 5 个用户全迁走后自然消失（不靠孤儿剪枝），toggle+high-max 补位。
+    expect(VALUESETS["high-max"]).toBeUndefined();
+    expect(VALUESETS["toggle+high-max"]?.effort).toEqual(["high", "max"]);
+  });
+
+  it("少开 off：zhipu（thinking.type）与 qwen（enable_thinking）都真拿到 off 写点", () => {
+    expect(levelsOf("zhipu", "glm-5.2")).toEqual(["off", "high", "max"]);
+    expect(levelsOf("qwen", "glm-5.2")).toEqual(["off", "high", "max"]);
+    expect(resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "off", stream: STREAM })).toEqual({
+      fields: { thinking: { type: "disabled" } },
+      offUnavailable: false,
+      offFallback: null,
+      thinkingClass: "hybrid"
+    });
+    expect(resolveThinkingProfile({ presetId: "qwen", model: "glm-5.2", level: "off", stream: STREAM })).toEqual({
+      fields: { enable_thinking: false },
+      offUnavailable: false,
+      offFallback: null,
+      thinkingClass: "hybrid"
+    });
+  });
+
+  it("误开 off：三家未登记开关形状的行 A' 不变（{high,max}）、off 仍级联 high", () => {
+    expect(
+      Object.keys(UPSTREAM_TOGGLE_SHAPES).sort()
+    ).toEqual(["deepseek", "mimo", "modelscope", "moonshot", "qwen", "zhipu"]);
+    for (const [presetId, provider, model] of THREE_UNREGISTERED) {
+      expect(presetId in UPSTREAM_TOGGLE_SHAPES, presetId).toBe(false);
+      // 模型侧事实有 toggle，但平台形状没登记 → 一个 off 写点都不产（D3）。
+      const fact = lookupThinkingFact(provider, model);
+      expect(fact?.off, `${provider}/${model}`).toBe("toggle");
+      expect(ruleFromUpstreamFact(fact!, presetId).off, `${provider}/${model}`).toBeUndefined();
+      expect(levelsOf(presetId, model), `${presetId}/${model}`).toEqual(["high", "max"]);
+      // 逐字节与补声明前相同：off 级联 high、offUnavailable 仍 true（D1=A2 的 before/after
+      // 工件 02-before-after.tsv 里这三行两侧同值）。
+      expect(resolveThinkingProfile({ presetId, model, level: "off", stream: STREAM }), `${presetId}/${model}`).toEqual({
+        fields: { reasoning_effort: "high" },
+        offUnavailable: true,
+        offFallback: "low",
+        thinkingClass: "always"
+      });
+    }
+  });
+
+  it("同一模型两条路径：目录内 zhipu/glm-5.2 与目录外 zhipu/glm-5.2-air 的 off 出口同为 thinking:{type:\"disabled\"}", () => {
+    // 档位词表本来就不同（兜底类 glm-hybrid-effort 只有 low/high，属历史遗留，本票不动档位），
+    // 本用例只钉「本仓第一次能力补声明消掉了那个自相矛盾」：两条路径关思考的出口必须一致。
+    expect(lookupThinkingFact("zhipuai", "glm-5.2-air"), "glm-5.2-air 不该在指派表里").toBeNull();
+    const inCatalog = resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "off", stream: STREAM });
+    const outOfCatalog = resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2-air", level: "off", stream: STREAM });
+    expect(inCatalog.fields).toEqual({ thinking: { type: "disabled" } });
+    expect(outOfCatalog.fields).toEqual({ thinking: { type: "disabled" } });
+    expect(outOfCatalog).toEqual(inCatalog);
+    // 两条路径的档位词表确实不同（钉住「本次没顺手改兜底档位」）。
+    expect(levelsOf("zhipu", "glm-5.2")).toEqual(["off", "high", "max"]);
+    expect(levelsOf("zhipu", "glm-5.2-air")).toEqual(["off", "low", "high"]);
   });
 });

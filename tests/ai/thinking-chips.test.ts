@@ -116,11 +116,14 @@ describe("A' = 上游词表在平台已登记方言下可表达的部分（2026-
     // ---- ① 上游逐模型词表（写点集天然等于 A'）----
     ["deepseek", DEEPSEEK_URL, "deepseek-v4-pro", ["off", "low", "high", "max"], "upstream"],
     ["zhipu", ZHIPU_URL, "glm-4.6", ["off", "minimal", "low", "medium", "high", "xhigh", "max"], "upstream"],
-    ["zhipu", ZHIPU_URL, "glm-5.2", ["high", "max"], "upstream"],
+    // D1=A2 本仓补声明：zhipuai/glm-5.2 的事实补上 toggle → zhipu 已登记开关形状
+    // （thinking:{type:"disabled"}）→ off 写点出现，A' = {off, high, max}。
+    ["zhipu", ZHIPU_URL, "glm-5.2", ["off", "high", "max"], "upstream"],
     // canonical 优先（13 号票）：k3 的 canonical（无 toggle）成为词表主人 → off 不再可得。
     ["moonshot", KIMI_URL, "kimi-k3", ["low", "high", "max"], "upstream"],
-    // ---- ② 借词（qwen 的 glm-5.2 借 zhipuai/glm-5.2 的 high-max）----
-    ["qwen", QWEN_URL, "glm-5.2", ["high", "max"], "upstream"],
+    // ---- ② 借词（qwen 的 glm-5.2 借 zhipuai/glm-5.2 的 toggle+high-max）----
+    // 补声明随 canonical 继承：qwen 方言的 off 写点是 enable_thinking:false。
+    ["qwen", QWEN_URL, "glm-5.2", ["off", "high", "max"], "upstream"],
     // ---- ③ 无上游平台 / 上游缺口（今日口径）----
     ["ollama", OLLAMA_URL, "llama3.2", ["off", "low", "high"], "handwritten"],
     ["custom", CUSTOM_URL, "deepseek-v4-pro", ["off", "low", "high"], "handwritten"],
@@ -141,7 +144,8 @@ describe("A' = 上游词表在平台已登记方言下可表达的部分（2026-
     ["openrouter", OPENROUTER_URL, "deepseek/deepseek-v4-pro-0813", ["low", "high", "max"], "upstream"],
     // low-high-max：同上。
     ["openrouter", OPENROUTER_URL, "z-ai/glm-5.3", ["low", "high", "max"], "upstream"],
-    // high-max：逐字节与 18 号票前相同（平台声明与上游同形）。
+    // toggle+high-max：D1=A2 补声明后的事实；opencodego 未登记开关形状 → toggle 不产写点
+    // → A' 仍是 {high, max}（逐字节与 18 号票前相同：平台声明与上游同形）。
     ["opencodego", OPENCODEGO_URL, "glm-5.2", ["high", "max"], "upstream"],
     // 13 号票：canonical 优先后 kimi-k3 的模型侧词表是 low/high/max（无 off），
     // 18 号票删声明后 A' 仍是 {low, high, max}。
@@ -242,8 +246,9 @@ describe("off / none 分离（决策 #7）", () => {
     expect(adjustment("zhipu", ZHIPU_URL, "glm-4.6").availableLevels).toContain("off");
     // effort 含 none（上游 none-high 值集 → 关思考是线值 none）
     expect(adjustment("openrouter", OPENROUTER_URL, "mistralai/mistral-medium-3-5").availableLevels).toContain("off");
-    // effort 不含 none 且无 toggle → off 不可用
-    expect(adjustment("zhipu", ZHIPU_URL, "glm-5.2").availableLevels).not.toContain("off");
+    // effort 不含 none 且无 toggle → off 不可用（glm-5.3 的 low-high-max 就是这种；glm-5.2 原是本例，
+    // D1=A2 补声明后它带了 toggle，不再适合当「关不掉」样本）。
+    expect(adjustment("zhipu", ZHIPU_URL, "glm-5.3").availableLevels).not.toContain("off");
     // 18 号票删平台声明后这条「平台无 off 写点」的边界消失：effort none 与平台方言无关，
     // 任何托管平台上的 none-high 值集都给出 off 写点 → 偏好 off 落 effort none（不再关不掉）。
     const boundary = adjustment("opencodego", OPENCODEGO_URL, "hy4-preview", "off");
@@ -326,9 +331,10 @@ describe("验收第一条：none/high 类（13 号票 canonical 优先后剩 3 �
     expect(namazu.availableLevels).toEqual([]);
     expect(namazu.source).toBe("upstream");
     expect(sent("openrouter", OPENROUTER_URL, "sakana/sakana-namazu", "low").fields).toEqual({});
-    // sensenova/glm-5.2：canonical = high-max（模型侧无 off）→ A' = {high, max}。
+    // sensenova/glm-5.2：模型侧词表 = zhipuai/glm-5.2 的 toggle+high-max；sensenova 未登记
+    // 开关形状（D3）→ toggle 不产 off 写点 → A' = {high, max}（D1=A2 只补事实，不改平台形状）。
     const glm = adjustment("sensenova", SENSENOVA_URL, "glm-5.2");
-    expect(lookupThinkingFact("sensenova", "glm-5.2")?.valuesetId).toBe("high-max");
+    expect(lookupThinkingFact("sensenova", "glm-5.2")?.valuesetId).toBe("toggle+high-max");
     expect(glm.availableLevels).toEqual(["high", "max"]);
     expect(sent("sensenova", SENSENOVA_URL, "glm-5.2", "low").fields).toEqual({ reasoning_effort: "high" });
     // sensenova/deepseek-v4-flash：重定向行（canonical → deepseek-flash = toggle+low-high-max

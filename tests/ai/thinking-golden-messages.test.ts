@@ -59,8 +59,6 @@ const CASES: readonly ByClassCase[] = [
   { valuesetId: "b:1024-", presetId: "openrouter", model: "anthropic/claude-haiku-4.5", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
   { valuesetId: "b:128-32768", presetId: "openrouter", model: "google/gemini-2.5-pro", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
   { valuesetId: "high", presetId: "openrouter", model: "openai/gpt-5-pro", available: ["high"], fields: [{"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}] },
-  { valuesetId: "high-max", presetId: "opencodego", model: "glm-5.2", available: ["high", "max"], fields: [{"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"max"}}] },
-  { valuesetId: "high-max", presetId: "qwen", model: "glm-5.2", available: ["high", "max"], fields: [{"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"max"},"thinking":{"type":"enabled"}}] },
   { valuesetId: "high-xhigh", presetId: "openrouter", model: "sakana/fugu-ultra", available: ["high", "xhigh"], fields: [{"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"xhigh"}}, {"output_config":{"effort":"xhigh"}}] },
   { valuesetId: "high-xhigh-max", presetId: "openrouter", model: "sakana/fugu-max", available: ["high", "xhigh", "max"], fields: [{"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"xhigh"}}, {"output_config":{"effort":"max"}}] },
   { valuesetId: "low-high", presetId: "openrouter", model: "google/gemini-3-pro-image", available: ["low", "high"], fields: [{"output_config":{"effort":"low"}}, {"output_config":{"effort":"low"}}, {"output_config":{"effort":"low"}}, {"output_config":{"effort":"low"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}] },
@@ -104,6 +102,9 @@ const CASES: readonly ByClassCase[] = [
   { valuesetId: "toggle+b:-81920", presetId: "qwen", model: "kimi-k2.5", available: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], fields: [{"thinking":{"type":"disabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}] },
   { valuesetId: "toggle+b:0-24576", presetId: "openrouter", model: "google/gemini-2.5-flash", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
   { valuesetId: "toggle+b:512-24576", presetId: "openrouter", model: "google/gemini-2.5-flash-lite", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
+  { valuesetId: "toggle+high-max", presetId: "opencodego", model: "glm-5.2", available: ["high", "max"], fields: [{"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"max"}}] },
+  { valuesetId: "toggle+high-max", presetId: "qwen", model: "glm-5.2", available: ["off", "high", "max"], fields: [{"thinking":{"type":"disabled"}}, {"thinking":{"type":"disabled"}}, {"thinking":{"type":"disabled"}}, {"thinking":{"type":"disabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"max"},"thinking":{"type":"enabled"}}] },
+  { valuesetId: "toggle+high-max", presetId: "sensenova", model: "glm-5.2", available: ["high", "max"], fields: [{"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"max"},"thinking":{"type":"enabled"}}] },
   { valuesetId: "toggle+low-high-max", presetId: "amd", model: "DeepSeek-V4-Flash", available: ["low", "high", "max"], fields: [{"output_config":{"effort":"low"}}, {"output_config":{"effort":"low"}}, {"output_config":{"effort":"low"}}, {"output_config":{"effort":"low"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"max"}}] },
   { valuesetId: "toggle+low-high-max", presetId: "deepseek", model: "deepseek-flash", available: ["off", "low", "high", "max"], fields: [{"thinking":{"type":"disabled"}}, {"thinking":{"type":"disabled"}}, {"output_config":{"effort":"low"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"low"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"high"},"thinking":{"type":"enabled"}}, {"output_config":{"effort":"max"},"thinking":{"type":"enabled"}}] },
   { valuesetId: "toggle+low-high-max", presetId: "moonshot", model: "kimi-for-coding", available: ["off", "low", "high", "max"], fields: [{"thinking":{"type":"disabled"}}, {"thinking":{"type":"disabled"}}, {"reasoning_effort":"low"}, {"reasoning_effort":"low"}, {"reasoning_effort":"high"}, {"reasoning_effort":"high"}, {"reasoning_effort":"max"}] },
@@ -233,13 +234,20 @@ describe("golden：ModelScope qwen3-32b 关思考仅流式（stream 维度）", 
 });
 
 // 塌陷正当性（票面第 4 条）：开关型血统与 budget-only 模型的 low==high 是**上游事实**
-// （上游没有 effort 词表可发），不是缺陷；effort 血统的塌陷只有「上游词表里没有 low」
-// 这一种正当来源（glm-5.2 上游 high-max）。F6 防线在产物全量上机械扫这两侧。
+// （上游没有 effort 词表可发），不是缺陷；effort 血统的塌陷只有「上游词表里没有该档、
+// clamp 向下取到同一档」这一种正当来源（glm-5.2 上游 effort[high,max]：xhigh 折 high；
+// D1=A2 补声明后该行 off 可用，low 改折 off，不再是塌陷）。F6 防线在产物全量上机械扫这两侧。
 describe("golden：塌陷正当性（上游事实 vs 缺陷）", () => {
-  it("zhipu/glm-5.2：上游只有 effort[high,max] → low 折 high（塌陷 = 上游事实，非缺陷）", () => {
+  it("zhipu/glm-5.2：上游 effort[high,max] 无 low/xhigh → low 折 off、xhigh 折 high", () => {
+    // D1=A2 前该行没有 off 写点，low 只能折 high；补声明后 A' = {off, high, max}，
+    // 「档外偏好向下取最近档」这条 clamp 让 low 落 off、xhigh 落 high。
     const low = HARNESS.bodyAt({ presetId: "zhipu", model: "glm-5.2", level: "low" });
-    expect(low).toEqual(HARNESS.bodyAt({ presetId: "zhipu", model: "glm-5.2", level: "high" }));
-    expect(low).toEqual(HARNESS.expectedBody("glm-5.2", { thinking: { type: "enabled" }, output_config: { effort: "high" } }));
+    expect(low).toEqual(HARNESS.expectedBody("glm-5.2", { thinking: { type: "disabled" } }));
+    const xhigh = HARNESS.bodyAt({ presetId: "zhipu", model: "glm-5.2", level: "xhigh" });
+    expect(xhigh).toEqual(HARNESS.bodyAt({ presetId: "zhipu", model: "glm-5.2", level: "high" }));
+    expect(xhigh).toEqual(
+      HARNESS.expectedBody("glm-5.2", { thinking: { type: "enabled" }, output_config: { effort: "high" } })
+    );
   });
 
   it("qwen/qwen3-max：budget-only（无 effort）→ low==high 同为裸开档（上游唯一形状）", () => {

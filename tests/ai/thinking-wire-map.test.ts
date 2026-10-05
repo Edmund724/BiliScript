@@ -288,9 +288,9 @@ describe("归一化不发散（08 号票：像集合 ⊆ 该模型 02 值集）"
     expect(emittedWords).toBeGreaterThanOrEqual(1300);
   });
 
-  it("判据非空转：值集不含的档位词不合法（glm-5.2 值集 high-max，无 low 可发）", () => {
-    // glm-5.2 的 02 值集是 high/max——归一化层若「发散」出 low 就会违反上一条断言；
-    // 这里把该值集钉死，证明上一条断言的判据不是恒真。
+  it("判据非空转：值集不含的档位词不合法（glm-5.2 值集 toggle+high-max，无 low 可发）", () => {
+    // glm-5.2 的 02 值集 effort 是 high/max（D1=A2 起带 toggle，off 走平台开关）——
+    // 归一化层若「发散」出 low 就会违反上一条断言；这里把该值集钉死，证明上一条断言的判据不是恒真。
     expect(lookupThinkingFact("zhipuai", "glm-5.2")!.effort).toEqual(["high", "max"]);
   });
 });

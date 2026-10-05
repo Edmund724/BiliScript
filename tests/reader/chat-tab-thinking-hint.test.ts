@@ -735,3 +735,111 @@ describe("二级菜单端到端走查（04 号票）", () => {
     );
   });
 });
+
+// ============================================================
+// D1=A2 本仓补声明端到端走查（票据 upstream-glm52-toggle/01）：真实模板 + 真实组合根，
+// 6 行本地 glm-5.2（5 行目录内 + 1 行目录外兜底）走 DOM 事件切换模型，逐行看档位条目与提示。
+// 先列可能失败的方式：① 误开 off（未登记开关形状的三家冒出 Off 条目 / 提示消失）；
+// ② 少开 off（zhipu / qwen 没有 Off 条目）；③ 提示文案被顺手改动；
+// ④ 目录外 glm-5.2-air 的 off 出口与目录内不一致（两条路径的档位词表本来就不同）。
+// ============================================================
+describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状决定）", () => {
+  const OPENROUTER_URL = "https://openrouter.ai/api/v1";
+  const OPENCODEGO_URL = "https://opencode.ai/zen/go/v1";
+  const SENSENOVA_URL = "https://token.sensenova.cn/v1";
+
+  it("zhipu / qwen 真多出 Off 且能落盘；未登记开关形状的三家逐字节不变；glm-5.2-air 与目录内同出口", async () => {
+    providersPayload = [
+      provider({ id: "p1", model: "glm-5.2", baseUrl: GLM_BASE_URL, presetId: "zhipu" }),
+      provider({ id: "p2", model: "glm-5.2", baseUrl: QWEN_BASE_URL, presetId: "qwen" }),
+      provider({ id: "p3", model: "z-ai/glm-5.2", baseUrl: OPENROUTER_URL, presetId: "openrouter" }),
+      provider({ id: "p4", model: "glm-5.2", baseUrl: SENSENOVA_URL, presetId: "sensenova" }),
+      provider({ id: "p5", model: "glm-5.2", baseUrl: OPENCODEGO_URL, presetId: "opencodego" }),
+      provider({ id: "p6", model: "glm-5.2-air", baseUrl: GLM_BASE_URL, presetId: "zhipu" })
+    ];
+    // 偏好 off：目录内两行应静默满足；三家未登记形状的行落长版提示（与补声明前逐字相同）。
+    settingsPayload = { aiThinkingLevel: "off" };
+
+    await activateChatTab();
+
+    const select = getModelSelect();
+    const chipLevel = document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement;
+    const steps: string[] = [];
+    function snap(label: string): void {
+      steps.push(
+        [
+          label,
+          `条目=[${renderedThinkingLevels().join(",")}]`,
+          `显示名=[${renderedThinkingLabels().join(",")}]`,
+          `选中=[${activeThinkingLevels().join(",")}]`,
+          `chip=${chipLevel.textContent}`,
+          `提示=${getHint().hidden ? "-" : getHint().textContent}`
+        ].join(" | ")
+      );
+    }
+
+    // ① 目录内·原生（zhipu 方言 thinking:{type}）：Off 条目在场、偏好 off 满足、无提示。
+    expect(renderedThinkingLevels()).toEqual(["off", "high", "max"]);
+    expect(renderedThinkingLabels()).toEqual(["Off", "High", "Max"]);
+    expect(activeThinkingLevels()).toEqual(["off"]);
+    expect(getHint().hidden).toBe(true);
+    snap("1 zhipu/glm-5.2（目录内·原生）");
+
+    // 走一遍真实点击：Off → Max → 回 Off，chip 与落盘同步（补声明新开的 Off 条目真能选中）。
+    clickThinking("max");
+    expect(activeThinkingLevels()).toEqual(["max"]);
+    expect(chatSessionState.aiThinkingLevel).toBe("max");
+    expect(chipLevel.textContent).toBe("Max");
+    clickThinking("off");
+    expect(activeThinkingLevels()).toEqual(["off"]);
+    expect(chatSessionState.aiThinkingLevel).toBe("off");
+    expect(chipLevel.textContent).toBe("Off");
+
+    // ② 目录内·托管（qwen 方言 enable_thinking）：A' 同为 {off,high,max}，偏好 off 静默。
+    select.value = modelOptionValue("p2", "glm-5.2");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(renderedThinkingLevels()).toEqual(["off", "high", "max"]);
+    expect(getHint().hidden).toBe(true);
+    snap("2 qwen/glm-5.2（托管·借词）");
+
+    // ③ 三家未登记开关形状的行：事实带 toggle 但无写点 → 条目仍是 {high,max}，提示逐字不变。
+    const unregistered: ReadonlyArray<[providerId: string, label: string, model: string]> = [
+      ["p3", "openrouter/z-ai/glm-5.2", "z-ai/glm-5.2"],
+      ["p4", "sensenova/glm-5.2", "glm-5.2"],
+      ["p5", "opencodego/glm-5.2", "glm-5.2"]
+    ];
+    for (const [index, [providerId, label, model]] of unregistered.entries()) {
+      select.value = modelOptionValue(providerId, model);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      expect(renderedThinkingLevels(), label).toEqual(["high", "max"]);
+      expect(getHint().hidden, label).toBe(false);
+      expect(getHint().textContent, label).toBe(HINT_LOW_FALLBACK);
+      snap(`${3 + index} ${label}（平台形状未登记）`);
+    }
+
+    // ④ 目录外兜底（glm-5.2-air）：off 出口与目录内同为 thinking 开关（档位词表本来就不同）。
+    select.value = modelOptionValue("p6", "glm-5.2-air");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(renderedThinkingLevels()).toEqual(["off", "low", "high"]);
+    expect(getHint().hidden).toBe(true);
+    expect(chipLevel.textContent).toBe("Off");
+    snap("6 zhipu/glm-5.2-air（目录外兜底）");
+
+    expect(steps).toHaveLength(6);
+
+    // 工件：逐步快照（可重跑，内容确定）。
+    const artifactDir = join(process.cwd(), ".scratch", "tickets", "upstream-glm52-toggle", "artifacts");
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(
+      join(artifactDir, "05-e2e-glm52-off.txt"),
+      [
+        "# D1=A2 端到端走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
+        "# 用例：6 行本地 glm-5.2（5 行目录内 + glm-5.2-air 兜底），偏好 off，逐行看档位条目与提示",
+        "# 判据：zhipu / qwen 多出 Off（静默）；openrouter / sensenova / opencodego 逐字节不变（长版提示）",
+        "# 每行 = 一步；同命令重跑逐字节一致",
+        ...steps,
+        ""
+      ].join("\n")
+    );
+  });
+});

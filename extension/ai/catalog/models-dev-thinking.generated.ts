@@ -7,7 +7,8 @@
 //       是 adapter 与 ai/thinking-wire-map.ts 的职责。352 个模型直接有
 //       reasoning_options（取值序 19 号票：值集覆盖表 > canonical_model_id（13 号票 canonical
 //       优先：direct 非空时也先借 canonical_model_id 的词表，悬空才回落 direct）> direct；
-//       canonical 重定向表见 --report 的 canonical 优先节，值集覆盖表见 --report 的值集覆盖节）；
+//       canonical 重定向表见 --report 的 canonical 优先节，值集覆盖表见 --report 的值集覆盖节；
+//       能力补声明（本仓给一行补 off 写点，先增强上游事实再走同一取值序）见 --report 的本仓补声明节）；
 //       63 个缺口里 7 个按 canonical_model_id /
 //       别名表借到原生词表，其余 56 个标「未知词表」（不进表，查表返回 null =
 //       请求侧不发参）。逐条借词来源与缺口清单在 --report / --matrix 工件。
@@ -63,7 +64,7 @@ export interface ThinkingModelFact {
 // 别名指向的 sha256（别名 reason 是文档，不进 hash）。同一份上游数据两次生成必然同值。
 export const UPSTREAM_THINKING_SOURCE = {
   source: "https://models.dev/api.json",
-  contentHash: "sha256:52c913da91454a4224baa0ce9e16221341fa59e187c751a0d82141541b05a92c",
+  contentHash: "sha256:3b477bc5ad81f0543613baa3302795151b83d1c041339e30abbfc0da6f17b35a",
   counts: {
     models: 578,
     reasoning: 415,
@@ -83,7 +84,6 @@ export const VALUESETS: Readonly<Record<string, ThinkingValueset>> = {
   "b:1024-": { label: "always-budget", budget: { min: 1024 } },
   "b:128-32768": { label: "always-budget", budget: { min: 128, max: 32768 } },
   "high": { label: "always-effort", effort: ["high"] },
-  "high-max": { label: "always-effort", effort: ["high", "max"] },
   "high-xhigh": { label: "always-effort", effort: ["high", "xhigh"] },
   "high-xhigh-max": { label: "always-effort", effort: ["high", "xhigh", "max"] },
   "low-high": { label: "always-effort", effort: ["low", "high"] },
@@ -119,6 +119,7 @@ export const VALUESETS: Readonly<Record<string, ThinkingValueset>> = {
   "toggle+b:-81920": { label: "hybrid-switch-budget", toggle: true, budget: { max: 81920 } },
   "toggle+b:0-24576": { label: "hybrid-switch-budget", toggle: true, budget: { min: 0, max: 24576 } },
   "toggle+b:512-24576": { label: "hybrid-switch-budget", toggle: true, budget: { min: 512, max: 24576 } },
+  "toggle+high-max": { label: "hybrid-switch-effort", toggle: true, effort: ["high", "max"] },
   "toggle+low-high-max": { label: "hybrid-switch-effort", toggle: true, effort: ["low", "high", "max"] },
   "toggle+low-medium+b": { label: "hybrid-switch-effort-budget", toggle: true, effort: ["low", "medium"], budget: {} },
   "toggle+low-medium-high": { label: "hybrid-switch-effort", toggle: true, effort: ["low", "medium", "high"] },
@@ -167,7 +168,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "qwen3.6-max-preview": "toggle+b:-131072",
     "qwen3.5-397b-a17b": "toggle+b:-81920",
     "qwen3-8b": "toggle+b:-38912",
-    "glm-5.2": "high-max",
+    "glm-5.2": "toggle+high-max",
     "glm-5.1": "toggle+b:-131072",
     "deepseek-v4-pro": "toggle+low-high-max",
     "qwen3.6-plus": "toggle+b:-81920",
@@ -184,7 +185,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "glm-5.3-flash": "low-high-max",
     "glm-5": "toggle",
     "glm-5.3-flashx": "low-high-max",
-    "glm-5.2": "high-max",
+    "glm-5.2": "toggle+high-max",
     "glm-5.1": "toggle",
     "glm-5.3": "low-high-max",
     "glm-4.5-air": "toggle",
@@ -232,7 +233,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "minimax-m3": "toggle",
     "gpt-5.6-luna": "none-low-medium-high-xhigh-max",
     "qwen3.8-flash": "toggle+low-medium-xhigh+b:-262144",
-    "glm-5.2": "high-max",
+    "glm-5.2": "toggle+high-max",
     "hy3": "none-low-high",
     "muse-spark-1.2-contributor": "minimal-low-medium-high-xhigh",
     "gpt-6-luna": "none-low-medium-high-xhigh-max",
@@ -307,7 +308,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "z-ai/glm-5.3-flashx": "low-high-max",
     "z-ai/glm-4.7-flash": "toggle",
     "z-ai/glm-4.7": "toggle",
-    "z-ai/glm-5.2": "high-max",
+    "z-ai/glm-5.2": "toggle+high-max",
     "z-ai/glm-5.1": "toggle",
     "z-ai/glm-5-turbo": "toggle",
     "z-ai/glm-4.5-air": "toggle",
@@ -510,7 +511,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
   "sensenova": {
     "kimi-k3": "low-high-max",
     "sensenova-6.8-flash-lite": "none-low-medium-high",
-    "glm-5.2": "high-max",
+    "glm-5.2": "toggle+high-max",
     "deepseek-v4-pro": "toggle+low-high-max",
     "deepseek-v4-flash": "toggle+low-high-max",
   },

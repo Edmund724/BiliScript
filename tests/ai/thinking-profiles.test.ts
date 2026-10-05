@@ -305,7 +305,7 @@ describe("18 号票：AMD Radeon Cloud 走上游词表投影", () => {
 });
 
 describe("18 号票：SenseNova 商汤走上游词表投影", () => {
-  it("上游目录内 id（glm-5.2 值集 high-max）：off 关不掉、级联到最小非 off 档 high", () => {
+  it("上游目录内 id（glm-5.2 值集 toggle+high-max）：sensenova 未登记开关形状 → off 关不掉、级联到最小非 off 档 high", () => {
     const r = resolve({ presetId: "sensenova", model: "glm-5.2", level: "off" });
     expect(r.fields).toEqual({ reasoning_effort: "high" });
     expect(r.offUnavailable).toBe(true);

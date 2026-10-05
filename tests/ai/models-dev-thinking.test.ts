@@ -90,11 +90,12 @@ function writeVariant(name: string, mutate: (api: FixtureApi) => void): string {
 
 function generate(name: string, input: string = FIXTURE, extra: string[] = []): string {
   const out = outPath(name);
-  // fixture 是 12 家的合成小快照：本仓真实别名表、canonical 重定向表与值集覆盖表的目标
-  // （k3 / step-3.7-flash / moonshotai/kimi-k2.6 / ZhipuAI/GLM-4.6 / deepseek-flash /
-  // opencode-go/deepseek-v4-pro）都不在里面，所以默认 --aliases none --redirects none
-  // --overrides none（生产默认是脚本里的 MODEL_ID_ALIASES / CANONICAL_MODEL_REDIRECTS /
-  // VOCABULARY_OVERRIDES）；要测这三张机制就传对应的 <path>。
+  // fixture 是 12 家的合成小快照：本仓真实别名表、canonical 重定向表、值集覆盖表与
+  // 能力补声明表的目标（k3 / step-3.7-flash / moonshotai/kimi-k2.6 / ZhipuAI/GLM-4.6 /
+  // deepseek-flash / opencode-go/deepseek-v4-pro / zhipuai/glm-5.2）都不在里面，所以默认
+  // --aliases none --redirects none --overrides none --off-declarations none
+  //（生产默认是脚本里的 MODEL_ID_ALIASES / CANONICAL_MODEL_REDIRECTS / VOCABULARY_OVERRIDES /
+  // OFF_CAPABILITY_DECLARATIONS）；要测这四张机制就传对应的 <path>。
   const run = runGenerator([
     "--input",
     input,
@@ -105,6 +106,8 @@ function generate(name: string, input: string = FIXTURE, extra: string[] = []): 
     "--redirects",
     "none",
     "--overrides",
+    "none",
+    "--off-declarations",
     "none",
     "--expect-counts",
     FIXTURE_COUNTS,
@@ -287,6 +290,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "none",
       "--overrides",
       "none",
+      "--off-declarations",
+      "none",
       "--expect-counts",
       FIXTURE_COUNTS
     ]);
@@ -314,6 +319,8 @@ describe("思考事实生成器 CLI（02）", () => {
         "--redirects",
         file,
         "--overrides",
+        "none",
+        "--off-declarations",
         "none",
         "--expect-counts",
         FIXTURE_COUNTS
@@ -346,6 +353,8 @@ describe("思考事实生成器 CLI（02）", () => {
       generate("overrides", variant, [
         "--overrides",
         overrideFixture,
+        "--off-declarations",
+        "none",
         "--expect-counts",
         "15/12/9/3/4",
         "--report",
@@ -387,6 +396,8 @@ describe("思考事实生成器 CLI（02）", () => {
         "none",
         "--overrides",
         file,
+        "--off-declarations",
+        "none",
         "--expect-counts",
         FIXTURE_COUNTS
       ]);
@@ -413,11 +424,113 @@ describe("思考事实生成器 CLI（02）", () => {
       "none",
       "--overrides",
       dupFile,
+      "--off-declarations",
+      "none",
       "--expect-counts",
       FIXTURE_COUNTS
     ]);
     expect(dup.status, "重复 key 应当硬错").not.toBe(0);
     expect(dup.stderr).toContain("重复");
+  });
+
+  it("能力补声明表（D1=A2）：给一行补 off 能力，值集/指派随平台形状走，报告两节逐条可追", () => {
+    // fixture 的 zhipuai/fx-glm 是唯一的 effort[high,max] 行（真产物里这一行是 glm-5.2）：
+    // 补声明给它插一个 {"type":"toggle"} → 值集 high-max 消失、toggle+high-max 补位，
+    // 档位词表不变（补声明只补能力，不改词表）。
+    const declarationFixture = join(tmpRoot, "off-declarations.json");
+    writeFileSync(
+      declarationFixture,
+      JSON.stringify([
+        {
+          key: "zhipuai/fx-glm",
+          effort: ["high", "max"],
+          reason: "fixture：给这条 effort[high,max] 行补 {\"type\":\"toggle\"}（真产物里是 zhipuai/glm-5.2）。"
+        }
+      ])
+    );
+    const matrix = join(tmpRoot, "off-declaration-matrix.tsv");
+    const report = join(tmpRoot, "off-declaration-report.txt");
+    const body = bodyOf(
+      generate("off-declarations", FIXTURE, [
+        "--off-declarations",
+        declarationFixture,
+        "--report",
+        report,
+        "--matrix",
+        matrix
+      ])
+    );
+    expect(body).toContain(`  "toggle+high-max": { label: "hybrid-switch-effort", toggle: true, effort: ["high", "max"] },`);
+    expect(body).not.toContain(`  "high-max":`);
+    expect(body).toContain(`  "zhipuai": {\n    "fx-glm": "toggle+high-max",\n  },`);
+    // 矩阵逐行可见（补声明是一次事实增强，source 仍是 direct）。
+    expect(readFileSync(matrix, "utf8")).toContain("zhipuai\tfx-glm\tfalse\tdirect\ttoggle+high-max");
+    const reportText = readFileSync(report, "utf8");
+    expect(reportText).toContain("本仓补声明（能力补声明，D1=A2）：表 1 条 / 命中 1 行");
+    expect(reportText).toContain(
+      "zhipuai/fx-glm  before: effort[high,max]（值集 high-max）  after: toggle+effort[high,max]（值集 toggle+high-max）"
+    );
+    expect(reportText).toContain("fixture：给这条 effort[high,max] 行补");
+    // 上游缺口对账（只报告不改动；交接单 §8.4）：本行缺 toggle/none，同族上游行的读数打出来。
+    expect(reportText).toContain("上游缺口对账（只报告不改动；交接单 §8.4）：");
+    expect(reportText).toContain(
+      `zhipuai/fx-glm：上游同族口径 = 模型 id 含 "fx-glm"（大小写不敏感），共 1 行；显式带 toggle 0 行 / effort 含 none 0 行；两者都缺 1 行（含本行，本补声明只修本行）：`
+    );
+    expect(reportText).toContain("    zhipuai/fx-glm");
+  });
+
+  it("能力补声明表：上游已带 toggle（自退役）/ effort 漂移 / key 不存在 / 表形状错 一律硬错", () => {
+    const bad: [string, Record<string, unknown>][] = [
+      // ① key 形状 / 存在性 / reasoning_options 非空
+      ["key-missing", { key: "amd/no-such-model", effort: ["high"], reason: "这条行不存在" }],
+      ["key-malformed", { key: "fx-glm", effort: ["high"], reason: "缺 provider 前缀" }],
+      ["key-no-options", { key: "amd/Fx-AMD-Upper", effort: ["high"], reason: "该行没有 reasoning_options" }],
+      // ② 上游已经带 toggle → 本条自退役（硬报错提醒删除）
+      ["already-toggle", { key: "deepseek/fx-pdf-first", effort: ["low", "high", "max"], reason: "上游已有 toggle" }],
+      // ③ 期望 effort 与上游词表不一致（防静默漂移）
+      ["effort-drift", { key: "zhipuai/fx-glm", effort: ["high"], reason: "上游是 high/max，这里写少了" }],
+      // 表形状：缺 reason / effort 不是非空字符串数组
+      ["missing-reason", { key: "zhipuai/fx-glm", effort: ["high", "max"], reason: "" }],
+      ["bad-effort", { key: "zhipuai/fx-glm", effort: [], reason: "空 effort" }]
+    ];
+    for (const [name, entry] of bad) {
+      const file = join(tmpRoot, `off-declarations-${name}.json`);
+      writeFileSync(file, JSON.stringify([entry]));
+      const run = runGenerator([
+        "--input",
+        FIXTURE,
+        "--out",
+        outPath(`off-declarations-${name}-out`),
+        "--aliases",
+        "none",
+        "--redirects",
+        "none",
+        "--overrides",
+        "none",
+        "--off-declarations",
+        file,
+        "--expect-counts",
+        FIXTURE_COUNTS
+      ]);
+      expect(run.status, `补声明 ${name} 应当硬错`).not.toBe(0);
+      expect(run.stderr).toContain("sync-models-dev-thinking");
+    }
+    // 缺参数值的形状错也硬错。
+    const missing = runGenerator([
+      "--input",
+      FIXTURE,
+      "--out",
+      outPath("off-declarations-missing-value"),
+      "--aliases",
+      "none",
+      "--redirects",
+      "none",
+      "--overrides",
+      "none",
+      "--off-declarations"
+    ]);
+    expect(missing.status).not.toBe(0);
+    expect(missing.stderr).toContain("--off-declarations");
   });
 
   it("别名表：查表兜底 + 缺口补录，目标指错一律硬错（不许静默落空）", () => {
@@ -472,6 +585,8 @@ describe("思考事实生成器 CLI（02）", () => {
         "none",
         "--overrides",
         "none",
+        "--off-declarations",
+        "none",
         "--expect-counts",
         FIXTURE_COUNTS
       ]);
@@ -493,6 +608,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "none",
       "--overrides",
       "none",
+      "--off-declarations",
+      "none",
       "--overrides",
       "none"
     ]);
@@ -511,6 +628,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "none",
       "--overrides",
       "none",
+      "--off-declarations",
+      "none",
       "--expect-counts",
       "15/12/9/4/5"
     ]);
@@ -527,6 +646,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "--redirects",
       "none",
       "--overrides",
+      "none",
+      "--off-declarations",
       "none",
       "--expect-counts",
       "15/12"
@@ -556,6 +677,8 @@ describe("思考事实生成器 CLI（02）", () => {
         "--redirects",
         "none",
         "--overrides",
+        "none",
+        "--off-declarations",
         "none",
         "--expect-counts",
         FIXTURE_COUNTS
@@ -603,6 +726,8 @@ describe("思考事实生成器 CLI（02）", () => {
       "--redirects",
       "none",
       "--overrides",
+      "none",
+      "--off-declarations",
       "none",
       "--expect-counts",
       FIXTURE_COUNTS,

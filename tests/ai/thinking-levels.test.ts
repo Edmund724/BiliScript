@@ -135,11 +135,25 @@ describe("落线：clamp 后的档位就是实发档位", () => {
     expect(fields("max")).toEqual({ reasoning_effort: "xhigh" });
   });
 
-  it("关不掉的模型偏好 off：级联落可用集最小档（glm-5.2 A={high,max} → high）", () => {
-    const r = resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "off", stream: true });
+  it("关不掉的模型偏好 off：级联落可用集最小档（sensenova/glm-5.2 A={high,max} → high）", () => {
+    // D1=A2 前这个样本是 zhipu/glm-5.2；补声明后它的 off 可用（见下一条），同形状且仍关不掉的
+    // 代表行换成 sensenova/glm-5.2（未登记开关形状 → toggle 不产写点，A' 不变）。
+    const r = resolveThinkingProfile({ presetId: "sensenova", model: "glm-5.2", level: "off", stream: true });
     expect(r.fields).toEqual({ reasoning_effort: "high" });
     expect(r.offUnavailable).toBe(true);
     expect(r.offFallback).toBe("low");
+  });
+
+  it("D1=A2 本仓补声明：zhipu/glm-5.2 偏好 off 真落 thinking:{type:\"disabled\"}（不再级联）", () => {
+    const r = resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "off", stream: true });
+    expect(r.fields).toEqual({ thinking: { type: "disabled" } });
+    expect(r.offUnavailable).toBe(false);
+    expect(r.offFallback).toBe(null);
+    expect(r.thinkingClass).toBe("hybrid");
+    // A' 里没有 low → 偏好 low 向下取到 off（与 qwen3.8-max 的偏好 high 落 medium 同一条 clamp 语义）。
+    expect(
+      resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "low", stream: true }).fields
+    ).toEqual({ thinking: { type: "disabled" } });
   });
 
   it("上游未登记模型走手写兜底：A={off,low,high} → xhigh 向下取 high", () => {

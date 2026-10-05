@@ -21,7 +21,8 @@
 //   pnpm catalog:sync:thinking
 //   node scripts/sync-models-dev-thinking.mjs \
 //     [--input <path|url>] [--out <path>] [--expect-counts a/b/c/d/e] \
-//     [--aliases <path|none>] [--redirects <path|none>] [--report <path>] [--matrix <path>]
+//     [--aliases <path|none>] [--redirects <path|none>] [--overrides <path|none>]
+//     [--off-declarations <path|none>] [--report <path>] [--matrix <path>]
 //
 //   --input          读本地 api.json 快照（默认直连 https://models.dev/api.json）。
 //   --out            产物落点（默认 extension/ai/catalog/models-dev-thinking.generated.ts）。
@@ -30,6 +31,7 @@
 //   --aliases        显式别名表（默认脚本里的 MODEL_ID_ALIASES；`none` = 不加载）。
 //   --redirects      canonical 重定向表（默认脚本里的 CANONICAL_MODEL_REDIRECTS；`none` = 不加载）。
 //   --overrides      值集覆盖表（默认脚本里的 VOCABULARY_OVERRIDES；`none` = 不加载）。
+//   --off-declarations 能力补声明表（默认脚本里的 OFF_CAPABILITY_DECLARATIONS；`none` = 不加载）。
 //   --report         另把本次 sync 的摘要 + 63 个缺口的逐条处理写成文件。
 //   --matrix         另把逐 (provider, 模型, 档位空间) 矩阵写成 TSV（后续 golden 的数据来源）。
 
@@ -162,6 +164,38 @@ const VOCABULARY_OVERRIDES = [
   }
 ];
 
+// 能力补声明表（D1=A2，2026-10-05 用户裁定；本仓第一次「能力补声明」）：本仓显式给**一行**补上
+// 它缺失的 off 能力（结构里插一个 {"type":"toggle"}），不改词表主人、不改档位词表。
+// 与三张既有表的分工：MODEL_ID_ALIASES 管 id 解析（本仓/历史口径 → 上游 id）、
+// CANONICAL_MODEL_REDIRECTS 管**指针指向**（悬空 canonical → 真实目标）、
+// VOCABULARY_OVERRIDES 管**归属**（这一行的词表主人是另一条上游记录）；
+// **本表是第一次「能力补声明」** —— 词表主人不动（仍是这一行自己，canonical 子行照旧继承），
+// 只把它缺失的 off 写点来源补进上游事实，使上游投影与本仓既有口径一致。
+// 纪律同前三张表：每条必须写清依据（可审），生成期逐条 fail-loud 校验三件事（见 compileFacts）：
+//   ① key 形状合法、存在于快照、reasoning_options 非空；
+//   ② 该行**当前不得**已有 toggle —— 上游将来补上就硬报错提醒删除本条（**自退役**）；
+//   ③ 增强后的 effort 词表必须等于声明里写的期望值 —— 上游改词表时硬报错，防静默漂移。
+const OFF_CAPABILITY_DECLARATIONS = [
+  {
+    key: "zhipuai/glm-5.2",
+    effort: ["high", "max"],
+    reason:
+      "上游 zhipuai/glm-5.2 的 reasoning_options 只有 effort[high,max]、漏了 {\"type\":\"toggle\"}，" +
+      "本仓补上 off 能力（结构增强，不改词表主人）。依据只许引两处：①厂商文档 " +
+      "docs.z.ai/guides/capabilities/thinking-mode 只把 GLM-5.3 / 5.3-FLASH 列为不可关闭" +
+      "（GLM-5.2 不在其中），docs.bigmodel.cn/cn/guide/capabilities/thinking 里 thinking.type 是 " +
+      "GLM-5.2 的原生参数、reasoning_effort 仅 5.2 及以上支持 —— 「按轮开关」是该族既有能力；" +
+      "②本仓先例：extension/ai/thinking-profiles.ts 的 CLASSES[\"glm-hybrid-effort\"] 本来就带 " +
+      "off:{thinking:{type:\"disabled\"}}，今天只服务目录外 id（同一 zhipu 预设下手填 glm-5.2-air " +
+      "能选 Off、目录里的 glm-5.2 不能），本声明让上游投影与它对齐。**不许用「家族 N 行也有 " +
+      "toggle」当依据**：中转站会造词面（glm-4.6/glm-4.7 被造出厂商没有的 effort 词），且全库 " +
+      "toggle+[high,max] 的 42 行里 37 行是 DeepSeek，不是 GLM-5.2 家族。13 号票 canonical 优先让 " +
+      "本行成为全家族词表主人，缺口因此外溢到 alibaba-cn / opencode-go / openrouter / sensenova " +
+      "四行；其中只有 zhipu（thinking:{type:\"disabled\"}）与 qwen（enable_thinking:false）已登记 " +
+      "开关形状 → 行为 2 行，其余 3 家事实带 toggle 但无写点（裁定 3 不发明新形状，面板逐字节不变）。"
+  }
+];
+
 // 对账常量（spec §词汇覆盖缺口 + §上游形态，主 agent 复核实测）。不是这些数说明上游
 // 内容或路径变了 —— 先确认快照 contentHash 与 spec 记录，再同步本常量、spec 与
 // tests/ai/models-dev-thinking.test.ts 的期望值。
@@ -190,13 +224,14 @@ function parseArgs(argv) {
     aliases: null,
     redirects: null,
     overrides: null,
+    offDeclarations: null,
     expectCounts: EXPECTED_COUNTS
   };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const value = argv[i + 1];
     if (
-      ["--input", "--out", "--report", "--matrix", "--aliases", "--redirects", "--overrides", "--expect-counts"].includes(flag)
+      ["--input", "--out", "--report", "--matrix", "--aliases", "--redirects", "--overrides", "--off-declarations", "--expect-counts"].includes(flag)
     ) {
       if (value === undefined) fail(`${flag} 缺参数值`);
       i += 1;
@@ -207,13 +242,14 @@ function parseArgs(argv) {
       else if (flag === "--aliases") options.aliases = value;
       else if (flag === "--redirects") options.redirects = value;
       else if (flag === "--overrides") options.overrides = value;
+      else if (flag === "--off-declarations") options.offDeclarations = value;
       else options.expectCounts = parseExpectCounts(value);
       continue;
     }
     fail(
       `未知参数 "${flag}"。用法：--input <path|url> --out <path> --aliases <path|none> ` +
-        `--redirects <path|none> --overrides <path|none> --expect-counts <a/b/c/d/e> ` +
-        `--report <path> --matrix <path>`
+        `--redirects <path|none> --overrides <path|none> --off-declarations <path|none> ` +
+        `--expect-counts <a/b/c/d/e> --report <path> --matrix <path>`
     );
   }
   return options;
@@ -282,6 +318,47 @@ function loadOverrides(option) {
       if (typeof entry[field] !== "string" || entry[field].length === 0) {
         fail(`--overrides[${index}] 缺非空字符串字段 ${field}（每条 reason 必填，可审）。`);
       }
+    }
+  }
+  return parsed;
+}
+
+// 能力补声明表来源：默认脚本里的 OFF_CAPABILITY_DECLARATIONS（本仓事实，生产路径）；fixture
+// 用小表，`none` = 不加载（fixture 快照里没有这些行，默认表会触发校验①硬错）。
+function loadOffDeclarations(option) {
+  if (option === null) {
+    return OFF_CAPABILITY_DECLARATIONS;
+  }
+  if (option === "none") {
+    return [];
+  }
+  if (!fs.existsSync(option)) {
+    fail(`--off-declarations 指向的文件不存在：${option}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(option, "utf8"));
+  } catch (error) {
+    fail(`--off-declarations 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!Array.isArray(parsed)) {
+    fail(`--off-declarations 顶层必须是数组（每条 {key, effort, reason}）。`);
+  }
+  for (const [index, entry] of parsed.entries()) {
+    if (!entry || typeof entry !== "object") {
+      fail(`--off-declarations[${index}] 不是对象。`);
+    }
+    for (const field of ["key", "reason"]) {
+      if (typeof entry[field] !== "string" || entry[field].length === 0) {
+        fail(`--off-declarations[${index}] 缺非空字符串字段 ${field}（每条 reason 必填，可审）。`);
+      }
+    }
+    if (
+      !Array.isArray(entry.effort) ||
+      entry.effort.length === 0 ||
+      entry.effort.some((value) => typeof value !== "string" || value.length === 0)
+    ) {
+      fail(`--off-declarations[${index}] 缺非空字符串数组字段 effort（声明期望的 effort 词表，防上游静默漂移）。`);
     }
   }
   return parsed;
@@ -462,12 +539,85 @@ function pickUpstreamProvider(api, upstreamId, preset) {
 }
 
 // 编译一遍：值集去重 + 逐模型指派。返回的都是纯数据，渲染与报告共用。
-function compileFacts(api, aliases, redirects, overrides) {
+function compileFacts(api, aliases, redirects, overrides, offDeclarations) {
   const valuesets = new Map();
   const structureOf = new Map();
   const gaps = [];
   const counts = { models: 0, reasoning: 0, withOptions: 0, gaps: 0, effortSets: 0 };
   const effortSets = new Set();
+
+  // 上游缺口对账（交接单 §8.4；只报告不改动）：在本行被增强**之前**扫原始快照，回答
+  // 「本行缺 toggle/none，但同为 <该模型 id> 的上游行里有多少条有」。口径 = 上游模型 id 含
+  // 声明里的模型 id（大小写不敏感，覆盖 openrouter 的 `z-ai/glm-5.2` 与 zai-coding-plan 的
+  // `glm-5.2-highspeed` 这类同族写法）。报表专用，不改任何事实、不建规则。
+  const offDeclarationGaps = offDeclarations.map((entry) => {
+    const parts = splitUpstreamId(entry.key);
+    const needle = parts ? parts.modelId.toLowerCase() : entry.key.toLowerCase();
+    const rows = [];
+    for (const [providerId, provider] of Object.entries(api)) {
+      const models = provider && typeof provider === "object" ? provider.models : undefined;
+      if (!models || typeof models !== "object") continue;
+      for (const [modelId, model] of Object.entries(models)) {
+        if (!model || typeof model !== "object") continue;
+        if (!modelId.toLowerCase().includes(needle)) continue;
+        const options = Array.isArray(model.reasoning_options) ? model.reasoning_options : [];
+        rows.push({
+          key: `${providerId}/${modelId}`,
+          toggle: options.some((option) => option && option.type === "toggle"),
+          none: options.some(
+            (option) => option && option.type === "effort" && Array.isArray(option.values) && option.values.includes("none")
+          )
+        });
+      }
+    }
+    return {
+      key: entry.key,
+      total: rows.length,
+      toggle: rows.filter((row) => row.toggle).length,
+      none: rows.filter((row) => row.none).length,
+      neither: rows.filter((row) => !row.toggle && !row.none).map((row) => row.key)
+    };
+  });
+
+  // 能力补声明解析（D1=A2）：逐条 fail-loud 校验（见 OFF_CAPABILITY_DECLARATIONS 注释的
+  // ① ② ③），校验通过后就地增强快照对象。增强必须发生在逐 provider 循环**之前**：
+  // canonical 借词在循环里读 target.reasoning_options，override 表也在循环前解析目标数组。
+  const offDeclarationHits = [];
+  for (const entry of offDeclarations) {
+    const parts = splitUpstreamId(entry.key);
+    if (!parts) {
+      fail(`能力补声明 key 必须是 "<上游 provider>/<模型 id>"，收到 "${entry.key}"。`);
+    }
+    const model = api[parts.providerId]?.models?.[parts.modelId];
+    if (!model || typeof model !== "object") {
+      fail(`能力补声明 ${entry.key}: 快照里没有这个模型（上游删了或改了 id？这条补声明已失效，请删）。`);
+    }
+    const where = `${entry.key}（能力补声明）`;
+    const structure = normalizeOptions(where, model.reasoning_options);
+    if (structure.toggle) {
+      fail(
+        `能力补声明 ${entry.key}: 上游已经补上了 {"type":"toggle"} —— 本条已无必要，请删除（自退役）；` +
+          `同时核对--report 的上游缺口对账节是否已归零。`
+      );
+    }
+    if (!structure.effort || structure.effort.join(",") !== entry.effort.join(",")) {
+      fail(
+        `能力补声明 ${entry.key}: 期望 effort[${entry.effort.join(",")}]，快照里是 ` +
+          `${structure.effort ? `effort[${structure.effort.join(",")}]` : "（无 effort 词表）"} —— ` +
+          `上游词表变了，先核对厂商文档与 spec，再同步本条。`
+      );
+    }
+    model.reasoning_options = [...model.reasoning_options, { type: "toggle" }];
+    const enhanced = normalizeOptions(where, model.reasoning_options);
+    offDeclarationHits.push({
+      key: entry.key,
+      before: `effort[${structure.effort.join(",")}]`,
+      after: `toggle+effort[${structure.effort.join(",")}]`,
+      valuesetBefore: slugOf(structure),
+      valuesetAfter: slugOf(enhanced),
+      reason: entry.reason
+    });
+  }
 
   // 重定向表解析：逐条 fail-loud 校验目标存在且有词表（见 CANONICAL_MODEL_REDIRECTS 注释）；
   // 同一个 canonical 出现两条也硬错（静默取后者等于表里有条死条目）。key = canonical id。
@@ -742,7 +892,10 @@ function compileFacts(api, aliases, redirects, overrides) {
     redirectHits,
     redirects,
     overrideHits,
-    overrides
+    overrides,
+    offDeclarations,
+    offDeclarationHits,
+    offDeclarationGaps
   };
 }
 
@@ -876,7 +1029,8 @@ function renderModule({ source, contentHash, facts }) {
 //       是 adapter 与 ai/thinking-wire-map.ts 的职责。${facts.counts.withOptions} 个模型直接有
 //       reasoning_options（取值序 19 号票：值集覆盖表 > canonical_model_id（13 号票 canonical
 //       优先：direct 非空时也先借 canonical_model_id 的词表，悬空才回落 direct）> direct；
-//       canonical 重定向表见 --report 的 canonical 优先节，值集覆盖表见 --report 的值集覆盖节）；
+//       canonical 重定向表见 --report 的 canonical 优先节，值集覆盖表见 --report 的值集覆盖节；
+//       能力补声明（本仓给一行补 off 写点，先增强上游事实再走同一取值序）见 --report 的本仓补声明节）；
 //       ${facts.counts.gaps} 个缺口里 ${borrowedTotal} 个按 canonical_model_id /
 //       别名表借到原生词表，其余 ${unknownTotal} 个标「未知词表」（不进表，查表返回 null =
 //       请求侧不发参）。逐条借词来源与缺口清单在 --report / --matrix 工件。
@@ -1117,6 +1271,29 @@ function renderReport(summary, facts, capturedAt) {
   for (const hit of facts.overrideHits) {
     lines.push(`    命中 ${hit}`);
   }
+  // 本仓补声明节（D1=A2）：能力补声明逐条可追（表内容 + 实际命中的行 before/after + 理由）。
+  lines.push(
+    "",
+    `本仓补声明（能力补声明，D1=A2）：表 ${facts.offDeclarations.length} 条 / 命中 ${facts.offDeclarationHits.length} 行`
+  );
+  for (const hit of facts.offDeclarationHits) {
+    lines.push(
+      `    ${hit.key}  before: ${hit.before}（值集 ${hit.valuesetBefore}）  after: ${hit.after}（值集 ${hit.valuesetAfter}）`
+    );
+    lines.push(`      reason: ${hit.reason}`);
+  }
+  // 上游缺口对账（交接单 §8.4）：只报告不改动 —— 本行缺 toggle/none，但同为该模型的上游行
+  // 有多少条有；以及仍缺的行清单。不建规则、不逐条修。
+  lines.push("", "上游缺口对账（只报告不改动；交接单 §8.4）：");
+  for (const gap of facts.offDeclarationGaps) {
+    lines.push(
+      `  ${gap.key}：上游同族口径 = 模型 id 含 "${gap.key.slice(gap.key.indexOf("/") + 1)}"（大小写不敏感），共 ${gap.total} 行；` +
+        `显式带 toggle ${gap.toggle} 行 / effort 含 none ${gap.none} 行；两者都缺 ${gap.neither.length} 行（含本行，本补声明只修本行）：`
+    );
+    for (const key of gap.neither) {
+      lines.push(`    ${key}`);
+    }
+  }
   lines.push("", `值集（${facts.valuesets.size}）：`);
   for (const valueset of [...facts.valuesets.values()].sort((a, b) => (a.id < b.id ? -1 : 1))) {
     const effort = valueset.effort ? valueset.effort.join("/") : "-";
@@ -1189,7 +1366,8 @@ async function main() {
     api,
     loadAliases(options.aliases),
     loadRedirects(options.redirects),
-    loadOverrides(options.overrides)
+    loadOverrides(options.overrides),
+    loadOffDeclarations(options.offDeclarations)
   );
   assertCounts(facts.counts, options.expectCounts);
 
