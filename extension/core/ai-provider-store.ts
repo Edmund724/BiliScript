@@ -12,8 +12,15 @@
 import { createProviderStore } from "./provider-store.js";
 import { normalizeBaseUrl } from "./presets.js";
 import { AI_PROTOCOLS, type AiProtocol } from "../ai/protocol-vocab.js";
+// 条目类型单源（票 ai-entry-type/01）：AI 平台条目的字段真值在协议侧
+//（ai/types.AiProvider，线格式宽松面）——本接口继承它，只在其上补记录面的
+// 精确必需字段。继承同时带来线格式面的 string 索引签名，故 store 产物
+//（AiProvider & {hasSavedKey}）成为协议条目 ProviderListEntry 的子类型；
+// 此前 store 面是独立声明的精确交叉类型，交叉类型不获得隐式索引签名
+//（microsoft/TypeScript#15300），两侧静态互不可赋值。
+import type { AiProvider as AiProviderWire } from "../ai/types.js";
 
-export interface AiProvider {
+export interface AiProvider extends AiProviderWire {
   id: string;
   presetId: string;
   name: string;
@@ -56,7 +63,8 @@ function normalizeModelsField(raw: unknown): string[] {
 
 function normalizeAiProvider(item: unknown): AiProvider | null {
   if (!item || typeof item !== "object") return null;
-  const raw = item as Partial<AiProvider> & { model?: unknown };
+  // 遗留单模型字段 model 由继承的线格式面声明（AiProviderWire.model?: string）。
+  const raw = item as Partial<AiProvider>;
   const id = String(raw.id || "").trim();
   if (!id) return null;
   // 无感迁移（拍板 Q2）：旧单模型记录读时包成单元素目录。trim/去空/去重由

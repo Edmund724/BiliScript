@@ -133,6 +133,10 @@ export type FetchJsonResponse = {
 
 // provider 列表响应条目：core/provider-store 的 list 载荷——Key 不明文回传，
 // 只带 hasSavedKey 占位。
+// 条目类型真值（票 ai-entry-type/01）：AI 族的记录面（core/ai-provider-store.ts
+// 的 AiProvider）继承本行字段面（ai/types.AiProvider），store 产物
+// （AiProvider & {hasSavedKey}）即本类型的子类型，两侧不再各持一份互不可赋值的
+// 声明。
 export type ProviderListEntry = AiProvider & { hasSavedKey: boolean };
 export type AsrProviderListEntry = AsrProvider & { hasSavedKey: boolean };
 export type SearchProviderListEntry = SearchProvider & { hasSavedKey: boolean };

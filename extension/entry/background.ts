@@ -89,8 +89,10 @@ import {
   type BackgroundMessageHandler,
   type BackgroundMessageType,
   type BackgroundResponseOf,
+  type AsrProviderListEntry,
   type MessageReplyDecision,
   type MessageSender,
+  type ProviderListEntry,
   type ResolveSearchProviderResponse,
   type SearchProviderListEntry,
   type SendResponse
@@ -335,7 +337,10 @@ function handleFetchJson(message: Msg<"fetch-json">, _sender: MessageSender, sen
 // content 侧直调，wav-encode 链同样不进 SW。故本工厂不注入 probe。
 // 族 CRUD 的落盘走写入口（族键面直接吃 PROVIDER_FAMILY_STORAGE_KEYS），落盘
 // await 完成后族快照立即失效——load-modify-write 本体仍直读存储，不经快照。
-const aiProviderHandlers = createProviderMessageHandlers({
+// 工厂的族条目类型实参显式取该族协议条目类型（AI/ASR/search 三处同理）：store
+// 产物必须保持可赋给它，条目类型单源的不变量由这层注解在 tsc 门禁钉住（票
+// ai-entry-type/01）。
+const aiProviderHandlers = createProviderMessageHandlers<ProviderListEntry>({
   loadProviders: aiProviderStore.loadProviders,
   saveProviders: invalidatingWrite(aiProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.ai),
   deleteProvider: invalidatingWrite(aiProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.ai),
@@ -496,7 +501,7 @@ function handleAsrPresetsList(_message: Msg<"asr-presets-list">, _sender: Messag
 
 // ASR 平台 CRUD 处理器：连通性测试已迁出 SW，本工厂只负责列表 / Key 的
 // 消息路由，与 AI 家族共用同一套契约。
-const asrProviderHandlers = createProviderMessageHandlers({
+const asrProviderHandlers = createProviderMessageHandlers<AsrProviderListEntry>({
   loadProviders: asrProviderStore.loadProviders,
   saveProviders: invalidatingWrite(asrProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.asr),
   deleteProvider: invalidatingWrite(asrProviderStore.deleteProvider, PROVIDER_FAMILY_STORAGE_KEYS.asr),
@@ -542,7 +547,7 @@ async function deleteSearchProviderAndClearCache(providerId: string): Promise<Se
 // 搜索平台 CRUD 处理器（spec §3.3）：与 AI / ASR 家族共用同一套契约（列表 /
 // Key 的消息路由），连通性测试随后续 tool-loop 迭代再议。删除入口挂撤回清缓存
 // （§6.7 / §10 第 40 行）：删掉记录即本地不再留 query 哈希与结果。
-const searchProviderHandlers = createProviderMessageHandlers({
+const searchProviderHandlers = createProviderMessageHandlers<SearchProviderListEntry>({
   loadProviders: searchProviderStore.loadProviders,
   saveProviders: invalidatingWrite(searchProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.search),
   deleteProvider: deleteSearchProviderAndClearCache,

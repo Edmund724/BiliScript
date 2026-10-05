@@ -65,29 +65,24 @@ export function withOkResponse<R>(
   })();
 }
 
-// 家族回包形状（三个 provider 家族的协议响应同构，只有条目类型不同：工厂按条目
-// 类型泛型化，各族的 protocol 响应类型在 background 路由表处逐键对账）。
-//
-// EntryFace 是条目类型 E 的键面投影（匿名对象面）。为什么不让字段直接收 E：
-// 三个族的协议条目类型里，AI 族那份（ai/types 的 AiProvider，线格式宽松面）带
-// string 索引签名，而 store 产物是 core/ai-provider-store.AiProvider 与
-// {hasSavedKey} 的交叉类型——TS 只给**匿名对象类型**推隐式索引签名，交叉类型
-// 不获得（microsoft/TypeScript#15300），E 直接对线格式条目双向都不可赋值。键面
-// 投影两侧都通：store 的精确交叉类型可赋进来（目标本身不带索引签名要求），投影
-// 面又带隐式索引签名，可赋给线格式条目。条目语义不变，只是换一张等价的脸。
-export type ProviderEntryFace<E> = { [K in keyof E]: E[K] };
-
+// 家族回包形状（三个 provider 家族的协议响应同构，只有条目类型不同：工厂按「族的
+// 条目类型」E 泛型化，background 装配处显式给 E = 该族协议条目类型——各族 store
+// 产物（core/provider-store 的 T & {hasSavedKey}）是它的子类型。条目类型单源（票
+// ai-entry-type/01）：AI 族的记录面继承线格式宽松面（core/ai-provider-store.ts 的
+// AiProvider extends ai/types.AiProvider），store 产物由此成为协议条目
+// ProviderListEntry 的子类型，不再需要键面投影（microsoft/TypeScript#15300 的
+// 「交叉类型无隐式索引签名」问题随继承消失）。
 export type ProviderProvidersResponse<E> = {
   ok: boolean;
-  providers?: Array<ProviderEntryFace<E>>;
+  providers?: E[];
   error?: string;
 };
 export type ProviderKeyResponse = { ok: boolean; apiKey?: string; error?: string };
 
 export interface ProviderMessageHandlersDeps<E> {
-  loadProviders: () => Promise<Array<ProviderEntryFace<E>>>;
-  saveProviders: (items: unknown[]) => Promise<Array<ProviderEntryFace<E>>>;
-  deleteProvider: (providerId: string) => Promise<Array<ProviderEntryFace<E>>>;
+  loadProviders: () => Promise<E[]>;
+  saveProviders: (items: unknown[]) => Promise<E[]>;
+  deleteProvider: (providerId: string) => Promise<E[]>;
   loadKeys: () => Promise<Record<string, string>>;
 }
 
@@ -209,7 +204,9 @@ export const NO_ACTIVE_PROVIDER_MESSAGE = "还没有配置 AI 平台，请先在
 
 export interface AiResolvedProviderHandlerDeps {
   getMergedSettings: () => Promise<{ defaultModel?: unknown }>;
-  loadProviders: () => Promise<unknown[]>;
+  // 条目形状收成协议条目类型（票 ai-entry-type/01 单源化后 store 产物即其子类型，
+  // 不再需要形状谓词做类型收束）。
+  loadProviders: () => Promise<ProviderListEntry[]>;
   loadKeys: () => Promise<Record<string, string>>;
 }
 
@@ -232,17 +229,15 @@ export function createAiResolvedProviderHandler({
       (async () => {
         const requestedId = String((message as { providerId?: unknown })?.providerId || "").trim();
         const providers = (await loadProviders()) || [];
-        // 条目收束（判据在谓词里，收束结果 = 协议声明的线格式条目）：AI 族线格式
-        // 条目（ai/types 的 AiProvider，带 string 索引签名）与 store 产物的精确
-        // 条目（core/ai-provider-store.AiProvider 的交叉类型）是两份声明，交叉类型
-        // 无隐式索引签名（TS #15300），静态上互不可赋值——本条处理器只做「对象 +
-        // enabled 未显式关闭 + id 非空」的形状收束（与收敛前的过滤判据逐字同义）。
+        // 运行时形状收束：只放「对象 + enabled 未显式关闭 + id 非空」的条目（判据
+        // 与收敛前过滤逐字同义）。条目类型单源后不再需要类型谓词——收束结果本就
+        // 是协议声明的线格式条目。
         const enabled = providers.filter(
-          (item): item is ProviderListEntry =>
+          (item) =>
             Boolean(item)
             && typeof item === "object"
-            && (item as { enabled?: unknown }).enabled !== false
-            && String((item as { id?: unknown }).id || "").trim() !== ""
+            && item.enabled !== false
+            && String(item.id || "").trim() !== ""
         );
         let provider: ProviderListEntry | null = null;
         if (requestedId) {
