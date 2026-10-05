@@ -4,9 +4,10 @@
 // Pure data only — no logic; normalizers live in validators.ts /
 // presets.ts, generic utils in shared/utils.ts.
 
-// 思考档位的取值域类型（05 号票：上游词表的 7 档）。type-only import = 编译后无边，
-// 取值域实体在零 import 的词表叶 ai/thinking-levels.ts（core 与请求路径两侧同源）。
-import type { ThinkingLevel } from "../ai/thinking-levels.js";
+// 思考档位的取值域类型（05 号票 7 档 + 2026-10-05 的 default「不干预」）。type-only
+// import = 编译后无边，取值域实体在零 import 的词表叶 ai/thinking-levels.ts
+//（core 与请求路径两侧同源）。
+import type { ThinkingLevelValue } from "../ai/thinking-levels.js";
 
 // ===== Version =====
 // Single source of truth for the extension version; consumed by the content
@@ -48,7 +49,7 @@ export interface Settings {
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   defaultModel: string;
-  aiThinkingLevel: ThinkingLevel;
+  aiThinkingLevel: ThinkingLevelValue;
   activeAsrProviderId: string;
   asrAutoFallback: boolean;
   asrLanguage: string;
@@ -91,7 +92,9 @@ export const DEFAULT_SETTINGS: Settings = {
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],
   defaultModel: "",
-  aiThinkingLevel: "off",
+  // 思考档位出厂/重置默认 = default（不干预：不发任何思考字段，由平台默认行为决定）。
+  // 2026-10-05 用户裁定；7 档强度偏好的合法值不变（见 ai/thinking-levels 的两个词表）。
+  aiThinkingLevel: "default",
   // ===== ASR（语音转写）回退配置 =====
   // asrProviders 列表不在此处：provider 列表归 asr/asr-provider-store.js
   // （provider-store 收口，经 asr-providers-save 消息写回），settings 只存标量。

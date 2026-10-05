@@ -1243,11 +1243,11 @@ describe("resize 合帧（P2-3：model-select 宽度重算走 rAF 而非同步�
     expect(chip.style.width).toBe("");
 
     await waitFor(() => chip.style.width !== "");
-    // jsdom canvas 降级 8px/字符：模型名「平台一·模型一」7 字符 + 档位 Off 3 字符
-    // → 56 + 24 + 44 = 124，与直接调用 updateModelSelectWidth 同结果
-    // （tests/ui/model-select-width.test.ts 另锁「一帧至多一帧」的合帧计数与
-    // [92, 420] 区间）。
-    expect(chip.style.width).toBe("124px");
+    // jsdom canvas 降级 8px/字符：模型名「平台一·模型一」7 字符 + 档位 Default 7 字符
+    // → 56 + 56 + 44 = 156，与直接调用 updateModelSelectWidth 同结果
+    // （出厂默认 = `default`（不干预），chip 写 Default；2026-10-05 用户裁定前写的是 Off 3 字符）。
+    // tests/ui/model-select-width.test.ts 另锁「一帧至多一帧」的合帧计数与 [92, 420] 区间。
+    expect(chip.style.width).toBe("156px");
   });
 });
 

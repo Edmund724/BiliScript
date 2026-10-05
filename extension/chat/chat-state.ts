@@ -27,7 +27,7 @@ import type { AiContext, ImagePart } from "../ai/types.js";
 import { buildContextKey } from "../ai/conversation.js";
 // 思考档位取值域（type-only import = 编译后无边）：实体在零 import 的词表叶，
 // 与请求路径（ai/thinking-profiles）和设置归一化（core/validators）同源。
-import type { ThinkingLevel } from "../ai/thinking-levels.js";
+import type { ThinkingLevelValue } from "../ai/thinking-levels.js";
 
 // 上下文快照 = ContextFetch 全量 payload 的落地形态（core/context-assembly
 // 装配链组出）。结构上与 AI 域的 AiContext 同形（含 subtitleBody /
@@ -119,9 +119,9 @@ type ChatSessionGuardedState = {
   currentConversationMeta: CurrentConversationMeta | null;
 };
 
-// 思考档位（上游词表 7 档：off/minimal/low/medium/high/xhigh/max，05 号票）。
+// 思考档位（上游词表 7 档 + 「不干预」default：off/minimal/low/medium/high/xhigh/max/default）。
 // 取值域单源在 ai/thinking-levels 词表叶；持久化口径见 ChatSessionOpenState.aiThinkingLevel。
-export type ChatThinkingLevel = ThinkingLevel;
+export type ChatThinkingLevel = ThinkingLevelValue;
 
 // 平台偏好三键（loadProvidersAndPrefs 整体替换，modelSelect 局部改写）。
 export interface ChatSessionPreferences {
@@ -214,11 +214,12 @@ function createInitialChatSessionState(): ChatSessionStateWritable {
     // content 侧音频转写进行中的兜底信号（biliscript-subtitle-status 广播写，
     // subtitleWaiter 轮询读）
     asrTranscribingActive: false,
-    // 思考档位（off/low/high）。双持久化：chrome.storage.local
+    // 思考档位（7 档 + default）。双持久化：chrome.storage.local
     // biliscript_ai_thinking_level（PR5 前为 localStorage）+ sync settings.aiThinkingLevel；
     // 读取以 settings ?? storage 为准（写点在 providers.ts 的 setThinkingLevel /
-    // loadProvidersAndPrefs）。
-    aiThinkingLevel: "off",
+    // loadProvidersAndPrefs）。**2026-10-05 用户裁定：出厂/重置默认 = default（不干预，
+    // 不发思考字段）**——与 core/defaults.ts 的 DEFAULT_SETTINGS 同源口径。
+    aiThinkingLevel: "default",
     // 联网搜索开关（spec §2.1/§4）：全局记忆，默认关。
     webSearchEnabled: false
   };

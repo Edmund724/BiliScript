@@ -130,7 +130,8 @@ describe("loadProvidersAndPrefs", () => {
     await expect(providerPrefs.loadProvidersAndPrefs()).resolves.toBeUndefined();
 
     expect(chatSessionState.aiPrefs.aiSystemPrompt).toBe("");
-    expect(chatSessionState.aiThinkingLevel).toBe("off");
+    // 档位兜底 = 出厂默认那一份（DEFAULT_SETTINGS）：2026-10-05 起是 `default`（不干预）。
+    expect(chatSessionState.aiThinkingLevel).toBe("default");
   });
 
   it("aiThinkingLevel 兜底读 chrome.storage（settings 缺省时）", async () => {

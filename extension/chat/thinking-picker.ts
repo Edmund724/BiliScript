@@ -7,7 +7,7 @@
 // 事实链不动：条目的档位值仍只来自 resolveThinkingAdjustment() 的同一次解析
 //（availableLevels = A'），本模块**不新开第二套档位推导**，只决定分组与显示名。
 //
-// 三条显示口径（用户裁定）：
+// 四条显示口径（用户裁定）：
 //   ① 开关型（switchOnly = 规则的 rule.on：非 off 域只由单个「开」写点服务）→ 收成
 //      Off 一项 + On 一项；上游那 6 个非 off 档位不再各占一行（它们发的是同一个参数）。
 //   ② 上游只登记了一个真实档位（如 none-high 的 {off, high}）→ 那一项显示为 On。
@@ -16,8 +16,10 @@
 //      不再写 Off）；第二轮统一到**所有**偏好 ≠ 实发的格（档位型 clamp 也从「显示偏好 +
 //      提示行说明」改成显示实发档：偏好 high、A' = {low,medium} → 一级行/chip 写 Medium，
 //      提示行如实说明源档）。偏好本身不迁移（存储值不动，换到支持的模型照原偏好解析）。
-//      唯一例外是无档可落（A' = ∅，effectiveLevel null）：那时没有实发档可显示，回落偏好词。
-import type { ThinkingLevel } from "../ai/thinking-levels.js";
+//   ④ **首项恒为 `Default`**（2026-10-05 用户裁定「所有模型都加一个 default 档位、都可发」）：
+//      default = 不干预（不发思考字段），与 off（显式发关思考字段）不同；可表达的强度档为空时
+//      列表就是只剩 Default 一项，面板**不隐藏**该行（用户裁定「破例 = 能主动选」）。
+import { THINKING_DEFAULT_LEVEL, type ThinkingLevel, type ThinkingLevelValue } from "../ai/thinking-levels.js";
 
 // 档位标签表（05 号票：上游词表 7 档）。口径与既有 Off/Low/High 一致——首字母大写、
 // 档位词照上游写法（xhigh → XHigh）；未登记档位（脏存储值）回落原值。
@@ -36,26 +38,30 @@ export const THINKING_LEVEL_LABELS: Record<string, string> = {
 // 开关型那一项的显示名（on/off 两侧不对称：off 沿用上游词 Off）。
 export const THINKING_ON_LABEL = "On";
 
+// 「不干预」档的显示名（2026-10-05 用户裁定）：所有模型恒有这一项，落线 = 不发思考字段。
+export const THINKING_DEFAULT_LABEL = "Default";
+
 // 开关型「开」写进偏好的档位值：rule.on 型任何非 off 档都落同一个「开」写点，故取
 // canonical high 作偏好值——换到有真实档位的模型时是个中档，不是凭空发明的档位。
 const SWITCH_ON_LEVEL: ThinkingLevel = "high";
 
 export interface ThinkingPickerInput {
-  // 该模型的可用集（resolveThinkingAdjustment 的同一次解析；空 = 一个档位都没有）。
+  // 该模型的**强度**档可用集（resolveThinkingAdjustment 的同一次解析；空 = 一个强度档都没有）。
+  // 恒在的 `default`（不干预）不在此集里——它不是模型声明的档位（2026-10-05 用户裁定）。
   availableLevels: readonly ThinkingLevel[];
   // 非 off 域是否只由单个「开」写点服务（thinking-profiles 的 rule.on）。
   switchOnly: boolean;
-  // 当前全局偏好档位（chatSessionState.aiThinkingLevel 的归一化值）。
-  requestedLevel: ThinkingLevel;
-  // 本次解析的**实发档**（resolveThinkingAdjustment().effectiveLevel）；null = 无档可落。
+  // 当前全局偏好（chatSessionState.aiThinkingLevel 的归一化值；可为 `default`）。
+  requestedLevel: ThinkingLevelValue;
+  // 本次解析的**实发档**（resolveThinkingAdjustment().effectiveLevel）；null = 没有解析结论。
   // 显示档默认取它（口径 ③：偏好 ≠ 实发时一级行/chip 照实发档显示，不再显示线上没发的东西）；
-  // null（A' = ∅，面板整行隐藏）时回落偏好词。
-  effectiveLevel: ThinkingLevel | null;
+  // null（unknown 哨兵）时回落偏好词。
+  effectiveLevel: ThinkingLevelValue | null;
 }
 
 export interface ThinkingPickerEntry {
-  // 点它要写进全局偏好的档位值（开关型的 On 是 SWITCH_ON_LEVEL，不是新档位）。
-  level: ThinkingLevel;
+  // 点它要写进全局偏好的值（开关型的 On 是 SWITCH_ON_LEVEL；`default` 是「不干预」）。
+  level: ThinkingLevelValue;
   label: string;
   // 当前偏好是否落在它身上（打勾）。
   active: boolean;
@@ -66,15 +72,20 @@ function isSwitchCollapsed(input: ThinkingPickerInput): boolean {
   return input.switchOnly || input.availableLevels.filter((level) => level !== "off").length === 1;
 }
 
-// 显示用的档位：默认 = **实发档**（口径 ③）。没有实发档信息（effectiveLevel null，即
-// A' = ∅ 的零档行）才回落偏好——那时面板整行隐藏，显示名无人消费。
-function shownLevel(input: ThinkingPickerInput): ThinkingLevel {
+// 显示用的档位：默认 = **实发档**（口径 ③）。只有没有解析结论（effectiveLevel null）才回落偏好。
+function shownLevel(input: ThinkingPickerInput): ThinkingLevelValue {
   return input.effectiveLevel ?? input.requestedLevel;
 }
 
+// 档位值的显示名（`default` 是「不干预」，不在上游档位词表里）。
+export function thinkingLevelValueLabel(value: ThinkingLevelValue): string {
+  return value === "default" ? THINKING_DEFAULT_LABEL : THINKING_LEVEL_LABELS[value] ?? value;
+}
+
 // 档位列表的显示条目（面板换页后的那一页）。
-//   空可用集 → 无条目（面板整行隐藏）；
-//   可关 → 首项 Off；不可关 → 没有 Off 项（用户看到的就是「关不掉」）。
+//   **首项恒为 `Default`**（2026-10-05 用户裁定：所有模型都可选「不干预」，落线 = 不发思考字段）；
+//   之后是可关 → `Off`、开关型 → 一项 `On`、其余 → 逐档上游词。
+//   可表达的强度档为空也**不是**空列表：只剩 `Default` 一项（用户裁定「破例 = 能主动选」）。
 //   激活判定按条目的语义走：rule.on 型任何非 off 偏好都落在 On 上（它们发同一个参数），
 //   其余按「偏好 = 该档」逐项比对——被 clamp 的偏好可能一项都不打勾，由一级行/chip 的
 //   实发档 + 面板底部提示行说明（05 号票口径，偏好不迁移）。
@@ -84,16 +95,18 @@ function shownLevel(input: ThinkingPickerInput): ThinkingLevel {
 //   `.scratch/tickets/chat-thinking-submenu/issues/05-picker-effective-level-marker.md`。
 export function thinkingPickerEntries(input: ThinkingPickerInput): ThinkingPickerEntry[] {
   const { availableLevels, switchOnly, requestedLevel } = input;
+  const entries: ThinkingPickerEntry[] = [
+    { level: THINKING_DEFAULT_LEVEL, label: THINKING_DEFAULT_LABEL, active: requestedLevel === THINKING_DEFAULT_LEVEL }
+  ];
   if (availableLevels.length === 0) {
-    return [];
+    return entries;
   }
   const tiers = availableLevels.filter((level) => level !== "off");
-  const entries: ThinkingPickerEntry[] = [];
   if (availableLevels.includes("off")) {
     entries.push({ level: "off", label: THINKING_LEVEL_LABELS.off, active: requestedLevel === "off" });
   }
   if (switchOnly) {
-    entries.push({ level: SWITCH_ON_LEVEL, label: THINKING_ON_LABEL, active: requestedLevel !== "off" });
+    entries.push({ level: SWITCH_ON_LEVEL, label: THINKING_ON_LABEL, active: requestedLevel !== "off" && requestedLevel !== "default" });
     return entries;
   }
   if (tiers.length === 1) {
@@ -107,9 +120,9 @@ export function thinkingPickerEntries(input: ThinkingPickerInput): ThinkingPicke
 }
 
 // 当前显示名（chip 的档位 span 与一级行右侧同用这一个）。
+//   `default`（不干预）→ Default；
 //   有实发档 → 实发档的档位词（口径 ③：线上发 high 就写 High、被裁到 medium 就写 Medium，
 //   源档与原因由提示行说明）；
-//   无实发档（A' = ∅）→ 偏好词；
 //   开关型且显示档**在该模型可用集里** → On；
 //   其余 → 上游档位词。
 // 显示档落在可用集外时不给 On：真实调用方的显示档必来自同一次解析（∈ A' 或 off），这一
@@ -118,8 +131,8 @@ export function thinkingPickerEntries(input: ThinkingPickerInput): ThinkingPicke
 export function thinkingPickerLabel(input: ThinkingPickerInput): string {
   const { availableLevels, switchOnly } = input;
   const shown = shownLevel(input);
-  if (shown === "off") {
-    return THINKING_LEVEL_LABELS.off;
+  if (shown === THINKING_DEFAULT_LEVEL || shown === "off") {
+    return thinkingLevelValueLabel(shown);
   }
   if (isSwitchCollapsed(input) && (switchOnly || availableLevels.includes(shown))) {
     return THINKING_ON_LABEL;

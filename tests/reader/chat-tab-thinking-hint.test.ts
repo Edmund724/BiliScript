@@ -286,6 +286,8 @@ function levelRowValueText(): string {
 describe("Off + 关不掉模型：resolver 判定 → 档位区提示（文案逐字）", () => {
   it("无 low 可落 → 短文案：baseUrl 空 + kimi-k2.7-code（激活前模板默认 hidden，提示只由组合根驱动）", async () => {
     providersPayload = [provider({ id: "p1", model: "kimi-k2.7-code" })];
+    // 偏好显式 off（出厂默认是 `default`，不参与 off 级联）。
+    settingsPayload = { aiThinkingLevel: "off" };
 
     // 激活前：壳已建但组合根未装载，提示行保持模板默认 hidden + 空文案。
     expect(getHint().hidden).toBe(true);
@@ -297,14 +299,16 @@ describe("Off + 关不掉模型：resolver 判定 → 档位区提示（文案�
     expect(hint.classList.contains("chat-thinking-hint")).toBe(true);
     expect(hint.hidden).toBe(false);
     expect(hint.textContent).toBe(HINT_UNAVAILABLE);
-    // 该模型一个档位写点都没有（可用集空）→ 档位页一个条目都不现渲，一级行整行隐藏
-    //（没有可选的东西）。原先模板那 7 个「隐藏但仍在」的静态 chip 已随二级菜单退役。
-    expect(renderedThinkingLevels()).toEqual([]);
-    expect(thinkingRow().hidden).toBe(true);
+    // 该模型一个强度档写点都没有（可用集空）→ 档位页只剩恒在的 Default 一项；一级行照旧
+    // **显示**（2026-10-05 用户裁定「破例 = 能主动选」，不再按条目数隐藏）。原先模板那 7 个
+    //「隐藏但仍在」的静态 chip 已随二级菜单退役。
+    expect(renderedThinkingLevels()).toEqual(["default"]);
+    expect(thinkingRow().hidden).toBe(false);
   });
 
   it("级联落 low → 长文案：GLM host 推断 + glm-5.3（04 号票翻转后 offFallback:\"low\"）", async () => {
     providersPayload = [provider({ id: "p1", model: "glm-5.3", baseUrl: GLM_BASE_URL })];
+    settingsPayload = { aiThinkingLevel: "off" };
 
     await activateChatTab();
 
@@ -315,6 +319,7 @@ describe("Off + 关不掉模型：resolver 判定 → 档位区提示（文案�
 
   it("13 号票 canonical 优先：kimi-k3 的模型侧词表无 toggle（off 关不掉）→ 选 Off 走长文案", async () => {
     providersPayload = [provider({ id: "p1", model: "kimi-k3", baseUrl: KIMI_BASE_URL })];
+    settingsPayload = { aiThinkingLevel: "off" };
 
     await activateChatTab();
 
@@ -358,6 +363,7 @@ describe("实时刷新：提示随模型切换与档位点击即时显隐", () =
       provider({ id: "p1", model: "kimi-k2.7-code" }),
       provider({ id: "p2", model: "glm-4.6", baseUrl: GLM_BASE_URL })
     ];
+    settingsPayload = { aiThinkingLevel: "off" };
 
     await activateChatTab();
 
@@ -393,7 +399,7 @@ describe("实时刷新：提示随模型切换与档位点击即时显隐", () =
     expect(hint.hidden).toBe(false);
     expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
     // 关不掉 → 没有 Off 条目；条目就是上游词表的三档。
-    expect(renderedThinkingLevels()).toEqual(["low", "high", "max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "low", "high", "max"]);
 
     // Off→Low：档位切走即收提示（setThinkingLevel 同步写档位，紧随的重判读到新值）。
     clickThinking("low");
@@ -405,7 +411,7 @@ describe("实时刷新：提示随模型切换与档位点击即时显隐", () =
     const select = getModelSelect();
     select.value = modelOptionValue("p2", "glm-4.6");
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(renderedThinkingLabels()).toEqual(["Off", "On"]);
+    expect(renderedThinkingLabels()).toEqual(["Default", "Off", "On"]);
     clickThinking("off");
 
     // 切回关不掉模型：偏好仍是 off → 长文案再现。
@@ -469,7 +475,7 @@ describe("档位 clamp：提示面给出「源档 → 实发档」（句式与�
 
     const hint = getHint();
     // deepseek-v4-pro 词表里有 low：偏好原样可用 → 无提示。
-    expect(renderedThinkingLevels()).toEqual(["off", "low", "high", "max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high", "max"]);
     expect(hint.hidden).toBe(true);
 
     // 切到 sensenova/glm-5.2（A' = {high,max}，没有 ≤ low 的档）：向上落 high → 提示出现。
@@ -534,7 +540,7 @@ describe("口径 ③ 统一：偏好 ≠ 实发档 → 一级行/chip 写实发�
     }
 
     // ① 档位型 clamp：偏好 high 被裁到 medium → chip/一级行 Medium、列表无人打勾、提示两句式。
-    expect(renderedThinkingLevels()).toEqual(["off", "low", "medium", "xhigh"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "medium", "xhigh"]);
     expect(activeThinkingLevels()).toEqual([]);
     expect(chipLevelText()).toBe("Medium");
     expect(levelRowValueText()).toBe("Medium");
@@ -551,7 +557,7 @@ describe("口径 ③ 统一：偏好 ≠ 实发档 → 一级行/chip 写实发�
     // ③ off 关不掉：偏好 off 被级联到 high → chip/一级行 High、列表无人打勾、长版提示。
     select.value = modelOptionValue("p2", "glm-5.2");
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(renderedThinkingLevels()).toEqual(["high", "max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "high", "max"]);
     expect(activeThinkingLevels()).toEqual([]);
     expect(chipLevelText()).toBe("High");
     expect(levelRowValueText()).toBe("High");
@@ -598,7 +604,8 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     // 2026-10-05 用户裁定（票据 chat-thinking-submenu）：模板里的 7 个静态 chip 退役，
     // 条目改由 chat/thinking-picker 在组合根里现渲——激活前容器必须为空、一级行必须
     // 隐藏（壳静默空态，不放假数据）。标签表本身的键集/文案由
-    // tests/chat/thinking-picker.test.ts 锁。
+    // tests/chat/thinking-picker.test.ts 锁。激活前**尚未派生**：容器里没有按钮（Default
+    // 也不落模板——它是组合根现渲的，模板保持空态）、一级行隐藏。
     expect(renderedThinkingLevels()).toEqual([]);
     expect(thinkingRow().hidden).toBe(true);
     expect(document.getElementById(ids.readingChatThinkingPage)?.hidden).toBe(true);
@@ -609,7 +616,7 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
 
     await activateChatTab();
 
-    expect(renderedThinkingLevels()).toEqual(["off", "low", "high", "max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high", "max"]);
     expect(getThinkingBtn("minimal")).toBe(null);
     expect(getThinkingBtn("medium")).toBe(null);
   });
@@ -619,16 +626,17 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
 
     await activateChatTab();
 
-    expect(renderedThinkingLevels()).toEqual(["off", "high"]);
-    expect(renderedThinkingLabels()).toEqual(["Off", "On"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "high"]);
+    expect(renderedThinkingLabels()).toEqual(["Default", "Off", "On"]);
   });
 
-  it("minimax-m3：一个条目都不现渲（关不掉思考、无已登记档位），off 也不可用 → 短文案", async () => {
+  it("minimax-m3：一个强度档都不现渲（关不掉思考、无已登记档位），off 也不可用 → 短文案", async () => {
     providersPayload = [provider({ id: "p1", model: "MiniMax-M3", baseUrl: MINIMAX_URL, presetId: "minimax" })];
+    settingsPayload = { aiThinkingLevel: "off" };
 
     await activateChatTab();
 
-    expect(renderedThinkingLevels()).toEqual([]);
+    expect(renderedThinkingLevels()).toEqual(["default"]);
     const hint = getHint();
     expect(hint.hidden).toBe(false);
     expect(hint.textContent).toBe(HINT_UNAVAILABLE);
@@ -639,7 +647,7 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
 
     await activateChatTab();
 
-    expect(renderedThinkingLevels()).toEqual([]);
+    expect(renderedThinkingLevels()).toEqual(["default"]);
     // 无结论（fail-closed）：off 既不「可用」也不算「关不掉」，静默（与请求不发一致）。
     expect(getHint().hidden).toBe(true);
   });
@@ -649,7 +657,7 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
 
     await activateChatTab();
 
-    expect(renderedThinkingLevels()).toEqual(["off", "low", "high"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high"]);
   });
 
   // 2026-10-04 用户裁定（A' = 上游词表在平台可表达的部分）：托管平台也不再整域放宽。
@@ -661,13 +669,13 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
 
     await activateChatTab();
 
-    expect(renderedThinkingLevels()).toEqual(["high", "max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "high", "max"]);
     // 偏好 low 保留在存储里（不迁移），本模型无 ≤ low 的档 → 落最小可用档 high。
     expect(getHint().hidden).toBe(false);
     expect(getHint().textContent).toBe(HINT_CLAMP_LOW_TO_HIGH);
     // 没有禁用态条目（被 clamp 掉的 low 是「不存在」而不是「灰色」）：
     // 条目只有两个，且高档位是上游词。
-    expect(renderedThinkingLabels()).toEqual(["High", "Max"]);
+    expect(renderedThinkingLabels()).toEqual(["Default", "High", "Max"]);
     expect(getThinkingBtn("low")).toBe(null);
   });
 
@@ -686,8 +694,8 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     const chipLevel = () =>
       (document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement).textContent;
     // A' = {high,max}：off 关不掉 → 级联落最小可用档 high（线上发 output_config.effort high）。
-    expect(renderedThinkingLevels()).toEqual(["high", "max"]);
-    expect(renderedThinkingLabels()).toEqual(["High", "Max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "high", "max"]);
+    expect(renderedThinkingLabels()).toEqual(["Default", "High", "Max"]);
     expect(activeThinkingLevels()).toEqual([]);
     expect(chipLevel()).toBe("High");
     expect((document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement).textContent).toBe("High");
@@ -721,9 +729,9 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
 
     // 上游值集含 effort none（与平台方言无关）→ off 有写点；18 号票前平台声明无 off 写点，
     // 曾落「关不掉」长文案，现在偏好 off 直接满足。
-    expect(renderedThinkingLevels()).toEqual(["off", "high"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "high"]);
     // 非 off 只有一个真实档位 → 按用户裁定显示为 On（不是 High）。
-    expect(renderedThinkingLabels()).toEqual(["Off", "On"]);
+    expect(renderedThinkingLabels()).toEqual(["Default", "Off", "On"]);
     expect(getHint().hidden).toBe(true);
   });
 
@@ -734,7 +742,7 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     await activateChatTab();
 
     // 上游词表 toggle+low-medium-xhigh：High 不存在（不现渲、不置灰）。
-    expect(renderedThinkingLevels()).toEqual(["off", "low", "medium", "xhigh"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "medium", "xhigh"]);
     expect(getThinkingBtn("high")).toBe(null);
     // 偏好档位没有对应条目 → 没有 active 条目（档位页的语义 = 「这个模型有哪些档位」，
     // 偏好的偏差由说明文本承担），而 chip 与一级行按口径 ③ 显示**实发档** Medium。
@@ -751,22 +759,22 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     ];
 
     await activateChatTab();
-    expect(renderedThinkingLevels()).toEqual(["off", "high"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "high"]);
 
     const select = getModelSelect();
     select.value = modelOptionValue("p2", "llama3.2");
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(renderedThinkingLevels()).toEqual(["off", "low", "high"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high"]);
 
     select.value = modelOptionValue("p3", "MiniMax-M3");
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(renderedThinkingLevels()).toEqual([]);
-    expect(thinkingRow().hidden).toBe(true);
+    expect(renderedThinkingLevels()).toEqual(["default"]);
+    expect(thinkingRow().hidden).toBe(false);
 
-    // 切回开关型模型：条目全部回来、一级行也回来（渲染幂等，不是一次性改写）。
+    // 切回开关型模型：条目全部回来（渲染幂等，不是一次性改写）。
     select.value = modelOptionValue("p1", "glm-4.6");
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(renderedThinkingLevels()).toEqual(["off", "high"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "high"]);
     expect(thinkingRow().hidden).toBe(false);
   });
 
@@ -774,7 +782,7 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     providersPayload = [provider({ id: "p1", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" })];
 
     await activateChatTab();
-    expect(renderedThinkingLevels()).toEqual(["off", "low", "high", "max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high", "max"]);
 
     clickThinking("max");
 
@@ -927,8 +935,8 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
     }
 
     // ① 目录内·原生（zhipu 方言 thinking:{type}）：Off 条目在场、偏好 off 满足、无提示。
-    expect(renderedThinkingLevels()).toEqual(["off", "high", "max"]);
-    expect(renderedThinkingLabels()).toEqual(["Off", "High", "Max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "high", "max"]);
+    expect(renderedThinkingLabels()).toEqual(["Default", "Off", "High", "Max"]);
     expect(activeThinkingLevels()).toEqual(["off"]);
     expect(getHint().hidden).toBe(true);
     snap("1 zhipu/glm-5.2（目录内·原生）");
@@ -946,7 +954,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
     // ② 目录内·托管（qwen 方言 enable_thinking）：A' 同为 {off,high,max}，偏好 off 静默。
     select.value = modelOptionValue("p2", "glm-5.2");
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(renderedThinkingLevels()).toEqual(["off", "high", "max"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "high", "max"]);
     expect(getHint().hidden).toBe(true);
     snap("2 qwen/glm-5.2（托管·借词）");
 
@@ -960,7 +968,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
     for (const [index, [providerId, label, model]] of unregistered.entries()) {
       select.value = modelOptionValue(providerId, model);
       select.dispatchEvent(new Event("change", { bubbles: true }));
-      expect(renderedThinkingLevels(), label).toEqual(["high", "max"]);
+      expect(renderedThinkingLevels(), label).toEqual(["default", "high", "max"]);
       expect(activeThinkingLevels(), label).toEqual([]);
       expect(chipLevel.textContent, label).toBe("High");
       expect(getHint().hidden, label).toBe(false);
@@ -971,7 +979,7 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
     // ④ 目录外兜底（glm-5.2-air）：off 出口与目录内同为 thinking 开关（档位词表本来就不同）。
     select.value = modelOptionValue("p6", "glm-5.2-air");
     select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(renderedThinkingLevels()).toEqual(["off", "low", "high"]);
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high"]);
     expect(getHint().hidden).toBe(true);
     expect(chipLevel.textContent).toBe("Off");
     snap("6 zhipu/glm-5.2-air（目录外兜底）");
@@ -988,6 +996,110 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
         "# 用例：6 行本地 glm-5.2（5 行目录内 + glm-5.2-air 兜底），偏好 off，逐行看档位条目与提示",
         "# 判据：zhipu / qwen 多出 Off（静默）；openrouter / sensenova / opencodego 的条目与提示不变（长版提示），",
         "#       一级行/chip 按口径 ③（2026-10-05 复审）显示实发档 High、列表无人打勾——线上发 high，界面不再写 Off",
+        "# 每行 = 一步；同命令重跑逐字节一致",
+        ...steps,
+        ""
+      ].join("\n")
+    );
+  });
+});
+
+// ============================================================
+// default（不干预）档端到端走查（2026-10-05 用户裁定）：真实模板 + 真实组合根。
+// 先列可能失败的方式：① 出厂默认没落到 default（chip/一级行仍写 Off、请求仍发关思考字段）；
+// ② Default 条目没现渲或没打勾（用户看不到自己选的是「不干预」）；
+// ③ 点 Default 不写偏好 / 点了别的档 Default 不取消打勾；④ 零档行（无强度档）一级行被隐藏
+//（用户裁定「破例 = 能主动选」）；⑤ 零档行偏好强度档时不报「已调整」，chip 与线上不符。
+// ============================================================
+describe("default（不干预）档端到端走查：出厂默认与零档行", () => {
+  const MINIMAX_BASE_URL = "https://api.minimaxi.com/v1";
+
+  it("出厂默认 = Default（chip/一级行/打勾），点 Off 落到 off、点回 Default 复位；零档行只剩 Default 也能主动选", async () => {
+    providersPayload = [
+      provider({ id: "p1", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" }),
+      provider({ id: "p2", model: "MiniMax-M3", baseUrl: MINIMAX_BASE_URL, presetId: "minimax" })
+    ];
+    // 出厂形态：没有任何 aiThinkingLevel 落盘（get-settings 返回空载荷）。
+    settingsPayload = {};
+
+    await activateChatTab();
+
+    const select = getModelSelect();
+    const chipLevel = document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement;
+    const thinkingRowValue = document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement;
+    const steps: string[] = [];
+    function snap(label: string): void {
+      steps.push(
+        [
+          label,
+          `偏好=${chatSessionState.aiThinkingLevel}`,
+          `条目=[${renderedThinkingLevels().join(",")}]`,
+          `选中=[${activeThinkingLevels().join(",")}]`,
+          `chip=${chipLevel.textContent}`,
+          `一级行=${thinkingRowValue.textContent}`,
+          `提示=${getHint().hidden ? "-" : getHint().textContent}`
+        ].join(" | ")
+      );
+    }
+
+    // ① 出厂默认 = default：一级行/chip 都写 Default，列表首项 Default 打勾，无提示。
+    expect(chatSessionState.aiThinkingLevel).toBe("default");
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high", "max"]);
+    expect(activeThinkingLevels()).toEqual(["default"]);
+    expect(chipLevel.textContent).toBe("Default");
+    expect(thinkingRowValue.textContent).toBe("Default");
+    expect(getHint().hidden).toBe(true);
+    snap("1 deepseek/deepseek-v4-pro（出厂默认 = Default）");
+
+    // ② 点 Off：偏好真落盘 off、Default 取消打勾、chip 跟着走。
+    clickThinking("off");
+    expect(chatSessionState.aiThinkingLevel).toBe("off");
+    expect(activeThinkingLevels()).toEqual(["off"]);
+    expect(chipLevel.textContent).toBe("Off");
+    snap("2 点 Off（显式关思考）");
+
+    // ③ 点回 Default：偏好回到不干预（不是「再也没法不说话」）。
+    clickThinking("default");
+    expect(chatSessionState.aiThinkingLevel).toBe("default");
+    expect(activeThinkingLevels()).toEqual(["default"]);
+    expect(chipLevel.textContent).toBe("Default");
+    snap("3 点回 Default（不干预）");
+
+    // ④ 零档行（minimax/MiniMax-M3 无任何强度档）：一级行照旧显示、列表只剩 Default。
+    select.value = modelOptionValue("p2", "MiniMax-M3");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(renderedThinkingLevels()).toEqual(["default"]);
+    expect(activeThinkingLevels()).toEqual(["default"]);
+    expect(thinkingRow().hidden).toBe(false);
+    expect(chipLevel.textContent).toBe("Default");
+    expect(getHint().hidden).toBe(true);
+    snap("4 minimax/MiniMax-M3（零档行，偏好 default）");
+
+    // ⑤ 零档行 + 偏好强度档（high）：先在有强度档的模型上把偏好点成 high（走真实持久化链），
+    // 再切到零档行 —— 实发 default、如实报「已使用 default」（不静默、不假装发 high）。
+    select.value = modelOptionValue("p1", "deepseek-v4-pro");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    clickThinking("high");
+    expect(chatSessionState.aiThinkingLevel).toBe("high");
+    select.value = modelOptionValue("p2", "MiniMax-M3");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(chipLevel.textContent).toBe("Default");
+    expect(activeThinkingLevels()).toEqual([]);
+    expect(getHint().hidden).toBe(false);
+    expect(getHint().textContent).toBe("当前模型不支持思考强度 high，已使用 default");
+    snap("5 minimax/MiniMax-M3（零档行，偏好 high）");
+
+    // 工件：逐步快照（可重跑，内容确定）。
+    const artifactDir = join(process.cwd(), ".scratch", "tickets", "thinking-default-level", "artifacts");
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(
+      join(artifactDir, "02-e2e-default-level.txt"),
+      [
+        "# default（不干预）档端到端走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
+        "# 用例：出厂默认（无 aiThinkingLevel 落盘）→ 点 Off → 点回 Default；再切到零档行模型 MiniMax-M3",
+        "# 判据：一级行/chip 写实发档（default 时写 Default）；列表首项恒为 Default 且只在偏好是 default 时打勾；",
+        "#       零档行只剩 Default 一项且一级行照旧显示（用户裁定「破例 = 能主动选」）；",
+        "#       零档行 + 强度档偏好 → 实发 default + 提示「当前模型不支持思考强度 high，已使用 default」",
         "# 每行 = 一步；同命令重跑逐字节一致",
         ...steps,
         ""

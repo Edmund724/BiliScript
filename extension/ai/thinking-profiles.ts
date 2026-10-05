@@ -93,15 +93,20 @@ import { lookupThinkingFact, type ThinkingModelFact } from "./catalog/models-dev
 // 「档位词汇的 import 面 = thinking-profiles」不变。
 export {
   AI_THINKING_LEVELS,
+  AI_THINKING_LEVEL_VALUES,
+  THINKING_DEFAULT_LEVEL,
   isThinkingLevel,
+  isThinkingLevelValue,
   normalizeThinkingLevel,
-  type ThinkingLevel
+  type ThinkingLevel,
+  type ThinkingLevelValue
 } from "./thinking-levels.js";
 import {
   AI_THINKING_LEVELS,
   isThinkingLevel,
   normalizeThinkingLevel,
-  type ThinkingLevel
+  type ThinkingLevel,
+  type ThinkingLevelValue
 } from "./thinking-levels.js";
 
 // 非 off 档（按档位序），可用集推导与 clamp 共用。
@@ -565,15 +570,21 @@ export function availableLevelsOf(rule: ClassRule): readonly ThinkingLevel[] {
 // 用户偏好 L + 可用集 A → 有效档位（票面写死）：L ∈ A → L；否则 A 中 ≤ L 的最大档
 // （向下取）；A 中没有 ≤ L 的档 → A 的最小档；A 为空 → null（无档可落，维持不发参）。
 // 档位序 = AI_THINKING_LEVELS（off 在其中：偏好 low 而模型只有 {off,high} 时落 off）。
-export function clampThinkingLevel(preference: ThinkingLevel, available: readonly ThinkingLevel[]): ThinkingLevel | null {
-  if (available.length === 0) {
-    return null;
+// 2026-10-05（`default` 档）：`default` = 「不干预」恒可发（直接返回，不进下面的向下取）；
+// A 为空（没有可表达的强度档）→ 落 `default`，不再是 null——线上一律不发思考字段，与
+// `default` 同义，`null` 只留给「没有解析结论」（unknown 哨兵）。
+export function clampThinkingLevel(preference: ThinkingLevelValue, available: readonly ThinkingLevel[]): ThinkingLevelValue | null {
+  if (preference === "default") {
+    return "default";
   }
-  if (available.includes(preference)) {
+  if (available.length === 0) {
+    return "default";
+  }
+  if (available.includes(preference as ThinkingLevel)) {
     return preference;
   }
   const rank = (level: ThinkingLevel): number => AI_THINKING_LEVELS.indexOf(level);
-  const below = available.filter((level) => rank(level) <= rank(preference));
+  const below = available.filter((level) => rank(level) <= rank(preference as ThinkingLevel));
   if (below.length > 0) {
     return below.reduce((best, level) => (rank(level) > rank(best) ? level : best), below[0]);
   }
@@ -682,13 +693,15 @@ export function resolveThinkingProfile(input: ResolveThinkingInput): ThinkingRes
 export interface ThinkingLevelAdjustment {
   // 与请求侧同一个解析结果（UI 的 offUnavailable / offFallback 判定读它）。
   resolution: ThinkingResolution;
-  requestedLevel: ThinkingLevel;
-  // 模型可用集（档位序）；空 = 该模型无任何档位可落（不发思考参数）。
-  // **06 号票起这就是面板 chip 集合的唯一来源**（UI 只渲染这个集合里的档位，不置灰、
-  // 不显示请求不发的选择）：与落线同一次解析、同一张规则，两处不可能漂移。
+  requestedLevel: ThinkingLevelValue;
+  // 模型可用集（档位序）；空 = 该模型没有可表达的**强度**档（`default` 恒可选，不在此集里——
+  // 它是「不干预」，不是模型声明的档位）。
+  // **06 号票起这就是面板 chip 集合的唯一来源**（UI 只渲染这个集合里的档位与恒在的 Default，
+  // 不置灰、不显示请求不发的选择）：与落线同一次解析、同一张规则，两处不可能漂移。
   availableLevels: readonly ThinkingLevel[];
-  // 实发档位；null = 无档可落。
-  effectiveLevel: ThinkingLevel | null;
+  // 实发档位；null = **没有解析结论**（unknown 哨兵）。2026-10-05 起「无强度档可表达」不再
+  // 落 null，而是落 `default`（线上一律不发思考字段，与 default 同义）。
+  effectiveLevel: ThinkingLevelValue | null;
   // 被调整的原因；null = 未调整（L ∈ A）或无可落档位（不报「已调整」）。
   reason: ThinkingClampReason | null;
   // 这张规则来自哪一层（06 号票：三层来源清单的审计列，与 availableLevels 同源）。
@@ -766,9 +779,15 @@ function escapeRegExp(text: string): string {
 // 落线取值一律走 clamp 后的档位，所以「提示里说发哪档」与「请求里发哪档」是同一个值。
 // off 的既有判定（offUnavailable / offFallback 级联）不变，只是级联目标 = A' 的最小
 // 非 off 档（none/high 类模型偏好 low → 落 off，线上发 effort none）。
-export function applyClassRule(rule: ClassRule, level: ThinkingLevel, stream: boolean): ThinkingResolution {
+export function applyClassRule(rule: ClassRule, level: ThinkingLevelValue, stream: boolean): ThinkingResolution {
   const available = availableLevelsOf(rule);
   const effective = clampThinkingLevel(level, available);
+
+  // 「不干预」（2026-10-05 用户裁定）：所有模型都可发——不发任何思考字段，由平台默认行为决定。
+  // 与 off 的区别：off 是显式发关思考字段（可能被平台忽略 / 400）。
+  if (level === "default") {
+    return withTokenParam({ fields: {}, offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }, rule);
+  }
 
   if (level === "off") {
     const offPatch = streamEnabledPatch(rule.off, stream);
@@ -799,9 +818,9 @@ export function applyClassRule(rule: ClassRule, level: ThinkingLevel, stream: bo
 }
 
 // 档位 → 该档的写点：effort 型查本档的显式写点，开关型（有 on）任何非 off 档都落 on；
-// off 落 off 写点。null（无档可落）→ undefined。
-function patchForLevel(rule: ClassRule, level: ThinkingLevel | null): ThinkingPatch | undefined {
-  if (level === null) {
+// off 落 off 写点；`default` 没有写点（它就是不发言，恒 undefined）。null（无档可落）→ undefined。
+function patchForLevel(rule: ClassRule, level: ThinkingLevelValue | null): ThinkingPatch | undefined {
+  if (level === null || level === "default") {
     return undefined;
   }
   if (level === "off") {

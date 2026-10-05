@@ -190,7 +190,7 @@ describe("renderChip", () => {
     });
     modelPanel.renderChip();
 
-    expect(renderedLabels(thinkingToggle)).toEqual(["Off", "On"]);
+    expect(renderedLabels(thinkingToggle)).toEqual(["Default", "Off", "On"]);
     expect(chipLevel.textContent).toBe("On");
   });
 
@@ -316,8 +316,8 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
       entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] })
     });
 
-    expect(renderedLevels(thinkingToggle)).toEqual(["off", "low", "high", "max"]);
-    expect(renderedLabels(thinkingToggle)).toEqual(["Off", "Low", "High", "Max"]);
+    expect(renderedLevels(thinkingToggle)).toEqual(["default", "off", "low", "high", "max"]);
+    expect(renderedLabels(thinkingToggle)).toEqual(["Default", "Off", "Low", "High", "Max"]);
     for (const btn of buttons(thinkingToggle)) {
       const active = btn.dataset.level === "high";
       expect(btn.classList.contains("is-active"), btn.dataset.level).toBe(active);
@@ -333,7 +333,7 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
     modelPanel.renderThinkingPicker({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) });
 
-    click(buttons(thinkingToggle)[1]);
+    click(buttons(thinkingToggle)[2]);
 
     expect(pickLevel).toHaveBeenCalledWith("low");
     expect(hidePanel).toHaveBeenCalledTimes(1);
@@ -345,20 +345,19 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
     modelPanel.renderThinkingPicker({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) });
 
-    click(buttons(thinkingToggle)[2]);
+    click(buttons(thinkingToggle)[3]);
 
     expect(pickLevel).not.toHaveBeenCalled();
     expect(hidePanel).toHaveBeenCalledTimes(1);
   });
 
-  it("≤1 条：一级行整行隐藏（没有可选的东西）；条数够时回来", () => {
+  // 2026-10-05：`Default` 是恒在的首项后，「条目 ≤1 就隐藏整行」的旧规则退休——唯一只剩
+  // 一项的情形是「只有 Default」（模型没有可表达的强度档），用户裁定那一格也要能主动选。
+  it("一级行不再按条目数隐藏：只剩 Default 一项也显示（破例 = 能主动选）", () => {
     const { thinkingRow, modelPanel } = makeHarness();
 
-    modelPanel.renderThinkingPicker({ label: "On", entries: thinkingPickerEntries({ availableLevels: ["high"], switchOnly: false, requestedLevel: "high", effectiveLevel: null }) });
-    expect(thinkingRow.hidden).toBe(true);
-
-    modelPanel.renderThinkingPicker({ label: "Off", entries: thinkingPickerEntries({ availableLevels: [], switchOnly: false, requestedLevel: "off", effectiveLevel: null }) });
-    expect(thinkingRow.hidden).toBe(true);
+    modelPanel.renderThinkingPicker({ label: "Default", entries: thinkingPickerEntries({ availableLevels: [], switchOnly: false, requestedLevel: "default", effectiveLevel: "default" }) });
+    expect(thinkingRow.hidden).toBe(false);
 
     modelPanel.renderThinkingPicker({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) });
     expect(thinkingRow.hidden).toBe(false);

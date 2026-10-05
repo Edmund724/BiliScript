@@ -85,7 +85,8 @@ describe("chip 集合 = A'（与请求落线同源，不是第二套推导）", 
   it("空可用集 = 逐档都不发（qwen 的上游缺口 qwq-32b：手写 always，无档位写点）", () => {
     const adj = adjustment("qwen", QWEN_URL, "qwq-32b");
     expect(adj.availableLevels).toEqual([]);
-    expect(adj.effectiveLevel).toBeNull();
+    // 2026-10-05 default 档：没有可表达的强度档 → 实发 default（不干预 = 不发字段）。
+    expect(adj.effectiveLevel).toBe("default");
     for (const level of AI_THINKING_LEVELS) {
       expect(sent("qwen", QWEN_URL, "qwq-32b", level).fields, level).toEqual({});
     }
@@ -353,7 +354,8 @@ describe("minimax-cn/minimax-m3：实际可用集为空（05 的 hand-wins 裁�
   it("chip 集合为空、off 不可用 → 短版提示通道（offFallback null）", () => {
     const adj = adjustment("minimax", MINIMAX_URL, "MiniMax-M3");
     expect(adj.availableLevels).toEqual([]);
-    expect(adj.effectiveLevel).toBeNull();
+    // 2026-10-05 default 档：零档行的实发值 = default（旧口径的 null 只留给「没有解析结论」）。
+    expect(adj.effectiveLevel).toBe("default");
     expect(adj.source).toBe("upstream");
     const response = sent("minimax", MINIMAX_URL, "MiniMax-M3", "off");
     expect(response.offUnavailable).toBe(true);
@@ -406,11 +408,11 @@ describe("边界：A' = ∅ 的零档行（openrouter 5 行 + 18 号票新增的
     ["openrouter", OPENROUTER_URL, "sakana/sakana-namazu"]
   ];
 
-  it("零档行 chip 为空、逐档都不发（不再有平台声明照发）", () => {
+  it("零档行 chip 为空、逐档都不发（不再有平台声明照发；实发 default）", () => {
     for (const [presetId, baseUrl, model] of EMPTY) {
       const adj = adjustment(presetId, baseUrl, model);
       expect(adj.availableLevels, `${presetId}/${model}`).toEqual([]);
-      expect(adj.effectiveLevel, `${presetId}/${model}`).toBeNull();
+      expect(adj.effectiveLevel, `${presetId}/${model}`).toBe("default");
       for (const level of AI_THINKING_LEVELS) {
         expect(sent(presetId, baseUrl, model, level).fields, `${presetId}/${model} · ${level}`).toEqual({});
       }

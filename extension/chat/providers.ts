@@ -23,6 +23,7 @@ import {
   normalizeAiInitialQuickPrompts,
   normalizeAiThinkingLevel
 } from "../core/validators.js";
+import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import type { GetSettingsResponse } from "../shared/messaging-protocol.js";
 import { escapeHtml } from "../shared/string-utils.js";
@@ -177,8 +178,11 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
         aiInitialQuickPrompts: normalizeAiInitialQuickPrompts(settings?.aiInitialQuickPrompts),
         defaultModel: String(settings?.defaultModel || "").trim()
       },
+      // 出厂/重置默认 = DEFAULT_SETTINGS 的那一份（2026-10-05 起是 `default` 不干预档）：
+      // settings 与 storage 两处都没有值时，回落单源默认，而不是在这里硬写一个档位词
+      //（否则新装用户界面写 Off、线上却按「不干预」发——与用户裁定相反）。
       aiThinkingLevel: normalizeAiThinkingLevel(
-        settingsResp?.settings?.aiThinkingLevel ?? storedPrefs[THINKING_LEVEL_KEY]
+        settingsResp?.settings?.aiThinkingLevel ?? storedPrefs[THINKING_LEVEL_KEY] ?? DEFAULT_SETTINGS.aiThinkingLevel
       ),
       // 联网搜索开关（spec §2.1/§4）：全局记忆（sync settings），默认关。
       webSearchEnabled: Boolean(settings?.webSearchEnabled)

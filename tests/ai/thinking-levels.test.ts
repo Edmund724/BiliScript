@@ -87,8 +87,15 @@ describe("clamp（决策 #8：向下取）", () => {
     expect(clampThinkingLevel("high", ["off", "high"])).toBe("high");
   });
 
-  it("可用集为空 → null（无档位可落，维持不发参）", () => {
-    expect(clampThinkingLevel("high", [])).toBe(null);
+  it("可用集为空 → default（没有可表达的强度档：不干预，不发思考字段）", () => {
+    expect(clampThinkingLevel("high", [])).toBe("default");
+    expect(clampThinkingLevel("off", [])).toBe("default");
+  });
+
+  it("偏好 default → 恒为 default（不参与向下取，任何可用集都一样）", () => {
+    expect(clampThinkingLevel("default", [])).toBe("default");
+    expect(clampThinkingLevel("default", ["off", "low", "high"])).toBe("default");
+    expect(clampThinkingLevel("default", ["high", "max"])).toBe("default");
   });
 });
 
@@ -257,7 +264,7 @@ describe("resolveThinkingAdjustment：提示面的「源档 → 目标档 + 原�
     expect(unknown.effectiveLevel).toBe(null);
   });
 
-  it("可用集为空：effectiveLevel=null 且不报「被调整」（无档可落维持现状）", () => {
+  it("可用集为空：实发 default（不发字段）且如实报「被调整」（2026-10-05 default 档）", () => {
     const r = resolveThinkingAdjustment({
       presetId: "minimax",
       baseUrl: "https://api.minimaxi.com/v1",
@@ -266,8 +273,17 @@ describe("resolveThinkingAdjustment：提示面的「源档 → 目标档 + 原�
       stream: true
     });
     expect(r.availableLevels).toEqual([]);
-    expect(r.effectiveLevel).toBe(null);
+    expect(r.effectiveLevel).toBe("default");
+    expect(r.resolution.fields).toEqual({});
+    expect(r.reason).toBe("upstream-unlisted");
+  });
+
+  it("偏好就是 default：实发 default、不发字段、不报「被调整」", () => {
+    const r = resolveThinkingAdjustment({ presetId: "deepseek", model: "deepseek-v4-pro", level: "default", stream: true });
+    expect(r.effectiveLevel).toBe("default");
+    expect(r.resolution.fields).toEqual({});
     expect(r.reason).toBe(null);
+    expect(r.availableLevels).toEqual(["off", "low", "high", "max"]);
   });
 
   it("提示面的 effectiveLevel 与请求字段同源（同一份解析，不会漂移）", () => {
@@ -335,9 +351,9 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定）：cl
 
   // minimax-m3：上游 `reasoning_options:[toggle]` 与厂商文档矛盾（platform.minimax.cn：思考
   // 不可关闭）→ 2026-10-04 用户裁定 hand-wins（已裁决分歧，不是缺口，不补开关方言）。
-  it("无档位可落的裁决行仍无档可落（minimax-always 一类的空可用集不被 clamp 造出档位）", () => {
+  it("无档位可落的裁决行不被 clamp 造出强度档：实发 default（2026-10-05 起恒可发）", () => {
     expect(availableLevelsOf(CLASSES["minimax-always"])).toEqual([]);
-    expect(clampThinkingLevel("high", availableLevelsOf(CLASSES["minimax-always"]))).toBe(null);
+    expect(clampThinkingLevel("high", availableLevelsOf(CLASSES["minimax-always"]))).toBe("default");
   });
 });
 

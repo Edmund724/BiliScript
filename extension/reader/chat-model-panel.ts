@@ -21,7 +21,7 @@
 // 经工厂 deps 注入。本模块不 import 组合根与 popovers。
 import { chatSessionState } from "../chat/chat-state.js";
 import { measureModelPanelWidth, updateModelSelectWidth } from "../chat/model-select-width.js";
-import { THINKING_LEVEL_LABELS, type ThinkingPickerEntry } from "../chat/thinking-picker.js";
+import { thinkingLevelValueLabel, type ThinkingPickerEntry } from "../chat/thinking-picker.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 export interface CreateReaderChatModelPanelDeps {
@@ -77,17 +77,17 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // 档位显示名（chip 的档位 span 与一级行右侧共用）。由 renderThinkingPicker 写入；
   // 还没渲染过（面板从未刷新）时为 null，renderChip 回落标签表。
   let chipLevelLabel: string | null = null;
-  // 上一次渲染的条目数：≤1 项没有可选的东西，一级行整行隐藏（用户裁定）。
-  let pickerChoices = 0;
   // 当前是否停在档位页（换页状态；面板重开时归零）。
   let onLevelsPage = false;
 
-  // 两页切换：模型页 / 档位页。一级行只在模型页出现，且没有可选项时整行隐藏。
+  // 两页切换：模型页 / 档位页。一级行只在模型页出现。
+  // 2026-10-05：`Default` 是恒在的首项后，「条目 ≤1 就隐藏整行」的旧规则退休（唯一只剩
+  // 一项的情形是「只有 Default」，而那一格也要能主动选）。
   function showThinkingPage(levelsPage: boolean): void {
     onLevelsPage = levelsPage;
     panelList.hidden = levelsPage;
     thinkingPage.hidden = !levelsPage;
-    thinkingRow.hidden = levelsPage || pickerChoices <= 1;
+    thinkingRow.hidden = levelsPage;
     thinkingRow.setAttribute("aria-expanded", levelsPage ? "true" : "false");
   }
 
@@ -110,8 +110,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     chipModel.textContent = platform ? `${platform}·${modelName}` : modelName;
     // 显示名优先用档位条派生的那一个（开关型模型是 On）——菜单里写 On、chip 写 High
     // 是自相矛盾的（用户裁定）；未派生过时回落标签表。
-    chipLevel.textContent =
-      chipLevelLabel ?? THINKING_LEVEL_LABELS[chatSessionState.aiThinkingLevel] ?? "Off";
+    chipLevel.textContent = chipLevelLabel ?? thinkingLevelValueLabel(chatSessionState.aiThinkingLevel);
     chip.disabled = false;
     updateModelSelectWidth({ chip, chipModel, chipLevel });
   }
@@ -161,17 +160,18 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   }
 
   // 档位页（换页后的那一页）：条目来自调用方派生好的显示条目——本模块只画
-  // 「叫什么 + 打不打勾」，不推导档位。空条目/单项也照画，一级行由
-  // showThinkingPage 决定是否显示（≤1 项没有任何可选的）。
+  // 「叫什么 + 打不打勾」，不推导档位。一级行由 showThinkingPage 决定是否显示。
+  // 2026-10-05：`Default`（不干预）是恒在的首项，所以「条目 ≤1 就隐藏整行」的旧规则退休——
+  // 唯一只剩一项的情形就是「只有 Default」（模型没有可表达的强度档），而用户裁定那一格
+  // **也要能主动选**（破例），因此这里只按是否在档位页决定隐藏。
   // 点中条目：不是当前选中项才写偏好（05 号票「偏好保留不迁移」——开关型的 On
   // 是 canonical high，偏好停在别的非 off 档时重写会把偏好悄悄搬走），随后关面板
   //（用户裁定：选完即关，一次点击完成）。
   function renderThinkingPicker(view: ThinkingPickerView): void {
     const entries = view.entries;
-    pickerChoices = entries.length;
     chipLevelLabel = view.label;
     thinkingRowValue.textContent = view.label;
-    thinkingRow.hidden = onLevelsPage || pickerChoices <= 1;
+    thinkingRow.hidden = onLevelsPage;
     thinkingToggle.innerHTML = entries
       .map(
         (entry) =>

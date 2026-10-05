@@ -23,15 +23,15 @@ import {
   thinkingPickerLabel,
   type ThinkingPickerInput
 } from "../../extension/chat/thinking-picker.js";
-import { AI_THINKING_LEVELS, type ThinkingLevel } from "../../extension/ai/thinking-profiles.js";
+import { AI_THINKING_LEVELS, type ThinkingLevel, type ThinkingLevelValue } from "../../extension/ai/thinking-profiles.js";
 
-// 入参工厂：effectiveLevel 缺省 null = 「没有实发档信息」（口径 ③ 的回退路径：显示档回落
-// 偏好词；真实调用方总带同一次解析的实发档，只有 A' = ∅ 的零档行才是 null）。
+// 入参工厂：effectiveLevel 缺省 null = 「没有解析结论」（unknown 哨兵；口径 ③ 的回退路径：
+// 显示档回落偏好词。真实调用方总带同一次解析的实发档，零档行给的是 `default`）。
 function input(
   availableLevels: readonly ThinkingLevel[],
-  requestedLevel: ThinkingLevel,
+  requestedLevel: ThinkingLevelValue,
   switchOnly = false,
-  effectiveLevel: ThinkingLevel | null = null
+  effectiveLevel: ThinkingLevelValue | null = null
 ): ThinkingPickerInput {
   return { availableLevels, switchOnly, requestedLevel, effectiveLevel };
 }
@@ -64,52 +64,60 @@ describe("标签表（05 号票：上游 7 档，与 chip 集合工件同源）"
 });
 
 describe("thinkingPickerEntries", () => {
-  it("空可用集：一个条目都没有（面板整行隐藏，fail-closed）", () => {
-    expect(thinkingPickerEntries(input([], "off"))).toEqual([]);
-    expect(thinkingPickerEntries(input([], "max"))).toEqual([]);
+  it("首项恒为 Default（不干预，所有模型都可选）", () => {
+    for (const levels of [[], ["off"], ["high"], ["off", "low", "high", "max"]] as const) {
+      expect(levelsOf(thinkingPickerEntries(input([...levels], "default")))[0], JSON.stringify(levels)).toBe("default");
+    }
   });
 
-  it("可关 + 多档：Off 在首位的档位列表，顺序即可用集顺序", () => {
+  it("空可用集（没有可表达的强度档）：只剩 Default 一项（破例 = 能主动选）", () => {
+    const entries = thinkingPickerEntries(input([], "off"));
+    expect(entries).toEqual([{ level: "default", label: "Default", active: false }]);
+    expect(thinkingPickerEntries(input([], "default"))).toEqual([{ level: "default", label: "Default", active: true }]);
+    expect(thinkingPickerEntries(input([], "max"))).toEqual([{ level: "default", label: "Default", active: false }]);
+  });
+
+  it("可关 + 多档：Default 之后是 Off 在首位的档位列表，顺序即可用集顺序", () => {
     const entries = thinkingPickerEntries(input(["off", "low", "high", "max"], "high"));
-    expect(levelsOf(entries)).toEqual(["off", "low", "high", "max"]);
-    expect(labelsOf(entries)).toEqual(["Off", "Low", "High", "Max"]);
+    expect(levelsOf(entries)).toEqual(["default", "off", "low", "high", "max"]);
+    expect(labelsOf(entries)).toEqual(["Default", "Off", "Low", "High", "Max"]);
     expect(activeOf(entries)).toEqual(["high"]);
   });
 
   it("关不掉 + 多档：没有 Off 项", () => {
     const entries = thinkingPickerEntries(input(["low", "high", "max"], "low"));
-    expect(levelsOf(entries)).toEqual(["low", "high", "max"]);
+    expect(levelsOf(entries)).toEqual(["default", "low", "high", "max"]);
     expect(activeOf(entries)).toEqual(["low"]);
   });
 
   it("开关型（switchOnly）：非 off 域收成一项 On，条目档位值取 canonical high", () => {
     const entries = thinkingPickerEntries(input([...AI_THINKING_LEVELS], "off", true));
-    expect(levelsOf(entries)).toEqual(["off", "high"]);
-    expect(labelsOf(entries)).toEqual(["Off", THINKING_ON_LABEL]);
+    expect(levelsOf(entries)).toEqual(["default", "off", "high"]);
+    expect(labelsOf(entries)).toEqual(["Default", "Off", THINKING_ON_LABEL]);
     expect(activeOf(entries)).toEqual(["off"]);
   });
 
-  it("开关型：偏好是任何非 off 档都落在 On 上（6 个非 off 档发的是同一个「开」写点）", () => {
+  it("开关型：偏好是任何非 off 强度档都落在 On 上（6 个非 off 档发的是同一个「开」写点）；default 不落在 On 上", () => {
     for (const level of AI_THINKING_LEVELS.filter((candidate) => candidate !== "off")) {
       const entries = thinkingPickerEntries(input([...AI_THINKING_LEVELS], level, true));
       expect(activeOf(entries), level).toEqual(["high"]);
     }
+    expect(activeOf(thinkingPickerEntries(input([...AI_THINKING_LEVELS], "default", true)))).toEqual(["default"]);
   });
 
   it("上游只登记一个真实档位（none-high 的 {off,high}）：那一项显示为 On，按档位值打勾", () => {
     const on = thinkingPickerEntries(input(["off", "high"], "high"));
-    expect(labelsOf(on)).toEqual(["Off", THINKING_ON_LABEL]);
+    expect(labelsOf(on)).toEqual(["Default", "Off", THINKING_ON_LABEL]);
     expect(activeOf(on)).toEqual(["high"]);
 
     // 偏好 low 不在可用集里（clamp 落 off）：没有条目命中，不做成「已选中 On」。
     const off = thinkingPickerEntries(input(["off", "high"], "low"));
-    expect(labelsOf(off)).toEqual(["Off", THINKING_ON_LABEL]);
+    expect(labelsOf(off)).toEqual(["Default", "Off", THINKING_ON_LABEL]);
     expect(activeOf(off)).toEqual([]);
   });
 
-  it("单选条目：可用集只有一项时条目数 = 1（面板据此隐藏整行）", () => {
-    expect(thinkingPickerEntries(input(["high"], "high"))).toHaveLength(1);
-    expect(thinkingPickerEntries(input(["off"], "off"))).toHaveLength(1);
+  it("Default 只有偏好为 default 时打勾", () => {
+    expect(activeOf(thinkingPickerEntries(input(["off", "high"], "default")))).toEqual(["default"]);
   });
 });
 
@@ -151,7 +159,7 @@ describe("口径 ③：偏好 ≠ 实发档 → 一级行/chip 显示实发档�
   it("off 关不掉·多档模型：{high,max} + 偏好 off + 实发 high → 一级行 High；列表条目不变、无人打勾", () => {
     const view = input(["high", "max"], "off", false, "high");
     expect(thinkingPickerLabel(view)).toBe("High");
-    expect(levelsOf(thinkingPickerEntries(view))).toEqual(["high", "max"]);
+    expect(levelsOf(thinkingPickerEntries(view))).toEqual(["default", "high", "max"]);
     expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
   });
 
@@ -167,20 +175,24 @@ describe("口径 ③：偏好 ≠ 实发档 → 一级行/chip 显示实发档�
     expect(activeOf(thinkingPickerEntries(view))).toEqual(["off"]);
   });
 
-  it("无档可落（effectiveLevel null，A' = ∅）：维持偏好词（面板整行隐藏，显示名无人消费）", () => {
-    const off = input([], "off", false, null);
-    expect(thinkingPickerLabel(off)).toBe("Off");
-    expect(thinkingPickerEntries(off)).toEqual([]);
+  it("零档行（A' = ∅ → 实发 default）：一级行 Default、列表只剩 Default；没有解析结论（null）才回落偏好词", () => {
+    const noTiers = input([], "high", false, "default");
+    expect(thinkingPickerLabel(noTiers)).toBe("Default");
+    expect(levelsOf(thinkingPickerEntries(noTiers))).toEqual(["default"]);
 
-    const high = input([], "high", false, null);
-    expect(thinkingPickerLabel(high)).toBe("High");
-    expect(thinkingPickerEntries(high)).toEqual([]);
+    // unknown 哨兵（没有规则 → 没有解析结论）：显示名回落偏好词，列表仍只剩 Default。
+    const noRule = input([], "high", false, null);
+    expect(thinkingPickerLabel(noRule)).toBe("High");
+    expect(levelsOf(thinkingPickerEntries(noRule))).toEqual(["default"]);
+
+    const offNoTiers = input([], "off", false, "default");
+    expect(thinkingPickerLabel(offNoTiers)).toBe("Default");
   });
 
   it("档位型 clamp（偏好 high、A' = {low,medium}）→ 一级行显示实发档 Medium，不显示 High", () => {
     const view = input(["low", "medium"], "high", false, "medium");
     expect(thinkingPickerLabel(view)).toBe("Medium");
-    expect(levelsOf(thinkingPickerEntries(view))).toEqual(["low", "medium"]);
+    expect(levelsOf(thinkingPickerEntries(view))).toEqual(["default", "low", "medium"]);
     expect(activeOf(thinkingPickerEntries(view))).toEqual([]);
   });
 

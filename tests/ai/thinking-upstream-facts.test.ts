@@ -710,7 +710,8 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     for (const model of ["anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-4.5"]) {
       const adj = adjustmentOf("openrouter", model);
       expect(adj.availableLevels, model).toEqual([]);
-      expect(adj.effectiveLevel, model).toBeNull();
+      // 2026-10-05 default 档：没有可表达的强度档 → 实发 default（线上一律不发字段，语义同旧口径）。
+      expect(adj.effectiveLevel, model).toBe("default");
       expect(adj.source, model).toBe("upstream");
       for (const level of ALL_LEVELS) {
         // 模型侧词表是 budget-only（无 toggle、无 effort）→ A' = ∅、thinkingClass always：

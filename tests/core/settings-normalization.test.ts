@@ -388,23 +388,36 @@ describe("normalizeSettings 是唯一归一化路径", () => {
 
 // 05 号票（决策 #8）：档位值域扩到上游词表的 7 档；已存的 off/low/high 都是新值域的
 // 子集 → **不需要迁移**（读回/落盘都原样），非法值仍回落 off（口径不变）。
-describe("aiThinkingLevel：7 档值域与存储兼容（05 号票）", () => {
+// 2026-10-05 用户裁定：再加一个 `default`（不干预）——合法可存，出厂/重置默认就是它。
+describe("aiThinkingLevel：7 档 + default 值域与存储兼容（05 号票 + default 档）", () => {
   const SEVEN = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+  const ALL = ["default", ...SEVEN] as const;
 
-  it("读路径：7 档全部原样读回", async () => {
+  it("读路径：default 与 7 档全部原样读回", async () => {
     const { normalizeSettings } = await loadStoreModule();
-    for (const level of SEVEN) {
+    for (const level of ALL) {
       expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: level }).aiThinkingLevel, level).toBe(level);
     }
   });
 
-  it("写路径：7 档全部原样落盘", async () => {
+  it("写路径：default 与 7 档全部原样落盘", async () => {
     const { saveSettings } = await loadStoreModule();
-    for (const level of SEVEN) {
+    for (const level of ALL) {
       syncSetMock.mockClear();
       await saveSettings({ aiThinkingLevel: level });
       expect(syncSetMock.mock.calls[0][0], level).toEqual({ aiThinkingLevel: level });
     }
+  });
+
+  it("出厂默认 = default（合并后的设置视图读回 default）；显式垃圾/空值仍回落 off", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(DEFAULT_SETTINGS.aiThinkingLevel).toBe("default");
+    // 生产读路径先与 DEFAULT_SETTINGS 合并再归一（见 settings-store 的 getMergedSettings），
+    // 故「缺键 = 出厂默认」在这一层表现为「合并后的值就是 default」。
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS }).aiThinkingLevel).toBe("default");
+    // 显式给出的非法/空值仍按老口径回落 off（不因为有了 default 就把垃圾值吞成 default）。
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: undefined }).aiThinkingLevel).toBe("off");
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, aiThinkingLevel: "" }).aiThinkingLevel).toBe("off");
   });
 
   it("旧值 off/low/high 不迁移：读回与落盘都原样保留", async () => {
