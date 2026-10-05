@@ -86,7 +86,11 @@ export const PRESETS: readonly AiProviderPreset[] = [
   { id: "qwen",          name: "Qwen",        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", requiresKey: true, catalogProvider: "alibaba-cn", protocolBaseUrls: { anthropic: "https://dashscope.aliyuncs.com/apps/anthropic" } },
   { id: "zhipu",         name: "GLM",         baseUrl: "https://open.bigmodel.cn/api/paas/v4", requiresKey: true, catalogProvider: "zhipuai", protocolBaseUrls: { anthropic: "https://open.bigmodel.cn/api/anthropic" } },
   { id: "moonshot",      name: "Kimi",        baseUrl: "https://api.kimi.com/coding/v1", requiresKey: true, catalogProvider: "kimi-code-plan-cn", protocolBaseUrls: { anthropic: "https://api.kimi.com/coding" } },
-  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true, catalogProvider: "minimax-cn", protocolBaseUrls: { anthropic: "https://api.minimaxi.com/anthropic" } },
+  // protocol: "anthropic" = 出厂默认走 Messages 协议（与 deepseek 同形；2026-10-05 用户裁定）。
+  // 依据：厂商 MiniMax OpenAI SDK 文档的 Thinking Control 表（`thinking.type` ∈
+  // disabled|adaptive，M3 的 disabled = "Skips thinking and answers directly"）与
+  // Anthropic 兼容端点 api.minimaxi.com/anthropic（protocolBaseUrls 已登记）。
+  { id: "minimax",       name: "MiniMax",     baseUrl: "https://api.minimaxi.com/v1", requiresKey: true, catalogProvider: "minimax-cn", protocol: "anthropic", protocolBaseUrls: { anthropic: "https://api.minimaxi.com/anthropic" } },
   { id: "mimo",          name: "Mimo",        baseUrl: "https://api.xiaomimimo.com/v1", requiresKey: true, catalogProvider: "xiaomi", protocolBaseUrls: { anthropic: "https://api.xiaomimimo.com/anthropic" } },
   { id: "opencodego",    name: "Opencode Go", baseUrl: "https://opencode.ai/zen/go/v1", requiresKey: true, catalogProvider: "opencode-go", protocolBaseUrls: { anthropic: "https://opencode.ai/zen/go" } },
   { id: "openrouter",    name: "OpenRouter",  baseUrl: "https://openrouter.ai/api/v1", requiresKey: true, catalogProvider: "openrouter", protocolBaseUrls: { anthropic: "https://openrouter.ai/api" } },
