@@ -1,5 +1,5 @@
 // extension/reader/quick-prompts.ts
-// 初始快捷问题的预热编排（reader 侧）：字幕就绪 → 解析激活平台 → 一次非流式短
+// 初始快捷问题的预热编排（reader 侧）：字幕就绪 → 解析激活平台 → 一次流式短
 // 调用（标题 + 字幕节选）→ 解析出三条问题写进内存缓存，供对话 tab 的建议区直接
 // 取用（reader/chat-lists.ts）。这是「每个视频即时生成」的落实处：问题来自本视频
 // 内容，不再是预设文案。
@@ -91,16 +91,34 @@ async function generate(key: string, title: string, body: unknown[]): Promise<vo
       import("../ai/completion.js"),
       import("../core/provider-http-offscreen.js")
     ]);
-    const text = await chatCompletion({
+    // 正文经 onEvent 逐片回吐（流式成功只返回 { done: true }，返回值无正文）。
+    let text = "";
+    await chatCompletion({
       provider,
       messages: buildQuickPromptMessages({ title, excerpt: buildQuickPromptExcerpt(body) }),
-      stream: false,
+      // 流式：思考档位查表的 streamOnly 规则遇非流式按「无事实」处理（Q14A），
+      // 那类模型（qwen3-30b 等走手写兜底的 id）的 off 会被阻断并级联到**开**档——
+      // 预热反而把思考打开。流式让 off 照发关思考字段，是本链流式的首要理由。
+      // 传输层本就是 offscreen 代发（分块回吐合成 ReadableStream body），
+      // 流式不需要换通道。
+      stream: true,
       // 思考档位显式钉死 off（对齐概览生成的钉法）：生成三个短问题不需要思考，
       // 开了既慢又贵。
       thinkingLevel: "off",
       maxTokens: QUICK_PROMPT_MAX_TOKENS,
       // 预热是尽力而为：失败即回落固定三条，不重试（不为一屏 chip 反复花钱）。
       retries: 0,
+      onEvent: (event) => {
+        if (event.type === "token") {
+          text += event.data;
+        }
+      },
+      // 读流中断重试（completion 的 onStreamReset 契约）：新的一代从头生成，
+      // 不清缓冲就会把两代拼在一起（重复 chip / 解析失败）。retries: 0 时不触发，
+      // 仍按契约接上——重试次数是独立旋钮，这里不因它当前为 0 就留下隐患。
+      onStreamReset: () => {
+        text = "";
+      },
       // content 侧没有扩展源 fetch（跨域服从网页 CORS）：模型调用交 offscreen 代发。
       fetchImpl: providerFetchViaOffscreen
     });
