@@ -18,7 +18,8 @@
 //   3. 来源层判错（上游命中记成手写兜底 / 18 号票后四家托管平台仍记 override）→ 清单审计失真；
 //   4. 上游 `none` 被物化成档位（产生 "None" chip）；off 不是独立 chip；
 //   5. off 可用性判错：toggle 有开关形状、effort 含 none、两者都无（关不掉）；
-//   6. minimax-m3（厂商文档：关不掉）被填成默认三档 → 显示了请求不发的选择；
+//   6. 开关型的开/关词发错（2026-10-05 起 MiniMax 登记形状：A' 不再为空，开档必须发平台自己的词
+//      `adaptive`——该端点的 enum 里没有 `enabled`；off 档才发 `disabled`）；
 //   7. 未登记词表 / 无结论的模型仍显示档位 chip；
 //   8. 无上游平台（ollama / custom）不再回落今日三档；
 //   9. 零档行（budget-only / toggle-only 落到未登记开关形状的平台）被静默塞进字段；
@@ -347,25 +348,39 @@ describe("验收第一条：none/high 类（13 号票 canonical 优先后剩 3 �
   });
 });
 
-describe("minimax-cn/minimax-m3：实际可用集为空（05 的 hand-wins 裁定）", () => {
-  // 厂商文档（platform.minimax.cn）确认思考关不掉，上游 `[toggle]` 不可采信；本仓
-  // 又没给 minimax 登记开关方言 → 无 off 写点、无 effort 写点 = 一个档位都不显示，
-  // off 也不可用（沿用工单 03 的「关不掉思考」提示通道）。
-  it("chip 集合为空、off 不可用 → 短版提示通道（offFallback null）", () => {
+describe("minimax-cn/minimax-m3：开关型（2026-10-05 裁定登记开关形状后）", () => {
+  // 2026-10-05 用户裁定：MiniMax 的形状**完整登记**（off `thinking:{type:"disabled"}` /
+  // on `thinking:{type:"adaptive"}`，两通道同词）——厂商文档里「关不了」只适用于 M2.x
+  // （收下但忽略）与 M3.1-Flash-Preview（发 disabled 直接 400）；M3 关得掉。见
+  // UPSTREAM_TOGGLE_SHAPES.minimax 与 ai/thinking-wire-map.ts 的 MESSAGES_ON_EXIT。
+  it("A' = 全部档位 + 开关型：off 真发 disabled（关得掉）、非 off 档发平台开词 adaptive", () => {
     const adj = adjustment("minimax", MINIMAX_URL, "MiniMax-M3");
-    expect(adj.availableLevels).toEqual([]);
-    // 2026-10-05 default 档：零档行的实发值 = default（旧口径的 null 只留给「没有解析结论」）。
-    expect(adj.effectiveLevel).toBe("default");
+    expect(adj.availableLevels).toEqual([...AI_THINKING_LEVELS]);
+    expect(adj.switchOnly).toBe(true);
     expect(adj.source).toBe("upstream");
     const response = sent("minimax", MINIMAX_URL, "MiniMax-M3", "off");
-    expect(response.offUnavailable).toBe(true);
+    expect(response.offUnavailable).toBe(false);
     expect(response.offFallback).toBeNull();
-    expect(response.fields).toEqual({});
+    expect(response.fields).toEqual({ thinking: { type: "disabled" } });
+    // 开关型：low 与 high 同形（都落同一个 on 写点），且是平台自己的词不是 enabled。
+    for (const level of AI_THINKING_LEVELS.filter((candidate) => candidate !== "off")) {
+      expect(sent("minimax", MINIMAX_URL, "MiniMax-M3", level).fields, level).toEqual({
+        thinking: { type: "adaptive" }
+      });
+    }
+    // default（不干预）仍不发任何思考字段。
+    expect(adjustment("minimax", MINIMAX_URL, "MiniMax-M3", "default").resolution.fields).toEqual({});
   });
 
-  it("偏好任意档位都不发（不能显示请求根本不发的选择）", () => {
-    for (const level of AI_THINKING_LEVELS) {
-      expect(sent("minimax", MINIMAX_URL, "MiniMax-M3", level).fields, level).toEqual({});
+  it("目录外的 M2.x / M3.1 仍走手写兜底：一个档位都没有（不发字段，故也不会发会 400 的 disabled）", () => {
+    for (const model of ["MiniMax-M2", "MiniMax-M2.7", "MiniMax-M3.1-Flash-Preview"]) {
+      const adj = adjustment("minimax", MINIMAX_URL, model);
+      expect(adj.availableLevels, model).toEqual([]);
+      expect(adj.source, model).toBe("handwritten");
+      expect(adj.effectiveLevel, model).toBe("default");
+      for (const level of AI_THINKING_LEVELS) {
+        expect(sent("minimax", MINIMAX_URL, model, level).fields, `${model} · ${level}`).toEqual({});
+      }
     }
   });
 });
@@ -393,7 +408,8 @@ describe("无上游平台仍显示今日三档（ollama / custom）", () => {
 
 describe("边界：A' = ∅ 的零档行（openrouter 5 行 + 18 号票新增的 toggle-only 行，fail-closed）", () => {
   // 上游唯一的档位词平台表达不了（budget-only 值集；或 toggle 落到未登记开关形状的平台）
-  // → 写点集为空：不显示任何 chip、逐档都不发（对齐 minimax-m3 的 fail-closed）。
+  // → 写点集为空：不显示任何 chip、逐档都不发（对齐其它未登记形状平台的 toggle-only 行，
+  // 如 openrouter 的 sakana/sakana-namazu；minimax/MiniMax-M3 自 2026-10-05 登记形状后不再是这一格）。
   // 2026-10-04 用户裁定（原话：「openrouter 的不发参数」）：openrouter 的三行**维持不发参**。
   // 13 号票 canonical 优先后 anthropic/claude-haiku-4.5 与 claude-sonnet-4.5 的 canonical
   // 也是 budget-only；18 号票删平台声明后 toggle-only 的行（如 sakana/sakana-namazu）同样
@@ -639,29 +655,32 @@ describe.skipIf(!existsSync(MATRIX_CELLS))("06 请求矩阵逐格变化清单", 
   const header = lines[0]?.split("\t") ?? [];
   const traceAt = header.indexOf("trace");
   const rows = lines.slice(1).map((line) => line.split("\t"));
+  // 零档行（A' = ∅）的实发标记：2026-10-05 的 `default` 档（「不干预」= 不发字段）落地后，
+  // 写的是 `实发 default`；旧口径写 `实发 (不发)`。两种都认，避免把同一格认成两种状态。
+  const isNoEmit = (trace: string): boolean => /实发 (\(不发\)|default)｜/.test(trace);
 
   it("每个变化格都能追到 A'：向下兼容落别的档 / 零档不发 / 档位词未变而线形状变（无第四种）", () => {
     expect(rows.length).toBeGreaterThan(0);
-    const empty = rows.filter((cells) => cells[traceAt].includes("实发 (不发)"));
+    const empty = rows.filter((cells) => isNoEmit(cells[traceAt]));
     expect(empty.length).toBeGreaterThan(0);
     expect(rows.length).toBeGreaterThan(empty.length);
-    // 逐格形状：偏好档 → 实发档（或「不发」）+ A' + 原因（模型词表 / 上游未登记 / 未被 clamp）。
-    // 18 号票后 after 列 = 当前树，变化格累积了 06 之后各票（13 / 18）的请求字节变化
-    // （今日 1592 格），故不再逐行列举可追溯行——行级事实由 06 工件与
-    // artifacts/18-platform-override-removal.txt 承载。
+    // 逐格形状：偏好档 → 实发档（或 `(不发)` / `default`）+ A' + 原因（模型词表 / 上游未登记 / 未被 clamp）。
+    // 18 号票后 after 列 = 当前树，变化格累积了 06 之后各票（13 / 18 / 2026-10-05 的 default 档与
+    // minimax 形状登记）的请求字节变化（今日 1614 格），故不再逐行列举可追溯行——行级事实由
+    // 06 工件与 artifacts/18-platform-override-removal.txt 承载。
     for (const cells of rows) {
       expect(cells[traceAt], cells.join("\t")).toMatch(
-        /^偏好 (off|minimal|low|medium|high|xhigh|max) → 实发 (\(不发\)|off|minimal|low|medium|high|xhigh|max)｜A'=\{[^}]*\}｜原因=(model-vocabulary|upstream-unlisted|-)$/
+        /^偏好 (off|minimal|low|medium|high|xhigh|max) → 实发 (\(不发\)|default|off|minimal|low|medium|high|xhigh|max)｜A'=\{[^}]*\}｜原因=(model-vocabulary|upstream-unlisted|-)$/
       );
     }
-    // 「实发 (不发)」= 零档行：与 resolver 的可用集对账（不是靠 trace 自证）。
+    // 「实发 (不发)」/「实发 default」= 零档行：与 resolver 的可用集对账（不是靠 trace 自证）。
     for (const cells of empty) {
       expect(adjustment(cells[0], "", cells[1]).availableLevels, `${cells[0]}/${cells[1]}`).toEqual([]);
     }
   });
 
   it("零档行的变化格：101 行 A' = ∅（含 2026-10-04 裁决的 openrouter 5 行，各 9 格）", () => {
-    const empty = rows.filter((cells) => cells[traceAt].includes("实发 (不发)"));
+    const empty = rows.filter((cells) => isNoEmit(cells[traceAt]));
     const byModel = new Map<string, number>();
     for (const cells of empty) {
       const key = `${cells[0]}/${cells[1]}`;

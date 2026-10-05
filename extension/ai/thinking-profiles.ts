@@ -277,7 +277,9 @@ export const CLASSES: Record<string, ClassRule> = {
   "kimi-instruct-never": { thinkingClass: "never" },
 
   // --- MiniMax（platform.minimax.io / github.com/MiniMax-AI）---
-  // m1~m3 全系永远思考：无关闭开关、无档位参数。
+  // 永远思考：**只服务目录外 id**（MiniMax-M2 等没有上游词表的行）。目录内的 `MiniMax-M3`
+  // 走上游值集 toggle + 平台开关形状（UPSTREAM_TOGGLE_SHAPES.minimax，off disabled /
+  // on adaptive），不再落本类；「关不掉」的逐模型边界（M2.x 忽略、M3.1 报 400）见那张表的头注。
   "minimax-always": { thinkingClass: "always" },
 
   // --- 豆包/火山方舟（volcengine.com 方舟深度思考）---
@@ -386,7 +388,8 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
   { class: "kimi-always", patterns: ["kimi-k2-thinking", "kimi-thinking"] },
   { class: "kimi-hybrid-switch", patterns: ["kimi-k2.5", "kimi-k2.6"] },
   { class: "kimi-instruct-never", patterns: ["kimi-k2-"] },
-  // MiniMax m1~m3：永远思考（platform.minimax.io）
+  // MiniMax m1~m3：目录外兜底 = 永远思考（platform.minimax.io）。目录内 M3 有上游词表，
+  // 命中指派表后不走本行（见 CLASSES.minimax-always 注）。
   { class: "minimax-always", patterns: ["minimax-m1", "minimax-m2", "minimax-m3"] },
   // 豆包 seed 系：混合开关（volcengine.com）
   { class: "doubao-hybrid-switch", patterns: ["doubao-seed"] },
@@ -469,7 +472,17 @@ export const UPSTREAM_PROVIDER_BY_PRESET: Readonly<Record<string, string>> = Obj
 // - mimo 小米：enable_thinking （aliyun.com；同 CLASSES.mimo-hybrid-switch）
 // - modelscope：enable_thinking （modelscope.cn 托管模型用原生开关；
 //   PROVIDERS.modelscope.unknownClass = qwen-hybrid-switch）
-// 未登记的（stepfun / minimax / ollama / custom / openrouter / amd / sensenova /
+// - minimax：thinking:{type}，枚举词是 **disabled / adaptive**（没有 enabled）
+//   （platform.minimax.io/docs/api-reference/text-openai-api 与 …/text-anthropic-api 的
+//   Thinking Control 表，2026-10-05 逐字抓取）。两个词在两条通道同形，故本表（协议无关的
+//   模型事实层）原样登记；Messages 通道不再硬写 enabled，见 ai/thinking-wire-map.ts 的
+//   MESSAGES_ON_EXIT（2026-10-05 用户裁定「只 MiniMax、形态 = 逐格显式声明开词」）。
+//   逐模型边界（登记是平台级开门，ADR-0014 决定 4，不能按模型收窄）：`MiniMax-M3` 关得掉
+//   （chat 发 disabled → skips thinking；anthropic 省略即关、disabled 保持关）；M2.x 收下但
+//   忽略（仍思考）；`MiniMax-M3.1-Flash-Preview` 发 disabled 直接 400 —— 该 id 不在 02 指派表
+//   （目录内 minimax-cn 只有 M3 一行有思考事实），故今天没有 400 路径；上游若新增 M2.x / M3.1
+//   行，必须先在这里补逐模型收窄再放行（票 thinking-wire-protocol-split 的边界条）。
+// 未登记的（stepfun / ollama / custom / openrouter / amd / sensenova /
 // opencodego …）：**不发明开关形状**——上游值集若只有 toggle，本模块不发参数
 // （关不掉 → 走级联 / fail-closed），宁少发不错发。四家托管平台无平台文档支撑
 // 开关形状，故 18 号票删 override 时**不同步**登记它们（裁定 3）。
@@ -481,7 +494,9 @@ export const UPSTREAM_TOGGLE_SHAPES: Readonly<
   zhipu: { off: { thinking: { type: "disabled" } }, on: { thinking: { type: "enabled" } } },
   moonshot: { off: { thinking: { type: "disabled" } }, on: { thinking: { type: "enabled" } } },
   mimo: { off: { enable_thinking: false }, on: { enable_thinking: true } },
-  modelscope: { off: { enable_thinking: false }, on: { enable_thinking: true } }
+  modelscope: { off: { enable_thinking: false }, on: { enable_thinking: true } },
+  // 开词是 adaptive 而不是 enabled（见头注）。off/on 同词形两通道通用。
+  minimax: { off: { thinking: { type: "disabled" } }, on: { thinking: { type: "adaptive" } } }
 };
 
 // ===== 上游值集 → class 规则（04 号票建，05 号票扩到 7 档）=====

@@ -623,12 +623,13 @@ describe("口径 ③/⑤ 统一：偏好 ≠ 实发档 → 一级行/chip/勾都
 
 // 06 号票：面板档位 chip 按「该模型实际可用的档位」渲染（来源三层：上游逐模型
 // 词表 / 借词类默认 / 回落今日三档）。只显示存在的档位、不置灰；被 05 clamp 掉的
-// 偏好走既有说明文本，不做成禁用 chip；minimax-m3 一个 chip 都不显示（关不掉）。
+// 偏好走既有说明文本，不做成禁用 chip；零档行（budget-only）只剩 Default 一项。
 describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
   const OLLAMA_URL = "http://localhost:11434/v1";
   const MINIMAX_URL = "https://api.minimaxi.com/v1";
   const OPENCODEGO_URL = "https://opencode.ai/zen/go/v1";
   const SENSENOVA_URL = "https://token.sensenova.cn/v1";
+  const OPENROUTER_URL = "https://openrouter.ai/api/v1";
 
   it("激活前模板不给静态档位按钮：档位页容器为空、一级行 hidden（显示名由组合根派生）", async () => {
     // 2026-10-05 用户裁定（票据 chat-thinking-submenu）：模板里的 7 个静态 chip 退役，
@@ -660,16 +661,17 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     expect(renderedThinkingLabels()).toEqual(["Default", "Off", "On"]);
   });
 
-  it("minimax-m3：一个强度档都不现渲（关不掉思考、无已登记档位），off 也不可用 → 短文案", async () => {
+  it("minimax-m3：开关型（2026-10-05 登记形状后）→ 收成 Default/Off/On；偏好 off 不再报「关不掉」", async () => {
     providersPayload = [provider({ id: "p1", model: "MiniMax-M3", baseUrl: MINIMAX_URL, presetId: "minimax" })];
     settingsPayload = { aiThinkingLevel: "off" };
 
     await activateChatTab();
 
-    expect(renderedThinkingLevels()).toEqual(["default"]);
-    const hint = getHint();
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_UNAVAILABLE);
+    // 上游 toggle + 已登记开关形状：off 真发 thinking:{type:"disabled"}、非 off 档发平台开词
+    // adaptive（enum 里没有 enabled），面板收成 Default/Off/On 三项。
+    expect(renderedThinkingLevels()).toEqual(["default", "off", "high"]);
+    expect(renderedThinkingLabels()).toEqual(["Default", "Off", "On"]);
+    expect(getHint().hidden).toBe(true);
   });
 
   it("未登记词表且借不到（custom 自填端点）：不现渲任何档位，只保留「关不掉/不发参」说明", async () => {
@@ -786,7 +788,9 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     providersPayload = [
       provider({ id: "p1", model: "glm-4.6", baseUrl: GLM_BASE_URL, presetId: "zhipu" }),
       provider({ id: "p2", model: "llama3.2", baseUrl: OLLAMA_URL, presetId: "ollama" }),
-      provider({ id: "p3", model: "MiniMax-M3", baseUrl: MINIMAX_URL, presetId: "minimax" })
+      // 空集模型改用 budget-only 的 openrouter 行：minimax/MiniMax-M3 自 2026-10-05 登记开关
+      // 形状后是开关型（Default/Off/On），不再是 A' = ∅。
+      provider({ id: "p3", model: "anthropic/claude-haiku-4.5", baseUrl: OPENROUTER_URL, presetId: "openrouter" })
     ];
 
     await activateChatTab();
@@ -797,7 +801,7 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high"]);
 
-    select.value = modelOptionValue("p3", "MiniMax-M3");
+    select.value = modelOptionValue("p3", "anthropic/claude-haiku-4.5");
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(renderedThinkingLevels()).toEqual(["default"]);
     expect(thinkingRow().hidden).toBe(false);
@@ -1043,12 +1047,15 @@ describe("D1=A2 本仓补声明端到端走查（glm-5.2 的 Off 由平台形状
 //（用户裁定「破例 = 能主动选」）；⑤ 零档行偏好强度档时不报「已调整」，chip 与线上不符。
 // ============================================================
 describe("default（不干预）档端到端走查：出厂默认与零档行", () => {
-  const MINIMAX_BASE_URL = "https://api.minimaxi.com/v1";
+  // 零档行（A' = ∅）的代表：budget-only 的 openrouter 行。**不用 minimax/MiniMax-M3**——
+  // 它自 2026-10-05 登记开关形状后是开关型（Default/Off/On），不再是零档行。
+  const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+  const ZERO_TIER_MODEL = "anthropic/claude-haiku-4.5";
 
   it("出厂默认 = Default（chip/一级行/打勾），点 Off 落到 off、点回 Default 复位；零档行只剩 Default 也能主动选", async () => {
     providersPayload = [
       provider({ id: "p1", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" }),
-      provider({ id: "p2", model: "MiniMax-M3", baseUrl: MINIMAX_BASE_URL, presetId: "minimax" })
+      provider({ id: "p2", model: ZERO_TIER_MODEL, baseUrl: OPENROUTER_BASE_URL, presetId: "openrouter" })
     ];
     // 出厂形态：没有任何 aiThinkingLevel 落盘（get-settings 返回空载荷）。
     settingsPayload = {};
@@ -1096,15 +1103,15 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
     expect(chipLevel.textContent).toBe("Default");
     snap("3 点回 Default（不干预）");
 
-    // ④ 零档行（minimax/MiniMax-M3 无任何强度档）：一级行照旧显示、列表只剩 Default。
-    select.value = modelOptionValue("p2", "MiniMax-M3");
+    // ④ 零档行（budget-only 的 openrouter 行，A' = ∅）：一级行照旧显示、列表只剩 Default。
+    select.value = modelOptionValue("p2", ZERO_TIER_MODEL);
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(renderedThinkingLevels()).toEqual(["default"]);
     expect(effectiveThinkingLevels()).toEqual(["default"]);
     expect(thinkingRow().hidden).toBe(false);
     expect(chipLevel.textContent).toBe("Default");
     expect(getHint().hidden).toBe(true);
-    snap("4 minimax/MiniMax-M3（零档行，偏好 default）");
+    snap(`4 openrouter/${ZERO_TIER_MODEL}（零档行，偏好 default）`);
 
     // ⑤ 零档行 + 偏好强度档（high）：先在有强度档的模型上把偏好点成 high（走真实持久化链），
     // 再切到零档行 —— 实发 default、勾落在 Default（口径 ⑤：勾 = 实发档）、如实报「已使用 default」。
@@ -1112,13 +1119,13 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
     select.dispatchEvent(new Event("change", { bubbles: true }));
     clickThinking("high");
     expect(chatSessionState.aiThinkingLevel).toBe("high");
-    select.value = modelOptionValue("p2", "MiniMax-M3");
+    select.value = modelOptionValue("p2", ZERO_TIER_MODEL);
     select.dispatchEvent(new Event("change", { bubbles: true }));
     expect(chipLevel.textContent).toBe("Default");
     expect(effectiveThinkingLevels()).toEqual(["default"]);
     expect(getHint().hidden).toBe(false);
     expect(getHint().textContent).toBe("当前模型不支持思考强度 high，已使用 default");
-    snap("5 minimax/MiniMax-M3（零档行，偏好 high）");
+    snap(`5 openrouter/${ZERO_TIER_MODEL}（零档行，偏好 high）`);
 
     // 工件：逐步快照（可重跑，内容确定）。
     const artifactDir = join(process.cwd(), ".scratch", "tickets", "thinking-default-level", "artifacts");
@@ -1127,7 +1134,7 @@ describe("default（不干预）档端到端走查：出厂默认与零档行", 
       join(artifactDir, "02-e2e-default-level.txt"),
       [
         "# default（不干预）档端到端走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
-        "# 用例：出厂默认（无 aiThinkingLevel 落盘）→ 点 Off → 点回 Default；再切到零档行模型 MiniMax-M3",
+        "# 用例：出厂默认（无 aiThinkingLevel 落盘）→ 点 Off → 点回 Default；再切到零档行模型（budget-only 的 openrouter 行）",
         "# 判据：一级行/chip 写实发档（default 时写 Default）；列表的勾 = 实发档（口径 ⑤，2026-10-05 裁定 B：",
         "#       零档行 + 强度档偏好时勾落在 Default）；",
         "#       零档行只剩 Default 一项且一级行照旧显示（用户裁定「破例 = 能主动选」）；",

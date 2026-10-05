@@ -108,7 +108,7 @@ describe("off 级联（spec 最终版）", () => {
     expect(r.thinkingClass).toBe("never");
   });
 
-  it("always 无 low 档：off 不发但标记 offUnavailable（minimax 无档位参数；官方文档：思考不可关闭）", () => {
+  it("always 无 low 档：off 不发但标记 offUnavailable（目录外的 minimax-m2 落手写 minimax-always；M2.x 官方文档：思考不可关闭）", () => {
     const r = resolve({ baseUrl: "https://api.minimaxi.com/v1", model: "minimax-m2", level: "off" });
     expect(r.fields).toEqual({});
     expect(r.offUnavailable).toBe(true);
@@ -147,7 +147,7 @@ describe("offFallback：off 级联去向的显式字段（03 号票 UI 长短版
     expect(resolve({ baseUrl: ZHIPU_URL, model: "glm-5.3", level: "off" }).offFallback).toBe("low");
   });
 
-  it("无 low 可落：offFallback=null 且 offUnavailable=true（minimax 无档位参数，官方文档：思考不可关闭；UI 短版提示）", () => {
+  it("无 low 可落：offFallback=null 且 offUnavailable=true（目录外的 minimax-m2 落手写 minimax-always；M2.x 关不掉；UI 短版提示）", () => {
     const r = resolve({ baseUrl: "https://api.minimaxi.com/v1", model: "minimax-m2", level: "off" });
     expect(r.offUnavailable).toBe(true);
     expect(r.offFallback).toBe(null);

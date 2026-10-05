@@ -18,7 +18,9 @@
 //
 // **硬规则：本表任何一格都不发 `budget_tokens`**——官方没有 effort→预算的换算表，
 // 自造预算只会挤占 max_tokens（各平台已实测：思考计入 max_tokens 会把正文挤成
-// 空串）。开关型血统的开档因此只发 thinking:{type:"enabled"}（不带上限）。
+// 空串）。开关型血统的开档因此只发开词本身（**开词不是恒为 `enabled`**：minimax 的 enum
+// 只有 disabled / adaptive），不带上限；开词也逐格登记——档位出口 MESSAGES_TIER_EXIT、
+// 关词出口 MESSAGES_OFF_EXIT、开词出口 MESSAGES_ON_EXIT 三张同形表各答一件事。
 //
 // 纯叶模块：只 type-import 词表叶（AiProtocol / CompatQuirk）与 thinking-profiles.ts 类型，零运行时
 // 依赖（SW 静态图安全）。键以 Record<AiProtocol, …> 强制覆盖（沿 protocol-adapter.ts 的既有纪律）：
@@ -259,13 +261,17 @@ export const MESSAGES_TIER_EXIT: Record<string, MessagesTierExitCell> = {
         "2026-09 实测：网关对 thinking 形状报 not supported、提示改用 effort 词汇（developer.amd.com.cn；原始记录见 thinking-profiles 的 PROVIDERS.amd 注，仓库无响应体留档）；判据取怪癖 effortVocabMessages 的活值"
     }
   },
-  // minimax：platform.minimax.io 没有 Messages 思考参数文档（目录唯一一行 toggle 也不产生档位
-  // 写点）→ 没人研究过档位出口。
+  // minimax：Anthropic 兼容页登记 output_config.effort（Fully Supported，但**只对
+  // `MiniMax-M3.1-Flash-Preview` 生效**，词表 low/medium/high/xhigh/max、none 报 400）与
+  // thinking（同页 Thinking Control 表；开词是 adaptive，见 MESSAGES_ON_EXIT）。目录内没有
+  // M3.1 行（minimax-cn 的思考事实只有 MiniMax-M3 一行 toggle）→ 本格今天没有端到端档位
+  // 路径：登记是让「凭什么」可审，不是新增行为。
   minimax: {
-    kind: "unresearched",
+    kind: "effort",
     provenance: {
-      level: "推断",
-      source: "platform.minimax.io 无 Messages 思考参数文档 → 未研究过，按未登记出口回落裸 output_config.effort"
+      level: "文档",
+      source:
+        "platform.minimax.io/docs/api-reference/text-anthropic-api：output_config.effort 为 Fully Supported（仅 MiniMax-M3.1-Flash-Preview，low/medium/high/xhigh/max，none 报 400）；thinking 为同一参数表登记的原生参数"
     }
   },
   // mimo：百炼代售页只登记 OpenAI 通道的开关（enable_thinking，同 CLASSES.mimo-hybrid-switch），
@@ -380,13 +386,16 @@ export const MESSAGES_OFF_EXIT: Record<string, MessagesOffExitCell> = {
       source: "kimi.com/code/docs/kimi-code/models.html：该端点未登记 thinking 形状，仅顶层 reasoning_effort"
     }
   },
-  // 形状未登记（platform.minimax.io 无 Messages 思考参数文档），目录内 toggle 行不产生 off 写点
-  // → 本格在今天没有端到端 off 路径；按「未研究过 → 原生默认」登记。
+  // Anthropic 兼容页的 Thinking Control 表登记 `thinking` 为该端点原生参数，且
+  // `MiniMax-M3` 的 `{type:"disabled"}` =「thinking stays off」（省略也关）。2026-10-05 用户
+  // 裁定：「关不了」只适用于 M2.x（收下但忽略）与 `MiniMax-M3.1-Flash-Preview`（发 disabled
+  // 直接 400）；后两者不在 02 指派表 → 今天没有 400 路径。形状登记见 UPSTREAM_TOGGLE_SHAPES.minimax。
   minimax: {
-    kind: "unresearched",
+    kind: "native",
     provenance: {
-      level: "推断",
-      source: "形状未登记（platform.minimax.io 无 Messages 思考参数文档）；按 Anthropic 原生默认，无端到端 off 路径"
+      level: "文档",
+      source:
+        "platform.minimax.io/docs/api-reference/text-anthropic-api 的 Thinking Control 表：MiniMax-M3 的 thinking:{type:disabled} = thinking stays off（thinking 为该页 Fully Supported 的原生参数；M2.x 收下但忽略、M3.1 报 400）"
     }
   },
   // 上游形状表 off = enable_thinking:false（aliyun.com 百炼代售页；同 CLASSES.mimo-hybrid-switch）→ 推断。
@@ -491,6 +500,178 @@ export function messagesOffExitCell(platformId: string | undefined): MessagesOff
   return UNRESEARCHED_OFF_EXIT;
 }
 
+// ===== Messages 通道的开词出口表（2026-10-05 用户裁定：形态 A「逐格显式声明开词」）=====
+// 本表落地前，本通道的「开思考」只有一个隐式写法：开档一律**硬写**
+// `thinking:{type:"enabled"}`（档位出口 kind="effort" 的显式开关与开关型血统的裸开档两处）。
+// 对登记了 Anthropic 原生方言的平台这没错，但对枚举词不是 enabled 的平台（minimax 只有
+// disabled / adaptive）就是替平台发明词——写死的那一行也说不清「凭什么」。本表把开词逐格
+// 显式登记，与 MESSAGES_TIER_EXIT（档位出口）/ MESSAGES_OFF_EXIT（关词出口）同形同纪律，
+// 是决定 5 逐格落地的**第二张**表（第一张是 off 表；协议键形见 ADR-0014 的第二条补注）：
+// - "native"      = Anthropic 原生 `thinking:{type:"enabled"}`（建表前的硬写值，行为中立）；
+// - "word"        = 平台自有开词（显式字段载荷；今天只有 minimax 的 adaptive）；
+// - "unresearched"= 没人研究过该端点的开词 → 按原生（与 "native" 在类型/静态对账上可区分）。
+// 键集纪律与两张姊妹表相同：表 = PROVIDERS 键空间、要求全覆盖（新增平台不表态 → 测试红）；
+// 表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明 → 原生，见
+// messagesOnExitCell。provenance 每格必填（三态取值与用法见 MessagesExitProvenance 头注）。
+// 三件事**不在本表**：关词（MESSAGES_OFF_EXIT）、档位词（MESSAGES_TIER_EXIT）、以及
+// 「哪一档可用」的合法性（02 值集）。本表只回答「开档那个 thinking 开关在这个端点写什么词」。
+// 怪癖托管格（stepfun / amd）不需要 owner：strict effort 词汇那一支在到达开词之前就返回
+// （开关词汇不透传），两格永远走不到本表——对账测试断言这条不可达性。
+export type MessagesOnExitKind = "native" | "word" | "unresearched";
+
+export interface MessagesOnExitCell {
+  kind: MessagesOnExitKind;
+  /** kind="word"：平台自有「开」词的字段载荷（只许是不带预算的开关形状，见文件头硬规则）。 */
+  fields?: Record<string, unknown>;
+  provenance: MessagesExitProvenance;
+}
+
+export const MESSAGES_ON_EXIT: Record<string, MessagesOnExitCell> = {
+  // 该端点只支持 thinking 与 output_config（Anthropic 兼容页登记 thinking 开关）→ 开档原生 enabled。
+  deepseek: {
+    kind: "native",
+    provenance: {
+      level: "文档",
+      source: "api-docs.deepseek.com/guides/anthropic_api（Anthropic 兼容页登记 thinking 开关；开档走原生 enabled，与建表前逐字节相同）"
+    }
+  },
+  // 百炼 Anthropic 兼容页登记 thinking.type 与 output_config.effort；开档词无专项 → 按原生。
+  qwen: {
+    kind: "native",
+    provenance: {
+      level: "文档",
+      source: "help.aliyun.com/zh/model-studio/anthropic-api-messages（登记 thinking.type，开档词无专项 → 原生 enabled，与建表前逐字节相同）"
+    }
+  },
+  // Claude Code 走 thinking.type（该端点原生参数）→ 开档原生 enabled。
+  zhipu: {
+    kind: "native",
+    provenance: {
+      level: "文档",
+      source: "docs.bigmodel.cn/cn/guide/capabilities/thinking + /cn/coding-plan/latest-model（Claude Code 走 thinking.type，开档原生 enabled）"
+    }
+  },
+  // Token Plan 端点登记 thinking.type 与 output_config.effort；开档走原生 enabled。
+  sensenova: {
+    kind: "native",
+    provenance: {
+      level: "文档",
+      source: "platform.sensenova.cn/docs（thinking.type 与 output_config.effort 均登记；开档走原生 enabled，与建表前逐字节相同）"
+    }
+  },
+  // minimax 的 enum 只有 disabled / adaptive（没有 enabled）→ 开词是 adaptive。两通道同词，
+  // 事实层也用 adaptive（UPSTREAM_TOGGLE_SHAPES.minimax），本格是 Messages 侧的写法事实
+  // （档位出口 kind="effort" 与开关型裸开档两条路都读它）。
+  minimax: {
+    kind: "word",
+    fields: { thinking: { type: "adaptive" } },
+    provenance: {
+      level: "文档",
+      source:
+        "platform.minimax.io/docs/api-reference/text-anthropic-api（Thinking Control 表：{type:adaptive} = thinking on；{type:disabled} = M3 保持关、M3.1 报 400）"
+    }
+  },
+  // 百炼代售页只登记 OpenAI 通道的 enable_thinking；Messages 侧开词无文档 → 按原生。
+  // 今天无路径：mimo 的开关形状开词是 enable_thinking，但 Messages 通道的开关型格按原生发。
+  mimo: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "aliyun.com 百炼代售页只登记 OpenAI 通道的 enable_thinking；Messages 侧开词无文档 → 按原生 enabled（与建表前逐字节相同）"
+    }
+  },
+  // Kimi Code 端点（api.kimi.com/coding）只登记顶层 reasoning_effort、未登记 thinking 形状；
+  // 该端点今天也没有开写点（开关形状未登记）→ 开词出口无路径，按原生。
+  moonshot: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "kimi.com/code/docs/kimi-code/models.html：该端点未登记 thinking 形状、开关形状也未登记 → 开词出口今天无路径，按原生 enabled"
+    }
+  },
+  // /messages 的 thinking.enabled 分支 required 里含预算字段（本仓不发预算）→ 今天无路径：
+  // 该网关既未登记开关形状（无开写点），档位出口又是 effort-bare（不显式发开关）。
+  openrouter: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "openrouter.ai/docs/api/api-reference/anthropic-messages/create-a-message（thinking.enabled 必带预算 → 本仓不发；开关形状未登记、档位出口 effort-bare → 开词出口今天无路径，按原生登记）"
+    }
+  },
+  // 网关文档未登记思考参数（2026-09 产品裁定可收档位词）→ 无开写点（开关形状未登记），按原生。
+  opencodego: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "opencode.ai/docs/zen 未登记思考控制参数（2026-09 产品裁定只登记档位词）；开关形状未登记 → 开词出口今天无路径，按原生"
+    }
+  },
+  // strict effort 词汇格（怪癖 effortVocabMessages）：开分支在到达本表之前就返回，永不读本格。
+  stepfun: {
+    kind: "native",
+    provenance: {
+      level: "文档",
+      source: "platform.stepfun.com 官方字段表未列 thinking（负证据）；该端点由怪癖 effortVocabMessages 只认 output_config.effort → 本格不可达，按原生登记"
+    }
+  },
+  // 同 stepfun：网关对 thinking 形状报 not supported（2026-09 实测）→ 本格不可达。
+  amd: {
+    kind: "native",
+    provenance: {
+      level: "实测",
+      source: "2026-09 实测：网关对 thinking 形状报 not supported、只收 effort 词汇（developer.amd.com.cn；原始记录见 thinking-profiles 的 PROVIDERS.amd 注）→ 本格不可达，按原生登记"
+    }
+  },
+  // Messages 侧无思考参数文档；档位出口 unresearched（裸 effort）→ 开词出口今天无路径。
+  ollama: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "docs.ollama.com（OpenAI 兼容；Messages 通道无思考参数文档）→ 开词出口今天无路径，按原生"
+    }
+  },
+  // Messages 侧未登记思考参数 → 开词出口今天无路径（档位出口 unresearched）。
+  siliconflow: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "docs.siliconflow.cn（Messages 侧未登记思考参数）→ 开词出口今天无路径，按原生"
+    }
+  },
+  // **可达格**：modelscope 登记了开关形状（on = enable_thinking:true），开关型血统的开档会走
+  // 本格 → 发原生 enabled。该端点只实测过 off 侧（thinking:{type:disabled} 生效、enabled 形态
+  // 无文档）——这条既存张力登记在此，不在本票改行为（票 thinking-wire-protocol-split 的边界条）。
+  modelscope: {
+    kind: "native",
+    provenance: {
+      level: "推断",
+      source: "官方（Beta）Anthropic 兼容端点 api-inference.modelscope.cn 只实测收 thinking:{type:disabled}、enabled 形态无文档；开关型血统开档按原生 enabled（与建表前逐字节相同）"
+    }
+  }
+};
+
+// 表外 / platformId 未识别（custom 直填未入 host 索引的端点）：与「未研究过」同态（→ 原生），
+// 但它是**兜底**而不是某平台的一格，故不进 MESSAGES_ON_EXIT 的键集（键集对账会红）。
+export const UNRESEARCHED_ON_EXIT: MessagesOnExitCell = {
+  kind: "unresearched",
+  provenance: { level: "推断", source: "platformId 未识别（表外）→ 按 Anthropic 原生默认（thinking:{type:enabled}）" }
+};
+
+/** 该平台在 Messages 通道的开词出口（表外 / 未识别 → 未声明）。 */
+export function messagesOnExitCell(platformId: string | undefined): MessagesOnExitCell {
+  const id = String(platformId || "").trim();
+  if (id && Object.prototype.hasOwnProperty.call(MESSAGES_ON_EXIT, id)) return MESSAGES_ON_EXIT[id];
+  return UNRESEARCHED_ON_EXIT;
+}
+
+// 开档的 thinking 开关载荷：逐格查 MESSAGES_ON_EXIT（word → 平台自有词；native / unresearched /
+// 表外 → Anthropic 原生 enabled）。**只发开关形状**，不带上限（文件头硬规则）。
+function onThinkingFields(platformId: string | undefined): Record<string, unknown> {
+  const cell = messagesOnExitCell(platformId);
+  if (cell.kind === "word" && cell.fields) return { ...cell.fields };
+  return { thinking: { type: "enabled" } };
+}
+
 // Messages 通道的思考档位改写（怪癖 thinkingFormat）：档位规则的 chat 形状字段 →
 // Anthropic 线格式。三种关思考词汇的出口逐格登记在 MESSAGES_OFF_EXIT（thinking-wire-protocol-split 02）——默认
 // thinking:{type:"disabled"}（怪癖 thinkingDisabledMustBeExplicit：「Anthropic 默认即关、
@@ -566,19 +747,21 @@ function anthropicWireMap(input: ThinkingWireInput): ThinkingWireOutput {
       output.fields.reasoning_effort = bloodLineEffort;
       return output;
     }
-    // "effort" 形态显式带开思考开关（该平台的 thinking.type 不带预算也合法）；
+    // "effort" 形态显式带开思考开关（该平台的 thinking.type 不带预算也合法），开词逐格查
+    // MESSAGES_ON_EXIT（minimax 的 enum 没有 enabled，开词是 adaptive）；
     // "effort-bare" 与 "unresearched"（含表外：ollama 的 Messages 通道无思考参数文档、
     // custom 直填端点无平台事实）都只发档位字段——档位词照发，不下发预算。
     output.fields.output_config = { effort: bloodLineEffort };
-    if (cell.kind === "effort") output.fields.thinking = { type: "enabled" };
+    if (cell.kind === "effort") Object.assign(output.fields, onThinkingFields(input.platformId));
     return output;
   }
 
   // ② 开关型血统：该通道只有开/关两态、无档位词，low 与 high 同为裸开档（显式登记的一格）。
   // 依据：GLM-4.5~5.1、kimi-k2.5/k2.6、doubao-seed 等平台的官方字段表只登记开/关两态
   // （docs.bigmodel.cn、platform.kimi.ai、volcengine.com）；档位规则的 enable_thinking /
-  // thinking:{type:"enabled"} 都译成该通道的裸开档形状。
-  output.fields.thinking = { type: "enabled" };
+  // thinking:{type:"enabled"} 都译成该通道的裸开档形状。开词逐格查 MESSAGES_ON_EXIT
+  // （minimax 的 enum 没有 enabled，开词是 adaptive），不再硬写。
+  Object.assign(output.fields, onThinkingFields(input.platformId));
   return output;
 }
 

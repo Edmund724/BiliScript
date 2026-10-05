@@ -71,8 +71,15 @@ describe("级联目标不被 default 抢走（用户早前裁定：关不掉 →
     expect(cascade.effectiveLevel).toBe("high");
     expect(cascade.resolution.fields).toEqual({ reasoning_effort: "high" });
 
-    // A' = ∅（minimax-m3 这类零档行）：没有强度档可落 → default（不发字段）。
-    const noTiers = resolveThinkingAdjustment({ presetId: "minimax", model: "MiniMax-M3", level: "off", stream: true });
+    // A' = ∅（budget-only 的零档行，如 openrouter/anthropic/claude-haiku-4.5）：没有强度档可落
+    // → default（不发字段）。**不再拿 minimax/MiniMax-M3 当范例**：2026-10-05 登记开关形状
+    // 之后它有 off/on 写点，是开关型、不是零档行。
+    const noTiers = resolveThinkingAdjustment({
+      presetId: "openrouter",
+      model: "anthropic/claude-haiku-4.5",
+      level: "off",
+      stream: true
+    });
     expect(noTiers.availableLevels).toEqual([]);
     expect(noTiers.effectiveLevel).toBe("default");
     expect(noTiers.resolution.fields).toEqual({});

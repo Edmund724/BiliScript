@@ -26,12 +26,16 @@ import {
 import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
 import {
   MESSAGES_OFF_EXIT,
+  MESSAGES_ON_EXIT,
   MESSAGES_TIER_EXIT,
   THINKING_WIRE_MAPS,
   UNRESEARCHED_OFF_EXIT,
+  UNRESEARCHED_ON_EXIT,
   UNRESEARCHED_TIER_EXIT,
   messagesOffExitCell,
+  messagesOnExitCell,
   messagesTierExitCell,
+  type MessagesOnExitKind,
   type MessagesTierExitKind,
   type ThinkingWireInput
 } from "../../extension/ai/thinking-wire-map.js";
@@ -330,9 +334,10 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
   it("四态可区分：「未研究过」与「声明为原生」是两个显式值，不许 falsy 默认吞掉", () => {
     const kinds = new Set(Object.values(MESSAGES_OFF_EXIT).map((cell) => cell.kind));
     expect(kinds.has("native")).toBe(true);
-    expect(kinds.has("unresearched")).toBe(true);
-    // 无端到端 off 路径的一格是显式「未研究过」，不是缺省项。
-    expect(MESSAGES_OFF_EXIT.minimax.kind).toBe("unresearched");
+    // 表内今天三态（native / silent；word 无实例）：minimax 2026-10-05 由 unresearched 改为
+    // native——厂商文档登记了 thinking 与该端点的 off 语义（见单元头注与 UPSTREAM_TOGGLE_SHAPES.minimax）。
+    // 第四态由**表外兜底**承载：「没人研究过 → 原生默认」这条路仍然显式存在、可被否决。
+    expect(UNRESEARCHED_OFF_EXIT.kind).toBe("unresearched");
     for (const [platform, cell] of Object.entries(MESSAGES_OFF_EXIT)) {
       expect(["native", "silent", "word", "unresearched"], platform).toContain(cell.kind);
     }
@@ -428,7 +433,9 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
     for (const [platform, cell] of Object.entries(MESSAGES_TIER_EXIT)) {
       expect(ALL_KINDS, platform).toContain(cell.kind);
     }
-    expect(MESSAGES_TIER_EXIT.minimax.kind).toBe("unresearched");
+    // minimax 2026-10-05 起是 "effort"（文档登记了 output_config.effort 与 thinking；它不再属于
+    // 「没人研究过」那一格），故剩下三格才是今天真正的 unresearched。
+    expect(MESSAGES_TIER_EXIT.minimax.kind).toBe("effort");
     expect(MESSAGES_TIER_EXIT.mimo.kind).toBe("unresearched");
     expect(MESSAGES_TIER_EXIT.ollama.kind).toBe("unresearched");
     expect(MESSAGES_TIER_EXIT.siliconflow.kind).toBe("unresearched");
@@ -476,11 +483,15 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
         platformId: platform,
         effortVocabularyOnly: quirkOn
       });
+      // kind="effort" 的显式开思考开关逐格查 MESSAGES_ON_EXIT（minimax 的开词是 adaptive，
+      // 不是原生的 enabled）——2026-10-05 起开词不再硬写。
+      const onCell = messagesOnExitCell(platform);
+      const onFields = onCell.kind === "word" && onCell.fields ? onCell.fields : { thinking: { type: "enabled" } };
       const expected =
         cell.kind === "reasoning-effort"
           ? { reasoning_effort: "high" }
           : cell.kind === "effort"
-            ? { output_config: { effort: "high" }, thinking: { type: "enabled" } }
+            ? { output_config: { effort: "high" }, ...onFields }
             : { output_config: { effort: "high" } };
       expect(out.fields, `${platform} kind=${cell.kind}${cell.owner ? ` owner=${cell.owner}` : ""}`).toEqual(expected);
     }
@@ -525,5 +536,112 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
     expect(anthropicWire({ fields: { thinking: { type: "enabled" } }, platformId: "deepseek" }).fields).toEqual({
       thinking: { type: "enabled" }
     });
+  });
+});
+
+// 2026-10-05 用户裁定（票 toggle-shape-registration 01：形态 C「完整登记 off + on」）：Messages 通道的
+// **开词**也逐格显式声明。落地前那一层只有硬写 `thinking:{type:"enabled"}`——对平台枚举词不是 enabled
+// 的端点（minimax 只有 disabled / adaptive）就是替平台发明词。票面的失败方式与前两张表同构：
+//   ① 表与真实行为不同步（表说平台自有词、代码仍发 enabled）→ 逐格实发用例；
+//   ②「未研究过」被 falsy 默认吞成「声明为原生」→ 键集全覆盖 + 三态可区分 + 表外兜底；
+//   ③ 无证据格子声称有出处 → provenance 三态 + 出处必填；
+//   ④ 硬规则：本表只发开关形状，任何一格的载荷都不得含思考预算。
+// 与前两张表的差别：本表的落地**改行为**（minimax 行从「一个字段都不发」变成真发 off / on），
+// 其余平台逐字节不变（域与 before/after 工件见票内）。
+describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只对 minimax 改行为", () => {
+  const PLATFORM_KEYS = Object.keys(PROVIDERS).sort();
+  const ALL_KINDS: readonly MessagesOnExitKind[] = ["native", "word", "unresearched"];
+
+  it("键集对账：表 = PROVIDERS 键空间，不多不少（新增平台不表态 → 红）", () => {
+    expect(Object.keys(MESSAGES_ON_EXIT).sort()).toEqual(PLATFORM_KEYS);
+  });
+
+  it("三态可区分：表内只有 minimax 是平台自有词，其余按原生；未识别平台走表外兜底", () => {
+    for (const [platform, cell] of Object.entries(MESSAGES_ON_EXIT)) {
+      expect(ALL_KINDS, platform).toContain(cell.kind);
+      if (cell.kind === "word") expect(cell.fields, platform).toBeTruthy();
+    }
+    expect(MESSAGES_ON_EXIT.minimax.kind).toBe("word");
+    expect(MESSAGES_ON_EXIT.minimax.fields).toEqual({ thinking: { type: "adaptive" } });
+    expect(UNRESEARCHED_ON_EXIT.kind).toBe("unresearched");
+    expect(messagesOnExitCell(undefined).kind).toBe("unresearched");
+    expect(messagesOnExitCell("未登记的平台").kind).toBe("unresearched");
+    // 原型链上的键不算表内格。
+    expect(messagesOnExitCell("constructor").kind).toBe("unresearched");
+    expect(messagesOnExitCell("toString").kind).toBe("unresearched");
+  });
+
+  it("provenance 必填：三态取值合法、出处非空（每格都答得出「凭什么」）", () => {
+    for (const [platform, cell] of Object.entries(MESSAGES_ON_EXIT)) {
+      expect(["实测", "文档", "推断"], platform).toContain(cell.provenance.level);
+      expect(cell.provenance.source.length, platform).toBeGreaterThan(8);
+    }
+    expect(UNRESEARCHED_ON_EXIT.provenance.level).toBe("推断");
+    expect(UNRESEARCHED_ON_EXIT.provenance.source.length).toBeGreaterThan(8);
+  });
+
+  it("硬规则：本表任何一格的载荷都不含思考预算（只发不带预算的开关形状）", () => {
+    for (const [platform, cell] of Object.entries(MESSAGES_ON_EXIT)) {
+      expect(JSON.stringify(cell.fields ?? {}), platform).not.toContain("budget_tokens");
+    }
+    // 实发同样不得出现预算：两条开档入口都只在开关形状内取值。
+    expect(JSON.stringify(anthropicWire({ fields: { enable_thinking: true }, platformId: "minimax" }).fields)).not.toContain(
+      "budget_tokens"
+    );
+  });
+
+  it("逐格实发：word 格发平台自有词，其余发原生 enabled（两条开档入口都读本表）", () => {
+    for (const platform of PLATFORM_KEYS) {
+      const cell = messagesOnExitCell(platform);
+      const expected = cell.kind === "word" && cell.fields ? cell.fields : { thinking: { type: "enabled" } };
+      // 入口 A：开关型血统的裸开档。
+      expect(
+        anthropicWire({ fields: { enable_thinking: true }, platformId: platform }).fields,
+        `${platform} 裸开档`
+      ).toEqual(expected);
+      // 入口 B：档位出口 kind="effort" 的显式开思考开关（其余 kind 只发档位词）。
+      const tierCell = messagesTierExitCell(platform);
+      if (tierCell.kind === "effort") {
+        expect(
+          anthropicWire({ fields: { reasoning_effort: "high" }, platformId: platform }).fields,
+          `${platform} effort 出口`
+        ).toEqual({ output_config: { effort: "high" }, ...expected });
+      }
+    }
+    // 表外（platformId 未识别 / undefined）按未声明 → 原生。
+    expect(anthropicWire({ fields: { enable_thinking: true }, platformId: undefined }).fields).toEqual({
+      thinking: { type: "enabled" }
+    });
+  });
+
+  it("minimax 专项：开词是 adaptive（该端点的 enum 里没有 enabled）", () => {
+    expect(anthropicWire({ fields: { enable_thinking: true }, platformId: "minimax" }).fields).toEqual({
+      thinking: { type: "adaptive" }
+    });
+    // 事实层给出的就是平台词（UPSTREAM_TOGGLE_SHAPES.minimax 的 on），两条通道同一形状。
+    expect(anthropicWire({ fields: { thinking: { type: "adaptive" } }, platformId: "minimax" }).fields).toEqual({
+      thinking: { type: "adaptive" }
+    });
+    // 档位出口那条路（kind="effort"）同样用平台自有开词——今天没有 minimax 的 effort 档位行，
+    // 这一格由写法层直接喂入，防止后人把开词再硬写回 enabled。
+    expect(anthropicWire({ fields: { reasoning_effort: "high" }, platformId: "minimax" }).fields).toEqual({
+      output_config: { effort: "high" },
+      thinking: { type: "adaptive" }
+    });
+  });
+
+  it("不可达格：stepfun / amd 在 strict effort 词汇下永不读本表（开分支之前就返回）", () => {
+    for (const platform of ["stepfun", "amd"]) {
+      // 开关词汇：strict effort 词汇支不透传 → 不发（既不读开词，也不发 enabled）。
+      expect(
+        anthropicWire({ fields: { enable_thinking: true }, platformId: platform, effortVocabularyOnly: true }).fields,
+        platform
+      ).toEqual({});
+      // 档位词汇：只发裸 output_config.effort，不带开思考开关。
+      expect(
+        anthropicWire({ fields: { reasoning_effort: "high" }, platformId: platform, effortVocabularyOnly: true }).fields,
+        platform
+      ).toEqual({ output_config: { effort: "high" } });
+    }
   });
 });

@@ -43,7 +43,7 @@
 import { describe, expect, it } from "vitest";
 import { channelHarness, type BodyRequest, type ByClassCase } from "./thinking-golden-classes.js";
 import { registerByClassDefenses, registerByClassGolden } from "./thinking-golden-defenses.js";
-import { MESSAGES_OFF_EXIT, MESSAGES_TIER_EXIT, THINKING_WIRE_MAPS } from "../../extension/ai/thinking-wire-map.js";
+import { MESSAGES_OFF_EXIT, MESSAGES_TIER_EXIT } from "../../extension/ai/thinking-wire-map.js";
 
 const HARNESS = channelHarness("anthropic");
 
@@ -91,7 +91,8 @@ const CASES: readonly ByClassCase[] = [
   { valuesetId: "none-minimal-low-medium-high-max", presetId: "openrouter", model: "thinkingmachines/inkling", available: ["off", "minimal", "low", "medium", "high", "max"], fields: [{"thinking":{"type":"disabled"}}, {"output_config":{"effort":"minimal"}}, {"output_config":{"effort":"low"}}, {"output_config":{"effort":"medium"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"max"}}] },
   { valuesetId: "none-minimal-low-medium-high-xhigh-max", presetId: "openrouter", model: "upstage/solar-mini4", available: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], fields: [{"thinking":{"type":"disabled"}}, {"output_config":{"effort":"minimal"}}, {"output_config":{"effort":"low"}}, {"output_config":{"effort":"medium"}}, {"output_config":{"effort":"high"}}, {"output_config":{"effort":"xhigh"}}, {"output_config":{"effort":"max"}}] },
   { valuesetId: "toggle", presetId: "mimo", model: "mimo-v2-flash", available: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], fields: [{"thinking":{"type":"disabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}] },
-  { valuesetId: "toggle", presetId: "minimax", model: "MiniMax-M3", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
+  { valuesetId: "toggle", presetId: "minimax", model: "MiniMax-M3", available: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], fields: [{"thinking":{"type":"disabled"}}, {"thinking":{"type":"adaptive"}}, {"thinking":{"type":"adaptive"}}, {"thinking":{"type":"adaptive"}}, {"thinking":{"type":"adaptive"}}, {"thinking":{"type":"adaptive"}}, {"thinking":{"type":"adaptive"}}] },
+  { valuesetId: "toggle", presetId: "opencodego", model: "kimi-k2.6", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
   { valuesetId: "toggle+b", presetId: "openrouter", model: "meituan/longcat-2.0", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },
   { valuesetId: "toggle+b", presetId: "qwen", model: "qwen3.6-flash", available: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], fields: [{"thinking":{"type":"disabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}] },
   { valuesetId: "toggle+b:-131072", presetId: "qwen", model: "glm-5.1", available: ["off", "minimal", "low", "medium", "high", "xhigh", "max"], fields: [{"thinking":{"type":"disabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}, {"thinking":{"type":"enabled"}}] },
@@ -270,8 +271,9 @@ describe("golden：塌陷正当性（上游事实 vs 缺陷）", () => {
 // （stepfun / amd 的静默格、ollama / siliconflow 的 unknownClass 格）。02 号票的失败方式 ④
 // （只覆盖目录内行、漏掉手写表兜底行）由 stepfun / amd 两格承载：它们在目录内没有 off 写点
 // （形状未登记 → Off 走级联），静默格只能由自填 id 走到。
-// 唯一没有端到端 off 路径的是 minimax（目录行 toggle 但形状未登记，PROVIDERS 又无 unknownClass
-// → 手写兜底落 unknown 哨兵）：那一格只能喂线格式层的合成 off 事实，理由写在该用例里。
+// 2026-10-05（票 toggle-shape-registration 01）：minimax 登记了开关形状（`MiniMax-M3` 的 toggle
+// 从此产生 off/on 写点），本表那一格改由**目录行本身**承载端到端 off 路径；目录外的 minimax id
+// （M2.x / M3.1）仍无写点，见下面那条专项用例。
 const OFF_CELL_REPRESENTATIVES: Readonly<
   Record<string, { presetId: string; baseUrl?: string; model: string; expect: Record<string, unknown>; note: string }>
 > = {
@@ -279,7 +281,7 @@ const OFF_CELL_REPRESENTATIVES: Readonly<
   qwen: { presetId: "qwen", model: "qwen3.8-max", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记（enable_thinking）" },
   zhipu: { presetId: "zhipu", model: "glm-5.2", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记（thinking.type 原生参数）" },
   moonshot: { presetId: "moonshot", model: "kimi-for-coding", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记" },
-  minimax: { presetId: "minimax", model: "MiniMax-M3", expect: { thinking: { type: "disabled" } }, note: "无端到端 off 路径 → 线格式层合成输入（见下面的用例）" },
+  minimax: { presetId: "minimax", model: "MiniMax-M3", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记（thinking.type 枚举 disabled / adaptive，2026-10-05）" },
   mimo: { presetId: "mimo", model: "mimo-v2-flash", expect: { thinking: { type: "disabled" } }, note: "目录行：上游 toggle + 形状登记（enable_thinking）" },
   openrouter: { presetId: "openrouter", model: "openai/gpt-5.2", expect: { thinking: { type: "disabled" } }, note: "目录行：值集自带 effort-none" },
   opencodego: { presetId: "opencodego", model: "hy3", expect: { thinking: { type: "disabled" } }, note: "目录行：值集自带 effort-none" },
@@ -303,7 +305,6 @@ describe("off 出口逐格 golden（thinking-wire-protocol-split 02）：表键�
   });
 
   for (const [platform, rep] of Object.entries(OFF_CELL_REPRESENTATIVES)) {
-    if (platform === "minimax") continue;
     it(`${platform}（${rep.note}）：off → 整 body 逐字节`, () => {
       expect(HARNESS.bodyAt({ presetId: rep.presetId, baseUrl: rep.baseUrl, model: rep.model, level: "off" })).toEqual(
         HARNESS.expectedBody(rep.model, rep.expect)
@@ -311,19 +312,13 @@ describe("off 出口逐格 golden（thinking-wire-protocol-split 02）：表键�
     });
   }
 
-  it("minimax：无端到端 off 路径（形状未登记、无 unknownClass）→ 线格式层合成 off 事实逐字节", () => {
-    // 端到端产不出这一格：目录唯一一行 MiniMax-M3 的 toggle 不产生 off 写点（minimax 未登记
-    // 开关形状）、手写兜底又落 unknown 哨兵（PROVIDERS.minimax 无 unknownClass）。故本格按
-    // 线格式层（anthropicWireMap）的合成输入钉：off 出口表声明 "unresearched" → 原生。
-    expect(
-      THINKING_WIRE_MAPS.anthropic({
-        fields: { reasoning_effort: "none" },
-        stream: false,
-        probe: false,
-        platformId: "minimax",
-        effortVocabularyOnly: false
-      }).fields
-    ).toEqual(OFF_CELL_REPRESENTATIVES.minimax.expect);
+  it("minimax 目录外 id（M2.x / M3.1，形状是平台级门）：一个思考字段都不发", () => {
+    // 2026-10-05 登记形状后，目录内的 MiniMax-M3 有端到端 off 路径（上面的逐格 loop）；
+    // 目录外的 M2.x / M3.1-Flash-Preview 没有上游词表 → 手写 minimax-always → 无写点。
+    // 于是这里既不会给 M2.x 发「被忽略」的 disabled，也不会给 M3.1 发「直接 400」的 disabled。
+    for (const model of ["MiniMax-M2", "MiniMax-M2.7", "MiniMax-M3.1-Flash-Preview"]) {
+      expect(HARNESS.bodyAt({ presetId: "minimax", model, level: "off" }), model).toEqual(HARNESS.expectedBody(model, {}));
+    }
   });
 
   it("表外（custom 直填 api.openai.com / gpt-5.2）：未声明 → 原生，逐字节 body", () => {
@@ -341,6 +336,8 @@ describe("off 出口逐格 golden（thinking-wire-protocol-split 02）：表键�
 // 五格（minimax / mimo / modelscope / ollama / siliconflow）的代表是**手写兜底自填 id**：它们的
 // 目录行是 toggle 型（无 effort 词表），档位出口只能由 EXCEPTIONS / TAXONOMY 兜底的行走到——
 // 与 02 号票的 stepfun / amd 静默格同一条路（01 号票的失败方式 ④：只覆盖目录内行）。
+// minimax 自 2026-10-05 起档位出口声明为 "effort"（带显式开思考开关），但目录内仍无 effort
+// 档位行，故代表仍是手写兜底行——实发因此多带一个平台自有开词 adaptive。
 const TIER_CELL_REPRESENTATIVES: Readonly<
   Record<
     string,
@@ -387,8 +384,8 @@ const TIER_CELL_REPRESENTATIVES: Readonly<
     presetId: "minimax",
     model: "glm-5.2",
     level: "low",
-    expect: { output_config: { effort: "low" } },
-    note: "手写兜底行（目录唯一一行是 toggle 型）→ 档位出口未研究过，裸 output_config.effort"
+    expect: { output_config: { effort: "low" }, thinking: { type: "adaptive" } },
+    note: "手写兜底行（目录唯一一行是 toggle 型，无 effort 档位）→ 档位出口 output_config.effort + 平台自有开词 adaptive（2026-10-05 登记）"
   },
   mimo: {
     presetId: "mimo",

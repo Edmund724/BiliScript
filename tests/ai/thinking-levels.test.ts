@@ -349,8 +349,9 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定）：cl
     }
   });
 
-  // minimax-m3：上游 `reasoning_options:[toggle]` 与厂商文档矛盾（platform.minimax.cn：思考
-  // 不可关闭）→ 2026-10-04 用户裁定 hand-wins（已裁决分歧，不是缺口，不补开关方言）。
+  // 目录外的 minimax id（如 M2.x）落手写 `minimax-always`：无写点（M2.x 官方文档：`disabled`
+  // 收下但忽略 → 关不掉）。目录内的 `MiniMax-M3` 自 2026-10-05 起走已登记的开关形状
+  // （off/on 两个写点），不再落本类——旧 hand-wins 裁定已被那次登记取代。
   it("无档位可落的裁决行不被 clamp 造出强度档：实发 default（2026-10-05 起恒可发）", () => {
     expect(availableLevelsOf(CLASSES["minimax-always"])).toEqual([]);
     expect(clampThinkingLevel("high", availableLevelsOf(CLASSES["minimax-always"]))).toBe("default");

@@ -148,13 +148,12 @@ const ADJUDICATED: readonly { presetId: string; model: string; key: string; oldH
   { presetId: "modelscope", model: "GLM-4.6", key: "modelscope/glm-4.6", oldHand: "glm-hybrid-switch" }
 ];
 
-// 31 行里行为**不变**的那一行（逐条登记，防止「裁决行都该变」的误读）：
-// minimax-cn/minimax-m3：上游 `reasoning_options:[toggle]` 与厂商文档矛盾——platform.minimax.cn
-// 官方文档写明**思考不可关闭**，所以这条 toggle 不可采信、不投 wire；fail-closed
-// （thinkingClass always、无字段）恰与厂商口径一致，手写 `minimax-always` 是对的。
-// 用户 2026-10-04 裁定：这是「上游事实 vs 厂商文档」的**已裁决分歧（hand-wins）**，不是缺口，
-// 不需要给 minimax 补开关方言。故该行逐字节不变。
-const NON_DIVERGENT = ["minimax-cn/minimax-m3"];
+// 31 行里**曾经**唯一行为不变的那一行：minimax-cn/minimax-m3（2026-10-04 的 hand-wins 裁定——
+// 当时厂商文档记「思考不可关闭」，故那条上游 toggle 不可采信、不投 wire，fail-closed 与厂商
+// 口径一致）。**2026-10-05 用户裁定推翻了该口径**：只有 M2.x 与 M3.1-Flash-Preview 关不了，
+// `MiniMax-M3` 关得掉；据此登记了平台开关形状（`UPSTREAM_TOGGLE_SHAPES.minimax`）→ 该行
+// 现在是**分歧行**（上游投影 = hybrid + off/on 写点；旧手写 `minimax-always` 无写点）。
+// 逐字节证据见票 toggle-shape-registration 01 的 before/after 工件。
 
 // 残留清单里两行 modelscope 的键是**本仓口径裸 id**（调用方传 GLM-4.5/GLM-4.6）——
 // 它们的矩阵行确实按上游翻转（thinking:{type} → enable_thinking）；指派表里的上游写法
@@ -432,16 +431,17 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
     }
   });
 
-  it("04 口径（off/low/high）下与旧手写结论不同的非 override 指派行，恰好是这 31 行的 28 行 + 点名三处 + clamp 分歧", () => {
+  it("04 口径（off/low/high）下与旧手写结论不同的非 override 指派行，恰好是这 31 行的 29 行 + 点名三处 + clamp 分歧", () => {
     const divergent = divergentKeys(LEVELS);
-    // 期望 = 残留清单 31 行里的 28 行（另 3 行逐条见 NON_DIVERGENT / MODELSCOPE_UPSTREAM_ID_ROWS 说明）
+    // 期望 = 残留清单 31 行里的 29 行（另 2 行逐条见 MODELSCOPE_UPSTREAM_ID_ROWS 说明；
+    //   原第 3 行 minimax-cn/minimax-m3 2026-10-05 起也分歧——平台开关形状登记后 A′ 不再为空）
     //   + 用户裁定 2 点名的三处（04 号票起就按上游）
     //   + 05 号票 clamp 的有意分歧 qwen3.8-max（词表 low/medium/xhigh，偏好 high 落 medium）
     //   + alibaba-cn/kimi-k3：**19 号票删掉 kimi-k3* 专条后的口径变化**——它原先是
     //     「7 档才分歧」（手写 kimi-k3-effort 缺 max 写点），手写侧现无结论（qwen 无
     //     unknownClass → UNKNOWN）故任何档位都与上游投影不同。行本身走指派表，运行时不变。
     const expected = [
-      ...ADJUDICATED.map((row) => row.key).filter((key) => !NON_DIVERGENT.includes(key) && !MODELSCOPE_UPSTREAM_ID_ROWS.includes(key)),
+      ...ADJUDICATED.map((row) => row.key).filter((key) => !MODELSCOPE_UPSTREAM_ID_ROWS.includes(key)),
       ...FLIPPED,
       "alibaba-cn/qwen3.8-max",
       "alibaba-cn/kimi-k3"
@@ -466,15 +466,20 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
     expect([...divergent7].sort()).toEqual([...divergent3, ...Object.keys(EXTRA_TIERS)].sort());
   });
 
-  it("唯一行为不变的裁决行：minimax-cn/minimax-m3（上游 toggle 与厂商文档矛盾，2026-10-04 裁定 hand-wins）", () => {
-    const key = NON_DIVERGENT[0];
-    const row = ADJUDICATED.find((candidate) => candidate.key === key)!;
+  it("曾经的唯一行为不变裁决行 minimax-cn/minimax-m3：2026-10-05 起按登记的平台开关形状（hand-wins 已废）", () => {
+    const KEY = "minimax-cn/minimax-m3";
+    const row = ADJUDICATED.find((candidate) => candidate.key === KEY)!;
     const projected = ruleFromUpstreamFact(lookupThinkingFact("minimax-cn", row.model)!, row.presetId);
-    // 成因写死在断言里：上游 toggle 与厂商文档矛盾（platform.minimax.cn：思考不可关闭）→
-    // 不可投 wire，fail-closed 恰与厂商口径一致（2026-10-04 用户裁定 hand-wins，不是缺口）。
-    expect(projected).toEqual({ thinkingClass: "always" });
+    // 上游投影：值集 toggle + 已登记形状 → hybrid（off 与 on 两个写点都在）。
+    expect(projected).toEqual({
+      thinkingClass: "hybrid",
+      off: { fields: { thinking: { type: "disabled" } } },
+      on: { fields: { thinking: { type: "adaptive" } } }
+    });
+    // 该行现在与旧手写结论（minimax-always：无写点）**分歧**，运行时逐档 = 上游投影。
     for (const level of ALL_LEVELS) {
-      expect(resolveViaRuntime(row.presetId, row.model, level), `${key} · ${level}`).toBe(
+      expect(resolveViaRuntime(row.presetId, row.model, level), `${KEY} · ${level}`).toBe(outcomeOf(projected, level));
+      expect(resolveViaRuntime(row.presetId, row.model, level), `${KEY} · ${level}`).not.toBe(
         outcomeOf(row.oldHand ? CLASSES[row.oldHand] : undefined, level)
       );
     }
@@ -605,7 +610,7 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
 //   4. 单点裁决删除后 opencodego 的 max 被平台声明裁掉（kimi-k3 的 A' 少了 max）；
 //   5. 丢 off 的行没按新上游事实丢（还发 reasoning_effort:none）；
 //   6. A' = ∅ 的行不再 fail-closed（照平台声明发参）；
-//   7. minimax 的 hand-wins 被 canonical 优先波及（负事实被动过）；
+//   7. minimax 的形状登记被 canonical 优先波及（登记与 canonical 无关：M3 仍按登记方言发 off/on）；
 //   8. 18 号票删平台 override 时把 13 号票的对齐结果带偏（canonical 词表/重定向语义被改）。
 describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定）", () => {
   const adjustmentOf = (presetId: string, model: string, level = "high") =>
@@ -728,19 +733,36 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     }
   });
 
-  it("minimax/MiniMax-M3 的 hand-wins 逐字节不变（没有 canonical 指针，改造碰不到它）", () => {
+  it("minimax/MiniMax-M3：canonical 优先碰不到它；形状登记后按登记方言发参（2026-10-05）", () => {
     const upstream = "minimax-cn";
-    // 负事实没被动过：上游仍是 [toggle]（不可采信），本仓仍不登记 minimax 开关方言。
+    // 上游仍是 [toggle]（2026-10-05 用户裁定后它是**可采信**的：M3 关得掉）；preset → 上游桥接不变。
     expect(lookupThinkingFact(upstream, "MiniMax-M3")?.valuesetId).toBe("toggle");
     expect(UPSTREAM_PROVIDER_BY_PRESET.minimax).toBe(upstream);
-    // 本仓仍不给 minimax 登记开关形状（PROVIDERS.minimax 无平台声明、无 override 机制）。
+    // 13 号票的 canonical 优先没有给这一行加指针；PROVIDERS.minimax 仍是空记录
+    // （形状登记走 UPSTREAM_TOGGLE_SHAPES，不是平台 override 机制）。
     expect(PROVIDERS.minimax).toEqual({});
-    const expectedOff = JSON.stringify({ fields: {}, offUnavailable: true, offFallback: null, thinkingClass: "always" });
-    const expectedOn = JSON.stringify({ fields: {}, offUnavailable: false, offFallback: null, thinkingClass: "always" });
-    for (const level of ALL_LEVELS) {
-      expect(resolveViaRuntime("minimax", "MiniMax-M3", level), level).toBe(level === "off" ? expectedOff : expectedOn);
-    }
-    expect(levelsOf("minimax", "MiniMax-M3")).toEqual([]);
+    expect(UPSTREAM_TOGGLE_SHAPES.minimax).toEqual({
+      off: { thinking: { type: "disabled" } },
+      on: { thinking: { type: "adaptive" } }
+    });
+    // 登记后逐档：off 发 disabled、非 off 档发平台开词 adaptive（不再是「一个字段都不发」）。
+    expect(levelsOf("minimax", "MiniMax-M3")).toEqual([...AI_THINKING_LEVELS]);
+    expect(resolveViaRuntime("minimax", "MiniMax-M3", "off")).toBe(
+      JSON.stringify({
+        fields: { thinking: { type: "disabled" } },
+        offUnavailable: false,
+        offFallback: null,
+        thinkingClass: "hybrid"
+      })
+    );
+    expect(resolveViaRuntime("minimax", "MiniMax-M3", "high")).toBe(
+      JSON.stringify({
+        fields: { thinking: { type: "adaptive" } },
+        offUnavailable: false,
+        offFallback: null,
+        thinkingClass: "hybrid"
+      })
+    );
   });
 
   it("18 号票：机制删干净——四家 PROVIDERS 记录都是空对象", () => {
@@ -761,7 +783,8 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
 //   4. thinkingClass 没有整体翻转 / off 级联没生效（175 / 235 两个口径都钉）；
 //   5. 零档行不再 fail-closed（budget-only 被塞进任何字段）；
 //   6. UPSTREAM_TOGGLE_SHAPES 被顺手加了四家登记（无平台文档支撑，裁定 3）；
-//   7. minimax 的 hand-wins 被波及（与 override 无关的负事实）；
+//   7. minimax 的形状登记被这次删除带偏（登记与 override 无关：M3 仍按登记方言发 off/on、
+//      M2.x 仍走手写兜底不发参）；
 //   8. 四家目录内行仍报告 source: "override"（机制残留）；
 //   9. 四家「手写侧有结论」的行没被识别为新分歧（本票新增的审计面）。
 describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", () => {
@@ -918,20 +941,44 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     }
   });
 
-  it("UPSTREAM_TOGGLE_SHAPES 仍只登记 6 家（删 override 不顺手加四家）", () => {
-    expect(Object.keys(UPSTREAM_TOGGLE_SHAPES).sort()).toEqual(["deepseek", "mimo", "modelscope", "moonshot", "qwen", "zhipu"]);
+  it("UPSTREAM_TOGGLE_SHAPES 登记 7 家（删 override 不顺手加四家；第 7 家 minimax 是 2026-10-05 的单独裁定）", () => {
+    expect(Object.keys(UPSTREAM_TOGGLE_SHAPES).sort()).toEqual([
+      "deepseek",
+      "mimo",
+      "minimax",
+      "modelscope",
+      "moonshot",
+      "qwen",
+      "zhipu"
+    ]);
     for (const presetId of HOSTED_PRESETS_18) {
       expect(presetId in UPSTREAM_TOGGLE_SHAPES, presetId).toBe(false);
     }
   });
 
-  it("minimax hand-wins 逐字节不变（与 override 无关的负事实）", () => {
+  it("minimax/MiniMax-M3：形状登记与 override 删除互不干扰（登记后逐字节）", () => {
     expect(lookupThinkingFact("minimax-cn", "MiniMax-M3")?.valuesetId).toBe("toggle");
-    const expectedOff = JSON.stringify({ fields: {}, offUnavailable: true, offFallback: null, thinkingClass: "always" });
-    const expectedOn = JSON.stringify({ fields: {}, offUnavailable: false, offFallback: null, thinkingClass: "always" });
-    for (const level of ALL_LEVELS) {
-      expect(resolveViaRuntime("minimax", "MiniMax-M3", level), level).toBe(level === "off" ? expectedOff : expectedOn);
-    }
+    // 18 号票删的是 PROVIDERS 的平台声明；形状登记走 UPSTREAM_TOGGLE_SHAPES，两者不同层。
+    expect(PROVIDERS.minimax).toEqual({});
+    expect(resolveViaRuntime("minimax", "MiniMax-M3", "off")).toBe(
+      JSON.stringify({
+        fields: { thinking: { type: "disabled" } },
+        offUnavailable: false,
+        offFallback: null,
+        thinkingClass: "hybrid"
+      })
+    );
+    expect(resolveViaRuntime("minimax", "MiniMax-M3", "low")).toBe(
+      JSON.stringify({
+        fields: { thinking: { type: "adaptive" } },
+        offUnavailable: false,
+        offFallback: null,
+        thinkingClass: "hybrid"
+      })
+    );
+    expect(levelsOf("minimax", "MiniMax-M3")).toEqual([...AI_THINKING_LEVELS]);
+    // 目录外的 M2.x 仍落手写 minimax-always：一个字段都不发（厂商文档：收下但忽略）。
+    expect(levelsOf("minimax", "MiniMax-M2")).toEqual([]);
   });
 
   it("18 号票新增分歧：四家「手写侧有具体 class」的 25 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
@@ -1037,9 +1084,15 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
   });
 
   it("误开 off：三家未登记开关形状的行 A' 不变（{high,max}）、off 仍级联 high", () => {
-    expect(
-      Object.keys(UPSTREAM_TOGGLE_SHAPES).sort()
-    ).toEqual(["deepseek", "mimo", "modelscope", "moonshot", "qwen", "zhipu"]);
+    expect(Object.keys(UPSTREAM_TOGGLE_SHAPES).sort()).toEqual([
+      "deepseek",
+      "mimo",
+      "minimax",
+      "modelscope",
+      "moonshot",
+      "qwen",
+      "zhipu"
+    ]);
     for (const [presetId, provider, model] of THREE_UNREGISTERED) {
       expect(presetId in UPSTREAM_TOGGLE_SHAPES, presetId).toBe(false);
       // 模型侧事实有 toggle，但平台形状没登记 → 一个 off 写点都不产（D3）。
