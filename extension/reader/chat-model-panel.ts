@@ -1,4 +1,4 @@
-// reader/chat-model-panel.ts — 模型 chip 与「模型 + 思考档位」面板的渲染
+// reader/chat-model-panel.ts — 模型 chip 与「模型 + 思考强度」面板的渲染
 // （发送框重构新增）：chip 是隐藏 <select>（值源，providers 渲染选项、change
 // 持久化链不变）的展示层；面板列表从 select 的 optgroup/option 派生，点击
 // 选项 = 写 select.value 并派生 change（既有持久化/提示重判链原样复用，
@@ -9,17 +9,19 @@
 // 模型名 span，档位与 chevron 恒完整（model-select-width 只决定 chip 整体宽度，
 // 不参与截断）。
 //
-// 06 号票：面板底部的档位 chip 不再固定三档——renderThinkingChips 按该模型可用集
-// （resolveThinkingAdjustment().availableLevels，与请求落线同源）显示/隐藏模板里的
-// 7 个静态按钮；本模块不改 chip 的视觉与交互。
+// 2026-10 用户裁定（票据 chat-thinking-submenu，二级菜单）：面板分两页——
+// 模型页（分组模型列表）与档位页（顶部返回行 + 档位条目）。底部固定区是一行
+// 「思考强度 <当前值> ›」，点它换页到档位页；档位条目点中即写偏好并关面板。
+// 条目与显示名由 chat/thinking-picker 从同一次解析派生（开关型模型收成 Off/On），
+// 本模块只负责画出来与翻页，不自己推导档位。
 //
 // 依赖方向（无环）：共享状态（../chat/chat-state 的 aiThinkingLevel）与
-// chat/model-select-width 直接 import；DOM 元素与面板关闭回调（惰性互引
-// popovers 实例，组装点以箭头函数接线）经工厂 deps 注入。本模块不 import
-// 组合根与 popovers。
+// chat/model-select-width、chat/thinking-picker 的标签表直接 import；DOM 元素与
+// 面板关闭 / 档位落盘回调（惰性互引 popovers 与 providers，组装点以箭头函数接线）
+// 经工厂 deps 注入。本模块不 import 组合根与 popovers。
 import { chatSessionState } from "../chat/chat-state.js";
 import { measureModelPanelWidth, updateModelSelectWidth } from "../chat/model-select-width.js";
-import type { ThinkingLevel } from "../ai/thinking-levels.js";
+import { THINKING_LEVEL_LABELS, type ThinkingPickerEntry } from "../chat/thinking-picker.js";
 import { escapeHtml } from "../shared/string-utils.js";
 
 export interface CreateReaderChatModelPanelDeps {
@@ -30,34 +32,64 @@ export interface CreateReaderChatModelPanelDeps {
   panelList: HTMLElement;
   // 面板根（定位/宽度写在它身上：宽度 = 打开时按 chip 可见宽的快照）
   panel: HTMLElement;
-  // 思考档位 chip 容器（模板里的 7 个静态按钮的父级；可用集渲染改它的子按钮）
+  // 档位页（换页的第二页：顶部返回行 + 档位条目容器）
+  thinkingPage: HTMLElement;
+  thinkingBack: HTMLElement;
   thinkingToggle: HTMLElement;
-  // 惰性互引（组装点以箭头函数接线，回调执行时 popovers 实例已存在）
+  // 底部固定区的一级行（「思考强度 <当前值> ›」）与它的当前值 span
+  thinkingRow: HTMLButtonElement;
+  thinkingRowValue: HTMLElement;
+  // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
   hidePanel: () => void;
+  // 档位落盘出口（组合根接 providers 的 setThinkingLevel + chip/提示重判）
+  pickLevel: (level: string) => void;
+}
+
+// 档位条的渲染输入：显示名与条目都由调用方经 chat/thinking-picker 派生——两处
+// 同源，本模块不重算（被 clamp 的偏好没有命中的条目时，显示名仍是偏好自己的词，
+// 由面板底部提示行说明去向）。
+export interface ThinkingPickerView {
+  label: string;
+  entries: readonly ThinkingPickerEntry[];
 }
 
 export interface ReaderChatModelPanel {
   renderChip: () => void;
   renderPanel: () => void;
-  renderThinkingChips: (availableLevels: readonly ThinkingLevel[]) => void;
+  renderThinkingPicker: (view: ThinkingPickerView) => void;
 }
 
-// 档位标签表（05 号票：上游词表 7 档）。口径与既有 Off/Low/High 一致——首字母
-// 大写、档位词照上游写法（xhigh → XHigh）；未登记档位（脏存储值）回落 Off。
-// 06 号票起导出：模板里 7 个静态按钮的文案与 06 号票的 chip 集合工件同源（避免
-// 「标签」出现第三份字面量）。
-export const THINKING_LEVEL_LABELS: Record<string, string> = {
-  off: "Off",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "XHigh",
-  max: "Max"
-};
-
 export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps): ReaderChatModelPanel {
-  const { modelSelect, chip, chipModel, chipLevel, panelList, panel, thinkingToggle } = deps;
+  const {
+    modelSelect,
+    chip,
+    chipModel,
+    chipLevel,
+    panelList,
+    panel,
+    thinkingPage,
+    thinkingBack,
+    thinkingToggle,
+    thinkingRow,
+    thinkingRowValue
+  } = deps;
+
+  // 档位显示名（chip 的档位 span 与一级行右侧共用）。由 renderThinkingPicker 写入；
+  // 还没渲染过（面板从未刷新）时为 null，renderChip 回落标签表。
+  let chipLevelLabel: string | null = null;
+  // 上一次渲染的条目数：≤1 项没有可选的东西，一级行整行隐藏（用户裁定）。
+  let pickerChoices = 0;
+  // 当前是否停在档位页（换页状态；面板重开时归零）。
+  let onLevelsPage = false;
+
+  // 两页切换：模型页 / 档位页。一级行只在模型页出现，且没有可选项时整行隐藏。
+  function showThinkingPage(levelsPage: boolean): void {
+    onLevelsPage = levelsPage;
+    panelList.hidden = levelsPage;
+    thinkingPage.hidden = !levelsPage;
+    thinkingRow.hidden = levelsPage || pickerChoices <= 1;
+    thinkingRow.setAttribute("aria-expanded", levelsPage ? "true" : "false");
+  }
 
   // chip 文案 = 平台名·选中模型名 + 当前思考档位（截图形态「ModelScope·DeepSeek
   // V4.1 Flash High」）。平台名取选中 option 所属 optgroup 的 label（与面板分组
@@ -76,7 +108,10 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     const platform = String(option?.closest("optgroup")?.getAttribute("label") || "").trim();
     const modelName = String(option?.textContent || "").trim() || "未配置平台";
     chipModel.textContent = platform ? `${platform}·${modelName}` : modelName;
-    chipLevel.textContent = THINKING_LEVEL_LABELS[chatSessionState.aiThinkingLevel] || "Off";
+    // 显示名优先用档位条派生的那一个（开关型模型是 On）——菜单里写 On、chip 写 High
+    // 是自相矛盾的（用户裁定）；未派生过时回落标签表。
+    chipLevel.textContent =
+      chipLevelLabel ?? THINKING_LEVEL_LABELS[chatSessionState.aiThinkingLevel] ?? "Off";
     chip.disabled = false;
     updateModelSelectWidth({ chip, chipModel, chipLevel });
   }
@@ -88,10 +123,13 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // 宽度：打开时按 chip 可见宽快照写内联（[240, 320] 夹取见 chat/model-select-width
   // 的 measureModelPanelWidth）——面板从 chip 上方呼出、宽度与「模型名显示区域」
   // 同宽；打开期间不重算，故点档位改 chip 文案时面板宽度不抖，重开才更新。
+  // 每次打开都从模型页开始（换页状态不留到下一次）。
   function renderPanel(): void {
     panel.style.width = `${measureModelPanelWidth({ chip, chipModel, chipLevel })}px`;
+    showThinkingPage(false);
     if (modelSelect.disabled) {
       panelList.innerHTML = '<span class="chat-model-empty">未配置平台</span>';
+      thinkingRow.hidden = true;
       return;
     }
     const current = modelSelect.value;
@@ -122,19 +160,44 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     });
   }
 
-  // 档位 chip 集合（06 号票）：按该模型**实际可用的档位**渲染——只显示存在的档位，
-  // 不置灰（被 05 号票 clamp 掉的选择由 chat-tab.ts 的说明文本呈现，不做成禁用 chip）；
-  // 空可用集（如 minimax-m3：关不掉思考、也没有已登记档位）→ 一个 chip 都不显示。
-  // 可用集是调用方从 resolveThinkingAdjustment（与请求落线同一次解析）取来的，本模块
-  // 不自己推导档位，只决定「哪些出现 + 叫什么」：文案与模板同源，避免两处标签漂移。
-  function renderThinkingChips(availableLevels: readonly ThinkingLevel[]): void {
-    const available = new Set<string>(availableLevels);
-    thinkingToggle.querySelectorAll<HTMLElement>(".chat-thinking-btn").forEach((btn) => {
-      const level = btn.dataset.level || "";
-      btn.textContent = THINKING_LEVEL_LABELS[level] || level;
-      btn.hidden = !available.has(level);
+  // 档位页（换页后的那一页）：条目来自调用方派生好的显示条目——本模块只画
+  // 「叫什么 + 打不打勾」，不推导档位。空条目/单项也照画，一级行由
+  // showThinkingPage 决定是否显示（≤1 项没有任何可选的）。
+  // 点中条目：不是当前选中项才写偏好（05 号票「偏好保留不迁移」——开关型的 On
+  // 是 canonical high，偏好停在别的非 off 档时重写会把偏好悄悄搬走），随后关面板
+  //（用户裁定：选完即关，一次点击完成）。
+  function renderThinkingPicker(view: ThinkingPickerView): void {
+    const entries = view.entries;
+    pickerChoices = entries.length;
+    chipLevelLabel = view.label;
+    thinkingRowValue.textContent = view.label;
+    thinkingRow.hidden = onLevelsPage || pickerChoices <= 1;
+    thinkingToggle.innerHTML = entries
+      .map(
+        (entry) =>
+          `<button type="button" class="chat-thinking-btn${entry.active ? " is-active" : ""}"` +
+          ` data-level="${escapeHtml(entry.level)}" data-active="${entry.active ? "true" : "false"}"` +
+          ` aria-pressed="${entry.active ? "true" : "false"}">` +
+          `<span class="chat-thinking-btn-label">${escapeHtml(entry.label)}</span>` +
+          (entry.active ? '<span class="chat-thinking-check" aria-hidden="true">✓</span>' : "") +
+          "</button>"
+      )
+      .join("");
+    thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (btn.dataset.active !== "true") {
+          deps.pickLevel(btn.dataset.level || "off");
+        }
+        deps.hidePanel();
+      });
     });
+    // 显示名可能刚变（开关型的 On/Off、换模型的档位词）→ chip 的档位 span 同步重渲。
+    renderChip();
   }
 
-  return { renderChip, renderPanel, renderThinkingChips };
+  // 翻页（纯 DOM 状态，不经 popovers：换页不改变面板的开合）。
+  thinkingRow.addEventListener("click", () => showThinkingPage(true));
+  thinkingBack.addEventListener("click", () => showThinkingPage(false));
+
+  return { renderChip, renderPanel, renderThinkingPicker };
 }

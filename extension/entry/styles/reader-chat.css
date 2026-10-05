@@ -111,47 +111,103 @@
   font-size: 15px;
 }
 
-/* 思考档位分段控件（模型面板底部）：浅色容器内嵌分段药丸——inactive 档纯
- * 文字（次要色），active 档白底圆角药丸 + 细边框 + 主题文字色，无主题色填充。
- * 06 号票：上游 7 档词表的模型一次最多显示 7 个 pill，面板宽只有 240–320px，
- * 故允许分段控件在需要时收窄并换行（三档模型的内容宽 < 可用宽，外观不变）。 */
-.biliscript-reading-chat .chat-model-panel-thinking {
+/* 思考强度的二级菜单（2026-10 用户裁定，票据 chat-thinking-submenu）：
+ * 面板底部固定区一行「思考强度 <当前值> ›」，点它**换页**到档位页（顶部返回行 +
+ * 档位条目）。原先的「一行思考标签 + 分段控件里最多 7 个药丸」随裁定退役——
+ * 档位条目改成一列普通行，选中行走模型选项行同一母题（accent-soft 底 + accent 字
+ * + 右侧 ✓），不再是分段控件。 */
+.biliscript-reading-chat .chat-thinking-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--biliscript-reader-text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease-out, transform 100ms ease-out;
 }
 
-.biliscript-reading-chat .chat-model-thinking-label {
+.biliscript-reading-chat .chat-thinking-row:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+.biliscript-reading-chat .chat-thinking-row:hover {
+  background: var(--biliscript-reader-surface-2);
+}
+
+.biliscript-reading-chat .chat-thinking-row-label {
   flex: 0 0 auto;
-  color: var(--biliscript-reader-muted);
-  font-size: 13px;
 }
 
-.biliscript-reading-chat .chat-thinking-toggle {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  display: inline-flex;
-  flex-wrap: wrap;
+/* 当前值右推（与 chip 的档位 span 同题：值恒完整），chevron 紧随其后。 */
+.biliscript-reading-chat .chat-thinking-row-value {
+  margin-left: auto;
+  color: var(--biliscript-reader-muted);
+}
+
+.biliscript-reading-chat .chat-thinking-row svg,
+.biliscript-reading-chat .chat-thinking-back svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--biliscript-reader-faint);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 档位页顶部返回行：与一级行同形（只多一个「当前页」的字重）。 */
+.biliscript-reading-chat .chat-thinking-back {
+  display: flex;
   align-items: center;
-  padding: 2px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
-  background: var(--biliscript-reader-surface);
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--biliscript-reader-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.biliscript-reading-chat .chat-thinking-back:hover {
+  background: var(--biliscript-reader-surface-2);
+}
+
+/* 档位条目容器：一列行（不再是分段控件，条目的档位集合由 chat/thinking-picker
+ * 从同一次解析派生，本表只管外观）。 */
+.biliscript-reading-chat .chat-thinking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .biliscript-reading-chat .chat-thinking-btn {
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--biliscript-reader-muted);
+  color: var(--biliscript-reader-text);
   font: inherit;
-  font-size: 13px;
-  line-height: 1;
+  font-size: 14px;
+  text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .biliscript-reading-chat .chat-thinking-btn:active {
@@ -159,14 +215,17 @@
 }
 
 .biliscript-reading-chat .chat-thinking-btn:hover {
-  color: var(--biliscript-reader-text);
+  background: var(--biliscript-reader-surface-2);
 }
 
 .biliscript-reading-chat .chat-thinking-btn.is-active {
-  background: var(--biliscript-reader-card);
-  border-color: var(--biliscript-reader-border);
-  color: var(--biliscript-reader-text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat .chat-thinking-check {
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 /* 思考档位「关不掉」提示行（工单 03）：档位切换区内独占一行的小字，
@@ -1030,6 +1089,15 @@
   display: none !important;
 }
 
+/* 二级菜单（2026-10 用户裁定）两页/一级行的显隐同样走 hidden 属性，而它们的
+ * display 是 flex（.chat-model-list / .chat-thinking-row）——UA 的 [hidden]
+ * 规则压不过类选择器，必须显式补 !important，否则两页会同时显示
+ *（2026-10-05 真模板视觉检查抓到：jsdom 不做布局，测不出这一类）。 */
+.biliscript-reading-chat .chat-model-list[hidden],
+.biliscript-reading-chat .chat-thinking-row[hidden] {
+  display: none !important;
+}
+
 /* ===== 历史对话整页接管（2026-09 用户决议）=====
  * 历史对话不再是 footer 上方弹出的框：它是对话根的第一个子元素，作为脱流覆盖层
  * 铺满整个 tab 内容区（tab 网格第 4 行），上方 字幕/概览/AI 对话 标签条保留。
@@ -1193,6 +1261,14 @@
   gap: 6px;
   padding-top: 8px;
   border-top: 1px solid var(--biliscript-reader-border);
+}
+
+/* 底部固定区两件都不可见时不占位：档位页上「思考强度」一级行隐藏（返回行接管），
+ * 若该模型也没有「关不掉 / 被 clamp」提示，这块就只剩一条悬空的分隔线
+ *（2026-10-05 真模板视觉检查抓到的小尾巴）。:has 与面板窄档规则同代
+ *（Chrome 120 起，见 reader-chat.css 头注与 reader.css 的容器查询）。 */
+.biliscript-reading-chat .chat-model-panel-foot:has(> .chat-thinking-row[hidden]):has(> .chat-thinking-hint[hidden]) {
+  display: none;
 }
 
 .biliscript-reading-chat .chat-history-clear-btn {

@@ -56,7 +56,6 @@ export interface ProviderPrefsStorage {
 
 export interface CreateProviderPrefsDeps {
   modelSelect: HTMLSelectElement;
-  thinkingBtns: NodeListOf<HTMLElement>;
   // 联网搜索开关 pill（spec §4，chat header 工具条；缺省 = 宿主无此控件）
   webSearchPill?: HTMLElement | null;
   // updateModelSelectWidth 的 els 引用包（含 chip/chipLabel/inputBar——发送框
@@ -115,7 +114,7 @@ function formatProviderLabel(provider: { name?: string; model?: unknown }): stri
 }
 
 export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPrefs {
-  const { modelSelect, thinkingBtns, widthEls, webSearchPill } = deps;
+  const { modelSelect, widthEls, webSearchPill } = deps;
   const storage =
     deps.storage ||
     (typeof chrome !== "undefined" && chrome?.storage?.local ? chrome.storage.local : undefined);
@@ -185,7 +184,6 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
       webSearchEnabled: Boolean(settings?.webSearchEnabled)
     });
     renderModelSelect(preferredProviderId);
-    renderThinkingLevel();
     renderWebSearchEnabled();
   }
 
@@ -259,16 +257,12 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
     updateModelSelectWidth(widthEls);
   }
 
-  function renderThinkingLevel(): void {
-    thinkingBtns.forEach((btn) => {
-      btn.classList.toggle("is-active", btn.dataset.level === chatSessionState.aiThinkingLevel);
-      btn.setAttribute("aria-pressed", btn.dataset.level === chatSessionState.aiThinkingLevel ? "true" : "false");
-    });
-  }
-
+  // 档位落盘（不碰 UI）：档位区 DOM 已由 reader/chat-model-panel.ts 按
+  // chat/thinking-picker 的显示条目现渲（二级菜单），它的选中态与显示名由组合根的
+  // refreshThinkingUi 每次重算——原先按静态按钮 data-level 打 is-active 的
+  // renderThinkingLevel 随 7 个静态按钮一起退役（2026-10 用户裁定）。
   async function setThinkingLevel(level: string): Promise<void> {
     setAiThinkingLevel(normalizeAiThinkingLevel(level));
-    renderThinkingLevel();
     if (storage) {
       await storage.set({ [THINKING_LEVEL_KEY]: chatSessionState.aiThinkingLevel }).catch(() => {});
     }

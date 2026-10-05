@@ -37,7 +37,7 @@ import {
   type ThinkingRuleSource
 } from "../../extension/ai/thinking-profiles.js";
 import { lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
-import { THINKING_LEVEL_LABELS } from "../../extension/reader/chat-model-panel.js";
+import { THINKING_LEVEL_LABELS } from "../../extension/chat/thinking-picker.js";
 
 const DEEPSEEK_URL = "https://api.deepseek.com/v1";
 const ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4";
@@ -98,8 +98,16 @@ describe("chip 集合 = A'（与请求落线同源，不是第二套推导）", 
     expect(adj.reason).toBe("model-vocabulary");
   });
 
-  it("开关型模型（上游词表只有 toggle）仍显示全 7 档：zhipu/glm-4.6 的 on 写点服务所有非 off 档", () => {
-    expect(adjustment("zhipu", ZHIPU_URL, "glm-4.6").availableLevels).toEqual([...AI_THINKING_LEVELS]);
+  it("开关型模型（上游词表只有 toggle）的可用集仍是全 7 档：zhipu/glm-4.6 的 on 写点服务所有非 off 档", () => {
+    const adj = adjustment("zhipu", ZHIPU_URL, "glm-4.6");
+    expect(adj.availableLevels).toEqual([...AI_THINKING_LEVELS]);
+    // 2026-10-05（票据 chat-thinking-submenu）：把这层事实显式带出来给 UI——
+    // 面板据此把开关型的档位列表收成 Off/On（非 off 域只由单个「开」写点服务）。
+    // 判据逐模型：glm 4.5~5.1 是开关型，glm-5.2/5.3 族有真实 effort 档位（不是开关型）。
+    expect(adj.switchOnly).toBe(true);
+    expect(adjustment("zhipu", ZHIPU_URL, "glm-5.2").switchOnly).toBe(false);
+    expect(adjustment("zhipu", ZHIPU_URL, "glm-5.3").switchOnly).toBe(false);
+    expect(adjustment("deepseek", DEEPSEEK_URL, "deepseek-v4-pro").switchOnly).toBe(false);
   });
 });
 

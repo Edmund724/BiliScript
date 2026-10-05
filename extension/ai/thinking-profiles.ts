@@ -692,6 +692,12 @@ export interface ThinkingLevelAdjustment {
   reason: ThinkingClampReason | null;
   // 这张规则来自哪一层（06 号票：三层来源清单的审计列，与 availableLevels 同源）。
   source: ThinkingRuleSource;
+  // 非 off 域是否只由单个「开」写点服务（rule.on：开关型，无 effort 词表、走平台开关）。
+  // 与 availableLevels 同一次解析：开关型的可用集是全部非 off 档（它们发同一个参数），
+  // 面板据此把档位列表收成 Off/On 两项（2026-10-05 用户裁定，UI 侧的显示归类，
+  // 不改 A' 与落线）。数组与集合口径都没变，本字段只是把「为什么是全部档」
+  // 这一层事实显式带出解析结果。
+  switchOnly: boolean;
 }
 
 export function resolveThinkingAdjustment(input: ResolveThinkingInput): ThinkingLevelAdjustment {
@@ -707,7 +713,8 @@ export function resolveThinkingAdjustment(input: ResolveThinkingInput): Thinking
     effectiveLevel,
     // 「被调整」= 落了别的档位；无档可落（effectiveLevel null）不是调整，不报文案。
     reason: rule && effectiveLevel !== null && effectiveLevel !== requestedLevel ? reason : null,
-    source
+    source,
+    switchOnly: Boolean(rule?.on)
   };
 }
 

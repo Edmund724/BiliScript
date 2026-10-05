@@ -1,35 +1,39 @@
 // tests/reader/chat-model-panel.test.ts
-// createReaderChatModelPanel（模型 chip + 「模型 + 思考档位」面板渲染，发送框
+// createReaderChatModelPanel（模型 chip + 「模型 + 思考强度」面板渲染，发送框
 // 重构新增）行为契约：chip 是隐藏 <select>（值源）的展示层；面板列表按 optgroup
 // 分组派生，点选项 = 写 select.value + 派生 change（组合根的 change 监听负责
 // 持久化——本文件只断「值源被写 + change 被派生」两件事实）。
 //
-// 覆盖：
-// - renderChip：文案 = 平台名·选中模型名 + 思考档位标签（off/low/high → Off/Low/
-//   High）；optgroup label 缺失时只显示模型名；select 禁用（未配置平台）→ chip
-//   同步禁用并回落占位文案；
+// 2026-10-05 用户裁定（票据 chat-thinking-submenu）起，面板底部是二级菜单：
+// 模型页 + 档位页（换页），底部固定区一行「思考强度 <当前值> ›」。本文件覆盖：
+//
+// - renderChip：文案 = 平台名·选中模型名 + 思考档位显示名（档位条派生过就用它的
+//   显示名——开关型模型是 On；未派生时回落标签表）；optgroup label 缺失时只显示
+//   模型名；select 禁用（未配置平台）→ chip 同步禁用并回落占位文案；
 // - renderPanel：按 optgroup 分组渲染、当前选中项 is-selected + ✓、点击选项写
-//   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；
+//   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；打开即回到模型页；
 // - renderPanel 的面板宽度：打开时按 chip 可见宽快照写内联宽（打开期间档位/模型
 //   变化不重算，重开才更新）；
-// - renderThinkingChips（06 号票）：按可用集显示/隐藏模板里的 7 个静态 chip——
-//   只显示存在的档位、不置灰（hidden 而非 disabled）、文案与标签表同源。
+// - renderThinkingPicker：条目现渲（顺序 / 显示名 / is-active + aria-pressed +
+//   data-active / 只有选中项带 ✓）；点非选中项 → pickLevel(level) + 关面板；
+//   点已选中项 → 不重写偏好（05 号票「偏好不迁移」）+ 关面板；≤1 条时一级行整行隐藏；
+// - 换页：点一级行 → 档位页可见 + 模型列表隐藏 + 一级行隐藏（aria-expanded=true）；
+//   点返回行 → 回来。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 
 let createReaderChatModelPanel: typeof import("../../extension/reader/chat-model-panel.js").createReaderChatModelPanel;
-let THINKING_LEVEL_LABELS: typeof import("../../extension/reader/chat-model-panel.js").THINKING_LEVEL_LABELS;
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
+let thinkingPickerEntries: typeof import("../../extension/chat/thinking-picker.js").thinkingPickerEntries;
 
 beforeEach(async () => {
   resetModuleState();
   chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
   chatSessionStateForTests = (await import("../../extension/chat/chat-state.js")).chatSessionStateForTests;
-  const panelModule = await import("../../extension/reader/chat-model-panel.js");
-  createReaderChatModelPanel = panelModule.createReaderChatModelPanel;
-  THINKING_LEVEL_LABELS = panelModule.THINKING_LEVEL_LABELS;
+  createReaderChatModelPanel = (await import("../../extension/reader/chat-model-panel.js")).createReaderChatModelPanel;
+  thinkingPickerEntries = (await import("../../extension/chat/thinking-picker.js")).thinkingPickerEntries;
   document.body.innerHTML = "";
 });
 
@@ -51,22 +55,6 @@ function makeSelect() {
   return select;
 }
 
-// 档位 chip 容器：模板里 7 个静态按钮（chat-template.ts 的同一份数据级与文案）。
-function makeThinkingToggle() {
-  const toggle = document.createElement("div");
-  toggle.innerHTML = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-    .map((level) => `<button type="button" class="chat-thinking-btn" data-level="${level}">${THINKING_LEVEL_LABELS[level]}</button>`)
-    .join("");
-  document.body.appendChild(toggle);
-  return toggle;
-}
-
-function visibleLevels(toggle: HTMLElement): string[] {
-  return [...toggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn")]
-    .filter((btn) => !btn.hidden)
-    .map((btn) => btn.dataset.level || "");
-}
-
 function makeHarness(select = makeSelect()) {
   const chip = document.createElement("button");
   const chipModel = document.createElement("span");
@@ -74,9 +62,16 @@ function makeHarness(select = makeSelect()) {
   chip.append(chipModel, chipLevel);
   const panelList = document.createElement("div");
   const panel = document.createElement("div");
-  const thinkingToggle = makeThinkingToggle();
-  document.body.append(chip, panelList, panel);
+  const thinkingPage = document.createElement("div");
+  const thinkingBack = document.createElement("button");
+  const thinkingToggle = document.createElement("div");
+  const thinkingRow = document.createElement("button");
+  const thinkingRowValue = document.createElement("span");
+  thinkingRow.append(thinkingRowValue);
+  panel.append(panelList, thinkingPage, thinkingRow);
+  document.body.append(chip, panel);
   const hidePanel = vi.fn();
+  const pickLevel = vi.fn();
   const modelPanel = createReaderChatModelPanel({
     modelSelect: select,
     chip,
@@ -84,10 +79,46 @@ function makeHarness(select = makeSelect()) {
     chipLevel,
     panelList,
     panel,
+    thinkingPage,
+    thinkingBack,
     thinkingToggle,
-    hidePanel
+    thinkingRow,
+    thinkingRowValue,
+    hidePanel,
+    pickLevel
   });
-  return { select, chip, chipModel, chipLevel, panelList, panel, thinkingToggle, hidePanel, modelPanel };
+  return {
+    select,
+    chip,
+    chipModel,
+    chipLevel,
+    panelList,
+    panel,
+    thinkingPage,
+    thinkingBack,
+    thinkingToggle,
+    thinkingRow,
+    thinkingRowValue,
+    hidePanel,
+    pickLevel,
+    modelPanel
+  };
+}
+
+function click(node: HTMLElement): void {
+  node.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+}
+
+function buttons(toggle: HTMLElement): HTMLButtonElement[] {
+  return [...toggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn")];
+}
+
+function renderedLevels(toggle: HTMLElement): string[] {
+  return buttons(toggle).map((btn) => btn.dataset.level || "");
+}
+
+function renderedLabels(toggle: HTMLElement): string[] {
+  return buttons(toggle).map((btn) => (btn.querySelector(".chat-thinking-btn-label") as HTMLElement).textContent || "");
 }
 
 describe("renderChip", () => {
@@ -123,7 +154,7 @@ describe("renderChip", () => {
   });
 
   // 05 号票：档位词表扩到上游 7 档，标签表同步（口径与既有 Off/Low/High 一致：
-  // 首字母大写、档位词本身照上游写法）。
+  // 首字母大写、档位词本身照上游写法）。未渲染过档位条时 chip 回落标签表。
   it("7 档标签表：off/minimal/low/medium/high/xhigh/max → Off/Minimal/Low/Medium/High/XHigh/Max", () => {
     const expected: Array<[string, string]> = [
       ["off", "Off"],
@@ -140,6 +171,26 @@ describe("renderChip", () => {
       modelPanel.renderChip();
       expect(chipLevel.textContent, level).toBe(label);
     }
+  });
+
+  // 2026-10-05 用户裁定：菜单里写 On、chip 写 High 是自相矛盾的——chip 的档位
+  // span 优先用档位条派生的显示名（开关型模型即 On）。
+  it("档位条派生过显示名：chip 用它（开关型模型显示 On，即便偏好是别的非 off 档）", () => {
+    chatSessionStateForTests.aiThinkingLevel = "low";
+    const { chipLevel, thinkingToggle, modelPanel } = makeHarness();
+
+    modelPanel.renderThinkingPicker({
+      label: "On",
+      entries: thinkingPickerEntries({
+        availableLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+        switchOnly: true,
+        requestedLevel: "low"
+      })
+    });
+    modelPanel.renderChip();
+
+    expect(renderedLabels(thinkingToggle)).toEqual(["Off", "On"]);
+    expect(chipLevel.textContent).toBe("On");
   });
 
   it("select 禁用（未配置平台）：chip 同步禁用，模型名回落占位、档位清空", () => {
@@ -178,7 +229,7 @@ describe("renderPanel", () => {
 
     modelPanel.renderPanel();
     const target = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p2${SEP}m2"]`) as HTMLButtonElement;
-    target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    click(target);
 
     expect(select.value).toBe(`p2${SEP}m2`);
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -190,21 +241,37 @@ describe("renderPanel", () => {
 
     modelPanel.renderPanel();
     const current = panelList.querySelector<HTMLButtonElement>(`.chat-model-option[data-value="p1${SEP}m1b"]`) as HTMLButtonElement;
-    current.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    click(current);
 
     expect(select.value).toBe(`p1${SEP}m1b`);
     expect(hidePanel).toHaveBeenCalledTimes(1);
   });
 
-  it("select 禁用（未配置平台）：列表渲染空态文案", () => {
+  it("select 禁用（未配置平台）：列表渲染空态文案，思考强度行隐藏", () => {
     const select = document.createElement("select");
     select.disabled = true;
-    const { panelList, modelPanel } = makeHarness(select);
+    const { panelList, thinkingRow, modelPanel } = makeHarness(select);
 
     modelPanel.renderPanel();
 
     expect(panelList.querySelector(".chat-model-empty")).not.toBe(null);
     expect(panelList.querySelectorAll(".chat-model-option")).toHaveLength(0);
+    expect(thinkingRow.hidden).toBe(true);
+  });
+
+  it("每次打开都从模型页开始（换页状态不留到下一次）", () => {
+    const { panelList, thinkingPage, thinkingRow, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker({ label: "Low", entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high"], switchOnly: false, requestedLevel: "low" }) });
+    modelPanel.renderPanel();
+    click(thinkingRow);
+    expect(thinkingPage.hidden).toBe(false);
+
+    modelPanel.renderPanel();
+
+    expect(panelList.hidden).toBe(false);
+    expect(thinkingPage.hidden).toBe(true);
+    expect(thinkingRow.hidden).toBe(false);
+    expect(thinkingRow.getAttribute("aria-expanded")).toBe("false");
   });
 });
 
@@ -237,64 +304,107 @@ describe("renderPanel 的面板宽度（打开时快照）", () => {
   });
 });
 
-describe("renderThinkingChips（06 号票：按可用集渲染 chip 集合）", () => {
-  it("只显示可用集里的档位：{off,low,medium,xhigh} → 隐藏 minimal/high/max", () => {
-    const { thinkingToggle, modelPanel } = makeHarness();
+describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页条目）", () => {
+  const FOUR_LEVELS = { availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high" } as const;
 
-    modelPanel.renderThinkingChips(["off", "low", "medium", "xhigh"]);
+  it("逐条现渲：顺序 = 条目顺序，只有选中项带 is-active + aria-pressed + ✓", () => {
+    const { thinkingToggle, thinkingRowValue, thinkingRow, modelPanel } = makeHarness();
 
-    expect(visibleLevels(thinkingToggle)).toEqual(["off", "low", "medium", "xhigh"]);
-  });
+    modelPanel.renderThinkingPicker({
+      label: "High",
+      entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] })
+    });
 
-  it("不置灰：隐藏走 hidden（CSS 不显示），不是 disabled（无禁用态 chip）", () => {
-    const { thinkingToggle, modelPanel } = makeHarness();
-
-    modelPanel.renderThinkingChips(["off", "high"]);
-
-    expect(visibleLevels(thinkingToggle)).toEqual(["off", "high"]);
-    for (const btn of thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn")) {
-      expect(btn.disabled, btn.dataset.level).toBe(false);
-      expect(btn.hasAttribute("disabled")).toBe(false);
+    expect(renderedLevels(thinkingToggle)).toEqual(["off", "low", "high", "max"]);
+    expect(renderedLabels(thinkingToggle)).toEqual(["Off", "Low", "High", "Max"]);
+    for (const btn of buttons(thinkingToggle)) {
+      const active = btn.dataset.level === "high";
+      expect(btn.classList.contains("is-active"), btn.dataset.level).toBe(active);
+      expect(btn.getAttribute("aria-pressed"), btn.dataset.level).toBe(active ? "true" : "false");
+      expect(btn.dataset.active, btn.dataset.level).toBe(active ? "true" : "false");
+      expect(btn.querySelector(".chat-thinking-check") !== null, btn.dataset.level).toBe(active);
     }
+    expect(thinkingRowValue.textContent).toBe("High");
+    expect(thinkingRow.hidden).toBe(false);
   });
 
-  it("空可用集：7 个 chip 全隐藏（minimax-m3：连 off 也不可用）", () => {
-    const { thinkingToggle, modelPanel } = makeHarness();
+  it("点非选中项：pickLevel(该档) + 关面板", () => {
+    const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) });
 
-    modelPanel.renderThinkingChips([]);
+    click(buttons(thinkingToggle)[1]);
 
-    expect(visibleLevels(thinkingToggle)).toEqual([]);
-    expect(thinkingToggle.querySelectorAll(".chat-thinking-btn")).toHaveLength(7);
+    expect(pickLevel).toHaveBeenCalledWith("low");
+    expect(hidePanel).toHaveBeenCalledTimes(1);
   });
 
-  it("可复现：可用集变化后重渲染，隐藏的 chip 会回来", () => {
-    const { thinkingToggle, modelPanel } = makeHarness();
+  // 05 号票「偏好保留不迁移」：开关型的 On 是 canonical high，偏好停在别的非 off 档
+  // 时重写会把偏好悄悄搬走——已选中的条目只关面板，不写偏好。
+  it("点已选中项：不重写偏好（pickLevel 不调用），仍关面板", () => {
+    const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) });
 
-    modelPanel.renderThinkingChips(["off", "high"]);
-    expect(visibleLevels(thinkingToggle)).toEqual(["off", "high"]);
+    click(buttons(thinkingToggle)[2]);
 
-    modelPanel.renderThinkingChips(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-    expect(visibleLevels(thinkingToggle)).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+    expect(pickLevel).not.toHaveBeenCalled();
+    expect(hidePanel).toHaveBeenCalledTimes(1);
   });
 
-  it("chip 文案由标签表改写（模板占位不是唯一来源，7 档标签一处定义）", () => {
+  it("≤1 条：一级行整行隐藏（没有可选的东西）；条数够时回来", () => {
+    const { thinkingRow, modelPanel } = makeHarness();
+
+    modelPanel.renderThinkingPicker({ label: "On", entries: thinkingPickerEntries({ availableLevels: ["high"], switchOnly: false, requestedLevel: "high" }) });
+    expect(thinkingRow.hidden).toBe(true);
+
+    modelPanel.renderThinkingPicker({ label: "Off", entries: thinkingPickerEntries({ availableLevels: [], switchOnly: false, requestedLevel: "off" }) });
+    expect(thinkingRow.hidden).toBe(true);
+
+    modelPanel.renderThinkingPicker({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) });
+    expect(thinkingRow.hidden).toBe(false);
+  });
+
+  it("空条目：一个按钮都不渲染（fail-closed，面板只剩提示行）", () => {
     const { thinkingToggle, modelPanel } = makeHarness();
-    const expected: Record<string, string> = {
-      off: "Off",
-      minimal: "Minimal",
-      low: "Low",
-      medium: "Medium",
-      high: "High",
-      xhigh: "XHigh",
-      max: "Max"
-    };
 
-    modelPanel.renderThinkingChips(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+    modelPanel.renderThinkingPicker({ label: "Off", entries: [] });
 
-    for (const btn of thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn")) {
-      const level = btn.dataset.level || "";
-      expect(btn.textContent, level).toBe(expected[level]);
-      expect(btn.textContent, level).toBe(THINKING_LEVEL_LABELS[level]);
-    }
+    expect(buttons(thinkingToggle)).toEqual([]);
+  });
+});
+
+describe("换页（点一级行进档位页 / 点返回行回模型页）", () => {
+  function openedHarness() {
+    const harness = makeHarness();
+    harness.modelPanel.renderThinkingPicker({
+      label: "High",
+      entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high" })
+    });
+    harness.modelPanel.renderPanel();
+    return harness;
+  }
+
+  it("点一级行：档位页可见、模型列表隐藏、一级行隐藏且 aria-expanded=true", () => {
+    const { panelList, thinkingPage, thinkingRow, modelPanel } = openedHarness();
+    expect(thinkingPage.hidden).toBe(true);
+
+    click(thinkingRow);
+
+    expect(thinkingPage.hidden).toBe(false);
+    expect(panelList.hidden).toBe(true);
+    expect(thinkingRow.hidden).toBe(true);
+    expect(thinkingRow.getAttribute("aria-expanded")).toBe("true");
+    void modelPanel;
+  });
+
+  it("点返回行：回模型页（列表重现、一级行重现、档位页隐藏）", () => {
+    const { panelList, thinkingPage, thinkingRow, thinkingBack } = openedHarness();
+    click(thinkingRow);
+
+    click(thinkingBack);
+
+    expect(panelList.hidden).toBe(false);
+    expect(thinkingPage.hidden).toBe(true);
+    expect(thinkingRow.hidden).toBe(false);
+    expect(thinkingRow.getAttribute("aria-expanded")).toBe("false");
   });
 });

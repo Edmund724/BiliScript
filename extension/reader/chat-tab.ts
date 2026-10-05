@@ -58,6 +58,8 @@ import { extractBvid } from "../bilibili/video-id-shared.js";
 // 思考档位提示的判定入口（工单 03「关不掉」+ 05 号票「被 clamp」）：纯查表 resolver，
 // host 推断 + 上游指派表/taxonomy，无 DOM 依赖（后台路径同款判定天然不渲染提示）。
 import { resolveThinkingAdjustment, type ThinkingClampReason } from "../ai/thinking-profiles.js";
+// 思考强度二级菜单的显示条目与显示名（纯函数；面板只画结果）。
+import { thinkingPickerEntries, thinkingPickerLabel } from "../chat/thinking-picker.js";
 import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
@@ -139,7 +141,12 @@ const els = {
   modelPanel: document.getElementById(ids.readingChatModelPanel) as HTMLElement,
   modelPanelList: document.getElementById(ids.readingChatModelList) as HTMLElement,
   thinkingToggle: document.getElementById(ids.readingChatThinkingToggle) as HTMLElement,
-  thinkingBtns: document.querySelectorAll<HTMLElement>(`#${ids.readingChatThinkingToggle} .chat-thinking-btn`),
+  // 思考强度二级菜单（2026-10 用户裁定）：底部固定区一级行 + 它的当前值 span，
+  // 以及换页的第二页（返回行 + 档位页容器）。
+  thinkingRow: document.getElementById(ids.readingChatThinkingRow) as HTMLButtonElement,
+  thinkingRowValue: document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement,
+  thinkingPage: document.getElementById(ids.readingChatThinkingPage) as HTMLElement,
+  thinkingBack: document.getElementById(ids.readingChatThinkingBack) as HTMLElement,
   // 联网搜索开关 pill（spec §4，输入行 + 右侧）
   webSearchPill: document.getElementById(ids.readingChatWebSearchPill) as HTMLElement | null,
   // 思考档位「关不掉」提示行（工单 03，模板默认 hidden）
@@ -461,8 +468,14 @@ const modelPanel = createReaderChatModelPanel({
   chipLevel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-level") as HTMLElement,
   panelList: els.modelPanelList,
   panel: els.modelPanel,
+  thinkingPage: els.thinkingPage,
+  thinkingBack: els.thinkingBack,
   thinkingToggle: els.thinkingToggle,
-  hidePanel: () => popovers.hideModelPanel()
+  thinkingRow: els.thinkingRow,
+  thinkingRowValue: els.thinkingRowValue,
+  hidePanel: () => popovers.hideModelPanel(),
+  // 档位条目的落盘出口（惰性互引 pickThinkingLevel，见下）。
+  pickLevel: (level) => pickThinkingLevel(level)
 });
 
 // 宽度度量专用 els 引用包（model-select-width 的契约键名 chip/chipModel/chipLevel；
@@ -484,7 +497,6 @@ const widthEls: ModelSelectWidthEls = {
 // 载荷透传。
 const providerPrefs = createProviderPrefs({
   modelSelect: els.modelSelect,
-  thinkingBtns: els.thinkingBtns,
   widthEls,
   webSearchPill: els.webSearchPill
 });
@@ -532,8 +544,18 @@ function refreshThinkingUi(): void {
     level,
     stream: true
   });
-  // chip 集合先落（提示行元素缺失也不影响档位 chip 的显隐）。
-  modelPanel.renderThinkingChips(adjustment.availableLevels);
+  // 档位条先落（提示行元素缺失也不影响档位的显隐与显示名）。条目与显示名都由
+  // chat/thinking-picker 从同一次解析派生：面板只画结果（二级菜单换页 + 选中打勾），
+  // 开关型模型在这里被收成 Off/On 两项、chip 与一级行同步显示 On。
+  const pickerInput = {
+    availableLevels: adjustment.availableLevels,
+    switchOnly: adjustment.switchOnly,
+    requestedLevel: level
+  };
+  modelPanel.renderThinkingPicker({
+    label: thinkingPickerLabel(pickerInput),
+    entries: thinkingPickerEntries(pickerInput)
+  });
   const hint = els.thinkingHint;
   if (!hint) {
     return;
@@ -558,6 +580,16 @@ function refreshThinkingUi(): void {
       `（${THINKING_CLAMP_REASON_TEXT[adjustment.reason]}）`;
     hint.hidden = false;
   }
+}
+
+// 档位落盘出口（面板档位条目的点击经 deps.pickLevel 回到这里）：setThinkingLevel
+// 首行同步写 chatSessionState.aiThinkingLevel，紧随的重判读到的是新档位（档位切走
+// 即收提示，切回 Off 再现）；chip 的档位文案与档位条的选中态都随重判重渲。
+// 面板在调用点之后自会关掉（hidePanel，用户裁定：选完即关）。
+function pickThinkingLevel(level: string): void {
+  void setThinkingLevel(level);
+  modelPanel.renderChip();
+  refreshThinkingUi();
 }
 
 // 抓取/音频转写进行中（content 的 subtitleFetchState 为 loading 且字幕体为空）
@@ -910,16 +942,9 @@ function bindEvents(): void {
     modelPanel.renderChip();
     refreshThinkingUi();
   });
-  els.thinkingBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      // setThinkingLevel 首行同步写 chatSessionState.aiThinkingLevel，紧随的
-      // 重判读到的是新档位（档位切走即收提示，切回 Off 再现）。
-      void setThinkingLevel(btn.dataset.level || "off");
-      // chip 上的档位文案随新档位重渲。
-      modelPanel.renderChip();
-      refreshThinkingUi();
-    });
-  });
+  // 档位条目的点击接线已随二级菜单下沉到 reader/chat-model-panel.ts（条目现渲，
+  // 静态 NodeList 不存在了）：面板点中条目 → pickLevel（下面的 pickThinkingLevel）
+  // → 关面板。原「7 个静态按钮逐个 addEventListener」的接线随之退役。
   // 联网搜索开关（spec §4）：点击即改全局记忆（sync settings.webSearchEnabled）。
   if (els.webSearchPill) {
     els.webSearchPill.addEventListener("click", () => {

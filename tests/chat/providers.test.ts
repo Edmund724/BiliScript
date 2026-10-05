@@ -66,20 +66,13 @@ function makeStorageFake(initial: Record<string, unknown> = {}) {
 function makeHarness(storage = makeStorageFake()) {
   const modelSelect = document.createElement("select");
   document.body.appendChild(modelSelect);
-  const thinkingBtns = ["off", "low", "high"].map((level) => {
-    const btn = document.createElement("button");
-    btn.dataset.level = level;
-    document.body.appendChild(btn);
-    return btn;
-  }) as unknown as NodeListOf<HTMLElement> & HTMLButtonElement[];
   const deps = {
     modelSelect,
-    thinkingBtns,
     widthEls: { modelSelect } as ModelSelectWidthEls,
     storage
   };
   const providerPrefs = createProviderPrefs(deps);
-  return { modelSelect, thinkingBtns, deps, providerPrefs, storage };
+  return { modelSelect, deps, providerPrefs, storage };
 }
 
 beforeEach(async () => {
@@ -123,8 +116,6 @@ describe("loadProvidersAndPrefs", () => {
     // 默认选中 defaultModel 对应平台：裸平台 id 回落该平台首个模型（复合值）
     expect(deps.modelSelect.value).toBe(buildModelOptionValue("p3", "模型三"));
     expect(deps.modelSelect.disabled).toBe(false);
-    // 思考档位高亮 low
-    expect(deps.thinkingBtns.map((btn) => btn.classList.contains("is-active"))).toEqual([false, true, false]);
   });
 
   it("get-settings 失败不阻断：aiPrefs 全走默认兜底", async () => {
@@ -367,8 +358,12 @@ describe("renderModelSelect", () => {
 });
 
 describe("setThinkingLevel", () => {
-  it("归一化 + 渲染 + chrome.storage 写 + save-settings 单键", async () => {
-    const { thinkingBtns, providerPrefs, storage } = makeHarness();
+  // 2026-10 用户裁定（票据 chat-thinking-submenu）：档位区 DOM 归 reader/
+  // chat-model-panel.ts 二级菜单现渲，本模块只写状态 + 持久化（原
+  // renderThinkingLevel 按静态按钮 data-level 打 is-active 的那条链随 7 个静态
+  // 按钮一起退役）——故这里不再断 UI，只断三处写点。
+  it("归一化 + chrome.storage 写 + save-settings 单键", async () => {
+    const { providerPrefs, storage } = makeHarness();
 
     await providerPrefs.setThinkingLevel("high");
 
@@ -379,8 +374,6 @@ describe("setThinkingLevel", () => {
       type: "save-settings",
       settings: { aiThinkingLevel: "high" }
     });
-    expect(thinkingBtns.map((btn) => btn.classList.contains("is-active"))).toEqual([false, false, true]);
-    expect(thinkingBtns.map((btn) => btn.getAttribute("aria-pressed"))).toEqual(["false", "false", "true"]);
   });
 
   it("非法档位归一化为 off", async () => {
