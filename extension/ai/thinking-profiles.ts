@@ -265,14 +265,6 @@ export const CLASSES: Record<string, ClassRule> = {
     off: { fields: { thinking: { type: "disabled" } } },
     on: { fields: { thinking: { type: "enabled" } } }
   },
-  // 永远思考 + effort 三档（默认 max）。
-  // 04 号票后只服务指派表不认识的 kimi-k3* id 兜底（原「例外表成员 kimi-k3*」；原生
-  // kimi-code-plan-cn/k3 已按上游指派表翻转：值集 toggle+low-high-max → off 可用）。
-  "kimi-k3-effort": {
-    thinkingClass: "always",
-    low: { fields: { reasoning_effort: "low" } },
-    high: { fields: { reasoning_effort: "high" } }
-  },
   // 例外表成员 kimi-k2.7*：强制 thinking:{type:"enabled",keep:"all"}（仅接受该形状）
   // → 永远思考；无档位 → off 级联不发（泛化的 enabled 形状也不发，缺事实不指定）。
   "kimi-always": { thinkingClass: "always" },
@@ -341,16 +333,24 @@ export const EXCEPTIONS: readonly TaxonomyEntry[] = [
   { class: "qwen-hybrid-effort", patterns: ["qwen3.8-max"] },
   // qwen3-235b*/qwen3-32b/qwen3-30b*：off 规则仅流式（alibabacloud.com）
   { class: "qwen-hybrid-switch-streamonly", patterns: ["qwen3-235b", "qwen3-32b", "qwen3-30b"] },
-  // 注（04 号票·降级兜底）：下表两条 + TAXONOMY 的 glm-5.2 专条**保留原处**，但逐模型事实
-  // 已让位给 02 指派表（解析顺序：指派表 → 手写兜底 → unknownClass → fail-closed）。
-  // 它们现在只服务「指派表不认识的 id」：用户自填 / 上游新变体（如 glm-5.3-air、kimi-k3-air）。
-  // 真删会让这些无界 id 的请求体跟着变，是尚未裁决的开放问题（12 号票非目标）。
+  // 注（04 号票·降级兜底；19 号票收尾裁定后修订）：下表 glm-5.3* 一条 + TAXONOMY 的
+  // glm-5.2 专条**保留原处**，但逐模型事实已让位给 02 指派表（解析顺序：指派表 → 手写兜底
+  // → unknownClass → fail-closed）。它们现在只服务「指派表不认识的 id」：用户自填 / 上游新
+  // 变体（如 glm-5.3-air）。
+  //
+  // **为什么这两条留、原来的第三条已删**（实测 artifacts/20-b1-fallback.ts：目录内 359 行
+  // 模型零个靠这些专条兜底，它们只服务目录外 id）：
+  //   - glm-5.3* 留：删了 → glm-5.3-air 落到 TAXONOMY 的 `glm-5` → glm-hybrid-switch → 对
+  //     「传 disabled 硬报错」的永不思考族改发 thinking:{type:"enabled"}，是 **fail-open**。
+  //   - glm-5.2 前置留：删了 → glm-5.2-air 落到 `glm-5` → 方言从 effort 词表变 thinking
+  //     开关（不报错，但线格式形状变了）。
+  //   - kimi-k3* 已删（2026-10-05 用户裁定）：删了 → 不匹配任何模式 → UNKNOWN 哨兵 →
+  //     一个字段都不发 = **fail-closed**，三条里唯一删掉不亏的。随之孤儿化的
+  //     CLASSES["kimi-k3-effort"] 一并删除。
   // glm-5.3*：disabled 直接报错 → 永远思考（docs.bigmodel.cn）
   { class: "glm-always", patterns: ["glm-5.3"] },
   // kimi-k2.7*：强制 keep:all → 永远思考（platform.kimi.ai）
   { class: "kimi-always", patterns: ["kimi-k2.7"] },
-  // kimi-k3*：effort 三档 → 永远思考（platform.kimi.ai）
-  { class: "kimi-k3-effort", patterns: ["kimi-k3"] },
   // gpt-5.1/5.2：off → reasoning_effort:"none"（developers.openai.com）
   { class: "openai-reasoning-none", patterns: ["gpt-5.1", "gpt-5.2"] },
   // gpt-6*/o3/o4*：无 none（传了 400）→ 永远思考（developers.openai.com）

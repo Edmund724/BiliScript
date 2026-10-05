@@ -104,10 +104,12 @@ function resolveViaRuntime(presetId: string, model: string, level: ThinkingLevel
 const FLIPPED = ["zhipuai/glm-5.2", "zhipuai/glm-5.3", "kimi-code-plan-cn/k3"];
 
 // 04 之前这三处靠手写专条决定；降级兜底后专条仍在（B1）。
+// 19 号票收尾裁定后只剩两条：`kimi-k3*` 专条已删（见下方 describe 的钉数），
+// 因为它是三条里唯一删掉不改变 fail-closed 方向的一条（另两条删了会让
+// `glm-5.3-air` 从「不发参」翻成发 thinking:{type:"enabled"}，是 fail-open）。
 const DOWNGRADED_HAND_ENTRIES: Array<{ upstreamId: string; presetId: string; pattern: string; className: string }> = [
   { upstreamId: "zhipuai", presetId: "zhipu", pattern: "glm-5.2", className: "glm-hybrid-effort" },
-  { upstreamId: "zhipuai", presetId: "zhipu", pattern: "glm-5.3", className: "glm-always" },
-  { upstreamId: "kimi-code-plan-cn", presetId: "moonshot", pattern: "kimi-k3", className: "kimi-k3-effort" }
+  { upstreamId: "zhipuai", presetId: "zhipu", pattern: "glm-5.3", className: "glm-always" }
 ];
 
 // ===== 残留清单 31 行（04-prune-matrix.residual.md §2；model = 矩阵行口径的模型 id）=====
@@ -234,14 +236,13 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
     expect(resolveViaRuntime("moonshot", "k3", "high")).toBe(resolveViaRuntime("moonshot", "kimi-k3", "high"));
   });
 
-  it("三处照翻，尽管手写专条还在且结论相反（12 号票后专条只兜指派表不认识的 id）", () => {
-    // 手写专条仍在（B1 降级而非删除）……
+  it("两条照翻，尽管手写专条还在且结论相反（12 号票后专条只兜指派表不认识的 id）", () => {
+    // 手写专条仍在（B1 降级而非删除；19 号票收尾只删了第三条 kimi-k3*）……
     for (const entry of DOWNGRADED_HAND_ENTRIES) {
       const table = entry.className === "glm-hybrid-effort" ? TAXONOMY : EXCEPTIONS;
       expect(table.some((row) => row.class === entry.className && row.patterns.includes(entry.pattern)), `${entry.pattern} 专条应在表里`).toBe(true);
       expect(handClassOf(entry.presetId, entry.pattern)).toBe(entry.className);
     }
-    expect(CLASSES["kimi-k3-effort"]).toBeTruthy();
     // 但原生模型照上游翻转（上三个用例），即手写专条对「指派表命中的模型」不再参与。
     expect(handRuleOf("zhipu", "glm-5.2")).toBe(CLASSES["glm-hybrid-effort"]);
     expect(resolveViaRuntime("zhipu", "glm-5.2", "low")).not.toBe(outcomeOf(CLASSES["glm-hybrid-effort"], "low"));
@@ -251,12 +252,12 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
 describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手写结论", () => {
   // 这些 id 不在 02 指派表里（用户自填 / 上游新变体）：
   // 它们必须仍然走手写专条 —— 真删专条就会改变它们的请求体（12 号票非目标）。
+  // 19 号票删了 kimi-k3* 那条，两条 kimi-k3 的目录外 id 随之改落别处（UNKNOWN 哨兵 /
+  // 平台 unknownClass），已在本 describe 之后的「新」块里逐条钉住，不再列为「沿用专条」。
   const CASES: Array<[string, string]> = [
     ["zhipu", "glm-5.2-air"],
     ["qwen", "glm-5.3-air"],
-    ["moonshot", "kimi-k3-air"],
-    ["ollama", "glm-5.2"],
-    ["ollama", "kimi-k3"]
+    ["ollama", "glm-5.2"]
   ];
 
   for (const [presetId, model] of CASES) {
@@ -272,7 +273,6 @@ describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手�
   // （如 api.siliconflow.cn/glm-5.2 从 effort 档变成 thinking:{type}，方言反而更不对）。
   const HOST_CASES: Array<[string, string, string]> = [
     ["siliconflow", "https://api.siliconflow.cn/v1", "glm-5.2"],
-    ["openai", "https://api.openai.com/v1", "kimi-k3"],
     ["siliconflow", "https://api.siliconflow.cn/v1", "glm-5.3-air"]
   ];
 
@@ -285,13 +285,65 @@ describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手�
     });
   }
 
-  it("kimi-k3-air 落 kimi-k3-effort（永远思考 + effort），不是 fail-closed 空参", () => {
-    expect(outcomeOf(handRuleOf("moonshot", "kimi-k3-air"), "high")).toBe(
-      JSON.stringify({ fields: { reasoning_effort: "high" }, offUnavailable: false, offFallback: null, thinkingClass: "always" })
-    );
-    expect(outcomeOf(handRuleOf("moonshot", "kimi-k3-air"), "off")).toBe(
-      JSON.stringify({ fields: { reasoning_effort: "low" }, offUnavailable: true, offFallback: "low", thinkingClass: "always" })
-    );
+  });
+
+describe("19 号票：删 EXCEPTIONS kimi-k3* 专条（另两条保留）", () => {
+  // 裁定依据（12 号票明写「真删 + 替代兜底是开放问题」，2026-10-05 收尾裁 B）：
+  // 目录内 359 行模型零个靠这三条兜底（实测 artifacts/20-b1-fallback.ts），
+  // 它们唯一的服务对象是目录外 id。逐条删的后果方向不同：
+  //   - EXCEPTIONS glm-5.3* 删了 → glm-5.3-air 落到 TAXONOMY 的 glm-5 → hybrid-switch
+  //     → 对「传 disabled 硬报错」的永不思考族改发 thinking:{type:"enabled"} = fail-open。故留。
+  //   - TAXONOMY glm-5.2 前置删了 → 方言从 effort 词表变 thinking 开关（不报错，形状变）。故留。
+  //   - EXCEPTIONS kimi-k3* 删了 → 不匹配任何模式 → UNKNOWN 哨兵 → 一个字段都不发
+  //     = fail-closed，方向正确，是三条里唯一删了不亏的。故删。
+  it("专条与随之孤儿化的 class 都不在了", () => {
+    expect(EXCEPTIONS.some((row) => row.patterns.includes("kimi-k3"))).toBe(false);
+    expect(CLASSES["kimi-k3-effort"]).toBeUndefined();
+    // 另两条原样保留。
+    expect(EXCEPTIONS.some((row) => row.class === "glm-always" && row.patterns.includes("glm-5.3"))).toBe(true);
+    expect(TAXONOMY.some((row) => row.class === "glm-hybrid-effort" && row.patterns.includes("glm-5.2"))).toBe(true);
+  });
+
+  it("moonshot/kimi-k3-air：七档全落 UNKNOWN 哨兵，一个字段都不发", () => {
+    expect(lookupThinkingFact(UPSTREAM_PROVIDER_BY_PRESET["moonshot"] ?? "", "kimi-k3-air")).toBeNull();
+    expect(handClassOf("moonshot", "kimi-k3-air")).toBeUndefined();
+    for (const level of ALL_LEVELS) {
+      const adjustment = resolveThinkingAdjustment({
+        presetId: "moonshot",
+        baseUrl: baseUrlOf("moonshot"),
+        model: "kimi-k3-air",
+        level,
+        stream: STREAM
+      });
+      expect(adjustment.source, level).toBe("unknown");
+      expect(adjustment.availableLevels, level).toEqual([]);
+      expect(adjustment.resolution.fields, level).toEqual({});
+      expect(adjustment.resolution.thinkingClass, level).toBe("unknown");
+    }
+  });
+
+  it("ollama/kimi-k3：不再吃 k3 专条，改落该平台 unknownClass（ollama-effort）", () => {
+    expect(handClassOf("ollama", "kimi-k3")).toBe("ollama-effort");
+    expect(resolveViaRuntime("ollama", "kimi-k3", "off")).toBe(outcomeOf(CLASSES["ollama-effort"], "off"));
+    expect(resolveViaRuntime("ollama", "kimi-k3", "high")).toBe(outcomeOf(CLASSES["ollama-effort"], "high"));
+    expect(CLASSES["ollama-effort"].thinkingClass).toBe("hybrid");
+  });
+
+  it("host 推断 api.openai.com + kimi-k3：UNKNOWN 哨兵（该 host 无平台可兜）", () => {
+    // resolveThinkingProfile 不回传 source，改用 adjustment 入口钉 source。
+    expect(lookupThinkingFact(UPSTREAM_PROVIDER_BY_PRESET["moonshot"] ?? "", "kimi-k3-air")).toBeNull();
+    for (const level of ALL_LEVELS) {
+      const actual = resolveThinkingAdjustment({
+        baseUrl: "https://api.openai.com/v1",
+        model: "kimi-k3",
+        level,
+        stream: STREAM
+      });
+      expect(actual.source, level).toBe("unknown");
+      expect(actual.availableLevels, level).toEqual([]);
+      expect(actual.resolution.fields, level).toEqual({});
+      expect(actual.resolution.thinkingClass, level).toBe("unknown");
+    }
   });
 });
 
@@ -375,21 +427,26 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
     const divergent = divergentKeys(LEVELS);
     // 期望 = 残留清单 31 行里的 28 行（另 3 行逐条见 NON_DIVERGENT / MODELSCOPE_UPSTREAM_ID_ROWS 说明）
     //   + 用户裁定 2 点名的三处（04 号票起就按上游）
-    //   + 05 号票 clamp 的有意分歧 qwen3.8-max（词表 low/medium/xhigh，偏好 high 落 medium）。
+    //   + 05 号票 clamp 的有意分歧 qwen3.8-max（词表 low/medium/xhigh，偏好 high 落 medium）
+    //   + alibaba-cn/kimi-k3：**19 号票删掉 kimi-k3* 专条后的口径变化**——它原先是
+    //     「7 档才分歧」（手写 kimi-k3-effort 缺 max 写点），手写侧现无结论（qwen 无
+    //     unknownClass → UNKNOWN）故任何档位都与上游投影不同。行本身走指派表，运行时不变。
     const expected = [
       ...ADJUDICATED.map((row) => row.key).filter((key) => !NON_DIVERGENT.includes(key) && !MODELSCOPE_UPSTREAM_ID_ROWS.includes(key)),
       ...FLIPPED,
-      "alibaba-cn/qwen3.8-max"
+      "alibaba-cn/qwen3.8-max",
+      "alibaba-cn/kimi-k3"
     ].sort();
     expect([...divergent].sort()).toEqual(expected);
   });
 
-  it("7 档口径下多出的 5 行：旧手写 class 缺 05 号票新增档位写点（清单外的「分歧」与新档位无关）", () => {
-    // 05 号票把词表扩到 7 档后，下面 5 行的上游值集带 max 档而旧手写 class 没有 max 写点
+  it("7 档口径下多出的 4 行：旧手写 class 缺 05 号票新增档位写点（清单外的「分歧」与新档位无关）", () => {
+    // 05 号票把词表扩到 7 档后，下面 4 行的上游值集带 max 档而旧手写 class 没有 max 写点
     // （偏好 max 在手写侧被 clamp 到 high）——它们从未进过 04 冻结表（04 口径只比 off/low/high），
     // 也不构成「静默第二事实源」：命中指派表的行一律走上游投影（见下一个 describe）。
+    // 原第 5 行 alibaba-cn/kimi-k3 已移出：成因从「手写 kimi-k3-effort 缺 max 写点」变成
+    // 「19 号票删掉该专条后手写侧无结论」，不再是「档位差异」，已并入上一用例的 3 档集合。
     const EXTRA_TIERS: Record<string, string> = {
-      "alibaba-cn/kimi-k3": "上游 low-high-max；手写 kimi-k3-effort 无 max 写点",
       "deepseek/deepseek-v4-flash": "上游 toggle+low-high-max；手写 deepseek-hybrid-effort 无 max 写点",
       "deepseek/deepseek-v4-flash-vision-exp": "同上（同族变体）",
       "deepseek/deepseek-v4-pro": "同上（同族变体）",
@@ -884,8 +941,12 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "sensenova/deepseek-v4-pro",
       "sensenova/glm-5.2"
     ]);
-    // 7 档口径再多两行：canonical 词表带 max，手写 class 没有 max 写点。
+    // 7 档口径原本再多两行（canonical 词表带 max，手写 kimi-k3-effort 没有 max 写点）。
+    // 19 号票删掉 kimi-k3* 专条后，opencode-go / sensenova 的 kimi-k3 手写侧已无结论，
+    // `handOnly` 口径直接跳过 → 7 档不再比 3 档多出任何行。**运行时两行逐档不变**
+    // （都是指派表命中，值集 low-high-max，手写侧本就不参与；见
+    // 「13 号票刚对齐的行逐字节不变（opencodego/kimi-k3 哨兵，7 档全钉）」用例）。
     const divergent7 = divergentKeys(ALL_LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });
-    expect(divergent7.filter((key) => !divergent.includes(key)).sort()).toEqual(["opencode-go/kimi-k3", "sensenova/kimi-k3"]);
+    expect(divergent7.filter((key) => !divergent.includes(key)).sort()).toEqual([]);
   });
 });
