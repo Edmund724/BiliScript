@@ -16,6 +16,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
+import type { ChatCompletionInput } from "../../extension/ai/completion.js";
+import type { HotComment as AiHotComment } from "../../extension/ai/types.js";
 
 let gateway: typeof import("../../extension/bilibili/gateway.js");
 let outline: typeof import("../../extension/shared/chapter-outline.js");
@@ -96,12 +98,14 @@ function fakeTransport(routes: [match: string, handler: unknown][]) {
 }
 
 // 流式模型替身：quotes-only 契约只回金句 JSON（经 token 事件流式回吐——概览正文
-// 只能从事件聚合，替身必须走这条路）。
+// 只能从事件聚合，替身必须走这条路）。入参形状单源引用 ai/completion.js 的
+// ChatCompletionInput（同 tests/ai/analysis.test.ts）：手抄形状会随 StreamChatEvent
+// 词表漂移，正是本文件此前的类型错来源。
 const QUOTE_TEXT = "工具是人的延伸，agent 是意图的延伸。";
 
 function makeQuotesOnlyModel() {
   const calls: { system: string; user: string }[] = [];
-  const chatCompletion = vi.fn(async (input: { messages: { role: string; content: string }[]; onEvent?: (e: { type: string; data: string }) => void }) => {
+  const chatCompletion = vi.fn(async (input: ChatCompletionInput) => {
     calls.push({ system: String(input.messages[0]?.content || ""), user: String(input.messages.at(-1)?.content || "") });
     const text = JSON.stringify({
       keyQuotes: [{ quote: QUOTE_TEXT, timestamp: "3:00", timestampSeconds: 180 }]
@@ -183,8 +187,16 @@ describe("端到端：置顶评论目录全量识别 → 章节只留标题 + �
     expect(result.quotes.map((q) => q.content)).toEqual([QUOTE_TEXT]);
 
     // ⑤ 聊天展示（真实 buildMessages）：每条 500 字截断、楼中楼续篇不外泄
+    // 展示契约是 ai/types 的宽松形状（字段全可选 + 索引签名），目录数据是
+    // bilibili 侧的具体形状：过界处显式投影，不用 as 断言绕过检查。
+    const displayComments: AiHotComment[] = comments.map(({ uname, like, message, subMessages }) => ({
+      uname,
+      like,
+      message,
+      subMessages
+    }));
     const messages = context.buildMessages({
-      context: { title: "智能体设计的五个层次", author: "硅谷101", hotComments: comments },
+      context: { title: "智能体设计的五个层次", author: "硅谷101", hotComments: displayComments },
       userPrompt: "这个视频讲了什么？"
     });
     const systemText = String(messages[0].content);
