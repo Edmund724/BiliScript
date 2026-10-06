@@ -227,7 +227,7 @@ export async function launchBrowser({
     `启动 ${headless ? "headless " : ""}Edge（${muted ? "静音" : "未静音"}${autoplay ? " / 允许自动播放" : ""}）：port=${port} profile=${profileDir}`
   );
   const child = spawn(exe, args, { detached: false, stdio: ["ignore", "pipe", "pipe"] });
-  const browser = { child, pid: child.pid, port, profileDir, version: null, args, muted, autoplay };
+  const browser = { child, pid: child.pid, exe, port, profileDir, version: null, args, muted, autoplay };
   child.stderr.on("data", (d) => {
     const s = String(d).trim();
     if (s && !/DevTools listening|GCM|Registration response|voice_transcription/i.test(s)) log(`[edge] ${s.slice(0, 200)}`);
@@ -453,6 +453,31 @@ export async function writeEvidence(dir, evidence, { filename = "evidence.json" 
 }
 
 // ===== 收摊 =====
+// taskkill /T 覆盖不到的兜底：浏览器重新 fork 后可能脱离进程树，此时按 profile 路径把还挂着
+// 的进程找出来。三条实测要点（都踩过，第三次差点把自己宿主杀了）：
+//   ① 用 .Contains() 而不是 -like：路径里的反斜杠在 -like 里是字面量，不能再转义一次
+//      （写成 `\\` 就永远匹配不到任何东西，兜底静默失效）；.Contains() 还顺带免疫路径里
+//      可能出现的 `[` `?` `*` 通配符。
+//   ② 必须排除 $PID：这条命令自己的命令行里也有那串路径，不排除就会把自己
+//      Stop-Process 掉，枚举半路中断、后面的进程杀不完。
+//   ③ 必须再限制进程名（浏览器 exe）。把路径写进命令行的**不止**这些进程：一旦这段脚本
+//      本身出现在某个祖先进程的命令行里（在 agent 宿主里跑就是这样），按路径裸匹配会把
+//      宿主也连坐掉。两道条件都是字面量，交叉起来只可能命中自己 spawn 的浏览器。
+function killByProfilePath(profileDir, exePath) {
+  const needle = profileDir.replace(/'/g, "''");
+  const exeName = (exePath ? path.basename(exePath) : "msedge.exe").replace(/'/g, "''");
+  const script =
+    `Get-CimInstance Win32_Process ` +
+    `| Where-Object { $_.ProcessId -ne $PID -and $_.Name -eq '${exeName}' -and $_.CommandLine -and $_.CommandLine.Contains('${needle}') } ` +
+    `| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+  return new Promise((resolve) => {
+    const p = spawn("powershell", ["-NoProfile", "-Command", script], { stdio: "ignore" });
+    p.on("exit", resolve);
+    p.on("error", resolve);
+    setTimeout(resolve, 8000);
+  });
+}
+
 export async function teardown({ browser, cdps = [] } = {}) {
   try {
     for (const cdp of cdps) cdp?.close?.();
@@ -468,13 +493,24 @@ export async function teardown({ browser, cdps = [] } = {}) {
   }
   if (browser?.profileDir) {
     await sleep(400);
-    try {
-      await rm(browser.profileDir, { recursive: true, force: true, maxRetries: 3 });
-      browser.profileRemoved = true;
-    } catch (error) {
-      browser.profileRemoved = false;
-      browser.profileRemoveError = error.message;
-      log(`profile 删除失败：${error.message}`);
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await rm(browser.profileDir, { recursive: true, force: true, maxRetries: 3 });
+        browser.profileRemoved = true;
+        browser.profileRemoveError = null;
+        break;
+      } catch (error) {
+        browser.profileRemoved = false;
+        browser.profileRemoveError = error.message;
+        if (attempt === 1) {
+          // 删不掉就是还有进程占着它 ⇒ 补杀一轮再删。正常路径（taskkill 杀干净）不会走到这儿。
+          log(`profile 删除失败，按 profile 路径补杀：${error.message}`);
+          await killByProfilePath(browser.profileDir, browser.exe);
+          await sleep(200);
+        } else {
+          log(`profile 仍未删除：${error.message}`);
+        }
+      }
     }
   }
 }

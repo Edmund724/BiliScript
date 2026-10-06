@@ -27,7 +27,7 @@ BILISCRIPT_EDGE=<路径> pnpm harness:browser
 | `screenshot(pageCdp, file)` | 落 PNG |
 | `artifactDir(name)` / `writeEvidence(dir, obj)` | 工件落 `.scratch/browser-harness/<name>/`（`.scratch/` 已 ignore） |
 | `waitFor(label, fn, opts)` | 轮询到真值，超时报出最后一次的值 |
-| `teardown({ browser, cdps })` / `withBrowser(opts, fn)` | 只杀自己 spawn 的进程（`taskkill /PID <自己> /T /F`），删临时 profile |
+| `teardown({ browser, cdps })` / `withBrowser(opts, fn)` | 只杀自己 spawn 的进程（`taskkill /PID <自己> /T /F`；profile 删不掉时按 **exe 名 + profile 路径**两道字面量条件补杀），删临时 profile |
 | `CDP` | 协议客户端：`send(method, params, sessionId)` / `on(method, fn)` / `evaluate(expr)` |
 
 场景脚本直接 import 这些：
@@ -53,7 +53,7 @@ await withBrowser({}, async ({ browser }) => {
 - **autoplay 默认关**。新 headless 就是真 Chrome，默认要用户手势：`video.play()` 抛 `NotAllowedError`，`AudioContext` 停在 `suspended`，此时 `ctx.resume()` **不 reject 也不 resolve**（吊死到超时）。需要「像用户已经点过一下」的场景传 `autoplay: true`；默认不动它是因为那是产品行为。
 - **别在页里留还在播的媒体元素**。实测：headless 里留一个在播的 `<video>`，几秒后**整个浏览器不再响应 CDP**——`/json/list` 的 ws 连不上、`Target.getTargets` 超时、连页面连接的求值都吊死，排查看起来像扩展坏了。测完当场 `pause()` + `removeAttribute("src")` + `load()` + `remove()`。
 - **连上 SW 之后要等执行上下文**。刚连上时 `Runtime.enable` 会立刻返回，但 `typeof chrome` 还是 `"undefined"`（上下文没建起来）；SW 在跑自己的模块图时，发给它的 CDP 命令是**排队**而不是报错，这一窗口里 `Runtime.enable` / `Runtime.evaluate` 会超时不返回，几秒后自己就好。`createWorkerSession` 因此按「短超时轮询、不判死」处理，别把这段时间当死连接去反复重连。
-- **只碰自己的进程与自己的临时 profile**。这是真机上有用户会话的机器。
+- **只碰自己的进程与自己的临时 profile**。这是真机上有用户会话的机器。要按命令行里的 profile 路径捞漏网的浏览器时，两条约束缺一不可：**exe 名**要一起比（否则这段挑选脚本本身也出现在命令行里，会连坐把宿主进程一起杀掉——真踩过，宿主当场退出），**命令行的路径匹配要用 `.Contains()` 而不是 `-like`**（路径里的反斜杠在 `-like` 里是字面量，多转义一层就永远匹配不到，兜底静默失效）。`teardown` 的补杀就是按这两条写的。
 
 ## 与既有走查的关系
 
@@ -66,5 +66,5 @@ await withBrowser({}, async ({ browser }) => {
 - **管道进这里**（本目录）。它被证明会重复：同一仓两次走查用了两套机制。
 - **事实进 `tests/fixtures/`**。接口响应与字段形状是数据，丢了就没了——样例：`tests/fixtures/bilibili/bv1mAam6tEL8-subtitle-shape.md`（从 `.scratch` 转写的字幕轨形状与对齐数字；它引用的 `research/01-track-shape.md` 已经丢失，这就是要转写的原因）。`.scratch/` 里的 `research/` 会随票据整理消失，别把它当事实的家。
 - **场景按需迁**：出现**第二个**需要同一批真机判据的票时，才建 `scenarios/` 并迁第一个场景，同时把样本 bvid 与 fixture 变成参数。判据是 `scenarios/*.mjs` 的第 2 个文件——只被需要过一次的场景留在 `.scratch`，那是验收记录，不是回归资产。
-- **场景层的改动不用回流本目录**。`.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs` 长到 1.9k 行也不影响这里：只有**管道层**的教训才回流——CDP 客户端、启动参数、target 挑选、就绪门、收摊。场景步骤、fixture 生成、页内测量脚本都是它自己的事。
+- **场景层的改动不用回流本目录**。`.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs` 长到几千行也不影响这里：只有**管道层**的教训才回流——CDP 客户端、启动参数、target 挑选、就绪门、收摊。场景步骤、fixture 生成、页内测量脚本都是它自己的事。真机走查的产出是**发现**：发现一旦落定，就补一条 jsdom 断言把它锁住（见 `tests/reader/bilingual-picker.test.ts` 的「真机反向发现的修复锁」一节），走查脚本本身不必变成回归资产。
 
