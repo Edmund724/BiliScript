@@ -261,6 +261,33 @@ export function findTrackByPreferredLang<T extends { lan?: string; subtitleUrl?:
   );
 }
 
+// `lan` → 用户可读的语言名（唯一消费点：副列 ②「本视频没有 xx 轨」的文案，2026-10-06
+// 用户裁决：这一态里不出现机器码）。偏好里存的是轨自己的 `lan`（`ai-ja` / `ja-JP` /
+// `zh-CN`），原样拼进文案就是 `本视频没有 ai-ja 轨`——用户读不出是哪门语言，而同一个副列的
+// 语言列表显示的是 B站 `lanDoc`（`日本語`），同一屏两套名字。
+// 查表键 = 主语言子标签（复用 subtitlePrimaryLangTag 摘 `ai-`/`asr-` 前缀再取首段），
+// 与 findTrackByPreferredLang 的匹配同口径：能匹配上 `ai-ja` 的偏好，名字也取同一格。
+// 表只列有据可查的语言：本仓样本的 8 条 ai-* 轨（zh/en/ja/es/ar/pt/th/id）+ ko（B站人工
+// CC 的常见档）。未命中回落 `lan` 原文——宁缺勿猜，不替 B站没给的语言编名字。
+const SUBTITLE_LANG_NAMES: Record<string, string> = {
+  zh: "中文",
+  en: "英语",
+  ja: "日语",
+  ko: "韩语",
+  es: "西班牙语",
+  pt: "葡萄牙语",
+  ar: "阿拉伯语",
+  th: "泰语",
+  id: "印尼语"
+};
+
+export function resolveSubtitleLangLabel(lan: unknown): string {
+  const raw = String(lan ?? "").trim();
+  const tag = subtitlePrimaryLangTag(raw);
+  // 表查键走 hasOwn：`constructor` 之类不是语言码，别从原型链上兜出个函数来。
+  return Object.prototype.hasOwnProperty.call(SUBTITLE_LANG_NAMES, tag) ? SUBTITLE_LANG_NAMES[tag] : raw;
+}
+
 // 主轨判据（两侧 id 都非空才可能同轨）：任一侧为空串都不算——未选轨（主列哨兵）与
 // 缺 id 的轨都不该被误判成「主副同轨」，那会把副列推进空态。
 export function isMainSubtitleTrack(track: { id?: string } | null | undefined, mainTrackId: unknown): boolean {

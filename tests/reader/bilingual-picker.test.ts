@@ -570,13 +570,13 @@ describe("副列的三套空态 + 单轨禁用", () => {
     expect(lazy.secondaryCalls).toHaveLength(0);
   });
 
-  it("② 本视频没有目标语言的轨 → 「本视频没有 ja-JP 轨」+ 列表在场，留空不猜、不发装载", () => {
+  it("② 本视频没有目标语言的轨 → 「本视频没有日语轨」（语言名查表，不出机器码）+ 列表在场，留空不猜、不发装载", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "ja-JP");
     state.clip.setSubtitles(SAMPLE_TRACKS.filter((track) => track.lan !== "ai-ja") as never);
     shell.renderReadingView();
 
-    expect(placeholderText()).toBe("本视频没有 ja-JP 轨");
+    expect(placeholderText()).toBe("本视频没有日语轨");
     // 偏好在本视频落不到轨，但列表照出：用户就地改选（而不是被一行说明锁死）
     expect(colTexts("sub")).toEqual(["中文", "English", "Español", "Bahasa Indonesia"]);
     expect(lazy.secondaryCalls).toHaveLength(0);

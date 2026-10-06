@@ -66,6 +66,7 @@ import {
   findSecondaryTrackByPreferredLang,
   findTrackByPreferredLang,
   isMainSubtitleTrack,
+  resolveSubtitleLangLabel,
   resolveSubtitleTrackLabel,
   shouldMarkAiSubtitleTracks
 } from "../subtitle/selection.js";
@@ -441,8 +442,11 @@ const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
 // 列表里」）。副列列表理顶因此不再多占一行（那一行同时还是 140px 宽度预算的受害者）。
 const SECONDARY_COLLISION_TEXT = "主副字幕相同";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
-const SECONDARY_MISSING_PREFIX = "本视频没有 ";
-const SECONDARY_MISSING_SUFFIX = " 轨";
+// ② 的语言名走共享叶子 resolveSubtitleLangLabel（2026-10-06 用户裁决：文案里不出现机器码
+// ——偏好存的是轨的 lan，原样拼就是「本视频没有 ai-ja 轨」，读不出是哪门语言，而同一列的
+// 列表显示的是 B站 lanDoc「日本語」）。命中语言名表 ⇒ 中文名，未命中 ⇒ 回落机器码。
+const SECONDARY_MISSING_PREFIX = "本视频没有";
+const SECONDARY_MISSING_SUFFIX = "轨";
 
 // 副列在飞值（与 switchInFlight 同款闭包：值 = 目标 option value = 副轨 URL）。
 // 只用来（a）本列自己的早退与禁用、（b）乐观显示时间窗——槽里的 loading 相位由
@@ -529,8 +533,12 @@ function resolveSecondaryColumn(tracks: SubtitleTrack[]): SecondaryColumnModel {
   // 基础匹配 + 共享的主轨判据，而不是直接取 findSecondaryTrackByPreferredLang。
   const target = findTrackByPreferredLang(tracks, pick);
   if (!target) {
-    // ② 本视频没有目标语言的轨（Q4：留空不猜，也不写 noSubtitleReason）
-    return { ...model, note: `${SECONDARY_MISSING_PREFIX}${pick}${SECONDARY_MISSING_SUFFIX}` };
+    // ② 本视频没有目标语言的轨（Q4：留空不猜，也不写 noSubtitleReason）。
+    // 语言名查表（见 SECONDARY_MISSING_* 注释）：命中 ⇒ 中文名紧贴前后文；未命中 ⇒ 回落
+    // 机器码，两侧留空格免得与三段汉字黏成一段。
+    const label = resolveSubtitleLangLabel(pick);
+    const name = label === pick ? ` ${label} ` : label;
+    return { ...model, note: `${SECONDARY_MISSING_PREFIX}${name}${SECONDARY_MISSING_SUFFIX}` };
   }
   if (isMainSubtitleTrack(target, state.clip.selectedSubtitleId)) {
     // ③ 主副指向同一条轨（Q8）：副轨槽不装主轨（列表里会出两份一样的正文）。状态提示
