@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+// 真机验证自检 —— `pnpm harness:browser`。
+//
+// 它是 scripts/browser-harness/ 的回归测试，同时是 harness API 的用法示例：
+// 起一个隔离的 headless Edge + 未打包扩展，连页面 target 与扩展服务工作线程，
+// 各自求值，落一张截图与 evidence.json。
+//
+// 为什么值得跑：这条链上每一步都可能静默坏掉——Edge 改了侧载策略、dist 没构建、
+// 同 profile 里 Edge 自带组件扩展的 SW 抢了 target、SW 被 MV3 回收、临时 profile 没删。
+// 每一条都在下面变成一个具名 check，任一失败即非零退出。
+//
+// 用法：
+//   pnpm harness:browser                    # headless
+//   pnpm harness:browser --headed           # 带窗口跑，看真实渲染
+//   BILISCRIPT_EDGE=<路径> pnpm harness:browser
+
+import path from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import {
+  DEFAULT_DIST,
+  REPO_ROOT,
+  artifactDir,
+  attachPage,
+  createWorkerSession,
+  launchBrowser,
+  log,
+  resolveEdgePath,
+  screenshot,
+  teardown,
+  writeEvidence
+} from "./harness.mjs";
+
+const OUT_DIR = artifactDir("smoke");
+const headed = process.argv.includes("--headed");
+const checks = [];
+const t0 = Date.now();
+
+function check(name, ok, detail) {
+  checks.push({ name, ok: Boolean(ok), detail: detail === undefined ? null : detail });
+  log(`${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ${JSON.stringify(detail)}`}`);
+  return Boolean(ok);
+}
+
+function readDistManifest() {
+  const file = path.join(DEFAULT_DIST, "manifest.json");
+  if (!existsSync(file)) return null;
+  return JSON.parse(readFileSync(file, "utf8"));
+}
+
+let browser = null;
+const cdps = [];
+const evidence = { meta: { headed, distDir: DEFAULT_DIST, repoRoot: REPO_ROOT }, checks };
+
+try {
+  // 1. 环境：Edge 在场、dist 已构建
+  const edgePath = resolveEdgePath();
+  check("edge-found", existsSync(edgePath), { edgePath });
+
+  const manifest = readDistManifest();
+  check("dist-built", Boolean(manifest), { manifestPath: path.join(DEFAULT_DIST, "manifest.json") });
+  if (!manifest) throw new Error("dist 未构建，先跑 pnpm build");
+
+  // 2. 起隔离实例
+  browser = await launchBrowser({ headless: !headed });
+  check("devtools-up", Boolean(browser.version?.Browser), { browser: browser.version?.Browser, port: browser.port });
+  evidence.meta.browser = browser.version?.Browser;
+  evidence.meta.port = browser.port;
+  evidence.meta.browserPid = browser.pid;
+
+  // 3. 页面 target
+  const page = await attachPage(browser);
+  cdps.push(page.cdp);
+  check("page-attached", Boolean(page.target?.url !== undefined), { url: page.target.url });
+  const ua = await page.cdp.evaluate("navigator.userAgent");
+  const readyState = await page.cdp.evaluate("document.readyState");
+  check("page-eval", typeof ua === "string" && ua.includes("Edg/"), { ua, readyState });
+  evidence.page = { url: await page.cdp.evaluate("location.href"), readyState, ua };
+
+  // 4. 扩展服务工作线程：必须按 dist/manifest.json 声明的入口挑，
+  //    并回读 chrome.runtime.getManifest() 证明装配的就是这份 dist。
+  const worker = createWorkerSession({ pageCdp: page.cdp, browser });
+  await worker.connect();
+  cdps.push(worker.handle.cdp);
+  const swManifest = await worker.evaluate(
+    "({ id: chrome.runtime.id, name: chrome.runtime.getManifest().name, version: chrome.runtime.getManifest().version })"
+  );
+  const entryMatch = worker.handle.url.endsWith(worker.handle.suffix);
+  check("sw-is-this-extension", entryMatch, { url: worker.handle.url, via: worker.handle.via });
+  // manifest.json 的 name 是 __MSG_appName__ 占位，chrome.runtime 给的是本地化后的文本，
+  // 两者不可直接比；version 是可比的不变式。网址与 runtime.id 已证明连的就是这份 dist。
+  check("sw-manifest-matches-dist", swManifest?.version === manifest.version, {
+    swVersion: swManifest?.version,
+    distVersion: manifest.version,
+    nameLocalized: swManifest?.name
+  });
+  evidence.extension = { runtimeId: swManifest?.id, name: swManifest?.name, version: swManifest?.version, attachVia: worker.handle.via };
+
+  // 5. 重连路径：MV3 SW 会被回收、连接会断，这不是异常路径。手动掐断连接后
+  //    再求值一次，证明 createWorkerSession 的重连兜底真的接上了。
+  const urlBefore = worker.handle.url;
+  worker.handle.cdp.close();
+  const afterReconnect = await worker.evaluate("({ id: chrome.runtime.id, alive: true })");
+  const urlAfter = worker.handle.url;
+  cdps.push(worker.handle.cdp);
+  check("sw-reconnects", afterReconnect?.alive === true && afterReconnect.id === swManifest?.id, {
+    urlBefore,
+    urlAfter,
+    runtimeId: afterReconnect?.id
+  });
+
+  // 6. 截图
+  const shot = await screenshot(page.cdp, path.join(OUT_DIR, "smoke.png"));
+  check("screenshot-written", existsSync(shot), { file: path.relative(REPO_ROOT, shot) });
+
+  evidence.meta.ms = Date.now() - t0;
+} catch (error) {
+  check("no-fatal", false, { message: error.message });
+  evidence.__fatal = { message: error.message, stack: String(error.stack || "").slice(0, 2000) };
+} finally {
+  const profileDir = browser?.profileDir;
+  await teardown({ browser, cdps });
+  check("profile-removed", Boolean(browser?.profileRemoved), { profileDir });
+  evidence.checks = checks;
+  evidence.failed = checks.filter((c) => !c.ok).map((c) => c.name);
+  evidence.meta.ms = evidence.meta.ms ?? Date.now() - t0;
+  await writeEvidence(OUT_DIR, evidence);
+  log(`结果：${checks.length - evidence.failed.length}/${checks.length} 通过，用时 ${evidence.meta.ms}ms`);
+  if (evidence.failed.length) {
+    log(`失败项：${evidence.failed.join(", ")}`);
+    process.exitCode = 1;
+  }
+}
