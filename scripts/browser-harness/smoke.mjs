@@ -6,8 +6,9 @@
 // 各自求值，落一张截图与 evidence.json。
 //
 // 为什么值得跑：这条链上每一步都可能静默坏掉——Edge 改了侧载策略、dist 没构建、
-// 同 profile 里 Edge 自带组件扩展的 SW 抢了 target、SW 被 MV3 回收、临时 profile 没删。
-// 每一条都在下面变成一个具名 check，任一失败即非零退出。
+// 同 profile 里 Edge 自带组件扩展的 SW 抢了 target、SW 被 MV3 回收、临时 profile 没删、
+// 云端把别的设备的旧设置回放进 chrome.storage.sync。每一条都在下面变成一个具名 check，
+// 任一失败即非零退出。
 //
 // 用法：
 //   pnpm harness:browser                    # headless
@@ -68,6 +69,7 @@ try {
   evidence.meta.port = browser.port;
   evidence.meta.browserPid = browser.pid;
   check("mute-flag-present", browser.args.includes("--mute-audio"), { muted: browser.muted });
+  check("sync-flag-present", browser.args.includes("--disable-sync"), { sync: browser.sync });
 
   // 3. 页面 target
   const page = await attachPage(browser);
@@ -153,7 +155,24 @@ try {
   });
   evidence.extension = { runtimeId: swManifest?.id, name: swManifest?.name, version: swManifest?.version, attachVia: worker.handle.via };
 
-  // 5. 重连路径：MV3 SW 会被回收、连接会断，这不是异常路径。手动掐断连接后
+  // 5. `--disable-sync` 关的是「同步」这件事本身，不是 storage 能力：产品把设置写在
+  //    chrome.storage.sync 上，这个开关一旦顺手把该 API 也弄哑，整个扩展的偏好面就废了。
+  //    jsdom 里的 chrome.storage.sync 是假的，这件事只有真机说了算：写进去、读回来、清掉。
+  const syncProbe = await worker.evaluate(
+    `(async () => {
+      const key = "__harness_sync_probe__";
+      const value = "v" + Date.now();
+      const out = { available: Boolean(chrome.storage && chrome.storage.sync), value, setError: null, getError: null, readBack: null };
+      try { await chrome.storage.sync.set({ [key]: value }); } catch (error) { out.setError = String(error); }
+      try { out.readBack = (await chrome.storage.sync.get(key))[key] ?? null; } catch (error) { out.getError = String(error); }
+      try { await chrome.storage.sync.remove(key); } catch (error) { out.removeError = String(error); }
+      return out;
+    })()`,
+    15000
+  );
+  check("sw-storage-sync-works", syncProbe?.available === true && syncProbe?.readBack === syncProbe?.value, syncProbe);
+
+  // 6. 重连路径：MV3 SW 会被回收、连接会断，这不是异常路径。手动掐断连接后
   //    再求值一次，证明 createWorkerSession 的重连兜底真的接上了。
   const urlBefore = worker.handle.url;
   worker.handle.cdp.close();
@@ -166,7 +185,7 @@ try {
     runtimeId: afterReconnect?.id
   });
 
-  // 6. 截图
+  // 7. 截图
   const shot = await screenshot(page.cdp, path.join(OUT_DIR, "smoke.png"));
   check("screenshot-written", existsSync(shot), { file: path.relative(REPO_ROOT, shot) });
 

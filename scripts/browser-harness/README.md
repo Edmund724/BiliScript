@@ -20,7 +20,7 @@ BILISCRIPT_EDGE=<路径> pnpm harness:browser
 
 | 导出 | 作用 |
 |---|---|
-| `launchBrowser(opts)` | 唯一端口 + 唯一临时 profile + `--load-extension`；**默认静音**（`muted`）、**默认不允许自动播放**（`autoplay`）；等 `/json/version` 就绪，返回 `{ child, pid, port, profileDir, version, args, muted, autoplay }` |
+| `launchBrowser(opts)` | 唯一端口 + 唯一临时 profile + `--load-extension`；**默认静音**（`muted`）、**默认不允许自动播放**（`autoplay`）、**默认关同步**（`sync`）；等 `/json/version` 就绪，返回 `{ child, pid, exe, port, profileDir, version, args, muted, autoplay, sync }` |
 | `attachPage(browser)` | 连页面 target，开 Page/Runtime/Network/Log + 视口倍率 |
 | `watchPage(pageCdp)` | 收集页面 console 与网络失败（带上限截断） |
 | `createWorkerSession({ pageCdp, browser })` | 连扩展 SW 并等到执行上下文绑定；`evaluate()` 带重连重试（SW 被回收是常态） |
@@ -51,6 +51,7 @@ await withBrowser({}, async ({ browser }) => {
 - **`/json/list` 里组件扩展的 target 一直会有**。断言只看自己的。
 - **静音默认开，而且必须开**。无头实例没有窗口、没有标签静音入口：一出声就只能杀进程。出声来源是产品自己的两条路——扩展 `seekReadingTarget` 会 `video.play()`（阅读视图点时间戳＝暂停即播放），B 站页面本身也会自动播放。要听声音（极少）传 `muted: false`。CDP 读不回静音状态，所以只有这个开关是可靠手段。
 - **autoplay 默认关**。新 headless 就是真 Chrome，默认要用户手势：`video.play()` 抛 `NotAllowedError`，`AudioContext` 停在 `suspended`，此时 `ctx.resume()` **不 reject 也不 resolve**（吊死到超时）。需要「像用户已经点过一下」的场景传 `autoplay: true`；默认不动它是因为那是产品行为。
+- **临时 profile 不等于干净环境，所以默认关同步**。本机 Edge 会用 Windows 账户自动登录：起跑之后云端会给**同一个扩展 ID** 回放一份 `chrome.storage.sync`（drive.mjs 实测一次 13 个键，含 `bilingualSubtitles: true→false` 与 `secondarySubtitleLang: ai-ja→ai-en`），落在场景中途就把读数翻掉——随机，而且看起来完全像产品 bug（同一份脚本 run18 干净、run19 两次撞上）。所以 `launchBrowser` 默认加 `--disable-sync`：关的是**同步机制**，不是 storage 能力，`chrome.storage.sync` 照常读写、只是不出本机（自检的 `sw-storage-sync-works` 在真机上钉这一点）。要真同步行为传 `sync: true`。**但也别为了看这条回放去跑 `sync: true` 的对照**：那个 profile 会把空的扩展存储推上云端，可能盖掉本机真实的已同步设置——这台机器上的那份真实数据正是 run18/run19 的判据来源。
 - **别在页里留还在播的媒体元素**。实测：headless 里留一个在播的 `<video>`，几秒后**整个浏览器不再响应 CDP**——`/json/list` 的 ws 连不上、`Target.getTargets` 超时、连页面连接的求值都吊死，排查看起来像扩展坏了。测完当场 `pause()` + `removeAttribute("src")` + `load()` + `remove()`。
 - **连上 SW 之后要等执行上下文**。刚连上时 `Runtime.enable` 会立刻返回，但 `typeof chrome` 还是 `"undefined"`（上下文没建起来）；SW 在跑自己的模块图时，发给它的 CDP 命令是**排队**而不是报错，这一窗口里 `Runtime.enable` / `Runtime.evaluate` 会超时不返回，几秒后自己就好。`createWorkerSession` 因此按「短超时轮询、不判死」处理，别把这段时间当死连接去反复重连。
 - **只碰自己的进程与自己的临时 profile**。这是真机上有用户会话的机器。要按命令行里的 profile 路径捞漏网的浏览器时，两条约束缺一不可：**exe 名**要一起比（否则这段挑选脚本本身也出现在命令行里，会连坐把宿主进程一起杀掉——真踩过，宿主当场退出），**命令行的路径匹配要用 `.Contains()` 而不是 `-like`**（路径里的反斜杠在 `-like` 里是字面量，多转义一层就永远匹配不到，兜底静默失效）。`teardown` 的补杀就是按这两条写的。

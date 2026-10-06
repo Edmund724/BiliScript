@@ -192,6 +192,7 @@ export async function launchBrowser({
   headless = true,
   muted = true,
   autoplay = false,
+  sync = false,
   viewport = DEFAULT_VIEWPORT,
   extraArgs = [],
   profilePrefix = "biliscript-harness-"
@@ -211,6 +212,13 @@ export async function launchBrowser({
     // NotAllowedError、AudioContext 停在 suspended。默认不改这个策略（那是产品行为），
     // 需要「像用户已经点过一下」的场景显式 autoplay: true。
     ...(autoplay ? ["--autoplay-policy=no-user-gesture-required"] : []),
+    // 临时 profile **不等于**干净环境：本机 Edge 会用 Windows 账户自动登录，起跑之后云端
+    // 会给同一个扩展 ID 回放一份 chrome.storage.sync（实测一次 13 个键，含
+    // bilingualSubtitles: true→false 与 secondarySubtitleLang: ai-ja→ai-en），落在场景中途
+    // 就把读数翻掉了：随机、且看起来完全像产品 bug。默认关掉「同步」这件事本身。
+    // 关的是同步不是存储能力：`chrome.storage.sync` 照常读写，只是不出本机
+    // （smoke 的 sw-storage-sync-works 就在真机上钉这一点）。要真同步行为传 sync: true。
+    ...(sync ? [] : ["--disable-sync"]),
     "--disable-gpu",
     "--no-first-run",
     "--no-default-browser-check",
@@ -224,10 +232,10 @@ export async function launchBrowser({
   ];
   const exe = resolveEdgePath(edgePath);
   log(
-    `启动 ${headless ? "headless " : ""}Edge（${muted ? "静音" : "未静音"}${autoplay ? " / 允许自动播放" : ""}）：port=${port} profile=${profileDir}`
+    `启动 ${headless ? "headless " : ""}Edge（${muted ? "静音" : "未静音"}${autoplay ? " / 允许自动播放" : ""} / 同步${sync ? "开" : "关"}）：port=${port} profile=${profileDir}`
   );
   const child = spawn(exe, args, { detached: false, stdio: ["ignore", "pipe", "pipe"] });
-  const browser = { child, pid: child.pid, exe, port, profileDir, version: null, args, muted, autoplay };
+  const browser = { child, pid: child.pid, exe, port, profileDir, version: null, args, muted, autoplay, sync };
   child.stderr.on("data", (d) => {
     const s = String(d).trim();
     if (s && !/DevTools listening|GCM|Registration response|voice_transcription/i.test(s)) log(`[edge] ${s.slice(0, 200)}`);
