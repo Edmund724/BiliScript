@@ -80,6 +80,9 @@ let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 let shell: typeof import("../../extension/reader/index.js");
 let readerBus: typeof import("../../extension/reader/reader-bus.js");
 let lazyModule: typeof import("../../extension/subtitle/lazy.js");
+// reader-gate 在本文件被 mock：它的 whenReaderReady 是「直调渲染通道」本身
+// （2f974c5 防回焊锁锁的那条缝），锁三据此断言「一次都没碰」。
+let readerGate: typeof import("../../extension/ui/reader-gate.js");
 
 // 样本视频 BV1mAam6tEL8 的 8 条 ai-* 轨（research/01-track-shape.md，接口原顺序）。
 const SAMPLE_TRACKS: SubtitleTrack[] = [
@@ -187,6 +190,7 @@ beforeEach(async () => {
   await import("../../extension/reader/lifecycle.js");
   readerBus = await import("../../extension/reader/reader-bus.js");
   lazyModule = await import("../../extension/subtitle/lazy.js");
+  readerGate = await import("../../extension/ui/reader-gate.js");
   // 真实模板 + 真实事件绑定（bindUiEvents 里 bindSubtitleTabEvents）
   uiRenderer.ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
@@ -266,6 +270,23 @@ describe("08 选轨控件：列表 ≡ clip.subtitles", () => {
     expect(optionIds()).toEqual(SAMPLE_TRACKS.map((track) => track.id));
     expect(optionValues()).toEqual(SAMPLE_TRACKS.map((track) => track.subtitleUrl));
     expect(selectNode().options.length).toBe(8);
+  });
+
+  it("列表是 clip.subtitles 的纯投影：state 里的次序即列表次序，控件不另排一套（Q8′ 做减法）", () => {
+    // 上面那条样本的接口原顺序恰好以中文打头（ai-zh 是第 1 条），所以「按
+    // clip.subtitles 顺序渲染」与「控件自己再排一次中文优先」在样本上同解。
+    // 这条用例把中文挪到第 2 位（抓取链产出的 clip.subtitles 恒是规范序，
+    // 故此输入是投影纪律的探针，不是可达数据）：控件若保留任何第二套排序，
+    // 列表会被重排成中文打头 → 红。
+    loadTracks([
+      { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json", source: "player" },
+      { id: "1", lan: "ai-zh", lanDoc: "中文", subtitleUrl: "https://sub/ai-zh.json", source: "player" },
+      { id: "3", lan: "ai-ja", lanDoc: "日本語", subtitleUrl: "https://sub/ai-ja.json", source: "player" }
+    ], "ai-zh");
+    shell.renderReadingView();
+
+    expect(optionTexts()).toEqual(["English", "中文", "日本語"]);
+    expect(listTexts()).toEqual(["English", "中文", "日本語"]);
   });
 
   it("选项行挂 dir=\"auto\"（RTL 行随方向），trigger 显示当前轨裸语言名", () => {
@@ -401,6 +422,71 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
     expect(trigger().disabled).toBe(false);
     expect(trigger().getAttribute("aria-busy")).toBe("false");
     expect(state.clip.selectedSubtitleId).toBe("2");
+  });
+});
+
+// 2f974c5 删下拉时一并删掉的防回焊锁（tests/reader/subtitle-tab-switch.test.ts）
+// 的对应物。旧锁的失败方式清单：处理器在 loadSubtitle 之后还经 whenReaderReady
+// 直调 renderReadingView + syncReadingViewPlayback，与「接受事务的 subtitle-ready
+// 通知」构成双渲染。08 的处理器把这条纪律重新实现，本 describe 重新钉住——
+// reader-gate 在本文件被 mock，故「直调渲染」= whenReaderReady 被调用。
+describe("切轨只装载，不直调渲染（2f974c5 防回焊锁的对应物）", () => {
+  it("change 处理器：chain.loadSubtitle(url, lang, runId, id) 恰一次，参数正确，且不触碰渲染通道", async () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    shell.renderReadingView();
+
+    // 换掉默认 mock 链：本用例要逐步断言 loadSubtitle 的实参（默认 mock 吞掉入参自己
+    // 走接受事务，没有可断言的调用记录）。
+    const loadSubtitle = vi.fn(async () => {});
+    vi.mocked(lazyModule.ensureSummarizeChain).mockResolvedValueOnce({ loadSubtitle } as never);
+    const gate = vi.mocked(readerGate.whenReaderReady);
+    gate.mockClear();
+    const runIdAtDispatch = state.clip.fetchRunId;
+
+    selectNode().value = "https://sub/ai-en.json";
+    selectNode().dispatchEvent(new Event("change", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(loadSubtitle).toHaveBeenCalledTimes(1);
+    });
+    // 四个实参逐一钉住：URL 取选项 value、语言取 data-lang、代次取 state 的抓取代次、
+    // 身份取 data-id（Q11 的 id_str）。少传/错位都会红。
+    expect(loadSubtitle).toHaveBeenCalledWith(
+      "https://sub/ai-en.json",
+      "ai-en",
+      runIdAtDispatch,
+      "2121827445538866944"
+    );
+    // 把处理器的收尾彻底排干再断言渲染通道：直调渲染若写在 finally 末尾，不排干
+    // 会被这条断言从时间缝里漏过去。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // 处理器**只**调 chain.loadSubtitle 与两次组件入口（setCustomSelectValue /
+    // setCustomSelectState），收尾也只收敛控件自己——不许经 whenReaderReady 直调
+    // renderReadingView（那会与 subtitle-ready 通知双渲染）。
+    expect(gate).not.toHaveBeenCalled();
+  });
+
+  it("装载失败：catch 只报错 + 收敛控件，同样不触碰渲染通道", async () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    shell.renderReadingView();
+
+    const loadSubtitle = vi.fn(async () => {
+      throw new Error("网络失败");
+    });
+    vi.mocked(lazyModule.ensureSummarizeChain).mockResolvedValueOnce({ loadSubtitle } as never);
+    const gate = vi.mocked(readerGate.whenReaderReady);
+    gate.mockClear();
+
+    selectNode().value = "https://sub/ai-en.json";
+    selectNode().dispatchEvent(new Event("change", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(loadSubtitle).toHaveBeenCalledTimes(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // 失败路径是回焊的高危点（历史上正是「装载完再补一次渲染」）：catch 里不许出现
+    // 任何直调渲染，回退只走 finally 的那次控件收敛。
+    expect(gate).not.toHaveBeenCalled();
   });
 });
 
