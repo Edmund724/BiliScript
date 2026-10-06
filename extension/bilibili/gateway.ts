@@ -9,6 +9,7 @@ import { logInfo, logWarn } from "../shared/logging.js";
 import {
   buildSubtitleInfoRequests,
   buildBiliApiError,
+  buildHotCommentsApiError,
   mergeHotCommentsFromPayload,
   subReplyMessages,
   subReplyRootIds,
@@ -332,11 +333,19 @@ export async function fetchHotCommentsJson(
   }
 
   const url = `https://api.bilibili.com/x/v2/reply/main?type=1&oid=${safeAid}&mode=3&ps=${safeCount}&pn=1`;
-  const payload = await transport(url).catch(() => null);
-  // 置顶评论只出现在 data.top_replies / data.upper.top，不在 data.replies（详见
-  // mergeHotCommentsFromPayload 注释）：挑/合并且去重的纯逻辑下沉到 bili-api-shared，
-  // 这里只保留「拿不到就降级为 []」的错误语义（catch 已把失败折成 null）。
-  // 楼中楼续篇（置顶目录的第二段）经 subReplies 挂到顶层评论的 subMessages。
+  // 拉不到评论就抛错，不折成空数组：空评论区与「拉不到」在用户侧同样是「没有目录」，
+  // 但后者会让概览整段退回 AI 自由分章，必须能让上游出声（-352 风控时尤其常见）。
+  // 降级动作（落空数组 + 记 note / 写状态行）由调用方做，语义在调用方一侧。
+  const payload = await transport(url).catch((error: unknown) => {
+    throw new Error(`热评请求失败：${getErrorMessage(error)}`);
+  });
+  const apiError = buildHotCommentsApiError(payload);
+  if (apiError) {
+    throw apiError;
+  }
+  // 置顶评论只出现在 data.top.upper / data.top_replies（详见 mergeHotCommentsFromPayload
+  // 注释）：挑/合并且去重的纯逻辑下沉到 bili-api-shared。楼中楼续篇（置顶目录的
+  // 第二段）经 subReplies 挂到顶层评论的 subMessages。
   const subReplies = await fetchSubReplyInputs(transport, safeAid, payload);
   return mergeHotCommentsFromPayload(payload, safeCount, subReplies);
 }

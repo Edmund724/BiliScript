@@ -75,11 +75,16 @@ function replyRpidKey(item: unknown): string | null {
   return null;
 }
 
-// 热评接口（x/v2/reply/main）的置顶评论不在 data.replies 里：实跑证实 UP 置顶的
-// 时间轴目录只出现在 data.top_replies[]（data.upper.top 同为该条，data.top 常为
-// null），data.replies[] 只有普通评论——只读 replies 会整条漏掉置顶目录。
-// 故把 data.top（单条或 null）、data.top_replies[]、data.upper.top（单条或 null）
-// 与 data.replies[] 合并，置顶来源前置，按 rpid 去重（保留首个）。
+// 热评接口（x/v2/reply/main）的置顶评论不在 data.replies 里，实抓 payload
+// （BV1q9He6SEyX，2026-10-06，tests/fixtures/bilibili/bv1q9he6seyx-reply-main.json）
+// 的形状是：
+//   data.top          = { admin, upper, vote } 容器，置顶评论在 data.top.upper
+//   data.top_replies  = [置顶评论]（与 data.top.upper 同一 rpid，同一条）
+//   data.upper        = { mid }，**没有 top**（旧注释写的 data.upper.top 是错的）
+//   data.replies      = 普通评论
+// 只读 replies 会整条漏掉置顶目录；容器 data.top 本身会被当成一条无正文的评论
+// 进 merged（normalizeHotComments 的空正文过滤掉，不影响产物），dedup 保证
+// top.upper 与 top_replies 只出一条。
 function mergedReplyItems(payload: unknown): unknown[] {
   const data = (payload as { data?: unknown })?.data as
     | { top?: unknown; top_replies?: unknown; upper?: unknown; replies?: unknown }
@@ -88,6 +93,7 @@ function mergedReplyItems(payload: unknown): unknown[] {
 
   const merged: unknown[] = [
     ...toReplyList(data?.top),
+    ...toReplyList((data?.top as { upper?: unknown } | null | undefined)?.upper),
     ...toReplyList(data?.top_replies),
     ...toReplyList((data?.upper as { top?: unknown } | null | undefined)?.top),
     ...toReplyList(data?.replies)
@@ -235,4 +241,27 @@ function isRetryableError(code: number | string | undefined): boolean {
   // -3: 参数错误（可能是临时性的）
   // 其他负数错误码也可能是临时性的
   return code === -509 || code === -3 || (typeof code === "number" && code < 0);
+}
+
+// 热评接口的业务错误码 → 人话错误（返回 null 表示 payload 没有报错，照常解析）。
+// 为什么不能沿用 buildBiliApiError：热评接口出错时 message 就是裸码（"-352"），
+// 直接抛出去用户看不懂。为什么不能静默折成空数组：空评论区与「拉不到」在用户侧
+// 长得一模一样——都是「没有评论目录」，但后者让概览整段退回 AI 自由分章，
+// 必须能出声（subtitle/core 的 refreshHotComments 把这条错误写进状态行）。
+// -352 = B 站风控校验失败：未登录裸请求或请求过密时整段置顶目录都拿不到。
+export function buildHotCommentsApiError(payload: unknown): BiliApiError | null {
+  const code = (payload as { code?: unknown })?.code;
+  if (typeof code !== "number" || code === 0) {
+    return null;
+  }
+  const message =
+    code === -352
+      ? "B 站风控校验失败（-352），拿不到热评目录"
+      : code === -404
+        ? "评论不存在或已关闭（-404）"
+        : `热评接口返回错误码 ${code}`;
+  const error = new Error(message) as BiliApiError;
+  error.code = code;
+  error.retryable = isRetryableError(code);
+  return error;
 }

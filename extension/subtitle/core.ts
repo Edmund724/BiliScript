@@ -1,6 +1,8 @@
 import { state, clipState } from "../core/state.js";
 import { formatLocalDate } from "../shared/utils.js";
 import { logWarn } from "../shared/logging.js";
+import { getErrorMessage } from "../shared/error-helpers.js";
+import { setMessage } from "../core/ui-status.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { fetchHotComments } from "../bilibili/gateway.js";
 import { normalizeChapters } from "./chapters.js";
@@ -303,6 +305,9 @@ export async function refreshHotComments({ refreshComments = false } = {}): Prom
     } catch (error) {
       clipState.setHotComments([]);
       logWarn("[BILISCRIPT] failed to fetch hot comments", error);
+      // 状态行出声（含「失败」→ 常驻，见 core/reading-status-line 的常驻词表）：
+      // 热评拉不到 = 没有评论目录 = 概览退回 AI 自由分章，用户得知道为什么。
+      setMessage(`热评抓取失败（${getErrorMessage(error)}）：本次概览没有评论目录。`);
     }
   }
 }

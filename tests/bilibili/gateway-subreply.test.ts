@@ -8,8 +8,19 @@
 //
 // 与 gateway.test.ts 同法：transport 注入，零真实 fetch。
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { fetchHotCommentsJson } from "../../extension/bilibili/gateway.js";
+
+// 真 payload（2026-10-06 用带 cookie 的浏览器抓 BV1q9He6SEyX）：data.top 是
+// {admin,upper,vote} 容器、置顶目录在 data.top.upper、data.upper 只有 {mid}。
+const REAL_MAIN = JSON.parse(
+  readFileSync(join(process.cwd(), "tests/fixtures/bilibili/bv1q9he6seyx-reply-main.json"), "utf8")
+);
+const REAL_SUB = JSON.parse(
+  readFileSync(join(process.cwd(), "tests/fixtures/bilibili/bv1q9he6seyx-reply-reply.json"), "utf8")
+);
 
 function fakeTransport(routes: [match: string, handler: unknown][]) {
   const calls: string[] = [];
@@ -159,5 +170,80 @@ describe("fetchHotCommentsJson：楼中楼续篇补抓", () => {
     const comments = await fetchHotCommentsJson(transport, 123, 20);
 
     expect(comments[0].subMessages).toEqual(["25:00 核心原则", "30:00 尾声"]);
+  });
+});
+
+describe("fetchHotCommentsJson：真 payload 形状（fixture 回放）", () => {
+  const AID = REAL_MAIN._provenance.video.aid;
+  const PINNED_MESSAGE = REAL_MAIN.data.top_replies[0].content.message;
+  const SUB_MESSAGE = REAL_SUB.data.replies[0].content.message;
+
+  it("置顶目录在 data.top.upper：容器 data.top 不当评论，正文全文 + 楼中楼续篇照挂", async () => {
+    const transport = fakeTransport([
+      [mainMatch, REAL_MAIN],
+      [subMatch, REAL_SUB]
+    ]);
+
+    const comments = await fetchHotCommentsJson(transport, AID, 20);
+
+    expect(comments[0]).toMatchObject({ uname: "ChHsich", like: 3, message: PINNED_MESSAGE });
+    expect(comments[0].message.length).toBe(906);
+    expect(comments[0].subMessages).toEqual([SUB_MESSAGE]);
+    // 置顶 1 条 + 普通 3 条（fixture 裁剪后）；容器 data.top 正文为空被过滤，不外泄
+    expect(comments).toHaveLength(4);
+    expect(transport.calls.filter((url) => url.includes(subMatch))).toHaveLength(1);
+  });
+
+  it("top_replies 消失：仍从 data.top.upper 取到置顶目录（不再整段丢）", async () => {
+    const withoutTopReplies = {
+      ...REAL_MAIN,
+      data: { ...REAL_MAIN.data, top_replies: [] }
+    };
+    const transport = fakeTransport([
+      [mainMatch, withoutTopReplies],
+      [subMatch, REAL_SUB]
+    ]);
+
+    const comments = await fetchHotCommentsJson(transport, AID, 20);
+
+    expect(comments[0].message).toBe(PINNED_MESSAGE);
+    expect(comments[0].subMessages).toEqual([SUB_MESSAGE]);
+  });
+});
+
+describe("fetchHotCommentsJson：拉不到必须出声，不静默折成空评论区", () => {
+  it("-352 风控：抛人话错误（带 code），不是 []", async () => {
+    const transport = fakeTransport([[mainMatch, { code: -352, message: "-352" }]]);
+
+    await expect(fetchHotCommentsJson(transport, 123, 20)).rejects.toThrow(
+      "B 站风控校验失败（-352），拿不到热评目录"
+    );
+  });
+
+  it("-404：抛人话错误", async () => {
+    const transport = fakeTransport([[mainMatch, { code: -404, message: "啥都木有" }]]);
+
+    await expect(fetchHotCommentsJson(transport, 123, 20)).rejects.toThrow("评论不存在或已关闭（-404）");
+  });
+
+  it("传输失败：抛错（降级动作交给调用方，语义可见）", async () => {
+    const transport = fakeTransport([
+      [
+        mainMatch,
+        () => {
+          throw new Error("network down");
+        }
+      ]
+    ]);
+
+    await expect(fetchHotCommentsJson(transport, 123, 20)).rejects.toThrow("热评请求失败：network down");
+  });
+
+  it("code 0 的空评论区：照常返回 []（正常态，不是错误）", async () => {
+    const transport = fakeTransport([
+      [mainMatch, { code: 0, data: { replies: [], top: null, top_replies: [], upper: { mid: 1 } } }]
+    ]);
+
+    await expect(fetchHotCommentsJson(transport, 123, 20)).resolves.toEqual([]);
   });
 });

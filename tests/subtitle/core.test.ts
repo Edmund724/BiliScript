@@ -372,6 +372,23 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
     await refreshHotComments({ refreshComments: true });
     expect(gateway.fetchHotComments).toHaveBeenCalledTimes(1);
   });
+
+  it("拉取失败（风控 / 网络）：落空数组 + 状态行出声且常驻，不再静默", async () => {
+    const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
+    const { isPersistentStatusText } = await import("../../extension/core/reading-status-line.js");
+    state.clip.setHotComments([]);
+    gateway.fetchHotComments.mockRejectedValueOnce(
+      new Error("B 站风控校验失败（-352），拿不到热评目录")
+    );
+
+    await refreshHotComments({ refreshComments: true });
+
+    expect(state.clip.hotComments).toEqual([]);
+    expect(state.ui.messageText).toContain("热评抓取失败");
+    expect(state.ui.messageText).toContain("B 站风控校验失败（-352）");
+    // 含「失败」→ 命中常驻词表：错误文案不自动消失
+    expect(isPersistentStatusText(state.ui.messageText)).toBe(true);
+  });
 });
 
 // 票 07 Q4：字幕 tab 空态只跟随 reason（病因 + 补救，**不带基础句、不带详情行**），
