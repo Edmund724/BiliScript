@@ -26,6 +26,7 @@
 // 组合根，按 ContextFetch 策略注入点与 resolveAiConversationRef 接缝接线）。
 import { buildAiContextRef } from "../ai/conversation.js";
 import type { AiContext } from "../ai/types.js";
+import { extractBvid } from "../bilibili/video-id-shared.js";
 import { fetchHotCommentsWithLedger } from "../bilibili/gateway.js";
 import {
   createReaderContextPayload,
@@ -77,11 +78,33 @@ export interface InProcessContextFetchDeps {
   // 的热评编排单源 fetchHotCommentsWithLedger（aid 判空 / clipState 落账 /
   // 失败降级空列表），note 不上进快照。
   fetchHotComments?: () => Promise<unknown[]>;
+  // 视频身份校验开关（缺省开）：装配「当前页上下文」时核对 clip 是否属于当前
+  // 地址（校验收口在 doesClipMatchPageUrl）。pinned 补水路径传 false——那里的
+  // 身份已由 doesContextRefMatchCurrentClip 对会话 contextRef 校验过，装配目标
+  // 本就是置顶会话的视频，当前页可以不是它（浏览别的视频时补水置顶对话）。
+  verifyPageIdentity?: boolean;
 }
 
 // 缺省热评实现：gateway 单源的 ContextFetch 适配（只取 comments）。
 async function defaultFetchHotComments(): Promise<unknown[]> {
   return (await fetchHotCommentsWithLedger()).comments;
+}
+
+// clip 是否属于当前页面地址（视频身份校验）。
+// 为什么需要：SPA 换片时 URL 变化同步可能早于 clip 重置（重置链在
+// ensureSummarizeChain 等动态装载之后才跑），此刻 state.clip 还停在上一个视频——
+// 照常装配会把上个视频的 bvid/标题/字幕体当成当前页的上下文（用户报障：切到新视频，
+// 转写中对话里还是上一个视频的问题；发送更会把上个视频的字幕交给模型）。纪律与
+// reader/lifecycle 的 hasSubtitleForCurrentVideo 同一条：地址能取出 bvid 而 clip 的
+// bvid 非空且不同即判「不是当前视频」。地址取不出身份（非视频页等）无从校验，保持
+// 既有装配口径。
+function doesClipMatchPageUrl(clip: Partial<ClipState>, url: string): boolean {
+  const pageBvid = extractBvid(url);
+  if (!pageBvid) {
+    return true;
+  }
+  const clipBvid = String(clip?.bvid || "").trim();
+  return !clipBvid || clipBvid === pageBvid;
 }
 
 // reader 与 content 同进程：直接读 state.clip + core/context-payload 组装，
@@ -101,13 +124,17 @@ export function createInProcessContextFetch(deps: InProcessContextFetchDeps = {}
   const getSettings = deps.settings || (() => DEFAULT_SETTINGS);
   const getUrl = deps.url || (() => (typeof location !== "undefined" ? location.href : ""));
   const fetchHotComments = deps.fetchHotComments || defaultFetchHotComments;
+  const verifyPageIdentity = deps.verifyPageIdentity !== false;
 
   return async function fetchContext({ forceRefresh, ifSignature }: ContextFetchOptions): Promise<ContextFetchOutcome> {
     const tabUrl = getUrl();
     // 与 message-handler 的 buildReaderContextPayload 同口径：字段清单/
     // 组装/缺省容错全部单源在 core/context-payload.js。
+    // clip 不属于当前页（换片竞态窗口，校验可按调用方关掉）时按「未就绪」装配空
+    // clip：键落到 url: 档、字幕体为空，等 clip 落定后的下一轮对账再装配真快照。
+    const clip = getClip();
     const payload = createReaderContextPayload({
-      clip: getClip(),
+      clip: verifyPageIdentity && !doesClipMatchPageUrl(clip, tabUrl) ? {} : clip,
       settings: getSettings(),
       url: tabUrl
     });
@@ -197,7 +224,11 @@ export function createInProcessPinnedContextResolver(
     clip: deps.clip,
     settings: deps.settings,
     url: deps.url,
-    fetchHotComments: deps.fetchHotComments
+    fetchHotComments: deps.fetchHotComments,
+    // 装配目标 = 置顶会话的视频，不是「当前页」：身份已由上面的
+    // doesContextRefMatchCurrentClip 对 contextRef 校验，不做页身份校验
+    //（浏览别的视频时补水置顶对话，这里的目标视频本就与当前地址不同）。
+    verifyPageIdentity: false
   });
   const getClip = deps.clip || (() => ({}));
   const resolveNetwork = deps.resolveNetwork;

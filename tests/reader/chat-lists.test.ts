@@ -20,6 +20,7 @@ import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 import type { CreateReaderChatListsDeps } from "../../extension/reader/chat-lists.js";
 
 let createReaderChatLists: typeof import("../../extension/reader/chat-lists.js").createReaderChatLists;
+let state: typeof import("../../extension/core/state.js").state;
 let chatSessionState: ChatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 let writeCachedQuickPrompts: typeof import("../../extension/chat/quick-prompt-cache.js").writeCachedQuickPrompts;
@@ -31,14 +32,15 @@ let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-stat
 
 async function importModule() {
   const module = await import("../../extension/reader/chat-lists.js");
-  const state = await import("../../extension/chat/chat-state.js");
+  const chatState = await import("../../extension/chat/chat-state.js");
   const cache = await import("../../extension/chat/quick-prompt-cache.js");
   createReaderChatLists = module.createReaderChatLists;
-  chatSessionState = state.chatSessionState;
-  chatSessionStateForTests = state.chatSessionStateForTests;
-  applyConversationIdentity = state.applyConversationIdentity;
-  setSavedConversations = state.setSavedConversations;
-  resetChatSessionStateForTests = state.resetChatSessionStateForTests;
+  state = (await import("../../extension/core/state.js")).state;
+  chatSessionState = chatState.chatSessionState;
+  chatSessionStateForTests = chatState.chatSessionStateForTests;
+  applyConversationIdentity = chatState.applyConversationIdentity;
+  setSavedConversations = chatState.setSavedConversations;
+  resetChatSessionStateForTests = chatState.resetChatSessionStateForTests;
   writeCachedQuickPrompts = cache.writeCachedQuickPrompts;
   resetQuickPromptCacheForTests = cache.resetQuickPromptCacheForTests;
 }
@@ -80,6 +82,11 @@ function clickOnce(el: Element) {
 }
 
 const VIDEO_CONTEXT = { isVideoContext: true, title: "测试视频", url: "https://www.bilibili.com/video/BV1" };
+// 当前页（jsdom 地址由 setup 的 resetModuleState 固定为 BV1test000000）的视频身份与
+// 已就绪字幕：建议区的缓存键读进程内 clip（与写方 reader/quick-prompts 同源）。
+const PAGE_BVID = "BV1test000000";
+const PAGE_CID = "1";
+const PAGE_CACHE_KEY = `video:${PAGE_BVID}|${PAGE_CID}`;
 
 beforeEach(async () => {
   resetModuleState();
@@ -89,6 +96,9 @@ beforeEach(async () => {
   chatSessionStateForTests.providers = [{ id: "p1", name: "平台一", enabled: true }];
   chatSessionStateForTests.contextData = { ...VIDEO_CONTEXT };
   chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = ["总结视频", "整理笔记"];
+  state.clip.setBvid(PAGE_BVID);
+  state.clip.setCid(PAGE_CID);
+  state.clip.setSubtitleBody([{ from: 0, to: 5, content: "第一句" }]);
 });
 
 describe("renderSuggestions（建议提示词）", () => {
@@ -158,8 +168,7 @@ describe("renderSuggestions（建议提示词）", () => {
 
   it("自定义留空（留空即自动生成）：渲染该视频的生成结果", () => {
     chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
-    chatSessionStateForTests.currentContextKey = "video:BV1|1";
-    writeCachedQuickPrompts("video:BV1|1", ["生成一", "生成二", "生成三"]);
+    writeCachedQuickPrompts(PAGE_CACHE_KEY, ["生成一", "生成二", "生成三"]);
     const { lists, container } = makeDeps();
     lists.renderSuggestions();
     expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
@@ -168,7 +177,38 @@ describe("renderSuggestions（建议提示词）", () => {
 
   it("自定义留空且该视频还没有生成结果：回落固定三条兜底", () => {
     chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
-    chatSessionStateForTests.currentContextKey = "video:BV1|1";
+    const { lists, container } = makeDeps();
+    lists.renderSuggestions();
+    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
+      .toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+  });
+
+  // 用户报障（音频转写中显示上一个视频的三个问题）：缓存里有生成结果 ≠ 该在当前页
+  // 显示。取用要同时满足「身份是当前页视频」与「字幕已就绪」，两条不满足都回落
+  // 固定三条默认问题。
+  it("字幕未就绪（转写中，字幕体为空）：回落固定三条默认问题，不用该视频已有的生成结果", () => {
+    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
+    writeCachedQuickPrompts(PAGE_CACHE_KEY, ["上一轮一", "上一轮二", "上一轮三"]);
+    // 对照：旧口径（读对话上下文的 currentContextKey）在这里会命中缓存、
+    // 把生成结果显示到没字幕的视频上。
+    chatSessionStateForTests.currentContextKey = PAGE_CACHE_KEY;
+    state.clip.setSubtitleBody([]);
+    const { lists, container } = makeDeps();
+    lists.renderSuggestions();
+    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
+      .toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+  });
+
+  it("clip 还停在上一个视频（转写中换片竞态）：回落固定三条，不遗留上个视频的生成结果", () => {
+    chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
+    const prevKey = "video:BV1prev00000|9";
+    writeCachedQuickPrompts(prevKey, ["Karpathy四层输出阶梯是什么？", "第三层网页为何更适合读长文？", "如何用一次性软件降低大脑带宽？"]);
+    // 真实形态：对话上下文也还停在上一个视频（URL 变化同步早于 clip 重置，
+    // 且此后不再对账）——建议区不读它，读进程内 clip 的当前页身份。
+    chatSessionStateForTests.currentContextKey = prevKey;
+    state.clip.setBvid("BV1prev00000");
+    state.clip.setCid("9");
+    state.clip.setSubtitleBody([{ from: 0, to: 5, content: "上个视频的第一句" }]);
     const { lists, container } = makeDeps();
     lists.renderSuggestions();
     expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))

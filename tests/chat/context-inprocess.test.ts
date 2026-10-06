@@ -404,6 +404,44 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
 });
 
 // ===========================================================================
+// 视频身份校验（换片竞态：URL 变化同步早于 clip 重置）
+//
+// 用户报障：切到新视频（无字幕、正在音频转写），对话里三个预设问题还是上一个
+// 视频的。根因在上下文装配——换片时 URL 变化通知先到、clip 重置链（动态装载
+// 之后）后到，装配读到的是上一个视频的 clip，上下文键因此停在旧视频（且此后
+// 不再对账）。装配链按「clip 必须属于当前页地址」收口：不匹配即按未就绪装配
+// 空 clip（键落 url: 档），不把上个视频的 bvid/标题/字幕体当当前上下文。
+// ===========================================================================
+describe("视频身份校验（clip 与当前页地址不符）", () => {
+  it("clip 还停在上一个视频：按未就绪装配空快照，不带上个视频的身份与字幕", async () => {
+    const clipRef = {
+      current: makeClip({ bvid: "BV1prev00000", cid: "999", title: "上一个视频" })
+    };
+    const { contextLoad } = makeContextHarness(clipRef);
+
+    await contextLoad.loadContextState({ silent: true });
+
+    expect(chatSessionState.contextData!.bvid).toBe("");
+    expect(chatSessionState.contextData!.title).toBe("");
+    expect(chatSessionState.contextData!.subtitleBody).toEqual([]);
+    // 键落 url: 档：与「上个视频」的 video: 键不同 → 对话侧去重判定为上下文变化，
+    // 不会继续用旧视频的上下文/建议区缓存。
+    expect(chatSessionState.currentContextKey).toBe(`url:${VIDEO_URL}`);
+  });
+
+  it("clip 与地址同视频（对照组）：照常装配真快照", async () => {
+    const clipRef = { current: makeClip() };
+    const { contextLoad } = makeContextHarness(clipRef);
+
+    await contextLoad.loadContextState({ silent: true });
+
+    expect(chatSessionState.contextData!.bvid).toBe("BV1test000000");
+    expect(chatSessionState.contextData!.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
+    expect(chatSessionState.currentContextKey).toBe(CONTEXT_KEY);
+  });
+});
+
+// ===========================================================================
 // 缺省热评实现：gateway fetchHotCommentsWithLedger 单源的接缝消费
 // （编排分支语义直测在 tests/bilibili/gateway.test.ts，这里只锁接缝形状：
 //  缺省实现调用单源、comments 合并进快照、降级空列表口径不变）
@@ -484,7 +522,13 @@ describe("pinned 补水身份短路（工单 04）", () => {
   // resolveAiConversationContext dep 的网络适配器替身）。
   function makeResolver(
     clipRef: ClipRef,
-    { resolveNetwork }: { resolveNetwork?: (contextRef: unknown) => Promise<Record<string, unknown>> } = {}
+    {
+      resolveNetwork,
+      url = VIDEO_URL
+    }: {
+      resolveNetwork?: (contextRef: unknown) => Promise<Record<string, unknown>>;
+      url?: string;
+    } = {}
   ) {
     const fetchHotComments = vi.fn(async () => HOT_COMMENTS);
     const network = resolveNetwork
@@ -496,7 +540,7 @@ describe("pinned 补水身份短路（工单 04）", () => {
     const resolve = createInProcessPinnedContextResolver({
       clip: () => clipRef.current,
       settings: () => ({ includeTimestampInBody: true }),
-      url: () => VIDEO_URL,
+      url: () => url,
       fetchHotComments,
       resolveNetwork: network
     });
@@ -519,6 +563,21 @@ describe("pinned 补水身份短路（工单 04）", () => {
     expect(payload.isVideoContext).toBe(true);
     expect(payload.signature).not.toBe("");
     expect(fetchHotComments).toHaveBeenCalledTimes(1);
+  });
+
+  // 页身份校验不适用于本路径（verifyPageIdentity: false）：置顶会话的装配目标
+  // 是「会话自己的视频」，浏览别的视频时补水它，本来就不该按当前地址洗成空。
+  it("当前页是别的视频（浏览中补水置顶对话）：仍从 clip 装配会话视频的上下文", async () => {
+    const clipRef = { current: makeClip() };
+    const { resolve, network } = makeResolver(clipRef, {
+      url: "https://www.bilibili.com/video/BV1otherpage/"
+    });
+
+    const payload = await resolve(makePinnedRef());
+
+    expect(network).not.toHaveBeenCalled();
+    expect(payload.bvid).toBe("BV1test000000");
+    expect(payload.subtitleBody).toEqual([{ from: 0, to: 5, content: "第一句" }]);
   });
 
   it("装配结果与 createInProcessContextFetch 的 live 全量快照同 shape 同签名", async () => {

@@ -497,7 +497,7 @@ function buildEmptyStateHtml(): string {
     return `
       <div class="biliscript-reading-placeholder">
         <div class="biliscript-reading-placeholder-title">概览等字幕就绪后自动生成</div>
-        <p class="biliscript-reading-placeholder-copy">音频转写完成后会自动生成章节与金句，期间可先在「字幕」页看视频。</p>
+        <p class="biliscript-reading-placeholder-copy">音频转写完成后会自动生成章节与金句，期间可先看视频。</p>
       </div>
     `;
   }
