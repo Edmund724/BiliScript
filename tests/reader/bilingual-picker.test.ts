@@ -359,9 +359,12 @@ describe("双语开：两列 + 页脚开关 + 徽标", () => {
     expect(state.settings.bilingualSubtitles).toBe(true);
     expect(col("main")).not.toBeNull();
     expect(col("sub")).not.toBeNull();
-    // 打开那一刻目标轨（English）就在抓：本列先出 loading 占位，落定后回到语言列表
-    expect(placeholderText()).toBe("译文加载中…");
-    await vi.waitFor(() => expect(colRows("sub").length).toBeGreaterThan(0));
+    // 打开那一刻目标轨（English）就在抓：语言列表**留在原地**、本列当场禁用
+    //（2026-10-06 用户裁决：在飞不换列表，否则用户刚滚到底的列表会跳回顶部）。
+    expect(secondarySelect().disabled).toBe(true);
+    expect(placeholder()).toBeNull();
+    expect(colRows("sub").length).toBeGreaterThan(0);
+    await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false)); // 首次自动抓取落定
     // 副列选项 = 真轨（5 条），伪轨不在其中；主列仍含伪轨（主列行为不动）
     expect(colTexts("sub")).toEqual(["中文", "English", "日本語", "Español", "Bahasa Indonesia"]);
     expect(secondaryOptionTexts()).toEqual(["中文", "English", "日本語", "Español", "Bahasa Indonesia"]);
@@ -409,20 +412,27 @@ describe("双语开：两列 + 页脚开关 + 徽标", () => {
 });
 
 describe("副列在飞 / 失败：只牵本列，不阻塞主列", () => {
-  it("副列在飞：本列禁用 + 出「译文加载中…」，主列可点、在飞期间重复 change 不再发装载", async () => {
+  it("副列在飞：本列禁用、语言列表留在原地，主列可点、在飞期间重复 change 不再发装载", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     shell.renderReadingView();
     switchButton().click();
     await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1)); // 打开开关的自动抓取
-    await vi.waitFor(() => expect(colRows("sub").length).toBeGreaterThan(0));
+    // 落定屏障 = 本列恢复可点（列表在飞期间就在场，行数不再是落定的证据）
+    await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false));
     lazy.secondaryCalls.length = 0;
     lazy.secondaryMode = "pend";
+    const rowsBefore = colRows("sub").length;
 
     clickSubOption("日本語");
 
-    // 乐观收尾是同步的：本列当场禁用 + 出 loading 占位（装载器调用在下一拍）
+    // 乐观收尾是同步的：本列当场禁用（装载器调用在下一拍）。语言列表**留在原地**：
+    // 2026-10-06 用户裁决「选完应该滚动条不动」——在飞把列表换成一行「译文加载中…」
+    // 会当场抽掉本列的滚动高度，用户刚滚到底选中的那条语言，下一秒整列跳回列表顶部
+    //（真机读数见 walkthrough run13）。在飞的可见反馈由两处承担：本列 disabled /
+    // aria-busy（点不动），以及列表里副行的「译文加载中…」占位。
     expect(secondarySelect().disabled).toBe(true);
-    expect(placeholderText()).toBe("译文加载中…");
+    expect(placeholder()).toBeNull();
+    expect(colRows("sub")).toHaveLength(rowsBefore);
     // 主列不受牵连（02 号票 Q9）：可点、不 busy
     expect(mainSelect().disabled).toBe(false);
     expect(trigger().disabled).toBe(false);
@@ -439,7 +449,9 @@ describe("副列在飞 / 失败：只牵本列，不阻塞主列", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     shell.renderReadingView();
     switchButton().click();
-    await vi.waitFor(() => expect(colRows("sub").length).toBeGreaterThan(0)); // 首次自动抓取落定
+    // 首次自动抓取落定的屏障是「本列恢复可点」——语言列表在飞期间就在场（裁决后
+    // 不再换成占位），故「行数 > 0」不再是「装载已落定」的证据。
+    await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false));
     lazy.secondaryMode = "reject";
     lazy.secondaryCalls.length = 0;
 
@@ -601,7 +613,7 @@ describe("偏好落盘与跨上下文收敛", () => {
     switchButton().click();
     expect(persist).toHaveBeenCalledTimes(1);
     expect(state.settings.bilingualSubtitles).toBe(true);
-    await vi.waitFor(() => expect(colRows("sub").length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(secondarySelect().disabled).toBe(false)); // 首次自动抓取落定
 
     clickSubOption("日本語");
     expect(persist).toHaveBeenCalledTimes(2);
@@ -683,9 +695,10 @@ describe("形态与三处登记（源码/表面锁）", () => {
     expect(css).toContain(".custom-select-dropdown:has(> .biliscript-bilingual-popover)[hidden]");
     // 卡片根不产生盒子：滚动区与页脚才是浮层的 flex 项
     expect(css).toMatch(/\.biliscript-bilingual-popover\s*\{[^}]*display:\s*contents/);
-    // 滚动落在列表区，而不是卡片上
+    // 滚动不落在卡片上，也不落在跨两列的主区上（主区只裁剪，滚动归属每一列）
     const mainRule = css.match(/\.biliscript-bilingual-main\s*\{[^}]*\}/)?.[0] || "";
-    expect(mainRule).toContain("overflow-y: auto");
+    expect(mainRule).toContain("overflow: hidden");
+    expect(mainRule).not.toContain("overflow-y: auto");
     expect(mainRule).toContain("min-height: 0");
     // 页脚不可收缩（固定在列表之外）
     const footerRule = css.match(/\.biliscript-bilingual-footer\s*\{[^}]*\}/)?.[0] || "";
@@ -853,5 +866,74 @@ describe("真机反向发现的修复锁", () => {
 
     expect(state.clip.secondarySubtitle.state).toBe("idle");
     expect(kinds).toContain("rerender");
+  });
+});
+
+// ===== 弹层滚动（2026-10-06 用户真机裁决：两列各自滚；选完滚动条不动）========
+//
+// 用户报的两条缺陷都是 jsdom 够不着的（真实布局 / 真实浏览器行为），权威读数在
+// `.scratch/tickets/bilingual-subtitles/walkthrough` 的 run13：
+//   1. 两列共用一条滚动条：滚动盒是跨两列的主区，滚一列另一列跟着动 —— 用户要求
+//      改成「分开有两个滚动条」；
+//   2. 选完副语言整列跳回列表顶部：组件重铺选项走 `dropdown.replaceChildren()`
+//      把卡片整块摘下再按引用装回（节点身份不变量），而**滚动位置不在节点身份里**
+//      ——真机上子树脱离文档后布局盒销毁，两列 scrollTop 一起归零。
+// 故本节一条锁滚动归属（源码面），一条锁「重投影后两列 scrollTop 原样」（行为面，
+// 用 replaceChildren 的模拟钩子把真机那条复位行为显式补进 jsdom）。
+describe("弹层滚动：两列各自滚、重投影不夺滚动位置", () => {
+  const BILINGUAL_CSS = "extension/entry/styles/bilingual-subtitles.css";
+
+  it("滚动归属每一列：列是滚动盒、主区只裁剪、交叉轴不再收缩（源码锁）", () => {
+    const css = readFileSync(join(process.cwd(), BILINGUAL_CSS), "utf8");
+    const mainRule = css.match(/\.biliscript-bilingual-main\s*\{[^}]*\}/)?.[0] || "";
+    expect(mainRule).toContain("display: flex");
+    expect(mainRule).toContain("overflow: hidden");
+    const colsRule = css.match(/\.biliscript-bilingual-cols\s*\{[^}]*\}/)?.[0] || "";
+    // align-items: flex-start 会把列收缩到内容高 ⇒ 滚动盒没有高度可滚，两列又只能
+    // 回到共用一个滚动区。交叉轴必须是默认的 stretch。
+    expect(colsRule).not.toContain("align-items");
+    expect(colsRule).toContain("min-height: 0");
+    const colRule = css.match(/\.biliscript-bilingual-col\s*\{[^}]*\}/)?.[0] || "";
+    expect(colRule).toContain("overflow-y: auto");
+    expect(colRule).toContain("min-height: 0");
+    expect(colRule).toContain("min-width: 0");
+    // 细滚动条跟 reader.css 三处滚动容器同一套（标准属性优先 + 旧引擎 ::-webkit- 降级）
+    expect(css).toContain("scrollbar-width: thin");
+    expect(css).toContain("@supports not (scrollbar-color: auto)");
+    expect(css).toContain(".biliscript-bilingual-col::-webkit-scrollbar");
+  });
+
+  it("重投影不夺滚动位置：卡片被组件摘下重装后，两列 scrollTop 原样", () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    setBilingual(true, "en-US");
+    shell.renderReadingView();
+    trigger().click(); // 真实展开路径（浮层打开时滚动位置才是用户看得到的那份）
+    const mainCol = col("main")!;
+    const subCol = col("sub")!;
+    expect(mainCol).toBeTruthy();
+    expect(subCol).toBeTruthy();
+    mainCol.scrollTop = 42;
+    subCol.scrollTop = 17;
+
+    // 真机行为补进 jsdom：组件重铺选项走 dropdown.replaceChildren()，卡片随之脱离
+    // 文档（随后 ensureBilingualCard 按引用装回）⇒ 上两行的 scrollTop 归零。
+    // 只有跨两列的那枚浮层会带走卡片；副列壳内那枚浮层重铺的是列内选项行，
+    // 列本身不动 ⇒ 不模拟（选列模块里也没有 .biliscript-bilingual-col 后代）。
+    const originalReplace = Element.prototype.replaceChildren;
+    const replaceSpy = vi.spyOn(Element.prototype, "replaceChildren").mockImplementation(function (
+      this: Element,
+      ...nodes: (Node | string)[]
+    ): void {
+      this.querySelectorAll(".biliscript-bilingual-col").forEach((node) => {
+        (node as HTMLElement).scrollTop = 0;
+      });
+      originalReplace.apply(this, nodes);
+    });
+
+    clickSubOption("日本語");
+
+    expect(replaceSpy).toHaveBeenCalled(); // 前提：本轮确实发生了组件重铺（否则空转）
+    expect(mainCol.scrollTop).toBe(42);
+    expect(subCol.scrollTop).toBe(17);
   });
 });

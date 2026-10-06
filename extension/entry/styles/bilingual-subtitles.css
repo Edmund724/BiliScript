@@ -12,10 +12,12 @@
  *                                                      hidden 属性管，本表不另造开关）
  *     li.biliscript-bilingual-popover                ← 卡片根（display: contents，只做
  *                                                      结构容器，不产生盒子）
- *       div.biliscript-bilingual-main                ← 滚动区（硬约束 §5.2）
+ *       div.biliscript-bilingual-main                ← 主区：只裁剪，自己**不滚**（把高度
+ *                                                        交给两列）
  *         div.biliscript-bilingual-cols
  *           div.biliscript-bilingual-col[data-col="main"]  ← 主列（+ 单轨态说明行）
  *           div.biliscript-bilingual-col[data-col="sub"]   ← 副列（双语态才有）
+ *           （两列各自是滚动盒 ⇒ 各自一条滚动条；2026-10-06 用户裁决）
  *       div.biliscript-bilingual-footer               ← 固定页脚：双语字幕 + 开关
  *
  * 度量全部照抄 01 号票原型（prototypes/README.md §4/§7/§8、prototype.css `[4]` 段）
@@ -38,8 +40,8 @@
  * - right: 0 右锚：trigger 在工具条行尾，组件表默认的左锚（left: 0）会让卡片向右长
  *   300px，@380 越出面板内缘 150.22px、@536 越出 24.22px，被面板的 overflow: hidden
  *   裁掉；右锚让它往工具条内侧长，三档都在面板内。
- * - overflow 从卡片挪到滚动区（.biliscript-bilingual-main）：8 条轨时卡片内容已
- *   315px（距上限 320 只剩 5px），第 9 条轨就会把页脚开关滚出视野。
+ * - overflow 从卡片挪到两列：8 条轨时卡片内容已 315px（距上限 320 只剩 5px），
+ *   第 9 条轨就会把页脚开关滚出视野。卡片只留 overflow: hidden 做裁剪。
  * - max-width 是硬约束 §5.3 的结构性落地：异常/空态文案（以及病态长的语言名）不许
  *   把卡片顶出面板——上限 = 面板内容宽 − 20px 余量（内容宽 = 面板宽 − 58，380 档
  *   实测卡片 300.22 时余量 21.8px）。
@@ -67,33 +69,78 @@
   display: none;
 }
 
-/* 卡片根不产生盒子：滚动区与页脚直接成为浮层的 flex 项——页脚因此固定在滚动区之外
+/* 卡片根不产生盒子：主区与页脚直接成为浮层的 flex 项——页脚因此固定在主区之外
  *（硬约束 §5.2：第 9 条轨也不把开关滚出视野）。 */
 #biliscript-reading-view .biliscript-bilingual-popover {
   display: contents;
 }
 
-/* 滚动区（列表）：卡片 flex 列里唯一可收缩/可滚的一项。 */
+/* 主区：卡片 flex 列里唯一可收缩/可撑高的一项。它自己**不滚**——只做裁剪，并把
+ * 高度交给两列（2026-10-06 用户裁决：两列不能共用一条滚动条，要分开两条）。 */
 #biliscript-reading-view .biliscript-bilingual-main {
-  display: block;
+  display: flex;
   flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#biliscript-reading-view .biliscript-bilingual-cols {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 列 = 滚动盒（各自一条滚动条）：列高由卡片上限（max-height 320）反向约束，内容超出
+ * 就在**本列**滚。交叉轴是默认的 stretch——`align-items: flex-start` 会把列收缩到
+ * 内容高，滚动盒没有高度可滚，两列就只能退回共用一个滚动区。
+ * min-width/min-height: 0 让超长语言名走选项行自己的省略号，而不是把卡片顶宽（§5.3）。
+ * 本规则**不声明 display**：副列收起走 hidden 属性，声明 display 会把 [hidden] 压过去
+ *（本表同款教训见上面那条收起态规则）。 */
+#biliscript-reading-view .biliscript-bilingual-col {
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
-#biliscript-reading-view .biliscript-bilingual-cols {
-  display: flex;
-  gap: 6px;
-  align-items: flex-start;
+/* 列滚动条与面板三处滚动容器（字幕列表 / 概览 / AI 对话）同一套细滚动条：标准属性
+ * 优先（scrollbar-color/width 直接吃 --biliscript-reader-* 令牌，四档主题自动跟随），
+ * 旧引擎走文末 @supports 的 ::-webkit-scrollbar 降级——两套只能取其一，见 reader.css
+ * 首段的同款说明。列宽是 max-content（最长语言名 120.1 + 行进边距 20 = 140.11），
+ * 真机 427 档实测卡片上限 349：两列 140.11 + 两条 thin(12) + gap 6 + padding 12
+ * + border 2 = 324.22，仍在限内（语言名不截断）。 */
+#biliscript-reading-view .biliscript-bilingual-col {
+  scrollbar-width: thin;
+  scrollbar-color: var(--biliscript-reader-faint) transparent;
 }
 
-/* 列宽 = 本列最长内容的自然宽（几何 A 双列 max-content）：列是 flex 项、交叉轴
- * flex-start 即收缩到内容宽；min-width: 0 让超长语言名走选项行自己的省略号，
- * 而不是把卡片顶宽（硬约束 §5.3）。列本身不声明 display——副列收起走 hidden 属性，
- * 声明 display 会把 [hidden] 压过去（本表同款教训见上面那条收起态规则）。 */
-#biliscript-reading-view .biliscript-bilingual-col {
-  min-width: 0;
+#biliscript-reading-view .biliscript-bilingual-col:hover {
+  scrollbar-color: var(--biliscript-reader-muted) transparent;
+}
+
+@supports not (scrollbar-color: auto) {
+  #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-thumb {
+    background: var(--biliscript-reader-faint);
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+
+  #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-thumb:hover {
+    background: var(--biliscript-reader-muted);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
 }
 
 #biliscript-reading-view .biliscript-bilingual-col-head {

@@ -212,6 +212,9 @@ export function renderReadingSubtitleTrackPicker(): void {
   if (!select) {
     return;
   }
+  // 滚动位置要在**组件重铺选项之前**取：那一步（rebuildCustomSelectOptions 的
+  // dropdown.replaceChildren）会把卡片摘下，届时两列的 scrollTop 已经不在了。
+  const scrollSnapshot = capturePickerScroll();
   // 先把选项写进原生 select，再建壳：initCustomSelect 会按现值铺一次项集，
   // 顺序反过来（先建壳再写选项）会白铺一次空集。
   const tracks = (state.clip.subtitles || []) as unknown as SubtitleTrack[];
@@ -288,10 +291,11 @@ export function renderReadingSubtitleTrackPicker(): void {
   // 在飞期间 disabled + busy 都不动，避免重渲把乐观 trigger 与禁用解掉。
   // 双语开关不影响本列：主列的可点性只由主轨相位决定（02 号票 Q9：副轨在飞/失败
   // 不阻塞主轨；反之亦然）。
-  if (switchInFlight !== null) {
-    return;
+  if (switchInFlight === null) {
+    setCustomSelectState(select, { disabled, busy: false });
   }
-  setCustomSelectState(select, { disabled, busy: false });
+  // 卡片刚被摘下又装回（见 capturePickerScroll）：把两列的滚动位置写回。
+  restorePickerScroll(scrollSnapshot);
 }
 
 // 选轨结果通知回调（由 reader/lifecycle 注入）：失败时经 reader-bus 的 "status"
@@ -418,9 +422,10 @@ const SUBTITLE_BILINGUAL_BADGE_ID = "biliscript-reading-bilingual-badge";
 // 一个常量 id（诊断与用例按 id 取副列值源；骨架重建时新 select 仍用它）。
 const SECONDARY_SUBTITLE_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
-// 副列的三套空态文案（02 号票第 5 条：用户下一步动作不同，不共用一句）+ 载入/失败占位。
+// 副列的三套空态文案（02 号票第 5 条：用户下一步动作不同，不共用一句）。
+// 在飞**不**出占位文案（2026-10-06 用户裁决，见 resolveSecondaryColumn）：装载中的
+// 可见反馈由本列 disabled/aria-busy 与列表里副行的占位承担。
 const SECONDARY_EMPTY_PICK_TEXT = "选择副字幕语言";
-const SECONDARY_LOADING_TEXT = "译文加载中…";
 const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
 const SECONDARY_COLLISION_TEXT = "主副字幕相同，已清空副字幕";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
@@ -487,7 +492,8 @@ interface SecondaryColumnModel {
   placeholder: string;
   // 失败态：列首那行「加载失败 · 重试」（02 号票 Q6：重试入口唯一在副列）。
   retry: boolean;
-  // 本列在飞 / 副轨槽 loading ⇒ 本列禁用（只禁本列，主列不受牵连，Q9）。
+  // 本列在飞 / 副轨槽 loading ⇒ 本列禁用（只禁本列，主列不受牵连，Q9）。在飞**不**改写
+  // 语言列表（showList 仍为 true）——列表换成占位会抽掉本列滚动高度，见下面的裁决注释。
   busy: boolean;
 }
 
@@ -511,11 +517,13 @@ function resolveSecondaryColumn(tracks: SubtitleTrack[]): SecondaryColumnModel {
     return { ...model, placeholder: SECONDARY_COLLISION_TEXT };
   }
   const selectedUrl = String(target.subtitleUrl || "");
-  if (busy) {
-    return { ...model, selectedUrl, placeholder: SECONDARY_LOADING_TEXT };
-  }
-  // 失败态仍列出语言（用户要能换一条，而不是被失败锁死）；重试行在列首，且只重抓
-  // 这一条副轨（forceRefresh = true，02 号票 Q6）。
+  // 在飞仍列出语言列表（2026-10-06 用户裁决「选完应该滚动条不动」）：把列表换成一行
+  // 「译文加载中…」占位会当场抽掉本列的滚动高度 ⇒ 用户刚滚到列底选的那条语言，下一秒
+  // 整列跳回列表顶部（真机走查 run13 的读数）。在飞的可见反馈由两处承担：本列
+  // disabled + aria-busy（点不动，见 resolveSecondaryColumn.busy），以及列表里 188 行
+  // 副行的「译文加载中…」占位。
+  // 失败态同理：用户要能换一条，而不是被失败锁死；重试行在列首，且只重抓这一条副轨
+  //（forceRefresh = true，02 号票 Q6）。
   return { ...model, selectedUrl, showList: true, retry: slot.state === "error" };
 }
 
@@ -539,6 +547,34 @@ interface BilingualCardNodes {
 }
 
 let bilingualCardNodes: BilingualCardNodes | null = null;
+
+// ===== 弹层滚动位置的保命绳（2026-10-06 真机走查 run13）=====
+// 组件重铺选项（rebuildCustomSelectOptions → refreshOptionNodes）走
+// `dropdown.replaceChildren()`：卡片整块脱离文档、随后由 ensureBilingualCard 按引用
+// 装回。**节点身份因此不变，但滚动位置不在节点身份里**——真机实测：子树脱离文档后
+// 布局盒销毁，两列（各自一条滚动条，见 bilingual-subtitles.css）的 scrollTop 一起
+// 归零，用户看到的就是「在副列底部选完一条语言，整列跳回列表顶部」。
+// 故重铺之前把两列的位置存下来、投影结束后写回；只在快照节点仍在文档里时写回
+//（整块重建 forceRecreate 的新列不该继承旧位置）。
+type PickerScrollSnapshot = Array<readonly [HTMLElement, number]>;
+
+function capturePickerScroll(): PickerScrollSnapshot {
+  const root = bilingualCardNodes?.root;
+  if (!root) {
+    return [];
+  }
+  return [...root.querySelectorAll<HTMLElement>(".biliscript-bilingual-col")]
+    .filter((node) => !node.hidden)
+    .map((node) => [node, node.scrollTop] as const);
+}
+
+function restorePickerScroll(snapshot: PickerScrollSnapshot): void {
+  for (const [node, top] of snapshot) {
+    if (top > 0 && node.isConnected) {
+      node.scrollTop = top;
+    }
+  }
+}
 
 function buildColumnHead(text: string): HTMLElement {
   const head = document.createElement("div");
