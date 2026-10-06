@@ -22,9 +22,13 @@ subtitle/ 等）。裁决：**只把完全内聚的 playerAi 单切片迁出**�
 
 - **ui 命名空间是弱聚合、无属主**：7 个字段散布 8 个文件读写，没有单一域可承载；拆出去只会
   变成 N 个单字段状态袋，聚合本身消失，比现状更差。
-- **clip 的真解耦点在读面不在写面**：写面已被字幕接受事务收口（subtitle/commit.js 的
+- **clip 的真解耦点在读面不在写面**：**成功路径**已由字幕接受事务收口（subtitle/commit.js 的
   acceptSubtitle 是 subtitleFetchState → "ready" 的唯一写入点，无字幕原因经逆事务
-  commitNoSubtitle 写入）；真正的耦合是 reader/lifecycle 对 clip 15 个字段的渲染读依赖。
+  commitNoSubtitle 写入；2026-10 起副轨另有并列事务 `acceptSecondarySubtitle`，只写
+  `clip.secondarySubtitle` 槽，见 ADR-0016）；**清场路径仍直写**——`resetClipState` 直接重置
+  selected 三项 / `subtitleBody` / `subtitleFetchState("idle")` / `noSubtitleReason` 与副轨槽。
+  本纪律管的是「某条轨成为生效字幕」的写入收口，不是把 clip 的每个字段都收进事务；真正的耦合
+  是 reader/lifecycle 对 clip 15 个字段的渲染读依赖。
 - **reader 命名空间迁出会牵动 Settings 接口的跨进程归属**：options 页与 background 也读
   reader 相关设置，命名空间搬迁会把这些跨进程读写一并卷入，超出状态袋议题的边界。
 - **playerAi 是唯一的例外**：全仓只有 `ai/player-ai.ts` 一个业务读写方，外加一处

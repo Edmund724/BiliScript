@@ -19,8 +19,9 @@ _Avoid_: Part、页、集数
 **字幕**:
 视频的一条字幕轨；整理后每条字幕是 `{from, to, content}`（秒级时间戳 + 文本）。无字幕轨时经语音识别（ASR）生成，仍是字幕。
 同一个视频可以有多条轨：B 站 AI 多语言轨的 `lan` 形如 `ai-en`，一条原语言、其余为译文。用户可在字幕工具条里手动切轨——切轨是当前视频的会话态，不落全局语言偏好。轨道身份取接口的 `id_str`（接口的 `id` 是大于 2^53 的 JSON 数字，取它会在解析阶段丢精度）。本扩展自配平台转写出的轨（`lan` = `asr-zh`）与 B 站轨同列一张表。
-代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible`——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
-_Avoid_: 转录、transcript
+同一个视频可以同时显示两路字幕（双语）：主轨 + 副轨，两行同属**一条**字幕条目（一段两行，主行在上、副行在下）。副轨由全局偏好选择（开关 + 目标语言），跨视频按语言重新匹配；本视频没有该语言的轨时，列表静默退回单轨、副列出空态说明。副轨装载中 / 失败只在副行出占位文案（重试入口在选轨弹层的副列），此时复制与导出仍只写主轨、与单轨态逐字节相同。副轨可对照的语言轨只有 `subtitleUrl` 非空的真轨；ASR 伪轨只作主轨兜底，不进副列。
+代码名：`subtitleBody` / `subtitle` / `subtitle/fetcher.js` / `subtitleLang` / `subtitleList` / `updateReadingSubtitleTailSpacer` / `ReadingSubtitleItem` / `data-biliscript-reader-subtitle-visible` / `clip.secondarySubtitle`（副轨槽，带自己的 `idle|loading|ready|error` 装载态）/ `bilingualSubtitles` / `secondarySubtitleLang`（全局偏好）/ `findTrackByPreferredLang`（两级匹配的共享叶子）/ `secondaryContentFor`（两轨配对投影）——字幕列表常驻 文摘面板「字幕」标签，transcript 词根已对齐字幕。
+_Avoid_: 转录、transcript、把副轨说成「第二条字幕」或「第三路轨」（两行是一条字幕条目）、把副轨与主轨写成同一份 body 或同一个装载态
 
 **章节**:
 视频自带的分段 `{from, to, title}`。
@@ -33,9 +34,10 @@ _Avoid_: 目录、分段、集
 _Avoid_: 补零/不补零双约定并存、各处手写 withHours 启发式、第三套解析器
 
 **字幕接受**:
-一段字幕成为当前视频生效字幕的唯一事务：稳定排序（from 升序，读路径二分依赖）→ 写 state → `fetchState="ready"` → 清 `noSubtitleReason` → 刷新派生内容（Markdown/SRT/TXT）→ 通知 reader（`subtitle-ready`，emit 单点在事务内——调用方补发通知或直调渲染即双渲染）。四个写入点（CC 缓存命中/网络新抓/ASR 缓存命中/转写完成）与无字幕出口（逆事务：清空 + `empty` + 原因）都必须经此收口，禁止手抄序列。事务带可选 runId 代次自检（M23 runId 协调）：调用方传入自己的抓取代次，写 state 前与 `fetchRunId` 比对，代次已被 URL 变化编排递增/新一轮抓取推进则抛 STALE_RUN 让位——旧视频字幕不得写进已重置的 state。递增单点在 URL 变化编排（`handleUrlChange` 感知 clip 签名变化处）同步先行，早于 reset 与新视频 refreshClip 的动态装载链；未传 runId（ASR 收尾路径，自有 isStale 视频键门控）不校验。
-代码名：`subtitle/commit.js`（接受与无字幕出口的唯一入口；DOM 渲染回调由 fetcher 注入，保持静态图无环）/ `runId` 自检（`AcceptSubtitleArgs.runId` / `CommitNoSubtitleArgs.runId`）
-_Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 fetchRunId（须同步先行于装载链，否则新视频抓取可能被迟到的递增误杀）
+一段字幕成为当前视频生效字幕的唯一事务：稳定排序（from 升序，读路径二分依赖）→ 写 state → `fetchState="ready"` → 清 `noSubtitleReason` 与 `noSubtitleDetail` → 拉热评 → 通知 reader（`subtitle-ready`，emit 单点在事务内——调用方补发通知或直调渲染即双渲染）。派生内容（Markdown/SRT/TXT）已改为惰性构建，不由事务刷新。四个写入点（CC 缓存命中/网络新抓/ASR 缓存命中/转写完成）与无字幕出口（逆事务：清空 + `empty` + 原因）都必须经此收口，禁止手抄序列。事务带可选 runId 代次自检（M23 runId 协调）：调用方传入自己的抓取代次，写 state 前与 `fetchRunId` 比对，代次已被 URL 变化编排递增/新一轮抓取推进则抛 STALE_RUN 让位——旧视频字幕不得写进已重置的 state。递增单点在 URL 变化编排（`handleUrlChange` 感知 clip 签名变化处）同步先行，早于 reset 与新视频 refreshClip 的动态装载链；未传 runId（ASR 收尾路径，自有 isStale 视频键门控）不校验。
+副轨有**自己并列的**接受事务（`acceptSecondarySubtitle`，同文件同形：runId 自检先于首写 → 整组写 → 发通知）与**自己的**通知 kind（`secondary-subtitle-ready`，只驱动重渲）；两条事务不是一条——副轨事务的副作用集不含 `subtitleFetchState` / 无字幕原因 / 热评 / 派生内容，也不碰主轨 selected 三项，主轨事务的副作用集照旧不变。
+代码名：`subtitle/commit.js`（接受与无字幕出口的唯一入口；DOM 渲染回调由 fetcher 注入，保持静态图无环）/ `runId` 自检（`AcceptSubtitleArgs.runId` / `CommitNoSubtitleArgs.runId`）/ `acceptSecondarySubtitle`
+_Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 fetchRunId（须同步先行于装载链，否则新视频抓取可能被迟到的递增误杀）、把主副两条接受事务写成一条
 
 **原始字幕缓存**:
 按时间戳/章节切好的原始字幕段，可随取随用；仅在压缩摘要之外的细节追问时按需检索注入。宿主注记（arch-review-2026-09/05）：storage 真实宿主是 SW，offscreen（Map-Reduce/追问链）经 `segment-cache` 消息族读写——offscreen 侧唯一出站点 `ai/segment-cache-proxy.ts`，SW 端 `ai/segment-cache-handler.ts` 直调 segment-cache 单源（键位装配在 SW 完成）。写单元注记（段缓存写聚合 ticket 重构）：写路径是 run-scoped 写会话（`createSegmentCacheWriteSession`，一次编排运行一个、跨溢出重跑两轮共用），saveRaw 只入会话缓冲、不声明 per-op 成败（返回 void），随 saveSummary 合成 `save-summary-raw` 合并 op（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set，两族索引/manifest 打包一次 set）；会话收尾统一 close 落盘残留 raw（正常 done / 停止 abort / idle 超时 / 异常上抛都经编排收尾统一 close），port 断开 / offscreen 自关不 close、会话随文档销毁废弃。失败通道 = awaited saveSummary 的 `{ok:false}` + close 的 onWriteError（编排层去重后只提示一次）。出站点载荷按 SW 键位字段投影收窄（context 只带 bvid/cid/字幕轨三元组；load-stored-raw 另带 chapters 供命中段预过滤），整份 AiContext 的 subtitleBody 不再过线。

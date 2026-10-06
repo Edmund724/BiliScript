@@ -41,6 +41,7 @@ vi.mock("../../extension/ai/explain.js", () => ({
 }));
 
 let state: TestState;
+let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
 let reader: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
@@ -94,7 +95,9 @@ function flushAnimationFrames(maxRounds = 30) {
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
   explainIntent = await import("../../extension/reader/explain-intent.js");
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateModule = await import("../../extension/core/state.js");
+  state = stateModule.state as TestState;
+  clipState = stateModule.clipState;
   reader = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
@@ -276,6 +279,31 @@ describe("面板内解释卡片", () => {
     expect(tabBody("Subtitle").classList.contains("is-active")).toBe(true);
     expect(tabBody("Chat").classList.contains("is-active")).toBe(false);
     expect(explainIntent.peekPendingExplainIntent()).toBe(null);
+  });
+
+  // bilingual-subtitles/08 号票的回归锁：双语态下 `.biliscript-reading-text` 里还嵌着
+  // 副行 span（`.biliscript-reading-subtext`），而「选中所在整句」只指**主行**——
+  // 解释卡的引用不能把另一条轨的译文拼进来（06 执行期修的真实缺陷，`readMainLineText`）。
+  it("双语开：解释请求的整句只取主行，副行译文不进引用", async () => {
+    state.settings.bilingualSubtitles = true;
+    clipState.applySecondarySubtitle({
+      id: "sub-en",
+      url: "https://sub/en.json",
+      lang: "English",
+      body: [{ from: 10, to: 30, content: "TRANSLATED" }]
+    });
+    reader.renderReadingView();
+    // 条目 1 的两行都渲染出来（副行是真实译文，不是占位）
+    expect(subtitleItem(1).querySelector(".biliscript-reading-subtext")?.textContent).toBe("TRANSLATED");
+
+    selectInItem(1, "传递信息的工具");
+    explainBtn().click();
+    await vi.waitFor(() => expect(aiMock.explainSelection.mock.calls.length).toBeGreaterThan(0));
+
+    const args = aiMock.explainSelection.mock.calls[0][0] as { line: string; selection: string };
+    expect(args.line).toBe("我们习惯将其视为传递信息的工具");
+    expect(args.line).not.toContain("TRANSLATED");
+    expect(args.selection).toBe("传递信息的工具");
   });
 
   it("presetId 穿线：解析结果的 presetId 随 provider 原样进入解释请求（卡片层不重建 provider）", async () => {
