@@ -10,7 +10,10 @@ import {
   buildSubtitleInfoRequests,
   buildBiliApiError,
   mergeHotCommentsFromPayload,
+  subReplyMessages,
+  subReplyRootIds,
   type HotComment,
+  type SubReplyInput,
   type SubtitleInfoRequest
 } from "./bili-api-shared.js";
 import {
@@ -293,7 +296,31 @@ async function fetchSubtitleBodyJson<T>(transport: JsonTransport, url: string): 
   return Array.isArray((payload as { body?: unknown })?.body) ? (payload as { body: T[] }).body : [];
 }
 
-async function fetchHotCommentsJson(
+// 楼中楼续篇补抓（F3）：只为正文含时间戳行的顶层评论拉续篇（上限常数根，防
+// 异常评论区撑爆请求数），单条失败折成空续篇，不影响顶层评论。
+const MAX_SUB_REPLY_ROOTS = 5;
+const SUB_REPLY_PAGE_SIZE = 20;
+
+async function fetchSubReplyInputs(
+  transport: JsonTransport,
+  aid: number,
+  payload: unknown
+): Promise<SubReplyInput[]> {
+  const roots = subReplyRootIds(payload).slice(0, MAX_SUB_REPLY_ROOTS);
+  return Promise.all(
+    roots.map(async (root) => {
+      const url =
+        `https://api.bilibili.com/x/v2/reply/reply` +
+        `?oid=${aid}&type=1&root=${encodeURIComponent(String(root))}` +
+        `&ps=${SUB_REPLY_PAGE_SIZE}&pn=1`;
+      const subPayload = await transport(url).catch(() => null);
+      return { root, messages: subReplyMessages(subPayload) };
+    })
+  );
+}
+
+// 与 fetchSubtitleBundle 同款 transport 注入缝（测试直测，零真实 fetch）。
+export async function fetchHotCommentsJson(
   transport: JsonTransport,
   aid: number | string,
   count = 18
@@ -309,5 +336,7 @@ async function fetchHotCommentsJson(
   // 置顶评论只出现在 data.top_replies / data.upper.top，不在 data.replies（详见
   // mergeHotCommentsFromPayload 注释）：挑/合并且去重的纯逻辑下沉到 bili-api-shared，
   // 这里只保留「拿不到就降级为 []」的错误语义（catch 已把失败折成 null）。
-  return mergeHotCommentsFromPayload(payload, safeCount);
+  // 楼中楼续篇（置顶目录的第二段）经 subReplies 挂到顶层评论的 subMessages。
+  const subReplies = await fetchSubReplyInputs(transport, safeAid, payload);
+  return mergeHotCommentsFromPayload(payload, safeCount, subReplies);
 }

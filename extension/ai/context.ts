@@ -87,8 +87,12 @@ export function buildMessages({ context, userPrompt, history, systemPrompt, incl
   }
 
   if (Array.isArray(ctx.hotComments) && ctx.hotComments.length) {
+    // 展示侧每条截断到 500 字符（历史行为）：热评数据通道现保存全文供目录解析，
+    // 截断移到展示点；楼中楼续篇（subMessages）不进聊天展示，只进目录解析。
     const commentBlock = ctx.hotComments
-      .map(function (c: HotComment, i: number) { return `${i + 1}. ${c.uname || "匿名"}（赞 ${c.like || 0}）: ${c.message || ""}`; })
+      .map(function (c: HotComment, i: number) {
+        return `${i + 1}. ${c.uname || "匿名"}（赞 ${c.like || 0}）: ${(c.message || "").slice(0, 500)}`;
+      })
       .join("\n");
     sections.push(`以下是按热度排序的前 ${ctx.hotComments.length} 条热门评论：\n\n${commentBlock}`);
   }

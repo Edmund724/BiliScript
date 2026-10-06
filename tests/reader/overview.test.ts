@@ -586,6 +586,24 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
     expect(overviewBody().querySelectorAll(".biliscript-reading-ov-quote").length).toBe(0);
     expect(overviewText()).toContain("没有可用的金句");
   });
+
+  it("目录来源章节只留标题（summary 空串）：不渲染简介区块，金句照常", async () => {
+    seedClip({ chapters: [{ from: 100, title: "章一" }] });
+    runOverviewMock.mockResolvedValue({
+      chapters: [
+        { from: 100, to: 300, title: "评论区开场", summary: "" },
+        { from: 300, to: 600, title: "评论区正题", summary: "" }
+      ],
+      quotes: [{ from: 150, content: "金句照常渲染" }]
+    });
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(overviewText()).toContain("评论区开场");
+    expect(overviewText()).toContain("评论区正题");
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-desc").length).toBe(0);
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-quote").length).toBe(1);
+  });
 });
 
 describe("概览点击 seek（章节/金句跳播）与金句复制", () => {

@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  hotCommentsText,
   manuscriptChapterOutline,
   parseChapterOutline,
   resolveChapterSource
@@ -73,5 +74,38 @@ describe("parseChapterOutline 上限可参数化", () => {
   it("默认上限 100；显式 limit 生效", () => {
     expect(parseChapterOutline(lines)).toHaveLength(4);
     expect(parseChapterOutline(lines, 2)).toHaveLength(2);
+  });
+});
+
+// 楼中楼续篇并入（F4）：置顶目录的第二段是楼中楼，续篇正文挂在顶层评论的
+// subMessages 上，拼进目录解析文本；聊天展示只用 message（ai/context.ts）。
+describe("hotCommentsText 楼中楼续篇并入", () => {
+  const withSub = {
+    uname: "UP",
+    like: 520,
+    message: "00:00 开场\n05:12 正题",
+    subMessages: ["25:00 核心原则\n30:00 尾声"]
+  };
+
+  it("subMessages 续篇正文拼在顶层 message 之后", () => {
+    expect(hotCommentsText([withSub, { uname: "观众", like: 1, message: "讲得好" }])).toBe(
+      "00:00 开场\n05:12 正题\n25:00 核心原则\n30:00 尾声\n讲得好"
+    );
+  });
+
+  it("无 subMessages 的评论：文本与旧口径一致", () => {
+    expect(hotCommentsText([{ uname: "观众", like: 1, message: "讲得好" }])).toBe("讲得好");
+    expect(hotCommentsText([{ uname: "观众", like: 1, message: "讲得好", subMessages: [] }])).toBe("讲得好");
+  });
+
+  it("目录解析能识别续篇里的章节行（resolveChapterSource 全链）", () => {
+    const source = resolveChapterSource("普通简介，无时间轴", [withSub], []);
+    expect(source.kind).toBe("outline");
+    expect(source.chapters).toEqual([
+      { seconds: 0, title: "开场" },
+      { seconds: 5 * 60 + 12, title: "正题" },
+      { seconds: 25 * 60, title: "核心原则" },
+      { seconds: 30 * 60, title: "尾声" }
+    ]);
   });
 });

@@ -12,6 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 import { mergeHotCommentsFromPayload } from "../../extension/bilibili/bili-api-shared.js";
+import { hotCommentsText, parseChapterOutline } from "../../extension/shared/chapter-outline.js";
 
 // 置顶评论（UP 硅谷101 的时间轴目录），来自实跑样本
 const pinnedReply = {
@@ -123,5 +124,43 @@ describe("mergeHotCommentsFromPayload：置顶评论合并", () => {
     });
 
     expect(comments).toEqual([{ uname: "有效用户", like: 9, message: "有效评论" }]);
+  });
+});
+
+// 热评数据侧禁止截断（F1，2026-09-30 实跑回归）：置顶长评论是章节目录的载体，
+// 旧 normalizeHotComments 的 slice(0, 500) 把「25:00 核心原则…」拦腰切断、「30:00
+// 尾声」整行丢掉，概览分章因此断在 09:33。数据通道保存全文；聊天展示侧的
+// 500 字截断由 ai/context.ts 的评论块单独负责。
+describe("热评全文通道：不截断", () => {
+  // 9 行 × 53 字符 + 行间换行 = 485 字符：第 500 字符正好落在「25:00 核心原则…」的
+  // 标题中部，其后的「30:00 尾声」整行位于 500 之外——两个断点都能暴露截断。
+  const head = Array.from({ length: 9 }, (_, i) => `0${i}:00 小节${i}：${"甲".repeat(43)}`).join("\n");
+  const longMessage = `${head}\n25:00 核心原则：智能体设计的五个层次\n30:00 尾声`;
+
+  function longPinnedPayload() {
+    return {
+      data: {
+        replies: [],
+        top: null,
+        top_replies: [{ rpid: 1, member: { uname: "硅谷101" }, like: 520, content: { message: longMessage } }],
+        upper: { top: null }
+      }
+    };
+  }
+
+  it("超 500 字符的置顶目录评论：全文保留，不截断", () => {
+    const comments = mergeHotCommentsFromPayload(longPinnedPayload());
+
+    expect(longMessage.length).toBeGreaterThan(500);
+    expect(comments[0].message).toBe(longMessage);
+  });
+
+  it("目录解析拿到全文：500 字符之后的章节行（25:00/30:00）全部识别", () => {
+    const comments = mergeHotCommentsFromPayload(longPinnedPayload());
+    const chapters = parseChapterOutline(hotCommentsText(comments));
+
+    expect(chapters).toHaveLength(11);
+    expect(chapters[9]).toEqual({ seconds: 25 * 60, title: "核心原则：智能体设计的五个层次" });
+    expect(chapters[10]).toEqual({ seconds: 30 * 60, title: "尾声" });
   });
 });

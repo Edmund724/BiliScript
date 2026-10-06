@@ -7,7 +7,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ANALYSIS_SYSTEM_PROMPT,
-  GIVEN_CHAPTERS_SYSTEM_PROMPT
+  GIVEN_CHAPTERS_SYSTEM_PROMPT,
+  OUTLINE_QUOTES_SYSTEM_PROMPT
 } from "../../extension/ai/analysis.js";
 
 // 三个共享块的冻结副本（与 analysis-prompts.ts 的三个常量一一对应、逐字节一致）；
@@ -144,6 +145,42 @@ ${FROZEN_CHAPTER_OUTLINE_BLOCK}
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
 
+const FROZEN_OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录挑选金句。
+
+你需要给出：
+- 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
+- 不要产出章节，也不要写章节简介：用户消息里的「现成章节目录」就是最终的章节划分，标题与时间戳原样保留，你只负责金句。
+
+${FROZEN_ASR_CORRECTION_BLOCK}
+
+${FROZEN_TIMESTAMP_TEACHING_BLOCK}
+
+⚠️ 关于「前情回顾」⚠️
+长视频会切成多段分别处理。用户消息里如果出现「前情回顾」，那是上一段结尾的字幕，
+给你的唯一用途是理解本段开头在承接什么话题、把跨越切点的内容看完整。
+不要从前情回顾里挑金句——它已经由上一段负责。
+
+绝对不要：
+- 编造字幕里根本不存在的时间戳
+- 拿 0:00 当默认值——去字幕里找真实的那一行
+- 使用早于起始时刻、或晚于结束时刻的时间戳（前情回顾里的时间戳一律不能用）
+
+金句：找到包含该句的那一行，用那行的时间戳
+
+输出 JSON（不要加 markdown 代码围栏）：
+{
+  "keyQuotes": [
+    {"quote": "整理后的原话", "timestamp": "2:30", "timestampSeconds": 150}
+  ]
+}
+
+务必注意：
+- timestamp：字幕行开头的 [M:SS]（如 "2:30"）
+- timestampSeconds：换算成秒（2:30 = 2*60+30 = 150）
+- 除非内容真的从 [0:00] 开始，否则不要用 0:00 / 0
+- 每一个时间戳都必须在字幕里真实存在——去查！
+- 所有文字用简体中文输出`;
+
 describe("analysis 系统提示词冻结（合成前后逐字节一致）", () => {
   it("ANALYSIS_SYSTEM_PROMPT 与冻结副本逐字节一致", () => {
     expect(ANALYSIS_SYSTEM_PROMPT).toBe(FROZEN_ANALYSIS_SYSTEM_PROMPT);
@@ -151,5 +188,9 @@ describe("analysis 系统提示词冻结（合成前后逐字节一致）", () =
 
   it("GIVEN_CHAPTERS_SYSTEM_PROMPT 与冻结副本逐字节一致", () => {
     expect(GIVEN_CHAPTERS_SYSTEM_PROMPT).toBe(FROZEN_GIVEN_CHAPTERS_SYSTEM_PROMPT);
+  });
+
+  it("OUTLINE_QUOTES_SYSTEM_PROMPT 与冻结副本逐字节一致", () => {
+    expect(OUTLINE_QUOTES_SYSTEM_PROMPT).toBe(FROZEN_OUTLINE_QUOTES_SYSTEM_PROMPT);
   });
 });

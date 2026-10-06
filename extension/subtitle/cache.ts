@@ -223,7 +223,9 @@ export function buildSubtitleSignature({ lang, subtitleId, subtitleUrl, body, ch
   const basis = [
     // 版本位 v2：概览产物语义变了（给定章节路径会产出逐章 summary、无目录时章节不再
     // 恒空），旧 v1 键下的产物不再同构——升版让它们整体失效重生成，而不是被当成命中。
-    "v2",
+    // 版本位 v3：简介/评论时间轴来源的产物语义又变了（章节只留标题、不再逐章 summary），
+    // 旧 v2 键下带 AI 简介的产物不再同构，同样整体失效重生成。
+    "v3",
     sourceKey,
     String(lang ?? ""),
     String(count),

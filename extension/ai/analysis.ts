@@ -34,6 +34,7 @@ export {
 export {
   ANALYSIS_SYSTEM_PROMPT,
   GIVEN_CHAPTERS_SYSTEM_PROMPT,
+  OUTLINE_QUOTES_SYSTEM_PROMPT,
   buildAnalysisPrompt,
 } from "./analysis-prompts.js";
 // 目录解析工具住在 shared 叶子（reader 概览 tab 也要用）：这里再导出保持既有导入路径。

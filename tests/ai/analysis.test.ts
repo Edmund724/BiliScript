@@ -135,6 +135,8 @@ function buildCompletionFake(
     const system = input.messages[0]?.content || "";
     const user = input.messages.at(-1)?.content || "";
     const isGiven = system.includes("为给定的章节目录补写每章大意");
+    // 目录只留标题模式（简介/评论时间轴来源，F5）：模型只出金句，不产章节与简介。
+    const isQuotesOnly = system.includes("为给定的章节目录挑选金句");
     const rangeMatch = user.match(/第 (\d+) \/ (\d+) 段/);
     const index = rangeMatch ? Number(rangeMatch[1]) : 1;
     if (failedSegments.has(index)) {
@@ -148,7 +150,11 @@ function buildCompletionFake(
     // 时间戳落在段区间内：分段按 50k 预算切，每段 50 条（5s/条），段 i 起点 = (i-1)*250。
     // 末段只有 10 条（50s 跨度），章/金句时间戳取段起点 +5/+40 才能三段全部有效。
     const base = rangeMatch ? (Number(rangeMatch[1]) - 1) * 250 : 0;
-    const payload = isGiven
+    const payload = isQuotesOnly
+      ? {
+          keyQuotes: [{ quote: `金句${index}`, timestampSeconds: base + 10 }]
+        }
+      : isGiven
       ? {
           summary: `第 ${index} 段概述。`,
           chapters: catalogChapters(user).map((item) => ({
@@ -689,7 +695,7 @@ const MANUSCRIPT_CHAPTERS = [
 const COMMENT_TIMELINE = "时间轴来啦：\n00:00 评论区开场\n01:40 评论区正题\n04:20 评论区收尾";
 
 describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
-  it("同时有官方章节与评论时间轴：用时间轴标题与边界，官方章节让位", async () => {
+  it("同时有官方章节与评论时间轴：用时间轴标题与边界，章节只留标题（不写 AI 简介），金句照常", async () => {
     const { chatCompletion, calls } = buildCompletionFake();
     const result = await mod.runOverviewAnalysis(
       {
@@ -706,18 +712,52 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
     expect(chatCompletion).toHaveBeenCalledTimes(1);
     const system = calls[0].messages[0].content;
     const user = calls[0].messages.at(-1)!.content;
-    expect(system).toContain("为给定的章节目录补写每章大意");
+    expect(system).toContain("为给定的章节目录挑选金句");
+    expect(system).not.toContain("为给定的章节目录补写每章大意");
     expect(system).not.toContain("章节数量由你判断");
     expect(user).toContain("现成章节目录（来自视频章节/简介/评论，共 3 章）：");
     expect(user).toContain("0:00 评论区开场");
     expect(user).toContain("4:20 评论区收尾");
+    expect(user).toContain("不要为章节写简介");
     expect(user).not.toContain("官方开场");
-    // 边界 = 下一条时间戳，末章 to = 视频时长；简介来自模型
+    // 边界 = 下一条时间戳，末章 to = 视频时长；标题照抄目录、简介一律空（F5），金句照常
     expect(result.chapters).toEqual([
-      { from: 0, to: 100, title: "评论区开场", summary: "摘要0" },
-      { from: 100, to: 260, title: "评论区正题", summary: "摘要100" },
-      { from: 260, to: 300, title: "评论区收尾", summary: "摘要260" }
+      { from: 0, to: 100, title: "评论区开场", summary: "" },
+      { from: 100, to: 260, title: "评论区正题", summary: "" },
+      { from: 260, to: 300, title: "评论区收尾", summary: "" }
     ]);
+    expect(result.quotes.map((q) => q.content)).toEqual(["金句1"]);
+  });
+
+  it("评论/简介时间轴来源 + 模型不听话硬写简介（F7）：简介一律丢弃，标题照抄目录", async () => {
+    const { chatCompletion } = buildCompletionFake({
+      parts: {
+        1: {
+          chapters: [
+            { title: "模型自拟标题甲", timestampSeconds: 0, summary: "不该出现的简介甲" },
+            { title: "模型自拟标题乙", timestampSeconds: 100, summary: "不该出现的简介乙" }
+          ],
+          keyQuotes: [{ quote: "金句1", timestampSeconds: 10 }]
+        }
+      }
+    });
+    const result = await mod.runOverviewAnalysis(
+      {
+        provider: makeProvider(),
+        context: makeContext({
+          subtitleBody: makeSubtitleBody(50000),
+          hotComments: [{ uname: "UP", like: 999, message: COMMENT_TIMELINE }]
+        })
+      },
+      { chatCompletion }
+    );
+
+    expect(result.chapters).toEqual([
+      { from: 0, to: 100, title: "评论区开场", summary: "" },
+      { from: 100, to: 260, title: "评论区正题", summary: "" },
+      { from: 260, to: 300, title: "评论区收尾", summary: "" }
+    ]);
+    expect(result.chapters.map((item) => item.summary).join("")).not.toContain("简介");
     expect(result.quotes.map((q) => q.content)).toEqual(["金句1"]);
   });
 
@@ -818,8 +858,8 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
     const catalogBlock = user.split("现成章节目录（来自视频章节/简介/评论，共")[1].split("按系统提示词的要求")[0];
     expect(catalogBlock).not.toContain("越界章");
     expect(result.chapters).toEqual([
-      { from: 0, to: 100, title: "甲", summary: "摘要0" },
-      { from: 100, to: 300, title: "乙", summary: "摘要100" }
+      { from: 0, to: 100, title: "甲", summary: "" },
+      { from: 100, to: 300, title: "乙", summary: "" }
     ]);
   });
 

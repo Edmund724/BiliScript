@@ -35,6 +35,17 @@ function parseOutlineClock(text: string): number {
 }
 
 /**
+ * 正文里是否含「时间戳 + 标题」的章节行（与 parseChapterOutline 同一识别口径）。
+ * 消费方：热评楼中楼补抓（gateway）只为含章节行的顶层评论拉续篇——精准覆盖
+ * 「置顶目录的第二段发在楼中楼里」的场景，其余评论零请求。
+ */
+export function hasOutlineTimestampLine(text: unknown): boolean {
+  return String(text ?? "")
+    .split(/\r?\n/)
+    .some((line) => OUTLINE_LINE_RE.test(line));
+}
+
+/**
  * 从简介/评论文本提取「时间戳目录」：形如「00:00 开场 / 03:25 安装」的行。
  * 至少 2 条才认定为现成章节划分（单条时间戳行不构成划分）；重复秒数去重、
  * 按秒排序；默认上限 MAX_OUTLINE_CHAPTERS。
@@ -59,11 +70,22 @@ export function parseChapterOutline(text: unknown, limit: number = MAX_OUTLINE_C
   return out.slice(0, Math.max(0, Math.floor(Number(limit) || 0)));
 }
 
-/** 热门评论（HotComment[]）→ 可解析文本：只取 message 正文，一行一条。 */
+/**
+ * 热门评论（HotComment[]）→ 可解析文本：message 正文 + 楼中楼续篇（subMessages）
+ * 依次拼接，一行一条。续篇是置顶目录评论发在楼中楼里的第二段目录，只进目录解析；
+ * 聊天展示仍只用 message（ai/context.ts 的评论块）。
+ */
 export function hotCommentsText(hotComments: unknown): string {
   if (!Array.isArray(hotComments)) return "";
   return hotComments
-    .map((item) => String((item as { message?: unknown })?.message ?? ""))
+    .map((item) => {
+      const message = String((item as { message?: unknown })?.message ?? "");
+      const subs = (item as { subMessages?: unknown })?.subMessages;
+      const subText = Array.isArray(subs)
+        ? subs.map((sub) => String((sub as unknown) ?? "")).filter(Boolean).join("\n")
+        : "";
+      return subText ? `${message}\n${subText}` : message;
+    })
     .filter(Boolean)
     .join("\n");
 }

@@ -36,6 +36,7 @@ import {
 import {
   ANALYSIS_SYSTEM_PROMPT,
   GIVEN_CHAPTERS_SYSTEM_PROMPT,
+  OUTLINE_QUOTES_SYSTEM_PROMPT,
   buildAnalysisPrompt,
   estimateOutputTokens,
   tailItems,
@@ -202,7 +203,14 @@ interface SegmentOutcome {
 // 给定章节 → 产物章节（概览分章票 03 决议）：标题与边界一律以给定清单为准，模型
 // 只提供每章 summary——按 from 最近邻一对一 graft（每个模型章节最多被认领一次），
 // 对不上的章留空串。时间轴目录没有 to，边界取下一章 from；末章回落 endSeconds。
-function applyGivenChapters(given: OutlineChapter[], modelChapters: AnalysisChapter[], endSeconds: number): AnalysisChapter[] {
+// titlesOnly（简介/评论时间轴来源，用户拍板 2026-09-30）：章节只留标题，summary
+// 一律空串——即使模型不听话硬写简介也丢弃（F7）。
+function applyGivenChapters(
+  given: OutlineChapter[],
+  modelChapters: AnalysisChapter[],
+  endSeconds: number,
+  titlesOnly = false
+): AnalysisChapter[] {
   const remaining = (Array.isArray(modelChapters) ? modelChapters : []).slice();
   const out: AnalysisChapter[] = [];
   for (let i = 0; i < given.length; i += 1) {
@@ -219,7 +227,7 @@ function applyGivenChapters(given: OutlineChapter[], modelChapters: AnalysisChap
       from,
       to,
       title: String(given[i]?.title ?? "").trim().slice(0, 300),
-      summary: takeNearestSummary(remaining, from)
+      summary: titlesOnly ? "" : takeNearestSummary(remaining, from)
     });
   }
   return out.slice(0, MAX_ANALYSIS_CHAPTERS);
@@ -530,13 +538,21 @@ async function executeOverviewRun({
   const endSeconds = resolveEndSeconds(ctx, body);
   const givenChapters = chapterSource.chapters.filter((chapter) => chapter.seconds <= endSeconds);
   const hasGivenChapters = givenChapters.length > 0;
-  const systemPrompt = hasGivenChapters ? GIVEN_CHAPTERS_SYSTEM_PROMPT : ANALYSIS_SYSTEM_PROMPT;
+  // 简介/评论时间轴目录（outline）只留标题、不写 AI 简介（用户拍板 2026-09-30）：
+  // 模型只挑金句；官方章节（manuscript）仍逐章补简介。
+  const titlesOnly = chapterSource.kind === "outline";
+  const systemPrompt = !hasGivenChapters
+    ? ANALYSIS_SYSTEM_PROMPT
+    : titlesOnly
+      ? OUTLINE_QUOTES_SYSTEM_PROMPT
+      : GIVEN_CHAPTERS_SYSTEM_PROMPT;
 
   const promptVars = {
     title: ctx.title,
     ownerName: ctx.author,
     videoDescription: ctx.videoDescription,
-    chapterOutline: givenChapters
+    chapterOutline: givenChapters,
+    titlesOnly
   };
   // 分段计划：只有官方章节进切段对齐——平台章节由 UP 维护、间隔以分钟计，对齐能让
   // 每章字幕落在同一段里；简介/评论时间轴可能每几十秒一条（切段会碎成多条小请求，
@@ -601,7 +617,10 @@ async function executeOverviewRun({
       onTokenProgress: buildTokenProgressReporter(onProgress)
     });
     const analysis = hasGivenChapters
-      ? { ...part, chapters: applyGivenChapters(givenChapters, part.chapters, built.timing.maxTimestampSeconds) }
+      ? {
+          ...part,
+          chapters: applyGivenChapters(givenChapters, part.chapters, built.timing.maxTimestampSeconds, titlesOnly)
+        }
       : part;
     if (!analysis.chapters.length && !analysis.quotes.length) {
       throw makeEmptyAnalysisError();
@@ -695,7 +714,7 @@ async function executeOverviewRun({
   const merged = mergeAnalyses(parts);
   // 给定章节：合并后的章节仍以给定清单为准（各段只贡献 summary），边界不随段漂移。
   const analysis: OverviewAnalysis = hasGivenChapters
-    ? { ...merged, chapters: applyGivenChapters(givenChapters, merged.chapters, endSeconds) }
+    ? { ...merged, chapters: applyGivenChapters(givenChapters, merged.chapters, endSeconds, titlesOnly) }
     : merged;
   if (!analysis.chapters.length && !analysis.quotes.length) {
     throw makeEmptyAnalysisError();

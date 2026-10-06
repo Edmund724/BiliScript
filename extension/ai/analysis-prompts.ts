@@ -160,6 +160,46 @@ ${CHAPTER_OUTLINE_BLOCK}
 - 每一个时间戳都必须在字幕里真实存在——去查！
 - 所有文字用简体中文输出`;
 
+// 简介/评论时间轴目录（outline 来源）的系统提示词（用户拍板 2026-09-30）：目录章节
+// 只留标题、不写 AI 简介——模型的唯一活儿是挑金句。与 GIVEN_CHAPTERS 的差别是
+// 「视频内官方章节」仍补逐章简介（manuscript 来源走那份提示词）。
+// 导出仅测试面（冻结断言同上）。
+export const OUTLINE_QUOTES_SYSTEM_PROMPT = `你是我的内容助理。我在看一个 B 站视频，请阅读下面的字幕，为给定的章节目录挑选金句。
+
+你需要给出：
+- 金句，附上它们在字幕中的时间戳。数量按时长掌握：每小时的字幕约 3-5 条，不足 1 小时按 1 小时算。
+- 不要产出章节，也不要写章节简介：用户消息里的「现成章节目录」就是最终的章节划分，标题与时间戳原样保留，你只负责金句。
+
+${ASR_CORRECTION_BLOCK}
+
+${TIMESTAMP_TEACHING_BLOCK}
+
+⚠️ 关于「前情回顾」⚠️
+长视频会切成多段分别处理。用户消息里如果出现「前情回顾」，那是上一段结尾的字幕，
+给你的唯一用途是理解本段开头在承接什么话题、把跨越切点的内容看完整。
+不要从前情回顾里挑金句——它已经由上一段负责。
+
+绝对不要：
+- 编造字幕里根本不存在的时间戳
+- 拿 0:00 当默认值——去字幕里找真实的那一行
+- 使用早于起始时刻、或晚于结束时刻的时间戳（前情回顾里的时间戳一律不能用）
+
+金句：找到包含该句的那一行，用那行的时间戳
+
+输出 JSON（不要加 markdown 代码围栏）：
+{
+  "keyQuotes": [
+    {"quote": "整理后的原话", "timestamp": "2:30", "timestampSeconds": 150}
+  ]
+}
+
+务必注意：
+- timestamp：字幕行开头的 [M:SS]（如 "2:30"）
+- timestampSeconds：换算成秒（2:30 = 2*60+30 = 150）
+- 除非内容真的从 [0:00] 开始，否则不要用 0:00 / 0
+- 每一个时间戳都必须在字幕里真实存在——去查！
+- 所有文字用简体中文输出`;
+
 
 // 用户提示词模板：整搬参考仓库 prompts/analysis.md「用户提示词」代码块。
 // {rangeNote} / {contextNote} 不分块时为空串（与参考实现一致，留空行）。
@@ -275,9 +315,10 @@ export function estimateOutputTokens(
 /**
  * 现成章节目录 → 用户提示词注入块。有空目录返回空串（模板行变空行），
  * 有目录时给出「边界照抄、只补大意」的硬约束（措辞与系统提示词的
- * 「现成章节目录」节呼应）。
+ * 「现成章节目录」节呼应）。titlesOnly（简介/评论时间轴来源）时指令换成
+ * 「只保留标题、不写简介」，与 OUTLINE_QUOTES_SYSTEM_PROMPT 呼应。
  */
-function buildChapterOutlineNote(outline: OutlineChapter[] | undefined): string {
+function buildChapterOutlineNote(outline: OutlineChapter[] | undefined, titlesOnly?: boolean): string {
   if (!Array.isArray(outline) || outline.length === 0) {
     return "";
   }
@@ -287,7 +328,9 @@ function buildChapterOutlineNote(outline: OutlineChapter[] | undefined): string 
   return (
     `\n现成章节目录（来自视频章节/简介/评论，共 ${outline.length} 章）：\n` +
     `${lines.join("\n")}\n` +
-    `按系统提示词的要求：章节边界与标题必须完全照抄这份目录，不要增删或改动时间戳，只需为每章补写 summary。` +
+    (titlesOnly
+      ? `按系统提示词的要求：这份目录就是最终章节，边界与标题原样保留；不要为章节写简介，只需挑选金句。`
+      : `按系统提示词的要求：章节边界与标题必须完全照抄这份目录，不要增删或改动时间戳，只需为每章补写 summary。`) +
     `后段门槛不适用，最后一章以目录为准。\n`
   );
 }
@@ -309,6 +352,11 @@ interface BuildAnalysisPromptInput {
   totalSegments?: unknown;
   /** 给定章节目录（简介/评论时间轴或 B 站官方章节）；非空时章节照抄目录、只补 summary。 */
   chapterOutline?: OutlineChapter[];
+  /**
+   * 目录章节只保留标题（简介/评论时间轴来源）：不补每章 summary，模型只挑金句。
+   * 与 OUTLINE_QUOTES_SYSTEM_PROMPT 同拍板；官方章节（manuscript）仍补简介。
+   */
+  titlesOnly?: boolean;
 }
 
 export interface BuiltAnalysisPrompt {
@@ -373,7 +421,7 @@ function buildAnalysisUserPrompt(input: BuildAnalysisPromptInput = {}): BuiltAna
       ? "后段门槛：不适用——已采用现成章节目录，最后一章以目录为准。"
       : `后段门槛：最后一个章节的时间戳必须晚于 ${timing.lateThreshold}。`,
     videoDescription: String(input.videoDescription ?? "").trim() || "（无简介）",
-    chapterOutlineNote: buildChapterOutlineNote(input.chapterOutline),
+    chapterOutlineNote: buildChapterOutlineNote(input.chapterOutline, input.titlesOnly),
     contextNote: buildContextNote(input.contextItems),
     transcriptText
   });
