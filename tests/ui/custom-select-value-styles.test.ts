@@ -237,3 +237,67 @@ describe("值区诊断串（无表 → 有表 的缺口形态）", () => {
     expect(valueCss(value)).toBe("0px|hidden|ellipsis|nowrap");
   });
 });
+
+// 弹层横向滚动条（2026-10-06 用户报告：选轨浮层底部一条左右滚动条）。
+//
+// 先列失败方式，再据此写断言：
+//   G1 选项行盒子比弹层内容盒宽：组件表从不声明 box-sizing（宿主页的
+//      `button { box-sizing }` 只盖到 trigger），content-box 下 `width: 100%`
+//      量的是内容盒，再叠左右 padding 就溢出一整个 padding 宽——真机实测选轨
+//      弹层 clientWidth 132 / scrollWidth 152，差值恰是 4px 10px 的两倍。
+//   G2 靠删 padding 来消溢出：省略号区域随之变形（10 号票定的度量是 4px 10px），
+//      故 padding 必须原样在场。
+//   G3 弹层横向可滚：overflow-y 非 visible 会把 overflow-x 的 visible 计算成
+//      auto，只要还有 1px 溢出（亚像素 / 页面缩放）就重新长出滚动条；本组件
+//      没有合法的横向滚动内容，横轴必须显式关掉。
+//
+// jsdom 说明：无布局引擎，宽度恒 0（像素层由真机 A/B 实测核验）；overflow-x
+// longhand 在 jsdom 读作 'visible'（它只实现 overflow 简写），故横轴按规则源核验，
+// box-sizing 两者都核（computed 采信注入的 style 元素）。
+describe("弹层横向溢出（选项行盒子宽于弹层内容盒）", () => {
+  const markup =
+    '<select id="trackSelect" aria-label="字幕语言"><option value="ai-zh">中文</option>' +
+    '<option value="asr">自配平台转写（中文）</option></select>';
+
+  it("computed：选项行 box-sizing 为 border-box（width: 100% 含 padding，不再溢出）", async () => {
+    injectComponentStyles();
+    const select = mountSelect(markup, "trackSelect");
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(select);
+
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    const option = wrapper.querySelector<HTMLElement>(".custom-select-option")!;
+    const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    expect(window.getComputedStyle(option).boxSizing).toBe("border-box");
+    // 反证：弹层自身仍是 content-box——根因在选项行与弹层内容盒的宽度关系上，
+    // 不是在弹层自己的盒子模型上（改弹层的 box-sizing 只会把 max-width 度量挪走）
+    expect(window.getComputedStyle(dropdown).boxSizing).toBe("content-box");
+  });
+
+  it("源码守卫：宽度由 box-sizing 收口、padding 与行高原样保留（不靠删 padding 消溢出）", () => {
+    const css = readFileSync(join(process.cwd(), CUSTOM_SELECT_CSS), "utf8");
+    const optionBlock = css.match(/#biliscript-reading-view \.custom-select-option\s*\{[^}]*\}/);
+    expect(optionBlock, ".custom-select-option 规则块未找到").not.toBeNull();
+    expect(optionBlock![0]).toMatch(/box-sizing:\s*border-box/);
+    expect(optionBlock![0]).toMatch(/width:\s*100%/);
+    expect(optionBlock![0], "选项行左右 padding 是 10 号票定的度量，不得为消溢出而改").toMatch(
+      /padding:\s*4px 10px/
+    );
+    // border-box 下 min-height 量边框盒：38 = 内容 30 + 上下 padding 8，即改前真机
+    // 渲染出来的行高（模型弹层同为内容 30 + padding 8）。照抄 30 会把每行压矮 8px，
+    // 与模型弹层分叉——两处渲染后的行高必须都是 38px。
+    expect(optionBlock![0], "min-height 必须记边框盒数（内容 30 + 上下 padding 8 = 38）").toMatch(
+      /min-height:\s*38px/
+    );
+  });
+
+  it("源码守卫：弹层横轴显式关掉滚动（overflow-x: hidden），纵轴仍可滚", () => {
+    const css = readFileSync(join(process.cwd(), CUSTOM_SELECT_CSS), "utf8");
+    const dropdownBlock = css.match(/#biliscript-reading-view \.custom-select-dropdown\s*\{[^}]*\}/);
+    expect(dropdownBlock, ".custom-select-dropdown 规则块未找到").not.toBeNull();
+    expect(dropdownBlock![0]).toMatch(/overflow-x:\s*hidden/);
+    expect(dropdownBlock![0], "纵轴滚动不能一起关掉：轨道多的视频要靠它").toMatch(
+      /overflow-y:\s*auto/
+    );
+  });
+});

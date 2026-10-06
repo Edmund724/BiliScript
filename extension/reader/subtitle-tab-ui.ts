@@ -125,7 +125,8 @@ export function buildSubtitleTabBodyHtml(): string {
 // 六态（03 号票裁定，共用同一个控件状态机，不各写一套显示分支）：
 //   default       有轨 → 选项 = clip.subtitles，trigger = 当前轨裸语言名；
 //   open          展开浮层 = 同一批选项（组件自持，本模块不额外分支）；
-//   empty         无轨且非转写 → 哨兵「暂无字幕」+ 禁用；
+//   empty         无轨且非转写 → 哨兵 + 禁用（哨兵文案按 fetchState 取值：
+//                 "loading" → 「抓取中…」，否则 → 「暂无字幕」，见下方常量）；
 //   transcribing  转写进行中 → 哨兵「转写中…」+ 禁用；
 //   busy          切轨请求在飞 → trigger 乐观显示目标轨名，disabled + aria-busy，
 //                 **列表保留旧轨**（正文也是旧轨，等接受事务的 subtitle-ready
@@ -137,6 +138,13 @@ export function buildSubtitleTabBodyHtml(): string {
 const SUBTITLE_TRACK_SENTINEL_VALUE = "";
 const SUBTITLE_TRACK_EMPTY_TEXT = "暂无字幕";
 const SUBTITLE_TRACK_TRANSCRIBING_TEXT = "转写中…";
+// 抓取窗口的哨兵（2026-10-06 用户报告：切视频那一瞬间控件闪一下「暂无字幕」）：
+// 抓取中 clip.subtitles 必然为空（切视频先 reset 清空、结果到手才写回），此时说
+// 「暂无字幕」是断言了尚不知道的事。信号用既有的 subtitleFetchState === "loading"
+// ——列表空态占位同一判据（subtitle/core.ts 的 getReadingSubtitlePlaceholderText
+// 在同一相位出「正在加载字幕...」）。抓取全程都在 loading 态下（refreshClip 一次
+// 抓取只有一个 loading 窗口），无需新事件。
+const SUBTITLE_TRACK_LOADING_TEXT = "抓取中…";
 
 // trigger 的可访问字段名（裸语言名的字段名走 aria-label，02 号票 Q19）：
 // select 上的 aria-label 是组件拼 trigger 可访问名的第三条来路（4508233）。
@@ -172,13 +180,23 @@ export function renderReadingSubtitleTrackPicker(): void {
   const segmented = tracks.length > 0;
   // 三态（empty / transcribing / busy）共用同一条禁用判据；busy 另有 aria-busy。
   const transcribing = isReaderTranscribing();
+  // 抓取中（切视频/刷新抓取的空窗）：判据是既有的 fetchState 相位，不新造信号。
+  // 取值优先级 **转写中 > 抓取中 > 暂无字幕**，顺序不可换——ASR 转写期间
+  // subtitleFetchState 仍是 "loading"（无字幕出口的逆事务 commitNoSubtitle 要等
+  // maybeRunAsrFallback 走完才落 "empty"，见 subtitle/fetcher.ts 的 finishNoSubtitle），
+  // 把 loading 判在转写之前，转写中态会被写成「抓取中…」，与面板横幅两说。
+  const loading = state.clip.subtitleFetchState === "loading";
   const disabled = !segmented || transcribing;
   const marked = shouldMarkAiSubtitleTracks(tracks);
 
   if (!segmented) {
     // 哨兵选项（10 号票 §9c）：组件在「没有选项」时 trigger 是空按钮，且
-    // 「暂无字幕」「转写中…」必须由调用侧塞成选项才显示得出来。
-    const sentinel = transcribing ? SUBTITLE_TRACK_TRANSCRIBING_TEXT : SUBTITLE_TRACK_EMPTY_TEXT;
+    // 「暂无字幕」「转写中…」「抓取中…」必须由调用侧塞成选项才显示得出来。
+    const sentinel = transcribing
+      ? SUBTITLE_TRACK_TRANSCRIBING_TEXT
+      : loading
+        ? SUBTITLE_TRACK_LOADING_TEXT
+        : SUBTITLE_TRACK_EMPTY_TEXT;
     select.innerHTML = `<option value="${SUBTITLE_TRACK_SENTINEL_VALUE}">${escapeHtml(sentinel)}</option>`;
   } else {
     select.innerHTML = tracks

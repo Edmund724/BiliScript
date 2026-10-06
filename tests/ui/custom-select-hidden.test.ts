@@ -134,7 +134,9 @@ describe("组件表（extension/entry/styles/custom-select.css，2026-10 从设�
     // 度量：弹层卡片 / trigger / 选项 / 包装器 / 箭头
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-dropdown\s*\{[^}]*max-width:\s*260px/);
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-trigger\s*\{[^}]*height:\s*32px/);
-    expect(css).toMatch(/#biliscript-reading-view \.custom-select-option\s*\{[^}]*min-height:\s*30px/);
+    // 选项行行高 38px（2026-10-06 起按 border-box 记数：内容 30 + 上下 padding 8，
+    // 即改前 content-box 下真机渲染出来的行高；理由见 custom-select.css 该规则块注释）
+    expect(css).toMatch(/#biliscript-reading-view \.custom-select-option\s*\{[^}]*min-height:\s*38px/);
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-wrapper\s*\{[^}]*position:\s*relative/);
     expect(css).toMatch(/#biliscript-reading-view \.custom-select-arrow svg\s*\{[^}]*stroke-width:\s*3/);
   });

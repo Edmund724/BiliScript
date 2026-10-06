@@ -504,6 +504,50 @@ describe("08 选轨控件：六态（03 号票 Q13–Q15 状态机）", () => {
     expect(listText()).toContain("当前视频无字幕");
   });
 
+  it("loading：抓取窗口（subtitleFetchState=loading）→ 哨兵「抓取中…」+ 禁用，不说「暂无字幕」", () => {
+    // 切视频/刷新抓取路径：reset 清空轨道 → refreshClip 先置 loading 再抓（用户
+    // 2026-10-06 实测：这段窗口控件原本写着「暂无字幕」，是断言了尚不知道的事）。
+    loadTracks([], "");
+    state.clip.setSubtitleFetchState("loading");
+    shell.renderReadingView();
+
+    expect(optionTexts()).toEqual(["抓取中…"]);
+    expect(triggerText()).toBe("抓取中…");
+    expect(trigger().disabled).toBe(true);
+  });
+
+  it("loading 优先级低于转写中：ASR 转写期间 fetchState 仍是 loading，哨兵必须是「转写中…」", async () => {
+    // 真实相位关系（subtitle/fetcher.ts 的 finishNoSubtitle）：无字幕出口的逆事务
+    // commitNoSubtitle 要等 maybeRunAsrFallback 走完才把 fetchState 落 "empty"，整段
+    // 转写期间它一直是 refreshClip 置的 "loading"。判据顺序写反（loading 先于转写）
+    // 就会在转写期间把控件写成「抓取中…」，与面板横幅两说——这条锁的就是顺序。
+    loadTracks([], "");
+    state.clip.setSubtitleFetchState("loading");
+    // 相位订阅只对开着的视图收敛（与横幅同一条判据）
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    expect(triggerText()).toBe("抓取中…");
+
+    const statusBus = await import("../../extension/shared/subtitle-status-bus.js");
+    statusBus.publishSubtitleStatusPhase("asr-transcribing");
+
+    expect(optionTexts()).toEqual(["转写中…"]);
+    expect(triggerText()).toBe("转写中…");
+    expect(trigger().disabled).toBe(true);
+  });
+
+  it("loading 不改写已有列表：抓取中轨道仍在时，哨兵梯子不许顶掉非空列表", () => {
+    // 同视频「刷新抓取」不清轨道（resetClipState 只在 URL 变化路径跑），此时
+    // clip.subtitles 仍是上一轮的结果——哨兵梯子只服务空列表那一支。
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    state.clip.setSubtitleFetchState("loading");
+    shell.renderReadingView();
+
+    expect(optionTexts()).toEqual(["中文", "English", "日本語", "Español", "العربية", "Português", "ภาษาไทย", "Bahasa Indonesia"]);
+    expect(triggerText()).toBe("中文");
+    expect(trigger().disabled).toBe(false);
+  });
+
   it("transcribing：转写进行中 → 哨兵「转写中…」+ 禁用，与横幅同相（相位订阅驱动）", async () => {
     loadTracks([], "");
     // 相位订阅只对开着的视图收敛（与横幅同一条判据）；这里开视图即为了验证

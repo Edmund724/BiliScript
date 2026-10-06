@@ -31,6 +31,11 @@
   z-index: 30;
   max-height: 320px;
   overflow-y: auto;
+  /* 弹层只做纵向滚动（2026-10-06 实测补）：overflow-y 非 visible 会把 overflow-x 的
+   * visible 计算成 auto，横向溢出因此在卡片底部印出一条横向滚动条。本组件的横向溢出
+   * 一律由选项行自己的省略号兜住（见下方 .custom-select-option），没有合法的横向滚动
+   * 内容；显式写 hidden 后，亚像素 / 页面缩放引起的 1px 残留也不再长出滚动条。 */
+  overflow-x: hidden;
   padding: 6px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 12px;
@@ -53,8 +58,24 @@
  * 的阿拉伯语行，left 让 RTL 行也靠左；start 随行方向解析（LTR 行仍靠左，外观
  * 不变），RTL 行靠右。 */
 #biliscript-reading-view .custom-select-option {
+  /* 横向溢出的根因（2026-10-06 实测）：本文件的弹层与选项行都是 content-box（组件表
+   * 从不声明 box-sizing，宿主页给 button 声明的 box-sizing 只盖到 trigger）。content-box
+   * 下 `width: 100%` 量的是**内容盒**，再叠左右 padding 4px 10px 就比弹层内容盒宽 20px
+   * ——实测选轨弹层：dropdown clientWidth 132 / scrollWidth 152，差值恰是选项行 padding，
+   * 表现为卡片底部一条横向滚动条（同 .biliscript-reading-subtitle 的 border-box 教训，
+   * reader.css:425）。border-box 让选项行严格等于弹层内容盒宽，省略号成为唯一裁切路径；
+   * 弹层内容盒（= 最长选项名的自然宽 + 本行 padding）与文字宽度都逐像素不变，变的只是
+   * 卡片的边框盒——滚动条不再在场，它原先占的那条宽度随之消失（真机同页 A/B，8 项样本：
+   * 170.74 → 153.85，差值 16.89 恰是横向滚动条宽；行高 38 与文字宽 120.07 两边相同）。
+   * 设置宿主里的下拉由 min-width: 100% 定宽，A/B 两边边框盒都是 483.56，不受影响。
+   *
+   * min-height 随之从 30 抬到 38（内容 30 + 上下 padding 8）：border-box 下 min-height
+   * 量的是边框盒，照抄 30 会把每行压矮 8px（真机实测 38 → 30），与模型弹层
+   *（reader-settings-rows.css 的 .ai-provider-model-option，同为内容 30 + padding 8）
+   * 的行高不再一致。两处渲染后的行高都是 38px，只是本行按边框盒记数。 */
+  box-sizing: border-box;
   width: 100%;
-  min-height: 30px;
+  min-height: 38px;
   border: 0;
   border-radius: 8px;
   background: transparent;
