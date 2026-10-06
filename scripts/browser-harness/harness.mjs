@@ -190,6 +190,8 @@ export async function launchBrowser({
   distDir = DEFAULT_DIST,
   edgePath,
   headless = true,
+  muted = true,
+  autoplay = false,
   viewport = DEFAULT_VIEWPORT,
   extraArgs = [],
   profilePrefix = "biliscript-harness-"
@@ -201,6 +203,14 @@ export async function launchBrowser({
   const profileDir = await mkdtemp(path.join(os.tmpdir(), profilePrefix));
   const args = [
     ...(headless ? ["--headless=new"] : []),
+    // 无头实例没有窗口也没有标签静音入口：出声之后只能杀进程。扩展自己的
+    // seekReadingTarget 会 video.play()（阅读视图点时间戳 = 暂停即播放），
+    // B 站页面本身也可能自动播放，所以默认静音。要真声音传 muted: false。
+    ...(muted ? ["--mute-audio"] : []),
+    // 新 headless 是「真 Chrome」，默认要用户手势：不打招呼的话 video.play() 抛
+    // NotAllowedError、AudioContext 停在 suspended。默认不改这个策略（那是产品行为），
+    // 需要「像用户已经点过一下」的场景显式 autoplay: true。
+    ...(autoplay ? ["--autoplay-policy=no-user-gesture-required"] : []),
     "--disable-gpu",
     "--no-first-run",
     "--no-default-browser-check",
@@ -213,9 +223,11 @@ export async function launchBrowser({
     "about:blank"
   ];
   const exe = resolveEdgePath(edgePath);
-  log(`启动 ${headless ? "headless " : ""}Edge：port=${port} profile=${profileDir}`);
+  log(
+    `启动 ${headless ? "headless " : ""}Edge（${muted ? "静音" : "未静音"}${autoplay ? " / 允许自动播放" : ""}）：port=${port} profile=${profileDir}`
+  );
   const child = spawn(exe, args, { detached: false, stdio: ["ignore", "pipe", "pipe"] });
-  const browser = { child, pid: child.pid, port, profileDir, version: null, args };
+  const browser = { child, pid: child.pid, port, profileDir, version: null, args, muted, autoplay };
   child.stderr.on("data", (d) => {
     const s = String(d).trim();
     if (s && !/DevTools listening|GCM|Registration response|voice_transcription/i.test(s)) log(`[edge] ${s.slice(0, 200)}`);
@@ -333,22 +345,46 @@ export async function attachExtensionWorker(pageCdp, browser, { distDir = DEFAUL
   return { cdp: pageCdp, sessionId: attached.sessionId, targetId: target.targetId, url: target.url, via: "attachToTarget", suffix };
 }
 
-// SW 侧求值句柄：sessions 由 createWorkerSession 统一管重连。
+// SW 侧求值句柄：createWorkerSession 统一管连接与重连。
 export function createWorkerSession({ pageCdp, browser, distDir = DEFAULT_DIST, onReconnect } = {}) {
   let handle = null;
 
+  function dropHandle() {
+    try {
+      handle?.cdp?.close?.();
+    } catch {}
+    handle = null;
+  }
+
+  // 连上并等到扩展上下文真的绑定。两段等待分开的原因（实测 Edge 154）：
+  //   ① 连上的瞬间 SW 可能还没跑起来 → Runtime.enable 立刻返回，但 `typeof chrome` 是
+  //      "undefined"（没有执行上下文）。
+  //   ② SW 正在跑它的模块图时，发给它的 CDP 命令会**排队**，不是报错——这一窗口里
+  //      Runtime.enable / Runtime.evaluate 会超时不返回，几秒后自己就好了。
+  // 所以等期间只轮询、不判死：短超时探一下，吊住就再来一轮，整体给足 30s。
   async function connect() {
     handle = await attachExtensionWorker(pageCdp, browser, { distDir });
-    // 必须先在 SW 上开 Runtime：未开之前 Runtime.evaluate 跑在一个没有扩展绑定的上下文里，
-    // `typeof chrome` 是 "undefined"（实测 Edge 154）。开了之后才是 "object"。
-    await handle.cdp.send("Runtime.enable", {}, handle.sessionId);
-    await handle.cdp.send("Runtime.runIfWaitingForDebugger", {}, handle.sessionId).catch(() => {});
-    await waitFor(
-      "SW 扩展上下文就绪",
-      async () => (await handle.cdp.evaluate("typeof chrome", { sessionId: handle.sessionId, timeoutMs: 5000 })) === "object",
-      { timeoutMs: 8000, intervalMs: 200 }
-    );
-    log(`SW 已连接（${handle.via}）：${handle.url}`);
+    const h = handle;
+    // Runtime.enable 自己也在这个排队窗口里：超时给长一点，别把它当死连接。
+    await h.cdp.send("Runtime.enable", {}, h.sessionId, 20000);
+    await h.cdp.send("Runtime.runIfWaitingForDebugger", {}, h.sessionId, 5000).catch(() => {});
+    try {
+      await waitFor(
+        "SW 扩展上下文就绪（typeof chrome === 'object'）",
+        async () => {
+          try {
+            return (await h.cdp.evaluate("typeof chrome", { sessionId: h.sessionId, timeoutMs: 4000 })) === "object";
+          } catch {
+            return false; // 排队中，不是失败
+          }
+        },
+        { timeoutMs: 30000, intervalMs: 250 }
+      );
+    } catch (error) {
+      dropHandle();
+      throw error;
+    }
+    log(`SW 已连接（${h.via}）：${h.url}`);
     return handle;
   }
 
@@ -359,12 +395,16 @@ export function createWorkerSession({ pageCdp, browser, distDir = DEFAULT_DIST, 
 
   async function ensureAlive() {
     if (handle && !handle.cdp.closed) return true;
-    // MV3 SW 被回收后 target 会短暂从 /json/list 消失，等它被唤醒再连。
+    // MV3 SW 被回收后 target 会短暂从 /json/list 消失，等它现身再连。
     try {
-      await waitFor("扩展 SW target 重新出现", async () => {
-        await connect();
-        return true;
-      }, { timeoutMs: 8000, intervalMs: 400 });
+      await waitFor(
+        "扩展 SW target 重新出现",
+        async () => {
+          await connect();
+          return true;
+        },
+        { timeoutMs: 45000, intervalMs: 300 }
+      );
       if (onReconnect) await onReconnect(handle);
       return true;
     } catch (error) {
@@ -373,13 +413,16 @@ export function createWorkerSession({ pageCdp, browser, distDir = DEFAULT_DIST, 
     }
   }
 
-  // SW 忙时（概览生成 / 转写链 / 大批存储写）单次求值可能超时：重连重试一次。
+  // 求值失败分两种，这里一律先丢连接再重连一次：
+  //   ① SW 启动中/忙 → 命令排队超时（重连反而更快拿到一个已就绪的 SW）；
+  //   ② target 已被 MV3 回收 → 旧 WebSocket 还开着但永不返回，只有重连能救。
   async function evaluate(expression, timeoutMs = 30000) {
     try {
       return await evalIn(expression, timeoutMs);
     } catch (error) {
       log(`SW 求值失败，重连重试：${error.message}`);
-      await ensureAlive();
+      dropHandle();
+      if (!(await ensureAlive())) throw error;
       return await evalIn(expression, timeoutMs);
     }
   }

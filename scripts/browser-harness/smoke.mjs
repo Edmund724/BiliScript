@@ -60,12 +60,14 @@ try {
   check("dist-built", Boolean(manifest), { manifestPath: path.join(DEFAULT_DIST, "manifest.json") });
   if (!manifest) throw new Error("dist 未构建，先跑 pnpm build");
 
-  // 2. 起隔离实例
-  browser = await launchBrowser({ headless: !headed });
+  // 2. 起隔离实例。这里显式开 autoplay：默认策略下 video.play() 抛 NotAllowedError、
+  //    AudioContext 停在 suspended，就没法验证「静音没有把音频栈打死」。
+  browser = await launchBrowser({ headless: !headed, autoplay: true });
   check("devtools-up", Boolean(browser.version?.Browser), { browser: browser.version?.Browser, port: browser.port });
   evidence.meta.browser = browser.version?.Browser;
   evidence.meta.port = browser.port;
   evidence.meta.browserPid = browser.pid;
+  check("mute-flag-present", browser.args.includes("--mute-audio"), { muted: browser.muted });
 
   // 3. 页面 target
   const page = await attachPage(browser);
@@ -76,10 +78,66 @@ try {
   check("page-eval", typeof ua === "string" && ua.includes("Edg/"), { ua, readyState });
   evidence.page = { url: await page.cdp.evaluate("location.href"), readyState, ua };
 
+  // 3b. 静音不等于把音频栈打死：--mute-audio 该在「输出到设备」那层静音，而不是禁用
+  //     音频渲染——本仓的 ASR 路径要从视频取音，音频栈死掉等于把那条路测废了。
+  //     两问：媒体能播吗（autoplay 缝可用）、AudioContext 真在跑吗（时钟在走）。
+  //     两者都必须当场收干净：headless 里留着一个还在播的 <video> 会让整个浏览器
+  //     在几秒后不再响应 CDP（实测：连 /json/list 的 ws 都连不上）。
+  const media = await page.cdp.evaluate(
+    `(async () => {
+      const v = document.createElement("video");
+      v.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=";
+      document.body.appendChild(v);
+      let played = "ok";
+      try {
+        await v.play();
+      } catch (error) {
+        played = "blocked:" + error.name;
+      }
+      const out = { played, paused: v.paused };
+      v.pause();
+      v.removeAttribute("src");
+      v.load();
+      v.remove();
+      return out;
+    })()`,
+    { timeoutMs: 8000 }
+  );
+  // play() 不抛 NotAllowedError 就算这条缝通了。样本是零长度的 WAV，播完即自发暂停，
+  // 所以 `paused` 为 true 是正常的，只当信息记下，不作判据。
+  check("autoplay-seam-works", media?.played === "ok", media);
+
+  const audio = await page.cdp.evaluate(
+    `(async () => {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return { error: "no AudioContext" };
+      const ctx = new C();
+      if (ctx.state === "suspended") await ctx.resume();
+      const osc = ctx.createOscillator();
+      osc.connect(ctx.destination);
+      osc.start();
+      const t0 = ctx.currentTime;
+      await new Promise((r) => setTimeout(r, 300));
+      const advanced = ctx.currentTime - t0;
+      const out = { state: ctx.state, sampleRate: ctx.sampleRate, advanced };
+      osc.stop();
+      osc.disconnect();
+      ctx.close();
+      return out;
+    })()`,
+    { timeoutMs: 8000 }
+  );
+  check("audio-pipeline-alive", audio?.state === "running" && Number(audio?.advanced) > 0.1, audio);
+  evidence.audio = { media, audio };
+
   // 4. 扩展服务工作线程：必须按 dist/manifest.json 声明的入口挑，
   //    并回读 chrome.runtime.getManifest() 证明装配的就是这份 dist。
   const worker = createWorkerSession({ pageCdp: page.cdp, browser });
-  await worker.connect();
+  // 走 ensureAlive 而不是 connect：MV3 SW 起步阶段 target 可能刚被回收，直连会吊住；
+  // 这条路会重新 attach 拿当前 target，是真机上的常态路径。
+  const workerUp = await worker.ensureAlive();
+  check("sw-attach", workerUp, { url: worker.handle?.url, via: worker.handle?.via });
+  if (!workerUp) throw new Error("扩展服务工作线程没连上，后续步骤无从谈起");
   cdps.push(worker.handle.cdp);
   const swManifest = await worker.evaluate(
     "({ id: chrome.runtime.id, name: chrome.runtime.getManifest().name, version: chrome.runtime.getManifest().version })"
