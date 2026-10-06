@@ -3,8 +3,8 @@
 // 平台的模型结论改由 02 号票的指派表驱动，手写表退为「产品语义 + 上游未覆盖兜底」。
 //
 // 交互方式（12 号票，用户 2026-10-04 裁决「冻结的都按上游，复审以后发现以前的确实都是
-// 错的」）：02 指派表命中 + 档位投影 → 手写表（EXCEPTIONS >> TAXONOMY
-// >> unknownClass）→ UNKNOWN 哨兵。04 号票的行为冻结表 PENDING_DIVERGENCES（31 行）连同
+// 错的」）：02 指派表命中 + 档位投影 → 手写表（EXCEPTIONS >> TAXONOMY（整串 / 剥 org
+// 前缀）>> unknownClass）→ UNKNOWN 哨兵。04 号票的行为冻结表 PENDING_DIVERGENCES（31 行）连同
 // 其查表 / 校验 / 导出一并删除；31 行逐行按上游（对照表 artifacts/12-adjudication-log.md，
 // 矩阵逐字节证据 artifacts/12-adjudication-matrix.diff.txt）。点名翻转的三处原手写专条
 // **留在原表但已降级**：它们只服务「指派表不认识的 id」（用户自填 / 上游新变体）。真删会让
@@ -75,7 +75,7 @@ function baseUrlOf(presetId: string): string {
 }
 
 // 手写侧结论入口（与 resolver 的兜底分支同口径：例外表（整串）>> 模式表（整串 /
-// 声明了平台级兜底词时才剥 org 前缀）>> unknownClass）。
+// 剥 org 前缀）>> unknownClass）。
 function handClassOf(presetId: string, model: string): string | undefined {
   const normalized = model.trim().toLowerCase();
   const slash = normalized.lastIndexOf("/");
@@ -87,8 +87,7 @@ function handClassOf(presetId: string, model: string): string | undefined {
   for (const entry of EXCEPTIONS) {
     if (entry.patterns.some((pattern) => matches(pattern, normalized))) return entry.class;
   }
-  const subjects = PROVIDERS[presetId]?.unknownClass ? [normalized, bare] : [normalized];
-  for (const subject of subjects) {
+  for (const subject of [normalized, bare]) {
     for (const entry of TAXONOMY) {
       if (entry.patterns.some((pattern) => matches(pattern, subject))) return entry.class;
     }
@@ -177,7 +176,8 @@ const MODELSCOPE_UPSTREAM_ID_ROWS = ["modelscope/glm-4.5", "modelscope/glm-4.6"]
 // 指派行的「上游投影 vs 手写结论」分歧键集（指定档位口径下计算）。
 // 默认排除四家托管平台（HOSTED_PRESETS_18）——04/12 的历史审计线不含它们，它们的分歧集
 // 在文件末尾单独钉。传 `presets` 时只算该集合；`handOnly` 只算「手写侧有具体 class」的行
-// （目录外的 namespaced id 手写侧无结论，是覆盖缺口而不是分歧）。
+// （2026-10-06 起手写侧会剥 org 前缀匹配模式表，故带命名空间前缀的缺口行多数也有结论了；
+// 手写侧无结论的行仍是覆盖缺口而不是分歧）。
 function divergentKeys(
   levels: readonly ThinkingLevel[],
   options: { presets?: ReadonlySet<string>; handOnly?: boolean } = {}
@@ -1002,7 +1002,11 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     expect(levelsOf("minimax", "MiniMax-M2")).toEqual([]);
   });
 
-  it("18 号票新增分歧：四家「手写侧有具体 class」的 25 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
+  it("18 号票新增分歧 25 行 → 2026-10-06 剥 org 前缀后 108 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
+    // 25 行 = 18 号票当时四家的分歧集；2026-10-06「手写侧剥 org 前缀」放开后新增 83 行
+    //（全部是上游 id 带命名空间前缀的缺口行：openrouter 的 openai/*、qwen/*、z-ai/*、
+    // deepseek/* —— 剥前缀后手写侧才认出血统方言）。运行期这些行仍先命中上游目录，
+    // 只有目录缺口行会真正落到手写侧。
     const divergent = divergentKeys(LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });
     expect(divergent.sort()).toEqual([
       "amd/deepseek-v4-flash",
@@ -1027,17 +1031,100 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "opencode-go/qwen3.7-plus",
       "opencode-go/qwen3.8-flash",
       "opencode-go/qwen3.8-max",
+      "openrouter/deepseek/deepseek-chat-v3.1",
+      "openrouter/deepseek/deepseek-v3.2",
+      "openrouter/deepseek/deepseek-v3.2-exp",
+      "openrouter/deepseek/deepseek-v4-flash",
+      "openrouter/deepseek/deepseek-v4-flash-0731",
+      "openrouter/deepseek/deepseek-v4-flash-vision-exp",
+      "openrouter/deepseek/deepseek-v4-pro",
+      "openrouter/deepseek/deepseek-v4-pro-0813",
+      "openrouter/deepseek/deepseek-v4.1-flash",
+      "openrouter/moonshotai/kimi-k2.5",
+      "openrouter/moonshotai/kimi-k2.6",
+      "openrouter/openai/gpt-5",
+      "openrouter/openai/gpt-5-mini",
+      "openrouter/openai/gpt-5-nano",
+      "openrouter/openai/gpt-5-pro",
+      "openrouter/openai/gpt-5.1",
+      "openrouter/openai/gpt-5.1-codex",
+      "openrouter/openai/gpt-5.1-codex-max",
+      "openrouter/openai/gpt-5.1-codex-mini",
+      "openrouter/openai/gpt-5.2",
+      "openrouter/openai/gpt-5.2-codex",
+      "openrouter/openai/gpt-5.2-pro",
+      "openrouter/openai/gpt-5.3-codex",
+      "openrouter/openai/gpt-5.4",
+      "openrouter/openai/gpt-5.4-image-2",
+      "openrouter/openai/gpt-5.4-mini",
+      "openrouter/openai/gpt-5.4-nano",
+      "openrouter/openai/gpt-5.4-pro",
+      "openrouter/openai/gpt-5.5",
+      "openrouter/openai/gpt-5.5-pro",
+      "openrouter/openai/gpt-5.6-luna",
+      "openrouter/openai/gpt-5.6-luna-pro",
+      "openrouter/openai/gpt-5.6-sol",
+      "openrouter/openai/gpt-5.6-sol-pro",
+      "openrouter/openai/gpt-5.6-terra",
+      "openrouter/openai/gpt-5.6-terra-pro",
+      "openrouter/qwen/qwen3-max-thinking",
+      "openrouter/qwen/qwen3.5-122b-a10b",
+      "openrouter/qwen/qwen3.5-27b",
+      "openrouter/qwen/qwen3.5-35b-a3b",
+      "openrouter/qwen/qwen3.5-397b-a17b",
+      "openrouter/qwen/qwen3.5-9b",
+      "openrouter/qwen/qwen3.5-flash-02-23",
+      "openrouter/qwen/qwen3.5-plus-02-15",
+      "openrouter/qwen/qwen3.5-plus-20260420",
+      "openrouter/qwen/qwen3.6-27b",
+      "openrouter/qwen/qwen3.6-35b-a3b",
+      "openrouter/qwen/qwen3.6-flash",
+      "openrouter/qwen/qwen3.6-max-preview",
+      "openrouter/qwen/qwen3.6-plus",
+      "openrouter/qwen/qwen3.7-flash",
+      "openrouter/qwen/qwen3.7-max",
+      "openrouter/qwen/qwen3.7-plus",
+      "openrouter/qwen/qwen3.8-2.4t-a95b",
+      "openrouter/qwen/qwen3.8-27b",
+      "openrouter/qwen/qwen3.8-27b:free",
+      "openrouter/qwen/qwen3.8-flash",
+      "openrouter/qwen/qwen3.8-max-0902",
+      "openrouter/qwen/qwen3.8-max-prime",
+      "openrouter/qwen/qwen3.8-omni-flash",
+      "openrouter/stepfun/step-3.5-flash",
+      "openrouter/xiaomi/mimo-v2.5",
+      "openrouter/xiaomi/mimo-v2.5-pro",
+      "openrouter/xiaomi/mimo-v2.6-flash",
+      "openrouter/xiaomi/mimo-v2.6-pro",
+      "openrouter/xiaomi/mimo-v2.6-pro-ultraspeed",
+      "openrouter/z-ai/glm-4.5",
+      "openrouter/z-ai/glm-4.5-air",
+      "openrouter/z-ai/glm-4.5v",
+      "openrouter/z-ai/glm-4.6",
+      "openrouter/z-ai/glm-4.6v",
+      "openrouter/z-ai/glm-4.7",
+      "openrouter/z-ai/glm-4.7-flash",
+      "openrouter/z-ai/glm-5",
+      "openrouter/z-ai/glm-5-turbo",
+      "openrouter/z-ai/glm-5.1",
+      "openrouter/z-ai/glm-5.2",
+      "openrouter/z-ai/glm-5.3",
+      "openrouter/z-ai/glm-5.3-flash",
+      "openrouter/z-ai/glm-5.3-flashx",
+      "openrouter/z-ai/glm-5.3-prime",
+      "openrouter/z-ai/glm-5v-turbo",
+      "openrouter/~deepseek/deepseek-v4-flash-latest",
       "sensenova/deepseek-v4-flash",
       "sensenova/deepseek-v4-pro",
-      "sensenova/glm-5.2"
+      "sensenova/glm-5.2",
     ]);
-    // 7 档口径原本再多两行（canonical 词表带 max，手写 kimi-k3-effort 没有 max 写点）。
+    // 7 档口径比 3 档多出的行 = 上游词表带 max、而手写 class 没有 max 写点的行。
     // 19 号票删掉 kimi-k3* 专条后，opencode-go / sensenova 的 kimi-k3 手写侧已无结论，
-    // `handOnly` 口径直接跳过 → 7 档不再比 3 档多出任何行。**运行时两行逐档不变**
-    // （都是指派表命中，值集 low-high-max，手写侧本就不参与；见
-    // 「13 号票刚对齐的行逐字节不变（opencodego/kimi-k3 哨兵，7 档全钉）」用例）。
+    // `handOnly` 口径直接跳过；2026-10-06 起多一行 openrouter 的 stepfun/step-3.7-flash：
+    // 剥 org 前缀命中手写 step37-effort（low/high，无 max）→ 只在 7 档口径下分歧。
+    // **运行期这一行仍按上游**（指派表命中，值集含 max；见「13 号票刚对齐的行逐字节不变」用例）。
     const divergent7 = divergentKeys(ALL_LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });
-    expect(divergent7.filter((key) => !divergent.includes(key)).sort()).toEqual([]);
+    expect(divergent7.filter((key) => !divergent.includes(key)).sort()).toEqual(["openrouter/stepfun/step-3.7-flash"]);
   });
 });
 

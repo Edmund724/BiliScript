@@ -785,9 +785,9 @@ function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRu
     }
   }
 
-  // 手写兜底：例外表 >> 模式表（整串 / 有平台级兜底词时再试剥 org 前缀）>>
-  // provider.unknownClass >> UNKNOWN 哨兵（口径见 matchHandwrittenClass）。
-  const className = matchHandwrittenClass(normalizedModel, provider) ?? provider?.unknownClass;
+  // 手写兜底：例外表（整串）>> 模式表（整串 / 剥 org 前缀）>> provider.unknownClass
+  // >> UNKNOWN 哨兵（口径见 matchHandwrittenClass）。
+  const className = matchHandwrittenClass(normalizedModel) ?? provider?.unknownClass;
   return {
     rule: className ? CLASSES[className] : undefined,
     reason: className ? "upstream-unlisted" : null,
@@ -873,17 +873,17 @@ export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): 
 // - 例外表：只整串匹配。表里混着平台事实（百炼 qwen3-32b/235b/30b 的 off 仅流式），
 //   剥前缀会把这套平台事实搬到别的平台（ModelScope 上 Qwen/Qwen3-32B 非流式 off
 //   会级联成实发开思考）。
-// - 模式表：整串 → 剥 org 前缀的裸名。模式表写的是「模型血统 → 方言」（deepseek-v4 →
-//   effort 档位），而网关回的 id 常带组织命名空间前缀（modelscope 的
-//   deepseek-ai/DeepSeek-V4.1-Flash），整串会被前缀挡掉、整行落平台开关兜底。
-// - 剥前缀只在**声明了平台级兜底词**（unknownClass）的平台生效：剥前缀要解决的就是
-//   「平台级兜底词吞掉能认出血统的命名空间 id」；没有平台兜底词的平台，未知 id 按
-//   既有政策 fail-closed（UNKNOWN 哨兵、三档不发），不因剥前缀翻成某个家族的方言。
+// - 模式表：整串 → 剥 org 前缀的裸名（最后一段斜杠之后）。模式表写的是「模型血统 →
+//   方言」（deepseek-v4 → effort 档位、gpt-5 → openai-reasoning），而网关回的 id 常带
+//   组织命名空间前缀（modelscope 的 deepseek-ai/DeepSeek-V4.1-Flash、openrouter 的
+//   openai/gpt-5-image），整串会被前缀挡掉、整行落平台开关兜底或 UNKNOWN 哨兵。
 // - 指派表命中时不走本函数，上游逐模型事实仍压过剥前缀结论。
-function matchHandwrittenClass(model: string, provider: ProviderRule | undefined): string | undefined {
-  const className = matchRuleClass(EXCEPTIONS, model) ?? matchRuleClass(TAXONOMY, model);
-  if (className || !provider?.unknownClass) return className;
-  return matchRuleClass(TAXONOMY, stripOrgPrefix(model));
+function matchHandwrittenClass(model: string): string | undefined {
+  return (
+    matchRuleClass(EXCEPTIONS, model) ??
+    matchRuleClass(TAXONOMY, model) ??
+    matchRuleClass(TAXONOMY, stripOrgPrefix(model))
+  );
 }
 
 // org 命名空间前缀（`org/model`）的剥法：取最后一段斜杠之后的裸名；无斜杠原样返回。
