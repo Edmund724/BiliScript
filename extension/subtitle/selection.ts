@@ -17,6 +17,7 @@ export interface DurationValidationResult {
 
 interface RawSubtitleTrack {
   id?: string | number | null;
+  id_str?: string | number | null;
   lan?: string;
   lan_doc?: string;
   subtitle_url?: string;
@@ -72,29 +73,16 @@ function subtitlePriority(item: SubtitleTrack | RawSubtitleTrack): number {
 }
 
 export function normalizeSubtitleTracks(subtitles?: SubtitleTrack[] | RawSubtitleTrack[] | null): SubtitleTrack[] {
-  return [...(subtitles || [])].sort((a, b) => {
-    const p = subtitlePriority(a) - subtitlePriority(b);
-    if (p !== 0) {
-      return p;
-    }
-
-    const lanA = String((a as { lanDoc?: string }).lanDoc || a.lan || "").toLowerCase();
-    const lanB = String((b as { lanDoc?: string }).lanDoc || b.lan || "").toLowerCase();
-    if (lanA < lanB) {
-      return -1;
-    }
-    if (lanA > lanB) {
-      return 1;
-    }
-
-    const idA = Number.parseInt(String(a.id || "0"), 10);
-    const idB = Number.parseInt(String(b.id || "0"), 10);
-    if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) {
-      return idA - idB;
-    }
-
-    return String((a as { subtitleUrl?: string }).subtitleUrl).localeCompare(String((b as { subtitleUrl?: string }).subtitleUrl));
-  }) as SubtitleTrack[];
+  // 排序键只比优先级：同优先级保持输入顺序（= 接口原顺序 = 播放器菜单顺序）。
+  // 历史上同优先级还依次比 lanDoc 的字符串序（代码单元序，混合文字下不可读）、
+  // 数字 id 升序，末尾再以 subtitleUrl 的 localeCompare 兜底；二级键在真实数据上
+  // 把 8 条 ai-* 样本的「其余」段排成 ai-id / ai-es / ai-pt / ai-ar / ai-th / ai-ja
+  // （research/01-track-shape.md），与接口原顺序、与播放器菜单都不同——三个二级键
+  // 已按 Q8′ 一并去掉。
+  // 已知副作用（接受）：视频只有非中英轨时 pickPreferredSubtitle 的 tracks[0]
+  // 兜底从「字典序第一条」变为「接口第一条」，影响面为 0。
+  // Array.prototype.sort 自 ES2019 起保证稳定，同优先级因此保持输入顺序。
+  return [...(subtitles || [])].sort((a, b) => subtitlePriority(a) - subtitlePriority(b)) as SubtitleTrack[];
 }
 
 export function pickPreferredSubtitle(
@@ -231,9 +219,21 @@ function normalizeSubtitleUrl(url: unknown): string {
   return `https://${text.replace(/^\/+/, "")}`;
 }
 
+// 轨道身份：id_str 优先。接口的 id 是 19 位 JSON 数字、> 2^53，JSON.parse 阶段
+// 尾数已丢（2120476497172283392 → …400），id_str 是同一 id 的精确字符串；旧数据 /
+// 其它来源无 id_str（缺失、null 或空串）时回落 id。身份两端（写 selected* 与
+// 比 previousId）同源，故不引入新的不一致。
+function mapRawSubtitleTrackId(item: RawSubtitleTrack): string {
+  const idStr = item.id_str;
+  if (idStr !== undefined && idStr !== null && String(idStr) !== "") {
+    return String(idStr);
+  }
+  return item.id === undefined || item.id === null ? "" : String(item.id);
+}
+
 export function mapSubtitleTracks(subtitles: unknown[], source = "unknown"): SubtitleTrack[] {
   return (subtitles || []).map((item) => ({
-    id: (item as RawSubtitleTrack).id === undefined || (item as RawSubtitleTrack).id === null ? "" : String((item as RawSubtitleTrack).id),
+    id: mapRawSubtitleTrackId(item as RawSubtitleTrack),
     lan: (item as RawSubtitleTrack).lan || "",
     lanDoc: (item as RawSubtitleTrack).lan_doc || "",
     subtitleUrl: normalizeSubtitleUrl((item as RawSubtitleTrack).subtitle_url || ""),
