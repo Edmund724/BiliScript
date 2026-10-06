@@ -261,6 +261,32 @@ export function findTrackByPreferredLang<T extends { lan?: string; subtitleUrl?:
   );
 }
 
+// 主轨判据（两侧 id 都非空才可能同轨）：任一侧为空串都不算——未选轨（主列哨兵）与
+// 缺 id 的轨都不该被误判成「主副同轨」，那会把副列推进空态。
+export function isMainSubtitleTrack(track: { id?: string } | null | undefined, mainTrackId: unknown): boolean {
+  const id = String(track?.id || "");
+  return !!id && id === String(mainTrackId || "");
+}
+
+// 副字幕的目标轨 = 上面的语言两级命中 + **排除主轨**（bilingual-subtitles/06 +
+// 2026-10-06 图外回访）。命中主轨时返回 null，而**不是**顺位退到同语言的另一条轨：
+// 偏好 zh-CN、主轨是人工 zh-CN 时退到 ai-zh 仍是两份中文，用户要的是「没有可对照的
+// 第二语言」这个结论。
+// 判据必须住在这个共享叶子里：目标轨的装载入口有两条（弹层副列与 reader 生命周期
+// 的自动装载），只在一处加，另一处就会把主轨抓进副轨槽 ⇒ 列表出两份一样的正文，
+// 而弹层副列同时写着「主副字幕相同，已清空副字幕」（文案与 state 两说）。
+export function findSecondaryTrackByPreferredLang<T extends { id?: string; lan?: string; subtitleUrl?: string }>(
+  tracks: readonly T[] | null | undefined,
+  preference: unknown,
+  mainTrackId: unknown
+): T | null {
+  const track = findTrackByPreferredLang(tracks, preference);
+  if (!track || isMainSubtitleTrack(track, mainTrackId)) {
+    return null;
+  }
+  return track;
+}
+
 // 候选10 批1：写入端统一保证 subtitleBody 按 from 升序（稳定排序，同 from
 // 保持原有相对顺序，与读路径旧线性扫描的命中顺序一致）。core.js 的
 // findActiveSubtitleIndex 二分查找依赖该不变量；读路径一律不排序。

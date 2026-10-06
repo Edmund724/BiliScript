@@ -62,7 +62,13 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { ensureBilingualSubtitleStyles } from "../shared/style-injector.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
-import { findTrackByPreferredLang, resolveSubtitleTrackLabel, shouldMarkAiSubtitleTracks } from "../subtitle/selection.js";
+import {
+  findSecondaryTrackByPreferredLang,
+  findTrackByPreferredLang,
+  isMainSubtitleTrack,
+  resolveSubtitleTrackLabel,
+  shouldMarkAiSubtitleTracks
+} from "../subtitle/selection.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
 import type { Settings } from "../core/defaults.js";
 import { isProgrammaticScrolling, ids } from "./state.js";
@@ -407,8 +413,8 @@ function handleTrackPickerChange(select: HTMLSelectElement): void {
 //         div.biliscript-bilingual-cols
 //           div.biliscript-bilingual-col[data-col="main"]    ← 主列（+ 单轨态说明行）
 //           div.biliscript-bilingual-col[data-col="sub"]      ← 副列（双语态才在场；收起走
-//                                                                 hidden：语言列表 / 三套空态
-//                                                                 / 重试行）
+//                                                                 hidden：列首说明行（三套空态）
+//                                                                 + 重试行 + 语言列表）
 //       div.biliscript-bilingual-footer                      ← 固定页脚：双语字幕 + 开关
 //
 // 组件不变式逐列成立：一列一枚原生 select，值 = 该列的轨道 URL（与主列既有口径一致），
@@ -422,8 +428,10 @@ const SUBTITLE_BILINGUAL_BADGE_ID = "biliscript-reading-bilingual-badge";
 // 一个常量 id（诊断与用例按 id 取副列值源；骨架重建时新 select 仍用它）。
 const SECONDARY_SUBTITLE_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
-// 副列的三套空态文案（02 号票第 5 条：用户下一步动作不同，不共用一句）。
-// 在飞**不**出占位文案（2026-10-06 用户裁决，见 resolveSecondaryColumn）：装载中的
+// 副列的三套空态文案（02 号票第 5 条：用户下一步动作不同，不共用一句）。三套都只是
+// 副列**列首的一行说明**，语言列表始终留在列里（2026-10-06 图外回访：说明行顶掉列表
+// 就等于把用户锁死在这一态——点错一条副语言后再也改不回来）。
+// 在飞**不**出说明行（2026-10-06 用户裁决，见 resolveSecondaryColumn）：装载中的
 // 可见反馈由本列 disabled/aria-busy 与列表里副行的占位承担。
 const SECONDARY_EMPTY_PICK_TEXT = "选择副字幕语言";
 const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
@@ -465,15 +473,17 @@ interface SecondaryTarget {
 
 // 目标轨（全局偏好 lan × 本视频轨列表的投影）：匹配不到（②）、没选过（①）或命中
 // 主轨（③）都返回 null，差别只在投影文案上（见 resolveSecondaryColumn）。
-// 匹配口径与 reader/lifecycle.ts 的自动装载共用 subtitle/selection 的共享叶子
-//（两级：完整 lan 精确优先 → 主语言子标签兜底；只考虑有 subtitleUrl 的真轨）——
-// 两处各写一份会在混源视频上漂移成「装载一条、副列选中另一条」。
+// 匹配与「排除主轨」共用 subtitle/selection 的共享叶子（两级：完整 lan 精确优先 →
+// 主语言子标签兜底；只考虑有 subtitleUrl 的真轨）——与 reader/lifecycle.ts 的自动
+// 装载同一条实现，两处各写一份会在混源视频上漂移成「装载一条、副列选中另一条」，
+// 更会在偏好指向主轨时把主轨抓成副轨（用户实测的两份一样）。
 function resolveSecondaryTarget(tracks: SubtitleTrack[]): SecondaryTarget | null {
-  const track = findTrackByPreferredLang(tracks, state.settings.secondarySubtitleLang);
+  const track = findSecondaryTrackByPreferredLang(
+    tracks,
+    state.settings.secondarySubtitleLang,
+    state.clip.selectedSubtitleId
+  );
   if (!track) {
-    return null;
-  }
-  if (String(track.id || "") && String(track.id) === state.clip.selectedSubtitleId) {
     return null;
   }
   return {
@@ -486,45 +496,49 @@ function resolveSecondaryTarget(tracks: SubtitleTrack[]): SecondaryTarget | null
 }
 
 interface SecondaryColumnModel {
-  // 有目标轨（非 ①②③）时列语言列表；否则出 model.placeholder 一行占位。
-  showList: boolean;
+  // 列首一行说明（三套空态文案 + 失败重试行之外的空态说明）；空串 = 不出说明行。
+  // 说明行**不替代**语言列表（2026-10-06 图外回访）：用户的下一步动作永远是「换一条
+  // 语言」，把列表撤掉就是把他锁死在这一态上。
+  note: string;
   selectedUrl: string;
-  placeholder: string;
   // 失败态：列首那行「加载失败 · 重试」（02 号票 Q6：重试入口唯一在副列）。
   retry: boolean;
-  // 本列在飞 / 副轨槽 loading ⇒ 本列禁用（只禁本列，主列不受牵连，Q9）。在飞**不**改写
-  // 语言列表（showList 仍为 true）——列表换成占位会抽掉本列滚动高度，见下面的裁决注释。
+  // 本列在飞 / 副轨槽 loading ⇒ 本列禁用（只禁本列，主列不受牵连，Q9）。在飞不改写
+  // 语言列表（列表恒在场）——列表换成占位会抽掉本列滚动高度，见下面的裁决注释。
   busy: boolean;
 }
 
 function resolveSecondaryColumn(tracks: SubtitleTrack[]): SecondaryColumnModel {
   const slot = state.clip.secondarySubtitle;
   const busy = secondaryInFlight !== null || slot.state === "loading";
-  const model: SecondaryColumnModel = { showList: false, selectedUrl: "", placeholder: "", retry: false, busy };
+  const model: SecondaryColumnModel = { note: "", selectedUrl: "", retry: false, busy };
   const pick = String(state.settings.secondarySubtitleLang || "").trim();
   if (!pick) {
     // ① 还没选过副轨
-    return { ...model, placeholder: SECONDARY_EMPTY_PICK_TEXT };
+    return { ...model, note: SECONDARY_EMPTY_PICK_TEXT };
   }
-  // 与装载器共用的两级匹配（见 resolveSecondaryTarget 的注释）。
+  // 与装载器共用的两级匹配（见 resolveSecondaryTarget 的注释）。这里判「没命中」与
+  // 「命中的是主轨」必需分开：两态的说明文案不同（02 号票第 5 条），故用未排除的
+  // 基础匹配 + 共享的主轨判据，而不是直接取 findSecondaryTrackByPreferredLang。
   const target = findTrackByPreferredLang(tracks, pick);
   if (!target) {
     // ② 本视频没有目标语言的轨（Q4：留空不猜，也不写 noSubtitleReason）
-    return { ...model, placeholder: `${SECONDARY_MISSING_PREFIX}${pick}${SECONDARY_MISSING_SUFFIX}` };
+    return { ...model, note: `${SECONDARY_MISSING_PREFIX}${pick}${SECONDARY_MISSING_SUFFIX}` };
   }
-  if (String(target.id || "") && String(target.id) === state.clip.selectedSubtitleId) {
-    // ③ 主副指向同一条轨（Q8）：副列没有存在的意义（两行同样文字），留空并说明来历
-    return { ...model, placeholder: SECONDARY_COLLISION_TEXT };
+  if (isMainSubtitleTrack(target, state.clip.selectedSubtitleId)) {
+    // ③ 主副指向同一条轨（Q8）：副轨槽不装主轨（列表里会出两份一样的正文），列首出
+    // 说明；语言列表照常在列，用户点另一条即可就地改选（2026-10-06 图外回访）。
+    return { ...model, note: SECONDARY_COLLISION_TEXT };
   }
   const selectedUrl = String(target.subtitleUrl || "");
-  // 在飞仍列出语言列表（2026-10-06 用户裁决「选完应该滚动条不动」）：把列表换成一行
+  // 在飞不改语言列表（2026-10-06 用户裁决「选完应该滚动条不动」）：把列表换成一行
   // 「译文加载中…」占位会当场抽掉本列的滚动高度 ⇒ 用户刚滚到列底选的那条语言，下一秒
   // 整列跳回列表顶部（真机走查 run13 的读数）。在飞的可见反馈由两处承担：本列
   // disabled + aria-busy（点不动，见 resolveSecondaryColumn.busy），以及列表里 188 行
   // 副行的「译文加载中…」占位。
   // 失败态同理：用户要能换一条，而不是被失败锁死；重试行在列首，且只重抓这一条副轨
   //（forceRefresh = true，02 号票 Q6）。
-  return { ...model, selectedUrl, showList: true, retry: slot.state === "error" };
+  return { ...model, selectedUrl, retry: slot.state === "error" };
 }
 
 // 卡片骨架（双语弹层的节点身份不变量）。组件每次换选项都整批重写浮层子节点
@@ -649,7 +663,9 @@ function buildBilingualCard(pickerWrapper: HTMLElement, dropdown: HTMLElement): 
   secondaryHost.appendChild(secondarySelect);
   const empty = document.createElement("div");
   empty.className = "biliscript-bilingual-empty";
-  subCol.append(subHead, retry, secondaryHost, empty);
+  // 顺序有意：说明行在语言列表**之上**（列表由宿主里的组件浮层承载），读起来是
+  // 「列首一行说明 + 下面可点的一组语言」。
+  subCol.append(subHead, retry, empty, secondaryHost);
   cols.append(mainCol, subCol);
   main.appendChild(cols);
 
@@ -713,17 +729,20 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   nodes.hint.hidden = dual || tracks.length === 0 || !isBilingualSwitchDisabled(tracks);
   nodes.subCol.hidden = !dual;
   nodes.retry.hidden = !(dual && model.retry);
-  nodes.empty.hidden = !dual || model.showList;
-  if (dual && !model.showList) {
-    nodes.empty.textContent = model.placeholder;
+  // 说明行与语言列表**同时**在场（2026-10-06 图外回访）：说明行只在三套空态出现，
+  // 它解释「为什么没有装载中的副轨」，不顶掉用户改选的那份列表。
+  nodes.empty.hidden = !dual || !model.note;
+  if (dual && model.note) {
+    nodes.empty.textContent = model.note;
   }
-  nodes.secondaryHost.hidden = !dual || !model.showList;
+  nodes.secondaryHost.hidden = !dual;
 
   // 值源：双语态恒 = 目标轨 URL（乐观目标即投影）；否则清空并整体禁用。
-  // 语言列表只在「列里真要出列表」时铺——占位/在飞态列里没有可点行，值源留空
-  //（副列的行数因此就是「列表在场」这一事实，跨列断言也据此读）。
+  // 三套空态（① 没选过 / ② 本视频没有该语言 / ③ 主副同轨）没有目标轨 ⇒ 值空、列表里
+  // 没有选中行，而语言行照铺——副列的语言行数因此不再等于「列表在场」这一事实，
+  // 跨列断言改按选项集读。
   if (dual) {
-    writeSecondaryOptions(nodes.secondarySelect, model.showList ? tracks : [], model.selectedUrl);
+    writeSecondaryOptions(nodes.secondarySelect, tracks, model.selectedUrl);
     setCustomSelectValue(nodes.secondarySelect, model.selectedUrl);
     // 在飞期间不动本列状态（与主列早退同款，避免重渲把乐观禁用解掉）。
     if (secondaryInFlight === null) {
@@ -756,7 +775,8 @@ function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: Subtitl
   }
   const secondaryTracks = loadableSecondaryTracks(tracks);
   if (secondaryTracks.length === 0) {
-    // 无真轨可列（单轨/空态）：值源留空，副列出占位文案而不是一行假选项
+    // 无真轨可列（双语关 / 本视频只有一条轨，此时副列整块 hidden）：值源留空，
+    // 列首的说明行（不出双列时那条单轨说明）承担文案，不铺一行假选项。
     select.innerHTML = "";
   } else {
     const marked = shouldMarkAiSubtitleTracks(secondaryTracks);

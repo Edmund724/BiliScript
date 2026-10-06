@@ -508,6 +508,8 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     expect(state.settings.secondarySubtitleLang).toBe("ai-zh");
     expect(col("sub")).not.toBeNull(); // 开关保持开，副列仍在场（只是空）
     expect(placeholderText()).toBe("主副字幕相同，已清空副字幕");
+    // 说明行与列表同时在场：点错一条不该把整列锁死（列表没了就再也改不回来）
+    expect(colTexts("sub")).toContain("English");
   });
 
   it("主轨切到副列指向的同一条轨（反方向）⇒ 副轨槽清空、副列出同一条空态文案", async () => {
@@ -529,8 +531,9 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     shell.renderReadingView();
     switchButton().click();
+    // 自动装载落定的唯一屏障是「槽 ready」——列表自本图起从第一帧就在场，
+    // 用行数当屏障会立刻通过（空转的假绿，2026-10-06 踩过同一个坑）。
     await vi.waitFor(() => expect(state.clip.secondarySubtitle.state).toBe("ready"));
-    await vi.waitFor(() => expect(colRows("sub").length).toBeGreaterThan(0));
 
     switchButton().click(); // 关
 
@@ -547,36 +550,46 @@ describe("主副互不牵连（Q8 / Q9）", () => {
 });
 
 describe("副列的三套空态 + 单轨禁用", () => {
-  it("① 还没选过副轨 → 「选择副字幕语言」（不发装载）", () => {
+  it("① 还没选过副轨 → 「选择副字幕语言」+ 列表在场（不发装载）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "");
     shell.renderReadingView();
 
     expect(placeholderText()).toBe("选择副字幕语言");
-    expect(colRows("sub")).toHaveLength(0);
+    expect(colTexts("sub")).toContain("English");
     expect(lazy.secondaryCalls).toHaveLength(0);
   });
 
-  it("② 本视频没有目标语言的轨 → 「本视频没有 ja-JP 轨」，留空不猜、不发装载", () => {
+  it("② 本视频没有目标语言的轨 → 「本视频没有 ja-JP 轨」+ 列表在场，留空不猜、不发装载", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "ja-JP");
     state.clip.setSubtitles(SAMPLE_TRACKS.filter((track) => track.lan !== "ai-ja") as never);
     shell.renderReadingView();
 
     expect(placeholderText()).toBe("本视频没有 ja-JP 轨");
+    // 偏好在本视频落不到轨，但列表照出：用户就地改选（而不是被一行说明锁死）
+    expect(colTexts("sub")).toEqual(["中文", "English", "Español", "Bahasa Indonesia"]);
     expect(lazy.secondaryCalls).toHaveLength(0);
     expect(state.clip.secondarySubtitle.state).toBe("idle");
     // 三套文案只影响副列：主列照常
     expect(colTexts("main")).toContain("中文");
   });
 
-  it("③ 主副指向同一条轨 → 副列空态，不发装载", () => {
+  it("③ 主副指向同一条轨 → 列首一行说明 + 语言列表仍在场（改选得回来）", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "ai-zh"); // 目标语言 = 主轨自己的语言
     shell.renderReadingView();
 
     expect(placeholderText()).toBe("主副字幕相同，已清空副字幕");
     expect(lazy.secondaryCalls).toHaveLength(0);
+    // 说明行不再顶掉语言列表：用户的下一步动作就是「换一条语言」，列表必须在场
+    //（2026-10-06 图外回访：原样只剩一行说明 ⇒ 副语言再也改不回来）。
+    expect(colTexts("sub")).toEqual(["中文", "English", "日本語", "Español", "Bahasa Indonesia"]);
+
+    // 改选得回来：从同轨说明态点另一条语言 ⇒ 正常发起装载
+    clickSubOption("日本語");
+    await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
+    expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "ai-ja", state.clip.fetchRunId, JA_ID, false]);
   });
 
   it("单轨禁用：开关禁用 + 说明进列表区、页脚只留「双语字幕 + 开关」，不出双列", () => {

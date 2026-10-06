@@ -13,7 +13,9 @@ import { resetModuleState } from "../setup.js";
 import { normalizeChapters } from "../../extension/subtitle/chapters.js";
 import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
 import {
+  findSecondaryTrackByPreferredLang,
   findTrackByPreferredLang,
+  isMainSubtitleTrack,
   mapSubtitleTracks,
   normalizeSubtitleTracks,
   pickPreferredSubtitle,
@@ -220,5 +222,41 @@ describe("findTrackByPreferredLang（副轨语言两级匹配）", () => {
     expect(findTrackByPreferredLang([asrZh, aiZh], "zh-CN")?.id).toBe("1");
     expect(findTrackByPreferredLang([aiEn], "")).toBe(null);
     expect(findTrackByPreferredLang([aiEn], null)).toBe(null);
+  });
+});
+
+// ===== 副字幕的目标轨（bilingual-subtitles/06 + 2026-10-06 图外回访）=====
+// 副轨槽不许装主轨：装进去会在列表里出两份一样的正文，而弹层副列同时写着
+// 「主副字幕相同，已清空副字幕」（文案与 state 两说）。排除判据与两级语言匹配
+// 同住一个叶子，因为装载入口有两条（弹层副列 / reader 生命周期自动装载）——
+// 只在一处加，另一处就会把主轨当副轨抓下来（用户实测的那两份一样）。
+describe("副轨目标 = 语言命中 + 排除主轨（findSecondaryTrackByPreferredLang / isMainSubtitleTrack）", () => {
+  const aiZh = { id: "1", lan: "ai-zh", lanDoc: "中文", subtitleUrl: "https://sub/ai-zh.json" };
+  const ccZh = { id: "4", lan: "zh-CN", lanDoc: "中文（CC）", subtitleUrl: "https://sub/cc-zh.json" };
+  const aiEn = { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json" };
+
+  it("命中主轨那一条 ⇒ null（不退到同语言的另一条轨：那还是两份一样）", () => {
+    // 偏好 zh-CN、主轨 = 人工 zh-CN：二级子标签匹配本会顺位退到 ai-zh，必须拦在这里
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "zh-CN", "4")).toBe(null);
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "ai-zh", "1")).toBe(null);
+  });
+
+  it("按**轨身份**排除、不按语言：主轨是另一条同语言轨时照常命中", () => {
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "ai-zh", "4")?.id).toBe("1");
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "zh-CN", "1")?.id).toBe("4");
+  });
+
+  it("主轨身份为空（未选轨 / 伪轨）/ 偏好命中不了 ⇒ 与基础匹配同结果", () => {
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "zh-CN", "")?.id).toBe("4");
+    expect(findSecondaryTrackByPreferredLang([ccZh, aiZh], "zh-CN", null)?.id).toBe("4");
+    expect(findSecondaryTrackByPreferredLang([aiEn], "ja-JP", "1")).toBe(null);
+  });
+
+  it("主轨判据：任一侧 id 为空串都不算同轨（伪轨 / 未选轨不误伤）", () => {
+    expect(isMainSubtitleTrack({ id: "4" }, "4")).toBe(true);
+    expect(isMainSubtitleTrack({ id: "4" }, "")).toBe(false);
+    expect(isMainSubtitleTrack({ id: "" }, "4")).toBe(false);
+    expect(isMainSubtitleTrack({ id: "" }, "")).toBe(false);
+    expect(isMainSubtitleTrack(null, "4")).toBe(false);
   });
 });

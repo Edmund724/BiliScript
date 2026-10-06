@@ -32,7 +32,7 @@ import { logWarn } from "../shared/logging.js";
 // 候选02 分层惰性：链未装载 ⇒ refreshClip 未注册进 reader-bus seam。懒装载
 // 触达自 seam 移到调用方（arch-slim-2/03），见 maybeRefreshReaderSubtitleInBackground。
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
-import { findTrackByPreferredLang } from "../subtitle/selection.js";
+import { findSecondaryTrackByPreferredLang } from "../subtitle/selection.js";
 
 // 候选02 分层惰性：启动接线（installReaderDebugHelpers / bindSettingsWatcher）与
 // 启动期呈现（hydrate/apply/renderReadingStatus）在常驻微模块
@@ -251,9 +251,12 @@ function warmUpReaderQuickPrompts() {
 // Q7a：换视频后按全局偏好 lan 在新轨列表上重新匹配）。三重守卫缺一不可：
 //   ① 双语关 ⇒ 不动（零行为差）；
 //   ② 槽非 idle ⇒ 不动（在飞 / 已就绪 / 已失败三种都不重来；失败等用户在弹层点重试）；
-//   ③ 本视频没有目标语言的轨 ⇒ 不动（Q4「副列留空、不替用户猜」）。
-// 匹配口径（两级 + 真轨过滤）收在 subtitle/selection 的共享叶子里，与弹层副列的投影
-// 同一实现——两处各写一份会漂移，混源视频上会「装载了一条、副列选中另一条」。
+//   ③ 本视频没有目标语言的轨、或目标语言那一条**就是主轨** ⇒ 不动（Q4「副列留空、不替
+//      用户猜」；主副同轨的那份副轨会在列表里出两份一样的正文，而弹层副列写着「主副
+//      字幕相同，已清空副字幕」——2026-10-06 用户实测的那两份一样就是本路径抓的）。
+// 匹配口径（两级 + 真轨过滤 + 排除主轨）收在 subtitle/selection 的共享叶子里，与弹层
+// 副列的投影同一实现——两处各写一份会漂移，混源视频上会「装载了一条、副列选中另一条」，
+// 偏好指向主轨时更会把主轨抓成副轨。
 function ensureSecondarySubtitleLoaded(): void {
   if (!state.settings.bilingualSubtitles) {
     return;
@@ -261,7 +264,11 @@ function ensureSecondarySubtitleLoaded(): void {
   if (state.clip.secondarySubtitle.state !== "idle") {
     return;
   }
-  const track = findTrackByPreferredLang(state.clip.subtitles, state.settings.secondarySubtitleLang);
+  const track = findSecondaryTrackByPreferredLang(
+    state.clip.subtitles,
+    state.settings.secondarySubtitleLang,
+    state.clip.selectedSubtitleId
+  );
   if (!track) {
     return;
   }
