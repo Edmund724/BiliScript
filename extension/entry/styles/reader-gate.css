@@ -121,7 +121,7 @@ body[data-biliscript-reader-mode="1"],
   /* 进度轨底色（转写横幅 / 概览不确定进度条）：黑色半透明在深色面上不可见，
    * 四色板各给一份。 */
   --biliscript-reader-track: rgba(0, 0, 0, 0.08);
-  /* 语义色（Key 状态点 / 校验通过 / 删除警示 / 朗读高亮）：success 绿四色板
+  /* 语义色（Key 状态点 / 校验通过 / 删除警示）：success 绿四色板
    * 同值（此处定义即可，dark/flyme 块不重复），danger 红深色换更亮档保证对比。 */
   --biliscript-reader-success: #3fb950;
   --biliscript-reader-danger: #d93025;

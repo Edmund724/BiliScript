@@ -519,10 +519,10 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.biliscript-reading-item.is-active {
-  background: transparent;
-  box-shadow: none;
-}
+/* 活动行的裸类名规则已删（2026-10-06）：它声明的 background: transparent 在面板内
+ * 恒被下方 #biliscript-reading-view … .is-active 的实底覆盖——字幕列表只存在于
+ * #biliscript-reading-view 里（挂 .biliscript-reading-main 之下）；box-shadow: none
+ * 又等于默认值。整条规则没有任何效果，属死声明。 */
 
 /* 时间戳 pill：贯穿字幕行 / 章节 / 金句 / AI 引用的视觉母题
  *（prototype/direction-approved.md）——等宽字体 + accent-soft 底 + accent 字。
@@ -541,12 +541,10 @@
   align-self: start;
 }
 
-.biliscript-reading-item.is-active .biliscript-reading-text {
-  text-decoration-line: underline;
-  text-decoration-color: var(--biliscript-reader-success);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-}
+/* 活动行的 2px 绿下划线已整条删除（2026-10-06 用户决议，字幕 tab 截图）：它与活动行
+ * 底色同读 sync 的同一个 is-active，是同一状态的两套颜色语言；且 text-decoration 按
+ * 行盒铺开——字幕多为 2–3 行，长句实际是每行一条绿线（底色始终是一整块）。
+ * success 绿在本表随之失去唯一消费方，reader-gate.css 语义注释同步摘掉「朗读高亮」。 */
 
 .biliscript-reading-text {
   font-size: 14px;
@@ -642,6 +640,14 @@
 
 #biliscript-reading-view .biliscript-reading-item.is-active {
   background: var(--biliscript-reader-accent-soft);
+}
+
+/* 活动行内的时间戳 pill 清底（2026-10-06 用户决议）：pill 底与活动行底是同一桶
+ * accent-soft，叠上去等于二次加深；bilibili 浅色档的 accent-soft 是四档里唯一的不
+ * 透明值 #fce0ea，那里 pill 与行底完全同色、形状直接消失。清底后四档表现一致：
+ * 活动行 = 一个 accent-soft 色块 + accent 字的时间戳，pill 底只在非活动行出现。 */
+#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
+  background: transparent;
 }
 
 #biliscript-reading-view .biliscript-reading-time {
