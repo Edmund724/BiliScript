@@ -27,7 +27,7 @@ import {
 } from "../subtitle/core.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
-import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter } from "./reader-bus.js";
+import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
 // 候选02 分层惰性：链未装载 ⇒ refreshClip 未注册进 reader-bus seam。懒装载
 // 触达自 seam 移到调用方（arch-slim-2/03），见 maybeRefreshReaderSubtitleInBackground。
@@ -87,6 +87,14 @@ import {
   refreshReadingSubtitleSearch
 } from "./subtitle-search.js";
 import { bindReadingTranscribeBanner, updateReadingTranscribeBanner } from "./transcribe-banner.js";
+// 票 subtitle-track-picker/08：字幕工具条选轨控件（ui/custom-select 形态）的
+// 渲染入口与 change 绑定。模板/交互归 subtitle-tab-ui 叶子持有，本域只做
+// 「渲染尾部投影一次」与「失败通知经 reader-bus」两件组装根的事（与 PR3 的
+// 搜索/横幅同款分工：重活各归其域，本文件负责时机与接线）。
+import {
+  renderReadingSubtitleTrackPicker,
+  setSubtitleTrackNoticeHandler
+} from "./subtitle-tab-ui.js";
 import { clearPendingExplainIntent } from "./explain-intent.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
@@ -137,6 +145,12 @@ subscribeReaderPresenter((kind, ...payload) => {
 //   - 转写相位订阅：asr-transcribing/done/failed 实时切换横幅（视图开着才碰 DOM）。
 setReadingSubtitleBatchHook(handleReadingSubtitleRangeAppended);
 bindReadingTranscribeBanner();
+// 选轨控件（08 号票）的两处组装根接线：
+//   - 结果通知回调：切轨失败经 reader-bus 的 "status" 通道报错（与抓取同通道、
+//     同序收敛，Q14）——本域是 reader-bus 的接线处，不把 reader-bus 拖进 ui 叶子；
+//   - change 绑定不在这里：原生 select 由壳模板产出、随壳 forceRecreate 重建，
+//     监听器在渲染入口按节点去重补绑（见 subtitle-tab-ui 的 boundTrackPickers）。
+setSubtitleTrackNoticeHandler((text) => notifyReaderPresenter("status", text));
 
 // SYNC functions this module drives (from sync.js):
 import {
@@ -446,6 +460,12 @@ export function renderReadingView() {
   // PR4：概览 tab 内容按当前状态机收敛（渲染只反映、不触发生成；触发电由
   // enterReaderMode / subtitle-ready / 概览 tab 切换三路负责）。
   renderReadingOverview();
+  // 票 subtitle-track-picker/08：字幕工具条选轨控件的渲染入口（旧
+  // renderReadingSubtitleSelect 的对应物）。水合不派发 change——这里只把
+  // clip.subtitles 与当前选中轨投影到控件（setCustomSelectValue），用户改选才
+  // 走 change 处理器。切轨重渲由接受事务的 subtitle-ready 通知到达本函数驱动；
+  // 转写相位与失败通知由该叶子自己接（见其模块头注的两个接线点）。
+  renderReadingSubtitleTrackPicker();
   state.reader.setActiveSubtitleIndex(-1);
   state.reader.setActiveChapterIndex(-1);
 }

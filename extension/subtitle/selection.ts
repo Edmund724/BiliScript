@@ -187,6 +187,40 @@ export function buildAsrSubtitleLabel(language: unknown): string {
   return doc ? `${ASR_SUBTITLE_SOURCE}（${doc}）` : ASR_SUBTITLE_SOURCE;
 }
 
+// ===== 选轨控件的标签口径（票 subtitle-track-picker/08） =====
+// 唯一消费点是阅读面板字幕工具条的选轨控件（reader/subtitle-tab-ui.ts）。
+// 选项文字 = lanDoc 原文：Q5 裁定零处理——B站 AI 轨的 lanDoc 本就是裸语言名
+//（本仓样本 8 条实测无「（自动生成）」尾巴，research/01-track-shape.md），
+// 旧实现那套「剥机器尾巴」的归一对这批数据是空操作。lanDoc 缺失（空串）时
+// 回落 lan，避免列表里出现空白项（接口未给语言名的兜底，不是归一）。
+export function resolveSubtitleTrackLabel(track: { lan?: string; lanDoc?: string } | null | undefined): string {
+  const lanDoc = String(track?.lanDoc ?? "").trim();
+  return lanDoc || String(track?.lan ?? "").trim();
+}
+
+// `[AI]` 标只在列表内来源不唯一时显示（Q5′ / 08 号票口径）：仅当列表里同时
+// 存在 B站 AI 轨（lan 以 `ai-` 开头）**与非 AI 轨**（含本扩展 ASR 伪轨
+// `asr-zh`、人工上传轨）时才需要区分来源。单源列表一律不标——本仓样本 8 条
+// 全是 ai-*，旧实现（判据只看单条 lan 前缀）会给出 8 个零信息量的 [AI]。
+export function shouldMarkAiSubtitleTracks(
+  tracks: Array<{ lan?: string } | null | undefined> | null | undefined
+): boolean {
+  let hasAi = false;
+  let hasOther = false;
+  for (const track of tracks || []) {
+    if (String(track?.lan || "").toLowerCase().startsWith("ai-")) {
+      hasAi = true;
+    } else {
+      hasOther = true;
+    }
+    // 两类都见到即判定唯一依据已成立；判据是「同时存在」，不数个数。
+    if (hasAi && hasOther) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // 候选10 批1：写入端统一保证 subtitleBody 按 from 升序（稳定排序，同 from
 // 保持原有相对顺序，与读路径旧线性扫描的命中顺序一致）。core.js 的
 // findActiveSubtitleIndex 二分查找依赖该不变量；读路径一律不排序。

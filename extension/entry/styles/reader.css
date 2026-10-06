@@ -222,6 +222,22 @@
  * padding/overflow），此处不留空壳。 */
 /* 字幕工具条「字幕语言」下拉的 .biliscript-reading-select/-sm 框形态已随该控件
  * 删除（2026-10 用户决议，见 reader/subtitle-tab-ui.ts 头注）。 */
+/* 选轨控件（票 subtitle-track-picker/08，02 号票裁定变体 A「一行内插入」）：
+ * 控件壳是 ui/custom-select 的 wrapper（组件表给它 `display: flex`，内含 trigger
+ * `width: 100%`），插在搜索框与「复制」之间，一行内。
+ * 只管**在工具条里的排布**这一件事，组件自身度量一律留给
+ * entry/styles/custom-select.css（Q3/05/10：组件侧不再改）：故这里只写本票自己的
+ * wrapper 类，不碰组件内部类名——tests/entry/reader-settings-css-split 有回流守卫
+ * （reader.css 出现组件类名即红）。
+ *   - wrapper `flex: 0 0 auto`：不吃搜索框（flex: 1 1 150px）的空间——宽度只由
+ *     下面那条定宽决定，断行预算因此是个常数（prototypes/README §5/§6）；
+ *   - wrapper 定宽 120px（02 号票裁定的宽度策略）：trigger 是 width:100% 的子项、
+ *     随之 120px，行数与选中语言无关（自适应方案的行数阈值会随语言在
+ *     403.0–472.4 之间跳，460 档最长名会多出一行）。 */
+#biliscript-reading-view .biliscript-reading-sub-toolbar .biliscript-reading-track-picker {
+  flex: 0 0 auto;
+  width: 120px;
+}
 
 /* ===== 统一 文摘面板（PR2）：右侧面板壳 + 三标签 =====
  * 视口定位（fixed 右侧、全高卡片）在 reader-gate.css 门控段；这里只定义

@@ -34,6 +34,10 @@ export const ids = {
   readingOverviewBody: "biliscript-reading-overview-body",
   // PR3 字幕 tab 五件事：句内搜索、Copy/Export、Follow 悬浮按钮、转写中间态
   // 横幅、选区「解释」浮层与卡片、AI 对话 tab 的待解释意图卡。
+  // 字幕轨选择器（票 subtitle-track-picker/08）：字幕工具条里的选轨控件值源
+  //（ui/custom-select 建壳前的原生 select；该 id 于 2f974c5 随控件删除，本票
+  // 恢复——控件本体换成了组件形态，id 与选择器语义不变）。
+  readingSubtitleSelect: "biliscript-reading-subtitle-select",
   readingSearchInput: "biliscript-reading-search-input",
   readingSearchCount: "biliscript-reading-search-count",
   readingSearchPrevBtn: "biliscript-reading-search-prev",
