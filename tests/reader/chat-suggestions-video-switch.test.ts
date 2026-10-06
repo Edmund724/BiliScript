@@ -58,11 +58,15 @@ vi.mock("../../extension/bilibili/gateway-core.js", () => ({
 let state: TestState;
 let lazyChat: typeof import("../../extension/reader/lazy-chat-tab.js");
 let writeCachedQuickPrompts: typeof import("../../extension/chat/quick-prompt-cache.js").writeCachedQuickPrompts;
+let notifyReaderPresenter: typeof import("../../extension/reader/reader-bus.js").notifyReaderPresenter;
+let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let suggestionsId: string;
+let inputId: string;
 
 // 上一个视频（jsdom 起始地址 = BV1test000000）与换片后的新视频。
 const PREV_KEY = "video:BV1test000000|101";
-const NEXT_URL = "https://www.bilibili.com/video/BV1next00000/?biliscript_reader=1";
+const NEXT_BASE_URL = "https://www.bilibili.com/video/BV1next00000/";
+const NEXT_URL = `${NEXT_BASE_URL}?biliscript_reader=1`;
 const NEXT_KEY = "video:BV1next00000|202";
 
 type Sendstub = ReturnType<typeof vi.fn>;
@@ -132,7 +136,11 @@ beforeEach(async () => {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   writeCachedQuickPrompts = (await import("../../extension/chat/quick-prompt-cache.js")).writeCachedQuickPrompts;
-  suggestionsId = (await import("../../extension/reader/state.js")).ids.readingChatSuggestions;
+  notifyReaderPresenter = (await import("../../extension/reader/reader-bus.js")).notifyReaderPresenter;
+  chatSessionState = (await import("../../extension/chat/chat-state.js")).chatSessionState;
+  const ids = (await import("../../extension/reader/state.js")).ids;
+  suggestionsId = ids.readingChatSuggestions;
+  inputId = ids.readingChatInput;
   lazyChat = await import("../../extension/reader/lazy-chat-tab.js");
   (await import("../../extension/ui/ui-renderer.js")).ensureUiReady({ forceRecreate: true });
   mountPlayerChain();
@@ -179,6 +187,41 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
     writeCachedQuickPrompts(NEXT_KEY, ["新视频问题一", "新视频问题二", "新视频问题三"]);
 
     expect(suggestionsChips()).toEqual(["新视频问题一", "新视频问题二", "新视频问题三"]);
+    chat.closeChatSession();
+  });
+
+  it("clip 落定通知（subtitle-ready）后主动补一次对账：上下文归位到新视频，草稿保留", async () => {
+    seedPrevVideoReady();
+    writeCachedQuickPrompts(PREV_KEY, ["上一个视频问题一", "上一个视频问题二", "上一个视频问题三"]);
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    await waitFor(() => suggestionsChips().length > 0);
+
+    // 换片：URL 变化同步先到（读到旧 clip）→ 装配按未就绪空快照收口，键落 url: 档
+    setLocationUrl(NEXT_URL);
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(chatSessionState.currentContextKey).toBe(`url:${NEXT_BASE_URL}`);
+
+    // 转写等待期间用户打好的草稿（后台对账不得清掉它）
+    const input = document.getElementById(inputId) as HTMLTextAreaElement;
+    input.value = "这段是谁讲的？";
+
+    // 字幕落定：subtitle/commit 的 acceptSubtitle 事务（身份 + 字幕体原子写入）
+    // 收尾发 subtitle-ready → 组合根据此补一轮上下文对账
+    state.clip.title = "新视频";
+    state.clip.bvid = "BV1next00000";
+    state.clip.cid = "202";
+    state.clip.aid = "7200";
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "新视频的第一句" }];
+    notifyReaderPresenter("subtitle-ready");
+
+    await waitFor(() => chatSessionState.currentContextKey === NEXT_KEY);
+    expect(chatSessionState.contextData?.bvid).toBe("BV1next00000");
+    expect(chatSessionState.liveContextData?.title).toBe("新视频");
+    // 对账是「跟着 clip 走」而不是用户语义上的新会话：草稿原样保留
+    expect(input.value).toBe("这段是谁讲的？");
     chat.closeChatSession();
   });
 });

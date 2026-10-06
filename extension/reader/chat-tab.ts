@@ -115,7 +115,7 @@ import { createImageSupportGate } from "../chat/image-support.js";
 // 具名命令，由 ui-renderer 注册的 handler 执行——本文件不再静态 import
 // ui/ui-renderer。切对话 tab 的回头调不走壳命令，改经标签激活属主
 // ./script-tab-activation（见 runQuickActionPrompt）。
-import { requestSubtitleRefresh, requestUiCommand } from "./reader-bus.js";
+import { requestSubtitleRefresh, requestUiCommand, subscribeReaderPresenter } from "./reader-bus.js";
 // 标签激活属主（工单：标签激活收口 reader 域）：快捷动作的「定位对话 tab + 激活」
 // 经它执行，不再各写一半（收口前 = set-tab:chat 壳命令 + 显式 ensureChatTabActivated 双写）。
 import { activateScriptTab } from "./script-tab-activation.js";
@@ -187,23 +187,29 @@ function requireShell(): void {
 // ../chat/send-gate.ts（CONTEXT.md 词条「发送闸」），本文件经 sendGate 实例
 // 持有 bindStatusBus/unbindStatusBus/kickSubtitleWait/refreshAsrNotice 四件。
 
-// reader 触发源：biliscript:urlchange（core/url-watcher 广播）→ 强刷快档（切 P/切视频
-// 必须全网络重拉）。调度状态机原在 chat/context-sync.ts 的
-// createLiveContextSync（工单 05 并回）：~40 行纯间接层里 reader 只消费
-// onUrlChange 一个触发源（sidepanel 世界的 visibility/focus/tabs handler 无
-// 调用方，onReaderOpened/Closed 的恢复折叠进激活路径 restoreChatSession），
-// 单宿主现实下保留其防抖语义即可——120ms 快档，重复触发即防抖重置（触发源
-// 恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
+// reader 触发源两处（共用一个 120ms 防抖槽，后到者定档）：
+//   ① biliscript:urlchange（core/url-watcher 广播）→ 强刷快档（切 P/切视频必须
+//      全网络重拉）；
+//   ② reader-bus 的 subtitle-ready（clip 身份与字幕体原子落定时发）→ 弱档对账
+//      + 保输入，见下方 bindClipSettleTrigger。
+// 调度状态机原在 chat/context-sync.ts 的 createLiveContextSync（工单 05 并回）：
+// ~40 行纯间接层里 reader 只消费 onUrlChange 一个触发源（sidepanel 世界的
+// visibility/focus/tabs handler 无调用方，onReaderOpened/Closed 的恢复折叠进激活
+// 路径 restoreChatSession），单宿主现实下保留其防抖语义即可——120ms 快档，重复
+// 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
 let urlChangeHandler: (() => void) | null = null;
 
-function scheduleLiveContextSync(): void {
+// 参数：forceRefresh 缺省强刷（URL 变化 = 明确要求全网络重拉）；preserveInput 缺省
+// false（换片是用户动作，清场是既有语义）。字幕落定的对账走弱档 + 保输入（见
+// bindClipSettleTrigger 的取舍说明）。
+function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }: { forceRefresh?: boolean; preserveInput?: boolean } = {}): void {
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
   }
   urlChangeSyncTimer = window.setTimeout(() => {
     urlChangeSyncTimer = 0;
-    void syncLiveContextState(true);
+    void syncLiveContextState(forceRefresh, preserveInput);
   }, 120);
 }
 
@@ -221,6 +227,37 @@ function unbindUrlChangeTrigger(): void {
   }
   window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, urlChangeHandler);
   urlChangeHandler = null;
+}
+
+// clip 落定 → 主动补一次上下文对账（本文件新增的第二个触发源）。
+//
+// 为什么需要：换片瞬间 URL 变化同步可能早于 clip 重置（重置链在动态加载之后），
+// 那次装配按「clip 不属于当前页即未就绪空快照」收口（core/context-assembly 的
+// 页身份校验）——此后没有第二个触发源，对话上下文就一直停在空档，标题与上下文键
+// 都不归位，直到用户发送或再次换片。subtitle-ready 正是「视频身份 + 字幕体原子
+// 落定」的信号（subtitle/commit 的 acceptSubtitle / commitNoSubtitle 两个出口都
+// 发，无字幕收尾同样算落定），收到即补一轮。
+//
+// 档位取舍：弱档 forceRefresh:false——签名里含字幕体长度与 subtitleFetchState，
+// 真落定必然签名变化走全量，重复通知/无变化则短路零开销（强刷档每轮都会重拉热评）。
+// 保输入 preserveInput:true——这次对账是「跟着 clip 走」，不是用户语义上的新会话，
+// 而转写等待期间用户很可能已经在输入框里打好了草稿，不该被后台对账清掉。
+let unsubscribeClipSettle: (() => void) | null = null;
+
+function bindClipSettleTrigger(): void {
+  if (unsubscribeClipSettle) {
+    return;
+  }
+  unsubscribeClipSettle = subscribeReaderPresenter((kind) => {
+    if (kind === "subtitle-ready") {
+      scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
+    }
+  });
+}
+
+function unbindClipSettleTrigger(): void {
+  unsubscribeClipSettle?.();
+  unsubscribeClipSettle = null;
 }
 
 // 外部设置变更 → 刷新平台/偏好（与 sidepanel bindEvents 的 storage.onChanged
@@ -571,6 +608,7 @@ function pickThinkingLevel(level: ThinkingLevelInput): void {
 function bindGlobalTriggers(): void {
   sendGate.bindStatusBus();
   bindUrlChangeTrigger();
+  bindClipSettleTrigger();
   bindStorageWatcher();
   bindQuickPromptRefresh();
   // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（chat-tab-bridge）。
@@ -582,6 +620,7 @@ function bindGlobalTriggers(): void {
 function unbindGlobalTriggers(): void {
   sendGate.unbindStatusBus();
   unbindUrlChangeTrigger();
+  unbindClipSettleTrigger();
   unbindStorageWatcher();
   unbindQuickPromptRefresh();
   setChatTabOutsideClickHandler(null);
@@ -1089,8 +1128,10 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
 // ============================================================
 
 // 【整段迁移自 sidepanel.ts】post-sync 分支编排：流式守卫 + 三个渲染回调。
-async function syncLiveContextState(forceRefresh = false): Promise<void> {
-  const ok = await loadContextState({ forceRefresh, silent: true }).catch(() => false);
+// preserveInput 透传进上下文装载（gate 链与字幕落定对账为「上下文跟随」，见
+// 各自调用点）。
+async function syncLiveContextState(forceRefresh = false, preserveInput = false): Promise<void> {
+  const ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
   if (isPinnedContextStrict(chatSessionState.currentConversationMeta) || chatRuntime.isTurnActive()) {
     return;
   }
