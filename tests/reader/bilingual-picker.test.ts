@@ -493,7 +493,7 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     expect(selected[0].textContent).toBe("English");
   });
 
-  it("副列选了主轨那一条 ⇒ 副列清空并说明「主副字幕相同，已清空副字幕」", () => {
+  it("副列选了主轨那一条 ⇒ 副列清空并说明「主副字幕相同」", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "en-US");
     shell.renderReadingView();
@@ -507,7 +507,8 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     // 目标 lan 记成用户刚点的那条轨（= 主轨的 lan）：第三套空态文案由此投影出来
     expect(state.settings.secondarySubtitleLang).toBe("ai-zh");
     expect(col("sub")).not.toBeNull(); // 开关保持开，副列仍在场（只是空）
-    expect(placeholderText()).toBe("主副字幕相同，已清空副字幕");
+    // 文案只留六个字（说明行 max-width 140px；原句后半截在真机被省略号吃掉）
+    expect(placeholderText()).toBe("主副字幕相同");
     // 说明行与列表同时在场：点错一条不该把整列锁死（列表没了就再也改不回来）
     expect(colTexts("sub")).toContain("English");
   });
@@ -524,7 +525,7 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     await vi.waitFor(() => expect(state.clip.selectedSubtitleId).toBe(JA_ID));
 
     expect(state.clip.secondarySubtitle.state).toBe("idle");
-    expect(placeholderText()).toBe("主副字幕相同，已清空副字幕");
+    expect(placeholderText()).toBe("主副字幕相同");
   });
 
   it("关开关只停显示、不清副轨槽（反复开关不闪加载中）", async () => {
@@ -580,7 +581,7 @@ describe("副列的三套空态 + 单轨禁用", () => {
     setBilingual(true, "ai-zh"); // 目标语言 = 主轨自己的语言
     shell.renderReadingView();
 
-    expect(placeholderText()).toBe("主副字幕相同，已清空副字幕");
+    expect(placeholderText()).toBe("主副字幕相同");
     expect(lazy.secondaryCalls).toHaveLength(0);
     // 说明行不再顶掉语言列表：用户的下一步动作就是「换一条语言」，列表必须在场
     //（2026-10-06 图外回访：原样只剩一行说明 ⇒ 副语言再也改不回来）。

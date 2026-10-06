@@ -227,7 +227,7 @@ describe("findTrackByPreferredLang（副轨语言两级匹配）", () => {
 
 // ===== 副字幕的目标轨（bilingual-subtitles/06 + 2026-10-06 图外回访）=====
 // 副轨槽不许装主轨：装进去会在列表里出两份一样的正文，而弹层副列同时写着
-// 「主副字幕相同，已清空副字幕」（文案与 state 两说）。排除判据与两级语言匹配
+// 「主副字幕相同」（文案与 state 两说）。排除判据与两级语言匹配
 // 同住一个叶子，因为装载入口有两条（弹层副列 / reader 生命周期自动装载）——
 // 只在一处加，另一处就会把主轨当副轨抓下来（用户实测的那两份一样）。
 describe("副轨目标 = 语言命中 + 排除主轨（findSecondaryTrackByPreferredLang / isMainSubtitleTrack）", () => {

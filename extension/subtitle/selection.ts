@@ -274,7 +274,7 @@ export function isMainSubtitleTrack(track: { id?: string } | null | undefined, m
 // 第二语言」这个结论。
 // 判据必须住在这个共享叶子里：目标轨的装载入口有两条（弹层副列与 reader 生命周期
 // 的自动装载），只在一处加，另一处就会把主轨抓进副轨槽 ⇒ 列表出两份一样的正文，
-// 而弹层副列同时写着「主副字幕相同，已清空副字幕」（文案与 state 两说）。
+// 而弹层副列同时写着「主副字幕相同」（文案与 state 两说）。
 export function findSecondaryTrackByPreferredLang<T extends { id?: string; lan?: string; subtitleUrl?: string }>(
   tracks: readonly T[] | null | undefined,
   preference: unknown,

@@ -395,7 +395,7 @@ function handleTrackPickerChange(select: HTMLSelectElement): void {
       switchInFlight = null;
       // Q8 反方向：主轨切到了副列当前指向的同一条轨 ⇒ 副列失去区分度（列表会出
       // 两行同样文字），副轨槽就此清空；目标 lan 保持不动，投影据此出第三套空态
-      // 文案「主副字幕相同，已清空副字幕」。判据读**接受事务之后**的 state（失败
+      // 文案「主副字幕相同」。判据读**接受事务之后**的 state（失败
       // 路径 state 未变 ⇒ 这次清理对失败的切轨不成立，不会误伤副列）。
       clearSecondarySubtitleIfShadowedByMain();
       renderReadingSubtitleTrackPicker();
@@ -435,7 +435,10 @@ const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
 // 可见反馈由本列 disabled/aria-busy 与列表里副行的占位承担。
 const SECONDARY_EMPTY_PICK_TEXT = "选择副字幕语言";
 const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
-const SECONDARY_COLLISION_TEXT = "主副字幕相同，已清空副字幕";
+// 第三套文案只留「主副字幕相同」六个字（2026-10-06 用户第二轮裁决）：说明行 max-width
+// 140px，原句「，已清空副字幕」在真机被省略号吃掉，用户看到的就是一句残句；这句说明
+// 只是**列首提示**，清空与否由列表（副行 0）+ 副列值源共同表达，不必写进文案。
+const SECONDARY_COLLISION_TEXT = "主副字幕相同";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
 const SECONDARY_MISSING_PREFIX = "本视频没有 ";
 const SECONDARY_MISSING_SUFFIX = " 轨";
@@ -915,7 +918,7 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
   }
   // Q8 同轨防呆：副列选了主轨那一条 ⇒ 副列清空（列表退回单轨）。目标 lan 记成用户
   // 刚点的那条轨的 lan（= 主轨的 lan）——这是「副列指向主轨」的唯一可投影信号，
-  // 第三套空态文案「主副字幕相同，已清空副字幕」由此推出（02 号票第 5/8 条：
+  // 第三套空态文案「主副字幕相同」由此推出（02 号票第 5/8 条：
   // 三套空态不占新位、由（目标 lan × 轨列表 × 主轨选择 × 副轨 body）投影推导）。
   if (id && id === state.clip.selectedSubtitleId) {
     state.setSettings({ ...state.settings, secondarySubtitleLang: lang });
@@ -946,7 +949,7 @@ function handleSecondaryRetryClick(): void {
 }
 
 // 主轨切到了副列当前指向的同一条轨 ⇒ 清副轨槽（Q8 反方向；目标 lan 保持不动，
-// 投影据此出「主副字幕相同，已清空副字幕」）。**不碰** settings——偏好是全局记忆。
+// 投影据此出「主副字幕相同」）。**不碰** settings——偏好是全局记忆。
 function clearSecondarySubtitleIfShadowedByMain(): void {
   const slot = state.clip.secondarySubtitle;
   if (!slot.id || slot.id !== state.clip.selectedSubtitleId) {
