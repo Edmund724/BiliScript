@@ -2,6 +2,13 @@
 // 与表单收集链，组件只做展示与交互壳；listbox 键盘与 ARIA 语义在组件内自持：
 // trigger 上 Enter/Space 展开，↑/↓ 在选项间漫游（首尾不循环），Home/End 跳首尾，
 // Enter/Space 选中并关闭，Esc 关闭归焦 trigger，Tab 关闭并正常离开。
+//
+// 组件表随组件走（2026-10 从 reader-settings-{rows,shell,providers}.css 抽出）：
+// 模块求值即挂 link，设置抽屉与阅读面板两侧都不再依赖 settings-panel chunk 的装载
+// 时机（settings-panel.ts 顶挂载同款先例）。
+import { ensureCustomSelectStyles } from "../shared/style-injector.js";
+
+ensureCustomSelectStyles();
 
 let customSelectSeq = 0;
 
@@ -60,9 +67,11 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
   trigger.setAttribute("aria-expanded", "false");
 
   // 可访问名落在 trigger 上：隐藏 select 退出无障碍树后，label[for] 指向一个用户
-  // 碰不到的控件，只念当前值（"SRT，按钮"）等于丢了「这是哪个设置」。名字由
-  // 「字段标签 + 当前值」两个节点拼成，值改名字自动重算，无需在写回处同步。
+  // 碰不到的控件，只念当前值（"SRT，按钮"）等于丢了「这是哪个设置」。字段名的两条
+  // 来路：显式/同级 label，或 select 自带的 aria-label（阅读面板工具条的选轨控件
+  // 没有字段 label，只有 aria-label）。名字恒为「字段名 + 当前值」。
   const fieldLabel = resolveFieldLabel(select);
+  const selectLabel = select.getAttribute("aria-label");
   if (fieldLabel) {
     if (!fieldLabel.id) {
       fieldLabel.id = `custom-select-label-${++customSelectSeq}`;
@@ -83,6 +92,15 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
   const currentOption = options.find((o) => o.value === currentValue) || options[0];
   valueSpan.textContent = currentOption?.label || "";
 
+  // label 路径：名字由「字段标签 + 当前值」两个节点拼成（aria-labelledby），值改名字
+  // 自动重算，无需在写回处同步。aria-label 路径：无字段 label 时用它当字段名，按
+  // 「字段名 + 当前值」拼成 trigger 的 aria-label，随 syncDisplayFromValue 按现值重算。
+  const syncLabelBasedName = (): void => {
+    if (fieldLabel || !selectLabel) return;
+    trigger.setAttribute("aria-label", `${selectLabel} ${valueSpan.textContent}`.trim());
+  };
+  syncLabelBasedName();
+
   const arrow = document.createElement("span");
   arrow.className = "custom-select-arrow";
   arrow.innerHTML = `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>`;
@@ -95,7 +113,6 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
   dropdown.hidden = true;
   dropdown.id = `custom-select-dropdown-${++customSelectSeq}`;
   dropdown.setAttribute("role", "listbox");
-  const selectLabel = select.getAttribute("aria-label");
   if (fieldLabel) {
     dropdown.setAttribute("aria-labelledby", fieldLabel.id);
   } else if (selectLabel) {
@@ -155,13 +172,15 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
     if (option) {
       valueSpan.textContent = option.textContent || "";
       markSelected(option);
-      return;
+    } else {
+      valueSpan.textContent = optionNodes[0]?.textContent || "";
+      optionNodes.forEach((o) => {
+        o.dataset.selected = "false";
+        o.setAttribute("aria-selected", "false");
+      });
     }
-    valueSpan.textContent = optionNodes[0]?.textContent || "";
-    optionNodes.forEach((o) => {
-      o.dataset.selected = "false";
-      o.setAttribute("aria-selected", "false");
-    });
+    // aria-label 路径的名字跟着值重算（label 路径由 aria-labelledby 自动重算）
+    syncLabelBasedName();
   };
   displaySyncs.set(select, syncDisplayFromValue);
 

@@ -1,0 +1,144 @@
+/* ===== 自定义下拉组件表（随 ui/custom-select.ts 组件走，2026-10 从设置分区表组抽出） =====
+ * 原住 reader-settings-{rows,shell,providers}.css 三份**设置**表里：那三份随
+ * ui/settings-panel chunk 按需装载（shared/style-injector ensureReaderSettingsStyles），
+ * 只看字幕、没开过设置抽屉时组件没有样式——工具条复用本组件时下拉即裸奔。抽出
+ * 独立表后由 ui/custom-select.ts 模块顶层 ensure（与 settings-panel.ts:76 顶挂载
+ * 同款先例），组件不再依赖设置抽屉的挂载时机。挂载顺序上组件表先于设置三件套
+ * （settings-panel 的 import 先求值），组件自身的规则不再与设置表同选择器竞争。
+ *
+ * 作用域：#biliscript-reading-view 前缀。custom-select-* 是文档级裸类
+ * （custom-select.ts 生成），设置抽屉与阅读面板都在该作用域内。
+ *
+ * [hidden] 一条是正确性规则、不是度量（原 rows.css:341）：收起态靠它保证，漏带
+ * 就是「列表常开」。
+ *
+ * 与设置表的同度量关系（Q18）：弹层卡片度量与 .provider-editor-host
+ * .ai-provider-model-dropdown 同源，分表后两处各留一份等价声明
+ * （reader-settings-rows.css 首段），改一处必须同时改另一处——否则模型弹层与
+ * 自定义下拉会偷偷分叉。
+ *
+ * 颜色/边框走 --biliscript-reader-* token（reader-gate.css 两主题定义）。 */
+
+/* 弹层卡片（原 rows.css:11-30 选择器列表的 custom-select 分支）：与
+ * reader-settings-rows.css 首段 .ai-provider-model-dropdown 同度量，改一处即改两处。 */
+#biliscript-reading-view .custom-select-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 260px;
+  z-index: 30;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 12px;
+  background: var(--biliscript-reader-card);
+  box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
+  list-style: none;
+  margin: 0;
+}
+
+/* 收起态正确性规则（原 rows.css:340-343）：面板外部的 global document click 委托
+ * 会关闭下拉；弹出层需盖过相邻卡片，堆叠上下文内 z-index 已够，此处补一条收起
+ * 保证——[hidden] 被弹层规则压过就列表常开。 */
+#biliscript-reading-view .custom-select-dropdown[hidden] {
+  display: none;
+}
+
+/* 选项行（原 rows.css:44-62 选择器列表的 custom-select 分支）：button 型（模型
+ * 选项）与 li 型共用度量，cursor: pointer 对 li 无害。 */
+#biliscript-reading-view .custom-select-option {
+  width: 100%;
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px 10px;
+  text-align: left;
+  font: inherit;
+  font-size: 15px;
+  color: var(--biliscript-reader-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#biliscript-reading-view .custom-select-option:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+#biliscript-reading-view .custom-select-option:hover {
+  background: var(--biliscript-reader-surface-2);
+}
+
+#biliscript-reading-view .custom-select-option[data-selected="true"] {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+}
+
+/* 自定义下拉通用样式（原 rows.css:345-388）：下载格式 / 主题族 / Modal 预设与协议 /
+ * 阅读面板选轨共用。 */
+#biliscript-reading-view .custom-select-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+#biliscript-reading-view .custom-select-trigger {
+  width: 100%;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 8px;
+  background: var(--biliscript-reader-card);
+  color: var(--biliscript-reader-text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+
+#biliscript-reading-view .custom-select-trigger:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+/* 焦点态（原 reader-settings-shell.css:161-172 焦点组里的 custom-select 分支）：
+ * outline 关掉默认环，accent 描边 + 2px soft 光环，与设置表控件焦点态同规格。 */
+#biliscript-reading-view .custom-select-trigger:focus {
+  outline: none;
+  border-color: var(--biliscript-reader-accent);
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
+}
+
+/* 箭头取类型选择器那套观感：8px 见方、faint 色、1px 描边——本 SVG 是 24 视框，
+ * stroke-width 换算成 3 才与 12 视框的 1.5 等宽。SVG 上的 stroke-width 是演示
+ * 属性，CSS 规则可直接覆盖。 */
+#biliscript-reading-view .custom-select-arrow {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--biliscript-reader-faint);
+}
+
+#biliscript-reading-view .custom-select-arrow svg {
+  width: 8px;
+  height: 8px;
+  stroke-width: 3;
+}
+
+/* 减少动态（原 reader-settings-providers.css:812-813 表尾降级块里的两条）：按压缩
+ * 放对减少动态用户关停，颜色/背景类短过渡保留。本块必须在上面 scale 规则之后。 */
+@media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view .custom-select-option:active,
+  #biliscript-reading-view .custom-select-trigger:active {
+    transform: none;
+  }
+}

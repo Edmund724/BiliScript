@@ -163,6 +163,8 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
 
     // 只念当前值（"SRT，按钮"）等于丢了「这是哪个设置」；字段名必须进名字
     expect(labelledbyText(trigger)).toBe("下载格式 SRT");
+    // 有真 label：名字仍走 aria-labelledby，未被 aria-label 分支改写（逐字不变）
+    expect(trigger.getAttribute("aria-label")).toBeNull();
     expect(labelledbyText(dropdown)).toBe("下载格式");
     // 标签的 for 也得指向用户碰得到的控件：不然点标签把焦点送进已 display:none 隐藏的 select
     const fieldLabel = document.getElementById(trigger.getAttribute("aria-labelledby")!.split(" ")[0])!;
@@ -181,6 +183,30 @@ describe("custom-select 无障碍接线（ADR-0007 重开条件的结构核验�
     initCustomSelect(document.getElementById("protocolSelect") as HTMLSelectElement);
     const trigger = document.querySelector<HTMLElement>(".custom-select-trigger")!;
     expect(labelledbyText(trigger)).toBe("协议 OpenAI");
+  });
+
+  it("无字段 label 但有 aria-label：用它作字段名拼 trigger 的名字（阅读面板选轨形态）", async () => {
+    document.body.innerHTML =
+      '<select id="subtitleTrackSelect" aria-label="字幕语言">' +
+      '<option value="ai-zh" selected>中文</option>' +
+      '<option value="ai-en">English</option>' +
+      "</select>";
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(document.getElementById("subtitleTrackSelect") as HTMLSelectElement);
+    const wrapper = document.querySelector<HTMLElement>(".custom-select-wrapper")!;
+    const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
+    const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+    const options = Array.from(dropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
+
+    // 名字 = 「字段名 + 当前值」：只念「中文，按钮」等于丢了「这是哪个设置」
+    expect(trigger.getAttribute("aria-labelledby")).toBeNull(); // 无字段 label：走 aria-label 路径
+    expect(trigger.getAttribute("aria-label")).toBe("字幕语言 中文");
+    // dropdown 仍是纯字段名（既有口径不变）
+    expect(dropdown.getAttribute("aria-label")).toBe("字幕语言");
+
+    // 名字随值重算
+    fireClick(options[1]);
+    expect(trigger.getAttribute("aria-label")).toBe("字幕语言 English");
   });
 
   it("Tab 从展开列表离开：收拢列表、焦点交还 trigger、不吞默认动作", async () => {
@@ -290,5 +316,26 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
     // 显示从写入后的实际值派生（与 init 同款：无选中项时文本回落首项、无选中态）
     expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("SRT");
     expect(options.every((option) => option.getAttribute("aria-selected") === "false")).toBe(true);
+  });
+});
+
+// 组件表随组件走（2026-10：规则从设置三件套抽成 entry/styles/custom-select.css）：
+// 设置抽屉与阅读面板两侧共用本组件，只看字幕、没开过设置抽屉时也必须有样式——
+// 故组件模块求值即挂 link（settings-panel.ts 顶挂载同款先例），不再依赖
+// settings-panel chunk 的装载时机。
+describe("组件表随组件挂载（extension/entry/styles/custom-select.css）", () => {
+  it("导入组件模块即挂组件表 link，不依赖设置抽屉的装载时机", async () => {
+    document.head.innerHTML = "";
+
+    await import("../../extension/ui/custom-select.js");
+
+    const link = document.head.querySelector<HTMLLinkElement>(
+      'link[rel="stylesheet"][href$="entry/styles/custom-select.css"]'
+    );
+    expect(link, "组件表 link 未挂").not.toBeNull();
+    // 设置三件套不在场（未开设置抽屉的形态）
+    expect(document.head.querySelector('link[href$="reader-settings-rows.css"]')).toBeNull();
+    expect(document.head.querySelector('link[href$="reader-settings-shell.css"]')).toBeNull();
+    expect(document.head.querySelector('link[href$="reader-settings-providers.css"]')).toBeNull();
   });
 });

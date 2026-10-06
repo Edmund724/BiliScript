@@ -13,10 +13,16 @@
 // 原生 select 外观规则留着也无所谓；display:none 天然退出无障碍树与 Tab 序，
 // tabIndex / aria-hidden 不再需要。
 //
-// 本测试守什么：即便三份真实设置 CSS 按真实级联顺序（shell → rows → providers，同
-// style-injector.ts / build.js）全部注入，接管产物在两个宿主里的 computed display 也
-// 必须恒为 none。有人把隐藏改回 CSS 类、或删掉那行内联样式让宿主规则重新盖住
+// 本测试守什么：即便四份真实 CSS 按真实级联顺序（custom-select → shell → rows →
+// providers，同 style-injector.ts / build.js：组件表随 ui/custom-select.ts 模块求值先挂，
+// 设置三件套在 settings-panel 模块体里后挂）全部注入，接管产物在两个宿主里的 computed
+// display 也必须恒为 none。有人把隐藏改回 CSS 类、或删掉那行内联样式让宿主规则重新盖住
 // trigger，这里立刻变红。
+//
+// 组件表（2026-10 从设置三件套抽出的 styles/custom-select.css）另守两条正确性：
+// 弹层收起的 [hidden] 规则与弹层/trigger/选项的度量规则必须在表内（下面按新表路径
+// 断言源码在场——jsdom 的 UA 表自带 [hidden]{display:none}，只测 computed 会把漏带
+// 规则放过去）。
 //
 // 隐藏由真实组件产出，不写进夹具：夹具只给「接管前」的宿主结构，隐藏是组件接管后
 // 的可观察结果——夹具自己写死 style="display:none" 的话，删掉实现里的内联样式测试
@@ -36,12 +42,13 @@ const read = (rel: string): string => readFileSync(join(process.cwd(), rel), "ut
 const SHELL_CSS = "extension/entry/styles/reader-settings-shell.css";
 const ROWS_CSS = "extension/entry/styles/reader-settings-rows.css";
 const PROVIDERS_CSS = "extension/entry/styles/reader-settings-providers.css";
+const CUSTOM_SELECT_CSS = "extension/entry/styles/custom-select.css";
 
-// 注入源文件文本，顺序即真实级联顺序（shell → rows → providers）。
+// 注入源文件文本，顺序即真实级联顺序（组件表先挂，再 shell → rows → providers）。
 function mountStyles(): void {
   document.head.innerHTML = "";
   document.body.innerHTML = "";
-  for (const file of [SHELL_CSS, ROWS_CSS, PROVIDERS_CSS]) {
+  for (const file of [CUSTOM_SELECT_CSS, SHELL_CSS, ROWS_CSS, PROVIDERS_CSS]) {
     const style = document.createElement("style");
     style.textContent = read(file);
     document.head.appendChild(style);
@@ -96,7 +103,7 @@ afterEach(() => {
 });
 
 describe("接管后隐藏 select 的回归守卫（两个宿主上下文）", () => {
-  it("设置抽屉（shell → rows → providers）：接管产物 computed display 恒为 none，宿主 select 外观规则盖不回来", async () => {
+  it("设置抽屉（custom-select → shell → rows → providers）：接管产物 computed display 恒为 none，宿主 select 外观规则盖不回来", async () => {
     mountStyles();
     const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     const select = mountDrawerSelect();
@@ -106,7 +113,7 @@ describe("接管后隐藏 select 的回归守卫（两个宿主上下文）", ()
     expect(getComputedStyle(select).display).toBe("none");
   });
 
-  it("平台编辑 Modal（shell → rows → providers）：接管产物 computed display 恒为 none，Modal 的 select 规则盖不回来", async () => {
+  it("平台编辑 Modal（custom-select → shell → rows → providers）：接管产物 computed display 恒为 none，Modal 的 select 规则盖不回来", async () => {
     mountStyles();
     const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     const select = mountModalSelect();
@@ -114,5 +121,57 @@ describe("接管后隐藏 select 的回归守卫（两个宿主上下文）", ()
     initCustomSelect(select);
 
     expect(getComputedStyle(select).display).toBe("none");
+  });
+});
+
+describe("组件表（extension/entry/styles/custom-select.css，2026-10 从设置三件套抽出）", () => {
+  it("收起规则与度量规则都在组件表内（漏带即列表常开 / 弹层裸奔）", () => {
+    const css = read(CUSTOM_SELECT_CSS);
+    // 正确性规则：[hidden] 收起态
+    expect(css).toMatch(
+      /#biliscript-reading-view \.custom-select-dropdown\[hidden\]\s*\{[^}]*display:\s*none/
+    );
+    // 度量：弹层卡片 / trigger / 选项 / 包装器 / 箭头
+    expect(css).toMatch(/#biliscript-reading-view \.custom-select-dropdown\s*\{[^}]*max-width:\s*260px/);
+    expect(css).toMatch(/#biliscript-reading-view \.custom-select-trigger\s*\{[^}]*height:\s*32px/);
+    expect(css).toMatch(/#biliscript-reading-view \.custom-select-option\s*\{[^}]*min-height:\s*30px/);
+    expect(css).toMatch(/#biliscript-reading-view \.custom-select-wrapper\s*\{[^}]*position:\s*relative/);
+    expect(css).toMatch(/#biliscript-reading-view \.custom-select-arrow svg\s*\{[^}]*stroke-width:\s*3/);
+  });
+
+  it("搬走后设置表不重复声明，且同度量的模型弹层声明仍在场（两边渲染度量都不变）", () => {
+    const rows = read(ROWS_CSS);
+    // 与组件弹层同度量的那段声明（Q18）留在设置表：设置与组件各持一份等价规则
+    expect(rows).toMatch(
+      /#biliscript-reading-view \.provider-editor-host \.ai-provider-model-dropdown\s*\{[^}]*max-width:\s*260px/
+    );
+    expect(rows).toMatch(
+      /#biliscript-reading-view \.provider-editor-host \.ai-provider-model-dropdown\[hidden\]\s*\{[^}]*display:\s*none/
+    );
+    // 组件规则不再留在三份设置表里
+    for (const file of [SHELL_CSS, ROWS_CSS, PROVIDERS_CSS]) {
+      const css = read(file);
+      expect(css, `${file} 仍声明 .custom-select-wrapper`).not.toMatch(/\.custom-select-wrapper/);
+      expect(css, `${file} 仍声明 .custom-select-trigger`).not.toMatch(/\.custom-select-trigger/);
+      expect(css, `${file} 仍声明 .custom-select-arrow`).not.toMatch(/\.custom-select-arrow/);
+      expect(css, `${file} 仍声明 .custom-select-option`).not.toMatch(/\.custom-select-option/);
+    }
+  });
+
+  it("四条规则按真实级联顺序注入：展开态可见，收起态 computed display 为 none", async () => {
+    mountStyles();
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    const select = mountDrawerSelect();
+    initCustomSelect(select);
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
+    const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+
+    expect(dropdown.hidden).toBe(true);
+    expect(getComputedStyle(dropdown).display).toBe("none");
+
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(dropdown.hidden).toBe(false);
+    expect(getComputedStyle(dropdown).display).not.toBe("none");
   });
 });

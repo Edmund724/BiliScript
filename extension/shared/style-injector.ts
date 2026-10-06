@@ -1,8 +1,9 @@
 // 样式注入器（S3 分层）：阅读表（styles/reader.css + styles/reader-gate.css）、
 // 播放器 AI 表（styles/player-ai.css）、设置分区表组（styles/
-// reader-settings-{shell,rows,providers}.css，arch-slim-4/04，2026-09 拆分）
-// 与对话分区表（styles/reader-chat.css，arch-slim-4/07）不再经
-// manifest 常驻注入，改由本模块在对应能力启用时挂载。
+// reader-settings-{shell,rows,providers}.css，arch-slim-4/04，2026-09 拆分）、
+// 自定义下拉组件表（styles/custom-select.css，2026-10 从设置表抽出，随
+// ui/custom-select.ts 组件走）与对话分区表（styles/reader-chat.css，arch-slim-4/07）
+// 不再经 manifest 常驻注入，改由本模块在对应能力启用时挂载。
 //
 // 挂载机制：<link rel="stylesheet" href="chrome.runtime.getURL(...)">。link
 // 挂进页面 DOM 后由页面渲染管线加载，属页面侧资源访问——全部样式表依赖
@@ -114,6 +115,18 @@ function waitForStyleLinkLoad(link: HTMLLinkElement): Promise<void> {
 
 export function whenReaderSettingsStylesReady(): Promise<void> {
   return styleSlots().readerSettingsReady ?? Promise.resolve();
+}
+
+// 自定义下拉组件表（2026-10 从设置三件套里抽出）：组件在设置抽屉与阅读面板两侧
+// 都用（ui/custom-select.ts），规则不再随 ui/settings-panel chunk 按需装载——只看
+// 字幕、没开过设置抽屉时也必须有样式。故由组件模块顶层 ensure（settings-panel.ts
+// 顶挂载同款先例），不并入上方三件套路径数组、不建 onload 门控（组件首个实例在
+// 抽屉首建/工具条渲染时建，link 早已挂上）。与设置表同口径：exitReaderShell 不摘除，
+// 数据留在浏览器样式缓存，二进宫免闪变。
+const CUSTOM_SELECT_STYLE_PATH = "entry/styles/custom-select.css";
+
+export function ensureCustomSelectStyles(): void {
+  mountStyleLink(CUSTOM_SELECT_STYLE_PATH);
 }
 
 // 对话分区表（arch-slim-4/07）：随对话域首次激活按需装载，不建 onload 门控

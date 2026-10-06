@@ -29,6 +29,7 @@
 //   entry/styles/reader-settings-shell.css      设置分区表组·壳层与通用控件（随 ui/settings-panel chunk 挂载）
 //   entry/styles/reader-settings-rows.css       设置分区表组·行级构建器与下拉（同上）
 //   entry/styles/reader-settings-providers.css  设置分区表组·编辑 Modal 与模型目录（同上）
+//   entry/styles/custom-select.css    自定义下拉组件表（随 ui/custom-select.ts 组件挂载）
 //   entry/styles/reader-chat.css      对话分区表（随对话域首次激活挂载）
 //   entry/content-bootstrap.iife.js  拷贝自 build-content.js 产物
 //   entry/content-main.mjs           拷贝自 build-content.js 产物
@@ -79,6 +80,9 @@ const cssEntries = [
   "entry/styles/reader-settings-shell.css",
   "entry/styles/reader-settings-rows.css",
   "entry/styles/reader-settings-providers.css",
+  // 自定义下拉组件表（2026-10 从设置三份表里抽出）：随 ui/custom-select.ts 组件走
+  //（shared/style-injector ensureCustomSelectStyles，模块顶层 ensure），独立入口 minify。
+  "entry/styles/custom-select.css",
   // 对话分区表（arch-slim-4/07）：随对话域首次激活按需挂载
   //（shared/style-injector ensureReaderChatStyles），独立入口 minify。
   "entry/styles/reader-chat.css",

@@ -12,7 +12,7 @@
  * 跟随；容器：#biliscript-reading-settings-panel 内嵌 #biliscript-reading-settings-host
  * （ui/ui-renderer 模板），规则全部以 #biliscript-reading-settings-panel 为前置，
  * 避免与宿主页面类名冲突。custom-select-* 为文档级裸类（custom-select.ts
- * 生成），仅被 settings-panel / provider-editor 消费。
+ * 生成），2026-10 起随组件住 styles/custom-select.css（本表不再声明其规则）。
  *
  * ===== 控件规格速查（settings-ui-coherence 终局规格，01/02/03 定档） =====
  * 圆角四档 14/12/10/8：14 面板与 Modal → 12 弹层 → 10 卡片 → 8 框（输入/
@@ -156,16 +156,16 @@
   font-size: 15px;
 }
 
-/* 焦点态全表唯一一份：outline 关掉默认环，accent 描边 + 2px soft 光环。
- * 所有控件都收在阅读视图作用域内，新控件焦点态并入本组。 */
+/* 焦点态设置表内唯一一份：outline 关掉默认环，accent 描边 + 2px soft 光环。
+ * 所有控件都收在阅读视图作用域内，新控件焦点态并入本组。custom-select 的
+ * trigger:focus 同规格、随组件住 styles/custom-select.css（2026-10 抽出）。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-input:focus,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-select:focus,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-textarea:focus,
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-quick-prompts input:focus,
 #biliscript-reading-view .provider-editor-dialog input[type="text"]:focus,
 #biliscript-reading-view .provider-editor-dialog input[type="password"]:focus,
-#biliscript-reading-view .provider-editor-dialog select:focus,
-#biliscript-reading-view .custom-select-trigger:focus {
+#biliscript-reading-view .provider-editor-dialog select:focus {
   outline: none;
   border-color: var(--biliscript-reader-accent);
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);

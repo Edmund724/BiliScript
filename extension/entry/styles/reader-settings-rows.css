@@ -1,16 +1,16 @@
-/* ===== 设置行级构建器 + 平台行 + 自定义下拉（arch-slim-4/04，2026-09 拆分第二份） =====
+/* ===== 设置行级构建器 + 平台行（arch-slim-4/04，2026-09 拆分第二份） =====
  * 自 reader-settings.css 拆出（原单表中段）：AI·ASR 平台的行级规则（行构建器
  * provider-family / provider-row 照旧生成）、弹层卡片与选项行
- * 单源（ai-provider-model-dropdown / custom-select-dropdown 同度量）、以及
- * custom-select 通用下拉（下载格式 / Modal 预设）。
+ *（ai-provider-model-dropdown 与 provider-editor-host 侧的选项行——custom-select-*
+ * 通用下拉已随组件抽成 styles/custom-select.css，同度量的声明两边各留一份）。
  * 挂载与级联顺序见 reader-settings-shell.css 头注：shell → rows → providers，
  * 本表规则位于 shell 之后、providers（编辑 Modal）之前，与拆分前文件内
  * 规则顺序一致。颜色/边框走 --biliscript-reader-* token（reader-gate.css 两主题
  * 定义）。 */
 
-/* 弹层卡片全表唯一一份（Q18：模型选择弹层与自定义下拉同源）。 */
-#biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
-#biliscript-reading-view .custom-select-dropdown {
+/* 弹层卡片（Q18：模型选择弹层与自定义下拉同源；后者随组件住 styles/
+ * custom-select.css，那份与本段同度量、两边都不丢规则）。 */
+#biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
@@ -39,11 +39,10 @@
   z-index: 1;
 }
 
-/* 选项行全表唯一一份：button 型（模型选项、下拉选项）与 li 型（下拉
- * 选项、模型加载/提示项）共用度量，cursor: pointer 对 li 无害。 */
+/* 选项行：button 型（模型选项）与 li 型（模型加载/提示项）共用度量；自定义下拉的
+ * li 选项同度量、随组件住 styles/custom-select.css。 */
 #biliscript-reading-view .provider-editor-host .ai-provider-model-option,
-#biliscript-reading-view .provider-editor-host .ai-provider-model-message,
-#biliscript-reading-view .custom-select-option {
+#biliscript-reading-view .provider-editor-host .ai-provider-model-message {
   width: 100%;
   min-height: 30px;
   border: 0;
@@ -61,18 +60,15 @@
   transition: transform 100ms ease-out;
 }
 
-#biliscript-reading-view .provider-editor-host .ai-provider-model-option:active,
-#biliscript-reading-view .custom-select-option:active {
+#biliscript-reading-view .provider-editor-host .ai-provider-model-option:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-#biliscript-reading-view .provider-editor-host .ai-provider-model-option:hover,
-#biliscript-reading-view .custom-select-option:hover {
+#biliscript-reading-view .provider-editor-host .ai-provider-model-option:hover {
   background: var(--biliscript-reader-surface-2);
 }
 
-#biliscript-reading-view .provider-editor-host .ai-provider-model-option[data-selected="true"],
-#biliscript-reading-view .custom-select-option[data-selected="true"] {
+#biliscript-reading-view .provider-editor-host .ai-provider-model-option[data-selected="true"] {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
 }
@@ -335,56 +331,11 @@
   border-color: var(--biliscript-reader-accent);
 }
 
-/* 面板外部的 global document click 委托会关闭模型下拉/自定义下拉；
- * 弹出层需要盖过相邻卡片，堆叠上下文内 z-index 已够，此处补一个兜底。 */
-#biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown[hidden],
-#biliscript-reading-view .custom-select-dropdown[hidden] {
+/* 面板外部的 global document click 委托会关闭模型下拉；
+ * 弹出层需要盖过相邻卡片，堆叠上下文内 z-index 已够，此处补一个兜底。
+ * 自定义下拉的收起规则随组件住 styles/custom-select.css。 */
+#biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown[hidden] {
   display: none;
-}
-
-/* 自定义下拉通用样式（下载格式 / Modal 预设） */
-#biliscript-reading-view .custom-select-wrapper {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-#biliscript-reading-view .custom-select-trigger {
-  width: 100%;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 5px;
-  padding: 0 8px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
-  background: var(--biliscript-reader-card);
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 15px;
-  cursor: pointer;
-  transition: transform 100ms ease-out;
-}
-
-#biliscript-reading-view .custom-select-trigger:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-/* 箭头取类型选择器那套观感：8px 见方、faint 色、1px 描边——本 SVG 是 24 视框，
- * stroke-width 换算成 3 才与 12 视框的 1.5 等宽。SVG 上的 stroke-width 是演示
- * 属性，CSS 规则可直接覆盖。 */
-#biliscript-reading-view .custom-select-arrow {
-  display: inline-flex;
-  flex: 0 0 auto;
-  color: var(--biliscript-reader-faint);
-}
-
-#biliscript-reading-view .custom-select-arrow svg {
-  width: 8px;
-  height: 8px;
-  stroke-width: 3;
 }
 
 /* 拖拽把手（spec §6.10 / §12.5 第 17 行）：仅搜索族记录行渲染，行内最右端。

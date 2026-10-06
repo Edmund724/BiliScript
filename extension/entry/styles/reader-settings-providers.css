@@ -801,7 +801,8 @@
 
 /* ===== 减少动态 =====
  * 开合过渡关 transform 类（本表开合只有 opacity + display，压成短 opacity）；
- * 按压缩放对减少动态用户关停，颜色/背景类短过渡保留。 */
+ * 按压缩放对减少动态用户关停，颜色/背景类短过渡保留。custom-select 的
+ * option/trigger:active 两条随组件住 styles/custom-select.css（2026-10 抽出）。 */
 @media (prefers-reduced-motion: reduce) {
   #biliscript-reading-view .biliscript-reading-settings-panel {
     transition: opacity 0.2s ease, display 0.2s allow-discrete;
@@ -809,8 +810,6 @@
 
   #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-save-btn:active,
   #biliscript-reading-view .provider-editor-host .ai-provider-model-option:active,
-  #biliscript-reading-view .custom-select-option:active,
-  #biliscript-reading-view .custom-select-trigger:active,
   #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle:active,
   #biliscript-reading-view .biliscript-reading-settings-host .provider-row-remove:active,
   #biliscript-reading-view .biliscript-reading-settings-host .add-property-btn:active,
