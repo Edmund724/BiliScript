@@ -319,6 +319,396 @@ describe("custom-select 外部写值收口（setCustomSelectValue）", () => {
   });
 });
 
+// 哨兵选项（10 号票第 3 条）：选轨控件的空态 / 转写中态靠消费者塞一条哨兵项
+// （旧实现 `<option value="">暂无字幕</option>` 同款）表达，组件必须能显示它、
+// 选中态正确、setCustomSelectValue(select, "") 命中它。消费侧由 08 号票落地。
+describe("哨兵选项（空态 / 转写态的载体，10 号票）", () => {
+  const sentinelMarkup = '<select id="trackSelect" aria-label="字幕语言"><option value="">暂无字幕</option></select>';
+
+  it("只含哨兵项时：值区显示哨兵文字、aria-selected 正确、可访问名按现值拼装", async () => {
+    document.body.innerHTML = sentinelMarkup;
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(select);
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
+    const options = Array.from(wrapper.querySelectorAll<HTMLElement>(".custom-select-option"));
+
+    expect(options.map((option) => option.textContent)).toEqual(["暂无字幕"]);
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("暂无字幕");
+    expect(options[0].dataset.value).toBe("");
+    expect(options[0].getAttribute("aria-selected")).toBe("true");
+    expect(trigger.getAttribute("aria-label")).toBe("字幕语言 暂无字幕");
+  });
+
+  it("哨兵项不是首项时：setCustomSelectValue(select, \"\") 命中它（不误落首项）", async () => {
+    document.body.innerHTML =
+      '<select id="trackSelect" aria-label="字幕语言">' +
+      '<option value="ai-zh" selected>中文</option>' +
+      '<option value="ai-en">English</option>' +
+      '<option value="">暂无字幕</option>' +
+      "</select>";
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const { initCustomSelect, setCustomSelectValue } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(select);
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    const trigger = wrapper.querySelector<HTMLElement>(".custom-select-trigger")!;
+    const options = Array.from(wrapper.querySelectorAll<HTMLElement>(".custom-select-option"));
+
+    setCustomSelectValue(select, "");
+
+    expect(select.value).toBe("");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("暂无字幕");
+    expect(options.map((option) => option.getAttribute("aria-selected"))).toEqual(["false", "false", "true"]);
+    expect(trigger.getAttribute("aria-label")).toBe("字幕语言 暂无字幕");
+  });
+});
+
+// 选项集在初始化之后变化（10 号票第 5 条 / 08 号票的硬前置）：initCustomSelect
+// 把 select.options 快照一次，dataset.customSelectInitialized 又让重复 init 直接
+// return——选轨控件每轮抓取/转写收尾都要换整批选项，故需要 rebuildCustomSelectOptions：
+// 重读 select.options、重建 listbox 项、按写入后的实际值重派生显示，
+// **壳（trigger 元素 / id / aria-* 关系 / 焦点）一律不重建**。
+describe("选项集变更（rebuildCustomSelectOptions，10 号票）", () => {
+  const baseMarkup =
+    '<label for="trackSelect">字幕语言</label>' +
+    '<select id="trackSelect">' +
+    '<option value="ai-zh" selected>中文</option>' +
+    '<option value="ai-en">English</option>' +
+    "</select>";
+
+  async function mountInitialized() {
+    document.body.innerHTML = baseMarkup;
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(select);
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    return {
+      select,
+      wrapper,
+      trigger: wrapper.querySelector<HTMLButtonElement>(".custom-select-trigger")!,
+      dropdown: wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!,
+      options: () => Array.from(wrapper.querySelectorAll<HTMLElement>(".custom-select-option"))
+    };
+  }
+
+  it("扩容：重读 options 后 listbox 项与 trigger 显示跟随现值，旧项不残留", async () => {
+    const { select, trigger, options } = await mountInitialized();
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+
+    select.innerHTML =
+      '<option value="ai-zh" selected>中文</option><option value="ai-en">English</option>' +
+      '<option value="ai-ja">日本語</option><option value="ai-ar">العربية</option>' +
+      '<option value="ai-id">Bahasa Indonesia</option>';
+    rebuildCustomSelectOptions(select);
+
+    expect(options().map((option) => option.textContent)).toEqual(["中文", "English", "日本語", "العربية", "Bahasa Indonesia"]);
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("中文");
+    expect(options().map((option) => option.getAttribute("aria-selected"))).toEqual(["true", "false", "false", "false", "false"]);
+  });
+
+  it("缩容：只剩一条哨兵项时仍正确显示且被标为选中", async () => {
+    const { select, trigger, options } = await mountInitialized();
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+
+    select.innerHTML = '<option value="">暂无字幕</option>';
+    rebuildCustomSelectOptions(select);
+
+    expect(options().map((option) => option.textContent)).toEqual(["暂无字幕"]);
+    expect(select.value).toBe("");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("暂无字幕");
+    expect(options()[0].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("换整批选项：按写入后的实际值重派生显示（现值存活则跟随，不回落首项）", async () => {
+    const { select, trigger, options } = await mountInitialized();
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+
+    select.value = "ai-en"; // 等价水合：外部已写值
+    select.innerHTML =
+      '<option value="ai-zh">中文</option><option value="ai-en">English</option><option value="ai-ar">العربية</option>';
+    // innerHTML 重建后原生选中态回到首项，故按「写入后的实际值」重派生——这里显式再写一次
+    select.value = "ai-en";
+    rebuildCustomSelectOptions(select);
+
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("English");
+    expect(options()[1].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("现值不在新选项集里：镜像原生（实际值为空 → 文本回落首项、无选中项），不抛错", async () => {
+    const { select, trigger, options } = await mountInitialized();
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+
+    select.innerHTML = '<option value="ai-ja">日本語</option>';
+    rebuildCustomSelectOptions(select);
+
+    // 原生语义：旧值只在 innerHTML 重建后失效，浏览器的实际 value 是「重建后的选中项」
+    expect(select.value).toBe("ai-ja");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("日本語");
+  });
+
+  it("重建后没有任何 option 匹配现值（现值空）：无选中项、文本按同款回落首项、不抛错", async () => {
+    const { select, trigger, options } = await mountInitialized();
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+
+    // 原生没有「有选项但全不选中」的形态（去掉 selected 属性后浏览器仍按序选中首项），
+    // 唯一能落到 else 分支的是「现值空 + 无匹配项」——按原生写值语义造这个态。
+    select.innerHTML = '<option value="ai-ja">日本語</option><option value="ai-ar">العربية</option>';
+    expect(select.value).toBe("ai-ja");
+    Array.from(select.options).forEach((option) => option.removeAttribute("selected"));
+    select.value = "";
+    expect(select.value).toBe(""); // 无 value="" 的项 → 实际值确为 ""
+
+    rebuildCustomSelectOptions(select);
+
+    expect(options()).toHaveLength(2); // 项集照旧重建（不是被跳过）
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("日本語");
+    expect(options().map((option) => option.getAttribute("aria-selected"))).toEqual(["false", "false"]);
+  });
+
+  it("壳不重建：trigger / dropdown 元素与 id、aria 关系、label 的 for 全部原样，焦点不动", async () => {
+    const { select, wrapper, trigger, dropdown } = await mountInitialized();
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+    const selectIdBefore = select.id;
+    const triggerIdBefore = trigger.id;
+    const dropdownIdBefore = dropdown.id;
+    const labelledbyBefore = trigger.getAttribute("aria-labelledby");
+    const controlsBefore = trigger.getAttribute("aria-controls");
+    const labelForBefore = document.querySelector("label[for]")!.getAttribute("for");
+
+    trigger.focus();
+    trigger.disabled = true;
+    trigger.setAttribute("aria-busy", "true");
+
+    select.innerHTML = '<option value="ai-zh" selected>中文</option><option value="ai-ja">日本語</option>';
+    rebuildCustomSelectOptions(select);
+
+    // 同一批节点（不是「等价的新节点」）
+    expect(select.closest(".custom-select-wrapper")).toBe(wrapper);
+    expect(wrapper.querySelector(".custom-select-trigger")).toBe(trigger);
+    expect(wrapper.querySelector(".custom-select-dropdown")).toBe(dropdown);
+    expect(trigger.querySelector(".custom-select-value")).not.toBeNull();
+    // id 与 ARIA 关系逐项不变
+    expect(select.id).toBe(selectIdBefore);
+    expect(trigger.id).toBe(triggerIdBefore);
+    expect(dropdown.id).toBe(dropdownIdBefore);
+    expect(trigger.getAttribute("aria-labelledby")).toBe(labelledbyBefore);
+    expect(trigger.getAttribute("aria-controls")).toBe(controlsBefore);
+    expect(document.querySelector("label[for]")!.getAttribute("for")).toBe(labelForBefore);
+    expect(labelledbyText(trigger)).toBe("字幕语言 中文");
+    // 消费者写在 trigger 上的状态不被换选项抹掉
+    expect(trigger.disabled).toBe(true);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("重复调用幂等：项集与显示稳定，且不派发 change（换选项不是用户改选）", async () => {
+    const { select, trigger, options } = await mountInitialized();
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+    const changes: Event[] = [];
+    select.addEventListener("change", (event) => changes.push(event));
+    select.innerHTML = '<option value="ai-zh" selected>中文</option><option value="ai-ar">العربية</option>';
+
+    rebuildCustomSelectOptions(select);
+    const first = options();
+    rebuildCustomSelectOptions(select);
+    rebuildCustomSelectOptions(select);
+    const third = options();
+
+    expect(third.map((option) => option.textContent)).toEqual(["中文", "العربية"]);
+    expect(third.length).toBe(first.length);
+    expect(third.map((option) => option.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("中文");
+    expect(changes).toHaveLength(0);
+  });
+
+  it("未初始化时调用不抛、不建壳（退化为 no-op，不替调用方凭空建壳）", async () => {
+    document.body.innerHTML = baseMarkup;
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+
+    expect(() => rebuildCustomSelectOptions(select)).not.toThrow();
+    expect(select.closest(".custom-select-wrapper")).toBeNull();
+    expect(select.parentElement).toBe(document.body);
+  });
+
+  it("列表展开时换选项：浮层保持打开，焦点按现值重认一项", async () => {
+    const { select, trigger, dropdown, options } = await mountInitialized();
+    const { rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+
+    fireClick(trigger);
+    expect(dropdown.hidden).toBe(false);
+    expect(document.activeElement).toBe(options()[0]);
+
+    select.value = "ai-ja";
+    select.innerHTML =
+      '<option value="ai-zh">中文</option><option value="ai-ja">日本語</option><option value="ai-en">English</option>';
+    select.value = "ai-ja";
+    rebuildCustomSelectOptions(select);
+
+    expect(dropdown.hidden).toBe(false); // 打开态不因换项集被收起
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const rebuilt = options();
+    expect(rebuilt[1].getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(rebuilt[1]);
+  });
+});
+
+// 组件状态入口（10 号票第 6 条 / 票 03 的状态机）：消费者不该 poke 组件内部的
+// trigger，禁用与忙碌都由 setCustomSelectState 写。disabled 是**真守卫**（点击与
+// 键盘都不得展开列表），busy 与 disabled 相互独立（03 号票切轨期间同时置两者）。
+describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
+  const markup =
+    '<label for="trackSelect">字幕语言</label>' +
+    '<select id="trackSelect"><option value="ai-zh" selected>中文</option><option value="ai-en">English</option></select>';
+
+  async function mount() {
+    document.body.innerHTML = markup;
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
+    initCustomSelect(select);
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    return {
+      select,
+      trigger: wrapper.querySelector<HTMLButtonElement>(".custom-select-trigger")!,
+      dropdown: wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!,
+      options: () => Array.from(wrapper.querySelectorAll<HTMLElement>(".custom-select-option"))
+    };
+  }
+
+  it("disabled 写到 trigger 且同步原生 select，不动 select.value", async () => {
+    const { select, trigger } = await mount();
+    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
+
+    setCustomSelectState(select, { disabled: true });
+
+    expect(trigger.disabled).toBe(true);
+    expect(select.disabled).toBe(true);
+    expect(select.value).toBe("ai-zh"); // 值源语义不变：collect* 照读 .value
+  });
+
+  it("busy 写 aria-busy；两者可同时置，复位各自独立（省略的键保持现态）", async () => {
+    const { select, trigger } = await mount();
+    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
+
+    setCustomSelectState(select, { disabled: true, busy: true });
+    expect(trigger.disabled).toBe(true);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+
+    // 只动 busy：disabled 不被顺手复位
+    setCustomSelectState(select, { busy: false });
+    expect(trigger.disabled).toBe(true);
+    expect(select.disabled).toBe(true);
+    expect(trigger.getAttribute("aria-busy")).toBe("false");
+
+    // 只动 disabled：busy 也不被顺手复位
+    setCustomSelectState(select, { busy: true });
+    setCustomSelectState(select, { disabled: false });
+    expect(trigger.disabled).toBe(false);
+    expect(select.disabled).toBe(false);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("只置 busy 从不触碰 disabled（未置过时保持原生默认 false）", async () => {
+    const { select, trigger } = await mount();
+    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
+
+    setCustomSelectState(select, { busy: true });
+
+    expect(trigger.disabled).toBe(false);
+    expect(select.disabled).toBe(false);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("禁用时点击不展开列表（真守卫；jsdom 对 disabled 仍派发 click）", async () => {
+    const { select, trigger, dropdown } = await mount();
+    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
+    setCustomSelectState(select, { disabled: true });
+
+    fireClick(trigger);
+
+    expect(dropdown.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("禁用时开合键与选项漫游都不生效", async () => {
+    const { select, trigger, dropdown, options } = await mount();
+    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
+    setCustomSelectState(select, { disabled: true });
+
+    for (const key of ["Enter", " ", "ArrowDown", "ArrowUp"]) keydown(trigger, key);
+    expect(dropdown.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    // 万一列表在场（例如消费者在打开后才发现要禁用），漫游/选中也一律挡住
+    dropdown.hidden = false;
+    keydown(options()[1], "Enter");
+    expect(select.value).toBe("ai-zh");
+  });
+
+  it("打开态中被禁用：收拢列表且焦点离开已收起的选项（只置 busy 不收拢）", async () => {
+    const { select, trigger, dropdown, options } = await mount();
+    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
+    fireClick(trigger);
+    expect(dropdown.hidden).toBe(false);
+    expect(document.activeElement).toBe(options()[0]);
+
+    setCustomSelectState(select, { busy: true });
+    expect(dropdown.hidden).toBe(false); // busy 不是「不可用」，列表留在场上
+    expect(document.activeElement).toBe(options()[0]);
+
+    setCustomSelectState(select, { disabled: true });
+
+    expect(dropdown.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    // 焦点不能留在已收起的选项上。组件调的是 closeList(true)（归焦 trigger），但
+    // disabled 的按钮在浏览器与 jsdom 里都接不住焦点（原生行为），故这里的判据是
+    // 「已离开列表项」而不是「等于 trigger」——不为了满足断言去违反原生语义。
+    expect(options().includes(document.activeElement as HTMLElement)).toBe(false);
+  });
+
+  it("复位后交互恢复：又能展开列表", async () => {
+    const { select, trigger, dropdown } = await mount();
+    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
+    setCustomSelectState(select, { disabled: true, busy: true });
+
+    setCustomSelectState(select, { disabled: false, busy: false });
+    fireClick(trigger);
+
+    expect(dropdown.hidden).toBe(false);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("状态在 rebuildCustomSelectOptions 后存活（换选项不抹状态）", async () => {
+    const { select, trigger } = await mount();
+    const { setCustomSelectState, rebuildCustomSelectOptions } = await import("../../extension/ui/custom-select.js");
+
+    setCustomSelectState(select, { disabled: true, busy: true });
+    select.innerHTML = '<option value="ai-zh" selected>中文</option><option value="ai-ja">日本語</option>';
+    rebuildCustomSelectOptions(select);
+
+    expect(trigger.disabled).toBe(true);
+    expect(select.disabled).toBe(true);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("中文");
+    // 可访问名也按现值重派生（「显示 = 现值」不变式在 rebuild 后同样成立）
+    expect(labelledbyText(trigger)).toBe("字幕语言 中文");
+  });
+
+  it("未初始化时调用不抛、不建壳、不写 select.disabled（与 rebuild 同口径的 no-op）", async () => {
+    document.body.innerHTML = markup;
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const { setCustomSelectState } = await import("../../extension/ui/custom-select.js");
+
+    expect(() => setCustomSelectState(select, { disabled: true, busy: true })).not.toThrow();
+
+    expect(select.closest(".custom-select-wrapper")).toBeNull();
+    expect(select.disabled).toBe(false);
+    expect(select.hasAttribute("aria-busy")).toBe(false);
+  });
+});
+
 // 组件表随组件走（2026-10：规则从设置三件套抽成 entry/styles/custom-select.css）：
 // 设置抽屉与阅读面板两侧共用本组件，只看字幕、没开过设置抽屉时也必须有样式——
 // 故组件模块求值即挂 link（settings-panel.ts 顶挂载同款先例），不再依赖

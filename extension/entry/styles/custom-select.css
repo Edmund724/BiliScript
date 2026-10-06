@@ -48,7 +48,10 @@
 }
 
 /* 选项行（原 rows.css:44-62 选择器列表的 custom-select 分支）：button 型（模型
- * 选项）与 li 型共用度量，cursor: pointer 对 li 无害。 */
+ * 选项）与 li 型共用度量，cursor: pointer 对 li 无害。
+ * text-align 用逻辑值 start（原写死 left，10 号票）：选轨列表会挂 dir="auto"
+ * 的阿拉伯语行，left 让 RTL 行也靠左；start 随行方向解析（LTR 行仍靠左，外观
+ * 不变），RTL 行靠右。 */
 #biliscript-reading-view .custom-select-option {
   width: 100%;
   min-height: 30px;
@@ -56,7 +59,7 @@
   border-radius: 8px;
   background: transparent;
   padding: 4px 10px;
-  text-align: left;
+  text-align: start;
   font: inherit;
   font-size: 15px;
   color: var(--biliscript-reader-text);
@@ -119,6 +122,75 @@
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 
+/* 值区（10 号票）：组件表原先一条规则都没有它，UA 的 button 规则把
+ * text-align: center 继承进 trigger → 窄 trigger 上短名居中、长名两端一起裁
+ * （2026-10-06 原型实测）。补省略号三件套 + 逻辑值 start：
+ * - 不写 flex：span 在 trigger（inline-flex）里就按内容收缩，写 flex: 0 0 auto
+ *   会让它在窄 trigger 里顶出去而不是省略（实测：80px wrapper 下 flex-basis:auto
+ *   得 49.4px 真省略号，0 0 auto 得 123.7px 溢出）。
+ * - min-width: 0 是柔性的收缩许可，不改 wrapper 的自然宽——设置页三处调用点的
+ *   trigger/wrapper 宽度改前改后逐像素相同（下面注释的实测值）。
+ * - text-align: start 与 UA 的 center 相反：值贴 start 端，长值只裁尾端。
+ * 设置页三处调用点（下载格式 / 主题族 / Modal 预设与协议）实测：360px 设置宿主里
+ * wrapper/trigger 宽 360 → 360、值区宽 27.19/44.15/70.09/179.89 逐项不变，仅对齐
+ * 从 center 变 start（LTR 下都是靠左，外观与可访问名逐字不变）。 */
+#biliscript-reading-view .custom-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: start;
+}
+
+/* 禁用态（10 号票）：与 reader.css 的 .biliscript-reading-search-nav:disabled 同
+ * 规格（opacity .45 + cursor: default）。
+ * 关键：变淡落在**内容**（值区 / 箭头）上，trigger 自身不置 opacity——父元素上的
+ * opacity 把整个子树按组透明度合成，忙碌点（trigger 的 ::after）作为子元素逃不掉，
+ * 深色档下 0.45 × 0.55（呼吸下限）≈ 0.25 会糊到看不清；票 10 裁定 3 的判据是
+ * 「禁用 + busy 同时置位时，圆点在深/浅两档都清楚可辨」，故圆点恒为全不透明度。
+ * 空态（哨兵选项 + 消费者置 disabled）与转写中态共用本组区分。 */
+#biliscript-reading-view .custom-select-trigger:disabled {
+  cursor: default;
+}
+
+#biliscript-reading-view .custom-select-trigger:disabled .custom-select-value,
+#biliscript-reading-view .custom-select-trigger:disabled .custom-select-arrow {
+  opacity: 0.45;
+}
+
+/* 禁用的 trigger 不该响应按压：按压缩放仍在，只是被淡化压住，观感会「还在响应」。 */
+#biliscript-reading-view .custom-select-trigger:disabled:active {
+  transform: none;
+}
+
+/* 忙碌指示（10 号票）：trigger 是 busy 与 disabled 的承载者（消费者经
+ * setCustomSelectState(select, { disabled, busy }) 写，不 poke 组件内部节点），
+ * 03 号票的三态机在其上区分「不可用 / 转写中 / 请求中」。组件表消费 aria-busy：
+ * 在箭头后点一颗 6px 圆点，参数对齐面板既有的转写进度呼吸
+ * （reader.css 的 biliscript-asr-pulse：1.6s ease-in-out infinite alternate）。
+ * 圆点吃 flex 空间，值区随之让位，不压可见文本；它不受上面的禁用淡化影响（见上）。 */
+#biliscript-reading-view .custom-select-trigger[aria-busy="true"]::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: biliscript-custom-select-busy 1.6s ease-in-out infinite alternate;
+}
+
+/* 不确定进度轨同款呼吸：from/to 与 reader.css 的 biliscript-asr-pulse 逐值同参
+ * （同面板的 loading 指示器不该两个节奏）。名字带 custom-select 前缀避免撞名。 */
+@keyframes biliscript-custom-select-busy {
+  from {
+    opacity: 0.55;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 /* 箭头取类型选择器那套观感：8px 见方、faint 色、1px 描边——本 SVG 是 24 视框，
  * stroke-width 换算成 3 才与 12 视框的 1.5 等宽。SVG 上的 stroke-width 是演示
  * 属性，CSS 规则可直接覆盖。 */
@@ -140,5 +212,10 @@
   #biliscript-reading-view .custom-select-option:active,
   #biliscript-reading-view .custom-select-trigger:active {
     transform: none;
+  }
+
+  /* 忙碌点同上：呼吸动画关停，圆点留在场作静态指示。 */
+  #biliscript-reading-view .custom-select-trigger[aria-busy="true"]::after {
+    animation: none;
   }
 }
