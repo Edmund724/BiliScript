@@ -67,6 +67,9 @@ export const ids = {
   readingChatAsrNotice: "biliscript-reading-chat-asr-notice",
   readingChatMessages: "biliscript-reading-chat-messages",
   readingChatSuggestions: "biliscript-reading-chat-suggestions",
+  // 滚底按钮（DeepSeek Harness 同款）：消息区离开底部即出现，点一下回底。挂在
+  // 输入卡所在 footer 内（非消息区：那里是滚动容器，绝对定位子节点会跟着滚走）。
+  readingChatScrollBottomBtn: "biliscript-reading-chat-scroll-bottom-btn",
   readingChatModelSelect: "biliscript-reading-chat-model-select",
   // 模型 + 思考档位面板（发送框底部 chip 弹出）：分组模型列表 + 底部固定
   // 思考档位行与「关不掉」提示行；chip 是隐藏 select 的展示层。

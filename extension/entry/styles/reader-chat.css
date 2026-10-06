@@ -812,6 +812,57 @@
   position: relative;
 }
 
+/* 滚底按钮（DeepSeek Harness 同款：离开底部出现，34px 圆钮浮在输入卡上方，点击
+ * 回底）。底色/描边/阴影取来源悬停预览卡（.chat-search-preview）同一套浮层母题。
+ * 定位挂在 footer（position:relative）而非消息区——消息区是滚动容器，绝对定位的
+ * 子节点随内容一起滚走，按钮会「滚出视野」。right 对齐消息区 2px 内边距，与正文
+ * 列右缘同一条线。z-index 取 5：压在消息区之上、模型面板（10）之下，展开模型面板
+ * 时按钮不会盖住面板角。 */
+.biliscript-reading-chat .chat-scroll-bottom {
+  position: absolute;
+  z-index: 5;
+  right: 2px;
+  bottom: calc(100% + 6px);
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 50%;
+  background: var(--biliscript-reader-card);
+  box-shadow: var(--biliscript-reader-shadow);
+  color: var(--biliscript-reader-muted);
+  cursor: pointer;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
+}
+
+/* 本行自带 display，UA 的 [hidden]{display:none} 会被压掉，必须显式接管（与
+ * .chat-asr-notice[hidden] / .chat-model-panel[hidden] 同一处理）。 */
+.biliscript-reading-chat .chat-scroll-bottom[hidden] {
+  display: none;
+}
+
+.biliscript-reading-chat .chat-scroll-bottom:hover {
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-chat .chat-scroll-bottom:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+.biliscript-reading-chat .chat-scroll-bottom svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .biliscript-reading-chat .chat-toolbar-btn {
   display: inline-flex;
   align-items: center;

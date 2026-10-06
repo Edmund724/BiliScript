@@ -17,6 +17,8 @@
 // - player-ai 快捷动作 seam（PR4b 概览笔记按钮同款）：runQuickActionPrompt =
 //   定位对话 tab + startNewConversation + 填提示词 + 自动发送；不消费待解释
 //   意图（互不踩踏）。
+// - 滚底按钮（DeepSeek Harness 同款）：显隐跟随机动（同一近底判据）、点一下
+//   回底、回底动画途中的跟随闸与用户干预放闸、清场放闸。
 //
 // 模块纪元注意：chatSessionState 与组合根闭包都是模块级单例，beforeEach
 // resetModules 后同纪元导入；chrome.storage / runtime 消息按 type 路由 stub。
@@ -1457,5 +1459,210 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
     }
 
     expect(input.style.minHeight).toBe("320px");
+  });
+});
+
+// 滚底按钮（DeepSeek Harness 同款）：离开消息区底部即出现，点一下回到底部。
+//
+// 按钮显隐与自动滚动共用同一条近底判据（chat-notices 的 isMessagesNearBottom），
+// 所以这一组断言盯的是「按钮 ↔ 跟随」同一个布尔的两面：上翻时一起关、回底时一起
+// 开；阈值也只此一处（不另立数字），否则会出现「按钮亮着但流式还在拽」。
+// 回底闸的三条边界各占一例：动画途中不判死跟随、动画途中用户自己滚了就放闸、
+// 清场必须放闸（内容短的清场不产生 scroll 事件）。
+describe("消息区滚底按钮：显隐跟随机动、点一下回底", () => {
+  const SCROLL_HEIGHT = 1000;
+  const CLIENT_HEIGHT = 300;
+  // 近底阈值 = chat-notices isMessagesNearBottom 的默认 56
+  const NEAR_BOTTOM_PX = 56;
+
+  // 帧合批的手动推进：滚动判定与 token flush 都排 rAF，同帧多条只判定一次，
+  // 用例要能逐帧推进才看得到中间态（动画途中）。
+  function captureRaf(): { flush: () => void; restore: () => void } {
+    const queue: FrameRequestCallback[] = [];
+    const spy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      queue.push(cb);
+      return queue.length;
+    });
+    return {
+      flush: () => {
+        // 帧回调可能再排帧（flush → 下一帧），跑到空；上限防意外自排死循环。
+        for (let guard = 0; queue.length > 0 && guard < 50; guard += 1) {
+          queue.splice(0, queue.length).forEach((cb) => cb(0));
+        }
+      },
+      restore: () => spy.mockRestore()
+    };
+  }
+
+  async function mountScrolledChat(): Promise<{ messages: HTMLElement; btn: HTMLButtonElement }> {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
+    // jsdom 无布局：手工造出「能滚」的测量值。scrollTo 补成真实浏览器那样（带行为
+    // 地写 scrollTop），否则 instant 滚动分支（typeof scrollTo === "function"）
+    // 在 jsdom 里落空，断言的不是同一条代码路径。
+    Object.defineProperty(messages, "scrollHeight", { get: () => SCROLL_HEIGHT, configurable: true });
+    Object.defineProperty(messages, "clientHeight", { get: () => CLIENT_HEIGHT, configurable: true });
+    Object.defineProperty(messages, "scrollTo", {
+      configurable: true,
+      value: (options?: ScrollToOptions | number) => {
+        if (options && typeof options === "object") {
+          messages.scrollTop = Number(options.top ?? 0);
+        }
+      }
+    });
+    return { messages, btn: document.getElementById(ids.readingChatScrollBottomBtn) as HTMLButtonElement };
+  }
+
+  // 用户滚动：写位置 + 派发 scroll（jsdom 不自发 scroll 事件）
+  function userScrollTo(messages: HTMLElement, top: number): void {
+    messages.scrollTop = top;
+    messages.dispatchEvent(new Event("scroll"));
+  }
+
+  it("模板挂位与初态：挂在 footer 内、默认 hidden（底部时没有入口）", async () => {
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    const btn = document.getElementById(ids.readingChatScrollBottomBtn) as HTMLButtonElement;
+    // 挂在 footer（position:relative）而非消息区：消息区是滚动容器，绝对定位的
+    // 子节点会随内容滚走。footer 的 flex 布局里它是绝对定位（第一个子节点），
+    // 不挤占输入卡的行位。
+    const footer = btn.parentElement as HTMLElement;
+    expect(footer.classList.contains("chat-footer")).toBe(true);
+    expect(Array.from(footer.children).indexOf(btn)).toBe(0);
+    expect(btn.hidden).toBe(true);
+    expect(btn.getAttribute("aria-label")).toBe("跳到底部");
+    // chevron-down 图标（装饰，随 svg 的 aria-hidden）
+    expect(btn.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(btn.querySelector("svg path")?.getAttribute("d")).toBe("m6 9 6 6 6-6");
+  });
+
+  it("上翻出阈值即亮、回到底部即退场；阈值沿用近底判定（56px）那一个数", async () => {
+    const { messages, btn } = await mountScrolledChat();
+    const raf = captureRaf();
+    try {
+      // 距底 56px（= 阈值）：仍算近底，按钮不亮
+      userScrollTo(messages, SCROLL_HEIGHT - CLIENT_HEIGHT - NEAR_BOTTOM_PX);
+      raf.flush();
+      expect(btn.hidden).toBe(true);
+
+      // 距底 57px：出阈值，按钮亮起
+      userScrollTo(messages, SCROLL_HEIGHT - CLIENT_HEIGHT - NEAR_BOTTOM_PX - 1);
+      raf.flush();
+      expect(btn.hidden).toBe(false);
+
+      // 手动滚回底部：退场（与自动跟随同一个布尔，一起恢复）
+      userScrollTo(messages, SCROLL_HEIGHT);
+      raf.flush();
+      expect(btn.hidden).toBe(true);
+    } finally {
+      raf.restore();
+    }
+  });
+
+  it("点击：滚到底部、按钮退场", async () => {
+    const { messages, btn } = await mountScrolledChat();
+    const raf = captureRaf();
+    try {
+      userScrollTo(messages, 100);
+      raf.flush();
+      expect(btn.hidden).toBe(false);
+
+      btn.click();
+
+      expect(messages.scrollTop).toBe(SCROLL_HEIGHT);
+      expect(btn.hidden).toBe(true);
+    } finally {
+      raf.restore();
+    }
+  });
+
+  it("回底动画途中：按钮不重新亮起、流式跟随不被中途判死", async () => {
+    const { messages, btn } = await mountScrolledChat();
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const raf = captureRaf();
+    try {
+      // 起一轮真流式：token 帧的滚动是「跟随还在不在」的唯一可观测出口
+      input.value = "滚动测试";
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      await waitFor(() => ports.length === 1);
+      userScrollTo(messages, 100);
+      raf.flush();
+      expect(btn.hidden).toBe(false);
+
+      btn.click();
+      expect(btn.hidden).toBe(true);
+
+      // 动画途中：几何仍是「远离底部」
+      userScrollTo(messages, 600);
+      raf.flush();
+      expect(btn.hidden).toBe(true);
+
+      // 途中来一帧 token：跟随必须还在（无闸时这里会是 600）
+      (ports[0] as FakePort & { __fire: (message: unknown) => void }).__fire({ type: "token", data: "正文一帧" });
+      raf.flush();
+      expect(messages.scrollTop).toBe(SCROLL_HEIGHT);
+
+      // 落底：闸释放
+      userScrollTo(messages, SCROLL_HEIGHT);
+      raf.flush();
+      // 释放后用户再上翻，按钮必须还能亮（闸没释放就永远不亮）
+      userScrollTo(messages, 200);
+      raf.flush();
+      expect(btn.hidden).toBe(false);
+    } finally {
+      raf.restore();
+    }
+  });
+
+  it("回底途中用户自己滚了：立即放闸，按钮重新亮起", async () => {
+    const { messages, btn } = await mountScrolledChat();
+    const raf = captureRaf();
+    try {
+      userScrollTo(messages, 100);
+      raf.flush();
+      btn.click();
+
+      // 动画途中用户上手：wheel / touchstart / keydown 任一都算滚动意图
+      messages.dispatchEvent(new Event("wheel"));
+      userScrollTo(messages, 300);
+      raf.flush();
+      expect(btn.hidden).toBe(false);
+    } finally {
+      raf.restore();
+    }
+  });
+
+  it("清场（新会话）：按钮退场且放闸——此后的上翻还能再点亮", async () => {
+    const { messages, btn } = await mountScrolledChat();
+    const raf = captureRaf();
+    try {
+      userScrollTo(messages, 100);
+      raf.flush();
+      btn.click();
+      userScrollTo(messages, 600);
+      raf.flush();
+      expect(btn.hidden).toBe(true);
+
+      (document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement).click();
+      // 新会话是异步编排（取上下文 → 断流 → 清场）：塞一颗哨兵，等它被清掉才算
+      // 真的走过 resetConversationView。
+      const marker = document.createElement("div");
+      marker.className = "chat-msg";
+      messages.appendChild(marker);
+      await waitFor(() => !messages.contains(marker));
+      raf.flush();
+      expect(btn.hidden).toBe(true);
+
+      // 清场后上翻：闸已释放，按钮照常亮起
+      userScrollTo(messages, 100);
+      raf.flush();
+      expect(btn.hidden).toBe(false);
+    } finally {
+      raf.restore();
+    }
   });
 });

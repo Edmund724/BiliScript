@@ -160,6 +160,9 @@ const els = {
   // 历史整页头部的返回键（历史入口本身在对话工具条里，整页一开就被盖住，退出靠本键）
   historyBackBtn: document.getElementById(ids.readingChatHistoryBackBtn) as HTMLButtonElement | null,
   messages: document.getElementById(ids.readingChatMessages) as HTMLElement,
+  // 滚底按钮（DeepSeek Harness 同款）：挂在 footer 内、浮在输入卡上方，模板默认
+  // hidden；显隐与自动滚动共用同一条近底判据（见 flushScrollAutoScrollSync）。
+  scrollBottomBtn: document.getElementById(ids.readingChatScrollBottomBtn) as HTMLButtonElement,
   input: document.getElementById(ids.readingChatInput) as HTMLTextAreaElement,
   // 图片附件区（image-input 02 号票，模板默认 hidden）
   imageStrip: document.getElementById(ids.readingChatImageStrip) as HTMLElement | null,
@@ -827,10 +830,46 @@ async function sendFromUi(): Promise<void> {
 // 消息区滚动通知 rAF 合帧（10-2）：滚动事件的判定回调会在每次触发时读
 // scrollHeight（强制布局）。按帧合批——同帧多条 scroll 只判定/通知一次，
 // scrollHeight 读沉到帧回调，且来自 scrollToBottom 的写后紧跟读不再交错。
+// 同一次判定顺带驱动滚底按钮：显隐与自动滚动是同一个布尔（近底即无需「回底」
+// 入口），不另立阈值——两处判据一旦分叉，就会出现「按钮亮着但流式还在拽」或
+// 反过来「流式停了但按钮不亮」。
 let scrollSyncFrame = 0;
+// 点击滚底按钮后的「回底途中」闸：CSS smooth 的滚动动画途中，每一次 scroll
+// 事件的读数仍是远离底部。没有这道闸，动画第一帧就把自动跟随判死（流式停跟）、
+// 按钮重新亮起，末尾又得再点一次。
+// 闸只挡「程序性动画」，不挡用户：闸期内一旦出现滚动意图输入（wheel / touchstart
+// / 键盘翻页），立刻放闸——动画途中再往上翻是明确的手动干预，跟着拽回去才是错的。
+// 落底（判近底）与清场（resetConversationView）也放闸。
+let scrollBottomHold = false;
+function setScrollBottomVisible(visible: boolean): void {
+  els.scrollBottomBtn.hidden = !visible;
+}
+function releaseScrollBottomHold(): void {
+  if (!scrollBottomHold) {
+    return;
+  }
+  scrollBottomHold = false;
+  els.messages.removeEventListener("wheel", releaseScrollBottomHold);
+  els.messages.removeEventListener("touchstart", releaseScrollBottomHold);
+  els.messages.removeEventListener("keydown", releaseScrollBottomHold);
+}
+function holdScrollBottom(): void {
+  scrollBottomHold = true;
+  els.messages.addEventListener("wheel", releaseScrollBottomHold, { passive: true });
+  els.messages.addEventListener("touchstart", releaseScrollBottomHold, { passive: true });
+  els.messages.addEventListener("keydown", releaseScrollBottomHold);
+}
 function flushScrollAutoScrollSync(): void {
   scrollSyncFrame = 0;
-  chatRuntime.setAutoScroll(isMessagesNearBottom());
+  const nearBottom = isMessagesNearBottom();
+  if (!nearBottom && scrollBottomHold) {
+    // 动画途中：跟住、按钮不重新亮起（几何判定此刻还判不出「快到底了」）。
+    chatRuntime.setAutoScroll(true);
+    return;
+  }
+  releaseScrollBottomHold();
+  chatRuntime.setAutoScroll(nearBottom);
+  setScrollBottomVisible(!nearBottom);
 }
 function scheduleScrollAutoScrollSync(): void {
   if (scrollSyncFrame) {
@@ -864,6 +903,17 @@ function bindEvents(): void {
   els.input.addEventListener("focus", autosizeInput);
   els.input.addEventListener("blur", autosizeInput);
   els.messages.addEventListener("scroll", scheduleScrollAutoScrollSync);
+  // 滚底按钮：点一下回到底部，并恢复自动跟随。
+  els.scrollBottomBtn.addEventListener("click", () => {
+    holdScrollBottom();
+    chatRuntime.setAutoScroll(true);
+    setScrollBottomVisible(false);
+    // 非 instant：走 .chat-messages 的 scroll-behavior: smooth（DeepSeek Harness
+    // 那边是 instant——窄栏里一段长距离平滑动画比瞬移更易读，代价由上面的回底闸
+    // 兜住）。CSS 的 smooth 只在直接写 scrollTop 时生效，instant 分支才需要显式
+    // behavior。
+    chatRuntime.scrollToBottom(true);
+  });
   els.newChatBtn.addEventListener("click", () => {
     void startNewConversation();
   });
@@ -1099,6 +1149,10 @@ function resetConversationView(stateHtml = ""): void {
   lists.renderSuggestions();
   chatRuntime.setAutoScroll(true);
   chatRuntime.scrollToBottom(true);
+  // 清场后没有「回底」需求，且必须放闸：内容短的清场不产生 scroll 事件，闸若
+  // 留着，用户此后的上翻会被误当成「回底途中」，按钮再也不亮。
+  releaseScrollBottomHold();
+  setScrollBottomVisible(false);
 }
 
 // 【整段迁移自 sidepanel.ts】布局状态：紧凑输入判定写在对话 tab 根元素

@@ -67,6 +67,16 @@ export function buildChatTabBodyHtml(): string {
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>
         </main>
         <footer class="chat-footer">
+          <!-- 滚底按钮（DeepSeek Harness 同款）：消息区离开底部即出现，点一下回底。
+               默认 hidden——「回到底部」在底部是无意义的入口，初始/清场态一律不亮。
+               挂 footer 内而非消息区：消息区是滚动容器，绝对定位的子节点会跟着内容
+               滚走；footer 是 relative 的定位父级，按钮才固定浮在输入卡上方。历史
+               整页打开时 footer 整体 display:none，按钮随之退场，无需另判。 -->
+          <button id="${ids.readingChatScrollBottomBtn}" type="button" class="chat-scroll-bottom" title="跳到底部" aria-label="跳到底部" hidden>
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+              <path d="m6 9 6 6 6-6"></path>
+            </svg>
+          </button>
           <!-- 发送卡片：上方输入区 + 下方控件行（联网搜索 pill / 模型 chip / 发送
                键），整体一个圆角卡片。模型 chip 是隐藏 select 的展示层（值源不变）。 -->
           <div class="chat-input-card">
