@@ -111,3 +111,29 @@ export function secondaryContentFor(main: AlignableMainSegment): string | null {
   }
   return alignment.query(main);
 }
+
+// 渲染层入参形状（notes 域的宽松 item 形状的结构对偶，两边各声明、不互相 import——
+// notes 叶子保持零 state 依赖是本注入的全部意义）。
+export interface SecondaryLineSource {
+  from?: unknown;
+  to?: unknown;
+}
+
+export type SecondaryLineResolver = (item: SecondaryLineSource) => string | null;
+
+// 给渲染层绑一个纯 `(item) => string | null`（07 号票：TXT / Markdown / SRT 的副行）。
+// 消费点（派生内容重建 / 复制）构造一次传下去，配对口径仍是本模块唯一一份。
+// **双语关 ⇒ 返回 undefined**：渲染层用 `secondaryFor?.(item)` 短路，单轨路径一次函数
+// 调用都不多——这是 04 号票「双语关时算法零参与」的字面落地，也是「双语关输出与现状
+// 逐字节相同」的零成本保证。副轨未就绪（loading / error / 空槽）由 secondaryContentFor
+// 逐行判空 ⇒ 同样折叠，不会把占位文案写进导出。
+export function createSecondaryLineResolver(): SecondaryLineResolver | undefined {
+  if (!state.settings.bilingualSubtitles) {
+    return undefined;
+  }
+  return (item) =>
+    secondaryContentFor({
+      from: Number(item?.from ?? 0) || 0,
+      to: Number(item?.to ?? 0) || 0
+    });
+}

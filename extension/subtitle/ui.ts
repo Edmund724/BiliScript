@@ -9,6 +9,7 @@ import { setMessage, setStatus } from "../core/ui-status.js";
 // ids 为 reader 状态微模块（候选04 结构归并）：纯常量表，不经 reader/index.js
 // facade 转发（否则总结链会静态拖起整个 reader 域）。
 import { ensureDerivedContent } from "./core.js";
+import { createSecondaryLineResolver } from "./alignment.js";
 
 // ===== 链层交互（候选02 分层惰性：自 ui/ui-renderer.js 移入） =====
 //
@@ -29,7 +30,9 @@ import { ensureDerivedContent } from "./core.js";
 // 取数与反馈风格照抄下方 downloadSubtitle，逻辑零新增。
 export async function copySubtitleTranscript(): Promise<void> {
   state.setSettings(await getSettings());
-  const text = buildTxt(state.clip.subtitleBody, state.settings);
+  // 双语态下复制出的 TXT 也出副行（07 号票）：与 downloadSubtitle 同一条渲染管线，
+  // 配对口径同源 alignment.js（双语关 / 副轨未就绪 ⇒ resolver 短路，文本与单轨逐字相同）。
+  const text = buildTxt(state.clip.subtitleBody, state.settings, createSecondaryLineResolver());
   if (!text) {
     setMessage("没有可复制的字幕，请先刷新抓取。");
     return;

@@ -41,7 +41,13 @@ interface NoteRenderSettings {
   includeTimestampInBody?: boolean;
 }
 
-export function buildSubtitleSectionLines(body: unknown[] | null | undefined, chapters: unknown[] | null | undefined, settings: NoteRenderSettings, withHours: boolean): string[] {
+// 双语副行解析器（07 号票）：由消费点（subtitle/core 的派生重建 / subtitle/ui 的复制）
+// 传入的**纯函数**，notes 叶子因此不 import core/state、也不 import subtitle/alignment
+//（配对口径唯一一份仍在 subtitle/alignment，本叶子只消费它的输出）。
+// undefined = 双语关（或调用方没给）⇒ 一次调用都不多，输出与单轨逐字相同。
+export type SecondaryLineResolver = (item: SubtitleBodyItemLike) => string | null;
+
+export function buildSubtitleSectionLines(body: unknown[] | null | undefined, chapters: unknown[] | null | undefined, settings: NoteRenderSettings, withHours: boolean, secondaryFor?: SecondaryLineResolver): string[] {
   const items = (body || []) as SubtitleBodyItemLike[];
   const subtitleItems = items
     .map((item, index) => ({
@@ -56,7 +62,7 @@ export function buildSubtitleSectionLines(body: unknown[] | null | undefined, ch
 
   const chapterItems = normalizeChapters(chapters);
   if (chapterItems.length === 0) {
-    return subtitleItems.map((item) => formatSubtitleLine(item, settings, withHours));
+    return subtitleItems.map((item) => formatSubtitleLine(item, settings, withHours, secondaryFor));
   }
 
   const lines: string[] = [];
@@ -105,7 +111,7 @@ export function buildSubtitleSectionLines(body: unknown[] | null | undefined, ch
       : "";
     lines.push(`### ${chapter.title}${chapterStamp}`, "");
     sectionItems.forEach((item) => {
-      lines.push(formatSubtitleLine(item, settings, withHours));
+      lines.push(formatSubtitleLine(item, settings, withHours, secondaryFor));
     });
     lines.push("");
   });
@@ -114,13 +120,13 @@ export function buildSubtitleSectionLines(body: unknown[] | null | undefined, ch
   if (remaining.length > 0) {
     lines.push("### 其他片段", "");
     remaining.forEach((item) => {
-      lines.push(formatSubtitleLine(item, settings, withHours));
+      lines.push(formatSubtitleLine(item, settings, withHours, secondaryFor));
     });
     lines.push("");
   }
 
   if (lines.length === 0) {
-    return subtitleItems.map((item) => formatSubtitleLine(item, settings, withHours));
+    return subtitleItems.map((item) => formatSubtitleLine(item, settings, withHours, secondaryFor));
   }
 
   while (lines.length > 0 && !lines[lines.length - 1]) {
@@ -129,15 +135,19 @@ export function buildSubtitleSectionLines(body: unknown[] | null | undefined, ch
   return lines;
 }
 
-function formatSubtitleLine(item: SubtitleBodyItemLike, settings: NoteRenderSettings, withHours: boolean): string {
+function formatSubtitleLine(item: SubtitleBodyItemLike, settings: NoteRenderSettings, withHours: boolean, secondaryFor?: SecondaryLineResolver): string {
   const text = String(item?.content || "").trim();
   if (!text) {
     return "";
   }
-  if (!settings.includeTimestampInBody) {
-    return text;
-  }
-  return `\`${formatClock(item.from as number, { hours: withHours })}\` ${text}`;
+  const main = settings.includeTimestampInBody
+    ? `\`${formatClock(item.from as number, { hours: withHours })}\` ${text}`
+    : text;
+  // 双语副行（07 号票裁定）：紧随主行、**缩进两格**、**不带时间戳**——时间戳属于「段」
+  // 不属于「行」，两行共用一个时间戳才不重复。副轨缺失段 / 未就绪 ⇒ 折叠（没有副行），
+  // 该段输出与单轨逐字相同；双语关时 secondaryFor 为 undefined，本函数一次调用都不多。
+  const secondary = secondaryFor ? String(secondaryFor(item) || "").trim() : "";
+  return secondary ? `${main}\n  ${secondary}` : main;
 }
 
 // withHours 元数据级判定（arch-slim-2/08）：聚合（字幕末尾 / 章节边界 / 视频时长

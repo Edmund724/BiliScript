@@ -11,6 +11,7 @@ import { mountPlayerChain } from "../helpers/reader-skeleton.js";
 import type { TestState } from "../reader/reader-test-env.js";
 
 let state: TestState;
+let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
 let ids: typeof import("../../extension/reader/state.js").ids;
 let uiRenderer: typeof import("../../extension/ui/ui-renderer.js");
 
@@ -21,7 +22,9 @@ let originalRevokeObjectURL: unknown;
 
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const stateModule = await import("../../extension/core/state.js");
+  state = stateModule.state as TestState;
+  clipState = stateModule.clipState;
   ids = (await import("../../extension/reader/state.js")).ids;
   uiRenderer = await import("../../extension/ui/ui-renderer.js");
 }
@@ -77,6 +80,9 @@ afterEach(() => {
   (URL as unknown as Record<string, unknown>).revokeObjectURL = originalRevokeObjectURL;
   document.body.innerHTML = "";
   vi.restoreAllMocks();
+  // 本文件有单例用例自带 chrome stub（双语复制的 get-settings 覆写）：逐例还原，
+  // 避免泄漏到后续用例（setup 的 beforeEach 会按需重新注入通用 stub）。
+  vi.unstubAllGlobals();
 });
 
 describe("字幕 tab 复制 / 导出（真实绑定，经 ensureSummarizeChain）", () => {
@@ -109,6 +115,44 @@ describe("字幕 tab 复制 / 导出（真实绑定，经 ensureSummarizeChain�
 
     await vi.waitFor(() => expect(messageText()).toContain("复制失败"));
     expect(messageText()).toContain("denied");
+  });
+
+  // 双语（bilingual-subtitles/07）：复制 = 同一 buildTxt 管线，双语态下主行后接副行。
+  it("双语开：复制出的文本带副行（缩进两格、副行不带时间戳）", async () => {
+    // copySubtitleTranscript 开头就用 getSettings() 覆盖 state.settings ⇒ 单例覆写 stub，
+    // 让归一化后的设置里 bilingualSubtitles 为 true（其余字段回落默认）。
+    vi.stubGlobal("chrome", {
+      runtime: {
+        lastError: null,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+        sendMessage: (msg: { type?: string }, cb?: (r: unknown) => void) => {
+          const payload = msg?.type === "get-settings" ? { ok: true, settings: { bilingualSubtitles: true } } : { ok: true };
+          if (typeof cb === "function") {
+            cb(payload);
+            return undefined;
+          }
+          return Promise.resolve(payload);
+        }
+      }
+    });
+    // 副轨一段覆盖两句主轨（合并段）：两行主轨各自跟同一句译文（04 的重复但诚实）
+    clipState.applySecondarySubtitle({
+      id: "sub-en",
+      url: "https://sub/en.json",
+      lang: "English",
+      body: [{ from: 0, to: 30, content: "English line" }]
+    });
+
+    dispatchClick(ids.readingCopySubtitleBtn);
+
+    await vi.waitFor(() => expect(clipboardWriteText).toHaveBeenCalledTimes(1));
+    const copied = String(clipboardWriteText.mock.calls[0][0]);
+    expect(copied).toContain("第一句话\n  English line");
+    expect(copied).toContain("第二句话\n  English line");
+    // 副行不带时间戳：缩进行里没有任何时刻文本
+    const secondaryLines = copied.split("\n").filter((line) => line.startsWith("  "));
+    expect(secondaryLines).toEqual(["  English line", "  English line"]);
+    await vi.waitFor(() => expect(messageText()).toBe("字幕已复制到剪贴板。"));
   });
 
   it("点击「导出」：按默认 srt 格式触发下载并反馈文件名", async () => {

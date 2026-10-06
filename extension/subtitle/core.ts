@@ -6,6 +6,7 @@ import { setMessage } from "../core/ui-status.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { fetchHotComments } from "../bilibili/gateway.js";
 import { normalizeChapters } from "./chapters.js";
+import { createSecondaryLineResolver } from "./alignment.js";
 import {
   buildMarkdown,
   buildSrt,
@@ -194,9 +195,13 @@ export function findActiveChapterIndex(currentTime: number): number {
 
 export function rebuildDerivedContent(): void {
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
-  clipState.setMarkdown(body.length ? buildMarkdown(state as State, body, state.settings) : "");
-  clipState.setSrt(body.length ? buildSrt(body) : "");
-  clipState.setTxt(body.length ? buildTxt(body, state.settings) : "");
+  // 双语态（07 号票）：三份导出都要出副行，而配对口径的唯一实现是 subtitle/alignment。
+  // 这里把「读 state 的投影」绑成纯函数传进 notes 渲染层——notes 叶子因此零 state 依赖，
+  // 渲染函数仍可单测；双语关时 resolver 为 undefined，单轨输出逐字节不变。
+  const secondaryFor = createSecondaryLineResolver();
+  clipState.setMarkdown(body.length ? buildMarkdown(state as State, body, state.settings, secondaryFor) : "");
+  clipState.setSrt(body.length ? buildSrt(body, secondaryFor) : "");
+  clipState.setTxt(body.length ? buildTxt(body, state.settings, secondaryFor) : "");
 }
 
 // ===== 派生内容懒生成（opt-backlog-2026-09/04）=====
@@ -210,6 +215,12 @@ export function rebuildDerivedContent(): void {
 // 变化即重建，消费产物与逐次重建逐字节一致，字幕更新后不会拿到旧派生。
 interface DerivedContentCacheEntry {
   body: unknown;
+  // 副轨 body 引用（07 号票口径重开：原 05 号票裁定「指纹表不加副轨输入」，落地时发现
+  // 那只剩一个洞——开关打开后、副轨 body 到站前若已发生过一次消费（复制/导出），缓存
+  // 命中会让后续导出永久停在单轨。开关切换本身早已经 settings 引用失效，副轨到站不经
+  // settings ⇒ 只能认这一项。认**引用**与既有四件（body/settings/chapters/hotComments）
+  // 同型，不引入新的比对机制。）
+  secondaryBody: unknown;
   settings: unknown;
   chapters: unknown;
   hotComments: unknown;
@@ -253,12 +264,13 @@ function captureDerivedContentInputs(): DerivedContentCacheEntry {
   }
   return {
     body: clip.subtitleBody,
+    secondaryBody: clip.secondarySubtitle.body,
     settings: state.settings,
     chapters: clip.chapters,
     hotComments: clip.hotComments,
     href: currentHref(),
     created: formatLocalDate(),
-    ...(entry as Omit<DerivedContentCacheEntry, "body" | "settings" | "chapters" | "hotComments" | "href" | "created">)
+    ...(entry as Omit<DerivedContentCacheEntry, "body" | "secondaryBody" | "settings" | "chapters" | "hotComments" | "href" | "created">)
   };
 }
 
@@ -270,6 +282,7 @@ function isDerivedContentCacheValid(): boolean {
   const clip = state.clip;
   if (
     cached.body !== clip.subtitleBody ||
+    cached.secondaryBody !== clip.secondarySubtitle.body ||
     cached.settings !== state.settings ||
     cached.chapters !== clip.chapters ||
     cached.hotComments !== clip.hotComments ||

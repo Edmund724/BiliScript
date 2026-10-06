@@ -7,7 +7,7 @@ import { type Settings } from "../core/defaults.js";
 import { formatTimestamp } from "../shared/string-utils.js";
 import { formatClock, shouldUseHours } from "../shared/clock-text.js";
 import { normalizeChapters } from "../subtitle/chapters.js";
-import { buildSubtitleSectionLines, shouldShowHoursInNote } from "./section-lines.js";
+import { buildSubtitleSectionLines, shouldShowHoursInNote, type SecondaryLineResolver } from "./section-lines.js";
 import { type State } from "../core/state.js";
 
 // 渲染入参的宽松 meta 形状：字段全部按可选收口，各渲染函数内部沿用原有的
@@ -47,7 +47,7 @@ function buildChapterLines(chapters: unknown[] | null | undefined, withHours = f
   });
 }
 
-export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | null | undefined, settings: Settings): string {
+export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | null | undefined, settings: Settings, secondaryFor?: SecondaryLineResolver): string {
   const m = meta as NoteRenderMeta;
   const compactWithHours = shouldShowHoursInNote(m, body);
   const chapterLines = buildChapterLines(m.chapters || [], compactWithHours);
@@ -55,7 +55,8 @@ export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | nu
     body,
     m.chapters || [],
     settings,
-    compactWithHours
+    compactWithHours,
+    secondaryFor
   );
 
   const intro = String(m.description || "").trim();
@@ -74,18 +75,22 @@ export function buildMarkdown(meta: NoteRenderMeta | State, body: unknown[] | nu
   return lines.join("\n");
 }
 
-export function buildSrt(body: SubtitleBodyItemLike[] | null | undefined): string {
+// SRT 的双语形态（07 号票裁定）：**同一个 cue 两行**（主行 + 副行，SRT 原生支持多行）。
+// 副行**不缩进**——SRT 的行首空白会被播放器原样渲染成字幕里的缩进，不是文本可读性标记
+//（TXT / Markdown 的「缩进两格」是给纯文本读者的区分标记，落点不同）。副轨缺失段折叠。
+export function buildSrt(body: SubtitleBodyItemLike[] | null | undefined, secondaryFor?: SecondaryLineResolver): string {
   return (body || [])
     .map((item, index) => {
       const from = formatTimestamp(item.from as number, true);
       const to = formatTimestamp(item.to as number, true);
       const text = String(item.content || "").trim();
-      return `${index + 1}\n${from} --> ${to}\n${text}`;
+      const secondary = secondaryFor ? String(secondaryFor(item) || "").trim() : "";
+      return `${index + 1}\n${from} --> ${to}\n${secondary ? `${text}\n${secondary}` : text}`;
     })
     .join("\n\n");
 }
 
-export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settings?: NoteRenderSettings): string {
+export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settings?: NoteRenderSettings, secondaryFor?: SecondaryLineResolver): string {
   const withHours = shouldShowHoursInSubtitle(body);
   return (body || [])
     .map((item) => {
@@ -93,10 +98,12 @@ export function buildTxt(body: SubtitleBodyItemLike[] | null | undefined, settin
       if (!text) {
         return "";
       }
-      if (!settings?.includeTimestampInBody) {
-        return text;
-      }
-      return `${formatClock(item.from as number, { hours: withHours })} ${text}`;
+      const main = settings?.includeTimestampInBody
+        ? `${formatClock(item.from as number, { hours: withHours })} ${text}`
+        : text;
+      // 副行缩进两格、不带时间戳（与 Markdown 字幕节同一口径，见 section-lines.ts）。
+      const secondary = secondaryFor ? String(secondaryFor(item) || "").trim() : "";
+      return secondary ? `${main}\n  ${secondary}` : main;
     })
     .filter(Boolean)
     .join("\n");
