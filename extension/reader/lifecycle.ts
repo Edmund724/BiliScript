@@ -244,6 +244,55 @@ function warmUpReaderQuickPrompts() {
 // 原样搬移）。注册接线在常驻微模块 ./init-essentials.js：回调经
 // ensureReaderDomain() 惰性装载本域后转发到这里，因此本函数只在 reader 域
 // 装载后被调用，行为与搬迁前逐字一致。
+// ===== 双语副轨的自动装载（bilingual-subtitles/02 号票）=====
+//
+// 主轨就绪即副轨起点（Q1：开关开着就立刻并行抓——不做面板可见判定、不做滚动懒加载；
+// Q7a：换视频后按全局偏好 lan 在新轨列表上重新匹配）。三重守卫缺一不可：
+//   ① 双语关 ⇒ 不动（零行为差）；
+//   ② 槽非 idle ⇒ 不动（在飞 / 已就绪 / 已失败三种都不重来；失败等用户在弹层点重试）；
+//   ③ 本视频没有目标语言的轨 ⇒ 不动（Q4「副列留空、不替用户猜」）。
+// 匹配口径：按**主语言子标签**比对（偏好可能是 "en-US" 而轨的 lan 是 "ai-en"），
+// 先摘掉 `ai-` / `asr-` 前缀再取第一段——这是"跨视频按 lan 匹配"（地图 Q4）在真实
+// lan 值形态下的落地口径。
+function primaryLangTag(lan: unknown): string {
+  return String(lan || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(ai|asr)-/, "")
+    .split("-")[0];
+}
+
+function ensureSecondarySubtitleLoaded(): void {
+  if (!state.settings.bilingualSubtitles) {
+    return;
+  }
+  if (state.clip.secondarySubtitle.state !== "idle") {
+    return;
+  }
+  const target = primaryLangTag(state.settings.secondarySubtitleLang);
+  if (!target) {
+    return;
+  }
+  const track = (state.clip.subtitles || []).find(
+    (item) => String(item.subtitleUrl || "") && primaryLangTag(item.lan) === target
+  );
+  if (!track) {
+    return;
+  }
+  const url = String(track.subtitleUrl || "");
+  const id = String(track.id || "");
+  const lang = String(track.lanDoc || track.lan || "unknown");
+  void (async () => {
+    try {
+      const chain = await ensureSummarizeChain();
+      await chain.loadSecondarySubtitle(url, lang, state.clip.fetchRunId, id);
+    } catch (error) {
+      // 失败已由装载器写进副轨槽（error 态 + 弹层副列占位即重试入口），这里只记日志。
+      logWarn("[BILISCRIPT] secondary subtitle auto-load failed", error);
+    }
+  })();
+}
+
 export function handleReaderPresenterNotification(kind: string, text?: string | number | null) {
   switch (kind) {
     case "reset":
@@ -262,8 +311,19 @@ export function handleReaderPresenterNotification(kind: string, text?: string | 
         // 同理：字幕就绪即预热本视频的三个初始问题（对话 tab 打开时直接可用）。
         warmUpReaderQuickPrompts();
       }
+      // 视图未开也照抓：双语是全局偏好，用户切到字幕 tab 时就该已经就绪
+      // （Q1：开关开着就立刻并行抓，不依赖面板可见性）。
+      ensureSecondarySubtitleLoaded();
       break;
     case "rerender":
+      if (state.reader.readingViewOpen) {
+        renderReadingView();
+      }
+      break;
+    case "secondary-subtitle-ready":
+      // 双语副轨到站（bilingual-subtitles/05 号票）：**只**重渲视图，不复制
+      // subtitle-ready 那串副作用（状态行 / 播放同步重启 / 概览生成 / 快捷问题预热）
+      // ——那些面只吃主轨（地图 Q6）。
       if (state.reader.readingViewOpen) {
         renderReadingView();
       }

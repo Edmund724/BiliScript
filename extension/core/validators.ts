@@ -132,6 +132,23 @@ export function normalizeWebSearchMaxToolCalls(value: unknown): number {
   return Math.min(10, Math.max(1, Math.round(parsed)));
 }
 
+// ===== 双语字幕 normalizers =====
+// 双语字幕开关：与 normalizeWebSearchEnabled 同型的布尔归一，非 boolean 回落 false。
+export function normalizeBilingualSubtitles(value: unknown): boolean {
+  return value === true;
+}
+
+// 副字幕语言标签：trim 后做 BCP-47 粗校验（2–3 位主语言 + 若干 2–8 位子标签）。
+// 空串（DEFAULT_SETTINGS 缺键 / 用户清空保存）与非法标签一样回落当前默认：清空即
+// 恢复默认；合法标签保留调用方原样的大小写与连字格式（不转小写）。
+export function normalizeSecondarySubtitleLang(value: unknown): string {
+  const normalized = toString(value).trim();
+  if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(normalized)) {
+    return DEFAULT_SETTINGS.secondarySubtitleLang;
+  }
+  return normalized;
+}
+
 interface ValidationResult {
   ok: boolean;
   row?: unknown;

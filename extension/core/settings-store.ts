@@ -26,7 +26,9 @@ import {
   normalizeWebSearchEnabled,
   normalizeWebSearchMaxToolCalls,
   normalizeSearchPresetsAutoActivated,
-  normalizeSearchOptInNoticeAcknowledged
+  normalizeSearchOptInNoticeAcknowledged,
+  normalizeBilingualSubtitles,
+  normalizeSecondarySubtitleLang
 } from "./validators.js";
 
 // ===== 设置归一化 + 存储 =====
@@ -71,7 +73,12 @@ const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   // 两个非可调一次性状态位（spec §3 落点表 20–21）：布尔归一，设置页不渲染、
   // 无校验区间；落 sync 键面（DEFAULT_SETTINGS）即自动进白名单与快照键集。
   ["searchPresetsAutoActivated", (m) => normalizeSearchPresetsAutoActivated(m.searchPresetsAutoActivated)],
-  ["searchOptInNoticeAcknowledged", (m) => normalizeSearchOptInNoticeAcknowledged(m.searchOptInNoticeAcknowledged)]
+  ["searchOptInNoticeAcknowledged", (m) => normalizeSearchOptInNoticeAcknowledged(m.searchOptInNoticeAcknowledged)],
+  // 双语字幕：开关同 webSearchEnabled（仅显式 true 开），副字幕语言标签空/非法回落
+  // en-US；设置页不渲染控件（开关在面板字幕弹层底部），键面只为持久化、
+  // 「恢复默认」与快照而存在。
+  ["bilingualSubtitles", (m) => normalizeBilingualSubtitles(m.bilingualSubtitles)],
+  ["secondarySubtitleLang", (m) => normalizeSecondarySubtitleLang(m.secondarySubtitleLang)]
 ];
 
 // 设置归一化的唯一收口：对步骤表内的受管字段逐项归一化，返回新对象

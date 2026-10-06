@@ -37,7 +37,7 @@ import { notifyReaderPresenter, subscribeSubtitleRefresh } from "../reader/reade
 // 字幕接受事务（CONTEXT.md 域词条）：接受/无字幕出口的唯一入口。渲染与状态栏
 // 回调在模块求值期注入（下方 configureCommitUi），保持 commit → 本模块/UI 层
 // 无静态边。
-import { acceptSubtitle, commitNoSubtitle, configureCommitUi } from "./commit.js";
+import { acceptSubtitle, acceptSecondarySubtitle, commitNoSubtitle, configureCommitUi } from "./commit.js";
 import {
   fetchVideoMeta as gatewayFetchVideoMeta,
   fetchSubtitleBundle as gatewayFetchSubtitleBundle,
@@ -163,6 +163,10 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   clipState.setSelectedSubtitleUrl("");
   clipState.setSelectedSubtitleLang("");
   clipState.setSubtitleBody([]);
+  // 副轨槽与 clip 同生命周期：换视频（含错误路径的 keepFetchState 清场）一并复位——
+  // 双语的目标语言是全局偏好（不清），但"本视频已装好的那份副轨 body"必须清
+  //（05 号票 Q4；无字幕出口的逆事务 commitNoSubtitle **不**清副轨槽）。
+  clipState.clearSecondarySubtitle();
   if (!keepFetchState) {
     clipState.setSubtitleFetchState("idle");
   }
@@ -546,6 +550,114 @@ export async function loadSubtitle(
     selectedSubtitleLang: lang,
     runId
   });
+}
+
+// ===== 双语副轨装载（bilingual-subtitles/02 + 05 号票）=====
+//
+// loadSubtitle 的**副轨版**：同一套取体口径（先 per-track 缓存、后网络、
+// 时长校验、落缓存），但落点是副轨槽、收尾走 acceptSecondarySubtitle——**不改**
+// selected 三项、**不写** subtitleFetchState（那是整片单相位，写了会把整个字幕 tab
+// 洗成加载/失败面）。与 loadSubtitle 的重复是**有意**的对称（同 commit.ts 的两个
+// 对称事务）：主轨装载链是上一张图刚钉死并有回归锁的路径，不为复用去动它。
+//
+// forceRefresh 缺省 false（切轨语义：优先命中 per-track 缓存）——只有弹层的"重试"
+// 与"刷新抓取"传 true（02 号票 Q1/Q6）。
+export async function loadSecondarySubtitle(
+  url: string,
+  lang: string,
+  runId: number = state.clip.fetchRunId,
+  subtitleId: string = "",
+  forceRefresh: boolean = false
+): Promise<void> {
+  if (!url) {
+    throw new Error("字幕 URL 为空。");
+  }
+  // 代次自检先于乐观写入：迟到的旧 run 不得把目标写进已重置的新视频槽。
+  if (runId !== undefined) {
+    ensureRunActive(runId, state.clip.fetchRunId);
+  }
+  // 乐观写「目标 + loading」早于任何 await（02 号票 Q3：副轨的「选中」=「目标」）：
+  // 副列的选中态与列表的「译文加载中…」占位立刻反映用户的选择，网络结果只改
+  // state/body，**失败也不回退目标**（与主轨 Q14 相反，理由见 02 号票裁定）。
+  clipState.markSecondarySubtitleLoading({ id: subtitleId ? String(subtitleId) : "", url, lang });
+  if (isReaderViewOpen()) {
+    notifyReaderPresenter("rerender");
+  }
+
+  const cacheKey = getSubtitleCacheKey({
+    bvid: state.clip.bvid,
+    cid: state.clip.cid,
+    subtitleId,
+    subtitleUrl: url,
+    lang
+  });
+
+  try {
+    if (!forceRefresh) {
+      const cachedBody = await loadSubtitleFromCache(cacheKey);
+      if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
+        const cachedCheck = validateSubtitleByDuration(cachedBody, state.clip.videoDuration);
+        if (!cachedCheck.ok) {
+          logWarn("[BILISCRIPT] cached secondary subtitle duration mismatch, clearing cache", {
+            cacheKey,
+            reason: cachedCheck.reason
+          });
+          await clearSubtitleCacheByKey(cacheKey);
+        } else {
+          logInfo("[BILISCRIPT] using cached secondary subtitle", {
+            cacheKey,
+            itemCount: cachedBody.length
+          });
+          ensureRunActive(runId, state.clip.fetchRunId);
+          await acceptSecondarySubtitle({
+            body: cachedBody,
+            subtitleId: subtitleId ? String(subtitleId) : "",
+            subtitleUrl: url,
+            subtitleLang: lang,
+            runId
+          });
+          return;
+        }
+      }
+    }
+
+    const subtitle = await fetchSubtitleBody(url);
+    ensureRunActive(runId, state.clip.fetchRunId);
+    const body = Array.isArray(subtitle.body) ? subtitle.body : [];
+    if (body.length === 0) {
+      throw new Error("字幕文件为空。");
+    }
+    const durationCheck = validateSubtitleByDuration(body, state.clip.videoDuration);
+    if (!durationCheck.ok) {
+      const mismatchError = new Error("字幕时长与当前视频不匹配。") as SubtitleDurationMismatchError;
+      mismatchError.code = "SUBTITLE_DURATION_MISMATCH";
+      mismatchError.details = durationCheck;
+      throw mismatchError;
+    }
+
+    const saveResult = await saveSubtitleToCache(cacheKey, body);
+    if (saveResult && saveResult.ok === false) {
+      setMessage("字幕已加载，但本地缓存写入失败（已自动清理旧缓存仍失败），重启浏览器后需重新抓取。");
+    }
+
+    await acceptSecondarySubtitle({
+      body,
+      subtitleId: subtitleId ? String(subtitleId) : "",
+      subtitleUrl: url,
+      subtitleLang: lang,
+      runId
+    });
+  } catch (error) {
+    // 让位（STALE_RUN）不写 error：那是"更新的 run 已接手"，把旧 run 的失败写进
+    // 新视频的副轨槽正是 runId 纪律要防的那类串体。
+    if (!isStaleRunError(error)) {
+      clipState.markSecondarySubtitleError();
+      if (isReaderViewOpen()) {
+        notifyReaderPresenter("rerender");
+      }
+    }
+    throw error;
+  }
 }
 
 // 无字幕提示文案（buildNoSubtitleStatusMessage）已随无字幕出口迁入

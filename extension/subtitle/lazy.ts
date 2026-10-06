@@ -41,6 +41,15 @@ export interface SummarizeChain {
     subtitleId?: string,
     forceRefresh?: boolean
   ): Promise<void>;
+  // 双语副轨装载（bilingual-subtitles/02 号票）：与 loadSubtitle 同参同形状，落点是
+  // clip.secondarySubtitle 槽（不碰主轨 selected 三项与 subtitleFetchState）。
+  loadSecondarySubtitle(
+    url: string,
+    lang: string,
+    runId?: number,
+    subtitleId?: string,
+    forceRefresh?: boolean
+  ): Promise<void>;
   resetClipState(options?: { keepFetchState?: boolean }): void;
   // PR3：阅读模式字幕 tab「复制」——复制字幕纯文本（transcript，buildTxt 管线）
   copySubtitleTranscript(): Promise<void>;

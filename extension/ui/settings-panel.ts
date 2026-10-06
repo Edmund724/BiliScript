@@ -592,7 +592,9 @@ function buildDefaultPreferencePayload() {
     readerThemeFamily: DEFAULT_SETTINGS.readerThemeFamily,
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
     // 初始问题的默认态 = 留空（按视频内容自动生成），不写固定文案。
-    aiInitialQuickPrompts: []
+    aiInitialQuickPrompts: [],
+    bilingualSubtitles: DEFAULT_SETTINGS.bilingualSubtitles,
+    secondarySubtitleLang: DEFAULT_SETTINGS.secondarySubtitleLang
   };
 }
 

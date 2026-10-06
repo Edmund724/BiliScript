@@ -69,6 +69,9 @@ export interface Settings {
   // searchOptInNoticeAcknowledged：联网搜索 opt-in 一次性说明已确认，只在用户点
   // 「同意并继续」时置位。
   searchOptInNoticeAcknowledged: boolean;
+  // ===== 双语字幕 =====
+  bilingualSubtitles: boolean;    // 主字幕之外再叠一路译文轨（面板字幕弹层的全局偏好），默认关
+  secondarySubtitleLang: string;  // 副字幕语言标签（BCP-47，如 en-US），默认 en-US
 }
 
 // ===== Merged default settings =====
@@ -107,5 +110,8 @@ export const DEFAULT_SETTINGS: Settings = {
   webSearchMaxToolCalls: 5,   // 单轮搜索次数上限（1–10）
   // 两个一次性状态位默认 false（含义见 Settings 声明处）；设置页不渲染。
   searchPresetsAutoActivated: false,
-  searchOptInNoticeAcknowledged: false
+  searchOptInNoticeAcknowledged: false,
+  // ===== 双语字幕 =====
+  bilingualSubtitles: false,     // 主字幕之外再叠一路译文轨（面板弹层开关的全局偏好），默认关
+  secondarySubtitleLang: "en-US" // 副字幕语言标签（BCP-47，如 en-US / zh-CN）
 };

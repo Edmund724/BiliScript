@@ -109,6 +109,47 @@ export async function acceptSubtitle({
   return sortedBody;
 }
 
+export interface AcceptSecondarySubtitleArgs {
+  body: unknown[] | null | undefined;
+  subtitleId: string;
+  subtitleUrl: string;
+  subtitleLang: string;
+  // 发起方抓取代次（可选，语义同 AcceptSubtitleArgs.runId）：副轨在弹层里换语言
+  // **不推进** fetchRunId（换轨由「在飞即禁用该列」消解，02 号票 Q2），所以这里
+  // 只在换视频/新一轮抓取推进了代次时才让位——与主轨事务同一道门。
+  runId?: number;
+}
+
+// 双语副轨的接受事务（bilingual-subtitles/05 号票）：与 acceptSubtitle 同文件、
+// 同形的第三个事务。只写**副轨槽**（目标轨身份 + 已排序 body + ready）并发
+// "secondary-subtitle-ready"，**不写** subtitleFetchState / noSubtitleReason /
+// noSubtitleDetail / 热评 / 派生三件套——主轨的「成为生效字幕」语义一步都不越界
+// （02 号票：副轨既不清主轨面，也不碰只读主轨的 AI 面 / 概览面）。
+//
+// 用独立通知 kind 而不是复用 "subtitle-ready"：后者的监听者会连带刷新概览、
+// 快捷问题与对话上下文（reader/lifecycle 与 reader/chat-tab 两处），而副轨到站
+// 与这些面无关（Q6 锁「AI 面只吃主轨」）——新 kind 让既有监听者零改动地不触发。
+export async function acceptSecondarySubtitle({
+  body,
+  subtitleId,
+  subtitleUrl,
+  subtitleLang,
+  runId
+}: AcceptSecondarySubtitleArgs): Promise<void> {
+  // runId 代次自检先于任何写入，且与首个写入之间无 await（同 acceptSubtitle）。
+  if (runId !== undefined) {
+    ensureRunActive(runId, clipState.fetchRunId);
+  }
+  const sortedBody = sortSubtitleBodyByFrom(body);
+  clipState.applySecondarySubtitle({
+    id: subtitleId,
+    url: subtitleUrl,
+    lang: subtitleLang,
+    body: sortedBody as SubtitleBodyItem[]
+  });
+  notifyReaderPresenter("secondary-subtitle-ready");
+}
+
 export interface CommitNoSubtitleArgs {
   noSubtitleReason?: NoSubtitleReason;
   // 发起方抓取代次（可选，语义同 AcceptSubtitleArgs.runId）：传入则出口前

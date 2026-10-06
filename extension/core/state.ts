@@ -50,6 +50,32 @@ export type SubtitleBodyItem = {
   content: string;
 };
 
+// 双语副轨槽（bilingual-subtitles/05 号票）：与主轨槽**平级但独立**的第二份 body +
+// 目标轨身份 + 独立装载态。三条纪律：
+//   ① 主轨三项（selectedSubtitleId/Url/Lang）在双语态下**逐字节不变**——它们是
+//      core/context-payload 的载荷三元组与变化签名键、也是 ai/segment-cache 段缓存键
+//      的输入，副轨借道会把 AI 面一起污染；
+//   ② 副轨装载态**绝不复用** subtitleFetchState——那是整片单相位，会把整个字幕 tab
+//      洗成「正在加载字幕…」/「字幕加载失败」面（02 号票 Q6/Q9）；
+//   ③ 写入只经 subtitle/commit 的对称事务 acceptSecondarySubtitle 与 subtitle/fetcher
+//      的副轨装载器 / 清场，**成组替换**（ADR 0005 的意图级原语，不铺逐字段 setter）。
+export type SecondarySubtitleState = "idle" | "loading" | "ready" | "error";
+
+export interface SecondarySubtitle {
+  // 目标轨身份：用户在弹层选定副轨的那一刻**乐观写入**（02 号票 Q3），网络结果只改
+  // state/body，不回退目标。
+  id: string;
+  url: string;
+  lang: string;
+  body: SubtitleBodyItem[];
+  state: SecondarySubtitleState;
+}
+
+// 空槽每次新建：槽是成组整体替换的，不共享可变引用（避免跨视频串体）。
+export function emptySecondarySubtitle(): SecondarySubtitle {
+  return { id: "", url: "", lang: "", body: [], state: "idle" };
+}
+
 export type ChapterItem = {
   title: string;
   from: number;
@@ -155,6 +181,9 @@ type ClipBusinessState = {
   // 括号；无结构化信息时为空串）。与 noSubtitleReason 同生命周期：失败终态写入，
   // 同一视频内不清，切视频（resetClipState）与字幕接受事务（acceptSubtitle）清空。
   noSubtitleDetail: string;
+  // 双语副轨槽（形状与纪律见 SecondarySubtitle 的类型注释）。默认空槽 = 双语关 /
+  // 未选副轨 / 本视频无该语言轨三种来路，语义差别在投影层（06）不在这里。
+  secondarySubtitle: SecondarySubtitle;
   chapters: ChapterItem[];
   hotComments: unknown[];
   markdown: string;
@@ -186,6 +215,16 @@ type ClipSetters = {
   setSubtitleFetchState(value: SubtitleFetchState): void;
   setNoSubtitleReason(value: NoSubtitleReason): void;
   setNoSubtitleDetail(value: string): void;
+  // ===== 双语副轨槽：四个成组意图（ADR 0005 的意图级原语，不铺逐字段 setter）=====
+  // 乐观写目标 + 置 loading：用户在弹层选定副轨语言的那一刻调用（02 号票 Q3：
+  // 「选中」=「目标」）。body 一并清空——旧语言的正文不能挂在新目标下面。
+  markSecondarySubtitleLoading(value: { id: string; url: string; lang: string }): void;
+  // 接受事务收尾：写目标轨身份 + 已排序 body + ready（subtitle/commit 唯一调用点）。
+  applySecondarySubtitle(value: { id: string; url: string; lang: string; body: SubtitleBodyItem[] }): void;
+  // 装载失败：保目标轨身份（副列要显示"哪条语言失败了"），清 body、置 error。
+  markSecondarySubtitleError(): void;
+  // 清场（换视频 / resetClipState）：整体复位回空槽。
+  clearSecondarySubtitle(): void;
   setChapters(value: ChapterItem[]): void;
   setHotComments(value: unknown[]): void;
   setMarkdown(value: string): void;
@@ -237,6 +276,7 @@ const localClipState: ClipStateWritable = {
   // 的唯一写入点）。
   noSubtitleReason: null,
   noSubtitleDetail: "",
+  secondarySubtitle: emptySecondarySubtitle(),
   chapters: [],
   hotComments: [],
   markdown: "",
@@ -265,6 +305,18 @@ const localClipState: ClipStateWritable = {
   setSubtitleFetchState(value) { this.subtitleFetchState = value; },
   setNoSubtitleReason(value) { this.noSubtitleReason = value; },
   setNoSubtitleDetail(value) { this.noSubtitleDetail = value; },
+  markSecondarySubtitleLoading({ id, url, lang }) {
+    this.secondarySubtitle = { id, url, lang, body: [], state: "loading" };
+  },
+  applySecondarySubtitle({ id, url, lang, body }) {
+    this.secondarySubtitle = { id, url, lang, body, state: "ready" };
+  },
+  markSecondarySubtitleError() {
+    this.secondarySubtitle = { ...this.secondarySubtitle, body: [], state: "error" };
+  },
+  clearSecondarySubtitle() {
+    this.secondarySubtitle = emptySecondarySubtitle();
+  },
   setChapters(value) { this.chapters = value; },
   setHotComments(value) { this.hotComments = value; },
   setMarkdown(value) { this.markdown = value; },
