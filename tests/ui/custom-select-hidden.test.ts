@@ -189,6 +189,23 @@ describe("组件表（extension/entry/styles/custom-select.css，2026-10 从设�
         declOf(compOption, prop)
       );
     }
+    // 行盒（2026-10-06 文字偏上修复）也在双胞胎契约里：内容盒 30px 必须由 30px 行盒
+    // 填满，否则余量落在下方、文字偏上。它只落在**单行**选项行上——消息行会换行
+    //（rows.css 的 .ai-provider-model-message 把 white-space 改回 normal），30px 行距
+    // 对多行文本不成立，故消息行不跟这条，两族的契约按 option-only 规则核。
+    const modelOptionOnly = blockFrom(
+      read(ROWS_CSS),
+      /#biliscript-reading-view \.provider-editor-host \.ai-provider-model-option\s*\{[^}]*\}/
+    );
+    expect(declOf(modelOptionOnly, "line-height"), "line-height 两族分叉（改一处必须同时改另一处）").toBe(
+      declOf(compOption, "line-height")
+    );
+    // 反证：消息行不得被选项行的 30px 行盒扫到（换行文本要可读行距）
+    const modelMessage = blockFrom(
+      read(ROWS_CSS),
+      /#biliscript-reading-view \.provider-editor-host \.ai-provider-model-message\s*\{[^}]*\}/
+    );
+    expect(modelMessage).not.toMatch(/line-height:\s*30px/);
 
     const compDropdown = blockFrom(read(CUSTOM_SELECT_CSS), /#biliscript-reading-view \.custom-select-dropdown\s*\{[^}]*\}/);
     const modelDropdown = blockFrom(

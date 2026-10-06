@@ -76,6 +76,17 @@
   transition: transform 100ms ease-out;
 }
 
+/* 行盒（2026-10-06，与组件表的选项行同因同解，见 styles/custom-select.css）：
+ * 内容盒 30px（= 上面那条的 min-height 38 − 上下 padding 8）必须由 30px 行盒填满，
+ * 否则宿主继承来的 unitless 行盒（真机 1.5 × 15px = 22.5px）只填上半、余量落在下方，
+ * 文字偏上 3.75px。只落在**单行**选项行上：消息行会换行（下面
+ * .ai-provider-model-message 把 white-space 改回 normal），30px 行距对多行文本不成立，
+ * 故不写进上面那条共用规则，也不动消息行现有的继承行距。两族同值的对照锁在
+ * tests/ui/custom-select-hidden.test.ts。 */
+#biliscript-reading-view .provider-editor-host .ai-provider-model-option {
+  line-height: 30px;
+}
+
 #biliscript-reading-view .provider-editor-host .ai-provider-model-option:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }

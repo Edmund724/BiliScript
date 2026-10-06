@@ -83,6 +83,15 @@
   text-align: start;
   font: inherit;
   font-size: 15px;
+  /* 行盒 = 内容盒 30px（2026-10-06 用户报告「字幕 tab 语言下拉的选项文字偏上」）：
+   * 上面的 min-height 38 在 border-box 下只保证内容盒 30px，行盒本身仍取宿主继承的
+   * unitless line-height（真机 1.5 × 15px = 22.5px）——块布局把余下的 7.5px 落在行盒
+   * **下方**，文字因此整体上移 3.75px。真机同页 A/B：文字墨迹上距 6.67 / 下距 14.44
+   *（中心差 3.89px）；本行显式写 30px 后 10.22 / 10.89（余下的 0.33px 是字体墨迹固有的
+   * 上下不对称），行高 38、弹层 133.78×241.78、超长选项的省略号路径（clientWidth 260 /
+   * scrollWidth 290）两边逐值不变。改 min-height 必须同时改本行（38 − 4 − 4 = 30），
+   * 两族的对照锁在 tests/ui/custom-select-hidden.test.ts。 */
+  line-height: 30px;
   color: var(--biliscript-reader-text);
   white-space: nowrap;
   overflow: hidden;

@@ -238,6 +238,70 @@ describe("值区诊断串（无表 → 有表 的缺口形态）", () => {
   });
 });
 
+// 选项行文字纵向基线（2026-10-06 用户报告：字幕 tab 的语言下拉里选项文字偏上）。
+//
+// 先列失败方式，再据此写断言：
+//   H1 行盒只填内容盒上半：min-height 38（border-box）给内容盒 30px，而选项行的行盒
+//      取自宿主继承的 unitless line-height（真机 1.5 × 15px = 22.5px）。块布局把余下
+//      的 7.5px 落在行盒**下方**，文字整体上移 3.75px。真机 A/B：文字墨迹上距 6.67 /
+//      下距 14.44（中心差 3.89px）；行盒改 30px 后 10.22 / 10.89（中心差 0.33px，即
+//      字体墨迹固有的上下不对称），行高 38、弹层 133.78×241.78、省略号路径逐值不变。
+//   H2 度量两半分头动：38 − 4 − 4 = 30 是同一个度量的两半，min-height 动了而行盒不跟
+//      （或反之）就会重新偏上/偏下，故按**算术关系**核，不只核字面 30px。
+//   H3 顺手改坏别的：居中不得靠删 padding / 改 min-height 实现（那条已被上面 G 组锁住）。
+// jsdom 无布局引擎（量不到墨迹位置），故这里守「声明在场」+「度量自洽」两条；像素层
+// 由真机 A/B 实测，脚本与逐值见 .scratch/select-option-centering/measure.md。
+describe("选项行文字纵向居中（行盒 = 内容盒 30px）", () => {
+  const optionBlock = (): string => {
+    const css = readFileSync(join(process.cwd(), CUSTOM_SELECT_CSS), "utf8");
+    const hit = css.match(/#biliscript-reading-view \.custom-select-option\s*\{[^}]*\}/);
+    expect(hit, ".custom-select-option 规则块未找到").not.toBeNull();
+    return hit![0];
+  };
+  const px = (block: string, prop: string): number => {
+    const hit = block.match(new RegExp(`(?:^|[;{\\s])${prop}:\\s*(\\d+(?:\\.\\d+)?)px`));
+    expect(hit, `规则块里没有 ${prop}: <n>px 声明`).not.toBeNull();
+    return Number(hit![1]);
+  };
+
+  it("注入真实表后：选项行规则上确实挂着 line-height 30px（宿主继承的 1.5 不再进这个盒子）", () => {
+    injectComponentStyles();
+    const sheet = document.head.querySelector<HTMLStyleElement>("style")!.sheet!;
+    const rule = [...sheet.cssRules].find(
+      (item): item is CSSStyleRule =>
+        item instanceof CSSStyleRule && item.selectorText === "#biliscript-reading-view .custom-select-option"
+    );
+    expect(rule, "选项行规则没进注入的表").toBeDefined();
+    // jsdom 不实现 line-height 的 computed 值（恒读作 'normal'，与它的 overflow longhand
+    // 同款缺口），故这里读样式表解析后的声明——「规则在场」的核验口径与其它 jsdom
+    // 断言一致；注入位置、注入后的墨迹落点由真机 A/B 核验（见本组头注）。
+    expect(rule!.style.lineHeight).toBe("30px");
+  });
+
+  it("度量自洽：line-height == min-height − 上下 padding（两半必须一起动）", () => {
+    const block = optionBlock();
+    const pad = block
+      .match(/(?:^|[;{\s])padding:\s*([^;]+);/)![1]
+      .trim()
+      .split(/\s+/)
+      .map((value) => Number.parseFloat(value));
+    // padding 简写展开：1 值全边、2 值上下/左右、3 值上/左右/下、4 值上右下左
+    const top = pad[0];
+    const bottom = pad.length === 1 ? pad[0] : pad.length === 2 ? pad[0] : pad[2];
+    expect(top, "上下 padding 不等，行盒居中就无从谈起").toBe(bottom);
+    expect(px(block, "line-height"), "行盒必须恰好填满内容盒（min-height − 上下 padding）").toBe(
+      px(block, "min-height") - top - bottom
+    );
+  });
+
+  it("源码守卫：padding 4px 10px / min-height 38px / line-height 30px 三项同时在场", () => {
+    const block = optionBlock();
+    expect(block, "选项行左右 padding 是 10 号票定的度量，不得为居中而改").toMatch(/padding:\s*4px 10px/);
+    expect(block, "行高 38px 是既有度量，不得为居中而改").toMatch(/min-height:\s*38px/);
+    expect(block, "缺 line-height 即回到「文字偏上」的旧形态").toMatch(/line-height:\s*30px/);
+  });
+});
+
 // 弹层横向滚动条（2026-10-06 用户报告：选轨浮层底部一条左右滚动条）。
 //
 // 先列失败方式，再据此写断言：
