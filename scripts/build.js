@@ -83,6 +83,10 @@ const cssEntries = [
   // 自定义下拉组件表（2026-10 从设置三份表里抽出）：随 ui/custom-select.ts 组件走
   //（shared/style-injector ensureCustomSelectStyles，模块顶层 ensure），独立入口 minify。
   "entry/styles/custom-select.css",
+  // 双语字幕表（bilingual-subtitles/06）：随 reader/subtitle-tab-ui.ts 叶子走
+  //（shared/style-injector ensureBilingualSubtitleStyles，模块顶层 ensure，且必须
+  // 排在 custom-select.css 之后——弹层规则按同特异性覆盖组件表度量），独立入口 minify。
+  "entry/styles/bilingual-subtitles.css",
   // 对话分区表（arch-slim-4/07）：随对话域首次激活按需挂载
   //（shared/style-injector ensureReaderChatStyles），独立入口 minify。
   "entry/styles/reader-chat.css",

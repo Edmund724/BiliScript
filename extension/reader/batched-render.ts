@@ -13,13 +13,18 @@
 //   - 渲染期间再次 renderReadingView（切轨/重进阅读模式）先取消上一轮任务。
 // 章节列表量小（几十条），保持整段渲染不变。
 //
-// 依赖方向（无环叶子）：shared 字符串工具。
+// 依赖方向（无环叶子）：shared 字符串工具 + core/state 状态单例 + subtitle/alignment
+// 纯索引（06 号票加的双语副行投影：alignment 只读 state、不回头 import reader，无环）。
 // 首屏批与任务启动入口（buildReadingSubtitleItemHtml /
 // startReadingSubtitleAppendTask / cancelReadingSubtitleAppend /
 // ensureReadingSubtitleRenderedUpTo / SUBTITLE_FIRST_BATCH）由 lifecycle.js
 // 的 renderReadingView/closeReadingView/端口注册调用；本模块不 import lifecycle。
 import { escapeHtml } from "../shared/string-utils.js";
 import { formatClock } from "../shared/clock-text.js";
+import { clipState, state } from "../core/state.js";
+import { buildSecondaryAlignment } from "../subtitle/alignment.js";
+import type { SecondaryAlignment } from "../subtitle/alignment.js";
+import type { SubtitleBodyItem } from "../core/state.js";
 import type { ReadingSubtitleItem } from "../subtitle/core.js";
 
 const SUBTITLE_FIRST_BATCH = 120;
@@ -38,7 +43,85 @@ interface SubtitleAppendTask {
 let subtitleAppendTask: SubtitleAppendTask | null = null;
 let subtitleAppendRafId = 0;
 
+// ===== 双语副行（bilingual-subtitles/06 号票） =====
+//
+// 副行是主文 span 内嵌的**块级** span（01 号票钉的次级样式形态）：两行同属
+// `.biliscript-reading-text`，CSS grid（`76px minmax(0,1fr)`）与
+// `.biliscript-reading-time` 的落位因此一字不动（副行样式由
+// entry/styles/bilingual-subtitles.css 提供，本模块不出任何样式）。
+//
+// data-state 三档（状态位口径来自 02 / 06）：
+//   ready   = 真实译文（04 号票的配对结果）；
+//   loading = 副轨在飞，每行同一句「译文加载中…」占位；
+//   fail    = 副轨装载失败，每行同一句「译文加载失败」占位。
+// 占位行**不可点**：重试入口唯一在弹层副列（02 号票 Q6「入口唯一」），列表这行
+// 因此不带「重试」字样、也不带任何 affordance 节点。
+//
+// 折叠（04 号票第 2 条）：双语关 / 副轨槽 idle / 该行与副轨零重叠 ⇒ 整个副行节点
+// **不发射**（行高收缩回单行），不发空 span。
+const SECONDARY_SUBTEXT_CLASS = "biliscript-reading-subtext";
+const SECONDARY_LOADING_TEXT = "译文加载中…";
+const SECONDARY_FAIL_TEXT = "译文加载失败";
+
+type ReadingSubtextState = "ready" | "loading" | "fail";
+
+interface ReadingSubtext {
+  text: string;
+  state: ReadingSubtextState;
+}
+
+// 配对索引按副轨 body 的**引用**缓存（写路径经事务整体替换引用）：1500 行的渲染
+// 只建一次索引，逐行 `query` 是 O(log m) 二分——**绝不逐行重建索引**（那是平方级）。
+let subtextAlignmentBody: unknown = null;
+let subtextAlignment: SecondaryAlignment | null = null;
+
+function subtextAlignmentFor(body: SubtitleBodyItem[]): SecondaryAlignment {
+  if (subtextAlignmentBody !== body || !subtextAlignment) {
+    subtextAlignment = buildSecondaryAlignment(body);
+    subtextAlignmentBody = body;
+  }
+  return subtextAlignment;
+}
+
+// 单行副行投影（读 state；占位文案由本层出——04 的算法不出正文也不出占位）。
+function resolveReadingSubtext(item: ReadingSubtitleItem): ReadingSubtext | null {
+  if (!state.settings.bilingualSubtitles) {
+    return null;
+  }
+  const slot = clipState.secondarySubtitle;
+  if (!slot) {
+    return null;
+  }
+  if (slot.state === "loading") {
+    return { text: SECONDARY_LOADING_TEXT, state: "loading" };
+  }
+  if (slot.state === "error") {
+    return { text: SECONDARY_FAIL_TEXT, state: "fail" };
+  }
+  if (slot.state !== "ready") {
+    return null;
+  }
+  const body = slot.body;
+  if (!Array.isArray(body) || body.length === 0) {
+    return null;
+  }
+  const text = subtextAlignmentFor(body).query(item);
+  return text ? { text, state: "ready" } : null;
+}
+
+function buildReadingSubtextHtml(item: ReadingSubtitleItem): string {
+  const subtext = resolveReadingSubtext(item);
+  if (!subtext) {
+    return "";
+  }
+  return `<span class="${SECONDARY_SUBTEXT_CLASS}" data-state="${subtext.state}">${escapeHtml(
+    subtext.text
+  )}</span>`;
+}
+
 export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHours: boolean) {
+  // 副行节点内嵌在 text span 内、主文之后；无副行时是空串 ⇒ 单轨形态的输出
+  // 与双语能力上线前**逐字节相同**。
   return `
     <button
       type="button"
@@ -49,7 +132,7 @@ export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHour
       <span class="biliscript-reading-time">${escapeHtml(
         formatClock(item.from, { hours: withHours })
       )}</span>
-      <span class="biliscript-reading-text">${escapeHtml(item.content)}</span>
+      <span class="biliscript-reading-text">${escapeHtml(item.content)}${buildReadingSubtextHtml(item)}</span>
     </button>
   `;
 }

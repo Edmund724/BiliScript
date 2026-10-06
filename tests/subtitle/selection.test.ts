@@ -13,6 +13,7 @@ import { resetModuleState } from "../setup.js";
 import { normalizeChapters } from "../../extension/subtitle/chapters.js";
 import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
 import {
+  findTrackByPreferredLang,
   mapSubtitleTracks,
   normalizeSubtitleTracks,
   pickPreferredSubtitle,
@@ -188,5 +189,36 @@ describe("mapSubtitleTracks / normalizeSubtitleTracks / pickPreferredSubtitle：
     ]);
 
     expect(sorted.map((item) => item.id)).toEqual(["2", "1"]);
+  });
+});
+
+// ===== 副字幕语言匹配（bilingual-subtitles 05/06）：两级 + 真轨过滤 =====
+describe("findTrackByPreferredLang（副轨语言两级匹配）", () => {
+  const aiZh = { id: "1", lan: "ai-zh", lanDoc: "中文", subtitleUrl: "https://sub/ai-zh.json" };
+  const aiEn = { id: "2", lan: "ai-en", lanDoc: "English", subtitleUrl: "https://sub/ai-en.json" };
+  const ccEn = { id: "3", lan: "en-US", lanDoc: "English (CC)", subtitleUrl: "https://sub/cc-en.json" };
+  const asrZh = { id: "asr", lan: "asr-zh", lanDoc: "中文（转写）", subtitleUrl: "" };
+
+  it("两级：完整 lan 精确命中优先（混源视频不依赖轨序）", () => {
+    // AI 轨排在人工轨前面：单级子标签匹配会先命中 ai-en ⇒ 两级必须仍选 en-US
+    expect(findTrackByPreferredLang([aiZh, aiEn, ccEn], "en-US")?.id).toBe("3");
+    expect(findTrackByPreferredLang([ccEn, aiEn], "en-US")?.id).toBe("3");
+  });
+
+  it("兜底：偏好命中不了完整 lan 时退回主语言子标签（en-US → ai-en）", () => {
+    expect(findTrackByPreferredLang([aiZh, aiEn], "en-US")?.id).toBe("2");
+    // 偏好存的是轨自己的 lan ⇒ 二级匹配让偏好粘在同一族（ai-en 仍选 ai-en）
+    expect(findTrackByPreferredLang([ccEn, aiEn], "ai-en")?.id).toBe("2");
+    expect(findTrackByPreferredLang([ccEn, aiEn], "zh-CN")).toBe(null);
+  });
+
+  it("只考虑有 subtitleUrl 的真轨（ASR 伪轨永不被选中）+ 空偏好返回 null", () => {
+    // 只有伪轨命中目标语言（asr-zh 的子标签是 zh）时按无解处理——绝不拿伪轨充数
+    expect(findTrackByPreferredLang([asrZh, aiEn], "zh-CN")).toBe(null);
+    expect(findTrackByPreferredLang([asrZh], "zh-CN")).toBe(null);
+    // 真轨在场时选中真轨（伪轨从候选里消失）
+    expect(findTrackByPreferredLang([asrZh, aiZh], "zh-CN")?.id).toBe("1");
+    expect(findTrackByPreferredLang([aiEn], "")).toBe(null);
+    expect(findTrackByPreferredLang([aiEn], null)).toBe(null);
   });
 });

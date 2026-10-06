@@ -32,6 +32,7 @@ import { logWarn } from "../shared/logging.js";
 // 候选02 分层惰性：链未装载 ⇒ refreshClip 未注册进 reader-bus seam。懒装载
 // 触达自 seam 移到调用方（arch-slim-2/03），见 maybeRefreshReaderSubtitleInBackground。
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
+import { findTrackByPreferredLang } from "../subtitle/selection.js";
 
 // 候选02 分层惰性：启动接线（installReaderDebugHelpers / bindSettingsWatcher）与
 // 启动期呈现（hydrate/apply/renderReadingStatus）在常驻微模块
@@ -251,17 +252,8 @@ function warmUpReaderQuickPrompts() {
 //   ① 双语关 ⇒ 不动（零行为差）；
 //   ② 槽非 idle ⇒ 不动（在飞 / 已就绪 / 已失败三种都不重来；失败等用户在弹层点重试）；
 //   ③ 本视频没有目标语言的轨 ⇒ 不动（Q4「副列留空、不替用户猜」）。
-// 匹配口径：按**主语言子标签**比对（偏好可能是 "en-US" 而轨的 lan 是 "ai-en"），
-// 先摘掉 `ai-` / `asr-` 前缀再取第一段——这是"跨视频按 lan 匹配"（地图 Q4）在真实
-// lan 值形态下的落地口径。
-function primaryLangTag(lan: unknown): string {
-  return String(lan || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^(ai|asr)-/, "")
-    .split("-")[0];
-}
-
+// 匹配口径（两级 + 真轨过滤）收在 subtitle/selection 的共享叶子里，与弹层副列的投影
+// 同一实现——两处各写一份会漂移，混源视频上会「装载了一条、副列选中另一条」。
 function ensureSecondarySubtitleLoaded(): void {
   if (!state.settings.bilingualSubtitles) {
     return;
@@ -269,13 +261,7 @@ function ensureSecondarySubtitleLoaded(): void {
   if (state.clip.secondarySubtitle.state !== "idle") {
     return;
   }
-  const target = primaryLangTag(state.settings.secondarySubtitleLang);
-  if (!target) {
-    return;
-  }
-  const track = (state.clip.subtitles || []).find(
-    (item) => String(item.subtitleUrl || "") && primaryLangTag(item.lan) === target
-  );
+  const track = findTrackByPreferredLang(state.clip.subtitles, state.settings.secondarySubtitleLang);
   if (!track) {
     return;
   }

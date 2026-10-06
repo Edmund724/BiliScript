@@ -1,6 +1,11 @@
 // 字幕 tab 句内搜索（PR3）：大小写不敏感字面量匹配 + 命中高亮（mark）+
 // 上/下一条循环导航 + 匹配计数。
 //
+// 双语（bilingual-subtitles/06 号票）：匹配**可见的两轨文本**——逐条目先主行、
+// 后副行（04 的配对结果），因此条目内 ordinal 与 DOM 顺序（主文 mark 在副行 span
+// 之前）一致；副轨 loading / fail 的占位文案不参与匹配。双语关时命中集合与
+// 单轨态逐字相同（副轨索引不建）。
+//
 // 与分批渲染（./batched-render.ts）的组合是本模块的核心约束：
 //   - 匹配在数据层（state.clip.subtitleBody，经 getReadingSubtitleItems 与
 //     渲染同源同口径）计算，天然覆盖尚未上屏的条目——计数与导航不依赖渲染进度；
@@ -17,11 +22,14 @@
 // refreshReadingSubtitleSearch({ scroll: false }) 重放高亮。
 //
 // 依赖方向（无环）：state 叶子 + ports 叶子 + SYNC（noteManualReaderInteraction，
-// LIFECYCLE → SYNC 合法边）+ subtitle/core（与 sync.ts 同款静态边）。本模块
-// 不 import lifecycle/batched-render——补渲染走显式端口，批次回执走注册 hook。
+// LIFECYCLE → SYNC 合法边）+ subtitle/core 与 subtitle/alignment（与 sync.ts 同款
+// 静态边）。本模块不 import lifecycle/batched-render——补渲染走显式端口，批次回执
+// 走注册 hook。
 
-import { state } from "../core/state.js";
+import { clipState, state } from "../core/state.js";
 import { getReadingSubtitleItems } from "../subtitle/core.js";
+import { buildSecondaryAlignment } from "../subtitle/alignment.js";
+import type { SecondaryAlignment } from "../subtitle/alignment.js";
 import { ids } from "./state.js";
 import { readerPorts } from "./ports.js";
 import { noteManualReaderInteraction } from "./sync.js";
@@ -30,6 +38,9 @@ import { noteManualReaderInteraction } from "./sync.js";
 const SEARCH_HIT_MARK_CLASS = "biliscript-reading-search-hit";
 const SEARCH_CURRENT_CLASS = "search-current";
 const SEARCH_TEXT_SELECTOR = ".biliscript-reading-text";
+// 双语副行（bilingual-subtitles/06 号票）：内嵌主文 span 的块级 span，匹配/高亮
+// 要单独走一遍——不能被主行的 textContent 一起吃进去。
+const SEARCH_SUBTEXT_SELECTOR = ".biliscript-reading-subtext";
 
 interface SearchRange {
   start: number;
@@ -78,12 +89,41 @@ function findLiteralMatches(text: string, needle: string): SearchRange[] {
   return ranges;
 }
 
+// 搜索的第二条轨（bilingual-subtitles/06 号票的 Q6 映射）：只吃**真实译文**
+//（04 号票的配对结果）——loading / fail 占位文案**不产生命中**，双语关 / 副轨
+// 未就绪一律不参与（双语关零行为差）。索引按副轨 body 引用建一次、逐行 O(log m)
+// 二分，**绝不逐行重建**（与 batched-render 的投影同款，两处各自持一份缓存以
+// 避开 reader → batched-render 的 import 边）。
+let searchSecondaryBody: unknown = null;
+let searchSecondaryAlignment: SecondaryAlignment | null = null;
+
+function resolveSecondarySearchAlignment(): SecondaryAlignment | null {
+  if (!state.settings.bilingualSubtitles) {
+    return null;
+  }
+  const slot = clipState.secondarySubtitle;
+  if (!slot || slot.state !== "ready" || !Array.isArray(slot.body) || slot.body.length === 0) {
+    return null;
+  }
+  if (searchSecondaryBody !== slot.body || !searchSecondaryAlignment) {
+    searchSecondaryAlignment = buildSecondaryAlignment(slot.body);
+    searchSecondaryBody = slot.body;
+  }
+  return searchSecondaryAlignment;
+}
+
 function computeMatches(needle: string): void {
   matches = [];
   matchesByItem = new Map();
+  const secondary = resolveSecondarySearchAlignment();
   for (const item of getReadingSubtitleItems(state.clip.subtitleBody)) {
-    const ranges = findLiteralMatches(item.content, needle);
-    for (let ordinal = 0; ordinal < ranges.length; ordinal += 1) {
+    // 主行先、副行后：DOM 顺序（主文在副行 span 之前）= ordinal 顺序，
+    // revealCurrentMatch 的 `querySelectorAll("mark.…")[match.ordinal]` 才落得对。
+    const mainRanges = findLiteralMatches(item.content, needle);
+    const secondaryText = secondary ? secondary.query(item) : null;
+    const secondaryRanges = secondaryText ? findLiteralMatches(secondaryText, needle) : [];
+    const total = mainRanges.length + secondaryRanges.length;
+    for (let ordinal = 0; ordinal < total; ordinal += 1) {
       const match: SearchMatch = { itemIndex: item.index, ordinal };
       matches.push(match);
       const list = matchesByItem.get(item.index);
@@ -96,32 +136,76 @@ function computeMatches(needle: string): void {
   }
 }
 
-// 把一条已上屏条目的文本替换为 mark 高亮。幂等：从 textContent（mark 在内时
-// 拼回的仍是原文本）重算命中后整体重建，不产生嵌套 mark。返回首命中 mark。
+// 把一段原文 + 命中区间拼成「文本 ↔ mark 交替」的片段（主行/副行共用）。
+function buildHighlightFragment(source: string, ranges: SearchRange[]): DocumentFragment {
+  const fragment = document.createDocumentFragment();
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start > cursor) {
+      fragment.appendChild(document.createTextNode(source.slice(cursor, range.start)));
+    }
+    const mark = document.createElement("mark");
+    mark.className = SEARCH_HIT_MARK_CLASS;
+    mark.textContent = source.slice(range.start, range.end);
+    fragment.appendChild(mark);
+    cursor = range.end;
+  }
+  if (cursor < source.length) {
+    fragment.appendChild(document.createTextNode(source.slice(cursor)));
+  }
+  return fragment;
+}
+
+// 主行原文 = text span 里除副行 span 之外的全部子节点（mark 在内时拼回的仍是
+// 原文本）。**不能**直接用 textSpan.textContent：那会把副行一起吃进主行、重建时
+// 把两行压平成一行（clearSearchHighlights 再也还原不出两行结构）。
+function readMainLineText(textSpan: HTMLElement, subtextSpan: HTMLElement | null): string {
+  let raw = "";
+  for (const child of Array.from(textSpan.childNodes)) {
+    if (child === subtextSpan) {
+      continue;
+    }
+    raw += child.textContent || "";
+  }
+  return raw;
+}
+
+// 副行是否参与匹配/高亮：与 computeMatches 同一判据（双语关 / 副轨未就绪不参与），
+// 再加 DOM 一侧的门——只有 `data-state="ready"` 的副行才是真实译文，loading / fail
+// 的占位行即使正文里恰好含搜索词也**不落 mark**（占位文案不产生命中）。
+function isSecondaryLineSearchable(subtextSpan: HTMLElement): boolean {
+  return subtextSpan.dataset.state === "ready" && resolveSecondarySearchAlignment() !== null;
+}
+
+// 把一条已上屏条目的文本替换为 mark 高亮（主行 mark 在前、副行 span 在后——
+// 与 computeMatches 的 ordinal 顺序一致）。幂等：从 textContent（mark 在内时
+// 拼回的仍是原文本）重算命中后整体重建，不产生嵌套 mark；副行 span 的身份、
+// class 与 data-state 原样保留（原地 replaceChildren + 重新挂回，不是新建节点）。
+// 返回是否至少落下一个 mark。
 function highlightItemNode(node: HTMLElement, needle: string): boolean {
   const textSpan = node.querySelector<HTMLElement>(SEARCH_TEXT_SELECTOR);
   if (!textSpan) {
     return false;
   }
-  const raw = textSpan.textContent || "";
+  const subtextSpan = textSpan.querySelector<HTMLElement>(SEARCH_SUBTEXT_SELECTOR);
+  const raw = readMainLineText(textSpan, subtextSpan);
   const ranges = findLiteralMatches(raw, needle);
-  if (ranges.length === 0) {
+  let subtextRaw = "";
+  let subtextRanges: SearchRange[] = [];
+  if (subtextSpan && isSecondaryLineSearchable(subtextSpan)) {
+    subtextRaw = subtextSpan.textContent || "";
+    subtextRanges = findLiteralMatches(subtextRaw, needle);
+  }
+  if (ranges.length === 0 && subtextRanges.length === 0) {
     return false;
   }
-  const fragment = document.createDocumentFragment();
-  let cursor = 0;
-  for (const range of ranges) {
-    if (range.start > cursor) {
-      fragment.appendChild(document.createTextNode(raw.slice(cursor, range.start)));
-    }
-    const mark = document.createElement("mark");
-    mark.className = SEARCH_HIT_MARK_CLASS;
-    mark.textContent = raw.slice(range.start, range.end);
-    fragment.appendChild(mark);
-    cursor = range.end;
+  if (subtextSpan && subtextRanges.length > 0) {
+    subtextSpan.replaceChildren(buildHighlightFragment(subtextRaw, subtextRanges));
   }
-  if (cursor < raw.length) {
-    fragment.appendChild(document.createTextNode(raw.slice(cursor)));
+  const fragment = buildHighlightFragment(raw, ranges);
+  if (subtextSpan) {
+    // 同一节点重新挂回主文 span 尾部：身份不变，data-state / class 不被抹。
+    fragment.appendChild(subtextSpan);
   }
   textSpan.replaceChildren(fragment);
   return true;

@@ -221,6 +221,46 @@ export function shouldMarkAiSubtitleTracks(
   return false;
 }
 
+// ===== 副字幕语言匹配（bilingual-subtitles 05/06 号票）=====
+//
+// 真实 `lan` 有两种形态：人工上传的 CC 轨是 BCP-47（`zh-CN` / `en-US`），B站 AI 生成轨
+// 是 `ai-` + ISO-639-1 小写码（`ai-en`），本扩展的 ASR 伪轨是 `asr-zh`；而全局偏好
+//（settings.secondarySubtitleLang）存的是轨自己的 `lan`，默认值取 BCP-47 的 `en-US`。
+//
+// `subtitlePrimaryLangTag`：摘掉 `ai-` / `asr-` 前缀后取第一段，两种形态因此可比。
+// `findTrackByPreferredLang` 两级匹配：
+//   a. **完整 `lan` 精确命中优先**——偏好 `en-US` 时落人工 CC 轨；混源视频（同时有
+//      `en-US` 与 `ai-en`）的结果不依赖轨序；
+//   b. 精确命中不了再退回主语言子标签——偏好 `en-US` 命中 `ai-en`。
+// 只考虑 `subtitleUrl` 非空的真轨：ASR 伪轨是主轨的兜底，不是可对照的第二语言。
+// 返回 `null` = 本视频没有可用的目标语言轨，调用方据此留空（不替用户猜）。
+export function subtitlePrimaryLangTag(lan: unknown): string {
+  return String(lan || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^(ai|asr)-/, "")
+    .split("-")[0];
+}
+
+export function findTrackByPreferredLang<T extends { lan?: string; subtitleUrl?: string }>(
+  tracks: readonly T[] | null | undefined,
+  preference: unknown
+): T | null {
+  const wanted = String(preference || "")
+    .trim()
+    .toLowerCase();
+  const target = subtitlePrimaryLangTag(wanted);
+  if (!target) {
+    return null;
+  }
+  const loadable = (tracks || []).filter((track) => String(track.subtitleUrl || "").trim().length > 0);
+  return (
+    loadable.find((track) => String(track.lan || "").trim().toLowerCase() === wanted) ||
+    loadable.find((track) => subtitlePrimaryLangTag(track.lan) === target) ||
+    null
+  );
+}
+
 // 候选10 批1：写入端统一保证 subtitleBody 按 from 升序（稳定排序，同 from
 // 保持原有相对顺序，与读路径旧线性扫描的命中顺序一致）。core.js 的
 // findActiveSubtitleIndex 二分查找依赖该不变量；读路径一律不排序。

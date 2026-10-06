@@ -101,6 +101,44 @@ describe("主轨就绪后的副轨自动装载", () => {
     );
   });
 
+  it("混源（人工 en-US + AI ai-en）：精确 lan 命中优先，结果不依赖轨序", async () => {
+    setBilingual(true, "en-US");
+    const CC_TRACK = {
+      id: "cc-en",
+      lan: "en-US",
+      lanDoc: "English (CC)",
+      subtitleUrl: "https://sub/cc-en.json",
+      source: "player-wbi-v2"
+    };
+    // AI 轨排在前面：单级子标签匹配会先命中它 ⇒ 两级后必须仍选人工 CC 轨
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK, CC_TRACK]);
+
+    lifecycle.handleReaderPresenterNotification("subtitle-ready");
+
+    await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
+    expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
+      CC_TRACK.subtitleUrl,
+      CC_TRACK.lanDoc,
+      3,
+      CC_TRACK.id
+    );
+  });
+
+  it("精确命中不了时退回主语言子标签（偏好 en-US 命中 ai-en）", async () => {
+    setBilingual(true, "en-US");
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
+
+    lifecycle.handleReaderPresenterNotification("subtitle-ready");
+
+    await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
+    expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
+      EN_TRACK.subtitleUrl,
+      EN_TRACK.lanDoc,
+      3,
+      EN_TRACK.id
+    );
+  });
+
   it("双语开但本视频没有该语言轨 ⇒ 不装载（副列留空，不替用户猜）", async () => {
     setBilingual(true, "ja-JP");
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);

@@ -2,7 +2,8 @@
 // 播放器 AI 表（styles/player-ai.css）、设置分区表组（styles/
 // reader-settings-{shell,rows,providers}.css，arch-slim-4/04，2026-09 拆分）、
 // 自定义下拉组件表（styles/custom-select.css，2026-10 从设置表抽出，随
-// ui/custom-select.ts 组件走）与对话分区表（styles/reader-chat.css，arch-slim-4/07）
+// ui/custom-select.ts 组件走）、对话分区表（styles/reader-chat.css，arch-slim-4/07）
+// 与双语字幕表（styles/bilingual-subtitles.css，随 reader/subtitle-tab-ui.ts 走）
 // 不再经 manifest 常驻注入，改由本模块在对应能力启用时挂载。
 //
 // 挂载机制：<link rel="stylesheet" href="chrome.runtime.getURL(...)">。link
@@ -127,6 +128,20 @@ const CUSTOM_SELECT_STYLE_PATH = "entry/styles/custom-select.css";
 
 export function ensureCustomSelectStyles(): void {
   mountStyleLink(CUSTOM_SELECT_STYLE_PATH);
+}
+
+// 双语字幕表（bilingual-subtitles/06）：字幕工具条选轨控件的双语弹层（两列 +
+// 页脚开关 + trigger 徽标）与字幕列表的副行两处共用一份表。挂载点同组件表：
+// 消费者 leaf（reader/subtitle-tab-ui.ts）模块顶层 ensure，不并入阅读主表
+// （removeReaderStyles 不管它：数据留在浏览器样式缓存，二进宫免闪变），也不建
+// onload 门控（首个消费帧是工具条渲染，link 早已挂上）。
+// 级联顺序要求本表排在 CUSTOM_SELECT_STYLE_PATH 之后：弹层规则要按同特异性覆盖
+// 组件表的 .custom-select-dropdown 度量（右锚 / flex 列 / 滚动区下移），故消费方
+// 的 ensure 必须在 import ui/custom-select.js 之后求值（ESM 导入先于模块体求值）。
+const BILINGUAL_SUBTITLE_STYLE_PATH = "entry/styles/bilingual-subtitles.css";
+
+export function ensureBilingualSubtitleStyles(): void {
+  mountStyleLink(BILINGUAL_SUBTITLE_STYLE_PATH);
 }
 
 // 对话分区表（arch-slim-4/07）：随对话域首次激活按需装载，不建 onload 门控

@@ -179,7 +179,7 @@ export function bindReadingExplainEvents(): void {
       snapshot && snapshot.itemIndex !== "" && Number.isFinite(itemIndex) && itemIndex >= 0
         ? subtitleList.querySelector<HTMLElement>(`[data-index="${itemIndex}"]`)
         : null;
-    const line = itemNode?.querySelector(".biliscript-reading-text")?.textContent?.trim() || "";
+    const line = readMainLineText(itemNode?.querySelector(".biliscript-reading-text"));
     if (!itemNode || !line || !snapshot) {
       hideExplainPop();
       return;
@@ -204,4 +204,17 @@ export function bindReadingExplainEvents(): void {
   readingExplainCard.addEventListener("click", (event) => {
     withReader("explain card click", (reader) => reader.onReaderExplainCardClick(event as MouseEvent));
   });
+}
+
+// 条目主行纯文本：双语态下 `.biliscript-reading-text` 里还嵌着副行 span
+//（`.biliscript-reading-subtext`，另一条轨的译文），而「整句」语义只指**主行**
+// ——解释卡的引用不能把译文一起带上。实现走 clone 后在副本上摘掉副行：活的节点
+// 里可能带搜索 `<mark>`，clone 的 textContent 与直接读逐字相同（不碰实时 DOM）。
+function readMainLineText(textNode: Element | null | undefined): string {
+  if (!textNode) {
+    return "";
+  }
+  const clone = textNode.cloneNode(true) as Element;
+  clone.querySelectorAll(".biliscript-reading-subtext").forEach((node) => node.remove());
+  return (clone.textContent || "").trim();
 }
