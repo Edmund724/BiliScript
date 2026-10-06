@@ -15,7 +15,8 @@
 //   （url/method/headers/body 原样）、首条回吐即落定并合成标准 Response（status
 //   正确、text() 得完整拼接、getReader() 得增量）、中途 ok:false 让读流抛错
 //   （不得静默截断当成功）、ok:false 抛原始文案（交 completion 包装）、signal
-//   中止以 AbortError 拒绝且断开端口；
+//   中止以 AbortError 拒绝且断开端口；派发确认（accepted ack）判活与「端口未被
+//   接管 → 重连一次 → 可读错误」的出口（ASR 终态自关撞上概览请求时的静默挂起）；
 // - offscreen 侧 attachProviderHttpPort：URL 合法性预检（拒绝时不发 fetch）、
 //   回吐顺序（响应头 → 分片 → done）、多字节字符跨分片不破损、body 为 null 时
 //   直接 done、fetch 抛错与读流中途失败归 { ok:false, error }、端口断连即 abort。
@@ -27,7 +28,7 @@ import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
 // 端口回吐消息（offscreen → content，同一端口严格按序）：
 // 响应头 { ok, status } → 分片 { ok, status, chunk } → 收束 { ok, status, done }；
 // 失败一律只带 { ok:false, error }（响应头已发 = 中途失败）。
-type Reply = { ok: boolean; status?: number; chunk?: string; done?: boolean; error?: string };
+type Reply = { ok: boolean; status?: number; chunk?: string; done?: boolean; error?: string; accepted?: boolean };
 
 interface FakePort {
   name: string;
@@ -86,6 +87,23 @@ function makeFakePort(name: string): FakePort {
     }),
     disconnect: port.disconnectMock
   });
+}
+
+// 假计时器下放行微任务链：ensure / 权限代查的回包都是同步回调，推进 0ms 即把
+// connect 前后的微任务放干净（不依赖具体跳数）。
+async function flushAsync(times = 3): Promise<void> {
+  for (let i = 0; i < times; i += 1) {
+    await vi.advanceTimersByTimeAsync(0);
+  }
+}
+
+// 拒绝路径的收束：把 pending 的 rejection 取成 Error（免得与 Response 联合类型纠缠），
+// 同时保证拒绝发生前就挂上 handler（假计时器下不能等到断言时才接）。
+function rejectionOf(pending: Promise<Response>): Promise<Error> {
+  return pending.then(
+    () => new Error("预期失败但成功了"),
+    (error: unknown) => error as Error
+  );
 }
 
 function stubChrome(overrides: Record<string, unknown> = {}) {
@@ -345,14 +363,50 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     await expect(reader.read()).rejects.toThrow("请求已中止");
   });
 
-  it("首条回吐前断连（offscreen 被回收 / 未被认领）→ 可读错误", async () => {
-    const { providerFetchViaOffscreen } = await loadModule();
+  it("首条回吐前断连 → 重连一次（文档刚被回收时自愈）", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerFetchViaOffscreen } = await loadModule();
 
-    const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
-    await vi.waitFor(() => expect(lastPort).toBeTruthy());
-    lastPort!.fireDisconnect();
+      const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
+      await flushAsync();
+      lastPort!.fireDisconnect();
 
-    await expect(pending).rejects.toThrow("代发通道已断开");
+      await flushAsync();
+      await vi.advanceTimersByTimeAsync(400); // 重连前的等待
+      await flushAsync();
+      expect(connected).toHaveLength(2);
+
+      lastPort!.send({ ok: true, accepted: true });
+      lastPort!.send({ ok: true, status: 200 });
+      lastPort!.send({ ok: true, status: 200, chunk: "ok" });
+      lastPort!.send({ ok: true, status: 200, done: true });
+      expect(await (await pending).text()).toBe("ok");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("两次都断在首条回吐前 → 报「代发通道已断开」", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerFetchViaOffscreen } = await loadModule();
+
+      const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
+      const settled = rejectionOf(pending);
+      await flushAsync();
+      lastPort!.fireDisconnect();
+
+      await flushAsync();
+      await vi.advanceTimersByTimeAsync(400);
+      await flushAsync();
+      expect(connected).toHaveLength(2);
+      lastPort!.fireDisconnect();
+
+      expect((await settled).message).toContain("代发通道已断开");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("流进行中断连 → 读流抛错（截断不得静默当成功）", async () => {
@@ -390,6 +444,137 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
     expect(await resp.text()).toBe("pong");
     controller.abort();
   });
+
+  // ---- 派发确认（accepted ack）：把「通道死了」与「平台慢」分开 ----
+  // 症状来源：ASR 终态自关（entry/offscreen.ts 的 maybeCloseSelfAfterAsr）与同一个
+  // subtitle-ready 触发的概览请求撞车时，connect 出的端口可能没被 offscreen 文档
+  // 接管，而被 SW 的保活 onConnect 收下（entry/background.ts 对不认识的端口名只
+  // return，不 disconnect）：既不回吐也不断连。没有确认机制时面板会永久停在
+  // 「正在等待平台响应…」，只有取消键能出去。
+
+  it("收到接管确认 → 通道判活，确认超时不再触发重连；确认本身不是响应头", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerFetchViaOffscreen } = await loadModule();
+
+      const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
+      await flushAsync();
+      expect(connected).toHaveLength(1);
+
+      lastPort!.send({ ok: true, accepted: true });
+      await vi.advanceTimersByTimeAsync(5000); // 远超确认超时
+      expect(connected).toHaveLength(1);
+
+      lastPort!.send({ ok: true, status: 200 });
+      const resp = await pending;
+      lastPort!.send({ ok: true, status: 200, chunk: "ok" });
+      lastPort!.send({ ok: true, status: 200, done: true });
+      expect(resp.status).toBe(200);
+      expect(await resp.text()).toBe("ok");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("没有 ack 但直接回响应头（扩展重载后仍在的旧文档）→ 同样认账，不重连", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerFetchViaOffscreen } = await loadModule();
+
+      const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
+      await flushAsync();
+      lastPort!.send({ ok: true, status: 200 }); // 旧文档：没有 ack，直接回响应头
+      const resp = await pending;
+      lastPort!.send({ ok: true, status: 200, chunk: "pong" });
+      lastPort!.send({ ok: true, status: 200, done: true });
+
+      expect(await resp.text()).toBe("pong");
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(connected).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("端口未被接管（无 ack、不断连）→ 确认超时后重连一次，第二次被接管即成功", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerFetchViaOffscreen } = await loadModule();
+
+      const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
+      await flushAsync();
+      const stray = lastPort!;
+
+      await vi.advanceTimersByTimeAsync(2000); // 确认超时：判死并断掉悬挂端口
+      expect(stray.disconnectMock).toHaveBeenCalledTimes(1);
+      expect(connected).toHaveLength(1);
+
+      await flushAsync();
+      await vi.advanceTimersByTimeAsync(400); // 重连前的等待（给 closeDocument 收尾）
+      await flushAsync();
+      expect(connected).toHaveLength(2);
+
+      lastPort!.send({ ok: true, accepted: true });
+      lastPort!.send({ ok: true, status: 200 });
+      lastPort!.send({ ok: true, status: 200, chunk: "ok" });
+      lastPort!.send({ ok: true, status: 200, done: true });
+      expect(await (await pending).text()).toBe("ok");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("两次都没被接管 → 以可读错误拒绝（不再无限挂起），两个端口都断开", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerFetchViaOffscreen } = await loadModule();
+
+      const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", { method: "POST" });
+      const settled = rejectionOf(pending);
+      await flushAsync();
+      const first = lastPort!;
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushAsync();
+      await vi.advanceTimersByTimeAsync(400);
+      await flushAsync();
+      expect(connected).toHaveLength(2);
+      const second = lastPort!;
+
+      await vi.advanceTimersByTimeAsync(2000);
+      expect((await settled).message).toContain("代发通道无人接管");
+      expect(first.disconnectMock).toHaveBeenCalled();
+      expect(second.disconnectMock).toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(5000); // 不再有第三次连接
+      expect(connected).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("重试等待期间中止 → AbortError，不再重连", async () => {
+    vi.useFakeTimers();
+    try {
+      const { providerFetchViaOffscreen } = await loadModule();
+      const controller = new AbortController();
+
+      const pending = providerFetchViaOffscreen("https://api.example.com/v1/messages", {
+        method: "POST",
+        signal: controller.signal
+      });
+      const settled = rejectionOf(pending);
+      await flushAsync();
+
+      await vi.advanceTimersByTimeAsync(2000); // 第一次未被接管
+      controller.abort();
+
+      expect((await settled).name).toBe("AbortError");
+      expect(connected).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("attachProviderHttpPort（offscreen 侧）", () => {
@@ -407,8 +592,9 @@ describe("attachProviderHttpPort（offscreen 侧）", () => {
       body: '{"model":"m","stream":true}'
     });
 
-    await vi.waitFor(() => expect(port.posted).toHaveLength(3));
+    await vi.waitFor(() => expect(port.posted).toHaveLength(4));
     expect(port.posted).toEqual([
+      { ok: true, accepted: true },
       { ok: true, status: 401 },
       { ok: true, status: 401, chunk: '{"error":"bad key"}' },
       { ok: true, status: 401, done: true }
@@ -444,19 +630,26 @@ describe("attachProviderHttpPort（offscreen 侧）", () => {
     attachProviderHttpPort(port as unknown as chrome.runtime.Port);
     port.send({ action: "provider-http", url: "https://api.example.com/v1/messages", method: "POST" });
 
-    await vi.waitFor(() => expect(port.posted).toHaveLength(2));
-    expect(port.posted).toEqual([{ ok: true, status: 204 }, { ok: true, status: 204, done: true }]);
+    await vi.waitFor(() => expect(port.posted).toHaveLength(3));
+    expect(port.posted).toEqual([
+      { ok: true, accepted: true },
+      { ok: true, status: 204 },
+      { ok: true, status: 204, done: true }
+    ]);
   });
 
-  it("URL 非法（空 / 非 http(s)）→ 回执报错，不发 fetch", async () => {
+  it("URL 非法（空 / 非 http(s)）→ 先回接管确认再报错，不发 fetch（确认是派发活性，不是请求成败）", async () => {
     const { attachProviderHttpPort } = await loadModule();
     const port = makeFakePort("provider-http-offscreen");
 
     attachProviderHttpPort(port as unknown as chrome.runtime.Port);
     port.send({ action: "provider-http", url: "chrome-extension://x/y", method: "POST" });
 
-    await vi.waitFor(() => expect(port.posted).toHaveLength(1));
-    expect(port.posted[0]).toEqual({ ok: false, error: "请求地址不合法" });
+    await vi.waitFor(() => expect(port.posted).toHaveLength(2));
+    expect(port.posted).toEqual([
+      { ok: true, accepted: true },
+      { ok: false, error: "请求地址不合法" }
+    ]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -468,8 +661,9 @@ describe("attachProviderHttpPort（offscreen 侧）", () => {
     attachProviderHttpPort(port as unknown as chrome.runtime.Port);
     port.send({ action: "provider-http", url: "https://api.example.com/v1/messages", method: "POST" });
 
-    await vi.waitFor(() => expect(port.posted).toHaveLength(1));
-    expect(port.posted[0]).toEqual({ ok: false, error: "Failed to fetch" });
+    await vi.waitFor(() => expect(port.posted).toHaveLength(2));
+    expect(port.posted[0]).toEqual({ ok: true, accepted: true });
+    expect(port.posted[1]).toEqual({ ok: false, error: "Failed to fetch" });
   });
 
   it("读流中途失败（响应头已发）→ 补一条 { ok:false, error }，content 侧据此 error 掉读流", async () => {
@@ -496,8 +690,9 @@ describe("attachProviderHttpPort（offscreen 侧）", () => {
     attachProviderHttpPort(port as unknown as chrome.runtime.Port);
     port.send({ action: "provider-http", url: "https://api.example.com/v1/messages", method: "POST" });
 
-    await vi.waitFor(() => expect(port.posted).toHaveLength(3));
+    await vi.waitFor(() => expect(port.posted).toHaveLength(4));
     expect(port.posted).toEqual([
+      { ok: true, accepted: true },
       { ok: true, status: 200 },
       { ok: true, status: 200, chunk: "半" },
       { ok: false, error: "network error" }

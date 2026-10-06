@@ -127,8 +127,10 @@ describe("offscreen 概览代发端口", () => {
       body: '{"model":"m"}'
     });
 
-    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(session.port.postMessage).toHaveBeenCalledTimes(4));
     expect(session.port.postMessage.mock.calls.map(([message]) => message)).toEqual([
+      // 派发确认先于预检与 fetch（content 侧据它区分「端口已接管」与「没人服务」）
+      { ok: true, accepted: true },
       { ok: true, status: 200 },
       { ok: true, status: 200, chunk: "ok" },
       { ok: true, status: 200, done: true }
@@ -196,6 +198,9 @@ describe("offscreen 概览代发端口", () => {
     relay.fireDisconnect();
 
     expect(seenSignal!.aborted).toBe(true);
-    expect(relay.port.postMessage).not.toHaveBeenCalled();
+    // 断连后只剩派发确认那一条：挂起请求不留在文档里，也没有 fetch 回吐
+    expect(relay.port.postMessage.mock.calls.map(([message]) => message)).toEqual([
+      { ok: true, accepted: true }
+    ]);
   });
 });

@@ -591,17 +591,20 @@ export type OffscreenProviderHttpPortMessage = {
 };
 
 // 回吐方向（offscreen → content，同一端口严格按序）：概览的模型调用走 SSE，
-// 通道一律分块回吐——响应头 { ok, status } → 正文分片 { ok, status, chunk } →
-// 收束 { ok, status, done }。失败只带 { ok:false, error }：响应头未发 = 整体
-// 失败（content 侧拒绝），已发 = 中途失败（content 侧 error 掉读流，截断不得
-// 当作成功）。content 侧据此合成带 ReadableStream body 的标准 Response，
-// 消费端见 core/provider-http-offscreen.ts。
+// 通道一律分块回吐——接管确认 { ok, accepted }（收到请求消息即回，先于预检与
+// fetch，证明「端口已被 offscreen 文档接管」而非挂在无人服务的监听上）→ 响应头
+// { ok, status } → 正文分片 { ok, status, chunk } → 收束 { ok, status, done }。
+// 失败只带 { ok:false, error }：响应头未发 = 整体失败（content 侧拒绝），已发 =
+// 中途失败（content 侧 error 掉读流，截断不得当作成功）。content 侧据此合成带
+// ReadableStream body 的标准 Response，消费端见 core/provider-http-offscreen.ts。
 export type OffscreenProviderHttpPortReply = {
   ok: boolean;
   status?: number;
   chunk?: string;
   done?: boolean;
   error?: string;
+  // 派发确认：不是响应头，不得据此合成 Response（见消费端 openProviderStream）。
+  accepted?: boolean;
 };
 
 export type OffscreenPortMessage =
