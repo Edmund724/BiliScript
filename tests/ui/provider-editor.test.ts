@@ -391,7 +391,7 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     expect(sent.find((message) => message.type === "ai-providers-save")!.providers[0].protocol).toBe("openai");
   });
 
-  it("编辑 anthropic 记录：预填选中且限制点小字露出；切协议小字随之刷新", async () => {
+  it("编辑 anthropic 记录：预填选中；限制点小字两协议都不露出（文案已删）", async () => {
     const aiItem = { id: "p1", presetId: "custom", name: "claude", baseUrl: "https://api.anthropic.com/v1", models: ["claude-sonnet-4-5"], requiresKey: true, enabled: true, hasSavedKey: true, protocol: "anthropic" };
     const { host } = await mountPanel({
       "ai-providers-list": () => ({ ok: true, providers: [aiItem] })
@@ -403,11 +403,10 @@ describe("provider-editor：协议下拉（multi-protocol-ai 设置 UI 章）", 
     const protocolSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-protocol")!;
     const notes = dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes")!;
     expect(protocolSelect.value).toBe("anthropic");
-    expect(notes.hidden).toBe(false);
-    expect(notes.textContent).toContain("该协议限制");
-    expect(notes.textContent).toContain("disable_parallel_tool_use");
+    expect(notes.hidden).toBe(true);
+    expect(notes.textContent).toBe("");
 
-    // 切回 openai：unsupported 为空，小字收起
+    // 切回 openai：小字仍收起（两个协议都没有限制点文案）
     protocolSelect.value = "openai";
     protocolSelect.dispatchEvent(new Event("change"));
     expect(notes.hidden).toBe(true);

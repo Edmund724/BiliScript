@@ -37,15 +37,11 @@ function anthropicSseData(event: Record<string, unknown>) {
 }
 
 describe("capabilities（spec「被有意不支持的能力」逐条落点）", () => {
-  it("tools/thinkingProfiles 为 true；unsupported 三个稳定键", () => {
+  it("tools/thinkingProfiles 为 true；unsupported 空表（限制文案已删，只留 adapter 注释）", () => {
     const { capabilities } = anthropicAdapter;
     expect(capabilities.tools).toBe(true);
     expect(capabilities.thinkingProfiles).toBe(true);
-    expect(Object.keys(capabilities.unsupported).sort()).toEqual([
-      "parallel-tool-use-flattened",
-      "server-tools",
-      "thinking-roundtrip"
-    ]);
+    expect(capabilities.unsupported).toEqual({});
   });
 
   it("注册表读路径：resolveAdapter(\"anthropic\") 命中本 adapter", () => {

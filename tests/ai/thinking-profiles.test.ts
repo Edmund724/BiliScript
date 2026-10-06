@@ -82,6 +82,34 @@ describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", 
     expect(r.thinkingClass).toBe("hybrid");
   });
 
+  it("剥 org 前缀只用于模式表：命名空间 id 命中血统方言（modelscope + deepseek-ai/DeepSeek-V4.1-Flash 不再塌成开关）", () => {
+    // 指派表没有 modelscope 的 DeepSeek 行 → 走手写兜底；整串带前缀不命中，剥前缀后
+    // 命中模式表的 deepseek-v4（血统 effort 档）。
+    const model = "deepseek-ai/DeepSeek-V4.1-Flash";
+    expect(resolve({ baseUrl: MODELSCOPE_URL, model, level: "off" }).thinkingClass).toBe("hybrid");
+    expect(openaiVocabularyFields(resolve({ baseUrl: MODELSCOPE_URL, model, level: "off" }).vocabulary)).toEqual({
+      thinking: { type: "disabled" }
+    });
+    expect(openaiVocabularyFields(resolve({ baseUrl: MODELSCOPE_URL, model, level: "high" }).vocabulary)).toEqual({
+      reasoning_effort: "high"
+    });
+  });
+
+  it("剥 org 前缀不动例外表：百炼的 streamOnly 平台事实不随命名空间 id 搬到 ModelScope（Qwen/Qwen3-32B 非流式 off 照发平台开关）", () => {
+    // 例外表的 qwen3-32b 只按整串匹配 → 不命中 → 平台 unknownClass（qwen-hybrid-switch）；
+    // 若这里改成命中，非流式 off 会被 streamOnly 阻断并级联成 enable_thinking:true。
+    const r = resolve({ baseUrl: MODELSCOPE_URL, model: "Qwen/Qwen3-32B", level: "off" });
+    expect(r.thinkingClass).toBe("hybrid");
+    expect(r.offUnavailable).toBe(false);
+    expect(openaiVocabularyFields(r.vocabulary)).toEqual({ enable_thinking: false });
+  });
+
+  it("剥前缀取最后一段斜杠后的裸名", () => {
+    expect(openaiVocabularyFields(resolve({ baseUrl: MODELSCOPE_URL, model: "Qwen/deepseek-ai/DeepSeek-V4", level: "high" }).vocabulary)).toEqual({
+      reasoning_effort: "high"
+    });
+  });
+
   it("无任何事实 → 显式 UNKNOWN 哨兵：三档均不发、offUnavailable=false（UI 无提示）", () => {
     for (const level of ["off", "low", "high"]) {
       expect(resolve({ baseUrl: "https://api.example.com/v1", model: "totally-unknown", level })).toEqual({
@@ -212,7 +240,9 @@ describe("baseUrl host 推断（本票生效的 provider 识别路径）", () =>
   });
 
   it("SiliconFlow 无 AI preset（仅 ASR 登记同域名）→ host 别名命中 enable_thinking 词汇", () => {
-    const r = resolve({ baseUrl: SILICONFLOW_URL, model: "deepseek-ai/DeepSeek-V4", level: "off" });
+    // 夹具刻意取带命名空间前缀、但模式表没有血统规则的 id（DeepSeek-V3 无档位专条）：
+    // 血统规则（deepseek-v4 等）会压过平台开关词，本用例只钉 host 推断这条路。
+    const r = resolve({ baseUrl: SILICONFLOW_URL, model: "deepseek-ai/DeepSeek-V3", level: "off" });
     expect(openaiVocabularyFields(r.vocabulary)).toEqual({ enable_thinking: false });
     expect(r.thinkingClass).toBe("hybrid");
   });

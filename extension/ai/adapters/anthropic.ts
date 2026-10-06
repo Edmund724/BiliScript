@@ -184,14 +184,17 @@ export const anthropicAdapter: ProtocolAdapter = {
   capabilities: {
     tools: true,
     thinkingProfiles: true,
-    unsupported: {
-      // 稳定键 → 给人读的说明（spec「被有意不支持的能力」逐条落点）。
-      // 语义与协议怪癖词表同源，见 compat-vocab 的 parallelToolUseFlattened /
-      // thinkingSignatureNotReplayed / serverToolsNotTranslated。
-      "parallel-tool-use-flattened": "并行 tool_use 已按协议压平（disable_parallel_tool_use: true）；未来需要并行时聚合层按 index 已天然支持",
-      "thinking-roundtrip": "thinking 块的 signature 不回传 ChatMessage，多轮回传 thinking 会 400；本场景（单轮总结 + 单轮 tool loop）无此需求",
-      "server-tools": "Anthropic 原生服务端工具（web_search_20250305 等）不走 tool-loop，adapter 只翻译客户端 function 工具"
-    }
+    // 三条「有意不支持的能力」（spec 逐条落点）只在此注释留档，不再出到设置 UI
+    //（2026-10-06 用户裁定删文案）；语义单源是 compat-vocab 的 parallelToolUseFlattened /
+    // thinkingSignatureNotReplayed / serverToolsNotTranslated：
+    // - 并行 tool_use：本通道一律压平（buildBody 的 tool_choice.disable_parallel_tool_use；
+    //   并行是 Anthropic 默认能力，压平是本扩展的选择，聚合层按 index 已天然支持）；
+    // - thinking 回传：signature 不进 ChatMessage，本通道不回传思考块。上游在 tool use 时
+    //   要求原样回传并校验未改动（preserved thinking），本扩展依赖网关不校验——严格端点
+    //   上联网轮会 400，走 tool-loop 的 4xx 兜底降级；
+    // - 原生服务端工具（type 带日期版本，如 web_search_20250305）：不走 tool-loop，
+    //   adapter 只翻译客户端 function 工具（判据是 NATIVE_TOOL_NAME 的名字启发式）。
+    unsupported: {}
   },
 
   // 平台怪癖自陈（语义与适用协议见 compat-vocab 词表单源）。

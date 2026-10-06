@@ -169,7 +169,9 @@ describe("字段投影（owner 1）：模板与联动共用的唯一投影点", 
     expect(blocks.baseUrl).toContain(`value="${fields.baseUrl.value}"`);
     expect(blocks.apiKey).toContain(`placeholder="${fields.apiKey.placeholder}"`);
     expect(blocks.preset).toContain(`value="${fields.preset.value}" selected`);
-    expect(blocks.protocolNotes).toContain(fields.protocolNotes.text);
+    // 限制点文案已删（capabilities.unsupported 空表）：两个协议的 text 都为空、块恒 hidden。
+    expect(fields.protocolNotes.text).toBe("");
+    expect(blocks.protocolNotes).toContain("hidden");
     expect(blocks.catalogEmpty).toContain("hidden");
   });
 
@@ -198,7 +200,8 @@ describe("字段投影（owner 1）：模板与联动共用的唯一投影点", 
       "https://api.deepseek.com/anthropic"
     );
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-name")!.placeholder).toBe("DeepSeek");
-    expect(dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes")!.hidden).toBe(false);
+    // 限制点文案已删：anthropic 也不露出小字。
+    expect(dialog.querySelector<HTMLElement>(".provider-editor-protocol-notes")!.hidden).toBe(true);
   });
 });
 

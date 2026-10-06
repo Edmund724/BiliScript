@@ -495,7 +495,7 @@ export const PROVIDERS: Record<string, ProviderRule> = {
   // off 走既有级联）。reasoning:{exclude} 语义是「藏思考」不是「关思考」，不用于 off。
   openrouter: {},
   stepfun: {}, // step_plan 订阅端点（platform.stepfun.com），模型族已覆盖 taxonomy
-  modelscope: { unknownClass: "qwen-hybrid-switch" }, // 托管模型用原生 enable_thinking（modelscope.cn）
+  modelscope: { unknownClass: "qwen-hybrid-switch" }, // 托管模型用原生 enable_thinking（modelscope.cn）；命名空间 id 若命中模式表的血统规则（如 deepseek-ai/DeepSeek-V4.1-Flash）按血统方言落线，见 matchHandwrittenClass
   ollama: { unknownClass: "ollama-effort" },
   siliconflow: { unknownClass: "siliconflow-switch" },
   // AMD Radeon Cloud（developer.amd.com.cn，免费模型 API；AI preset 已收录，识别
@@ -785,8 +785,9 @@ function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRu
     }
   }
 
-  // 手写兜底：例外表 >> 模式表 >> provider.unknownClass >> UNKNOWN 哨兵。
-  const className = matchRuleClass(EXCEPTIONS, normalizedModel) ?? matchRuleClass(TAXONOMY, normalizedModel) ?? provider?.unknownClass;
+  // 手写兜底：例外表 >> 模式表（整串 / 有平台级兜底词时再试剥 org 前缀）>>
+  // provider.unknownClass >> UNKNOWN 哨兵（口径见 matchHandwrittenClass）。
+  const className = matchHandwrittenClass(normalizedModel, provider) ?? provider?.unknownClass;
   return {
     rule: className ? CLASSES[className] : undefined,
     reason: className ? "upstream-unlisted" : null,
@@ -866,6 +867,30 @@ export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): 
     return byId;
   }
   return presetIdForHost(hostOf(String(baseUrl || ""))) ?? undefined;
+}
+
+// 手写兜底的匹配口径（数组序=优先级）：
+// - 例外表：只整串匹配。表里混着平台事实（百炼 qwen3-32b/235b/30b 的 off 仅流式），
+//   剥前缀会把这套平台事实搬到别的平台（ModelScope 上 Qwen/Qwen3-32B 非流式 off
+//   会级联成实发开思考）。
+// - 模式表：整串 → 剥 org 前缀的裸名。模式表写的是「模型血统 → 方言」（deepseek-v4 →
+//   effort 档位），而网关回的 id 常带组织命名空间前缀（modelscope 的
+//   deepseek-ai/DeepSeek-V4.1-Flash），整串会被前缀挡掉、整行落平台开关兜底。
+// - 剥前缀只在**声明了平台级兜底词**（unknownClass）的平台生效：剥前缀要解决的就是
+//   「平台级兜底词吞掉能认出血统的命名空间 id」；没有平台兜底词的平台，未知 id 按
+//   既有政策 fail-closed（UNKNOWN 哨兵、三档不发），不因剥前缀翻成某个家族的方言。
+// - 指派表命中时不走本函数，上游逐模型事实仍压过剥前缀结论。
+function matchHandwrittenClass(model: string, provider: ProviderRule | undefined): string | undefined {
+  const className = matchRuleClass(EXCEPTIONS, model) ?? matchRuleClass(TAXONOMY, model);
+  if (className || !provider?.unknownClass) return className;
+  return matchRuleClass(TAXONOMY, stripOrgPrefix(model));
+}
+
+// org 命名空间前缀（`org/model`）的剥法：取最后一段斜杠之后的裸名；无斜杠原样返回。
+function stripOrgPrefix(model: string): string {
+  const slash = model.lastIndexOf("/");
+  if (slash < 0 || slash === model.length - 1) return model;
+  return model.slice(slash + 1);
 }
 
 function matchRuleClass(entries: readonly TaxonomyEntry[], model: string): string | undefined {

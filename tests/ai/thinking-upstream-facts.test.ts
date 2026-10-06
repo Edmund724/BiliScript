@@ -49,7 +49,6 @@ import {
   upstreamVocabularyOf,
   validateThinkingTables,
   type ClassRule,
-  type TaxonomyEntry,
   type ThinkingLevel
 } from "../../extension/ai/thinking-profiles.js";
 import { openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js";
@@ -75,16 +74,23 @@ function baseUrlOf(presetId: string): string {
   return preset.baseUrl;
 }
 
-// 手写侧结论入口（与 resolver 的兜底分支同口径：EXCEPTIONS >> TAXONOMY >> unknownClass）。
+// 手写侧结论入口（与 resolver 的兜底分支同口径：例外表（整串）>> 模式表（整串 /
+// 声明了平台级兜底词时才剥 org 前缀）>> unknownClass）。
 function handClassOf(presetId: string, model: string): string | undefined {
   const normalized = model.trim().toLowerCase();
-  const matches = (pattern: string) =>
+  const slash = normalized.lastIndexOf("/");
+  const bare = slash >= 0 && slash < normalized.length - 1 ? normalized.slice(slash + 1) : normalized;
+  const matches = (pattern: string, subject: string) =>
     pattern.includes("*")
-      ? new RegExp(`^${pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(normalized)
-      : normalized.startsWith(pattern);
-  for (const entries of [EXCEPTIONS, TAXONOMY] as readonly (readonly TaxonomyEntry[])[]) {
-    for (const entry of entries) {
-      if (entry.patterns.some(matches)) return entry.class;
+      ? new RegExp(`^${pattern.split("*").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`).test(subject)
+      : subject.startsWith(pattern);
+  for (const entry of EXCEPTIONS) {
+    if (entry.patterns.some((pattern) => matches(pattern, normalized))) return entry.class;
+  }
+  const subjects = PROVIDERS[presetId]?.unknownClass ? [normalized, bare] : [normalized];
+  for (const subject of subjects) {
+    for (const entry of TAXONOMY) {
+      if (entry.patterns.some((pattern) => matches(pattern, subject))) return entry.class;
     }
   }
   return PROVIDERS[presetId]?.unknownClass;
@@ -162,8 +168,10 @@ const ADJUDICATED: readonly { presetId: string; model: string; key: string; oldH
 // 逐字节证据见票 toggle-shape-registration 01 的 before/after 工件。
 
 // 残留清单里两行 modelscope 的键是**本仓口径裸 id**（调用方传 GLM-4.5/GLM-4.6）——
-// 它们的矩阵行确实按上游翻转（thinking:{type} → enable_thinking）；指派表里的上游写法
-// ZhipuAI/GLM-4.x 那行才是不变的（手写 unknownClass 与投影同结论）。
+// 它们的矩阵行确实按上游翻转（thinking:{type} → enable_thinking）。指派表里的上游写法
+// ZhipuAI/GLM-4.x 那行 2026-10-06 起也进分歧集：手写侧剥 org 前缀同样命中 TAXONOMY
+// glm-4.x（thinking:{type}），与平台开关投影（enable_thinking）不同；运行期命中指派表，
+// 逐档仍 = 投影（行为不变，见下方 modelscope 用例）。
 const MODELSCOPE_UPSTREAM_ID_ROWS = ["modelscope/glm-4.5", "modelscope/glm-4.6"];
 
 // 指派行的「上游投影 vs 手写结论」分歧键集（指定档位口径下计算）。
@@ -437,10 +445,12 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
     }
   });
 
-  it("04 口径（off/low/high）下与旧手写结论不同的非 override 指派行，恰好是这 31 行的 29 行 + 点名三处 + clamp 分歧", () => {
+  it("04 口径（off/low/high）下与旧手写结论不同的非 override 指派行，恰好是这 31 行的 29 行 + modelscope 上游写法两行 + 点名三处 + clamp 分歧", () => {
     const divergent = divergentKeys(LEVELS);
-    // 期望 = 残留清单 31 行里的 29 行（另 2 行逐条见 MODELSCOPE_UPSTREAM_ID_ROWS 说明；
+    // 期望 = 残留清单 31 行里的 29 行（另 2 行的裸 id 键逐条见 MODELSCOPE_UPSTREAM_ID_ROWS；
     //   原第 3 行 minimax-cn/minimax-m3 2026-10-05 起也分歧——平台开关形状登记后 A′ 不再为空）
+    //   + modelscope 两行的上游写法（ZhipuAI/GLM-4.x）：2026-10-06 起手写侧剥 org 前缀命中
+    //     GLM 血统（thinking:{type}），与平台开关投影（enable_thinking）分歧（见下一用例）
     //   + 用户裁定 2 点名的三处（04 号票起就按上游）
     //   + 05 号票 clamp 的有意分歧 qwen3.8-max（词表 low/medium/xhigh，偏好 high 落 medium）
     //   + alibaba-cn/kimi-k3：**19 号票删掉 kimi-k3* 专条后的口径变化**——它原先是
@@ -448,6 +458,8 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
     //     unknownClass → UNKNOWN）故任何档位都与上游投影不同。行本身走指派表，运行时不变。
     const expected = [
       ...ADJUDICATED.map((row) => row.key).filter((key) => !MODELSCOPE_UPSTREAM_ID_ROWS.includes(key)),
+      "modelscope/zhipuai/glm-4.5",
+      "modelscope/zhipuai/glm-4.6",
       ...FLIPPED,
       "alibaba-cn/qwen3.8-max",
       "alibaba-cn/kimi-k3"
@@ -491,11 +503,12 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
     }
   });
 
-  it("modelscope 两行：清单键 = 本仓口径裸 id（矩阵行），该行确实翻转（上游 id 那行才是不变的）", () => {
+  it("modelscope 两行：清单键 = 本仓口径裸 id（矩阵行），该行确实翻转；上游写法剥前缀落 GLM 血统（手写侧分歧，运行期仍按上游）", () => {
     // 残留清单的键 `modelscope/glm-4.5|4.6` 是**调用方传入的本仓口径裸 id**；指派表/别名表里的
     // 上游写法是 ZhipuAI/GLM-4.x。裸 id 行：手写 TAXONOMY glm-4.x → thinking:{type}，投影按
     // modelscope preset 方言 → enable_thinking（翻转，矩阵与 golden 逐字节钉住）；
-    // 上游 id 行：手写落 unknownClass qwen-hybrid-switch（enable_thinking）与投影相同（不变）。
+    // 上游写法行：2026-10-06 起手写剥 org 前缀也命中 TAXONOMY glm-4.x（手写侧与平台开关投影
+    // 分歧），但运行期命中指派表 → 逐档 = 投影（行为不变）。
     for (const key of MODELSCOPE_UPSTREAM_ID_ROWS) {
       const row = ADJUDICATED.find((candidate) => candidate.key === key)!;
       expect(handClassOf(row.presetId, row.model)).toBe(row.oldHand);
@@ -504,12 +517,14 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
       expect(resolveViaRuntime(row.presetId, row.model, "off")).toBe(
         JSON.stringify({ vocabulary: enableThinking(false), offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
       );
-      // 上游 id 写法（ZhipuAI/GLM-4.x）的兜底路径与投影同结论——这行行为不变。
+      // 上游 id 写法（ZhipuAI/GLM-4.x）：手写侧剥前缀命中 GLM 血统，与投影分歧；
+      // 运行期同样逐档 = 投影。
       const upstreamIdModel = `ZhipuAI/${row.model}`;
-      expect(handClassOf(row.presetId, upstreamIdModel)).toBe("qwen-hybrid-switch");
+      const projected = ruleFromUpstreamFact(lookupThinkingFact(row.presetId, upstreamIdModel)!, row.presetId);
+      expect(handClassOf(row.presetId, upstreamIdModel)).toBe("glm-hybrid-switch");
+      expect(outcomeOf(handRuleOf(row.presetId, upstreamIdModel), "off")).not.toBe(outcomeOf(projected, "off"));
       for (const level of ALL_LEVELS) {
-        const projected = ruleFromUpstreamFact(lookupThinkingFact(row.presetId, upstreamIdModel)!, row.presetId);
-        expect(outcomeOf(handRuleOf(row.presetId, upstreamIdModel), level), `${key} · ${level}`).toBe(outcomeOf(projected, level));
+        expect(resolveViaRuntime(row.presetId, upstreamIdModel, level), `${key} · ${level}`).toBe(outcomeOf(projected, level));
       }
     }
   });
