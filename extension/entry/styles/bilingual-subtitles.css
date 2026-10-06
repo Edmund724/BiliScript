@@ -130,9 +130,14 @@
   box-shadow: none;
 }
 
-/* 副列的组件浮层在双语态恒为「展开」：hidden 属性让位给列内流排布。 */
+/* 副列的组件浮层在双语态恒为「展开」：hidden 属性让位给列内流排布。
+ * !important 不是为了压本表其它规则，而是压**页面**的全局重置：B 站自己的样式表
+ * （`video.*.css`）里有 `[hidden] { display: none !important }`，本选择器特异性再高、
+ * 顺序再后也拦不住 !important —— 真机走查实测：不带 !important 时副列那 8 行
+ * 全部 rect 0×0、列宽塌到 56px（只剩表头），用户根本换不了副语言。
+ * 仓内同款先例：reader-chat.css 的 `display: none !important`（压的也是页面规则）。 */
 #biliscript-reading-view .biliscript-bilingual-col[data-col="sub"] .custom-select-dropdown[hidden] {
-  display: block;
+  display: block !important;
 }
 
 /* 副列组件壳的宿主：壳常驻副列，宿主无盒（select 与浮层直接成为列的流内容）；

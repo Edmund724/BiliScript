@@ -71,7 +71,7 @@ import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
 // 双语偏好的落盘 seam（readerTheme 同款）：reader 域不得静态 import core/runtime.js，
 // 故经 reader-bus 的 persist 槽转发（content.ts 注册的 sendRuntimeMessage）。
-import { persistReaderSettingsThroughSeam } from "./reader-bus.js";
+import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
 // 相位 → 横幅文案表的单源在 transcribe-banner.ts（驱动方与文案同居）；模板只
 // 借用转写相位的两条串做初始内容（唯一可见相位见该模块注释）。转写中判定同源
 //（core/reader-transcribing.js 的再导出），本模块的 transcribing 态用它。
@@ -818,7 +818,11 @@ function activateSecondaryTarget(): void {
 //   - 偏好立即落盘（readerTheme 同款 persist seam；进键面 ⇒ sync 跨设备）；
 //   - 打开即抓目标轨；关闭**只停显示、不清副轨槽**（02 号票第 7(d) 条：反复开关
 //     不该每次都闪一次加载中）；
-//   - 控件状态只由 settings 投影，本处理器不额外写 DOM（随后一次重渲收口）。
+//   - 控件状态只由 settings 投影，本处理器不额外写 DOM（随后一次重渲收口）；
+//   - **两处都要重渲列表**（弹层自己的投影 + 列表）：开关本身改的是 settings，而副行
+//     出现在列表里 —— 只重投影弹层的话，关闭后 188 行副行会一直挂在列表上（真机走查
+//     实测的反向发现）。列表属主是 reader/lifecycle，本叶子不自绘（结构锁：
+//     `renderReadingView()` 的调用点全仓唯一在 lifecycle），只发 `rerender` 通知。
 function handleBilingualSwitchClick(event: Event): void {
   const toggle = event.currentTarget as HTMLButtonElement | null;
   if (toggle?.disabled) {
@@ -831,6 +835,7 @@ function handleBilingualSwitchClick(event: Event): void {
     activateSecondaryTarget();
   }
   renderReadingSubtitleTrackPicker();
+  notifyReaderPresenter("rerender");
 }
 
 // 副列语言改选（组件浮层里点一行 → 组件写值并派发 change）：
@@ -861,6 +866,9 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
     persistReaderSettingsThroughSeam();
     state.clip.clearSecondarySubtitle();
     renderReadingSubtitleTrackPicker();
+    // 同轨防呆清的是**副轨槽**，副行随之从列表消失 ⇒ 与开关同款：必须请列表属主重渲，
+    // 否则列表还挂着已被清空的译文（弹层侧已经收起、两处两说）。
+    notifyReaderPresenter("rerender");
     return;
   }
   // 全局偏好：副轨目标 lan（Q4 记忆粒度）；立即落盘（与主题偏好同一条 persist seam）。

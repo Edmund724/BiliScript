@@ -809,3 +809,49 @@ describe("形态与三处登记（源码/表面锁）", () => {
     expect(source.indexOf('import { initCustomSelect')).toBeLessThan(source.indexOf("ensureBilingualSubtitleStyles();"));
   });
 });
+
+// ===== 真机走查（headless Edge + CDP，真实 B 站页面）反向发现的两条缺陷及其锁 =====
+//
+// jsdom 看不见这两条：① 靠的是**页面**样式表（jsdom 里没有 B 站的 `video.*.css`），
+// ② 靠的是「列表属主是谁」（jsdom 里列表是由测试手动 renderReadingView 出来的，
+// 不重渲也看不出差别——真机上副行就一直挂在列表上）。
+describe("真机反向发现的修复锁", () => {
+  it("副列浮层的展开覆盖必须带 !important（压 B 站页面的全局 [hidden] 重置）", () => {
+    const css = readFileSync(join(process.cwd(), "extension/entry/styles/bilingual-subtitles.css"), "utf8");
+    const rule =
+      css.match(/\.biliscript-bilingual-col\[data-col="sub"\] \.custom-select-dropdown\[hidden\]\s*\{[^}]*\}/)?.[0] || "";
+    // B 站样式表里有 `[hidden] { display: none !important }`：不带 !important 时
+    // 本选择器特异性再高也压不过它 ⇒ 副列 8 行 rect 全 0、列宽塌成表头宽（真机实测）。
+    expect(rule, "副列浮层展开覆盖丢了 !important").toContain("display: block !important");
+  });
+
+  it("关闭开关：请列表属主重渲（副行不能挂在列表上）", () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    setBilingual(true, "en-US");
+    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, lang: "ai-en", body: EN_BODY as never });
+    shell.renderReadingView();
+    expect(document.querySelectorAll(".biliscript-reading-subtext").length).toBeGreaterThan(0);
+
+    const kinds: string[] = [];
+    readerBus.subscribeReaderPresenter((kind: string) => kinds.push(kind));
+    switchButton().click();
+
+    expect(state.settings.bilingualSubtitles).toBe(false);
+    // 关双语改的是 settings，而副行在列表里 ⇒ 必须请列表属主重渲（叶子不自绘列表）
+    expect(kinds).toContain("rerender");
+  });
+
+  it("同轨防呆清副轨槽：同样请列表属主重渲（否则列表还挂着已清空的译文）", () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    setBilingual(true, "en-US");
+    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, lang: "ai-en", body: EN_BODY as never });
+    shell.renderReadingView();
+
+    const kinds: string[] = [];
+    readerBus.subscribeReaderPresenter((kind: string) => kinds.push(kind));
+    clickSubOption("中文"); // 副列选到主轨那一条
+
+    expect(state.clip.secondarySubtitle.state).toBe("idle");
+    expect(kinds).toContain("rerender");
+  });
+});
