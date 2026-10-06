@@ -413,9 +413,10 @@ function handleTrackPickerChange(select: HTMLSelectElement): void {
 //         div.biliscript-bilingual-cols
 //           div.biliscript-bilingual-col[data-col="main"]    ← 主列（+ 单轨态说明行）
 //           div.biliscript-bilingual-col[data-col="sub"]      ← 副列（双语态才在场；收起走
-//                                                                 hidden：列首说明行（三套空态）
-//                                                                 + 重试行 + 语言列表）
-//       div.biliscript-bilingual-footer                      ← 固定页脚：双语字幕 + 开关
+//                                                                 hidden：列首说明行（①② 两套
+//                                                                 空态）+ 重试行 + 语言列表）
+//       div.biliscript-bilingual-footer                      ← 固定页脚：双语字幕 + 状态提示
+//                                                                 （③ 主副同轨）+ 开关
 //
 // 组件不变式逐列成立：一列一枚原生 select，值 = 该列的轨道 URL（与主列既有口径一致），
 // data-id = 轨道身份、data-lang = lan；显示由组件按现值派生。副列那枚组件壳常驻副列
@@ -428,16 +429,16 @@ const SUBTITLE_BILINGUAL_BADGE_ID = "biliscript-reading-bilingual-badge";
 // 一个常量 id（诊断与用例按 id 取副列值源；骨架重建时新 select 仍用它）。
 const SECONDARY_SUBTITLE_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
-// 副列的三套空态文案（02 号票第 5 条：用户下一步动作不同，不共用一句）。三套都只是
+// 副列的两套空态文案（02 号票第 5 条：用户下一步动作不同，不共用一句）。两套都只是
 // 副列**列首的一行说明**，语言列表始终留在列里（2026-10-06 图外回访：说明行顶掉列表
 // 就等于把用户锁死在这一态——点错一条副语言后再也改不回来）。
 // 在飞**不**出说明行（2026-10-06 用户裁决，见 resolveSecondaryColumn）：装载中的
 // 可见反馈由本列 disabled/aria-busy 与列表里副行的占位承担。
 const SECONDARY_EMPTY_PICK_TEXT = "选择副字幕语言";
 const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
-// 第三套文案只留「主副字幕相同」六个字（2026-10-06 用户第二轮裁决）：说明行 max-width
-// 140px，原句「，已清空副字幕」在真机被省略号吃掉，用户看到的就是一句残句；这句说明
-// 只是**列首提示**，清空与否由列表（副行 0）+ 副列值源共同表达，不必写进文案。
+// 第三套（主副同轨）**不进副列**：它说的是整列的状态，放页脚紧挨「双语字幕」四个字
+//（2026-10-06 用户裁决：「主副字幕相同的提示放在双语字幕四个字的右边，不要放在副字幕
+// 列表里」）。副列列表理顶因此不再多占一行（那一行同时还是 140px 宽度预算的受害者）。
 const SECONDARY_COLLISION_TEXT = "主副字幕相同";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
 const SECONDARY_MISSING_PREFIX = "本视频没有 ";
@@ -499,10 +500,13 @@ function resolveSecondaryTarget(tracks: SubtitleTrack[]): SecondaryTarget | null
 }
 
 interface SecondaryColumnModel {
-  // 列首一行说明（三套空态文案 + 失败重试行之外的空态说明）；空串 = 不出说明行。
-  // 说明行**不替代**语言列表（2026-10-06 图外回访）：用户的下一步动作永远是「换一条
-  // 语言」，把列表撤掉就是把他锁死在这一态上。
+  // 列首一行说明：**只**服务「下一步动作就在这一列里做」的两套空态（① 还没选过 /
+  // ② 本视频没有该语言）。空串 = 不出说明行。说明行**不替代**语言列表（2026-10-06
+  // 图外回访）：用户的下一步动作永远是「换一条语言」，把列表撤掉就是把他锁死在这一态上。
   note: string;
+  // 页脚状态提示（③ 主副同轨）：说的是**整列**为什么没有可对照的第二条轨，放页脚紧挨
+  // 「双语字幕」（2026-10-06 用户裁决：不要放在副字幕列表里）。空串 = 不显示。
+  footerNote: string;
   selectedUrl: string;
   // 失败态：列首那行「加载失败 · 重试」（02 号票 Q6：重试入口唯一在副列）。
   retry: boolean;
@@ -514,7 +518,7 @@ interface SecondaryColumnModel {
 function resolveSecondaryColumn(tracks: SubtitleTrack[]): SecondaryColumnModel {
   const slot = state.clip.secondarySubtitle;
   const busy = secondaryInFlight !== null || slot.state === "loading";
-  const model: SecondaryColumnModel = { note: "", selectedUrl: "", retry: false, busy };
+  const model: SecondaryColumnModel = { note: "", footerNote: "", selectedUrl: "", retry: false, busy };
   const pick = String(state.settings.secondarySubtitleLang || "").trim();
   if (!pick) {
     // ① 还没选过副轨
@@ -529,9 +533,10 @@ function resolveSecondaryColumn(tracks: SubtitleTrack[]): SecondaryColumnModel {
     return { ...model, note: `${SECONDARY_MISSING_PREFIX}${pick}${SECONDARY_MISSING_SUFFIX}` };
   }
   if (isMainSubtitleTrack(target, state.clip.selectedSubtitleId)) {
-    // ③ 主副指向同一条轨（Q8）：副轨槽不装主轨（列表里会出两份一样的正文），列首出
-    // 说明；语言列表照常在列，用户点另一条即可就地改选（2026-10-06 图外回访）。
-    return { ...model, note: SECONDARY_COLLISION_TEXT };
+    // ③ 主副指向同一条轨（Q8）：副轨槽不装主轨（列表里会出两份一样的正文）。状态提示
+    // 进**页脚**（紧挨「双语字幕」）——它讲的是整列的状态，不占副列列表的位置；语言列表
+    // 照常在列，用户点另一条即可就地改选（2026-10-06 图外回访 + 用户裁决）。
+    return { ...model, footerNote: SECONDARY_COLLISION_TEXT };
   }
   const selectedUrl = String(target.subtitleUrl || "");
   // 在飞不改语言列表（2026-10-06 用户裁决「选完应该滚动条不动」）：把列表换成一行
@@ -560,6 +565,8 @@ interface BilingualCardNodes {
   secondaryHost: HTMLElement;
   secondarySelect: HTMLSelectElement;
   empty: HTMLElement;
+  // 页脚状态提示位（③ 主副同轨；2026-10-06 用户裁决：放「双语字幕」右边，不进副列列表）
+  footerNote: HTMLElement;
   toggle: HTMLButtonElement;
 }
 
@@ -677,13 +684,17 @@ function buildBilingualCard(pickerWrapper: HTMLElement, dropdown: HTMLElement): 
   const label = document.createElement("span");
   label.className = "biliscript-bilingual-footer-label";
   label.textContent = SUBTITLE_BILINGUAL_SWITCH_LABEL;
+  // 页脚状态提示位（③ 主副同轨）：紧挨「双语字幕」四个字，开关仍在最右（度量见 CSS）。
+  const footerNote = document.createElement("span");
+  footerNote.className = "biliscript-bilingual-footer-note";
+  footerNote.hidden = true;
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "biliscript-bilingual-switch";
   toggle.setAttribute("role", "switch");
   toggle.setAttribute("aria-label", SUBTITLE_BILINGUAL_SWITCH_LABEL);
   toggle.addEventListener("click", handleBilingualSwitchClick);
-  footer.append(label, toggle);
+  footer.append(label, footerNote, toggle);
 
   root.append(main, footer);
   dropdown.appendChild(root);
@@ -706,6 +717,7 @@ function buildBilingualCard(pickerWrapper: HTMLElement, dropdown: HTMLElement): 
     secondaryHost,
     secondarySelect,
     empty,
+    footerNote,
     toggle
   };
 }
@@ -732,12 +744,17 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   nodes.hint.hidden = dual || tracks.length === 0 || !isBilingualSwitchDisabled(tracks);
   nodes.subCol.hidden = !dual;
   nodes.retry.hidden = !(dual && model.retry);
-  // 说明行与语言列表**同时**在场（2026-10-06 图外回访）：说明行只在三套空态出现，
-  // 它解释「为什么没有装载中的副轨」，不顶掉用户改选的那份列表。
+  // 说明行与语言列表**同时**在场（2026-10-06 图外回访）：说明行只服务 ①② 两套空态，
+  // 它解释「为什么这一列现在没有装载中的副轨」，不顶掉用户改选的那份列表。
   nodes.empty.hidden = !dual || !model.note;
   if (dual && model.note) {
     nodes.empty.textContent = model.note;
   }
+  // 页脚状态提示（③ 主副同轨）：同一次投影收口——双语关（收起态）一律清空并隐藏，
+  // 免得旧文案留在收起态里，也免得「页脚只有双语字幕 + 开关」这条硬约束被残文破坏。
+  const footerNoteText = dual ? model.footerNote : "";
+  nodes.footerNote.hidden = !footerNoteText;
+  nodes.footerNote.textContent = footerNoteText;
   nodes.secondaryHost.hidden = !dual;
 
   // 值源：双语态恒 = 目标轨 URL（乐观目标即投影）；否则清空并整体禁用。

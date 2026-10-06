@@ -217,6 +217,12 @@ function footer(): HTMLElement {
   return card().querySelector(".biliscript-bilingual-footer") as HTMLElement;
 }
 
+// 页脚状态提示（③ 主副同轨）：空串 = 不显示（2026-10-06 用户裁决把它从副列列表挪到页脚）。
+function footerNoteText(): string {
+  const node = footer().querySelector<HTMLElement>(".biliscript-bilingual-footer-note") ?? null;
+  return shown(node) ? node.textContent || "" : "";
+}
+
 function switchButton(): HTMLButtonElement {
   return card().querySelector(".biliscript-bilingual-switch") as HTMLButtonElement;
 }
@@ -507,9 +513,10 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     // 目标 lan 记成用户刚点的那条轨（= 主轨的 lan）：第三套空态文案由此投影出来
     expect(state.settings.secondarySubtitleLang).toBe("ai-zh");
     expect(col("sub")).not.toBeNull(); // 开关保持开，副列仍在场（只是空）
-    // 文案只留六个字（说明行 max-width 140px；原句后半截在真机被省略号吃掉）
-    expect(placeholderText()).toBe("主副字幕相同");
-    // 说明行与列表同时在场：点错一条不该把整列锁死（列表没了就再也改不回来）
+    // 提示进页脚、紧挨「双语字幕」；副列列表顶上不再占一行（2026-10-06 用户裁决）
+    expect(footerNoteText()).toBe("主副字幕相同");
+    expect(placeholder()).toBeNull();
+    // 语言列表照旧在场：点错一条不该把整列锁死（列表没了就再也改不回来）
     expect(colTexts("sub")).toContain("English");
   });
 
@@ -525,7 +532,9 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     await vi.waitFor(() => expect(state.clip.selectedSubtitleId).toBe(JA_ID));
 
     expect(state.clip.secondarySubtitle.state).toBe("idle");
-    expect(placeholderText()).toBe("主副字幕相同");
+    expect(footerNoteText()).toBe("主副字幕相同");
+    expect(placeholder()).toBeNull(); // 副列列表顶上不多占一行，语言列表仍可点
+    expect(colTexts("sub")).toContain("English");
   });
 
   it("关开关只停显示、不清副轨槽（反复开关不闪加载中）", async () => {
@@ -576,14 +585,16 @@ describe("副列的三套空态 + 单轨禁用", () => {
     expect(colTexts("main")).toContain("中文");
   });
 
-  it("③ 主副指向同一条轨 → 列首一行说明 + 语言列表仍在场（改选得回来）", async () => {
+  it("③ 主副指向同一条轨 → 提示进页脚（紧挨「双语字幕」）+ 语言列表仍在场（改选得回来）", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "ai-zh"); // 目标语言 = 主轨自己的语言
     shell.renderReadingView();
 
-    expect(placeholderText()).toBe("主副字幕相同");
+    expect(footerNoteText()).toBe("主副字幕相同");
+    expect(footer().textContent?.trim()).toBe("双语字幕主副字幕相同");
+    expect(placeholder()).toBeNull(); // 不在副列列表里（2026-10-06 用户裁决）
     expect(lazy.secondaryCalls).toHaveLength(0);
-    // 说明行不再顶掉语言列表：用户的下一步动作就是「换一条语言」，列表必须在场
+    // 列表仍在场：用户的下一步动作就是「换一条语言」，列表必须在场
     //（2026-10-06 图外回访：原样只剩一行说明 ⇒ 副语言再也改不回来）。
     expect(colTexts("sub")).toEqual(["中文", "English", "日本語", "Español", "Bahasa Indonesia"]);
 

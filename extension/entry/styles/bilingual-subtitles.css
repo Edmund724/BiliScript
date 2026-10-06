@@ -18,7 +18,7 @@
  *           div.biliscript-bilingual-col[data-col="main"]  ← 主列（+ 单轨态说明行）
  *           div.biliscript-bilingual-col[data-col="sub"]   ← 副列（双语态才有）
  *           （两列各自是滚动盒 ⇒ 各自一条滚动条；2026-10-06 用户裁决）
- *       div.biliscript-bilingual-footer               ← 固定页脚：双语字幕 + 开关
+ *       div.biliscript-bilingual-footer               ← 固定页脚：双语字幕 + 状态提示 + 开关
  *
  * 度量全部照抄 01 号票原型（prototypes/README.md §4/§7/§8、prototype.css `[4]` 段）
  * 的 A 变体实测值：卡片 300.22×315（两列各 140.11 = 最长语言名 120.1 + 行内边距 20）、
@@ -260,7 +260,9 @@
   background: var(--biliscript-reader-accent-soft);
 }
 
-/* 页脚：固定的一行「双语字幕 + 开关」（不进设置抽屉、不随列表滚、不放说明文字）。 */
+/* 页脚：固定的一行「双语字幕 + 状态提示 + 开关」（不进设置抽屉、不随列表滚）。
+ * 状态提示位（③ 主副同轨）紧挨 label：label 不再吃掉空余宽度，靠开关的 margin-left:auto
+ * 把开关钉在最右。 */
 #biliscript-reading-view .biliscript-bilingual-footer {
   display: flex;
   flex: 0 0 auto;
@@ -271,7 +273,7 @@
 }
 
 #biliscript-reading-view .biliscript-bilingual-footer-label {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   font-size: 15px;
   line-height: 22px;
@@ -279,10 +281,28 @@
   white-space: nowrap;
 }
 
+/* 页脚状态提示：吃完剩余宽度（因此开关恒在最右），文字从 label 右边起排；过长就地省略，
+ * 不把开关挤出卡片（硬约束 §5.3/§5.4）。 */
+#biliscript-reading-view .biliscript-bilingual-footer-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--biliscript-reader-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#biliscript-reading-view .biliscript-bilingual-footer-note[hidden] {
+  display: none;
+}
+
 /* 开关：34×20 胶囊 + 16px 圆钮（原型 [4] 段度量）。用真 <button role="switch">
  * 而不是原型那个 span[tabindex]，键盘可达性直接由原生按钮给。 */
 #biliscript-reading-view .biliscript-bilingual-switch {
   flex: 0 0 auto;
+  margin-left: auto;
   position: relative;
   width: 34px;
   height: 20px;
