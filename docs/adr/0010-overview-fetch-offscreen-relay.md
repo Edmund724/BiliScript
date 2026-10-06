@@ -26,7 +26,7 @@
 
 - 概览请求的发起方从 content 变为 offscreen，message 载荷经端口多一跳（请求体最大 200k 字符级，端口结构化克隆可承受）。
 - **host 权限预检**：offscreen 文档只有 `chrome.runtime`，查不了 `chrome.permissions`——预检一律经一条 `check-provider-origin` 消息由 SW 代查（`core/host-permissions.ts`：content 侧 `hasHostPermissionViaBackground`、offscreen 侧 `hasHostPermissionFromOffscreen`），未授权即以 `HOST_PERMISSION_HINT` 失败，不建文档、不发注定失败的请求（2026-09-29 修订补入；此前权限缺失只表现为「网络错误：Failed to fetch」，与 SW 代发通道的口径不一致——`core/provider-http.ts` 一直在传输层做同款预检。同日的第二轮修订把同一预检补到 offscreen 内直发的对话链与 ASR 转写链，见文末）。
-- **已知限制（有意接受）**：通道不设超时（与改动前的直发同口径）。平台侧完全不发字节时面板停在生成中，**出口是生成中状态条的「取消」键**（2026-09-29 修订补入；此前无面板内出口——`重试` 只在失败/部分失败条上，关阅读模式又不取消在飞请求）；首字节等待超过 10s 状态条改显等待计时但不中断请求。
+- **已知限制（有意接受）**：通道不设超时（与改动前的直发同口径）。平台侧完全不发字节时面板停在生成中，**出口是生成中状态条的「取消」键**（2026-09-29 修订补入；此前无面板内出口——`重试` 只在失败/部分失败条上，关阅读模式又不取消在飞请求）；首字节等待超过 10s 状态条改显等待计时但不中断请求。**只覆盖「平台慢」**：端口没被 offscreen 接管这一类（拿不到任何回吐也不会断连）已由 2026-10-06 修订的代发确认收口，见文末。
 - offscreen 文档在概览期间常驻（ASR 终态自关判定已把「有在飞代发端口」计入保留条件），与既有聊天链同量级。
 - 概览请求不再受**任何**平台网关预检白名单影响；协议适配器（`anthropic.ts` 的 `x-api-key` / `anthropic-version`）维持原样，不为单个平台定制。
 
@@ -68,3 +68,15 @@
 机制：offscreen 文档只有 `chrome.runtime`，预检仍必须问 SW——`core/host-permissions.ts` 新增 `hasHostPermissionFromOffscreen`，与 content 侧的 `hasHostPermissionViaBackground` 共用同一份 fail-open 语义（返回 false 的唯一来源是 SW 明确回 `{ granted: false }`：无回包 / 抛错 / URL 非法一律放行）；两者只差发送方式，offscreen 的消息按 promise 风格直发（无回调签名约定，见 `entry/offscreen.ts` 的 `resolveProviderWithKey`），故走 `chrome.runtime.sendMessage(...)` 的 Promise 形态。不设按 origin 缓存，与 content 侧同口径（每轮对话 / 每个解码任务一问）。
 
 同一轮**未**纳入预检的：ASR 链的音频下载（B 站 CDN，非平台 origin，走常驻 host 权限与既有 dnr 防盗链规则）；联网搜索、探针、选区解释三链经 SW 代发，SW 侧本就有预检。
+
+## 修订（2026-10-06：代发端口补派发确认，死通道不再静默挂起）
+
+上文「已知限制」针对的是**平台侧完全不发字节**，本轮不动它（仍不设硬超时，出口仍是取消键）。它兜不住的是**端口根本没被 offscreen 接管**：`entry/offscreen.ts` 的 `maybeCloseSelfAfterAsr` 在聊天端口与在飞代发端口都为 0 时自关文档，而概览请求正是由同一个 `subtitle-ready`（`subtitle/commit.ts`）触发的、要再走热评拉取与两次 SW 往返才到 `ensure` + `connect`——撞进这个窗口时，connect 出的端口落到 SW 的保活 `onConnect` 上（`entry/background.ts` 对不认识的端口名只 `return`、不 `disconnect`），于是**既不回吐也不断连**，面板永久停在「正在等待平台响应…（已等待 N 秒）」：看上去还正常，其实挂了，只有取消键能出去（取消后重新生成即好，因为那时文档已确实不存在、ensure 真建了一个新的）。
+
+本轮（`core/provider-http-offscreen.ts`，两端同文件；用户报障驱动）：
+
+- offscreen 收到 `provider-http` 消息即回 `{ ok:true, accepted:true }`，先于 URL 预检与 fetch——确认的是**派发活性**，与请求成败无关（非法 URL 也回，否则一次正常失败会被读成死通道）。
+- content 侧以 `DISPATCH_ACK_TIMEOUT_MS`（2s）内是否收到确认区分「端口已接管」与「没人服务」；没确认、或首条回吐前就断连 → 断端口、等 `DISPATCH_RETRY_DELAY_MS`（400ms，给上一轮 `closeDocument` 收尾）、重跑 ensure 后**重连一次**；仍不成以可读错误上浮（概览落错误条带「重试」），不再无限挂着。
+- 任何回吐都算通道活着（扩展重载后仍在的旧 offscreen 文档不回 ack，其响应头同样认账）；确认本身不是响应头，不得据此合成 Response；中止与各终态统一清掉确认计时器。
+
+未动：ASR 终态的自关判定（`entry/offscreen.ts` / `offscreen-lifecycle.ts`）与 `chat/offscreen-ensure.ts` 的「文档存在即成功」判定——客户端重连把这两个竞态都覆盖了，接收端保持原样。同端口协议的另两条链（对话 `offscreen-chat` / ASR `asr-decode`）仍是「ensure → connect，端口断连即失败」，未加确认。
