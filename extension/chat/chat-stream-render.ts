@@ -187,6 +187,21 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // appendAssistantMessageNode
   // =========================================================================
+
+  // 流式尾部指示 = 三点脉冲（2026-10-06 用户决议，四形态对照后选定；替掉原先那块
+  // 5×12 灰块）。三个点是光标的**子节点**：tail 每帧整体重写 innerHTML（flush 里的
+  // `tailEl.innerHTML = …`），任何兄弟节点当场被清掉；只有随光标整体搬运的子节点
+  // 能活过每帧重写——搬运点有两处，都搬的是同一个节点，形态不变：flush 每帧
+  // `tailEl.appendChild(cursor)`、resetStream 的 `node.appendChild(cursor)`。
+  function createStreamCursor(): HTMLSpanElement {
+    const cursor = document.createElement("span");
+    cursor.className = "chat-msg-cursor";
+    for (let i = 0; i < 3; i += 1) {
+      cursor.appendChild(document.createElement("i"));
+    }
+    return cursor;
+  }
+
   function appendAssistantMessageNode(source: ChatMessageSource): HTMLDivElement {
     // 回放：终态直出形态（无流式豁免类、无光标）——与 live 收尾后的节点逐字
     // 同形（差流式类），正文等回合句柄 finish 填。回放不清场外的东西、不滚底。
@@ -215,9 +230,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 流式 token 累加器（原 dataset.raw）随占位节点初始化/重置，
     // 保证第二条消息不会串上上一条的流式文本。
     resetTokenStreamState(node);
-    const cursor = document.createElement("span");
-    cursor.className = "chat-msg-cursor";
-    node.appendChild(cursor);
+    node.appendChild(createStreamCursor());
     deps.messages.appendChild(node);
     shouldAutoScrollMessages = true;
     scrollToBottom(true, { instant: true });

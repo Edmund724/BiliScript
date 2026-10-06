@@ -287,6 +287,10 @@ describe("token 流式渲染（协议驱动）", () => {
     // 光标始终接在末块容器（chat-stream-tail）尾部、渲染内容之后
     const tailEl = node.querySelector<HTMLElement>(".chat-stream-tail")!;
     expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
+    // 三点脉冲的三个点跟着光标活过了上面三次 tail 重写（每帧 innerHTML 赋值会清空
+    // tail，只因点是光标的子节点才被整体带回来——回归哨兵：点若做成兄弟节点，
+    // 第一帧之后药丸就空了）
+    expect(tailEl.lastElementChild!.querySelectorAll("i")).toHaveLength(3);
   });
 
   it("稳定前缀 + 末块增量渲染：stable 只在增长时重渲染，done 后与全量渲染一致", async () => {

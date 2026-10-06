@@ -661,18 +661,56 @@
   contain-intrinsic-size: auto none auto 44px;
 }
 
+/* 流式尾部指示 = 三点脉冲（2026-10-06 用户决议，四形态对照后选定：accent-soft
+ * 药丸 + 三个错峰跳的点；替掉原先的 5×12 灰块 + steps(2) 硬闪）。形态口径：
+ * 药丸走站内 pill 母题（同联网搜索开启态、时间戳 pill）。
+ * 为什么不是块状光标：块状光标跟着流式尾部前进，换行后开新块时它独占行首，读
+ * 起来像贴了段灰色胶带而不是光标（用户报「左下角这个长方形很丑」）；有底色的
+ * 药丸独占行首时读作「正在输入」的徽标，语义不跑偏。尺寸按 em 写（正文 16px 下
+ * 与行高对齐，改字号不用再调数值）；颜色全走 token，暗色档自动跟随。
+ * 三个点由 chat-stream-render 的 createStreamCursor 建成子节点（必须是子节点：
+ * tail 每帧重写 innerHTML，兄弟节点活不过一帧）。 */
 .biliscript-reading-chat .chat-msg-cursor {
-  display: inline-block;
-  width: 5px;
-  height: 12px;
-  background: var(--biliscript-reader-faint);
-  margin-left: 2px;
-  vertical-align: -2px;
-  animation: biliscript-chat-blink 1s steps(2) infinite;
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
+  height: 1.12em;
+  margin-left: 5px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--biliscript-reader-accent-soft);
+  vertical-align: -0.18em;
+  animation: biliscript-chat-pulse-in 0.22s ease-out both;
 }
 
-@keyframes biliscript-chat-blink {
-  50% { opacity: 0; }
+.biliscript-reading-chat .chat-msg-cursor i {
+  width: 3.5px;
+  height: 3.5px;
+  border-radius: 50%;
+  background: var(--biliscript-reader-accent);
+  animation: biliscript-chat-pulse-wave 1.25s ease-in-out infinite;
+}
+
+.biliscript-reading-chat .chat-msg-cursor i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.biliscript-reading-chat .chat-msg-cursor i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+/* 三点的波浪：同一时刻总有一个点升到最亮，其余降到 0.32（三个点同相位就只是一
+ * 块一起跳，看不出「正在输出」的节奏）。 */
+@keyframes biliscript-chat-pulse-wave {
+  0%, 60%, 100% { opacity: 0.32; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* 药丸入场：光标每帧被搬到新块，翻译 1px + 淡入让「落到新位置」这件事有交代，
+ * 避免新块凭空多出一个元素。 */
+@keyframes biliscript-chat-pulse-in {
+  from { opacity: 0; transform: translateY(1px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .biliscript-reading-chat .chat-msg-error {

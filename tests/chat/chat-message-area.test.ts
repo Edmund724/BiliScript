@@ -10,7 +10,9 @@
 //   1. 句柄漏操作：某个操作没接到渲染片实现（token / 思考 / 重置 / 收尾 / 徽标 /
 //      时间线卡）——每个操作在消息区可观察产物上单独锚定。
 //   2. DOM 形状漂移：助手节点不再是 .chat-msg.chat-msg-assistant（live 另带
-//      chat-msg-streaming + 光标 span；replay 不带）——两种来源逐字锚定。
+//      chat-msg-streaming + 光标 span；replay 不带）——两种来源逐字锚定，光标
+//      内层形态（三点脉冲的三个点）也锚定：点做成兄弟节点会被 tail 每帧的
+//      innerHTML 重写当场清掉，流式期间指示直接消失。
 //   3. 回放与流式装配不同形：同一原文经 replay 句柄与 live 句柄收尾后节点内部
 //      不一致（回放自拼节点就会分叉）——innerHTML 逐字比对。
 //   4. 三终态徽标错挂：error / stopped / truncated 的文案或位置漂移。
@@ -122,6 +124,9 @@ describe("消息区句柄：装配形状与来源语义", () => {
     const first = deps.messages.querySelector<HTMLElement>(".chat-msg-assistant")!;
     expect(first.className).toBe("chat-msg chat-msg-assistant chat-msg-streaming");
     expect(first.querySelector(".chat-msg-cursor")).toBeTruthy();
+    // 光标内层 = 三点脉冲的三个点，且必须是光标的子节点（tail 每帧重写 innerHTML，
+    // 兄弟节点活不过一帧）。CSS 只认这三个点，形态变了 CSS 就画不出药丸。
+    expect(first.querySelectorAll(".chat-msg-cursor > i")).toHaveLength(3);
 
     // 上一条 live 的流式豁免在新消息上屏同一时刻摘除
     area.appendAssistantMessage({ source: "live" });
