@@ -386,6 +386,18 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     expect(state.clip.subtitleBody).toEqual(cachedBody);
     expect(clipState.noSubtitleReason).toBe(null);
     expect(clipState.noSubtitleDetail).toBe("");
+    // 伪轨契约与成功路径逐字一致（票 04 Q16/Q17）：缓存命中收尾同样种伪轨且排
+    // 首位——不写它则列表 ≡ clip.subtitles 为空，面板会显示「暂无字幕」。
+    expect(state.clip.subtitles).toEqual([
+      {
+        id: "asr",
+        lan: "asr-zh",
+        lanDoc: "自配平台转写",
+        subtitleUrl: ""
+      }
+    ]);
+    expect(state.clip.selectedSubtitleId).toBe("asr");
+    expect(state.clip.selectedSubtitleLang).toBe("自配平台转写");
     // 缓存命中同样经字幕接受事务收尾
     expect(deps.acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(deps.acceptSubtitle).toHaveBeenCalledWith({

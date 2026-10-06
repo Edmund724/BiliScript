@@ -75,6 +75,21 @@ function setNoSubtitleReasonWithDetail(reason: NoSubtitleReason, detail: string)
   clipState.setNoSubtitleDetail(detail);
 }
 
+// ASR 伪轨的唯一产地（票 04 Q16/Q17）：把「自配平台转写」伪轨 prepend 到
+// clip.subtitles 首位，既有轨 spread 在其后。成功路径（finishAsrFallback）与
+// 缓存命中路径共用本函数，形状逐字一致（id/lan/lanDoc/subtitleUrl，其中
+// lanDoc = 收尾时定型的来源串，语言档位只体现在这里）。选轨列表 ≡ clip.subtitles，
+// 两条收尾路径都必须经它写——缓存命中漏写就是「转写完成却显示暂无字幕」的根因。
+// 已知缺口（本图 Out of scope，本次不修）：subtitle/fetcher.ts:224 每轮
+// refreshClip 都 setSubtitles(normalizeSubtitleTracks(bundle.tracks))，无字幕轨
+// 视频再抓一轮即以空列表覆盖，会把这里种下的伪轨洗掉。
+function seedAsrPseudoTrack(sourceLabel: string): void {
+  clipState.setSubtitles([
+    { id: "asr", lan: "asr-zh", lanDoc: sourceLabel, subtitleUrl: "" },
+    ...(state.clip.subtitles || [])
+  ]);
+}
+
 export interface AsrSettings {
   asrAutoFallback?: boolean;
   activeAsrProviderId?: string;
@@ -196,7 +211,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
   //   skip（未启用开关 / 无激活平台 / offscreen 侧配置级 asr-skip）→ 返回
   //   "skip"，调用方（fetcher 的 finishNoSubtitle）走无字幕出口逆事务
   //  （commit.commitNoSubtitle，skip 分支的状态栏文案已追加引导句）；
-  //   缓存命中 → 直接走字幕接受事务收尾（不发 playurl、不下载、不转写）；
+  //   缓存命中 → 种伪轨道 + 直接走字幕接受事务收尾（不发 playurl、不下载、不转写）；
   //   成功 → 塞伪轨道 + 字幕接受事务 + 写缓存，返回 "done"；
   //   空结果 / 失败 → 落回无字幕出口逆事务并展示对应文案。
   // 过期语义与转写解耦：runId 守卫只拦截"发起前调用方已被顶掉"（早期快出，
@@ -268,6 +283,10 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
         const cachedCheck = validateSubtitleByDuration(cachedBody as SubtitleItem[], state.clip.videoDuration);
         if (cachedCheck.ok) {
+          // 与成功路径同源地种伪轨：只调 acceptSubtitle 不写 clip.subtitles 时，
+          // 转写成果虽已落账，选轨列表（≡ clip.subtitles）仍为空 → 面板显示
+          // 「暂无字幕」（票 04 Q16 裁定的根因）。
+          seedAsrPseudoTrack(sourceLabel);
           // 字幕接受事务（subtitle/commit.js）：ASR 缓存命中同样经事务收尾——
           // 旧缓存条目可能无序，幂等稳定排序由事务单点完成（「subtitleBody 按
           // from 升序」不变量）；写 selected 三项 → ready → 清原因 → 刷新派生 →
@@ -523,17 +542,15 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     }
   }
 
-  // ASR 转写成功后的收尾：塞伪轨道（路径特有的前置动作，留在本模块）→ 字幕
+  // ASR 转写成功后的收尾：种伪轨道（seedAsrPseudoTrack，与缓存命中路径共用；
+  // 「伪轨」知识留在本模块）→ 字幕
   // 接受事务（subtitle/commit.js）→ 完成提示。pipeline 产物本身已按 from 排序，
   // 事务内幂等再收口一次（含共享转写/缓存副本路径），「subtitleBody 按 from
   // 升序」不变量单点保证。缓存写入已在转写共享单元内完成。runId 只守卫 UI
   // 状态收尾（被更新的抓取顶掉时静默让位，转写成果本身已落缓存）。
   async function finishAsrFallback({ runId, body, sourceLabel }: { runId: number; body: SubtitleItem[]; sourceLabel: string }): Promise<"done"> {
     ensureRunActive(runId, state.clip.fetchRunId);
-    clipState.setSubtitles([
-      { id: "asr", lan: "asr-zh", lanDoc: sourceLabel, subtitleUrl: "" },
-      ...(state.clip.subtitles || [])
-    ]);
+    seedAsrPseudoTrack(sourceLabel);
     await acceptSubtitle({
       body,
       selectedSubtitleId: "asr",
