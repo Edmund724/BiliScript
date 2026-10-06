@@ -815,13 +815,15 @@
 /* 滚底按钮（DeepSeek Harness 同款：离开底部出现，34px 圆钮浮在输入卡上方，点击
  * 回底）。底色/描边/阴影取来源悬停预览卡（.chat-search-preview）同一套浮层母题。
  * 定位挂在 footer（position:relative）而非消息区——消息区是滚动容器，绝对定位的
- * 子节点随内容一起滚走，按钮会「滚出视野」。right 对齐消息区 2px 内边距，与正文
- * 列右缘同一条线。z-index 取 5：压在消息区之上、模型面板（10）之下，展开模型面板
- * 时按钮不会盖住面板角。 */
+ * 子节点随内容一起滚走，按钮会「滚出视野」。right 让开消息区的滚动条槽：Windows
+ * 上 scrollbar-width: thin 实测 12px（.scratch/scroll-bottom-preview/scrollbar-probe），
+ * 加 2px 缝 = 14px，按钮右缘落回正文列右缘（消息区 padding-right 2px），既不压住
+ * 滚动条拇指，也与正文对齐。z-index 取 5：压在消息区之上、模型面板（10）之下，
+ * 展开模型面板时按钮不会盖住面板角。 */
 .biliscript-reading-chat .chat-scroll-bottom {
   position: absolute;
   z-index: 5;
-  right: 2px;
+  right: 14px;
   bottom: calc(100% + 6px);
   width: 34px;
   height: 34px;
