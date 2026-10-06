@@ -9,7 +9,9 @@
 //
 // - renderChip：文案 = 平台名·选中模型名 + 思考档位显示名（档位条派生过就用它的
 //   显示名——开关型模型是 On；未派生时回落标签表）；optgroup label 缺失时只显示
-//   模型名；select 禁用（未配置平台）→ chip 同步禁用并回落占位文案；
+//   模型名；select 禁用（未配置平台）→ chip 同步禁用并回落占位文案；集合站的
+//   org 前缀（`deepseek-ai/`）只在显示层剥掉（chip 与弹层条目同口径，2026-10-06），
+//   option 文本与值源照旧完整；
 // - renderPanel：按 optgroup 分组渲染、当前选中项 is-selected + ✓、点击选项写
 //   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；打开即回到模型页；
 // - renderPanel 的面板宽度：打开时按 chip 可见宽快照写内联宽（打开期间档位/模型
@@ -429,5 +431,84 @@ describe("换页（点一级行进档位页 / 点返回行回模型页）", () =
     expect(thinkingPage.hidden).toBe(true);
     expect(thinkingRow.hidden).toBe(false);
     expect(thinkingRow.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+// 2026-10-06 用户报障（截图 `ModelScope·deepseek-ai/DeepSeek-V4.1-…`）：集合站
+// （ModelScope / OpenRouter 等）回的模型 id 带组织命名空间前缀，chip 与弹层列表
+// 只显示最后一段裸名。**只碰显示层**：option 文本与 value（复合值）照旧完整，
+// 点选落盘值因此不变（剥前缀渗进值源 = 换错模型，本组用例专门钉住）。
+describe("模型名显示：集合站的 org 前缀只在显示层剥掉", () => {
+  // select 形状与 providers.renderModelSelect 的产物同构：平台 optgroup +
+  // 完整 id 做选项文本、`平台 id\u0001模型 id` 复合值做 value。
+  function makeNamespacedSelect(): HTMLSelectElement {
+    const select = document.createElement("select");
+    select.innerHTML =
+      '<optgroup label="ModelScope">' +
+      `<option value="modelscope${SEP}deepseek-ai/DeepSeek-V4.1-Flash" selected>deepseek-ai/DeepSeek-V4.1-Flash</option>` +
+      `<option value="modelscope${SEP}Qwen/Qwen3-32B">Qwen/Qwen3-32B</option>` +
+      "</optgroup>" +
+      '<optgroup label="硅基流动">' +
+      `<option value="siliconflow${SEP}glm-4.6">glm-4.6</option>` +
+      `<option value="siliconflow${SEP}org/">org/</option>` +
+      "</optgroup>";
+    document.body.appendChild(select);
+    return select;
+  }
+
+  function optionNames(panelList: HTMLElement): string[] {
+    return [...panelList.querySelectorAll<HTMLElement>(".chat-model-option-name")].map(
+      (node) => node.textContent || ""
+    );
+  }
+
+  it("chip：命名空间 id 只显示裸名（平台名·裸名，不再带 org/）", () => {
+    const { chipModel, modelPanel } = makeHarness(makeNamespacedSelect());
+
+    modelPanel.renderChip();
+
+    expect(chipModel.textContent).toBe("ModelScope·DeepSeek-V4.1-Flash");
+  });
+
+  it("chip：无斜杠裸名与尾斜杠 id 原样显示（不误伤、不剥成空串）", () => {
+    const select = makeNamespacedSelect();
+    const { chipModel, modelPanel } = makeHarness(select);
+
+    select.value = `siliconflow${SEP}glm-4.6`;
+    modelPanel.renderChip();
+    expect(chipModel.textContent).toBe("硅基流动·glm-4.6");
+
+    select.value = `siliconflow${SEP}org/`;
+    modelPanel.renderChip();
+    expect(chipModel.textContent).toBe("硅基流动·org/");
+  });
+
+  it("弹层列表条目同样剥前缀，data-value 仍是完整复合值", () => {
+    const { panelList, modelPanel } = makeHarness(makeNamespacedSelect());
+
+    modelPanel.renderPanel();
+
+    expect(optionNames(panelList)).toEqual(["DeepSeek-V4.1-Flash", "Qwen3-32B", "glm-4.6", "org/"]);
+    expect(
+      [...panelList.querySelectorAll(".chat-model-option")].map((btn) => btn.getAttribute("data-value"))
+    ).toEqual([
+      `modelscope${SEP}deepseek-ai/DeepSeek-V4.1-Flash`,
+      `modelscope${SEP}Qwen/Qwen3-32B`,
+      `siliconflow${SEP}glm-4.6`,
+      `siliconflow${SEP}org/`
+    ]);
+  });
+
+  it("点被剥名的条目：值源写完整复合值（剥前缀不渗进落盘值）", () => {
+    const select = makeNamespacedSelect();
+    const { panelList, modelPanel } = makeHarness(select);
+    modelPanel.renderPanel();
+
+    const qwen = panelList.querySelector<HTMLButtonElement>(
+      `.chat-model-option[data-value="modelscope${SEP}Qwen/Qwen3-32B"]`
+    ) as HTMLButtonElement;
+    click(qwen);
+
+    expect(select.value).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
   });
 });

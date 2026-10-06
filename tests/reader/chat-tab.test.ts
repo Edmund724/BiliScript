@@ -24,8 +24,11 @@
 // resetModules 后同纪元导入；chrome.storage / runtime 消息按 type 路由 stub。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
+import { SELECTED_PROVIDER_KEY } from "../../extension/shared/selected-provider.js";
 import type { TestState } from "./reader-test-env.js";
 
 const { gatewayMock, gatewayCoreMock } = vi.hoisted(() => ({
@@ -1664,5 +1667,108 @@ describe("消息区滚底按钮：显隐跟随机动、点一下回底", () => {
     } finally {
       raf.restore();
     }
+  });
+});
+
+// 集合站模型名显示（2026-10-06 用户报障，票据 chat-model-name-display/01）：ModelScope /
+// OpenRouter 这类集合站回的模型 id 带组织命名空间前缀（`deepseek-ai/DeepSeek-V4.1-Flash`），
+// 对话输入框里的 chip 与点开后的模型列表只显示裸名。本文件跑全链真实模块（providers 渲染
+// select → 组合根装配 chip 与面板 → 点选写值源），末尾写出可复现工件；判据的另一半是
+// **值源一个字不改**：option 文本、复合值与落盘选中值仍是完整 id（剥前缀渗到值源 = 换错模型）。
+describe("模型名显示：集合站的 org 前缀只从显示层剥掉", () => {
+  const SEP = String.fromCharCode(1);
+  const PREFIXED = "deepseek-ai/DeepSeek-V4.1-Flash";
+
+  // 工件里要看得见分隔符（\u0001 是不可见控制字符，直接落盘读不出边界）
+  function shown(value: string): string {
+    return value.split(SEP).join("<SEP>");
+  }
+
+  function optionTexts(panelList: HTMLElement): string[] {
+    return [...panelList.querySelectorAll<HTMLElement>(".chat-model-option-name")].map(
+      (node) => node.textContent || ""
+    );
+  }
+
+  function optionValues(panelList: HTMLElement): string[] {
+    return [...panelList.querySelectorAll<HTMLElement>(".chat-model-option")].map(
+      (node) => node.getAttribute("data-value") || ""
+    );
+  }
+
+  function clickModelOption(panelList: HTMLElement, value: string): void {
+    const target = panelList.querySelector<HTMLButtonElement>(
+      `.chat-model-option[data-value="${value}"]`
+    ) as HTMLButtonElement;
+    target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  }
+
+  it("chip 与弹层条目剥前缀，option 文本、复合值与落盘选中值保持完整", async () => {
+    providerList = [
+      { id: "modelscope", name: "ModelScope", models: [PREFIXED, "Qwen/Qwen3-32B", "glm-4.6"], enabled: true }
+    ];
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    const select = document.getElementById(ids.readingChatModelSelect) as HTMLSelectElement;
+    const chip = document.getElementById(ids.readingChatModelChip) as HTMLButtonElement;
+    const chipModel = chip.querySelector(".chat-model-chip-model") as HTMLElement;
+    const panelList = document.getElementById(ids.readingChatModelList) as HTMLElement;
+    const steps: string[] = [];
+
+    // 值源（providers 渲染的 option 文本）仍是完整 id：剥前缀只发生在展示层
+    expect([...select.options].map((option) => option.textContent)).toEqual([PREFIXED, "Qwen/Qwen3-32B", "glm-4.6"]);
+    expect(chipModel.textContent).toBe("ModelScope·DeepSeek-V4.1-Flash");
+    expect(select.value).toBe(`modelscope${SEP}${PREFIXED}`);
+    steps.push(`1 激活（首项 = ${PREFIXED}） | chip=${chipModel.textContent} | 值源=${shown(select.value)}`);
+
+    // 点 chip 开面板：条目名剥前缀，data-value 与值源同口径（完整）
+    chip.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const names = optionTexts(panelList);
+    const values = optionValues(panelList);
+    expect(names).toEqual(["DeepSeek-V4.1-Flash", "Qwen3-32B", "glm-4.6"]);
+    expect(values).toEqual([
+      `modelscope${SEP}${PREFIXED}`,
+      `modelscope${SEP}Qwen/Qwen3-32B`,
+      `modelscope${SEP}glm-4.6`
+    ]);
+    steps.push(`2 开面板 | 条目=[${names.join(", ")}] | data-value=[${values.map(shown).join(", ")}]`);
+
+    // 点带前缀的第二项：chip 换裸名，选中值（含落盘那一份）仍是完整复合值
+    clickModelOption(panelList, `modelscope${SEP}Qwen/Qwen3-32B`);
+    const setMock = (window.chrome as unknown as { storage: { local: { set: ReturnType<typeof vi.fn> } } })
+      .storage.local.set;
+    expect(select.value).toBe(`modelscope${SEP}Qwen/Qwen3-32B`);
+    expect(chipModel.textContent).toBe("ModelScope·Qwen3-32B");
+    expect(setMock).toHaveBeenCalledWith({ [SELECTED_PROVIDER_KEY]: `modelscope${SEP}Qwen/Qwen3-32B` });
+    steps.push(
+      `3 点 Qwen/Qwen3-32B（带前缀） | chip=${chipModel.textContent} | 值源=${shown(select.value)} | 落盘=${shown(
+        `modelscope${SEP}Qwen/Qwen3-32B`
+      )}`
+    );
+
+    // 无斜杠裸名不受影响（防误伤）：带前缀的才是命名空间 id
+    chip.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    clickModelOption(panelList, `modelscope${SEP}glm-4.6`);
+    expect(select.value).toBe(`modelscope${SEP}glm-4.6`);
+    expect(chipModel.textContent).toBe("ModelScope·glm-4.6");
+    steps.push(`4 点 glm-4.6（无斜杠裸名） | chip=${chipModel.textContent} | 值源=${shown(select.value)}`);
+
+    expect(steps).toHaveLength(4);
+    const artifactDir = join(process.cwd(), ".scratch", "tickets", "chat-model-name-display", "artifacts");
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(
+      join(artifactDir, "01-e2e-walkthrough.txt"),
+      [
+        "# 集合站模型名显示走查工件（由 tests/reader/chat-tab.test.ts 生成）",
+        "# 用例：ModelScope 平台（模型 id 带 org 命名空间前缀）激活对话 tab → 看 chip → 开面板看条目名与 data-value → 点选换模型",
+        "# 判据：chip 与弹层条目只显示裸名（剥最后一段斜杠之前的前缀）；option 文本、复合值（data-value / select.value）、",
+        "#       落盘选中值仍是完整 id；无斜杠裸名不受影响。复合值里的 \\u0001 分隔符在工件里写作 <SEP>",
+        "# 每行 = 一步；同命令重跑逐字节一致",
+        ...steps,
+        ""
+      ].join("\n")
+    );
   });
 });

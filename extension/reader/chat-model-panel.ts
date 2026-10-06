@@ -92,6 +92,19 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     thinkingRow.setAttribute("aria-expanded", levelsPage ? "true" : "false");
   }
 
+  // 模型名显示口径（2026-10-06 用户报障）：集合站（ModelScope / OpenRouter 等）回的
+  // 模型 id 带组织命名空间前缀（`deepseek-ai/DeepSeek-V4.1-Flash`），chip 与弹层列表
+  // 只显示最后一段裸名。**只碰显示层**——option 文本与复合值（值源）照旧完整，
+  // 请求体里的模型 id 因此也不变；无斜杠与尾斜杠（`org/`）原样返回（与
+  // ai/thinking-profiles.ts 的 stripOrgPrefix 同口径，那份是思考兜底匹配用，不共用）。
+  function displayModelName(model: string): string {
+    const slash = model.lastIndexOf("/");
+    if (slash < 0 || slash === model.length - 1) {
+      return model;
+    }
+    return model.slice(slash + 1);
+  }
+
   // chip 文案 = 平台名·选中模型名 + 当前思考档位（截图形态「ModelScope·DeepSeek
   // V4.1 Flash High」）。平台名取选中 option 所属 optgroup 的 label（与面板分组
   // 标题同源），中点「·」分隔；optgroup 缺失/label 空则只显示模型名。
@@ -107,7 +120,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     }
     const option = modelSelect.options[modelSelect.selectedIndex];
     const platform = String(option?.closest("optgroup")?.getAttribute("label") || "").trim();
-    const modelName = String(option?.textContent || "").trim() || "未配置平台";
+    const modelName = displayModelName(String(option?.textContent || "").trim() || "未配置平台");
     chipModel.textContent = platform ? `${platform}·${modelName}` : modelName;
     // 显示名优先用档位条派生的那一个（开关型模型是 On）——菜单里写 On、chip 写 High
     // 是自相矛盾的（用户裁定）；未派生过时回落标签表。
@@ -141,7 +154,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         const isSelected = value === current;
         parts.push(
           `<button type="button" class="chat-model-option${isSelected ? " is-selected" : ""}" data-value="${escapeHtml(value)}">` +
-            `<span class="chat-model-option-name">${escapeHtml(option.textContent || "")}</span>` +
+            `<span class="chat-model-option-name">${escapeHtml(displayModelName(option.textContent || ""))}</span>` +
             (isSelected ? '<span class="chat-model-check" aria-hidden="true">✓</span>' : "") +
             "</button>"
         );
