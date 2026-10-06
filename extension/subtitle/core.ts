@@ -305,9 +305,11 @@ export async function refreshHotComments({ refreshComments = false } = {}): Prom
     } catch (error) {
       clipState.setHotComments([]);
       logWarn("[BILISCRIPT] failed to fetch hot comments", error);
-      // 状态行出声（含「失败」→ 常驻，见 core/reading-status-line 的常驻词表）：
-      // 热评拉不到 = 没有评论目录 = 概览退回 AI 自由分章，用户得知道为什么。
-      setMessage(`热评抓取失败（${getErrorMessage(error)}）：本次概览没有评论目录。`);
+      // 状态行出声：热评拉不到 = 没有评论目录 = 概览退回 AI 自由分章，用户得知道
+      // 为什么。文案不写死「失败」——严重度交给具体病因（core/reading-status-line
+      // 按词表决定是否常驻）：-352 风控/网络失败带「失败」→ 常驻；评论被关闭
+      // （-404）这类「本来就没有评论」的正常态 → 5s 自动收起。
+      setMessage(`热评没拿到（${getErrorMessage(error)}）：本次概览没有评论目录。`);
     }
   }
 }

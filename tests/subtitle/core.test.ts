@@ -373,7 +373,7 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
     expect(gateway.fetchHotComments).toHaveBeenCalledTimes(1);
   });
 
-  it("拉取失败（风控 / 网络）：落空数组 + 状态行出声且常驻，不再静默", async () => {
+  it("拉取失败（风控 / 网络）：落空数组 + 状态行出声，病因带「失败」→ 常驻", async () => {
     const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
     const { isPersistentStatusText } = await import("../../extension/core/reading-status-line.js");
     state.clip.setHotComments([]);
@@ -384,10 +384,23 @@ describe("refreshHotComments：不受笔记导出设置门控", () => {
     await refreshHotComments({ refreshComments: true });
 
     expect(state.clip.hotComments).toEqual([]);
-    expect(state.ui.messageText).toContain("热评抓取失败");
+    expect(state.ui.messageText).toContain("热评没拿到");
     expect(state.ui.messageText).toContain("B 站风控校验失败（-352）");
-    // 含「失败」→ 命中常驻词表：错误文案不自动消失
+    // 含「失败」→ 命中常驻词表：风控/网络类错误不自动消失
     expect(isPersistentStatusText(state.ui.messageText)).toBe(true);
+  });
+
+  it("评论被关闭（-404）：同样出声，但属正常态 → 5s 自动收起（不常驻）", async () => {
+    const gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
+    const { isPersistentStatusText } = await import("../../extension/core/reading-status-line.js");
+    state.clip.setHotComments([]);
+    gateway.fetchHotComments.mockRejectedValueOnce(new Error("评论不存在或已关闭（-404）"));
+
+    await refreshHotComments({ refreshComments: true });
+
+    expect(state.clip.hotComments).toEqual([]);
+    expect(state.ui.messageText).toContain("评论不存在或已关闭（-404）");
+    expect(isPersistentStatusText(state.ui.messageText)).toBe(false);
   });
 });
 
