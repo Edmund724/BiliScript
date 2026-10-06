@@ -56,3 +56,10 @@ await withBrowser({}, async ({ browser }) => {
 本目录是**工具**（入库、复用）。`.scratch/tickets/<票>/walkthrough/` 是**某一次走查的产物**（README + PNG + evidence.json，不入库）。看到 `walkthrough/` 是记录，看到 `scripts/browser-harness/` 是能力。
 
 历史：`/entry/background.js` 这类挑选逻辑最初手写在 `.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs`（那份 1.7k 行脚本把管道、fixture、九个场景焊在一起）。本目录把那 15% 的管道抽出来；那份脚本保持原样不动，它是那一次走查的记录。
+
+## 边界：什么进 git，什么不进
+
+- **管道进这里**（本目录）。它被证明会重复：同一仓两次走查用了两套机制。
+- **事实进 `tests/fixtures/`**。接口响应与字段形状是数据，丢了就没了——样例：`tests/fixtures/bilibili/bv1mAam6tEL8-subtitle-shape.md`（从 `.scratch` 转写的字幕轨形状与对齐数字；它引用的 `research/01-track-shape.md` 已经丢失，这就是要转写的原因）。`.scratch/` 里的 `research/` 会随票据整理消失，别把它当事实的家。
+- **场景按需迁**：出现**第二个**需要同一批真机判据的票时，才建 `scenarios/` 并迁第一个场景，同时把样本 bvid 与 fixture 变成参数。判据是 `scenarios/*.mjs` 的第 2 个文件——只被需要过一次的场景留在 `.scratch`，那是验收记录，不是回归资产。
+
