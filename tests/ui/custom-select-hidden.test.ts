@@ -22,7 +22,9 @@
 // 组件表（2026-10 从设置三件套抽出的 styles/custom-select.css）另守两条正确性：
 // 弹层收起的 [hidden] 规则与弹层/trigger/选项的度量规则必须在表内（下面按新表路径
 // 断言源码在场——jsdom 的 UA 表自带 [hidden]{display:none}，只测 computed 会把漏带
-// 规则放过去）。
+// 规则放过去）。第三份设置表 reader-settings-rows.css 里的模型弹层（ai-provider-model-*）
+// 与组件下拉是 Q18 定的同度量双胞胎，分表后没有任何机制拦漂移，故这里再做一层
+// **两族逐字对照**（行盒模型/行高/padding/两轴溢出/定宽上限）。
 //
 // 隐藏由真实组件产出，不写进夹具：夹具只给「接管前」的宿主结构，隐藏是组件接管后
 // 的可观察结果——夹具自己写死 style="display:none" 的话，删掉实现里的内联样式测试
@@ -158,6 +160,49 @@ describe("组件表（extension/entry/styles/custom-select.css，2026-10 从设�
       expect(css, `${file} 仍声明 .custom-select-arrow`).not.toMatch(/\.custom-select-arrow/);
       expect(css, `${file} 仍声明 .custom-select-option`).not.toMatch(/\.custom-select-option/);
     }
+  });
+
+  // 两族弹层是 Q18 定的「同度量、改一处必须同时改另一处」双胞胎，但住在两张表里
+  //（组件表 / 设置行表）——分表之后没有任何机制拦住它们各自漂移。这条把两族的
+  // **逐字规格**做成语义对照：行盒模型 / 行高 / padding / 横纵轴 overflow / 定宽上限，
+  // 改一边忘另一边即红（2026-10-06 的横向滚动条补丁就是两边同因同解，此后必须同进同退）。
+  it("模型弹层与组件下拉同规格（分叉锁定）：行盒模型/行高/padding/两轴溢出一致", () => {
+    // 按规则块取声明值（注释里不带「属性名: 值;」形态，正则只认声明）
+    const declOf = (block: string, prop: string): string => {
+      const hit = block.match(new RegExp(`(?:^|[;{\\s])${prop}:\\s*([^;]+);`));
+      expect(hit, `规则块里没有 ${prop} 声明`).not.toBeNull();
+      return hit![1].trim();
+    };
+    const blockFrom = (css: string, re: RegExp): string => {
+      const hit = css.match(re);
+      expect(hit, `规则块未找到：${re}`).not.toBeNull();
+      return hit![0];
+    };
+
+    const compOption = blockFrom(read(CUSTOM_SELECT_CSS), /#biliscript-reading-view \.custom-select-option\s*\{[^}]*\}/);
+    const modelOption = blockFrom(
+      read(ROWS_CSS),
+      /#biliscript-reading-view \.provider-editor-host \.ai-provider-model-option,[\s\S]*?\.ai-provider-model-message\s*\{[^}]*\}/
+    );
+    for (const prop of ["box-sizing", "min-height", "padding"]) {
+      expect(declOf(modelOption, prop), `${prop} 两族分叉（改一处必须同时改另一处）`).toBe(
+        declOf(compOption, prop)
+      );
+    }
+
+    const compDropdown = blockFrom(read(CUSTOM_SELECT_CSS), /#biliscript-reading-view \.custom-select-dropdown\s*\{[^}]*\}/);
+    const modelDropdown = blockFrom(
+      read(ROWS_CSS),
+      /#biliscript-reading-view \.provider-editor-host \.ai-provider-model-dropdown\s*\{[^}]*\}/
+    );
+    for (const prop of ["max-width", "max-height", "overflow-x", "overflow-y"]) {
+      expect(declOf(modelDropdown, prop), `${prop} 两族分叉（改一处必须同时改另一处）`).toBe(
+        declOf(compDropdown, prop)
+      );
+    }
+    // 横轴收口是这两族的共同不变量，不是巧合（根因同：width: 100% 配左右 padding）
+    expect(declOf(compDropdown, "overflow-x")).toBe("hidden");
+    expect(declOf(modelOption, "box-sizing")).toBe("border-box");
   });
 
   it("四条规则按真实级联顺序注入：展开态可见，收起态 computed display 为 none", async () => {

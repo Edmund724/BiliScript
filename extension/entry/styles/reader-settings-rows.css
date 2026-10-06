@@ -9,7 +9,14 @@
  * 定义）。 */
 
 /* 弹层卡片（Q18：模型选择弹层与自定义下拉同源；后者随组件住 styles/
- * custom-select.css，那份与本段同度量、两边都不丢规则）。 */
+ * custom-select.css，那份与本段同度量、两边都不丢规则）。
+ * 2026-10-06 补：横轴显式关掉（与组件表 custom-select.css 的那一条同因同解）——
+ * overflow-y 非 visible 会把 overflow-x 的 visible 计算成 auto，选项行的 width 百分比
+ * 配左右 padding 10px 在 content-box 下又比本弹层内容盒宽 20px，那个溢出就会以横向
+ * 滚动条的形式露出来（组件下拉上是真机实测到的形态）。本弹层在 Modal 里被下面的宿主
+ * 通配挡着没露过（选项行是 border-box，真机 clientWidth 430 = scrollWidth 430），但那
+ * 是宿主保护的副作用而非本弹层的性质：横向溢出没有合法来源，一律由选项行自己的省略号
+ * 兜住，故这里显式关掉，不再依赖别人。 */
 #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown {
   position: absolute;
   top: calc(100% + 6px);
@@ -20,6 +27,7 @@
   z-index: 30;
   max-height: 320px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 6px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 12px;
@@ -40,11 +48,19 @@
 }
 
 /* 选项行：button 型（模型选项）与 li 型（模型加载/提示项）共用度量；自定义下拉的
- * li 选项同度量、随组件住 styles/custom-select.css。 */
+ * li 选项同度量、随组件住 styles/custom-select.css。
+ * 2026-10-06 补（与组件表 custom-select.css 那条同因同解）：本行的 width 百分比配左右
+ * padding 10px 在 content-box 下比弹层内容盒宽 20px。Modal 里这一条本来被下面的宿主
+ * 通配（.provider-editor-host * 的 border-box）无意盖住——所以它此前并没有横向滚动条，
+ * 只是 min-height 的 30px 也被通配改成量边框盒，行高静默矮成 30.5。现在两件事都写在
+ * 规则自己身上：box-sizing border-box（行宽严格等于弹层内容盒，省略号是唯一裁切路径）
+ * + min-height 38px（= 内容 30 + 上下 padding 8，与组件下拉的 38px 行高逐像素相同）。
+ * 两族逐字同规格，分叉由 tests/ui/custom-select-hidden.test.ts 的对照用例拦下。 */
 #biliscript-reading-view .provider-editor-host .ai-provider-model-option,
 #biliscript-reading-view .provider-editor-host .ai-provider-model-message {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 30px;
+  min-height: 38px;
   border: 0;
   border-radius: 8px;
   background: transparent;
