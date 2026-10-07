@@ -6,6 +6,12 @@
 // 组件表随组件走（2026-10 从 reader-settings-{rows,shell,providers}.css 抽出）：
 // 模块求值即挂 link，设置抽屉与阅读面板两侧都不再依赖 settings-panel chunk 的装载
 // 时机（settings-panel.ts 顶挂载同款先例）。
+//
+// 浮层内容的所有权（2026-10 深化）：调用方可以声明「浮层里除选项行外还要挂什么」
+//（setCustomSelectSlots：选项行落点 / 常驻节点 / trigger 插位）。组件换整批选项只摘
+// 自己产出的 <li>，声明进来的节点全程不脱离文档——换项因此也不销毁浮层内的滚动位置
+//（真机 run13：滚动位置不在节点身份里，子树一脱离文档 scrollTop 就归零）。调用方不
+// 需要知道替换实现，也不需要自己快照滚动位置、自己按引用把卡片搬回去。
 import { ensureCustomSelectStyles } from "../shared/style-injector.js";
 
 ensureCustomSelectStyles();
@@ -13,13 +19,20 @@ ensureCustomSelectStyles();
 let customSelectSeq = 0;
 
 // 已初始化 select 的壳内部操作（initCustomSelect 建壳时登记）：
-// - rebuild：重读原生选项、重建 listbox 项、按现值重派生显示（rebuildCustomSelectOptions 的壳内实现）。
+// - rebuild：重读原生选项、重建 listbox 项、按现值重派生显示，返回新那批项（rebuildCustomSelectOptions
+//   的壳内实现；返回项集是为了让「打开态按现值重认焦点」只认组件自己的节点，不去浮层子树里按类名捞）。
 // - syncDisplay：仅按现值重派生显示（setCustomSelectValue 外部写值入口消费）。
 // - state：禁用/忙碌状态写到壳（setCustomSelectState 的壳内实现）。
-// 未初始化的 select 查不到，三条路径都退化为「空操作 / 裸写原生 select」。
+// - slots：按声明把调用方的节点就位（setCustomSelectSlots 的壳内实现）。
+// 未初始化的 select 查不到，四条路径都退化为「空操作 / 裸写原生 select」。
 const shellOps = new WeakMap<
   HTMLSelectElement,
-  { rebuild: () => void; syncDisplay: () => void; state: (next: CustomSelectState) => void }
+  {
+    rebuild: () => HTMLLIElement[];
+    syncDisplay: () => void;
+    state: (next: CustomSelectState) => void;
+    slots: (next: CustomSelectSlots) => void;
+  }
 >();
 
 // 组件状态（禁用 / 忙碌）：二者相互独立——票 03 的状态机在切轨期间同时置两者
@@ -54,6 +67,30 @@ export function setCustomSelectState(select: HTMLSelectElement, next: CustomSele
   shellOps.get(select)?.state(next);
 }
 
+// 浮层内容的槽位声明（第四条外部入口，2026-10 深化）：调用方声明「浮层里除选项行外
+// 还要挂什么」，组件在每次重铺时按声明保留/重挂这些节点——消费者的节点从此不进组件的
+// 换项实现（旧实现是 dropdown.replaceChildren()，把调用方挂进浮层/trigger 的节点一起
+// 摘掉，逼消费方自己按引用搬回、自己快照滚动位置、自己按内部类名捞选项行）。
+export interface CustomSelectSlots {
+  // 选项行的落点（省略 = 弹层本体）：组件只在这里换自己产出的 <li>，不动这里别的节点。
+  optionsHost?: HTMLElement;
+  // 浮层里除选项行外要保留的节点（如卡片根）：按声明顺序常驻弹层本体下，重铺不摘、
+  // 不在场则装回——组件的换项实现不碰它们的子树。组件从不摘调用方的节点：从声明里
+  // 撤下的节点由调用方自己摘（triggerExtra 是唯一的例外，见下：那个插位只能坐一枚）。
+  extras?: readonly HTMLElement[];
+  // trigger 内的固定插位（如徽标）：放在值区之后、箭头之前；节点带 id 时由组件把它接上
+  // trigger 的 aria-describedby。撤下（null / 省略）时把上一枚摘掉并清掉那条描述关系。
+  triggerExtra?: HTMLElement | null;
+}
+
+// 槽位声明的唯一入口（与上面三条同形态）：整批声明、重复调用幂等，传入即生效（当次
+// 就把声明里的节点就位、把选项行搬到新的落点）。省略/空声明 = 现状：选项行直接铺在
+// 弹层本体下、浮层里没有别的节点。未初始化（含已销毁）退化为 no-op——不替调用方凭空
+// 建壳，与 rebuildCustomSelectOptions / setCustomSelectState 同口径。
+export function setCustomSelectSlots(select: HTMLSelectElement, slots: CustomSelectSlots): void {
+  shellOps.get(select)?.slots(slots);
+}
+
 // 选项集在初始化之后变化的唯一入口（08 号票的必需前置：选轨控件每轮抓取/转写收尾
 // 都要换整批选项，旧实现是每次重建原生 select；initCustomSelect 的
 // dataset.customSelectInitialized === "1" 让重复 init 直接 return，故没有别的路径）。
@@ -70,11 +107,11 @@ export function rebuildCustomSelectOptions(select: HTMLSelectElement): void {
   const wrapper = select.closest<HTMLElement>(".custom-select-wrapper");
   const dropdown = wrapper?.querySelector<HTMLElement>(".custom-select-dropdown");
   const hadListFocus = !!dropdown && !dropdown.hidden && document.activeElement instanceof HTMLElement && dropdown.contains(document.activeElement);
-  ops.rebuild();
+  const options = ops.rebuild();
   if (!hadListFocus || !dropdown) return;
   // 按现值重认一项（值不在新集合里则回落首项，与 openList 同口径）：整批 <li> 已换新，
-  // 旧焦点节点已脱离文档。逐项比对而不是选择器插值，免去 CSS.escape 依赖与转义坑。
-  const options = Array.from(dropdown.querySelectorAll<HTMLElement>(".custom-select-option"));
+  // 旧焦点节点已脱离文档。认的是组件自己那批节点——浮层子树里可能有调用方声明进来的
+  // 内容，也可能嵌着另一枚组件壳（双语卡片的副列），按类名在子树里捞会捞错人。
   (options.find((option) => option.dataset.value === select.value) ?? options[0])?.focus();
 }
 
@@ -228,17 +265,59 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
     // aria-label 路径的名字跟着值重算（label 路径由 aria-labelledby 自动重算）
     syncLabelBasedName();
   };
+  // 槽位声明（setCustomSelectSlots 的壳内存储）：整批替换、重复调用幂等。默认空声明 =
+  // 现状（选项行直接铺在弹层本体下，浮层里没有别的节点）。节点本身的生命周期归调用方。
+  let slots: CustomSelectSlots = {};
+  // trigger 插位当前就位的那一枚（换声明时摘旧的，见 applySlots）
+  let placedTriggerExtra: HTMLElement | null = null;
+
+  // 把声明里的槽位就位（幂等，不摘任何调用方的节点）：
+  //   1. extras 按声明顺序常驻弹层本体（不在场则装回——调用方因此不必自己搬卡片）；
+  //   2. triggerExtra 放值区之后、箭头之前，并把它接上 trigger 的 aria-describedby；
+  //   3. 组件自己产出的选项行搬到 optionsHost（省略 = 弹层本体）。
+  // 全程只动组件自己的 <li> 与声明里的那一枚节点，不触碰调用方的子树：声明进来的节点
+  // 在换项前后始终留在文档里，浮层内的滚动位置（滚动盒挂在这样的子树里）因此不会被
+  // 销毁——这是组件自身的不变式，不再由消费方快照/恢复。
+  const applySlots = (): void => {
+    (slots.extras ?? []).forEach((extra) => {
+      if (extra.parentElement !== dropdown) dropdown.appendChild(extra);
+    });
+    const triggerExtra = slots.triggerExtra ?? null;
+    if (placedTriggerExtra && placedTriggerExtra !== triggerExtra) {
+      // 撤下上一枚：只在 aria-describedby 仍指向它时清，不覆盖调用方自己的描述关系
+      if (placedTriggerExtra.id && trigger.getAttribute("aria-describedby") === placedTriggerExtra.id) {
+        trigger.removeAttribute("aria-describedby");
+      }
+      placedTriggerExtra.remove();
+    }
+    placedTriggerExtra = triggerExtra;
+    if (triggerExtra) {
+      if (triggerExtra.parentElement !== trigger) trigger.insertBefore(triggerExtra, arrow);
+      if (triggerExtra.id) trigger.setAttribute("aria-describedby", triggerExtra.id);
+    }
+    const host = slots.optionsHost ?? dropdown;
+    optionNodes.forEach((node) => {
+      if (node.parentElement !== host) host.appendChild(node);
+    });
+  };
+
   // 重读原生 select.options，重建 listbox 项，再按写入后的实际值重派生显示
   // （「显示 = 现值」不变式对换选项集同样成立）。这是 init 与 rebuildCustomSelectOptions
-  // 唯一的项集入口。
-  const refreshOptionNodes = (): void => {
-    dropdown.replaceChildren();
+  // 唯一的项集入口，也是槽位就位的唯一时机（声明换了落点，下一次重铺即按新声明铺）。
+  // 换项实现**不是** dropdown.replaceChildren()：那些 <li> 是组件自己的，浮层里的别的
+  // 节点归调用方——只摘自己产出的项，声明进来的槽位节点原样留在场上（连带它们的滚动位置）。
+  const refreshOptionNodes = (): HTMLLIElement[] => {
+    optionNodes.forEach((node) => node.remove());
+    optionNodes = [];
+    applySlots();
+    const host = slots.optionsHost ?? dropdown;
     optionNodes = Array.from(select.options).map((option) => {
       const li = buildOptionNode(option);
-      dropdown.appendChild(li);
+      host.appendChild(li);
       return li;
     });
     syncDisplayFromValue();
+    return optionNodes;
   };
 
   // 建壳即铺一次项集（替代旧的 init 内联 forEach）；此时列表收起，不动焦点。
@@ -262,9 +341,17 @@ export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "cust
   };
 
   // 壳内操作登记（组件内部唯一登记点）：setCustomSelectValue / rebuildCustomSelectOptions /
-  // setCustomSelectState 都从这里取壳内部件，「壳不重建」由三者共用同一批
-  // optionNodes / trigger / dropdown 保证。
-  shellOps.set(select, { rebuild: refreshOptionNodes, syncDisplay: syncDisplayFromValue, state: applyState });
+  // setCustomSelectState / setCustomSelectSlots 都从这里取壳内部件，「壳不重建」由四者
+  // 共用同一批 optionNodes / trigger / dropdown 保证。
+  shellOps.set(select, {
+    rebuild: refreshOptionNodes,
+    syncDisplay: syncDisplayFromValue,
+    state: applyState,
+    slots: (next) => {
+      slots = next;
+      applySlots();
+    }
+  });
 
   // 展开时收掉同族其它下拉（外点关闭委托只管 click，键盘路径在此自持）
   const openList = (): void => {

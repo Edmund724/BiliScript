@@ -709,6 +709,133 @@ describe("组件状态（setCustomSelectState，10 号票第 6 条）", () => {
   });
 });
 
+// 浮层槽位（第四条外部入口，2026-10 深化）：调用方声明「浮层里除选项行外还要挂什么」
+//（选项行落点 / 常驻节点 / trigger 插位），组件换整批选项时按声明保留/重挂。
+//
+// 先列失败方式，再据此写断言：
+//   S1 换项摘掉调用方的节点：旧实现是 dropdown.replaceChildren()，挂在浮层里的卡片、
+//      挂在 trigger 上的徽标一起被摘（真机上子树脱离文档 ⇒ 布局盒销毁、scrollTop 归零，
+//      这就是 2026-10-06 run13「选完副语言整列跳回顶部」）。故必须断言换项期间槽位节点
+//      **不脱离**浮层（jsdom 不复现 scrollTop 归零，只能用「脱离」这条替身判据）。
+//   S2 声明换了落点不生效：optionsHost 变了但选项行还留在旧父节点。
+//   S3 trigger 插位夺走组件自己的节点：徽标插错位置（值区里 / 箭头后）或与箭头抢位。
+//   S4 其余调用点被改坏：没声明槽位的 select 行为必须逐字不变（选项行仍直接铺在
+//      浮层本体下）——五个既有调用点零改动是硬约束。
+describe("浮层槽位（setCustomSelectSlots，第四条外部入口）", () => {
+  const markup =
+    '<label for="trackSelect">字幕语言</label>' +
+    '<select id="trackSelect"><option value="ai-zh" selected>中文</option><option value="ai-en">English</option></select>';
+
+  async function mount() {
+    document.body.innerHTML = markup;
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const mod = await import("../../extension/ui/custom-select.js");
+    mod.initCustomSelect(select);
+    const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
+    return {
+      mod,
+      select,
+      wrapper,
+      trigger: wrapper.querySelector<HTMLButtonElement>(".custom-select-trigger")!,
+      dropdown: wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!,
+      arrow: wrapper.querySelector<HTMLElement>(".custom-select-arrow")!,
+      options: () => Array.from(wrapper.querySelectorAll<HTMLElement>(".custom-select-option"))
+    };
+  }
+
+  it("不声明槽位 = 现状：选项行是浮层本体的直接子节点（其余调用点零变化）", async () => {
+    const { dropdown, options } = await mount();
+
+    const rows = options();
+    expect(rows.map((option) => option.textContent)).toEqual(["中文", "English"]);
+    rows.forEach((row) => expect(row.parentElement).toBe(dropdown));
+  });
+
+  it("声明槽位：选项行落到 optionsHost、extras 常驻浮层本体、triggerExtra 落在值区与箭头之间", async () => {
+    const { mod, select, trigger, dropdown, arrow, options } = await mount();
+    const extra = document.createElement("li");
+    extra.className = "test-popover";
+    const host = document.createElement("ul");
+    host.className = "test-list";
+    extra.appendChild(host);
+    const badge = document.createElement("span");
+    badge.id = "test-badge";
+    badge.textContent = "双语";
+
+    mod.setCustomSelectSlots(select, { extras: [extra], optionsHost: host, triggerExtra: badge });
+
+    // 声明当次即生效（不必等下一次重铺）
+    expect(dropdown.contains(extra)).toBe(true);
+    expect(options().map((option) => option.textContent)).toEqual(["中文", "English"]);
+    options().forEach((option) => expect(option.parentElement).toBe(host));
+    // trigger 插位：值区之后、箭头之前；带 id 时接上 aria-describedby（值 + 徽标贴
+    // start 端、箭头仍贴 end 端，且不覆盖组件自己的值区）
+    expect(trigger.children[0].className).toBe("custom-select-value");
+    expect(trigger.children[1]).toBe(badge);
+    expect(trigger.children[2]).toBe(arrow);
+    expect(trigger.getAttribute("aria-describedby")).toBe("test-badge");
+  });
+
+  it("重铺不摘槽位：槽位节点全程不脱离浮层（真机上等于 scrollTop 不归零），选项行换新", async () => {
+    const { mod, select, trigger, dropdown, options } = await mount();
+    const extra = document.createElement("li");
+    const host = document.createElement("ul");
+    const scroller = document.createElement("div");
+    extra.append(host, scroller);
+    const badge = document.createElement("span");
+    badge.className = "test-badge";
+    badge.id = "test-badge";
+    mod.setCustomSelectSlots(select, { extras: [extra], optionsHost: host, triggerExtra: badge });
+    scroller.scrollTop = 24;
+
+    // 真机语义：节点一脱离文档，布局盒销毁、子树的 scrollTop 归零（jsdom 不复现这条），
+    // 故把「脱离」本身当判据——重铺期间槽位被摘一次即红。
+    const observer = new MutationObserver(() => {});
+    observer.observe(dropdown, { childList: true });
+
+    select.innerHTML = '<option value="ai-zh" selected>中文</option><option value="ai-ja">日本語</option>';
+    mod.rebuildCustomSelectOptions(select);
+
+    const removed = observer.takeRecords().flatMap((record) => [...record.removedNodes]);
+    observer.disconnect();
+    expect(removed, "槽位节点在重铺期间脱离了浮层（真机上是 scrollTop 归零）").not.toContain(extra);
+    expect(dropdown.contains(extra)).toBe(true);
+    expect(scroller.scrollTop).toBe(24);
+    expect(options().map((option) => option.textContent)).toEqual(["中文", "日本語"]);
+    options().forEach((option) => expect(option.parentElement).toBe(host));
+    // trigger 插位同样不进换项实现：还在原位、还是一枚
+    expect(trigger.contains(badge)).toBe(true);
+    expect(trigger.querySelectorAll(".test-badge")).toHaveLength(1);
+    expect(trigger.getAttribute("aria-describedby")).toBe("test-badge");
+  });
+
+  it("撤下 triggerExtra：插位节点摘掉，它接的 aria-describedby 一并清掉", async () => {
+    const { mod, select, trigger } = await mount();
+    const badge = document.createElement("span");
+    badge.id = "test-badge";
+    mod.setCustomSelectSlots(select, { triggerExtra: badge });
+    expect(trigger.contains(badge)).toBe(true);
+
+    mod.setCustomSelectSlots(select, {});
+
+    expect(trigger.contains(badge)).toBe(false);
+    expect(badge.parentElement).toBeNull();
+    expect(trigger.getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("未初始化时调用不抛、不建壳（与另三条入口同口径的 no-op）", async () => {
+    document.body.innerHTML = markup;
+    const select = document.getElementById("trackSelect") as HTMLSelectElement;
+    const { setCustomSelectSlots } = await import("../../extension/ui/custom-select.js");
+    const extra = document.createElement("li");
+
+    expect(() => setCustomSelectSlots(select, { extras: [extra] })).not.toThrow();
+
+    expect(select.closest(".custom-select-wrapper")).toBeNull();
+    expect(extra.parentElement).toBeNull();
+  });
+});
+
 // 组件表随组件走（2026-10：规则从设置三件套抽成 entry/styles/custom-select.css）：
 // 设置抽屉与阅读面板两侧共用本组件，只看字幕、没开过设置抽屉时也必须有样式——
 // 故组件模块求值即挂 link（settings-panel.ts 顶挂载同款先例），不再依赖

@@ -763,26 +763,28 @@ describe("形态与三处登记（源码/表面锁）", () => {
     expect(css).toMatch(/\[data-col="sub"\] \.custom-select-dropdown\[hidden\]\s*\{[^}]*display:\s*block/);
   });
 
-  it("卡片骨架是节点身份不变量：连续重渲后开关与副列 select 还是同一批节点", () => {
+  it("卡片骨架是节点身份不变量：连续重渲后槽位内容仍在场、开关与副列 select 还是同一批节点", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "en-US");
     shell.renderReadingView();
     const toggle = switchButton();
     const select = secondarySelect();
-    const root = cardRoot();
     const hostWrappers = () => pickerWrapper().querySelectorAll(".biliscript-bilingual-secondary").length;
     const dropdowns = () => pickerWrapper().querySelectorAll(".custom-select-dropdown").length;
     expect(hostWrappers()).toBe(1);
     expect(dropdowns()).toBe(2);
 
-    // 换轨（组件整批重写浮层子节点）+ 关/开双语：骨架与副列壳都不重建（否则监听器丢、
+    // 换轨（组件整批换自己那批选项行）+ 关/开双语：骨架与副列壳都不重建（否则监听器丢、
     // 副列 select 会一份份堆积出来）
     clickMainOption("日本語");
     switchButton().click();
     switchButton().click();
     shell.renderReadingView();
 
-    expect(cardRoot()).toBe(root);
+    // 骨架的落位归组件的槽位声明（setCustomSelectSlots）：不再断言「被搬回原位」，
+    // 只断言槽位内容仍在场——换项摘不到调用方的节点。
+    expect(cardRoot()).not.toBeNull();
+    expect(card().contains(footer())).toBe(true);
     expect(switchButton()).toBe(toggle);
     expect(secondarySelect()).toBe(select);
     expect(hostWrappers()).toBe(1);
@@ -902,12 +904,15 @@ describe("真机反向发现的修复锁", () => {
 // `.scratch/tickets/bilingual-subtitles/walkthrough` 的 run13：
 //   1. 两列共用一条滚动条：滚动盒是跨两列的主区，滚一列另一列跟着动 —— 用户要求
 //      改成「分开有两个滚动条」；
-//   2. 选完副语言整列跳回列表顶部：组件重铺选项走 `dropdown.replaceChildren()`
-//      把卡片整块摘下再按引用装回（节点身份不变量），而**滚动位置不在节点身份里**
-//      ——真机上子树脱离文档后布局盒销毁，两列 scrollTop 一起归零。
-// 故本节一条锁滚动归属（源码面），一条锁「重投影后两列 scrollTop 原样」（行为面，
-// 用 replaceChildren 的模拟钩子把真机那条复位行为显式补进 jsdom）。
-describe("弹层滚动：两列各自滚、重投影不夺滚动位置", () => {
+//   2. 选完副语言整列跳回列表顶部：组件重铺选项把卡片整块摘下再装回（节点身份不变），
+//      而**滚动位置不在节点身份里**——真机上子树脱离文档后布局盒销毁，两列 scrollTop
+//      一起归零。
+// 第 2 条自 2026-10 深化起是**组件侧不变式**而不是本叶子的快照/恢复：卡片根与选项行
+// 落点都走 setCustomSelectSlots 的槽位声明，组件换项只摘自己产出的 <li>，骨架（连带
+// 两列）全程不脱离文档 ⇒ scrollTop 自然保住。行为面用例在
+// tests/ui/custom-select.test.ts 的「弹层槽位」组（含「槽位节点不得在重铺期间脱离
+// 浮层」这条真机语义的替身断言）；这里只锁定滚动归属（源码面）。
+describe("弹层滚动：两列各自滚（源码锁）", () => {
   const BILINGUAL_CSS = "extension/entry/styles/bilingual-subtitles.css";
 
   it("滚动归属每一列：列是滚动盒、主区只裁剪、交叉轴不再收缩（源码锁）", () => {
@@ -928,39 +933,5 @@ describe("弹层滚动：两列各自滚、重投影不夺滚动位置", () => {
     expect(css).toContain("scrollbar-width: thin");
     expect(css).toContain("@supports not (scrollbar-color: auto)");
     expect(css).toContain(".biliscript-bilingual-col::-webkit-scrollbar");
-  });
-
-  it("重投影不夺滚动位置：卡片被组件摘下重装后，两列 scrollTop 原样", () => {
-    loadTracks(SAMPLE_TRACKS, "ai-zh");
-    setBilingual(true, "en-US");
-    shell.renderReadingView();
-    trigger().click(); // 真实展开路径（浮层打开时滚动位置才是用户看得到的那份）
-    const mainCol = col("main")!;
-    const subCol = col("sub")!;
-    expect(mainCol).toBeTruthy();
-    expect(subCol).toBeTruthy();
-    mainCol.scrollTop = 42;
-    subCol.scrollTop = 17;
-
-    // 真机行为补进 jsdom：组件重铺选项走 dropdown.replaceChildren()，卡片随之脱离
-    // 文档（随后 ensureBilingualCard 按引用装回）⇒ 上两行的 scrollTop 归零。
-    // 只有跨两列的那枚浮层会带走卡片；副列壳内那枚浮层重铺的是列内选项行，
-    // 列本身不动 ⇒ 不模拟（选列模块里也没有 .biliscript-bilingual-col 后代）。
-    const originalReplace = Element.prototype.replaceChildren;
-    const replaceSpy = vi.spyOn(Element.prototype, "replaceChildren").mockImplementation(function (
-      this: Element,
-      ...nodes: (Node | string)[]
-    ): void {
-      this.querySelectorAll(".biliscript-bilingual-col").forEach((node) => {
-        (node as HTMLElement).scrollTop = 0;
-      });
-      originalReplace.apply(this, nodes);
-    });
-
-    clickSubOption("日本語");
-
-    expect(replaceSpy).toHaveBeenCalled(); // 前提：本轮确实发生了组件重铺（否则空转）
-    expect(mainCol.scrollTop).toBe(42);
-    expect(subCol.scrollTop).toBe(17);
   });
 });

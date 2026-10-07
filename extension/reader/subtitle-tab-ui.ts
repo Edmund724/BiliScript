@@ -37,9 +37,11 @@
 //   - 主列 = 既有 readingSubtitleSelect 的组件浮层，六态与行为逐字不动；
 //   - 副列 = 第二枚 select 的组件壳，常驻副列（宿主与壳 display: contents，自带
 //     trigger 收起），只有列里的选项行可见。
-// 卡片骨架是**节点身份不变量**（buildBilingualCard 一次建好）：组件每次换选项都整批
-// 重写浮层子节点，骨架按引用搬回原位、子树原样保留，故副列壳/页脚开关/监听器都不
-// 重建；渲染只改状态与文案。
+// 卡片骨架是**节点身份不变量**（buildBilingualCard 一次建好），落位走组件的槽位声明
+//（setCustomSelectSlots，2026-10 深化）：卡片根 + 选项行落点 + trigger 徽标各声明一次，
+// 此后组件换整批选项只摘它自己产出的 <li>，骨架全程留在浮层里、子树原样保留，故副列壳/
+// 页脚开关/监听器都不重建、列滚动位置也不被销毁；渲染只改状态与文案，不搬节点、
+// 不快照滚动位置、不 poke 组件内部节点。
 // 形态度量照抄 01 号票原型 README §4/§7 的 A 变体（实测 300.22×315 卡片、右锚、
 // 双列各 140.11、trigger 定宽 120px + 徽标、页脚固定在滚动区外、空态文案不参与
 // 列宽、单轨态说明进列表区），规则在 entry/styles/bilingual-subtitles.css。
@@ -72,7 +74,7 @@ import type { Settings } from "../core/defaults.js";
 import { isProgrammaticScrolling, ids } from "./state.js";
 import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
-import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
+import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
 // 副轨（双语第二路轨）的目标解析 + 装载事务（唯一落点）：本叶子只做 DOM 投影与在飞禁用。
 import {
   ensureSecondarySubtitleLoaded,
@@ -165,11 +167,13 @@ export function buildSubtitleTabBodyHtml(): string {
 // ===== 选轨控件（票 subtitle-track-picker/08）=====
 //
 // 原生 select 是唯一值源，ui/custom-select 是唯一可见 affordance（Q3：同一面板
-// 内不出现两族 affordance）。三条外部入口用法（组件侧边界，05/10 号票已定）：
+// 内不出现两族 affordance）。四条外部入口用法（组件侧边界，05/10 号票 + 2026-10 深化）：
 //   - 换整批选项 → 写原生 select.innerHTML 再 rebuildCustomSelectOptions（壳不
 //     重建，写在 trigger 上的 disabled/aria-busy 状态不被抹）；
 //   - 写当前值 → setCustomSelectValue（不派发 change，水合专用）；
-//   - 禁用/忙碌 → setCustomSelectState（消费者不 poke trigger 节点）。
+//   - 禁用/忙碌 → setCustomSelectState（消费者不 poke trigger 节点）；
+//   - 浮层槽位 → setCustomSelectSlots（卡片根 / 选项行落点 / trigger 徽标各声明一次，
+//     组件换项时保留这些节点；消费者不搬节点、不快照滚动位置）。
 //
 // 六态（03 号票裁定，共用同一个控件状态机，不各写一套显示分支）：
 //   default       有轨 → 选项 = clip.subtitles，trigger = 当前轨裸语言名；
@@ -223,9 +227,6 @@ export function renderReadingSubtitleTrackPicker(): void {
   if (!select) {
     return;
   }
-  // 滚动位置要在**组件重铺选项之前**取：那一步（rebuildCustomSelectOptions 的
-  // dropdown.replaceChildren）会把卡片摘下，届时两列的 scrollTop 已经不在了。
-  const scrollSnapshot = capturePickerScroll();
   // 先把选项写进原生 select，再建壳：initCustomSelect 会按现值铺一次项集，
   // 顺序反过来（先建壳再写选项）会白铺一次空集。
   const tracks = (state.clip.subtitles || []) as unknown as SubtitleTrack[];
@@ -288,8 +289,8 @@ export function renderReadingSubtitleTrackPicker(): void {
 
   rebuildCustomSelectOptions(select);
 
-  // 双语卡片装配：上面那次 rebuild 已把主列选项行重铺进组件浮层，这里把它们连同
-  // 副列与页脚开关装进同一张卡片（双语关时卡片 = 「单列 + 页脚开关」）。
+  // 双语卡片装配：主列选项行的落点由下面 projectBilingualPicker 的槽位声明给出
+  //（双语关时卡片 = 「单列 + 页脚开关」）。
   projectBilingualPicker(tracks, dual);
 
   // 值必须**无条件**写一次：上面整批重建选项会把原生选中态打回「重建后的 DOM
@@ -298,15 +299,16 @@ export function renderReadingSubtitleTrackPicker(): void {
   // 在飞期间写的值是乐观目标轨（Q13），其余时候按 state 的当前轨。
   setCustomSelectValue(select, switchInFlight ?? findTrackValueById(state.clip.selectedSubtitleId));
 
-  // 状态机（六态里的 empty / transcribing / busy 三态都由这里收敛）：
-  // 在飞期间 disabled + busy 都不动，避免重渲把乐观 trigger 与禁用解掉。
+  // 状态机（六态里的 empty / transcribing / busy 三态都由这里收敛）：**无条件**写全
+  // 一次，不手工绕开收敛——在飞折进判据，投影算出的正是切轨那一刻写的乐观态那一组值，
+  // 故在飞期间的重渲解不掉乐观 trigger 与禁用（2026-10-06 实测：若不收敛，切成功后
+  // trigger.disabled 恒 true）。
   // 双语开关不影响本列：主列的可点性只由主轨相位决定（02 号票 Q9：副轨在飞/失败
   // 不阻塞主轨；反之亦然）。
-  if (switchInFlight === null) {
-    setCustomSelectState(select, { disabled, busy: false });
-  }
-  // 卡片刚被摘下又装回（见 capturePickerScroll）：把两列的滚动位置写回。
-  restorePickerScroll(scrollSnapshot);
+  setCustomSelectState(select, {
+    disabled: disabled || switchInFlight !== null,
+    busy: switchInFlight !== null
+  });
 }
 
 // 选轨结果通知回调（由 reader/lifecycle 注入）：失败时经 reader-bus 的 "status"
@@ -529,13 +531,13 @@ function resolveSecondaryColumn(): SecondaryColumnModel {
   return { ...model, selectedUrl, retry: slot.state === "error" };
 }
 
-// 卡片骨架（双语弹层的节点身份不变量）。组件每次换选项都整批重写浮层子节点
-//（custom-select.ts 的 refreshOptionNodes = dropdown.replaceChildren()），卡片会被
-// 一起摘掉；这里按引用把**同一个**骨架搬回原位——子树原样保留，副列壳、页脚开关、
-// 监听器都不重建。骨架建立后只改状态与文案，不再造节点（Q10：组件侧零概念）。
+// 卡片骨架（双语弹层的节点身份不变量）。骨架的落位与选项行落点都交给组件的槽位声明
+//（setCustomSelectSlots，2026-10 深化）：组件换整批选项只摘它自己产出的 <li>，骨架
+// 全程留在浮层里——子树原样保留，副列壳、页脚开关、监听器都不重建，列滚动位置也不被
+// 销毁。骨架建立后只改状态与文案，不再造节点（Q10：组件侧零概念）。
 interface BilingualCardNodes {
+  mainSelect: HTMLSelectElement;
   pickerWrapper: HTMLElement;
-  dropdown: HTMLElement;
   root: HTMLElement;
   mainHead: HTMLElement;
   hint: HTMLElement;
@@ -548,37 +550,11 @@ interface BilingualCardNodes {
   // 页脚状态提示位（③ 主副同轨；2026-10-06 用户裁决：放「双语字幕」右边，不进副列列表）
   footerNote: HTMLElement;
   toggle: HTMLButtonElement;
+  // trigger 插位（双语徽标）：建卡时建好，双语态经槽位声明交给组件落位
+  badge: HTMLElement;
 }
 
 let bilingualCardNodes: BilingualCardNodes | null = null;
-
-// ===== 弹层滚动位置的保命绳（2026-10-06 真机走查 run13）=====
-// 组件重铺选项（rebuildCustomSelectOptions → refreshOptionNodes）走
-// `dropdown.replaceChildren()`：卡片整块脱离文档、随后由 ensureBilingualCard 按引用
-// 装回。**节点身份因此不变，但滚动位置不在节点身份里**——真机实测：子树脱离文档后
-// 布局盒销毁，两列（各自一条滚动条，见 bilingual-subtitles.css）的 scrollTop 一起
-// 归零，用户看到的就是「在副列底部选完一条语言，整列跳回列表顶部」。
-// 故重铺之前把两列的位置存下来、投影结束后写回；只在快照节点仍在文档里时写回
-//（整块重建 forceRecreate 的新列不该继承旧位置）。
-type PickerScrollSnapshot = Array<readonly [HTMLElement, number]>;
-
-function capturePickerScroll(): PickerScrollSnapshot {
-  const root = bilingualCardNodes?.root;
-  if (!root) {
-    return [];
-  }
-  return [...root.querySelectorAll<HTMLElement>(".biliscript-bilingual-col")]
-    .filter((node) => !node.hidden)
-    .map((node) => [node, node.scrollTop] as const);
-}
-
-function restorePickerScroll(snapshot: PickerScrollSnapshot): void {
-  for (const [node, top] of snapshot) {
-    if (top > 0 && node.isConnected) {
-      node.scrollTop = top;
-    }
-  }
-}
 
 function buildColumnHead(text: string): HTMLElement {
   const head = document.createElement("div");
@@ -587,27 +563,25 @@ function buildColumnHead(text: string): HTMLElement {
   return head;
 }
 
-// 认领卡片骨架。pickerWrapper 与 dropdown 的身份同时变 = 壳被整块重建过（reader 面板
-// forceRecreate），旧骨架连同旧 select 一并作废，重建一份。
+// 认领卡片骨架。pickerWrapper 身份变了 = 壳被整块重建过（reader 面板 forceRecreate），
+// 旧骨架连同旧 select 一并作废，重建一份。骨架的**落位**不在这里做（也不需要在换项
+// 时做）：它是槽位声明的事（见 projectBilingualPicker 的 setCustomSelectSlots），组件
+// 换项时同样保留——本叶子不再按引用搬卡片。
 function ensureBilingualCard(): BilingualCardNodes | null {
   const mainSelect = document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement | null;
   const pickerWrapper = mainSelect?.closest<HTMLElement>(".biliscript-reading-track-picker") ?? null;
-  const dropdown = pickerWrapper?.querySelector<HTMLElement>(".custom-select-dropdown") ?? null;
-  if (!pickerWrapper || !dropdown) {
+  if (!mainSelect || !pickerWrapper) {
     return null;
   }
   const existing = bilingualCardNodes;
-  if (existing && existing.pickerWrapper === pickerWrapper && existing.dropdown === dropdown) {
-    if (existing.root.parentElement !== dropdown) {
-      dropdown.appendChild(existing.root);
-    }
+  if (existing && existing.pickerWrapper === pickerWrapper) {
     return existing;
   }
-  bilingualCardNodes = buildBilingualCard(pickerWrapper, dropdown);
+  bilingualCardNodes = buildBilingualCard(mainSelect, pickerWrapper);
   return bilingualCardNodes;
 }
 
-function buildBilingualCard(pickerWrapper: HTMLElement, dropdown: HTMLElement): BilingualCardNodes {
+function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLElement): BilingualCardNodes {
   const root = document.createElement("li");
   root.className = "biliscript-bilingual-popover";
   root.setAttribute("role", "presentation");
@@ -676,8 +650,15 @@ function buildBilingualCard(pickerWrapper: HTMLElement, dropdown: HTMLElement): 
   toggle.addEventListener("click", handleBilingualSwitchClick);
   footer.append(label, footerNote, toggle);
 
+  const badge = document.createElement("span");
+  badge.className = "biliscript-bilingual-badge";
+  badge.id = SUBTITLE_BILINGUAL_BADGE_ID;
+  badge.textContent = SUBTITLE_BILINGUAL_BADGE_TEXT;
+
   root.append(main, footer);
-  dropdown.appendChild(root);
+  // 卡片根的落位不在这里：它是槽位声明里的 extras（见 projectBilingualPicker 的
+  // setCustomSelectSlots），由组件按声明装进浮层本体（[hidden] 收起态与
+  // `:has(> .biliscript-bilingual-popover)` 的度量规则都按它直接挂在浮层本体下写）。
   // 副列的值源：一枚原生 select + 组件壳（壳插在 select 当前位置并把 select 收进壳内，
   // 与主列同款）。壳常驻副列（display: contents），不随渲染搬动。
   initCustomSelect(secondarySelect, "custom-select-wrapper biliscript-bilingual-secondary-picker");
@@ -686,8 +667,8 @@ function buildBilingualCard(pickerWrapper: HTMLElement, dropdown: HTMLElement): 
     secondarySelect.addEventListener("change", () => handleSecondaryTrackPickerChange(secondarySelect));
   }
   return {
+    mainSelect,
     pickerWrapper,
-    dropdown,
     root,
     mainHead,
     hint,
@@ -698,11 +679,12 @@ function buildBilingualCard(pickerWrapper: HTMLElement, dropdown: HTMLElement): 
     secondarySelect,
     empty,
     footerNote,
-    toggle
+    toggle,
+    badge
   };
 }
 
-// 投影（每次渲染收口一次，幂等）：主列选项行搬进主列，副列按 resolveSecondaryColumn
+// 投影（每次渲染收口一次，幂等）：主列选项行按槽位落进主列，副列按 resolveSecondaryColumn
 // 出语言列表/占位/重试行，页脚开关按 settings 投影。
 function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   const nodes = ensureBilingualCard();
@@ -710,14 +692,15 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
     return;
   }
   const model = resolveSecondaryColumn();
-  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  // 组件那批 <li> 原样搬进主列（optionNodes / markSelected / 键盘漫游都按节点身份工作）。
-  const rows = [...nodes.dropdown.children].filter(
-    (node): node is HTMLElement => node instanceof HTMLElement && node.classList.contains("custom-select-option")
-  );
-  // 主列列表整批换行：旧行是组件上一批 optionNodes（已被它自己放弃），先清掉再搬新的。
-  nodes.mainList.replaceChildren();
-  rows.forEach((row) => nodes.mainList.appendChild(row));
+  // 槽位声明（第四条外部入口，2026-10 深化）：卡片根、选项行落点与 trigger 徽标一次
+  // 声明给组件——组件换整批选项只摘它自己产出的 <li>，卡片骨架全程留在浮层里（列滚动
+  // 位置因此不被销毁），徽标在 trigger 里的落点（值区之后、箭头之前）与它接的
+  // aria-describedby 也由组件负责。本叶子不再按引用搬卡片、不再读组件内部节点。
+  setCustomSelectSlots(nodes.mainSelect, {
+    extras: [nodes.root],
+    optionsHost: nodes.mainList,
+    triggerExtra: dual ? nodes.badge : null
+  });
 
   nodes.pickerWrapper.dataset.bilingual = dual ? "true" : "false";
   nodes.mainHead.hidden = !dual;
@@ -744,11 +727,9 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   if (dual) {
     writeSecondaryOptions(nodes.secondarySelect, tracks, model.selectedUrl);
     setCustomSelectValue(nodes.secondarySelect, model.selectedUrl);
-    // 在飞期间不动本列状态（与主列早退同款，避免重渲把乐观禁用解掉）。落定后的收敛
-    // 由 projectSecondaryLoad 的 settled 拍负责——那次收敛时在飞已清空，这里才重新写状态。
-    if (!isSecondarySubtitleLoadInFlight()) {
-      setCustomSelectState(nodes.secondarySelect, { disabled: model.busy, busy: model.busy });
-    }
+    // 状态一律无条件写全一次：在飞折进 model.busy（在飞登记 + 槽 loading 两条信号），
+    // 投影算出的正是装载起步那一刻写的乐观态那一组值，故在飞期间的重渲解不掉乐观禁用。
+    setCustomSelectState(nodes.secondarySelect, { disabled: model.busy, busy: model.busy });
   } else {
     writeSecondaryOptions(nodes.secondarySelect, [], "");
     setCustomSelectState(nodes.secondarySelect, { disabled: true, busy: false });
@@ -758,14 +739,6 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   nodes.toggle.setAttribute("aria-checked", on ? "true" : "false");
   nodes.toggle.dataset.on = on ? "true" : "false";
   nodes.toggle.disabled = isBilingualSwitchDisabled(tracks);
-
-  projectTriggerBadge(nodes.pickerWrapper, dual);
-
-  // 搬动选项行会摘掉旧父节点：若焦点正停在其中一行（展开态键盘漫游），按原节点还原
-  // 焦点，一次重渲不该打掉用户的键盘位置。
-  if (previousFocus && previousFocus.isConnected && !nodes.dropdown.hidden && rows.includes(previousFocus)) {
-    previousFocus.focus();
-  }
 }
 
 // 副列选项行的原生投影（与主列同形状：value = URL、data-id = 身份、data-lang = lan、
@@ -793,33 +766,6 @@ function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: Subtitl
       .join("");
   }
   rebuildCustomSelectOptions(select);
-}
-
-// trigger 徽标（双语态 = 主轨名 + 「双语」小徽标，trigger 定宽 120px 不动）。
-// 徽标是 trigger 的直接子节点而不是 .custom-select-value 的内容：组件的值投影
-//（syncDisplayFromValue）每次整块重写那个 span，放里面会被下一次写值抹掉。可访问名
-// 由组件从「字段名 + 现值」派生（本叶子不跟它抢 aria-label），双语信号走
-// aria-describedby 指到徽标上。
-function projectTriggerBadge(pickerWrapper: HTMLElement, on: boolean): void {
-  const trigger = pickerWrapper.querySelector<HTMLButtonElement>(".custom-select-trigger");
-  if (!trigger) {
-    return;
-  }
-  let badge = trigger.querySelector<HTMLElement>(".biliscript-bilingual-badge");
-  if (!on) {
-    badge?.remove();
-    trigger.removeAttribute("aria-describedby");
-    return;
-  }
-  if (!badge) {
-    badge = document.createElement("span");
-    badge.className = "biliscript-bilingual-badge";
-    badge.id = SUBTITLE_BILINGUAL_BADGE_ID;
-    badge.textContent = SUBTITLE_BILINGUAL_BADGE_TEXT;
-    // 值区之后、箭头之前（值 + 徽标贴 start 端，箭头仍贴 end 端）
-    trigger.insertBefore(badge, trigger.querySelector(".custom-select-arrow"));
-  }
-  trigger.setAttribute("aria-describedby", SUBTITLE_BILINGUAL_BADGE_ID);
 }
 
 // 副轨装载事务的 DOM 投影（开关打开 / 副列改选 / 重试共用一条入口）。判定与装载全在
