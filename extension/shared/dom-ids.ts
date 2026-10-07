@@ -91,7 +91,8 @@ export const ids = {
   // 档位条目容器（档位页内；条目 = 可用集按显示口径派生，见 chat/thinking-picker）。
   readingChatThinkingToggle: "biliscript-reading-chat-thinking-toggle",
   // 思考档位「关不掉」提示行（工单 03）：档位行之后（面板底部固定区），
-  // 默认 hidden，对话组合根（reader/chat-tab.ts）按 resolver 判定显隐。
+  // 默认 hidden，由模型面板（reader/chat-model-panel.ts）按 chat/thinking-picker 视图值
+  // 的 hint 写文案与显隐（2026-10 深化：原写手是对话组合根 reader/chat-tab.ts）。
   readingChatThinkingHint: "biliscript-reading-chat-thinking-hint",
   readingChatHistoryPopover: "biliscript-reading-chat-history-popover",
   readingChatHistoryList: "biliscript-reading-chat-history-list",

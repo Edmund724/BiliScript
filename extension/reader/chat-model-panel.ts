@@ -12,8 +12,9 @@
 // 2026-10 用户裁定（票据 chat-thinking-submenu，二级菜单）：面板分两页——
 // 模型页（分组模型列表）与档位页（顶部返回行 + 档位条目）。底部固定区是一行
 // 「思考强度 <当前值> ›」，点它换页到档位页；档位条目点中即写偏好并关面板。
-// 条目与显示名由 chat/thinking-picker 的 thinkingViewOf 从一次解析给出（开关型模型收成
-// Off/On），本模块只负责画出来与翻页，不自己推导档位。
+// 条目、显示名与底部提示行（工单 03 的「关不掉」/ 05 号票的 clamp 说明）都由
+// chat/thinking-picker 的 thinkingViewOf 从一次解析给出（开关型模型收成 Off/On），
+// 本模块只负责画出来与翻页，不自己推导档位、也不自己写提示文案与显隐。
 //
 // 依赖方向（无环）：共享状态（../chat/chat-state 的 aiThinkingLevel）与
 // chat/model-select-width、chat/thinking-picker 的标签表直接 import；DOM 元素与
@@ -41,23 +42,32 @@ export interface CreateReaderChatModelPanelDeps {
   // 底部固定区的一级行（「思考强度 <当前值> ›」）与它的当前值 span
   thinkingRow: HTMLButtonElement;
   thinkingRowValue: HTMLElement;
+  // 提示行（工单 03 的「关不掉」/ 05 号票的 clamp 说明，模板默认 hidden）：由本模块按
+  // 视图值写文案与显隐——组合根不再持有该元素、也不再知道「谁先画、谁后画」。
+  // **可选（不传或传 null 即「没有提示行」）**：没有该元素时本模块静默跳过提示行，
+  // 档位与 chip 的渲染不受影响（面板其余消费方无需感知本字段）。
+  thinkingHint?: HTMLElement | null;
   // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
   hidePanel: () => void;
-  // 档位落盘出口（组合根接 providers 的 setThinkingLevel + chip/提示重判）：入参是**未归一的
+  // 档位落盘出口（组合根接 providers 的 setThinkingLevel + 视图重判）：入参是**未归一的
   // 外部值**——本模块传的是档位条目的 dataset 值（DOM 来的脏值也可能到，宽容面见
   // ai/thinking-levels.ts 的 ThinkingLevelInput），归一化在下游落盘入口做一次。
   pickLevel: (level: ThinkingLevelInput) => void;
 }
 
-// 档位条的渲染输入 = 视图值的渲染子集（显示名 + 条目；提示文案由组合根画，本模块看不到）。
-// 由 chat/thinking-picker 的 ThinkingView 派生（候选 6：调用点整份传视图值，不再手工投影），
-// 本模块不重算。
-export type ThinkingPickerView = Pick<ThinkingView, "label" | "entries">;
-
+// 面板对外的渲染入口：模型页（renderPanel）/ chip（renderChip）各自成件，思考档位的
+// 显示面**只有一个入口** renderThinkingPicker——它收 chat/thinking-picker 的整份视图值
+//（显示名 + 条目 + 提示文案）一次画完：一级行、档位条目、chip 的档位 span 与底部提示行
+// 都出自同一次解析（调用点不再只传子集、不再自己写提示行、也不再有「先画 chip 再重画」
+// 这类调用顺序知识）。
 export interface ReaderChatModelPanel {
+  // chip 的独立重渲入口：档位刷新（renderThinkingPicker）内部用它写档位 span（显示名由
+  // 那次解析写入）。2026-10 深化后**组合根不再直调它**——chip 的渲染路径收敛为
+  // refreshThinkingUi → renderThinkingPicker 一条（一次刷新/一次点击只渲一遍）；出口保留
+  // 供面板自身与直测使用。
   renderChip: () => void;
   renderPanel: () => void;
-  renderThinkingPicker: (view: ThinkingPickerView) => void;
+  renderThinkingPicker: (view: ThinkingView) => void;
 }
 
 export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps): ReaderChatModelPanel {
@@ -72,10 +82,12 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     thinkingBack,
     thinkingToggle,
     thinkingRow,
-    thinkingRowValue
+    thinkingRowValue,
+    // 缺省 = 没有提示行（模板可没有该元素）：渲染时静默跳过，其余字段照画。
+    thinkingHint = null
   } = deps;
 
-  // 档位显示名（chip 的档位 span 与一级行右侧共用）。由 renderThinkingPicker 写入；
+  // 显示名（chip 的档位 span 与一级行右侧共用）。由 renderThinkingPicker 写入；
   // 还没渲染过（面板从未刷新）时为 null，renderChip 回落标签表。
   let chipLevelLabel: string | null = null;
   // 当前是否停在档位页（换页状态；面板重开时归零）。
@@ -173,8 +185,10 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     });
   }
 
-  // 档位页（换页后的那一页）：条目来自调用方派生好的显示条目——本模块只画
-  // 「叫什么 + 打不打勾」，不推导档位。一级行由 showThinkingPage 决定是否显示。
+  // 档位页（换页后的那一页）+ 面板底部提示行：一次画完整份视图值——条目来自调用方
+  // 派生好的显示条目（本模块只画「叫什么 + 打不打勾」，不推导档位），提示文案与显隐
+  // 也来自同一次解析（`hint === null` = 不显示提示行，文案清空）。一级行由
+  // showThinkingPage 决定是否显示。
   // 2026-10-05：`Default`（不干预）是恒在的首项，所以「条目 ≤1 就隐藏整行」的旧规则退休——
   // 唯一只剩一项的情形就是「只有 Default」（模型没有可表达的强度档），而用户裁定那一格
   // **也要能主动选**（破例），因此这里只按是否在档位页决定隐藏。
@@ -182,7 +196,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // aria 用 aria-current（勾 = 「当前生效的那一项」，不承诺「激活即切换」）；**点击判据是
   // 另一个字段** `entry.writesPreference`——偏好 ≠ 实发时点勾住的那一项也写偏好（用户显式
   // 接受本次 clamp），只有「已经是偏好落在的那一项」才只关面板。两处分别读各自的字段。
-  function renderThinkingPicker(view: ThinkingPickerView): void {
+  function renderThinkingPicker(view: ThinkingView): void {
     const entries = view.entries;
     chipLevelLabel = view.label;
     thinkingRowValue.textContent = view.label;
@@ -209,6 +223,12 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     });
     // 显示名可能刚变（开关型的 On/Off、换模型的档位词）→ chip 的档位 span 同步重渲。
     renderChip();
+    // 提示行（工单 03 / 05 号票）：文案与显隐都取这次解析的视图值，写在 chip 之后（与
+    // 改造前组合根「档位区先落、提示行随后」的时序一致）。元素缺失时整块跳过。
+    if (thinkingHint) {
+      thinkingHint.textContent = view.hint ?? "";
+      thinkingHint.hidden = view.hint === null;
+    }
   }
 
   // 翻页（纯 DOM 状态，不经 popovers：换页不改变面板的开合）。

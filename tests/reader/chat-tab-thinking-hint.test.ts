@@ -1,56 +1,62 @@
 // tests/reader/chat-tab-thinking-hint.test.ts
-// 2026-10-05 由 `tests/reader/chat-thinking-hint.test.ts` 改名：被测函数是
-// `extension/reader/chat-tab.ts` 的 `updateThinkingHint`，仓内没有
-// `extension/reader/chat-thinking-hint.ts`（`chat-thinking-hint` 只是模板上的 CSS
-// class，见 extension/reader/chat-template.ts:125）。原文件名沿用了票面里的一个
-// 不存在的路径，是上游-模型-facts 审计 §10-3 的订正项。
+// 组合根（extension/reader/chat-tab.ts）档位区的**接线与端到端走查**测试
+//（tests/reader/chat-tab.test.ts 的姊妹篇）：真实模板（ensureUiReady）+ 懒装载组合根，
+// 全部用真实 DOM 事件驱动（modelSelect change / 档位按钮 click），不直调组合根内部函数。
+// 文件名沿用 2026-10-05 的订正（`chat-thinking-hint` 只是模板上的 CSS class，见
+// extension/reader/chat-template.ts:139）；被测函数是 chat-tab 的 `refreshThinkingUi`。
 //
-// 工单 03「对话 Off 关不掉思考」提示行的 UI 回归测试（tests/reader/chat-tab.test.ts
-// 的姊妹篇）：真实模板（ensureUiReady）+ 懒装载组合根，全部用真实 DOM 事件驱动
-//（modelSelect change / 档位按钮 click），不直调组合根内部函数——「档位区只由
-// chat-tab.ts 的 refreshThinkingUi 消费 resolver 判定结果驱动」正是本文件的
-// 守护意图（激活前模板默认 hidden 即其黑盒佐证）；resolver 本体（识别优先级/
-// 级联/offFallback 语义）是纯函数守护，已由 tests/ai/thinking-profiles.test.ts
-// 锁定，本文件不重复。
+// 这里钉住两件事：
+//   ① 组合根只做「装配解析入参 → 把整份视图值交给面板」——识别入参取
+//      parseModelOptionValue(select.value) 与 chatSessionState.providers 的
+//      baseUrl/presetId/model，stream 恒 true（激活前档位页为空 / 一级行 hidden 即其黑盒佐证）；
+//      档位条目、一级行、chip 显示名与提示行都随之落 DOM；
+//   ② 端到端走查（点 chip 开面板 → 换页 → 选档 → 落盘 → 关面板 → 重开回模型页）与二级
+//      菜单背后既有的持久化链。
 //
-// 覆盖（工单 AC）：
-// - 档位 Off + 关不掉模型：级联落 low（glm-5.3）→ 长文案；
-//   无 low 可落（kimi-k2.7-code，baseUrl 空）→ 短文案；两条文案与工单逐字一致；
-// - 13 号票 canonical 优先：kimi-k3 的模型侧词表（canonical = moonshotai/kimi-k3）没有
-//   toggle → off 关不掉 → 长文案（04 号票的「off 可用 → 静默」角色由 glm-4.6 承担）；
-// - never 模型（kimi-k2-instruct / deepseek-chat）与 off 正常可用模型（glm-4.6）
-//   选 Off 均静默无提示；
-// - 实时刷新：模型 change 切回可关模型提示消失、切回再现；档位 Off→Low 收起、
-//   回 Off（关不掉模型经可关模型转回）再现；
-// - 05 号票：偏好档位被 clamp 时的说明文本（逐字）；
-// - 06 号票：档位条目 = 模型可用集（只现渲存在的档位、不置灰；minimax-m3
-//   一个条目都不显示；无上游平台仍三档；clamp 掉的偏好走说明文本）；
-// - 2026-10-05 用户裁定（票据 chat-thinking-submenu）：档位区是二级菜单——底部
-//   一行「思考强度 <当前值> ›」换页到档位列表，开关型模型（rule.on）收成 Off/On，
-//   chip 与一级行显示同一个显示名；文件末的走查用例同时产出可复现工件。
-// - 口径 ③（2026-10-05 复审裁定）：偏好 off 而该模型关不掉时，chip 与一级行显示**实发档**
-//   （如 sensenova/glm-5.2 → High），不再显示线上没发的 Off；偏好本身不迁移。
+// 2026-10 深化后的分工（提示行归属变了，改本文件前先读这一段）：
+// - 提示行（工单 03「关不掉」/ 05 号票 clamp 说明）的**文案与显隐**已移入
+//   reader/chat-model-panel.ts：组合根不再持有该元素（chat-tab 的 els 已删该字段），也不再
+//   写它的 DOM、不知道调用顺序。因此「hint 显隐/接线」的专测下沉到
+//   tests/reader/chat-model-panel.test.ts（真实 DOM 直测，不挂阅读壳）；显隐条件本身
+//  （何时 view.hint = null）是 chat/thinking-picker 的纯函数口径，由
+//   tests/chat/thinking-picker.test.ts 锁定。
+// - 原先以提示行为**主题**的四组用例（Off 关不掉的逐字长/短文案、never 与可关模型的静默、
+//   模型切换/档位点击的提示实时显隐、档位 clamp 的说明文本）已随之下沉/删除——逐模型的文案
+//   矩阵在纯函数侧，文案 → DOM 在面板侧，两者都不需要真实阅读壳 + 播放器链 + 换模块纪元。
+// - 本文件保留的用例是**组合根接线与端到端走查**：提示行只作为走查快照的一列被顺带断言
+//  （真实链路整体一致性），不再是任一用例的主题。
+//
+// 覆盖：
+// - 口径 ③/⑤（2026-10-05 复审 + 裁定 B）：偏好 ≠ 实发档时一级行/chip/勾都落在实发档、
+//   点勾住的那一项即把该档写成偏好、偏好不迁移（换回原模型不回落）；走查产出可复现工件；
+// - 06 号票：档位条目 = 模型可用集（只现渲存在的档位、不置灰；零档行只剩 Default；无上游
+//   平台仍三档）；模型切换即重渲条目；点条目走既有持久化链；
+// - 二级菜单端到端走查（票据 chat-thinking-submenu/04）：开面板 → 换页 → 选档 → 落盘 +
+//   chip 更新 + 关面板 → 重开回模型页；产出工件；
+// - D1=A2 补声明走查（upstream-glm52-toggle：glm-5.2 的 Off 由平台开关形状决定）；
+// - default（不干预）档走查（thinking-default-level：出厂默认与零档行）。
 //
 // 模型选型依据（extension/ai/thinking-profiles.ts 表 + 02 产物指派表，勿凭记忆）：
 // - kimi-k2.7-code → EXCEPTIONS kimi-always：always 且无 low/on → offUnavailable
-//   + offFallback:null（短文案）；taxonomy 按模型名命中，baseUrl 刻意留空；
+//   + offFallback:null（短文案的角色仍在纯函数侧：tests/chat/thinking-picker.test.ts）；
 // - glm-5.3 → 04 号票翻转后走上游指派表（值集 low-high-max：有档位、关不掉）→
-//   offUnavailable + offFallback:"low"（长文案）；baseUrl 取 GLM preset host
-//   （core/presets.ts），顺带覆盖 resolver 的 host 推断识别路径。
-//   04 号票之前这个角色由 kimi-k3 担任（旧手写结论 kimi-k3-effort：always + effort）；
-//   04 号票翻转后 kimi-k3 的 off 可用了，长文案覆盖由 glm-5.3 接棒；13 号票的 canonical
-//   优先又让 kimi-k3 回到「关不掉」（见下一条），两条用例各覆盖一个语义。
-// - kimi-k3 → 13 号票 canonical 优先后走上游指派表（值集 low-high-max：无 toggle → 关不掉，
-//   长文案）；baseUrl 取 Kimi preset host（host 推断路径不回归）。04 号票时它是
-//   toggle+low-high-max（off 可用），该事实已被 canonical 覆盖。
-// - kimi-k2-instruct → TAXONOMY kimi-instruct-never（"kimi-k2-" 前缀）、
-//   deepseek-chat → TAXONOMY deepseek-chat-never：never → off 天然成立，静默；
-// - glm-4.6 → 上游指派表（zhipuai，值集 toggle）：off 正常可用 → offUnavailable:false。
+//   offUnavailable + offFallback:"low"（长文案，同样在纯函数侧）；
+// - glm-5.2 六行 → D1=A2 走查：zhipu / qwen 目录内行 off 可用（原生/托管两种方言），
+//   openrouter / sensenova / opencodego 三家未登记开关形状 → 条目 {high,max} + 长版提示，
+//   glm-5.2-air 目录外兜底同 zhipu 出口；
+// - deepseek-v4-pro → 上游逐模型词表 {off,low,high,max}；deepseek-v4-pro-2026 → 上游未
+//   登记、走手写兜底（xhigh → high）；
+// - glm-4.6 → 上游指派表（zhipuai，值集 toggle）→ 开关型收成 Off/On（off 正常可用）；
+// - qwen3.8-max → 上游 toggle+low-medium-xhigh（偏好 high 被裁到 medium）；
+// - MiniMax-M3 → 登记开关形状后是开关型；anthropic/claude-haiku-4.5（openrouter）→
+//   零档行（A' = ∅，只剩 Default）；
+// - kimi-k2-instruct / deepseek-chat → TAXONOMY never（off 天然成立、静默，纯函数侧）；
+// - 无上游平台（ollama / llama3.2）→ 今日三档。
 //
 // 模块纪元注意（与 chat-tab.test.ts 同款）：chatSessionState 与组合根闭包都是
 // 模块级单例，beforeEach resetModules 后同纪元导入；chrome.storage / runtime
-// 消息按 type 路由 stub（ai-providers-list 载荷带 baseUrl/model——提示判定的
-// 识别入参与 updateThinkingHint 读的 chatSessionState.providers 同源）。
+// 消息按 type 路由 stub（ai-providers-list 载荷带 baseUrl/model——档位判定的
+// 识别入参与 refreshThinkingUi 读的 chatSessionState.providers 同源）。
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -70,7 +76,7 @@ const { gatewayMock, gatewayCoreMock } = vi.hoisted(() => ({
   }
 }));
 
-// 热评/网络路径与本文件无关（提示判定不触网）：mock 保持确定性，防止 init 的
+// 热评/网络路径与本文件无关（档位判定不触网）：mock 保持确定性，防止 init 的
 // 上下文链路意外走网络（与 chat-tab.test.ts 同款）。
 vi.mock("../../extension/bilibili/gateway.js", () => ({
   getCurrentAid: gatewayMock.getCurrentAid,
@@ -81,21 +87,20 @@ vi.mock("../../extension/bilibili/gateway-core.js", () => ({
   isBiliUrl: gatewayCoreMock.isBiliUrl
 }));
 
-// 文案逐字给定（工单 03，勿改写）——断言也逐字。
+// 提示文案逐字给定（工单 03 / 05 号票，勿改写）——本文件只在走查快照里顺带断言它
+//（文案矩阵与显隐条件归纯函数侧 tests/chat/thinking-picker.test.ts，文案 → DOM 归面板侧
+// tests/reader/chat-model-panel.test.ts）。
 const HINT_LOW_FALLBACK = "当前模型不支持在本次请求中关闭思考，已使用最小思考档位";
-const HINT_UNAVAILABLE = "当前模型没办法关掉思考";
 
 // 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本（源档 → 实发档）。
 // 2026-10-05 复审裁定：句式与「关不掉思考」那句对齐，不附原因 → 断言也逐字。
 const HINT_CLAMP_HIGH_TO_MEDIUM = "当前模型不支持思考强度 high，已使用 medium";
-const HINT_CLAMP_XHIGH_TO_HIGH = "当前模型不支持思考强度 xhigh，已使用 high";
 // 06 号票（2026-10-04 用户裁定：A' = 上游词表 ∩ 平台可表达）：平台声明里有 low、上游
 // 词表没有 → 原因层是「模型词表」。13 号票 canonical 优先后 sensenova/glm-5.2 的模型侧
 // 词表只剩 high（canonical = high-max），偏好 low 没有 ≤ low 的档 → 向上落最小可用档 high。
 const HINT_CLAMP_LOW_TO_HIGH = "当前模型不支持思考强度 low，已使用 high";
 
-// Kimi/GLM preset host（core/presets.ts）：resolver host 推断的输入形状。
-const KIMI_BASE_URL = "https://api.kimi.com/coding/v1";
+// GLM preset host（core/presets.ts）：resolver host 推断的输入形状。
 const GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 const QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -284,233 +289,6 @@ function levelRowValueText(): string {
   const node = document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement | null;
   return node?.textContent || "";
 }
-
-describe("Off + 关不掉模型：resolver 判定 → 档位区提示（文案逐字）", () => {
-  it("无 low 可落 → 短文案：baseUrl 空 + kimi-k2.7-code（激活前模板默认 hidden，提示只由组合根驱动）", async () => {
-    providersPayload = [provider({ id: "p1", model: "kimi-k2.7-code" })];
-    // 偏好显式 off（出厂默认是 `default`，不参与 off 级联）。
-    settingsPayload = { aiThinkingLevel: "off" };
-
-    // 激活前：壳已建但组合根未装载，提示行保持模板默认 hidden + 空文案。
-    expect(getHint().hidden).toBe(true);
-    expect(getHint().textContent).toBe("");
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.classList.contains("chat-thinking-hint")).toBe(true);
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_UNAVAILABLE);
-    // 该模型一个强度档写点都没有（可用集空）→ 档位页只剩恒在的 Default 一项；一级行照旧
-    // **显示**（2026-10-05 用户裁定「破例 = 能主动选」，不再按条目数隐藏）。原先模板那 7 个
-    //「隐藏但仍在」的静态 chip 已随二级菜单退役。
-    expect(renderedThinkingLevels()).toEqual(["default"]);
-    expect(thinkingRow().hidden).toBe(false);
-  });
-
-  it("级联落 low → 长文案：GLM host 推断 + glm-5.3（04 号票翻转后 offFallback:\"low\"）", async () => {
-    providersPayload = [provider({ id: "p1", model: "glm-5.3", baseUrl: GLM_BASE_URL })];
-    settingsPayload = { aiThinkingLevel: "off" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
-  });
-
-  it("13 号票 canonical 优先：kimi-k3 的模型侧词表无 toggle（off 关不掉）→ 选 Off 走长文案", async () => {
-    providersPayload = [provider({ id: "p1", model: "kimi-k3", baseUrl: KIMI_BASE_URL })];
-    settingsPayload = { aiThinkingLevel: "off" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
-  });
-});
-
-describe("静默分支：never 模型与 off 正常可用模型均无提示", () => {
-  it("never（kimi-k2-instruct / deepseek-chat）与 off 可关（glm-4.6）选 Off 均保持 hidden", async () => {
-    providersPayload = [
-      provider({ id: "p1", model: "kimi-k2-instruct", baseUrl: KIMI_BASE_URL }),
-      provider({ id: "p2", model: "deepseek-chat", baseUrl: DEEPSEEK_BASE_URL }),
-      provider({ id: "p3", model: "glm-4.6", baseUrl: GLM_BASE_URL })
-    ];
-
-    await activateChatTab();
-
-    const hint = getHint();
-    // init 首判：never 模型 off 天然成立，不发参也不提示。
-    expect(hint.hidden).toBe(true);
-    expect(hint.textContent).toBe("");
-
-    const select = getModelSelect();
-    // 切到 deepseek-chat（同为 never）：仍静默。
-    select.value = modelOptionValue("p2", "deepseek-chat");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(hint.hidden).toBe(true);
-    // 切到 glm-4.6（off 正常可用）：不误报。
-    select.value = modelOptionValue("p3", "glm-4.6");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(hint.hidden).toBe(true);
-    expect(hint.textContent).toBe("");
-  });
-});
-
-describe("实时刷新：提示随模型切换与档位点击即时显隐", () => {
-  it("模型 change：关不掉（kimi-k2.7-code）→ 可关（glm-4.6）提示消失，切回再现", async () => {
-    providersPayload = [
-      provider({ id: "p1", model: "kimi-k2.7-code" }),
-      provider({ id: "p2", model: "glm-4.6", baseUrl: GLM_BASE_URL })
-    ];
-    settingsPayload = { aiThinkingLevel: "off" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_UNAVAILABLE);
-
-    const select = getModelSelect();
-    select.value = modelOptionValue("p2", "glm-4.6");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(hint.hidden).toBe(true);
-    expect(hint.textContent).toBe("");
-
-    select.value = modelOptionValue("p1", "kimi-k2.7-code");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_UNAVAILABLE);
-  });
-
-  it("档位 click：Off→Low 提示收起；经可关模型转回 Off（关不掉模型）提示再现且文案不变", async () => {
-    // 模型 = glm-5.3（04 号票翻转后关不掉、级联落 low）；翻转前这个角色是 kimi-k3。
-    // 2026-10-05 起关不掉的模型**没有 Off 条目**（列表 = 真实档位），故「回 Off」这条
-    // 路径只能经可关模型点 Off 再切回来——也正是用户真实能走到的路径。
-    providersPayload = [
-      provider({ id: "p1", model: "glm-5.3", baseUrl: GLM_BASE_URL, presetId: "zhipu" }),
-      provider({ id: "p2", model: "glm-4.6", baseUrl: GLM_BASE_URL, presetId: "zhipu" })
-    ];
-    settingsPayload = { aiThinkingLevel: "off" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
-    // 关不掉 → 没有 Off 条目；条目就是上游词表的三档。
-    expect(renderedThinkingLevels()).toEqual(["default", "low", "high", "max"]);
-
-    // Off→Low：档位切走即收提示（setThinkingLevel 同步写档位，紧随的重判读到新值）。
-    clickThinking("low");
-    expect(hint.hidden).toBe(true);
-    expect(hint.textContent).toBe("");
-    expect(requireThinkingBtn("low").classList.contains("is-active")).toBe(true);
-
-    // 经可关模型（glm-4.6 是开关型）点 Off：偏好回到 off（这条链上 chip 显示 Off）。
-    const select = getModelSelect();
-    select.value = modelOptionValue("p2", "glm-4.6");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(renderedThinkingLabels()).toEqual(["Default", "Off", "On"]);
-    clickThinking("off");
-
-    // 切回关不掉模型：偏好仍是 off → 长文案再现。
-    select.value = modelOptionValue("p1", "glm-5.3");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_LOW_FALLBACK);
-  });
-});
-
-// 05 号票（决策 #8 + 裁定 A「clamp 落线 = 实发档位」）：偏好档位被模型词表 clamp 掉时，
-// 提示行如实给出源档 → 实发档（2026-10-05 复审：句式与「关不掉」那句对齐、不附原因）。
-// off 的既有判定与文案（上面两组）保持不变。
-describe("档位 clamp：提示面给出「源档 → 实发档」（句式与关不掉提示对齐）", () => {
-  it("模型词表没有该档：qwen3.8-max + 偏好 high → 实发 medium（提示逐字 + chip 同源）", async () => {
-    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL, presetId: "qwen" })];
-    settingsPayload = { aiThinkingLevel: "high" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_CLAMP_HIGH_TO_MEDIUM);
-    // 2026-10-05 复审：chip 与一级行显示实发档，不再显示被裁掉的偏好（High）。
-    expect(chipLevelText()).toBe("Medium");
-    expect(levelRowValueText()).toBe("Medium");
-    // 2026-10-05 裁定 B：勾也落在实发档；点勾住的 medium 即把偏好写成 medium（提示随之收起）。
-    expect(effectiveThinkingLevels()).toEqual(["medium"]);
-    clickThinking("medium");
-    expect(chatSessionState.aiThinkingLevel).toBe("medium");
-    expect(chipLevelText()).toBe("Medium");
-    expect(hint.hidden).toBe(true);
-  });
-
-  it("可用的档位不误报：qwen3.8-max + 偏好 low → 无提示", async () => {
-    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL })];
-    settingsPayload = { aiThinkingLevel: "low" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.hidden).toBe(true);
-    expect(hint.textContent).toBe("");
-  });
-
-  it("上游未登记该模型（手写兜底）：deepseek-v4-pro-2026 + 偏好 xhigh → 实发 high", async () => {
-    providersPayload = [provider({ id: "p1", model: "deepseek-v4-pro-2026", baseUrl: DEEPSEEK_BASE_URL })];
-    settingsPayload = { aiThinkingLevel: "xhigh" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_CLAMP_XHIGH_TO_HIGH);
-  });
-
-  it("实时刷新：切到会把偏好 clamp 掉的模型即出现、切回原样可用的模型即收起", async () => {
-    // 二级菜单下用户只能点「该模型真有」的条目，所以「被 clamp 的偏好」只可能由
-    // 换模型或存储态带进来（旧用例点不可见的 high 条目是不可达路径）——这里走真实路径。
-    providersPayload = [
-      provider({ id: "p1", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" }),
-      provider({ id: "p2", model: "glm-5.2", baseUrl: SENSENOVA_BASE_URL, presetId: "sensenova" })
-    ];
-    settingsPayload = { aiThinkingLevel: "low" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    // deepseek-v4-pro 词表里有 low：偏好原样可用 → 无提示。
-    expect(renderedThinkingLevels()).toEqual(["default", "off", "low", "high", "max"]);
-    expect(hint.hidden).toBe(true);
-
-    // 切到 sensenova/glm-5.2（A' = {high,max}，没有 ≤ low 的档）：向上落 high → 提示出现。
-    const select = getModelSelect();
-    select.value = modelOptionValue("p2", "glm-5.2");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(hint.hidden).toBe(false);
-    expect(hint.textContent).toBe(HINT_CLAMP_LOW_TO_HIGH);
-
-    // 切回有 low 的模型：偏好没有被迁移（05 号票）→ 提示收起、原样可用。
-    select.value = modelOptionValue("p1", "deepseek-v4-pro");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(hint.hidden).toBe(true);
-    expect(hint.textContent).toBe("");
-  });
-
-  it("off 的既有判定优先：qwen3.8-max + 偏好 off → off 可用，静默（不显示 clamp 文案）", async () => {
-    providersPayload = [provider({ id: "p1", model: "qwen3.8-max", baseUrl: QWEN_BASE_URL })];
-    settingsPayload = { aiThinkingLevel: "off" };
-
-    await activateChatTab();
-
-    const hint = getHint();
-    expect(hint.hidden).toBe(true);
-    expect(hint.textContent).toBe("");
-  });
-});
 
 // ============================================================
 // 显示口径统一（2026-10-05 复审 + 裁定 B，票据 chat-thinking-submenu/05）：偏好 ≠ 实发档时

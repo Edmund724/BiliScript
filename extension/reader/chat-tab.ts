@@ -150,8 +150,6 @@ const els = {
   thinkingBack: document.getElementById(ids.readingChatThinkingBack) as HTMLElement,
   // 联网搜索开关 pill（spec §4，输入行 + 右侧）
   webSearchPill: document.getElementById(ids.readingChatWebSearchPill) as HTMLElement | null,
-  // 思考档位「关不掉」提示行（工单 03，模板默认 hidden）
-  thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
   newChatBtn: document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement,
   historyBtn: document.getElementById(ids.readingChatHistoryBtn) as HTMLButtonElement,
   historyPopover: document.getElementById(ids.readingChatHistoryPopover) as HTMLElement,
@@ -515,6 +513,10 @@ const modelPanel = createReaderChatModelPanel({
   thinkingToggle: els.thinkingToggle,
   thinkingRow: els.thinkingRow,
   thinkingRowValue: els.thinkingRowValue,
+  // 思考档位「关不掉」提示行（工单 03，模板默认 hidden）：随本次深化移入面板注入面——
+  // 本文件不再持有该元素、不写它的显隐/文案，也不知道「先画档位再画提示」这种调用顺序
+  // （面板 renderThinkingPicker 收整份视图值一次画完）。
+  thinkingHint: document.getElementById(ids.readingChatThinkingHint) as HTMLElement | null,
   hidePanel: () => popovers.hideModelPanel(),
   // 档位条目的落盘出口（惰性互引 pickThinkingLevel，见下）。
   pickLevel: (level) => pickThinkingLevel(level)
@@ -534,8 +536,8 @@ const widthEls: ModelSelectWidthEls = {
 // chatRuntime 实例方法。
 // AI 平台加载渲染 + 思考档位（widthEls 见上：度量对象是 chip/chipModel/chipLevel
 // 引用包；providers 内部的 updateModelSelectWidth 调用随 select 渲染刷新 chip
-// 宽度）。思考档位区的 DOM 与判定在本文件（refreshThinkingUi：档位 chip 集合 +
-// 「关不掉」提示），baseUrl 识别入参由 providers 模块自 ai-providers-list
+// 宽度）。思考档位区的判定在本文件（refreshThinkingUi：偏好 + 上下文 → 视图值），
+// DOM 全在面板（含提示行），baseUrl 识别入参由 providers 模块自 ai-providers-list
 // 载荷透传。
 const providerPrefs = createProviderPrefs({
   modelSelect: els.modelSelect,
@@ -545,11 +547,13 @@ const providerPrefs = createProviderPrefs({
 const { loadProvidersAndPrefs, setThinkingLevel, setWebSearchEnabled } = providerPrefs;
 
 // ============================================================
-// 思考档位区刷新（chip 集合 + 提示行；工单 03 的提示 + 06 号票的 chip）
+// 思考档位区刷新（解析 → 整份视图值交给面板）
 // ============================================================
 
-// 档位区刷新（06 号票：一次解析同时决定「哪些 chip 存在」与「提示文案」；候选 6 起这次
-// 解析直接产出视图值，本函数只把三值画到 DOM）。
+// 档位区刷新（06 号票：一次解析同时决定「哪些档位存在」与「提示文案」；候选 6 起这次
+// 解析直接产出视图值）。本函数只做「解析入参装配 → 交给面板」——一级行、档位条目、chip
+// 的档位 span 与底部提示行都由面板从这**一份**视图值画出来，本文件不碰这些 DOM，也不再
+// 承担 chip 与面板的重渲顺序（面板 renderThinkingPicker 内部一次画完）。
 // 刷新点三处：模型选择 change、档位按钮点击、平台列表重载（init 与
 // loadProvidersAndPrefs 之后）——模型/档位一变即重判。
 function refreshThinkingUi(): void {
@@ -561,7 +565,7 @@ function refreshThinkingUi(): void {
   // enable_thinking:false）在对话里正常可用，不误报提示。
   const selected = parseModelOptionValue(els.modelSelect.value);
   const provider = chatSessionState.providers.find((item) => item.id === selected.providerId);
-  // 偏好 + 上下文 → 视图值（chip 集合 = 只显示存在的档位、不置灰；一级行/chip 的显示名 =
+  // 偏好 + 上下文 → 视图值（档位集合 = 只显示存在的档位、不置灰；一级行/chip 的显示名 =
   // 口径 ③ 的实发档；底部提示行 = 口径①②的文案）。解析只发生这一次，显示口径与请求落线
   // 同源——本文件不再自己判文案，也不手工摘解析字段。
   const view = thinkingViewOf({
@@ -571,29 +575,24 @@ function refreshThinkingUi(): void {
     level: chatSessionState.aiThinkingLevel,
     stream: true
   });
-  // 档位条先落（提示行元素缺失也不影响档位的显隐与显示名）。面板只画结果（二级菜单换页 +
-  // 选中打勾）：开关型模型在这里被收成 Off/On 两项、chip 与一级行同步显示 On；偏好 ≠ 实发档
-  // 时显示**实发档**（关不掉 → {high,max} 显示 High；档位型 clamp → 偏好 high 而 A' =
-  // {low,medium} 显示 Medium），不再显示线上没发的东西（2026-10-05 两轮复审裁定）。
+  // 整份视图值交给面板（唯一画侧入口）：开关型模型在这里被收成 Off/On 两项、chip 与一级行
+  // 同步显示 On；偏好 ≠ 实发档时显示**实发档**（关不掉 → {high,max} 显示 High；档位型
+  // clamp → 偏好 high 而 A' = {low,medium} 显示 Medium），不再显示线上没发的东西
+  //（2026-10-05 两轮复审裁定）；提示行（工单 03 / 05 号票）也随这次解析一起落 DOM。
   modelPanel.renderThinkingPicker(view);
-  const hint = els.thinkingHint;
-  if (!hint) {
-    return;
-  }
-  hint.textContent = view.hint ?? "";
-  hint.hidden = view.hint === null;
 }
 
 // 档位落盘出口（面板档位条目的点击经 deps.pickLevel 回到这里）：setThinkingLevel
 // 首行同步写 chatSessionState.aiThinkingLevel，紧随的重判读到的是新档位（档位切走
-// 即收提示，切回 Off 再现）；chip 的档位文案与档位条的选中态都随重判重渲。
+// 即收提示，切回 Off 再现）；chip 的档位文案、档位条的选中态与提示行都随重判重渲。
+// **一次点击只渲一遍**：本函数不再先调 renderChip（那是 refreshThinkingUi →
+// renderThinkingPicker 内部的事），chip 的渲染路径收敛为 refreshThinkingUi 一条。
 // 面板在调用点之后自会关掉（hidePanel，用户裁定：选完即关）。
 // 入参与 providers 的 setThinkingLevel 同域：**未归一的外部值**（面板传的是 dataset
 // 里的档位词，宽容面见 ai/thinking-levels.ts 的 ThinkingLevelInput）——本函数只转交，
 // 归一化在落盘入口做一次。
 function pickThinkingLevel(level: ThinkingLevelInput): void {
   void setThinkingLevel(level);
-  modelPanel.renderChip();
   refreshThinkingUi();
 }
 
@@ -665,10 +664,10 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
   await Promise.all([
     sendRuntimeMessage({ type: "ensure-offscreen-chat" }).catch(() => null),
     loadProvidersAndPrefs().then(() => {
-      // 平台列表/档位落定后：首判「关不掉」提示（此后由模型切换/档位点击/
-      // 外部刷新续判）+ 模型 chip 首渲（renderModelSelect 已把选中项写进 select）。
+      // 平台列表/档位落定后：首判档位区（「关不掉」提示 + 档位条目 + 模型 chip 首渲，
+      // renderModelSelect 已把选中项写进 select）——此后由模型切换/档位点击/外部刷新续判。
+      // chip 首渲不再单独调用（refreshThinkingUi 经面板内部画它），一次刷新只渲一遍。
       refreshThinkingUi();
-      modelPanel.renderChip();
     }),
     conversationStore.loadAll(),
     loadContextState()
@@ -690,9 +689,9 @@ async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promi
 // 静默重取上下文（签名短路便宜）→ 恢复匹配当前上下文的最近会话 → 按会话历史
 // 重渲消息区（顺带清掉关闭时残留的流式半截节点）。
 async function restoreChatSession(): Promise<void> {
-  // 与 init / 外部变更刷新同口径三件：平台列表 + 模型 chip + 档位提示。
+  // 与 init / 外部变更刷新同口径一件：平台列表落定后重判档位区（chip + 档位条目 + 提示行
+  // 都由这一次重判画出来，不再另调 renderChip）。
   await loadProvidersAndPrefs().catch(() => null);
-  modelPanel.renderChip();
   refreshThinkingUi();
   const ok = await loadContextState({ forceRefresh: false, silent: true }).catch(() => false);
   if (!ok) {
@@ -994,9 +993,9 @@ function bindEvents(): void {
     }
     void sendRuntimeMessage({ type: "save-settings", settings: { defaultModel: providerId } }).catch(() => null);
     updateModelSelectWidth(widthEls);
-    // 模型选择变化：重渲 chip 文案（模型名）+ 重判提示（含从「关不掉」模型
-    // 切回可关模型时消失）。
-    modelPanel.renderChip();
+    // 模型选择变化：重判档位区（chip 文案含模型名 + 档位显示名 + 提示行一起重渲，含从
+    // 「关不掉」模型切回可关模型时提示消失）。chip 不单独调用——refreshThinkingUi 经面板
+    // 内部画它，一次 change 只渲一遍。
     refreshThinkingUi();
   });
   // 档位条目的点击接线已随二级菜单下沉到 reader/chat-model-panel.ts（条目现渲，
@@ -1107,8 +1106,8 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
   // 选中平台回退取 providers 模块的 storage 闭包缓存。
   const previousProviderId = String(els.modelSelect?.value || providerPrefs.getStoredSelectedProviderId() || "").trim();
   await loadProvidersAndPrefs({ preferredProviderId: previousProviderId });
-  // 外部变更可能整体替换平台列表/选中平台/档位：与 init 同口径重渲 chip + 重判提示。
-  modelPanel.renderChip();
+  // 外部变更可能整体替换平台列表/选中平台/档位：与 init 同口径重判档位区（chip + 档位
+  // 条目 + 提示行）。chip 不单独调用——refreshThinkingUi 经面板内部画它。
   refreshThinkingUi();
   // 在途回合（含「已受理、端口未建」的窗口）只推迟视图重建：历史列表照刷
   //（renderHistoryList 提到守卫之前，顺序即契约），in-flight 的流式节点不被
