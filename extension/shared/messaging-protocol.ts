@@ -412,7 +412,8 @@ export type SearchCacheMessage = {
   // put 载荷：实际产出结果的引擎名
   platform?: string;
 };
-// 响应锚点：entry/background.ts handleSearchCache。
+// 响应锚点：search/search-cache-handler.ts 的 createSearchCacheHandler（组合根只
+// 登记工厂实例）。
 export type SearchCacheResponse = {
   ok: boolean;
   // get：是否命中未过期条目
@@ -437,7 +438,8 @@ export type SearchHealthMessage = {
   ok?: boolean;
   latencyMs?: number;
 };
-// 响应锚点：entry/background.ts handleSearchHealth。
+// 响应锚点：search/search-health-handler.ts 的 createSearchHealthHandler（组合根只
+// 登记工厂实例）。
 export type SearchHealthResponse = { ok: boolean; error?: string };
 
 export type OffloadTaskMessage = {
@@ -649,8 +651,10 @@ export type BackgroundMessageHandler<K extends BackgroundMessageType> = (
 //      OFFSCREEN_ONLY_MESSAGE_TYPES）与 payload 最小 schema（＝下表 shape 判据）；
 //   ③ 入口回包口径（下表 reply；branch 档的 handler 返回值判定见
 //      MessageReplyDecision，handler 注册面的返回值契约由该登记派生）。
-// handler 本体留在组合根 entry/background.ts 的路由表（satisfies 穷尽对齐本表
-// 键集；shared 是叶子层，不得反向引用 entry 的 handler）。
+// handler 本体以工厂形态住域 module（core/provider-handlers.ts、
+// ai/segment-cache-handler.ts、search/search-cache-handler.ts 等），组合根
+// entry/background.ts 的路由表只登记工厂实例（satisfies 穷尽对齐本表键集；shared
+// 是叶子层，不得反向引用 entry 的 handler）。
 
 // 回包口径：chrome.runtime.onMessage 监听器返回值语义显式化。
 // - async：处理器持有回包通道（可能同步也可能异步回包），入口恒返回 true

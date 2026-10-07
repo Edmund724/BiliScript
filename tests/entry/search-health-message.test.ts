@@ -1,12 +1,14 @@
-// search-health 消息族 SW 端路由 + 冷却消费测试（spec §12.4 第 5–8 条 / §12.5 第
-// 10–11 行、§10 第 66–67、73 行、票 15 §4）。覆盖：
-//   ① 记账消息族：content（tab）来源不被来源守卫拦（不进 offscreen-only 名单）、
-//      落 chrome.storage.local 单键、SW 侧盖时间戳、脏载荷不落盘、未知 op → ok:false；
-//   ② 冷却消费：连败触发后 resolve 路由跳过该引擎（inline 失效保证写后读）、
+// search-health 记账消息族的**消费面**测试（spec §12.4 第 5–8 条 / §12.5 第 10–11 行、
+// §10 第 66–67、73 行、票 15 §4）：本文件只留「记账经消息落到 SW 之后，resolve 路由与
+// 健康度快照位如何消费它」的整合用例——这些用例跨 handler 族（search-health 记账 +
+// 组合根的 resolve-search-provider），必须起真 background 入口：
+//   ① 冷却消费：连败触发后 resolve 路由跳过该引擎（inline 失效保证写后读）、
 //      到期回链、全部冷却 → chain 缺省 + chainEmptyReason:'cooldown'（专属文案，
 //      不误报未配置，spec §12.7 第 6 条翻案）、单选不拦但账照记；
-//   ③ 快照位：健康度读命中零重复读、写 handler 落盘后 inline 失效（下一次 resolve
+//   ② 快照位：健康度读命中零重复读、写 handler 落盘后 inline 失效（下一次 resolve
 //      重读）；脏存储 / 读失败按无冷却（不拦任何链）。
+// 记账族自身的 handler 面（落盘单键 / SW 侧盖时间戳 / 脏载荷 / 未知 op）已下沉为直调
+// 工厂测试：tests/search/search-health-handler.test.ts（arch-review-2026-09/08）。
 // chrome stub 手法与 tests/entry/background-resolve-search-provider.test.ts 同款
 //（真实 background 入口 + 路由监听器直调）。
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -168,94 +170,6 @@ function cooled(presetId: string, cooldownUntil: number, cooldownLevel = 1) {
 beforeEach(() => {
   resetModuleState();
   vi.unstubAllGlobals();
-});
-
-describe("search-health 记账消息族（§12.4 第 7–8 条 / §10 第 73 行）", () => {
-  it("content（tab）来源 record：不被来源守卫拦、落 chrome.storage.local 单键、SW 侧盖时间戳", async () => {
-    stubStorage();
-    const listener = await importBackground();
-
-    const response = await recordHealth(listener, {
-      type: "search-health",
-      op: "record",
-      presetId: "tavily",
-      ok: false,
-      latencyMs: 12
-    });
-
-    // 来源守卫：本族不进 offscreen-only 名单（发送者含 content）
-    expect(response).toEqual({ ok: true });
-
-    expect(Object.keys(localFixture)).toEqual([SEARCH_HEALTH_KEY]);
-    const stored = localFixture[SEARCH_HEALTH_KEY] as Record<string, any>;
-    expect(Object.keys(stored)).toEqual(["tavily"]);
-    expect(stored.tavily.attempts).toEqual([{ ok: false, latencyMs: 12 }]);
-    expect(stored.tavily.consecutiveFailures).toBe(1);
-    expect(stored.tavily.cooldownUntil).toBe(0);
-  });
-
-  it("连败 3 次触发冷却（SW 侧时间戳）：cooldownLevel 1、cooldownUntil ≈ now + 5min", async () => {
-    stubStorage();
-    const listener = await importBackground();
-
-    for (let index = 0; index < 3; index += 1) {
-      const response = await recordHealth(listener, {
-        type: "search-health",
-        op: "record",
-        presetId: "tavily",
-        ok: false,
-        latencyMs: 5
-      });
-      expect(response).toEqual({ ok: true });
-    }
-
-    const stored = localFixture[SEARCH_HEALTH_KEY] as Record<string, any>;
-    expect(stored.tavily.cooldownLevel).toBe(1);
-    expect(stored.tavily.consecutiveFailures).toBe(0);
-    expect(stored.tavily.cooldownUntil).toBeGreaterThan(Date.now());
-    expect(stored.tavily.cooldownUntil).toBeLessThanOrEqual(Date.now() + 300_000);
-  });
-
-  it("成功记账清零连败（账照记，单选不消费冷却但记账口径一致）", async () => {
-    stubStorage();
-    const listener = await importBackground();
-
-    await recordHealth(listener, { type: "search-health", op: "record", presetId: "tavily", ok: false, latencyMs: 5 });
-    await recordHealth(listener, { type: "search-health", op: "record", presetId: "tavily", ok: true, latencyMs: 9 });
-
-    const stored = localFixture[SEARCH_HEALTH_KEY] as Record<string, any>;
-    expect(stored.tavily.attempts).toEqual([
-      { ok: false, latencyMs: 5 },
-      { ok: true, latencyMs: 9 }
-    ]);
-    expect(stored.tavily.consecutiveFailures).toBe(0);
-  });
-
-  it("脏载荷（presetId 空 / ok 非布尔）→ ok:true 但零落盘", async () => {
-    stubStorage();
-    const listener = await importBackground();
-    const setCalls = vi.mocked(chrome.storage.local.set);
-
-    await recordHealth(listener, { type: "search-health", op: "record", presetId: "", ok: false, latencyMs: 1 });
-    await recordHealth(listener, { type: "search-health", op: "record", presetId: "tavily", ok: "yes" as unknown as boolean });
-
-    expect(setCalls).not.toHaveBeenCalled();
-    expect(localFixture[SEARCH_HEALTH_KEY]).toBeUndefined();
-  });
-
-  it("未知 op → ok:false + 错误文案（不静默吞）", async () => {
-    stubStorage();
-    const listener = await importBackground();
-
-    const response = await recordHealth(listener, {
-      type: "search-health",
-      op: "clear" as unknown as "record",
-      presetId: "tavily"
-    });
-
-    expect(response.ok).toBe(false);
-    expect(response.error).toContain("不支持的搜索健康度操作");
-  });
 });
 
 describe("resolve 路由消费冷却图（§12.4 第 5–6 条 / §10 第 66–67 行）", () => {

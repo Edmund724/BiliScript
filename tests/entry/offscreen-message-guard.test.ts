@@ -10,8 +10,9 @@
 //     不一致（跨标签页伪造）→ 拒绝且不向任何标签页发消息；
 //   - 未知消息类型 / 非对象消息：不回包、零副作用（与既有行为一致）。
 //   - 查询缓存消息族（spec §5 / §10 第 39 行）：search-cache 的发送者含
-//     content（选区解释卡），**不得**进 offscreen-only 名单；tab 来源的
-//     get/put 照常落到 SW 叶（跑通 put → get 命中往返）。
+//     content（选区解释卡），**不得**进 offscreen-only 名单；tab 来源的调用照常
+//     落到 SW 叶（本文件只钉来源守卫这一面，get/put 的键与回包形状见
+//     tests/search/search-cache-handler.test.ts 的直调工厂测试）。
 //   - 名单单源（B4）：offscreen 专属族由协议层 OFFSCREEN_ONLY_MESSAGE_TYPES
 //     单源派生（「谁能发」属协议契约），background.ts 侧不得私藏第二份抄本；
 //     resolve-ai-provider 的 tab 来源负向用例 pin 住「名单误扩」方向。
@@ -252,7 +253,7 @@ describe("消息入口回包口径：同步已答 / 异步持有通道（注册�
   });
 });
 
-describe("查询缓存消息族：来源守卫与 SW 叶往返（spec §5 / §10 第 39 行）", () => {
+describe("查询缓存消息族：来源守卫（spec §5 / §10 第 39 行）", () => {
   it("search-cache 由 tab 来源发送：不得回「仅接受 offscreen 文档发送」（发送者含 content）", async () => {
     const listener = await importBackground();
 
@@ -265,28 +266,6 @@ describe("查询缓存消息族：来源守卫与 SW 叶往返（spec §5 / §10
       expect.objectContaining({ error: "仅接受 offscreen 文档发送" })
     );
     expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true, hit: false });
-  });
-
-  it("search-cache 由 tab 来源 put：落 chrome.storage.local 单键（哈希键、无查询明文），随后 get 命中同一条", async () => {
-    const listener = await importBackground();
-    const entry = { results: [{ title: "t", url: "https://example.com", snippet: "s" }], platform: "Firecrawl" };
-
-    const putResponse = vi.fn();
-    listener({ type: "search-cache", op: "put", query: "bilibili ai", ...entry }, TAB_SENDER(7), putResponse);
-    await vi.waitFor(() => expect(putResponse).toHaveBeenCalledWith({ ok: true }));
-
-    const stored = localFixture[SEARCH_CACHE_KEY] as Record<string, unknown>;
-    expect(Object.keys(localFixture)).toEqual([SEARCH_CACHE_KEY]);
-    expect(Object.keys(stored)).toHaveLength(1);
-    expect(Object.keys(stored)[0]).toMatch(/^[0-9a-f]{16}$/);
-    expect(JSON.stringify(stored)).not.toContain("bilibili");
-
-    // 归一在 SW 侧单源：大小写 / 连续空白变体命中同一条
-    const getResponse = vi.fn();
-    listener({ type: "search-cache", op: "get", query: "  BiliBili   AI " }, TAB_SENDER(7), getResponse);
-    await vi.waitFor(() =>
-      expect(getResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true, hit: true, entry }))
-    );
   });
 });
 

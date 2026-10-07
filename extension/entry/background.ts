@@ -51,10 +51,15 @@ import { resolveSearchChain } from "../search/search-chain.js";
 // 查询缓存 SW 叶（spec §5）：宿主是 SW（offscreen 无 chrome.storage），offscreen
 // 工具循环与 content 侧解释卡都经 search-cache 消息族读写；归一单源在本叶。
 // clearSearchCache 只在本文件被两个撤回入口调用（§6.7）：不给消息族加 clear op。
-import { clearSearchCache, getSearchCacheEntry, putSearchCacheEntry } from "../search/search-cache.js";
+import { clearSearchCache } from "../search/search-cache.js";
 // 引擎健康度 SW 叶（spec §12.4）：记账落 chrome.storage.local 单键
 // biliscript_search_health（引擎级 presetId），链解析期经快照读产冷却图。
-import { SEARCH_HEALTH_KEY, cooldownUntilByPresetId, recordSearchAttempt } from "../search/search-health.js";
+import { cooldownUntilByPresetId } from "../search/search-health.js";
+// 查询缓存族 / 引擎健康度族的 SW 端 handler 工厂（arch-review-2026-09/08）：handler
+// 本体按工厂形态住 search 域 module，本文件只登记与注入实例（形态同
+// ai/segment-cache-handler.ts；记账族的落盘后 inline 失效随工厂搬入）。
+import { createSearchCacheHandler } from "../search/search-cache-handler.js";
+import { createSearchHealthHandler } from "../search/search-health-handler.js";
 // 模型列表探测（fetch 原语）归 ai 域（arch-slim-2/09）；纯存储仍在 core/。
 import { handleAiProvidersModels as fetchAiProviderModels } from "../ai/provider-models.js";
 // 平台请求代发（AI 探针传输层）：content script 的跨域 fetch 服从网页 CORS，
@@ -115,9 +120,6 @@ const saveSettingsWithInvalidate = invalidatingWrite(
   saveSettings,
   (payload) => Object.keys((payload || {}) as object)
 );
-
-// 引擎健康度记账叶：单键快照位，落盘后立即失效（紧随其后的 resolve 消费新冷却图）。
-const recordSearchAttemptWithInvalidate = invalidatingWrite(recordSearchAttempt, [SEARCH_HEALTH_KEY]);
 
 // 裸 storage 写点（安装/更新迁移、自动激活的链首与 flag、删除记录时的顺序剔除）
 // 不经本文件：它们只交「哪些键的新值」，区由 core/settings-snapshot 的键面表反查
@@ -445,52 +447,13 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
   );
 }
 
-// 查询缓存消息族 SW 端 handler（spec §5 / §3 落点表第 13 行）：get / put 直调
-// search/search-cache.ts 单源（归一 + 64 位哈希键都在那一侧完成，调用方不拼键）。
-// **不得**进 illegalMessageReason 的 offscreen-only 名单——本族发送者含 content
-// （reader/explain-card.ts 与 offscreen 工具循环共用 search/search-runtime.ts）。
-function handleSearchCache(message: Msg<"search-cache">, _sender: MessageSender, sendResponse: Reply<"search-cache">): void {
-  withOkResponse(
-    (async () => {
-      if (message.op === "get") {
-        const entry = await getSearchCacheEntry(message.query);
-        return entry
-          ? { ok: true, hit: true, entry: { results: entry.results, platform: entry.platform } }
-          : { ok: true, hit: false };
-      }
-      if (message.op === "put") {
-        await putSearchCacheEntry(message.query, {
-          results: Array.isArray(message.results) ? message.results : [],
-          platform: String(message.platform ?? "")
-        });
-        return { ok: true };
-      }
-      throw new Error("不支持的搜索缓存操作：" + String((message as { op?: unknown }).op));
-    })(),
-    sendResponse,
-    (error) => (error as Error | undefined)?.message || String(error)
-  );
-}
-
-// 引擎健康度记账消息族 SW 端 handler（spec §12.4 第 7–8 条 / §12.5 第 11 行）：执行侧
-// （offscreen / content）无 chrome.storage，记账经本族落到 SW 叶 search/search-health.ts
-// 单源（脏载荷静默 no-op、写失败静默、SW 侧盖时间戳）；落盘后 **inline 失效**健康度
-// 快照，写后读（紧随其后的 resolve-search-provider）立刻消费新冷却图。
-// **不得**进 illegalMessageReason 的 offscreen-only 名单——本族发送者含 content
-//（reader/explain-card.ts 与 offscreen 工具循环共用 search-chain.ts 的缺省记账）。
-function handleSearchHealth(message: Msg<"search-health">, _sender: MessageSender, sendResponse: Reply<"search-health">): void {
-  withOkResponse(
-    (async () => {
-      if (message.op !== "record") {
-        throw new Error("不支持的搜索健康度操作：" + String((message as { op?: unknown }).op));
-      }
-      await recordSearchAttemptWithInvalidate(message.presetId, message.ok, message.latencyMs);
-      return { ok: true };
-    })(),
-    sendResponse,
-    (error) => (error as Error | undefined)?.message || String(error)
-  );
-}
+// 查询缓存消息族 / 引擎健康度记账消息族的 SW 端 handler（spec §5 / §3 落点表第 13 行、
+// §12.4 第 7–8 条 / §12.5 第 11 行）：两族 handler 本体已按工厂形态搬入 search 域
+// module（search-cache-handler.ts / search-health-handler.ts），本文件只登记工厂实例。
+// 两族的来源口径（**不得**进 illegalMessageReason 的 offscreen-only 名单，发送者含
+// content）随 handler 随迁，见各模块头注释。
+const handleSearchCache = createSearchCacheHandler();
+const handleSearchHealth = createSearchHealthHandler();
 
 // ===== ASR 平台消息处理 =====
 
