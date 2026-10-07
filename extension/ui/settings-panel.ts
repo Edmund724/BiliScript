@@ -347,9 +347,11 @@ function syncSearchDanglingHint(
     providers.some((provider) => String(provider?.id || "") === activeId);
 }
 
-async function loadAiProviders(): Promise<ProviderRowItem[]> {
+// 族无关的整列表现查：失败 / 形状坏一律回空数组（编辑 Modal 打开前用）。消息 type 仍
+// 逐族写在下面三处的箭头体内——单字面量约束见 PROVIDER_FAMILY_UI 的说明。
+async function loadProviderRows(request: () => Promise<ProviderListResponse>): Promise<ProviderRowItem[]> {
   try {
-    const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
+    const resp = await request();
     if (!resp?.ok) return [];
     return Array.isArray(resp.providers) ? resp.providers : [];
   } catch {
@@ -357,24 +359,16 @@ async function loadAiProviders(): Promise<ProviderRowItem[]> {
   }
 }
 
-async function loadAsrProviders(): Promise<ProviderRowItem[]> {
-  try {
-    const resp = await sendRuntimeMessage({ type: "asr-providers-list" });
-    if (!resp?.ok) return [];
-    return Array.isArray(resp.providers) ? resp.providers : [];
-  } catch {
-    return [];
-  }
+function loadAiProviders(): Promise<ProviderRowItem[]> {
+  return loadProviderRows(() => sendRuntimeMessage({ type: "ai-providers-list" }));
 }
 
-async function loadSearchProviders(): Promise<ProviderRowItem[]> {
-  try {
-    const resp = await sendRuntimeMessage({ type: "search-providers-list" });
-    if (!resp?.ok) return [];
-    return Array.isArray(resp.providers) ? resp.providers : [];
-  } catch {
-    return [];
-  }
+function loadAsrProviders(): Promise<ProviderRowItem[]> {
+  return loadProviderRows(() => sendRuntimeMessage({ type: "asr-providers-list" }));
+}
+
+function loadSearchProviders(): Promise<ProviderRowItem[]> {
+  return loadProviderRows(() => sendRuntimeMessage({ type: "search-providers-list" }));
 }
 
 // ===== provider 三族分派表 =====
