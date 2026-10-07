@@ -114,6 +114,7 @@ describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", 
     for (const level of ["off", "low", "high"]) {
       expect(resolve({ baseUrl: "https://api.example.com/v1", model: "totally-unknown", level })).toEqual({
         vocabulary: UNKNOWN_VOCABULARY,
+        effectiveLevel: null,
         offUnavailable: false,
         offFallback: null,
         thinkingClass: "unknown"
@@ -124,6 +125,7 @@ describe("识别优先级：例外表 >> 模式表 >> unknownClass >> UNKNOWN", 
   it("模型名空串 → unknown（不发任何字段）", () => {
     expect(resolve({ baseUrl: DEEPSEEK_URL, model: "" })).toEqual({
       vocabulary: UNKNOWN_VOCABULARY,
+      effectiveLevel: null,
       offUnavailable: false,
       offFallback: null,
       thinkingClass: "unknown"
@@ -250,6 +252,7 @@ describe("baseUrl host 推断（本票生效的 provider 识别路径）", () =>
   it("已死的 api.doubao.com 不是现 preset 的 host（现 baseUrl 是 opencode.ai）→ 该域名仍落 unknown", () => {
     expect(resolve({ baseUrl: "https://api.doubao.com/v1", model: "skylark-2-pro", level: "off" })).toEqual({
       vocabulary: UNKNOWN_VOCABULARY,
+      effectiveLevel: null,
       offUnavailable: false,
       offFallback: null,
       thinkingClass: "unknown"
@@ -259,6 +262,7 @@ describe("baseUrl host 推断（本票生效的 provider 识别路径）", () =>
   it("未知 host 等价于无 provider 规则（custom 平台指向陌生网关）", () => {
     expect(resolve({ baseUrl: "https://gateway.internal.example/v1", model: "vendor-model", level: "low" })).toEqual({
       vocabulary: UNKNOWN_VOCABULARY,
+      effectiveLevel: null,
       offUnavailable: false,
       offFallback: null,
       thinkingClass: "unknown"
@@ -359,6 +363,7 @@ describe("18 号票：Opencode Go 走上游词表投影", () => {
     // opencodego 未登记开关形状 → toggle 不产 off 写点 → 仍关不掉，但 off 级联落到 low 而非 high。
     expect(resolve({ presetId: "opencodego", model: "deepseek-v4-pro", level: "off" })).toEqual({
       vocabulary: reasoningEffort("low"),
+      effectiveLevel: "low",
       offUnavailable: true,
       offFallback: "low",
       thinkingClass: "always"

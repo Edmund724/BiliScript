@@ -31,7 +31,9 @@ import {
   resolveThinkingAdjustment,
   resolveThinkingProfile,
   ruleFromUpstreamFact,
-  type ClassRule
+  type ClassRule,
+  type ResolveThinkingInput,
+  type ThinkingLevelValue
 } from "../../extension/ai/thinking-profiles.js";
 import { VALUESETS, lookupThinkingFact } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import { openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js";
@@ -39,6 +41,8 @@ import { openaiVocabularyFields } from "../../extension/ai/thinking-wire-map.js"
 const QWEN_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEEPSEEK_URL = "https://api.deepseek.com/v1";
+const SENSENOVA_URL = "https://token.sensenova.cn/v1";
+const MINIMAX_URL = "https://api.minimaxi.com/v1";
 
 describe("档位词表（7 档，off 第一位）", () => {
   it("AI_THINKING_LEVELS 是上游词表的全序：off < minimal < low < medium < high < xhigh < max", () => {
@@ -68,40 +72,110 @@ describe("档位词表（7 档，off 第一位）", () => {
   });
 });
 
-describe("clamp（决策 #8：向下取）", () => {
-  it("L ∈ A → 用 L", () => {
-    expect(clampThinkingLevel("medium", ["off", "low", "medium", "high"])).toBe("medium");
-    expect(clampThinkingLevel("off", ["off", "low", "high"])).toBe("off");
-  });
-
-  it("L ∉ A 且有 ≤ L 的档 → 取最大（等距也向下取）", () => {
+describe("clamp：内部 seam 的排序语义（少量直调；对外观测面见下一节的逐档断言）", () => {
+  // 候选 7（2026-10-06）：实发档由解析结果（ThinkingResolution.effectiveLevel）承载，
+  // 原 16 处直调已迁成「逐档断言解析结果里的实发档」。clamp 只是内部 seam，这里只留
+  // 合成集才能表达的排序语义（真实规则的边界由下一节覆盖）。
+  it("向下取：偏好档的等距更低档（合成集才有的边角）", () => {
     expect(clampThinkingLevel("high", ["low", "medium", "xhigh"])).toBe("medium");
-    expect(clampThinkingLevel("medium", ["low", "high"])).toBe("low");
-    expect(clampThinkingLevel("max", ["minimal", "low", "medium", "high"])).toBe("high");
   });
 
-  it("A 中没有 ≤ L 的档 → 取 A 的最小档", () => {
-    // 票面点名边界：可用集只有 high 而偏好 off。
-    expect(clampThinkingLevel("off", ["high"])).toBe("high");
-    expect(clampThinkingLevel("off", ["high", "max"])).toBe("high");
-    expect(clampThinkingLevel("minimal", ["high", "xhigh"])).toBe("high");
-  });
-
-  it("off 参与档位序（06 号票：none/high 类模型 minimal/low/medium 全不可用）", () => {
-    expect(clampThinkingLevel("low", ["off", "high"])).toBe("off");
-    expect(clampThinkingLevel("medium", ["off", "high"])).toBe("off");
-    expect(clampThinkingLevel("high", ["off", "high"])).toBe("high");
-  });
-
-  it("可用集为空 → default（没有可表达的强度档：不干预，不发思考字段）", () => {
+  it("可用集为空 → default；偏好 default 恒为 default（不参与向下取）", () => {
     expect(clampThinkingLevel("high", [])).toBe("default");
-    expect(clampThinkingLevel("off", [])).toBe("default");
+    expect(clampThinkingLevel("default", ["off", "low", "high"])).toBe("default");
+  });
+});
+
+describe("实发档 effectiveLevel：逐档断言解析结果（clamp / off 级联的对外观测面）", () => {
+  // 每条用例都是「偏好逐档 → 实发档」的读值断言：值来自解析结果，测试不再复算 clamp。
+  const levelOf = (input: Omit<ResolveThinkingInput, "level">, level: ThinkingLevelValue) =>
+    resolveThinkingAdjustment({ ...input, level }).effectiveLevel;
+
+  it("向下取：A'={off,low,medium,xhigh}（qwen3.8-max）——L∈A' 恒等，L∉A' 取最近更低档", () => {
+    const input = { presetId: "qwen", model: "qwen3.8-max", stream: true };
+    expect(levelOf(input, "off")).toBe("off");
+    // minimal ∉ A'：A' 里 ≤ minimal 的只有 off（off 也参与档位序）→ 实发 off（线上发关思考词）。
+    expect(levelOf(input, "minimal")).toBe("off");
+    expect(levelOf(input, "low")).toBe("low");
+    expect(levelOf(input, "medium")).toBe("medium");
+    expect(levelOf(input, "high")).toBe("medium"); // 无 high → 等距向下取 medium
+    expect(levelOf(input, "xhigh")).toBe("xhigh");
+    expect(levelOf(input, "max")).toBe("xhigh"); // A' 里没有 ≤ max 的更高档 → 取最大可用档
+    expect(levelOf(input, "default")).toBe("default");
   });
 
-  it("偏好 default → 恒为 default（不参与向下取，任何可用集都一样）", () => {
-    expect(clampThinkingLevel("default", [])).toBe("default");
-    expect(clampThinkingLevel("default", ["off", "low", "high"])).toBe("default");
-    expect(clampThinkingLevel("default", ["high", "max"])).toBe("default");
+  it("A' 中没有 ≤ L 的档 → 取 A' 的最小档（sensenova/glm-5.2，A'={high,max}）", () => {
+    const input = { presetId: "sensenova", baseUrl: SENSENOVA_URL, model: "glm-5.2", stream: true };
+    expect(resolveThinkingAdjustment({ ...input, level: "off" }).availableLevels).toEqual(["high", "max"]);
+    // 关不掉：偏好 off 与所有下档都级联到 A' 的最小档 high（offUnavailable / offFallback
+    // 仍由「落线」一节的 :158 用例钉，本用例只管实发档）。
+    expect(levelOf(input, "off")).toBe("high");
+    expect(levelOf(input, "minimal")).toBe("high");
+    expect(levelOf(input, "low")).toBe("high");
+    expect(levelOf(input, "medium")).toBe("high");
+    expect(levelOf(input, "high")).toBe("high");
+    expect(levelOf(input, "xhigh")).toBe("high");
+    expect(levelOf(input, "max")).toBe("max");
+    expect(levelOf(input, "default")).toBe("default");
+  });
+
+  it("off 参与档位序：A'={off,high}（opencodego/hy4-preview）偏好 minimal/low/medium 落 off", () => {
+    const input = { presetId: "opencodego", model: "hy4-preview", stream: true };
+    for (const level of ["off", "minimal", "low", "medium"] as const) {
+      expect(levelOf(input, level), level).toBe("off");
+    }
+    for (const level of ["high", "xhigh", "max"] as const) {
+      expect(levelOf(input, level), level).toBe("high");
+    }
+  });
+
+  it("开关型（zhipu/glm-4.6，A'=全 7 档）：clamp 恒等，逐档实发 = 偏好且不误报调整", () => {
+    const input = { presetId: "zhipu", baseUrl: ZHIPU_URL, model: "glm-4.6", stream: true };
+    expect(resolveThinkingAdjustment({ ...input, level: "low" }).availableLevels).toEqual(AI_THINKING_LEVELS);
+    for (const level of AI_THINKING_LEVELS) {
+      const r = resolveThinkingAdjustment({ ...input, level });
+      expect(r.effectiveLevel, level).toBe(level);
+      expect(r.reason, level).toBe(null);
+    }
+    expect(levelOf(input, "default")).toBe("default");
+  });
+
+  it("零档行（手写 minimax-always，A'=∅）：逐档实发 default，不发任何思考字段", () => {
+    const input = { baseUrl: MINIMAX_URL, model: "minimax-m2", stream: true };
+    for (const level of ["default", ...AI_THINKING_LEVELS] as const) {
+      const r = resolveThinkingAdjustment({ ...input, level });
+      expect(r.availableLevels, level).toEqual([]);
+      expect(r.effectiveLevel, level).toBe("default");
+      expect(openaiVocabularyFields(r.resolution.vocabulary), level).toEqual({});
+    }
+  });
+
+  it("unknown 哨兵（无任何事实）：effectiveLevel=null = 没有解析结论（不是「无档可落」）", () => {
+    for (const level of ["default", ...AI_THINKING_LEVELS] as const) {
+      const r = resolveThinkingAdjustment({
+        baseUrl: "https://api.example.com/v1",
+        model: "totally-unknown",
+        level,
+        stream: true
+      });
+      expect(r.effectiveLevel, level).toBe(null);
+      expect(r.availableLevels, level).toEqual([]);
+    }
+  });
+
+  it("口径 B 的修正格：streamOnly off × 非流式 → 实发档 = 级联目标（改造前显示 Off、请求发开档）", () => {
+    // 手写兜底的 qwen 开关型（关思考仅流式，Q14A）：off 写点在流式可用、非流式被阻断。
+    const input = { baseUrl: QWEN_URL, model: "qwen3-32b-air" };
+    const streamed = resolveThinkingAdjustment({ ...input, level: "off", stream: true });
+    expect(streamed.effectiveLevel).toBe("off");
+    expect(openaiVocabularyFields(streamed.resolution.vocabulary)).toEqual({ enable_thinking: false });
+
+    const blocked = resolveThinkingAdjustment({ ...input, level: "off", stream: false });
+    // 非流式：本次可用集里没有 off → 实发档 = 级联目标（A' 最小非 off 档），与线上实际发的
+    // 开写点一致（候选 7 之前这里读的是 clamp 原值 "off"，提示面因此说 Off、请求发开档）。
+    expect(blocked.effectiveLevel).toBe("minimal");
+    expect(blocked.resolution.offUnavailable).toBe(true);
+    expect(openaiVocabularyFields(blocked.resolution.vocabulary)).toEqual({ enable_thinking: true });
   });
 });
 
@@ -298,15 +372,20 @@ describe("resolveThinkingAdjustment：提示面的「源档 → 目标档 + 原�
     expect(r.availableLevels).toEqual(["off", "low", "high", "max"]);
   });
 
-  it("提示面的 effectiveLevel 与请求字段同源（同一份解析，不会漂移）", () => {
+  it("提示面的 effectiveLevel 是解析结果的读值投影（同源由构造保证，不再自算落线字段）", () => {
+    // 候选 7 之前这条用例是「拿 effectiveLevel 与 openaiVocabularyFields(resolution.vocabulary)
+    // 对算」——用第二条推导去验第一条。现在同源是构造性的（resolveThinkingAdjustment 直接读
+    // resolution.effectiveLevel，落线也读同一个值），故只断言投影正确：值逐一等于解析结果里
+    // 那一个；逐档的期望值本身由上一节「实发档 effectiveLevel」的用例钉。
     for (const level of AI_THINKING_LEVELS) {
       const r = resolveThinkingAdjustment({ presetId: "qwen", model: "qwen3.8-max", level, stream: true });
-      if (r.effectiveLevel === "off") {
-        expect(openaiVocabularyFields(r.resolution.vocabulary)).toEqual({ enable_thinking: false });
-      } else if (r.effectiveLevel) {
-        expect(openaiVocabularyFields(r.resolution.vocabulary)).toEqual({ reasoning_effort: r.effectiveLevel });
-      }
+      expect(r.effectiveLevel, level).toBe(r.resolution.effectiveLevel);
     }
+    // 投影不是恒等搬运（不是照抄偏好）：偏好 high 而 A' 无 high → 解析结论与投影同为 medium。
+    const clamped = resolveThinkingAdjustment({ presetId: "qwen", model: "qwen3.8-max", level: "high", stream: true });
+    expect(clamped.requestedLevel).toBe("high");
+    expect(clamped.resolution.effectiveLevel).toBe("medium");
+    expect(clamped.effectiveLevel).toBe("medium");
   });
 });
 
@@ -366,7 +445,8 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定）：cl
   // （off/on 两个写点），不再落本类——旧 hand-wins 裁定已被那次登记取代。
   it("无档位可落的裁决行不被 clamp 造出强度档：实发 default（2026-10-05 起恒可发）", () => {
     expect(availableLevelsOf(CLASSES["minimax-always"])).toEqual([]);
-    expect(clampThinkingLevel("high", availableLevelsOf(CLASSES["minimax-always"]))).toBe("default");
+    // 读解析结果的实发档（不再直调 clamp）：无档可落 → default（线上一律不发字段）。
+    expect(applyClassRule(CLASSES["minimax-always"], "high", true).effectiveLevel).toBe("default");
   });
 });
 

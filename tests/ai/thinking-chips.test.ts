@@ -262,6 +262,7 @@ describe("off / none 分离（决策 #7）", () => {
     expect(boundary.availableLevels).toEqual(["off", "high"]);
     expect(sent("opencodego", OPENCODEGO_URL, "hy4-preview", "off")).toEqual({
       vocabulary: reasoningEffort("none"),
+      effectiveLevel: "off",
       offUnavailable: false,
       offFallback: null,
       thinkingClass: "hybrid"

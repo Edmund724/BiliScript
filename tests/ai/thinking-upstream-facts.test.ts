@@ -102,7 +102,13 @@ function handRuleOf(presetId: string, model: string): ClassRule | undefined {
 
 function outcomeOf(rule: ClassRule | undefined, level: ThinkingLevel): string {
   if (!rule) {
-    return JSON.stringify({ vocabulary: UNKNOWN_VOCABULARY, offUnavailable: false, offFallback: null, thinkingClass: "unknown" });
+    return JSON.stringify({
+      vocabulary: UNKNOWN_VOCABULARY,
+      effectiveLevel: null,
+      offUnavailable: false,
+      offFallback: null,
+      thinkingClass: "unknown"
+    });
   }
   return JSON.stringify(applyClassRule(rule, level, STREAM));
 }
@@ -214,6 +220,7 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
       expect(resolveViaRuntime("zhipu", "glm-5.2", level), level).toBe(
         JSON.stringify({
           vocabulary: thinkingType("disabled"),
+          effectiveLevel: "off",
           offUnavailable: false,
           offFallback: null,
           thinkingClass: "hybrid"
@@ -221,21 +228,22 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
       );
     }
     expect(resolveViaRuntime("zhipu", "glm-5.2", "high")).toBe(
-      JSON.stringify({ vocabulary: reasoningEffort("high"), offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+      JSON.stringify({ vocabulary: reasoningEffort("high"), effectiveLevel: "high", offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
     expect(resolveViaRuntime("zhipu", "glm-5.2", "max")).toBe(
-      JSON.stringify({ vocabulary: reasoningEffort("max"), offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+      JSON.stringify({ vocabulary: reasoningEffort("max"), effectiveLevel: "max", offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
   });
 
   it("zhipuai/glm-5.3：上游 low-high-max → 有档位；off 关不掉、级联落 low", () => {
     expect(resolveViaRuntime("zhipu", "glm-5.3", "high")).toBe(
-      JSON.stringify({ vocabulary: reasoningEffort("high"), offUnavailable: false, offFallback: null, thinkingClass: "always" })
+      JSON.stringify({ vocabulary: reasoningEffort("high"), effectiveLevel: "high", offUnavailable: false, offFallback: null, thinkingClass: "always" })
     );
     for (const level of ["off", "low"] as const) {
       expect(resolveViaRuntime("zhipu", "glm-5.3", level)).toBe(
         JSON.stringify({
           vocabulary: reasoningEffort("low"),
+          effectiveLevel: "low",
           offUnavailable: level === "off",
           offFallback: level === "off" ? "low" : null,
           thinkingClass: "always"
@@ -248,10 +256,10 @@ describe("三处翻转（用户裁定 2：只翻 zhipuai/glm-5.2、zhipuai/glm-5
     // 12 号票的翻转（direct 的 toggle → off 可用）被 13 号票的 canonical 优先覆盖：
     // canonical（moonshotai/kimi-k3）没有 toggle → off 只走级联落最低可用档。
     expect(resolveViaRuntime("moonshot", "kimi-k3", "off")).toBe(
-      JSON.stringify({ vocabulary: reasoningEffort("low"), offUnavailable: true, offFallback: "low", thinkingClass: "always" })
+      JSON.stringify({ vocabulary: reasoningEffort("low"), effectiveLevel: "low", offUnavailable: true, offFallback: "low", thinkingClass: "always" })
     );
     expect(resolveViaRuntime("moonshot", "kimi-k3", "high")).toBe(
-      JSON.stringify({ vocabulary: reasoningEffort("high"), offUnavailable: false, offFallback: null, thinkingClass: "always" })
+      JSON.stringify({ vocabulary: reasoningEffort("high"), effectiveLevel: "high", offUnavailable: false, offFallback: null, thinkingClass: "always" })
     );
     // 上游 id 写法（k3）与别名写法（kimi-k3）同源同结论。
     expect(resolveViaRuntime("moonshot", "k3", "off")).toBe(resolveViaRuntime("moonshot", "kimi-k3", "off"));
@@ -515,7 +523,13 @@ describe("残留清单裁决（31 行按上游，2026-10-04 用户裁定；决�
       const bare = outcomeOf(CLASSES[row.oldHand!], "off");
       expect(resolveViaRuntime(row.presetId, row.model, "off")).not.toBe(bare);
       expect(resolveViaRuntime(row.presetId, row.model, "off")).toBe(
-        JSON.stringify({ vocabulary: enableThinking(false), offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+        JSON.stringify({
+          vocabulary: enableThinking(false),
+          effectiveLevel: "off",
+          offUnavailable: false,
+          offFallback: null,
+          thinkingClass: "hybrid"
+        })
       );
       // 上游 id 写法（ZhipuAI/GLM-4.x）：手写侧剥前缀命中 GLM 血统，与投影分歧；
       // 运行期同样逐档 = 投影。
@@ -578,14 +592,14 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
   it("上游未覆盖的兜底职责仍在：用户自填 id 走手写表，有事实的模型由指派表决定", () => {
     // 用户自填 id（指派表查不到）仍命中手写前缀模式。
     expect(resolveViaRuntime("qwen", "qwen3.5-my-finetune", "high")).toBe(
-      JSON.stringify({ vocabulary: enableThinking(true), offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+      JSON.stringify({ vocabulary: enableThinking(true), effectiveLevel: "high", offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
     // 同一平台上「有事实」的模型：runtime 结论 = 指派表投影，不再等于手写侧结论。
     // 05 号票（决策 #8 + 裁定 A）：qwen3.8-max 词表 low/medium/xhigh 无 high →
     // 偏好 high 由 clamp 向下取到 medium（实发即 medium）。
     expect(handClassOf("qwen", "qwen3.8-max")).toBe("qwen-hybrid-effort");
     expect(resolveViaRuntime("qwen", "qwen3.8-max", "high")).toBe(
-      JSON.stringify({ vocabulary: reasoningEffort("medium"), offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+      JSON.stringify({ vocabulary: reasoningEffort("medium"), effectiveLevel: "medium", offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
     expect(resolveViaRuntime("qwen", "qwen3.8-max", "high")).toBe(
       outcomeOf(ruleFromUpstreamFact(lookupThinkingFact("alibaba-cn", "qwen3.8-max")!, "qwen"), "high")
@@ -594,7 +608,7 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
     // （D1=A2 后是 toggle+high-max）——qwen 方言的 off 写点 = enable_thinking:false。
     expect(handClassOf("qwen", "glm-5.2")).toBe("glm-hybrid-effort");
     expect(resolveViaRuntime("qwen", "glm-5.2", "off")).toBe(
-      JSON.stringify({ vocabulary: enableThinking(false), offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
+      JSON.stringify({ vocabulary: enableThinking(false), effectiveLevel: "off", offUnavailable: false, offFallback: null, thinkingClass: "hybrid" })
     );
     // 两条路径的 off 出口是各自的平台方言（zhipu = thinking.type、qwen = enable_thinking），
     // 不再逐字节相同——补声明保证的是「都关得掉」这个语义，跨平台形状由 UPSTREAM_TOGGLE_SHAPES 定。
@@ -745,6 +759,7 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
         expect(resolveViaRuntime("openrouter", model, level), `${model} · ${level}`).toBe(
           JSON.stringify({
             vocabulary: NO_FIELDS,
+            effectiveLevel: "default",
             offUnavailable: level === "off",
             offFallback: null,
             thinkingClass: "always"
@@ -771,6 +786,7 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     expect(resolveViaRuntime("minimax", "MiniMax-M3", "off")).toBe(
       JSON.stringify({
         vocabulary: thinkingType("disabled"),
+        effectiveLevel: "off",
         offUnavailable: false,
         offFallback: null,
         thinkingClass: "hybrid"
@@ -779,6 +795,7 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
     expect(resolveViaRuntime("minimax", "MiniMax-M3", "high")).toBe(
       JSON.stringify({
         vocabulary: thinkingType("adaptive"),
+        effectiveLevel: "high",
         offUnavailable: false,
         offFallback: null,
         thinkingClass: "hybrid"
@@ -880,6 +897,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     expect(levelsOf("sensenova", "deepseek-v4-pro")).toEqual(["low", "high", "max"]);
     expect(resolveThinkingProfile({ presetId: "sensenova", model: "deepseek-v4-pro", level: "off", stream: true })).toEqual({
       vocabulary: reasoningEffort("low"),
+      effectiveLevel: "low",
       offUnavailable: true,
       offFallback: "low",
       thinkingClass: "always"
@@ -984,6 +1002,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     expect(resolveViaRuntime("minimax", "MiniMax-M3", "off")).toBe(
       JSON.stringify({
         vocabulary: thinkingType("disabled"),
+        effectiveLevel: "off",
         offUnavailable: false,
         offFallback: null,
         thinkingClass: "hybrid"
@@ -992,6 +1011,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     expect(resolveViaRuntime("minimax", "MiniMax-M3", "low")).toBe(
       JSON.stringify({
         vocabulary: thinkingType("adaptive"),
+        effectiveLevel: "low",
         offUnavailable: false,
         offFallback: null,
         thinkingClass: "hybrid"
@@ -1179,12 +1199,14 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
     expect(levelsOf("qwen", "glm-5.2")).toEqual(["off", "high", "max"]);
     expect(resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "off", stream: STREAM })).toEqual({
       vocabulary: thinkingType("disabled"),
+      effectiveLevel: "off",
       offUnavailable: false,
       offFallback: null,
       thinkingClass: "hybrid"
     });
     expect(resolveThinkingProfile({ presetId: "qwen", model: "glm-5.2", level: "off", stream: STREAM })).toEqual({
       vocabulary: enableThinking(false),
+      effectiveLevel: "off",
       offUnavailable: false,
       offFallback: null,
       thinkingClass: "hybrid"
@@ -1212,6 +1234,7 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
       // 工件 02-before-after.tsv 里这三行两侧同值）。
       expect(resolveThinkingProfile({ presetId, model, level: "off", stream: STREAM }), `${presetId}/${model}`).toEqual({
         vocabulary: reasoningEffort("high"),
+        effectiveLevel: "high",
         offUnavailable: true,
         offFallback: "low",
         thinkingClass: "always"
