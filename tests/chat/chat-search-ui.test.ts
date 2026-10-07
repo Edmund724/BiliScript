@@ -31,7 +31,7 @@ function makeDeps() {
       hideHistoryPopover: vi.fn(),
       removeCenteredState: vi.fn(),
       removeSuggestions: vi.fn(),
-      resetConversationView: vi.fn(),
+      requestViewReset: vi.fn(),
       autosizeInput: vi.fn()
     },
     ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),

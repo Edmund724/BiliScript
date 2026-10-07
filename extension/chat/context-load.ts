@@ -18,7 +18,7 @@
 // liveContextData / liveContextKey / liveTabUrl / currentConversationMeta）经
 // chat-state 的只读视图读、经其意图原语写；上下文组装策略（fetchContext）经工厂
 // deps 注入；
-// 渲染/编排回调（renderHistoryList、resetConversationView、
+// 渲染/编排回调（renderHistoryList、requestViewReset（视图意图通道）、
 // restartChat、renderSuggestions、restoreLatest、流式守卫判定 isStreaming /
 // hasPendingUserPrompt 惰性互引 chatRuntime 实例）同样经 deps 注入。本模块
 // 不 import 组合根。
@@ -34,6 +34,7 @@ import {
 import type { ChatSessionContextSnapshot } from "./chat-state.js";
 import type { ContextFetch, ContextFetchOutcome } from "../core/context-assembly.js";
 import type { LoadContextStateOptions } from "./conversation-store.js";
+import type { ViewResetIntent } from "./view-intent.js";
 
 // ===========================================================================
 // loadContextState 编排壳（「按动作执行副作用」骨架与迁移前一致）
@@ -45,7 +46,9 @@ export interface CreateContextLoadDeps {
   renderHistoryList: () => void;
   renderInitialState: () => void;
   renderSuggestions: () => void;
-  resetConversationView: (stateHtml?: string) => void;
+  // 视图意图通道（view-intent.ts）：plan.resetView 的状态屏执行只发意图，
+  // 清场执行体唯一住在组合根的 requestViewReset。
+  requestViewReset: (intent: ViewResetIntent) => void;
   restartChat: (opts?: { keepContext?: boolean; preserveInput?: boolean }) => void;
   restoreLatest: () => Promise<boolean>;
   // 惰性互引（组装点以箭头函数接线，回调执行时 chatRuntime 实例已存在）
@@ -75,7 +78,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         clearMainContext();
       }
       if (plan.resetView) {
-        deps.resetConversationView(plan.message as string);
+        deps.requestViewReset({ kind: "state", html: plan.message as string });
       }
       return plan.returnValue;
     }
@@ -115,7 +118,7 @@ export function createContextLoad(deps: CreateContextLoadDeps): ContextLoad {
         clearMainContext();
       }
       if (plan.resetView) {
-        deps.resetConversationView(plan.message as string);
+        deps.requestViewReset({ kind: "state", html: plan.message as string });
       }
       return plan.returnValue;
     }

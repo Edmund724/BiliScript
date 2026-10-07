@@ -29,11 +29,12 @@ import {
   type NoSubtitleReason
 } from "./no-subtitle.js";
 import { CONTEXT_READ_FAILED_MESSAGE, isPinnedContextStrict } from "./context-policy.js";
+import type { ViewResetIntent } from "./view-intent.js";
 import type { ClipState } from "../core/state.js";
 
 // 发送闸的受理结论（Q2-a 拍板）：显式返回值取代「boolean | 字符串哨兵」。
 //   { pass: true }                        放行（上下文就绪，回放已让位）
-//   { pass: false, kind: "read-failed" }  读取失败（resetView 已清场）
+//   { pass: false, kind: "read-failed" }  读取失败（已发视图意图清场）
 //   { pass: false, kind: "no-subtitle" }  无字幕空上下文拦截（notice 已显示）
 export type GateOutcome =
   | { pass: true }
@@ -54,8 +55,9 @@ export interface CreateSendGateDeps {
   // pinned 会话的历史补水（conversation-store 实例方法）。同样透传 preserveInput
   // 到其内部的 loadContextState（pinned 分支也可能触发闸内重启）。
   hydratePinned: (opts?: { preserveInput?: boolean }) => Promise<boolean>;
-  // 上下文读取失败的清场（resetConversationView）。
-  resetView: (stateHtml: string) => void;
+  // 上下文读取失败的清场（视图意图通道，view-intent.ts：执行体唯一住在
+  // 组合根的 requestViewReset）。
+  requestViewReset: (intent: ViewResetIntent) => void;
   // 消息区通知两件（showContextNotice 第三参为 no-subtitle 的「前往设置」链接开关）。
   showContextNotice: (message: string, durationMs: number, opts?: { openSettingsAction?: boolean }) => void;
   removeContextNotice: () => void;
@@ -237,25 +239,25 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     // resolveNoTabPlan 语义不同：这里即使静默加载也会重置视图），保持原状。
     const ok = await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true });
     if (!ok || !chatSessionState.contextData) {
-      deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
+      deps.requestViewReset({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
       return { pass: false, kind: "read-failed" };
     }
     // 抓取还没起跑（idle）时主动起跑，再进等待闸——否则等待闸见不到 loading，
     // 空字幕上下文会被直接放行。
     if (!(await startSubtitleFetchIfNeeded())) {
-      deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
+      deps.requestViewReset({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
       return { pass: false, kind: "read-failed" };
     }
     const ready = await subtitleWaiter.wait();
     if (!ready) {
-      deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
+      deps.requestViewReset({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
       return { pass: false, kind: "read-failed" };
     }
     // 等待期间 contextData 可能停在旧快照（守卫分支或就绪瞬间），放行前重取
     // 一次，确保发送出去的是转写完成后的完整字幕。
     await deps.loadContextState({ forceRefresh: false, silent: true, preserveInput: true }).catch(() => null);
     if (!chatSessionState.contextData) {
-      deps.resetView(CONTEXT_READ_FAILED_MESSAGE);
+      deps.requestViewReset({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
       return { pass: false, kind: "read-failed" };
     }
     if (isNoSubtitleEmptyContext(chatSessionState.contextData)) {

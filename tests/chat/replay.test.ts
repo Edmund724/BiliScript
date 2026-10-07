@@ -92,7 +92,6 @@ function makeDeps(): {
       scrollToBottom
     },
     updateLayout: vi.fn(),
-    resetView: vi.fn(),
     clearSuggestions: vi.fn()
   };
   return { deps, messages, messageArea, turns, log, setAutoScroll, scrollToBottom };
@@ -110,25 +109,6 @@ describe("createConversationReplay（历史回放事务）", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it("空历史：经消息区句柄清场 + 建议区置空，整页走 resetView(\"\")，不追加任何消息", async () => {
-    const { deps, messages, messageArea, setAutoScroll } = makeDeps();
-    messages.innerHTML = "<div>旧内容</div>";
-    const replay = createConversationReplay(deps);
-
-    replay.render();
-
-    expect(deps.updateLayout).toHaveBeenCalledTimes(1);
-    expect(messageArea.clear).toHaveBeenCalledTimes(1);
-    expect(messages.innerHTML).toBe("");
-    expect(deps.clearSuggestions).toHaveBeenCalledTimes(1);
-    expect(deps.resetView).toHaveBeenCalledWith("");
-    expect(messageArea.appendUserMessage).not.toHaveBeenCalled();
-    expect(messageArea.appendAssistantMessage).not.toHaveBeenCalled();
-    expect(setAutoScroll).not.toHaveBeenCalled();
-    await flushTurn();
-    expect(replay.inFlight).toBeNull();
   });
 
   it("user/assistant 顺序回放：来源=replay、userPrompt 取前一条用户消息，收尾滚底恰一次", async () => {
@@ -164,7 +144,6 @@ describe("createConversationReplay（历史回放事务）", () => {
     expect(setAutoScroll).toHaveBeenCalledWith(true);
     expect(scrollToBottom).toHaveBeenCalledTimes(1);
     expect(scrollToBottom).toHaveBeenCalledWith(true, { instant: true });
-    expect(deps.resetView).not.toHaveBeenCalled();
   });
 
   it("搜索回合对位：tool 消息本体不渲染，时间线卡经回合句柄插在回答之前（finish 先于挂卡）", async () => {

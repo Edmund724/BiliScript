@@ -80,6 +80,7 @@ import {
 // 全视图（监听/断连半边），protocol 的 ChatPort 是生产侧 postMessage 窄视图。
 import type { ChatPortMessage } from "./protocol.js";
 import type { GateOutcome } from "./send-gate.js";
+import type { ViewResetIntent } from "./view-intent.js";
 import { createTurnLifecycle, type SendVerdict } from "./turn-lifecycle.js";
 import { createChatStreamRenderer, type ChatAssistantTurn } from "./chat-stream-render.js";
 // 图片支持的降级文案（image-input 05 号票）：平台 400 且本轮带图时的可操作提示。
@@ -118,7 +119,8 @@ export interface ChatRuntimeStore {
   persistCurrent(): Promise<void>;
 }
 
-// UI 门面（sidepanel 布局回调的纯分组，方法名不变）
+// UI 门面（sidepanel 布局回调的纯分组；requestViewReset 为视图意图通道，
+// 见 ./view-intent.ts 头注，其余方法名不变）
 export interface ChatRuntimeUi {
   setStreamingUiState: (isStreaming: boolean, options?: { stopping?: boolean }) => void;
   showConversationContextNotice: (message: string, autoHideMs?: number, options?: { openSettingsAction?: boolean }) => void;
@@ -126,7 +128,9 @@ export interface ChatRuntimeUi {
   hideHistoryPopover: () => void;
   removeCenteredState: () => void;
   removeSuggestions: () => void;
-  resetConversationView: (stateHtml?: string) => void;
+  // 视图意图通道（view-intent.ts）：无平台等状态屏不再直调清场回调，只发意图；
+  // 执行体唯一住在组合根的 requestViewReset。
+  requestViewReset: (intent: ViewResetIntent) => void;
   autosizeInput: () => void;
 }
 
@@ -190,7 +194,7 @@ export interface CreateChatRuntimeDeps {
  *       hideHistoryPopover,                // () => void
  *       removeCenteredState,               // () => void
  *       removeSuggestions,                 // () => void  (removes + nulls suggestionsNode)
- *       resetConversationView,             // (stateHtml) => void
+ *       requestViewReset,                  // (intent: ViewResetIntent) => void  视图意图通道
  *       autosizeInput,                     // () => void
  *     },
  *     // ---- context/transport helpers (AI domain, sidepanel local) ----
@@ -429,7 +433,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
 
       const providerId = deps.getProviderId();
       if (!providerId) {
-        deps.ui.resetConversationView("请先在设置页配置并启用一个 AI 平台。");
+        deps.ui.requestViewReset({ kind: "state", html: "请先在设置页配置并启用一个 AI 平台。" });
         return "blocked";
       }
 

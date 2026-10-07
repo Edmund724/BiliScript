@@ -36,9 +36,8 @@ export interface ConversationReplayRenderer {
 
 export interface CreateConversationReplayDeps {
   renderer: ConversationReplayRenderer;
-  // 布局状态（紧凑输入判定）与空历史整页清场：编排壳回调，组合根注入。
+  // 布局状态（紧凑输入判定）：编排壳回调，组合根注入。
   updateLayout: () => void;
-  resetView: (stateHtml: string) => void;
   // 回放重建消息区时同步清掉建议区引用（编排壳的模块级 suggestionsNode）。
   clearSuggestions: () => void;
 }
@@ -98,10 +97,10 @@ export function createConversationReplay(deps: CreateConversationReplayDeps): Co
     // 清场经消息区句柄（助手节点形状不出台；容器不再由本事务直写）。
     deps.renderer.messageArea.clear();
     deps.clearSuggestions();
-    if (!chatSessionState.chatHistory.length) {
-      deps.resetView("");
-      return;
-    }
+    // 无空历史分支（2026-10 视图意图收口删除）：唯一调用方 renderInitialState
+    // 只在 chatHistory.length 非空时起跑本事务，且守卫与本函数同步前缀之间
+    // 无 await 边界，空历史不可达；历史上的 resetView("") 回调使本事务反向
+    // 作废自己（回环靠排序巧合无害），随视图意图通道（view-intent.ts）一并摘除。
     invalidateReplay();
     const replayGeneration = generation;
     const history = chatSessionState.chatHistory;

@@ -63,7 +63,7 @@ function makeHarness({
     renderHistoryList: vi.fn(),
     renderInitialState: vi.fn(),
     renderSuggestions: vi.fn(),
-    resetConversationView: vi.fn(),
+    requestViewReset: vi.fn(),
     restartChat: vi.fn(),
     restoreLatest: vi.fn(async () => true),
     isStreaming: vi.fn(() => false),
@@ -74,7 +74,7 @@ function makeHarness({
     renderHistoryList: deps.renderHistoryList,
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.renderSuggestions,
-    resetConversationView: deps.resetConversationView,
+    requestViewReset: deps.requestViewReset,
     restartChat: deps.restartChat,
     restoreLatest: deps.restoreLatest,
     isStreaming: deps.isStreaming,
@@ -117,7 +117,7 @@ describe("loadContextState 动作分支", () => {
     expect(ok).toBe(false);
     expect(chatSessionState.liveContextData).toBeNull();
     expect(chatSessionState.contextData).toBeNull();
-    expect(deps.resetConversationView).toHaveBeenCalledWith("内容脚本未响应");
+    expect(deps.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: "内容脚本未响应" });
   });
 
   it("error + 静默：不重置视图（返回值仍 false）", async () => {
@@ -128,7 +128,7 @@ describe("loadContextState 动作分支", () => {
     const ok = await contextLoad.loadContextState({ silent: true });
 
     expect(ok).toBe(false);
-    expect(deps.resetConversationView).not.toHaveBeenCalled();
+    expect(deps.requestViewReset).not.toHaveBeenCalled();
   });
 
   it("no-tab 信封：清 live 快照（进程内策略不产生该分支，信封语义由 policy 锁定）", async () => {
@@ -144,7 +144,7 @@ describe("loadContextState 动作分支", () => {
     expect(ok).toBe(false);
     expect(chatSessionState.liveContextData).toBeNull();
     expect(chatSessionState.contextData).toBeNull();
-    expect(deps.resetConversationView).toHaveBeenCalledTimes(1);
+    expect(deps.requestViewReset).toHaveBeenCalledTimes(1);
   });
 
   it("apply-pinned：只落地 live 快照（不进主上下文、不触发对话恢复）", async () => {

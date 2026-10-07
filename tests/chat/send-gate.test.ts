@@ -40,7 +40,7 @@ interface Harness {
   mocks: {
     loadContextState: Mock;
     hydratePinned: Mock;
-    resetView: Mock;
+    requestViewReset: Mock;
     showContextNotice: Mock;
     removeContextNotice: Mock;
     startSubtitleFetch: Mock;
@@ -55,7 +55,7 @@ function makeHarness(overrides: Partial<CreateSendGateDeps> = {}): Harness {
   const deps = {
     loadContextState: vi.fn(async () => true),
     hydratePinned: vi.fn(async () => true),
-    resetView: vi.fn(),
+    requestViewReset: vi.fn(),
     showContextNotice: vi.fn(),
     removeContextNotice: vi.fn(),
     replayInFlight: () => null,
@@ -80,7 +80,7 @@ function makeHarness(overrides: Partial<CreateSendGateDeps> = {}): Harness {
     mocks: {
       loadContextState: deps.loadContextState as unknown as Mock,
       hydratePinned: deps.hydratePinned as unknown as Mock,
-      resetView: deps.resetView as unknown as Mock,
+      requestViewReset: deps.requestViewReset as unknown as Mock,
       showContextNotice: deps.showContextNotice as unknown as Mock,
       removeContextNotice: deps.removeContextNotice as unknown as Mock,
       startSubtitleFetch: deps.startSubtitleFetch as unknown as Mock
@@ -99,7 +99,7 @@ describe("发送闸 createSendGate", () => {
   });
 
   describe("G1 pinned 分流", () => {
-    it("pinned 会话走静默补水 + hydratePinned，放行 GateOutcome {pass:true}，不碰 resetView", async () => {
+    it("pinned 会话走静默补水 + hydratePinned，放行 GateOutcome {pass:true}，不碰 requestViewReset", async () => {
       Object.assign(chatSessionStateForTests, {
         currentConversationMeta: {
           id: "c1",
@@ -114,14 +114,14 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.loadContextState).toHaveBeenCalledWith({ forceRefresh: false, silent: true, preserveInput: true });
       expect(h.mocks.hydratePinned).toHaveBeenCalledTimes(1);
       expect(h.mocks.hydratePinned).toHaveBeenCalledWith({ preserveInput: true });
-      expect(h.mocks.resetView).not.toHaveBeenCalled();
+      expect(h.mocks.requestViewReset).not.toHaveBeenCalled();
     });
 
     it("pinned 时 hydratePinned 的 false → {pass:false, kind:'read-failed'}（闸不重置视图）", async () => {
       Object.assign(chatSessionStateForTests, { currentConversationMeta: { pinnedContext: true } as never });
       const h = makeHarness({ hydratePinned: vi.fn(async () => false) });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.resetView).not.toHaveBeenCalled();
+      expect(h.mocks.requestViewReset).not.toHaveBeenCalled();
     });
 
     it("pinnedContext 为真值非 true 时不走 pinned 分流（全仓统一严格判定）", async () => {
@@ -133,17 +133,17 @@ describe("发送闸 createSendGate", () => {
   });
 
   describe("G2 读取失败闸", () => {
-    it("loadContextState false → resetView(CONTEXT_READ_FAILED_MESSAGE) + {pass:false, kind:'read-failed'}", async () => {
+    it("loadContextState false → requestViewReset(state 意图) + {pass:false, kind:'read-failed'}", async () => {
       const h = makeHarness({ loadContextState: vi.fn(async () => false) });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
+      expect(h.mocks.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
     });
 
     it("读取成功但 contextData 为空 → 同一路径拦截", async () => {
       chatSessionStateForTests.contextData = null;
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
+      expect(h.mocks.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
     });
   });
 
@@ -166,11 +166,11 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.startSubtitleFetch).not.toHaveBeenCalled();
     });
 
-    it("idle 且无字幕体 → 起跑；起跑失败 → resetView + read-failed", async () => {
+    it("idle 且无字幕体 → 起跑；起跑失败 → requestViewReset + read-failed", async () => {
       const h = makeHarness({ startSubtitleFetch: vi.fn(async () => false) });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
       expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
-      expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
+      expect(h.mocks.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
     });
   });
 
@@ -196,7 +196,7 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.removeContextNotice).toHaveBeenCalled();
     });
 
-    it("等待闸兑现 false（读取失败）→ resetView + read-failed", async () => {
+    it("等待闸兑现 false（读取失败）→ requestViewReset + read-failed", async () => {
       chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
       const h = makeHarness({
         loadContextState: vi.fn(async () => {
@@ -206,7 +206,7 @@ describe("发送闸 createSendGate", () => {
         })
       });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
+      expect(h.mocks.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
     });
   });
 
@@ -220,7 +220,7 @@ describe("发送闸 createSendGate", () => {
         0,
         { openSettingsAction: true }
       );
-      expect(h.mocks.resetView).not.toHaveBeenCalled();
+      expect(h.mocks.requestViewReset).not.toHaveBeenCalled();
     });
 
     it("鉴权失败（asr-auth）：文案走单一真源，附「前往设置」链接", async () => {
@@ -406,7 +406,7 @@ describe("发送闸 createSendGate", () => {
         })
       });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
-      expect(h.mocks.resetView).toHaveBeenCalledWith(CONTEXT_READ_FAILED_MESSAGE);
+      expect(h.mocks.requestViewReset).toHaveBeenCalledWith({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
     });
   });
 

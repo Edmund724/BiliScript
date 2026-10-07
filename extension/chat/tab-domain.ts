@@ -22,7 +22,8 @@
 //   - ui 门面：ChatRuntimeUi（chat-runtime 的布局/UI 回调纯分组，8 件回调由
 //     组合根实现）+ store 能力事件三件（渲染编排反转：store 编排时机，组合根
 //     订阅结果）+ contextLoad 的四个渲染编排回调（renderHistoryList /
-//     renderInitialState / renderSuggestions / restartChat）；
+//     renderInitialState / renderSuggestions / restartChat）+ 视图意图通道
+//     requestViewReset（contextLoad / sendGate 消费，view-intent.ts 词表）；
 //   - storage：store 存档读写（测试可注入，缺省 chrome.storage.local）；
 //   - 状态 getter：clip / settings（进程内装配链两条路的运行时输入，与
 //     core/context-assembly 的注入口径一致）；
@@ -60,6 +61,7 @@ import {
 import { createContextLoad, type ContextLoad } from "./context-load.js";
 import { createSendGate, type SendGate } from "./send-gate.js";
 import { createConversationReplay, type ConversationReplay } from "./replay.js";
+import type { ViewResetIntent } from "./view-intent.js";
 
 // ---- 门面 re-exports（对话 tab 组合根的单点 chat 域出口，见头注）----
 export {
@@ -71,6 +73,8 @@ export {
 // offscreen 聊天端口名单源（chat/protocol.ts，ticket 08，原裸写字面量收口）。
 export { OFFSCREEN_CHAT_PORT_NAME } from "./protocol.js";
 export { createProviderPrefs, parseModelOptionValue } from "./providers.js";
+// 视图意图词表（chat/view-intent.ts，视图重建决策面单源，候选 11 第一刀）。
+export type { ViewResetIntent } from "./view-intent.js";
 
 export interface CreateChatTabDomainDeps {
   // ---- DOM 元素（reader/chat-tab 模块级 `els` 的壳两件）----
@@ -87,6 +91,8 @@ export interface CreateChatTabDomainDeps {
   renderInitialState: () => void;
   renderSuggestions: () => void;
   restartChat: (opts?: { keepContext?: boolean; preserveInput?: boolean }) => void;
+  // ---- 视图意图通道（contextLoad / sendGate 消费；执行体唯一住在组合根）----
+  requestViewReset: (intent: ViewResetIntent) => void;
   // ---- 历史回放事务的编排回调（replay 消费，组合根注入）----
   updateChatLayoutState: () => void;
   clearSuggestions: () => void;
@@ -162,7 +168,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     renderHistoryList: deps.renderHistoryList,
     renderInitialState: deps.renderInitialState,
     renderSuggestions: deps.renderSuggestions,
-    resetConversationView: deps.ui.resetConversationView,
+    requestViewReset: deps.requestViewReset,
     restartChat: deps.restartChat,
     restoreLatest: () => store.restoreLatest(),
     isStreaming: () => runtime.isStreaming(),
@@ -175,7 +181,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   const sendGate = createSendGate({
     loadContextState: (opts) => contextLoad.loadContextState(opts),
     hydratePinned: (opts) => store.hydratePinned(opts),
-    resetView: deps.ui.resetConversationView,
+    requestViewReset: deps.requestViewReset,
     showContextNotice: deps.ui.showConversationContextNotice,
     removeContextNotice: deps.ui.removeConversationContextNotice,
     replayInFlight: () => replay?.inFlight ?? null,
@@ -214,7 +220,6 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   const replay = createConversationReplay({
     renderer: runtime,
     updateLayout: deps.updateChatLayoutState,
-    resetView: deps.ui.resetConversationView,
     clearSuggestions: deps.clearSuggestions
   });
   return { runtime, store, contextLoad, sendGate, replay };

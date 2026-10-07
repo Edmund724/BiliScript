@@ -38,7 +38,7 @@ interface TestRuntimeDeps extends CreateChatRuntimeDeps {
     hideHistoryPopover: MockFn;
     removeCenteredState: MockFn;
     removeSuggestions: MockFn;
-    resetConversationView: MockFn;
+    requestViewReset: MockFn;
     autosizeInput: MockFn;
   };
   ensureCurrentContextForSend: MockFn;
@@ -386,7 +386,7 @@ describe("chat-runtime 流结束的会话身份校验", () => {
         hideHistoryPopover: vi.fn(),
         removeCenteredState: vi.fn(),
         removeSuggestions: vi.fn(),
-        resetConversationView: vi.fn(),
+        requestViewReset: vi.fn(),
         autosizeInput: vi.fn()
       },
       ensureCurrentContextForSend: vi.fn(async () => ({ pass: true }) as const),

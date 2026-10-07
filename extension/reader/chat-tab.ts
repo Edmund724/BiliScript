@@ -78,7 +78,8 @@ import {
   createProviderPrefs,
   noteDefaultModelChoice,
   parseModelOptionValue,
-  rebuildCurrentContextKeyFromContext
+  rebuildCurrentContextKeyFromContext,
+  type ViewResetIntent
 } from "../chat/tab-domain.js";
 // pinned 判定单一谓词（context-policy.ts）：全仓统一严格 === true，两处真值读
 // 已并入。
@@ -383,7 +384,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
     hideHistoryPopover: () => popovers.hideHistoryPopover(),
     removeCenteredState,
     removeSuggestions,
-    resetConversationView,
+    requestViewReset,
     autosizeInput
   },
   onConversationChanged: (change) => {
@@ -413,6 +414,7 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   renderInitialState,
   renderSuggestions: () => lists.renderSuggestions(),
   restartChat,
+  requestViewReset,
   storage: chrome.storage.local,
   clip: () => state.clip,
   settings: () => state.settings,
@@ -1193,6 +1195,16 @@ function resetConversationView(stateHtml = ""): void {
   // 留着，用户此后的上翻会被误当成「回底途中」，按钮再也不亮。
   releaseScrollBottomHold();
   setScrollBottomVisible(false);
+}
+
+// 视图意图通道（chat/view-intent.ts 词表，arch-review-2026-10 候选 11 第一刀）：
+// 「清场/状态屏」的唯一决策执行入口。chat 域 module（send-gate / context-load /
+// chat-runtime）不再各自持清场回调，只发意图；本入口委托 resetConversationView，
+// 其第一行恒作废在飞回放（世代号 +1）——「清场即作废回放」由本入口一处承重，
+// 消费方不感知 replay，历史上的 replay→resetView→invalidate 回环已随 replay
+// 空历史死分支一并摘除。
+function requestViewReset(intent: ViewResetIntent): void {
+  resetConversationView(intent.kind === "state" ? intent.html : "");
 }
 
 // 【整段迁移自 sidepanel.ts】布局状态：紧凑输入判定写在对话 tab 根元素
