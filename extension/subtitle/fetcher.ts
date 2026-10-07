@@ -525,7 +525,7 @@ export async function loadSecondarySubtitle(
   // 乐观写「目标 + loading」早于任何 await（02 号票 Q3：副轨的「选中」=「目标」）：
   // 副列的选中态与列表的「译文加载中…」占位立刻反映用户的选择，网络结果只改
   // state/body，**失败也不回退目标**（与主轨 Q14 相反，理由见 02 号票裁定）。
-  clipState.markSecondarySubtitleLoading({ id: subtitleId ? String(subtitleId) : "", url, lang });
+  clipState.markSecondarySubtitleLoading({ id: subtitleId ? String(subtitleId) : "", url });
   if (isReaderViewOpen()) {
     notifyReaderPresenter("rerender");
   }
@@ -550,7 +550,6 @@ export async function loadSecondarySubtitle(
             body,
             subtitleId: subtitleId ? String(subtitleId) : "",
             subtitleUrl: url,
-            subtitleLang: lang,
             runId
           })
       }

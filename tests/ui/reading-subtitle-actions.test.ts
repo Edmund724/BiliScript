@@ -139,7 +139,6 @@ describe("字幕 tab 复制 / 导出（真实绑定，经 ensureSummarizeChain�
     clipState.applySecondarySubtitle({
       id: "sub-en",
       url: "https://sub/en.json",
-      lang: "English",
       body: [{ from: 0, to: 30, content: "English line" }]
     });
 

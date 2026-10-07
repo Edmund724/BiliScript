@@ -60,7 +60,6 @@ function seed(main: typeof MAIN, secondary: typeof SECONDARY_MERGED | null, bili
     clipState.applySecondarySubtitle({
       id: "sub-en",
       url: "https://sub/en.json",
-      lang: "English",
       body: secondary as never
     });
   }
@@ -170,9 +169,9 @@ describe("双语开：三份导出的两行形态", () => {
 
   it("副轨未就绪（loading / error / 空）：三份与单轨逐字相同（不写占位）", () => {
     for (const prepare of [
-      () => clipState.markSecondarySubtitleLoading({ id: "sub-en", url: "https://sub/en.json", lang: "English" }),
+      () => clipState.markSecondarySubtitleLoading({ id: "sub-en", url: "https://sub/en.json" }),
       () => {
-        clipState.markSecondarySubtitleLoading({ id: "sub-en", url: "https://sub/en.json", lang: "English" });
+        clipState.markSecondarySubtitleLoading({ id: "sub-en", url: "https://sub/en.json" });
         clipState.markSecondarySubtitleError();
       }
     ]) {
@@ -199,7 +198,6 @@ describe("派生内容的失效（R4：指纹认副轨 body 引用）", () => {
     clipState.applySecondarySubtitle({
       id: "sub-en",
       url: "https://sub/en.json",
-      lang: "English",
       body: SECONDARY_MERGED as never
     });
     core.ensureDerivedContent();

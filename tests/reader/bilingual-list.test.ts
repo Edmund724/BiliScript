@@ -90,7 +90,7 @@ function setBilingual(on: boolean): void {
 }
 
 function seedSecondaryReady(body: SubtitleBodyItem[]): void {
-  clipState.applySecondarySubtitle({ id: "en", url: "https://sub/ai-en.json", lang: "ai-en", body });
+  clipState.applySecondarySubtitle({ id: "en", url: "https://sub/ai-en.json", body });
 }
 
 function ensureList(): HTMLElement {
@@ -297,7 +297,7 @@ describe("06 双语列表：副行渲染（ready / 折叠 / 占位）", () => {
 
   it("副轨 loading：每行出占位、data-state=loading，占位不可点", () => {
     setBilingual(true);
-    clipState.markSecondarySubtitleLoading({ id: "en", url: "https://sub/ai-en.json", lang: "ai-en" });
+    clipState.markSecondarySubtitleLoading({ id: "en", url: "https://sub/ai-en.json" });
     renderBody(MAIN_BODY);
 
     for (const index of [0, 1, 2]) {
@@ -312,7 +312,7 @@ describe("06 双语列表：副行渲染（ready / 折叠 / 占位）", () => {
 
   it("副轨 error：每行出失败占位、data-state=fail，占位不可点", () => {
     setBilingual(true);
-    clipState.markSecondarySubtitleLoading({ id: "en", url: "https://sub/ai-en.json", lang: "ai-en" });
+    clipState.markSecondarySubtitleLoading({ id: "en", url: "https://sub/ai-en.json" });
     clipState.markSecondarySubtitleError();
     renderBody(MAIN_BODY);
 
@@ -396,7 +396,7 @@ describe("06 双语列表：双轨搜索", () => {
 
   it("占位文案不产生命中：loading / fail 文案搜不到，主行命中照常", () => {
     setBilingual(true);
-    clipState.markSecondarySubtitleLoading({ id: "en", url: "https://sub/ai-en.json", lang: "ai-en" });
+    clipState.markSecondarySubtitleLoading({ id: "en", url: "https://sub/ai-en.json" });
     renderBody([{ from: 0, to: 5, content: "主行正文" }]);
     expect(subtextOf(0)?.getAttribute("data-state")).toBe("loading");
 

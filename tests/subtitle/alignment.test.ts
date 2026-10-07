@@ -105,13 +105,13 @@ describe("secondaryContentFor（读 state 的投影入口）", () => {
   const main = { from: 0, to: 9 };
 
   it("双语关 ⇒ null（算法完全不参与）", () => {
-    clipState.applySecondarySubtitle({ id: "en", url: "u", lang: "ai-en", body: EN_MERGED });
+    clipState.applySecondarySubtitle({ id: "en", url: "u", body: EN_MERGED });
     state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: false });
     expect(secondaryContentFor(main)).toBeNull();
   });
 
   it("双语开且副轨就绪 ⇒ 给出拼接结果", () => {
-    clipState.applySecondarySubtitle({ id: "en", url: "u", lang: "ai-en", body: EN_MERGED });
+    clipState.applySecondarySubtitle({ id: "en", url: "u", body: EN_MERGED });
     state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true });
     expect(secondaryContentFor(main)).toBe("First and second");
   });
@@ -120,17 +120,17 @@ describe("secondaryContentFor（读 state 的投影入口）", () => {
     state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true });
     expect(secondaryContentFor(main)).toBeNull();
 
-    clipState.markSecondarySubtitleLoading({ id: "en", url: "u", lang: "ai-en" });
+    clipState.markSecondarySubtitleLoading({ id: "en", url: "u" });
     expect(secondaryContentFor(main)).toBeNull();
 
-    clipState.applySecondarySubtitle({ id: "en", url: "u", lang: "ai-en", body: EN_MERGED });
+    clipState.applySecondarySubtitle({ id: "en", url: "u", body: EN_MERGED });
     clipState.markSecondarySubtitleError();
     expect(secondaryContentFor(main)).toBeNull();
   });
 
   it("清场后回到 null（换视频不继承上一个视频的译文）", () => {
     state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true });
-    clipState.applySecondarySubtitle({ id: "en", url: "u", lang: "ai-en", body: EN_MERGED });
+    clipState.applySecondarySubtitle({ id: "en", url: "u", body: EN_MERGED });
     expect(secondaryContentFor(main)).toBe("First and second");
     clipState.clearSecondarySubtitle();
     expect(secondaryContentFor(main)).toBeNull();
@@ -139,7 +139,7 @@ describe("secondaryContentFor（读 state 的投影入口）", () => {
   it("同一 body 引用重复查询给出同一结果（索引缓存不改变语义）", () => {
     state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true });
     const body = [seg(0, 5, "A"), seg(5, 9, "B")];
-    clipState.applySecondarySubtitle({ id: "en", url: "u", lang: "ai-en", body });
+    clipState.applySecondarySubtitle({ id: "en", url: "u", body });
     expect(secondaryContentFor(ZH_PAIR[0])).toBe("A");
     expect(secondaryContentFor(ZH_PAIR[1])).toBe("B");
     expect(secondaryContentFor(ZH_PAIR[0])).toBe("A");

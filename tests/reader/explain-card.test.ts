@@ -289,7 +289,6 @@ describe("面板内解释卡片", () => {
     clipState.applySecondarySubtitle({
       id: "sub-en",
       url: "https://sub/en.json",
-      lang: "English",
       body: [{ from: 10, to: 30, content: "TRANSLATED" }]
     });
     reader.renderReadingView();

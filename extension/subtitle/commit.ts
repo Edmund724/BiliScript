@@ -113,7 +113,6 @@ export interface AcceptSecondarySubtitleArgs {
   body: unknown[] | null | undefined;
   subtitleId: string;
   subtitleUrl: string;
-  subtitleLang: string;
   // 发起方抓取代次（可选，语义同 AcceptSubtitleArgs.runId）：副轨在弹层里换语言
   // **不推进** fetchRunId（换轨由「在飞即禁用该列」消解，02 号票 Q2），所以这里
   // 只在换视频/新一轮抓取推进了代次时才让位——与主轨事务同一道门。
@@ -133,7 +132,6 @@ export async function acceptSecondarySubtitle({
   body,
   subtitleId,
   subtitleUrl,
-  subtitleLang,
   runId
 }: AcceptSecondarySubtitleArgs): Promise<void> {
   // runId 代次自检先于任何写入，且与首个写入之间无 await（同 acceptSubtitle）。
@@ -144,7 +142,6 @@ export async function acceptSecondarySubtitle({
   clipState.applySecondarySubtitle({
     id: subtitleId,
     url: subtitleUrl,
-    lang: subtitleLang,
     body: sortedBody as SubtitleBodyItem[]
   });
   notifyReaderPresenter("secondary-subtitle-ready");

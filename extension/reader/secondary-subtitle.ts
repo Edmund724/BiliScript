@@ -31,7 +31,8 @@ import {
 } from "../subtitle/selection.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
 
-// 目标轨投影：id/url 取自轨，lang 是槽语言（也是 per-track 缓存键的 source key 分量）。
+// 目标轨投影：id/url 取自轨，lang 是目标轨语言（per-track 缓存键的 source key 分量；
+// 它不落槽——槽里那一枚字段全仓无读方，已删）。
 export interface SecondaryTarget {
   id: string;
   url: string;
@@ -76,7 +77,7 @@ function currentTracks(): SubtitleTrack[] {
   return (state.clip.subtitles || []) as unknown as SubtitleTrack[];
 }
 
-// 轨 → 目标投影。槽语言统一 `lanDoc || lan || "unknown"`（lifecycle 自动装载的原口径）：
+// 轨 → 目标投影。目标轨语言统一 `lanDoc || lan || "unknown"`（lifecycle 自动装载的原口径）：
 // 轨 id 为空时它是缓存 source key 的分量，两个入口必须算出同一个键。
 function projectTrack(track: SubtitleTrack): SecondaryTarget {
   return {

@@ -84,7 +84,7 @@ vi.mock("../../extension/subtitle/lazy.js", () => ({
     ) => {
       lazy.secondaryCalls.push([url, lang, runId, subtitleId, forceRefresh]);
       const { clipState } = await import("../../extension/core/state.js");
-      clipState.markSecondarySubtitleLoading({ id: subtitleId, url, lang });
+      clipState.markSecondarySubtitleLoading({ id: subtitleId, url });
       if (lazy.secondaryMode === "pend") {
         return new Promise<void>(() => {});
       }
@@ -92,7 +92,7 @@ vi.mock("../../extension/subtitle/lazy.js", () => ({
         clipState.markSecondarySubtitleError();
         throw new Error("副轨网络失败");
       }
-      clipState.applySecondarySubtitle({ id: subtitleId, url, lang, body: lazy.secondaryBody as never });
+      clipState.applySecondarySubtitle({ id: subtitleId, url, body: lazy.secondaryBody as never });
     }
   }))
 }));
@@ -488,7 +488,7 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     setBilingual(true, "en-US");
     shell.renderReadingView();
     // 副轨已就绪（槽非 idle ⇒ 主轨到站不会触发自动装载，本用例只看「切主轨不动副列」）
-    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, lang: "ai-en", body: EN_BODY as never });
+    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, body: EN_BODY as never });
     shell.renderReadingView();
 
     clickMainOption("日本語");
@@ -505,7 +505,7 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "en-US");
     shell.renderReadingView();
-    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, lang: "ai-en", body: EN_BODY as never });
+    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, body: EN_BODY as never });
     shell.renderReadingView();
 
     clickSubOption("中文");
@@ -526,7 +526,7 @@ describe("主副互不牵连（Q8 / Q9）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "ja-JP"); // 目标 = 日本語
     shell.renderReadingView();
-    state.clip.applySecondarySubtitle({ id: JA_ID, url: JA_URL, lang: "ai-ja", body: EN_BODY as never });
+    state.clip.applySecondarySubtitle({ id: JA_ID, url: JA_URL, body: EN_BODY as never });
     shell.renderReadingView();
     expect(placeholder()).toBeNull(); // 目标轨在场 ⇒ 列里出语言列表，不出占位行
 
@@ -870,7 +870,7 @@ describe("真机反向发现的修复锁", () => {
   it("关闭开关：请列表属主重渲（副行不能挂在列表上）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "en-US");
-    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, lang: "ai-en", body: EN_BODY as never });
+    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, body: EN_BODY as never });
     shell.renderReadingView();
     expect(document.querySelectorAll(".biliscript-reading-subtext").length).toBeGreaterThan(0);
 
@@ -886,7 +886,7 @@ describe("真机反向发现的修复锁", () => {
   it("同轨防呆清副轨槽：同样请列表属主重渲（否则列表还挂着已清空的译文）", () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     setBilingual(true, "en-US");
-    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, lang: "ai-en", body: EN_BODY as never });
+    state.clip.applySecondarySubtitle({ id: EN_ID, url: EN_URL, body: EN_BODY as never });
     shell.renderReadingView();
 
     const kinds: string[] = [];

@@ -47,7 +47,7 @@
 // 列宽、单轨态说明进列表区），规则在 entry/styles/bilingual-subtitles.css。
 // 状态位（02 号票第 8 条）：全局偏好 = settings.bilingualSubtitles +
 // settings.secondarySubtitleLang（进键面 ⇒ 跨设备同步 + 归一化）；per-video =
-// clip.secondarySubtitle 槽（id/url/lang/body/state）。DOM 只投影 state，不反解。
+// clip.secondarySubtitle 槽（id/url/body/state）。DOM 只投影 state，不反解。
 //
 // 与既有纪律的两处衔接（本叶子不新增机制）：
 //   - 偏好落盘走 reader-bus 的 persistReaderSettingsThroughSeam（readerTheme 同款

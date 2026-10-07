@@ -127,7 +127,6 @@ function acceptSecondary(runId?: number) {
     body: [...GOOD_BODY].reverse(),
     subtitleId: EN_TRACK.id,
     subtitleUrl: EN_TRACK.subtitleUrl,
-    subtitleLang: EN_TRACK.lanDoc,
     ...(runId !== undefined ? { runId } : {})
   });
 }
@@ -157,7 +156,6 @@ describe("acceptSecondarySubtitle（副轨接受事务）", () => {
     expect(state.clip.secondarySubtitle).toMatchObject({
       id: EN_TRACK.id,
       url: EN_TRACK.subtitleUrl,
-      lang: EN_TRACK.lanDoc,
       state: "ready"
     });
     expect(state.clip.secondarySubtitle.body.map((item) => item.content)).toEqual(["First", "Second"]);
@@ -208,7 +206,6 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
     expect(state.clip.secondarySubtitle).toMatchObject({
       id: EN_TRACK.id,
       url: EN_TRACK.subtitleUrl,
-      lang: EN_TRACK.lanDoc,
       body: [],
       state: "loading"
     });
@@ -248,7 +245,6 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
 
     expect(state.clip.secondarySubtitle).toMatchObject({
       id: EN_TRACK.id,
-      lang: EN_TRACK.lanDoc,
       body: [],
       state: "error"
     });
@@ -294,13 +290,12 @@ describe("清场（换视频）", () => {
     clipState.applySecondarySubtitle({
       id: EN_TRACK.id,
       url: EN_TRACK.subtitleUrl,
-      lang: EN_TRACK.lanDoc,
       body: GOOD_BODY as never
     });
     expect(state.clip.secondarySubtitle.state).toBe("ready");
 
     fetcher.resetClipState();
 
-    expect(state.clip.secondarySubtitle).toEqual({ id: "", url: "", lang: "", body: [], state: "idle" });
+    expect(state.clip.secondarySubtitle).toEqual({ id: "", url: "", body: [], state: "idle" });
   });
 });

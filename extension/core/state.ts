@@ -63,17 +63,17 @@ export type SecondarySubtitleState = "idle" | "loading" | "ready" | "error";
 
 export interface SecondarySubtitle {
   // 目标轨身份：用户在弹层选定副轨的那一刻**乐观写入**（02 号票 Q3），网络结果只改
-  // state/body，不回退目标。
+  // state/body，不回退目标。目标轨的 `lang` 分量不落槽（它只进 per-track 缓存键，
+  // 由装载事务的参数携带；落槽的那一枚全仓无读方，2026-10 删除）。
   id: string;
   url: string;
-  lang: string;
   body: SubtitleBodyItem[];
   state: SecondarySubtitleState;
 }
 
 // 空槽每次新建：槽是成组整体替换的，不共享可变引用（避免跨视频串体）。
 export function emptySecondarySubtitle(): SecondarySubtitle {
-  return { id: "", url: "", lang: "", body: [], state: "idle" };
+  return { id: "", url: "", body: [], state: "idle" };
 }
 
 export type ChapterItem = {
@@ -218,9 +218,9 @@ type ClipSetters = {
   // ===== 双语副轨槽：四个成组意图（ADR 0005 的意图级原语，不铺逐字段 setter）=====
   // 乐观写目标 + 置 loading：用户在弹层选定副轨语言的那一刻调用（02 号票 Q3：
   // 「选中」=「目标」）。body 一并清空——旧语言的正文不能挂在新目标下面。
-  markSecondarySubtitleLoading(value: { id: string; url: string; lang: string }): void;
+  markSecondarySubtitleLoading(value: { id: string; url: string }): void;
   // 接受事务收尾：写目标轨身份 + 已排序 body + ready（subtitle/commit 唯一调用点）。
-  applySecondarySubtitle(value: { id: string; url: string; lang: string; body: SubtitleBodyItem[] }): void;
+  applySecondarySubtitle(value: { id: string; url: string; body: SubtitleBodyItem[] }): void;
   // 装载失败：保目标轨身份（副列要显示"哪条语言失败了"），清 body、置 error。
   markSecondarySubtitleError(): void;
   // 清场（换视频 / resetClipState）：整体复位回空槽。
@@ -305,11 +305,11 @@ const localClipState: ClipStateWritable = {
   setSubtitleFetchState(value) { this.subtitleFetchState = value; },
   setNoSubtitleReason(value) { this.noSubtitleReason = value; },
   setNoSubtitleDetail(value) { this.noSubtitleDetail = value; },
-  markSecondarySubtitleLoading({ id, url, lang }) {
-    this.secondarySubtitle = { id, url, lang, body: [], state: "loading" };
+  markSecondarySubtitleLoading({ id, url }) {
+    this.secondarySubtitle = { id, url, body: [], state: "loading" };
   },
-  applySecondarySubtitle({ id, url, lang, body }) {
-    this.secondarySubtitle = { id, url, lang, body, state: "ready" };
+  applySecondarySubtitle({ id, url, body }) {
+    this.secondarySubtitle = { id, url, body, state: "ready" };
   },
   markSecondarySubtitleError() {
     this.secondarySubtitle = { ...this.secondarySubtitle, body: [], state: "error" };

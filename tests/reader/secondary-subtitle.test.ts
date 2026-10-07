@@ -251,10 +251,10 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
     setBilingual(true, "en-US");
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
 
-    clipState.markSecondarySubtitleLoading({ id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: "English" });
+    clipState.markSecondarySubtitleLoading({ id: EN_TRACK.id, url: EN_TRACK.subtitleUrl });
     expect(module.ensureSecondarySubtitleLoaded()).toEqual({ kind: "skipped", reason: "slot-busy" });
 
-    clipState.applySecondarySubtitle({ id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: "English", body: [] });
+    clipState.applySecondarySubtitle({ id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, body: [] });
     expect(module.ensureSecondarySubtitleLoaded()).toEqual({ kind: "skipped", reason: "slot-busy" });
 
     clipState.markSecondarySubtitleError();
