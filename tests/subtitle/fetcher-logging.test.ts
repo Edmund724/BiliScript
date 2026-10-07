@@ -52,21 +52,9 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-vi.mock("../../extension/subtitle/cache.js", () => ({
-  buildSubtitleCandidates: vi.fn((tracks, preferred) => {
-    const list = [preferred];
-    for (const item of tracks || []) {
-      if (item !== preferred) {
-        list.push(item);
-      }
-    }
-    return list;
-  }),
-  clearSubtitleCacheByKey: vi.fn(async () => {}),
-  saveSubtitleToCache: vi.fn(async () => {}),
-  loadSubtitleFromCache: vi.fn(async () => null),
-  getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_test")
-}));
+// 取体链收口 subtitle/body.js 后，本文件不再整体替换 subtitle/cache.js：真实缓存
+// 模块在 tests/setup.js 的 chrome.storage stub 上返回未命中、写入成功，取体流程
+// 照常走真实分支（getSubtitleCacheKey 也不再被替换）。本文件只关心日志路径。
 
 // 以下依赖保持真实加载：state / defaults / validators / utils / url-utils / error-helpers
 // / runtime / selection 仅依赖纯函数或 state。

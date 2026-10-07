@@ -18,19 +18,13 @@ import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
 import { isReaderViewOpen } from "../reader/state.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
-import {
-  normalizeSubtitleTracks,
-  pickPreferredSubtitle,
-  validateSubtitleByDuration
-} from "./selection.js";
-import type { DurationValidationResult } from "./selection.js";
+import { normalizeSubtitleTracks, pickPreferredSubtitle } from "./selection.js";
 import {
   buildSubtitleCandidates,
-  clearSubtitleCacheByKey,
-  clearStaleAsrSubtitleCache,
-  saveSubtitleToCache,
-  loadSubtitleFromCache,
-  getSubtitleCacheKey
+  // 取体链（缓存键 / 读缓存 / 时长校验 / 落缓存）已收口 subtitle/body.js，
+  // 本模块不再直连这些口。clearStaleAsrSubtitleCache 是重构前就存在的未引用
+  // import（ASR 孤儿清理已归 asr/fallback），保留待另案处理。
+  clearStaleAsrSubtitleCache
 } from "./cache.js";
 import { resolvePageContext } from "../reader/page-context.js";
 import { notifyReaderPresenter, subscribeSubtitleRefresh } from "../reader/reader-bus.js";
@@ -41,16 +35,13 @@ import { acceptSubtitle, acceptSecondarySubtitle, commitNoSubtitle, configureCom
 import {
   fetchVideoMeta as gatewayFetchVideoMeta,
   fetchSubtitleBundle as gatewayFetchSubtitleBundle,
-  fetchSubtitleBody,
   readRuntimeVideoDuration,
   contentFetchJson
 } from "../bilibili/gateway.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
-
-interface SubtitleDurationMismatchError extends Error {
-  code: "SUBTITLE_DURATION_MISMATCH";
-  details: DurationValidationResult;
-}
+// 取体深 module（CONTEXT.md「字幕」的正文）：两条装载链共用的唯一取体实现，
+// 出口（接受事务）由下方两个装载器注入。
+import { loadTrackBody } from "./body.js";
 
 // ASR 域（pipeline + fallback 及其专属依赖 audio-source/offscreen-bridge.page）
 // 经动态 import 按需加载（候选4 分包）：只有视频无 CC 字幕时才需要语音转写。
@@ -474,91 +465,46 @@ export async function loadSubtitle(
   if (!url) {
     throw new Error("字幕 URL 为空。");
   }
-
-  const cacheKey = getSubtitleCacheKey({
-    bvid: state.clip.bvid,
-    cid: state.clip.cid,
-    subtitleId,
-    subtitleUrl: url,
-    lang
-  });
-
-  // 尝试从缓存读取
-  if (!forceRefresh) {
-    const cachedBody = await loadSubtitleFromCache(cacheKey);
-    if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
-      const cachedCheck = validateSubtitleByDuration(cachedBody, state.clip.videoDuration);
-      if (!cachedCheck.ok) {
-        logWarn("[BILISCRIPT] cached subtitle duration mismatch, clearing cache", {
-          cacheKey,
-          reason: cachedCheck.reason
-        });
-        await clearSubtitleCacheByKey(cacheKey);
-      } else {
-        logInfo("[BILISCRIPT] using cached subtitle", { cacheKey, itemCount: cachedBody.length });
-        ensureRunActive(runId, state.clip.fetchRunId);
-        // 字幕接受事务（commit.acceptSubtitle）：写 selected 三项 → ready →
-        // 清原因 → 刷新派生 → 通知 reader，旧缓存条目可能无序，幂等稳定排序
-        // 由事务单点完成（「subtitleBody 按 from 升序」不变量）。runId 随行：
-        // 事务提交前自检代次，reset/新抓取已推进时让位（M23 runId 协调）。
-        await acceptSubtitle({
-          body: cachedBody,
+  // 取体链已收口 subtitle/body.js（缓存键装配 → 缓存命中与时长校验 → 坏缓存
+  // 清键 → 网络取体 → 空体/时长校验 → 落缓存与写失败上浮）。本壳只保留主轨
+  // 特有的两件事：URL 空值守卫，与出口——主轨的接受事务。排序不在此处做：
+  // 稳定排序统一收口在事务内（旧缓存条目可能无序）。
+  await loadTrackBody(
+    // forceRefresh 缺省 false（切轨语义：优先命中 per-track 缓存）。
+    { url, lang, subtitleId, runId, forceRefresh },
+    {
+      log: {
+        cacheHit: "[BILISCRIPT] using cached subtitle",
+        cacheMismatch: "[BILISCRIPT] cached subtitle duration mismatch, clearing cache"
+      },
+      // 出口：字幕接受事务（commit.acceptSubtitle）——写 selected 三项 →
+      // ready → 清原因 → 刷新派生（含事务内排序后的 body）→ 通知 reader。
+      // runId 随行自检（M23）：取体链的 await（读缓存 / 落缓存）之后到站的旧
+      // run 在事务门口让位，旧视频字幕不写进已重置的 state。
+      onBody: (body) =>
+        acceptSubtitle({
+          body,
+          // 轨 id 缺省时沿用当前已选中的那条（主轨口径；副轨回退空串）。
           selectedSubtitleId: subtitleId ? String(subtitleId) : state.clip.selectedSubtitleId,
           selectedSubtitleUrl: url,
           selectedSubtitleLang: lang,
           runId
-        });
-        return;
-      }
+        })
     }
-  }
-
-  // 从网络获取
-  const subtitle = await fetchSubtitleBody(url);
-  ensureRunActive(runId, state.clip.fetchRunId);
-  // 排序不在此处做：稳定排序统一收口在提交事务（commit.acceptSubtitle 内的
-  // sortSubtitleBodyByFrom），写 state 前单点保证「按 from 升序」不变量；
-  // 这里保持网络返回的原始 body 顺序，落缓存的有序性由该事务的幂等排序兜底。
-  const body = Array.isArray(subtitle.body) ? subtitle.body : [];
-  if (body.length === 0) {
-    throw new Error("字幕文件为空。");
-  }
-  const durationCheck = validateSubtitleByDuration(body, state.clip.videoDuration);
-  if (!durationCheck.ok) {
-    const mismatchError = new Error("字幕时长与当前视频不匹配。") as SubtitleDurationMismatchError;
-    mismatchError.code = "SUBTITLE_DURATION_MISMATCH";
-    mismatchError.details = durationCheck;
-    throw mismatchError;
-  }
-
-  // 存入缓存（写入带 LRU 淘汰：失败先清理旧视频再重试一次）
-  const saveResult = await saveSubtitleToCache(cacheKey, body);
-  if (saveResult && saveResult.ok === false) {
-    // 淘汰后重试仍失败：经既有消息栏一次性上浮，不阻断主流程。
-    setMessage("字幕已加载，但本地缓存写入失败（已自动清理旧缓存仍失败），重启浏览器后需重新抓取。");
-  }
-
-  // 字幕接受事务（commit.acceptSubtitle）：稳定排序唯一一次发生在事务内——
-  // 写 selected 三项 → ready → 清原因 → 刷新派生（含排序后的 body）→ 通知
-  // reader 全部由事务单点负责。runId 随行自检（M23）：网络抓取与提交间
-  // 隔着落缓存等 await，reset/新抓取推进代次后到站的旧 run 在事务门口让位，
-  // 旧视频字幕不写进已重置的 state。
-  await acceptSubtitle({
-    body,
-    selectedSubtitleId: subtitleId ? String(subtitleId) : state.clip.selectedSubtitleId,
-    selectedSubtitleUrl: url,
-    selectedSubtitleLang: lang,
-    runId
-  });
+  );
 }
 
 // ===== 双语副轨装载（bilingual-subtitles/02 + 05 号票）=====
 //
-// loadSubtitle 的**副轨版**：同一套取体口径（先 per-track 缓存、后网络、
-// 时长校验、落缓存），但落点是副轨槽、收尾走 acceptSecondarySubtitle——**不改**
-// selected 三项、**不写** subtitleFetchState（那是整片单相位，写了会把整个字幕 tab
-// 洗成加载/失败面）。与 loadSubtitle 的重复是**有意**的对称（同 commit.ts 的两个
-// 对称事务）：主轨装载链是上一张图刚钉死并有回归锁的路径，不为复用去动它。
+// 与主轨并列的第二条装载链：取体链走同一个 module（subtitle/body.js），**唯一**
+// 的分叉是出口——副轨的收尾是乐观写槽（clip.secondarySubtitle，自带
+// idle|loading|ready|error）+ 并列的 acceptSecondarySubtitle：**不改** selected
+// 三项、**不写** subtitleFetchState（那是整片单相位，写了会把整个字幕 tab 洗成
+// 加载/失败面）。
+//
+// 历史注记：这里原有一句「与 loadSubtitle 的重复是有意的对称」。取体链收口后
+// 该理由已失效——两轨的分叉点就是出口，而出口是注入的参数，重复不再承担任何
+// 「保护上一张图」的职责（依据见 subtitle/body.js 头注）。
 //
 // forceRefresh 缺省 false（切轨语义：优先命中 per-track 缓存）——只有弹层的"重试"
 // 与"刷新抓取"传 true（02 号票 Q1/Q6）。
@@ -584,69 +530,31 @@ export async function loadSecondarySubtitle(
     notifyReaderPresenter("rerender");
   }
 
-  const cacheKey = getSubtitleCacheKey({
-    bvid: state.clip.bvid,
-    cid: state.clip.cid,
-    subtitleId,
-    subtitleUrl: url,
-    lang
-  });
-
   try {
-    if (!forceRefresh) {
-      const cachedBody = await loadSubtitleFromCache(cacheKey);
-      if (cachedBody && Array.isArray(cachedBody) && cachedBody.length > 0) {
-        const cachedCheck = validateSubtitleByDuration(cachedBody, state.clip.videoDuration);
-        if (!cachedCheck.ok) {
-          logWarn("[BILISCRIPT] cached secondary subtitle duration mismatch, clearing cache", {
-            cacheKey,
-            reason: cachedCheck.reason
-          });
-          await clearSubtitleCacheByKey(cacheKey);
-        } else {
-          logInfo("[BILISCRIPT] using cached secondary subtitle", {
-            cacheKey,
-            itemCount: cachedBody.length
-          });
-          ensureRunActive(runId, state.clip.fetchRunId);
-          await acceptSecondarySubtitle({
-            body: cachedBody,
+    // 取体链与主轨同一份实现（subtitle/body.js）：缓存 → 时长校验 → 网络 →
+    // 落缓存。本壳只保留副轨特有的三件事：先于乐观写入的代次自检（见上）、
+    // 出口（乐观写槽的并列接受事务）、失败出口（error 写 + STALE_RUN 不写）。
+    await loadTrackBody(
+      { url, lang, subtitleId, runId, forceRefresh },
+      {
+        log: {
+          cacheHit: "[BILISCRIPT] using cached secondary subtitle",
+          cacheMismatch: "[BILISCRIPT] cached secondary subtitle duration mismatch, clearing cache"
+        },
+        // 出口：副轨的接受事务（commit.acceptSecondarySubtitle）——写副轨槽
+        // （目标轨身份 + 事务内排序后的 body + ready）并发
+        // "secondary-subtitle-ready"；不碰主轨 selected 三项与整片相位。
+        // 轨 id 缺省时回退空串（副轨口径；主轨沿用已选中那条）。
+        onBody: (body) =>
+          acceptSecondarySubtitle({
+            body,
             subtitleId: subtitleId ? String(subtitleId) : "",
             subtitleUrl: url,
             subtitleLang: lang,
             runId
-          });
-          return;
-        }
+          })
       }
-    }
-
-    const subtitle = await fetchSubtitleBody(url);
-    ensureRunActive(runId, state.clip.fetchRunId);
-    const body = Array.isArray(subtitle.body) ? subtitle.body : [];
-    if (body.length === 0) {
-      throw new Error("字幕文件为空。");
-    }
-    const durationCheck = validateSubtitleByDuration(body, state.clip.videoDuration);
-    if (!durationCheck.ok) {
-      const mismatchError = new Error("字幕时长与当前视频不匹配。") as SubtitleDurationMismatchError;
-      mismatchError.code = "SUBTITLE_DURATION_MISMATCH";
-      mismatchError.details = durationCheck;
-      throw mismatchError;
-    }
-
-    const saveResult = await saveSubtitleToCache(cacheKey, body);
-    if (saveResult && saveResult.ok === false) {
-      setMessage("字幕已加载，但本地缓存写入失败（已自动清理旧缓存仍失败），重启浏览器后需重新抓取。");
-    }
-
-    await acceptSecondarySubtitle({
-      body,
-      subtitleId: subtitleId ? String(subtitleId) : "",
-      subtitleUrl: url,
-      subtitleLang: lang,
-      runId
-    });
+    );
   } catch (error) {
     // 让位（STALE_RUN）不写 error：那是"更新的 run 已接手"，把旧 run 的失败写进
     // 新视频的副轨槽正是 runId 纪律要防的那类串体。

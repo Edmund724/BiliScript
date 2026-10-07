@@ -23,10 +23,14 @@
 //
 // mock 结构照 tests/subtitle/reset-fetch-runid.test.ts：gateway / page-context /
 // subtitle-core / ui-status / reader-bus mock 掉，state、error-helpers、commit、
-// selection 保持真实；cache.js 只 mock 两个落盘口，键构造走真实实现。
+// selection、cache 全部保持真实；缓存口跑在内存版 chrome.storage.local 上
+//（与 tests/subtitle/asr-fallback.test.ts 同款），因此「缓存命中」是真的预置一条
+// per-track 条目，而不是替换掉整个缓存模块。
 
 import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installMemoryStorage, seedCache } from "../helpers/memory-storage.js";
+import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
 
 vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
@@ -57,14 +61,6 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
-  return {
-    ...actual,
-    saveSubtitleToCache: vi.fn(async () => ({ ok: true })),
-    loadSubtitleFromCache: vi.fn(async () => null)
-  };
-});
 
 // videoDuration=300 的合规体（maxTo 290）
 const GOOD_BODY = [
@@ -91,10 +87,21 @@ let commit: typeof import("../../extension/subtitle/commit.js");
 let state: (typeof import("../../extension/core/state.js"))["state"];
 let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
 let gateway: MockedObject<typeof import("../../extension/bilibili/gateway.js")>;
-let cache: MockedObject<typeof import("../../extension/subtitle/cache.js")>;
 let core: MockedObject<typeof import("../../extension/subtitle/core.js")>;
 let readerBus: MockedObject<typeof import("../../extension/reader/reader-bus.js")>;
 let uiStatus: MockedObject<typeof import("../../extension/core/ui-status.js")>;
+
+// 副轨的 per-track 缓存键（真实键装配，与装载器算出的键同一份实现）；缓存口由
+// 共享的内存 storage 宿主承载（tests/helpers/memory-storage.ts）。
+function secondaryCacheKey() {
+  return getSubtitleCacheKey({
+    bvid: state.clip.bvid,
+    cid: state.clip.cid,
+    subtitleId: EN_TRACK.id,
+    subtitleUrl: EN_TRACK.subtitleUrl,
+    lang: EN_TRACK.lanDoc
+  });
+}
 
 async function importEpoch() {
   fetcher = await import("../../extension/subtitle/fetcher.js");
@@ -103,14 +110,12 @@ async function importEpoch() {
   state = stateModule.state;
   clipState = stateModule.clipState;
   gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
-  cache = vi.mocked(await import("../../extension/subtitle/cache.js"));
   core = vi.mocked(await import("../../extension/subtitle/core.js"));
   readerBus = vi.mocked(await import("../../extension/reader/reader-bus.js"));
   uiStatus = vi.mocked(await import("../../extension/core/ui-status.js"));
 
+  installMemoryStorage();
   gateway.fetchSubtitleBody.mockReset();
-  cache.saveSubtitleToCache.mockReset().mockResolvedValue({ ok: true });
-  cache.loadSubtitleFromCache.mockReset().mockResolvedValue(null);
   core.refreshHotComments.mockReset().mockResolvedValue(undefined);
   readerBus.notifyReaderPresenter.mockReset();
   uiStatus.setStatus.mockReset();
@@ -140,6 +145,8 @@ function loadSecondary(overrides: { forceRefresh?: boolean; runId?: number } = {
 beforeEach(async () => {
   resetModuleState();
   await importEpoch();
+  clipState.setBvid("BV1test000000");
+  clipState.setCid("101");
   clipState.setVideoDuration(300);
 });
 
@@ -214,18 +221,24 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
   });
 
   it("forceRefresh=false 命中缓存 ⇒ 不打网络；forceRefresh=true 跳过缓存走网络", async () => {
-    cache.loadSubtitleFromCache.mockResolvedValue(GOOD_BODY);
+    await seedCache(secondaryCacheKey(), GOOD_BODY);
 
     await loadSecondary();
     expect(gateway.fetchSubtitleBody).not.toHaveBeenCalled();
     expect(state.clip.secondarySubtitle.state).toBe("ready");
+    expect(state.clip.secondarySubtitle.body.map((item) => item.content)).toEqual(["First", "Second"]);
 
-    cache.loadSubtitleFromCache.mockClear();
-    gateway.fetchSubtitleBody.mockResolvedValue({ body: GOOD_BODY });
+    // 盘上仍是那条缓存体；forceRefresh 必须无视它取网络新体（内容可区分，证明真的绕过）
+    gateway.fetchSubtitleBody.mockResolvedValue({
+      body: [
+        { from: 0, to: 1.2, content: "Net" },
+        { from: 1.5, to: 290, content: "Work" }
+      ]
+    });
     await loadSecondary({ forceRefresh: true });
 
-    expect(cache.loadSubtitleFromCache).not.toHaveBeenCalled();
     expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(1);
+    expect(state.clip.secondarySubtitle.body.map((item) => item.content)).toEqual(["Net", "Work"]);
   });
 
   it("失败（网络抛错）⇒ error 态 + 保留目标 + 清 body + 上抛（不回退、不弹开关）", async () => {

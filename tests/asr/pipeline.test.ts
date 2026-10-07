@@ -49,12 +49,9 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-vi.mock("../../extension/subtitle/cache.js", () => ({
-  getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_asr_test"),
-  loadSubtitleFromCache: vi.fn(async () => null),
-  saveSubtitleToCache: vi.fn(async () => {}),
-  clearSubtitleCacheByKey: vi.fn(async () => {})
-}));
+// 取体链收口 subtitle/body.js 后本文件不再整体替换 subtitle/cache.js：pipeline
+// 只经 asr 域内部接口，缓存落盘口由真实模块 + tests/setup.js 的 chrome.storage
+// stub 承担（本文件不作缓存断言）。
 vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, contentFetchJson: vi.fn() };

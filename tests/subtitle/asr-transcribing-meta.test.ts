@@ -30,17 +30,9 @@ vi.mock("../../extension/bilibili/gateway.js", async (importOriginal) => {
 vi.mock("../../extension/reader/page-context.js", () => ({
   resolvePageContext: vi.fn(() => ({ pageIndex: 1, cid: "101", cidSource: "test", pageTitle: "P1", duration: 300 }))
 }));
-vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
-  return {
-    ...actual,
-    getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_asr_meta_test"),
-    loadSubtitleFromCache: vi.fn(async () => null),
-    saveSubtitleToCache: vi.fn(async () => ({ ok: true })),
-    clearSubtitleCacheByKey: vi.fn(async () => {}),
-    clearStaleAsrSubtitleCache: vi.fn(async () => {})
-  };
-});
+// 取体/落缓存口不再整体替换：本文件不作缓存断言，真实 subtitle/cache.js 在
+// tests/setup.js 的 chrome.storage stub 上自然未命中（ASR 转写在 pipeline stub
+// 处永久挂起，也走不到落盘）。历史 mock 只钉了一个从未被断言的键串。
 // 通知口包一层计数（真实实现仍转发）：既让 reader 侧订阅照常收到，又可断言
 // 通知序列。subscribeReaderPresenter 保持真实导出（订阅闭环不可 mock）。
 vi.mock("../../extension/reader/reader-bus.js", async (importOriginal) => {

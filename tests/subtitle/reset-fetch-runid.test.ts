@@ -14,12 +14,15 @@
 //
 // mock 结构：与 fetcher-retry.test.js 同款 vi.mock（gateway/page-context/core/
 // ui-status/reader-bus mock 掉，state/selection/error-helpers 保持真实）；
-// commit.js 保持真实——runId 自检是被测对象，不能 mock。cache.js 仅 mock
-// saveSubtitleToCache/loadSubtitleFromCache 两个落盘口（前者用可控 promise
-// 精确复现「提交前 await 窗口」的竞态时序），键构造/候选构建走真实实现。
+// commit.js 保持真实——runId 自检是被测对象，不能 mock。**subtitle/cache.js 不再
+// 整体替换**：取体链收口 subtitle/body.js 后，落缓存口跑在内存版
+// chrome.storage.local 上（与 tests/subtitle/asr-fallback.test.ts 同款），
+// 「提交前 await 窗口」由挂在该键真正文写入上的可控 promise 精确复现——窗口开在
+// 真实落盘路径内，而不是被 mock 掉的函数上。
 
 import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installMemoryStorage } from "../helpers/memory-storage.js";
 
 vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
@@ -50,14 +53,6 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
-  return {
-    ...actual,
-    saveSubtitleToCache: vi.fn(async () => ({ ok: true })),
-    loadSubtitleFromCache: vi.fn(async () => null)
-  };
-});
 
 // 与 asr-fallback-concurrent.test.js 同款时长合规体：videoDuration=300、maxTo=290
 const GOOD_BODY = [
@@ -72,6 +67,8 @@ const TRACK = {
   source: "player-wbi-v2"
 };
 
+// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/memory-storage.ts）
+
 // 可控 promise：resolve 由测试在窗口点手动触发（挂起期间的插队竞态）
 function createPending<T = void>() {
   let resolve!: (value: T) => void;
@@ -85,7 +82,6 @@ let fetcher: typeof import("../../extension/subtitle/fetcher.js");
 let state: (typeof import("../../extension/core/state.js"))["state"];
 let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
 let gateway: MockedObject<typeof import("../../extension/bilibili/gateway.js")>;
-let cache: MockedObject<typeof import("../../extension/subtitle/cache.js")>;
 let uiStatus: MockedObject<typeof import("../../extension/core/ui-status.js")>;
 let core: MockedObject<typeof import("../../extension/subtitle/core.js")>;
 
@@ -95,7 +91,6 @@ async function importEpoch() {
   state = stateModule.state;
   clipState = stateModule.clipState;
   gateway = vi.mocked(await import("../../extension/bilibili/gateway.js"));
-  cache = vi.mocked(await import("../../extension/subtitle/cache.js"));
   uiStatus = vi.mocked(await import("../../extension/core/ui-status.js"));
   core = vi.mocked(await import("../../extension/subtitle/core.js"));
 
@@ -112,8 +107,7 @@ async function importEpoch() {
   gateway.fetchSubtitleBundle.mockReset().mockResolvedValue({ tracks: [TRACK], chapters: [] });
   gateway.fetchSubtitleBody.mockReset();
   gateway.readRuntimeVideoDuration.mockReset().mockReturnValue(300);
-  cache.saveSubtitleToCache.mockReset().mockResolvedValue({ ok: true });
-  cache.loadSubtitleFromCache.mockReset().mockResolvedValue(null);
+  installMemoryStorage();
   uiStatus.setStatus.mockReset();
   uiStatus.setMessage.mockReset();
   core.refreshHotComments.mockReset().mockResolvedValue(undefined);
@@ -200,23 +194,33 @@ function accept({ runId }: { runId?: number }) {
 describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
   async function driveRefreshClipToCommitWindow() {
     // 旧视频抓取 run 1：走到「网络抓取完成 → 落缓存」的提交前 await 窗口。
-    // 落缓存口从一开始就挂可控 promise——提交窗口只在 save 挂起期间敞开，
-    // 插队（reset+递增）必须发生在窗口内才能命中事务门口的自检。
+    // 窗口开在真实落盘路径上：只有正文键（biliscript_subtitle_cache_*）的那次
+    // storage.set 挂起，LRU 索引/清单照常写；正文写入挂起期间 saveSubtitleToCache
+    // 不落定，插队（reset+递增）必须发生在窗口内才能命中事务门口的自检。
     clipState.setFetchRunId(1);
     clipState.setVideoDuration(300);
     const bodyPending = createPending<{ body: unknown[] }>();
     gateway.fetchSubtitleBody.mockImplementation(() => bodyPending.promise);
-    const savePending = createPending<{ ok: true }>();
-    cache.saveSubtitleToCache.mockImplementation(() => savePending.promise);
+    const dataWritePending = createPending<void>();
+    let dataWriteStarted = false;
+    const memorySet = vi.mocked(globalThis.chrome.storage.local.set).getMockImplementation();
+    vi.mocked(globalThis.chrome.storage.local.set).mockImplementation(async (entries) => {
+      const record = entries as Record<string, unknown>;
+      if (Object.keys(record).some((key) => key.startsWith("biliscript_subtitle_cache_"))) {
+        dataWriteStarted = true;
+        await dataWritePending.promise;
+      }
+      await memorySet?.(entries);
+    });
     const run = fetcher.refreshClip();
     await vi.waitFor(() => expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(1));
     bodyPending.resolve({ body: GOOD_BODY });
-    await vi.waitFor(() => expect(cache.saveSubtitleToCache).toHaveBeenCalledTimes(1));
-    return { run, savePending };
+    await vi.waitFor(() => expect(dataWriteStarted).toBe(true));
+    return { run, dataWritePending };
   }
 
   it("reset+递增插队后旧字幕到站：事务门口 STALE_RUN 让位，state 保持 reset 干净态", async () => {
-    const { run, savePending } = await driveRefreshClipToCommitWindow();
+    const { run, dataWritePending } = await driveRefreshClipToCommitWindow();
 
     // 模拟 URL 变化编排（message-handler.handleUrlChange 的顺序）：同步递增代次
     // → resetClipState 全清。注意 refreshClip 起跑时已自增（fetchRunId=2、run 的
@@ -224,7 +228,7 @@ describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
     clipState.setFetchRunId(clipState.fetchRunId + 1);
     fetcher.resetClipState();
 
-    savePending.resolve({ ok: true });
+    dataWritePending.resolve();
     // STALE_RUN 被 refreshClip 的 catch 静默吞掉（isStaleRunError 分支）
     await expect(run).resolves.toBeUndefined();
 
@@ -240,9 +244,9 @@ describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
   });
 
   it("对照组：同一链路无 reset 插队时正常提交（证明竞态用例 red-capable）", async () => {
-    const { run, savePending } = await driveRefreshClipToCommitWindow();
+    const { run, dataWritePending } = await driveRefreshClipToCommitWindow();
 
-    savePending.resolve({ ok: true });
+    dataWritePending.resolve();
     await expect(run).resolves.toBeUndefined();
 
     expect(state.clip.subtitleFetchState).toBe("ready");
@@ -250,3 +254,4 @@ describe("resetClipState × 在飞 refreshClip 竞态（端到端）", () => {
     expect(state.clip.selectedSubtitleId).toBe("sub-1");
   });
 });
+

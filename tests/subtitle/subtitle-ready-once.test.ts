@@ -38,16 +38,9 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
-  return {
-    ...actual,
-    saveSubtitleToCache: vi.fn(async () => ({ ok: true })),
-    loadSubtitleFromCache: vi.fn(async () => null),
-    clearSubtitleCacheByKey: vi.fn(async () => {}),
-    clearStaleAsrSubtitleCache: vi.fn(async () => {})
-  };
-});
+// 取体链已收口 subtitle/body.js：本锁不再整体替换 subtitle/cache.js——真实缓存
+// 模块在 tests/setup.js 的 chrome.storage stub 上自然是未命中 + 写入成功，链级
+// 通知计数走的仍是真实取体分支。
 vi.mock("../../extension/core/runtime.js", () => ({
   getSettings: vi.fn(async () => ({}))
 }));

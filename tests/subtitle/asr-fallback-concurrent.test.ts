@@ -14,6 +14,7 @@
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installMemoryStorage, type CacheEntry } from "../helpers/memory-storage.js";
 import { createAsrFallback } from "../../extension/asr/fallback.js";
 import type { AsrFallback, CreateAsrFallbackDeps, SubtitleItem } from "../../extension/asr/fallback.js";
 import { state, clipState } from "../../extension/core/state.js";
@@ -54,38 +55,7 @@ function asrCacheKey({ bvid = BVID, cid = CID } = {}) {
   });
 }
 
-// 内存 storage 的条目形状（cache.saveSubtitleToCache 的落盘值），供断言直读 body
-type StoredSubtitleEntry = { body: SubtitleItem[] };
-
-function installMemoryStorage() {
-  const store = new Map<string, StoredSubtitleEntry>();
-  const storage = globalThis.chrome.storage.local;
-  vi.mocked(storage.get).mockImplementation(async (keys) => {
-    if (keys === null || keys === undefined) {
-      return Object.fromEntries(store);
-    }
-    const list = Array.isArray(keys) ? keys : [keys as string];
-    const out: Record<string, unknown> = {};
-    for (const key of list) {
-      if (store.has(key)) {
-        out[key] = store.get(key);
-      }
-    }
-    return out;
-  });
-  vi.mocked(storage.set).mockImplementation(async (entries) => {
-    for (const [key, value] of Object.entries(entries)) {
-      store.set(key, value as StoredSubtitleEntry);
-    }
-  });
-  vi.mocked(storage.remove).mockImplementation(async (keys) => {
-    const list = Array.isArray(keys) ? keys : [keys];
-    for (const key of list) {
-      store.delete(key);
-    }
-  });
-  return store;
-}
+// 内存 storage 的条目形状与宿主见 tests/helpers/memory-storage.ts
 
 // 注入依赖的 mock 形状：逐口按 CreateAsrFallbackDeps 的真实签名起 vi.fn（事务口
 // 保留真实实现的签名，其余为纯替身）。
@@ -100,7 +70,7 @@ type DepsMock = {
   broadcastSubtitleStatus: Mock<CreateAsrFallbackDeps["broadcastSubtitleStatus"]>;
 };
 
-let memoryStorage: Map<string, StoredSubtitleEntry>;
+let memoryStorage: Map<string, CacheEntry>;
 let deps: DepsMock;
 let fallback: AsrFallback;
 

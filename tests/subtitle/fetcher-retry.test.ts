@@ -16,7 +16,6 @@
 
 import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
-import type { SubtitleTrack } from "../../extension/bilibili/gateway.js";
 
 vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
@@ -47,28 +46,9 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-vi.mock("../../extension/subtitle/cache.js", async (importOriginal) => {
-  // importOriginal 保留 normalizeSubtitleUrlForCache（selection.pickPreferredSubtitle
-  // 按路径比对上一轨 URL 时消费），其余落盘/读缓存口按用例需要 mock。
-  const actual = await importOriginal<typeof import("../../extension/subtitle/cache.js")>();
-  return {
-    ...actual,
-    buildSubtitleCandidates: vi.fn((tracks: SubtitleTrack[] | null | undefined, preferred: SubtitleTrack | null | undefined) => {
-      const list: SubtitleTrack[] = [preferred as SubtitleTrack];
-      for (const item of tracks || []) {
-        if (item !== preferred) {
-          list.push(item);
-        }
-      }
-      return list;
-    }),
-    clearSubtitleCacheByKey: vi.fn(async () => {}),
-    clearStaleAsrSubtitleCache: vi.fn(async () => {}),
-    saveSubtitleToCache: vi.fn(async () => ({ ok: true })),
-    loadSubtitleFromCache: vi.fn(async () => null),
-    getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_test")
-  };
-});
+// 取体链收口 subtitle/body.js 后本文件不再整体替换 subtitle/cache.js：真实模块的
+// buildSubtitleCandidates / normalizeSubtitleUrlForCache 走真实实现（原 mock 是它们
+// 的简化抄写），读缓存口在 tests/setup.js 的 chrome.storage stub 上自然未命中。
 vi.mock("../../extension/subtitle/commit.js", () => ({
   configureCommitUi: vi.fn(),
   acceptSubtitle: vi.fn(async () => {}),

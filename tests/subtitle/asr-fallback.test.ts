@@ -18,6 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installMemoryStorage, seedCache, type CacheEntry } from "../helpers/memory-storage.js";
 import { createAsrFallback } from "../../extension/asr/fallback.js";
 import type {
   AsrFallback,
@@ -72,45 +73,8 @@ type DepsFns = Required<CreateAsrFallbackDeps>;
 // 参数与 mock.calls 的取值都按签名推断，不再依赖隐式 any。
 type Deps = { [K in keyof DepsFns]: Mock<DepsFns[K]> };
 
-// 内存版 cache 条目（cache.js 的写入形状 { body, timestamp }）
-type CacheEntry = { body?: unknown; timestamp?: number };
-
-// 内存版 chrome.storage.local：真实 cache.js / cache-lru.js 跑在 Map 之上
-//（cache-lru 需要 get(null) 全量枚举，见其模块注释的测试约定）。
-function installMemoryStorage(): Map<string, CacheEntry> {
-  const store = new Map<string, CacheEntry>();
-  const storage = globalThis.chrome.storage.local;
-  vi.mocked(storage.get).mockImplementation(async (keys) => {
-    if (keys === null || keys === undefined) {
-      return Object.fromEntries(store);
-    }
-    const list = Array.isArray(keys) ? keys : [keys as string];
-    const out: Record<string, unknown> = {};
-    for (const key of list) {
-      if (store.has(key)) {
-        out[key] = store.get(key);
-      }
-    }
-    return out;
-  });
-  vi.mocked(storage.set).mockImplementation(async (entries) => {
-    for (const [key, value] of Object.entries(entries)) {
-      store.set(key, value as CacheEntry);
-    }
-  });
-  vi.mocked(storage.remove).mockImplementation(async (keys) => {
-    const list = Array.isArray(keys) ? keys : [keys];
-    for (const key of list) {
-      store.delete(key);
-    }
-  });
-  return store;
-}
-
-// 预置缓存条目（镜像 cache.js 的写入形状 { body, timestamp }）
-async function seedCache(key: string, body: SubtitleItem[]) {
-  await globalThis.chrome.storage.local.set({ [key]: { body, timestamp: Date.now() } });
-}
+// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/memory-storage.ts：
+// 真实 cache.js / cache-lru.js 跑在 Map 之上，cache-lru 需要 get(null) 全量枚举）
 
 function buildDeps(overrides: Partial<Deps> = {}): Deps {
   return {

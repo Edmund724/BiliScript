@@ -10,16 +10,18 @@
 //   - buildNoSubtitleStatusMessage 的文案契约已随事务迁入
 //     tests/subtitle/commit.test.ts（文案属无字幕出口事务的一部分）。
 // mock 结构与 fetcher-logging.test.js 相同：重依赖 mock，state/selection/
-// validators 等轻量模块真实加载。
+// 时长校验等轻量模块真实加载；**subtitle/cache.js 不再整体替换**——取体链已收口
+// subtitle/body.js，缓存口改由内存版 chrome.storage.local 承载，于是「缓存命中」
+// 「落盘内容」「坏缓存被清」都按真实键与真实落盘形状断言（原先钉死的
+// "biliscript_subtitle_cache_test" 假键会掩盖键装配的回归）。
 // 注意：本文件全程单一模块纪元（beforeEach 不做 vi.resetModules，只清环境），
 // 保证测试断言的 clipState 与 fetcher.js（vi.mock 的 importOriginal 副本）
 // 闭包内的是同一实例——resetModules 会让两者分属不同纪元、状态断言全部落空。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, setupEnvironment } from "../setup.js";
+import { installMemoryStorage, seedCache, type CacheEntry } from "../helpers/memory-storage.js";
 import { clipState } from "../../extension/core/state.js";
-// 缓存写失败出口的真实错误类型（LRU 淘汰后重试仍失败的 distinct 错误）。
-import { CacheWriteError } from "../../extension/core/cache-lru.js";
 
 // 顶层副作用 subscribeSubtitleRefresh(refreshClip) 需要 reader-bus 提供该函数。
 vi.mock("../../extension/reader/reader-bus.js", () => ({
@@ -67,21 +69,6 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   refreshHotComments: vi.fn(async () => {}),
   refreshDerivedContent: vi.fn(async () => {})
 }));
-vi.mock("../../extension/subtitle/cache.js", () => ({
-  buildSubtitleCandidates: vi.fn((tracks, preferred) => {
-    const list = [preferred];
-    for (const item of tracks || []) {
-      if (item !== preferred) {
-        list.push(item);
-      }
-    }
-    return list;
-  }),
-  clearSubtitleCacheByKey: vi.fn(async () => {}),
-  saveSubtitleToCache: vi.fn(async () => {}),
-  loadSubtitleFromCache: vi.fn(async () => null),
-  getSubtitleCacheKey: vi.fn(() => "biliscript_subtitle_cache_test")
-}));
 
 // 被测对象（真实 fetcher 模块；原部分 mock 的 fetchVideoMeta/fetchSubtitleBundle
 // 直通包装已随 arch-slim-2/03 删除，打桩改挂 gateway）与被 mock 的
@@ -91,11 +78,7 @@ import {
   fetchSubtitleBody as fetchBodyMock,
   fetchVideoMeta as fetchMetaMock
 } from "../../extension/bilibili/gateway.js";
-import {
-  loadSubtitleFromCache,
-  saveSubtitleToCache,
-  clearSubtitleCacheByKey
-} from "../../extension/subtitle/cache.js";
+import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
 import { setMessage } from "../../extension/core/ui-status.js";
 import { acceptSubtitle } from "../../extension/subtitle/commit.js";
 
@@ -105,6 +88,23 @@ const SUBTITLE_BODY = [
   { from: 1.5, to: 2.4, content: "世界" },
   { from: 3, to: 290, content: "收尾长句" }
 ];
+
+// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/memory-storage.ts；
+// 形状见 subtitle/cache.js 的 { body, timestamp }）
+
+let store: Map<string, CacheEntry>;
+
+// 本文件固定用的那条轨的真实 per-track 缓存键（键装配走真实实现）
+function subtitleCacheKey() {
+  return getSubtitleCacheKey({
+    bvid: clipState.bvid,
+    cid: clipState.cid,
+    subtitleId: "track-1",
+    subtitleUrl: "https://example.com/sub.json",
+    lang: "中文"
+  });
+}
+
 
 beforeEach(() => {
   // 单一模块纪元：只重置环境与 DOM，不 resetModules（理由见文件头注释）
@@ -121,14 +121,10 @@ beforeEach(() => {
   clipState.setVideoDuration(300);
   clipState.setFetchRunId(0);
 
-  // 单一纪元下 mock 实现会跨用例保留：显式归位，避免用例间相互污染
-  vi.mocked(loadSubtitleFromCache).mockReset();
-  vi.mocked(loadSubtitleFromCache).mockResolvedValue(null);
+  // 单一纪元下 mock 实现会跨用例保留：显式归位，避免用例间相互污染。
+  // 缓存口每次装一台新的内存 storage（清掉上一条用例的键面）。
+  store = installMemoryStorage();
   vi.mocked(fetchBodyMock).mockReset();
-  vi.mocked(saveSubtitleToCache).mockReset();
-  vi.mocked(saveSubtitleToCache).mockResolvedValue({ ok: true });
-  vi.mocked(clearSubtitleCacheByKey).mockReset();
-  vi.mocked(clearSubtitleCacheByKey).mockResolvedValue(undefined);
   vi.mocked(setMessage).mockClear();
   vi.mocked(acceptSubtitle).mockClear();
 });
@@ -169,7 +165,7 @@ describe("noSubtitleReason 清除点", () => {
     clipState.setNoSubtitleDetail("（错误详情：HTTP 404）");
     // 旧缓存条目可能无序：接受事务单点负责排序（findActiveSubtitleIndex 二分依赖）
     const unsortedBody = [SUBTITLE_BODY[2], SUBTITLE_BODY[0], SUBTITLE_BODY[1]];
-    vi.mocked(loadSubtitleFromCache).mockResolvedValue(unsortedBody);
+    await seedCache(subtitleCacheKey(), unsortedBody);
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false);
 
@@ -214,10 +210,20 @@ describe("noSubtitleReason 清除点", () => {
   });
 });
 
-// loadSubtitleFromCache 在 beforeEach 已归位为 null；其余 mock 按用例覆写
+// 缓存口是内存 storage，每条用例自己预置键面（beforeEach 已换新 storage）
 describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
   it("网络成功但缓存写失败（LRU 淘汰后重试仍失败）：setMessage 一次性上浮，接受事务照常收尾", async () => {
-    vi.mocked(saveSubtitleToCache).mockResolvedValue({ ok: false, error: new CacheWriteError("quota") });
+    // 只有这条正文键的落盘失败（LRU 索引/清单照常写）：writeWithEviction 淘汰后
+    // 重试仍失败 → { ok: false }。索引也一起失败的话根本走不到正文写入那一步。
+    vi.mocked(globalThis.chrome.storage.local.set).mockImplementation(async (entries) => {
+      const record = entries as Record<string, unknown>;
+      if (subtitleCacheKey() in record) {
+        throw new Error("quota exceeded");
+      }
+      for (const [key, value] of Object.entries(record)) {
+        store.set(key, value as CacheEntry);
+      }
+    });
     vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", true);
@@ -228,22 +234,41 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
     // 缓存失败不阻断主流程：接受事务照常落位
     expect(acceptSubtitle).toHaveBeenCalledTimes(1);
     expect(clipState.subtitleFetchState).toBe("ready");
-    // 有序副本落缓存（缓存写入前的调用方预备排序，仅此一处例外）
-    expect(saveSubtitleToCache).toHaveBeenCalledWith("biliscript_subtitle_cache_test", SUBTITLE_BODY);
+    // 写盘试图落的正是这条真实键与这次的网络体（键装配 + 写入载荷一起被钉住）
+    const attemptedBody = vi
+      .mocked(globalThis.chrome.storage.local.set)
+      .mock.calls.map(([entries]) => (entries as Record<string, CacheEntry>)[subtitleCacheKey()])
+      .find((entry) => entry && Array.isArray(entry.body))?.body;
+    expect(attemptedBody).toEqual(SUBTITLE_BODY);
   });
 
   it("缓存命中但时长不匹配：清缓存后走网络重抓", async () => {
     // 过短字幕：videoDuration=300、maxTo=10 < 66 → too-short
-    vi.mocked(loadSubtitleFromCache).mockResolvedValue([{ from: 0, to: 10, content: "过短" }]);
+    await seedCache(subtitleCacheKey(), [{ from: 0, to: 10, content: "过短" }]);
     vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false);
 
-    expect(clearSubtitleCacheByKey).toHaveBeenCalledWith("biliscript_subtitle_cache_test");
-    // 时长不匹配的缓存条目不进 state；网络重抓经接受事务落位
+    // 时长不匹配的缓存条目不进 state；网络重抓经接受事务落位，盘上被换成好体
     expect(clipState.subtitleBody).toEqual(SUBTITLE_BODY);
     expect(clipState.subtitleFetchState).toBe("ready");
     expect(fetchBodyMock).toHaveBeenCalledWith("https://example.com/sub.json");
+    expect(store.get(subtitleCacheKey())?.body).toEqual(SUBTITLE_BODY);
+  });
+
+  it("缓存命中但时长不匹配 + 网络也失败：坏缓存被清掉，盘上不留坏体", async () => {
+    // 单一纪元：state 跨用例保留，先摆一个已知基线
+    clipState.setSubtitleFetchState("loading");
+    clipState.setSubtitleBody([]);
+    await seedCache(subtitleCacheKey(), [{ from: 0, to: 10, content: "过短" }]);
+    vi.mocked(fetchBodyMock).mockRejectedValue(new Error("HTTP 500"));
+
+    await expect(
+      fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false)
+    ).rejects.toThrow("HTTP 500");
+
+    expect(store.has(subtitleCacheKey())).toBe(false);
+    expect(clipState.subtitleBody).toEqual([]);
   });
 });
 
