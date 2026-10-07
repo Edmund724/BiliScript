@@ -41,6 +41,7 @@ import {
   UPSTREAM_TOGGLE_SHAPES,
   applyClassRule,
   enableThinking,
+  providerRuleFor,
   reasoningEffort,
   resolveThinkingAdjustment,
   resolveThinkingProfile,
@@ -92,7 +93,7 @@ function handClassOf(presetId: string, model: string): string | undefined {
       if (entry.patterns.some((pattern) => matches(pattern, subject))) return entry.class;
     }
   }
-  return PROVIDERS[presetId]?.unknownClass;
+  return providerRuleFor(presetId)?.unknownClass;
 }
 
 function handRuleOf(presetId: string, model: string): ClassRule | undefined {
@@ -805,7 +806,7 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
 
   it("18 号票：机制删干净——四家 PROVIDERS 记录都是空对象", () => {
     for (const presetId of HOSTED_PRESETS_18) {
-      expect(PROVIDERS[presetId], presetId).toEqual({});
+      expect(providerRuleFor(presetId), presetId).toEqual({});
     }
   });
 });

@@ -45,6 +45,7 @@ import {
   thinkingType,
   type ThinkingVocabulary
 } from "../../extension/ai/thinking-profiles.js";
+import { isPlatformKey } from "../../extension/ai/platform-identity-vocab.js";
 import {
   MESSAGES_OFF_EXIT,
   MESSAGES_ON_EXIT,
@@ -153,7 +154,14 @@ function reconcileAll(): ReconciledRow[] {
     const shape = UPSTREAM_TOGGLE_SHAPES[platform];
     for (const side of SIDES) {
       const shapeWord = shape?.[side] ?? UNKNOWN_VOCABULARY;
-      const cell = (side === "off" ? MESSAGES_OFF_EXIT[platform] : MESSAGES_ON_EXIT[platform]) as ExitCellLike | undefined;
+      // 形状表的键是任意串（它自己不是封闭键表）；进两张出口表前收窄到平台身份键词表叶。
+      const cell = (
+        isPlatformKey(platform)
+          ? side === "off"
+            ? MESSAGES_OFF_EXIT[platform]
+            : MESSAGES_ON_EXIT[platform]
+          : undefined
+      ) as ExitCellLike | undefined;
       const exitWord = exitWordOf(cell, side);
       rows.push({
         key: `${platform}.${side}`,

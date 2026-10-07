@@ -26,16 +26,19 @@
 // 只有 disabled / adaptive），不带上限；开词也逐格登记——档位出口 MESSAGES_TIER_EXIT、
 // 关词出口 MESSAGES_OFF_EXIT、开词出口 MESSAGES_ON_EXIT 三张同形表各答一件事。
 //
-// 纯叶模块：只 type-import 词表叶（AiProtocol / CompatQuirk）与 thinking-profiles.ts 类型，零运行时
-// 依赖（SW 静态图安全）。键以按 AiProtocol 的映射类型强制覆盖（`{[K in AiProtocol]: ThinkingWireMap<K>}`，
-// 沿 protocol-adapter.ts 的既有纪律）：新增协议必须在本表登记一行；**入参按协议分型**——每行只收
-// 自己读得到的字段（见 ThinkingWireInput 与两张逐协议入参）；adapter 只做「取档位规则 → 取本表 →
-// 并入请求体」，不在 adapter 里回抄任何思考字段名或预算取值（对账测试 tests/ai/thinking-wire-map.test.ts）。
+// 纯叶模块：只 type-import 词表叶（AiProtocol / CompatQuirk / PlatformKey）与 thinking-profiles.ts
+// 类型，零运行时依赖（SW 静态图安全）。键有两套封闭词表：协议维以按 AiProtocol 的映射类型强制覆盖
+// （`{[K in AiProtocol]: ThinkingWireMap<K>}`，沿 protocol-adapter.ts 的既有纪律）——新增协议必须在
+// 本表登记一行；平台维以平台身份键词表叶索引（三张出口表 `Record<PlatformKey, …>`，候选 6）——
+// 新增平台缺一格 / 孤儿键都是 tsc 红。**入参按协议分型**——每行只收自己读得到的字段
+// （见 ThinkingWireInput 与两张逐协议入参）；adapter 只做「取档位规则 → 取本表 → 并入请求体」，
+// 不在 adapter 里回抄任何思考字段名或预算取值（对账测试 tests/ai/thinking-wire-map.test.ts）。
 //
 // 不引入表达式引擎（票内被否决的备选）：线格式是代码不是字符串——受 TS 类型检查，
 // 且表达得了跨越 option 的条件（探针依赖 maxTokens 等）。
 
 import type { CompatQuirk } from "./compat-vocab.js";
+import type { PlatformKey } from "./platform-identity-vocab.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 import type { ClassRule, ThinkingVocabulary } from "./thinking-profiles.js";
 
@@ -75,9 +78,11 @@ export interface AnthropicWireInput extends ThinkingWireInput {
   /** 探针请求：Messages 通道不发思考字段（怪癖 probeOmitsThinking）。 */
   probe: boolean;
   /**
-   * 平台识别（口径：thinking-profiles 的 PROVIDERS 键空间，adapter 传
-   * `resolveThinkingProviderId` 的结果）。Messages 通道的档位落线（线格式出口）按平台逐格登记
-   * （MESSAGES_TIER_EXIT）；未登记的平台发裸 `output_config.effort`。
+   * 平台识别（口径：平台身份键词表叶 ai/platform-identity-vocab.ts 的 PlatformKey，
+   * 与 thinking-profiles 的 PROVIDERS 同键集；adapter 传 `resolveThinkingProviderId` 的结果）。
+   * Messages 通道的档位落线（线格式出口）按平台逐格登记（MESSAGES_TIER_EXIT）；未登记的平台
+   * 发裸 `output_config.effort`。这里刻意收 `string | undefined`：表外是**真实存在的分支**
+   * （custom 直填端点 / host 未识别的记录），类型封闭管不到查表入口。
    */
   platformId?: string;
   /** 平台事实：Messages 通道只认 effort 词汇（怪癖 effortVocabMessages，strict 语义）。 */
@@ -176,10 +181,11 @@ export interface MessagesTierExitCell {
 }
 
 // Messages 通道的**档位出口表**（thinking-wire-protocol-split 01 建表；职责同 08 号票的归一化层）。
-// 键 = 平台识别，口径见 AnthropicWireInput.platformId（thinking-profiles 的 PROVIDERS 键空间），
-// **要求全覆盖**：新增平台不在本表表态 → tests/ai/thinking-wire-map.test.ts 红（02 号票对 off
-// 那格立的同一条键集纪律）。表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明
-// → 裸 effort，见 messagesTierExitCell。
+// 键 = 平台身份键词表叶（ai/platform-identity-vocab.ts 的 PlatformKey；与 thinking-profiles 的
+// PROVIDERS 同键集），**要求全覆盖**——自架构评审候选 6 起由 `Record<PlatformKey, …>` 在编译期
+// 强制：新增平台不在本表表态（缺一格）或表里多出孤儿键都是 tsc 红，不再靠运行期键集对账。
+// 表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明 → 裸 effort，见
+// messagesTierExitCell。表外这一支仍留在运行时：查表入口是任意串，类型封闭管不到它。
 // 只持有两件事：① 线格式出口（kind，逐格注释带官方出处）；② 平台侧折叠——把内部档位折成该
 // 端点的线上词，**只许收敛**（多档折同词，如平台把 low/medium 都折成 high），不许**发散**
 // （返回上游值集里没有的词）。
@@ -192,7 +198,7 @@ export interface MessagesTierExitCell {
 // stepfun / amd 两格是怪癖 effortVocabMessages 的托管格：本表声明归属（owner），判据取该怪癖的
 // 活值（只发裸 output_config.effort）——见 anthropicWireMap 的怪癖支。各格形状一律以官方文档
 // 为准，档位规则算出的档位词（reasoning_effort 值）原样作为平台档位词发出，不另造映射。
-export const MESSAGES_TIER_EXIT: Record<string, MessagesTierExitCell> = {
+export const MESSAGES_TIER_EXIT: Record<PlatformKey, MessagesTierExitCell> = {
   // deepseek：Anthropic 兼容页只支持 thinking 与 output_config（且 "Only effort is supported"），
   // budget_tokens 被忽略；档位词 low/high/max（默认 high）
   // （api-docs.deepseek.com/guides/anthropic_api、api-docs.deepseek.com/guides/thinking_mode）。
@@ -363,11 +369,17 @@ export const UNRESEARCHED_TIER_EXIT: MessagesTierExitCell = {
   provenance: { level: "推断", source: "platformId 未识别（表外）→ 按未登记出口回落裸 output_config.effort" }
 };
 
+// 表内格的运行时判据（三张出口表共用）：表键自候选 6 起是封闭键（Record<PlatformKey, …>），
+// 但查表入口收的是**任意串**（custom 直填端点 / host 未识别的记录）——表外必须落兜底格，
+// 故判据留在运行时。语义与改造前的 `Object.prototype.hasOwnProperty` 兜底逐字相同：
+// 原型链上的键不算表内格；返回值已收窄成该表的键类型，表内取值不再需要断言。
+function ownExitCell<K extends string, V>(table: Readonly<Record<K, V>>, id: string): V | undefined {
+  return Object.prototype.hasOwnProperty.call(table, id) ? table[id as K] : undefined;
+}
+
 /** 该平台在 Messages 通道的档位出口（表外 / 未识别 → 未声明）。 */
 export function messagesTierExitCell(platformId: string | undefined): MessagesTierExitCell {
-  const id = String(platformId || "").trim();
-  if (id && Object.prototype.hasOwnProperty.call(MESSAGES_TIER_EXIT, id)) return MESSAGES_TIER_EXIT[id];
-  return UNRESEARCHED_TIER_EXIT;
+  return ownExitCell(MESSAGES_TIER_EXIT, String(platformId || "").trim()) ?? UNRESEARCHED_TIER_EXIT;
 }
 
 // ===== Messages 通道的 off 出口表（thinking-wire-protocol-split 02；行为中立）=====
@@ -382,8 +394,8 @@ export function messagesTierExitCell(platformId: string | undefined): MessagesTi
 // - "word"        = 平台自有词（显式字段载荷；本仓今天没有实例，类型上可表达）；
 // - "silent"      = 明确不发（带 reason）；owner 有值时该格的判据是 compat-vocab 的怪癖活值；
 // - "unresearched"= 没人研究过 → 按原生默认（与 "native" 在类型/静态对账上可区分）。
-// 键集纪律：本表键 = thinking-profiles 的 PROVIDERS 键空间（与 MESSAGES_TIER_EXIT 同口径的
-// 平台识别，但本表**要求全覆盖**：新增平台不表态 → tests/ai/thinking-wire-map.test.ts 红）。
+// 键集纪律：本表键 = 平台身份键词表叶（PlatformKey，与 MESSAGES_TIER_EXIT / PROVIDERS 同键集；
+// 自架构评审候选 6 起由 `Record<PlatformKey, …>` 编译期强制全覆盖：缺一格 / 孤儿键都是 tsc 红）。
 // 表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明 → 原生，见 messagesOffExitCell。
 // provenance 每格必填，三级取值与用法见 MessagesExitProvenance 头注（两张出口表共用）。
 export type MessagesOffExitKind = "native" | "silent" | "word" | "unresearched";
@@ -402,7 +414,7 @@ export interface MessagesOffExitCell {
   provenance: MessagesExitProvenance;
 }
 
-export const MESSAGES_OFF_EXIT: Record<string, MessagesOffExitCell> = {
+export const MESSAGES_OFF_EXIT: Record<PlatformKey, MessagesOffExitCell> = {
   // 上游形状表登记 thinking:{type} 开关（UPSTREAM_TOGGLE_SHAPES），off 写点 = thinking:{type:"disabled"}；
   // 该端点只支持 thinking 与 output_config（api-docs.deepseek.com/guides/anthropic_api）。
   // Messages 侧未实测 → 推断。
@@ -546,9 +558,7 @@ export const UNRESEARCHED_OFF_EXIT: MessagesOffExitCell = {
 
 /** 该平台在 Messages 通道的 off 出口（表外 / 未识别 → 未声明）。 */
 export function messagesOffExitCell(platformId: string | undefined): MessagesOffExitCell {
-  const id = String(platformId || "").trim();
-  if (id && Object.prototype.hasOwnProperty.call(MESSAGES_OFF_EXIT, id)) return MESSAGES_OFF_EXIT[id];
-  return UNRESEARCHED_OFF_EXIT;
+  return ownExitCell(MESSAGES_OFF_EXIT, String(platformId || "").trim()) ?? UNRESEARCHED_OFF_EXIT;
 }
 
 // ===== Messages 通道的开词出口表（2026-10-05 用户裁定：形态 A「逐格显式声明开词」）=====
@@ -561,7 +571,8 @@ export function messagesOffExitCell(platformId: string | undefined): MessagesOff
 // - "native"      = Anthropic 原生 `thinking:{type:"enabled"}`（建表前的硬写值，行为中立）；
 // - "word"        = 平台自有开词（显式字段载荷；今天只有 minimax 的 adaptive）；
 // - "unresearched"= 没人研究过该端点的开词 → 按原生（与 "native" 在类型/静态对账上可区分）。
-// 键集纪律与两张姊妹表相同：表 = PROVIDERS 键空间、要求全覆盖（新增平台不表态 → 测试红）；
+// 键集纪律与两张姊妹表相同：表 = 平台身份键词表叶（PlatformKey）、自候选 6 起由
+// `Record<PlatformKey, …>` 编译期强制全覆盖（缺一格 / 孤儿键都是 tsc 红）；
 // 表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明 → 原生，见
 // messagesOnExitCell。provenance 每格必填（三态取值与用法见 MessagesExitProvenance 头注）。
 // 三件事**不在本表**：关词（MESSAGES_OFF_EXIT）、档位词（MESSAGES_TIER_EXIT）、以及
@@ -577,7 +588,7 @@ export interface MessagesOnExitCell {
   provenance: MessagesExitProvenance;
 }
 
-export const MESSAGES_ON_EXIT: Record<string, MessagesOnExitCell> = {
+export const MESSAGES_ON_EXIT: Record<PlatformKey, MessagesOnExitCell> = {
   // 该端点只支持 thinking 与 output_config（Anthropic 兼容页登记 thinking 开关）→ 开档原生 enabled。
   deepseek: {
     kind: "native",
@@ -710,9 +721,7 @@ export const UNRESEARCHED_ON_EXIT: MessagesOnExitCell = {
 
 /** 该平台在 Messages 通道的开词出口（表外 / 未识别 → 未声明）。 */
 export function messagesOnExitCell(platformId: string | undefined): MessagesOnExitCell {
-  const id = String(platformId || "").trim();
-  if (id && Object.prototype.hasOwnProperty.call(MESSAGES_ON_EXIT, id)) return MESSAGES_ON_EXIT[id];
-  return UNRESEARCHED_ON_EXIT;
+  return ownExitCell(MESSAGES_ON_EXIT, String(platformId || "").trim()) ?? UNRESEARCHED_ON_EXIT;
 }
 
 // 开档的 thinking 开关载荷：逐格查 MESSAGES_ON_EXIT（word → 平台自有词；native / unresearched /

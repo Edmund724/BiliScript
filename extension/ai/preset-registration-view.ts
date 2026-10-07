@@ -9,6 +9,9 @@
 // （presetId / catalogProvider / 平台身份）各有注册表，没有任何一处答得出「这个
 // 预设还欠哪些登记」——齐不齐只有测试期逐表对账知道，漏登记表现为运行期行为退化
 // （走表外兜底：裸 effort / 原生开关）而不是装配失败。
+// **候选 6 之后**：出口表这一面已由类型接管——四张平台键表都以 `Record<PlatformKey, …>`
+// 索引，新增预设漏配平台身份（本视图 messagesExits 面报出的那一笔）在**装配期**就是 tsc 红，
+// 不再落到运行期兜底。本视图从此只投影现状（含假设新增平台的自查），不再承担键集判据。
 //
 // **只读派生，不搬事实主人**：事实仍在各表自己那里，本模块只查、不复制、不改写——
 //   - 目录身份：core/presets.ts 的 PRESETS[].catalogProvider 与 NO_CATALOG_PRESETS；
@@ -16,15 +19,21 @@
 //   - 怪癖：compat-vocab 的 PLATFORM_QUIRKS（稀疏声明面）；
 //   - 出口表格子：thinking-wire-map 的 MESSAGES_TIER_EXIT / MESSAGES_OFF_EXIT /
 //     MESSAGES_ON_EXIT（含各格 kind 与 provenance，逐格原样带出）；
-//   - 平台身份键空间：thinking-profiles 的 PROVIDERS 键（三张出口表的覆盖判据）；
+//   - 平台身份键空间：词表叶 ai/platform-identity-vocab.ts 的键——PROVIDERS 与三张出口表
+//     都以 `Record<PlatformKey, …>` 索引（架构评审候选 6），本视图读 `Object.keys(PROVIDERS)`
+//     拿到的就是同一键集（键集不再靠运行期对账）；
 //   - 构建期序位：scripts/models-dev-upstream-providers.mjs 的 UPSTREAM_PRESET_ORDER
 //     ——本模块**不 import scripts/**（构建期脚本不进 extension 依赖图），由调用方注入；
 //     未注入 = 该面 `unchecked`，不许被 falsy 默认吞成「已登记」。
 //
-// **键空间不合并**（混用即误报）：三张出口表按 **PROVIDERS 键空间**判（那是它们自己的
-// 键集纪律），PLATFORM_QUIRKS 按**自有键**判（稀疏面，PROVIDERS ⊋ PLATFORM_QUIRKS——
+// **键空间不合并**（混用即误报）：三张出口表按 **平台身份键空间**判（表键由 `Record<PlatformKey, …>`
+// 编译期封闭 = PROVIDERS 键集），PLATFORM_QUIRKS 按**自有键**判（稀疏面，PROVIDERS ⊋ PLATFORM_QUIRKS——
 // 反例 siliconflow：有思考档位、无怪癖声明），目录身份按**预设 id**判。三套键空间各有
 // 差集（PRESETS ∌ siliconflow / PROVIDERS ∌ custom），逐一在视图里如实呈现。
+//
+// **候选 6 之后本视图只投影、不再承担键集判据**：真实四张表的键集由类型封闭（缺一格 / 孤儿键
+// 都是 tsc 红），故「真实表缺格」这一支已不可达；这里保留的缺格 / 孤儿判据只服务**注入源**——
+// 「假设新增一个平台」的自查（注入 presets/platformKeys）与过期形状用例，仍必须如实报出。
 //
 // **不进请求链、不拉进 SW 静态图**：本模块无人静态引用（用例钉住）；它引用的
 // thinking-profiles / thinking-wire-map 本来就在 scripts/build.js 的
@@ -66,7 +75,7 @@ export const REGISTRATION_FACES = [
 ] as const;
 export type RegistrationFace = (typeof REGISTRATION_FACES)[number];
 
-/** messagesExits 面内的三张出口表（键集纪律：表键 = PROVIDERS 键空间）。 */
+/** messagesExits 面内的三张出口表（键集：`Record<PlatformKey, …>` 封闭 = 平台身份键空间）。 */
 export const MESSAGES_EXIT_CELLS = ["tier", "off", "on"] as const;
 export type MessagesExitCellId = (typeof MESSAGES_EXIT_CELLS)[number];
 
@@ -179,7 +188,10 @@ export interface RegistrationViewSources {
   messagesTierExit?: Readonly<Record<string, MessagesTierExitCell>>;
   messagesOffExit?: Readonly<Record<string, MessagesOffExitCell>>;
   messagesOnExit?: Readonly<Record<string, MessagesOnExitCell>>;
-  /** 平台身份键空间（默认 = PROVIDERS 的键；三张出口表的覆盖判据）。 */
+  /**
+   * 平台身份键空间（默认 = PROVIDERS 的键；三张出口表的键集判据源 = 词表叶 PlatformKey）。
+   * 只用于**注入源**的对账（假设新增平台 / 过期形状用例）；真实表的键集由类型封闭。
+   */
   platformKeys?: readonly string[];
   /** 构建期序位（默认未注入 → buildOrder 面 unchecked）。 */
   buildOrder?: readonly string[];
@@ -375,13 +387,14 @@ function messagesExitsFace(
     // 不在平台身份键空间 = 三张表按表外兜底（裸 effort / 原生开关）。是欠账还是
     // 有意缺口，判据取自既有事实：无上游身份白名单成员（本仓只有 custom，它的
     // 注释写明「presetId 不携带平台身份，查表走 baseUrl host 兜底」）= 有意缺口。
+    // 这一支只对**注入的假设新平台**可达：真实四张表的键集由 `Record<PlatformKey, …>` 封闭。
     const intentional = Boolean(preset) && sources.noCatalogPresets.includes(platformId);
     const cells: MessagesExitCellState[] = MESSAGES_EXIT_CELLS.map((cell) => ({
       cell,
       status: intentional ? "intentional-gap" : "missing",
       detail: intentional
         ? "表外兜底（无平台身份：平台 id 由 baseUrl host 决定），不是欠账"
-        : "平台身份未登记：出口表按 PROVIDERS 键空间全覆盖，本平台不在其中 → 运行期走表外兜底"
+        : "平台身份未登记：出口表键集 = PROVIDERS 键空间（类型封闭），本平台不在其中 → 运行期走表外兜底"
     }));
     return {
       face: "messagesExits",
@@ -389,11 +402,13 @@ function messagesExitsFace(
       cells,
       detail: intentional
         ? "不在平台身份键空间（无上游身份白名单成员）：三张出口表按表外兜底，登记面有意留空"
-        : "不在平台身份键空间：三张出口表（键 = PROVIDERS 键空间）无从对账，运行期静默走表外兜底"
+        : "不在平台身份键空间（PROVIDERS 键集，由 Record<PlatformKey> 类型封闭）：三张出口表按表外兜底，登记面无从对账"
     };
   }
 
   // 三张表逐格查（表名只用于人读 detail；格本身原样带出，不重算 kind 与出处）。
+  // 真实源走不到下面的 missing 支（键集由类型封闭）；该支只对**注入源**（假设新增平台 /
+  // 过期形状用例）可达，故判据保留。
   const exitTables: ReadonlyArray<{
     cell: MessagesExitCellId;
     name: string;
@@ -409,7 +424,7 @@ function messagesExitsFace(
       ? {
           cell,
           status: "missing",
-          detail: `${name} 无本平台格（表键须覆盖平台身份键空间）`
+          detail: `${name} 无本平台格（真实表键集由 Record<PlatformKey> 类型封闭；缺格只可能来自注入源）`
         }
       : {
           cell,
@@ -552,7 +567,7 @@ function collectOrphans(sources: ResolvedSources): RegistrationOrphan[] {
         orphans.push({
           face: "messagesExits",
           key,
-          detail: `${tableName} 表有格但不在平台身份键空间（表键集 = PROVIDERS 键空间的反向违纪）`
+          detail: `${tableName} 表有格但不在平台身份键空间（反向违纪；真实表由 Record<PlatformKey> 类型挡下，此处只抓注入源）`
         });
       }
     }

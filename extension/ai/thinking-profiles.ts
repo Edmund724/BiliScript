@@ -84,6 +84,7 @@
 
 import { PRESETS } from "../core/presets.js";
 import { hostOf, presetIdForHost } from "../core/preset-host-index.js";
+import { isPlatformKey, type PlatformKey } from "./platform-identity-vocab.js";
 import { lookupThinkingFact, type ThinkingModelFact } from "./catalog/models-dev-thinking.generated.js";
 
 // ===== 档位词表 =====
@@ -482,7 +483,10 @@ export const TAXONOMY: readonly TaxonomyEntry[] = [
 // 平台级 override 声明机制连同 OpenRouter / AMD / SenseNova / Opencode Go 四家的
 // 声明块一并删除——这四家的档位词表与其它有上游平台一样由 02 指派表投影给出，
 // 只剩 {} 空记录（与 deepseek / qwen / stepfun 同形）。
-export const PROVIDERS: Record<string, ProviderRule> = {
+// 键集自架构评审候选 6 起由词表叶封闭（`Record<PlatformKey, …>`，键 = 平台身份键词表叶
+// ai/platform-identity-vocab.ts）：缺一格 / 孤儿键都是 tsc 红，本表与三张 Messages 出口表
+// 的键集恰相同这件事不再靠测试对账。运行时查表入口见 providerRuleFor（收任意串，表外 = undefined）。
+export const PROVIDERS: Record<PlatformKey, ProviderRule> = {
   deepseek: {},      // 协议按模型定（api-docs.deepseek.com）
   qwen: {},          // 百炼模型族已覆盖 taxonomy；未列模型白名单制风险高，不发
   zhipu: {},         // docs.bigmodel.cn
@@ -786,7 +790,7 @@ interface ResolvedRule {
 function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRule {
   const normalizedModel = String(model || "").trim().toLowerCase();
   const providerId = resolveThinkingProviderId(presetId, baseUrl);
-  const provider = providerId ? PROVIDERS[providerId] : undefined;
+  const provider = providerRuleFor(providerId);
   const upstreamId = providerId ? UPSTREAM_PROVIDER_BY_PRESET[providerId] : undefined;
 
   // 有上游平台：逐模型事实的主人是 02 指派表（04 号票）——12 号票删掉冻结表后，
@@ -875,6 +879,15 @@ export function resolveThinkingAdjustment(input: ResolveThinkingInput): Thinking
   };
 }
 
+// PROVIDERS 的运行时查表（presetId / host 推断都可能给出任意串）：表内 → 该平台规则，
+// 表外（未识别平台 / 词表叶之外的串）→ undefined。键集自候选 6 起由类型封闭，但成员判据
+// 仍留在运行时——查表入口收的是任意串（custom 直填端点、host 未识别的记录）。判据取词表叶
+// （原型链上的键不算表内格，与三张出口表的兜底格同款语义）。
+export function providerRuleFor(platformId: string | undefined): ProviderRule | undefined {
+  const id = String(platformId || "").trim();
+  return isPlatformKey(id) ? PROVIDERS[id] : undefined;
+}
+
 // provider 识别：presetId 优先（02 穿线），host 推断兜底（本票对 custom/直填
 // baseUrl 的平台生效）。结果供本模块的档位查表（含上游桥接）消费；
 // 「是哪家平台」给怪癖词表的那一口已另立 ai/platform-quirk-id.ts——那边键空间
@@ -882,7 +895,7 @@ export function resolveThinkingAdjustment(input: ResolveThinkingInput): Thinking
 // 无怪癖声明），且不让词表反向依赖思考表。
 export function resolveThinkingProviderId(presetId?: string, baseUrl?: string): string | undefined {
   const byId = String(presetId || "").trim();
-  if (byId && PROVIDERS[byId]) {
+  if (providerRuleFor(byId)) {
     return byId;
   }
   return presetIdForHost(hostOf(String(baseUrl || ""))) ?? undefined;

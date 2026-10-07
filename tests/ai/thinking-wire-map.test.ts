@@ -14,8 +14,12 @@
 //    「档位折叠 + 线格式出口」，出口上的档位词必须仍在**该模型** 02 值集里（只许收敛、
 //    不许发散）；判据见文件末的「归一化不发散」用例。
 // 5（thinking-wire-protocol-split）：Messages 的两张出口表逐格对账——off（02 号票）与
-//    档位（01 号票）各一份「键集全覆盖 + 状态可区分 + provenance 必填 + 怪癖 owner 一致 +
-//    逐格实发」的静态判据。
+//    档位（01 号票）各一份「状态可区分 + provenance 必填 + 怪癖 owner 一致 + 逐格实发」的
+//    静态判据。
+// 6（架构评审候选 6）：三张出口表 + PROVIDERS 的**键集**以 `Record<PlatformKey, …>` 索引
+//    平台身份键词表叶（ai/platform-identity-vocab.ts）——「四张表键集恰相同」由 tsc 承担
+//    （缺一格 / 孤儿键都是编译期红，判据见 tests/ai/thinking-wire-keys.types.ts），
+//    原先三段各写一份 PLATFORM_KEYS 的键集对账收敛成这里的一条语义断言。
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -33,6 +37,7 @@ import {
   thinkingType,
   type ThinkingVocabulary
 } from "../../extension/ai/thinking-profiles.js";
+import { PLATFORM_IDENTITY_KEYS } from "../../extension/ai/platform-identity-vocab.js";
 import { AI_PROTOCOLS } from "../../extension/ai/protocol-vocab.js";
 import {
   MESSAGES_OFF_EXIT,
@@ -71,6 +76,9 @@ function openaiWire(overrides: Partial<OpenAiWireInput> = {}) {
   });
 }
 
+// 平台身份键（单源 = 词表叶）：三张出口表的逐格用例按它枚举，不再各写一份。
+const PLATFORM_KEYS: readonly string[] = [...PLATFORM_IDENTITY_KEYS].sort();
+
 describe("表结构（Record<AiProtocol, …> 强制覆盖）", () => {
   it("键 = 词表叶的 AiProtocol 全集，不多不少", () => {
     expect(Object.keys(THINKING_WIRE_MAPS).sort()).toEqual([...AI_PROTOCOLS].sort());
@@ -79,6 +87,22 @@ describe("表结构（Record<AiProtocol, …> 强制覆盖）", () => {
   it("每行都是可调用的映射（新增协议漏登记在编译期即红）", () => {
     for (const protocol of AI_PROTOCOLS) {
       expect(typeof THINKING_WIRE_MAPS[protocol], protocol).toBe("function");
+    }
+  });
+});
+
+describe("平台键集（候选 6：不变式已搬进类型，这里只留一条语义断言）", () => {
+  it("PROVIDERS 与三张出口表的运行时键集都 = 平台身份键词表叶，不多不少", () => {
+    // 编译期判据在 tests/ai/thinking-wire-keys.types.ts（缺一格 / 孤儿键即红）；这条断言钉住
+    // 「注解没被绕过」（表是真对象、键与词表叶逐字一致），替掉原先三段各一份键集对账。
+    const tables: ReadonlyArray<readonly [string, Readonly<Record<string, unknown>>]> = [
+      ["PROVIDERS", PROVIDERS],
+      ["MESSAGES_TIER_EXIT", MESSAGES_TIER_EXIT],
+      ["MESSAGES_OFF_EXIT", MESSAGES_OFF_EXIT],
+      ["MESSAGES_ON_EXIT", MESSAGES_ON_EXIT]
+    ];
+    for (const [name, table] of tables) {
+      expect(Object.keys(table).sort(), name).toEqual([...PLATFORM_IDENTITY_KEYS].sort());
     }
   });
 });
@@ -325,17 +349,13 @@ describe("归一化不发散（08 号票：像集合 ⊆ 该模型 02 值集）"
 
 // thinking-wire-protocol-split 02 号票：Messages 通道的 off 出口表。票面的失败方式逐条对应下面的用例：
 //   ① 表与真实行为不同步（表说原生、代码走怪癖落不发）→ 逐格行为用例；
-//   ②「未声明」被 falsy 默认吞成「原生」，新增平台静默拿默认 → 键集全覆盖 + 四态可区分；
+//   ②「未声明」被 falsy 默认吞成「原生」，新增平台静默拿默认 → 四态可区分
+//      （**键集全覆盖**那一半自候选 6 起由 `Record<PlatformKey, …>` 编译期承担，
+//      见上面「平台键集」的语义断言）；
 //   ③ 怪癖语义抄成第二份事实（怪癖改了表不跟）→ owner 键集对账（表只声明归属）；
 //   ⑤ 无证据格子声称有出处 → provenance 三态 + 出处必填。
 // ④（只覆盖目录内行、漏掉手写表兜底行）由 thinking-golden-messages.test.ts 的 stepfun/amd 格承载。
 describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，行为中立", () => {
-  const PLATFORM_KEYS = Object.keys(PROVIDERS).sort();
-
-  it("键集对账：表 = PROVIDERS 键空间，不多不少（新增平台不表态 → 红）", () => {
-    expect(Object.keys(MESSAGES_OFF_EXIT).sort()).toEqual(PLATFORM_KEYS);
-  });
-
   it("四态可区分：「未研究过」与「声明为原生」是两个显式值，不许 falsy 默认吞掉", () => {
     const kinds = new Set(Object.values(MESSAGES_OFF_EXIT).map((cell) => cell.kind));
     expect(kinds.has("native")).toBe(true);
@@ -421,17 +441,13 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
 // thinking-wire-protocol-split 01 号票：Messages 通道的**档位出口表**（建表前是「8 家登记 + 未登记
 // 平台隐式回落裸 effort」）。票面的失败方式逐条对应下面的用例：
 //   ① 表与真实行为不同步（kind 说 reasoning-effort、代码发裸 effort）→ 逐格实发用例；
-//   ②「未研究过」被 falsy 默认吞成「已声明只发裸 effort」，新增平台静默拿默认 → 键集全覆盖 + 四态可区分；
+//   ②「未研究过」被 falsy 默认吞成「已声明只发裸 effort」，新增平台静默拿默认 → 四态可区分
+//      （键集全覆盖那一半见上面「平台键集」的语义断言）；
 //   ③ 怪癖语义抄成第二份事实（怪癖改了表不跟）→ owner 键集对账（表只声明归属、判据取活值）；
 //   ⑤ 无证据格子声称有出处 → provenance 三态 + 出处必填；
 //   ④（只覆盖目录内行、漏掉手写表兜底行）由 thinking-golden-messages.test.ts 的逐格 golden 承载。
 describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，行为中立", () => {
-  const PLATFORM_KEYS = Object.keys(PROVIDERS).sort();
   const ALL_KINDS: readonly MessagesTierExitKind[] = ["effort", "effort-bare", "reasoning-effort", "unresearched"];
-
-  it("键集对账：表 = PROVIDERS 键空间，不多不少（新增平台不表态 → 红）", () => {
-    expect(Object.keys(MESSAGES_TIER_EXIT).sort()).toEqual(PLATFORM_KEYS);
-  });
 
   it("四态可区分：「未研究过」与「已声明只发裸 effort」是两个显式值，不许 falsy 默认吞掉", () => {
     // 两态在线上同形（都发裸 output_config.effort），但在表里必须答得不一样——这正是建表的理由。
@@ -548,18 +564,14 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
 // **开词**也逐格显式声明。落地前那一层只有硬写 `thinking:{type:"enabled"}`——对平台枚举词不是 enabled
 // 的端点（minimax 只有 disabled / adaptive）就是替平台发明词。票面的失败方式与前两张表同构：
 //   ① 表与真实行为不同步（表说平台自有词、代码仍发 enabled）→ 逐格实发用例；
-//   ②「未研究过」被 falsy 默认吞成「声明为原生」→ 键集全覆盖 + 三态可区分 + 表外兜底；
+//   ②「未研究过」被 falsy 默认吞成「声明为原生」→ 三态可区分 + 表外兜底
+//      （键集全覆盖那一半见上面「平台键集」的语义断言）；
 //   ③ 无证据格子声称有出处 → provenance 三态 + 出处必填；
 //   ④ 硬规则：本表只发开关形状，任何一格的载荷都不得含思考预算。
 // 与前两张表的差别：本表的落地**改行为**（minimax 行从「一个字段都不发」变成真发 off / on），
 // 其余平台逐字节不变（域与 before/after 工件见票内）。
 describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只对 minimax 改行为", () => {
-  const PLATFORM_KEYS = Object.keys(PROVIDERS).sort();
   const ALL_KINDS: readonly MessagesOnExitKind[] = ["native", "word", "unresearched"];
-
-  it("键集对账：表 = PROVIDERS 键空间，不多不少（新增平台不表态 → 红）", () => {
-    expect(Object.keys(MESSAGES_ON_EXIT).sort()).toEqual(PLATFORM_KEYS);
-  });
 
   it("三态可区分：表内只有 minimax 是平台自有词，其余按原生；未识别平台走表外兜底", () => {
     for (const [platform, cell] of Object.entries(MESSAGES_ON_EXIT)) {

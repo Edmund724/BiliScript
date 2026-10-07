@@ -28,9 +28,11 @@ interface FixtureOverrideRule {
   levels: Record<string, { fields: Record<string, unknown> }>;
 }
 
-// 本地同名类型（不用 import 别名写进 annotation）：下面 PROVIDERS 的声明行必须与检查脚本
-// scripts/check-models-dev-catalog.mjs 的 PROFILE_MARKERS.PROVIDERS 逐字节一致（它按文本
-// `includes` 该行定位解析区），所以 override 只能在这里本地补，不能改 annotation 文本。
+// 本地同名类型（不用 import 别名写进 annotation）：下面 PROVIDERS 的**行首声明前缀**必须与
+// 检查脚本 scripts/check-models-dev-catalog.mjs 的 PROFILE_MARKERS.PROVIDERS 一致（它按文本
+// `includes` 定位解析区，再从该行的 `{` 起扫描；真表的泛型实参是封闭的平台身份键、本 fixture
+// 是刻意不全的开放键——两行只共有到泛型实参之前的前缀），所以 override 只能在这里本地补，
+// 不能改注释面。
 interface ProviderRule extends UpstreamProviderRule {
   override?: FixtureOverrideRule;
 }

@@ -141,6 +141,18 @@ function sliceSection(text, startMarker, endMarker) {
   return text.slice(start + startMarker.length, end);
 }
 
+// 标记只到 annotation 前缀的表（PROVIDERS：真表与 fixture 的泛型实参不同）：扫描体从
+// 该行的 `{` 之后开始，其余与 sliceSection 相同。
+function sliceObjectBody(text, startMarker, endMarker) {
+  const start = text.indexOf(startMarker);
+  if (start < 0) return null;
+  const open = text.indexOf("{", start);
+  if (open < 0) return null;
+  const end = text.indexOf(endMarker, open);
+  if (end < 0) return null;
+  return text.slice(open + 1, end);
+}
+
 // 去掉行尾 `// …` 注释（不动字符串里的 `//`）。
 function stripLineComment(line) {
   let out = "";
@@ -423,7 +435,11 @@ const PROFILE_MARKERS = {
   CLASSES: "export const CLASSES: Record<string, ClassRule> = {",
   EXCEPTIONS: "export const EXCEPTIONS: readonly TaxonomyEntry[] = [",
   TAXONOMY: "export const TAXONOMY: readonly TaxonomyEntry[] = [",
-  PROVIDERS: "export const PROVIDERS: Record<string, ProviderRule> = {"
+  // 平台身份键表自候选 6 起以封闭键词表叶索引：真表 annotation = Record<PlatformKey, ProviderRule>，
+  // fixture 仍是刻意不全的 Record<string, ProviderRule>（12 键小样）→ 标记取两行共有的前缀，
+  // 扫描体从该行的 `{` 之后开始（见 sliceObjectBody）。前导换行 = 只认**行首**的声明
+  // （注释里提到这个前缀不算命中）。
+  PROVIDERS: "\nexport const PROVIDERS: Record<"
 };
 
 // 行级扫描：注释归到下一条目（条目内注释归该条目），单行/多行条目都吃。
@@ -566,7 +582,7 @@ function parseProfilesModule(text, label) {
     `${label} 的 CLASSES`
   );
   const providersTable = scanObjectEntries(
-    sliceSection(source, PROFILE_MARKERS.PROVIDERS, "\n};"),
+    sliceObjectBody(source, PROFILE_MARKERS.PROVIDERS, "\n};"),
     /^ {2}([A-Za-z_$][\w$]*): \{$/,
     /^ {2}([A-Za-z_$][\w$]*): \{([^}]*)\},?$/,
     `${label} 的 PROVIDERS`
