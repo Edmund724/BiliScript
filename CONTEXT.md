@@ -41,7 +41,7 @@ _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 f
 
 **原始字幕缓存**:
 按时间戳/章节切好的原始字幕段，可随取随用；仅在压缩摘要之外的细节追问时按需检索注入。宿主注记（arch-review-2026-09/05）：storage 真实宿主是 SW，offscreen（Map-Reduce/追问链）经 `segment-cache` 消息族读写——offscreen 侧唯一出站点 `ai/segment-cache-proxy.ts`，SW 端 `ai/segment-cache-handler.ts` 直调 segment-cache 单源（键位装配在 SW 完成）。写单元注记（段缓存写聚合 ticket 重构）：写路径是 run-scoped 写会话（`createSegmentCacheWriteSession`，一次编排运行一个、跨溢出重跑两轮共用），saveRaw 只入会话缓冲、不声明 per-op 成败（返回 void），随 saveSummary 合成 `save-summary-raw` 合并 op（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set，两族索引/manifest 打包一次 set）；会话收尾统一 close 落盘残留 raw（正常 done / 停止 abort / idle 超时 / 异常上抛都经编排收尾统一 close），port 断开 / offscreen 自关不 close、会话随文档销毁废弃。失败通道 = awaited saveSummary 的 `{ok:false}` + close 的 onWriteError（编排层去重后只提示一次）。出站点载荷按 SW 键位字段投影收窄（context 只带 bvid/cid/字幕轨三元组；load-stored-raw 另带 chapters 供命中段预过滤），整份 AiContext 的 subtitleBody 不再过线。
-代码名：`ai/segment-cache.js`（`biliscript_lvs_raw_*`）/ `ai/raw-retrieval.js`
+代码名：`ai/segment-cache.js`（`biliscript_lvs_raw_*`）/ `ai/raw-retrieval.js` / `ai/segment-cache-key-fields.js`（键位字段清单零依赖叶，候选 5：SW 装配 / offscreen 出站点 / 协议载荷类型 / 概览键位四方同源）
 _Avoid_: 长记忆、向量库
 
 **缓存宿主**:

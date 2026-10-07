@@ -213,21 +213,19 @@ describe("上下文键位构造器：与原手拼键逐字节一致（预热缓�
     subtitleBody: [{ from: 0, to: 5, content: "x" }]
   };
 
-  it("segmentCacheKeyFields：selectedSubtitleId/Url/Lang 映射为键位入参且只挑键位字段", () => {
-    expect(mod.segmentCacheKeyFields(context)).toEqual({
-      bvid: "BV1ctx",
-      cid: "7",
-      subtitleId: "sub-9",
-      subtitleUrl: "https://s.example.com/sub/9.json?auth=1",
-      lang: "zh-CN"
-    });
-    expect(mod.segmentCacheKeyFields(null)).toEqual({
-      bvid: undefined,
-      cid: undefined,
-      subtitleId: undefined,
-      subtitleUrl: undefined,
-      lang: undefined
-    });
+  it("键位字段从零依赖叶派生：上下文按单源表映射为键位入参，且只挑键位字段", async () => {
+    const { SEGMENT_CACHE_KEY_FIELDS, segmentCacheKeyFields: leafKeyFields } = await import(
+      "../../extension/ai/segment-cache-key-fields.js"
+    );
+    // SW 侧出口就是叶的同一实现（本模块不再手抄第二份字段清单）
+    expect(mod.segmentCacheKeyFields).toBe(leafKeyFields);
+    // 期望形状从叶表派生，本文件不写死字段名清单
+    expect(mod.segmentCacheKeyFields(context)).toEqual(
+      Object.fromEntries(SEGMENT_CACHE_KEY_FIELDS.map((field) => [field.key, context[field.context]] as const))
+    );
+    expect(mod.segmentCacheKeyFields(null)).toEqual(
+      Object.fromEntries(SEGMENT_CACHE_KEY_FIELDS.map((field) => [field.key, undefined] as const))
+    );
   });
 
   it("统一构造器落盘 → 旧手拼键可读回（跨写读方一致）", async () => {

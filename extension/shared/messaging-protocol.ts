@@ -20,6 +20,8 @@ import type { AiProvider, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
+// 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
+import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -244,18 +246,12 @@ export type ResolveAiProviderResponse = {
 //（写路径 3N→2N，SW 侧每段 2get+4set→1get+3set）；本次运行收尾经会话 close 把残留
 // raw 按 save-raw 落盘，port 断开 / offscreen 自关则随文档销毁丢弃。
 //
-// 段缓存 context 的协议形状：出站点已投影为键位字段（5 字段，字段口径与 SW 端
-// segment-cache.ts 的 segmentCacheKeyFields 同源）——整份 AiContext（含 ≥200k 字符
+// 段缓存 context 的协议形状：出站点已投影为键位字段（字段口径与 SW 端
+// segment-cache.ts 的 segmentCacheKeyFields 同源——两处与概览键位装配一并从零依赖叶
+// ai/segment-cache-key-fields.ts 派生，候选 5）——整份 AiContext（含 ≥200k 字符
 // 的 subtitleBody）不再过线；chapters 只为 load-stored-raw 的命中段预过滤保留
 //（SW 侧 retrieveRawSegments 的章节名档输入，读行为依赖）。
-export type SegmentCacheContext = {
-  bvid?: unknown;
-  cid?: unknown;
-  selectedSubtitleId?: unknown;
-  selectedSubtitleUrl?: unknown;
-  subtitleLang?: unknown;
-  chapters?: unknown;
-};
+export type SegmentCacheContext = SegmentCacheContextFields & { chapters?: unknown };
 export type SegmentCacheMessage = {
   type: "segment-cache";
   op: "load-summary" | "load-summaries" | "save-summary" | "save-raw" | "save-summary-raw" | "load-stored-raw";

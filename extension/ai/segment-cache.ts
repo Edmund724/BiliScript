@@ -9,6 +9,9 @@ import { logError } from "../shared/logging.js";
 import { buildSubtitleSourceKey } from "../subtitle/cache.js";
 import { createCacheFamily, parseBvidFromCacheKey, readFamilyKeys, writeBundleWithEviction } from "../core/cache-lru.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
+// 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶（候选 5）：SW 侧装配 / offscreen
+// 出站点 / 协议载荷类型 / 概览键位装配都从它派生，本模块只消费、不再手抄字段清单。
+import { segmentCacheKeyFields } from "./segment-cache-key-fields.js";
 
 // 分段小结缓存键前缀。
 const SEGMENT_SUMMARY_PREFIX = "biliscript_lvs_summary_";
@@ -66,36 +69,12 @@ export function getRawSegmentKey({ bvid, cid, subtitleId = "", subtitleUrl = "",
   return rawFamily.key({ bvid, cid, subtitleId, subtitleUrl, lang }, `${segmentIndex}${budgetScaleSuffix(budgetScale)}`);
 }
 
-interface SegmentCacheKeyFieldsResult {
-  bvid: unknown;
-  cid: unknown;
-  subtitleId: unknown;
-  subtitleUrl: unknown;
-  lang: unknown;
-}
-
-// AI 上下文对象 → 段缓存键位字段的唯一映射（bvid/cid + 字幕轨 source key 三元组，
-// 上下文字段名 selectedSubtitleId/selectedSubtitleUrl/subtitleLang 映射为键位入参
-// subtitleId/subtitleUrl/lang）。落盘（map-reduce）与复用（followup-context）共用，
-// 键位不再各自手拼，预热缓存永不因键位漂移而失效。
-export function segmentCacheKeyFields(context: Record<string, unknown> | undefined | null): SegmentCacheKeyFieldsResult {
-  if (!context) {
-    return {
-      bvid: undefined,
-      cid: undefined,
-      subtitleId: undefined,
-      subtitleUrl: undefined,
-      lang: undefined
-    };
-  }
-  return {
-    bvid: context.bvid,
-    cid: context.cid,
-    subtitleId: context.selectedSubtitleId,
-    subtitleUrl: context.selectedSubtitleUrl,
-    lang: context.subtitleLang
-  };
-}
+// 「AI 上下文对象 → 段缓存键位字段」的清单与投影已下沉零依赖叶
+// ai/segment-cache-key-fields.ts（候选 5）：上下文字段名 selectedSubtitleId/Url/subtitleLang
+// 映射为键位入参 subtitleId/subtitleUrl/lang 的事实只在该叶声明一份，落盘（map-reduce）、
+// 复用（followup-context）与概览键位装配共用同一份投影，键位不再各自手拼。本模块保留
+// SW 侧出口（handler / 测试从段缓存模块取键位装配），实现单源在叶，无第二份清单。
+export { segmentCacheKeyFields };
 
 /**
  * 从 AI 上下文 + 段序号拼分段小结缓存键（与 getSegmentSummaryKey 手拼逐字节一致）。

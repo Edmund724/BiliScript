@@ -14,11 +14,14 @@
 //（会话随文档销毁废弃，丢弃语义显式化）。
 //
 // 出站点收窄：所有消息载荷的 context 都是「AiContext → SW 键位字段」投影后的窄
-// 对象（字段清单与 SW 端 segment-cache.ts 的 segmentCacheKeyFields 同源；本模块
-// 不 import storage 层，清单就地写并注明口径同源），整份 AiContext（含 ≥200k 字符
-// 的 subtitleBody）不再过线。
+// 对象——字段清单与投影实现单源在零依赖叶 ai/segment-cache-key-fields.ts（候选 5；
+// 该叶零 import，offscreen 侧引用它不会引入 storage 层），整份 AiContext（含 ≥200k
+// 字符的 subtitleBody）不再过线。
 
 import type { SegmentCacheContext, SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
+// 出站点投影单源（零依赖叶）：offscreen 侧不能 import 拖 storage 的层，投影实现只能
+// 住在两侧都够得着的零 import 叶里——本模块不再就地写第二份字段清单。
+import { projectSegmentCacheContext } from "./segment-cache-key-fields.js";
 
 export interface SegmentCacheOps {
   loadSummary(input: { context?: Record<string, unknown>; segmentIndex?: number | string; budgetScale?: unknown }): Promise<string | null>;
@@ -41,33 +44,9 @@ export interface SegmentCacheWriteSession extends SegmentCacheOps {
   close(): Promise<void>;
 }
 
-// context 投影：AiContext → SW 键位字段（bvid/cid + 字幕轨三元组）。字段名与 SW
-// 端 segment-cache.ts 的 segmentCacheKeyFields 消费的上下文字段同源（那边把
-// selectedSubtitleId/Url/subtitleLang 映射为键位入参 subtitleId/subtitleUrl/lang），
-// 键位口径仍由 SW 单源装配，本模块只负责把无关字段（title/subtitleBody/…）挡在
-// 传输层之外。键位字段恒在（与 segmentCacheKeyFields 同形），值缺失即 undefined。
-function projectSegmentCacheContext(context?: Record<string, unknown> | null): SegmentCacheContext {
-  if (!context) {
-    return {
-      bvid: undefined,
-      cid: undefined,
-      selectedSubtitleId: undefined,
-      selectedSubtitleUrl: undefined,
-      subtitleLang: undefined
-    };
-  }
-  return {
-    bvid: context.bvid,
-    cid: context.cid,
-    selectedSubtitleId: context.selectedSubtitleId,
-    selectedSubtitleUrl: context.selectedSubtitleUrl,
-    subtitleLang: context.subtitleLang
-  };
-}
-
 // 读 op（load-stored-raw）的命中段预过滤在 SW 侧走同一检索规则的章节名档
 // （retrieveRawSegments 的 chapters 入参）：该档读路径的既有输入，收窄时保留，
-// 读行为与迁移前逐字一致。
+// 读行为与迁移前逐字一致。键位维度本身由叶的 projectSegmentCacheContext 投影。
 function projectStoredRawContext(context?: Record<string, unknown> | null): SegmentCacheContext {
   const projected = projectSegmentCacheContext(context);
   return Array.isArray(context?.chapters) ? { ...projected, chapters: context.chapters } : projected;

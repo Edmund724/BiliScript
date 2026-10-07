@@ -4,13 +4,15 @@
 //   只把同段原始段放进会话缓冲；紧随其后的 saveSummary 命中缓冲时合成一条
 //   save-summary-raw 合并 op（写路径 3N→2N）；close() 把残留缓冲按 save-raw 逐条
 //   await 落盘（失败经 onWriteError 上浮、不抛），重复 close 空操作。
-// - 载荷 context 收窄为 SW 键位字段投影（与 SW 端 segment-cache.ts 的
-//   segmentCacheKeyFields 同字段）：整份 AiContext（含 ≥200k 字符的 subtitleBody）
-//   不再过线；缓冲键也按投影后短键。
+// - 载荷 context 收窄为 SW 键位字段投影（字段清单与投影实现单源在零依赖叶
+//   ai/segment-cache-key-fields.ts，候选 5）：整份 AiContext（含 ≥200k 字符的
+//   subtitleBody）不再过线；缓冲键也按投影后短键。本文件不手抄键位字段清单——期望
+//   形状从叶表派生（表 ↔ 出站点的绑定判据见 tests/ai/segment-cache-key-fields.test.ts）。
 // - segmentCacheProxy 只剩读半边（追问链只读），读三 op 直通、载荷同样收窄。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { SEGMENT_CACHE_KEY_FIELDS } from "../../extension/ai/segment-cache-key-fields.js";
 
 type ProxyModule = typeof import("../../extension/ai/segment-cache-proxy.js");
 
@@ -18,14 +20,11 @@ let mod: ProxyModule;
 let proxy: ProxyModule["segmentCacheProxy"];
 let sendMessageMock: ReturnType<typeof vi.fn>;
 
-// 键位 5 字段齐全的完整 AiContext：多带 title / chapters / subtitleBody（大字段）
-const KEY_FIELDS = {
-  bvid: "BV1p",
-  cid: "1",
-  selectedSubtitleId: "sub-1",
-  selectedSubtitleUrl: "https://x/sub.json",
-  subtitleLang: "zh-CN"
-};
+// 键位维度的取值由键名派生（不手抄字段清单、也不手抄取值表）；期望形状的字段名从叶表派生。
+const KEY_FIELDS = Object.fromEntries(
+  SEGMENT_CACHE_KEY_FIELDS.map((field) => [field.context, `v-${field.key}`] as const)
+);
+// 完整 AiContext：键位维度齐全，另带 title / chapters / subtitleBody（大字段）
 const FULL_CONTEXT = {
   title: "长视频",
   ...KEY_FIELDS,
@@ -70,7 +69,7 @@ describe("写会话 saveRaw：同步入缓冲，不再声明 per-op 成败", () 
     expect(segmentCacheMessages()).toHaveLength(0);
   });
 
-  it("close 才把缓冲落盘：saveRaw 载荷 context 恰为键位 5 字段（subtitleBody/chapters/title 不过线）", async () => {
+  it("close 才把缓冲落盘：saveRaw 载荷 context 恰为键位字段（subtitleBody/chapters/title 不过线）", async () => {
     const session = mod.createSegmentCacheWriteSession();
     session.saveRaw({ context: FULL_CONTEXT, segmentIndex: 2, budgetScale: 1, segments: ["s"] });
 
@@ -282,7 +281,7 @@ describe("读路径：直通且载荷同样收窄", () => {
     expect(messages.map((m) => m.op)).toEqual(["load-summary", "load-summaries", "load-stored-raw"]);
     expect(messages[0].context).toEqual(KEY_FIELDS);
     expect(messages[1].context).toEqual(KEY_FIELDS);
-    // load-stored-raw 的命中段预过滤（SW 侧章节名档）仍需章节表：键位 5 字段之外只保留 chapters
+    // load-stored-raw 的命中段预过滤（SW 侧章节名档）仍需章节表：键位字段之外只保留 chapters
     expect(messages[2].context).toEqual({ ...KEY_FIELDS, chapters: FULL_CONTEXT.chapters });
   });
 
