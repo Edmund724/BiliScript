@@ -63,9 +63,6 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { ensureBilingualSubtitleStyles } from "../shared/style-injector.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import {
-  findSecondaryTrackByPreferredLang,
-  findTrackByPreferredLang,
-  isMainSubtitleTrack,
   resolveSubtitleLangLabel,
   resolveSubtitleTrackLabel,
   shouldMarkAiSubtitleTracks
@@ -76,6 +73,13 @@ import { isProgrammaticScrolling, ids } from "./state.js";
 import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
+// 副轨（双语第二路轨）的目标解析 + 装载事务（唯一落点）：本叶子只做 DOM 投影与在飞禁用。
+import {
+  ensureSecondarySubtitleLoaded,
+  isSecondarySubtitleLoadInFlight,
+  resolveSecondaryTarget
+} from "./secondary-subtitle.js";
+import type { SecondaryEnsureOutcome } from "./secondary-subtitle.js";
 // 双语偏好的落盘 seam（readerTheme 同款）：reader 域不得静态 import core/runtime.js，
 // 故经 reader-bus 的 persist 槽转发（content.ts 注册的 sendRuntimeMessage）。
 import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
@@ -448,10 +452,9 @@ const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
 const SECONDARY_MISSING_PREFIX = "本视频没有";
 const SECONDARY_MISSING_SUFFIX = "轨";
 
-// 副列在飞值（与 switchInFlight 同款闭包：值 = 目标 option value = 副轨 URL）。
-// 只用来（a）本列自己的早退与禁用、（b）乐观显示时间窗——槽里的 loading 相位由
-// 装载器自己写（02 号票 Q2：不新造机制）。
-let secondaryInFlight: string | null = null;
+// 副列在飞值不再自持：装载事务的登记在 reader/secondary-subtitle.ts（唯一一份），
+// 本叶子只经 isSecondarySubtitleLoadInFlight() 读它——见 resolveSecondaryColumn.busy
+// 与 projectSecondaryLoad。
 // 副列 select 的 change 绑定去重（同 boundTrackPickers 的节点身份口径）。
 const boundSecondaryPickers = new WeakSet<HTMLSelectElement>();
 let bilingualSettingsWatchBound = false;
@@ -469,39 +472,9 @@ function isBilingualSwitchDisabled(tracks: SubtitleTrack[]): boolean {
   return loadableSecondaryTracks(tracks).length < 2;
 }
 
-function currentSubtitleTracks(): SubtitleTrack[] {
-  return (state.clip.subtitles || []) as unknown as SubtitleTrack[];
-}
-
-interface SecondaryTarget {
-  id: string;
-  url: string;
-  lang: string;
-}
-
-// 目标轨（全局偏好 lan × 本视频轨列表的投影）：匹配不到（②）、没选过（①）或命中
-// 主轨（③）都返回 null，差别只在投影文案上（见 resolveSecondaryColumn）。
-// 匹配与「排除主轨」共用 subtitle/selection 的共享叶子（两级：完整 lan 精确优先 →
-// 主语言子标签兜底；只考虑有 subtitleUrl 的真轨）——与 reader/lifecycle.ts 的自动
-// 装载同一条实现，两处各写一份会在混源视频上漂移成「装载一条、副列选中另一条」，
-// 更会在偏好指向主轨时把主轨抓成副轨（用户实测的两份一样）。
-function resolveSecondaryTarget(tracks: SubtitleTrack[]): SecondaryTarget | null {
-  const track = findSecondaryTrackByPreferredLang(
-    tracks,
-    state.settings.secondarySubtitleLang,
-    state.clip.selectedSubtitleId
-  );
-  if (!track) {
-    return null;
-  }
-  return {
-    id: String(track.id || ""),
-    url: String(track.subtitleUrl || ""),
-    // 载入器/槽用的语言标签取轨的 lan（与主列 change 处理器同口径：data-lang）；
-    // 偏好里存的也是它——lanDoc（"English"）过不了「按主语言子标签匹配」那一关。
-    lang: String(track.lan || "")
-  };
-}
+// 目标轨与「为什么没有目标」都由 reader/secondary-subtitle.ts 的 resolveSecondaryTarget
+// 投影（两级匹配 + 排除主轨 + 只考虑真轨，与自动装载/改选/重试同一份实现）——本叶子
+// 只把 reason 翻成文案（见 resolveSecondaryColumn），不再自己匹配一次。
 
 interface SecondaryColumnModel {
   // 列首一行说明：**只**服务「下一步动作就在这一列里做」的两套空态（① 还没选过 /
@@ -519,34 +492,33 @@ interface SecondaryColumnModel {
   busy: boolean;
 }
 
-function resolveSecondaryColumn(tracks: SubtitleTrack[]): SecondaryColumnModel {
+function resolveSecondaryColumn(): SecondaryColumnModel {
   const slot = state.clip.secondarySubtitle;
-  const busy = secondaryInFlight !== null || slot.state === "loading";
+  const busy = isSecondarySubtitleLoadInFlight() || slot.state === "loading";
   const model: SecondaryColumnModel = { note: "", footerNote: "", selectedUrl: "", retry: false, busy };
-  const pick = String(state.settings.secondarySubtitleLang || "").trim();
-  if (!pick) {
-    // ① 还没选过副轨
-    return { ...model, note: SECONDARY_EMPTY_PICK_TEXT };
-  }
-  // 与装载器共用的两级匹配（见 resolveSecondaryTarget 的注释）。这里判「没命中」与
-  // 「命中的是主轨」必需分开：两态的说明文案不同（02 号票第 5 条），故用未排除的
-  // 基础匹配 + 共享的主轨判据，而不是直接取 findSecondaryTrackByPreferredLang。
-  const target = findTrackByPreferredLang(tracks, pick);
-  if (!target) {
-    // ② 本视频没有目标语言的轨（Q4：留空不猜，也不写 noSubtitleReason）。
-    // 语言名查表（见 SECONDARY_MISSING_* 注释）：命中 ⇒ 中文名紧贴前后文；未命中 ⇒ 回落
-    // 机器码，两侧留空格免得与三段汉字黏成一段。
-    const label = resolveSubtitleLangLabel(pick);
-    const name = label === pick ? ` ${label} ` : label;
-    return { ...model, note: `${SECONDARY_MISSING_PREFIX}${name}${SECONDARY_MISSING_SUFFIX}` };
-  }
-  if (isMainSubtitleTrack(target, state.clip.selectedSubtitleId)) {
+  // 与装载器/自动装载共用的同一份目标解析（reader/secondary-subtitle.ts）。三套空态各取
+  // 一条 reason——「没命中」与「命中的是主轨」的文案不同（02 号票第 5 条），故分得开。
+  const resolution = resolveSecondaryTarget();
+  if (resolution.kind === "none") {
+    if (resolution.reason === "no-preference") {
+      // ① 还没选过副轨
+      return { ...model, note: SECONDARY_EMPTY_PICK_TEXT };
+    }
+    if (resolution.reason === "no-track") {
+      // ② 本视频没有目标语言的轨（Q4：留空不猜，也不写 noSubtitleReason）。
+      // 语言名查表（见 SECONDARY_MISSING_* 注释）：命中 ⇒ 中文名紧贴前后文；未命中 ⇒ 回落
+      // 机器码，两侧留空格免得与三段汉字黏成一段。
+      const pick = String(state.settings.secondarySubtitleLang || "").trim();
+      const label = resolveSubtitleLangLabel(pick);
+      const name = label === pick ? ` ${label} ` : label;
+      return { ...model, note: `${SECONDARY_MISSING_PREFIX}${name}${SECONDARY_MISSING_SUFFIX}` };
+    }
     // ③ 主副指向同一条轨（Q8）：副轨槽不装主轨（列表里会出两份一样的正文）。状态提示
     // 进**页脚**（紧挨「双语字幕」）——它讲的是整列的状态，不占副列列表的位置；语言列表
     // 照常在列，用户点另一条即可就地改选（2026-10-06 图外回访 + 用户裁决）。
     return { ...model, footerNote: SECONDARY_COLLISION_TEXT };
   }
-  const selectedUrl = String(target.subtitleUrl || "");
+  const selectedUrl = resolution.target.url;
   // 在飞不改语言列表（2026-10-06 用户裁决「选完应该滚动条不动」）：把列表换成一行
   // 「译文加载中…」占位会当场抽掉本列的滚动高度 ⇒ 用户刚滚到列底选的那条语言，下一秒
   // 整列跳回列表顶部（真机走查 run13 的读数）。在飞的可见反馈由两处承担：本列
@@ -737,7 +709,7 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   if (!nodes) {
     return;
   }
-  const model = resolveSecondaryColumn(tracks);
+  const model = resolveSecondaryColumn();
   const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   // 组件那批 <li> 原样搬进主列（optionNodes / markSelected / 键盘漫游都按节点身份工作）。
   const rows = [...nodes.dropdown.children].filter(
@@ -772,8 +744,9 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   if (dual) {
     writeSecondaryOptions(nodes.secondarySelect, tracks, model.selectedUrl);
     setCustomSelectValue(nodes.secondarySelect, model.selectedUrl);
-    // 在飞期间不动本列状态（与主列早退同款，避免重渲把乐观禁用解掉）。
-    if (secondaryInFlight === null) {
+    // 在飞期间不动本列状态（与主列早退同款，避免重渲把乐观禁用解掉）。落定后的收敛
+    // 由 projectSecondaryLoad 的 settled 拍负责——那次收敛时在飞已清空，这里才重新写状态。
+    if (!isSecondarySubtitleLoadInFlight()) {
       setCustomSelectState(nodes.secondarySelect, { disabled: model.busy, busy: model.busy });
     }
   } else {
@@ -849,53 +822,42 @@ function projectTriggerBadge(pickerWrapper: HTMLElement, on: boolean): void {
   trigger.setAttribute("aria-describedby", SUBTITLE_BILINGUAL_BADGE_ID);
 }
 
-// 副轨装载（开关打开 / 换副轨语言 / 重试共用一条入口）：乐观目标 + 只禁本列，
-// 失败不回退目标（02 号票 Q3；错误态由装载器写进槽，本列据此出重试行）。
-function startSecondaryLoad(target: SecondaryTarget, forceRefresh: boolean): void {
-  if (!target.url) {
+// 副轨装载事务的 DOM 投影（开关打开 / 副列改选 / 重试共用一条入口）。判定与装载全在
+// reader/secondary-subtitle.ts（目标解析、三重守卫、在飞登记、ensureSummarizeChain →
+// loadSecondarySubtitle）；本叶子只管两拍投影：
+//   - 起步：本列当场写乐观目标值 + 禁用（「副轨的选中就是目标」，失败不回退目标——
+//     02 号票 Q3；错误态由装载器写进槽，本列据此出重试行）；
+//   - 落定：清在飞后必须由这里再收敛一次——副轨到站的 "secondary-subtitle-ready" 重渲
+//     发生在事务落定**之前**（那时在飞仍置位，投影有意不动本列状态），不在这里收，
+//     本列就永久停在「禁用 + 忙碌」。成功路径的正文/选中行由那条通知负责，本拍不碰。
+//   - 失败：槽已置 error（弹层副列占位即重试入口），这里只补一句状态行旁白
+//（与主列失败同一条 notice 通道；仓内无 toast）。
+function projectSecondaryLoad(outcome: SecondaryEnsureOutcome): void {
+  if (outcome.kind !== "started") {
     return;
   }
-  secondaryInFlight = target.url;
   const select = ensureBilingualCard()?.secondarySelect ?? null;
   if (select) {
-    setCustomSelectValue(select, target.url);
+    setCustomSelectValue(select, outcome.target.url);
     setCustomSelectState(select, { disabled: true, busy: true });
   }
   renderReadingSubtitleTrackPicker();
-  void (async () => {
-    try {
-      const chain = await ensureSummarizeChain();
-      await chain.loadSecondarySubtitle(target.url, target.lang, state.clip.fetchRunId, target.id, forceRefresh);
-      // 成功路径不收敛控件：副轨到站的 "secondary-subtitle-ready" 通知驱动
-      // renderReadingView 重渲（05 号票的新 kind，不带主轨那串副作用）。
-    } catch (error) {
-      // 失败：槽已置 error（弹层副列占位即重试入口），这里只补一句状态行旁白
-      //（与主列失败同一条 notice 通道；仓内无 toast）。
+  void outcome.settled.then(({ error }) => {
+    if (error) {
       subtitleTrackNotice?.(`副字幕加载失败：${getErrorMessage(error)}`);
-      logWarn("[BILISCRIPT] failed to load secondary subtitle", error);
-    } finally {
-      secondaryInFlight = null;
-      renderReadingSubtitleTrackPicker();
     }
-  })();
+    renderReadingSubtitleTrackPicker();
+  });
 }
 
 // 开关打开 / 跨上下文同步后按全局偏好把目标轨抓起来（Q1：打开那一刻立即抓、
 // forceRefresh = false 优先命中 per-track 缓存；不做面板可见判定、不做滚动懒加载）。
-// 三重守卫与 reader/lifecycle.ts 的自动装载同款：槽非 idle 不重来（在飞/已就绪/
-// 已失败都不重来，失败等用户在副列点重试）。
+// 三重守卫（开关关 / 槽非 idle / 无目标不猜）在事务里；本列自己的在飞早退留在这里。
 function activateSecondaryTarget(): void {
-  if (state.settings.bilingualSubtitles !== true) {
+  if (isSecondarySubtitleLoadInFlight()) {
     return;
   }
-  if (secondaryInFlight !== null || state.clip.secondarySubtitle.state !== "idle") {
-    return;
-  }
-  const target = resolveSecondaryTarget(currentSubtitleTracks());
-  if (!target) {
-    return;
-  }
-  startSecondaryLoad(target, false);
+  projectSecondaryLoad(ensureSecondarySubtitleLoaded());
 }
 
 // 页脚开关（唯一入口是这里 + 跨上下文订阅）：
@@ -926,10 +888,10 @@ function handleBilingualSwitchClick(event: Event): void {
 //   - 本列在飞时的 change 一律忽略（组件浮层的点击处理器不查 disabled，禁用只是
 //     视觉/键盘守卫，这里必须自己早退）并收敛回 state 的现值；
 //   - 选中主轨那一条 ⇒ Q8 同轨防呆：清副轨槽（列表退回单轨），目标 lan 不动；
-//   - 否则写全局偏好（副轨目标 lan）+ 乐观目标 + loading（装载器自己写槽），
-//     只禁本列，`forceRefresh = false`（切轨语义）。
+//   - 否则写全局偏好（副轨目标 lan），再按**轨身份**解析目标交给装载事务
+//（槽非 idle 也照装：改选发生在槽 ready/error 时是常态），只禁本列。
 function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
-  if (secondaryInFlight !== null) {
+  if (isSecondarySubtitleLoadInFlight()) {
     renderReadingSubtitleTrackPicker();
     return;
   }
@@ -958,19 +920,27 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
   // 全局偏好：副轨目标 lan（Q4 记忆粒度）；立即落盘（与主题偏好同一条 persist seam）。
   state.setSettings({ ...state.settings, secondarySubtitleLang: lang });
   persistReaderSettingsThroughSeam();
-  startSecondaryLoad({ id, url, lang }, false);
+  // 目标按**轨身份**解析（不是刚写的偏好再匹配一次）：用户点的是哪一条就装哪一条。
+  const resolution = resolveSecondaryTarget({ id, url, lang });
+  if (resolution.kind !== "target") {
+    renderReadingSubtitleTrackPicker();
+    return;
+  }
+  projectSecondaryLoad(ensureSecondarySubtitleLoaded({ target: resolution.target }));
 }
 
 // 副列占位行里的重试（02 号票 Q6：重抓**这一条**副轨，forceRefresh = true）。
+// 目标仍按全局偏好解析（与自动装载同一份实现）；槽在 error 态也要照装——事务的
+// 「槽非 idle 不动」守卫只服务自动路径，显式目标不走它。
 function handleSecondaryRetryClick(): void {
-  if (secondaryInFlight !== null) {
+  if (isSecondarySubtitleLoadInFlight()) {
     return;
   }
-  const target = resolveSecondaryTarget(currentSubtitleTracks());
-  if (!target) {
+  const resolution = resolveSecondaryTarget();
+  if (resolution.kind !== "target") {
     return;
   }
-  startSecondaryLoad(target, true);
+  projectSecondaryLoad(ensureSecondarySubtitleLoaded({ target: resolution.target, forceRefresh: true }));
 }
 
 // 主轨切到了副列当前指向的同一条轨 ⇒ 清副轨槽（Q8 反方向；目标 lan 保持不动，

@@ -20,9 +20,10 @@
 //   2. 几何层（硬约束 §5.1–§5.4）：卡片没右锚（左锚 @380 越界）／滚动留在卡片上
 //      （第 9 条轨就把页脚开关滚出视野）／空态文案能把列顶宽（长文案把卡片顶出面板）／
 //      单轨禁用态页脚折行；
-//   3. 装载层：选副列语言没调 loadSecondarySubtitle 或参数取错（url/lan/runId/id）／
-//      forceRefresh 不是 false（切轨语义变成每次走网络）／重试不是 true／在飞期间重复
-//      change 又发一次装载／副列在飞把主列一起禁掉（或反之）；
+//   3. 装载层：选副列语言没调 loadSecondarySubtitle 或参数取错（url/槽语言/runId/id，
+//      槽语言 = 轨的 lanDoc，与 reader 侧自动装载同一口径）／forceRefresh 不是 false
+//      （切轨语义变成每次走网络）／重试不是 true／在飞期间重复 change 又发一次装载／
+//      副列在飞把主列一起禁掉（或反之）；
 //   4. 失败层：副列失败把双语开关弹回关闭／把主列的 subtitleFetchState 洗成失败面／
 //      重试入口不在副列；
 //   5. 投影层：三套空态文案混用或缺席（未选 / 本视频无该语言 / 主副同轨被清）／副列
@@ -400,7 +401,8 @@ describe("双语开：两列 + 页脚开关 + 徽标", () => {
     switchButton().click();
 
     await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
-    expect(lazy.secondaryCalls[0]).toEqual([EN_URL, "ai-en", state.clip.fetchRunId, EN_ID, false]);
+    // 槽语言（元组第 2 位）统一取轨的 lanDoc——与 reader 侧自动装载同口径
+    expect(lazy.secondaryCalls[0]).toEqual([EN_URL, "English", state.clip.fetchRunId, EN_ID, false]);
     expect(mainSelect().disabled).toBe(false); // 副轨装载不阻塞主列
   });
 
@@ -444,7 +446,7 @@ describe("副列在飞 / 失败：只牵本列，不阻塞主列", () => {
     expect(trigger().disabled).toBe(false);
 
     await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
-    expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "ai-ja", state.clip.fetchRunId, JA_ID, false]);
+    expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "日本語", state.clip.fetchRunId, JA_ID, false]);
 
     // 在飞期间再来一次 change（组件浮层的点击不查 disabled，禁用只是视觉/键盘守卫）
     secondarySelect().dispatchEvent(new Event("change", { bubbles: true }));
@@ -476,7 +478,7 @@ describe("副列在飞 / 失败：只牵本列，不阻塞主列", () => {
     lazy.secondaryMode = "ok";
     retryButton()!.click();
     await vi.waitFor(() => expect(lazy.secondaryCalls.length).toBe(callsBeforeRetry + 1));
-    expect(lazy.secondaryCalls.at(-1)).toEqual([JA_URL, "ai-ja", state.clip.fetchRunId, JA_ID, true]);
+    expect(lazy.secondaryCalls.at(-1)).toEqual([JA_URL, "日本語", state.clip.fetchRunId, JA_ID, true]);
   });
 });
 
@@ -601,7 +603,7 @@ describe("副列的三套空态 + 单轨禁用", () => {
     // 改选得回来：从同轨说明态点另一条语言 ⇒ 正常发起装载
     clickSubOption("日本語");
     await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
-    expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "ai-ja", state.clip.fetchRunId, JA_ID, false]);
+    expect(lazy.secondaryCalls[0]).toEqual([JA_URL, "日本語", state.clip.fetchRunId, JA_ID, false]);
   });
 
   it("单轨禁用：开关禁用 + 说明进列表区、页脚只留「双语字幕 + 开关」，不出双列", () => {
@@ -657,7 +659,7 @@ describe("偏好落盘与跨上下文收敛", () => {
     expect(switchButton().getAttribute("aria-checked")).toBe("true");
     expect(col("sub")).not.toBeNull();
     await vi.waitFor(() => expect(lazy.secondaryCalls).toHaveLength(1));
-    expect(lazy.secondaryCalls[0]).toEqual([EN_URL, "ai-en", state.clip.fetchRunId, EN_ID, false]);
+    expect(lazy.secondaryCalls[0]).toEqual([EN_URL, "English", state.clip.fetchRunId, EN_ID, false]);
   });
 
   it("别的设备换了副轨语言：本页副列选中行跟着换", async () => {
@@ -673,7 +675,7 @@ describe("偏好落盘与跨上下文收敛", () => {
     await vi.waitFor(() =>
       expect(colRows("sub").find((row) => row.dataset.selected === "true")?.textContent).toBe("日本語")
     );
-    expect(lazy.secondaryCalls.at(-1)).toEqual([JA_URL, "ai-ja", state.clip.fetchRunId, JA_ID, false]);
+    expect(lazy.secondaryCalls.at(-1)).toEqual([JA_URL, "日本語", state.clip.fetchRunId, JA_ID, false]);
   });
 });
 

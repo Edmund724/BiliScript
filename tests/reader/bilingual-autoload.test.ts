@@ -1,22 +1,18 @@
-// 双语副轨的自动装载编排（票 bilingual-subtitles/02 Q1 + Q7a，06 号票落地）。
+// 主轨就绪后的副轨自动装载：**接线**（"subtitle-ready" 通知 → 副轨装载事务）。
 //
-// 主轨就绪（"subtitle-ready" 通知）即副轨起点：双语开着就立刻并行抓，不做面板
-// 可见判定、不做滚动懒加载；换视频后按全局偏好 lan 在新轨列表上重新匹配。
-// 三重守卫：① 双语关不动；② 槽非 idle 不动（在飞/已就绪/已失败都不重来）；③ 本视频
-// 没有目标语言的轨不动（Q4「副列留空、不替用户猜」）。
+// 判定与装载本体（目标解析的三态、两级匹配、排除主轨、三重守卫、在飞登记、参数口径）
+// 已下沉到 tests/reader/secondary-subtitle.test.ts 的新模块接口上——那里不再需要
+// 经「通知 → lifecycle」这条远端路径就能覆盖全部失败方式。本文件只留接线独有的两件事：
+//   1. 通知确实会走到事务（lifecycle 的 handler 没有把这条调用漏掉）；
+//   2. 自动装载失败不污染通知链（事务自己吞异常，副列 error 占位即用户的入口）。
 //
-// 系统可能怎么坏（先列失败方式，再据此写用例）：
-//   a. 双语关也去抓副轨（白白多一次网络 + 无谓的 loading 占位）；
-//   b. 换视频后不重抓（副列永远停在空态）或每次重渲都重抓（网络抖动、loading 闪烁）；
-//   c. 匹配用完整 lan 串比对，"en-US" 偏好匹配不上本仓的 "ai-en" 轨（真实形态）；
-//   d. 本视频没有该语言轨时自作主张换一条（Q4 明确不猜）；
-//   e. 自动装载失败把异常抛出通知链（污染主轨渲染路径）；
-//   f. 偏好指向主轨那一条时把**主轨**抓成副轨（2026-10-06 用户实测「主副字幕相同就
-//      显示两份一样的」的来源）：副轨槽不许装主轨，命中主轨即无目标；也不得顺位退到
-//      同语言的另一条轨——那还是两份一样。
+// 系统可能怎么坏：
+//   a. lifecycle 的 subtitle-ready 分支漏调事务（双语开着却永远不抓副轨）；
+//   b. 自动装载的异常抛回通知链（主轨渲染路径被副轨失败带崩）；
+//   c. 视图未开就不抓（Q1：双语是全局偏好，切到字幕 tab 时就该已经就绪）。
 //
 // mock 只有一条边界：总结链（lazy.js）——它是网络入口，其余（state、lifecycle、
-// 通知分派）全部走真实实现。
+// 通知分派、副轨事务本体）全部走真实实现。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -78,156 +74,31 @@ afterEach(() => {
   state.setSettings({ ...DEFAULT_SETTINGS });
 });
 
-describe("主轨就绪后的副轨自动装载", () => {
-  it("双语关 ⇒ 不装载（零行为差）", async () => {
+describe("主轨就绪后的副轨自动装载（接线）", () => {
+  it("subtitle-ready ⇒ 按全局偏好装载副轨（比面板可见更早；槽语言取 lanDoc）", async () => {
+    setBilingual(true, "en-US");
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
+
+    // 面板未打开（readingViewOpen=false）也照抓：双语是全局偏好，切到字幕 tab 时就该就绪
+    lifecycle.handleReaderPresenterNotification("subtitle-ready");
+
+    await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
+    expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
+      EN_TRACK.subtitleUrl,
+      EN_TRACK.lanDoc,
+      3,
+      EN_TRACK.id,
+      false
+    );
+  });
+
+  it("双语关 ⇒ 通知链不装载（零行为差）", async () => {
     setBilingual(false);
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
 
     lifecycle.handleReaderPresenterNotification("subtitle-ready");
     await Promise.resolve();
 
-    expect(lazy.loadSecondarySubtitle).not.toHaveBeenCalled();
-  });
-
-  it("双语开 + 本视频有该语言轨 ⇒ 按主语言子标签匹配并装载（不等面板可见）", async () => {
-    setBilingual(true, "en-US");
-    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
-
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-
-    await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
-    expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
-      EN_TRACK.subtitleUrl,
-      EN_TRACK.lanDoc,
-      3,
-      EN_TRACK.id
-    );
-  });
-
-  it("混源（人工 en-US + AI ai-en）：精确 lan 命中优先，结果不依赖轨序", async () => {
-    setBilingual(true, "en-US");
-    const CC_TRACK = {
-      id: "cc-en",
-      lan: "en-US",
-      lanDoc: "English (CC)",
-      subtitleUrl: "https://sub/cc-en.json",
-      source: "player-wbi-v2"
-    };
-    // AI 轨排在前面：单级子标签匹配会先命中它 ⇒ 两级后必须仍选人工 CC 轨
-    clipState.setSubtitles([ZH_TRACK, EN_TRACK, CC_TRACK]);
-
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-
-    await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
-    expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
-      CC_TRACK.subtitleUrl,
-      CC_TRACK.lanDoc,
-      3,
-      CC_TRACK.id
-    );
-  });
-
-  it("精确命中不了时退回主语言子标签（偏好 en-US 命中 ai-en）", async () => {
-    setBilingual(true, "en-US");
-    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
-
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-
-    await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
-    expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
-      EN_TRACK.subtitleUrl,
-      EN_TRACK.lanDoc,
-      3,
-      EN_TRACK.id
-    );
-  });
-
-  it("双语开但本视频没有该语言轨 ⇒ 不装载（副列留空，不替用户猜）", async () => {
-    setBilingual(true, "ja-JP");
-    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
-
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-    await Promise.resolve();
-
-    expect(lazy.loadSecondarySubtitle).not.toHaveBeenCalled();
-  });
-
-  it("偏好指向主轨那一条 ⇒ 不装载（副轨槽不许装主轨：列表会出两份一样的正文）", async () => {
-    setBilingual(true, "ai-zh");
-    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
-    clipState.setSelectedSubtitleId(ZH_TRACK.id);
-    clipState.setSelectedSubtitleUrl(ZH_TRACK.subtitleUrl);
-
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-    await Promise.resolve();
-
-    expect(lazy.loadSecondarySubtitle).not.toHaveBeenCalled();
-  });
-
-  it("命中主轨时不顺位退到同语言的另一条轨（混源中文：主轨人工 zh-CN、另有 ai-zh）", async () => {
-    setBilingual(true, "zh-CN");
-    const CC_ZH = {
-      id: "cc-zh",
-      lan: "zh-CN",
-      lanDoc: "中文（CC）",
-      subtitleUrl: "https://sub/cc-zh.json",
-      source: "player-wbi-v2"
-    };
-    clipState.setSubtitles([ZH_TRACK, CC_ZH, EN_TRACK]);
-    clipState.setSelectedSubtitleId(CC_ZH.id);
-    clipState.setSelectedSubtitleUrl(CC_ZH.subtitleUrl);
-
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-    await Promise.resolve();
-
-    expect(lazy.loadSecondarySubtitle).not.toHaveBeenCalled();
-  });
-
-  it("对照：主轨是另一条同语言轨时照常装载（排除按轨身份，不按语言）", async () => {
-    setBilingual(true, "ai-zh");
-    const CC_ZH = {
-      id: "cc-zh",
-      lan: "zh-CN",
-      lanDoc: "中文（CC）",
-      subtitleUrl: "https://sub/cc-zh.json",
-      source: "player-wbi-v2"
-    };
-    clipState.setSubtitles([ZH_TRACK, CC_ZH, EN_TRACK]);
-    clipState.setSelectedSubtitleId(CC_ZH.id); // 主轨 = 人工 zh-CN，副轨目标 = ai-zh
-    clipState.setSelectedSubtitleUrl(CC_ZH.subtitleUrl);
-
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-
-    await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
-    expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
-      ZH_TRACK.subtitleUrl,
-      ZH_TRACK.lanDoc,
-      3,
-      ZH_TRACK.id
-    );
-  });
-
-  it("ASR 伪轨（无 subtitleUrl）不作为副轨候选", async () => {
-    setBilingual(true, "en-US");
-    clipState.setSubtitles([{ id: "asr", lan: "en-US", lanDoc: "English", subtitleUrl: "" }]);
-
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-    await Promise.resolve();
-
-    expect(lazy.loadSecondarySubtitle).not.toHaveBeenCalled();
-  });
-  it("槽非 idle（已在飞 / 已就绪 / 已失败）⇒ 不重复装载", async () => {
-    setBilingual(true, "en-US");
-    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
-
-    clipState.markSecondarySubtitleLoading({ id: EN_TRACK.id, url: EN_TRACK.subtitleUrl, lang: "English" });
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-    await Promise.resolve();
-    expect(lazy.loadSecondarySubtitle).not.toHaveBeenCalled();
-
-    clipState.markSecondarySubtitleError();
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
-    await Promise.resolve();
     expect(lazy.loadSecondarySubtitle).not.toHaveBeenCalled();
   });
 

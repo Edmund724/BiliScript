@@ -32,7 +32,9 @@ import { logWarn } from "../shared/logging.js";
 // 候选02 分层惰性：链未装载 ⇒ refreshClip 未注册进 reader-bus seam。懒装载
 // 触达自 seam 移到调用方（arch-slim-2/03），见 maybeRefreshReaderSubtitleInBackground。
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
-import { findSecondaryTrackByPreferredLang } from "../subtitle/selection.js";
+// 副轨（双语第二路轨）的目标解析与装载事务：四个装载入口（本处自动装载、弹层开关
+// 打开 / 跨上下文收敛、副列改选、副列重试）的唯一落点，判定与在飞登记都在那里。
+import { ensureSecondarySubtitleLoaded } from "./secondary-subtitle.js";
 
 // 候选02 分层惰性：启动接线（installReaderDebugHelpers / bindSettingsWatcher）与
 // 启动期呈现（hydrate/apply/renderReadingStatus）在常驻微模块
@@ -241,51 +243,20 @@ function warmUpReaderQuickPrompts() {
   });
 }
 
+// ===== 双语副轨的自动装载（bilingual-subtitles/02 号票）=====
+//
+// 主轨就绪即副轨起点（Q1：开关开着就立刻并行抓——不做面板可见判定、不做滚动懒加载；
+// Q7a：换视频后按全局偏好 lan 在新轨列表上重新匹配）。三重守卫（① 双语关 ⇒ 不动；
+// ② 槽非 idle ⇒ 不动，在飞 / 已就绪 / 已失败三种都不重来；③ 本视频没有目标语言的轨、
+// 或目标那一条就是主轨 ⇒ 不动）与装载链（ensureSummarizeChain → loadSecondarySubtitle）
+// 都收在 reader/secondary-subtitle.ts：四个装载入口共用同一份判定与事务，弹层只保留
+// 自己的 DOM 投影与在飞禁用。下面是 fire-and-forget：失败已由装载器写进副轨槽
+//（error 态 + 弹层副列占位即重试入口），事务自己吞异常，不污染主轨的渲染路径。
+
 // Presenter seam 通知的 reader 侧处理体（原 bindReaderPresenter 回调函数体
 // 原样搬移）。注册接线在常驻微模块 ./init-essentials.js：回调经
 // ensureReaderDomain() 惰性装载本域后转发到这里，因此本函数只在 reader 域
 // 装载后被调用，行为与搬迁前逐字一致。
-// ===== 双语副轨的自动装载（bilingual-subtitles/02 号票）=====
-//
-// 主轨就绪即副轨起点（Q1：开关开着就立刻并行抓——不做面板可见判定、不做滚动懒加载；
-// Q7a：换视频后按全局偏好 lan 在新轨列表上重新匹配）。三重守卫缺一不可：
-//   ① 双语关 ⇒ 不动（零行为差）；
-//   ② 槽非 idle ⇒ 不动（在飞 / 已就绪 / 已失败三种都不重来；失败等用户在弹层点重试）；
-//   ③ 本视频没有目标语言的轨、或目标语言那一条**就是主轨** ⇒ 不动（Q4「副列留空、不替
-//      用户猜」；主副同轨的那份副轨会在列表里出两份一样的正文，而弹层副列写着「主副
-//      字幕相同」——2026-10-06 用户实测的那两份一样就是本路径抓的）。
-// 匹配口径（两级 + 真轨过滤 + 排除主轨）收在 subtitle/selection 的共享叶子里，与弹层
-// 副列的投影同一实现——两处各写一份会漂移，混源视频上会「装载了一条、副列选中另一条」，
-// 偏好指向主轨时更会把主轨抓成副轨。
-function ensureSecondarySubtitleLoaded(): void {
-  if (!state.settings.bilingualSubtitles) {
-    return;
-  }
-  if (state.clip.secondarySubtitle.state !== "idle") {
-    return;
-  }
-  const track = findSecondaryTrackByPreferredLang(
-    state.clip.subtitles,
-    state.settings.secondarySubtitleLang,
-    state.clip.selectedSubtitleId
-  );
-  if (!track) {
-    return;
-  }
-  const url = String(track.subtitleUrl || "");
-  const id = String(track.id || "");
-  const lang = String(track.lanDoc || track.lan || "unknown");
-  void (async () => {
-    try {
-      const chain = await ensureSummarizeChain();
-      await chain.loadSecondarySubtitle(url, lang, state.clip.fetchRunId, id);
-    } catch (error) {
-      // 失败已由装载器写进副轨槽（error 态 + 弹层副列占位即重试入口），这里只记日志。
-      logWarn("[BILISCRIPT] secondary subtitle auto-load failed", error);
-    }
-  })();
-}
-
 export function handleReaderPresenterNotification(kind: string, text?: string | number | null) {
   switch (kind) {
     case "reset":
