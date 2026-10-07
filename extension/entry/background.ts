@@ -19,7 +19,7 @@ import { normalizeSettings, saveSettings } from "../core/settings-store.js";
 // 走 invalidatingWrite，裸 storage 写点走 writeSnapshotKeys（键 → 缓存域与键 →
 // 存储区的映射、失效时机都归 core/settings-snapshot）。
 import {
-  getSettings as getSettingsSnapshot,
+  getSettingsSnapshot,
   getProviderStore as getProviderStoreSnapshot,
   getSearchProviderOrder,
   getSearchHealth,

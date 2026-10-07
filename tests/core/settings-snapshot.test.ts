@@ -105,19 +105,19 @@ beforeEach(() => {
 });
 
 describe("命中断言：快照建立后二次读取零 storage 调用", () => {
-  it("getSettings 二次读取零 storage 调用，归一化产物一致", async () => {
+  it("getSettingsSnapshot 二次读取零 storage 调用，归一化产物一致", async () => {
     vi.stubGlobal("chrome", makeStub({
       syncFixture: { defaultModel: "openai", webSearchMaxToolCalls: 7 }
     }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
 
-    const first = await snapshot.getSettings();
+    const first = await snapshot.getSettingsSnapshot();
     expect(first.defaultModel).toBe("openai");
     expect(storageGetCalls()).toBeGreaterThan(0);
 
     vi.mocked(chrome.storage.sync.get).mockClear();
     vi.mocked(chrome.storage.local.get).mockClear();
-    const second = await snapshot.getSettings();
+    const second = await snapshot.getSettingsSnapshot();
     expect(second).toEqual(first);
     expect(storageGetCalls()).toBe(0);
   });
@@ -161,23 +161,23 @@ describe("命中断言：快照建立后二次读取零 storage 调用", () => {
 });
 
 describe("写后读失效：invalidate(存储键) 后重读拿新值", () => {
-  it("失效 settings 键：getSettings 重读存储", async () => {
+  it("失效 settings 键：getSettingsSnapshot 重读存储", async () => {
     vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
 
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
 
     // 模拟 save-settings 写后 inline 失效
     snapshot.invalidate(["defaultModel"]);
     vi.mocked(chrome.storage.sync.get).mockClear();
-    const reloaded = await snapshot.getSettings();
+    const reloaded = await snapshot.getSettingsSnapshot();
     expect(reloaded.defaultModel).toBe("openai");
     expect(vi.mocked(chrome.storage.sync.get)).toHaveBeenCalled();
 
     // 未命中已知域的键（白名单外的 payload 键）不引起失效也不抛错
     snapshot.invalidate(["someUnknownKey"]);
     vi.mocked(chrome.storage.sync.get).mockClear();
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     expect(vi.mocked(chrome.storage.sync.get)).not.toHaveBeenCalled();
   });
 
@@ -235,11 +235,11 @@ describe("onChanged 兜底：跨上下文/跨设备变更按键域失效", () =>
     vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
 
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     fireOnChanged({ defaultModel: { newValue: "other" } }, "sync");
 
     vi.mocked(chrome.storage.sync.get).mockClear();
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     expect(vi.mocked(chrome.storage.sync.get)).toHaveBeenCalled();
   });
 
@@ -331,14 +331,14 @@ describe("onChanged 兜底：跨上下文/跨设备变更按键域失效", () =>
     vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
 
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     // segment-cache 等 local 写、键面外 sync 键不在订阅键面内（enableDebugLogs
     // 是 settings 键面成员，会被正常失效）
     fireOnChanged({ someSegment: { newValue: {} } }, "local");
     fireOnChanged({ unknownSyncKey: { newValue: true } }, "sync");
 
     vi.mocked(chrome.storage.sync.get).mockClear();
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     expect(vi.mocked(chrome.storage.sync.get)).not.toHaveBeenCalled();
   });
 });
@@ -484,7 +484,7 @@ function allDomainFixtures() {
 }
 
 async function warmAllDomains(snapshot: SnapshotModule): Promise<void> {
-  await snapshot.getSettings();
+  await snapshot.getSettingsSnapshot();
   await snapshot.getProviderStore("ai");
   await snapshot.getProviderStore("asr");
   await snapshot.getProviderStore("search");
@@ -493,7 +493,7 @@ async function warmAllDomains(snapshot: SnapshotModule): Promise<void> {
 }
 
 async function readDomain(snapshot: SnapshotModule, domain: SnapshotDomainName): Promise<void> {
-  if (domain === "settings") await snapshot.getSettings();
+  if (domain === "settings") await snapshot.getSettingsSnapshot();
   else if (domain === "searchOrder") await snapshot.getSearchProviderOrder();
   else if (domain === "searchHealth") await snapshot.getSearchHealth();
   else await snapshot.getProviderStore(domain);
@@ -546,7 +546,7 @@ describe("写入口：落盘 + 失效一次做完（invalidatingWrite）", () =>
   it("失效时机 = 落盘 await 完成之后（写未落地时缓存仍命中）", async () => {
     vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
 
     let release!: () => void;
     const landed = new Promise<void>((resolve) => {
@@ -556,12 +556,12 @@ describe("写入口：落盘 + 失效一次做完（invalidatingWrite）", () =>
     const writing = write();
 
     vi.mocked(chrome.storage.sync.get).mockClear();
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     expect(vi.mocked(chrome.storage.sync.get), "落盘未完成前不得失效").not.toHaveBeenCalled();
 
     release();
     await writing;
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     expect(vi.mocked(chrome.storage.sync.get), "落盘完成即失效").toHaveBeenCalled();
   });
 
@@ -575,7 +575,7 @@ describe("写入口：落盘 + 失效一次做完（invalidatingWrite）", () =>
   it("落盘失败：原样 reject 且不失效（没落地就没有要作废的读缓存）", async () => {
     vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
 
     const write = snapshot.invalidatingWrite(async () => {
       throw new Error("QUOTA_BYTES quota exceeded");
@@ -583,7 +583,7 @@ describe("写入口：落盘 + 失效一次做完（invalidatingWrite）", () =>
     await expect(write()).rejects.toThrow("QUOTA_BYTES quota exceeded");
 
     vi.mocked(chrome.storage.sync.get).mockClear();
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     expect(vi.mocked(chrome.storage.sync.get)).not.toHaveBeenCalled();
   });
 
@@ -609,7 +609,7 @@ describe("写入口：落盘 + 失效一次做完（invalidatingWrite）", () =>
   it("派生键面形态（save-settings 的 payload 键集同款）：写什么键失效什么域", async () => {
     vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
 
     const saveSettingsWithInvalidate = snapshot.invalidatingWrite(
       async (payload: Record<string, unknown>) => {
@@ -619,7 +619,7 @@ describe("写入口：落盘 + 失效一次做完（invalidatingWrite）", () =>
     );
     await saveSettingsWithInvalidate({ defaultModel: "anthropic" });
 
-    expect(await snapshot.getSettings()).toMatchObject({ defaultModel: "anthropic" });
+    expect(await snapshot.getSettingsSnapshot()).toMatchObject({ defaultModel: "anthropic" });
   });
 });
 
@@ -662,7 +662,7 @@ describe("裸落盘入口：writeSnapshotKeys（区由键面表决定，写后�
     const snapshot = await import("../../extension/core/settings-snapshot.js");
 
     // 预热两个域的读缓存（桩的 onChanged 不派发：失效只能来自写入口的 inline 调用）
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
     await snapshot.getProviderStore("ai");
 
     await snapshot.writeSnapshotKeys({
@@ -670,7 +670,7 @@ describe("裸落盘入口：writeSnapshotKeys（区由键面表决定，写后�
       [AI_PROVIDER_KEYS_STORAGE]: { openai: "sk-new" }
     });
 
-    expect((await snapshot.getSettings()).defaultModel).toBe("anthropic");
+    expect((await snapshot.getSettingsSnapshot()).defaultModel).toBe("anthropic");
     expect((await snapshot.getProviderStore("ai")).keys).toEqual({ openai: "sk-new" });
   });
 
@@ -689,13 +689,13 @@ describe("裸落盘入口：writeSnapshotKeys（区由键面表决定，写后�
   it("落盘失败：原样 reject 且不失效（没落地就没有要作废的读缓存）", async () => {
     vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
-    await snapshot.getSettings();
+    await snapshot.getSettingsSnapshot();
 
     vi.mocked(chrome.storage.sync.set).mockRejectedValueOnce(new Error("QUOTA_BYTES quota exceeded"));
     await expect(snapshot.writeSnapshotKeys({ defaultModel: "anthropic" })).rejects.toThrow("QUOTA_BYTES");
 
     vi.mocked(chrome.storage.sync.get).mockClear();
-    expect((await snapshot.getSettings()).defaultModel).toBe("openai");
+    expect((await snapshot.getSettingsSnapshot()).defaultModel).toBe("openai");
     expect(vi.mocked(chrome.storage.sync.get)).not.toHaveBeenCalled();
   });
 });

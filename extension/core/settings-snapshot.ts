@@ -175,7 +175,10 @@ let searchOrderCache: Promise<unknown> | null = null;
 // 失效靠落盘后的 inline invalidate（onChanged 不在写入方触发）。
 let searchHealthCache: Promise<SearchHealthMap> | null = null;
 
-export function getSettings(): Promise<Settings> {
+// 名字带 Snapshot：与内容侧的 core/runtime.getSettings（SW 往返 + 超时回落默认值）
+// 区分。两者同名曾是 background 里 `getSettings as getSettingsSnapshot` 别名的由来；
+// 本函数是 SW 内的归一快照读（零 storage 热读）。
+export function getSettingsSnapshot(): Promise<Settings> {
   // getMergedSettings 内部已吞错（超时回落默认值），永不 reject，直接缓存。
   settingsCache ??= getMergedSettings();
   return settingsCache;
