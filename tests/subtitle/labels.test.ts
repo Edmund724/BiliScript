@@ -8,9 +8,12 @@
 // 来源）整条下线：normalizeSubtitleLanguageLabel / isAiSubtitle / isAsrSubtitle /
 // buildSubtitleSourceLabel / buildSubtitleOptionViews 与其测试一并退场，此处只留
 // ASR 链真实消费的 buildAsrSubtitleLabel。
+//
+// 本用例随落点迁自 tests/subtitle/selection-labels.test.ts（架构评审「轨道身份」：
+// 显示文案归位 subtitle/labels.ts），用例语义不变。
 
 import { describe, expect, it } from "vitest";
-import { buildAsrSubtitleLabel } from "../../extension/subtitle/selection.js";
+import { buildAsrSubtitleLabel } from "../../extension/subtitle/labels.js";
 
 describe("buildAsrSubtitleLabel：本扩展转写的来源串", () => {
   it("语言档位 zh/en 附中文/英文", () => {

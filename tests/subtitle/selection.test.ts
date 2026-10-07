@@ -4,19 +4,19 @@
 //   居住在 chapters.js 叶子）；
 // - sortSubtitleBodyByFrom 写入端稳定排序（findActiveSubtitleIndex 二分依赖的
 //   「subtitleBody 按 from 升序」不变量的来源）；
-// - mapSubtitleTracks / normalizeSubtitleTracks / pickPreferredSubtitle 的身份与
-//   排序口径（wayfinder 06）：轨道 id 取接口的 id_str（19 位 JSON 数字 > 2^53，
-//   JSON.parse 已丢尾数），排序键只比优先级、同优先级保持输入顺序（Q8′）。
+// - normalizeSubtitleTracks / pickPreferredSubtitle 的排序与身份复用口径
+//   （wayfinder 06）：排序键只比优先级、同优先级保持输入顺序（Q8′）。
+// 映射的轨道身份口径（id_str 优先）随落点迁往 tests/bilibili/native-payload.test.ts
+//（架构评审「轨道身份」：原生产物映射归位 bilibili/native-payload.ts）。
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { normalizeChapters } from "../../extension/subtitle/chapters.js";
-import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
+import { mapSubtitleTracks } from "../../extension/bilibili/native-payload.js";
 import {
   findSecondaryTrackByPreferredLang,
   findTrackByPreferredLang,
   isMainSubtitleTrack,
-  mapSubtitleTracks,
   normalizeSubtitleTracks,
   pickPreferredSubtitle,
   sortSubtitleBodyByFrom
@@ -124,29 +124,7 @@ const AI_TRACKS_RAW = [
 // 接口原顺序（= 播放器菜单顺序）：中文（原语言 ASR）→ English → 其余按接口给出顺序。
 const AI_TRACK_LAN_INTERFACE_ORDER = ["ai-zh", "ai-en", "ai-ja", "ai-es", "ai-ar", "ai-pt", "ai-th", "ai-id"];
 
-describe("mapSubtitleTracks / normalizeSubtitleTracks / pickPreferredSubtitle：身份与排序口径（wayfinder 06）", () => {
-  it("轨道身份取 id_str：不取 JSON.parse 丢过尾数的 id", () => {
-    const [zh] = mapSubtitleTracks([AI_TRACKS_RAW[0]]);
-
-    expect(zh.id).toBe("2120476497172283392");
-    // 精确身份进缓存键分量（getSubtitleCacheKey 的 subtitleId 与写入端同取 id_str）
-    expect(getSubtitleCacheKey({ bvid: "BV1mAam6tEL8", cid: "42393338874", subtitleId: zh.id })).toContain(
-      "id_2120476497172283392"
-    );
-  });
-
-  it("无 id_str（缺失 / null / 空串）回落 id；id 与 id_str 都缺为空串", () => {
-    const tracks = mapSubtitleTracks([
-      { id: "9", lan: "zh-CN", lan_doc: "中文", subtitle_url: "//i0.hdslb.com/bfs/a.json" },
-      { id: 7, id_str: null, lan: "zh-CN", lan_doc: "中文", subtitle_url: "//i0.hdslb.com/bfs/b.json" },
-      { id: 8, id_str: "", lan: "zh-CN", lan_doc: "中文", subtitle_url: "//i0.hdslb.com/bfs/c.json" },
-      { id_str: "5", lan: "zh-CN", lan_doc: "中文", subtitle_url: "//i0.hdslb.com/bfs/d.json" },
-      { lan: "zh-CN", lan_doc: "中文", subtitle_url: "//i0.hdslb.com/bfs/e.json" }
-    ]);
-
-    expect(tracks.map((item) => item.id)).toEqual(["9", "7", "8", "5", ""]);
-  });
-
+describe("normalizeSubtitleTracks / pickPreferredSubtitle：排序与身份复用口径（wayfinder 06）", () => {
   it("previousId 比对认 id_str：精确 id 命中非首轨，丢精度的旧值不模糊匹配", () => {
     const tracks = mapSubtitleTracks(AI_TRACKS_RAW);
     const ja = tracks.find((item) => item.lan === "ai-ja")!;

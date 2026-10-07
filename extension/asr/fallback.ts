@@ -7,14 +7,15 @@
 //   - 直 import（传递 import 闭包不触及 subtitle/fetcher.js）：shared/
 //     error-helpers、shared/logging、shared/utils、core/state、
 //     core/asr-failure-notice（叶子纯模块：kind → reason 映射 + 病因/补救/详情
-//     文案的唯一真源）、subtitle/cache、subtitle/selection；
+//     文案的唯一真源）、subtitle/cache、subtitle/duration-validation（时长校验叶）、
+//     subtitle/labels（显示文案叶）；
 //   - 注入 deps（传递闭包含 runtime.js→fetcher 或随 UI/上下文成环）：
 //     getSettings、loadProviders（provider 列表，asrProviders 已摘出 settings，
 //     fetcher 经 asr-providers-list 消息直读 provider-store）、setStatus、
 //     setMessage、acceptSubtitle / commitNoSubtitle（字幕接受事务的唯一入口，
 //     subtitle/commit.js，沿用依赖注入 seam——本模块对 subtitle 的直 import
-//     只保留 cache/selection 纯叶子，事务层闭包含 core→gateway/messaging，
-//     仍不走静态边）、runAsrPipeline（pipeline 闭包经
+//     只保留 cache / duration-validation / labels 三枚轻叶子，事务层闭包含
+//     core→gateway/messaging，仍不走静态边）、runAsrPipeline（pipeline 闭包经
 //     offscreen-bridge.page →shared/messaging→fetcher）、
 //     broadcastSubtitleStatus（fetcher 内部函数）。
 // 模块不 import extension/entry/ 与 extension/pages/ 的任何内容。
@@ -31,7 +32,8 @@ import {
   saveSubtitleToCache,
   clearStaleAsrSubtitleCache
 } from "../subtitle/cache.js";
-import { validateSubtitleByDuration, buildAsrSubtitleLabel } from "../subtitle/selection.js";
+import { validateSubtitleByDuration } from "../subtitle/duration-validation.js";
+import { buildAsrSubtitleLabel } from "../subtitle/labels.js";
 import { sleep } from "../shared/utils.js";
 
 // 整轮转写失败自动重试：至多一次全量重跑、固定退避、仅快速失败才触发（见

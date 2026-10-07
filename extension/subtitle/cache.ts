@@ -1,5 +1,9 @@
 import { logWarn, logError } from "../shared/logging.js";
 import { parseBvidFromCacheKey, readFamilyKeys, writeWithEviction, type EvictionResult, type EvictionFailure } from "../core/cache-lru.js";
+// subtitleUrl → 缓存键分量：原住本模块的第二套 URL 归一，已随原生产物映射归位
+// bilibili/native-payload.ts（架构评审「轨道身份」）。同一字段的两套归一此后只住一处，
+// 本模块 import 复用，不再另存一份。
+import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
 // 类型专用导入（编译期擦除，无运行时 ai 边）：字幕条目形状归 ai/types 声明。
 import type { SubtitleBodyItem } from "../ai/types.js";
@@ -22,21 +26,6 @@ export type SaveSubtitleResult = EvictionResult | EvictionFailure;
 export function getSubtitleCacheKey({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: SubtitleCacheKeyOptions): string {
   const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
   return `${CACHE_KEY_PREFIX}${bvid}_${cid}_${sourceKey}`;
-}
-
-export function normalizeSubtitleUrlForCache(url: unknown): string {
-  const text = String(url || "").trim();
-  if (!text) {
-    return "";
-  }
-
-  try {
-    const parsed = new URL(text);
-    const path = parsed.pathname.replace(/[^\w/.-]+/g, "_");
-    return `${parsed.hostname}${path}`;
-  } catch {
-    return text.replace(/[^\w/.-]+/g, "_");
-  }
 }
 
 export async function loadSubtitleFromCache(cacheKey: string): Promise<unknown[] | null> {

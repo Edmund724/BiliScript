@@ -37,7 +37,7 @@
 // 键的身份、取体的边界、落缓存的顺序与出口四处都不重合——这是语义差异，
 // 不是抄写差异，故保持独立。
 //
-// 依赖方向：subtitle 域内的叶子（cache / selection / core.state / core.ui-status
+// 依赖方向：subtitle 域内的叶子（cache / duration-validation / core.state / core.ui-status
 // / shared.logging / shared.error-helpers / bilibili.gateway）。本模块不 import
 // fetcher / ui / commit，静态图无环。
 
@@ -46,8 +46,8 @@ import { setMessage } from "../core/ui-status.js";
 import { logInfo, logWarn } from "../shared/logging.js";
 import { ensureRunActive } from "../shared/error-helpers.js";
 import { fetchSubtitleBody } from "../bilibili/gateway.js";
-import { validateSubtitleByDuration } from "./selection.js";
-import type { DurationValidationResult } from "./selection.js";
+import { validateSubtitleByDuration } from "./duration-validation.js";
+import type { DurationValidationResult } from "./duration-validation.js";
 import {
   clearSubtitleCacheByKey,
   getSubtitleCacheKey,

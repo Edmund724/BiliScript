@@ -17,10 +17,13 @@ import {
   type SubReplyInput,
   type SubtitleInfoRequest
 } from "./bili-api-shared.js";
+// 原生产物映射（原生 subtitle.subtitles / view_points → SubtitleTrack / Chapter）随
+// 两个类型的声明归位本层（架构评审「轨道身份：selection.ts 按概念拆位」）：gateway
+// 不再为拿映射而反向 import subtitle/selection，映射叶见 ./native-payload.ts。
 import {
   mapChaptersFromPlayerData,
   mapSubtitleTracks
-} from "../subtitle/selection.js";
+} from "./native-payload.js";
 
 declare global {
   interface Window {
@@ -33,6 +36,8 @@ declare global {
 // state/video-probe/selection→cache→cache-lru 链。此处 re-export 保持既有
 // import 面兼容；本模块只剩页面侧编排（getCurrentAid / readRuntimeVideoDuration /
 // fetchVideoMeta / fetchSubtitleBundle / fetchHotComments / fetchSubtitleBody）。
+// 轨道身份批后本模块对 subtitle/ 已无静态 import：映射改由本层的 native-payload.ts
+// 提供（它只额外触达 subtitle/chapters 的归一叶）。
 export { bgFetchJson, isBiliUrl } from "./gateway-core.js";
 export type { JsonTransport } from "./gateway-core.js";
 

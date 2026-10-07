@@ -68,7 +68,7 @@ import {
   resolveSubtitleLangLabel,
   resolveSubtitleTrackLabel,
   shouldMarkAiSubtitleTracks
-} from "../subtitle/selection.js";
+} from "../subtitle/labels.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
 import type { Settings } from "../core/defaults.js";
 import { isProgrammaticScrolling, ids } from "./state.js";
