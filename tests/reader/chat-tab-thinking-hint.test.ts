@@ -215,7 +215,7 @@ beforeEach(async () => {
   statusBus.publishSubtitleStatusPhase("idle");
 });
 
-// 装载组合根并走完 init（loadProvidersAndPrefs 之后的 updateThinkingHint 首判
+// 装载组合根并走完 init（loadProvidersAndPrefs 之后的 refreshThinkingUi 首判
 // 在此落定），之后所有显隐变化都由 DOM 事件驱动。
 async function activateChatTab() {
   const chat = await lazyChat.ensureReaderChatTab();
