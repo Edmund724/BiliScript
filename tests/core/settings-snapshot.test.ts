@@ -4,9 +4,10 @@
 //   2. 写后读失效：invalidate(存储键) 后重读拿新值（写路径 inline 失效语义）；
 //   3. onChanged 兜底：跨上下文/跨设备 sync 变更经真实 chrome.storage.onChanged
 //      监听按键域失效（未订阅键不失效）；
-//   4. 写侧收口：唯一写入口 invalidatingWrite（落盘 await 完成 → 立即失效）+
-//      键 → 域唯一真源 SNAPSHOT_STORAGE_KEYS（invalidate 判据与订阅面共用一张表，
-//      逐键逐区表驱动）。
+//   4. 写侧收口：两个落盘入口——invalidatingWrite（包住调用方给的落盘动作）与
+//      writeSnapshotKeys（裸 storage 写：调用方只交「哪些键的新值」，区由键面表反查）
+//      + 键 → 域 / 键 → 区唯一真源 SNAPSHOT_STORAGE_KEYS（invalidate 判据、onChanged
+//      订阅面与落区判据共用一张表，逐键逐区表驱动）。
 // chrome stub 手法与 tests/entry/background-resolve-search-provider.test.ts 同款：
 // 每用例重装 stub + 动态 import（vi.resetModules 换干净模块态）。
 
@@ -605,19 +606,97 @@ describe("写入口：落盘 + 失效一次做完（invalidatingWrite）", () =>
     expect(after.keys).toEqual({ openai: "sk-new" });
   });
 
-  it("派生键面形态（background 裸 storage 写点同款）：写什么键失效什么域", async () => {
+  it("派生键面形态（save-settings 的 payload 键集同款）：写什么键失效什么域", async () => {
     vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
     await snapshot.getSettings();
 
-    const writeStorageChanges = snapshot.invalidatingWrite(
-      (area: "sync" | "local", changes: Record<string, unknown>) =>
-        area === "sync" ? chrome.storage.sync.set(changes) : chrome.storage.local.set(changes),
-      (_area: "sync" | "local", changes: Record<string, unknown>) => Object.keys(changes)
+    const saveSettingsWithInvalidate = snapshot.invalidatingWrite(
+      async (payload: Record<string, unknown>) => {
+        await chrome.storage.sync.set(payload);
+      },
+      (payload: Record<string, unknown>) => Object.keys(payload)
     );
-    await writeStorageChanges("sync", { defaultModel: "anthropic" });
+    await saveSettingsWithInvalidate({ defaultModel: "anthropic" });
 
     expect(await snapshot.getSettings()).toMatchObject({ defaultModel: "anthropic" });
+  });
+});
+
+// ===== 裸落盘入口：区由本模块的键面表决定（候选 7）=====
+// 失败方式 → 用例对照：
+//   ① 写点自己报区、报错区 → 事件被 onChanged 的区过滤静默丢弃：区不再是入参，
+//      逐键落区用例钉住「键的 area 声明决定它落在哪个区」（表里改区即红）；
+//   ② 裸写漏失效 → 脏读：写后读用例（三个域各一次）；
+//   ③ 未知键没有可推导的区 → 抛错且零落盘（不猜一个区落在半路）。
+describe("裸落盘入口：writeSnapshotKeys（区由键面表决定，写后立即失效）", () => {
+  it("逐键落区：sync 键进 sync 区、local 键进 local 区，调用方不报区", async () => {
+    vi.stubGlobal("chrome", makeStub());
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+
+    await snapshot.writeSnapshotKeys({
+      defaultModel: "anthropic",
+      [AI_PROVIDERS_STORAGE]: [AI_PROVIDER],
+      [AI_PROVIDER_KEYS_STORAGE]: { openai: "sk-new" },
+      [SEARCH_HEALTH_KEY]: {}
+    });
+
+    // 一次调用按键面分区：两区各一次 set，载荷里只有本区的键
+    expect(vi.mocked(chrome.storage.sync.set)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(chrome.storage.sync.set)).toHaveBeenCalledWith({
+      defaultModel: "anthropic",
+      [AI_PROVIDERS_STORAGE]: [AI_PROVIDER]
+    });
+    expect(vi.mocked(chrome.storage.local.set)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(chrome.storage.local.set)).toHaveBeenCalledWith({
+      [AI_PROVIDER_KEYS_STORAGE]: { openai: "sk-new" },
+      [SEARCH_HEALTH_KEY]: {}
+    });
+  });
+
+  it("落盘后立即失效：写后读拿到新值（settings / ai 族各一次）", async () => {
+    vi.stubGlobal("chrome", makeStub({
+      syncFixture: { defaultModel: "openai", [AI_PROVIDERS_STORAGE]: [AI_PROVIDER] },
+      localFixture: { [AI_PROVIDER_KEYS_STORAGE]: { openai: "sk-old" } }
+    }));
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+
+    // 预热两个域的读缓存（桩的 onChanged 不派发：失效只能来自写入口的 inline 调用）
+    await snapshot.getSettings();
+    await snapshot.getProviderStore("ai");
+
+    await snapshot.writeSnapshotKeys({
+      defaultModel: "anthropic",
+      [AI_PROVIDER_KEYS_STORAGE]: { openai: "sk-new" }
+    });
+
+    expect((await snapshot.getSettings()).defaultModel).toBe("anthropic");
+    expect((await snapshot.getProviderStore("ai")).keys).toEqual({ openai: "sk-new" });
+  });
+
+  it("未知键抛错且零落盘（区不可推导，不猜一个区落在半路）", async () => {
+    vi.stubGlobal("chrome", makeStub());
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+
+    await expect(
+      snapshot.writeSnapshotKeys({ defaultModel: "anthropic", someUnknownKey: 1 })
+    ).rejects.toThrow(/未知的设置快照键/);
+
+    expect(vi.mocked(chrome.storage.sync.set)).not.toHaveBeenCalled();
+    expect(vi.mocked(chrome.storage.local.set)).not.toHaveBeenCalled();
+  });
+
+  it("落盘失败：原样 reject 且不失效（没落地就没有要作废的读缓存）", async () => {
+    vi.stubGlobal("chrome", makeStub({ syncFixture: { defaultModel: "openai" } }));
+    const snapshot = await import("../../extension/core/settings-snapshot.js");
+    await snapshot.getSettings();
+
+    vi.mocked(chrome.storage.sync.set).mockRejectedValueOnce(new Error("QUOTA_BYTES quota exceeded"));
+    await expect(snapshot.writeSnapshotKeys({ defaultModel: "anthropic" })).rejects.toThrow("QUOTA_BYTES");
+
+    vi.mocked(chrome.storage.sync.get).mockClear();
+    expect((await snapshot.getSettings()).defaultModel).toBe("openai");
+    expect(vi.mocked(chrome.storage.sync.get)).not.toHaveBeenCalled();
   });
 });
 

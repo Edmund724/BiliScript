@@ -15,14 +15,16 @@ import { normalizeSettings, saveSettings } from "../core/settings-store.js";
 // 读命中时热路径 storage 读为 0；失效双通道 = 写 handler 落盘后 inline
 // invalidate + 快照内 onChanged 订阅兜底跨设备 sync 变更（onChanged 不在写入
 // 方上下文触发，inline 失效是写后读的唯一保证）。写侧收口：本文件不再手写
-// invalidate 调用——每个落盘点都走唯一写入口 invalidatingWrite（落盘 + 失效
-// 一次做完），键 → 缓存域的映射与失效时机归 core/settings-snapshot。
+// invalidate 调用，也不再直调 chrome.storage.*.set——包住 store 落盘动作的写点
+// 走 invalidatingWrite，裸 storage 写点走 writeSnapshotKeys（键 → 缓存域与键 →
+// 存储区的映射、失效时机都归 core/settings-snapshot）。
 import {
   getSettings as getSettingsSnapshot,
   getProviderStore as getProviderStoreSnapshot,
   getSearchProviderOrder,
   getSearchHealth,
   invalidatingWrite,
+  writeSnapshotKeys,
   PROVIDER_FAMILY_STORAGE_KEYS
 } from "../core/settings-snapshot.js";
 // 安装/更新一次性设置迁移（2026-09 AI 键默认开：存量显式 false 清位；免 Key 搜索
@@ -99,14 +101,16 @@ import {
 } from "../shared/messaging-protocol.js";
 
 // ===== 写入口（落盘 + 失效一次做完）=====
-// 设置/平台存储的每个落盘点都经这里收口：写点只声明「写哪一族 / 写哪些键」，
-// 键 → 缓存域的映射与失效时机归 core/settings-snapshot。此前「谁在什么时候调
-// invalidate」「本次写入影响哪个域」全在写点脑子里，漏调或键名写错只表现为脏读；
-// 现在写点不再持有 invalidate 调用，直落形态的失效键面还从落盘对象派生。
+// 设置/平台存储的每个落盘点都经 core/settings-snapshot 收口：写点只声明「包住哪个
+// 落盘动作 / 写哪些键的新值」，键 → 缓存域的映射、键 → 存储区的映射与失效时机都归
+// 那个模块。此前「谁在什么时候调 invalidate」「本次写入影响哪个域」「这次写哪个区」
+// 全在写点脑子里，漏调、键名写错或区写错只表现为脏读/脏快照；现在写点不持有
+// invalidate 调用，也不再给区（本文件因此零 chrome.storage.*.set 直调）。
 // load-modify-write 本体仍直读存储，不经快照（spec Q3 写路径纪律）。
 
 // 设置保存：失效键面从 payload 键集派生（saveSettings 内部按白名单落盘，
-// payload 里的白名单外键在映射表里自然落空）。
+// payload 里的白名单外键在映射表里自然落空）。落盘语义（白名单、归一化）仍归
+// settings-store 单源，本处只把「落盘 + 失效」绑成一次调用。
 const saveSettingsWithInvalidate = invalidatingWrite(
   saveSettings,
   (payload) => Object.keys((payload || {}) as object)
@@ -116,13 +120,8 @@ const saveSettingsWithInvalidate = invalidatingWrite(
 const recordSearchAttemptWithInvalidate = invalidatingWrite(recordSearchAttempt, [SEARCH_HEALTH_KEY]);
 
 // 裸 storage 写点（安装/更新迁移、自动激活的链首与 flag、删除记录时的顺序剔除）
-// 共用：区由写点给出（它本来就是一次裸 storage 写入），失效键面从落盘对象派生——
-// 写点不再手抄 storage 键名。
-const writeStorageChanges = invalidatingWrite(
-  (area: "sync" | "local", changes: Record<string, unknown>) =>
-    area === "sync" ? chrome.storage.sync.set(changes) : chrome.storage.local.set(changes),
-  (_area, changes) => Object.keys(changes)
-);
+// 不经本文件：它们只交「哪些键的新值」，区由 core/settings-snapshot 的键面表反查
+// （writeSnapshotKeys），失效键面与时机也在那里——写点既不用抄键名也不用报区。
 
 // ===== 消息路由表 =====
 
@@ -513,13 +512,13 @@ const asrProviderHandlers = createProviderMessageHandlers<AsrProviderListEntry>(
 // 静默（logWarn 同既有形态），不影响删除回包。
 // 另把该 id 从 searchProviderOrder 剔除（spec §12.2 末条 / §12.5 第 11 行）：不改的话
 // 「删掉一个平台」会让顺序数组含未知 id → 整份自定义顺序被「脏值整体作废」丢掉。
-// 仅在数组确实含该 id 时写回 + inline 失效（写回走写入口，失效键面由落盘对象派生）；
-// 键缺席 / 脏值 / 写失败都静默跳过（顺序是偏好不是数据）。
+// 仅在数组确实含该 id 时写回 + inline 失效（写回走 writeSnapshotKeys，落 sync 区与
+// 失效键面都由快照表决定）；键缺席 / 脏值 / 写失败都静默跳过（顺序是偏好不是数据）。
 async function pruneSearchProviderOrder(providerId: string): Promise<void> {
   const stored = await chrome.storage.sync.get([SEARCH_PROVIDER_ORDER_STORAGE]);
   const raw = stored?.[SEARCH_PROVIDER_ORDER_STORAGE];
   if (!Array.isArray(raw) || !raw.includes(providerId)) return;
-  await writeStorageChanges("sync", {
+  await writeSnapshotKeys({
     [SEARCH_PROVIDER_ORDER_STORAGE]: raw.filter((id) => id !== providerId)
   });
 }
@@ -825,11 +824,12 @@ async function initializeSettingsStorage() {
   applyPlayerAiQuickActionDefaultOnMigration(syncCurrent);
   // 安装/更新迁移：合并结果先经 normalizeSettings 收口再落盘，存量 LEGACY
   // 默认提示词等旧值在此一次性改写为当前值，而不是每次读取时重复映射。
-  await writeStorageChanges("sync", normalizeSettings({ ...DEFAULT_SETTINGS, ...syncCurrent }));
-  // 迁移是裸 storage 写（不经 save-settings），同样走写入口：落盘后 inline 失效
-  // settings 快照——SW 存活期内的 onInstalled（扩展 reload/update）可能带着热缓存跑。
-  // 派生的失效键面 = 落盘对象键面 = DEFAULT_SETTINGS 键面（syncCurrent 取自按
-  // DEFAULT_SETTINGS 的读，只含键面内键），与迁移前手写的显式键面等价。
+  await writeSnapshotKeys(normalizeSettings({ ...DEFAULT_SETTINGS, ...syncCurrent }));
+  // 迁移是裸 storage 写（不经 save-settings），同样走写入口：区由快照键面表反查
+  // （settings 键面全在 sync），落盘后 inline 失效 settings 快照——SW 存活期内的
+  // onInstalled（扩展 reload/update）可能带着热缓存跑。失效键面 = 落盘对象键面 =
+  // DEFAULT_SETTINGS 键面（syncCurrent 取自按 DEFAULT_SETTINGS 的读，只含键面内键），
+  // 与迁移前手写的显式键面等价。
 }
 
 // 免 Key 搜索预设自动激活（spec §1 S2 / §2 展开，落点 §3 第 12 行）：决策走纯函数
@@ -846,11 +846,11 @@ async function autoActivateSearchPresets(): Promise<void> {
     await saveSearchProvidersWithInvalidate([...providers, ...plan.providersToAdd]);
   }
   if (plan.activeSearchProviderId !== undefined) {
-    // 链首与 flag 都是裸 sync 写：走写入口（失效键面由落盘对象派生，写后读语义
-    // 靠它保证——onChanged 不在写入方触发）。
-    await writeStorageChanges("sync", { activeSearchProviderId: plan.activeSearchProviderId });
+    // 链首与 flag 都是裸 sync 写：走 writeSnapshotKeys（区与失效键面都由快照表决定，
+    // 写后读语义靠它保证——onChanged 不在写入方触发）。
+    await writeSnapshotKeys({ activeSearchProviderId: plan.activeSearchProviderId });
   }
   if (plan.shouldWriteFlag) {
-    await writeStorageChanges("sync", { searchPresetsAutoActivated: true });
+    await writeSnapshotKeys({ searchPresetsAutoActivated: true });
   }
 }

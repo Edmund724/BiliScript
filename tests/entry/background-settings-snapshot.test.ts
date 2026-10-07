@@ -7,11 +7,12 @@
 //      （写 handler inline 失效接通，onChanged 桩不触发也成立）；
 //   3. 响应负载与收编前一致（协议形状零变化）；
 //   4. 写入口收口：每个写点（含 onInstalled 迁移与自动激活的裸 storage 写）落盘后
-//      对应域快照失效，且 background 源码里不再有绕过写入口的落盘 / invalidate。
+//      对应域快照失效；裸写点的存储区由 core/settings-snapshot 的键面表反查
+//      （架构评审候选 7）——此前这两条靠读 background.ts 源码正则兜底，现在改为在
+//      假 storage 上断言「哪些键落哪个区 + 写后读拿新值」，仍走同一条入口 seam。
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { resetModuleState } from "../setup.js";
+import { SMART_SEARCH_ACTIVE_ID } from "../../extension/core/search-mode.js";
 
 const AI_PROVIDER = {
   id: "openai",
@@ -125,6 +126,22 @@ function storageGetCalls() {
     vi.mocked(chrome.storage.sync.get).mock.calls.length +
     vi.mocked(chrome.storage.local.get).mock.calls.length
   );
+}
+
+// 假 storage 的落盘观测面（候选 7 的落区判据——写点不再报区，断言点因此从源码正则
+// 挪到真实落盘载荷上）。一次背景路径可能对同一区落盘多次（onInstalled 的迁移写与
+// 自动激活写同钩子），故按「含该键的载荷集合」取，不用 find 抢第一条。
+function setPayloads(area: "sync" | "local"): Array<Record<string, unknown>> {
+  const set = vi.mocked(chrome.storage[area].set);
+  return set.mock.calls.map((call) => call[0]);
+}
+
+function setPayloadsFor(area: "sync" | "local", key: string): Array<Record<string, unknown>> {
+  return setPayloads(area).filter((payload) => Object.prototype.hasOwnProperty.call(payload, key));
+}
+
+function writtenKeys(area: "sync" | "local"): string[] {
+  return setPayloads(area).flatMap((payload) => Object.keys(payload));
 }
 
 beforeEach(() => {
@@ -462,26 +479,91 @@ describe("写入口收口：写点落盘后对应域快照失效（桩不触发 
   });
 });
 
-// ===== 写点绕过写入口的源码防线 =====
-// 行为用例盖不住「写点绕过写入口」的全部形态（onInstalled 三个裸 storage 写点共用
-// 同一份落盘函数、且都在同一钩子里失效同一域，孤例不可分辨），故补两条静态判据：
-// invalidate 不再被 background 直接调用、裸 storage.set 只允许出现在写入口的落盘函数里。
-describe("写点绕过写入口的源码防线（background.ts）", () => {
-  const readBackgroundSource = () => readFileSync(join(process.cwd(), "extension/entry/background.ts"), "utf8");
+// ===== 裸落盘写点的区判据（行为用例；跨 background 入口同一条 seam）=====
+// 「区写错 = onChanged 按区过滤静默丢弃 = 脏快照」此前靠读 background.ts 源码正则
+// 兜底（断言 chrome.storage.set 只出现在写入口的落盘函数里）。落盘收进
+// core/settings-snapshot 后区由键面表反查、不是写点的入参，源码正则失去对象；改为在
+// 假 storage 上断言「哪些键落了哪个区」+「写后读拿新值」：快照表里某键的 area 声明
+// 改成另一区，下面的落区断言即红；写点绕过 writeSnapshotKeys 直调 storage.set，
+// sync/local 的落点断言也即红。
+describe("裸落盘写点：区由快照键面表决定（落区 + 写后读）", () => {
+  const EXA = {
+    ...SEARCH_PROVIDER,
+    id: "exa",
+    presetId: "exa",
+    name: "Exa",
+    type: "exa",
+    baseUrl: "https://api.exa.ai"
+  };
 
-  it("background 不再直接调 invalidate，落盘点统一引用写入口", () => {
-    const source = readBackgroundSource();
-    expect(source).not.toContain("invalidateSettingsSnapshot");
-    expect(source).toContain("invalidatingWrite(");
+  it("search-providers-delete 的顺序剔除：searchProviderOrder 只落 sync 区，且写后读拿到剔除后的顺序", async () => {
+    stubStorage({
+      syncFixture: {
+        activeSearchProviderId: "",
+        webSearchMaxToolCalls: 3,
+        searchProviders: [SEARCH_PROVIDER, EXA],
+        // 剔除前的自定义顺序：tavily 在前
+        searchProviderOrder: ["tavily", "exa"]
+      },
+      localFixture: { searchProviderKeys: { tavily: "tvly-key", exa: "exa-key" } }
+    });
+    const listener = await importBackground();
+
+    const before = await callHandler(listener, { type: "resolve-search-provider" });
+    expect(before.chain.map((entry: { provider: { id: string } }) => entry.provider.id)).toEqual(["tavily", "exa"]);
+
+    await callHandler(listener, { type: "search-providers-delete", providerId: "tavily" });
+
+    // 落区：顺序键进 sync 区，且不出现在任何 local 区载荷里（写错区在此即红）
+    expect(setPayloadsFor("sync", "searchProviderOrder")).toEqual([{ searchProviderOrder: ["exa"] }]);
+    expect(writtenKeys("local")).not.toContain("searchProviderOrder");
+
+    // 写后读：顺序快照若没被这次剔除失效，tavily 重新入册后仍会排在 exa 前（脏顺序）
+    await callHandler(listener, {
+      type: "search-providers-save",
+      providers: [EXA, { ...SEARCH_PROVIDER, apiKey: "tvly-key" }]
+    });
+    const after = await callHandler(listener, { type: "resolve-search-provider" });
+    expect(after.chain.map((entry: { provider: { id: string } }) => entry.provider.id)).toEqual(["exa", "tavily"]);
   });
 
-  it("background 的 chrome.storage.set 只出现在写入口的落盘函数内", () => {
-    const source = readBackgroundSource();
-    const entryStart = source.indexOf("const writeStorageChanges = invalidatingWrite(");
-    expect(entryStart, "找不到写入口的落盘函数定义").toBeGreaterThan(-1);
-    const entryEnd = source.indexOf(");", entryStart);
-    const outside = source.slice(0, entryStart) + source.slice(entryEnd + 2);
+  it("onInstalled 迁移写点：settings 键全落 sync 区（迁移路径不碰 local）", async () => {
+    stubStorage({
+      syncFixture: { enablePlayerAiQuickAction: false, searchPresetsAutoActivated: true }
+    });
+    const listener = await importBackground();
 
-    expect(outside).not.toMatch(/chrome\.storage\.(sync|local)\.set\(/);
+    const onInstalled = vi.mocked(chrome.runtime.onInstalled.addListener).mock.calls[0][0] as unknown as () => Promise<void>;
+    await onInstalled();
+
+    // 全量迁移写：落盘键面 = DEFAULT_SETTINGS 键面（区 = sync），local 区零写入
+    expect(writtenKeys("sync")).toContain("enablePlayerAiQuickAction");
+    expect(writtenKeys("sync")).toContain("aiBtnDefaultOnMigrated");
+    expect(writtenKeys("local")).toEqual([]);
+
+    const after = await callHandler(listener, { type: "get-settings" });
+    expect(after.settings.enablePlayerAiQuickAction).toBe(true);
+  });
+
+  it("onInstalled 自动激活写点：链首与 flag 只落 sync 区，写后读拿到两个新值", async () => {
+    stubStorage({ syncFixture: { activeSearchProviderId: "" } });
+    const listener = await importBackground();
+
+    const onInstalled = vi.mocked(chrome.runtime.onInstalled.addListener).mock.calls[0][0] as unknown as () => Promise<void>;
+    await onInstalled();
+
+    // 两条裸写各自单独一次 set（链首 → flag），都落 sync；local 区只剩族 store 的 Key 落盘
+    expect(setPayloadsFor("sync", "activeSearchProviderId")).toContainEqual({
+      activeSearchProviderId: SMART_SEARCH_ACTIVE_ID
+    });
+    expect(setPayloadsFor("sync", "searchPresetsAutoActivated")).toContainEqual({
+      searchPresetsAutoActivated: true
+    });
+    expect(writtenKeys("local")).not.toContain("activeSearchProviderId");
+    expect(writtenKeys("local")).not.toContain("searchPresetsAutoActivated");
+
+    const after = await callHandler(listener, { type: "get-settings" });
+    expect(after.settings.activeSearchProviderId).toBe(SMART_SEARCH_ACTIVE_ID);
+    expect(after.settings.searchPresetsAutoActivated).toBe(true);
   });
 });

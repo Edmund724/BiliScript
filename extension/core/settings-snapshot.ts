@@ -25,15 +25,22 @@
 //     chrome.storage.onChanged，覆盖其它扩展上下文与跨设备 sync 变更，
 //     按键域（storage 键 → settings / 某 family 快照）失效。
 //
-// 写侧收口：键 → 缓存域的唯一真源是 SNAPSHOT_STORAGE_KEYS（下表）——invalidate 的
-// 判据与 onChanged 订阅面都从它派生，加一个缓存键只动这一张表；写点统一经唯一
-// 写入口 invalidatingWrite（落盘 + 失效一次做完），不再各自手写 invalidate 调用、
-// 也不用知道本次写入影响哪个域。
+// 写侧收口：键 → 缓存域 / 存储区的唯一真源是 SNAPSHOT_STORAGE_KEYS（下表）——
+// invalidate 的判据与 onChanged 订阅面都从它派生，加一个缓存键只动这一张表；
+// 落盘两个入口都在本模块：
+//   - invalidatingWrite：包住调用方给的落盘动作（saveSettings / 族 store CRUD /
+//     记账叶），落盘 + 按键面失效一次做完，写点不再手写 invalidate 调用、也不用
+//     知道本次写入影响哪个域；
+//   - writeSnapshotKeys（架构评审候选 7）：裸 storage 写（安装/更新迁移、自动激活
+//     的链首与 flag、删除记录时的顺序剔除），调用方只交「哪些键的新值」，区由同一
+//     张表反查——区不再是写点的入参，「写错区 = onChanged 按区过滤静默丢弃」在这条
+//     seam 上不可表达。
 //
 // 写路径纪律：快照只服务读路径。provider-store 的 load-modify-write 与
 // saveSettings 继续直读/直写存储，不经快照；加 write-through 必须先解决
-// 并发写交错丢 Key（spec Q3）。invalidate 与写入口都不写快照缓存、也不写
-// storage——写入口只组合调用方给的落盘动作，落盘语义仍归各族存储单源。
+// 并发写交错丢 Key（spec Q3）。两个写入口都不写快照缓存（条目仍只由读路径建立），
+// 落盘语义也不搬到本模块：invalidatingWrite 只组合调用方给的落盘动作，
+// writeSnapshotKeys 只按键面分区裸写。
 //
 // 守叶子纪律：本模块拖入的 store/归一化模块本就在 SW 静态图里
 // （background 直 import 三 store 与 settings-store），不新增静态边。
@@ -134,6 +141,12 @@ export const SNAPSHOT_STORAGE_KEYS: readonly SnapshotStorageKey[] = Object.freez
 
 const SNAPSHOT_DOMAIN_BY_KEY: ReadonlyMap<string, SnapshotDomain> = new Map(
   SNAPSHOT_STORAGE_KEYS.map(({ key, domain }) => [key, domain] as const)
+);
+
+// 键 → 存储区的反查面（writeSnapshotKeys 的落区判据）：同表派生，区声明写错一处
+// 即两处一起错不了——写点不再自己报区。
+const SNAPSHOT_AREA_BY_KEY: ReadonlyMap<string, "sync" | "local"> = new Map(
+  SNAPSHOT_STORAGE_KEYS.map(({ key, area }) => [key, area] as const)
 );
 
 interface FamilyStoreReader {
@@ -259,6 +272,39 @@ export function invalidatingWrite<TArgs extends unknown[], TResult>(
     invalidate(typeof storageKeys === "function" ? storageKeys(...args) : storageKeys);
     return result;
   };
+}
+
+// ===== 裸落盘入口：区由本模块的键面表决定（调用方不再报区）=====
+// 安装/更新迁移、自动激活的链首与 flag、删除记录时的顺序剔除都是一次裸 storage 写：
+// 调用方只交「哪些键的新值」，落哪个区由 SNAPSHOT_AREA_BY_KEY 反查——此前四个写点
+// 各自硬写 "sync"，区写错只表现为 onChanged 按区过滤静默丢弃的脏快照；区现在不是
+// 写点的入参，写错不可表达。settings 的白名单过滤仍归 settings-store（save-settings
+// 走 invalidatingWrite 与它组合），本入口不做业务归一。
+// 逐区落盘 + 逐区失效：某区落盘 await 完成后立即按该区键面失效（onChanged 不在写入
+// 方上下文触发，inline 失效是写后读语义的唯一保证）；某区落盘失败时只有该区不失效
+// （没落地就没有要作废的读缓存，已落盘的区照常失效），错误原样抛出不吞。
+// 未知键抛错：键面外的键没有可推导的区，猜一个区就是新的脏快照源（表即键面全集）。
+export async function writeSnapshotKeys(changes: Record<string, unknown>): Promise<void> {
+  const syncChanges: Record<string, unknown> = {};
+  const localChanges: Record<string, unknown> = {};
+  // 先整体分区再落盘：未知键在产生任何副作用之前抛错（不半落半停）。
+  for (const [key, value] of Object.entries(changes)) {
+    const area = SNAPSHOT_AREA_BY_KEY.get(key);
+    if (!area) {
+      throw new Error(`未知的设置快照键：${key}（键面见 SNAPSHOT_STORAGE_KEYS）`);
+    }
+    (area === "sync" ? syncChanges : localChanges)[key] = value;
+  }
+  const syncKeys = Object.keys(syncChanges);
+  if (syncKeys.length > 0) {
+    await chrome.storage.sync.set(syncChanges);
+    invalidate(syncKeys);
+  }
+  const localKeys = Object.keys(localChanges);
+  if (localKeys.length > 0) {
+    await chrome.storage.local.set(localChanges);
+    invalidate(localKeys);
+  }
 }
 
 // onChanged 兜底：订阅键面 = SNAPSHOT_STORAGE_KEYS 的区投影（sync 键进 sync 面、
