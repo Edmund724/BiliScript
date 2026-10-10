@@ -1,12 +1,10 @@
 // tests/reader/chat-suggestions-visual.test.ts
-// 建议问题区块的观感契约（2026-10 用户决议，参考抖音 AI 对话面板截图）：
-// 原先是「1px 描边 + 10px 圆角 + surface 底」的窄 chip、且无任何小标题——用户报
-// 「太丑了，参考抖音的设计」。照抖音改两处：
-//   1. chip 去描边、改填充式（surface-2 底）+ 14px 大圆角 + 12/16 内边距，
-//      align-self: flex-start 让 chip 贴内容宽（不是撑满整行的通栏块）；
-//   2. chip 上方补一行带 sparkle 图标的提示（渲染在 chat-lists.ts，类名为契约）。
+// 建议问题区块的观感契约：chip 为填充式大圆角块（无描边、surface-3 底、14px
+// 圆角、12/16 内边距），贴内容宽不撑满整行；空态欢迎区为「图标 + 引导语 +
+// 建议 chips」结构，chips 随欢迎区整体居中、每条 chip 自身也居中（盒居中，
+// 盒内文字左对齐）。
 // 形状同其它 CSS 契约测试：直接断言 CSS 文本，防「改一半」——
-//   只改圆角不改底（描边块 + 大圆角四不像）、只改 chip 不补提示行、写死色值
+//   只改圆角不改底（描边块 + 大圆角四不像）、写死色值
 //   （暗色主题破相，token 在 reader-gate.css 两主题定义）。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -25,7 +23,7 @@ function ruleBody(selector: string): string {
   return match![1];
 }
 
-describe("建议问题区块（参考抖音）", () => {
+describe("建议问题与空态欢迎区观感", () => {
   it("空态欢迎区在消息区居中（margin:auto 双居中），不贴底", () => {
     const block = ruleBody("\\.biliscript-reading-chat \\.chat-suggestions");
 
@@ -33,7 +31,7 @@ describe("建议问题区块（参考抖音）", () => {
     expect(block).not.toMatch(/margin-top:\s*auto;/);
   });
 
-  it("欢迎区主角：accent-soft 圆底图标 + 17px/600 引导语 + faint 说明行", () => {
+  it("欢迎区主角：accent-soft 圆底图标 + 17px/600 引导语", () => {
     const icon = ruleBody("\\.biliscript-reading-chat \\.chat-hero-icon");
     expect(icon).toMatch(/border-radius:\s*50%;/);
     expect(icon).toMatch(/background:\s*var\(--biliscript-reader-accent-soft\);/);
@@ -42,15 +40,11 @@ describe("建议问题区块（参考抖音）", () => {
     const title = ruleBody("\\.biliscript-reading-chat \\.chat-hero-title");
     expect(title).toMatch(/font-size:\s*17px;/);
     expect(title).toMatch(/font-weight:\s*600;/);
-
-    expect(ruleBody("\\.biliscript-reading-chat \\.chat-hero-sub")).toMatch(
-      /color:\s*var\(--biliscript-reader-faint\);/
-    );
   });
 
-  it("建议组随欢迎区居中、组内左对齐贴内容宽", () => {
+  it("建议组随欢迎区居中，每条 chip 自身也居中（盒居中，盒内文字左对齐）", () => {
     expect(ruleBody("\\.biliscript-reading-chat \\.chat-hero")).toMatch(/align-items:\s*center;/);
-    expect(ruleBody("\\.biliscript-reading-chat \\.chat-hero-sugs")).toMatch(/align-items:\s*flex-start;/);
+    expect(ruleBody("\\.biliscript-reading-chat \\.chat-hero-sugs")).toMatch(/align-items:\s*center;/);
   });
 
   it("chip 是填充式大圆角块：无描边、surface-3 底、14px 圆角、12/16 内边距", () => {
@@ -63,7 +57,9 @@ describe("建议问题区块（参考抖音）", () => {
   });
 
   it("chip 贴内容宽（不撑满整行），悬停走 accent-soft + accent 字母题", () => {
-    expect(ruleBody("\\.biliscript-reading-chat \\.chat-chip")).toMatch(/align-self:\s*flex-start;/);
+    // 内容宽来自居中容器（align-items: center 取代列方向默认 stretch），chip 不再
+    // 写 align-self；盒内文字保持左对齐。
+    expect(ruleBody("\\.biliscript-reading-chat \\.chat-chip")).toMatch(/text-align:\s*left;/);
 
     const hover = ruleBody("\\.biliscript-reading-chat \\.chat-chip:hover");
     // 底色已占满中性色阶顶档（暗色最亮 / 亮色最深），中性「升一档」无落点，
@@ -72,19 +68,7 @@ describe("建议问题区块（参考抖音）", () => {
     expect(hover).toMatch(/color:\s*var\(--biliscript-reader-accent\);/);
   });
 
-  it("chip 上方有提示行：横排 + 小图标 + 次要色 14px 文案", () => {
-    const block = ruleBody("\\.biliscript-reading-chat \\.chat-suggestions-hint");
-
-    expect(block).toMatch(/display:\s*flex;/);
-    expect(block).toMatch(/align-items:\s*center;/);
-    expect(block).toMatch(/gap:\s*6px;/);
-    expect(block).toMatch(/color:\s*var\(--biliscript-reader-muted\);/);
-    expect(block).toMatch(/font-size:\s*14px;/);
-    expect(ruleBody("\\.biliscript-reading-chat \\.chat-suggestions-hint-icon svg")).toMatch(/width:\s*15px;/);
-  });
-
   it("配色只走 token，不写死色值（暗色主题自动跟随）", () => {
     expect(ruleBody("\\.biliscript-reading-chat \\.chat-chip")).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(/);
-    expect(ruleBody("\\.biliscript-reading-chat \\.chat-suggestions-hint")).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(/);
   });
 });

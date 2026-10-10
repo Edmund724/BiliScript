@@ -246,7 +246,7 @@
 }
 
 /* 欢迎区主角：✦ 图标（accent-soft 圆底 + accent 图标，与联网搜索开启态同一
- * 母题）+ 引导语 + 一行能力说明。 */
+ * 母题）+ 引导语。 */
 .biliscript-reading-chat .chat-hero {
   display: flex;
   flex-direction: column;
@@ -277,32 +277,22 @@
   color: var(--biliscript-reader-text);
 }
 
-.biliscript-reading-chat .chat-hero-sub {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--biliscript-reader-faint);
-}
-
-/* 建议组（提示行 + chips）：作为整体随欢迎区水平居中，组内保持左对齐贴内容宽
- *（抖音同款观感：chips 左边线对齐，长度各随文案）。 */
+/* 建议组（chips）：作为整体随欢迎区水平居中，每条 chip 自身也居中（盒居中，
+ * 盒内文字仍左对齐——换行长问题的可扫读优先）。 */
 .biliscript-reading-chat .chat-hero-sugs {
   margin-top: 22px;
   display: flex;
   flex-direction: column;
   gap: 7px;
-  align-items: flex-start;
+  align-items: center;
 }
 
-/* 建议 chip（2026-10 用户决议，参考抖音 AI 对话面板）：填充式无描边大圆角块。
- * 原先是 1px 描边 + 10px 圆角 + surface 底的窄 chip（用户报「太丑了」）；
- * align-self: flex-start 让 chip 贴内容宽而不是撑满整行（列方向默认 stretch），
- * 长问题由 max-width 兜住换行。
- * 底色取 surface-3：中性色阶的顶档（亮色最深、暗色最亮），两块方案里对比最「实」
- *（用户按对照图选定）。代价是中性「悬停升一档」在此已无落点（surface-3 之上没有
- * 第四档），悬停改走全仓既有的可点母题 accent-soft 底 + accent 字（同时间戳 pill、
- * 联网搜索开启态、思考档位选中态）。 */
+/* 建议 chip：填充式无描边大圆角块。列方向 align-items: center 下 chip 取内容宽
+ * （默认 stretch 被居中取代），长问题由 max-width 兜住换行。
+ * 底色取 surface-3：中性色阶的顶档（亮色最深、暗色最亮）。代价是中性「悬停升
+ * 一档」在此已无落点（surface-3 之上没有第四档），悬停改走全仓既有的可点母题
+ * accent-soft 底 + accent 字（同时间戳 pill、联网搜索开启态、思考档位选中态）。 */
 .biliscript-reading-chat .chat-chip {
-  align-self: flex-start;
   max-width: 100%;
   text-align: left;
   padding: 12px 16px;
@@ -322,32 +312,6 @@
 .biliscript-reading-chat .chat-chip:hover {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
-}
-
-/* 建议区提示行（chat-lists.ts 渲染，紧随其后的 chips 与前一行同左缘）：小图标 +
- * 次要色文案。left padding 2px 只作视觉微调——chip 自身还有 16px 内边距，文案不
- * 与 chip 内文字对齐，而是与 chip 框左缘对齐（抖音同款）。 */
-.biliscript-reading-chat .chat-suggestions-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 4px;
-  padding: 0 2px;
-  color: var(--biliscript-reader-muted);
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.biliscript-reading-chat .chat-suggestions-hint-icon {
-  display: inline-flex;
-  flex: none;
-  color: var(--biliscript-reader-faint);
-}
-
-.biliscript-reading-chat .chat-suggestions-hint-icon svg {
-  display: block;
-  width: 15px;
-  height: 15px;
 }
 
 /* 气泡是「内容排版域」的形状与字号档：正文 16px（与字幕正文的

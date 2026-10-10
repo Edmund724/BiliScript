@@ -45,14 +45,9 @@ export interface ReaderChatLists {
   renderHistoryList: () => void;
 }
 
-// 建议区提示行（2026-10 用户决议，参考抖音 AI 对话面板）：chip 上方一行小标题，
-// 说明这三条建议是什么。文案按面板口径收短（抖音原文「看到视频这一段，你可能想问」
-// 的「这一段」指当前播放片段，而建议是按整视频生成的，口径不符——用户改回）；
-// 图标与 ui/icons.ts 的 sparkles、chat-stream-render 的思考图标同族（24 视框 /
-// stroke 1.8 / currentColor），本模块自带一份、不引外部资源；纯装饰，随 svg 自带
-// aria-hidden。文案是静态常量，随 chips 一起渲染/清空。
-const SUGGESTIONS_HINT_TEXT = "这段视频你可能想问";
-const SUGGESTIONS_HINT_ICON_SVG =
+// 空态欢迎区图标（✦ sparkles，24 视框 / stroke 1.8 / currentColor）：纯装饰，
+// svg 自带 aria-hidden；图标资产本模块自带，不引外部资源。
+const HERO_ICON_SVG =
   '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6l1.84 4.96 4.96 1.84-4.96 1.84L12 17.2l-1.84-4.96L5.2 10.4l4.96-1.84L12 3.6z"/></svg>';
 
 export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderChatLists {
@@ -98,16 +93,13 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
       chatSessionState.aiPrefs.aiInitialQuickPrompts,
       readCachedQuickPrompts(currentPageVideoKey())
     );
-    // 空态欢迎区（「居中开场」）：✦ 图标 + 引导语 + 能力说明在上，建议组
-    //（提示行在前，chips 依次在后——顺序即契约，测试与样式都依赖）居中于
+    // 空态欢迎区（「居中开场」）：✦ 图标 + 引导语在上，建议 chips 居中于
     // 消息区；有对话时本函数走上方清空分支，欢迎区不出现。
     suggestionsNode.innerHTML =
       `<div class="chat-hero">` +
-      `<span class="chat-hero-icon">${SUGGESTIONS_HINT_ICON_SVG}</span>` +
+      `<span class="chat-hero-icon">${HERO_ICON_SVG}</span>` +
       `<p class="chat-hero-title">围绕这期视频，问点什么</p>` +
-      `<p class="chat-hero-sub">基于本视频字幕回答，时间戳可点击跳转</p>` +
       `<div class="chat-hero-sugs">` +
-      `<p class="chat-suggestions-hint"><span class="chat-suggestions-hint-icon">${SUGGESTIONS_HINT_ICON_SVG}</span><span>${SUGGESTIONS_HINT_TEXT}</span></p>` +
       prompts
         .map((prompt) => `<button type="button" class="chat-chip">${escapeHtml(prompt)}</button>`)
         .join("") +
