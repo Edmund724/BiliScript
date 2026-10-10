@@ -1,0 +1,150 @@
+{
+  "BV1mAam6tEL8": {
+    "code": 0,
+    "message": "0",
+    "ttl": 1,
+    "data": {
+      "aid": 117370433574328,
+      "bvid": "BV1mAam6tEL8",
+      "cid": 42393338874,
+      "subtitle": {
+        "allow_submit": false,
+        "lan": "",
+        "lan_doc": "",
+        "subtitle_position": 2,
+        "font_size_type": 0,
+        "subtitles": [
+          {
+            "id": 2120476497172283400,
+            "lan": "ai-zh",
+            "lan_doc": "中文",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-zh.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-zh.json",
+            "type": 1,
+            "id_str": "2120476497172283392",
+            "ai_type": 0,
+            "ai_status": 2,
+            "is_lock": false
+          },
+          {
+            "id": 2121827445538867000,
+            "lan": "ai-en",
+            "lan_doc": "English",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-en.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-en.json",
+            "type": 1,
+            "id_str": "2121827445538866944",
+            "ai_type": 1,
+            "ai_status": 2,
+            "is_lock": false
+          },
+          {
+            "id": 2121827727664517400,
+            "lan": "ai-ja",
+            "lan_doc": "日本語",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-ja.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-ja.json",
+            "type": 1,
+            "id_str": "2121827727664517376",
+            "ai_type": 1,
+            "ai_status": 2,
+            "is_lock": false
+          },
+          {
+            "id": 2121827577382790000,
+            "lan": "ai-es",
+            "lan_doc": "Español",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-es.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-es.json",
+            "type": 1,
+            "id_str": "2121827577382789888",
+            "ai_type": 1,
+            "ai_status": 2,
+            "is_lock": false
+          },
+          {
+            "id": 2121827639181245000,
+            "lan": "ai-ar",
+            "lan_doc": "العربية",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-ar.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-ar.json",
+            "type": 1,
+            "id_str": "2121827639181244928",
+            "ai_type": 1,
+            "ai_status": 2,
+            "is_lock": false
+          },
+          {
+            "id": 2121827571862717200,
+            "lan": "ai-pt",
+            "lan_doc": "Português",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-pt.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-pt.json",
+            "type": 1,
+            "id_str": "2121827571862717184",
+            "ai_type": 1,
+            "ai_status": 2,
+            "is_lock": false
+          },
+          {
+            "id": 2121827533660947200,
+            "lan": "ai-th",
+            "lan_doc": "ภาษาไทย",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-th.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-th.json",
+            "type": 1,
+            "id_str": "2121827533660947200",
+            "ai_type": 1,
+            "ai_status": 2,
+            "is_lock": false
+          },
+          {
+            "id": 2121827596601096000,
+            "lan": "ai-id",
+            "lan_doc": "Bahasa Indonesia",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-id.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1mAam6tEL8-id.json",
+            "type": 1,
+            "id_str": "2121827596601095936",
+            "ai_type": 1,
+            "ai_status": 2,
+            "is_lock": false
+          }
+        ]
+      },
+      "view_points": []
+    }
+  },
+  "BV1FyHn6JE86": {
+    "code": 0,
+    "message": "0",
+    "ttl": 1,
+    "data": {
+      "aid": 117385415623802,
+      "bvid": "BV1FyHn6JE86",
+      "cid": 42470867665,
+      "subtitle": {
+        "allow_submit": false,
+        "lan": "",
+        "lan_doc": "",
+        "subtitle_position": 2,
+        "font_size_type": 0,
+        "subtitles": [
+          {
+            "id": 9990000000000000000,
+            "lan": "ai-zh",
+            "lan_doc": "中文",
+            "subtitle_url": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1FyHn6JE86-single-zh.json",
+            "subtitle_url_v2": "https://aisubtitle.hdslb.com/bfs/ai_subtitle/walkthrough-fixture/BV1FyHn6JE86-single-zh.json",
+            "type": 1,
+            "id_str": "9990000000000000001",
+            "ai_type": 0,
+            "ai_status": 2,
+            "is_lock": false
+          }
+        ]
+      },
+      "view_points": []
+    }
+  }
+}

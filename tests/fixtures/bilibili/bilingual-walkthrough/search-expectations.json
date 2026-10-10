@@ -1,0 +1,128 @@
+[
+  {
+    "id": "off-zh",
+    "main": "zh",
+    "secondary": null,
+    "hits": [
+      {
+        "token": "AI",
+        "main": 20,
+        "sub": 0,
+        "total": 20,
+        "itemsWithSecondary": 0
+      },
+      {
+        "token": "hallucination",
+        "main": 0,
+        "sub": 0,
+        "total": 0,
+        "itemsWithSecondary": 0
+      },
+      {
+        "token": "中文第1段",
+        "main": 1,
+        "sub": 0,
+        "total": 1,
+        "itemsWithSecondary": 0
+      },
+      {
+        "token": "译文加载中",
+        "main": 0,
+        "sub": 0,
+        "total": 0,
+        "itemsWithSecondary": 0
+      }
+    ]
+  },
+  {
+    "id": "dual-zh-en",
+    "main": "zh",
+    "secondary": "en",
+    "hits": [
+      {
+        "token": "AI",
+        "main": 20,
+        "sub": 41,
+        "total": 61,
+        "itemsWithSecondary": 197
+      },
+      {
+        "token": "hallucination",
+        "main": 0,
+        "sub": 27,
+        "total": 27,
+        "itemsWithSecondary": 197
+      },
+      {
+        "token": "中文第1段",
+        "main": 1,
+        "sub": 0,
+        "total": 1,
+        "itemsWithSecondary": 197
+      },
+      {
+        "token": "译文加载中",
+        "main": 0,
+        "sub": 0,
+        "total": 0,
+        "itemsWithSecondary": 197
+      }
+    ]
+  },
+  {
+    "id": "dual-es-en",
+    "main": "es",
+    "secondary": "en",
+    "hits": [
+      {
+        "token": "hallucination",
+        "main": 27,
+        "sub": 27,
+        "total": 54,
+        "itemsWithSecondary": 188
+      },
+      {
+        "token": "中文第1段",
+        "main": 0,
+        "sub": 0,
+        "total": 0,
+        "itemsWithSecondary": 188
+      },
+      {
+        "token": "AI",
+        "main": 38,
+        "sub": 38,
+        "total": 76,
+        "itemsWithSecondary": 188
+      }
+    ]
+  },
+  {
+    "id": "dual-es-ja",
+    "main": "es",
+    "secondary": "ja",
+    "hits": [
+      {
+        "token": "JA-1",
+        "main": 0,
+        "sub": 100,
+        "total": 100,
+        "itemsWithSecondary": 188
+      },
+      {
+        "token": "日本語",
+        "main": 0,
+        "sub": 0,
+        "total": 0,
+        "itemsWithSecondary": 188
+      },
+      {
+        "token": "译文加载中",
+        "main": 0,
+        "sub": 0,
+        "total": 0,
+        "itemsWithSecondary": 188
+      }
+    ]
+  }
+]

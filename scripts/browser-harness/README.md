@@ -43,6 +43,41 @@ await withBrowser({}, async ({ browser }) => {
 });
 ```
 
+## 场景层（`scenarios/`）
+
+管道之上是**场景**：一段真机判据，自己起浏览器、自己断言、自己收摊，非零退出即红。
+
+```sh
+pnpm harness:scenario --list                                  # 列出现有场景
+pnpm harness:scenario bilingual-subtitles                     # 全流程（约 90–120s，需要 bilibili.com）
+pnpm harness:scenario bilingual-subtitles -- --fixture-only    # 不起浏览器，秒级
+pnpm harness:scenario bilingual-subtitles -- --headed          # 带窗口
+```
+
+`run-scenario.mjs` 只做「名字 → `scenarios/<name>.mjs`」的分发与退出码透传；`--` 之后的参数原样交给场景。
+
+| 场景 | 判据 | 成本 |
+|---|---|---|
+| `bilingual-subtitles`（S1–S10 + S7b） | 双语字幕在**真 B 站页面**上的东西：副列浮层对页面样式级联的胜出、弹层两列各自的滚动位置、真实 listbox 的点击路径、MV3 SW 里的 fixture 补丁、SPA 换视频的偏好保留、解释卡引用只含主行 | 全流程 90–120s（真网一趟 + fixture 补丁一趟）；`--fixture-only` < 1s |
+
+工件落 `.scratch/browser-harness/scenarios/<name>/`（`evidence.json` + 逐场景 PNG）。断言清单在 `evidence.checks`：任一 FAIL 即退出码 1（`evidence.failed` 是失败项名单）。
+
+### 写场景的规矩
+
+- **只 import `../harness.mjs`**：别再写第二份 CDP 客户端、启动参数、target 挑选或收摊。管道层的教训回流到本目录，场景步骤与页内测量脚本留在场景里。
+- **SW 一律经 `createWorkerSession`**（按 `dist/manifest.json` 的 `background.service_worker` 后缀挑 target，并等到 `typeof chrome === "object"`）。SW 被回收是常态：补丁这类副作用要挂在 `onReconnect` 上重打，别假设装一次就活到最后。
+- **真输入用 `Input.dispatchMouseEvent`**（见「坑」里 `element.click()` 那条）。点击前确认目标当场有几何，且 `document.elementFromPoint(中心)` 就是它本身；0×0 / 被盖住 / 出视口一律**记 FAIL**，不要静默点空——真机上「副列被页面样式压成 0×0」这类缺陷正是靠这条变成红色的，而不是「点了没反应」。
+- **媒体当场收干净**：进阅读模式后立刻 `pause()` 页面里的 `video/audio`，`finally` 里再来一次（见「坑」里「别在页里留还在播的媒体元素」那条）。
+- **断言进 `checks`，退出码说话**：只把读数写进 `evidence.json` 不算回归资产，读数对了没人判就是绿的。
+- **fixture 是数据不是代码**：写进 `tests/fixtures/`，场景只读，并在断言里自检形状（含按被测实现同一条规则**独立复算**期望值）；场景代码里不得出现 `.scratch/` 路径。
+
+### 场景层的已知限制（这些是判据的边界，不是待办）
+
+- `element.click()` 是 `isTrusted: false`：**播放器控件、剪贴板、下载、全屏、真键击**在这一层都够不着（扩展自己挂的 DOM 能吃，这是场景里其余点击的理由）。要真输入就得算坐标发 CDP 指针事件——`bilingual-subtitles` 已经这么做了；仍够不着的是**文本拖选**（用 `Range` + `selectionchange` 构造，见「坑」里 `element.click()` 那条）。
+- headless 里留一个**还在播的 `<video>`** 会让整个浏览器几秒后不再响应 CDP（「坑」里「别在页里留还在播的媒体元素」那条）。场景必须自己 `pause()`；注意这同时会改变「阅读列表跟着播放位置走」这类读数的取值——那种读数只记录、不判定。
+- **真网是外部依赖**：页面结构、样式表、接口形状都可能变。`--fixture-only` 是能离线跑的底线（fixture 形状 + 期望值复算），全流程红了要先分辨是产品回归还是站点变更。
+- **临时 profile 里的 `chrome.storage.sync` 会被云端整包回放**：默认 `--disable-sync` 已关掉这条（见「坑」里「临时 profile 不等于干净环境」那条），场景另有一条「污染即失败」的判定，免得把回放造成的翻转当成绿色。
+
 ## 坑
 
 - **挑 SW target 必须按 `dist/manifest.json` 的 `background.service_worker` 后缀**，别按 `chrome-extension://` 泛匹配：同一个 profile 里还有 Edge 自带组件扩展的 `background.rollup.js`，连错 worker 会让 SW 里的补丁**静默失效**。`attachExtensionWorker` 已按这份声明挑。
@@ -60,12 +95,13 @@ await withBrowser({}, async ({ browser }) => {
 
 本目录是**工具**（入库、复用）。`.scratch/tickets/<票>/walkthrough/` 是**某一次走查的产物**（README + PNG + evidence.json，不入库）。看到 `walkthrough/` 是记录，看到 `scripts/browser-harness/` 是能力。
 
-历史：`/entry/background.js` 这类挑选逻辑最初手写在 `.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs`（那份 1.7k 行脚本把管道、fixture、九个场景焊在一起）。本目录把那 15% 的管道抽出来；那份脚本保持原样不动，它是那一次走查的记录。
+历史：target 挑选（`/entry/background.js` 后缀）这类逻辑最初手写在 `.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs`（那份脚本把管道、fixture、十一个场景焊在一起）。管道层抽进本目录之后，**场景层也毕业了**：subtitle-track-picker 票需要同一批真机判据（这条正是「第二张票」的判据），于是双语字幕的十一个场景迁进 `scenarios/bilingual-subtitles.mjs`，其中的 fixture 常量落成 `tests/fixtures/` 下的可提交数据。那份 walkthrough 脚本保持原样不动，它仍是那一次走查的记录。
 
 ## 边界：什么进 git，什么不进
 
 - **管道进这里**（本目录）。它被证明会重复：同一仓两次走查用了两套机制。
 - **事实进 `tests/fixtures/`**。接口响应与字段形状是数据，丢了就没了——样例：`tests/fixtures/bilibili/bv1mAam6tEL8-subtitle-shape.md`（从 `.scratch` 转写的字幕轨形状与对齐数字；它引用的 `research/01-track-shape.md` 已经丢失，这就是要转写的原因）。`.scratch/` 里的 `research/` 会随票据整理消失，别把它当事实的家。
-- **场景按需迁**：出现**第二个**需要同一批真机判据的票时，才建 `scenarios/` 并迁第一个场景，同时把样本 bvid 与 fixture 变成参数。判据是 `scenarios/*.mjs` 的第 2 个文件——只被需要过一次的场景留在 `.scratch`，那是验收记录，不是回归资产。
-- **场景层的改动不用回流本目录**。`.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs` 长到几千行也不影响这里：只有**管道层**的教训才回流——CDP 客户端、启动参数、target 挑选、就绪门、收摊。场景步骤、fixture 生成、页内测量脚本都是它自己的事。真机走查的产出是**发现**：发现一旦落定，就补一条 jsdom 断言把它锁住（见 `tests/reader/bilingual-picker.test.ts` 的「真机反向发现的修复锁」一节），走查脚本本身不必变成回归资产。
+  - 场景读的 fixture 一律是**可提交数据**：`bilingual-subtitles` 读 `tests/fixtures/bilibili/bilingual-walkthrough/`（`bundles.json` 两个视频的轨列表应答、`bodies.json` 九条正文、`search-expectations.json` 独立复算出的搜索期望、`meta.json` 形状事实与来源说明）。场景只读，并在断言里自检形状；样本 bvid 因此不再是场景里的硬编码参数。
+- **场景按需迁**：出现**第二个**需要同一批真机判据的票时才建 `scenarios/`，迁第一个场景、把样本 bvid 与 fixture 变成可提交数据。只被需要过一次的场景留在 `.scratch`，那是验收记录，不是回归资产。双语字幕这一批已经毕业（见上节），后续同类票直接往 `scenarios/` 里加场景。
+- **场景层的改动不用回流本目录**。`.scratch/tickets/bilingual-subtitles/walkthrough/drive.mjs` 长到几千行也不影响这里：只有**管道层**的教训才回流——CDP 客户端、启动参数、target 挑选、就绪门、收摊。场景步骤、fixture 生成、页内测量脚本都是它自己的事（写场景的规矩见上）。真机走查的产出是**发现**：发现一旦落定，就补一条 jsdom 断言把它锁住（见 `tests/reader/bilingual-picker.test.ts` 的「真机反向发现的修复锁」一节），走查脚本本身不必变成回归资产。
 

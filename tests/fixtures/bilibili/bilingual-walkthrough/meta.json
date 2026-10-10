@@ -1,0 +1,125 @@
+{
+  "note": "bundle 形状取自 bilingual-subtitles 票 research/01-track-shape.md（lan/lan_doc/id_str/subtitle_url 逐字同形）；正文分段形状取自 research/03-track-alignment.md（197 vs 188=197−9，译文端点 ⊆ 中文端点）。正文字符串为合成语料。research/03 第 1 组合并额外跨一个中文空档，本 fixture 未复现该空档（配对结果同为「2 主段 ↔ 1 副段」）。",
+  "sampleBvid": "BV1mAam6tEL8",
+  "sampleAid": 117370433574328,
+  "sampleCid": 42393338874,
+  "sampleDuration": 461,
+  "zhSegments": 197,
+  "translationSegments": 188,
+  "mergedPairCount": 9,
+  "mergedPairs": [
+    {
+      "zhIndices": [
+        18,
+        19
+      ],
+      "from": 40.69,
+      "to": 51.54,
+      "enText": "EN-18 merged(18+19)"
+    },
+    {
+      "zhIndices": [
+        56,
+        57
+      ],
+      "from": 128.87,
+      "to": 130.4,
+      "enText": "EN-55 merged(56+57)"
+    },
+    {
+      "zhIndices": [
+        91,
+        92
+      ],
+      "from": 210.49,
+      "to": 212.61,
+      "enText": "EN-89 merged(91+92)"
+    },
+    {
+      "zhIndices": [
+        94,
+        95
+      ],
+      "from": 215.05,
+      "to": 218.53,
+      "enText": "EN-91 AI merged(94+95)"
+    },
+    {
+      "zhIndices": [
+        106,
+        107
+      ],
+      "from": 245.21,
+      "to": 248.62,
+      "enText": "EN-102 merged(106+107)"
+    },
+    {
+      "zhIndices": [
+        116,
+        117
+      ],
+      "from": 267.46,
+      "to": 272.36,
+      "enText": "EN-111 AI merged(116+117)"
+    },
+    {
+      "zhIndices": [
+        128,
+        129
+      ],
+      "from": 296.39,
+      "to": 299.719,
+      "enText": "EN-122 merged(128+129)"
+    },
+    {
+      "zhIndices": [
+        143,
+        144
+      ],
+      "from": 331.16,
+      "to": 335.3,
+      "enText": "EN-136 AI merged(143+144)"
+    },
+    {
+      "zhIndices": [
+        153,
+        154
+      ],
+      "from": 353.78,
+      "to": 355.74,
+      "enText": "EN-145 merged(153+154)"
+    }
+  ],
+  "trackLans": [
+    "ai-zh",
+    "ai-en",
+    "ai-ja",
+    "ai-es",
+    "ai-ar",
+    "ai-pt",
+    "ai-th",
+    "ai-id"
+  ],
+  "bodyKeys": [
+    "BV1mAam6tEL8-zh",
+    "BV1mAam6tEL8-en",
+    "BV1mAam6tEL8-ja",
+    "BV1mAam6tEL8-es",
+    "BV1mAam6tEL8-ar",
+    "BV1mAam6tEL8-pt",
+    "BV1mAam6tEL8-th",
+    "BV1mAam6tEL8-id",
+    "BV1FyHn6JE86-single-zh"
+  ],
+  "singleTrackVideo": {
+    "bvid": "BV1FyHn6JE86",
+    "probe": {
+      "code": 0,
+      "duration": 655,
+      "aid": 117385415623802,
+      "cid": 42470867665
+    },
+    "duration": 655,
+    "segments": 120
+  }
+}
