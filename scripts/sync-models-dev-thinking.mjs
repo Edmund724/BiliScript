@@ -197,8 +197,8 @@ const OFF_CAPABILITY_DECLARATIONS = [
 ];
 
 // 对账常量（spec §词汇覆盖缺口 + §上游形态，主 agent 复核实测）。不是这些数说明上游
-// 内容或路径变了 —— 先确认快照 contentHash 与 spec 记录，再同步本常量、spec 与
-// tests/ai/models-dev-thinking.test.ts 的期望值。
+// 内容或路径变了 —— 先确认快照 contentHash 与 spec 记录，再同步本常量与 spec
+// （产物事实面由 tests/ai/thinking-upstream-facts.test.ts 逐行钉住）。
 // effortSets 是**派生计数**（被引用值集里的 effort 词表去重）：13 号票 canonical 优先后
 // effort[max] 只被 opencode-go/kimi-k3 引用，该行改借 canonical 的 low-high-max →
 // 值集 "max" 不再登记，故 30 → 29（上游原始 30 种 effort 值集不变，见 spec §上游形态）。
@@ -965,8 +965,8 @@ function assertCounts(counts, expected) {
     if (counts[key] !== expected[key]) {
       fail(
         `${key} 为 ${counts[key]}，对账常量是 ${expected[key]}。上游内容或路径变了 —— ` +
-          `先确认上游这份快照（contentHash）与 spec 记录，再同步脚本常量、spec 与 ` +
-          `tests/ai/models-dev-thinking.test.ts 的期望值。`
+          `先确认上游这份快照（contentHash）与 spec 记录，再同步脚本常量与 spec ` +
+          `（产物事实面由 tests/ai/thinking-upstream-facts.test.ts 逐行钉住）。`
       );
     }
   }

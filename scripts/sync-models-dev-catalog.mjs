@@ -47,7 +47,7 @@ const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTo
 // 12 家合计模型总数（spec §preset → 上游 provider：「12 家共 578 个模型」）。
 // 生成期对账：不是这个数说明上游内容或路径变了 —— 先确认 pin（上游 api.json 无
 // 版本号，只有 contentHash）与 spec 记录，再同步本常量、spec 与
-// tests/ai/models-dev-catalog.test.ts 的期望值。
+// tests/ai/model-catalog.test.ts 的产物期望值。
 const EXPECTED_MODEL_COUNT = 578;
 
 function fail(message) {
@@ -292,7 +292,7 @@ async function main() {
     fail(
       `模型总数为 ${totalModels}，对账常量是 ${options.expectModels}。` +
         `上游内容或路径变了 —— 先确认上游这份快照（contentHash）与 spec 记录，` +
-        `再同步脚本常量、spec 与 tests/ai/models-dev-catalog.test.ts 的期望值。`
+        `再同步脚本常量、spec 与 tests/ai/model-catalog.test.ts 的产物期望值。`
     );
   }
 

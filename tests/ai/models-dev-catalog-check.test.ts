@@ -131,8 +131,7 @@ beforeAll(() => {
   // `--off-declarations none`——D1=A2 的本仓补声明（给 zhipuai/glm-5.2 补 toggle）是
   // 本仓事实增强，不是上游读到的形状；这份 fixture 的手写表正是按原始形状标定的，
   // checker 的三类判据（off 方向 / 档位未表达 / 关不掉声明与上游 toggle 冲突）必须各留
-  // 一个例子。补声明本身的生成期行为由 tests/ai/models-dev-thinking.test.ts 的
-  // 「能力补声明表」用例覆盖。
+  // 一个例子（补声明的事实面见 tests/ai/thinking-upstream-facts.test.ts 的 D1=A2 一节）。
   const assignments = spawnNode([
     "scripts/sync-models-dev-thinking.mjs",
     "--input",
