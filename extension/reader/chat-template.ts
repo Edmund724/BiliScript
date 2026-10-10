@@ -134,7 +134,8 @@ export function buildChatTabBodyHtml(): string {
                   <path d="m5 12 7-7 7 7"></path>
                 </svg>
                 <svg class="chat-stop-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <rect x="7" y="7" width="10" height="10" rx="1.5"></rect>
+                  <circle cx="12" cy="12" r="9.5"></circle>
+                  <rect class="chat-stop-icon-core" x="8.5" y="8.5" width="7" height="7" rx="1.5"></rect>
                 </svg>
               </button>
             </div>

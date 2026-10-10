@@ -1055,6 +1055,13 @@
   display: none;
 }
 
+/* 停止键芯：圆环描边 + 实心方块（停止语义一眼可辨）——fill 覆盖上面 svg
+   规则的 fill:none，stroke 归零避免方块再描一遍边。 */
+.biliscript-reading-chat .chat-send-btn .chat-stop-icon-core {
+  fill: currentColor;
+  stroke: none;
+}
+
 .biliscript-reading-chat .chat-send-btn.is-stop .chat-send-icon {
   display: none;
 }
