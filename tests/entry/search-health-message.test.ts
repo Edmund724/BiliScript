@@ -7,8 +7,8 @@
 //      不误报未配置，spec §12.7 第 6 条翻案）、单选不拦但账照记；
 //   ② 快照位：健康度读命中零重复读、写 handler 落盘后 inline 失效（下一次 resolve
 //      重读）；脏存储 / 读失败按无冷却（不拦任何链）。
-// 记账族自身的 handler 面（落盘单键 / SW 侧盖时间戳 / 脏载荷 / 未知 op）已下沉为直调
-// 工厂测试：tests/search/search-health-handler.test.ts（arch-review-2026-09/08）。
+// 记账族自身的 handler 面（落盘单键 / SW 侧盖时间戳 / 脏载荷）由本文件的真入口
+// 记账消费与 tests/search/search-health.test.ts 的健康度核心覆盖。
 // chrome stub 手法与 tests/entry/background-resolve-search-provider.test.ts 同款
 //（真实 background 入口 + 路由监听器直调）。
 import { beforeEach, describe, expect, it, vi } from "vitest";

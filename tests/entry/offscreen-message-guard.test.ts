@@ -12,7 +12,7 @@
 //   - 查询缓存消息族（spec §5 / §10 第 39 行）：search-cache 的发送者含
 //     content（选区解释卡），**不得**进 offscreen-only 名单；tab 来源的调用照常
 //     落到 SW 叶（本文件只钉来源守卫这一面，get/put 的键与回包形状见
-//     tests/search/search-cache-handler.test.ts 的直调工厂测试）。
+//     本文件末尾「撤回同意」一节的真实 handler 往返用例）。
 //   - 名单单源（B4）：offscreen 专属族由协议层 OFFSCREEN_ONLY_MESSAGE_TYPES
 //     单源派生（「谁能发」属协议契约），background.ts 侧不得私藏第二份抄本；
 //     resolve-ai-provider 的 tab 来源负向用例 pin 住「名单误扩」方向。
