@@ -1338,11 +1338,11 @@ describe("无平台空态「前往设置」（arch-slim-2/06 死绑定回归）"
   });
 });
 
-// 输入框高度两态（省空间改造）：未聚焦恒一行（模板 rows=1、无行内 min-height），
-// 聚焦（有光标）才展开——下限两行、之上随内容长高、上限 320。杠杆是 min-height
-// 而非 height：主轴上 flex 项的 flex-basis:0% 让 height 失效（headless Chromium
-// 实测行内 height 写了高度不变）。
-describe("输入框高度两态：未聚焦一行、聚焦才展开", () => {
+// 输入框高度只随内容走（2026-11 用户决议：去掉「聚焦即展开两行」的两态设计，
+// 点击聚焦不再撑高）：scrollHeight（内容自然高）写回 min-height，上限 320。
+// 杠杆是 min-height 而非 height：主轴上 flex 项的 flex-basis:0% 让 height 失效
+// （headless Chromium 实测行内 height 写了高度不变）。
+describe("输入框高度：聚焦不撑高、只随内容走", () => {
   async function mountChat(): Promise<HTMLTextAreaElement> {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();
@@ -1350,16 +1350,15 @@ describe("输入框高度两态：未聚焦一行、聚焦才展开", () => {
     return document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
   }
 
-  it("未聚焦不写行内 min-height（高度交回模板单行）；聚焦展开到两行下限；失焦收回", async () => {
+  it("聚焦/失焦都不写行内 min-height（jsdom 无布局，scrollHeight 恒 0 → 高度落回 CSS 自然高）", async () => {
     const input = await mountChat();
 
     // 初始未聚焦：没有任何行内高度——单行高度由模板 rows=1 定
     expect(input.style.minHeight).toBe("");
 
-    // jsdom 无布局：scrollHeight 恒 0 → 落到聚焦下限（屏上两行 = 56，
-    // border-box 后不再额外叠加 4px 内边距）
+    // 聚焦不再撑高：没有聚焦下限可落，行内高依旧为空
     input.focus();
-    expect(input.style.minHeight).toBe("56px");
+    expect(input.style.minHeight).toBe("");
 
     input.blur();
     expect(input.style.minHeight).toBe("");
@@ -1378,12 +1377,17 @@ describe("输入框高度两态：未聚焦一行、聚焦才展开", () => {
     expect(input.style.minHeight).toBe("320px");
   });
 
-  it("非视频上下文：聚焦下限更小（屏上 48）", async () => {
+  it("删回单行：行内高跟着缩回自然高，不残留上次撑起的高", async () => {
     const input = await mountChat();
-    (document.getElementById(ids.readingChatRoot) as HTMLElement).classList.add("chat-non-video-context");
 
-    input.focus();
-    expect(input.style.minHeight).toBe("48px");
+    Object.defineProperty(input, "scrollHeight", { value: 200, configurable: true });
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("200px");
+
+    // 删到单行：scrollHeight 塌回一行自然高（含 4px 内边距的 border-box 值）
+    Object.defineProperty(input, "scrollHeight", { value: 56, configurable: true });
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("56px");
   });
 });
 
@@ -1424,21 +1428,21 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
     input.dispatchEvent(new Event("input"));
   }
 
-  it("短输入逐字敲：盒高稳在聚焦下限，不逐键 +4px", async () => {
+  it("短输入逐字敲：盒高稳在单行自然高，不逐键 +4px", async () => {
     const input = await mountAutosizingInput();
 
     for (let i = 0; i < 5; i += 1) {
       typeChar(input, "d");
     }
 
-    // 五行文字仍在单行内：高度必须稳在聚焦下限（border-box 后 52 + 4 = 56）
+    // 五个字仍在单行内：高度必须稳在单行自然高（border-box 后 52 + 4 = 56）
     expect(input.style.minHeight).toBe("56px");
   });
 
   it("删除逐字退格：长内容删除后高度跟着缩回，不朝反向继续长", async () => {
     const input = await mountAutosizingInput();
 
-    // 先敲够三行（30 字），让内容自然高越过聚焦下限
+    // 先敲够三行（30 字），让内容自然高越过单行
     for (let i = 0; i < 30; i += 1) {
       typeChar(input, "d");
     }
@@ -1451,7 +1455,7 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
       input.dispatchEvent(new Event("input"));
     }
 
-    // 剩 5 字 → 回到单行：高度必须缩回聚焦下限，而不是比 grown 更高
+    // 剩 5 字 → 回到单行：高度必须缩回单行自然高，而不是比 grown 更高
     expect(input.style.minHeight).toBe("56px");
   });
 

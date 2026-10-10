@@ -371,8 +371,8 @@ const imageSupportGate = createImageSupportGate({
 const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, replay: conversationReplay } = createChatTabDomain({
   messages: els.messages,
   input: els.input,
-  // 历史回放事务的编排回调：updateChatLayoutState 进 replay 首行（紧凑输入
-  // 判定），clearSuggestions 置空模块级 suggestionsNode 引用。
+  // 历史回放事务的编排回调：updateChatLayoutState 进 replay 首行（输入框
+  // 重测），clearSuggestions 置空模块级 suggestionsNode 引用。
   updateChatLayoutState,
   clearSuggestions: () => {
     suggestionsNode = null;
@@ -939,7 +939,7 @@ function bindEvents(): void {
     autosizeInput();
     updateSendBtnState();
   });
-  // 输入框高度两态：聚焦（有光标）展开、失焦收回一行。
+  // 聚焦/失焦只重测高度（高度只随内容走，聚焦不再撑高——见 autosizeInput）。
   els.input.addEventListener("focus", autosizeInput);
   els.input.addEventListener("blur", autosizeInput);
   els.messages.addEventListener("scroll", scheduleScrollAutoScrollSync);
@@ -1049,31 +1049,28 @@ function onWindowResize(): void {
   scheduleModelSelectWidthUpdate(widthEls);
 }
 
-// 输入框高度两态：未聚焦恒一行（模板 rows=1，省空间），聚焦（有光标）才展开——
-// 下限两行、之上随内容长高、上限 320。杠杆必须是 min-height 而非 height：主轴上
-// flex 项的 flex-basis:0% 让 height 失效（headless Chromium 实测：行内 height 写了
-// 高度不变，只有 min-height 抬得动盒子），故失焦清空行内 min-height 即收回一行。
-// 取值都是**屏上盒高**（border-box，见 reader-chat.css 的 box-sizing 声明）：下限
-// 56/48、上限 320 与 CSS max-height 同值，不再叠加 4px 内边距。
+// 输入框高度只随内容走：scrollHeight（内容自然高）写回 min-height，上限 320。
+// 不设聚焦下限——点击聚焦不再撑高（2026-11 用户决议：去掉「聚焦即展开两行」
+// 的两态设计，只有内容换行才自然长高）。杠杆必须是 min-height 而非 height：
+// 主轴上 flex 项的 flex-basis:0% 让 height 失效（headless Chromium 实测：行内
+// height 写了高度不变，只有 min-height 抬得动盒子）。
+// 取值是**屏上盒高**（border-box，见 reader-chat.css 的 box-sizing 声明）：
+// scrollHeight 与 min-height 同一坐标系，上限 320 与 CSS max-height 同值，
+// 不再叠加 4px 内边距。无布局的 jsdom 下 scrollHeight 恒 0，跳过写行内高，
+// 高度落回 CSS 自然高，行为不变。
 const INPUT_MAX_HEIGHT = 320;
-const INPUT_FOCUS_MIN_HEIGHT = 56;
-const INPUT_FOCUS_MIN_HEIGHT_NON_VIDEO = 48;
 
 function autosizeInput(): void {
-  if (document.activeElement === els.input) {
-    // 测量前先清空行内 min-height（2026-11 用户报障「每敲/删一键长高一行」的 JS
-    // 那一半）：不清空时 textarea 一旦带行内高，scrollHeight 会返回**自身撑开后的
-    // 高度**而非内容自然高——每敲一键把上次写进去的高读回来再加一点，只增不减
-    //（连删除键都会继续长）。先塌回内容高，读到的才是真实自然高；配合 CSS 的
-    // border-box 让 scrollHeight 与 min-height 同一坐标系。无布局的 jsdom 下
-    // scrollHeight 恒 0，仍落到 focusMin，行为不变。
-    els.input.style.minHeight = "";
-    const focusMin = els.root.classList.contains("chat-non-video-context")
-      ? INPUT_FOCUS_MIN_HEIGHT_NON_VIDEO
-      : INPUT_FOCUS_MIN_HEIGHT;
-    els.input.style.minHeight = `${Math.min(Math.max(els.input.scrollHeight, focusMin), INPUT_MAX_HEIGHT)}px`;
-  } else {
-    els.input.style.minHeight = "";
+  // 测量前先清空行内 min-height（2026-11 用户报障「每敲/删一键长高一行」的 JS
+  // 那一半）：不清空时 textarea 一旦带行内高，scrollHeight 会返回**自身撑开后的
+  // 高度**而非内容自然高——每敲一键把上次写进去的高读回来再加一点，只增不减
+  //（连删除键都会继续长）。先塌回内容高，读到的才是真实自然高；配合 CSS 的
+  // border-box 让 scrollHeight 与 min-height 同一坐标系。无布局的 jsdom 下
+  // scrollHeight 恒 0，跳过写行内高，行为不变。
+  els.input.style.minHeight = "";
+  const naturalHeight = els.input.scrollHeight;
+  if (naturalHeight > 0) {
+    els.input.style.minHeight = `${Math.min(naturalHeight, INPUT_MAX_HEIGHT)}px`;
   }
   // 发送受理/重启会话等路径是程序化清输入框（不触发 input 事件），发送键禁用
   // 态统一在每次自适应时同步（autosizeInput 是所有这些路径的公共尾部）。
@@ -1207,16 +1204,9 @@ function requestViewReset(intent: ViewResetIntent): void {
   resetConversationView(intent.kind === "state" ? intent.html : "");
 }
 
-// 【整段迁移自 sidepanel.ts】布局状态：紧凑输入判定写在对话 tab 根元素
-//（sidepanel 写 document.body 的 chat-non-video-context）。
+// 【整段迁移自 sidepanel.ts】布局状态：输入框高度只随内容走（autosizeInput），
+// 上下文/历史变化时重测一次。
 function updateChatLayoutState(): void {
-  const useCompactInput = Boolean(
-    chatSessionState.contextData &&
-    chatSessionState.contextData.isVideoContext === false &&
-    !chatSessionState.chatHistory.length &&
-    !isPinnedContextStrict(chatSessionState.currentConversationMeta)
-  );
-  els.root.classList.toggle("chat-non-video-context", useCompactInput);
   if (els.input) {
     autosizeInput();
   }

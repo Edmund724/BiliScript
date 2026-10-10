@@ -59,10 +59,12 @@ describe("输入框自适应高度：scrollHeight 与 min-height 同坐标系", 
     expect(`${jsMaxHeight![1]}px`).toBe(cssMaxHeight);
   });
 
-  it("聚焦下限写成屏上盒高（border-box）：56/48，不再额外叠加内边距", () => {
+  it("聚焦不再撑高：autosizeInput 无聚焦下限分支（2026-11 用户决议）", () => {
     const source = readFileSync(join(ROOT, "extension/reader/chat-tab.ts"), "utf8");
 
-    expect(source).toMatch(/const INPUT_FOCUS_MIN_HEIGHT = 56;/);
-    expect(source).toMatch(/const INPUT_FOCUS_MIN_HEIGHT_NON_VIDEO = 48;/);
+    // 高度只随内容走：聚焦/失焦同一个测量路径，没有 activeElement 分支、
+    // 没有 56/48 聚焦下限常量（非视频上下文的 chat-non-video-context 已无用例）。
+    expect(source).not.toMatch(/INPUT_FOCUS_MIN_HEIGHT/);
+    expect(source).not.toMatch(/document\.activeElement === els\.input/);
   });
 });
