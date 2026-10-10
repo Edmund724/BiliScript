@@ -42,19 +42,13 @@
 
 /* 头部工具条：2026-10 用户决议删除视频标题 chip 后只剩「历史对话」+「新会话」，
  * 右对齐接住 chip 原先 flex:1 顶出的位置（两键位置与删 chip 前一致）。
- * 2026-10 用户决议（截图）：头部盒不再预留 42px——盒高收为控件等高 32px，
- * 上下留白 6/8 → 2/4，消掉「历史对话」上方与下方两处空档（上方 = 2 + 面板板面
- * 顶距，下方 = 4 + 消息区的 12px）。
- * 2026-10 用户决议（截图，第三轮）：删标题后工具条成了两个裸控件，与下方消息
- * 正文糊成一片（用户报「应该有个框」）→ 给工具条加框。
- * 2026-10 用户决议（截图，第四轮）：框不落在容器上，每键各一个（用户报「分成两个
+ * 2026-10 用户决议（截图）：头部盒不再预留 42px——盒高收为控件等高，
+ * 行自身不留 min-height/padding（键高 34px 已高于原 32px 控件，再留白就是白占空档）。
+ * 2026-10 用户决议（截图，第四轮）：框不落在容器上（用户报「分成两个
  * 槽，不要在一个槽里」）→ 容器退回纯布局行：只留右对齐与组距（align-self: flex-end
  * 让行贴内容宽；列方向 flex 的默认 stretch 会横贯整行，与上方分段控件打架）。
- * 2026-10 用户决议（截图，第五轮）：两键原先是 999px 胶囊/圆形，与面板 header 的
- * 主题/设置/退出三键（.biliscript-reading-icon-btn：34px / 8px 圆角方框）不成一致
- * （用户报「完全没有符合一致性」，指定按 flyme-design 统一）→ 两键改用面板既有的
- * 「8px = 一切框」形态（见下方框规则）。行自身的 min-height/padding 随之删除：
- * 键高已从 32px 升到 34px（含边框 36px），行再留白就是白占空档。
+ *（第三～五轮的「每键各一个 1px 边框框」已随 2026-12 图标化决议退役，
+ * 见下方图标键规则；组距同步对齐面板 header 三键的 10px。）
  * 2026-11 用户决议（截图，第七轮）：下方间隔改由本行自备 margin-bottom——第六轮
  * 把间隔挂在各后继块上（转写行 margin-top），漏掉了消息区：消息区没有 margin，
  * 它的顶边 = 本行底边，内容一滚动就被裁在按钮下边框上（用户报「下方依然有间距
@@ -69,46 +63,34 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
   align-self: flex-end;
   flex-shrink: 0;
   margin-bottom: 12px;
 }
 
-/* 两键的框形态与面板 header 三键同源（reader.css 的「8px = 一切框」明文决议：
- * .biliscript-reading-icon-btn 及其覆写
- * #biliscript-reading-view .biliscript-reading-actions button.biliscript-reading-icon-btn）：
- * 34px 键高、1px 边框 + surface 底、8px 圆角。改了这里就得同步改那边——
- * chat-header-toolbox.test.ts 断的是「两边同值」而非字面值。
- * 悬停底由本文件更靠后的 .chat-toolbar-btn:hover / .chat-icon-btn:hover 接住
- *（与本节同特异性 (0,3,0)，靠源序取胜），故本规则不能挪到按钮基础规则之后。 */
-.biliscript-reading-chat .chat-header .chat-toolbar-btn,
+/* 2026-12 用户决议（方案对比 .scratch/history-icon-compare，选定方案 1）：「历史对话」
+ * 由文字键改为时针回溯图标键，两键与面板 header 三键（.biliscript-reading-icon-btn，
+ * reader.css 的「无框幽灵键」明文决议）完全同构——34×34、8px 圆角、无边框无底
+ *（悬停才出 surface-2，由后方 .chat-icon-btn:hover 接住），图标 18px、stroke 1.8
+ * 与 header 三键的 READING_HEADER_ICONS 同源。早先第三～五轮的「每键各一个 1px
+ * 边框框」随本轮退役：五键一致性的最新裁决是无框幽灵，保留边框反而两头不像。
+ * 颜色取 text（与 header 三键同色；基础段 .chat-icon-btn 的 muted 浅一档，会破坏
+ * 五键同灰度）。改了这里就得同步改那边——chat-header-toolbox.test.ts 断的是
+ * 「两边同值」而非字面值。 */
 .biliscript-reading-chat .chat-header .chat-icon-btn {
   flex-shrink: 0;
-  height: 34px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
-  background: var(--biliscript-reader-surface);
-}
-
-/* 图标键：照 header 三键补成 34×34 方键（基础段是 32×32，聊天工具条里只有「新会话」
- * 一个图标键；历史整页头部的返回键不在 .chat-header 内，不受影响）。 */
-.biliscript-reading-chat .chat-header .chat-icon-btn {
   width: 34px;
+  height: 34px;
   padding: 0;
+  color: var(--biliscript-reader-text);
 }
 
-/* 图标键内的「+」与 header 三键的图标同尺寸（基础段 14px → 18px）。 */
+/* 图标尺寸与描边粗细同 header 三键（基础段 14px / stroke 2 → 18px / stroke 1.8）。 */
 .biliscript-reading-chat .chat-header .chat-icon-btn svg {
   width: 18px;
   height: 18px;
-}
-
-/* 文字键：横向内边距与字号走面板文字动作按钮（reader.css
- * .biliscript-reading-actions button 的 0 14px / 15px），两处同值才算一致。 */
-.biliscript-reading-chat .chat-header .chat-toolbar-btn {
-  padding: 0 14px;
-  font-size: 15px;
+  stroke-width: 1.8;
 }
 
 /* 思考强度的二级菜单（2026-10 用户裁定，票据 chat-thinking-submenu）：
@@ -271,9 +253,9 @@
   stroke-linejoin: round;
 }
 
-.biliscript-reading-chat .chat-icon-btn + .chat-icon-btn {
-  margin-left: -3px;
-}
+/* 相邻图标键的 -3px 收紧规则已删（2026-12）：它原本只作用于工具条图标键并排的场景，
+ * 历史对话图标化后全仓唯一的相邻图标键对就是 .chat-header 两键，收紧会与 header
+ * 三键的 10px 组距打架；组距统一由 .chat-header 的 gap 承担。 */
 
 .biliscript-reading-chat .chat-icon-btn:hover {
   background: var(--biliscript-reader-surface-2);
@@ -865,36 +847,8 @@
   stroke-linejoin: round;
 }
 
-.biliscript-reading-chat .chat-toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 32px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--biliscript-reader-muted);
-  font: inherit;
-  font-size: 14.5px;
-  line-height: 1;
-  cursor: pointer;
-  transition: transform 100ms ease-out;
-}
-
-.biliscript-reading-chat .chat-toolbar-btn:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-.biliscript-reading-chat .chat-toolbar-btn:hover {
-  background: var(--biliscript-reader-surface-2);
-  color: var(--biliscript-reader-text);
-}
-
-.biliscript-reading-chat .chat-toolbar-btn:disabled {
-  cursor: default;
-  opacity: 0.62;
-}
+/* 文字工具键（原 chat-toolbar-btn 类）整族规则已删（2026-12）：唯一消费方是
+ * 「历史对话」文字键，图标化后全仓不再有该类的使用方；图标键外观走 .chat-icon-btn。 */
 
 /* 联网搜索开关（spec §4）：输入行 + 右侧的描边 pill（DeepSeek 输入框工具
  * pill 同款位）；开启态 accent-soft 底 + accent 字与关闭态灰字区分。只留文字、
@@ -941,11 +895,6 @@
   border-color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
-}
-
-.biliscript-reading-chat .chat-toolbar-btn span {
-  font-size: inherit;
-  line-height: 1;
 }
 
 /* 发送卡片：上方输入区 + 下方控件行（+ / 模型 chip / 发送键），整体一个圆角

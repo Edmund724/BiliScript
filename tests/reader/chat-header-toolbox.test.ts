@@ -1,20 +1,20 @@
 // tests/reader/chat-header-toolbox.test.ts
-// 头部工具条的按钮框契约，三轮用户决议：
-//   第三轮（2026-10）：删视频标题 chip 后工具条只剩「历史对话」+「新会话」两个裸控件，
-//   与下方消息正文糊成一片（用户报「应该有个框」）→ 给工具条加框。
-//   第四轮：用户否掉「一个槽装两键」→ 每键各一个框，容器 .chat-header 退回纯布局行
-//  （无边框/底色/圆角）。
-//   第五轮（本文件当前口径）：用户贴真机截图指出两键（999px 胶囊/圆形）与面板 header
-//   的主题/设置/退出三键（.biliscript-reading-icon-btn）不成一致，指定按 flyme-design
-//   统一 → 两键改用面板既有的「8px = 一切框」形态（reader.css 明文决议：34px 键高、
-//   1px 边框 + surface 底、8px 圆角）。故本文件的核心断言不是字面值，而是**跨文件
-//   同值**：聊天工具条两键的圆角/键高必须等于 reader.css 里 header 三键的圆角/键高，
-//   文字键横向内边距必须等于 reader.css 里文字动作按钮的内边距——任一侧改了值，
-//   一致性就断了，测试报红。
-// 形状同 chat-header-compact-spacing：直接断言 CSS 文本，防「改一半」——
-//   1. 容器仍留着框：又变回「一个槽装两键」；
-//   2. 只给文字键加框、漏了 + ：两键不成对；
-//   3. 圆角/键高各写各的字面值：正是用户报的「不一致」，必须与 header 三键同源同值；
+// 头部工具条的按钮形态契约：
+//   2026-10 第三～五轮：删视频标题 chip 后工具条只剩「历史对话」（文字键）+
+//  「新会话」（图标键），先加框、再每键各一个框、再统一成 8px 方框。
+//   2026-12 用户决议（本文件当前口径）：「历史对话」由文字键改为时针回溯图标键
+//  （方案对比 .scratch/history-icon-compare 选定方案 1），两键与面板 header 三键
+//  （主题/设置/退出，.biliscript-reading-icon-btn，reader.css 的「无框幽灵键」明文
+//  决议）完全同构——34×34、8px 圆角、无边框无底（悬停才出 surface-2）、图标
+//  18px / stroke 1.8、组距同 header 三键（10px）。文字键形态（.chat-toolbar-btn）
+//  随之整族退役。早先的边框决议被本轮取代：五键一致性的最新裁决是无框幽灵。
+// 故本文件的核心断言不是字面值，而是**跨文件同值**：聊天工具条两键的尺寸/圆角/
+// 组距必须等于 reader.css 里 header 三键的同项——任一侧改了值，一致性就断了，
+// 测试报红。
+// 形状同 chat-header-compact-spacing：直接断言 CSS/模板文本，防「改一半」——
+//   1. 模板改了、CSS 留着 .chat-toolbar-btn 死规则：文字键形态回流；
+//   2. 只改历史键、漏了组距/描边：五键不成一致；
+//   3. 圆角/键高各写各的字面值：必须与 header 三键同源同值；
 //   4. 写死色值：暗色主题破相（token 在 reader-gate.css 两主题定义）。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,8 +23,10 @@ import { describe, expect, it } from "vitest";
 const ROOT = process.cwd();
 const CHAT_CSS = "extension/entry/styles/reader-chat.css";
 const READER_CSS = "extension/entry/styles/reader.css";
+const CHAT_TEMPLATE = "extension/reader/chat-template.ts";
+const HEADER_ICONS = "extension/ui/reading-header-icons.ts";
 
-function readCss(path: string): string {
+function readSrc(path: string): string {
   return readFileSync(join(ROOT, path), "utf8");
 }
 
@@ -35,55 +37,27 @@ function ruleBody(css: string, selector: string): string {
   return match![1];
 }
 
-function bodyOfRule(rule: string): string {
-  const match = rule.match(/\{([^}]*)\}/);
-  expect(match, `规则应有声明块：${rule}`).not.toBe(null);
-  return match![1];
-}
-
 function declaration(block: string, prop: string): string {
   const match = block.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+);`));
   expect(match, `声明块里应有 ${prop} 声明：${block.trim()}`).not.toBe(null);
   return match![1].trim();
 }
 
-// 同一条选择器可能命中多条规则（两键共用的选择器组 + 各自的独立规则），
-// 取第一条声明了该属性的——「组规则在前、个别规则在后」是本文件的书写顺序。
-function declarationFromRules(css: string, selector: string, prop: string): string {
-  const bodies = [...css.matchAll(new RegExp(`${selector}\\s*\\{([^}]*)\\}`, "g"))].map((m) => m[1]);
-  for (const body of bodies) {
-    const match = body.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+);`));
-    if (match) {
-      return match[1].trim();
-    }
-  }
-  expect.fail(`命中 ${selector} 的规则里应有 ${prop} 声明`);
-}
-
 function chatHeaderBlock(): string {
-  return ruleBody(readCss(CHAT_CSS), "\\.biliscript-reading-chat \\.chat-header");
+  return ruleBody(readSrc(CHAT_CSS), "\\.biliscript-reading-chat \\.chat-header");
 }
 
-// 两键共用的框规则（选择器组 + 声明块）。
-function headerBoxRule(): string {
-  const match = readCss(CHAT_CSS).match(
-    /\.biliscript-reading-chat \.chat-header \.chat-toolbar-btn,\s*\.biliscript-reading-chat \.chat-header \.chat-icon-btn \{[^}]*\}/
-  );
-  expect(match, "reader-chat.css 中应有头部两键共用的框规则").not.toBe(null);
-  return match![0];
+// 对话头部图标键的覆写规则（尺寸/内边距/颜色）。
+function headerIconBtnBlock(): string {
+  return ruleBody(readSrc(CHAT_CSS), "\\.biliscript-reading-chat \\.chat-header \\.chat-icon-btn");
 }
 
-// 面板 header 三键的框基准（reader.css 基础段）。
+// 面板 header 三键的基准（reader.css 基础段）。
 function panelHeaderKeyBlock(): string {
-  return ruleBody(readCss(READER_CSS), "\\.biliscript-reading-icon-btn");
+  return ruleBody(readSrc(READER_CSS), "\\.biliscript-reading-icon-btn");
 }
 
-// 面板文字动作按钮的框基准（reader.css 基础段：1px 边框 + surface 底 + 15px 字）。
-function panelActionButtonBlock(): string {
-  return ruleBody(readCss(READER_CSS), "\\.biliscript-reading-actions button");
-}
-
-describe("对话头部工具条的按钮框", () => {
+describe("对话头部工具条与面板 header 三键同构（无框幽灵图标键）", () => {
   it("容器退回纯布局行，不再自带框（否则又成了「一个槽装两键」）", () => {
     const block = chatHeaderBlock();
 
@@ -92,46 +66,67 @@ describe("对话头部工具条的按钮框", () => {
     expect(block).not.toMatch(/background:/);
   });
 
-  it("两键各一个框，选择器组同时命中文字键与图标键", () => {
-    const rule = headerBoxRule();
+  it("模板：「历史对话」是图标键（chat-icon-btn + svg），不再是文字键", () => {
+    const tpl = readSrc(CHAT_TEMPLATE);
 
-    expect(rule).toMatch(/\.chat-header \.chat-toolbar-btn/);
-    expect(rule).toMatch(/\.chat-header \.chat-icon-btn/);
-    expect(rule).toMatch(/border:\s*1px solid var\(--biliscript-reader-border\);/);
-    expect(rule).toMatch(/background:\s*var\(--biliscript-reader-surface\);/);
+    expect(tpl).not.toMatch(/chat-toolbar-btn/);
+    const historyBtn = tpl.match(/id="\$\{ids\.readingChatHistoryBtn\}"[^>]*>([\s\S]*?)<\/button>/);
+    expect(historyBtn, "模板里应有历史对话按钮").not.toBe(null);
+    expect(historyBtn![0]).toMatch(/class="chat-icon-btn"/);
+    expect(historyBtn![1]).toMatch(/<svg/);
+    // 图标键没有可见文字，可访问名必须由 aria-label 承担
+    expect(historyBtn![0]).toMatch(/aria-label="历史对话"/);
   });
 
-  it("圆角与键高同面板 header 三键（reader.css 的「8px = 一切框」/ 34px）", () => {
-    const panelKey = panelHeaderKeyBlock();
-    const box = bodyOfRule(headerBoxRule());
+  it("文字键形态整族退役：reader-chat.css 不再有任何 .chat-toolbar-btn 规则", () => {
+    expect(readSrc(CHAT_CSS)).not.toMatch(/\.chat-toolbar-btn/);
+  });
 
-    expect(declaration(panelKey, "border-radius")).toBe("8px");
+  it("键尺寸同面板 header 三键（34 × 34）", () => {
+    const panelKey = panelHeaderKeyBlock();
+    const box = headerIconBtnBlock();
+
+    expect(declaration(panelKey, "width")).toBe("34px");
     expect(declaration(panelKey, "height")).toBe("34px");
-    expect(declaration(box, "border-radius")).toBe(declaration(panelKey, "border-radius"));
+    expect(declaration(box, "width")).toBe(declaration(panelKey, "width"));
     expect(declaration(box, "height")).toBe(declaration(panelKey, "height"));
   });
 
-  it("图标键是方键：宽高同面板 header 三键（34 × 34）", () => {
+  it("圆角同面板 header 三键（8px，继承自基础段 .chat-icon-btn）", () => {
     const panelKey = panelHeaderKeyBlock();
-    const iconWidth = declarationFromRules(
-      readCss(CHAT_CSS),
-      "\\.biliscript-reading-chat \\.chat-header \\.chat-icon-btn",
-      "width"
-    );
+    const base = ruleBody(readSrc(CHAT_CSS), "\\.biliscript-reading-chat \\.chat-icon-btn");
 
-    expect(declaration(panelKey, "width")).toBe("34px");
-    expect(iconWidth).toBe(declaration(panelKey, "width"));
+    expect(declaration(panelKey, "border-radius")).toBe("8px");
+    expect(declaration(base, "border-radius")).toBe(declaration(panelKey, "border-radius"));
   });
 
-  it("文字键横向内边距同面板文字动作按钮（不另起一套字面值）", () => {
-    const panelActionPadding = declaration(panelActionButtonBlock(), "padding").split(/\s+/);
-    const toolbarPadding = declaration(
-      ruleBody(readCss(CHAT_CSS), "\\.biliscript-reading-chat \\.chat-header \\.chat-toolbar-btn"),
-      "padding"
-    ).split(/\s+/);
+  it("无框幽灵：头部图标键规则块不声明边框与底色（悬停底由 .chat-icon-btn:hover 承担）", () => {
+    const box = headerIconBtnBlock();
 
-    expect(panelActionPadding[1]).toBe("14px");
-    expect(toolbarPadding[toolbarPadding.length - 1]).toBe(panelActionPadding[1]);
+    expect(box).not.toMatch(/border:/);
+    expect(box).not.toMatch(/background:/);
+    expect(declaration(panelHeaderKeyBlock(), "border")).toBe("0");
+  });
+
+  it("图标规格同 header 三键：18px + stroke 1.8（READING_HEADER_ICONS 同源）", () => {
+    const chatSvg = ruleBody(
+      readSrc(CHAT_CSS),
+      "\\.biliscript-reading-chat \\.chat-header \\.chat-icon-btn svg"
+    );
+    const panelSvg = ruleBody(readSrc(READER_CSS), "\\.biliscript-reading-icon-btn svg");
+
+    expect(declaration(chatSvg, "width")).toBe(declaration(panelSvg, "width"));
+    expect(declaration(chatSvg, "stroke-width")).toBe("1.8");
+    // header 三键图标字面量同步用 1.8，防两侧各写各的
+    expect(readSrc(HEADER_ICONS)).toMatch(/stroke-width="1\.8"/);
+  });
+
+  it("组距同 header 三键（面板内 .biliscript-reading-actions 的有效 gap），且无负 margin 收紧规则", () => {
+    // 生效值在面板作用域覆写段（基础段 8px 被 #biliscript-reading-view 覆写为 10px）
+    const actionsBlock = ruleBody(readSrc(READER_CSS), "#biliscript-reading-view \\.biliscript-reading-actions");
+
+    expect(declaration(chatHeaderBlock(), "gap")).toBe(declaration(actionsBlock, "gap"));
+    expect(readSrc(CHAT_CSS)).not.toMatch(/\.chat-icon-btn\s*\+\s*\.chat-icon-btn/);
   });
 
   it("行仍贴内容宽右对齐（flex 列里 align-self 默认 stretch）", () => {
@@ -143,6 +138,6 @@ describe("对话头部工具条的按钮框", () => {
 
   it("配色只走 token，不写死色值（暗色主题自动跟随）", () => {
     expect(chatHeaderBlock()).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(/);
-    expect(headerBoxRule()).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(/);
+    expect(headerIconBtnBlock()).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(/);
   });
 });
