@@ -80,6 +80,23 @@ _Avoid_: 把 `readerTheme` 当主题族、用「主题」单字同时指两轴
 代码名：`readerTheme` / `normalizeReaderTheme` / `readingTheme` / `setTheme`
 _Avoid_: 用 `readerTheme` 表示主题族、把 `flyme` 当第三档明暗
 
+### 面板控件
+
+**图标键**:
+文摘面板里无框、纯图标的按钮统称：存在感只由悬停反馈底色与点按缩放承担（`border: 0`）。面板动作键（主题切换 / 设置 / 退出）、标签行对话工具键（历史对话 / 开启新会话）、字幕工具条复制/导出、金句卡与 AI 对话消息区的复制键同属这一视觉语言；带框文字键（`mini-btn` 母题）不是图标键。
+代码名：`.biliscript-reading-icon-btn`（34×34 母题）/ `.chat-msg-copy-btn`（32×32）/ `.biliscript-reading-ov-quote-copy`（28×28）
+_Avoid_: 把带框文字键与图标键混为一谈、给图标键加回边框
+
+**复制键**:
+把一段文本写入剪贴板的图标键：成功后状态行出「…已复制到剪贴板。」（5s 自动收起），失败分支静默（三处一致）。三处——字幕工具条（复制字幕，transcript 纯文本）、金句卡（复制该金句，文本形如 `时刻 「金句」`）、AI 对话消息区（复制回复，回复原文）。
+代码名：`copySubtitleTranscript` / `data-overview-action="copy-quote"`（`copyQuoteToClipboard`）/ `chat-msg-copy-btn`；复制图标常量单源 `ui/reading-icons.ts` 的 `READING_COPY_ICON`
+_Avoid_: 三处各存一份复制图标字面量、各配一套尺寸/描边
+
+**悬停反馈**:
+图标键在指针悬停或键盘焦点下显示的底色反馈：令牌 `--biliscript-reader-fill-hover`（亮色面黑 6%、暗色面白 10% 一档半透明，四色板各一份）。可聚焦的图标键 `:hover` 与 `:focus-visible` 同底；不可聚焦的复制键（金句卡的 `span[role=button]`）只做 hover。
+代码名：`--biliscript-reader-fill-hover` / `:hover` / `:focus-visible`（reader-gate.css 四色板段）
+_Avoid_: 用 surface-2 换底充当悬停反馈（层级差太弱）、只做 hover 不做键盘焦点
+
 ### 总结流程
 
 **成稿笔记**:

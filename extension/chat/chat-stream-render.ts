@@ -32,6 +32,8 @@ import {
 //（懒 chunk，见 ui/lazy-mermaid 头注）。
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
+import { READING_COPY_ICON } from "../ui/reading-icons.js";
+import { setMessage } from "../core/ui-status.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
 import { SEARCH_PREVIEW_MAX_CHARS, type ChatSearchSource, type HistorySearchTurn } from "./search-sources.js";
 
@@ -1001,15 +1003,11 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     copyBtn.className = "chat-msg-copy-btn";
     copyBtn.setAttribute("aria-label", "复制回复");
     copyBtn.setAttribute("title", "复制回复");
-    copyBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-        <rect x="9" y="9" width="10" height="10" rx="2"></rect>
-        <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path>
-      </svg>
-    `;
+    copyBtn.innerHTML = READING_COPY_ICON;
     copyBtn.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(pasteReadyRaw);
+        setMessage("回复已复制到剪贴板。");
         copyBtn.disabled = true;
         window.setTimeout(() => {
           copyBtn.disabled = false;

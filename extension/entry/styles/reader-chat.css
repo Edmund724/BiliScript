@@ -462,7 +462,7 @@
   width: 32px;
   height: 32px;
   padding: 0;
-  border: 1px solid var(--biliscript-reader-border);
+  border: 0;
   border-radius: 8px;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-muted);
@@ -470,7 +470,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .biliscript-reading-chat .chat-msg-copy-btn:active {
@@ -478,9 +478,13 @@
 }
 
 .biliscript-reading-chat .chat-msg-copy-btn:hover {
-  background: var(--biliscript-reader-surface-2);
+  background: var(--biliscript-reader-fill-hover);
   color: var(--biliscript-reader-text);
-  border-color: var(--biliscript-reader-surface-3);
+}
+
+.biliscript-reading-chat .chat-msg-copy-btn:focus-visible {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
 }
 
 .biliscript-reading-chat .chat-msg-copy-btn:disabled {

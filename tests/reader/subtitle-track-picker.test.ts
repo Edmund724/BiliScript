@@ -229,8 +229,16 @@ describe("08 选轨控件：模板与落点", () => {
     expect(pickerIndex).toBeLessThan(after.findIndex((node) => node.id === ids.readingCopySubtitleBtn));
     // 其余工具条控件没被顶掉
     expect(bar.querySelector(".biliscript-reading-search-input")).not.toBeNull();
-    expect(bar.textContent).toContain("复制");
-    expect(bar.textContent).toContain("导出");
+    // 复制/导出是图标键（文字 mini-btn 已图标化）：class 走 icon-btn 母题、
+    // 作用由 title 文字提示、图标在键内（不再有可见文字）
+    const copyBtn = bar.querySelector<HTMLButtonElement>(`#${ids.readingCopySubtitleBtn}`);
+    const exportBtn = bar.querySelector<HTMLButtonElement>(`#${ids.readingExportSubtitleBtn}`);
+    expect(copyBtn?.className).toBe("biliscript-reading-icon-btn");
+    expect(exportBtn?.className).toBe("biliscript-reading-icon-btn");
+    expect(copyBtn?.getAttribute("title")).toBe("复制字幕");
+    expect(exportBtn?.getAttribute("title")).toBe("导出字幕");
+    expect(copyBtn?.querySelector("svg")).not.toBeNull();
+    expect(exportBtn?.querySelector("svg")).not.toBeNull();
   });
 
   it("trigger 的可访问名带字段名与当前值，控件按 aria-label 建壳（Q19）", () => {

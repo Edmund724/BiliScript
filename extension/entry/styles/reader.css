@@ -208,7 +208,13 @@
 }
 
 .biliscript-reading-icon-btn:hover {
-  background: var(--biliscript-reader-surface-2, #f3f4f6);
+  background: var(--biliscript-reader-fill-hover, rgba(0, 0, 0, 0.06));
+}
+
+/* 键盘焦点与悬停同底：focus-visible 只落在键盘导航（鼠标点击不触发），
+ * 与 hover 共用 fill-hover 令牌，不另立反馈档。 */
+.biliscript-reading-icon-btn:focus-visible {
+  background: var(--biliscript-reader-fill-hover, rgba(0, 0, 0, 0.06));
 }
 
 /* 主题切换按钮点按反馈（ui-renderer 300ms 即摘）：accent-soft 软底 + accent 字，
@@ -1402,7 +1408,7 @@
 }
 
 .biliscript-reading-ov-quote-copy:hover {
-  background: var(--biliscript-reader-surface-3);
+  background: var(--biliscript-reader-fill-hover);
   color: var(--biliscript-reader-accent);
 }
 

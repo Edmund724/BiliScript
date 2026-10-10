@@ -97,7 +97,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
  * 不依赖书写顺序。flyme 浅色块按 family 匹配，同样命中 flyme 的明暗两档：
  * 它同时是 flyme 动效曲线的唯一来源，flyme 深色块只覆写色板、动效从它继承。
  * 新增 card（白卡片）/faint（三级文字）/accent-ink（accent 实底上的文字）/
- * pill-bg（分段控件底）/highlight（提示横幅底，PR3 转写横幅消费）。
+ * pill-bg（分段控件底）/highlight（提示横幅底，PR3 转写横幅消费）/
+ * fill-hover（图标键悬停/焦点反馈底）。
  * 时间戳 pill 母题消费 accent-soft 底 + accent 字。
  * 后补组件级 token：mask-bg（弹层遮罩底，四色板共用同一个深纱，只在基础块
  * 定义一次）/on-fill（实底强调与警示按钮上的文字，四色板恒白——与两个深色
@@ -108,6 +109,9 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-surface: #fdfbf7;
   --biliscript-reader-surface-2: #f0e9df;
   --biliscript-reader-surface-3: #e7dfd4;
+  /* 悬停反馈底（图标键 :hover / :focus-visible）：黑/白半透明一档，四色板
+   * 各给一份（亮面黑 6%、暗面白 10%）。比 surface-2 换底更可感知。 */
+  --biliscript-reader-fill-hover: rgba(0, 0, 0, 0.06);
   --biliscript-reader-card: #ffffff;
   --biliscript-reader-border: #e7dfd4;
   --biliscript-reader-text: #2b2620;
@@ -166,6 +170,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   --biliscript-reader-surface: #0f172a;
   --biliscript-reader-surface-2: #132038;
   --biliscript-reader-surface-3: #1a2a46;
+  --biliscript-reader-fill-hover: rgba(255, 255, 255, 0.1);
   --biliscript-reader-card: #132038;
   --biliscript-reader-border: rgba(148, 163, 184, 0.22);
   --biliscript-reader-text: #e5eefb;
@@ -194,6 +199,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
    * 再深一档 #e9ebef 作选中/按压井（推导值，同族中性灰）。 */
   --biliscript-reader-surface-2: #f0f1f3;
   --biliscript-reader-surface-3: #e9ebef;
+  --biliscript-reader-fill-hover: rgba(0, 0, 0, 0.06);
   --biliscript-reader-card: #ffffff;
   --biliscript-reader-border: #e3e5ea;
   /* 文字三级：主 #17181a（文档中性灰，在 #f2f3f5 上 16.0:1）/ 次 #666a71
@@ -235,6 +241,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
   --biliscript-reader-surface: #101114;
   --biliscript-reader-surface-2: #1b1c20;
   --biliscript-reader-surface-3: #222327;
+  --biliscript-reader-fill-hover: rgba(255, 255, 255, 0.1);
   --biliscript-reader-card: #1b1c20;
   --biliscript-reader-border: rgba(255, 255, 255, 0.12);
   --biliscript-reader-text: #ecedef;

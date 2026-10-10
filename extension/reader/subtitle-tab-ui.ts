@@ -75,6 +75,7 @@ import { isProgrammaticScrolling, ids } from "./state.js";
 import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
+import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js";
 // 副轨（双语第二路轨）的目标解析 + 装载事务（唯一落点）：本叶子只做 DOM 投影与在飞禁用。
 import {
   ensureSecondarySubtitleLoaded,
@@ -138,8 +139,8 @@ export function buildSubtitleTabBodyHtml(): string {
                 class="biliscript-reading-track-select"
                 aria-label="${SUBTITLE_TRACK_FIELD_LABEL}"
               ></select>
-              <button id="${ids.readingCopySubtitleBtn}" type="button" class="biliscript-reading-mini-btn">复制</button>
-              <button id="${ids.readingExportSubtitleBtn}" type="button" class="biliscript-reading-mini-btn">导出</button>
+              <button id="${ids.readingCopySubtitleBtn}" type="button" class="biliscript-reading-icon-btn" title="复制字幕" aria-label="复制字幕">${READING_COPY_ICON}</button>
+              <button id="${ids.readingExportSubtitleBtn}" type="button" class="biliscript-reading-icon-btn" title="导出字幕" aria-label="导出字幕">${READING_DOWNLOAD_ICON}</button>
             </div>
 
             <!-- 转写中间态（PR3）：显隐与文案由 reader/transcribe-banner.ts 按

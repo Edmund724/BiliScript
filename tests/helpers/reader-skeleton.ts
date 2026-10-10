@@ -176,13 +176,17 @@ export function mountReaderSkeleton(ids: typeof readerIds) {
   const copySubtitleBtn = doc.createElement("button");
   copySubtitleBtn.type = "button";
   copySubtitleBtn.id = ids.readingCopySubtitleBtn;
-  copySubtitleBtn.className = "biliscript-reading-mini-btn";
+  copySubtitleBtn.className = "biliscript-reading-icon-btn";
+  copySubtitleBtn.title = "复制字幕";
+  copySubtitleBtn.setAttribute("aria-label", "复制字幕");
   subToolbar.appendChild(copySubtitleBtn);
 
   const exportSubtitleBtn = doc.createElement("button");
   exportSubtitleBtn.type = "button";
   exportSubtitleBtn.id = ids.readingExportSubtitleBtn;
-  exportSubtitleBtn.className = "biliscript-reading-mini-btn";
+  exportSubtitleBtn.className = "biliscript-reading-icon-btn";
+  exportSubtitleBtn.title = "导出字幕";
+  exportSubtitleBtn.setAttribute("aria-label", "导出字幕");
   subToolbar.appendChild(exportSubtitleBtn);
 
   // PR3 转写中间态横幅（默认隐藏）+ 标题/副文案 + 进度行

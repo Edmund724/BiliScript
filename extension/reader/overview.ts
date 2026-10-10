@@ -45,6 +45,7 @@ import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outl
 import type { AnalysisChapter, AnalysisQuote, OverviewAnalysis } from "../ai/analysis.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
+import { READING_COPY_ICON } from "../ui/reading-icons.js";
 import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
 import { jumpReadingTarget } from "./sync.js";
@@ -660,7 +661,7 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
       <span class="biliscript-reading-ov-quote-text">${escapeHtml(content)}</span>
       <span class="biliscript-reading-ov-quote-foot">
         <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
-        <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path></svg></span>
+        <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句">${READING_COPY_ICON}</span>
       </span>
     </button>
   `;
