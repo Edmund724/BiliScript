@@ -243,9 +243,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // =========================================================================
   // 思考块标题图标（2026-09 用户决议）：线性四角星，与 ui/icons.ts 的
   // sparkles 同族（24 视框 / stroke 1.8 / currentColor，14px 渲染描边约 1px），
-  // 不引外部资源。纯装饰，随 svg 自带 aria-hidden。
+  // 不引外部资源。纯装饰，随 svg 自带 aria-hidden。星形在视框内几何居中
+  // （2026-11 与空态欢迎区图标一并修正：原路径视觉中心比视框中心高 1.6px）。
   const THINKING_ICON_SVG =
-    '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6l1.84 4.96 4.96 1.84-4.96 1.84L12 17.2l-1.84-4.96L5.2 10.4l4.96-1.84L12 3.6z"/></svg>';
+    '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.2l1.84 4.96 4.96 1.84-4.96 1.84L12 18.8l-1.84-4.96L5.2 12l4.96-1.84L12 5.2z"/></svg>';
 
   function createThinkingNode(assistantNode: HTMLDivElement | null): HTMLDivElement | null {
     if (!assistantNode) {

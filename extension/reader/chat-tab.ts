@@ -1071,6 +1071,11 @@ function autosizeInput(): void {
   const naturalHeight = els.input.scrollHeight;
   if (naturalHeight > 0) {
     els.input.style.minHeight = `${Math.min(naturalHeight, INPUT_MAX_HEIGHT)}px`;
+    // 滚动条收口：未封顶时 overflow-y 恒 hidden——「内容刚好等于盒高」的边界
+    // （line-height 1.45 亚像素行高，实测两行整）会被 Chromium 判出 1px 溢出、
+    // 闪出原生滚动条（2026-11 用户报障：两行出滚动条、三行以上又没了）。封顶
+    // 320 后才放行 auto：超长文本必须滚得动，否则看不见底。
+    els.input.style.overflowY = naturalHeight > INPUT_MAX_HEIGHT ? "auto" : "hidden";
   }
   // 发送受理/重启会话等路径是程序化清输入框（不触发 input 事件），发送键禁用
   // 态统一在每次自适应时同步（autosizeInput 是所有这些路径的公共尾部）。

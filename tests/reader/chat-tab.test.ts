@@ -1389,6 +1389,22 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
     input.dispatchEvent(new Event("input"));
     expect(input.style.minHeight).toBe("56px");
   });
+
+  it("未封顶 overflow-y hidden（两行边界不闪滚动条）；封顶 320 才放行 auto", async () => {
+    const input = await mountChat();
+
+    // 两行整：内容高 ≈ 盒高，亚像素行高下 Chromium 会判 1px 溢出——必须 hidden
+    Object.defineProperty(input, "scrollHeight", { value: 48, configurable: true });
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("48px");
+    expect(input.style.overflowY).toBe("hidden");
+
+    // 封顶后超长文本必须滚得动
+    Object.defineProperty(input, "scrollHeight", { value: 500, configurable: true });
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("320px");
+    expect(input.style.overflowY).toBe("auto");
+  });
 });
 
 // 「每敲一键就长高一行」bug（2026-11 用户报障）的 JS 侧回归。

@@ -1411,7 +1411,11 @@
  * 自己放大 4px，下一个 input 事件再把放大后的高读回来（headless Chromium 实测，
  * .scratch/input-autosize-probe：旧实现逐键 +4px，200 字时封顶还多出内边距）。
  * `box-sizing: border-box` 是 CSS 侧的必要不变量：两个量从此同为 padding-box 高，
- * 上限也都按屏上盒高取值（320），不再额外叠加内边距。 */
+ * 上限也都按屏上盒高取值（320），不再额外叠加内边距。
+ * `overflow-y: hidden` 是滚动条侧的必要不变量：行高 1.45 是亚像素值，「内容刚
+ * 好等于盒高」的边界（实测两行整）会被 Chromium 判出 1px 溢出、闪出原生滚动条
+ * （用户报障：两行出滚动条、三行以上又没了）。封顶 320 后由 autosizeInput 把
+ * overflow-y 放行成 auto，超长文本才滚得动。 */
 .biliscript-reading-chat #biliscript-reading-chat-input {
   flex: 1;
   box-sizing: border-box;
@@ -1425,6 +1429,7 @@
   line-height: 1.45;
   resize: none;
   outline: none;
+  overflow-y: hidden;
 }
 
 

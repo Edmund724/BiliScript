@@ -67,4 +67,12 @@ describe("输入框自适应高度：scrollHeight 与 min-height 同坐标系", 
     expect(source).not.toMatch(/INPUT_FOCUS_MIN_HEIGHT/);
     expect(source).not.toMatch(/document\.activeElement === els\.input/);
   });
+
+  it("滚动条基线是 hidden：两行边界不闪原生滚动条（封顶后 JS 才放行 auto）", () => {
+    const block = ruleBody(readChatCss(), INPUT_SELECTOR);
+
+    // overflow-y: hidden 是CSS 侧基线；封顶 320 后由 autosizeInput 写行内
+    // overflow-y: auto，超长文本才滚得动。
+    expect(declarationBody(block, "overflow-y")).toBe("hidden");
+  });
 });
