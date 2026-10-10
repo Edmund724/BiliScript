@@ -1,18 +1,16 @@
 // tests/reader/chat-header-context-chip-removed.test.ts
-// 2026-10 用户决议：AI 对话 tab 头部不再显示视频标题——承载标题的 chip
-//（.chat-context-chip / readingChatContextChip）整体删除，头部只剩「历史对话」与
-// 「新会话（+）」两个操作键（两者位置不变，仍在右缘）。
+// AI 对话 tab 不显示视频标题——承载标题的 chip
+//（.chat-context-chip / readingChatContextChip）整体删除。
 //
 // 四半守卫（防「半删」留孤儿，形状同 chat-header-refresh-removed）：
-// - 模板（chat-template）：头部子元素恰为 [历史对话, 新会话]，标题 chip 不再渲染；
+// - 模板（chat-template）：标题 chip 不再渲染（「历史对话 / 新会话」两键已并入
+//   壳标签行，结构契约见 chat-tools-in-tabs-row.test.ts）；
 // - id 契约表（shared/dom-ids）：readingChatContextChip 不再暴露；
 // - 接线（reader/chat-tab + chat/context-load）：不再 getElementById 该节点、不再把
 //   chip 注入上下文编排壳——删模板却留着 getElementById + addEventListener 会在激活
 //   时抛 TypeError（真实壳激活回归由 tests/reader/chat-tab.test.ts 兜底）；
 // - CSS（reader-chat.css）：.chat-context-chip 规则连同 hover/active/mismatch/disabled
-//   变体一并移除（唯一消费方已不存在），头部工具条改为右对齐——原先靠 chip 的
-//   flex:1 把两个操作键顶到右缘，chip 删掉后必须显式接住，否则「正常保留」的两键会
-//   跳到左缘。
+//   变体一并移除（唯一消费方已不存在）。
 // 不在删除范围：loadContextState 的上下文装载与 forceRefresh 强刷链（「+」新会话键
 // 共用），故本文件不对它设断言。
 
@@ -39,14 +37,7 @@ beforeEach(async () => {
 });
 
 describe("对话头部标题 chip 删除（模板）", () => {
-  it("头部只剩历史对话 / 新会话，标题 chip 不再渲染", () => {
-    const header = document.querySelector(`#${ids.readingChatRoot} > .chat-header`);
-
-    expect(header).not.toBe(null);
-    expect(Array.from(header!.children).map((node) => (node as HTMLElement).id)).toEqual([
-      ids.readingChatHistoryBtn,
-      ids.readingChatNewBtn
-    ]);
+  it("标题 chip 不再渲染", () => {
     expect(document.getElementById(CHIP_ID)).toBe(null);
     expect(document.querySelector(".chat-context-chip")).toBe(null);
   });
@@ -70,11 +61,5 @@ describe("对话头部标题 chip 删除（样式）", () => {
     const css = readFileSync(join(ROOT, CHAT_CSS), "utf8");
 
     expect(css).not.toContain("chat-context-chip");
-  });
-
-  it("头部工具条右对齐（两个操作键位置不变）", () => {
-    const css = readFileSync(join(ROOT, CHAT_CSS), "utf8");
-
-    expect(css).toMatch(/\.biliscript-reading-chat \.chat-header \{[^}]*justify-content: flex-end;/s);
   });
 });

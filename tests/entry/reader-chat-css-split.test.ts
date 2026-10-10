@@ -21,7 +21,7 @@ const CHAT_TAB = "extension/reader/chat-tab.ts";
 // 不用裸串 biliscript-reading-chat——留守壳分区的 intent 卡（biliscript-reading-chat-intent-*）
 // 与三 tab 共享滚动条（.biliscript-reading-chat .chat-messages 滚动条）合法引用同前缀。
 const CHAT_MARKERS = [
-  "chat-header",
+  "chat-hero",
   "chat-model-panel",
   "chat-thinking",
   "chat-suggestions",

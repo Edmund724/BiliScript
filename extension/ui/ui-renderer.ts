@@ -96,11 +96,33 @@ export function buildUiHtml(): string {
               </section>
             </section>
 
-            <!-- 标签页分段控件（凹槽 + 卡片，12px 槽 / 8px 项；active 态 = accent 实底，见 prototype/direction-approved.md） -->
-            <div class="biliscript-reading-tabs" role="tablist" aria-label="Script 标签">
-              <button id="${ids.readingTabSubtitle}" type="button" class="biliscript-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
-              <button id="${ids.readingTabOverview}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">概览</button>
-              <button id="${ids.readingTabChat}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">AI 对话</button>
+            <!-- 标签行（方案对比 .scratch/chat-top-layout 选定「头部归并」）：分段控件 +
+                 对话工具键（历史对话 / 新会话）同一行——原对话 tab 内的 .chat-header
+                 工具条整行退役，省出的纵高让给消息区。两键是壳节点（id 不变，对话组合
+                 根照常 byId 接线），外观直接复用面板 header 的无框幽灵键
+                 （.biliscript-reading-icon-btn），不依赖按需装载的对话分区样式；
+                 只在 AI 对话 tab 激活时可见（reader.css 的 :has 规则）。 -->
+            <div class="biliscript-reading-tabs-row">
+              <div class="biliscript-reading-tabs" role="tablist" aria-label="Script 标签">
+                <button id="${ids.readingTabSubtitle}" type="button" class="biliscript-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
+                <button id="${ids.readingTabOverview}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">概览</button>
+                <button id="${ids.readingTabChat}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">AI 对话</button>
+              </div>
+              <div class="biliscript-reading-tabs-tools">
+                <button id="${ids.readingChatHistoryBtn}" type="button" class="biliscript-reading-icon-btn" title="历史对话" aria-label="历史对话">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                    <path d="M3 3v5h5"></path>
+                    <path d="M12 7v5l4 2"></path>
+                  </svg>
+                </button>
+                <button id="${ids.readingChatNewBtn}" type="button" class="biliscript-reading-icon-btn" title="开启新会话" aria-label="开启新会话">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                    <path d="M12 5v14"></path>
+                    <path d="M5 12h14"></path>
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <!-- 字幕 tab body：工具条/转写横幅/列表容器/Follow 模板与交互绑定

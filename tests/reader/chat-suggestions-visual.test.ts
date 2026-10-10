@@ -26,6 +26,33 @@ function ruleBody(selector: string): string {
 }
 
 describe("建议问题区块（参考抖音）", () => {
+  it("空态欢迎区在消息区居中（margin:auto 双居中），不贴底", () => {
+    const block = ruleBody("\\.biliscript-reading-chat \\.chat-suggestions");
+
+    expect(block).toMatch(/margin:\s*auto;/);
+    expect(block).not.toMatch(/margin-top:\s*auto;/);
+  });
+
+  it("欢迎区主角：accent-soft 圆底图标 + 17px/600 引导语 + faint 说明行", () => {
+    const icon = ruleBody("\\.biliscript-reading-chat \\.chat-hero-icon");
+    expect(icon).toMatch(/border-radius:\s*50%;/);
+    expect(icon).toMatch(/background:\s*var\(--biliscript-reader-accent-soft\);/);
+    expect(icon).toMatch(/color:\s*var\(--biliscript-reader-accent\);/);
+
+    const title = ruleBody("\\.biliscript-reading-chat \\.chat-hero-title");
+    expect(title).toMatch(/font-size:\s*17px;/);
+    expect(title).toMatch(/font-weight:\s*600;/);
+
+    expect(ruleBody("\\.biliscript-reading-chat \\.chat-hero-sub")).toMatch(
+      /color:\s*var\(--biliscript-reader-faint\);/
+    );
+  });
+
+  it("建议组随欢迎区居中、组内左对齐贴内容宽", () => {
+    expect(ruleBody("\\.biliscript-reading-chat \\.chat-hero")).toMatch(/align-items:\s*center;/);
+    expect(ruleBody("\\.biliscript-reading-chat \\.chat-hero-sugs")).toMatch(/align-items:\s*flex-start;/);
+  });
+
   it("chip 是填充式大圆角块：无描边、surface-3 底、14px 圆角、12/16 内边距", () => {
     const block = ruleBody("\\.biliscript-reading-chat \\.chat-chip");
 

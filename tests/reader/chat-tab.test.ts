@@ -211,11 +211,12 @@ describe("组合根装配与懒加载边界", () => {
     expect(modelSelect.disabled).toBe(false);
     // multi-model-catalog：选项值为「平台 id\u0001模型 id」复合值（选中回落首平台首模型）
     expect(modelSelect.value).toBe("p1\u0001模型一");
-    // - 上下文装载（进程内直读 state.clip）→ 主上下文落到视频标题（标题不再上屏：
-    //   头部标题 chip 已删，2026-10 用户决议）
+    // - 上下文装载（进程内直读 state.clip）→ 主上下文落到视频标题（标题不再上屏）
     expect(chatSessionState.contextData?.title).toContain("测试视频");
-    const header = document.querySelector(`#${ids.readingChatRoot} > .chat-header`);
-    expect(Array.from(header!.children).map((node) => (node as HTMLElement).id)).toEqual([
+    // - 工具键（历史对话 / 新会话）在壳标签行右侧（头部归并，契约见
+    //   chat-tools-in-tabs-row.test.ts）
+    const tools = document.querySelector(".biliscript-reading-tabs-tools");
+    expect(Array.from(tools!.children).map((node) => (node as HTMLElement).id)).toEqual([
       ids.readingChatHistoryBtn,
       ids.readingChatNewBtn
     ]);

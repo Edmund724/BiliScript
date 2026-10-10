@@ -1,18 +1,18 @@
 // tests/reader/chat-header-refresh-removed.test.ts
-// 2026-09 用户决议：对话头部的刷新键（↻，biliscript-reading-chat-refresh-btn）连同
-// 只服务它的后端（点击绑定 → refreshContextManually → 刷新键 loading 态）一并删除。
+// 对话区的刷新键（↻，biliscript-reading-chat-refresh-btn）连同只服务它的后端
+//（点击绑定 → refreshContextManually → 刷新键 loading 态）已删除。
 //
 // 三半守卫（防「半删」留孤儿）：
-// - 模板（chat-template）：头部工具条只剩历史对话 / 新会话（标题 chip 后于本键删除，
-//   见 chat-header-context-chip-removed.test.ts），刷新键不再渲染；
+// - 模板：对话模板与壳模板都不渲染刷新键（「历史对话 / 新会话」两键在壳标签行，
+//   结构契约见 chat-tools-in-tabs-row.test.ts）；
 // - id 契约表（shared/dom-ids）：readingChatRefreshBtn 不再暴露；
 // - CSS（reader-chat.css）：该键专用的 .is-loading 转圈规则与其 @keyframes 一并
 //   移除——唯一消费方已不存在。
 // 删模板却留着 chat-tab 的 getElementById + addEventListener 会在激活时抛
 // TypeError：该回归由 tests/reader/chat-tab.test.ts 的真实壳激活用例兜底，本文件
 // 不重复挂载壳。
-// 不在删除范围：loadContextState 的 forceRefresh 强刷链（「+」新会话键与上下文
-// chip 点击共用），故本文件不对它设断言。
+// 不在删除范围：loadContextState 的 forceRefresh 强刷链（「+」新会话键共用），
+// 故本文件不对它设断言。
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -35,15 +35,11 @@ beforeEach(async () => {
 });
 
 describe("对话头部刷新键删除（模板）", () => {
-  it("头部工具条只剩历史对话 / 新会话，刷新键不再渲染", () => {
-    const header = document.querySelector(`#${ids.readingChatRoot} > .chat-header`);
-
-    expect(header).not.toBe(null);
-    expect(Array.from(header!.children).map((node) => (node as HTMLElement).id)).toEqual([
-      ids.readingChatHistoryBtn,
-      ids.readingChatNewBtn
-    ]);
+  it("对话模板与壳模板都不渲染刷新键（工具键在壳标签行，见 chat-tools-in-tabs-row）", () => {
     expect(document.getElementById(REFRESH_BTN_ID)).toBe(null);
+    const renderer = readFileSync(join(ROOT, "extension/ui/ui-renderer.ts"), "utf8");
+
+    expect(renderer).not.toContain(REFRESH_BTN_ID);
   });
 });
 

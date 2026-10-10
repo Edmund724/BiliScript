@@ -12,16 +12,14 @@
 // 工单 03 增量：档位切换区内的「关不掉思考」提示行（默认 hidden）。
 // 06 号票增量：档位 chip 由 3 档静态按钮改为 7 档静态占位（激活后由
 // reader/chat-model-panel.ts 按该模型可用集改写显隐与文案——只显示存在的档位）。
-// 2026-10 用户决议：头部不再显示视频标题（标题 chip 连同点击跳转一并删除），
-// 工具条只剩「历史对话」+「新会话」；右对齐由 CSS 接住（原先靠 chip 的 flex:1）。
-// 2026-12 用户决议（方案对比后选定）：「历史对话」由文字键改为时针回溯图标键，
-// 与新会话键、面板 header 三键统一为无框幽灵图标键（样式见 reader-chat.css）。
 // 2026-09 用户决议：历史对话从「输入卡上方弹出的浮层」改为盖住 AI 对话 tab
 // 内容区的整页（详见 reader-chat.css 的接管规则）。因此历史页是对话根的第一个
 // 子元素——开合仍是 [hidden] 单源，靠「历史页:not([hidden]) ~ 对话内容」把
-// header/意图卡/转写行/消息区/输入卡一起 display:none，与设置抽屉接管面板第
+// 意图卡/转写行/消息区/输入卡一起 display:none，与设置抽屉接管面板第
 // 3–4 行同一套纯属性反应；类名沿用 chat-history-popover（历史包袱，语义已是
 // 整页而非 popover）。
+// 「历史对话 / 新会话」两键已并入壳的标签行（ui-renderer.ts 的
+// .biliscript-reading-tabs-tools），对话 tab 内不再有工具条行。
 
 import { ids } from "./state.js";
 
@@ -41,24 +39,6 @@ export function buildChatTabBodyHtml(): string {
           </div>
           <div id="${ids.readingChatHistoryList}" class="chat-history-list"></div>
         </section>
-
-        <header class="chat-header biliscript-reading-chat-header">
-          <!-- 历史对话入口：图标键（2026-12 用户决议，方案对比选定「时针回溯」），
-               与新会话键、面板 header 三键同为无框幽灵图标键 -->
-          <button id="${ids.readingChatHistoryBtn}" type="button" class="chat-icon-btn" title="历史对话" aria-label="历史对话">
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-              <path d="M3 3v5h5"></path>
-              <path d="M12 7v5l4 2"></path>
-            </svg>
-          </button>
-          <button id="${ids.readingChatNewBtn}" type="button" class="chat-icon-btn" title="开启新会话" aria-label="开启新会话">
-            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-              <path d="M12 5v14"></path>
-              <path d="M5 12h14"></path>
-            </svg>
-          </button>
-        </header>
 
         <div id="${ids.readingChatIntent}" class="biliscript-reading-chat-intent" hidden>
           <div class="biliscript-reading-chat-intent-head">

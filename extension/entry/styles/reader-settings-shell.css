@@ -93,7 +93,7 @@
   padding-top: 0;
 }
 
-#biliscript-reading-view .biliscript-reading-settings-panel:not([hidden]) ~ .biliscript-reading-tabs,
+#biliscript-reading-view .biliscript-reading-settings-panel:not([hidden]) ~ .biliscript-reading-tabs-row,
 #biliscript-reading-view .biliscript-reading-settings-panel:not([hidden]) ~ .biliscript-reading-tab-body {
   display: none;
 }

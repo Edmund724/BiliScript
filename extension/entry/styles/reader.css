@@ -297,15 +297,36 @@
   line-height: 1.4;
 }
 
-/* 分段控件母题：凹槽（12px 圆角）+ 卡片项（8px 圆角，同心 = 12 − 4px 内边距）。
- * 对话 tab 的思考档位分段控件镜像同一套语言，槽内边距 2px 故取 10px 项，仍是
- * 同一母题。 */
-.biliscript-reading-tabs {
+/* 标签行（头部归并）：分段控件 + 对话工具键（历史对话 / 新会话）同一行。
+ * 行壳占网格第 3 行；分段控件在行内 flex:1 吃满剩余宽度。 */
+.biliscript-reading-tabs-row {
   grid-row: 3;
   grid-column: 1;
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   margin: 2px 14px 0;
+}
+
+.biliscript-reading-tabs-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* 对话工具键只在 AI 对话 tab 激活时出现（键语义属对话域；:has 与
+ * reader-chat.css 的对话面板覆写同代，Chrome 120 起可用）。 */
+.biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active)) .biliscript-reading-tabs-tools {
+  display: none;
+}
+
+/* 分段控件母题：凹槽（12px 圆角）+ 卡片项（8px 圆角，同心 = 12 − 4px 内边距）。 */
+.biliscript-reading-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 4px;
   padding: 4px;
   background: var(--biliscript-reader-pill-bg);
   border-radius: 12px;
