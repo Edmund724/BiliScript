@@ -21,8 +21,8 @@
 // 定时器全文件 fake：模块生命周期含 200ms 自查 interval，真实时钟下用例间
 // 残留 interval 会在下一用例的时间窗开火（与
 // player-ai-guard.test.js 同一环境问题），fake 后未触发的回调随 afterEach 的
-// useRealTimers 一并丢弃。点击消息路径断言拆到 script-button-click.test.js
-// （那边要 vi.mock 重依赖，独立模块纪元避免污染本文件的真实模块用例）。
+// useRealTimers 一并丢弃。点击消息路径的派发同源断言见
+// tests/entry/toolbar-action-script.test.ts（content dispatch == in-page button）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, setLocationUrl, NORMAL_PAGE_URL } from "../setup.js";
