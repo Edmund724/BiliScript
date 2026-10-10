@@ -118,9 +118,9 @@ export function buildUiHtml(): string {
                 </button>
                 <button id="${ids.readingChatNewBtn}" type="button" class="biliscript-reading-icon-btn" title="开启新会话" aria-label="开启新会话">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                    <path d="M9.5 3.5h4.5a6 6 0 0 1 6 6 6 6 0 0 1-6 6h-2l-3.6 4.1 2-4.1H9.5a6 6 0 0 1-6-6 6 6 0 0 1 6-6Z"></path>
-                    <path d="M12 6.8v5.4"></path>
-                    <path d="M9.3 9.5h5.4"></path>
+                    <path d="M6.16 14.7A6.9 6.9 0 1 1 10.39 17.37L3.93 17.37 6.16 14.7Z"></path>
+                    <path d="M12 8.1v5.4"></path>
+                    <path d="M9.3 10.8h5.4"></path>
                   </svg>
                 </button>
               </div>
