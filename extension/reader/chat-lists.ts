@@ -46,9 +46,11 @@ export interface ReaderChatLists {
 }
 
 // 空态欢迎区图标（✦ sparkles，24 视框 / stroke 1.8 / currentColor）：纯装饰，
-// svg 自带 aria-hidden；图标资产本模块自带，不引外部资源。
+// svg 自带 aria-hidden；图标资产本模块自带，不引外部资源。星形在视框内几何
+// 居中（外接盒 5.2–18.8 正负对称）——2026-11 用户反馈圆底里看着偏上，原路径
+// y 跨度 3.6–17.2，视觉中心比视框中心高 1.6px，圆是 flex 居中的、偏的是图形。
 const HERO_ICON_SVG =
-  '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.6l1.84 4.96 4.96 1.84-4.96 1.84L12 17.2l-1.84-4.96L5.2 10.4l4.96-1.84L12 3.6z"/></svg>';
+  '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.2l1.84 4.96 4.96 1.84-4.96 1.84L12 18.8l-1.84-4.96L5.2 12l4.96-1.84L12 5.2z"/></svg>';
 
 export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderChatLists {
   const { historyList, historyClearBtn, input, getSuggestionsNode } = deps;
