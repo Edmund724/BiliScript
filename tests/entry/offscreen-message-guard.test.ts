@@ -267,6 +267,20 @@ describe("查询缓存消息族：来源守卫（spec §5 / §10 第 39 行）",
     );
     expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true, hit: false });
   });
+
+  it("search-cache 未知 op → ok:false + 错误文案（消息边界不静默吞）", async () => {
+    const listener = await importBackground();
+
+    const sendResponse = vi.fn();
+    const keepOpen = listener({ type: "search-cache", op: "purge", query: "bilibili ai" }, TAB_SENDER(7), sendResponse);
+
+    expect(keepOpen).toBe(true);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
+    expect(sendResponse.mock.calls[0][0]).toEqual({
+      ok: false,
+      error: "不支持的搜索缓存操作：purge"
+    });
+  });
 });
 
 describe("撤回同意：清空查询缓存（spec §6.7 / §10 第 40 行）", () => {

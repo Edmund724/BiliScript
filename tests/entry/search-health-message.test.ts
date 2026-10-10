@@ -300,3 +300,20 @@ describe("resolve 路由消费冷却图（§12.4 第 5–6 条 / §10 第 66–6
     expect(healthReads()).toBe(3);
   });
 });
+
+describe("记账消息族的 op 边界", () => {
+  it("search-health 未知 op → ok:false + 错误文案（消息边界不静默吞）", async () => {
+    stubStorage({ syncSeed: { activeSearchProviderId: "", searchProviders: [] } });
+    const listener = await importBackground();
+
+    const response = await recordHealth(
+      listener,
+      { type: "search-health", op: "purge" } as unknown as SearchHealthMessage
+    );
+
+    expect(response).toEqual({
+      ok: false,
+      error: "不支持的搜索健康度操作：purge"
+    });
+  });
+});
