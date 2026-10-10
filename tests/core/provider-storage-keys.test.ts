@@ -5,7 +5,7 @@
 //   2. 行为：store 读写与快照族键面都落在导出常量指定的键上（常量与工厂配置
 //      必须同源——常量被改坏而配置没跟上时，这里红）。
 // 既有域行为 pin 复用不重复：tests/core/ai-provider-store.normalize.test.ts:10 /
-// tests/core/ai-provider-store.probe.test.ts:221 / tests/asr/asr-provider-store.test.ts:69,73 /
+// tests/core/ai-provider-store.probe.test.ts:221 /
 // tests/search/search-provider-store.test.ts:53-55。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
