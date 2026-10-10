@@ -1,11 +1,11 @@
 // tests/reader/reading-header-icon-btns.test.ts
 // 2026-XX 用户决议（截图，面板右上角）：面板 header 的主题/设置/退出三键
-// （.biliscript-reading-icon-btn）摘掉 1px 边框——键与面板同底色，框线是唯一
-// 多余的一圈线；三键改为无框「幽灵键」，悬停底是唯一的存在感来源。
+// （.biliscript-reading-icon-btn）摘掉 1px 边框——键静止透明无底色，框线是
+// 画面上唯一多余的一圈线；三键改为无框「幽灵键」，悬停底是唯一的存在感来源。
 // 同一张截图里三键离面板右上角偏远 → .biliscript-reading-actions 取负 margin
 // 往右上收（负 margin 而非改 header 内边距：内边距是三键与左侧文案/下方
 // 标签槽共用的，收它会把整行一起挪走）。
-// 形状同 chat-header-toolbox：直接断言 CSS 文本，防「改一半」——
+// 直接断言 CSS 文本，防「改一半」——
 //   1. 只改基础段 .biliscript-reading-icon-btn：`.biliscript-reading-actions button`
 //      是 (0,1,1)，压过基础段的 (0,1,0)，边框照样回来（本文件断言高特异性覆写块
 //      也写 border: 0）；
@@ -17,8 +17,6 @@
 //      .biliscript-reading-header`，reader.css），左侧文案一长高三键就跟着往
 //      下飘 → 动作行自取 align-self: flex-start（2026-10-04 用户决议：三键固定
 //      在右上角，不随信息行数上下居中）。
-// 作用域提示：本文件只管面板 header 三键；对话工具条两键（chat-header-toolbox.test.ts）
-// 仍是 1px 框，那是另一处控件，本次不联动。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -68,6 +66,12 @@ describe("面板 header 三键的边框与位置", () => {
     const hover = ruleBody(readCss(), "\\.biliscript-reading-icon-btn:hover");
 
     expect(declaration(hover, "background")).toBeTruthy();
+  });
+
+  it("静止态无底色：实色填充落在 tab 体的 card 白卡上会显出一片灰", () => {
+    const base = ruleBody(readCss(), "\\.biliscript-reading-icon-btn");
+
+    expect(declaration(base, "background")).toBe("transparent");
   });
 
   it("三键往面板右上角收：动作行取负 margin（不碰共用的 header 内边距）", () => {

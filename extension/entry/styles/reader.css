@@ -179,9 +179,10 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-/* header 的三个纯图标键（主题/设置/退出）：无框幽灵键（用户决议）——键底色与
- * 面板 surface 同色，1px 框线是画面上唯一多余的一圈线，存在感改由悬停底与点按
- * 反馈承担。 */
+/* 图标键母题（header 三键：主题/设置/退出；标签行对话工具键：历史对话/开启
+ * 新会话；字幕工具条复制/导出）：无框幽灵键（用户决议）——静止态透明无底色
+ * （实色填充落在 tab 体的 card 白卡上会显出一片灰），存在感只由悬停/焦点底
+ * （fill-hover）与点按缩放反馈承担。 */
 .biliscript-reading-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -189,7 +190,7 @@
   width: 34px;
   height: 34px;
   border: 0;
-  background: var(--biliscript-reader-surface, #fff);
+  background: transparent;
   border-radius: 8px;
   cursor: pointer;
   padding: 0;
