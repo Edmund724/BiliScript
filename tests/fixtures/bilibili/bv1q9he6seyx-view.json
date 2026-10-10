@@ -1,0 +1,39 @@
+{
+  "_provenance": {
+    "source": "https://api.bilibili.com/x/web-interface/view?bvid=BV1q9He6SEyX",
+    "method": "GET",
+    "capturedAt": "2026-10-10T06:06:13.034Z",
+    "via": "本机直连（无 cookie、无登录）；响应体逐字节原样",
+    "trimmed": "只保留 gateway.fetchVideoMeta 与 reader/page-context 消费的字段（aid/cid/duration/pubdate/title/owner.name/desc/pages[{cid,page,part,duration}]）；其余键（dimension/rights/staff/honor/stat/owner 的其余字段等，约 100KB）删除，保留字段逐字节原样",
+    "httpStatus": 200,
+    "contentType": "application/json; charset=utf-8"
+  },
+  "code": 0,
+  "message": "OK",
+  "ttl": 1,
+  "data": {
+    "aid": 117376775358202,
+    "cid": 42428139464,
+    "duration": 8012,
+    "pubdate": 1791027855,
+    "title": "Matt Pocock 直播：SpaceXAI & React 核心开发者讲解 2500 个 PR 背后的工作法丨睡觉时自动合并 PR 的 Agent 信任机制",
+    "owner": {
+      "name": "ChHsich"
+    },
+    "desc": "Lauren Tan（X 上的 poteto，SpaceXAI Grok Bot 工程师，pstack 作者，前 Meta React 核心团队）十天前那场《一个月 2000 个 PR》的演讲在 X 拿了约 300 万播放，Matt Pocock（Total TypeScript 作者）看完攒了一肚子问题，请她连麦做了一期问答对谈：信任怎么攒、环境怎么搭、活儿怎么自动喂进来。\n\n看点：\n1. 她敢在睡觉时让 agent 自己合并 PR：每个 PR 配 10 个 verifier agent 反复 fuzz 挑毛病，自己修到自己过关——早上起来只看 commit 历史抽查\n2. 2,500 个 PR 不是 2,500 个会话：外循环 Grok Bot 订阅 Slack/X/Linear 收 bug，内循环 Cursor Projects 的协调者 agent 拆活分派，两个循环自动接上\n3. agent 出错她不骂 agent：多个 agent 犯同一种错，就说明环境有洞——回头改 lint、改类型、改约束，让这种错误写不出来\n\n关键内容：\n· 暖场：poteto 名字的来历（日本拼写的 potato，Joel Hooks 坚持的读法）\n· 信任阶梯：从盯一个 agent 到并行几百个，每一级靠什么垫上去\n· 验证 skill：给 agent 手和眼——自己跑应用、抓 trace、打快照，她进 Cursor 后写的第一个 skill\n· 确定性 vs 判断：CLI 吃掉机械部分，agent 只留真正要动脑的\n· Dune：SpaceXAI 内部的 Electron 应用框架，lint 严到只有一种写法\n· 内外双循环：bug 报告自动变成 agent 任务，人从搬运工位置上撤下来\n· 幕僚 agent：十几个协调者各管一摊，突发三十个 issue 自动拆解分派\n· review 哲学：抽样代替阻塞，像质检员一样看流程不看单品\n· 单向门领域：医疗法律金融怎么办——领域可验证性决定这条路走不走得通\n· pstack × Matt skills：互补不互斥，人人都该有一套自己的刀\n\n来源：\n· 主持：Matt Pocock（@mattpocockuk，Total TypeScript 作者，mattpocock/skills 维护者）\n· 嘉宾：Lauren Tan（@poteto，pstack 作者，SpaceXAI Grok Bot 工程师）\n· 原视频：https://www.youtube.com/watch?v=MN9dGgmLyso\n· 时间：2026.10.2\n\n字幕：AI 辅助转录 + 翻译并经人工校对。\n如有不准确之处，欢迎指出。",
+    "pages": [
+      {
+        "cid": 42428139464,
+        "page": 1,
+        "part": "【中英字幕】Matt Pocock 直播：SpaceXAI & React 核心开发者讲解一个月 2500 个 PR 背后的 Agent 工作法丨第一期",
+        "duration": 4006
+      },
+      {
+        "cid": 42553902546,
+        "page": 2,
+        "part": "【中配中字】Matt Pocock 直播：SpaceXAI & React 核心开发者讲解一个月 2500 个 PR 背后的 Agent 工作法丨第一期",
+        "duration": 4006
+      }
+    ]
+  }
+}

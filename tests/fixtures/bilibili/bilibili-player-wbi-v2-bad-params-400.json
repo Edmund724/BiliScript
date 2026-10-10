@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "source": "https://api.bilibili.com/x/player/wbi/v2?aid=117376775358202&cid=0&bvid=BV1q9He6SEyX",
+    "method": "GET",
+    "capturedAt": "2026-10-10T06:13:30.578Z",
+    "via": "本机直连（无 cookie、无登录），User-Agent Chrome 桌面版 + Referer 视频页；主来源（buildSubtitleInfoRequests 的 player-wbi-v2）逐字 URL，cid=0 为非法分 P",
+    "trimmed": "无裁剪（响应体逐字节原样）",
+    "httpStatus": 200,
+    "contentType": "application/json; charset=utf-8",
+    "byteLength": 46
+  },
+  "code": -400,
+  "message": "请求错误",
+  "ttl": 1
+}

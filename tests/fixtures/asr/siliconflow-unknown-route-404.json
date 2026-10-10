@@ -1,0 +1,16 @@
+{
+  "_provenance": {
+    "source": "https://api.siliconflow.cn/v1/audio/nonexistent-route",
+    "method": "POST",
+    "capturedAt": "2026-10-10T06:09:03.896Z",
+    "via": "本机直连 api.siliconflow.cn，Bearer 为无效 key；multipart 字段取生产预设 siliconflow-sensevoice（model=XingChenAGI/XingChenASR-V3.2-Ultra）+ 适配器写的 response_format=verbose_json 与 file=chunk.wav",
+    "trimmed": "无裁剪（响应体逐字节原样：非 JSON 纯文本，Content-Type 与适配器兜底路径相关）",
+    "httpStatus": 404,
+    "contentType": "text/plain",
+    "byteLength": 9
+  },
+  "status": 404,
+  "contentType": "text/plain",
+  "byteLength": 9,
+  "body": "Not Found"
+}

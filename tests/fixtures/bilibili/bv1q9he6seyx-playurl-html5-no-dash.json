@@ -1,0 +1,31 @@
+{
+  "_provenance": {
+    "source": "https://api.bilibili.com/x/player/playurl?bvid=BV1q9He6SEyX&cid=42428139464&fnval=16&high_quality=1&platform=html5",
+    "method": "GET",
+    "capturedAt": "2026-10-10T06:08:36.988Z",
+    "via": "本机直连（无 cookie、无登录）；该 URL 即生产 audio-source.buildPlayurlUrl(bvid, cid) 的逐字形状",
+    "trimmed": "只保留 code/message/ttl 与 data 的回退形状字段（from/result/quality/format/timelength/accept_format/durl[0]）；support_formats/play_conf/view_info 等删除。关键事实：data 无 dash 键",
+    "httpStatus": 200,
+    "contentType": "application/json; charset=utf-8",
+    "rawByteLength": 1592
+  },
+  "code": 0,
+  "message": "OK",
+  "ttl": 1,
+  "data": {
+    "from": "local",
+    "result": "suee",
+    "quality": 16,
+    "format": "mp4",
+    "timelength": 4005070,
+    "accept_format": "mp4720,mp4",
+    "durl": [
+      {
+        "order": 1,
+        "length": 4005070,
+        "size": 111302956,
+        "url": "https://upos-sz-estghw.bilivideo.com/upgcxcode/64/94/42428139464/42428139464-1-16.mp4?e=ig8euxZM2rNcNbRVhwdVhwdlhWdVhwdVhoNvNC8BqJIzNbfq9rVEuxTEnE8L5F6VnEsSTx0vkX8fqJeYTj_lta53NCM=&deadline=1791619717&gen=playurlv3&os=estghw&og=hw&nbs=1&uipk=5&trid=a517215ab9c3410ea00a9cf14fcbe45h&oi=0x240e0b8f92320e009184aaf26bfc67d3&platform=html5&mid=0&upsig=0e4b7d6830b20b15fc703ca50fd28932&uparams=e,deadline,gen,os,og,nbs,uipk,trid,oi,platform,mid&bvc=vod&nettype=0&bw=222328&lrs=-1&f=h_0_0&agrr=1&buvid=&build=0&dl=0&orderid=0,1"
+      }
+    ]
+  }
+}

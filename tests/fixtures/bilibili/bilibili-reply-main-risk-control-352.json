@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "source": "https://api.bilibili.com/x/v2/reply/main?type=1&oid=117376775358202&mode=3&ps=20&pn=1",
+    "method": "GET",
+    "capturedAt": "2026-10-10T06:17:17.357Z",
+    "via": "本机直连（无 cookie、无登录），User-Agent Chrome 桌面版 + Referer 视频页；同一裸请求多轮稳定复现 -352",
+    "trimmed": "无裁剪（响应体逐字节原样）",
+    "httpStatus": 200,
+    "contentType": "application/json; charset=utf-8",
+    "byteLength": 39
+  },
+  "code": -352,
+  "message": "-352",
+  "ttl": 1
+}

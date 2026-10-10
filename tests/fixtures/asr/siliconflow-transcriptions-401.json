@@ -1,0 +1,16 @@
+{
+  "_provenance": {
+    "source": "https://api.siliconflow.cn/v1/audio/transcriptions",
+    "method": "POST",
+    "capturedAt": "2026-10-10T06:09:03.896Z",
+    "via": "本机直连 api.siliconflow.cn，Bearer 为无效 key；multipart 字段取生产预设 siliconflow-sensevoice（model=XingChenAGI/XingChenASR-V3.2-Ultra）+ 适配器写的 response_format=verbose_json 与 file=chunk.wav",
+    "trimmed": "无裁剪（响应体逐字节原样）",
+    "httpStatus": 401,
+    "contentType": "application/json; charset=utf-8",
+    "byteLength": 56
+  },
+  "status": 401,
+  "contentType": "application/json; charset=utf-8",
+  "byteLength": 56,
+  "body": "{\"code\":30014,\"data\":null,\"message\":\"Token is invalid.\"}"
+}
