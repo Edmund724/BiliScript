@@ -1248,8 +1248,8 @@
 }
 
 /* ===== PR4 概览 tab：章节 / 金句 =====
- * 视觉基准：prototype/final-概览.jpg——章节列表（时间戳 pill + 标题 +
- * 小结）→ 金句卡（白底 + 左 3px accent 边 + 右下角时间戳与 Copy 按钮）。
+ * 视觉基准：章节列表（时间戳 pill + 标题 + 小结）→ 金句卡（surface-2 暖底淡卡 +
+ * 右下角时间戳与复制图标钮）。
  * 色值全部走 --biliscript-reader-* token（gate 段两主题定义），暗色主题自动跟随；
  * 时间戳 pill 复用 .biliscript-reading-time 母题。
  *（script-only-ui：概览顶部「总结」区块已删除，直接以章节开头。） */
@@ -1342,29 +1342,29 @@
   word-break: break-word;
 }
 
-/* 金句卡：白底 + 左 3px accent 边 + 右下角时间戳（点击跳播） */
+/* 金句卡（暖底淡卡）：surface-2 底 + 10px 圆角分组，无边框、无左侧 accent
+ * 边条；右下角时间戳 pill（跳播）+ 复制图标钮。色值走 token，四色板自动跟随。 */
 .biliscript-reading-ov-quote {
   width: 100%;
   display: block;
-  border: 1px solid var(--biliscript-reader-border);
-  border-left: 3px solid var(--biliscript-reader-accent);
-  background: var(--biliscript-reader-card);
+  border: 0;
+  background: var(--biliscript-reader-surface-2);
   border-radius: 10px;
   padding: 10px 12px 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   text-align: left;
   font-family: inherit;
+  color: inherit;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: background 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-ov-quote:hover {
+  background: var(--biliscript-reader-surface-3);
 }
 
 .biliscript-reading-ov-quote:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-.biliscript-reading-ov-quote:hover {
-  border-color: var(--biliscript-reader-accent);
-  border-left-width: 3px;
 }
 
 .biliscript-reading-ov-quote-text {
@@ -1383,18 +1383,41 @@
   margin-top: 4px;
 }
 
-/* 金句卡右下角 Copy 按钮（小字文本钮）：span[role=button]——嵌在跳播 <button>
- * 卡内不能用 <button>，语义由 role + data-overview-action 委托分流补齐 */
+/* 金句卡右下角复制图标钮（span[role=button]）：嵌在跳播 <button> 卡内不能用
+ * <button>，语义由 role + data-overview-action 委托分流补齐；图标与 AI 对话
+ * tab 的复制键同款（reader-chat.css 的 chat-msg-copy-btn） */
 .biliscript-reading-ov-quote-copy {
-  font-size: 14px;
-  font-weight: 600;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
   user-select: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
 .biliscript-reading-ov-quote-copy:hover {
+  background: var(--biliscript-reader-surface-3);
   color: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-ov-quote-copy:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+.biliscript-reading-ov-quote-copy svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* 状态条（生成中 / 部分失败 / 失败）+ 不确定进度细条 */

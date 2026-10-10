@@ -646,8 +646,9 @@ function chapterCardHtml(item: AnalysisChapter, withHours: boolean): string {
   `;
 }
 
-// 金句卡（白底 + 左 3px accent 边 + 右下角时间戳 + Copy 按钮）。
-// 时间戳与原话原样呈现，不重排不改写。
+// 金句卡（暖底淡卡）：surface-2 底 + 圆角分组，无边框、无左侧 accent 边条、
+// 无「」包裹；右下角时间戳 pill（点击跳播）与复制图标钮（与 AI 对话 tab 复制键
+// 同款图标）。时间戳与原话原样呈现，不重排不改写。
 function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
   const from = Number(item?.from) || 0;
   const content = String(item?.content || "").trim();
@@ -656,10 +657,10 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
   }
   return `
     <button type="button" class="biliscript-reading-ov-quote" data-seconds="${from}">
-      <span class="biliscript-reading-ov-quote-text">「${escapeHtml(content)}」</span>
+      <span class="biliscript-reading-ov-quote-text">${escapeHtml(content)}</span>
       <span class="biliscript-reading-ov-quote-foot">
         <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
-        <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}">Copy</span>
+        <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path></svg></span>
       </span>
     </button>
   `;
