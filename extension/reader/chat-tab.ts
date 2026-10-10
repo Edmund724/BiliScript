@@ -1065,17 +1065,24 @@ function autosizeInput(): void {
   // 那一半）：不清空时 textarea 一旦带行内高，scrollHeight 会返回**自身撑开后的
   // 高度**而非内容自然高——每敲一键把上次写进去的高读回来再加一点，只增不减
   //（连删除键都会继续长）。先塌回内容高，读到的才是真实自然高；配合 CSS 的
-  // border-box 让 scrollHeight 与 min-height 同一坐标系。无布局的 jsdom 下
-  // scrollHeight 恒 0，跳过写行内高，行为不变。
+  // border-box 让 scrollHeight 与 min-height 同一坐标系。
   els.input.style.minHeight = "";
-  const naturalHeight = els.input.scrollHeight;
-  if (naturalHeight > 0) {
-    els.input.style.minHeight = `${Math.min(naturalHeight, INPUT_MAX_HEIGHT)}px`;
-    // 滚动条收口：未封顶时 overflow-y 恒 hidden——「内容刚好等于盒高」的边界
-    // （line-height 1.45 亚像素行高，实测两行整）会被 Chromium 判出 1px 溢出、
-    // 闪出原生滚动条（2026-11 用户报障：两行出滚动条、三行以上又没了）。封顶
-    // 320 后才放行 auto：超长文本必须滚得动，否则看不见底。
-    els.input.style.overflowY = naturalHeight > INPUT_MAX_HEIGHT ? "auto" : "hidden";
+  els.input.style.overflowY = "hidden";
+  if (els.input.value !== "") {
+    // 高度只认内容：空输入恒一行（不写行内高、也不留上次的高）。新网页入场时的
+    // 瞬时布局（面板显隐/flex 重排）会把空输入框的 scrollHeight 读成撑开后的盒
+    // 高，旧聚焦分支尚能靠失焦清空兜底；改成每次自适应都写之后，这个巨值会粘在
+    // 行内高上不回缩——用户看到的就是「刚进页面卡一下、输入框巨大」
+    // （2026-11 用户报障）。空内容不测量，这类巨盒从机制上不可能出现。
+    const naturalHeight = els.input.scrollHeight;
+    if (naturalHeight > 0) {
+      els.input.style.minHeight = `${Math.min(naturalHeight, INPUT_MAX_HEIGHT)}px`;
+      // 滚动条收口：未封顶时 overflow-y 恒 hidden——「内容刚好等于盒高」的边界
+      // （line-height 1.45 亚像素行高，实测两行整）会被 Chromium 判出 1px 溢出、
+      // 闪出原生滚动条（2026-11 用户报障：两行出滚动条、三行以上又没了）。封顶
+      // 320 后才放行 auto：超长文本必须滚得动，否则看不见底。
+      els.input.style.overflowY = naturalHeight > INPUT_MAX_HEIGHT ? "auto" : "hidden";
+    }
   }
   // 发送受理/重启会话等路径是程序化清输入框（不触发 input 事件），发送键禁用
   // 态统一在每次自适应时同步（autosizeInput 是所有这些路径的公共尾部）。

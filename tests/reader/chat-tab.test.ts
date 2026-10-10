@@ -1350,13 +1350,13 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
     return document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
   }
 
-  it("聚焦/失焦都不写行内 min-height（jsdom 无布局，scrollHeight 恒 0 → 高度落回 CSS 自然高）", async () => {
+  it("聚焦/失焦都不写行内 min-height（空输入恒一行，高度落回 CSS 自然高）", async () => {
     const input = await mountChat();
 
     // 初始未聚焦：没有任何行内高度——单行高度由模板 rows=1 定
     expect(input.style.minHeight).toBe("");
 
-    // 聚焦不再撑高：没有聚焦下限可落，行内高依旧为空
+    // 聚焦不再撑高：行内高依旧为空（空输入不测量，见 autosizeInput 的空值守卫）
     input.focus();
     expect(input.style.minHeight).toBe("");
 
@@ -1366,7 +1366,7 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
 
   it("内容长高、封顶 320", async () => {
     const input = await mountChat();
-    input.focus();
+    input.value = "x";
 
     Object.defineProperty(input, "scrollHeight", { value: 140, configurable: true });
     input.dispatchEvent(new Event("input"));
@@ -1379,6 +1379,7 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
 
   it("删回单行：行内高跟着缩回自然高，不残留上次撑起的高", async () => {
     const input = await mountChat();
+    input.value = "xxxxxxxx";
 
     Object.defineProperty(input, "scrollHeight", { value: 200, configurable: true });
     input.dispatchEvent(new Event("input"));
@@ -1392,6 +1393,7 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
 
   it("未封顶 overflow-y hidden（两行边界不闪滚动条）；封顶 320 才放行 auto", async () => {
     const input = await mountChat();
+    input.value = "x";
 
     // 两行整：内容高 ≈ 盒高，亚像素行高下 Chromium 会判 1px 溢出——必须 hidden
     Object.defineProperty(input, "scrollHeight", { value: 48, configurable: true });
@@ -1404,6 +1406,27 @@ describe("输入框高度：聚焦不撑高、只随内容走", () => {
     input.dispatchEvent(new Event("input"));
     expect(input.style.minHeight).toBe("320px");
     expect(input.style.overflowY).toBe("auto");
+  });
+
+  it("空输入不写行内高：入场瞬时布局把 scrollHeight 读多大都不粘成巨盒", async () => {
+    const input = await mountChat();
+
+    // 空输入 + 任何 scrollHeight 读数（含瞬时拉伸读到的盒高）→ 行内高必须为空
+    Object.defineProperty(input, "scrollHeight", { value: 260, configurable: true });
+    input.focus();
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("");
+    expect(input.style.overflowY).toBe("hidden");
+
+    // 有内容才长高；再删空马上收回一行（程序化清空同样走 autosizeInput）
+    input.value = "很长的一段文字";
+    Object.defineProperty(input, "scrollHeight", { value: 120, configurable: true });
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("120px");
+
+    input.value = "";
+    input.dispatchEvent(new Event("input"));
+    expect(input.style.minHeight).toBe("");
   });
 });
 
