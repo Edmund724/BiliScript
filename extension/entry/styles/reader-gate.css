@@ -378,6 +378,17 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
+/* 内容区底（tab-body）降成半透灰：凸起卡与内容底同为白时层次消失（用户实测
+ *「看不清」），灰底让白玻璃凸起卡浮出来，alpha 让顶部光雾仍能透进内容区。
+ * 字幕行透明直露此灰底，历史条目等 --card 白卡则自动读作凸起层。 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab-body {
+  background: linear-gradient(180deg, rgba(236, 238, 242, 0.78), rgba(242, 243, 246, 0.85));
+}
+
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-tab-body {
+  background: linear-gradient(180deg, rgba(20, 22, 26, 0.72), rgba(16, 17, 20, 0.8));
+}
+
 /* ===== 减弱透明度 =====
  * 半透明材质（设置抽屉、flyme 蓝雾壳）退回近实色：退回值即 surface 令牌
  *（var 引用，四色板各自跟随），消费方（reader-settings-shell.css 的抽屉、
