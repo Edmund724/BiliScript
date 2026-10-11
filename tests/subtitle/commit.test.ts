@@ -5,7 +5,8 @@
 // subtitleBody）→ fetchState="ready" → 清 noSubtitleReason/noSubtitleDetail →
 // await refreshHotComments()（热评拉取；markdown/SRT/TXT 派生三件套自
 // opt-backlog-2026-09/04 起改为首次消费时懒生成，落账不再触发）→ 通知
-// "subtitle-ready"（发射无条件，视图过滤归 reader 侧）。本套件在纯
+// "subtitle-ready"（发射无条件，视图过滤归 reader 侧）→ 发布同名相位进
+// shared/subtitle-status-bus（只驱动 chat 发送闸的等待闸 kick）。本套件在纯
 // state 级锁死这些不变量；无字幕出口（逆事务）与接受互为逆，同样锁清空完整性。
 //
 // 无字幕出口是**失败文案的唯一出口**（asr-error-reporting/07 Q1）：reader 通知
@@ -34,6 +35,7 @@ import {
 } from "../../extension/core/asr-failure-notice.js";
 import { refreshHotComments, refreshDerivedContent } from "../../extension/subtitle/core.js";
 import { notifyReaderPresenter } from "../../extension/reader/reader-bus.js";
+import { getSubtitleStatusPhase } from "../../extension/shared/subtitle-status-bus.js";
 
 vi.mock("../../extension/subtitle/core.js", () => ({
   refreshHotComments: vi.fn(async () => {}),
@@ -206,6 +208,17 @@ describe("acceptSubtitle：字幕接受事务", () => {
 
     expect(state.clip.subtitleBody).toEqual(first);
     expectStrictlySortedByFrom(state.clip.subtitleBody);
+  });
+
+  it("发布同相位进状态总线：接受后当前相位为 subtitle-ready（chat 发送闸据此 kick）", async () => {
+    await acceptSubtitle({
+      body: UNSORTED_BODY,
+      selectedSubtitleId: "track-1",
+      selectedSubtitleUrl: "https://example.com/sub.json",
+      selectedSubtitleLang: "中文"
+    });
+
+    expect(getSubtitleStatusPhase()).toBe("subtitle-ready");
   });
 });
 

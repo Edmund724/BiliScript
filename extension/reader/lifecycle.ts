@@ -164,30 +164,41 @@ import {
   updateReaderFollowState
 } from "./sync.js";
 
-// 「本视频字幕已在手」判定（入口与元数据等待后各判一次，同一份语义）。
-// 缓存命中须带视频身份校验：稍后再看列表内 SPA 换片若逃逸了 URL 监听
-// （如轮询兜底的一个节拍内点了 Script），state.clip 可能还停在上一个
-// 视频——subtitleBody 非空但 bvid 与当前地址不符时按未抓取处理，重抓。
-function hasSubtitleForCurrentVideo(): boolean {
+// 「本视频字幕在手或在飞」判定（面板兜底抓取与页面预抓取共用的去重守卫；
+// 入口与元数据等待后各判一次，同一份语义）。
+// 先决是视频身份：clip.bvid 非空且与当前地址取出的 bvid 一致。稍后再看列表内
+// SPA 换片若逃逸了 URL 监听（如轮询兜底的一个节拍内点了 Script），state.clip
+// 可能还停在上一个视频——旧视频的字幕体非空 / fetchState 为 ready 都不是本视频
+// 的状态，一律按未抓取处理、重抓（refreshClip 按当前地址写 clip.bvid，因此本视频
+// 在飞/已就绪必然身份一致）。
+// 身份成立后，字幕体非空（在手）或 fetchState 为 loading/ready（抓取在飞或已
+// 接受）都判「有」：预抓取起跑后打开面板时，面板触发的抓取据此让位，不并发双抓
+//（双抓只会让先起的一轮在新一轮自增 runId 后作废）。
+export function isSubtitleInHandOrInFlight(): boolean {
+  const sameVideoAsPage = Boolean(state.clip.bvid) && state.clip.bvid === extractBvid(location.href);
+  if (!sameVideoAsPage) {
+    return false;
+  }
   return (
-    state.clip.subtitleBody.length > 0 &&
-    Boolean(state.clip.bvid) &&
-    state.clip.bvid === extractBvid(location.href)
+    state.clip.subtitleBody.length > 0 ||
+    state.clip.subtitleFetchState === "loading" ||
+    state.clip.subtitleFetchState === "ready"
   );
 }
 
 async function maybeRefreshReaderSubtitleInBackground() {
-  if (hasSubtitleForCurrentVideo()) {
+  if (isSubtitleInHandOrInFlight()) {
     return;
   }
   await waitForVideoMetadata();
-  // 元数据等待（最长 5 秒）期间字幕可能已被别处落账（对话侧发送前的主动
-  // 抓取、上一轮抓取落定）——落账后再起一轮只是白刷一次（refreshClip 内部
-  // 固定 forceRefresh 走网络重取），期间状态行停在「正在获取可用字幕...」而
-  // 字幕 tab 里已经是本视频字幕（用户报障「有字幕却显示在抓取」）。已有则
-  // 不再触发，但照旧对账重渲——subtitle-ready 通知可能丢，列表需要按当前
-  // state 投影一次（本函数末尾那条 reconcile 的同一收尾）。
-  if (hasSubtitleForCurrentVideo()) {
+  // 元数据等待（最长 5 秒）期间字幕可能已被别处落账（页面载入的字幕预抓取、
+  // 对话侧发送前的主动抓取、上一轮抓取落定）——落账后再起一轮只是白刷一次
+  //（refreshClip 内部固定 forceRefresh 走网络重取），期间状态行停在
+  //「正在获取可用字幕...」而字幕 tab 里已经是本视频字幕（用户报障「有字幕却
+  // 显示在抓取」）。已在手或在飞都不再触发，但照旧对账重渲——subtitle-ready
+  // 通知可能丢，列表需要按当前 state 投影一次（本函数末尾那条 reconcile 的
+  // 同一收尾）。
+  if (isSubtitleInHandOrInFlight()) {
     reconcileReaderAfterSubtitleFetch();
     return;
   }

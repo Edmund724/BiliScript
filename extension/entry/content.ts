@@ -45,7 +45,7 @@ import {
   subscribePlayerAiSync
 } from "../reader/reader-bus.js";
 
-import { bindRuntimeEvents, bindUrlChangeHandler } from "./message-handler.js";
+import { bindRuntimeEvents, bindUrlChangeHandler, startSubtitlePrefetch } from "./message-handler.js";
 // S3 分层：阅读表随阅读模式挂载（进入/退出事务的挂摘在 reader/shell.ts 阅读壳
 // 内；此处 handle 启动直开路径与非阅读页的预清理——先于设置水合同步翻好门控）
 import { ensureReaderStyles, removeReaderStyles } from "../shared/style-injector.js";
@@ -157,6 +157,10 @@ function init(): void {
   // biliscript:urlchange 并按序编排；runtime.startUrlWatcher 由其内部调用，只负责
   // history 补丁与 biliscript:urlchange 广播。
   bindUrlChangeHandler();
+  // 字幕预抓取：载入即起跑（fire-and-forget，不阻塞 init 的其余接线），面板
+  // 打开时字幕通常已在手。init 已在入口按 isSupportedUrl() 收口，走到本行即
+  // 支持页；失败静默、不写状态栏。SPA 换片的起跑点在 URL 变化编排里。
+  startSubtitlePrefetch();
   bindPlayerAiSettingsWatcher();
   // Script 工具栏按钮快路径（工单 button-injection-stability/01）：不等
   // getSettings 水合（SW 往返是按钮首载慢的主因之一）。script 按钮无设置键、

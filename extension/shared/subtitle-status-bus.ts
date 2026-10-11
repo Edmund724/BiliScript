@@ -8,6 +8,14 @@
 // 因此 reader 域的转写中间态呈现改经本叶子直读/订阅同进程相位；跨上下文场景
 // （popup/sidepanel）仍走原 chrome 广播，行为不变。
 //
+// 相位清单（发布点）：
+//   asr-transcribing / asr-done / asr-failed  转写编排（asr/active-fallback），
+//     驱动 reader 转写横幅与转写判定；
+//   subtitle-ready                            字幕接受事务（subtitle/commit
+//     acceptSubtitle，主轨落账后与 reader-bus 通知同点发布）。它**只驱动 chat
+//     发送闸等待闸的 kick**（就绪即补一轮轮询，不空等一个轮询间隔），不驱动
+//     任何渲染——渲染归 reader-bus 的 subtitle-ready 通知。
+//
 // 设计约束：零依赖常驻叶子（fetcher 与 reader 域都可静态 import，不拖重符号）；
 // 只记「最后相位」+ 同步通知订阅者，不排队的 pub/sub——转写相位是状态而非事件流，
 // 迟到的订阅方（如阅读模式打开晚于转写发起）经 getSubtitleStatusPhase() 读到

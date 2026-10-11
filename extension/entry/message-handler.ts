@@ -12,9 +12,8 @@ import {
 // 链内符号一律先 await ensureSummarizeChain() 再取用。一键总结
 // 热路径上的装载是本地 chunk 动态 import（~10ms），被消息往返掩盖。
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
-// 候选03 常驻瘦身：setStatus 迁入 core/ui-status.js（DOM 节点存在时写入，
-// 否则仅更新 state）；ensureUiReady 经 ui/lazy-ui.js 惰性构建 UI 壳。
-import { setStatus } from "../core/ui-status.js";
+// 候选03 常驻瘦身：UI 壳经 ui/lazy-ui.js 惰性构建（只在阅读视图已开或本次 URL
+// 变化正要进入阅读模式时才需要）。
 import { ensureUiReady } from "../ui/lazy-ui.js";
 
 // player-ai 经加载器按需引入（候选4 分包）：开关关闭态不再常驻
@@ -38,6 +37,9 @@ import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 import { ensureReaderDomain } from "../reader/lazy-reader.js";
 import { ensureReaderShell } from "../reader/lazy-shell.js";
 import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/state.js";
+// 字幕预抓取经 reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链
+// 装载成功路径上；本文件不静态依赖 fetcher，也不碰 reader 重域）。
+import { requestSubtitleRefresh } from "../reader/reader-bus.js";
 // 候选03 常驻瘦身：renderReadingStatus 已惰性化。错误路径的浮空播报走
 // announceReadingStatus（吞错口径见 lazy-reader-presentation 内注）。
 import { announceReadingStatus, renderReadingStatus } from "../reader/lazy-reader-presentation.js";
@@ -168,6 +170,56 @@ export function dispatchContentScriptMessage(rawMessage: unknown, sendResponse: 
   return handler(rawMessage as ContentScriptMessage, sendResponse);
 }
 
+// ===== 字幕预抓取（支持页载入即起跑 + SPA 换片起跑）=====
+//
+// 抓取起跑点前移到页面载入与 URL 变化：面板打开 / reader 模式换片 / 发消息时
+// 字幕通常已在手。时序与面板侧兜底抓取（reader/lifecycle 的
+// maybeRefreshReaderSubtitleInBackground）同构：等视频元数据 → 装载总结链 →
+// 经 reader-bus seam 请 fetcher 刷新（refreshClip 事务），因此没有第二条抓取
+// 实现。字幕列表请求兼作可用性探测：无字幕的视频只多一次列表请求，不触发 ASR。
+//
+// 去重守卫 isSubtitleInHandOrInFlight 是 reader 域单源：字幕在手或在飞都不起跑
+//（在飞即已有抓取在路上，打开面板触发的那条据此让位，不并发双抓）。预抓取是
+// 后台兜底，失败静默——只在链外漏网异常（reader 域装载失败等）记日志，不写状态栏。
+
+// reader/lazy-reader.ts 的 ReaderDomain 只列了 URL 变化分支消费的方法；预抓取
+// 消费的守卫就地补在类型上（与 content.ts 的 PlayerAiApi 同款：局部接口精确
+// 描述本文件消费的 API，避免调用点退化成 any）。
+type ReaderDomainWithSubtitleGuard = Awaited<ReturnType<typeof ensureReaderDomain>> & {
+  isSubtitleInHandOrInFlight(): boolean;
+};
+
+async function ensureSubtitlePrefetch(): Promise<void> {
+  const reader = (await ensureReaderDomain()) as ReaderDomainWithSubtitleGuard;
+  if (reader.isSubtitleInHandOrInFlight()) {
+    return;
+  }
+  // 时长未知时字幕轨无法按时长对齐，等元数据（150ms 轮询 / 5 秒上限，与面板
+  // 侧同一份等待）。
+  await reader.waitForVideoMetadata();
+  // 装载失败与面板侧兜底同口径：静默记日志，不进错误状态栏。
+  try {
+    await ensureSummarizeChain();
+  } catch (error) {
+    logWarn("[BILISCRIPT] subtitle prefetch (summarize chain load) failed", { error });
+  }
+  try {
+    await requestSubtitleRefresh();
+  } catch (error) {
+    if (!isStaleRunError(error)) {
+      logWarn("[BILISCRIPT] subtitle prefetch failed", { error });
+    }
+  }
+}
+
+// 预抓取的 fire-and-forget 入口（content 载入、URL 变化两处调用）：调用方不等它；
+// 链内各自吞掉业务失败，此处的 catch 只兜住 reader 域装载失败这类漏网异常。
+export function startSubtitlePrefetch(): void {
+  void ensureSubtitlePrefetch().catch((error) => {
+    logWarn("[BILISCRIPT] subtitle prefetch failed", error);
+  });
+}
+
 // URL 变化编排（自 core/runtime.js 搬入）：core/url-watcher.js 只负责给 history
 // 打补丁并广播 biliscript:urlchange（纯机制），本组合根监听 popstate/hashchange/
 // biliscript:urlchange，按原顺序编排：更新 clip 签名 → 恢复普通页状态 →（阅读模式下）
@@ -296,7 +348,10 @@ export function bindUrlChangeHandler() {
       })();
       return;
     }
-    setStatus("检测到页面变化，请点击“刷新抓取”加载当前视频字幕。");
+    // 普通页 SPA 换片（切视频 / 切 P）：字幕由预抓取接力起跑（面板上没有可点的
+    //「刷新抓取」按钮，本分支不写这类引导）。守卫的先决是「clip 身份 = 当前
+    // 地址」，故上一个视频残留的 ready / loading 状态不会让本轮跳过。
+    startSubtitlePrefetch();
   };
 
   // 先注册监听，再由 startUrlWatcher 安装 history 补丁——与搬迁前

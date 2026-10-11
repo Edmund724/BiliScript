@@ -5,6 +5,9 @@
 // 幕体为空，此时把空 subtitleBody 发给模型只会得到凭标题+热评编造的总结。
 // ensureCurrentContextForSend 在最终快照后据此拦截发送，并按 noSubtitleReason
 // （content 侧 asr/fallback.js 写入、经上下文快照 payload 透传）给出对应提示。
+// 抓取失败收尾（subtitleFetchState === "error" 且字幕体为空）是同一道门的另一
+// 分支，由本模块的 isSubtitleFetchFailed 判定（文案是发送闸的重试句，不按
+// noSubtitleReason 分叉）。
 //
 // 文案已收归单一真源（asr-error-reporting/06）：本模块退化为**薄适配层**——
 // 文案逐字取自 core/asr-failure-notice 的 sidepanel 面，openSettings 由 remedy
@@ -54,6 +57,21 @@ export function isNoSubtitleEmptyContext(snapshot: ChatSessionContextSnapshot | 
     return false;
   }
   return snapshot.subtitleFetchState === "empty";
+}
+
+// 「当前快照是否为字幕抓取失败」判定（发送闸 G6 用，纯函数）。与
+// isNoSubtitleEmptyContext 同形同边界：两者都要求字幕体为空，只按收尾状态区分
+// ——empty 是「抓完了，确实没有字幕」，error 是「抓取过程失败、结果未知」。
+// 字幕体非空即放行，不受状态字段影响（失败前落账的完整字幕照样能总结）。
+export function isSubtitleFetchFailed(snapshot: ChatSessionContextSnapshot | null | undefined): boolean {
+  if (!snapshot) {
+    return false;
+  }
+  const body = Array.isArray(snapshot.subtitleBody) ? snapshot.subtitleBody : [];
+  if (body.length > 0) {
+    return false;
+  }
+  return snapshot.subtitleFetchState === "error";
 }
 
 // 按无字幕原因给出提示文案；openSettings 为 true 时提示末尾附「前往设置」

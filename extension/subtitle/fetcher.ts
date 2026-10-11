@@ -178,7 +178,11 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   setMessage("");
   if (isReaderViewOpen()) {
     notifyReaderPresenter("rerender");
-    notifyReaderPresenter("status", "请先点击“刷新抓取”加载当前视频字幕。");
+    // 中性文案：resetClipState 的两个调用方里，URL 变化编排（entry/message-handler）
+    // 之后必有抓取接力（阅读模式分支自身刷新，普通页分支由预抓取起跑），而
+    // handleClipFetchError 的终态失败清场之后不再抓取——不承诺「自动重新抓取」
+    // 才不会在失败路径上说假话（该路径随后同步覆写为失败文案）。
+    notifyReaderPresenter("status", "视频已切换，字幕将自动重新抓取。");
   }
 }
 

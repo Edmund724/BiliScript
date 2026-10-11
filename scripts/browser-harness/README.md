@@ -59,6 +59,7 @@ pnpm harness:scenario bilingual-subtitles -- --headed          # 带窗口
 | 场景 | 判据 | 成本 |
 |---|---|---|
 | `bilingual-subtitles`（S1–S10 + S7b） | 双语字幕在**真 B 站页面**上的东西：副列浮层对页面样式级联的胜出、弹层两列各自的滚动位置、真实 listbox 的点击路径、MV3 SW 里的 fixture 补丁、SPA 换视频的偏好保留、解释卡引用只含主行 | 全流程 90–120s（真网一趟 + fixture 补丁一趟）；`--fixture-only` < 1s |
+| `subtitle-prefetch`（S1–S5） | 字幕预抓取的真机判据：进视频页**不经任何点击**即发出字幕列表请求、抓取在飞时对话 tab 的等待反馈（spinner 通知条 / 发送键禁用 / placeholder）、字幕在手后点 AI 键零等待上屏、SPA 换片也预抓取、无字幕视频不触发 ASR | 全流程约 80–120s（真网 + SW 目标上的 Fetch 扣住/回放 fixture） |
 
 工件落 `.scratch/browser-harness/scenarios/<name>/`（`evidence.json` + 逐场景 PNG）。断言清单在 `evidence.checks`：任一 FAIL 即退出码 1（`evidence.failed` 是失败项名单）。
 

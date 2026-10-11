@@ -8,7 +8,9 @@
 // 懒生成并缓存，见 core.js ensureDerivedContent，opt-backlog-2026-09/04）→
 // 通知 "subtitle-ready"
 //（发射无条件：视图门控的裁决权归 reader 侧 init-essentials 分派链，见
-// acceptSubtitle 内注）。两个事务均支持可选 runId 代次自检（M23 runId 协调）：
+// acceptSubtitle 内注）→ 发布同名相位进 shared/subtitle-status-bus（进程内相位
+// 镜像，只驱动 chat 发送闸的等待闸 kick，不驱动渲染）。两个事务均支持可选
+// runId 代次自检（M23 runId 协调）：
 // 调用方传入自己的抓取代次时，写 state 前先与 clipState.fetchRunId 比对，代次
 // 已被 URL 变化递增/新一轮抓取推进则抛 STALE_RUN 让位——reset 与在飞提交的
 // 竞态由此收口在事务内（自检与首个 state 写入之间无 await，同步 reset 无法
@@ -33,7 +35,7 @@
 // core/state、core/asr-failure-notice（叶子纯模块）、subtitle/selection、
 // subtitle/core、reader/reader-bus（常驻轻 seam，arch-slim-2/03 自 presenter.ts
 // 改名）、reader/view-state（常驻微
-// 模块，纯 state 读取）、shared/logging。
+// 模块，纯 state 读取）、shared/subtitle-status-bus（零依赖叶子）、shared/logging。
 //（script-only-ui：经典侧栏面板的预览 textarea 已删除，commit 不再清空它。）
 
 import { clipState } from "../core/state.js";
@@ -42,6 +44,7 @@ import { STATUS_LINE_BASE, getAsrFailureNotice } from "../core/asr-failure-notic
 import { sortSubtitleBodyByFrom } from "./selection.js";
 import { refreshHotComments } from "./core.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
+import { publishSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { ensureRunActive } from "../shared/error-helpers.js";
 
 export interface CommitUiCallbacks {
@@ -106,6 +109,10 @@ export async function acceptSubtitle({
   // 开关截断通知会让「抓取完成时视图未开」的轮次永久丢通知，字幕列表停在
   // 进入时的空态——落定后的对账重渲（lifecycle）依赖通知可达。
   notifyReaderPresenter("subtitle-ready");
+  // 同相位进进程内状态总线（content script 收不到自己的 runtime 广播）：chat
+  // 发送闸订阅它 kick 等待闸，字幕就绪时不必再空等一轮轮询。只发布主轨相位，
+  // 副轨事务（acceptSecondarySubtitle）不碰。
+  publishSubtitleStatusPhase("subtitle-ready");
   return sortedBody;
 }
 

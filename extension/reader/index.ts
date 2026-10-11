@@ -30,6 +30,8 @@ export { closeReadingView } from "./lifecycle.js";
 export { renderReadingView } from "./lifecycle.js";
 // 等待视频元数据（时长可用）就绪
 export { waitForVideoMetadata } from "./lifecycle.js";
+// 字幕「在手或在飞」去重守卫（页面预抓取与面板兜底抓取共用）
+export { isSubtitleInHandOrInFlight } from "./lifecycle.js";
 // 阅读视图打开后的交互呈现
 export {
   updateReaderPreferences,

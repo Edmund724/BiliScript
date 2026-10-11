@@ -8,6 +8,7 @@
 // - showConversationContextNotice：追加通知条（textContent，防注入）、重复显示
 //   去重（先移除旧条）、autoHideMs > 0 时经注入定时器自动消失、clearTimer 取消；
 // - openSettingsAction：附「前往设置」链接，点击触发 onOpenSettings 回调；
+// - spinner：文案前插入 .chat-notice-spinner（aria-hidden 空 span，缺省不插）；
 // - removeConversationContextNotice：清通知 + 取消挂起定时器；
 // - showConversationContextError：空文案 no-op、居中错误块 + scrollToBottom；
 // - removeCenteredState / removeSuggestions（同步置空单例钩子）；
@@ -128,6 +129,42 @@ describe("showConversationContextNotice / removeConversationContextNotice", () =
     expect(link.textContent).toBe("前往设置");
     link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     expect(deps.onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("spinner：插入加载动画 span 在文案最前（aria-hidden 空元素，不改文本）", () => {
+    const { feedback, messages } = makeHarness();
+
+    feedback.showConversationContextNotice("正在抓取字幕…", 0, { spinner: true });
+
+    const notice = messages.querySelector(".chat-context-notice")!;
+    const spinner = notice.querySelector(".chat-notice-spinner")!;
+    expect(spinner).not.toBeNull();
+    expect(spinner.getAttribute("aria-hidden")).toBe("true");
+    expect(spinner.textContent).toBe("");
+    // span 在最前：文案节点排在其后
+    expect(notice.firstChild).toBe(spinner);
+    expect(notice.textContent).toBe("正在抓取字幕…");
+  });
+
+  it("spinner + openSettingsAction 同用：span 最前、链接照旧在末尾", () => {
+    const { feedback, messages } = makeHarness();
+
+    feedback.showConversationContextNotice("需要配置", 0, { openSettingsAction: true, spinner: true });
+
+    const notice = messages.querySelector(".chat-context-notice")!;
+    expect(notice.firstChild).toBe(notice.querySelector(".chat-notice-spinner"));
+    const link = notice.querySelector("a")!;
+    expect(link.textContent).toBe("前往设置");
+    expect(notice.lastChild).toBe(link);
+  });
+
+  it("缺省不插 spinner（普通通知条保持纯文本节点）", () => {
+    const { feedback, messages } = makeHarness();
+
+    feedback.showConversationContextNotice("普通提示", 0);
+
+    const notice = messages.querySelector(".chat-context-notice")!;
+    expect(notice.querySelector(".chat-notice-spinner")).toBeNull();
   });
 });
 

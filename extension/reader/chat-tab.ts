@@ -176,6 +176,11 @@ function requireShell(): void {
   }
 }
 
+// 输入框 placeholder 的默认串（模板的静态属性，见 reader/chat-template.ts）：
+// 模块初始化时捕获一次原值，字幕抓取等待期间换成等待文案、结束即还原此值——
+// 不在代码里另抄一份字面量，模板改动自动跟随。
+const INPUT_PLACEHOLDER_DEFAULT = els.input.placeholder;
+
 // 无字幕视频做音频转写时，转写编排经进程内相位镜像广播阶段；本条状态行据此
 // 在转写期间显示一行转写提示，替代仅有「无字幕」却不说在做什么的状态。只在
 // 转写阶段展示，其余阶段（含转写结束后未再发布的情况）由 phase 判断隐藏。
@@ -428,6 +433,9 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   pageBvid: () => extractBvid(location.href),
   startSubtitleFetch,
   subscribeStatusPhase: subscribeSubtitleStatusPhase,
+  // 等待闸开关信号：等待期间发送键禁用 + placeholder 换等待文案（见
+  // setSubtitleWaitUi）。
+  onWaitingChange: (waiting) => setSubtitleWaitUi(waiting),
   getProviderId: () => parseModelOptionValue(els.modelSelect.value).providerId,
   // 选中模型 id（multi-model-catalog）：随 chat 消息下发，offscreen 覆盖平台
   // 目录首项；复合值编码见 chat/providers.ts 的 MODEL_OPTION_SEPARATOR。
@@ -738,6 +746,10 @@ export function closeChatSession(): void {
   // 挂起中的 subtitle-wait 立即失效（pollContext 的 closed 闸 → wait 兑现
   // false → 发送流程提前返回并清等待提示）。
   sendGate.kickSubtitleWait();
+  // 等待态收口：kick 只在其后无在途轮询时才立刻兑现（tick 的去重闸会吞掉这次
+  // kick），那条「等待结束 → false」的推送因此可能滞后一轮轮询才到；本行保证
+  // 会话关闭即不残留等待态，重开时发送键不会带着「正在抓取字幕…」禁用下去。
+  setSubtitleWaitUi(false);
   popovers.hideHistoryPopover();
   popovers.hideModelPanel();
   removeConversationContextNotice();
@@ -1092,12 +1104,24 @@ function autosizeInput(): void {
 // 发送键禁用态：流式中（停止键形态）仅「停止中」禁用；空闲时空输入禁用置灰。
 let stopInFlight = false;
 
+// 字幕抓取等待态（发送闸经 deps.onWaitingChange 推送）：等待期间发送键禁用 +
+// 输入框 placeholder 换成等待文案——发送键亮着却点了静默无反应（等待可能几秒）
+// 正是要消除的观感。输入框本身保持可编辑：等待期间可继续输入/改提示词（本轮
+// 已受理的文本在回车那一刻定下，本轮之后照常清空）。
+let subtitleWaitActive = false;
+
+function setSubtitleWaitUi(active: boolean): void {
+  subtitleWaitActive = active;
+  els.input.placeholder = active ? "正在抓取字幕…" : INPUT_PLACEHOLDER_DEFAULT;
+  updateSendBtnState();
+}
+
 function updateSendBtnState(): void {
   if (els.sendBtn.classList.contains("is-stop")) {
     els.sendBtn.disabled = stopInFlight;
     return;
   }
-  els.sendBtn.disabled = !els.input.value.trim();
+  els.sendBtn.disabled = subtitleWaitActive || !els.input.value.trim();
 }
 
 function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopping?: boolean } = {}): void {
@@ -1108,7 +1132,9 @@ function setStreamingUiState(isStreaming: boolean, { stopping = false }: { stopp
   // 图标，点击 abort 同一条 stopActiveStream 链），停止中禁用防连点。
   els.sendBtn.classList.toggle("is-stop", isStreaming);
   els.sendBtn.setAttribute("aria-label", isStreaming ? "停止" : "发送");
-  els.sendBtn.disabled = isStreaming ? stopping : !els.input.value.trim();
+  // 空闲分支同 updateSendBtnState：等待态下的 restartChat（新对话/上下文跟随）
+  // 也会走到这里，不带等待态会把等待中的发送键放回可用。
+  els.sendBtn.disabled = isStreaming ? stopping : subtitleWaitActive || !els.input.value.trim();
 }
 
 // AI 平台 / 预设：实现在 ../chat/providers.ts，本文件只组装 deps 并保留「外部

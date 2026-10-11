@@ -530,6 +530,63 @@ describe("subtitle-wait kick 总线接线", () => {
     await activation;
   });
 
+  // 等待期间的观感：发送键亮着但点了静默无反应（等待可长达数秒）——等待态下
+  // 发送键禁用 + 输入框 placeholder 换成等待文案，等待结束（放行/拦截/读失败/
+  // 会话关闭四条出口）恢复默认。输入框本身保持可编辑。
+  it("抓取等待期间：发送键禁用、placeholder 换等待文案；放行后恢复默认并可用", async () => {
+    state.clip.title = "测试视频";
+    state.clip.bvid = "BV1test000000";
+    state.clip.cid = "101";
+    state.clip.subtitleFetchState = "loading";
+    state.clip.subtitleBody = [];
+
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+
+    const input = document.getElementById(ids.readingChatInput) as HTMLTextAreaElement;
+    const sendBtn = document.getElementById(ids.readingChatSendBtn) as HTMLButtonElement;
+    // 默认 placeholder 来自模板静态属性（chat-template.ts）
+    const defaultPlaceholder = input.placeholder;
+    expect(defaultPlaceholder).toBe("回车发送，Shift+Enter 换行");
+
+    input.value = "闸中问题";
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    // 等待态：placeholder 换文案、发送键禁用（空闲分支，非停止键形态）
+    await waitFor(() => input.placeholder === "正在抓取字幕…");
+    expect(sendBtn.disabled).toBe(true);
+    expect(sendBtn.classList.contains("is-stop")).toBe(false);
+
+    // 输入框保持可编辑：等待期间照常输入，不该被禁用，也不该把发送键放回可用
+    expect(input.disabled).toBe(false);
+    input.value = "等待中补的内容";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(input.placeholder).toBe("正在抓取字幕…");
+    expect(sendBtn.disabled).toBe(true);
+
+    // 等待中再按回车：回合在途被双发闸判 ignored，不重复受理、等待态不变
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(ports).toHaveLength(0);
+    expect(input.placeholder).toBe("正在抓取字幕…");
+
+    // 抓取落定 → 放行（发出的是首次回车受理的那条文本；等待中的续写不参与本轮）
+    state.clip.subtitleFetchState = "ready";
+    state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    await waitFor(() => ports.length === 1 && ports[0].postMessage.mock.calls.length === 1);
+    expect((ports[0].postMessage.mock.calls[0][0] as { prompt?: string }).prompt).toBe("闸中问题");
+    await waitFor(() => input.placeholder === defaultPlaceholder);
+
+    // 回合落定（流式结束）后回到空闲：输入内容即可发送，等待态不残留禁用
+    (ports[0] as FakePort & { __fire: (msg: unknown) => void }).__fire({ type: "done" });
+    await waitFor(() => !sendBtn.classList.contains("is-stop"));
+    input.value = "下一问";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(sendBtn.disabled).toBe(false);
+    expect(input.placeholder).toBe(defaultPlaceholder);
+  });
+
   it("有字幕视频抓取中等待：消息区显示抓取文案，不误报音频转写", async () => {
     // 抓取中：subtitleFetchState loading + 字幕体为空，相位 idle（非转写）
     state.clip.title = "测试视频";

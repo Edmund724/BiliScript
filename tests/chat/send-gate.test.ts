@@ -7,6 +7,7 @@ import {
   createSendGate,
   type CreateSendGateDeps,
   SUBTITLE_FETCHING_NOTICE,
+  SUBTITLE_FETCH_FAILED_NOTICE,
   ASR_TRANSCRIBING_NOTICE
 } from "../../extension/chat/send-gate.js";
 import { chatSessionState, chatSessionStateForTests, resetChatSessionStateForTests } from "../../extension/chat/chat-state.js";
@@ -154,10 +155,16 @@ describe("发送闸 createSendGate", () => {
       expect(h.mocks.startSubtitleFetch).not.toHaveBeenCalled();
     });
 
-    it("抓取已在跑（非 idle）→ 不起跑", async () => {
+    it("抓取已在跑（loading）→ 不起跑", async () => {
       const h = makeHarness({ clip: () => clip({ subtitleFetchState: "loading" }) });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(h.mocks.startSubtitleFetch).not.toHaveBeenCalled();
+    });
+
+    it("上一轮失败（error）且无字幕体 → 重试起跑一次", async () => {
+      const h = makeHarness({ clip: () => clip({ subtitleFetchState: "error" }) });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      expect(h.mocks.startSubtitleFetch).toHaveBeenCalledTimes(1);
     });
 
     it("非 BV 页（pageBvid null）→ 不起跑", async () => {
@@ -191,9 +198,44 @@ describe("发送闸 createSendGate", () => {
       });
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(polls).toBeGreaterThanOrEqual(2);
-      // 等待期间展示过抓取文案 notice，结束时清理。
-      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(SUBTITLE_FETCHING_NOTICE, 0);
+      // 等待期间展示过抓取文案 notice（带加载动画），结束时清理。
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(SUBTITLE_FETCHING_NOTICE, 0, { spinner: true });
       expect(h.mocks.removeContextNotice).toHaveBeenCalled();
+    });
+
+    it("判定要等待即显示通知条（不等首轮轮询）：clip loading 时立即带 spinner 出提示", async () => {
+      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      let polls = 0;
+      let releasePoll: () => void = () => {};
+      const h = makeHarness({
+        // clip 权威状态也是 loading：G3 不起跑，即时提示的谓词命中
+        clip: () => clip({ subtitleFetchState: "loading" }),
+        loadContextState: vi.fn(async () => {
+          polls += 1;
+          // 第 1 次是 ensure 的 G2 读；等待闸的首轮轮询挂住——若提示来自轮询，
+          // 这条断言拿不到通知条。
+          if (polls === 2) {
+            await new Promise<void>((resolve) => {
+              releasePoll = resolve;
+            });
+            chatSessionStateForTests.liveContextData = ctx();
+          }
+          return true;
+        })
+      });
+      const promise = h.gate.ensureContextForSend();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(polls).toBe(2);
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(SUBTITLE_FETCHING_NOTICE, 0, { spinner: true });
+
+      releasePoll();
+      await expect(promise).resolves.toEqual({ pass: true });
+    });
+
+    it("clip 已就绪（字幕体非空）→ 不即时出抓取通知（不闪一条又立刻撤）", async () => {
+      const h = makeHarness({ clip: () => clip({ subtitleBody: ["x"], subtitleFetchState: "ready" }) });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
     });
 
     it("等待闸兑现 false（读取失败）→ requestViewReset + read-failed", async () => {
@@ -272,6 +314,92 @@ describe("发送闸 createSendGate", () => {
         0,
         { openSettingsAction: true }
       );
+    });
+
+    it("抓取失败收尾（error 且字幕体为空）→ {pass:false, kind:'fetch-error'} + 重试文案，不重置视图", async () => {
+      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "error" });
+      const h = makeHarness();
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "fetch-error" });
+      expect(h.mocks.showContextNotice).toHaveBeenCalledWith(SUBTITLE_FETCH_FAILED_NOTICE, 0);
+      expect(h.mocks.requestViewReset).not.toHaveBeenCalled();
+    });
+
+    it("error 但字幕体非空 → 放行（失败前落账的完整字幕照样能总结）", async () => {
+      chatSessionStateForTests.contextData = ctx({
+        subtitleBody: [{ from: 0, to: 1, content: "line" }],
+        subtitleFetchState: "error"
+      });
+      const h = makeHarness();
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("等待区间通知（onWaitingChange）", () => {
+    it("等待前发 true（此时只跑完 G2 读）、等待落定复位 false", async () => {
+      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      let polls = 0;
+      const events: Array<{ waiting: boolean; polls: number }> = [];
+      const h = makeHarness({
+        onWaitingChange: (waiting) => events.push({ waiting, polls }),
+        loadContextState: vi.fn(async () => {
+          polls += 1;
+          if (polls >= 3) {
+            chatSessionStateForTests.liveContextData = ctx();
+          }
+          return true;
+        })
+      });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      // true 在 subtitleWaiter.wait() 之前：记到的 polls 还停在 G2 那一次
+      expect(events[0]).toEqual({ waiting: true, polls: 1 });
+      // 每个出口恰有一次复位（G5 重取快照在复位之后，不再有 true）
+      expect(events).toHaveLength(2);
+      expect(events[1].waiting).toBe(false);
+    });
+
+    it("所有拦截出口都复位 false：read-failed / no-subtitle / fetch-error", async () => {
+      // read-failed：等待闸首轮读取失败
+      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      let polls = 0;
+      const readFailedCalls: boolean[] = [];
+      const readFailed = makeHarness({
+        onWaitingChange: (waiting) => readFailedCalls.push(waiting),
+        loadContextState: vi.fn(async () => {
+          polls += 1;
+          if (polls >= 2) {
+            chatSessionStateForTests.liveContextData = null;
+            chatSessionStateForTests.contextData = null;
+          }
+          return true;
+        })
+      });
+      await expect(readFailed.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "read-failed" });
+      expect(readFailedCalls).toEqual([true, false]);
+
+      // no-subtitle：等待直接兑现就绪，G6 无字幕拦截
+      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "empty" });
+      const noSubtitleCalls: boolean[] = [];
+      const noSubtitle = makeHarness({ onWaitingChange: (waiting) => noSubtitleCalls.push(waiting) });
+      await expect(noSubtitle.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+      expect(noSubtitleCalls).toEqual([true, false]);
+
+      // fetch-error：G6 抓取失败拦截
+      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "error" });
+      const fetchErrorCalls: boolean[] = [];
+      const fetchError = makeHarness({ onWaitingChange: (waiting) => fetchErrorCalls.push(waiting) });
+      await expect(fetchError.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "fetch-error" });
+      expect(fetchErrorCalls).toEqual([true, false]);
+    });
+
+    it("pinned 分支（G1 提前返回）不进等待区间：一次都不调", async () => {
+      Object.assign(chatSessionStateForTests, {
+        currentConversationMeta: { id: "c1", pinnedContext: true } as never
+      });
+      const calls: boolean[] = [];
+      const h = makeHarness({ onWaitingChange: (waiting) => calls.push(waiting) });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      expect(calls).toEqual([]);
     });
   });
 
@@ -353,6 +481,31 @@ describe("发送闸 createSendGate", () => {
       h.firePhase("asr-transcribing");
       h.firePhase("asr-failed");
       expect(chatSessionState.asrTranscribingActive).toBe(false);
+    });
+
+    it("subtitle-ready 相位（字幕落账）→ kick 等待闸：立即补一轮 pollContext，不等轮询定时器", async () => {
+      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      let polls = 0;
+      const h = makeHarness({
+        // 轮询间隔大于用例时长：只有 kick 才会产生第 3 次 poll
+        pollIntervalMs: 60000,
+        loadContextState: vi.fn(async () => {
+          polls += 1;
+          if (polls >= 3) {
+            chatSessionStateForTests.liveContextData = ctx();
+          }
+          return true;
+        })
+      });
+      h.gate.bindStatusBus();
+      const promise = h.gate.ensureContextForSend();
+      // 等待闸首轮（poll 2）落定 → pending，此后要等 60 秒定时器
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(polls).toBe(2);
+
+      h.firePhase("subtitle-ready");
+      await expect(promise).resolves.toEqual({ pass: true });
+      expect(polls).toBeGreaterThanOrEqual(3);
     });
   });
 

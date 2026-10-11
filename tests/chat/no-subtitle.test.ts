@@ -2,6 +2,8 @@
 // 锁定三件事：
 //   - isNoSubtitleEmptyContext：仅「empty 且字幕体为空」拦截（与
 //     isContextPending 的 loading 等待语义互补）；字幕体非空一律放行。
+//   - isSubtitleFetchFailed：仅「error 且字幕体为空」拦截（发送闸 G6 的抓取
+//     失败分支，同一道门的另一半）；字幕体非空一律放行。
 //   - buildNoSubtitleNotice：十个 reason + 缺失未知的提示文案与「前往设置」
 //     动作位。本模块已退化为薄适配层（票 06）：文案逐字来自 core 的单一真源
 //     （buildAsrNoSubtitleMessage 的 sidepanel 面），openSettings 由 remedy
@@ -13,7 +15,8 @@ import { describe, expect, it } from "vitest";
 import type { SubtitleBodyItem } from "../../extension/ai/types.js";
 import {
   buildNoSubtitleNotice,
-  isNoSubtitleEmptyContext
+  isNoSubtitleEmptyContext,
+  isSubtitleFetchFailed
 } from "../../extension/chat/no-subtitle.js";
 import type { NoSubtitleReason } from "../../extension/chat/no-subtitle.js";
 // 文案表与 remedy 的入参是 core 联合（不含读边界的 undefined）：本文件的遍历数组
@@ -57,6 +60,37 @@ describe("isNoSubtitleEmptyContext", () => {
     expect(isNoSubtitleEmptyContext(undefined)).toBe(false);
     expect(isNoSubtitleEmptyContext({ subtitleFetchState: "empty" })).toBe(true); // 非数组 body 折算为空
     expect(isNoSubtitleEmptyContext({ subtitleFetchState: "empty", subtitleBody: "x" as unknown as SubtitleBodyItem[] })).toBe(true);
+  });
+});
+
+describe("isSubtitleFetchFailed", () => {
+  it("error 且字幕体为空：拦截", () => {
+    expect(isSubtitleFetchFailed({ subtitleFetchState: "error", subtitleBody: [] })).toBe(true);
+  });
+
+  it("字幕体非空：一律放行（失败前落账的完整字幕照样能总结）", () => {
+    expect(
+      isSubtitleFetchFailed({
+        subtitleFetchState: "error",
+        subtitleBody: [{ from: 0, to: 1, content: "x" }]
+      })
+    ).toBe(false);
+  });
+
+  it("非 error 状态不受影响（empty 归无字幕出口，loading/idle/ready 放行走既有路径）", () => {
+    expect(isSubtitleFetchFailed({ subtitleFetchState: "empty", subtitleBody: [] })).toBe(false);
+    expect(isSubtitleFetchFailed({ subtitleFetchState: "loading", subtitleBody: [] })).toBe(false);
+    expect(isSubtitleFetchFailed({ subtitleFetchState: "idle", subtitleBody: [] })).toBe(false);
+    expect(isSubtitleFetchFailed({ subtitleFetchState: "ready", subtitleBody: [] })).toBe(false);
+  });
+
+  it("快照缺失或字幕体字段异常：不拦截（非数组折算为空）", () => {
+    expect(isSubtitleFetchFailed(null)).toBe(false);
+    expect(isSubtitleFetchFailed(undefined)).toBe(false);
+    expect(isSubtitleFetchFailed({ subtitleFetchState: "error" })).toBe(true);
+    expect(
+      isSubtitleFetchFailed({ subtitleFetchState: "error", subtitleBody: "x" as unknown as SubtitleBodyItem[] })
+    ).toBe(true);
   });
 });
 

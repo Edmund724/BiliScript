@@ -29,7 +29,8 @@
 //     core/context-assembly 的注入口径一致）；
 //   - 发送闸编排：isSessionClosed / isReaderTranscribing / asrNotice /
 //     pageBvid / startSubtitleFetch / subscribeStatusPhase（发送闸消费的
-//     页面级读侧与通知面，组合根闭包注入）；
+//     页面级读侧与通知面，组合根闭包注入）+ onWaitingChange（可选：字幕等待
+//     开始/结束开关信号，组合根据此改发送键禁用态与输入框 placeholder）；
 //   - runtime 传输/AI 回调：getProviderId /
 //     getSelectedModel（multi-model-catalog 起，可选）/ takeInputImages
 //     （image-input 02 号票起，可选：发送受理时消费图片附件区）/
@@ -114,6 +115,11 @@ export interface CreateChatTabDomainDeps {
   startSubtitleFetch: () => Promise<boolean>;
   // 字幕状态总线订阅具名入口。
   subscribeStatusPhase: (listener: (phase: string) => void) => () => void;
+  // 字幕等待闸的开关信号（可选；组合根接 chat-tab 的 setSubtitleWaitUi）：
+  // 等待开始时 true、所有出口（放行/拦截/读失败/会话关闭导致的失败）后 false。
+  // 等待期间发送键禁用 + 输入框 placeholder 换成等待文案——等待期间发送键亮着
+  // 却点了静默无反应，正是本信号缺失时的观感（等待可长达数秒）。
+  onWaitingChange?: (waiting: boolean) => void;
   // ---- chat-runtime 传输/AI 回调（组合根闭包）----
   getProviderId: () => string;
   // 选中模型 id（multi-model-catalog，可选）：chat-runtime 透传进 chat 消息
@@ -191,7 +197,8 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     pageBvid: deps.pageBvid,
     clip: () => deps.clip() as ClipState,
     startSubtitleFetch: deps.startSubtitleFetch,
-    subscribeStatusPhase: deps.subscribeStatusPhase
+    subscribeStatusPhase: deps.subscribeStatusPhase,
+    onWaitingChange: deps.onWaitingChange
   });
   // chat 流状态机：自身流状态（activePort 等）与自动滚动标志（shouldAutoScroll-
   // Messages）都在 runtime 闭包内；会话状态读 chatSessionState；deps 只剩 DOM
