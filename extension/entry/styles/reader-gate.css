@@ -347,10 +347,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   box-shadow: none;
   border-radius: 999px;
   /* 紧凑胶囊：tab 不三等分拉伸（flex:1 会让选中 pill 撑满整段），改为
-   * 内容宽居中聚合——示意图的选中胶囊只包住文字；横向 padding 30px
+   * 内容宽居中聚合——示意图的选中胶囊只包住文字；横向 padding 40px
    * 保证每个胶囊的可点击范围 */
   justify-content: center;
-  gap: 16px;
+  gap: 24px;
   padding: 4px 10px;
 }
 
@@ -363,9 +363,30 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab {
-  flex: 0 0 auto;
   border-radius: 999px;
-  padding: 8px 30px;
+  padding: 8px 40px;
+}
+
+/* 胶囊尺寸随面板宽度降档（#biliscript-reading-view 是 inline-size 容器）：
+ * 40px padding 三胶囊 + 间隙约需 410px，窄面板不降档会折行/溢出。 */
+@container (max-width: 560px) {
+  #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tabs {
+    gap: 16px;
+  }
+
+  #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab {
+    padding: 8px 30px;
+  }
+}
+
+@container (max-width: 460px) {
+  #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tabs {
+    gap: 10px;
+  }
+
+  #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab {
+    padding: 8px 22px;
+  }
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab.is-active {
