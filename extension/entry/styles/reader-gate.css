@@ -226,7 +226,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   --biliscript-reader-track: rgba(23, 24, 26, 0.1);
   --biliscript-reader-shadow: 0 8px 24px rgba(17, 18, 26, 0.1);
   --biliscript-reader-overlay-bg: rgba(255, 255, 255, 0.8);
-  /* 蓝雾壳四件（消费方在本表后面的「flyme 蓝雾壳」段）：mist-surface = 壳的
+  /* 蓝雾壳三件（消费方在本表后面的「flyme 蓝雾壳」段）：mist-surface = 壳的
    * 半透明雾底；mist-blobs = 顶部两团蓝色光雾（壳 ::before 的 background，
    * 随 28px 模糊铺开，蓝取自参考稿 #BBE4FD 族）；mist-line = 壳的亮白描边；
    * mist-filter = 壳的背景模糊。深色块只覆写 surface/blobs/line，filter 从
@@ -239,8 +239,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
     radial-gradient(260px 190px at 85% -15%, rgba(187, 228, 253, 0.9), rgba(187, 228, 253, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.65);
   --biliscript-reader-mist-filter: blur(24px) saturate(1.2);
-  /* 玻璃槽/件底：分段控件槽等嵌在雾底上的次级面 */
-  --biliscript-reader-mist-glass: rgba(255, 255, 255, 0.5);
   /* 动效：light/dark 不动，只 flyme 档换 Flyme 手感。spring 是 Flyme 非手势
    * 基准曲线（200–350ms 档）；bounce 是文档「面板/应用切换/小窗」回弹近似，
    * 过冲 ≤2%（真机手势仍须弹簧，CSS 只近似）。 */
@@ -293,7 +291,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
     radial-gradient(300px 210px at 30% -30%, rgba(61, 155, 255, 0.3), rgba(61, 155, 255, 0)),
     radial-gradient(260px 190px at 85% -12%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.18);
-  --biliscript-reader-mist-glass: rgba(255, 255, 255, 0.08);
 }
 
 /* ===== flyme 蓝雾壳 =====
@@ -340,12 +337,12 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   pointer-events: none;
 }
 
-/* 分段控件进玻璃：槽换半透玻璃底（透出顶部光雾与渐变），选中项是白玻璃
- * pill + accent 字——accent 实底胶囊是 bilibili 族的语言，flyme 不用。
- * 深色档按「阴影置零」纪律把投影换成暗投影一档。 */
+/* 分段控件：槽体透明、与雾底融为一体，只有选中项浮起白玻璃 pill +
+ * accent 字——凹槽底与 accent 实底胶囊都是 bilibili 族的语言，flyme 不用。
+ * 深色档按「阴影置零」纪律把 pill 投影换成暗投影一档。 */
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tabs {
-  background: var(--biliscript-reader-mist-glass);
-  box-shadow: inset 0 1px 2px rgba(23, 24, 26, 0.05);
+  background: transparent;
+  box-shadow: none;
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab.is-active {
@@ -354,19 +351,31 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   box-shadow: 0 1px 4px rgba(23, 24, 26, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
-#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-tabs {
-  box-shadow: none;
-}
-
 #biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-tab.is-active {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
-/* 章节/金句：灰井（surface-2）换白玻璃卡 + 细描边，浮在玻璃内容卡上 */
+/* 章节/金句：灰井（surface-2）换白玻璃凸起卡——无描边，靠竖向渐变填充 +
+ * 顶部内高光 + 软投影做凸起感；hover 不落回 surface-3 灰，只加重投影。 */
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-chapter,
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote {
   background: var(--biliscript-reader-card);
-  border: 1px solid var(--biliscript-reader-border);
+  border: none;
+  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.07), 0 6px 16px rgba(23, 24, 26, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-chapter:hover,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote:hover {
+  background: var(--biliscript-reader-card);
+  box-shadow: 0 2px 5px rgba(23, 24, 26, 0.09), 0 10px 24px rgba(23, 24, 26, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-ov-chapter,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-ov-quote,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-ov-chapter:hover,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-ov-quote:hover {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 /* ===== 减弱透明度 =====
