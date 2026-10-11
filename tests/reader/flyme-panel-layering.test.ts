@@ -11,17 +11,18 @@
 //    叠在不透明的 surface 面板壳上数学上恒等于 surface（纯冗余），而它近白的
 //    观感在 flyme 浅色下与 tab 区的灰形成断层（用户报「很割裂」）。token
 //    --biliscript-reader-header-bg 随唯一消费方一并清除。
-// 3. flyme 浅色 tab 槽 pill-bg 由 #f0f1f3 加深到 #e9ebef（surface-3 同值）：
-//    原值与面板灰 #f2f3f5 仅差 2 阶，槽形不可见、选中态蓝胶囊像浮在灰上。
-//    flyme 深色 pill-bg #222327 与 surface-3 本就同值，不动。
+// 3. flyme 分段控件槽走蓝雾玻璃：槽底是 mist-glass 半透玻璃（透出顶部光雾），
+//    选中项是白玻璃 pill + accent 字（reader-gate.css 的 flyme 蓝雾壳段按
+//    [data-family="flyme"] 作用域覆写）；pill-bg token 留在色板里服务
+//    解释卡关闭键 hover 等消费方，值不变。
 // 4. 历史条目（.chat-history-item）白卡无描边：background 由 surface（与面板
 //    同灰，读作一排灰盒子）换成 card；描边退为 transparent（保留 1px 几何，
 //    is-live-match 换 accent 边时布局不跳）。
 //
 // 局限同 chat-history-page.test.ts：jsdom 无布局，本文件只锁 CSS 源文本，
 // 真实观感回归由人工/预览页（.scratch/previews/flyme-panel-color-fix.html）兜。
-// 防倒退：tab 内容区回到透明/灰底、header 复活独立底色、flyme 浅色槽色退回
-// 2 阶差、历史条目回到灰底灰边，本文件红。
+// 防倒退：tab 内容区回到透明/灰底、header 复活独立底色、flyme 槽色退回不透明
+// 灰、历史条目回到灰底灰边，本文件红。
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -86,10 +87,12 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(readCss(GATE_CSS)).not.toContain("--biliscript-reader-header-bg");
   });
 
-  it("flyme 浅色 tab 槽加深到 surface-3 同值 #e9ebef（2 阶差不可见 → 可辨）", () => {
+  it("flyme 分段控件槽是蓝雾玻璃：浅色 mist-glass 白 50%，深色白 8%", () => {
     const flymeLight = themeBlock('#biliscript-reading-view[data-family="flyme"]');
+    const flymeDark = themeBlock('#biliscript-reading-view[data-family="flyme"][data-theme="dark"]');
 
-    expect(flymeLight).toContain("--biliscript-reader-pill-bg: #e9ebef");
+    expect(flymeLight).toContain("--biliscript-reader-mist-glass: rgba(255, 255, 255, 0.5)");
+    expect(flymeDark).toContain("--biliscript-reader-mist-glass: rgba(255, 255, 255, 0.08)");
   });
 
   it("flyme 深色 tab 槽不动（#222327，深色分层用户确认协调）", () => {

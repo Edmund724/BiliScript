@@ -231,14 +231,16 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
    * 随 28px 模糊铺开，蓝取自参考稿 #BBE4FD 族）；mist-line = 壳的亮白描边；
    * mist-filter = 壳的背景模糊。深色块只覆写 surface/blobs/line，filter 从
    * 本块继承（与动效曲线同一纪律）。 */
-  --biliscript-reader-mist-surface: rgba(243, 244, 246, 0.86);
+  --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(236, 245, 252, 0.9), rgba(243, 244, 246, 0.86) 180px);
   /* 光雾圆心抬到壳顶缘之上（负 %），峰值留在壳外，只有衰减裙边落进面板——
    * 评审实测圆心贴顶缘时雾峰值压在 header 文字上（muted 字 3.48:1 不达线）。 */
   --biliscript-reader-mist-blobs:
-    radial-gradient(300px 210px at 16% -30%, rgba(140, 200, 255, 0.55), rgba(140, 200, 255, 0)),
-    radial-gradient(260px 190px at 92% -22%, rgba(187, 228, 253, 0.7), rgba(187, 228, 253, 0));
+    radial-gradient(300px 210px at 30% -40%, rgba(140, 200, 255, 0.6), rgba(140, 200, 255, 0)),
+    radial-gradient(260px 190px at 85% -15%, rgba(187, 228, 253, 0.9), rgba(187, 228, 253, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.65);
   --biliscript-reader-mist-filter: blur(24px) saturate(1.2);
+  /* 玻璃槽/件底：分段控件槽等嵌在雾底上的次级面 */
+  --biliscript-reader-mist-glass: rgba(255, 255, 255, 0.5);
   /* 动效：light/dark 不动，只 flyme 档换 Flyme 手感。spring 是 Flyme 非手势
    * 基准曲线（200–350ms 档）；bounce 是文档「面板/应用切换/小窗」回弹近似，
    * 过冲 ≤2%（真机手势仍须弹簧，CSS 只近似）。 */
@@ -286,11 +288,12 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
   --biliscript-reader-overlay-bg: rgba(16, 17, 20, 0.8);
   /* 深色蓝雾三件：壳雾底 #101114 加 alpha，光雾换深蓝辉光（accent #3D9BFF
    * 同族），描边按深色玻璃纪律取白 18%（mist-filter 从 flyme 浅色块继承）。 */
-  --biliscript-reader-mist-surface: rgba(16, 17, 20, 0.84);
+  --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(22, 28, 38, 0.88), rgba(16, 17, 20, 0.84) 180px);
   --biliscript-reader-mist-blobs:
-    radial-gradient(300px 210px at 16% -25%, rgba(61, 155, 255, 0.3), rgba(61, 155, 255, 0)),
-    radial-gradient(260px 190px at 92% -18%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0));
+    radial-gradient(300px 210px at 30% -30%, rgba(61, 155, 255, 0.3), rgba(61, 155, 255, 0)),
+    radial-gradient(260px 190px at 85% -12%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.18);
+  --biliscript-reader-mist-glass: rgba(255, 255, 255, 0.08);
 }
 
 /* ===== flyme 蓝雾壳 =====
@@ -335,6 +338,35 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   background: var(--biliscript-reader-mist-blobs);
   filter: blur(28px);
   pointer-events: none;
+}
+
+/* 分段控件进玻璃：槽换半透玻璃底（透出顶部光雾与渐变），选中项是白玻璃
+ * pill + accent 字——accent 实底胶囊是 bilibili 族的语言，flyme 不用。
+ * 深色档按「阴影置零」纪律把投影换成暗投影一档。 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-tabs {
+  background: var(--biliscript-reader-mist-glass);
+  box-shadow: inset 0 1px 2px rgba(23, 24, 26, 0.05);
+}
+
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab.is-active {
+  background: var(--biliscript-reader-card);
+  color: var(--biliscript-reader-accent);
+  box-shadow: 0 1px 4px rgba(23, 24, 26, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-tabs {
+  box-shadow: none;
+}
+
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-tab.is-active {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* 章节/金句：灰井（surface-2）换白玻璃卡 + 细描边，浮在玻璃内容卡上 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-chapter,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote {
+  background: var(--biliscript-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
 }
 
 /* ===== 减弱透明度 =====
