@@ -232,9 +232,11 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
    * mist-filter = 壳的背景模糊。深色块只覆写 surface/blobs/line，filter 从
    * 本块继承（与动效曲线同一纪律）。 */
   --biliscript-reader-mist-surface: rgba(243, 244, 246, 0.86);
+  /* 光雾圆心抬到壳顶缘之上（负 %），峰值留在壳外，只有衰减裙边落进面板——
+   * 评审实测圆心贴顶缘时雾峰值压在 header 文字上（muted 字 3.48:1 不达线）。 */
   --biliscript-reader-mist-blobs:
-    radial-gradient(300px 210px at 16% 0%, rgba(140, 200, 255, 0.85), rgba(140, 200, 255, 0)),
-    radial-gradient(260px 190px at 92% 2%, rgba(187, 228, 253, 0.95), rgba(187, 228, 253, 0));
+    radial-gradient(300px 210px at 16% -30%, rgba(140, 200, 255, 0.55), rgba(140, 200, 255, 0)),
+    radial-gradient(260px 190px at 92% -22%, rgba(187, 228, 253, 0.7), rgba(187, 228, 253, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.65);
   --biliscript-reader-mist-filter: blur(24px) saturate(1.2);
   /* 动效：light/dark 不动，只 flyme 档换 Flyme 手感。spring 是 Flyme 非手势
@@ -256,8 +258,9 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
   --biliscript-reader-surface-2: #1b1c20;
   --biliscript-reader-surface-3: #222327;
   --biliscript-reader-fill-hover: rgba(255, 255, 255, 0.1);
-  /* 深色玻璃卡：#1B1C20 提亮一档起坡、加 alpha，叠在深色雾壳上透出辉光 */
-  --biliscript-reader-card: linear-gradient(180deg, rgba(35, 36, 41, 0.88), rgba(27, 28, 32, 0.96));
+  /* 深色玻璃卡：自 #1B1C20 提亮两档起坡（评审实测单档提亮时章节井与卡面
+   * ΔRGB 只剩 4，分层消失）、加 alpha，叠在深色雾壳上透出辉光 */
+  --biliscript-reader-card: linear-gradient(180deg, rgba(41, 43, 49, 0.9), rgba(29, 30, 35, 0.95));
   --biliscript-reader-border: rgba(255, 255, 255, 0.12);
   --biliscript-reader-text: #ecedef;
   --biliscript-reader-muted: #9ca0a8;
@@ -285,8 +288,8 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
    * 同族），描边按深色玻璃纪律取白 18%（mist-filter 从 flyme 浅色块继承）。 */
   --biliscript-reader-mist-surface: rgba(16, 17, 20, 0.84);
   --biliscript-reader-mist-blobs:
-    radial-gradient(300px 210px at 16% 0%, rgba(61, 155, 255, 0.3), rgba(61, 155, 255, 0)),
-    radial-gradient(260px 190px at 92% 2%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0));
+    radial-gradient(300px 210px at 16% -25%, rgba(61, 155, 255, 0.3), rgba(61, 155, 255, 0)),
+    radial-gradient(260px 190px at 92% -18%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.18);
 }
 
@@ -314,9 +317,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   border-color: var(--biliscript-reader-mist-line);
 }
 
+/* 内壳透明化：贴栏态它 100% 铺满视图，双叠会把雾底压成近实色、描边出双圈；
+ * 阴影一并归零（视图壳已带投影，浮层态 20px 内边距环会让内壳阴影现形为
+ * 第二道圆角边线）。 */
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-script-panel {
   background: transparent;
   border-color: transparent;
+  box-shadow: none;
 }
 
 #biliscript-reading-view[data-family="flyme"]::before {
