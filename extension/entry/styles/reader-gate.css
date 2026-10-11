@@ -363,18 +363,28 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
 }
 
 /* 章节/金句：灰井（surface-2）换白玻璃凸起卡——无描边，靠竖向渐变填充 +
- * 顶部内高光 + 软投影做凸起感；hover 不落回 surface-3 灰，只加重投影。 */
+ * 顶部内高光 + 软投影做凸起感；hover 不落回 surface-3 灰，只加重投影。
+ * 间隙与滚动条两条例（实机截图决议）：
+ * - 投影收紧到 6/16px 模糊、卡片间距 8px→12px——28px 大模糊会把 8px 间隙
+ *   整个罩成灰带（上下卡的投影双面夹击），间隙应读作干净的雾底；
+ * - 滚动容器加右侧 padding——概览容器无 padding 时卡片右缘与滚动条相贴。 */
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-chapter,
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote {
   background: var(--biliscript-reader-card);
   border: none;
-  box-shadow: 0 2px 6px rgba(23, 24, 26, 0.1), 0 12px 28px rgba(23, 24, 26, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  margin-bottom: 12px;
+  box-shadow: 0 2px 6px rgba(23, 24, 26, 0.1), 0 6px 16px rgba(23, 24, 26, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-chapter:hover,
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote:hover {
   background: var(--biliscript-reader-card);
-  box-shadow: 0 3px 8px rgba(23, 24, 26, 0.12), 0 16px 36px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  box-shadow: 0 3px 8px rgba(23, 24, 26, 0.12), 0 10px 22px rgba(23, 24, 26, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-overview {
+  /* 右 8px 给滚动条留空隙；左 2px 让卡片左侧投影不被 overflow-x 裁掉 */
+  padding: 0 8px 0 2px;
 }
 
 /* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
