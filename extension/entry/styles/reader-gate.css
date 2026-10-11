@@ -347,10 +347,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   box-shadow: none;
   border-radius: 999px;
   /* 紧凑胶囊：tab 不三等分拉伸（flex:1 会让选中 pill 撑满整段），改为
-   * 内容宽居中聚合——示意图的选中胶囊只包住文字；横向 padding 20px
+   * 内容宽居中聚合——示意图的选中胶囊只包住文字；横向 padding 30px
    * 保证每个胶囊的可点击范围 */
   justify-content: center;
-  gap: 10px;
+  gap: 16px;
   padding: 4px 10px;
 }
 
@@ -365,7 +365,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab {
   flex: 0 0 auto;
   border-radius: 999px;
-  padding: 7px 20px;
+  padding: 8px 30px;
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab.is-active {
