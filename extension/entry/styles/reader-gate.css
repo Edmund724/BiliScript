@@ -349,7 +349,15 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   /* 紧凑胶囊：tab 不三等分拉伸（flex:1 会让选中 pill 撑满整段），改为
    * 内容宽 + 分散排开——示意图的选中胶囊只包住文字 */
   justify-content: space-between;
-  padding: 4px 6px;
+  padding: 4px 10px;
+}
+
+/* 对话工具键（历史/新对话）在非对话 tab 时占位隐藏：base 规则 display:none
+ * 会改变 tabs 容器可用宽度、三个胶囊位置随 tab 切换跳动；visibility 保留
+ * 几何空间（hidden 同时禁用点击），每次切换只有按钮显隐、胶囊不动。 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active)) .biliscript-reading-tabs-tools {
+  display: flex;
+  visibility: hidden;
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab {
@@ -411,6 +419,12 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
 #biliscript-reading-view[data-family="flyme"]:not([data-theme="dark"]) .biliscript-reading-time {
   color: #2e6fc2;
   background: rgba(46, 111, 194, 0.1);
+}
+
+/* 金句卡底行：时间戳 pill 回左下、复制图标单独在右下（示意图版式；
+ * base 是 flex-end 两者挤在右下，bilibili 族不动） */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote-foot {
+  justify-content: space-between;
 }
 
 /* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
