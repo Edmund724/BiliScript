@@ -5,18 +5,16 @@
 // + card 白卡（tab 内容区、历史条目）。本文件锁四点：
 //
 // 1. tab 内容区（.biliscript-reading-tab-body）底色走 --biliscript-reader-card，
-//    圆角 12px（与 tab 槽同档的嵌套半径），四周 margin 环透出面板页面灰——
-//    bilibili 族读作「白卡浮在灰页底上」；flyme 族由 reader-gate.css 的蓝雾壳段
-//    覆写为透明（内容区直露雾底，全场一层料，凸起白卡靠灰差浮出），本测试只锁
-//    base 规则。
+//    圆角 12px（与 tab 槽同档的嵌套半径），四周 margin 环透出面板页面灰
+//    （reader-gate.css 的蓝雾壳段覆写为透明：内容区直露雾底，全场一层料，
+//    凸起白卡靠灰差浮出），本测试只锁 base 规则。
 // 2. header 不再自带底色与毛玻璃：原 header-bg 是 surface 加 alpha 的 rgba，
 //    叠在不透明的 surface 面板壳上数学上恒等于 surface（纯冗余），而它近白的
-//    观感在 flyme 浅色下与 tab 区的灰形成断层（用户报「很割裂」）。token
+//    观感在浅色下与 tab 区的灰形成断层（用户报「很割裂」）。token
 //    --biliscript-reader-header-bg 随唯一消费方一并清除。
-// 3. flyme 分段控件槽体透明、与雾底融为一体：无槽底、无内阴影，只有选中项
-//    浮起白玻璃 pill + accent 字（reader-gate.css 的 flyme 蓝雾壳段按
-//    [data-family="flyme"] 作用域覆写）；pill-bg token 留在色板里服务
-//    解释卡关闭键 hover 等消费方，值不变。
+// 3. 分段控件槽体透明、与雾底融为一体：无槽底、无内阴影，只有选中项浮起
+//    白玻璃 pill + accent 字（reader-gate.css 的蓝雾壳段覆写）；
+//    pill-bg token 留在色板里服务解释卡关闭键 hover 等消费方，值不变。
 // 4. 历史条目（.chat-history-item）白卡无描边：background 由 surface（与面板
 //    同灰，读作一排灰盒子）换成 card；描边退为 transparent（保留 1px 几何，
 //    is-live-match 换 accent 边时布局不跳）。
@@ -56,7 +54,7 @@ function ruleBody(css: string, selector: string): string {
 }
 
 // 主题块定位：gate 段每个色板块的最后一个选择器是 #biliscript-reading-view 形态，
-// 按结尾特征区分 flyme 浅色块与 flyme 深色块。
+// 按结尾特征区分浅色基础块与深色块。
 function themeBlock(tailSelector: string): string {
   const text = readCss(GATE_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
   const rules = text.match(/[^{}]+\{[^}]*\}/g) || [];
@@ -89,14 +87,14 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(readCss(GATE_CSS)).not.toContain("--biliscript-reader-header-bg");
   });
 
-  it("flyme 分段控件槽体透明：无槽底无内阴影，只有选中项浮白玻璃 pill", () => {
+  it("分段控件槽体透明：无槽底无内阴影，只有选中项浮白玻璃 pill", () => {
     const trough = ruleBody(
       readCss(GATE_CSS),
-      '#biliscript-reading-view[data-family="flyme"] .biliscript-reading-tabs'
+      "#biliscript-reading-view .biliscript-reading-tabs"
     );
     const active = ruleBody(
       readCss(GATE_CSS),
-      '#biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab.is-active'
+      "#biliscript-reading-view .biliscript-reading-tab.is-active"
     );
 
     expect(trough).toContain("background: transparent");
@@ -105,10 +103,10 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(active).toContain("color: var(--biliscript-reader-accent)");
   });
 
-  it("flyme 深色 tab 槽不动（#222327，深色分层用户确认协调）", () => {
-    const flymeDark = themeBlock('#biliscript-reading-view[data-family="flyme"][data-theme="dark"]');
+  it("深色 tab 槽不动（#222327，深色分层用户确认协调）", () => {
+    const dark = themeBlock("#biliscript-reading-view[data-theme=\"dark\"]");
 
-    expect(flymeDark).toContain("--biliscript-reader-pill-bg: #222327");
+    expect(dark).toContain("--biliscript-reader-pill-bg: #222327");
   });
 
   it("历史条目白卡无描边：card 底 + transparent 边（不再是与面板同灰的灰盒子）", () => {

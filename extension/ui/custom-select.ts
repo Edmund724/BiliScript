@@ -45,9 +45,10 @@ export interface CustomSelectState {
 
 // 外部写值的唯一入口（ADR-0007 修订）：与 chooseOption 共用同一条「写值 + 同步
 // 显示」路径，「显示 = 现值」由此成为组件内部不变式。不 dispatch change——水合
-// 是程序化写值，派发会被即时保存监听（readerThemeFamily 的 change 即落盘）误判成
-// 用户改选；change 只属于用户选中。未初始化的 select 只写值：initCustomSelect
-// 随后按现值派生显示，故「先写值后初始化」与「先初始化后写值」同一条路径。
+// 是程序化写值，派发会被即时保存监听（asrAutoFallback / webSearchMaxToolCalls 的
+// change 即落盘）误判成用户改选；change 只属于用户选中。未初始化的 select 只写值：
+// initCustomSelect 随后按现值派生显示，故「先写值后初始化」与「先初始化后写值」
+// 同一条路径。
 export function setCustomSelectValue(select: HTMLSelectElement, value: string): void {
   select.value = value;
   shellOps.get(select)?.syncDisplay();

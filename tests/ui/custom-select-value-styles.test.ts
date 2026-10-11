@@ -1,6 +1,6 @@
 // tests/ui/custom-select-value-styles.test.ts
 // 组件表缺口（wayfinder/subtitle-track-picker 10 号票）：按**真实 CSS 注入**核验四条
-// 组件侧视觉规则的 computed 值，并守「设置页三处调用点外观逐字不变」。
+// 组件侧视觉规则的 computed 值，并守「设置页两处调用点外观逐字不变」。
 //
 // 先列失败方式，再据此写断言：
 //   F1 值区裸奔：`.custom-select-value` 在组件表里一条规则都没有 → UA 的
@@ -11,7 +11,7 @@
 //      「不可用」，缺 aria-busy 消费规则看不出「请求中」。
 //   F3 RTL 行不跟随方向：`.custom-select-option` 写死 text-align: left → 挂
 //      dir="auto" 的阿拉伯语行也靠左；逻辑值 start 才随行方向解析。
-//   F4 改坏设置页：值区新规则若把 span 变成贪婪伸缩（flex-grow），设置页三处
+//   F4 改坏设置页：值区新规则若把 span 变成贪婪伸缩（flex-grow），设置页两处
 //      调用点的 trigger/wrapper 宽度会变。故逐处核宽度不变。
 //
 // jsdom 说明：无布局引擎（宽度恒 0），故宽度断言按**flex 尺寸参与项**核，而不是
@@ -95,17 +95,16 @@ describe("值区省略号（10 号票第 1 条：.custom-select-value 此前零�
     expect(window.getComputedStyle(trigger).textAlign).toBe("center");
   });
 
-  it("值区不吃 flex 增长、不改宿主尺寸参与项（设置页三处调用点外观不变）", async () => {
+  it("值区不吃 flex 增长、不改宿主尺寸参与项（设置页两处调用点外观不变）", async () => {
     injectComponentStyles();
     const sources = [
-      '<div class="biliscript-set-row"><label for="readerThemeFamily">主题</label><select id="readerThemeFamily"><option value="bilibili">Bilibili</option><option value="flyme">Flyme</option></select></div>',
       markup,
       '<div class="provider-editor-field"><label class="provider-editor-label">协议</label><select id="protocolSelect"><option value="openai">OpenAI Chat Completions</option><option value="anthropic">Anthropic Messages</option></select></div>'
     ];
     const { initCustomSelect } = await import("../../extension/ui/custom-select.js");
     const seen: string[] = [];
     for (const [index, source] of sources.entries()) {
-      const id = ["readerThemeFamily", "downloadFormat", "protocolSelect"][index];
+      const id = ["downloadFormat", "protocolSelect"][index];
       const select = mountSelect(source, id);
       initCustomSelect(select);
       const wrapper = select.closest<HTMLElement>(".custom-select-wrapper")!;
@@ -120,7 +119,7 @@ describe("值区省略号（10 号票第 1 条：.custom-select-value 此前零�
       expect(trigger.firstElementChild).toBe(value);
       seen.push(valueStyle.flexShrink);
     }
-    // 三处调用点同规格（分叉即在此暴露）
+    // 两处调用点同规格（分叉即在此暴露）
     expect(new Set(seen).size).toBe(1);
   });
 });

@@ -12,8 +12,8 @@
 // （clearOnClose / clearOnGuard / watchedByGuard）显式化，不再靠各处手抄对齐。
 //
 // 三开关退役（滚动/字幕/章节不再可关，2026-09）：排版字段只剩 theme（明暗模式）
-// 与 themeFamily（主题族）两项，chapterVisibility / subtitleVisible 两字段连同
-// 其存储键随开关一并删除。
+// 一项，chapterVisibility / subtitleVisible 两字段连同其存储键随开关一并删除；
+// 主题族字段已删（色板恒 flyme，无家族轴）。
 //
 // 纯常量模块：零 import（连 core/state 都不碰），readValue 是注入 reader 状态
 // 对象的纯函数。content / pages / reader 任意侧都可安全 import，无循环依赖。
@@ -98,24 +98,6 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     clearViewOnClose: false,
     writtenByApply: true,
     readValue: (reader) => reader.readingTheme
-  },
-  // —— 主题族（两轴正交的家族轴，2026-09）：flyme（默认）| bilibili。恒写入
-  //（默认 "flyme"），CSS 侧按 family 命中色板与动效，明暗由 theme 轴另一块覆写。
-  // readingView 短名镜像为 data-family（与 data-theme 同族的短名），随 close
-  // 复位基线的口径与 theme 一致。 ——
-  {
-    id: "themeFamily",
-    kind: "presentation",
-    targets: { html: "data-biliscript-reader-family", body: "data-biliscript-reader-family", readingView: "data-family" },
-    datasetKeys: { html: "biliscriptReaderFamily", body: "biliscriptReaderFamily", readingView: "family" },
-    storageKey: "readerThemeFamily",
-    legacyStorageKey: null,
-    watchedByGuard: true,
-    clearOnGuard: true,
-    clearOnClose: true,
-    clearViewOnClose: false,
-    writtenByApply: true,
-    readValue: (reader) => reader.readingThemeFamily
   },
   // —— 进入标记：apply 不写（组合根/enterReaderMode 写 "1"），close/守卫都清 ——
   {

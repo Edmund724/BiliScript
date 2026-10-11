@@ -36,9 +36,9 @@
 
 ## 修订（日期：2026-10-01）
 
-**外部写值收口**：组件此前只在自身选项被点时同步显示，外部直接写 `select.value` 不回流 trigger——真机现象是编辑 Modal 里把预设切到 DeepSeek（协议默认 Anthropic），协议下拉的 trigger 仍写着「OpenAI Chat Completions」，用户看到的与即将落盘的协议不一致。修法是给组件加第三个出口 `setCustomSelectValue(select, value)` 作为外部写值的唯一入口，与 `chooseOption` 共用同一条「写值 + 同步显示」路径，显示内容（trigger 文本、`aria-selected`/`data-selected`、`aria-labelledby` 拼出的可访问名）一律从**写入后的实际 `select.value`** 重新派生，「显示 = 现值」由此变成组件内部不变式。两条边界：不派发 `change`（水合是程序化写值，派发会被 `readerThemeFamily` 的即时保存监听误判成用户改选；`change` 只属于用户选中）；未初始化的 select 只写值，随后 `initCustomSelect` 按现值派生显示，故「先写值后初始化」与「先初始化后写值」是同一路径——`loadSettings` 原先「挂载点必须在水合之后」的约束随之失效，注释已按新口径改写。写未知值不加兜底：原生已把实际值变成 `""`，显示照该实际值派生。
+**外部写值收口**：组件此前只在自身选项被点时同步显示，外部直接写 `select.value` 不回流 trigger——真机现象是编辑 Modal 里把预设切到 DeepSeek（协议默认 Anthropic），协议下拉的 trigger 仍写着「OpenAI Chat Completions」，用户看到的与即将落盘的协议不一致。修法是给组件加第三个出口 `setCustomSelectValue(select, value)` 作为外部写值的唯一入口，与 `chooseOption` 共用同一条「写值 + 同步显示」路径，显示内容（trigger 文本、`aria-selected`/`data-selected`、`aria-labelledby` 拼出的可访问名）一律从**写入后的实际 `select.value`** 重新派生，「显示 = 现值」由此变成组件内部不变式。两条边界：不派发 `change`（水合是程序化写值，派发会被 `asrAutoFallback` / `webSearchMaxToolCalls` 的即时保存监听误判成用户改选；`change` 只属于用户选中）；未初始化的 select 只写值，随后 `initCustomSelect` 按现值派生显示，故「先写值后初始化」与「先初始化后写值」是同一路径——`loadSettings` 原先「挂载点必须在水合之后」的约束随之失效，注释已按新口径改写。写未知值不加兜底：原生已把实际值变成 `""`，显示照该实际值派生。
 
-**调用点清单校正**：上方「后果」段的「三处调用点（下载格式、Modal ASR 预设、段落位置）」已过时——段落位置随笔记导出退役，主题族与 Modal 协议下拉先后接入，现为**四处**：下载格式、主题族（`settings-panel.ts` 的 `loadSettings` 写入）、Modal 预设、Modal 协议（预设切换时联动写协议值）。
+**调用点清单校正**：上方「后果」段的「三处调用点（下载格式、Modal ASR 预设、段落位置）」已过时——段落位置随笔记导出退役，现为**三处**：下载格式、Modal 预设、Modal 协议（预设切换时联动写协议值）。
 
 ## 修订（日期：2026-10-06）
 

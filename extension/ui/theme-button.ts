@@ -1,8 +1,7 @@
 // ui/theme-button.ts — header 主题按钮（太阳/月亮）图标与文案的单点。
-// 按钮只管两轴里的明暗轴：按 readingTheme 映射 light=太阳、dark=月亮
-//（主题族 readerThemeFamily 在设置抽屉手选，不参与本按钮）。上一版短暂存在的
-// 三值制随两轴正交重构退役：flyme 归主题族，归一化只产出 light/dark 两值，
-// 未知存量值回落 light。两个消费方：ui-renderer 建壳时取初值；
+// 按钮只驱动明暗一轴：按 readingTheme 映射 light=太阳、dark=月亮；色板恒
+// flyme，无主题族设置项。归一化只产出 light/dark 两值，未知存量值回落 light。
+// 两个消费方：ui-renderer 建壳时取初值；
 // reader/presentation.ts 的 applyReadingViewPresentation 尾部经 refreshThemeButton
 // 刷新——所有改主题路径（点击两态切换、进入阅读模式、storage 跨页同步 watcher）
 // 都收敛到该函数，按钮不另接。
@@ -18,7 +17,7 @@ const THEME_TITLES: Record<string, string> = {
 };
 
 export function themeButtonView(theme: string): { icon: string; title: string } {
-  // 归一化只产出 light/dark；未知（如退役的 paper 或已拆轴的 flyme）仍回落 light。
+  // 归一化只产出 light/dark；未知（如退役的 paper）仍回落 light。
   const dark = theme === "dark";
   return {
     icon: dark ? READING_HEADER_ICONS.themeDark : READING_HEADER_ICONS.theme,

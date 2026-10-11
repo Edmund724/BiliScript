@@ -75,15 +75,10 @@ _Avoid_: popup- 词根消息名、进入阅读模式手抄序列
 代码名：`player-ai.ts` / `findPlayerAiQuickActionHost` / `findPlayerSubtitleControlNode`（校准探针，非定位/行为依赖）/ `playerAiSubtitleControlCalibrated`
 _Avoid_: 把字幕控件门当硬门回退、降级位先挂后迁移
 
-**主题族**:
-整套色板的归属：`flyme`（蓝雾分层玻璃色系，默认）| `bilibili`（B 站原生暖纸配色）。与明暗模式正交的第二轴，在设置抽屉里手选。存量三值制里写进 `readerTheme` 的 `"flyme"` 由归一化迁移到此键。
-代码名：`readerThemeFamily`（默认 `flyme`）/ `readingThemeFamily` / `setThemeFamily`
-_Avoid_: 把 `readerTheme` 当主题族、用「主题」单字同时指两轴
-
 **明暗模式**:
-浅色 / 深色两档：`light` | `dark`。header 主题按钮切换与系统跟随（从未手选时按 `prefers-color-scheme` 定初始档）只驱动它，不换主题族。
+浅色 / 深色两档：`light` | `dark`，由面板 header 的主题按钮切换，从未手选时按 `prefers-color-scheme` 定初始档。外观只此一轴：唯一色板 `flyme`（蓝雾分层玻璃色系）按明暗两档各出一份取值，设置抽屉不提供主题选择项。
 代码名：`readerTheme` / `normalizeReaderTheme` / `readingTheme` / `setTheme`
-_Avoid_: 用 `readerTheme` 表示主题族、把 `flyme` 当第三档明暗
+_Avoid_: 用「主题」单字指明暗档位、把 `flyme` 当明暗档位（它是色板名，不是档位）
 
 ### 面板控件
 
@@ -98,8 +93,8 @@ _Avoid_: 把带框文字键与图标键混为一谈、给图标键加回边框
 _Avoid_: 三处各存一份复制图标字面量、各配一套尺寸/描边
 
 **悬停反馈**:
-图标键在指针悬停或键盘焦点下显示的底色反馈：令牌 `--biliscript-reader-fill-hover`（亮色面黑 6%、暗色面白 10% 一档半透明，四色板各一份）。可聚焦的图标键 `:hover` 与 `:focus-visible` 同底；不可聚焦的复制键（金句卡的 `span[role=button]`）只做 hover。
-代码名：`--biliscript-reader-fill-hover` / `:hover` / `:focus-visible`（reader-gate.css 四色板段）
+图标键在指针悬停或键盘焦点下显示的底色反馈：令牌 `--biliscript-reader-fill-hover`（亮色面黑 6%、暗色面白 10% 一档半透明，明暗两档各一份）。可聚焦的图标键 `:hover` 与 `:focus-visible` 同底；不可聚焦的复制键（金句卡的 `span[role=button]`）只做 hover。
+代码名：`--biliscript-reader-fill-hover` / `:hover` / `:focus-visible`（reader-gate.css 主题色板段）
 _Avoid_: 用 surface-2 换底充当悬停反馈（层级差太弱）、只做 hover 不做键盘焦点
 
 ### 总结流程

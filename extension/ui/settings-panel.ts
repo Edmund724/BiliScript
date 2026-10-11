@@ -32,7 +32,6 @@ import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
 import {
   normalizeDownloadFormat,
   normalizePlayerAiQuickPrompt,
-  normalizeReaderThemeFamily,
   normalizeWebSearchMaxToolCalls
 } from "../core/validators.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -84,7 +83,6 @@ let settingsHostRef: HTMLElement | null = null;
 
 // collectFormPayload 的产物形态（save-settings 报文的 settings 载荷）
 interface SettingsFormPayload {
-  readerThemeFamily: string;
   downloadFormat: string;
   includeDateInFilename: boolean;
   enablePlayerAiQuickAction: boolean;
@@ -107,7 +105,7 @@ interface SettingsFormPayload {
 // 裁剪问题相同。
 // 但「无 paint 即无弹层风险」不成立（M15 漏判）：layout containment 本身就让
 // 分区建立堆叠上下文，把弹层的 z-index 囚在分区内，被 DOM 序在后的兄弟分区压住
-// （主题下拉叠印在「AI 模型平台」区下）。配对手段在样式表侧：分区含展开中的下拉
+// （custom-select 下拉叠印在相邻分区下）。配对手段在样式表侧：分区含展开中的下拉
 // 时整区抬升（reader-settings-rows.css 的 .biliscript-set-group:has(...) 规则），
 // 本函数不改。
 // 经 TS 内联应用而非落 reader-settings-*.css 样式表：真实原因是样式表文件不在
@@ -126,7 +124,6 @@ function collectElements(host: HTMLElement) {
   const byIdIn = <T extends HTMLElement>(id: string): T =>
     host.querySelector(`#${id}`) as T;
   return {
-    readerThemeFamily: byIdIn<HTMLSelectElement>("readerThemeFamily"),
     downloadFormat: byIdIn<HTMLSelectElement>("downloadFormat"),
     includeDateInFilename: byIdIn<HTMLInputElement>("includeDateInFilename"),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>("enablePlayerAiQuickAction"),
@@ -232,15 +229,13 @@ function setStatus(elements: SettingsElements, text: unknown, isError = false): 
 async function loadSettings(elements: SettingsElements): Promise<void> {
   await ensurePresetsLoaded();
   const settings = await getSettings();
-  // ADR-0007：两个下拉的显示从原生 select 现值派生——initCustomSelect 建壳时读一次，
-  // 此后每次外部写值经 setCustomSelectValue 重新派生（与组件内选项点击同一条路径）。
-  // 挂载点因此不再有「必须在写值之后」的约束：setCustomSelectValue 对未初始化的
-  // select 只写值，先挂壳后水合也显示现值。口径与 provider-editor-modal 一致（那份
-  // 模板先用 selected 把值定死，再 initCustomSelect）。初始化标记
-  // （dataset.customSelectInitialized）使重复装载幂等。
-  setCustomSelectValue(elements.readerThemeFamily, normalizeReaderThemeFamily(settings.readerThemeFamily));
+  // ADR-0007：下载格式下拉的显示从原生 select 现值派生——initCustomSelect 建壳时
+  // 读一次，此后每次外部写值经 setCustomSelectValue 重新派生（与组件内选项点击
+  // 同一条路径）。挂载点因此不再有「必须在写值之后」的约束：
+  // setCustomSelectValue 对未初始化的 select 只写值，先挂壳后水合也显示现值。
+  // 口径与 provider-editor-modal 一致（那份模板先用 selected 把值定死，再
+  // initCustomSelect）。初始化标记（dataset.customSelectInitialized）使重复装载幂等。
   setCustomSelectValue(elements.downloadFormat, normalizeDownloadFormat(settings.downloadFormat));
-  initCustomSelect(elements.readerThemeFamily, "custom-select-wrapper");
   initCustomSelect(elements.downloadFormat, "custom-select-wrapper");
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
@@ -528,7 +523,6 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
 
 function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
   return {
-    readerThemeFamily: normalizeReaderThemeFamily(elements.readerThemeFamily.value),
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
@@ -583,7 +577,6 @@ function buildDefaultPreferencePayload() {
     includeTimestampInBody: DEFAULT_SETTINGS.includeTimestampInBody,
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
-    readerThemeFamily: DEFAULT_SETTINGS.readerThemeFamily,
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
     // 初始问题的默认态 = 留空（按视频内容自动生成），不写固定文案。
     aiInitialQuickPrompts: [],
@@ -729,16 +722,6 @@ function bindSettingsEvents(host: HTMLElement): void {
     if (!(event.target instanceof Element) || !event.target.closest(".custom-select-wrapper")) {
       closeAllCustomSelects();
     }
-  });
-  // 主题族：改选即时持久化（与平台行的即时保存同口径——不写面板状态行，改选成功
-  // 与否不由状态条播报）。一个挂点两路通吃：自定义下拉选中时对原 select 派发
-  // change，原生回退路径也是 change。装载水合是程序化写 select.value，不派发
-  // change，不会落盘（否则每次打开抽屉都会把当前值回写一遍）。
-  elements.readerThemeFamily.addEventListener("change", async () => {
-    await sendRuntimeMessage({
-      type: "save-settings",
-      settings: { readerThemeFamily: normalizeReaderThemeFamily(elements.readerThemeFamily.value) }
-    });
   });
   // ASR：总开关即时持久化
   elements.asrAutoFallback?.addEventListener("change", async () => {

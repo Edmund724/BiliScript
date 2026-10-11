@@ -69,7 +69,6 @@ suppressUntil(Date.now() + 2500);  // intent-level write from outside ai/
 
 // incorrect — bypasses the setter contract
 state.reader.readingTheme = "dark";
-state.reader.readingThemeFamily = "flyme";
 ```
 
 Because `state.reader` is the reader namespace object, reading `state.reader.<field>` on the
