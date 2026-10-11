@@ -347,8 +347,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   box-shadow: none;
   border-radius: 999px;
   /* 紧凑胶囊：tab 不三等分拉伸（flex:1 会让选中 pill 撑满整段），改为
-   * 内容宽 + 分散排开——示意图的选中胶囊只包住文字 */
-  justify-content: space-between;
+   * 内容宽居中聚合——示意图的选中胶囊只包住文字；横向 padding 20px
+   * 保证每个胶囊的可点击范围 */
+  justify-content: center;
+  gap: 10px;
   padding: 4px 10px;
 }
 
@@ -363,7 +365,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab {
   flex: 0 0 auto;
   border-radius: 999px;
-  padding: 7px 16px;
+  padding: 7px 20px;
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab.is-active {
@@ -425,6 +427,29 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
  * base 是 flex-end 两者挤在右下，bilibili 族不动） */
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote-foot {
   justify-content: space-between;
+}
+
+/* AI 对话输入卡进凸起语言：与概览凸起卡同款白玻璃渐变 + 软投影 + 内高光，
+ * 描边归零；聚焦态保留 accent 光环（叠在凸起投影之上，不丢凸起感）。
+ * 深色档同概览卡纪律：极轻投影 + 内高光。 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-chat .chat-input-card {
+  background: var(--biliscript-reader-card);
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-chat .chat-input-card:focus-within {
+  border: none;
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-chat .chat-input-card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-chat .chat-input-card:focus-within {
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 /* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
