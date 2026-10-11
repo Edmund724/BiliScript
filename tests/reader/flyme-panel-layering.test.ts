@@ -7,7 +7,8 @@
 // 1. tab 内容区（.biliscript-reading-tab-body）底色走 --biliscript-reader-card，
 //    圆角 12px（与 tab 槽同档的嵌套半径），四周 margin 环透出面板页面灰——
 //    bilibili 族读作「白卡浮在灰页底上」；flyme 族由 reader-gate.css 的蓝雾壳段
-//    覆写为半透灰底（凸起白卡与内容底同为白时层次消失），本测试只锁 base 规则。
+//    覆写为透明（内容区直露雾底，全场一层料，凸起白卡靠灰差浮出），本测试只锁
+//    base 规则。
 // 2. header 不再自带底色与毛玻璃：原 header-bg 是 surface 加 alpha 的 rgba，
 //    叠在不透明的 surface 面板壳上数学上恒等于 surface（纯冗余），而它近白的
 //    观感在 flyme 浅色下与 tab 区的灰形成断层（用户报「很割裂」）。token

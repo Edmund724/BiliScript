@@ -201,9 +201,10 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   --biliscript-reader-surface-2: #f0f1f3;
   --biliscript-reader-surface-3: #e9ebef;
   --biliscript-reader-fill-hover: rgba(0, 0, 0, 0.06);
-  /* 白玻璃内容卡：86%→96% 白的竖向渐变，叠在雾底上透出微光（tab 内容区、
-   * 历史条目、下拉等 --biliscript-reader-card 的全部消费方统一升级）。 */
-  --biliscript-reader-card: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.96));
+  /* 白玻璃凸起卡：92%→98% 白的竖向渐变，叠在灰蓝雾底上靠灰差浮出（tab
+    * 选中 pill、历史条目、章节/金句等 --biliscript-reader-card 的全部消费方
+    * 统一升级）。 */
+  --biliscript-reader-card: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.98));
   --biliscript-reader-border: #e3e5ea;
   /* 文字三级：主 #17181a（文档中性灰，在 #f2f3f5 上 16.0:1）/ 次 #666a71
    * （4.89:1，全层过 4.5 线——card 上 5.43:1、surface-2 上 4.81:1、推导的
@@ -227,11 +228,12 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   --biliscript-reader-shadow: 0 8px 24px rgba(17, 18, 26, 0.1);
   --biliscript-reader-overlay-bg: rgba(255, 255, 255, 0.8);
   /* 蓝雾壳三件（消费方在本表后面的「flyme 蓝雾壳」段）：mist-surface = 壳的
-   * 半透明雾底；mist-blobs = 顶部两团蓝色光雾（壳 ::before 的 background，
+   * 半透明雾底（底部灰蓝一档——内容区透明直露雾底，白玻璃凸起卡靠这级
+   * 灰差浮出来）；mist-blobs = 顶部两团蓝色光雾（壳 ::before 的 background，
    * 随 28px 模糊铺开，蓝取自参考稿 #BBE4FD 族）；mist-line = 壳的亮白描边；
    * mist-filter = 壳的背景模糊。深色块只覆写 surface/blobs/line，filter 从
    * 本块继承（与动效曲线同一纪律）。 */
-  --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(236, 245, 252, 0.9), rgba(243, 244, 246, 0.86) 180px);
+  --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(233, 242, 250, 0.92), rgba(230, 234, 240, 0.9) 220px);
   /* 光雾圆心抬到壳顶缘之上（负 %），峰值留在壳外，只有衰减裙边落进面板——
    * 评审实测圆心贴顶缘时雾峰值压在 header 文字上（muted 字 3.48:1 不达线）。 */
   --biliscript-reader-mist-blobs:
@@ -298,9 +300,9 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
  * 亮描边；内壳 .biliscript-reading-script-panel 透明化——贴栏态它 100%
  * 铺满视图，双叠会把 0.86 的雾底压成近实色、描边出双圈。
  * 蓝雾是视图的 ::before：两团径向渐变随 28px 模糊铺开，z-index:-1 落进
- * backdrop-filter 建出的层叠上下文——在视图底色之上、面板内容之下，
- * 光雾只从 header/tab 区与内容卡四周的 margin 环透出，白玻璃内容卡
- *（--card）浮在雾上。面板内无 position:fixed 后代，backdrop-filter 的
+ * backdrop-filter 建出的层叠上下文——在视图底色之上、面板内容之下；
+ * 内容区透明直露雾底，全场只有一层料，白玻璃凸起卡（--card）靠灰差
+ * 浮在雾上。面板内无 position:fixed 后代，backdrop-filter 的
  * 包含块效应无落点。 */
 #biliscript-reading-view[data-family="flyme"] {
   background: var(--biliscript-reader-mist-surface);
@@ -337,18 +339,23 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   pointer-events: none;
 }
 
-/* 分段控件：槽体透明、与雾底融为一体，只有选中项浮起白玻璃 pill +
- * accent 字——凹槽底与 accent 实底胶囊都是 bilibili 族的语言，flyme 不用。
- * 深色档按「阴影置零」纪律把 pill 投影换成暗投影一档。 */
+/* 分段控件：胶囊形（999px 圆角），槽体透明、与雾底融为一体，只有选中项
+ * 浮起白玻璃 pill + accent 字——凹槽底与 accent 实底胶囊都是 bilibili 族的
+ * 语言，flyme 不用。深色档按「阴影置零」纪律把 pill 投影换成暗投影一档。 */
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tabs {
   background: transparent;
   box-shadow: none;
+  border-radius: 999px;
+}
+
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab {
+  border-radius: 999px;
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab.is-active {
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-accent);
-  box-shadow: 0 1px 4px rgba(23, 24, 26, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 #biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-tab.is-active {
@@ -361,13 +368,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote {
   background: var(--biliscript-reader-card);
   border: none;
-  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.07), 0 6px 16px rgba(23, 24, 26, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 6px rgba(23, 24, 26, 0.1), 0 12px 28px rgba(23, 24, 26, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-chapter:hover,
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote:hover {
   background: var(--biliscript-reader-card);
-  box-shadow: 0 2px 5px rgba(23, 24, 26, 0.09), 0 10px 24px rgba(23, 24, 26, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 3px 8px rgba(23, 24, 26, 0.12), 0 16px 36px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 /* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
@@ -378,15 +385,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
-/* 内容区底（tab-body）降成半透灰：凸起卡与内容底同为白时层次消失（用户实测
- *「看不清」），灰底让白玻璃凸起卡浮出来，alpha 让顶部光雾仍能透进内容区。
- * 字幕行透明直露此灰底，历史条目等 --card 白卡则自动读作凸起层。 */
+/* 内容区（tab-body）透明直露雾底：灰内容卡与雾壳是两层料，实机上有可见
+ * 色差（用户报「应该是融为一体」）；透明后全面板只有一层雾底，白玻璃凸起
+ * 卡靠灰差浮出。字幕行透明落雾底，历史条目等 --card 白卡自动读作凸起层。 */
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-tab-body {
-  background: linear-gradient(180deg, rgba(236, 238, 242, 0.78), rgba(242, 243, 246, 0.85));
-}
-
-#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-tab-body {
-  background: linear-gradient(180deg, rgba(20, 22, 26, 0.72), rgba(16, 17, 20, 0.8));
+  background: transparent;
 }
 
 /* ===== 减弱透明度 =====
