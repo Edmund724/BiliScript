@@ -233,7 +233,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
    * 随 28px 模糊铺开，蓝取自参考稿 #BBE4FD 族）；mist-line = 壳的亮白描边；
    * mist-filter = 壳的背景模糊。深色块只覆写 surface/blobs/line，filter 从
    * 本块继承（与动效曲线同一纪律）。 */
-  --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(233, 242, 250, 0.92), rgba(230, 234, 240, 0.9) 220px);
+  --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(235, 243, 250, 0.92), rgba(236, 239, 243, 0.9) 220px);
   /* 光雾圆心抬到壳顶缘之上（负 %），峰值留在壳外，只有衰减裙边落进面板——
    * 评审实测圆心贴顶缘时雾峰值压在 header 文字上（muted 字 3.48:1 不达线）。 */
   --biliscript-reader-mist-blobs:
@@ -385,6 +385,25 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
 #biliscript-reading-view[data-family="flyme"] .biliscript-reading-overview {
   /* 右 8px 给滚动条留空隙；左 2px 让卡片左侧投影不被 overflow-x 裁掉 */
   padding: 0 8px 0 2px;
+}
+
+/* 示意图对齐四条（实机截图逐项比对决议）：
+ * - 组标题（章节/金句）由 faint 灰升为主文字色——示意图是近黑粗体，灰档分量太轻；
+ * - 凸起卡圆角 10px→16px——示意图卡角更圆；
+ * - 时间戳 pill 由 accent 鲜蓝换柔和中蓝 #2e6fc2（浅色档限定）——pill 是标注
+ *   不是操作，不占操作/选中档的 accent；深色档沿用 accent 亮蓝不变。 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-h {
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-chapter,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-ov-quote {
+  border-radius: 16px;
+}
+
+#biliscript-reading-view[data-family="flyme"]:not([data-theme="dark"]) .biliscript-reading-time {
+  color: #2e6fc2;
+  background: rgba(46, 111, 194, 0.1);
 }
 
 /* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
