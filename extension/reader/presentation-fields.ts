@@ -99,8 +99,8 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     writtenByApply: true,
     readValue: (reader) => reader.readingTheme
   },
-  // —— 主题族（两轴正交的家族轴，2026-09）：bilibili（默认）| flyme。恒写入
-  //（默认 "bilibili"），CSS 侧按 family 命中色板与动效，明暗由 theme 轴另一块覆写。
+  // —— 主题族（两轴正交的家族轴，2026-09）：flyme（默认）| bilibili。恒写入
+  //（默认 "flyme"），CSS 侧按 family 命中色板与动效，明暗由 theme 轴另一块覆写。
   // readingView 短名镜像为 data-family（与 data-theme 同族的短名），随 close
   // 复位基线的口径与 theme 一致。 ——
   {

@@ -1,14 +1,14 @@
 // 设置抽屉「外观」分区（主题族 readerThemeFamily）模板与设置链直测。
 //
-// 两轴正交（2026-09）：主题族 bilibili | flyme 在设置抽屉手选，明暗
+// 两轴正交（2026-09）：主题族 flyme（默认）| bilibili 在设置抽屉手选，明暗
 // light | dark 由 header 按钮两态切换（tests/reader/settings.test.ts 守链路）。
 // 本文件守三件事：
 //   1. 分区位置与模板契约（最前，AI 模型平台之前；id/类名/选项文案）；
-//   2. 装载填值经 normalizeReaderThemeFamily（未知存量值回落 bilibili，
+//   2. 装载填值经 normalizeReaderThemeFamily（未知存量值回落 flyme，
 //      不是把非法值硬塞给 select 变成空选）；
 //   3. 保存载荷携带 readerThemeFamily（collectFormPayload 收集口径）；
-//   4. 「恢复默认偏好」载荷把族写回默认 bilibili——族是偏好键面的一部分，
-//      重置后不留旧族（否则 UI 回 bilibili 而存储仍旧族）；
+//   4. 「恢复默认偏好」载荷把族写回默认 flyme——族是偏好键面的一部分，
+//      重置后不留旧族（否则 UI 回 flyme 而存储仍旧族）；
 //   5. 主题族下拉选中即生效（change → save-settings），与平台行即时保存同口径，
 //      不需要点「保存设置」；装载水合属程序化写值，不得误判成用户改选。
 // 骨架与消息总线复用 tests/ui/settings-panel-save.test.ts 的同款手法。
@@ -112,11 +112,11 @@ describe("设置抽屉「外观」分区：主题族下拉", () => {
     expect(host.querySelector<HTMLSelectElement>("#readerThemeFamily")!.value).toBe("flyme");
   });
 
-  it("装载时未知存量值经归一化回落 bilibili（不落空选）", async () => {
+  it("装载时未知存量值经归一化回落 flyme（不落空选）", async () => {
     installMessageBus({ "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "paper" } }) });
     const host = await mountPanel();
 
-    expect(host.querySelector<HTMLSelectElement>("#readerThemeFamily")!.value).toBe("bilibili");
+    expect(host.querySelector<HTMLSelectElement>("#readerThemeFamily")!.value).toBe("flyme");
   });
 
   it("保存载荷携带主题族（选 flyme → save-settings.readerThemeFamily = flyme）", async () => {
@@ -134,11 +134,11 @@ describe("设置抽屉「外观」分区：主题族下拉", () => {
   });
 
   // 恢复默认的二次确认走 ui/confirm-dialog.js 面板内弹层：点确认后按
-  // buildDefaultPreferencePayload 的键面落盘。装载值是 flyme，重置载荷必须回
-  // bilibili（证明写的是默认值而不是回写装载值）。
-  it("恢复默认偏好：载荷把主题族写回默认 bilibili", async () => {
+  // buildDefaultPreferencePayload 的键面落盘。装载值是 bilibili，重置载荷必须回
+  // flyme（证明写的是默认值而不是回写装载值）。
+  it("恢复默认偏好：载荷把主题族写回默认 flyme", async () => {
     const sent = installMessageBus({
-      "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "flyme" } })
+      "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "bilibili" } })
     });
     const host = await mountPanel();
 
@@ -156,7 +156,7 @@ describe("设置抽屉「外观」分区：主题族下拉", () => {
     });
     const resetPayload = sent.find((message) => message.settings?.aiSystemPrompt === DEFAULT_AI_SYSTEM_PROMPT)!.settings!;
     expect(resetPayload.readerThemeFamily).toBe(DEFAULT_SETTINGS.readerThemeFamily);
-    expect(resetPayload.readerThemeFamily).toBe("bilibili");
+    expect(resetPayload.readerThemeFamily).toBe("flyme");
   });
 });
 
@@ -191,7 +191,9 @@ describe("设置抽屉「外观」分区：主题族下拉接入 custom-select�
   });
 
   it("经 trigger 选项选中：select.value 写回且保存载荷取到新值", async () => {
-    const sent = installMessageBus();
+    const sent = installMessageBus({
+      "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "bilibili" } })
+    });
     const host = await mountPanel();
     const select = await waitForCustomSelect(host, "readerThemeFamily");
     const option = select
@@ -227,7 +229,10 @@ describe("设置抽屉「外观」分区：主题族下拉选中即生效（不�
   }
 
   it("经自定义下拉选中 Flyme：不点保存设置，save-settings 立即发出且只带族", async () => {
-    const sent = installMessageBus();
+    // 默认族即 flyme：初始值须显式给 bilibili，选中 Flyme 才是真实改选
+    const sent = installMessageBus({
+      "get-settings": () => ({ ok: true, settings: { readerThemeFamily: "bilibili" } })
+    });
     const host = await mountPanel();
     const select = await waitForCustomSelect(host, "readerThemeFamily");
 
@@ -294,8 +299,8 @@ describe("设置抽屉下拉的统一挂载口径（水合值 → trigger 显示
   it("恢复默认偏好：trigger 跟随默认值（重置写值后显示随之派生）", async () => {
     let resetSaved = false;
     installMessageBus({
-      // 重置前存量值是 flyme；重置落盘后按默认值读取（模拟后台已写入默认）
-      "get-settings": () => ({ ok: true, settings: resetSaved ? {} : { readerThemeFamily: "flyme" } }),
+      // 重置前存量值是 bilibili；重置落盘后按默认值读取（模拟后台已写入默认）
+      "get-settings": () => ({ ok: true, settings: resetSaved ? {} : { readerThemeFamily: "bilibili" } }),
       "save-settings": () => {
         resetSaved = true;
         return { ok: true };
@@ -304,7 +309,7 @@ describe("设置抽屉下拉的统一挂载口径（水合值 → trigger 显示
     const host = await mountPanel();
     const select = await waitForCustomSelect(host, "readerThemeFamily");
     const trigger = select.closest<HTMLElement>(".custom-select-wrapper")!.querySelector<HTMLElement>(".custom-select-trigger")!;
-    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Flyme");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Bilibili");
 
     fireClick(host.querySelector("#biliscriptSettingsResetBtn")!);
     fireClick(
@@ -316,8 +321,8 @@ describe("设置抽屉下拉的统一挂载口径（水合值 → trigger 显示
     );
 
     await vi.waitFor(() => {
-      expect(select.value).toBe("bilibili");
+      expect(select.value).toBe("flyme");
     });
-    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Bilibili");
+    expect(trigger.querySelector(".custom-select-value")!.textContent).toBe("Flyme");
   });
 });

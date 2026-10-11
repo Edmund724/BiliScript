@@ -90,7 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   includeTimestampInBody: true,
   enableDebugLogs: false,
   readerTheme: "light",
-  readerThemeFamily: "bilibili",
+  readerThemeFamily: "flyme",
   readerThemeUserSet: false,
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],

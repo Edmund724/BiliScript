@@ -76,8 +76,8 @@ _Avoid_: popup- 词根消息名、进入阅读模式手抄序列
 _Avoid_: 把字幕控件门当硬门回退、降级位先挂后迁移
 
 **主题族**:
-整套色板的归属：`bilibili`（B 站原生配色）| `flyme`（Flyme 设计语言浅色系）。与明暗模式正交的第二轴，在设置抽屉里手选。存量三值制里写进 `readerTheme` 的 `"flyme"` 由归一化迁移到此键。
-代码名：`readerThemeFamily`（默认 `bilibili`）/ `readingThemeFamily` / `setThemeFamily`
+整套色板的归属：`flyme`（蓝雾分层玻璃色系，默认）| `bilibili`（B 站原生暖纸配色）。与明暗模式正交的第二轴，在设置抽屉里手选。存量三值制里写进 `readerTheme` 的 `"flyme"` 由归一化迁移到此键。
+代码名：`readerThemeFamily`（默认 `flyme`）/ `readingThemeFamily` / `setThemeFamily`
 _Avoid_: 把 `readerTheme` 当主题族、用「主题」单字同时指两轴
 
 **明暗模式**:

@@ -86,11 +86,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
  * bilibili。本表按四色板落地：
  *   bilibili × light = 基础块（无属性选择器）：暖白纸感底 + B 站粉 accent #fb7299。
  *   bilibili × dark  = 板岩深色：页面 #0f172a，accent 换亮粉可读变体 #fc8bab。
- *   flyme × light    = Flyme 浅色（致敬 Flyme 设计语言：中性灰页底 + 白卡 +
- *     #008CFF 主蓝只用于操作/选中）——暖纸色系 token 逐项覆写，一个都不许从
- *     基础块继承。
- *   flyme × dark     = Flyme 深色：页面 #101114 / 卡片（列表组）#1B1C20 /
- *     主蓝 #3D9BFF，层级只用分层灰表达、阴影置零。
+ *   flyme × light    = 蓝雾分层（Flyme 主蓝 #008CFF 只用于操作/选中）：半透明
+ *     灰雾壳（backdrop-filter）+ 顶部两团蓝色光雾（壳 ::before 径向渐变 +
+ *     模糊）+ 白玻璃内容卡——暖纸色系 token 逐项覆写，一个都不许从基础块继承。
+ *   flyme × dark     = 深色雾玻璃：壳 #101114 加 alpha + 顶部深蓝辉光光雾 /
+ *     卡片 #1B1C20 加 alpha，主蓝 #3D9BFF，阴影置零。
  * 选择器层叠策略：深色块的选择器只带 data-biliscript-reader-theme="dark"，
  * 而该属性不区分家族——故它同时命中 bilibili+dark 与 flyme+dark（有意设计）；
  * flyme+dark 由后面的 family+theme 双属性块覆写，多带一个属性、特异性更高，
@@ -141,9 +141,10 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-subtitle-line-height: 1.5;
   --biliscript-reader-letter-spacing: 0em;
   /* 面板字体栈：font-sans 与 ui/mermaid-render.ts 的 PANEL_FONT_FAMILY 字面量
-   * 互为镜像（mermaid 配置吃不了 CSS 变量）；font-mono 取时间戳 pill 那套
+   * 互为镜像（mermaid 配置吃不了 CSS 变量）；中文回退对齐 B 站页面栈
+   *（冬青黑体 + 微软雅黑，补 Windows 中文档）；font-mono 取时间戳 pill 那套
    * 更全的栈。 */
-  --biliscript-reader-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  --biliscript-reader-font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   --biliscript-reader-font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   /* 动效 token：spring=临界阻尼无回弹（淡入/位移进场）；bounce=轻微回弹，
    * 仅用于有动量感的进出场（面板弹入、播放器按钮滑入）；press=按压缩放档。 */
@@ -200,7 +201,9 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   --biliscript-reader-surface-2: #f0f1f3;
   --biliscript-reader-surface-3: #e9ebef;
   --biliscript-reader-fill-hover: rgba(0, 0, 0, 0.06);
-  --biliscript-reader-card: #ffffff;
+  /* 白玻璃内容卡：86%→96% 白的竖向渐变，叠在雾底上透出微光（tab 内容区、
+   * 历史条目、下拉等 --biliscript-reader-card 的全部消费方统一升级）。 */
+  --biliscript-reader-card: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.96));
   --biliscript-reader-border: #e3e5ea;
   /* 文字三级：主 #17181a（文档中性灰，在 #f2f3f5 上 16.0:1）/ 次 #666a71
    * （4.89:1，全层过 4.5 线——card 上 5.43:1、surface-2 上 4.81:1、推导的
@@ -223,6 +226,17 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   --biliscript-reader-track: rgba(23, 24, 26, 0.1);
   --biliscript-reader-shadow: 0 8px 24px rgba(17, 18, 26, 0.1);
   --biliscript-reader-overlay-bg: rgba(255, 255, 255, 0.8);
+  /* 蓝雾壳四件（消费方在本表后面的「flyme 蓝雾壳」段）：mist-surface = 壳的
+   * 半透明雾底；mist-blobs = 顶部两团蓝色光雾（壳 ::before 的 background，
+   * 随 28px 模糊铺开，蓝取自参考稿 #BBE4FD 族）；mist-line = 壳的亮白描边；
+   * mist-filter = 壳的背景模糊。深色块只覆写 surface/blobs/line，filter 从
+   * 本块继承（与动效曲线同一纪律）。 */
+  --biliscript-reader-mist-surface: rgba(243, 244, 246, 0.86);
+  --biliscript-reader-mist-blobs:
+    radial-gradient(300px 210px at 16% 0%, rgba(140, 200, 255, 0.85), rgba(140, 200, 255, 0)),
+    radial-gradient(260px 190px at 92% 2%, rgba(187, 228, 253, 0.95), rgba(187, 228, 253, 0));
+  --biliscript-reader-mist-line: rgba(255, 255, 255, 0.65);
+  --biliscript-reader-mist-filter: blur(24px) saturate(1.2);
   /* 动效：light/dark 不动，只 flyme 档换 Flyme 手感。spring 是 Flyme 非手势
    * 基准曲线（200–350ms 档）；bounce 是文档「面板/应用切换/小窗」回弹近似，
    * 过冲 ≤2%（真机手势仍须弹簧，CSS 只近似）。 */
@@ -242,7 +256,8 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
   --biliscript-reader-surface-2: #1b1c20;
   --biliscript-reader-surface-3: #222327;
   --biliscript-reader-fill-hover: rgba(255, 255, 255, 0.1);
-  --biliscript-reader-card: #1b1c20;
+  /* 深色玻璃卡：#1B1C20 提亮一档起坡、加 alpha，叠在深色雾壳上透出辉光 */
+  --biliscript-reader-card: linear-gradient(180deg, rgba(35, 36, 41, 0.88), rgba(27, 28, 32, 0.96));
   --biliscript-reader-border: rgba(255, 255, 255, 0.12);
   --biliscript-reader-text: #ecedef;
   --biliscript-reader-muted: #9ca0a8;
@@ -266,12 +281,59 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
    * 单值声明，没有跟其他阴影拼成多重列表，故 none 合法且不牵连任何别的阴影。 */
   --biliscript-reader-shadow: none;
   --biliscript-reader-overlay-bg: rgba(16, 17, 20, 0.8);
+  /* 深色蓝雾三件：壳雾底 #101114 加 alpha，光雾换深蓝辉光（accent #3D9BFF
+   * 同族），描边按深色玻璃纪律取白 18%（mist-filter 从 flyme 浅色块继承）。 */
+  --biliscript-reader-mist-surface: rgba(16, 17, 20, 0.84);
+  --biliscript-reader-mist-blobs:
+    radial-gradient(300px 210px at 16% 0%, rgba(61, 155, 255, 0.3), rgba(61, 155, 255, 0)),
+    radial-gradient(260px 190px at 92% 2%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0));
+  --biliscript-reader-mist-line: rgba(255, 255, 255, 0.18);
+}
+
+/* ===== flyme 蓝雾壳 =====
+ * 玻璃材质落在视图层（贴栏/浮层两态共一个壳）：半透明雾底 + 背景模糊 +
+ * 亮描边；内壳 .biliscript-reading-script-panel 透明化——贴栏态它 100%
+ * 铺满视图，双叠会把 0.86 的雾底压成近实色、描边出双圈。
+ * 蓝雾是视图的 ::before：两团径向渐变随 28px 模糊铺开，z-index:-1 落进
+ * backdrop-filter 建出的层叠上下文——在视图底色之上、面板内容之下，
+ * 光雾只从 header/tab 区与内容卡四周的 margin 环透出，白玻璃内容卡
+ *（--card）浮在雾上。面板内无 position:fixed 后代，backdrop-filter 的
+ * 包含块效应无落点。 */
+#biliscript-reading-view[data-family="flyme"] {
+  background: var(--biliscript-reader-mist-surface);
+  border-color: var(--biliscript-reader-mist-line);
+  backdrop-filter: var(--biliscript-reader-mist-filter);
+  -webkit-backdrop-filter: var(--biliscript-reader-mist-filter);
+}
+
+/* 浮层降级态的实色覆写（上面浮层段的 background: var(--...-surface)，特异性
+ * (1,2,1) 高于基础壳规则）压回雾底：浮层视图带 20px 内边距环，环与内壳
+ * 不同料会出一圈灰框。 */
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flyme"][data-biliscript-script-float="1"] {
+  background: var(--biliscript-reader-mist-surface);
+  border-color: var(--biliscript-reader-mist-line);
+}
+
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-script-panel {
+  background: transparent;
+  border-color: transparent;
+}
+
+#biliscript-reading-view[data-family="flyme"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--biliscript-reader-mist-blobs);
+  filter: blur(28px);
+  pointer-events: none;
 }
 
 /* ===== 减弱透明度 =====
- * 半透明材质（设置抽屉）退回近实色：退回值即 surface 令牌（var 引用，
- * 四色板各自跟随），消费方（reader-settings-shell.css）只需各自
- * 关掉 backdrop-filter。 */
+ * 半透明材质（设置抽屉、flyme 蓝雾壳）退回近实色：退回值即 surface 令牌
+ *（var 引用，四色板各自跟随），消费方（reader-settings-shell.css 的抽屉、
+ * 本表的蓝雾壳）只需各自关掉 backdrop-filter。 */
 @media (prefers-reduced-transparency: reduce) {
   /* bilibili × light：基础块，无属性选择器 */
   html[data-biliscript-reader-mode="1"],
@@ -288,11 +350,15 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"][dat
   }
 
   /* flyme 明暗两档：按 family 一条覆盖即可——退回值是 var(--...-surface)，
-   * 两档各自解析到自己的 surface，无需再分一条深色规则。 */
+   * 两档各自解析到自己的 surface，无需再分一条深色规则。蓝雾壳同口径退回：
+   * 雾底实色化、光雾与背景模糊关闭。 */
   html[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   body[data-biliscript-reader-mode="1"][data-biliscript-reader-family="flyme"],
   #biliscript-reading-view[data-family="flyme"] {
     --biliscript-reader-overlay-bg: var(--biliscript-reader-surface);
+    --biliscript-reader-mist-surface: var(--biliscript-reader-surface);
+    --biliscript-reader-mist-blobs: none;
+    --biliscript-reader-mist-filter: none;
   }
 }
 

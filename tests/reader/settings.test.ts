@@ -233,7 +233,7 @@ describe("设置变更与 data-attribute", () => {
 // 切换。本 describe 守两轴各自落位与「族不随明暗水合被动覆写」的正交性，
 // 以及面板保存 → storage 回读 → 水合 → apply 的既有链路（无旁路）。
 describe("主题族（两轴正交）", () => {
-  it("hydrateReaderStateFromSettings：family 与明暗正交落位，未知值回落 bilibili", () => {
+  it("hydrateReaderStateFromSettings：family 与明暗正交落位，未知值回落 flyme", () => {
     presentation.hydrateReaderStateFromSettings({
       readerTheme: "dark",
       readerThemeUserSet: true,
@@ -247,8 +247,8 @@ describe("主题族（两轴正交）", () => {
       readerThemeUserSet: true,
       readerThemeFamily: "paper"
     } as unknown as Partial<typeof state.settings>);
-    // 未知族回落默认 bilibili（归一化在 core/validators，不在水合层重抄）
-    expect(state.reader.readingThemeFamily).toBe("bilibili");
+    // 未知族回落默认 flyme（归一化在 core/validators，不在水合层重抄）
+    expect(state.reader.readingThemeFamily).toBe("flyme");
     expect(state.reader.readingTheme).toBe("light");
   });
 
@@ -262,21 +262,21 @@ describe("主题族（两轴正交）", () => {
   it("applyReadingViewPresentation：在视图/html/body 三处写 family data-attribute", () => {
     const readingView = document.getElementById(ids.readingView) as HTMLElement;
 
-    // 恒写入：未水合时也落默认族 bilibili
-    presentation.applyReadingViewPresentation();
-    expect(readingView.dataset.family).toBe("bilibili");
-    expect(document.documentElement.dataset.biliscriptReaderFamily).toBe("bilibili");
-    expect(document.body.dataset.biliscriptReaderFamily).toBe("bilibili");
-
-    presentation.hydrateReaderStateFromSettings({
-      readerTheme: "dark",
-      readerThemeUserSet: true,
-      readerThemeFamily: "flyme"
-    } as unknown as Partial<typeof state.settings>);
+    // 恒写入：未水合时也落默认族 flyme
     presentation.applyReadingViewPresentation();
     expect(readingView.dataset.family).toBe("flyme");
     expect(document.documentElement.dataset.biliscriptReaderFamily).toBe("flyme");
     expect(document.body.dataset.biliscriptReaderFamily).toBe("flyme");
+
+    presentation.hydrateReaderStateFromSettings({
+      readerTheme: "dark",
+      readerThemeUserSet: true,
+      readerThemeFamily: "bilibili"
+    } as unknown as Partial<typeof state.settings>);
+    presentation.applyReadingViewPresentation();
+    expect(readingView.dataset.family).toBe("bilibili");
+    expect(document.documentElement.dataset.biliscriptReaderFamily).toBe("bilibili");
+    expect(document.body.dataset.biliscriptReaderFamily).toBe("bilibili");
     // 两轴独立：族不影响明暗
     expect(readingView.dataset.theme).toBe("dark");
   });

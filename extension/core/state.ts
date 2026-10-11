@@ -134,8 +134,8 @@ const localReaderState: ReaderStateWritable = {
   get readingViewOpen() { return this.readingShellState === "open"; },
   set readingViewOpen(value: boolean) { this.readingShellState = value ? "open" : "closed"; },
   readingTheme: "light",
-  // 主题族与 readerTheme 明暗模式正交，默认 bilibili（见 core/defaults.ts）。
-  readingThemeFamily: "bilibili",
+  // 主题族与 readerTheme 明暗模式正交，默认 flyme（见 core/defaults.ts）。
+  readingThemeFamily: "flyme",
   readingSettingsExpanded: false,
   readingActiveSubtitleIndex: -1,
   readingActiveChapterIndex: -1,

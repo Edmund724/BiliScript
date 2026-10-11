@@ -36,9 +36,9 @@ export function normalizeReaderTheme(value: unknown): string {
   return value === "dark" ? value : "light";
 }
 
-// 主题族：整套色板归属，与 readerTheme 的明暗模式正交；默认族 bilibili。
+// 主题族：整套色板归属，与 readerTheme 的明暗模式正交；默认族 flyme。
 export function normalizeReaderThemeFamily(value: unknown): string {
-  return value === "flyme" ? "flyme" : "bilibili";
+  return value === "bilibili" ? "bilibili" : "flyme";
 }
 
 // ===== Download / AI normalizers =====
