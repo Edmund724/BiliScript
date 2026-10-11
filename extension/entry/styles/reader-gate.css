@@ -488,6 +488,119 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-family="flym
   background: transparent;
 }
 
+/* ===== flyme 设置区玻璃化 =====
+ * 设置抽屉、平台行、输入控件、弹层与平台编辑 Modal 对齐蓝雾分层语言（实机
+ * 截图「设置页与外部割裂」决议）：抽屉透明直露雾底（view 壳已有
+ * backdrop-filter，抽屉再叠一层 blur 会把雾压成灰纱）；卡片/控件换白玻璃
+ * 凸起配方（--card 渐变 + 软投影 + 内高光、描边归零）。所有规则按
+ * [data-family="flyme"] 作用域覆写，bilibili 族四色板与旧观感不动。 */
+
+/* 抽屉壳：透明直露雾底（打开态的接管规则已把 border/shadow 归零，这里补
+ * 底色与毛玻璃；收起期间的几何落位不动）。 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-panel {
+  background: transparent;
+  border-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 平台行（AI/ASR/搜索）：凸起卡，与概览章节/金句同配方 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .ai-provider-row,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .asr-provider-row,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .search-provider-row {
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* 智能虚拟行（搜索列表首行）的虚线识别保留——上面的描边归零不能吃掉它 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .search-provider-row:first-child {
+  border: 1px dashed var(--biliscript-reader-border);
+}
+
+/* 输入控件族（设置表输入/下拉/多行、快捷提示词、编辑 Modal 与弹窗输入、
+ * custom-select trigger）：底色已是 --card 白玻璃，只需描边归零 + 圆角抬
+ * 12px + 软投影。.biliscript-set-select 的 chevron 走 background-image，
+ * 本组不碰 background 声明。 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .biliscript-set-input,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .biliscript-set-select,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .biliscript-set-textarea,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog input[type="text"],
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog input[type="password"],
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog select,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-fetch-dialog input[type="text"],
+#biliscript-reading-view[data-family="flyme"] .custom-select-trigger {
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(23, 24, 26, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* 校验态反馈：描边归零后 border-color 无处落，改光环（accent=错误沿用既有
+ * 语义、success=通过）；声明在焦点规则之前，聚焦时光环让位焦点态。 */
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog input[type="text"]:user-invalid,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog input[type="password"]:user-invalid {
+  box-shadow: 0 0 0 1.5px var(--biliscript-reader-accent);
+}
+
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog input[type="text"]:user-valid,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog input[type="password"]:user-valid {
+  box-shadow: 0 0 0 1.5px var(--biliscript-reader-success);
+}
+
+/* 焦点态：accent 光环叠在凸起投影之上（不丢凸起感），覆盖控件族全部 */
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .biliscript-set-input:focus,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .biliscript-set-select:focus,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .biliscript-set-textarea:focus,
+#biliscript-reading-view[data-family="flyme"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input:focus,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog input[type="text"]:focus,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog input[type="password"]:focus,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog select:focus,
+#biliscript-reading-view[data-family="flyme"] .custom-select-trigger:focus {
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 2px rgba(23, 24, 26, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* 弹层卡片（模型下拉与 custom-select 下拉）：描边归零，投影沿用既有 */
+#biliscript-reading-view[data-family="flyme"] .provider-editor-host .ai-provider-model-dropdown,
+#biliscript-reading-view[data-family="flyme"] .custom-select-dropdown {
+  border: none;
+}
+
+/* 平台编辑 Modal 与「获取可用模型」弹窗：白玻璃凸起大卡 + 分隔线归零 */
+#biliscript-reading-view[data-family="flyme"] .provider-editor-dialog,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-fetch-dialog {
+  border: none;
+  border-radius: 16px;
+  background: var(--biliscript-reader-card);
+  box-shadow: 0 8px 30px rgba(23, 24, 26, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+#biliscript-reading-view[data-family="flyme"] .provider-editor-head,
+#biliscript-reading-view[data-family="flyme"] .provider-editor-foot {
+  border: none;
+}
+
+/* 深色档：凸起感靠分层灰渐变 + 内高光，投影极轻（「阴影置零」纪律） */
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-settings-host .ai-provider-row,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-settings-host .asr-provider-row,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-settings-host .search-provider-row,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-input,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-select,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-textarea,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .provider-editor-dialog input[type="text"],
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .provider-editor-dialog input[type="password"],
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .provider-editor-dialog select,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .provider-editor-fetch-dialog input[type="text"],
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .custom-select-trigger {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .provider-editor-dialog,
+#biliscript-reading-view[data-family="flyme"][data-theme="dark"] .provider-editor-fetch-dialog {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
 /* ===== 减弱透明度 =====
  * 半透明材质（设置抽屉、flyme 蓝雾壳）退回近实色：退回值即 surface 令牌
  *（var 引用，四色板各自跟随），消费方（reader-settings-shell.css 的抽屉、
