@@ -2,8 +2,9 @@
 // chrome.storage），offscreen 工具循环与 content 侧选区解释卡都经 `search-cache`
 // 消息族读写，本 handler 直调 ./search-cache.js 单源——归一（trim + 空白折叠 +
 // toLowerCase）与 64 位哈希键都在那一侧完成，调用方不拼键。
-// 来源守卫：本族**不得**进 illegalMessageReason 的 offscreen-only 名单——本族发送者
-// 含 content（reader/explain-card.ts 与 offscreen 工具循环共用 search/search-runtime.ts）。
+// 来源守卫：本族**不得**进来源名单（协议层 OFFSCREEN_ONLY_MESSAGE_TYPES，注册表
+// 逐条 sender 标签派生）——本族发送者含 content（reader/explain-card.ts 与
+// offscreen 工具循环共用 search/search-runtime.ts）。
 // handler 工厂形态照 ai/segment-cache-handler.ts 先例（core/provider-handlers.ts
 // 的 withOkResponse 收口异步错误回包）：handler 本体住域 module，组合根只登记与
 // 注入实例。

@@ -87,11 +87,11 @@ import { collectOrigins, hasHostPermission } from "../core/host-permissions.js";
 // PR5：对话 tab 的 offscreen 文档 ensure 通道（background 侧唯一合法创建点）
 import { ensureChatOffscreenDocument } from "../chat/offscreen-ensure.js";
 import { handleAsrDecodePrepare, handleAsrDecodeCleanup, handleOffscreenRequestClose, isOffscreenDocumentSender, reapAllSessionRules } from "../asr/offscreen-bridge.bg.js";
-import { ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
+import { ASR_OFFSCREEN_REJECTION_MESSAGE, ASR_TASK_PREPARE, ASR_TASK_CLEANUP } from "../asr/protocol.js";
+// 消息入口策略（路由 / 来源守卫 / 形状守卫 / 派发 / 回包口径）：组合根只注入
+// handler 表、来源判据与拒绝文案。
+import { createMessageRouter } from "../core/message-router.js";
 import {
-  BACKGROUND_MESSAGE_REGISTRY,
-  OFFSCREEN_ONLY_MESSAGE_TYPES,
-  resolveReplyKeepOpen,
   type BackgroundMessage,
   type BackgroundMessageHandler,
   type BackgroundMessageType,
@@ -127,10 +127,12 @@ const saveSettingsWithInvalidate = invalidatingWrite(
 
 // ===== 消息路由表 =====
 
-// 入口按键调用的统一 handler 面（窄化后的各键 handler 由本处一次性宽化收进 Map；
-// Map 只作分发，不参与契约——逐键契约在下方 messageHandlerTable 的 satisfies）。
+// 入口按键调用的统一 handler 面（窄化后的各键 handler 由本处一次性宽化收进 Map，
+// 再投影成 core/message-router 的 handlers 注入面；Map 只作分发，不参与契约——
+// 逐键契约在下方 messageHandlerTable 的 satisfies）。消息形参按派发面收成 unknown：
+// 派发策略住 core/message-router，本处只保证「按键能找到 handler」。
 type AnyBackgroundHandler = (
-  message: BackgroundMessage,
+  message: unknown,
   sender: MessageSender,
   sendResponse: SendResponse
 ) => MessageReplyDecision | void;
@@ -450,8 +452,8 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
 // 查询缓存消息族 / 引擎健康度记账消息族的 SW 端 handler（spec §5 / §3 落点表第 13 行、
 // §12.4 第 7–8 条 / §12.5 第 11 行）：两族 handler 本体已按工厂形态搬入 search 域
 // module（search-cache-handler.ts / search-health-handler.ts），本文件只登记工厂实例。
-// 两族的来源口径（**不得**进 illegalMessageReason 的 offscreen-only 名单，发送者含
-// content）随 handler 随迁，见各模块头注释。
+// 两族的来源口径（**不得**进 OFFSCREEN_ONLY_MESSAGE_TYPES 名单，发送者含 content）
+// 随 handler 随迁，见各模块头注释。
 const handleSearchCache = createSearchCacheHandler();
 const handleSearchHealth = createSearchHealthHandler();
 
@@ -729,56 +731,29 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   ).catch(() => {});
 });
 
-// ===== 消息入口守卫（工单 03）：发送者来源 + 内部 schema =====
+// ===== 消息入口（守卫在路由之后、处理器之前）=====
 //
-// 两项检查的判据都逐条登记在协议层的 SW 消息注册表
+// 路由 / 来源守卫 / payload 形状守卫 / 派发 / 回包口径全在 core/message-router 的
+// createMessageRouter（零 chrome 的策略单点）——本文件只接线三样：按键 handler 表、
+// 来源判据（标签 → 判据；判据本体 isOffscreenDocumentSender 住
+// asr/offscreen-bridge.bg.ts）与拒绝文案（字面量单源在 asr/protocol.ts，router
+// 不持文案）。两项检查的判据逐条登记在协议层的 SW 消息注册表
 // （shared/messaging-protocol.ts 的 BACKGROUND_MESSAGE_REGISTRY，一条消息一处
-// 登记）——本文件只做按键消费，不再手抄 type 清单：
-//   ① 来源 denylist：注册表 offscreenOnly 登记派生的 OFFSCREEN_ONLY_MESSAGE_TYPES
-//      （名单单源仍在协议层；语义 = 扩展级副作用能力只开放给 offscreen 文档本身，
-//      来源判定与关闭执行器共用 isOffscreenDocumentSender）；
+// 登记）：
+//   ① 来源标签：注册表逐条 sender 登记派生的 OFFSCREEN_ONLY_MESSAGE_TYPES
+//      （名单单源在协议层；语义 = 扩展级副作用能力只开放给 offscreen 文档本身）；
 //   ② payload 最小 schema：注册表逐条 shape 判据。
 // 守卫语义不变：路由之后、处理器执行之前；只拦形状明显非法 / 来源不合法的请求，
 // 业务归一仍归处理器；被拒显式回 { ok:false, error }（不静默吞、不让调用方空等）
 // 且零副作用。
-function illegalMessageReason(message: BackgroundMessage, sender: MessageSender): string | null {
-  if (
-    OFFSCREEN_ONLY_MESSAGE_TYPES.includes(message.type)
-    && !isOffscreenDocumentSender(sender)
-  ) {
-    return "仅接受 offscreen 文档发送";
-  }
-  const shape = BACKGROUND_MESSAGE_REGISTRY[message.type].shape;
-  return shape && !shape(message) ? "消息载荷不合法" : null;
-}
-
-chrome.runtime.onMessage.addListener((rawMessage, rawSender, sendResponse: SendResponse) => {
-  if (!rawMessage || typeof rawMessage !== "object") {
-    return false;
-  }
-
-  const message = rawMessage as BackgroundMessage;
-  const sender = rawSender as MessageSender;
-  const handler = messageHandlers.get(message.type);
-  if (!handler) {
-    return false;
-  }
-
-  // 守卫在路由之后、处理器执行之前：非法来源/载荷在产生任何副作用前被拒绝，
-  // 并明确回 { ok:false }（不静默吞，也不让调用方空等）。
-  const illegalReason = illegalMessageReason(message, sender);
-  if (illegalReason) {
-    sendResponse({ ok: false, error: illegalReason });
-    return false;
-  }
-
-  // 回包口径由协议注册表派生（async 恒持有通道 / sync 恒已答 / branch 处理器
-  // 自持）——收敛前这枚 boolean 散在 30 个 handler 体里，是同一契约的第二份手抄。
-  return resolveReplyKeepOpen(
-    BACKGROUND_MESSAGE_REGISTRY[message.type].reply,
-    handler(message, sender, sendResponse)
-  );
+const messageRouter = createMessageRouter({
+  handlers: Object.fromEntries(messageHandlers),
+  senders: { offscreen: isOffscreenDocumentSender },
+  rejectionMessage: ASR_OFFSCREEN_REJECTION_MESSAGE
 });
+
+// 入口监听：一行委派（MV3：监听器顶层同步注册）。
+chrome.runtime.onMessage.addListener(messageRouter);
 
 async function initializeSettingsStorage() {
   const syncCurrent = await chrome.storage.sync.get(DEFAULT_SETTINGS);

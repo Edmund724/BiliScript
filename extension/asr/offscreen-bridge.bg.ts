@@ -12,6 +12,7 @@
 // 声明见本目录 chrome-asr-types.d.ts（共享 chrome-types.d.ts 未覆盖）。
 
 import { OFFSCREEN_URL, OFFSCREEN_CREATE_REASON } from "../shared/offscreen-constants.js";
+import { ASR_OFFSCREEN_REJECTION_MESSAGE } from "./protocol.js";
 import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse } from "../shared/messaging-protocol.js";
 
 // 防盗链规则的目标域与来源页（工单 04：域名唯一事实源，代码与文档注释、
@@ -246,7 +247,7 @@ export async function handleAsrDecodeCleanup(message: unknown, sender: MessageSe
 // chrome.offscreen.closeDocument 并明确回成功/失败。
 export async function handleOffscreenRequestClose(_message: unknown, sender: MessageSender, sendResponse: (response: OffscreenRequestCloseResponse) => void): Promise<void> {
   if (!isOffscreenDocumentSender(sender)) {
-    sendResponse({ ok: false, error: "仅接受 offscreen 文档发送" });
+    sendResponse({ ok: false, error: ASR_OFFSCREEN_REJECTION_MESSAGE });
     return;
   }
   try {

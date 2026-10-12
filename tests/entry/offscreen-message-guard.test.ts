@@ -1,29 +1,27 @@
-// 工单 03：后台（SW）消息入口守卫——发送者来源、内部消息 schema、标签页归属。
+// 工单 03：后台（SW）消息入口守卫的**整包装载 SW 入口**用例——发送者来源、内部
+// 消息 schema、标签页归属都经真实 handler 行为验证。
 //
 // 守卫在路由之后、处理器执行之前：非法来源/载荷在产生任何副作用前被拒绝并
 // 明确回 { ok:false }。覆盖场景：
-//   - offscreen 专属消息族（segment-cache）被非 offscreen 来源调用 → 拒绝且
-//     处理器零副作用；
 //   - 内部 schema：save-settings / providers-save / player-ai-quick-action 的
 //     形状明显非法载荷被拒；
 //   - 标签页归属：player-ai-quick-action 的 message.tabId 与 sender.tab.id
 //     不一致（跨标签页伪造）→ 拒绝且不向任何标签页发消息；
 //   - 未知消息类型 / 非对象消息：不回包、零副作用（与既有行为一致）。
 //   - 查询缓存消息族（spec §5 / §10 第 39 行）：search-cache 的发送者含
-//     content（选区解释卡），**不得**进 offscreen-only 名单；tab 来源的调用照常
-//     落到 SW 叶（本文件只钉来源守卫这一面，get/put 的键与回包形状见
-//     本文件末尾「撤回同意」一节的真实 handler 往返用例）。
-//   - 名单单源（B4）：offscreen 专属族由协议层 OFFSCREEN_ONLY_MESSAGE_TYPES
-//     单源派生（「谁能发」属协议契约），background.ts 侧不得私藏第二份抄本；
-//     resolve-ai-provider 的 tab 来源负向用例 pin 住「名单误扩」方向。
+//     content（选区解释卡），**不得**进来源名单（协议层
+//     OFFSCREEN_ONLY_MESSAGE_TYPES）；tab 来源的调用照常落到 SW 叶（本文件只钉
+//     来源守卫这一面，get/put 的键与回包形状见本文件末尾「撤回同意」一节的真实
+//     handler 往返用例）。
+//
+// 守卫与回包口径本身的零 chrome 用例（含源码结构锁）住在
+// tests/core/message-router.test.ts——它们直接驱动 core/message-router 的
+// createMessageRouter，不必装载本入口。
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { sendMessageToTab } from "../../extension/shared/tab-utils.js";
 import { SEARCH_CACHE_KEY } from "../../extension/search/search-cache.js";
-import { OFFSCREEN_ONLY_MESSAGE_TYPES } from "../../extension/shared/messaging-protocol.js";
 import type { MessageSender } from "../../extension/shared/messaging-protocol.js";
 
 vi.mock("../../extension/shared/tab-utils.js", () => ({
@@ -31,7 +29,6 @@ vi.mock("../../extension/shared/tab-utils.js", () => ({
   waitForTabComplete: vi.fn(async () => true)
 }));
 
-const OFFSCREEN_SENDER: MessageSender = { url: "chrome-extension://test/entry/offscreen.html" };
 const TAB_SENDER = (id: number): MessageSender => ({ tab: { id }, url: "https://www.bilibili.com/video/BV1/" });
 
 // storage.local 内存 fixture：查询缓存 handler 的落盘面要能读回（单键映射）。
@@ -96,161 +93,6 @@ async function importBackground(syncSeed: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.mocked(sendMessageToTab).mockClear();
-});
-
-describe("消息入口守卫：发送者来源", () => {
-  it("segment-cache 被 tab 来源调用：拒绝（ok:false）且处理器零副作用", async () => {
-    const listener = await importBackground();
-    const storageLocalSet = vi.mocked(chrome.storage.local.set);
-    storageLocalSet.mockClear();
-
-    const sendResponse = vi.fn();
-    const keepOpen = listener(
-      { type: "segment-cache", op: "save-raw", context: { bvid: "BV1" }, segments: [1] },
-      TAB_SENDER(7),
-      sendResponse
-    );
-
-    expect(keepOpen).toBe(false);
-    expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: "仅接受 offscreen 文档发送" });
-    expect(storageLocalSet).not.toHaveBeenCalled();
-  });
-
-  it("segment-cache 由 offscreen 文档发送：通过守卫进入处理器", async () => {
-    const listener = await importBackground();
-
-    const sendResponse = vi.fn();
-    const keepOpen = listener(
-      { type: "segment-cache", op: "load-summary", context: { bvid: "BV1" } },
-      OFFSCREEN_SENDER,
-      sendResponse
-    );
-
-    expect(keepOpen).toBe(true);
-    await vi.waitFor(() => {
-      const resp = sendResponse.mock.calls[0]?.[0];
-      expect(resp?.ok).toBe(true);
-    });
-  });
-
-  it("resolve-ai-provider 以 tab 来源发送：不得回「仅接受 offscreen 文档发送」（发送者含 content）", async () => {
-    const listener = await importBackground();
-
-    const sendResponse = vi.fn();
-    const keepOpen = listener({ type: "resolve-ai-provider" }, TAB_SENDER(7), sendResponse);
-
-    expect(keepOpen).toBe(true);
-    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalled());
-    expect(sendResponse).not.toHaveBeenCalledWith(
-      expect.objectContaining({ error: "仅接受 offscreen 文档发送" })
-    );
-    // 夹具下无任何 AI 平台记录：放行后按 handler 既有行为明确回「未配置平台」
-    expect(sendResponse.mock.calls[0][0]).toMatchObject({
-      ok: false,
-      error: expect.stringContaining("还没有配置 AI 平台")
-    });
-  });
-});
-
-describe("来源守卫名单：协议常量单源（B4）", () => {
-  it("OFFSCREEN_ONLY_MESSAGE_TYPES 导出且恰为协议约定的两项", () => {
-    // 期望值取自协议契约本身（offscreen 专属族 = 这两个 type 字面量），
-    // 不复用实现内部结构，避免等于自身的同义断言。
-    expect([...OFFSCREEN_ONLY_MESSAGE_TYPES]).toEqual(["segment-cache", "offscreen-request-close"]);
-  });
-
-  it("名单每一项从 tab 来源都被拒：守卫拒绝集与常量一致", async () => {
-    const listener = await importBackground();
-
-    for (const type of OFFSCREEN_ONLY_MESSAGE_TYPES) {
-      const sendResponse = vi.fn();
-      const keepOpen = listener({ type }, TAB_SENDER(7), sendResponse);
-
-      expect(keepOpen, `${type} 应被来源守卫拒绝`).toBe(false);
-      expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: "仅接受 offscreen 文档发送" });
-    }
-  });
-
-  it("守卫消费常量：background.ts 的非法来源判定不得私藏第二份名单抄本", () => {
-    // 行为用例在「守卫抄本 = 常量」时恒绿（两侧同集），拦不住「列表回抄」这种
-    // 单源回退；只有源码级结构断言能拦（沿用 tests/shared/messaging-response-scan
-    // 的文本扫描先例）。
-    const source = readFileSync(join(process.cwd(), "extension/entry/background.ts"), "utf8");
-    const body = source.match(/function illegalMessageReason\([\s\S]*?\n\}/)?.[0];
-    expect(body, "background.ts 缺少 illegalMessageReason").toBeDefined();
-    expect(body).toContain("OFFSCREEN_ONLY_MESSAGE_TYPES");
-    expect(body).not.toContain('"segment-cache"');
-    expect(body).not.toContain('"offscreen-request-close"');
-  });
-
-  it("payload 形状判据由协议注册表派生：守卫体内不得再有按 type 的手写清单", () => {
-    // 旧实现在守卫里手写 `message.type === "ai-providers-save" || ...` 三连，
-    // 与消息声明分居两文件、漏抄即静默缺检。改由 BACKGROUND_MESSAGE_REGISTRY
-    // 的逐条 shape 判据派生后，守卫体只应出现注册表查找与统一文案：任何
-    // 消息 type 字面量（ASCII 小写连字符形状）出现在守卫体内都是回抄信号。
-    const source = readFileSync(join(process.cwd(), "extension/entry/background.ts"), "utf8");
-    const body = source.match(/function illegalMessageReason\([\s\S]*?\n\}/)?.[0];
-    expect(body, "background.ts 缺少 illegalMessageReason").toBeDefined();
-    expect(body).toContain("BACKGROUND_MESSAGE_REGISTRY");
-    expect(body).not.toMatch(/"[a-z][a-z0-9-]*"/);
-    expect(body).not.toMatch(/message\.type\s*===/);
-  });
-});
-
-describe("消息入口回包口径：同步已答 / 异步持有通道（注册表派生）", () => {
-  it("ai-presets-list（sync）：通道不持有，且返回前已同步回包", async () => {
-    const listener = await importBackground();
-
-    const sendResponse = vi.fn();
-    const keepOpen = listener({ type: "ai-presets-list" }, TAB_SENDER(7), sendResponse);
-
-    expect(keepOpen).toBe(false);
-    expect(sendResponse).toHaveBeenCalledTimes(1);
-    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true });
-  });
-
-  it("get-settings（async）：先持有通道，回包发生在返回之后", async () => {
-    const listener = await importBackground();
-
-    const sendResponse = vi.fn();
-    const keepOpen = listener({ type: "get-settings" }, TAB_SENDER(7), sendResponse);
-
-    expect(keepOpen).toBe(true);
-    // 异步回包：调用返回时尚未回包（快照读是 Promise 链）
-    expect(sendResponse).not.toHaveBeenCalled();
-    await vi.waitFor(() =>
-      expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
-    );
-  });
-
-  it.each([
-    ["fetch-json 缺 url", { type: "fetch-json" }],
-    ["get-ai-provider-key 缺 providerId", { type: "get-ai-provider-key" }],
-    ["offload-task 未知任务类型", { type: "offload-task", taskType: "no-such-task" }]
-  ])("%s（branch 的同步预检分支）：同步回包 + 通道不持有", async (_label, message) => {
-    const listener = await importBackground();
-
-    const sendResponse = vi.fn();
-    const keepOpen = listener(message, TAB_SENDER(7), sendResponse);
-
-    expect(keepOpen).toBe(false);
-    expect(sendResponse).toHaveBeenCalledTimes(1);
-    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, error: expect.any(String) });
-  });
-
-  it("request-provider-origins 空申请（branch 的同步分支）：ok:true + 通道不持有", async () => {
-    const listener = await importBackground();
-
-    const sendResponse = vi.fn();
-    const keepOpen = listener(
-      { type: "request-provider-origins", baseUrls: [] },
-      TAB_SENDER(7),
-      sendResponse
-    );
-
-    expect(keepOpen).toBe(false);
-    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-  });
 });
 
 describe("查询缓存消息族：来源守卫（spec §5 / §10 第 39 行）", () => {
