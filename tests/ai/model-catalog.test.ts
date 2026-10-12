@@ -14,9 +14,10 @@
 // 相对 import 扫描手法）：产物零 import，且静态 import 产物的只有
 // ai/model-catalog.ts、静态 import ai/model-catalog 的一个都没有。
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { staticImportersOf, walkExtensionFiles } from "../helpers/static-imports.js";
 import { NO_CATALOG_PRESETS, PRESETS } from "../../extension/core/presets.js";
 import { lookupCatalogMeta, resolveCatalogProvider } from "../../extension/ai/model-catalog.js";
 import {
@@ -54,44 +55,11 @@ const EXPECTED_CATALOG_PROVIDERS: ReadonlyArray<readonly [string, string]> = [
 // 80(图 72) / 只上游 109(图 47)；贴图提示面 消失 8 / 新增 62，差额 100% 出自 zhipu
 // 一行）见 commit e255e64 的 tests/ai/model-catalog.test.ts 与 ADR-0013「后果」。
 
-function walk(dir: string, out: string[] = []): string[] {
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) {
-      if (name === "chunks" || name === "icons") continue;
-      walk(full, out);
-      continue;
-    }
-    if (/\.(ts|js)$/.test(name) && !/\.d\.ts$/.test(name)) out.push(full);
-  }
-  return out;
-}
-
-// 静态边：import|export <clause> from "<相对路径>"。纯类型引入（import type）
-// 构建后消失、不构成运行时边，故跳过（与 tests/layer-deps.test.ts 同口径——
-// UI 片用 import type 取 CatalogModelMeta 是允许的）。注释先掐掉（块注释起点锚在
-// 行首——行内出现的 `/*` 如 `adapters/*` 不算注释起点，否则会把后面的真 import
-// 一起吞掉，tests/layer-deps.test.ts 的 `/\*[\s\S]*?\*\//` 手法在这里会误伤）。
-const STATIC_EDGE_RE = /(?:^|\n)[ \t]*(?:import|export)\s+([^;]*?)\s+from\s*["'](\.[^"']+)["']/g;
-const BLOCK_COMMENT_RE = /^[ \t]*\/\*[\s\S]*?\*\/[ \t]*$/gm;
-const TYPE_ONLY_CLAUSE_RE = /^\s*type\b|^\{\s*type\s/;
-
-function staticImportersOf(fragment: string): string[] {
-  // 同一文件的 import 与 export-from 都算边，去重后给「哪些文件静态引用」这一事实
-  const importers = new Set<string>();
-  for (const file of walk("extension")) {
-    const source = readFileSync(file, "utf8").replace(BLOCK_COMMENT_RE, "");
-    for (const match of source.matchAll(STATIC_EDGE_RE)) {
-      if (match[2].includes(fragment) && !TYPE_ONLY_CLAUSE_RE.test(match[1])) {
-        importers.add(relative("extension", file).split(sep).join("/"));
-      }
-    }
-  }
-  return [...importers].sort();
-}
+// 静态边扫描的单源见 tests/helpers/static-imports.ts（与
+// tests/ai/preset-registration-view.test.ts 共用）。
 
 function extensionFilesReferencing(pattern: RegExp): string[] {
-  return walk("extension")
+  return walkExtensionFiles("extension")
     .filter((file) => pattern.test(readFileSync(file, "utf8")))
     .map((file) => relative("extension", file).split(sep).join("/"))
     .sort();

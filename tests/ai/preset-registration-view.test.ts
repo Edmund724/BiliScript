@@ -16,9 +16,9 @@
 // 事实源的注入只为测试与「假设新增一个平台」的自查：真身仍是各表（本文件不复制
 // 任何事实表；构建期序位经脚本导出注入，不手抄）。
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { staticImportersOf, walkExtensionFiles } from "../helpers/static-imports.js";
 import { NO_CATALOG_PRESETS, PRESETS, type AiProviderPreset } from "../../extension/core/presets.js";
 import { PLATFORM_QUIRKS, type CompatQuirk } from "../../extension/ai/compat-vocab.js";
 import { PROVIDERS } from "../../extension/ai/thinking-profiles.js";
@@ -62,33 +62,7 @@ const faceOf = (view: PresetRegistrationView, face: RegistrationFace) => {
   return state!;
 };
 
-// 静态边扫描（与 tests/ai/model-catalog.test.ts 同口径：掐块注释、跳过纯类型引入）。
-function walk(dir: string, out: string[] = []): string[] {
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) {
-      walk(full, out);
-      continue;
-    }
-    if (/\.(ts|js)$/.test(name) && !/\.d\.ts$/.test(name)) out.push(full);
-  }
-  return out;
-}
-const STATIC_EDGE_RE = /(?:^|\n)[ \t]*(?:import|export)\s+([^;]*?)\s+from\s*["'](\.[^"']+)["']/g;
-const BLOCK_COMMENT_RE = /^[ \t]*\/\*[\s\S]*?\*\/[ \t]*$/gm;
-const TYPE_ONLY_CLAUSE_RE = /^\s*type\b|^\{\s*type\s/;
-function staticImportersOf(fragment: string): string[] {
-  const importers = new Set<string>();
-  for (const file of walk("extension")) {
-    const source = readFileSync(file, "utf8").replace(BLOCK_COMMENT_RE, "");
-    for (const match of source.matchAll(STATIC_EDGE_RE)) {
-      if (match[2].includes(fragment) && !TYPE_ONLY_CLAUSE_RE.test(match[1])) {
-        importers.add(relative("extension", file).split(sep).join("/"));
-      }
-    }
-  }
-  return [...importers].sort();
-}
+// 静态边扫描的单源见 tests/helpers/static-imports.ts（掐块注释、跳过纯类型引入）。
 
 describe("① 面集合封闭（失败方式：视图漏掉一个登记面）", () => {
   it("注册面清单 = 票面的 6 处登记（顺序是契约；新增事实表须显式进清单）", () => {
@@ -412,7 +386,7 @@ describe("⑨ 视图不进请求链 / 不进 SW 静态图", () => {
     const requestPath = [
       "extension/core/provider-http.ts",
       "extension/ai/completion.ts",
-      ...walk("extension/ai/adapters")
+      ...walkExtensionFiles("extension/ai/adapters")
     ];
     for (const file of requestPath) {
       expect(readFileSync(file, "utf8"), `${file} 引用了登记视图`).not.toContain(

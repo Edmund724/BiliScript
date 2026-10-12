@@ -38,7 +38,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync, spawn } = require("child_process");
 const { build, context } = require("esbuild");
-const { createLocalImportGuard, sourcesFromMap, BUILD_TARGET } = require("./build-guards.js");
+const { createLocalImportGuard, sourcesFromMap, findForbiddenInputs, BUILD_TARGET } = require("./build-guards.js");
 
 // --watch（npm run dev）：首轮走与发布完全一致的全量构建 + 自检 + 报表，之后
 // esbuild context 监听三个构建任务原地重建 dist/，content 部分拉起
@@ -413,20 +413,19 @@ const LADDER_CHUNK_FORBIDDEN_INPUTS = [
 ];
 
 function assertLadderChunkSlim(meta) {
-  for (const [file, out] of Object.entries(meta.outputs)) {
-    if (!file.endsWith(".js")) continue;
-    const inputs = Object.keys(out.inputs);
-    if (!inputs.some((input) => input.includes("ai/ladder.ts"))) continue;
-    const hit = LADDER_CHUNK_FORBIDDEN_INPUTS.filter((forbidden) =>
-      inputs.some((input) => input.includes(forbidden))
+  const violations = findForbiddenInputs(meta, {
+    seed: "ai/ladder.ts",
+    forbidden: LADDER_CHUNK_FORBIDDEN_INPUTS,
+    outputExtensions: [".js"]
+  });
+  for (const { output, hits } of violations) {
+    console.error(
+      `build.js: ladder chunk ${output} 含 ${hits.join(", ")}——` +
+        `prompt 组装走 notes/section-lines 与 subtitle/chapters 窄叶子；段缓存经 segment-cache-proxy 消息到 SW，存储层不进 chunk`
     );
-    if (hit.length > 0) {
-      console.error(
-        `build.js: ladder chunk ${file} 含 ${hit.join(", ")}——` +
-          `prompt 组装走 notes/section-lines 与 subtitle/chapters 窄叶子；段缓存经 segment-cache-proxy 消息到 SW，存储层不进 chunk`
-      );
-      process.exit(1);
-    }
+  }
+  if (violations.length > 0) {
+    process.exit(1);
   }
 }
 

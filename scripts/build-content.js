@@ -32,7 +32,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { build, context } = require("esbuild");
-const { createLocalImportGuard, sourcesFromMap, diffDualInstanceAllowlist, BUILD_TARGET } = require("./build-guards.js");
+const { createLocalImportGuard, sourcesFromMap, findForbiddenInputs, diffDualInstanceAllowlist, BUILD_TARGET } = require("./build-guards.js");
 
 // --watch：esbuild context 常驻监听，供 build.js --watch（npm run dev）以子进程
 // 方式拉起；首轮仍跑全量自检与报表，之后每次重建只打一行日志。
@@ -675,17 +675,19 @@ function assertDualInstanceAllowlist() {
 // 现形；常驻侧的回归则由 selfCheck 的「主包不得静态引用 chunks/」守卫兜住
 // （被 external 的目标一旦被静态 import 就会变成主包静态 chunk 引用）。
 function assertAnalysisNotInReaderGraph(meta) {
-  for (const [file, out] of Object.entries(meta.outputs)) {
-    if (!file.endsWith(".mjs")) continue;
-    const inputs = Object.keys(out.inputs);
-    if (!inputs.some((input) => input.includes("reader/lifecycle.ts"))) continue;
-    if (inputs.some((input) => input.includes("ai/analysis.ts"))) {
-      console.error(
-        `build-content.js: reader 装载图 ${file} 含 ai/analysis.ts——` +
-          `概览管线必须经 startOverviewRun 动态 import 按需装载`
-      );
-      process.exit(1);
-    }
+  const violations = findForbiddenInputs(meta, {
+    seed: "reader/lifecycle.ts",
+    forbidden: ["ai/analysis.ts"],
+    outputExtensions: [".mjs"]
+  });
+  for (const { output } of violations) {
+    console.error(
+      `build-content.js: reader 装载图 ${output} 含 ai/analysis.ts——` +
+        `概览管线必须经 startOverviewRun 动态 import 按需装载`
+    );
+  }
+  if (violations.length > 0) {
+    process.exit(1);
   }
 }
 

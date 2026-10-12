@@ -65,6 +65,27 @@ function sourcesFromMap(mapJson, mapDir, extensionRoot) {
     .map((source) => path.relative(extensionRoot, source).split(path.sep).join("/"));
 }
 
+// 「种子产物不得含禁区」判据（build.js 的 ladder chunk 守卫与 build-content.js 的
+// reader 装载图守卫共用）：metafile 里任一产物，其模块图 inputs 命中 seed 即视为该
+// 守卫的被检产物，此时不得再命中 forbidden 中任一项。只回违例、不打印、不退出——
+// 两处守卫的产物与错误文案不同（ladder chunk 讲 prompt 组装与段缓存落点，reader
+// 装载图讲概览管线按需动态装载），文案与 process.exit 留在各自脚本的 adapter。
+//
+// seed / forbidden 都是「子串命中 inputs 键」口径（既有两份守卫的判据逐字保留，不做
+// 路径解析）；outputExtensions 过滤被检产物扩展名（ladder chunk 看 .js、reader 轮 B
+// 看 .mjs）。返回 [{ output, hits }]，hits 保持 forbidden 的书写顺序。
+function findForbiddenInputs(meta, { seed, forbidden, outputExtensions }) {
+  const violations = [];
+  for (const [file, out] of Object.entries((meta && meta.outputs) || {})) {
+    if (outputExtensions && !outputExtensions.some((ext) => file.endsWith(ext))) continue;
+    const inputs = Object.keys((out && out.inputs) || {});
+    if (!inputs.some((input) => input.includes(seed))) continue;
+    const hits = forbidden.filter((name) => inputs.some((input) => input.includes(name)));
+    if (hits.length > 0) violations.push({ output: file, hits });
+  }
+  return violations;
+}
+
 // 对账：实测双实例集合（常驻包 sourcemap ∩ 全部 chunk sourcemap）vs 允许
 // 双实例模块清单。unexpected = 产物里有、清单没有（新双实例模块，构建报错、
 // 强制人工评估）；missing = 清单有、产物没有（清单漂移，提示清理）。
@@ -77,4 +98,4 @@ function diffDualInstanceAllowlist(actualSources, allowlistSources) {
   };
 }
 
-module.exports = { createLocalImportGuard, sourcesFromMap, diffDualInstanceAllowlist, BUILD_TARGET };
+module.exports = { createLocalImportGuard, sourcesFromMap, findForbiddenInputs, diffDualInstanceAllowlist, BUILD_TARGET };
