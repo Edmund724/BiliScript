@@ -15,7 +15,8 @@
 //      的 live-first 快照读法、等待提示按「是否转写中」路由（转写并入状态行，
 //      抓取走消息区 notice，带加载动画）、4 秒轮询定时器。判定要等待时本闸不等
 //      首轮轮询，立即显示提示；等待区间经 deps.onWaitingChange 通知调用方
-//      （发送键禁用 / placeholder 换文案）。
+//      （发送键禁用 / placeholder 换文案）。字幕就绪判定单源在
+//      ./subtitle-readiness.ts（clip 与快照两个入口），本闸只组装调用。
 //   3. 字幕状态总线订阅（转写相位与 subtitle-ready → setAsrTranscribingActive
 //      意图原语 + kick 等待闸 + 清抓取文案 notice）与转写状态行（asrNotice）。
 //   4. startSubtitleFetchIfNeeded 的判定门（BV 匹配 / 字幕体已在 / 仅 idle 或
@@ -25,13 +26,16 @@
 // 读侧闭包约定（与 chat-tab 原注释一致）：deps 里的页面级状态经惰性 getter
 // 读取，回调执行时取值——不写死装配时刻的快照。
 import { chatSessionState, setAsrTranscribingActive } from "./chat-state.js";
-import { createSubtitleWaiter, isContextPending } from "./subtitle-wait.js";
+import { createSubtitleWaiter } from "./subtitle-wait.js";
+import { buildNoSubtitleNotice, type NoSubtitleReason } from "./no-subtitle.js";
 import {
-  buildNoSubtitleNotice,
-  isNoSubtitleEmptyContext,
+  isNoSubtitleEmpty,
+  isPending,
   isSubtitleFetchFailed,
-  type NoSubtitleReason
-} from "./no-subtitle.js";
+  readinessFromClip,
+  readinessFromSnapshot,
+  wantsWaitNotice
+} from "./subtitle-readiness.js";
 import { CONTEXT_READ_FAILED_MESSAGE, isPinnedContextStrict } from "./context-policy.js";
 import type { ViewResetIntent } from "./view-intent.js";
 import type { ClipState } from "../core/state.js";
@@ -162,9 +166,12 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       // loadContextState 无论走哪个分支都会先更新 liveContextData；等待期间
       // 可能有流式守卫冻结 contextData，读 liveContextData 保证数据不断供。
       const snapshot = ok ? (chatSessionState.liveContextData || chatSessionState.contextData) : null;
+      const readiness = readinessFromSnapshot(snapshot, {
+        asrTranscribingActive: chatSessionState.asrTranscribingActive
+      });
       return {
         ok: Boolean(snapshot),
-        pending: isContextPending(snapshot, { asrTranscribingActive: chatSessionState.asrTranscribingActive })
+        pending: isPending(readiness)
       };
     },
     showWaitingNotice: showWaitNotice,
@@ -207,7 +214,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     unsubscribeStatusBus = null;
   }
 
-  // 发送前主动起跑字幕抓取：等待闸（isContextPending）只认
+  // 发送前主动起跑字幕抓取：等待闸（subtitle-readiness 的 isPending）只认
   // subtitleFetchState === "loading"——面板打开后的后台抓取要等播放器元数据
   //（最多 5 秒）才起跑，这段「还没开始抓」的窗口里状态是 idle，闸判定「非
   // pending」直接放行，字幕体为空就发给模型，只能得到凭标题编造「无公开字幕」
@@ -224,10 +231,11 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       return true;
     }
     const clip = deps.clip();
-    if (String(clip.bvid || "") === pageBvid && clip.subtitleBody.length > 0) {
+    const readiness = readinessFromClip(clip);
+    if (String(clip.bvid || "") === pageBvid && readiness.hasBody) {
       return true;
     }
-    if (clip.subtitleFetchState !== "idle" && clip.subtitleFetchState !== "error") {
+    if (readiness.fetchState !== "idle" && readiness.fetchState !== "error") {
       return true;
     }
     // 起跑动作留在组合根（ensure 总结链装载 + reader 刷新请求；失败 = 抓取
@@ -280,8 +288,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     // 等待提示即时显示：判定要等待就立刻出通知条，不等 4 秒轮询的首拍。G3 起跑
     // 的抓取在 refreshClip 的同步前缀里已写 loading，本来就 loading 的轮次也命中；
     // ready/empty 等非等待态不显示，避免通知条一闪而过。
-    const clip = deps.clip();
-    if (clip.subtitleBody.length === 0 && clip.subtitleFetchState === "loading") {
+    if (wantsWaitNotice(readinessFromClip(deps.clip()))) {
       showWaitNotice();
     }
     // 等待区间通知调用方（发送键禁用 / placeholder 换文案）；try/finally 保证
@@ -304,7 +311,11 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
       deps.requestViewReset({ kind: "state", html: CONTEXT_READ_FAILED_MESSAGE });
       return { pass: false, kind: "read-failed" };
     }
-    if (isNoSubtitleEmptyContext(chatSessionState.contextData)) {
+    // 最终快照（G5 重取后的 contextData）投影成就绪视图，两个空上下文拦截只读它。
+    const finalReadiness = readinessFromSnapshot(chatSessionState.contextData, {
+      asrTranscribingActive: chatSessionState.asrTranscribingActive
+    });
+    if (isNoSubtitleEmpty(finalReadiness)) {
       const notice = buildNoSubtitleNotice(chatSessionState.contextData.noSubtitleReason as NoSubtitleReason);
       deps.showContextNotice(notice.message, 0, { openSettingsAction: notice.openSettings });
       return { pass: false, kind: "no-subtitle" };
@@ -312,7 +323,7 @@ export function createSendGate(deps: CreateSendGateDeps): SendGate {
     // 抓取失败收尾（error 且字幕体为空）：与无字幕拦截同一道门——把空字幕发给
     // 模型只会得到凭标题编造的总结。失败是可重试的暂时态，故给一条重试文案，
     // 不重置视图（用户可再点一次发送）。
-    if (isSubtitleFetchFailed(chatSessionState.contextData)) {
+    if (isSubtitleFetchFailed(finalReadiness)) {
       deps.showContextNotice(SUBTITLE_FETCH_FAILED_NOTICE, 0);
       return { pass: false, kind: "fetch-error" };
     }

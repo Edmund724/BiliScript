@@ -11,22 +11,15 @@ import {
   ASR_TRANSCRIBING_NOTICE
 } from "../../extension/chat/send-gate.js";
 import { chatSessionState, chatSessionStateForTests, resetChatSessionStateForTests } from "../../extension/chat/chat-state.js";
+import type { ChatSessionContextSnapshot } from "../../extension/chat/chat-state.js";
 import { CONTEXT_READ_FAILED_MESSAGE } from "../../extension/chat/context-policy.js";
+import { createReaderContextPayload } from "../../extension/core/context-payload.js";
 import { buildAsrNoSubtitleMessage } from "../../extension/core/asr-failure-notice.js";
-import type { AiContext } from "../../extension/ai/types.js";
 import type { ClipState } from "../../extension/core/state.js";
 
-function ctx(overrides: Partial<AiContext> = {}): AiContext {
-  return {
-    url: "https://www.bilibili.com/video/BV1/",
-    bvid: "BV1",
-    isVideoContext: true,
-    subtitleBody: ["line"],
-    subtitleFetchState: "ready",
-    ...overrides
-  } as AiContext;
-}
-
+// 上下文夹具只有 clip 一份：快照一律经生产同款的 payload 投影 + 装配链信封
+// 补写（core/context-assembly 全量路径同款）现算，测试不再手写第二份快照字面量
+// ——快照字段口径由投影保证，用例只声明「clip 权威状态是什么」。
 function clip(overrides: Record<string, unknown> = {}): ClipState {
   return {
     bvid: "BV1",
@@ -34,6 +27,24 @@ function clip(overrides: Record<string, unknown> = {}): ClipState {
     subtitleFetchState: "idle",
     ...overrides
   } as unknown as ClipState;
+}
+
+// 字幕体非空 + ready：默认的「已就绪当前上下文」（G2 之后的闸口都建立在读取
+// 成功之上）。
+function readyClip(): ClipState {
+  return clip({ subtitleBody: [{ from: 0, to: 1, content: "line" }], subtitleFetchState: "ready" });
+}
+
+// clip → 快照：与生产装配链同一条投影（url/settings 是投影入参，signature 是
+// 装配链补写的信封字段，本闸不读）。需要「快照与 deps.clip 不一致」的用例（如
+// G4 的即时提示：快照随轮询变成就绪、clip 仍是 loading）各自注入 deps.clip。
+function snapshotFromClip(state: ClipState): ChatSessionContextSnapshot {
+  const payload = createReaderContextPayload({
+    clip: state,
+    settings: { includeTimestampInBody: true },
+    url: "https://www.bilibili.com/video/BV1/"
+  });
+  return { ...payload, isVideoContext: true, signature: "" } as unknown as ChatSessionContextSnapshot;
 }
 
 interface Harness {
@@ -96,7 +107,7 @@ describe("发送闸 createSendGate", () => {
   beforeEach(() => {
     resetChatSessionStateForTests();
     // 默认有一份就绪的当前上下文（G2 之后的闸口都建立在读取成功之上）。
-    chatSessionStateForTests.contextData = ctx();
+    chatSessionStateForTests.contextData = snapshotFromClip(readyClip());
   });
 
   describe("G1 pinned 分流", () => {
@@ -183,7 +194,7 @@ describe("发送闸 createSendGate", () => {
 
   describe("G4 等待闸", () => {
     it("抓取中（loading 且字幕体空）→ 等待，就绪后放行 {pass:true}", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       let polls = 0;
       const h = makeHarness({
         loadContextState: vi.fn(async () => {
@@ -191,7 +202,7 @@ describe("发送闸 createSendGate", () => {
           // 第 1 次是 ensure 的 G2 读，第 2 次是等待闸首轮（须见 pending），
           // 第 3 次起字幕才就绪。
           if (polls >= 3) {
-            chatSessionStateForTests.liveContextData = ctx();
+            chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
           }
           return true;
         })
@@ -204,7 +215,7 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("判定要等待即显示通知条（不等首轮轮询）：clip loading 时立即带 spinner 出提示", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       let polls = 0;
       let releasePoll: () => void = () => {};
       const h = makeHarness({
@@ -218,7 +229,7 @@ describe("发送闸 createSendGate", () => {
             await new Promise<void>((resolve) => {
               releasePoll = resolve;
             });
-            chatSessionStateForTests.liveContextData = ctx();
+            chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
           }
           return true;
         })
@@ -239,7 +250,7 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("等待闸兑现 false（读取失败）→ requestViewReset + read-failed", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       const h = makeHarness({
         loadContextState: vi.fn(async () => {
           chatSessionStateForTests.liveContextData = null;
@@ -254,7 +265,9 @@ describe("发送闸 createSendGate", () => {
 
   describe("G5 放行前重取快照", () => {
     it("最终快照无字幕收尾（G6）→ {pass:false, kind:'no-subtitle'} + 对应 notice，不重置视图", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "empty", noSubtitleReason: "asr-disabled" });
+      chatSessionStateForTests.contextData = snapshotFromClip(
+        clip({ subtitleFetchState: "empty", noSubtitleReason: "asr-disabled" })
+      );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
@@ -266,11 +279,9 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("鉴权失败（asr-auth）：文案走单一真源，附「前往设置」链接", async () => {
-      chatSessionStateForTests.contextData = ctx({
-        subtitleBody: [],
-        subtitleFetchState: "empty",
-        noSubtitleReason: "asr-auth"
-      });
+      chatSessionStateForTests.contextData = snapshotFromClip(
+        clip({ subtitleFetchState: "empty", noSubtitleReason: "asr-auth" })
+      );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       // 文案逐字来自 core 的单一真源（sidepanel 面），不再由 chat 侧自写分支表
@@ -287,11 +298,9 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("额度不足（asr-quota）：不附设置入口（补救是充值 / 稍后重试）", async () => {
-      chatSessionStateForTests.contextData = ctx({
-        subtitleBody: [],
-        subtitleFetchState: "empty",
-        noSubtitleReason: "asr-quota"
-      });
+      chatSessionStateForTests.contextData = snapshotFromClip(
+        clip({ subtitleFetchState: "empty", noSubtitleReason: "asr-quota" })
+      );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
@@ -302,11 +311,9 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("未知原因（null）：通用文案 + 通用补救句", async () => {
-      chatSessionStateForTests.contextData = ctx({
-        subtitleBody: [],
-        subtitleFetchState: "empty",
-        noSubtitleReason: null
-      });
+      chatSessionStateForTests.contextData = snapshotFromClip(
+        clip({ subtitleFetchState: "empty", noSubtitleReason: null })
+      );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(
@@ -317,7 +324,7 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("抓取失败收尾（error 且字幕体为空）→ {pass:false, kind:'fetch-error'} + 重试文案，不重置视图", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "error" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "error" }));
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "fetch-error" });
       expect(h.mocks.showContextNotice).toHaveBeenCalledWith(SUBTITLE_FETCH_FAILED_NOTICE, 0);
@@ -325,19 +332,81 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("error 但字幕体非空 → 放行（失败前落账的完整字幕照样能总结）", async () => {
-      chatSessionStateForTests.contextData = ctx({
-        subtitleBody: [{ from: 0, to: 1, content: "line" }],
-        subtitleFetchState: "error"
-      });
+      chatSessionStateForTests.contextData = snapshotFromClip(
+        clip({ subtitleBody: [{ from: 0, to: 1, content: "line" }], subtitleFetchState: "error" })
+      );
       const h = makeHarness();
       await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
       expect(h.mocks.showContextNotice).not.toHaveBeenCalled();
     });
   });
 
+  // G4（等待闸）/ G5（放行前重取）/ G6（空上下文拦截）三闸口的**相对顺序**：
+  // 分别由三处独立代码承担，任一处的相对位置变化都会让「等的是旧快照」或
+  // 「拦的是旧快照」重新出现。用事件序钉住：等待闸落定 → 才重取 → 才判拦截。
+  describe("G4/G5/G6 相对顺序（事件序）", () => {
+    it("无字幕拦截路径：G4 落定后 G5 重取，重取之后才 G6 拦截", async () => {
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "empty" }));
+      const events: string[] = [];
+      const h = makeHarness({
+        loadContextState: vi.fn(async () => {
+          events.push("load");
+          return true;
+        }),
+        startSubtitleFetch: vi.fn(async () => {
+          events.push("fetch");
+          return true;
+        }),
+        showContextNotice: vi.fn(() => {
+          events.push("notice");
+        }),
+        onWaitingChange: (waiting) => {
+          events.push(waiting ? "wait:enter" : "wait:exit");
+        },
+        replayInFlight: () => {
+          events.push("replay");
+          return null;
+        }
+      });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
+      // G2 读 → G3 起跑 → 等待区间（G4 只轮询一轮即就绪）→ G5 重取 → G6 拦截。
+      expect(events).toEqual(["load", "fetch", "wait:enter", "load", "wait:exit", "load", "notice"]);
+    });
+
+    it("放行路径：G4 的每轮轮询都先于 G5 重取，重取是等待落定后唯一那次读", async () => {
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
+      const events: string[] = [];
+      let polls = 0;
+      const h = makeHarness({
+        loadContextState: vi.fn(async () => {
+          events.push("load");
+          polls += 1;
+          // 第 1 次是 ensure 的 G2 读；G4 首轮（第 2 次）须见 pending，第 3 次才就绪。
+          if (polls >= 3) {
+            chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
+          }
+          return true;
+        }),
+        startSubtitleFetch: vi.fn(async () => {
+          events.push("fetch");
+          return true;
+        }),
+        onWaitingChange: (waiting) => {
+          events.push(waiting ? "wait:enter" : "wait:exit");
+        },
+        replayInFlight: () => {
+          events.push("replay");
+          return null;
+        }
+      });
+      await expect(h.gate.ensureContextForSend()).resolves.toEqual({ pass: true });
+      expect(events).toEqual(["load", "fetch", "wait:enter", "load", "load", "wait:exit", "load", "replay"]);
+    });
+  });
+
   describe("等待区间通知（onWaitingChange）", () => {
     it("等待前发 true（此时只跑完 G2 读）、等待落定复位 false", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       let polls = 0;
       const events: Array<{ waiting: boolean; polls: number }> = [];
       const h = makeHarness({
@@ -345,7 +414,7 @@ describe("发送闸 createSendGate", () => {
         loadContextState: vi.fn(async () => {
           polls += 1;
           if (polls >= 3) {
-            chatSessionStateForTests.liveContextData = ctx();
+            chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
           }
           return true;
         })
@@ -360,7 +429,7 @@ describe("发送闸 createSendGate", () => {
 
     it("所有拦截出口都复位 false：read-failed / no-subtitle / fetch-error", async () => {
       // read-failed：等待闸首轮读取失败
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       let polls = 0;
       const readFailedCalls: boolean[] = [];
       const readFailed = makeHarness({
@@ -378,14 +447,14 @@ describe("发送闸 createSendGate", () => {
       expect(readFailedCalls).toEqual([true, false]);
 
       // no-subtitle：等待直接兑现就绪，G6 无字幕拦截
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "empty" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "empty" }));
       const noSubtitleCalls: boolean[] = [];
       const noSubtitle = makeHarness({ onWaitingChange: (waiting) => noSubtitleCalls.push(waiting) });
       await expect(noSubtitle.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "no-subtitle" });
       expect(noSubtitleCalls).toEqual([true, false]);
 
       // fetch-error：G6 抓取失败拦截
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "error" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "error" }));
       const fetchErrorCalls: boolean[] = [];
       const fetchError = makeHarness({ onWaitingChange: (waiting) => fetchErrorCalls.push(waiting) });
       await expect(fetchError.gate.ensureContextForSend()).resolves.toEqual({ pass: false, kind: "fetch-error" });
@@ -443,7 +512,7 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("拦截（G6 无字幕）不等待回放：拦截后无消息可插", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "empty" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "empty" }));
       let replayRequested = 0;
       const h = makeHarness({
         replayInFlight: () => {
@@ -484,7 +553,7 @@ describe("发送闸 createSendGate", () => {
     });
 
     it("subtitle-ready 相位（字幕落账）→ kick 等待闸：立即补一轮 pollContext，不等轮询定时器", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       let polls = 0;
       const h = makeHarness({
         // 轮询间隔大于用例时长：只有 kick 才会产生第 3 次 poll
@@ -492,7 +561,7 @@ describe("发送闸 createSendGate", () => {
         loadContextState: vi.fn(async () => {
           polls += 1;
           if (polls >= 3) {
-            chatSessionStateForTests.liveContextData = ctx();
+            chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
           }
           return true;
         })
@@ -527,12 +596,12 @@ describe("发送闸 createSendGate", () => {
 
     it("等待提示路由：转写中时等待并入状态行，不走消息区抓取文案", async () => {
       const asrNotice = document.createElement("div");
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       const h = makeHarness({
         asrNotice,
         isReaderTranscribing: () => true,
         loadContextState: vi.fn(async () => {
-          chatSessionStateForTests.liveContextData = ctx();
+          chatSessionStateForTests.liveContextData = snapshotFromClip(readyClip());
           return true;
         })
       });
@@ -549,7 +618,7 @@ describe("发送闸 createSendGate", () => {
 
   describe("会话关闭闸", () => {
     it("pollContext 在 sessionClosed 后立即兑现 false（ok:false），等待中的发送提前失败", async () => {
-      chatSessionStateForTests.contextData = ctx({ subtitleBody: [], subtitleFetchState: "loading" });
+      chatSessionStateForTests.contextData = snapshotFromClip(clip({ subtitleFetchState: "loading" }));
       let closed = false;
       const h = makeHarness({
         isSessionClosed: () => closed,

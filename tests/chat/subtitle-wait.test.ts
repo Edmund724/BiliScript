@@ -1,13 +1,14 @@
 // createSubtitleWaiter 工厂测试：一键总结「等待抓取/音频转写完成」的轮询状态机。
 // 依赖全注入（pollContext / 通知 / 定时器），无 DOM、无 chrome，纯 Node 时序验证。
-// 锁定的时序约定见 sidepanel-subtitle-wait.js 头部注释：
+// 锁定的时序约定见 subtitle-wait.ts 头部注释：
 // 就绪放行、pending 轮询+提示、读取失败放行 false、kick 提前补轮、tick 去重、
 // 新等待使旧等待失效、finish 后定时器作废。
+// 「是否仍在抓取/转写」的判定不在本模块，覆盖在 tests/chat/subtitle-readiness.test.ts。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CreateSubtitleWaiterDeps } from "../../extension/chat/subtitle-wait.js";
-import { createSubtitleWaiter, isContextPending } from "../../extension/chat/subtitle-wait.js";
+import { createSubtitleWaiter } from "../../extension/chat/subtitle-wait.js";
 
 const POLL_MS = 4000;
 
@@ -183,35 +184,5 @@ describe("createSubtitleWaiter", () => {
     const pollsBefore = harness.deps.pollContext.mock.calls.length;
     harness.waiter.kick(); // 无等待在跑时 kick 是 no-op
     expect(harness.deps.pollContext.mock.calls.length).toBe(pollsBefore);
-  });
-});
-
-// isContextPending：等待判定纯函数。回归背景：content 侧转写进行中可能因
-// 辅助抓取失败把快照状态清成 idle（resetClipState），仅凭快照会提前放行
-// 空字幕 → 模型编造"无公开字幕"总结；转写广播活跃标志是兜底信号。
-describe("isContextPending", () => {
-  it("loading 且字幕体为空：pending", () => {
-    expect(isContextPending({ subtitleFetchState: "loading", subtitleBody: [] })).toBe(true);
-  });
-
-  it("字幕体非空：不 pending（就绪优先于一切信号）", () => {
-    expect(isContextPending({ subtitleFetchState: "loading", subtitleBody: [{ from: 0, to: 1, content: "x" }] })).toBe(false);
-  });
-
-  it("快照状态被清（idle）但转写广播活跃：仍 pending（兜底信号）", () => {
-    expect(
-      isContextPending({ subtitleFetchState: "idle", subtitleBody: [] }, { asrTranscribingActive: true })
-    ).toBe(true);
-  });
-
-  it("非 loading 且无广播：不 pending（抓取失败/无人声/未启用转写，放行凭标题总结）", () => {
-    expect(isContextPending({ subtitleFetchState: "idle", subtitleBody: [] })).toBe(false);
-    expect(isContextPending({ subtitleFetchState: "error", subtitleBody: [] })).toBe(false);
-    expect(isContextPending({ subtitleFetchState: "empty", subtitleBody: [] })).toBe(false);
-  });
-
-  it("快照为 null（读取失败）：不 pending，由 ok=false 走失败路径", () => {
-    expect(isContextPending(null)).toBe(false);
-    expect(isContextPending(undefined, { asrTranscribingActive: true })).toBe(false);
   });
 });
