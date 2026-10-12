@@ -182,15 +182,8 @@ export function dispatchContentScriptMessage(rawMessage: unknown, sendResponse: 
 //（在飞即已有抓取在路上，打开面板触发的那条据此让位，不并发双抓）。预抓取是
 // 后台兜底，失败静默——只在链外漏网异常（reader 域装载失败等）记日志，不写状态栏。
 
-// reader/lazy-reader.ts 的 ReaderDomain 只列了 URL 变化分支消费的方法；预抓取
-// 消费的守卫就地补在类型上（与 content.ts 的 PlayerAiApi 同款：局部接口精确
-// 描述本文件消费的 API，避免调用点退化成 any）。
-type ReaderDomainWithSubtitleGuard = Awaited<ReturnType<typeof ensureReaderDomain>> & {
-  isSubtitleInHandOrInFlight(): boolean;
-};
-
 async function ensureSubtitlePrefetch(): Promise<void> {
-  const reader = (await ensureReaderDomain()) as ReaderDomainWithSubtitleGuard;
+  const reader = await ensureReaderDomain();
   if (reader.isSubtitleInHandOrInFlight()) {
     return;
   }

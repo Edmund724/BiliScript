@@ -23,14 +23,12 @@
 // 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
 // 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
 
-interface ReaderDomain {
-  enterReaderMode(): void;
-  closeReadingView(): void;
-  waitForVideoMetadata(timeoutMs?: number): Promise<void>;
-  seekReadingTarget(seconds: number | string, options?: { resumePlayback?: boolean }): number | null;
-}
-
+// 类型面取动态 import 真身（typeof import 是纯类型引用，不产生运行时静态边）：
+// 手写窄接口曾让消费方各自交叉收口（ui/reader-gate、script-tab-activation、
+// message-handler、init-essentials 四处补丁式 cast），域入口导出面一变就漂移。
 import { createLazyLoader } from "../shared/lazy-import.js";
+
+export type ReaderDomain = typeof import("./index.js");
 
 const loader = createLazyLoader<ReaderDomain>(() => import("./index.js"));
 

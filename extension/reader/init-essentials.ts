@@ -26,7 +26,6 @@ import {
 } from "./lazy-reader-presentation.js";
 import { isReaderViewOpen } from "./state.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
-import type * as DebugSnapshotModule from "./debug-snapshot.js";
 // 候选06：监听键清单从呈现属性表派生（单一事实源 presentation-fields.js）。
 // 相对旧手抄清单的修正与保留：
 //   - 补进实际读写键 readerChapterVisible（旧清单盯的是改名前的旧键
@@ -46,7 +45,7 @@ export function installReaderDebugHelpers() {
   const snapshotReader = async (label = "manual") => {
     try {
       const reader = await ensureReaderDomain();
-      return ((reader as unknown) as typeof DebugSnapshotModule).createReaderDebugSnapshot(label);
+      return reader.createReaderDebugSnapshot(label);
     } catch (error) {
       logWarn("[BILISCRIPT] reader debug snapshot failed (reader domain load failed)", error);
       return null;
