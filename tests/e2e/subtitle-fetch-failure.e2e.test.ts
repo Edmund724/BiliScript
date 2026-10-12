@@ -30,6 +30,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installChromeHost } from "../helpers/chrome-host.js";
 
 const BILI_FIXTURE_DIR = join(process.cwd(), "tests", "fixtures", "bilibili");
 const ARTIFACT_DIR = join(process.cwd(), ".scratch", "tickets", "test-suite-trim", "artifacts");
@@ -75,14 +76,12 @@ function fixtureTransport(routes: Array<[url: string, payload: unknown]>) {
   return { transport, calls };
 }
 
-/** chrome 桩：memory storage + 按 type/url 分发的 sendMessage（fetch-json 跳板用）。 */
+/** chrome 桩：共享宿主（storage 三形状 + get(null) 快照 + onChanged）+ 按 type/url
+ *  分发的 sendMessage（fetch-json 跳板用）；runtime 其余成员由宿主按层合并自 setup 桩。 */
 function stubChrome(routeFetchJson: (url: string) => unknown) {
   const sentUrls: string[] = [];
-  const storage = new Map<string, unknown>();
-  vi.stubGlobal("chrome", {
+  installChromeHost({
     runtime: {
-      lastError: null,
-      getURL: vi.fn((path: string) => `chrome-extension://test/${path}`),
       sendMessage: vi.fn((message: { type?: string; url?: string }, callback?: (resp: unknown) => void) => {
         if (message?.type === "fetch-json" && typeof message.url === "string") {
           sentUrls.push(message.url);
@@ -91,26 +90,7 @@ function stubChrome(routeFetchJson: (url: string) => unknown) {
         }
         callback?.({ ok: true });
         return undefined;
-      }),
-      onMessage: { addListener: vi.fn(), removeListener: vi.fn(), hasListener: vi.fn(() => false) }
-    },
-    storage: {
-      local: {
-        get: vi.fn(async (keys: string | string[]) => {
-          const want = Array.isArray(keys) ? keys : [keys];
-          const out: Record<string, unknown> = {};
-          for (const key of want) if (storage.has(key)) out[key] = storage.get(key);
-          return out;
-        }),
-        set: vi.fn(async (items: Record<string, unknown>) => {
-          for (const [key, value] of Object.entries(items)) storage.set(key, value);
-        }),
-        remove: vi.fn(async (keys: string | string[]) => {
-          for (const key of Array.isArray(keys) ? keys : [keys]) storage.delete(key);
-        })
-      },
-      sync: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
-      onChanged: { addListener: vi.fn(), removeListener: vi.fn() }
+      })
     }
   });
   return { sentUrls };

@@ -8,12 +8,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
+import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 import type { ProviderRequest } from "../../extension/ai/types.js";
 
 let mod: typeof import("../../extension/ai/analysis.js");
 let jsonRepairMod: typeof import("../../extension/ai/json-repair.js");
 let cacheMod: typeof import("../../extension/subtitle/cache.js");
-let storage: ReturnType<typeof createMemoryStorage>;
+let storage: ChromeHost;
 
 // chatCompletion 的入参形状单源引用 ai/completion.js 的 ChatCompletionInput
 // （arch-review-2026-09 候选 2 第一步：原就地手抄声明删除，防形状漂移不再报错）；
@@ -26,43 +27,13 @@ async function loadOffscreenRelay() {
   return (await import("../../extension/core/provider-http-offscreen.js")).providerFetchViaOffscreen;
 }
 
-// 内存 Map 实现的 chrome.storage.local（get/set/remove 均 vi.fn，便于断言与注入失败）。
-function createMemoryStorage() {
-  const map = new Map();
-  const local = {
-    get: vi.fn(async (keys) => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(map.entries());
-      }
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of want) {
-        if (map.has(k)) {
-          out[k] = map.get(k);
-        }
-      }
-      return out;
-    }),
-    set: vi.fn(async (items) => {
-      for (const [key, value] of Object.entries(items)) {
-        map.set(key, value);
-      }
-    }),
-    remove: vi.fn(async (keys) => {
-      const want = Array.isArray(keys) ? keys : [keys];
-      for (const k of want) {
-        map.delete(k);
-      }
-    })
-  };
-  return { map, local };
-}
+// 共享宿主（tests/helpers/chrome-host.ts）承载缓存族落盘：get/set/remove 为 vi.fn，
+// get 兑现 null 全量枚举。
 
 async function importModules() {
   vi.resetModules();
   resetModuleState();
-  storage = createMemoryStorage();
-  vi.stubGlobal("chrome", { storage: { local: storage.local } });
+  storage = installChromeHost();
   mod = await import("../../extension/ai/analysis.js");
   // 字幕签名族已迁 subtitle/cache.ts（arch-slim-3 #1，键族同居），测试面随迁。
   cacheMod = await import("../../extension/subtitle/cache.js");
@@ -374,7 +345,7 @@ describe("双路径分派", () => {
 
     // 清掉段 2 的落盘 → 重跑只重跑段 2（其余段命中段缓存）
     const seg2Key = segKeys.find((k) => k.split("_").at(-2) === "2");
-    storage.map.delete(seg2Key);
+    storage.map.delete(seg2Key as string);
     chatCompletion.mockClear();
     await mod.runOverviewAnalysis({ provider: makeProvider(), context, forceRefresh: true }, { chatCompletion });
     expect(chatCompletion).toHaveBeenCalledTimes(1);
@@ -632,7 +603,9 @@ describe("部分失败降级", () => {
     // 部分结果照常落整份缓存（含 failedRanges），重试走 forceRefresh
     const finalKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_final_"));
     expect(finalKeys).toHaveLength(1);
-    expect(storage.map.get(finalKeys[0]).analysis.failedRanges).toEqual([{ from: 250, to: 500 }]);
+    expect(
+      (storage.map.get(finalKeys[0]) as { analysis: { failedRanges?: unknown } }).analysis.failedRanges
+    ).toEqual([{ from: 250, to: 500 }]);
     // 失败段不落段缓存：1、3、4、5 段落盘，2 段没有
     const segKeys = [...storage.map.keys()].filter((k) => k.startsWith("biliscript_lvs_analysis_BV1test_123_"));
     expect(segKeys).toHaveLength(4);

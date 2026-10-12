@@ -6,44 +6,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 import type { BudgetPlan } from "../../extension/ai/types.js";
 
-let storage: ReturnType<typeof createMemoryStorage>;
+let storage: ChromeHost;
 let segCache: typeof import("../../extension/ai/segment-cache.js");
 let router: typeof import("../../extension/ai/followup-context.js");
 let sendMessageMock: ReturnType<typeof vi.fn>;
-
-// 内存 Map 实现的 chrome.storage.local：get 需支持 null（全量枚举）。
-function createMemoryStorage() {
-  const map = new Map();
-  const local = {
-    get: vi.fn(async (keys) => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(map.entries());
-      }
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of want) {
-        if (map.has(k)) {
-          out[k] = map.get(k);
-        }
-      }
-      return out;
-    }),
-    set: vi.fn(async (items) => {
-      for (const [key, value] of Object.entries(items)) {
-        map.set(key, value);
-      }
-    }),
-    remove: vi.fn(async (keys) => {
-      const want = Array.isArray(keys) ? keys : [keys];
-      for (const k of want) {
-        map.delete(k);
-      }
-    })
-  };
-  return { map, local };
-}
 
 // 段缓存宿主迁 SW（arch-review-2026-09/05）后，resolveFollowupContext 的缺省
 // loadStoredSegments 走消息代理——测试把 chrome.runtime.sendMessage 路由到真实
@@ -51,7 +20,6 @@ function createMemoryStorage() {
 async function importModules() {
   vi.resetModules();
   resetModuleState();
-  storage = createMemoryStorage();
   const handler = (await import("../../extension/ai/segment-cache-handler.js")).createSegmentCacheHandler();
   sendMessageMock = vi.fn((message) => {
     if (message?.type === "segment-cache") {
@@ -59,10 +27,7 @@ async function importModules() {
     }
     return Promise.resolve({ ok: true });
   });
-  vi.stubGlobal("chrome", {
-    storage: { local: storage.local },
-    runtime: { sendMessage: sendMessageMock }
-  });
+  storage = installChromeHost({ runtime: { sendMessage: sendMessageMock } });
   segCache = await import("../../extension/ai/segment-cache.js");
   router = await import("../../extension/ai/followup-context.js");
 }

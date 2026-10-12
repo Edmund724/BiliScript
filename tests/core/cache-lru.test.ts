@@ -4,55 +4,24 @@
 // (b) writeWithEviction 失败后先淘汰再重试一次，重试成功返回 { ok:true }，
 //     重试仍失败返回 distinct 的 CacheWriteError（{ ok:false }，不抛异常）；
 // (c) 一次机制覆盖两族（biliscript_lvs_* 与 biliscript_subtitle_cache_*）。
-// 注：索引分键布局（11 票）后 recordCacheWrite / readManifest / LRU_MANIFEST_KEY
-// 均为模块私有，用例以 readFamilyKeys 读回验证，或直接以字面量键
-// biliscript_cache_lru_index（汇总清单）与 biliscript_cache_lru_index:{family}:{bvid}:{key}
-// （分键索引）读写做 arrange/断言。
+// 注：索引分键布局（11 票）后 recordCacheWrites / readManifest 均为模块私有；盘上布局
+// 经生产装配点与宿主 seed 原语表达——分键索引键 = buildLruIndexEntryKey(family, bvid, key)
+// （宿主 seedIndexEntry），汇总清单键 = LRU_MANIFEST_STORAGE_KEY（旧格式数值 ts 夹具走
+// seedLegacyManifest），用例不再手写字面量。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
+import { buildLruIndexEntryKey, LRU_MANIFEST_STORAGE_KEY } from "../../extension/core/cache-lru.js";
 import type * as CacheLruModule from "../../extension/core/cache-lru.js";
 
 let mod: typeof CacheLruModule;
-let storage: ReturnType<typeof createMemoryStorage>;
-
-// 内存 Map 实现的 chrome.storage.local：get 需支持 null（全量枚举，供前缀扫描）。
-function createMemoryStorage() {
-  const map = new Map<string, unknown>();
-  const local = {
-    get: vi.fn(async (keys: unknown): Promise<Record<string, unknown>> => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(map.entries());
-      }
-      const want: string[] = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of want) {
-        if (map.has(k)) {
-          out[k] = map.get(k);
-        }
-      }
-      return out;
-    }),
-    set: vi.fn(async (items: Record<string, unknown>): Promise<void> => {
-      for (const [key, value] of Object.entries(items)) {
-        map.set(key, value);
-      }
-    }),
-    remove: vi.fn(async (keys: unknown): Promise<void> => {
-      const want: string[] = Array.isArray(keys) ? keys : [keys];
-      for (const k of want) {
-        map.delete(k);
-      }
-    })
-  };
-  return { map, local };
-}
+let storage: ChromeHost;
 
 async function importModules() {
   vi.resetModules();
   resetModuleState();
-  storage = createMemoryStorage();
-  vi.stubGlobal("chrome", { storage: { local: storage.local } });
+  storage = installChromeHost();
   mod = await import("../../extension/core/cache-lru.js");
 }
 
@@ -72,11 +41,9 @@ describe("readFamilyKeys：索引驱动取该族该 bvid 的缓存键（读端�
       "biliscript_lvs_raw_BV1a_1_b_2",
       "biliscript_lvs_raw_BV1a_9_z_9"
     ];
-    const items: Record<string, unknown> = {};
     for (const key of dataKeys) {
-      items[`biliscript_cache_lru_index:biliscript_lvs_raw_:BV1a:${key}`] = { ts: 100 };
+      storage.seedIndexEntry("biliscript_lvs_raw_", "BV1a", key, 100);
     }
-    await storage.local.set(items);
 
     const keys = await mod.readFamilyKeys("biliscript_lvs_raw_", "BV1a", "biliscript_lvs_raw_BV1a_1_");
     expect(keys).toEqual(["biliscript_lvs_raw_BV1a_1_a_1", "biliscript_lvs_raw_BV1a_1_b_2"]);
@@ -85,10 +52,8 @@ describe("readFamilyKeys：索引驱动取该族该 bvid 的缓存键（读端�
   });
 
   it("条目缺失 / 旧格式清单 → 回退 null（消费方 get(null) 前缀扫描）", async () => {
-    await storage.local.set({
-      // 仅旧格式清单（数值 ts）：readFamilyKeys 只认分键索引，无条目 → null
-      biliscript_cache_lru_index: { biliscript_lvs_raw_: { BV1old: 100 } }
-    });
+    // 仅旧格式清单（数值 ts）：readFamilyKeys 只认分键索引，无条目 → null
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1old", 100);
 
     // 条目缺失（该 bvid 无分键索引条目）
     await expect(mod.readFamilyKeys("biliscript_lvs_raw_", "BV1none", "biliscript_lvs_raw_")).resolves.toBeNull();
@@ -163,26 +128,18 @@ describe("索引记录（分键索引 + 汇总清单）", () => {
 });
 
 describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
-  // 直写分键索引 + 清单（显式 ts 保证排名确定，绕过 writeWithEviction 以免种子
-  // 写入提前触发淘汰）+ 每视频两条数据键（模拟 raw/summary 的多段、字幕缓存的平台+ASR 轨）。
-  async function seedFamily(family: string, bvids: [string, number][]) {
-    const lruKey = "biliscript_cache_lru_index";
-    const currentManifest = ((await storage.local.get(lruKey))[lruKey] || {}) as Record<
-      string,
-      Record<string, number>
-    >;
-    const familyManifest: Record<string, number> = {};
-    const items: Record<string, unknown> = {};
+  // 预置分键索引（宿主 seedIndexEntry，键经生产装配点）+ 旧格式清单（数值 ts，
+  // seedLegacyManifest）+ 每视频两条数据键（模拟 raw/summary 的多段、字幕缓存的平台+ASR 轨）：
+  // 显式 ts 保证排名确定，绕过 writeWithEviction 以免种子写入提前触发淘汰。
+  function seedFamily(family: string, bvids: [string, number][]) {
     for (const [bvid, ts] of bvids) {
-      familyManifest[bvid] = ts;
+      storage.seedLegacyManifest(family, bvid, ts);
       for (const suffix of ["1_a_1", "1_b_2"]) {
         const key = `${family}${bvid}_${suffix}`;
-        items[key] = { v: `${bvid}-${suffix}` };
-        items[`biliscript_cache_lru_index:${family}:${bvid}:${key}`] = { ts };
+        storage.seedCacheEntry(key, { v: `${bvid}-${suffix}` }, ts);
+        storage.seedIndexEntry(family, bvid, key, ts);
       }
     }
-    items[lruKey] = { ...currentManifest, [family]: familyManifest };
-    await storage.local.set(items);
   }
 
   it("删除每族时间戳最旧视频的全部键，保留最近 3 个；索引同步收缩", async () => {
@@ -213,8 +170,10 @@ describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
   it("多族一次淘汰：raw 族索引内 3 新 + 1 遗留键（无索引按最旧）→ 仅遗留被删；不足 keep 的族不动", async () => {
     // 旧格式索引（数值 ts，无 keys）→ 该族回退 get(null) 前缀扫描，storage 里的
     // 遗留键（索引缺失 → 时间戳 0 → 最旧）随扫描一并进入淘汰清单
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1a", 100);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1b", 200);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1c", 300);
     await storage.local.set({
-      biliscript_cache_lru_index: { biliscript_lvs_raw_: { BV1a: 100, BV1b: 200, BV1c: 300 } },
       biliscript_lvs_raw_BV1a_1_a_1: { v: "a-1" },
       biliscript_lvs_raw_BV1a_1_b_2: { v: "a-2" },
       biliscript_lvs_raw_BV1b_1_a_1: { v: "b-1" },
@@ -269,23 +228,16 @@ describe("pruneToRecentVideos：每族保留最近 3 个视频", () => {
   });
 });
 
-// 直接以字面量分键索引 + 清单写索引与数据键（绕过 writeWithEviction 便于精确控制键面）。
+// 预置分键索引 + 旧清单 + 数据键（绕过 writeWithEviction 便于精确控制键面）：
+// 索引键经宿主 seedIndexEntry（生产装配点），清单走 seedLegacyManifest。
 async function seedNewFormatIndex(family: string, entries: [string, number, string[]][]) {
-  const lruKey = "biliscript_cache_lru_index";
-  const currentManifest = ((await storage.local.get(lruKey))[lruKey] || {}) as Record<
-    string,
-    Record<string, number>
-  >;
-  const familyManifest: Record<string, number> = {};
-  const items: Record<string, unknown> = { [lruKey]: { ...currentManifest, [family]: familyManifest } };
   for (const [bvid, ts, keys] of entries) {
-    familyManifest[bvid] = ts;
+    storage.seedLegacyManifest(family, bvid, ts);
     for (const key of keys) {
-      items[key] = { v: key };
-      items[`biliscript_cache_lru_index:${family}:${bvid}:${key}`] = { ts };
+      storage.seedCacheEntry(key, { v: key }, ts);
+      storage.seedIndexEntry(family, bvid, key, ts);
     }
   }
-  await storage.local.set(items);
 }
 
 describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键布局）", () => {
@@ -342,11 +294,12 @@ describe("索引驱动淘汰：单次 get(null) 快照内完成（11 票分键�
   });
 
   it("索引条目缺 keys（旧格式/混合状态）→ 该族回退 get(null) 前缀扫描", async () => {
+    // 旧格式索引（数值 ts，无 keys）
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1old", 10);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1a", 100);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1b", 200);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1c", 300);
     await storage.local.set({
-      // 旧格式索引（数值 ts，无 keys）
-      biliscript_cache_lru_index: {
-        biliscript_lvs_raw_: { BV1old: 10, BV1a: 100, BV1b: 200, BV1c: 300 }
-      },
       biliscript_lvs_raw_BV1old_1_a_1: { v: "old" },
       biliscript_lvs_raw_BV1a_1_a_1: { v: "a" },
       biliscript_lvs_raw_BV1b_1_a_1: { v: "b" },
@@ -486,9 +439,12 @@ describe("并发写入竞态（11 票回归）：索引分键后并发写互不�
 
 describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
   it("首次成功：写一次、更新索引、并维持每族最近 3 个视频", async () => {
-    // 直写索引（显式 ts）+ 数据键：BV1old 最旧，写入目标 BV1new 由 write 内部记录
+    // 旧清单（显式 ts）+ 数据键：BV1old 最旧，写入目标 BV1new 由 write 内部记录
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1old", 1);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1a", 10);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1b", 20);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1c", 30);
     await storage.local.set({
-      biliscript_cache_lru_index: { biliscript_lvs_raw_: { BV1old: 1, BV1a: 10, BV1b: 20, BV1c: 30 } },
       biliscript_lvs_raw_BV1old_1_a_1: { v: "BV1old" },
       biliscript_lvs_raw_BV1a_1_a_1: { v: "BV1a" },
       biliscript_lvs_raw_BV1b_1_a_1: { v: "BV1b" },
@@ -506,7 +462,7 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
     expect(storage.map.has("biliscript_lvs_raw_BV1old_1_a_1")).toBe(false);
     // write 未传 keys → BV1new 仅在清单记录 ts（无分键索引条目，readFamilyKeys
     // 会回退，故此处直读清单）
-    const manifest = (await storage.local.get("biliscript_cache_lru_index")).biliscript_cache_lru_index as Record<
+    const manifest = (await storage.local.get(LRU_MANIFEST_STORAGE_KEY))[LRU_MANIFEST_STORAGE_KEY] as Record<
       string,
       Record<string, number>
     >;
@@ -514,15 +470,14 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
   });
 
   it("写入失败 → 先淘汰再重试一次，重试成功返回 { ok:true }", async () => {
-    // 直写索引（旧格式条目，数值 ts）注入 4 个视频：BV1old 最旧，写入目标 BV1a
-    await storage.local.set({
-      biliscript_cache_lru_index: {
-        biliscript_subtitle_cache_: { BV1old: 1, BV1m: 2, BV1n: 3, BV1a: 4 }
-      },
-      biliscript_subtitle_cache_BV1old_1_id_x: { body: [], timestamp: 1 },
-      biliscript_subtitle_cache_BV1m_1_id_x: { body: [], timestamp: 2 },
-      biliscript_subtitle_cache_BV1n_1_id_x: { body: [], timestamp: 3 }
-    });
+    // 旧清单（数值 ts）注入 4 个视频：BV1old 最旧，写入目标 BV1a
+    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1old", 1);
+    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1m", 2);
+    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1n", 3);
+    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1a", 4);
+    storage.seedCacheEntry("biliscript_subtitle_cache_BV1old_1_id_x", [], 1);
+    storage.seedCacheEntry("biliscript_subtitle_cache_BV1m_1_id_x", [], 2);
+    storage.seedCacheEntry("biliscript_subtitle_cache_BV1n_1_id_x", [], 3);
     let dataWriteAttempts = 0;
 
     storage.local.set.mockImplementation(async (items) => {
@@ -580,9 +535,10 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
       expect(bad.error).toBeInstanceOf(mod.CacheWriteError);
     }
 
-    // 直写索引（旧格式条目）+ 数据键：BV1a 最旧，写入目标 BV1b
+    // 旧清单（数值 ts）+ 数据键：BV1a 最旧，写入目标 BV1b
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1a", 1);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1b", 2);
     await storage.local.set({
-      biliscript_cache_lru_index: { biliscript_lvs_raw_: { BV1a: 1, BV1b: 2 } },
       biliscript_lvs_raw_BV1a_1_a_1: { v: "a" },
       biliscript_lvs_raw_BV1b_1_a_1: { v: "b" }
     });
@@ -612,13 +568,15 @@ describe("writeWithEviction：失败淘汰重试 + distinct 失败", () => {
     expect(result).toEqual({ ok: true });
     expect(storage.local.remove).not.toHaveBeenCalled();
     // 清单读取恰 1 次（attempt 内快照，兼作短路检查）；跑完整 prune 会再多一次全量快照
-    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === "biliscript_cache_lru_index").length;
+    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === LRU_MANIFEST_STORAGE_KEY).length;
     expect(indexReads).toBe(1);
   });
 
   it("旧格式条目（数值 ts）同样计数：族条目超 keep 时不短路、照常淘汰", async () => {
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1old", 10);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1a", 100);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1b", 200);
     await storage.local.set({
-      biliscript_cache_lru_index: { biliscript_lvs_raw_: { BV1old: 10, BV1a: 100, BV1b: 200 } },
       biliscript_lvs_raw_BV1old_1_a_1: { v: "old" },
       biliscript_lvs_raw_BV1a_1_a_1: { v: "a" },
       biliscript_lvs_raw_BV1b_1_a_1: { v: "b" }
@@ -667,19 +625,19 @@ describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket�
     expect(write).toHaveBeenCalledTimes(1);
     // 两族分键索引条目 + 汇总清单合成一次 set（11 票不变式：分键索引原子 set，
     // 同一次 set 携带多键与 recordCacheWrite 单 set 先例一致）
-    const indexSet = setCalls.find((keys) => keys.includes("biliscript_cache_lru_index"));
+    const indexSet = setCalls.find((keys) => keys.includes(LRU_MANIFEST_STORAGE_KEY));
     expect(indexSet).toBeDefined();
-    expect(indexSet).toContain(`biliscript_cache_lru_index:biliscript_lvs_raw_:BV1a:${RAW_KEY}`);
-    expect(indexSet).toContain(`biliscript_cache_lru_index:biliscript_lvs_summary_:BV1a:${SUMMARY_KEY}`);
+    expect(indexSet).toContain(buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1a", RAW_KEY));
+    expect(indexSet).toContain(buildLruIndexEntryKey("biliscript_lvs_summary_", "BV1a", SUMMARY_KEY));
     // 清单读恰 1 次（attempt 内快照）
-    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === "biliscript_cache_lru_index").length;
+    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === LRU_MANIFEST_STORAGE_KEY).length;
     expect(indexReads).toBe(1);
     // 数据键 + 两族索引都落盘，readFamilyKeys 各自读回
     expect(storage.map.has(RAW_KEY)).toBe(true);
     expect(storage.map.has(SUMMARY_KEY)).toBe(true);
     expect(await mod.readFamilyKeys("biliscript_lvs_raw_", "BV1a")).toEqual([RAW_KEY]);
     expect(await mod.readFamilyKeys("biliscript_lvs_summary_", "BV1a")).toEqual([SUMMARY_KEY]);
-    const manifest = (await storage.local.get("biliscript_cache_lru_index")).biliscript_cache_lru_index as Record<
+    const manifest = (await storage.local.get(LRU_MANIFEST_STORAGE_KEY))[LRU_MANIFEST_STORAGE_KEY] as Record<
       string,
       Record<string, number>
     >;
@@ -688,12 +646,12 @@ describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket�
   });
 
   it("数据写首次失败 → 先淘汰再重试一次，重试成功返回 { ok:true }", async () => {
-    await storage.local.set({
-      biliscript_cache_lru_index: { biliscript_lvs_raw_: { BV1old: 1, BV1m: 2, BV1n: 3 } },
-      biliscript_lvs_raw_BV1old_1_s_1: { segments: [], timestamp: 1 },
-      biliscript_lvs_raw_BV1m_1_s_1: { segments: [], timestamp: 2 },
-      biliscript_lvs_raw_BV1n_1_s_1: { segments: [], timestamp: 3 }
-    });
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1old", 1);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1m", 2);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1n", 3);
+    storage.seedCacheEntry("biliscript_lvs_raw_BV1old_1_s_1", [], 1);
+    storage.seedCacheEntry("biliscript_lvs_raw_BV1m_1_s_1", [], 2);
+    storage.seedCacheEntry("biliscript_lvs_raw_BV1n_1_s_1", [], 3);
     let dataWriteAttempts = 0;
     storage.local.set.mockImplementation(async (items) => {
       if (RAW_KEY in items || SUMMARY_KEY in items) {
@@ -762,15 +720,13 @@ describe("writeBundleWithEviction：跨族合并写（段缓存写聚合 ticket�
 
   it("一族越界即触发淘汰（短路检查覆盖写入涉及的全部族）", async () => {
     // raw 族 3 个视频（合并写入的第 4 个），summary 族仅 1 个：raw 族越界须淘汰
-    await storage.local.set({
-      biliscript_cache_lru_index: {
-        biliscript_lvs_raw_: { BV1old: 1, BV1m: 2, BV1n: 3 },
-        biliscript_lvs_summary_: { BV1a: 10 }
-      },
-      biliscript_lvs_raw_BV1old_1_s_1: { segments: [], timestamp: 1 },
-      biliscript_lvs_raw_BV1m_1_s_1: { segments: [], timestamp: 2 },
-      biliscript_lvs_raw_BV1n_1_s_1: { segments: [], timestamp: 3 }
-    });
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1old", 1);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1m", 2);
+    storage.seedLegacyManifest("biliscript_lvs_raw_", "BV1n", 3);
+    storage.seedLegacyManifest("biliscript_lvs_summary_", "BV1a", 10);
+    storage.seedCacheEntry("biliscript_lvs_raw_BV1old_1_s_1", [], 1);
+    storage.seedCacheEntry("biliscript_lvs_raw_BV1m_1_s_1", [], 2);
+    storage.seedCacheEntry("biliscript_lvs_raw_BV1n_1_s_1", [], 3);
     const write = vi.fn(async () => {
       await storage.local.set({ [RAW_KEY]: { segments: [], timestamp: 5 } });
       await storage.local.set({ [SUMMARY_KEY]: { summary: "小", timestamp: 5 } });

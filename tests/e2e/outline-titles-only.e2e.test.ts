@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
+import { installChromeHost } from "../helpers/chrome-host.js";
 import type { ChatCompletionInput } from "../../extension/ai/completion.js";
 import type { HotComment as AiHotComment } from "../../extension/ai/types.js";
 
@@ -26,35 +27,12 @@ let outline: typeof import("../../extension/shared/chapter-outline.js");
 let analysis: typeof import("../../extension/ai/analysis.js");
 let context: typeof import("../../extension/ai/context.js");
 
-// 内存 Map 实现的 chrome.storage.local（管线缓存族要用）。
-function createMemoryStorage() {
-  const map = new Map();
-  const local = {
-    get: vi.fn(async (keys) => {
-      if (keys === null || keys === undefined) return Object.fromEntries(map.entries());
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of want) {
-        if (map.has(k)) out[k] = map.get(k);
-      }
-      return out;
-    }),
-    set: vi.fn(async (items) => {
-      for (const [key, value] of Object.entries(items)) map.set(key, value);
-    }),
-    remove: vi.fn(async (keys) => {
-      const want = Array.isArray(keys) ? keys : [keys];
-      for (const k of want) map.delete(k);
-    })
-  };
-  return { map, local };
-}
+// 共享宿主（tests/helpers/chrome-host.ts）承载管线缓存族的落盘。
 
 async function importModules() {
   vi.resetModules();
   resetModuleState();
-  const storage = createMemoryStorage();
-  vi.stubGlobal("chrome", { storage: { local: storage.local } });
+  installChromeHost();
   gateway = await import("../../extension/bilibili/gateway.js");
   outline = await import("../../extension/shared/chapter-outline.js");
   analysis = await import("../../extension/ai/analysis.js");

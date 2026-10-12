@@ -6,49 +6,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 
 let cache: typeof import("../../extension/subtitle/cache.js");
-let storage: ReturnType<typeof createMemoryStorage>;
-
-// 内存 Map 实现的 chrome.storage.local：get 需支持 null（全量枚举）。
-function createMemoryStorage() {
-  const map = new Map();
-  const local = {
-    get: vi.fn(async (keys) => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(map.entries());
-      }
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of want) {
-        if (map.has(k)) {
-          out[k] = map.get(k);
-        }
-      }
-      return out;
-    }),
-    set: vi.fn(async (items) => {
-      for (const [key, value] of Object.entries(items)) {
-        map.set(key, value);
-      }
-    }),
-    remove: vi.fn(async (keys) => {
-      const want = Array.isArray(keys) ? keys : [keys];
-      for (const k of want) {
-        map.delete(k);
-      }
-    })
-  };
-  return { map, local };
-}
+let storage: ChromeHost;
 
 const BODY = [{ from: 0, to: 5, content: "字幕" }];
 
 async function importModules() {
   vi.resetModules();
   resetModuleState();
-  storage = createMemoryStorage();
-  vi.stubGlobal("chrome", { storage: { local: storage.local } });
+  storage = installChromeHost();
   cache = await import("../../extension/subtitle/cache.js");
 }
 
@@ -72,7 +40,7 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
     const otherVideoAsr = cache.getSubtitleCacheKey({ bvid: "BV1p", cid: "9", subtitleId: "asr:old-provider:gpt:auto" });
 
     for (const key of [keepKey, staleAsr1, staleAsr2, platformId, platformUrl, platformLang, otherVideoAsr]) {
-      await storage.local.set({ [key]: { body: BODY, timestamp: 1 } });
+      storage.seedCacheEntry(key, BODY, 1);
     }
 
     const removed = await cache.clearStaleAsrSubtitleCache({ bvid: "BV1o", cid: "7", keepKey });
@@ -91,7 +59,7 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
 
   it("无过期变体 / 缺 bvid+cid / 枚举失败 → 不删任何键并返回 []", async () => {
     const keepKey = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:a:m:auto" });
-    await storage.local.set({ [keepKey]: { body: BODY, timestamp: 1 } });
+    storage.seedCacheEntry(keepKey, BODY, 1);
 
     expect(await cache.clearStaleAsrSubtitleCache({ bvid: "BV1o", cid: "7", keepKey })).toEqual([]);
     expect(await cache.clearStaleAsrSubtitleCache({ bvid: "", cid: "", keepKey })).toEqual([]);
@@ -104,15 +72,12 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
   it("索引含该 bvid 条目 → 定点批量枚举出过期变体（11 票分键布局：索引枚举走全量快照）", async () => {
     const keepKey = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:new:p:m:auto" });
     const staleAsr = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:old:p:m:auto" });
-    const items: Record<string, unknown> = {
-      [keepKey]: { body: BODY, timestamp: 2 },
-      [staleAsr]: { body: BODY, timestamp: 1 }
-    };
-    // 直写分键索引记录两键（原经 recordCacheWrite arrange，收私有后改为字面量键）
+    storage.seedCacheEntry(keepKey, BODY, 2);
+    storage.seedCacheEntry(staleAsr, BODY, 1);
+    // 预置分键索引记录两键（键经生产装配点，宿主 seedIndexEntry）
     for (const key of [keepKey, staleAsr]) {
-      items[`biliscript_cache_lru_index:biliscript_subtitle_cache_:BV1o:${key}`] = { ts: 10 };
+      storage.seedIndexEntry("biliscript_subtitle_cache_", "BV1o", key, 10);
     }
-    await storage.local.set(items);
 
     const removed = await cache.clearStaleAsrSubtitleCache({ bvid: "BV1o", cid: "7", keepKey });
 
@@ -126,14 +91,14 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
 
 describe("saveSubtitleToCache 与统一 LRU 的接线", () => {
   it("写入失败先淘汰重试：重试成功返回 { ok:true } 且旧视频被淘汰", async () => {
-    // 直写索引（旧格式条目，数值 ts）造出已满 3 个的族 + 最旧 BV1old
+    // 预置旧格式汇总清单（数值 ts）造出已满 3 个的族 + 最旧 BV1old
     // （写入目标 BV1n 由 save 内部记录）
-    await storage.local.set({
-      biliscript_cache_lru_index: { biliscript_subtitle_cache_: { BV1old: 1, BV1m: 2, BV1w: 3 } },
-      biliscript_subtitle_cache_BV1old_1_id_x: { body: BODY, timestamp: 1 },
-      biliscript_subtitle_cache_BV1m_1_id_x: { body: BODY, timestamp: 2 },
-      biliscript_subtitle_cache_BV1w_1_id_x: { body: BODY, timestamp: 3 }
-    });
+    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1old", 1);
+    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1m", 2);
+    storage.seedLegacyManifest("biliscript_subtitle_cache_", "BV1w", 3);
+    storage.seedCacheEntry("biliscript_subtitle_cache_BV1old_1_id_x", BODY, 1);
+    storage.seedCacheEntry("biliscript_subtitle_cache_BV1m_1_id_x", BODY, 2);
+    storage.seedCacheEntry("biliscript_subtitle_cache_BV1w_1_id_x", BODY, 3);
     let dataWriteAttempts = 0;
     storage.local.set.mockImplementation(async (items) => {
       // 仅数据键首次写入失败（模拟容量不足），索引记录正常
