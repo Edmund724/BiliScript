@@ -38,7 +38,7 @@
 // reader 域的转发助手）。字幕接受事务（subtitle/commit）保持真实：主轨换轨链路是被测
 // 的一部分，不 mock。
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
@@ -824,31 +824,80 @@ describe("形态与三处登记（源码/表面锁）", () => {
     expect(pickerRule).toContain("width: 120px");
   });
 
-  it("三处登记：style-injector 的 ensure + build.js 的 cssEntries + manifest 的 WAR 通配", () => {
+  it("登记面：injector 的 ensure + 表住在 build 入口目录里 + manifest 的 WAR 通配", () => {
     const injector = read("extension/shared/style-injector.ts");
     expect(injector).toMatch(/export function ensureBilingualSubtitleStyles/);
     expect(injector).toContain("entry/styles/bilingual-subtitles.css");
 
-    // dist 侧登记（build.js 的 cssEntries 是 dist CSS 的唯一入口白名单）
-    const build = read("scripts/build.js");
-    expect(build).toContain('"entry/styles/bilingual-subtitles.css"');
-    // 组件表在前、本表在后（同特异性规则靠后者胜）
-    expect(build.indexOf('"entry/styles/custom-select.css"')).toBeLessThan(
-      build.indexOf('"entry/styles/bilingual-subtitles.css"')
-    );
+    // dist 侧（build.js 的 cssEntries 按 entry/styles/ 目录派生，见
+    // tests/entry/reader-settings-css-split.test.ts 的目录派生守卫）：表住在这个
+    // 目录里 ⇒ 必被 minify 进 dist；manifest 的 entry/styles/* 通配只放行不改产物。
+    expect(existsSync(join(process.cwd(), CSS)), `${CSS} 不在 build 入口目录里`).toBe(true);
 
-    // manifest 的 WAR 通配已放行 entry/styles/*（本票不改 manifest）
     const manifest = JSON.parse(read("extension/manifest.json")) as {
       web_accessible_resources: { resources: string[] }[];
     };
     expect(manifest.web_accessible_resources[0].resources).toContain("entry/styles/*");
   });
 
-  it("叶子在模块顶层挂表（组件表同款先例），表在组件表之后求值", () => {
+  it("叶子在模块顶层挂表（组件表同款先例），且静态 import 组件 ⇒ 组件表随叶子一同在场", () => {
     const source = read("extension/reader/subtitle-tab-ui.ts");
     expect(source).toMatch(/ensureBilingualSubtitleStyles\(\);/);
-    // import 语句都在模块体之前求值 ⇒ ensure 调用跟在 import 之后即可保证级联顺序
-    expect(source.indexOf('import { initCustomSelect')).toBeLessThan(source.indexOf("ensureBilingualSubtitleStyles();"));
+    // 静态 import（不是动态装载）：组件模块体求值即挂组件表，与该叶子同一次装载在场
+    expect(source).toMatch(/^import \{[^}]*initCustomSelect[^}]*\} from "\.\.\/ui\/custom-select\.js";$/m);
+  });
+
+  it("级联不靠挂载序：卡片度量靠特异度压过组件表，收起态靠本表重述的 [hidden]", () => {
+    const componentCss = read("extension/entry/styles/custom-select.css");
+    const bilingualCss = read(CSS);
+
+    const probe = (order: "component-first" | "bilingual-first") => {
+      // 用环境自带的 document 临时注入两张真表（jsdom 不加载 link 资源，故真实
+      // 挂载路径下的 link 不带进规则）；测完把 style 与探针节点都摘掉。
+      const view = document.createElement("div");
+      view.id = "biliscript-reading-view";
+      const dropdown = document.createElement("ul");
+      dropdown.className = "custom-select-dropdown";
+      const popover = document.createElement("li");
+      popover.className = "biliscript-bilingual-popover";
+      dropdown.appendChild(popover);
+      view.appendChild(dropdown);
+      document.body.appendChild(view);
+      const sheets = (order === "component-first" ? [componentCss, bilingualCss] : [bilingualCss, componentCss]).map((css) => {
+        const style = document.createElement("style");
+        style.textContent = css;
+        document.head.appendChild(style);
+        return style;
+      });
+      const metrics = () => {
+        const cs = window.getComputedStyle(dropdown);
+        // 只取 jsdom 可靠解析的字段：overflow 简写在 jsdom 里不回填长手
+        //（本表 overflow: hidden 压不过组件表的 overflow-y: auto 长手），
+        // 真机判据是 overflow-y: hidden，测试里改用 left/max-width/display 判归属。
+        return { display: cs.display, left: cs.left, maxWidth: cs.maxWidth };
+      };
+      const expanded = metrics();
+      dropdown.setAttribute("hidden", "");
+      const collapsed = metrics();
+      for (const style of sheets) {
+        style.remove();
+      }
+      view.remove();
+      return { expanded, collapsed };
+    };
+
+    const componentFirst = probe("component-first");
+    const bilingualFirst = probe("bilingual-first");
+
+    // 卡片度量归本表：组件表默认 left: 0 / max-width: 260px，本表是右锚 + calc 宽度
+    expect(componentFirst.expanded.display).toBe("flex");
+    expect(componentFirst.expanded.left).toBe("auto");
+    expect(componentFirst.expanded.maxWidth).not.toBe("260px");
+    // 收起态：本表重述的 [hidden] 在场，两种挂载序都收得干净（组件表先挂就会列表常开）
+    expect(componentFirst.collapsed.display).toBe("none");
+    expect(bilingualFirst.collapsed.display).toBe("none");
+    // 顺序无关：两遍逐字段一致——谁先挂都不改变结论
+    expect(bilingualFirst).toEqual(componentFirst);
   });
 });
 

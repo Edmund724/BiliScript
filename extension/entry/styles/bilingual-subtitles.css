@@ -28,9 +28,13 @@
  *
  * 作用域：#biliscript-reading-view 前缀（与 custom-select.css / reader.css 同族）。
  *
- * 挂载顺序：本表由 subtitle-tab-ui.ts 模块顶层 ensure（ensureCustomSelectStyles
- * 同款先例），而该模块静态 import ui/custom-select.ts（组件表随之先挂）——本表
- * 排在组件表之后，同特异性规则靠后者胜（卡片度量覆盖 .custom-select-dropdown）。 */
+ * 挂载：本表由 subtitle-tab-ui.ts 模块顶层 ensure（ensureCustomSelectStyles 同款
+ * 先例），而该模块静态 import ui/custom-select.ts ⇒ 组件表随该叶子一同在场。
+ * 级联与两张 link 的挂载先后无关，判据全在特异性：卡片度量靠
+ * `:has(> .biliscript-bilingual-popover)`（(1,2,0)）压过组件表的
+ * `.custom-select-dropdown`（(1,1,0)）；唯一同分的是收起态——卡片规则声明的
+ * display 与组件表 `.custom-select-dropdown[hidden] { display: none }` 同为
+ * (1,2,0)，故本表必须同步重述 [hidden]（下面那条 (1,3,0)），漏掉就是「列表常开」。 */
 
 /* ---------------------------------------------------------------------------
  * 一、弹层（组件浮层 = 卡片容器，两列 + 固定页脚）
@@ -62,9 +66,10 @@
   overflow: hidden;
 }
 
-/* 收起态正确性规则必须在本表重述（同特异性靠后者胜：组件表的
- * `… .custom-select-dropdown[hidden] { display: none }` 与上面的 display: flex 同分，
- * 漏掉这条就是「列表常开」）。 */
+/* 收起态正确性规则必须在本表重述：组件表的
+ * `… .custom-select-dropdown[hidden] { display: none }` 与上面的 display: flex
+ * 同分（1,2,0），本表缺这条时收起态就由两张 link 的挂载先后决定（组件表先挂则
+ * 仍是 flex = 列表常开）。 */
 #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover)[hidden] {
   display: none;
 }

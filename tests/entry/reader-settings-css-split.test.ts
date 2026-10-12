@@ -3,7 +3,7 @@
 // style-injector 三件套与 settings-panel 顶挂载接线在场。防倒退：设置样式一旦
 // 回流主表，按需装载的 chunk 边就静默失效（主表常驻、分区表空挂）。
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -123,8 +123,19 @@ describe("设置分区 CSS 拆分（arch-slim-4/04）", () => {
     // 组件模块顶挂载（settings-panel.ts:76 同款先例：求值即挂表）
     expect(read(COMPONENT_MODULE)).toMatch(/ensureCustomSelectStyles\(\)/);
 
-    // dist 侧登记：build.js 的 cssEntries 是 dist CSS 的唯一入口白名单，
-    // 新表漏登记则运行时 getURL 挂 link 404（manifest 的 entry/styles/* 通配只放行不改产物）
-    expect(read("scripts/build.js")).toMatch(/"entry\/styles\/custom-select\.css"/);
+    // dist 侧：build.js 的 cssEntries 按 entry/styles/ 目录派生（不再维护逐文件
+    // 白名单）⇒「表住在入口目录里」即「会被 minify 进 dist」；运行时挂载用
+    // getURL 取 dist 同相对路径，漏产物即 404（manifest 的 entry/styles/* 通配
+    // 只放行不改产物）。故此处守卫两条：目录派生在场 + injector 声明的每张表都
+    // 真的住在该目录里。
+    const build = read("scripts/build.js");
+    expect(build).toMatch(/const stylesDir = path\.join\(extensionRoot, "entry\/styles"\);/);
+    expect(build).toMatch(/const cssEntries = fs\s*\n\s*\.readdirSync\(stylesDir\)/);
+
+    const declaredStyles = [...injector.matchAll(/"entry\/styles\/[a-z-]+\.css"/g)].map((match) => match[0].slice(1, -1));
+    expect(declaredStyles).toContain("entry/styles/custom-select.css");
+    for (const rel of declaredStyles) {
+      expect(existsSync(join(ROOT, "extension", rel)), `injector 声明的 ${rel} 不在入口目录里`).toBe(true);
+    }
   });
 });

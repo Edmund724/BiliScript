@@ -135,9 +135,14 @@ export function ensureCustomSelectStyles(): void {
 // 消费者 leaf（reader/subtitle-tab-ui.ts）模块顶层 ensure，不并入阅读主表
 // （removeReaderStyles 不管它：数据留在浏览器样式缓存，二进宫免闪变），也不建
 // onload 门控（首个消费帧是工具条渲染，link 早已挂上）。
-// 级联顺序要求本表排在 CUSTOM_SELECT_STYLE_PATH 之后：弹层规则要按同特异性覆盖
-// 组件表的 .custom-select-dropdown 度量（右锚 / flex 列 / 滚动区下移），故消费方
-// 的 ensure 必须在 import ui/custom-select.js 之后求值（ESM 导入先于模块体求值）。
+// 与组件表的覆盖关系不依赖两张 link 的挂载先后，判据全在选择器特异性：
+//   - 度量覆盖（右锚 / flex 列 / 滚动区下移）：本表卡片规则带
+//     `:has(> .biliscript-bilingual-popover)`（(1,2,0)），高于组件表
+//     `.custom-select-dropdown`（(1,1,0)），谁先挂都赢；
+//   - 唯一同分的对是收起态：卡片规则声明的 display 与组件表
+//     `.custom-select-dropdown[hidden] { display: none }` 同为 (1,2,0)，故本表必须
+//     同步重述 `[hidden]`（(1,3,0)，见 entry/styles/bilingual-subtitles.css），
+//     漏掉就是「列表常开」。
 const BILINGUAL_SUBTITLE_STYLE_PATH = "entry/styles/bilingual-subtitles.css";
 
 export function ensureBilingualSubtitleStyles(): void {

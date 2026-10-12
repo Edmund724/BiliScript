@@ -23,14 +23,8 @@
 //   entry/background.js              SW 单文件 bundle
 //   entry/offscreen.js               offscreen 常驻接线（splitting 主入口）
 //   entry/offscreen-chunks/*.js      offscreen 动态 chunk（AI / ASR 两族按需）
-//   entry/styles/reader.css           阅读表（运行时挂载，随阅读模式）
-//   entry/styles/reader-gate.css      阅读表门控段（同上）
-//   entry/styles/player-ai.css        播放器 AI 表（随 ai/player-ai.js chunk）
-//   entry/styles/reader-settings-shell.css      设置分区表组·壳层与通用控件（随 ui/settings-panel chunk 挂载）
-//   entry/styles/reader-settings-rows.css       设置分区表组·行级构建器与下拉（同上）
-//   entry/styles/reader-settings-providers.css  设置分区表组·编辑 Modal 与模型目录（同上）
-//   entry/styles/custom-select.css    自定义下拉组件表（随 ui/custom-select.ts 组件挂载）
-//   entry/styles/reader-chat.css      对话分区表（随对话域首次激活挂载）
+//   entry/styles/*.css                样式表（入口集合按该目录派生，见 cssEntries；
+//                                     挂载时机与顺序的属主是 shared/style-injector）
 //   entry/content-bootstrap.iife.js  拷贝自 build-content.js 产物
 //   entry/content-main.mjs           拷贝自 build-content.js 产物
 //   entry/chunks/*.mjs               拷贝自 build-content.js 产物
@@ -67,36 +61,18 @@ const jsEntries = [
   "entry/background.ts",
 ];
 
-// CSS minify 入口。S3 分层：content 样式全部按需挂载（reader/player-ai 各自
-// 运行时 link 挂载，见 shared/style-injector），仍走 minify 保证 dist 无未压缩
-// CSS。（script-only-ui：常驻表 panel.css 已随经典侧栏面板删除。）
-const cssEntries = [
-  "entry/styles/reader.css",
-  "entry/styles/reader-gate.css",
-  "entry/styles/player-ai.css",
-  // 设置分区表组（arch-slim-4/04；2026-09 拆分为三份，列表顺序 = 拆分前单表
-  // 内的规则顺序 = 级联顺序）：随 ui/settings-panel chunk 按需挂载
-  //（shared/style-injector ensureReaderSettingsStyles），独立入口 minify。
-  "entry/styles/reader-settings-shell.css",
-  "entry/styles/reader-settings-rows.css",
-  "entry/styles/reader-settings-providers.css",
-  // 自定义下拉组件表（2026-10 从设置三份表里抽出）：随 ui/custom-select.ts 组件走
-  //（shared/style-injector ensureCustomSelectStyles，模块顶层 ensure），独立入口 minify。
-  "entry/styles/custom-select.css",
-  // 双语字幕表（bilingual-subtitles/06）：随 reader/subtitle-tab-ui.ts 叶子走
-  //（shared/style-injector ensureBilingualSubtitleStyles，模块顶层 ensure，且必须
-  // 排在 custom-select.css 之后——弹层规则按同特异性覆盖组件表度量），独立入口 minify。
-  "entry/styles/bilingual-subtitles.css",
-  // 对话分区表（arch-slim-4/07）：随对话域首次激活按需挂载
-  //（shared/style-injector ensureReaderChatStyles），独立入口 minify。
-  "entry/styles/reader-chat.css",
-  // AI 回复 markdown 排版基线（github-markdown-css v5.9.0 vendored）与其
-  // 站内主题桥接层（--fgColor-* 等映射到 --biliscript-reader-*）：随对话分区表同
-  // 时机挂载，二者必须排在 reader-chat.css 之前（覆盖层在注入顺序与特异性
-  // 上都占优）。
-  "entry/styles/github-markdown.css",
-  "entry/styles/github-markdown-theme.css",
-];
+// CSS minify 入口 = entry/styles/ 下的全部 .css（按目录派生，不维护逐文件白名单）。
+// 多入口各自独立 bundle/minify，本列表的顺序不进产物、与运行时级联无关——挂载
+// 先后由 shared/style-injector 的消费方决定，覆盖关系由选择器特异性决定。
+// S3 分层：content 样式全部按需挂载（reader/player-ai 各自运行时 link 挂载，见
+// shared/style-injector），仍走 minify 保证 dist 无未压缩 CSS。
+//（script-only-ui：常驻表 panel.css 已随经典侧栏面板删除。）
+const stylesDir = path.join(extensionRoot, "entry/styles");
+const cssEntries = fs
+  .readdirSync(stylesDir)
+  .filter((name) => name.endsWith(".css"))
+  .sort()
+  .map((name) => `entry/styles/${name}`);
 
 // 原样拷贝的文件（产物路径与源路径一致 → html/manifest 零改写）。
 const copyFiles = [
