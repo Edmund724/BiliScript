@@ -313,6 +313,14 @@ export function bindUiEvents(): void {
   });
 }
 
+// 壳根（ids.root = #biliscript-reading-view）的生命周期：建成即长期在场——退出阅读
+// 形态只清属性与样式表（reader/shell.ts 的 exitReaderShell 不摘根），再次进入复用同
+// 一批节点。这条「建成后不重建」是域叶子的隐性前置：多个叶子在模块求值时解析并长期
+// 持有壳内节点引用（reader/chat-tab.ts 的 els 与文件级闭包状态、
+// reader/subtitle-tab-ui.ts 的控件节点表），重建壳根会让这些引用静默指向脱离文档的
+// 旧节点。故 forceRecreate 只用于「壳根首建前的清场」——content.ts 的启动直达路径与
+// 测试脚手架，都早于任何域叶子装载；要在叶子装载后重建的场景，先把叶子改成按需解析
+// 引用，再开这个开关。
 export function ensureUiReady({ forceRecreate = false }: { forceRecreate?: boolean } = {}): void {
   const existingRoot = document.getElementById(ids.root);
   if (existingRoot && forceRecreate) {

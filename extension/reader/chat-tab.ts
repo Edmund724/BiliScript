@@ -50,6 +50,10 @@
 // 的页面加载时序同构）；模块级单例状态（chatSessionState + 本文件闭包）在测试里
 // 靠 vi.resetModules 换纪元重置。
 //
+// els 与文件级闭包状态长期持有壳内节点 ⇒ 本模块要求壳根建成后不重建
+//（ui/ui-renderer.ts 的 ensureUiReady：forceRecreate 只用于域叶子装载前的清场；
+// 退出阅读形态不摘壳根，再次进入复用同一批节点）。
+//
 // 曾按 dom / core / lifecycle 浅拆四片（bc1498b），浅拆分并回本单文件。
 
 import { state } from "../core/state.js";
