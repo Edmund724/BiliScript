@@ -10,10 +10,13 @@
 //   F4 验收工件   07-golden-coverage.tsv 的（valuesetId × 通道 × 档位出口形态 → 用例）不符 → 红；
 //   F5 表自洽     用例声明的类不是该 (平台, 模型) 实际命中的值集 / A' 与解析结果不符 → 红；
 //   F6 塌陷区分   effort 血统 low≠high；开关型与 budget-only 的 low==high 是上游事实 → 两侧都钉。
-// 工件缺失时跳过对账（同 thinking-chips.test.ts / models-dev-catalog-check.test.ts 先例）。
+// 工件缺失时跳过对账：判定读 tests/helpers/artifacts.ts 的登记表（缺席状态由
+// tests/ai/artifact-preflight.test.ts 显式报出），同 thinking-chips.test.ts /
+// models-dev-catalog-check.test.ts 先例。
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { hasArtifact } from "../helpers/artifacts.js";
 import { VALUESETS } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, resolveThinkingAdjustment, type ThinkingLevel } from "../../extension/ai/thinking-profiles.js";
 import {
@@ -127,7 +130,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
 
   // F3 来源防线：用例数据 == 06 请求体矩阵工件（371 行，04-prune-matrix.ts 产物，只读）。
   // 工件只含 off/low/high 三列——余下 4 档由用例字面 + 02 上游投影用例（thinking-upstream-facts）承接。
-  describe.skipIf(!existsSync(REQUEST_MATRIX))(`07 防线（${channel}）：来源（06 请求体矩阵工件）`, () => {
+  describe.skipIf(!hasArtifact(REQUEST_MATRIX))(`07 防线（${channel}）：来源（06 请求体矩阵工件）`, () => {
     it("每条用例的代表行都在矩阵里，且 off/low/high 的思考字段逐字节相同", () => {
       const matrix = readRequestMatrix(REQUEST_MATRIX);
       expect(matrix.rows.size).toBeGreaterThanOrEqual(370);
@@ -149,7 +152,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
   });
 
   // F4 验收工件：07-golden-coverage.tsv = valuesetId × 通道 × 档位（出口形态）→ 用例归属。
-  describe.skipIf(!existsSync(COVERAGE_MATRIX))(`07 防线（${channel}）：验收工件 07-golden-coverage.tsv`, () => {
+  describe.skipIf(!hasArtifact(COVERAGE_MATRIX))(`07 防线（${channel}）：验收工件 07-golden-coverage.tsv`, () => {
     it("工件行 == 用例表逐档推导的覆盖矩阵", () => {
       const lines = readFileSync(COVERAGE_MATRIX, "utf8").split("\n").filter((line) => line.length > 0);
       expect(lines[0].split("\t")).toEqual([...COVERAGE_HEADER]);
