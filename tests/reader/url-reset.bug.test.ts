@@ -91,9 +91,10 @@ describe("replaceState 补丁与章节清空（5be8f39 嫌疑路径）", () => {
 
     // 候选02 分层惰性：handleUrlChange 的 resetClipState 改经 ensureSummarizeChain
     // 装载总结链后执行（原本地动态 import，毫秒级），清空动作由同步变为装载后
-    // 微任务。断言语义不变（章节最终被清空），仅补装载等待。
+    // 微任务。断言语义不变（章节最终被清空），仅补装载等待；显式放宽超时：
+    // 全量并发下装载 + 微任务排队可能超过 vi.waitFor 默认 1s 窗口。
     await vi.waitFor(() => {
       expect(state.clip.chapters.length).toBe(0);
-    });
+    }, { timeout: 5000 });
   });
 });
