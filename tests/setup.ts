@@ -7,7 +7,7 @@
 // timestamp-nav 测试断言恰好调用 1 次时暴露）。
 
 import { beforeEach, vi } from "vitest";
-import { createMemoryStorageArea } from "./helpers/chrome-host.js";
+import { createMemoryStorageArea } from "./helpers/memory-storage-area.js";
 
 export const READER_MODE_URL = "https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1";
 export const NORMAL_PAGE_URL = "https://www.bilibili.com/video/BV1test000000/";
@@ -45,8 +45,8 @@ function stubChromeApi() {
       }
     },
     storage: {
-      // 与 tests/helpers/chrome-host.ts 同一份内存 storage 面（三形状读 + get(null)
-      // 全量快照 + 真实内存），使缺省桩与用例自装宿主语义一致。
+      // 与用例自装宿主（tests/helpers/chrome-host.ts）同一份内存 storage 面实现：
+      // 三形状读 + get(null) 全量快照 + 真实内存，故缺省桩与用例宿主语义一致。
       local: createMemoryStorageArea(defaultLocalStore),
       sync: createMemoryStorageArea(defaultSyncStore),
       onChanged: {

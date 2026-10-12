@@ -1,6 +1,6 @@
 // 测试共享宿主：一台自成一体（self-contained）的 chrome double。
 //
-// 一处兑现 chrome.storage 的读写语义与盘上布局：
+// chrome.storage 的读写语义由 ./memory-storage-area.js 的内存面兑现，本文件在其上装盘上布局：
 //   - 读三形状：单键 / 键数组 / null（undefined 同义）⇒ 全量快照；缺失键不出现；
 //   - 值形状 { body, timestamp } 由 seedCacheEntry 单源派生；
 //   - 族索引两种落盘格式各有 seed 原语、互不现代化：seedIndexEntry（现代分键条目，
@@ -17,17 +17,16 @@
 // 用例 vi.unstubAllGlobals() 之后不会被 setup 的守卫重新装回，故宿主必须在每个
 // beforeEach（或用例体）内现装，不得提到模块顶层。
 
-import { vi, type Mock } from "vitest";
+import { vi } from "vitest";
 import { buildLruIndexEntryKey, LRU_MANIFEST_STORAGE_KEY } from "../../extension/core/cache-lru.js";
+import {
+  createMemoryStorageArea,
+  type ChromeHostStorageArea,
+  type MemoryAreaHooks
+} from "./memory-storage-area.js";
 
-/** 落盘值形状：缓存族写 { body, timestamp }；LRU 索引/清单键写各自的元数据。 */
-export type CacheEntry = { body?: unknown; timestamp?: number };
-
-export interface ChromeHostStorageArea {
-  get: Mock;
-  set: Mock;
-  remove: Mock;
-}
+export { createMemoryStorageArea };
+export type { CacheEntry, ChromeHostStorageArea, MemoryAreaHooks } from "./memory-storage-area.js";
 
 export interface ChromeHost {
   local: ChromeHostStorageArea;
@@ -54,47 +53,6 @@ export interface ChromeHostOptions {
   runtime?: Record<string, unknown>;
   /** e2e 按 type 分发的注入口（宿主本轮不实现 runtime 分发）。 */
   runtimeHandler?: (message: unknown, sender: unknown) => unknown;
-}
-
-type MemoryAreaHooks = {
-  /** set 写入前的钩子（抛错即拒绝本次 set）；自带内存实现共用一份。 */
-  beforeSet?: () => void;
-};
-
-/**
- * 一个内存 storage 面：兑现三形状读（含 get(null) 全量快照）与 set/remove 写入语义。
- * 也供 tests/setup.ts 的默认全局桩复用，使默认桩与真实宿主同一份契约。
- */
-export function createMemoryStorageArea(
-  map: Map<string, unknown> = new Map(),
-  hooks: MemoryAreaHooks = {}
-): ChromeHostStorageArea {
-  return {
-    get: vi.fn(async (keys?: string | string[] | null) => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(map.entries());
-      }
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const key of want) {
-        if (map.has(key)) {
-          out[key] = map.get(key);
-        }
-      }
-      return out;
-    }),
-    set: vi.fn(async (items: Record<string, unknown>) => {
-      hooks.beforeSet?.();
-      for (const [key, value] of Object.entries(items ?? {})) {
-        map.set(key, value);
-      }
-    }),
-    remove: vi.fn(async (keys: string | string[]) => {
-      for (const key of Array.isArray(keys) ? keys : [keys]) {
-        map.delete(key);
-      }
-    })
-  };
 }
 
 export function installChromeHost(options: ChromeHostOptions = {}): ChromeHost {
