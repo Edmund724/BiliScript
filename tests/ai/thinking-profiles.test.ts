@@ -506,6 +506,14 @@ describe("表校验器（工单 AC 第 6 条）", () => {
     expect(errors[0]).toContain("never");
   });
 
+  it("never 不得带 tokenParam（关不掉思考的模型没有档位事实可随）", () => {
+    const tables = tablesWith();
+    tables.classes["deepseek-chat-never"].tokenParam = "max_completion_tokens";
+    const errors = validateThinkingTables(tables);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("never");
+  });
+
   it("taxonomy / 例外引用的 class 必须存在", () => {
     const taxonomy = tablesWith();
     taxonomy.taxonomy[0].class = "no-such-class";

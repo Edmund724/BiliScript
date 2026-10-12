@@ -203,7 +203,7 @@ export interface ThinkingPatch {
 
 // 模型血统规则。thinkingClass 是血统事实（校验器强制必填）：
 // always=关不掉（off 缺失时级联）；hybrid=可开关（必有 off 声明，可 streamOnly）；
-// never=从不思考（无任何档位，off 静默）。
+// never=从不思考（无任何档位、无 tokenParam，off 静默）。
 // 开关型平台用 on 作为任何非 off 档的唯一写点（GLM/Kimi/Mimo/SiliconFlow 等——
 // 档位只表达「开」，无力度差异）；effort 型平台逐档给显式写点（05 号票起 7 档：
 // minimal/low/medium/high/xhigh/max 各一格，**有哪个写点 = 该档可用**——clamp 的
@@ -238,6 +238,7 @@ export interface ClassRule {
   //     变短，用户 2026-10-05 明确拒绝该变更。
   // 现状由 tests/ai/thinking-profiles.test.ts「上游命中的 OpenAI 血统托管行恒 max_tokens」
   // 钉桩，改本字段前先看那条用例。
+  // never 没有任何档位事实，也不得带本字段（校验器强制，见 validateThinkingTables）。
   tokenParam?: "max_tokens" | "max_completion_tokens";
 }
 
@@ -950,6 +951,10 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// applyClassRule 的决策类别（模块内部类型，不导出）：由「偏好 × 流态 × 规则事实」判定，
+// 是构造收敛后函数上半段的全部输出（下半段只按它派生六字段）。
+type ClassRuleDecision = "default" | "off-usable" | "never" | "off-cascade" | "tier";
+
 // 单条 class 规则 + 档位 → 解析结果（clamp 落线 / off 级联 / streamOnly / 缺档 /
 // tokenParam 的唯一施加点）。导出供结构用例复算手写侧结论（04 号票：对指派表未覆盖的
 // id，runtime 结论必须等于手写表结论）。
@@ -961,6 +966,20 @@ function escapeRegExp(text: string): string {
 // 非 off 档（none/high 类模型偏好 low → 落 off，线上发 effort none）。
 // 候选 7（2026-10-07）：这次 clamp 是**全函数唯一的实发档求值点**，结果同时进
 // ThinkingResolution.effectiveLevel 与落线选点（off 级联也读它，不再单独 find 一遍）。
+//
+// 候选 3（2026-10-12，构造收敛）：**决策与构造分家**。上半段只把「偏好 × 流态 × 规则」
+// 判成一个决策类别（下表），下半段是**全函数唯一的 return**：六字段（vocabulary /
+// effectiveLevel / tokenParam / offUnavailable / offFallback / thinkingClass）一次派生。
+// 决策类别：
+//   default      偏好 `default` → 不干预，恒不发词汇；
+//   off-usable   偏好 off 且本次 off 写点可用 → 发该写点的词汇（无词汇则不发）；
+//   never        off 写点不可用且血统是 never → 关思考天然成立，静默；
+//   off-cascade  其余 off 写点不可用 → 级联：落 clamp 结果那一档的词汇（无载荷则不发），
+//                并置 offUnavailable / offFallback；
+//   tier         非 off 档偏好 → 发 clamp 结果那一档的词汇（无载荷则不发）。
+// 于是「出口各写一份 resolution、各自追加 tokenParam」的手抄消失：thinkingClass 一律取
+// 规则事实，tokenParam 一律由 withTokenParam 在同一处追加（今天表上无 tokenParam 的行是
+// no-op）。不变量由 tests/ai/thinking-resolution-invariants.test.ts 全表扫描看守。
 export function applyClassRule(rule: ClassRule, level: ThinkingLevelValue, stream: boolean): ThinkingResolution {
   const available = availableLevelsOf(rule);
   // 本次请求里 off 写点是否可用（streamOnly 规则遇非流式 = 无事实，Q14A）：下面取 rule.off
@@ -972,43 +991,53 @@ export function applyClassRule(rule: ClassRule, level: ThinkingLevelValue, strea
   // resolveThinkingAdjustment 就是这么复算的：提示说 Off、请求发开档）。
   const effective = clampThinkingLevel(
     level,
-    level === "off" && !offPatch ? available.filter((candidate) => candidate !== "off") : available
+    level === "off" && !offPatch ? available.filter((tier) => tier !== "off") : available
   );
 
-  // 「不干预」（2026-10-05 用户裁定）：所有模型都可发——不发任何思考字段，由平台默认行为决定。
-  // 与 off 的区别：off 是显式发关思考字段（可能被平台忽略 / 400）。
+  // ---- 上半段：只判决策类别并取该类别的候选写点词汇，不组装结果 ----
+  let decision: ClassRuleDecision;
+  // 候选词汇 = 本次决策要发的中转词汇；undefined = 这条决策没有写点。是否真的落线由下面的
+  // carriesPayload 判定（哨兵与「无写点」都归 noFields）。
+  let candidate: ThinkingVocabulary | undefined;
+
   if (level === "default") {
-    return withTokenParam(resolutionOf(NO_FIELDS, effective, { offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }), rule);
-  }
-
-  if (level === "off") {
+    // 「不干预」（2026-10-05 用户裁定）：所有模型都可发——不发任何思考字段，由平台默认行为
+    // 决定。与 off 的区别：off 是显式发关思考字段（可能被平台忽略 / 400）。
+    decision = "default";
+  } else if (level === "off") {
     if (offPatch) {
-      return withTokenParam(
-        resolutionOf(offPatch.vocabulary ?? NO_FIELDS, effective, { offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }),
-        rule
-      );
-    }
-    // off 缺失（含 streamOnly 被非流式阻断）→ 级联。
-    if (rule.thinkingClass === "never") {
+      decision = "off-usable";
+      candidate = offPatch.vocabulary;
+    } else if (rule.thinkingClass === "never") {
       // 关思考已天然成立：不发、静默（03 号票对 never 不渲染提示）。
-      return resolutionOf(NO_FIELDS, effective, { offUnavailable: false, offFallback: null, thinkingClass: "never" });
+      decision = "never";
+    } else {
+      // off 缺失（含 streamOnly 被非流式阻断）→ 级联。级联目标 = 上面那一次 clamp 的结果
+      // （off 写点不可用时可用集已剔掉 off，故它就是可用集里最小的非 off 档；开关型即
+      // on 写点）——不再另开 available.find(≠off) 求一遍。
+      decision = "off-cascade";
+      candidate = streamEnabledPatch(patchForLevel(rule, effective), stream)?.vocabulary;
     }
-    // 级联目标 = 上面那一次 clamp 的结果（off 写点不可用时可用集已剔掉 off，故它就是可用集里
-    // 最小的非 off 档；开关型即 on 写点）——不再另开 available.find(≠off) 求一遍。
-    const lowVocabulary = streamEnabledPatch(patchForLevel(rule, effective), stream)?.vocabulary;
-    if (carriesPayload(lowVocabulary)) {
-      return withTokenParam(resolutionOf(lowVocabulary, effective, { offUnavailable: true, offFallback: "low", thinkingClass: rule.thinkingClass }), rule);
-    }
-    // 无档位可落（如 minimax/k2.7-code 无档位参数）：不发 + 标记。
-    return withTokenParam(resolutionOf(NO_FIELDS, effective, { offUnavailable: true, offFallback: null, thinkingClass: rule.thinkingClass }), rule);
+  } else {
+    // 非 off 档：落 clamp 后的档位写点（开关型的档位写点仍是 on）。
+    decision = "tier";
+    candidate = streamEnabledPatch(patchForLevel(rule, effective), stream)?.vocabulary;
   }
 
-  // 非 off 档：落 clamp 后的档位写点（开关型的档位写点仍是 on）。
-  const vocabulary = streamEnabledPatch(patchForLevel(rule, effective), stream)?.vocabulary;
-  if (carriesPayload(vocabulary)) {
-    return withTokenParam(resolutionOf(vocabulary, effective, { offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }), rule);
-  }
-  return withTokenParam(resolutionOf(NO_FIELDS, effective, { offUnavailable: false, offFallback: null, thinkingClass: rule.thinkingClass }), rule);
+  // ---- 下半段：全函数唯一的 return，六字段单点派生 ----
+  // 有载荷 = 候选词汇真的带来线格式字段（无档位可落的级联如 minimax/k2.7-code 为 false）。
+  const vocabulary = candidate && carriesPayload(candidate) ? candidate : NO_FIELDS;
+  const hasPayload = carriesPayload(vocabulary);
+  const offCascade = decision === "off-cascade";
+  return withTokenParam(
+    resolutionOf(vocabulary, effective, {
+      offUnavailable: offCascade,
+      // 级联有载荷 → 落了最低思考档（长版提示）；无载荷 → 无 low 可落（短版提示）。
+      offFallback: offCascade && hasPayload ? "low" : null,
+      thinkingClass: rule.thinkingClass
+    }),
+    rule
+  );
 }
 
 // 档位 → 该档的写点：effort 型查本档的显式写点，开关型（有 on）任何非 off 档都落 on；
@@ -1074,6 +1103,11 @@ export function validateThinkingTables(tables: ThinkingTables = {}): string[] {
     }
     if (rule.thinkingClass === "never" && (rule.on || NON_OFF_LEVELS.some((tier) => rule[tier]))) {
       errors.push(`${at}: never 无任何档位`);
+    }
+    // never 没有任何档位事实，也就没有随档位的 token 上限参数事实可带——本判据把该格
+    // 钉在不可达（真实表两行 never 都不带）。
+    if (rule.thinkingClass === "never" && rule.tokenParam) {
+      errors.push(`${at}: never 不得带 tokenParam`);
     }
     // 同级冲突：on 是开关型（无力度差异）的唯一写点，与显式档位写点同存即写点歧义。
     const explicitTiers = NON_OFF_LEVELS.filter((tier) => rule[tier]);
