@@ -51,13 +51,12 @@ let createContextLoad: typeof import("../../extension/chat/context-load.js").cre
 let createConversationStore: typeof import("../../extension/chat/conversation-store.js").createConversationStore;
 let createChatRuntime: typeof import("../../extension/chat/chat-runtime.js").createChatRuntime;
 let createSubtitleWaiter: typeof import("../../extension/chat/subtitle-wait.js").createSubtitleWaiter;
-let isContextPending: typeof import("../../extension/chat/subtitle-wait.js").isContextPending;
+let subtitleReadiness: typeof import("../../extension/chat/subtitle-readiness.js");
 let chatSessionState: typeof import("../../extension/chat/chat-state.js").chatSessionState;
 let chatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").chatSessionStateForTests;
 // 写纪律：身份三件套只经 chat-state 的意图级原语写（与被测模块同纪元）
 let applyConversationIdentity: typeof import("../../extension/chat/chat-state.js").applyConversationIdentity;
 let resetChatSessionStateForTests: typeof import("../../extension/chat/chat-state.js").resetChatSessionStateForTests;
-let noSubtitle: typeof import("../../extension/chat/no-subtitle.js");
 
 const VIDEO_URL = "https://www.bilibili.com/video/BV1test000000/";
 const CONTEXT_KEY = "video:BV1test000000|101";
@@ -80,8 +79,7 @@ async function importModules() {
   createChatRuntime = runtimeModule.createChatRuntime;
   const waitModule = await import("../../extension/chat/subtitle-wait.js");
   createSubtitleWaiter = waitModule.createSubtitleWaiter;
-  isContextPending = waitModule.isContextPending;
-  noSubtitle = await import("../../extension/chat/no-subtitle.js");
+  subtitleReadiness = await import("../../extension/chat/subtitle-readiness.js");
   const stateModule = await import("../../extension/chat/chat-state.js");
   chatSessionState = stateModule.chatSessionState;
   chatSessionStateForTests = stateModule.chatSessionStateForTests;
@@ -326,7 +324,11 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
         const snapshot = ok ? (chatSessionState.liveContextData || chatSessionState.contextData) : null;
         return {
           ok: Boolean(snapshot),
-          pending: isContextPending(snapshot, { asrTranscribingActive: chatSessionState.asrTranscribingActive })
+          pending: subtitleReadiness.isPending(
+            subtitleReadiness.readinessFromSnapshot(snapshot, {
+              asrTranscribingActive: chatSessionState.asrTranscribingActive
+            })
+          )
         };
       },
       showWaitingNotice: waitingNotice,
@@ -361,7 +363,7 @@ describe("工单 08 短路三事（进程内直读路径）", () => {
       if (!chatSessionState.contextData) {
         return { pass: false, kind: "read-failed" } as const;
       }
-      if (noSubtitle.isNoSubtitleEmptyContext(chatSessionState.contextData)) {
+      if (subtitleReadiness.isNoSubtitleEmpty(subtitleReadiness.readinessFromSnapshot(chatSessionState.contextData))) {
         return { pass: false, kind: "no-subtitle" } as const;
       }
       return { pass: true } as const;

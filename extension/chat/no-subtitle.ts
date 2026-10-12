@@ -1,13 +1,12 @@
-// extension/chat/no-subtitle.ts — 一键总结「无字幕拦截」的判定与文案（可测纯模块；
+// extension/chat/no-subtitle.ts — 一键总结「无字幕拦截」的文案（可测纯模块；
 // PR5 自 extension/pages/sidepanel-no-subtitle.ts 迁入 chat 域）。
 //
 // 为什么存在：content 侧无字幕收尾后快照为 subtitleFetchState === "empty" 且字
 // 幕体为空，此时把空 subtitleBody 发给模型只会得到凭标题+热评编造的总结。
-// ensureCurrentContextForSend 在最终快照后据此拦截发送，并按 noSubtitleReason
+// ensureContextForSend 在最终快照后据此拦截发送，并按 noSubtitleReason
 // （content 侧 asr/fallback.js 写入、经上下文快照 payload 透传）给出对应提示。
-// 抓取失败收尾（subtitleFetchState === "error" 且字幕体为空）是同一道门的另一
-// 分支，由本模块的 isSubtitleFetchFailed 判定（文案是发送闸的重试句，不按
-// noSubtitleReason 分叉）。
+// 「是不是无字幕空上下文 / 是不是抓取失败」的判定不在本模块（单源在
+// ./subtitle-readiness.ts），本模块只把原因映射成提示文案。
 //
 // 文案已收归单一真源（asr-error-reporting/06）：本模块退化为**薄适配层**——
 // 文案逐字取自 core/asr-failure-notice 的 sidepanel 面，openSettings 由 remedy
@@ -32,7 +31,6 @@
 // 拿到 contextData.noSubtitleReason，快照里没有 noSubtitleDetail（票 07 的数据
 // 表），本模块也拿不到它——详情行是 reader 状态栏那个单行宿主的呈现设计。
 
-import type { ChatSessionContextSnapshot } from "./chat-state.js";
 import type { NoSubtitleReason as ClipNoSubtitleReason } from "../core/state.js";
 import { buildAsrNoSubtitleMessage, getAsrFailureNotice } from "../core/asr-failure-notice.js";
 
@@ -44,35 +42,6 @@ import { buildAsrNoSubtitleMessage, getAsrFailureNotice } from "../core/asr-fail
 // 的开放索引签名读出为 unknown，调用点显式收窄），此处只叠加读边界的
 // undefined（可选字段缺失）。
 export type NoSubtitleReason = ClipNoSubtitleReason | undefined;
-
-// 「当前快照是否为无字幕空上下文」判定（ensureCurrentContextForSend 用，纯函数）。
-// 与 isContextPending 的边界互补：pending 管"还在抓取/转写"（loading），
-// 这里管"已经无字幕收尾"（empty）。字幕体非空即放行，不受状态字段影响。
-export function isNoSubtitleEmptyContext(snapshot: ChatSessionContextSnapshot | null | undefined): boolean {
-  if (!snapshot) {
-    return false;
-  }
-  const body = Array.isArray(snapshot.subtitleBody) ? snapshot.subtitleBody : [];
-  if (body.length > 0) {
-    return false;
-  }
-  return snapshot.subtitleFetchState === "empty";
-}
-
-// 「当前快照是否为字幕抓取失败」判定（发送闸 G6 用，纯函数）。与
-// isNoSubtitleEmptyContext 同形同边界：两者都要求字幕体为空，只按收尾状态区分
-// ——empty 是「抓完了，确实没有字幕」，error 是「抓取过程失败、结果未知」。
-// 字幕体非空即放行，不受状态字段影响（失败前落账的完整字幕照样能总结）。
-export function isSubtitleFetchFailed(snapshot: ChatSessionContextSnapshot | null | undefined): boolean {
-  if (!snapshot) {
-    return false;
-  }
-  const body = Array.isArray(snapshot.subtitleBody) ? snapshot.subtitleBody : [];
-  if (body.length > 0) {
-    return false;
-  }
-  return snapshot.subtitleFetchState === "error";
-}
 
 // 按无字幕原因给出提示文案；openSettings 为 true 时提示末尾附「前往设置」
 // 链接（sidepanel 负责渲染与 openOptionsPage 接线）。文案与判定都取单一真源：

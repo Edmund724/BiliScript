@@ -11,35 +11,13 @@
 // 发送流程，轮询为主，content 的 biliscript-subtitle-status 广播（asr-done/asr-failed）
 // 到达时由 sidepanel 调 kick() 立即补一轮。
 //
+// 「是否仍在抓取/转写中」的判定不在本模块：deps.pollContext 由调用方组装，
+// 判定单源在 ./subtitle-readiness.ts（readinessFromSnapshot + isPending）。
+//
 // 时序约定（测试锁定，改动前先读）：
 //   - wait() 重复触发：新等待使旧等待立即 resolve false（最后一次发送生效）；
 //   - kick() 与轮询去重：同一时刻最多一轮 pollContext 在跑；
 //   - finish（就绪/失败/失效）后挂着的定时器必须作废，notice 必须清理。
-
-import type { ChatSessionContextSnapshot } from "./chat-state.js";
-
-// 「上下文是否仍在抓取/转写中」的判定（sidepanel 组装 pollContext 用，纯函数可测）。
-// 两个信号缺一不可互为兜底：
-//   - 快照的 subtitleFetchState：主信号。content 侧在转写进行中也可能因辅助
-//     抓取失败等边界把状态清掉（历史上 resetClipState 置 idle 曾导致提前放行
-//     空字幕、模型编造"无公开字幕"总结）；
-//   - asrTranscribingActive：兜底信号。sidepanel 收到 content 的
-//     biliscript-subtitle-status(asr-transcribing) 广播置 true，收到 asr-done/asr-failed
-//     置 false。转写广播仍活跃时，即使快照状态被清也继续等待。
-// 字幕体非空即视为就绪，不受上述信号影响。
-export function isContextPending(
-  snapshot: ChatSessionContextSnapshot | null | undefined,
-  { asrTranscribingActive = false }: { asrTranscribingActive?: boolean } = {}
-): boolean {
-  if (!snapshot) {
-    return false;
-  }
-  const body = Array.isArray(snapshot.subtitleBody) ? snapshot.subtitleBody : [];
-  if (body.length > 0) {
-    return false;
-  }
-  return snapshot.subtitleFetchState === "loading" || asrTranscribingActive === true;
-}
 
 export interface CreateSubtitleWaiterDeps {
   pollContext: () => Promise<{ ok: boolean; pending: boolean }>;
@@ -60,8 +38,9 @@ export interface SubtitleWaiter {
  *
  * deps 语义（与迁移前 JSDoc 一致）：
  *   pollContext:      () => Promise<{ok: boolean, pending: boolean}>
- *                     sidepanel 组装：loadContextState(silent) + contextData 的
- *                     subtitleFetchState/subtitleBody 折算成「读取成败 + 是否仍在抓取/转写」。
+ *                     调用方组装：loadContextState(silent) 的快照经
+ *                     ./subtitle-readiness.ts 的 readinessFromSnapshot + isPending
+ *                     折算成「读取成败 + 是否仍在抓取/转写」。
  *   showWaitingNotice: () => void     等待期间的用户提示（消息区一条 notice）。
  *   removeNotice:      () => void     finish 时清理提示。
  *   setTimer / clearTimer:             可注入定时器（测试手动推进）。

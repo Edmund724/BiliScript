@@ -613,7 +613,7 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
     const source = readSource("../../extension/chat/send-gate.js");
     // 发送闸（CONTEXT.md 词条「发送闸」）自组合根迁入：G6 无字幕发送拦截读
     // noSubtitleReason（与 buildNoSubtitleNotice 的理由路由配套），其余闸口只
-    // 经谓词/助手整体消费快照，不逐字段读。
+    // 把快照整体交给 chat/subtitle-readiness.js 的谓词，不逐字段读。
     assertReconciliation(
       scanFields(source, "contextData"),
       ["noSubtitleReason"],
@@ -667,21 +667,35 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
     );
   });
 
-  it("chat/subtitle-wait.js：等待轮询读 subtitleFetchState/subtitleBody", () => {
+  it("chat/subtitle-wait.js：只留轮询状态机，不再读快照字段", () => {
     const source = readSource("../../extension/chat/subtitle-wait.js");
-    assertReconciliation(
-      scanFields(source, "snapshot"),
-      ["subtitleBody", "subtitleFetchState"],
-      "subtitle-wait snapshot"
-    );
+    // 等待判定（读 subtitleBody/subtitleFetchState）已收口
+    // chat/subtitle-readiness.js；本模块只消费 pollContext 回传的
+    // {ok, pending} 结论 → 对账点为空集（非空即新增读取，必须过对账）。
+    assertReconciliation(scanFields(source, "snapshot"), [], "subtitle-wait snapshot");
   });
 
-  it("chat/no-subtitle.js：无字幕拦截读 subtitleFetchState/subtitleBody", () => {
+  it("chat/no-subtitle.js：只留文案适配，不再读快照字段", () => {
     const source = readSource("../../extension/chat/no-subtitle.js");
+    // 无字幕 / 抓取失败的谓词（读 subtitleBody/subtitleFetchState）已收口
+    // chat/subtitle-readiness.js；本模块只按 noSubtitleReason 出文案 →
+    // 对账点为空集（非空即新增读取，必须过对账）。
+    assertReconciliation(scanFields(source, "snapshot"), [], "no-subtitle snapshot");
+  });
+
+  it("chat/subtitle-readiness.js：字幕就绪判定的唯一读取点（clip 与快照双入口）", () => {
+    const source = readSource("../../extension/chat/subtitle-readiness.js");
+    // 两个输入形状投影成同一份视图：clip 入口读 content 侧进程内权威状态，
+    // 快照入口读对话侧上下文快照；两者都只读这两个字段，新增读取必须过对账。
+    assertReconciliation(
+      scanFields(source, "clip"),
+      ["subtitleBody", "subtitleFetchState"],
+      "subtitle-readiness clip"
+    );
     assertReconciliation(
       scanFields(source, "snapshot"),
       ["subtitleBody", "subtitleFetchState"],
-      "no-subtitle snapshot"
+      "subtitle-readiness snapshot"
     );
   });
 
