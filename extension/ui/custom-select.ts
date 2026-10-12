@@ -150,9 +150,25 @@ function buildOptionNode(option: HTMLOptionElement): HTMLLIElement {
   return li;
 }
 
-export function initCustomSelect(select: HTMLSelectElement, wrapperClass = "custom-select-wrapper"): void {
+// 建壳的可选接线：onChange 在建壳时就绑在原生 select 上（用户改选的那次 change 由
+// 组件的 chooseOption 写值后派发），随壳一起存活——壳被整块重建时新节点随建壳重新
+// 接线，调用方不必在渲染入口按节点去重补绑。省略 = 只建壳。
+export interface CustomSelectOptions {
+  onChange?: (select: HTMLSelectElement) => void;
+}
+
+export function initCustomSelect(
+  select: HTMLSelectElement,
+  wrapperClass = "custom-select-wrapper",
+  options: CustomSelectOptions = {}
+): void {
   if (select.dataset.customSelectInitialized === "1") return;
   select.dataset.customSelectInitialized = "1";
+
+  const onChange = options.onChange;
+  if (onChange) {
+    select.addEventListener("change", () => onChange(select));
+  }
 
   const currentValue = select.value;
 

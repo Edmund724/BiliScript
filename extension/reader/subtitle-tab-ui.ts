@@ -205,8 +205,9 @@ const SUBTITLE_TRACK_LOADING_TEXT = "抓取中…";
 const SUBTITLE_TRACK_FIELD_LABEL = "字幕轨";
 
 // 选轨请求在飞（busy/revert 两态的载体）：值是**目标轨的 option value**
-//（= 轨道身份 id）；null = 无在飞请求。放在模块闭包，随壳 forceRecreate
-// 重建自然重置（与 searchDebounceTimer 同款生命周期）。
+//（= 轨道身份 id）；null = 无在飞请求。模块级值：跨壳 forceRecreate 存活（重建只换
+// DOM，不重估模块），故重建后的第一拍渲染读 `switchInFlight ?? state.clip.selectedSubtitleId`
+// 仍是乐观目标轨；落定由切轨事务的 finally 置回 null 收敛。
 let switchInFlight: string | null = null;
 
 function findTrackValueById(trackId: string): string {
@@ -216,6 +217,20 @@ function findTrackValueById(trackId: string): string {
   }
   const option = [...select.options].find((item) => item.dataset.id === trackId);
   return option?.value || "";
+}
+
+// 选项行 HTML 的唯一产地（主列 renderReadingSubtitleTrackPicker 与副列
+// writeSecondaryOptions 共用）：value = 轨道 URL、data-id = 轨道身份、data-lang = lan、
+// dir="auto" 随行方向解析（阿拉伯语行右对齐，LTR 行外观不变）、[AI] 后缀按「列表内
+// 来源不唯一才标」的判据。marked 由调用侧按自己那份轨集算（副列先滤掉 ASR 伪轨，
+// 两处的标记集合因此不同），selected 也由调用侧按各自判据给出：主列「第一项」
+//（水合前的视图默认），副列「URL 相等」。
+function buildSubtitleTrackOptionHtml(track: SubtitleTrack, marked: boolean, selected: boolean): string {
+  const label = resolveSubtitleTrackLabel(track);
+  const text = marked && String(track.lan || "").toLowerCase().startsWith("ai-") ? `${label} [AI]` : label;
+  return `<option value="${escapeHtml(track.subtitleUrl || "")}" data-lang="${escapeHtml(
+    track.lan || ""
+  )}" data-id="${escapeHtml(track.id || "")}" dir="auto"${selected ? " selected" : ""}>${escapeHtml(text)}</option>`;
 }
 
 // 渲染入口（renderReadingView 调用，切轨收尾也复用）：把 clip.subtitles 与三态
@@ -261,31 +276,18 @@ export function renderReadingSubtitleTrackPicker(): void {
     select.innerHTML = `<option value="${SUBTITLE_TRACK_SENTINEL_VALUE}">${escapeHtml(sentinel)}</option>`;
   } else {
     select.innerHTML = tracks
-      .map((track, index) => {
-        const label = resolveSubtitleTrackLabel(track);
-        const text = marked && String(track.lan || "").toLowerCase().startsWith("ai-") ? `${label} [AI]` : label;
-        // dir="auto" 随行方向解析（10 号票把选项行对齐改成逻辑值 start 后生效）：
-        // 阿拉伯语行右对齐，LTR 行外观不变。
-        return `<option value="${escapeHtml(track.subtitleUrl || "")}" data-lang="${escapeHtml(
-          track.lan || ""
-        )}" data-id="${escapeHtml(track.id || "")}" dir="auto"${
-          index === 0 ? " selected" : ""
-        }>${escapeHtml(text)}</option>`;
-      })
+      .map((track, index) => buildSubtitleTrackOptionHtml(track, marked, index === 0))
       .join("");
   }
 
   // 建壳（首次渲染时执行；之后是 no-op）：模板初值只有原生 select（工具条的
   // 直接子节点），组件把 wrapper 插在 select 当前位置并把 select 移入壳内。
   // 判据是「有没有壳」而不是「没初始化过」——壳落在哪条路径都只有一个 owner。
+  // change 接线随建壳走（组件的 onChange）：壳重建 = 新节点 + 新壳 + 新监听器。
   if (!select.parentElement?.classList.contains("custom-select-wrapper")) {
-    initCustomSelect(select, "custom-select-wrapper biliscript-reading-track-picker");
-  }
-  // change 绑定（按节点去重）：绑在这里而不是 bindUiEvents——模板建壳时 select
-  // 还不存在于 DOM（bindUiEvents 跑在 innerHTML 之前），只有渲染入口拿得到它。
-  if (!boundTrackPickers.has(select)) {
-    boundTrackPickers.add(select);
-    select.addEventListener("change", () => handleTrackPickerChange(select));
+    initCustomSelect(select, "custom-select-wrapper biliscript-reading-track-picker", {
+      onChange: handleTrackPickerChange
+    });
   }
 
   rebuildCustomSelectOptions(select);
@@ -313,9 +315,9 @@ export function renderReadingSubtitleTrackPicker(): void {
 }
 
 // 选轨结果通知回调（由 reader/lifecycle 注入）：失败时经 reader-bus 的 "status"
-// 通道报错（Q14：与抓取同通道、同序收敛，不另开提示面）。声明在模块闭包而不是
-// 随监听器捕获：change 监听器绑在原生 select 上，而 select 随壳 forceRecreate
-// 重建（监听器只在渲染入口按节点去重补绑），回调必须跟着新节点一起可用。
+// 通道报错（Q14：与抓取同通道、同序收敛，不另开提示面）。声明在模块闭包而不是随
+// 监听器捕获：回调由组装根在 reader 域装载时注入一次，而壳（连着 change 监听器）
+// 随壳 forceRecreate 重建，回调必须跨壳重建继续可用。
 export type SubtitleTrackNotice = (text: string) => void;
 
 let subtitleTrackNotice: SubtitleTrackNotice | null = null;
@@ -324,14 +326,14 @@ export function setSubtitleTrackNoticeHandler(onNotice: SubtitleTrackNotice): vo
   subtitleTrackNotice = onNotice;
 }
 
-// 已绑 change 的原生 select（节点身份去重：壳重建后新节点补绑一次，同一节点不
-// 重复绑——否则一次改选会走两遍装载）。
-const boundTrackPickers = new WeakSet<HTMLSelectElement>();
-
-// 相位订阅（转写中间态的第三处消费点，与横幅同源同一订阅总线；绑一次）：
-// asr-transcribing 期间不会再有任何渲染通知（fetcher.ts 的注释已说明），只靠
-// renderReadingView 驱动的投影会一直停在发起转写前的那一态——面板横幅写着
-// 「转写中」，控件却还写「暂无字幕」，两处两说。故控件自己订阅相位收敛。
+// 相位订阅（转写中间态的第三处消费点，与横幅同源同一订阅总线；绑一次）：只服务
+// asr-* 三条转写相位——`subtitle-ready` 相位不驱动任何渲染（渲染归 reader-bus 的
+// subtitle-ready 通知，见 shared/subtitle-status-bus.ts 的相位清单），订阅到它只会
+// 与那一路通知重复重渲。asr-transcribing 期间不会再有任何渲染通知（fetcher.ts 的注释
+// 已说明），只靠 renderReadingView 驱动的投影会一直停在发起转写前的那一态——面板横幅
+// 写着「转写中」，控件却还写「暂无字幕」，两处两说。故控件自己订阅转写相位收敛；
+// asr-done / asr-failed 是同一条转写链的收尾相位，投影据此从转写态退回常态。
+const TRACK_PICKER_PHASES = new Set(["asr-transcribing", "asr-done", "asr-failed"]);
 let trackPickerPhaseBound = false;
 
 function bindSubtitleTrackPickerPhase(): void {
@@ -339,7 +341,10 @@ function bindSubtitleTrackPickerPhase(): void {
     return;
   }
   trackPickerPhaseBound = true;
-  subscribeSubtitleStatusPhase(() => {
+  subscribeSubtitleStatusPhase((phase) => {
+    if (!TRACK_PICKER_PHASES.has(phase)) {
+      return;
+    }
     if (state.reader.readingViewOpen) {
       renderReadingSubtitleTrackPicker();
     }
@@ -458,8 +463,8 @@ const SECONDARY_MISSING_SUFFIX = "轨";
 // 副列在飞值不再自持：装载事务的登记在 reader/secondary-subtitle.ts（唯一一份），
 // 本叶子只经 isSecondarySubtitleLoadInFlight() 读它——见 resolveSecondaryColumn.busy
 // 与 projectSecondaryLoad。
-// 副列 select 的 change 绑定去重（同 boundTrackPickers 的节点身份口径）。
-const boundSecondaryPickers = new WeakSet<HTMLSelectElement>();
+
+// 双语偏好的跨上下文订阅只绑一次（见 bindBilingualSettingsWatch）。
 let bilingualSettingsWatchBound = false;
 
 // 副列可列的真轨：**只列有 subtitleUrl 的轨**（02 号票第 4 条）。ASR 伪轨
@@ -661,12 +666,10 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   // setCustomSelectSlots），由组件按声明装进浮层本体（[hidden] 收起态与
   // `:has(> .biliscript-bilingual-popover)` 的度量规则都按它直接挂在浮层本体下写）。
   // 副列的值源：一枚原生 select + 组件壳（壳插在 select 当前位置并把 select 收进壳内，
-  // 与主列同款）。壳常驻副列（display: contents），不随渲染搬动。
-  initCustomSelect(secondarySelect, "custom-select-wrapper biliscript-bilingual-secondary-picker");
-  if (!boundSecondaryPickers.has(secondarySelect)) {
-    boundSecondaryPickers.add(secondarySelect);
-    secondarySelect.addEventListener("change", () => handleSecondaryTrackPickerChange(secondarySelect));
-  }
+  // 与主列同款）。壳常驻副列（display: contents），不随渲染搬动；change 接线随建壳走。
+  initCustomSelect(secondarySelect, "custom-select-wrapper biliscript-bilingual-secondary-picker", {
+    onChange: handleSecondaryTrackPickerChange
+  });
   return {
     mainSelect,
     pickerWrapper,
@@ -742,8 +745,8 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   nodes.toggle.disabled = isBilingualSwitchDisabled(tracks);
 }
 
-// 副列选项行的原生投影（与主列同形状：value = URL、data-id = 身份、data-lang = lan、
-// dir="auto" 随行方向；[AI] 标沿用主列那套「列表内来源不唯一才标」的判据）。
+// 副列选项行的原生投影（与主列同一个产地 buildSubtitleTrackOptionHtml：value = URL、
+// data-id = 轨道身份、data-lang = lan、dir="auto"，选中判据是「URL 相等」）。
 function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: SubtitleTrack[], selectedUrl: string): void {
   if (!select) {
     return;
@@ -757,12 +760,8 @@ function writeSecondaryOptions(select: HTMLSelectElement | null, tracks: Subtitl
     const marked = shouldMarkAiSubtitleTracks(secondaryTracks);
     select.innerHTML = secondaryTracks
       .map((track) => {
-        const label = resolveSubtitleTrackLabel(track);
-        const text = marked && String(track.lan || "").toLowerCase().startsWith("ai-") ? `${label} [AI]` : label;
         const url = String(track.subtitleUrl || "");
-        return `<option value="${escapeHtml(url)}" data-lang="${escapeHtml(String(track.lan || ""))}" data-id="${escapeHtml(
-          String(track.id || "")
-        )}" dir="auto"${url && url === selectedUrl ? " selected" : ""}>${escapeHtml(text)}</option>`;
+        return buildSubtitleTrackOptionHtml(track, marked, Boolean(url) && url === selectedUrl);
       })
       .join("");
   }

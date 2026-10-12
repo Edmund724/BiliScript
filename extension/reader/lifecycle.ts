@@ -150,7 +150,7 @@ bindReadingTranscribeBanner();
 //   - 结果通知回调：切轨失败经 reader-bus 的 "status" 通道报错（与抓取同通道、
 //     同序收敛，Q14）——本域是 reader-bus 的接线处，不把 reader-bus 拖进 ui 叶子；
 //   - change 绑定不在这里：原生 select 由壳模板产出、随壳 forceRecreate 重建，
-//     监听器在渲染入口按节点去重补绑（见 subtitle-tab-ui 的 boundTrackPickers）。
+//     监听器随建壳接线（subtitle-tab-ui 经组件 initCustomSelect 的 onChange 交进去）。
 setSubtitleTrackNoticeHandler((text) => notifyReaderPresenter("status", text));
 
 // SYNC functions this module drives (from sync.js):

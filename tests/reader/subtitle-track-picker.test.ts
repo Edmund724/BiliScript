@@ -628,4 +628,109 @@ describe("08 选轨控件：六态（03 号票 Q13–Q15 状态机）", () => {
     expect(trigger().disabled).toBe(true);
     expect(trigger().getAttribute("aria-busy")).toBe("true");
   });
+
+  it("busy：在飞期间重复 change 只发起一次装载（禁用消解连点，同副列那条口径）", async () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    shell.renderReadingView();
+
+    // 停在飞的装载（可控计数）：loadSubtitle 挂起 ⇒ 在飞窗口保持
+    const loadSubtitle = vi.fn(() => new Promise<void>(() => {}));
+    vi.mocked(lazyModule.ensureSummarizeChain).mockResolvedValue({ loadSubtitle } as never);
+
+    selectViaList("English");
+    await vi.waitFor(() => expect(loadSubtitle).toHaveBeenCalledTimes(1));
+    expect(triggerText()).toBe("English");
+    expect(selectNode().disabled).toBe(true); // 控件在飞即禁用
+
+    // 在飞期间再改一次选（原生 select 写值 + 派发 change）：禁用期一律忽略，
+    // 不许起第二个请求，也不许把乐观 trigger 换成第二拍的值
+    selectNode().value = "https://sub/ai-ja.json";
+    selectNode().dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(loadSubtitle).toHaveBeenCalledTimes(1);
+    expect(triggerText()).toBe("English");
+    expect(trigger().disabled).toBe(true);
+  });
+
+  it("相位订阅只服务 asr-*：发布 subtitle-ready 不重渲控件，asr-transcribing / asr-done 才触发", async () => {
+    loadTracks([], "");
+    // 重渲若发生，触发态文案会从「抓取中…」变成「转写中…」——重渲本身由此可观测
+    state.clip.setSubtitleFetchState("loading");
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    expect(triggerText()).toBe("抓取中…");
+
+    const customSelect = await import("../../extension/ui/custom-select.js");
+    const rebuild = vi.spyOn(customSelect, "rebuildCustomSelectOptions");
+    const statusBus = await import("../../extension/shared/subtitle-status-bus.js");
+
+    // subtitle-ready 相位只驱动 chat 等待闸（见 shared/subtitle-status-bus 的相位清单），
+    // 渲染归 reader-bus 的 subtitle-ready 通知 ⇒ 订阅到它不重渲本控件
+    statusBus.publishSubtitleStatusPhase("subtitle-ready");
+    expect(rebuild).not.toHaveBeenCalled();
+    expect(triggerText()).toBe("抓取中…");
+
+    // 转写相位照旧收敛（转写中优先于抓取中）
+    statusBus.publishSubtitleStatusPhase("asr-transcribing");
+    expect(rebuild).toHaveBeenCalled();
+    expect(triggerText()).toBe("转写中…");
+
+    // 收尾相位同样触发：转写结束 ⇒ 投影退回「抓取中…」
+    rebuild.mockClear();
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    expect(rebuild).toHaveBeenCalled();
+    expect(triggerText()).toBe("抓取中…");
+  });
+});
+
+// 壳被整块重建（阅读面板 forceRecreate）后的接线与在飞值：change 接线随建壳走
+// （组件 initCustomSelect 的 onChange），在飞值（switchInFlight）是模块级值、跨重建存活。
+describe("08 选轨控件：壳重建（forceRecreate）后的接线", () => {
+  it("在飞期间壳重建：trigger 仍显示乐观目标轨，落定后按 state 收敛，新壳改选仍发起装载", async () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    shell.renderReadingView();
+
+    const JA = SAMPLE_TRACKS[2];
+    // 可控装载：停在飞，等用例放行后按失败落定（state 不变 ⇒ 收敛回旧轨可观测）
+    let failLoad: (error: Error) => void = () => {};
+    const loadSubtitle = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          failLoad = reject;
+        })
+    );
+    vi.mocked(lazyModule.ensureSummarizeChain).mockResolvedValue({ loadSubtitle } as never);
+
+    selectViaList("日本語");
+    await vi.waitFor(() => expect(loadSubtitle).toHaveBeenCalledTimes(1));
+    expect(triggerText()).toBe("日本語");
+
+    // 壳整块重建：select 与壳都是新节点
+    const oldSelect = selectNode();
+    uiRenderer.ensureUiReady({ forceRecreate: true });
+    mountPlayerChain();
+    shell.renderReadingView();
+
+    expect(selectNode()).not.toBe(oldSelect);
+    expect(oldSelect.isConnected).toBe(false);
+    // 模块级在飞值跨壳重建存活 ⇒ 新壳第一拍仍是乐观目标轨 + 忙碌禁用
+    expect(triggerText()).toBe("日本語");
+    expect(trigger().disabled).toBe(true);
+    expect(trigger().getAttribute("aria-busy")).toBe("true");
+
+    // 放行（失败落定）：收尾收敛按 state 投影 —— 回退到仍在的旧轨、解除忙碌
+    failLoad(new Error("网络失败"));
+    await vi.waitFor(() => {
+      expect(triggerText()).toBe("中文");
+    });
+    expect(trigger().disabled).toBe(false);
+    expect(trigger().getAttribute("aria-busy")).toBe("false");
+    expect(state.clip.selectedSubtitleId).toBe(SAMPLE_TRACKS[0].id);
+
+    // 新壳的改选真的发起装载（change 接线在建壳时完成，不靠任何按节点去重的补绑）
+    selectViaList("日本語");
+    await vi.waitFor(() => expect(loadSubtitle).toHaveBeenCalledTimes(2));
+    expect(loadSubtitle).toHaveBeenLastCalledWith(JA.subtitleUrl, "ai-ja", state.clip.fetchRunId, JA.id);
+  });
 });
