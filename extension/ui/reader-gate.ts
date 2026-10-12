@@ -13,25 +13,19 @@
 // - whenReaderReady(fn)：不吞错的内核，供需沿调用方链传播错误的场景
 //   （字幕切换链的统一 catch）复用。
 //
-// ensureReaderDomain 的返回类型在 reader/lazy-reader.ts 只声明了启动期窄接口
-//（enterReaderMode/closeReadingView/waitForVideoMetadata/seekReadingTarget）；
-// 转发的交互回调落在 reader/index.ts 动态域入口的完整导出面上
-//（syncReadingViewPlayback/updateReaderPreferences/renderReaderPanels 等）。
-// 此处以动态域入口模块类型交叉收口，运行时对象不变（与原调用完全一致）。
+// ensureReaderDomain 的返回类型即 reader/index.ts 动态域入口的完整导出面
+//（reader/lazy-reader.ts 的 ReaderDomain = typeof import 真身），转发回调按其
+// 签名直取，不再需要交叉收口 cast。
 
 import { logWarn } from "../shared/logging.js";
-import { ensureReaderDomain } from "../reader/lazy-reader.js";
+import { ensureReaderDomain, type ReaderDomain } from "../reader/lazy-reader.js";
 
-type ReaderDomain = typeof import("../reader/index.js");
-type UiReaderDomain = Awaited<ReturnType<typeof ensureReaderDomain>> & ReaderDomain;
-const loadReaderDomain = ensureReaderDomain as () => Promise<UiReaderDomain>;
-
-export async function whenReaderReady(fn: (reader: UiReaderDomain) => unknown): Promise<unknown> {
-  const reader = await loadReaderDomain();
+export async function whenReaderReady(fn: (reader: ReaderDomain) => unknown): Promise<unknown> {
+  const reader = await ensureReaderDomain();
   return fn(reader);
 }
 
-export function withReader(label: string | null, fn: (reader: UiReaderDomain) => unknown): void {
+export function withReader(label: string | null, fn: (reader: ReaderDomain) => unknown): void {
   whenReaderReady(fn).catch((error) => {
     if (label) logWarn(`[BILISCRIPT] ${label} failed`, error);
   });

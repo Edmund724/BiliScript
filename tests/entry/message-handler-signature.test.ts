@@ -24,7 +24,9 @@ vi.mock("../../extension/bilibili/reader-url.js", () => ({
   replaceReaderModeUrl: vi.fn()
 }));
 vi.mock("../../extension/bilibili/video-probe.js", () => ({
-  getRuntimeVideoElement: vi.fn(() => null)
+  getRuntimeVideoElement: vi.fn(() => null),
+  // ADR-0017 修订：元数据等待叶子出装配根后，message-handler 静态 import 它。
+  waitForVideoMetadata: vi.fn(async () => {})
 }));
 vi.mock("../../extension/subtitle/ui.js", () => ({}));
 vi.mock("../../extension/subtitle/fetcher.js", () => ({

@@ -45,7 +45,7 @@
 - `isSubtitleInHandOrInFlight` 的语义是「在手或在飞」：在飞即跳过面板打开触发的抓取。代价是「抓取进行中打开面板」不再触发第二轮（正确性不变：抓取落定后 `reconcileReaderAfterSubtitleFetch` 按 state 对账重渲），但若未来出现「抓取永远不落定」的悬挂态，面板打开不再是一个新的起跑点——那时该修的是悬挂态本身。
 - plain-page 的 URL 变化分支从「写死文案」变为起跑预抓取；`resetClipState` 里引导已删除按钮的同款死文案一并替换。SPA 换片最坏晚一个 1000ms 轮询拍起跑（url-watcher 兜底），可接受。
 - `subtitle-status-bus` 的相位集合从 3 个变 4 个；新增订阅方必须记住它是**状态**不是事件流（迟到订阅方读 `getSubtitleStatusPhase()` 恢复，不会补收广播）。
-- 首次预抓取会触发 `ensureSummarizeChain()` 与 reader 域两个动态 chunk 的装载（均不进 content 静态图，一次性成本）。
+- 首次预抓取只触发 `ensureSummarizeChain()` 一个动态 chunk 的装载（不进 content 静态图，一次性成本）。reader 域 chunk 不再是预抓取的代价——预抓取消费的守卫与元数据等待已出装配根到 `subtitle/subtitle-in-hand.ts` / `bilibili/video-probe.ts` 两个叶子，**仅进入阅读形态时装载**（进入阅读壳 / reader 交互，普通视频页不再装载）。
 
 ## 重开条件
 

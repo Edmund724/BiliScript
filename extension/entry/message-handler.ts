@@ -22,10 +22,11 @@ import { ensureUiReady } from "../ui/lazy-ui.js";
 // ai/lazy-player-ai.js 头注）。
 import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 
-// reader 域经加载器按需引入（候选02 分层惰性）：重符号在处理器内 ensureReaderDomain()
-// 后经命名空间取用；启动必需的轻符号直接从 reader 状态微模块 import
+// reader 侧轻符号直接从 reader 状态微模块 import
 //（isReaderViewOpen=纯 state 读、enforceNormalPageStateIfNeeded=DOM 守卫、
-// renderReadingStatus=状态栏文案写入），不拖入 reader 重文件。
+// renderReadingStatus=状态栏文案写入），不拖入 reader 重文件；阅读壳经
+// lazy-shell 按需装载。本文件不再装载 reader 动态域：预抓取的两个叶子事实
+//（在手/在飞守卫、元数据等待）已出装配根，改为静态 import（见下）。
 // 阅读壳（工单 arch-slim/02）：reading-view 四个消息分支与 URL 跳转编排的
 // 进入/退出事务统一委托 reader/shell.ts（enterReaderShell / exitReaderShell /
 // enterReaderShellOnUrlNavigation），八步无闪变时序不再有本文件的手抄。
@@ -34,9 +35,12 @@ import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 // arch-slim-2/09 shell 静态边改动态（ADR-0003 拆边）：reader/shell.ts 不再借道
 // 常驻包，四个 reading-view 分支与 URL 跳转入口改经 reader/lazy-shell.js 动态
 // 装载（reader-enter 本来就要装载 reader 域，shell 随行净增≈0）。
-import { ensureReaderDomain } from "../reader/lazy-reader.js";
 import { ensureReaderShell } from "../reader/lazy-shell.js";
 import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/state.js";
+// 预抓取的两个叶子事实（ADR-0017 修订：出装配根）：去重守卫与元数据等待只读
+// state.clip / extractBvid / location.href 与视频探针，与 reader 动态域零耦合。
+import { isSubtitleInHandOrInFlight } from "../subtitle/subtitle-in-hand.js";
+import { waitForVideoMetadata } from "../bilibili/video-probe.js";
 // 字幕预抓取经 reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链
 // 装载成功路径上；本文件不静态依赖 fetcher，也不碰 reader 重域）。
 import { requestSubtitleRefresh } from "../reader/reader-bus.js";
@@ -178,25 +182,17 @@ export function dispatchContentScriptMessage(rawMessage: unknown, sendResponse: 
 // 经 reader-bus seam 请 fetcher 刷新（refreshClip 事务），因此没有第二条抓取
 // 实现。字幕列表请求兼作可用性探测：无字幕的视频只多一次列表请求，不触发 ASR。
 //
-// 去重守卫 isSubtitleInHandOrInFlight 是 reader 域单源：字幕在手或在飞都不起跑
-//（在飞即已有抓取在路上，打开面板触发的那条据此让位，不并发双抓）。预抓取是
-// 后台兜底，失败静默——只在链外漏网异常（reader 域装载失败等）记日志，不写状态栏。
-
-// reader/lazy-reader.ts 的 ReaderDomain 只列了 URL 变化分支消费的方法；预抓取
-// 消费的守卫就地补在类型上（与 content.ts 的 PlayerAiApi 同款：局部接口精确
-// 描述本文件消费的 API，避免调用点退化成 any）。
-type ReaderDomainWithSubtitleGuard = Awaited<ReturnType<typeof ensureReaderDomain>> & {
-  isSubtitleInHandOrInFlight(): boolean;
-};
+// 去重守卫 isSubtitleInHandOrInFlight 是 subtitle/subtitle-in-hand 叶子单源：
+// 字幕在手或在飞都不起跑（在飞即已有抓取在路上，打开面板触发的那条据此让位，
+// 不并发双抓）。预抓取是后台兜底，失败静默——只在链外漏网异常记日志，不写状态栏。
 
 async function ensureSubtitlePrefetch(): Promise<void> {
-  const reader = (await ensureReaderDomain()) as ReaderDomainWithSubtitleGuard;
-  if (reader.isSubtitleInHandOrInFlight()) {
+  if (isSubtitleInHandOrInFlight()) {
     return;
   }
   // 时长未知时字幕轨无法按时长对齐，等元数据（150ms 轮询 / 5 秒上限，与面板
-  // 侧同一份等待）。
-  await reader.waitForVideoMetadata();
+  // 侧同一份等待，bilibili/video-probe 叶子单源）。
+  await waitForVideoMetadata();
   // 装载失败与面板侧兜底同口径：静默记日志，不进错误状态栏。
   try {
     await ensureSummarizeChain();
@@ -315,8 +311,9 @@ export function bindUrlChangeHandler() {
       return;
     }
     if (isReaderViewOpen() || shouldEnterReaderMode) {
-      // 走到本分支的前提是视图已开或正要进入阅读模式：前者满足「视图开 ⇒ 域
-      // 已装载」不变式，后者已由上一分支发起装载，ensure 均命中同一 promise。
+      // 走到本分支的前提是视图已开或正要进入阅读模式。刷新链只等视频元数据，
+      // 而该等待已出装配根到 bilibili/video-probe 叶子（ADR-0017 修订），
+      // 本分支不再装载 reader 域。
       (async () => {
         // 播报失败不阻断后续刷新链（与原 .catch(() => {}) 一致）。
         try {
@@ -324,27 +321,20 @@ export function bindUrlChangeHandler() {
         } catch {
           // 播报失败静默
         }
-        try {
-          const reader = await ensureReaderDomain();
-          // waitForVideoMetadata 的失败在原链上没有 catch 收口（静默、不写
-          // 状态栏），保持同型：浮空执行、不进外层错误口径。
-          (async () => {
-            await reader.waitForVideoMetadata();
-            // 候选02：refreshClip 属总结链层，经 ensureSummarizeChain 装载后刷新。
-            try {
-              const chain = await ensureSummarizeChain();
-              await chain.refreshClip();
-            } catch (error) {
-              if (!isStaleRunError(error)) {
-                announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
-              }
+        // waitForVideoMetadata 的失败在原链上没有 catch 收口（静默、不写
+        // 状态栏），保持同型：浮空执行、不进外层错误口径。
+        (async () => {
+          await waitForVideoMetadata();
+          // 候选02：refreshClip 属总结链层，经 ensureSummarizeChain 装载后刷新。
+          try {
+            const chain = await ensureSummarizeChain();
+            await chain.refreshClip();
+          } catch (error) {
+            if (!isStaleRunError(error)) {
+              announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
             }
-          })();
-        } catch (error) {
-          if (!isStaleRunError(error)) {
-            announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
           }
-        }
+        })();
       })();
       return;
     }

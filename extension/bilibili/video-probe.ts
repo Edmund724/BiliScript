@@ -1,3 +1,9 @@
+// 播放器视频元素探针（候选 id 打分 + WeakRef 快取）。
+//
+// 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级可变状态只有
+// cachedVideoRef（上次命中元素的 WeakRef 快取）。ADR-0017 修订后常驻侧（预抓取的
+// 元数据等待）与懒侧（reader/gateway/player-ai）各持一份实例，两份快取指向同一
+// DOM 的同一批候选元素，纯优化、无跨实例一致性要求（快取失效即重查）。
 import { state } from "../core/state.js";
 
 export function findReaderPlayerHost(video: Element | null | undefined): Element | null {
@@ -97,4 +103,25 @@ export function getRuntimeVideoElement(): HTMLVideoElement | null {
     cachedVideoRef = new WeakRef(result);
   }
   return result;
+}
+
+// 等待视频元数据（时长可用）就绪。叶子事实出装配根（ADR-0017 修订，原居
+// reader/lifecycle.ts）：本函数只轮询 getRuntimeVideoElement，与 reader 动态域
+// 零实质耦合；页面预抓取与 reader 域内兜底抓取共用同一次序语义（150ms 轮询 /
+// 5 秒上限），两侧现在静态 import 本函数。
+export function waitForVideoMetadata(timeoutMs = 5000): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      const video = getRuntimeVideoElement();
+      const duration = Number(video?.duration);
+      const ready = video && Number.isFinite(duration) && duration > 0;
+      if (ready || Date.now() - start >= timeoutMs) {
+        resolve();
+        return;
+      }
+      window.setTimeout(check, 150);
+    };
+    check();
+  });
 }

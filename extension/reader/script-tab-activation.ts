@@ -51,10 +51,9 @@ export interface ActivateScriptTabOptions {
   persist?: boolean;
 }
 
-// reader/lazy-reader.ts 只声明启动期窄接口；ensureReaderOverviewTab 是 reader 域
-// 入口面的导出之一，此处按 ui/reader-gate.ts 同款手法交叉收口（运行时对象不变）。
-type ReaderDomain = Awaited<ReturnType<typeof ensureReaderDomain>> & typeof import("./index.js");
-const loadReaderDomain = ensureReaderDomain as () => Promise<ReaderDomain>;
+// ensureReaderDomain 的返回类型即 reader/index.ts 动态域入口的完整导出面
+//（reader/lazy-reader.ts 的 ReaderDomain = typeof import 真身），
+// ensureReaderOverviewTab 按其签名直取，不再需要交叉收口 cast。
 
 // 串行队列（promise 链顺延）：settled 先于任何 await 同步捕获链头，后到调用不会
 // 等错前序；前序失败不阻断后序。
@@ -101,7 +100,7 @@ async function runActivation(
   }
   if (tab === "overview") {
     try {
-      const reader = await loadReaderDomain();
+      const reader = await ensureReaderDomain();
       reader.ensureReaderOverviewTab();
     } catch (error) {
       logWarn("[BILISCRIPT] overview tab enter failed", error);
