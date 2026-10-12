@@ -29,7 +29,7 @@
 
 import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { installMemoryStorage, seedCache } from "../helpers/memory-storage.js";
+import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
 
 vi.mock("../../extension/reader/reader-bus.js", () => ({
@@ -84,6 +84,7 @@ function createPending<T = void>() {
 
 let fetcher: typeof import("../../extension/subtitle/fetcher.js");
 let commit: typeof import("../../extension/subtitle/commit.js");
+let storageHost: ChromeHost;
 let state: (typeof import("../../extension/core/state.js"))["state"];
 let clipState: (typeof import("../../extension/core/state.js"))["clipState"];
 let gateway: MockedObject<typeof import("../../extension/bilibili/gateway.js")>;
@@ -92,7 +93,7 @@ let readerBus: MockedObject<typeof import("../../extension/reader/reader-bus.js"
 let uiStatus: MockedObject<typeof import("../../extension/core/ui-status.js")>;
 
 // 副轨的 per-track 缓存键（真实键装配，与装载器算出的键同一份实现）；缓存口由
-// 共享的内存 storage 宿主承载（tests/helpers/memory-storage.ts）。
+// 共享宿主承载（tests/helpers/chrome-host.ts）。
 function secondaryCacheKey() {
   return getSubtitleCacheKey({
     bvid: state.clip.bvid,
@@ -114,7 +115,7 @@ async function importEpoch() {
   readerBus = vi.mocked(await import("../../extension/reader/reader-bus.js"));
   uiStatus = vi.mocked(await import("../../extension/core/ui-status.js"));
 
-  installMemoryStorage();
+  storageHost = installChromeHost();
   gateway.fetchSubtitleBody.mockReset();
   core.refreshHotComments.mockReset().mockResolvedValue(undefined);
   readerBus.notifyReaderPresenter.mockReset();
@@ -218,7 +219,7 @@ describe("loadSecondarySubtitle（副轨装载）", () => {
   });
 
   it("forceRefresh=false 命中缓存 ⇒ 不打网络；forceRefresh=true 跳过缓存走网络", async () => {
-    await seedCache(secondaryCacheKey(), GOOD_BODY);
+    storageHost.seedCacheEntry(secondaryCacheKey(), GOOD_BODY);
 
     await loadSecondary();
     expect(gateway.fetchSubtitleBody).not.toHaveBeenCalled();

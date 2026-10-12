@@ -14,7 +14,7 @@
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { installMemoryStorage, type CacheEntry } from "../helpers/memory-storage.js";
+import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
 import { createAsrFallback } from "../../extension/asr/fallback.js";
 import type { AsrFallback, CreateAsrFallbackDeps, SubtitleItem } from "../../extension/asr/fallback.js";
 import { state, clipState } from "../../extension/core/state.js";
@@ -55,7 +55,7 @@ function asrCacheKey({ bvid = BVID, cid = CID } = {}) {
   });
 }
 
-// 内存 storage 的条目形状与宿主见 tests/helpers/memory-storage.ts
+// 内存 storage 的条目形状与宿主见 tests/helpers/chrome-host.ts
 
 // 注入依赖的 mock 形状：逐口按 CreateAsrFallbackDeps 的真实签名起 vi.fn（事务口
 // 保留真实实现的签名，其余为纯替身）。
@@ -70,13 +70,16 @@ type DepsMock = {
   broadcastSubtitleStatus: Mock<CreateAsrFallbackDeps["broadcastSubtitleStatus"]>;
 };
 
+let storageHost: ChromeHost;
 let memoryStorage: Map<string, CacheEntry>;
 let deps: DepsMock;
 let fallback: AsrFallback;
 
 beforeEach(() => {
   resetModuleState();
-  memoryStorage = installMemoryStorage();
+  storageHost = installChromeHost();
+  // 既有用例按盘上内容直读（Map 语义）；值形状 { body, timestamp } 由宿主单源派生
+  memoryStorage = storageHost.map as unknown as Map<string, CacheEntry>;
 
   // 真实 commitNoSubtitle 只要求注入状态栏回调（见 commit.js 的 CommitUiCallbacks）
   configureCommitUi({ setStatus: vi.fn() });

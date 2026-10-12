@@ -18,7 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { installMemoryStorage, seedCache, type CacheEntry } from "../helpers/memory-storage.js";
+import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
 import { createAsrFallback } from "../../extension/asr/fallback.js";
 import type {
   AsrFallback,
@@ -73,8 +73,8 @@ type DepsFns = Required<CreateAsrFallbackDeps>;
 // 参数与 mock.calls 的取值都按签名推断，不再依赖隐式 any。
 type Deps = { [K in keyof DepsFns]: Mock<DepsFns[K]> };
 
-// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/memory-storage.ts：
-// 真实 cache.js / cache-lru.js 跑在 Map 之上，cache-lru 需要 get(null) 全量枚举）
+// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/chrome-host.js：
+// 真实 cache.js / cache-lru.js 跑在其内存面之上，get 兑现 null 全量枚举）
 
 function buildDeps(overrides: Partial<Deps> = {}): Deps {
   return {
@@ -93,13 +93,16 @@ function buildDeps(overrides: Partial<Deps> = {}): Deps {
   };
 }
 
+let storageHost: ChromeHost;
 let memoryStorage: Map<string, CacheEntry>;
 let deps: Deps;
 let fallback: AsrFallback;
 
 beforeEach(() => {
   resetModuleState();
-  memoryStorage = installMemoryStorage();
+  storageHost = installChromeHost();
+  // 既有用例按盘上内容直读（Map 语义）；值形状 { body, timestamp } 由宿主单源派生
+  memoryStorage = storageHost.map as unknown as Map<string, CacheEntry>;
 
   // commitNoSubtitle 的 UI 面只剩状态栏回调（script-only-ui 后预览 DOM 已删）：
   // 注入 vi.fn 即可，不依赖真实渲染。
@@ -336,7 +339,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
       { from: 0, to: 1, content: "缓存句" },
       { from: 2, to: 290, content: "足够长的缓存字幕" }
     ];
-    await seedCache(asrCacheKey(), cachedBody);
+    await storageHost.seedCacheEntry(asrCacheKey(), cachedBody);
     // 预放陈旧的无字幕原因与详情：缓存命中 ready 收尾必须清 null / 清空
     clipState.setNoSubtitleReason("asr-auth");
     clipState.setNoSubtitleDetail("（错误详情：HTTP 401）");
@@ -377,7 +380,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
   it("缓存命中但时长校验不过：清缓存并重新转写生成", async () => {
     const cacheKey = asrCacheKey();
     // 过短字幕：videoDuration=300、maxTo=10 < 66 → too-short
-    await seedCache(cacheKey, [{ from: 0, to: 10, content: "过短" }]);
+    await storageHost.seedCacheEntry(cacheKey, [{ from: 0, to: 10, content: "过短" }]);
     deps.runAsrPipeline.mockResolvedValue(TRANSCRIBED_BODY);
 
     const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
