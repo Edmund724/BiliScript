@@ -1,20 +1,18 @@
 // SW 消息注册表（一条消息一处登记）——注册表值与派生面的运行期对账。
 //
-// 背景：此前新增一条 SW 消息要在四处分头改（响应类型并列声明 / ResponseOf 条件
-// 分支 / entry/background.ts 路由表条目 / illegalMessageReason 里手写的 type 字面量
-// 形状清单），回包口径（return true 异步持有 / return false 同步已答）则散在 30 个
-// handler 体里。本文件是那条「一处登记」的事实锚点：
+// 背景：SW 消息的声明、响应类型、形状判据、回包口径与来源登记都收在本注册表一处，
+// 回包口径（return true 异步持有 / return false 同步已答）不再散在 30 个 handler
+// 体里。本文件是那条「一处登记」的事实锚点：
 //   1. 注册表键集 = 全部 SW 消息（漏消息 / 多登记都要红）；
 //   2. 回包口径逐条与处理器实际口径对账（记反的后果是调用方空等或通道提前关闭，
 //      故期望值独立手写，不复用注册表自身）；
 //   3. 回包口径三态的入口 boolean 语义（resolveReplyKeepOpen 纯函数；branch 档的
 //      判定取值 = MessageReplyDecision，"hold" 持有 / "answered" 已答）；
-//   4. offscreen 来源名单由注册表的 offscreenOnly 登记派生（语义与旧手写名单逐字
-//      一致，顺序稳定）；
+//   4. offscreen 来源名单由注册表逐条的 sender 标签派生（顺序稳定）；
 //   5. payload 最小 schema 判据：登记项恰好是协议约定的五条，且逐条拒非法、放合法。
 //
 // 这里只测协议层事实（判据本身）；守卫对判据的消费与拒绝文案在
-// tests/entry/offscreen-message-guard.test.ts。
+// tests/core/message-router.test.ts。
 
 import { describe, expect, it } from "vitest";
 import {
@@ -117,9 +115,9 @@ describe("SW 消息注册表：来源登记与 offscreen 名单派生", () => {
     expect([...OFFSCREEN_ONLY_MESSAGE_TYPES]).toEqual(["segment-cache", "offscreen-request-close"]);
   });
 
-  it("名单 ⇄ offscreenOnly 登记双向一致（无未登记进名单项、无漏登记项）", () => {
+  it("名单 ⇄ sender 标签登记双向一致（无未登记进名单项、无漏登记项）", () => {
     const registered = registryKeys.filter(
-      (type) => BACKGROUND_MESSAGE_REGISTRY[type].offscreenOnly === true
+      (type) => BACKGROUND_MESSAGE_REGISTRY[type].sender !== undefined
     );
     expect(registered).toEqual([...OFFSCREEN_ONLY_MESSAGE_TYPES]);
   });

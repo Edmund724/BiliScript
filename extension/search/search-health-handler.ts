@@ -3,8 +3,9 @@
 // ./search-health.js 单源（脏载荷静默 no-op、写失败静默、SW 侧盖时间戳）。
 // 落盘后 **inline 失效**健康度快照（recordSearchAttemptWithInvalidate 在本工厂内
 // 组合）：写后读（紧随其后的 resolve-search-provider）立刻消费新冷却图。
-// 来源守卫：本族**不得**进 illegalMessageReason 的 offscreen-only 名单——本族发送者
-// 含 content（reader/explain-card.ts 与 offscreen 工具循环共用 search-chain.ts 的缺省记账）。
+// 来源守卫：本族**不得**进来源名单（协议层 OFFSCREEN_ONLY_MESSAGE_TYPES，注册表
+// 逐条 sender 标签派生）——本族发送者含 content（reader/explain-card.ts 与
+// offscreen 工具循环共用 search-chain.ts 的缺省记账）。
 // handler 工厂形态照 ai/segment-cache-handler.ts 先例（withOkResponse 收口异步错误回包）。
 
 import { invalidatingWrite } from "../core/settings-snapshot.js";

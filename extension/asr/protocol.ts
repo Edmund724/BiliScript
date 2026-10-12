@@ -272,3 +272,12 @@ export const ASR_MAX_PENDING_CHUNKS = 20;
 // 沿 port 错误消息直达页面 UI）。
 export const ASR_PENDING_CHUNKS_LIMIT_MESSAGE =
   "待处理转写分片超出内存上限，已停止新增转写任务，请稍后重试或缩短视频" as const;
+
+// ===== 来源拒绝文案（消息入口守卫的字面量单源） =====
+
+// 只接受 offscreen 文档发送的消息（协议层名单 OFFSCREEN_ONLY_MESSAGE_TYPES）被
+// 其它来源调起时的拒绝文案。两个消费点取同一字面量：消息入口守卫
+// （core/message-router 的 createMessageRouter，文案由组合根经 rejectionMessage
+// 注入）与关闭执行器（asr/offscreen-bridge.bg.js 的 handleOffscreenRequestClose，
+// 该处理器是导出面，直调时自带同一判据）。
+export const ASR_OFFSCREEN_REJECTION_MESSAGE = "仅接受 offscreen 文档发送" as const;
