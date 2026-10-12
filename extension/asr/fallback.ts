@@ -7,7 +7,8 @@
 //   - 直 import（传递 import 闭包不触及 subtitle/fetcher.js）：shared/
 //     error-helpers、shared/logging、shared/utils、core/state、
 //     core/asr-failure-notice（叶子纯模块：kind → reason 映射 + 病因/补救/详情
-//     文案的唯一真源）、asr/protocol（片级失败摘要的判定单源，零 import 叶）、
+//     文案的唯一真源）、asr/protocol（片级失败摘要的判定单源：只 type-import
+//     asr/failure-kind，编译期擦除，运行时依赖边为零）、
 //     subtitle/cache、subtitle/duration-validation（时长校验叶）、
 //     subtitle/labels（显示文案叶）；
 //   - 注入 deps（传递闭包含 runtime.js→fetcher 或随 UI/上下文成环）：
@@ -68,7 +69,7 @@ function noSubtitleReasonFromAsrSkipError(error: unknown): NoSubtitleReason {
 // 无失败信号 → asr-unknown）；= 0 是「平台成功但没人声」→ asr-empty。返回 reason
 // 与已格式化截断的详情行（经单一真源 notice 模块），两者同写同清——绝不让上一
 // 轮的详情残留在新终态里。
-function classifyEmptyOutcome(outcome?: AsrRunAttemptOutcome | null): { reason: NoSubtitleReason; detail: string } {
+function classifyEmptyOutcome(outcome?: AsrAttemptOutcome | null): { reason: NoSubtitleReason; detail: string } {
   const failed = Number(outcome?.failedChunks) || 0;
   const failure = readAsrFailureSummary(outcome);
   const reason: NoSubtitleReason = failed > 0 ? reasonFromFailureKind(failure?.kind) : "asr-empty";
@@ -128,23 +129,21 @@ export interface CommitNoSubtitleArgs {
 }
 
 // 运行结果类型：与 pipeline 的尝试结果逐字同形（代表失败的结构化信号 + 计数 /
-// 耗时），声明唯一住在 asr/protocol（票 01 决策 4），此处保留原名转出以保证既有
-// import 点不断。类别经 readAsrFailureSummary 读出（见 classifyEmptyOutcome）。
-export type AsrRunAttemptOutcome = AsrAttemptOutcome;
-
+// 耗时），声明唯一住在 asr/protocol，此处只 import 取用。类别经
+// readAsrFailureSummary 读出（见 classifyEmptyOutcome）。
 export interface AsrPipelineArgs {
   bvid: string;
   cid: string;
   onProgress?: (message: string) => void;
   onEmptyDiagnostic?: (diagText: string) => void;
-  onAttemptOutcome?: (outcome: AsrRunAttemptOutcome) => void;
+  onAttemptOutcome?: (outcome: AsrAttemptOutcome) => void;
 }
 
 // 共享转写的结果契约：body 为最终字幕（空数组 = 未生成），outcome 为最终那次
 // 尝试的失败面（整轮自动重试后，并发等待者按它归类终态文案/原因）。
 export interface AsrSharedTranscribeResult {
   body: SubtitleItem[];
-  outcome: AsrRunAttemptOutcome;
+  outcome: AsrAttemptOutcome;
 }
 
 export interface CreateAsrFallbackDeps {
@@ -337,9 +336,9 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       // bvid/cid/provider 键控，与后续 UI 状态无关；写带 LRU 淘汰，失败先清理
       // 旧视频再重试一次；孤儿清理只在写入成功后执行）。返回 body + 失败面
       // outcome（供整轮重试判定）。首试与重试共用，重试期间不广播阶段终态。
-      const runAttempt = async (): Promise<{ body: SubtitleItem[]; outcome: AsrRunAttemptOutcome }> => {
+      const runAttempt = async (): Promise<{ body: SubtitleItem[]; outcome: AsrAttemptOutcome }> => {
         emptyDiag = "";
-        let outcome: AsrRunAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
+        let outcome: AsrAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
         const rawBody = await runAsrPipeline({
           bvid,
           cid,
@@ -380,7 +379,7 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       // activeAsrTranscribes 的并发等待者按最终失败面归类终态。
       const transcribePromise = (async () => {
         try {
-          let outcome: AsrRunAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
+          let outcome: AsrAttemptOutcome = { totalChunks: 0, failedChunks: 0, elapsedMs: 0 };
           let body: SubtitleItem[] = [];
           for (let attemptNo = 0; attemptNo <= ASR_RUN_RETRIES; attemptNo += 1) {
             const attempt = await runAttempt();
