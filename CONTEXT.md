@@ -109,6 +109,10 @@ _Avoid_: 总结、摘要、回答；也不要再引入「保存笔记 / 笔记�
 代码名：`asr/chunker.js` / `decideChunks` / `ASR_MSG_CHUNK_RESULT` / `mergeChunkResults`
 _Avoid_: 与「分段小结」混用
 
+片级失败摘要：一次转写尝试里代表性失败的三个字段——类别、状态码、截断报文。**类别是唯一存在判据**：类别缺失 / 非字符串 / 空串 ⇒ 整条摘要缺席，状态码与报文不得脱离类别存在；状态码与报文用「有则带键」表达（`0` 与空串都算携带，不凭空多出 `undefined` 键）。域形态用 `kind / status / detail`，wire 形态（port DONE 消息与页面侧宿主结果）用 `failedKind / failedStatus / failedDetail`，改名只发生在判定与投影两个函数内部。
+代码名：`AsrFailureSummary` / `AsrFailureFields` / `readAsrFailureSummary`（唯一判定）/ `projectAsrFailureSummary`（唯一投影）/ `AsrAttemptOutcome`（尝试结果，pipeline 上报、fallback 消费）
+_Avoid_: 与管线级失败类别（`ERROR.kind`：音轨下载 / 解码 / 切片等整体失败）混称；也不要把它当成给用户看的错误消息——病因 / 补救 / 详情文案的单源是 `core/asr-failure-notice.js`
+
 **分段小结**:
 把一段字幕忠实压缩成的中间产物，保留事实、时间点与前后关系，供归并与追问检索。（与「音频分片」区分：分片是上传单元，小结是压缩产物。）
 代码名：`buildSegmentPrompt` / `formatSegmentItem` / `ai/segment-cache.js`（`biliscript_lvs_summary_*`）/ `SEGMENT_SUMMARY_CHARS`

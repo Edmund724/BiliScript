@@ -26,6 +26,95 @@
 // entry/offscreen.js / entry/offscreen-asr.js。两侧均 import 本模块取常量，
 // 禁止手写协议字面量（注释除外）。
 
+// 失败类别的词表与 asr/failure-kind.js 同源（**type-only**：编译期擦除，运行时
+// 依赖边不变——本模块仍是零 import 的常量叶）。
+import type { AsrFailureKind } from "./failure-kind.js";
+
+// ===== 片级失败摘要 =====
+//
+// 一次转写尝试的代表性失败（类别 / 状态码 / 截断报文）：判定与投影只住在下面
+// 两个函数里，四处载体（port DONE 消息、页面侧宿主结果、管线尝试结果、fallback
+// 运行结果）由这两个类型派生。
+//
+// 判据：**类别是唯一存在判据**——类别缺失 / 非字符串 / 空串 ⇒ 整条摘要缺席，
+// 状态码与报文不得脱离类别存在；两者用 !== undefined 携带（0 与空串都算携带）。
+//
+// 命名分工：域形态 kind / status / detail，wire 形态 failedKind / failedStatus /
+// failedDetail（改名只发生在两个函数内部）。类别词表见 asr/failure-kind.js 的
+// AsrFailureKind；管线级失败类别（ERROR.kind，下载/解码/切片等整体失败）是同
+// 词表的**另一条路**，不并入本类型。
+
+// 域摘要：类别必填，状态码 / 报文可选。类别取值来自 asr/failure-kind.js 的
+// AsrFailureKind 词表（type-only 引用）；wire 是外来数据，未知串照收——判定层
+// 不做成员校验（静默改掉旧/新宿主的类别会让归类点失去真因），收口在归类点
+// core/asr-failure-notice 的 reasonFromFailureKind。
+export interface AsrFailureSummary {
+  kind: AsrFailureKind | (string & {});
+  status?: number;
+  detail?: string;
+}
+
+// wire 片段：三字段全可选（「有则带键」——缺席字段的键不出现，旧宿主不认得新
+// 字段，凭空多出 undefined 键会破坏形状兼容）。类别与域形态同词表，同样照收未知串。
+export interface AsrFailureFields {
+  failedKind?: AsrFailureKind | (string & {});
+  failedStatus?: number;
+  failedDetail?: string;
+}
+
+// 判定：wire / 域形状的原文 → 摘要或 null（null = 无失败信号）。类别非空串即
+// 成立；未知串照收（判定层不改值，归类点 reasonFromFailureKind 把不认识的串收口
+// 成 asr-unknown）；状态码只在是数值时携带，报文只在是字符串时携带。
+export function readAsrFailureSummary(raw: unknown): AsrFailureSummary | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const source = raw as {
+    failedKind?: unknown;
+    failedStatus?: unknown;
+    failedDetail?: unknown;
+    kind?: unknown;
+    status?: unknown;
+    detail?: unknown;
+  };
+  const kind = source.failedKind !== undefined ? source.failedKind : source.kind;
+  if (typeof kind !== "string" || kind === "") {
+    return null;
+  }
+  const summary: AsrFailureSummary = { kind };
+  const status = source.failedStatus !== undefined ? source.failedStatus : source.status;
+  if (typeof status === "number") {
+    summary.status = status;
+  }
+  const detail = source.failedDetail !== undefined ? source.failedDetail : source.detail;
+  if (typeof detail === "string") {
+    summary.detail = detail;
+  }
+  return summary;
+}
+
+// 投影：域摘要 → wire 片段。null / undefined → 空片段；缺席字段的键**不出现**
+// （绝不写 undefined）——「有则带键」的 spread 舞蹈只留在这里。
+export function projectAsrFailureSummary(summary: AsrFailureSummary | null | undefined): AsrFailureFields {
+  if (!summary) {
+    return {};
+  }
+  return {
+    failedKind: summary.kind,
+    ...(summary.status !== undefined ? { failedStatus: summary.status } : {}),
+    ...(summary.detail !== undefined ? { failedDetail: summary.detail } : {})
+  };
+}
+
+// 单次转写尝试的失败面结果（pipeline 上报 / fallback 消费；两侧同形，声明唯一
+// 住这里）：计数与耗时 + 片级失败摘要。管线侧经 read → project 产出本形状，
+// fallback 侧经 read 取类别 / 状态码 / 报文。
+export interface AsrAttemptOutcome extends AsrFailureFields {
+  totalChunks: number;
+  failedChunks: number;
+  elapsedMs: number;
+}
+
 // ===== port 与任务消息 =====
 
 // 页面 ↔ offscreen 文档直连的 port 名
@@ -48,7 +137,7 @@ export const ASR_MSG_PROGRESS = "progress" as const;
 // 单片结果 { text, segments?, _asrDiag? }，原样透传（纯 JSON 文本）
 export const ASR_MSG_CHUNK_RESULT = "chunk-result" as const;
 // 终态汇总 { totalChunks, skippedSegments, failedChunks } + 片级失败摘要
-// （failedKind / failedStatus / failedDetail，可选）。片级失败不挤进 error：
+// （由 AsrFailureFields 派生，可选）。片级失败不挤进 error：
 // 引擎「个别失败不整体失败」的既有口径（Q8a）不变，失败类别作为**附加信号**
 // 随同一个终态消息到站。首片确定性失败触发的中止（票 05）也走本消息——它是
 // 片级失败收尾，与普通空结果失败同一个出口，不借用 error 的管线级语义。
@@ -75,19 +164,17 @@ export type AsrChunkResultMessage = {
   durationSec: number;
   result: unknown;
 };
-export type AsrDoneMessage = {
+export interface AsrDoneMessage extends AsrFailureFields {
   type: typeof ASR_MSG_DONE;
   totalChunks: number;
   skippedSegments: number;
   failedChunks: number;
-  // 片级失败摘要（可选，仅在有失败片时携带）：kind 是判定类别（分类规则住
-  // asr/failure-kind.js，判定在完整报文还在手上的 offscreen 侧做完），status /
-  // detail 只作展示。响应体**全量**只进 offscreen 的 logWarn，绝不跨 port
-  //（Q4）——这里过界的 detail 已被适配器截到 200 字符。
-  failedKind?: string;
-  failedStatus?: number;
-  failedDetail?: string;
-};
+  // 片级失败摘要的 wire 字段（failedKind / failedStatus / failedDetail，见
+  // 「片级失败摘要」段）：kind 是判定类别（分类规则住 asr/failure-kind.js，判定在
+  // 完整报文还在手上的 offscreen 侧做完），status / detail 只作展示。响应体**全量**
+  // 只进 offscreen 的 logWarn，绝不跨 port（Q4）——这里过界的 detail 已被适配器
+  // 截到 200 字符。
+}
 export type AsrErrorMessage = {
   type: typeof ASR_MSG_ERROR;
   error: string;
@@ -147,7 +234,9 @@ export type AsrProbeResultMessage = {
 //   全部段解码失败零片产出才算整体失败）。
 //   三个 failed* 字段是片级失败摘要，**只在终态消息携带时出现**（键不存在 =
 //   无失败信号，页面据此判定空结果的原因）；失败类别在此只作搬运，归类点
-//   （asr/fallback.js）按 kind 落 noSubtitleReason。
+//   （asr/fallback.js）按 kind 落 noSubtitleReason。页面侧声明
+//   （offscreen-bridge.page.js 的 OffscreenChunkHostResult）由 AsrFailureFields
+//   派生，「有则带键」的判定 → 投影经 readAsrFailureSummary / projectAsrFailureSummary。
 
 // ===== 共享数值常量 =====
 

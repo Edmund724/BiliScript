@@ -30,9 +30,10 @@ import {
   ASR_MSG_CHUNK_RESULT,
   ASR_MSG_DONE,
   ASR_MSG_ERROR,
-  ASR_MSG_PROBE_RESULT
+  ASR_MSG_PROBE_RESULT,
+  projectAsrFailureSummary
 } from "../asr/protocol.js";
-import type { AsrProbeTask, AsrProbeResultMessage } from "../asr/protocol.js";
+import type { AsrProbeTask, AsrProbeResultMessage, AsrFailureSummary } from "../asr/protocol.js";
 import { buildChunkPlan, encodeWav } from "../asr/chunker.js";
 import { classifyAsrFailure } from "../asr/failure-kind.js";
 import type { AsrFailureProviderLike } from "../asr/failure-kind.js";
@@ -55,27 +56,21 @@ import type { GetAsrRuntimeConfigResponse } from "../shared/messaging-protocol.j
 // 「停止一切新增工作」，但收尾不同：前者是用户已走（静默），后者要报出失败。
 const ASR_ABORT_SENTINEL = Object.freeze({ asrAborted: true });
 
-// 确定性失败中止时捕获的失败摘要（片级失败信号，随 ASR_MSG_DONE 过界）。
-interface AsrFatalFailure {
-  kind?: string;
-  status?: number;
-  detail?: string;
-}
-
-// 把抛出的错误投影为片级失败信号：kind 由产出侧判定好（适配器在完整报文上判的）；
-// 没带 kind 的（注入的 transcribe 未标注、旧适配器）在此就地补一次分类——错误
-// 消息是那时唯一还在手上的文本，故按 platform 来源走关键词/无状态码分支。
-function summarizeFailure(error: unknown, provider: AsrProvider | null): AsrFatalFailure {
+// 把抛出的错误收成片级失败摘要（域形态，声明见 asr/protocol.js）：kind 由产出侧
+// 判定好（适配器在完整报文上判的）；没带 kind 的（注入的 transcribe 未标注、旧
+// 适配器）在此就地补一次分类——错误消息是那时唯一还在手上的文本，故按 platform
+// 来源走关键词/无状态码分支。
+function summarizeFailure(error: unknown, provider: AsrProvider | null): AsrFailureSummary {
   const err = error as { kind?: unknown; status?: unknown; detail?: unknown } | null;
+  // 适配器标注的类别串（词表见 asr/failure-kind.js）；判定层照收，不做成员校验。
   const kind = typeof err?.kind === "string" && err.kind
     ? err.kind
     : classifyAsrFailure({ source: "platform", body: getErrorMessage(error), provider });
-  const status = Number(err?.status);
-  const summary: AsrFatalFailure = { kind };
-  if (Number.isFinite(status)) {
-    summary.status = status;
+  const summary: AsrFailureSummary = { kind };
+  if (typeof err?.status === "number") {
+    summary.status = err.status;
   }
-  if (typeof err?.detail === "string" && err.detail) {
+  if (typeof err?.detail === "string") {
     summary.detail = err.detail;
   }
   return summary;
@@ -266,11 +261,12 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
     // 与 aborted（真断连）分开记：收尾不同——aborted 静默取消，fatalAbort 要
     // 把失败原因报出去。
     let fatalAbort = false;
-    let fatalFailure: AsrFatalFailure | null = null;
+    // 确定性失败中止时捕获的片级失败摘要（域形态，随 ASR_MSG_DONE 过界时经
+    // projectAsrFailureSummary 投影成 wire 字段）。
+    let fatalFailure: AsrFailureSummary | null = null;
     // 闭包写入、catch 读取：控制流分析在 catch 处只看得到初值 null（transcribe
-    // 闭包里的赋值不改外层收窄），直接写 fatalFailure?.kind 会被判成 never。
-    // 经函数读取即绕过收窄（函数返回值不参与 CFA）。
-    const readFatalFailure = (): AsrFatalFailure | null => fatalFailure;
+    // 闭包里的赋值不改外层收窄）；经函数读取即绕过收窄（函数返回值不参与 CFA）。
+    const readFatalFailure = (): AsrFailureSummary | null => fatalFailure;
     // provider 引用供外层 catch 做管线级失败分类（分类要 baseUrl 判 host）。
     let providerRef: AsrProvider | null = null;
     // 已跳过的解码失败段数：中止收尾（catch 的 fatalAbort 分支）也要如实上报它，
@@ -449,7 +445,8 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
       }
       // 片级失败摘要随 DONE 过界（票 03 Q2：不新开消息类型，ERROR 的管线级语义
       // 不动）：代表失败取首个不可重试的那片（engine 侧已选好），无失败则三个
-      // 字段都不出现——页面据此区分「真无人声」与「说得出原因的失败」。
+      // 字段都不出现——页面据此区分「真无人声」与「说得出原因的失败」。过界投影
+      // 走 projectAsrFailureSummary（缺席字段不写键，唯一投影点）。
       const failedSummary = summary.representativeFailure
         ? summarizeFailure(summary.representativeFailure.error, provider)
         : null;
@@ -458,9 +455,7 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
         totalChunks: summary.acceptedChunks,
         skippedSegments,
         failedChunks: summary.failedChunks,
-        ...(failedSummary?.kind ? { failedKind: failedSummary.kind } : {}),
-        ...(failedSummary?.status !== undefined ? { failedStatus: failedSummary.status } : {}),
-        ...(failedSummary?.detail ? { failedDetail: failedSummary.detail } : {})
+        ...projectAsrFailureSummary(failedSummary)
       });
       // 终态消息发完才通知入口层自关判定（文档关闭后无法再 postMessage）
       onTaskTerminal(port);
@@ -478,15 +473,12 @@ export function createAsrDecodeHandler({ onTaskTerminal }: CreateAsrDecodeHandle
         return;
       }
       if (fatalAbort) {
-        const failure = readFatalFailure();
         safePostMessage(port, {
           type: ASR_MSG_DONE,
           totalChunks: 0,
           skippedSegments,
           failedChunks: 1,
-          ...(failure?.kind ? { failedKind: failure.kind } : {}),
-          ...(failure?.status !== undefined ? { failedStatus: failure.status } : {}),
-          ...(failure?.detail ? { failedDetail: failure.detail } : {})
+          ...projectAsrFailureSummary(readFatalFailure())
         });
         onTaskTerminal(port);
         return;
