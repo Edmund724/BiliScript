@@ -7,7 +7,8 @@
 //   - 直 import（传递 import 闭包不触及 subtitle/fetcher.js）：shared/
 //     error-helpers、shared/logging、shared/utils、core/state、
 //     core/asr-failure-notice（叶子纯模块：kind → reason 映射 + 病因/补救/详情
-//     文案的唯一真源）、subtitle/cache、subtitle/duration-validation（时长校验叶）、
+//     文案的唯一真源）、asr/protocol（片级失败摘要的判定单源，零 import 叶）、
+//     subtitle/cache、subtitle/duration-validation（时长校验叶）、
 //     subtitle/labels（显示文案叶）；
 //   - 注入 deps（传递闭包含 runtime.js→fetcher 或随 UI/上下文成环）：
 //     getSettings、loadProviders（provider 列表，asrProviders 已摘出 settings，
@@ -25,6 +26,8 @@ import { logInfo, logWarn } from "../shared/logging.js";
 import { state, clipState } from "../core/state.js";
 import type { NoSubtitleReason } from "../core/state.js";
 import { getAsrFailureNotice, reasonFromFailureKind, buildAsrNoSubtitleMessage } from "../core/asr-failure-notice.js";
+import { readAsrFailureSummary } from "./protocol.js";
+import type { AsrAttemptOutcome } from "./protocol.js";
 import {
   getSubtitleCacheKey,
   loadSubtitleFromCache,
@@ -61,13 +64,15 @@ function noSubtitleReasonFromAsrSkipError(error: unknown): NoSubtitleReason {
 }
 
 // 空结果的终态归类（票 04 判定表 + 票 07 Q1）：failedChunks > 0 说明有片失败，
-// 按 offscreen 侧判出的 kind 归类（缺失 → asr-unknown）；= 0 是「平台成功但没人声」
-// → asr-empty。返回 reason 与已格式化截断的详情行（经单一真源 notice 模块），
-// 两者同写同清——绝不让上一轮的详情残留在新终态里。
+// 按片级失败摘要的类别归类（判定经 asr/protocol 的 readAsrFailureSummary，
+// 无失败信号 → asr-unknown）；= 0 是「平台成功但没人声」→ asr-empty。返回 reason
+// 与已格式化截断的详情行（经单一真源 notice 模块），两者同写同清——绝不让上一
+// 轮的详情残留在新终态里。
 function classifyEmptyOutcome(outcome?: AsrRunAttemptOutcome | null): { reason: NoSubtitleReason; detail: string } {
   const failed = Number(outcome?.failedChunks) || 0;
-  const reason: NoSubtitleReason = failed > 0 ? reasonFromFailureKind(outcome?.failedKind) : "asr-empty";
-  const detail = getAsrFailureNotice(reason, { status: outcome?.failedStatus, detail: outcome?.failedDetail }).detail;
+  const failure = readAsrFailureSummary(outcome);
+  const reason: NoSubtitleReason = failed > 0 ? reasonFromFailureKind(failure?.kind) : "asr-empty";
+  const detail = getAsrFailureNotice(reason, { status: failure?.status, detail: failure?.detail }).detail;
   return { reason, detail };
 }
 
@@ -122,18 +127,10 @@ export interface CommitNoSubtitleArgs {
   noSubtitleReason: NoSubtitleReason;
 }
 
-export interface AsrRunAttemptOutcome {
-  totalChunks: number;
-  failedChunks: number;
-  elapsedMs: number;
-  // 代表失败的结构化信号（与 asr/pipeline.ts 的 AsrAttemptOutcome 同形，跨 port
-  // 边界由 offscreen 侧携带上来）：failedKind 是 failure-kind.ts 判出的类别，
-  // failedStatus / failedDetail 是平台状态码与已截断报文（详情行的展示输入）。
-  // 三者都可选——无片失败或旧形态回包时缺失，取「无 kind → asr-unknown」。
-  failedKind?: string;
-  failedStatus?: number;
-  failedDetail?: string;
-}
+// 运行结果类型：与 pipeline 的尝试结果逐字同形（代表失败的结构化信号 + 计数 /
+// 耗时），声明唯一住在 asr/protocol（票 01 决策 4），此处保留原名转出以保证既有
+// import 点不断。类别经 readAsrFailureSummary 读出（见 classifyEmptyOutcome）。
+export type AsrRunAttemptOutcome = AsrAttemptOutcome;
 
 export interface AsrPipelineArgs {
   bvid: string;
@@ -531,10 +528,12 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       if (!Array.isArray(sharedBody) || sharedBody.length === 0) {
         // 本路径没有 commitNoSubtitle 调用方（fetcher 的抓取失败兜底跟着共享
         // 转写收尾，不落无字幕出口），故这里自己写状态栏——文案仍取同一真源
-        //（status-line 面 = 基础句 + 病因 + 补救），不另拼一套。
+        //（status-line 面 = 基础句 + 病因 + 补救），不另拼一套。状态码/报文经
+        // 同一判定（readAsrFailureSummary）取，与 classifyEmptyOutcome 同源。
         const { reason, detail } = classifyEmptyOutcome(shared.outcome);
         setNoSubtitleReasonWithDetail(reason, detail);
-        setStatus(buildAsrNoSubtitleMessage("status-line", reason, { status: shared.outcome?.failedStatus, detail: shared.outcome?.failedDetail }));
+        const failure = readAsrFailureSummary(shared.outcome);
+        setStatus(buildAsrNoSubtitleMessage("status-line", reason, { status: failure?.status, detail: failure?.detail }));
         broadcastSubtitleStatus("asr-done");
         return;
       }
