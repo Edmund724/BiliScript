@@ -30,24 +30,23 @@ import { segmentCacheKeyFields, type SegmentCacheKeyFields } from "./segment-cac
 // （ai/ladder.ts）共用同一实现，两条链的数字因此同源。
 import { estimateTokensFromChars } from "./usage-stats.js";
 import {
-  MAX_ANALYSIS_CHAPTERS,
   mergeAnalyses,
   validateAnalysis,
-  type AnalysisChapter,
   type OverviewAnalysis,
 } from "./analysis-validate.js";
 import {
-  ANALYSIS_SYSTEM_PROMPT,
-  GIVEN_CHAPTERS_SYSTEM_PROMPT,
-  OUTLINE_QUOTES_SYSTEM_PROMPT,
   buildAnalysisPrompt,
   estimateOutputTokens,
   tailItems,
   type BuiltAnalysisPrompt,
 } from "./analysis-prompts.js";
+// 分章计划单源（arch-review-2026-09 候选 2）：来源裁定的解释、越界过滤、切段输入与
+// 末章界（此前单发取 built.timing.maxTimestampSeconds、分段取 resolveEndSeconds，
+// 两套推导靠注释对齐）全部收敛到 ai/chapter-plan.ts，本模块只读它的产物。
+import { resolveChapterPlan } from "./chapter-plan.js";
 // 分章来源裁定（简介/评论时间轴 > B 站官方章节 > AI 自由分章）住在 shared 叶子：
 // 与 reader 概览 tab 的身份键同源，禁止两处各判一次（见该文件头注）。
-import { resolveChapterSource, type ChapterSource, type OutlineChapter } from "../shared/chapter-outline.js";
+import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
 import type { BudgetPlan, BudgetPlanSegment, ChatMessage, ProviderRequest } from "./types.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
@@ -200,63 +199,8 @@ interface SegmentOutcome {
   error?: unknown;
 }
 
-// 给定章节 → 产物章节（概览分章票 03 决议）：标题与边界一律以给定清单为准，模型
-// 只提供每章 summary——按 from 最近邻一对一 graft（每个模型章节最多被认领一次），
-// 对不上的章留空串。时间轴目录没有 to，边界取下一章 from；末章回落 endSeconds。
-// titlesOnly（简介/评论时间轴来源，用户拍板 2026-09-30）：章节只留标题，summary
-// 一律空串——即使模型不听话硬写简介也丢弃（F7）。
-function applyGivenChapters(
-  given: OutlineChapter[],
-  modelChapters: AnalysisChapter[],
-  endSeconds: number,
-  titlesOnly = false
-): AnalysisChapter[] {
-  const remaining = (Array.isArray(modelChapters) ? modelChapters : []).slice();
-  const out: AnalysisChapter[] = [];
-  for (let i = 0; i < given.length; i += 1) {
-    const from = Math.floor(Number(given[i]?.seconds) || 0);
-    const nextFrom = i + 1 < given.length ? Math.floor(Number(given[i + 1]?.seconds) || 0) : null;
-    const explicitTo = Math.floor(Number(given[i]?.to));
-    const to =
-      Number.isFinite(explicitTo) && explicitTo > from
-        ? explicitTo
-        : nextFrom !== null && nextFrom > from
-          ? nextFrom
-          : Math.max(from, Math.floor(Number(endSeconds) || 0));
-    out.push({
-      from,
-      to,
-      title: String(given[i]?.title ?? "").trim().slice(0, 300),
-      summary: titlesOnly ? "" : takeNearestSummary(remaining, from)
-    });
-  }
-  return out.slice(0, MAX_ANALYSIS_CHAPTERS);
-}
-
-// 取「from 最接近」的模型章节的 summary，取走即从候选里移除（一对一，不重复认领）。
-function takeNearestSummary(remaining: AnalysisChapter[], from: number): string {
-  if (!remaining.length) {
-    return "";
-  }
-  let bestIndex = -1;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < remaining.length; i += 1) {
-    const distance = Math.abs(Number(remaining[i]?.from) - from);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestIndex = i;
-    }
-  }
-  return bestIndex < 0 ? "" : String(remaining.splice(bestIndex, 1)[0]?.summary ?? "");
-}
-
-// 给定章节的末章落界兜底：视频时长与字幕末条时间戳取大（与提示词时长变量同口径）。
-function resolveEndSeconds(ctx: Record<string, unknown>, body: unknown[]): number {
-  const items = normalizeSubtitleItems(body);
-  const last = items.length ? items[items.length - 1] : null;
-  const lastSeconds = last ? Math.max(0, Math.floor(Number(last?.to) || Number(last?.from) || 0)) : 0;
-  return Math.max(Math.floor(Number(ctx.videoDuration) || 0), lastSeconds);
-}
+// 给定章节 → 产物章节、最近邻 summary 认领与末章落界兜底都已迁 ai/chapter-plan.ts
+// （候选 2 的分章计划单源）；本模块经 resolveChapterPlan(...).graft 消费同一实现。
 
 // 取消错误：err.cancelled = true 标记（house style 类型化标记；消费方查标记分流）。
 function makeOverviewCancelledError(): Error & { cancelled: true } {
@@ -532,41 +476,12 @@ async function executeOverviewRun({
     }
   }
 
-  // 给定章节（时间轴目录或官方章节）非空 → 章节不是模型的活儿，走「照抄 + 补 summary」
-  // 提示词；空则自由分章（概览分章票 03 决议）。先按可覆盖时长裁一遍：评论时间轴里
-  // 可能混进别的视频/片尾之后的时间戳，越界条目不进提示词也不进产物（两者一致）。
-  const endSeconds = resolveEndSeconds(ctx, body);
-  const givenChapters = chapterSource.chapters.filter((chapter) => chapter.seconds <= endSeconds);
-  const hasGivenChapters = givenChapters.length > 0;
-  // 简介/评论时间轴目录（outline）只留标题、不写 AI 简介（用户拍板 2026-09-30）：
-  // 模型只挑金句；官方章节（manuscript）仍逐章补简介。
-  const titlesOnly = chapterSource.kind === "outline";
-  const systemPrompt = !hasGivenChapters
-    ? ANALYSIS_SYSTEM_PROMPT
-    : titlesOnly
-      ? OUTLINE_QUOTES_SYSTEM_PROMPT
-      : GIVEN_CHAPTERS_SYSTEM_PROMPT;
-
-  const promptVars = {
-    title: ctx.title,
-    ownerName: ctx.author,
-    videoDescription: ctx.videoDescription,
-    chapterOutline: givenChapters,
-    titlesOnly
-  };
-  // 分段计划：只有官方章节进切段对齐——平台章节由 UP 维护、间隔以分钟计，对齐能让
-  // 每章字幕落在同一段里；简介/评论时间轴可能每几十秒一条（切段会碎成多条小请求，
-  // 调用数按目录条数放大），故时间轴只决定章节与提示词，不参与预算切段。
-  const plan = buildBudgetPlanImpl({
-    body,
-    chapters:
-      chapterSource.kind === "manuscript"
-        ? chapterSource.signatureChapters.map((chapter) => {
-            const item = chapter as { from?: unknown; title?: unknown };
-            return { from: item?.from, title: item?.title };
-          })
-        : []
-  });
+  // 分章计划（唯一读点，见 ai/chapter-plan.ts）：提示词选择、越界过滤后的给定章节、
+  // 用户提示词变量、切段输入与产物 graft 的末章界都在这一次解析里定下。
+  const chapterPlan = resolveChapterPlan({ chapterSource, context: ctx, body });
+  const systemPrompt = chapterPlan.systemPrompt;
+  const promptVars = chapterPlan.promptVars;
+  const plan = buildBudgetPlanImpl({ body, chapters: chapterPlan.budgetChapters });
   const segments = Array.isArray(plan.segments) ? plan.segments : [];
   const segmented = plan.mode === "map-reduce" && segments.length > 0;
 
@@ -616,12 +531,9 @@ async function executeOverviewRun({
       // 分段路径接流式进度会与「正在整理第 x/y 段」抢同一条文案，故不接。
       onTokenProgress: buildTokenProgressReporter(onProgress)
     });
-    const analysis = hasGivenChapters
-      ? {
-          ...part,
-          chapters: applyGivenChapters(givenChapters, part.chapters, built.timing.maxTimestampSeconds, titlesOnly)
-        }
-      : part;
+    // 给定章节时 graft 照抄清单（模型只贡献 summary）；末章界由计划闭包捕获，
+    // 单发路径不再另取 built.timing.maxTimestampSeconds（两值同源，见 chapter-plan.ts）。
+    const analysis: OverviewAnalysis = { ...part, chapters: chapterPlan.graft(part.chapters) };
     if (!analysis.chapters.length && !analysis.quotes.length) {
       throw makeEmptyAnalysisError();
     }
@@ -713,9 +625,7 @@ async function executeOverviewRun({
 
   const merged = mergeAnalyses(parts);
   // 给定章节：合并后的章节仍以给定清单为准（各段只贡献 summary），边界不随段漂移。
-  const analysis: OverviewAnalysis = hasGivenChapters
-    ? { ...merged, chapters: applyGivenChapters(givenChapters, merged.chapters, endSeconds, titlesOnly) }
-    : merged;
+  const analysis: OverviewAnalysis = { ...merged, chapters: chapterPlan.graft(merged.chapters) };
   if (!analysis.chapters.length && !analysis.quotes.length) {
     throw makeEmptyAnalysisError();
   }

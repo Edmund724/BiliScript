@@ -134,6 +134,11 @@ _Avoid_: 降级、回退
 代码名：`ai/analysis.js`（`runOverviewAnalysis`）/ `shared/chapter-outline.js`（`resolveChapterSource`）
 _Avoid_: 总览
 
+**分章计划**:
+概览分章政策的唯一解释点：把 `resolveChapterSource` 的裁定（时间轴目录 / 官方章节 / AI 自由分章）一次翻译成管线要用的全部事实——系统提示词三选一、越界过滤后的给定章节、用户提示词变量、预算切段输入与产物 graft。末章界（视频时长与字幕末条时间戳取大）只推导一次、由 `graft` 闭包捕获，单发与分段路径统一调 `plan.graft(modelChapters)`（两套推导就此合一）。graft 语义：有给定章节时标题与边界照抄清单、模型只贡献 summary（时间轴来源 summary 一律空串）；无给定章节时原样返回模型章节。`budgetChapters` 是官方章节专用的切段输入，刻意用**未过滤**的 signatureChapters（与给定章节的越界过滤口径不同，行为冻结）。
+代码名：`resolveChapterPlan` / `ChapterPlan`（`titlesOnly` / `hasGivenChapters` / `givenChapters` / `promptVars` / `budgetChapters` / `graft`，`ai/chapter-plan.js`）/ `applyGivenChapters`（同模块私有）
+_Avoid_: 在编排层再判一次 `chapterSource.kind`、单发与分段各推一次末章界
+
 **金句**:
 AI 从字幕中挑选的佳句，收录在概览页章节下方，带时间戳。
 _Avoid_: 名句、摘抄
