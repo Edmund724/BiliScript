@@ -162,7 +162,12 @@
   }
 }
 
-.biliscript-reading-actions button {
+/* 文字动作按钮 pill（header 动作行当前只有下方三枚图标键，故本规则在阅读视图里
+ * 不落到任何节点上）。选择器排除图标键是必需的：本规则 (0,1,1) 压过基础段
+ * .biliscript-reading-icon-btn 的 (0,1,0)，surface 实底、1px 边框、36px 最小高
+ * 与 999px 圆角会整组漏到图标键上（图标键的方框度量与「静止态无底色」只在基础段
+ * 单点定义）。 */
+.biliscript-reading-actions button:not(.biliscript-reading-icon-btn) {
   border: 1px solid var(--biliscript-reader-border, #e5e7eb);
   background: var(--biliscript-reader-surface, #fff);
   border-radius: 999px;
@@ -629,19 +634,6 @@
 
 #biliscript-reading-view .biliscript-reading-actions button {
   box-shadow: none;
-}
-
-/* header 三个纯图标按钮（主题/设置/退出）都带 .biliscript-reading-icon-btn：基础段的
- * .biliscript-reading-actions button（文字动作按钮 pill + min-height 36 + 1px 边框）与
- * .biliscript-reading-icon-btn（34×34 / 8px）同时命中，前者的 (0,1,1) 压过后者的
- * (0,1,0)，min-height 压过 height 让图标按钮长成 34×36 的胶囊，边框也会从它那里漏回。
- * 此处按「8px = 一切框」把图标按钮按回方块，并把无框决议落到这条更高特异性的规则上。 */
-#biliscript-reading-view .biliscript-reading-actions button.biliscript-reading-icon-btn {
-  height: 34px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
 }
 
 #biliscript-reading-view .biliscript-reading-actions button.is-active {
