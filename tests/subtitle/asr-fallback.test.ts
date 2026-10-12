@@ -18,7 +18,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
+import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 import { createAsrFallback } from "../../extension/asr/fallback.js";
 import type {
   AsrFallback,
@@ -94,15 +94,12 @@ function buildDeps(overrides: Partial<Deps> = {}): Deps {
 }
 
 let storageHost: ChromeHost;
-let memoryStorage: Map<string, CacheEntry>;
 let deps: Deps;
 let fallback: AsrFallback;
 
 beforeEach(() => {
   resetModuleState();
   storageHost = installChromeHost();
-  // 既有用例按盘上内容直读（Map 语义）；值形状 { body, timestamp } 由宿主单源派生
-  memoryStorage = storageHost.map as unknown as Map<string, CacheEntry>;
 
   // commitNoSubtitle 的 UI 面只剩状态栏回调（script-only-ui 后预览 DOM 已删）：
   // 注入 vi.fn 即可，不依赖真实渲染。
@@ -290,8 +287,8 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
 
     // 成果落缓存 + 孤儿清理：新键写入、旧变体被移除
     const cacheKey = asrCacheKey();
-    expect(memoryStorage.get(cacheKey)?.body).toEqual(TRANSCRIBED_BODY);
-    expect(memoryStorage.has(staleVariantKey)).toBe(false);
+    expect(storageHost.readEntry(cacheKey)?.body).toEqual(TRANSCRIBED_BODY);
+    expect(storageHost.hasEntry(staleVariantKey)).toBe(false);
 
     // 阶段广播：转写中 → 完成
     expect(deps.broadcastSubtitleStatus.mock.calls.map((c) => c[0])).toEqual([
@@ -316,7 +313,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
       subtitleUrl: ""
     });
     // 语言只体现在来源串与缓存键上（缓存键规则零变化）
-    expect(memoryStorage.get(asrCacheKey({ lang: "zh" }))?.body).toEqual(TRANSCRIBED_BODY);
+    expect(storageHost.readEntry(asrCacheKey({ lang: "zh" }))?.body).toEqual(TRANSCRIBED_BODY);
   });
 
   it("阅读视图打开时收尾通知 reader-bus：subtitle-ready（通知职责在字幕接受事务内）", async () => {
@@ -388,7 +385,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
     expect(result).toBe("done");
     expect(deps.runAsrPipeline).toHaveBeenCalledTimes(1); // 校验不过 → 重生成
     // 旧键先被清理，随后被新成果重新写入
-    expect(memoryStorage.get(cacheKey)?.body).toEqual(TRANSCRIBED_BODY);
+    expect(storageHost.readEntry(cacheKey)?.body).toEqual(TRANSCRIBED_BODY);
   });
 
   it("写缓存失败（LRU 淘汰后重试仍失败）：setMessage 一次性上浮，不阻断收尾", async () => {
@@ -418,7 +415,7 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
     expect(result).toBe("empty");
     expect(deps.broadcastSubtitleStatus).toHaveBeenCalledWith("asr-done");
     expect(deps.commitNoSubtitle).not.toHaveBeenCalled(); // empty 由调用点收尾
-    expect(memoryStorage.has(asrCacheKey())).toBe(false);
+    expect(storageHost.hasEntry(asrCacheKey())).toBe(false);
     // 无字幕原因：未识别到语音内容；详情位不留旧报文（asr-empty 本就不带详情）
     expect(clipState.noSubtitleReason).toBe("asr-empty");
     expect(clipState.noSubtitleDetail).toBe("");
@@ -585,7 +582,7 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
     await expect(promise).resolves.toBe("done");
 
     // 成果仍即刻落缓存（键绑定发起时的 bvid/cid，与当前 UI 无关）
-    expect(memoryStorage.get(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
+    expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
     // 终态广播照发：sidepanel 的全局 asrTranscribingActive 标志归位
     expect(deps.broadcastSubtitleStatus.mock.calls.map((c) => c[0])).toEqual([
       "asr-transcribing",
@@ -618,7 +615,7 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
     // 空结果文案不上新视频状态栏
     expect(deps.setStatus).toHaveBeenCalledTimes(statusCallsAtSwitch);
     expect(deps.commitNoSubtitle).not.toHaveBeenCalled();
-    expect(memoryStorage.has(asrCacheKey())).toBe(false);
+    expect(storageHost.hasEntry(asrCacheKey())).toBe(false);
   });
 
   it("stale run（切视频后失败到站）：asr-failed 照发、UI 零写入", async () => {
@@ -669,7 +666,7 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
     // 任务本身照常到站：缓存照落、零 UI 收尾
     resolvePipeline!(TRANSCRIBED_BODY);
     await expect(promise).resolves.toBe("done");
-    expect(memoryStorage.get(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
+    expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
   });
 
   it("非 stale 的 runId 过期（未发起转写前的守卫）：直接抛 STALE_RUN", async () => {
@@ -701,7 +698,7 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(deps.sleepFor).toHaveBeenCalledTimes(1);
     expect(deps.sleepFor).toHaveBeenCalledWith(2000);
     // 重试成果落缓存 + 事务收尾
-    expect(memoryStorage.get(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
+    expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
     expect(state.clip.subtitleBody).toEqual(TRANSCRIBED_BODY);
     expect(clipState.noSubtitleReason).toBe(null);
     // 终态广播只在真正终态一次：首轮失败不提前 asr-done/failed（横幅/等待不闪断）
@@ -744,7 +741,7 @@ describe("maybeRunAsrFallback 整轮自动重试", () => {
     expect(statusCalls.some((s) => s.includes("正在自动重试"))).toBe(true);
     // 自拼的「N 片转写未成功」已退役（票 06 Q6：诊断串退役、计数不再拼文案）
     expect(statusCalls.some((s) => s.includes("片转写未成功"))).toBe(false);
-    expect(memoryStorage.has(asrCacheKey())).toBe(false);
+    expect(storageHost.hasEntry(asrCacheKey())).toBe(false);
   });
 
   it("自动重试后仍空（failedChunks>0，无 kind）：归 asr-unknown、detail 清空", async () => {

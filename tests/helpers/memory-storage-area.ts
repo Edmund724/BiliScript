@@ -5,16 +5,19 @@
 //
 // get/set/remove 都是 vi.fn：既有用例直接改写实现（mockImplementation /
 // mockRejectedValue / getMockImplementation 包裹）并断言调用记录，不能换成普通闭包。
+// 三个方法的签名把 storage 面的读三形状写进接口本身——单键 / 键数组 / null
+//（undefined 同义）⇒ 全量快照，调用方不必再从实现里猜。
 
 import { vi, type Mock } from "vitest";
 
 /** 落盘值形状：缓存族写 { body, timestamp }；LRU 索引/清单键写各自的元数据。 */
 export type CacheEntry = { body?: unknown; timestamp?: number };
 
+/** 内存 storage 面的三方法契约（读三形状 + set/remove 写）。 */
 export interface ChromeHostStorageArea {
-  get: Mock;
-  set: Mock;
-  remove: Mock;
+  get: Mock<(keys?: string | string[] | null) => Promise<Record<string, unknown>>>;
+  set: Mock<(items: Record<string, unknown>) => Promise<void>>;
+  remove: Mock<(keys: string | string[]) => Promise<void>>;
 }
 
 export type MemoryAreaHooks = {

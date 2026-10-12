@@ -93,7 +93,6 @@ const SUBTITLE_BODY = [
 // 形状见 subtitle/cache.js 的 { body, timestamp }）
 
 let storageHost: ChromeHost;
-let store: Map<string, CacheEntry>;
 
 // 本文件固定用的那条轨的真实 per-track 缓存键（键装配走真实实现）
 function subtitleCacheKey() {
@@ -123,9 +122,8 @@ beforeEach(() => {
   clipState.setFetchRunId(0);
 
   // 单一纪元下 mock 实现会跨用例保留：显式归位，避免用例间相互污染。
-  // 缓存口每次装一台新的宿主（清掉上一条用例的键面）；既有用例按盘上内容直读（Map 语义）。
+  // 缓存口每次装一台新的宿主（清掉上一条用例的键面）；盘上读走 readEntry / hasEntry。
   storageHost = installChromeHost();
-  store = storageHost.map as unknown as Map<string, CacheEntry>;
   vi.mocked(fetchBodyMock).mockReset();
   vi.mocked(setMessage).mockClear();
   vi.mocked(acceptSubtitle).mockClear();
@@ -223,7 +221,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
         throw new Error("quota exceeded");
       }
       for (const [key, value] of Object.entries(record)) {
-        store.set(key, value as CacheEntry);
+        storageHost.map.set(key, value);
       }
     });
     vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
@@ -255,7 +253,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
     expect(clipState.subtitleBody).toEqual(SUBTITLE_BODY);
     expect(clipState.subtitleFetchState).toBe("ready");
     expect(fetchBodyMock).toHaveBeenCalledWith("https://example.com/sub.json");
-    expect(store.get(subtitleCacheKey())?.body).toEqual(SUBTITLE_BODY);
+    expect(storageHost.readEntry(subtitleCacheKey())?.body).toEqual(SUBTITLE_BODY);
   });
 
   it("缓存命中但时长不匹配 + 网络也失败：坏缓存被清掉，盘上不留坏体", async () => {
@@ -269,7 +267,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
       fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false)
     ).rejects.toThrow("HTTP 500");
 
-    expect(store.has(subtitleCacheKey())).toBe(false);
+    expect(storageHost.hasEntry(subtitleCacheKey())).toBe(false);
     expect(clipState.subtitleBody).toEqual([]);
   });
 });

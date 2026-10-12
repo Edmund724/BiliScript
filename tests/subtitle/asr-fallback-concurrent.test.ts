@@ -14,7 +14,7 @@
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
+import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 import { createAsrFallback } from "../../extension/asr/fallback.js";
 import type { AsrFallback, CreateAsrFallbackDeps, SubtitleItem } from "../../extension/asr/fallback.js";
 import { state, clipState } from "../../extension/core/state.js";
@@ -71,15 +71,12 @@ type DepsMock = {
 };
 
 let storageHost: ChromeHost;
-let memoryStorage: Map<string, CacheEntry>;
 let deps: DepsMock;
 let fallback: AsrFallback;
 
 beforeEach(() => {
   resetModuleState();
   storageHost = installChromeHost();
-  // 既有用例按盘上内容直读（Map 语义）；值形状 { body, timestamp } 由宿主单源派生
-  memoryStorage = storageHost.map as unknown as Map<string, CacheEntry>;
 
   // 真实 commitNoSubtitle 只要求注入状态栏回调（见 commit.js 的 CommitUiCallbacks）
   configureCommitUi({ setStatus: vi.fn() });
@@ -159,7 +156,7 @@ describe("ASR 转写中并发调用（共享转写、成果落缓存）", () => 
 
     // 关键断言 2：成果即刻落缓存（在 runId/UI 收尾检查之前），只写一次
     expect(cacheKeyWriteCount(asrCacheKey())).toBe(1);
-    expect(memoryStorage.get(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
+    expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
 
     // 关键断言 3：等待者正常收尾（ready + 完成提示）；发起者已被顶掉，其
     // STALE_RUN 在 fetcher 的 catch 中被 isStaleRunError 吞掉（此处直接体现
@@ -293,8 +290,8 @@ describe("转写与视频切换解耦（Map<cacheKey> 共享单元）", () => {
     // 只有 B 的成果上屏；A 的成果只存在于 A 的缓存键
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(state.clip.subtitleBody).toEqual([{ from: 0, to: 250, content: "B 视频成果" }]);
-    expect(memoryStorage.get(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
-    expect(memoryStorage.get(asrCacheKey({ bvid: BVID_B, cid: CID_B }))?.body).toEqual([
+    expect(storageHost.readEntry(asrCacheKey())?.body).toEqual(TRANSCRIBED_BODY);
+    expect(storageHost.readEntry(asrCacheKey({ bvid: BVID_B, cid: CID_B }))?.body).toEqual([
       { from: 0, to: 250, content: "B 视频成果" }
     ]);
     expect(fallback.hasActiveAsrTranscribe({ bvid: BVID_B, cid: CID_B })).toBe(false);

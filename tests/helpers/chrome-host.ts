@@ -3,6 +3,8 @@
 // chrome.storage 的读写语义由 ./memory-storage-area.js 的内存面兑现，本文件在其上装盘上布局：
 //   - 读三形状：单键 / 键数组 / null（undefined 同义）⇒ 全量快照；缺失键不出现；
 //   - 值形状 { body, timestamp } 由 seedCacheEntry 单源派生；
+//   - 盘上读走 readEntry / hasEntry（按 { body, timestamp } 条目形状取单键），map
+//     只留给需要 Map 语义的用例（entries / keys / delete / size）；
 //   - 族索引两种落盘格式各有 seed 原语、互不现代化：seedIndexEntry（现代分键条目，
 //     键经 core/cache-lru 的装配点 buildLruIndexEntryKey，值 { ts }）与
 //     seedLegacyManifest（旧汇总清单，数值 ts，回归夹具）；
@@ -21,6 +23,7 @@ import { vi } from "vitest";
 import { buildLruIndexEntryKey, LRU_MANIFEST_STORAGE_KEY } from "../../extension/core/cache-lru.js";
 import {
   createMemoryStorageArea,
+  type CacheEntry,
   type ChromeHostStorageArea,
   type MemoryAreaHooks
 } from "./memory-storage-area.js";
@@ -36,6 +39,10 @@ export interface ChromeHost {
   syncMap: Map<string, unknown>;
   /** local 全量快照（get(null) 的语义）。 */
   snapshot(): Record<string, unknown>;
+  /** local 单键的落盘值（{ body, timestamp } 视图）——消费方按条目读，不必手转 map。 */
+  readEntry(key: string): CacheEntry | undefined;
+  /** local 盘上是否存在该键。 */
+  hasEntry(key: string): boolean;
   /** 预置一条缓存条目（值形状 { body, timestamp } 单源派生）。 */
   seedCacheEntry(key: string, body: unknown, timestamp?: number): void;
   /** 预置现代分键索引条目（键经生产装配点，值 { ts }）。 */
@@ -51,8 +58,6 @@ export interface ChromeHostOptions {
   areas?: Array<"local" | "sync">;
   /** 与既有 chrome.runtime 合并的覆盖面（按 type 分发的 sendMessage 桩经此注入）。 */
   runtime?: Record<string, unknown>;
-  /** e2e 按 type 分发的注入口（宿主本轮不实现 runtime 分发）。 */
-  runtimeHandler?: (message: unknown, sender: unknown) => unknown;
 }
 
 export function installChromeHost(options: ChromeHostOptions = {}): ChromeHost {
@@ -99,6 +104,8 @@ export function installChromeHost(options: ChromeHostOptions = {}): ChromeHost {
     map,
     syncMap,
     snapshot: () => Object.fromEntries(map.entries()),
+    readEntry: (key) => map.get(key) as CacheEntry | undefined,
+    hasEntry: (key) => map.has(key),
     seedCacheEntry(key, body, timestamp = Date.now()) {
       map.set(key, { body, timestamp });
     },
