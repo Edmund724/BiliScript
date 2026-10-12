@@ -5,48 +5,19 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
+import { buildLruIndexEntryKey, LRU_MANIFEST_STORAGE_KEY } from "../../extension/core/cache-lru.js";
 
 let mod: typeof import("../../extension/ai/segment-cache.js");
-let storage: ReturnType<typeof createMemoryStorage>;
+let storage: ChromeHost;
 
-// 内存 Map 实现的 chrome.storage.local：get/set/remove 均为 vi.fn，便于断言调用与注入失败。
-// get 需支持 null（loadStoredRawSegments 索引缺失时的回退兜底走全量枚举）。
-function createMemoryStorage() {
-  const map = new Map();
-  const local = {
-    get: vi.fn(async (keys) => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(map.entries());
-      }
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of want) {
-        if (map.has(k)) {
-          out[k] = map.get(k);
-        }
-      }
-      return out;
-    }),
-    set: vi.fn(async (items) => {
-      for (const [key, value] of Object.entries(items)) {
-        map.set(key, value);
-      }
-    }),
-    remove: vi.fn(async (keys) => {
-      const want = Array.isArray(keys) ? keys : [keys];
-      for (const k of want) {
-        map.delete(k);
-      }
-    })
-  };
-  return { map, local };
-}
+// 共享宿主（tests/helpers/chrome-host.js）：get/set/remove 为 vi.fn 可注入失败，
+// get 兑现 null/undefined ⇒ 全量快照（loadStoredRawSegments 索引缺失时的回退兜底）。
 
 async function importModules() {
   vi.resetModules();
   resetModuleState();
-  storage = createMemoryStorage();
-  vi.stubGlobal("chrome", { storage: { local: storage.local } });
+  storage = installChromeHost();
   mod = await import("../../extension/ai/segment-cache.js");
 }
 
@@ -69,7 +40,7 @@ describe("分段小结落盘读写（命中/未命中）", () => {
     expect(await mod.loadSegmentSummary(key)).toBe("小结一：事实A。");
     // 存储值形状 { summary, timestamp }，风格对齐 subtitle/cache.js 的 { body, timestamp }
     expect(storage.map.get(key)).toMatchObject({ summary: "小结一：事实A。" });
-    expect(storage.map.get(key).timestamp).toEqual(expect.any(Number));
+    expect((storage.map.get(key) as CacheEntry).timestamp).toEqual(expect.any(Number));
   });
 
   it("存储的是传入的 summary 原值（含空串，空串命中 ≠ 未命中）", async () => {
@@ -93,7 +64,7 @@ describe("原始字幕段落盘读写（命中/未命中）", () => {
     expect(await mod.loadRawSegments(key)).toEqual(segments);
     // 存储值形状 { segments, timestamp }
     expect(storage.map.get(key)).toMatchObject({ segments });
-    expect(storage.map.get(key).timestamp).toEqual(expect.any(Number));
+    expect((storage.map.get(key) as CacheEntry).timestamp).toEqual(expect.any(Number));
   });
 });
 
@@ -338,13 +309,13 @@ describe("saveSegmentSummaryWithRaw：两族合并写（段缓存写聚合 ticke
 
     expect(result).toEqual({ ok: true });
     // 存储操作 = 1 get（清单快照）+ 3 set（raw 数据 / summary 数据 / 两族索引+manifest 打包）
-    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === "biliscript_cache_lru_index").length;
+    const indexReads = storage.local.get.mock.calls.filter(([keys]) => keys === LRU_MANIFEST_STORAGE_KEY).length;
     expect(indexReads).toBe(1);
     expect(setCalls.filter((keys) => keys.includes(rawKey()))).toHaveLength(1);
     expect(setCalls.filter((keys) => keys.includes(summaryKey()))).toHaveLength(1);
-    const indexSet = setCalls.find((keys) => keys.includes("biliscript_cache_lru_index"));
-    expect(indexSet).toContain(`biliscript_cache_lru_index:biliscript_lvs_raw_:BV1pair:${rawKey()}`);
-    expect(indexSet).toContain(`biliscript_cache_lru_index:biliscript_lvs_summary_:BV1pair:${summaryKey()}`);
+    const indexSet = setCalls.find((keys) => keys.includes(LRU_MANIFEST_STORAGE_KEY));
+    expect(indexSet).toContain(buildLruIndexEntryKey("biliscript_lvs_raw_", "BV1pair", rawKey()));
+    expect(indexSet).toContain(buildLruIndexEntryKey("biliscript_lvs_summary_", "BV1pair", summaryKey()));
     // 读回等价：loadRawSegments / loadSegmentSummary 各自命中
     expect(await mod.loadSegmentSummary(summaryKey())).toBe("合并小结");
     expect(await mod.loadRawSegments(rawKey())).toEqual([{ from: 0, to: 5, content: "x" }]);

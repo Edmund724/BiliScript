@@ -27,16 +27,23 @@
 //   - 淘汰本身静默运行、不提示；仅当「淘汰后重试仍失败」时由调用方把 distinct
 //     失败（CacheWriteError）上浮到各自的 UI 通道（content 状态栏 / offscreen port notice）。
 // chrome.* 访问与既有测试模式一致：直接使用全局 chrome.storage.local，
-// 测试以 vi.stubGlobal("chrome", …) 注入内存实现（需支持 get(null) 全量枚举）。
+// 测试经 tests/helpers/chrome-host.ts 的宿主注入内存实现（兑现 get(null) 全量枚举）。
 
 import { logWarn } from "../shared/logging.js";
 
-// LRU 汇总清单键（模块私有；测试以字面量直读写做 arrange/断言）。
-const LRU_MANIFEST_KEY = "biliscript_cache_lru_index";
-// 分键索引条目前缀：完整索引键为 `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:${cacheKey}`。
-// 冒号不在任何数据键中出现（数据键只含 [A-Za-z0-9_] 及 source key 内的少量符号），
-// 前缀与清单键、数据键互不撞车。
+// LRU 汇总清单键（导出作测试 arrange/断言的单源，见 tests/helpers/chrome-host.ts）。
+export const LRU_MANIFEST_STORAGE_KEY = "biliscript_cache_lru_index";
+// 分键索引条目前缀：冒号不在任何数据键中出现（数据键只含 [A-Za-z0-9_] 及 source key
+// 内的少量符号），前缀与清单键、数据键互不撞车。
 const LRU_INDEX_ENTRY_PREFIX = "biliscript_cache_lru_index:";
+/**
+ * 分键索引键装配点（全仓唯一拼装处）：完整索引键 = 前缀 + family + bvid + cacheKey。
+ * 读端前缀过滤与 prune 删除前缀传空 cacheKey 即得 `${prefix}${family}:${bvid}:`；
+ * 测试宿主的 seedIndexEntry 亦经此构造，不再手写字面量。
+ */
+export function buildLruIndexEntryKey(family: string, bvid: string, cacheKey: string): string {
+  return `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:${cacheKey}`;
+}
 // 参与统一淘汰的缓存族前缀（全仓唯一注册处，arch-slim-2/08 起 analysis 两族
 // 收进注册、不再由 ai/analysis.ts 自行扩展名单）：
 //   - biliscript_lvs_raw_* / biliscript_lvs_summary_*：ai/segment-cache.ts 的原始字幕段 / 分段小结；
@@ -126,8 +133,8 @@ function normalizeEntryTs(value: unknown): number | null {
 // 旧格式值（数值 ts、{ ts, keys } 对象）逐条归一兼容，混合清单也照计。
 async function readManifest(): Promise<LruManifest> {
   try {
-    const result = await requireStorageLocal().get(LRU_MANIFEST_KEY);
-    return normalizeManifest(result?.[LRU_MANIFEST_KEY]);
+    const result = await requireStorageLocal().get(LRU_MANIFEST_STORAGE_KEY);
+    return normalizeManifest(result?.[LRU_MANIFEST_STORAGE_KEY]);
   } catch {
     return {};
   }
@@ -183,7 +190,7 @@ export async function readFamilyKeys(family: string, bvid: string, keyPrefix = "
   let keys: string[];
   try {
     const all = await requireStorageLocal().get(null);
-    const entryPrefix = `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:`;
+    const entryPrefix = buildLruIndexEntryKey(family, bvid, "");
     keys = Object.keys(all || {})
       .filter((storageKey) => storageKey.startsWith(entryPrefix))
       .map((storageKey) => storageKey.slice(entryPrefix.length))
@@ -222,7 +229,7 @@ async function recordCacheWrites(
     const entries: Record<string, { ts: number }> = {};
     for (const key of new Set(Array.isArray(write.cacheKeys) ? write.cacheKeys : [])) {
       if (key) {
-        entries[`${LRU_INDEX_ENTRY_PREFIX}${write.family}:${write.bvid}:${key}`] = { ts: timestamp };
+        entries[buildLruIndexEntryKey(write.family, write.bvid, key)] = { ts: timestamp };
       }
     }
     Object.assign(items, entries);
@@ -231,7 +238,7 @@ async function recordCacheWrites(
     }
   }
   if (manifestWrites.length > 0) {
-    items[LRU_MANIFEST_KEY] = mergeManifestWrites(manifestSnapshot, manifestWrites);
+    items[LRU_MANIFEST_STORAGE_KEY] = mergeManifestWrites(manifestSnapshot, manifestWrites);
   }
   await storage.set(items);
 }
@@ -280,7 +287,7 @@ export async function pruneToRecentVideos(
     }
 
     const all = await storage.get(null);
-    const manifest = normalizeManifest(all?.[LRU_MANIFEST_KEY]);
+    const manifest = normalizeManifest(all?.[LRU_MANIFEST_STORAGE_KEY]);
 
     // 分键索引按 族 → bvid → { ts(取最大), keys } 归并。
     const indexed = new Map<string, Map<string, { ts: number; keys: Set<string> }>>();
@@ -366,7 +373,7 @@ export async function pruneToRecentVideos(
         if (keepSet.has(bvid)) {
           continue;
         }
-        const entryPrefix = `${LRU_INDEX_ENTRY_PREFIX}${family}:${bvid}:`;
+        const entryPrefix = buildLruIndexEntryKey(family, bvid, "");
         for (const storageKey of Object.keys(all || {})) {
           if (storageKey.startsWith(entryPrefix)) {
             keysToRemove.push(storageKey);
@@ -380,7 +387,7 @@ export async function pruneToRecentVideos(
       // 清单重写（仅被清理族；未参与淘汰的族原样保留）：被淘汰 bvid 条目移除，
       // survivors 以排名 ts 落盘。失败不影响已删除的数据键（下次 prune 会再收）。
       try {
-        await storage.set({ [LRU_MANIFEST_KEY]: { ...manifest, ...manifestRewrite } });
+        await storage.set({ [LRU_MANIFEST_STORAGE_KEY]: { ...manifest, ...manifestRewrite } });
       } catch {
         // 清单重写失败静默（启发式元数据，允许丢）。
       }
