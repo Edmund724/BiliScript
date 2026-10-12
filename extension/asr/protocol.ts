@@ -64,7 +64,8 @@ export interface AsrFailureFields {
 
 // 判定：wire / 域形状的原文 → 摘要或 null（null = 无失败信号）。类别非空串即
 // 成立；未知串照收（判定层不改值，归类点 reasonFromFailureKind 把不认识的串收口
-// 成 asr-unknown）；状态码只在是数值时携带，报文只在是字符串时携带。
+// 成 asr-unknown）；状态码与报文用 !== undefined 携带——键在且不是 undefined 就
+// 照搬原文（0 / 空串 / null / 数字串都算携带），只有缺席（undefined）才不携带。
 export function readAsrFailureSummary(raw: unknown): AsrFailureSummary | null {
   if (!raw || typeof raw !== "object") {
     return null;
@@ -83,12 +84,13 @@ export function readAsrFailureSummary(raw: unknown): AsrFailureSummary | null {
   }
   const summary: AsrFailureSummary = { kind };
   const status = source.failedStatus !== undefined ? source.failedStatus : source.status;
-  if (typeof status === "number") {
-    summary.status = status;
+  if (status !== undefined) {
+    // wire 是外来数据：原值照搬，判定层不替调用方改值（域类型声明的是预期形状）。
+    summary.status = status as number;
   }
   const detail = source.failedDetail !== undefined ? source.failedDetail : source.detail;
-  if (typeof detail === "string") {
-    summary.detail = detail;
+  if (detail !== undefined) {
+    summary.detail = detail as string;
   }
   return summary;
 }

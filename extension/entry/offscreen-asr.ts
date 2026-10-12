@@ -67,8 +67,12 @@ function summarizeFailure(error: unknown, provider: AsrProvider | null): AsrFail
     ? err.kind
     : classifyAsrFailure({ source: "platform", body: getErrorMessage(error), provider });
   const summary: AsrFailureSummary = { kind };
-  if (typeof err?.status === "number") {
-    summary.status = err.status;
+  // 状态码按「能转成有限数」收（数字串 "401" 也算，落盘取转出的数）：抛出物的
+  // status 来自不受类型约束的响应对象，这里不因它是字符串就丢值（丢值会让页面侧
+  // 的「错误详情：HTTP 401」整段消失）。
+  const status = Number(err?.status);
+  if (Number.isFinite(status)) {
+    summary.status = status;
   }
   if (typeof err?.detail === "string") {
     summary.detail = err.detail;

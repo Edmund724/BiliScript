@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { resetModuleState } from "../setup.js";
 import { ASR_PENDING_CHUNKS_LIMIT_MESSAGE } from "../../extension/asr/protocol.js";
+import { formatAsrFailureDetail } from "../../extension/core/asr-failure-notice.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // 单参 readFileSync 被 tests/reader/node-stubs.d.ts 的 string 返回重载抢先匹配
@@ -174,9 +175,10 @@ function installAudioContextStub() {
 }
 
 // fetch 替身：按 URL/method 分发（playurl / 音轨 HEAD / 音轨 GET / 转写 POST）。
-// transcriptionStatus 决定转写响应——首个响应按它返回，后续请求若真的发生也
-// 会被记进 transcriptionRequests（用例据此断言「没有第 2 次」）。
-function installFetchStub(transcriptionStatus: number) {
+// transcriptionStatus 决定转写响应（数字或数字串——响应对象不受类型约束）；首个
+// 响应按它返回，后续请求若真的发生也会被记进 transcriptionRequests（用例据此
+// 断言「没有第 2 次」）。
+function installFetchStub(transcriptionStatus: number | string) {
   const fetchMock = vi.fn(async (url: string, init?: { method?: string }) => {
     const target = String(url);
     if (target.startsWith(PLAYURL_URL)) {
@@ -333,5 +335,23 @@ describe("票 08 C5：首片确定性失败即中止整轮（真 offscreen 链�
     expect(transcriptionRequests.length).toBeGreaterThan(1);
     expect(payload.failedKind).toBe("asr-server");
     expect(payload.failedStatus).toBe(500);
+  }, 30000);
+
+  it("数字串状态码（\"401\"）照收：DONE 仍带 401，详情行拼得出「HTTP 401」", async () => {
+    // 响应对象的 status 只是运行时取值：抛出的 err.status 可能是数字串。收摘要
+    // 那一层不得因它「不是 number」就丢值——丢了状态码，页面侧「（错误详情：
+    // HTTP 401…）」整段消失。
+    installFetchStub("401");
+
+    const { payload } = await runDecodeTask();
+
+    expect(payload.type).toBe("done");
+    expect(payload.failedKind).toBe("asr-auth");
+    expect(payload.failedStatus).toBe(401);
+    const copy = formatAsrFailureDetail({
+      status: payload.failedStatus as number,
+      detail: payload.failedDetail as string
+    });
+    expect(copy).toContain("HTTP 401");
   }, 30000);
 });
