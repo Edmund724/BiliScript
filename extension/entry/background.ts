@@ -127,16 +127,9 @@ const saveSettingsWithInvalidate = invalidatingWrite(
 
 // ===== 消息路由表 =====
 
-// 入口按键调用的统一 handler 面（窄化后的各键 handler 由本处一次性宽化收进 Map，
-// 再投影成 core/message-router 的 handlers 注入面；Map 只作分发，不参与契约——
-// 逐键契约在下方 messageHandlerTable 的 satisfies）。消息形参按派发面收成 unknown：
-// 派发策略住 core/message-router，本处只保证「按键能找到 handler」。
-type AnyBackgroundHandler = (
-  message: unknown,
-  sender: MessageSender,
-  sendResponse: SendResponse
-) => MessageReplyDecision | void;
-
+// 入口按键调用的统一 handler 面就是下方的 messageHandlerTable 字面量本身：逐键
+// 契约在它的 satisfies 处校验，表以单一事实源直接注入 core/message-router（派发
+// 策略住 router，本处只保证「按键能找到 handler」）。
 type Msg<T extends BackgroundMessageType> = Extract<BackgroundMessage, { type: T }>;
 // 回包形参按消息键收型（ResponseOf 的注册表派生面）：响应载荷与消息键配错、
 // 少写多写字段都在 tsc 门禁即红。
@@ -624,10 +617,6 @@ const messageHandlerTable = {
   "get-debug-log-gate": handleGetDebugLogGate
 } satisfies { [K in BackgroundMessageType]: BackgroundMessageHandler<K> };
 
-const messageHandlers = new Map<BackgroundMessageType, AnyBackgroundHandler>(
-  Object.entries(messageHandlerTable) as Array<[BackgroundMessageType, AnyBackgroundHandler]>
-);
-
 // EXPECTED_CONTENT_SCRIPT_VERSION 单源在 entry/content-orchestration-wiring.ts
 //（arch-slim-3/04 收编，本文件经 import 消费）。
 
@@ -747,7 +736,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 // 业务归一仍归处理器；被拒显式回 { ok:false, error }（不静默吞、不让调用方空等）
 // 且零副作用。
 const messageRouter = createMessageRouter({
-  handlers: Object.fromEntries(messageHandlers),
+  handlers: messageHandlerTable,
   senders: { offscreen: isOffscreenDocumentSender },
   rejectionMessage: ASR_OFFSCREEN_REJECTION_MESSAGE
 });

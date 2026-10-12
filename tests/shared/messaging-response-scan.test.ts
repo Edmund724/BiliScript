@@ -135,9 +135,11 @@ describe("消息协议响应半边（arch-slim-2/02）", () => {
 
     expect(routeKeys).toHaveLength(backgroundLiterals.length);
     expect([...routeKeys].sort()).toEqual([...backgroundLiterals].sort());
-    // 路由表经 satisfies 穷尽后构建 Map（运行时结构不变；Map 的值面按消息键收型
-    // 前是 MessageHandler<BackgroundMessage>，现为窄化 handler 的统一宽化面）
-    expect(read(BACKGROUND)).toContain("new Map<BackgroundMessageType, AnyBackgroundHandler>(");
+    // 路由表经 satisfies 穷尽后**原样**注入路由器（单一事实源）：本处钉住
+    // 「handler 表就是被注入的那张表」，且不再有 Map/Record 中转把宽窄形参
+    // 的相容性问题推给组合根。
+    expect(read(BACKGROUND)).toContain("handlers: messageHandlerTable");
+    expect(read(BACKGROUND)).not.toContain("new Map<BackgroundMessageType");
   });
 
   it("BACKGROUND_MESSAGE_REGISTRY 键集与 BackgroundMessage 消息字面量集全等", () => {

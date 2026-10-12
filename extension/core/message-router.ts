@@ -26,7 +26,7 @@ import {
 } from "../shared/messaging-protocol.js";
 
 export type MessageSenderLike = MessageSender;
-/** SW 半边：有 sender 位（来源守卫轴开时按三参派发，回包口径照注册表 reply 档）。 */
+/** SW 半边派发面：有 sender 位（来源守卫轴开时按三参派发，回包口径照注册表 reply 档）。 */
 export type MessageHandlerLike = (
   message: unknown,
   sender: MessageSenderLike,
@@ -36,9 +36,17 @@ export type MessageHandlerLike = (
  *  两参派发）。本次不接入，只为同一份 interface 留位。 */
 export type ContentMessageHandlerLike = (message: unknown, sendResponse: SendResponse) => void;
 
+/** 表值面：上述两种派发形之外还收「任何可调用体」——各域 handler 按自己的消息键
+ *  收窄形参（逐键契约由组合根的表对注册表穷尽校验），本模块按注册表派发；窄形参
+ *  与派发形的相容性由派发点（下方 invoke）收拢，组合根因此不必手写断言。 */
+export type RoutedHandler =
+  | MessageHandlerLike
+  | ContentMessageHandlerLike
+  | ((...args: never[]) => unknown);
+
 export interface MessageRouterOptions {
   /** handler 表：键 = 消息 type（逐键契约由组合根的表对注册表穷尽校验） */
-  handlers: Record<string, MessageHandlerLike | ContentMessageHandlerLike>;
+  handlers: Record<string, RoutedHandler>;
   /** 来源判据：标签 → 判据（缺省 = 不判来源；注入的标签无判据即放行） */
   senders?: Record<SenderLabel, (sender: MessageSenderLike) => boolean>;
   /** 来源守卫拒绝时的回包文案（字面量单源由组合根注入，本模块不持文案） */
@@ -68,7 +76,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
 
   // 键表 Map 化一次：Object.prototype 上的同名键（constructor / toString 等）不得被
   // 当成 handler 或登记项（与组合根 messageHandlers Map 的按键查找同口径）。
-  const handlerTable = new Map<string, MessageHandlerLike | ContentMessageHandlerLike>(
+  const handlerTable = new Map<string, RoutedHandler>(
     Object.entries(handlers)
   );
   const registrationTable = new Map<string, RegistrationLike>(
