@@ -22,6 +22,8 @@ import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
+// 来源标签词表（纯类型引入，编译期擦除；定义住消息入口策略模块 core/message-router）。
+import type { SenderLabel } from "../core/message-router.js";
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -401,7 +403,7 @@ export type ResolveSearchProviderResponse = {
 // 同一解析器）；offscreen 无 chrome.storage → 宿主是 SW，两个消费方都走本族消息
 // （不设 content 直读的第二条读路径）。归一（trim + 空白折叠 + toLowerCase）与
 // 64 位哈希键在 SW 侧 search/search-cache.ts 单源完成，调用方只传原始 query。
-// 来源守卫：本族**不进** entry/background.ts 的 offscreen-only 名单（发送者含 content）。
+// 来源守卫：本族**不进**来源名单（OFFSCREEN_ONLY_MESSAGE_TYPES，发送者含 content）。
 export type SearchCacheMessage = {
   type: "search-cache";
   op: "get" | "put";
@@ -428,7 +430,7 @@ export type SearchCacheResponse = {
 // 的 deps.recordAttempt 缺省 = search-health-client）：执行侧无 chrome.storage，
 // 记账交 SW 落 search/search-health.ts 单源（**时间戳由 SW 侧盖**）。
 // fire-and-forget：失败 / 无回包静默，绝不影响搜索与回答。
-// 来源守卫：本族**不进** entry/background.ts 的 offscreen-only 名单（发送者含 content）。
+// 来源守卫：本族**不进**来源名单（OFFSCREEN_ONLY_MESSAGE_TYPES，发送者含 content）。
 export type SearchHealthMessage = {
   type: "search-health";
   op: "record";
@@ -640,21 +642,21 @@ export type BackgroundMessageHandler<K extends BackgroundMessageType> = (
 
 // ===== SW 消息注册表（一条消息一处登记）=====
 //
-// 收敛前的「新增一条消息」摩擦：① XxxMessage 声明 ② 并列 XxxResponse（扫描测试
-// 强制）③ ResponseOf 条件分支 ④ entry/background.ts 路由表条目 + handler 本体
-// ⑤ illegalMessageReason 里手写的 type 字面量形状清单（与声明分居两文件，漏抄即
-// 静默缺检）；回包口径（return true 异步持有 / false 同步已答）则散在 30 个
-// handler 体里。现把「声明 + 形状判据 + 回包口径 + 来源登记」收进本表一处，由它
-// 派生：
+// 「新增一条消息」要动三处：① 本文件的 XxxMessage 声明与并列的 XxxResponse
+//（扫描测试强制）② 本表登记 ③ 组合根 handler 表条目（entry/background.ts，
+// satisfies 穷尽对齐本表键集）。本表把「声明 + 形状判据 + 回包口径 + 来源登记」
+// 收在一处，由它派生：
 //   ① ResponseOf<M>（调用点响应形状推断的唯一事实源）；
-//   ② 消息入口守卫的两项检查——来源 denylist（＝下表 offscreenOnly 登记派生的
+//   ② 消息入口守卫的两项检查——来源标签（＝下表 sender 登记派生的
 //      OFFSCREEN_ONLY_MESSAGE_TYPES）与 payload 最小 schema（＝下表 shape 判据）；
 //   ③ 入口回包口径（下表 reply；branch 档的 handler 返回值判定见
 //      MessageReplyDecision，handler 注册面的返回值契约由该登记派生）。
-// handler 本体以工厂形态住域 module（core/provider-handlers.ts、
-// ai/segment-cache-handler.ts、search/search-cache-handler.ts 等），组合根
-// entry/background.ts 的路由表只登记工厂实例（satisfies 穷尽对齐本表键集；shared
-// 是叶子层，不得反向引用 entry 的 handler）。
+// 两项检查与回包口径的消费点是 core/message-router 的 createMessageRouter
+//（组合根注入本表与 handler 表）。handler 本体以工厂形态住域 module
+//（core/provider-handlers.ts、ai/segment-cache-handler.ts、
+// search/search-cache-handler.ts 等），组合根 entry/background.ts 的路由表只登记
+// 工厂实例（satisfies 穷尽对齐本表键集；shared 是叶子层，不得反向引用 entry 的
+// handler）。
 
 // 回包口径：chrome.runtime.onMessage 监听器返回值语义显式化。
 // - async：处理器持有回包通道（可能同步也可能异步回包），入口恒返回 true
@@ -672,8 +674,8 @@ export type MessageReplyMode = "async" | "sync" | "branch";
 // 取值语义与收敛前裸布尔 true / false 逐字同义（true = 持有通道）。
 export type MessageReplyDecision = "answered" | "hold";
 
-// 入口 boolean 的唯一派生点（entry 的 onMessage 监听器消费）。未返回判定
-// （undefined）与 "answered" 同义——对齐 onMessage「未持有通道」语义。
+// 入口 boolean 的唯一派生点（core/message-router 的 createMessageRouter 消费）。
+// 未返回判定（undefined）与 "answered" 同义——对齐 onMessage「未持有通道」语义。
 export function resolveReplyKeepOpen(mode: MessageReplyMode, handlerResult: MessageReplyDecision | void): boolean {
   if (mode === "async") return true;
   if (mode === "sync") return false;
@@ -694,8 +696,9 @@ export type BackgroundMessageRegistration<
    *  存储面入参宽化为 unknown（作者侧经 registerBackgroundMessage 按本条消息
    *  收窄），守卫按键分发后直接调用，调用点无需断言。 */
   readonly shape?: (message: unknown) => boolean;
-  /** 来源登记：只接受 offscreen 文档发送（派生 OFFSCREEN_ONLY_MESSAGE_TYPES） */
-  readonly offscreenOnly?: true;
+  /** 来源登记：本条消息的发送者标签（组合根按它注入对应判据；标签在场即进
+   *  OFFSCREEN_ONLY_MESSAGE_TYPES 派生名单）。 */
+  readonly sender?: SenderLabel;
   /** 本条消息的声明（类型层载体，运行期不存在） */
   readonly __message?: M;
   /** 本条消息的响应类型（类型层载体，ResponseOf 的唯一事实源） */
@@ -709,7 +712,7 @@ export type BackgroundMessageRegistration<
 type BackgroundMessageRegistrationArgument<M extends BackgroundMessage, Mode extends MessageReplyMode> = {
   reply: Mode;
   shape?: (message: M) => boolean;
-  offscreenOnly?: true;
+  sender?: SenderLabel;
 };
 
 function registerBackgroundMessage<M extends BackgroundMessage, R>(
@@ -870,7 +873,7 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   // 段缓存族是 offscreen 专属来源（只接受 offscreen 文档发送）
   "segment-cache": registerBackgroundMessage<SegmentCacheMessage, SegmentCacheResponse>({
     reply: "async",
-    offscreenOnly: true
+    sender: "offscreen"
   }),
   "offload-task": registerBackgroundMessage<OffloadTaskMessage, OffloadTaskResponse>({
     reply: "branch"
@@ -881,7 +884,7 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
     OffscreenRequestCloseResponse
   >({
     reply: "async",
-    offscreenOnly: true
+    sender: "offscreen"
   }),
   "get-debug-log-gate": registerBackgroundMessage<
     GetDebugLogGateMessage,
@@ -898,14 +901,15 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
 
 export type BackgroundMessageRegistry = typeof BACKGROUND_MESSAGE_REGISTRY;
 
-// 来源守卫的单源（名单从注册表的 offscreenOnly 登记派生，增减一项只改对应登记）：
+// 来源守卫的单源（名单从注册表逐条的 sender 标签派生，增减一项只改对应登记）：
 // 「谁能发」属协议契约。语义 = 扩展级副作用能力只开放给 offscreen 文档本身
-// （SW 代执行的另一面）；名单外消息默认放行（发送者含 content，见 search-cache /
-// search-health 段的例外注释）。来源判定与关闭执行器共用
-// asr/offscreen-bridge.bg.ts 的 isOffscreenDocumentSender（只判来源、不持名单）。
+// （SW 代执行的另一面，当前唯一的标签是 "offscreen"）；名单外消息默认放行（发送者
+// 含 content，见 search-cache / search-health 段的例外注释）。判据本体与关闭执行器
+// 共用 asr/offscreen-bridge.bg.ts 的 isOffscreenDocumentSender（只判来源、不持名单），
+// 由组合根按标签注入 core/message-router。
 export const OFFSCREEN_ONLY_MESSAGE_TYPES: ReadonlyArray<BackgroundMessageType> = (
   Object.keys(BACKGROUND_MESSAGE_REGISTRY) as BackgroundMessageType[]
-).filter((type) => BACKGROUND_MESSAGE_REGISTRY[type].offscreenOnly === true);
+).filter((type) => BACKGROUND_MESSAGE_REGISTRY[type].sender !== undefined);
 
 // ===== 响应类型映射（arch-slim-2/02 → 注册表派生）=====
 
