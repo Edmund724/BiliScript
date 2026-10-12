@@ -21,11 +21,10 @@ import {
   type MessageReplyDecision,
   type MessageReplyMode,
   type MessageSender,
+  type SenderLabel,
   type SendResponse
 } from "../shared/messaging-protocol.js";
 
-/** 来源标签：注册条目的 sender 取值，组合根按它注入对应判据。 */
-export type SenderLabel = string;
 export type MessageSenderLike = MessageSender;
 /** SW 半边：有 sender 位（来源守卫轴开时按三参派发，回包口径照注册表 reply 档）。 */
 export type MessageHandlerLike = (

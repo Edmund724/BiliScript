@@ -22,8 +22,6 @@ import type { SearchProvider } from "../search/search-provider-normalize.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 // 段缓存键位字段形状（纯类型引入，编译期擦除；字段清单单源在零依赖叶）。
 import type { SegmentCacheContextFields } from "../ai/segment-cache-key-fields.js";
-// 来源标签词表（纯类型引入，编译期擦除；定义住消息入口策略模块 core/message-router）。
-import type { SenderLabel } from "../core/message-router.js";
 
 // ===== content script 处理的 runtime 消息 =====
 
@@ -681,6 +679,11 @@ export function resolveReplyKeepOpen(mode: MessageReplyMode, handlerResult: Mess
   if (mode === "sync") return false;
   return handlerResult === "hold";
 }
+
+// 来源标签：注册条目 sender 的取值（当前唯一取值 "offscreen"）。标签是协议契约的
+// 一部分，判据本体由组合根按标签注入（core/message-router 的 senders），故词表
+// 住本层、契约消费方 core/ 反向 import 本层（shared 保持叶子）。
+export type SenderLabel = string;
 
 // 注册条目：消息声明与响应类型是类型层载体（运行期不存在，只供 ResponseOf 与
 // 键对齐校验读），形状判据 / 回包口径 / 来源登记是运行期事实。Mode 保留每条登记
