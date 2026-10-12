@@ -10,11 +10,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("runtime 回包表：分发与兜底", () => {
-  it("登记过的 type 回登记值，未登记的落缺省 { ok: true }", async () => {
+describe("runtime 回包表：分发与未登记 type", () => {
+  it("登记过的 type 回登记值，未登记的抛错并点出 type", async () => {
     const host = installMinimalChromeHost({ replies: { "get-settings": { ok: true, settings: { a: 1 } } } });
     await expect(host.sendMessage({ type: "get-settings" })).resolves.toEqual({ ok: true, settings: { a: 1 } });
-    await expect(host.sendMessage({ type: "not-registered" })).resolves.toEqual({ ok: true });
+    await expect(host.sendMessage({ type: "not-registered" })).rejects.toThrow(
+      "未登记的 runtime 消息类型：not-registered"
+    );
   });
 
   it("函数值回包收到原消息（可 async）；fallback 可显式覆盖（含 undefined）", async () => {
@@ -32,9 +34,12 @@ describe("runtime 回包表：分发与兜底", () => {
     expect(send({ type: "get-settings" }, callback)).toBeUndefined();
     expect(callback).toHaveBeenCalledWith({ ok: true });
 
-    const unknownCallback = vi.fn();
-    send({ type: "not-registered" }, unknownCallback);
-    expect(unknownCallback).toHaveBeenCalledWith({ ok: true });
+    expect(() => send({ type: "not-registered" }, vi.fn())).toThrow("未登记的 runtime 消息类型：not-registered");
+
+    const lenient = callbackStyleSendMessage({}, { fallback: undefined });
+    const lenientCallback = vi.fn();
+    lenient({ type: "not-registered" }, lenientCallback);
+    expect(lenientCallback).toHaveBeenCalledWith(undefined);
   });
 
   it("replyStyle: both 同时答 callback 与 promise（同一链上两种发送方式都要回包）", async () => {
