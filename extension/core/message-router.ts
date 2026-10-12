@@ -75,7 +75,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
   const { handlers, senders, rejectionMessage, registry = BACKGROUND_MESSAGE_REGISTRY } = options;
 
   // 键表 Map 化一次：Object.prototype 上的同名键（constructor / toString 等）不得被
-  // 当成 handler 或登记项（与组合根 messageHandlers Map 的按键查找同口径）。
+  // 当成 handler 或登记项（与登记表同口径的按键查找）。
   const handlerTable = new Map<string, RoutedHandler>(
     Object.entries(handlers)
   );

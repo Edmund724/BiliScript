@@ -101,8 +101,7 @@ import {
   type MessageSender,
   type ProviderListEntry,
   type ResolveSearchProviderResponse,
-  type SearchProviderListEntry,
-  type SendResponse
+  type SearchProviderListEntry
 } from "../shared/messaging-protocol.js";
 
 // ===== 写入口（落盘 + 失效一次做完）=====
