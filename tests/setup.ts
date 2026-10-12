@@ -7,9 +7,15 @@
 // timestamp-nav 测试断言恰好调用 1 次时暴露）。
 
 import { beforeEach, vi } from "vitest";
+import { createMemoryStorageArea } from "./helpers/memory-storage-area.js";
 
 export const READER_MODE_URL = "https://www.bilibili.com/video/BV1test000000/?biliscript_reader=1";
 export const NORMAL_PAGE_URL = "https://www.bilibili.com/video/BV1test000000/";
+
+// 缺省 storage 面的盘（模块级）：chrome 桩受下面的守卫只装一次，盘必须逐用例归零——
+// 否则上一条用例的缓存写入会漏给下一条（旧桩 get 恒空故无此问题）。
+const defaultLocalStore = new Map<string, unknown>();
+const defaultSyncStore = new Map<string, unknown>();
 
 function stubChromeApi() {
   const listeners = new Set<(...args: unknown[]) => void>();
@@ -39,16 +45,10 @@ function stubChromeApi() {
       }
     },
     storage: {
-      local: {
-        get: vi.fn(async () => ({})),
-        set: vi.fn(async () => {}),
-        remove: vi.fn(async () => {})
-      },
-      sync: {
-        get: vi.fn(async () => ({})),
-        set: vi.fn(async () => {}),
-        remove: vi.fn(async () => {})
-      },
+      // 与用例自装宿主（tests/helpers/chrome-host.ts）同一份内存 storage 面实现：
+      // 三形状读 + get(null) 全量快照 + 真实内存，故缺省桩与用例宿主语义一致。
+      local: createMemoryStorageArea(defaultLocalStore),
+      sync: createMemoryStorageArea(defaultSyncStore),
       onChanged: {
         addListener: vi.fn(),
         removeListener: vi.fn()
@@ -81,8 +81,11 @@ export function clearSharedSlots() {
 
 // 每条用例前清一次（在文件自身的 beforeEach 之前跑）：即便某文件只调
 // vi.resetModules() 不走 resetModuleState，也不会把上一条用例的槽带进来。
+// 缺省 storage 面同批归零（桩对象按守卫只装一次，「干净盘」由这里给）。
 beforeEach(() => {
   clearSharedSlots();
+  defaultLocalStore.clear();
+  defaultSyncStore.clear();
 });
 
 export function resetModuleState() {

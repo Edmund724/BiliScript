@@ -20,7 +20,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, setupEnvironment } from "../setup.js";
-import { installMemoryStorage, seedCache, type CacheEntry } from "../helpers/memory-storage.js";
+import { installChromeHost, type CacheEntry, type ChromeHost } from "../helpers/chrome-host.js";
 import { clipState } from "../../extension/core/state.js";
 
 // 顶层副作用 subscribeSubtitleRefresh(refreshClip) 需要 reader-bus 提供该函数。
@@ -89,9 +89,10 @@ const SUBTITLE_BODY = [
   { from: 3, to: 290, content: "收尾长句" }
 ];
 
-// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/memory-storage.ts；
+// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/chrome-host.ts；
 // 形状见 subtitle/cache.js 的 { body, timestamp }）
 
+let storageHost: ChromeHost;
 let store: Map<string, CacheEntry>;
 
 // 本文件固定用的那条轨的真实 per-track 缓存键（键装配走真实实现）
@@ -122,8 +123,9 @@ beforeEach(() => {
   clipState.setFetchRunId(0);
 
   // 单一纪元下 mock 实现会跨用例保留：显式归位，避免用例间相互污染。
-  // 缓存口每次装一台新的内存 storage（清掉上一条用例的键面）。
-  store = installMemoryStorage();
+  // 缓存口每次装一台新的宿主（清掉上一条用例的键面）；既有用例按盘上内容直读（Map 语义）。
+  storageHost = installChromeHost();
+  store = storageHost.map as unknown as Map<string, CacheEntry>;
   vi.mocked(fetchBodyMock).mockReset();
   vi.mocked(setMessage).mockClear();
   vi.mocked(acceptSubtitle).mockClear();
@@ -165,7 +167,7 @@ describe("noSubtitleReason 清除点", () => {
     clipState.setNoSubtitleDetail("（错误详情：HTTP 404）");
     // 旧缓存条目可能无序：接受事务单点负责排序（findActiveSubtitleIndex 二分依赖）
     const unsortedBody = [SUBTITLE_BODY[2], SUBTITLE_BODY[0], SUBTITLE_BODY[1]];
-    await seedCache(subtitleCacheKey(), unsortedBody);
+    await storageHost.seedCacheEntry(subtitleCacheKey(), unsortedBody);
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false);
 
@@ -244,7 +246,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
 
   it("缓存命中但时长不匹配：清缓存后走网络重抓", async () => {
     // 过短字幕：videoDuration=300、maxTo=10 < 66 → too-short
-    await seedCache(subtitleCacheKey(), [{ from: 0, to: 10, content: "过短" }]);
+    await storageHost.seedCacheEntry(subtitleCacheKey(), [{ from: 0, to: 10, content: "过短" }]);
     vi.mocked(fetchBodyMock).mockResolvedValue({ body: SUBTITLE_BODY });
 
     await fetcher.loadSubtitle("https://example.com/sub.json", "中文", 0, "track-1", false);
@@ -260,7 +262,7 @@ describe("loadSubtitle 缓存边界行为（重构前后不变）", () => {
     // 单一纪元：state 跨用例保留，先摆一个已知基线
     clipState.setSubtitleFetchState("loading");
     clipState.setSubtitleBody([]);
-    await seedCache(subtitleCacheKey(), [{ from: 0, to: 10, content: "过短" }]);
+    await storageHost.seedCacheEntry(subtitleCacheKey(), [{ from: 0, to: 10, content: "过短" }]);
     vi.mocked(fetchBodyMock).mockRejectedValue(new Error("HTTP 500"));
 
     await expect(

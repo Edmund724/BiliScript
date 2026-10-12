@@ -5,47 +5,16 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState, makeSubtitleBody } from "../setup.js";
+import { installChromeHost } from "../helpers/chrome-host.js";
 
 let mod: typeof import("../../extension/ai/map-reduce.js");
 let segmentCacheLoop: Awaited<ReturnType<typeof installSegmentCacheLoop>>;
 
 // 段缓存 SW 回路（arch-review-2026-09/05）：段缓存宿主迁 SW，orchestrateMapReduce
 // 的缺省 segmentCache 是消息代理——测试环境把 chrome.runtime.sendMessage 路由到
-// 真实 SW handler（createSegmentCacheHandler → segment-cache 单源 → 内存
-// storage），读写全链路走真实消息与真实键位装配。
-function createMemoryStorage() {
-  const map = new Map();
-  const local = {
-    get: vi.fn(async (keys) => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(map.entries());
-      }
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of want) {
-        if (map.has(k)) {
-          out[k] = map.get(k);
-        }
-      }
-      return out;
-    }),
-    set: vi.fn(async (items) => {
-      for (const [key, value] of Object.entries(items)) {
-        map.set(key, value);
-      }
-    }),
-    remove: vi.fn(async (keys) => {
-      const want = Array.isArray(keys) ? keys : [keys];
-      for (const k of want) {
-        map.delete(k);
-      }
-    })
-  };
-  return { map, local };
-}
-
+// 真实 SW handler（createSegmentCacheHandler → segment-cache 单源 → 共享宿主内存面），
+// 读写全链路走真实消息与真实键位装配。
 async function installSegmentCacheLoop() {
-  const storage = createMemoryStorage();
   const handler = (await import("../../extension/ai/segment-cache-handler.js")).createSegmentCacheHandler();
   const sendMessage = vi.fn((message) => {
     if (message?.type === "segment-cache") {
@@ -53,10 +22,7 @@ async function installSegmentCacheLoop() {
     }
     return Promise.resolve({ ok: true });
   });
-  vi.stubGlobal("chrome", {
-    storage: { local: storage.local },
-    runtime: { sendMessage }
-  });
+  const storage = installChromeHost({ runtime: { sendMessage } });
   return { storage, sendMessage };
 }
 
@@ -683,7 +649,7 @@ describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
     expect(run1.aborted).toBe(false);
     const scale1Key = sc.buildSegmentSummaryCacheKey(context, firstIndex, 1);
     expect(scale1Key).not.toMatch(/_b\d+$/);
-    expect(storage.map.get(scale1Key)?.summary).toBe("小结一：事实A。");
+    expect((storage.map.get(scale1Key) as { summary?: string } | undefined)?.summary).toBe("小结一：事实A。");
 
     // 第 2 轮：段小结全命中常态档缓存（合法同档复用，不调模型），成稿溢出 →
     // 按 0.5 档整轮重跑（9 段）。重跑段若串档会命中常态档缓存、不调模型。
@@ -711,8 +677,8 @@ describe("溢出重跑预算档隔离：_b50 不串常态档内容", () => {
     // 两档 key 并存、内容各自：常态档未被覆写，_b50 档是重跑产物
     const b50Key = sc.buildSegmentSummaryCacheKey(context, firstIndex, 0.5);
     expect(b50Key).toMatch(/_b50$/);
-    expect(storage.map.get(scale1Key)?.summary).toBe("小结一：事实A。");
-    expect(storage.map.get(b50Key)?.summary).toBe("收紧档小结1。");
+    expect((storage.map.get(scale1Key) as { summary?: string } | undefined)?.summary).toBe("小结一：事实A。");
+    expect((storage.map.get(b50Key) as { summary?: string } | undefined)?.summary).toBe("收紧档小结1。");
     // 成稿材料来自收紧档小结（不串常态档内容）
     expect(run2.draft).toBe("# 视频笔记：《测试视频》\n收紧档正文。");
     expect(run2.segmentSummaries).toContain("收紧档小结1。");

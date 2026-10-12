@@ -7,6 +7,7 @@
 // 字段：链路任意一段把平台身份丢掉（provider 重建、代发通道丢头）都会在这里红。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { installChromeHost } from "../helpers/chrome-host.js";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -138,36 +139,14 @@ describe("概览链（offscreen 代发）", () => {
 // 空正文加倍重试），x-opencode-session 必须同值——逐调用现造随机 id 会把同一轮
 // 概览拆成多个会话（平台侧路由与 prompt 缓存都按会话走）。
 describe("概览链整轮一个会话 id", () => {
-  // 概览会落整份 / 分段缓存（chrome.storage.local）：内存实现避免缓存分支报错干扰。
-  function memoryStorage() {
-    const map = new Map<string, unknown>();
-    return {
-      get: vi.fn(async (keys: unknown) => {
-        if (keys === null || keys === undefined) {
-          return Object.fromEntries(map.entries());
-        }
-        const want = Array.isArray(keys) ? keys : [keys];
-        return Object.fromEntries(want.filter((k) => map.has(k as string)).map((k) => [k, map.get(k as string)]));
-      }),
-      set: vi.fn(async (items: Record<string, unknown>) => {
-        for (const [key, value] of Object.entries(items)) map.set(key, value);
-      }),
-      remove: vi.fn(async (keys: unknown) => {
-        for (const key of Array.isArray(keys) ? keys : [keys]) map.delete(key as string);
-      })
-    };
-  }
-
+  // 概览会落整份 / 分段缓存：共享宿主的空内存面避免缓存分支报错干扰。
   // 第 N 次请求回不同流的代发桩（一次请求一个端口）：首代只吐思考（正文空 →
   // 触发空正文加倍重试），次代吐合法概览 JSON。
   function stubOffscreenRelaySequence(renders: string[]): OffscreenRelayMessage[] {
     const posted: OffscreenRelayMessage[] = [];
-    const local = memoryStorage();
     let requestIndex = -1;
-    vi.stubGlobal("chrome", {
-      storage: { local },
+    installChromeHost({
       runtime: {
-        lastError: null,
         sendMessage: vi.fn((_message: unknown, callback?: (resp?: unknown) => void) => {
           callback?.({ ok: true });
           return undefined;

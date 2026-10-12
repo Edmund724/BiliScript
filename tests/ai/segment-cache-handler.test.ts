@@ -5,47 +5,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 import type { SegmentCacheMessage, SegmentCacheResponse, SendResponse } from "../../extension/shared/messaging-protocol.js";
 
 let mod: typeof import("../../extension/ai/segment-cache-handler.js");
-let storage: ReturnType<typeof createMemoryStorage>;
+let storage: ChromeHost;
 let handler: ReturnType<typeof import("../../extension/ai/segment-cache-handler.js").createSegmentCacheHandler>;
-
-function createMemoryStorage() {
-  const map = new Map();
-  const local = {
-    get: vi.fn(async (keys) => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(map.entries());
-      }
-      const want = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of want) {
-        if (map.has(k)) {
-          out[k] = map.get(k);
-        }
-      }
-      return out;
-    }),
-    set: vi.fn(async (items) => {
-      for (const [key, value] of Object.entries(items)) {
-        map.set(key, value);
-      }
-    }),
-    remove: vi.fn(async (keys) => {
-      for (const k of Array.isArray(keys) ? keys : [keys]) {
-        map.delete(k);
-      }
-    })
-  };
-  return { map, local };
-}
 
 async function importModules() {
   vi.resetModules();
   resetModuleState();
-  storage = createMemoryStorage();
-  vi.stubGlobal("chrome", { storage: { local: storage.local } });
+  storage = installChromeHost();
   mod = await import("../../extension/ai/segment-cache-handler.js");
   handler = mod.createSegmentCacheHandler();
 }

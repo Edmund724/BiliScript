@@ -22,7 +22,7 @@
 
 import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest";
 import { resetModuleState } from "../setup.js";
-import { installMemoryStorage } from "../helpers/memory-storage.js";
+import { installChromeHost } from "../helpers/chrome-host.js";
 
 vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
@@ -67,7 +67,7 @@ const TRACK = {
   source: "player-wbi-v2"
 };
 
-// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/memory-storage.ts）
+// 内存版 chrome.storage.local（共享宿主，见 tests/helpers/chrome-host.ts）
 
 // 可控 promise：resolve 由测试在窗口点手动触发（挂起期间的插队竞态）
 function createPending<T = void>() {
@@ -107,7 +107,7 @@ async function importEpoch() {
   gateway.fetchSubtitleBundle.mockReset().mockResolvedValue({ tracks: [TRACK], chapters: [] });
   gateway.fetchSubtitleBody.mockReset();
   gateway.readRuntimeVideoDuration.mockReset().mockReturnValue(300);
-  installMemoryStorage();
+  installChromeHost();
   uiStatus.setStatus.mockReset();
   uiStatus.setMessage.mockReset();
   core.refreshHotComments.mockReset().mockResolvedValue(undefined);
