@@ -95,7 +95,7 @@ async function defaultFetchHotComments(): Promise<unknown[]> {
 // ensureSummarizeChain 等动态装载之后才跑），此刻 state.clip 还停在上一个视频——
 // 照常装配会把上个视频的 bvid/标题/字幕体当成当前页的上下文（用户报障：切到新视频，
 // 转写中对话里还是上一个视频的问题；发送更会把上个视频的字幕交给模型）。纪律与
-// reader/lifecycle 的 isSubtitleInHandOrInFlight 同一条：地址能取出 bvid 而 clip 的
+// subtitle/subtitle-in-hand 的 isSubtitleInHandOrInFlight 同一条：地址能取出 bvid 而 clip 的
 // bvid 非空且不同即判「不是当前视频」。地址取不出身份（非视频页等）无从校验，保持
 // 既有装配口径。
 function doesClipMatchPageUrl(clip: Partial<ClipState>, url: string): boolean {

@@ -18,8 +18,6 @@ import { getReaderElement } from "../shared/dom-utils.js";
 // 候选02：updateReaderPreferences/renderReaderPanels 自 presentation.js 移回
 //（script-only-ui：排版档位机制退役，validators 只剩主题归一化）。
 import { normalizeReaderTheme } from "../core/validators.js";
-import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
-import { extractBvid } from "../bilibili/video-id-shared.js";
 import { getErrorMessage, isStaleRunError } from "../shared/error-helpers.js";
 import {
   getReadingSubtitleItems,
@@ -164,27 +162,11 @@ import {
   updateReaderFollowState
 } from "./sync.js";
 
-// 「本视频字幕在手或在飞」判定（面板兜底抓取与页面预抓取共用的去重守卫；
-// 入口与元数据等待后各判一次，同一份语义）。
-// 先决是视频身份：clip.bvid 非空且与当前地址取出的 bvid 一致。稍后再看列表内
-// SPA 换片若逃逸了 URL 监听（如轮询兜底的一个节拍内点了 Script），state.clip
-// 可能还停在上一个视频——旧视频的字幕体非空 / fetchState 为 ready 都不是本视频
-// 的状态，一律按未抓取处理、重抓（refreshClip 按当前地址写 clip.bvid，因此本视频
-// 在飞/已就绪必然身份一致）。
-// 身份成立后，字幕体非空（在手）或 fetchState 为 loading/ready（抓取在飞或已
-// 接受）都判「有」：预抓取起跑后打开面板时，面板触发的抓取据此让位，不并发双抓
-//（双抓只会让先起的一轮在新一轮自增 runId 后作废）。
-export function isSubtitleInHandOrInFlight(): boolean {
-  const sameVideoAsPage = Boolean(state.clip.bvid) && state.clip.bvid === extractBvid(location.href);
-  if (!sameVideoAsPage) {
-    return false;
-  }
-  return (
-    state.clip.subtitleBody.length > 0 ||
-    state.clip.subtitleFetchState === "loading" ||
-    state.clip.subtitleFetchState === "ready"
-  );
-}
+// 「本视频字幕在手或在飞」判定与「等视频元数据」都已是叶子事实（与 reader 动态域
+// 零实质耦合），出装配根到 subtitle/subtitle-in-hand 与 bilibili/video-probe：
+// 页面预抓取静态 import 它们，普通视频页不再为此装载 reader chunk（ADR-0017 修订）。
+import { isSubtitleInHandOrInFlight } from "../subtitle/subtitle-in-hand.js";
+import { waitForVideoMetadata } from "../bilibili/video-probe.js";
 
 async function maybeRefreshReaderSubtitleInBackground() {
   if (isSubtitleInHandOrInFlight()) {
@@ -355,26 +337,10 @@ function openReaderViewShell(readingView = getReaderElement(ids.readingView)) {
   setReadingViewReady(true);
 }
 
-export function waitForVideoMetadata(timeoutMs = 5000): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const start = Date.now();
-    const check = () => {
-      const video = getRuntimeVideoElement();
-      const duration = Number(video?.duration);
-      const ready = video && Number.isFinite(duration) && duration > 0;
-      if (ready || Date.now() - start >= timeoutMs) {
-        resolve();
-        return;
-      }
-      window.setTimeout(check, 150);
-    };
-    check();
-  });
-}
-
 // syncReaderModeAfterMount / settleReaderModePresentation 已随整页接管退役
 //（B 形态）：播放器挂载/布局/呈现稳定链不再由阅读模式驱动，同步的
 // 启动收敛到 subtitle-ready 通知路径（handleReaderPresenterNotification）。
+//（waitForVideoMetadata 已出装配根到 bilibili/video-probe，见文件上部注。）
 
 export function closeReadingView() {
   // 视图关闭走状态机迁移（exiting→closed 常规收尾；open→closed 兜底直关；

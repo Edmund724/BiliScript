@@ -51,7 +51,7 @@ _Avoid_: 凭缓存数据重要性/大小选宿主、offscreen 侧引入 storage 
 
 **字幕预抓取**:
 进入视频页即起跑的字幕抓取，不等用户打开文摘面板或点 AI 键。起跑点两处：content script 载入与 SPA 换片；起跑时序与既有自动抓取同一语义（先等视频元数据，再经总结链装载发刷新请求），复用的是「字幕接受」同一条事务链。字幕列表请求兼作可用性探测：无字幕的视频只多这一次列表请求，不进入 ASR 转写（ASR 保持用户触发）。是否起跑由共享守卫「字幕在手或在飞」判定：字幕体已落账且视频身份匹配当前页，或抓取相位为 loading / ready 时不起跑；失败静默，不写页面提示。抓取失败留下的 error 态由发送闸在发送前重试一次，仍失败则拦截发送。
-代码名：`ensureSubtitlePrefetch` / `startSubtitlePrefetch`（entry/message-handler.ts）/ `isSubtitleInHandOrInFlight`（reader/lifecycle.ts）
+代码名：`ensureSubtitlePrefetch` / `startSubtitlePrefetch`（entry/message-handler.ts）/ `isSubtitleInHandOrInFlight`（subtitle/subtitle-in-hand.ts）
 _Avoid_: 预热、预取（quick-prompts 的 warmUpInitialQuickPrompts 已占用「预热」）；把预抓取当成会触发 ASR 的路径；给预抓取单开设置开关（见 ADR-0017）
 
 **文摘面板**:

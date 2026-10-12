@@ -75,7 +75,9 @@ const lazyTargets = [
   { name: "fetcher", source: "subtitle/fetcher.ts" },
   { name: "ui", source: "subtitle/ui.ts" },
   { name: "gateway", source: "bilibili/gateway.ts" },
-  { name: "video-probe", source: "bilibili/video-probe.ts" },
+  // bilibili/video-probe.ts 不再列懒加载目标：ADR-0017 修订后常驻预抓取链静态
+  // 依赖它的 waitForVideoMetadata（元数据等待出装配根），列为懒加载目标会让轮 A
+  // 把该静态边 external 成 chunks/ 引用，直接命中「主包不得静态引用 chunks/」守卫。
   { name: "settings-panel", source: "ui/settings-panel.ts" },
   { name: "provider-editor", source: "ui/provider-editor.ts" },
   { name: "explain", source: "ai/explain.ts" },
@@ -595,7 +597,14 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "reader/presentation-fields.ts", mutable: false },
   { source: "shared/dom-ids.ts", mutable: false },
   { source: "shared/error-helpers.ts", mutable: false },
-  { source: "shared/utils.ts", mutable: false }
+  { source: "shared/utils.ts", mutable: false },
+  // 播放器探针：常驻侧（预抓取的元数据等待）与懒侧（reader/gateway/player-ai）
+  // 各一份；模块级可变状态只有 WeakRef 缓存，两侧各自缓存同一 DOM，无跨实例
+  // 一致性要求（头注已标 BILISCRIPT_DUAL_INSTANCE_STATEFUL）。
+  { source: "bilibili/video-probe.ts", mutable: true },
+  // 预抓取去重守卫：纯函数（只读 state.clip + extractBvid + location.href），
+  // 两侧消费方（entry 预抓取 / reader 兜底抓取）各自一份实例，无可变状态。
+  { source: "subtitle/subtitle-in-hand.ts", mutable: false }
 ];
 
 function readMapExtensionSources(mapFile) {

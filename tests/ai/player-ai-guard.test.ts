@@ -462,14 +462,24 @@ describe("player-ai 重试退避节奏与注入耗时观测（工单 button-inje
     // 停在 0），并排出 100ms 起步的退避拍（毫秒数从 globalThis.setTimeout 的
     // 实参读：那才是 fake 时钟那一层，window.setTimeout 上挂着 Node 的真实定时器）。
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    // 读数只取退避梯度上的拍（100..1000 的百位级）：同页还有字幕预抓取的元数据
+    // 轮询（bilibili/video-probe 的 150ms 拍，content 载入即起跑、走 Node 真实
+    // 定时器，vi.clearAllTimers 清不掉），它也经 window.setTimeout 出口——读
+    // 「全局最后一次实参」会撞上这条后台链。
+    const lastBackoffMs = () => {
+      const calls = setTimeoutSpy.mock.calls.filter(
+        ([, ms]) => typeof ms === "number" && ms >= 100 && ms <= 1000 && ms % 100 === 0
+      );
+      return calls.at(-1)![1] as number;
+    };
     flushRafQueue();
     expect(rafQueue.length).toBe(0);
-    expect(setTimeoutSpy.mock.calls.at(-1)![1]).toBe(100);
+    expect(lastBackoffMs()).toBe(100);
 
     // 退避节奏：预算耗尽后每一拍都是「定时器到点 → 重新吃满 20 帧 → 落回下一
     // 拍」，所以每观察一拍就整轮推进一次（20 帧 + 该拍毫秒数）。
     const stepOnce = async () => {
-      const ms = setTimeoutSpy.mock.calls.at(-1)![1]!;
+      const ms = lastBackoffMs();
       for (let i = 0; i < 20; i += 1) {
         flushRafQueue();
       }
