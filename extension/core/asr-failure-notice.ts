@@ -30,10 +30,12 @@ export type AsrRemedy = "open-settings" | "retry-later" | "none";
 
 // 详情行的输入：adapter 已把原始报文截到 200 字符（未格式化，可能带换行），
 // status === -1 表示「响应体不是合法 JSON」——那是判 kind 的信号，不是可展示的
-// 状态码，故只有 status > 0 才进详情行。
+// 状态码，故只有 status > 0 才进详情行。字段值按展示口径收口（Number() /
+// String()），故这里收外来原值：片级失败摘要的 status / detail 由判定层照搬，
+// 不保证是数字 / 字符串。
 export interface AsrFailureDetailInput {
-  status?: number | null;
-  detail?: string | null; // 原始报文片段（适配器已截到 200 字符），未格式化
+  status?: number | string | null;
+  detail?: string | number | null; // 原始报文片段（适配器已截到 200 字符），未格式化
 }
 
 export interface AsrFailureNotice {

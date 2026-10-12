@@ -48,18 +48,21 @@ import type { AsrFailureKind } from "./failure-kind.js";
 // AsrFailureKind 词表（type-only 引用）；wire 是外来数据，未知串照收——判定层
 // 不做成员校验（静默改掉旧/新宿主的类别会让归类点失去真因），收口在归类点
 // core/asr-failure-notice 的 reasonFromFailureKind。
+// status / detail 同样照搬原文：判定层的判据只是「键在且不是 undefined」，不做
+// 值形状校验（旧宿主可能发来数字串状态码、非字符串报文），展示层的
+// formatAsrFailureDetail 会按 Number() / String() 收口。
 export interface AsrFailureSummary {
   kind: AsrFailureKind | (string & {});
-  status?: number;
-  detail?: string;
+  status?: number | string | null;
+  detail?: string | number | null;
 }
 
 // wire 片段：三字段全可选（「有则带键」——缺席字段的键不出现，旧宿主不认得新
 // 字段，凭空多出 undefined 键会破坏形状兼容）。类别与域形态同词表，同样照收未知串。
 export interface AsrFailureFields {
   failedKind?: AsrFailureKind | (string & {});
-  failedStatus?: number;
-  failedDetail?: string;
+  failedStatus?: number | string | null;
+  failedDetail?: string | number | null;
 }
 
 // 判定：wire / 域形状的原文 → 摘要或 null（null = 无失败信号）。类别非空串即
@@ -85,12 +88,11 @@ export function readAsrFailureSummary(raw: unknown): AsrFailureSummary | null {
   const summary: AsrFailureSummary = { kind };
   const status = source.failedStatus !== undefined ? source.failedStatus : source.status;
   if (status !== undefined) {
-    // wire 是外来数据：原值照搬，判定层不替调用方改值（域类型声明的是预期形状）。
-    summary.status = status as number;
+    summary.status = status as number | string | null;
   }
   const detail = source.failedDetail !== undefined ? source.failedDetail : source.detail;
   if (detail !== undefined) {
-    summary.detail = detail as string;
+    summary.detail = detail as string | number | null;
   }
   return summary;
 }
