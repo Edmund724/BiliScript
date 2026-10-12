@@ -479,6 +479,49 @@ describe("maybeRunAsrFallback 空结果与失败", () => {
     expect(clipState.noSubtitleDetail).toBe("");
   });
 
+  it("空串 failedKind 不当作类别读：归 asr-unknown 只因「没有失败信号」，状态码/报文不随之出现", async () => {
+    // 判定层只认非空串类别：空串 ⇒ 整条摘要缺席（readAsrFailureSummary → null），
+    // 状态码与报文不得脱离类别存在。故这里的 asr-unknown 来自「没读到失败信号」，
+    // 不是把空串当成一个类别判出来的——详情位因此为空，而不是拼出 HTTP 401。
+    deps.runAsrPipeline.mockImplementation(async ({ onAttemptOutcome }) => {
+      onAttemptOutcome?.({
+        totalChunks: 3,
+        failedChunks: 3,
+        elapsedMs: 61000,
+        failedKind: "",
+        failedStatus: 401,
+        failedDetail: "{\"message\":\"Invalid token\"}"
+      });
+      return [];
+    });
+
+    await expect(fallback.maybeRunAsrFallback({ runId: RUN_ID })).resolves.toBe("empty");
+
+    expect(clipState.noSubtitleReason).toBe("asr-unknown");
+    expect(clipState.noSubtitleDetail).toBe("");
+  });
+
+  it("非空未知 failedKind 仍归 asr-unknown，但状态码照读（详情行出现）——空串用例的反面对照", async () => {
+    // 反面对照证明上一条不是「asr-unknown 恒真」：类别成立时摘要读得出，同一个
+    // 状态码就会进详情行；空串用例的详情位为空只能由「没有失败信号」解释。
+    deps.runAsrPipeline.mockImplementation(async ({ onAttemptOutcome }) => {
+      onAttemptOutcome?.({
+        totalChunks: 3,
+        failedChunks: 3,
+        elapsedMs: 61000,
+        failedKind: "asr-not-a-known-kind",
+        failedStatus: 401,
+        failedDetail: "{\"message\":\"Invalid token\"}"
+      });
+      return [];
+    });
+
+    await expect(fallback.maybeRunAsrFallback({ runId: RUN_ID })).resolves.toBe("empty");
+
+    expect(clipState.noSubtitleReason).toBe("asr-unknown");
+    expect(clipState.noSubtitleDetail).toContain("HTTP 401");
+  });
+
   it("管线失败的可展示状态码非 401（kind 缺失但带 status）：reason 与详情都不猜状态码", async () => {
     // 分类归 offscreen 侧（failure-kind.ts）；页面侧拿不到 kind 时不得自行按状态码
     // 归类。管线级 ERROR 也不承诺携带 status/detail（票 03 Q2），故这里即使夹带
