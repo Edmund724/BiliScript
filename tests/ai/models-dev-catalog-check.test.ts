@@ -23,10 +23,11 @@
 //  11. 红线：脚本进 extension 的静态图或请求路径。
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { hasArtifact } from "../helpers/artifacts.js";
 
 const SCRIPT = "scripts/check-models-dev-catalog.mjs";
 const FIXTURE_API = "tests/fixtures/models-dev/check-api.json";
@@ -429,9 +430,10 @@ describe("catalog:check CLI（上游 vs 手写分歧）", () => {
 // ─────────────── 接缝 B：真实文件 + 提交快照（离线，票面验收） ───────────────
 
 // 提交的快照在 `.scratch/`（本仓 gitignore 的构建/抓取工件区，与 01/02 的产物同处），
-// 新克隆里可能没有：没有就跳过这一组（已知冲突的形状已由接缝 A 的 fixture 钉住，
-// 那两个模型 id 与真表同名）。
-const hasSnapshot = existsSync(SNAPSHOT);
+// 新克隆里可能没有：没有就跳过这一组（判定读 tests/helpers/artifacts.ts 的登记表，
+// 缺席状态由 artifact-preflight.test.ts 显式报出；那两个模型 id 与真表同名，
+// 已知冲突的形状已由接缝 A 的 fixture 钉住）。
+const hasSnapshot = hasArtifact(SNAPSHOT);
 
 describe.skipIf(!hasSnapshot)("catalog:check（真产物 + 提交快照）", () => {
   it("快照与提交产物一致 → in sync；两条已知冲突落在 upstream-wins，qwen3-max 落注记", () => {

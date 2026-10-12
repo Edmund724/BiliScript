@@ -25,8 +25,9 @@
 //   9. 零档行（budget-only / toggle-only 落到未登记开关形状的平台）被静默塞进字段；
 //  10. 06-chip-source.tsv / 06-chip-sets.tsv 与解析结果漂移
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { hasAllArtifacts, hasArtifact } from "../helpers/artifacts.js";
 import {
   AI_THINKING_LEVELS,
   availableLevelsOf,
@@ -525,7 +526,8 @@ describe("canonical 优先（13 号票）：opencodego/kimi-k3 = canonical 词�
   });
 });
 
-// ===== 工件对账（清单与解析结果一致；工件缺失时跳过，同 catalog:check 先例）=====
+// ===== 工件对账（清单与解析结果一致；工件缺失时跳过，判定读 tests/helpers/artifacts.ts
+// 的登记表，缺席状态由 artifact-preflight.test.ts 显式报出）=====
 const ARTIFACTS = ".scratch/tickets/upstream-model-facts/artifacts";
 const CHIP_SOURCE = `${ARTIFACTS}/06-chip-source.tsv`;
 const CHIP_SETS = `${ARTIFACTS}/06-chip-sets.tsv`;
@@ -574,10 +576,10 @@ const SOURCE_TO_LAYER: Record<ThinkingRuleSource, string[]> = {
   unknown: ["fallback-unknown"]
 };
 
-describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSync(CHIP_CHANGES))(
+describe.skipIf(!hasAllArtifacts([CHIP_SOURCE, CHIP_SETS, CHIP_CHANGES]))(
   "06 工件与解析结果一致",
   () => {
-    const rows = existsSync(CHIP_SOURCE) ? parseTsv(CHIP_SOURCE) : [];
+    const rows = hasArtifact(CHIP_SOURCE) ? parseTsv(CHIP_SOURCE) : [];
 
     it("逐条：清单里的可用集 == resolver 的 A'，层 == resolver 的 source", () => {
       let checked = 0;
@@ -674,8 +676,8 @@ describe.skipIf(!existsSync(CHIP_SOURCE) || !existsSync(CHIP_SETS) || !existsSyn
 // ===== 请求矩阵逐格清单（裁定 #4：变化必须逐格可追溯）=====
 const MATRIX_CELLS = `${ARTIFACTS}/06-request-matrix.cells.tsv`;
 
-describe.skipIf(!existsSync(MATRIX_CELLS))("06 请求矩阵逐格变化清单", () => {
-  const text = existsSync(MATRIX_CELLS) ? readFileSync(MATRIX_CELLS, "utf8") : "";
+describe.skipIf(!hasArtifact(MATRIX_CELLS))("06 请求矩阵逐格变化清单", () => {
+  const text = hasArtifact(MATRIX_CELLS) ? readFileSync(MATRIX_CELLS, "utf8") : "";
   const lines = text.split("\n").filter((line) => line.length > 0);
   const header = lines[0]?.split("\t") ?? [];
   const traceAt = header.indexOf("trace");
