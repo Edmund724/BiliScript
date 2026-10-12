@@ -6,10 +6,10 @@
 // 往右上收（负 margin 而非改 header 内边距：内边距是三键与左侧文案/下方
 // 标签槽共用的，收它会把整行一起挪走）。
 // 直接断言 CSS 文本，防「改一半」——
-//   1. 文字动作按钮 pill 的选择器退回裸 `.biliscript-reading-actions button`：
-//      pill 的 (0,1,1) 压过基础段 .biliscript-reading-icon-btn 的 (0,1,0)，
-//      surface 实底 + 1px 边框 + 36px 最小高 + 999px 圆角整组漏到三键上
-//      （本文件断言排除选择器在、裸规则不在）；
+//   1. 动作行里再出现一条 button 后代规则：文字 pill 那类 (0,1,1) 一旦命中图标键，
+//      surface 实底 + 1px 边框 + 36px 最小高 + 999px 圆角整组漏回来（三键在蓝雾壳
+//      上各显一块浅灰方块）。三键的框形、底色与各状态只在图标键母题一处定义
+//      ——本文件断言动作行内没有 button 后代规则；
 //   2. 边框摘了但 hover/is-active 里的 border-color 留着：成无边框的孤儿声明；
 //   3. 边框摘了顺手把 hover 底色也摘：三键彻底不可见；
 //   4. 只写 border-color 不写 border：改一半，边框纹丝不动；
@@ -40,20 +40,11 @@ function declaration(block: string, prop: string): string | undefined {
 }
 
 describe("面板 header 三键的边框与位置", () => {
-  it("文字动作按钮 pill 不落在图标键上：排除选择器在、裸规则不在", () => {
-    const css = readCss();
-    const pill = ruleBody(
-      css,
-      "\\.biliscript-reading-actions button:not\\(\\.biliscript-reading-icon-btn\\)"
-    );
-
-    // pill 本身还在（排除的是图标键，不是整条文字键规则）
-    expect(declaration(pill, "background")).toBe("var(--biliscript-reader-surface, #fff)");
-    expect(declaration(pill, "border")).toBe("1px solid var(--biliscript-reader-border, #e5e7eb)");
-    // 裸规则（起于选择器位置的 `.biliscript-reading-actions button {`）不许回来；
-    // 带 #id 作用域的 `#biliscript-reading-view … button`（box-shadow 归零）不在判据内，
-    // 它本就该同时命中图标键。
-    expect(/(?:^|\n)\s*\.biliscript-reading-actions button\s*\{/.test(css)).toBe(false);
+  it("动作行里只有图标键一套规则：没有 button 后代规则", () => {
+    // 文字 pill / box-shadow 归零 / is-active 覆写都曾以 `.biliscript-reading-actions button`
+    // 命中三键：pill 的 (0,1,1) 压过 .biliscript-reading-icon-btn 的 (0,1,0)，
+    // surface 实底整组漏回，三键各显一块浅灰方块。
+    expect(readCss()).not.toMatch(/\.biliscript-reading-actions\s+button/);
   });
 
   it("图标键基础段：静止态无底色、无边框", () => {
