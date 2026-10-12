@@ -24,6 +24,7 @@ import { dirname, join } from "node:path";
 import { resetModuleState } from "../setup.js";
 import { ASR_PENDING_CHUNKS_LIMIT_MESSAGE } from "../../extension/asr/protocol.js";
 import { formatAsrFailureDetail } from "../../extension/core/asr-failure-notice.js";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // 单参 readFileSync 被 tests/reader/node-stubs.d.ts 的 string 返回重载抢先匹配
@@ -134,7 +135,7 @@ const RUNTIME_CONFIG = {
   asrLanguage: "auto"
 };
 
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let host: MinimalChromeHost;
 // 转写 POST 的到达顺序（断言「第 2 片从未发起」的唯一事实源）
 let transcriptionRequests: number[] = [];
 
@@ -226,29 +227,19 @@ function installFetchStub(transcriptionStatus: number | string) {
   return fetchMock;
 }
 
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    ...globalThis.chrome,
-    runtime: {
-      ...globalThis.chrome.runtime,
-      onConnect: {
-        addListener: vi.fn((fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn))
-      },
-      sendMessage: vi.fn(async (message: { type?: string }) => {
-        if (message?.type === "get-asr-runtime-config") {
-          return RUNTIME_CONFIG;
-        }
-        if (message?.type === "check-provider-origin") {
-          return { granted: true };
-        }
-        return { ok: true };
-      })
+function installHost() {
+  host = installMinimalChromeHost({
+    preserveExisting: true,
+    onConnect: true,
+    replies: {
+      "get-asr-runtime-config": () => RUNTIME_CONFIG,
+      "check-provider-origin": () => ({ granted: true })
     }
   });
 }
 
 function connectAsrDecodePort() {
-  const listener = onConnectListeners[onConnectListeners.length - 1];
+  const listener = host.onConnectListeners.at(-1)!;
   expect(listener, "offscreen.js 应已在模块加载时注册 onConnect 监听").toBeTruthy();
   const listeners = new Set<(message: unknown) => void>();
   const terminal = vi.fn();
@@ -277,9 +268,8 @@ async function runDecodeTask() {
 
 beforeEach(() => {
   resetModuleState();
-  onConnectListeners = [];
   transcriptionRequests = [];
-  stubChromeRuntime();
+  installHost();
   installAudioContextStub();
 });
 

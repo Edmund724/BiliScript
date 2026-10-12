@@ -13,6 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const ASR_BASE_URL = "https://api.siliconflow.cn/v1";
 
@@ -37,50 +38,39 @@ const RUNTIME_CONFIG = {
   asrLanguage: "auto"
 };
 
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let host: MinimalChromeHost;
 let fetchMock: ReturnType<typeof vi.fn>;
 // 消息与请求的到达顺序：断言预检发生在下载之前
 let events: string[] = [];
 // check-provider-origin 的回包（undefined = 无回包，fail-open 用例）
 let checkReply: unknown;
 
-function replyFor(message: { type?: string } | null | undefined) {
-  if (message?.type === "get-asr-runtime-config") {
-    return RUNTIME_CONFIG;
-  }
-  if (message?.type === "check-provider-origin") {
-    return checkReply;
-  }
-  return { ok: true };
-}
-
-// 同时支持两种发送方式：offscreen 本链的 get-asr-runtime-config 走 promise 风格直发，
-// shared/messaging.js 的 sendRuntimeMessage 走回调——stub 两种都答，免得到依赖
-// 某一种时挂住（既有 offscreen-asr-skip.test.js 的 stub 说明）。
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    ...globalThis.chrome,
-    runtime: {
-      ...globalThis.chrome.runtime,
-      onConnect: {
-        addListener: vi.fn((fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn))
+// 本链两条消息（get-asr-runtime-config / check-provider-origin）都由 offscreen
+// 按 promise 风格直发，同目录的 offscreen.ts 另有回调风格的点火调用，故回包两种风格都答；
+// 回包表同时承担「按序记名」，断言预检排在配置解析之后。
+function installHost() {
+  host = installMinimalChromeHost({
+    preserveExisting: true,
+    onConnect: true,
+    replyStyle: "both",
+    replies: {
+      "get-asr-runtime-config": () => {
+        events.push("msg:get-asr-runtime-config");
+        return RUNTIME_CONFIG;
       },
-      sendMessage: vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
-        events.push(`msg:${message?.type}`);
-        const reply = replyFor(message);
-        callback?.(reply);
-        return Promise.resolve(reply);
-      })
+      "check-provider-origin": () => {
+        events.push("msg:check-provider-origin");
+        return checkReply;
+      }
     }
   });
 }
 
 beforeEach(() => {
   resetModuleState();
-  onConnectListeners = [];
   events = [];
   checkReply = { granted: true };
-  stubChromeRuntime();
+  installHost();
   // 下载一律失败：只想证明「预检放行了才走到下载」，不真跑解码/转写
   fetchMock = vi.fn(async (_url: unknown, init?: { method?: string }) => {
     events.push(`fetch:${init?.method || "GET"}`);
@@ -95,7 +85,7 @@ async function loadOffscreen() {
 
 // 连一个可手动驱动消息的 asr-decode 端口，返回 { port, taskListener }
 function connectAsrDecodePort() {
-  const listener = onConnectListeners[onConnectListeners.length - 1];
+  const listener = host.onConnectListeners.at(-1)!;
   expect(listener, "offscreen.js 应已在模块加载时注册 onConnect 监听").toBeTruthy();
   const listeners = new Set<(message: unknown) => void>();
   const port = {

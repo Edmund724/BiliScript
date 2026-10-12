@@ -11,6 +11,7 @@
 // stub 捕获监听器后驱动假端口；vi.resetModules + 动态导入实现「文档重启」。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const { runLadderChatMock } = vi.hoisted(() => ({ runLadderChatMock: vi.fn() }));
 
@@ -24,28 +25,19 @@ vi.mock("../../extension/entry/offscreen-asr.js", () => ({
 const CONTEXT_KEY = "video:BV1body|101";
 const BODY = [{ from: 0, to: 5, content: "第一句" }];
 
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let host: MinimalChromeHost;
 
 // 提供能通过 resolveProviderWithKey 的 provider/key 响应（resolve-ai-provider 单趟）
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    runtime: {
-      onConnect: {
-        addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn)
-      },
-      sendMessage: vi.fn(async (message) => {
-        if (message?.type === "resolve-ai-provider") {
-          return {
-            ok: true,
-            provider: { id: "p1", name: "测试平台", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
-            apiKey: "test-key"
-          };
-        }
-        return { ok: true };
+function installHost() {
+  host = installMinimalChromeHost({
+    onConnect: true,
+    offscreen: true,
+    replies: {
+      "resolve-ai-provider": () => ({
+        ok: true,
+        provider: { id: "p1", name: "测试平台", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
+        apiKey: "test-key"
       })
-    },
-    offscreen: {
-      closeDocument: vi.fn(async () => {})
     }
   });
 }
@@ -53,8 +45,7 @@ function stubChromeRuntime() {
 // 每次导入 = 一个 offscreen 文档纪元（模块级单槽随之重置），重启语义由此模拟
 async function importOffscreen() {
   vi.resetModules();
-  onConnectListeners = [];
-  stubChromeRuntime();
+  installHost();
   return import("../../extension/entry/offscreen.js");
 }
 
@@ -80,9 +71,9 @@ function makeChatPort() {
 
 // 连上当前纪元的 offscreen 并返回驱动入口
 function connectChat() {
-  expect(onConnectListeners).toHaveLength(1);
+  expect(host.onConnectListeners).toHaveLength(1);
   const session = makeChatPort();
-  onConnectListeners[0](session.port);
+  host.onConnectListeners.at(-1)!(session.port);
   return {
     port: session.port,
     send: (msg: unknown) => session.listeners.message[0](msg),

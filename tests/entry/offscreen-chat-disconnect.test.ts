@@ -12,6 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatPort } from "../../extension/ai/ladder.js";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const { runLadderChatMock } = vi.hoisted(() => ({ runLadderChatMock: vi.fn() }));
 
@@ -25,38 +26,25 @@ vi.mock("../../extension/entry/offscreen-asr.js", () => ({
 const CONTEXT_KEY = "video:BV1body|101";
 const BODY = [{ from: 0, to: 5, content: "第一句" }];
 
-// chrome-types.d.ts 的 OnConnect 监听器形状（offscreen.ts 注册的端口监听器）。
-type OnConnectListener = (port: chrome.runtime.Port) => void;
+let host: MinimalChromeHost;
 
-let onConnectListeners: OnConnectListener[] = [];
-
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    runtime: {
-      onConnect: {
-        addListener: (fn: OnConnectListener) => onConnectListeners.push(fn)
-      },
-      sendMessage: vi.fn(async (message) => {
-        if (message?.type === "resolve-ai-provider") {
-          return {
-            ok: true,
-            provider: { id: "p1", name: "测试平台", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
-            apiKey: "test-key"
-          };
-        }
-        return { ok: true };
+function installHost() {
+  host = installMinimalChromeHost({
+    onConnect: true,
+    offscreen: true,
+    replies: {
+      "resolve-ai-provider": () => ({
+        ok: true,
+        provider: { id: "p1", name: "测试平台", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
+        apiKey: "test-key"
       })
-    },
-    offscreen: {
-      closeDocument: vi.fn(async () => {})
     }
   });
 }
 
 async function importOffscreen() {
   vi.resetModules();
-  onConnectListeners = [];
-  stubChromeRuntime();
+  installHost();
   return import("../../extension/entry/offscreen.js");
 }
 
@@ -88,9 +76,9 @@ function makeChatPort() {
 }
 
 function connectChat() {
-  expect(onConnectListeners).toHaveLength(1);
+  expect(host.onConnectListeners).toHaveLength(1);
   const session = makeChatPort();
-  onConnectListeners[0](session.port as unknown as chrome.runtime.Port);
+  host.onConnectListeners.at(-1)!(session.port as unknown as chrome.runtime.Port);
   return {
     port: session.port,
     fireDisconnect: session.fireDisconnect,

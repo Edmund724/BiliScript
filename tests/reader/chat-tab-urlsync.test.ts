@@ -16,6 +16,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
+import { callbackStyleSendMessage } from "../helpers/chrome-runtime-host.js";
 import type { TestState } from "./reader-test-env.js";
 
 const { gatewayMock, gatewayCoreMock } = vi.hoisted(() => ({
@@ -64,16 +65,9 @@ function stubChromeByType(): void {
       onChanged: { addListener: Sendstub; removeListener: Sendstub };
     };
   };
-  chromeStub.runtime.sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
-    const type = String(message?.type || "");
-    if (type === "ai-providers-list") {
-      callback?.({ ok: true, providers: [{ id: "p1", name: "平台一", model: "模型一", enabled: true }] });
-    } else if (type === "get-settings") {
-      callback?.({ ok: true, settings: {} });
-    } else {
-      callback?.({ ok: true });
-    }
-    return undefined;
+  chromeStub.runtime.sendMessage = callbackStyleSendMessage({
+    "ai-providers-list": () => ({ ok: true, providers: [{ id: "p1", name: "平台一", model: "模型一", enabled: true }] }),
+    "get-settings": () => ({ ok: true, settings: {} })
   });
   chromeStub.runtime.connect = vi.fn(() => ({
     name: "offscreen-chat",

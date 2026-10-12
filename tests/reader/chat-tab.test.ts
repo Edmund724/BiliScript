@@ -28,6 +28,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
+import { callbackStyleSendMessage } from "../helpers/chrome-runtime-host.js";
 import { SELECTED_PROVIDER_KEY } from "../../extension/shared/selected-provider.js";
 import type { TestState } from "./reader-test-env.js";
 
@@ -109,16 +110,9 @@ function stubChromeByType(): void {
       onChanged: { addListener: Sendstub; removeListener: Sendstub };
     };
   };
-  chromeStub.runtime.sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
-    const type = String(message?.type || "");
-    if (type === "ai-providers-list") {
-      callback?.({ ok: true, providers: providerList });
-    } else if (type === "get-settings") {
-      callback?.({ ok: true, settings: {} });
-    } else {
-      callback?.({ ok: true });
-    }
-    return undefined;
+  chromeStub.runtime.sendMessage = callbackStyleSendMessage({
+    "ai-providers-list": () => ({ ok: true, providers: providerList }),
+    "get-settings": () => ({ ok: true, settings: {} })
   });
   chromeStub.runtime.connect = vi.fn(() => {
     const messageListeners: Array<(msg: unknown) => void> = [];

@@ -21,11 +21,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { HOST_PERMISSION_HINT } from "../../extension/core/host-permissions.js";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const BASE_URL = "https://api.siliconflow.cn/v1";
 const MODEL = "XingChenAGI/XingChenASR-V3.2";
 
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let host: MinimalChromeHost;
 let fetchMock: ReturnType<typeof vi.fn>;
 let requests: Array<{ url: string; init: any }>;
 let platformStatus = 200;
@@ -33,40 +34,34 @@ let platformBody: unknown = { text: "" };
 let checkReply: unknown = { granted: true };
 let messages: string[] = [];
 
-function replyFor(message: { type?: string } | null | undefined) {
-  if (message?.type === "check-provider-origin") {
-    return checkReply;
-  }
-  return { ok: true };
-}
-
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    ...globalThis.chrome,
-    runtime: {
-      ...globalThis.chrome.runtime,
-      onConnect: {
-        addListener: vi.fn((fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn))
+function installHost() {
+  host = installMinimalChromeHost({
+    preserveExisting: true,
+    onConnect: true,
+    replyStyle: "both",
+    replies: {
+      "check-provider-origin": () => checkReply,
+      // 探针不读运行时配置：该回包只用来记名（登记后若被发到，断言即失败）
+      "get-asr-runtime-config": () => {
+        messages.push("get-asr-runtime-config");
+        return { ok: true };
       },
-      sendMessage: vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
-        messages.push(String(message?.type || ""));
-        const reply = replyFor(message);
-        callback?.(reply);
-        return Promise.resolve(reply);
-      })
+      "offscreen-request-close": () => {
+        messages.push("offscreen-request-close");
+        return { ok: true };
+      }
     }
   });
 }
 
 beforeEach(() => {
   resetModuleState();
-  onConnectListeners = [];
   requests = [];
   messages = [];
   platformStatus = 200;
   platformBody = { text: "" };
   checkReply = { granted: true };
-  stubChromeRuntime();
+  installHost();
   fetchMock = vi.fn(async (url: unknown, init?: unknown) => {
     requests.push({ url: String(url), init });
     return {
@@ -84,7 +79,7 @@ async function loadOffscreen() {
 }
 
 function connectAsrPort() {
-  const listener = onConnectListeners[onConnectListeners.length - 1];
+  const listener = host.onConnectListeners.at(-1)!;
   expect(listener, "offscreen.js 应已在模块加载时注册 onConnect 监听").toBeTruthy();
   const listeners = new Set<(message: unknown) => void>();
   const port = {

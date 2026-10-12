@@ -23,10 +23,11 @@ import {
   SEARCH_COOLDOWN_NOTICE,
   SEARCH_NOT_CONFIGURED_NOTICE
 } from "../../extension/search/search-runtime.js";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const BASE_URL = "https://api.siliconflow.cn/v1";
 
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let host: MinimalChromeHost;
 let fetchMock: ReturnType<typeof vi.fn>;
 // 消息与请求的到达顺序（跨两个 stub 共用）：断言预检发生在发请求之前
 let events: string[] = [];
@@ -35,38 +36,35 @@ let checkReply: unknown;
 // resolve-search-provider 的回包（缺省 = 无链：走「未配置搜索平台」notice 分支）
 let searchReply: unknown = { ok: true };
 
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    runtime: {
-      onConnect: {
-        addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn)
+function installHost() {
+  host = installMinimalChromeHost({
+    onConnect: true,
+    replies: {
+      "resolve-ai-provider": () => {
+        events.push("msg:resolve-ai-provider");
+        return {
+          ok: true,
+          provider: {
+            id: "p1",
+            presetId: "custom",
+            name: "硅基流动",
+            baseUrl: BASE_URL,
+            model: "deepseek-ai/DeepSeek-V3",
+            enabled: true,
+            requiresKey: true,
+            hasSavedKey: true
+          },
+          apiKey: "sk-test"
+        };
       },
-      sendMessage: vi.fn(async (message: { type?: string }) => {
-        events.push(`msg:${message?.type}`);
-        if (message?.type === "resolve-ai-provider") {
-          return {
-            ok: true,
-            provider: {
-              id: "p1",
-              presetId: "custom",
-              name: "硅基流动",
-              baseUrl: BASE_URL,
-              model: "deepseek-ai/DeepSeek-V3",
-              enabled: true,
-              requiresKey: true,
-              hasSavedKey: true
-            },
-            apiKey: "sk-test"
-          };
-        }
-        if (message?.type === "check-provider-origin") {
-          return checkReply;
-        }
-        if (message?.type === "resolve-search-provider") {
-          return searchReply;
-        }
-        return { ok: true };
-      })
+      "check-provider-origin": () => {
+        events.push("msg:check-provider-origin");
+        return checkReply;
+      },
+      "resolve-search-provider": () => {
+        events.push("msg:resolve-search-provider");
+        return searchReply;
+      }
     }
   });
 }
@@ -99,11 +97,10 @@ function sseResponse(chunks: string[]) {
 
 async function importOffscreen() {
   vi.resetModules();
-  onConnectListeners = [];
   events = [];
   checkReply = { granted: true };
   searchReply = { ok: true };
-  stubChromeRuntime();
+  installHost();
   fetchMock = vi.fn(async () => {
     events.push("fetch");
     return sseResponse([sseData({ content: "你好" }), "data: [DONE]\n\n"]);
@@ -136,8 +133,8 @@ function makeChatPort() {
 // extra 追加进 chat 消息体（如 webSearchEnabled: true）。
 async function runChatTurn(extra: Record<string, unknown> = {}) {
   const session = makeChatPort();
-  expect(onConnectListeners).toHaveLength(1);
-  onConnectListeners[0](session.port);
+  expect(host.onConnectListeners).toHaveLength(1);
+  host.onConnectListeners.at(-1)!(session.port);
   await session.listeners.message[0]({
     action: "chat",
     providerId: "p1",

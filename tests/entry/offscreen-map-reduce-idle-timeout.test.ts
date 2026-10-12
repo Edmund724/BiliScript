@@ -13,6 +13,7 @@
 // 断言端口不出现超时错误、运行不被中止（修复前此断言为红）。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 const { chatCompletionMock } = vi.hoisted(() => ({ chatCompletionMock: vi.fn() }));
 
@@ -31,54 +32,30 @@ function makeBody() {
   }));
 }
 
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
-let localStore: Record<string, unknown>;
+let host: MinimalChromeHost;
 
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    runtime: {
-      onConnect: { addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn) },
-      sendMessage: vi.fn(async (message) => {
-        if (message?.type === "resolve-ai-provider") {
-          return {
-            ok: true,
-            provider: { id: "p1", name: "测试平台", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
-            apiKey: "test-key"
-          };
-        }
-        return { ok: true };
+function installHost() {
+  host = installMinimalChromeHost({
+    onConnect: true,
+    offscreen: true,
+    storage: true,
+    replies: {
+      "resolve-ai-provider": () => ({
+        ok: true,
+        provider: { id: "p1", name: "测试平台", model: "m1", enabled: true, requiresKey: false, hasSavedKey: true },
+        apiKey: "test-key"
       })
-    },
-    offscreen: { closeDocument: vi.fn(async () => {}) },
-    storage: {
-      local: {
-        get: vi.fn(async (keys: string | string[] | null | undefined) => {
-          if (keys === null || keys === undefined) return { ...localStore };
-          const wanted = Array.isArray(keys) ? keys : [keys];
-          const out: Record<string, unknown> = {};
-          for (const k of wanted) if (k in localStore) out[k] = localStore[k];
-          return out;
-        }),
-        set: vi.fn(async (obj: Record<string, unknown>) => {
-          Object.assign(localStore, obj);
-        }),
-        remove: vi.fn(async (keys: string | string[]) => {
-          for (const k of Array.isArray(keys) ? keys : [keys]) delete localStore[k];
-        })
-      }
     }
   });
 }
 
 async function importOffscreen() {
-  onConnectListeners = [];
-  localStore = {};
-  stubChromeRuntime();
+  installHost();
   return import("../../extension/entry/offscreen.js");
 }
 
 function connectChat() {
-  expect(onConnectListeners).toHaveLength(1);
+  expect(host.onConnectListeners).toHaveLength(1);
   // 原实现把监听挂在 port._onMessage 上；chrome-types 的 Port 无此字段，改挂局部
   // 变量（单监听覆盖语义与运行时行为不变，同 offscreen-segment-cache.test.ts）
   let onMessageListener: ((message: unknown) => void) | undefined;
@@ -97,7 +74,7 @@ function connectChat() {
     postMessage: vi.fn(),
     disconnect: vi.fn()
   };
-  onConnectListeners[0](port as unknown as chrome.runtime.Port);
+  host.onConnectListeners.at(-1)!(port as unknown as chrome.runtime.Port);
   return {
     port,
     send: (msg: unknown) => onMessageListener!(msg)

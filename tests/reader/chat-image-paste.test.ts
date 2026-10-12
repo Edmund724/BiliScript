@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
+import { callbackStyleSendMessage } from "../helpers/chrome-runtime-host.js";
 import type { TestState } from "./reader-test-env.js";
 
 const { gatewayMock, gatewayCoreMock } = vi.hoisted(() => ({
@@ -62,13 +63,8 @@ function stubChromeByType(): void {
       onChanged: { addListener: Sendstub; removeListener: Sendstub };
     };
   };
-  chromeStub.runtime.sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
-    if (String(message?.type || "") === "ai-providers-list") {
-      callback?.({ ok: true, providers: providersPayload });
-    } else {
-      callback?.({ ok: true });
-    }
-    return undefined;
+  chromeStub.runtime.sendMessage = callbackStyleSendMessage({
+    "ai-providers-list": () => ({ ok: true, providers: providersPayload })
   });
   chromeStub.runtime.connect = vi.fn(() => {
     const port: FakePort = {

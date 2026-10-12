@@ -10,42 +10,34 @@
 // offscreen-chat-disconnect.test.js。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let host: MinimalChromeHost;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 // 反代域名：host 推断无规则。对话链若没把 presetId 带到请求层，模式表未列的
 // llama3.2 将落 unknown（思考字段全缺）——字段出现本身即穿线判据
 const PROXY_BASE_URL = "https://thinking-proxy.example.com/v1";
 
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    runtime: {
-      onConnect: {
-        addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn)
-      },
-      sendMessage: vi.fn(async (message) => {
-        if (message?.type === "resolve-ai-provider") {
-          return {
-            ok: true,
-            provider: {
-              id: "p1",
-              presetId: "ollama",
-              name: "本地 Ollama",
-              baseUrl: PROXY_BASE_URL,
-              model: "llama3.2",
-              enabled: true,
-              requiresKey: false,
-              hasSavedKey: true
-            },
-            apiKey: "test-key"
-          };
-        }
-        return { ok: true };
+function installHost() {
+  host = installMinimalChromeHost({
+    onConnect: true,
+    offscreen: true,
+    replies: {
+      "resolve-ai-provider": () => ({
+        ok: true,
+        provider: {
+          id: "p1",
+          presetId: "ollama",
+          name: "本地 Ollama",
+          baseUrl: PROXY_BASE_URL,
+          model: "llama3.2",
+          enabled: true,
+          requiresKey: false,
+          hasSavedKey: true
+        },
+        apiKey: "test-key"
       })
-    },
-    offscreen: {
-      closeDocument: vi.fn(async () => {})
     }
   });
 }
@@ -78,8 +70,7 @@ function sseResponse(chunks: string[]) {
 
 async function importOffscreen() {
   vi.resetModules();
-  onConnectListeners = [];
-  stubChromeRuntime();
+  installHost();
   fetchMock = vi.fn(async () => sseResponse([sseData({ content: "你好" }), "data: [DONE]\n\n"]));
   vi.stubGlobal("fetch", fetchMock);
   return import("../../extension/entry/offscreen.js");
@@ -116,8 +107,8 @@ describe("offscreen 对话链 presetId 穿线", () => {
   it("resolveProviderWithKey 带回 presetId → 对话请求体按 preset 平台规则出 reasoning_effort（host 反代无规则也命中）", async () => {
     await importOffscreen();
     const session = makeChatPort();
-    expect(onConnectListeners).toHaveLength(1);
-    onConnectListeners[0](session.port);
+    expect(host.onConnectListeners).toHaveLength(1);
+    host.onConnectListeners.at(-1)!(session.port);
 
     const onMessage = session.listeners.message[0];
     await onMessage({

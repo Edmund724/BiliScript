@@ -63,6 +63,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
+import { callbackStyleSendMessage } from "../helpers/chrome-runtime-host.js";
 import type { TestState } from "./reader-test-env.js";
 
 const { gatewayMock, gatewayCoreMock } = vi.hoisted(() => ({
@@ -140,17 +141,10 @@ function stubChromeByType(): void {
       onChanged: { addListener: SendStub; removeListener: SendStub };
     };
   };
-  chromeStub.runtime.sendMessage = vi.fn((message: { type?: string }, callback?: (resp: unknown) => void) => {
-    const type = String(message?.type || "");
-    if (type === "ai-providers-list") {
-      callback?.({ ok: true, providers: providersPayload });
-    } else if (type === "get-settings") {
-      // 无设置回落：aiThinkingLevel 归一化到默认 off（档位测试的前置态）。
-      callback?.({ ok: true, settings: settingsPayload });
-    } else {
-      callback?.({ ok: true });
-    }
-    return undefined;
+  chromeStub.runtime.sendMessage = callbackStyleSendMessage({
+    "ai-providers-list": () => ({ ok: true, providers: providersPayload }),
+    // 无设置回落：aiThinkingLevel 归一化到默认 off（档位测试的前置态）。
+    "get-settings": () => ({ ok: true, settings: settingsPayload })
   });
   chromeStub.runtime.connect = vi.fn(() => ({
     name: "offscreen-chat",

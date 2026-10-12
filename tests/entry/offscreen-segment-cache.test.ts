@@ -27,6 +27,7 @@ vi.mock("../../extension/ai/completion.js", async (importOriginal) => ({
 }));
 
 import { createSegmentCacheHandler } from "../../extension/ai/segment-cache-handler.js";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
 // 208k 字符（>200k 预算线 → map-reduce；5 段 + 成稿 = 6 次调用 ≥5 → 弹成本护栏，
 // 测试内自动确认）
@@ -48,38 +49,19 @@ function makeSmallBody() {
 }
 
 const CONTEXT_KEY = "video:BV1bridge|101";
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
-let memoryArea: ReturnType<typeof makeMemoryArea>;
+let host: MinimalChromeHost;
 let segmentCacheHandler: ReturnType<typeof createSegmentCacheHandler>;
 let sendMessageMock: ReturnType<typeof vi.fn>;
 
-function makeMemoryArea() {
-  const store = new Map<string, unknown>();
-  return {
-    store,
-    get: vi.fn(async (keys: string | string[] | null) => {
-      if (keys === null || keys === undefined) {
-        return Object.fromEntries(store);
-      }
-      const wanted = Array.isArray(keys) ? keys : [keys];
-      const out: Record<string, unknown> = {};
-      for (const k of wanted) if (store.has(k)) out[k] = store.get(k);
-      return out;
-    }),
-    set: vi.fn(async (items: Record<string, unknown>) => {
-      for (const [k, v] of Object.entries(items || {})) store.set(k, v);
-    }),
-    remove: vi.fn(async (keys: string | string[]) => {
-      for (const k of Array.isArray(keys) ? keys : [keys]) store.delete(k);
-    })
-  };
-}
-
-function stubChromeRuntime() {
-  sendMessageMock = vi.fn(async (message: unknown) => {
-    const msg = message as { type?: string } & Record<string, unknown>;
-    if (msg.type === "resolve-ai-provider") {
-      return {
+// 本用例的宿主：runtime（resolve-ai-provider 与 segment-cache 两条回包，后者路由到 SW 端
+// 真实 handler）+ 内存 storage.local（SW 侧 handler 直调 segment-cache 时读它）+ offscreen。
+function installHost() {
+  host = installMinimalChromeHost({
+    onConnect: true,
+    offscreen: true,
+    storage: true,
+    replies: {
+      "resolve-ai-provider": () => ({
         ok: true,
         provider: {
           baseUrl: "https://api.example.com/v1",
@@ -91,30 +73,18 @@ function stubChromeRuntime() {
           hasSavedKey: true
         },
         apiKey: "test-key"
-      };
+      }),
+      "segment-cache": (message: unknown) =>
+        new Promise((resolve) => segmentCacheHandler(message as SegmentCacheMessage, {}, resolve))
     }
-    if (msg.type === "segment-cache") {
-      // 路由到 SW 端真实 handler（segment-cache 单源 + 内存 storage）
-      return new Promise((resolve) => segmentCacheHandler(msg as SegmentCacheMessage, {}, resolve));
-    }
-    return { ok: true };
   });
-  vi.stubGlobal("chrome", {
-    runtime: {
-      onConnect: { addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn) },
-      sendMessage: sendMessageMock
-    },
-    // SW 侧 handler 直调 segment-cache → chrome.storage.local（内存实现）
-    storage: { local: memoryArea },
-    offscreen: { closeDocument: vi.fn(async () => {}) }
-  });
+  sendMessageMock = host.sendMessage;
 }
 
 async function importOffscreen() {
   vi.resetModules();
   resetModuleState();
-  onConnectListeners = [];
-  stubChromeRuntime();
+  installHost();
   return import("../../extension/entry/offscreen.js");
 }
 
@@ -137,7 +107,7 @@ function connectChat() {
     postMessage: vi.fn((_message: unknown) => {}),
     disconnect: vi.fn()
   };
-  onConnectListeners[0](port);
+  host.onConnectListeners[0](port);
   return {
     port,
     send: (msg: unknown) => onMessageListener!(msg)
@@ -147,7 +117,6 @@ function connectChat() {
 beforeEach(() => {
   chatCompletionMock.mockReset();
   chatCompletionMock.mockImplementation(async () => "分段小结内容");
-  memoryArea = makeMemoryArea();
   segmentCacheHandler = createSegmentCacheHandler();
   vi.unstubAllGlobals();
 });
@@ -191,7 +160,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     expect(ops.filter((op) => op === "save-summary").length).toBe(0);
     expect(ops.filter((op) => op === "save-raw").length).toBe(0);
 
-    const storeKeys = [...memoryArea.store.keys()];
+    const storeKeys = Object.keys((await host.storage!.get(null)) as Record<string, unknown>);
     const rawKeys = storeKeys.filter((k) => k.startsWith("biliscript_lvs_raw_"));
     const summaryKeys = storeKeys.filter((k) => k.startsWith("biliscript_lvs_summary_"));
     expect(rawKeys.length).toBe(5);
@@ -244,8 +213,8 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     await vi.waitFor(() => {
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "stopped")).toBe(true);
     });
-    await vi.waitFor(() => {
-      const rawKeys = [...memoryArea.store.keys()].filter((k) => k.startsWith("biliscript_lvs_raw_"));
+    await vi.waitFor(async () => {
+      const rawKeys = Object.keys(await host.storage!.get(null)).filter((k) => k.startsWith("biliscript_lvs_raw_"));
       expect(rawKeys.length).toBe(3);
     });
 
@@ -304,8 +273,8 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
     await vi.waitFor(() => {
       expect(session.port.postMessage.mock.calls.some((c) => c[0]?.type === "stopped")).toBe(true);
     });
-    await vi.waitFor(() => {
-      expect([...memoryArea.store.keys()].filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(3);
+    await vi.waitFor(async () => {
+      expect(Object.keys(await host.storage!.get(null)).filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(3);
     });
 
     // 第二轮 chat（追问接力）：上一轮的 close 已在该轮 return 前 await 完成，
@@ -341,7 +310,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
       .filter((m) => m?.type === "segment-cache")
       .map((m) => m.op);
     expect(ops.filter((op) => op === "save-summary-raw").length).toBe(5);
-    expect([...memoryArea.store.keys()].filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(5);
+    expect(Object.keys(await host.storage!.get(null)).filter((k) => k.startsWith("biliscript_lvs_raw_")).length).toBe(5);
     const notices = session.port.postMessage.mock.calls.map((c) => c[0]).filter((m) => m?.type === "notice");
     expect(notices.some((m) => String(m.data || "").includes("本地字幕缓存写入失败"))).toBe(false);
   });
@@ -356,8 +325,7 @@ describe("offscreen 段缓存消息族端到端（Map-Reduce 缓存落盘）", (
 
     vi.resetModules();
     resetModuleState();
-    onConnectListeners = [];
-    stubChromeRuntime();
+    installHost();
     // 假时钟下动态 import 会挂起：真实时钟先把模块图预热（含 offscreen 的 ladder 懒加载）
     await import("../../extension/ai/ladder.js");
     await import("../../extension/entry/offscreen.js");

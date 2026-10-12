@@ -8,41 +8,33 @@
 // offscreen-chat-presetid.test.js。
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+let host: MinimalChromeHost;
 let fetchMock: ReturnType<typeof vi.fn>;
 
 const BASE_URL = "https://opencode.ai/zen/go/v1";
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-function stubChromeRuntime() {
-  vi.stubGlobal("chrome", {
-    runtime: {
-      onConnect: {
-        addListener: (fn: (port: chrome.runtime.Port) => void) => onConnectListeners.push(fn)
-      },
-      sendMessage: vi.fn(async (message) => {
-        if (message?.type === "resolve-ai-provider") {
-          return {
-            ok: true,
-            provider: {
-              id: "p1",
-              presetId: "opencodego",
-              name: "Opencode Go",
-              baseUrl: BASE_URL,
-              model: "glm-5.1",
-              enabled: true,
-              requiresKey: true,
-              hasSavedKey: true
-            },
-            apiKey: "test-key"
-          };
-        }
-        return { ok: true };
+function installHost() {
+  host = installMinimalChromeHost({
+    onConnect: true,
+    offscreen: true,
+    replies: {
+      "resolve-ai-provider": () => ({
+        ok: true,
+        provider: {
+          id: "p1",
+          presetId: "opencodego",
+          name: "Opencode Go",
+          baseUrl: BASE_URL,
+          model: "glm-5.1",
+          enabled: true,
+          requiresKey: true,
+          hasSavedKey: true
+        },
+        apiKey: "test-key"
       })
-    },
-    offscreen: {
-      closeDocument: vi.fn(async () => {})
     }
   });
 }
@@ -70,8 +62,7 @@ function sseResponse(chunks: string[]) {
 
 async function importOffscreen() {
   vi.resetModules();
-  onConnectListeners = [];
-  stubChromeRuntime();
+  installHost();
   fetchMock = vi.fn(async () =>
     sseResponse([`data: ${JSON.stringify({ choices: [{ delta: { content: "你好" } }] })}\n\n`, "data: [DONE]\n\n"])
   );
@@ -108,8 +99,8 @@ describe("offscreen 对话链会话头穿线", () => {
   it("conversationId → x-opencode-session：同会话恒同值、新会话换新值、缺失也有值", async () => {
     await importOffscreen();
     const session = makeChatPort();
-    expect(onConnectListeners).toHaveLength(1);
-    onConnectListeners[0](session.port);
+    expect(host.onConnectListeners).toHaveLength(1);
+    host.onConnectListeners.at(-1)!(session.port);
     const onMessage = session.listeners.message[0];
 
     const send = (conversationId?: string) =>
