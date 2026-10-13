@@ -13,8 +13,8 @@
 //   validateCompatVocab 对账两侧（测试期跑，不进运行时）：声明了却没人接纳、
 //   接纳了却没声明，都报错；平台侧另查平台 id 是否为真实预设、怪癖绑定的协议
 //   该平台有没有登记端点。「接纳」= 该协议线格式栈对怪癖负责，兑现形态三种：
-//   adapter 内实现 / 卫星模块（thinking-profiles、preset-headers）实现 /
-//   显式登记的有意缺口——consumes 对三态一视同仁。
+//   adapter 内实现 / 卫星模块（thinking-profiles、thinking-wire-map、plan-thinking、
+//   preset-headers）实现 / 显式登记的有意缺口——consumes 对三态一视同仁。
 // 新增怪癖三步闭环：本词表登记（COMPAT_QUIRKS）→ PLATFORM_QUIRKS 声明平台 →
 // adapter consumes 自陈；缺一环对账即红。
 //

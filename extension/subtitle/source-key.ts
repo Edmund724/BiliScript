@@ -1,13 +1,13 @@
 // extension/subtitle/source-key.ts
 // 「字幕轨身份」键位叶：字幕轨身份 → 缓存 source key 的编码单点，以及与编码同根
-// 派生的「这是不是 ASR 变体键」判据。存储族模块不再承载身份编码：缓存键入口收
+// 派生的「这是不是 ASR 变体键」判据。身份编码不归存储族模块承载：缓存键入口收
 // 身份，ASR 侧显式构造 asr 身份，孤儿清理的匹配前缀取自本叶的导出常量。
 //
 // 身份的成员集是封闭判别联合（track / url / lang / asr），导出的四个面各司其职：
 //   ① trackIdentity(subtitleId, subtitleUrl, lang)：三个散字段原始输入 → 身份，
 //      优先级 id > url > lang 与 URL 归一的唯一裁定处；
 //   ② subtitleSourceKey(identity)：身份 → source key，封闭四态（switch 穷尽四态，
-//      新增一态必须显式给一行——身份不再有看不见的支线）；
+//      新增一态必须显式给一行——身份没有看不见的支线）；
 //   ③ buildSubtitleSourceKey(subtitleId, subtitleUrl, lang)：位置参数的便捷形
 //      （= ①∘②），供缓存族注入面与直取用——URL 归一不会被绕开；
 //   ④ isAsrVariantSourceKey(sourceKey) + ASR_SOURCE_KEY_PREFIX：ASR 变体判据与它的
@@ -15,9 +15,9 @@
 //      与识别侧（孤儿清理）因此出自同一根，改编码时判据跟着改，不可能各写一套拼写
 //      而悄悄漂移。
 //
-// 字节纪律（缓存零迁移是硬验收）：四态产物与历史 buildSubtitleSourceKey 的四条出口
-// 逐字节相同——轨 id 整体 trim、URL 归一（hostname + 净化 path）后空串回落 lang
-// 分支、空语言的 unknown 兜底、ASR 分段用 ":" 原样拼接（不剔空段）都在此逐字保留。
+// 字节纪律（缓存零迁移是硬验收）：四态的产物就是**既有缓存的 source key 字节面**——
+// 键形逐字节不变，老缓存继续命中、无需迁移：轨 id 整体 trim、URL 归一（hostname + 净化
+// path）后空串回落 lang 分支、空语言的 unknown 兜底、ASR 分段用 ":" 原样拼接（不剔空段）。
 //
 // 叶子纪律：运行时依赖只有 URL 归一叶（第二套归一「削成 hostname + 净化 path」的
 // 住处，本叶 import 复用、不存第二份）；不碰 chrome、不碰 state、不拖网关闭包——
@@ -42,8 +42,8 @@ function trackIdComponent(rawId: unknown): string {
   return `id_${String(rawId || "").trim()}`;
 }
 
-// 分段原样成文本：空段保留为空串（不剔段），拼接仍由调用侧的 ":" 负责。
-function segmentText(value: unknown): string {
+// ASR 段值 → 文本：空段保留空串（不剔段），段间 ":" 由调用侧的拼接负责。
+function asrSegmentText(value: unknown): string {
   return String(value || "");
 }
 
@@ -59,7 +59,9 @@ export function trackIdentity(subtitleId: unknown, subtitleUrl: unknown, lang: u
   return { kind: "lang", lang };
 }
 
-// ② 身份 → source key：封闭四态，逐字节等于历史 buildSubtitleSourceKey 的出口。
+// ② 身份 → source key：封闭四态——产物即缓存键 source key 的字节面（键形就是兼容承诺，见头注字节纪律）。
+// 状态来源没有第二处：track / url / lang 由 ① 的 trackIdentity 产出（优先级与 URL 回落的唯一裁定处），
+// asr 由 ASR 组键侧（asr/fallback）显式构造——本函数的原始值编码不会收到 trackIdentity 不可能给出的状态。
 export function subtitleSourceKey(identity: TrackIdentity): string {
   switch (identity.kind) {
     case "track":
@@ -70,7 +72,7 @@ export function subtitleSourceKey(identity: TrackIdentity): string {
       return `lang_${String(identity.lang || "").trim().toLowerCase() || "unknown"}`;
     case "asr":
       return trackIdComponent(
-        `${ASR_VARIANT_ROOT}:${segmentText(identity.providerId)}:${segmentText(identity.model)}:${segmentText(identity.lang)}`
+        `${ASR_VARIANT_ROOT}:${asrSegmentText(identity.providerId)}:${asrSegmentText(identity.model)}:${asrSegmentText(identity.lang)}`
       );
   }
 }

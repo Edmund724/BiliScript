@@ -529,7 +529,7 @@ export interface CacheFamilyOptions<TValue> {
   prefix: string;
   /** 落盘 payload 字段名；值形状 { [payloadField]: value, timestamp }。 */
   payloadField: string;
-  /** 字幕轨 source key 推导（注入 subtitle/cache.ts 的 buildSubtitleSourceKey）。 */
+  /** 字幕轨 source key 推导（注入 subtitle/source-key.ts 的 buildSubtitleSourceKey）。 */
   toSourceKey: (subtitleId: unknown, subtitleUrl: unknown, lang: unknown) => string;
   /** 读端形状校验（损坏返回 null）；缺省只做 nullish 归一（值原样透传）。 */
   validate?: (value: unknown) => boolean;

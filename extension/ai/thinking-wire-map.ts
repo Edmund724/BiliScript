@@ -31,8 +31,9 @@
 // （`{[K in AiProtocol]: ThinkingWireMap<K>}`，沿 protocol-adapter.ts 的既有纪律）——新增协议必须在
 // 本表登记一行；平台维以平台身份键词表叶索引（三张出口表 `Record<PlatformKey, …>`，候选 6）——
 // 新增平台缺一格 / 孤儿键都是 tsc 红。**入参按协议分型**——每行只收自己读得到的字段
-// （见 ThinkingWireInput 与两张逐协议入参）；adapter 只做「取档位规则 → 取本表 → 并入请求体」，
-// 不在 adapter 里回抄任何思考字段名或预算取值（对账测试 tests/ai/thinking-wire-map.test.ts）。
+// （见 ThinkingWireInput 与两张逐协议入参）；装配（取档位规则 → 算本行入参 → 取本表）落在
+// 思考装配边 ai/plan-thinking.ts，adapter 只把那条边的产出并入请求体，不回抄任何思考字段名
+// 或预算取值（对账测试 tests/ai/thinking-wire-map.test.ts）。
 //
 // 不引入表达式引擎（票内被否决的备选）：线格式是代码不是字符串——受 TS 类型检查，
 // 且表达得了跨越 option 的条件（探针依赖 maxTokens 等）。
@@ -71,7 +72,8 @@ export interface OpenAiWireInput extends ThinkingWireInput {
 
 /**
  * anthropic（Messages）行的入参：血统词汇 + 探针语义 + 平台事实（两张出口表的平台识别与怪癖活值）。
- * 两张平台事实按各自的键空间识别、由调用方（adapter）一次算好传进来——本表只读值，不自己查表。
+ * 两张平台事实按各自的键空间识别、由调用方（思考装配边 ai/plan-thinking.ts 的 anthropic
+ * 装配行）一次算好传进来——本表只读值，不自己查表。
  * tokenParam 不在此：Messages 通道的 token 上限参数名恒为 max_tokens（血统事实只属 OpenAI 通道）。
  */
 export interface AnthropicWireInput extends ThinkingWireInput {
@@ -79,7 +81,7 @@ export interface AnthropicWireInput extends ThinkingWireInput {
   probe: boolean;
   /**
    * 平台识别（口径：平台身份键词表叶 ai/platform-identity-vocab.ts 的 PlatformKey，
-   * 与 thinking-profiles 的 PROVIDERS 同键集；adapter 传 `resolveThinkingProviderId` 的结果）。
+   * 与 thinking-profiles 的 PROVIDERS 同键集；装配边传 `resolveThinkingProviderId` 的结果）。
    * Messages 通道的档位落线（线格式出口）按平台逐格登记（MESSAGES_TIER_EXIT）；未登记的平台
    * 发裸 `output_config.effort`。这里刻意收 `string | undefined`：表外是**真实存在的分支**
    * （custom 直填端点 / host 未识别的记录），类型封闭管不到查表入口。

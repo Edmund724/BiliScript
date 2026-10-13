@@ -14,7 +14,7 @@
 // 四个装载入口原先各自手写这段判定与装载：reader/lifecycle.ts 的主轨就绪自动装载、
 // 弹层开关打开 / 跨上下文收敛、副列改选、副列重试。其中弹层那条按 DOM 选项的 `lan`
 // 算槽语言、lifecycle 那条按 `lanDoc || lan`——轨 id 为空时缓存 source key 会退到
-// lang 分量（subtitle/cache.ts 的 buildSubtitleSourceKey），两条入口因此能算出不同
+// lang 分量（subtitle/source-key.ts 的 buildSubtitleSourceKey），两条入口因此能算出不同
 // 缓存键，写进槽的 lang 也不一致。收口之后解析与装载各只有一份实现（槽语言只有一个
 // 写方），弹层只保留自己的 DOM 投影与在飞禁用。
 //

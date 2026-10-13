@@ -6,8 +6,9 @@
 // 覆盖票面要求的两条通道行为面：
 // - openai 行：三套词汇（reasoning_effort / enable_thinking / thinking:{type}）原样落线、
 //   两个哨兵（noFields / unknown）一个字段都不发、token 参数名随血统事实分流
-//   （openai-reasoning 系 max_completion_tokens、其余 max_tokens）、探针事实对本协议
-//   无意义（探针不发思考字段靠请求侧归一：探针不传档位 → default → 空 patch）。
+//   （openai-reasoning 系 max_completion_tokens、其余 max_tokens）、probe 事实不参与本行
+//   （同一事实下 probe 真/假产物相同；探针不发思考字段靠请求侧归一：探针不传档位 →
+//   default → 空 patch）。
 // - anthropic 行：探针早退、只认 effort 词汇的平台（stepfun / amd，怪癖
 //   effortVocabMessages）改写为 output_config.effort、未登记平台回落裸 effort、
 //   开关型血统的裸开档、两个哨兵不发。
@@ -35,6 +36,12 @@ const CASES: readonly WireCase[] = [
   {
     name: "openai · reasoningEffort 档位词汇原样落线；openai-reasoning 系上限参数名 = max_completion_tokens",
     facts: { protocol: "openai", model: "gpt-5", ...CUSTOM, level: "high", stream: true, probe: false },
+    fields: { reasoning_effort: "high" },
+    tokenParam: "max_completion_tokens"
+  },
+  {
+    name: "openai · 同一事实下 probe 真/假产物相同（探针事实不参与本行，装配边不得自造档位）",
+    facts: { protocol: "openai", model: "gpt-5", ...CUSTOM, level: "high", stream: true, probe: true },
     fields: { reasoning_effort: "high" },
     tokenParam: "max_completion_tokens"
   },
