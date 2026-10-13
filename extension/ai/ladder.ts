@@ -10,7 +10,7 @@ import { streamChat as _streamChat } from "./client.js";
 import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
 import { orchestrateMapReduce as _orchestrateMapReduce } from "./map-reduce.js";
 import { resolveFollowupContext as _resolveFollowupContext, trimRecentTurns as _trimRecentTurns } from "./followup-context.js";
-import { buildCostGuardNotice as _buildCostGuardNotice } from "./cost-guard.js";
+import { buildCostGuardNotice as _buildCostGuardNotice, runCostGuard } from "./cost-guard.js";
 import { acquireSwKeepalive as _acquireSwKeepalive, type SwKeepaliveHandle } from "./sw-keepalive.js";
 // 成本护栏数字的唯一换算函数（实测比 / CHAR_PER_TOKEN 回落）：与概览链
 // （analysis-orchestrate）共用同一实现，禁止两处各算一份。
@@ -241,21 +241,26 @@ export async function runLadderChat(
         return;
       }
 
-      // 成本护栏：发起 Map-Reduce 前预估 ≥5 次调用 → 弹确认，可取消。
-      // token 数字由本次字符数经唯一换算函数得出（有实测比用实测比、无样本回落
-      // CHAR_PER_TOKEN）；它纯展示——shouldPrompt 只看调用数，判定路径零变化。
-      const guard = buildCostGuardNotice({
+      // 成本护栏：发起 Map-Reduce 前预估 ≥5 次调用 → 弹确认，可取消。顺序
+      //（预估 → 判定 → 询问 → 拒绝）由 ai/cost-guard.ts 的 runCostGuard 单源，本链只
+      // 注入自己的询问与拒绝出口。token 数字由本次字符数经唯一换算函数得出（有实测比
+      // 用实测比、无样本回落 CHAR_PER_TOKEN）；它纯展示——shouldPrompt 只看调用数，
+      // 判定路径零变化。
+      const declined = await runCostGuard({
         estimatedCalls: plan.estimatedCalls,
-        estimatedTokens: estimateTokensFromChars(provider, plan.totalChars)
-      });
-      if (guard.shouldPrompt) {
-        // 等待用户成本确认期间暂停空闲超时计时。
-        pauseIdleTimeout?.();
-        const confirmed = Boolean(await askCostGuard(port, guard.message));
-        if (!confirmed) {
+        estimatedTokens: estimateTokensFromChars(provider, plan.totalChars),
+        buildNotice: buildCostGuardNotice,
+        ask: async (message) => {
+          // 等待用户成本确认期间暂停空闲超时计时（确实要问时才走到这里）。
+          pauseIdleTimeout?.();
+          return askCostGuard(port, message);
+        },
+        onDecline: () => {
           port.postMessage({ type: "stopped", reason: "已取消" });
-          return;
         }
+      });
+      if (declined) {
+        return;
       }
 
       // 编排期间整体暂停空闲超时：Map-Reduce 全部为非流式 chatCompletion，段调用

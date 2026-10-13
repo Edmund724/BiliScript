@@ -14,7 +14,7 @@ import { createCacheFamily } from "../core/cache-lru.js";
 // ModelScope），故概览的每一次调用都经 offscreen 代发（长请求宿主，见模块头注）。
 import { providerFetchViaOffscreen } from "../core/provider-http-offscreen.js";
 import { buildBudgetPlan as _buildBudgetPlan } from "./budgeter.js";
-import { buildCostGuardNotice as _buildCostGuardNotice } from "./cost-guard.js";
+import { buildCostGuardNotice as _buildCostGuardNotice, runCostGuard } from "./cost-guard.js";
 import { chatCompletion as _chatCompletion } from "./completion.js";
 import { parseLooseJson } from "./json-repair.js";
 // 空正文重试的触发判定与预算（empty-text-retry.ts，与 chat 链同源）。
@@ -487,24 +487,26 @@ async function executeOverviewRun({
   const segments = Array.isArray(plan.segments) ? plan.segments : [];
   const segmented = plan.mode === "map-reduce" && segments.length > 0;
 
-  // 成本护栏：分段路径预估 ≥5 次调用时经注入的确认钩子询问（对齐 ladder 手法；
-  // 钩子未注入则不阻塞——护栏 UI 接线由集成步骤负责）。token 数字传字符数经唯一
-  // 换算函数得出（与阶梯链同源，收口此前直传 plan.totalChars 的分叉）；它纯展示，
-  // 触发仍只看调用数。
-  if (segmented) {
-    const guard = buildCostGuardNoticeImpl({
+  // 成本护栏：分段路径预估 ≥5 次调用时经注入的确认钩子询问（对齐 ladder 手法；钩子未
+  // 注入则不阻塞——护栏 UI 接线由集成步骤负责）。顺序（预估 → 判定 → 询问 → 拒绝）由
+  // ai/cost-guard.ts 的 runCostGuard 单源，本链只注入自己的询问与拒绝出口（拒绝抛
+  // cancelled）。token 数字传字符数经唯一换算函数得出（与阶梯链同源）；它纯展示，触发
+  // 仍只看调用数。signal?.aborted 前置检查属本链的中止语义，留在本链。
+  if (segmented && typeof askCostGuard === "function") {
+    await runCostGuard({
       estimatedCalls: segments.length,
-      estimatedTokens: estimateTokensFromChars(provider, plan.totalChars)
-    });
-    if (guard.shouldPrompt && typeof askCostGuard === "function") {
-      if (signal?.aborted) {
-        throw makeAbortedError();
-      }
-      const confirmed = Boolean(await askCostGuard(guard.message));
-      if (!confirmed) {
+      estimatedTokens: estimateTokensFromChars(provider, plan.totalChars),
+      buildNotice: buildCostGuardNoticeImpl,
+      precheck: () => {
+        if (signal?.aborted) {
+          throw makeAbortedError();
+        }
+      },
+      ask: askCostGuard,
+      onDecline: () => {
         throw makeOverviewCancelledError();
       }
-    }
+    });
   }
 
   if (!segmented) {
