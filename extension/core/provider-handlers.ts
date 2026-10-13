@@ -22,6 +22,7 @@
 // 回包形参收成该族的响应形状；三个族的协议响应类型（providers?: <族条目>[]）
 // 由 background 路由表的 satisfies 逐键对账——响应载荷与消息键配错在 tsc 门禁即红。
 
+import { errorText } from "./provider-http-shared.js";
 import type {
   AsrProviderListEntry,
   GetAsrRuntimeConfigResponse,
@@ -41,9 +42,12 @@ export interface ProviderHandlersMessage {
 
 // ===== 异步错误回包包装单源（arch-slim-2/03）=====
 // 「Promise → sendResponse」协议的唯一收口：task 决议值即完整 ok 负载（原样
-// 回包）；task 拒绝统一映射为 { ok: false, error: <msg> }，缺省取 error.message
-// （与被替换的逐字手抄一致）。文案带前缀/兜底的调用点传 toError（如
-// background 的 request-provider-origins / fetch-json / player-ai-quick-action）。
+// 回包）；task 拒绝统一映射为 { ok: false, error: <msg> }。缺省 toError 取
+// core/provider-http-shared 的 errorText 单源（Error 取 message、其余走 String）：
+// 信封的 error 恒是可读串——拒绝值是非 Error 时不会写成 undefined，是
+// null/undefined 时也不会在包装内自抛（那会让回包根本不发出）。文案带前缀/兜底的
+// 调用点传 toError（如 background 的 request-provider-origins / fetch-json /
+// player-ai-quick-action）。
 //
 // 失败信封（ok:false + 可读 error）是每种响应类型的共同支：回调面把成功载荷 R
 // 与失败信封并列给出，调用方的窄回包形参必须同时收下两支——「响应类型缺失败支」
@@ -53,7 +57,7 @@ export type MessageErrorEnvelope = { ok: false; error: string };
 export function withOkResponse<R>(
   task: Promise<R>,
   sendResponse: (response: R | MessageErrorEnvelope) => void,
-  toError: (error: unknown) => string = (error) => (error as Error).message
+  toError: (error: unknown) => string = errorText
 ): void {
   void (async () => {
     try {

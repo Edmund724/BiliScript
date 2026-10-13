@@ -94,6 +94,32 @@ describe("list / save / remove", () => {
   });
 });
 
+describe("缺省 toError（withOkResponse 的默认错误文案单源）", () => {
+  it("非 Error 拒绝 → error 是可读串（不写成 undefined）", async () => {
+    const deps = makeDeps({
+      loadProviders: vi.fn(async () => {
+        throw "raw failure";
+      })
+    });
+    const { sendResponse, response } = makeChannel();
+
+    createProviderMessageHandlers(deps).list({}, {}, sendResponse);
+    expect(await response).toEqual({ ok: false, error: "raw failure" });
+  });
+
+  it("undefined 拒绝 → 回包照发（error 走 String，不在包装内自抛）", async () => {
+    const deps = makeDeps({
+      loadProviders: vi.fn(async () => {
+        throw undefined;
+      })
+    });
+    const { sendResponse, response } = makeChannel();
+
+    createProviderMessageHandlers(deps).list({}, {}, sendResponse);
+    expect(await response).toEqual({ ok: false, error: "undefined" });
+  });
+});
+
 describe("get（读取已存 Key）", () => {
   it("回包 { ok: true, apiKey }（trim 后），异步路径返回 \"hold\"（branch 活判定：入口据它持有通道）", async () => {
     const deps = makeDeps({ loadKeys: vi.fn(async () => ({ p1: "  spaced  " })) });
