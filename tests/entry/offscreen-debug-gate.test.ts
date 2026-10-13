@@ -14,16 +14,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installMinimalChromeHost, type MinimalChromeHost, type MinimalChromeHostOptions } from "../helpers/chrome-runtime-host.js";
 import type { createAsrDecodeHandler } from "../../extension/entry/offscreen-asr.js";
 
 const { createAsrDecodeHandlerMock } = vi.hoisted(() => ({
   createAsrDecodeHandlerMock: vi.fn<typeof createAsrDecodeHandler>()
 }));
 
-// 测试替身收到的 runtime 消息形状：type 判别字段 + 其余载荷透传
-type GateMessage = { type?: string } & Record<string, unknown>;
-type SendMessageImpl = (message: GateMessage, callback?: (response?: unknown) => void) => void;
-type OnConnectListener = (port: chrome.runtime.Port) => void;
 // sender / sendResponse 可选：测试里按消息单参直调广播监听
 type OnMessageListener = (
   message: unknown,
@@ -85,36 +82,38 @@ describe("静态扫描：offscreen 文档不触碰扩展级 Chrome API", () => {
 
 // ===== 2/3. 行为测试：消息式调试门 + 自关请求 =====
 
-let sendMessageMock: ReturnType<typeof vi.fn>;
+let host: MinimalChromeHost;
 let onMessageListeners: OnMessageListener[];
-let onConnectListeners: OnConnectListener[];
 
-function stubOffscreenEnv({ sendMessageImpl }: { sendMessageImpl?: SendMessageImpl } = {}) {
-  onMessageListeners = [];
-  onConnectListeners = [];
-  sendMessageMock = vi.fn((_message: GateMessage, callback?: (response?: unknown) => void) => {
-    if (sendMessageImpl) {
-      sendMessageImpl(_message, callback);
-      return undefined;
-    }
-    callback?.({ ok: true });
-    return undefined;
-  });
-  vi.stubGlobal("chrome", {
-    runtime: {
-      lastError: null,
-      onConnect: { addListener: (fn: OnConnectListener) => onConnectListeners.push(fn) },
-      onMessage: {
-        addListener: (fn: OnMessageListener) => onMessageListeners.push(fn),
-        removeListener: vi.fn(),
-        hasListener: vi.fn()
-      },
-      sendMessage: sendMessageMock
-    }
-  });
+// 本文件原有的 runtime 面是 lastError / onConnect / onMessage / sendMessage：共享宿主
+// 收编按 type 分发的 sendMessage 与 onConnect 登记袋；其余成员宿主不装，仍在宿主装好的
+// 最小面上补回（本文件要 onMessage 接 SW 的 debug-log-gate-changed 广播），chrome 面
+// 与替换前逐字相同。
+function installRuntimeExtras() {
+  const runtime = chrome.runtime as unknown as Record<string, unknown>;
+  runtime.lastError = null;
+  runtime.onMessage = {
+    addListener: (fn: OnMessageListener) => onMessageListeners.push(fn),
+    removeListener: vi.fn(),
+    hasListener: vi.fn()
+  };
 }
 
-async function importOffscreen(envOptions?: { sendMessageImpl?: SendMessageImpl }) {
+// 缺省面：原桩缺省对任何 type 回 { ok: true }，本文档会发的只有加载期的
+// get-debug-log-gate，故登记这一条。replyStyle "both"：原桩回包只经 callback，宿主
+// 两种风格同答（多出的 promise 返回值无人读）；「不回包」的用例按需覆盖为 "promise"。
+function stubOffscreenEnv(options: MinimalChromeHostOptions = {}) {
+  onMessageListeners = [];
+  host = installMinimalChromeHost({
+    onConnect: true,
+    replyStyle: "both",
+    replies: { "get-debug-log-gate": { ok: true } },
+    ...options
+  });
+  installRuntimeExtras();
+}
+
+async function importOffscreen(envOptions?: MinimalChromeHostOptions) {
   vi.resetModules();
   stubOffscreenEnv(envOptions);
   return import("../../extension/entry/offscreen.js");
@@ -154,16 +153,13 @@ beforeEach(() => {
 
 describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消息", () => {
   it("启动即向 SW 请求初始开关：get-debug-log-gate，enabled=true 时门打开", async () => {
+    // 只答 get-debug-log-gate，回包带 enabled=true（原 impl 的判别即此一条）
     stubOffscreenEnv({
-      sendMessageImpl: (message, callback) => {
-        if (message?.type === "get-debug-log-gate") {
-          callback?.({ ok: true, enabled: true });
-        }
-      }
+      replies: { "get-debug-log-gate": { ok: true, enabled: true } }
     });
     await import("../../extension/entry/offscreen.js");
 
-    expect(sendMessageMock).toHaveBeenCalledWith(
+    expect(host.sendMessage).toHaveBeenCalledWith(
       { type: "get-debug-log-gate" },
       expect.any(Function)
     );
@@ -206,14 +202,15 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
     try {
-      stubOffscreenEnv({
-        sendMessageImpl: (_message, callback) => {
-          // chrome-types 里 lastError 是只读 const，测试替身需可写
-          const mutableRuntime = chrome.runtime as { lastError: chrome.runtime.LastError | null };
-          mutableRuntime.lastError = { message: "Receiving end does not exist" };
-          callback?.(undefined);
-          mutableRuntime.lastError = null;
-        }
+      stubOffscreenEnv();
+      // 回包前置 lastError、回包后复位：宿主的回包表只回答「回什么」，表达不了回包前后
+      // 改 lastError 这条事实，故本用例仍按原 impl 接管宿主公开的 sendMessage Mock。
+      host.sendMessage.mockImplementation((_message, callback?: (response?: unknown) => void) => {
+        // chrome-types 里 lastError 是只读 const，测试替身需可写
+        const mutableRuntime = chrome.runtime as { lastError: chrome.runtime.LastError | null };
+        mutableRuntime.lastError = { message: "Receiving end does not exist" };
+        callback?.(undefined);
+        mutableRuntime.lastError = null;
       });
       await import("../../extension/entry/offscreen.js");
 
@@ -243,20 +240,21 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
 
   it("终态后向 SW 发 offscreen-request-close；SW 回 ok:true 不告警", async () => {
     armTerminalEcho();
+    // 原 impl 只答 offscreen-request-close；加载期的 get-debug-log-gate 无实质回包
+    //（宿主以回 undefined 表达「无应答」，与真实 MV3 同形）
     await importOffscreen({
-      sendMessageImpl: (message, callback) => {
-        if (message?.type === "offscreen-request-close") {
-          callback?.({ ok: true });
-        }
+      replies: {
+        "get-debug-log-gate": undefined,
+        "offscreen-request-close": { ok: true }
       }
     });
 
     const session = makeAsrPort();
-    onConnectListeners[0](session.port);
+    host.onConnectListeners[0](session.port);
     session.send({ action: "asr-decode", task: {} });
 
     await vi.waitFor(() =>
-      expect(sendMessageMock).toHaveBeenCalledWith(
+      expect(host.sendMessage).toHaveBeenCalledWith(
         { type: "offscreen-request-close" },
         expect.any(Function)
       )
@@ -266,10 +264,9 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
   it("SW 明确回 ok:false（请求被拒/关闭失败）：记 logWarn，不抛", async () => {
     armTerminalEcho();
     await importOffscreen({
-      sendMessageImpl: (message, callback) => {
-        if (message?.type === "offscreen-request-close") {
-          callback?.({ ok: false, error: "仅接受 offscreen 文档发送" });
-        }
+      replies: {
+        "get-debug-log-gate": undefined,
+        "offscreen-request-close": { ok: false, error: "仅接受 offscreen 文档发送" }
       }
     });
 
@@ -277,7 +274,7 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
     onMessageListeners[0]({ type: "debug-log-gate-changed", enabled: true });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const session = makeAsrPort();
-    onConnectListeners[0](session.port);
+    host.onConnectListeners[0](session.port);
     session.send({ action: "asr-decode", task: {} });
 
     await vi.waitFor(() =>
@@ -294,13 +291,20 @@ describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 
     const onUnhandled = (reason: unknown) => unhandled.push(reason);
     process.on("unhandledRejection", onUnhandled);
     try {
-      // sendMessageImpl 不回任何包：sendRuntimeMessage 的 promise 永不 settle
+      // 原 impl 不回任何包：promise 风格只给返回值、不答 callback（sendRuntimeMessage
+      // 的 promise 永不 settle）。回包值无人读，本文档会发的两条仍按宿主契约登记。
       armTerminalEcho();
-      await importOffscreen({ sendMessageImpl: () => {} });
+      await importOffscreen({
+        replyStyle: "promise",
+        replies: {
+          "get-debug-log-gate": { ok: true },
+          "offscreen-request-close": { ok: true }
+        }
+      });
 
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const session = makeAsrPort();
-      onConnectListeners[0](session.port);
+      host.onConnectListeners[0](session.port);
       session.send({ action: "asr-decode", task: {} });
 
       await new Promise((resolve) => setTimeout(resolve, 10));

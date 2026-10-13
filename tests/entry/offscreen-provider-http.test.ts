@@ -7,6 +7,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installMinimalChromeHost, type MinimalChromeHost } from "../helpers/chrome-runtime-host.js";
 import type { createAsrDecodeHandler } from "../../extension/entry/offscreen-asr.js";
 
 const { createAsrDecodeHandlerMock } = vi.hoisted(() => ({
@@ -17,38 +18,44 @@ vi.mock("../../extension/entry/offscreen-asr.js", () => ({
   createAsrDecodeHandler: createAsrDecodeHandlerMock
 }));
 
-type OnConnectListener = (port: chrome.runtime.Port) => void;
 type OnMessageListener = (
   message: unknown,
   sender?: chrome.runtime.MessageSender,
   sendResponse?: chrome.runtime.SendMessageCallback
 ) => void;
 
-let onConnectListeners: OnConnectListener[];
+let host: MinimalChromeHost;
 let onMessageListeners: OnMessageListener[];
-let sentMessages: Array<{ type?: string } & Record<string, unknown>>;
 let fetchMock: ReturnType<typeof vi.fn>;
 
+// 本文件原有的 runtime 面是 lastError / onConnect / onMessage / sendMessage：共享宿主
+// 收编按 type 分发的 sendMessage 与 onConnect 登记袋；其余成员宿主不装，仍在宿主装好的
+// 最小面上补回（本文件不驱动广播，但 offscreen.js 顶层的 SW 广播入口要有个登记处），
+// chrome 面与替换前逐字相同。
+function installRuntimeExtras() {
+  const runtime = chrome.runtime as unknown as Record<string, unknown>;
+  runtime.lastError = null;
+  runtime.onMessage = {
+    addListener: (fn: OnMessageListener) => onMessageListeners.push(fn),
+    removeListener: vi.fn(),
+    hasListener: vi.fn()
+  };
+}
+
 function stubOffscreenEnv() {
-  onConnectListeners = [];
   onMessageListeners = [];
-  sentMessages = [];
-  vi.stubGlobal("chrome", {
-    runtime: {
-      lastError: null,
-      onConnect: { addListener: (fn: OnConnectListener) => onConnectListeners.push(fn) },
-      onMessage: {
-        addListener: (fn: OnMessageListener) => onMessageListeners.push(fn),
-        removeListener: vi.fn(),
-        hasListener: vi.fn()
-      },
-      sendMessage: vi.fn((message: { type?: string }, callback?: (response?: unknown) => void) => {
-        sentMessages.push(message);
-        callback?.({ ok: true });
-        return undefined;
-      })
+  // 原桩对任何 type 都回 { ok: true }：逐条登记本文档会发的两条——加载期的
+  // get-debug-log-gate 与 ASR 终态自关的 offscreen-request-close。replyStyle "both"：
+  // 原桩回包只经 callback，宿主两种风格同答（多出的 promise 返回值无人读）。
+  host = installMinimalChromeHost({
+    onConnect: true,
+    replyStyle: "both",
+    replies: {
+      "get-debug-log-gate": { ok: true },
+      "offscreen-request-close": { ok: true }
     }
   });
+  installRuntimeExtras();
 }
 
 async function importOffscreen() {
@@ -82,8 +89,11 @@ function makePort(name: string) {
   };
 }
 
+// 原桩把每条发出的消息记进自持数组；改读宿主 sendMessage 的调用记录（同一份、同序）
 function closeRequests() {
-  return sentMessages.filter((message) => message?.type === "offscreen-request-close");
+  return host.sendMessage.mock.calls
+    .map(([message]) => message as { type?: string } & Record<string, unknown>)
+    .filter((message) => message?.type === "offscreen-request-close");
 }
 
 // 流式响应体的最小假体：按 chunks 顺序供 reader.read()，供完即 done。
@@ -117,7 +127,7 @@ describe("offscreen 概览代发端口", () => {
   it("provider-http-offscreen 请求在 offscreen 里 fetch 并按「响应头 → 分片 → done」回吐", async () => {
     await importOffscreen();
     const session = makePort("provider-http-offscreen");
-    onConnectListeners[0](session.port);
+    host.onConnectListeners[0](session.port);
 
     session.send({
       action: "provider-http",
@@ -148,12 +158,12 @@ describe("offscreen 概览代发端口", () => {
     await importOffscreen();
 
     const relay = makePort("provider-http-offscreen");
-    onConnectListeners[0](relay.port);
+    host.onConnectListeners[0](relay.port);
     relay.send({ action: "provider-http", url: "https://api.example.com/v1/messages", method: "POST" });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     const asr = makePort("asr-decode");
-    onConnectListeners[0](asr.port);
+    host.onConnectListeners[0](asr.port);
     asr.send({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
 
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -166,14 +176,14 @@ describe("offscreen 概览代发端口", () => {
     await importOffscreen();
 
     const relay = makePort("provider-http-offscreen");
-    onConnectListeners[0](relay.port);
+    host.onConnectListeners[0](relay.port);
     relay.send({ action: "provider-http", url: "https://api.example.com/v1/messages", method: "POST" });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     relay.fireDisconnect();
 
     const asr = makePort("asr-decode");
-    onConnectListeners[0](asr.port);
+    host.onConnectListeners[0](asr.port);
     asr.send({ action: "asr-decode", task: { audioUrl: "https://x/a.m4s" } });
 
     await vi.waitFor(() => expect(closeRequests()).toHaveLength(1));
@@ -191,7 +201,7 @@ describe("offscreen 概览代发端口", () => {
     await importOffscreen();
 
     const relay = makePort("provider-http-offscreen");
-    onConnectListeners[0](relay.port);
+    host.onConnectListeners[0](relay.port);
     relay.send({ action: "provider-http", url: "https://api.example.com/v1/messages", method: "POST" });
     await vi.waitFor(() => expect(seenSignal).toBeTruthy());
 

@@ -15,6 +15,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import {
+  installMinimalChromeHost,
+  type MinimalChromeHost,
+  type MinimalChromeHostOptions
+} from "../helpers/chrome-runtime-host.js";
 import { resolveAsrProvider, type AsrRuntimeConfig } from "../../extension/entry/offscreen-asr.js";
 
 const RUNTIME_CONFIG_OK: AsrRuntimeConfig = {
@@ -36,20 +41,39 @@ const RUNTIME_CONFIG_OK: AsrRuntimeConfig = {
   asrLanguage: "auto"
 };
 
-// onConnect 监听器捕获袋（beforeEach 重建；模块重导入后注册的监听器都进这里）
-let onConnectListeners: Array<(port: chrome.runtime.Port) => void> = [];
+// 本文件的 chrome 面（beforeEach 装缺省面；用例内可换 sendMessage 面）。onConnect
+// 监听器登记袋由共享宿主持有。
+let host: MinimalChromeHost;
+
+// 原桩的 sendMessage 对任何 type 一律同步抛错（扩展上下文失效）
+function refuseSendMessage(): never {
+  throw new Error("Extension context invalidated");
+}
+
+// 换本用例的 sendMessage 面，但沿用已登记的 onConnect 监听器：原桩的登记袋是模块级
+// 数组、跨 chrome 替换存活，而 offscreen.js 已在 loadOffscreen 时把端口监听登记进前一台
+// 宿主（新宿主自带的登记袋是空的）。
+function swapHost(options: MinimalChromeHostOptions) {
+  const registered = host.onConnectListeners.slice();
+  host = installMinimalChromeHost({
+    preserveExisting: true,
+    onConnect: true,
+    ...options
+  });
+  host.onConnectListeners.push(...registered);
+}
 
 beforeEach(() => {
   resetModuleState();
-  onConnectListeners = [];
-  vi.stubGlobal("chrome", {
-    ...globalThis.chrome,
-    runtime: {
-      ...globalThis.chrome.runtime,
-      onConnect: {
-        addListener: vi.fn((fn) => onConnectListeners.push(fn))
-      }
-    }
+  // 缺省面沿用缺省全局桩的其余成员（原桩展开 globalThis.chrome），只换回包表与
+  // onConnect 登记：offscreen.js 加载时先发 get-debug-log-gate，原缺省桩回
+  // { ok: true }。replyStyle "both"：原桩回包只经 callback，宿主两种风格同答
+  //（多出的 promise 返回值无人读）。
+  host = installMinimalChromeHost({
+    preserveExisting: true,
+    onConnect: true,
+    replyStyle: "both",
+    replies: { "get-debug-log-gate": { ok: true } }
   });
 });
 
@@ -59,7 +83,7 @@ async function loadOffscreen() {
 
 // 连一个可手动驱动消息的 asr-decode 端口，返回 { port, taskListener }
 function connectAsrDecodePort() {
-  const listener = onConnectListeners[onConnectListeners.length - 1];
+  const listener = host.onConnectListeners.at(-1)!;
   expect(listener, "offscreen.js 应已在模块加载时注册 onConnect 监听").toBeTruthy();
   const listeners = new Set<(message: unknown) => void>();
   const port = {
@@ -122,14 +146,12 @@ describe("handleAsrDecodeTask 错误消息携带 reason（port 透传契约）",
     // requestAsrRuntimeConfig 以 Promise 风格 await sendMessage 返回值（MV3
     // 无回调签名），setup 的回调式 stub 不适用——这里改为直接返回响应体。
     // 响应无 provider 字段 → resolveAsrProvider 走「无激活平台」分支。
-    vi.stubGlobal("chrome", {
-      ...globalThis.chrome,
-      runtime: {
-        ...globalThis.chrome.runtime,
-        onConnect: {
-          addListener: vi.fn((fn) => onConnectListeners.push(fn))
-        },
-        sendMessage: vi.fn(() => ({ ok: true }))
+    // 原桩对任何 type 都回 { ok: true }；本文档在该场景只发这两条（回包只经返回值，
+    // 与宿主缺省的 promise 风格同形）。
+    swapHost({
+      replies: {
+        "get-asr-runtime-config": { ok: true },
+        "offscreen-request-close": { ok: true }
       }
     });
     const { port, taskListener } = connectAsrDecodePort();
@@ -152,16 +174,15 @@ describe("handleAsrDecodeTask 错误消息携带 reason（port 透传契约）",
     // 按「配置缺失」兜底 makeAsrSkipError(error)，不带 reason。
     // offscreen.js 已在上一用例的 stub 下加载完毕，这里只替换 sendMessage。
     await loadOffscreen();
-    vi.stubGlobal("chrome", {
-      ...globalThis.chrome,
-      runtime: {
-        ...globalThis.chrome.runtime,
-        onConnect: {
-          addListener: vi.fn((fn) => onConnectListeners.push(fn))
-        },
-        sendMessage: () => {
-          throw new Error("Extension context invalidated");
-        }
+    // 原桩对任何 type 一律同步抛错，故本文档可能发的三条都挂同一个抛错回包；
+    // replyStyle "both" 保持「同步抛出」（promise 风格会把抛出转成被丢弃的 rejected
+    // promise，回包通道不同）。
+    swapHost({
+      replyStyle: "both",
+      replies: {
+        "get-debug-log-gate": refuseSendMessage,
+        "get-asr-runtime-config": refuseSendMessage,
+        "offscreen-request-close": refuseSendMessage
       }
     });
     const { port, taskListener } = connectAsrDecodePort();
@@ -205,20 +226,14 @@ describe("handleAsrDecodeTask 管线级失败携带 kind（port 透传契约）"
 
   async function runWithDownloadFailure() {
     await loadOffscreen();
-    vi.stubGlobal("chrome", {
-      ...globalThis.chrome,
-      runtime: {
-        ...globalThis.chrome.runtime,
-        onConnect: { addListener: vi.fn((fn) => onConnectListeners.push(fn)) },
-        sendMessage: vi.fn(async (message: { type?: string }) => {
-          if (message?.type === "get-asr-runtime-config") {
-            return CONFIG_WITH_PROVIDER;
-          }
-          if (message?.type === "check-provider-origin") {
-            return { granted: true };
-          }
-          return { ok: true };
-        })
+    // 原桩按 type 分发、其余 type 回 { ok: true }：逐条登记本文档在该场景会发的三条
+    //（加载期的 get-debug-log-gate 已在缺省面下发出）。回包只经返回值，与宿主缺省的
+    // promise 风格同形。
+    swapHost({
+      replies: {
+        "get-asr-runtime-config": CONFIG_WITH_PROVIDER,
+        "check-provider-origin": { granted: true },
+        "offscreen-request-close": { ok: true }
       }
     });
     // 下载一律失败（HEAD/GET 都非 ok）→ streamAudioSegments 抛「音频下载失败」
