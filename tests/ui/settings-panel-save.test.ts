@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { DEFAULT_AI_SYSTEM_PROMPT, DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../../extension/core/default-prompts.js";
 
@@ -36,34 +37,19 @@ type SentMessage = { type: string; settings?: Record<string, unknown>; [key: str
 type MessageResponder = (message: SentMessage) => Record<string, unknown>;
 type SendMessageMock = Mock<(message: SentMessage, callback?: (response?: unknown) => void) => undefined>;
 
-// 消息总线桩：chrome.runtime.sendMessage 的命名空间声明是重载函数，mock 只能经
-// 断言赋值；mock 本体另存模块变量供用例读 calls（同 setup 的 chrome 桩面）。
+// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（回包表 + 已发消息清单）；
+// chrome.runtime.sendMessage 的命名空间声明是重载函数，故 mock 本体另存模块变量供用例读 calls。
 let sendMessageMock: SendMessageMock | null = null;
 
 function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
-  const responders: Record<string, MessageResponder> = {
-    "get-settings": () => ({ ok: true, settings: {} }),
-    // 预设列表返回失败 → settings-panel 回落内置 PRESETS / ASR_PROVIDER_PRESETS
-    "ai-presets-list": () => ({ ok: false }),
-    "asr-presets-list": () => ({ ok: false }),
-    "ai-providers-list": () => ({ ok: true, providers: [] }),
-    "asr-providers-list": () => ({ ok: true, providers: [] }),
-    "save-settings": () => ({ ok: true }),
+  const host = installSettingsPanelBus<SentMessage>({
     "ai-providers-save": () => ({ ok: true, providers: [] }),
     "asr-providers-save": () => ({ ok: true, providers: [] }),
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
-  };
-  const sent: SentMessage[] = [];
-  const mock: SendMessageMock = vi.fn((message: SentMessage, callback?: (response?: unknown) => void) => {
-    sent.push(message);
-    const respond = responders[message.type];
-    callback?.(respond ? respond(message) : { ok: true });
-    return undefined;
   });
-  sendMessageMock = mock;
-  chrome.runtime.sendMessage = mock as unknown as typeof chrome.runtime.sendMessage;
-  return sent;
+  sendMessageMock = host.sendMessage as SendMessageMock;
+  return host.sent;
 }
 
 async function mountPanel(): Promise<HTMLElement> {

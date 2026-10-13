@@ -10,6 +10,7 @@
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSendMessageHost } from "../helpers/chrome-runtime-host.js";
 
 type ProxyResponse = { ok: boolean; status?: number; body?: string; error?: string };
 type ProxyResponder = (message: unknown) => ProxyResponse | undefined;
@@ -24,12 +25,8 @@ async function loadModule() {
 
 function installProxyBus(next?: ProxyResponder) {
   responder = next || (() => ({ ok: true, status: 200, body: "" }));
-  sent = [];
-  chrome.runtime.sendMessage = vi.fn((message: unknown, callback?: (response?: unknown) => void) => {
-    sent.push(message);
-    callback?.(responder(message));
-    return undefined;
-  }) as unknown as typeof chrome.runtime.sendMessage;
+  const host = installSendMessageHost({ "provider-http": (message: unknown) => responder(message) });
+  sent = host.sent;
 }
 
 function stubChrome(overrides = {}) {

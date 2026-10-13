@@ -13,11 +13,12 @@
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
 import { buildSettingsHtml } from "../../extension/ui/settings-panel-html.js";
 import { SEARCH_OPT_IN_NOTICE_MESSAGE } from "../../extension/search/opt-in-notice.js";
 
-type SentMessage = { type: string } & Record<string, any>;
-type MessageResponder = (message: SentMessage) => unknown;
+type SentMessage = BusMessage;
+type MessageResponder = BusResponder<SentMessage>;
 
 type SyncStorageMock = { get: Mock; set: Mock; remove: Mock };
 
@@ -110,25 +111,9 @@ function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
 }
 
-function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
-  const responders: Record<string, MessageResponder> = {
-    "get-settings": () => ({ ok: true, settings: {} }),
-    "ai-presets-list": () => ({ ok: false }),
-    "asr-presets-list": () => ({ ok: false }),
-    "ai-providers-list": () => ({ ok: true, providers: [] }),
-    "asr-providers-list": () => ({ ok: true, providers: [] }),
-    "search-providers-list": () => ({ ok: true, providers: [] }),
-    "save-settings": () => ({ ok: true }),
-    ...overrides
-  };
-  const sent: SentMessage[] = [];
-  chromeStub().runtime.sendMessage = vi.fn((message: SentMessage, callback?: (response?: unknown) => void) => {
-    sent.push(message);
-    const respond = responders[message.type];
-    callback?.(respond ? respond(message) : { ok: true });
-    return undefined;
-  });
-  return sent;
+// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省回包表 + 已发消息清单）。
+function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
+  return installSettingsPanelBus<SentMessage>({ ...overrides }).sent;
 }
 
 async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {

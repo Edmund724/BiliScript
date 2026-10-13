@@ -13,6 +13,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSendMessageHost } from "../helpers/chrome-runtime-host.js";
 
 type ProxyRequest = {
   type: string;
@@ -37,12 +38,8 @@ async function loadModule() {
 // 兼容形状的模型列表）。
 function installProxyBus(next?: ProxyResponder) {
   responder = next || (() => ({ ok: true, status: 200, body: JSON.stringify({ data: [{ id: "m1" }] }) }));
-  sent = [];
-  chrome.runtime.sendMessage = vi.fn((message: unknown, callback?: (response?: unknown) => void) => {
-    sent.push(message as ProxyRequest);
-    callback?.(responder(message));
-    return undefined;
-  }) as unknown as typeof chrome.runtime.sendMessage;
+  const host = installSendMessageHost<ProxyRequest>({ "provider-http": (message: unknown) => responder(message) });
+  sent = host.sent;
 }
 
 function lastRequest() {

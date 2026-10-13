@@ -12,6 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSendMessageHost } from "../helpers/chrome-runtime-host.js";
 
 // provider-http 出向载荷（探针只发一次：url/method/headers/body）
 type ProxyRequest = {
@@ -34,12 +35,8 @@ async function loadModule() {
 // provider-http 消息总线：记录每次出向载荷，按 responder 回包（缺省 200 空体）。
 function installProxyBus(next?: ProxyResponder) {
   responder = next || (() => ({ ok: true, status: 200, body: "" }));
-  sent = [];
-  chrome.runtime.sendMessage = vi.fn((message: unknown, callback?: (response?: unknown) => void) => {
-    sent.push(message as ProxyRequest);
-    callback?.(responder(message));
-    return undefined;
-  }) as unknown as typeof chrome.runtime.sendMessage;
+  const host = installSendMessageHost<ProxyRequest>({ "provider-http": (message: unknown) => responder(message) });
+  sent = host.sent;
 }
 
 // 最近一次代发请求的载荷（探针只发一次：url/method/headers/body）

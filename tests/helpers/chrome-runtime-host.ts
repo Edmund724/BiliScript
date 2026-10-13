@@ -31,6 +31,8 @@ export interface RuntimeReplyOptions {
    * 显式给值（含 `undefined` = 回 undefined，与真实 MV3 的「无应答」同形）。
    */
   fallback?: unknown;
+  /** 每次发送的旁路记录（在回包之前调用），供「已发消息」清单类用例收一份 calls。 */
+  onSend?: (message: unknown) => void;
 }
 
 function replyFor(replies: RuntimeReplies, fallback: unknown, message: unknown): unknown {
@@ -49,9 +51,37 @@ function replyFor(replies: RuntimeReplies, fallback: unknown, message: unknown):
 export function callbackStyleSendMessage(replies: RuntimeReplies = {}, options: RuntimeReplyOptions = {}): Mock {
   const fallback = "fallback" in options ? options.fallback : UNREGISTERED;
   return vi.fn((message: unknown, callback?: (response: unknown) => void) => {
+    options.onSend?.(message);
     callback?.(replyFor(replies, fallback, message));
     return undefined;
   });
+}
+
+export interface SendMessageHost<M = unknown> {
+  /** 已装进 chrome.runtime.sendMessage 的桩（调用记录可断言）。 */
+  sendMessage: Mock;
+  /** 已发消息，按发送顺序。 */
+  sent: M[];
+}
+
+/**
+ * 装一台「content 侧发送面」宿主：回包表 + 已发消息记录，桩写进 chrome.runtime.sendMessage。
+ * 未登记 type 按本文件契约抛错，要放宽就显式传 fallback。M = 本用例自己的消息形状。
+ */
+export function installSendMessageHost<M = unknown>(
+  replies: RuntimeReplies = {},
+  options: RuntimeReplyOptions = {}
+): SendMessageHost<M> {
+  const sent: unknown[] = [];
+  const sendMessage = callbackStyleSendMessage(replies, {
+    ...options,
+    onSend: (message) => {
+      options.onSend?.(message);
+      sent.push(message);
+    }
+  });
+  (chrome as unknown as { runtime: { sendMessage: unknown } }).runtime.sendMessage = sendMessage;
+  return { sendMessage, sent: sent as M[] };
 }
 
 export interface MinimalChromeHostOptions extends RuntimeReplyOptions {

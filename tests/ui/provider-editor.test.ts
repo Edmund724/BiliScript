@@ -28,6 +28,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import type { TestAiConnectionResult } from "../../extension/ai/provider-test.js";
 
 // 出向消息载荷：字段形状各用例自定（测试内不做协议校验），只锁 type 分发。
@@ -53,27 +54,18 @@ vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
 
+// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省表 + 本族专属回包 + overrides）。
+// ai-providers-models（未填 overrides 的「获取可用模型」链）原先吃私有桩的静默兜底
+// `{ ok: true }`，这里逐条显式登记同形回包。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
-  const responders: Record<string, MessageResponder> = {
-    "get-settings": () => ({ ok: true, settings: {} }),
-    "ai-presets-list": () => ({ ok: false }),
-    "asr-presets-list": () => ({ ok: false }),
-    "ai-providers-list": () => ({ ok: true, providers: [] }),
-    "asr-providers-list": () => ({ ok: true, providers: [] }),
-    "save-settings": () => ({ ok: true }),
+  const host = installSettingsPanelBus<SentMessage>({
+    "ai-providers-models": () => ({ ok: true }),
     "ai-providers-save": () => ({ ok: true, providers: [] }),
     "asr-providers-save": () => ({ ok: true, providers: [] }),
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
-  };
-  const sent: SentMessage[] = [];
-  chromeStub().runtime.sendMessage = vi.fn((message: SentMessage, callback?: (response?: unknown) => void) => {
-    sent.push(message);
-    const respond = responders[message.type];
-    callback?.(respond ? respond(message) : { ok: true });
-    return undefined;
   });
-  return sent;
+  return host.sent;
 }
 
 // 面板 + 编辑 Modal 的挂载环境：Modal 宿主挂 #biliscript-reading-view 直下

@@ -12,29 +12,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
 
-type BusMessage = { type: string } & Record<string, unknown>;
-type BusResponder = (message: BusMessage) => unknown;
-
-function installMessageBus(overrides: Record<string, BusResponder> = {}) {
-  const responders: Record<string, BusResponder> = {
-    "get-settings": () => ({ ok: true, settings: {} }),
-    "ai-presets-list": () => ({ ok: false }),
-    "asr-presets-list": () => ({ ok: false }),
-    "ai-providers-list": () => ({ ok: true, providers: [] }),
-    "asr-providers-list": () => ({ ok: true, providers: [] }),
-    "save-settings": () => ({ ok: true }),
-    ...overrides
-  };
-  const sent: BusMessage[] = [];
-  chrome.runtime.sendMessage = vi.fn((message: unknown, callback?: (response?: unknown) => void) => {
-    const typed = message as BusMessage;
-    sent.push(typed);
-    const respond = responders[typed.type];
-    callback?.(respond ? respond(typed) : { ok: true });
-    return undefined;
-  }) as unknown as typeof chrome.runtime.sendMessage;
-  return sent;
+// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省回包表 + 已发消息清单）。
+function installMessageBus(overrides: Record<string, BusResponder> = {}): BusMessage[] {
+  return installSettingsPanelBus<BusMessage>({ ...overrides }).sent;
 }
 
 async function mountPanel() {

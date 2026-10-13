@@ -20,6 +20,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import type { EditorDraft } from "../../extension/ui/provider-editor-state.js";
 import type { ProviderRowPreset } from "../../extension/ui/provider-row.js";
 
@@ -229,28 +230,15 @@ describe("draft 真源与 dirty（F3/F5）", () => {
 
 type MessageResponder = (message: { type: string } & Record<string, any>) => unknown;
 
+// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省表 + 本族专属回包 + overrides）。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
-  const responders: Record<string, MessageResponder> = {
-    "get-settings": () => ({ ok: true, settings: {} }),
-    "ai-presets-list": () => ({ ok: false }),
-    "asr-presets-list": () => ({ ok: false }),
-    "ai-providers-list": () => ({ ok: true, providers: [] }),
-    "asr-providers-list": () => ({ ok: true, providers: [] }),
-    "save-settings": () => ({ ok: true }),
+  const host = installSettingsPanelBus<{ type: string } & Record<string, any>>({
     "ai-providers-save": () => ({ ok: true, providers: [] }),
     "asr-providers-save": () => ({ ok: true, providers: [] }),
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
-  };
-  const sent: ({ type: string } & Record<string, any>)[] = [];
-  const sendMessage = vi.fn((message: { type: string } & Record<string, any>, callback?: (response?: unknown) => void) => {
-    sent.push(message);
-    const respond = responders[message.type];
-    callback?.(respond ? respond(message) : { ok: true });
-    return undefined;
   });
-  (chrome as unknown as { runtime: { sendMessage: unknown } }).runtime.sendMessage = sendMessage;
-  return sent;
+  return host.sent;
 }
 
 async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {

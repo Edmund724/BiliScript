@@ -12,9 +12,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
+import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
 
-type SentMessage = { type: string } & Record<string, any>;
-type MessageResponder = (message: SentMessage) => unknown;
+type SentMessage = BusMessage;
+type MessageResponder = BusResponder<SentMessage>;
 
 const { executeWebSearchMock } = vi.hoisted(() => ({
   executeWebSearchMock: vi.fn<
@@ -43,27 +44,13 @@ function chromeStub(): { runtime: { sendMessage: ReturnType<typeof vi.fn> } } {
   return chrome as unknown as { runtime: { sendMessage: ReturnType<typeof vi.fn> } };
 }
 
-function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
-  const responders: Record<string, MessageResponder> = {
-    "get-settings": () => ({ ok: true, settings: {} }),
-    "ai-presets-list": () => ({ ok: false }),
-    "asr-presets-list": () => ({ ok: false }),
-    "ai-providers-list": () => ({ ok: true, providers: [] }),
-    "asr-providers-list": () => ({ ok: true, providers: [] }),
-    "search-providers-list": () => ({ ok: true, providers: [] }),
-    "save-settings": () => ({ ok: true }),
+// 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省回包表 + 已发消息清单）。
+function installMessageBus(overrides: Record<string, MessageResponder> = {}): SentMessage[] {
+  return installSettingsPanelBus<SentMessage>({
     "search-providers-save": () => ({ ok: true, providers: [] }),
     "request-provider-origins": () => ({ ok: true }),
     ...overrides
-  };
-  const sent: SentMessage[] = [];
-  chromeStub().runtime.sendMessage = vi.fn((message: SentMessage, callback?: (response?: unknown) => void) => {
-    sent.push(message);
-    const respond = responders[message.type];
-    callback?.(respond ? respond(message) : { ok: true });
-    return undefined;
-  });
-  return sent;
+  }).sent;
 }
 
 async function mountPanel(busOverrides: Record<string, MessageResponder> = {}) {
