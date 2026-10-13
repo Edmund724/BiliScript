@@ -13,12 +13,11 @@
 //      `clipState.applySecondarySubtitle(...)`（或在弹层/生命周期里直接拼槽），
 //      「渲染只经事务通知」立刻破产，且不会有任何行为测试报警。
 //   b. **通知 kind 单点发射 / 单点接收**：第二个 kind 一旦被第二处发射或接收，
-//      副轨到站就会触发两套副作用（或漏掉重渲）。
+//      副轨到站就会触发两套副作用（或漏掉重渲）。接收侧是 reader/lifecycle 的一 kind
+//      一格接收表，副轨那一格只装自己的函数体——「副轨到站顺手带上主轨那串副作用」
+//      （概览生成 / 快捷问题预热 / 播放同步重启）在结构上已不可能，无需另锁。
 //   c. **渲染绕道**：调用方直调 `renderReadingView()` 是双渲染的先例（CONTEXT.md
 //      硬事实：渲染只经通知）。副轨这条路径上，弹层与列表渲染器都不得自绘。
-//   d. **副轨到站顺手带上主轨那串副作用**：`secondary-subtitle-ready` 存在的唯一理由
-//      就是不带概览生成 / 快捷问题预热 / 播放同步重启；哪天有人「顺手补一下」，
-//      副轨一到站就会触发概览生成。
 //   e. **notes 渲染层从纯函数退化成读 state**：07 的接缝是注入解析器；若渲染层直接
 //      读 state 或 import alignment，单轨路径的零参与保证与可单测性同时消失。
 //
@@ -79,12 +78,13 @@ describe("双语副轨结构锁（写手 / 通知 / 渲染）", () => {
 
   it("新通知 kind 单点发射 + 单点接收（第二处即双副作用/漏重渲）", () => {
     const emitters = sourceFiles()
-      .filter((file) => stripComments(read(file)).includes('notifyReaderPresenter("secondary-subtitle-ready")'))
+      .filter((file) => stripComments(read(file)).includes('notifyReaderPresenter({ kind: "secondary-subtitle-ready" })'))
       .map((file) => file.replace(/\\/g, "/"));
     expect(emitters).toEqual(["extension/subtitle/commit.ts"]);
 
+    // 接收点是 reader/lifecycle 接收表里那一格（表成员写法 `"<kind>"() {`）。
     const receivers = sourceFiles()
-      .filter((file) => stripComments(read(file)).includes('case "secondary-subtitle-ready":'))
+      .filter((file) => /"secondary-subtitle-ready"\(\)\s*\{/.test(stripComments(read(file))))
       .map((file) => file.replace(/\\/g, "/"));
     expect(receivers).toEqual(["extension/reader/lifecycle.ts"]);
   });
@@ -93,37 +93,6 @@ describe("双语副轨结构锁（写手 / 通知 / 渲染）", () => {
     // 弹层（subtitle-tab-ui）、列表渲染器（batched-render）、搜索（subtitle-search）、
     // 总结链（subtitle/**）一律不得自绘列表——它们只发/收通知。
     expect(filesCalling("renderReadingView")).toEqual(["extension/reader/lifecycle.ts"]);
-  });
-
-  it("副轨到站不带主轨那串副作用（新 kind 存在的唯一理由）", () => {
-    const source = read("extension/reader/lifecycle.ts");
-    const start = source.indexOf('case "secondary-subtitle-ready":');
-    expect(start).toBeGreaterThan(-1);
-    // 切片止于**下一个 case**（switch 里后面还有 status / default，切到 default 会把
-    // 别人的副作用算进来——第一版就栽在这）。
-    const tail = source.slice(start);
-    const nextCaseOffset = tail.slice(1).search(/\bcase\s+"/);
-    const secondaryCase = nextCaseOffset > -1 ? tail.slice(0, nextCaseOffset + 1) : tail;
-    // 只重渲
-    expect(secondaryCase).toContain("renderReadingView()");
-    // 副作用集一行都不许漏进来
-    for (const forbidden of [
-      "triggerReaderOverviewGeneration",
-      "warmUpReaderQuickPrompts",
-      "startReadingViewSync",
-      "syncReadingViewPlayback",
-      "renderReadingStatus",
-      "ensureSecondarySubtitleLoaded"
-    ]) {
-      expect(secondaryCase, `副轨到站混进了 ${forbidden}`).not.toContain(forbidden);
-    }
-
-    // 对照组（证明上面那段切片确实切在主轨 case 之外）：主轨 case 必须带着副作用集
-    const mainStart = source.indexOf('case "subtitle-ready":');
-    const mainCase = source.slice(mainStart, start);
-    expect(mainCase).toContain("triggerReaderOverviewGeneration");
-    expect(mainCase).toContain("warmUpReaderQuickPrompts");
-    expect(mainCase).toContain("startReadingViewSync");
   });
 
   it("notes 渲染层保持纯函数：不读 state、不 import 配对模块", () => {

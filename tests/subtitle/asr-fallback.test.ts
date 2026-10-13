@@ -326,7 +326,7 @@ describe("maybeRunAsrFallback 成功与缓存", () => {
 
     await fallback.maybeRunAsrFallback({ runId: RUN_ID });
 
-    expect(handler).toHaveBeenCalledWith("subtitle-ready");
+    expect(handler).toHaveBeenCalledWith({ kind: "subtitle-ready" });
     unsubscribe();
     state.reader.setViewOpen(false);
   });

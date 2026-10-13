@@ -66,14 +66,14 @@ describe("reader-bus 槽表跨实例共享", () => {
   });
 
   it("presenter 订阅表同样跨实例：一侧订阅、另一侧发布可达", () => {
-    const received: unknown[][] = [];
-    resident.subscribeReaderPresenter((...args: unknown[]) => {
-      received.push(args);
+    const received: unknown[] = [];
+    resident.subscribeReaderPresenter((event) => {
+      received.push(event);
     });
 
-    lazy.notifyReaderPresenter("status", "抓取完成，可以复制或下载字幕。");
+    lazy.notifyReaderPresenter({ kind: "status", text: "抓取完成，可以复制或下载字幕。" });
 
-    expect(received).toEqual([["status", "抓取完成，可以复制或下载字幕。"]]);
+    expect(received).toEqual([{ kind: "status", text: "抓取完成，可以复制或下载字幕。" }]);
   });
 
   it("未注册时消费端静默（不抛）", async () => {

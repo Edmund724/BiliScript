@@ -80,7 +80,7 @@ describe("主轨就绪后的副轨自动装载（接线）", () => {
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
 
     // 面板未打开（readingViewOpen=false）也照抓：双语是全局偏好，切到字幕 tab 时就该就绪
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
+    lifecycle.handleReaderPresenterNotification({ kind: "subtitle-ready" });
 
     await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
     expect(lazy.loadSecondarySubtitle).toHaveBeenCalledWith(
@@ -96,7 +96,7 @@ describe("主轨就绪后的副轨自动装载（接线）", () => {
     setBilingual(false);
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
 
-    lifecycle.handleReaderPresenterNotification("subtitle-ready");
+    lifecycle.handleReaderPresenterNotification({ kind: "subtitle-ready" });
     await Promise.resolve();
 
     expect(lazy.loadSecondarySubtitle).not.toHaveBeenCalled();
@@ -107,7 +107,7 @@ describe("主轨就绪后的副轨自动装载（接线）", () => {
     clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
     lazy.loadSecondarySubtitle.mockRejectedValueOnce(new Error("boom"));
 
-    expect(() => lifecycle.handleReaderPresenterNotification("subtitle-ready")).not.toThrow();
+    expect(() => lifecycle.handleReaderPresenterNotification({ kind: "subtitle-ready" })).not.toThrow();
     await vi.waitFor(() => expect(lazy.loadSecondarySubtitle).toHaveBeenCalledTimes(1));
   });
 });

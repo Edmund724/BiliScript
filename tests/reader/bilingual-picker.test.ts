@@ -924,7 +924,7 @@ describe("真机反向发现的修复锁", () => {
     expect(document.querySelectorAll(".biliscript-reading-subtext").length).toBeGreaterThan(0);
 
     const kinds: string[] = [];
-    readerBus.subscribeReaderPresenter((kind: string) => kinds.push(kind));
+    readerBus.subscribeReaderPresenter((event) => kinds.push(event.kind));
     switchButton().click();
 
     expect(state.settings.bilingualSubtitles).toBe(false);
@@ -939,7 +939,7 @@ describe("真机反向发现的修复锁", () => {
     shell.renderReadingView();
 
     const kinds: string[] = [];
-    readerBus.subscribeReaderPresenter((kind: string) => kinds.push(kind));
+    readerBus.subscribeReaderPresenter((event) => kinds.push(event.kind));
     clickSubOption("中文"); // 副列选到主轨那一条
 
     expect(state.clip.secondarySubtitle.state).toBe("idle");

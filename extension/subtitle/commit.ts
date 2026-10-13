@@ -108,7 +108,7 @@ export async function acceptSubtitle({
   // readingViewOpen 跳过、lifecycle 处理体再按当前 state 投影）。这里按视图
   // 开关截断通知会让「抓取完成时视图未开」的轮次永久丢通知，字幕列表停在
   // 进入时的空态——落定后的对账重渲（lifecycle）依赖通知可达。
-  notifyReaderPresenter("subtitle-ready");
+  notifyReaderPresenter({ kind: "subtitle-ready" });
   // 同相位进进程内状态总线（content script 收不到自己的 runtime 广播）：chat
   // 发送闸订阅它 kick 等待闸，字幕就绪时不必再空等一轮轮询。只发布主轨相位，
   // 副轨事务（acceptSecondarySubtitle）不碰。
@@ -151,7 +151,7 @@ export async function acceptSecondarySubtitle({
     url: subtitleUrl,
     body: sortedBody as SubtitleBodyItem[]
   });
-  notifyReaderPresenter("secondary-subtitle-ready");
+  notifyReaderPresenter({ kind: "secondary-subtitle-ready" });
 }
 
 export interface CommitNoSubtitleArgs {
@@ -197,7 +197,7 @@ export async function commitNoSubtitle({ noSubtitleReason, runId }: CommitNoSubt
   // 直接显示这句，状态栏不另拼——两处漂移的口子就此关闭。
   // 发射无条件（同 acceptSubtitle）：裁决权归 reader 侧门控。
   const message = buildNoSubtitleStatusMessage();
-  notifyReaderPresenter("subtitle-ready", message);
+  notifyReaderPresenter({ kind: "subtitle-ready", text: message });
   commitUi.setStatus(message);
 }
 

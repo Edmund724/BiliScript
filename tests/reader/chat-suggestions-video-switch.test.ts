@@ -211,7 +211,7 @@ describe("换片建议区（转写中不遗留上一个视频的问题）", () =
     state.clip.aid = "7200";
     state.clip.subtitleFetchState = "ready";
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "新视频的第一句" }];
-    notifyReaderPresenter("subtitle-ready");
+    notifyReaderPresenter({ kind: "subtitle-ready" });
 
     await waitFor(() => chatSessionState.currentContextKey === NEXT_KEY);
     expect(chatSessionState.contextData?.bvid).toBe("BV1next00000");

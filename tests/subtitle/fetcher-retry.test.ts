@@ -149,10 +149,10 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
     // 成功收尾（fetchState/selectedUrl 由字幕接受事务落位，本文件 mock 了事务，
     // 终态断言只看状态栏文案与事务入参）。完成提示走 reader-bus "status" 通知
     //（与渲染同通道），不再直写 setStatus。
-    expect(readerBus.notifyReaderPresenter).toHaveBeenLastCalledWith(
-      "status",
-      "抓取完成，可以复制或下载字幕。"
-    );
+    expect(readerBus.notifyReaderPresenter).toHaveBeenLastCalledWith({
+      kind: "status",
+      text: "抓取完成，可以复制或下载字幕。"
+    });
   });
 
   it("SUBTITLE_DURATION_MISMATCH 触发：时长不匹配的 body 落到重试，新 bundle 重载成功", async () => {
@@ -169,10 +169,10 @@ describe("retryWithFreshBundle：签名 URL 失效重试链（经 refreshClip �
     expect(gateway.fetchSubtitleBundle).toHaveBeenCalledTimes(2);
     expect(gateway.fetchSubtitleBody).toHaveBeenCalledTimes(2);
     expect(commit.acceptSubtitle).toHaveBeenCalledTimes(1);
-    expect(readerBus.notifyReaderPresenter).toHaveBeenLastCalledWith(
-      "status",
-      "抓取完成，可以复制或下载字幕。"
-    );
+    expect(readerBus.notifyReaderPresenter).toHaveBeenLastCalledWith({
+      kind: "status",
+      text: "抓取完成，可以复制或下载字幕。"
+    });
   });
 
   it("重试仍失败：只重试一次，原始错误上抛并由 refreshClip 错误路径收尾", async () => {

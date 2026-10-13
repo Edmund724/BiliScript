@@ -105,7 +105,7 @@ describe("字幕就绪通知全程恰一次（链级防回焊锁）", () => {
   it("refreshClip 网络新抓全程只 emit 一次 subtitle-ready", async () => {
     await fetcher.refreshClip();
 
-    const readyCalls = notifyReaderPresenter.mock.calls.filter((call) => call[0] === "subtitle-ready");
+    const readyCalls = notifyReaderPresenter.mock.calls.filter((call) => call[0].kind === "subtitle-ready");
     expect(readyCalls).toHaveLength(1);
     expect(state.clip.subtitleFetchState).toBe("ready");
     expect(state.clip.subtitleBody).toHaveLength(2);

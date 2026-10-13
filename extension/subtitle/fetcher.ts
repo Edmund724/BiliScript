@@ -164,19 +164,19 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   clipState.setSrt("");
   clipState.setTxt("");
   clipState.setCurrentClipSignature(computeCurrentClipSignature());
-  notifyReaderPresenter("reset");
+  notifyReaderPresenter({ kind: "reset" });
   state.reader.setActiveSubtitleIndex(-1);
   state.reader.setActiveChapterIndex(-1);
   state.reader.readingVideoEl = null;
 
   setMessage("");
   if (isReaderViewOpen()) {
-    notifyReaderPresenter("rerender");
+    notifyReaderPresenter({ kind: "rerender" });
     // 中性文案：resetClipState 的两个调用方里，URL 变化编排（entry/message-handler）
     // 之后必有抓取接力（阅读模式分支自身刷新，普通页分支由预抓取起跑），而
     // handleClipFetchError 的终态失败清场之后不再抓取——不承诺「自动重新抓取」
     // 才不会在失败路径上说假话（该路径随后同步覆写为失败文案）。
-    notifyReaderPresenter("status", "视频已切换，字幕将自动重新抓取。");
+    notifyReaderPresenter({ kind: "status", text: "视频已切换，字幕将自动重新抓取。" });
   }
 }
 
@@ -188,7 +188,7 @@ export async function refreshClip(): Promise<void> {
     setStatus("正在抓取视频信息...");
     clipState.setSubtitleFetchState("loading");
     if (isReaderViewOpen()) {
-      notifyReaderPresenter("rerender");
+      notifyReaderPresenter({ kind: "rerender" });
     }
     state.setSettings(await getSettings());
     ensureRunActive(runId, state.clip.fetchRunId);
@@ -200,7 +200,7 @@ export async function refreshClip(): Promise<void> {
     // 转写收尾才发，reset 后的空 meta 会一直留在面板 header。身份一确定就按
     // 当前 state 重投影一次（rerender 是纯 state 投影，幂等）。
     if (isReaderViewOpen()) {
-      notifyReaderPresenter("rerender");
+      notifyReaderPresenter({ kind: "rerender" });
     }
 
     setStatus("正在获取可用字幕...");
@@ -275,7 +275,7 @@ export async function refreshClip(): Promise<void> {
     // 这里只做完成提示。提示走 reader-bus "status" 通知（与渲染同通道、由
     // reader 侧同序收敛），不经 setStatus 直写——直写会绕过门控，在渲染缺席
     // 时先行宣告成功（「抓取完成但显示无字幕」的文案半边）。
-    notifyReaderPresenter("status", "抓取完成，可以复制或下载字幕。");
+    notifyReaderPresenter({ kind: "status", text: "抓取完成，可以复制或下载字幕。" });
   } catch (error) {
     await handleClipFetchError(error, runId);
   }
@@ -384,7 +384,7 @@ async function handleClipFetchError(error: unknown, runId: number): Promise<void
   resetClipState({ keepFetchState: true });
   clipState.setSubtitleFetchState("error");
   if (isReaderViewOpen()) {
-    notifyReaderPresenter("rerender");
+    notifyReaderPresenter({ kind: "rerender" });
   }
   if ((error as { code?: string }).code === "SUBTITLE_DURATION_MISMATCH") {
     setStatus("抓取失败：未找到与当前视频时长匹配的字幕轨，可能该视频无可用字幕。");
@@ -525,7 +525,7 @@ export async function loadSecondarySubtitle(
   // state/body，**失败也不回退目标**（与主轨 Q14 相反，理由见 02 号票裁定）。
   clipState.markSecondarySubtitleLoading({ id: subtitleId ? String(subtitleId) : "", url });
   if (isReaderViewOpen()) {
-    notifyReaderPresenter("rerender");
+    notifyReaderPresenter({ kind: "rerender" });
   }
 
   try {
@@ -558,7 +558,7 @@ export async function loadSecondarySubtitle(
     if (!isStaleRunError(error)) {
       clipState.markSecondarySubtitleError();
       if (isReaderViewOpen()) {
-        notifyReaderPresenter("rerender");
+        notifyReaderPresenter({ kind: "rerender" });
       }
     }
     throw error;

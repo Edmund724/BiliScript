@@ -176,7 +176,7 @@ describe("acceptSubtitle：字幕接受事务", () => {
       selectedSubtitleUrl: "https://example.com/sub.json",
       selectedSubtitleLang: "中文"
     });
-    expect(notifyReaderPresenter).toHaveBeenCalledWith("subtitle-ready");
+    expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
 
     state.reader.setViewOpen(true);
     vi.mocked(notifyReaderPresenter).mockClear();
@@ -186,7 +186,7 @@ describe("acceptSubtitle：字幕接受事务", () => {
       selectedSubtitleUrl: "https://example.com/sub.json",
       selectedSubtitleLang: "中文"
     });
-    expect(notifyReaderPresenter).toHaveBeenCalledWith("subtitle-ready");
+    expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready" });
   });
 
   it("幂等：已有序 body 再次接受，内容与顺序不变", async () => {
@@ -252,7 +252,10 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
     expect(clipState.noSubtitleReason).toBe("asr-empty");
     // 阅读视图的落空态渲染由 subtitle-ready 通知驱动（renderReadingView），
     // 且通知带完整文案（票 07 Q1：失败文案唯一出口，reader 侧直接显示这句）
-    expect(notifyReaderPresenter).toHaveBeenCalledWith("subtitle-ready", buildNoSubtitleStatusMessage());
+    expect(notifyReaderPresenter).toHaveBeenCalledWith({
+      kind: "subtitle-ready",
+      text: buildNoSubtitleStatusMessage()
+    });
   });
 
   it("noSubtitleReason：显式传参写入（含 null 清空），undefined 保留现有值", async () => {
@@ -270,12 +273,18 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
     clipState.setNoSubtitleReason("asr-empty");
     state.reader.setViewOpen(false);
     await commitNoSubtitle({});
-    expect(notifyReaderPresenter).toHaveBeenCalledWith("subtitle-ready", buildNoSubtitleStatusMessage());
+    expect(notifyReaderPresenter).toHaveBeenCalledWith({
+      kind: "subtitle-ready",
+      text: buildNoSubtitleStatusMessage()
+    });
 
     state.reader.setViewOpen(true);
     vi.mocked(notifyReaderPresenter).mockClear();
     await commitNoSubtitle({});
-    expect(notifyReaderPresenter).toHaveBeenCalledWith("subtitle-ready", buildNoSubtitleStatusMessage());
+    expect(notifyReaderPresenter).toHaveBeenCalledWith({
+      kind: "subtitle-ready",
+      text: buildNoSubtitleStatusMessage()
+    });
   });
 
   it("状态栏无条件落同一句（skip 与失败不再分叉）：reader 通知与 setStatus 同文案", async () => {
@@ -292,7 +301,7 @@ describe("commitNoSubtitle：无字幕出口（逆事务）", () => {
       const message = buildNoSubtitleStatusMessage();
       expect(commitUi.setStatus).toHaveBeenCalledTimes(1);
       expect(commitUi.setStatus).toHaveBeenCalledWith(message);
-      expect(notifyReaderPresenter).toHaveBeenCalledWith("subtitle-ready", message);
+      expect(notifyReaderPresenter).toHaveBeenCalledWith({ kind: "subtitle-ready", text: message });
     }
   });
 });

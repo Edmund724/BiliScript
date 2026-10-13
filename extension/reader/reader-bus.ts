@@ -41,13 +41,23 @@
 //     subscribeTabIntent 注册单 handler 写状态位/持久化并做二级激活。壳不直接写
 //     tab（那会绕过唯一状态位成了第二条真源），也不静态 import reader 重域。
 //
-// All payloads are read from the shared state at notification time, so the
-// callbacks need no arguments.
+// Presenter 事件只带「变了什么」——渲染所需的其余数据在通知时刻从共享 state 读取，
+// 因此接收体的入参只有这一个事件对象。
 
 import { logWarn } from "../shared/logging.js";
 import type { ReaderScriptTab } from "./state.js";
 
-type ReaderPresenterHandler = (kind: string, ...payload: unknown[]) => void;
+// Presenter 通道的封闭事件联合（一 kind 一格）：kind 在类型层封闭，拼错的 kind
+// 连编译都过不去；接收方因此按 kind 全量建表，不需要 default 静默分支。
+// text 只承载状态栏文案（"subtitle-ready" 缺省时接收方取自己的默认句）。
+export type ReaderPresenterEvent =
+  | { kind: "reset" }
+  | { kind: "rerender" }
+  | { kind: "subtitle-ready"; text?: string | number | null }
+  | { kind: "secondary-subtitle-ready" }
+  | { kind: "status"; text: string | number | null };
+
+export type ReaderPresenterHandler = (event: ReaderPresenterEvent) => void;
 type SubtitleRefreshHandler = () => unknown;
 type SettingsPersistHandler = () => void;
 type SettingsLoadHandler = () => unknown;
@@ -112,16 +122,15 @@ export function subscribeReaderPresenter(handler: ReaderPresenterHandler) {
   };
 }
 
-// 通知签名：(kind, ...payload)。payload 透传给 reader 侧 handler——fetcher 的
+// 通知签名：单个事件对象。事件原样透传给每个 handler——fetcher 的
 // "subtitle-ready" 会带状态栏文案（如"当前视频无字幕。"），"status" 带提示文本；
-// 历史上这里只转发 kind，第二参被丢弃、阅读视图永远显示默认文案。单参调用
-// （reset/rerender/无文案的 subtitle-ready）行为不变。
-export function notifyReaderPresenter(kind: string, ...payload: unknown[]) {
+// 不带 text 的 kind（reset/rerender/无文案 subtitle-ready）接收方取各自默认行为。
+export function notifyReaderPresenter(event: ReaderPresenterEvent) {
   for (const handler of readerBusSlots().readers.slice()) {
     try {
-      handler(kind, ...payload);
+      handler(event);
     } catch (error) {
-      logWarn("[BILISCRIPT] reader presenter handler failed", { kind, error });
+      logWarn("[BILISCRIPT] reader presenter handler failed", { kind: event.kind, error });
     }
   }
 }

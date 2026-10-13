@@ -261,7 +261,7 @@ describe("08 选轨控件：模板与落点", () => {
     expect(triggerText()).toBe("English");
     expect(trigger().disabled).toBe(false);
     expect(trigger().getAttribute("aria-busy")).toBe("false");
-    expect(bus).not.toHaveBeenCalledWith("status", expect.anything());
+    expect(bus).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "status" }));
   });
 });
 
@@ -611,7 +611,7 @@ describe("08 选轨控件：六态（03 号票 Q13–Q15 状态机）", () => {
     // state 未变：控件不得自说自话（Q14）
     expect(state.clip.selectedSubtitleId).toBe(SAMPLE_TRACKS[0].id);
     expect(listText()).toContain("中文轨正文");
-    expect(bus).toHaveBeenCalledWith("status", expect.stringContaining("网络失败"));
+    expect(bus).toHaveBeenCalledWith({ kind: "status", text: expect.stringContaining("网络失败") });
   });
 
   it("busy 期间的重渲不把乐观 trigger 拉回旧轨（一次只有一个请求在飞）", async () => {

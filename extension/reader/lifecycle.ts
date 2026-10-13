@@ -26,6 +26,7 @@ import {
 import { escapeHtml } from "../shared/string-utils.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter } from "./reader-bus.js";
+import type { ReaderPresenterEvent } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
 // 候选02 分层惰性：链未装载 ⇒ refreshClip 未注册进 reader-bus seam。懒装载
 // 触达自 seam 移到调用方（arch-slim-2/03），见 maybeRefreshReaderSubtitleInBackground。
@@ -134,11 +135,9 @@ registerReaderPorts({
 // 「抓取完成…」这类状态行文案永远写不进去（字幕已落账、状态行却停在
 // 「正在获取可用字幕...」的根因）。订阅移进发布方所在的懒加载区：域装载 ⇔
 // 阅读视图打开过，语义与原先「未装载且视图未打开则跳过」的门控等价，且通知
-// 不再跨实例丢失。函数声明有提升，此处注册即完整；payload 收窄成处理体的
-// 第二参形状（与搬移前 init-essentials 的转发一致）。
-subscribeReaderPresenter((kind, ...payload) => {
-  handleReaderPresenterNotification(kind, payload[0] as string | number | null | undefined);
-});
+// 不再跨实例丢失。函数声明有提升，此处注册即完整；处理体直接收事件对象，
+// 与发布方共用同一个 ReaderPresenterEvent 形状。
+subscribeReaderPresenter(handleReaderPresenterNotification);
 
 // PR3 字幕 tab 的两处组装根单点接线（与上方端口注册同位）：
 //   - 批次回执 hook：分批渲染每次 [from, to) 上屏后通知句内搜索补高亮
@@ -151,7 +150,7 @@ bindReadingTranscribeBanner();
 //     同序收敛，Q14）——本域是 reader-bus 的接线处，不把 reader-bus 拖进 ui 叶子；
 //   - change 绑定不在这里：原生 select 由壳模板产出、随壳 forceRecreate 重建，
 //     监听器随建壳接线（subtitle-tab-ui 经组件 initCustomSelect 的 onChange 交进去）。
-setSubtitleTrackNoticeHandler((text) => notifyReaderPresenter("status", text));
+setSubtitleTrackNoticeHandler((text) => notifyReaderPresenter({ kind: "status", text }));
 
 // SYNC functions this module drives (from sync.js):
 import {
@@ -246,51 +245,57 @@ function warmUpReaderQuickPrompts() {
 // 自己的 DOM 投影与在飞禁用。下面是 fire-and-forget：失败已由装载器写进副轨槽
 //（error 态 + 弹层副列占位即重试入口），事务自己吞异常，不污染主轨的渲染路径。
 
-// Presenter seam 通知的 reader 侧处理体（原 bindReaderPresenter 回调函数体
-// 原样搬移）。注册接线在常驻微模块 ./init-essentials.js：回调经
-// ensureReaderDomain() 惰性装载本域后转发到这里，因此本函数只在 reader 域
-// 装载后被调用，行为与搬迁前逐字一致。
-export function handleReaderPresenterNotification(kind: string, text?: string | number | null) {
-  switch (kind) {
-    case "reset":
-      stopReadingViewSync();
-      break;
-    case "subtitle-ready":
-      if (state.reader.readingViewOpen) {
-        // PR2：字幕列表已常驻右侧面板「字幕」tab，不再内联搬迁进页面文档流。
-        renderReadingView();
-        renderReadingStatus(String(text || "") || "抓取完成，阅读视图已同步最新字幕。");
-        startReadingViewSync();
-        syncReadingViewPlayback(true);
-        // PR4：字幕就绪即自动生成概览（基线决议「打开即自动生成并缓存」）。
-        // 无字幕时保持诚实空态不触发；生成中重复触发被状态机与管线 promise 复用去重。
-        triggerReaderOverviewGeneration();
-        // 同理：字幕就绪即预热本视频的三个初始问题（对话 tab 打开时直接可用）。
-        warmUpReaderQuickPrompts();
-      }
-      // 视图未开也照抓：双语是全局偏好，用户切到字幕 tab 时就该已经就绪
-      // （Q1：开关开着就立刻并行抓，不依赖面板可见性）。
-      ensureSecondarySubtitleLoaded();
-      break;
-    case "rerender":
-      if (state.reader.readingViewOpen) {
-        renderReadingView();
-      }
-      break;
-    case "secondary-subtitle-ready":
-      // 双语副轨到站（bilingual-subtitles/05 号票）：**只**重渲视图，不复制
-      // subtitle-ready 那串副作用（状态行 / 播放同步重启 / 概览生成 / 快捷问题预热）
-      // ——那些面只吃主轨（地图 Q6）。
-      if (state.reader.readingViewOpen) {
-        renderReadingView();
-      }
-      break;
-    case "status":
-      renderReadingStatus(String(text || ""));
-      break;
-    default:
-      break;
+// Presenter seam 通知的 reader 侧接收表（一 kind 一格，键集由 ReaderPresenterEvent
+// 映射类型强制完整）：每个 kind 只有一个接收体，副轨到站不可能顺带混进主轨那串
+// 副作用。注册接线在下方 subscribeReaderPresenter（域装载时单点注册）。
+type ReaderPresenterReceivers = {
+  [K in ReaderPresenterEvent["kind"]]: (event: Extract<ReaderPresenterEvent, { kind: K }>) => void;
+};
+
+const readerPresenterReceivers: ReaderPresenterReceivers = {
+  reset() {
+    stopReadingViewSync();
+  },
+  "subtitle-ready"(event) {
+    if (state.reader.readingViewOpen) {
+      // PR2：字幕列表已常驻右侧面板「字幕」tab，不再内联搬迁进页面文档流。
+      renderReadingView();
+      renderReadingStatus(String(event.text || "") || "抓取完成，阅读视图已同步最新字幕。");
+      startReadingViewSync();
+      syncReadingViewPlayback(true);
+      // PR4：字幕就绪即自动生成概览（基线决议「打开即自动生成并缓存」）。
+      // 无字幕时保持诚实空态不触发；生成中重复触发被状态机与管线 promise 复用去重。
+      triggerReaderOverviewGeneration();
+      // 同理：字幕就绪即预热本视频的三个初始问题（对话 tab 打开时直接可用）。
+      warmUpReaderQuickPrompts();
+    }
+    // 视图未开也照抓：双语是全局偏好，用户切到字幕 tab 时就该已经就绪
+    // （Q1：开关开着就立刻并行抓，不依赖面板可见性）。
+    ensureSecondarySubtitleLoaded();
+  },
+  rerender() {
+    if (state.reader.readingViewOpen) {
+      renderReadingView();
+    }
+  },
+  "secondary-subtitle-ready"() {
+    // 双语副轨到站（bilingual-subtitles/05 号票）：**只**重渲视图，不复制
+    // subtitle-ready 那串副作用（状态行 / 播放同步重启 / 概览生成 / 快捷问题预热）
+    // ——那些面只吃主轨（地图 Q6）。
+    if (state.reader.readingViewOpen) {
+      renderReadingView();
+    }
+  },
+  status(event) {
+    renderReadingStatus(String(event.text || ""));
   }
+};
+
+// 按事件自身的 kind 取那一格接收体。表键集与事件联合由映射类型对齐，此处只剩
+// 「用联合事件调用单格接收体」这一处类型收窄（每格只接受自己的事件成员）。
+export function handleReaderPresenterNotification(event: ReaderPresenterEvent) {
+  const receive = readerPresenterReceivers[event.kind] as (event: ReaderPresenterEvent) => void;
+  receive(event);
 }
 
 export async function enterReaderMode() {

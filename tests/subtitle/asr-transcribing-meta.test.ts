@@ -139,7 +139,7 @@ describe("ASR 转写进行中：meta 行显示 UP主", () => {
     void fetcher.refreshClip();
     await vi.waitFor(() => expect(pipeline.runAsrPipeline).toHaveBeenCalled());
 
-    const kinds = notifyReaderPresenter.mock.calls.map((call) => call[0]);
+    const kinds = notifyReaderPresenter.mock.calls.map((call) => call[0].kind);
     expect(kinds).not.toContain("rerender");
     expect(kinds).not.toContain("subtitle-ready");
   });

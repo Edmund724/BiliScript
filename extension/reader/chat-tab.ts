@@ -256,8 +256,8 @@ function bindClipSettleTrigger(): void {
   if (unsubscribeClipSettle) {
     return;
   }
-  unsubscribeClipSettle = subscribeReaderPresenter((kind) => {
-    if (kind === "subtitle-ready") {
+  unsubscribeClipSettle = subscribeReaderPresenter((event) => {
+    if (event.kind === "subtitle-ready") {
       scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
     }
   });

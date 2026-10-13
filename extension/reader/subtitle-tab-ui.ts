@@ -813,7 +813,7 @@ function handleBilingualSwitchClick(event: Event): void {
     activateSecondaryTarget();
   }
   renderReadingSubtitleTrackPicker();
-  notifyReaderPresenter("rerender");
+  notifyReaderPresenter({ kind: "rerender" });
 }
 
 // 副列语言改选（组件浮层里点一行 → 组件写值并派发 change）：
@@ -846,7 +846,7 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
     renderReadingSubtitleTrackPicker();
     // 同轨防呆清的是**副轨槽**，副行随之从列表消失 ⇒ 与开关同款：必须请列表属主重渲，
     // 否则列表还挂着已被清空的译文（弹层侧已经收起、两处两说）。
-    notifyReaderPresenter("rerender");
+    notifyReaderPresenter({ kind: "rerender" });
     return;
   }
   // 全局偏好：副轨目标 lan（Q4 记忆粒度）；立即落盘（与主题偏好同一条 persist seam）。

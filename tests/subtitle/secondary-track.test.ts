@@ -160,7 +160,7 @@ describe("acceptSecondarySubtitle（副轨接受事务）", () => {
     });
     expect(state.clip.secondarySubtitle.body.map((item) => item.content)).toEqual(["First", "Second"]);
     expect(readerBus.notifyReaderPresenter).toHaveBeenCalledTimes(1);
-    expect(readerBus.notifyReaderPresenter).toHaveBeenCalledWith("secondary-subtitle-ready");
+    expect(readerBus.notifyReaderPresenter).toHaveBeenCalledWith({ kind: "secondary-subtitle-ready" });
   });
 
   it("不写整片单相位、不碰主轨三项、不拉热评", async () => {

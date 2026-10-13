@@ -41,7 +41,7 @@ beforeEach(async () => {
 
 describe("reader 域自注册 presenter 订阅（双实例缺陷回归）", () => {
   it("status 通知直达状态行：「抓取完成…」不再丢失", () => {
-    presenter.notifyReaderPresenter("status", "抓取完成，可以复制或下载字幕。");
+    presenter.notifyReaderPresenter({ kind: "status", text: "抓取完成，可以复制或下载字幕。" });
 
     expect(document.getElementById(ids.readingStatus)?.textContent).toBe(
       "抓取完成，可以复制或下载字幕。"
@@ -52,7 +52,7 @@ describe("reader 域自注册 presenter 订阅（双实例缺陷回归）", () =
     state.reader.setViewOpen(true);
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
 
-    presenter.notifyReaderPresenter("subtitle-ready");
+    presenter.notifyReaderPresenter({ kind: "subtitle-ready" });
 
     expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(1);
     // 状态行文案由同一条通知先写「抓取完成，阅读视图已同步最新字幕。」（2026-09
