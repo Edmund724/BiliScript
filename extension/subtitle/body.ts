@@ -54,6 +54,8 @@ import {
   loadSubtitleFromCache,
   saveSubtitleToCache
 } from "./cache.js";
+// 轨身份的构造单点（三字段 → track / url / lang 优先级裁定）：缓存键入口只收身份。
+import { trackIdentity } from "./source-key.js";
 
 // 时长不匹配的 distinct 错误（读路径按 code 分流文案：refreshClip 的 catch 认
 // 这个 code 落「未找到与当前视频时长匹配的字幕轨」），details 带校验结果供日志。
@@ -115,9 +117,7 @@ export async function loadTrackBody(
   const cacheKey = getSubtitleCacheKey({
     bvid: state.clip.bvid,
     cid: state.clip.cid,
-    subtitleId,
-    subtitleUrl: url,
-    lang
+    identity: trackIdentity(subtitleId, url, lang)
   });
 
   // 缓存优先：命中且时长合规即交付；命中的是坏体（时长不匹配）则清键落到网络。

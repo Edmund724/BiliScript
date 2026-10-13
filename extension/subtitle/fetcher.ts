@@ -19,13 +19,7 @@ import { isReaderViewOpen } from "../reader/state.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
 import { normalizeSubtitleTracks, pickPreferredSubtitle } from "./selection.js";
-import {
-  buildSubtitleCandidates,
-  // 取体链（缓存键 / 读缓存 / 时长校验 / 落缓存）已收口 subtitle/body.js，
-  // 本模块不再直连这些口。clearStaleAsrSubtitleCache 是重构前就存在的未引用
-  // import（ASR 孤儿清理已归 asr/fallback），保留待另案处理。
-  clearStaleAsrSubtitleCache
-} from "./cache.js";
+import { buildSubtitleCandidates } from "./cache.js";
 import { resolvePageContext } from "../reader/page-context.js";
 import { notifyReaderPresenter, subscribeSubtitleRefresh } from "../reader/reader-bus.js";
 // 字幕接受事务（CONTEXT.md 域词条）：接受/无字幕出口的唯一入口。渲染与状态栏

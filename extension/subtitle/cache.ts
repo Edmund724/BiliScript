@@ -4,28 +4,31 @@ import { parseBvidFromCacheKey, readFamilyKeys, writeWithEviction, type Eviction
 // bilibili/native-payload.ts（架构评审「轨道身份」）。同一字段的两套归一此后只住一处，
 // 本模块 import 复用，不再另存一份。
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
+// 「字幕轨身份」编码单点与 ASR 变体判据（键位叶）：三种平台轨身份与 ASR 变体身份
+// 的编码、以及孤儿清理的匹配前缀都出自它，本模块不再定义任何身份拼写。
+import {
+  ASR_SOURCE_KEY_PREFIX,
+  buildSubtitleSourceKey,
+  subtitleSourceKey,
+  type TrackIdentity
+} from "./source-key.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
 // 类型专用导入（编译期擦除，无运行时 ai 边）：字幕条目形状归 ai/types 声明。
 import type { SubtitleBodyItem } from "../ai/types.js";
 
 const CACHE_KEY_PREFIX = "biliscript_subtitle_cache_";
-// ASR 变体 source key 前缀：fetcher 以 subtitleId "asr:<providerId>:<model>:<lang>"
-// 组键（经 buildSubtitleSourceKey 的 id_ 分支），用于识别/清理过期 ASR 转写变体。
-const ASR_SOURCE_KEY_PREFIX = "id_asr:";
 
 export interface SubtitleCacheKeyOptions {
   bvid: string;
   cid: string;
-  subtitleId?: string;
-  subtitleUrl?: string;
-  lang?: string;
+  /** 字幕轨身份（track / url / lang / asr），构造与优先级裁定在 subtitle/source-key。 */
+  identity: TrackIdentity;
 }
 
 export type SaveSubtitleResult = EvictionResult | EvictionFailure;
 
-export function getSubtitleCacheKey({ bvid, cid, subtitleId = "", subtitleUrl = "", lang = "" }: SubtitleCacheKeyOptions): string {
-  const sourceKey = buildSubtitleSourceKey(subtitleId, subtitleUrl, lang);
-  return `${CACHE_KEY_PREFIX}${bvid}_${cid}_${sourceKey}`;
+export function getSubtitleCacheKey({ bvid, cid, identity }: SubtitleCacheKeyOptions): string {
+  return `${CACHE_KEY_PREFIX}${bvid}_${cid}_${subtitleSourceKey(identity)}`;
 }
 
 export async function loadSubtitleFromCache(cacheKey: string): Promise<unknown[] | null> {
@@ -68,8 +71,9 @@ interface AsrCacheCleanupOptions {
 
 /**
  * ASR 孤儿清理：删除同 (bvid, cid) 下除 keepKey 外的 ASR 变体缓存键
- * （不同 provider/model/language 的旧转写，键含 "id_asr:" source key）。
- * 平台字幕轨（id_/url_/lang_ 且非 asr:）不是孤儿，一律保留。
+ * （不同 provider/model/language 的旧转写，键含 ASR 变体 source key）。
+ * 平台字幕轨（track / url / lang 三态身份）不是孤儿，一律保留。
+ * 匹配前缀由键位叶（subtitle/source-key）导出的 ASR 变体前缀派生——与组键同根。
  * 枚举走 core/cache-lru 的 readFamilyKeys 分键索引（get(null) 快照过滤）；该
  * bvid 无索引条目 → 原语返回 null + 一次性 logWarn，回退 get(null) 前缀扫描
  * 自愈（见原语）。
@@ -103,22 +107,9 @@ export async function clearSubtitleCacheByKey(cacheKey: string): Promise<void> {
   }
 }
 
-export function buildSubtitleSourceKey(subtitleId: unknown, subtitleUrl: unknown, lang: unknown): string {
-  const id = String(subtitleId || "").trim();
-  if (id) {
-    return `id_${id}`;
-  }
-
-  const normalizedUrl = normalizeSubtitleUrlForCache(subtitleUrl);
-  if (normalizedUrl) {
-    return `url_${normalizedUrl}`;
-  }
-
-  return `lang_${String(lang || "").trim().toLowerCase() || "unknown"}`;
-}
-
 // ===== 字幕签名族（自 ai/analysis 迁入，arch-slim-3 #1）：签名是缓存键，
-// 与 source key 同居本叶子；ai/analysis 与 reader/overview 双向消费。=====
+// ai/analysis 与 reader/overview 双向消费。source key 本身（字幕轨身份编码）归
+// 键位叶 subtitle/source-key，本模块 import 取用。=====
 
 // 条目归一：只留 content 非空的 {from,to,content}（ai/analysis 与签名共用同语义）。
 export function normalizeSubtitleItems(items: unknown): SubtitleBodyItem[] {

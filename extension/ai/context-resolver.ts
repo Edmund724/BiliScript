@@ -13,6 +13,8 @@
 // B站抓取统一走 bilibili/gateway-core.js 的 bgFetchJson 传输叶（arch-slim-2/04 拆叶）。
 
 import { getSubtitleCacheKey, loadSubtitleFromCache } from "../subtitle/cache.js";
+// 轨身份的构造单点（三字段 → track / url / lang 优先级裁定）：缓存键入口只收身份。
+import { trackIdentity } from "../subtitle/source-key.js";
 import {
   fetchVideoMeta,
   fetchSubtitleBundle,
@@ -89,9 +91,7 @@ export async function resolveAiConversationContext(contextRef: unknown): Promise
   const cacheKey = getSubtitleCacheKey({
     bvid: ref.bvid,
     cid,
-    subtitleId: selectedTrack.id,
-    subtitleUrl: selectedTrack.subtitleUrl,
-    lang: selectedTrack.lanDoc || selectedTrack.lan
+    identity: trackIdentity(selectedTrack.id, selectedTrack.subtitleUrl, selectedTrack.lanDoc || selectedTrack.lan)
   });
   const cachedBody = await loadSubtitleFromCache(cacheKey);
   // 缓存命中免一次字幕正文下载；未命中按 gateway 现代签名只传 url、解构

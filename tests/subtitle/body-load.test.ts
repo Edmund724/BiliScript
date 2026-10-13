@@ -24,6 +24,8 @@ import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest"
 import { resetModuleState } from "../setup.js";
 // 落缓存失败的真实错误类型（LRU 淘汰后重试仍失败的 distinct 错误）
 import { CacheWriteError } from "../../extension/core/cache-lru.js";
+// 期望键的身份构造口（与生产 body.js 同一份：三字段 → 身份）
+import { trackIdentity } from "../../extension/subtitle/source-key.js";
 
 vi.mock("../../extension/core/ui-status.js", () => ({
   setStatus: vi.fn(),
@@ -112,14 +114,12 @@ beforeEach(async () => {
   uiStatus.setMessage.mockReset();
 });
 
-// 与生产一致的键（保留真实键装配，断言落盘口拿到的是这个键）
+// 与生产一致的键（保留真实键装配：三字段经键位叶构造身份，断言落盘口拿到的是这个键）
 function expectedCacheKey() {
   return cache.getSubtitleCacheKey({
     bvid: "BV1test000000",
     cid: "101",
-    subtitleId: TRACK.id,
-    subtitleUrl: TRACK.subtitleUrl,
-    lang: TRACK.lanDoc
+    identity: trackIdentity(TRACK.id, TRACK.subtitleUrl, TRACK.lanDoc)
   });
 }
 

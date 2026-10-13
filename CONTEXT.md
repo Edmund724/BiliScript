@@ -44,6 +44,13 @@ _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 f
 代码名：`ai/segment-cache.js`（`biliscript_lvs_raw_*`）/ `ai/raw-retrieval.js` / `ai/segment-cache-key-fields.js`（键位字段清单零依赖叶，候选 5：SW 装配 / offscreen 出站点 / 协议载荷类型 / 概览键位四方同源）
 _Avoid_: 长记忆、向量库
 
+**字幕轨身份**:
+一条字幕轨在缓存键里的身份，封闭判别联合四态：`track`（B 站轨 id）/ `url`（轨地址）/ `lang`（槽语言）/ `asr`（自配平台转写：provider + model + 语言）。三字段原始输入（id / url / lang）的优先级 id > url > lang 与 URL 归一只有一处裁定；编码产物是缓存 source key 的字节面（`id_*` / `url_*` / `lang_*` / `id_asr:<p>:<m>:<l>`），键形与历史逐字节一致（老缓存零迁移）。
+「这是不是 ASR 变体键」这个判据与编码**同根**：变体前缀由叶内唯一根常量派生，判据即前缀匹配——ASR 伪轨的组键侧（显式传 asr 身份）与识别侧（孤儿清理的匹配前缀）因此出自同一处，改编码时判据跟着改，不可能各写一套拼写而悄悄漂移。
+与「字幕」的分工：本词条只管轨在缓存键里的身份；字幕正文的取体、接受事务与选轨全在「字幕」——缓存键入口收身份，主轨调用点显式构造身份，ASR 侧显式传 asr 身份（不再手拼字符串走 id 分支）。与「原始字幕缓存」的分工：三族键位（bvid + cid + 本身份 + 段序号 / 签名）由各族自己拼装，本词条只产出其中的 source key 分量。
+代码名：`subtitle/source-key.js`（`TrackIdentity` / `trackIdentity`（三字段 → 身份）/ `subtitleSourceKey`（身份 → source key）/ `buildSubtitleSourceKey`（位置参数便捷形，缓存族注入面与直取用）/ `isAsrVariantSourceKey` + `ASR_SOURCE_KEY_PREFIX`）/ 消费方 `subtitle/cache.js`（缓存键入口收身份、孤儿清理前缀由此派生）/ `subtitle/body.js`、`ai/context-resolver.js`（主轨调用点）/ `asr/fallback.js`（组键显式传 asr 身份）/ `ai/segment-cache.js`、`ai/analysis-orchestrate.js`（缓存族注入）
+_Avoid_: 把身份写成三个散字段、在调用点手拼 `asr:<provider>:<model>:<lang>` 再去走 id 分支、另写一处 `id_asr:` 前缀、复制第二份 URL 归一（削 query 那份住在 `bilibili/native-payload.js`）
+
 **缓存宿主**:
 缓存族落在哪个进程的判据：由**消费方进程的 storage 可达性**决定，与缓存数据的重要性/大小无关。offscreen 文档没有 chrome.storage（平台只开放 chrome.runtime）→ offscreen 消费的缓存族一律 SW 宿主、经消息族读写；content/reader 有完整 storage 权限 → 消费处直写。四族现状对照：字幕缓存（`biliscript_subtitle_cache_*`）content 直写；原始字幕缓存/分段小结（`biliscript_lvs_*`）SW 宿主、offscreen 经 `segment-cache` 消息族（机制见「原始字幕缓存」）；概览缓存（按 bvid/cid/轨/签名落盘）content 直写；查询缓存（`biliscript_search_cache`）SW 宿主，offscreen 与 content 都经 `search-cache` 消息族读写。淘汰/LRU 布局与宿主判据正交，单源 `core/cache-lru.js` 族工厂（两进程共用同一纯叶）。本判据只管 chrome.storage.local 上的可淘汰缓存族；provider/设置存储（sync+local 分层）不受管辖（见「激活平台」「设置快照」）。
 代码名：`core/cache-lru.js`（族工厂）/ `ai/segment-cache-proxy.js`（SW 宿主族的 offscreen 出站点，读半边 `segmentCacheProxy` + 写会话工厂 `createSegmentCacheWriteSession`）/ `subtitle/cache.js` / `ai/analysis-orchestrate.js`（content 直写两族）
