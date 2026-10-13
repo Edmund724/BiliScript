@@ -280,16 +280,17 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
   }
 
   // 联网搜索开关渲染（spec §4）：pill 开启态 is-active（accent-soft 底）。
-  // 两个静止态的字形完全相同，方向只由切换动画表达：开启 = 经线往左转
-  // （is-spinning-left）、关闭 = 往右。只认真实状态变化——首帧（水合）与无变化的
-  // 重渲不转，否则每次打开面板、每次刷新偏好都白转一圈。连续两次切换的方向必然
-  // 相反，故「先摘类再挂类」在同一帧里就换了 animation-name，动画自然重播。
+  // 两个静止态的字形完全相同，方向只由切换动画表达：开启 = 经线往右扫过
+  // （is-spinning-on）、关闭 = 同一组关键帧倒放（is-spinning-off）。只认真实状态变化
+  // ——首帧（水合）与无变化的重渲不转，否则每次打开面板、每次刷新偏好都白转一圈。
+  // 连续两次切换的方向必然相反，故「先摘类再挂类」在同一帧里就换了 animation-name，
+  // 动画自然重播。
   let renderedWebSearchEnabled: boolean | null = null;
 
   function spinWebSearchPill(enabled: boolean): void {
     if (!webSearchPill) return;
-    webSearchPill.classList.remove("is-spinning-left", "is-spinning-right");
-    webSearchPill.classList.add(enabled ? "is-spinning-left" : "is-spinning-right");
+    webSearchPill.classList.remove("is-spinning-on", "is-spinning-off");
+    webSearchPill.classList.add(enabled ? "is-spinning-on" : "is-spinning-off");
   }
 
   function renderWebSearchEnabled(): void {
@@ -307,7 +308,7 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
   if (webSearchPill) {
     webSearchPill.addEventListener("animationend", (event) => {
       if (event.animationName.startsWith("biliscript-web-search-meridian")) {
-        webSearchPill.classList.remove("is-spinning-left", "is-spinning-right");
+        webSearchPill.classList.remove("is-spinning-on", "is-spinning-off");
       }
     });
   }

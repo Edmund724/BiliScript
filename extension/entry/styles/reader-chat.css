@@ -830,7 +830,7 @@
 /* 联网搜索开关（spec §4）：输入行 + 右侧的描边圆开关（DeepSeek 输入框工具
  * pill 同款位）；开启态 accent-soft 底 + accent 图标与关闭态灰描边灰图标区分。
  * 只留地球图标、不带文字——输入行的横向空间留给模型名（这一行里最长的变量）。
- * 两个静止态的字形完全相同，方向只由切换动画表达（选中 = 经线往左转、取消 = 往右）。 */
+ * 两个静止态的字形完全相同，方向只由切换动画表达（选中 = 经线往右扫过，取消 = 倒放）。 */
 .biliscript-reading-chat .chat-web-search-pill {
   flex: 0 0 auto;
   display: inline-flex;
@@ -878,66 +878,50 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 经线的方向动画（spec §4）：地球绕竖轴的真投影只会左右对称压扁、读不出转向，所以
- * 这里用卡通读法——经线向左压扁（前缩）滑向圆缘，同时下一条经线（b，静止时压扁到 0
- * 在背面）从右缘压扁入场滑到正中；取消时整体镜像。两条经线全程同速、宽度此消彼长
- * （一条的 scaleX 恰是另一条的补数），所以任何一帧都至少有一条经线可见——地球 360°
- * 都有经线，不该出现只剩赤道的空帧；也因为这个互补，图标的分量全程恒定，不会忽明
- * 忽暗。赤道与圆不动：赤道是正视下的水平直径，真旋转下也不变。scale 原点取 viewBox
- * 中心，经线才在正中压扁。 */
-.biliscript-reading-chat .chat-web-search-pill .chat-web-search-meridian {
-  transform-box: view-box;
-  transform-origin: 50% 50%;
+/* 地球转向（spec §4）：经线不整体平移/旋转，而是三条半弧各自在原位改曲率——这是
+ * DeepSeek 智能搜索键那条地球的做法：任何一帧都有一条经线立着，不会出现「只剩赤道」
+ * 的空帧。三条半弧共用同一模板（下极点 → 上极点，鼓出量 b 右正左负，K = 0.5523）：
+ *   M12 22C{12+bK} 22 {12+b} 17.523 {12+b} 12C{12+b} 6.477 {12+bK} 2 12 2
+ * 基态即标记里的 d：a 右鼓 4.226、b 左鼓 4.226（两者拼出正对视点的那条经线），
+ * c 左鼓 10 = 左半圆，正压在轮廓圆上，看不出。选中时 a 鼓到 10（贴右缘、并进轮廓圆里
+ * 消失）、b 翻到右鼓 4.226（穿过 0 时收成一条竖直直径）、c 从 10 缩到 4.226 接替左侧
+ * 经线；读作经线向右扫过，赤道与轮廓圆不动（正视下赤道是水平直径，真旋转也不变）。
+ * 收尾时 a 贴右缘、b 右鼓、c 左鼓，字形与基态逐像素相同，摘类看不出换手。
+ * 三条线各有一段缓动（时长 / 延迟 / 曲线拟合自 DeepSeek 的实测帧），所以转起来有先后：
+ * b 先动、c 最后起手，三条同时收住。取消 = 同一组关键帧倒放，形状逐帧镜像。 */
+.biliscript-reading-chat .chat-web-search-pill:is(.is-spinning-on, .is-spinning-off) .chat-web-search-meridian-a {
+  animation: biliscript-web-search-meridian-a 325ms cubic-bezier(0.76, 0.69, 0.27, 1) 116ms;
 }
 
-/* b 是「下一条经线」：静止（含动画收尾摘类后）压扁到 0 —— 它在圆的背面，不占视野。 */
-.biliscript-reading-chat .chat-web-search-pill .chat-web-search-meridian-b {
-  transform: scaleX(0);
+.biliscript-reading-chat .chat-web-search-pill:is(.is-spinning-on, .is-spinning-off) .chat-web-search-meridian-b {
+  animation: biliscript-web-search-meridian-b 361ms cubic-bezier(0.75, 0.17, 0.35, 0.81) 80ms;
 }
 
-.biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian-a {
-  animation: biliscript-web-search-meridian-out-left 550ms linear;
+.biliscript-reading-chat .chat-web-search-pill:is(.is-spinning-on, .is-spinning-off) .chat-web-search-meridian-c {
+  animation: biliscript-web-search-meridian-c 301ms cubic-bezier(0.73, 0.06, 0.25, 0.53) 140ms;
 }
 
-.biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian-b {
-  animation: biliscript-web-search-meridian-in-right 550ms linear;
+.biliscript-reading-chat .chat-web-search-pill.is-spinning-off .chat-web-search-meridian {
+  animation-direction: reverse;
 }
 
-.biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian-a {
-  animation: biliscript-web-search-meridian-out-right 550ms linear;
+@keyframes biliscript-web-search-meridian-a {
+  to { d: path("M12 22C17.523 22 22 17.523 22 12C22 6.477 17.523 2 12 2"); }
 }
 
-.biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian-b {
-  animation: biliscript-web-search-meridian-in-left 550ms linear;
+@keyframes biliscript-web-search-meridian-b {
+  to { d: path("M12 22C14.334 22 16.226 17.523 16.226 12C16.226 6.477 14.334 2 12 2"); }
 }
 
-@keyframes biliscript-web-search-meridian-out-left {
-  from { transform: translateX(0) scaleX(1); }
-  to { transform: translateX(-9px) scaleX(0); }
-}
-
-@keyframes biliscript-web-search-meridian-in-right {
-  from { transform: translateX(9px) scaleX(0); }
-  to { transform: translateX(0) scaleX(1); }
-}
-
-@keyframes biliscript-web-search-meridian-out-right {
-  from { transform: translateX(0) scaleX(1); }
-  to { transform: translateX(9px) scaleX(0); }
-}
-
-@keyframes biliscript-web-search-meridian-in-left {
-  from { transform: translateX(-9px) scaleX(0); }
-  to { transform: translateX(0) scaleX(1); }
+@keyframes biliscript-web-search-meridian-c {
+  to { d: path("M12 22C9.666 22 7.774 17.523 7.774 12C7.774 6.477 9.666 2 12 2"); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   /* 地球转向对减少动态用户关停：底色/描边类短过渡保留，暂停期间的静止字形与
    * 动画结束后一致（两个静止态字形本就相同）。 */
-  .biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian-a,
-  .biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian-b,
-  .biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian-a,
-  .biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian-b {
+  .biliscript-reading-chat .chat-web-search-pill.is-spinning-on .chat-web-search-meridian,
+  .biliscript-reading-chat .chat-web-search-pill.is-spinning-off .chat-web-search-meridian {
     animation: none;
   }
 }

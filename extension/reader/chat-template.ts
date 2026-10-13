@@ -84,20 +84,18 @@ export function buildChatTabBodyHtml(): string {
               <!-- 联网搜索开关（spec §4）：输入行 + 右侧的描边圆开关，点击即改全局
                    记忆；开启态 accent-soft 底 + accent 图标（DeepSeek 输入框工具 pill
                    同款位）。只留地球图标、不带文字：输入行宽度留给模型名（模型名是这里
-                   最长的变量）。字形取地球（圆 + 赤道 + 经线）；经线两条——a 是正对视点
-                   的那条，b 是「下一条」（静止时压扁到 0，地球 360° 都有经线，转起来才
-                   从对侧入场）。经线裁在球面内（转到圆缘时被轮廓切掉，尖角不探出球
-                   外），轮廓圆后画以盖住裁剪边。两个静止态字形完全相同，方向只由切换
-                   动画表达（见 reader-chat.css）。 -->
+                   最长的变量）。字形取地球（轮廓圆 + 赤道 + 一条 65° 经线），三条经线
+                   半弧（a / b / c）共用同一模板，见 reader-chat.css 的「地球转向」注：
+                   a、b 拼出静止时那条经线，c 在静止时是左半圆——正压在轮廓圆上，看不出。
+                   赤道两端内缩 0.93r，圆头端帽落在轮廓圆的描边里，接缝不断。两个静止态
+                   字形完全相同，方向只由切换动画表达。 -->
               <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-label="联网搜索" aria-pressed="false">
                 <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <defs>
-                    <clipPath id="biliscript-web-search-globe"><circle cx="12" cy="12" r="10"></circle></clipPath>
-                  </defs>
-                  <path class="chat-web-search-meridian chat-web-search-meridian-a" clip-path="url(#biliscript-web-search-globe)" d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
-                  <path class="chat-web-search-meridian chat-web-search-meridian-b" clip-path="url(#biliscript-web-search-globe)" d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+                  <path class="chat-web-search-meridian chat-web-search-meridian-a" d="M12 22C14.334 22 16.226 17.523 16.226 12C16.226 6.477 14.334 2 12 2"></path>
+                  <path class="chat-web-search-meridian chat-web-search-meridian-b" d="M12 22C9.666 22 7.774 17.523 7.774 12C7.774 6.477 9.666 2 12 2"></path>
+                  <path class="chat-web-search-meridian chat-web-search-meridian-c" d="M12 22C6.477 22 2 17.523 2 12C2 6.477 6.477 2 12 2"></path>
                   <circle cx="12" cy="12" r="10"></circle>
-                  <path d="M2 12h20"></path>
+                  <path d="M2.714 12h18.572"></path>
                 </svg>
               </button>
               <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、

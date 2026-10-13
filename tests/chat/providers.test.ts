@@ -469,7 +469,7 @@ describe("webSearchEnabled 联网开关（spec §2.1/§4）", () => {
     expect(pill.classList.contains("is-active")).toBe(false);
   });
 
-  it("方向动画：水合首帧不转，开启 is-spinning-left、关闭 is-spinning-right", async () => {
+  it("方向动画：水合首帧不转，开启 is-spinning-on、关闭 is-spinning-off", async () => {
     sendRuntimeMessageMock.mockImplementation(async (msg) => {
       if (msg.type === "get-settings") {
         return { ok: true, settings: { webSearchEnabled: true } };
@@ -481,15 +481,15 @@ describe("webSearchEnabled 联网开关（spec §2.1/§4）", () => {
     await providerPrefs.loadProvidersAndPrefs();
 
     // 首帧只水合开态，不播转场动画（否则每次打开面板都白转一圈）
-    expect(pill.classList.contains("is-spinning-left")).toBe(false);
-    expect(pill.classList.contains("is-spinning-right")).toBe(false);
+    expect(pill.classList.contains("is-spinning-on")).toBe(false);
+    expect(pill.classList.contains("is-spinning-off")).toBe(false);
 
     await providerPrefs.setWebSearchEnabled(false);
-    expect(pill.classList.contains("is-spinning-right")).toBe(true);
+    expect(pill.classList.contains("is-spinning-off")).toBe(true);
 
     await providerPrefs.setWebSearchEnabled(true);
-    expect(pill.classList.contains("is-spinning-left")).toBe(true);
-    expect(pill.classList.contains("is-spinning-right")).toBe(false);
+    expect(pill.classList.contains("is-spinning-on")).toBe(true);
+    expect(pill.classList.contains("is-spinning-off")).toBe(false);
   });
 
   it("setWebSearchEnabled：写 chatSessionState + 渲染 + save-settings 单键持久化", async () => {

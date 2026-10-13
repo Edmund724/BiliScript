@@ -126,6 +126,14 @@ describe("统一 文摘面板三标签", () => {
     expect(searchPill.querySelector("svg")).not.toBe(null);
     expect(searchPill.textContent?.trim()).toBe("");
     expect(searchPill.getAttribute("aria-label")).toBe("联网搜索");
+    // 地球字形：轮廓圆 + 赤道 + 三条经线半弧（a 右半 / b 左半 / c 左半圆，静止时压在
+    // 轮廓圆上）。三条共用同一曲线模板，是 CSS 那组 d 关键帧的基态，缺一条转场就断档。
+    expect([...searchPill.querySelectorAll(".chat-web-search-meridian")].map((p) => p.classList[1])).toEqual([
+      "chat-web-search-meridian-a",
+      "chat-web-search-meridian-b",
+      "chat-web-search-meridian-c",
+    ]);
+    expect(searchPill.querySelector("svg > circle")?.getAttribute("r")).toBe("10");
     const chatMessages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(chatMessages.querySelectorAll(".chat-msg, .chat-center-error").length).toBe(0);
     expect((chatMessages.querySelector(".chat-suggestions") as HTMLElement).innerHTML).toBe("");
