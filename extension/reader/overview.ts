@@ -31,7 +31,7 @@ import { state } from "../core/state.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { formatClock } from "../shared/clock-text.js";
-import { getErrorMessage } from "../shared/error-helpers.js";
+import { getErrorMessage, isAbortedMarkerError, isCancelledError } from "../shared/error-helpers.js";
 import { setMessage } from "../core/ui-status.js";
 // 「选中平台 + 其 API Key」解析（与选区解释共用）。
 import { resolveActiveProvider } from "../ai/active-provider.js";
@@ -171,23 +171,36 @@ function renderIfOpen(): void {
   }
 }
 
-// 无字幕出口：不触发生成（07 票决议数据层也直接拒绝），展示诚实空态。
-// 转写进行中给出预期文案（转写完成后字幕就绪通知会再触发）。
-function markEmptyPhase(): void {
-  overview.phase = "empty";
+// ============================================================
+// 相位写点收口（同形写点共用；清空集在这里定死，不按 phase 派生）
+// ============================================================
+
+// 产物退场：phase 由调用方给（empty = 无字幕诚实空态；idle = 未生成），产物引用与
+// 状态条字段一并丢弃。
+function clearOverviewProduct(phase: "empty" | "idle"): void {
+  overview.phase = phase;
   overview.analysis = null;
   overview.generatedFor = "";
   overview.progressText = "";
   overview.errorText = "";
 }
 
-// 旧产物退场（换轨/切分P/会话收尾共用）：产物引用一并丢弃。
-function dropOverviewProduct(): void {
-  overview.phase = "idle";
-  overview.analysis = null;
-  overview.generatedFor = "";
+// 取消落定：只清状态条字段——旧产物保留（重试期间的章节与金句不在这里丢）。
+function clearOverviewToCancelled(): void {
+  overview.phase = "cancelled";
   overview.progressText = "";
   overview.errorText = "";
+}
+
+// 无字幕出口：不触发生成（07 票决议数据层也直接拒绝），展示诚实空态。
+// 转写进行中给出预期文案（转写完成后字幕就绪通知会再触发）。
+function markEmptyPhase(): void {
+  clearOverviewProduct("empty");
+}
+
+// 旧产物退场（换轨/切分P、empty 退场、中止未取消共用）：产物引用一并丢弃。
+function dropOverviewProduct(): void {
+  clearOverviewProduct("idle");
 }
 
 // ============================================================
@@ -208,6 +221,13 @@ function waitingNoteText(): string {
   return `正在等待平台响应…（已等待 ${Math.floor(waitedMs / 1000)} 秒）`;
 }
 
+// 状态条那句文案的唯一取法：模板（buildGeneratingStrip）与每秒 tick 共用。只收「取法」
+// ——模板侧的固定兜底「正在生成概览…」与 tick 的「假值不写」纪律各自留在写点，两处
+// 可见文案等价正由这两条共同保证。
+function stripText(): string {
+  return overview.progressText || waitingNoteText();
+}
+
 function stopWaitTicker(): void {
   if (waitTicker !== null) {
     clearInterval(waitTicker);
@@ -222,13 +242,14 @@ function tickWaitNote(): void {
     stopWaitTicker();
     return;
   }
-  const text = overview.progressText || waitingNoteText();
-  const stripText = document
+  const text = stripText();
+  const node = document
     .getElementById(ids.readingOverviewBody)
     ?.querySelector(".biliscript-reading-ov-strip-text");
-  if (stripText) {
+  if (node) {
+    // 假值不写：取法为空（未收到进度且未到等待阈值）时保留模板兜底文案，不写空。
     if (text) {
-      stripText.textContent = text;
+      node.textContent = text;
     }
     return;
   }
@@ -254,9 +275,7 @@ export function cancelReaderOverview(): void {
   // 放开去重绑定：cancel 后「重新生成」必须能立刻重跑，不必等被中止的编排落定。
   // 旧编排的迟到回执由 startOverviewRun 的 slot 身份守卫丢弃（新触发换了 slot）。
   overview.inflight = null;
-  overview.phase = "cancelled";
-  overview.progressText = "";
-  overview.errorText = "";
+  clearOverviewToCancelled();
   renderIfOpen();
 }
 
@@ -389,14 +408,12 @@ async function startOverviewRun(
     if (inflightAbort !== slot || overview.generatedFor !== clipKey) {
       return; // 同上：过期回执丢弃（含取消后新一轮已接手的旧编排）
     }
-    const err = error as { cancelled?: unknown; aborted?: unknown } | null;
-    if (err?.cancelled || err?.aborted) {
+    // 接受集显式写在调用点（谓词各自只认一种形状）：cancelled 在前。
+    if (isCancelledError(error) || isAbortedMarkerError(error)) {
       if (cancelRequested) {
         // 用户主动取消：停在 cancelled 态（有「重新生成」出口），不回 idle——
         // 那会让切 tab 的自动触发立刻重跑一次刚被取消的请求。
-        overview.phase = "cancelled";
-        overview.progressText = "";
-        overview.errorText = "";
+        clearOverviewToCancelled();
         renderIfOpen();
         return;
       }
@@ -441,7 +458,11 @@ function syncOverviewPhaseToClip(): void {
     return;
   }
   if (overview.phase === "empty") {
-    overview.phase = "idle";
+    // 字幕从无到有：empty 退场回 idle（等下次触发）。复用产物退场入口而非裸写 phase：
+    // empty 态只由上面的无字幕分支与触发生成时的无字幕出口（markEmptyPhase）产生，
+    // 进 empty 时 analysis / generatedFor / 状态条字段已一并清空，故复用不改任何字段；
+    // 反过来本路径也不得承担清产物的职责（旧产物不在这里丢）。
+    dropOverviewProduct();
     return;
   }
   if (overview.generatedFor && overview.generatedFor !== currentOverviewKey()) {
@@ -531,7 +552,7 @@ function buildEmptyStateHtml(): string {
 // 超时）。细进度条复用转写横幅的 biliscript-asr-pulse 不确定动画（页面侧拿不到确定
 // 进度）。
 function buildGeneratingStrip(): string {
-  const text = overview.progressText || waitingNoteText() || "正在生成概览…";
+  const text = stripText() || "正在生成概览…";
   return `
     <div class="biliscript-reading-ov-strip is-generating">
       <span class="biliscript-reading-ov-strip-text">${escapeHtml(text)}</span>

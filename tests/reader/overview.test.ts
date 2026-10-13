@@ -949,5 +949,133 @@ describe("取消生成与等待计时", () => {
       vi.useRealTimers();
     }
   });
+
+  it("等待计时只改状态条文案节点，不重建整块 DOM（ADR-0010）", async () => {
+    vi.useFakeTimers();
+    try {
+      seedClip();
+      pendingRun();
+
+      void reader.triggerReaderOverviewGeneration();
+      await vi.advanceTimersByTimeAsync(0);
+
+      const stripText = overviewBody().querySelector<HTMLElement>(".biliscript-reading-ov-strip-text");
+      const cancelBtn = cancelButton();
+      expect(stripText?.textContent).toBe("正在生成概览…");
+      expect(cancelBtn).not.toBe(null);
+
+      // 跨过等待阈值：tick 每秒就地刷新那句文案
+      await vi.advanceTimersByTimeAsync(11_000);
+
+      // 同一性不变：状态条与其取消键都是原来的节点（整块重建会丢滚动位置与选区）
+      expect(overviewBody().querySelector(".biliscript-reading-ov-strip-text")).toBe(stripText);
+      expect(cancelButton()).toBe(cancelBtn);
+      expect(stripText?.textContent).toContain("正在等待平台响应…（已等待 11 秒）");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("无进度窗口内：模板兜底与 tick「假值不写」产出同一可见文案", async () => {
+    vi.useFakeTimers();
+    try {
+      seedClip();
+      pendingRun();
+
+      void reader.triggerReaderOverviewGeneration();
+      await vi.advanceTimersByTimeAsync(0);
+      const visible = () => overviewBody().querySelector(".biliscript-reading-ov-strip-text")?.textContent;
+
+      // 模板侧兜底「正在生成概览…」；tick 走过两轮（取法为空）不写假值，可见文案不变
+      expect(visible()).toBe("正在生成概览…");
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(visible()).toBe("正在生成概览…");
+      // 整块渲染（模板路径）产出同一文案：两条写路径等价
+      reader.renderReadingOverview();
+      expect(visible()).toBe("正在生成概览…");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// 重试 / 取消 / 失败三态都不得抹掉上一轮产物：generating 期间屏上仍有旧章节与金句
+//（用户正读着的内容不因重试闪空），cancelled / error 落定后产物引用仍在——再次生成
+// 时旧产物立刻回到屏上，而不是等新结果。
+describe("重试/取消/失败期间的上一轮产物保留", () => {
+  function chapterTitles(): string[] {
+    return Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-title")).map(
+      (node) => node.textContent || ""
+    );
+  }
+
+  function quoteCount(): number {
+    return overviewBody().querySelectorAll(".biliscript-reading-ov-quote").length;
+  }
+
+  function deferredRun(): {
+    promise: Promise<OverviewAnalysis>;
+    resolve: (value: OverviewAnalysis) => void;
+    reject: (reason: unknown) => void;
+  } {
+    let resolve!: (value: OverviewAnalysis) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<OverviewAnalysis>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it("重试进 generating 仍渲染旧产物；cancelled / error 落定也不清产物引用", async () => {
+    seedClip();
+    runOverviewMock.mockResolvedValue({ ...SAMPLE_ANALYSIS });
+    await reader.triggerReaderOverviewGeneration();
+    expect(chapterTitles()).toContain("开场");
+    expect(quoteCount()).toBe(1);
+
+    // 1) 重试（forceRefresh）进入 generating：旧章节与金句仍在屏上
+    const retry = deferredRun();
+    runOverviewMock.mockClear();
+    runOverviewMock.mockImplementation(() => retry.promise);
+    void reader.triggerReaderOverviewGeneration({ forceRefresh: true });
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    expect(overviewText()).toContain("正在生成概览…");
+    expect(chapterTitles()).toContain("开场");
+    expect(quoteCount()).toBe(1);
+
+    // 2) cancelled 落定：产物引用未被抹掉——「重新生成」回到 generating，旧产物仍在屏上
+    bindOverviewDelegation();
+    overviewBody()
+      .querySelector<HTMLButtonElement>("button[data-overview-action='cancel']")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(overviewText()).toContain("已取消概览生成");
+    const afterCancel = deferredRun();
+    runOverviewMock.mockClear();
+    runOverviewMock.mockImplementation(() => afterCancel.promise);
+    void reader.triggerReaderOverviewGeneration({ forceRefresh: true });
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    expect(chapterTitles()).toContain("开场");
+    expect(quoteCount()).toBe(1);
+
+    // 3) error 落定：产物引用同样未被清——重试回到 generating，旧产物仍在屏上
+    afterCancel.reject(new Error("模型请求失败"));
+    await vi.waitFor(() => expect(overviewText()).toContain("概览生成失败"));
+    const afterError = deferredRun();
+    runOverviewMock.mockClear();
+    runOverviewMock.mockImplementation(() => afterError.promise);
+    void reader.triggerReaderOverviewGeneration({ forceRefresh: true });
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+    expect(chapterTitles()).toContain("开场");
+    expect(quoteCount()).toBe(1);
+
+    // 新结果落定：面板换成这一轮的产物
+    afterError.resolve({
+      chapters: [{ from: 0, to: 120, title: "新一轮章节", summary: "" }],
+      quotes: [{ from: 10, content: "新一轮金句" }]
+    });
+    await vi.waitFor(() => expect(chapterTitles()).toContain("新一轮章节"));
+    expect(chapterTitles()).not.toContain("开场");
+  });
 });
 
