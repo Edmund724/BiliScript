@@ -18,6 +18,7 @@ import type { ChatToolDefinition } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
 // 未归一的档位外部值的声明面（词表叶；本层只透传，不判不归）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
+import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
 
 // web_search 工具定义（spec §2.1 原文）：对话链版本带 §4 引用要求——正文引用
@@ -179,7 +180,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
       });
     } catch (e) {
       // 中止/溢出原语义上抛；4xx（非溢出/中止）= 平台不支持 tools → 摘除重发一次。
-      if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+      if (isAbortedMarkerError(e) || signal?.aborted) {
         throw e;
       }
       if ((e as { overflow?: boolean })?.overflow) {
@@ -253,7 +254,7 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
         });
       } catch (e) {
         // 搜索请求被中止：照 chatCompletion 的中止语义上抛，不伪装成搜索失败。
-        if ((e as { aborted?: boolean })?.aborted || (e as { name?: string })?.name === "AbortError" || signal?.aborted) {
+        if (isAbortedMarkerError(e) || isAbortNamedError(e) || signal?.aborted) {
           throw e;
         }
         const reason = String((e as { message?: unknown })?.message ?? e);

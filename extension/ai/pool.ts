@@ -8,6 +8,8 @@
 // rethrow 交上层 Map-Reduce 做一次「放宽预算」重跑（编排层的兜底策略）。
 // signal 中止时不再启动新项，在飞项照常收尾后返回已完成的 results（部分结果）。
 
+import { isAbortedMarkerError } from "../shared/error-helpers.js";
+
 // 并发上界：最多同时 3 个分段小结请求在飞。
 export const DEFAULT_MAP_CONCURRENCY = 3;
 // 单段小结失败重试次数（对齐 ai/completion.js 流式重试默认 2：1 次初始 + 2 次重试，共至多 3 次尝试）。
@@ -113,7 +115,7 @@ export async function runMapBounded<T, R>({
           break;
         } catch (e) {
           const err = e as MarkedError;
-          if (err?.aborted) {
+          if (isAbortedMarkerError(err)) {
             // 中止标记错误：不重试，整体 rethrow（上层 Map-Reduce 走 abort 收束）。
             inFlight -= 1;
             settle(err);

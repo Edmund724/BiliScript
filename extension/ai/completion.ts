@@ -17,7 +17,7 @@
 //   结构化字段，err.retryable 与 isRetryableNetworkError 语义一致；
 //   重试触发条件与旧 client 现状一致：fetch 抛错与非溢出 !response.ok
 //   （及流式读流中断）都重试，与状态码无关。
-import { makeAbortedError, isRetryableNetworkError } from "../shared/error-helpers.js";
+import { makeAbortedError, isRetryableNetworkError, isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { clampToLearnedMaxTokens, noteLearnedMaxTokens } from "./learned-budget.js";
 import { CONSERVATIVE_MAX_TOKENS, isOutputBudgetTooLarge } from "./output-budget.js";
 import { resolveAdapter } from "./protocol-adapter.js";
@@ -378,7 +378,7 @@ export async function chatCompletion({
       ({ response, bodyText } = await sendOnce());
     } catch (e) {
       // 中止（真实 signal 中止 / 注入实现抛出的中止标记 / AbortError）统一收束。
-      if (signal?.aborted || (e as { aborted?: boolean })?.aborted || (e as { name?: string }).name === "AbortError") {
+      if (signal?.aborted || isAbortedMarkerError(e) || isAbortNamedError(e)) {
         throw makeAbortedError();
       }
       const error = makeNetworkError(e);
@@ -416,7 +416,7 @@ export async function chatCompletion({
       try {
         streamResult = await adapter.drainStream(response, { signal, onEvent });
       } catch (e) {
-        if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+        if (isAbortedMarkerError(e) || signal?.aborted) {
           throw makeAbortedError();
         }
         const error = e instanceof Error ? e : new Error(String((e as { message?: unknown })?.message ?? e));

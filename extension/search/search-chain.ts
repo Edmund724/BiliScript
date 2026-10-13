@@ -20,6 +20,7 @@ import { type SearchProviderPreset, type SearchProviderType } from "../core/pres
 // 中止形状单源在 core/provider-http-shared.ts 的 makeAbortError（tool-loop 据
 // name 判中止），与两条平台请求代发通道共用。
 import { makeAbortError } from "../core/provider-http-shared.js";
+import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { type SearchMode } from "../core/search-mode.js";
 // 链候选形状单源在协议层（shared/messaging-protocol.ts，chain 是线格式、主人归
 // 协议层）：本模块反向 import 消费（search → shared 为顺向），不再自持结构副本。
@@ -234,10 +235,7 @@ export function classifySearchFailure(error: unknown): SearchFailureClass {
 }
 
 function isAbortError(error: unknown): boolean {
-  return (
-    (error as { aborted?: unknown } | null | undefined)?.aborted === true ||
-    (error as { name?: unknown } | null | undefined)?.name === "AbortError"
-  );
+  return isAbortedMarkerError(error) || isAbortNamedError(error);
 }
 
 // 整链无果的错误装配：额度类在列 → 额度文案；否则沿用最后一个错误的既有文案

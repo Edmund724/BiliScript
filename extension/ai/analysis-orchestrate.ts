@@ -5,7 +5,7 @@
 
 import { buildSubtitleSourceKey, buildSubtitleSignature, normalizeSubtitleItems } from "../subtitle/cache.js";
 import { logError } from "../shared/logging.js";
-import { makeAbortedError } from "../shared/error-helpers.js";
+import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { createCacheFamily } from "../core/cache-lru.js";
 // 概览请求的传输层（overview-offscreen-transport）：content 直发服从网页 CORS，
 // 平台网关的预检白名单不含 Anthropic 的 x-api-key / anthropic-version（实测
@@ -580,7 +580,7 @@ async function executeOverviewRun({
       return { ok: true, part };
     } catch (e) {
       // 中止仍整体上抛（池层收束）；其余失败按 07 票决议跳过该段、记录区间。
-      if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+      if (isAbortedMarkerError(e) || signal?.aborted) {
         throw e;
       }
       return { ok: false, from: segment.from, to: segment.to, error: e };
@@ -603,7 +603,7 @@ async function executeOverviewRun({
       }
     });
   } catch (e) {
-    if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+    if (isAbortedMarkerError(e) || signal?.aborted) {
       throw e;
     }
     throw e instanceof Error ? e : new Error(String(e));

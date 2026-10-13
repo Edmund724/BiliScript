@@ -22,6 +22,7 @@ import type { ThinkingLevelInput } from "./thinking-levels.js";
 import { TokenBatcher } from "./token-batcher.js";
 // 空正文截断重跑的判定与预算（empty-text-retry.ts，与 analysis 链同源）。
 import { isEmptyTextRetryable, retryBudget } from "./empty-text-retry.js";
+import { isAbortedMarkerError } from "../shared/error-helpers.js";
 
 // 截断提示（finishReason="length"）：命中 max_tokens 后 SSE 只是结束，界面上没有
 // 任何迹象——不提示的话用户只会觉得「模型没答完」。文案只陈述事实，不猜是思考
@@ -221,7 +222,7 @@ export async function streamChat({ provider, context, userPrompt, history, userI
       // 溢出上抛：ladder 据标记分流（单次转 Map-Reduce / 追问报错），不经 port error。
       throw e;
     }
-    if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+    if (isAbortedMarkerError(e) || signal?.aborted) {
       // 中止收束：对齐旧 streamChat 的停止 UX，不串错误。先 flush 尾巴不丢 token。
       flushTokens();
       port.postMessage({ type: "stopped", reason: "已停止生成" } satisfies ChatPortMessage);

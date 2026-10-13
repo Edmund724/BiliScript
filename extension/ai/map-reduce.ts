@@ -11,7 +11,7 @@
 // prompt 措辞对齐蓝本 .scratch/video-to-note/backend/llm_summarizer.py：
 // 分段小结忠实压缩保留时间点与事实，成稿面向收藏/复习、不补外部知识。
 
-import { makeAbortedError } from "../shared/error-helpers.js";
+import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { formatSegmentHeading, formatSegmentItem } from "./subtitle-prompt.js";
 import { buildBudgetPlan, FINAL_OUTPUT_CHARS, SEGMENT_SUMMARY_CHARS, SEGMENT_INPUT_CHARS, REDUCE_GROUP_INPUT_CHARS } from "./budgeter.js";
 import { chatCompletion } from "./completion.js";
@@ -336,7 +336,7 @@ export async function orchestrateMapReduce({
         }
       });
     } catch (e) {
-      if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+      if (isAbortedMarkerError(e) || signal?.aborted) {
         return abortReturn(segmentSummaries);
       }
       throw e;
@@ -372,7 +372,7 @@ export async function orchestrateMapReduce({
         });
       } catch (e) {
         // 归并阶段的中止同样收束为 stopped（此前该阶段 abort 会漏成 port error）。
-        if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+        if (isAbortedMarkerError(e) || signal?.aborted) {
           return abortReturn(segmentSummaries);
         }
         throw e;
@@ -400,7 +400,7 @@ export async function orchestrateMapReduce({
         }) || ""
       ).trim();
     } catch (e) {
-      if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+      if (isAbortedMarkerError(e) || signal?.aborted) {
         return abortReturn(segmentSummaries);
       }
       throw e;
@@ -423,7 +423,7 @@ export async function orchestrateMapReduce({
   try {
     return await runOnce({ budgetScale: 1, injectedPlan: plan });
   } catch (e) {
-    if ((e as { aborted?: boolean })?.aborted || signal?.aborted) {
+    if (isAbortedMarkerError(e) || signal?.aborted) {
       return abortReturn();
     }
     if (!(e as { overflow?: boolean })?.overflow) {
@@ -434,7 +434,7 @@ export async function orchestrateMapReduce({
     try {
       return await runOnce({ budgetScale: OVERFLOW_RETRY_BUDGET_SCALE, injectedPlan: null });
     } catch (e2) {
-      if ((e2 as { aborted?: boolean })?.aborted || signal?.aborted) {
+      if (isAbortedMarkerError(e2) || signal?.aborted) {
         return abortReturn();
       }
       if ((e2 as { overflow?: boolean })?.overflow) {

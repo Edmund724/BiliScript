@@ -20,7 +20,7 @@
 
 import { state } from "../core/state.js";
 import { escapeHtml } from "../shared/string-utils.js";
-import { getErrorMessage } from "../shared/error-helpers.js";
+import { getErrorMessage, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { renderMarkdown } from "../ui/markdown.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
@@ -240,7 +240,7 @@ function startExplainRequest(): void {
       card.searching = false;
       renderCard();
     } catch (error) {
-      if (runId !== card.runId || (error as { aborted?: boolean })?.aborted) {
+      if (runId !== card.runId || isAbortedMarkerError(error)) {
         return; // 中止/过期：卡片已关闭或已换选区，不打扰
       }
       logWarn("[BILISCRIPT] explain selection failed", error);

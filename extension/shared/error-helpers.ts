@@ -168,6 +168,25 @@ export function makeAbortedError(message = "已停止生成"): Error & { aborted
   return err as Error & { aborted: true };
 }
 
+// 中止形状谓词三件套（工单 01）：把各处内联 cast 的「形状判据拼写」收成单源。
+// 三谓词正交、各自只认一种形状，互不吸收——每个调用点用 OR 组合出自己的接受集，
+// 「我的上游已归一」这条契约因此仍显式写在调用点。判据统一严格：`aborted` 标记的
+// 唯一产出点 makeAbortedError 只写 true，真值性 → 严格在现网不可观测。
+export function isAbortedMarkerError(error: unknown): boolean {
+  return (error as { aborted?: unknown } | null | undefined)?.aborted === true;
+}
+
+// 中止形状之二：name === "AbortError"。覆盖 makeAbortError 造出的普通 Error 与浏览器
+// fetch 中止时抛出的原生 DOMException（全仓不按 instanceof/同一性认，只按名字认）。
+export function isAbortNamedError(error: unknown): boolean {
+  return (error as { name?: unknown } | null | undefined)?.name === "AbortError";
+}
+
+// 中止形状之三：cancelled === true。用户主动取消与其它 abort 来源的分流点。
+export function isCancelledError(error: unknown): boolean {
+  return (error as { cancelled?: unknown } | null | undefined)?.cancelled === true;
+}
+
 export function isExtensionContextInvalidated(error: unknown): boolean {
   const msg = String((error as BiliscriptErrorLike)?.message || "");
   return msg.includes("Extension context invalidated");
