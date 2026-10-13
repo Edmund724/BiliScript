@@ -56,8 +56,9 @@ export interface ReaderPresentationField {
 //                                    content.js、message-handler.js 与
 //                                    enterReaderMode 写入，apply 不负责）；
 //                     "view-flag"    视图内同步标志（follow，由 sync.js 写入）；
-//                     "settings"     无属性的纯 storage 监听键（player-ai 两键，
-//                                    只为 bindSettingsWatcher 的键清单服务）。
+//                     "settings"     无属性的纯 storage 监听键（player-ai 两键、
+//                                    双语副列两键，只为 bindSettingsWatcher 的键
+//                                    清单与各叶子的收敛订阅服务）。
 //   targets         作用目标 → 该目标上的连字符属性名；不在该目标落位为 null。
 //                     html = documentElement，body = document.body，
 //                     readingView = #biliscript-reading-view（短名属性）。
@@ -169,6 +170,37 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     targets: { html: null, body: null, readingView: null },
     datasetKeys: { html: null, body: null, readingView: null },
     storageKey: "playerAiQuickPrompt",
+    legacyStorageKey: null,
+    watchedByGuard: false,
+    clearOnGuard: false,
+    clearOnClose: false,
+    clearViewOnClose: false,
+    writtenByApply: false,
+    readValue: null
+  },
+  // —— 双语副列的两枚偏好键：与 player-ai 两键同形（无属性落位、只服务跨上下文
+  // 收敛）。别的标签页 / 另一台设备改了开关或目标语言，本页由
+  // reader/subtitle-tab-ui.ts 的订阅收敛（它按 id 取这两键，其余键早退）。——
+  {
+    id: "bilingualSubtitles",
+    kind: "settings",
+    targets: { html: null, body: null, readingView: null },
+    datasetKeys: { html: null, body: null, readingView: null },
+    storageKey: "bilingualSubtitles",
+    legacyStorageKey: null,
+    watchedByGuard: false,
+    clearOnGuard: false,
+    clearOnClose: false,
+    clearViewOnClose: false,
+    writtenByApply: false,
+    readValue: null
+  },
+  {
+    id: "secondarySubtitleLang",
+    kind: "settings",
+    targets: { html: null, body: null, readingView: null },
+    datasetKeys: { html: null, body: null, readingView: null },
+    storageKey: "secondarySubtitleLang",
     legacyStorageKey: null,
     watchedByGuard: false,
     clearOnGuard: false,

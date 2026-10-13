@@ -226,6 +226,27 @@ describe("设置变更与 data-attribute", () => {
       expect(readingView.dataset.theme).toBe("dark");
     });
   });
+
+  it("settings 变更后：双语两键（表内 settings 档）同样被主 watcher 收敛", async () => {
+    initEssentials.bindSettingsWatcher();
+    const listener = chromeStub.storage.onChanged.addListener.mock.calls[0][0];
+
+    chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === "get-settings") {
+        callback?.({ ok: true, settings: { bilingualSubtitles: true, secondarySubtitleLang: "ja-JP" } });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    listener({ bilingualSubtitles: { oldValue: false, newValue: true } }, "sync");
+
+    await vi.waitFor(() => {
+      expect(state.settings.bilingualSubtitles).toBe(true);
+      expect(state.settings.secondarySubtitleLang).toBe("ja-JP");
+    });
+  });
 });
 
 // 主题只剩明暗一轴（readerTheme light | dark）：色板恒 flyme，主题族设置与

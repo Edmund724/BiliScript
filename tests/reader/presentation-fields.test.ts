@@ -203,6 +203,9 @@ describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
     expect(READER_SETTINGS_WATCH_KEYS).toContain("readerTheme");
     expect(READER_SETTINGS_WATCH_KEYS).toContain("enablePlayerAiQuickAction");
     expect(READER_SETTINGS_WATCH_KEYS).toContain("playerAiQuickPrompt");
+    // 双语副列两键：无属性落位、只服务跨上下文收敛，登记在表内 settings 档
+    expect(READER_SETTINGS_WATCH_KEYS).toContain("bilingualSubtitles");
+    expect(READER_SETTINGS_WATCH_KEYS).toContain("secondarySubtitleLang");
     expect(READER_SETTINGS_WATCH_KEYS).not.toContain("readerChapterVisible");
     expect(READER_SETTINGS_WATCH_KEYS).not.toContain("readerChapterVisibility");
     expect(READER_SETTINGS_WATCH_KEYS).not.toContain("readerTranscriptVisible");
@@ -282,6 +285,21 @@ describe("D. 源码扫描：data-biliscript-* 属性字面量必须登记在案"
       expect(source.match(ATTR_PATTERN), `${relPath} 不应再出现属性字面量`).toBe(null);
       expect(source.includes("changes.reader"), `${relPath} 不应手抄 reader 监听键`).toBe(false);
     }
+  });
+});
+
+describe("D2. 表内 settings 键的收敛订阅从派生清单取，不再手抄键数组", () => {
+  // 双语副列两键的收敛订阅在 reader/subtitle-tab-ui.ts：键面取自
+  // READER_SETTINGS_WATCH_KEYS（主表派生），订阅里不带字面量键数组——新增阅读域
+  // 设置键漏登记会先让上方的派生化对账变红，而不会再退化成第二份手写清单。
+  const SUBSCRIBER = "extension/reader/subtitle-tab-ui.ts";
+
+  it("subtitle-tab-ui 的订阅键面引用派生清单，且无 sync/local 字面量数组", () => {
+    const source = readFileSync(resolve(process.cwd(), SUBSCRIBER), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^[ \t]*\/\/.*$/gm, "");
+    expect(source).toContain("READER_SETTINGS_WATCH_KEYS");
+    expect(source).not.toMatch(/(?:sync|local):\s*\[/);
   });
 });
 

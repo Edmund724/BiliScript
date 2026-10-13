@@ -53,8 +53,8 @@
 //   - 偏好落盘走 reader-bus 的 persistReaderSettingsThroughSeam（readerTheme 同款
 //     「偏好改了立即落盘」的路径；reader 域不得静态 import core/runtime.js）；
 //   - 跨上下文收敛自持一份 watchStorageKeys 订阅（entry/content.ts 播放器 AI 开关
-//     的 { sync: [...] } 形）：两个双语键不在 READER_SETTINGS_WATCH_KEYS（那份清单
-//     由 reader/presentation-fields.ts 派生，属另一处写面）里，订阅后才不会出现
+//     的 { sync: [...] } 形）：键面取自 reader/presentation-fields.ts 的派生清单
+//     （双语两键已登记进表），订阅后才不会出现
 //     「另一标签页开了双语、这边控件还停在旧态」。
 
 import { byId } from "../shared/dom-utils.js";
@@ -72,6 +72,8 @@ import {
 import type { SubtitleTrack } from "../bilibili/gateway.js";
 import type { Settings } from "../core/defaults.js";
 import { isProgrammaticScrolling, ids } from "./state.js";
+// 阅读域设置键面（主表派生）：双语两键的收敛订阅从它取，不手抄键数组。
+import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
 import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
@@ -900,11 +902,11 @@ function clearSecondarySubtitleIfShadowedByMain(): void {
 }
 
 // 跨上下文收敛（05 号票的追加口径）：别的标签页 / 另一台设备改了这两个键，本页也要
-// 收敛——否则「那边开了双语，这边开关还停在旧态」。两个键不在
-// READER_SETTINGS_WATCH_KEYS（那份清单由 reader/presentation-fields.ts 派生，属另一
-// 处写面），故按 entry/content.ts 播放器 AI 开关的 { sync: [...] } 形自持一份订阅：
-// 就地把新值合进 state.settings（与那份清单的回读语义等价、少一次全量往返），再重渲
-// 选轨弹层；开关被远端打开时同样走 Q1 的「立即抓目标轨」。
+// 收敛——否则「那边开了双语，这边开关还停在旧态」。两键已登记进
+// reader/presentation-fields.ts 主表的 settings 档，键面从 READER_SETTINGS_WATCH_KEYS
+// （派生清单）取，订阅里不再手抄字面量；handler 只反应这两个键，其余键早退。
+// 收敛动作就地把新值合进 state.settings（与主 watcher 的整份回读等价、少一次全量
+// 往返），再重渲选轨弹层；开关被远端打开时同样走 Q1 的「立即抓目标轨」。
 function bindBilingualSettingsWatch(): void {
   if (bilingualSettingsWatchBound) {
     return;
@@ -932,7 +934,7 @@ function bindBilingualSettingsWatch(): void {
       }
       renderReadingSubtitleTrackPicker();
     },
-    { sync: ["bilingualSubtitles", "secondarySubtitleLang"] }
+    { sync: READER_SETTINGS_WATCH_KEYS }
   );
 }
 
