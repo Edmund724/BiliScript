@@ -3,6 +3,9 @@
 import { state, uiState, clipState } from "../core/state.js";
 
 import { startUrlWatcher, BILISCRIPT_URL_CHANGE_EVENT } from "../core/url-watcher.js";
+// 换片事务：URL 变化编排（签名判定 → runId 递增 → 各域步骤次序 → 完成边）的唯一
+// 落点；本文件只把各域调用装配成它的依赖。
+import { createClipSwitchTransaction } from "./clip-switch-transaction.js";
 import {
   getErrorMessage,
   isStaleRunError
@@ -216,11 +219,10 @@ export function startSubtitlePrefetch(): void {
   });
 }
 
-// URL 变化编排（自 core/runtime.js 搬入）：core/url-watcher.js 只负责给 history
-// 打补丁并广播 biliscript:urlchange（纯机制），本组合根监听 popstate/hashchange/
-// biliscript:urlchange，按原顺序编排：更新 clip 签名 → 恢复普通页状态 →（阅读模式下）
-// 确保 UI → 重置 clip → player-ai 按钮同步 → reader 同步/字幕刷新。顺序与搬迁前
-// 一致，唯 UI 壳改为条件装载（普通页 SPA 换片不建壳，见 handleUrlChange 内注）。
+// URL 变化编排：core/url-watcher.js 只负责给 history 打补丁并广播
+// biliscript:urlchange（纯机制），本组合根把各域调用装配成换片事务
+// （entry/clip-switch-transaction.ts）的依赖，再注册三个入口——签名判定、
+// 抓取代次递增、步骤启动次序与完成边都在事务内单源（不变量见该模块头注）。
 let urlChangeHandlerBound = false;
 
 export function bindUrlChangeHandler() {
@@ -229,123 +231,86 @@ export function bindUrlChangeHandler() {
   }
   urlChangeHandlerBound = true;
 
-  const handleUrlChange = () => {
-    const nextUrl = location.href;
-    const nextSignature = computeCurrentClipSignature();
-    if (nextSignature === state.clip.currentClipSignature) {
-      return;
-    }
-
-    clipState.setCurrentUrl(nextUrl);
-    clipState.setCurrentClipSignature(nextSignature);
-    // runId 代次协调（finding resetClipState×refreshClip）：URL 已变即同步递增
-    // 抓取代次，旧 clip 的在飞 refreshClip 在下一次 ensureRunActive / 字幕接受
-    // 事务的 runId 自检（commit.acceptSubtitle）点让位，不再把旧视频字幕写进
-    // 已重置的 state。递增必须在本函数派生的任何异步工作（resetClipState 与
-    // 新视频 refreshClip 都在动态装载链之后才执行）之前同步完成——放进
-    // resetClipState 会让装载次序决定成败：新视频的 refreshClip 可能先起跑，
-    // 再被迟到的 reset 递增误杀，自动刷新静默失效。
-    clipState.setFetchRunId(clipState.fetchRunId + 1);
-    enforceNormalPageStateIfNeeded(nextUrl);
-    // 候选03：UI 壳惰性构建的条件收口。壳只在阅读视图已开或本次 URL 变化正要
-    // 进入阅读模式时才需要——resetClipState 的 rerender 与阅读模式进入都要取
-    // 壳节点；阅读模式进入链（reader/shell.ts 的 runReaderEntrySequence）自身
-    // 也先 ensureUiReady，共用同一 loader promise，建壳时机不晚于「无条件先
-    // ensure」的旧编排。普通页 SPA 换片（切视频/切 P）不装载 ui-renderer
-    // chunk：轻量路径只做状态重置，setStatus/setMessage 无壳节点时只写 state。
-    const shouldEnterReaderMode = isReaderMode(nextUrl);
-    (async () => {
-      if (isReaderViewOpen() || shouldEnterReaderMode) {
-        // UI 壳装载失败不中断编排也不漏 unhandled rejection，记日志即止。
-        try {
-          await ensureUiReady();
-        } catch (error) {
-          logWarn("[BILISCRIPT] UI shell ensure after URL change failed", error);
-          return;
-        }
-      }
-      // 候选02：resetClipState 属总结链层，经 ensure 装载后执行。装载/执行失败
-      // 记日志不中断编排（后续 reader 分支与状态提示仍需走到）。
+  const transaction = createClipSwitchTransaction({
+    readUrl: () => location.href,
+    computeSignature: computeCurrentClipSignature,
+    readSignature: () => state.clip.currentClipSignature,
+    writeIdentity: (url, signature) => {
+      clipState.setCurrentUrl(url);
+      clipState.setCurrentClipSignature(signature);
+    },
+    readRunId: () => clipState.fetchRunId,
+    writeRunId: (runId) => {
+      clipState.setFetchRunId(runId);
+    },
+    enforceNormalPageStateIfNeeded,
+    isReaderViewOpen,
+    isReaderMode,
+    isPlayerAiLoaded,
+    ensureUiReady,
+    // resetClipState 属总结链层，经 ensure 装载后执行（装载/执行失败由事务记日志）。
+    resetClipState: async () => {
+      const chain = await ensureSummarizeChain();
+      chain.resetClipState();
+    },
+    syncPlayerAiQuickAction: async () => {
+      const playerAi = await loadPlayerAi();
+      playerAi.schedulePlayerAiQuickActionSync();
+    },
+    // URL 跳转进入阅读壳：与消息意图三档共享同一条进入链（挂表 → 翻门控属性 →
+    // enterReaderMode），但无 player-ai 前奏（URL 跳转没有用户点击在先，不抑制、
+    // 不摘快捷按钮）；进入前播报等落地（防反向覆盖 enterReaderMode 的「已就绪」
+    // 文案）。shell 经 lazy-shell 装载，装载失败与进入失败同口径写状态栏（本地
+    // chunk 装载 ~10ms，被跳转往返掩盖）；异常外抛，日志由事务统一收口。
+    enterReaderShellOnUrlNavigation: async (nextUrl) => {
       try {
-        const chain = await ensureSummarizeChain();
-        chain.resetClipState();
-      } catch (error) {
-        logWarn("[BILISCRIPT] clip state reset after URL change failed", error);
-      }
-    })();
-    // player-ai 按钮同步（原为同步调用）：懒加载后「已加载/加载中才请求」，
-    // 未加载（快捷开关关闭态）跳过——player-ai start 自带初始 sync，开启后
-    // 的 URL 变化自会恢复同步，行为等价。
-    if (isPlayerAiLoaded()) {
-      (async () => {
-        try {
-          const playerAi = await loadPlayerAi();
-          playerAi.schedulePlayerAiQuickActionSync();
-        } catch {
-          // 同步失败静默（与原 .catch(() => {}) 一致）
-        }
-      })();
-    }
-    if (!isReaderViewOpen() && shouldEnterReaderMode) {
-      // URL 跳转编排改走阅读壳（工单 arch-slim/02）：与消息意图三档共享同一条
-      // 进入链（挂表 → 翻门控属性 → enterReaderMode），但无 player-ai 前奏
-      //（URL 跳转没有用户点击在先，不抑制、不摘快捷按钮）；进入前播报等落地
-      //（防反向覆盖 enterReaderMode 的「已就绪」文案），失败口径写状态栏。
-      // arch-slim-2/09：shell 经 lazy-shell 动态装载，装载失败与进入失败同口径
-      // 写状态栏（本地 chunk 装载 ~10ms，被跳转往返掩盖）。
-      (async () => {
-        try {
-          const shell = await ensureReaderShell();
-          await shell.enterReaderShellOnUrlNavigation({
-            readerUrl: nextUrl,
-            announce: () => renderReadingStatus("检测到阅读视图跳转，正在打开阅读模式..."),
-            onEnterFailed: (error) => {
-              announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
-            }
-          });
-        } catch (error) {
-          logWarn("[BILISCRIPT] reading shell load failed", error);
-          announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
-        }
-      })();
-      return;
-    }
-    if (isReaderViewOpen() || shouldEnterReaderMode) {
-      // 走到本分支的前提是视图已开或正要进入阅读模式。刷新链只等视频元数据，
-      // 而该等待已出装配根到 bilibili/video-probe 叶子（ADR-0017 修订），
-      // 本分支不再装载 reader 域。
-      (async () => {
-        // 播报失败不阻断后续刷新链（与原 .catch(() => {}) 一致）。
-        try {
-          await renderReadingStatus("检测到视频变化，正在自动刷新字幕...");
-        } catch {
-          // 播报失败静默
-        }
-        // waitForVideoMetadata 的失败在原链上没有 catch 收口（静默、不写
-        // 状态栏），保持同型：浮空执行、不进外层错误口径。
-        (async () => {
-          await waitForVideoMetadata();
-          // 候选02：refreshClip 属总结链层，经 ensureSummarizeChain 装载后刷新。
-          try {
-            const chain = await ensureSummarizeChain();
-            await chain.refreshClip();
-          } catch (error) {
-            if (!isStaleRunError(error)) {
-              announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
-            }
+        const shell = await ensureReaderShell();
+        await shell.enterReaderShellOnUrlNavigation({
+          readerUrl: nextUrl,
+          announce: () => renderReadingStatus("检测到阅读视图跳转，正在打开阅读模式..."),
+          onEnterFailed: (error) => {
+            announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
           }
-        })();
+        });
+      } catch (error) {
+        announceReadingStatus(`阅读视图启动失败：${getErrorMessage(error)}`);
+        throw error;
+      }
+    },
+    // 阅读视图刷新：刷新链只等视频元数据，而该等待已出装配根到
+    // bilibili/video-probe 叶子（ADR-0017 修订），本步骤不装载 reader 域。
+    refreshReaderClip: async () => {
+      // 播报失败不阻断后续刷新链（与原 .catch(() => {}) 一致）。
+      try {
+        await renderReadingStatus("检测到视频变化，正在自动刷新字幕...");
+      } catch {
+        // 播报失败静默
+      }
+      // waitForVideoMetadata 的失败在原链上没有 catch 收口（静默、不写状态栏），
+      // 保持同型：浮空执行、不进外层错误口径；refreshClip 属总结链层，经
+      // ensureSummarizeChain 装载后刷新，失败写状态栏（代次让位静默）。
+      (async () => {
+        await waitForVideoMetadata();
+        try {
+          const chain = await ensureSummarizeChain();
+          await chain.refreshClip();
+        } catch (error) {
+          if (!isStaleRunError(error)) {
+            announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
+          }
+        }
       })();
-      return;
-    }
-    // 普通页 SPA 换片（切视频 / 切 P）：字幕由预抓取接力起跑（面板上没有可点的
-    //「刷新抓取」按钮，本分支不写这类引导）。守卫的先决是「clip 身份 = 当前
+    },
+    // 普通页换片（切视频 / 切 P）：字幕由预抓取接力起跑（面板上没有可点的
+    //「刷新抓取」按钮，本档不写这类引导）。守卫的先决是「clip 身份 = 当前
     // 地址」，故上一个视频残留的 ready / loading 状态不会让本轮跳过。
-    startSubtitlePrefetch();
-  };
+    startSubtitlePrefetch,
+    logWarn
+  });
 
   // 先注册监听，再由 startUrlWatcher 安装 history 补丁——与搬迁前
   // startUrlWatcher 内部「监听在前、补丁在后」的顺序保持一致。
+  const handleUrlChange = () => transaction.handleUrlChange();
   window.addEventListener("popstate", handleUrlChange);
   window.addEventListener("hashchange", handleUrlChange);
   window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handleUrlChange);
