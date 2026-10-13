@@ -6,7 +6,9 @@
 // 供调用方按各自通道上浮一次；全程不抛异常。
 
 import { logError } from "../shared/logging.js";
-import { buildSubtitleSourceKey } from "../subtitle/cache.js";
+// 三字段 → source key 的便捷形（位置参数签名与 core/cache-lru 的注入面同一份）：
+// 身份编码单点在键位叶 subtitle/source-key，本模块不再经存储族模块取它。
+import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
 import { createCacheFamily, parseBvidFromCacheKey, readFamilyKeys, writeBundleWithEviction } from "../core/cache-lru.js";
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
 // 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶（候选 5）：SW 侧装配 / offscreen

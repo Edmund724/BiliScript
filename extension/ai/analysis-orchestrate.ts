@@ -3,7 +3,9 @@
 // 静态依赖两个纯片 analysis-validate / analysis-prompts 与 shared/chapter-outline 叶子；
 // 对外经 analysis.ts 壳再导出。
 
-import { buildSubtitleSourceKey, buildSubtitleSignature, normalizeSubtitleItems } from "../subtitle/cache.js";
+// source key（轨身份编码单点）归键位叶 subtitle/source-key；签名族仍在 subtitle/cache。
+import { buildSubtitleSourceKey } from "../subtitle/source-key.js";
+import { buildSubtitleSignature, normalizeSubtitleItems } from "../subtitle/cache.js";
 import { logError } from "../shared/logging.js";
 import { makeAbortedError, isAbortedMarkerError } from "../shared/error-helpers.js";
 import { createCacheFamily } from "../core/cache-lru.js";

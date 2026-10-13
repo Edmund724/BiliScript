@@ -272,7 +272,9 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
       const cacheKey = getSubtitleCacheKey({
         bvid,
         cid,
-        subtitleId: `asr:${activeId}:${model}:${language}`
+        // 组键显式传 ASR 变体身份（provider/model/language 分段由键位叶编码），
+        // 不再手拼 "asr:<provider>:<model>:<lang>" 字符串再去走 id 分支。
+        identity: { kind: "asr", providerId: activeId, model, lang: language }
       });
 
       // 缓存命中：直接收尾（校验通过才用，不通过则清掉重新生成）

@@ -1,17 +1,28 @@
 // subtitle/cache.js ASR 孤儿清理测试：
 // (d) clearStaleAsrSubtitleCache 只删除同 (bvid, cid) 的过期 ASR 变体键
-//     （不同 provider/model/language），平台字幕轨（id_/url_/lang_）与其它视频一律不动；
-//     keepKey（本轮刚写入的变体）保留。
+//     （不同 provider/model/language），平台字幕轨（track / url / lang 三态身份）
+//     与其它视频一律不动；keepKey（本轮刚写入的变体）保留。
+// 期望键由字幕轨身份构造（subtitle/source-key 的编码单点），不再手抄 "asr:..." 字面量。
 // 同时覆盖 subtitle/cache.js 与统一 LRU 的接线：写失败先淘汰重试、最终失败返回 { ok:false }。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
+import type { TrackIdentity } from "../../extension/subtitle/source-key.js";
 
 let cache: typeof import("../../extension/subtitle/cache.js");
 let storage: ChromeHost;
 
 const BODY = [{ from: 0, to: 5, content: "字幕" }];
+
+// 期望键的驱动口：身份（而非三个散字段）进缓存键入口。
+function cacheKey(bvid: string, cid: string, identity: TrackIdentity) {
+  return cache.getSubtitleCacheKey({ bvid, cid, identity });
+}
+
+function asrIdentity(providerId: string, model: string, lang: string): TrackIdentity {
+  return { kind: "asr", providerId, model, lang };
+}
 
 async function importModules() {
   vi.resetModules();
@@ -31,13 +42,13 @@ afterEach(() => {
 
 describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () => {
   it("删除同 bvid+cid 的其它 ASR 变体键，保留 keepKey / 平台轨 / 其它视频", async () => {
-    const keepKey = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:new-provider:gpt:auto" });
-    const staleAsr1 = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:old-provider:gpt:auto" });
-    const staleAsr2 = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:new-provider:gpt:zh" });
-    const platformId = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "88" });
-    const platformUrl = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleUrl: "https://a.b/c.json" });
-    const platformLang = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", lang: "zh-CN" });
-    const otherVideoAsr = cache.getSubtitleCacheKey({ bvid: "BV1p", cid: "9", subtitleId: "asr:old-provider:gpt:auto" });
+    const keepKey = cacheKey("BV1o", "7", asrIdentity("new-provider", "gpt", "auto"));
+    const staleAsr1 = cacheKey("BV1o", "7", asrIdentity("old-provider", "gpt", "auto"));
+    const staleAsr2 = cacheKey("BV1o", "7", asrIdentity("new-provider", "gpt", "zh"));
+    const platformId = cacheKey("BV1o", "7", { kind: "track", trackId: "88" });
+    const platformUrl = cacheKey("BV1o", "7", { kind: "url", url: "https://a.b/c.json" });
+    const platformLang = cacheKey("BV1o", "7", { kind: "lang", lang: "zh-CN" });
+    const otherVideoAsr = cacheKey("BV1p", "9", asrIdentity("old-provider", "gpt", "auto"));
 
     for (const key of [keepKey, staleAsr1, staleAsr2, platformId, platformUrl, platformLang, otherVideoAsr]) {
       storage.seedCacheEntry(key, BODY, 1);
@@ -58,7 +69,7 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
   });
 
   it("无过期变体 / 缺 bvid+cid / 枚举失败 → 不删任何键并返回 []", async () => {
-    const keepKey = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:a:m:auto" });
+    const keepKey = cacheKey("BV1o", "7", asrIdentity("a", "m", "auto"));
     storage.seedCacheEntry(keepKey, BODY, 1);
 
     expect(await cache.clearStaleAsrSubtitleCache({ bvid: "BV1o", cid: "7", keepKey })).toEqual([]);
@@ -70,8 +81,8 @@ describe("clearStaleAsrSubtitleCache：只清同视频的过期 ASR 变体", () 
   });
 
   it("索引含该 bvid 条目 → 定点批量枚举出过期变体（11 票分键布局：索引枚举走全量快照）", async () => {
-    const keepKey = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:new:p:m:auto" });
-    const staleAsr = cache.getSubtitleCacheKey({ bvid: "BV1o", cid: "7", subtitleId: "asr:old:p:m:auto" });
+    const keepKey = cacheKey("BV1o", "7", asrIdentity("new", "gpt", "auto"));
+    const staleAsr = cacheKey("BV1o", "7", asrIdentity("old", "gpt", "auto"));
     storage.seedCacheEntry(keepKey, BODY, 2);
     storage.seedCacheEntry(staleAsr, BODY, 1);
     // 预置分键索引记录两键（键经生产装配点，宿主 seedIndexEntry）

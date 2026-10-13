@@ -56,12 +56,12 @@ const TRANSCRIBED_BODY = [
 ];
 
 // 当前 provider/model/language 组合下的 ASR 缓存键（与 fallback 内部规则一致，
-// 用真实 getSubtitleCacheKey 计算——同时锁住缓存键规则零变化）。
+// 由 ASR 变体身份构造——同时锁住缓存键规则零变化）。
 function asrCacheKey({ providerId = "p1", model = "whisper-large-v3", lang = "auto" } = {}) {
   return getSubtitleCacheKey({
     bvid: BVID,
     cid: CID,
-    subtitleId: `asr:${providerId}:${model}:${lang}`
+    identity: { kind: "asr", providerId, model, lang }
   });
 }
 

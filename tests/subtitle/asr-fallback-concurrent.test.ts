@@ -51,7 +51,7 @@ function asrCacheKey({ bvid = BVID, cid = CID } = {}) {
   return getSubtitleCacheKey({
     bvid,
     cid,
-    subtitleId: "asr:p1:whisper-large-v3:auto"
+    identity: { kind: "asr", providerId: "p1", model: "whisper-large-v3", lang: "auto" }
   });
 }
 

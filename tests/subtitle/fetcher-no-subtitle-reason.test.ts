@@ -79,6 +79,7 @@ import {
   fetchVideoMeta as fetchMetaMock
 } from "../../extension/bilibili/gateway.js";
 import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
+import { trackIdentity } from "../../extension/subtitle/source-key.js";
 import { setMessage } from "../../extension/core/ui-status.js";
 import { acceptSubtitle } from "../../extension/subtitle/commit.js";
 
@@ -99,9 +100,7 @@ function subtitleCacheKey() {
   return getSubtitleCacheKey({
     bvid: clipState.bvid,
     cid: clipState.cid,
-    subtitleId: "track-1",
-    subtitleUrl: "https://example.com/sub.json",
-    lang: "中文"
+    identity: trackIdentity("track-1", "https://example.com/sub.json", "中文")
   });
 }
 

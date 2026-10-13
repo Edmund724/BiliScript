@@ -158,7 +158,7 @@ describe("键含 bvid+cid+段，键风格对齐 getSubtitleCacheKey", () => {
   });
 
   it("key 中间段即 buildSubtitleSourceKey 产物；换 URL 中 id（路径变化）source key 变，仅换 query 不变", async () => {
-    const { buildSubtitleSourceKey } = await import("../../extension/subtitle/cache.js");
+    const { buildSubtitleSourceKey } = await import("../../extension/subtitle/source-key.js");
     const base = { bvid: "BV1a", cid: "1", segmentIndex: 3 };
     const url = "https://s.example.com/sub/abc.json?auth=1";
     const key = mod.getSegmentSummaryKey({ ...base, subtitleUrl: url });

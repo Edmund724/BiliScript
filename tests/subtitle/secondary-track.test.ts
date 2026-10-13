@@ -31,6 +31,7 @@ import { beforeEach, describe, expect, it, vi, type MockedObject } from "vitest"
 import { resetModuleState } from "../setup.js";
 import { installChromeHost, type ChromeHost } from "../helpers/chrome-host.js";
 import { getSubtitleCacheKey } from "../../extension/subtitle/cache.js";
+import { trackIdentity } from "../../extension/subtitle/source-key.js";
 
 vi.mock("../../extension/reader/reader-bus.js", () => ({
   subscribeSubtitleRefresh: vi.fn(),
@@ -98,9 +99,7 @@ function secondaryCacheKey() {
   return getSubtitleCacheKey({
     bvid: state.clip.bvid,
     cid: state.clip.cid,
-    subtitleId: EN_TRACK.id,
-    subtitleUrl: EN_TRACK.subtitleUrl,
-    lang: EN_TRACK.lanDoc
+    identity: trackIdentity(EN_TRACK.id, EN_TRACK.subtitleUrl, EN_TRACK.lanDoc)
   });
 }
 
