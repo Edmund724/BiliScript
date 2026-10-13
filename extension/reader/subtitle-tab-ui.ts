@@ -85,7 +85,7 @@ import {
   resolveSecondaryColumnView,
   resolveSecondaryTarget
 } from "./secondary-subtitle.js";
-import type { SecondaryEnsureOutcome } from "./secondary-subtitle.js";
+import type { SecondaryColumnView, SecondaryEnsureOutcome } from "./secondary-subtitle.js";
 // 双语偏好的落盘 seam（readerTheme 同款）：reader 域不得静态 import core/runtime.js，
 // 故经 reader-bus 的 persist 槽转发（content.ts 注册的 sendRuntimeMessage）。
 import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
@@ -236,37 +236,83 @@ function buildSubtitleTrackOptionHtml(track: SubtitleTrack, marked: boolean, sel
   )}" data-id="${escapeHtml(track.id || "")}" dir="auto"${selected ? " selected" : ""}>${escapeHtml(text)}</option>`;
 }
 
-// 渲染入口（renderReadingView 调用，切轨收尾也复用）：把 clip.subtitles 与三态
-// 投影到控件。幂等：每次重渲都整批换选项 + 按现值重派生显示（组件侧
-// 「显示 = 现值」不变式）。转写相位在本模块内自读——它既是 transcribing 态的
-// 唯一信号，也是「转写期间不会有任何渲染通知」时唯一的收敛时机（见相位订阅）；
-// 失败通知仍走调用方注入的回调（本叶子不经 reader-bus 的**通知面**）。
-export function renderReadingSubtitleTrackPicker(): void {
+// 一次渲染要哪些事实：本投影的输入声明。取数（读 state 袋、模块内 switchInFlight、
+// 副轨六态模型）全在 selectSubtitleToolbarFacts；投影体只消费事实，故可在无壳、无
+// state 袋的情况下用一份假事实驱动（见 tests/reader/subtitle-toolbar-projection）。
+export interface SubtitleToolbarFacts {
+  // clip.subtitles 原引用（顺序即列表顺序）
+  tracks: SubtitleTrack[];
+  // 全局偏好：页脚开关的 on 态
+  bilingual: boolean;
+  // 本视频只有一条可装载轨 ⇒ 开关禁用 + 说明进列表区（Q7）
+  switchDisabled: boolean;
+  // 转写相位（三态里的 transcribing）
+  transcribing: boolean;
+  // clip.subtitleFetchState === "loading"（取值优先级低于转写中）
+  loading: boolean;
+  // 列表内来源不唯一时给 AI 轨挂 [AI] 标
+  marked: boolean;
+  // clip.selectedSubtitleId：非在飞时 trigger 显示它对应的轨道
+  selectedTrackId: string;
+  // 切轨在飞的乐观目标轨（本模块持有）
+  switchInFlight: string | null;
+  // 副列六态模型（secondary-subtitle.ts 的判定叶产出）
+  secondaryColumn: SecondaryColumnView;
+}
+
+// 唯一取数点：主列三态与双语卡片所需的全部事实。
+export function selectSubtitleToolbarFacts(): SubtitleToolbarFacts {
+  const tracks = (state.clip.subtitles || []) as unknown as SubtitleTrack[];
+  return {
+    tracks,
+    bilingual: state.settings.bilingualSubtitles === true,
+    switchDisabled: isBilingualSwitchDisabled(tracks),
+    transcribing: isReaderTranscribing(),
+    loading: state.clip.subtitleFetchState === "loading",
+    marked: shouldMarkAiSubtitleTracks(tracks),
+    selectedTrackId: state.clip.selectedSubtitleId,
+    switchInFlight,
+    secondaryColumn: resolveSecondaryColumnView({
+      resolution: resolveSecondaryTarget(),
+      preferenceLang: state.settings.secondarySubtitleLang,
+      slotState: state.clip.secondarySubtitle.state,
+      loadInFlight: isSecondarySubtitleLoadInFlight()
+    })
+  };
+}
+
+// 渲染入口（renderReadingView 调用，切轨收尾也复用）：把事实投影到控件。幂等：每次
+// 重渲都整批换选项 + 按现值重派生显示（组件侧「显示 = 现值」不变式）；转写态与抓取
+// 态由事实带入（优先级见下）。失败通知仍走调用方注入的回调（本叶子不经
+// reader-bus 的**通知面**）。
+export function renderReadingSubtitleTrackPicker(
+  selectFacts: () => SubtitleToolbarFacts = selectSubtitleToolbarFacts
+): void {
   const select = document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement | null;
   if (!select) {
     return;
   }
+  // 取数在「工具条在场」之后：工具条缺席时（其它渲染路径）不读 state 袋。
+  const facts = selectFacts();
   // 先把选项写进原生 select，再建壳：initCustomSelect 会按现值铺一次项集，
   // 顺序反过来（先建壳再写选项）会白铺一次空集。
-  const tracks = (state.clip.subtitles || []) as unknown as SubtitleTrack[];
+  const tracks = facts.tracks;
   const segmented = tracks.length > 0;
   // 双语量（02 号票第 8 条：状态位 → 投影，DOM 不反解）：
   //   bilingual   = 全局偏好的开关值（页脚开关的 data-on / aria-checked）；
   //   switchDisabled = 「本视频只有一条可装载轨」⇒ 开关禁用 + 说明进列表区（Q7）；
   //   dual        = 实际生效的双列布局（开关开着且本视频可配对）。
-  const bilingual = state.settings.bilingualSubtitles === true;
-  const switchDisabled = isBilingualSwitchDisabled(tracks);
-  const dual = bilingual && !switchDisabled;
+  const dual = facts.bilingual && !facts.switchDisabled;
   // 三态（empty / transcribing / busy）共用同一条禁用判据；busy 另有 aria-busy。
-  const transcribing = isReaderTranscribing();
+  const transcribing = facts.transcribing;
   // 抓取中（切视频/刷新抓取的空窗）：判据是既有的 fetchState 相位，不新造信号。
   // 取值优先级 **转写中 > 抓取中 > 暂无字幕**，顺序不可换——ASR 转写期间
   // subtitleFetchState 仍是 "loading"（无字幕出口的逆事务 commitNoSubtitle 要等
   // maybeRunAsrFallback 走完才落 "empty"，见 subtitle/fetcher.ts 的 finishNoSubtitle），
   // 把 loading 判在转写之前，转写中态会被写成「抓取中…」，与面板横幅两说。
-  const loading = state.clip.subtitleFetchState === "loading";
+  const loading = facts.loading;
   const disabled = !segmented || transcribing;
-  const marked = shouldMarkAiSubtitleTracks(tracks);
+  const marked = facts.marked;
 
   if (!segmented) {
     // 哨兵选项（10 号票 §9c）：组件在「没有选项」时 trigger 是空按钮，且
@@ -297,13 +343,13 @@ export function renderReadingSubtitleTrackPicker(): void {
 
   // 双语卡片装配：主列选项行的落点由下面 projectBilingualPicker 的槽位声明给出
   //（双语关时卡片 = 「单列 + 页脚开关」）。
-  projectBilingualPicker(tracks, dual);
+  projectBilingualPicker(facts);
 
   // 值必须**无条件**写一次：上面整批重建选项会把原生选中态打回「重建后的 DOM
   // 决定的那一项」，漏掉这次写值，在飞期到达的重渲就会把 trigger 从乐观目标轨
   // 拉回旧轨（2026-10-06 实测：busy 期间 renderReadingView 一次 → trigger 回旧轨）。
   // 在飞期间写的值是乐观目标轨（Q13），其余时候按 state 的当前轨。
-  setCustomSelectValue(select, switchInFlight ?? findTrackValueById(state.clip.selectedSubtitleId));
+  setCustomSelectValue(select, facts.switchInFlight ?? findTrackValueById(facts.selectedTrackId));
 
   // 状态机（六态里的 empty / transcribing / busy 三态都由这里收敛）：**无条件**写全
   // 一次，不手工绕开收敛——在飞折进判据，投影算出的正是切轨那一刻写的乐观态那一组值，
@@ -312,8 +358,8 @@ export function renderReadingSubtitleTrackPicker(): void {
   // 双语开关不影响本列：主列的可点性只由主轨相位决定（02 号票 Q9：副轨在飞/失败
   // 不阻塞主轨；反之亦然）。
   setCustomSelectState(select, {
-    disabled: disabled || switchInFlight !== null,
-    busy: switchInFlight !== null
+    disabled: disabled || facts.switchInFlight !== null,
+    busy: facts.switchInFlight !== null
   });
 }
 
@@ -626,20 +672,16 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   };
 }
 
-// 投影（每次渲染收口一次，幂等）：主列选项行按槽位落进主列，副列按
-// resolveSecondaryColumnView 出的模型落语言列表/占位/重试行，页脚开关按 settings 投影。
-function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
+// 投影（每次渲染收口一次，幂等）：主列选项行按槽位落进主列，副列按事实里的六态
+// 模型落语言列表/占位/重试行，页脚开关按偏好事实投影。
+function projectBilingualPicker(facts: SubtitleToolbarFacts): void {
   const nodes = ensureBilingualCard();
   if (!nodes) {
     return;
   }
-  // 六态判定的四项事实在这里现取（判定本身不读 state，见该模块的列模型注释）。
-  const model = resolveSecondaryColumnView({
-    resolution: resolveSecondaryTarget(),
-    preferenceLang: state.settings.secondarySubtitleLang,
-    slotState: state.clip.secondarySubtitle.state,
-    loadInFlight: isSecondarySubtitleLoadInFlight()
-  });
+  const tracks = facts.tracks;
+  const dual = facts.bilingual && !facts.switchDisabled;
+  const model = facts.secondaryColumn;
   // 槽位声明（第四条外部入口，2026-10 深化）：卡片根、选项行落点与 trigger 徽标一次
   // 声明给组件——组件换整批选项只摘它自己产出的 <li>，卡片骨架全程留在浮层里（列滚动
   // 位置因此不被销毁），徽标在 trigger 里的落点（值区之后、箭头之前）与它接的
@@ -652,7 +694,7 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
 
   nodes.pickerWrapper.dataset.bilingual = dual ? "true" : "false";
   nodes.mainHead.hidden = !dual;
-  nodes.hint.hidden = dual || tracks.length === 0 || !isBilingualSwitchDisabled(tracks);
+  nodes.hint.hidden = dual || tracks.length === 0 || !facts.switchDisabled;
   nodes.subCol.hidden = !dual;
   nodes.retry.hidden = !(dual && model.retry);
   // 说明行与语言列表**同时**在场（2026-10-06 图外回访）：说明行只服务 ①② 两套空态，
@@ -683,10 +725,10 @@ function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
     setCustomSelectState(nodes.secondarySelect, { disabled: true, busy: false });
   }
 
-  const on = state.settings.bilingualSubtitles === true;
+  const on = facts.bilingual;
   nodes.toggle.setAttribute("aria-checked", on ? "true" : "false");
   nodes.toggle.dataset.on = on ? "true" : "false";
-  nodes.toggle.disabled = isBilingualSwitchDisabled(tracks);
+  nodes.toggle.disabled = facts.switchDisabled;
 }
 
 // 副列选项行的原生投影（与主列同一个产地 buildSubtitleTrackOptionHtml：value = URL、

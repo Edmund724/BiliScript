@@ -407,24 +407,28 @@ async function closeChatSessionQuietly(): Promise<void> {
   }
 }
 
-export function renderReadingView() {
-  // 候选10 批2：渲染期间再次触发（切轨/重进阅读模式/状态重渲）时，先取消上一轮
-  // 未完成的追加任务，按新数据从头分批，避免旧任务把过期条目追加进新列表。
-  cancelReadingSubtitleAppend();
+// meta 行投影（一次渲染的步骤之一）：只读 clip 的作者/分P 事实。
+function projectReadingMetaLine(): void {
   const metaNode = getReaderElement(ids.readingMeta);
+  if (!metaNode) {
+    return;
+  }
+  const metaLine = buildReadingMetaLine();
+  metaNode.textContent = metaLine;
+  // 字段全空（无作者/单P）时整块隐藏：header 不留空行。
+  // 只隐藏 meta 本体——.biliscript-reading-header-copy 的「手动浏览中」::after
+  // 挂在其父节点上（reader-gate.css），隐藏父节点会连带吃掉该标注。
+  metaNode.hidden = !metaLine;
+}
+
+// 字幕列表投影（一次渲染的步骤之一）：整表重建 + 首屏分批；先取消上一轮未完成的
+// 追加任务，避免旧任务把过期条目追加进新列表。
+function projectReadingSubtitleList(): void {
+  cancelReadingSubtitleAppend();
   // 章节渲染由概览 tab 接管（rail 章节列表 DOM 已随整页接管退役）。
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
   const subtitleItems = getReadingSubtitleItems();
   const withHours = shouldShowHoursInNote(state, body);
-
-  if (metaNode) {
-    const metaLine = buildReadingMetaLine();
-    metaNode.textContent = metaLine;
-    // 字段全空（无作者/单P）时整块隐藏：header 不留空行。
-    // 只隐藏 meta 本体——.biliscript-reading-header-copy 的「手动浏览中」::after
-    // 挂在其父节点上（reader-gate.css），隐藏父节点会连带吃掉该标注。
-    metaNode.hidden = !metaLine;
-  }
 
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   if (subtitleItems.length === 0) {
@@ -449,24 +453,39 @@ export function renderReadingView() {
       });
     }
   }
+}
 
-  renderReaderPanels();
-  applyReadingViewPresentation();
-  // PR3：渲染尾部收敛字幕 tab 的会话态——
-  //   - 句内搜索重放（列表刚被整体重建，高亮/计数按当前输入重算；scroll:false
-  //     不打断阅读位置）；
-  //   - 转写横幅（视图打开晚于转写发起时，经进程内相位镜像恢复呈现）。
-  refreshReadingSubtitleSearch({ scroll: false });
-  updateReadingTranscribeBanner();
-  // PR4：概览 tab 内容按当前状态机收敛（渲染只反映、不触发生成；触发电由
-  // enterReaderMode / subtitle-ready / 概览 tab 切换三路负责）。
-  renderReadingOverview();
-  // 票 subtitle-track-picker/08：字幕工具条选轨控件的渲染入口（旧
-  // renderReadingSubtitleSelect 的对应物）。水合不派发 change——这里只把
-  // clip.subtitles 与当前选中轨投影到控件（setCustomSelectValue），用户改选才
-  // 走 change 处理器。切轨重渲由接受事务的 subtitle-ready 通知到达本函数驱动；
-  // 转写相位与失败通知由该叶子自己接（见其模块头注的两个接线点）。
-  renderReadingSubtitleTrackPicker();
+// 阅读视图一次渲染的投影登记表：次序与身份在这里声明，renderReadingView 按表驱动。
+// 取数归属：除 subtitle-toolbar 已收成显式事实（subtitle-tab-ui.ts 的
+// selectSubtitleToolbarFacts）外，其余投影仍各自读 state 袋与各自模块内的相位，故本表
+// 是「渲染次序与投影身份的单源」，不是「渲染输入的单源」。
+export const READER_RENDER_PROJECTIONS = [
+  { id: "meta-line", project: projectReadingMetaLine },
+  { id: "subtitle-list", project: projectReadingSubtitleList },
+  { id: "reader-panels", project: renderReaderPanels },
+  { id: "presentation", project: applyReadingViewPresentation },
+  // 渲染尾部收敛字幕 tab 的会话态：句内搜索重放（列表刚被整体重建，高亮/计数按当前
+  // 输入重算；scroll:false 不打断阅读位置）在前，转写横幅（视图打开晚于转写发起时，
+  // 经进程内相位镜像恢复呈现）在后。
+  { id: "subtitle-search", project: () => refreshReadingSubtitleSearch({ scroll: false }) },
+  { id: "transcribe-banner", project: updateReadingTranscribeBanner },
+  // 概览 tab 内容按当前状态机收敛（渲染只反映、不触发生成；触发电由 enterReaderMode /
+  // subtitle-ready / 概览 tab 切换三路负责）。
+  { id: "overview", project: renderReadingOverview },
+  // 字幕工具条选轨控件（旧 renderReadingSubtitleSelect 的对应物）。水合不派发 change
+  // ——只把 clip.subtitles 与当前选中轨投影到控件（setCustomSelectValue），用户改选才
+  // 走 change 处理器；转写相位与失败通知由该叶子自己接（见其模块头注的接线点）。
+  { id: "subtitle-toolbar", project: renderReadingSubtitleTrackPicker }
+] as const;
+
+export type ReaderRenderProjectionId = (typeof READER_RENDER_PROJECTIONS)[number]["id"];
+
+// 渲染一次阅读视图：按登记表顺序投影，随后把选中标记归零（列表整体重建后旧高亮
+// 已不存在）。
+export function renderReadingView() {
+  for (const { project } of READER_RENDER_PROJECTIONS) {
+    project();
+  }
   state.reader.setActiveSubtitleIndex(-1);
   state.reader.setActiveChapterIndex(-1);
 }
