@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain } from "../helpers/reader-skeleton.js";
 import { callbackStyleSendMessage } from "../helpers/chrome-runtime-host.js";
+import { createMemoryStorageArea, type ChromeHostStorageArea } from "../helpers/memory-storage-area.js";
 import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/default-prompts.js";
 import type { TestState } from "./reader-test-env.js";
 
@@ -75,7 +76,7 @@ function stubChromeByType(): void {
   const chromeStub = window.chrome as unknown as {
     runtime: { sendMessage: Sendstub; connect: Sendstub };
     storage: {
-      local: { get: Sendstub; set: Sendstub };
+      local: ChromeHostStorageArea;
       sync: { set: Sendstub };
       onChanged: { addListener: Sendstub; removeListener: Sendstub };
     };
@@ -91,8 +92,9 @@ function stubChromeByType(): void {
     onMessage: { addListener: () => {} },
     onDisconnect: { addListener: () => {} }
   }));
-  chromeStub.storage.local.get = vi.fn(async () => ({}));
-  chromeStub.storage.local.set = vi.fn(async () => {});
+  // storage.local = 共享内存面单源（写后可读回，三方法都是 vi.fn，调用记录照旧可断言）；
+  // sync 面只记调用、不写盘——这些用例只断言 sync 写实参。
+  chromeStub.storage.local = createMemoryStorageArea();
   chromeStub.storage.sync.set = vi.fn(async () => {});
 }
 
