@@ -12,16 +12,14 @@
 //   消费方矛盾，spec「编排层零改动」优先。
 // 另修正 prototype 的线形状错误：message_delta 的 stop_reason 在 delta 内。
 // 聚合形状与 openai adapter 同型（DrainResult），编排层零改动。
-// 思考字段的写法（off 三词汇归一 / probe 早退 / budget 推算 / effort 词汇平台改写）
-// 不落在本文件：那是线格式映射表 ai/thinking-wire-map.ts 的一格，本文件只把档位规则
-// patch 与平台事实（是否只认 effort 词汇）传进去、把出参并入请求体。
+// 思考字段的写法（off 三词汇归一 / probe 早退 / 预算推算 / effort 词汇平台改写）
+// 不落在本文件：那是线格式映射表 ai/thinking-wire-map.ts 的一格，装配（取档位事实 → 算行
+// 入参 → 取表）的落点是思考装配边 ai/plan-thinking.ts——本文件只把装配边产出并入请求体，
+// 输出上限参数名（本通道必填的 max_tokens）也取自那条边的出参，不写字面量。
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
-import { resolveThinkingProfile, resolveThinkingProviderId } from "../thinking-profiles.js";
-import { THINKING_WIRE_MAPS } from "../thinking-wire-map.js";
-import { hasPlatformQuirk } from "../compat-vocab.js";
-import { resolvePlatformQuirkId } from "../platform-quirk-id.js";
+import { planThinkingWire } from "../plan-thinking.js";
 import { parseToolArgs } from "./openai.js";
 import type { ChatRequest, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
@@ -40,16 +38,13 @@ import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 // 降级为退回下限（CONSERVATIVE_MAX_TOKENS，见 output-budget.ts）。
 // 思考档位在 Messages 通道的写法（怪癖 thinkingFormat / thinkingDisabledMustBeExplicit /
 // probeOmitsThinking / effortVocabMessages）逐格落在 ai/thinking-wire-map.ts 的 anthropic
-// 行；本文件只提供平台事实（本函数给「是否只认 effort 词汇」，查表口径
-// resolvePlatformQuirkId；平台识别见 buildBody）。
+// 行；「本行读得到哪些平台事实、各按什么口径识别」落在思考装配边 ai/plan-thinking.ts——
+// 本文件不再算平台识别（原私有的「是否只认 effort 词汇」函数已随装配知识搬进那条边）。
 // Anthropic 家族的思考控制有两套词汇：老式 thinking:{type} 开关（原生各家）
 // 与新式 output_config.effort。走 Messages 通道而只认后者的平台（stepfun / amd）由
 // 怪癖 effortVocabMessages 登记，词表 PLATFORM_QUIRKS 是唯一主人。
 // 本通道**任何一格都不发 thinking.budget_tokens**（官方没有 effort→预算的换算表，
 // 自造预算会挤占 max_tokens；线格式映射表的文件头是同一条硬规则）。
-function usesEffortVocabulary(presetId?: string, baseUrl?: string): boolean {
-  return hasPlatformQuirk(resolvePlatformQuirkId(presetId, baseUrl), "effortVocabMessages");
-}
 
 // system 剥出（怪癖 systemOutOfBand，语义见 compat-vocab）：Anthropic messages
 // 数组不允许 system 角色；多条按出现顺序 \n\n 拼接（契约点）。
@@ -229,14 +224,30 @@ export const anthropicAdapter: ProtocolAdapter = {
 
   buildBody(request: ChatRequest): Record<string, unknown> {
     const { system, rest } = extractSystem(request.messages);
-    // 怪癖 maxTokensRequired：max_tokens 必填，调用方未传兜底 DEFAULT_MAX_TOKENS；
+    // 怪癖 maxTokensRequired：本通道上限字段必填，调用方未传兜底 DEFAULT_MAX_TOKENS；
     // 探针由 core 代劳传 1。
     const maxTokens = request.maxTokens ?? DEFAULT_MAX_TOKENS;
+    // 思考装配边：档位事实 + 本协议的平台事实（两条识别各按自己的键空间，口径差异见
+    // ai/platform-quirk-id.ts 头注）→ 本协议的思考字段 + 本协议的输出上限参数名。
+    // 档位偏好原样交给那条边（归一入口在解析层）：缺省 / 脏值 = default（不干预）→ 并入
+    // 空 patch，与 openai 链同表现（2026-10-05 裁定，见 docs/adr/0015 的修订块）；
+    // 显式 `off` 仍走 MESSAGES_OFF_EXIT 的逐格出口。
+    const wire = planThinkingWire({
+      protocol: "anthropic",
+      model: request.model,
+      presetId: request.presetId,
+      baseUrl: request.baseUrl,
+      level: request.thinkingLevel,
+      stream: request.stream,
+      probe: request.probe
+    });
     const body: Record<string, unknown> = {
       model: request.model,
       messages: toAnthropicMessages(rest),
       stream: request.stream,
-      max_tokens: maxTokens
+      // 上限字段名取自装配边出参（怪癖 maxTokensRequired 的字段名由映射表的 anthropic 行
+      // 声明）：本文件不写该字段的字面量。
+      [wire.tokenParam]: maxTokens
     };
     if (system) body.system = system;
     const tools = toAnthropicTools(request.tools);
@@ -244,29 +255,6 @@ export const anthropicAdapter: ProtocolAdapter = {
       body.tools = tools;
       body.tool_choice = { type: "auto", disable_parallel_tool_use: true };
     }
-    // 思考档位：解析层（thinking-profiles）给 OpenAI 词汇 patch，本通道的线格式由
-    // 映射表（ai/thinking-wire-map.ts 的 anthropic 行）决定——adapter 只做取表 → 并入。
-    // 入参按协议分型：本行只收自己读得到的字段（本通道恒 max_tokens，故不传 tokenParam；
-    // 流式不再入表，streamOnly 已由解析层消费）。两条平台事实各按自己的键空间识别
-    // （口径差异见 ai/platform-quirk-id.ts 头注）：
-    // effortVocabularyOnly = 词表怪癖（PLATFORM_QUIRKS 键空间，stepfun / amd 的严格拒收），
-    // platformId = 思考平台识别（PROVIDERS 键空间，映射表按它查 Messages 档位词汇）。
-    // 档位偏好原样交给解析层（请求侧归一入口在 resolveThinkingProfile）：缺省 / 脏值 =
-    // default（不干预）→ 本行并入空 patch，与 openai 链同表现（2026-10-05 裁定，见
-    // docs/adr/0015 的修订块）；显式 `off` 仍走 MESSAGES_OFF_EXIT 的逐格出口。
-    const thinking = resolveThinkingProfile({
-      presetId: request.presetId,
-      baseUrl: request.baseUrl,
-      model: request.model,
-      level: request.thinkingLevel,
-      stream: request.stream
-    });
-    const wire = THINKING_WIRE_MAPS.anthropic({
-      vocabulary: thinking.vocabulary,
-      probe: request.probe,
-      platformId: resolveThinkingProviderId(request.presetId, request.baseUrl),
-      effortVocabularyOnly: usesEffortVocabulary(request.presetId, request.baseUrl)
-    });
     Object.assign(body, wire.fields);
     return body;
   },
