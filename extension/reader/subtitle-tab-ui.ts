@@ -163,8 +163,9 @@ export function buildSubtitleTabBodyHtml(): string {
             </section>
 
             <!-- Follow playback 悬浮按钮：显隐只由 data-biliscript-reader-follow
-                 （manual/auto）的 CSS 驱动，点击恢复跟随并跳回当前句 -->
-            <button id="${ids.readingFollowBtn}" type="button" class="biliscript-reading-follow-btn">↓ 跟随播放</button>
+                 （manual/auto）的 CSS 驱动，点击恢复跟随并跳回当前句；形态与
+                 .biliscript-reading-explain-btn 同族（见 reader.css 段注） -->
+            <button id="${ids.readingFollowBtn}" type="button" class="biliscript-reading-follow-btn">跟随播放</button>
   `;
 }
 

@@ -61,6 +61,7 @@ pnpm harness:scenario bilingual-subtitles -- --headed          # 带窗口
 | `bilingual-subtitles`（S1–S10 + S7b） | 双语字幕在**真 B 站页面**上的东西：副列浮层对页面样式级联的胜出、弹层两列各自的滚动位置、真实 listbox 的点击路径、MV3 SW 里的 fixture 补丁、SPA 换视频的偏好保留、解释卡引用只含主行 | 全流程 90–120s（真网一趟 + fixture 补丁一趟）；`--fixture-only` < 1s |
 | `subtitle-prefetch`（S1–S5） | 字幕预抓取的真机判据：进视频页**不经任何点击**即发出字幕列表请求、抓取在飞时对话 tab 的等待反馈（spinner 通知条 / 发送键禁用 / placeholder）、字幕在手后点 AI 键零等待上屏、SPA 换片也预抓取、无字幕视频不触发 ASR | 全流程约 80–120s（真网 + SW 目标上的 Fetch 扣住/回放 fixture） |
 | `sw-message-router`（S1–S6） | 消息入口路由的真实 MV3 SW 判据（离线、不联网）：未登记类型不答、offscreen 专属类型被页面发送者调用时拿到拒绝信封（`仅接受 offscreen 文档发送`）、已知类型照常路由到真 handler、设置经路由器读写往返稳定、SW 顶层同步注册了入口 | 约 2s（起一次隔离 Edge，不抓网） |
+| `reader-follow-button`（F1–F5） | 「字幕」tab 跟随播放悬浮按钮的真机样式判据：manual 态显形（滚轮触发）与 auto 态隐藏、形态与选区「解释」按钮同族（card 底 / 1px 描边 / 文字色 / 999px / 同档阴影，与 token 探针对齐而非硬编码色值）、hover 三件套转 accent、按压 scale 与点击恢复跟随（不 seek）、深色档 token 换值后仍同族 | 全流程约 30–60s（真 B 站页 + fixture 字幕数据）；`--fixture-only` < 1s |
 
 工件落 `.scratch/browser-harness/scenarios/<name>/`（`evidence.json` + 逐场景 PNG）。断言清单在 `evidence.checks`：任一 FAIL 即退出码 1（`evidence.failed` 是失败项名单）。
 

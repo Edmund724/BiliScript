@@ -139,6 +139,7 @@
   .biliscript-reading-search-nav:active,
   .biliscript-reading-mini-btn:active,
   .biliscript-reading-explain-btn:active,
+  .biliscript-reading-follow-btn:active,
   .biliscript-reading-explain-card-close:active,
   .biliscript-reading-chat-intent-cancel:active,
   .biliscript-reading-ov-chapter:active,
@@ -854,7 +855,10 @@
 
 /* Follow playback 悬浮按钮：显隐只由 data-biliscript-reader-follow 驱动——
  * auto（跟随中）隐藏；manual（手动滚动暂停）时显示，
- * 点击由 resumeReaderFollowPlayback 拉回 auto 并跳回当前句。 */
+ * 点击由 resumeReaderFollowPlayback 拉回 auto 并跳回当前句。
+ * 形态与选区「解释」按钮（.biliscript-reading-explain-btn）同族：两者都是浮在
+ * tab body 上的临时 affordance，同为 card 底描边药丸、同档阴影、同一按压通道，
+ * 改动时两边一起对齐。 */
 .biliscript-reading-follow-btn {
   display: none;
   position: absolute;
@@ -862,28 +866,33 @@
   bottom: 14px;
   transform: translateX(-50%);
   z-index: 6;
-  border: none;
-  padding: 8px 18px;
+  border: 1px solid var(--biliscript-reader-border);
+  padding: 5px 14px;
   border-radius: 999px;
-  background: var(--biliscript-reader-accent);
-  color: var(--biliscript-reader-accent-ink);
+  background: var(--biliscript-reader-card);
+  color: var(--biliscript-reader-text);
   font-family: inherit;
   font-size: 14.5px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-  /* 基态 transform 被 translateX(-50%) 占用，按压反馈改走亮度通道 */
-  transition: filter 100ms ease-out;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
+  transition: transform 100ms ease-out;
 }
 
+.biliscript-reading-follow-btn:hover {
+  border-color: var(--biliscript-reader-accent);
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+}
+
+/* 基态 transform 被 translateX(-50%) 占用，按压缩放追加在同一 transform 之后 */
 .biliscript-reading-follow-btn:active {
-  filter: brightness(0.92);
+  transform: translateX(-50%) scale(var(--biliscript-reader-press-scale, 1));
 }
 
 #biliscript-reading-view[data-biliscript-reader-follow="manual"] .biliscript-reading-follow-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
 }
 
 .biliscript-reading-tab-body.is-transcribing .biliscript-reading-follow-btn {
