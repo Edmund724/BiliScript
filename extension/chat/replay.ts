@@ -38,7 +38,7 @@ export interface CreateConversationReplayDeps {
   renderer: ConversationReplayRenderer;
   // 布局状态（紧凑输入判定）：编排壳回调，组合根注入。
   updateLayout: () => void;
-  // 回放重建消息区时同步清掉建议区引用（编排壳的模块级 suggestionsNode）。
+  // 回放重建消息区时同步清掉建议区引用（建议区属主；节点已随消息区清场脱开）。
   clearSuggestions: () => void;
 }
 

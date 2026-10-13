@@ -193,7 +193,7 @@ export interface CreateChatRuntimeDeps {
  *       removeConversationContextNotice,   // () => void
  *       hideHistoryPopover,                // () => void
  *       removeCenteredState,               // () => void
- *       removeSuggestions,                 // () => void  (removes + nulls suggestionsNode)
+ *       removeSuggestions,                 // () => void  (撤除建议区：属主 clear)
  *       requestViewReset,                  // (intent: ViewResetIntent) => void  视图意图通道
  *       autosizeInput,                     // () => void
  *     },

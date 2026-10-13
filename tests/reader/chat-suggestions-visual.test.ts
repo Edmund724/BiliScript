@@ -76,9 +76,9 @@ describe("建议问题与空态欢迎区观感", () => {
   // svg 里星形自身——原路径 y 跨度 3.6–17.2，视觉中心比视框中心高 1.6px。圆底
   // /flex 居中锁不住图形在视框里的位置，这里直接解析路径求外接盒中心。
   it("欢迎区 ✦ 图形在 24 视框内几何居中", () => {
-    const source = readFileSync(join(ROOT, "extension/reader/chat-lists.ts"), "utf8");
+    const source = readFileSync(join(ROOT, "extension/reader/chat-suggestions-slot.ts"), "utf8");
     const svg = source.match(/const HERO_ICON_SVG =\s*'([^']+)'/)?.[1];
-    expect(svg, "chat-lists.ts 应有 HERO_ICON_SVG").toBeTruthy();
+    expect(svg, "chat-suggestions-slot.ts 应有 HERO_ICON_SVG").toBeTruthy();
     const d = svg!.match(/d="([^"]*)"/)?.[1];
     expect(d, "HERO_ICON_SVG 应带路径").toBeTruthy();
 

@@ -1,13 +1,17 @@
 // reader/chat-lists.ts — 对话 tab 两列表渲染（建议/历史）（PR5 自
 // extension/pages/sidepanel-lists.ts 重建；原 sidepanel 孪生模块已随侧边栏
-// 形态删除，本文件是对话 tab 列表渲染的唯一实现，逻辑改动不再需要与孪生同步，
-// 行为契约由 tests/reader/chat-lists.test.ts 钉住。DOM 壳：元素经 deps 注入
-// reader 的 readingChat* id 节点，class 名沿用 .chat-*（样式段在 styles/
+// 形态删除，本文件是对话 tab 列表内容决策的唯一实现，逻辑改动不再需要与孪生
+// 同步，行为契约由 tests/reader/chat-lists.test.ts 钉住。DOM 壳：元素经 deps
+// 注入 reader 的 readingChat* id 节点，class 名沿用 .chat-*（样式段在 styles/
 // reader-chat.css，随对话域按需装载，token 化两主题））。
 //
+// 分工：建议区节点（.chat-suggestions）的建立/写入/摘除全在属主
+//（./chat-suggestions-slot），本模块只决定「该显示哪些问题」并按在场与否对账
+// 重渲；chip 的点击行为（填输入框 + 发送）也归属主的 onPick，本模块不碰输入框。
+//
 // 依赖方向（无环）：共享可变状态（../chat/chat-state + ../core/state 的进程内
-// clip）与 ai/conversation 纯辅助直接 import；DOM 元素、会话动作、布局回调、
-// 建议点击发送、suggestionsNode 单例钩子经工厂 deps 注入。本模块不 import 组合根。
+// clip）与 ai/conversation 纯辅助直接 import；DOM 元素、会话动作、建议区属主经
+// 工厂 deps 注入。本模块不 import 组合根。
 import {
   buildContextKey,
   doesConversationMatchCurrentContext,
@@ -21,21 +25,18 @@ import { readCachedQuickPrompts } from "../chat/quick-prompt-cache.js";
 import { chatSessionState } from "../chat/chat-state.js";
 import { extractBvid } from "../bilibili/video-id-shared.js";
 import { state } from "../core/state.js";
+import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 
 export interface CreateReaderChatListsDeps {
   historyList: HTMLElement;
   historyClearBtn: HTMLButtonElement | null;
-  input: HTMLTextAreaElement;
   // 会话动作（conversation-store 实例的窄接口）
   // applyById 由组合根包一层 C′ 接缝：在途回合先由 chat-runtime 体面停流落盘
   //（settleTurn）再切换，故其兑现晚于本次点击——不在途时同一 tick 内完成。
   applyById: (id: string) => void;
   deleteById: (id: string) => Promise<void>;
-  // 布局 / 发送回调（组合根提供）
-  autosizeInput: () => void;
-  onSuggestionClick: (prompt: string) => void;
-  // suggestionsNode 单例 getter（组合根持有）
-  getSuggestionsNode: () => HTMLElement | null;
+  // 建议区属主（render / isPresent）：列表只提交内容，节点在场与否由属主回答
+  suggestions: ChatSuggestionsSlot;
   // 惰性互引（组装点以箭头函数接线，回调执行时实例已存在）
   hideHistoryPopover: () => void;
 }
@@ -45,15 +46,10 @@ export interface ReaderChatLists {
   renderHistoryList: () => void;
 }
 
-// 空态欢迎区图标（✦ sparkles，24 视框 / stroke 1.8 / currentColor）：纯装饰，
-// svg 自带 aria-hidden；图标资产本模块自带，不引外部资源。星形在视框内几何
-// 居中（外接盒 5.2–18.8 正负对称）——2026-11 用户反馈圆底里看着偏上，原路径
-// y 跨度 3.6–17.2，视觉中心比视框中心高 1.6px，圆是 flex 居中的、偏的是图形。
-const HERO_ICON_SVG =
-  '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.2l1.84 4.96 4.96 1.84-4.96 1.84L12 18.8l-1.84-4.96L5.2 12l4.96-1.84L12 5.2z"/></svg>';
+// 空态欢迎区图标与建议 chip 的 DOM 均在建议区属主（./chat-suggestions-slot）里。
 
 export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderChatLists {
-  const { historyList, historyClearBtn, input, getSuggestionsNode } = deps;
+  const { historyList, historyClearBtn } = deps;
 
   // ===== 建议区缓存键：当前页视频身份（读进程内 clip） =====
   //
@@ -81,38 +77,23 @@ export function createReaderChatLists(deps: CreateReaderChatListsDeps): ReaderCh
   }
 
   function renderSuggestions(): void {
-    const suggestionsNode = getSuggestionsNode();
-    if (!suggestionsNode) {
+    // 建议区不在场（发送受理撤除 / 历史回放清场）→ 不重建：本函数是对账重渲，
+    // 建立建议区是消息区清场路径的事（属主的 render 负责补齐节点）。
+    if (!deps.suggestions.isPresent()) {
       return;
     }
     if (!chatSessionState.contextData || !chatSessionState.providers.length || chatSessionState.chatHistory.length || chatSessionState.contextData.isVideoContext === false) {
-      suggestionsNode.innerHTML = "";
+      deps.suggestions.render([]);
       return;
     }
     // 三档取用：设置里的自定义问题 → 本视频的生成结果（预热缓存）→ 固定三条
     // 兜底（生成不可用时的诚实降级，见 chat/quick-prompts.ts）。
-    const prompts = resolveInitialQuickPrompts(
-      chatSessionState.aiPrefs.aiInitialQuickPrompts,
-      readCachedQuickPrompts(currentPageVideoKey())
+    deps.suggestions.render(
+      resolveInitialQuickPrompts(
+        chatSessionState.aiPrefs.aiInitialQuickPrompts,
+        readCachedQuickPrompts(currentPageVideoKey())
+      )
     );
-    // 空态欢迎区（「居中开场」）：✦ 图标 + 引导语在上，建议 chips 居中于
-    // 消息区；有对话时本函数走上方清空分支，欢迎区不出现。
-    suggestionsNode.innerHTML =
-      `<div class="chat-hero">` +
-      `<span class="chat-hero-icon">${HERO_ICON_SVG}</span>` +
-      `<p class="chat-hero-title">围绕这期视频，问点什么</p>` +
-      `<div class="chat-hero-sugs">` +
-      prompts
-        .map((prompt) => `<button type="button" class="chat-chip">${escapeHtml(prompt)}</button>`)
-        .join("") +
-      `</div></div>`;
-    suggestionsNode.querySelectorAll(".chat-chip").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        input.value = btn.textContent || "";
-        deps.autosizeInput();
-        deps.onSuggestionClick(btn.textContent || "");
-      });
-    });
   }
 
   function renderHistoryList(): void {

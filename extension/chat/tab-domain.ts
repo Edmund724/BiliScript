@@ -21,9 +21,11 @@
 //   - DOM 元素：messages / input（对话 tab 壳的 readingChat* id）；
 //   - ui 门面：ChatRuntimeUi（chat-runtime 的布局/UI 回调纯分组，8 件回调由
 //     组合根实现）+ store 能力事件三件（渲染编排反转：store 编排时机，组合根
-//     订阅结果）+ contextLoad 的四个渲染编排回调（renderHistoryList /
-//     renderInitialState / renderSuggestions / restartChat）+ 视图意图通道
-//     requestViewReset（contextLoad / sendGate 消费，view-intent.ts 词表）；
+//     订阅结果）+ contextLoad 的三个渲染编排回调（renderHistoryList /
+//     renderInitialState / restartChat）+ 视图意图通道
+//     requestViewReset（contextLoad / sendGate 消费，view-intent.ts 词表）
+//     + 建议区两件能力（render / clear：contextLoad 的对账重渲与 replay 的
+//     消息区重建清引用消费；建议区节点属主在组合根，本域不持节点）；
 //   - storage：store 存档读写（测试可注入，缺省 chrome.storage.local）；
 //   - 状态 getter：clip / settings（进程内装配链两条路的运行时输入，与
 //     core/context-assembly 的注入口径一致）；
@@ -90,13 +92,18 @@ export interface CreateChatTabDomainDeps {
   // ---- contextLoad 的渲染编排回调（DOM 编排留在组合根）----
   renderHistoryList: () => void;
   renderInitialState: () => void;
-  renderSuggestions: () => void;
   restartChat: (opts?: { keepContext?: boolean; preserveInput?: boolean }) => void;
   // ---- 视图意图通道（contextLoad / sendGate 消费；执行体唯一住在组合根）----
   requestViewReset: (intent: ViewResetIntent) => void;
+  // ---- 建议区（属主在组合根：reader/chat-suggestions-slot）----
+  // 本域只经这两件表达意图，不持建议区节点：对账重渲（contextLoad）与消息区
+  // 重建时清引用（replay）。
+  suggestions: {
+    render: () => void;
+    clear: () => void;
+  };
   // ---- 历史回放事务的编排回调（replay 消费，组合根注入）----
   updateChatLayoutState: () => void;
-  clearSuggestions: () => void;
   // ---- 存储（可选；测试注入，缺省 chrome.storage.local）----
   storage?: StorageArea;
   // ---- 状态 getter（进程内装配链的运行时输入）----
@@ -173,7 +180,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     }),
     renderHistoryList: deps.renderHistoryList,
     renderInitialState: deps.renderInitialState,
-    renderSuggestions: deps.renderSuggestions,
+    renderSuggestions: deps.suggestions.render,
     requestViewReset: deps.requestViewReset,
     restartChat: deps.restartChat,
     restoreLatest: () => store.restoreLatest(),
@@ -227,7 +234,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
   const replay = createConversationReplay({
     renderer: runtime,
     updateLayout: deps.updateChatLayoutState,
-    clearSuggestions: deps.clearSuggestions
+    clearSuggestions: deps.suggestions.clear
   });
   return { runtime, store, contextLoad, sendGate, replay };
 }

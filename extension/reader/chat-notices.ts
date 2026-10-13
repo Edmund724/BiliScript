@@ -1,7 +1,7 @@
 // reader/chat-notices.ts — 对话 tab 消息区提示 / 居中态 / 建议区清理 / 近底判定
 //（PR5 自 extension/pages/sidepanel-notices.ts 重建；原 sidepanel 孪生模块已
 // 随侧边栏形态删除，本文件是唯一实现，判定逻辑（通知条去重、textContent 防注入、
-// 自动消失定时器、居中错误块、suggestionsNode 同步置空、近底阈值、spinner 加载
+// 自动消失定时器、居中错误块、建议区撤除、近底阈值、spinner 加载
 // 动画插槽）不再与孪生
 // 同步，行为契约由 tests/reader/chat-notices.test.ts 钉住。DOM 壳：容器经 deps
 // 注入 reader 的 readingChatMessages，class 名沿用 .chat-context-notice /
@@ -13,9 +13,12 @@
 // 回调打开侧边栏设置抽屉（生产组装点在 reader/chat-tab.ts 注入，转发到
 // ui-renderer 的 openReaderSettingsPanel）。
 //
-// 依赖方向（无环）：DOM 容器与 suggestionsNode 单例的读写钩子经工厂 deps 注入；
-// 定时器可注入（生产组装点用 window.setTimeout/clearTimeout，测试手动推进）。
-// 通知条自动消失定时器是本模块闭包私有状态。本模块不 import 组合根。
+// 依赖方向（无环）：DOM 容器经工厂 deps 注入，建议区撤除经建议区属主
+//（reader/chat-suggestions-slot）的方法调用；定时器可注入（生产组装点用
+// window.setTimeout/clearTimeout，测试手动推进）。通知条自动消失定时器是本模块
+// 闭包私有状态。本模块不 import 组合根。
+
+import type { ChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 
 export interface CreateReaderChatFeedbackDeps {
   messages: HTMLElement;
@@ -24,8 +27,8 @@ export interface CreateReaderChatFeedbackDeps {
   // showConversationContextError 追加居中错误块后滚动到底（chatRuntime 的
   // scrollToBottom，惰性接线）
   scrollToBottom: () => void;
-  getSuggestionsNode: () => HTMLElement | null;
-  setSuggestionsNode: (node: HTMLElement | null) => void;
+  // 建议区属主：本模块以 clear 撤除建议区（节点引用只归属主，本模块不持节点）
+  suggestions: ChatSuggestionsSlot;
   // 通知条「前往设置」链接的点击回调（打开侧边栏设置抽屉）
   onOpenSettings: () => void;
 }
@@ -43,7 +46,7 @@ export interface ReaderChatFeedback {
   isMessagesNearBottom: (threshold?: number) => boolean;
 }
 
-export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrollToBottom, getSuggestionsNode, setSuggestionsNode, onOpenSettings }: CreateReaderChatFeedbackDeps): ReaderChatFeedback {
+export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrollToBottom, suggestions, onOpenSettings }: CreateReaderChatFeedbackDeps): ReaderChatFeedback {
   // 通知条自动消失定时器（闭包私有单例；0 = 无挂起定时器）
   let contextNoticeTimer = 0;
 
@@ -114,8 +117,7 @@ export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrol
   }
 
   function removeSuggestions(): void {
-    getSuggestionsNode()?.remove();
-    setSuggestionsNode(null);
+    suggestions.clear();
   }
 
   function isMessagesNearBottom(threshold = 56): boolean {

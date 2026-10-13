@@ -11,7 +11,7 @@
 // - spinner：文案前插入 .chat-notice-spinner（aria-hidden 空 span，缺省不插）；
 // - removeConversationContextNotice：清通知 + 取消挂起定时器；
 // - showConversationContextError：空文案 no-op、居中错误块 + scrollToBottom；
-// - removeCenteredState / removeSuggestions（同步置空单例钩子）；
+// - removeCenteredState / removeSuggestions（建议区撤除经属主 clear）；
 // - isMessagesNearBottom：近底/远底判定。
 //
 // 定时器注入受控 fake（手动推进）。
@@ -40,6 +40,12 @@ function makeHarness() {
   }
   const timers: InjectedTimer[] = [];
   let timerSeq = 0;
+  // 建议区属主替身：本模块只经 clear 撤除建议区，节点生命周期由属主自己承重。
+  const suggestions = {
+    render: vi.fn(),
+    clear: vi.fn(),
+    isPresent: vi.fn(() => true)
+  };
   const deps = {
     messages,
     setTimer: vi.fn((fn: () => void, ms: number) => {
@@ -55,18 +61,14 @@ function makeHarness() {
       }
     }),
     scrollToBottom: vi.fn(),
-    getSuggestionsNode: () => suggestionsNode,
-    setSuggestionsNode: (node: HTMLElement | null) => {
-      suggestionsNode = node;
-    },
+    suggestions,
     onOpenSettings: vi.fn()
   };
-  let suggestionsNode: HTMLElement | null = document.createElement("div");
   const feedback = createReaderChatFeedback(deps as unknown as CreateReaderChatFeedbackDeps);
   const fireTimers = () => {
     [...timers].forEach((timer) => timer.fn());
   };
-  return { messages, deps, feedback, timers, fireTimers };
+  return { messages, deps, feedback, timers, fireTimers, suggestions };
 }
 
 describe("showConversationContextNotice / removeConversationContextNotice", () => {
@@ -201,12 +203,12 @@ describe("showConversationContextError / removeCenteredState", () => {
 });
 
 describe("removeSuggestions / isMessagesNearBottom", () => {
-  it("removeSuggestions：移除节点并把单例钩子置空", () => {
-    const { deps, feedback } = makeHarness();
+  it("removeSuggestions：调建议区属主的 clear（本模块不持建议区节点）", () => {
+    const { feedback, suggestions } = makeHarness();
 
     feedback.removeSuggestions();
 
-    expect(deps.getSuggestionsNode()).toBeNull();
+    expect(suggestions.clear).toHaveBeenCalledTimes(1);
   });
 
   it("isMessagesNearBottom：距底 <= 阈值（默认 56）为近底", () => {

@@ -14,7 +14,7 @@
 // core/default-prompts 的固定文案。sidepanel.js / conversation-store.ts /
 // chat-runtime.ts 单向 import 本文件。
 //
-// 纯局部单例（suggestionsNode / contextNoticeTimer / liveContextSyncTimer /
+// 纯局部单例（suggestionsSlot / contextNoticeTimer / liveContextSyncTimer /
 // liveContextSyncForceRefresh / modelSelectMeasureCanvas / initCompleted / els /
 // subtitleWaiter / conversationStore / chatRuntime 实例 / shouldAutoScroll-
 // Messages）不进本对象：它们只被单一模块使用，留在各自模块里。

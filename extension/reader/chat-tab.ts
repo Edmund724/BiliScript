@@ -35,16 +35,17 @@
 //   - 二级惰性：本模块经 reader/lazy-chat-tab.ts 动态装载，首次切到对话 tab（或
 //     解释卡片「去对话追问」/概览笔记按钮触达 seam）才 init；
 //   - 关闭阅读模式即断流（closeReadingView → closeChatSession：resetStreamState
-//     断 port、pending 的 subtitle-wait 立即失效、摘全局触发源）；重开从会话
+//     断 port、pending 的 subtitle-wait 立即失效、摘会话级触发源）；重开从会话
 //     历史恢复（激活路径 loadProvidersAndPrefs → loadContextState → restoreLatest
 //     → renderInitialState）；
 //     对话 tab 的流式中关闭不做后台续跑（connectPort 的 closed 闸兜底）。
 //   - 会话单例 initialized / initInFlight / sessionClosed：init 四路互不依赖的
-//     初始化并行起跑；激活/恢复/关闭三入口经 reader/lazy-chat-tab 暴露；全局触发
-//     源（storage watcher / Esc / 外点关闭桥接）随激活挂载、随收尾摘除，URL chip
-//     适配与意图消费/快捷动作同在元素级绑定一线。sessionClosed 是模块内 let，
-//     读侧仅 connectPort / pollContext 两处闭包（读只发生在回调执行时，晚于赋值
-//     方求值）。
+//     初始化并行起跑；激活/恢复/关闭三入口经 reader/lazy-chat-tab 暴露。会话级
+//     触发源（字幕相位总线 / URL 变化 / clip 落定 / 存储变更 / 预热落定 / 外点
+//     关闭槽 / Esc）收在 createReaderChatSessionTriggers 的会话对象里，随激活
+//     挂载、随收尾摘除；元素级 bindEvents 与窗口 resize 是常驻监听，只在 init
+//     接一次。sessionClosed 是模块内 let，读侧仅 connectPort / pollContext 两处
+//     闭包（读只发生在回调执行时，晚于赋值方求值）。
 //
 // 测试注意：els 在模块求值时解析（对话 tab 只在面板壳存在后装载，与 sidepanel
 // 的页面加载时序同构）；模块级单例状态（chatSessionState + 本文件闭包）在测试里
@@ -106,6 +107,10 @@ import {
 // 壳三件（重建于 reader 域）+ 模型 chip/面板渲染 + tab 定位 + reader ids。
 import { createReaderChatLists } from "./chat-lists.js";
 import { createReaderChatFeedback } from "./chat-notices.js";
+// 会话级触发源对象（「属会话 vs 常驻」的声明与摘挂闭合处）与建议区属主
+//（建议区节点的唯一归属，其余模块只调它的方法）。
+import { createReaderChatSessionTriggers } from "./chat-session-triggers.js";
+import { createChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 import { createReaderChatModelPanel } from "./chat-model-panel.js";
 import { createReaderChatPopovers } from "./chat-popovers.js";
 import { setChatTabOutsideClickHandler } from "./chat-tab-bridge.js";
@@ -195,22 +200,22 @@ const INPUT_PLACEHOLDER_DEFAULT = els.input.placeholder;
 // ../chat/send-gate.ts（CONTEXT.md 词条「发送闸」），本文件经 sendGate 实例
 // 持有 bindStatusBus/unbindStatusBus/kickSubtitleWait/refreshAsrNotice 四件。
 
-// reader 触发源两处（共用一个 120ms 防抖槽，后到者定档）：
+// reader 触发源两处（共用一个 120ms 防抖槽，后到者定档；两者的挂载点见下方会话
+// 触发源组装）：
 //   ① biliscript:urlchange（core/url-watcher 广播）→ 强刷快档（切 P/切视频必须
 //      全网络重拉）；
 //   ② reader-bus 的 subtitle-ready（clip 身份与字幕体原子落定时发）→ 弱档对账
-//      + 保输入，见下方 bindClipSettleTrigger。
+//      + 保输入。
 // 调度状态机原在 chat/context-sync.ts 的 createLiveContextSync（工单 05 并回）：
 // ~40 行纯间接层里 reader 只消费 onUrlChange 一个触发源（sidepanel 世界的
 // visibility/focus/tabs handler 无调用方，onReaderOpened/Closed 的恢复折叠进激活
 // 路径 restoreChatSession），单宿主现实下保留其防抖语义即可——120ms 快档，重复
 // 触发即防抖重置（触发源恒为强刷，原「弱刷不覆盖强刷」的合并分支无单宿主场景）。
 let urlChangeSyncTimer = 0;
-let urlChangeHandler: (() => void) | null = null;
 
 // 参数：forceRefresh 缺省强刷（URL 变化 = 明确要求全网络重拉）；preserveInput 缺省
-// false（换片是用户动作，清场是既有语义）。字幕落定的对账走弱档 + 保输入（见
-// bindClipSettleTrigger 的取舍说明）。
+// false（换片是用户动作，清场是既有语义）。字幕落定的对账走弱档 + 保输入（见会话
+// 触发源组装处 clipSettle 的取舍说明）。
 function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }: { forceRefresh?: boolean; preserveInput?: boolean } = {}): void {
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
@@ -221,91 +226,11 @@ function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }:
   }, 120);
 }
 
-function bindUrlChangeTrigger(): void {
-  if (urlChangeHandler) {
-    return;
-  }
-  urlChangeHandler = () => scheduleLiveContextSync();
-  window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, urlChangeHandler);
-}
-
-function unbindUrlChangeTrigger(): void {
-  if (!urlChangeHandler) {
-    return;
-  }
-  window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, urlChangeHandler);
-  urlChangeHandler = null;
-}
-
-// clip 落定 → 主动补一次上下文对账（本文件新增的第二个触发源）。
-//
-// 为什么需要：换片瞬间 URL 变化同步可能早于 clip 重置（重置链在动态加载之后），
-// 那次装配按「clip 不属于当前页即未就绪空快照」收口（core/context-assembly 的
-// 页身份校验）——此后没有第二个触发源，对话上下文就一直停在空档，标题与上下文键
-// 都不归位，直到用户发送或再次换片。subtitle-ready 正是「视频身份 + 字幕体原子
-// 落定」的信号（subtitle/commit 的 acceptSubtitle / commitNoSubtitle 两个出口都
-// 发，无字幕收尾同样算落定），收到即补一轮。
-//
-// 档位取舍：弱档 forceRefresh:false——签名里含字幕体长度与 subtitleFetchState，
-// 真落定必然签名变化走全量，重复通知/无变化则短路零开销（强刷档每轮都会重拉热评）。
-// 保输入 preserveInput:true——这次对账是「跟着 clip 走」，不是用户语义上的新会话，
-// 而转写等待期间用户很可能已经在输入框里打好了草稿，不该被后台对账清掉。
-let unsubscribeClipSettle: (() => void) | null = null;
-
-function bindClipSettleTrigger(): void {
-  if (unsubscribeClipSettle) {
-    return;
-  }
-  unsubscribeClipSettle = subscribeReaderPresenter((event) => {
-    if (event.kind === "subtitle-ready") {
-      scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
-    }
-  });
-}
-
-function unbindClipSettleTrigger(): void {
-  unsubscribeClipSettle?.();
-  unsubscribeClipSettle = null;
-}
-
-// 外部设置变更 → 刷新平台/偏好（与 sidepanel bindEvents 的 storage.onChanged
-// 监听同语义；player-ai 信箱键的监听属摘除任务，不在 reader 消费）。
-// 区/键过滤经 shared/watch-storage-keys seam（R3 收口）：sync 区六键或
-// local 区 aiProviderKeys，解绑改 unsubscribe。
-let unwatchStorageKeys: (() => void) | null = null;
-
-function bindStorageWatcher(): void {
-  if (unwatchStorageKeys) {
-    return;
-  }
-  unwatchStorageKeys = watchStorageKeys(() => {
-    void refreshProvidersAndPrefsAfterExternalChange();
-  }, {
-    sync: [
-      "aiProviders",
-      "aiSystemPrompt",
-      "aiInitialQuickPrompts",
-      "defaultModel",
-      "aiThinkingLevel"
-    ],
-    local: ["aiProviderKeys"]
-  });
-}
-
-function unbindStorageWatcher(): void {
-  if (!unwatchStorageKeys) {
-    return;
-  }
-  unwatchStorageKeys();
-  unwatchStorageKeys = null;
-}
-
 // 跨模块共享状态（contextData / currentContextKey / providers / chatHistory /
 // savedConversations / currentConversationId / currentConversationMeta /
 // liveContextData / liveContextKey / liveTabUrl / aiPrefs / asrTranscribingActive /
 // aiThinkingLevel）收拢在 ../chat/chat-state.ts 的 chatSessionState，本文件与各
 // 子模块直接 import 读写。以下为纯局部单例。
-let suggestionsNode: HTMLElement | null = null;
 let initialized = false;
 let initInFlight: Promise<void> | null = null;
 // 会话收尾标志（closeChatSession 置位、激活路径复位）：闸住关闭后仍会兑现的
@@ -313,17 +238,26 @@ let initInFlight: Promise<void> | null = null;
 // 断流、不做后台续跑」。
 let sessionClosed = false;
 
-// 消息区反馈（通知条/居中错误/建议区清理/近底判定）：contextNoticeTimer 是
+// 建议区属主（reader/chat-suggestions-slot）：建议区节点的建立 / 写入 / 摘除只在
+// 它手里——本文件的消息区清场路径经 render 重建它，通知模块经 clear 撤除它，
+// 列表模块经 render 填内容、经 isPresent 决定要不要对账。
+const suggestionsSlot = createChatSuggestionsSlot({
+  messages: els.messages,
+  id: ids.readingChatSuggestions,
+  // chip 点击 = 发送芯（填输入框 → 重测高度 → 发送闸受理），与快捷动作同一尾部。
+  onPick: (prompt) => {
+    void sendViaInputBox(prompt);
+  }
+});
+
+// 消息区反馈（通知条/居中错误/建议区撤除/近底判定）：contextNoticeTimer 是
 // notices 模块闭包私有状态；定时器用 window（测试可注入 fake）。
 const feedback = createReaderChatFeedback({
   messages: els.messages,
   setTimer: (fn, ms) => window.setTimeout(fn, ms),
   clearTimer: (handle) => window.clearTimeout(handle),
   scrollToBottom: () => chatRuntime.scrollToBottom(),
-  getSuggestionsNode: () => suggestionsNode,
-  setSuggestionsNode: (node) => {
-    suggestionsNode = node;
-  },
+  suggestions: suggestionsSlot,
   // script-only-ui：提示条「前往设置」打开侧边栏设置抽屉（open-options 已删；
   // 经 reader-bus open-settings 命令由壳执行，arch-review-2026-09/10）
   onOpenSettings: () => requestUiCommand("open-settings")
@@ -380,11 +314,14 @@ const imageSupportGate = createImageSupportGate({
 const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, replay: conversationReplay } = createChatTabDomain({
   messages: els.messages,
   input: els.input,
-  // 历史回放事务的编排回调：updateChatLayoutState 进 replay 首行（输入框
-  // 重测），clearSuggestions 置空模块级 suggestionsNode 引用。
+  // 历史回放事务的编排回调：updateChatLayoutState 进 replay 首行（输入框重测），
+  // 建议区两件见下方 suggestions（replay 只在重建消息区时清引用）。
   updateChatLayoutState,
-  clearSuggestions: () => {
-    suggestionsNode = null;
+  // 建议区（属主 = suggestionsSlot）：域内只表达「对账重渲」与「清引用」两个意图，
+  // 节点与会话状态都不出台。
+  suggestions: {
+    render: () => lists.renderSuggestions(),
+    clear: () => suggestionsSlot.clear()
   },
   ui: {
     setStreamingUiState,
@@ -421,7 +358,6 @@ const { runtime: chatRuntime, store: conversationStore, contextLoad, sendGate, r
   },
   renderHistoryList: () => lists.renderHistoryList(),
   renderInitialState,
-  renderSuggestions: () => lists.renderSuggestions(),
   restartChat,
   requestViewReset,
   storage: chrome.storage.local,
@@ -486,24 +422,21 @@ async function openConversationById(id: string): Promise<void> {
 }
 
 // 两列表渲染（建议/历史）。hideHistoryPopover 与本实例/popovers 实例互引，惰性
-// 箭头接线（回调执行时实例已存在）。
+// 箭头接线（回调执行时实例已存在）；建议区内容经属主写入（lists 只提交问题清单）。
 const lists = createReaderChatLists({
   historyList: els.historyList,
   historyClearBtn: els.historyClearBtn,
-  input: els.input,
   applyById: (id) => {
     void openConversationById(id);
   },
   deleteById: (id) => conversationStore.deleteById(id),
-  autosizeInput,
-  onSuggestionClick: () => void sendFromUi(),
-  getSuggestionsNode: () => suggestionsNode,
+  suggestions: suggestionsSlot,
   hideHistoryPopover: () => popovers.hideHistoryPopover()
 });
 
 // 历史/模型面板两个弹层的开合与互斥；文档级外点关闭经 chat-tab-bridge 并入
-// ui-renderer 的单一 document click 委托（组合根在激活/收尾时注册/摘除，见
-// bindGlobalTriggers）；Esc 关闭走组合根的 window keydown 监听（同一时机挂载）。
+// ui-renderer 的单一 document click 委托（会话触发源组装处随激活注册 / 随收尾
+// 摘除）；Esc 关闭走组合根的 window keydown 监听（同一时机挂载）。
 const popovers = createReaderChatPopovers({
   historyPopover: els.historyPopover,
   modelPanel: els.modelPanel,
@@ -618,58 +551,86 @@ function pickThinkingLevel(level: ThinkingLevelInput): void {
 // 激活 / 会话收尾（对外入口，经 reader/lazy-chat-tab 暴露）
 // ============================================================
 
-function bindGlobalTriggers(): void {
-  sendGate.bindStatusBus();
-  bindUrlChangeTrigger();
-  bindClipSettleTrigger();
-  bindStorageWatcher();
-  bindQuickPromptRefresh();
-  // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（chat-tab-bridge）。
-  setChatTabOutsideClickHandler(popovers.handleDocumentClick);
+// 会话级触发源对象：下面七项是「属会话」的触发源（随激活挂载、随会话收尾摘除，
+// 摘挂闭合在 reader/chat-session-triggers.ts，重复激活幂等）；常驻监听（元素级
+// bindEvents 与窗口 resize）只在 init 接一次，不在这一组里。
+const sessionTriggers = createReaderChatSessionTriggers({
+  // 字幕相位总线（sendGate 的绑/摘一对）：转写相位订阅、等待提示路由与 asrNotice
+  // 状态行维护都在发送闸里，本文件只持有这一对。
+  statusBus: () => {
+    sendGate.bindStatusBus();
+    return () => sendGate.unbindStatusBus();
+  },
+  // ① URL 变化 → 强刷快档（见上方 scheduleLiveContextSync 的 120ms 防抖槽）。
+  urlChange: () => {
+    const handler = () => scheduleLiveContextSync();
+    window.addEventListener(BILISCRIPT_URL_CHANGE_EVENT, handler);
+    return () => window.removeEventListener(BILISCRIPT_URL_CHANGE_EVENT, handler);
+  },
+  // ② clip 落定 → 主动补一次上下文对账。
+  //
+  // 为什么需要：换片瞬间 URL 变化同步可能早于 clip 重置（重置链在动态加载之后），
+  // 那次装配按「clip 不属于当前页即未就绪空快照」收口（core/context-assembly 的
+  // 页身份校验）——此后没有第二个触发源，对话上下文就一直停在空档，标题与上下文键
+  // 都不归位，直到用户发送或再次换片。subtitle-ready 正是「视频身份 + 字幕体原子
+  // 落定」的信号（subtitle/commit 的 acceptSubtitle / commitNoSubtitle 两个出口都
+  // 发，无字幕收尾同样算落定），收到即补一轮。
+  //
+  // 档位取舍：弱档 forceRefresh:false——签名里含字幕体长度与 subtitleFetchState，
+  // 真落定必然签名变化走全量，重复通知/无变化则短路零开销（强刷档每轮都会重拉热评）。
+  // 保输入 preserveInput:true——这次对账是「跟着 clip 走」，不是用户语义上的新会话，
+  // 而转写等待期间用户很可能已经在输入框里打好了草稿，不该被后台对账清掉。
+  clipSettle: () => subscribeReaderPresenter((event) => {
+    if (event.kind === "subtitle-ready") {
+      scheduleLiveContextSync({ forceRefresh: false, preserveInput: true });
+    }
+  }),
+  // 外部设置变更 → 刷新平台/偏好（与 sidepanel bindEvents 的 storage.onChanged
+  // 监听同语义；player-ai 信箱键的监听属摘除任务，不在 reader 消费）。
+  // 区/键过滤经 shared/watch-storage-keys seam（R3 收口）：sync 区五键 + local 区
+  // aiProviderKeys，摘除即 unsubscribe。
+  storageWatcher: () => watchStorageKeys(() => {
+    void refreshProvidersAndPrefsAfterExternalChange();
+  }, {
+    sync: [
+      "aiProviders",
+      "aiSystemPrompt",
+      "aiInitialQuickPrompts",
+      "defaultModel",
+      "aiThinkingLevel"
+    ],
+    local: ["aiProviderKeys"]
+  }),
+  // 预热落定 → 重渲建议区：字幕就绪后后台生成的问题到位时，建议区若正显示兜底
+  // 三条（用户手速快，刚进对话 tab 就撞上预热还在飞），就地换成逐视频生成的结果。
+  // 有会话历史时 renderSuggestions 自身会走空表分支，这里不必另判。
+  quickPrompts: () => subscribeQuickPromptsChange(() => {
+    if (!initialized || chatRuntime.isStreaming()) {
+      return;
+    }
+    lists.renderSuggestions();
+  }),
+  // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（chat-tab-bridge），
+  // 同一时刻至多一个注册者，摘除即置回 null。
+  outsideClick: () => {
+    setChatTabOutsideClickHandler(popovers.handleDocumentClick);
+    return () => setChatTabOutsideClickHandler(null);
+  },
   // Esc 关闭三个弹层（window 级监听，与文档级 click 委托不同事件，不互踩）。
-  window.addEventListener("keydown", onWindowEscapeKey);
-}
-
-function unbindGlobalTriggers(): void {
-  sendGate.unbindStatusBus();
-  unbindUrlChangeTrigger();
-  unbindClipSettleTrigger();
-  unbindStorageWatcher();
-  unbindQuickPromptRefresh();
-  setChatTabOutsideClickHandler(null);
-  window.removeEventListener("keydown", onWindowEscapeKey);
-}
+  escapeKey: () => {
+    window.addEventListener("keydown", onWindowEscapeKey);
+    return () => window.removeEventListener("keydown", onWindowEscapeKey);
+  }
+});
 
 function onWindowEscapeKey(event: KeyboardEvent): void {
   popovers.handleEscapeKey(event);
 }
 
-// 预热落定 → 重渲建议区：字幕就绪后后台生成的问题到位时，建议区若正显示兜底
-// 三条（用户手速快，刚进对话 tab 就撞上预热还在飞），就地换成逐视频生成的结果。
-// 有会话历史时 renderSuggestions 自身会清空建议区，这里不必另判。
-let unsubscribeQuickPrompts: (() => void) | null = null;
-
-function bindQuickPromptRefresh(): void {
-  if (unsubscribeQuickPrompts) {
-    return;
-  }
-  unsubscribeQuickPrompts = subscribeQuickPromptsChange(() => {
-    if (!initialized || chatRuntime.isStreaming()) {
-      return;
-    }
-    lists.renderSuggestions();
-  });
-}
-
-function unbindQuickPromptRefresh(): void {
-  unsubscribeQuickPrompts?.();
-  unsubscribeQuickPrompts = null;
-}
-
 async function initChatTab({ consumeIntent }: { consumeIntent: boolean }): Promise<void> {
   requireShell();
   bindEvents();
-  bindGlobalTriggers();
+  sessionTriggers.activate();
   // 四路互不依赖的初始化并行起跑（opt-backlog-2026-09/05）——原先 offscreen
   // 确保 → 平台列表 → 会话存档 → 上下文装配四连串行 await，总等待为各路之和
   // （会话存档还曾随 loadAll 对至多 12 条历史会话各发一次串行视频元数据请求，
@@ -728,7 +689,7 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
   }
   if (sessionClosed) {
     sessionClosed = false;
-    bindGlobalTriggers();
+    sessionTriggers.activate();
     await restoreChatSession();
   }
   // 已初始化的普通激活（tab 切回）：消费可能新写入的待解释意图（解释卡片
@@ -761,7 +722,7 @@ export function closeChatSession(): void {
   // 会话收尾（意图已被 lifecycle.clearPendingExplainIntent 清掉）：引用卡随之
   // 隐藏，下次激活按无意图渲染。
   hideExplainIntentCard();
-  unbindGlobalTriggers();
+  sessionTriggers.deactivate();
 }
 
 // ============================================================
@@ -842,9 +803,11 @@ async function consumeExplainIntentIfPending(): Promise<void> {
   }
 }
 
-// 发送芯（runQuickActionPrompt / autoSendPrompt 的共同尾部）：填输入框 →
-// autosize → sendTurn（交出文本，拿回受理结论）→ 按返回值折算是否受理。两函数
-// 头部的闸（新会话 vs 双发闸、空串聚焦 vs 空串直 false）语义不同，不并入本芯。
+// 建议区属主的 onPick 落点：chip 点击与回车 / 发送键走同一条发送芯。
+//
+// 发送芯（建议 chip / runQuickActionPrompt / autoSendPrompt 的共同尾部）：填输入框
+// → autosize → sendTurn（交出文本，拿回受理结论）→ 按返回值折算是否受理。三个调用
+// 点头部的闸（新会话 vs 双发闸、空串聚焦 vs 空串直 false）语义不同，不并入本芯。
 // 受理结论来自回合生命周期模块的 SendVerdict（accepted → true，blocked /
 // ignored → false）：ignored 是「入口早退、什么都没发」——折算成受理成功会让
 // 调用方（解释意图）把它消费掉而消息从未发出（时间轴只有一条空档）。回放让位
@@ -872,7 +835,7 @@ async function autoSendPrompt(text: string): Promise<boolean> {
   return sendViaInputBox(text);
 }
 
-// 发送入口（回车/建议 chip/解释意图自动发送）直接交给 chatRuntime 的回合受理；
+// 发送入口（回车 / 发送键）直接交给 chatRuntime 的回合受理；
 // 回放让位（P2-1）已收敛进发送闸的放行路径（send-gate.ts 对 G1 与直通路径统一
 // await replayInFlight），此处不再手抄等待——借口径等价于发送闸必须等到其放行。
 async function sendFromUi(): Promise<void> {
@@ -880,7 +843,7 @@ async function sendFromUi(): Promise<void> {
 }
 
 // ============================================================
-// bindEvents（元素级绑定；全局触发源见 bindGlobalTriggers）
+// bindEvents（元素级绑定，常驻）；会话级触发源见 sessionTriggers 的组装
 // ============================================================
 
 // 消息区滚动通知 rAF 合帧（10-2）：滚动事件的判定回调会在每次触发时读
@@ -1211,7 +1174,7 @@ export function renderInitialState(): void {
   resetConversationView("");
 }
 
-// 【迁移自 sidepanel.ts resetConversationView】消息区重建 + 建议区刷新。
+// 【迁移自 sidepanel.ts resetConversationView】消息区重建 + 建议区重开。
 function resetConversationView(stateHtml = ""): void {
   // 清场即作废进行中的回放分片（P2-1）：过期分片不得写进重建后的消息区。
   conversationReplay.invalidate();
@@ -1223,10 +1186,10 @@ function resetConversationView(stateHtml = ""): void {
     stateNode.innerHTML = stateHtml;
     els.messages.appendChild(stateNode);
   }
-  suggestionsNode = document.createElement("div");
-  suggestionsNode.className = "chat-suggestions";
-  suggestionsNode.id = ids.readingChatSuggestions;
-  els.messages.appendChild(suggestionsNode);
+  // 清场即重开本代建议区：消息区刚被清空，属主手里的节点已脱开文档，这一步是
+  // 建议区的建立点（空表 = 在场的空建议区）；随后列表按当前状态填内容——列表的
+  // 对账重渲只写在场建议区，不负责重建（历史回放清场后不得复活空壳）。
+  suggestionsSlot.render([]);
   lists.renderSuggestions();
   chatRuntime.setAutoScroll(true);
   chatRuntime.scrollToBottom(true);

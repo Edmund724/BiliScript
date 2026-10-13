@@ -5,7 +5,7 @@
 //
 // 独立成文件的原因：biliscript:urlchange 监听挂在 window 上，跨测试纪元（vi.reset-
 // Modules 换代）的旧 chat-tab 模块实例无法摘除自己的监听；本文件每例收尾
-// closeChatSession（unbindGlobalTriggers 摘监听），保证断言不被旧纪元污染。
+// closeChatSession（会话触发源 deactivate 摘监听），保证断言不被旧纪元污染。
 //
 // 全量路径的可数代理：mock gateway.getCurrentAid 返回真值后，
 // fetchHotCommentsWithLedger 接缝替身才会调用 gateway.fetchHotComments

@@ -1,12 +1,15 @@
 // tests/reader/chat-lists.test.ts
-// createReaderChatLists（对话 tab 两列表渲染：建议/历史）行为契约。
+// createReaderChatLists（对话 tab 两列表：建议内容决策 / 历史会话渲染）行为契约。
 // PR5 自 tests/sidepanel/sidepanel-lists.test.ts 随重建迁移（tests/sidepanel/
 // 对应文件已迁走）：逻辑断言保真，DOM 壳换新——元素为 reader 的 readingChat*
 // 节点，class 名沿用 .chat-*（样式段在 styles/reader-chat.css，按需装载）。
 //
 // 覆盖：
-// - renderSuggestions：有平台/无历史/视频上下文时渲染建议 chip，点击填入输入框
-//   并触发发送回调；无上下文 / 非视频页 / 流式中（有 chatHistory）/ 无平台时清空；
+// - renderSuggestions：只决定「该显示哪些问题」并交给建议区属主——属主替身收口，
+//   断言面是提交的清单（有平台/无历史/视频上下文 → 三档取用结果；无上下文 /
+//   非视频页 / 有会话历史 / 无平台 → 空表），以及建议区不在场（已撤除 / 回放清场）
+//   时不对账重渲。DOM 落点与 chip 点击接线属属主，见
+//   tests/reader/chat-suggestions-slot.test.ts。
 // - renderHistoryList：空列表占位 + 清空按钮隐藏；active / live-match 高亮；
 //   open 点击 → applyById + 关历史 popover；remove 点击 → deleteById。
 //
@@ -18,6 +21,7 @@ import { resetModuleState } from "../setup.js";
 import { DEFAULT_INITIAL_QUICK_PROMPTS } from "../../extension/core/default-prompts.js";
 import type { ChatSessionState } from "../../extension/chat/chat-state.js";
 import type { CreateReaderChatListsDeps } from "../../extension/reader/chat-lists.js";
+import type { ChatSuggestionsSlot } from "../../extension/reader/chat-suggestions-slot.js";
 
 let createReaderChatLists: typeof import("../../extension/reader/chat-lists.js").createReaderChatLists;
 let state: typeof import("../../extension/core/state.js").state;
@@ -45,34 +49,32 @@ async function importModule() {
   resetQuickPromptCacheForTests = cache.resetQuickPromptCacheForTests;
 }
 
+// 建议区属主替身：列表只经 render 提交清单、经 isPresent 决定要不要对账（缺省在场）。
+function makeSuggestionsSlot(overrides: Partial<ChatSuggestionsSlot> = {}): ChatSuggestionsSlot {
+  return {
+    render: vi.fn(),
+    clear: vi.fn(),
+    isPresent: vi.fn(() => true),
+    ...overrides
+  } as ChatSuggestionsSlot;
+}
+
 function makeDeps(overrides: Partial<CreateReaderChatListsDeps> = {}) {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
   const historyList = document.createElement("div");
   const historyClearBtn = document.createElement("button");
-  const input = document.createElement("textarea");
-  container.append(historyList, historyClearBtn, input);
+  document.body.append(historyList, historyClearBtn);
 
-  let suggestionsNode: HTMLElement = document.createElement("div");
-  container.appendChild(suggestionsNode);
   const deps: CreateReaderChatListsDeps = {
     historyList,
     historyClearBtn,
-    input,
     applyById: vi.fn(),
     deleteById: vi.fn(async () => {}),
-    autosizeInput: vi.fn(),
-    onSuggestionClick: vi.fn(),
-    getSuggestionsNode: () => suggestionsNode,
+    suggestions: makeSuggestionsSlot(),
     hideHistoryPopover: vi.fn(),
     ...overrides
   };
   const lists = createReaderChatLists(deps);
-  return { deps, lists, input, historyList, historyClearBtn, container, setSuggestionsNode: (node: HTMLElement) => {
-    suggestionsNode.remove();
-    suggestionsNode = node;
-    container.appendChild(node);
-  } };
+  return { deps, lists, historyList, historyClearBtn, suggestions: deps.suggestions };
 }
 
 // setup.ts 给 HTMLElement.prototype.click 打了「补派发一次 MouseEvent」的补丁，
@@ -101,71 +103,62 @@ beforeEach(async () => {
   state.clip.setSubtitleBody([{ from: 0, to: 5, content: "第一句" }]);
 });
 
-describe("renderSuggestions（建议提示词）", () => {
-  it("有上下文 + 有平台 + 无历史：渲染建议 chip，点击填入输入框并发送", async () => {
-    const { lists, deps, input } = makeDeps();
+describe("renderSuggestions（提交给建议区属主的清单）", () => {
+  it("有上下文 + 有平台 + 无历史：提交自定义的三条问题", () => {
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
 
-    const chips = [...document.querySelectorAll(".chat-chip")];
-    expect(chips.map((btn) => btn.textContent)).toEqual(["总结视频", "整理笔记"]);
-
-    clickOnce(chips[1]);
-    expect(input.value).toBe("整理笔记");
-    expect(deps.autosizeInput).toHaveBeenCalled();
-    expect(deps.onSuggestionClick).toHaveBeenCalledWith("整理笔记");
+    expect(suggestions.isPresent).toHaveBeenCalled();
+    expect(suggestions.render).toHaveBeenCalledWith(["总结视频", "整理笔记"]);
   });
 
-  it("无上下文：清空建议区", () => {
+  it("无上下文：提交空表（属主保留空壳）", () => {
     chatSessionStateForTests.contextData = null;
-    const { lists, setSuggestionsNode } = makeDeps();
-    const node = document.createElement("div");
-    setSuggestionsNode(node);
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect(node.innerHTML).toBe("");
+    expect(suggestions.render).toHaveBeenCalledWith([]);
   });
 
-  it("非视频上下文（isVideoContext === false）：清空建议区", () => {
+  it("非视频上下文（isVideoContext === false）：提交空表", () => {
     chatSessionStateForTests.contextData = { ...VIDEO_CONTEXT, isVideoContext: false };
-    const { lists, setSuggestionsNode } = makeDeps();
-    const node = document.createElement("div");
-    setSuggestionsNode(node);
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect(node.innerHTML).toBe("");
+    expect(suggestions.render).toHaveBeenCalledWith([]);
   });
 
-  it("有会话历史（流式中）：清空建议区", () => {
+  it("有会话历史（流式中）：提交空表", () => {
     applyConversationIdentity({ history: [{ role: "user", content: "hi" }] });
-    const { lists, setSuggestionsNode } = makeDeps();
-    const node = document.createElement("div");
-    setSuggestionsNode(node);
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect(node.innerHTML).toBe("");
+    expect(suggestions.render).toHaveBeenCalledWith([]);
   });
 
-  it("无可用平台：清空建议区", () => {
+  it("无可用平台：提交空表", () => {
     chatSessionStateForTests.providers = [];
-    const { lists, setSuggestionsNode } = makeDeps();
-    const node = document.createElement("div");
-    setSuggestionsNode(node);
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect(node.innerHTML).toBe("");
+    expect(suggestions.render).toHaveBeenCalledWith([]);
   });
 
-  it("自定义留空（留空即自动生成）：渲染该视频的生成结果", () => {
+  it("建议区不在场（发送受理撤除 / 回放清场）：不对账重渲", () => {
+    const { lists, suggestions } = makeDeps({ suggestions: makeSuggestionsSlot({ isPresent: vi.fn(() => false) }) });
+    lists.renderSuggestions();
+    expect(suggestions.render).not.toHaveBeenCalled();
+  });
+
+  it("自定义留空（留空即自动生成）：提交该视频的生成结果", () => {
     chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
     writeCachedQuickPrompts(PAGE_CACHE_KEY, ["生成一", "生成二", "生成三"]);
-    const { lists, container } = makeDeps();
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
-      .toEqual(["生成一", "生成二", "生成三"]);
+    expect(suggestions.render).toHaveBeenCalledWith(["生成一", "生成二", "生成三"]);
   });
 
-  it("自定义留空且该视频还没有生成结果：回落固定三条兜底", () => {
+  it("自定义留空且该视频还没有生成结果：提交固定三条兜底", () => {
     chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = [];
-    const { lists, container } = makeDeps();
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
-      .toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+    expect(suggestions.render).toHaveBeenCalledWith(DEFAULT_INITIAL_QUICK_PROMPTS);
   });
 
   // 用户报障（音频转写中显示上一个视频的三个问题）：缓存里有生成结果 ≠ 该在当前页
@@ -178,10 +171,9 @@ describe("renderSuggestions（建议提示词）", () => {
     // 把生成结果显示到没字幕的视频上。
     chatSessionStateForTests.currentContextKey = PAGE_CACHE_KEY;
     state.clip.setSubtitleBody([]);
-    const { lists, container } = makeDeps();
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
-      .toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+    expect(suggestions.render).toHaveBeenCalledWith(DEFAULT_INITIAL_QUICK_PROMPTS);
   });
 
   it("clip 还停在上一个视频（转写中换片竞态）：回落固定三条，不遗留上个视频的生成结果", () => {
@@ -194,18 +186,16 @@ describe("renderSuggestions（建议提示词）", () => {
     state.clip.setBvid("BV1prev00000");
     state.clip.setCid("9");
     state.clip.setSubtitleBody([{ from: 0, to: 5, content: "上个视频的第一句" }]);
-    const { lists, container } = makeDeps();
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
-      .toEqual(DEFAULT_INITIAL_QUICK_PROMPTS);
+    expect(suggestions.render).toHaveBeenCalledWith(DEFAULT_INITIAL_QUICK_PROMPTS);
   });
 
-  it("自定义超过三条：只渲染前三条", () => {
+  it("自定义超过三条：只提交前三条", () => {
     chatSessionStateForTests.aiPrefs.aiInitialQuickPrompts = ["一", "二", "三", "四"];
-    const { lists, container } = makeDeps();
+    const { lists, suggestions } = makeDeps();
     lists.renderSuggestions();
-    expect([...container.querySelectorAll(".chat-chip")].map((btn) => btn.textContent))
-      .toEqual(["一", "二", "三"]);
+    expect(suggestions.render).toHaveBeenCalledWith(["一", "二", "三"]);
   });
 });
 
