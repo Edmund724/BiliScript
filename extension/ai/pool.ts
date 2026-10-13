@@ -16,7 +16,6 @@ export const DEFAULT_MAP_CONCURRENCY = 3;
 export const MAX_MAP_RETRIES = 2;
 
 interface MarkedError extends Error {
-  aborted?: boolean;
   overflow?: boolean;
 }
 

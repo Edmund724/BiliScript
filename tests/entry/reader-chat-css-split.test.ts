@@ -56,6 +56,22 @@ describe("对话分区 CSS 拆分（arch-slim-4/07）", () => {
     const injector = read(INJECTOR);
     expect(injector).toMatch(/export function ensureReaderChatStyles/);
     expect(injector).toMatch(/entry\/styles\/reader-chat\.css/);
+    // 三份路径须在 injector 源码中按 READER_CHAT_STYLE_PATHS 顺序出现
+    //（github-markdown 基线 → theme 变量映射 → reader-chat 覆盖层），顺序即级联顺序。
+    const CHAT_STYLE_PATHS = [
+      "entry/styles/github-markdown.css",
+      "entry/styles/github-markdown-theme.css",
+      "entry/styles/reader-chat.css"
+    ];
+    let cursor = -1;
+    for (const path of CHAT_STYLE_PATHS) {
+      const at = injector.indexOf(path);
+      expect(at, `${INJECTOR} 缺少对话表路径 ${path}`).toBeGreaterThan(-1);
+      expect(at, `${INJECTOR} 对话表路径 ${path} 顺序与 READER_CHAT_STYLE_PATHS 不符`).toBeGreaterThan(
+        cursor
+      );
+      cursor = at;
+    }
   });
 
   it("两个挂载点在场：setReaderScriptTab chat 分支 + chat-tab 模块顶兜底", () => {
