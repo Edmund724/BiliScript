@@ -361,3 +361,65 @@ describe("ensureSecondarySubtitleLoaded（装载事务：守卫 + 在飞登记 +
     expect(module.isSecondarySubtitleLoadInFlight()).toBe(false);
   });
 });
+
+// 列模型（六态判定 → 视图）：纯判定不读 state、不碰 DOM，四项事实全部显式传入，
+// 于是六态可以逐格断言，不必搭壳与几何。模型落成 DOM 的接线在
+// tests/reader/bilingual-picker.test.ts。
+describe("resolveSecondaryColumnView（六态：目标 × 偏好 × 槽相位 × 在飞）", () => {
+  const TARGET = { id: "sub-ja", url: "https://sub/ja.json", lang: "日本語" };
+
+  function view(overrides: Partial<Parameters<SecondaryModule["resolveSecondaryColumnView"]>[0]> = {}) {
+    return module.resolveSecondaryColumnView({
+      resolution: { kind: "target", target: TARGET },
+      preferenceLang: "en-US",
+      slotState: "ready",
+      loadInFlight: false,
+      ...overrides
+    });
+  }
+
+  it("① 还没选过（no-preference）⇒ 列首说明「选择副字幕语言」，无页脚/选中/重试", () => {
+    expect(view({ resolution: { kind: "none", reason: "no-preference" } })).toEqual({
+      note: "选择副字幕语言",
+      footerNote: "",
+      selectedUrl: "",
+      retry: false,
+      busy: false
+    });
+  });
+
+  it("② 本视频没有该语言的真轨：命中语言名表用中文名，未命中回落机器码（两侧留空格）", () => {
+    const missing = (preferenceLang: string) =>
+      view({ resolution: { kind: "none", reason: "no-track" }, preferenceLang }).note;
+
+    expect(missing("ai-ja")).toBe("本视频没有日语轨");
+    expect(missing("xx-XX")).toBe("本视频没有 xx-XX 轨");
+  });
+
+  it("③ 主副指向同一条轨 ⇒ 提示进页脚，不占列首说明与列表", () => {
+    const model = view({ resolution: { kind: "none", reason: "main-track" } });
+
+    expect(model.footerNote).toBe("主副字幕相同");
+    expect(model.note).toBe("");
+  });
+
+  it("④ 已选中 ⇒ selectedUrl 取目标轨 URL", () => {
+    expect(view().selectedUrl).toBe(TARGET.url);
+  });
+
+  it("⑤ 槽 error ⇒ 出重试行；槽 loading 或在飞 ⇒ 本列禁用，选中项不撤", () => {
+    expect(view({ slotState: "error" })).toMatchObject({ retry: true, busy: false, selectedUrl: TARGET.url });
+    expect(view({ slotState: "loading" })).toMatchObject({ retry: false, busy: true, selectedUrl: TARGET.url });
+    expect(view({ loadInFlight: true })).toMatchObject({ retry: false, busy: true, selectedUrl: TARGET.url });
+  });
+
+  it("⑥ 装载中不撤语言列表：说明行与空态照旧，可见反馈只在 busy", () => {
+    expect(view({ resolution: { kind: "none", reason: "no-preference" }, slotState: "loading" })).toEqual({
+      note: "选择副字幕语言",
+      footerNote: "",
+      selectedUrl: "",
+      retry: false,
+      busy: true
+    });
+  });
+});

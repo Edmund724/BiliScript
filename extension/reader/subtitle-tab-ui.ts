@@ -65,7 +65,6 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { ensureBilingualSubtitleStyles } from "../shared/style-injector.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
 import {
-  resolveSubtitleLangLabel,
   resolveSubtitleTrackLabel,
   shouldMarkAiSubtitleTracks
 } from "../subtitle/labels.js";
@@ -78,10 +77,12 @@ import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
 import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js";
-// 副轨（双语第二路轨）的目标解析 + 装载事务（唯一落点）：本叶子只做 DOM 投影与在飞禁用。
+// 副轨（双语第二路轨）的目标解析 + 六态列模型 + 装载事务（唯一落点）：本叶子只做
+// DOM 投影与在飞禁用。
 import {
   ensureSecondarySubtitleLoaded,
   isSecondarySubtitleLoadInFlight,
+  resolveSecondaryColumnView,
   resolveSecondaryTarget
 } from "./secondary-subtitle.js";
 import type { SecondaryEnsureOutcome } from "./secondary-subtitle.js";
@@ -444,27 +445,15 @@ const SUBTITLE_BILINGUAL_BADGE_ID = "biliscript-reading-bilingual-badge";
 // 一个常量 id（诊断与用例按 id 取副列值源；骨架重建时新 select 仍用它）。
 const SECONDARY_SUBTITLE_SELECT_ID = "biliscript-reading-secondary-subtitle-select";
 const SECONDARY_SUBTITLE_FIELD_LABEL = "副字幕轨";
-// 副列的两套空态文案（02 号票第 5 条：用户下一步动作不同，不共用一句）。两套都只是
-// 副列**列首的一行说明**，语言列表始终留在列里（2026-10-06 图外回访：说明行顶掉列表
-// 就等于把用户锁死在这一态——点错一条副语言后再也改不回来）。
-// 在飞**不**出说明行（2026-10-06 用户裁决，见 resolveSecondaryColumn）：装载中的
-// 可见反馈由本列 disabled/aria-busy 与列表里副行的占位承担。
-const SECONDARY_EMPTY_PICK_TEXT = "选择副字幕语言";
+// 副列的两套空态文案、页脚提示与语言名拼法随六态判定住在
+// reader/secondary-subtitle.ts 的 resolveSecondaryColumnView（文案与产生点同居）。
+// 本叶子只出这两条自己的 DOM 文案：重试行与单轨提示。
 const SECONDARY_RETRY_TEXT = "加载失败 · 重试";
-// 第三套（主副同轨）**不进副列**：它说的是整列的状态，放页脚紧挨「双语字幕」四个字
-//（2026-10-06 用户裁决：「主副字幕相同的提示放在双语字幕四个字的右边，不要放在副字幕
-// 列表里」）。副列列表理顶因此不再多占一行（那一行同时还是 140px 宽度预算的受害者）。
-const SECONDARY_COLLISION_TEXT = "主副字幕相同";
 const SINGLE_TRACK_HINT_TEXT = "本视频只有一条字幕轨";
-// ② 的语言名走共享叶子 resolveSubtitleLangLabel（2026-10-06 用户裁决：文案里不出现机器码
-// ——偏好存的是轨的 lan，原样拼就是「本视频没有 ai-ja 轨」，读不出是哪门语言，而同一列的
-// 列表显示的是 B站 lanDoc「日本語」）。命中语言名表 ⇒ 中文名，未命中 ⇒ 回落机器码。
-const SECONDARY_MISSING_PREFIX = "本视频没有";
-const SECONDARY_MISSING_SUFFIX = "轨";
 
 // 副列在飞值不再自持：装载事务的登记在 reader/secondary-subtitle.ts（唯一一份），
-// 本叶子只经 isSecondarySubtitleLoadInFlight() 读它——见 resolveSecondaryColumn.busy
-// 与 projectSecondaryLoad。
+// 本叶子只经 isSecondarySubtitleLoadInFlight() 读它——见
+// resolveSecondaryColumnView.busy 与 projectSecondaryLoad。
 
 // 双语偏好的跨上下文订阅只绑一次（见 bindBilingualSettingsWatch）。
 let bilingualSettingsWatchBound = false;
@@ -483,61 +472,8 @@ function isBilingualSwitchDisabled(tracks: SubtitleTrack[]): boolean {
 }
 
 // 目标轨与「为什么没有目标」都由 reader/secondary-subtitle.ts 的 resolveSecondaryTarget
-// 投影（两级匹配 + 排除主轨 + 只考虑真轨，与自动装载/改选/重试同一份实现）——本叶子
-// 只把 reason 翻成文案（见 resolveSecondaryColumn），不再自己匹配一次。
-
-interface SecondaryColumnModel {
-  // 列首一行说明：**只**服务「下一步动作就在这一列里做」的两套空态（① 还没选过 /
-  // ② 本视频没有该语言）。空串 = 不出说明行。说明行**不替代**语言列表（2026-10-06
-  // 图外回访）：用户的下一步动作永远是「换一条语言」，把列表撤掉就是把他锁死在这一态上。
-  note: string;
-  // 页脚状态提示（③ 主副同轨）：说的是**整列**为什么没有可对照的第二条轨，放页脚紧挨
-  // 「双语字幕」（2026-10-06 用户裁决：不要放在副字幕列表里）。空串 = 不显示。
-  footerNote: string;
-  selectedUrl: string;
-  // 失败态：列首那行「加载失败 · 重试」（02 号票 Q6：重试入口唯一在副列）。
-  retry: boolean;
-  // 本列在飞 / 副轨槽 loading ⇒ 本列禁用（只禁本列，主列不受牵连，Q9）。在飞不改写
-  // 语言列表（列表恒在场）——列表换成占位会抽掉本列滚动高度，见下面的裁决注释。
-  busy: boolean;
-}
-
-function resolveSecondaryColumn(): SecondaryColumnModel {
-  const slot = state.clip.secondarySubtitle;
-  const busy = isSecondarySubtitleLoadInFlight() || slot.state === "loading";
-  const model: SecondaryColumnModel = { note: "", footerNote: "", selectedUrl: "", retry: false, busy };
-  // 与装载器/自动装载共用的同一份目标解析（reader/secondary-subtitle.ts）。三套空态各取
-  // 一条 reason——「没命中」与「命中的是主轨」的文案不同（02 号票第 5 条），故分得开。
-  const resolution = resolveSecondaryTarget();
-  if (resolution.kind === "none") {
-    if (resolution.reason === "no-preference") {
-      // ① 还没选过副轨
-      return { ...model, note: SECONDARY_EMPTY_PICK_TEXT };
-    }
-    if (resolution.reason === "no-track") {
-      // ② 本视频没有目标语言的轨（Q4：留空不猜，也不写 noSubtitleReason）。
-      // 语言名查表（见 SECONDARY_MISSING_* 注释）：命中 ⇒ 中文名紧贴前后文；未命中 ⇒ 回落
-      // 机器码，两侧留空格免得与三段汉字黏成一段。
-      const pick = String(state.settings.secondarySubtitleLang || "").trim();
-      const label = resolveSubtitleLangLabel(pick);
-      const name = label === pick ? ` ${label} ` : label;
-      return { ...model, note: `${SECONDARY_MISSING_PREFIX}${name}${SECONDARY_MISSING_SUFFIX}` };
-    }
-    // ③ 主副指向同一条轨（Q8）：副轨槽不装主轨（列表里会出两份一样的正文）。状态提示
-    // 进**页脚**（紧挨「双语字幕」）——它讲的是整列的状态，不占副列列表的位置；语言列表
-    // 照常在列，用户点另一条即可就地改选（2026-10-06 图外回访 + 用户裁决）。
-    return { ...model, footerNote: SECONDARY_COLLISION_TEXT };
-  }
-  const selectedUrl = resolution.target.url;
-  // 在飞不改语言列表（2026-10-06 用户裁决「选完应该滚动条不动」）：把列表换成一行
-  // 「译文加载中…」占位会当场抽掉本列的滚动高度 ⇒ 用户刚滚到列底选的那条语言，下一秒
-  // 整列跳回列表顶部（真机走查 run13 的读数）。在飞的可见反馈由两处承担：本列
-  // disabled + aria-busy（点不动，见 resolveSecondaryColumn.busy），以及列表里 188 行
-  // 副行的「译文加载中…」占位。
-  // 失败态同理：用户要能换一条，而不是被失败锁死；重试行在列首，且只重抓这一条副轨
-  //（forceRefresh = true，02 号票 Q6）。
-  return { ...model, selectedUrl, retry: slot.state === "error" };
-}
+// 投影（两级匹配 + 排除主轨 + 只考虑真轨，与自动装载/改选/重试同一份实现），六态文案由
+// 同模块的 resolveSecondaryColumnView 出模型——本叶子不自己匹配、也不自己判态。
 
 // 卡片骨架（双语弹层的节点身份不变量）。骨架的落位与选项行落点都交给组件的槽位声明
 //（setCustomSelectSlots，2026-10 深化）：组件换整批选项只摘它自己产出的 <li>，骨架
@@ -690,14 +626,20 @@ function buildBilingualCard(mainSelect: HTMLSelectElement, pickerWrapper: HTMLEl
   };
 }
 
-// 投影（每次渲染收口一次，幂等）：主列选项行按槽位落进主列，副列按 resolveSecondaryColumn
-// 出语言列表/占位/重试行，页脚开关按 settings 投影。
+// 投影（每次渲染收口一次，幂等）：主列选项行按槽位落进主列，副列按
+// resolveSecondaryColumnView 出的模型落语言列表/占位/重试行，页脚开关按 settings 投影。
 function projectBilingualPicker(tracks: SubtitleTrack[], dual: boolean): void {
   const nodes = ensureBilingualCard();
   if (!nodes) {
     return;
   }
-  const model = resolveSecondaryColumn();
+  // 六态判定的四项事实在这里现取（判定本身不读 state，见该模块的列模型注释）。
+  const model = resolveSecondaryColumnView({
+    resolution: resolveSecondaryTarget(),
+    preferenceLang: state.settings.secondarySubtitleLang,
+    slotState: state.clip.secondarySubtitle.state,
+    loadInFlight: isSecondarySubtitleLoadInFlight()
+  });
   // 槽位声明（第四条外部入口，2026-10 深化）：卡片根、选项行落点与 trigger 徽标一次
   // 声明给组件——组件换整批选项只摘它自己产出的 <li>，卡片骨架全程留在浮层里（列滚动
   // 位置因此不被销毁），徽标在 trigger 里的落点（值区之后、箭头之前）与它接的

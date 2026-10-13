@@ -22,8 +22,10 @@
 // subtitle/lazy 的链装载器）；subtitle/* 不得反向 import 本模块。
 
 import { state } from "../core/state.js";
+import type { SecondarySubtitleState } from "../core/state.js";
 import { logWarn } from "../shared/logging.js";
 import { ensureSummarizeChain } from "../subtitle/lazy.js";
+import { resolveSubtitleLangLabel } from "../subtitle/labels.js";
 import {
   findSecondaryTrackByPreferredLang,
   findTrackByPreferredLang,
@@ -137,6 +139,93 @@ export function resolveSecondaryTarget(ref?: SecondaryTrackRef): SecondaryTarget
   // 「没命中」要分两态（副列文案不同）：命中的是主轨 ⇒ main-track，本视频根本没有该语言
   // 的真轨 ⇒ no-track。用未排除主轨的基础匹配判据，与副列投影同一份实现。
   return { kind: "none", reason: findTrackByPreferredLang(tracks, pick) ? "main-track" : "no-track" };
+}
+
+// ===== 副列的列模型：六态判定 → 视图 =====
+// 「这一列该长什么样」是（目标解析结论 × 偏好语言 × 槽相位 × 在飞）的纯判定，与 DOM
+// 投影分离：本模块只出模型，reader/subtitle-tab-ui.ts 的叶子把模型落成节点与文案
+//（模板 / 骨架 / 绑定仍归叶子）。四项事实全部显式传入——判定不读 state、不碰 DOM，
+// 六态因此可以逐格断言，不必搭壳与几何。
+
+// 副列的两套空态文案（02 号票第 5 条：用户下一步动作不同，不共用一句）。两套都只是
+// 副列**列首的一行说明**，语言列表始终留在列里（2026-10-06 图外回访：说明行顶掉列表
+// 就等于把用户锁死在这一态——点错一条副语言后再也改不回来）。
+// 在飞**不**出说明行（2026-10-06 用户裁决）：装载中的可见反馈由副列 disabled/aria-busy
+// 与列表里副行的占位承担。
+const SECONDARY_EMPTY_PICK_TEXT = "选择副字幕语言";
+// 第三套（主副同轨）**不进副列**：它说的是整列的状态，放页脚紧挨「双语字幕」四个字
+//（2026-10-06 用户裁决：「主副字幕相同的提示放在双语字幕四个字的右边，不要放在副字幕
+// 列表里」）。副列列表因此不再多占一行（那一行同时还是 140px 宽度预算的受害者）。
+const SECONDARY_COLLISION_TEXT = "主副字幕相同";
+// ② 的语言名走共享叶子 resolveSubtitleLangLabel（2026-10-06 用户裁决：文案里不出现机器码
+// ——偏好存的是轨的 lan，原样拼就是「本视频没有 ai-ja 轨」，读不出是哪门语言，而同一列的
+// 列表显示的是 B站 lanDoc「日本語」）。命中语言名表 ⇒ 中文名，未命中 ⇒ 回落机器码。
+const SECONDARY_MISSING_PREFIX = "本视频没有";
+const SECONDARY_MISSING_SUFFIX = "轨";
+
+export interface SecondaryColumnView {
+  // 列首一行说明：**只**服务「下一步动作就在这一列里做」的两套空态（① 还没选过 /
+  // ② 本视频没有该语言）。空串 = 不出说明行。说明行**不替代**语言列表（2026-10-06
+  // 图外回访）：用户的下一步动作永远是「换一条语言」，把列表撤掉就是把他锁死在这一态上。
+  note: string;
+  // 页脚状态提示（③ 主副同轨）：说的是**整列**为什么没有可对照的第二条轨，放页脚紧挨
+  // 「双语字幕」（2026-10-06 用户裁决：不要放在副字幕列表里）。空串 = 不显示。
+  footerNote: string;
+  selectedUrl: string;
+  // 失败态：列首那行「加载失败 · 重试」（02 号票 Q6：重试入口唯一在副列）。
+  retry: boolean;
+  // 本列在飞 / 副轨槽 loading ⇒ 本列禁用（只禁本列，主列不受牵连，Q9）。在飞不改写
+  // 语言列表（列表恒在场）——列表换成占位会抽掉本列滚动高度，见下方注释。
+  busy: boolean;
+}
+
+export interface SecondaryColumnInput {
+  // resolveSecondaryTarget 的结论（三套空态各取一条 reason）。
+  resolution: SecondaryTargetResolution;
+  // 全局偏好语言（settings.secondarySubtitleLang）：② 的说明行据它查语言名。
+  preferenceLang: string;
+  // 副轨槽的相位（clip.secondarySubtitle.state）：loading 计入本列禁用，error 出重试行。
+  slotState: SecondarySubtitleState;
+  // 装载事务的在飞登记（isSecondarySubtitleLoadInFlight）。
+  loadInFlight: boolean;
+}
+
+export function resolveSecondaryColumnView({
+  resolution,
+  preferenceLang,
+  slotState,
+  loadInFlight
+}: SecondaryColumnInput): SecondaryColumnView {
+  const busy = loadInFlight || slotState === "loading";
+  const view: SecondaryColumnView = { note: "", footerNote: "", selectedUrl: "", retry: false, busy };
+  // 三套空态各取一条 reason——「没命中」与「命中的是主轨」的文案不同（02 号票第 5 条），
+  // 故分得开。
+  if (resolution.kind === "none") {
+    if (resolution.reason === "no-preference") {
+      // ① 还没选过副轨
+      return { ...view, note: SECONDARY_EMPTY_PICK_TEXT };
+    }
+    if (resolution.reason === "no-track") {
+      // ② 本视频没有目标语言的轨（Q4：留空不猜，也不写 noSubtitleReason）。
+      // 语言名查表：命中 ⇒ 中文名紧贴前后文；未命中 ⇒ 回落机器码，两侧留空格免得与
+      // 三段汉字黏成一段。
+      const pick = String(preferenceLang || "").trim();
+      const label = resolveSubtitleLangLabel(pick);
+      const name = label === pick ? ` ${label} ` : label;
+      return { ...view, note: `${SECONDARY_MISSING_PREFIX}${name}${SECONDARY_MISSING_SUFFIX}` };
+    }
+    // ③ 主副指向同一条轨（Q8）：副轨槽不装主轨（列表里会出两份一样的正文）。状态提示
+    // 进**页脚**（紧挨「双语字幕」）——它讲的是整列的状态，不占副列列表的位置；语言列表
+    // 照常在列，用户点另一条即可就地改选（2026-10-06 图外回访 + 用户裁决）。
+    return { ...view, footerNote: SECONDARY_COLLISION_TEXT };
+  }
+  // 在飞不改语言列表（2026-10-06 用户裁决「选完应该滚动条不动」）：把列表换成一行
+  // 「译文加载中…」占位会当场抽掉本列的滚动高度 ⇒ 用户刚滚到列底选的那条语言，下一秒
+  // 整列跳回列表顶部（真机走查 run13 的读数）。在飞的可见反馈由两处承担：本列
+  // disabled + aria-busy（点不动，见 busy），以及列表里副行的「译文加载中…」占位。
+  // 失败态同理：用户要能换一条，而不是被失败锁死；重试行在列首，且只重抓这一条副轨
+  //（forceRefresh = true，02 号票 Q6）。
+  return { ...view, selectedUrl: resolution.target.url, retry: slotState === "error" };
 }
 
 // 在飞登记（本模块持有的唯一一份）：装载事务起步时同步登记、落定时清自己那一枚。弹层的
