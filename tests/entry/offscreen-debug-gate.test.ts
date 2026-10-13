@@ -229,7 +229,7 @@ describe("offscreen 调试日志门：初始读 + 变更广播都走 runtime 消
 
 describe("ASR 任务终态自关：closeDocument 改经 offscreen-request-close 消息", () => {
   function armTerminalEcho() {
-    // 任务执行器立即回终态：触发 maybeCloseSelfAfterAsr（端口已入集、
+    // 任务执行器立即回终态：触发 lifetime.noteAsrTerminal（端口已入集、
     // 无聊天端口 → 应自关）
     createAsrDecodeHandlerMock.mockImplementation(({ onTaskTerminal }) => {
       return async (_task, port) => {

@@ -71,7 +71,7 @@
 
 ## 修订（2026-10-06：代发端口补派发确认，死通道不再静默挂起）
 
-上文「已知限制」针对的是**平台侧完全不发字节**，本轮不动它（仍不设硬超时，出口仍是取消键）。它兜不住的是**端口根本没被 offscreen 接管**：`entry/offscreen.ts` 的 `maybeCloseSelfAfterAsr` 在聊天端口与在飞代发端口都为 0 时自关文档，而概览请求正是由同一个 `subtitle-ready`（`subtitle/commit.ts`）触发的、要再走热评拉取与两次 SW 往返才到 `ensure` + `connect`——撞进这个窗口时，connect 出的端口落到 SW 的保活 `onConnect` 上（`entry/background.ts` 对不认识的端口名只 `return`、不 `disconnect`），于是**既不回吐也不断连**，面板永久停在「正在等待平台响应…（已等待 N 秒）」：看上去还正常，其实挂了，只有取消键能出去（取消后重新生成即好，因为那时文档已确实不存在、ensure 真建了一个新的）。
+上文「已知限制」针对的是**平台侧完全不发字节**，本轮不动它（仍不设硬超时，出口仍是取消键）。它兜不住的是**端口根本没被 offscreen 接管**：`entry/offscreen-lifecycle.ts` 的 `noteAsrTerminal` 在聊天端口与在飞代发端口都为 0 时自关文档，而概览请求正是由同一个 `subtitle-ready`（`subtitle/commit.ts`）触发的、要再走热评拉取与两次 SW 往返才到 `ensure` + `connect`——撞进这个窗口时，connect 出的端口落到 SW 的保活 `onConnect` 上（`entry/background.ts` 对不认识的端口名只 `return`、不 `disconnect`），于是**既不回吐也不断连**，面板永久停在「正在等待平台响应…（已等待 N 秒）」：看上去还正常，其实挂了，只有取消键能出去（取消后重新生成即好，因为那时文档已确实不存在、ensure 真建了一个新的）。
 
 本轮（`core/provider-http-offscreen.ts`，两端同文件；用户报障驱动）：
 

@@ -446,7 +446,7 @@ describe("providerFetchViaOffscreen（content 侧）", () => {
   });
 
   // ---- 派发确认（accepted ack）：把「通道死了」与「平台慢」分开 ----
-  // 症状来源：ASR 终态自关（entry/offscreen.ts 的 maybeCloseSelfAfterAsr）与同一个
+  // 症状来源：ASR 终态自关（entry/offscreen-lifecycle.ts 的 noteAsrTerminal）与同一个
   // subtitle-ready 触发的概览请求撞车时，connect 出的端口可能没被 offscreen 文档
   // 接管，而被 SW 的保活 onConnect 收下（entry/background.ts 对不认识的端口名只
   // return，不 disconnect）：既不回吐也不断连。没有确认机制时面板会永久停在

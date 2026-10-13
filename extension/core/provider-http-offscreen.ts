@@ -32,8 +32,8 @@
 //（reader/overview.ts），首字节前的等待计时只提示、不中断。
 //
 // 派发确认（ADR-0010「不设超时」的射程外）：不设超时针对的是**平台慢**，不能用来
-// 兜**通道根本没被接管**——ASR 终态自关（entry/offscreen.ts 的 maybeCloseSelfAfterAsr
-// 在聊天端口与在飞代发端口都为 0 时关文档）与同一个 subtitle-ready 触发的概览请求
+// 兜**通道根本没被接管**——ASR 终态自关（entry/offscreen-lifecycle.ts 的
+// noteAsrTerminal 在聊天端口与在飞代发端口都为 0、无其他解码端口时关文档）与同一个 subtitle-ready 触发的概览请求
 // 撞车时，connect 出的端口可能落到 SW 的保活 onConnect 上（entry/background.ts 对
 // 不认识的端口名只 return、不 disconnect），于是既不回吐也不断连：面板永久停在
 // 「正在等待平台响应…（已等待 N 秒）」，取消成了唯一出口。故 offscreen 收到请求
