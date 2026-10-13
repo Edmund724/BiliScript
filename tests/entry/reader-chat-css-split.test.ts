@@ -1,6 +1,6 @@
 // 对话分区 CSS 拆分守卫（arch-slim-4/07，照 reader-settings-css-split 模式）：
 // reader.css 不得再含对话分区 .chat-* 规则，reader-chat.css 必须持有分区标记；
-// style-injector 三件套与两个挂载点（setReaderScriptTab chat 分支同步挂载 +
+// style-injector 的对话表挂载原语与两个挂载点（setReaderScriptTab chat 分支同步挂载 +
 // chat-tab 模块顶兜底）在场。防倒退：对话样式一旦回流主表，按需装载的 chunk
 // 边就静默失效（主表常驻、分区表空挂）。
 
@@ -52,11 +52,9 @@ describe("对话分区 CSS 拆分（arch-slim-4/07）", () => {
     expect(text).toMatch(/\.biliscript-reading-chat \.chat-messages::-webkit-scrollbar/);
   });
 
-  it("style-injector 暴露对话表三件套（无 onload 门控）", () => {
+  it("style-injector 暴露对话表挂载原语与三份路径（无 onload 门控）", () => {
     const injector = read(INJECTOR);
     expect(injector).toMatch(/export function ensureReaderChatStyles/);
-    expect(injector).toMatch(/export function removeReaderChatStyles/);
-    expect(injector).toMatch(/export function isReaderChatStylesMounted/);
     expect(injector).toMatch(/entry\/styles\/reader-chat\.css/);
   });
 

@@ -17,11 +17,24 @@ import { resetModuleState } from "../setup.js";
 
 type StyleInjector = typeof import("../../extension/shared/style-injector.js");
 
+const READER_PATHS = ["entry/styles/reader.css", "entry/styles/reader-gate.css"];
+const PLAYER_AI_PATH = "entry/styles/player-ai.css";
+const READER_CHAT_PATHS = [
+  "entry/styles/github-markdown.css",
+  "entry/styles/github-markdown-theme.css",
+  "entry/styles/reader-chat.css"
+];
+
 let resident: StyleInjector;
 let lazy: StyleInjector;
 
 function injectedLinks(): HTMLLinkElement[] {
   return Array.from(document.querySelectorAll<HTMLLinkElement>("link[data-biliscript-style]"));
+}
+
+// 挂载态即 DOM（跨实例共享的记录落在同一个 document 上），逐路径断言。
+function hasStyleLink(path: string): boolean {
+  return document.head.querySelector(`link[href$="${path}"]`) !== null;
 }
 
 beforeEach(async () => {
@@ -38,12 +51,14 @@ describe("style-injector 挂载记录跨实例共享", () => {
     expect(lazy).not.toBe(resident);
   });
 
-  it("一侧挂载、另一侧认账，且不重复注入同路径 <link>", () => {
+  it("一侧挂载、另一侧认账（DOM 里只有一份同路径 <link>）", () => {
     resident.ensureReaderStyles();
     const afterFirstMount = injectedLinks().length;
     expect(afterFirstMount).toBe(2); // reader.css + reader-gate.css
+    for (const path of READER_PATHS) {
+      expect(hasStyleLink(path), `${path} 未挂上`).toBe(true); // 跨实例共享的记录在 DOM 上可见
+    }
 
-    expect(lazy.isReaderStylesMounted()).toBe(true); // 修复前为 false
     lazy.ensureReaderStyles();
 
     expect(injectedLinks().length).toBe(afterFirstMount); // 不再多挂一份
@@ -51,23 +66,31 @@ describe("style-injector 挂载记录跨实例共享", () => {
 
   it("一侧移除、另一侧认账（退出阅读模式不再残留）", () => {
     lazy.ensureReaderStyles();
-    expect(resident.isReaderStylesMounted()).toBe(true);
+    for (const path of READER_PATHS) {
+      expect(hasStyleLink(path), `${path} 未挂上`).toBe(true);
+    }
 
     resident.removeReaderStyles();
 
-    expect(lazy.isReaderStylesMounted()).toBe(false);
+    for (const path of READER_PATHS) {
+      expect(hasStyleLink(path), `${path} 仍挂在 DOM`).toBe(false);
+    }
     expect(injectedLinks().length).toBe(0);
   });
 
-  it("player-ai / 对话分区表同表：跨实例挂载记录一致", () => {
+  it("player-ai / 对话分区表：跨实例挂载记录一致", () => {
     resident.ensurePlayerAiStyles();
-    expect(lazy.isPlayerAiStylesMounted()).toBe(true);
+    lazy.ensurePlayerAiStyles(); // 两侧都 ensure，仍只有一份
+    expect(hasStyleLink(PLAYER_AI_PATH)).toBe(true);
+    expect(injectedLinks().length).toBe(1);
 
     lazy.ensureReaderChatStyles();
-    expect(resident.isReaderChatStylesMounted()).toBe(true);
-
-    lazy.removeReaderChatStyles();
-    expect(resident.isReaderChatStylesMounted()).toBe(false);
+    resident.ensureReaderChatStyles(); // 两侧都求值，仍只有一份
+    // 逐条断言三张表都在（不合并成单个布尔）
+    for (const path of READER_CHAT_PATHS) {
+      expect(hasStyleLink(path), `${path} 未挂上`).toBe(true);
+    }
+    expect(injectedLinks().length).toBe(4); // player-ai + 对话三件套
   });
 
   it("设置表 ready promise 跨实例同一份（whenReaderSettingsStylesReady 等的是同一个）", () => {
