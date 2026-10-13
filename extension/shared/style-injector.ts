@@ -19,6 +19,11 @@
 // 从 Map 删除。移除不是「卸载语义」——数据留在浏览器样式缓存，重挂几乎零
 // 成本（这正是「关→开」二进宫无闪变的关键：样式数据已在内存，重挂即生效）。
 //
+// 挂载态即 DOM：不导出只读探针，某张表挂没挂就是
+// link[data-biliscript-style="1"]（href 尾段 = entry/styles/<name>.css）在不在
+// document 里，消费方与测试同口径。导出面共 9 个原语（6 个 ensure + 2 个
+// remove + whenReaderSettingsStylesReady），只保留生产消费者用到的那些。
+//
 // 挂载记录与设置表的 ready promise 挂 globalThis 而非模块级变量：两轮构建
 //（scripts/build-content.js）把常驻底座在轮 B 懒 chunk 区重复一份，本模块在
 // content-main 与 chunks/ 共享 chunk 里各是一个实例——挂载点本就分居两侧
@@ -49,20 +54,12 @@ function getReaderStylePaths(): string[] {
   return ["entry/styles/reader.css", "entry/styles/reader-gate.css"];
 }
 
-export function isReaderStylesMounted(): boolean {
-  return getReaderStylePaths().every((path) => styleSlots().mounted.has(path));
-}
-
 export function ensureReaderStyles(): void {
   getReaderStylePaths().forEach((path) => mountStyleLink(path));
 }
 
 export function removeReaderStyles(): void {
   getReaderStylePaths().forEach((path) => unmountStyleLink(path));
-}
-
-export function isPlayerAiStylesMounted(): boolean {
-  return styleSlots().mounted.has("entry/styles/player-ai.css");
 }
 
 export function ensurePlayerAiStyles(): void {
@@ -170,14 +167,6 @@ const READER_CHAT_STYLE_PATHS = [
 
 export function ensureReaderChatStyles(): void {
   READER_CHAT_STYLE_PATHS.forEach((path) => mountStyleLink(path));
-}
-
-export function removeReaderChatStyles(): void {
-  READER_CHAT_STYLE_PATHS.forEach((path) => unmountStyleLink(path));
-}
-
-export function isReaderChatStylesMounted(): boolean {
-  return styleSlots().mounted.has("entry/styles/reader-chat.css");
 }
 
 function mountStyleLink(path: string): HTMLLinkElement {

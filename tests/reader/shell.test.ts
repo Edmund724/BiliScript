@@ -60,11 +60,7 @@ import {
 } from "../../extension/reader/shell.js";
 import { state } from "../../extension/core/state.js";
 import { playerAiState } from "../../extension/ai/player-ai-state.js";
-import {
-  isReaderStylesMounted,
-  ensureReaderStyles,
-  removeReaderStyles
-} from "../../extension/shared/style-injector.js";
+import { ensureReaderStyles, removeReaderStyles } from "../../extension/shared/style-injector.js";
 
 const {
   ensureUiReady,
@@ -128,6 +124,21 @@ function mountShell({
   }
 }
 
+// 阅读表挂载态即 DOM：两枚 link（reader.css + reader-gate.css）各自查询，
+// 不合并成单个布尔——缺失时能报出是哪张表没挂上。
+const READER_STYLE_PATHS = ["entry/styles/reader.css", "entry/styles/reader-gate.css"];
+
+function expectReaderStylesMounted(mounted: boolean): void {
+  for (const path of READER_STYLE_PATHS) {
+    const link = document.head.querySelector(`link[href$="${path}"]`);
+    if (mounted) {
+      expect(link, `${path} 未挂上`).not.toBeNull();
+    } else {
+      expect(link, `${path} 仍挂在 DOM`).toBeNull();
+    }
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   setLocationUrl(NORMAL_PAGE_URL);
@@ -167,7 +178,7 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     // 进入链：改写 + 挂表 + 翻属性 + 进入，且 ensureUiReady 先于改写
     expect(ensureUiReady).toHaveBeenCalledTimes(1);
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(READER_MODE_URL);
-    expect(isReaderStylesMounted()).toBe(true);
+    expectReaderStylesMounted(true);
     expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(document.body.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
@@ -197,7 +208,7 @@ describe("enterReaderShell：open 档（按钮/编排触发的进入事务）", 
     await enterReaderShell({ readerUrl: "", intent: "open" });
 
     expect(replaceReaderModeUrl).not.toHaveBeenCalled();
-    expect(isReaderStylesMounted()).toBe(false);
+    expectReaderStylesMounted(false);
     expect(reader.enterReaderMode).not.toHaveBeenCalled();
   });
 
@@ -325,7 +336,7 @@ describe("enterReaderShellOnUrlNavigation：URL 跳转编排入口", () => {
 
     expect(announce).toHaveBeenCalledTimes(1);
     expect(replaceReaderModeUrl).toHaveBeenCalledWith(READER_MODE_URL);
-    expect(isReaderStylesMounted()).toBe(true);
+    expectReaderStylesMounted(true);
     expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe("1");
     expect(reader.enterReaderMode).toHaveBeenCalledTimes(1);
     // 播报必须先落地：否则会反向覆盖 enterReaderMode 的「已就绪」文案
@@ -377,13 +388,13 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
     ensureReaderDomain.mockResolvedValue(reader);
     // 预挂阅读表：验证退出后摘除
     ensureReaderStyles();
-    expect(isReaderStylesMounted()).toBe(true);
+    expectReaderStylesMounted(true);
 
     await exitReaderShell();
 
     expect(replaceReaderModeUrl).toHaveBeenCalledWith("https://www.bilibili.com/video/BV1test000000/");
     expect(reader.closeReadingView).toHaveBeenCalledTimes(1);
-    expect(isReaderStylesMounted()).toBe(false);
+    expectReaderStylesMounted(false);
     // URL 收敛先于关闭（与原处理器「先收敛地址栏」的时序一致）
     const replaceOrder = replaceReaderModeUrl.mock.invocationCallOrder[0];
     expect(replaceOrder).toBeLessThan(reader.closeReadingView.mock.invocationCallOrder[0]);
