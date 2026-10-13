@@ -144,9 +144,10 @@ export function buildChatTabBodyHtml(): string {
                   <path d="M12 19V5"></path>
                   <path d="m5 12 7-7 7 7"></path>
                 </svg>
+                <!-- 停止键：实心圆底 + 一个白色圆角方块（无内环）。方块按 32px 圆键
+                     直径的 ~35% 取（viewBox 17/24），圆角 rx=4，与设计稿同比例。 -->
                 <svg class="chat-stop-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9.5"></circle>
-                  <rect class="chat-stop-icon-core" x="8.5" y="8.5" width="7" height="7" rx="1.5"></rect>
+                  <rect class="chat-stop-icon-core" x="3.5" y="3.5" width="17" height="17" rx="4"></rect>
                 </svg>
               </button>
             </div>
