@@ -331,6 +331,10 @@ export async function enterReaderMode() {
   // 免重付费。字幕未就绪时为诚实空态，subtitle-ready 通知到达后再触发；切到
   // 概览 tab 也有兜底触发。生成中重复触发被状态机与管线 promise 复用去重）。
   triggerReaderOverviewGeneration();
+  // 同理：打开阅读模式即预热本视频的初始问题（字幕已就绪的直接起跑；未就绪时
+  // subtitle-ready 到达后再触发；重复触发由缓存与在飞 promise 去重）。字幕在面板
+  // 打开前就已落定（页面预抓取，不再有 subtitle-ready）时，这是唯一的起跑点。
+  warmUpReaderQuickPrompts();
 }
 
 function openReaderViewShell(readingView = getReaderElement(ids.readingView)) {

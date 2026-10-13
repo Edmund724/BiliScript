@@ -4,8 +4,9 @@
 // 取用（reader/chat-lists.ts）。这是「每个视频即时生成」的落实处：问题来自本视频
 // 内容，不再是预设文案。
 //
-// 触发：reader/lifecycle.ts 的 subtitle-ready 通知与抓取落定对账（两处
-// fire-and-forget）。幂等三重：缓存命中直接返回、同视频在飞复用同一 promise、
+// 触发：reader/lifecycle.ts 的三处 fire-and-forget——打开阅读模式
+//（enterReaderMode，字幕已在手时的唯一起跑点）、subtitle-ready 通知、抓取落定
+// 对账。幂等三重：缓存命中直接返回、同视频在飞复用同一 promise、
 // 用户配了自定义问题连请求都不发。
 //
 // 失败一律静默（不写缓存也不抛错）：缺平台、读设置失败、网络失败、输出解析不出
