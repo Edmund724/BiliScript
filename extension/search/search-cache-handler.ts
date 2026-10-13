@@ -5,11 +5,11 @@
 // 来源守卫：本族**不得**进来源名单（协议层 OFFSCREEN_ONLY_MESSAGE_TYPES，注册表
 // 逐条 sender 标签派生）——本族发送者含 content（reader/explain-card.ts 与
 // offscreen 工具循环共用 search/search-runtime.ts）。
-// handler 工厂形态照 ai/segment-cache-handler.ts 先例（core/provider-handlers.ts
-// 的 withOkResponse 收口异步错误回包）：handler 本体住域 module，组合根只登记与
-// 注入实例。
+// 本模块只有本族的声明（type / op 表 / 未知 op 文案）与两个 op 分支体；handler 壳
+// 与 withOkResponse 信封单源在 core/storage-message-family.ts 的存储消息族工厂，
+// 组合根只登记工厂实例。
 
-import { withOkResponse } from "../core/provider-handlers.js";
+import { defineStorageMessageFamily } from "../core/storage-message-family.js";
 import { getSearchCacheEntry, putSearchCacheEntry } from "./search-cache.js";
 import type { SearchCacheMessage, SearchCacheResponse } from "../shared/messaging-protocol.js";
 
@@ -20,30 +20,23 @@ export function createSearchCacheHandler(): (
   sender: unknown,
   sendResponse: (response: SearchCacheResponse) => void
 ) => void {
-  return function handleSearchCache(
-    message: SearchCacheMessage,
-    _sender: unknown,
-    sendResponse: (response: SearchCacheResponse) => void
-  ): void {
-    withOkResponse(
-      (async () => {
-        if (message.op === "get") {
-          const entry = await getSearchCacheEntry(message.query);
-          return entry
-            ? { ok: true, hit: true, entry: { results: entry.results, platform: entry.platform } }
-            : { ok: true, hit: false };
-        }
-        if (message.op === "put") {
-          await putSearchCacheEntry(message.query, {
-            results: Array.isArray(message.results) ? message.results : [],
-            platform: String(message.platform ?? "")
-          });
-          return { ok: true };
-        }
-        throw new Error("不支持的搜索缓存操作：" + String((message as { op?: unknown }).op));
-      })(),
-      sendResponse,
-      (error) => (error as Error | undefined)?.message || String(error)
-    );
-  };
+  return defineStorageMessageFamily<SearchCacheMessage, SearchCacheResponse>({
+    type: "search-cache",
+    unknownOpText: "不支持的搜索缓存操作：",
+    ops: {
+      get: async (message) => {
+        const entry = await getSearchCacheEntry(message.query);
+        return entry
+          ? { ok: true, hit: true, entry: { results: entry.results, platform: entry.platform } }
+          : { ok: true, hit: false };
+      },
+      put: async (message) => {
+        await putSearchCacheEntry(message.query, {
+          results: Array.isArray(message.results) ? message.results : [],
+          platform: String(message.platform ?? "")
+        });
+        return { ok: true };
+      }
+    }
+  });
 }

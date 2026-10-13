@@ -6,10 +6,12 @@
 // 来源守卫：本族**不得**进来源名单（协议层 OFFSCREEN_ONLY_MESSAGE_TYPES，注册表
 // 逐条 sender 标签派生）——本族发送者含 content（reader/explain-card.ts 与
 // offscreen 工具循环共用 search-chain.ts 的缺省记账）。
-// handler 工厂形态照 ai/segment-cache-handler.ts 先例（withOkResponse 收口异步错误回包）。
+// 本模块只有本族的声明（type / op 表 / 未知 op 文案）与唯一 op 分支体；handler 壳与
+// withOkResponse 信封单源在 core/storage-message-family.ts 的存储消息族工厂，
+// 组合根只登记工厂实例。
 
 import { invalidatingWrite } from "../core/settings-snapshot.js";
-import { withOkResponse } from "../core/provider-handlers.js";
+import { defineStorageMessageFamily } from "../core/storage-message-family.js";
 import { SEARCH_HEALTH_KEY, recordSearchAttempt } from "./search-health.js";
 import type { SearchHealthMessage, SearchHealthResponse } from "../shared/messaging-protocol.js";
 
@@ -23,21 +25,14 @@ export function createSearchHealthHandler(): (
   // 引擎健康度记账叶：单键快照位，落盘后立即失效（紧随其后的 resolve 消费新冷却图）。
   const recordSearchAttemptWithInvalidate = invalidatingWrite(recordSearchAttempt, [SEARCH_HEALTH_KEY]);
 
-  return function handleSearchHealth(
-    message: SearchHealthMessage,
-    _sender: unknown,
-    sendResponse: (response: SearchHealthResponse) => void
-  ): void {
-    withOkResponse(
-      (async () => {
-        if (message.op !== "record") {
-          throw new Error("不支持的搜索健康度操作：" + String((message as { op?: unknown }).op));
-        }
+  return defineStorageMessageFamily<SearchHealthMessage, SearchHealthResponse>({
+    type: "search-health",
+    unknownOpText: "不支持的搜索健康度操作：",
+    ops: {
+      record: async (message) => {
         await recordSearchAttemptWithInvalidate(message.presetId, message.ok, message.latencyMs);
         return { ok: true };
-      })(),
-      sendResponse,
-      (error) => (error as Error | undefined)?.message || String(error)
-    );
-  };
+      }
+    }
+  });
 }
