@@ -8,27 +8,62 @@
 // 取自宿主容器，provider-family / validators 的行级选择器直接复用；分节顺序即
 // 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 →
 // AI 对话 → 导出 → 保存行）。
+// id 单一声明在下方 SETTINGS_PANEL_DOM_IDS：本文件的模板属性与 settings-panel.ts
+// collectElements 的查询 id 都从该表取值，改名单处生效。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
 // chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。
 
+// 设置抽屉的 DOM id 词汇表：模板属性与收集器查询的共同声明。key = settings-panel.ts
+// collectElements 元素袋的字段名（saveBtn / resetBtn / status 的 id 带
+// biliscriptSettings 前缀，字段名不带）；value = 渲染进模板的 id。
+export const SETTINGS_PANEL_DOM_IDS = {
+  aiProvidersList: "aiProvidersList",
+  aiProvidersEmpty: "aiProvidersEmpty",
+  addAiProviderBtn: "addAiProviderBtn",
+  asrProvidersList: "asrProvidersList",
+  asrProvidersEmpty: "asrProvidersEmpty",
+  addAsrProviderBtn: "addAsrProviderBtn",
+  asrAutoFallback: "asrAutoFallback",
+  searchProvidersDanglingHint: "searchProvidersDanglingHint",
+  searchProvidersList: "searchProvidersList",
+  searchProvidersEmpty: "searchProvidersEmpty",
+  addSearchProviderBtn: "addSearchProviderBtn",
+  resetSearchProviderOrderBtn: "resetSearchProviderOrderBtn",
+  webSearchMaxToolCalls: "webSearchMaxToolCalls",
+  enablePlayerAiQuickAction: "enablePlayerAiQuickAction",
+  playerAiQuickPrompt: "playerAiQuickPrompt",
+  aiSystemPrompt: "aiSystemPrompt",
+  downloadFormat: "downloadFormat",
+  includeDateInFilename: "includeDateInFilename",
+  includeTimestampInBody: "includeTimestampInBody",
+  enableDebugLogs: "enableDebugLogs",
+  status: "biliscriptSettingsStatus",
+  resetBtn: "biliscriptSettingsResetBtn",
+  saveBtn: "biliscriptSettingsSaveBtn"
+} as const;
+
+/** 词表值域：settings-panel.ts 的 byIdIn 只接受本表声明的 id。 */
+export type SettingsPanelDomId = (typeof SETTINGS_PANEL_DOM_IDS)[keyof typeof SETTINGS_PANEL_DOM_IDS];
+
 export function buildSettingsHtml(): string {
+  const ids = SETTINGS_PANEL_DOM_IDS;
   return `
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">AI 模型平台</div>
       <p class="biliscript-set-hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / Qwen / GLM / Kimi / MiniMax / Ollama 等）。在下方点击 + 添加平台，填写名称、API Base URL、API Key 与模型名称，点「测试」可验证连通性，点「保存」后才会写入设置。</p>
-      <div id="aiProvidersList" class="ai-providers-list"></div>
-      <p id="aiProvidersEmpty" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
-      <button id="addAiProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
+      <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
+      <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
+      <button id="${ids.addAiProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
     </section>
 
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">语音转写平台</div>
       <p class="biliscript-set-hint">无字幕轨视频可通过语音识别自动生成字幕。当前选用平台将用于转写。</p>
-      <div id="asrProvidersList" class="ai-providers-list"></div>
-      <p id="asrProvidersEmpty" class="ai-providers-empty">还没有配置语音转写平台。点击下方添加按钮从预设创建，无字幕视频将无法自动生成字幕。</p>
-      <button id="addAsrProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
+      <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
+      <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">还没有配置语音转写平台。点击下方添加按钮从预设创建，无字幕视频将无法自动生成字幕。</p>
+      <button id="${ids.addAsrProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       <label class="biliscript-set-check asr-fallback-checkbox">
-        <input id="asrAutoFallback" type="checkbox" />
+        <input id="${ids.asrAutoFallback}" type="checkbox" />
         无字幕时自动生成字幕
       </label>
     </section>
@@ -36,25 +71,25 @@ export function buildSettingsHtml(): string {
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">搜索平台</div>
       <p class="biliscript-set-hint">AI 对话与选区解释可联网搜索视频内容之外的信息（function calling，由模型决定何时搜）。联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止该家接收查询。</p>
-      <p id="searchProvidersDanglingHint" class="biliscript-set-hint" hidden>原选用平台已不可用，当前按默认链搜索</p>
-      <div id="searchProvidersList" class="ai-providers-list"></div>
-      <p id="searchProvidersEmpty" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa）——四条免 Key 预设装上即可用。</p>
-      <button id="addSearchProviderBtn" class="add-property-btn" type="button">+ 添加平台</button>
-      <button id="resetSearchProviderOrderBtn" class="add-property-btn" type="button">恢复默认顺序</button>
+      <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用平台已不可用，当前按默认链搜索</p>
+      <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
+      <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa）——四条免 Key 预设装上即可用。</p>
+      <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
+      <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
       <div class="biliscript-set-row">
-        <label class="biliscript-set-label" for="webSearchMaxToolCalls">单轮搜索次数上限</label>
-        <input id="webSearchMaxToolCalls" class="biliscript-set-input" type="number" min="1" max="10" step="1" />
+        <label class="biliscript-set-label" for="${ids.webSearchMaxToolCalls}">单轮搜索次数上限</label>
+        <input id="${ids.webSearchMaxToolCalls}" class="biliscript-set-input" type="number" min="1" max="10" step="1" />
       </div>
     </section>
 
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">AI 按钮</div>
       <label class="biliscript-set-check">
-        <input id="enablePlayerAiQuickAction" type="checkbox" />
+        <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" />
         在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空
       </label>
       <textarea
-        id="playerAiQuickPrompt"
+        id="${ids.playerAiQuickPrompt}"
         class="biliscript-set-textarea"
         placeholder="例如：整理这期视频的内容，输出结构化总结。"
       ></textarea>
@@ -62,7 +97,7 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">AI 对话 - 系统提示词</div>
-      <textarea id="aiSystemPrompt" class="biliscript-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
+      <textarea id="${ids.aiSystemPrompt}" class="biliscript-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
     </section>
 
     <section class="biliscript-set-group">
@@ -78,30 +113,30 @@ export function buildSettingsHtml(): string {
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">导出</div>
       <div class="biliscript-set-row">
-        <label class="biliscript-set-label" for="downloadFormat">下载格式</label>
-        <select id="downloadFormat" class="biliscript-set-select">
+        <label class="biliscript-set-label" for="${ids.downloadFormat}">下载格式</label>
+        <select id="${ids.downloadFormat}" class="biliscript-set-select">
           <option value="srt">SRT</option>
           <option value="txt">TXT</option>
         </select>
       </div>
       <label class="biliscript-set-check">
-        <input id="includeDateInFilename" type="checkbox" />
+        <input id="${ids.includeDateInFilename}" type="checkbox" />
         文件名前包含导出日期
       </label>
       <label class="biliscript-set-check">
-        <input id="includeTimestampInBody" type="checkbox" />
+        <input id="${ids.includeTimestampInBody}" type="checkbox" />
         在字幕正文中保留时间戳
       </label>
       <label class="biliscript-set-check">
-        <input id="enableDebugLogs" type="checkbox" />
+        <input id="${ids.enableDebugLogs}" type="checkbox" />
         启用调试日志（仅在排查问题时开启）
       </label>
     </section>
 
     <div class="biliscript-set-actions">
-      <p id="biliscriptSettingsStatus" class="biliscript-set-status"></p>
-      <button id="biliscriptSettingsResetBtn" type="button" class="add-property-btn">恢复默认偏好</button>
-      <button id="biliscriptSettingsSaveBtn" type="button" class="biliscript-set-save-btn">保存设置</button>
+      <p id="${ids.status}" class="biliscript-set-status"></p>
+      <button id="${ids.resetBtn}" type="button" class="add-property-btn">恢复默认偏好</button>
+      <button id="${ids.saveBtn}" type="button" class="biliscript-set-save-btn">保存设置</button>
     </div>
   `;
 }

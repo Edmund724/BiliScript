@@ -40,8 +40,8 @@ import { sendRuntimeMessage } from "../shared/messaging.js";
 // 回落默认值，与原先无超时版本的可见行为一致（无网络往返挂死）。
 import { getSettings } from "../core/runtime.js";
 // 抽屉 HTML 模板（2026-09 拆分）：纯字符串零逻辑，见 settings-panel-html.ts
-// 头注（id 契约、分节顺序）。
-import { buildSettingsHtml } from "./settings-panel-html.js";
+// 头注（分节顺序）与 SETTINGS_PANEL_DOM_IDS（id 词汇表）。
+import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from "./custom-select.js";
@@ -119,35 +119,38 @@ function applySectionContainment(host: HTMLElement): void {
 
 // ===== 元素收集（模板渲染后按 id 取自宿主容器，id 与原 options 页保持一致，
 // provider-family / validators 的行级选择器直接复用） =====
+// 查询 id 全部取自 settings-panel-html.ts 的 SETTINGS_PANEL_DOM_IDS（id 词汇表
+// 单一声明，模板属性同源）；byIdIn 入参类型即该表值域，本处写不出表外 id。
 
 function collectElements(host: HTMLElement) {
-  const byIdIn = <T extends HTMLElement>(id: string): T =>
+  const dom = SETTINGS_PANEL_DOM_IDS;
+  const byIdIn = <T extends HTMLElement>(id: SettingsPanelDomId): T =>
     host.querySelector(`#${id}`) as T;
   return {
-    downloadFormat: byIdIn<HTMLSelectElement>("downloadFormat"),
-    includeDateInFilename: byIdIn<HTMLInputElement>("includeDateInFilename"),
-    enablePlayerAiQuickAction: byIdIn<HTMLInputElement>("enablePlayerAiQuickAction"),
-    playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>("playerAiQuickPrompt"),
-    includeTimestampInBody: byIdIn<HTMLInputElement>("includeTimestampInBody"),
-    enableDebugLogs: byIdIn<HTMLInputElement>("enableDebugLogs"),
-    aiProvidersList: byIdIn<HTMLElement>("aiProvidersList"),
-    aiProvidersEmpty: byIdIn<HTMLElement>("aiProvidersEmpty"),
-    addAiProviderBtn: byIdIn<HTMLButtonElement>("addAiProviderBtn"),
-    asrProvidersList: byIdIn<HTMLElement>("asrProvidersList"),
-    asrProvidersEmpty: byIdIn<HTMLElement>("asrProvidersEmpty"),
-    addAsrProviderBtn: byIdIn<HTMLButtonElement>("addAsrProviderBtn"),
-    asrAutoFallback: byIdIn<HTMLInputElement>("asrAutoFallback"),
-    searchProvidersList: byIdIn<HTMLElement>("searchProvidersList"),
-    searchProvidersEmpty: byIdIn<HTMLElement>("searchProvidersEmpty"),
-    searchProvidersDanglingHint: byIdIn<HTMLElement>("searchProvidersDanglingHint"),
-    addSearchProviderBtn: byIdIn<HTMLButtonElement>("addSearchProviderBtn"),
-    resetSearchProviderOrderBtn: byIdIn<HTMLButtonElement>("resetSearchProviderOrderBtn"),
-    webSearchMaxToolCalls: byIdIn<HTMLInputElement>("webSearchMaxToolCalls"),
-    aiSystemPrompt: byIdIn<HTMLTextAreaElement>("aiSystemPrompt"),
+    downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
+    includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
+    enablePlayerAiQuickAction: byIdIn<HTMLInputElement>(dom.enablePlayerAiQuickAction),
+    playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
+    includeTimestampInBody: byIdIn<HTMLInputElement>(dom.includeTimestampInBody),
+    enableDebugLogs: byIdIn<HTMLInputElement>(dom.enableDebugLogs),
+    aiProvidersList: byIdIn<HTMLElement>(dom.aiProvidersList),
+    aiProvidersEmpty: byIdIn<HTMLElement>(dom.aiProvidersEmpty),
+    addAiProviderBtn: byIdIn<HTMLButtonElement>(dom.addAiProviderBtn),
+    asrProvidersList: byIdIn<HTMLElement>(dom.asrProvidersList),
+    asrProvidersEmpty: byIdIn<HTMLElement>(dom.asrProvidersEmpty),
+    addAsrProviderBtn: byIdIn<HTMLButtonElement>(dom.addAsrProviderBtn),
+    asrAutoFallback: byIdIn<HTMLInputElement>(dom.asrAutoFallback),
+    searchProvidersList: byIdIn<HTMLElement>(dom.searchProvidersList),
+    searchProvidersEmpty: byIdIn<HTMLElement>(dom.searchProvidersEmpty),
+    searchProvidersDanglingHint: byIdIn<HTMLElement>(dom.searchProvidersDanglingHint),
+    addSearchProviderBtn: byIdIn<HTMLButtonElement>(dom.addSearchProviderBtn),
+    resetSearchProviderOrderBtn: byIdIn<HTMLButtonElement>(dom.resetSearchProviderOrderBtn),
+    webSearchMaxToolCalls: byIdIn<HTMLInputElement>(dom.webSearchMaxToolCalls),
+    aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
-    saveBtn: byIdIn<HTMLButtonElement>("biliscriptSettingsSaveBtn"),
-    resetBtn: byIdIn<HTMLButtonElement>("biliscriptSettingsResetBtn"),
-    status: byIdIn<HTMLElement>("biliscriptSettingsStatus")
+    saveBtn: byIdIn<HTMLButtonElement>(dom.saveBtn),
+    resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
+    status: byIdIn<HTMLElement>(dom.status)
   };
 }
 
