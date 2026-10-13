@@ -469,6 +469,29 @@ describe("webSearchEnabled 联网开关（spec §2.1/§4）", () => {
     expect(pill.classList.contains("is-active")).toBe(false);
   });
 
+  it("方向动画：水合首帧不转，开启 is-spinning-left、关闭 is-spinning-right", async () => {
+    sendRuntimeMessageMock.mockImplementation(async (msg) => {
+      if (msg.type === "get-settings") {
+        return { ok: true, settings: { webSearchEnabled: true } };
+      }
+      return { ok: true, providers: [] };
+    });
+    const { providerPrefs, pill } = makePillHarness();
+
+    await providerPrefs.loadProvidersAndPrefs();
+
+    // 首帧只水合开态，不播转场动画（否则每次打开面板都白转一圈）
+    expect(pill.classList.contains("is-spinning-left")).toBe(false);
+    expect(pill.classList.contains("is-spinning-right")).toBe(false);
+
+    await providerPrefs.setWebSearchEnabled(false);
+    expect(pill.classList.contains("is-spinning-right")).toBe(true);
+
+    await providerPrefs.setWebSearchEnabled(true);
+    expect(pill.classList.contains("is-spinning-left")).toBe(true);
+    expect(pill.classList.contains("is-spinning-right")).toBe(false);
+  });
+
   it("setWebSearchEnabled：写 chatSessionState + 渲染 + save-settings 单键持久化", async () => {
     const { providerPrefs, pill } = makePillHarness();
 

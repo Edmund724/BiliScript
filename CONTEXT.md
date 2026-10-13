@@ -94,6 +94,11 @@ _Avoid_: 用「主题」单字指明暗档位、把 `flyme` 当明暗档位（�
 代码名：`.biliscript-reading-icon-btn`（34×34 母题）/ `.chat-msg-copy-btn`（32×32）/ `.biliscript-reading-ov-quote-copy`（28×28）
 _Avoid_: 把带框文字键与图标键混为一谈、给图标键加回边框
 
+**带框图标开关**:
+有边框、纯图标、带选中态的开关（联网搜索 pill 母题）：两个静止态的字形完全相同，选中与否只由描边与底色表达，方向等语义变化由切换动画承担。与无框的图标键不同族，也不是带框文字键。
+代码名：`.chat-web-search-pill`（28×28 圆；开启态 `is-active` = accent 描边 + accent-soft 底；切换动画 `is-spinning-left` / `is-spinning-right`）
+_Avoid_: 把带框图标开关并进图标键、拿字形区分开关的两个静止态
+
 **复制键**:
 把一段文本写入剪贴板的图标键：成功后状态行出「…已复制到剪贴板。」（5s 自动收起），失败分支静默（三处一致）。三处——字幕工具条（复制字幕，transcript 纯文本）、金句卡（复制该金句，文本形如 `时刻 「金句」`）、AI 对话消息区（复制回复，回复原文）。
 代码名：`copySubtitleTranscript` / `data-overview-action="copy-quote"`（`copyQuoteToClipboard`）/ `chat-msg-copy-btn`；复制图标常量单源 `ui/reading-icons.ts` 的 `READING_COPY_ICON`

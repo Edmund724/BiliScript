@@ -280,10 +280,36 @@ export function createProviderPrefs(deps: CreateProviderPrefsDeps): ProviderPref
   }
 
   // 联网搜索开关渲染（spec §4）：pill 开启态 is-active（accent-soft 底）。
+  // 两个静止态的字形完全相同，方向只由切换动画表达：开启 = 经线往左转
+  // （is-spinning-left）、关闭 = 往右。只认真实状态变化——首帧（水合）与无变化的
+  // 重渲不转，否则每次打开面板、每次刷新偏好都白转一圈。连续两次切换的方向必然
+  // 相反，故「先摘类再挂类」在同一帧里就换了 animation-name，动画自然重播。
+  let renderedWebSearchEnabled: boolean | null = null;
+
+  function spinWebSearchPill(enabled: boolean): void {
+    if (!webSearchPill) return;
+    webSearchPill.classList.remove("is-spinning-left", "is-spinning-right");
+    webSearchPill.classList.add(enabled ? "is-spinning-left" : "is-spinning-right");
+  }
+
   function renderWebSearchEnabled(): void {
     if (!webSearchPill) return;
-    webSearchPill.classList.toggle("is-active", chatSessionState.webSearchEnabled);
-    webSearchPill.setAttribute("aria-pressed", chatSessionState.webSearchEnabled ? "true" : "false");
+    const enabled = chatSessionState.webSearchEnabled;
+    const changed = renderedWebSearchEnabled !== null && renderedWebSearchEnabled !== enabled;
+    renderedWebSearchEnabled = enabled;
+    webSearchPill.classList.toggle("is-active", enabled);
+    webSearchPill.setAttribute("aria-pressed", enabled ? "true" : "false");
+    if (changed) spinWebSearchPill(enabled);
+  }
+
+  // 动画收尾摘类：留着不影响外观（fill-mode 默认 none，结束即回静止字形），但会让
+  // 「同一方向的动画」不再重播，且把动画态混进开关态。只认自己的动画名。
+  if (webSearchPill) {
+    webSearchPill.addEventListener("animationend", (event) => {
+      if (event.animationName.startsWith("biliscript-web-search-meridian")) {
+        webSearchPill.classList.remove("is-spinning-left", "is-spinning-right");
+      }
+    });
   }
 
   async function setWebSearchEnabled(enabled: boolean): Promise<void> {

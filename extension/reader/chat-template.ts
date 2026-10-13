@@ -81,11 +81,17 @@ export function buildChatTabBodyHtml(): string {
               autocomplete="off"
             ></textarea>
             <div id="${ids.readingChatInputBar}" class="chat-input-bar">
-              <!-- 联网搜索开关（spec §4）：输入行 + 右侧的 pill，点击即改全局记忆；
-                   开启态 accent-soft 底 + accent 字（DeepSeek 输入框工具 pill 同款位）。
-                   只留文字、不带图标：输入行宽度留给模型名（模型名是这里最长的变量）。 -->
-              <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-pressed="false">
-                <span>联网搜索</span>
+              <!-- 联网搜索开关（spec §4）：输入行 + 右侧的描边圆开关，点击即改全局
+                   记忆；开启态 accent-soft 底 + accent 图标（DeepSeek 输入框工具 pill
+                   同款位）。只留地球图标、不带文字：输入行宽度留给模型名（模型名是这里
+                   最长的变量）。字形取地球（圆 + 赤道 + 经线），经线单独一条 path——
+                   两个静止态字形完全相同，方向只由切换动画表达（见 reader-chat.css）。 -->
+              <button id="${ids.readingChatWebSearchPill}" type="button" class="chat-web-search-pill" title="联网搜索" aria-label="联网搜索" aria-pressed="false">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M2 12h20"></path>
+                  <path class="chat-web-search-meridian" d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"></path>
+                </svg>
               </button>
               <!-- 模型 chip 的锚点容器：面板的定位父级（原先挂在 footer 上 → 全宽、
                    浮在输入卡片上方；现改挂 chip，面板才落在「箭头上方」并压在

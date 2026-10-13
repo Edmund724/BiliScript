@@ -827,24 +827,34 @@
 /* 文字工具键（原 chat-toolbar-btn 类）整族规则已删（2026-12）：唯一消费方是
  * 「历史对话」文字键，图标化后全仓不再有该类的使用方；图标键外观走 .chat-icon-btn。 */
 
-/* 联网搜索开关（spec §4）：输入行 + 右侧的描边 pill（DeepSeek 输入框工具
- * pill 同款位）；开启态 accent-soft 底 + accent 字与关闭态灰字区分。只留文字、
- * 不带图标——输入行的横向空间留给模型名（这一行里最长的变量）。 */
+/* 联网搜索开关（spec §4）：输入行 + 右侧的描边圆开关（DeepSeek 输入框工具
+ * pill 同款位）；开启态 accent-soft 底 + accent 图标与关闭态灰描边灰图标区分。
+ * 只留地球图标、不带文字——输入行的横向空间留给模型名（这一行里最长的变量）。
+ * 两个静止态的字形完全相同，方向只由切换动画表达（选中 = 经线往左转、取消 = 往右）。 */
 .biliscript-reading-chat .chat-web-search-pill {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 28px;
   height: 28px;
-  padding: 0 10px;
+  padding: 0;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 999px;
   background: transparent;
   color: var(--biliscript-reader-muted);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1;
   cursor: pointer;
   transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-chat .chat-web-search-pill svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .biliscript-reading-chat .chat-web-search-pill:hover {
@@ -856,22 +866,57 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.biliscript-reading-chat .chat-web-search-pill span {
-  font-size: inherit;
-  line-height: 1;
-}
-
 .biliscript-reading-chat .chat-web-search-pill.is-active {
   border-color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
-  font-weight: 600;
 }
 
 .biliscript-reading-chat .chat-web-search-pill.is-active:hover {
   border-color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
+}
+
+/* 经线的方向动画（spec §4）：地球绕竖轴的真投影只会左右对称压扁、读不出转向，所以
+ * 这里用卡通读法——经线向左压扁（前缩）滑到圆缘消失，再从右缘压扁滑回正中（取消
+ * 镜像）。两条腿各 275ms 匀速接续，读感是一枚地球持续往一侧转过半圈；50% 处的跳变
+ * 落在 scaleX(0)（此刻不可见）上，不会露馅。赤道与圆不动：赤道是正视下的水平直径，
+ * 真旋转下也不变。scale 原点取 viewBox 中心，经线才在正中压扁。 */
+.biliscript-reading-chat .chat-web-search-pill .chat-web-search-meridian {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+}
+
+.biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian {
+  animation: biliscript-web-search-meridian-left 550ms linear;
+}
+
+.biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian {
+  animation: biliscript-web-search-meridian-right 550ms linear;
+}
+
+@keyframes biliscript-web-search-meridian-left {
+  0% { transform: translateX(0) scaleX(1); }
+  50% { transform: translateX(-9px) scaleX(0); }
+  50.001% { transform: translateX(9px) scaleX(0); }
+  100% { transform: translateX(0) scaleX(1); }
+}
+
+@keyframes biliscript-web-search-meridian-right {
+  0% { transform: translateX(0) scaleX(1); }
+  50% { transform: translateX(9px) scaleX(0); }
+  50.001% { transform: translateX(-9px) scaleX(0); }
+  100% { transform: translateX(0) scaleX(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 地球转向对减少动态用户关停：底色/描边类短过渡保留，暂停期间的静止字形与
+   * 动画结束后一致（两个静止态字形本就相同）。 */
+  .biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian,
+  .biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian {
+    animation: none;
+  }
 }
 
 /* 发送卡片：上方输入区 + 下方控件行（+ / 模型 chip / 发送键），整体一个圆角

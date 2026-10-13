@@ -120,10 +120,12 @@ describe("统一 文摘面板三标签", () => {
     // 预设提示词入口（输入框左下角「+」）已删除：壳内不再有该触发键与弹层
     expect(document.getElementById("biliscript-reading-chat-preset-btn")).toBe(null);
     expect(document.getElementById("biliscript-reading-chat-preset-popover")).toBe(null);
-    // 联网搜索 pill 只留文字：左侧地球图标已去掉，输入行的横向空间让给模型名。
+    // 联网搜索 pill 图标化：只留地球图标（无文字），横向空间让给模型名；
+    // 无可见文字后名字由 aria-label 承担。
     const searchPill = document.getElementById(ids.readingChatWebSearchPill) as HTMLButtonElement;
-    expect(searchPill.querySelector("svg")).toBe(null);
-    expect(searchPill.textContent?.trim()).toBe("联网搜索");
+    expect(searchPill.querySelector("svg")).not.toBe(null);
+    expect(searchPill.textContent?.trim()).toBe("");
+    expect(searchPill.getAttribute("aria-label")).toBe("联网搜索");
     const chatMessages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(chatMessages.querySelectorAll(".chat-msg, .chat-center-error").length).toBe(0);
     expect((chatMessages.querySelector(".chat-suggestions") as HTMLElement).innerHTML).toBe("");
