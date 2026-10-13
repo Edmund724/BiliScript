@@ -34,7 +34,9 @@ function hasSubtitleBody(body: unknown): boolean {
 }
 
 // 快照的状态字段经 AiContext 的开放索引签名读出为 unknown：只认联合内的字面量，
-// 缺失/脏值折算 idle（与 core/context-payload 组装工厂的缺省口径一致）。
+// 缺失/脏值折算 idle。旧持久化会话的 ref 仍可能没有该字段（装配工厂的当前产物
+// 恒带），这一层因此是防御而非补偿；折算口径与 core/context-payload 组装工厂的
+// 缺省一致。
 function normalizeFetchState(value: unknown): SubtitleFetchState {
   return value === "loading" || value === "ready" || value === "error" || value === "empty" ? value : "idle";
 }

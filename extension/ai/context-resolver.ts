@@ -2,11 +2,13 @@
 // AI 对话上下文的纯网络路径适配器（arch-slim/07 收口后的角色）：仅在「无页面 /
 // 无标签页」场景被消费，不持有进程内装配策略——AiContext 快照的装配知识单源在
 // core/context-payload（形状/校验/签名）+ core/context-assembly（唯一装配链）。
-//   resolveAiConversationContext   按任意 contextRef 经 bgFetchJson 拉取视频
-//                                  元信息/字幕装配上下文：pinned 补水身份短路
-//                                  未命中（无当前页面可快照）时的兜底，组合根
-//                                  经 conversation-store 的 resolveAiConversationRef
-//                                  接缝注入（purpose="context"）；
+// 本文件只做取数：视频元信息/分 P/字幕轨与正文/章节经 bgFetchJson 拉取并按
+// ref 偏好挑选，交付 core/context-payload 的 createFetchedContextPayload 组装
+//（字段清单/key 序/缺省与数组守卫不在此文件复制）。
+//   resolveAiConversationContext   按任意 contextRef 装配整份上下文：pinned 补水
+//                                  身份短路未命中（无当前页面可快照）时的兜底，
+//                                  组合根经 conversation-store 的
+//                                  resolveAiConversationRef 接缝注入（purpose="context"）；
 //   resolveAiConversationPageRef  分页信息解析（purpose="page"）。
 // （原 getAiContextState 的 tab transport 随扩展页消息链策略退役，见 ticket
 // arch-slim-4/01——它是 reader-get-context / clip-refresh 两条消息的唯一发送方。）
@@ -21,8 +23,7 @@ import {
   fetchSubtitleBody,
   type VideoMeta,
   type VideoPage,
-  type SubtitleTrack,
-  type Chapter
+  type SubtitleTrack
 } from "../bilibili/gateway.js";
 import { bgFetchJson } from "../bilibili/gateway-core.js";
 import {
@@ -34,8 +35,10 @@ import {
   normalizeSubtitleTracks
 } from "../subtitle/selection.js";
 import { getMergedSettings } from "../core/settings-store.js";
+import { createFetchedContextPayload } from "../core/context-payload.js";
+import type { ChapterItem, SubtitleBodyItem, SubtitleOption } from "../core/state.js";
 import { buildAiContextRef } from "./conversation.js";
-import type { AiContext, HotComment, SubtitleBodyItem } from "./types.js";
+import type { AiContext } from "./types.js";
 
 // ===== 上下文解析 =====
 
@@ -104,52 +107,52 @@ export async function resolveAiConversationContext(contextRef: unknown): Promise
   }
 
   const pageIndex = Number(page?.page || extractPageIndexFromUrl(ref.url || "") || 1) || 1;
-  // 热评恒为空数组：gateway 现代签名 fetchHotComments(count) 按 getCurrentAid()
-  // 取「当前视频」的 aid，对任意 contextRef 的网络解析会把别的视频的热评装进
-  // 上下文；旧调用点（transport + aid 两参）自签名变更起实际恒返回空数组
-  //（count 位被 transport 占位污染为 0 → 早退）。按现状保留空数组，可感知
-  // 行为零变化；per-aid 拉取（gateway 内部的 fetchHotCommentsJson）待后续票接通。
-  const hotComments: HotComment[] = [];
   const title = String(videoMeta.title || ref.title || "").trim();
   const author = String(videoMeta.author || ref.author || "").trim();
   const uploadDate = String(videoMeta.uploadDate || ref.uploadDate || "").trim();
   const pageTitle = String(page?.part || ref.pageTitle || "").trim();
   const url = buildCanonicalVideoUrl(ref.bvid, pageIndex) || ref.url;
   const videoDuration = Number(page?.duration || videoMeta.defaultDuration || 0) || 0;
+  // 选定轨的身份三元组（可选轨清单按 gateway 轨原样交出，字段名映射单源在
+  // core/context-payload 的工厂投影里）。
+  const selectedSubtitleId = String(selectedTrack.id || "").trim();
+  const selectedSubtitleUrl = String(selectedTrack.subtitleUrl || "").trim();
+  const subtitleLang = String(selectedTrack.lanDoc || selectedTrack.lan || "").trim();
 
-  return {
-    title,
-    url,
-    author,
-    uploadDate,
+  // payload 一律经 core/context-payload 的取数构造器产出（字段清单/key 序/缺省
+  // 与数组守卫的单源），本文件只做取数与事实归一。热评不在本路径拉取：gateway
+  // 的 fetchHotComments(count) 按 getCurrentAid() 取「当前视频」的 aid，对任意
+  // contextRef 的网络解析会装进别的视频的热评；取数构造器给出空数组占位，恢复
+  // 历史会话时由装配链决定热评来源。
+  // ChapterItem 是 gateway Chapter 的宽窄同形（该类型缺省 to），跨层边界经
+  // unknown 对齐（payload 的 chapters 由工厂按数组守卫收口，消费方均按
+  // Array.isArray 容忍）。
+  const payload = createFetchedContextPayload({
     bvid: ref.bvid,
     cid,
     aid,
+    title,
+    author,
+    uploadDate,
+    url,
     pageIndex,
+    pageCount: videoMeta.pages.length,
     pageTitle,
-    subtitleLang: String(selectedTrack.lanDoc || selectedTrack.lan || "").trim(),
-    selectedSubtitleId: String(selectedTrack.id || "").trim(),
-    selectedSubtitleUrl: String(selectedTrack.subtitleUrl || "").trim(),
-    // 章节透传（来源与本文件 return 里的 chapters 为同一份
-    // subtitleBundle.chapters）：供对话链回传 offscreen 后做章节对齐切段
-    // （budgeter）与追问章节名检索（raw-retrieval）。旧持久化会话 ref 无此
-    // 字段时为 undefined，下游 Array.isArray 守卫均已容忍。
-    chapters: Array.isArray(subtitleBundle.chapters) ? (subtitleBundle.chapters as unknown as AiContext["chapters"]) : [],
-    // 视频时长（分 P duration，缺省回退全片 defaultDuration）：发模型前由
-    // ai/subtitle-prompt.js 的 buildSubtitlePrompt 用于 withHours（小时级时间戳）判定。
-    videoDuration,
-    // 字幕时间戳开关透传：offscreen 渲染 prompt 时沿用同一设置，保证与预算判定
-    // 同源的渲染产物和笔记样式一致；旧数据缺失时消费方按默认 true 处理。
-    includeTimestampInBody: settings?.includeTimestampInBody !== false,
+    duration: videoDuration,
     subtitleBody: body as SubtitleBodyItem[],
-    subtitleOptions: tracks.map((item: SubtitleTrack) => ({
-      id: String(item.id || "").trim(),
-      url: String(item.subtitleUrl || "").trim(),
-      lang: String(item.lanDoc || item.lan || "").trim()
-    })),
-    hotComments,
-    isVideoContext: true
-  };
+    selectedSubtitleId,
+    selectedSubtitleUrl,
+    subtitleLang,
+    // 轨条目与 clip.subtitles 同源同形（fetcher 亦以 gateway 轨写入该槽）：
+    // 探针只取长度，跨层类型面按既有手法对齐。
+    subtitleOptions: tracks as unknown as SubtitleOption[],
+    chapters: subtitleBundle.chapters as unknown as ChapterItem[],
+    settings
+  });
+  // 跨层形状对齐：core/context-payload 的 SubtitleOption/ChapterItem 与
+  // ai/types 的同名字段是同形结构类型（可选性/必选性略宽窄不同），边界处经
+  // unknown 断言对齐 AiContext（与 core/context-assembly 的全量路径同一手法）。
+  return { ...payload, isVideoContext: true } as unknown as AiContext;
 }
 
 export async function resolveAiConversationPageRef(contextRef: unknown): Promise<{

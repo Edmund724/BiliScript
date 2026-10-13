@@ -5,20 +5,26 @@
 // 参与签名失效判定」又只活在 computeContextStateSignature 的注释里，两处知识
 // 分居、改动靠人肉对账。本模块把三件事收进一处：
 //   1. 字段清单（READER_CONTEXT_PAYLOAD_FIELDS，含每个字段「给谁消费」的对账注）；
-//   2. 组装工厂（createReaderContextPayload，调用方只喂运行时输入）；
+//   2. 组装工厂（createReaderContextPayload 吃进程内 clip 输入；同模块的
+//      createFetchedContextPayload 吃网络路径的取数事实，两者共用同一份
+//      clip 投影 = 缺省与数组守卫的唯一落点）；
 //   3. 签名投影（参与字段集合 + 逐字段投影 + 排除清单，签名从 payload 字段清单
 //      派生而非手列 join 数组）。
 //
 // 契约边界（对账结论，勿在本模块补字段）：对话侧实际持有的快照 = 本 payload +
 //   { signature } + { hotComments 覆盖, isVideoContext }（均由
 //   core/context-assembly 的装配链附加/补写）。即 isVideoContext 不在本工厂
-//   组装，对话侧读取依赖装配链补写。
+//   组装，对话侧读取依赖装配链补写。网络路径的热评不在此拉取（现状恒空数组，
+//   由装配链的注入取数决定），本模块只保证字段齐全。
 //
 // 纯模块约束：不 import state/defaults/location——运行时输入（clip/settings/url）
 // 全部由调用方注入；对 snapshot 的非法形状一律按旧实现的缺省口径容错。
 
 import type { ClipState, NoSubtitleReason, SubtitleFetchState, SubtitleBodyItem, SubtitleOption, ChapterItem } from "./state.js";
 import type { Settings } from "./defaults.js";
+// 视频元信息 / 分 P / 字幕轨的形（网络路径的取数产物）。只进
+// createFetchedContextPayload 的输入面；类型位置引用不构成运行时依赖边。
+import type { SubtitleTrack as GatewaySubtitleTrack, VideoMeta, VideoPage } from "../bilibili/gateway.js";
 
 // ============================================================
 // 1. 字段清单（顺序即组装顺序，与线上响应的 key 序逐字一致）
@@ -164,6 +170,87 @@ export function createReaderContextPayload({
     hotComments: []
   };
   return payload;
+}
+
+// 网络路径的取数构造器：把「已抓到的视频事实」（元信息 / 分 P / 字幕轨与正文 /
+// 章节 / 页面设置）折成同一份 payload。与 createReaderContextPayload 共用同一
+// clip 投影——字段清单、key 序、逐字段缺省与三个数组字段的守卫都只此一处，调用
+// 方只负责取数（页号/字幕轨的挑选、缓存命中、缺 cid/无字幕/空字幕的失败抛出）。
+//
+// url / pageIndex 由调用方算好传入（bvid + 页号的 canonical URL、页号归一是取数
+// 侧的事实），本构造器不做二次推导，也不回看 ref。
+// subtitleFetchState 按正文事实落定：正文非空即 ready（无正文的取数在调用方
+// 失败抛出，取数构造器里不存在 loading/error/empty 的中间态）。
+export interface FetchedContextFacts {
+  bvid: string;
+  cid: string;
+  aid: string;
+  title: string;
+  author: string;
+  uploadDate: string;
+  // canonical 视频地址；bvid 取不出时由调用方回落到 ref.url（可能为空）。
+  url: string | undefined;
+  pageIndex: number;
+  // 分 P 总数的事实来源（videoMeta.pages 的长度）；pages 恒为数组，无分 P 信息
+  // 时为 0。
+  pageCount: number;
+  pageTitle: string;
+  // 视频时长（分 P duration，缺省回退全片 defaultDuration）由调用方算好传入。
+  duration: number;
+  subtitleBody: SubtitleBodyItem[];
+  // 选定的轨身份三元组（取数侧按 ref 偏好挑出）。
+  selectedSubtitleId: string;
+  selectedSubtitleUrl: string;
+  subtitleLang: string;
+  // 可选轨清单：与 clip.subtitles 同源的轨条目（gateway 轨或已归一的三键条目
+  // 都按原样透传，探针只取长度），与进程内路径收到的是同一份数据。
+  subtitleOptions: SubtitleOption[];
+  chapters: ChapterItem[];
+  settings?: Partial<Settings>;
+}
+
+export function createFetchedContextPayload({
+  bvid,
+  cid,
+  aid,
+  title,
+  author,
+  uploadDate,
+  url,
+  pageIndex,
+  pageCount,
+  pageTitle,
+  duration,
+  subtitleBody,
+  selectedSubtitleId,
+  selectedSubtitleUrl,
+  subtitleLang,
+  subtitleOptions,
+  chapters,
+  settings
+}: FetchedContextFacts): ReaderContextPayload {
+  const body = Array.isArray(subtitleBody) ? subtitleBody : [];
+  const merged: Partial<ClipState> = {
+    title,
+    author,
+    uploadDate,
+    bvid,
+    cid,
+    aid,
+    pageIndex,
+    pageCount,
+    pageTitle,
+    videoDuration: duration,
+    subtitleBody: body,
+    subtitleFetchState: body.length > 0 ? "ready" : "idle",
+    noSubtitleReason: null,
+    selectedSubtitleLang: subtitleLang,
+    selectedSubtitleId,
+    selectedSubtitleUrl,
+    subtitles: subtitleOptions,
+    chapters
+  };
+  return createReaderContextPayload({ clip: merged, settings, url });
 }
 
 // ============================================================
