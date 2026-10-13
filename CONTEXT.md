@@ -45,7 +45,7 @@ _Avoid_: 落账、提交、写入字幕、手抄接受序列、reset 内递增 f
 _Avoid_: 长记忆、向量库
 
 **字幕轨身份**:
-一条字幕轨在缓存键里的身份，封闭判别联合四态：`track`（B 站轨 id）/ `url`（轨地址）/ `lang`（槽语言）/ `asr`（自配平台转写：provider + model + 语言）。三字段原始输入（id / url / lang）的优先级 id > url > lang 与 URL 归一只有一处裁定；编码产物是缓存 source key 的字节面（`id_*` / `url_*` / `lang_*` / `id_asr:<p>:<m>:<l>`），键形与历史逐字节一致（老缓存零迁移）。
+一条字幕轨在缓存键里的身份，封闭判别联合四态：`track`（B 站轨 id）/ `url`（轨地址）/ `lang`（槽语言）/ `asr`（自配平台转写：provider + model + 语言）。三字段原始输入（id / url / lang）的优先级 id > url > lang 与 URL 归一只有一处裁定；编码产物是缓存 source key 的字节面（`id_*` / `url_*` / `lang_*` / `id_asr:<p>:<m>:<l>`），字节形状是对已落盘缓存的兼容面：逐字节不变、零迁移。
 「这是不是 ASR 变体键」这个判据与编码**同根**：变体前缀由叶内唯一根常量派生，判据即前缀匹配——ASR 伪轨的组键侧（显式传 asr 身份）与识别侧（孤儿清理的匹配前缀）因此出自同一处，改编码时判据跟着改，不可能各写一套拼写而悄悄漂移。
 与「字幕」的分工：本词条只管轨在缓存键里的身份；字幕正文的取体、接受事务与选轨全在「字幕」——缓存键入口收身份，主轨调用点显式构造身份，ASR 侧显式传 asr 身份（不再手拼字符串走 id 分支）。与「原始字幕缓存」的分工：三族键位（bvid + cid + 本身份 + 段序号 / 签名）由各族自己拼装，本词条只产出其中的 source key 分量。
 代码名：`subtitle/source-key.js`（`TrackIdentity` / `trackIdentity`（三字段 → 身份）/ `subtitleSourceKey`（身份 → source key）/ `buildSubtitleSourceKey`（位置参数便捷形，缓存族注入面与直取用）/ `isAsrVariantSourceKey` + `ASR_SOURCE_KEY_PREFIX`）/ 消费方 `subtitle/cache.js`（缓存键入口收身份、孤儿清理前缀由此派生）/ `subtitle/body.js`、`ai/context-resolver.js`（主轨调用点）/ `asr/fallback.js`（组键显式传 asr 身份）/ `ai/segment-cache.js`、`ai/analysis-orchestrate.js`（缓存族注入）
