@@ -879,42 +879,65 @@
 }
 
 /* 经线的方向动画（spec §4）：地球绕竖轴的真投影只会左右对称压扁、读不出转向，所以
- * 这里用卡通读法——经线向左压扁（前缩）滑到圆缘消失，再从右缘压扁滑回正中（取消
- * 镜像）。两条腿各 275ms 匀速接续，读感是一枚地球持续往一侧转过半圈；50% 处的跳变
- * 落在 scaleX(0)（此刻不可见）上，不会露馅。赤道与圆不动：赤道是正视下的水平直径，
- * 真旋转下也不变。scale 原点取 viewBox 中心，经线才在正中压扁。 */
+ * 这里用卡通读法——经线向左压扁（前缩）滑向圆缘，同时下一条经线（b，静止时压扁到 0
+ * 在背面）从右缘压扁入场滑到正中；取消时整体镜像。两条经线全程同速、宽度此消彼长
+ * （一条的 scaleX 恰是另一条的补数），所以任何一帧都至少有一条经线可见——地球 360°
+ * 都有经线，不该出现只剩赤道的空帧；也因为这个互补，图标的分量全程恒定，不会忽明
+ * 忽暗。赤道与圆不动：赤道是正视下的水平直径，真旋转下也不变。scale 原点取 viewBox
+ * 中心，经线才在正中压扁。 */
 .biliscript-reading-chat .chat-web-search-pill .chat-web-search-meridian {
   transform-box: view-box;
   transform-origin: 50% 50%;
 }
 
-.biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian {
-  animation: biliscript-web-search-meridian-left 550ms linear;
+/* b 是「下一条经线」：静止（含动画收尾摘类后）压扁到 0 —— 它在圆的背面，不占视野。 */
+.biliscript-reading-chat .chat-web-search-pill .chat-web-search-meridian-b {
+  transform: scaleX(0);
 }
 
-.biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian {
-  animation: biliscript-web-search-meridian-right 550ms linear;
+.biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian-a {
+  animation: biliscript-web-search-meridian-out-left 550ms linear;
 }
 
-@keyframes biliscript-web-search-meridian-left {
-  0% { transform: translateX(0) scaleX(1); }
-  50% { transform: translateX(-9px) scaleX(0); }
-  50.001% { transform: translateX(9px) scaleX(0); }
-  100% { transform: translateX(0) scaleX(1); }
+.biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian-b {
+  animation: biliscript-web-search-meridian-in-right 550ms linear;
 }
 
-@keyframes biliscript-web-search-meridian-right {
-  0% { transform: translateX(0) scaleX(1); }
-  50% { transform: translateX(9px) scaleX(0); }
-  50.001% { transform: translateX(-9px) scaleX(0); }
-  100% { transform: translateX(0) scaleX(1); }
+.biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian-a {
+  animation: biliscript-web-search-meridian-out-right 550ms linear;
+}
+
+.biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian-b {
+  animation: biliscript-web-search-meridian-in-left 550ms linear;
+}
+
+@keyframes biliscript-web-search-meridian-out-left {
+  from { transform: translateX(0) scaleX(1); }
+  to { transform: translateX(-9px) scaleX(0); }
+}
+
+@keyframes biliscript-web-search-meridian-in-right {
+  from { transform: translateX(9px) scaleX(0); }
+  to { transform: translateX(0) scaleX(1); }
+}
+
+@keyframes biliscript-web-search-meridian-out-right {
+  from { transform: translateX(0) scaleX(1); }
+  to { transform: translateX(9px) scaleX(0); }
+}
+
+@keyframes biliscript-web-search-meridian-in-left {
+  from { transform: translateX(-9px) scaleX(0); }
+  to { transform: translateX(0) scaleX(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   /* 地球转向对减少动态用户关停：底色/描边类短过渡保留，暂停期间的静止字形与
    * 动画结束后一致（两个静止态字形本就相同）。 */
-  .biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian,
-  .biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian {
+  .biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian-a,
+  .biliscript-reading-chat .chat-web-search-pill.is-spinning-left .chat-web-search-meridian-b,
+  .biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian-a,
+  .biliscript-reading-chat .chat-web-search-pill.is-spinning-right .chat-web-search-meridian-b {
     animation: none;
   }
 }
