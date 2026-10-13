@@ -98,18 +98,29 @@ export function makeDecodedBuffer(
   };
 }
 
+// 「疑似静音」判据与冻结文案的唯一落点：chunker 的全量前置校验与 stream-chunker
+// 完成时的全静音检查共用（两处曾各写一份同形实现、阈值与文案靠注释宣称同口径）。
+// durationSec 由调用方给出手头持有的时长事实（本模块取解码诊断的自报时长，
+// stream-chunker 取累计采样算出的时长）。时长 ≤ 0 时不判：零片产出（空输入 /
+// 全部段失败 / 段解码为空）归调用方按「有没有产出」判定，见 stream-chunker 尾部。
+export function assertDecodedAudioNotSilent({ durationSec, peak }: DecodedAudioDiagnostic): void {
+  if (Number.isFinite(peak) && peak < 0.001 && durationSec > 0) {
+    throw new Error(
+      `音频解码失败：解码结果疑似静音（时长 ${durationSec}s、峰值幅度 ${peak}）`
+    );
+  }
+}
+
 // 校验解码结果可转写，非法时抛显式错误：
 //   - 峰值≈0 且时长 > 0 → 解码出来疑似静音（音轨获取或容器解码出了问题），
 //     直接报错，避免上游把空音频转写出误导性的"未识别到语音内容"；
 //   - 时长 ≤ 0（空采样/采样率异常）→ 报错，绝不静默产出空切片。
-// buildWavChunks 直用；stream-chunker 完成时的全静音检查保持同口径。
+// buildWavChunks 直用；静音判据走 assertDecodedAudioNotSilent。
 export function validateDecodedAudio(audioBuffer: DecodedAudioBuffer): number {
   // 解码诊断：可选 {durationSec, peak}
   const diag = audioBuffer?.diagnostic;
-  if (diag && Number.isFinite(diag.peak) && diag.peak < 0.001 && diag.durationSec > 0) {
-    throw new Error(
-      `音频解码失败：解码结果疑似静音（时长 ${diag.durationSec}s、峰值幅度 ${diag.peak}）`
-    );
+  if (diag) {
+    assertDecodedAudioNotSilent(diag);
   }
 
   const totalDurationSec = audioBuffer.length / audioBuffer.sampleRate;

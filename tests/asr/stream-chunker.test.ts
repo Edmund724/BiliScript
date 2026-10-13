@@ -134,7 +134,7 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
     expect(got.length).toBe(want.length);
   });
 
-  it("全静音段：抛「疑似静音」错误（与 chunker.validateDecodedAudio 口径一致）", async () => {
+  it("全静音段：抛「疑似静音」错误（文案与 chunker 前置校验逐字同源）", async () => {
     const segments = makeSegments(240, 60).map((seg) => {
       const z = new Float32Array(seg.length);
       z.fill(0);
@@ -146,13 +146,20 @@ describe("streamWavChunks 与 buildWavChunks 基准一致", () => {
         decodeSegment: (seg) => Promise.resolve(seg as Float32Array),
         onChunk: async () => {}
       })
-    ).rejects.toThrow(/疑似静音/);
+    ).rejects.toThrow("音频解码失败：解码结果疑似静音（时长 240s、峰值幅度 0）");
   });
 
   it("空段输入：totalChunks 为 0，不抛错", async () => {
     const { promise } = collectStream([], { chunkSeconds: 1200 });
     const meta = await promise;
     expect(meta.totalChunks).toBe(0);
+  });
+
+  it("段解码成功但产出空数组（零片产出）：不抛静音/零时长错，整体失败归调用方", async () => {
+    const { promise } = collectStream([new Float32Array(0), new Float32Array(0)], { chunkSeconds: 1200 });
+    const meta = await promise;
+    expect(meta.totalChunks).toBe(0);
+    expect(meta.totalDurationSec).toBe(0);
   });
 
   it("片间偶发 onChunk 中异步等待（base64 编码耗时）不改变输出顺序", async () => {

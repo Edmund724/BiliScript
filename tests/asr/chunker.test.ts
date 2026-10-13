@@ -8,6 +8,7 @@ import {
   decideChunks,
   buildChunkPlan,
   buildWavChunks,
+  assertDecodedAudioNotSilent,
   validateDecodedAudio,
   makeDecodedBuffer,
   type DecodedAudioBuffer
@@ -232,14 +233,18 @@ describe("makeDecodedBuffer 契约适配", () => {
     // 模拟用户报错路径：解码产出的裸 Float32Array，若绕过适配
     // 直接喂给 validateDecodedAudio，必须抛显式错误而不是产出空切片。
     const bare = new Float32Array(16000);
-    expect(() => validateDecodedAudio(bare as unknown as DecodedAudioBuffer)).toThrow(/解码结果时长为零/);
+    expect(() => validateDecodedAudio(bare as unknown as DecodedAudioBuffer)).toThrow(
+      "音频解码失败：解码结果时长为零（采样数 16000、采样率 undefined）"
+    );
   });
 });
 
 describe("validateDecodedAudio 直测", () => {
   it("非法解码结果（零时长）→ 抛「时长为零」", () => {
     const bad = { sampleRate: 16000, length: 0, getChannelData: () => new Float32Array(0) };
-    expect(() => validateDecodedAudio(bad)).toThrow(/解码结果时长为零/);
+    expect(() => validateDecodedAudio(bad)).toThrow(
+      "音频解码失败：解码结果时长为零（采样数 0、采样率 16000）"
+    );
   });
 
   it("静音诊断（peak < 0.001 且时长 > 0）→ 抛「疑似静音」", () => {
@@ -249,11 +254,29 @@ describe("validateDecodedAudio 直测", () => {
       getChannelData: () => new Float32Array(16000),
       diagnostic: { durationSec: 1, peak: 0 }
     };
-    expect(() => validateDecodedAudio(silent)).toThrow(/疑似静音/);
+    expect(() => validateDecodedAudio(silent)).toThrow(
+      "音频解码失败：解码结果疑似静音（时长 1s、峰值幅度 0）"
+    );
   });
 
   it("正常解码结果 → 返回总时长", () => {
     const ok = { sampleRate: 16000, length: 16000, getChannelData: () => new Float32Array(16000) };
     expect(validateDecodedAudio(ok)).toBe(1);
+  });
+});
+
+// 静音叶是 chunker 与 stream-chunker 共用的判据与文案落点（逐字断言在此钉死，
+// 两条调用路径的用例只验证它们确实经此抛出）。
+describe("assertDecodedAudioNotSilent 直测", () => {
+  it("时长 ≤ 0 不判（零片产出归调用方按有无产出判定）", () => {
+    expect(() => assertDecodedAudioNotSilent({ durationSec: 0, peak: 0 })).not.toThrow();
+  });
+
+  it("峰值未知（非有限数）不判；时长与峰值齐备才抛", () => {
+    expect(() => assertDecodedAudioNotSilent({ durationSec: 3, peak: Number.NaN })).not.toThrow();
+    expect(() => assertDecodedAudioNotSilent({ durationSec: 3, peak: 0.25 })).not.toThrow();
+    expect(() => assertDecodedAudioNotSilent({ durationSec: 3, peak: 0 })).toThrow(
+      "音频解码失败：解码结果疑似静音（时长 3s、峰值幅度 0）"
+    );
   });
 });

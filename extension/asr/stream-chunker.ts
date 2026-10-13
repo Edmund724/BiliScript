@@ -13,7 +13,7 @@
 // 解码器注入：decodeSegment 为 async (segment) => Float32Array（16k mono），
 // 本模块不碰 AudioContext，Node/vitest 下可独立测试。
 
-import { encodeWav } from "./chunker.js";
+import { assertDecodedAudioNotSilent, encodeWav } from "./chunker.js";
 import type { WavChunk } from "./chunker.js";
 import { ASR_PENDING_CHUNKS_LIMIT_MESSAGE } from "./protocol.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -56,8 +56,9 @@ export interface StreamWavChunksResult {
 //                        （Q8a 解码降级：个别 ADTS 段损坏不拖垮整条音轨）
 //   isAbortError         (error) => boolean，命中即不重试不跳过、直接向上传播
 //                        （断连取消哨兵走快速通道，不被降级逻辑吞掉）
-// 完成时全静音（peak < 0.001 且时长 > 0）抛与 chunker.validateDecodedAudio
-// 同口径的错误；异常中途 onChunk 抛错则向上传播（调用方决定中止）。
+// 完成时的全静音检查走 chunker.assertDecodedAudioNotSilent（判据与文案的单一
+// 落点，与 chunker.validateDecodedAudio 同源）；零片产出不在此判，由调用方按
+// 「有没有产出」判定整体失败。异常中途 onChunk 抛错则向上传播（调用方决定中止）。
 // onChunk 返回 false（下游拒绝，如待处理分片超限）则停止消费后续段并抛
 // ASR_PENDING_CHUNKS_LIMIT_MESSAGE（工单 04：超限即停，不静默丢片）。
 // 返回 { totalChunks, totalDurationSec, peak, skippedSegments }。
@@ -188,10 +189,10 @@ export async function streamWavChunks(
   }
 
   const totalDurationSec = totalLen / sampleRate;
-  if (totalDurationSec > 0 && peak < 0.001) {
-    throw new Error(
-      `音频解码失败：解码结果疑似静音（时长 ${totalDurationSec}s、峰值幅度 ${peak}）`
-    );
-  }
+  // 完成时的全静音检查与 chunker 前置校验同源（判据与冻结文案都在
+  // chunker.assertDecodedAudioNotSilent）。零片产出（空输入 / 全部段失败 /
+  // 段解码为空）不在此判——那是调用方按「有没有产出」判定的整体失败
+  //（entry/offscreen-asr 的空片失败出口）。
+  assertDecodedAudioNotSilent({ durationSec: totalDurationSec, peak });
   return { totalChunks: emitted, totalDurationSec, peak, skippedSegments };
 }
