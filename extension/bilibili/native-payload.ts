@@ -10,10 +10,12 @@
 // subtitleUrl 的两套归一也收口在此（原先分居 selection.ts 与 subtitle/cache.ts，
 // 评审 Problem 的「同一 subtitleUrl 字段有两套归一」）：
 //   - normalizeSubtitleUrl：原生 subtitle_url → 可装载的绝对地址；
-//   - normalizeSubtitleUrlForCache：同一字段 → 缓存键分量（cache.buildSubtitleSourceKey
-//     与 selection.pickPreferredSubtitle 的 URL 复用同吃这一格）。
+//   - normalizeSubtitleUrlForCache：同一字段 → 缓存键分量（键位叶 subtitle/source-key
+//     的身份编码经它归一，subtitle/cache.ts 的轨道候选去重与 selection.pickPreferredSubtitle
+//     的 URL 复用同吃这一格）。
 // 两者算法不同（一个补协议、一个削成 hostname + 净化 path），不构成互相表达的关系，
-// 故各自保留原实现——但只住这一处：cache.ts 与 selection.ts 都 import 这里的那一份。
+// 故各自保留原实现——但只住这一处：subtitle/source-key、subtitle/cache 与 selection
+// 都 import 这里的那一份。
 //
 // 叶子纪律：只 import subtitle/chapters 的归一叶与 gateway 的类型（type-only，编译期
 // 擦除）。subtitle/cache 要 import 本叶拿缓存键分量，故本叶不得把 gateway.ts 的

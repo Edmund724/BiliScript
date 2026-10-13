@@ -22,6 +22,10 @@ interface BuildChatRequestBodyInput {
   model: string;
   messages: ChatRequest["messages"];
   stream?: boolean;
+  // 探针请求事实（本链按探针语义传 maxTokens=1）：它是随整条链走向思考装配边的请求事实，
+  // 但 openai 行不读它——本链「探针不发思考字段」靠请求侧归一（探针不传档位 → default
+  // 不干预 → 空 patch）；读它的是 Messages 行的探针早退（怪癖 probeOmitsThinking）。
+  probe?: boolean;
   // 未归一的档位外部值（本函数只把它交给思考装配边：归一的施加点是解析层
   // resolveThinkingProfile，见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
   thinkingLevel?: ThinkingLevelInput;
@@ -89,16 +93,17 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
  * messages 经 toWireMessages 翻译：带图消息的 content → text/image_url 块数组，
  * 无图消息原字段原值透传。
  */
-export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools }: BuildChatRequestBodyInput): ChatRequestBody {
+export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools, probe }: BuildChatRequestBodyInput): ChatRequestBody {
   const body: ChatRequestBody = { model, messages: toWireMessages(messages), stream };
   if (tools && tools.length) {
     body.tools = tools;
     body.tool_choice = "auto";
   }
-  // 档位偏好原样交给装配边（归一入口在解析层：缺省 / 脏值 = default（不干预）→ 空 patch，
-  // 探针因此不再发关思考字段（2026-10-05 裁定，见 docs/adr/0015 的修订块）；显式 `off`
-  // 仍走该平台的关思考写点）。probe 事实对本协议行无意义：openai 行不读它，探针不发思考
-  // 字段靠的就是上面那条归一（probeOmitsThinking 是 Messages 侧事实）。
+  // 档位偏好与 probe 事实都原样交给装配边（归一入口在解析层：缺省 / 脏值 = default
+  // （不干预）→ 空 patch，探针因此不发关思考字段（2026-10-05 裁定，见 docs/adr/0015 的
+  // 修订块）；显式 `off` 仍走该平台的关思考写点）。装配边收下 probe，但本协议行不读它：
+  // 本链探针不发思考字段靠的仍是那条请求侧归一，probeOmitsThinking 是 Messages 侧事实
+  // （在装配边的 anthropic 装配行早退）。
   const wire = planThinkingWire({
     protocol: "openai",
     model,
@@ -106,7 +111,7 @@ export function buildChatRequestBody({ model, messages, stream = false, thinking
     baseUrl,
     level: thinkingLevel,
     stream,
-    probe: false
+    probe: probe === true
   });
   Object.assign(body, wire.fields);
   if (maxTokens != null) {
@@ -260,7 +265,8 @@ export const openaiAdapter: ProtocolAdapter = {
       maxTokens: request.maxTokens,
       baseUrl: request.baseUrl,
       presetId: request.presetId,
-      tools: request.tools
+      tools: request.tools,
+      probe: request.probe
     });
   },
 

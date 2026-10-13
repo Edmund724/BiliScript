@@ -38,8 +38,8 @@ import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 // 降级为退回下限（CONSERVATIVE_MAX_TOKENS，见 output-budget.ts）。
 // 思考档位在 Messages 通道的写法（怪癖 thinkingFormat / thinkingDisabledMustBeExplicit /
 // probeOmitsThinking / effortVocabMessages）逐格落在 ai/thinking-wire-map.ts 的 anthropic
-// 行；「本行读得到哪些平台事实、各按什么口径识别」落在思考装配边 ai/plan-thinking.ts——
-// 本文件不再算平台识别（原私有的「是否只认 effort 词汇」函数已随装配知识搬进那条边）。
+// 行；「本行读得到哪些平台事实、各按什么口径识别」（思考平台识别 resolveThinkingProviderId、
+// 怪癖词表识别 resolvePlatformQuirkId）落在思考装配边 ai/plan-thinking.ts——本文件不算平台识别。
 // Anthropic 家族的思考控制有两套词汇：老式 thinking:{type} 开关（原生各家）
 // 与新式 output_config.effort。走 Messages 通道而只认后者的平台（stepfun / amd）由
 // 怪癖 effortVocabMessages 登记，词表 PLATFORM_QUIRKS 是唯一主人。

@@ -5,7 +5,7 @@ import { parseBvidFromCacheKey, readFamilyKeys, writeWithEviction, type Eviction
 // 本模块 import 复用，不再另存一份。
 import { normalizeSubtitleUrlForCache } from "../bilibili/native-payload.js";
 // 「字幕轨身份」编码单点与 ASR 变体判据（键位叶）：三种平台轨身份与 ASR 变体身份
-// 的编码、以及孤儿清理的匹配前缀都出自它，本模块不再定义任何身份拼写。
+// 的编码、以及孤儿清理的匹配前缀都出自它——身份拼写不在此处定义。
 import {
   ASR_SOURCE_KEY_PREFIX,
   buildSubtitleSourceKey,
