@@ -195,7 +195,7 @@ function divergentKeys(
     expect(presetId, `指派表 provider ${upstreamId} 没有 preset 桥接`).toBeTruthy();
     if (options.presets) {
       if (!options.presets.has(presetId)) continue;
-    } else if (HOSTED_PRESETS_18.has(presetId)) {
+    } else if (HOSTED_PRESETS_18.has(presetId) || presetId === "gemini") {
       continue;
     }
     for (const modelId of Object.keys(table)) {
@@ -864,8 +864,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       }
     }
     expect(unknown).toEqual([]);
-    expect(counts).toEqual({ openrouter: 243, amd: 5, sensenova: 5, opencodego: 29 });
-    expect(total).toBe(282);
+    expect(counts).toEqual({ openrouter: 239, amd: 5, sensenova: 5, opencodego: 34 });
+    expect(total).toBe(283);
   });
 
   it("上游词表更窄的行：档位被静默改写（amd/Qwen3.8-27B 的 high → medium）", () => {
@@ -945,8 +945,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       amd: hasOff("amd"),
       sensenova: hasOff("sensenova"),
       opencodego: hasOff("opencodego")
-    }).toEqual({ openrouter: 153, amd: 3, sensenova: 4, opencodego: 20 });
-    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(180);
+    }).toEqual({ openrouter: 147, amd: 3, sensenova: 4, opencodego: 21 });
+    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(175);
   });
 
   it("off 级联：按「thinkingClass=always + offUnavailable」口径是 236 行（与口径 A 的 177 差异见 18-report）", () => {
@@ -963,7 +963,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       sensenova: cascade("sensenova").length,
       opencodego: cascade("opencodego").length
     };
-    expect(counts).toEqual({ openrouter: 202, amd: 5, sensenova: 4, opencodego: 25 });
+    expect(counts).toEqual({ openrouter: 197, amd: 5, sensenova: 4, opencodego: 30 });
     expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(236);
     // 级联目标 = 可用集里最小的非 off 档：glm-5.2（A={high,max}）偏好 off → high。
     const glm = resolveThinkingAdjustment({ presetId: "sensenova", model: "glm-5.2", level: "off", stream: true });
@@ -1088,7 +1088,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "openrouter/openai/gpt-5.6-sol-pro",
       "openrouter/openai/gpt-5.6-terra",
       "openrouter/openai/gpt-5.6-terra-pro",
-      "openrouter/qwen/qwen3-max-thinking",
       "openrouter/qwen/qwen3.5-122b-a10b",
       "openrouter/qwen/qwen3.5-27b",
       "openrouter/qwen/qwen3.5-35b-a3b",
@@ -1100,14 +1099,12 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "openrouter/qwen/qwen3.6-27b",
       "openrouter/qwen/qwen3.6-35b-a3b",
       "openrouter/qwen/qwen3.6-flash",
-      "openrouter/qwen/qwen3.6-max-preview",
       "openrouter/qwen/qwen3.6-plus",
       "openrouter/qwen/qwen3.7-flash",
       "openrouter/qwen/qwen3.7-max",
       "openrouter/qwen/qwen3.7-plus",
       "openrouter/qwen/qwen3.8-2.4t-a95b",
       "openrouter/qwen/qwen3.8-27b",
-      "openrouter/qwen/qwen3.8-27b:free",
       "openrouter/qwen/qwen3.8-flash",
       "openrouter/qwen/qwen3.8-max-0902",
       "openrouter/qwen/qwen3.8-max-prime",

@@ -259,12 +259,12 @@ describe("⑤「事实源未注入」不被 falsy 默认吞掉", () => {
 });
 
 describe("⑥ 有意缺口与欠账互相冒充（白名单是唯一判据）", () => {
-  it("今天的有意缺口包含 custom 与过渡态 gemini（冻结：新增即须显式复核）", () => {
+  it("今天的有意缺口只有 custom（gemini 已在 03 号票结束过渡态正式登记；新增即须显式复核）", () => {
     const rows = reportOf().rows;
     const intentional = rows
       .filter((row) => row.faces.some((face) => face.status === "intentional-gap"))
       .map((row) => row.platformId);
-    expect(intentional.sort()).toEqual(["custom", "gemini"].sort());
+    expect(intentional.sort()).toEqual(["custom"].sort());
     const custom = viewOf("custom");
     expect(
       custom.faces.filter((face) => face.status === "intentional-gap").map((face) => face.face)

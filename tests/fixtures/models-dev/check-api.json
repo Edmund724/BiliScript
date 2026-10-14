@@ -217,5 +217,20 @@
         "last_updated": "2026-05-05"
       }
     }
+  },
+  "google": {
+    "id": "google",
+    "name": "Google",
+    "doc": "https://ai.google.dev/pricing",
+    "models": {
+      "fx-gemini-chat": {
+        "id": "fx-gemini-chat",
+        "name": "FX Gemini Chat",
+        "reasoning": false,
+        "modalities": { "input": ["text"] },
+        "limit": { "context": 1048576, "output": 65536 },
+        "last_updated": "2026-03-01"
+      }
+    }
   }
 }

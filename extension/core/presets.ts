@@ -103,7 +103,7 @@ export const PRESETS: readonly AiProviderPreset[] = [
   // （docs.ollama.com/api/anthropic-compatibility）。适配器拼 `${baseUrl}/v1/messages`，
   // 故登记值去掉 openai baseUrl 的 /v1 尾——不登记则回落拼出 /v1/v1/messages。
   { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false, protocolBaseUrls: { anthropic: "http://localhost:11434" } },
-  { id: "gemini",        name: "Gemini",      baseUrl: "https://generativelanguage.googleapis.com", requiresKey: true, protocol: "gemini", protocolBaseUrls: { openai: "https://generativelanguage.googleapis.com/v1beta/openai" } },
+  { id: "gemini",        name: "Gemini",      baseUrl: "https://generativelanguage.googleapis.com", requiresKey: true, catalogProvider: "google", protocol: "gemini", protocolBaseUrls: { openai: "https://generativelanguage.googleapis.com/v1beta/openai" } },
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
 
@@ -116,7 +116,7 @@ export const PRESETS: readonly AiProviderPreset[] = [
 // 或「在本清单」之一——新增预设忘配即测试失败（tests/ai/model-catalog.test.ts），
 // 而不是悄悄进白名单。10 号票前这里还有 qwen / stepfun / modelscope / amd /
 // sensenova 五家（当时的 pi-ai 快照没收录），models.dev 有身份后已全部移出。
-export const NO_CATALOG_PRESETS = ["ollama", "custom", "gemini"] as const;
+export const NO_CATALOG_PRESETS = ["ollama", "custom"] as const;
 
 // ===== 联网搜索平台预设 =====
 // type 决定走哪个适配器（extension/search/adapters/），六家均为纯 HTTP：

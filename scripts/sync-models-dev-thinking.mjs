@@ -203,10 +203,10 @@ const OFF_CAPABILITY_DECLARATIONS = [
 // effort[max] 只被 opencode-go/kimi-k3 引用，该行改借 canonical 的 low-high-max →
 // 值集 "max" 不再登记，故 30 → 29（上游原始 30 种 effort 值集不变，见 spec §上游形态）。
 const EXPECTED_COUNTS = {
-  models: 578,
-  reasoning: 415,
-  withOptions: 352,
-  gaps: 63,
+  models: 615,
+  reasoning: 444,
+  withOptions: 376,
+  gaps: 68,
   effortSets: 29
 };
 
