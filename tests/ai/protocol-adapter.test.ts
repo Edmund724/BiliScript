@@ -19,11 +19,14 @@ function jsonResponse(payload: unknown) {
 describe("resolveAdapter（协议解析单点）", () => {
   it("缺字段 / 未知值 / 非字符串 → openai 兜底（存量记录零变化）", () => {
     // "responses"：适配器已移除，存量记录按未知值兜底 openai（词表同步摘除）。
-    for (const value of [undefined, null, "", "gemini", "responses", "OPENAI", 42, {}, true]) {
+    for (const value of [undefined, null, "", "unknown-proto", "responses", "OPENAI", 42, {}, true]) {
       expect(resolveAdapter(value), String(value)).toBe(PROTOCOL_ADAPTERS.openai);
     }
   });
 
+  it("gemini 协议解析为 geminiAdapter", () => {
+    expect(resolveAdapter("gemini")).toBe(PROTOCOL_ADAPTERS.gemini);
+  });
 });
 
 describe("协议穿线（chatCompletion → resolveAdapter）", () => {
@@ -33,7 +36,7 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
 
     await chatCompletion({ provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk" }, messages: [], fetchImpl: fetchMock });
     await chatCompletion({ provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "openai" }, messages: [], fetchImpl: fetchMock });
-    await chatCompletion({ provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "gemini" as never }, messages: [], fetchImpl: fetchMock });
+    await chatCompletion({ provider: { baseUrl: "https://api.example.com/v1", model: "m", apiKey: "sk", protocol: "unknown-proto" as never }, messages: [], fetchImpl: fetchMock });
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
     for (const [url, init] of fetchMock.mock.calls as Array<[string, { headers: Record<string, string> }]>) {

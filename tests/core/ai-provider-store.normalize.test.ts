@@ -64,16 +64,18 @@ describe("normalizeAiProvider 协议字段归一化（multi-protocol-ai）", () 
   it("注册表词表内的协议值原样保留", async () => {
     const providers = await loadProvidersFrom([
       { id: "p1", name: "x", protocol: "anthropic" },
-      { id: "p2", name: "y", protocol: "openai" }
+      { id: "p2", name: "y", protocol: "openai" },
+      { id: "p3", name: "z", protocol: "gemini" }
     ]);
     expect(providers[0].protocol).toBe("anthropic");
     expect(providers[1].protocol).toBe("openai");
+    expect(providers[2].protocol).toBe("gemini");
   });
 
   it("缺省/未知协议值不落盘字段（读侧 resolveAdapter 兜底 openai，存量记录零变化）", async () => {
     const providers = await loadProvidersFrom([
       { id: "p1", name: "x" },
-      { id: "p2", name: "y", protocol: "gemini" },
+      { id: "p2", name: "y", protocol: "unknown-proto" },
       { id: "p3", name: "z", protocol: "" },
       // "responses"：适配器已移除，词表同步摘除后按未知值不落盘。
       { id: "p4", name: "w", protocol: "responses" }

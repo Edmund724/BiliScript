@@ -79,10 +79,18 @@ function planAnthropicRow({ facts, thinking }: ThinkingPlanInput): ThinkingWireO
   });
 }
 
+function planGeminiRow({ facts, thinking }: ThinkingPlanInput): ThinkingWireOutput {
+  return THINKING_WIRE_MAPS.gemini({
+    vocabulary: thinking.vocabulary,
+    model: facts.model
+  });
+}
+
 // 分发以协议为键：`Record<AiProtocol, …>` 编译期强制覆盖（新增协议漏登记即红）。
 const PLANNING_ROWS: Record<AiProtocol, (input: ThinkingPlanInput) => ThinkingWireOutput> = {
   openai: planOpenAiRow,
-  anthropic: planAnthropicRow
+  anthropic: planAnthropicRow,
+  gemini: planGeminiRow
 };
 
 /**

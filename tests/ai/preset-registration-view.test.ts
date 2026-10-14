@@ -259,12 +259,12 @@ describe("⑤「事实源未注入」不被 falsy 默认吞掉", () => {
 });
 
 describe("⑥ 有意缺口与欠账互相冒充（白名单是唯一判据）", () => {
-  it("今天的有意缺口只有 custom，且恰两面（冻结：新增即须显式复核）", () => {
+  it("今天的有意缺口包含 custom 与过渡态 gemini（冻结：新增即须显式复核）", () => {
     const rows = reportOf().rows;
     const intentional = rows
       .filter((row) => row.faces.some((face) => face.status === "intentional-gap"))
       .map((row) => row.platformId);
-    expect(intentional).toEqual(["custom"]);
+    expect(intentional.sort()).toEqual(["custom", "gemini"].sort());
     const custom = viewOf("custom");
     expect(
       custom.faces.filter((face) => face.status === "intentional-gap").map((face) => face.face)
@@ -480,7 +480,7 @@ describe("端点面（测试手抄 id 清单的派生替代）", () => {
 
   it("baseUrl 为空的自定义端点预设：端点面是有意缺口，不报 /v1 类欠账", () => {
     const endpoints = faceOf(viewOf("custom"), "protocolEndpoints").endpoints ?? [];
-    expect(endpoints.map((endpoint) => endpoint.source)).toEqual(["none", "none"]);
+    expect(endpoints.map((endpoint) => endpoint.source)).toEqual(["none", "none", "none"]);
     expect(endpoints.every((endpoint) => endpoint.fallbackRepeatsV1)).toBe(false);
   });
 });

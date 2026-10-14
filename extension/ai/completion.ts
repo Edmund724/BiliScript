@@ -329,7 +329,7 @@ export async function chatCompletion({
     let sentBudget = effectiveMaxTokens;
     let retreatedTo: number | null = null;
     for (;;) {
-      const response = await fetchImpl(adapter.endpoint(baseUrl), {
+      const response = await fetchImpl(adapter.endpoint(baseUrl, { model, stream }), {
         method: "POST",
         headers,
         body: JSON.stringify(body),

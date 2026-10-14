@@ -91,10 +91,15 @@ export interface AnthropicWireInput extends ThinkingWireInput {
   effortVocabularyOnly: boolean;
 }
 
+export interface GeminiWireInput extends ThinkingWireInput {
+  model?: string;
+}
+
 /** 写法层的逐协议入参（协议 → 该行真读的字段）。新增协议 = 这里与分发表各登记一行（漏了即红）。 */
 export interface ThinkingWireInputs {
   openai: OpenAiWireInput;
   anthropic: AnthropicWireInput;
+  gemini: GeminiWireInput;
 }
 
 /** 出参：本协议要并入请求体的思考字段 + 本协议的 token 上限参数名。 */
@@ -848,9 +853,18 @@ function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
   return output;
 }
 
+function geminiWireMap(_input: GeminiWireInput): ThinkingWireOutput {
+  return {
+    fields: {},
+    tokenParam: "maxOutputTokens"
+  };
+}
+
 // 键集合必须覆盖词表叶（按 AiProtocol 的映射类型是编译期强制：新增协议漏登记即红；
 // 逐协议入参 ThinkingWireInputs 漏一行同样即红）。
 export const THINKING_WIRE_MAPS: { [K in AiProtocol]: ThinkingWireMap<K> } = {
   openai: openaiWireMap,
-  anthropic: anthropicWireMap
+  anthropic: anthropicWireMap,
+  gemini: geminiWireMap
 };
+
