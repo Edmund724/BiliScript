@@ -32,7 +32,7 @@ import { resolvePlatformQuirkId } from "./platform-quirk-id.js";
 import { resolveThinkingProfile, resolveThinkingProviderId, type ThinkingResolution } from "./thinking-profiles.js";
 import { THINKING_WIRE_MAPS, type ThinkingWireOutput } from "./thinking-wire-map.js";
 import type { AiProtocol } from "./protocol-vocab.js";
-import type { ThinkingLevelInput } from "./thinking-levels.js";
+import { normalizeThinkingLevel, type ThinkingLevelInput } from "./thinking-levels.js";
 
 /** 装配边的入参：协议无关的请求事实（协议是分发键，档位是未归一的外部值）。 */
 export interface ThinkingRequestFacts {
@@ -82,7 +82,8 @@ function planAnthropicRow({ facts, thinking }: ThinkingPlanInput): ThinkingWireO
 function planGeminiRow({ facts, thinking }: ThinkingPlanInput): ThinkingWireOutput {
   return THINKING_WIRE_MAPS.gemini({
     vocabulary: thinking.vocabulary,
-    model: facts.model
+    model: facts.model,
+    level: normalizeThinkingLevel(facts.level)
   });
 }
 

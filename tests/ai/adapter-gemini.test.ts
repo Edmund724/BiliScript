@@ -350,3 +350,198 @@ describe("geminiAdapter: parseResponse 非流式解析", () => {
     ).toThrow("NOT_FOUND: Model not found");
   });
 });
+
+describe("geminiAdapter: thinking 双轨全档位 × 全模型家族表驱动用例", () => {
+  const MATRIX: Array<{
+    model: string;
+    level: string | undefined;
+    expectedConfig?: Record<string, unknown>;
+  }> = [
+    // --- gemini-3 系列 (离散 thinkingLevel) ---
+    { model: "gemini-3-flash", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
+    { model: "gemini-3-flash", level: "minimal", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: true } },
+    { model: "gemini-3-flash", level: "low", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
+    { model: "gemini-3-flash", level: "medium", expectedConfig: { thinkingLevel: "MEDIUM", includeThoughts: true } },
+    { model: "gemini-3-flash", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    { model: "gemini-3-flash", level: "xhigh", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    { model: "gemini-3-flash", level: "max", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    { model: "gemini-3-flash", level: "default", expectedConfig: undefined },
+    { model: "gemini-3-flash", level: undefined, expectedConfig: undefined },
+
+    // --- gemini-flash-latest / lite / gemma-4 系列 (离散 thinkingLevel) ---
+    { model: "gemini-flash-latest", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
+    { model: "gemini-flash-latest", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    { model: "gemini-flash-lite-latest", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
+    { model: "gemini-flash-lite-latest", level: "low", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
+    { model: "gemma-4-27b-it", level: "medium", expectedConfig: { thinkingLevel: "MEDIUM", includeThoughts: true } },
+
+    // --- gemini-2.5-pro (数值 thinkingBudget) ---
+    { model: "gemini-2.5-pro", level: "off", expectedConfig: { thinkingBudget: 0, includeThoughts: false } },
+    { model: "gemini-2.5-pro", level: "minimal", expectedConfig: { thinkingBudget: 128, includeThoughts: true } },
+    { model: "gemini-2.5-pro", level: "low", expectedConfig: { thinkingBudget: 2048, includeThoughts: true } },
+    { model: "gemini-2.5-pro", level: "medium", expectedConfig: { thinkingBudget: 8192, includeThoughts: true } },
+    { model: "gemini-2.5-pro", level: "high", expectedConfig: { thinkingBudget: 32768, includeThoughts: true } },
+    { model: "gemini-2.5-pro", level: "xhigh", expectedConfig: { thinkingBudget: 32768, includeThoughts: true } },
+    { model: "gemini-2.5-pro", level: "max", expectedConfig: { thinkingBudget: 32768, includeThoughts: true } },
+    { model: "gemini-2.5-pro", level: "default", expectedConfig: undefined },
+
+    // --- gemini-2.5-flash (数值 thinkingBudget) ---
+    { model: "gemini-2.5-flash", level: "off", expectedConfig: { thinkingBudget: 0, includeThoughts: false } },
+    { model: "gemini-2.5-flash", level: "minimal", expectedConfig: { thinkingBudget: 128, includeThoughts: true } },
+    { model: "gemini-2.5-flash", level: "low", expectedConfig: { thinkingBudget: 2048, includeThoughts: true } },
+    { model: "gemini-2.5-flash", level: "medium", expectedConfig: { thinkingBudget: 8192, includeThoughts: true } },
+    { model: "gemini-2.5-flash", level: "high", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
+    { model: "gemini-2.5-flash", level: "xhigh", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
+    { model: "gemini-2.5-flash", level: "max", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
+
+    // --- gemini-2.5-flash-lite (数值 thinkingBudget) ---
+    { model: "gemini-2.5-flash-lite", level: "off", expectedConfig: { thinkingBudget: 0, includeThoughts: false } },
+    { model: "gemini-2.5-flash-lite", level: "minimal", expectedConfig: { thinkingBudget: 512, includeThoughts: true } },
+    { model: "gemini-2.5-flash-lite", level: "low", expectedConfig: { thinkingBudget: 2048, includeThoughts: true } },
+    { model: "gemini-2.5-flash-lite", level: "medium", expectedConfig: { thinkingBudget: 8192, includeThoughts: true } },
+    { model: "gemini-2.5-flash-lite", level: "high", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
+    { model: "gemini-2.5-flash-lite", level: "xhigh", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
+    { model: "gemini-2.5-flash-lite", level: "max", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
+
+    // --- 其它 / 未识别模型家族（动态 -1） ---
+    { model: "gemini-4-experimental", level: "off", expectedConfig: { thinkingBudget: 0, includeThoughts: false } },
+    { model: "gemini-4-experimental", level: "minimal", expectedConfig: { thinkingBudget: 128, includeThoughts: true } },
+    { model: "gemini-4-experimental", level: "low", expectedConfig: { thinkingBudget: 2048, includeThoughts: true } },
+    { model: "gemini-4-experimental", level: "medium", expectedConfig: { thinkingBudget: 8192, includeThoughts: true } },
+    { model: "gemini-4-experimental", level: "high", expectedConfig: { thinkingBudget: -1, includeThoughts: true } },
+    { model: "gemini-4-experimental", level: "xhigh", expectedConfig: { thinkingBudget: -1, includeThoughts: true } },
+    { model: "gemini-4-experimental", level: "max", expectedConfig: { thinkingBudget: -1, includeThoughts: true } },
+    { model: "gemini-4-experimental", level: "default", expectedConfig: undefined }
+  ];
+
+  for (const row of MATRIX) {
+    it(`模型 ${row.model} × 档位 ${row.level ?? "undefined"} 映射正确`, () => {
+      const body = geminiAdapter.buildBody({
+        model: row.model,
+        baseUrl: "https://generativelanguage.googleapis.com",
+        stream: true,
+        probe: false,
+        thinkingLevel: row.level as any,
+        messages: [{ role: "user", content: "Hi" }]
+      });
+
+      const genConfig = body.generationConfig as Record<string, unknown> | undefined;
+      if (row.expectedConfig) {
+        expect(genConfig?.thinkingConfig).toEqual(row.expectedConfig);
+      } else {
+        expect(genConfig?.thinkingConfig).toBeUndefined();
+      }
+    });
+  }
+});
+
+describe("geminiAdapter: thought 块与 thoughtSignature 保留与回放", () => {
+  it("SSE 流中 thought: true 块触发 onEvent({ type: 'reasoning' })，content 只保留非 thought 块", async () => {
+    const events: StreamChatEvent[] = [];
+    const response = sseResponse([
+      geminiSseData({
+        candidates: [{
+          content: {
+            parts: [
+              { text: "Thinking process...", thought: true },
+              { text: "Answer start " }
+            ]
+          }
+        }]
+      }),
+      geminiSseData({
+        candidates: [{
+          content: {
+            parts: [
+              { text: "and finish.", thought: false }
+            ]
+          },
+          finishReason: "STOP"
+        }],
+        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 15, thoughtsTokenCount: 5 }
+      })
+    ]);
+
+    const result = await geminiAdapter.drainStream(response, {
+      onEvent: (e) => events.push(e)
+    });
+
+    expect(result.content).toBe("Answer start and finish.");
+    expect(result.finishReason).toBe("stop");
+    expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 20, reasoningTokens: 5 });
+    expect(events).toEqual([
+      { type: "reasoning", data: "Thinking process..." },
+      { type: "token", data: "Answer start " },
+      { type: "token", data: "and finish." }
+    ]);
+  });
+
+  it("流式与非流式解析正确保留 thoughtSignature", async () => {
+    const sseResp = sseResponse([
+      geminiSseData({
+        candidates: [{
+          content: {
+            parts: [
+              { text: "thought", thought: true, thoughtSignature: "sig_stream_123" },
+              { text: "answer" }
+            ]
+          },
+          finishReason: "STOP"
+        }]
+      })
+    ]);
+    const streamResult = await geminiAdapter.drainStream(sseResp, {});
+    expect(streamResult.thoughtSignature).toBe("sig_stream_123");
+
+    const nonStreamResult = geminiAdapter.parseResponse({
+      candidates: [{
+        content: {
+          parts: [
+            { text: "thought", thought: true, thoughtSignature: "sig_json_456" },
+            { text: "answer" }
+          ]
+        },
+        finishReason: "STOP"
+      }]
+    });
+    expect(nonStreamResult.thoughtSignature).toBe("sig_json_456");
+    expect(nonStreamResult.content).toBe("answer");
+  });
+
+  it("buildBody: 带 thoughtSignature 的 part 原样保留不合并，空 text 仅在无 signature 时丢弃", () => {
+    const body = geminiAdapter.buildBody({
+      model: "gemini-3-flash",
+      baseUrl: "https://generativelanguage.googleapis.com",
+      stream: true,
+      probe: false,
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          parts: [
+            { text: "", thought: true, thoughtSignature: "sig_empty_thought" },
+            { text: "" }, // 空 text 且无 signature -> 丢弃
+            { text: "non-empty part" }
+          ]
+        },
+        {
+          role: "assistant",
+          content: "",
+          thoughtSignature: "sig_direct_msg"
+        }
+      ]
+    });
+
+    expect(body.contents).toEqual([
+      {
+        role: "model",
+        parts: [
+          { text: "", thought: true, thoughtSignature: "sig_empty_thought" },
+          { text: "non-empty part" },
+          { text: "", thoughtSignature: "sig_direct_msg" }
+        ]
+      }
+    ]);
+  });
+});
+

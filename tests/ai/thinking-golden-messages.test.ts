@@ -297,6 +297,12 @@ const OFF_CELL_REPRESENTATIVES: Readonly<
     model: "llama3",
     expect: { thinking: { type: "disabled" } },
     note: "custom 直填 baseUrl → host 索引命中 siliconflow，unknownClass siliconflow-switch 的 off 写点"
+  },
+  gemini: {
+    presetId: "gemini",
+    model: "gemini-2.5-flash",
+    expect: {},
+    note: "非 Messages 平台（构造性不适用，不发字段）"
   }
 };
 
@@ -451,6 +457,13 @@ const TIER_CELL_REPRESENTATIVES: Readonly<
     level: "low",
     expect: { output_config: { effort: "low" } },
     note: "手写兜底行（目录行是 toggle 型）→ 端点未登记档位字段，产品裁定发裸 effort"
+  },
+  gemini: {
+    presetId: "gemini",
+    model: "gemini-2.5-flash",
+    level: "low",
+    expect: {},
+    note: "非 Messages 平台（构造性不适用，不发字段）"
   }
 };
 

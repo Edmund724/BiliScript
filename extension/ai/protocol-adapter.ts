@@ -65,6 +65,8 @@ export interface DrainResult {
   // 响应 usage（ai-usage-telemetry T1，可选）：各 adapter 按自身协议形状解析归一，
   // 平台未给/形状不符即缺省——缺省即今天的行为，判定路径零变化。
   usage?: ChatUsage;
+  /** Gemini thinking 签名（thoughtSignature）：原样保留供后续回放 */
+  thoughtSignature?: string;
 }
 
 export interface DrainContext {

@@ -4,6 +4,7 @@ import { makeAbortedError } from "../../shared/error-helpers.js";
 import type { ChatRequest, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatToolCall, ChatUsage } from "../types.js";
 import type { CompatQuirk } from "../compat-vocab.js";
+import { planThinkingWire } from "../plan-thinking.js";
 
 export const GEMINI_ERROR_FINISH_REASONS = new Set([
   "SAFETY",
@@ -102,28 +103,78 @@ export function buildGeminiEndpoint(baseUrl: string, options?: { model?: string;
 
 /** 请求体组装：camelCase 强要求（systemInstruction 顶层且只取首条、maxOutputTokens 落 generationConfig） */
 export function buildGeminiRequestBody(request: ChatRequest): Record<string, unknown> {
-  const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
+  const contents: Array<{ role: "user" | "model"; parts: Array<Record<string, unknown>> }> = [];
 
-  const systemMsg = request.messages.find((m) => m.role === "system");
+  const firstSystemIndex = request.messages.findIndex((m) => m.role === "system");
+  const systemMsg = firstSystemIndex !== -1 ? request.messages[firstSystemIndex] : undefined;
   const systemInstruction =
     systemMsg && typeof systemMsg.content === "string" && systemMsg.content.trim()
       ? { parts: [{ text: systemMsg.content }] }
       : undefined;
 
+  let hasEncounteredNonSystem = false;
   for (const msg of request.messages) {
-    if (msg.role === "system") continue;
-    const role: "user" | "model" = msg.role === "assistant" ? "model" : "user";
-    const text = typeof msg.content === "string" ? msg.content : "";
-    if (contents.length > 0 && contents[contents.length - 1].role === role) {
-      contents[contents.length - 1].parts.push({ text });
+    if (msg.role === "system") {
+      if (!hasEncounteredNonSystem) {
+        continue;
+      }
     } else {
-      contents.push({ role, parts: [{ text }] });
+      hasEncounteredNonSystem = true;
+    }
+
+    const role: "user" | "model" = msg.role === "assistant" ? "model" : "user";
+    const msgParts: Array<Record<string, unknown>> = [];
+
+    if (Array.isArray(msg.parts) && msg.parts.length > 0) {
+      for (const rawPart of msg.parts) {
+        if (!rawPart || typeof rawPart !== "object") continue;
+        const p = rawPart as Record<string, unknown>;
+        if (p.thoughtSignature) {
+          msgParts.push({ ...p });
+        } else if (typeof p.text === "string") {
+          if (p.text !== "") {
+            msgParts.push({ ...p });
+          }
+        } else {
+          msgParts.push({ ...p });
+        }
+      }
+    } else {
+      if (msg.thoughtSignature) {
+        msgParts.push({
+          ...(typeof msg.content === "string" ? { text: msg.content } : { text: "" }),
+          thoughtSignature: msg.thoughtSignature
+        });
+      } else if (typeof msg.content === "string" && msg.content !== "") {
+        msgParts.push({ text: msg.content });
+      }
+    }
+
+    if (msgParts.length === 0) continue;
+
+    if (contents.length > 0 && contents[contents.length - 1].role === role) {
+      contents[contents.length - 1].parts.push(...msgParts);
+    } else {
+      contents.push({ role, parts: msgParts });
     }
   }
 
+  const wire = planThinkingWire({
+    protocol: "gemini",
+    model: request.model,
+    presetId: request.presetId,
+    baseUrl: request.baseUrl,
+    level: request.thinkingLevel,
+    stream: request.stream,
+    probe: request.probe === true
+  });
+
   const generationConfig: Record<string, unknown> = {};
+  if (wire.fields.thinkingConfig) {
+    generationConfig.thinkingConfig = wire.fields.thinkingConfig;
+  }
   if (typeof request.maxTokens === "number" && Number.isFinite(request.maxTokens)) {
-    generationConfig.maxOutputTokens = request.maxTokens;
+    generationConfig[wire.tokenParam] = request.maxTokens;
   }
 
   const body: Record<string, unknown> = {
@@ -149,6 +200,7 @@ export async function drainGeminiSseStream(response: Response, ctx: DrainContext
   let content = "";
   let finishReason: string | null = null;
   let usage: ChatUsage | undefined;
+  let thoughtSignature: string | undefined;
   const toolCalls: ChatToolCall[] = [];
 
   const processLine = (rawLine: string) => {
@@ -181,7 +233,14 @@ export async function drainGeminiSseStream(response: Response, ctx: DrainContext
         const parts = candidate.content?.parts;
         if (Array.isArray(parts)) {
           for (const part of parts) {
-            if (typeof part.text === "string" && part.text) {
+            if (typeof part.thoughtSignature === "string") {
+              thoughtSignature = part.thoughtSignature;
+            }
+            if (part.thought === true) {
+              if (typeof part.text === "string" && part.text) {
+                ctx.onEvent?.({ type: "reasoning", data: part.text });
+              }
+            } else if (typeof part.text === "string" && part.text) {
               content += part.text;
               ctx.onEvent?.({ type: "token", data: part.text });
             }
@@ -219,7 +278,8 @@ export async function drainGeminiSseStream(response: Response, ctx: DrainContext
     content,
     toolCalls,
     finishReason,
-    ...(usage ? { usage } : {})
+    ...(usage ? { usage } : {}),
+    ...(thoughtSignature ? { thoughtSignature } : {})
   };
 }
 
@@ -234,6 +294,7 @@ export function parseGeminiResponse(json: unknown): DrainResult {
 
   let content = "";
   let finishReason: string | null = null;
+  let thoughtSignature: string | undefined;
   const toolCalls: ChatToolCall[] = [];
 
   const candidates = Array.isArray(data.candidates) ? data.candidates : [];
@@ -246,6 +307,12 @@ export function parseGeminiResponse(json: unknown): DrainResult {
     if (Array.isArray(parts)) {
       for (const part of parts) {
         const p = part as Record<string, unknown>;
+        if (typeof p.thoughtSignature === "string") {
+          thoughtSignature = p.thoughtSignature;
+        }
+        if (p.thought === true) {
+          continue;
+        }
         if (typeof p.text === "string") {
           content += p.text;
         }
@@ -258,7 +325,8 @@ export function parseGeminiResponse(json: unknown): DrainResult {
     content,
     toolCalls,
     finishReason,
-    ...(usage ? { usage } : {})
+    ...(usage ? { usage } : {}),
+    ...(thoughtSignature ? { thoughtSignature } : {})
   };
 }
 

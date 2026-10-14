@@ -31,7 +31,8 @@ export const PLATFORM_IDENTITY_KEYS = [
   "siliconflow",
   "amd",
   "sensenova",
-  "opencodego"
+  "opencodego",
+  "gemini"
 ] as const;
 
 export type PlatformKey = (typeof PLATFORM_IDENTITY_KEYS)[number];

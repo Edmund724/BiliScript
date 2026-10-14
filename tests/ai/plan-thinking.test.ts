@@ -134,6 +134,36 @@ const CASES: readonly WireCase[] = [
     facts: { protocol: "anthropic", model: "no-such-model-xyz", ...CUSTOM, level: "high", stream: true, probe: false },
     fields: {},
     tokenParam: "max_tokens"
+  },
+  {
+    name: "gemini · gemini-3 系列 high 档：thinkingLevel: HIGH, includeThoughts: true",
+    facts: { protocol: "gemini", model: "gemini-3-flash", ...CUSTOM, level: "high", stream: true, probe: false },
+    fields: { thinkingConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    tokenParam: "maxOutputTokens"
+  },
+  {
+    name: "gemini · gemini-3 系列 off 档：伪关闭 MINIMAL + includeThoughts: false",
+    facts: { protocol: "gemini", model: "gemini-3-flash", ...CUSTOM, level: "off", stream: true, probe: false },
+    fields: { thinkingConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
+    tokenParam: "maxOutputTokens"
+  },
+  {
+    name: "gemini · gemini-2.5-flash medium 档：thinkingBudget: 8192, includeThoughts: true",
+    facts: { protocol: "gemini", model: "gemini-2.5-flash", ...CUSTOM, level: "medium", stream: true, probe: false },
+    fields: { thinkingConfig: { thinkingBudget: 8192, includeThoughts: true } },
+    tokenParam: "maxOutputTokens"
+  },
+  {
+    name: "gemini · gemini-2.5-flash off 档：0 + includeThoughts: false",
+    facts: { protocol: "gemini", model: "gemini-2.5-flash", ...CUSTOM, level: "off", stream: true, probe: false },
+    fields: { thinkingConfig: { thinkingBudget: 0, includeThoughts: false } },
+    tokenParam: "maxOutputTokens"
+  },
+  {
+    name: "gemini · default 档（不干预）：一个字段都不发",
+    facts: { protocol: "gemini", model: "gemini-3-flash", ...CUSTOM, level: "default", stream: true, probe: false },
+    fields: {},
+    tokenParam: "maxOutputTokens"
   }
 ];
 

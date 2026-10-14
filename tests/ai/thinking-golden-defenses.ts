@@ -19,6 +19,8 @@ import { describe, expect, it } from "vitest";
 import { hasArtifact } from "../helpers/artifacts.js";
 import { VALUESETS } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, resolveThinkingAdjustment, type ThinkingLevel } from "../../extension/ai/thinking-profiles.js";
+import { MESSAGES_TIER_EXIT } from "../../extension/ai/thinking-wire-map.js";
+import type { PlatformKey } from "../../extension/ai/platform-identity-vocab.js";
 import {
   COVERAGE_HEADER,
   COVERAGE_MATRIX,
@@ -118,7 +120,12 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
         if (!signatures.has(case_.valuesetId)) signatures.set(case_.valuesetId, new Set());
         signatures.get(case_.valuesetId)!.add(fieldsSignature(case_.fields));
       }
-      const realizations = productRealizations();
+      const realizations = productRealizations().filter((r) => {
+        if (channel === "anthropic") {
+          return MESSAGES_TIER_EXIT[r.presetId as PlatformKey]?.kind !== "non-messages";
+        }
+        return true;
+      });
       expect(realizations.length).toBeGreaterThanOrEqual(80);
       for (const realization of realizations) {
         const actual = AI_THINKING_LEVELS.map((level) => fieldsAt(harness, realization.presetId, realization.model, level));
@@ -169,6 +176,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
     it("effort 血统：low/high 都在 A' 时请求体必须不同（不允许塌陷）", () => {
       let checked = 0;
       for (const realization of productRealizations()) {
+        if (channel === "anthropic" && MESSAGES_TIER_EXIT[realization.presetId as PlatformKey]?.kind === "non-messages") continue;
         if (!VALUESETS[realization.valuesetId]?.effort) continue;
         const available = availableOf(harness, realization.presetId, realization.model);
         if (!available.includes("low") || !available.includes("high")) continue;
@@ -184,6 +192,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
     it("开关型 / budget-only 血统：low==high 是上游事实（无 effort 词表可发）", () => {
       let checked = 0;
       for (const realization of productRealizations()) {
+        if (channel === "anthropic" && MESSAGES_TIER_EXIT[realization.presetId as PlatformKey]?.kind === "non-messages") continue;
         if (VALUESETS[realization.valuesetId]?.effort) continue;
         // 18 号票删平台声明后没有例外平台：toggle 值集只在已登记开关形状的平台上产生
         // 写点（未登记的 → A' = ∅，被下面的 available 判据跳过）。
