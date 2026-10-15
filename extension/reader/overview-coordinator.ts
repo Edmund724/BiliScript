@@ -136,7 +136,7 @@ function buildOverviewContext(): Record<string, unknown> {
 // 渲染闸门与快照投影
 // ============================================================
 
-export function renderReadingOverviewNow(): void {
+function renderReadingOverviewNow(): void {
   renderReadingOverview(getReaderOverviewSnapshot());
 }
 

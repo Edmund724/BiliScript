@@ -20,7 +20,7 @@ import { isReaderTranscribing } from "./transcribe-banner.js";
 import { jumpReadingTarget } from "./sync.js";
 import { withReader } from "../ui/reader-gate.js";
 import type { AnalysisChapter, AnalysisQuote } from "../ai/analysis.js";
-import type { ReaderOverviewPhase, ReaderOverviewSnapshot } from "./overview-coordinator.js";
+import type { ReaderOverviewSnapshot } from "./overview-coordinator.js";
 
 export interface OverviewUiActions {
   retry: () => void;
@@ -86,7 +86,7 @@ export function renderReadingOverview(snapshot: ReaderOverviewSnapshot): void {
   body.innerHTML = buildOverviewBodyHtml(snapshot);
 }
 
-export function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
+function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
   switch (snapshot.phase) {
     case "empty":
       return buildEmptyStateHtml();
