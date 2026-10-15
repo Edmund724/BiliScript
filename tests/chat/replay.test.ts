@@ -34,8 +34,8 @@ function makeFakeTurn(log: string[], slug: string) {
   const turn: ChatAssistantTurn = {
     appendToken: vi.fn(),
     appendThinking: vi.fn(),
-    resetStream: vi.fn(),
-    cancelPendingFrame: vi.fn(),
+    reset: vi.fn(),
+    discard: vi.fn(),
     finish: vi.fn(() => {
       record("finish");
       return "";

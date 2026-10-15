@@ -69,15 +69,15 @@ export interface ChatAssistantTurn {
   appendToken: (token: unknown) => void;
   /** 灌入思考增量；本回合尚无打开的思考节点时新建（token 后的收尾 reasoning 新建第二个）。 */
   appendThinking: (text: unknown) => void;
-  /** 重置流式（读流中断重试整体重放）：清已渲染容器 / 思考盒 / 时间线卡与累加器，光标归位。 */
-  resetStream: () => void;
-  /** 取消本回合挂起的流式渲染帧（终态收口 / 拆除级清场）。 */
-  cancelPendingFrame: () => void;
-  /** 收尾成终态形态（正文 + 操作行，折叠思考行）；返回本次渲染所用原文。 */
+  /** 重置流式（读流中断重试整体重放）：清已渲染容器 / 思考盒 / 时间线卡与累加器，内部自动取消挂起帧，光标归位。 */
+  reset: () => void;
+  /** 丢弃在途回合（拆除清场）：内部自动取消挂起渲染帧并释放累加器，不破坏已落定 DOM。 */
+  discard: () => void;
+  /** 收尾成终态形态（正文 + 操作行，折叠思考行；内部自动取消挂起帧）；返回本次渲染所用原文。 */
   finish: (opts?: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[] }) => string;
-  /** 挂错误占位（清空节点内容，只留给定文案）。 */
+  /** 挂错误占位（内部自动取消挂起帧；清空节点内容，只留给定文案）。 */
   fail: (text: string) => void;
-  /** 挂停止态：有正文则收尾成形态 + 停止徽标；无正文清空节点只留徽标。 */
+  /** 挂停止态：内部自动取消挂起帧；有正文则收尾成形态 + 停止徽标，无正文清空节点只留徽标。 */
   stop: (reason: string, opts?: { userPrompt?: string }) => { raw: string; body: boolean };
   /** 挂截断徽标（收尾之后追加，位置与停止徽标一致）。 */
   markTruncated: (text: string) => void;
@@ -194,7 +194,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // 5×12 灰块）。三个点是光标的**子节点**：tail 每帧整体重写 innerHTML（flush 里的
   // `tailEl.innerHTML = …`），任何兄弟节点当场被清掉；只有随光标整体搬运的子节点
   // 能活过每帧重写——搬运点有两处，都搬的是同一个节点，形态不变：flush 每帧
-  // `tailEl.appendChild(cursor)`、resetStream 的 `node.appendChild(cursor)`。
+  // `tailEl.appendChild(cursor)`、reset 的 `node.appendChild(cursor)`。
   function createStreamCursor(): HTMLSpanElement {
     const cursor = document.createElement("span");
     cursor.className = "chat-msg-cursor";
@@ -1071,12 +1071,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       appendThinkingText(thinkingNode, text);
     }
 
-    // 重置流式（读流中断重试：整体重放）：清空本条消息的流式缓冲与已渲染内容，
+    // 重置流式（读流中断重试：整体重放 / 拆除级重置）：清空本条消息的流式缓冲与已渲染内容，
     // 从头接收重试流——取消挂起 flush、重置 token 累加器（base/pending 清零）、
     // 移除 stable/tail 容器与思考节点（光标先摘下来放回节点末尾，flush 时机随
     // 下一帧恢复）、清时间线卡（整体重放含重新搜索）；思考节点随下一个 reasoning
     // 事件重建。不走收口六步：流并未终止（port 不断开、流式 UI 不退出）。
-    function resetStream(): void {
+    function reset(): void {
       cancelTokenFlush();
       resetTokenStreamState(node);
       const cursor = node.querySelector(".chat-msg-cursor");
@@ -1089,21 +1089,28 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       thinkingEnded = false;
     }
 
-    // 收尾成终态形态：raw 缺省 = 本回合累计原文（live 路径），回放显式传历史正文；
-    // sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），回放显式传来源
-    //（含空数组），不触发这条消费副作用。
+    // 收尾成终态形态：自动取消挂起的流式渲染帧（原 endStream 步骤①，内收至此，
+    // 确保终态 DOM 物化前旧帧彻底作废）；raw 缺省 = 本回合累计原文（live 路径），
+    // 回放显式传历史正文；sources 缺省 = 本回合累计来源（live：顺带收走悬停预览卡），
+    // 回放显式传来源（含空数组），不触发这条消费副作用。
     function finish({ raw, userPrompt = "", sources }: { raw?: unknown; userPrompt?: string; sources?: ChatSearchSource[] } = {}): string {
+      cancelTokenFlush();
       const text = raw === undefined ? getStreamRaw(node) : String(raw ?? "");
       renderAssistantMessage(node, text, { userPrompt, sources: sources ?? takeTurnSearchSources(node) });
       return text;
     }
 
+    // 挂错误占位：自动取消挂起的流式渲染帧；清空节点内容，只留给定文案。
     function fail(text: string): void {
+      cancelTokenFlush();
       node.innerHTML = "";
       appendBadge(node, "chat-msg-error", text);
     }
 
+    // 挂停止态：自动取消挂起的流式渲染帧；
+    // 有正文则收尾成形态 + 停止徽标；无正文清空节点只留徽标。
     function stop(reason: string, { userPrompt = "" }: { userPrompt?: string } = {}): { raw: string; body: boolean } {
+      cancelTokenFlush();
       const text = getStreamRaw(node);
       const label = reason || "已停止生成";
       if (text.trim()) {
@@ -1130,11 +1137,17 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       deps.messages.insertBefore(buildSearchTimelineCard(turn), node);
     }
 
+    // 丢弃在途回合（拆除清场）：取消挂起渲染帧并释放累加器，不破坏节点已有 DOM。
+    function discard(): void {
+      cancelTokenFlush();
+      resetTokenStreamState(node);
+    }
+
     return {
       appendToken,
       appendThinking,
-      resetStream,
-      cancelPendingFrame: cancelTokenFlush,
+      reset,
+      discard,
       finish,
       fail,
       stop,
