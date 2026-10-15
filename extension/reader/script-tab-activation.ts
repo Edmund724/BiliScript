@@ -19,10 +19,10 @@
 //      overview → reader 域的 ensureReaderOverviewTab（经既有 ensureReaderDomain
 //      懒缝取用，不新增静态边）
 //
-// 串行队列与 reader/shell.ts 的进入/退出事务单飞队列同构：后到调用等先到调用
-// 落定（含失败）再起跑，每个调用自己的 promise 在其激活落定后 resolve。二级
-// 激活失败只 logWarn、不污染队列（promise 照常 resolve）——与收口前 ui-renderer
-// 的 logWarn-only 口径一致（对话/概览不可用不拖垮另一 tab）。
+// 串行队列复用 reader/serial-queue.ts 单源：与 reader/shell.ts 事务队列各自持有独立
+// 实例。语义：后到调用等先到调用落定（含失败）再起跑，每个调用自己的 promise 在其
+// 激活落定后 resolve。二级激活失败只 logWarn、不污染队列（promise 照常 resolve）
+// ——与收口前 ui-renderer 的 logWarn-only 口径一致（对话/概览不可用不拖垮另一 tab）。
 //
 // 反向槽（ui → reader 意图上报）：tab 按钮与面板 DOM 都在 ui 壳里，点击是「用户
 // 意图」而非状态写手，壳经 reader-bus 的 reportTabIntent 上报，本模块在模块求值
@@ -37,6 +37,7 @@
 import { logWarn } from "../shared/logging.js";
 import { requestUiCommand, subscribeTabIntent } from "./reader-bus.js";
 import { saveReaderScriptTab } from "./script-tab-persistence.js";
+import { createSerialQueue } from "./serial-queue.js";
 import { setReaderActiveScriptTab, type ReaderScriptTab } from "./state.js";
 // 二级激活对象都在 reader 域内：对话组合根走既有二级惰性缝（本模块不静态依赖
 // chat-tab 重域）；reader 域走既有 ensureReaderDomain 懒缝（与收口前 ui 侧
@@ -55,9 +56,8 @@ export interface ActivateScriptTabOptions {
 //（reader/lazy-reader.ts 的 ReaderDomain = typeof import 真身），
 // ensureReaderOverviewTab 按其签名直取，不再需要交叉收口 cast。
 
-// 串行队列（promise 链顺延）：settled 先于任何 await 同步捕获链头，后到调用不会
-// 等错前序；前序失败不阻断后序。
-let activationChain: Promise<void> = Promise.resolve();
+// 串行队列（复用 reader/serial-queue.ts 单源实例）：并发调用排队，前序失败不阻断后序。
+const activationQueue = createSerialQueue();
 
 /**
  * 切到某标签并激活（唯一入口，禁止各自手抄状态位/持久化/投影/二级激活组合）。
@@ -67,13 +67,9 @@ export function activateScriptTab(
   tab: ReaderScriptTab,
   { consumeIntent = true, persist = true }: ActivateScriptTabOptions = {}
 ): Promise<void> {
-  const settled = activationChain.catch(() => {});
-  const next = (async () => {
-    await settled;
-    await runActivation(tab, { consumeIntent, persist });
-  })();
-  activationChain = next.catch(() => {});
-  return next;
+  return activationQueue.enqueue(() =>
+    runActivation(tab, { consumeIntent, persist })
+  );
 }
 
 async function runActivation(
