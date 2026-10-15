@@ -426,7 +426,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 /* 内容区（tab-body）透明直露雾底：灰内容卡与雾壳是两层料，实机上有可见
  * 色差（用户报「应该是融为一体」）；透明后全面板只有一层雾底，白玻璃凸起
- * 卡靠灰差浮出。字幕行透明落雾底，历史条目等 --card 白卡自动读作凸起层。 */
+ * 卡靠灰差浮出。字幕行、历史对话条目透明落雾底，状态靠整行 wash 表达。 */
 #biliscript-reading-view .biliscript-reading-tab-body {
   background: transparent;
 }

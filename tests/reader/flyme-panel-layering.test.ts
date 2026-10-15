@@ -15,15 +15,16 @@
 // 3. 分段控件槽体透明、与雾底融为一体：无槽底、无内阴影，只有选中项浮起
 //    白玻璃 pill + accent 字（reader-gate.css 的蓝雾壳段覆写）；
 //    pill-bg token 留在色板里服务解释卡关闭键 hover 等消费方，值不变。
-// 4. 历史对话整页透明、条目（.chat-history-item）用 surface-2 灰分层：
-//    历史页直露与对话内容区相同的雾底（用户裁定「历史页不应有单独背景色」），
-//    条目底色取 surface-2 灰在其上读出；描边 transparent
-//   （保留 1px 几何，is-live-match 换 accent 边时布局不跳）。
+// 4. 历史对话条目（.chat-history-item）无界平列表：无底、无边、无圆角，
+//    行间无间隙（2026-12 用户裁定，参考常见历史会话界面）；状态用整行
+//    wash 表达——hover 取 fill-hover、当前会话取 surface-2、同视频取
+//    accent-soft。列表滚动条细淡并贴面板右缘（整页横向缩进挪到头部与
+//    条目内容）。
 //
 // 局限同 chat-history-page.test.ts：jsdom 无布局，本文件只锁 CSS 源文本，
 // 真实观感回归由人工/真机预览兜。
 // 防倒退：tab 内容区回到透明/灰底、header 复活独立底色、flyme 槽色退回不透明
-// 灰、历史页底色退回 surface/card 实底或条目回到 card 白，本文件红。
+// 灰、历史页底色退回实底或历史条目回到卡片化（底/边/圆角），本文件红。
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -110,10 +111,31 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(dark).toContain("--biliscript-reader-pill-bg: #222327");
   });
 
-  it("历史条目灰底无描边：surface-2 底 + transparent 边（白底页面上的分层）", () => {
-    const body = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-history-item");
+  it("历史条目无界平列表：无底无边无圆角，状态走整行 wash", () => {
+    const css = readCss(CHAT_CSS);
+    const item = ruleBody(css, ".biliscript-reading-chat .chat-history-item");
 
-    expect(body).toContain("background: var(--biliscript-reader-surface-2)");
-    expect(body).toMatch(/border:\s*1px solid transparent\s*;/);
+    expect(item).not.toMatch(/border\s*:/);
+    expect(item).not.toContain("border-radius");
+    expect(item).not.toContain("background");
+    expect(ruleBody(css, ".biliscript-reading-chat .chat-history-item:hover")).toContain(
+      "background: var(--biliscript-reader-fill-hover)"
+    );
+    expect(ruleBody(css, ".biliscript-reading-chat .chat-history-item.is-active")).toContain(
+      "background: var(--biliscript-reader-surface-2)"
+    );
+    expect(ruleBody(css, ".biliscript-reading-chat .chat-history-item.is-live-match")).toContain(
+      "background: var(--biliscript-reader-accent-soft)"
+    );
+  });
+
+  it("历史列表无行间间隙、滚动条贴右缘（细淡一档）", () => {
+    const list = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-history-list");
+
+    expect(list).not.toContain("gap");
+    expect(list).toContain("scrollbar-width: thin");
+    // 整页横向缩进挪到头部/条目内容（padding 左右为 0），滚动条才贴得上右缘
+    const page = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-history-popover");
+    expect(page).toMatch(/padding:\s*4px 0 12px\s*;/);
   });
 });

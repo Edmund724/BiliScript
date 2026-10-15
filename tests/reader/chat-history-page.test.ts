@@ -6,12 +6,12 @@
 // - 模板（chat-template）：历史页是对话根的首个子元素（兄弟选择器成立的前提）、
 //   返回键在头部内、不再挂在 .chat-footer 里；
 // - CSS（reader-chat.css）：历史页脱流覆盖层（position:absolute + 负 inset 外溢
-//   铺满整个 tab 内容区白卡，不再绝对定位锚 footer 上方，也不再以 flex:1 参与对话列），
+//   铺满整个 tab 内容区，不再绝对定位锚 footer 上方，也不再以 flex:1 参与对话列），
 //   `[hidden]` 单源 + `~ 对话内容` 兄弟选择器把意图卡/转写状态行/消息区/输入卡
 //   整体 display:none（与设置抽屉接管面板第 3–4 行同一套纯属性反应）；
 //   底色透明（直露与对话内容区相同的雾底——历史页不应有单独背景色；
 //   打开时兄弟内容整体 display:none，背后没有需要遮盖的东西），
-//   灰底历史条目契约见 flyme-panel-layering.test.ts；
+//   无界平列表条目契约见 flyme-panel-layering.test.ts；
 //   模型面板仍是绝对定位弹层。
 // 为什么必须是脱流覆盖层：display 参与 allow-discrete 的
 // 0.2s 淡出期间，历史页仍按 before-change 值渲染——若它是对话列的 flex 项，

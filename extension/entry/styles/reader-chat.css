@@ -1214,8 +1214,9 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* 自身内边距替代被外溢吃掉的 tab-body 留白：头部/列表不贴内容区边缘 */
-  padding: 4px 12px 12px;
+  /* 左右不留白（顶部 4 / 底部 12）：横向缩进移到头部与条目内容，
+   * 列表滚动条由此贴到面板右缘（用户裁定「滚动条要靠右」）。 */
+  padding: 4px 0 12px;
   background: transparent;
   transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
 }
@@ -1249,7 +1250,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-bottom: 8px;
+  /* 横向缩进从整页挪到这里：列表滚动条要贴面板右缘 */
+  padding: 0 12px 8px;
 }
 
 /* 页面标题走设置分区标题的字号档（16-700）：整页的标题不再是弹层里的小字标签 */
@@ -1259,14 +1261,18 @@
   color: var(--biliscript-reader-text);
 }
 
-/* 列表区独立滚动（头部固定）：长历史不把标题与「清空全部」滚出视野 */
+/* 列表区独立滚动（头部固定）：长历史不把标题与「清空全部」滚出视野。
+ * 无界平列表（2026-12 用户裁定，参考常见历史会话界面）：行间无间隙、
+ * 条目无卡片底，仅靠行内留白分节奏；滚动条细淡一档、贴面板右缘
+ *（整页横向缩进已挪到头部与条目内容，见 .chat-history-popover）。 */
 .biliscript-reading-chat .chat-history-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--biliscript-reader-faint) transparent;
 }
 
 .biliscript-reading-chat .chat-history-empty,
@@ -1377,34 +1383,33 @@
   background: var(--biliscript-reader-accent-soft);
 }
 
+/* 无界平列表条目：无底、无边、无圆角，状态用整行 wash 表达
+ *（hover = fill-hover；当前会话 = surface-2；同视频 = accent-soft）。
+ * padding-right 让 × 键与文字让开贴右缘的滚动条槽（thin 实测约 12px）。 */
 .biliscript-reading-chat .chat-history-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
   gap: 6px;
   align-items: center;
-  /* 历史页透明直露雾底（与对话内容区同一层料），条目用 surface-2 灰
-   * 分层；描边 transparent——保留 1px 几何，is-active /
-   * is-live-match 换边色时布局不跳。 */
-  border: 1px solid transparent;
-  border-radius: 10px;
-  background: var(--biliscript-reader-surface-2);
-  padding: 4px;
+  padding-right: 12px;
   max-width: 100%;
 }
 
+.biliscript-reading-chat .chat-history-item:hover {
+  background: var(--biliscript-reader-fill-hover);
+}
+
 .biliscript-reading-chat .chat-history-item.is-active {
-  border-color: var(--biliscript-reader-surface-3);
-  background: var(--biliscript-reader-surface-3);
+  background: var(--biliscript-reader-surface-2);
 }
 
 .biliscript-reading-chat .chat-history-item.is-live-match {
-  border-color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
 }
 
 .biliscript-reading-chat .chat-history-open {
   min-width: 0;
-  padding: 6px 8px;
+  padding: 8px 0 8px 12px;
   border: 0;
   background: transparent;
   text-align: left;
