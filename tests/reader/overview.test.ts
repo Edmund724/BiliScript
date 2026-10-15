@@ -1077,5 +1077,81 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     await vi.waitFor(() => expect(chapterTitles()).toContain("新一轮章节"));
     expect(chapterTitles()).not.toContain("开场");
   });
+
+  describe("概览协调器深 module（arch-review-batch3/02）", () => {
+    it("协调器窄接口：导出 trigger / cancel / reset / getPhase / getSnapshot / render", async () => {
+      seedClip();
+      const coordinator = reader.overviewCoordinator;
+      expect(coordinator).toBeDefined();
+      expect(typeof coordinator.trigger).toBe("function");
+      expect(typeof coordinator.cancel).toBe("function");
+      expect(typeof coordinator.reset).toBe("function");
+      expect(typeof coordinator.getPhase).toBe("function");
+      expect(typeof coordinator.getSnapshot).toBe("function");
+      expect(typeof coordinator.render).toBe("function");
+
+      // 初始快照为 idle
+      const snapshot = coordinator.getSnapshot();
+      expect(snapshot.phase).toBe("idle");
+      expect(snapshot.analysis).toBeNull();
+      expect(snapshot.stripText).toBe("");
+    });
+
+    it("快照与相位查询随管线推进同步更新", async () => {
+      seedClip();
+      stubRuntimeMessages();
+      const run = deferredRun();
+      runOverviewMock.mockImplementation(() => run.promise);
+
+      const coordinator = reader.overviewCoordinator;
+      void coordinator.trigger();
+
+      await vi.waitFor(() => expect(coordinator.getPhase()).toBe("generating"));
+      const genSnapshot = coordinator.getSnapshot();
+      expect(genSnapshot.phase).toBe("generating");
+      expect(overviewText()).toContain("正在生成概览…");
+
+      // 完成落定
+      run.resolve(SAMPLE_ANALYSIS);
+      await vi.waitFor(() => expect(coordinator.getPhase()).toBe("ready"));
+      const readySnapshot = coordinator.getSnapshot();
+      expect(readySnapshot.phase).toBe("ready");
+      expect(readySnapshot.analysis?.chapters.length).toBe(2);
+
+      // reset 归位
+      coordinator.reset();
+      expect(coordinator.getPhase()).toBe("idle");
+      expect(coordinator.getSnapshot().analysis).toBeNull();
+    });
+
+    it("闸门：readingViewOpen 为 false 时 renderIfOpen 不污染 DOM", async () => {
+      stubRuntimeMessages();
+      state.reader.readingViewOpen = false;
+      const coordinator = reader.overviewCoordinator;
+
+      overviewBody().innerHTML = "<div class='untouched'>未打开</div>";
+      void coordinator.trigger();
+
+      // DOM 保持原样不被写入
+      expect(overviewBody().querySelector(".untouched")).not.toBeNull();
+      coordinator.reset();
+    });
+
+    it("单向依赖呈现：呈现层 renderReadingOverview 纯粹消费快照", async () => {
+      const { renderReadingOverview } = await import("../../extension/reader/overview-ui.js");
+      renderReadingOverview({
+        phase: "error",
+        analysis: null,
+        aiChapters: false,
+        progressText: "",
+        errorText: "自定义快照错误",
+        stripText: "错误条文案",
+        generatedFor: "test-key"
+      });
+
+      expect(overviewText()).toContain("概览生成失败：自定义快照错误");
+    });
+  });
 });
+
 

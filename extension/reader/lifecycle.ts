@@ -100,12 +100,12 @@ import {
 import { clearPendingExplainIntent } from "./explain-intent.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
-// PR4 概览 tab：状态机触达——打开即自动生成（enter/subtitle-ready）、渲染尾部
-// 收敛（renderReadingView 尾调用）、关闭清理（不取消进行中生成）。
+// PR4 概览 tab：协调器接口收口（arch-review-batch3/02）——打开即自动生成（enter/subtitle-ready）、
+// 投影格通过 renderReadingOverview 驱动、关闭清理经 resetReaderOverviewState 归位。
 import {
-  renderReadingOverview,
+  triggerReaderOverviewGeneration,
   resetReaderOverviewState,
-  triggerReaderOverviewGeneration
+  renderReadingOverview
 } from "./overview.js";
 // 初始快捷问题的逐视频预热（字幕就绪即后台生成三个问题，对话 tab 直接取用）。
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
