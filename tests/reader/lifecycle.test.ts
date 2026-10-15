@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
+import { READER_READY_ATTR } from "../../extension/reader/presentation-fields.js";
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
@@ -107,7 +108,7 @@ describe("reader 生命周期", () => {
 
     // B 形态不驱动播放器挂载：视图打开即 ready，无挂载等待文案
     expect(state.reader.readingViewReady).toBe(true);
-    expect(readingView.getAttribute("data-biliscript-reader-ready")).toBe("1");
+    expect(readingView.getAttribute(READER_READY_ATTR)).toBe("1");
     expect(readingView.getAttribute("aria-busy")).toBe("false");
 
     // 进入即开始右栏定位（script-host open），且不等播放器
@@ -179,7 +180,7 @@ describe("reader 生命周期", () => {
     expect(state.reader.readingViewOpen).toBe(false);
     expect(readingView.classList.contains("open")).toBe(false);
     expect(readingView.getAttribute("aria-hidden")).toBe("true");
-    expect(readingView.getAttribute("data-biliscript-reader-ready")).toBe("0");
+    expect(readingView.getAttribute(READER_READY_ATTR)).toBe("0");
     expect(document.body.getAttribute("data-biliscript-reading-active")).toBe(null);
     expect(document.documentElement.getAttribute("data-biliscript-reader-mode")).toBe(null);
     expect(document.documentElement.getAttribute("data-biliscript-reader-theme")).toBe(null);

@@ -43,6 +43,7 @@ import { logWarn, logWarnAlways } from "../shared/logging.js";
 import { READER_CLOSED_EVENT } from "../shared/self-heal.js";
 import { getReaderShellState, transitionReaderShell } from "../core/state.js";
 import { ids, isReaderViewOpen } from "./state.js";
+import { READER_READY_ATTR } from "./presentation-fields.js";
 
 export type ReaderShellIntent = "open" | "restore" | "chat";
 
@@ -78,7 +79,7 @@ export function isReaderShellIntact(): boolean {
   return Boolean(
     shell?.isConnected &&
       shell.classList.contains("open") &&
-      shell.getAttribute("data-biliscript-reader-ready") !== "0" &&
+      shell.getAttribute(READER_READY_ATTR) !== "0" &&
       document.body.getAttribute("data-biliscript-reader-mode") === "1" &&
       document.documentElement.getAttribute("data-biliscript-reader-mode") === "1"
   );
