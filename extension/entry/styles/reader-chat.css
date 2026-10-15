@@ -1214,7 +1214,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* 自身内边距替代被外溢吃掉的 tab-body 留白：头部/列表不贴白卡边缘 */
+  /* 自身内边距替代被外溢吃掉的 tab-body 留白：头部/列表不贴内容区边缘 */
   padding: 4px 12px 12px;
   background: transparent;
   transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
