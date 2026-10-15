@@ -94,8 +94,8 @@ import { bindReadingTranscribeBanner, updateReadingTranscribeBanner } from "./tr
 // 「渲染尾部投影一次」与「失败通知经 reader-bus」两件组装根的事（与 PR3 的
 // 搜索/横幅同款分工：重活各归其域，本文件负责时机与接线）。
 import {
-  renderReadingSubtitleTrackPicker,
-  setSubtitleTrackNoticeHandler
+  createSubtitleToolbar,
+  type SubtitleToolbar
 } from "./subtitle-tab-ui.js";
 import { clearPendingExplainIntent } from "./explain-intent.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
@@ -145,12 +145,14 @@ subscribeReaderPresenter(handleReaderPresenterNotification);
 //   - 转写相位订阅：asr-transcribing/done/failed 实时切换横幅（视图开着才碰 DOM）。
 setReadingSubtitleBatchHook(handleReadingSubtitleRangeAppended);
 bindReadingTranscribeBanner();
-// 选轨控件（08 号票）的两处组装根接线：
-//   - 结果通知回调：切轨失败经 reader-bus 的 "status" 通道报错（与抓取同通道、
-//     同序收敛，Q14）——本域是 reader-bus 的接线处，不把 reader-bus 拖进 ui 叶子；
+// 选轨控件（08 号票 / batch2 票 04）：深 module 实例持有工具条 UI 相位与事件接线。
+//   - 结果通知回调：切轨失败经 reader-bus 的 "status" 通道报错（构造注入，跨壳重建存活）；
+//   - 事件订阅（相位 / 双语偏好）由实例 bindEvents() 承载，绑一次语义由实例唯一性保证；
 //   - change 绑定不在这里：原生 select 由壳模板产出、随壳 forceRecreate 重建，
 //     监听器随建壳接线（subtitle-tab-ui 经组件 initCustomSelect 的 onChange 交进去）。
-setSubtitleTrackNoticeHandler((text) => notifyReaderPresenter({ kind: "status", text }));
+export const subtitleToolbar: SubtitleToolbar = createSubtitleToolbar({
+  onNotice: (text) => notifyReaderPresenter({ kind: "status", text })
+});
 
 // SYNC functions this module drives (from sync.js):
 import {
@@ -483,7 +485,7 @@ export const READER_RENDER_PROJECTIONS = [
   // 字幕工具条选轨控件（旧 renderReadingSubtitleSelect 的对应物）。水合不派发 change
   // ——只把 clip.subtitles 与当前选中轨投影到控件（setCustomSelectValue），用户改选才
   // 走 change 处理器；转写相位与失败通知由该叶子自己接（见其模块头注的接线点）。
-  { id: "subtitle-toolbar", project: renderReadingSubtitleTrackPicker }
+  { id: "subtitle-toolbar", project: () => subtitleToolbar.render() }
 ] as const;
 
 export type ReaderRenderProjectionId = (typeof READER_RENDER_PROJECTIONS)[number]["id"];
