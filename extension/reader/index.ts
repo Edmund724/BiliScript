@@ -33,8 +33,8 @@ export {
   updateReaderPreferences,
   renderReaderPanels
 } from "./lifecycle.js";
-// reader-bus seam 通知的 reader 侧处理体
-export { handleReaderPresenterNotification } from "./lifecycle.js";
+// reader-bus seam 通知的 reader 侧处理体与字幕就绪副作用单一收口
+export { handleReaderPresenterNotification, onReaderSubtitleReady } from "./lifecycle.js";
 // 阅读模式调试快照真身
 export { createReaderDebugSnapshot } from "./debug-snapshot.js";
 
