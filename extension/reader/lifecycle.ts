@@ -100,12 +100,12 @@ import {
 import { clearPendingExplainIntent } from "./explain-intent.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
-// PR4 概览 tab：状态机触达——打开即自动生成（enter/subtitle-ready）、渲染尾部
-// 收敛（renderReadingView 尾调用）、关闭清理（不取消进行中生成）。
+// PR4 概览 tab：协调器接口收口（arch-review-batch3/02）——打开即自动生成（enter/subtitle-ready）、
+// 投影格通过 renderReadingOverview 驱动、关闭清理经 resetReaderOverviewState 归位。
 import {
-  renderReadingOverview,
+  triggerReaderOverviewGeneration,
   resetReaderOverviewState,
-  triggerReaderOverviewGeneration
+  renderReadingOverview
 } from "./overview.js";
 // 初始快捷问题的逐视频预热（字幕就绪即后台生成三个问题，对话 tab 直接取用）。
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
@@ -203,22 +203,76 @@ async function maybeRefreshReaderSubtitleInBackground() {
   reconcileReaderAfterSubtitleFetch();
 }
 
+export interface ReaderSubtitleReadyOptions {
+  /** 状态行文案（可选，通知路径传入；未传则不更新状态行） */
+  statusText?: string;
+  /** 是否重启播放同步并立即定位（通知路径为 true，对账路径为 false） */
+  syncPlayback?: boolean;
+  /** 是否在视图未开时也尝试装载双语副轨（通知路径为 true，全局偏好且视图未开也照抓；对账路径为 false） */
+  ensureSecondarySubtitle?: boolean;
+  /**
+   * 概览与预热的触发门控。
+   * - "if-subtitles-present"（对账路径）：仅当 state.clip.subtitleBody 非空时触发；
+   * - "always"（通知路径）：直接调用触发入口（由概览机内部判空态迁移，预热内部去重/判空）。
+   */
+  triggerMode?: "always" | "if-subtitles-present";
+}
+
+// 字幕就绪副作用单一收口入口（工单 arch-review-batch3/01）：
+// 一处声明完整副作用串与次序：重投影 → 状态行 → 播放同步重启 → 概览触发 → 快捷问题预热。
+// 视图未开时整条跳过（reconcile 路径）或部分跳过（通知路径的双语装载在视图外）以显式参数表达。
+// 两路触发（subtitle-ready 通知、fetch 落定对账）共用同一份次序与守卫：
+//  - renderReadingView 是纯 state 投影（幂等）；
+//  - 概览触发（inflight + generatedFor 身份去重，重复触发安全）；
+//  - 预热（视频身份去重，无字幕不起）；
+//  - 双语副轨装载（视图未开也照抓，Q1 决议，通知路径独有）。
+export function onReaderSubtitleReady(options: ReaderSubtitleReadyOptions = {}) {
+  const {
+    statusText,
+    syncPlayback = false,
+    ensureSecondarySubtitle = false,
+    triggerMode = "always"
+  } = options;
+
+  if (state.reader.readingViewOpen) {
+    // PR2：字幕列表已常驻右侧面板「字幕」tab，纯 state 幂等重投影
+    renderReadingView();
+
+    // 状态行：文案由调用方传入（通知路径独有）
+    if (statusText) {
+      renderReadingStatus(statusText);
+    }
+
+    // 播放同步重启（通知路径独有）
+    if (syncPlayback) {
+      startReadingViewSync();
+      syncReadingViewPlayback(true);
+    }
+
+    // PR4：概览自动生成与快捷问题预热
+    // 无字幕时保持诚实空态；生成中重复触发被状态机与管线 promise / 身份缓存去重
+    const shouldTrigger = triggerMode === "always" || state.clip.subtitleBody.length > 0;
+    if (shouldTrigger) {
+      triggerReaderOverviewGeneration();
+      warmUpReaderQuickPrompts();
+    }
+  }
+
+  // 视图未开也照抓：双语是全局偏好，用户切到字幕 tab 时就该已经就绪
+  // （Q1：开关开着就立刻并行抓，不依赖面板可见性，通知路径独有）。
+  if (ensureSecondarySubtitle) {
+    ensureSecondarySubtitleLoaded();
+  }
+}
+
 // 抓取落定后的对账收尾：subtitle-ready/rerender 通知存在丢失形态（发射门控、
 // init-essentials 分派链 catch 吞错），一旦丢失，列表渲染与概览自动生成只剩
 // 切 tab 兜底——状态栏却照写「抓取完成」，出现「完成但无字幕」的面板态。这里
-// 在 fetch 落定后按当前 state 重投影一次：renderReadingView 是纯 state 投影
-// （幂等，通知未丢时重复执行无副作用）；字幕非空再触发概览生成（inflight +
-// generatedFor 身份去重，重复触发安全）。视图已关则跳过（重开时
-// enterReaderMode 自会按当前 state 渲染并触发）。
+// 在 fetch 落定后按当前 state 走单一收口进行纯幂等重投影 + 条件触发。
 function reconcileReaderAfterSubtitleFetch() {
-  if (!state.reader.readingViewOpen) {
-    return;
-  }
-  renderReadingView();
-  if (state.clip.subtitleBody.length > 0) {
-    triggerReaderOverviewGeneration();
-    warmUpReaderQuickPrompts();
-  }
+  onReaderSubtitleReady({
+    triggerMode: "if-subtitles-present"
+  });
 }
 
 // 初始快捷问题的预热触发（与概览生成同位同语义）：字幕已就绪就后台起跑，
@@ -259,21 +313,12 @@ const readerPresenterReceivers: ReaderPresenterReceivers = {
     stopReadingViewSync();
   },
   "subtitle-ready"(event) {
-    if (state.reader.readingViewOpen) {
-      // PR2：字幕列表已常驻右侧面板「字幕」tab，不再内联搬迁进页面文档流。
-      renderReadingView();
-      renderReadingStatus(String(event.text || "") || "抓取完成，阅读视图已同步最新字幕。");
-      startReadingViewSync();
-      syncReadingViewPlayback(true);
-      // PR4：字幕就绪即自动生成概览（基线决议「打开即自动生成并缓存」）。
-      // 无字幕时保持诚实空态不触发；生成中重复触发被状态机与管线 promise 复用去重。
-      triggerReaderOverviewGeneration();
-      // 同理：字幕就绪即预热本视频的三个初始问题（对话 tab 打开时直接可用）。
-      warmUpReaderQuickPrompts();
-    }
-    // 视图未开也照抓：双语是全局偏好，用户切到字幕 tab 时就该已经就绪
-    // （Q1：开关开着就立刻并行抓，不依赖面板可见性）。
-    ensureSecondarySubtitleLoaded();
+    onReaderSubtitleReady({
+      statusText: String(event.text || "") || "抓取完成，阅读视图已同步最新字幕。",
+      syncPlayback: true,
+      ensureSecondarySubtitle: true,
+      triggerMode: "always"
+    });
   },
   rerender() {
     if (state.reader.readingViewOpen) {
