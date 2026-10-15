@@ -41,7 +41,8 @@ import {
 } from "../core/ai-provider-store.js";
 import { asrProviderStore } from "../asr/asr-provider-store.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
-import { SEARCH_PROVIDER_ORDER_STORAGE, searchProviderStore } from "../search/search-provider-store.js";
+import { searchProviderStore } from "../search/search-provider-store.js";
+import { deleteSearchProviderAndClearCache } from "../search/search-provider-deletion.js";
 // 搜索模式单源（spec §1 S6 / §12.1）：activeSearchProviderId 两义——记录 id = 单选、
 // 哨兵 / 空串 = 智能（链解析按模式产出独苗链或有序回退链）
 import { resolveSearchMode } from "../core/search-mode.js";
@@ -50,7 +51,10 @@ import { resolveSearchMode } from "../core/search-mode.js";
 import { resolveSearchChain } from "../search/search-chain.js";
 // 查询缓存 SW 叶（spec §5）：宿主是 SW（offscreen 无 chrome.storage），offscreen
 // 工具循环与 content 侧解释卡都经 search-cache 消息族读写；归一单源在本叶。
-// clearSearchCache 只在本文件被两个撤回入口调用（§6.7）：不给消息族加 clear op。
+// 查询缓存撤回入口分工（spec §6.7 / §10 第 40 行）：
+//   1. 主入口（关 pill 撤回，webSearchEnabled true→false）：在 saveSettings 消息处理中直调 clearSearchCache；
+//   2. 次入口（删除搜索平台记录撤回）：收进 search/search-provider-deletion.ts 事务内串联（含 store 删除 + 顺序剔除 + 清缓存）。
+// 不给消息族加 clear op。
 import { clearSearchCache } from "../search/search-cache.js";
 // 引擎健康度 SW 叶（spec §12.4）：记账落 chrome.storage.local 单键
 // biliscript_search_health（引擎级 presetId），链解析期经快照读产冷却图。
@@ -161,6 +165,7 @@ function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSende
       if (searchOptOut) {
         // 缓存里存着 query 哈希与结果，撤回后本地继续留着说不通；清空失败静默
         // （logWarn 同既有形态），不因缓存清理失败阻断设置保存的回包。
+        // 此处为撤回的主入口（关 pill 撤回）；平台删除撤回的次入口收进 search/search-provider-deletion.ts。
         try {
           await clearSearchCache();
         } catch (error) {
@@ -464,49 +469,18 @@ const asrProviderHandlers = createProviderMessageHandlers<AsrProviderListEntry>(
   loadKeys: asrProviderStore.loadKeys
 });
 
-// 删除搜索平台记录 + 清空整张查询缓存（spec §6.7 / §10 第 40 行）：删除是撤回的
-// 次入口（「不想这家收到」），删除本身走与 CRUD 同一条写后失效包装；清缓存失败
-// 静默（logWarn 同既有形态），不影响删除回包。
-// 另把该 id 从 searchProviderOrder 剔除（spec §12.2 末条 / §12.5 第 11 行）：不改的话
-// 「删掉一个平台」会让顺序数组含未知 id → 整份自定义顺序被「脏值整体作废」丢掉。
-// 仅在数组确实含该 id 时写回 + inline 失效（写回走 writeSnapshotKeys，落 sync 区与
-// 失效键面都由快照表决定）；键缺席 / 脏值 / 写失败都静默跳过（顺序是偏好不是数据）。
-async function pruneSearchProviderOrder(providerId: string): Promise<void> {
-  const stored = await chrome.storage.sync.get([SEARCH_PROVIDER_ORDER_STORAGE]);
-  const raw = stored?.[SEARCH_PROVIDER_ORDER_STORAGE];
-  if (!Array.isArray(raw) || !raw.includes(providerId)) return;
-  await writeSnapshotKeys({
-    [SEARCH_PROVIDER_ORDER_STORAGE]: raw.filter((id) => id !== providerId)
-  });
-}
-
-// 删除后存活列表（族条目形状）——provider CRUD 工厂的 delete 载荷，精确到
-// 该族的响应条目类型（响应载荷与消息键配错由工厂的窄回包形参在 tsc 门禁拦下）。
-async function deleteSearchProviderAndClearCache(providerId: string): Promise<SearchProviderListEntry[]> {
-  const providers = await invalidatingWrite(
-    searchProviderStore.deleteProvider,
-    PROVIDER_FAMILY_STORAGE_KEYS.search
-  )(providerId);
-  try {
-    await pruneSearchProviderOrder(providerId);
-  } catch (error) {
-    logWarn("[BILISCRIPT] search provider order prune on provider delete failed", error);
-  }
-  try {
-    await clearSearchCache();
-  } catch (error) {
-    logWarn("[BILISCRIPT] search cache clear on provider delete failed", error);
-  }
-  return providers;
-}
-
 // 搜索平台 CRUD 处理器（spec §3.3）：与 AI / ASR 家族共用同一套契约（列表 /
-// Key 的消息路由），连通性测试随后续 tool-loop 迭代再议。删除入口挂撤回清缓存
-// （§6.7 / §10 第 40 行）：删掉记录即本地不再留 query 哈希与结果。
+// Key 的消息路由），连通性测试随后续 tool-loop 迭代再议。删除入口委托给 search 域
+// 撤回事务（§6.7 / §10 第 40 行，search/search-provider-deletion.ts），注入落盘 primitive
+// 与失效键面；删掉记录即本地不再留 query 哈希与结果。
 const searchProviderHandlers = createProviderMessageHandlers<SearchProviderListEntry>({
   loadProviders: searchProviderStore.loadProviders,
   saveProviders: invalidatingWrite(searchProviderStore.saveProviders, PROVIDER_FAMILY_STORAGE_KEYS.search),
-  deleteProvider: deleteSearchProviderAndClearCache,
+  deleteProvider: deleteSearchProviderAndClearCache({
+    invalidatingWrite,
+    storageKeys: PROVIDER_FAMILY_STORAGE_KEYS.search,
+    writeSnapshotKeys
+  }),
   loadKeys: searchProviderStore.loadKeys
 });
 
