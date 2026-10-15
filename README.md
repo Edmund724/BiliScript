@@ -140,6 +140,8 @@ BiliScript 需要两个 Key（联网搜索是可选功能，内置免 Key 服务
    - `Qwen/Qwen3-ASR-1.7B`：收费模型，需要付费额度。
 
 如果页面流程有变化，请查看 [硅基流动官方文档](https://docs.siliconflow.cn/)。
+API地址请填写：https://api.siliconflow.cn/v1
+源码会自动拼接后调用转写API。
 
 速度排名来自本仓库 `eval/` 速度评测的实测结果（2026-09-04，走扩展真实转写路径、生产同款配置：10 并发、5 分钟/片；同一段 60 分钟音频，每模型 3 次取平均）：V3.2 墙钟约 68 秒（RTF 0.019）最快；Diarize-V3.0 约 108 秒（RTF 0.030）次之；GSR-V1.0 约 136 秒（RTF 0.038）；V3.2-Ultra 约 169 秒（RTF 0.047）最慢。想复现或测其他模型，运行 `npm run eval:run`（详见 `eval/README.md`，报告见 `eval/out/`）。
 
