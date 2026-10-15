@@ -19,10 +19,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ASR_OFFSCREEN_REJECTION_MESSAGE } from "../../extension/asr/protocol.js";
-import { createMessageRouter } from "../../extension/core/message-router.js";
+import { createMessageRouter, type MessageRouterOptions } from "../../extension/core/message-router.js";
 import {
   BACKGROUND_MESSAGE_REGISTRY,
   OFFSCREEN_ONLY_MESSAGE_TYPES,
+  type BackgroundMessageHandlers,
+  type HandlerForType,
   type MessageSender,
   type SendResponse
 } from "../../extension/shared/messaging-protocol.js";
@@ -331,3 +333,36 @@ describe("消息 router：结构锁（源码文本级）", () => {
     expect(ROUTER_SOURCE).not.toContain(ASR_OFFSCREEN_REJECTION_MESSAGE);
   });
 });
+
+describe("消息 router：类型接缝（编译期锁定）", () => {
+  it("类型锁定 fixture 静态编译通过（tsc 门禁生效）", () => {
+    // 本块内声明作为 tsc 门禁的编译期断言，由 typecheck 执行。
+    // ① 正向：合法三参形能够通过
+    const legalHandler: HandlerForType<"get-settings"> = (_message, _sender, sendResponse) => {
+      sendResponse({ ok: true });
+    };
+    expect(typeof legalHandler).toBe("function");
+
+    // ② 负向：RoutedHandler 已删除 (...args: never[]) => unknown 退路
+    const _badRouterOptions: MessageRouterOptions = {
+      handlers: {
+        // @ts-expect-error 参数不相容的函数不能作为 RoutedHandler 传入 handlers 选项
+        "get-settings": (_a: number, _b: string) => 42
+      }
+    };
+    void _badRouterOptions;
+
+    // ③ 负向：HandlerForType 要求 sendResponse 载荷匹配
+    const _badResponseHandler: HandlerForType<"get-settings"> = (_message, _sender, sendResponse) => {
+      // @ts-expect-error presets 字段不属于 GetSettingsResponse
+      sendResponse({ ok: true, presets: [] });
+    };
+    void _badResponseHandler;
+
+    // ④ 负向：HandlerForType 要求 branch 档必须返回显式判定（不能返回 void）
+    // @ts-expect-error fetch-json 登记为 branch，必须返回 MessageReplyDecision
+    const _missingBranchDecision: HandlerForType<"fetch-json"> = (_message, _sender, _sendResponse) => {};
+    void _missingBranchDecision;
+  });
+});
+

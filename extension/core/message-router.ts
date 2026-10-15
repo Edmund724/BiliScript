@@ -18,6 +18,7 @@
 import {
   BACKGROUND_MESSAGE_REGISTRY,
   resolveReplyKeepOpen,
+  type BackgroundMessageHandlers,
   type MessageReplyDecision,
   type MessageReplyMode,
   type MessageSender,
@@ -36,17 +37,16 @@ export type MessageHandlerLike = (
  *  两参派发）。本次不接入，只为同一份 interface 留位。 */
 export type ContentMessageHandlerLike = (message: unknown, sendResponse: SendResponse) => void;
 
-/** 表值面：上述两种派发形之外还收「任何可调用体」——各域 handler 按自己的消息键
- *  收窄形参（逐键契约由组合根的表对注册表穷尽校验），本模块按注册表派发；窄形参
- *  与派发形的相容性由派发点（下方 invoke）收拢，组合根因此不必手写断言。 */
+/** 表值面：包含三参派发形（SW 侧）与两参派发形（content 侧留位）。
+ *  已移除 `(...args: never[]) => unknown` 退路；逐键契约由组合根的表对注册表穷尽校验。 */
 export type RoutedHandler =
   | MessageHandlerLike
-  | ContentMessageHandlerLike
-  | ((...args: never[]) => unknown);
+  | ContentMessageHandlerLike;
 
 export interface MessageRouterOptions {
-  /** handler 表：键 = 消息 type（逐键契约由组合根的表对注册表穷尽校验） */
-  handlers: Record<string, RoutedHandler>;
+  /** handler 表：SW 组合根注入由注册表派生的 BackgroundMessageHandlers（逐键形参/响应载荷/返回值精确收窄）；
+   *  测试或 content 侧可传入兼容的 Record<string, RoutedHandler>。 */
+  handlers: BackgroundMessageHandlers | Record<string, RoutedHandler>;
   /** 来源判据：标签 → 判据（缺省 = 不判来源；注入的标签无判据即放行） */
   senders?: Record<SenderLabel, (sender: MessageSenderLike) => boolean>;
   /** 来源守卫拒绝时的回包文案（字面量单源由组合根注入，本模块不持文案） */
@@ -76,8 +76,9 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
 
   // 键表 Map 化一次：Object.prototype 上的同名键（constructor / toString 等）不得被
   // 当成 handler 或登记项（与登记表同口径的按键查找）。
+  // 类型在组合根已穷尽校验，收拢点保留显式断言。
   const handlerTable = new Map<string, RoutedHandler>(
-    Object.entries(handlers)
+    Object.entries(handlers) as [string, RoutedHandler][]
   );
   const registrationTable = new Map<string, RegistrationLike>(
     Object.entries(registry as Record<string, RegistrationLike>)
