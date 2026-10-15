@@ -208,11 +208,6 @@ const SUBTITLE_TRACK_LOADING_TEXT = "抓取中…";
 // select 上的 aria-label 是组件拼 trigger 可访问名的第三条来路（4508233）。
 const SUBTITLE_TRACK_FIELD_LABEL = "字幕轨";
 
-// 选轨请求在飞（busy/revert 两态的载体）：值是**目标轨的 option value**
-//（= 轨道身份 id）；null = 无在飞请求。模块级值：跨壳 forceRecreate 存活（重建只换
-// DOM，不重估模块），故重建后的第一拍渲染读 `switchInFlight ?? state.clip.selectedSubtitleId`
-// 仍是乐观目标轨；落定由切轨事务的 finally 置回 null 收敛。
-let switchInFlight: string | null = null;
 
 function findTrackValueById(trackId: string): string {
   const select = document.getElementById(ids.readingSubtitleSelect) as HTMLSelectElement | null;
