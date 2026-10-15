@@ -632,11 +632,17 @@ export type MessageSender = {
 export type BackgroundHandlerResult<K extends BackgroundMessageType> =
   BackgroundMessageRegistry[K]["reply"] extends "branch" ? MessageReplyDecision : void;
 
-export type BackgroundMessageHandler<K extends BackgroundMessageType> = (
+export type HandlerForType<K extends BackgroundMessageType> = (
   message: Extract<BackgroundMessage, { type: K }>,
   sender: MessageSender,
   sendResponse: (response: BackgroundResponseOf<K>) => void
 ) => BackgroundHandlerResult<K>;
+
+export type BackgroundMessageHandler<K extends BackgroundMessageType> = HandlerForType<K>;
+
+export type BackgroundMessageHandlers = {
+  [K in BackgroundMessageType]: HandlerForType<K>;
+};
 
 // ===== SW 消息注册表（一条消息一处登记）=====
 //
