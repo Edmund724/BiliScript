@@ -287,10 +287,10 @@
   align-items: center;
 }
 
-/* 建议 chip：填充式无描边大圆角块。列方向 align-items: center 下 chip 取内容宽
- * （默认 stretch 被居中取代），长问题由 max-width 兜住换行。
- * 底色取 surface-3：中性色阶的顶档（亮色最深、暗色最亮）。代价是中性「悬停升
- * 一档」在此已无落点（surface-3 之上没有第四档），悬停改走全仓既有的可点母题
+/* 建议 chip：列方向 align-items: center 下 chip 取内容宽（默认 stretch 被居中
+ * 取代），长问题由 max-width 兜住换行。基础底色 surface-3 只是回退档——阅读
+ * 视图里由 reader-gate.css 覆写为白玻璃凸起卡（--card 渐变 + 软投影 + 内高光），
+ * 与概览章节/金句卡、输入卡、用户气泡同一配方。悬停走全仓既有的可点母题
  * accent-soft 底 + accent 字（同时间戳 pill、联网搜索开启态、思考档位选中态）。 */
 .biliscript-reading-chat .chat-chip {
   max-width: 100%;

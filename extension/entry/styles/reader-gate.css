@@ -416,6 +416,20 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
+/* 空态建议 chips 同进凸起语言：基础表的 surface-3 平填与雾底灰差太小，贴在
+ * 欢迎区里读作「凹井」而非可点入口；换白玻璃凸起配方（--card 渐变 + 软投影 +
+ * 内高光）与概览章节/金句卡、输入卡、用户气泡对齐。hover 保留基础表的可点
+ * 母题（accent-soft 底 + accent 字），不动阴影——悬停即换料，凸起感让位
+ * 选中语义。 */
+#biliscript-reading-view .biliscript-reading-chat .chat-chip {
+  background: var(--biliscript-reader-card);
+  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-chip {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
 /* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-chapter,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-quote,
