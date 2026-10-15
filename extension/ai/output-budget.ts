@@ -1,5 +1,12 @@
+import {
+  BUDGET_PARAM_RE,
+  INPUT_SIDE_RE,
+  normalizeErrorText,
+  OVER_LIMIT_RE
+} from "./error-text-norms.js";
+
 // ai/output-budget.ts — 「调用方不关心输出上限时给多少」与「平台以超上限拒绝后
-// 退回多少」两个事实的单源（叶子模块：零 import，SW 静态图安全）。
+// 退回多少」两个事实的单源（仅依赖 error-text-norms 叶子，SW 静态图安全）。
 //
 // 背景：Anthropic Messages 协议的 max_tokens 必填、平台不给默认值（怪癖
 // maxTokensRequired，语义见 compat-vocab），调用方不传时由 adapter 兜底。兜底值
@@ -20,21 +27,9 @@ export const CONSERVATIVE_MAX_TOKENS = 8192;
 
 // 判定一段错误文案是否属于「输出上限给大了」。必须与 isContextLengthOverflow
 // 互斥：两者都走 HTTP 400，误判成溢出会把请求推去 Map-Reduce（或报「上下文过长」），
-// 而实际上换个更小的预算就能成。
-//
-// 判据（偏向不误判，漏判退化为现状的溢出错误）：提到输出上限参数名 + 出现过限措辞
-// - 参数名只认输出侧精确拼写（max_tokens / max_completion_tokens / max_output_tokens /
-//   最大输出 等）——"max tokens exceeded" 这类松拼写通用作输入超长的表述，不认
-// - 过限措辞：比较式（"> 8192"）/ 区间式（valid range）/ invalid / too large / exceed /
-//   中文「超出|超过」
-// 同时排除提到上下文与输入侧词的文案（context / prompt / input / messages）。
-const BUDGET_PARAM_RE =
-  /(max_tokens|max_completion_tokens|max_output_tokens|maximum output tokens|最大输出|输出 ?tokens?)/i;
-const OVER_LIMIT_RE = /(too large|too big|greater than|larger than|valid range|out of range|invalid|exceed|>\s*\d|不能大于|不能超过|超出|超过)/i;
-const INPUT_SIDE_RE = /(context|prompt|input|messages?\b|上下文|输入|提示词)/i;
-
+// 而实际上换个更小的预算就能成。判据正则族收口于 error-text-norms.ts。
 export function isOutputBudgetTooLarge(detail: unknown): boolean {
-  const text = String(detail ?? "");
+  const text = normalizeErrorText(detail);
   if (!text) return false;
   if (INPUT_SIDE_RE.test(text)) return false;
   return BUDGET_PARAM_RE.test(text) && OVER_LIMIT_RE.test(text);

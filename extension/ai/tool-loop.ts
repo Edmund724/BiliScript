@@ -12,7 +12,7 @@
 // - 搜索失败：tool 消息写「搜索失败：<原因>」+ notice，回答不中断；
 // - 平台不支持 tools（4xx）：notice + 摘除 tools 无联网重发一次；
 // - 中止 / context-length 溢出照 chatCompletion 原语义上抛。
-import { chatCompletion } from "./completion.js";
+import { chatCompletion, type ChatCompletionInput } from "./completion.js";
 import { parseToolArgs } from "./adapters/openai.js";
 import type { ChatToolDefinition } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from "./types.js";
@@ -73,38 +73,38 @@ export interface ToolStatusPayload {
   sources?: NormalizedSearchResult[];
 }
 
-export interface RunToolLoopInput {
-  provider: ProviderRequest;
-  // 循环中就地追加 assistant(tool_calls) / tool / system 消息（调用方持有数组）。
-  messages: ChatMessage[];
-  stream?: boolean;
-  signal?: AbortSignal | null;
-  // 未归一的档位外部值（本层逐轮透传给 chatCompletion；归一施加点在解析入口，
-  // 见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
-  thinkingLevel?: ThinkingLevelInput;
-  maxToolCalls: number;
-  executeSearch: ExecuteSearchFn;
+export interface ToolLoopRequestProfile
+  extends Pick<
+    ChatCompletionInput,
+    | "provider"
+    | "stream"
+    | "signal"
+    | "thinkingLevel"
+    | "maxTokens"
+    | "retries"
+    | "onEvent"
+    | "onRetry"
+    | "onStreamReset"
+    | "onFinishReason"
+    | "retryDelayMs"
+    | "fetchImpl"
+  > {
   // 工具定义变体：缺省 WEB_SEARCH_TOOL（对话链带 [n] 引用要求）；选区解释链
   // 传 webSearchTool({ requireCitations: false })（解释卡无引用渲染）。
   toolDefinition?: ChatToolDefinition;
-  // 透传 chatCompletion 的输出上限（选区解释链钉 320，见 ai/explain.ts）。
-  maxTokens?: number;
-  // 透传 chatCompletion 的网络重试次数（选区解释链钉 1，与非联网链一致）。
-  retries?: number;
-  // 逐轮透传 chatCompletion 的流事件与重试回调（token 合帧等适配留在调用方）。
-  onEvent?: (event: StreamChatEvent) => void;
-  onRetry?: (payload: { attempt: number; maxRetries: number; kind: string; error: Error }) => void;
-  onStreamReset?: () => void;
-  // 逐轮透传 chatCompletion 的 finishReason 回报（截断判定与提示留在调用方；
-  // 中间工具轮的 "tool_calls" 也照传，调用方只认 "length"）。
-  onFinishReason?: (reason: string | null) => void;
+}
+
+export interface RunToolLoopInput {
+  requestProfile: ToolLoopRequestProfile;
+  // 循环中就地追加 assistant(tool_calls) / tool / system 消息（调用方持有数组）。
+  messages: ChatMessage[];
+  maxToolCalls: number;
+  executeSearch: ExecuteSearchFn;
   // notice：额度用尽 / 平台不支持 tools / 搜索失败等用户可见提示。
   onNotice?: (text: string) => void;
   onToolStatus?: (payload: ToolStatusPayload) => void;
   // 每轮搜索完成后回吐持久化副本（tool 内容截 TOOL_MESSAGE_MAX_CHARS）。
   onToolTurn?: (messages: ChatMessage[]) => void;
-  retryDelayMs?: number;
-  fetchImpl?: typeof fetch;
 }
 
 // 结果数组 JSON 序列化（spec §5）：先截 MAX_SEARCH_RESULTS_PER_TOOL 条，总量
@@ -129,26 +129,15 @@ function serializeSearchResults(results: NormalizedSearchResult[]): string {
  */
 export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
   const {
-    provider,
+    requestProfile,
     messages,
-    stream = true,
-    signal,
-    thinkingLevel,
     maxToolCalls,
     executeSearch,
-    toolDefinition = WEB_SEARCH_TOOL,
-    maxTokens,
-    retries,
-    onEvent,
-    onRetry,
-    onStreamReset,
-    onFinishReason,
     onNotice,
     onToolStatus,
-    onToolTurn,
-    retryDelayMs,
-    fetchImpl
+    onToolTurn
   } = input;
+  const { signal, toolDefinition = WEB_SEARCH_TOOL, stream = true } = requestProfile;
 
   let toolCallCount = 0;
   let quotaNoticeInjected = false;
@@ -159,24 +148,15 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
 
   while (true) {
     const withTools = !retriedWithoutTools && toolCallCount < maxToolCalls;
+    const tools = withTools ? [toolDefinition] : undefined;
 
     let result: string | { done: true } | Awaited<ReturnType<typeof chatCompletion>>;
     try {
       result = await chatCompletion({
-        provider,
-        messages,
+        ...requestProfile,
         stream,
-        signal,
-        thinkingLevel,
-        maxTokens,
-        retries,
-        tools: withTools ? [toolDefinition] : undefined,
-        onEvent,
-        onRetry,
-        onStreamReset,
-        onFinishReason,
-        retryDelayMs,
-        fetchImpl
+        messages,
+        tools
       });
     } catch (e) {
       // 中止/溢出原语义上抛；4xx（非溢出/中止）= 平台不支持 tools → 摘除重发一次。

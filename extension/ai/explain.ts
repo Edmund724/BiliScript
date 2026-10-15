@@ -173,19 +173,21 @@ export async function explainSelection({
     //（解释卡无来源渲染），失败降级与额度上限语义同对话链。
     const webText = (
       await runToolLoop({
-        provider,
+        requestProfile: {
+          provider,
+          stream: false,
+          signal,
+          thinkingLevel: "off",
+          toolDefinition: webSearchTool({ requireCitations: false }),
+          maxTokens: EXPLAIN_MAX_TOKENS,
+          retries: 1,
+          fetchImpl: providerFetchViaBackground
+        },
         messages,
-        stream: false,
-        signal,
-        thinkingLevel: "off",
         maxToolCalls: webSearch.maxToolCalls,
         executeSearch: webSearch.executeSearch,
-        toolDefinition: webSearchTool({ requireCitations: false }),
-        maxTokens: EXPLAIN_MAX_TOKENS,
-        retries: 1,
         onToolStatus: onSearchStatus,
-        onNotice,
-        fetchImpl: providerFetchViaBackground
+        onNotice
       })
     ).trim();
     if (!webText) {

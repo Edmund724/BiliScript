@@ -400,6 +400,22 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
+/* 用户消息气泡同进凸起语言：基础表的 surface-2 底 + 描边与雾底灰差太小，
+ * 与透明底的助手消息几乎混在一起（用户报「区分度不够」）；换全仓统一的
+ * 白玻璃凸起配方（--card 渐变 + 软投影 + 内高光、描边归零）从雾底浮出，
+ * 同时与「助手消息透明直落雾底」形成明确的层级分工。气泡形状（圆角 14px
+ * + 尾巴 6px）保留在基础表，此处只覆写填充与阴影。 */
+#biliscript-reading-view .biliscript-reading-chat .chat-msg-user {
+  background: var(--biliscript-reader-card);
+  border: none;
+  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+/* 深色档：凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
+#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-msg-user {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
 /* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-chapter,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-quote,

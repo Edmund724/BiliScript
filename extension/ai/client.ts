@@ -173,15 +173,17 @@ export async function streamChat({ provider, context, userPrompt, history, userI
       // tool-turn 同走「先 flush 再回吐」纪律，tool-turn 为宿主持久化副本
       //（spec §2.5，tool 内容已截断）。
       ? runToolLoop({
-          provider,
+          requestProfile: {
+            provider,
+            stream: true,
+            signal,
+            thinkingLevel,
+            maxTokens,
+            ...streamCallbacks
+          },
           messages,
-          stream: true,
-          signal,
-          thinkingLevel,
-          maxTokens,
           maxToolCalls: webSearch.maxToolCalls,
           executeSearch: webSearch.executeSearch,
-          ...streamCallbacks,
           onNotice: (text) => {
             onActivity?.();
             flushTokens();

@@ -98,6 +98,7 @@ import { createMessageRouter } from "../core/message-router.js";
 import {
   type BackgroundMessage,
   type BackgroundMessageHandler,
+  type BackgroundMessageHandlers,
   type BackgroundMessageType,
   type BackgroundResponseOf,
   type AsrProviderListEntry,
@@ -588,7 +589,7 @@ const messageHandlerTable = {
   "offload-task": handleOffloadTask,
   "offscreen-request-close": handleOffscreenRequestCloseMsg,
   "get-debug-log-gate": handleGetDebugLogGate
-} satisfies { [K in BackgroundMessageType]: BackgroundMessageHandler<K> };
+} satisfies BackgroundMessageHandlers;
 
 // EXPECTED_CONTENT_SCRIPT_VERSION 单源在 entry/content-orchestration-wiring.ts
 //（arch-slim-3/04 收编，本文件经 import 消费）。

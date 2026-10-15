@@ -734,3 +734,70 @@ describe("08 选轨控件：壳重建（forceRecreate）后的接线", () => {
     expect(loadSubtitle).toHaveBeenLastCalledWith(JA.subtitleUrl, "ai-ja", state.clip.fetchRunId, JA.id);
   });
 });
+
+describe("04 深 module 实例接缝（createSubtitleToolbar）", () => {
+  it("构造注入 notice：切轨失败回包经注入假身断言", async () => {
+    const { createSubtitleToolbar } = await import("../../extension/reader/subtitle-tab-ui.js");
+    const onNotice = vi.fn();
+    const toolbar = createSubtitleToolbar({ onNotice });
+
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    toolbar.render();
+
+    vi.mocked(lazyModule.ensureSummarizeChain).mockRejectedValueOnce(new Error("网络超时"));
+    selectViaList("English");
+
+    await vi.waitFor(() => {
+      expect(onNotice).toHaveBeenCalledWith("字幕切换失败：网络超时");
+    });
+  });
+
+  it("跨「壳重建」语义：模拟重建后注入回调仍可用（替代模块闭包存活隐式依赖）", async () => {
+    const { createSubtitleToolbar } = await import("../../extension/reader/subtitle-tab-ui.js");
+    const onNotice = vi.fn();
+    const toolbar = createSubtitleToolbar({ onNotice });
+
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    toolbar.render();
+
+    // 模拟壳 forceRecreate 重建
+    uiRenderer.ensureUiReady({ forceRecreate: true });
+    mountPlayerChain();
+    toolbar.render();
+
+    vi.mocked(lazyModule.ensureSummarizeChain).mockRejectedValueOnce(new Error("重建后失败"));
+    selectViaList("English");
+
+    await vi.waitFor(() => {
+      expect(onNotice).toHaveBeenCalledWith("字幕切换失败：重建后失败");
+    });
+  });
+
+  it("相位订阅由实例 bindEvents 承载：三相位驱动 render、subtitle-ready 不驱动", async () => {
+    const { createSubtitleToolbar } = await import("../../extension/reader/subtitle-tab-ui.js");
+    const statusBus = await import("../../extension/shared/subtitle-status-bus.js");
+    const toolbar = createSubtitleToolbar();
+
+    loadTracks([], "");
+    state.reader.readingViewOpen = true;
+    toolbar.render();
+    toolbar.bindEvents();
+
+    const customSelect = await import("../../extension/ui/custom-select.js");
+    const rebuild = vi.spyOn(customSelect, "rebuildCustomSelectOptions");
+
+    // subtitle-ready 相位不驱动重渲
+    statusBus.publishSubtitleStatusPhase("subtitle-ready");
+    expect(rebuild).not.toHaveBeenCalled();
+
+    // asr-transcribing 驱动重渲
+    statusBus.publishSubtitleStatusPhase("asr-transcribing");
+    expect(rebuild).toHaveBeenCalled();
+
+    // asr-done 驱动重渲
+    rebuild.mockClear();
+    statusBus.publishSubtitleStatusPhase("asr-done");
+    expect(rebuild).toHaveBeenCalled();
+  });
+});
+
