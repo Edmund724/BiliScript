@@ -15,6 +15,7 @@ import { isVisibleReaderControl } from "../shared/dom-utils.js";
 import { logInfoAlways } from "../shared/logging.js";
 // S3 分层：播放器 AI 样式随本动态 chunk 挂载（节点创建前就绪，见文件尾注释）
 import { ensurePlayerAiStyles, removePlayerAiStyles } from "../shared/style-injector.js";
+import { decidePlayerAiQuickAction } from "./player-ai-mount-decision.js";
 
 // ===== S3 分层：样式挂载（模块求值即挂，幂等） =====
 //
@@ -315,47 +316,9 @@ function schedulePlayerAiQuickActionRetry(): void {
   schedulePlayerAiQuickActionSync(delay);
 }
 
-function syncPlayerAiQuickActionButton(): void {
-  // 设置门控先于一切：关闭态仍要摘按钮（含清就位记录）。
-  if (!state.settings?.enablePlayerAiQuickAction) {
-    // 工单 08 决议 2：按钮常驻（阅读模式内/外都显示），仅设置开关门控挂载。
-    removePlayerAiQuickActionButton();
-    return;
-  }
-
-  // 字幕控件校准信号（工单 first-button-ux/01）：未校准且控件已就绪 → 一次性
-  // 复校（清就位记录，落回下方全量路径重判宿主 + 重写视觉），防控制条水合
-  // 改变容器几何导致按钮漂移。须在已就位短路之前：复校的触发场景正是按钮
-  // 已稳定就位、短路本会拦住全量路径。
-  if (!playerAiSubtitleControlCalibrated && findPlayerSubtitleControlNode()) {
-    playerAiSubtitleControlCalibrated = true;
-    clearPlayerAiQuickActionMountRecord();
-  }
-
-  // 已就位短路（性能工单）：按钮在原位且宿主判定仍是它时，跳过下方全量挂载
-  // 路径（宿主复判与结构重建）——播放中每帧回调的主要开销。只留幂等的视觉
-  // 校准（值已在位则零写入）。失同步自愈不受影响：按钮被 B 站摘掉后
-  // wrap.isConnected / 宿主记录即失效，本短路不成立，落到下方原有路径走
-  // rAF / 退避重试补回。
-  if (tryRefreshPlayerAiQuickActionVisuals()) {
-    // 与下方挂载成功同一条不变量：成功即在位，重置重试计数并补满帧内快车道
-    // 预算（下次「宿主重新就绪」仍从逐帧重试开始）。
-    playerAiQuickActionRetryCount = 0;
-    playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
-    return;
-  }
-
+function mountPlayerAiQuickActionButtonToHost(playerHost: HTMLElement): void {
   const existing = document.getElementById("biliscript-player-ai-quick-action");
   const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
-
-  const playerHost = findPlayerAiQuickActionHost();
-  if (!playerHost) {
-    existingWrap?.remove();
-    existing?.remove();
-    clearPlayerAiQuickActionMountRecord();
-    schedulePlayerAiQuickActionRetry();
-    return;
-  }
 
   let button: HTMLButtonElement | null = existing instanceof HTMLButtonElement ? existing : null;
   let wrap = existingWrap instanceof HTMLElement ? existingWrap : null;
@@ -395,6 +358,66 @@ function syncPlayerAiQuickActionButton(): void {
     logInfoAlways(
       `[BILISCRIPT] player-ai: AI 键已挂载，装载→挂载耗时 ${Date.now() - MODULE_BOOT_AT}ms`
     );
+  }
+}
+
+function syncPlayerAiQuickActionButton(): void {
+  // 取输入
+  const enabled = Boolean(state.settings?.enablePlayerAiQuickAction);
+  const calibrated = playerAiSubtitleControlCalibrated;
+  const hasSubtitleControl = enabled && !calibrated ? Boolean(findPlayerSubtitleControlNode()) : false;
+  const mountedStable = enabled ? isPlayerAiQuickActionMountedStable() : false;
+  const host = enabled ? findPlayerAiQuickActionHost() : null;
+
+  // 判定意图（纯函数，零 DOM 依赖）
+  const decision = decidePlayerAiQuickAction({
+    enabled,
+    calibrated,
+    hasSubtitleControl,
+    mountedStable,
+    hasHost: Boolean(host)
+  });
+
+  // 执行意图
+  switch (decision) {
+    case "none":
+      // 工单 08 决议 2：按钮常驻（阅读模式内/外都显示），仅设置开关门控挂载。
+      removePlayerAiQuickActionButton();
+      return;
+
+    case "refresh-visuals":
+      // 已就位短路（性能工单）：只留幂等的视觉校准（值已在位则零写入）。
+      tryRefreshPlayerAiQuickActionVisuals();
+      playerAiQuickActionRetryCount = 0;
+      playerAiQuickActionFrameRetriesLeft = PLAYER_AI_FRAME_RETRY_BUDGET;
+      return;
+
+    case "unmount-retry": {
+      // 宿主缺失路径（拆按钮 + 清记录 + 退避重试）。
+      const existing = document.getElementById("biliscript-player-ai-quick-action");
+      const existingWrap = existing?.closest(".biliscript-player-ai-wrap");
+      existingWrap?.remove();
+      existing?.remove();
+      clearPlayerAiQuickActionMountRecord();
+      schedulePlayerAiQuickActionRetry();
+      return;
+    }
+
+    case "recalibrate":
+      // 字幕控件校准信号（工单 first-button-ux/01）：未校准且控件已就绪 → 一次性
+      // 复校（清就位记录，全量重判宿主 + 重写视觉）。
+      playerAiSubtitleControlCalibrated = true;
+      clearPlayerAiQuickActionMountRecord();
+      if (host) {
+        mountPlayerAiQuickActionButtonToHost(host);
+      }
+      return;
+
+    case "mount":
+      if (host) {
+        mountPlayerAiQuickActionButtonToHost(host);
+      }
+      return;
   }
 }
 
