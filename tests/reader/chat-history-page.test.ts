@@ -9,8 +9,9 @@
 //   铺满整个 tab 内容区白卡，不再绝对定位锚 footer 上方，也不再以 flex:1 参与对话列），
 //   `[hidden]` 单源 + `~ 对话内容` 兄弟选择器把意图卡/转写状态行/消息区/输入卡
 //   整体 display:none（与设置抽屉接管面板第 3–4 行同一套纯属性反应）；
-//   底色为不透明 surface 页面灰（打开时兄弟内容整体 display:none，背后无需透视），
-//   白卡历史条目契约见 flyme-panel-layering.test.ts；
+//   底色透明（直露与对话内容区相同的雾底——历史页不应有单独背景色；
+//   打开时兄弟内容整体 display:none，背后没有需要遮盖的东西），
+//   灰底历史条目契约见 flyme-panel-layering.test.ts；
 //   模型面板仍是绝对定位弹层。
 // 为什么必须是脱流覆盖层：display 参与 allow-discrete 的
 // 0.2s 淡出期间，历史页仍按 before-change 值渲染——若它是对话列的 flex 项，
@@ -154,11 +155,11 @@ describe("历史整页（CSS 契约）", () => {
     expect(hiding.map((rule) => rule.body).join("\n")).toContain("display: none");
   });
 
-  it("材质：不透明 surface 页面灰（无透视需求——打开时兄弟内容整体 display:none），动效不变", () => {
+  it("材质：透明底（与对话内容区同露雾底——历史页不应有单独背景色），动效不变", () => {
     const body = ruleBody(HISTORY_PAGE);
-    // 2026-12 配色定稿：overlay 半透明白 + 四周内边距环 = 用户报的「一圈灰框」；
-    // 铺满白卡后底色取页面灰，白卡历史条目在其上分层（见 flyme-panel-layering）
-    expect(body).toContain("background: var(--biliscript-reader-surface)");
+    // tab-body 在 reader-gate.css 蓝雾壳段透明直露雾底，历史页透明即与对话区
+    // 同一层料；打开时兄弟内容整体 display:none，背后没有需要遮盖的东西
+    expect(body).toContain("background: transparent");
     expect(body).not.toContain("overlay-bg");
     expect(body).not.toContain("backdrop-filter");
     expect(body).toContain("transition: opacity 0.2s");

@@ -1,8 +1,8 @@
 // tests/reader/flyme-panel-layering.test.ts
 // Flyme 浅色面板分层契约（2026-12 用户决议，截图两轮 + 预览页确认）：
-// 「字幕/概览那一行往下一块灰」「打开历史对话多一圈灰框」的修复定稿——
-// 面板只剩两层：surface 页面灰（外壳底色，header 与 tab 区直接落在其上）
-// + card 白卡（tab 内容区、历史条目）。本文件锁四点：
+// 面板只剩一层料：surface 页面灰 / 雾底（外壳底色，header、tab 区、tab
+// 内容区与盖住它的历史对话整页全部直露其上），白玻璃凸起卡（选中 pill、
+// 章节/金句、输入卡、用户气泡）靠灰差浮出。本文件锁四点：
 //
 // 1. tab 内容区（.biliscript-reading-tab-body）底色走 --biliscript-reader-card，
 //    圆角 12px（与 tab 槽同档的嵌套半径），四周 margin 环透出面板页面灰
@@ -15,14 +15,15 @@
 // 3. 分段控件槽体透明、与雾底融为一体：无槽底、无内阴影，只有选中项浮起
 //    白玻璃 pill + accent 字（reader-gate.css 的蓝雾壳段覆写）；
 //    pill-bg token 留在色板里服务解释卡关闭键 hover 等消费方，值不变。
-// 4. 历史条目（.chat-history-item）白卡无描边：background 由 surface（与面板
-//    同灰，读作一排灰盒子）换成 card；描边退为 transparent（保留 1px 几何，
-//    is-live-match 换 accent 边时布局不跳）。
+// 4. 历史对话整页透明、条目（.chat-history-item）用 surface-2 灰分层：
+//    历史页直露与对话内容区相同的雾底（用户裁定「历史页不应有单独背景色」），
+//    条目底色取 surface-2 灰在其上读出；描边 transparent
+//   （保留 1px 几何，is-live-match 换 accent 边时布局不跳）。
 //
 // 局限同 chat-history-page.test.ts：jsdom 无布局，本文件只锁 CSS 源文本，
-// 真实观感回归由人工/预览页（.scratch/previews/flyme-panel-color-fix.html）兜。
+// 真实观感回归由人工/真机预览兜。
 // 防倒退：tab 内容区回到透明/灰底、header 复活独立底色、flyme 槽色退回不透明
-// 灰、历史条目回到灰底灰边，本文件红。
+// 灰、历史页底色退回 surface/card 实底或条目回到 card 白，本文件红。
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -109,10 +110,10 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(dark).toContain("--biliscript-reader-pill-bg: #222327");
   });
 
-  it("历史条目白卡无描边：card 底 + transparent 边（不再是与面板同灰的灰盒子）", () => {
+  it("历史条目灰底无描边：surface-2 底 + transparent 边（白底页面上的分层）", () => {
     const body = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-history-item");
 
-    expect(body).toContain("background: var(--biliscript-reader-card)");
+    expect(body).toContain("background: var(--biliscript-reader-surface-2)");
     expect(body).toMatch(/border:\s*1px solid transparent\s*;/);
   });
 });
