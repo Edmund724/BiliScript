@@ -228,4 +228,71 @@ describe("reader 生命周期", () => {
     expect(refreshSpy).not.toHaveBeenCalled();
     shell.closeReadingView();
   });
+
+  describe("字幕就绪副作用单一收口（arch-review-batch3/01）", () => {
+    it("subtitle-ready 通知：驱动全量副作用（重投影 + 状态行 + 播放同步 + 双语装载）", async () => {
+      state.clip.bvid = "BV1test000000";
+      state.clip.subtitleBody = [
+        { from: 0, to: 5, content: "第一句字幕" },
+        { from: 5, to: 10, content: "第二句字幕" }
+      ];
+      await shell.enterReaderMode();
+      const statusElem = document.getElementById(ids.readingStatus) as HTMLElement;
+      statusElem.textContent = "旧状态";
+
+      shell.handleReaderPresenterNotification({
+        kind: "subtitle-ready",
+        text: "自定义就绪文案"
+      });
+
+      expect(statusElem.textContent).toBe("自定义就绪文案");
+      const items = document.querySelectorAll(".biliscript-reading-item");
+      expect(items.length).toBe(2);
+      expect(syncRunning()).toBe(true);
+
+      shell.closeReadingView();
+    });
+
+    it("抓取落定对账：纯幂等重投影与条件触发，不覆盖状态行且不重启双语装载", async () => {
+      state.clip.bvid = "BV1test000000";
+      state.clip.subtitleBody = [
+        { from: 0, to: 5, content: "对账重投影字幕" }
+      ];
+      await shell.enterReaderMode();
+      const statusElem = document.getElementById(ids.readingStatus) as HTMLElement;
+      statusElem.textContent = "保持当前状态";
+
+      shell.onReaderSubtitleReady({
+        triggerMode: "if-subtitles-present"
+      });
+
+      expect(statusElem.textContent).toBe("保持当前状态");
+      const items = document.querySelectorAll(".biliscript-reading-item");
+      expect(items.length).toBe(1);
+      expect(items[0].textContent).toContain("对账重投影字幕");
+
+      shell.closeReadingView();
+    });
+
+    it("视图未打开时：对账路径整条跳过，subtitle-ready 通知仍执行双语副轨装载（Q1 决议）", async () => {
+      const secSubtitle = await import("../../extension/reader/secondary-subtitle.js");
+      const secSpy = vi.spyOn(secSubtitle, "ensureSecondarySubtitleLoaded").mockReturnValue({
+        kind: "skipped",
+        reason: "bilingual-off"
+      });
+      try {
+        expect(state.reader.readingViewOpen).toBe(false);
+
+        // 对账路径：视图未开无任何副作用
+        shell.onReaderSubtitleReady({ triggerMode: "if-subtitles-present" });
+        expect(secSpy).not.toHaveBeenCalled();
+
+        // 通知路径：视图未开也照抓副轨
+        shell.handleReaderPresenterNotification({ kind: "subtitle-ready" });
+        expect(secSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        secSpy.mockRestore();
+      }
+    });
+  });
 });
