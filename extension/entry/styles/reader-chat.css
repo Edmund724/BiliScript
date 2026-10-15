@@ -327,6 +327,9 @@
   font-size: 16px;
 }
 
+/* 用户气泡：surface-2 + 描边只是回退档，阅读视图里由 reader-gate.css 覆写为
+ * 白玻璃凸起卡（--card 渐变 + 软投影 + 内高光、描边归零），与助手消息的
+ * 透明底形成明确层级。 */
 .biliscript-reading-chat .chat-msg-user {
   align-self: flex-end;
   background: var(--biliscript-reader-surface-2);
