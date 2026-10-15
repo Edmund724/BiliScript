@@ -69,64 +69,40 @@ export async function pruneSearchProviderOrder(
   });
 }
 
-async function executeDeleteSearchProviderAndClearCache(
-  providerId: string,
-  deps?: DeleteSearchProviderDeps
-): Promise<SearchProviderListEntry[]> {
-  const rawDelete = deps?.deleteProvider ?? searchProviderStore.deleteProvider;
-  const doDelete =
-    deps?.invalidatingWrite && deps?.storageKeys
-      ? deps.invalidatingWrite(rawDelete, deps.storageKeys)
-      : rawDelete;
-  const providers = await doDelete(providerId);
-
-  try {
-    await pruneSearchProviderOrder(providerId, {
-      getSyncStorage: deps?.getSyncStorage,
-      writeSnapshotKeys: deps?.writeSnapshotKeys
-    });
-  } catch (error) {
-    const warn = deps?.logWarn ?? logWarn;
-    warn("[BILISCRIPT] search provider order prune on provider delete failed", error);
-  }
-
-  try {
-    const clear = deps?.clearCache ?? clearSearchCache;
-    await clear();
-  } catch (error) {
-    const warn = deps?.logWarn ?? logWarn;
-    warn("[BILISCRIPT] search cache clear on provider delete failed", error);
-  }
-
-  return providers;
-}
-
 /**
- * 创建删除搜索平台并撤回缓存的委托函数。
+ * 搜索平台删除撤回事务入口（spec §6.7 / §10 第 40 行）：
+ * 串联 store 删除（支持 invalidatingWrite 包装）、顺序剔除与清空查询缓存。
+ * 注入 primitive 与失效键面，返回供 CRUD 处理器挂接的 (providerId) => Promise<...> 函数。
  */
-export function createDeleteSearchProviderAndClearCache(
+export function deleteSearchProviderAndClearCache(
   deps: DeleteSearchProviderDeps = {}
 ): (providerId: string) => Promise<SearchProviderListEntry[]> {
-  return (providerId: string) => executeDeleteSearchProviderAndClearCache(providerId, deps);
-}
+  return async (providerId: string): Promise<SearchProviderListEntry[]> => {
+    const rawDelete = deps.deleteProvider ?? searchProviderStore.deleteProvider;
+    const doDelete =
+      deps.invalidatingWrite && deps.storageKeys
+        ? deps.invalidatingWrite(rawDelete, deps.storageKeys)
+        : rawDelete;
+    const providers = await doDelete(providerId);
 
-/**
- * 删除搜索平台记录并清空查询缓存（撤回事务）。
- * 支持直接传参执行，或传入 deps 返回委托工厂。
- */
-export function deleteSearchProviderAndClearCache(
-  deps: DeleteSearchProviderDeps
-): (providerId: string) => Promise<SearchProviderListEntry[]>;
-export function deleteSearchProviderAndClearCache(
-  providerId: string,
-  deps?: DeleteSearchProviderDeps
-): Promise<SearchProviderListEntry[]>;
-export function deleteSearchProviderAndClearCache(
-  first: string | DeleteSearchProviderDeps,
-  second?: DeleteSearchProviderDeps
-): Promise<SearchProviderListEntry[]> | ((providerId: string) => Promise<SearchProviderListEntry[]>) {
-  if (typeof first === "string") {
-    return executeDeleteSearchProviderAndClearCache(first, second);
-  }
-  return createDeleteSearchProviderAndClearCache(first);
+    try {
+      await pruneSearchProviderOrder(providerId, {
+        getSyncStorage: deps.getSyncStorage,
+        writeSnapshotKeys: deps.writeSnapshotKeys
+      });
+    } catch (error) {
+      const warn = deps.logWarn ?? logWarn;
+      warn("[BILISCRIPT] search provider order prune on provider delete failed", error);
+    }
+
+    try {
+      const clear = deps.clearCache ?? clearSearchCache;
+      await clear();
+    } catch (error) {
+      const warn = deps.logWarn ?? logWarn;
+      warn("[BILISCRIPT] search cache clear on provider delete failed", error);
+    }
+
+    return providers;
+  };
 }

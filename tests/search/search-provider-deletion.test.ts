@@ -1,5 +1,5 @@
 // tests/search/search-provider-deletion.test.ts
-// 搜索平台删除撤回事务（spec §6.7 / §10 第 40 行，工单 02）测试：
+// 搜索平台删除撤回事务（spec §6.7 / §10 第 40 行）测试：
 //   ① 正常路径：store 删除（带 invalidatingWrite 包装）→ 顺序剔除 → 清空缓存三步串联，回包为存活列表；
 //   ② 顺序剔除失败静默：写回抛错 → 回包照常、logWarn 一次，清缓存照常执行；
 //   ③ 清缓存失败静默：clearCache 抛错 → 回包照常、logWarn 一次；
@@ -9,7 +9,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { SEARCH_PROVIDER_ORDER_STORAGE } from "../../extension/search/search-provider-store.js";
 import {
-  createDeleteSearchProviderAndClearCache,
   deleteSearchProviderAndClearCache,
   pruneSearchProviderOrder
 } from "../../extension/search/search-provider-deletion.js";
@@ -48,13 +47,14 @@ describe("deleteSearchProviderAndClearCache 撤回事务（spec §6.7 / §10 第
     });
     const logWarn = vi.fn();
 
-    const result = await deleteSearchProviderAndClearCache("search_target", {
+    const handler = deleteSearchProviderAndClearCache({
       deleteProvider,
       writeSnapshotKeys,
       getSyncStorage,
       clearCache,
       logWarn
     });
+    const result = await handler("search_target");
 
     expect(callOrder).toEqual(["delete:search_target", "prune", "clearCache"]);
     expect(result).toBe(REMAINING_PROVIDERS);
@@ -85,21 +85,6 @@ describe("deleteSearchProviderAndClearCache 撤回事务（spec §6.7 / §10 第
     expect(result).toBe(REMAINING_PROVIDERS);
   });
 
-  it("createDeleteSearchProviderAndClearCache 工厂形式返回委托函数", async () => {
-    const deleteProvider = vi.fn(async () => REMAINING_PROVIDERS);
-    const clearCache = vi.fn(async () => {});
-    const handler = createDeleteSearchProviderAndClearCache({
-      deleteProvider,
-      clearCache,
-      getSyncStorage: async () => ({ [SEARCH_PROVIDER_ORDER_STORAGE]: [] })
-    });
-
-    const result = await handler("search_target");
-    expect(result).toBe(REMAINING_PROVIDERS);
-    expect(deleteProvider).toHaveBeenCalledWith("search_target");
-    expect(clearCache).toHaveBeenCalledTimes(1);
-  });
-
   it("顺序剔除抛错静默：回包照常，logWarn 一次，清缓存照常执行", async () => {
     const pruneError = new Error("sync write failed");
     const writeSnapshotKeys = vi.fn(async () => {
@@ -111,13 +96,14 @@ describe("deleteSearchProviderAndClearCache 撤回事务（spec §6.7 / §10 第
     const clearCache = vi.fn(async () => {});
     const logWarn = vi.fn();
 
-    const result = await deleteSearchProviderAndClearCache("search_target", {
+    const handler = deleteSearchProviderAndClearCache({
       deleteProvider: async () => REMAINING_PROVIDERS,
       writeSnapshotKeys,
       getSyncStorage,
       clearCache,
       logWarn
     });
+    const result = await handler("search_target");
 
     expect(result).toBe(REMAINING_PROVIDERS);
     expect(logWarn).toHaveBeenCalledTimes(1);
@@ -135,12 +121,13 @@ describe("deleteSearchProviderAndClearCache 撤回事务（spec §6.7 / §10 第
     });
     const logWarn = vi.fn();
 
-    const result = await deleteSearchProviderAndClearCache("search_target", {
+    const handler = deleteSearchProviderAndClearCache({
       deleteProvider: async () => REMAINING_PROVIDERS,
       getSyncStorage: async () => ({ [SEARCH_PROVIDER_ORDER_STORAGE]: [] }),
       clearCache,
       logWarn
     });
+    const result = await handler("search_target");
 
     expect(result).toBe(REMAINING_PROVIDERS);
     expect(logWarn).toHaveBeenCalledTimes(1);
@@ -158,13 +145,13 @@ describe("deleteSearchProviderAndClearCache 撤回事务（spec §6.7 / §10 第
     const clearCache = vi.fn(async () => {});
     const logWarn = vi.fn();
 
-    await expect(
-      deleteSearchProviderAndClearCache("search_target", {
-        deleteProvider,
-        clearCache,
-        logWarn
-      })
-    ).rejects.toThrow("store delete failed");
+    const handler = deleteSearchProviderAndClearCache({
+      deleteProvider,
+      clearCache,
+      logWarn
+    });
+
+    await expect(handler("search_target")).rejects.toThrow("store delete failed");
 
     expect(clearCache).not.toHaveBeenCalled();
     expect(logWarn).not.toHaveBeenCalled();
