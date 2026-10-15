@@ -90,7 +90,7 @@ describe("① 面集合封闭（失败方式：视图漏掉一个登记面）", 
 
 describe("② 欠账判定不写反（正反用例）", () => {
   it("反向：登记齐全的平台欠账为空（minimax / deepseek 六面全 registered）", () => {
-    for (const id of ["minimax", "deepseek", "sensenova"]) {
+    for (const id of ["minimax", "deepseek", "sensenova", "gemini"]) {
       const view = viewOf(id);
       expect(view.debts, `${id} 不该有欠账`).toEqual([]);
       expect(view.ok, id).toBe(true);
@@ -99,7 +99,7 @@ describe("② 欠账判定不写反（正反用例）", () => {
         id
       ).toEqual(["registered", "registered", "registered", "registered", "registered", "registered"]);
     }
-    // 齐全不是空转：minimax 的六面各有内容（最后新增的平台样本）。
+    // 齐全不是空转：minimax 与 gemini 的六面各有内容（新增平台样本）。
     const minimax = viewOf("minimax");
     expect(faceOf(minimax, "catalog").catalogProvider).toBe("minimax-cn");
     expect(faceOf(minimax, "buildOrder").buildOrderIndex).toBe(11);
@@ -107,6 +107,15 @@ describe("② 欠账判定不写反（正反用例）", () => {
       "effort",
       "native",
       "word"
+    ]);
+
+    const gemini = viewOf("gemini");
+    expect(faceOf(gemini, "catalog").catalogProvider).toBe("google");
+    expect(faceOf(gemini, "buildOrder").buildOrderIndex).toBe(12);
+    expect(faceOf(gemini, "messagesExits").cells?.map((cell) => cell.kind)).toEqual([
+      "non-messages",
+      "non-messages",
+      "non-messages"
     ]);
   });
 
@@ -259,12 +268,12 @@ describe("⑤「事实源未注入」不被 falsy 默认吞掉", () => {
 });
 
 describe("⑥ 有意缺口与欠账互相冒充（白名单是唯一判据）", () => {
-  it("今天的有意缺口只有 custom，且恰两面（冻结：新增即须显式复核）", () => {
+  it("今天的有意缺口只有 custom（gemini 已在 03 号票结束过渡态正式登记；新增即须显式复核）", () => {
     const rows = reportOf().rows;
     const intentional = rows
       .filter((row) => row.faces.some((face) => face.status === "intentional-gap"))
       .map((row) => row.platformId);
-    expect(intentional).toEqual(["custom"]);
+    expect(intentional.sort()).toEqual(["custom"].sort());
     const custom = viewOf("custom");
     expect(
       custom.faces.filter((face) => face.status === "intentional-gap").map((face) => face.face)
@@ -480,7 +489,7 @@ describe("端点面（测试手抄 id 清单的派生替代）", () => {
 
   it("baseUrl 为空的自定义端点预设：端点面是有意缺口，不报 /v1 类欠账", () => {
     const endpoints = faceOf(viewOf("custom"), "protocolEndpoints").endpoints ?? [];
-    expect(endpoints.map((endpoint) => endpoint.source)).toEqual(["none", "none"]);
+    expect(endpoints.map((endpoint) => endpoint.source)).toEqual(["none", "none", "none"]);
     expect(endpoints.every((endpoint) => endpoint.fallbackRepeatsV1)).toBe(false);
   });
 });

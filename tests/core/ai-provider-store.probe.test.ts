@@ -450,7 +450,7 @@ describe("探针协议调度（multi-protocol-ai）", () => {
       baseUrl: "https://api.example.com/v1",
       apiKey: "sk-1",
       model: "gpt",
-      protocol: "gemini"
+      protocol: "unknown-proto"
     });
 
     expect(resp).toEqual({ ok: true });

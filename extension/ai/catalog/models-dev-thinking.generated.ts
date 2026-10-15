@@ -4,13 +4,13 @@
 // 生成：pnpm catalog:sync:thinking（scripts/sync-models-dev-thinking.mjs）
 // 口径：12 个上游 provider 的 reasoning 模型 → 归一值集常量表 VALUESETS + 指派表
 //       ASSIGNMENTS。值集按结构去重；指派只回答「属于哪个值集」，线格式（怎么落请求体）
-//       是 adapter 与 ai/thinking-wire-map.ts 的职责。352 个模型直接有
+//       是 adapter 与 ai/thinking-wire-map.ts 的职责。376 个模型直接有
 //       reasoning_options（取值序 19 号票：值集覆盖表 > canonical_model_id（13 号票 canonical
 //       优先：direct 非空时也先借 canonical_model_id 的词表，悬空才回落 direct）> direct；
 //       canonical 重定向表见 --report 的 canonical 优先节，值集覆盖表见 --report 的值集覆盖节；
 //       能力补声明（本仓给一行补 off 写点，先增强上游事实再走同一取值序）见 --report 的本仓补声明节）；
-//       63 个缺口里 7 个按 canonical_model_id /
-//       别名表借到原生词表，其余 56 个标「未知词表」（不进表，查表返回 null =
+//       68 个缺口里 7 个按 canonical_model_id /
+//       别名表借到原生词表，其余 61 个标「未知词表」（不进表，查表返回 null =
 //       请求侧不发参）。逐条借词来源与缺口清单在 --report / --matrix 工件。
 //
 // 值集 id 文法：<part>("+"<part>)*，part = "toggle" | effort 档位按上游顺序用 "-" 连接
@@ -64,17 +64,17 @@ export interface ThinkingModelFact {
 // 别名指向的 sha256（别名 reason 是文档，不进 hash）。同一份上游数据两次生成必然同值。
 export const UPSTREAM_THINKING_SOURCE = {
   source: "https://models.dev/api.json",
-  contentHash: "sha256:3b477bc5ad81f0543613baa3302795151b83d1c041339e30abbfc0da6f17b35a",
+  contentHash: "sha256:7abaef6da4fbbab08f28f9b5a0e37224ce48373eb2bed042538c026e4f65300f",
   counts: {
-    models: 578,
-    reasoning: 415,
-    withOptions: 352,
-    gaps: 63,
+    models: 615,
+    reasoning: 444,
+    withOptions: 376,
+    gaps: 68,
     borrowed: 7,
-    unknown: 56,
+    unknown: 61,
     effortSets: 29,
-    valuesets: 50,
-    deprecated: 9,
+    valuesets: 51,
+    deprecated: 13,
     aliases: 6
   }
 } as const;
@@ -129,6 +129,7 @@ export const VALUESETS: Readonly<Record<string, ThinkingValueset>> = {
   "toggle+low-medium-xhigh+b:0-262144": { label: "hybrid-switch-effort-budget", toggle: true, effort: ["low", "medium", "xhigh"], budget: { min: 0, max: 262144 } },
   "toggle+medium-high+b": { label: "hybrid-switch-effort-budget", toggle: true, effort: ["medium", "high"], budget: {} },
   "toggle+medium-xhigh": { label: "hybrid-switch-effort", toggle: true, effort: ["medium", "xhigh"] },
+  "toggle+minimal-high": { label: "hybrid-switch-effort", toggle: true, effort: ["minimal", "high"] },
   "toggle+minimal-low-medium-high": { label: "hybrid-switch-effort", toggle: true, effort: ["minimal", "low", "medium", "high"] },
 };
 
@@ -220,6 +221,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "qwen3.7-max": "toggle+b:-262144",
     "grok-4.7": "low-medium-high-xhigh",
     "longcat-2.5-preview-free": "toggle",
+    "gemini-4-argon-contributor": "low-medium-high",
     "glm-5.3-flash": "low-high-max",
     "qwen3.8-max": "toggle+low-medium-xhigh+b:0-262144",
     "kimi-k3": "low-high-max",
@@ -227,7 +229,9 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "deepseek-v4-flash-vision-exp": "toggle+low-high-max",
     "kimi-k2.6": "toggle",
     "longcat-2.0": "toggle",
+    "cat-jam-free": "low-medium-high-xhigh-max",
     "grok-4.5": "low-medium-high",
+    "space-bunny": "low-medium-high-xhigh-max",
     "space-bunny-free": "low-medium-high-xhigh-max",
     "mimo-v2.6-flash": "toggle",
     "minimax-m3": "toggle",
@@ -236,18 +240,19 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "glm-5.2": "toggle+high-max",
     "hy3": "none-low-high",
     "muse-spark-1.2-contributor": "minimal-low-medium-high-xhigh",
+    "claude-haiku-5-5": "toggle+low-medium-high-xhigh-max",
     "gpt-6-luna": "none-low-medium-high-xhigh-max",
     "deepseek-v4-pro": "toggle+low-high-max",
     "qwen3.6-plus": "toggle+b:-81920",
     "hy4-preview": "none-high",
     "muse-spark-1.3-contributor": "minimal-low-medium-high-xhigh",
+    "step-5-preview-free": "low-medium-high",
     "glm-5.3": "low-high-max",
     "grok-4.6": "low-medium-high-xhigh",
     "qwen3.7-plus": "toggle+b:-262144",
     "deepseek-v4-flash": "toggle+low-high-max",
   },
   "openrouter": {
-    "stealth/space-bunny-alpha": "low-medium-high-xhigh-max",
     "bytedance-seed/seed-1.6-flash": "toggle",
     "bytedance-seed/seed-2.0-lite": "toggle+minimal-low-medium-high",
     "bytedance-seed/seed-2-1-turbo": "toggle",
@@ -264,6 +269,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "anthropic/claude-opus-4.5": "low-medium-high+b:1024-",
     "anthropic/claude-opus-4.6": "low-medium-high-max+b:1024-",
     "anthropic/claude-opus-4.7": "low-medium-high-xhigh-max",
+    "anthropic/claude-haiku-5.5": "toggle+low-medium-high-xhigh-max",
     "anthropic/claude-opus-4.8": "low-medium-high-xhigh-max",
     "anthropic/claude-haiku-4.5": "b:1024-",
     "anthropic/claude-opus-5": "low-medium-high-xhigh-max",
@@ -322,6 +328,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "perplexity/sonar-reasoning-pro": "toggle",
     "meta/muse-spark-1.3": "minimal-low-medium-high-xhigh-max",
     "meta/muse-glimmer-30b": "low-medium-high-xhigh",
+    "meta/muse-wonder": "minimal-low-medium-high-xhigh-max",
     "meta/muse-spark-1.1": "minimal-low-medium-high-xhigh",
     "meta/muse-spark-1.2": "minimal-low-medium-high-xhigh",
     "meta/muse-spark-1.2-contributor": "minimal-low-medium-high-xhigh",
@@ -334,7 +341,6 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "~openai/gpt-sol-latest": "low-medium-high-xhigh-max",
     "~openai/gpt-astra-latest": "low-medium-high-xhigh-max",
     "~openai/gpt-mini-latest": "none-low-medium-high-xhigh",
-    "baidu/ernie-4.5-vl-424b-a47b": "toggle",
     "x-ai/grok-4.20-multi-agent": "low-medium-high-xhigh",
     "x-ai/grok-4.7": "low-medium-high-xhigh",
     "x-ai/grok-4.3": "none-low-medium-high",
@@ -342,7 +348,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "x-ai/grok-4.20": "toggle",
     "x-ai/grok-4.6": "low-medium-high-xhigh",
     "~anthropic/claude-opus-latest": "low-medium-high-xhigh-max",
-    "~anthropic/claude-haiku-latest": "toggle",
+    "~anthropic/claude-haiku-latest": "toggle+low-medium-high-xhigh-max",
     "~anthropic/claude-sonnet-latest": "low-medium-high-xhigh-max",
     "~anthropic/claude-fable-latest": "low-medium-high-xhigh-max",
     "upstage/solar-pro-3": "none-minimal-low-medium-high",
@@ -373,24 +379,24 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "google/gemini-2.5-flash-lite": "toggle+b:512-24576",
     "google/gemini-2.5-pro-preview": "b:128-32768",
     "google/gemini-3.1-flash-lite-preview": "minimal-low-medium-high",
+    "google/gemini-nano-banana-2.1": "toggle+minimal-high",
+    "google/gemini-4-argon": "low-medium-high",
     "google/gemini-3.1-flash-lite": "minimal-low-medium-high",
     "ibm-granite/granite-4.2-8b": "none-low-high",
     "fireworks/ember-1": "toggle+low-high-max",
     "mistralai/mistral-medium-3-5": "none-high",
     "mistralai/mistral-small-2603": "none-high",
+    "mistralai/mistral-large-4-0": "none-high",
     "sakana/fugu-max": "high-xhigh-max",
     "sakana/fugu-ultra-v2": "high-xhigh-max",
     "sakana/fugu-ultra": "high-xhigh",
     "sakana/sakana-namazu": "toggle",
-    "inclusionai/ling-3.0-flash-sante:free": "toggle",
     "inclusionai/ling-3.0-flash": "toggle",
     "inclusionai/ling-3.1-flash": "toggle",
     "inclusionai/ling-3.0-flash-vl": "toggle",
-    "inclusionai/ling-3.0-flash-fin": "toggle",
     "moonshotai/kimi-k3": "low-high-max",
     "moonshotai/kimi-k2.6": "toggle",
     "moonshotai/kimi-k2.5": "toggle",
-    "apodex/apodex-1.1-mini:free": "toggle",
     "nvidia/nemotron-3-nano-30b-a3b": "toggle",
     "nvidia/nemotron-3.5-content-safety:free": "toggle",
     "nvidia/nemotron-3.5-lightning": "toggle",
@@ -408,6 +414,7 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "xiaomi/mimo-v2.6-flash": "toggle",
     "minimax/minimax-m1": "toggle",
     "minimax/minimax-m3": "toggle",
+    "stepfun/step-5-preview": "low-medium-high",
     "stepfun/step-3.5-flash": "low-high",
     "stepfun/step-3.7-flash": "low-medium-high",
     "dots-studio/dots-3-note-preview:free": "toggle",
@@ -424,27 +431,22 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
     "qwen/qwen3-32b": "toggle+b",
     "qwen/qwen3.7-flash": "toggle+b:-262144",
     "qwen/qwen3.8-omni-flash": "none-low-medium-xhigh",
-    "qwen/qwen3-235b-a22b": "toggle+b",
     "qwen/qwen3.5-122b-a10b": "toggle+b",
     "qwen/qwen3.6-35b-a3b": "toggle+b",
     "qwen/qwen3.6-flash": "toggle+b",
     "qwen/qwen3.5-flash-02-23": "toggle",
-    "qwen/qwen3-max-thinking": "toggle",
     "qwen/qwen3.5-9b": "toggle",
     "qwen/qwen3.8-max-prime": "minimal-low-medium-high-xhigh",
     "qwen/qwen3.5-plus-20260420": "toggle",
     "qwen/qwen3.8-flash": "toggle+low-medium-xhigh+b:-262144",
     "qwen/qwen3.5-35b-a3b": "toggle+b",
-    "qwen/qwen3.6-max-preview": "toggle+b",
     "qwen/qwen3-30b-a3b": "toggle",
     "qwen/qwen3.5-397b-a17b": "toggle+b",
-    "qwen/qwen3-8b": "toggle",
     "qwen/qwen3.5-plus-02-15": "toggle",
     "qwen/qwen3.6-27b": "toggle+b",
     "qwen/qwen3.6-plus": "toggle+b",
     "qwen/qwen3-14b": "toggle",
     "qwen/qwen3.7-plus": "toggle+b",
-    "qwen/qwen3.8-27b:free": "toggle+low-medium-xhigh",
     "qwen/qwen3.8-max-0902": "minimal-low-medium-high-xhigh",
     "openai/gpt-5.4": "none-low-medium-high-xhigh",
     "openai/gpt-5.4-image-2": "none-low-medium-high-xhigh",
@@ -518,6 +520,31 @@ export const ASSIGNMENTS: Readonly<Record<string, Readonly<Record<string, string
   "minimax-cn": {
     "MiniMax-M3": "toggle",
   },
+  "google": {
+    "gemini-flash-latest": "low-medium-high",
+    "gemma-4-31b-it": "toggle",
+    "gemini-3.1-flash-image-preview": "minimal-high",
+    "gemini-flash-lite-latest": "minimal-low-medium-high",
+    "gemini-3.6-flash": "minimal-low-medium-high",
+    "gemma-4-26b-a4b-it": "toggle",
+    "gemini-3.5-flash-lite": "minimal-low-medium-high",
+    "gemini-3.1-flash-image": "minimal-high",
+    "gemini-3.1-pro-preview": "low-medium-high",
+    "gemini-3.5-flash": "minimal-low-medium-high",
+    "gemini-2.5-pro": "b:128-32768",
+    "gemini-3-pro-image": "low-high",
+    "gemini-2.5-flash": "toggle+b:0-24576",
+    "gemini-3.1-flash-lite-image": "minimal-high",
+    "gemini-3.7-flash": "low-medium-high",
+    "gemini-3.1-pro-preview-customtools": "low-medium-high",
+    "gemini-3-flash-preview": "minimal-low-medium-high",
+    "gemini-3.8-flash": "low-medium-high",
+    "gemini-2.5-flash-lite": "toggle+b:512-24576",
+    "gemini-3.1-flash-lite-preview": "minimal-low-medium-high",
+    "gemini-3.1-flash-live-preview": "minimal-low-medium-high",
+    "gemini-4-argon": "low-medium-high",
+    "gemini-3.1-flash-lite": "minimal-low-medium-high",
+  },
 };
 
 // deprecated 模型（spec 裁定 12）：进表并标记，不删。
@@ -528,9 +555,13 @@ export const DEPRECATED_MODELS: readonly string[] = [
   "xiaomi/mimo-v2-omni",
   "xiaomi/mimo-v2-pro",
   "opencode-go/qwen3.7-max",
+  "opencode-go/deepseek-v4-flash-vision-exp",
   "opencode-go/kimi-k2.6",
   "opencode-go/grok-4.5",
+  "opencode-go/space-bunny-free",
   "opencode-go/qwen3.6-plus",
+  "opencode-go/deepseek-v4-flash",
+  "google/gemini-3.1-flash-lite-preview",
 ];
 
 // 别名表（spec 裁定 13：精确匹配 + 折叠大小写 + 别名表）。生成期已校验每条 upstream

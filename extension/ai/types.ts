@@ -28,6 +28,9 @@ export interface ChatMessage {
   // 仅 assistant(tool_calls) / tool 消息使用；无 tools 的普通消息不带字段。
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;
+  // Gemini 原生 parts 与思考签名（thoughtSignature）：多块保留与原样回放
+  thoughtSignature?: string;
+  parts?: unknown[];
 }
 
 // 响应 usage 采集（ai-usage-telemetry T1）：字段名随协议，由各 adapter 解析后归一

@@ -520,7 +520,12 @@ export const PROVIDERS: Record<PlatformKey, ProviderRule> = {
   // effort 词表、开关与无档位三类，本仓不再用平台级声明补/裁档位。
   // 走 Messages 协议的模型的档位落线见线格式映射表：该网关无档位词汇文档，按产品
   // 裁定发 output_config.effort（裸形态，ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY）。
-  opencodego: {}
+  opencodego: {},
+  // Gemini（Google 原生 generateContent / streamGenerateContent 协议）：
+  // 思考事实的主人是线格式映射表（ai/thinking-wire-map.ts 的 geminiWireMap），
+  // 采用 thinkingLevel 与 thinkingBudget 双轨机制（ADR-0018 / spec 决策 12）；
+  // 此处留空记录封闭 PlatformKey 类型。
+  gemini: {}
 };
 
 // ===== 上游桥接：preset → 上游 provider id（10 号票起由 PRESETS 派生）=====

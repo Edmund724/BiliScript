@@ -994,12 +994,12 @@ function renderReport(context) {
   lines.push("## 0. 口径（本报告怎么算分歧）");
   lines.push("");
   lines.push(
-    "- 漂移 = **裁剪后 12 家子集**的 sha256（字段白名单 " +
+    `- 漂移 = **裁剪后 ${UPSTREAM_PROVIDERS.length} 家子集**的 sha256（字段白名单 ` +
       `${KEEP_FIELDS.join(" / ")} + 上游 doc）与 01 产物的 contentHash 比对；` +
       "上游其余 200+ provider 变了不算漂移。"
   );
   lines.push(
-    "- 分歧单元 = 12 家 × 每个 `reasoning: true` 模型（逐格）。上游侧事实取 02 产物的值集指派" +
+    `- 分歧单元 = ${UPSTREAM_PROVIDERS.length} 家 × 每个 \`reasoning: true\` 模型（逐格）。上游侧事实取 02 产物的值集指派` +
       "（含 canonical_model_id 借词与别名表结论）；手写侧事实取 `extension/ai/thinking-profiles.ts` 的" +
       "**文本解析**（本命令不执行仓库代码），解析顺序与 `resolveThinkingProfile` 同：" +
       "`PROVIDERS[preset].override` 短路 >> EXCEPTIONS >> TAXONOMY >> unknownClass >> 无结论。"
@@ -1025,7 +1025,7 @@ function renderReport(context) {
   lines.push("## 1. 漂移（快照 vs 上游）");
   lines.push("");
   if (drift.changed === 0 && problems.length === 0) {
-    lines.push(`- **in sync**：12 家子集内容哈希一致（${catalogModule.contentHash}），无需同步。`);
+    lines.push(`- **in sync**：${UPSTREAM_PROVIDERS.length} 家子集内容哈希一致（${catalogModule.contentHash}），无需同步。`);
   } else {
     lines.push(`- **DRIFT**：${drift.changed} 处差异 / ${problems.length} 个形状问题。`);
     lines.push(
@@ -1244,8 +1244,8 @@ function summaryLines(context) {
   const lines = [];
   lines.push(
     drifted
-      ? `check-models-dev-catalog: DRIFT（上游 12 家子集内容哈希与仓库快照不同；${drift.changed} 处差异 / ${problems.length} 个形状问题）`
-      : "check-models-dev-catalog: in sync（上游 12 家子集内容哈希与仓库快照一致）"
+      ? `check-models-dev-catalog: DRIFT（上游 ${UPSTREAM_PROVIDERS.length} 家子集内容哈希与仓库快照不同；${drift.changed} 处差异 / ${problems.length} 个形状问题）`
+      : `check-models-dev-catalog: in sync（上游 ${UPSTREAM_PROVIDERS.length} 家子集内容哈希与仓库快照一致）`
   );
   lines.push(`  上游来源: ${DEFAULT_SOURCE}`);
   lines.push(`  输入: ${options.input}`);

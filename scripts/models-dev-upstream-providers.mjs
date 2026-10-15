@@ -47,7 +47,8 @@ export const UPSTREAM_PRESET_ORDER = [
   "modelscope",
   "amd",
   "sensenova",
-  "minimax"
+  "minimax",
+  "gemini"
 ];
 
 // 读 presets.ts 的 PRESETS 数组：逐行取 `id: "…"` 与可选的 `catalogProvider: "…"`。

@@ -364,13 +364,14 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
     // 第四态由**表外兜底**承载：「没人研究过 → 原生默认」这条路仍然显式存在、可被否决。
     expect(UNRESEARCHED_OFF_EXIT.kind).toBe("unresearched");
     for (const [platform, cell] of Object.entries(MESSAGES_OFF_EXIT)) {
-      expect(["native", "silent", "word", "unresearched"], platform).toContain(cell.kind);
+      expect(["native", "silent", "word", "unresearched", "non-messages"], platform).toContain(cell.kind);
     }
+    expect(MESSAGES_OFF_EXIT.gemini.kind).toBe("non-messages");
   });
 
   it("provenance 必填：三态取值合法、出处非空；silent 带 reason、word 带载荷", () => {
     for (const [platform, cell] of Object.entries(MESSAGES_OFF_EXIT)) {
-      expect(["实测", "文档", "推断"], platform).toContain(cell.provenance.level);
+      expect(["实测", "文档", "推断", "构造性不适用"], platform).toContain(cell.provenance.level);
       expect(cell.provenance.source.length, platform).toBeGreaterThan(8);
       if (cell.kind === "silent") expect(cell.reason, platform).toBeTruthy();
       if (cell.kind === "word") expect(cell.fields, platform).toBeTruthy();
@@ -402,11 +403,13 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
       for (const vocabulary of [reasoningEffort("none"), enableThinking(false), thinkingType("disabled")]) {
         const out = anthropicWire({ vocabulary, platformId: platform, effortVocabularyOnly: quirkOn });
         const expected =
-          cell.kind === "word" && cell.fields
-            ? cell.fields
-            : cell.kind === "silent" && quirkOn
-              ? {}
-              : { thinking: { type: "disabled" } };
+          cell.kind === "non-messages"
+            ? {}
+            : cell.kind === "word" && cell.fields
+              ? cell.fields
+              : cell.kind === "silent" && quirkOn
+                ? {}
+                : { thinking: { type: "disabled" } };
         expect(out.fields, `${platform} kind=${cell.kind} vocabulary=${vocabulary.kind}`).toEqual(expected);
       }
     }
@@ -447,13 +450,14 @@ describe("off 出口表（thinking-wire-protocol-split 02）：逐格可审，�
 //   ⑤ 无证据格子声称有出处 → provenance 三态 + 出处必填；
 //   ④（只覆盖目录内行、漏掉手写表兜底行）由 thinking-golden-messages.test.ts 的逐格 golden 承载。
 describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，行为中立", () => {
-  const ALL_KINDS: readonly MessagesTierExitKind[] = ["effort", "effort-bare", "reasoning-effort", "unresearched"];
+  const ALL_KINDS: readonly MessagesTierExitKind[] = ["effort", "effort-bare", "reasoning-effort", "unresearched", "non-messages"];
 
   it("四态可区分：「未研究过」与「已声明只发裸 effort」是两个显式值，不许 falsy 默认吞掉", () => {
     // 两态在线上同形（都发裸 output_config.effort），但在表里必须答得不一样——这正是建表的理由。
     for (const [platform, cell] of Object.entries(MESSAGES_TIER_EXIT)) {
       expect(ALL_KINDS, platform).toContain(cell.kind);
     }
+    expect(MESSAGES_TIER_EXIT.gemini.kind).toBe("non-messages");
     // minimax 2026-10-05 起是 "effort"（文档登记了 output_config.effort 与 thinking；它不再属于
     // 「没人研究过」那一格），故剩下三格才是今天真正的 unresearched。
     expect(MESSAGES_TIER_EXIT.minimax.kind).toBe("effort");
@@ -469,7 +473,7 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
 
   it("provenance 必填：三态取值合法、出处非空（每格都答得出「凭什么」）", () => {
     for (const [platform, cell] of Object.entries(MESSAGES_TIER_EXIT)) {
-      expect(["实测", "文档", "推断"], platform).toContain(cell.provenance.level);
+      expect(["实测", "文档", "推断", "构造性不适用"], platform).toContain(cell.provenance.level);
       expect(cell.provenance.source.length, platform).toBeGreaterThan(8);
     }
     expect(UNRESEARCHED_TIER_EXIT.provenance.level).toBe("推断");
@@ -509,11 +513,13 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
       const onCell = messagesOnExitCell(platform);
       const onFields = onCell.kind === "word" && onCell.fields ? onCell.fields : { thinking: { type: "enabled" } };
       const expected =
-        cell.kind === "reasoning-effort"
-          ? { reasoning_effort: "high" }
-          : cell.kind === "effort"
-            ? { output_config: { effort: "high" }, ...onFields }
-            : { output_config: { effort: "high" } };
+        cell.kind === "non-messages"
+          ? {}
+          : cell.kind === "reasoning-effort"
+            ? { reasoning_effort: "high" }
+            : cell.kind === "effort"
+              ? { output_config: { effort: "high" }, ...onFields }
+              : { output_config: { effort: "high" } };
       expect(out.fields, `${platform} kind=${cell.kind}${cell.owner ? ` owner=${cell.owner}` : ""}`).toEqual(expected);
     }
     // 表外（platformId 未识别 / undefined）按未声明 → 裸 effort，不下发预算。
@@ -571,13 +577,14 @@ describe("档位出口表（thinking-wire-protocol-split 01）：逐格可审，
 // 与前两张表的差别：本表的落地**改行为**（minimax 行从「一个字段都不发」变成真发 off / on），
 // 其余平台逐字节不变（域与 before/after 工件见票内）。
 describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只对 minimax 改行为", () => {
-  const ALL_KINDS: readonly MessagesOnExitKind[] = ["native", "word", "unresearched"];
+  const ALL_KINDS: readonly MessagesOnExitKind[] = ["native", "word", "unresearched", "non-messages"];
 
   it("三态可区分：表内只有 minimax 是平台自有词，其余按原生；未识别平台走表外兜底", () => {
     for (const [platform, cell] of Object.entries(MESSAGES_ON_EXIT)) {
       expect(ALL_KINDS, platform).toContain(cell.kind);
       if (cell.kind === "word") expect(cell.fields, platform).toBeTruthy();
     }
+    expect(MESSAGES_ON_EXIT.gemini.kind).toBe("non-messages");
     expect(MESSAGES_ON_EXIT.minimax.kind).toBe("word");
     expect(MESSAGES_ON_EXIT.minimax.fields).toEqual({ thinking: { type: "adaptive" } });
     expect(UNRESEARCHED_ON_EXIT.kind).toBe("unresearched");
@@ -590,7 +597,7 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
 
   it("provenance 必填：三态取值合法、出处非空（每格都答得出「凭什么」）", () => {
     for (const [platform, cell] of Object.entries(MESSAGES_ON_EXIT)) {
-      expect(["实测", "文档", "推断"], platform).toContain(cell.provenance.level);
+      expect(["实测", "文档", "推断", "构造性不适用"], platform).toContain(cell.provenance.level);
       expect(cell.provenance.source.length, platform).toBeGreaterThan(8);
     }
     expect(UNRESEARCHED_ON_EXIT.provenance.level).toBe("推断");
@@ -610,6 +617,13 @@ describe("开词出口表（2026-10-05 裁定：形态 C）：逐格可审，只
   it("逐格实发：word 格发平台自有词，其余发原生 enabled（两条开档入口都读本表）", () => {
     for (const platform of PLATFORM_KEYS) {
       const cell = messagesOnExitCell(platform);
+      if (cell.kind === "non-messages") {
+        expect(
+          anthropicWire({ vocabulary: enableThinking(true), platformId: platform }).fields,
+          `${platform} non-messages`
+        ).toEqual({});
+        continue;
+      }
       const expected = cell.kind === "word" && cell.fields ? cell.fields : { thinking: { type: "enabled" } };
       // 入口 A：开关型血统的裸开档。
       expect(

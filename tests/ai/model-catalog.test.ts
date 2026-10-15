@@ -46,7 +46,8 @@ const EXPECTED_CATALOG_PROVIDERS: ReadonlyArray<readonly [string, string]> = [
   ["stepfun", "stepfun-step-plan"],
   ["modelscope", "modelscope"],
   ["amd", "amd"],
-  ["sensenova", "sensenova"]
+  ["sensenova", "sensenova"],
+  ["gemini", "google"]
 ];
 
 // pi-ai ↔ 上游的 7 家逐家映射（旧 PI_TO_UPSTREAM 常量）随 11 号票删除 pi-ai 快照一并
@@ -66,7 +67,7 @@ function extensionFilesReferencing(pattern: RegExp): string[] {
 }
 
 describe("models.dev 上游目录产物（10 号票起的 UI 数据源）", () => {
-  it("12 家上游 / 578 个模型，preset 登记的 provider 全在其中", () => {
+  it("13 家上游 / 615 个模型，preset 登记的 provider 全在其中", () => {
     const registered = new Set(EXPECTED_CATALOG_PROVIDERS.map(([, provider]) => provider));
     expect(Object.keys(UPSTREAM_CATALOG).filter((id) => registered.has(id)).sort()).toEqual(
       [...registered].sort()
@@ -75,8 +76,8 @@ describe("models.dev 上游目录产物（10 号票起的 UI 数据源）", () =
       (sum, models) => sum + Object.keys(models).length,
       0
     );
-    expect(total).toBe(578);
-    expect(Object.keys(UPSTREAM_CATALOG)).toHaveLength(12);
+    expect(total).toBe(615);
+    expect(Object.keys(UPSTREAM_CATALOG)).toHaveLength(13);
     expect(UPSTREAM_CATALOG_SOURCE.contentHash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(UPSTREAM_CATALOG_SOURCE.source).toBe("https://models.dev/api.json");
   });
@@ -136,7 +137,7 @@ describe("preset → catalogProvider（单源 = core/presets.ts）", () => {
     expect(mapped).toEqual(EXPECTED_CATALOG_PROVIDERS.map(([preset, provider]) => `${preset} → ${provider}`));
   });
 
-  it("12 家 preset 全部命中目录（每家至少一条模型可查），ollama / custom 全 null", () => {
+  it("13 家 preset 全部命中目录（每家至少一条模型可查），ollama / custom 全 null", () => {
     for (const [presetId, providerId] of EXPECTED_CATALOG_PROVIDERS) {
       const preset = PRESETS.find((item) => item.id === presetId)!;
       expect(resolveCatalogProvider(presetId, preset.baseUrl), presetId).toBe(providerId);

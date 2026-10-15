@@ -49,7 +49,7 @@ import {
   hydrateReaderStateFromSettings,
   applyReadingViewPresentation
 } from "./presentation.js";
-import { READER_CLOSE_ATTRS } from "./presentation-fields.js";
+import { READER_CLOSE_ATTRS, READER_READY_ATTR } from "./presentation-fields.js";
 
 // LAYOUT (state) functions this module drives:
 import { ids } from "./state.js";
@@ -365,11 +365,10 @@ export function closeReadingView() {
   const readingView = getReaderElement(ids.readingView);
   readingView.classList.remove("open", "reader-page");
   readingView.setAttribute("aria-hidden", "true");
-  readingView.setAttribute("data-biliscript-reader-ready", "0");
-  // 候选06：移除清单从呈现属性表派生（presentation-fields.js 的 clearOnClose
-  // 标志），不再手抄。清单现只含 theme/follow（subtitle-visible 走样修正与
-  // chapter-visibility 已随 2026-09 三开关退役一并删除，见 presentation-fields.js
-  // 头注）。
+  readingView.setAttribute(READER_READY_ATTR, "0");
+  // 移除清单从呈现属性表派生（presentation-fields.js 的 clearOnClose 标志），
+  // 不再手抄。视图就绪态 ready 在主表中声明为 clearViewOnClose:false（close 时复位基线
+  // 值 "0" 而非 removeAttribute）；移除清单含 theme/follow。
   for (const attr of READER_CLOSE_ATTRS.readingView) {
     readingView.removeAttribute(attr);
   }
@@ -572,7 +571,7 @@ function setReadingViewReady(ready: boolean) {
   if (!readingView) {
     return;
   }
-  readingView.setAttribute("data-biliscript-reader-ready", state.reader.readingViewReady ? "1" : "0");
+  readingView.setAttribute(READER_READY_ATTR, state.reader.readingViewReady ? "1" : "0");
   readingView.setAttribute("aria-busy", state.reader.readingViewReady ? "false" : "true");
 }
 

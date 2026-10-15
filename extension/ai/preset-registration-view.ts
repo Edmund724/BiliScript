@@ -309,7 +309,7 @@ function endpointsFace(preset: AiProviderPreset | undefined): RegistrationFaceSt
       protocol,
       source: "base-url",
       endpoint: preset.baseUrl,
-      fallbackRepeatsV1: protocol === DEFAULT_PROTOCOL ? false : repeatsV1(preset.baseUrl)
+      fallbackRepeatsV1: protocol === "anthropic" ? repeatsV1(preset.baseUrl) : false
     };
   });
 

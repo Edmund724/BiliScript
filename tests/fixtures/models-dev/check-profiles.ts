@@ -133,5 +133,6 @@ export const PROVIDERS: Record<string, ProviderRule> = {
         high: { fields: { reasoning_effort: "high" } }
       }
     }
-  }
+  },
+  gemini: {}
 };

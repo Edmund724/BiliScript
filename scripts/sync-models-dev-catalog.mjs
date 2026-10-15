@@ -44,11 +44,8 @@ const MODULE_FILE = "extension/ai/catalog/models-dev-catalog.generated.ts";
 // 产物字段白名单（顺序 = 每行字段序）与上游字段的对应关系（spec §范围 3）。
 const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTokens"];
 
-// 12 家合计模型总数（spec §preset → 上游 provider：「12 家共 578 个模型」）。
-// 生成期对账：不是这个数说明上游内容或路径变了 —— 先确认 pin（上游 api.json 无
-// 版本号，只有 contentHash）与 spec 记录，再同步本常量、spec 与
-// tests/ai/model-catalog.test.ts 的产物期望值。
-const EXPECTED_MODEL_COUNT = 578;
+// 13 家合计模型总数（含第 13 家 google）。
+const EXPECTED_MODEL_COUNT = 615;
 
 function fail(message) {
   console.error(`sync-models-dev-catalog: ${message}`);

@@ -553,3 +553,94 @@ describe("回退链 × 工具链接缝", () => {
     expect(content).toContain(JSON.stringify([CHAIN_RESULT]));
   });
 });
+
+describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
+  it("Gemini 原生协议下完成完整的单轮工具调用循环与结果回注作答", async () => {
+    const rawBodies: any[] = [];
+    let callIdx = 0;
+
+    const fakeFetch: any = vi.fn(async (_url: string, init: any) => {
+      const parsedBody = JSON.parse(init.body);
+      rawBodies.push(parsedBody);
+      callIdx++;
+
+      if (callIdx === 1) {
+        // 第一轮：Gemini 返回 functionCall 块
+        return sseResponse([
+          `data: ${JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      functionCall: {
+                        name: "web_search",
+                        args: { query: "gemini vitest" },
+                        id: "call_gemini_1"
+                      }
+                    }
+                  ]
+                },
+                finishReason: "STOP"
+              }
+            ]
+          })}\n\n`
+        ]);
+      }
+
+      // 第二轮：Gemini 收到回注的工具结果，返回最终回答
+      return sseResponse([
+        `data: ${JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [{ text: "Based on search, Vitest works with Gemini." }]
+              },
+              finishReason: "STOP"
+            }
+          ]
+        })}\n\n`
+      ]);
+    });
+
+    const messages: ChatMessage[] = [
+      { role: "user", content: "Tell me about Gemini and Vitest" }
+    ];
+
+    const tokens: string[] = [];
+    await runToolLoop({
+      provider: {
+        baseUrl: "https://generativelanguage.googleapis.com",
+        model: "gemini-3-flash",
+        protocol: "gemini"
+      },
+      messages,
+      maxToolCalls: 2,
+      executeSearch: async (_query) => ({
+        results: [{ title: "Vitest Docs", url: "https://vitest.dev", snippet: "Fast test runner" }],
+        platform: "mock-search"
+      }),
+      fetchImpl: fakeFetch,
+      onEvent: (event) => {
+        if (event.type === "token") tokens.push(event.data);
+      }
+    });
+
+    expect(tokens.join("")).toBe("Based on search, Vitest works with Gemini.");
+    expect(rawBodies).toHaveLength(2);
+
+    // 第一轮请求体：包含 tools 和 toolConfig
+    expect(rawBodies[0].tools[0].functionDeclarations[0].name).toBe("web_search");
+    expect(rawBodies[0].toolConfig.functionCallingConfig.mode).toBe("AUTO");
+
+    // 第二轮请求体：包含 model 的 functionCall 和 user 的 functionResponse
+    const r2Contents = rawBodies[1].contents;
+    expect(r2Contents).toHaveLength(3);
+    expect(r2Contents[0].role).toBe("user");
+    expect(r2Contents[1].role).toBe("model");
+    expect(r2Contents[1].parts[0].functionCall.name).toBe("web_search");
+    expect(r2Contents[2].role).toBe("user");
+    expect(r2Contents[2].parts[0].functionResponse.name).toBe("web_search");
+  });
+});
+

@@ -29,7 +29,8 @@ import { presetRequestHeaders, sessionIdFor } from "../../extension/ai/preset-he
 function adapterConsumes(): Record<AiProtocol, readonly CompatQuirk[]> {
   return {
     openai: PROTOCOL_ADAPTERS.openai.consumes,
-    anthropic: PROTOCOL_ADAPTERS.anthropic.consumes
+    anthropic: PROTOCOL_ADAPTERS.anthropic.consumes,
+    gemini: PROTOCOL_ADAPTERS.gemini.consumes
   };
 }
 
@@ -43,7 +44,8 @@ function presetProtocols(): Record<string, AiProtocol[]> {
   for (const preset of PRESETS) {
     const served: AiProtocol[] = [];
     for (const protocol of AI_PROTOCOLS) {
-      const endpoint = protocol === DEFAULT_PROTOCOL ? preset.baseUrl : preset.protocolBaseUrls?.[protocol];
+      const defaultProto = preset.protocol ?? DEFAULT_PROTOCOL;
+      const endpoint = protocol === defaultProto ? preset.baseUrl : preset.protocolBaseUrls?.[protocol];
       if (endpoint) served.push(protocol);
     }
     out[preset.id] = served;
@@ -129,7 +131,7 @@ describe("二次校验层（声明与接纳对账）", () => {
     // 词表里有、但没有 adapter 接纳的键 → 死声明
     expect(
       validateCompatVocab({
-        consumes: { openai: [], anthropic: [] },
+        consumes: { openai: [], anthropic: [], gemini: [] },
         platforms: { broken: ["maxTokensField"] }
       })
     ).toContain('PLATFORM_QUIRKS.broken: 怪癖键 "maxTokensField" 没有任何协议 adapter 接纳（死声明）');

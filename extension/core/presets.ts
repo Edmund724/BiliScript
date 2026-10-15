@@ -103,6 +103,7 @@ export const PRESETS: readonly AiProviderPreset[] = [
   // （docs.ollama.com/api/anthropic-compatibility）。适配器拼 `${baseUrl}/v1/messages`，
   // 故登记值去掉 openai baseUrl 的 /v1 尾——不登记则回落拼出 /v1/v1/messages。
   { id: "ollama",        name: "Ollama (本地)", baseUrl: "http://localhost:11434/v1", requiresKey: false, protocolBaseUrls: { anthropic: "http://localhost:11434" } },
+  { id: "gemini",        name: "Gemini",      baseUrl: "https://generativelanguage.googleapis.com", requiresKey: true, catalogProvider: "google", protocol: "gemini", protocolBaseUrls: { openai: "https://generativelanguage.googleapis.com/v1beta/openai" } },
   { id: "custom",        name: "自定义",      baseUrl: "", requiresKey: true }
 ];
 

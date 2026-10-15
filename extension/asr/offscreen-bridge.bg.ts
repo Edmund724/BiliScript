@@ -31,153 +31,28 @@ import type { MessageSender, OffloadTaskResponse, OffscreenRequestCloseResponse 
 export const ASR_AUDIO_CDN_DOMAIN = "bilivideo.com" as const;
 export const ASR_AUDIO_ORIGIN_PAGE = "https://www.bilibili.com" as const;
 
-// 防盗链会话规则 id 池下界：id 按任务独立分配（一个任务一条规则，多任务
-// 并发时规则并存、cleanup 只删自己的），自此单调递增；任务结束归还空闲池
-// 复用，防止长会话 id 无限增长。上界之外的活跃任务按错误路径上报。
-export const ASR_AUDIO_SESSION_RULE_ID_BASE: number = 32001;
-const ASR_AUDIO_SESSION_RULE_ID_MAX: number = 32100;
+import {
+  ASR_AUDIO_SESSION_RULE_ID_BASE,
+  ASR_AUDIO_SESSION_RULE_ID_MAX,
+  createAsrSessionRuleManager
+} from "./session-rule-manager.js";
 
-// 防盗链规则 id 分配器（模块级，仅 background 执行器触碰）：prepare 分配、
-// cleanup 归还。单调计数器 + 空闲池复用，防止长会话 id 无限增长；活跃集
-// 记账保证重复/未知 id 的 cleanup 幂等忽略、不污染池状态。账本随 SW 实例
-// 生灭而会话规则生命周期更长，冷启动后首次分配前按平台对账重建（见下）。
-// Map 值 = 任务来源（taskOwnerKey，工单 03 的标签页归属簿记）：cleanup 只
-// 接受同一来源的清理请求；对账收编的上一实例残留 id 值为 ""（来源未知），
-// cleanup 保持幂等放行。
-let nextSessionRuleId: number = ASR_AUDIO_SESSION_RULE_ID_BASE;
-const activeSessionRuleIds = new Map<number, string>();
-const freeSessionRuleIds: number[] = [];
-
-function allocateSessionRuleId(owner: string): number {
-  let ruleId = freeSessionRuleIds.pop();
-  if (ruleId === undefined) {
-    if (nextSessionRuleId > ASR_AUDIO_SESSION_RULE_ID_MAX) {
-      throw new Error("防盗链规则 id 已耗尽（活跃转写任务过多），请稍后重试");
-    }
-    ruleId = nextSessionRuleId++;
-  }
-  activeSessionRuleIds.set(ruleId, owner);
-  return ruleId;
-}
-
-function releaseSessionRuleId(ruleId: number): void {
-  const id = Number(ruleId) || 0;
-  // 活跃集守卫：未分配/已归还的 id（重复 cleanup、陈旧 id）不动池状态
-  if (!activeSessionRuleIds.delete(id)) {
-    return;
-  }
-  freeSessionRuleIds.push(id);
-}
-
-// SW 冷启动对账：账本随 SW 实例生灭，而会话规则生命周期是整个浏览器会话。
-// SW 被杀重启后计数器归零，平台上却可能还留着上一实例的规则——此时同一 id
-// 会被再次分配：新任务 addDownloadRules 先删后加把旧规则覆写成新内容，旧
-// 任务（offscreen 文档可跨 SW 存活）跑完的 cleanup 再把新任务正依赖的规则
-// 删掉，音轨请求丢 Referer/Origin 被 bilivideo CDN 403（「音频转写失败」）。
-// 故首次分配前以平台为事实源对账一次：区间内已有规则一律收进活跃集（无法
-// 区分是否上一实例崩溃遗留的死规则，宁可让 id 缓慢向耗尽漂移也不复用可能
-// 正被依赖的 id）、计数器越过平台最大 id、空闲池清空（池只服务本实例内
-// 借还，跨实例回收由对账按平台事实源完成）。
-let sessionRuleIdsReconcilePromise: Promise<void> | null = null;
-
-function ensureSessionRuleIdsReconciled(): Promise<void> {
-  if (!sessionRuleIdsReconcilePromise) {
-    sessionRuleIdsReconcilePromise = reconcileSessionRuleIds().catch((error) => {
-      // 失败不缓存且账本分文未动（赋值在查询成功后一次完成）：下次 prepare
-      // 重试对账；错误原样抛出，沿 prepare 既有错误路径上报，不吞错也不
-      // 静默降级为带撞车风险的裸分配。
-      sessionRuleIdsReconcilePromise = null;
-      throw error;
-    });
-  }
-  return sessionRuleIdsReconcilePromise;
-}
-
-// offscreen 文档列表项的最小形状（self.clients 在 ServiceWorkerGlobalScope
-// 上，DOM lib 的 self 未覆盖，访问处按此断言）
-type ServiceWorkerScopeLike = {
-  clients: {
-    matchAll(options: { includeUncontrolled: boolean }): Promise<Array<{ url?: string }>>;
-  };
+export {
+  ASR_AUDIO_SESSION_RULE_ID_BASE,
+  ASR_AUDIO_SESSION_RULE_ID_MAX,
+  createAsrSessionRuleManager
 };
 
-async function reconcileSessionRuleIds(): Promise<void> {
-  const rules = await chrome.declarativeNetRequest.getSessionRules();
-  let maxSessionRuleId = ASR_AUDIO_SESSION_RULE_ID_BASE - 1;
-  for (const rule of rules) {
-    const id = Number(rule?.id) || 0;
-    // 只收本池区间内的 id，区间外规则不误入账本；来源未知（""）→ cleanup 放行
-    if (id >= ASR_AUDIO_SESSION_RULE_ID_BASE && id <= ASR_AUDIO_SESSION_RULE_ID_MAX) {
-      activeSessionRuleIds.set(id, "");
-      if (id > maxSessionRuleId) {
-        maxSessionRuleId = id;
-      }
-    }
-  }
-  nextSessionRuleId = Math.max(ASR_AUDIO_SESSION_RULE_ID_BASE, maxSessionRuleId + 1);
-  freeSessionRuleIds.length = 0;
-}
-
-// ===== 泄漏回收（工单 04：异常取消 / 后台终止路径的规则回收） =====
-
-// cleanup 消息依赖页面侧活着（port 断连后 finish 才发 cleanup）；页面标签页
-// 直接关闭 / 崩溃时 cleanup 永远不会到达，规则会泄漏到浏览器会话结束。兜底：
-// 每次 prepare 前把「归属标签页已不存在」的活跃规则回收掉（owner 键为
-// "t<tabId>" 的才可核验；offscreen / 对账收编的来源无法核验，保守保留）。
-// SW 被杀重启后残留规则已被对账收编进活跃集，同样受益于本回收。
-async function reapOrphanedSessionRules(): Promise<void> {
-  if (activeSessionRuleIds.size === 0) {
-    return;
-  }
-  const deadIds: number[] = [];
-  for (const [id, owner] of activeSessionRuleIds) {
-    if (!owner.startsWith("t")) {
-      continue;
-    }
-    if (!(await isTabAlive(Number(owner.slice(1)) || 0))) {
-      deadIds.push(id);
-    }
-  }
-  for (const id of deadIds) {
-    await removeDownloadRules(id);
-    releaseSessionRuleId(id);
-  }
-}
-
-// 标签页是否仍存活：只把 Chrome 对已关闭标签页的确定性错误
-//（"No tab with id: N."）判为死亡；API 缺失（测试 stub / 非扩展环境）或其他
-// 异常一律按存活处理——回收是防泄漏兜底，宁可漏收也不可误收正被依赖的规则。
-async function isTabAlive(tabId: number): Promise<boolean> {
-  if (!(tabId > 0)) {
-    return false;
-  }
-  try {
-    await chrome.tabs.get(tabId);
-    return true;
-  } catch (error) {
-    const message = String((error as { message?: string } | null)?.message || error);
-    return !/no tab with id/i.test(message);
-  }
-}
+// 防盗链规则管理器实例（会话生命周期内单例，闭包内聚全部簿记状态与对账逻辑）
+const sessionRuleManager = createAsrSessionRuleManager();
 
 // 安装 / 更新路径的整池清理（entry/background.ts 的 onInstalled 接线，逻辑
 // 实现收在本模块）：把池区间内平台上现存的全部会话规则清掉，并重置账本——
-// 之后首次 prepare 经 ensureSessionRuleIdsReconciled 以平台事实源重建。
+// 之后首次 prepare 经 ensureReconciled 以平台事实源重建。
 // 会话规则跨浏览器重启与扩展更新由平台自动清空，本函数是防御性兜底（行为
 // 随 Chrome 版本有差异的路径不依赖平台语义）；删除不存在的 id 由 Chrome 忽略。
 export async function reapAllSessionRules(): Promise<void> {
-  const rules = await chrome.declarativeNetRequest.getSessionRules();
-  const removeRuleIds = rules
-    .map((rule) => Number(rule?.id) || 0)
-    .filter((id) => id >= ASR_AUDIO_SESSION_RULE_ID_BASE && id <= ASR_AUDIO_SESSION_RULE_ID_MAX);
-  if (removeRuleIds.length > 0) {
-    await chrome.declarativeNetRequest.updateSessionRules({ removeRuleIds });
-  }
-  // 账本整体重置（对账缓存一并作废，下次 prepare 重新按平台对账）
-  nextSessionRuleId = ASR_AUDIO_SESSION_RULE_ID_BASE;
-  activeSessionRuleIds.clear();
-  freeSessionRuleIds.length = 0;
-  sessionRuleIdsReconcilePromise = null;
+  await sessionRuleManager.clearAll();
 }
 
 // 任务准备：创建（或复用）offscreen 文档 + 分配一个独立 id 并按它加防盗链
@@ -188,11 +63,11 @@ export async function handleAsrDecodePrepare(message: unknown, sender: MessageSe
   try {
     // 首次分配前对账一次（实例内幂等缓存），避免与上一 SW 实例残留的会话
     // 规则撞 id；对账失败照下方 catch 的既有错误路径上报。
-    await ensureSessionRuleIdsReconciled();
+    await sessionRuleManager.ensureReconciled();
     // 泄漏兜底：回收归属标签页已关闭的残留规则（cleanup 消息随页面死亡
-    // 丢失的异常取消 / 后台终止路径，见 reapOrphanedSessionRules 注释）。
-    await reapOrphanedSessionRules();
-    ruleId = allocateSessionRuleId(taskOwnerKey(sender));
+    // 丢失的异常取消 / 后台终止路径）。
+    await sessionRuleManager.reapOrphans();
+    ruleId = await sessionRuleManager.allocate(taskOwnerKey(sender));
     await ensureAsrOffscreenDocument();
     await addDownloadRules(ruleId);
     sendResponse({ ok: true, ruleId });
@@ -200,7 +75,7 @@ export async function handleAsrDecodePrepare(message: unknown, sender: MessageSe
     // updateSessionRules 失败照既有错误路径上报不吞；该 id 未成功占用
     // （updateSessionRules 原子生效），归还空闲池避免失败一次泄漏一个 id。
     if (ruleId) {
-      releaseSessionRuleId(ruleId);
+      sessionRuleManager.release(ruleId);
     }
     sendResponse({ ok: false, error: String((error as { message?: string })?.message || error) });
   }
@@ -211,9 +86,8 @@ export async function handleAsrDecodePrepare(message: unknown, sender: MessageSe
 // 的规则；删除不存在的 id 由 Chrome 忽略，重复/未知 id 的 cleanup 幂等不抛。
 // 持久化决策（工单 04）：规则配置不写入 storage——会话规则的平台副本
 // （getSessionRules）就是可恢复事实源，SW 重启后 prepare 首次分配前按其对账
-// 重建账本（ensureSessionRuleIdsReconciled），storage 副本只会引入与平台的
-// 一致性负担；页面侧 cleanup 丢失（标签页关闭/崩溃）的泄漏由 prepare 前的
-// 死标签页回收兜底（reapOrphanedSessionRules）。
+// 重建账本，storage 副本只会引入与平台的一致性负担；页面侧 cleanup 丢失
+//（标签页关闭/崩溃）的泄漏由 prepare 前的死标签页回收兜底。
 // 标签页归属校验（工单 03）：ruleId 在本实例簿记中有主时，只接受同一来源的
 // cleanup——跨标签页/跨上下文的删除请求回 { ok:false } 且不删规则。簿记不在
 // （SW 冷启动后上一实例的 ruleId：账本对账只收活跃集、无法区分原属）时保持
@@ -225,13 +99,13 @@ export async function handleAsrDecodeCleanup(message: unknown, sender: MessageSe
       // 标签页归属（工单 03）：ruleId 在本实例簿记中有主时只接受同一来源的
       // cleanup——跨标签页/跨上下文的删除请求回 { ok:false } 且不删规则。
       // 簿记为 ""（SW 冷启动对账收编的上一实例残留 id）时幂等放行。
-      const owner = activeSessionRuleIds.get(ruleId);
+      const owner = sessionRuleManager.getOwner(ruleId);
       if (owner && owner !== taskOwnerKey(sender)) {
         sendResponse({ ok: false, error: "防盗链规则不属于当前来源" });
         return;
       }
       await removeDownloadRules(ruleId);
-      releaseSessionRuleId(ruleId);
+      sessionRuleManager.release(ruleId);
     }
     sendResponse({ ok: true });
   } catch (error) {
@@ -269,6 +143,14 @@ function taskOwnerKey(sender: MessageSender): string {
   const tabId = sender?.tab?.id;
   return tabId != null ? "t" + String(tabId) : "o";
 }
+
+// offscreen 文档列表项的最小形状（self.clients 在 ServiceWorkerGlobalScope
+// 上，DOM lib 的 self 未覆盖，访问处按此断言）
+type ServiceWorkerScopeLike = {
+  clients: {
+    matchAll(options: { includeUncontrolled: boolean }): Promise<Array<{ url?: string }>>;
+  };
+};
 
 // 有活跃文档就复用，没有则创建一个（offscreen 文档常驻 sidepanel 创建的
 // "offscreen-chat" 实例，新端口与之并存互不干扰）。创建失败不再吞掉（工单

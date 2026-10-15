@@ -35,9 +35,9 @@ const FIXTURE_PROFILES = "tests/fixtures/models-dev/check-profiles.ts";
 const FIXTURE_ALIASES = "tests/fixtures/models-dev/check-aliases.json";
 
 // fixture 的手数（独立于实现，逐条数 check-api.json；已用 01/02 生成器的对账参数验证）：
-// 12 家里 13 个模型 / 12 个 reasoning / 10 个有词表 / 2 个缺口 / 6 个 effort 值集。
-const FIXTURE_MODELS = 13;
-const FIXTURE_COUNTS = "13/12/10/2/6";
+// 13 家里 14 个模型 / 12 个 reasoning / 10 个有词表 / 2 个缺口 / 6 个 effort 值集。
+const FIXTURE_MODELS = 14;
+const FIXTURE_COUNTS = "14/12/10/2/6";
 
 // 提交进仓库的快照（01/02 的抓取工件，离线可读）与真产物。
 const SNAPSHOT = ".scratch/tickets/upstream-model-facts/artifacts/models-dev-api.json";
@@ -260,7 +260,7 @@ describe("catalog:check CLI（漂移）", () => {
     expect(run.report).toContain("先同步");
   });
 
-  it("12 家之外的 provider 变了不报漂移（口径 = 裁剪后的子集）", () => {
+  it("13 家之外的 provider 变了不报漂移（口径 = 裁剪后的子集）", () => {
     const unrelated = writeVariant("unrelated", (api) => {
       api.openai.models["fx-gpt-reasoning"].limit.context = 123456;
       api["new-unlisted-provider"] = {
@@ -423,7 +423,7 @@ describe("catalog:check CLI（上游 vs 手写分歧）", () => {
     expect(wins).toContain("zhipuai/glm-5.3");
     expect(wins).toContain("CLASSES.fx-glm-always");
     // 引用完整性：解析出的条目数写进报告（结构漂移肉眼可见）。
-    expect(crlf.report).toMatch(/CLASSES 6 \/ TAXONOMY 4 \/ EXCEPTIONS 2 \/ PROVIDERS 12/);
+    expect(crlf.report).toMatch(/CLASSES 6 \/ TAXONOMY 4 \/ EXCEPTIONS 2 \/ PROVIDERS 13/);
   });
 });
 

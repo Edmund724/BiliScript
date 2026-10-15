@@ -65,6 +65,8 @@ export interface DrainResult {
   // 响应 usage（ai-usage-telemetry T1，可选）：各 adapter 按自身协议形状解析归一，
   // 平台未给/形状不符即缺省——缺省即今天的行为，判定路径零变化。
   usage?: ChatUsage;
+  /** Gemini thinking 签名（thoughtSignature）：原样保留供后续回放 */
+  thoughtSignature?: string;
 }
 
 export interface DrainContext {
@@ -102,7 +104,7 @@ export interface ProtocolAdapter {
   readonly consumes: readonly CompatQuirk[];
 
   /** 端点路径（baseUrl 已去尾斜杠；代理平台路径以官方文档为准） */
-  endpoint(baseUrl: string): string;
+  endpoint(baseUrl: string, options?: { model?: string; stream?: boolean }): string;
 
   /** 鉴权头全集；core 与 extraHeaders 合并时同键不覆盖调用方注入 */
   authHeaders(apiKey: string | undefined): Record<string, string>;
@@ -126,10 +128,12 @@ export interface ProtocolAdapter {
 
 import { openaiAdapter } from "./adapters/openai.js";
 import { anthropicAdapter } from "./adapters/anthropic.js";
+import { geminiAdapter } from "./adapters/gemini.js";
 
 export const PROTOCOL_ADAPTERS: Record<AiProtocol, ProtocolAdapter> = {
   openai: openaiAdapter,
-  anthropic: anthropicAdapter
+  anthropic: anthropicAdapter,
+  gemini: geminiAdapter
 };
 
 // 协议解析单点：存量记录缺 protocol 字段 / 未知值 → openai（行为零变化兜底）。
@@ -147,5 +151,7 @@ export function resolveAdapter(protocol: unknown): ProtocolAdapter {
 // 新增协议 = 注册表登记一行 + 此处加一个选项。
 export const PROTOCOL_OPTIONS: ReadonlyArray<{ value: AiProtocol; label: string }> = [
   { value: "openai", label: "OpenAI Chat Completions" },
-  { value: "anthropic", label: "Anthropic Messages" }
+  { value: "anthropic", label: "Anthropic Messages" },
+  { value: "gemini", label: "Gemini GenerateContent" }
 ];
+

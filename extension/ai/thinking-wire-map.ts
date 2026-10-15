@@ -42,6 +42,7 @@ import type { CompatQuirk } from "./compat-vocab.js";
 import type { PlatformKey } from "./platform-identity-vocab.js";
 import type { AiProtocol } from "./protocol-vocab.js";
 import type { ClassRule, ThinkingVocabulary } from "./thinking-profiles.js";
+import type { ThinkingLevelValue } from "./thinking-levels.js";
 
 /** 档位规则的 token 上限参数名事实（openai-reasoning 系 = max_completion_tokens）。 */
 export type TokenParam = NonNullable<ClassRule["tokenParam"]>;
@@ -91,10 +92,16 @@ export interface AnthropicWireInput extends ThinkingWireInput {
   effortVocabularyOnly: boolean;
 }
 
+export interface GeminiWireInput extends ThinkingWireInput {
+  model?: string;
+  level?: ThinkingLevelValue;
+}
+
 /** 写法层的逐协议入参（协议 → 该行真读的字段）。新增协议 = 这里与分发表各登记一行（漏了即红）。 */
 export interface ThinkingWireInputs {
   openai: OpenAiWireInput;
   anthropic: AnthropicWireInput;
+  gemini: GeminiWireInput;
 }
 
 /** 出参：本协议要并入请求体的思考字段 + 本协议的 token 上限参数名。 */
@@ -147,7 +154,7 @@ function openaiWireMap({ vocabulary, tokenParam }: OpenAiWireInput): ThinkingWir
 // 如 stepfun 那格）保留三级取值、在 source 里写明「未列（负证据，不主张 400）」并给 URL——
 // 不新增第四态，避免为一种措辞多养一个枚举。
 export interface MessagesExitProvenance {
-  level: "实测" | "文档" | "推断";
+  level: "实测" | "文档" | "推断" | "构造性不适用";
   source: string;
 }
 
@@ -170,7 +177,7 @@ export type MessagesTierVocabulary = "effort" | "effort-bare" | "reasoning-effor
  * 与 "effort-bare"（有依据地声明只发档位字段）在类型与静态对账上必须可区分：新增平台不表态
  * 会被键集对账拦下，而不是静默继承默认——02 号票对 off 那格立的同一条规矩。
  */
-export type MessagesTierExitKind = MessagesTierVocabulary | "unresearched";
+export type MessagesTierExitKind = MessagesTierVocabulary | "unresearched" | "non-messages";
 
 export interface MessagesTierExitCell {
   kind: MessagesTierExitKind;
@@ -361,6 +368,13 @@ export const MESSAGES_TIER_EXIT: Record<PlatformKey, MessagesTierExitCell> = {
       source:
         "docs.siliconflow.cn（Messages 侧未登记思考参数；手写兜底 siliconflow-switch 的 off 走 enable_thinking:false）→ 未研究过"
     }
+  },
+  gemini: {
+    kind: "non-messages",
+    provenance: {
+      level: "构造性不适用",
+      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages 档位出口表（ADR-0018 / spec 决策 13）"
+    }
   }
 };
 
@@ -400,7 +414,7 @@ export function messagesTierExitCell(platformId: string | undefined): MessagesTi
 // 自架构评审候选 6 起由 `Record<PlatformKey, …>` 编译期强制全覆盖：缺一格 / 孤儿键都是 tsc 红）。
 // 表外（platformId 未识别：custom 直填未入 host 索引的端点）= 未声明 → 原生，见 messagesOffExitCell。
 // provenance 每格必填，三级取值与用法见 MessagesExitProvenance 头注（两张出口表共用）。
-export type MessagesOffExitKind = "native" | "silent" | "word" | "unresearched";
+export type MessagesOffExitKind = "native" | "silent" | "word" | "unresearched" | "non-messages";
 
 export interface MessagesOffExitCell {
   kind: MessagesOffExitKind;
@@ -548,6 +562,13 @@ export const MESSAGES_OFF_EXIT: Record<PlatformKey, MessagesOffExitCell> = {
       level: "实测",
       source: "2026-09 ModelScope Messages 端点实测：enable_thinking:false 被忽略、思考计入 max_tokens 挤空正文，只有 thinking:{type:disabled} 生效（原始记录见 compat-vocab 的 thinkingDisabledMustBeExplicit，仓库无响应体留档）"
     }
+  },
+  gemini: {
+    kind: "non-messages",
+    provenance: {
+      level: "构造性不适用",
+      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages off 出口表（ADR-0018 / spec 决策 13）"
+    }
   }
 };
 
@@ -581,7 +602,7 @@ export function messagesOffExitCell(platformId: string | undefined): MessagesOff
 // 「哪一档可用」的合法性（02 值集）。本表只回答「开档那个 thinking 开关在这个端点写什么词」。
 // 怪癖托管格（stepfun / amd）不需要 owner：strict effort 词汇那一支在到达开词之前就返回
 // （开关词汇不透传），两格永远走不到本表——对账测试断言这条不可达性。
-export type MessagesOnExitKind = "native" | "word" | "unresearched";
+export type MessagesOnExitKind = "native" | "word" | "unresearched" | "non-messages";
 
 export interface MessagesOnExitCell {
   kind: MessagesOnExitKind;
@@ -711,6 +732,13 @@ export const MESSAGES_ON_EXIT: Record<PlatformKey, MessagesOnExitCell> = {
       level: "推断",
       source: "官方（Beta）Anthropic 兼容端点 api-inference.modelscope.cn 只实测收 thinking:{type:disabled}、enabled 形态无文档；开关型血统开档按原生 enabled（与建表前逐字节相同）"
     }
+  },
+  gemini: {
+    kind: "non-messages",
+    provenance: {
+      level: "构造性不适用",
+      source: "Gemini 采用原生 generateContent 协议，构造性不适用 Anthropic Messages on 出口表（ADR-0018 / spec 决策 13）"
+    }
   }
 };
 
@@ -730,6 +758,7 @@ export function messagesOnExitCell(platformId: string | undefined): MessagesOnEx
 // 表外 → Anthropic 原生 enabled）。**只发开关形状**，不带上限（文件头硬规则）。
 function onThinkingFields(platformId: string | undefined): Record<string, unknown> {
   const cell = messagesOnExitCell(platformId);
+  if (cell.kind === "non-messages") return {};
   if (cell.kind === "word" && cell.fields) return { ...cell.fields };
   return { thinking: { type: "enabled" } };
 }
@@ -783,6 +812,7 @@ function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
   // 怪癖 probeOmitsThinking：探针是连通性测试，一律不发思考字段——发字段只会给探针
   // 增加 400 变量（部分平台的 enabled 形状要求配套参数），探针语义 = 测连通。
   if (input.probe) return output;
+  if (messagesTierExitCell(input.platformId).kind === "non-messages") return output;
   const form = vocabularyWireForm(input.vocabulary);
   // 无事实（两个哨兵：unknown = 没有解析结论 / noFields = 本档不发言）：维持不发——
   // 软失败优于硬 400。
@@ -792,6 +822,7 @@ function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
     // 关思考出口 = MESSAGES_OFF_EXIT 逐格（thinking-wire-protocol-split 02）：「原生 / 平台自有词 / 明确不发 / 未声明」
     // 显式登记，「未研究过」不再靠 falsy 默认表达；表外（platformId 未识别）按未声明 → 原生。
     const cell = messagesOffExitCell(input.platformId);
+    if (cell.kind === "non-messages") return output;
     // ①「明确不发」：静态声明的格（owner 缺省）恒不发；声明了怪癖 owner 的格（stepfun / amd）
     //    判据取 compat-vocab 词表的怪癖活值——本表只声明归属、不复制它的平台键集。
     if (cell.kind === "silent" && (cell.owner == null || input.effortVocabularyOnly)) return output;
@@ -825,6 +856,7 @@ function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
   // MESSAGES_TIER_EXIT（thinking-wire-protocol-split 01）。
   if (form.form === "effort") {
     const cell = messagesTierExitCell(input.platformId);
+    if (cell.kind === "non-messages") return output;
     if (cell.kind === "reasoning-effort") {
       // 该端点登记的档位字段是顶层 reasoning_effort（未登记 thinking 形状）：只发档位词。
       output.fields.reasoning_effort = form.word;
@@ -848,9 +880,180 @@ function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
   return output;
 }
 
+// ===== Google Gemini generateContent =====
+// 模型名分家规则借 pi-ai usesGoogleThinkingLevel 口径且唯一出处在该行（spec 决策 12）：
+// gemini-3* / gemini-flash-latest / gemini-flash-lite-latest / gemma-4*
+// 预算梯度表出处 = pi-ai google-generative-ai.js:336-368 + Google 官方 thinking 文档；
+// 不进 models.dev 对账（models.dev 对 Google 的 thinking 数据只记 effort/budget 粗粒度，
+// 不表达 2.5 系的梯度档位与 3 系的 discrete level），由本仓在此显式维护。
+function usesGoogleThinkingLevel(model: string): boolean {
+  const name = model.toLowerCase().replace(/^(models\/|google\/)/, "");
+  return (
+    name.startsWith("gemini-3") ||
+    name === "gemini-flash-latest" ||
+    name === "gemini-flash-lite-latest" ||
+    name.startsWith("gemma-4")
+  );
+}
+
+function geminiWireMap(input: GeminiWireInput): ThinkingWireOutput {
+  const level = input.level;
+  if (!level || level === "default") {
+    return {
+      fields: {},
+      tokenParam: "maxOutputTokens"
+    };
+  }
+
+  const model = (input.model || "").trim().toLowerCase().replace(/^(models\/|google\/)/, "");
+
+  if (usesGoogleThinkingLevel(model)) {
+    // 离散 thinkingLevel 轨：gemini-3* / gemini-flash-latest / gemini-flash-lite-latest / gemma-4*
+    // Gemini 3 无真关闭，off 为伪关闭：MINIMAL + includeThoughts: false
+    // 开启档一律 includeThoughts: true；xhigh/max clamp 到 HIGH
+    if (level === "off") {
+      return {
+        fields: {
+          thinkingConfig: {
+            thinkingLevel: "MINIMAL",
+            includeThoughts: false
+          }
+        },
+        tokenParam: "maxOutputTokens"
+      };
+    }
+
+    let thinkingLevel: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
+    switch (level) {
+      case "minimal":
+        thinkingLevel = "MINIMAL";
+        break;
+      case "low":
+        thinkingLevel = "LOW";
+        break;
+      case "medium":
+        thinkingLevel = "MEDIUM";
+        break;
+      case "high":
+      case "xhigh":
+      case "max":
+        thinkingLevel = "HIGH";
+        break;
+    }
+
+    return {
+      fields: {
+        thinkingConfig: {
+          thinkingLevel,
+          includeThoughts: true
+        }
+      },
+      tokenParam: "maxOutputTokens"
+    };
+  }
+
+  // 数值 thinkingBudget 轨：2.5 系及其它未识别家族
+  // 开启档一律 includeThoughts: true；off 档均为 0 + includeThoughts: false
+  if (level === "off") {
+    return {
+      fields: {
+        thinkingConfig: {
+          thinkingBudget: 0,
+          includeThoughts: false
+        }
+      },
+      tokenParam: "maxOutputTokens"
+    };
+  }
+
+  let thinkingBudget: number;
+  if (model.startsWith("gemini-2.5-pro")) {
+    switch (level) {
+      case "minimal":
+        thinkingBudget = 128;
+        break;
+      case "low":
+        thinkingBudget = 2048;
+        break;
+      case "medium":
+        thinkingBudget = 8192;
+        break;
+      case "high":
+      case "xhigh":
+      case "max":
+        thinkingBudget = 32768;
+        break;
+    }
+  } else if (model.startsWith("gemini-2.5-flash-lite")) {
+    switch (level) {
+      case "minimal":
+        thinkingBudget = 512;
+        break;
+      case "low":
+        thinkingBudget = 2048;
+        break;
+      case "medium":
+        thinkingBudget = 8192;
+        break;
+      case "high":
+      case "xhigh":
+      case "max":
+        thinkingBudget = 24576;
+        break;
+    }
+  } else if (model.startsWith("gemini-2.5-flash")) {
+    switch (level) {
+      case "minimal":
+        thinkingBudget = 128;
+        break;
+      case "low":
+        thinkingBudget = 2048;
+        break;
+      case "medium":
+        thinkingBudget = 8192;
+        break;
+      case "high":
+      case "xhigh":
+      case "max":
+        thinkingBudget = 24576;
+        break;
+    }
+  } else {
+    // 其它/未识别家族（如 gemini-4 等）：按「其它」行动态 budget（-1），不按名字猜 level 机制
+    switch (level) {
+      case "minimal":
+        thinkingBudget = 128;
+        break;
+      case "low":
+        thinkingBudget = 2048;
+        break;
+      case "medium":
+        thinkingBudget = 8192;
+        break;
+      case "high":
+      case "xhigh":
+      case "max":
+        thinkingBudget = -1;
+        break;
+    }
+  }
+
+  return {
+    fields: {
+      thinkingConfig: {
+        thinkingBudget,
+        includeThoughts: true
+      }
+    },
+    tokenParam: "maxOutputTokens"
+  };
+}
+
 // 键集合必须覆盖词表叶（按 AiProtocol 的映射类型是编译期强制：新增协议漏登记即红；
 // 逐协议入参 ThinkingWireInputs 漏一行同样即红）。
 export const THINKING_WIRE_MAPS: { [K in AiProtocol]: ThinkingWireMap<K> } = {
   openai: openaiWireMap,
-  anthropic: anthropicWireMap
+  anthropic: anthropicWireMap,
+  gemini: geminiWireMap
 };
+
