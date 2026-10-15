@@ -16,10 +16,9 @@
 //   3. 回放与流式装配不同形：同一原文经 replay 句柄与 live 句柄收尾后节点内部
 //      不一致（回放自拼节点就会分叉）——innerHTML 逐字比对。
 //   4. 三终态徽标错挂：error / stopped / truncated 的文案或位置漂移。
-//   5. 代际重置失灵：resetStream 不清 stable/tail/思考盒/时间线卡，清掉光标，
+//   5. 代际重置失灵：reset 不清 stable/tail/思考盒/时间线卡，清掉光标，
 //      或不清 token 累加器（新流拼接上旧流）。
-//   6. 取消挂起帧丢缓冲 / 不释放帧槽：cancelPendingFrame 之后原文丢失，或新 token
-//      调度不上新帧。
+//   6. 意图收尾内收取消挂起帧：终态/重置前未取消挂起帧导致旧帧污染或释放帧槽失灵。
 //   7. 来源语义漂移：replay 追加接管自动滚动；live 追加不滚底。
 //   8. 消息区清场漏清（clear 不生效）。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -232,7 +231,7 @@ describe("回合节点句柄：流式操作面", () => {
     expect(deps.messages.querySelector(".chat-msg-assistant-body")?.textContent).toBe("正文");
   });
 
-  it("cancelPendingFrame：释放帧槽且不丢缓冲（新 token 可重新调度帧）", () => {
+  it("finish：收尾前自动取消挂起帧，不留悬挂帧槽且保留累计原文", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -241,15 +240,16 @@ describe("回合节点句柄：流式操作面", () => {
 
     turn.appendToken("第一段\n\n");
     expect(raf).toHaveBeenCalledTimes(1);
-    turn.cancelPendingFrame();
+    expect(turn.finish({})).toBe("第一段\n\n");
 
-    // 帧槽已释放：新 token 重新调度帧
-    turn.appendToken("第二段");
+    // 帧槽已释放：新回合的 token 重新调度帧
+    const turn2 = area.appendAssistantMessage({ source: "live" });
+    turn2.appendToken("第二段");
     expect(raf).toHaveBeenCalledTimes(2);
-    expect(turn.finish({})).toBe("第一段\n\n第二段");
+    expect(turn2.finish({})).toBe("第二段");
   });
 
-  it("resetStream：清 stable/tail/思考盒/时间线卡、光标归位、累加器清零（新流不带旧流残留）", () => {
+  it("reset：清 stable/tail/思考盒/时间线卡、光标归位、累加器清零（新流不带旧流残留）", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -263,7 +263,7 @@ describe("回合节点句柄：流式操作面", () => {
     expect(deps.messages.querySelector(".chat-stream-stable")).toBeTruthy();
     expect(deps.messages.querySelector(".chat-search-card")).toBeTruthy();
 
-    turn.resetStream();
+    turn.reset();
     expect(deps.messages.querySelector(".chat-stream-stable")).toBeNull();
     expect(deps.messages.querySelector(".chat-stream-tail")).toBeNull();
     expect(deps.messages.querySelector(".chat-thinking")).toBeNull();
@@ -350,7 +350,7 @@ describe("回合节点句柄：终态形态与徽标位置", () => {
 });
 
 describe("回合节点句柄：联网搜索时间线卡", () => {
-  it("applySearchStatus：卡片插在本节点之前；resetStream 清卡重放", () => {
+  it("applySearchStatus：卡片插在本节点之前；reset 清卡重放", () => {
     const deps = makeDeps();
     const runtime = createChatRuntime(deps);
     const area = areaOf(runtime);
@@ -362,7 +362,7 @@ describe("回合节点句柄：联网搜索时间线卡", () => {
     expect(card.nextElementSibling).toBe(node);
     expect(card.querySelector(".chat-search-card-status")?.textContent).toBe("搜索中…");
 
-    turn.resetStream();
+    turn.reset();
     expect(deps.messages.querySelector(".chat-search-card")).toBeNull();
     expect(deps.messages.querySelectorAll(".chat-msg-assistant")).toHaveLength(1);
   });

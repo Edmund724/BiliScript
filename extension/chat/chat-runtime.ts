@@ -361,7 +361,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
     } else if (msg.type === "stream-reset") {
       // 读流中断重试（offscreen 重新从头生成）：已吐 token 撤不回且新流不保证
       // 前缀一致，清空本条消息缓冲整体重放，避免两代流拼接成重复文本。
-      activeTurn?.resetStream();
+      activeTurn?.reset();
     } else if (msg.type === "done") {
       finalizeAssistant(activeTurn);
     } else if (msg.type === "stopped") {
@@ -617,16 +617,14 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // =========================================================================
   // endStream — 流生命周期收口（done / stopped / error 三条终态路径唯一实现）
   // =========================================================================
-  // 六步时序只此一处（原 finalize/showError/stopped 三份抄写收口于此）：
-  //   ① streamTurn.cancelPendingFrame()  取消挂起的流式渲染帧（句柄内部原语）；
-  //   ② clearStreamRuntimeState          清慢响应计时器 / 首 token 标志 / 上下文 notice；
-  //   ③ renderStep(streamTurn)           终态各自的 DOM / 持久化收尾（见下方三分支）；
-  //   ④ 断开并清空 activePort；
-  //   ⑤ setStreamingUiState(false)；
-  //   ⑥ deps.input.focus() + scrollToBottom()。
-  // activeUserPrompt 在 ③ 之后统一清空（③ 内的写回判定还要读它）。
+  // 收口时序（原步骤①取消挂起帧已内收至 finish / fail / stop 意图方法内部自动处理）：
+  //   ① clearStreamRuntimeState          清慢响应计时器 / 首 token 标志 / 上下文 notice；
+  //   ② renderStep(streamTurn)           终态各自的 DOM / 持久化收尾（内部自动取消挂起帧）；
+  //   ③ 断开并清空 activePort；
+  //   ④ setStreamingUiState(false)；
+  //   ⑤ deps.input.focus() + scrollToBottom()。
+  // activeUserPrompt 在 ② 之后统一清空（② 内的写回判定还要读它）。
   function endStream(streamTurn: ChatAssistantTurn, renderStep: ((turn: ChatAssistantTurn) => void) | undefined): void {
-    streamTurn.cancelPendingFrame();
     clearStreamRuntimeState();
     if (renderStep) {
       renderStep(streamTurn);
@@ -837,11 +835,10 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   }
 
   function resetStreamState(): void {
-    // 挂起的流式渲染帧（rAF flush）必须先取消：flush 闭包捕获的是节点引用，
-    // 不清的话会向已脱离的旧节点渲染（首帧还会把新消息的思考节点当旧的移除）。
-    // 帧槽在本片（消息区）内，但只有 appendToken 会挂帧，故挂起帧必属在途回合
-    // ——经回合句柄的窄入口取消。activeTurn 为 null 时没有在途回合，无帧可撤。
-    activeTurn?.cancelPendingFrame();
+    // 拆除清场：经回合意图 discard() 取消挂起渲染帧并释放流式累加器，
+    // 避免向已脱离的旧节点渲染（首帧还会把新消息的思考节点当旧的移除）。
+    // activeTurn 为 null 时没有在途回合，无帧可撤。
+    activeTurn?.discard();
     clearStreamRuntimeState();
     if (activePort) {
       try { activePort.disconnect(); } catch {}

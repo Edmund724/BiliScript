@@ -35,6 +35,7 @@ import {
 } from "../bilibili/video-id-shared.js";
 import { ensureReaderChatTab } from "./lazy-chat-tab.js";
 import { activateScriptTab } from "./script-tab-activation.js";
+import { createSerialQueue } from "./serial-queue.js";
 import { ensureUiReady } from "../ui/lazy-ui.js";
 import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 import { ensureReaderDomain } from "./lazy-reader.js";
@@ -113,18 +114,11 @@ interface ReaderEntrySequenceOptions {
 // 激活因此在进入事务收敛后落地（race 防护语义所在；属主的激活串行队列是第二层
 // 兜底——并发意图串行化，最终状态 = 最后意图）。退出事务同队列：进入中收到
 // close 顺延执行，enter/exiting 不交错。
-let readerEntryChain: Promise<void> = Promise.resolve();
+// 复用 reader/serial-queue.ts 提供的单飞队列，持有独立实例（不与激活链共用）。
+const shellTransactionQueue = createSerialQueue();
 
 function runReaderEntryExclusive(run: () => Promise<void>): Promise<void> {
-  // 前序事务失败不阻断后序（各事务的失败口径在各自 catch 收口，不上抛）。
-  // settled 先于任何 await 同步捕获链头，后到事务不会等错前序。
-  const settled = readerEntryChain.catch(() => {});
-  const next = (async () => {
-    await settled;
-    await run();
-  })();
-  readerEntryChain = next.catch(() => {});
-  return next;
+  return shellTransactionQueue.enqueue(run);
 }
 
 // 进入事务骨架（消息意图三档与 URL 跳转入口共用）：事务体内先把 closed 抬进

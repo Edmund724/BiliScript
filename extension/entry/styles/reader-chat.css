@@ -1196,10 +1196,12 @@
  * 脱流后对话内容从关闭首帧起即是最终布局，历史页在它上方淡走——与设置抽屉
  * 「抽屉与标签区同占网格行」同一原理，flex 列无法重叠，故用绝对定位顶替。
  * 头部固定、列表区独立滚动（见 .chat-history-list）。
- * 底色是不透明 surface 页面灰——打开时兄弟内容整体 display:none，背后
- * 本就没有需要透视的内容；负 inset 外溢对话面板的 tab-body
- * 内边距（上 10 / 左右下 14，见上方覆写与 reader.css），把整张内容区白卡盖满，
- * 四周不再露出异色环。 */
+ * 底色透明：历史页直露与对话内容区完全相同的雾底（tab-body 在
+ * reader-gate.css 蓝雾壳段是透明直露雾底），打开只是内容切换、不切换
+ * 底色（2026-12 用户裁定「历史页不应有单独背景色」）；透明底上 0.2s
+ * 淡入淡出视觉零跳变。兄弟内容打开时整体 display:none，背后没有需要
+ * 遮盖的东西，故无需不透明料。负 inset 外溢对话面板的 tab-body 内边距
+ *（上 10 / 左右下 14，见上方覆写与 reader.css），覆盖层铺满整张内容区。 */
 .biliscript-reading-chat .chat-history-popover {
   /* 定位上下文是对话根（.biliscript-reading-chat 的 position: relative）；
    * 负 inset = 对话面板的 tab-body 内边距值，覆盖层由此盖满整张内容区白卡。
@@ -1214,7 +1216,7 @@
   gap: 8px;
   /* 自身内边距替代被外溢吃掉的 tab-body 留白：头部/列表不贴白卡边缘 */
   padding: 4px 12px 12px;
-  background: var(--biliscript-reader-surface);
+  background: transparent;
   transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
 }
 
@@ -1381,19 +1383,19 @@
   grid-template-columns: minmax(0, 1fr) 24px;
   gap: 6px;
   align-items: center;
-  /* 2026-12 配色定稿（Flyme「灰页底 + 白卡」）：底色由 surface（与面板同灰，
-   * 读作一排灰盒子）换成 card 白卡；描边退为 transparent——保留 1px 几何，
-   * is-active / is-live-match 换边色时布局不跳。 */
+  /* 历史页透明直露雾底（与对话内容区同一层料），条目用 surface-2 灰
+   * 分层；描边 transparent——保留 1px 几何，is-active /
+   * is-live-match 换边色时布局不跳。 */
   border: 1px solid transparent;
   border-radius: 10px;
-  background: var(--biliscript-reader-card);
+  background: var(--biliscript-reader-surface-2);
   padding: 4px;
   max-width: 100%;
 }
 
 .biliscript-reading-chat .chat-history-item.is-active {
   border-color: var(--biliscript-reader-surface-3);
-  background: var(--biliscript-reader-surface-2);
+  background: var(--biliscript-reader-surface-3);
 }
 
 .biliscript-reading-chat .chat-history-item.is-live-match {
