@@ -20,6 +20,12 @@
 import { makeAbortedError, isRetryableNetworkError, isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import { clampToLearnedMaxTokens, noteLearnedMaxTokens } from "./learned-budget.js";
 import { CONSERVATIVE_MAX_TOKENS, isOutputBudgetTooLarge } from "./output-budget.js";
+import {
+  CONTEXT_OVERFLOW_DIRECT_PATTERNS,
+  CONTEXT_OVERFLOW_RE,
+  CONTEXT_OVERFLOW_SUBJECT_RE,
+  normalizeErrorText
+} from "./error-text-norms.js";
 import { resolveAdapter } from "./protocol-adapter.js";
 import { presetRequestHeaders } from "./preset-headers.js";
 import { noteUsageSample } from "./usage-stats.js";
@@ -45,45 +51,19 @@ export function makeOverflowError(message = "上下文超出模型限制"): Over
 }
 
 /**
- * 判定一段错误文案是否属于 context-length 溢出（纯函数，自 client.js 迁入）。
+ * 判定一段错误文案是否属于 context-length 溢出（纯函数，判据族收口于 error-text-norms.ts）。
  * 粗判：命中常见溢出子串，或「长度/上下文/令牌」语义 + 「超限」语义同时出现。
  * 非溢出错误（401/404/500/网络错误/限流等）返回 false，仍走既有重试/报错路径。
  */
 export function isContextLengthOverflow(detailOrError: unknown): boolean {
-  const text = String(detailOrError ?? "").toLowerCase();
+  const text = normalizeErrorText(detailOrError);
   if (!text) return false;
 
-  const directPatterns = [
-    "context_length",
-    "context length",
-    "maximum context length",
-    "max context length",
-    "context window",
-    "too many tokens",
-    "too long",
-    "too large",
-    "max_tokens",
-    "max tokens",
-    "max_output_tokens",
-    "token limit",
-    "最大上下文",
-    "上下文长度",
-    "上下文超出",
-    "超出上下文",
-    "超出长度",
-    "超过上下文",
-    "令牌超限",
-    "token超限",
-    "超出上限"
-  ];
-
-  for (const pattern of directPatterns) {
+  for (const pattern of CONTEXT_OVERFLOW_DIRECT_PATTERNS) {
     if (text.includes(pattern)) return true;
   }
 
-  const subjectPattern = /(context|tokens?|length|上下文|长度|令牌|窗口)/;
-  const overflowPattern = /(exceed|limit|maximum|too many|too long|overflow|超出|超过|超限|上限|最大)/;
-  return subjectPattern.test(text) && overflowPattern.test(text);
+  return CONTEXT_OVERFLOW_SUBJECT_RE.test(text) && CONTEXT_OVERFLOW_RE.test(text);
 }
 
 interface HttpError extends Error {
