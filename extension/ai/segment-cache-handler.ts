@@ -20,7 +20,7 @@ import {
   saveRawSegments,
   saveSegmentSummaryWithRaw,
   loadStoredRawSegments,
-  segmentCacheKeyFields
+  segmentCacheKeyStringFields
 } from "./segment-cache.js";
 import { retrieveRawSegments } from "./raw-retrieval.js";
 import type { SegmentCacheMessage, SegmentCacheResponse } from "../shared/messaging-protocol.js";
@@ -76,15 +76,7 @@ export function createSegmentCacheHandler(): (
         return { ok: result.ok, summarySaved: opResult, rawSaved: opResult };
       },
       "load-stored-raw": async (message) => {
-        // String 归一与迁移前 followup-context 调用点的口径逐字一致
-        const fields = segmentCacheKeyFields(message.context);
-        const stored = await loadStoredRawSegments({
-          bvid: String(fields.bvid || ""),
-          cid: String(fields.cid || ""),
-          subtitleId: String(fields.subtitleId || ""),
-          subtitleUrl: String(fields.subtitleUrl || ""),
-          lang: String(fields.lang || "")
-        });
+        const stored = await loadStoredRawSegments(segmentCacheKeyStringFields(message.context));
         // 08 票命中段预过滤：消费侧 retrieveRaw 只被调用一次且参数即 userPrompt，
         // SW 侧用同一 prompt + context.chapters 预过滤后，非命中段剥离 items 再过线
         // （整篇数 MB → 仅命中段过线）；段元数据（index/from/to）保留，消费侧重放
