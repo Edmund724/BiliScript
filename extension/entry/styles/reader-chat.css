@@ -1201,21 +1201,24 @@
  * 底色（2026-12 用户裁定「历史页不应有单独背景色」）；透明底上 0.2s
  * 淡入淡出视觉零跳变。兄弟内容打开时整体 display:none，背后没有需要
  * 遮盖的东西，故无需不透明料。负 inset 外溢对话面板的 tab-body 内边距
- *（上 10 / 左右下 14，见上方覆写与 reader.css），覆盖层铺满整张内容区。 */
+ *（上 10 / 左右下 14，见上方覆写与 reader.css），右侧再多吞 tab-body
+ * 外边距 14（reader.css `margin: 10px 14px 14px`），列表滚动条由此
+ * 贴到面板壳右缘（2026-12 用户裁定「滚动条要靠右」）。 */
 .biliscript-reading-chat .chat-history-popover {
   /* 定位上下文是对话根（.biliscript-reading-chat 的 position: relative）；
-   * 负 inset = 对话面板的 tab-body 内边距值，覆盖层由此盖满整张内容区白卡。
+   * 负 inset = 对话面板的 tab-body 内边距值（右侧追加外边距 14，贴壳），
+   * 覆盖层由此盖满整张内容区白卡。
    * z-index 必须显式高于消息区内浮层：.chat-messages 自身 position:relative
    * 且 DOM 在后，不写就被它按顺序压住；.chat-search-preview(z-index:20) /
    * .chat-model-panel(z-index:10) 同处一个层叠上下文，故取 30。 */
   position: absolute;
-  inset: -10px -14px -14px;
+  inset: -10px -28px -14px -14px;
   z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 8px;
   /* 左右不留白（顶部 4 / 底部 12）：横向缩进移到头部与条目内容，
-   * 列表滚动条由此贴到面板右缘（用户裁定「滚动条要靠右」）。 */
+   * 列表滚动条由此贴到面板壳右缘（用户裁定「滚动条要靠右」）。 */
   padding: 4px 0 12px;
   background: transparent;
   transition: opacity 0.2s var(--biliscript-reader-ease-spring, ease), display 0.2s allow-discrete;
@@ -1383,8 +1386,9 @@
   background: var(--biliscript-reader-accent-soft);
 }
 
-/* 无界平列表条目：无底、无边、无圆角，状态用整行 wash 表达
- *（hover = fill-hover；当前会话 = surface-2；同视频 = accent-soft）。
+/* 无界平列表条目：无底、无边，状态用整行 wash 表达（hover = fill-hover；
+ * 当前会话 = surface-2；同视频 = accent-soft），wash 带 8px 圆角
+ *（2026-12 用户裁定「hover 上去应该是圆角」）。
  * padding-right 让 × 键与文字让开贴右缘的滚动条槽（thin 实测约 12px）。 */
 .biliscript-reading-chat .chat-history-item {
   display: grid;
@@ -1392,6 +1396,7 @@
   gap: 6px;
   align-items: center;
   padding-right: 12px;
+  border-radius: 8px;
   max-width: 100%;
 }
 

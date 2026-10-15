@@ -111,12 +111,12 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(dark).toContain("--biliscript-reader-pill-bg: #222327");
   });
 
-  it("历史条目无界平列表：无底无边无圆角，状态走整行 wash", () => {
+  it("历史条目无界平列表：无底无边，状态走整行圆角 wash", () => {
     const css = readCss(CHAT_CSS);
     const item = ruleBody(css, ".biliscript-reading-chat .chat-history-item");
 
     expect(item).not.toMatch(/border\s*:/);
-    expect(item).not.toContain("border-radius");
+    expect(item).toContain("border-radius: 8px");
     expect(item).not.toContain("background");
     expect(ruleBody(css, ".biliscript-reading-chat .chat-history-item:hover")).toContain(
       "background: var(--biliscript-reader-fill-hover)"
@@ -134,8 +134,10 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
 
     expect(list).not.toContain("gap");
     expect(list).toContain("scrollbar-width: thin");
-    // 整页横向缩进挪到头部/条目内容（padding 左右为 0），滚动条才贴得上右缘
+    // 整页横向缩进挪到头部/条目内容（padding 左右为 0），滚动条才贴得上右缘；
+    // inset 右侧多吞 tab-body 外边距 14（-28 = padding 14 + margin 14），贴的是面板壳
     const page = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-history-popover");
     expect(page).toMatch(/padding:\s*4px 0 12px\s*;/);
+    expect(page).toContain("inset: -10px -28px -14px -14px");
   });
 });
