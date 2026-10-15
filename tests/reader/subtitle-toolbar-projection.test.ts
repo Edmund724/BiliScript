@@ -60,6 +60,7 @@ const SAMPLE_TRACKS: SubtitleTrack[] = [
 // ===== 假事实 =====
 
 let tabUi: typeof import("../../extension/reader/subtitle-tab-ui.js");
+let toolbar: import("../../extension/reader/subtitle-tab-ui.js").SubtitleToolbar;
 let ids: typeof import("../../extension/reader/state.js").ids;
 let secondarySubtitle: typeof import("../../extension/reader/secondary-subtitle.js");
 
@@ -96,7 +97,7 @@ function dualBase(overrides: Partial<SubtitleToolbarFacts> = {}): Partial<Subtit
 }
 
 function render(facts: SubtitleToolbarFacts): void {
-  tabUi.renderReadingSubtitleTrackPicker(() => facts);
+  toolbar.render(() => facts);
 }
 
 // ===== 最小 DOM：只放投影自己找不到的那一枚锚点 =====
@@ -207,6 +208,7 @@ beforeEach(async () => {
   document.body.innerHTML = "";
   setLocationUrl(READER_MODE_URL);
   tabUi = await import("../../extension/reader/subtitle-tab-ui.js");
+  toolbar = tabUi.createSubtitleToolbar();
   ids = (await import("../../extension/reader/state.js")).ids;
   secondarySubtitle = await import("../../extension/reader/secondary-subtitle.js");
 });
@@ -214,13 +216,13 @@ beforeEach(async () => {
 describe("投影入口：取数在锚点之后", () => {
   it("工具条缺席：整段早退，事实一次都不取、一个节点都不建", () => {
     const selectFacts = vi.fn(() => makeFacts());
-    tabUi.renderReadingSubtitleTrackPicker(selectFacts);
+    toolbar.render(selectFacts);
 
     expect(selectFacts).not.toHaveBeenCalled();
     expect(mainWrapper()).toBeNull();
 
     mountAnchor();
-    tabUi.renderReadingSubtitleTrackPicker(selectFacts);
+    toolbar.render(selectFacts);
     expect(selectFacts).toHaveBeenCalledTimes(1);
   });
 });

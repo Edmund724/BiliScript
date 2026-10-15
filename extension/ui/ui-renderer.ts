@@ -244,8 +244,9 @@ export function bindUiEvents(): void {
   const readingThemeSelect = byId(ids.readingThemeSelect);
   const readingSettingsToggleBtn = byId(ids.readingSettingsBtn);
 
-  // arch-slim-2/06：三 tab 的专属绑定随模板同居各自域叶子（见文件头 import 注），
-  // 壳的 bindUiEvents 只保留面板骨架交互 + 各叶子接线的一次性触发。
+  // arch-slim-2/06 / batch2-04：三 tab 的专属绑定随模板同居各自域叶子（见文件头 import 注），
+  // 壳的 bindUiEvents 只保留面板骨架交互 + 各叶子接线的一次性触发；字幕工具条相位与设置
+  // 订阅已收进实例 bindEvents()，此处保留字幕 tab 自身交互绑定。
   bindSubtitleTabEvents();
   bindReadingExplainEvents();
   bindReadingOverviewEvents();
