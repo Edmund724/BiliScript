@@ -1241,16 +1241,15 @@
   display: none;
 }
 
-/* 整页头部（Q9 决议：返回键最左、标题紧随、清空全部最右）：固定不滚，分隔线
- * 划开标题与滚动列表；页内滚动只发生在下面的列表区。（对话工具条与输入区
- * 原有的同款分隔线已按 2026-09 用户决议删除——两条横线造成割裂感。） */
+/* 整页头部（Q9 决议：返回键最左、标题紧随、清空全部最右）：固定不滚、无
+ * 分隔线（2026-12 用户决议：标题下的横线不要，与对话工具条/输入区同款
+ * 决议一致）；页内滚动只发生在下面的列表区。 */
 .biliscript-reading-chat .chat-history-popover-head {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--biliscript-reader-border);
 }
 
 /* 页面标题走设置分区标题的字号档（16-700）：整页的标题不再是弹层里的小字标签 */
