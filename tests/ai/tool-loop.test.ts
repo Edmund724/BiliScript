@@ -14,6 +14,7 @@ import {
   TOOL_CONTENT_MAX_CHARS,
   TOOL_MESSAGE_MAX_CHARS,
   type RunToolLoopInput,
+  type ToolLoopRequestProfile,
   type ToolStatusPayload
 } from "../../extension/ai/tool-loop.js";
 import type { ChatMessage } from "../../extension/ai/types.js";
@@ -110,9 +111,12 @@ function makeCapture(): Capture {
 // 前置声明（fetchImpl 闭包引用 capture 自身）。
 let capture: Capture;
 
-function makeInput(overrides: Partial<RunToolLoopInput> = {}): RunToolLoopInput {
+interface MakeInputOptions extends Partial<Omit<RunToolLoopInput, "requestProfile">> {
+  requestProfile?: Partial<ToolLoopRequestProfile>;
+}
+
+function makeInput(overrides: MakeInputOptions = {}): RunToolLoopInput {
   return {
-    provider: PROVIDER,
     messages: [{ role: "user", content: "hi" }],
     maxToolCalls: 5,
     executeSearch: async () => {
@@ -121,7 +125,11 @@ function makeInput(overrides: Partial<RunToolLoopInput> = {}): RunToolLoopInput 
     onToolStatus: (p) => capture.statuses.push(p),
     onNotice: (t) => capture.notices.push(t),
     onToolTurn: (ms) => capture.toolTurns.push(ms),
-    ...overrides
+    ...overrides,
+    requestProfile: {
+      provider: PROVIDER,
+      ...overrides.requestProfile
+    }
   };
 }
 
@@ -129,7 +137,7 @@ describe("runToolLoop 工具调用循环", () => {
   it("单轮搜索后二次调用：tool 消息回填、tool-status 逐条、tool-turn 副本随行", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: async (query) => {
         expect(query).toBe("bilibili ai");
         return { results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" };
@@ -159,14 +167,14 @@ describe("runToolLoop 工具调用循环", () => {
 
   it("跨 chunk 分片聚合：id/name/arguments 按 index 拼接为一条 tool call", async () => {
     capture = makeCapture();
-    await runToolLoop(makeInput({ fetchImpl: capture.fetchImpl, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
+    await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
     expect(capture.statuses[0]).toMatchObject({ status: "searching", query: "bilibili ai" });
   });
 
   it("本轮次数达上限：摘除 tools + system 次数提示注入 + notice，后续轮无工具", async () => {
     capture = makeCapture();
     // maxToolCalls=1：首轮搜索后计数达上限，第二轮不带 tools 出最终回答。
-    await runToolLoop(makeInput({ fetchImpl: capture.fetchImpl, maxToolCalls: 1, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
+    await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, maxToolCalls: 1, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
 
     expect(capture.calls.length).toBe(2);
     expect(capture.calls[1].tools).toBeUndefined();
@@ -179,7 +187,7 @@ describe("runToolLoop 工具调用循环", () => {
   it("搜索失败降级：「搜索失败」tool 消息 + failed 状态 + notice，回答不中断", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: async () => {
         throw new Error("HTTP 503");
       }
@@ -207,7 +215,7 @@ describe("runToolLoop 工具调用循环", () => {
         ? ({ ok: false, status: 400, text: vi.fn(async () => '{"error":"tools not supported"}'), json: vi.fn() } as unknown as Response)
         : sseResponse(FINAL_ROUND_CHUNKS);
     });
-    await runToolLoop(makeInput({ fetchImpl: capture.fetchImpl, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
+    await runToolLoop(makeInput({ requestProfile: { fetchImpl: capture.fetchImpl }, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
 
     expect(capture.notices).toContain("当前平台不支持工具调用，本轮未联网");
     expect(capture.calls.length).toBe(4);
@@ -231,7 +239,7 @@ describe("runToolLoop 工具调用循环", () => {
     });
 
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       maxToolCalls: 5,
       executeSearch: async () => ({
         results: Array.from({ length: 10 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "s" })),
@@ -258,7 +266,7 @@ describe("runToolLoop 工具调用循环", () => {
 
     const bigSnippet = "x".repeat(3000);
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: async () => ({
         results: Array.from({ length: 10 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: bigSnippet })),
         platform: "Tavily"
@@ -287,7 +295,7 @@ describe("runToolLoop 工具调用循环", () => {
       capture = makeCapture();
       const results = Array.from({ length: 5 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(snippet) }));
       await runToolLoop(makeInput({
-        fetchImpl: capture.fetchImpl,
+        requestProfile: { fetchImpl: capture.fetchImpl },
         executeSearch: async () => ({ results, platform: "Tavily" })
       }));
 
@@ -301,7 +309,7 @@ describe("runToolLoop 工具调用循环", () => {
     capture = makeCapture();
     const results = Array.from({ length: 5 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(4546) }));
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: async () => ({ results, platform: "Firecrawl" })
     }));
 
@@ -315,7 +323,7 @@ describe("runToolLoop 工具调用循环", () => {
     capture = makeCapture();
     const results = Array.from({ length: 10 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(2000) }));
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: async () => ({ results, platform: "Exa" })
     }));
 
@@ -330,7 +338,7 @@ describe("runToolLoop 工具调用循环", () => {
   it("序列化产物不含 truncated 标注（§8「不加截断标注」/ §10 第 55 行）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: async () => ({
         // 2000 字正文 5 条 → 序列化真裁条，正是最容易被加标注的路径
         results: Array.from({ length: 5 }, (_, i) => ({ title: `t${i}`, url: `u${i}`, snippet: "x".repeat(2000) })),
@@ -352,7 +360,7 @@ describe("runToolLoop 工具调用循环", () => {
       { title: "标题二", url: "https://b.com/2", snippet: "摘录二" }
     ];
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: async () => ({ results, platform: "Brave" })
     }));
 
@@ -367,9 +375,11 @@ describe("runToolLoop 工具调用循环", () => {
   it("toolDefinition 变体：解释链传 requireCitations:false，描述不带 [n] 且随请求注入", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
-      executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" }),
-      toolDefinition: webSearchTool({ requireCitations: false })
+      requestProfile: {
+        fetchImpl: capture.fetchImpl,
+        toolDefinition: webSearchTool({ requireCitations: false })
+      },
+      executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
     }));
     expect(capture.calls[0].tools).toHaveLength(1);
     expect(capture.calls[0].tools![0].function.name).toBe("web_search");
@@ -386,8 +396,10 @@ describe("runToolLoop 工具调用循环", () => {
     });
     const fetchImpl = mockFetch(async () => ({ ok: true, status: 200, json }));
     const result = await runToolLoop(makeInput({
-      stream: false,
-      fetchImpl,
+      requestProfile: {
+        stream: false,
+        fetchImpl
+      },
       executeSearch: async () => ({ results: [{ title: "t", url: "u", snippet: "s" }], platform: "Tavily" })
     }));
     expect(result).toBe("最终解释");
@@ -395,7 +407,13 @@ describe("runToolLoop 工具调用循环", () => {
 
   it("maxTokens 透传 chatCompletion（解释链钉 320 输出上限）", async () => {
     capture = makeCapture();
-    await runToolLoop(makeInput({ maxTokens: 320, fetchImpl: capture.fetchImpl, executeSearch: async () => ({ results: [], platform: "Tavily" }) }));
+    await runToolLoop(makeInput({
+      requestProfile: {
+        maxTokens: 320,
+        fetchImpl: capture.fetchImpl
+      },
+      executeSearch: async () => ({ results: [], platform: "Tavily" })
+    }));
     expect(capture.calls[0].max_tokens).toBe(320);
   });
 });
@@ -434,7 +452,7 @@ describe("回退链 × 工具链接缝", () => {
   it("链内单家失败静默：不上 notice、无 failed 状态，直接试下一家（§10 第 42 行）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: (query) =>
         executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
           execute: async (candidate) => {
@@ -460,7 +478,7 @@ describe("回退链 × 工具链接缝", () => {
   it("整链无果：恰好一条终态 notice，其余类沿用「联网搜索失败：<适配器可读原因>」（§10 第 43、44 行）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: (query) =>
         executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
           execute: async (candidate) => {
@@ -482,7 +500,7 @@ describe("回退链 × 工具链接缝", () => {
   it("整链无果且鉴权类在列：notice 沿用其余类文案（§6.4 第 ② 行不单开第三条）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: (query) =>
         executeSearchChain([CHAIN_TAVILY], query, {
           execute: async () => {
@@ -497,7 +515,7 @@ describe("回退链 × 工具链接缝", () => {
   it("整链无果且额度类在列：终态 notice 用 §6.4 额度文案原文（§6.4 第 ① 行 / §10 第 44 行）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: (query) =>
         executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
           execute: async (candidate) => {
@@ -521,7 +539,7 @@ describe("回退链 × 工具链接缝", () => {
   it("链首成功：tool 内容为纯结果 JSON，不附引擎注记（§6.5 / §10 第 50 行）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: (query) =>
         executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
           execute: async (candidate) => ({ results: [CHAIN_RESULT], platform: candidate.provider.name })
@@ -536,7 +554,7 @@ describe("回退链 × 工具链接缝", () => {
   it("回退成功：tool 内容附恰一行「注：首选 <X> 未成功，以下结果来自 <Y>。」（§6.5 / §10 第 50 行）", async () => {
     capture = makeCapture();
     await runToolLoop(makeInput({
-      fetchImpl: capture.fetchImpl,
+      requestProfile: { fetchImpl: capture.fetchImpl },
       executeSearch: (query) =>
         executeSearchChain([CHAIN_FIRECRAWL, CHAIN_TAVILY], query, {
           execute: async (candidate) => {
@@ -609,21 +627,23 @@ describe("tool-loop: Gemini 原生协议支持（Ticket 05）", () => {
 
     const tokens: string[] = [];
     await runToolLoop({
-      provider: {
-        baseUrl: "https://generativelanguage.googleapis.com",
-        model: "gemini-3-flash",
-        protocol: "gemini"
+      requestProfile: {
+        provider: {
+          baseUrl: "https://generativelanguage.googleapis.com",
+          model: "gemini-3-flash",
+          protocol: "gemini"
+        },
+        fetchImpl: fakeFetch,
+        onEvent: (event) => {
+          if (event.type === "token") tokens.push(event.data);
+        }
       },
       messages,
       maxToolCalls: 2,
       executeSearch: async (_query) => ({
         results: [{ title: "Vitest Docs", url: "https://vitest.dev", snippet: "Fast test runner" }],
         platform: "mock-search"
-      }),
-      fetchImpl: fakeFetch,
-      onEvent: (event) => {
-        if (event.type === "token") tokens.push(event.data);
-      }
+      })
     });
 
     expect(tokens.join("")).toBe("Based on search, Vitest works with Gemini.");
