@@ -24,7 +24,9 @@ import {
   READER_GUARD_CLEAR_ATTRS,
   READER_GUARD_FILTER,
   READER_SETTINGS_WATCH_KEYS,
-  LOCAL_FLAG_ATTRIBUTES
+  LOCAL_FLAG_ATTRIBUTES,
+  READER_READY_ATTR,
+  collectAttrsByTarget
 } from "../../extension/reader/presentation-fields.js";
 import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import { NORMAL_PAGE_URL, READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -155,9 +157,39 @@ describe("A. 表结构不变量", () => {
       }
     }
   });
+
+  it("ready 字段进主表：目标 readingView，声明 attr 名义与清理责任", () => {
+    const readyField = READER_PRESENTATION_FIELDS.find((field) => field.id === "ready");
+    expect(readyField).toBeDefined();
+    expect(readyField?.kind).toBe("view-flag");
+    expect(readyField?.targets).toEqual({
+      html: null,
+      body: null,
+      readingView: "data-biliscript-reader-ready"
+    });
+    expect(readyField?.datasetKeys).toEqual({
+      html: null,
+      body: null,
+      readingView: "biliscriptReaderReady"
+    });
+    expect(readyField?.storageKey).toBe(null);
+    expect(readyField?.legacyStorageKey).toBe(null);
+    expect(readyField?.watchedByGuard).toBe(false);
+    expect(readyField?.clearOnGuard).toBe(false);
+    expect(readyField?.clearOnClose).toBe(false);
+    expect(readyField?.clearViewOnClose).toBe(false);
+    expect(readyField?.writtenByApply).toBe(false);
+    expect(readyField?.readValue).toBe(null);
+  });
 });
 
 describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
+  it("ready 派生常量与主表一致，且从 LOCAL_FLAG_ATTRIBUTES 例外清单移除", () => {
+    expect(READER_READY_ATTR).toBe("data-biliscript-reader-ready");
+    expect(LOCAL_FLAG_ATTRIBUTES.has("data-biliscript-reader-ready")).toBe(false);
+    expect(LOCAL_FLAG_ATTRIBUTES).toEqual(new Set(["data-biliscript-reader-hide-sending-bar"]));
+    expect(collectAttrsByTarget().readingView).toContain("data-biliscript-reader-ready");
+  });
   it("三份派生清单与按标志手工推导一致（含顺序）", () => {
     for (const target of TARGETS) {
       expect(READER_CLOSE_ATTRS[target]).toEqual(deriveAttrs("clearOnClose", target));

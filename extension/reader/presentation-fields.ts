@@ -148,6 +148,25 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     writtenByApply: false,
     readValue: null
   },
+  // —— 视图就绪态：常驻模板壳基线标志（模板初值 "0"，enter 时置 "1"，close 时复位 "0"）——
+  // 目标 readingView，写：ui-renderer 模板初值 "0" + lifecycle.ts（openReaderViewShell /
+  // setReadingViewReady 写 "1"、closeReadingView 复位 "0"）；读：shell.ts 完好性判据 +
+  // reader.css / reader-gate.css 门控。清理责任：close 复位基线值 "0" 而非 removeAttribute
+  //（clearViewOnClose 为 false）。
+  {
+    id: "ready",
+    kind: "view-flag",
+    targets: { html: null, body: null, readingView: "data-biliscript-reader-ready" },
+    datasetKeys: { html: null, body: null, readingView: "biliscriptReaderReady" },
+    storageKey: null,
+    legacyStorageKey: null,
+    watchedByGuard: false,
+    clearOnGuard: false,
+    clearOnClose: false,
+    clearViewOnClose: false,
+    writtenByApply: false,
+    readValue: null
+  },
   // —— 纯 storage 监听键：无属性落位，只为 bindSettingsWatcher 键清单服务 ——
   // 播放器 AI 快捷动作的开关/提示词变化需要立即触发设置回读与 requestPlayerAiSync。
   {
@@ -215,20 +234,26 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
 // readingView 列额外要求 clearViewOnClose：clearOnGuard/clearOnClose 表达的是
 // 页面级（html/body）清理职责，readingView 短名镜像是否随清理删除由
 // clearViewOnClose 单独把关（守卫永不触碰视图，其 readingView 列因此恒空）。
-type AttrFlag = "clearOnClose" | "clearOnGuard" | "watchedByGuard";
-type AttrTarget = "html" | "body" | "readingView";
+// flag 省略时返回主表各目标的全部声明属性。
+export type AttrFlag = "clearOnClose" | "clearOnGuard" | "watchedByGuard";
+export type AttrTarget = "html" | "body" | "readingView";
 
-function collectAttrsByTarget(flag: AttrFlag) {
+export function collectAttrsByTarget(flag?: AttrFlag): Record<AttrTarget, string[]> {
   const result: Record<AttrTarget, string[]> = { html: [], body: [], readingView: [] };
   for (const field of READER_PRESENTATION_FIELDS) {
     for (const target of ["html", "body", "readingView"] as AttrTarget[]) {
-      if (!field[flag] || !field.targets[target]) {
+      if (!field.targets[target]) {
         continue;
       }
-      if (target === "readingView" && !field.clearViewOnClose) {
-        continue;
+      if (flag) {
+        if (!field[flag]) {
+          continue;
+        }
+        if (target === "readingView" && !field.clearViewOnClose) {
+          continue;
+        }
       }
-      result[target].push(field.targets[target]);
+      result[target].push(field.targets[target]!);
     }
   }
   return result;
@@ -244,6 +269,11 @@ export const READER_GUARD_CLEAR_ATTRS = collectAttrsByTarget("clearOnGuard");
 // 旧手抄 body filter 只有 mode/line-height/reading-active 三项，与 html 全集
 // 不对称且无 CSS 依据（body 与 html 的选择器面一致），属走样；按正确超集对齐。
 export const READER_GUARD_FILTER = collectAttrsByTarget("watchedByGuard");
+
+// 视图就绪态属性名（由主表 ready 字段派生，shell.ts 完好性判据等消费）。
+export const READER_READY_ATTR: string =
+  READER_PRESENTATION_FIELDS.find((field) => field.id === "ready")?.targets.readingView ??
+  "data-biliscript-reader-ready";
 
 // applyReadingViewPresentation 的写入字段子表（presentation.js 从此派生）。
 export const READER_APPLY_FIELDS = READER_PRESENTATION_FIELDS.filter(
@@ -261,14 +291,8 @@ export const READER_SETTINGS_WATCH_KEYS: string[] = [
 ];
 
 // 有意不入主表的同前缀局部标志：不参与呈现属性契约的临时/局部标记，由本清单
-// 统一登记防漂移。注意 data-biliscript-reader-ready 的写读点跨多文件（非「写入方与
-// 清除方在同一处」的局部标志语义，arch-slim-2/03 订正），登记在此是防手抄清单
-// 复活的权宜——它按语义本该进主表。
+// 统一登记防漂移。
 // 源码扫描测试据此放行；新增 data-biliscript-* 属性字面量必须要么进主表、要么进本清单。
 export const LOCAL_FLAG_ATTRIBUTES = new Set([
-  // 视图就绪态。写：ui-renderer 模板初值 "0" + lifecycle.ts（进入置 "0"、
-  // setReadingViewReady 写 "1"/"0"）；读：shell.ts 的壳完好性判定 +
-  // reader.css / reader-gate.css 的门控选择器。
-  "data-biliscript-reader-ready",
   "data-biliscript-reader-hide-sending-bar"  // close 时瞬时隐藏 B 站发送条（写入/清除同在 lifecycle）
 ]);

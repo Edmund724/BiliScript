@@ -58,6 +58,7 @@ import {
   exitReaderShell,
   isReaderShellIntact
 } from "../../extension/reader/shell.js";
+import { READER_READY_ATTR } from "../../extension/reader/presentation-fields.js";
 import { state } from "../../extension/core/state.js";
 import { playerAiState } from "../../extension/ai/player-ai-state.js";
 import { ensureReaderStyles, removeReaderStyles } from "../../extension/shared/style-injector.js";
@@ -113,7 +114,7 @@ function mountShell({
     if (open) {
       shell.classList.add("open");
     }
-    shell.setAttribute("data-biliscript-reader-ready", ready);
+    shell.setAttribute(READER_READY_ATTR, ready);
     document.body.appendChild(shell);
   }
   if (bodyAttr) {
