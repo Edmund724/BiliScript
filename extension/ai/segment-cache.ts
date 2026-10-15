@@ -13,7 +13,7 @@ import { createCacheFamily, parseBvidFromCacheKey, readFamilyKeys, writeBundleWi
 import type { EvictionFailure, EvictionResult } from "../core/cache-lru.js";
 // 键位字段清单与「上下文 → 键位」投影的单源在零依赖叶（候选 5）：SW 侧装配 / offscreen
 // 出站点 / 协议载荷类型 / 概览键位装配都从它派生，本模块只消费、不再手抄字段清单。
-import { segmentCacheKeyFields } from "./segment-cache-key-fields.js";
+import { segmentCacheKeyFields, segmentCacheKeyStringFields } from "./segment-cache-key-fields.js";
 
 // 分段小结缓存键前缀。
 const SEGMENT_SUMMARY_PREFIX = "biliscript_lvs_summary_";
@@ -76,7 +76,7 @@ export function getRawSegmentKey({ bvid, cid, subtitleId = "", subtitleUrl = "",
 // 映射为键位入参 subtitleId/subtitleUrl/lang 的事实只在该叶声明一份，落盘（map-reduce）、
 // 复用（followup-context）与概览键位装配共用同一份投影，键位不再各自手拼。本模块保留
 // SW 侧出口（handler / 测试从段缓存模块取键位装配），实现单源在叶，无第二份清单。
-export { segmentCacheKeyFields };
+export { segmentCacheKeyFields, segmentCacheKeyStringFields };
 
 /**
  * 从 AI 上下文 + 段序号拼分段小结缓存键（与 getSegmentSummaryKey 手拼逐字节一致）。

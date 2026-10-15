@@ -13,7 +13,8 @@ import { describe, expect, it } from "vitest";
 import {
   SEGMENT_CACHE_KEY_FIELDS,
   projectSegmentCacheContext,
-  segmentCacheKeyFields
+  segmentCacheKeyFields,
+  segmentCacheKeyStringFields
 } from "../../extension/ai/segment-cache-key-fields.js";
 
 // 每个维度的探针值由字段名派生：新增维度不必改本文件（值恒为非空字符串）。
@@ -97,5 +98,72 @@ describe("段缓存键位字段叶", () => {
     for (const field of SEGMENT_CACHE_KEY_FIELDS) {
       expect(fromWire[field.key]).toBe(context[field.context]);
     }
+  });
+
+  describe("字符串化命名投影 segmentCacheKeyStringFields", () => {
+    it("字段集与表全等，缺失上下文时全量字段恒为空串", () => {
+      const context = probeContext();
+      const stringFields = segmentCacheKeyStringFields(context);
+
+      expect(Object.keys(stringFields)).toEqual(SEGMENT_CACHE_KEY_FIELDS.map((field) => field.key));
+      for (const field of SEGMENT_CACHE_KEY_FIELDS) {
+        expect(stringFields[field.key]).toBe(probe(field));
+      }
+
+      for (const empty of [undefined, null, {}]) {
+        const emptyFields = segmentCacheKeyStringFields(empty);
+        expect(Object.keys(emptyFields)).toEqual(SEGMENT_CACHE_KEY_FIELDS.map((field) => field.key));
+        for (const field of SEGMENT_CACHE_KEY_FIELDS) {
+          expect(emptyFields[field.key]).toBe("");
+        }
+      }
+    });
+
+    it("真值表：含 0 / false / null / undefined / 非字符串值", () => {
+      const cases: Array<{ input: unknown; expected: string; label: string }> = [
+        { input: "hello", expected: "hello", label: "普通非空字符串" },
+        { input: "", expected: "", label: "空字符串" },
+        { input: null, expected: "", label: "null 归一为空串" },
+        { input: undefined, expected: "", label: "undefined 归一为空串" },
+        { input: 0, expected: "0", label: "数字 0 保留字面量（?? 口径与 || 口径在域外分流）" },
+        { input: false, expected: "false", label: "布尔 false 保留字面量" },
+        { input: true, expected: "true", label: "布尔 true" },
+        { input: 12345, expected: "12345", label: "数值 12345" },
+        { input: NaN, expected: "NaN", label: "NaN 保留字面量" }
+      ];
+
+      for (const testCase of cases) {
+        for (const field of SEGMENT_CACHE_KEY_FIELDS) {
+          const result = segmentCacheKeyStringFields({ [field.context]: testCase.input });
+          expect(result[field.key], `${field.key} on ${testCase.label}`).toBe(testCase.expected);
+        }
+      }
+    });
+
+    it("现键值域等价性判据验证：域内合法取值下，String(v ?? '') 与 String(v || '') 严格等价", () => {
+      // 现键值域：bvid/cid/轨信息/URL/语言的真实取值（非空串、正整数、空值/缺失）
+      const inDomainValues: unknown[] = [
+        "BV1test",
+        "123456",
+        123456,
+        "sub-1",
+        "https://example.com/sub.json",
+        "zh-CN",
+        "",
+        null,
+        undefined
+      ];
+
+      for (const val of inDomainValues) {
+        const nullishCoalesced = String(val ?? "");
+        const logicalOrCoalesced = String(val || "");
+        expect(nullishCoalesced).toBe(logicalOrCoalesced);
+
+        for (const field of SEGMENT_CACHE_KEY_FIELDS) {
+          const projected = segmentCacheKeyStringFields({ [field.context]: val });
+          expect(projected[field.key]).toBe(nullishCoalesced);
+        }
+      }
+    });
   });
 });

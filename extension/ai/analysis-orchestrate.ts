@@ -25,9 +25,9 @@ import { canRaiseBudget } from "./learned-budget.js";
 import { buildProgressNotice } from "./map-reduce.js";
 import { runCachedMap } from "./pool.js";
 import { budgetScaleSuffix } from "./segment-cache.js";
-// 段缓存键位字段清单与投影的单源（零依赖叶，候选 5）：概览族的键位装配不再手抄
-// 字段名，与 SW 段缓存装配 / offscreen 出站点 / 协议载荷类型同一份表。
-import { segmentCacheKeyFields, type SegmentCacheKeyFields } from "./segment-cache-key-fields.js";
+// 段缓存键位字段清单与命名投影的单源（零依赖叶，候选 5）：概览族的键位装配不再手抄
+// 字段名或强转口径，与 SW 段缓存装配 / offscreen 出站点 / 协议载荷类型同一份表。
+import { segmentCacheKeyStringFields, type SegmentCacheKeyStringFields } from "./segment-cache-key-fields.js";
 // 成本护栏 token 数字的唯一换算函数（实测比 / CHAR_PER_TOKEN 回落）：与阶梯链
 // （ai/ladder.ts）共用同一实现，两条链的数字因此同源。
 import { estimateTokensFromChars } from "./usage-stats.js";
@@ -103,18 +103,10 @@ const analysisSegmentFamily = createCacheFamily<OverviewAnalysis>({
   logFailure: (info) => logError("[BILISCRIPT] failed to save analysis cache after eviction", info)
 });
 
-// 概览键位装配：字段清单从零依赖叶派生（候选 5——与 SW 段缓存装配 / offscreen 出站点 /
-// 协议载荷类型同一份表），本模块不手抄键位字段名；字幕轨三元组按概览族的既有口径
-// String 归一（`?? ""` 保留 0/false 这类 falsy 值，与 buildSubtitleSourceKey 的 `|| ""`
-// 不同——这是概览缓存键的历史口径，逐字节保留）。
-function contextKeyFields(context: Record<string, unknown> | undefined | null): SegmentCacheKeyFields {
-  const fields = segmentCacheKeyFields(context);
-  return {
-    ...fields,
-    subtitleId: String(fields.subtitleId ?? ""),
-    subtitleUrl: String(fields.subtitleUrl ?? ""),
-    lang: String(fields.lang ?? "")
-  };
+// 概览键位装配：字段清单与字符串化口径从零依赖叶派生（arch-review-batch4/02），
+// 本模块不手抄键位字段名与强转，直接取用显式命名投影 segmentCacheKeyStringFields。
+function contextKeyFields(context: Record<string, unknown> | undefined | null): SegmentCacheKeyStringFields {
+  return segmentCacheKeyStringFields(context);
 }
 
 /**
