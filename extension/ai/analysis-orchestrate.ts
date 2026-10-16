@@ -527,7 +527,9 @@ async function executeOverviewRun({
       provider,
       systemPrompt,
       built,
-      minSeconds: startSeconds,
+      // 给定章节时目录是权威：模型照抄目录时间戳（如首章 0:00），不得被「字幕首行」
+      // 下界丢弃——下界只用于自由分章时挡前情回顾/区间外内容（分段路径同理）。
+      minSeconds: chapterPlan.hasGivenChapters ? 0 : startSeconds,
       thinkingLevel,
       signal,
       retries: 2,
@@ -575,7 +577,9 @@ async function executeOverviewRun({
         provider,
         systemPrompt,
         built,
-        minSeconds: segment.from,
+        // 给定章节时目录时间戳不参与段下界过滤（目录权威，见单发路径同注）；
+        // 段间重复章由 mergeAnalyses 按 from 去重（先到先得，归靠前的段）。
+        minSeconds: chapterPlan.hasGivenChapters ? 0 : segment.from,
         thinkingLevel,
         signal,
         chatCompletionImpl

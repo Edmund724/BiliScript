@@ -814,6 +814,23 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
     ]);
   });
 
+  it("字幕首行晚于 0:00 + 官方章节首章 0:00：目录权威优先，首章不被「字幕首行」下界丢弃", async () => {
+    // 真实案例（BV14xpm6gEd3）：AI 字幕首行从 2.2s 开始，模型照目录写「引言 0:00」，
+    // 修复前被 validateAnalysis 的 minSeconds（=字幕首行 2s）越下界丢弃，其 summary
+    // 被「结果」章最近邻认领串位（引言显示结果内容、结果章 missingSummary）。
+    const body = [{ from: 2, to: 5, content: "开场白" }, ...makeSubtitleBody(50000).slice(1)];
+    const { chatCompletion } = buildCompletionFake();
+    const result = await mod.runOverviewAnalysis(
+      { provider: makeProvider(), context: makeContext({ subtitleBody: body, chapters: MANUSCRIPT_CHAPTERS }) },
+      { chatCompletion }
+    );
+
+    expect(result.chapters).toEqual([
+      { from: 0, to: 100, title: "官方开场", summary: "摘要0" },
+      { from: 100, to: 300, title: "官方正题", summary: "摘要100" }
+    ]);
+  });
+
   it("时间轴里混进越界时间戳：越界条目既不进提示词目录也不进产物（两者一致）", async () => {
     const { chatCompletion, calls } = buildCompletionFake();
     const result = await mod.runOverviewAnalysis(
