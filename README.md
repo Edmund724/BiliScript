@@ -251,7 +251,7 @@ BiliScript 不收款，也不转售 API 服务。建议为账号设置消费上�
 1. 打开阅读面板，点击右上角齿轮（设置）
 2. 在「AI 模型平台」区域点击「+ 添加平台」
 3. 选择平台预设（自动填充 API Base URL 与所属协议），或选择「自定义」手动填写
-4. 选择协议（OpenAI / Anthropic）：预设已带好默认值，接入 Anthropic 端点的平台时改选对应协议，Base URL 会跟随联动
+4. 选择协议（OpenAI / Anthropic / Gemini）：预设已带好默认值，接入对应协议端点的平台时改选，Base URL 会跟随联动
 5. 填写 API Key 和模型名称（点击模型名称旁的箭头可自动拉取可用模型列表）
 6. 点击「测试」验证连接，测试成功后配置自动保存
 
@@ -268,7 +268,7 @@ BiliScript 不收款，也不转售 API 服务。建议为账号设置消费上�
 
 ### 已支持的平台预设
 
-本扩展支持两种 AI 服务协议：OpenAI（兼容）、Anthropic。协议决定请求格式、鉴权方式与流式解析，设置里选好协议后「测试」与对话、联网搜索都走该协议。内置以下平台预设（除 DeepSeek、MiniMax 默认走 Anthropic 协议外，其余预设默认走 OpenAI 协议；多家预设也登记了各自的 Anthropic 端点，切协议时 Base URL 自动跟随）：
+本扩展支持三种 AI 服务协议：OpenAI（兼容）、Anthropic、Gemini（原生）。协议决定请求格式、鉴权方式与流式解析，设置里选好协议后「测试」与对话、联网搜索都走该协议。内置以下平台预设（除 Gemini 默认走 Gemini 原生协议，DeepSeek、MiniMax 默认走 Anthropic 协议外，其余预设默认走 OpenAI 协议；多家预设也登记了各自的兼容/原生端点，切协议时 Base URL 自动跟随）：
 
 | 平台           | 预设名称        |
 | ------------ | ----------- |
@@ -285,6 +285,7 @@ BiliScript 不收款，也不转售 API 服务。建议为账号设置消费上�
 | AMD Radeon Cloud | AMD Radeon Cloud（免费） |
 | 商汤 SenseNova  | SenseNova 商汤（免费） |
 | Ollama（本地部署） | Ollama (本地) |
+| Google       | Gemini      |
 
 没有你要用的平台时，选择「自定义」预设，按需选择协议并手动填写该平台的 API Base URL（OpenAI 兼容协议需兼容 `/v1/chat/completions` 规范）。存量平台记录默认按 OpenAI 兼容协议运行，行为与本功能上线前一致。
 
@@ -294,7 +295,7 @@ BiliScript 不收款，也不转售 API 服务。建议为账号设置消费上�
 
 模型与思考强度收纳在发送框底部的 chip 里。点 chip 弹出面板，底部固定一行「思考强度」，点它换页到档位列表。列表有 8 个可选值：`Default`（不干预，不发任何思考字段，交由平台默认行为）恒在首位，之后是 `Off` / `Minimal` / `Low` / `Medium` / `High` / `Xhigh` / `Max` 中该模型实际存在的档位；只有开 / 关两档的模型会收成 `Off` / `On` 两项。列表只显示真实存在的档位，chip 与「思考强度」行显示的是本次请求真正会发的档位（偏好被裁到更低档时如实显示裁后的值，并在面板底行说明）。
 
-模型结构上关不掉思考时（如 MiniMax M2.x、Kimi k2.7），选 `Off` 会提示并自动落到可用的最低思考档；一个可用档位都没有的模型只剩 `Default` 一项，仍可主动选中。未收录的模型同样只给 `Default`，不发任何思考参数。
+模型结构上关不掉思考时（如 MiniMax M2.x、Kimi k2.7），选 `Off` 会提示并自动落到可用的最低思考档；一个可用档位都没有的模型只剩 `Default` 一项，仍可主动选中。未收录的模型同样只给 `Default`，不发任何思考参数。原生 Gemini 协议完整支持离散档位（`thinkingLevel`）与数值预算（`thinkingBudget`）双轨映射，并保留与回放 `thoughtSignature`。
 
 档位事实来自构建期抓取的 models.dev 上游模型词表，参数写法以各平台官方文档为准；表结构与机制参考开源项目 [hana-model-catalog](https://github.com/liliMozi/hana-model-catalog)，特此致谢。
 
