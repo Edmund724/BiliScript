@@ -1,6 +1,6 @@
 // 「概览数据管线」三片之校验/合并（arch-slim-3 #11 自 ai/analysis.ts 切出，纯函数、零 import；
 // 对外经 analysis.ts 壳再导出）。适配纯函数整搬自 .scratch/bilibili-script/lib/ai.js，
-// 产出归一化为本仓库字段名：{ chapters: {from,to,title,summary}[],
+// 产出归一化为本仓库字段名：{ chapters: {from,to,title,summary,missingSummary?}[],
 // quotes: {from,content}[], failedRanges?: {from,to}[] }。
 
 // ============================================================
@@ -12,6 +12,12 @@ export interface AnalysisChapter {
   to: number;
   title: string;
   summary: string;
+  /**
+   * 官方章节（manuscript）缺概括标记：模型没为该章产出 summary（graft 认领落空
+   * 或认领到的 summary 为空）时置真，UI 据此显示「本章概括缺失」与重跑入口。
+   * 简介/评论时间轴（titlesOnly）的空串是设计内行为，不打标。
+   */
+  missingSummary?: boolean;
 }
 
 export interface AnalysisQuote {

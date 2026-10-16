@@ -1306,6 +1306,13 @@
   word-break: break-word;
 }
 
+/* 缺概括占位（manuscript 缺章打标，见 ai/chapter-plan.ts）：斜体 + faint 档，
+ * 与正文概括（muted 档）拉开，读作「这里没有内容」而非一段概括。 */
+.biliscript-reading-ov-chapter-desc.is-missing {
+  font-style: italic;
+  color: var(--biliscript-reader-faint);
+}
+
 /* 金句卡（暖底淡卡）：surface-2 底 + 10px 圆角分组，无边框、无左侧 accent
  * 边条；右下角时间戳 pill（跳播）+ 复制图标钮。色值走 token，四色板自动跟随。 */
 .biliscript-reading-ov-quote {

@@ -45,7 +45,7 @@ import {
 // 分章计划单源（arch-review-2026-09 候选 2）：来源裁定的解释、越界过滤、切段输入与
 // 末章界（此前单发取 built.timing.maxTimestampSeconds、分段取 resolveEndSeconds，
 // 两套推导靠注释对齐）全部收敛到 ai/chapter-plan.ts，本模块只读它的产物。
-import { resolveChapterPlan } from "./chapter-plan.js";
+import { resolveChapterPlan, flagMissingChapterSummaries } from "./chapter-plan.js";
 // 分章来源裁定（简介/评论时间轴 > B 站官方章节 > AI 自由分章）住在 shared 叶子：
 // 与 reader 概览 tab 的身份键同源，禁止两处各判一次（见该文件头注）。
 import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
@@ -466,7 +466,16 @@ async function executeOverviewRun({
   if (!forceRefresh) {
     const cached = await analysisFinalFamily.load(finalKey);
     if (cached) {
-      return cached;
+      // 官方章节产物「全员无概括」是坏缓存（graft 全体认领失败或被截断静默救回），
+      // 视为未命中重跑；局部缺章照常复用——缺章补标后由 UI 显示占位与重跑入口，
+      // 避免模型持续不出概括时每次打开都自动重付一次调用。
+      const manuscriptAllEmpty =
+        chapterSource.kind === "manuscript" &&
+        cached.chapters.length > 0 &&
+        cached.chapters.every((chapter) => !String(chapter?.summary ?? "").trim());
+      if (!manuscriptAllEmpty) {
+        return chapterSource.kind === "manuscript" ? flagMissingChapterSummaries(cached) : cached;
+      }
     }
   }
 

@@ -17,7 +17,7 @@ import {
   GIVEN_CHAPTERS_SYSTEM_PROMPT,
   OUTLINE_QUOTES_SYSTEM_PROMPT
 } from "./analysis-prompts.js";
-import { MAX_ANALYSIS_CHAPTERS, type AnalysisChapter } from "./analysis-validate.js";
+import { MAX_ANALYSIS_CHAPTERS, type AnalysisChapter, type OverviewAnalysis } from "./analysis-validate.js";
 import type { ChapterSource, ChapterSourceKind, OutlineChapter } from "../shared/chapter-outline.js";
 
 // 用户提示词变量（buildAnalysisPrompt 的章节目录相关入参）：title / ownerName /
@@ -128,6 +128,8 @@ export function resolveChapterPlan({
 // 对不上的章留空串。时间轴目录没有 to，边界取下一章 from；末章回落 endSeconds。
 // titlesOnly（简介/评论时间轴来源，用户拍板 2026-09-30）：章节只留标题，summary
 // 一律空串——即使模型不听话硬写简介也丢弃（F7）。
+// 非 titlesOnly（官方章节）的空串是缺陷而非设计：模型少返回一章时贪心认领的缺口
+// 总落在清单尾部，这类章打 missingSummary 标记，UI 显示「本章概括缺失」+ 重跑入口。
 function applyGivenChapters(
   given: OutlineChapter[],
   modelChapters: AnalysisChapter[],
@@ -146,14 +148,26 @@ function applyGivenChapters(
         : nextFrom !== null && nextFrom > from
           ? nextFrom
           : Math.max(from, Math.floor(Number(endSeconds) || 0));
+    const summary = titlesOnly ? "" : takeNearestSummary(remaining, from);
     out.push({
       from,
       to,
       title: String(given[i]?.title ?? "").trim().slice(0, 300),
-      summary: titlesOnly ? "" : takeNearestSummary(remaining, from)
+      summary,
+      ...(!titlesOnly && !summary ? { missingSummary: true } : {})
     });
   }
   return out.slice(0, MAX_ANALYSIS_CHAPTERS);
+}
+
+// 缓存装载路径的缺章补标（与 graft 同口径）：旧产物没有 missingSummary 字段，
+// manuscript 来源命中缓存时补打，UI 因此能对旧缓存也显示缺章占位与重跑入口。
+// 调用方按 kind 把关——outline 的 titlesOnly 空串是设计内行为，不应走到这里。
+export function flagMissingChapterSummaries(analysis: OverviewAnalysis): OverviewAnalysis {
+  const chapters = (Array.isArray(analysis?.chapters) ? analysis.chapters : []).map((chapter) =>
+    String(chapter?.summary ?? "").trim() ? chapter : { ...chapter, missingSummary: true }
+  );
+  return { ...analysis, chapters };
 }
 
 // 取「from 最接近」的模型章节的 summary，取走即从候选里移除（一对一，不重复认领）。

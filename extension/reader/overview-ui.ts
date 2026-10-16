@@ -240,7 +240,18 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
   }
 
   const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours)).join("");
+  // 官方章节缺概括（missingSummary，ai/chapter-plan.ts 打标）：给出整份重跑入口。
+  // 重试走 forceRefresh——整份缓存不读、段缓存照常复用，与 partial/error 重试同一语义。
+  const missingCount = chapters.filter((item) => item.missingSummary).length;
+  const missingStrip = missingCount
+    ? `
+    <div class="biliscript-reading-ov-strip is-partial">
+      <span class="biliscript-reading-ov-strip-text">有 ${missingCount} 个章节没有概括。</span>
+      <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重新生成</button>
+    </div>`
+    : "";
   return `
+    ${missingStrip}
     <section class="biliscript-reading-ov-section">
       <div class="biliscript-reading-ov-h">章节${chapterBadge}</div>
       ${chapterBlocks}
@@ -252,16 +263,22 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
   `;
 }
 
-// 章节卡（时间戳 pill + 标题 + 小结，点击跳播）。
+// 章节卡（时间戳 pill + 标题 + 小结，点击跳播）。缺概括（missingSummary）时渲染
+// 占位行而不是静默留白——空串的正常来源是简介/评论时间轴（titlesOnly，不打标）。
 function chapterCardHtml(item: AnalysisChapter, withHours: boolean): string {
   const from = Number(item.from) || 0;
   const desc = String(item.summary || "").trim();
+  const descHtml = desc
+    ? `<span class="biliscript-reading-ov-chapter-desc">${escapeHtml(desc)}</span>`
+    : item.missingSummary
+      ? `<span class="biliscript-reading-ov-chapter-desc is-missing">本章概括缺失</span>`
+      : "";
   return `
     <button type="button" class="biliscript-reading-ov-chapter" data-seconds="${from}">
       <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
       <span class="biliscript-reading-ov-chapter-copy">
         <span class="biliscript-reading-ov-chapter-title">${escapeHtml(String(item.title))}</span>
-        ${desc ? `<span class="biliscript-reading-ov-chapter-desc">${escapeHtml(desc)}</span>` : ""}
+        ${descHtml}
       </span>
     </button>
   `;

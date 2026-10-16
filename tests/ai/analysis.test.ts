@@ -1,9 +1,10 @@
 // ai/analysis.ts 概览数据管线测试（概览票 07 + research/analysis-pipeline.md）：
 // 覆盖 validateAnalysis 越界丢弃与秒反推、JSON 防线（repairTruncatedJson /
 // parseLooseJson，arch-slim-2/08 起断言 ai/json-repair.ts）、部分失败降级
-// （failedRanges）、分章来源优先级（时间轴 > 官方章节 > AI 自由分章）与逐章简介 graft、
-// 缓存键含签名且换签名 miss（段键同样挂签名）、双路径
-// 分派（≤200k 单次 / >200k 分段）、promise 复用去重、流式正文聚合（token 事件
+// （failedRanges）、分章来源优先级（时间轴 > 官方章节 > AI 自由分章）与逐章简介 graft
+// （manuscript 缺章打 missingSummary）、缓存键含签名且换签名 miss（段键同样挂签名；
+// manuscript 全员无概括的缓存产物视为坏缓存 miss 重跑、局部缺章命中时装载补标）、
+// 双路径分派（≤200k 单次 / >200k 分段）、promise 复用去重、流式正文聚合（token 事件
 // + onStreamReset 代际重置）与单发路径的流式进度文案。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -792,11 +793,11 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
     );
     expect(result.chapters).toEqual([
       { from: 0, to: 100, title: "官方开场", summary: "漂移摘要" },
-      { from: 100, to: 300, title: "官方正题", summary: "" }
+      { from: 100, to: 300, title: "官方正题", summary: "", missingSummary: true }
     ]);
   });
 
-  it("给定章节 + 模型一个有效章节都没给：仍按给定清单产出（简介空），不抛空产物错误", async () => {
+  it("给定章节 + 模型一个有效章节都没给：仍按给定清单产出（简介空并打缺章标），不抛空产物错误", async () => {
     const { chatCompletion } = buildCompletionFake({
       parts: { 1: { chapters: [], keyQuotes: [{ quote: "金句1", timestampSeconds: 10 }] } }
     });
@@ -808,8 +809,8 @@ describe("分章来源：时间轴 > 官方章节 > AI 自由分章", () => {
       { chatCompletion }
     );
     expect(result.chapters).toEqual([
-      { from: 0, to: 100, title: "官方开场", summary: "" },
-      { from: 100, to: 300, title: "官方正题", summary: "" }
+      { from: 0, to: 100, title: "官方开场", summary: "", missingSummary: true },
+      { from: 100, to: 300, title: "官方正题", summary: "", missingSummary: true }
     ]);
   });
 
@@ -885,6 +886,62 @@ describe("缓存键与签名", () => {
     const second = await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion });
     expect(chatCompletion).not.toHaveBeenCalled();
     expect(second).toEqual(first);
+  });
+
+  it("manuscript 全员无概括的缓存产物 = 坏缓存：视为 miss 重跑（不拿坏产物当命中）", async () => {
+    const context = makeContext({ subtitleBody: makeSubtitleBody(50000), chapters: MANUSCRIPT_CHAPTERS });
+    // 第一轮：模型一个有效章节都没给 → 两章全空（带 missingSummary）并落缓存。
+    const emptyFake = buildCompletionFake({
+      parts: { 1: { chapters: [], keyQuotes: [{ quote: "金句1", timestampSeconds: 10 }] } }
+    });
+    await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion: emptyFake.chatCompletion });
+
+    // 第二轮：坏缓存不命中 → 重跑模型，补全后覆盖落盘。
+    const { chatCompletion } = buildCompletionFake();
+    const second = await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion });
+    expect(chatCompletion).toHaveBeenCalledTimes(1);
+    expect(second.chapters).toEqual([
+      { from: 0, to: 100, title: "官方开场", summary: "摘要0" },
+      { from: 100, to: 300, title: "官方正题", summary: "摘要100" }
+    ]);
+
+    // 第三轮：缓存里已是完整产物 → 正常命中，不再调用模型。
+    chatCompletion.mockClear();
+    const third = await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion });
+    expect(chatCompletion).not.toHaveBeenCalled();
+    expect(third).toEqual(second);
+  });
+
+  it("manuscript 局部缺章的旧缓存（无 missingSummary 字段）：命中不重跑，装载时补打缺章标", async () => {
+    const context = makeContext({ subtitleBody: makeSubtitleBody(50000), chapters: MANUSCRIPT_CHAPTERS });
+    const { chatCompletion } = buildCompletionFake({
+      parts: {
+        1: {
+          chapters: [{ title: "官方开场", timestampSeconds: 3, summary: "漂移摘要" }],
+          keyQuotes: [{ quote: "金句1", timestampSeconds: 10 }]
+        }
+      }
+    });
+    await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion });
+
+    // 回写成旧缓存形状：摘掉 missingSummary 字段（模拟打标机制之前的落盘产物）。
+    const finalKey = [...storage.map.keys()].find((key) => key.startsWith("biliscript_lvs_analysis_final_"))!;
+    const stored = storage.map.get(finalKey) as { analysis: { chapters: Record<string, unknown>[] } };
+    storage.map.set(finalKey, {
+      ...stored,
+      analysis: {
+        ...stored.analysis,
+        chapters: stored.analysis.chapters.map(({ missingSummary: _drop, ...chapter }) => chapter)
+      }
+    });
+
+    chatCompletion.mockClear();
+    const reloaded = await mod.runOverviewAnalysis({ provider: makeProvider(), context }, { chatCompletion });
+    expect(chatCompletion).not.toHaveBeenCalled();
+    expect(reloaded.chapters).toEqual([
+      { from: 0, to: 100, title: "官方开场", summary: "漂移摘要" },
+      { from: 100, to: 300, title: "官方正题", summary: "", missingSummary: true }
+    ]);
   });
 
   it("换签名（字幕重抓，条数/时间戳变化）→ 键变 → miss 重跑", async () => {
