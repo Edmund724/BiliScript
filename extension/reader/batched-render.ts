@@ -187,6 +187,10 @@ export function cancelReadingSubtitleAppend() {
     window.cancelAnimationFrame(subtitleAppendRafId);
     subtitleAppendRafId = 0;
   }
+  if (calibrationRafId) {
+    window.cancelAnimationFrame(calibrationRafId);
+    calibrationRafId = 0;
+  }
   subtitleAppendTask = null;
 }
 
@@ -274,6 +278,55 @@ export function ensureReadingSubtitleRenderedUpTo(targetIndex: number) {
 export function startReadingSubtitleAppendTask(task: SubtitleAppendTask) {
   subtitleAppendTask = task;
   scheduleReadingSubtitleAppend();
+}
+
+// ===== content-visibility 占位高度校准 =====
+//
+// 条目 CSS（reader.css .biliscript-reading-item）用 content-visibility: auto
+// 跳过屏外条目布局，屏外高度由 contain-intrinsic-size 的估计值占位。估计值
+// 与实际均值偏差大时（双语副行/文本折行/调大字号都会抬高真实行高），首次
+// 往下拖动滚动条会不断撞上「实际比估计高」的条目：scrollHeight 边滚边涨、
+// 滑块被顶回，表现为拖动不跟手（拖到过底部后浏览器已记住全部真实尺寸，
+// 症状自然消失）。这里在首屏批上屏后的下一帧，量视口内条目（c-v:auto 对
+// 视口内条目按真实尺寸渲染，视口外只返回占位尺寸，故只采样与视口相交者）
+// 的均值高度，写回列表元素的 --biliscript-reader-item-estimate 校准估计值。
+const ITEM_ESTIMATE_VAR = "--biliscript-reader-item-estimate";
+
+// 校准回调的 rAF 句柄：随渲染周期登记，由 cancelReadingSubtitleAppend
+//（重渲/关闭的统一取消入口）一并取消，避免关闭后对脱离文档的列表空跑。
+let calibrationRafId = 0;
+
+export function calibrateReadingSubtitleItemEstimate(listEl: HTMLElement) {
+  if (calibrationRafId) {
+    window.cancelAnimationFrame(calibrationRafId);
+  }
+  calibrationRafId = window.requestAnimationFrame(() => {
+    calibrationRafId = 0;
+    if (!listEl.isConnected) {
+      return;
+    }
+    const listRect = listEl.getBoundingClientRect();
+    // 列表不可见（其他 tab 激活/设置抽屉展开，CSS 压成 display:none）时所有
+    // 条目 rect 为 0，无真实样本，保持现有估计值。
+    if (!(listRect.height > 0)) {
+      return;
+    }
+    let total = 0;
+    let count = 0;
+    for (const child of listEl.children) {
+      const rect = child.getBoundingClientRect();
+      if (rect.bottom <= listRect.top || rect.top >= listRect.bottom) {
+        continue;
+      }
+      total += rect.height;
+      count += 1;
+    }
+    // 样本太少（列表近乎全空/全在屏外占位）不校准，避免把噪声写进估计值。
+    if (count < 3) {
+      return;
+    }
+    listEl.style.setProperty(ITEM_ESTIMATE_VAR, `${Math.round(total / count)}px`);
+  });
 }
 
 export { SUBTITLE_FIRST_BATCH };

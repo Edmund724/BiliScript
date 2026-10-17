@@ -124,6 +124,8 @@ describe("长回复屏外段落跳过渲染（M13）", () => {
       expect(rule, `解释卡缺块级 c-v 规则: ${block}`).toBeTruthy();
       expect(rule).toMatch(/contain-intrinsic-size: auto none auto \d+px;/);
     }
-    expect(css).toMatch(/\.biliscript-reading-item \{[^}]*contain-intrinsic-size: auto none auto 44px;/s);
+    expect(css).toMatch(
+      /\.biliscript-reading-item \{[^}]*contain-intrinsic-size: auto none auto var\(--biliscript-reader-item-estimate, 44px\);/s
+    );
   });
 });

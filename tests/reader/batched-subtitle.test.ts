@@ -111,7 +111,7 @@ describe("字幕列表分批渲染", () => {
     shell.renderReadingView();
     expect(renderedItemCount()).toBe(120);
     expect(subtitleList().lastElementChild?.getAttribute("data-index")).toBe("119");
-    expect(rafPending.size).toBe(1); // 追加任务已登记，等待下一帧
+    expect(rafPending.size).toBe(2); // 追加任务 + 占位高度校准帧已登记，等待下一帧
   });
 
   it("rAF 每帧追加直至完成：800 条不重不漏，按序收尾", () => {
@@ -274,7 +274,7 @@ describe("字幕列表分批渲染", () => {
     state.clip.subtitleBody = makeBody(800);
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
-    expect(rafPending.size).toBe(1);
+    expect(rafPending.size).toBe(2); // 追加任务 + 占位高度校准帧
     shell.closeReadingView();
     expect(rafPending.size).toBe(0); // 挂起回调已取消
     expect(rafCancelled.length).toBeGreaterThanOrEqual(1);

@@ -75,6 +75,7 @@ import { registerReaderPorts } from "./ports.js";
 import {
   SUBTITLE_FIRST_BATCH,
   buildReadingSubtitleItemHtml,
+  calibrateReadingSubtitleItemEstimate,
   cancelReadingSubtitleAppend,
   ensureReadingSubtitleRenderedUpTo,
   setReadingSubtitleBatchHook,
@@ -499,6 +500,9 @@ function projectReadingSubtitleList(): void {
       firstHtml += buildReadingSubtitleItemHtml(subtitleItems[i], withHours);
     }
     subtitleList.innerHTML = firstHtml;
+    // content-visibility 占位高度校准（batched-render.js：量视口内条目真实
+    // 均值写回估计变量）：消除估计偏差导致的滚动条拖动不跟手。
+    calibrateReadingSubtitleItemEstimate(subtitleList);
     if (firstEnd < subtitleItems.length) {
       startReadingSubtitleAppendTask({
         listEl: subtitleList,
