@@ -489,8 +489,6 @@
   height: 0;
 }
 .biliscript-reading-item {
-  /* 时间戳列宽：网格列宽与活动行（inline-flex 胶囊）内时间戳 min-width 共用
-   * 一个 var——活动行文字左缘与静止行的网格文字列对齐。 */
   --biliscript-reader-time-col: 76px;
   width: 100%;
   display: grid;
@@ -640,20 +638,19 @@
 
 /* 活动行 = 整颗白卡实心胶囊（03 号票目标参考图）：行容器切 inline-flex、宽度
  * 收为内容宽（max-width 100% 兜底长句折行），胶囊同时包住时间戳与文字，右缘
- * 随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。圆角 999px
- * 全胶囊形（单行时两端半圆，与参考图同形）。胶囊底色消费
- * --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动跟随），软投影
- * 与 tab.is-active 同款做凸起感（深色档投影换黑）。
- * 胶囊内时间戳保持 pill 形态（time-bg 浅底 + time-color 文字档，深色档回退
- * accent-soft/accent 母题），min-width 取 --time-col var 并 box-sizing 收编
- * padding——整颗 pill 与静止行的时间戳列同宽、文字左缘与静止行对齐，时间数字
- * 在 pill 内居中（左对齐会让 pill 右侧空出一截）；正文深色加粗 600、
- * min-width:0 允许在长句时收进 max-width 内折行。 */
+ * 随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。圆角 16px 与
+ * 章节/金句卡（reader-gate.css 同值）同档——凸起卡语言，不用 999px 全胶囊形。
+ * 胶囊底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动
+ * 跟随），软投影与 tab.is-active 同款做凸起感（深色档投影换黑）。
+ * 胶囊内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/
+ * accent 母题），padding 1px 7px 随内容收紧、圆角 8px 与小控件（复制钮/选项行）
+ * 同档——不留定宽列，左右不空；正文深色加粗 600、min-width:0 允许在长句时
+ * 收进 max-width 内折行。 */
 #biliscript-reading-view .biliscript-reading-item.is-active {
   display: inline-flex;
   width: auto;
   max-width: 100%;
-  border-radius: 999px;
+  border-radius: 16px;
   background: var(--biliscript-reader-card);
   box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
@@ -663,11 +660,8 @@
 }
 
 #biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
-  box-sizing: border-box;
-  min-width: var(--biliscript-reader-time-col);
-  text-align: center;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: 8px;
   color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
   background: var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft));
 }

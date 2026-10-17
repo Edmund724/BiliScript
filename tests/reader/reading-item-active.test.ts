@@ -9,13 +9,13 @@
 //      在浅色底上 3.4:1 不达 4.5 门），不做整行高亮；hover 选择器同样带
 //      :not(.is-active)，(1,4,0) 压减噪 (1,3,0)。
 //   3. 活动行 = 整颗白卡实心胶囊：行容器切 inline-flex、宽度收为内容宽
-//     （max-width 100% 兜底折行）、圆角 999px 全胶囊形，胶囊同时包住时间戳与
-//      文字；底色消费 --biliscript-reader-card 白卡令牌（色板/深色档自动跟随），
-//      软投影与 tab.is-active 同款（深色档投影换黑）。胶囊内时间戳保持 pill
-//      形态（time-bg + time-color，深色档回退 accent-soft/accent 母题），
-//      min-width 与网格列宽同源（--biliscript-reader-time-col）+ box-sizing 收编
-//      padding，时间数字在 pill 内居中（左对齐会让 pill 右侧空出一截）；正文
-//      深色加粗 600。is-active 规则书写在 :hover 之后。
+//     （max-width 100% 兜底折行）、圆角 16px 与章节/金句卡同档（凸起卡语言，
+//      不用 999px 全胶囊形），胶囊同时包住时间戳与文字；底色消费
+//      --biliscript-reader-card 白卡令牌（色板/深色档自动跟随），软投影与
+//      tab.is-active 同款（深色档投影换黑）。胶囊内时间戳保持浅底小胶囊
+//     （time-bg + time-color，深色档回退 accent-soft/accent 母题），padding
+//      1px 7px 随内容收紧、圆角 8px 与小控件同档——不留定宽列、左右不空；
+//      正文深色加粗 600。is-active 规则书写在 :hover 之后。
 //   4. 活动行不带 text-decoration 下划线，本表不把 success 绿当线色。
 //   5. 死声明防回归：字幕列表只存在于 #biliscript-reading-view 里，裸类名
 //      .biliscript-reading-item.is-active 的 background 恒被 #id 规则全量覆盖。
@@ -59,14 +59,14 @@ describe("字幕活动行：整颗白卡实心胶囊、时间戳减噪", () => {
     expect(ruleBody(readCss(), "\\.biliscript-reading-text")).not.toMatch(/text-decoration/);
   });
 
-  it("活动行胶囊在行容器：inline-flex 内容宽 + 999px 全胶囊圆角 + card 白卡底 + tab 同款凸起投影", () => {
+  it("活动行胶囊在行容器：inline-flex 内容宽 + 16px 卡级圆角 + card 白卡底 + tab 同款凸起投影", () => {
     const css = readCss();
     const block = ruleBody(css, "#biliscript-reading-view \\.biliscript-reading-item\\.is-active");
 
     expect(declaration(block, "display")).toBe("inline-flex");
     expect(declaration(block, "width")).toBe("auto");
     expect(declaration(block, "max-width")).toBe("100%");
-    expect(declaration(block, "border-radius")).toBe("999px");
+    expect(declaration(block, "border-radius")).toBe("16px");
     expect(declaration(block, "background")).toBe("var(--biliscript-reader-card)");
     expect(declaration(block, "box-shadow")).toBe(
       "0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9)"
@@ -92,10 +92,9 @@ describe("字幕活动行：整颗白卡实心胶囊、时间戳减噪", () => {
     expect(declaration(block, "background")).toBeUndefined();
   });
 
-  it("活动行时间戳保持 pill：time 令牌底/字（深色回退母题），列宽同源、数字居中", () => {
-    const css = readCss();
+  it("活动行时间戳保持浅底小胶囊：time 令牌底/字（深色回退母题），随内容收紧、8px 控件档圆角", () => {
     const block = ruleBody(
-      css,
+      readCss(),
       "#biliscript-reading-view \\.biliscript-reading-item\\.is-active \\.biliscript-reading-time"
     );
 
@@ -105,13 +104,10 @@ describe("字幕活动行：整颗白卡实心胶囊、时间戳减噪", () => {
     expect(declaration(block, "background")).toBe(
       "var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft))"
     );
-    expect(declaration(block, "min-width")).toBe("var(--biliscript-reader-time-col)");
-    expect(declaration(block, "box-sizing")).toBe("border-box");
-    expect(declaration(block, "text-align")).toBe("center");
-    expect(declaration(block, "border-radius")).toBe("999px");
-    expect(declaration(ruleBody(css, "\\.biliscript-reading-item"), "grid-template-columns")).toBe(
-      "var(--biliscript-reader-time-col) minmax(0, 1fr)"
-    );
+    expect(declaration(block, "padding")).toBe("1px 7px");
+    expect(declaration(block, "border-radius")).toBe("8px");
+    // 不留定宽列：min-width/居中都已摘除，pill 左右不空。
+    expect(declaration(block, "min-width")).toBeUndefined();
   });
 
   it("静止态减噪显式 :not(.is-active)：清底 + padding 归零 + 次级色 + 等宽数字，明压 gate 全 pill 规则", () => {
