@@ -60,27 +60,40 @@ const REQUIRED_TOKENS = [
 ];
 
 describe("editorial 数字刊物色板", () => {
-  it("浅色块：暖纸底 + 赤陶点缀，五族令牌齐全", () => {
+  it("浅色块：暖纸底 + 暖米书摘卡 + 赤陶点缀，五族令牌齐全", () => {
     expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-surface: #faf7f2");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-card: #f3ede2");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-border: #e4dccb");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-mist-line: #e6dfd3");
     expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-accent: #b85435");
     for (const token of REQUIRED_TOKENS) {
       expect(EDITORIAL_LIGHT, `浅色块缺 ${token}`).toContain(token);
     }
   });
 
-  it("深色块：暖炭黑 + 暖赤陶，五族令牌齐全", () => {
+  it("深色块：暖炭黑 + 深暖褐卡 + 暖赤陶，五族令牌齐全", () => {
     expect(EDITORIAL_DARK).toContain("--biliscript-reader-surface: #171513");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-card: #211e1b");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-border: #332d28");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-mist-line: #2c2723");
     expect(EDITORIAL_DARK).toContain("--biliscript-reader-accent: #e07a5f");
     for (const token of REQUIRED_TOKENS) {
       expect(EDITORIAL_DARK, `深色块缺 ${token}`).toContain(token);
     }
   });
 
-  it("两档都关蓝雾径向光斑与背景模糊（温润纸感直落纸面渐变）", () => {
+  it("两档都关蓝雾径向光斑与背景模糊（温润纸感直落纸面）", () => {
     for (const [label, block] of [["浅色", EDITORIAL_LIGHT], ["深色", EDITORIAL_DARK]] as const) {
       expect(block, `${label}块 mist-blobs 应为 none`).toContain("--biliscript-reader-mist-blobs: none");
       expect(block, `${label}块 mist-filter 应为 none`).toContain("--biliscript-reader-mist-filter: none");
     }
+  });
+
+  it("卡片回归羊皮纸书摘质感：1px 暖沙细描边 + 去掉玻璃内高光与悬浮投影", () => {
+    const gate = readCss(GATE_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(gate).toContain("#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-ov-chapter");
+    expect(gate).toContain("#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-ov-quote");
+    expect(gate).toContain("border: 1px solid var(--biliscript-reader-border);");
   });
 
   it("衬线规则命中概览组标题、章节标题与金句正文，且只按 data-palette 门控", () => {
@@ -108,3 +121,4 @@ describe("editorial 数字刊物色板", () => {
     expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-time-color: #9c4527;");
   });
 });
+
