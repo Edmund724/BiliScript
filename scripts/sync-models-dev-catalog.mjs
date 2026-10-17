@@ -45,7 +45,7 @@ const MODULE_FILE = "extension/ai/catalog/models-dev-catalog.generated.ts";
 const KEEP_FIELDS = ["id", "name", "reasoning", "input", "contextWindow", "maxTokens"];
 
 // 13 家合计模型总数（含第 13 家 google）。
-const EXPECTED_MODEL_COUNT = 615;
+const EXPECTED_MODEL_COUNT = 617;
 
 function fail(message) {
   console.error(`sync-models-dev-catalog: ${message}`);

@@ -158,9 +158,10 @@ describe("A' = 上游词表在平台已登记方言下可表达的部分（2026-
     // 13 号票：canonical 优先后 kimi-k3 的模型侧词表是 low/high/max（无 off），
     // 18 号票删声明后 A' 仍是 {low, high, max}。
     ["opencodego", OPENCODEGO_URL, "kimi-k3", ["low", "high", "max"], "upstream"],
-    // toggle+medium-xhigh：平台未登记开关形状 → A' = {medium, xhigh}
-    //（18 号票前平台声明有 off，故 {off}）。
-    ["openrouter", OPENROUTER_URL, "prism-ml/ternary-bonsai-2-27b", ["medium", "xhigh"], "upstream"]
+    // none-medium-xhigh：上游词表 2026-10-17 快照从 toggle+medium-xhigh 改成
+    // effort[none,medium,xhigh]——none 是线值 off，openrouter 未登记开关形状也产
+    // off 写点 → A' = {off, medium, xhigh}（18 号票前平台声明有 off，故 {off}）。
+    ["openrouter", OPENROUTER_URL, "prism-ml/ternary-bonsai-2-27b", ["off", "medium", "xhigh"], "upstream"]
   ];
 
   for (const [presetId, baseUrl, model, levels, source] of cases) {
@@ -636,12 +637,12 @@ describe.skipIf(!hasAllArtifacts([CHIP_SOURCE, CHIP_SETS, CHIP_CHANGES]))(
       expect(
         borrowed.every((row) => row.upstreamSource.startsWith("canonical:") || row.upstreamSource.startsWith("alias:"))
       ).toBe(true);
-      // 02 矩阵里标了借词的 7 行（缺口借词；13 号票的 canonical 优先改写仍记 source=direct，
+      // 02 矩阵里标了借词的 6 行（缺口借词；13 号票的 canonical 优先改写仍记 source=direct，
       // 见 13-report.md「已知副作用」——那是 02 矩阵 source 列的既有口径，本票未改）。
       const borrowedFact = rows.filter(
         (row) => row.upstreamSource.startsWith("canonical:") || row.upstreamSource.startsWith("alias:")
       );
-      expect(borrowedFact).toHaveLength(7);
+      expect(borrowedFact).toHaveLength(6);
     });
 
     it("chip 集合工件（逐 preset × 代表模型）逐条与解析结果一致，标签表覆盖全部 7 档", () => {
@@ -693,7 +694,7 @@ describe.skipIf(!hasArtifact(MATRIX_CELLS))("06 请求矩阵逐格变化清单",
     expect(rows.length).toBeGreaterThan(empty.length);
     // 逐格形状：偏好档 → 实发档（或 `(不发)` / `default`）+ A' + 原因（模型词表 / 上游未登记 / 未被 clamp）。
     // 18 号票后 after 列 = 当前树，变化格累积了 06 之后各票（13 / 18 / 2026-10-05 的 default 档与
-    // minimax 形状登记）的请求字节变化（今日 1614 格），故不再逐行列举可追溯行——行级事实由
+    // minimax 形状登记）的请求字节变化（今日 1428 格），故不再逐行列举可追溯行——行级事实由
     // 06 工件与 artifacts/18-platform-override-removal.txt 承载。
     for (const cells of rows) {
       expect(cells[traceAt], cells.join("\t")).toMatch(
@@ -706,7 +707,7 @@ describe.skipIf(!hasArtifact(MATRIX_CELLS))("06 请求矩阵逐格变化清单",
     }
   });
 
-  it("零档行的变化格：101 行 A' = ∅（含 2026-10-04 裁决的 openrouter 5 行，各 9 格）", () => {
+  it("零档行的变化格：89 行 A' = ∅（含 2026-10-04 裁决的 openrouter 5 行，各 9 格）", () => {
     const empty = rows.filter((cells) => isNoEmit(cells[traceAt]));
     const byModel = new Map<string, number>();
     for (const cells of empty) {
@@ -714,8 +715,8 @@ describe.skipIf(!hasArtifact(MATRIX_CELLS))("06 请求矩阵逐格变化清单",
       byModel.set(key, (byModel.get(key) ?? 0) + 1);
     }
     // 18 号票后四家托管平台未登记开关形状，toggle-only / budget-only 的行全部落零档
-    // （06 基线里它们靠平台声明多发 off/low/high）→ 零档行从 5 涨到 101。
-    expect(byModel.size).toBe(101);
+    // （06 基线里它们靠平台声明多发 off/low/high）→ 零档行从 5 涨到 89（2026-10-17 快照后 opencode-go/openrouter 行随目录增减，裁决 5 行不变）。
+    expect(byModel.size).toBe(89);
     // 13 号票 canonical 优先后新增的两行（claude-haiku-4.5 / claude-sonnet-4.5 的 canonical
     // 是 budget-only）与 2026-10-04 已裁决的三行仍在列，全部维持不发参。
     for (const model of [

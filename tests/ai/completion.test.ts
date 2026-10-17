@@ -216,13 +216,14 @@ describe("请求构造对照表（url / body / headers）", () => {
   });
 
   it("Opencode Go 的 off 落 effort low（解释/概览钉的 off 在这平台真发出最低档；不臆造关思考字段）", async () => {
-    // 18 号票：删平台声明后按上游词表投影——deepseek-v4-flash 的值集是 toggle+low-high-max，
-    // 平台未登记开关形状 → off 级联到最小档 low。
+    // 18 号票：删平台声明后按上游词表投影——代表模型用 deepseek-v4.1-flash（同值集
+    // toggle+low-high-max；原 deepseek-v4-flash 已在 2026-10-17 上游快照中移除，见
+    // 03-catalog-check §1），平台未登记开关形状 → off 级联到最小档 low。
     // （目录外的自填 id（如 glm-5.1）回落手写表，会改发原生 thinking 开关，见 18-report 复核项。）
     const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "ok" } }] }));
 
     await chatCompletion({
-      provider: { baseUrl: "https://opencode.ai/zen/go/v1", model: "deepseek-v4-flash", apiKey: "sk-1", presetId: "opencodego" },
+      provider: { baseUrl: "https://opencode.ai/zen/go/v1", model: "deepseek-v4.1-flash", apiKey: "sk-1", presetId: "opencodego" },
       messages: [{ role: "user", content: "hi" }],
       thinkingLevel: "off",
       fetchImpl: fetchMock

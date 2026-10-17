@@ -476,8 +476,9 @@ describe.skipIf(!hasSnapshot)("catalog:check（真产物 + 提交快照）", () 
     expect(run.report).toMatch(/## 4\. hand-only[^\n]*\d+ 条/);
     expect(run.report).toMatch(/## 7\. 双方都无结论/);
     // 手写表解析口径写进报告（人能看到解析了多少条目）。
-    // CLASSES 22 / EXCEPTIONS 7 = 19 号票收尾删掉 kimi-k3* 专条 + 随之孤儿化的 class。
-    expect(run.report).toMatch(/CLASSES 22 \/ TAXONOMY 16 \/ EXCEPTIONS 7 \/ PROVIDERS 14/);
+    // CLASSES 22 / EXCEPTIONS 7 = 19 号票收尾删掉 kimi-k3* 专条 + 随之孤儿化的 class；
+    // PROVIDERS 15 = 04 号票 gemini 双轨（08eab76）在手写表登记的 provider 条目。
+    expect(run.report).toMatch(/CLASSES 22 \/ TAXONOMY 16 \/ EXCEPTIONS 7 \/ PROVIDERS 15/);
   });
 
 });

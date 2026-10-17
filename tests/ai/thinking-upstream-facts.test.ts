@@ -816,10 +816,10 @@ describe("13 号票：canonical 优先 + 重定向表（2026-10-05 用户裁定�
 // 直接用上游词表」。落地验证器（可复跑，exit 0）见 artifacts/18-platform-override-removal.ts。
 //
 // 先列这次改造可能失败的方式（每条一个用例）：
-//   1. 某家模型查不到上游词表 → 静默落 unknown / fail-closed（282 行零缺口钉「零」）；
+//   1. 某家模型查不到上游词表 → 静默落 unknown / fail-closed（287 行零缺口钉「零」）；
 //   2. 平台声明删了却仍能凭空多发档位（该降级的没降级、该消失的档位没消失）；
 //   3. 13 号票刚对齐的行被这次删除带偏（opencodego/kimi-k3 逐字节哨兵）；
-//   4. thinkingClass 没有整体翻转 / off 级联没生效（175 / 235 两个口径都钉）；
+//   4. thinkingClass 没有整体翻转 / off 级联没生效（177 / 223 两个口径都钉）；
 //   5. 零档行不再 fail-closed（budget-only 被塞进任何字段）；
 //   6. UPSTREAM_TOGGLE_SHAPES 被顺手加了四家登记（无平台文档支撑，裁定 3）；
 //   7. minimax 的形状登记被这次删除带偏（登记与 override 无关：M3 仍按登记方言发 off/on、
@@ -850,7 +850,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     return [...models].sort();
   };
 
-  it("目录内 282 行零缺口：四家每一行都落 source: \"upstream\"（没有 unknown / fail-closed）", () => {
+  it("目录内 287 行零缺口：四家每一行都落 source: \"upstream\"（没有 unknown / fail-closed）", () => {
     const counts: Record<string, number> = {};
     let unknown: string[] = [];
     let total = 0;
@@ -864,8 +864,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       }
     }
     expect(unknown).toEqual([]);
-    expect(counts).toEqual({ openrouter: 239, amd: 5, sensenova: 5, opencodego: 34 });
-    expect(total).toBe(283);
+    expect(counts).toEqual({ openrouter: 247, amd: 5, sensenova: 6, opencodego: 29 });
+    expect(total).toBe(287);
   });
 
   it("上游词表更窄的行：档位被静默改写（amd/Qwen3.8-27B 的 high → medium）", () => {
@@ -928,13 +928,10 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     }
   });
 
-  it("off 级联：票面「上游词表含 off」的口径 180 行（153/3/4/20），逐平台钉数", () => {
-    // 票面 §实测把这个数百字面记作 off 级联受影响行数：这四家 override 里都显式声明了
-    // off 写点（opencodego 除外），故「上游值集含 off」的行就是删声明后会失去/保留关闭
-    // 落点的行。逐平台 152 / 3 / 3 / 17 = 175；19 号票后 opencodego 两行拿到 toggle
-    // （deepseek-v4-flash 走 -0731 重定向、deepseek-v4-pro 走值集覆盖）→ 17 + 2 = 19 = 177。
-    // D1=A2 后 zhipuai/glm-5.2 补上 toggle，canonical 继承到 openrouter（+1）、sensenova
-    // （+1）、opencode-go（+1）三行 → 177 + 3 = 180（152→153 / 3 / 3→4 / 19→20）。
+  it("off 级联：票面「上游词表含 off」的口径 177 行（152/3/5/17），逐平台钉数", () => {
+    // 口径 = 上游词表含 off（toggle 或 effort none）的目录内行数。当前实测
+    // 152 / 3 / 5 / 17 = 177（2026-10-17 上游快照漂移后更新：opencode-go 删 8 增 2、
+    // openrouter 增 9 删 2、sensenova 增 1，见 03-catalog-check §1）。
     const hasOff = (presetId: string): number =>
       modelsOf(presetId).filter((model) => {
         const fact = lookupThinkingFact(UPSTREAM_PROVIDER_BY_PRESET[presetId], model);
@@ -945,11 +942,11 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       amd: hasOff("amd"),
       sensenova: hasOff("sensenova"),
       opencodego: hasOff("opencodego")
-    }).toEqual({ openrouter: 147, amd: 3, sensenova: 4, opencodego: 21 });
-    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(175);
+    }).toEqual({ openrouter: 152, amd: 3, sensenova: 5, opencodego: 17 });
+    expect(hasOff("openrouter") + hasOff("amd") + hasOff("sensenova") + hasOff("opencodego")).toBe(177);
   });
 
-  it("off 级联：按「thinkingClass=always + offUnavailable」口径是 236 行（与口径 A 的 177 差异见 18-report）", () => {
+  it("off 级联：按「thinkingClass=always + offUnavailable」口径是 223 行（与口径 A 的 177 差异见 18-report）", () => {
     const cascade = (presetId: string): string[] =>
       modelsOf(presetId).filter((model) => {
         const adjustment = resolveThinkingAdjustment({ presetId, baseUrl: baseUrlOf(presetId), model, level: "off", stream: true });
@@ -963,8 +960,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       sensenova: cascade("sensenova").length,
       opencodego: cascade("opencodego").length
     };
-    expect(counts).toEqual({ openrouter: 197, amd: 5, sensenova: 4, opencodego: 30 });
-    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(236);
+    expect(counts).toEqual({ openrouter: 188, amd: 5, sensenova: 5, opencodego: 25 });
+    expect(Object.values(counts).reduce((sum, count) => sum + count, 0)).toBe(223);
     // 级联目标 = 可用集里最小的非 off 档：glm-5.2（A={high,max}）偏好 off → high。
     const glm = resolveThinkingAdjustment({ presetId: "sensenova", model: "glm-5.2", level: "off", stream: true });
     expect(glm.effectiveLevel).toBe("high");
@@ -1023,11 +1020,15 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     expect(levelsOf("minimax", "MiniMax-M2")).toEqual([]);
   });
 
-  it("18 号票新增分歧 25 行 → 2026-10-06 剥 org 前缀后 108 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
-    // 25 行 = 18 号票当时四家的分歧集；2026-10-06「手写侧剥 org 前缀」放开后新增 83 行
+  it("18 号票新增分歧 25 行 → 2026-10-06 剥 org 前缀后 102 行（逐条钉；含 AMD 的 5 行 400 风险面）", () => {
+    // 25 行 = 18 号票当时四家的分歧集；2026-10-06「手写侧剥 org 前缀」放开后扩到百家以上
     //（全部是上游 id 带命名空间前缀的缺口行：openrouter 的 openai/*、qwen/*、z-ai/*、
     // deepseek/* —— 剥前缀后手写侧才认出血统方言）。运行期这些行仍先命中上游目录，
-    // 只有目录缺口行会真正落到手写侧。
+    // 只有目录缺口行会真正落到手写侧。当前 102 行（amd 5 / opencode-go 12 /
+    // openrouter 81 / sensenova 4）：2026-10-17 上游快照漂移，opencode-go 退 5 行
+    //（deepseek-v4-flash / deepseek-v4-flash-vision-exp / kimi-k2.6 / qwen3.6-plus /
+    // qwen3.7-max 移除）、进 2 行（openrouter/deepseek-v4.1-flash-1017、
+    // sensenova/deepseek-v4.1-flash 新增），见 03-catalog-check §1。
     const divergent = divergentKeys(LEVELS, { presets: HOSTED_PRESETS_18, handOnly: true });
     expect(divergent.sort()).toEqual([
       "amd/deepseek-v4-flash",
@@ -1035,8 +1036,6 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "amd/deepseek-v4.1-flash",
       "amd/qwen3.8-27b",
       "amd/qwen3.8-flash-next",
-      "opencode-go/deepseek-v4-flash",
-      "opencode-go/deepseek-v4-flash-vision-exp",
       "opencode-go/deepseek-v4-pro",
       "opencode-go/deepseek-v4.1-flash",
       "opencode-go/glm-5.2",
@@ -1044,11 +1043,8 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "opencode-go/glm-5.3-flash",
       "opencode-go/gpt-5.6-luna",
       "opencode-go/gpt-6-luna",
-      "opencode-go/kimi-k2.6",
       "opencode-go/mimo-v2.6-flash",
       "opencode-go/mimo-v2.6-pro",
-      "opencode-go/qwen3.6-plus",
-      "opencode-go/qwen3.7-max",
       "opencode-go/qwen3.7-plus",
       "opencode-go/qwen3.8-flash",
       "opencode-go/qwen3.8-max",
@@ -1061,6 +1057,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "openrouter/deepseek/deepseek-v4-pro",
       "openrouter/deepseek/deepseek-v4-pro-0813",
       "openrouter/deepseek/deepseek-v4.1-flash",
+      "openrouter/deepseek/deepseek-v4.1-flash-1017",
       "openrouter/moonshotai/kimi-k2.5",
       "openrouter/moonshotai/kimi-k2.6",
       "openrouter/openai/gpt-5",
@@ -1134,6 +1131,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
       "openrouter/~deepseek/deepseek-v4-flash-latest",
       "sensenova/deepseek-v4-flash",
       "sensenova/deepseek-v4-pro",
+      "sensenova/deepseek-v4.1-flash",
       "sensenova/glm-5.2",
     ]);
     // 7 档口径比 3 档多出的行 = 上游词表带 max、而手写 class 没有 max 写点的行。

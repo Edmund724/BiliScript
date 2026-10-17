@@ -199,15 +199,14 @@ const OFF_CAPABILITY_DECLARATIONS = [
 // 对账常量（spec §词汇覆盖缺口 + §上游形态，主 agent 复核实测）。不是这些数说明上游
 // 内容或路径变了 —— 先确认快照 contentHash 与 spec 记录，再同步本常量与 spec
 // （产物事实面由 tests/ai/thinking-upstream-facts.test.ts 逐行钉住）。
-// effortSets 是**派生计数**（被引用值集里的 effort 词表去重）：13 号票 canonical 优先后
-// effort[max] 只被 opencode-go/kimi-k3 引用，该行改借 canonical 的 low-high-max →
-// 值集 "max" 不再登记，故 30 → 29（上游原始 30 种 effort 值集不变，见 spec §上游形态）。
+// effortSets 是**派生计数**（被引用值集里的 effort 词表去重），不等于上游原始的
+// effort 值集种数（见 spec §上游形态）。
 const EXPECTED_COUNTS = {
-  models: 615,
-  reasoning: 444,
-  withOptions: 376,
-  gaps: 68,
-  effortSets: 29
+  models: 617,
+  reasoning: 447,
+  withOptions: 380,
+  gaps: 67,
+  effortSets: 31
 };
 
 function fail(message) {
