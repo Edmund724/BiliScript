@@ -475,12 +475,12 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   background: var(--biliscript-reader-time-bg);
 }
 
-/* 字幕列表减噪后的时间戳强调档（03 号票）：浅色档悬停/活动行时间戳沿用文字档
+/* 字幕列表减噪后的时间戳强调档（03 号票）：浅色档悬停行时间戳沿用文字档
  * 点缀色——accent 亮蓝在透明底上对比不足（字色走 time-color token，色板块覆写
- * 为自己的文字档：flyme 柔和中蓝、editorial 深赤陶）。活动行的实心胶囊只包
- * 文字列，时间戳留在胶囊外左侧，主色强调同样消费本规则。 */
-#biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item.is-active .biliscript-reading-time,
-#biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item:hover .biliscript-reading-time {
+ * 为自己的文字档：flyme 柔和中蓝、editorial 深赤陶）。活动行时间戳在实心胶囊
+ * 内恒白（reader.css 的 is-active 规则），不在本规则内——:not(.is-active)
+ * 防止悬停活动行时把白字盖回文字档色。 */
+#biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item:hover:not(.is-active) .biliscript-reading-time {
   color: var(--biliscript-reader-time-color);
 }
 

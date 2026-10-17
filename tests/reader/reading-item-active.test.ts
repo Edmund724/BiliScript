@@ -1,40 +1,24 @@
 // tests/reader/reading-item-active.test.ts
-// 2026-10-06 用户决议（字幕 tab 活动行截图）：活动行只留 accent-soft 底色——
-//   1. 2px 绿下划线整条删除——它与活动行底色同读 sync 的同一个 is-active，是同一
-//      状态的两套颜色语言；且 text-decoration 按行盒铺开，2–3 行的字幕长句实际
-//      会变成每行一条绿线，而底色始终是一整块；
-//   2. 活动行内的时间戳 pill 底清零——pill 底与行底同是 accent-soft，叠上去二次
-//      加深；bilibili 浅色档的 accent-soft 是四档里唯一的不透明值，那里 pill 与
-//      行底同色、形状直接消失。
-// 2026-10-17 03 号票（字幕时间戳减噪）：pill 清底从「仅活动行」推广到「字幕列表
-//   全部静止行」——清底 + padding 归零 + 次级 muted 字 + tabular-nums；悬停行把
-//   时间戳回主色强调。作用域收在 .biliscript-reading-item 内，章节/金句/AI 引用的
-//   pill 母题保持 accent-soft 底 + accent 字；浅色档悬停强调字走 gate 的
-//   time-color token（flyme 柔和中蓝 #2e6fc2、editorial 深赤陶 #9C4527；accent
-//   亮蓝 #008cff 在浅色底上对比不足）。
-// 2026-10-17 03 号票返工（目标设计图）：活动行不再是「时间戳回主色」，改整行
-//   实心主色胶囊——行底 accent 压深 25%（color-mix）+ 时间戳与正文恒白 +
-//   正文加粗；白字在原生 accent 实底上只有 2.9–3.4:1（flyme 两档），压深后四档
-//   4.8–7.4:1，色板只换 accent token 即自动跟随（editorial → 深一档赤陶）。
-//   悬停维持时间戳主色强调，不做整行高亮；is-active 与 :hover 不得再合并同规则。
-// 2026-10-18 03 号票返工二（目标参考图复刻）：胶囊从整行收窄到只包文字列——
-//   行底不再染色，胶囊底移到 .biliscript-reading-text（文字列即网格第二列，
-//   胶囊左缘 = 文字列左缘，2px/10px 内边距）；时间戳留在胶囊外左侧列，回主色
-//   加粗（母题本就 600，不反白），浅色档同悬停一并由 gate time-color token 定稿。
-//   白字对比方案不变（accent 压深 25% 的 color-mix 底色）。
-// 形状同 reading-header-icon-btns.test.ts：直接断言 CSS 文本，防「改一半」——
-//   1. 下划线从别处漏回来（活动行文本再加 text-decoration，或线色又取 success 绿）；
-//   2. 删线顺手把线挪到基础段：非活动行的正文跟着带线；
-//   3. 减噪规则漏出字幕列表：基础段 pill 母题（章节/金句/AI 引用同款）掉底/变色；
-//   4. 减噪/强调规则不带 #id 前缀：压不过 gate 浅色档的全 pill 规则等于浅色档没减噪；
-//   5. 死声明回归：字幕列表只存在于 #biliscript-reading-view 里，裸类名
-//      .biliscript-reading-item.is-active 的 background 恒被 #id 规则全量覆盖；
-//   6. 态合并回归：is-active（文字列胶囊 + 时间戳主色）与 :hover（仅时间戳主色）
-//      待遇不同，合并同规则即互相污染；
-//   7. 胶囊越界回归：胶囊底只能落在 .biliscript-reading-text 上——挂回行容器
-//      （.is-active 行底）会重新盖掉时间戳列；时间戳不得反白（它不在胶囊内）；
-//   8. gate 浅色档强调档漏挂 is-active：活动行时间戳会回落 accent 亮蓝，
-//      浅色底上 3.4:1 不达 4.5 门。
+// 字幕列表行样式的当前契约（reader.css + reader-gate.css 源文本锁）：
+//   1. 静止非活动行时间戳减噪：清底 + padding 归零 + 次级 muted 字 + tabular-nums
+//      等宽数字；作用域收在 .biliscript-reading-item 内，章节/金句/AI 引用的
+//      pill 母题（accent-soft 底 + accent 字）不受影响。
+//   2. 悬停行：仅时间戳回主色强调（浅色档由 gate time-color token 按色板定稿：
+//      flyme 柔和中蓝 #2e6fc2、editorial 深赤陶 #9C4527——accent 亮蓝 #008cff
+//      在浅色透明底上 3.4:1 不达 4.5 门），不做整行高亮；:hover 与 is-active
+//      不得合并同规则（待遇不同，合并即互相污染）。
+//   3. 活动行 = 整颗实心主色胶囊：行容器切 inline-flex、宽度收为内容宽
+//     （max-width 100% 兜底折行），胶囊同时包住时间戳与文字；时间戳与正文恒白、
+//      正文加粗 600；时间戳 min-width 与网格列宽同源（--biliscript-reader-time-col），
+//      活动行文字左缘与静止行对齐。行底色 accent 压深 25%（color-mix）——原生
+//      accent 实底白字只有 2.9–3.4:1，压深后四档 4.8–7.4:1；色板换 accent token
+//      自动跟随（editorial → 深一档赤陶）。is-active 规则书写在 :hover 之后，
+//      同特异性下悬停活动行时恒白不被 hover 主色盖掉；gate 浅色档强调档用
+//      :not(.is-active) 排除活动行（防把白字盖回 time-color 文字档色）。
+//   4. 双语副行在胶囊内随正文反白（muted 灰 / accent 字在实色底上对比不足）。
+//   5. 活动行不带 text-decoration 下划线，本表不把 success 绿当线色。
+//   6. 死声明防回归：字幕列表只存在于 #biliscript-reading-view 里，裸类名
+//      .biliscript-reading-item.is-active 的 background 恒被 #id 规则全量覆盖。
 // 作用域提示：本文件只管字幕列表行；对话区 .chat-timestamp-link 与解释浮层不联动。
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -62,7 +46,7 @@ function declaration(block: string, prop: string): string | undefined {
   return block.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+);`))?.[1].trim();
 }
 
-describe("字幕活动行：实心主色胶囊、下划线删、时间戳减噪", () => {
+describe("字幕活动行：整颗实心主色胶囊、时间戳减噪", () => {
   it("活动行不再有下划线：任何活动行规则块都不带 text-decoration", () => {
     expect(readCss()).not.toMatch(/\.biliscript-reading-item\.is-active[^{]*\{[^}]*text-decoration/);
   });
@@ -75,37 +59,50 @@ describe("字幕活动行：实心主色胶囊、下划线删、时间戳减噪"
     expect(ruleBody(readCss(), "\\.biliscript-reading-text")).not.toMatch(/text-decoration/);
   });
 
-  it("活动行胶囊只包文字列：行底不染色，胶囊底落在文字元素上", () => {
-    const css = readCss();
+  it("活动行胶囊在行容器：inline-flex 内容宽 + accent 压深 25% 实底", () => {
+    const block = ruleBody(readCss(), "#biliscript-reading-view \\.biliscript-reading-item\\.is-active");
 
-    // 行容器不得再带底色——挂回 .is-active 行底会重新盖掉时间戳列。
-    expect(css).not.toMatch(
-      /(?:^|\n)[ \t]*#biliscript-reading-view \.biliscript-reading-item\.is-active\s*\{[^}]*background/
+    expect(declaration(block, "display")).toBe("inline-flex");
+    expect(declaration(block, "width")).toBe("auto");
+    expect(declaration(block, "max-width")).toBe("100%");
+    expect(declaration(block, "background")).toBe(
+      "color-mix(in srgb, var(--biliscript-reader-accent), #000000 25%)"
     );
   });
 
-  it("活动行文字列胶囊：accent 压深 25% 实底 + 恒白 + 加粗 + 圆角内边距", () => {
+  it("活动行文字在胶囊内：恒白加粗、可收进 max-width 折行，不再自带胶囊底", () => {
     const block = ruleBody(
       readCss(),
       "#biliscript-reading-view \\.biliscript-reading-item\\.is-active \\.biliscript-reading-text"
     );
 
-    expect(declaration(block, "background")).toBe(
-      "color-mix(in srgb, var(--biliscript-reader-accent), #000000 25%)"
-    );
     expect(declaration(block, "color")).toBe("#ffffff");
     expect(declaration(block, "font-weight")).toBe("600");
-    expect(declaration(block, "border-radius")).toBe("10px");
-    expect(declaration(block, "padding")).toBe("2px 10px");
+    expect(declaration(block, "min-width")).toBe("0");
+    expect(declaration(block, "background")).toBeUndefined();
   });
 
-  it("活动行时间戳在胶囊外：回主色加粗，不反白", () => {
+  it("活动行时间戳在胶囊内：恒白，min-width 与网格列宽同源对齐文字左缘", () => {
+    const css = readCss();
     const block = ruleBody(
-      readCss(),
+      css,
       "#biliscript-reading-view \\.biliscript-reading-item\\.is-active \\.biliscript-reading-time"
     );
 
-    expect(declaration(block, "color")).toBe("var(--biliscript-reader-accent)");
+    expect(declaration(block, "color")).toBe("#ffffff");
+    expect(declaration(block, "min-width")).toBe("var(--biliscript-reader-time-col)");
+    expect(declaration(ruleBody(css, "\\.biliscript-reading-item"), "grid-template-columns")).toBe(
+      "var(--biliscript-reader-time-col) minmax(0, 1fr)"
+    );
+  });
+
+  it("双语副行在胶囊内随正文反白", () => {
+    const block = ruleBody(
+      readCss(),
+      "#biliscript-reading-view \\.biliscript-reading-item\\.is-active \\.biliscript-reading-text \\.biliscript-reading-subtext"
+    );
+
+    expect(declaration(block, "color")).toBe("rgba(255, 255, 255, 0.78)");
   });
 
   it("字幕列表静止态减噪：清底 + padding 归零 + 次级色 + 等宽数字，带 #id 前缀", () => {
@@ -133,6 +130,19 @@ describe("字幕活动行：实心主色胶囊、下划线删、时间戳减噪"
     );
   });
 
+  it("is-active 规则书写在 :hover 之后：悬停活动行时恒白不被 hover 主色盖掉", () => {
+    const css = readCss();
+    const hoverAt = css.indexOf(
+      "#biliscript-reading-view .biliscript-reading-item:hover .biliscript-reading-time"
+    );
+    const activeAt = css.indexOf(
+      "#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time"
+    );
+
+    expect(hoverAt).toBeGreaterThan(-1);
+    expect(activeAt).toBeGreaterThan(hoverAt);
+  });
+
   it("基础 pill 底仍在：减噪只作用于字幕列表，母题不被全局摘掉", () => {
     expect(declaration(ruleBody(readCss(), "\\.biliscript-reading-time"), "background")).toBe(
       "var(--biliscript-reader-accent-soft)"
@@ -145,11 +155,11 @@ describe("字幕活动行：实心主色胶囊、下划线删、时间戳减噪"
     );
   });
 
-  it("浅色档时间戳强调档挂悬停 + 活动：time-color token 按色板定稿主色", () => {
+  it("浅色档悬停强调走 time-color token，并用 :not(.is-active) 排除胶囊内活动行", () => {
     const gate = readGate();
     const block = ruleBody(
       gate,
-      "#biliscript-reading-view:not\\(\\[data-theme=\"dark\"\\]\\) \\.biliscript-reading-item:hover \\.biliscript-reading-time"
+      "#biliscript-reading-view:not\\(\\[data-theme=\"dark\"\\]\\) \\.biliscript-reading-item:hover:not\\(\\.is-active\\) \\.biliscript-reading-time"
     );
 
     // time-color token 按色板覆写（flyme 柔和中蓝 / editorial 深赤陶文字档），
@@ -157,11 +167,9 @@ describe("字幕活动行：实心主色胶囊、下划线删、时间戳减噪"
     expect(declaration(block, "color")).toBe("var(--biliscript-reader-time-color)");
     expect(gate).toContain("--biliscript-reader-time-color: #2e6fc2;");
     expect(gate).toContain("--biliscript-reader-time-color: #9c4527;");
-    // 活动行时间戳在胶囊外回主色，浅色档必须与悬停同规则挂 is-active——
-    // 漏挂则回落 reader.css 的 accent 亮蓝，对比不足。
-    expect(gate).toContain(
-      "#biliscript-reading-view:not([data-theme=\"dark\"]) .biliscript-reading-item.is-active .biliscript-reading-time,"
-    );
+    // 活动行时间戳在胶囊内恒白——浅色档不得再有任何 is-active 时间戳规则把
+    // 白字盖回 time-color / accent。
+    expect(gate).not.toContain(".biliscript-reading-item.is-active .biliscript-reading-time");
   });
 
   it("裸类名活动行规则不回来：面板内它恒被 #id 规则覆盖，是死声明", () => {
