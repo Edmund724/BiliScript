@@ -122,6 +122,9 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-accent: #008cff;
   --biliscript-reader-accent-soft: rgba(0, 140, 255, 0.1);
   --biliscript-reader-accent-ink: #ffffff;
+  /* 金句卡右上角装饰水印引号色（.biliscript-reading-ov-quote::after）：正文
+   * 主色 9% 档——只做版式点缀，远低正文对比档，不抢金句阅读。 */
+  --biliscript-reader-quote-mark: rgba(23, 24, 26, 0.09);
   /* 分段控件槽底取 surface-3 同值 #e9ebef：与面板灰 #f2f3f5 仅差 2 阶的
    * #f0f1f3 会让槽形不可见、选中态蓝胶囊像浮在灰上。 */
   --biliscript-reader-pill-bg: #e9ebef;
@@ -200,6 +203,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
    * 与浅色档白字 accent-ink 的处境相反），故取与页面同色的深墨 #101114
    * ——6.6:1，远超 4.5:1。 */
   --biliscript-reader-accent-ink: #101114;
+  --biliscript-reader-quote-mark: rgba(236, 237, 239, 0.09);
   --biliscript-reader-pill-bg: #222327;
   --biliscript-reader-highlight: rgba(255, 159, 10, 0.14);
   --biliscript-reader-track: rgba(236, 237, 239, 0.18);

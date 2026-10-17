@@ -1315,8 +1315,11 @@
 }
 
 /* 金句卡（暖底淡卡）：surface-2 底 + 10px 圆角分组，无边框、无左侧 accent
- * 边条；右下角时间戳 pill（跳播）+ 复制图标钮。色值走 token，四色板自动跟随。 */
+ * 边条；右上角 ::after 大号衬线引号水印（出版物书摘特征，与章节卡拉开区分）；
+ * 右下角时间戳 pill（跳播）+ 复制图标钮。色值走 token，四色板自动跟随。 */
 .biliscript-reading-ov-quote {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   display: block;
   border: 0;
@@ -1339,7 +1342,26 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
+/* 右上角装饰水印引号：衬线左双引号字形放大，色取 --quote-mark token
+ * （正文主色 9% 档），浅色/深色各一份、自动跟随；pointer-events: none
+ * 不拦截文本选择与点击跳播。overflow: hidden 裁住字形，不破坏卡片圆角。 */
+.biliscript-reading-ov-quote::after {
+  content: "\201C";
+  position: absolute;
+  top: -14px;
+  right: 6px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 72px;
+  line-height: 1;
+  color: var(--biliscript-reader-quote-mark, rgba(23, 24, 26, 0.09));
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+
 .biliscript-reading-ov-quote-text {
+  position: relative;
+  z-index: 1;
   display: block;
   font-size: 16px;
   line-height: 1.7;
@@ -1348,6 +1370,8 @@
 }
 
 .biliscript-reading-ov-quote-foot {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: flex-end;
