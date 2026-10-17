@@ -1059,6 +1059,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* chip 行高收紧到 1 是为垂直居中；模型名 span 须恢复自然行高，否则
+   * overflow:hidden 会把 g/j/p 等下行笔画裁掉 */
+  line-height: normal;
 }
 
 /* 档位 span：与模型名拉开主次。模型名吃 chip 的正文字色（--biliscript-reader-text），
