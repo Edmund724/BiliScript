@@ -621,34 +621,39 @@
 
 /* 字幕列表时间戳减噪：非活动行的 pill 底清成透明、字色降为次级 muted、
  * tabular-nums 等宽数字——多行短句同屏时左列不再是成串蓝药丸。作用域收在
- * .biliscript-reading-item 内，章节卡/金句卡/AI 对话引用的 pill 母题不受影响；
- * 特异性 (1,3,0) 压过 gate 浅色档的全 pill 规则 (1,2,0)，浅色档同样退去。
+ * .biliscript-reading-item 内且显式 :not(.is-active)：特异性 (1,3,0) 压过 gate
+ * 浅色档全 pill 规则 (1,2,0)（gate 在本表之后装载，打平即输），深浅两档都
+ * 退去；活动行时间戳的胶囊由下方 is-active 规则自给。章节卡/金句卡/AI 对话
+ * 引用的 pill 母题不受影响。
  * 悬停行只把时间戳回主色（reader.css 强调档，浅色档由 gate time-color token
  * 按色板覆写），不做整行高亮——实心胶囊专属活动行。 */
-#biliscript-reading-view .biliscript-reading-item .biliscript-reading-time {
+#biliscript-reading-view .biliscript-reading-item:not(.is-active) .biliscript-reading-time {
   background: transparent;
   padding: 0;
   color: var(--biliscript-reader-muted);
   font-variant-numeric: tabular-nums;
 }
 
-#biliscript-reading-view .biliscript-reading-item:hover .biliscript-reading-time {
+#biliscript-reading-view .biliscript-reading-item:not(.is-active):hover .biliscript-reading-time {
   color: var(--biliscript-reader-accent);
 }
 
 /* 活动行 = 整颗白卡实心胶囊（03 号票目标参考图）：行容器切 inline-flex、宽度
  * 收为内容宽（max-width 100% 兜底长句折行），胶囊同时包住时间戳与文字，右缘
- * 随文字结束；圆角与内边距沿用基础行（10px / 10px 12px），激活切换不改行高。
- * 胶囊底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动
- * 跟随），软投影与 tab.is-active 同款做凸起感（深色档投影换黑）。胶囊内时间戳
- * 回主色（浅色档由 gate time-color token 定稿），正文深色加粗 600；时间戳
- * min-width 取 --time-col var，文字左缘与静止行的网格文字列对齐；正文
- * min-width:0 允许在长句时收进 max-width 内折行。is-active 规则书写在
- * :hover 之后。 */
+ * 随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。圆角 999px
+ * 全胶囊形（单行时两端半圆，与参考图同形）。胶囊底色消费
+ * --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动跟随），软投影
+ * 与 tab.is-active 同款做凸起感（深色档投影换黑）。
+ * 胶囊内时间戳保持 pill 形态（time-bg 浅底 + time-color 文字档，深色档回退
+ * accent-soft/accent 母题），min-width 取 --time-col var 并 box-sizing 收编
+ * padding——整颗 pill 与静止行的时间戳列同宽、文字左缘与静止行对齐，时间数字
+ * 在 pill 内居中（左对齐会让 pill 右侧空出一截）；正文深色加粗 600、
+ * min-width:0 允许在长句时收进 max-width 内折行。 */
 #biliscript-reading-view .biliscript-reading-item.is-active {
   display: inline-flex;
   width: auto;
   max-width: 100%;
+  border-radius: 999px;
   background: var(--biliscript-reader-card);
   box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
@@ -658,8 +663,13 @@
 }
 
 #biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
-  color: var(--biliscript-reader-accent);
+  box-sizing: border-box;
   min-width: var(--biliscript-reader-time-col);
+  text-align: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
+  background: var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft));
 }
 
 #biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-text {

@@ -242,87 +242,89 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 }
 
 /* ===== editorial 数字刊物色板（与明暗正交）=====
- * 浅色块：暖纸底 #FAF7F2 + 赤陶点缀 #B85435。纸面不做蓝雾光雾与背景模糊
- *（mist-blobs:none / mist-filter:none），壳直接落纸面渐变，呈现温润纸感。
- * 对比度（正文门 4.5:1）：text #2B2622 三层面 ≥11.8 / muted #6F6459 最洼层
- *（surface-3 #ECE4D6）4.57 / accent #B85435 纸面 4.51（操作档，同 flyme
- * 主蓝的角色）；文字档 time-color 压深到 #9C4527（最洼层 5.05）；白字在
+ * 浅色块：暖纸底 #FAF7F2 + 暖米书摘卡 #F3EDE2 + 赤陶点缀 #B85435。
+ * 纸面不做蓝雾光雾与背景模糊（mist-blobs:none / mist-filter:none），
+ * 卡片比纸底压深半阶（#F3EDE2）配 1px 暖沙细描边（#E4DCCB），靠纸色分层而非
+ * 玻璃高光与悬浮投影呈现出版物书摘质感。
+ * 对比度（正文门 4.5:1）：text #231F1C 三层面 ≥13.1 / muted #655B52 最洼层
+ *（surface-3 #E8E0D2）4.85 / accent #B85435 纸面 4.51（操作档，同 flyme
+ * 主蓝的角色）；文字档 time-color 压深到 #9C4527（最洼层 4.90）；白字在
  * accent 实底上 4.82。
  * 选择器特异性 (0,2,1) 与 flyme 两档同权，书写在两者之后：editorial+light 组合
  * 由本块定稿；editorial+dark 组合再叠下方深色块 (0,3,1) 定稿。 */
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"],
 #biliscript-reading-view[data-palette="editorial"] {
-  /* 暖纸三层：页面 #FAF7F2（暖纸底）/ 卡片·列表组 #F3EEE5（暖米）/
-   * 输入框底 #ECE4D6（暖沙）。层级靠纸色分层，不靠投影。 */
+  /* 暖纸三层：页面 #FAF7F2（暖纸底）/ 书摘卡 #F3EDE2（暖米羊皮纸）/
+   * 悬停·凹陷 #E8E0D2（暖沙）。层级靠纸色分层与 1px 细描边，不靠玻璃高光。 */
   --biliscript-reader-surface: #faf7f2;
-  --biliscript-reader-surface-2: #f3eee5;
-  --biliscript-reader-surface-3: #ece4d6;
+  --biliscript-reader-surface-2: #f3ede2;
+  --biliscript-reader-surface-3: #e8e0d2;
   --biliscript-reader-fill-hover: rgba(60, 42, 24, 0.07);
-  /* 暖白卡片：微暖竖向渐变，叠在纸面上靠色温差浮出。 */
-  --biliscript-reader-card: linear-gradient(180deg, rgba(255, 253, 248, 0.95), rgba(255, 252, 246, 0.98));
-  --biliscript-reader-border: #e2d8c4;
-  --biliscript-reader-text: #2b2622;
-  --biliscript-reader-muted: #6f6459;
-  --biliscript-reader-faint: #a2937f;
+  /* 暖米书摘卡：比页面纸底 #FAF7F2 深半阶的实色羊皮纸面 #F3EDE2。 */
+  --biliscript-reader-card: #f3ede2;
+  --biliscript-reader-border: #e4dccb;
+  --biliscript-reader-text: #231f1c;
+  --biliscript-reader-muted: #655b52;
+  --biliscript-reader-faint: #8c8277;
   /* 赤陶点缀（#B85435）：只做操作/选中，与 flyme 主蓝同角色。 */
   --biliscript-reader-accent: #b85435;
   --biliscript-reader-accent-soft: rgba(184, 84, 53, 0.12);
   /* accent-ink 按对比度定：白字在 #b85435 实底上 4.82:1，直接取白。 */
   --biliscript-reader-accent-ink: #ffffff;
-  --biliscript-reader-quote-mark: rgba(43, 38, 34, 0.09);
-  --biliscript-reader-pill-bg: #ece4d6;
+  --biliscript-reader-quote-mark: rgba(35, 31, 28, 0.09);
+  --biliscript-reader-pill-bg: #e8e0d2;
   --biliscript-reader-highlight: rgba(216, 158, 46, 0.16);
-  --biliscript-reader-track: rgba(43, 38, 34, 0.12);
-  --biliscript-reader-shadow: 0 8px 24px rgba(43, 38, 34, 0.12);
-  --biliscript-reader-overlay-bg: rgba(250, 247, 242, 0.85);
+  --biliscript-reader-track: rgba(35, 31, 28, 0.12);
+  --biliscript-reader-shadow: 0 10px 26px rgba(60, 45, 30, 0.08);
+  --biliscript-reader-overlay-bg: rgba(250, 247, 242, 0.92);
   /* 时间戳 pill 文字档：深赤陶 #9C4527（赤陶 accent 做文字在纸面上贴 4.5 线，
-   * 按 flyme 柔和中蓝的先例压深一档），最洼层（surface-3）5.05:1。 */
+   * 按 flyme 柔和中蓝的先例压深一档），最洼层（surface-3）4.90:1。 */
   --biliscript-reader-time-color: #9c4527;
   --biliscript-reader-time-bg: rgba(156, 69, 39, 0.1);
   /* 衬线字型栈（章节标题与金句正文消费，reader.css 的 editorial 规则）：
    * 西文 Georgia 系 + 中文宋体系回退。 */
   --biliscript-reader-font-serif: Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
-  /* 纸感壳三件：无径向光雾、无背景模糊；描边用暖赤陶弱 alpha 细线。 */
-  --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(250, 247, 242, 0.98), rgba(247, 242, 233, 0.96) 220px);
+  /* 纸感壳三件：无径向光雾、无背景模糊；外框描边取中性暖沙纸边 #E6DFD3。 */
+  --biliscript-reader-mist-surface: #faf7f2;
   --biliscript-reader-mist-blobs: none;
-  --biliscript-reader-mist-line: rgba(184, 84, 53, 0.18);
+  --biliscript-reader-mist-line: #e6dfd3;
   --biliscript-reader-mist-filter: none;
 }
 
-/* editorial 深色块：暖炭黑 #171513 + 暖赤陶 #E07A5F。特异性 (0,3,1) 恒高于
- * 单轴块，editorial+dark 组合由本块定稿。对比度：text #F0EBE4 三层 ≥12.6 /
- * muted #B5AA9D 最洼层（surface-3 #2A2622）6.58 / accent #E07A5F 最洼层
- * 5.09 / 深墨 accent-ink 在 accent 实底上 6.17。阴影置零（深色零阴影纪律）。 */
+/* editorial 深色块：暖炭黑 #171513 + 深暖褐卡 #211E1B + 暖赤陶 #E07A5F。
+ * 特异性 (0,3,1) 恒高于单轴块，editorial+dark 组合由本块定稿。对比度：
+ * text #ECE6DF 三层 ≥12.1 / muted #9E9489 最洼层（surface-3 #2A2622）5.02 /
+ * accent #E07A5F 最洼层 5.09 / 深墨 accent-ink 在 accent 实底上 6.17。 */
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-biliscript-reader-palette="editorial"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-biliscript-reader-palette="editorial"],
 #biliscript-reading-view[data-theme="dark"][data-palette="editorial"] {
-  /* 暖炭黑三层：页面 #171513（暖炭黑）/ 卡片·列表组 #211E1B / 输入框底 #2A2622。 */
+  /* 暖炭黑三层：页面 #171513（暖炭黑）/ 书摘卡 #211E1B / 悬停·凹陷 #2A2622。 */
   --biliscript-reader-surface: #171513;
   --biliscript-reader-surface-2: #211e1b;
   --biliscript-reader-surface-3: #2a2622;
   --biliscript-reader-fill-hover: rgba(255, 246, 236, 0.08);
-  --biliscript-reader-card: linear-gradient(180deg, rgba(45, 40, 36, 0.95), rgba(36, 32, 29, 0.98));
-  --biliscript-reader-border: rgba(240, 235, 228, 0.14);
-  --biliscript-reader-text: #f0ebe4;
-  --biliscript-reader-muted: #b5aa9d;
+  --biliscript-reader-card: #211e1b;
+  --biliscript-reader-border: #332d28;
+  --biliscript-reader-text: #ece6df;
+  --biliscript-reader-muted: #9e9489;
   --biliscript-reader-faint: #8a8177;
   /* 暖赤陶（#E07A5F）：暗面上亮度足够，操作/选中/时间戳文字同一档。 */
   --biliscript-reader-accent: #e07a5f;
   --biliscript-reader-accent-soft: rgba(224, 122, 95, 0.16);
   /* accent-ink 按对比度定：暖炭黑深墨在 #e07a5f 实底上 6.17:1。 */
   --biliscript-reader-accent-ink: #171513;
-  --biliscript-reader-quote-mark: rgba(240, 235, 228, 0.09);
+  --biliscript-reader-quote-mark: rgba(236, 230, 223, 0.09);
   --biliscript-reader-pill-bg: #2a2622;
   --biliscript-reader-highlight: rgba(224, 122, 95, 0.14);
-  --biliscript-reader-track: rgba(240, 235, 228, 0.16);
+  --biliscript-reader-track: rgba(236, 230, 223, 0.16);
   --biliscript-reader-shadow: none;
-  --biliscript-reader-overlay-bg: rgba(23, 21, 19, 0.85);
+  --biliscript-reader-overlay-bg: rgba(23, 21, 19, 0.92);
   --biliscript-reader-font-serif: Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
-  /* 深色纸感壳：无径向光雾、无背景模糊。 */
-  --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(26, 23, 21, 0.98), rgba(23, 21, 19, 0.96) 180px);
+  /* 深色纸感壳：无径向光雾、无背景模糊；外框描边取深暖褐 #2C2723。 */
+  --biliscript-reader-mist-surface: #171513;
   --biliscript-reader-mist-blobs: none;
-  --biliscript-reader-mist-line: rgba(224, 122, 95, 0.2);
+  --biliscript-reader-mist-line: #2c2723;
   --biliscript-reader-mist-filter: none;
 }
 
@@ -475,12 +477,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   background: var(--biliscript-reader-time-bg);
 }
 
-/* 字幕列表减噪后的时间戳强调档（03 号票）：浅色档悬停/活动行时间戳沿用文字档
- * 点缀色——accent 亮蓝在白卡与透明底上对比都贴 3.4:1 不达 4.5 门（字色走
- * time-color token，色板块覆写为自己的文字档：flyme 柔和中蓝、editorial 深
- * 赤陶）。活动行时间戳在白卡实心胶囊内（reader.css 的 is-active 规则），深色档
- * 无本规则、走 reader.css 的原生 accent。 */
-#biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item.is-active .biliscript-reading-time,
+/* 字幕列表减噪后的时间戳强调档（03 号票）：浅色档悬停行时间戳沿用文字档
+ * 点缀色——accent 亮蓝在透明底上 3.4:1 不达 4.5 门（字色走 time-color token，
+ * 色板块覆写为自己的文字档：flyme 柔和中蓝、editorial 深赤陶）。活动行时间戳
+ * 的 time-bg/time-color 由 reader.css 的 is-active 规则直接消费 token，不经
+ * 本规则；深色档两边都走 accent 母题。 */
 #biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item:hover .biliscript-reading-time {
   color: var(--biliscript-reader-time-color);
 }
@@ -674,6 +675,45 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
+/* ===== editorial 数字刊物卡片质感 =====
+ * 蓝雾壳把卡片/控件统一改成了「border:none + 顶部玻璃内高光 + 软投影」的悬浮玻璃块；
+ * 数字刊物色板（data-palette="editorial"）回归方案 C 原型的羊皮纸书摘语言：
+ * 暖米实底（--card）+ 1px 暖沙细描边（--border）+ 零玻璃内高光，靠纸色分层与细线
+ * 定界，悬停切深半阶的暖沙底（--surface-3）。 */
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-tab.is-active,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-item.is-active,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-quote,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-chip,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .ai-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .asr-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .search-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-input,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-select,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-textarea,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .biliscript-set-quick-prompts input,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="text"],
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="password"],
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog select,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog input[type="text"],
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-trigger {
+  border: 1px solid var(--biliscript-reader-border);
+  box-shadow: none;
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter:hover,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-quote:hover {
+  background: var(--biliscript-reader-surface-3);
+  box-shadow: none;
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card:focus-within {
+  border: 1px solid var(--biliscript-reader-accent);
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
+}
+
 /* ===== 减弱透明度 =====
  * 半透明材质（设置抽屉、蓝雾壳）退回近实色：退回值即 surface 令牌
  *（var 引用，明暗两档各自解析到自己的 surface，无需分档规则），消费方
@@ -692,3 +732,4 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 /* 面板宽度：script-only-ui 排版定稿——贴栏宽度下限定死 380px（接线在
  * script-host：贴栏 rect 占锚点左缘到视口右缘整条右侧，仅在可填宽度不足
  * 380px 时作下限），CSS 无档位分支。字幕常显，无隐藏开关。 */
+
