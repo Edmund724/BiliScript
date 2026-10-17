@@ -475,10 +475,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   background: var(--biliscript-reader-time-bg);
 }
 
-/* 字幕列表减噪后的强调档同口径（03 号票）：浅色档活动/悬停行时间戳沿用柔和中蓝
- * ——accent 亮蓝 #008cff 在 accent-soft 浅底上对比不足，不随强调档回升
- *（字色走 time-color token，色板块覆写为自己的文字档点缀色）。 */
-#biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item.is-active .biliscript-reading-time,
+/* 字幕列表减噪后的悬停强调档（03 号票）：浅色档悬停行时间戳沿用文字档点缀色
+ * ——accent 亮蓝在透明底上对比不足（字色走 time-color token，色板块覆写为
+ * 自己的文字档：flyme 柔和中蓝、editorial 深赤陶）。活动行已改整行实心主色
+ * 胶囊、时间戳恒白（reader.css），不再走本规则。 */
 #biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item:hover .biliscript-reading-time {
   color: var(--biliscript-reader-time-color);
 }

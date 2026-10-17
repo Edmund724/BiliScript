@@ -616,15 +616,12 @@
   background: transparent;
 }
 
-#biliscript-reading-view .biliscript-reading-item.is-active {
-  background: var(--biliscript-reader-accent-soft);
-}
-
 /* 字幕列表时间戳减噪：非活动行的 pill 底清成透明、字色降为次级 muted、
  * tabular-nums 等宽数字——多行短句同屏时左列不再是成串蓝药丸。作用域收在
  * .biliscript-reading-item 内，章节卡/金句卡/AI 对话引用的 pill 母题不受影响；
  * 特异性 (1,3,0) 压过 gate 浅色档的全 pill 规则 (1,2,0)，浅色档同样退去。
- * 活动行与悬停行恢复主色强调，定位反馈只在这两态出现。 */
+ * 悬停行只把时间戳回主色（reader.css 强调档，浅色档由 gate time-color token
+ * 按色板覆写），不做整行高亮——整行胶囊专属活动行。 */
 #biliscript-reading-view .biliscript-reading-item .biliscript-reading-time {
   background: transparent;
   padding: 0;
@@ -632,9 +629,27 @@
   font-variant-numeric: tabular-nums;
 }
 
-#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time,
 #biliscript-reading-view .biliscript-reading-item:hover .biliscript-reading-time {
   color: var(--biliscript-reader-accent);
+}
+
+/* 活动行 = 整行实心主色胶囊（03 号票目标设计图）：行底、时间戳、正文同一
+ * 色条，时间戳与正文恒白、正文加粗，横贯整行的定位条。行底取 accent 压深
+ * 25%（color-mix，Chrome 111+，manifest 下限 120）——原生 accent 实底上白字
+ * 只有 2.9–3.4:1（flyme 两档），不达 4.5 门；压深后四档（flyme 亮暗蓝、
+ * editorial 亮暗赤陶）白字 4.8–7.4:1。色板只换 accent token 即自动跟随
+ * （editorial → 深一档赤陶）。时间戳清底在上方减噪规则已给，这里只反白。 */
+#biliscript-reading-view .biliscript-reading-item.is-active {
+  background: color-mix(in srgb, var(--biliscript-reader-accent), #000000 25%);
+}
+
+#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
+  color: #ffffff;
+}
+
+#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-text {
+  color: #ffffff;
+  font-weight: 600;
 }
 
 #biliscript-reading-view .biliscript-reading-text {
