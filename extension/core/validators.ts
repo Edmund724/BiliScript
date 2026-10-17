@@ -25,13 +25,17 @@ export function toString(value: unknown): string {
 }
 
 // ===== Reader normalizers =====
-// 三开关退役后只剩主题明暗一轴（字幕/章节可见性归一化已随其存储键一并删除）；
 // 留守本模块的原因不变：core/settings-store.ts（后台设置归一化）静态依赖它，
 // 迁移会破坏后台 bundle 与其测试。
-// 主题只剩明暗一轴：readerTheme 存 light | dark，未知存量值收敛为 light；色板
-// 恒 flyme，无主题族设置项。
+// 主题只剩明暗一轴：readerTheme 存 light | dark，未知存量值收敛为 light。
 export function normalizeReaderTheme(value: unknown): string {
   return value === "dark" ? value : "light";
+}
+
+// 外观色板（与明暗正交）：flyme 蓝雾玻璃 | editorial 数字刊物；缺失/非法
+// 存量值收敛为默认 flyme。
+export function normalizeReaderPalette(value: unknown): string {
+  return value === "editorial" ? value : "flyme";
 }
 
 // ===== Download / AI normalizers =====

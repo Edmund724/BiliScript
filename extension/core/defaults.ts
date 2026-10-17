@@ -42,6 +42,8 @@ export interface Settings {
   // 主题手动选择哨兵：header 按钮点击循环置 true（updateReaderPreferences），
   // 从未手动选过则水合时按 prefers-color-scheme 定初始主题（不落盘）。
   readerThemeUserSet: boolean;
+  // 外观色板（与明暗正交）：flyme 蓝雾玻璃 | editorial 数字刊物。
+  readerPalette: string;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   defaultModel: string;
@@ -87,6 +89,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enableDebugLogs: false,
   readerTheme: "light",
   readerThemeUserSet: false,
+  readerPalette: "flyme",
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],
   defaultModel: "",

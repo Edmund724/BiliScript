@@ -11,7 +11,8 @@
 //   E. 行为：apply 真的写全 writtenByApply 字段；close 真的清全 clearOnClose
 //      字段；守卫真的收敛 body 全集
 //（三开关退役 2026-09：subtitle-visible / chapter-visibility 字段随滚动/字幕/
-// 章节开关删除，表内排版字段只剩 theme；相关走样修正锚点用例改为否定断言。）
+// 章节开关删除，表内排版字段剩 theme（明暗）+ palette（色板）两项；相关走样
+// 修正锚点用例改为否定断言。）
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -224,8 +225,8 @@ describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
     expect(READER_CLOSE_ATTRS.readingView).toEqual(["data-biliscript-reader-follow"]);
     expect(READER_GUARD_CLEAR_ATTRS.readingView).toEqual([]);
     expect(READER_GUARD_FILTER.readingView).toEqual([]);
-    // 三开关退役后 close/守卫清理清单只剩 theme + mode/reading-active 等
-    // 页面级标志（subtitle-visible/chapter-visibility 随 2026-09 删除），
+    // 三开关退役后 close/守卫清理清单只剩 theme + palette + mode/reading-active
+    // 等页面级标志（subtitle-visible/chapter-visibility 随 2026-09 删除），
     // html/body 两侧清单仍完全一致。
     expect(READER_CLOSE_ATTRS.html).toEqual(READER_GUARD_CLEAR_ATTRS.html);
     expect(READER_CLOSE_ATTRS.body).toEqual(READER_GUARD_CLEAR_ATTRS.body);
@@ -233,6 +234,7 @@ describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
 
   it("监听键集合只含存活读写键（readerChapterVisible/Visibility 已随开关删除）", () => {
     expect(READER_SETTINGS_WATCH_KEYS).toContain("readerTheme");
+    expect(READER_SETTINGS_WATCH_KEYS).toContain("readerPalette");
     expect(READER_SETTINGS_WATCH_KEYS).toContain("enablePlayerAiQuickAction");
     expect(READER_SETTINGS_WATCH_KEYS).toContain("playerAiQuickPrompt");
     // 双语副列两键：无属性落位、只服务跨上下文收敛，登记在表内 settings 档
@@ -242,6 +244,38 @@ describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
     expect(READER_SETTINGS_WATCH_KEYS).not.toContain("readerChapterVisibility");
     expect(READER_SETTINGS_WATCH_KEYS).not.toContain("readerTranscriptVisible");
     expect(new Set(READER_SETTINGS_WATCH_KEYS).size).toBe(READER_SETTINGS_WATCH_KEYS.length);
+  });
+});
+
+describe("B2. palette（色板）字段契约", () => {
+  it("palette 字段：三处落位、storage 键与标志齐全，与 theme 同形", () => {
+    const paletteField = READER_PRESENTATION_FIELDS.find((field) => field.id === "palette");
+    expect(paletteField).toBeDefined();
+    expect(paletteField?.kind).toBe("presentation");
+    expect(paletteField?.targets).toEqual({
+      html: "data-biliscript-reader-palette",
+      body: "data-biliscript-reader-palette",
+      readingView: "data-palette"
+    });
+    expect(paletteField?.datasetKeys).toEqual({
+      html: "biliscriptReaderPalette",
+      body: "biliscriptReaderPalette",
+      readingView: "palette"
+    });
+    expect(paletteField?.storageKey).toBe("readerPalette");
+    expect(paletteField?.legacyStorageKey).toBe(null);
+    expect(paletteField?.watchedByGuard).toBe(true);
+    expect(paletteField?.clearOnGuard).toBe(true);
+    expect(paletteField?.clearOnClose).toBe(true);
+    expect(paletteField?.clearViewOnClose).toBe(false);
+    expect(paletteField?.writtenByApply).toBe(true);
+  });
+
+  it("readValue 读 state.reader.readingPalette；apply 子表含 palette", () => {
+    const paletteField = READER_PRESENTATION_FIELDS.find((field) => field.id === "palette")!;
+    state.reader.setPalette("editorial");
+    expect(paletteField.readValue!(state.reader)).toBe("editorial");
+    expect(READER_APPLY_FIELDS.map((field) => field.id)).toContain("palette");
   });
 });
 
@@ -362,7 +396,7 @@ describe("E. 行为：表声明的职责与 DOM 真实读写一致", () => {
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
   });
 
-  it("E2. closeReadingView 清全 clearOnClose 字段（现只含 theme + 页面级标志）", async () => {
+  it("E2. closeReadingView 清全 clearOnClose 字段（theme + palette + 页面级标志）", async () => {
     state.clip.subtitleBody = [{ from: 0, to: 10, content: "大家好" }];
     // 组合根语义：进入前 mode 由 content.js/message-handler 写
     document.documentElement.setAttribute("data-biliscript-reader-mode", "1");

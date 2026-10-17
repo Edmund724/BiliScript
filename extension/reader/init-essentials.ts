@@ -33,7 +33,8 @@ import { ensureReaderDomain } from "./lazy-reader.js";
 //   - enablePlayerAiQuickAction / playerAiQuickPrompt 两枚非呈现设置键以
 //     kind:"settings" 收进表（无属性落位，只为本监听键清单服务）。
 //（三开关退役 2026-09：readerChapterVisible/Visibility/TranscriptVisible 键已
-// 随滚动/字幕/章节开关删除，监听键只剩 readerTheme 与上述两枚 settings 键。）
+// 随滚动/字幕/章节开关删除；排版监听键为 readerTheme（明暗）与 readerPalette
+//（色板，01 号票新增），外加上述两枚 settings 键。）
 import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
 import type { Settings } from "../core/defaults.js";
 

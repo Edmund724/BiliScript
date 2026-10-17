@@ -9,8 +9,9 @@
 // 2026-10-17 03 号票（字幕时间戳减噪）：pill 清底从「仅活动行」推广到「字幕列表
 //   全部静止行」——清底 + padding 归零 + 次级 muted 字 + tabular-nums；活动行与
 //   悬停行回主色强调。作用域收在 .biliscript-reading-item 内，章节/金句/AI 引用的
-//   pill 母题保持 accent-soft 底 + accent 字；浅色档强调字沿用 gate 的柔和中蓝
-//   #2e6fc2（accent 亮蓝 #008cff 在 accent-soft 浅底上对比不足）。
+//   pill 母题保持 accent-soft 底 + accent 字；浅色档强调字走 gate 的
+//   time-color token（flyme 柔和中蓝 #2e6fc2；accent 亮蓝 #008cff 在 accent-soft
+//   浅底上对比不足）。
 // 形状同 reading-header-icon-btns.test.ts：直接断言 CSS 文本，防「改一半」——
 //   1. 下划线从别处漏回来（活动行文本再加 text-decoration，或线色又取 success 绿）；
 //   2. 删线顺手把线挪到基础段：非活动行的正文跟着带线；
@@ -101,14 +102,18 @@ describe("字幕活动行：底色留、下划线删、时间戳减噪", () => {
     );
   });
 
-  it("浅色档强调字沿用柔和中蓝：accent 亮蓝在 accent-soft 浅底上对比不足", () => {
+  it("浅色档强调字沿用柔和中蓝 token：accent 亮蓝在 accent-soft 浅底上对比不足", () => {
     const gate = readGate();
     const block = ruleBody(
       gate,
       "#biliscript-reading-view:not\\(\\[data-theme=\"dark\"\\]\\) \\.biliscript-reading-item:hover \\.biliscript-reading-time"
     );
 
-    expect(declaration(block, "color")).toBe("#2e6fc2");
+    // 浅色档强调字走 time-color token（01 号票起按色板覆写：flyme 柔和中蓝、
+    // editorial 深赤陶文字档），token 定义留在 gate 主题块里。
+    expect(declaration(block, "color")).toBe("var(--biliscript-reader-time-color)");
+    expect(gate).toContain("--biliscript-reader-time-color: #2e6fc2;");
+    expect(gate).toContain("--biliscript-reader-time-color: #9c4527;");
     expect(gate).toContain(
       "#biliscript-reading-view:not([data-theme=\"dark\"]) .biliscript-reading-item.is-active .biliscript-reading-time,"
     );

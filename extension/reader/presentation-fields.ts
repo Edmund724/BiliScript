@@ -11,9 +11,9 @@
 // 本表是这些清单的唯一声明处，五个消费方一律从表派生；「真实差异」用字段标志
 // （clearOnClose / clearOnGuard / watchedByGuard）显式化，不再靠各处手抄对齐。
 //
-// 三开关退役（滚动/字幕/章节不再可关，2026-09）：排版字段只剩 theme（明暗模式）
-// 一项，chapterVisibility / subtitleVisible 两字段连同其存储键随开关一并删除；
-// 主题族字段已删（色板恒 flyme，无家族轴）。
+// 三开关退役（滚动/字幕/章节不再可关，2026-09）：排版字段只剩明暗 theme 与
+// 色板 palette 两项，chapterVisibility / subtitleVisible 两字段连同其存储键
+// 随开关一并删除。
 //
 // 纯常量模块：零 import（连 core/state 都不碰），readValue 是注入 reader 状态
 // 对象的纯函数。content / pages / reader 任意侧都可安全 import，无循环依赖。
@@ -99,6 +99,21 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     clearViewOnClose: false,
     writtenByApply: true,
     readValue: (reader) => reader.readingTheme
+  },
+  // —— 排版设置标量：外观色板（与明暗正交；flyme 蓝雾玻璃 | editorial 数字刊物）——
+  {
+    id: "palette",
+    kind: "presentation",
+    targets: { html: "data-biliscript-reader-palette", body: "data-biliscript-reader-palette", readingView: "data-palette" },
+    datasetKeys: { html: "biliscriptReaderPalette", body: "biliscriptReaderPalette", readingView: "palette" },
+    storageKey: "readerPalette",
+    legacyStorageKey: null,
+    watchedByGuard: true,
+    clearOnGuard: true,
+    clearOnClose: true,
+    clearViewOnClose: false,
+    writtenByApply: true,
+    readValue: (reader) => reader.readingPalette
   },
   // —— 进入标记：apply 不写（组合根/enterReaderMode 写 "1"），close/守卫都清 ——
   {

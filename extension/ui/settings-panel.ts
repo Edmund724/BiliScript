@@ -32,6 +32,7 @@ import type { AiProviderPreset, AsrProviderPreset } from "../core/presets.js";
 import {
   normalizeDownloadFormat,
   normalizePlayerAiQuickPrompt,
+  normalizeReaderPalette,
   normalizeWebSearchMaxToolCalls
 } from "../core/validators.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -90,6 +91,7 @@ interface SettingsFormPayload {
   playerAiQuickPrompt: string;
   includeTimestampInBody: boolean;
   enableDebugLogs: boolean;
+  readerPalette: string;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
 }
@@ -129,6 +131,7 @@ function collectElements(host: HTMLElement) {
     host.querySelector(`#${id}`) as T;
   return {
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
+    readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>(dom.enablePlayerAiQuickAction),
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
@@ -241,6 +244,10 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   // initCustomSelect）。初始化标记（dataset.customSelectInitialized）使重复装载幂等。
   setCustomSelectValue(elements.downloadFormat, normalizeDownloadFormat(settings.downloadFormat));
   initCustomSelect(elements.downloadFormat, "custom-select-wrapper");
+  // 外观色板（与 downloadFormat 同款 custom-select 壳）：装载时归一存量值（非法/
+  // 缺失回落 flyme）再水合显示。
+  setCustomSelectValue(elements.readerPalette, normalizeReaderPalette(settings.readerPalette));
+  initCustomSelect(elements.readerPalette, "custom-select-wrapper");
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
@@ -533,6 +540,7 @@ async function openProviderEditorById(kind: ProviderEditorKind, providerId: stri
 function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
   return {
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
+    readerPalette: normalizeReaderPalette(elements.readerPalette.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
@@ -586,6 +594,7 @@ function buildDefaultPreferencePayload() {
     includeTimestampInBody: DEFAULT_SETTINGS.includeTimestampInBody,
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
+    readerPalette: DEFAULT_SETTINGS.readerPalette,
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
     // 初始问题的默认态 = 留空（按视频内容自动生成），不写固定文案。
     aiInitialQuickPrompts: [],

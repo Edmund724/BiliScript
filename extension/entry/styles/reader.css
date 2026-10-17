@@ -1317,6 +1317,16 @@
   word-break: break-word;
 }
 
+/* editorial 数字刊物色板：概览组标题、章节标题与金句正文走衬线字型栈
+ *（--font-serif token，gate 表 editorial 两块定义；flyme 色板无此 token、
+ * 本规则不命中， sans 不变）。色板与明暗正交——选择器只带 data-palette，
+ * 明暗档（data-theme）不影响字体落位。 */
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter-title,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-quote-text {
+  font-family: var(--biliscript-reader-font-serif);
+}
+
 /* 缺概括占位（manuscript 缺章打标，见 ai/chapter-plan.ts）：斜体 + faint 档，
  * 与正文概括（muted 档）拉开，读作「这里没有内容」而非一段概括。 */
 .biliscript-reading-ov-chapter-desc.is-missing {

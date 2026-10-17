@@ -96,6 +96,7 @@ export type ReaderShellState = "closed" | "entering" | "open" | "exiting";
 type ReaderBusinessState = {
   readingViewOpen: boolean;
   readingTheme: string;
+  readingPalette: string;
   readingSettingsExpanded: boolean;
   readingActiveSubtitleIndex: number;
   readingActiveChapterIndex: number;
@@ -114,6 +115,7 @@ type ReaderInternalState = {
 type ReaderSetters = {
   setViewOpen(value: boolean): void;
   setTheme(value: string): void;
+  setPalette(value: string): void;
   setSettingsExpanded(value: boolean): void;
   setActiveSubtitleIndex(value: number): void;
   setActiveChapterIndex(value: number): void;
@@ -132,6 +134,7 @@ const localReaderState: ReaderStateWritable = {
   get readingViewOpen() { return this.readingShellState === "open"; },
   set readingViewOpen(value: boolean) { this.readingShellState = value ? "open" : "closed"; },
   readingTheme: "light",
+  readingPalette: "flyme",
   readingSettingsExpanded: false,
   readingActiveSubtitleIndex: -1,
   readingActiveChapterIndex: -1,
@@ -141,6 +144,7 @@ const localReaderState: ReaderStateWritable = {
   readingViewReady: false,
   setViewOpen(value) { this.readingViewOpen = value; },
   setTheme(value) { this.readingTheme = value; },
+  setPalette(value) { this.readingPalette = value; },
   setSettingsExpanded(value) { this.readingSettingsExpanded = value; },
   setActiveSubtitleIndex(value) { this.readingActiveSubtitleIndex = value; },
   setActiveChapterIndex(value) { this.readingActiveChapterIndex = value; },

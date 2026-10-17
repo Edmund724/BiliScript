@@ -170,6 +170,46 @@ describe("normalizeSettings：主题明暗归一", () => {
   });
 });
 
+// 外观色板与明暗正交：readerPalette 只取 flyme | editorial，缺失/非法存量值
+// 归一回落默认 flyme。
+describe("normalizeReaderPalette", () => {
+  it("flyme/editorial 原样放行", async () => {
+    const { normalizeReaderPalette } = await import("../../extension/core/validators.js");
+    expect(normalizeReaderPalette("flyme")).toBe("flyme");
+    expect(normalizeReaderPalette("editorial")).toBe("editorial");
+  });
+
+  it("非法值与缺失值回落 flyme", async () => {
+    const { normalizeReaderPalette } = await import("../../extension/core/validators.js");
+    for (const dirty of ["neon", "paper", "", null, undefined, 1, {}, []]) {
+      expect(normalizeReaderPalette(dirty), `脏值 ${JSON.stringify(dirty)} 应回落 flyme`).toBe("flyme");
+    }
+  });
+});
+
+describe("normalizeSettings：外观色板归一", () => {
+  it("readerPalette=editorial 放行，非法/缺失值归一为 flyme", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(normalizeSettings({ readerPalette: "editorial" }).readerPalette).toBe("editorial");
+    for (const dirty of ["neon", "", null, undefined]) {
+      const out = normalizeSettings({ readerPalette: dirty });
+      expect(out.readerPalette, `readerPalette ${JSON.stringify(dirty)}`).toBe("flyme");
+    }
+  });
+
+  it("写路径同口径：saveSettings 落盘的 readerPalette 经归一步骤收敛", async () => {
+    const { saveSettings } = await loadStoreModule();
+
+    await saveSettings({ readerPalette: "neon" });
+
+    expect(syncSetMock).toHaveBeenCalledTimes(1);
+    expect(syncSetMock.mock.calls[0][0].readerPalette).toBe("flyme");
+
+    await saveSettings({ readerPalette: "editorial" });
+    expect(syncSetMock.mock.calls[1][0].readerPalette).toBe("editorial");
+  });
+});
+
 // 步骤表未接线时也能成立的部分：显式键值经写路径白名单原样透传（键面随
 // DEFAULT_SETTINGS 自动覆盖）。
 describe("normalizeSettings：主题明暗透传", () => {

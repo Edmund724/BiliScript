@@ -7,7 +7,7 @@
 // id 契约与原 options 页保持一致：settings-panel.ts 的 collectElements 按 id
 // 取自宿主容器，provider-family / validators 的行级选择器直接复用；分节顺序即
 // 抽屉内展示顺序（AI 模型平台 → 语音转写平台 → 搜索平台 → AI 按钮 →
-// AI 对话 → 导出 → 保存行）。
+// AI 对话 → 外观 → 导出 → 保存行）。
 // id 单一声明在下方 SETTINGS_PANEL_DOM_IDS：本文件的模板属性与 settings-panel.ts
 // collectElements 的查询 id 都从该表取值，改名单处生效。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
@@ -36,6 +36,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   enablePlayerAiQuickAction: "enablePlayerAiQuickAction",
   playerAiQuickPrompt: "playerAiQuickPrompt",
   aiSystemPrompt: "aiSystemPrompt",
+  readerPalette: "readerPalette",
   downloadFormat: "downloadFormat",
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
@@ -112,6 +113,18 @@ export function buildSettingsHtml(): string {
         <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 1" />
         <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 2" />
         <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 3" />
+      </div>
+    </section>
+
+    <section class="biliscript-set-group">
+      <div class="biliscript-set-h">外观</div>
+      <p class="biliscript-set-hint">外观色板决定文摘面板的整体视觉风格；明暗模式由面板顶栏的太阳 / 月亮按钮切换，两者互不影响。</p>
+      <div class="biliscript-set-row">
+        <label class="biliscript-set-label" for="${ids.readerPalette}">外观色板</label>
+        <select id="${ids.readerPalette}" class="biliscript-set-select">
+          <option value="flyme">蓝雾玻璃</option>
+          <option value="editorial">数字刊物</option>
+        </select>
       </div>
     </section>
 

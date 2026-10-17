@@ -1,9 +1,10 @@
-// 设置变更测试：主题
+// 设置变更测试：主题（明暗）与外观色板
 // 通过 hydrateReaderStateFromSettings 与 updateReaderPreferences 驱动，
 // 校验 data-attribute 在阅读视图、documentElement、body 三处的应用。
 //（script-only-ui：排版档位机制退役，字号/字距/行距/面板宽度不再可调，
 // 相关字段与 data-attribute 一并移除；三开关退役后章节/字幕可见性设置项
-// 与 data-attribute 也随之删除，设置只剩主题。）
+// 与 data-attribute 也随之删除。排版设置剩明暗 theme 与色板 palette 两轴，
+// 两轴正交：header 按钮只动明暗，设置抽屉色板选择只动色板。）
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NORMAL_PAGE_URL, READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -57,13 +58,31 @@ afterEach(() => {
 });
 
 describe("设置变更与 data-attribute", () => {
-  it("hydrateReaderStateFromSettings：应用主题设置（三开关退役后只剩主题）", () => {
+  it("hydrateReaderStateFromSettings：应用主题设置（明暗 + 色板两轴）", () => {
     presentation.hydrateReaderStateFromSettings({
       readerTheme: "dark",
-      readerThemeUserSet: true
+      readerThemeUserSet: true,
+      readerPalette: "editorial"
     });
 
     expect(state.reader.readingTheme).toBe("dark");
+    expect(state.reader.readingPalette).toBe("editorial");
+  });
+
+  it("hydrateReaderStateFromSettings：色板缺失/非法时归一回落 flyme（两条水合分支同口径）", () => {
+    // 未手动选过主题的分支（readerThemeUserSet 缺省）
+    presentation.hydrateReaderStateFromSettings({ readerPalette: "neon" });
+    expect(state.reader.readingPalette).toBe("flyme");
+    presentation.hydrateReaderStateFromSettings({});
+    expect(state.reader.readingPalette).toBe("flyme");
+
+    // 手动选过主题的分支
+    presentation.hydrateReaderStateFromSettings({
+      readerTheme: "dark",
+      readerThemeUserSet: true,
+      readerPalette: 1
+    } as unknown as Partial<typeof state.settings>);
+    expect(state.reader.readingPalette).toBe("flyme");
   });
 
   it("hydrateReaderStateFromSettings：未手动选过主题时按系统深浅定初始主题", () => {
@@ -106,6 +125,34 @@ describe("设置变更与 data-attribute", () => {
     expect(readingView.dataset.theme).toBe("light");
     expect(htmlEl.dataset.biliscriptReaderTheme).toBe("light");
     expect(bodyEl.dataset.biliscriptReaderTheme).toBe("light");
+  });
+
+  it("applyReadingViewPresentation：在视图/html/body 三处写 palette data-attribute", () => {
+    presentation.hydrateReaderStateFromSettings({
+      readerTheme: "dark",
+      readerThemeUserSet: true,
+      readerPalette: "editorial"
+    });
+    presentation.applyReadingViewPresentation();
+
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    const htmlEl = document.documentElement;
+    const bodyEl = document.body;
+
+    expect(readingView.dataset.palette).toBe("editorial");
+    expect(htmlEl.dataset.biliscriptReaderPalette).toBe("editorial");
+    expect(bodyEl.dataset.biliscriptReaderPalette).toBe("editorial");
+
+    // 存量非法色板经水合归一回落 flyme，apply 落位 flyme
+    presentation.hydrateReaderStateFromSettings({
+      readerTheme: "dark",
+      readerThemeUserSet: true,
+      readerPalette: "neon"
+    } as unknown as Partial<typeof state.settings>);
+    presentation.applyReadingViewPresentation();
+    expect(readingView.dataset.palette).toBe("flyme");
+    expect(htmlEl.dataset.biliscriptReaderPalette).toBe("flyme");
+    expect(bodyEl.dataset.biliscriptReaderPalette).toBe("flyme");
   });
 
   it("applyReadingViewPresentation：header 主题按钮图标/文案随主题刷新", () => {
@@ -190,6 +237,38 @@ describe("设置变更与 data-attribute", () => {
     expect(themeButton.innerHTML).not.toBe(darkIcon);
   });
 
+  it("header 主题按钮：切换明暗保持当前色板不变（色板与明暗正交）", async () => {
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    const themeButton = document.createElement("button");
+    themeButton.id = ids.readingThemeSelect;
+    readingView.appendChild(themeButton);
+    const closeBtn = document.createElement("button");
+    closeBtn.id = ids.readingCloseBtn;
+    readingView.appendChild(closeBtn);
+
+    presentation.hydrateReaderStateFromSettings({
+      readerTheme: "light",
+      readerThemeUserSet: true,
+      readerPalette: "editorial"
+    });
+    presentation.applyReadingViewPresentation();
+    expect(readingView.dataset.palette).toBe("editorial");
+
+    const uiRenderer = await import("../../extension/ui/ui-renderer.js");
+    uiRenderer.bindUiEvents();
+
+    themeButton.click();
+    await vi.waitFor(() => {
+      expect(state.reader.readingTheme).toBe("dark");
+    });
+    // 明暗已切、色板不动：三处 palette 属性保持 editorial
+    expect(readingView.dataset.palette).toBe("editorial");
+    expect(document.documentElement.dataset.biliscriptReaderPalette).toBe("editorial");
+    expect(document.body.dataset.biliscriptReaderPalette).toBe("editorial");
+    // 明暗照常落位
+    expect(readingView.dataset.theme).toBe("dark");
+  });
+
   it("settings 变更后：storage.onChanged 回调应用新主题", async () => {
     initEssentials.bindSettingsWatcher();
     const listener = chromeStub.storage.onChanged.addListener.mock.calls[0][0];
@@ -247,11 +326,47 @@ describe("设置变更与 data-attribute", () => {
       expect(state.settings.secondarySubtitleLang).toBe("ja-JP");
     });
   });
+
+  it("settings 变更后：readerPalette 跨标签页修改同步到三处 palette 属性", async () => {
+    initEssentials.bindSettingsWatcher();
+    const listener = chromeStub.storage.onChanged.addListener.mock.calls[0][0];
+
+    chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
+      if (message?.type === "get-settings") {
+        callback?.({
+          ok: true,
+          settings: {
+            readerTheme: "light",
+            readerThemeUserSet: true,
+            readerPalette: "editorial"
+          }
+        });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    state.reader.setViewOpen(true);
+
+    listener({ readerPalette: { newValue: "editorial" } }, "sync");
+
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    await vi.waitFor(() => {
+      expect(state.reader.readingPalette).toBe("editorial");
+      expect(readingView.dataset.palette).toBe("editorial");
+      expect(document.documentElement.dataset.biliscriptReaderPalette).toBe("editorial");
+      expect(document.body.dataset.biliscriptReaderPalette).toBe("editorial");
+    });
+    // 明暗不被色板存储变更带动（正交）
+    expect(state.reader.readingTheme).toBe("light");
+  });
 });
 
-// 主题只剩明暗一轴（readerTheme light | dark）：色板恒 flyme，主题族设置与
-// data-family 属性已删除。本 describe 守：水合只落明暗（退役三值制值收敛
-// light）、apply 只写 data-theme、设置抽屉不再提供主题选择项。
+// 明暗一轴：readerTheme 只存明暗（light | dark），色板是另一根正交轴
+//（readerPalette flyme | editorial，设置抽屉「外观」分区选择）。本 describe 守：
+// 水合只落明暗（退役三值制值收敛 light）、apply 只写 data-theme、抽屉不渲染
+// 主题族选择项、色板选择项随保存载荷落盘 readerPalette。
 describe("主题：只剩明暗一轴", () => {
   it("hydrateReaderStateFromSettings：明暗落位，退役三值制值收敛 light", () => {
     presentation.hydrateReaderStateFromSettings({
@@ -295,7 +410,7 @@ describe("主题：只剩明暗一轴", () => {
     expect(state.settings.readerTheme).toBe("dark");
   });
 
-  it("设置抽屉：不渲染主题选择项，保存载荷也不含 readerThemeFamily", async () => {
+  it("设置抽屉：外观分区提供色板选择项，保存载荷落盘归一后的 readerPalette", async () => {
     state.reader.setViewOpen(true);
 
     const sentTypes: string[] = [];
@@ -309,7 +424,8 @@ describe("主题：只剩明暗一轴", () => {
           settings: {
             readerTheme: "light",
             readerThemeUserSet: true,
-            readerThemeFamily: "bilibili"
+            readerThemeFamily: "bilibili",
+            readerPalette: "editorial"
           }
         });
         return undefined;
@@ -342,18 +458,67 @@ describe("主题：只剩明暗一轴", () => {
       expect(sentTypes).toContain("search-providers-list");
     });
 
-    expect(document.getElementById("readerThemeFamily")).toBeNull();
+    // 外观分区在场：色板下拉两档（flyme 默认 / editorial），装载显示存储值
     const groups = [...document.querySelectorAll<HTMLElement>(".biliscript-set-group")];
-    expect(
-      groups.some((group) => group.querySelector(".biliscript-set-h")?.textContent === "外观"),
-      "外观分区应随主题选择项一并移除"
-    ).toBe(false);
+    const appearance = groups.find(
+      (group) => group.querySelector(".biliscript-set-h")?.textContent === "外观"
+    );
+    expect(appearance, "外观分区应存在").toBeTruthy();
+    const paletteSelect = appearance!.querySelector<HTMLSelectElement>("#readerPalette")!;
+    expect(paletteSelect).toBeTruthy();
+    expect([...paletteSelect.options].map((option) => option.value)).toEqual([
+      "flyme",
+      "editorial"
+    ]);
+    expect(paletteSelect.value).toBe("editorial");
 
+    // 改选 flyme 后保存：载荷带归一后的 readerPalette
+    paletteSelect.value = "flyme";
+    paletteSelect.dispatchEvent(new Event("change", { bubbles: true }));
     const saveBtn = document.getElementById("biliscriptSettingsSaveBtn") as HTMLButtonElement;
     saveBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await vi.waitFor(() => {
       expect(saveSettingsPayload).not.toBeNull();
     });
+    expect(saveSettingsPayload).toHaveProperty("readerPalette", "flyme");
+    // 主题族早已退役：渲染与载荷都不复活
+    expect(document.getElementById("readerThemeFamily")).toBeNull();
     expect(saveSettingsPayload).not.toHaveProperty("readerThemeFamily");
+  });
+
+  it("设置抽屉：色板存量值非法时装载归一回落 flyme", async () => {
+    state.reader.setViewOpen(true);
+
+    const sentTypes: string[] = [];
+    chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
+      sentTypes.push(String(message?.type || ""));
+      if (message?.type === "get-settings") {
+        callback?.({ ok: true, settings: { readerPalette: "neon" } });
+        return undefined;
+      }
+      if (message?.type === "ai-presets-list" || message?.type === "asr-presets-list") {
+        callback?.({ ok: false });
+        return undefined;
+      }
+      if (
+        message?.type === "ai-providers-list" ||
+        message?.type === "asr-providers-list" ||
+        message?.type === "search-providers-list"
+      ) {
+        callback?.({ ok: true, providers: [] });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    const panel = await import("../../extension/ui/settings-panel.js");
+    panel.renderReaderSettingsPanel();
+    await vi.waitFor(() => {
+      expect(sentTypes).toContain("search-providers-list");
+    });
+
+    const paletteSelect = document.querySelector<HTMLSelectElement>("#readerPalette")!;
+    expect(paletteSelect.value).toBe("flyme");
   });
 });

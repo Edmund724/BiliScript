@@ -83,9 +83,14 @@ _Avoid_: popup- 词根消息名、进入阅读模式手抄序列
 _Avoid_: 把字幕控件门当硬门回退、降级位先挂后迁移
 
 **明暗模式**:
-浅色 / 深色两档：`light` | `dark`，由面板 header 的主题按钮切换，从未手选时按 `prefers-color-scheme` 定初始档。外观只此一轴：唯一色板 `flyme`（蓝雾分层玻璃色系）按明暗两档各出一份取值，设置抽屉不提供主题选择项。
+浅色 / 深色两档：`light` | `dark`，由面板 header 的主题按钮切换，从未手选时按 `prefers-color-scheme` 定初始档。明暗与色板是两根正交的轴：切明暗不动色板，换色板不动明暗。
 代码名：`readerTheme` / `normalizeReaderTheme` / `readingTheme` / `setTheme`
 _Avoid_: 用「主题」单字指明暗档位、把 `flyme` 当明暗档位（它是色板名，不是档位）
+
+**外观色板**:
+蓝雾玻璃 / 数字刊物两档：`flyme` | `editorial`，设置抽屉「外观」分区下拉选择、随「保存设置」落盘，跨标签页经 storage 监听自动同步；缺失/非法存储值归一回落 `flyme`。默认档 `flyme` 是蓝雾分层玻璃色系；`editorial` 数字刊物为暖纸感（浅：暖纸底 `#FAF7F2` + 赤陶 `#B85435`；深：暖炭黑 `#171513` + 暖赤陶 `#E07A5F`），明暗两档各出一份完整令牌（表面/卡片/文字/强调/边框），关闭蓝雾径向光斑，概览章节标题与金句正文走衬线字型栈。
+代码名：`readerPalette` / `normalizeReaderPalette` / `readingPalette` / `setPalette`（呈现属性表 `palette` 字段：`data-biliscript-reader-palette` / `data-palette`）
+_Avoid_: 把色板当明暗的第三档、在明暗按钮链路上改色板
 
 ### 面板控件
 
