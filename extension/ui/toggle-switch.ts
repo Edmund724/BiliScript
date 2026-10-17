@@ -90,8 +90,12 @@ export function initToggleSwitch(input: HTMLInputElement): void {
   let vel = 0;
   let raf = 0;
 
+  // 用 2D translateX 而非 translate3d：静止时不创建独立合成层，滑块与轨道在同一
+  // 绘制域做设备像素取整——分数倍率（Windows 125%/150%）下各行 Y 坐标小数部分
+  // 不同，分层取整会把同一 CSS 几何渲染成有的行居中、有的行偏下（真机实测）。
+  // X 向弹簧动画期间浏览器仍会做短暂合成（transform 动画），亚像素残差被运动掩盖。
   const apply = (): void => {
-    thumb.style.transform = `translate3d(${pos}px, 0, 0)`;
+    thumb.style.transform = pos === 0 ? "none" : `translateX(${pos}px)`;
   };
   apply();
 

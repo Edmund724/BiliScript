@@ -89,10 +89,10 @@
 
 /* 滑块：20px 白圆 + 轻阴影。阴影上下对称（两个 0 偏移投影：3px 模糊软环 +
  * 1px 细环）——向下偏移的阴影会让滑块下缘视觉重量更重、光学上显得偏下
- *（几何上是数学居中的：轨道 24 / 滑块 20 / top 2，上下各 2px）。位移由组件
- * JS 内联 transform 驱动（RAF 弹簧，prefers-reduced-motion 下瞬时吸附）；
- * pointer-events 关掉，命中判定统一走轨道——pointer capture 与
- * elementFromPoint 看到的都是 track。 */
+ *（几何上是数学居中的：轨道 24 / 滑块 20 / top 2，上下各 2px）。
+ * 刻意不声明 will-change：静止时滑块不提升为独立合成层，与轨道同域取整，
+ * 分数倍率下不会出现逐行不同的垂直偏移（toggle-switch.ts apply 同注）。
+ * pointer-events 关掉，命中判定统一走轨道。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-thumb {
   position: absolute;
   top: 2px;
@@ -102,7 +102,6 @@
   border-radius: 50%;
   background: #ffffff;
   box-shadow: 0 0 3px rgba(23, 24, 26, 0.16), 0 0 1px rgba(23, 24, 26, 0.22);
-  will-change: transform;
   pointer-events: none;
 }
 

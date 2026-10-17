@@ -137,7 +137,7 @@ describe("initToggleSwitch：接线与值源语义", () => {
     stubReducedMotion();
     const { input, thumb } = mountToggle(true);
     initToggleSwitch(input);
-    expect(thumb.style.transform).toBe("translate3d(16px, 0, 0)");
+    expect(thumb.style.transform).toBe("translateX(16px)");
   });
 
   it("syncToggleSwitch：外部写 .checked 后视觉吸附现值，且不派发 change", () => {
@@ -149,12 +149,12 @@ describe("initToggleSwitch：接线与值源语义", () => {
 
     input.checked = true;
     syncToggleSwitch(input);
-    expect(thumb.style.transform).toBe("translate3d(16px, 0, 0)");
+    expect(thumb.style.transform).toBe("translateX(16px)");
     expect(onChange).not.toHaveBeenCalled();
 
     input.checked = false;
     syncToggleSwitch(input);
-    expect(thumb.style.transform).toBe("translate3d(0px, 0, 0)");
+    expect(thumb.style.transform).toBe("none");
     expect(onChange).not.toHaveBeenCalled();
   });
 });
@@ -167,11 +167,11 @@ describe("点击与键盘路径：change 驱动弹簧", () => {
 
     input.checked = true;
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(thumb.style.transform).toBe("translate3d(16px, 0, 0)");
+    expect(thumb.style.transform).toBe("translateX(16px)");
 
     input.checked = false;
     input.dispatchEvent(new Event("change", { bubbles: true }));
-    expect(thumb.style.transform).toBe("translate3d(0px, 0, 0)");
+    expect(thumb.style.transform).toBe("none");
   });
 
   it("普通模式：change 后经 RAF 弹簧最终到位", async () => {
@@ -181,7 +181,7 @@ describe("点击与键盘路径：change 驱动弹簧", () => {
     input.checked = true;
     input.dispatchEvent(new Event("change", { bubbles: true }));
     await vi.waitFor(() => {
-      expect(thumb.style.transform).toBe("translate3d(16px, 0, 0)");
+      expect(thumb.style.transform).toBe("translateX(16px)");
     });
   });
 });
@@ -215,7 +215,7 @@ describe("拖拽：位置过半 + 松手速度决定吸附侧", () => {
 
     expect(input.checked).toBe(false);
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(thumb.style.transform).toBe("translate3d(0px, 0, 0)");
+    expect(thumb.style.transform).toBe("none");
   });
 
   it("拖拽松手后到达的 click 被抑制：不再二次翻转", () => {
@@ -272,8 +272,8 @@ describe("设置面板集成：接线与水合", () => {
     });
     // 水合值：includeDateInFilename / asrAutoFallback 缺省 true → 滑块在开侧
     const onThumb = host.querySelector<HTMLElement>("#includeDateInFilename ~ .biliscript-toggle-track .biliscript-toggle-thumb")!;
-    expect(onThumb.style.transform).toBe("translate3d(16px, 0, 0)");
+    expect(onThumb.style.transform).toBe("translateX(16px)");
     const offThumb = host.querySelector<HTMLElement>("#enableDebugLogs ~ .biliscript-toggle-track .biliscript-toggle-thumb")!;
-    expect(offThumb.style.transform).toBe("translate3d(0px, 0, 0)");
+    expect(offThumb.style.transform).toBe("none");
   });
 });
