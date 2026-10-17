@@ -224,8 +224,11 @@
   color: var(--biliscript-reader-faint);
 }
 
-/* 复选行统一：.biliscript-set-check（导出区等长标签）的标签度量——accent 色由
- * 下方原生控件统一规则声明。单选框（.asr-provider-active）并到同一套度量（Q19）。 */
+/* 复选行统一：.biliscript-set-check 的标签度量（字号/行高/文字色/cursor）。
+ * 消费方现状（ADR-0019 自绘控件边界）：设置抽屉的 5 个持久布尔开关是本类的
+ * biliscript-toggle-row 形态——文字左列 + 自绘开关右列，行布局与轨道/滑块
+ * 样式在组件表 styles/toggle-switch.css（随 ui/toggle-switch.ts 挂载）；provider
+ * 行等操作型复选框/单选保持原生，accent 色由下方统一规则给出。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-check {
   display: flex;
   align-items: flex-start;
@@ -238,17 +241,13 @@
 }
 
 /* 原生控件主题色统一（brand-consistent-forms）：checkbox / radio / range 一律
- * accent 色，单条声明覆盖全表，不引入自定义替代控件（accent-color 只着色这几
- * 类原生控件）；各控件的 margin/flex 度量留在各自族规则。 */
+ * accent 色，单条声明覆盖全表。消费方是保持原生的操作型控件（provider 行复选/
+ * 单选、radio）；自绘开关（toggle-switch 组件）的原生 input 已视觉隐藏留在 DOM
+ * 作值源与键盘/读屏目标，本条对它无可见效果。 */
 #biliscript-reading-view .biliscript-reading-settings-host input[type="checkbox"],
 #biliscript-reading-view .biliscript-reading-settings-host input[type="radio"],
 #biliscript-reading-view .biliscript-reading-settings-host input[type="range"] {
   accent-color: var(--biliscript-reader-accent);
-}
-
-#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-check input[type="checkbox"] {
-  margin: 2px 0 0;
-  flex: 0 0 auto;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-quick-prompts {

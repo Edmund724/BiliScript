@@ -1,0 +1,111 @@
+/* ===== 自绘开关组件表（随 ui/toggle-switch.ts 组件走，ADR-0019） =====
+ * 设置抽屉 5 个持久布尔开关的自绘 iOS 风格开关。组件表不住进设置三件套
+ *（reader-settings-{shell,rows,providers}.css）：开关是 ui/toggle-switch.ts
+ * 的组件壳（custom-select.css 同款先例），由组件模块顶层
+ * ensureToggleSwitchStyles 挂载。
+ *
+ * 作用域：#biliscript-reading-view + 设置宿主前缀。开关结构（模板在
+ * settings-panel-html.ts）：
+ *   <label class="biliscript-set-check biliscript-toggle-row">
+ *     <span class="biliscript-toggle-text">…</span>
+ *     <input type="checkbox" class="biliscript-toggle-input" />
+ *     <span class="biliscript-toggle-track"><span class="biliscript-toggle-thumb"></span></span>
+ *   </label>
+ * 原生 input 视觉隐藏但留在 Tab 序与无障碍树（clip 隐藏，非 display:none），
+ * 键盘 Space / 读屏语义零自建；轨道 + 滑块是纯装饰（track 带 aria-hidden）。
+ *
+ * 特异性纪律：行布局覆盖 .biliscript-set-check 的既有度量（shell 表
+ * align-items: flex-start / gap: 7px），选择器带全
+ * #biliscript-reading-view .biliscript-reading-settings-host 前缀并多挂
+ * .biliscript-toggle-row 类（(1,3,0)），稳赢 shell 表的 (1,2,0)——本表挂在
+ * 设置三件套之前（组件 import 先求值），同分比不过后挂的表。
+ *
+ * 滑块位移是组件 JS 内联 transform（弹簧积分器驱动），本表只定静止几何：
+ * 轨道 40×24、滑块 20px 圆、两侧内边距各 2px（行程 = 40-20-4 = 16，
+ * JS 的 travel() 同源）。颜色/边框走 --biliscript-reader-* token
+ *（reader-gate.css 两主题定义），明暗自动适配。 */
+
+/* 开关行：文字左列自然换行、开关固定右列（space-between 两端对齐）。
+ * user-select 关掉：拖拽跟手时指针扫过文字列不触发拖选（pointerdown 不能
+ * preventDefault——那会把原生 click 路径一并吞掉，点击就靠它激活 input）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-check.biliscript-toggle-row {
+  position: relative;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 文字列：吃掉左列全部剩余宽度，长文案在此自然换行。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 原生 input：视觉隐藏（保留键盘 Tab / Space 与读屏可用性，不用 display:none）。
+ * clip 双写（rect + clip-path）覆盖新旧引擎；1px 盒 + 负 margin 是经典 sr-only 配方。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 轨道：40×24 圆角胶囊。关态取主题灰 token surface-3（亮 #e9ebef / 暗 #222327），
+ * 开态由下方 :checked 兄弟选择器切 accent。颜色切换走 200ms 短过渡（滑块本身
+ * 的位移是 JS 弹簧，不经 transition）。touch-action 只放行纵向滚动，横向拖
+ * 拽完整留给组件的 pointermove 跟手。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--biliscript-reader-surface-3);
+  cursor: pointer;
+  touch-action: pan-y;
+  transition: background-color 0.2s var(--biliscript-reader-ease-spring, ease);
+}
+
+/* 开态轨道：input 与 track 是相邻兄弟，:checked ~ 配色选择器（次序是契约，
+ * 组件 JS 的 initToggleSwitch 也按 nextElementSibling 认 track）。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-input:checked ~ .biliscript-toggle-track {
+  background: var(--biliscript-reader-accent);
+}
+
+/* 焦点态与设置表控件同规格：accent-soft 2px soft 光环落在轨道上（input 本身
+ * 不可见，环画在它旁边没有意义）。:focus-visible 只认真键盘焦点，指针点击
+ * 不触发。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-input:focus-visible ~ .biliscript-toggle-track {
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
+}
+
+/* 滑块：20px 白圆 + 轻阴影。位移由组件 JS 内联 transform 驱动（RAF 弹簧，
+ * prefers-reduced-motion 下瞬时吸附）；pointer-events 关掉，命中判定统一走
+ * 轨道——pointer capture 与 elementFromPoint 看到的都是 track。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.25), 0 1px 1px rgba(23, 24, 26, 0.15);
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* 减少动态：轨道颜色短过渡关停（滑块位移在 JS 侧已退化为瞬时吸附）。 */
+@media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-track {
+    transition: none;
+  }
+}

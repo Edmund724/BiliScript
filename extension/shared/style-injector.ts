@@ -2,7 +2,8 @@
 // 播放器 AI 表（styles/player-ai.css）、设置分区表组（styles/
 // reader-settings-{shell,rows,providers}.css，arch-slim-4/04，2026-09 拆分）、
 // 自定义下拉组件表（styles/custom-select.css，2026-10 从设置表抽出，随
-// ui/custom-select.ts 组件走）、对话分区表（styles/reader-chat.css，arch-slim-4/07）
+// ui/custom-select.ts 组件走）、自绘开关组件表（styles/toggle-switch.css，随
+// ui/toggle-switch.ts 组件走）、对话分区表（styles/reader-chat.css，arch-slim-4/07）
 // 与双语字幕表（styles/bilingual-subtitles.css，随 reader/subtitle-tab-ui.ts 走）
 // 不再经 manifest 常驻注入，改由本模块在对应能力启用时挂载。
 //
@@ -125,6 +126,15 @@ const CUSTOM_SELECT_STYLE_PATH = "entry/styles/custom-select.css";
 
 export function ensureCustomSelectStyles(): void {
   mountStyleLink(CUSTOM_SELECT_STYLE_PATH);
+}
+
+// 自绘开关组件表（随 ui/toggle-switch.ts 组件走）：设置抽屉的持久布尔开关
+//（ADR-0019 自绘控件边界）由本组件接管展示，规则不住进设置三件套。挂载点
+// 同组件表先例——组件模块顶层 ensure，不建 onload 门控，exitReaderShell 不摘除。
+const TOGGLE_SWITCH_STYLE_PATH = "entry/styles/toggle-switch.css";
+
+export function ensureToggleSwitchStyles(): void {
+  mountStyleLink(TOGGLE_SWITCH_STYLE_PATH);
 }
 
 // 双语字幕表（bilingual-subtitles/06）：字幕工具条选轨控件的双语弹层（两列 +

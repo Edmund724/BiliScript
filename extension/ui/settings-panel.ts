@@ -45,6 +45,7 @@ import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } fr
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from "./custom-select.js";
+import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
@@ -245,6 +246,10 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
+  // 自绘开关（ADR-0019）：水合直接写 .checked（值源语义不变，零事件），视觉经
+  // syncToggleSwitch 吸附到现值——与 custom-select 的「显示 = 现值」同口径。
+  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs]
+    .forEach(syncToggleSwitch);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
 
@@ -254,6 +259,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
 
   // ASR 配置
   elements.asrAutoFallback.checked = settings.asrAutoFallback !== false;
+  syncToggleSwitch(elements.asrAutoFallback);
   const asrProviders = await loadAsrProviders();
   familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, asrProviders, {
     presets: asrPresets,
@@ -644,6 +650,12 @@ async function saveSettings(elements: SettingsElements): Promise<void> {
 function bindSettingsEvents(host: HTMLElement): void {
   const elements = collectElements(host);
 
+  // 自绘开关接线（ADR-0019）：5 个持久布尔开关换 iOS 风格开关壳（轨道 + 滑块
+  // 装饰、原生 input 视觉隐藏留作值源与键盘/读屏目标）。id / .checked / change
+  // 语义全不变——即时保存监听（asrAutoFallback）与 collectFormPayload 照原样工作。
+  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs]
+    .forEach(initToggleSwitch);
+
   familyRows.asr.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveAsrProviderId(elements.asrProvidersList) || "") === providerId) {
       await sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: "" } });
@@ -740,6 +752,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   // onChanged 回读他端改动（区/键过滤走 shared/watch-storage-keys seam，R3 收口）。
   watchStorageKeys((changes) => {
     elements.asrAutoFallback.checked = changes.asrAutoFallback.newValue !== false;
+    syncToggleSwitch(elements.asrAutoFallback);
     if (changes.webSearchMaxToolCalls) {
       elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(changes.webSearchMaxToolCalls.newValue));
     }

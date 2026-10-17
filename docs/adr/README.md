@@ -24,6 +24,7 @@
 | [0016](0016-secondary-subtitle-slot-and-transaction.md) | 双语副轨独立成槽，走并列事务与独立通知 kind | 有效 | 与 ADR-0005 同域（状态袋写纪律）；推翻「派生内容指纹不加副轨输入」的早期口径，改认副轨 body 引用 |
 | [0017](0017-subtitle-prefetch-on-video-page.md) | 字幕预抓取：进视频页即抓，替代完全懒加载 | 有效 | 改「字幕接受」链的起跑时机；发送闸补 error 重试与拦截（GateOutcome 第三个 kind） |
 | [0018](0018-gemini-native-protocol.md) | 引入第三种线格式协议（Gemini 原生 generateContent） | 有效 | 推翻 CONTEXT.md 既有 Avoid 裁决（见正文背景） |
+| [0019](0019-settings-toggle-custom-drawn-boundary.md) | 设置抽屉布尔开关自绘 toggle-switch，操作型复选框保持原生 | 有效 | 自绘控件边界（持久设置布尔开关可自绘）；推翻 reader-settings-shell.css「不引入自定义替代控件」旧约定 |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
 

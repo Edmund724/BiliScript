@@ -11,7 +11,10 @@
 // id 单一声明在下方 SETTINGS_PANEL_DOM_IDS：本文件的模板属性与 settings-panel.ts
 // collectElements 的查询 id 都从该表取值，改名单处生效。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
-// chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。
+// chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。5 个
+// 布尔开关行（biliscript-toggle-row）的轨道/滑块样式走组件表
+// styles/toggle-switch.css（ADR-0019，随 ui/toggle-switch.ts 挂载），id 与
+// .checked 语义不变：装载/保存逻辑照读原生 input。
 
 // 设置抽屉的 DOM id 词汇表：模板属性与收集器查询的共同声明。key = settings-panel.ts
 // collectElements 元素袋的字段名（saveBtn / resetBtn / status 的 id 带
@@ -62,9 +65,10 @@ export function buildSettingsHtml(): string {
       <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">还没有配置语音转写平台。点击下方添加按钮从预设创建，无字幕视频将无法自动生成字幕。</p>
       <button id="${ids.addAsrProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
-      <label class="biliscript-set-check asr-fallback-checkbox">
-        <input id="${ids.asrAutoFallback}" type="checkbox" />
-        无字幕时自动生成字幕
+      <label class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
+        <span class="biliscript-toggle-text">无字幕时自动生成字幕</span>
+        <input id="${ids.asrAutoFallback}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
       </label>
     </section>
 
@@ -84,9 +88,10 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group">
       <div class="biliscript-set-h">AI 按钮</div>
-      <label class="biliscript-set-check">
-        <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" />
-        在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空
+      <label class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空</span>
+        <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
       </label>
       <textarea
         id="${ids.playerAiQuickPrompt}"
@@ -119,17 +124,20 @@ export function buildSettingsHtml(): string {
           <option value="txt">TXT</option>
         </select>
       </div>
-      <label class="biliscript-set-check">
-        <input id="${ids.includeDateInFilename}" type="checkbox" />
-        文件名前包含导出日期
+      <label class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">文件名前包含导出日期</span>
+        <input id="${ids.includeDateInFilename}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
       </label>
-      <label class="biliscript-set-check">
-        <input id="${ids.includeTimestampInBody}" type="checkbox" />
-        在字幕正文中保留时间戳
+      <label class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">在字幕正文中保留时间戳</span>
+        <input id="${ids.includeTimestampInBody}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
       </label>
-      <label class="biliscript-set-check">
-        <input id="${ids.enableDebugLogs}" type="checkbox" />
-        启用调试日志（仅在排查问题时开启）
+      <label class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">启用调试日志（仅在排查问题时开启）</span>
+        <input id="${ids.enableDebugLogs}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
       </label>
     </section>
 
