@@ -1300,6 +1300,16 @@
   word-break: break-word;
 }
 
+/* 时间轴章节主副标题拆分的次级说明（仅 outline 来源且无 summary 时渲染，
+ * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方粗体主标题。 */
+.biliscript-reading-ov-chapter-subtitle {
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--biliscript-reader-muted);
+  word-break: break-word;
+}
+
 .biliscript-reading-ov-chapter-desc {
   font-size: 16px;
   line-height: 1.6;

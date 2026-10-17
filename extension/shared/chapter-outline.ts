@@ -8,6 +8,7 @@
 // 守卫），故下沉到此。定位容错单源 shared/clock-text.ts 的 parseClock。
 
 import { parseClock } from "./clock-text.js";
+import { decodeHtmlEntities } from "./string-utils.js";
 
 /** 时间轴目录里的单条章节：秒数 + 标题（标题原样保留，不让模型改写）。 */
 export interface OutlineChapter {
@@ -58,7 +59,9 @@ export function parseChapterOutline(text: unknown, limit: number = MAX_OUTLINE_C
     const match = line.match(OUTLINE_LINE_RE);
     if (!match) continue;
     const seconds = parseOutlineClock(match[1]);
-    const title = match[2].trim();
+    // 源文本（简介/评论接口正文）常带 HTML 字符实体：标题还原成真实字符再入目录，
+    // 下游渲染统一 escapeHtml，解码不引入 XSS 面。
+    const title = decodeHtmlEntities(match[2]).trim();
     if (seconds < 0 || !title || seen.has(seconds)) continue;
     seen.add(seconds);
     out.push({ seconds, title });
@@ -68,6 +71,45 @@ export function parseChapterOutline(text: unknown, limit: number = MAX_OUTLINE_C
   }
   out.sort((a, b) => a.seconds - b.seconds);
   return out.slice(0, Math.max(0, Math.floor(Number(limit) || 0)));
+}
+
+/** 主副标题拆分结果：粗体主标题 + 常规体次级说明（概览章节卡两层展示）。 */
+export interface OutlineTitleSplit {
+  primary: string;
+  secondary: string;
+}
+
+// 主分隔符口径（读者 UI 打磨票 02）：全角冒号、半角冒号、成对破折号——。
+// 单个「—」（未成对 em dash）不算分隔符，故分隔符表里只有双写形式。
+const OUTLINE_TITLE_SEPARATORS = ["：", ":", "——"] as const;
+
+/**
+ * 简介/评论时间轴章节标题的「主副标题拆分」（仅展示层消费）：按出现位置取
+ * 最早的主分隔符切成两段；任一侧为空（标题以分隔符开头/结尾）或不含分隔符
+ * 时返回 null——调用方保持原有单层结构。官方章节（manuscript）与 AI 自由分章
+ * 不调用本函数。
+ */
+export function splitOutlineChapterTitle(title: unknown): OutlineTitleSplit | null {
+  const text = String(title ?? "").trim();
+  let cut = -1;
+  let cutLength = 0;
+  for (const separator of OUTLINE_TITLE_SEPARATORS) {
+    const index = text.indexOf(separator);
+    if (index < 0) continue;
+    if (cut < 0 || index < cut || (index === cut && separator.length > cutLength)) {
+      cut = index;
+      cutLength = separator.length;
+    }
+  }
+  if (cut < 0) {
+    return null;
+  }
+  const primary = text.slice(0, cut).trim();
+  const secondary = text.slice(cut + cutLength).trim();
+  if (!primary || !secondary) {
+    return null;
+  }
+  return { primary, secondary };
 }
 
 /**

@@ -9,6 +9,7 @@
 import { state } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
+import { splitOutlineChapterTitle, type ChapterSourceKind } from "../shared/chapter-outline.js";
 import { getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -239,7 +240,7 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
     `;
   }
 
-  const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours)).join("");
+  const chapterBlocks = chapters.map((item) => chapterCardHtml(item, withHours, snapshot.chapterSourceKind)).join("");
   // 官方章节缺概括（missingSummary，ai/chapter-plan.ts 打标）：给出整份重跑入口。
   // 重试走 forceRefresh——整份缓存不读、段缓存照常复用，与 partial/error 重试同一语义。
   const missingCount = chapters.filter((item) => item.missingSummary).length;
@@ -265,7 +266,7 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
 
 // 章节卡（时间戳 pill + 标题 + 小结，点击跳播）。缺概括（missingSummary）时渲染
 // 占位行而不是静默留白——空串的正常来源是简介/评论时间轴（titlesOnly，不打标）。
-function chapterCardHtml(item: AnalysisChapter, withHours: boolean): string {
+function chapterCardHtml(item: AnalysisChapter, withHours: boolean, chapterSourceKind: ChapterSourceKind): string {
   const from = Number(item.from) || 0;
   const desc = String(item.summary || "").trim();
   const descHtml = desc
@@ -273,11 +274,19 @@ function chapterCardHtml(item: AnalysisChapter, withHours: boolean): string {
     : item.missingSummary
       ? `<span class="biliscript-reading-ov-chapter-desc is-missing">本章概括缺失</span>`
       : "";
+  // 简介/评论时间轴（outline）且章节无独立 summary：标题按首个主分隔符拆成
+  // 粗体主标题 + 常规体次级说明两层（消除全粗体堆叠的文字砖墙感）；官方章节
+  // （manuscript）与 AI 自由分章（auto）保持原有单层结构。两段都经 escapeHtml。
+  const split = chapterSourceKind === "outline" && !desc ? splitOutlineChapterTitle(item.title) : null;
+  const titleHtml = split
+    ? `<span class="biliscript-reading-ov-chapter-title">${escapeHtml(split.primary)}</span>` +
+      `<span class="biliscript-reading-ov-chapter-subtitle">${escapeHtml(split.secondary)}</span>`
+    : `<span class="biliscript-reading-ov-chapter-title">${escapeHtml(String(item.title))}</span>`;
   return `
     <button type="button" class="biliscript-reading-ov-chapter" data-seconds="${from}">
       <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
       <span class="biliscript-reading-ov-chapter-copy">
-        <span class="biliscript-reading-ov-chapter-title">${escapeHtml(String(item.title))}</span>
+        ${titleHtml}
         ${descHtml}
       </span>
     </button>

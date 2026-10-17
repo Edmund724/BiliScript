@@ -606,6 +606,104 @@ describe("章节与金句分区渲染（自带章节 / AI 分章 / 无章节）"
   });
 });
 
+// 读者 UI 打磨票 02：简介/评论时间轴（outline）来源且无独立 summary 的章节，
+// 标题按首个主分隔符拆为粗体主标题 + 常规体次级说明；官方章节与 AI 分章不拆。
+describe("章节主副标题拆分渲染（仅 outline 来源）", () => {
+  function chapterTitleTexts(): string[] {
+    return Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-title")).map(
+      (node) => node.textContent || ""
+    );
+  }
+
+  function chapterSubtitleTexts(): string[] {
+    return Array.from(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-subtitle")).map(
+      (node) => node.textContent || ""
+    );
+  }
+
+  // 简介带 ≥2 条时间轴 → 分章来源裁定 outline（state.clip.chapters 为空）。
+  function seedOutlineClip(description: string): void {
+    seedClip();
+    state.clip.description = description;
+  }
+
+  it("outline 来源：含分隔符的标题拆为粗体主标题 + 常规体次级说明两层", async () => {
+    seedOutlineClip("00:00 环境准备：安装与配置\n03:00 常见问题——答疑");
+    runOverviewMock.mockResolvedValue({
+      chapters: [
+        { from: 0, to: 180, title: "环境准备：安装与配置", summary: "" },
+        { from: 180, to: 300, title: "常见问题——答疑", summary: "" }
+      ],
+      quotes: []
+    });
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(chapterTitleTexts()).toEqual(["环境准备", "常见问题"]);
+    expect(chapterSubtitleTexts()).toEqual(["安装与配置", "答疑"]);
+  });
+
+  it("outline 来源：无分隔符的短标题保持单层结构（无次级说明节点）", async () => {
+    seedOutlineClip("00:00 评论区开场\n03:00 评论区正题");
+    runOverviewMock.mockResolvedValue({
+      chapters: [
+        { from: 0, to: 180, title: "评论区开场", summary: "" },
+        { from: 180, to: 300, title: "评论区正题", summary: "" }
+      ],
+      quotes: []
+    });
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(chapterTitleTexts()).toEqual(["评论区开场", "评论区正题"]);
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-subtitle").length).toBe(0);
+  });
+
+  it("outline 来源：拆分后的文本经安全转义——标题含 HTML 不产生真实元素", async () => {
+    seedOutlineClip("00:00 主线&lt;img&gt;：细节&amp;\n03:00 常态");
+    runOverviewMock.mockResolvedValue({
+      chapters: [
+        { from: 0, to: 180, title: "主线<img>：细节&", summary: "" },
+        { from: 180, to: 300, title: "常态", summary: "" }
+      ],
+      quotes: []
+    });
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(chapterTitleTexts()).toEqual(["主线<img>", "常态"]);
+    expect(chapterSubtitleTexts()).toEqual(["细节&"]);
+    // 转义生效：文本以字面量呈现，DOM 里没有注入的 img 元素
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter img").length).toBe(0);
+  });
+
+  it("官方章节（manuscript）含分隔符也不拆分", async () => {
+    seedClip({ chapters: [{ from: 100, title: "官方章一" }] });
+    runOverviewMock.mockResolvedValue({
+      chapters: [{ from: 100, to: 300, title: "官方章一：不分", summary: "", missingSummary: true }],
+      quotes: []
+    });
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(chapterTitleTexts()).toEqual(["官方章一：不分"]);
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-subtitle").length).toBe(0);
+  });
+
+  it("AI 自由分章含分隔符也不拆分", async () => {
+    seedClip();
+    runOverviewMock.mockResolvedValue({
+      chapters: [{ from: 0, to: 300, title: "AI 章：不分", summary: "AI 概括" }],
+      quotes: []
+    });
+
+    await reader.triggerReaderOverviewGeneration();
+
+    expect(chapterTitleTexts()).toEqual(["AI 章：不分"]);
+    expect(overviewBody().querySelectorAll(".biliscript-reading-ov-chapter-subtitle").length).toBe(0);
+  });
+});
+
 describe("概览点击 seek（章节/金句跳播）与金句复制", () => {
   beforeEach(async () => {
     seedClip();
@@ -1143,6 +1241,7 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
         phase: "error",
         analysis: null,
         aiChapters: false,
+        chapterSourceKind: "auto",
         progressText: "",
         errorText: "自定义快照错误",
         stripText: "错误条文案",

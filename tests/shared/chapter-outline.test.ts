@@ -7,7 +7,8 @@ import {
   hotCommentsText,
   manuscriptChapterOutline,
   parseChapterOutline,
-  resolveChapterSource
+  resolveChapterSource,
+  splitOutlineChapterTitle
 } from "../../extension/shared/chapter-outline.js";
 
 const MANUSCRIPT = [
@@ -74,6 +75,73 @@ describe("parseChapterOutline 上限可参数化", () => {
   it("默认上限 100；显式 limit 生效", () => {
     expect(parseChapterOutline(lines)).toHaveLength(4);
     expect(parseChapterOutline(lines, 2)).toHaveLength(2);
+  });
+});
+
+// 简介/评论接口正文常带 HTML 字符实体：标题解析时还原成真实字符（下游渲染
+// 统一 escapeHtml，解码不引入 XSS 面）。
+describe("parseChapterOutline HTML 实体解码", () => {
+  it("常见命名与数字实体解码为明文字符", () => {
+    expect(
+      parseChapterOutline(
+        [
+          '00:00 Q&amp;A&quot;开场&#39;',
+          "01:00 语义化&lt;标签&gt;",
+          "02:00 &quot;尾&quot;"
+        ].join("\n")
+      ).map((item) => item.title)
+    ).toEqual(['Q&A"开场\'', "语义化<标签>", '"尾"']);
+  });
+
+  it("十六进制数字实体与 &apos; 同样解码", () => {
+    expect(
+      parseChapterOutline(["00:00 &#x22;十六进制&#x27;", "01:00 &apos;撇号&apos;"].join("\n")).map(
+        (item) => item.title
+      )
+    ).toEqual(['"十六进制\'', "'撇号'"]);
+  });
+
+  it("&nbsp; 解码为空格；未识别实体原样保留", () => {
+    const titles = parseChapterOutline(["00:00 主标&nbsp;题", "01:00 未知&foo;实体"].join("\n")).map(
+      (item) => item.title
+    );
+    expect(titles[0]).toBe("主标 题");
+    expect(titles[1]).toBe("未知&foo;实体");
+  });
+
+  it("实体解码后的标题进 resolveChapterSource 目录（全链）", () => {
+    const source = resolveChapterSource('00:00 &quot;引号&quot;开场\n03:00 &amp;符号', [], []);
+    expect(source.kind).toBe("outline");
+    expect(source.chapters.map((item) => item.title)).toEqual(['"引号"开场', "&符号"]);
+  });
+});
+
+describe("splitOutlineChapterTitle 主副标题拆分", () => {
+  it("全角/半角冒号与成对破折号都触发拆分", () => {
+    expect(splitOutlineChapterTitle("环境准备：安装与配置")).toEqual({ primary: "环境准备", secondary: "安装与配置" });
+    expect(splitOutlineChapterTitle("Part 1: Setup")).toEqual({ primary: "Part 1", secondary: "Setup" });
+    expect(splitOutlineChapterTitle("常见问题——答疑")).toEqual({ primary: "常见问题", secondary: "答疑" });
+  });
+
+  it("多种分隔符同时出现：按出现位置取最早者", () => {
+    expect(splitOutlineChapterTitle("A: B——C")).toEqual({ primary: "A", secondary: "B——C" });
+    expect(splitOutlineChapterTitle("A——B: C")).toEqual({ primary: "A", secondary: "B: C" });
+  });
+
+  it("单个未成对的 — 不算分隔符", () => {
+    expect(splitOutlineChapterTitle("序章 — 引子")).toBeNull();
+    expect(splitOutlineChapterTitle("A—B：C")).toEqual({ primary: "A—B", secondary: "C" });
+  });
+
+  it("不含分隔符、空标题或分隔符任一侧为空：不拆分（返回 null）", () => {
+    expect(splitOutlineChapterTitle("评论区正题")).toBeNull();
+    expect(splitOutlineChapterTitle("")).toBeNull();
+    expect(splitOutlineChapterTitle("：只有副标题")).toBeNull();
+    expect(splitOutlineChapterTitle("只有主标题：")).toBeNull();
+  });
+
+  it("分隔符两侧空白被 trim", () => {
+    expect(splitOutlineChapterTitle("主标题 ： 次级说明")).toEqual({ primary: "主标题", secondary: "次级说明" });
   });
 });
 

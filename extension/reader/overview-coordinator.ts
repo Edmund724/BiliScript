@@ -12,7 +12,7 @@
 import { state } from "../core/state.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
 import { buildSubtitleSignature } from "../subtitle/cache.js";
-import { resolveChapterSource, type ChapterSource } from "../shared/chapter-outline.js";
+import { resolveChapterSource, type ChapterSource, type ChapterSourceKind } from "../shared/chapter-outline.js";
 import type { OverviewAnalysis } from "../ai/analysis.js";
 import { confirmDialog } from "../ui/confirm-dialog.js";
 import { getErrorMessage, isAbortedMarkerError, isCancelledError } from "../shared/error-helpers.js";
@@ -35,6 +35,8 @@ export interface ReaderOverviewSnapshot {
   readonly phase: ReaderOverviewPhase;
   readonly analysis: OverviewAnalysis | null;
   readonly aiChapters: boolean;
+  /** 分章来源（shared/chapter-outline 的裁定）：呈现层据此决定章节标题是否做主副拆分。 */
+  readonly chapterSourceKind: ChapterSourceKind;
   readonly progressText: string;
   readonly errorText: string;
   readonly stripText: string;
@@ -62,6 +64,7 @@ interface ReaderOverviewInternalState {
   phase: ReaderOverviewPhase;
   analysis: OverviewAnalysis | null;
   aiChapters: boolean;
+  chapterSourceKind: ChapterSourceKind;
   progressText: string;
   errorText: string;
   generatedFor: string;
@@ -72,6 +75,7 @@ const overview: ReaderOverviewInternalState = {
   phase: "idle",
   analysis: null,
   aiChapters: false,
+  chapterSourceKind: "auto",
   progressText: "",
   errorText: "",
   generatedFor: "",
@@ -284,7 +288,9 @@ export function triggerReaderOverviewGeneration(
   }
   cancelRequested = false;
   overview.generatedFor = clipKey;
-  overview.aiChapters = currentChapterSource().kind === "auto";
+  const chapterKind = currentChapterSource().kind;
+  overview.aiChapters = chapterKind === "auto";
+  overview.chapterSourceKind = chapterKind;
   overview.phase = "generating";
   overview.progressText = "";
   overview.errorText = "";
@@ -371,6 +377,7 @@ export function resetReaderOverviewState(): void {
   overview.phase = "idle";
   overview.analysis = null;
   overview.aiChapters = false;
+  overview.chapterSourceKind = "auto";
   overview.progressText = "";
   overview.errorText = "";
   overview.generatedFor = "";
@@ -388,6 +395,7 @@ export function getReaderOverviewSnapshot(): ReaderOverviewSnapshot {
     phase: overview.phase,
     analysis: overview.analysis,
     aiChapters: overview.aiChapters,
+    chapterSourceKind: overview.chapterSourceKind,
     progressText: overview.progressText,
     errorText: overview.errorText,
     stripText: stripText(),
