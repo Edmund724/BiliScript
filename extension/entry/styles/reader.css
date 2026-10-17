@@ -1374,8 +1374,9 @@
 }
 
 /* 金句卡（暖底淡卡）：surface-2 底 + 10px 圆角分组，无边框、无左侧 accent
- * 边条；右上角 ::after 完整衬线引号水印（出版物书摘特征，与章节卡拉开区分）；
- * 右下角时间戳 pill（跳播）+ 复制图标钮。色值走 token，四色板自动跟随。 */
+ * 边条；右上角 ::after 完整衬线引号水印；正文伪元素包「」直角引号、底行左侧
+ * 播放三角 + 时间戳 pill（跳播）+ 右侧复制图标钮——「」+ 播放键 + 水印是与
+ * 章节卡拉开区分的出版物书摘特征。色值走 token，四色板自动跟随。 */
 .biliscript-reading-ov-quote {
   position: relative;
   overflow: hidden;
@@ -1430,6 +1431,16 @@
   word-break: break-word;
 }
 
+/* 金句正文前后「」直角引号（与章节卡拉开区分的书摘特征）：伪元素注入，
+ * 复制金句文本不含括号；字色字体随正文（editorial 色板下同吃衬线栈）。 */
+.biliscript-reading-ov-quote-text::before {
+  content: "「";
+}
+
+.biliscript-reading-ov-quote-text::after {
+  content: "」";
+}
+
 .biliscript-reading-ov-quote-foot {
   position: relative;
   z-index: 1;
@@ -1438,6 +1449,25 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* 底行左侧跳播组：播放三角 + 时间戳 pill 作为一个整体与右侧复制钮
+ * space-between 分列（gate 表覆写 foot 为 space-between）。三角是跳播
+ * affordance，accent 操作档；点击落在卡片委托上，与时间戳同行为。 */
+.biliscript-reading-ov-quote-seek {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.biliscript-reading-ov-quote-play {
+  display: inline-flex;
+  color: var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-ov-quote-play svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* 金句卡右下角复制图标钮（span[role=button]）：嵌在跳播 <button> 卡内不能用

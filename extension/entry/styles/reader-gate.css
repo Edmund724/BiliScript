@@ -484,8 +484,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   color: var(--biliscript-reader-time-color);
 }
 
-/* 金句卡底行：时间戳 pill 回左下、复制图标单独在右下（示意图版式；
- * base 是 flex-end 两者挤在右下） */
+/* 金句卡底行：播放三角 + 时间戳 pill 的跳播组在左下、复制图标单独在右下
+ *（示意图版式；base 是 flex-end 全挤在右下） */
 #biliscript-reading-view .biliscript-reading-ov-quote-foot {
   justify-content: space-between;
 }

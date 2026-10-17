@@ -15,7 +15,7 @@ import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { setMessage } from "../core/ui-status.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
-import { READING_COPY_ICON } from "../ui/reading-icons.js";
+import { READING_COPY_ICON, READING_PLAY_ICON } from "../ui/reading-icons.js";
 import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
 import { jumpReadingTarget } from "./sync.js";
@@ -293,9 +293,10 @@ function chapterCardHtml(item: AnalysisChapter, withHours: boolean, chapterSourc
   `;
 }
 
-// 金句卡（暖底淡卡）：surface-2 底 + 圆角分组，无边框、无左侧 accent 边条、
-// 无「」包裹；右下角时间戳 pill（点击跳播）与复制图标钮（与 AI 对话 tab 复制键
-// 同款图标）。时间戳与原话原样呈现，不重排不改写。
+// 金句卡（暖底淡卡）：surface-2 底 + 圆角分组，无边框、无左侧 accent 边条；
+// 正文经 CSS 伪元素包「」直角引号（复制文本不含括号），底行左侧播放三角 +
+// 时间戳 pill（点击跳播）、右侧复制图标钮（与 AI 对话 tab 复制键同款图标）——
+// 「」+ 播放键是金句与章节卡的视觉区分特征。时间戳与原话原样呈现，不重排不改写。
 function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
   const from = Number(item?.from) || 0;
   const content = String(item?.content || "").trim();
@@ -306,7 +307,10 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
     <button type="button" class="biliscript-reading-ov-quote" data-seconds="${from}">
       <span class="biliscript-reading-ov-quote-text">${escapeHtml(content)}</span>
       <span class="biliscript-reading-ov-quote-foot">
-        <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
+        <span class="biliscript-reading-ov-quote-seek">
+          <span class="biliscript-reading-ov-quote-play" aria-hidden="true">${READING_PLAY_ICON}</span>
+          <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
+        </span>
         <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句">${READING_COPY_ICON}</span>
       </span>
     </button>
