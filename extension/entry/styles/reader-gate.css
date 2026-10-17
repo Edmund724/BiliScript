@@ -371,6 +371,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   background: rgba(46, 111, 194, 0.1);
 }
 
+/* 字幕列表减噪后的强调档同口径（03 号票）：浅色档活动/悬停行时间戳沿用柔和中蓝
+ * ——accent 亮蓝 #008cff 在 accent-soft 浅底上对比不足，不随强调档回升。 */
+#biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item.is-active .biliscript-reading-time,
+#biliscript-reading-view:not([data-theme="dark"]) .biliscript-reading-item:hover .biliscript-reading-time {
+  color: #2e6fc2;
+}
+
 /* 金句卡底行：时间戳 pill 回左下、复制图标单独在右下（示意图版式；
  * base 是 flex-end 两者挤在右下） */
 #biliscript-reading-view .biliscript-reading-ov-quote-foot {

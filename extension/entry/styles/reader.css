@@ -503,7 +503,8 @@
   /* 视口外条目跳过布局（defer-rendering-heavy-content 指南模式）：占位高度
    * 取 --biliscript-reader-item-estimate（首屏批上屏后由 batched-render 按
    * 视口内条目的真实均值校准写入列表元素），未校准时回退默认字号单行 44px
-   *（内边距 10px×2 + max(时间 pill 13.5px×1.5+2px, 文本列 16px×1.5)≈44px）。
+   *（内边距 10px×2 + 文本列 16px×1.5=24px；时间戳列清掉 pill 内边距后
+   * 14px×1.5=21px 恒矮于正文列，行高由正文列决定）。
    * 估计若持续小于真实值（双语副行/折行/调大字号），首次往下拖动滚动条时
    * scrollHeight 边滚边涨、滑块被顶回，表现为拖动不跟手——校准即消此偏差。
    * auto 让浏览器记住首次绘制后的实际尺寸；宽度不占位（none：条目宽由容器
@@ -521,9 +522,10 @@
  * #biliscript-reading-view 里（挂 .biliscript-reading-main 之下）；box-shadow: none
  * 又等于默认值。整条规则没有任何效果，属死声明。 */
 
-/* 时间戳 pill：贯穿字幕行 / 章节 / 金句 / AI 引用的视觉母题
+/* 时间戳 pill：贯穿章节 / 金句 / AI 引用的视觉母题
  *（prototype/direction-approved.md）——等宽字体 + accent-soft 底 + accent 字。
- * 母题自称 pill，形状就是 pill（999px，与同底的 .biliscript-reading-ov-badge 同款）。 */
+ * 母题自称 pill，形状就是 pill（999px，与同底的 .biliscript-reading-ov-badge 同款）。
+ * 字幕列表内的实例被下方减噪规则覆盖（清底 + 次级色，仅活动/悬停回主色）。 */
 .biliscript-reading-time {
   font-family: var(--biliscript-reader-font-mono);
   font-size: 14px;
@@ -613,15 +615,20 @@
   background: var(--biliscript-reader-accent-soft);
 }
 
-/* 活动行内的时间戳 pill 清底（2026-10-06 用户决议）：pill 底与活动行底是同一桶
- * accent-soft，叠上去等于二次加深；bilibili 浅色档的 accent-soft 是四档里唯一的不
- * 透明值 #fce0ea，那里 pill 与行底完全同色、形状直接消失。清底后四档表现一致：
- * 活动行 = 一个 accent-soft 色块 + accent 字的时间戳，pill 底只在非活动行出现。 */
-#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
+/* 字幕列表时间戳减噪：非活动行的 pill 底清成透明、字色降为次级 muted、
+ * tabular-nums 等宽数字——多行短句同屏时左列不再是成串蓝药丸。作用域收在
+ * .biliscript-reading-item 内，章节卡/金句卡/AI 对话引用的 pill 母题不受影响；
+ * 特异性 (1,3,0) 压过 gate 浅色档的全 pill 规则 (1,2,0)，浅色档同样退去。
+ * 活动行与悬停行恢复主色强调，定位反馈只在这两态出现。 */
+#biliscript-reading-view .biliscript-reading-item .biliscript-reading-time {
   background: transparent;
+  padding: 0;
+  color: var(--biliscript-reader-muted);
+  font-variant-numeric: tabular-nums;
 }
 
-#biliscript-reading-view .biliscript-reading-time {
+#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time,
+#biliscript-reading-view .biliscript-reading-item:hover .biliscript-reading-time {
   color: var(--biliscript-reader-accent);
 }
 
