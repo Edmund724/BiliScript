@@ -1382,17 +1382,18 @@
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-/* 右上角装饰水印引号：完整衬线左双引号字形（负偏移裁切会让卡角只剩
- * 半个引号——完整落进右上角内侧、与 12px 右留白协调），色取 --quote-mark
- * token（正文主色 9% 档），浅色/深色各一份、自动跟随；pointer-events: none
- * 不拦截文本选择与点击跳播。 */
+/* 右上角装饰水印引号：完整衬线后引号字形（U+201D，负偏移裁切会让卡角
+ * 只剩半个引号——完整落进右上角内侧、贴近角落、与卡片留白协调；字号
+ * 收到 32px 档，不压正文），色取 --quote-mark token（正文主色 9% 档），
+ * 浅色/深色各一份、自动跟随；pointer-events: none 不拦截文本选择与
+ * 点击跳播。 */
 .biliscript-reading-ov-quote::after {
-  content: "\201C";
+  content: "\201D";
   position: absolute;
-  top: 4px;
-  right: 10px;
+  top: 2px;
+  right: 6px;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 44px;
+  font-size: 32px;
   line-height: 1;
   color: var(--biliscript-reader-quote-mark, rgba(23, 24, 26, 0.09));
   pointer-events: none;
