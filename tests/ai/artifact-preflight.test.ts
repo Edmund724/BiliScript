@@ -1,6 +1,7 @@
 // tests/ai/artifact-preflight.test.ts
 // 验证面的显式前置状态：全仓 5 处 `describe.skipIf(!existsSync(...))` 门控 15 条来源对账
-// 用例，而工件与生成器都不进库（.scratch/ 被 .gitignore:24 忽略、无 CI），缺席时默认
+// 用例，而工件不进库（.scratch/ 被 .gitignore:24 忽略；生成器在 scripts/artifacts/，
+// pnpm artifacts:sync 重跑），新克隆里必然缺席，缺席时默认
 // reporter 只多一个 skipped 数、退出码仍为 0 —— 防线没跑和防线全绿在输出里长得一样。
 //
 // 这条用例永远运行：把「期望哪些工件、为什么缺席、哪几道防线因此没跑」打印成一块汇总，

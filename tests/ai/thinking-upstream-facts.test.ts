@@ -837,7 +837,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     return modelId;
   };
 
-  // 目录内模型 = 02 指派表键 ∪ 指向该 provider 的别名（与 04-prune-matrix.ts / 06 工件同源）。
+  // 目录内模型 = 02 指派表键 ∪ 指向该 provider 的别名（与 scripts/artifacts/gen-request-matrix.ts / 06 工件同源）。
   const modelsOf = (presetId: string): string[] => {
     const upstreamId = UPSTREAM_PROVIDER_BY_PRESET[presetId];
     const models = new Set<string>();

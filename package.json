@@ -20,6 +20,7 @@
     "catalog:sync:upstream": "node scripts/sync-models-dev-catalog.mjs",
     "catalog:sync:thinking": "node scripts/sync-models-dev-thinking.mjs",
     "catalog:check": "node scripts/check-models-dev-catalog.mjs",
+    "artifacts:sync": "node scripts/artifacts/sync.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

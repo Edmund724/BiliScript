@@ -5,9 +5,9 @@
 // 用例数据的来源（不手抄）：
 //   - 类与代表平台/模型 = 02 号票产物（ASSIGNMENTS / VALUESETS / MODEL_ID_ALIASES）
 //     经 tests/ai/thinking-golden-classes.ts 的枚举（每个 (类, 平台) 实现取排序首个模型）；
-//   - 字面片段由 .scratch/.../artifacts/07-gen-golden-tables.ts 生成（留痕
+//   - 字面片段由 scripts/artifacts/gen-golden-tables.ts 生成（留痕
 //     artifacts/07-golden-cases.generated.ts），生成器自己先与 06 请求体矩阵工件
-//     （artifacts/06-request-matrix.tsv，04-prune-matrix.ts 跑出，371 行）逐格对账；
+//     （artifacts/06-request-matrix.tsv，gen-request-matrix.ts 跑出，399 行）逐格对账；
 //   - 测试期再对一次（F3），所以 runtime 漂移与手抄漂移都会红。
 //
 // 逐平台逐档的旧形状压成「类 × 出口形态」：本文件 60 个类实现（51 个值集全覆盖；18 号票
@@ -40,7 +40,7 @@ import { registerByClassDefenses, registerByClassGolden } from "./thinking-golde
 
 const HARNESS = channelHarness("openai");
 
-// ===== 按类用例表（生成器产物；勿手改，重跑 07-gen-golden-tables.ts）=====
+// ===== 按类用例表（生成器产物；勿手改，重跑 pnpm artifacts:sync）=====
 // 字段序 = AI_THINKING_LEVELS（off/minimal/low/medium/high/xhigh/max）；{} = 不发任何字段。
 const CASES: readonly ByClassCase[] = [
   { valuesetId: "b", presetId: "openrouter", model: "qwen/qwen3-next-80b-a3b-thinking", available: [], fields: [{}, {}, {}, {}, {}, {}, {}] },

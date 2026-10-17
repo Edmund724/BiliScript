@@ -2,8 +2,9 @@
 // 来源对账工件的登记表 —— 验证面的**单一判定源**。
 //
 // 这些工件是 `.scratch/tickets/upstream-model-facts/artifacts/` 下的 06/07 号票产物与
-// 01 号票的上游快照：路径、用途、生成器出处都登记在案。工件与生成器都不进库
-// （`.scratch/` 被 `.gitignore:24` 忽略，生成脚本不在树上、也无 CI），新克隆里必然缺席。
+// 01 号票的上游快照：路径、用途、生成器出处都登记在案。生成器在库
+// （scripts/artifacts/，`pnpm artifacts:sync` 一条命令重跑 06/07 全链），但工件本体
+// 不进库（`.scratch/` 被 `.gitignore:24` 忽略），新克隆里必然缺席。
 //
 // 5 处 `describe.skipIf` 门控 15 条来源对账用例，全部读这里的判定（hasArtifact /
 // hasAllArtifacts），预检用例（tests/ai/artifact-preflight.test.ts）读 missingArtifacts()
@@ -31,32 +32,32 @@ export const ARTIFACT_REGISTRY: readonly ArtifactEntry[] = [
   {
     path: `${ARTIFACTS}/06-chip-source.tsv`,
     purpose: "chip 清单：逐模型的来源层与上游出处，与 resolver 的 source 对账。",
-    generator: "06 号票清单生成器（upstream-model-facts/06）产出。"
+    generator: "scripts/artifacts/gen-chip-source.ts（pnpm artifacts:sync）产出。"
   },
   {
     path: `${ARTIFACTS}/06-chip-sets.tsv`,
     purpose: "chip 清单：逐模型的可用档位集合 A'，与 resolver 的 availableLevels 对账。",
-    generator: "06 号票清单生成器（upstream-model-facts/06）产出。"
+    generator: "scripts/artifacts/gen-chip-source.ts（pnpm artifacts:sync）产出。"
   },
   {
     path: `${ARTIFACTS}/06-chip-changes.tsv`,
     purpose: "chip 清单：chip 集合的逐条变化记录（裁定 #4 的追溯面）。",
-    generator: "06 号票清单生成器（upstream-model-facts/06）产出。"
+    generator: "scripts/artifacts/gen-chip-source.ts（pnpm artifacts:sync）产出。"
   },
   {
     path: `${ARTIFACTS}/06-request-matrix.cells.tsv`,
     purpose: "请求矩阵逐格变化清单：偏好档 → 实发档 + A' + 原因。",
-    generator: "06 号票清单生成器（upstream-model-facts/06）产出。"
+    generator: "scripts/artifacts/gen-matrix-cells.ts（pnpm artifacts:sync）产出。"
   },
   {
     path: `${ARTIFACTS}/06-request-matrix.tsv`,
-    purpose: "请求体矩阵（371 行，off/low/high 三列）：golden 用例数据的来源对账（F3）。",
-    generator: "04-prune-matrix.ts 在 06 树跑出的产物。"
+    purpose: "请求体矩阵（399 行，off/low/high 三列）：golden 用例数据的来源对账（F3）。",
+    generator: "scripts/artifacts/gen-request-matrix.ts（pnpm artifacts:sync）产出。"
   },
   {
     path: `${ARTIFACTS}/07-golden-coverage.tsv`,
     purpose: "验收覆盖矩阵：valuesetId × 通道 × 档位出口形态 → 用例归属（F4）。",
-    generator: "07-gen-golden-tables.ts 生成按类用例表时的同批产物。"
+    generator: "scripts/artifacts/gen-golden-tables.ts（pnpm artifacts:sync）生成按类用例表时的同批产物。"
   },
   {
     path: `${ARTIFACTS}/models-dev-api.json`,
@@ -97,7 +98,7 @@ export function renderMissingArtifactsReport(missing: readonly ArtifactEntry[]):
   const lines = [
     "════════ 工件 preflight：来源对账防线未运行 ════════",
     `期望工件 ${ARTIFACT_REGISTRY.length} 件，当前缺席 ${missing.length} 件。`,
-    "缺席原因：工件与生成器不进库（.scratch/ 被 .gitignore:24 忽略，生成脚本已失，无 CI）。",
+    "缺席原因：工件不进库（.scratch/ 被 .gitignore:24 忽略；生成器在 scripts/artifacts/，pnpm artifacts:sync 重跑）。",
     "影响面：5 处门控的 15 条来源对账用例被跳过 —— 默认 reporter 只打印 skipped 数，退出码仍为 0。",
     "缺席清单（路径 → 用途 ← 生成器）：",
     ...missing.map((entry) => `  ✗ ${entry.path}\n      用途：${entry.purpose}\n      生成器：${entry.generator}`),

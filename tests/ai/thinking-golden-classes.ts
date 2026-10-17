@@ -1,10 +1,10 @@
 // tests/ai/thinking-golden-classes.ts
 // 07 号票（golden 按类重构）的**纯数据件**：产物枚举、出口形态命名、工件解析、覆盖矩阵口径、
 // 两条通道的调用缝。刻意不 import vitest/expect——同一份枚举与调用缝要同时服务两个通道的
-// golden 用例与生成器（.scratch/.../artifacts/07-gen-golden-tables.ts）；生成器是 node
+// golden 用例与生成器（scripts/artifacts/gen-golden-tables.ts）；生成器是 node
 // 脚本，不能把 vitest 塞进它的 bundle。断言注册在 thinking-golden-defenses.ts。
 //
-// 口径（与 04-prune-matrix.ts 逐字同源）：
+// 口径（与 scripts/artifacts/gen-request-matrix.ts 逐字同源）：
 // - 平台 = UPSTREAM_PROVIDER_BY_PRESET 的 12 家（preset → 上游 provider）；
 // - 模型 = 02 指派表 ASSIGNMENTS 的 (provider, modelId)，有别名时换成本仓口径 localId
 //   （MODEL_ID_ALIASES），保证与矩阵工件的行键逐字一致；
@@ -22,7 +22,7 @@ import type { ChatMessage } from "../../extension/ai/types.js";
 import { PRESETS } from "../../extension/core/presets.js";
 
 const ARTIFACTS = ".scratch/tickets/upstream-model-facts/artifacts";
-/** 04-prune-matrix.ts 的产物（06 树跑出，371 行；只读）——来源防线（F3）的对账对象。 */
+/** gen-request-matrix.ts 的产物（pnpm artifacts:sync 跑出，399 行；只读）——来源防线（F3）的对账对象。 */
 export const REQUEST_MATRIX = `${ARTIFACTS}/06-request-matrix.tsv`;
 /** 本票（07）的验收工件：valuesetId × 通道 × 出口形态 → 用例归属。 */
 export const COVERAGE_MATRIX = `${ARTIFACTS}/07-golden-coverage.tsv`;
@@ -55,7 +55,7 @@ export interface Realization {
   readonly model: string;
 }
 
-/** 上游 (provider, modelId) → 本仓口径 localId（别名折叠，同 04-prune-matrix.ts）。 */
+/** 上游 (provider, modelId) → 本仓口径 localId（别名折叠，同 gen-request-matrix.ts）。 */
 function localIdOf(upstreamId: string, modelId: string): string {
   for (const alias of MODEL_ID_ALIASES) {
     if (alias.upstream === `${upstreamId}/${modelId}`) return alias.localId;

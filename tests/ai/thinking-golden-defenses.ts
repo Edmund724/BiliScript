@@ -6,7 +6,7 @@
 // 防线清单（票面「先列失败方式」的对应）：
 //   F1 覆盖防线   产物新增 valuesetId 而没加用例 → 红（值集表集合 == 用例覆盖集合）；
 //   F2 归纳完整性 某个 (类, 平台) 实现的行为没有同签名用例承载 → 红；
-//   F3 来源防线   用例数据与 06 请求体矩阵工件（371 行）不一致（runtime 漂移 / 手抄漂移）→ 红；
+//   F3 来源防线   用例数据与 06 请求体矩阵工件（399 行）不一致（runtime 漂移 / 手抄漂移）→ 红；
 //   F4 验收工件   07-golden-coverage.tsv 的（valuesetId × 通道 × 档位出口形态 → 用例）不符 → 红；
 //   F5 表自洽     用例声明的类不是该 (平台, 模型) 实际命中的值集 / A' 与解析结果不符 → 红；
 //   F6 塌陷区分   effort 血统 low≠high；开关型与 budget-only 的 low==high 是上游事实 → 两侧都钉。
@@ -135,7 +135,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
     });
   });
 
-  // F3 来源防线：用例数据 == 06 请求体矩阵工件（371 行，04-prune-matrix.ts 产物，只读）。
+  // F3 来源防线：用例数据 == 06 请求体矩阵工件（399 行，gen-request-matrix.ts 产物，只读）。
   // 工件只含 off/low/high 三列——余下 4 档由用例字面 + 02 上游投影用例（thinking-upstream-facts）承接。
   describe.skipIf(!hasArtifact(REQUEST_MATRIX))(`07 防线（${channel}）：来源（06 请求体矩阵工件）`, () => {
     it("每条用例的代表行都在矩阵里，且 off/low/high 的思考字段逐字节相同", () => {

@@ -435,7 +435,7 @@ describe("边界：A' = ∅ 的零档行（openrouter 5 行 + 18 号票新增的
   // 13 号票 canonical 优先后 anthropic/claude-haiku-4.5 与 claude-sonnet-4.5 的 canonical
   // 也是 budget-only；18 号票删平台声明后 toggle-only 的行（如 sakana/sakana-namazu）同样
   // 落入 A' = ∅。06 号票时这些格记在 06-chip-changes.tsv（该清单 18 号票后随平台声明层退役，
-  // 见 06-chip-source.ts 的头注）。
+  // 见 scripts/artifacts/gen-chip-source.ts 的头注）。
   const EMPTY: ReadonlyArray<[string, string, string]> = [
     ["openrouter", OPENROUTER_URL, "google/gemini-2.5-pro"],
     ["openrouter", OPENROUTER_URL, "google/gemini-2.5-pro-preview"],

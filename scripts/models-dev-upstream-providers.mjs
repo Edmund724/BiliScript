@@ -8,8 +8,10 @@
 // 为什么"读文本"而不是 import：本仓库 package.json 是 `"type": "commonjs"`，Node
 // 会把 `.ts` 当 CommonJS TypeScript 解析，`import { PRESETS } from
 // "../extension/core/presets.ts"` 直接报 `Unexpected token 'export'`（node v25.8.0
-// 实测）。构建期脚本因此一律「读源码文本、不执行仓库代码」——同
+// 实测）。本模块因此「读源码文本、不执行仓库代码」——同
 // scripts/check-models-dev-catalog.mjs 对待手写表的口径。
+// （scripts/artifacts/ 的工件生成器是另一条路：esbuild 先 bundle 再执行，
+// 它们 import 本模块时拿到的就是这里读文本得出的映射。）
 //
 // 顺序 = 产物内键序，固定以保证幂等（01 UI 目录与 02 思考事实的键序/内容哈希都由
 // 它决定）。它是**输出排序**事实，不是第二份映射表：provider id 一律来自 presets.ts，
@@ -29,7 +31,13 @@ import { fileURLToPath } from "node:url";
 
 export const DEFAULT_SOURCE = "https://models.dev/api.json";
 
-const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// 仓库根的定位：默认按本文件位置（scripts/ 的上一级）。当本模块被 esbuild 打进 bundle
+// （scripts/artifacts/ 的工件生成器）时 import.meta.url 锚点失效，由调用方用
+// BILISCRIPT_REPO_ROOT 环境变量显式指定仓库根（见 scripts/artifacts/sync.mjs）。
+
+const rootDir = process.env.BILISCRIPT_REPO_ROOT
+  ? path.resolve(process.env.BILISCRIPT_REPO_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PRESETS_MODULE = "extension/core/presets.ts";
 
 // 产物键序（见文件头）：preset id，provider id 由 presets.ts 提供。
@@ -107,3 +115,9 @@ function buildUpstreamProviders() {
 }
 
 export const UPSTREAM_PROVIDERS = buildUpstreamProviders();
+
+// Record 形查表（preset id → 上游 provider id）：供 scripts/artifacts/ 的工件生成器按
+// preset 直查，与上面的列表同一份构建结果。
+export const UPSTREAM_PROVIDER_BY_PRESET = Object.fromEntries(
+  UPSTREAM_PROVIDERS.map(({ preset, id }) => [preset, id])
+);

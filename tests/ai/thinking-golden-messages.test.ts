@@ -3,9 +3,9 @@
 //   `(valuesetId = 02 值集 id, 档位) → 请求体`，逐字节整 body（不做包含式）。
 //
 // 用例数据的来源（不手抄）：类与代表平台/模型来自 02 号票产物（ASSIGNMENTS / VALUESETS /
-// MODEL_ID_ALIASES），字面片段由 .scratch/.../artifacts/07-gen-golden-tables.ts 生成
+// MODEL_ID_ALIASES），字面片段由 scripts/artifacts/gen-golden-tables.ts 生成
 // （留痕 artifacts/07-golden-cases.generated.ts），生成器先与 06 请求体矩阵工件
-// （artifacts/06-request-matrix.tsv，04-prune-matrix.ts 跑出，371 行）逐格对账，测试期
+// （artifacts/06-request-matrix.tsv，gen-request-matrix.ts 跑出，399 行）逐格对账，测试期
 // 再对一次（F3）。baseUrl 一律走 PRESETS（protocolBaseUrls.anthropic，缺省回落 baseUrl），
 // 不在本文件手抄 URL；`max_tokens` 走 adapter 默认 DEFAULT_MAX_TOKENS = 32768，由
 // expectedBody 钉住字面值。
@@ -47,7 +47,7 @@ import { MESSAGES_OFF_EXIT, MESSAGES_TIER_EXIT } from "../../extension/ai/thinki
 
 const HARNESS = channelHarness("anthropic");
 
-// ===== 按类用例表（生成器产物；勿手改，重跑 07-gen-golden-tables.ts）=====
+// ===== 按类用例表（生成器产物；勿手改，重跑 pnpm artifacts:sync）=====
 // 字段序 = AI_THINKING_LEVELS（off/minimal/low/medium/high/xhigh/max）；{} = 不发任何字段。
 // 注意两格带票面注记语义：
 //   `low-high-max · opencodego/deepseek-v4-flash` = 13 号票 canonical 优先 + 18 号票删平台
