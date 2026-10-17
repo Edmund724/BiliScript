@@ -978,9 +978,12 @@ describe("弹层滚动：两列各自滚（源码锁）", () => {
     expect(colRule).toContain("overflow-y: auto");
     expect(colRule).toContain("min-height: 0");
     expect(colRule).toContain("min-width: 0");
-    // 细滚动条跟 reader.css 三处滚动容器同一套（标准属性优先 + 旧引擎 ::-webkit- 降级）
-    expect(css).toContain("scrollbar-width: thin");
-    expect(css).toContain("@supports not (scrollbar-color: auto)");
+    // 细滚动条跟 reader.css 三处滚动容器同一套：只走 ::-webkit-scrollbar 定制
+    //（Chrome 121+ 设标准 scrollbar-color/width 会跳过 webkit 定制、回退原生粗灰条）
+    expect(css).not.toContain("scrollbar-width:");
+    expect(css).not.toContain("scrollbar-color:");
+    expect(css).not.toContain("@supports not (scrollbar-color: auto)");
     expect(css).toContain(".biliscript-bilingual-col::-webkit-scrollbar");
+    expect(css).toContain(".biliscript-bilingual-col::-webkit-scrollbar-button");
   });
 });

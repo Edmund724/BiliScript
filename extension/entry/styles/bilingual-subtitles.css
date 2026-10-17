@@ -110,42 +110,38 @@
   overflow-x: hidden;
 }
 
-/* 列滚动条与面板三处滚动容器（字幕列表 / 概览 / AI 对话）同一套细滚动条：标准属性
- * 优先（scrollbar-color/width 直接吃 --biliscript-reader-* 令牌，四档主题自动跟随），
- * 旧引擎走文末 @supports 的 ::-webkit-scrollbar 降级——两套只能取其一，见 reader.css
- * 首段的同款说明。列宽是 max-content（最长语言名 120.1 + 行进边距 20 = 140.11），
- * 真机 427 档实测卡片上限 349：两列 140.11 + 两条 thin(12) + gap 6 + padding 12
- * + border 2 = 324.22，仍在限内（语言名不截断）。 */
-#biliscript-reading-view .biliscript-bilingual-col {
-  scrollbar-width: thin;
-  scrollbar-color: var(--biliscript-reader-faint) transparent;
+/* 列滚动条与面板三处滚动容器（字幕列表 / 概览 / AI 对话）同一套细滚动条：
+ * 只走 ::-webkit-scrollbar 定制（Chrome 121+ 设标准 scrollbar-color/width 会跳过
+ * webkit 定制、回退 Windows 原生粗灰条带三角箭头，两套只能取其一），颜色吃
+ * --biliscript-reader-* 令牌，四档主题自动跟随。列宽是 max-content（最长语言名
+ * 120.1 + 行进边距 20 = 140.11），真机 427 档实测卡片上限 349：两列 140.11
+ * + 两条 8px 滚动条槽 + gap 6 + padding 12 + border 2 = 316.22，仍在限内
+ *（语言名不截断）。 */
+#biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar {
+  width: 8px;
 }
 
-#biliscript-reading-view .biliscript-bilingual-col:hover {
-  scrollbar-color: var(--biliscript-reader-muted) transparent;
+#biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-@supports not (scrollbar-color: auto) {
-  #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar {
-    width: 8px;
-  }
+#biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-thumb {
+  background: var(--biliscript-reader-faint);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
 
-  #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-track {
-    background: transparent;
-  }
+#biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-thumb:hover {
+  background: var(--biliscript-reader-muted);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
 
-  #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-thumb {
-    background: var(--biliscript-reader-faint);
-    border: 2px solid transparent;
-    border-radius: 999px;
-    background-clip: content-box;
-  }
-
-  #biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-thumb:hover {
-    background: var(--biliscript-reader-muted);
-    border: 2px solid transparent;
-    background-clip: content-box;
-  }
+#biliscript-reading-view .biliscript-bilingual-col::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 #biliscript-reading-view .biliscript-bilingual-col-head {

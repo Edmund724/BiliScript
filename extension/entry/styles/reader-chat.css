@@ -389,12 +389,51 @@
   white-space: pre-wrap;
   max-height: 200px;
   overflow-y: auto;
-  /* 内滚保留（用户决议 乙），但滚动条退回细淡一档：默认粗灰条在无卡片底的
-   * 思考块里最显眼，与「干干净净」相悖。标准属性（reader.css 的三滚动容器
-   * 共用规则在 @supports not (scrollbar-color: auto) 内，本元素不在其列，
-   * 且 reader.css 不得再含 chat-* 标记）。 */
-  scrollbar-width: thin;
-  scrollbar-color: var(--biliscript-reader-faint) transparent;
+  /* 内滚保留（用户决议 乙），滚动条退回细淡一档：默认粗灰条在无卡片底的
+   * 思考块里最显眼，与「干干净净」相悖。滚动条样式见下方共用规则。 */
+}
+
+/* 对话侧三处滚动容器（思考块 / 历史列表 / 来源列表）共用一套细滚动条，与
+ * reader.css 三 tab 容器的语言一致：只走 ::-webkit-scrollbar，不设标准
+ * scrollbar-color/width（Chrome 121+ 会因此跳过 webkit 定制、回退 Windows
+ * 原生粗灰条带上下三角箭头）；thumb 吃 --biliscript-reader-* 令牌，主题自动
+ * 跟随。chat-messages 消息区不在这里——它是三 tab 共享规则的成员，留守
+ * reader.css（拆分守卫允许的同前缀引用）。 */
+.biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar,
+.biliscript-reading-chat .chat-history-list::-webkit-scrollbar,
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar {
+  width: 8px;
+}
+
+.biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar-track,
+.biliscript-reading-chat .chat-history-list::-webkit-scrollbar-track,
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar-thumb,
+.biliscript-reading-chat .chat-history-list::-webkit-scrollbar-thumb,
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-thumb {
+  background: var(--biliscript-reader-faint);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+.biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar-thumb:hover,
+.biliscript-reading-chat .chat-history-list::-webkit-scrollbar-thumb:hover,
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-thumb:hover {
+  background: var(--biliscript-reader-muted);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar-button,
+.biliscript-reading-chat .chat-history-list::-webkit-scrollbar-button,
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* 思考流结束后的折叠态：收成一行「思考过程 ▸」，点击展开回看（当轮有效，
@@ -777,15 +816,15 @@
 /* 滚底按钮（DeepSeek Harness 同款：离开底部出现，34px 圆钮浮在输入卡上方，点击
  * 回底）。底色/描边/阴影取来源悬停预览卡（.chat-search-preview）同一套浮层母题。
  * 定位挂在 footer（position:relative）而非消息区——消息区是滚动容器，绝对定位的
- * 子节点随内容一起滚走，按钮会「滚出视野」。right 让开消息区的滚动条槽：Windows
- * 上 scrollbar-width: thin 实测 12px（.scratch/scroll-bottom-preview/scrollbar-probe），
- * 加 2px 缝 = 14px，按钮右缘落回正文列右缘（消息区 padding-right 2px），既不压住
+ * 子节点随内容一起滚走，按钮会「滚出视野」。right 让开消息区的滚动条槽：消息区
+ * 走 ::-webkit-scrollbar 定制，槽宽 8px（.scratch/scroll-bottom-preview/scrollbar-probe），
+ * 加 2px 缝 = 10px，按钮右缘落回正文列右缘（消息区 padding-right 2px），既不压住
  * 滚动条拇指，也与正文对齐。z-index 取 5：压在消息区之上、模型面板（10）之下，
  * 展开模型面板时按钮不会盖住面板角。 */
 .biliscript-reading-chat .chat-scroll-bottom {
   position: absolute;
   z-index: 5;
-  right: 14px;
+  right: 10px;
   bottom: calc(100% + 6px);
   width: 34px;
   height: 34px;
@@ -1277,8 +1316,6 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  scrollbar-width: thin;
-  scrollbar-color: var(--biliscript-reader-faint) transparent;
 }
 
 .biliscript-reading-chat .chat-history-empty,
@@ -1661,8 +1698,6 @@
   margin-top: 4px;
   max-height: 240px;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--biliscript-reader-faint) transparent;
 }
 
 .biliscript-reading-chat .chat-search-source-row {

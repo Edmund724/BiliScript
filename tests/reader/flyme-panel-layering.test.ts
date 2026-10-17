@@ -133,7 +133,9 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     const list = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-history-list");
 
     expect(list).not.toContain("gap");
-    expect(list).toContain("scrollbar-width: thin");
+    // 细淡一档由 ::-webkit-scrollbar 定制承担（不设标准 scrollbar-color/width，
+    // Chrome 121+ 会跳过 webkit 定制回退原生粗灰条）
+    expect(readCss(CHAT_CSS)).toContain(".chat-history-list::-webkit-scrollbar");
     // 整页横向缩进挪到头部/条目内容（padding 左右为 0），滚动条才贴得上右缘；
     // inset 右侧多吞 tab-body 外边距 14（-28 = padding 14 + margin 14），贴的是面板壳
     const page = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-history-popover");
