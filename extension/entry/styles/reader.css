@@ -439,27 +439,30 @@
   pointer-events: auto;
 }
 
-/* 三个 tab 的滚动容器共用同一套细滚动条（字幕列表 / 概览 / AI 对话消息区）。
- * 只用 ::-webkit-scrollbar 定制，不设标准 scrollbar-color/scrollbar-width：Chrome 121+
+/* 面板滚动容器共用同一套细滚动条（字幕列表 / 概览 / AI 对话消息区 / 解释卡
+ * 内容区）。只用 ::-webkit-scrollbar 定制，不设标准 scrollbar-color/scrollbar-width：Chrome 121+
  * 上标准属性一旦非 auto 就整组跳过 ::-webkit-scrollbar，回退成 Windows 原生粗灰条
  *（带上下三角箭头按钮），两套机制只能取其一。8px 槽内 2px 透明描边 + content-box
  * 裁出 4px 圆角细条，与面板卡片圆角语言一致。thumb 常态 faint（浅底上够可见）、
  * hover 加深 muted，直接吃 --biliscript-reader-* 主题 token，深浅两主题自动跟随。 */
 .biliscript-reading-subtitle::-webkit-scrollbar,
 .biliscript-reading-overview::-webkit-scrollbar,
-.biliscript-reading-chat .chat-messages::-webkit-scrollbar {
+.biliscript-reading-chat .chat-messages::-webkit-scrollbar,
+.biliscript-reading-explain-card-content::-webkit-scrollbar {
   width: 8px;
 }
 
 .biliscript-reading-subtitle::-webkit-scrollbar-track,
 .biliscript-reading-overview::-webkit-scrollbar-track,
-.biliscript-reading-chat .chat-messages::-webkit-scrollbar-track {
+.biliscript-reading-chat .chat-messages::-webkit-scrollbar-track,
+.biliscript-reading-explain-card-content::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .biliscript-reading-subtitle::-webkit-scrollbar-thumb,
 .biliscript-reading-overview::-webkit-scrollbar-thumb,
-.biliscript-reading-chat .chat-messages::-webkit-scrollbar-thumb {
+.biliscript-reading-chat .chat-messages::-webkit-scrollbar-thumb,
+.biliscript-reading-explain-card-content::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-faint);
   border: 2px solid transparent;
   border-radius: 999px;
@@ -468,7 +471,8 @@
 
 .biliscript-reading-subtitle::-webkit-scrollbar-thumb:hover,
 .biliscript-reading-overview::-webkit-scrollbar-thumb:hover,
-.biliscript-reading-chat .chat-messages::-webkit-scrollbar-thumb:hover {
+.biliscript-reading-chat .chat-messages::-webkit-scrollbar-thumb:hover,
+.biliscript-reading-explain-card-content::-webkit-scrollbar-thumb:hover {
   background: var(--biliscript-reader-muted);
   border: 2px solid transparent;
   background-clip: content-box;
@@ -478,7 +482,8 @@
  * 不压掉就会出现在定制槽里。 */
 .biliscript-reading-subtitle::-webkit-scrollbar-button,
 .biliscript-reading-overview::-webkit-scrollbar-button,
-.biliscript-reading-chat .chat-messages::-webkit-scrollbar-button {
+.biliscript-reading-chat .chat-messages::-webkit-scrollbar-button,
+.biliscript-reading-explain-card-content::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;

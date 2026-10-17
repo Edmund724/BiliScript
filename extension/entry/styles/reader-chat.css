@@ -393,27 +393,41 @@
    * 思考块里最显眼，与「干干净净」相悖。滚动条样式见下方共用规则。 */
 }
 
-/* 对话侧三处滚动容器（思考块 / 历史列表 / 来源列表）共用一套细滚动条，与
- * reader.css 三 tab 容器的语言一致：只走 ::-webkit-scrollbar，不设标准
- * scrollbar-color/width（Chrome 121+ 会因此跳过 webkit 定制、回退 Windows
- * 原生粗灰条带上下三角箭头）；thumb 吃 --biliscript-reader-* 令牌，主题自动
- * 跟随。chat-messages 消息区不在这里——它是三 tab 共享规则的成员，留守
- * reader.css（拆分守卫允许的同前缀引用）。 */
+/* 对话侧滚动容器（思考块 / 历史列表 / 来源列表 / 模型面板 / 模型列表 / markdown
+ * 代码块与表格）共用一套细滚动条，与 reader.css 面板容器的语言一致：只走
+ * ::-webkit-scrollbar，不设标准 scrollbar-color/width（Chrome 121+ 会因此跳过
+ * webkit 定制、回退 Windows 原生粗灰条带上下三角箭头）；thumb 吃
+ * --biliscript-reader-* 令牌，主题自动跟随。槽宽与槽高都取 8px：代码块/表格
+ * 是横向滚动，只设 width 横条仍是原生粗条。chat-messages 消息区不在这里——
+ * 它是面板共享规则的成员，留守 reader.css（拆分守卫允许的同前缀引用）。 */
 .biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar,
 .biliscript-reading-chat .chat-history-list::-webkit-scrollbar,
-.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar {
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar,
+.biliscript-reading-chat .chat-model-panel::-webkit-scrollbar,
+.biliscript-reading-chat .chat-model-list::-webkit-scrollbar,
+.biliscript-reading-chat .markdown-body pre::-webkit-scrollbar,
+.biliscript-reading-chat .markdown-body table::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 
 .biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar-track,
 .biliscript-reading-chat .chat-history-list::-webkit-scrollbar-track,
-.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-track {
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-track,
+.biliscript-reading-chat .chat-model-panel::-webkit-scrollbar-track,
+.biliscript-reading-chat .chat-model-list::-webkit-scrollbar-track,
+.biliscript-reading-chat .markdown-body pre::-webkit-scrollbar-track,
+.biliscript-reading-chat .markdown-body table::-webkit-scrollbar-track {
   background: transparent;
 }
 
 .biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar-thumb,
 .biliscript-reading-chat .chat-history-list::-webkit-scrollbar-thumb,
-.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-thumb {
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-thumb,
+.biliscript-reading-chat .chat-model-panel::-webkit-scrollbar-thumb,
+.biliscript-reading-chat .chat-model-list::-webkit-scrollbar-thumb,
+.biliscript-reading-chat .markdown-body pre::-webkit-scrollbar-thumb,
+.biliscript-reading-chat .markdown-body table::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-faint);
   border: 2px solid transparent;
   border-radius: 999px;
@@ -422,7 +436,11 @@
 
 .biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar-thumb:hover,
 .biliscript-reading-chat .chat-history-list::-webkit-scrollbar-thumb:hover,
-.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-thumb:hover {
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-thumb:hover,
+.biliscript-reading-chat .chat-model-panel::-webkit-scrollbar-thumb:hover,
+.biliscript-reading-chat .chat-model-list::-webkit-scrollbar-thumb:hover,
+.biliscript-reading-chat .markdown-body pre::-webkit-scrollbar-thumb:hover,
+.biliscript-reading-chat .markdown-body table::-webkit-scrollbar-thumb:hover {
   background: var(--biliscript-reader-muted);
   border: 2px solid transparent;
   background-clip: content-box;
@@ -430,7 +448,11 @@
 
 .biliscript-reading-chat .chat-thinking-text::-webkit-scrollbar-button,
 .biliscript-reading-chat .chat-history-list::-webkit-scrollbar-button,
-.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-button {
+.biliscript-reading-chat .chat-search-sources::-webkit-scrollbar-button,
+.biliscript-reading-chat .chat-model-panel::-webkit-scrollbar-button,
+.biliscript-reading-chat .chat-model-list::-webkit-scrollbar-button,
+.biliscript-reading-chat .markdown-body pre::-webkit-scrollbar-button,
+.biliscript-reading-chat .markdown-body table::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;
