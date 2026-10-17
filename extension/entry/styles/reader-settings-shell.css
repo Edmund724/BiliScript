@@ -74,16 +74,17 @@
 }
 
 /* 设置域滚动容器共用一套细滚动条（设置抽屉 / 模型下拉 / 提供商编辑对话框 /
- * 拉取列表 / 自定义下拉弹层——选择器跨 settings 三表与 custom-select 组件表，
- * 统一收在本表）：与 reader.css 面板容器同一语言，只走 ::-webkit-scrollbar，
- * 不设标准 scrollbar-color/width（Chrome 121+ 会因此跳过 webkit 定制、回退
- * Windows 原生粗灰条带上下三角箭头）；thumb 吃 --biliscript-reader-* 令牌，
- * 主题自动跟随。 */
+ * 拉取列表 / 自定义下拉弹层 / 提示词 textarea——选择器跨 settings 三表与
+ * custom-select 组件表，统一收在本表）：与 reader.css 面板容器同一语言，只走
+ * ::-webkit-scrollbar，不设标准 scrollbar-color/width（Chrome 121+ 会因此跳过
+ * webkit 定制、回退 Windows 原生粗灰条带上下三角箭头）；thumb 吃
+ * --biliscript-reader-* 令牌，主题自动跟随。 */
 #biliscript-reading-view .biliscript-reading-settings-panel::-webkit-scrollbar,
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar,
-#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar {
+#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar,
+#biliscript-reading-view .biliscript-set-textarea::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
@@ -92,7 +93,8 @@
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar-track,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar-track,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar-track,
-#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar-track {
+#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar-track,
+#biliscript-reading-view .biliscript-set-textarea::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -100,7 +102,8 @@
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar-thumb,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar-thumb,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar-thumb,
-#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar-thumb {
+#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar-thumb,
+#biliscript-reading-view .biliscript-set-textarea::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-faint);
   border: 2px solid transparent;
   border-radius: 999px;
@@ -111,7 +114,8 @@
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar-thumb:hover,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar-thumb:hover,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar-thumb:hover,
-#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar-thumb:hover {
+#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar-thumb:hover,
+#biliscript-reading-view .biliscript-set-textarea::-webkit-scrollbar-thumb:hover {
   background: var(--biliscript-reader-muted);
   border: 2px solid transparent;
   background-clip: content-box;
@@ -121,7 +125,8 @@
 #biliscript-reading-view .ai-provider-model-dropdown::-webkit-scrollbar-button,
 #biliscript-reading-view .provider-editor-dialog::-webkit-scrollbar-button,
 #biliscript-reading-view .provider-editor-fetch-list::-webkit-scrollbar-button,
-#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar-button {
+#biliscript-reading-view .custom-select-dropdown::-webkit-scrollbar-button,
+#biliscript-reading-view .biliscript-set-textarea::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;
