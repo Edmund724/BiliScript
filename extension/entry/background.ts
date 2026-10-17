@@ -372,7 +372,8 @@ function handleAiProvidersModels(message: Msg<"ai-providers-models">, _sender: M
     fetchAiProviderModels({
       baseUrl,
       apiKey: String(message.apiKey || "").trim(),
-      providerId: String(message.providerId || "").trim()
+      providerId: String(message.providerId || "").trim(),
+      protocol: String(message.protocol || "").trim()
     }),
     sendResponse,
     (error) => (error as Error | undefined)?.message || String(error)

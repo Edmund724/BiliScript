@@ -80,3 +80,56 @@ describe("handleAiProvidersModels 的 host 权限预检", () => {
     expect(resp).toEqual({ ok: true, models: ["m1"] });
   });
 });
+
+describe("handleAiProvidersModels 的 gemini 协议分支", () => {
+  it("走 /v1beta/models + x-goog-api-key，剥 models/ 前缀并滤掉非 generateContent 条目", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        models: [
+          { name: "models/gemini-2.5-pro", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/gemini-embedding-001", supportedGenerationMethods: ["embedContent"] },
+          { name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] }
+        ]
+      })
+    );
+    const { handleAiProvidersModels } = await loadModule();
+
+    const resp = await handleAiProvidersModels({
+      baseUrl: "https://generativelanguage.googleapis.com",
+      apiKey: "gk-1",
+      protocol: "gemini"
+    });
+
+    expect(resp).toEqual({ ok: true, models: ["gemini-2.5-pro", "gemini-2.5-flash"] });
+    expect(fetchMock.mock.calls[0][0]).toBe("https://generativelanguage.googleapis.com/v1beta/models");
+    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
+    expect(headers["x-goog-api-key"]).toBe("gk-1");
+    expect(headers.Authorization).toBeUndefined();
+  });
+
+  it("baseUrl 带 /v1beta 尾段时不重复拼接；nextPageToken 翻页后合并", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          models: [{ name: "models/gemini-2.5-pro", supportedGenerationMethods: ["generateContent"] }],
+          nextPageToken: "tok-2"
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          models: [{ name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] }]
+        })
+      );
+    const { handleAiProvidersModels } = await loadModule();
+
+    const resp = await handleAiProvidersModels({
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/",
+      apiKey: "gk-1",
+      protocol: "gemini"
+    });
+
+    expect(resp).toEqual({ ok: true, models: ["gemini-2.5-pro", "gemini-2.5-flash"] });
+    expect(fetchMock.mock.calls[0][0]).toBe("https://generativelanguage.googleapis.com/v1beta/models");
+    expect(fetchMock.mock.calls[1][0]).toBe("https://generativelanguage.googleapis.com/v1beta/models?pageToken=tok-2");
+  });
+});

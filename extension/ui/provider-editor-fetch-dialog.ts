@@ -141,11 +141,11 @@ export function renderFetchError(message: string): void {
   error.appendChild(retry);
 }
 
-export async function loadFetchModels(baseUrl: string, apiKey: string): Promise<void> {
+export async function loadFetchModels(baseUrl: string, apiKey: string, protocol: string): Promise<void> {
   await runIfCurrent(
     async (): Promise<{ ok?: boolean; models?: string[]; error?: string }> => {
       try {
-        return await sendRuntimeMessage({ type: "ai-providers-models", baseUrl, apiKey, providerId: state.editingId });
+        return await sendRuntimeMessage({ type: "ai-providers-models", baseUrl, apiKey, providerId: state.editingId, protocol });
       } catch (error) {
         return { ok: false, error: (error as Error | undefined)?.message || "拉取失败" };
       }
@@ -194,7 +194,7 @@ export async function openFetchDialog(): Promise<void> {
           renderFetchError(permission.error || "未取得该平台域名权限，无法拉取模型列表");
           return;
         }
-        void loadFetchModels(baseUrl, apiKey);
+        void loadFetchModels(baseUrl, apiKey, draft.protocol);
       }
     }
   );

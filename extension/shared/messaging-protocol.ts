@@ -191,6 +191,8 @@ export type AiProvidersModelsMessage = {
   baseUrl?: string;
   apiKey?: string;
   providerId?: string;
+  // 平台协议（multi-protocol-ai）：gemini 时探针走 /v1beta/models + x-goog-api-key
+  protocol?: string;
 };
 // 响应锚点：ai/provider-models.ts handleAiProvidersModels（AiProvidersModelsResult，arch-slim-2/09 自 core/ai-provider-store.ts 搬入）。
 export type AiProvidersModelsResponse = {
