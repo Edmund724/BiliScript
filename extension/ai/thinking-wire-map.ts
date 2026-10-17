@@ -881,11 +881,11 @@ function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
 }
 
 // ===== Google Gemini generateContent =====
-// 模型名分家规则借 pi-ai usesGoogleThinkingLevel 口径且唯一出处在该行（spec 决策 12）：
-// gemini-3* / gemini-flash-latest / gemini-flash-lite-latest / gemma-4*
-// 预算梯度表出处 = pi-ai google-generative-ai.js:336-368 + Google 官方 thinking 文档；
-// 不进 models.dev 对账（models.dev 对 Google 的 thinking 数据只记 effort/budget 粗粒度，
-// 不表达 2.5 系的梯度档位与 3 系的 discrete level），由本仓在此显式维护。
+// 模型名分家规则借 pi-ai usesGoogleThinkingLevel 口径：
+// gemini-3* / gemini-flash-latest / gemini-flash-lite-latest / gemma-4* 走离散 thinkingLevel 轨；
+// 其余（如 2.5 系）走数值 thinkingBudget 轨。
+// 离散轨优先采纳事实层已解析的 reasoningEffort 档位（如 gemini-3.8-flash 经过 off-cascade 降档到 LOW）；
+// 目录外模型保留离散兜底。
 function usesGoogleThinkingLevel(model: string): boolean {
   const name = model.toLowerCase().replace(/^(models\/|google\/)/, "");
   return (
@@ -909,7 +909,39 @@ function geminiWireMap(input: GeminiWireInput): ThinkingWireOutput {
 
   if (usesGoogleThinkingLevel(model)) {
     // 离散 thinkingLevel 轨：gemini-3* / gemini-flash-latest / gemini-flash-lite-latest / gemma-4*
-    // Gemini 3 无真关闭，off 为伪关闭：MINIMAL + includeThoughts: false
+    // 若事实层通过上游目录已解析出真实可用档位（例如 gemini-3.8-flash 经过 off-cascade 降档到 low），
+    // 优先使用该有效档位；伪关闭时带 includeThoughts: false。
+    if (input.vocabulary?.kind === "reasoningEffort") {
+      let thinkingLevel: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
+      switch (input.vocabulary.level) {
+        case "minimal":
+          thinkingLevel = "MINIMAL";
+          break;
+        case "low":
+          thinkingLevel = "LOW";
+          break;
+        case "medium":
+          thinkingLevel = "MEDIUM";
+          break;
+        case "high":
+        case "xhigh":
+        case "max":
+        default:
+          thinkingLevel = "HIGH";
+          break;
+      }
+      return {
+        fields: {
+          thinkingConfig: {
+            thinkingLevel,
+            includeThoughts: level !== "off"
+          }
+        },
+        tokenParam: "maxOutputTokens"
+      };
+    }
+
+    // 目录外兜底：Gemini 3 无真关闭，off 为伪关闭：MINIMAL + includeThoughts: false
     // 开启档一律 includeThoughts: true；xhigh/max clamp 到 HIGH
     if (level === "off") {
       return {

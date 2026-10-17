@@ -368,9 +368,12 @@ describe("geminiAdapter: thinking 双轨全档位 × 全模型家族表驱动用
     { model: "gemini-3-flash", level: "default", expectedConfig: undefined },
     { model: "gemini-3-flash", level: undefined, expectedConfig: undefined },
 
-    // --- gemini-flash-latest / lite / gemma-4 系列 (离散 thinkingLevel) ---
-    { model: "gemini-flash-latest", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
+    // --- gemini-flash-latest / lite / 3.8-flash / gemma-4 系列 (离散 thinkingLevel) ---
+    { model: "gemini-flash-latest", level: "off", expectedConfig: { thinkingLevel: "LOW", includeThoughts: false } },
     { model: "gemini-flash-latest", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    { model: "gemini-3.8-flash", level: "off", expectedConfig: { thinkingLevel: "LOW", includeThoughts: false } },
+    { model: "gemini-3.8-flash", level: "minimal", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
+    { model: "gemini-3.8-flash", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
     { model: "gemini-flash-lite-latest", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
     { model: "gemini-flash-lite-latest", level: "low", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
     { model: "gemma-4-27b-it", level: "medium", expectedConfig: { thinkingLevel: "MEDIUM", includeThoughts: true } },
