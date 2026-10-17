@@ -509,7 +509,8 @@
    * 取 --biliscript-reader-item-estimate（首屏批上屏后由 batched-render 按
    * 视口内条目的真实均值校准写入列表元素），未校准时回退默认字号单行 44px
    *（内边距 10px×2 + 文本列 16px×1.5=24px；时间戳列清掉 pill 内边距后
-   * 14px×1.5=21px 恒矮于正文列，行高由正文列决定）。
+   * 14px×1.5=21px 恒矮于正文列，行高由正文列决定；活动行文字列胶囊另有
+   * 2px×2 内边距，28px，属单条偏差由校准均值吸收）。
    * 估计若持续小于真实值（双语副行/折行/调大字号），首次往下拖动滚动条时
    * scrollHeight 边滚边涨、滑块被顶回，表现为拖动不跟手——校准即消此偏差。
    * auto 让浏览器记住首次绘制后的实际尺寸；宽度不占位（none：条目宽由容器
@@ -621,7 +622,7 @@
  * .biliscript-reading-item 内，章节卡/金句卡/AI 对话引用的 pill 母题不受影响；
  * 特异性 (1,3,0) 压过 gate 浅色档的全 pill 规则 (1,2,0)，浅色档同样退去。
  * 悬停行只把时间戳回主色（reader.css 强调档，浅色档由 gate time-color token
- * 按色板覆写），不做整行高亮——整行胶囊专属活动行。 */
+ * 按色板覆写），不做整行高亮——实心胶囊专属活动行的文字列。 */
 #biliscript-reading-view .biliscript-reading-item .biliscript-reading-time {
   background: transparent;
   padding: 0;
@@ -633,23 +634,24 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 活动行 = 整行实心主色胶囊（03 号票目标设计图）：行底、时间戳、正文同一
- * 色条，时间戳与正文恒白、正文加粗，横贯整行的定位条。行底取 accent 压深
- * 25%（color-mix，Chrome 111+，manifest 下限 120）——原生 accent 实底上白字
- * 只有 2.9–3.4:1（flyme 两档），不达 4.5 门；压深后四档（flyme 亮暗蓝、
- * editorial 亮暗赤陶）白字 4.8–7.4:1。色板只换 accent token 即自动跟随
- * （editorial → 深一档赤陶）。时间戳清底在上方减噪规则已给，这里只反白。 */
-#biliscript-reading-view .biliscript-reading-item.is-active {
+/* 活动行 = 文字列实心主色胶囊（03 号票目标设计图）：胶囊只包字幕文字列，左缘
+ * 即文字列左缘（时间戳列留在胶囊外左侧），2px/10px 内边距撑出呼吸感；行底不
+ * 染色。胶囊内文字恒白加粗；时间戳与正文同排异色——回主色加粗（母题本就 600），
+ * 不在胶囊内、不反白，浅色档由 gate time-color token 按色板定稿（见上方注释）。
+ * 行底色取 accent 压深 25%（color-mix，Chrome 111+，manifest 下限 120）——
+ * 原生 accent 实底上白字只有 2.9–3.4:1（flyme 两档），不达 4.5 门；压深后四档
+ *（flyme 亮暗蓝、editorial 亮暗赤陶）白字 4.8–7.4:1。色板只换 accent token 即
+ * 自动跟随（editorial → 深一档赤陶）。 */
+#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-text {
   background: color-mix(in srgb, var(--biliscript-reader-accent), #000000 25%);
+  color: #ffffff;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 2px 10px;
 }
 
 #biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
-  color: #ffffff;
-}
-
-#biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-text {
-  color: #ffffff;
-  font-weight: 600;
+  color: var(--biliscript-reader-accent);
 }
 
 #biliscript-reading-view .biliscript-reading-text {
