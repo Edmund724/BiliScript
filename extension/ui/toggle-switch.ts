@@ -34,7 +34,7 @@ const VELOCITY_PROJECTION_MS = 120;
 // 拖拽跟手阈值：pointermove 位移小于该值视为点击抖动，仍走原生点击路径。
 const DRAG_THRESHOLD_PX = 3;
 
-// 滑块行程兜底值：轨道 40 - 滑块 20 - 两侧各 2px 内边距 = 16。jsdom / 无布局
+// 滑块行程兜底值：轨道 40 - 滑块 20.8 - 两侧内边距各 1.6 = 16。jsdom / 无布局
 // 环境 clientWidth 为 0，几何量不出时按设计尺寸走。
 const FALLBACK_TRAVEL_PX = 16;
 
@@ -78,10 +78,12 @@ export function initToggleSwitch(input: HTMLInputElement): void {
   // 拖拽松手后的 click 抑制按 label 边界判定（见 finishDrag）。
   const label = input.closest("label");
 
-  // 滑块行程：轨道内容盒宽 - 滑块宽 - 两侧内边距（各 2px）。每次取用现量，
-  // 面板宽度变化（窄容器适配）后吸附目标仍是正确几何。
+  // 滑块行程：轨道内容盒宽 - 滑块宽 - 两侧内边距（各 1.6px）。每次取用现量，
+  // 面板宽度变化（窄容器适配）后吸附目标仍是正确几何。滑块宽用
+  // getBoundingClientRect 而非 offsetWidth：20.8 的小数宽会被 offsetWidth 向上
+  // 取整成 21（40-21-4=15 ≠ 16），rect 保小数值才量得准。
   const travel = (): number => {
-    const measured = track.clientWidth - thumb.offsetWidth - 4;
+    const measured = track.clientWidth - thumb.getBoundingClientRect().width - 3.2;
     return measured > 0 ? measured : FALLBACK_TRAVEL_PX;
   };
 

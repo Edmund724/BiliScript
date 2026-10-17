@@ -21,9 +21,14 @@
  * 设置三件套之前（组件 import 先求值），同分比不过后挂的表。
  *
  * 滑块位移是组件 JS 内联 transform（弹簧积分器驱动），本表只定静止几何：
- * 轨道 40×24、滑块 20px 圆、两侧内边距各 2px（行程 = 40-20-4 = 16，
- * JS 的 travel() 同源）。颜色/边框走 --biliscript-reader-* token
- *（reader-gate.css 两主题定义），明暗自动适配。 */
+ * 轨道 40×24、滑块 20.8px 圆、四边内边距 1.6px（行程 = 40-20.8-3.2 = 16，
+ * JS 的 travel() 同源）。滑块/内边距取 20.8 与 1.6 而非整数 20/2 的理由：
+ * 125% 缩放（Windows 最常见档，dsf=1.25）下 20.8×1.25 = 26、1.6×1.25 = 2
+ * 都是整数设备像素——轨道 30 = 26+2+2 全整数分解，滑块在轨道内像素级精确
+ * 居中；整数 20/2 在该倍率下是 25/2.5，滑块高度为奇数设备像素，上下间隙
+ * 2.5/2.5 永远无法整像素对分，逐行方向不定地偏 1px。dsf=1 与 1.5 下 20.8/1.6
+ * 是双侧对称小数，抗锯齿对称，仍视觉居中。颜色/边框走 --biliscript-reader-*
+ * token（reader-gate.css 两主题定义），明暗自动适配。 */
 
 /* 开关行：文字左列自然换行、开关固定右列（space-between 两端对齐）。
  * user-select 关掉：拖拽跟手时指针扫过文字列不触发拖选（pointerdown 不能
@@ -87,18 +92,18 @@
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 
-/* 滑块：20px 白圆 + 轻阴影。阴影上下对称（两个 0 偏移投影：3px 模糊软环 +
- * 1px 细环）——向下偏移的阴影会让滑块下缘视觉重量更重、光学上显得偏下
- *（几何上是数学居中的：轨道 24 / 滑块 20 / top 2，上下各 2px）。
+/* 滑块：20.8px 白圆 + 轻阴影。阴影上下对称（两个 0 偏移投影：3px 模糊软环 +
+ * 1px 细环）——向下偏移的阴影会让滑块下缘视觉重量更重、光学上显得偏下。
+ * 20.8/1.6 的选值理由见文件头几何段（125% 下全整数设备像素）。
  * 刻意不声明 will-change：静止时滑块不提升为独立合成层，与轨道同域取整，
  * 分数倍率下不会出现逐行不同的垂直偏移（toggle-switch.ts apply 同注）。
  * pointer-events 关掉，命中判定统一走轨道。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-thumb {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
+  top: 1.6px;
+  left: 1.6px;
+  width: 20.8px;
+  height: 20.8px;
   border-radius: 50%;
   background: #ffffff;
   box-shadow: 0 0 3px rgba(23, 24, 26, 0.16), 0 0 1px rgba(23, 24, 26, 0.22);
