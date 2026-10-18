@@ -749,8 +749,16 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   // 来源列表（虚线分隔 + 限高内滚）：每行 = 序号 + 标题（两行截断，title 属性给
   // 完整 URL），整行点击新标签打开、悬停出预览卡。序号跨搜索累计（与正文 [n]
   // 内联引用同一套编号）。容器只建一次，后续 done 追加。
-  function appendSourceList(state: SearchCardState, sources: ChatSearchSource[]): void {
-    if (!sources.length) {
+  // opts.paid = 本批来源来自付费平台（GLOSSARY「付费平台」）：行尾挂「付费」徽标，
+  // 标注随 state.sources 累计（回放路径无此字段，自然不带徽标）；opts.notice =
+  // 付费平台失败后回退成功的注记，固定在来源列表顶部一行小字（整个卡片至多一条，
+  // 链上首个失败付费平台的注记）。
+  function appendSourceList(
+    state: SearchCardState,
+    sources: ChatSearchSource[],
+    opts: { paid?: boolean; notice?: string } = {}
+  ): void {
+    if (!sources.length && !opts.notice) {
       return;
     }
     if (!state.sourcesWrap) {
@@ -760,9 +768,16 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       state.sourcesWrap.addEventListener("scroll", () => hideSourcePreview(deps.messages), { passive: true });
       state.card.appendChild(state.sourcesWrap);
     }
+    if (opts.notice && !state.sourcesWrap.querySelector(".chat-search-sources-notice")) {
+      const notice = document.createElement("div");
+      notice.className = "chat-search-sources-notice";
+      notice.textContent = opts.notice;
+      state.sourcesWrap.appendChild(notice);
+    }
     for (const source of sources) {
       const index = state.sources.length + 1;
-      state.sources.push(source);
+      const marked = opts.paid ? ({ ...source, paid: true } as ChatSearchSource) : source;
+      state.sources.push(marked);
       const row = document.createElement("button");
       row.type = "button";
       row.className = "chat-search-source-row";
@@ -774,6 +789,12 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       title.className = "chat-search-source-title";
       title.textContent = source.title || source.url;
       row.append(idx, title);
+      if (marked.paid) {
+        const badge = document.createElement("span");
+        badge.className = "chat-search-source-paid";
+        badge.textContent = "付费";
+        row.appendChild(badge);
+      }
       row.addEventListener("click", () => {
         openSourceUrl(source.url);
       });
@@ -835,8 +856,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
           : "";
       }
     }
-    if (Array.isArray(msg.sources) && msg.sources.length) {
-      appendSourceList(state, msg.sources);
+    if (Array.isArray(msg.sources) && (msg.sources.length || msg.paidFallbackNotice)) {
+      appendSourceList(state, msg.sources, { paid: msg.paid, notice: msg.paidFallbackNotice });
     }
     state.statusEl.textContent = `${state.sources.length} 条来源`;
   }

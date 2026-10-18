@@ -129,6 +129,12 @@ export function normalizeWebSearchMaxToolCalls(value: unknown): number {
   return Math.min(10, Math.max(1, Math.round(parsed)));
 }
 
+// 付费平台准入开关（GLOSSARY「付费平台」）：与 normalizeWebSearchEnabled 同型的
+// 布尔归一，非 boolean 一律回落 false（默认关——花钱必须是显式动作）。
+export function normalizeAllowPaidSearchProviders(value: unknown): boolean {
+  return value === true;
+}
+
 // ===== 双语字幕 normalizers =====
 // 双语字幕开关：与 normalizeWebSearchEnabled 同型的布尔归一，非 boolean 回落 false。
 export function normalizeBilingualSubtitles(value: unknown): boolean {

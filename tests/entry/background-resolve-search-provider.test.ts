@@ -49,7 +49,8 @@ const TAVILY_CANDIDATE = {
     presetId: "tavily",
     name: "Tavily",
     type: "tavily",
-    baseUrl: "https://api.tavily.com"
+    baseUrl: "https://api.tavily.com",
+    access: "keyless"
   },
   apiKey: ""
 };
@@ -60,7 +61,8 @@ const FIRECRAWL_CANDIDATE = {
     presetId: "firecrawl",
     name: "Firecrawl",
     type: "firecrawl",
-    baseUrl: "https://api.firecrawl.dev"
+    baseUrl: "https://api.firecrawl.dev",
+    access: "keyless"
   },
   apiKey: ""
 };
@@ -267,7 +269,7 @@ describe("resolve-search-provider 路由", () => {
 
     expect(response.chain).toEqual([
       {
-        provider: { id: "exa", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai" },
+        provider: { id: "exa", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai", access: "free-quota" },
         apiKey: "exa-key"
       },
       TAVILY_CANDIDATE

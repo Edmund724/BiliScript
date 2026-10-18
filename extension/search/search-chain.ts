@@ -43,6 +43,12 @@ export interface SearchChainOptions {
   order?: readonly string[] | null;
   // presetId → 冷却截止 epoch ms（只含 cooldownUntil > now 的项）；只对智能链生效
   cooldownUntil?: Record<string, number> | null;
+  // 付费平台准入（GLOSSARY「付费平台」，设置标量 allowPaidSearchProviders）：缺省 /
+  // 非 true = 智能链跳过 access === "paid" 的候选；单选不受此开关限制。
+  allowPaid?: boolean;
+  // 付费候选的 Key（presetId → Key，凭据引用解析产物；链装配时就绪）。paid 候选
+  // 无 Key 同 free-quota 无 Key 口径自动跳过。
+  paidKeys?: Record<string, string> | null;
   // 注入时钟（epoch ms）
   now?: number;
 }
@@ -62,6 +68,9 @@ export interface SearchChainResolution {
  *   - 查不到预设表（脏值 / 未知 presetId）→ 不进候选（最保守）；
  *   - 记录须 enabled !== false；
  *   - access === "keyless" 无条件进；access === "free-quota" 仅该记录有 Key 才进；
+ *   - access === "paid"（凭据引用，GLOSSARY「付费平台」）：Key 取 options.paidKeys
+ *     [presetId]（AI 族解析产物），无 Key 跳过；智能链仅在 options.allowPaid 为
+ *     true 时进链，单选不受开关限制（单选本身是显式付费意图）；
  *   - 模式（options.mode，spec §12.1）："single" = 只有 activeId 那一条记录（无回退；
  *     悬空 activeId 按空处理走智能链，§6.8）；"smart" = 全部在组记录按
  *     「归一 order 下标 > 内置默认序 DEFAULT_SEARCH_PROVIDER_ORDER」排序（键相同保持
@@ -94,21 +103,31 @@ export function resolveSearchChain(
   const mode: SearchMode = options.mode === "single" && knownIds.has(activeRecordId) ? "single" : "smart";
   const order = normalizeSearchProviderOrder(options.order, knownIds);
 
-  // 进组判据 + 候选装配（presetId 一并带出，健康度按引擎记账要用它）
+  // 进组判据 + 候选装配（presetId 与 access 一并带出：健康度按引擎记账 /
+  // 执行器按 access 做付费可见性标注都要用）
   const qualify = (record: SearchProvider): SearchChainCandidate | null => {
     if (record.enabled === false) return null;
     const presetId = String(record.presetId || "").trim();
     const preset = presetById.get(presetId);
     if (!preset) return null;
-    const apiKey = String(keys?.[record.id] ?? "").trim();
-    if (preset.access === "free-quota" && !apiKey) return null;
+    let apiKey = String(keys?.[record.id] ?? "").trim();
+    if (preset.access === "paid") {
+      // 付费平台（GLOSSARY「付费平台」）：智能链只在开关打开时入链（单选不受限）；
+      // Key 经凭据引用取 AI 族解析产物，无 Key 同 free-quota 口径跳过。
+      if (mode === "smart" && options.allowPaid !== true) return null;
+      apiKey = String(options.paidKeys?.[presetId] ?? "").trim();
+      if (!apiKey) return null;
+    } else if (preset.access === "free-quota" && !apiKey) {
+      return null;
+    }
     return {
       provider: {
         id: record.id,
         presetId,
         name: record.name,
         type: record.type,
-        baseUrl: record.baseUrl
+        baseUrl: record.baseUrl,
+        access: preset.access
       },
       apiKey
     };
@@ -180,6 +199,39 @@ export interface SearchChainOutcome {
   results: NormalizedSearchResult[];
   platform: string;
   downgradedFrom?: string;
+  // 付费可见性（GLOSSARY「付费平台」）：成功家为付费平台时 true（来源列表「付费」
+  // 徽标）；paidFallback = 链上有付费平台失败、最终由后一家回退成功时的注记
+  // （来源区顶部一行小字）。两者都只对付费平台这一家豁免「链内失败静默」。
+  paid?: boolean;
+  paidFallback?: PaidSearchFallback;
+}
+
+// 付费平台失败 → 后一家回退成功的注记（reason 映射在 formatPaidFallbackNotice）。
+export interface PaidSearchFallback {
+  // 失败的付费平台名（链上首个失败的付费候选）。
+  platform: string;
+  reason: PaidFallbackReason;
+  // 实际回退成功的平台名。
+  fallbackTo: string;
+}
+
+export type PaidFallbackReason = "balance" | "rate-limit" | "timeout";
+
+// 回退注记文案（额度类与超时/网络类分文案，措辞对齐 spec §6.4 的既有 notice
+// 风格）：402 = 余额不足、429 = 已达限速、其余（超时 / 网络 / 5xx）= 请求超时。
+export function formatPaidFallbackNotice(fallback: PaidSearchFallback): string {
+  const reasonText =
+    fallback.reason === "balance" ? "余额不足" : fallback.reason === "rate-limit" ? "已达限速" : "请求超时";
+  return `${fallback.platform} 搜索不可用（${reasonText}），已回退至 ${fallback.fallbackTo}`;
+}
+
+// 单个失败 → 回退原因：HTTP status 直读（402/429），其余归 timeout（含链预算到点
+// 中止与底层网络错误——对用户都是「这次请求没成」）。
+function paidFallbackReason(error: unknown): PaidFallbackReason {
+  const status = Number((error as { status?: unknown } | null | undefined)?.status);
+  if (status === 402) return "balance";
+  if (status === 429) return "rate-limit";
+  return "timeout";
 }
 
 // 整链无果抛出的错误：failures 是**保序保留**的分类列表（不塌成字符串），
@@ -283,6 +335,9 @@ function defaultChainExecute(deps: ExecuteSearchChainDeps) {
  * 每次真实出网尝试按 presetId 记一次健康度（§12.4 第 1–2 条）：成功 / 失败各一次
  * （预算到点中止的在飞候选也算一次「出网未拿到结果」的失败），**调用方中止不记**
  * ——那不是引擎的失败；记账失败不影响链结果。
+ * 付费平台（access === "paid"）是「链内失败静默」的唯一豁免：失败收集进
+ * paidFailures，由后一家回退成功时产出 paidFallback 注记（GLOSSARY「付费平台」，
+ * 成功家为付费平台时另带 paid 标记）——标注透传链由 tool-status 给 UI。
  */
 export async function executeSearchChain(
   candidates: readonly SearchChainCandidate[],
@@ -329,22 +384,39 @@ export async function executeSearchChain(
   });
 
   const run = async (): Promise<SearchChainOutcome> => {
+    // 付费平台失败收集（链内失败静默纪律的唯一豁免标注）：任一付费候选失败后由
+    // 后一家回退成功时，产出 paidFallback 注记。
+    const paidFailures: Array<{ name: string; error: unknown }> = [];
     for (let index = 0; index < candidates.length; index += 1) {
       if (externalSignal?.aborted) throw makeAbortError();
-      const presetId = candidates[index].provider.presetId;
+      const candidate = candidates[index];
+      const presetId = candidate.provider.presetId;
       const startedAt = nowMs();
       try {
-        const outcome = await execute(candidates[index], query, controller.signal);
+        const outcome = await execute(candidate, query, controller.signal);
         noteAttempt(presetId, true, nowMs() - startedAt);
-        return index > 0 && headName
-          ? { results: outcome.results, platform: outcome.platform, downgradedFrom: headName }
-          : { results: outcome.results, platform: outcome.platform };
+        const paid = candidate.provider.access === "paid";
+        const paidFallback = paidFailures.length
+          ? {
+              platform: paidFailures[0].name,
+              reason: paidFallbackReason(paidFailures[0].error),
+              fallbackTo: outcome.platform
+            }
+          : undefined;
+        const base =
+          index > 0 && headName
+            ? { results: outcome.results, platform: outcome.platform, downgradedFrom: headName }
+            : { results: outcome.results, platform: outcome.platform };
+        return paid || paidFallback ? { ...base, ...(paid ? { paid: true } : {}), ...(paidFallback ? { paidFallback } : {}) } : base;
       } catch (error) {
         // 调用方中止不是引擎的失败：不记账、不试下一家（§12.4 第 2 条）。
         if (externalSignal?.aborted) throw error;
         // 自伤中止（预算到点）也确实出网且没拿到结果：照记一次失败，随后退出循环。
         if (!budgetExpired && isAbortError(error)) throw error;
         noteAttempt(presetId, false, nowMs() - startedAt);
+        if (candidate.provider.access === "paid") {
+          paidFailures.push({ name: candidate.provider.name, error });
+        }
         // 预算到点：中止由预算造成，不再试下一家（最后一类的错误留待终态文案）。
         if (budgetExpired) break;
         lastError = error;

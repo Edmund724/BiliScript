@@ -27,6 +27,7 @@ import {
   normalizeWebSearchMaxToolCalls,
   normalizeSearchPresetsAutoActivated,
   normalizeSearchOptInNoticeAcknowledged,
+  normalizeAllowPaidSearchProviders,
   normalizeBilingualSubtitles,
   normalizeSecondarySubtitleLang
 } from "./validators.js";
@@ -69,6 +70,9 @@ const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   // 无校验区间；落 sync 键面（DEFAULT_SETTINGS）即自动进白名单与快照键集。
   ["searchPresetsAutoActivated", (m) => normalizeSearchPresetsAutoActivated(m.searchPresetsAutoActivated)],
   ["searchOptInNoticeAcknowledged", (m) => normalizeSearchOptInNoticeAcknowledged(m.searchOptInNoticeAcknowledged)],
+  // 付费平台准入（GLOSSARY「付费平台」）：布尔归一，默认关；只影响智能链是否跳过
+  // paid 候选，单选不受限。
+  ["allowPaidSearchProviders", (m) => normalizeAllowPaidSearchProviders(m.allowPaidSearchProviders)],
   // 双语字幕：开关同 webSearchEnabled（仅显式 true 开），副字幕语言标签空/非法回落
   // en-US；设置页不渲染控件（开关在面板字幕弹层底部），键面只为持久化、
   // 「恢复默认」与快照而存在。

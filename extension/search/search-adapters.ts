@@ -11,6 +11,7 @@ import { doubaoAdapter } from "./adapters/doubao.js";
 import { anysearchAdapter } from "./adapters/anysearch.js";
 import { parallelAdapter } from "./adapters/parallel.js";
 import { exaAdapter } from "./adapters/exa.js";
+import { deepseekAdapter } from "./adapters/deepseek.js";
 import type { SearchAdapter } from "./adapters/types.js";
 
 // Record 而非 Partial：新增 SearchProviderType 成员而未登记 = 编译期错误。
@@ -20,7 +21,8 @@ export const SEARCH_ADAPTERS: Record<SearchProviderType, SearchAdapter> = {
   doubao: doubaoAdapter,
   anysearch: anysearchAdapter,
   parallel: parallelAdapter,
-  exa: exaAdapter
+  exa: exaAdapter,
+  deepseek: deepseekAdapter
 };
 
 // 搜索解析单点：未知 / 非字符串值 → tavily（兜底语义对齐 resolveAdapter 的

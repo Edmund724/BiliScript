@@ -59,6 +59,9 @@ export interface Settings {
   activeSearchProviderId: string; // 当前选用的搜索平台 id
   webSearchEnabled: boolean;      // 对话/选区解释链联网开关，全局记住上次状态，默认关
   webSearchMaxToolCalls: number;  // 单轮搜索次数上限（区间 1–10）
+  // 付费平台准入（GLOSSARY「付费平台」，默认关——花钱必须是显式动作）：只控制
+  // 智能链是否跳过 access === "paid" 的候选；单选付费平台不受此开关限制。
+  allowPaidSearchProviders: boolean;
   // 两个非可调一次性状态位（不在设置页渲染、无校验区间，spec §3 落点表 20–21）。
   // searchPresetsAutoActivated：安装/更新时四条免 Key 预设记录已自动补齐的一次性
   // 旗标，置位后永不再自动激活；落 sync 是刻意的——同账号另一台设备不应重建已删
@@ -106,6 +109,8 @@ export const DEFAULT_SETTINGS: Settings = {
   activeSearchProviderId: "", // 当前选用的搜索平台 id（单选激活，对齐 ASR radio）
   webSearchEnabled: false,    // 全局记住上次开关状态，默认关
   webSearchMaxToolCalls: 5,   // 单轮搜索次数上限（1–10）
+  // 付费平台准入：默认关（花钱必须是显式动作）；存量缺省 false 即旧行为，无迁移。
+  allowPaidSearchProviders: false,
   // 两个一次性状态位默认 false（含义见 Settings 声明处）；设置页不渲染。
   searchPresetsAutoActivated: false,
   searchOptInNoticeAcknowledged: false,

@@ -15,7 +15,7 @@
 // 同样不新增依赖边。
 
 import type { Settings } from "../core/defaults.js";
-import type { AiProviderPreset, AsrProviderPreset, SearchProviderPreset } from "../core/presets.js";
+import type { AiProviderPreset, AsrProviderPreset, SearchProviderAccess, SearchProviderPreset } from "../core/presets.js";
 import type { AiProvider, ImagePart } from "../ai/types.js";
 import type { AsrProvider } from "../asr/asr-provider-store.js";
 import type { SearchProvider } from "../search/search-provider-normalize.js";
@@ -379,7 +379,9 @@ export type ResolveSearchProviderMessage = { type: "resolve-search-provider" };
 // 形状单源在此（此前 search/search-chain.ts 自持同名副本、本文件再内联重写一份）——
 // chain 是线格式，主人归协议层；search-chain 反向 import 消费（search → shared 顺向）。
 export type SearchChainCandidate = {
-  provider: { id: string; presetId: string; name: string; type: string; baseUrl: string };
+  // access 随候选带出（链解析查预设表得出）：执行器据 access === "paid" 做付费
+  // 可见性标注（成功徽标 / 失败回退注记），不再二次查表。
+  provider: { id: string; presetId: string; name: string; type: string; baseUrl: string; access?: SearchProviderAccess };
   apiKey: string;
 };
 

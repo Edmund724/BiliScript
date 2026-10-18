@@ -20,6 +20,7 @@ import type { ChatMessage, ChatToolCall, ProviderRequest, StreamChatEvent } from
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 import { isAbortedMarkerError, isAbortNamedError } from "../shared/error-helpers.js";
 import type { NormalizedSearchResult } from "../search/adapters/types.js";
+import { formatPaidFallbackNotice, type PaidSearchFallback } from "../search/search-chain.js";
 
 // web_search 工具定义（spec §2.1 原文）：对话链版本带 §4 引用要求——正文引用
 // 搜索结果时以 [n] 标记（n 为该条结果在全部搜索结果中的全局序号，从 1 起按
@@ -55,11 +56,15 @@ export const TOOL_MESSAGE_MAX_CHARS = 2000;
 
 // executeSearch 的统一产物：platform 为平台名（tool-status / UI 展示用）；
 // downgradedFrom 仅在回退链跳过链首换到下一家成功时带上（§6.5 模型侧降级注记），
-// 链首成功不出现该字段。
+// 链首成功不出现该字段；paid / paidFallback 是付费平台可见性标注（GLOSSARY
+//「付费平台」）：成功家为付费平台时 paid = true（来源列表「付费」徽标），链上
+// 有付费平台失败、最终回退成功时 paidFallback 带注记（来源区顶部一行小字）。
 export interface ToolLoopSearchOutcome {
   results: NormalizedSearchResult[];
   platform: string;
   downgradedFrom?: string;
+  paid?: boolean;
+  paidFallback?: PaidSearchFallback;
 }
 
 export type ExecuteSearchFn = (query: string) => Promise<ToolLoopSearchOutcome>;
@@ -71,6 +76,12 @@ export interface ToolStatusPayload {
   platform?: string;
   // 搜索结果（done 时携带，spec §4）：时间线卡 chip 行与内联引用的数据源。
   sources?: NormalizedSearchResult[];
+  // 付费平台可见性（GLOSSARY「付费平台」，done 时携带）：paid = 本次结果来自付费
+  // 平台（来源列表「付费」徽标）；paidFallbackNotice = 付费平台失败后回退成功的
+  // 注记文案（来源区顶部一行小字，链内失败静默纪律的唯一豁免，文案经
+  // formatPaidFallbackNotice 单点格式化）。
+  paid?: boolean;
+  paidFallbackNotice?: string;
 }
 
 export interface ToolLoopRequestProfile
@@ -230,7 +241,9 @@ export async function runToolLoop(input: RunToolLoopInput): Promise<string> {
           query,
           resultCount: outcome.results.length,
           platform: outcome.platform,
-          sources: outcome.results
+          sources: outcome.results,
+          ...(outcome.paid ? { paid: true } : {}),
+          ...(outcome.paidFallback ? { paidFallbackNotice: formatPaidFallbackNotice(outcome.paidFallback) } : {})
         });
       } catch (e) {
         // 搜索请求被中止：照 chatCompletion 的中止语义上抛，不伪装成搜索失败。

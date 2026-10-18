@@ -164,13 +164,18 @@ describe("设置页搜索节文案（spec §6.9）", () => {
     expect(html).toContain(SEARCH_OPT_IN_NOTICE_MESSAGE);
   });
 
-  it("空态 = 六预设 + 四条免 Key 装上即可用；添加按钮与次数上限文案不变", () => {
+  it("空态 = 七预设 + 四条免 Key 装上即可用；添加按钮与次数上限文案不变", () => {
     expect(html).toContain(
-      "还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa）——四条免 Key 预设装上即可用。"
+      "还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa / DeepSeek Search）——四条免 Key 预设装上即可用。"
     );
     expect(html).not.toContain("Tavily / Exa / Brave");
     expect(html).toContain('id="addSearchProviderBtn"');
     expect(html).toContain("单轮搜索次数上限");
+  });
+
+  it("付费开关行（GLOSSARY「付费平台」）：默认关文案 + 开关壳结构在搜索节内", () => {
+    expect(html).toContain("允许智能搜索使用付费平台");
+    expect(html).toContain('id="allowPaidSearchProviders" type="checkbox" class="biliscript-toggle-input"');
   });
 });
 

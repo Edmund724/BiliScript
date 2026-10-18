@@ -46,6 +46,8 @@ BiliScript 是一个自带 API Key（bring-your-own-key）的浏览器扩展。�
 
 联网搜索默认关闭。打开 AI 对话输入行右侧的地球图标开关后，即使你没有配置任何搜索平台，扩展也会把模型生成的查询词（选区解释链还包含选中的字幕文本及其上下文字幕）经 HTTPS 发往扩展内置的免 Key 搜索服务：`api.tavily.com`、`api.firecrawl.dev`、`api.anysearch.com`、`search.parallel.ai`；若你为豆包 / Exa 配置了自己的 API Key，查询词也会发往 `open.feedcoopapi.com` / `api.exa.ai`。智能模式按设置里的平台顺序逐家回退（配了 Key 的 Exa / 豆包排在更前），单选模式只发往你选中的那一家，链上全部无果才提示。你可以在设置里改顺序、改成单选某一家，或删除对应平台记录让它不再接收查询；关闭开关同样立即撤回。这些服务方按其各自的服务条款、隐私政策与留存策略处理查询词；全部请求走 HTTPS。
 
+付费搜索平台 DeepSeek（`api.deepseek.com`）不在免 Key 服务内：只有你添加了 DeepSeek 搜索平台记录、且在 AI 平台为官方 DeepSeek 端点配置过 Key 的前提下，单选它或在设置中打开「允许智能搜索使用付费平台」让智能链命中，查询词才会发往该域；请求复用你在 AI 平台保存的那份 Key，按成功次数计费，失败与空结果不计费。
+
 首次开启联网搜索时会弹出一次性说明，讲清查询词会发往哪些服务方，只有你点「同意并继续」后才会开始搜索；点「取消」则本轮照常发送消息、但不联网。
 
 ### 你配置的搜索平台（可选）
@@ -87,6 +89,7 @@ BiliScript 使用浏览器扩展存储，不使用任何云端服务：
 - `https://*.hdslb.com/*`：获取托管在 B 站 CDN 上的字幕文件（字幕正文的 JSON 数据）；
 - `https://*.bilivideo.com/*`：仅语音识别回退触发时下载无字幕视频的音轨；
 - `https://api.firecrawl.dev/*`、`https://api.tavily.com/*`、`https://api.anysearch.com/*`、`https://search.parallel.ai/*`、`https://open.feedcoopapi.com/*`、`https://api.exa.ai/*`：仅在你开启联网搜索时发送模型生成的查询词并取回结果；这 4 个免 Key 域名由扩展随包声明，用户未配置任何搜索平台时也会在开启开关后被使用（`open.feedcoopapi.com`、`api.exa.ai` 仅在你为该平台配置了自己的 API Key 后才被使用）；
+- `https://api.deepseek.com/*`：付费搜索平台 DeepSeek 的官方 API 域；仅在你开启联网搜索、且单选 DeepSeek 或在设置中打开「允许智能搜索使用付费平台」后由智能链命中时发送查询词，复用 AI 平台官方 DeepSeek 记录的 Key，按成功次数计费；
 - AI / ASR 平台域名为可选权限（`http://*/*`、`https://*/*`）：仅在你保存对应平台、或点模型名右侧箭头拉取该平台模型列表时弹窗申请，删除平台时自动回收。
 
 BiliScript 不会利用上述权限监控你的一般浏览行为。

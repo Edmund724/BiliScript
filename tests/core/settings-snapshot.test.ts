@@ -204,22 +204,29 @@ describe("写后读失效：invalidate(存储键) 后重读拿新值", () => {
     expect(storageGetCalls()).toBeGreaterThan(0);
   });
 
-  it("域隔离：失效 ai 不清 asr/search 缓存", async () => {
+  it("域隔离 + 凭据引用例外：失效 ai 连带清 search（DeepSeek 链 Key 读 AI 族），不清 asr", async () => {
     vi.stubGlobal("chrome", makeStub({
-      syncFixture: { aiProviders: [AI_PROVIDER], searchProviders: [] },
-      localFixture: { aiProviderKeys: {}, searchProviderKeys: {} }
+      syncFixture: { aiProviders: [AI_PROVIDER], asrProviders: [ASR_PROVIDER], searchProviders: [] },
+      localFixture: { aiProviderKeys: {}, asrProviderKeys: {}, searchProviderKeys: {} }
     }));
     const snapshot = await import("../../extension/core/settings-snapshot.js");
 
     await snapshot.getProviderStore("ai");
+    await snapshot.getProviderStore("asr");
     await snapshot.getProviderStore("search");
 
+    // 凭据引用（GLOSSARY「凭据引用」）：搜索链的 DeepSeek 候选 Key 实时读
+    // aiProviders / aiProviderKeys——ai 域失效必须连带清 search 缓存，否则链拿
+    // 过期 Key 跑；asr 与搜索无引用关系，保持隔离。
     snapshot.invalidate(["aiProviders"]);
     vi.mocked(chrome.storage.sync.get).mockClear();
     vi.mocked(chrome.storage.local.get).mockClear();
 
-    await snapshot.getProviderStore("search");
+    await snapshot.getProviderStore("asr");
     expect(storageGetCalls()).toBe(0);
+
+    await snapshot.getProviderStore("search");
+    expect(storageGetCalls()).toBeGreaterThan(0);
   });
 });
 
@@ -723,7 +730,7 @@ describe("键 → 域单源：SNAPSHOT_STORAGE_KEYS（invalidate 判据与 onCha
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("逐键失效：invalidate 只清该键所属的域（表驱动，加键漏映射即红）", async () => {
+  it("逐键失效：invalidate 只清该键所属的域（表驱动，加键漏映射即红）；ai 域按凭据引用例外连带清 search", async () => {
     const { SNAPSHOT_STORAGE_KEYS } = await import("../../extension/core/settings-snapshot.js");
     for (const entry of SNAPSHOT_STORAGE_KEYS) {
       resetModuleState();
@@ -733,14 +740,16 @@ describe("键 → 域单源：SNAPSHOT_STORAGE_KEYS（invalidate 判据与 onCha
 
       snapshot.invalidate([entry.key]);
 
+      // 期望命中域 = 该键所属域 ∪（ai 域的凭据引用连带：DeepSeek 链 Key 读 AI 族）。
+      const expected = entry.domain === "ai" ? ["ai", "search"] : [entry.domain];
       expect(
         await invalidatedDomains(snapshot),
-        `${entry.key} 应且只应清 ${entry.domain}`
-      ).toEqual([entry.domain]);
+        `${entry.key} 应且只应清 ${expected.join(" + ")}`
+      ).toEqual(expected);
     }
   });
 
-  it("逐键 onChanged：声明区命中即清该域，另一区的同一键不触发（表驱动，区写错即红）", async () => {
+  it("逐键 onChanged：声明区命中即清该域，另一区的同一键不触发（表驱动，区写错即红）；ai 域连带清 search", async () => {
     const { SNAPSHOT_STORAGE_KEYS } = await import("../../extension/core/settings-snapshot.js");
     for (const entry of SNAPSHOT_STORAGE_KEYS) {
       resetModuleState();
@@ -748,6 +757,7 @@ describe("键 → 域单源：SNAPSHOT_STORAGE_KEYS（invalidate 判据与 onCha
       const snapshot = await import("../../extension/core/settings-snapshot.js");
       await warmAllDomains(snapshot);
       const listener = vi.mocked(chrome.storage.onChanged.addListener).mock.calls[0][0];
+      const expected = entry.domain === "ai" ? ["ai", "search"] : [entry.domain];
 
       // 另一区：键不在该区分发的订阅清单里 → 事件被静默丢弃（区声明写错的判据）
       listener({ [entry.key]: { newValue: null } }, entry.area === "sync" ? "local" : "sync");
@@ -759,8 +769,8 @@ describe("键 → 域单源：SNAPSHOT_STORAGE_KEYS（invalidate 判据与 onCha
       listener({ [entry.key]: { newValue: null } }, entry.area);
       expect(
         await invalidatedDomains(snapshot),
-        `${entry.key} 应且只应清 ${entry.domain}`
-      ).toEqual([entry.domain]);
+        `${entry.key} 应且只应清 ${expected.join(" + ")}`
+      ).toEqual(expected);
     }
   });
 });

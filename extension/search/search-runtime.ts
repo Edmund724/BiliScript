@@ -12,18 +12,21 @@
 // 链成功返回（含空结果集）后 put；失败 / 中止在链处抛出，天然不写缓存。
 import type { NormalizedSearchResult } from "./adapters/types.js";
 import { searchCacheClient } from "./search-cache-client.js";
-import { executeSearchChain } from "./search-chain.js";
+import { executeSearchChain, type PaidSearchFallback } from "./search-chain.js";
 import type { ResolveSearchProviderResponse } from "../shared/messaging-protocol.js";
 
 // executeSearch 的产物面：results 用归一形状（对 ai/ladder 的 WebSearchRuntime 窄面
 // unknown[] 与 ai/explain 的 ToolLoopSearchOutcome 均结构兼容）；downgradedFrom 供
-// 模型侧降级注记（透传至 ai/tool-loop.ts 的注记行）。
+// 模型侧降级注记（透传至 ai/tool-loop.ts 的注记行）；paid / paidFallback 为付费
+// 平台可见性标注（GLOSSARY「付费平台」），随 tool-status 给 UI。
 export interface WebSearchRuntime {
   maxToolCalls: number;
   executeSearch: (query: string) => Promise<{
     results: NormalizedSearchResult[];
     platform: string;
     downgradedFrom?: string;
+    paid?: boolean;
+    paidFallback?: PaidSearchFallback;
   }>;
 }
 

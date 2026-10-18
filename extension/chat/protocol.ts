@@ -80,6 +80,11 @@ export interface ChatToolStatusEvent {
   resultCount?: number;
   platform?: string;
   sources?: ChatToolStatusSource[];
+  // 付费平台可见性（GLOSSARY「付费平台」，done 时携带，ai/tool-loop.ts 注入）：
+  // paid = 本次结果来自付费平台（来源列表「付费」徽标）；paidFallbackNotice =
+  // 付费平台失败后回退成功的注记文案（来源区顶部一行小字）。
+  paid?: boolean;
+  paidFallbackNotice?: string;
 }
 
 // 工具轮持久化副本（spec §2.5）：assistant(tool_calls) + tool 结果消息，

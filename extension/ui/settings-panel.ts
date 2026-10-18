@@ -52,6 +52,9 @@ import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import { SEARCH_PROVIDER_PRESETS, type SearchProviderPreset } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
+// DeepSeek 凭据引用三态（GLOSSARY「凭据引用」「官方端点判定」）：行副行状态文案
+// 与链装配消费同一判定叶，面板不自行判端点。
+import { DEEPSEEK_ROW_STATUS_TEXT, resolveDeepseekCredential } from "../search/deepseek-credential.js";
 // 顺序规则（归一 + 排序键）单源在零依赖叶 search/search-order.js（票 15 Q1-a）：
 // 本模块不再 import search-chain（那条边会把 search-executor → 六适配器拖进设置
 // 抽屉的懒 chunk）；归一与键算法两侧各只有一份实现。
@@ -149,6 +152,7 @@ function collectElements(host: HTMLElement) {
     searchProvidersDanglingHint: byIdIn<HTMLElement>(dom.searchProvidersDanglingHint),
     addSearchProviderBtn: byIdIn<HTMLButtonElement>(dom.addSearchProviderBtn),
     resetSearchProviderOrderBtn: byIdIn<HTMLButtonElement>(dom.resetSearchProviderOrderBtn),
+    allowPaidSearchProviders: byIdIn<HTMLInputElement>(dom.allowPaidSearchProviders),
     webSearchMaxToolCalls: byIdIn<HTMLInputElement>(dom.webSearchMaxToolCalls),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
@@ -255,7 +259,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
   // 自绘开关（ADR-0019）：水合直接写 .checked（值源语义不变，零事件），视觉经
   // syncToggleSwitch 吸附到现值——与 custom-select 的「显示 = 现值」同口径。
-  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs]
+  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders]
     .forEach(syncToggleSwitch);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
@@ -274,15 +278,22 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   });
 
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
+  elements.allowPaidSearchProviders.checked = settings.allowPaidSearchProviders === true;
   elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(settings.webSearchMaxToolCalls));
   const searchProviders = await loadSearchProviders();
   // 列表顺序 = 链序（spec §12.2 / §12.5 第 15 行）：先取用户拖拽序（归一后），
-  // 再按「order 下标 > 内置默认序」排序渲染。
+  // 再按「order 下标 > 内置默认序」排序渲染。DeepSeek 行副行 = 凭据引用三态文案
+  //（AI 族列表在同一份 loadSettings 里已取到）。
   searchProviderOrder = await loadSearchProviderOrder(searchProviders);
-  familyRows.search.render(elements.searchProvidersList, elements.searchProvidersEmpty, sortSearchProviders(searchProviders), {
-    presets: SEARCH_PROVIDER_PRESETS,
-    activeId: settings.activeSearchProviderId || ""
-  });
+  familyRows.search.render(
+    elements.searchProvidersList,
+    elements.searchProvidersEmpty,
+    annotateDeepseekRows(sortSearchProviders(searchProviders), providers),
+    {
+      presets: SEARCH_PROVIDER_PRESETS,
+      activeId: settings.activeSearchProviderId || ""
+    }
+  );
   syncResetSearchOrderButton(elements);
   // 悬空链首提示（spec §6.8）：链首指向已不存在的记录时露条件提示行；用户改选
   // （或链首本就为空 / 指向在场记录）即隐藏。判据只读当前设置与列表，无新存储位。
@@ -332,14 +343,39 @@ function syncResetSearchOrderButton(elements: SettingsElements): void {
   elements.resetSearchProviderOrderBtn.disabled = searchProviderOrder.length === 0;
 }
 
+// DeepSeek 行凭据引用三态文案（GLOSSARY「凭据引用」）：搜索侧 DeepSeek 记录没有
+// 自有 Key，副行状态由 AI 族记录 + 官方端点判定得出（判定单点在
+// deepseek-credential 叶，与链装配同源）；无 DeepSeek 行时零开销原样返回。
+function annotateDeepseekRows(
+  items: ProviderRowItem[],
+  aiProviders: readonly ProviderRowItem[]
+): ProviderRowItem[] {
+  if (!items.some((item) => String(item.presetId || "") === "deepseek")) {
+    return items;
+  }
+  const { status } = resolveDeepseekCredential(aiProviders as Parameters<typeof resolveDeepseekCredential>[0]);
+  const text = DEEPSEEK_ROW_STATUS_TEXT[status];
+  return items.map((item) =>
+    String(item.presetId || "") === "deepseek" ? { ...item, statusNote: text } : item
+  );
+}
+
 // 列表重渲（保存 / 编辑 / 恢复默认顺序后）：顺序按当前生效的拖拽序，选中态仍从
-// 行内 radio 现读（与既有 rerender 语义一致）。
+// 行内 radio 现读（与既有 rerender 语义一致）。DeepSeek 行副行 = 凭据引用三态
+// 文案（现查 AI 族列表，随保存后的最新状态走）。
 function rerenderSearchProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
-  familyRows.search.render(elements.searchProvidersList, elements.searchProvidersEmpty, sortSearchProviders(providers), {
-    presets: SEARCH_PROVIDER_PRESETS,
-    activeId: getActiveSearchProviderId(elements.searchProvidersList)
+  void loadAiProviders().then((aiProviders) => {
+    familyRows.search.render(
+      elements.searchProvidersList,
+      elements.searchProvidersEmpty,
+      annotateDeepseekRows(sortSearchProviders(providers), aiProviders),
+      {
+        presets: SEARCH_PROVIDER_PRESETS,
+        activeId: getActiveSearchProviderId(elements.searchProvidersList)
+      }
+    );
+    syncResetSearchOrderButton(elements);
   });
-  syncResetSearchOrderButton(elements);
 }
 
 // 悬空链首提示行的显隐（spec §6.8）：activeSearchProviderId 指向不存在记录才出现。
@@ -659,10 +695,11 @@ async function saveSettings(elements: SettingsElements): Promise<void> {
 function bindSettingsEvents(host: HTMLElement): void {
   const elements = collectElements(host);
 
-  // 自绘开关接线（ADR-0019）：5 个持久布尔开关换 iOS 风格开关壳（轨道 + 滑块
+  // 自绘开关接线（ADR-0019）：6 个持久布尔开关换 iOS 风格开关壳（轨道 + 滑块
   // 装饰、原生 input 视觉隐藏留作值源与键盘/读屏目标）。id / .checked / change
-  // 语义全不变——即时保存监听（asrAutoFallback）与 collectFormPayload 照原样工作。
-  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs]
+  // 语义全不变——即时保存监听（asrAutoFallback / allowPaidSearchProviders）与
+  // collectFormPayload 照原样工作。
+  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders]
     .forEach(initToggleSwitch);
 
   familyRows.asr.controller.setDeleteHandler(async (providerId) => {
@@ -758,6 +795,15 @@ function bindSettingsEvents(host: HTMLElement): void {
       settings: { webSearchMaxToolCalls: elements.webSearchMaxToolCalls.value }
     });
   });
+  // 付费平台准入即时持久化（GLOSSARY「付费平台」）：开关即花钱授权，改动立即
+  // 生效，不与「保存设置」按钮同批（同 webSearchMaxToolCalls 的即时保存键口径，
+  // 不进表单收集也不进重置载荷）。
+  elements.allowPaidSearchProviders?.addEventListener("change", async () => {
+    await sendRuntimeMessage({
+      type: "save-settings",
+      settings: { allowPaidSearchProviders: elements.allowPaidSearchProviders.checked }
+    });
+  });
   // onChanged 回读他端改动（区/键过滤走 shared/watch-storage-keys seam，R3 收口）。
   watchStorageKeys((changes) => {
     elements.asrAutoFallback.checked = changes.asrAutoFallback.newValue !== false;
@@ -765,7 +811,11 @@ function bindSettingsEvents(host: HTMLElement): void {
     if (changes.webSearchMaxToolCalls) {
       elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(changes.webSearchMaxToolCalls.newValue));
     }
-  }, { sync: ["asrAutoFallback", "webSearchMaxToolCalls"] });
+    if (changes.allowPaidSearchProviders) {
+      elements.allowPaidSearchProviders.checked = changes.allowPaidSearchProviders.newValue === true;
+      syncToggleSwitch(elements.allowPaidSearchProviders);
+    }
+  }, { sync: ["asrAutoFallback", "webSearchMaxToolCalls", "allowPaidSearchProviders"] });
 }
 
 // ===== host 权限申请 =====

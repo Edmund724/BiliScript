@@ -195,7 +195,8 @@ describe("热路径命中：四个读 handler 二次调用 storage 读为 0", ()
               presetId: "tavily",
               name: "Tavily",
               type: "tavily",
-              baseUrl: "https://api.tavily.com"
+              baseUrl: "https://api.tavily.com",
+              access: "keyless"
             },
             apiKey: "tvly-key"
           }
@@ -323,11 +324,11 @@ describe("写后读失效：写消息落盘后读 handler 拿新值", () => {
       ok: true,
       chain: [
         {
-          provider: { id: "exa", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai" },
+          provider: { id: "exa", presetId: "exa", name: "Exa", type: "exa", baseUrl: "https://api.exa.ai", access: "free-quota" },
           apiKey: "exa-key"
         },
         {
-          provider: { id: "tavily", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com" },
+          provider: { id: "tavily", presetId: "tavily", name: "Tavily", type: "tavily", baseUrl: "https://api.tavily.com", access: "keyless" },
           apiKey: ""
         }
       ],
@@ -392,7 +393,8 @@ describe("写入口收口：写点落盘后对应域快照失效（桩不触发 
           presetId: "tavily",
           name: "Tavily",
           type: "tavily",
-          baseUrl: "https://api.tavily.com"
+          baseUrl: "https://api.tavily.com",
+          access: "keyless"
         },
         apiKey: "tvly-key"
       }

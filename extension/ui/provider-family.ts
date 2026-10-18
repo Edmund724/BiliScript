@@ -201,16 +201,21 @@ const ASR_FAMILY: FamilyRowDeclaration = {
 // 搜索族：Key 是否必填与额度形态徽章都由预设的 access 派生（spec §6.3/§6.2
 // 单一真源）——判据表达式只写在这一处，模板 required / 切预设 sync / 占位符 /
 // 行状态点与徽章全部同源。
+// paid（DeepSeek 凭据引用）不按「必填」处理：搜索侧没有自有 Key 输入框，Key 经
+// 凭据引用取 AI 族（isKeyRequired=false），行状态三态文案由 deepseek-credential
+// 叶经 statusNote 覆写副行。
 function searchKeyRequired(preset: ProviderRowPreset | null): boolean {
-  return (preset as SearchProviderPreset | null)?.access !== "keyless";
+  return (preset as SearchProviderPreset | null)?.access === "free-quota";
 }
 
 // keyless 预设的 Key 可选：没配走扩展内置额度（免 Key），配了自己的 Key 走自己
-// 账号提额——徽章必须跟着改口，否则「已配 Key + 免 Key」自相矛盾。
+// 账号提额——徽章必须跟着改口，否则「已配 Key + 免 Key」自相矛盾。paid 徽章
+// 讲计费形态（「付费」），不随 hasSavedKey 变化。
 function searchAccessBadge(preset: ProviderRowPreset | null, hasSavedKey: boolean): string {
   const access = (preset as SearchProviderPreset | null)?.access;
   if (access === "keyless") return hasSavedKey ? "已配 Key" : "免 Key";
   if (access === "free-quota") return "免费额度";
+  if (access === "paid") return "付费";
   return "";
 }
 
@@ -222,7 +227,9 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
   idPrefix: "search_",
   resolvePreset: (presets, presetId) => presets.find((p) => p.id === presetId) || null,
   displayName: (item, preset) => String(item.name || preset?.name || "自定义"),
-  displayModel: (item, preset) => String((preset as SearchProviderPreset | null)?.note ?? ""),
+  // 副行：预设 note（如豆包「每月 500 次免费」）；DeepSeek 行由 settings-panel
+  // 注入 statusNote（凭据引用三态文案），在场时优先于预设 note。
+  displayModel: (item, preset) => String(item.statusNote ?? (preset as SearchProviderPreset | null)?.note ?? ""),
   activeRadio: {
     classPrefix: "search",
     title: "选用该平台联网搜索",

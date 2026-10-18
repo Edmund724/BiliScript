@@ -224,6 +224,7 @@ Firefox、Safari、移动浏览器和其他 Chromium 浏览器没有测试过。
 - `https://*.hdslb.com/*`：获取托管在 B 站 CDN 上的字幕文件（字幕正文的 JSON 数据）。
 - `https://*.bilivideo.com/*`：仅语音识别回退时，从 B 站音频 CDN 下载无字幕视频的音轨。
 - `https://api.firecrawl.dev/*`、`https://api.tavily.com/*`、`https://api.anysearch.com/*`、`https://search.parallel.ai/*`、`https://open.feedcoopapi.com/*`、`https://api.exa.ai/*`：仅在你开启联网搜索时，把模型生成的查询词发往对应服务并取回结果；这六个域名随扩展静态声明，其中四家免 Key 域名在你开启开关后即被使用，豆包 / Exa 只在你为该平台配置了自己的 Key 后才被使用。
+- `https://api.deepseek.com/*`：仅在你开启联网搜索、且选用付费搜索平台 DeepSeek（单选，或在设置中打开「允许智能搜索使用付费平台」后由智能链命中）时代为发送查询词；请求复用你在 AI 平台为官方 DeepSeek 端点配置的 Key，按成功次数计费。
 - 可选的全域权限（`http://*/*`、`https://*/*`）：只在你保存 AI / 语音识别平台、或点模型名右侧箭头拉取该平台模型列表时申请，用于连接你指定的端点（含本机自部署服务），删除对应平台后回收。
 
 扩展不会读取一般浏览历史，也不会把数据交给本项目开发者。实际数据流向见 [PRIVACY.md](PRIVACY.md)。

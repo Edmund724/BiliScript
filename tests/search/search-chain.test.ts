@@ -105,14 +105,15 @@ function ids(resolved: SearchChainResolution): string[] {
 }
 
 describe("链序常量（spec §12.2 / §10 第 63 行）", () => {
-  it("DEFAULT_SEARCH_PROVIDER_ORDER = Exa → 豆包 → Tavily → Firecrawl → AnySearch → Parallel，且 ≠ 预设表序", () => {
+  it("DEFAULT_SEARCH_PROVIDER_ORDER = Exa → 豆包 → Tavily → Firecrawl → AnySearch → Parallel → DeepSeek，且 ≠ 预设表序", () => {
     expect(DEFAULT_SEARCH_PROVIDER_ORDER).toEqual([
       "exa",
       "doubao",
       "tavily",
       "firecrawl",
       "anysearch",
-      "parallel"
+      "parallel",
+      "deepseek"
     ]);
     // 表序只管预设目录（Firecrawl 起头），不再是链序
     expect(DEFAULT_SEARCH_PROVIDER_ORDER).not.toEqual(SEARCH_PROVIDER_PRESETS.map((preset) => preset.id));
@@ -426,7 +427,7 @@ describe("resolveSearchChain 进组判据与冷却（spec §2 / §12.4 / §10 �
     expect(resolved.emptyCause).toBeUndefined();
   });
 
-  it("候选形状 = { provider:{id,presetId,name,type,baseUrl}, apiKey }，且不改写入参（§1 S4）", () => {
+  it("候选形状 = { provider:{id,presetId,name,type,baseUrl,access}, apiKey }，且不改写入参（§1 S4）", () => {
     const records = [FIRECRAWL, DOUBAO];
     const keys = { search_doubao: "db-key" };
     const order = ["search_firecrawl"];
@@ -441,7 +442,9 @@ describe("resolveSearchChain 进组判据与冷却（spec §2 / §12.4 / §10 �
         presetId: "firecrawl",
         name: "Firecrawl",
         type: "firecrawl",
-        baseUrl: "https://api.firecrawl.dev"
+        baseUrl: "https://api.firecrawl.dev",
+        // access 随候选带出（付费可见性标注的输入，执行器不再二次查表）
+        access: "keyless"
       },
       apiKey: ""
     });

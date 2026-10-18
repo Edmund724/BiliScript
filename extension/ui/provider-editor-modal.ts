@@ -24,6 +24,14 @@ import { DEFAULT_SEARCH_PROVIDER_PRESET, type SearchProviderPreset } from "../co
 import { executeWebSearch } from "../search/search-executor.js";
 import { classifySearchFailure } from "../search/search-chain.js";
 import { searchProviderStore } from "../search/search-provider-store.js";
+// DeepSeek 凭据引用（GLOSSARY「凭据引用」）：搜索测试的 Key 与链装配同源——读 AI 族
+// 列表（ai-providers-list）+ 官方端点判定，再按记录 id 取 Key（get-ai-provider-key）。
+import {
+  DEEPSEEK_ROW_STATUS_TEXT,
+  resolveDeepseekCredential,
+  type DeepseekCredentialStatus
+} from "../search/deepseek-credential.js";
+import { sendRuntimeMessage } from "../shared/messaging.js";
 import { wireModelPicker } from "./model-picker.js";
 import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
@@ -325,6 +333,27 @@ export async function runTest(): Promise<void> {
 // 前置（baseUrl 空 / Key 必填但空）是本地校验，不是测试态：不发起请求。
 export const SEARCH_TEST_QUERY = "联网搜索测试";
 
+// DeepSeek 搜索测试的 Key 解析（凭据引用，与链装配同源判定）：读 AI 族列表找
+// 第一条「启用 + presetId deepseek + 官方端点」记录，再按记录 id 取 Key。
+// 任一步失败返回空 Key + 对应状态（状态文案单源在 DEEPSEEK_ROW_STATUS_TEXT）。
+async function resolveDeepseekKeyForSearchTest(): Promise<{ key: string; status: DeepseekCredentialStatus }> {
+  try {
+    const resp = await sendRuntimeMessage({ type: "ai-providers-list" });
+    if (!resp?.ok || !Array.isArray(resp.providers)) {
+      return { key: "", status: "no-record" };
+    }
+    const { status, record } = resolveDeepseekCredential(resp.providers);
+    if (status !== "ok" || !record || !record.id) {
+      return { key: "", status };
+    }
+    const keyResp = await sendRuntimeMessage({ type: "get-ai-provider-key", providerId: record.id });
+    const key = keyResp?.ok ? String(keyResp.apiKey || "").trim() : "";
+    return { key, status: key ? "ok" : "no-key" };
+  } catch {
+    return { key: "", status: "no-record" };
+  }
+}
+
 // 五态：HTTP 200 有结果 →「连接成功 · N 条结果」；200 且 0 条 →「未返回结果」
 // （失败态）；额度类 →「额度已用尽」；鉴权类 →「Key 无效或无权限」；其余类 →
 //「连接失败：<原因>」。分类复用 search-chain 的 classifySearchFailure（单一映射表）。
@@ -346,6 +375,16 @@ export async function runSearchTest(): Promise<void> {
     } catch {
       apiKey = "";
     }
+  }
+  // DeepSeek 搜索测试：搜索侧没有自有 Key，Key 经凭据引用实时读 AI 族（与链装配
+  // 同源判定）；取不到按状态给三态文案之一，不发起请求。
+  if (preset?.id === "deepseek") {
+    const resolved = await resolveDeepseekKeyForSearchTest();
+    if (!resolved.key) {
+      showStatus(DEEPSEEK_ROW_STATUS_TEXT[resolved.status], true);
+      return;
+    }
+    apiKey = resolved.key;
   }
   // Key 必填判据与占位符 / required 同源（族声明的 isKeyRequired）
   if (!apiKey && family.editor.isKeyRequired(preset)) {

@@ -240,6 +240,11 @@ export async function getSearchHealth(): Promise<SearchHealthMap> {
 // 按键失效：键 → 域查 SNAPSHOT_DOMAIN_BY_KEY，命中即清该域缓存；未知键落空——
 // 写点传 payload 键全集（save-settings 的白名单外键）与直落形态派生出的运行态键
 // 都自然忽略，不必先过滤。
+//
+// 凭据引用例外（GLOSSARY「凭据引用」）：ai 域失效连带清 search 族缓存——搜索链的
+// DeepSeek 候选 Key 实时读 aiProviders / aiProviderKeys（deepseek-credential 叶），
+// AI 侧改 Key / 改端点 / 删记录后，下一条 resolve-search-provider 必须读到新值，
+// 否则搜索链拿着过期 Key 跑。方向单向（搜索读 AI），asr 缓存不受波及。
 export function invalidate(storageKeys: readonly string[]): void {
   for (const key of storageKeys) {
     const domain = SNAPSHOT_DOMAIN_BY_KEY.get(key);
@@ -251,6 +256,9 @@ export function invalidate(storageKeys: readonly string[]): void {
       searchHealthCache = null;
     } else if (domain) {
       familyCaches[domain] = null;
+      if (domain === "ai") {
+        familyCaches.search = null;
+      }
     }
   }
 }

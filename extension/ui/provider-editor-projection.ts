@@ -209,6 +209,11 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
   apiKey: {
     input: { draftKey: "apiKey", selector: ".provider-editor-apikey", clearStatus: true },
     project: (scope, draft) => {
+      // DeepSeek 搜索记录无自有 Key（凭据引用，GLOSSARY「凭据引用」）：字段整体隐藏，
+      // 模板与重投影同源（projection.hidden），保存 / 测试都不读它。
+      if (scope.ctx.kind === "search" && scope.preset?.id === "deepseek") {
+        return { hidden: true };
+      }
       const projection: FieldProjection = {
         // 占位符与 required 同源（族声明的 isKeyRequired）：防「占位符说可选、
         // required 仍卡住」
@@ -220,11 +225,13 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
       if (scope.ctx.kind !== "ai") projection.value = draft.apiKey;
       return projection;
     },
-    html: (projection) =>
-      fieldBlock(
+    html: (projection) => {
+      if (projection.hidden) return "";
+      return fieldBlock(
         "API Key",
         `<input class="provider-editor-apikey" type="password" placeholder="${escapeHtml(projection.placeholder ?? "")}" autocomplete="off" ${projection.required ? "required" : ""} />`
-      ),
+      );
+    },
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-apikey");
       if (!input) return;

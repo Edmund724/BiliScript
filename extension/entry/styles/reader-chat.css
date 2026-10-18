@@ -1720,7 +1720,8 @@
 
 .biliscript-reading-chat .chat-search-source-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  /* 三列：非付费行第三列为空（auto 空列不占宽），付费行的「付费」徽标落行尾 */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 7px;
   align-items: baseline;
   width: 100%;
@@ -1750,6 +1751,24 @@
 
 .biliscript-reading-chat .chat-search-source-row:hover .chat-search-source-title {
   color: var(--biliscript-reader-accent);
+}
+
+/* 付费平台标注（GLOSSARY「付费平台」）：来源行尾「付费」徽标 + 回退注记顶部小字。
+ * 颜色复用既有变量（accent 徽标 / faint 注记），不新增色值。 */
+.biliscript-reading-chat .chat-search-source-paid {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--biliscript-reader-accent);
+  border: 1px solid var(--biliscript-reader-accent);
+}
+
+.biliscript-reading-chat .chat-search-sources-notice {
+  font-size: 12px;
+  color: var(--biliscript-reader-faint);
+  padding: 6px 0 2px;
 }
 
 /* 正文内联 [n] 引用：accent 上标，悬停出预览卡，点击新标签打开来源 URL。 */

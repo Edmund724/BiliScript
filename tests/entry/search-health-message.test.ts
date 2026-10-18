@@ -45,7 +45,8 @@ const TAVILY_CANDIDATE = {
     presetId: "tavily",
     name: "Tavily",
     type: "tavily",
-    baseUrl: "https://api.tavily.com"
+    baseUrl: "https://api.tavily.com",
+    access: "keyless"
   },
   apiKey: ""
 };
@@ -56,7 +57,8 @@ const FIRECRAWL_CANDIDATE = {
     presetId: "firecrawl",
     name: "Firecrawl",
     type: "firecrawl",
-    baseUrl: "https://api.firecrawl.dev"
+    baseUrl: "https://api.firecrawl.dev",
+    access: "keyless"
   },
   apiKey: ""
 };

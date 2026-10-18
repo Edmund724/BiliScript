@@ -8,7 +8,10 @@
 // chrome.storage 交互，不涉及消息路由。
 //
 // 与 AI / ASR 平台存储完全隔离：用不同的 storage key（searchProviders /
-// searchProviderKeys），不和其它平台混用同一个列表。
+// searchProviderKeys），不和其它平台混用同一个列表。唯一例外是「凭据引用」
+//（GLOSSARY 词条）：DeepSeek 付费候选的 Key 实时读 AI 族（第一条启用、presetId
+// 为 deepseek 且通过官方端点判定的记录），判定单点在 search/deepseek-credential
+// 叶。方向单向——搜索读 AI，绝不回写；searchProviderKeys 里永不落 DeepSeek 的 Key。
 
 import { normalizeSearchProvider } from "./search-provider-normalize.js";
 import { createProviderStore } from "../core/provider-store.js";

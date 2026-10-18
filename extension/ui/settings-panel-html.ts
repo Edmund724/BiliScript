@@ -11,7 +11,7 @@
 // id 单一声明在下方 SETTINGS_PANEL_DOM_IDS：本文件的模板属性与 settings-panel.ts
 // collectElements 的查询 id 都从该表取值，改名单处生效。
 // 样式：分区类名消费 reader-settings-*.css 设置分区表组（随 ui/settings-panel
-// chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。5 个
+// chunk 按需挂载，shared/style-injector 的 ensureReaderSettingsStyles）。6 个
 // 布尔开关行（biliscript-toggle-row）的轨道/滑块样式走组件表
 // styles/toggle-switch.css（ADR-0019，随 ui/toggle-switch.ts 挂载），id 与
 // .checked 语义不变：装载/保存逻辑照读原生 input。
@@ -32,6 +32,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   searchProvidersEmpty: "searchProvidersEmpty",
   addSearchProviderBtn: "addSearchProviderBtn",
   resetSearchProviderOrderBtn: "resetSearchProviderOrderBtn",
+  allowPaidSearchProviders: "allowPaidSearchProviders",
   webSearchMaxToolCalls: "webSearchMaxToolCalls",
   enablePlayerAiQuickAction: "enablePlayerAiQuickAction",
   playerAiQuickPrompt: "playerAiQuickPrompt",
@@ -77,8 +78,13 @@ export function buildSettingsHtml(): string {
       <div class="biliscript-set-h">搜索平台</div>
       <p class="biliscript-set-hint">AI 对话与选区解释可联网搜索视频内容之外的信息（function calling，由模型决定何时搜）。联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止该家接收查询。</p>
       <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用平台已不可用，当前按默认链搜索</p>
+      <label class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">允许智能搜索使用付费平台（DeepSeek 按次计费，¥5/1000 次成功请求；关闭时智能链自动跳过它）</span>
+        <input id="${ids.allowPaidSearchProviders}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+      </label>
       <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa）——四条免 Key 预设装上即可用。</p>
+      <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa / DeepSeek Search）——四条免 Key 预设装上即可用。</p>
       <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
       <div class="biliscript-set-row">

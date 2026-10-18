@@ -15,9 +15,11 @@ import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
 import { buildSettingsHtml } from "../../extension/ui/settings-panel-html.js";
 import { initToggleSwitch, syncToggleSwitch } from "../../extension/ui/toggle-switch.js";
 
-// 5 个持久布尔开关的 id（与 SETTINGS_PANEL_DOM_IDS 中布尔键一致）
+// 6 个持久布尔开关的 id（与 SETTINGS_PANEL_DOM_IDS 中布尔键一致；
+// allowPaidSearchProviders = 付费平台准入，GLOSSARY「付费平台」）
 const TOGGLE_IDS = [
   "asrAutoFallback",
+  "allowPaidSearchProviders",
   "enablePlayerAiQuickAction",
   "includeDateInFilename",
   "includeTimestampInBody",
@@ -81,7 +83,7 @@ beforeEach(() => {
 });
 
 describe("模板壳结构契约", () => {
-  it("5 个开关行都有 text/input/track/thumb，input 与 track 相邻兄弟", () => {
+  it("6 个开关行都有 text/input/track/thumb，input 与 track 相邻兄弟", () => {
     const host = document.createElement("div");
     host.innerHTML = buildSettingsHtml();
     const rows = host.querySelectorAll<HTMLLabelElement>(".biliscript-toggle-row");

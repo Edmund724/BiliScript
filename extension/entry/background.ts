@@ -49,6 +49,10 @@ import { resolveSearchMode } from "../core/search-mode.js";
 // 回退链解析（spec §1 S1/S4/S6、§12.1–§12.3）：链 = 记录集合按 presetId 查预设表定类，
 // SW 是唯一知道 Key 的一侧（链解析回包一次带出有序候选 + 各自 Key）
 import { resolveSearchChain } from "../search/search-chain.js";
+// DeepSeek 凭据引用（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 候选
+// 的 Key 实时读 AI 族（第一条启用 + presetId deepseek + 官方端点的记录），链装配
+// 时就绪；搜索读 AI、绝不回写。
+import { resolveDeepseekSearchKey } from "../search/deepseek-credential.js";
 // 查询缓存 SW 叶（spec §5）：宿主是 SW（offscreen 无 chrome.storage），offscreen
 // 工具循环与 content 侧解释卡都经 search-cache 消息族读写；归一单源在本叶。
 // 查询缓存撤回入口分工（spec §6.7 / §10 第 40 行）：
@@ -403,7 +407,9 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
 // 单轮上限）经本消息单趟往返。链成员是记录，成员资格由记录的 presetId 查预设表得出；
 // 模式由 activeSearchProviderId 判定（记录 id = 单选独苗链 / 哨兵或空串 = 智能回退链），
 // 智能链序 = searchProviderOrder 归一序 > 内置默认序，冷却中的引擎（健康度图里
-// cooldownUntil > now 的 presetId）跳过；无任何合格记录时 chain 缺省
+// cooldownUntil > now 的 presetId）跳过；付费候选（access === "paid"）另受
+// allowPaidSearchProviders 门控（只挡智能链；Key 经凭据引用取 AI 族，见
+// deepseek-credential 叶）；无任何合格记录时 chain 缺省
 // ——调用方 notice 后走原无工具路径，不算错误（搜索是增强，缺失不阻塞对话）。
 // **空链归因**（spec §12.7 第 6 条，2026-10-01 翻案）：空链有因不分——「真的没有
 // 合格记录」与「合格记录全在冷却中」不是一回事，后者回 `chainEmptyReason:"cooldown"`
@@ -416,6 +422,9 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
       // settings 标量 + 搜索平台列表 + Key + 用户顺序一次快照读取（命中时零 storage 调用）
       const settings = await getSettingsSnapshot();
       const { providers, keys } = await getProviderStoreSnapshot("search");
+      // AI 族快照：DeepSeek 付费候选的 Key 经凭据引用取这里（官方端点判定单点在
+      // deepseek-credential 叶，AI 记录 / Key 变更经快照失效面联动清 search 缓存）。
+      const { providers: aiProviders, keys: aiKeys } = await getProviderStoreSnapshot("ai");
       const order = await getSearchProviderOrder();
       const activeId = settings.activeSearchProviderId;
       // 冷却图（spec §12.4 第 6 条）：健康度快照 → 只含 cooldownUntil > now 的项；
@@ -427,7 +436,13 @@ function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _
         mode,
         order,
         cooldownUntil,
-        now
+        now,
+        // 付费平台准入（GLOSSARY「付费平台」）：开关只影响智能链；DeepSeek 候选的
+        // Key 经凭据引用从 AI 族解析（无合格记录 / 非官方端点 / 无 Key = 空串跳过）。
+        allowPaid: settings.allowPaidSearchProviders === true,
+        paidKeys: {
+          deepseek: resolveDeepseekSearchKey(aiProviders, aiKeys)
+        }
       });
       if (resolved.chain.length === 0) {
         // 判空因随链一趟给出（票 16 C3，不再同参重跑）：链空且确有合格候选在冷却处

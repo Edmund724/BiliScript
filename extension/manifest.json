@@ -22,7 +22,8 @@
     "https://api.firecrawl.dev/*",
     "https://open.feedcoopapi.com/*",
     "https://api.anysearch.com/*",
-    "https://search.parallel.ai/*"
+    "https://search.parallel.ai/*",
+    "https://api.deepseek.com/*"
   ],
   "optional_host_permissions": [
     "http://*/*",

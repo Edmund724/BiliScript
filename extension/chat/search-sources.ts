@@ -8,10 +8,13 @@ import type { ChatSessionMessage } from "./chat-state.js";
 
 // 来源条目：与 search/adapters 的 NormalizedSearchResult 同形（tool 消息内容
 // 就是该数组的 JSON 序列化，spec §5）。类型本地声明避免渲染层依赖搜索适配器。
+// paid 为付费平台标注（GLOSSARY「付费平台」，live 的 tool-status 注入；历史回放
+// 的 tool 消息不落该字段，回放来源不带「付费」徽标）。
 export interface ChatSearchSource {
   title: string;
   url: string;
   snippet: string;
+  paid?: boolean;
 }
 
 // 来源预览卡摘录上限（spec §5：snippet 前 200 字符）。

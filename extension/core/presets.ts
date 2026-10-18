@@ -119,20 +119,23 @@ export const PRESETS: readonly AiProviderPreset[] = [
 export const NO_CATALOG_PRESETS = ["ollama", "custom"] as const;
 
 // ===== 联网搜索平台预设 =====
-// type 决定走哪个适配器（extension/search/adapters/），六家均为纯 HTTP：
+// type 决定走哪个适配器（extension/search/adapters/），七家均为纯 HTTP：
 //   firecrawl：POST /v2/search，无鉴权头（keyless 模式完全不发 Authorization）
 //   tavily：POST /search，无 Key 走 x-tavily-access-mode: keyless，有 Key 走 Authorization: Bearer
 //   doubao：POST /search_api/web_search，authorization: Bearer（必填）
 //   anysearch：POST /v1/search，无鉴权头
 //   parallel：POST /mcp（JSON-RPC tools/call + web_search），无鉴权头
 //   exa：POST /search，x-api-key（必填）
+//   deepseek：POST /v1/tools/search，Authorization: Bearer（Key 经凭据引用取自 AI 族）
 // access 是接入与额度形态的单一真源（spec §7）：keyless 无 Key 即可调用（配 Key
-// 走自己账号提额，不改形态）；free-quota 必须自带 Key，耗用服务方赠予的额度。
+// 走自己账号提额，不改形态）；free-quota 必须自带 Key，耗用服务方赠予的额度；
+// paid 无免费额度、按成功请求次数计费（现有唯一成员 DeepSeek，Key 经凭据引用
+// 取自 AI 族，见 GLOSSARY「付费平台」「凭据引用」）。
 // note 显示在设置行副行。不做自定义预设（spec 非目标）。
 
-export type SearchProviderAccess = "keyless" | "free-quota";
+export type SearchProviderAccess = "keyless" | "free-quota" | "paid";
 
-export type SearchProviderType = "firecrawl" | "tavily" | "doubao" | "anysearch" | "parallel" | "exa";
+export type SearchProviderType = "firecrawl" | "tavily" | "doubao" | "anysearch" | "parallel" | "exa" | "deepseek";
 
 export interface SearchProviderPreset {
   id: string;
@@ -195,21 +198,32 @@ export const SEARCH_PROVIDER_PRESETS: readonly SearchProviderPreset[] = [
     baseUrl: "https://api.exa.ai",
     access: "free-quota",
     note: "每月 $10 赠送额度（新账户另赠 $10）"
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek Search",
+    type: "deepseek",
+    baseUrl: "https://api.deepseek.com",
+    access: "paid",
+    note: "按次计费（¥5/1000 次成功请求），复用 AI 平台 DeepSeek 的 Key"
   }
 ];
 
 // 内置默认链序（spec §2「内置默认链序」/ §12.2）：Exa → 豆包 → Tavily → Firecrawl
-// → AnySearch → Parallel。与 SEARCH_PROVIDER_PRESETS 的表序解耦（表序只管预设目录）；
-// free-quota 两家（Exa / 豆包）没配 Key 时自动跳过，故无 Key 用户的实际首家 = Tavily。
-// 用户拖拽顺序（searchProviderOrder）优先于本表；不在用户数组中的记录按本表位次排在
-// 数组内记录之后（spec §12.2 排序键规则）。
+// → AnySearch → Parallel → DeepSeek。与 SEARCH_PROVIDER_PRESETS 的表序解耦（表序只管
+// 预设目录）；free-quota 两家（Exa / 豆包）没配 Key 时自动跳过，故无 Key 用户的实际
+// 首家 = Tavily；付费的 DeepSeek 恒排末位（免费平台全挂才轮到它，想优先用可拖拽提位
+// 或单选）。用户拖拽顺序（searchProviderOrder）优先于本表；不在用户数组中的记录按本表
+// 位次排在数组内记录之后（spec §12.2 排序键规则）——存量用户已存顺序里的缺漏预设
+// 由此并入（DeepSeek 记录不在用户数组中 = 排最末）。
 export const DEFAULT_SEARCH_PROVIDER_ORDER: readonly string[] = [
   "exa",
   "doubao",
   "tavily",
   "firecrawl",
   "anysearch",
-  "parallel"
+  "parallel",
+  "deepseek"
 ];
 
 export function normalizeBaseUrl(value: unknown): string {
