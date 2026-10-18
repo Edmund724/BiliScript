@@ -43,6 +43,7 @@ import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
 import { STATUS_LINE_BASE, getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { sortSubtitleBodyByFrom } from "./selection.js";
 import { refreshHotComments } from "./core.js";
+import { slot } from "./slot.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
 import { publishSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
 import { ensureRunActive } from "../shared/error-helpers.js";
@@ -95,14 +96,14 @@ export async function acceptSubtitle({
     ensureRunActive(runId, clipState.fetchRunId);
   }
   const sortedBody = sortSubtitleBodyByFrom(body);
-  clipState.setSelectedSubtitleId(selectedSubtitleId);
-  clipState.setSelectedSubtitleUrl(selectedSubtitleUrl);
-  clipState.setSelectedSubtitleLang(selectedSubtitleLang);
-  clipState.setSubtitleBody(sortedBody as SubtitleBodyItem[]);
-  clipState.setSubtitleFetchState("ready");
-  clipState.setNoSubtitleReason(null);
-  // 详情与原因同生命周期：字幕就绪后不留上一轮失败的报文明细
-  clipState.setNoSubtitleDetail("");
+  slot.install(
+    {
+      id: selectedSubtitleId,
+      url: selectedSubtitleUrl,
+      lang: selectedSubtitleLang
+    },
+    sortedBody as SubtitleBodyItem[]
+  );
   await refreshHotComments();
   // 发射无条件：视图门控的裁决权归 reader 侧（init-essentials 分派链按
   // readingViewOpen 跳过、lifecycle 处理体再按当前 state 投影）。这里按视图
@@ -146,11 +147,13 @@ export async function acceptSecondarySubtitle({
     ensureRunActive(runId, clipState.fetchRunId);
   }
   const sortedBody = sortSubtitleBodyByFrom(body);
-  clipState.applySecondarySubtitle({
-    id: subtitleId,
-    url: subtitleUrl,
-    body: sortedBody as SubtitleBodyItem[]
-  });
+  slot.installSecondary(
+    {
+      id: subtitleId,
+      url: subtitleUrl
+    },
+    sortedBody as SubtitleBodyItem[]
+  );
   notifyReaderPresenter({ kind: "secondary-subtitle-ready" });
 }
 
@@ -181,18 +184,9 @@ export async function commitNoSubtitle({ noSubtitleReason, runId }: CommitNoSubt
   if (runId !== undefined) {
     ensureRunActive(runId, clipState.fetchRunId);
   }
-  clipState.setSelectedSubtitleId("");
-  clipState.setSelectedSubtitleUrl("");
-  clipState.setSelectedSubtitleLang("");
-  clipState.setSubtitleBody([]);
-  clipState.setSubtitleFetchState("empty");
+  slot.clearToEmpty(noSubtitleReason);
   clipState.setHotComments([]);
-  clipState.setMarkdown("");
-  clipState.setSrt("");
-  clipState.setTxt("");
-  if (noSubtitleReason !== undefined) {
-    clipState.setNoSubtitleReason(noSubtitleReason);
-  }
+  slot.invalidateDerived();
   // 通知与状态栏同一句（失败文案的唯一出口）：reader 侧 renderReadingStatus
   // 直接显示这句，状态栏不另拼——两处漂移的口子就此关闭。
   // 发射无条件（同 acceptSubtitle）：裁决权归 reader 侧门控。
