@@ -609,7 +609,7 @@
   padding: 10px 12px;
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
+  border-radius: 8px;
   overflow-x: auto;
 }
 
@@ -673,13 +673,8 @@
   contain-intrinsic-size: auto none auto 44px;
 }
 
-/* 流式尾部指示 = 三点脉冲（2026-10-06 用户决议，四形态对照后选定：accent-soft
- * 药丸 + 三个错峰跳的点；替掉原先的 5×12 灰块 + steps(2) 硬闪）。形态口径：
- * 药丸走站内 pill 母题（同联网搜索开启态、时间戳 pill）。
- * 为什么不是块状光标：块状光标跟着流式尾部前进，换行后开新块时它独占行首，读
- * 起来像贴了段灰色胶带而不是光标（用户报「左下角这个长方形很丑」）；有底色的
- * 药丸独占行首时读作「正在输入」的徽标，语义不跑偏。尺寸按 em 写（正文 16px 下
- * 与行高对齐，改字号不用再调数值）；颜色全走 token，暗色档自动跟随。
+/* 流式尾部指示 = 三点脉冲光标。三个点直接显示在末尾跟随流式输出。
+ * 尺寸按 em 写（正文 16px 下与行高对齐）；颜色走 token，暗色档自动跟随。
  * 三个点由 chat-stream-render 的 createStreamCursor 建成子节点（必须是子节点：
  * tail 每帧重写 innerHTML，兄弟节点活不过一帧）。 */
 .biliscript-reading-chat .chat-msg-cursor {
@@ -688,9 +683,6 @@
   gap: 3.5px;
   height: 1.12em;
   margin-left: 5px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: var(--biliscript-reader-accent-soft);
   vertical-align: -0.18em;
   animation: biliscript-chat-pulse-in 0.22s ease-out both;
 }
@@ -718,8 +710,7 @@
   30% { opacity: 1; transform: translateY(-2px); }
 }
 
-/* 药丸入场：光标每帧被搬到新块，翻译 1px + 淡入让「落到新位置」这件事有交代，
- * 避免新块凭空多出一个元素。 */
+/* 光标入场：光标每帧被搬到新块，位移 1px + 淡入让「落到新位置」平滑过渡。 */
 @keyframes biliscript-chat-pulse-in {
   from { opacity: 0; transform: translateY(1px); }
   to { opacity: 1; transform: translateY(0); }
@@ -729,7 +720,7 @@
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-highlight);
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 8px 10px;
   font-size: 14px;
 }
@@ -776,7 +767,7 @@
   margin-bottom: 2px;
   padding: 7px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
   font-size: 14px;
@@ -819,7 +810,7 @@
   margin: 0 0 6px;
   padding: 7px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
   font-size: 14px;
@@ -1003,7 +994,7 @@
   gap: 6px;
   padding: 10px 10px 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--biliscript-reader-surface);
 }
 
@@ -1232,7 +1223,7 @@
   max-height: min(430px, calc(100vh - 260px));
   padding: 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--biliscript-reader-card);
   box-shadow: var(--biliscript-reader-shadow);
   overflow-y: auto;
@@ -1595,7 +1586,7 @@
   align-self: stretch;
   max-width: 100%;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--biliscript-reader-surface);
   padding: 8px 10px;
 }
@@ -1782,7 +1773,7 @@
   max-width: 320px;
   padding: 8px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--biliscript-reader-card);
   box-shadow: var(--biliscript-reader-shadow);
   font-size: 13px;
