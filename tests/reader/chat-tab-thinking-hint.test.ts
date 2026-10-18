@@ -405,15 +405,9 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
   const SENSENOVA_URL = "https://token.sensenova.cn/v1";
   const OPENROUTER_URL = "https://openrouter.ai/api/v1";
 
-  it("激活前模板不给静态档位按钮：档位页容器为空、一级行 hidden（显示名由组合根派生）", async () => {
-    // 2026-10-05 用户裁定（票据 chat-thinking-submenu）：模板里的 7 个静态 chip 退役，
-    // 条目改由 chat/thinking-picker 在组合根里现渲——激活前容器必须为空、一级行必须
-    // 隐藏（壳静默空态，不放假数据）。标签表本身的键集/文案由
-    // tests/chat/thinking-picker.test.ts 锁。激活前**尚未派生**：容器里没有按钮（Default
-    // 也不落模板——它是组合根现渲的，模板保持空态）、一级行隐藏。
+  it("激活前模板不给静态档位按钮：档位容器为空、思考强度区 hidden（显示名由组合根派生）", async () => {
     expect(renderedThinkingLevels()).toEqual([]);
     expect(thinkingRow().hidden).toBe(true);
-    expect(document.getElementById(ids.readingChatThinkingPage)?.hidden).toBe(true);
   });
 
   it("上游逐模型词表：deepseek-v4-pro → {off, low, high, max}（不存在的档不现渲）", async () => {
@@ -602,15 +596,12 @@ describe("档位 chip 集合：按模型可用集渲染（06 号票）", () => {
 });
 
 // ============================================================
-// 二级菜单端到端走查（票据 chat-thinking-submenu/04）：真实模板 + 真实组合根，
-// 全链只走 DOM 事件——开面板（点 chip）→ 换页（点一级行）→ 选档（点条目）→
-// 落盘 / chip 更新 / 关面板 → 重开回模型页。走查同时写出可复现工件
-//（.scratch/tickets/chat-thinking-submenu/artifacts/04-e2e-walkthrough.txt）。
-// 先列可能失败的方式：面板没关（hidePanel 链断）；重开没回到模型页（换页状态残留）；
-// 选中条目没写偏好（只改 DOM）；chip 显示名与菜单不同源（选了 Max、chip 还写 Off）。
+// 内联思考强度滑块端到端走查：真实模板 + 真实组合根，
+// 全链只走 DOM 事件——开面板（点 chip）→ 模型列表与底部思考强度滑块同屏可见 →
+// 选档（点刻度 / 点 ↻ 重置）→ 落盘 + chip 更新 + 面板保持打开 → 点模型项才关面板。
 // ============================================================
-describe("二级菜单端到端走查（04 号票）", () => {
-  it("开面板 → 点「思考强度」行 → 换页 → 选档 → 落盘 + chip 更新 + 关面板 → 重开回模型页", async () => {
+describe("内联思考强度滑块端到端走查", () => {
+  it("开面板 → 模型列表与底部思考滑块同屏 → 选档落盘 + chip 更新 + 面板保持打开 → 点模型项关面板", async () => {
     providersPayload = [provider({ id: "p1", model: "deepseek-v4-pro", baseUrl: DEEPSEEK_BASE_URL, presetId: "deepseek" })];
 
     await activateChatTab();
@@ -618,9 +609,7 @@ describe("二级菜单端到端走查（04 号票）", () => {
     const panel = document.getElementById(ids.readingChatModelPanel) as HTMLElement;
     const chip = document.getElementById(ids.readingChatModelChip) as HTMLButtonElement;
     const list = document.getElementById(ids.readingChatModelList) as HTMLElement;
-    const page = document.getElementById(ids.readingChatThinkingPage) as HTMLElement;
     const row = thinkingRow();
-    const back = document.getElementById(ids.readingChatThinkingBack) as HTMLElement;
     const hint = getHint();
     const chipLevel = document.querySelector(`#${ids.readingChatModelChip} .chat-model-chip-level`) as HTMLElement;
     const storageSet = (window.chrome as unknown as { storage: { local: { set: SendStub } } }).storage.local.set;
@@ -631,9 +620,8 @@ describe("二级菜单端到端走查（04 号票）", () => {
         [
           label,
           `面板=${panel.hidden ? "关" : "开"}`,
-          `模型页=${list.hidden ? "隐" : "显"}`,
-          `档位页=${page.hidden ? "隐" : "显"}`,
-          `一级行=${row.hidden ? "隐" : "显"}`,
+          `模型列表=${list.hidden ? "隐" : "显"}`,
+          `思考区=${row.hidden ? "隐" : "显"}`,
           `条目=[${renderedThinkingLevels().join(",")}]`,
           `勾=[${effectiveThinkingLevels().join(",")}]`,
           `chip=${chipLevel.textContent}`,
@@ -643,59 +631,35 @@ describe("二级菜单端到端走查（04 号票）", () => {
       );
     }
 
-    // 0. 激活后：面板关着，档位区已按模型现渲（off/low/high/max，选中 Off）。
+    // 0. 激活后：面板关着，档位区已按模型现渲（default/off/low/high/max，默认 Default）。
     expect(panel.hidden).toBe(true);
     snap("0 激活后");
 
-    // 1. 点 chip 开面板：模型页 + 一级行（当前值 Off）。
+    // 1. 点 chip 开面板：模型列表与底部思考强度区同屏显示。
     click(chip);
     expect(panel.hidden).toBe(false);
     expect(list.hidden).toBe(false);
-    expect(page.hidden).toBe(true);
     expect(row.hidden).toBe(false);
     snap("1 点 chip 开面板");
 
-    // 2. 点一级行换页：模型列表隐藏、档位页可见、一级行隐藏（返回行接管）。
-    click(row);
-    expect(page.hidden).toBe(false);
-    expect(list.hidden).toBe(true);
-    expect(row.hidden).toBe(true);
-    expect(back.hidden).toBe(false);
-    snap("2 点一级行换页");
-
-    // 3. 点 Max：写偏好（storage + save-settings 同值）+ chip 更新 + 关面板。
+    // 2. 点 Max：写偏好（storage + save-settings 同值）+ chip 更新 + 面板保持打开。
     storageSet.mockClear();
     clickThinking("max");
     expect(chatSessionState.aiThinkingLevel).toBe("max");
     expect(storageSet).toHaveBeenCalledWith({ [THINKING_LEVEL_KEY]: "max" });
     expect(chipLevel.textContent).toBe("Max");
-    expect(panel.hidden).toBe(true);
-    expect(requireThinkingBtn("max").classList.contains("is-active")).toBe(true);
-    snap("3 点 Max 选档");
-
-    // 4. 重开面板：回到模型页（换页状态不留到下一次），一级行显示新值。
-    click(chip);
-    expect(panel.hidden).toBe(false);
-    expect(list.hidden).toBe(false);
-    expect(page.hidden).toBe(true);
     expect((document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement).textContent).toBe("Max");
-    snap("4 重开面板");
+    expect(panel.hidden).toBe(false);
+    expect(requireThinkingBtn("max").classList.contains("is-active")).toBe(true);
+    snap("2 点 Max 选档（面板保持打开）");
 
-    expect(steps).toHaveLength(5);
+    // 3. 点模型项：面板立即关闭。
+    const firstModelOption = list.querySelector<HTMLButtonElement>(".chat-model-option") as HTMLButtonElement;
+    click(firstModelOption);
+    expect(panel.hidden).toBe(true);
+    snap("3 点模型项关面板");
 
-    // 工件：同一步走查的逐步快照（可重跑，内容确定）。
-    const artifactDir = join(process.cwd(), ".scratch", "tickets", "chat-thinking-submenu", "artifacts");
-    mkdirSync(artifactDir, { recursive: true });
-    writeFileSync(
-      join(artifactDir, "04-e2e-walkthrough.txt"),
-      [
-        "# 04 号票端到端走查工件（由 tests/reader/chat-tab-thinking-hint.test.ts 生成）",
-        "# 用例：二级菜单端到端走查 —— deepseek/deepseek-v4-pro，偏好默认 off，点 Max",
-        "# 每行 = 一步；同命令重跑逐字节一致",
-        ...steps,
-        ""
-      ].join("\n")
-    );
+    expect(steps).toHaveLength(4);
   });
 });
 

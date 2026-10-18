@@ -80,19 +80,16 @@ export const ids = {
   readingChatModelChip: "biliscript-reading-chat-model-chip",
   readingChatModelPanel: "biliscript-reading-chat-model-panel",
   readingChatModelList: "biliscript-reading-chat-model-list",
-  // 思考档位的二级菜单（2026-10 用户裁定，票据 chat-thinking-submenu）：
-  // 面板底部固定区一行「思考强度 <当前值> ›」，点它**换页**到档位页（
-  // 顶部返回行 + 档位条目列表）。档位条目由 reader/chat-model-panel.ts 按
-  // chat/thinking-picker 的显示条目现渲，不再是模板里的 7 个静态按钮。
+  // 思考强度内联选择区：面板底部固定区（标题行「思考强度 <当前值>」+ 右上角 ↻ 重置键
+  // 对应 Default 不干预档 + 胶囊滑轨/单档胶囊）。档位由 reader/chat-model-panel.ts 按
+  // chat/thinking-picker 的显示条目现渲。
   readingChatThinkingRow: "biliscript-reading-chat-thinking-row",
   readingChatThinkingRowValue: "biliscript-reading-chat-thinking-row-value",
-  readingChatThinkingPage: "biliscript-reading-chat-thinking-page",
-  readingChatThinkingBack: "biliscript-reading-chat-thinking-back",
-  // 档位条目容器（档位页内；条目 = 可用集按显示口径派生，见 chat/thinking-picker）。
+  // 思考档位交互容器（承载右上角 Default ↻ 按钮与滑轨刻度/单档胶囊，条目 = 可用集按显示口径派生）。
   readingChatThinkingToggle: "biliscript-reading-chat-thinking-toggle",
-  // 思考档位「关不掉」提示行（工单 03）：档位行之后（面板底部固定区），
+  // 思考档位「关不掉 / clamp」提示行（工单 03）：档位区之后（面板底部固定区），
   // 默认 hidden，由模型面板（reader/chat-model-panel.ts）按 chat/thinking-picker 视图值
-  // 的 hint 写文案与显隐（2026-10 深化：原写手是对话组合根 reader/chat-tab.ts）。
+  // 的 hint 写文案与显隐。
   readingChatThinkingHint: "biliscript-reading-chat-thinking-hint",
   readingChatHistoryPopover: "biliscript-reading-chat-history-popover",
   readingChatHistoryList: "biliscript-reading-chat-history-list",

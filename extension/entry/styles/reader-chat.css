@@ -37,130 +37,313 @@
  * .biliscript-reading-tabs-tools，外观复用 .biliscript-reading-icon-btn 无框幽灵键），
  * 对话域内不再有工具条行，原头部规则（容器 + 图标键覆写）随之退役。 */
 
-/* 思考强度的二级菜单（2026-10 用户裁定，票据 chat-thinking-submenu）：
- * 面板底部固定区一行「思考强度 <当前值> ›」，点它**换页**到档位页（顶部返回行 +
- * 档位条目）。原先的「一行思考标签 + 分段控件里最多 7 个药丸」随裁定退役——
- * 档位条目改成一列普通行，选中行走模型选项行同一母题（accent-soft 底 + accent 字
- * + 右侧 ✓），不再是分段控件。 */
+/* 思考强度内联选择区（面板底部固定区）：
+ * 顶部一行「思考强度 <当前值>」+ 右上角 ↻ 重置键（对应 Default 不干预档）；
+ * 下方按模型可用档位数渲染胶囊滑轨（≥2 档，含 Off/On 开关型与多档型）、
+ * 单档胶囊行（=1 档）或仅保留标题行（0 档，ADR-0015）。
+ * 所有非零档位的填充条均带流动星点（.is-sparkle），档位数 ≥3 且处于最高档时
+ * 叠加紫色渐变与短脉冲（.is-max / .is-ultra-burst）。 */
 .biliscript-reading-chat .chat-thinking-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px 2px;
+  box-sizing: border-box;
+  color: var(--biliscript-reader-text);
+  font-size: 13.5px;
+}
+
+.biliscript-reading-chat .chat-thinking-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s ease-out, transform 100ms ease-out;
-}
-
-.biliscript-reading-chat .chat-thinking-row:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
-}
-
-.biliscript-reading-chat .chat-thinking-row:hover {
-  background: var(--biliscript-reader-surface-2);
+  gap: 6px;
+  min-height: 24px;
+  padding-right: 28px;
 }
 
 .biliscript-reading-chat .chat-thinking-row-label {
   flex: 0 0 auto;
-}
-
-/* 当前值右推（与 chip 的档位 span 同题：值恒完整），chevron 紧随其后。 */
-.biliscript-reading-chat .chat-thinking-row-value {
-  margin-left: auto;
   color: var(--biliscript-reader-muted);
 }
 
-.biliscript-reading-chat .chat-thinking-row svg,
-.biliscript-reading-chat .chat-thinking-back svg {
-  flex: 0 0 auto;
+/* 当前值右推（与 chip 的档位 span 同题：值恒完整），紧邻右上角 ↻ 重置键。 */
+.biliscript-reading-chat .chat-thinking-row-value {
+  margin-left: auto;
+  color: var(--biliscript-reader-text);
+  font-weight: 600;
+}
+
+/* 思考档位交互容器：承载右上角 ↻ 重置键与滑轨/单档胶囊。 */
+.biliscript-reading-chat .chat-thinking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.biliscript-reading-chat .chat-thinking-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--biliscript-reader-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* 右上角 ↻ 重置键（Default 不干预档）：已经是 Default 偏好时置灰不可点。 */
+.biliscript-reading-chat .chat-thinking-reset {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--biliscript-reader-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease-out, color 0.15s ease-out, opacity 0.15s ease-out, transform 100ms ease-out;
+}
+
+.biliscript-reading-chat .chat-thinking-reset svg {
   width: 14px;
   height: 14px;
   fill: none;
-  stroke: var(--biliscript-reader-faint);
+  stroke: currentColor;
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-/* 档位页顶部返回行：与一级行同形（只多一个「当前页」的字重）。 */
-.biliscript-reading-chat .chat-thinking-back {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-
-.biliscript-reading-chat .chat-thinking-back:hover {
+.biliscript-reading-chat .chat-thinking-reset:not([data-writes="false"]):hover {
   background: var(--biliscript-reader-surface-2);
-}
-
-/* 档位条目容器：一列行（不再是分段控件，条目的档位集合由 chat/thinking-picker
- * 从同一次解析派生，本表只管外观）。 */
-.biliscript-reading-chat .chat-thinking-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.biliscript-reading-chat .chat-thinking-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
   color: var(--biliscript-reader-text);
-  font: inherit;
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }
 
-.biliscript-reading-chat .chat-thinking-btn:active {
+.biliscript-reading-chat .chat-thinking-reset:not([data-writes="false"]):active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.biliscript-reading-chat .chat-thinking-btn:hover {
-  background: var(--biliscript-reader-surface-2);
+.biliscript-reading-chat .chat-thinking-reset[data-writes="false"] {
+  opacity: 0.36;
+  cursor: default;
 }
 
-.biliscript-reading-chat .chat-thinking-btn.is-active {
+/* 单档型（真实档位数 = 1，不可关思考且仅一档 On）：轻量胶囊行。 */
+.biliscript-reading-chat .chat-thinking-single {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.biliscript-reading-chat .chat-thinking-single-label {
+  font-size: 12.5px;
+  color: var(--biliscript-reader-faint);
+}
+
+.biliscript-reading-chat .chat-thinking-single-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 12px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 999px;
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+.biliscript-reading-chat .chat-thinking-single-pill:hover {
+  background: var(--biliscript-reader-fill-hover);
+}
+
+.biliscript-reading-chat .chat-thinking-single-pill.is-active {
+  border-color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
 }
 
-.biliscript-reading-chat .chat-thinking-check {
-  flex: 0 0 auto;
-  margin-left: auto;
+/* 胶囊滑轨（真实档位数 ≥ 2）：24px 高胶囊底轨 + 28px 圆形白滑块。 */
+.biliscript-reading-chat .chat-thinking-track {
+  position: relative;
+  height: 32px;
+  user-select: none;
+  touch-action: none;
+  cursor: grab;
+  outline: none;
 }
 
-/* 思考档位「关不掉」提示行（工单 03）：档位切换区内独占一行的小字，
- * 默认 hidden（对话组合根 reader/chat-tab.ts 按 resolver 判定显隐）。 */
+.biliscript-reading-chat .chat-thinking-track.is-dragging {
+  cursor: grabbing;
+}
+
+.biliscript-reading-chat .chat-thinking-track:focus-visible .chat-thinking-rail {
+  box-shadow: inset 0 0 0 1px var(--biliscript-reader-accent), 0 0 0 2px var(--biliscript-reader-accent-soft);
+}
+
+.biliscript-reading-chat .chat-thinking-range {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 0;
+  bottom: 0;
+}
+
+.biliscript-reading-chat .chat-thinking-rail {
+  position: absolute;
+  left: -14px;
+  right: -14px;
+  top: 4px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--biliscript-reader-pill-bg);
+  box-shadow: inset 0 0 0 1px var(--biliscript-reader-border);
+}
+
+.biliscript-reading-chat .chat-thinking-fill {
+  position: absolute;
+  z-index: 0;
+  left: -14px;
+  top: 4px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--biliscript-reader-accent);
+  overflow: hidden;
+  pointer-events: none;
+  transition: width 0.18s cubic-bezier(0.2, 0.9, 0.25, 1), filter 0.22s ease;
+}
+
+.biliscript-reading-chat .chat-thinking-track.is-dragging .chat-thinking-fill,
+.biliscript-reading-chat .chat-thinking-track.is-dragging .chat-thinking-thumb {
+  transition: none;
+}
+
+.biliscript-reading-chat .chat-thinking-track.is-ultra-burst .chat-thinking-fill {
+  filter: brightness(1.08) saturate(1.08);
+}
+
+/* 最高档（档位数 ≥ 3 的最右端）紫色渐变层。 */
+.biliscript-reading-chat .chat-thinking-ultra-gradient {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    #88a3fe 0%,
+    #93a2ff 11%,
+    #a2a6ff 22%,
+    #aba8ff 33%,
+    #b2a3fe 44%,
+    #af99fe 55%,
+    #9766e4 66%,
+    #9766e4 72%,
+    #714dc7 86%,
+    #6752c9 100%
+  );
+  transition: opacity 0.22s ease;
+}
+
+.biliscript-reading-chat .chat-thinking-track.is-max .chat-thinking-ultra-gradient {
+  opacity: 1;
+}
+
+/* 流动星点粒子层：所有非零填充档位（.is-sparkle）均开启向左漂移的星点。 */
+.biliscript-reading-chat .chat-thinking-energy {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  background-image:
+    radial-gradient(circle at 12px 7px, rgba(255, 255, 255, 0.95) 0 1.3px, transparent 1.9px),
+    radial-gradient(circle at 36px 17px, rgba(255, 255, 255, 0.8) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 54px 10px, rgba(255, 255, 255, 0.9) 0 1.4px, transparent 2px),
+    radial-gradient(circle at 22px 19px, rgba(255, 255, 255, 0.72) 0 0.9px, transparent 1.5px),
+    radial-gradient(circle at 68px 6px, rgba(255, 255, 255, 0.85) 0 1.1px, transparent 1.7px),
+    radial-gradient(circle at 88px 15px, rgba(255, 255, 255, 0.92) 0 1.2px, transparent 1.8px);
+  background-size: 62px 24px, 78px 24px, 94px 24px, 70px 24px, 86px 24px, 108px 24px;
+  background-repeat: repeat-x;
+  animation: biliscript-thinking-energy-drift 0.98s linear infinite;
+}
+
+.biliscript-reading-chat .chat-thinking-track.is-sparkle .chat-thinking-energy {
+  opacity: 0.96;
+}
+
+@keyframes biliscript-thinking-energy-drift {
+  from {
+    background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0;
+  }
+  to {
+    background-position: -62px 0, -78px 0, -94px 0, -70px 0, -86px 0, -108px 0;
+  }
+}
+
+/* 滑轨刻度热区与 4px 圆点。 */
+.biliscript-reading-chat .chat-thinking-tick {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.biliscript-reading-chat .chat-thinking-tick::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--biliscript-reader-faint);
+  opacity: 0.7;
+}
+
+/* 白色圆形滑块（Default 态下 [hidden] 隐藏，只露刻度点）。 */
+.biliscript-reading-chat .chat-thinking-thumb {
+  position: absolute;
+  z-index: 2;
+  top: 2px;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.7) inset;
+  pointer-events: none;
+  transition: left 0.18s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.biliscript-reading-chat .chat-thinking-thumb[hidden] {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .biliscript-reading-chat .chat-thinking-energy {
+    animation: none;
+  }
+}
+
+/* 思考档位「关不掉 / clamp」提示行（工单 03）：档位切换区内独占一行的小字，
+ * 默认 hidden（由 reader/chat-model-panel.ts 按视图值写文案与显隐）。 */
 .biliscript-reading-chat .chat-thinking-hint {
   flex-basis: 100%;
-  padding: 0 2px;
+  padding: 0 6px;
   color: var(--biliscript-reader-muted);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.4;
 }
 

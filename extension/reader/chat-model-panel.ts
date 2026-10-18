@@ -9,12 +9,14 @@
 // 模型名 span，档位与 chevron 恒完整（model-select-width 只决定 chip 整体宽度，
 // 不参与截断）。
 //
-// 2026-10 用户裁定（票据 chat-thinking-submenu，二级菜单）：面板分两页——
-// 模型页（分组模型列表）与档位页（顶部返回行 + 档位条目）。底部固定区是一行
-// 「思考强度 <当前值> ›」，点它换页到档位页；档位条目点中即写偏好并关面板。
+// 面板结构：上部分组模型列表（滚动，点选模型写值源并立即关面板）；底部固定区
+// 内联「思考强度 <当前值> + 右上角 ↻ 重置键（Default 不干预档）」与胶囊滑轨
+// （真实档位数 ≥ 2，含 Off/On 开关型与多档型）/ 单档胶囊（真实档位数 = 1）/
+// 仅标题行（真实档位数 = 0，ADR-0015 零档行照旧显示）。调整思考强度或点 ↻ 重置
+// 只更新档位并保持面板打开。
 // 条目、显示名与底部提示行（工单 03 的「关不掉」/ 05 号票的 clamp 说明）都由
 // chat/thinking-picker 的 thinkingViewOf 从一次解析给出（开关型模型收成 Off/On），
-// 本模块只负责画出来与翻页，不自己推导档位、也不自己写提示文案与显隐。
+// 本模块只负责画出来与交互接线，不自己推导档位、也不自己写提示文案与显隐。
 //
 // 依赖方向（无环）：共享状态（../chat/chat-state 的 aiThinkingLevel）与
 // chat/model-select-width、chat/thinking-picker 的标签表直接 import；DOM 元素与
@@ -22,10 +24,15 @@
 // 经工厂 deps 注入。本模块不 import 组合根与 popovers。
 import { chatSessionState } from "../chat/chat-state.js";
 import { measureModelPanelWidth, updateModelSelectWidth } from "../chat/model-select-width.js";
-import { thinkingLevelValueLabel, type ThinkingView } from "../chat/thinking-picker.js";
+import { thinkingLevelValueLabel, type ThinkingPickerEntry, type ThinkingView } from "../chat/thinking-picker.js";
 import { escapeHtml } from "../shared/string-utils.js";
 // 档位出口入参的声明面（未归一的外部值；词表叶，纯类型引入、无运行时依赖边）。
 import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
+
+// 拖拽时的刻度磁吸半径（归一化档位间距的 10%，与 dsh-reasoning-slider 同口径）。
+const SNAP_THRESHOLD = 0.1;
+// 最高档（档位数 ≥ 3 的最右端）触发时的脉冲增亮时长（ms）。
+const ULTRA_BURST_MS = 420;
 
 export interface CreateReaderChatModelPanelDeps {
   modelSelect: HTMLSelectElement;
@@ -35,12 +42,10 @@ export interface CreateReaderChatModelPanelDeps {
   panelList: HTMLElement;
   // 面板根（定位/宽度写在它身上：宽度 = 打开时按 chip 可见宽的快照）
   panel: HTMLElement;
-  // 档位页（换页的第二页：顶部返回行 + 档位条目容器）
-  thinkingPage: HTMLElement;
-  thinkingBack: HTMLElement;
+  // 思考档位交互容器（承载右上角 Default ↻ 按钮与胶囊滑轨/单档胶囊）
   thinkingToggle: HTMLElement;
-  // 底部固定区的一级行（「思考强度 <当前值> ›」）与它的当前值 span
-  thinkingRow: HTMLButtonElement;
+  // 底部固定区的思考强度区块根与它的当前值 span
+  thinkingRow: HTMLElement;
   thinkingRowValue: HTMLElement;
   // 提示行（工单 03 的「关不掉」/ 05 号票的 clamp 说明，模板默认 hidden）：由本模块按
   // 视图值写文案与显隐——组合根不再持有该元素、也不再知道「谁先画、谁后画」。
@@ -55,11 +60,11 @@ export interface CreateReaderChatModelPanelDeps {
   pickLevel: (level: ThinkingLevelInput) => void;
 }
 
-// 面板对外的渲染入口：模型页（renderPanel）/ chip（renderChip）各自成件，思考档位的
+// 面板对外的渲染入口：模型列表（renderPanel）/ chip（renderChip）各自成件，思考档位的
 // 显示面**只有一个入口** renderThinkingPicker——它收 chat/thinking-picker 的整份视图值
-//（显示名 + 条目 + 提示文案）一次画完：一级行、档位条目、chip 的档位 span 与底部提示行
-// 都出自同一次解析（调用点不再只传子集、不再自己写提示行、也不再有「先画 chip 再重画」
-// 这类调用顺序知识）。
+//（显示名 + 条目 + 提示文案）一次画完：标题行当前值、↻ 重置键与滑轨/单档胶囊、chip 的
+// 档位 span 与底部提示行都出自同一次解析（调用点不再只传子集、不再自己写提示行、也不再有
+//「先画 chip 再重画」这类调用顺序知识）。
 export interface ReaderChatModelPanel {
   // chip 的独立重渲入口：档位刷新（renderThinkingPicker）内部用它写档位 span（显示名由
   // 那次解析写入）。2026-10 深化后**组合根不再直调它**——chip 的渲染路径收敛为
@@ -78,8 +83,6 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     chipLevel,
     panelList,
     panel,
-    thinkingPage,
-    thinkingBack,
     thinkingToggle,
     thinkingRow,
     thinkingRowValue,
@@ -87,21 +90,38 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     thinkingHint = null
   } = deps;
 
-  // 显示名（chip 的档位 span 与一级行右侧共用）。由 renderThinkingPicker 写入；
+  // 显示名（chip 的档位 span 与思考强度行右侧共用）。由 renderThinkingPicker 写入；
   // 还没渲染过（面板从未刷新）时为 null，renderChip 回落标签表。
   let chipLevelLabel: string | null = null;
-  // 当前是否停在档位页（换页状态；面板重开时归零）。
-  let onLevelsPage = false;
+  // 当前已挂载的档位结构签名（同一模型切档时复用 DOM 节点：保持 CSS 过渡动画连续、
+  // 保持焦点不丢失，且点击事件冒泡到 document 时 target 仍在 panel 内不被误判为外点）。
+  let renderedStructureKey = "";
+  let currentTierEntries: ThinkingPickerEntry[] = [];
+  let currentActiveIndex = -1;
+  // 最高档脉冲状态（420ms 增亮窗口）。
+  let wasAtMax = false;
+  let isBursting = false;
+  let burstTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // 两页切换：模型页 / 档位页。一级行只在模型页出现。
-  // 2026-10-05：`Default` 是恒在的首项后，「条目 ≤1 就隐藏整行」的旧规则退休（唯一只剩
-  // 一项的情形是「只有 Default」，而那一格也要能主动选）。
-  function showThinkingPage(levelsPage: boolean): void {
-    onLevelsPage = levelsPage;
-    panelList.hidden = levelsPage;
-    thinkingPage.hidden = !levelsPage;
-    thinkingRow.hidden = levelsPage;
-    thinkingRow.setAttribute("aria-expanded", levelsPage ? "true" : "false");
+  function syncUltraBurst(nextAtMax: boolean): void {
+    if (nextAtMax && !wasAtMax) {
+      isBursting = true;
+      if (burstTimer !== null) {
+        clearTimeout(burstTimer);
+      }
+      burstTimer = setTimeout(() => {
+        burstTimer = null;
+        isBursting = false;
+        thinkingToggle.querySelector(".chat-thinking-track")?.classList.remove("is-ultra-burst");
+      }, ULTRA_BURST_MS);
+    } else if (!nextAtMax) {
+      if (burstTimer !== null) {
+        clearTimeout(burstTimer);
+        burstTimer = null;
+      }
+      isBursting = false;
+    }
+    wasAtMax = nextAtMax;
   }
 
   // 模型名显示口径（2026-10-06 用户报障）：集合站（ModelScope / OpenRouter 等）回的
@@ -148,15 +168,15 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   // 宽度：打开时按 chip 可见宽快照写内联（[240, 320] 夹取见 chat/model-select-width
   // 的 measureModelPanelWidth）——面板从 chip 上方呼出、宽度与「模型名显示区域」
   // 同宽；打开期间不重算，故点档位改 chip 文案时面板宽度不抖，重开才更新。
-  // 每次打开都从模型页开始（换页状态不留到下一次）。
   function renderPanel(): void {
     panel.style.width = `${measureModelPanelWidth({ chip, chipModel, chipLevel })}px`;
-    showThinkingPage(false);
+    panelList.hidden = false;
     if (modelSelect.disabled) {
       panelList.innerHTML = '<span class="chat-model-empty">未配置平台</span>';
       thinkingRow.hidden = true;
       return;
     }
+    thinkingRow.hidden = false;
     const current = modelSelect.value;
     const parts: string[] = [];
     for (const group of Array.from(modelSelect.querySelectorAll("optgroup"))) {
@@ -185,42 +205,150 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     });
   }
 
-  // 档位页（换页后的那一页）+ 面板底部提示行：一次画完整份视图值——条目来自调用方
-  // 派生好的显示条目（本模块只画「叫什么 + 打不打勾」，不推导档位），提示文案与显隐
-  // 也来自同一次解析（`hint === null` = 不显示提示行，文案清空）。一级行由
-  // showThinkingPage 决定是否显示。
-  // 2026-10-05：`Default`（不干预）是恒在的首项，所以「条目 ≤1 就隐藏整行」的旧规则退休——
-  // 唯一只剩一项的情形就是「只有 Default」（模型没有可表达的强度档），而用户裁定那一格
-  // **也要能主动选**（破例），因此这里只按是否在档位页决定隐藏。
-  // 2026-10-05 裁定 B：勾 / `is-active` / ✓ 由 `entry.effective`（**实发档**）决定，
-  // aria 用 aria-current（勾 = 「当前生效的那一项」，不承诺「激活即切换」）；**点击判据是
-  // 另一个字段** `entry.writesPreference`——偏好 ≠ 实发时点勾住的那一项也写偏好（用户显式
-  // 接受本次 clamp），只有「已经是偏好落在的那一项」才只关面板。两处分别读各自的字段。
+  function commitButton(btn: HTMLElement | null | undefined): void {
+    if (!btn) {
+      return;
+    }
+    if (btn.dataset.writes === "true") {
+      deps.pickLevel(btn.dataset.level || "off");
+    }
+  }
+
+  // 内联思考强度区 + 面板底部提示行：一次画完整份视图值——条目来自调用方派生好的显示条目
+  //（首项 Default 渲染为右上角 ↻ 重置键，其余真实档位按数量渲染为胶囊滑轨 / 单档胶囊 / 空轨），
+  // 提示文案与显隐也来自同一次解析（`hint === null` = 不显示提示行，文案清空）。
+  // ADR-0015：`Default`（不干预）是恒在的首项，即便真实档位为空（A' = ∅）也照旧显示思考强度行。
+  // 2026-10-05 裁定 B：选中态 `is-active` / `aria-current` 由 `entry.effective`（**实发档**）决定；
+  // **点击判据是另一个字段** `entry.writesPreference`——偏好 ≠ 实发时点实发档也写偏好（用户显式
+  // 接受本次 clamp），只有「已经是偏好落在的那一项」才不重复写。调整思考档位不关闭面板。
   function renderThinkingPicker(view: ThinkingView): void {
     const entries = view.entries;
     chipLevelLabel = view.label;
     thinkingRowValue.textContent = view.label;
-    thinkingRow.hidden = onLevelsPage;
-    thinkingToggle.innerHTML = entries
-      .map(
-        (entry) =>
-          `<button type="button" class="chat-thinking-btn${entry.effective ? " is-active" : ""}"` +
-          ` data-level="${escapeHtml(entry.level)}" data-effective="${entry.effective ? "true" : "false"}"` +
-          ` data-writes="${entry.writesPreference ? "true" : "false"}"` +
-          ` aria-current="${entry.effective ? "true" : "false"}">` +
-          `<span class="chat-thinking-btn-label">${escapeHtml(entry.label)}</span>` +
-          (entry.effective ? '<span class="chat-thinking-check" aria-hidden="true">✓</span>' : "") +
-          "</button>"
-      )
-      .join("");
-    thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.dataset.writes === "true") {
-          deps.pickLevel(btn.dataset.level || "off");
+    thinkingRow.hidden = modelSelect.disabled;
+
+    if (entries.length === 0) {
+      syncUltraBurst(false);
+      renderedStructureKey = "";
+      currentTierEntries = [];
+      currentActiveIndex = -1;
+      thinkingToggle.innerHTML = "";
+    } else {
+      const defaultEntry = entries.find((entry) => entry.level === "default") ?? null;
+      const tierEntries: ThinkingPickerEntry[] = entries.filter((entry) => entry.level !== "default");
+      const structureKey = entries.map((entry) => `${entry.level}:${entry.label}`).join("|");
+      currentTierEntries = tierEntries;
+      currentActiveIndex = tierEntries.findIndex((entry) => entry.effective);
+
+      if (structureKey !== renderedStructureKey || thinkingToggle.children.length === 0) {
+        renderedStructureKey = structureKey;
+        const parts: string[] = [];
+
+        if (defaultEntry) {
+          parts.push(
+            `<button type="button" class="chat-thinking-btn chat-thinking-reset"` +
+              ` data-level="${escapeHtml(defaultEntry.level)}"` +
+              ` title="恢复默认（Default）" aria-label="恢复默认（Default）">` +
+              `<span class="chat-thinking-btn-label" hidden>${escapeHtml(defaultEntry.label)}</span>` +
+              `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">` +
+              `<path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path>` +
+              `<path d="M3 3v5h5"></path>` +
+              `</svg>` +
+              `</button>`
+          );
         }
-        deps.hidePanel();
+
+        if (tierEntries.length === 1) {
+          const entry = tierEntries[0];
+          parts.push(
+            `<div class="chat-thinking-single">` +
+              `<span class="chat-thinking-single-label">支持档位</span>` +
+              `<button type="button" class="chat-thinking-btn chat-thinking-single-pill"` +
+              ` data-level="${escapeHtml(entry.level)}">` +
+              `<span class="chat-thinking-btn-label">${escapeHtml(entry.label)}</span>` +
+              `</button>` +
+              `</div>`
+          );
+        } else if (tierEntries.length >= 2) {
+          const n = tierEntries.length;
+          const ticksHtml = tierEntries
+            .map((entry, idx) => {
+              const stopPct = (idx / (n - 1)) * 100;
+              return (
+                `<button type="button" class="chat-thinking-btn chat-thinking-tick"` +
+                ` style="left:${stopPct}%" data-index="${idx}"` +
+                ` data-level="${escapeHtml(entry.level)}"` +
+                ` title="${escapeHtml(entry.label)}">` +
+                `<span class="chat-thinking-btn-label" hidden>${escapeHtml(entry.label)}</span>` +
+                `</button>`
+              );
+            })
+            .join("");
+
+          parts.push(
+            `<div class="chat-thinking-track" tabindex="0" role="slider" aria-label="思考强度"` +
+              ` aria-valuemin="0" aria-valuemax="${n - 1}">` +
+              `<div class="chat-thinking-range">` +
+              `<div class="chat-thinking-rail"></div>` +
+              `<div class="chat-thinking-fill">` +
+              `<div class="chat-thinking-ultra-gradient"></div>` +
+              `<div class="chat-thinking-energy"></div>` +
+              `</div>` +
+              ticksHtml +
+              `<div class="chat-thinking-thumb"></div>` +
+              `</div>` +
+              `</div>`
+          );
+        }
+
+        thinkingToggle.innerHTML = parts.join("");
+        bindThinkingControls();
+      }
+
+      // 同步所有档位按钮的生效态与点击判据属性（DOM 节点原地更新，不销毁重建）。
+      const allBtns = Array.from(thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn"));
+      entries.forEach((entry, idx) => {
+        const btn = allBtns[idx];
+        if (!btn) {
+          return;
+        }
+        btn.classList.toggle("is-active", entry.effective);
+        btn.dataset.effective = entry.effective ? "true" : "false";
+        btn.dataset.writes = entry.writesPreference ? "true" : "false";
+        btn.setAttribute("aria-current", entry.effective ? "true" : "false");
+        if (btn.classList.contains("chat-thinking-reset")) {
+          btn.setAttribute("aria-disabled", entry.writesPreference ? "false" : "true");
+        }
       });
-    });
+
+      if (tierEntries.length >= 2) {
+        const n = tierEntries.length;
+        const activeIndex = currentActiveIndex;
+        const hasThumb = activeIndex >= 0;
+        const pct = hasThumb ? (activeIndex / (n - 1)) * 100 : 0;
+        const fillWidth = hasThumb && activeIndex > 0 ? `calc(${pct}% + 14px)` : "0px";
+        const hasSparkle = hasThumb && activeIndex > 0;
+        const atMax = n >= 3 && hasThumb && activeIndex >= n - 1;
+        syncUltraBurst(atMax);
+
+        const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track");
+        const fill = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-fill");
+        const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb");
+        if (track && fill && thumb) {
+          track.classList.toggle("is-sparkle", hasSparkle);
+          track.classList.toggle("is-max", atMax);
+          track.classList.toggle("is-ultra-burst", isBursting);
+          track.setAttribute("aria-valuenow", String(hasThumb ? activeIndex : 0));
+          track.setAttribute("aria-valuetext", view.label);
+          fill.style.width = fillWidth;
+          thumb.hidden = !hasThumb;
+          thumb.style.left = `${pct}%`;
+        }
+      } else {
+        syncUltraBurst(false);
+      }
+    }
+
     // 显示名可能刚变（开关型的 On/Off、换模型的档位词）→ chip 的档位 span 同步重渲。
     renderChip();
     // 提示行（工单 03 / 05 号票）：文案与显隐都取这次解析的视图值，写在 chip 之后（与
@@ -231,9 +359,143 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     }
   }
 
-  // 翻页（纯 DOM 状态，不经 popovers：换页不改变面板的开合）。
-  thinkingRow.addEventListener("click", () => showThinkingPage(true));
-  thinkingBack.addEventListener("click", () => showThinkingPage(false));
+  function bindThinkingControls(): void {
+    let suppressNextClick = false;
+    thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (suppressNextClick) {
+          suppressNextClick = false;
+          return;
+        }
+        commitButton(btn);
+      });
+    });
+
+    const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track");
+    const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range");
+    const fill = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-fill");
+    const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb");
+    const tickButtons = Array.from(thinkingToggle.querySelectorAll<HTMLButtonElement>(".chat-thinking-tick"));
+    if (!track || !range || !fill || !thumb || tickButtons.length < 2) {
+      return;
+    }
+
+    function previewAt(pos: number): number {
+      const n = currentTierEntries.length;
+      const clamped = Math.max(0, Math.min(n - 1, pos));
+      const nearest = Math.round(clamped);
+      const snapped = Math.abs(clamped - nearest) <= SNAP_THRESHOLD ? nearest : clamped;
+      const pct = (snapped / (n - 1)) * 100;
+      thumb!.hidden = false;
+      thumb!.style.left = `${pct}%`;
+      fill!.style.width = snapped <= 0 ? "0px" : `calc(${pct}% + 14px)`;
+      const hasSparkle = snapped > 0;
+      const atMax = n >= 3 && nearest >= n - 1 && snapped >= n - 1 - SNAP_THRESHOLD;
+      track!.classList.toggle("is-sparkle", hasSparkle);
+      track!.classList.toggle("is-max", atMax);
+      syncUltraBurst(atMax);
+      track!.classList.toggle("is-ultra-burst", isBursting);
+      thinkingRowValue.textContent = currentTierEntries[nearest]?.label ?? "";
+      return nearest;
+    }
+
+    function posFromClientX(clientX: number): number | null {
+      const rect = range!.getBoundingClientRect();
+      if (!rect || rect.width <= 0) {
+        return null;
+      }
+      const n = currentTierEntries.length;
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      return ratio * (n - 1);
+    }
+
+    let dragging = false;
+    let previewNearest = 0;
+
+    track.addEventListener("pointerdown", (e: PointerEvent) => {
+      if (e.button !== 0 && e.button !== undefined) {
+        return;
+      }
+      const pos = posFromClientX(e.clientX);
+      if (pos === null) {
+        return;
+      }
+      dragging = true;
+      track.classList.add("is-dragging");
+      if (typeof track.setPointerCapture === "function" && e.pointerId !== undefined) {
+        try {
+          track.setPointerCapture(e.pointerId);
+        } catch {
+          // jsdom 或未激活 pointer 时忽略
+        }
+      }
+      previewNearest = previewAt(pos);
+    });
+
+    track.addEventListener("pointermove", (e: PointerEvent) => {
+      if (!dragging) {
+        return;
+      }
+      const pos = posFromClientX(e.clientX);
+      if (pos === null) {
+        return;
+      }
+      previewNearest = previewAt(pos);
+    });
+
+    function finishDrag(commit: boolean): void {
+      if (!dragging) {
+        return;
+      }
+      dragging = false;
+      track!.classList.remove("is-dragging");
+      if (!commit) {
+        return;
+      }
+      suppressNextClick = true;
+      setTimeout(() => {
+        suppressNextClick = false;
+      }, 0);
+      commitButton(tickButtons[previewNearest]);
+    }
+
+    track.addEventListener("pointerup", () => finishDrag(true));
+    track.addEventListener("pointercancel", () => finishDrag(false));
+
+    track.addEventListener(
+      "wheel",
+      (e: WheelEvent) => {
+        if (e.deltaY === 0) {
+          return;
+        }
+        e.preventDefault();
+        const n = currentTierEntries.length;
+        const step = e.deltaY < 0 ? 1 : -1;
+        const nextIdx = currentActiveIndex < 0 ? 0 : Math.max(0, Math.min(n - 1, currentActiveIndex + step));
+        commitButton(tickButtons[nextIdx]);
+      },
+      { passive: false }
+    );
+
+    track.addEventListener("keydown", (e: KeyboardEvent) => {
+      const n = currentTierEntries.length;
+      let nextIdx: number | null = null;
+      if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+        nextIdx = currentActiveIndex < 0 ? 0 : Math.min(n - 1, currentActiveIndex + 1);
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+        nextIdx = currentActiveIndex < 0 ? 0 : Math.max(0, currentActiveIndex - 1);
+      } else if (e.key === "Home") {
+        nextIdx = 0;
+      } else if (e.key === "End") {
+        nextIdx = n - 1;
+      }
+      if (nextIdx === null) {
+        return;
+      }
+      e.preventDefault();
+      commitButton(tickButtons[nextIdx]);
+    });
+  }
 
   return { renderChip, renderPanel, renderThinkingPicker };
 }

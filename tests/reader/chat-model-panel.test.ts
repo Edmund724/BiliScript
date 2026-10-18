@@ -4,8 +4,9 @@
 // 分组派生，点选项 = 写 select.value + 派生 change（组合根的 change 监听负责
 // 持久化——本文件只断「值源被写 + change 被派生」两件事实）。
 //
-// 2026-10-05 用户裁定（票据 chat-thinking-submenu）起，面板底部是二级菜单：
-// 模型页 + 档位页（换页），底部固定区一行「思考强度 <当前值> ›」。本文件覆盖：
+// 面板底部固定区内联「思考强度 <当前值> + 右上角 ↻ 重置键（Default 不干预档）」与
+// 胶囊滑轨（真实档位数 ≥ 2）/ 单档胶囊（真实档位数 = 1）/ 仅标题行（真实档位数 = 0）。
+// 本文件覆盖：
 //
 // - renderChip：文案 = 平台名·选中模型名 + 思考档位显示名（档位条派生过就用它的
 //   显示名——开关型模型是 On；未派生时回落标签表）；optgroup label 缺失时只显示
@@ -13,22 +14,14 @@
 //   org 前缀（`deepseek-ai/`）只在显示层剥掉（chip 与弹层条目同口径，2026-10-06），
 //   option 文本与值源照旧完整；
 // - renderPanel：按 optgroup 分组渲染、当前选中项 is-selected + ✓、点击选项写
-//   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；打开即回到模型页；
+//   值源并派生 change 后关面板；点当前已选项不改值但仍关面板；
 // - renderPanel 的面板宽度：打开时按 chip 可见宽快照写内联宽（打开期间档位/模型
 //   变化不重算，重开才更新）；
-// - renderThinkingPicker：**整份视图值一次画完**（2026-10 深化：hint 从组合根移入本模块）
-//   ——档位条目现渲（顺序 / 显示名 / is-active + aria-current + data-effective /
-//   data-writes / 只有实发档带 ✓）；一级行右侧 = 视图显示名；chip 的档位 span 同步；
-//   底部提示行按 `view.hint` 写文案与显隐（null = 隐藏且清空；不注入提示行元素时静默跳过）；
-//   点 writesPreference 的项 → pickLevel(level) + 关面板；点「已经是自己偏好」的那一项 →
-//   不重写偏好（05 号票「偏好不迁移」）+ 关面板；勾住的那一项在偏好 ≠ 实发时**也写偏好**
-//   （2026-10-05 裁定 B：勾 = 实发档，点它即接受本次 clamp）；
-// - 换页：点一级行 → 档位页可见 + 模型列表隐藏 + 一级行隐藏（aria-expanded=true）；
-//   点返回行 → 回来。
-//
-// hint 的显隐/接线由此处（真实 DOM 直测）守护：显隐条件本身（何时为 null）是
-// chat/thinking-picker 的纯函数口径，已由 tests/chat/thinking-picker.test.ts 锁定；本文件
-// 钉的是「视图值 → 提示行 DOM」这一段接线。
+// - renderThinkingPicker：**整份视图值一次画完**——首项 Default 渲染为右上角 ↻ 重置键，
+//   真实档位按数量分三态（≥2 档胶囊滑轨、=1 档单档胶囊、0 档仅保留标题行）；
+//   标题行右侧 = 视图显示名；chip 的档位 span 同步；底部提示行按 `view.hint` 写文案与显隐；
+//   调整思考档位（点刻度 / 拖拽 / 滚轮 / 方向键 / 点 ↻）调 `pickLevel` 但**不关面板**；
+//   所有非零档填充带 `.is-sparkle`（流动星点），仅档位数 ≥ 3 且处于最高档时加 `.is-max`（紫色渐变）。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -84,18 +77,16 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
   chip.append(chipModel, chipLevel);
   const panelList = document.createElement("div");
   const panel = document.createElement("div");
-  const thinkingPage = document.createElement("div");
-  const thinkingBack = document.createElement("button");
   const thinkingToggle = document.createElement("div");
-  const thinkingRow = document.createElement("button");
+  const thinkingRow = document.createElement("div");
   const thinkingRowValue = document.createElement("span");
-  thinkingRow.append(thinkingRowValue);
-  // 提示行与一级行同处底部固定区（模板 chat-template.ts 的 .chat-model-panel-foot 同构）。
+  thinkingRow.append(thinkingRowValue, thinkingToggle);
+  // 提示行与思考强度区同处底部固定区（模板 chat-template.ts 的 .chat-model-panel-foot 同构）。
   const panelFoot = document.createElement("div");
   const thinkingHint = document.createElement("div");
   thinkingHint.hidden = true;
   panelFoot.append(thinkingRow, thinkingHint);
-  panel.append(panelList, thinkingPage, panelFoot);
+  panel.append(panelList, panelFoot);
   document.body.append(chip, panel);
   const hidePanel = vi.fn();
   const pickLevel = vi.fn();
@@ -106,8 +97,6 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
     chipLevel,
     panelList,
     panel,
-    thinkingPage,
-    thinkingBack,
     thinkingToggle,
     thinkingRow,
     thinkingRowValue,
@@ -122,8 +111,6 @@ function makeHarness(select = makeSelect(), hintMode: HintMode = "element") {
     chipLevel,
     panelList,
     panel,
-    thinkingPage,
-    thinkingBack,
     thinkingToggle,
     thinkingRow,
     thinkingRowValue,
@@ -291,21 +278,6 @@ describe("renderPanel", () => {
     expect(panelList.querySelectorAll(".chat-model-option")).toHaveLength(0);
     expect(thinkingRow.hidden).toBe(true);
   });
-
-  it("每次打开都从模型页开始（换页状态不留到下一次）", () => {
-    const { panelList, thinkingPage, thinkingRow, modelPanel } = makeHarness();
-    modelPanel.renderThinkingPicker(view({ label: "Low", entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high"], switchOnly: false, requestedLevel: "low", effectiveLevel: null }) }));
-    modelPanel.renderPanel();
-    click(thinkingRow);
-    expect(thinkingPage.hidden).toBe(false);
-
-    modelPanel.renderPanel();
-
-    expect(panelList.hidden).toBe(false);
-    expect(thinkingPage.hidden).toBe(true);
-    expect(thinkingRow.hidden).toBe(false);
-    expect(thinkingRow.getAttribute("aria-expanded")).toBe("false");
-  });
 });
 
 describe("renderPanel 的面板宽度（打开时快照）", () => {
@@ -326,7 +298,7 @@ describe("renderPanel 的面板宽度（打开时快照）", () => {
     modelPanel.renderPanel();
     expect(panel.style.width).toBe("252px");
 
-    // 档位点击走 refreshThinkingUi → renderThinkingPicker（内部重渲 chip，chip 自身宽度变了），
+    // 档位切换走 refreshThinkingUi → renderThinkingPicker（内部重渲 chip，chip 自身宽度变了），
     // 但面板未重开 → 宽度快照不动。
     visibleWidth = 300;
     modelPanel.renderThinkingPicker(view({ label: "High", entries: [] }));
@@ -338,10 +310,10 @@ describe("renderPanel 的面板宽度（打开时快照）", () => {
   });
 });
 
-describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页条目）", () => {
+describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置键）", () => {
   const FOUR_LEVELS = { availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: "high" } as const;
 
-  it("逐条现渲：顺序 = 条目顺序，只有实发档带 is-active + aria-current + ✓", () => {
+  it("逐条现渲：首项为 ↻ 重置键（Default），其余为滑轨刻度，只有实发档带 is-active + aria-current", () => {
     const { thinkingToggle, thinkingRowValue, thinkingRow, modelPanel } = makeHarness();
 
     modelPanel.renderThinkingPicker(
@@ -358,41 +330,43 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
       expect(btn.classList.contains("is-active"), btn.dataset.level).toBe(effective);
       expect(btn.getAttribute("aria-current"), btn.dataset.level).toBe(effective ? "true" : "false");
       expect(btn.dataset.effective, btn.dataset.level).toBe(effective ? "true" : "false");
-      // 点击判据与打勾分开：偏好落在 high → 只有 high 那一项不写偏好。
+      // 点击判据与生效态分开：偏好落在 high → 只有 high 那一项不写偏好。
       expect(btn.dataset.writes, btn.dataset.level).toBe(effective ? "false" : "true");
-      expect(btn.querySelector(".chat-thinking-check") !== null, btn.dataset.level).toBe(effective);
     }
+    const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track");
+    const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb");
+    expect(track).not.toBe(null);
+    expect(track?.classList.contains("is-sparkle")).toBe(true);
+    expect(track?.classList.contains("is-max")).toBe(false);
+    expect(thumb?.hidden).toBe(false);
     expect(thinkingRowValue.textContent).toBe("High");
     expect(thinkingRow.hidden).toBe(false);
   });
 
-  it("点非选中项：pickLevel(该档) + 关面板", () => {
+  it("点非选中项：pickLevel(该档)，面板保持打开（hidePanel 不调用）", () => {
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
     modelPanel.renderThinkingPicker(view({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) }));
 
     click(buttons(thinkingToggle)[2]);
 
     expect(pickLevel).toHaveBeenCalledWith("low");
-    expect(hidePanel).toHaveBeenCalledTimes(1);
+    expect(hidePanel).not.toHaveBeenCalled();
   });
 
-  // 05 号票「偏好保留不迁移」：开关型的 On 是 canonical high，偏好停在别的非 off 档
-  // 时重写会把偏好悄悄搬走——已经是自己偏好的那一项只关面板，不写偏好。
-  it("点已经是自己偏好的那一项：不重写偏好（pickLevel 不调用），仍关面板", () => {
+  // 05 号票「偏好保留不迁移」：已经是自己偏好的那一项不重写偏好。
+  it("点已经是自己偏好的那一项：不重写偏好（pickLevel 不调用），面板保持打开", () => {
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
     modelPanel.renderThinkingPicker(view({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) }));
 
     click(buttons(thinkingToggle)[3]);
 
     expect(pickLevel).not.toHaveBeenCalled();
-    expect(hidePanel).toHaveBeenCalledTimes(1);
+    expect(hidePanel).not.toHaveBeenCalled();
   });
 
-  // 2026-10-05 裁定 B（口径 ⑤）：勾 = 实发档。偏好 ≠ 实发时勾住的那一项点下去**写偏好**
-  // （用户显式接受本次 clamp），不再是「已选中 → 只关面板」。
-  it("点勾住的实发档而偏好 ≠ 实发：写偏好 + 关面板（裁定 B 的新契约）", () => {
+  // 2026-10-05 裁定 B（口径 ⑤）：偏好 ≠ 实发时点实发档写偏好（用户显式接受本次 clamp）。
+  it("点生效的实发档而偏好 ≠ 实发：写偏好 + 面板保持打开", () => {
     const { thinkingToggle, hidePanel, pickLevel, modelPanel } = makeHarness();
-    // off 关不掉的格：偏好 off、A' = {high,max} → 实发 high 带勾，偏好 off 在列表里没有对应项。
     modelPanel.renderThinkingPicker(
       view({
         label: "High",
@@ -400,24 +374,108 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
       })
     );
 
-    const checked = buttons(thinkingToggle).find((btn) => btn.classList.contains("is-active"));
-    expect(checked?.dataset.level).toBe("high");
-    click(checked as HTMLButtonElement);
+    const active = buttons(thinkingToggle).find((btn) => btn.classList.contains("is-active"));
+    expect(active?.dataset.level).toBe("high");
+    click(active as HTMLButtonElement);
 
     expect(pickLevel).toHaveBeenCalledWith("high");
-    expect(hidePanel).toHaveBeenCalledTimes(1);
+    expect(hidePanel).not.toHaveBeenCalled();
   });
 
-  // 2026-10-05：`Default` 是恒在的首项后，「条目 ≤1 就隐藏整行」的旧规则退休——唯一只剩
-  // 一项的情形是「只有 Default」（模型没有可表达的强度档），用户裁定那一格也要能主动选。
-  it("一级行不再按条目数隐藏：只剩 Default 一项也显示（破例 = 能主动选）", () => {
-    const { thinkingRow, modelPanel } = makeHarness();
+  it("三态分支：Default 隐藏滑块圆点；单档渲染胶囊 pill；零档行只剩 Default ↻ 且不渲染滑轨", () => {
+    const { thinkingToggle, thinkingRow, modelPanel } = makeHarness();
 
-    modelPanel.renderThinkingPicker(view({ label: "Default", entries: thinkingPickerEntries({ availableLevels: [], switchOnly: false, requestedLevel: "default", effectiveLevel: "default" }) }));
-    expect(thinkingRow.hidden).toBe(false);
+    // 1. 多档且实发为 Default：滑轨在场，但白色滑块 hidden、填充为 0。
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Default",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "default", effectiveLevel: "default" })
+      })
+    );
+    expect(thinkingToggle.querySelector(".chat-thinking-track")).not.toBe(null);
+    expect(thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")?.hidden).toBe(true);
+    expect(thinkingToggle.querySelector<HTMLElement>(".chat-thinking-fill")?.style.width).toBe("0px");
 
-    modelPanel.renderThinkingPicker(view({ label: "High", entries: thinkingPickerEntries({ ...FOUR_LEVELS, availableLevels: [...FOUR_LEVELS.availableLevels] }) }));
+    // 2. 单档（仅 1 个真实档位，无 off）：渲染 .chat-thinking-single 胶囊而非滑轨。
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "On",
+        entries: thinkingPickerEntries({ availableLevels: ["high"], switchOnly: false, requestedLevel: "high", effectiveLevel: "high" })
+      })
+    );
+    expect(thinkingToggle.querySelector(".chat-thinking-single")).not.toBe(null);
+    expect(thinkingToggle.querySelector(".chat-thinking-track")).toBe(null);
+    expect(renderedLabels(thinkingToggle)).toEqual(["Default", "On"]);
+
+    // 3. 零档行（A' = ∅）：只渲染 Default ↻ 按钮，无滑轨无单档行，但思考强度行照旧显示（ADR-0015）。
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Default",
+        entries: thinkingPickerEntries({ availableLevels: [], switchOnly: false, requestedLevel: "default", effectiveLevel: "default" })
+      })
+    );
     expect(thinkingRow.hidden).toBe(false);
+    expect(renderedLevels(thinkingToggle)).toEqual(["default"]);
+    expect(thinkingToggle.querySelector(".chat-thinking-track")).toBe(null);
+    expect(thinkingToggle.querySelector(".chat-thinking-single")).toBe(null);
+  });
+
+  it("星点与最高档渐变：所有非零档（index > 0）带 is-sparkle，仅档位数 ≥ 3 的最右端带 is-max", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+
+    // 2 档开关型（Off / On）选中 On（index=1）：带星点 is-sparkle，不带紫色渐变 is-max。
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "On",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "high"], switchOnly: true, requestedLevel: "high", effectiveLevel: "high" })
+      })
+    );
+    let track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
+    expect(track.classList.contains("is-sparkle")).toBe(true);
+    expect(track.classList.contains("is-max")).toBe(false);
+
+    // 4 档选中最高档 Max（index=3，n=4 ≥ 3）：同时带 is-sparkle、is-max 与脉冲 is-ultra-burst。
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Max",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "max", effectiveLevel: "max" })
+      })
+    );
+    track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
+    expect(track.classList.contains("is-sparkle")).toBe(true);
+    expect(track.classList.contains("is-max")).toBe(true);
+    expect(track.classList.contains("is-ultra-burst")).toBe(true);
+  });
+
+  it("滑轨支持指针拖拽（实时预览 + 磁吸释放落盘）、滚轮步进与键盘方向键步进", () => {
+    const { thinkingToggle, thinkingRowValue, pickLevel, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Off",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "off" })
+      })
+    );
+
+    const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
+    const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
+    range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
+
+    // 1. 指针按下并拖到 2/3 处（对应 high，index=2）：实时预览标题行文案，释放后调 pickLevel("high")。
+    track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
+    track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 200 }));
+    expect(thinkingRowValue.textContent).toBe("High");
+    track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 200 }));
+    expect(pickLevel).toHaveBeenLastCalledWith("high");
+
+    // 2. 滚轮向上（deltaY < 0）：从当前实发 off（index=0）步进到 low（index=1）。
+    pickLevel.mockClear();
+    track.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -100 }));
+    expect(pickLevel).toHaveBeenCalledWith("low");
+
+    // 3. 键盘 ArrowRight：从当前实发 off（index=0）步进到 low（index=1）。
+    pickLevel.mockClear();
+    track.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowRight" }));
+    expect(pickLevel).toHaveBeenCalledWith("low");
   });
 
   it("空条目：一个按钮都不渲染（fail-closed，面板只剩提示行）", () => {
@@ -436,10 +494,9 @@ describe("renderThinkingPicker（2026-10 用户裁定：二级菜单的档位页
 describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文案与显隐接线）", () => {
   const HINT_UNAVAILABLE = "当前模型没办法关掉思考";
 
-  it("hint 有文案：显示并写进提示行；同一次调用里档位、一级行与 chip 一起落定", () => {
+  it("hint 有文案：显示并写进提示行；同一次调用里档位、思考强度行与 chip 一起落定", () => {
     const { thinkingHint, thinkingToggle, thinkingRowValue, chipLevel, modelPanel } = makeHarness();
 
-    // 注入时是模板默认 hidden（工单 03：激活前壳静默空态），面板不主动显示——渲染才写显隐。
     expect(thinkingHint?.hidden).toBe(true);
 
     modelPanel.renderThinkingPicker(
@@ -453,7 +510,6 @@ describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文�
     expect(thinkingHint).not.toBe(null);
     expect(thinkingHint?.hidden).toBe(false);
     expect(thinkingHint?.textContent).toBe("当前模型不支持在本次请求中关闭思考，已使用最小思考档位");
-    // 「整份视图一个入口」的机械证据：一次调用把四件事都画了（不再由调用点分两次画）。
     expect(renderedLevels(thinkingToggle)).toEqual(["default", "high", "max"]);
     expect(thinkingRowValue.textContent).toBe("High");
     expect(chipLevel.textContent).toBe("High");
@@ -473,7 +529,6 @@ describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文�
   });
 
   it("不注入提示行元素（缺省字段）或明确传 null：档位与 chip 照画，不抛", () => {
-    // 兼容面：别的消费方（或模板没有提示行）不认识该字段时，面板的其余渲染不受影响。
     for (const hintMode of ["omitted", "null"] as const) {
       const { thinkingHint, thinkingToggle, thinkingRowValue, chipLevel, modelPanel } = makeHarness(makeSelect(), hintMode);
 
@@ -492,45 +547,6 @@ describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文�
       expect(thinkingRowValue.textContent, hintMode).toBe("Medium");
       expect(chipLevel.textContent, hintMode).toBe("Medium");
     }
-  });
-});
-
-describe("换页（点一级行进档位页 / 点返回行回模型页）", () => {
-  function openedHarness() {
-    const harness = makeHarness();
-    harness.modelPanel.renderThinkingPicker(
-      view({
-        label: "High",
-        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: null })
-      })
-    );
-    harness.modelPanel.renderPanel();
-    return harness;
-  }
-
-  it("点一级行：档位页可见、模型列表隐藏、一级行隐藏且 aria-expanded=true", () => {
-    const { panelList, thinkingPage, thinkingRow, modelPanel } = openedHarness();
-    expect(thinkingPage.hidden).toBe(true);
-
-    click(thinkingRow);
-
-    expect(thinkingPage.hidden).toBe(false);
-    expect(panelList.hidden).toBe(true);
-    expect(thinkingRow.hidden).toBe(true);
-    expect(thinkingRow.getAttribute("aria-expanded")).toBe("true");
-    void modelPanel;
-  });
-
-  it("点返回行：回模型页（列表重现、一级行重现、档位页隐藏）", () => {
-    const { panelList, thinkingPage, thinkingRow, thinkingBack } = openedHarness();
-    click(thinkingRow);
-
-    click(thinkingBack);
-
-    expect(panelList.hidden).toBe(false);
-    expect(thinkingPage.hidden).toBe(true);
-    expect(thinkingRow.hidden).toBe(false);
-    expect(thinkingRow.getAttribute("aria-expanded")).toBe("false");
   });
 });
 

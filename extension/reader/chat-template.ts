@@ -110,31 +110,19 @@ export function buildChatTabBodyHtml(): string {
                     <path d="m6 9 6 6 6-6"></path>
                   </svg>
                 </button>
-                <!-- 模型 + 思考档位面板：点 chip 弹出。两页（2026-10 用户裁定，
-                     chat-thinking-submenu）：模型页 = 分组模型列表；档位页 = 顶部
-                     返回行 + 档位条目。档位条目由 reader/chat-model-panel.ts 按
-                     chat/thinking-picker 的显示条目现渲（开关型模型收成 Off/On），
-                     模板不再给 7 个静态按钮。底部固定区是「思考强度 <当前值> ›」
-                     一行 + 「关不掉」提示行（工单 03），两页共用。 -->
+                <!-- 模型 + 思考档位面板：点 chip 弹出。上部分组模型列表（滚动），底部固定区
+                     内联「思考强度 <当前值> + ↻ 重置键」与胶囊滑轨/单档胶囊 + 「关不掉」提示行。
+                     档位由 reader/chat-model-panel.ts 按 chat/thinking-picker 的显示条目现渲。 -->
                 <div id="${ids.readingChatModelPanel}" class="chat-model-panel" hidden>
                   <div id="${ids.readingChatModelList}" class="chat-model-list"></div>
-                  <div id="${ids.readingChatThinkingPage}" class="chat-model-list" hidden>
-                    <button id="${ids.readingChatThinkingBack}" type="button" class="chat-thinking-back" aria-label="返回模型列表">
-                      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                        <path d="m15 18-6-6 6-6"></path>
-                      </svg>
-                      <span>思考强度</span>
-                    </button>
-                    <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-list" role="group" aria-label="思考档位"></div>
-                  </div>
                   <div class="chat-model-panel-foot">
-                    <button id="${ids.readingChatThinkingRow}" type="button" class="chat-thinking-row" aria-expanded="false" hidden>
-                      <span class="chat-thinking-row-label">思考强度</span>
-                      <span id="${ids.readingChatThinkingRowValue}" class="chat-thinking-row-value"></span>
-                      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-                        <path d="m9 6 6 6-6 6"></path>
-                      </svg>
-                    </button>
+                    <div id="${ids.readingChatThinkingRow}" class="chat-thinking-row" hidden>
+                      <div class="chat-thinking-head">
+                        <span class="chat-thinking-row-label">思考强度</span>
+                        <span id="${ids.readingChatThinkingRowValue}" class="chat-thinking-row-value"></span>
+                      </div>
+                      <div id="${ids.readingChatThinkingToggle}" class="chat-thinking-list" role="group" aria-label="思考档位"></div>
+                    </div>
                     <div id="${ids.readingChatThinkingHint}" class="chat-thinking-hint" role="note" hidden></div>
                   </div>
                 </div>

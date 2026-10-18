@@ -154,12 +154,9 @@ const els = {
   modelPanel: document.getElementById(ids.readingChatModelPanel) as HTMLElement,
   modelPanelList: document.getElementById(ids.readingChatModelList) as HTMLElement,
   thinkingToggle: document.getElementById(ids.readingChatThinkingToggle) as HTMLElement,
-  // 思考强度二级菜单（2026-10 用户裁定）：底部固定区一级行 + 它的当前值 span，
-  // 以及换页的第二页（返回行 + 档位页容器）。
-  thinkingRow: document.getElementById(ids.readingChatThinkingRow) as HTMLButtonElement,
+  // 思考强度内联选择区：底部固定区容器与它的当前值 span。
+  thinkingRow: document.getElementById(ids.readingChatThinkingRow) as HTMLElement,
   thinkingRowValue: document.getElementById(ids.readingChatThinkingRowValue) as HTMLElement,
-  thinkingPage: document.getElementById(ids.readingChatThinkingPage) as HTMLElement,
-  thinkingBack: document.getElementById(ids.readingChatThinkingBack) as HTMLElement,
   // 联网搜索开关 pill（spec §4，输入行 + 右侧）
   webSearchPill: document.getElementById(ids.readingChatWebSearchPill) as HTMLElement | null,
   newChatBtn: document.getElementById(ids.readingChatNewBtn) as HTMLButtonElement,
@@ -468,8 +465,6 @@ const modelPanel = createReaderChatModelPanel({
   chipLevel: els.modelChip.querySelector<HTMLElement>(".chat-model-chip-level") as HTMLElement,
   panelList: els.modelPanelList,
   panel: els.modelPanel,
-  thinkingPage: els.thinkingPage,
-  thinkingBack: els.thinkingBack,
   thinkingToggle: els.thinkingToggle,
   thinkingRow: els.thinkingRow,
   thinkingRowValue: els.thinkingRowValue,
@@ -511,10 +506,10 @@ const { loadProvidersAndPrefs, setThinkingLevel, setWebSearchEnabled } = provide
 // ============================================================
 
 // 档位区刷新（06 号票：一次解析同时决定「哪些档位存在」与「提示文案」；候选 6 起这次
-// 解析直接产出视图值）。本函数只做「解析入参装配 → 交给面板」——一级行、档位条目、chip
-// 的档位 span 与底部提示行都由面板从这**一份**视图值画出来，本文件不碰这些 DOM，也不再
+// 解析直接产出视图值）。本函数只做「解析入参装配 → 交给面板」——思考强度标题行、滑块/重置键、
+// chip 的档位 span 与底部提示行都由面板从这**一份**视图值画出来，本文件不碰这些 DOM，也不再
 // 承担 chip 与面板的重渲顺序（面板 renderThinkingPicker 内部一次画完）。
-// 刷新点三处：模型选择 change、档位按钮点击、平台列表重载（init 与
+// 刷新点三处：模型选择 change、档位切换、平台列表重载（init 与
 // loadProvidersAndPrefs 之后）——模型/档位一变即重判。
 function refreshThinkingUi(): void {
   // 识别入参：baseUrl / presetId 沿 loadProvidersAndPrefs 已拉的
@@ -525,7 +520,7 @@ function refreshThinkingUi(): void {
   // enable_thinking:false）在对话里正常可用，不误报提示。
   const selected = parseModelOptionValue(els.modelSelect.value);
   const provider = chatSessionState.providers.find((item) => item.id === selected.providerId);
-  // 偏好 + 上下文 → 视图值（档位集合 = 只显示存在的档位、不置灰；一级行/chip 的显示名 =
+  // 偏好 + 上下文 → 视图值（档位集合 = 只显示存在的档位、不置灰；思考强度行/chip 的显示名 =
   // 口径 ③ 的实发档；底部提示行 = 口径①②的文案）。解析只发生这一次，显示口径与请求落线
   // 同源——本文件不再自己判文案，也不手工摘解析字段。
   const view = thinkingViewOf({
@@ -535,19 +530,19 @@ function refreshThinkingUi(): void {
     level: chatSessionState.aiThinkingLevel,
     stream: true
   });
-  // 整份视图值交给面板（唯一画侧入口）：开关型模型在这里被收成 Off/On 两项、chip 与一级行
+  // 整份视图值交给面板（唯一画侧入口）：开关型模型在这里被收成 Off/On 两项、chip 与思考强度行
   // 同步显示 On；偏好 ≠ 实发档时显示**实发档**（关不掉 → {high,max} 显示 High；档位型
-  // clamp → 偏好 high 而 A' = {low,medium} 显示 Medium），不再显示线上没发的东西
-  //（2026-10-05 两轮复审裁定）；提示行（工单 03 / 05 号票）也随这次解析一起落 DOM。
+  // clamp → 偏好 high 而 A' = {low,medium} 显示 Medium），不再显示线上没发的东西；
+  // 提示行（工单 03 / 05 号票）也随这次解析一起落 DOM。
   modelPanel.renderThinkingPicker(view);
 }
 
-// 档位落盘出口（面板档位条目的点击经 deps.pickLevel 回到这里）：setThinkingLevel
+// 档位落盘出口（面板档位滑块 / ↻ 重置键 / 单档胶囊经 deps.pickLevel 回到这里）：setThinkingLevel
 // 首行同步写 chatSessionState.aiThinkingLevel，紧随的重判读到的是新档位（档位切走
-// 即收提示，切回 Off 再现）；chip 的档位文案、档位条的选中态与提示行都随重判重渲。
-// **一次点击只渲一遍**：本函数不再先调 renderChip（那是 refreshThinkingUi →
+// 即收提示，切回 Off 再现）；chip 的档位文案、滑块选中态与提示行都随重判重渲。
+// **一次切换只渲一遍**：本函数不再先调 renderChip（那是 refreshThinkingUi →
 // renderThinkingPicker 内部的事），chip 的渲染路径收敛为 refreshThinkingUi 一条。
-// 面板在调用点之后自会关掉（hidePanel，用户裁定：选完即关）。
+// 调整思考档位不关面板（点选上方模型项才关面板）。
 // 入参与 providers 的 setThinkingLevel 同域：**未归一的外部值**（面板传的是 dataset
 // 里的档位词，宽容面见 ai/thinking-levels.ts 的 ThinkingLevelInput）——本函数只转交，
 // 归一化在落盘入口做一次。
