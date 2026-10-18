@@ -195,7 +195,7 @@ function requireShell(): void {
 //（subtitleWaiter.wait），立即触发一轮上下文轮询，不必等 4 秒间隔。
 // （sidepanel 版监听 chrome.runtime.onMessage 的 biliscript-subtitle-status 广播；
 // 转写相位订阅、等待提示路由、asrNotice 状态行维护已随发送闸整段迁入
-// ../chat/send-gate.ts（CONTEXT.md 词条「发送闸」），本文件经 sendGate 实例
+// ../chat/send-gate.ts（GLOSSARY.md 词条「发送闸」），本文件经 sendGate 实例
 // 持有 bindStatusBus/unbindStatusBus/kickSubtitleWait/refreshAsrNotice 四件。
 
 // reader 触发源两处（共用一个 120ms 防抖槽，后到者定档；两者的挂载点见下方会话
@@ -1117,7 +1117,7 @@ async function startNewConversation(): Promise<void> {
 // 消息区渲染（历史对话回放 → chat-runtime 渲染）
 // ============================================================
 
-// 历史回放事务已抽进 ../chat/replay.ts（createConversationReplay，CONTEXT.md 词条
+// 历史回放事务已抽进 ../chat/replay.ts（createConversationReplay，GLOSSARY.md 词条
 // 「历史回放」），在 createChatTabDomain 内组装；本文件经 conversationReplay 的
 // render/invalidate 两件持有（起跑 / 清场作废），inFlight 的发送前让位消费方
 // 已收敛进发送闸（send-gate.ts 的 G7，经 tab-domain 的 replayInFlight 注入）——
@@ -1125,7 +1125,7 @@ async function startNewConversation(): Promise<void> {
 
 // 发送闸事务（ensureCurrentContextForSend G1-G7 + 字幕等待闸 + 转写相位订阅 +
 // 主动起跑字幕抓取的读侧判定）已抽进 ../chat/send-gate.ts（createSendGate，
-// CONTEXT.md 词条「发送闸」），在 createChatTabDomain 内组装；本文件经 sendGate
+// GLOSSARY.md 词条「发送闸」），在 createChatTabDomain 内组装；本文件经 sendGate
 // 实例持有。
 
 // 主动起跑字幕抓取的动作本体（finding 有字幕视频点 AI 键发出空上下文：等待闸
@@ -1165,7 +1165,7 @@ function getTimestampNavDeps() {
 // 被闸拦下时用户已打好的文本也会一起没。用户主动点「新会话」（startNewConversation）
 // 与上下文切换的其它路径不带该标志，仍照旧清场。
 function restartChat({ keepContext = false, preserveInput = false }: { keepContext?: boolean; preserveInput?: boolean } = {}): void {
-  // 「拆除会话」出口四（CONTEXT.md 词条；工单 arch-slim-2/07 D 半场）：断流
+  // 「拆除会话」出口四（GLOSSARY.md 词条；工单 arch-slim-2/07 D 半场）：断流
   // 双轨统一——经 conversationStore.detachForRestart 发出 onStreamInterrupted，
   // 本函数不再直调 chatRuntime.resetStreamState。断流仍先于会话身份清空（订阅
   // 回调同步先执行，时序与直调时代一致）；订阅处是 resetStreamState 的唯一接线

@@ -187,7 +187,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     isStreaming: () => runtime.isStreaming(),
     hasPendingUserPrompt: () => runtime.hasPendingUserPrompt()
   });
-  // 发送闸（CONTEXT.md 词条「发送闸」）：发送前上下文就绪事务（G1-G7 + 字幕
+  // 发送闸（GLOSSARY.md 词条「发送闸」）：发送前上下文就绪事务（G1-G7 + 字幕
   // 等待闸 + 转写相位订阅）。消费前两件的实例方法（loadContextState /
   // hydratePinned）；replayInFlight 惰性取后建的 replay 实例（箭头推迟到回调
   // 执行期，无 TDZ）。
@@ -228,7 +228,7 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
     connectPort: deps.connectPort
   });
-  // 历史回放事务（CONTEXT.md 词条「历史回放」）：消费 runtime 的消息区句柄与两个
+  // 历史回放事务（GLOSSARY.md 词条「历史回放」）：消费 runtime 的消息区句柄与两个
   // 滚动窄入口（渲染片句柄化后不再有独立渲染方法），组装必须在 runtime 之后
   // （实例互引由本调用点显式持有，回调侧不再绕箭头）。
   const replay = createConversationReplay({

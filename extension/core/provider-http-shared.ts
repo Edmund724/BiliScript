@@ -1,6 +1,6 @@
 // extension/core/provider-http-shared.ts
 // 平台请求代发两通道的公共件叶：把「同契约且逐字同实现」的传输层零件收成单源
-//（CONTEXT.md「平台请求代发」词条）。两通道：
+//（GLOSSARY.md「平台请求代发」词条）。两通道：
 // - SW 代发（core/provider-http.ts）：content 发送端 + SW 接收端；
 // - offscreen 代发（core/provider-http-offscreen.ts）：content 发送端 + offscreen 接收端。
 //

@@ -106,7 +106,7 @@ playerAi 单切片迁出的结论不变；`core/message-handler.ts` 对 player-A
 
 重开条件的第一半（chat 的 B 档散字段先有一轮写方归并）已兑现一轮：`reader/chat-tab.ts`
 组合根的 7 处 B 档直写（`contextData` / `currentContextKey` / `aiPrefs.defaultModel` /
-`asrTranscribingActive`）随发送闸事务抽取（chat/send-gate.ts，CONTEXT.md 词条「发送闸」）
+`asrTranscribingActive`）随发送闸事务抽取（chat/send-gate.ts，GLOSSARY.md 词条「发送闸」）
 归并进 `chat/chat-state.ts` 的意图级原语：`applyLiveContextToMain()`（live 快照浅拷贝落地 +
 key 回退重算，原组合根 startNewConversation 内联两行的整组意图）、
 `rebuildCurrentContextKeyFromContext()`（restartChat 按当前 contextData 重算 key）、

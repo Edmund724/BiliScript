@@ -22,7 +22,7 @@ import { normalizeSubtitleTracks, pickPreferredSubtitle } from "./selection.js";
 import { buildSubtitleCandidates } from "./cache.js";
 import { resolvePageContext } from "../reader/page-context.js";
 import { notifyReaderPresenter, subscribeSubtitleRefresh } from "../reader/reader-bus.js";
-// 字幕接受事务（CONTEXT.md 域词条）：接受/无字幕出口的唯一入口。渲染与状态栏
+// 字幕接受事务（GLOSSARY.md 域词条）：接受/无字幕出口的唯一入口。渲染与状态栏
 // 回调在模块求值期注入（下方 configureCommitUi），保持 commit → 本模块/UI 层
 // 无静态边。
 import { acceptSubtitle, acceptSecondarySubtitle, commitNoSubtitle, configureCommitUi } from "./commit.js";
@@ -33,7 +33,7 @@ import {
   contentFetchJson
 } from "../bilibili/gateway.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
-// 取体深 module（CONTEXT.md「字幕」的正文）：两条装载链共用的唯一取体实现，
+// 取体深 module（GLOSSARY.md「字幕」的正文）：两条装载链共用的唯一取体实现，
 // 出口（接受事务）由下方两个装载器注入。
 import { loadTrackBody } from "./body.js";
 
@@ -58,7 +58,7 @@ export function initSummarizeChain(): void {
   subscribeSubtitleRefresh(refreshClip);
 }
 
-// 字幕接受事务的渲染/状态栏回调接线（CONTEXT.md：DOM 渲染回调由 fetcher 注入，
+// 字幕接受事务的渲染/状态栏回调接线（GLOSSARY.md：DOM 渲染回调由 fetcher 注入，
 // 保持静态图无环）。放在模块求值期执行：本模块任何导出可被调用前必然完成，
 // asr/active-fallback.ts 装配（loadActiveAsrFallback）注入的 commitNoSubtitle
 // 也因此保证先接线后可用。

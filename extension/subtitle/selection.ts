@@ -4,7 +4,7 @@
 //   - 排序优先级（中文 → 英文 → 其余保持接口原顺序）与 previousId / URL / lang 三级
 //     复用（normalizeSubtitleTracks / pickPreferredSubtitle）；
 //   - 副轨语言两级匹配 + 主轨排除（subtitlePrimaryLangTag / findTrackByPreferredLang /
-//     isMainSubtitleTrack / findSecondaryTrackByPreferredLang，口径见 CONTEXT.md「字幕」
+//     isMainSubtitleTrack / findSecondaryTrackByPreferredLang，口径见 GLOSSARY.md「字幕」
 //     词条与 ADR-0016）；
 //   - subtitleBody 按 from 升序的写入不变量排序（sortSubtitleBodyByFrom；读路径
 //     findActiveSubtitleIndex 的二分依赖它）。

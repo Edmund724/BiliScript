@@ -24,7 +24,7 @@
 // createChatStreamRenderer(deps)).
 //
 // 回合生命周期（受理窗口 / 在途判据 / 终态结算）收在 ./turn-lifecycle.ts
-// （createTurnLifecycle，CONTEXT.md 词条「发送闸」「历史回放」的时序面）：本文件
+// （createTurnLifecycle，GLOSSARY.md 词条「发送闸」「历史回放」的时序面）：本文件
 // 保留两个字段本体的声明（sendInFlight / activePort，ADR-0005 红线不搬归属）与
 // 受理体 runAcceptance（provider 检查 / 闸 / 上屏 / 附件消费 / 连端口 /
 // postMessage），把「何时算在途、如何停流、何时兑现 settle」全部交给 turn。
@@ -88,7 +88,7 @@ import { imageUnsupportedErrorHint } from "./image-support.js";
 
 const STREAM_SLOW_NOTICE_MS = 15000;
 
-// 发送受理结论由回合生命周期模块拥有（CONTEXT.md 词条「发送闸」）；此处只转出，
+// 发送受理结论由回合生命周期模块拥有（GLOSSARY.md 词条「发送闸」）；此处只转出，
 // 保持既有 import 面（自 chat-runtime 取 SendVerdict 的调用方零改动）。
 export type { SendVerdict };
 
@@ -293,7 +293,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
   // port 断连、字幕体缺失错误之后），必然全量携带。
   let lastAckedContextKey: string | null = null;
 
-  // ---- 回合生命周期（./turn-lifecycle.ts，CONTEXT.md 词条「发送闸」「历史回放」）----
+  // ---- 回合生命周期（./turn-lifecycle.ts，GLOSSARY.md 词条「发送闸」「历史回放」）----
   // 一个回合「受理开始 → 终态落定」的时序与结算唯一实现点：在途判据（受理窗口
   //  ∪ 流段）、「端口就绪即停」的登记与补发、待决 settle 队列与看门狗兜底都在
   // 那边。这里只交出能力：两个字段本体的槽位/读法（sendInFlight / activePort）、
@@ -445,7 +445,7 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
         return "blocked";
       }
       const currentMeta = chatSessionState.currentConversationMeta;
-      // 发送前上下文失配守卫（CONTEXT.md「拆除会话」词条出口五）：刻意只清身份
+      // 发送前上下文失配守卫（GLOSSARY.md「拆除会话」词条出口五）：刻意只清身份
       // 两键（id/meta）——不清 chatHistory、不发断流（此点流式尚未发起，无断流
       // 可言；旧会话的消息史仍在视图中延续，仅会话身份随上下文键失配作废）。
       // 不收编进 store 的 detachCurrent 原语（它连带清历史）：本守卫只表达

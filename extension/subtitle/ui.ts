@@ -75,7 +75,7 @@ export async function downloadSubtitle(): Promise<void> {
 }
 
 // applyNoSubtitleState 已迁入 subtitle/commit.js（commitNoSubtitle，无字幕出口
-// 逆事务的唯一实现，CONTEXT.md「字幕接受」词条）——清空选中态/body/派生内容
+// 逆事务的唯一实现，GLOSSARY.md「字幕接受」词条）——清空选中态/body/派生内容
 // 与预览 DOM 属该事务，调用点（fetcher 的 finishNoSubtitle、asr/fallback 的
 // 失败出口）一律改走 commit。
 //

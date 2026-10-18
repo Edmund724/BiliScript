@@ -1,4 +1,4 @@
-// ai/compat-vocab.ts — 平台怪癖词表（CONTEXT.md「平台协议」域，compat-vocab 票）。
+// ai/compat-vocab.ts — 平台怪癖词表（GLOSSARY.md「平台协议」域，compat-vocab 票）。
 // 命名与语义设计参照 @earendil-works/pi-ai 的 `compat` 开关词表
 // （thinkingFormat / maxTokensField / requiresReasoningContentOnAssistantMessages 等，
 // 见 ADR-0009「借」清单）——只借命名与语义，**不借数据**：本模块零 import（只

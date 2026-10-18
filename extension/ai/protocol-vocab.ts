@@ -1,4 +1,4 @@
-// ai/protocol-vocab.ts — 平台协议词表叶（CONTEXT.md「平台协议」）。
+// ai/protocol-vocab.ts — 平台协议词表叶（GLOSSARY.md「平台协议」）。
 // 纯叶模块：零运行时依赖，合法值清单的唯一来源（multi-protocol-ai）。
 // 词表消费者（normalize 校验、设置 UI）只 import 本叶，不拖入分发表
 // PROTOCOL_ADAPTERS 及其 adapters/thinking-profiles/sse-parser 依赖。

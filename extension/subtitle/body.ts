@@ -1,7 +1,7 @@
 // extension/subtitle/body.ts
 // 「取体」深 module：取一条字幕轨的正文（body）的唯一实现。
 //
-// 领域词取自 CONTEXT.md「字幕」词条：一条轨的正文就是 `subtitleBody` 的那份
+// 领域词取自 GLOSSARY.md「字幕」词条：一条轨的正文就是 `subtitleBody` 的那份
 // `{from, to, content}` 数组。本模块回答一个问题——**给定一条轨的地址与身份，
 // 拿到它这次的正文**——并把这条链上的全部口径收在自己内部：
 //

@@ -1,4 +1,4 @@
-# BiliScript 上下文
+# BiliScript 词表
 
 BiliScript（B 站视频文摘）浏览器扩展的领域词表。统一代码、讨论、issue 里的命名，避免同义词漂移。
 
@@ -202,12 +202,12 @@ _Avoid_: 在 adapter 里回抄线格式取值、让血统表输出协议字段�
 _Avoid_: 把「content 发起、offscreen 执行」与「offscreen 客户端直发平台」混为一谈（后者仍被否决）；让概览回落页面源直发
 
 **搜索平台**:
-联网搜索平台（spec keyless-web-search，**六预设**（Tavily/Exa + Firecrawl/豆包/AnySearch/Parallel），其中四条零 Key 引擎 + 两条免费额度引擎构成零成本组，成员的接入与额度形态见「零成本组」，不做自定义）。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（= **模式选择 + 单选目标**：记录 id = **单选**（只用该家、无回退），哨兵 `SMART_SEARCH_ACTIVE_ID` 或空串 = **智能**（链按 `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER` 内置默认序回退），见「链首平台」词条）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起 fetch：key 经消息中转（SW → offscreen 内存 →（消息 header）→ SW），SW 只做 fetch 发起方，key 不落 offscreen 存储/日志（protocol-vocab-leaf 文档语义修正，替代旧「密钥不出 SW」表述）；Tavily / Exa 沿用常驻 host 权限，新增 Firecrawl / 豆包 / AnySearch / Parallel，删 Brave。Key 对 `keyless` 预设可选（不再是「Key 前置」）；`resolve-search-provider` 解析的是**链**（有序候选 + 各自 Key）。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
+联网搜索平台（spec keyless-web-search，**七预设**（Tavily/Exa + Firecrawl/豆包/AnySearch/Parallel + DeepSeek），其中四条零 Key 引擎 + 两条免费额度引擎构成零成本组（成员的接入与额度形态见「零成本组」），DeepSeek 为付费平台（见「付费平台」），不做自定义）。DeepSeek 搜索记录无自有 Key 字段，Key 经「凭据引用」取自 AI 族。Provider/Key 存储仿 ASR 走 `createProviderStore`（`searchProviders` 进 sync、Key 明文只进 `searchProviderKeys` local）；设置标量 `activeSearchProviderId`（= **模式选择 + 单选目标**：记录 id = **单选**（只用该家、无回退），哨兵 `SMART_SEARCH_ACTIVE_ID` 或空串 = **智能**（链按 `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER` 内置默认序回退），见「链首平台」词条）/ `webSearchEnabled` / `webSearchMaxToolCalls` 走 save-settings。搜索 HTTP 由 SW 经 `provider-http` 通道发起 fetch：key 经消息中转（SW → offscreen 内存 →（消息 header）→ SW），SW 只做 fetch 发起方，key 不落 offscreen 存储/日志（protocol-vocab-leaf 文档语义修正，替代旧「密钥不出 SW」表述）；Tavily / Exa 沿用常驻 host 权限，新增 Firecrawl / 豆包 / AnySearch / Parallel，删 Brave。Key 对 `keyless` 预设可选（不再是「Key 前置」）；`resolve-search-provider` 解析的是**链**（有序候选 + 各自 Key）。适配器统一映射为 `{title,url,snippet}[]`（snippet 解析期截断 500）。
 代码名：`searchProviderStore`（extension/search/search-provider-store.js）/ `normalizeSearchProvider` / `SEARCH_PROVIDER_PRESETS`（core/presets.js）/ 适配器 `extension/search/adapters/`
 _Avoid_: Key 进 sync、自定义预设、offscreen 直发搜索请求
 
 **零成本组**:
-搜索时按固定顺序逐家尝试的平台集合——零 Key 引擎无条件入组，免费额度引擎配了 Key 才入组；顺序 = `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER`（内置默认序；预设表序只管预设目录）。它的**执行形态**称「回退链」：组内前一家失败（超时 / 网络 / 额度耗尽，分类见 spec §6.4 的三等映射表）即试下一家，全组无果才提示用户。词表作「零 Key」、UI 文案作「免 Key」。
+搜索时按固定顺序逐家尝试的平台集合——零 Key 引擎无条件入组，免费额度引擎配了 Key 才入组；付费平台（`paid`）永不入组，仅在付费开关打开时进入智能链（见「付费平台」）。顺序 = `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER`（内置默认序；预设表序只管预设目录）。它的**执行形态**称「回退链」：组内前一家失败（超时 / 网络 / 额度耗尽，分类见 spec §6.4 的三等映射表）即试下一家，全组无果才提示用户。词表作「零 Key」、UI 文案作「免 Key」。
 代码名：`SearchProviderAccess` / `SEARCH_PROVIDER_PRESETS` / `DEFAULT_SEARCH_PROVIDER_ORDER`
 _Avoid_: 把回退理解成「任何平台之间互相兜底」；用「免 Key」当组的定义（配 Key 的豆包也在组内）
 
@@ -215,6 +215,21 @@ _Avoid_: 把回退理解成「任何平台之间互相兜底」；用「免 Key�
 **单选模式**下用户手选的搜索平台（`activeSearchProviderId` = 某条记录 id）：它是链里**唯一一家**、**无回退**，该家失败即整链无果。**智能模式**（哨兵 `SMART_SEARCH_ACTIVE_ID` 或空串）下无手选链首——链 = 零成本组按 `searchProviderOrder` 归一序 > `DEFAULT_SEARCH_PROVIDER_ORDER` 回退，链序第一家 ≠ 链首。
 代码名：`activeSearchProviderId`（沿用代码名，语义收缩为「模式选择 + 单选目标」）/ `SMART_SEARCH_ACTIVE_ID` / `resolveSearchMode`（core/search-mode.ts，spec §12.1）
 _Avoid_: 把链首理解成「排链最前、失败自动回退下一家」（无回退是它的定义）；把智能模式的链序第一家也称作链首
+
+**付费平台**:
+搜索平台的第三种接入形态（`SearchProviderAccess` 词表 `keyless | free-quota | paid` 的第三类）：无免费额度、按成功请求次数计费，现有唯一成员 DeepSeek Search（¥5/1000 次成功请求，失败与空结果不计费）。智能模式下仅当付费开关 `allowPaidSearchProviders`（默认关——花钱必须是显式动作）打开时才入回退链，默认排链末位（免费平台全挂才轮到它；想优先用可拖拽提位或单选）；**单选**付费平台不受开关限制——单选本身是显式付费意图。付费行为必须可审计：智能链命中付费平台成功，来源列表该项带「付费」徽标；付费平台失败（余额不足 402 / 限速 429 / 超时等）按链序回退，来源区顶部标注「DeepSeek 搜索不可用（原因），已回退至 XX」。DeepSeek Search 请求固定 `need_content: false`（按次计费与返回量无关，正文徒增体积），喂模型用 `summary` 字段（官方定位为给模型阅读，600-800 字符）。
+代码名：`SearchProviderAccess` 的 `"paid"`（core/presets.ts）/ `allowPaidSearchProviders`（设置标量，默认 false）/ 适配器 `extension/search/adapters/deepseek.ts`
+_Avoid_: 拆「智能（免费）/智能（含付费）」两个虚拟行（付费准入是正交开关，不是第二种智能模式）、付费平台进零成本组、付费失败静默回退、toast 式付费提示
+
+**凭据引用**:
+跨族读 Key 的唯一例外：搜索侧 DeepSeek 记录不设 Key 输入框，发请求时实时读 AI 族「第一条启用、`presetId` 为 `deepseek` 且通过「官方端点判定」的记录」的 Key（`aiProviderKeys`）。单一真源：AI 侧改 Key 搜索立即跟随，删掉该记录搜索侧自动降级为链中跳过；不提供搜索侧覆盖 Key（「只想用 DeepSeek 搜索」的用户在 AI 平台加一条记录即可）。方向单向（搜索读 AI，绝不回写）；三族存储（`aiProviderKeys` / `asrProviderKeys` / `searchProviderKeys`）隔离不变式的其余部分照旧。
+代码名：取 Key 与判定收口在共享 helper，搜索链候选装配处消费 / 搜索行状态文案「已复用 AI 平台 Key」「请先在 AI 平台添加官方 DeepSeek 记录」
+_Avoid_: 把 Key 复制进 `searchProviderKeys`（双写腐化：AI 侧改/删后搜索侧那份静默过期）、搜索侧覆盖 Key 输入框
+
+**官方端点判定**:
+凭据引用的前置判据：AI 记录当前生效协议对应的 baseUrl 规范化（去尾斜杠、小写）后 host 严格等于 `api.deepseek.com`。中转 / 反代 / 克隆站一律不通过（这些端点多半不转发 `/v1/tools/search`，Key 有效也会 404）；不通过时搜索行显示「AI 平台 Key 指向非官方端点」、链中跳过——诚实失败，不静默 404。判定为共享 helper 单点，设置 UI 状态与搜索链消费同一处。
+代码名：共享 helper（host 严格判等）/ 官方 host 常量 `api.deepseek.com`
+_Avoid_: `includes("deepseek")` 子串匹配、跟随 AI 记录的自定义 baseUrl 发搜索请求
 
 **工具循环**:
 AI 对话链与选区解释链共用的联网搜索执行管线（function calling，spec §2.3）：`runToolLoop` 包住 chatCompletion 多轮调用——finish_reason=tool_calls 时回填 assistant(tool_calls)+tool 消息续跑，单条 tool call 计入 `webSearchMaxToolCalls` 配额；搜索配置经 `resolve-search-provider` 单趟消息解析**回退链**（有序候选 + 各自 Key + 单轮上限），解析单点 `resolveWebSearchRuntime`（search/search-runtime.ts，offscreen 与解释卡同走，无 chrome.storage）。port 回吐单源在 streamChat（TokenBatcher/flush 纪律不变）；搜索执行单点 `executeWebSearch`（extension/search/search-executor.ts）。**链内失败静默**，整链无果才一条 notice，回答不中断；额度类与超时/网络类分两条文案，且单轮调用次数的「本轮的搜索次数已达上限」与平台侧的「搜索额度已用尽」在措辞上分开（同名收口，§6.4）。平台不支持 tools（不可重试 4xx）摘除重发一次；Map-Reduce 归约轮静默禁用 + notice。tool 轮消息持久化进会话历史（tool 内容截 2,000，完整结果只活在当轮请求）。解释链（非流式）取 runToolLoop 返回值为最终文本，工具定义经 `webSearchTool` 变体（不带 [n] 引用要求）。

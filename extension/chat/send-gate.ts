@@ -1,4 +1,4 @@
-// extension/chat/send-gate.ts — 发送闸（CONTEXT.md 词条「发送闸」）：发送前
+// extension/chat/send-gate.ts — 发送闸（GLOSSARY.md 词条「发送闸」）：发送前
 // 上下文就绪事务。自 reader/chat-tab.ts 抽取（arch-review-2026-09 候选 1 下半），
 // 逻辑与文案逐字保持，仅编排回调经 deps 注入。
 //

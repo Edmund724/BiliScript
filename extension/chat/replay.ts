@@ -1,4 +1,4 @@
-// extension/chat/replay.ts — 历史回放事务（CONTEXT.md 词条「历史回放」）。
+// extension/chat/replay.ts — 历史回放事务（GLOSSARY.md 词条「历史回放」）。
 //
 // 把当前会话历史整段重建进消息区的分片渲染事务：世代号作废过期分片（清场/
 // 新轮）、50ms 帧预算让出主线程、发送路径经 inFlight 等待在途回放让位。

@@ -219,7 +219,7 @@ export type ProviderHttpResponse = {
   error?: string;
 };
 // arch-slim-3/09：「激活平台」单趟解析——offscreen 聊天链与 content 侧概览/
-// 选区解释共用（CONTEXT.md 域词条「激活平台」）。providerId 给定 = 精确匹配
+// 选区解释共用（GLOSSARY.md 域词条「激活平台」）。providerId 给定 = 精确匹配
 //（offscreen 语义）；缺省 = 设置 defaultModel → 首个启用平台回落（content
 // 语义）。requiresKey 平台密钥缺失在解析期即报可读错误（此前 content 侧会
 // 拖到 HTTP 期才失败）。

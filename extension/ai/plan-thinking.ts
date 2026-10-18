@@ -1,4 +1,4 @@
-// ai/plan-thinking.ts — 思考装配边（CONTEXT.md「平台协议」域）。
+// ai/plan-thinking.ts — 思考装配边（GLOSSARY.md「平台协议」域）。
 //
 // 「取档位事实 → 按本协议算行入参 → 取线格式映射表 → 并入请求体」的第一段落点：
 // 唯一入口 `planThinkingWire(原始请求事实)` 收**协议无关**的请求事实，出参与线格式映射表

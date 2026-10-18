@@ -1,4 +1,4 @@
-// tests/chat/send-gate.test.ts — 发送闸（chat/send-gate.ts，CONTEXT.md 词条
+// tests/chat/send-gate.test.ts — 发送闸（chat/send-gate.ts，GLOSSARY.md 词条
 // 「发送闸」）的聚焦单测：G1-G7 各闸口、字幕等待轮询、转写相位写、
 // 主动起跑字幕抓取的判定门。987 行集成夹具（tests/reader/chat-tab.test.ts）
 // 保证组合根侧字节级等价，本文件只锁闸内契约。

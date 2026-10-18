@@ -1,4 +1,4 @@
-// 历史回放事务（CONTEXT.md 词条「历史回放」）：整段重建消息区的分片渲染。
+// 历史回放事务（GLOSSARY.md 词条「历史回放」）：整段重建消息区的分片渲染。
 // 覆盖四件契约：空历史清场、user/assistant 顺序与 userPrompt、搜索回合对位、
 // 世代作废丢过期分片 + inFlight 生命周期。预算让出的续跑正确性由分片用例
 // 与 tests/reader/chat-tab.test.ts 的整页夹具共同背书。

@@ -5,7 +5,7 @@
 
 设置页平台编辑 Modal 要展示模型元数据（上下文窗口 / 是否支持思考 / 是否收图）。上游 `@earendil-works/pi-ai`（MIT）已经为 1354 个模型登记过这些字段，但**我们决定不把 pi-ai 引入运行时**：它只作**数据来源与设计参照**——`devDependency` 精确 pin，构建期脚本从它的 `providers/data/*.json` 裁剪出 7 个文件 / 435 个模型的零依赖叶子产物（`extension/ai/catalog/pi-ai-catalog.generated.ts`），提交进仓库；UI 只在打开平台编辑 Modal 时动态 `import()` 这份产物。
 
-**不变式（硬）：pi-ai 永不进入请求执行路径。** 目录数据只进 UI 渲染层——不落盘、不进 `AiProvider` 存储、不参与请求构造；它不在 `provider-http.ts` → `completion.ts` → `adapters/*` 这条链的任何位置。逐条不变式与判据锚点见 [CONTEXT.md「模型目录（model-catalog）」](../../CONTEXT.md#模型目录model-catalog)。
+**不变式（硬）：pi-ai 永不进入请求执行路径。** 目录数据只进 UI 渲染层——不落盘、不进 `AiProvider` 存储、不参与请求构造；它不在 `provider-http.ts` → `completion.ts` → `adapters/*` 这条链的任何位置。逐条不变式与判据锚点见 [GLOSSARY.md「模型目录（model-catalog）」](../../GLOSSARY.md#模型目录model-catalog)。
 
 动机不是"修 bug"。不容易出 bug 来自既有的 `ProtocolAdapter` 缝与 `thinking-profiles.ts` 的单源约束，不来自引入 pi-ai；引入外部数据的收益是**目录能力**，代价是新的不确定性来源，所以必须把它的作用域压到最小。
 

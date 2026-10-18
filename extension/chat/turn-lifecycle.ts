@@ -1,4 +1,4 @@
-// extension/chat/turn-lifecycle.ts — 回合生命周期（CONTEXT.md 词条「发送闸」与
+// extension/chat/turn-lifecycle.ts — 回合生命周期（GLOSSARY.md 词条「发送闸」与
 // 「历史回放」的时序面收口）。
 //
 // 一个回合 = 「受理开始 → 终态落定」。本模块是这段时序与结算的唯一实现点，
@@ -22,7 +22,7 @@
 // postMessage）也仍在 chat-runtime，经 runAcceptance 注入 —— 本模块管它前后的
 // 时序与全部结算。
 //
-// 方向纪律（CONTEXT.md「历史回放」词条）：等待是单向的 —— 发送等回放让位
+// 方向纪律（GLOSSARY.md「历史回放」词条）：等待是单向的 —— 发送等回放让位
 //（send-gate 的 G7），回放不等任何东西；settled() 只由历史项点击接缝 await，
 // 不进回放、不进发送闸（否则成结构死锁）。拆除类入口（删除 / 清空 / 新会话 /
 // 关闭会话）不经 settled()，经 discard() 维持有意拆除语义。

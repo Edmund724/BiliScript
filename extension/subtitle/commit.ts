@@ -1,5 +1,5 @@
 // extension/subtitle/commit.ts
-// 「字幕接受」事务的唯一入口（CONTEXT.md 域词条）。
+// 「字幕接受」事务的唯一入口（GLOSSARY.md 域词条）。
 //
 // 一段字幕成为当前视频生效字幕的六步序列——稳定排序（from 升序，读路径
 // findActiveSubtitleIndex 二分依赖）→ 写 state（selectedSubtitleId/Url/Lang +

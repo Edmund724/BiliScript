@@ -611,7 +611,7 @@ describe("消费方对账锚点：对话侧 读取字段 ⊆ payload ∪ {signat
 
   it("chat/send-gate.js：发送闸读取的快照字段", () => {
     const source = readSource("../../extension/chat/send-gate.js");
-    // 发送闸（CONTEXT.md 词条「发送闸」）自组合根迁入：G6 无字幕发送拦截读
+    // 发送闸（GLOSSARY.md 词条「发送闸」）自组合根迁入：G6 无字幕发送拦截读
     // noSubtitleReason（与 buildNoSubtitleNotice 的理由路由配套），其余闸口只
     // 把快照整体交给 chat/subtitle-readiness.js 的谓词，不逐字段读。
     assertReconciliation(

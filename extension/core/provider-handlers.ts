@@ -200,7 +200,7 @@ export function createAsrRuntimeConfigHandler({
   };
 }
 
-// ===== 「激活平台」单趟解析处理器（arch-slim-3/09，CONTEXT.md 域词条）=====
+// ===== 「激活平台」单趟解析处理器（arch-slim-3/09，GLOSSARY.md 域词条）=====
 
 // 无可用平台的可读文案单源（原 ai/active-provider.ts 定义，随解析链收口搬入
 // 处理器——错误在解析期产生，文案与产生点同居）。

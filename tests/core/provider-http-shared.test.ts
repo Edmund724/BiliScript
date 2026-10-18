@@ -4,7 +4,7 @@
 // URL 提取 / Headers 归一 / 已中止短路判据 / errorText / Response status 归一 /
 // makeAbortError / 接收端 URL 预检判据 / 接收端 fetch init 构造 / 出向载荷核心。
 //
-// 不在本文件内的（各侧自留，见 CONTEXT.md「平台请求代发」词条）：承载（消息 vs
+// 不在本文件内的（各侧自留，见 GLOSSARY.md「平台请求代发」词条）：承载（消息 vs
 // 端口）、超时（SW 15s vs offscreen 无）、中止机制（raceWithAbort vs onAbort +
 // 端口释放）、回吐形态——两侧差异正是「不抽」的部分。
 //

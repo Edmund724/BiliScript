@@ -1,4 +1,4 @@
-// reader/shell.ts — 阅读壳唯一事务（CONTEXT.md「阅读壳」词条的代码落点，
+// reader/shell.ts — 阅读壳唯一事务（GLOSSARY.md「阅读壳」词条的代码落点，
 // 工单 .scratch/tickets/arch-slim/issues/02-reader-shell.md）。
 //
 // 进入与退出 文摘面板阅读形态各只剩一条路：enterReaderShell（按意图三档

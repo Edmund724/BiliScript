@@ -1,4 +1,4 @@
-// 「时刻文本」单源模块（arch-slim-2/08；CONTEXT.md「时刻文本」词条的代码落点）：
+// 「时刻文本」单源模块（arch-slim-2/08；GLOSSARY.md「时刻文本」词条的代码落点）：
 // 视频「秒 ↔ 时刻文本」的唯一换算约定——展示格式、解析容错、withHours 判定
 // 三件事都只有这一份实现。此前的双展示实现（ai/analysis.ts 的
 // formatAnalysisClock、shared/string-utils.ts 的 formatCompactTimestamp）、

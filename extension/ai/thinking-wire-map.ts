@@ -1,4 +1,4 @@
-// ai/thinking-wire-map.ts — 线格式映射表（CONTEXT.md「平台协议」域，thinking-wire-map
+// ai/thinking-wire-map.ts — 线格式映射表（GLOSSARY.md「平台协议」域，thinking-wire-map
 // 票 01）。三层事实里的**写法层**：回答「这套 OpenAI 词汇在本协议的请求体里长什么样」。
 //
 // - 平台怪癖词表（compat-vocab.ts）= 名词层：这个平台有哪些怪癖、各自的键叫什么；

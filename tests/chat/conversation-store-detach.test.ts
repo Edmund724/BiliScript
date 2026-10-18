@@ -2,7 +2,7 @@
 // 工单 arch-slim-2/07:「拆除会话」唯一事务(detachCurrent / repopulateLive)的
 // 时序锁定与接口收窄断言。
 //
-// CONTEXT.md「拆除会话」词条:把「当前会话」从对话视图与存储中摘除的唯一事务
+// GLOSSARY.md「拆除会话」词条:把「当前会话」从对话视图与存储中摘除的唯一事务
 // = 断流通知先于任何 await 与落盘 → 清会话 id/meta/历史 → 需要时做 live 上下文
 // 回填。四个出口(restoreLatest 无匹配 / deleteById 当前会话 / clearAll /
 // detachForRestart 新会话重启)收口为同一组原语组合,本文件沿 conversation-store-

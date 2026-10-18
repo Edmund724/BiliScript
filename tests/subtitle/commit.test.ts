@@ -1,4 +1,4 @@
-// subtitle/commit.js 字幕接受事务测试（CONTEXT.md「字幕接受」词条的契约锁）。
+// subtitle/commit.js 字幕接受事务测试（GLOSSARY.md「字幕接受」词条的契约锁）。
 //
 // 一段字幕成为当前视频生效字幕的唯一事务：稳定排序（from 升序，读路径
 // findActiveSubtitleIndex 二分依赖）→ 写 state（selectedSubtitleId/Url/Lang +

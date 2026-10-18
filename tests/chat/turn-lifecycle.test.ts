@@ -1,5 +1,5 @@
 // tests/chat/turn-lifecycle.test.ts — 回合生命周期深 module（chat/turn-lifecycle.ts，
-// CONTEXT.md 词条「发送闸」「历史回放」的时序面）的聚焦单测：受理入口的双发闸、
+// GLOSSARY.md 词条「发送闸」「历史回放」的时序面）的聚焦单测：受理入口的双发闸、
 // 唯一的在途判据、终态订阅（settle）的兑现协议与三条兜底。
 //
 // 先列的失败方式清单（每条对应下方一个或多个用例，先写测试再实现）：
