@@ -29,8 +29,9 @@
 // renderReadingView 的首屏批同一份代码），搜索走生产的 subtitle-search 模块缝。
 // 不挂完整 reader shell：那会连带装载选轨弹层 / 概览 / 生命周期（本改动不碰的域），
 // 而这里要锁的渲染与匹配路径在模块层已完整可达。
-// 唯一 mock：alignment 的 `buildSecondaryAlignment` 包一层调用计数（仍委托真实实现），
-// 用来钉住「一批 / 一次搜索只建一次索引」。
+// 唯一 mock：alignment 的 `secondaryAlignmentFor` 包一层调用记录（仍委托真实实现），
+// 用来钉住「一批 / 一次搜索只建一次索引」——消费方（渲染/搜索）每次取索引返回的
+// 必须是同一实例（memo 命中），换 body 引用才重建。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
@@ -43,7 +44,7 @@ import type { TestState } from "./reader-test-env.js";
 
 vi.mock("../../extension/subtitle/alignment.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../extension/subtitle/alignment.js")>();
-  return { ...actual, buildSecondaryAlignment: vi.fn(actual.buildSecondaryAlignment) };
+  return { ...actual, secondaryAlignmentFor: vi.fn(actual.secondaryAlignmentFor) };
 });
 
 const SUBTEXT_SELECTOR = ".biliscript-reading-subtext";
@@ -172,8 +173,9 @@ function runSearch(needle: string): void {
   search.refreshReadingSubtitleSearch({ scroll: false });
 }
 
-function alignmentBuildCalls(): number {
-  return vi.mocked(alignment.buildSecondaryAlignment).mock.calls.length;
+// secondaryAlignmentFor 历次返回的索引实例集合：size = 1 ⇔ memo 命中、没有重建。
+function alignmentInstances(): Set<unknown> {
+  return new Set(vi.mocked(alignment.secondaryAlignmentFor).mock.results.map((result) => result.value));
 }
 
 // 占位行不可点：不是按钮 / 链接，不带 role / tabindex / 任何交互子节点，文案也不写
@@ -199,7 +201,7 @@ beforeEach(async () => {
   ids = (await import("../../extension/reader/state.js")).ids;
   core = await import("../../extension/subtitle/core.js");
   alignment = await import("../../extension/subtitle/alignment.js");
-  vi.mocked(alignment.buildSecondaryAlignment).mockClear();
+  vi.mocked(alignment.secondaryAlignmentFor).mockClear();
   // 先 core/alignment，再 batched-render / subtitle-search：后两者取到本用例注册表里
   // 的同一个 mock 实例（计数才覆盖到它们内部的调用）。
   render = await import("../../extension/reader/batched-render.js");
@@ -332,11 +334,28 @@ describe("06 双语列表：副行渲染（ready / 折叠 / 占位）", () => {
     }
     seedSecondaryReady([{ from: 0, to: 600, content: "整段译文" }]);
     renderBody(body);
-    expect(alignmentBuildCalls()).toBe(1);
+    // 300 行经同一副轨 body 投影：取到的索引是同一实例（memo 命中，绝不逐行重建）
+    expect(alignmentInstances().size).toBe(1);
 
     runSearch("整段译文");
     expect(searchCount()).toBe("1 / 300");
-    expect(alignmentBuildCalls()).toBe(2); // 搜索重算再建一次，不是每条一次
+    // 搜索与渲染共读 clipState.secondarySubtitle 的同一 body 引用：单槽 memo 命中，
+    // 不重建第二份索引
+    expect(alignmentInstances().size).toBe(1);
+  });
+
+  it("副轨 body 换成新引用后重建索引（memo 键 = body 引用，写路径整体替换引用）", () => {
+    setBilingual(true);
+    seedSecondaryReady([{ from: 0, to: 5, content: "old translation" }]);
+    renderBody(MAIN_BODY);
+    expect(alignmentInstances().size).toBe(1);
+    expect(subtextOf(0)?.textContent).toBe("old translation");
+
+    // 接受事务整体落新数组：新引用触发重建，投影跟着新索引走
+    seedSecondaryReady([{ from: 0, to: 9, content: "new translation" }]);
+    renderBody(MAIN_BODY);
+    expect(alignmentInstances().size).toBe(2);
+    expect(subtextOf(0)?.textContent).toBe("new translation");
   });
 });
 

@@ -13,9 +13,10 @@
 // 不参与拼接（网络数据可能带空段）。
 //
 // 形态：`buildSecondaryAlignment(body)` 建一次索引，`query(main)` 每行 O(log m + k)，
-// 供 1500+ 行的分批渲染逐行投影；**不要在每行重建索引**。state 投影入口是
-// `secondaryContentFor(main)`，索引按副轨 body 的**引用**缓存在 WeakMap 里
-//（先例 subtitle/core.ts 的 getReadingSubtitleItems，前提同款：写路径整体替换引用）。
+// 供 1500+ 行的分批渲染逐行投影；**不要在每行重建索引**。带引用记忆的入口是
+// `secondaryAlignmentFor(body)`（memo 核，见下方注释）；state 投影入口是
+// `secondaryContentFor(main)`，渲染/搜索消费方自带 settings/slot 门控后经
+// secondaryAlignmentFor 取同一份索引——配对索引全仓只有这一份。
 //
 // 双语关 / 副轨未就绪（loading / error / 空槽）⇒ 一律 `null`（渲染层据此折叠副行；
 // 「译文加载中…」这类占位文案由渲染层出，**算法不出正文也不出占位**，06 号票）。
@@ -89,7 +90,23 @@ export function buildSecondaryAlignment(secondary: readonly SubtitleBodyItem[] |
   };
 }
 
-const secondaryAlignmentCache = new WeakMap<object, SecondaryAlignment>();
+// 配对索引的引用记忆（memo 核）：单槽，键 = 副轨 body 的**引用**——写路径经
+// 事务整体替换引用（applySecondarySubtitle 整体落新数组），引用不变 ⇔ 内容不变。
+// 同一引用复用同一份索引；交替传不同 body 会逐次重建（槽只有一个，旧引用的索引
+// 不保留）。当前消费方（reader 渲染/搜索、下方投影、07 导出的派生内容）共读
+// clipState.secondarySubtitle 的同一 slot.body 引用，无抖动。
+let memoizedSecondaryBody: unknown = null;
+let memoizedSecondaryAlignment: SecondaryAlignment | null = null;
+
+// 自带引用记忆的取索引入口：消费方（reader/batched-render、reader/subtitle-search）
+// 经它取索引，不各自抄一份缓存。
+export function secondaryAlignmentFor(body: SubtitleBodyItem[]): SecondaryAlignment {
+  if (memoizedSecondaryBody !== body || !memoizedSecondaryAlignment) {
+    memoizedSecondaryAlignment = buildSecondaryAlignment(body);
+    memoizedSecondaryBody = body;
+  }
+  return memoizedSecondaryAlignment;
+}
 
 // 读 state 的投影入口（06 号票的渲染/搜索、07 号票的导出都走它，不得另写一份配对）。
 export function secondaryContentFor(main: AlignableMainSegment): string | null {
@@ -104,12 +121,7 @@ export function secondaryContentFor(main: AlignableMainSegment): string | null {
   if (!Array.isArray(body) || body.length === 0) {
     return null;
   }
-  let alignment = secondaryAlignmentCache.get(body);
-  if (!alignment) {
-    alignment = buildSecondaryAlignment(body);
-    secondaryAlignmentCache.set(body, alignment);
-  }
-  return alignment.query(main);
+  return secondaryAlignmentFor(body).query(main);
 }
 
 // 渲染层入参形状（notes 域的宽松 item 形状的结构对偶，两边各声明、不互相 import——

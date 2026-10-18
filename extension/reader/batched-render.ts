@@ -22,9 +22,7 @@
 import { escapeHtml } from "../shared/string-utils.js";
 import { formatClock } from "../shared/clock-text.js";
 import { clipState, state } from "../core/state.js";
-import { buildSecondaryAlignment } from "../subtitle/alignment.js";
-import type { SecondaryAlignment } from "../subtitle/alignment.js";
-import type { SubtitleBodyItem } from "../core/state.js";
+import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { ReadingSubtitleItem } from "../subtitle/core.js";
 
 const SUBTITLE_FIRST_BATCH = 120;
@@ -70,19 +68,9 @@ interface ReadingSubtext {
   state: ReadingSubtextState;
 }
 
-// 配对索引按副轨 body 的**引用**缓存（写路径经事务整体替换引用）：1500 行的渲染
-// 只建一次索引，逐行 `query` 是 O(log m) 二分——**绝不逐行重建索引**（那是平方级）。
-let subtextAlignmentBody: unknown = null;
-let subtextAlignment: SecondaryAlignment | null = null;
-
-function subtextAlignmentFor(body: SubtitleBodyItem[]): SecondaryAlignment {
-  if (subtextAlignmentBody !== body || !subtextAlignment) {
-    subtextAlignment = buildSecondaryAlignment(body);
-    subtextAlignmentBody = body;
-  }
-  return subtextAlignment;
-}
-
+// 配对索引的引用记忆收在 alignment 模块内（secondaryAlignmentFor，单槽、键 = body
+// 引用）：1500 行的渲染只建一次索引，逐行 `query` 是 O(log m) 二分——**绝不逐行
+// 重建索引**（那是平方级）。
 // 单行副行投影（读 state；占位文案由本层出——04 的算法不出正文也不出占位）。
 function resolveReadingSubtext(item: ReadingSubtitleItem): ReadingSubtext | null {
   if (!state.settings.bilingualSubtitles) {
@@ -105,7 +93,7 @@ function resolveReadingSubtext(item: ReadingSubtitleItem): ReadingSubtext | null
   if (!Array.isArray(body) || body.length === 0) {
     return null;
   }
-  const text = subtextAlignmentFor(body).query(item);
+  const text = secondaryAlignmentFor(body).query(item);
   return text ? { text, state: "ready" } : null;
 }
 

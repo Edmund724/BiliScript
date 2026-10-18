@@ -28,7 +28,7 @@
 
 import { clipState, state } from "../core/state.js";
 import { getReadingSubtitleItems } from "../subtitle/core.js";
-import { buildSecondaryAlignment } from "../subtitle/alignment.js";
+import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { SecondaryAlignment } from "../subtitle/alignment.js";
 import { ids } from "./state.js";
 import { readerPorts } from "./ports.js";
@@ -91,12 +91,8 @@ function findLiteralMatches(text: string, needle: string): SearchRange[] {
 
 // 搜索的第二条轨（bilingual-subtitles/06 号票的 Q6 映射）：只吃**真实译文**
 //（04 号票的配对结果）——loading / fail 占位文案**不产生命中**，双语关 / 副轨
-// 未就绪一律不参与（双语关零行为差）。索引按副轨 body 引用建一次、逐行 O(log m)
-// 二分，**绝不逐行重建**（与 batched-render 的投影同款，两处各自持一份缓存以
-// 避开 reader → batched-render 的 import 边）。
-let searchSecondaryBody: unknown = null;
-let searchSecondaryAlignment: SecondaryAlignment | null = null;
-
+// 未就绪一律不参与（双语关零行为差）。索引经 alignment 的 secondaryAlignmentFor
+// 取（引用记忆单槽收在该模块内，与 batched-render 的投影同一份索引）。
 function resolveSecondarySearchAlignment(): SecondaryAlignment | null {
   if (!state.settings.bilingualSubtitles) {
     return null;
@@ -105,11 +101,7 @@ function resolveSecondarySearchAlignment(): SecondaryAlignment | null {
   if (!slot || slot.state !== "ready" || !Array.isArray(slot.body) || slot.body.length === 0) {
     return null;
   }
-  if (searchSecondaryBody !== slot.body || !searchSecondaryAlignment) {
-    searchSecondaryAlignment = buildSecondaryAlignment(slot.body);
-    searchSecondaryBody = slot.body;
-  }
-  return searchSecondaryAlignment;
+  return secondaryAlignmentFor(slot.body);
 }
 
 function computeMatches(needle: string): void {
