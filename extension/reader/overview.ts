@@ -1,22 +1,23 @@
-// PR4 概览 tab 门面（arch-review-batch3/02）：
-// 协调逻辑（相位机/并发闸门/wait ticker/去重）收在 reader/overview-coordinator.ts；
-// 呈现与交互（HTML 拼装/DOM 投影/点击分派）收在 reader/overview-ui.ts。
-// 本文件作为向后兼容聚合门面保留，维持现有对外导出契约。
+// 概览 tab 门面：协调器的生产装配点 + 既有对外导出契约的聚合出口。
+// 协调逻辑（相位机/并发闸门/wait ticker/去重）在 reader/overview-coordinator.ts（工厂）；
+// 呈现与交互（HTML 拼装/DOM 投影/点击分派）在 reader/overview-ui.ts。
+// 本文件注入生产依赖（state 读取、provider 解析、analysis 动态装载、confirm 弹窗）
+// 并导出单例的七件套窄接口，模块装载即完成 UI 动作注册。
 
-import * as self from "./overview.js";
+import { state } from "../core/state.js";
+import { resolveActiveProvider } from "../ai/active-provider.js";
+import { confirmDialog } from "../ui/confirm-dialog.js";
 import {
-  triggerReaderOverviewGeneration as coordinatorTrigger,
-  cancelReaderOverview as coordinatorCancel,
-  resetReaderOverviewState as coordinatorReset,
-  getReaderOverviewPhase as coordinatorGetPhase,
-  getReaderOverviewSnapshot as coordinatorGetSnapshot,
-  ensureReaderOverviewTab as coordinatorEnsureTab,
+  createOverviewCoordinator,
   type ReaderOverviewPhase,
   type ReaderOverviewSnapshot,
   type ReaderOverviewCoordinator
 } from "./overview-coordinator.js";
 
-import { renderReadingOverview as renderReadingOverviewUi } from "./overview-ui.js";
+import {
+  renderReadingOverview as renderReadingOverviewUi,
+  registerOverviewUiActions
+} from "./overview-ui.js";
 
 export type {
   ReaderOverviewPhase,
@@ -24,36 +25,28 @@ export type {
   ReaderOverviewCoordinator
 };
 
-export const triggerReaderOverviewGeneration = coordinatorTrigger;
-export const cancelReaderOverview = coordinatorCancel;
-export const resetReaderOverviewState = coordinatorReset;
-export const getReaderOverviewPhase = coordinatorGetPhase;
-export const getReaderOverviewSnapshot = coordinatorGetSnapshot;
-export const ensureReaderOverviewTab = coordinatorEnsureTab;
+const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator({
+  getClip: () => state.clip,
+  isReadingViewOpen: () => state.reader.readingViewOpen,
+  resolveProvider: () => resolveActiveProvider(),
+  loadAnalysis: () => import("../ai/analysis.js"),
+  confirm: (options) => confirmDialog(options),
+  registerUiActions: (actions) => registerOverviewUiActions(actions),
+  now: () => Date.now(),
+  // 计时器经箭头转发：调用点才解析全局 setInterval/clearInterval，
+  // 测试环境在模块装载后替换全局计时器（fake timers）也能生效。
+  setInterval: (...args) => setInterval(...args),
+  clearInterval: (...args) => clearInterval(...args)
+});
 
-export const overviewCoordinator: ReaderOverviewCoordinator = {
-  trigger(options) {
-    return self.triggerReaderOverviewGeneration(options);
-  },
-  cancel() {
-    self.cancelReaderOverview();
-  },
-  reset() {
-    self.resetReaderOverviewState();
-  },
-  getPhase() {
-    return self.getReaderOverviewPhase();
-  },
-  getSnapshot() {
-    return self.getReaderOverviewSnapshot();
-  },
-  render() {
-    self.renderReadingOverview();
-  },
-  ensureTab() {
-    self.ensureReaderOverviewTab();
-  }
-};
+export const triggerReaderOverviewGeneration = overviewCoordinator.trigger;
+export const cancelReaderOverview = overviewCoordinator.cancel;
+export const resetReaderOverviewState = overviewCoordinator.reset;
+export const getReaderOverviewPhase = overviewCoordinator.getPhase;
+export const getReaderOverviewSnapshot = overviewCoordinator.getSnapshot;
+export const ensureReaderOverviewTab = overviewCoordinator.ensureTab;
+
+export { overviewCoordinator };
 
 export {
   onReadingOverviewClick,
@@ -69,6 +62,6 @@ export function renderReadingOverview(snapshot?: ReaderOverviewSnapshot): void {
   if (snapshot) {
     renderReadingOverviewUi(snapshot);
   } else {
-    renderReadingOverviewUi(self.getReaderOverviewSnapshot());
+    renderReadingOverviewUi(getReaderOverviewSnapshot());
   }
 }

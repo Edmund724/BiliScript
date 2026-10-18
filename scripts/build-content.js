@@ -604,7 +604,10 @@ const DUAL_INSTANCE_ALLOWLIST = [
   { source: "bilibili/video-probe.ts", mutable: true },
   // 预抓取去重守卫：纯函数（只读 state.clip + extractBvid + location.href），
   // 两侧消费方（entry 预抓取 / reader 兜底抓取）各自一份实例，无可变状态。
-  { source: "subtitle/subtitle-in-hand.ts", mutable: false }
+  { source: "subtitle/subtitle-in-hand.ts", mutable: false },
+  // 字幕抓取起跑序列：纯函数（接收 refresh 回调与 policy 注入），
+  // 两侧消费方（entry message-handler / reader lifecycle 及 chat-tab）各自一份实例，无可变状态。
+  { source: "subtitle/kick-subtitle-fetch.ts", mutable: false }
 ];
 
 function readMapExtensionSources(mapFile) {
