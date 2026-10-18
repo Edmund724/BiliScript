@@ -230,6 +230,40 @@ export function normalizeBaseUrl(value: unknown): string {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
+// ===== 预设端点查表（multi-protocol-ai 的单源叶） =====
+
+// 预设级：预设在某协议下的端点——protocolBaseUrls 登记了差异化端点用登记值，
+// 否则回落预设 baseUrl（含同址多协议平台）。服务「预览选中协议」语义（编辑 Modal
+// 协议切换联动）；protocol 取值未知时查表落空，同样回落 baseUrl。protocol 形参
+// 收 unknown：记录级调用方（record.protocol 是 string）与 UI 调用方（AiProtocol）
+// 共用这一个实现，键类型宽到 Partial<Record<string, string>> 两侧都进得来。
+export function presetBaseUrlForProtocol(
+  preset: { baseUrl?: string; protocolBaseUrls?: Partial<Record<string, string>> } | null | undefined,
+  protocol: unknown
+): string {
+  const key = typeof protocol === "string" ? protocol : "";
+  return preset?.protocolBaseUrls?.[key] ?? preset?.baseUrl ?? "";
+}
+
+// 记录级：AI 记录的当前生效端点——记录自带 baseUrl（trim 后非空）优先；为空时
+// 按协议缺省链 record.protocol → preset.protocol → "openai" 查 presetBaseUrlForProtocol。
+// 消费方：DeepSeek 凭据引用的官方端点判定（search/deepseek-credential）等「记录
+// 当前实际指向哪」的判定，与编辑 Modal 的协议端点预览同源（对齐由同 import 保证）。
+export interface EffectivePresetRecordLike {
+  baseUrl?: unknown;
+  protocol?: unknown;
+}
+
+export function effectivePresetBaseUrl(
+  record: EffectivePresetRecordLike | null | undefined,
+  preset: { baseUrl?: string; protocol?: unknown; protocolBaseUrls?: Partial<Record<string, string>> } | null | undefined
+): string {
+  const own = String(record?.baseUrl || "").trim();
+  if (own) return own;
+  const protocol = typeof record?.protocol === "string" && record.protocol ? record.protocol : (preset?.protocol ?? "openai");
+  return presetBaseUrlForProtocol(preset, protocol);
+}
+
 // ASR 转写语言档位（全局设置 asrLanguage，auto / zh / en），auto 为默认，
 // 非法值回落 auto。zh/en 由适配器转为查询参数传给平台：SiliconFlow 辰星
 // （XingChen）系列模型只有传 ?language=english 才走英文转写，否则纯英文

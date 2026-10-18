@@ -11,8 +11,13 @@
 //   - 查询缓存消息族（spec §5 / §10 第 39 行）：search-cache 的发送者含
 //     content（选区解释卡），**不得**进来源名单（协议层
 //     OFFSCREEN_ONLY_MESSAGE_TYPES）；tab 来源的调用照常落到 SW 叶（本文件只钉
-//     来源守卫这一面，get/put 的键与回包形状见本文件末尾「撤回同意」一节的真实
-//     handler 往返用例）。
+//     来源守卫这一面，get/put 的键与回包形状见本文件「撤回同意」一节的删除入口
+//     真实 handler 往返用例）。
+//
+// 「撤回同意」主入口（关 pill，webSearchEnabled true→false → 清缓存）随
+// save-settings handler 工厂化搬入 core/save-settings-handler.ts：行为分支直测在
+// tests/core/save-settings-handler.test.ts，组合根接线断言在
+// tests/entry/background-search-handlers-wiring.test.ts——本文件不再重复往返。
 //
 // 守卫与回包口径本身的零 chrome 用例（含源码结构锁）住在
 // tests/core/message-router.test.ts——它们直接驱动 core/message-router 的
@@ -33,8 +38,7 @@ const TAB_SENDER = (id: number): MessageSender => ({ tab: { id }, url: "https://
 
 // storage.local 内存 fixture：查询缓存 handler 的落盘面要能读回（单键映射）。
 let localFixture: Record<string, unknown>;
-// storage.sync 内存 fixture：撤回判据「保存前的 webSearchEnabled 值」由此播种
-// （settings 快照读的旧值来源）。
+// storage.sync 内存 fixture：设置 / 平台存储的落盘面读回。
 let syncFixture: Record<string, unknown>;
 
 function readFixture(fixture: Record<string, unknown>, keys: unknown): Record<string, unknown> {
@@ -48,10 +52,10 @@ function readFixture(fixture: Record<string, unknown>, keys: unknown): Record<st
   return out;
 }
 
-async function importBackground(syncSeed: Record<string, unknown> = {}) {
+async function importBackground() {
   resetModuleState();
   localFixture = {};
-  syncFixture = { ...syncSeed };
+  syncFixture = {};
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
@@ -133,7 +137,8 @@ describe("撤回同意：清空查询缓存（spec §6.7 / §10 第 40 行）", 
   ) => unknown;
 
   // 先写一条缓存（走真实 search-cache handler → SW 叶 → 内存 storage），
-  // 撤回入口执行后必须整张清空。
+  // 撤回入口执行后必须整张清空。关 pill 主入口的 save-settings 往返已随工厂化
+  // 塌缩（见文件头注），此处保留删除平台记录的次入口整包证明。
   async function seedCacheEntry(listener: BackgroundListener, query: string): Promise<void> {
     const respond = vi.fn();
     listener(
@@ -159,20 +164,6 @@ describe("撤回同意：清空查询缓存（spec §6.7 / §10 第 40 行）", 
     );
   }
 
-  it("关 pill（保存前 true、payload 显式 false）→ 整张缓存清空、随后读未命中", async () => {
-    // 撤回判据收窄（spec §6.7）：只有「从 true 变 false」才是关 pill 的撤回，
-    // 旧值由 sync 里的 settings 播种。
-    const listener = await importBackground({ webSearchEnabled: true });
-    await seedCacheEntry(listener, "bilibili ai");
-
-    const saveResponse = vi.fn();
-    listener({ type: "save-settings", settings: { webSearchEnabled: false } }, TAB_SENDER(7), saveResponse);
-    await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ ok: true }));
-
-    expect(localFixture[SEARCH_CACHE_KEY]).toBeUndefined();
-    await expectCacheMiss(listener, "bilibili ai");
-  });
-
   it("删搜索平台记录（search-providers-delete）→ 整张缓存清空、随后读未命中", async () => {
     const listener = await importBackground();
     await seedCacheEntry(listener, "bilibili ai");
@@ -183,43 +174,6 @@ describe("撤回同意：清空查询缓存（spec §6.7 / §10 第 40 行）", 
 
     expect(localFixture[SEARCH_CACHE_KEY]).toBeUndefined();
     await expectCacheMiss(listener, "bilibili ai");
-  });
-
-  it("pill 已关（保存前 false）时整份 state.settings 落盘（payload 带 webSearchEnabled:false）→ 缓存不动、仍命中", async () => {
-    // content 侧整份 state.settings 落盘时 pill 恒 false：false→false 不是撤回。
-    const listener = await importBackground({ webSearchEnabled: false });
-    await seedCacheEntry(listener, "bilibili ai");
-
-    const saveResponse = vi.fn();
-    listener(
-      { type: "save-settings", settings: { webSearchEnabled: false, aiThinkingLevel: "high" } },
-      TAB_SENDER(7),
-      saveResponse
-    );
-    await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ ok: true }));
-
-    expect(localFixture[SEARCH_CACHE_KEY]).toBeTruthy();
-    const getResponse = vi.fn();
-    listener({ type: "search-cache", op: "get", query: "bilibili ai" }, TAB_SENDER(7), getResponse);
-    await vi.waitFor(() =>
-      expect(getResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true, hit: true }))
-    );
-  });
-
-  it("payload 不含 webSearchEnabled 键（pill 开着）→ 缓存不动、仍命中", async () => {
-    const listener = await importBackground({ webSearchEnabled: true });
-    await seedCacheEntry(listener, "bilibili ai");
-
-    const saveResponse = vi.fn();
-    listener({ type: "save-settings", settings: { aiThinkingLevel: "high" } }, TAB_SENDER(7), saveResponse);
-    await vi.waitFor(() => expect(saveResponse).toHaveBeenCalledWith({ ok: true }));
-
-    expect(localFixture[SEARCH_CACHE_KEY]).toBeTruthy();
-    const getResponse = vi.fn();
-    listener({ type: "search-cache", op: "get", query: "bilibili ai" }, TAB_SENDER(7), getResponse);
-    await vi.waitFor(() =>
-      expect(getResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true, hit: true }))
-    );
   });
 });
 

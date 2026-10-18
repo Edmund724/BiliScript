@@ -223,12 +223,12 @@ _Avoid_: 拆「智能（免费）/智能（含付费）」两个虚拟行（付�
 
 **凭据引用**:
 跨族读 Key 的唯一例外：搜索侧 DeepSeek 记录不设 Key 输入框，发请求时实时读 AI 族「第一条启用、`presetId` 为 `deepseek` 且通过「官方端点判定」的记录」的 Key（`aiProviderKeys`）。单一真源：AI 侧改 Key 搜索立即跟随，删掉该记录搜索侧自动降级为链中跳过；不提供搜索侧覆盖 Key（「只想用 DeepSeek 搜索」的用户在 AI 平台加一条记录即可）。方向单向（搜索读 AI，绝不回写）；三族存储（`aiProviderKeys` / `asrProviderKeys` / `searchProviderKeys`）隔离不变式的其余部分照旧。
-代码名：`resolveDeepseekCredential` / `resolveDeepseekSearchKey` / `DEEPSEEK_ROW_STATUS_TEXT`（判定与取 Key 的共享 helper 单点，extension/search/deepseek-credential.ts；链装配在 background 的 resolve-search-provider handler 消费，行状态文案由 settings-panel 经 `statusNote` 注入）
+代码名：`resolveDeepseekCredential` / `resolveDeepseekSearchKey` / `DEEPSEEK_ROW_STATUS_TEXT`（判定与取 Key 的共享 helper 单点，extension/search/deepseek-credential.ts；链装配在 search/resolve-search-provider-handler.ts 工厂消费，行状态文案由 settings-panel 经 `statusNote` 注入）
 _Avoid_: 把 Key 复制进 `searchProviderKeys`（双写腐化：AI 侧改/删后搜索侧那份静默过期）、搜索侧覆盖 Key 输入框
 
 **官方端点判定**:
-凭据引用的前置判据：AI 记录当前生效协议对应的 baseUrl 规范化（去尾斜杠、小写）后 host 严格等于 `api.deepseek.com`。中转 / 反代 / 克隆站一律不通过（这些端点多半不转发 `/v1/tools/search`，Key 有效也会 404）；不通过时搜索行显示「AI 平台 Key 指向非官方端点」、链中跳过——诚实失败，不静默 404。判定为共享 helper 单点，设置 UI 状态与搜索链消费同一处。
-代码名：`isOfficialDeepseekEndpoint` / `DEEPSEEK_OFFICIAL_HOST`（extension/search/deepseek-credential.ts，host 严格判等 + 仅 https）
+凭据引用的前置判据：AI 记录当前生效端点（规则单源在 core/presets.ts 的 `effectivePresetBaseUrl`：记录自有 baseUrl 优先，空值按协议缺省链 `record.protocol → preset.protocol → "openai"` 查 `presetBaseUrlForProtocol`）规范化（去尾斜杠、小写）后 host 严格等于 `api.deepseek.com`。中转 / 反代 / 克隆站一律不通过（这些端点多半不转发 `/v1/tools/search`，Key 有效也会 404）；不通过时搜索行显示「AI 平台 Key 指向非官方端点」、链中跳过——诚实失败，不静默 404。判定为共享 helper 单点，设置 UI 状态与搜索链消费同一处。
+代码名：`isOfficialDeepseekEndpoint` / `DEEPSEEK_OFFICIAL_HOST`（extension/search/deepseek-credential.ts，host 严格判等 + 仅 https）/ 生效端点叶 `effectivePresetBaseUrl` / `presetBaseUrlForProtocol`（extension/core/presets.ts，编辑 Modal 的协议端点预览同一份）
 _Avoid_: `includes("deepseek")` 子串匹配、跟随 AI 记录的自定义 baseUrl 发搜索请求
 
 **工具循环**:

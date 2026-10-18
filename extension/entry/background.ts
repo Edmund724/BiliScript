@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { DEFAULT_PLAYER_AI_QUICK_PROMPT } from "../core/default-prompts.js";
-import { PRESETS, ASR_PROVIDER_PRESETS, SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
+import { PRESETS, ASR_PROVIDER_PRESETS } from "../core/presets.js";
 import { normalizePlayerAiQuickPrompt } from "../core/validators.js";
 import { buildReaderModeUrl, isSupportedBilibiliPage } from "../bilibili/video-id-shared.js";
 import {
@@ -10,6 +10,7 @@ import {
   triggerReaderModeInTab
 } from "./content-orchestration-wiring.js";
 import { normalizeSettings, saveSettings } from "../core/settings-store.js";
+import { createSaveSettingsHandler } from "../core/save-settings-handler.js";
 // 设置快照（sw-settings-snapshot 票）：四个热路径读 handler 读设置/平台存储
 // 的唯一读路径（设置 UI 的 list/get CRUD 读维持直读 provider-store，不入快照）。
 // 读命中时热路径 storage 读为 0；失效双通道 = 写 handler 落盘后 inline
@@ -43,31 +44,16 @@ import { asrProviderStore } from "../asr/asr-provider-store.js";
 // 搜索平台存储（spec §3.3）：列表/Key 消息族与 AI/ASR 同契约
 import { searchProviderStore } from "../search/search-provider-store.js";
 import { deleteSearchProviderAndClearCache } from "../search/search-provider-deletion.js";
-// 搜索模式单源（spec §1 S6 / §12.1）：activeSearchProviderId 两义——记录 id = 单选、
-// 哨兵 / 空串 = 智能（链解析按模式产出独苗链或有序回退链）
-import { resolveSearchMode } from "../core/search-mode.js";
-// 回退链解析（spec §1 S1/S4/S6、§12.1–§12.3）：链 = 记录集合按 presetId 查预设表定类，
-// SW 是唯一知道 Key 的一侧（链解析回包一次带出有序候选 + 各自 Key）
-import { resolveSearchChain } from "../search/search-chain.js";
-// DeepSeek 凭据引用（GLOSSARY「凭据引用」「官方端点判定」）：搜索侧 DeepSeek 候选
-// 的 Key 实时读 AI 族（第一条启用 + presetId deepseek + 官方端点的记录），链装配
-// 时就绪；搜索读 AI、绝不回写。
-import { resolveDeepseekSearchKey } from "../search/deepseek-credential.js";
-// 查询缓存 SW 叶（spec §5）：宿主是 SW（offscreen 无 chrome.storage），offscreen
-// 工具循环与 content 侧解释卡都经 search-cache 消息族读写；归一单源在本叶。
-// 查询缓存撤回入口分工（spec §6.7 / §10 第 40 行）：
-//   1. 主入口（关 pill 撤回，webSearchEnabled true→false）：在 saveSettings 消息处理中直调 clearSearchCache；
-//   2. 次入口（删除搜索平台记录撤回）：收进 search/search-provider-deletion.ts 事务内串联（含 store 删除 + 顺序剔除 + 清缓存）。
-// 不给消息族加 clear op。
-import { clearSearchCache } from "../search/search-cache.js";
-// 引擎健康度 SW 叶（spec §12.4）：记账落 chrome.storage.local 单键
-// biliscript_search_health（引擎级 presetId），链解析期经快照读产冷却图。
-import { cooldownUntilByPresetId } from "../search/search-health.js";
-// 查询缓存族 / 引擎健康度族的 SW 端 handler 工厂（arch-review-2026-09/08）：handler
-// 本体按工厂形态住 search 域 module，本文件只登记与注入实例（形态同
-// ai/segment-cache-handler.ts；记账族的落盘后 inline 失效随工厂搬入）。
+// 查询缓存族 / 引擎健康度族 / 链装配解析的 SW 端 handler 工厂
+//（arch-review-2026-09/08）：handler 本体按工厂形态住 search 域 module，本文件只
+// 登记与注入实例（形态同 ai/segment-cache-handler.ts；记账族的落盘后 inline 失效
+// 随工厂搬入）。链装配编排（快照读 / 冷却图 / 模式 / 凭据引用 / 空链归因）住
+// resolve-search-provider-handler.ts；撤回判据与清缓存钩子住 search-opt-out.ts
+//（撤回是搜索域知识，spec §6.7 / §10 第 40 行的入口分工见该模块头注）。
 import { createSearchCacheHandler } from "../search/search-cache-handler.js";
 import { createSearchHealthHandler } from "../search/search-health-handler.js";
+import { createResolveSearchProviderHandler } from "../search/resolve-search-provider-handler.js";
+import { createSearchOptOutHook } from "../search/search-opt-out.js";
 // 平台请求代发（AI 探针 / 模型列表的传输层）：content script 的跨域 fetch 服从网页
 // CORS，不支持浏览器预检的平台（OPTIONS 无 Access-Control-Allow-*）只能报
 // 「Failed to fetch」——代发让探针与模型列表同源路径（core/provider-http.ts）。
@@ -107,7 +93,6 @@ import {
   type MessageReplyDecision,
   type MessageSender,
   type ProviderListEntry,
-  type ResolveSearchProviderResponse,
   type SearchProviderListEntry
 } from "../shared/messaging-protocol.js";
 
@@ -150,36 +135,14 @@ function handleGetSettings(_message: Msg<"get-settings">, _sender: MessageSender
   );
 }
 
-function handleSaveSettings(message: Msg<"save-settings">, _sender: MessageSender, sendResponse: Reply<"save-settings">): void {
-  withOkResponse(
-    (async () => {
-      // 显式取撤回判据（settings 是 unknown 线格式，落盘与失效各自照旧收口）
-      const payload = (message.settings || {}) as { webSearchEnabled?: unknown };
-      // 撤回同意的主入口（spec §6.7 / §10 第 40 行）：只有 webSearchEnabled
-      // **从 true 变 false** 才是「关 pill」的撤回——content 侧整份
-      // state.settings 落盘时 pill 恒 false，按 payload === false 判会把与撤回
-      // 无关的保存误判成撤回。判据取**保存前**的快照值（判定用保存前的值，
-      // 失效顺序维持既有形态）；payload 不带该键、false→false、true→true 都不清。
-      const searchOptOut =
-        payload.webSearchEnabled === false && (await getSettingsSnapshot()).webSearchEnabled;
-      // 写入口自带失效：payload 键全集按键域映射失效（白名单外键自然落空）；
-      // onChanged 不在写入方上下文触发，这里是写后读的唯一保证。
-      await saveSettingsWithInvalidate(message.settings || {});
-      if (searchOptOut) {
-        // 缓存里存着 query 哈希与结果，撤回后本地继续留着说不通；清空失败静默
-        // （logWarn 同既有形态），不因缓存清理失败阻断设置保存的回包。
-        // 此处为撤回的主入口（关 pill 撤回）；平台删除撤回的次入口收进 search/search-provider-deletion.ts。
-        try {
-          await clearSearchCache();
-        } catch (error) {
-          logWarn("[BILISCRIPT] search cache clear on opt-out failed", error);
-        }
-      }
-      return { ok: true };
-    })(),
-    sendResponse
-  );
-}
+// save-settings 处理器（core/save-settings-handler.ts 工厂）：写入口（落盘 + 失效）
+// → 撤回判定 → 撤回钩子的编排收进 core 域；撤回判据与清缓存钩子住 search 域
+//（search-opt-out.ts，撤回是搜索域知识，spec §6.7 / §10 第 40 行），此处一行装配。
+const handleSaveSettings = createSaveSettingsHandler({
+  saveSettingsWithInvalidate,
+  getSettingsSnapshot,
+  onSearchOptOut: createSearchOptOutHook({ logWarn })
+});
 
 // script-only-ui：侧边栏设置面板（content script）保存时的 host 权限代申请。
 // content script 无 chrome.permissions API，用户手势经本次 runtime 消息传导到
@@ -382,66 +345,19 @@ function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSende
 
 // ===== 联网搜索消息处理 =====
 
-// 联网搜索运行时解析（spec §1 S4/S6、§3 落点表第 11 行、§12.1–§12.3、§12.5 第 10 行）：
-// offscreen 文档无 chrome.storage，工具循环的搜索配置（**有序候选链 + 各自 Key** +
-// 单轮上限）经本消息单趟往返。链成员是记录，成员资格由记录的 presetId 查预设表得出；
-// 模式由 activeSearchProviderId 判定（记录 id = 单选独苗链 / 哨兵或空串 = 智能回退链），
-// 智能链序 = searchProviderOrder 归一序 > 内置默认序，冷却中的引擎（健康度图里
-// cooldownUntil > now 的 presetId）跳过；付费候选（access === "paid"）另受
-// allowPaidSearchProviders 门控（只挡智能链；Key 经凭据引用取 AI 族，见
-// deepseek-credential 叶）；无任何合格记录时 chain 缺省
-// ——调用方 notice 后走原无工具路径，不算错误（搜索是增强，缺失不阻塞对话）。
-// **空链归因**（spec §12.7 第 6 条，2026-10-01 翻案）：空链有因不分——「真的没有
-// 合格记录」与「合格记录全在冷却中」不是一回事，后者回 `chainEmptyReason:"cooldown"`
-// 供调用方出专属文案（不再误报「未配置搜索平台」）。
-function handleResolveSearchProvider(_message: Msg<"resolve-search-provider">, _sender: MessageSender, sendResponse: Reply<"resolve-search-provider">): void {
-  withOkResponse(
-    // 返回类型显式收到本条消息的响应类型：三个分支的载荷（含 chainEmptyReason
-    // 的字面量档）在这一行逐字对账（不写死类型则 "cooldown" 会被推宽成 string）。
-    (async (): Promise<ResolveSearchProviderResponse> => {
-      // settings 标量 + 搜索平台列表 + Key + 用户顺序一次快照读取（命中时零 storage 调用）
-      const settings = await getSettingsSnapshot();
-      const { providers, keys } = await getProviderStoreSnapshot("search");
-      // AI 族快照：DeepSeek 付费候选的 Key 经凭据引用取这里（官方端点判定单点在
-      // deepseek-credential 叶，AI 记录 / Key 变更经快照失效面联动清 search 缓存）。
-      const { providers: aiProviders, keys: aiKeys } = await getProviderStoreSnapshot("ai");
-      const order = await getSearchProviderOrder();
-      const activeId = settings.activeSearchProviderId;
-      // 冷却图（spec §12.4 第 6 条）：健康度快照 → 只含 cooldownUntil > now 的项；
-      // 只有智能链消费它（单选不拦但账照记）。now 注入纯函数，与快照同一次取时。
-      const now = Date.now();
-      const cooldownUntil = cooldownUntilByPresetId(await getSearchHealth(), now);
-      const mode = resolveSearchMode(activeId);
-      const resolved = resolveSearchChain(providers, keys, activeId, SEARCH_PROVIDER_PRESETS, {
-        mode,
-        order,
-        cooldownUntil,
-        now,
-        // 付费平台准入（GLOSSARY「付费平台」）：开关只影响智能链；DeepSeek 候选的
-        // Key 经凭据引用从 AI 族解析（无合格记录 / 非官方端点 / 无 Key = 空串跳过）。
-        allowPaid: settings.allowPaidSearchProviders === true,
-        paidKeys: {
-          deepseek: resolveDeepseekSearchKey(aiProviders, aiKeys)
-        }
-      });
-      if (resolved.chain.length === 0) {
-        // 判空因随链一趟给出（票 16 C3，不再同参重跑）：链空且确有合格候选在冷却处
-        // 被剔 → 冷却专属归因；否则真的没有合格记录。单选不消费冷却，故单选空链
-        // 在此必为「未配置」口径（§12.4 第 5 条 / §12.7 第 6 条）。
-        return resolved.emptyCause === "cooldown"
-          ? { ok: true, chainEmptyReason: "cooldown" }
-          : { ok: true };
-      }
-      return {
-        ok: true,
-        chain: resolved.chain,
-        maxToolCalls: settings.webSearchMaxToolCalls
-      };
-    })(),
-    sendResponse,
-    (error) => (error as Error | undefined)?.message || String(error)
-  );
-}
+// 联网搜索运行时解析（spec §1 S4/S6、§3 落点表第 11 行）：offscreen 文档无
+// chrome.storage，工具循环的搜索配置（**有序候选链 + 各自 Key** + 单轮上限）经本
+// 消息单趟往返。链装配编排整体住 search/resolve-search-provider-handler.ts 工厂
+//（快照读 / 冷却图 / 模式 / 凭据引用 / 空链归因都是搜索域知识），本处只注入读取
+// primitive 并登记工厂实例（形态同下方的 search-cache / search-health 两族）。
+const handleResolveSearchProvider = createResolveSearchProviderHandler({
+  getSettings: getSettingsSnapshot,
+  getSearchStore: () => getProviderStoreSnapshot("search"),
+  getAiStore: () => getProviderStoreSnapshot("ai"),
+  getOrder: getSearchProviderOrder,
+  getHealth: getSearchHealth,
+  now: () => Date.now()
+});
 
 // 查询缓存消息族 / 引擎健康度记账消息族的 SW 端 handler（spec §5 / §3 落点表第 13 行、
 // §12.4 第 7–8 条 / §12.5 第 11 行）：两族 handler 本体已按工厂形态搬入 search 域

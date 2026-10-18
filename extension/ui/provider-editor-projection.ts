@@ -16,16 +16,23 @@
 // 每族字段的在场性由族声明的能力位决定（usesProtocol / modelSource），与模板
 // 布局判据同源：非 AI 族不投影协议与限制点小字，非目录族不投影目录空态。
 //
-// 协议/预设的投影口径也收在这里（协议词表收敛 / 预设协议默认 / 协议端点 /
-// 限制点文案）：它们既是模板与联动的共用口径，也是本模块 project 的输入。
+// 协议/预设的投影口径也收在这里（协议词表收敛 / 预设协议默认 / 限制点文案）；
+// 协议端点查表是 multi-protocol-ai 的共享叶，单源在 core/presets.ts，本模块只
+// re-export（上方）保持调用方路径不变：它们既是模板与联动的共用口径，也是本模块
+// project 的输入。
 
 import { escapeHtml } from "../shared/string-utils.js";
+import { presetBaseUrlForProtocol } from "../core/presets.js";
 import { PROTOCOL_ADAPTERS, PROTOCOL_OPTIONS, resolveAdapter, type AiProtocol } from "../ai/protocol-adapter.js";
 import { buildModelPickerField } from "./model-picker.js";
 import { setCustomSelectValue } from "./custom-select.js";
 import { PROVIDER_FAMILY_ROWS, type FamilyEditorDeclaration } from "./provider-family.js";
 import { getDialog, state, type EditorDraftView, type ProviderEditorKind } from "./provider-editor-state.js";
 import type { ProviderRowPreset } from "./provider-row.js";
+
+// 协议端点查表的单源在 core/presets.ts（multi-protocol-ai 叶）；此处原样 re-export，
+// 调用方（Modal / 获取模型弹窗 / 目录片）路径不变。
+export { presetBaseUrlForProtocol };
 
 // ===== 协议/预设投影口径 =====
 
@@ -40,12 +47,6 @@ export function normalizeProtocolValue(value: unknown): AiProtocol {
 // OpenAI compatible；逐平台多协议归属实测后由 preset 词表显式填写）。
 export function presetProtocol(preset: ProviderRowPreset | null): AiProtocol {
   return normalizeProtocolValue(preset?.protocol);
-}
-
-// 预设在某协议下的端点：protocolBaseUrls 登记了差异化端点（multi-protocol-ai，
-// preset-protocol-audit 表）用登记值，否则回落预设 baseUrl（同址多协议平台）。
-export function presetBaseUrlForProtocol(preset: ProviderRowPreset | null, protocol: AiProtocol): string {
-  return preset?.protocolBaseUrls?.[protocol] ?? preset?.baseUrl ?? "";
 }
 
 // 限制点文案（capabilities.unsupported 的说明串）：表单底部小字，仅非空时

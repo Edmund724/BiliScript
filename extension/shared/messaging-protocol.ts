@@ -81,7 +81,7 @@ export type GetSettingsResponse = {
   error?: string;
 };
 export type SaveSettingsMessage = { type: "save-settings"; settings?: unknown };
-// 响应锚点：entry/background.ts handleSaveSettings——落盘成功仅 { ok: true }。
+// 响应锚点：core/save-settings-handler.ts 工厂产物 handleSaveSettings——落盘成功仅 { ok: true }。
 export type SaveSettingsResponse = { ok: boolean; error?: string };
 // script-only-ui：content script 语境没有 chrome.permissions API（仅扩展自有
 // 页面/SW 可用），侧边栏设置面板保存时的 host 权限申请改走此消息由 SW 代为
@@ -372,7 +372,7 @@ export type SearchChainCandidate = {
   apiKey: string;
 };
 
-// 响应锚点：entry/background.ts handleResolveSearchProvider。
+// 响应锚点：search/resolve-search-provider-handler.ts 工厂产物 handleResolveSearchProvider。
 export type ResolveSearchProviderResponse = {
   ok: boolean;
   // 有序候选：每项自带 provider 身份（含 presetId，供引擎级健康度记账）与它的 Key。
