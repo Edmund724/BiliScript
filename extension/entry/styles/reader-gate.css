@@ -41,7 +41,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   right: 16px;
   bottom: 16px;
   height: min(76vh, 860px);
-  border-radius: 14px;
+  border-radius: 16px;
   box-shadow: var(--biliscript-reader-shadow);
   background: var(--biliscript-reader-surface, #fff);
   pointer-events: auto;

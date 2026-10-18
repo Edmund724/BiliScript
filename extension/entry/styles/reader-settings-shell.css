@@ -43,7 +43,7 @@
   grid-column: 1;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-radius: 14px;
+  border-radius: 16px;
   border: 1px solid var(--biliscript-reader-border);
   /* 半透明材质：overlay token（gate 段两主题定义）+ blur/saturate 毛玻璃，
    * 与 reader header 同款（reduced-transparency 见文件尾降级块） */
@@ -208,7 +208,7 @@
   height: 32px;
   padding: 0 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -237,7 +237,7 @@
   height: 32px;
   padding: 0 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -260,7 +260,7 @@
   min-height: 66px;
   padding: 8px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;

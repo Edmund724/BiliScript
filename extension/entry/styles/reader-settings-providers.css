@@ -39,7 +39,7 @@
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  border-radius: 14px;
+  border-radius: 16px;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);
@@ -551,7 +551,7 @@
   flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
-  border-radius: 14px;
+  border-radius: 16px;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);

@@ -16,9 +16,9 @@
   box-sizing: border-box;
   background: var(--biliscript-reader-surface, #fff);
   border: 1px solid var(--biliscript-reader-border, #e5e7eb);
-  /* 面板族圆角 14、阴影吃 --biliscript-reader-shadow（reader-gate.css 四色板各一份）：
+  /* 面板族圆角 16、阴影吃 --biliscript-reader-shadow（reader-gate.css 四色板各一份）：
    * 与设置抽屉/编辑 Modal/解释卡同档，深色下不再是浅色硬编码投影。 */
-  border-radius: 14px;
+  border-radius: 16px;
   box-shadow: var(--biliscript-reader-shadow);
   font-family: var(--biliscript-reader-font-sans);
   /* 容器查询宿主（size-aware-styling 指南）：面板内容排版按视图实际宽度分档
@@ -249,7 +249,7 @@
   /* content-box 下 width:100% + 1px 边框两侧各溢 1px，贴栏态固定定位的
    * 溢出会顶出页面级横向滚动条（Modal 出现前的既有 2px 残留，一并收口） */
   box-sizing: border-box;
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: var(--biliscript-reader-shadow);
@@ -389,7 +389,7 @@
   padding: 26px 20px;
   background: var(--biliscript-reader-card);
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 14px;
+  border-radius: 16px;
   text-align: center;
 }
 
@@ -497,7 +497,7 @@
   align-items: start;
   border: 0;
   background: transparent;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px 12px;
   text-align: left;
   color: var(--biliscript-reader-text, #111827);
@@ -604,7 +604,7 @@
  * 用户决议整条删除）的专属规则已随控件一并摘去，不再留空壳。 */
 
 #biliscript-reading-view .biliscript-reading-panel {
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 14px 16px;
   pointer-events: auto;
   background: var(--biliscript-reader-surface);
@@ -636,21 +636,19 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 活动行 = 整颗白卡实心胶囊（03 号票目标参考图）：行容器切 inline-flex、宽度
- * 收为内容宽（max-width 100% 兜底长句折行），胶囊同时包住时间戳与文字，右缘
- * 随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。圆角 16px 与
- * 章节/金句卡（reader-gate.css 同值）同档——凸起卡语言，不用 999px 全胶囊形。
- * 胶囊底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动
- * 跟随），软投影与 tab.is-active 同款做凸起感（深色档投影换黑）。
- * 胶囊内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/
- * accent 母题），padding 1px 7px 随内容收紧、圆角 8px 与小控件（复制钮/选项行）
- * 同档——不留定宽列，左右不空；正文深色加粗 600、min-width:0 允许在长句时
- * 收进 max-width 内折行。 */
+/* 活动行 = 整颗白卡实心胶囊：行容器切 inline-flex、宽度收为内容宽（max-width 100% 兜底长句折行），
+ * 胶囊同时包住时间戳与文字，右缘随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。
+ * 圆角 999px 全胶囊形，与 tab 选中 pill 同构。
+ * 胶囊底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动跟随），
+ * 软投影与 tab.is-active 同款做凸起感（深色档投影换黑）。
+ * 胶囊内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/accent 母题），
+ * padding 1px 7px 随内容收紧、圆角 999px 全胶囊形——不留定宽列，左右不空；
+ * 正文深色加粗 600、min-width:0 允许在长句时收进 max-width 内折行。 */
 #biliscript-reading-view .biliscript-reading-item.is-active {
   display: inline-flex;
   width: auto;
   max-width: 100%;
-  border-radius: 16px;
+  border-radius: 999px;
   background: var(--biliscript-reader-card);
   box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
@@ -661,7 +659,7 @@
 
 #biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
   padding: 1px 7px;
-  border-radius: 8px;
+  border-radius: 999px;
   color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
   background: var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft));
 }
@@ -723,7 +721,7 @@
   align-items: center;
   gap: 6px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 5px 10px;
   background: var(--biliscript-reader-card);
 }
@@ -786,7 +784,7 @@
   flex: 0 0 auto;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-card);
-  border-radius: 10px;
+  border-radius: 999px;
   padding: 6px 12px;
   font-family: inherit;
   font-size: 14.5px;
@@ -826,7 +824,7 @@
   flex: 0 0 auto;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-highlight);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 12px 14px;
   margin-bottom: 10px;
 }
@@ -850,7 +848,7 @@
 .biliscript-reading-asr-track {
   height: 4px;
   background: var(--biliscript-reader-track);
-  border-radius: 99px;
+  border-radius: 999px;
   overflow: hidden;
 }
 
@@ -858,7 +856,7 @@
   height: 100%;
   width: 38%;
   background: var(--biliscript-reader-accent);
-  border-radius: 99px;
+  border-radius: 999px;
   animation: biliscript-asr-pulse 1.6s ease-in-out infinite alternate;
 }
 
@@ -987,7 +985,7 @@
 .biliscript-reading-explain-card-mask {
   position: absolute;
   inset: 0;
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--biliscript-reader-mask-bg);
 }
 
@@ -1001,7 +999,7 @@
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--biliscript-reader-card);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
 }
@@ -1197,7 +1195,7 @@
   border: 1px solid var(--biliscript-reader-border);
   border-left: 3px solid var(--biliscript-reader-accent);
   background: var(--biliscript-reader-card);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 10px 12px;
   margin-bottom: 8px;
 }
@@ -1308,7 +1306,7 @@
   align-items: start;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: 10px;
+  border-radius: 16px;
   padding: 9px 10px;
   margin-bottom: 8px;
   text-align: left;
@@ -1374,7 +1372,7 @@
   color: var(--biliscript-reader-faint);
 }
 
-/* 金句卡（暖底淡卡）：surface-2 底 + 10px 圆角分组，无边框、无左侧 accent
+/* 金句卡（暖底淡卡）：surface-2 底 + 16px 圆角分组，无边框、无左侧 accent
  * 边条；右上角 ::after 完整衬线引号水印；正文伪元素包「」直角引号、底行左侧
  * 播放三角 + 时间戳 pill（跳播）+ 右侧复制图标钮——「」+ 播放键 + 水印是与
  * 章节卡拉开区分的出版物书摘特征。色值走 token，四色板自动跟随。 */
@@ -1385,7 +1383,7 @@
   display: block;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: 10px;
+  border-radius: 16px;
   padding: 10px 12px 8px;
   margin-bottom: 8px;
   text-align: left;
@@ -1515,7 +1513,7 @@
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 9px 12px;
   margin-bottom: 12px;
 }
@@ -1544,7 +1542,7 @@
 .biliscript-reading-ov-track {
   height: 4px;
   background: var(--biliscript-reader-track, rgba(0, 0, 0, 0.06));
-  border-radius: 99px;
+  border-radius: 999px;
   overflow: hidden;
   margin-bottom: 14px;
 }
@@ -1553,7 +1551,7 @@
   height: 100%;
   width: 38%;
   background: var(--biliscript-reader-accent);
-  border-radius: 99px;
+  border-radius: 999px;
   animation: biliscript-asr-pulse 1.6s ease-in-out infinite alternate;
 }
 
@@ -1598,7 +1596,7 @@
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(320px, calc(100% - 48px));
-  border-radius: 14px;
+  border-radius: 16px;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);
