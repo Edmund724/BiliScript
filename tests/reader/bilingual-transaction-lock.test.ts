@@ -66,14 +66,18 @@ function filesCalling(token: string): string[] {
 
 describe("双语副轨结构锁（写手 / 通知 / 渲染）", () => {
   it("副轨 body 的唯一写手 = 接受事务（别处写槽即破产）", () => {
-    // state.ts 是声明 + 实现（原语的唯一属主），唯一的**调用点**必须落在事务里。
+    // state.ts 是声明 + 实现（原语的唯一属主），原语 clipState.applySecondarySubtitle 的唯一调用点收敛在 slot.ts。
     const callers = filesCalling("clipState\\.applySecondarySubtitle");
-    expect(callers).toEqual(["extension/subtitle/commit.ts"]);
+    expect(callers).toEqual(["extension/subtitle/slot.ts"]);
 
     const allMentioning = sourceFiles()
       .filter((file) => stripComments(read(file)).includes("applySecondarySubtitle"))
       .map((file) => file.replace(/\\/g, "/"));
-    expect(allMentioning.sort()).toEqual(["extension/core/state.ts", "extension/subtitle/commit.ts"]);
+    expect(allMentioning.sort()).toEqual(["extension/core/state.ts", "extension/subtitle/slot.ts"]);
+
+    // slot.installSecondary 动词的唯一调用点锁定在 commit.ts 事务
+    const installSecondaryCallers = filesCalling("slot\\.installSecondary");
+    expect(installSecondaryCallers).toEqual(["extension/subtitle/commit.ts"]);
   });
 
   it("新通知 kind 单点发射 + 单点接收（第二处即双副作用/漏重渲）", () => {

@@ -12,6 +12,7 @@ import {
   buildSrt,
   buildTxt
 } from "../notes/render.js";
+import { slot } from "./slot.js";
 import type { State } from "../core/state.js";
 
 export interface ReadingSubtitleItem {
@@ -195,13 +196,17 @@ export function findActiveChapterIndex(currentTime: number): number {
 
 export function rebuildDerivedContent(): void {
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
+  if (!body.length) {
+    slot.invalidateDerived();
+    return;
+  }
   // 双语态（07 号票）：三份导出都要出副行，而配对口径的唯一实现是 subtitle/alignment。
   // 这里把「读 state 的投影」绑成纯函数传进 notes 渲染层——notes 叶子因此零 state 依赖，
   // 渲染函数仍可单测；双语关时 resolver 为 undefined，单轨输出逐字节不变。
   const secondaryFor = createSecondaryLineResolver();
-  clipState.setMarkdown(body.length ? buildMarkdown(state as State, body, state.settings, secondaryFor) : "");
-  clipState.setSrt(body.length ? buildSrt(body, secondaryFor) : "");
-  clipState.setTxt(body.length ? buildTxt(body, state.settings, secondaryFor) : "");
+  clipState.setMarkdown(buildMarkdown(state as State, body, state.settings, secondaryFor));
+  clipState.setSrt(buildSrt(body, secondaryFor));
+  clipState.setTxt(buildTxt(body, state.settings, secondaryFor));
 }
 
 // ===== 派生内容懒生成（opt-backlog-2026-09/04）=====
@@ -280,6 +285,9 @@ function isDerivedContentCacheValid(): boolean {
     return false;
   }
   const clip = state.clip;
+  if (Array.isArray(clip.subtitleBody) && clip.subtitleBody.length > 0 && (!clip.markdown || !clip.srt || !clip.txt)) {
+    return false;
+  }
   if (
     cached.body !== clip.subtitleBody ||
     cached.secondaryBody !== clip.secondarySubtitle.body ||

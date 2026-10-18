@@ -17,6 +17,7 @@ import {
   rebuildDerivedContent,
   refreshHotComments
 } from "../../extension/subtitle/core.js";
+import { slot } from "../../extension/subtitle/slot.js";
 import { getAsrFailureNotice } from "../../extension/core/asr-failure-notice.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
 
@@ -344,6 +345,39 @@ describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
   it("空字幕体：三份均为空串", () => {
     state.clip.setSubtitleBody([]);
     ensureDerivedContent();
+    expect(state.clip.markdown).toBe("");
+    expect(state.clip.srt).toBe("");
+    expect(state.clip.txt).toBe("");
+  });
+
+  it("派生三件套经 slot.invalidateDerived 清空且 body 存在时，缓存判为失效并重新生成", () => {
+    state.clip.setSubtitleBody(BODY);
+    ensureDerivedContent();
+    expect(state.clip.markdown).not.toBe("");
+    expect(state.clip.srt).not.toBe("");
+    expect(state.clip.txt).not.toBe("");
+
+    slot.invalidateDerived();
+    expect(state.clip.markdown).toBe("");
+    expect(state.clip.srt).toBe("");
+    expect(state.clip.txt).toBe("");
+
+    const setMarkdownSpy = vi.spyOn(clipState, "setMarkdown");
+    ensureDerivedContent();
+    expect(setMarkdownSpy).toHaveBeenCalledTimes(1);
+    expect(state.clip.markdown).not.toBe("");
+    expect(state.clip.srt).not.toBe("");
+    expect(state.clip.txt).not.toBe("");
+    setMarkdownSpy.mockRestore();
+  });
+
+  it("rebuildDerivedContent 空字幕体时调用 slot.invalidateDerived 清空三件套", () => {
+    state.clip.setMarkdown("md");
+    state.clip.setSrt("srt");
+    state.clip.setTxt("txt");
+    state.clip.setSubtitleBody([]);
+
+    rebuildDerivedContent();
     expect(state.clip.markdown).toBe("");
     expect(state.clip.srt).toBe("");
     expect(state.clip.txt).toBe("");

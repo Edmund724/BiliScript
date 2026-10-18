@@ -36,6 +36,7 @@ import type { SubtitleTrack } from "../bilibili/gateway.js";
 // 取体深 module（GLOSSARY.md「字幕」的正文）：两条装载链共用的唯一取体实现，
 // 出口（接受事务）由下方两个装载器注入。
 import { loadTrackBody } from "./body.js";
+import { slot } from "./slot.js";
 
 // ASR 域（pipeline + fallback 及其专属依赖 audio-source/offscreen-bridge.page）
 // 经动态 import 按需加载（候选4 分包）：只有视频无 CC 字幕时才需要语音转写。
@@ -144,25 +145,11 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   clipState.setAuthor("");
   clipState.setUploadDate("");
   clipState.setSubtitles([]);
-  clipState.setSelectedSubtitleId("");
-  clipState.setSelectedSubtitleUrl("");
-  clipState.setSelectedSubtitleLang("");
-  clipState.setSubtitleBody([]);
-  // 副轨槽与 clip 同生命周期：换视频（含错误路径的 keepFetchState 清场）一并复位——
-  // 双语的目标语言是全局偏好（不清），但"本视频已装好的那份副轨 body"必须清
-  //（05 号票 Q4；无字幕出口的逆事务 commitNoSubtitle **不**清副轨槽）。
-  clipState.clearSecondarySubtitle();
-  if (!keepFetchState) {
-    clipState.setSubtitleFetchState("idle");
-  }
-  clipState.setNoSubtitleReason(null);
-  // 详情与原因同生命周期：切视频不继承上一个视频的失败报文明细
-  clipState.setNoSubtitleDetail("");
+  // 副轨槽与主轨槽同生命周期：换视频（含错误路径的 keepFetchState 清场）经 slot 动词一并复位
+  slot.clearAllForVideoSwitch({ keepFetchState });
   clipState.setChapters([]);
   clipState.setHotComments([]);
-  clipState.setMarkdown("");
-  clipState.setSrt("");
-  clipState.setTxt("");
+  slot.invalidateDerived();
   clipState.setCurrentClipSignature(computeCurrentClipSignature());
   notifyReaderPresenter({ kind: "reset" });
   state.reader.setActiveSubtitleIndex(-1);
@@ -523,7 +510,7 @@ export async function loadSecondarySubtitle(
   // 乐观写「目标 + loading」早于任何 await（02 号票 Q3：副轨的「选中」=「目标」）：
   // 副列的选中态与列表的「译文加载中…」占位立刻反映用户的选择，网络结果只改
   // state/body，**失败也不回退目标**（与主轨 Q14 相反，理由见 02 号票裁定）。
-  clipState.markSecondarySubtitleLoading({ id: subtitleId ? String(subtitleId) : "", url });
+  slot.markSecondaryLoading({ id: subtitleId ? String(subtitleId) : "", url });
   if (isReaderViewOpen()) {
     notifyReaderPresenter({ kind: "rerender" });
   }
@@ -556,7 +543,7 @@ export async function loadSecondarySubtitle(
     // 让位（STALE_RUN）不写 error：那是"更新的 run 已接手"，把旧 run 的失败写进
     // 新视频的副轨槽正是 runId 纪律要防的那类串体。
     if (!isStaleRunError(error)) {
-      clipState.markSecondarySubtitleError();
+      slot.markSecondaryError();
       if (isReaderViewOpen()) {
         notifyReaderPresenter({ kind: "rerender" });
       }
