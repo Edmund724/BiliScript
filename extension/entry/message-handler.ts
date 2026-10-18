@@ -28,8 +28,7 @@ import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 // reader 侧轻符号直接从 reader 状态微模块 import
 //（isReaderViewOpen=纯 state 读、enforceNormalPageStateIfNeeded=DOM 守卫、
 // renderReadingStatus=状态栏文案写入），不拖入 reader 重文件；阅读壳经
-// lazy-shell 按需装载。本文件不再装载 reader 动态域：预抓取的两个叶子事实
-//（在手/在飞守卫、元数据等待）已出装配根，改为静态 import（见下）。
+// lazy-shell 按需装载。本文件不再装载 reader 动态域。
 // 阅读壳（工单 arch-slim/02）：reading-view 四个消息分支与 URL 跳转编排的
 // 进入/退出事务统一委托 reader/shell.ts（enterReaderShell / exitReaderShell /
 // enterReaderShellOnUrlNavigation），八步无闪变时序不再有本文件的手抄。
@@ -40,13 +39,12 @@ import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 // 装载（reader-enter 本来就要装载 reader 域，shell 随行净增≈0）。
 import { ensureReaderShell } from "../reader/lazy-shell.js";
 import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/state.js";
-// 预抓取的两个叶子事实（ADR-0017 修订：出装配根）：去重守卫与元数据等待只读
-// state.clip / extractBvid / location.href 与视频探针，与 reader 动态域零耦合。
-import { isSubtitleInHandOrInFlight } from "../subtitle/subtitle-in-hand.js";
-import { waitForVideoMetadata } from "../bilibili/video-probe.js";
-// 字幕预抓取经 reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链
-// 装载成功路径上；本文件不静态依赖 fetcher，也不碰 reader 重域）。
+// 预抓取与 URL 换片刷新共用 subtitle/kick-subtitle-fetch 的起跑序列
+//（在手/在飞守卫 → 等元数据 → 装链 → 刷新）；本文件注入出口：两者都经
+// reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链装载成功路径上；
+// 本文件不静态依赖 fetcher，也不碰 reader 重域）。
 import { requestSubtitleRefresh } from "../reader/reader-bus.js";
+import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 // 候选03 常驻瘦身：renderReadingStatus 已惰性化。错误路径的浮空播报走
 // announceReadingStatus（吞错口径见 lazy-reader-presentation 内注）。
 import { announceReadingStatus, renderReadingStatus } from "../reader/lazy-reader-presentation.js";
@@ -180,35 +178,26 @@ export function dispatchContentScriptMessage(rawMessage: unknown, sendResponse: 
 // ===== 字幕预抓取（支持页载入即起跑 + SPA 换片起跑）=====
 //
 // 抓取起跑点前移到页面载入与 URL 变化：面板打开 / reader 模式换片 / 发消息时
-// 字幕通常已在手。时序与面板侧兜底抓取（reader/lifecycle 的
-// maybeRefreshReaderSubtitleInBackground）同构：等视频元数据 → 装载总结链 →
-// 经 reader-bus seam 请 fetcher 刷新（refreshClip 事务），因此没有第二条抓取
-// 实现。字幕列表请求兼作可用性探测：无字幕的视频只多一次列表请求，不触发 ASR。
+// 字幕通常已在手。起跑序列本体在 subtitle/kick-subtitle-fetch（等视频元数据 →
+// 装载总结链 → 经 reader-bus seam 请 fetcher 刷新，refreshClip 事务），本处只
+// 注入出口，因此没有第二条抓取实现。字幕列表请求兼作可用性探测：无字幕的
+// 视频只多一次列表请求，不触发 ASR。
 //
 // 去重守卫 isSubtitleInHandOrInFlight 是 subtitle/subtitle-in-hand 叶子单源：
 // 字幕在手或在飞都不起跑（在飞即已有抓取在路上，打开面板触发的那条据此让位，
 // 不并发双抓）。预抓取是后台兜底，失败静默——只在链外漏网异常记日志，不写状态栏。
 
 async function ensureSubtitlePrefetch(): Promise<void> {
-  if (isSubtitleInHandOrInFlight()) {
-    return;
-  }
-  // 时长未知时字幕轨无法按时长对齐，等元数据（150ms 轮询 / 5 秒上限，与面板
-  // 侧同一份等待，bilibili/video-probe 叶子单源）。
-  await waitForVideoMetadata();
-  // 装载失败与面板侧兜底同口径：静默记日志，不进错误状态栏。
-  try {
-    await ensureSummarizeChain();
-  } catch (error) {
-    logWarn("[BILISCRIPT] subtitle prefetch (summarize chain load) failed", { error });
-  }
-  try {
-    await requestSubtitleRefresh();
-  } catch (error) {
-    if (!isStaleRunError(error)) {
-      logWarn("[BILISCRIPT] subtitle prefetch failed", { error });
-    }
-  }
+  await kickSubtitleFetch(() => requestSubtitleRefresh(), {
+    skipIfInHandOrInFlight: true,
+    awaitVideoMetadata: true,
+    // 装载失败与面板侧兜底同口径：静默记日志，不进错误状态栏；照旧发起刷新
+    //（seam 无 handler 时空转）。
+    onChainLoadFailed: (error) =>
+      logWarn("[BILISCRIPT] subtitle prefetch (summarize chain load) failed", { error }),
+    continueAfterChainLoadFailed: true,
+    onRefreshFailed: (error) => logWarn("[BILISCRIPT] subtitle prefetch failed", { error })
+  });
 }
 
 // 预抓取的 fire-and-forget 入口（content 载入、URL 变化两处调用）：调用方不等它；
@@ -217,6 +206,14 @@ export function startSubtitlePrefetch(): void {
   void ensureSubtitlePrefetch().catch((error) => {
     logWarn("[BILISCRIPT] subtitle prefetch failed", error);
   });
+}
+
+// URL 换片自动刷新的失败出口（链装载与刷新失败共用）：播报文案，stale（代次
+// 让位）静默。
+function reportAutoRefreshFailure(error: unknown): void {
+  if (!isStaleRunError(error)) {
+    announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
+  }
 }
 
 // URL 变化编排：core/url-watcher.js 只负责给 history 打补丁并广播
@@ -286,20 +283,15 @@ export function bindUrlChangeHandler() {
       } catch {
         // 播报失败静默
       }
-      // waitForVideoMetadata 的失败在原链上没有 catch 收口（静默、不写状态栏），
-      // 保持同型：浮空执行、不进外层错误口径；refreshClip 属总结链层，经
-      // ensureSummarizeChain 装载后刷新，失败写状态栏（代次让位静默）。
-      (async () => {
-        await waitForVideoMetadata();
-        try {
-          const chain = await ensureSummarizeChain();
-          await chain.refreshClip();
-        } catch (error) {
-          if (!isStaleRunError(error)) {
-            announceReadingStatus(`自动刷新失败：${getErrorMessage(error)}`);
-          }
-        }
-      })();
+      // waitForVideoMetadata 的失败口径保持同型：浮空执行、不进外层错误口径、
+      // 不写状态栏（该等待永不拒绝）；refreshClip 属总结链层，经
+      // kick-subtitle-fetch 装链后直调（本路径无 seam 约束），失败播报（代次
+      // 让位静默）。整条浮空：换片事务只等播报落定，不等抓取落定。
+      void kickSubtitleFetch((chain) => chain.refreshClip(), {
+        awaitVideoMetadata: true,
+        onChainLoadFailed: reportAutoRefreshFailure,
+        onRefreshFailed: reportAutoRefreshFailure
+      });
     },
     // 普通页换片（切视频 / 切 P）：字幕由预抓取接力起跑（面板上没有可点的
     //「刷新抓取」按钮，本档不写这类引导）。守卫的先决是「clip 身份 = 当前

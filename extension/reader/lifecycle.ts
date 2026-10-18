@@ -18,7 +18,7 @@ import { getReaderElement } from "../shared/dom-utils.js";
 // 候选02：updateReaderPreferences/renderReaderPanels 自 presentation.js 移回
 //（script-only-ui：排版档位机制退役，validators 只剩主题归一化）。
 import { normalizeReaderTheme } from "../core/validators.js";
-import { getErrorMessage, isStaleRunError } from "../shared/error-helpers.js";
+import { getErrorMessage } from "../shared/error-helpers.js";
 import {
   getReadingSubtitleItems,
   getReadingSubtitlePlaceholderText
@@ -28,9 +28,6 @@ import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter } from "./reader-bus.js";
 import type { ReaderPresenterEvent } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
-// 候选02 分层惰性：链未装载 ⇒ refreshClip 未注册进 reader-bus seam。懒装载
-// 触达自 seam 移到调用方（arch-slim-2/03），见 maybeRefreshReaderSubtitleInBackground。
-import { ensureSummarizeChain } from "../subtitle/lazy.js";
 // 副轨（双语第二路轨）的目标解析与装载事务：四个装载入口（本处自动装载、弹层开关
 // 打开 / 跨上下文收敛、副列改选、副列重试）的唯一落点，判定与在飞登记都在那里。
 import { ensureSecondarySubtitleLoaded } from "./secondary-subtitle.js";
@@ -166,44 +163,29 @@ import {
   updateReaderFollowState
 } from "./sync.js";
 
-// 「本视频字幕在手或在飞」判定与「等视频元数据」都已是叶子事实（与 reader 动态域
-// 零实质耦合），出装配根到 subtitle/subtitle-in-hand 与 bilibili/video-probe：
-// 页面预抓取静态 import 它们，普通视频页不再为此装载 reader chunk（ADR-0017 修订）。
-import { isSubtitleInHandOrInFlight } from "../subtitle/subtitle-in-hand.js";
-import { waitForVideoMetadata } from "../bilibili/video-probe.js";
+// 字幕抓取起跑序列（在手/在飞判定 → 等元数据 → 装链 → 刷新）收进
+// subtitle/kick-subtitle-fetch 单源；本域只注入失败出口与收尾：经 reader-bus seam
+// 转发刷新（reader → fetcher 依赖反转边，seam 只传话，handler 由链装载注册），
+// 装载失败仅 logWarn 且照旧发起刷新（seam 无 handler 时空转），刷新失败写状态栏
+//（stale 代次让位静默），两种落定都走 reconcile 对账收尾。
+import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 
 async function maybeRefreshReaderSubtitleInBackground() {
-  if (isSubtitleInHandOrInFlight()) {
-    return;
-  }
-  await waitForVideoMetadata();
-  // 元数据等待（最长 5 秒）期间字幕可能已被别处落账（页面载入的字幕预抓取、
-  // 对话侧发送前的主动抓取、上一轮抓取落定）——落账后再起一轮只是白刷一次
-  //（refreshClip 内部固定 forceRefresh 走网络重取），期间状态行停在
-  //「正在获取可用字幕...」而字幕 tab 里已经是本视频字幕（用户报障「有字幕却
-  // 显示在抓取」）。已在手或在飞都不再触发，但照旧对账重渲——subtitle-ready
-  // 通知可能丢，列表需要按当前 state 投影一次（本函数末尾那条 reconcile 的
-  // 同一收尾）。
-  if (isSubtitleInHandOrInFlight()) {
-    reconcileReaderAfterSubtitleFetch();
-    return;
-  }
-  // arch-slim-2/03：ensureSummarizeChain 触达自 reader-bus seam 移到本调用方
-  // （seam 恢复「只传话」）。装载失败保持原 seam 内的静默口径（仅 logWarn，
-  // 不进错误状态栏）；refresh 本身的失败仍走下方既有 catch。
-  try {
-    await ensureSummarizeChain();
-  } catch (error) {
-    logWarn("[BILISCRIPT] subtitle refresh (summarize chain load) failed", { error });
-  }
-  try {
-    await requestSubtitleRefresh();
-  } catch (error) {
-    if (!isStaleRunError(error)) {
-      renderReadingStatus(`字幕加载失败：${getErrorMessage(error)}`);
-    }
-  }
-  reconcileReaderAfterSubtitleFetch();
+  // 后判定（等元数据期间字幕可能已被别处落账，再起一轮只是白刷一次——
+  // refreshClip 固定 forceRefresh 走网络重取，状态行停在「正在获取可用字幕...」
+  // 而列表已是本视频字幕）命中时照旧对账重渲：subtitle-ready 通知可能丢，
+  // 列表需要按当前 state 投影一次。
+  await kickSubtitleFetch(() => requestSubtitleRefresh(), {
+    skipIfInHandOrInFlight: true,
+    awaitVideoMetadata: true,
+    recheckAfterVideoMetadata: true,
+    onChainLoadFailed: (error) =>
+      logWarn("[BILISCRIPT] subtitle refresh (summarize chain load) failed", { error }),
+    continueAfterChainLoadFailed: true,
+    onRefreshFailed: (error) => renderReadingStatus(`字幕加载失败：${getErrorMessage(error)}`),
+    onInHandOrInFlight: reconcileReaderAfterSubtitleFetch,
+    afterRefreshSettled: reconcileReaderAfterSubtitleFetch
+  });
 }
 
 export interface ReaderSubtitleReadyOptions {
@@ -399,7 +381,8 @@ function openReaderViewShell(readingView = getReaderElement(ids.readingView)) {
 // syncReaderModeAfterMount / settleReaderModePresentation 已随整页接管退役
 //（B 形态）：播放器挂载/布局/呈现稳定链不再由阅读模式驱动，同步的
 // 启动收敛到 subtitle-ready 通知路径（handleReaderPresenterNotification）。
-//（waitForVideoMetadata 已出装配根到 bilibili/video-probe，见文件上部注。）
+//（waitForVideoMetadata 已出装配根到 bilibili/video-probe 叶子，由
+// subtitle/kick-subtitle-fetch 的起跑序列消费。）
 
 export function closeReadingView() {
   // 视图关闭走状态机迁移（exiting→closed 常规收尾；open→closed 兜底直关；

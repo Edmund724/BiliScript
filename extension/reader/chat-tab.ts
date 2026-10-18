@@ -131,9 +131,10 @@ import { requestSubtitleRefresh, requestUiCommand, subscribeReaderPresenter } fr
 // 标签激活属主（工单：标签激活收口 reader 域）：快捷动作的「定位对话 tab + 激活」
 // 经它执行，不再各写一半（收口前 = set-tab:chat 壳命令 + 显式 ensureChatTabActivated 双写）。
 import { activateScriptTab } from "./script-tab-activation.js";
-// 发送前主动起跑抓取的装载边（与 reader/lifecycle 同一条链：先 ensure 再经
-// reader-bus 发刷新请求）。本模块是动态 chunk，静态 import 本叶子不拖常驻图。
-import { ensureSummarizeChain } from "../subtitle/lazy.js";
+// 发送前主动起跑抓取的装载边（先 ensure 总结链再经 reader-bus 发刷新请求——
+// 次序本体在 subtitle/kick-subtitle-fetch）。本模块是动态 chunk，静态 import
+// 本叶子不拖常驻图。
+import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 import { logWarn } from "../shared/logging.js";
 // 对话分区表模块顶兜底挂载（arch-slim-4/07，settings-panel.ts 顶挂载同款先例）：
 // 主点在 ui-renderer setReaderScriptTab 的 chat 分支（盖住现役三入口），此处盖
@@ -1123,21 +1124,20 @@ async function startNewConversation(): Promise<void> {
 // GLOSSARY.md 词条「发送闸」），在 createChatTabDomain 内组装；本文件经 sendGate
 // 实例持有。
 
-// 主动起跑字幕抓取的动作本体（finding 有字幕视频点 AI 键发出空上下文：等待闸
-// 只认 loading，idle 窗口会放行空字幕上下文，须由发送路径补发起跑方）：与
-// reader/lifecycle 同一次序——先确保总结链装载（refreshClip 注册进
-// reader-bus seam），再发刷新请求。refreshClip 的同步前缀即写 loading（首个
-// await 之前），因此等待闸不会抢在起跑前放行。返回 false 只在总结链装载失败
+// 主动起跑字幕抓取（finding 有字幕视频点 AI 键发出空上下文：等待闸只认 loading，
+// idle 窗口会放行空字幕上下文，须由发送路径补发起跑方）：动作本体在
+// subtitle/kick-subtitle-fetch——先确保总结链装载（refreshClip 注册进
+// reader-bus seam）再发刷新请求。refreshClip 的同步前缀即写 loading（首个
+// await 之前），因此等待闸不会抢在起跑前放行。refresh 有意不 await（浮空，
+// 失败全吞）——业务上只需 loading 同步前缀；返回 false 只在总结链装载失败
 //（抓取没能起跑）时，调用方按上下文读取失败拦截。
 async function startSubtitleFetch(): Promise<boolean> {
-  try {
-    await ensureSummarizeChain();
-    requestSubtitleRefresh().catch(() => {});
-  } catch (error) {
-    logWarn("[BILISCRIPT] subtitle fetch start failed", { error });
-    return false;
-  }
-  return true;
+  return kickSubtitleFetch(() => requestSubtitleRefresh(), {
+    onChainLoadFailed: (error) => logWarn("[BILISCRIPT] subtitle fetch start failed", { error }),
+    awaitRefresh: false,
+    // 浮空 refresh 的失败原链上即 .catch(() => {}) 全吞，保持同口径。
+    onRefreshFailed: () => {}
+  });
 }
 
 
