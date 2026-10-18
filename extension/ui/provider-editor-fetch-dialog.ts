@@ -15,6 +15,7 @@ import { escapeHtml } from "../shared/string-utils.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { normalizeDraftModels, captureSession, runIfCurrent, state } from "./provider-editor-state.js";
+import { normalizeProtocolValue, presetBaseUrlForProtocol } from "./provider-editor-projection.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { addModelRow, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
 
@@ -182,19 +183,28 @@ export async function openFetchDialog(): Promise<void> {
     return;
   }
   showCatalogError("");
+  // 模型探测是 OpenAI 兼容的 GET ${baseUrl}/v1/models；anthropic 协议的 baseUrl
+  // 指向 Messages 端点（无 /v1/models，实测 404），故 baseUrl 仍是预设登记的
+  // anthropic 端点（用户未手改）时探测地址跟随到预设的 OpenAI 端点。
+  const presetAnthropicBaseUrl = presetBaseUrlForProtocol(preset, "anthropic");
+  const presetOpenaiBaseUrl = presetBaseUrlForProtocol(preset, "openai");
+  const probeBaseUrl =
+    normalizeProtocolValue(draft.protocol) === "anthropic" && preset && baseUrl === presetAnthropicBaseUrl && presetOpenaiBaseUrl
+      ? presetOpenaiBaseUrl
+      : baseUrl;
   renderFetchSkeleton();
   // 会话结算（owner 2）：权限回执落定时 Modal 已关/已重开或弹窗已关即丢弃，
   // 不再触发注定过期的模型请求。
   const session = captureSession(() => getFetchDialog() !== null);
   await session.run(
-    () => requestProviderOriginsViaBackground([baseUrl]),
+    () => requestProviderOriginsViaBackground([...new Set([baseUrl, probeBaseUrl])]),
     {
       ok: (permission) => {
         if (!permission.ok) {
           renderFetchError(permission.error || "未取得该平台域名权限，无法拉取模型列表");
           return;
         }
-        void loadFetchModels(baseUrl, apiKey, draft.protocol);
+        void loadFetchModels(probeBaseUrl, apiKey, draft.protocol);
       }
     }
   );

@@ -1321,6 +1321,31 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     expect(sent.some((message) => message.type === "ai-providers-save")).toBe(false);
   });
 
+  it("Anthropic 协议预设（DeepSeek）：探测地址跟随预设的 OpenAI 端点（/anthropic 无 /v1/models）", async () => {
+    const { sent, host } = await mountPanel({
+      "ai-providers-models": () => ({ ok: true, models: ["deepseek-chat", "deepseek-reasoner"] })
+    });
+    const { dialog } = await openEditor(host, "#addAiProviderBtn");
+    const presetSelect = dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!;
+    presetSelect.value = "deepseek";
+    presetSelect.dispatchEvent(new Event("change"));
+    // 预设默认 Anthropic：baseUrl 联动为登记的 Messages 端点
+    expect(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!.value).toBe("https://api.deepseek.com/anthropic");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
+
+    fireClick(dialog.querySelector(".provider-editor-fetch"));
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
+    });
+    // 模型探测走 OpenAI 兼容端点；权限申请同时覆盖两个端点
+    expect(sent.find((message) => message.type === "ai-providers-models")!.baseUrl).toBe("https://api.deepseek.com/v1");
+    expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual([
+      "https://api.deepseek.com/anthropic",
+      "https://api.deepseek.com/v1"
+    ]);
+  });
+
   it("已在目录中的模型置灰标注「已添加」，不可勾选", async () => {
     const aiItem = { id: "p1", presetId: "custom", name: "自定义", baseUrl: "https://token.sensenova.cn/v1", models: ["gpt-4o-mini"], requiresKey: true, enabled: true, hasSavedKey: true };
     const { host } = await mountPanel({
