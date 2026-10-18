@@ -438,6 +438,54 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
 // 直调 renderReadingView + syncReadingViewPlayback，与「接受事务的 subtitle-ready
 // 通知」构成双渲染。08 的处理器把这条纪律重新实现，本 describe 重新钉住——
 // reader-gate 在本文件被 mock，故「直调渲染」= whenReaderReady 被调用。
+// 换轨进场动画（2026-10 用户决议）：只有「用户主动换轨」后的整表重建播一次
+// 进场（容器挂 is-track-switching，CSS 侧复用 tab 体同款关键帧）；初始加载与
+// 常规重投影不播。标记的置位在 subtitle-tab-ui 的两个 change 处理器，消费在
+// lifecycle 的列表投影（reader/track-switch-animation.ts）。
+describe("换轨进场动画：主动换轨才播，播一次", () => {
+  it("真实点击换轨 → 字幕就绪的整表重建给列表容器挂 is-track-switching；其后的常规重渲染不挂", async () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    // 开视图：subtitle-ready 通知的渲染分支只对开着的视图出场
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    const list = document.getElementById(ids.readingSubtitleList) as HTMLElement;
+    // 初始渲染（非换轨）不播
+    expect(list.classList.contains("is-track-switching")).toBe(false);
+
+    selectViaList("English");
+
+    await vi.waitFor(() => {
+      expect(state.clip.subtitleBody).toEqual(EN_BODY);
+    });
+    expect(listText()).toContain("英语轨正文");
+    expect(list.classList.contains("is-track-switching")).toBe(true);
+
+    // 标记已被消费（一次性）：动画结束摘类后（jsdom 不触发 animationend，
+    // 手动摘类模拟），常规重渲染不再挂类
+    list.classList.remove("is-track-switching");
+    shell.renderReadingView();
+    expect(list.classList.contains("is-track-switching")).toBe(false);
+
+    shell.stopReadingViewSync();
+  });
+
+  it("装载失败：标记被清偿，之后的整表重建不播（残标不得留到无关重建）", async () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    const list = document.getElementById(ids.readingSubtitleList) as HTMLElement;
+    vi.mocked(lazyModule.ensureSummarizeChain).mockRejectedValueOnce(new Error("网络失败"));
+
+    selectViaList("English");
+    await vi.waitFor(() => {
+      expect(triggerText()).toBe("中文"); // 失败回退落定 = finally 清偿已执行
+    });
+
+    shell.renderReadingView();
+    expect(list.classList.contains("is-track-switching")).toBe(false);
+  });
+});
+
 describe("切轨只装载，不直调渲染（2f974c5 防回焊锁的对应物）", () => {
   it("change 处理器：chain.loadSubtitle(url, lang, runId, id) 恰一次，参数正确，且不触碰渲染通道", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");

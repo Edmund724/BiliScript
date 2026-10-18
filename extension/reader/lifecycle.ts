@@ -81,6 +81,8 @@ import {
   setReadingSubtitleBatchHook,
   startReadingSubtitleAppendTask
 } from "./batched-render.js";
+// 换轨进场动画的标记消费（用户主动换轨才播一次，口径见该模块头注）。
+import { playTrackSwitchAnimationIfMarked } from "./track-switch-animation.js";
 // PR3 字幕 tab：句内搜索（批次回执 hook + 重渲重放 + 关闭清理）、转写中间态
 // 横幅（相位订阅 + 渲染尾部收敛）、待解释意图契约（选区解释卡片「去对话追问」
 // 写入、对话 tab 消费；会话收尾清除）。
@@ -512,6 +514,9 @@ function projectReadingSubtitleList(): void {
       });
     }
   }
+  // 换轨进场：只在「用户主动换轨」标记在场时播一次（常规重投影不播）；
+  // 标记的置位与清偿归发起方（subtitle-tab-ui），口径见 track-switch-animation.ts。
+  playTrackSwitchAnimationIfMarked(subtitleList);
 }
 
 // 阅读视图一次渲染的投影登记表：次序与身份在这里声明，renderReadingView 按表驱动。

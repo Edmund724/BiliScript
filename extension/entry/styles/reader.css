@@ -152,6 +152,11 @@
   .biliscript-reading-tab-body.is-active {
     animation: none;
   }
+
+  /* 换轨进场动画同样关停（与 tab 体进场同族） */
+  .biliscript-reading-subtitle.is-track-switching {
+    animation: none;
+  }
 }
 
 /* 图标键母题（header 三键：主题/设置/退出；标签行对话工具键：历史对话/开启
@@ -381,6 +386,14 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 换轨进场：用户主动换轨（主列选轨 / 副列改选）后的列表整表重建播一次，
+ * 复用 tab 体同款关键帧与 spring 令牌（2026-10 用户决议）。触发类由
+ * reader/lifecycle 的列表投影按 reader/track-switch-animation.ts 的标记
+ * 挂摘——初始加载、抓取对账等常规重投影不带此类，不播。 */
+.biliscript-reading-subtitle.is-track-switching {
+  animation: biliscript-tab-body-in 0.3s var(--biliscript-reader-ease-spring, ease);
 }
 
 /* 概览 / AI 对话 tab 的诚实占位卡（PR4/PR5 落地前不假装可用） */
