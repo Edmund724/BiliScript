@@ -372,16 +372,16 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   pointer-events: none;
 }
 
-/* 分段控件：胶囊形（999px 圆角），槽体透明、与雾底融为一体，只有选中项
- * 浮起白玻璃 pill + accent 字——凹槽底与 accent 实底胶囊不在本套语言里。
- * 深色档按「阴影置零」纪律把 pill 投影换成暗投影一档。 */
+/* 分段控件：槽体透明、与雾底融为一体，只有选中项浮起白玻璃卡 + accent 字——
+ * 凹槽底与 accent 实底不在本套语言里。圆角不在此覆写，沿用基表槽/项同档
+ * 12px，与 tab 内容卡、字幕活动卡、章节/金句卡同一半径语言。
+ * 深色档按「阴影置零」纪律把选中卡投影换成暗投影一档。 */
 #biliscript-reading-view .biliscript-reading-tabs {
   background: transparent;
   box-shadow: none;
-  border-radius: 999px;
-  /* 紧凑胶囊：tab 不三等分拉伸（flex:1 会让选中 pill 撑满整段），改为
-   * 内容宽居中聚合——选中胶囊只包住文字；横向 padding 40px
-   * 保证每个胶囊的可点击范围 */
+  /* 紧凑排布：tab 不三等分拉伸（flex:1 会让选中卡撑满整段），改为
+   * 内容宽居中聚合——选中卡只包住文字；横向 padding 40px
+   * 保证每个选项的可点击范围 */
   justify-content: center;
   gap: 24px;
   padding: 4px 10px;
@@ -396,12 +396,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 }
 
 #biliscript-reading-view .biliscript-reading-tab {
-  border-radius: 999px;
   padding: 8px 40px;
 }
 
-/* 胶囊尺寸随面板宽度降档（#biliscript-reading-view 是 inline-size 容器）：
- * 40px padding 三胶囊 + 间隙约需 410px，窄面板不降档会折行/溢出。 */
+/* 选中卡尺寸随面板宽度降档（#biliscript-reading-view 是 inline-size 容器）：
+ * 40px padding 三枚选项 + 间隙约需 410px，窄面板不降档会折行/溢出。 */
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-tabs {
     gap: 16px;

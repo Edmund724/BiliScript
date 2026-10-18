@@ -228,7 +228,7 @@
 
 /* ===== 统一 文摘面板（PR2）：右侧面板壳 + 三标签 =====
  * 视口定位（fixed 右侧、全高卡片）在 reader-gate.css 门控段；这里只定义
- * 面板内部结构：header → tabs（凹槽 + 卡片分段控件，12px 槽 / 8px 项）→
+ * 面板内部结构：header → tabs（凹槽 + 卡片分段控件，槽与项同档 12px 圆角）→
  * tab-body。色值全部走
  * --biliscript-reader-* 主题 token（gate 段两主题定义），暗色主题自动跟随。 */
 .biliscript-reading-script-panel {
@@ -308,7 +308,8 @@
   display: none;
 }
 
-/* 分段控件母题：凹槽（12px 圆角）+ 卡片项（8px 圆角，同心 = 12 − 4px 内边距）。 */
+/* 分段控件母题：凹槽与卡片项同档 12px 圆角，与 tab 内容卡 / 字幕活动卡 /
+ * 章节 / 金句卡同一半径语言（gate 段不再覆写为胶囊）。 */
 .biliscript-reading-tabs {
   flex: 1;
   min-width: 0;
@@ -325,7 +326,7 @@
   background: none;
   cursor: pointer;
   padding: 7px 0;
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 15px;
   font-weight: 600;
   font-family: inherit;
@@ -651,8 +652,9 @@
 
 /* 活动行 = 整颗白卡：行容器切 inline-flex、宽度收为内容宽（max-width 100% 兜底长句折行），
  * 白卡同时包住时间戳与文字，右缘随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。
- * 圆角 12px，与 tab 槽 / tab 内容卡 / 搜索框同档——999px 全胶囊在长句折行时半径钳到半高，
- * 会把首尾行左缘文字裁进弧线里（显示不全），故不再与 tab 选中 pill 同构。
+ * 圆角 12px，与分段控件槽/项、tab 内容卡、章节/金句卡同一半径语言
+ *（多行内容卡不能用 999px 胶囊：折行后半径钳到半高，首尾行左缘文字会被
+ * 裁进弧线里）。
  * 白卡底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动跟随），
  * 软投影与 tab.is-active 同款做凸起感（深色档投影换黑）。
  * 卡内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/accent 母题），
