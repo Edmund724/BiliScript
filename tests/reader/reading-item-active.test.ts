@@ -8,11 +8,12 @@
 //      flyme 柔和中蓝 #2e6fc2、editorial 深赤陶 #9C4527——accent 亮蓝 #008cff
 //      在浅色底上 3.4:1 不达 4.5 门），不做整行高亮；hover 选择器同样带
 //      :not(.is-active)，(1,4,0) 压减噪 (1,3,0)。
-//   3. 活动行 = 整颗白卡实心胶囊：行容器切 inline-flex、宽度收为内容宽
-//     （max-width 100% 兜底折行）、圆角 999px 全胶囊形（与 tab 选中 pill 同构），
-//      胶囊同时包住时间戳与文字；底色消费
+//   3. 活动行 = 整颗白卡：行容器切 inline-flex、宽度收为内容宽
+//     （max-width 100% 兜底折行）、圆角 12px（与 tab 槽 / tab 内容卡 / 搜索框
+//      同档——999px 全胶囊在长句折行时半径钳到半高，会把首尾行左缘文字裁进
+//      弧线里，故不再与 tab 选中 pill 同构），白卡同时包住时间戳与文字；底色消费
 //      --biliscript-reader-card 白卡令牌（色板/深色档自动跟随），软投影与
-//      tab.is-active 同款（深色档投影换黑）。胶囊内时间戳保持浅底小胶囊
+//      tab.is-active 同款（深色档投影换黑）。卡内时间戳保持浅底小胶囊
 //     （time-bg + time-color，深色档回退 accent-soft/accent 母题），padding
 //      1px 7px 随内容收紧、圆角 999px 全胶囊形——不留定宽列、左右不空；
 //      正文深色加粗 600。is-active 规则书写在 :hover 之后。
@@ -46,7 +47,7 @@ function declaration(block: string, prop: string): string | undefined {
   return block.match(new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+);`))?.[1].trim();
 }
 
-describe("字幕活动行：整颗白卡实心胶囊、时间戳减噪", () => {
+describe("字幕活动行：整颗白卡、时间戳减噪", () => {
   it("活动行不再有下划线：任何活动行规则块都不带 text-decoration", () => {
     expect(readCss()).not.toMatch(/\.biliscript-reading-item\.is-active[^{]*\{[^}]*text-decoration/);
   });
@@ -59,14 +60,14 @@ describe("字幕活动行：整颗白卡实心胶囊、时间戳减噪", () => {
     expect(ruleBody(readCss(), "\\.biliscript-reading-text")).not.toMatch(/text-decoration/);
   });
 
-  it("活动行胶囊在行容器：inline-flex 内容宽 + 999px 全胶囊圆角 + card 白卡底 + tab 同款凸起投影", () => {
+  it("活动行白卡在行容器：inline-flex 内容宽 + 12px 圆角 + card 白卡底 + tab 同款凸起投影", () => {
     const css = readCss();
     const block = ruleBody(css, "#biliscript-reading-view \\.biliscript-reading-item\\.is-active");
 
     expect(declaration(block, "display")).toBe("inline-flex");
     expect(declaration(block, "width")).toBe("auto");
     expect(declaration(block, "max-width")).toBe("100%");
-    expect(declaration(block, "border-radius")).toBe("999px");
+    expect(declaration(block, "border-radius")).toBe("12px");
     expect(declaration(block, "background")).toBe("var(--biliscript-reader-card)");
     expect(declaration(block, "box-shadow")).toBe(
       "0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9)"
@@ -80,7 +81,7 @@ describe("字幕活动行：整颗白卡实心胶囊、时间戳减噪", () => {
     expect(declaration(darkBlock, "box-shadow")).toBe("0 1px 4px rgba(0, 0, 0, 0.35)");
   });
 
-  it("活动行文字在胶囊内：深色加粗、可收进 max-width 折行，不自带底色", () => {
+  it("活动行文字在白卡内：深色加粗、可收进 max-width 折行，不自带底色", () => {
     const block = ruleBody(
       readCss(),
       "#biliscript-reading-view \\.biliscript-reading-item\\.is-active \\.biliscript-reading-text"

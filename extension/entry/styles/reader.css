@@ -649,19 +649,20 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 活动行 = 整颗白卡实心胶囊：行容器切 inline-flex、宽度收为内容宽（max-width 100% 兜底长句折行），
- * 胶囊同时包住时间戳与文字，右缘随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。
- * 圆角 999px 全胶囊形，与 tab 选中 pill 同构。
- * 胶囊底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动跟随），
+/* 活动行 = 整颗白卡：行容器切 inline-flex、宽度收为内容宽（max-width 100% 兜底长句折行），
+ * 白卡同时包住时间戳与文字，右缘随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。
+ * 圆角 12px，与 tab 槽 / tab 内容卡 / 搜索框同档——999px 全胶囊在长句折行时半径钳到半高，
+ * 会把首尾行左缘文字裁进弧线里（显示不全），故不再与 tab 选中 pill 同构。
+ * 白卡底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动跟随），
  * 软投影与 tab.is-active 同款做凸起感（深色档投影换黑）。
- * 胶囊内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/accent 母题），
+ * 卡内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/accent 母题），
  * padding 1px 7px 随内容收紧、圆角 999px 全胶囊形——不留定宽列，左右不空；
  * 正文深色加粗 600、min-width:0 允许在长句时收进 max-width 内折行。 */
 #biliscript-reading-view .biliscript-reading-item.is-active {
   display: inline-flex;
   width: auto;
   max-width: 100%;
-  border-radius: 999px;
+  border-radius: 12px;
   background: var(--biliscript-reader-card);
   box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
@@ -1319,7 +1320,7 @@
   align-items: start;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 9px 10px;
   margin-bottom: 8px;
   text-align: left;
@@ -1385,7 +1386,7 @@
   color: var(--biliscript-reader-faint);
 }
 
-/* 金句卡（暖底淡卡）：surface-2 底 + 16px 圆角分组，无边框、无左侧 accent
+/* 金句卡（暖底淡卡）：surface-2 底 + 12px 圆角分组（与 tab 槽 / 章节卡同档），无边框、无左侧 accent
  * 边条；右上角 ::after 完整衬线引号水印；正文伪元素包「」直角引号、底行左侧
  * 播放三角 + 时间戳 pill（跳播）+ 右侧复制图标钮——「」+ 播放键 + 水印是与
  * 章节卡拉开区分的出版物书摘特征。色值走 token，四色板自动跟随。 */
@@ -1396,7 +1397,7 @@
   display: block;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: 16px;
+  border-radius: 12px;
   padding: 10px 12px 8px;
   margin-bottom: 8px;
   text-align: left;
