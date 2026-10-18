@@ -186,24 +186,11 @@ export type AiProvidersDeleteResponse = {
   providers?: ProviderListEntry[];
   error?: string;
 };
-export type AiProvidersModelsMessage = {
-  type: "ai-providers-models";
-  baseUrl?: string;
-  apiKey?: string;
-  providerId?: string;
-  // 平台协议（multi-protocol-ai）：gemini 时探针走 /v1beta/models + x-goog-api-key
-  protocol?: string;
-};
-// 响应锚点：ai/provider-models.ts handleAiProvidersModels（AiProvidersModelsResult，arch-slim-2/09 自 core/ai-provider-store.ts 搬入）。
-export type AiProvidersModelsResponse = {
-  ok: boolean;
-  models?: string[];
-  error?: string;
-};
-// 平台请求代发（AI 探针的传输层）：content script 的跨域 fetch 服从**网页**
+// 平台请求代发（AI 探针 / 模型列表的传输层）：content script 的跨域 fetch 服从**网页**
 // CORS——平台网关不支持浏览器预检时（OPTIONS 无 Access-Control-Allow-*），带
-// Authorization 的请求一律以 Failed to fetch 失败，而模型列表能跑通只是因为它
-// 由 SW 发出（SW fetch 只受 host 权限约束）。探针请求经本通道同样交给 SW。
+// 鉴权头的请求一律以 Failed to fetch 失败（SW fetch 只受 host 权限约束）。两链的
+// 请求构造都在 content 侧单源（completion 链 / 各 adapter 的 listModels），经本通道
+// 交给 SW 代发。
 export type ProviderHttpMessage = {
   type: "provider-http";
   url?: string;
@@ -491,7 +478,6 @@ export type BackgroundMessage =
   | GetAiProviderKeyMessage
   | AiProvidersSaveMessage
   | AiProvidersDeleteMessage
-  | AiProvidersModelsMessage
   | ProviderHttpMessage
   | ResolveAiProviderMessage
   | AsrPresetsListMessage
@@ -809,12 +795,6 @@ export const BACKGROUND_MESSAGE_REGISTRY = {
   "ai-providers-delete": registerBackgroundMessage<
     AiProvidersDeleteMessage,
     AiProvidersDeleteResponse
-  >({
-    reply: "async"
-  }),
-  "ai-providers-models": registerBackgroundMessage<
-    AiProvidersModelsMessage,
-    AiProvidersModelsResponse
   >({
     reply: "async"
   }),

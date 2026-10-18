@@ -1,9 +1,9 @@
 // ai/protocol-adapter.ts — 平台协议的开放注册表（multi-protocol-ai，spec 契约章）。
 // ProtocolAdapter 层收敛在 completion.ts 唯一 fetch 点一侧：编排层（阶梯/归并/
 // 工具循环）面对统一 ChatMessage[] 入参与 StreamChatEvent 出参，零改动。
-// 每个 adapter 只负责六件随协议变化的事：endpoint / authHeaders / buildBody /
-// extractErrorDetail / drainStream / parseResponse；重试循环、中止收束、溢出判定、
-// 探针语义留在 core（completion.ts）不动。
+// 每个 adapter 只负责七件随协议变化的事：endpoint / authHeaders / buildBody /
+// extractErrorDetail / drainStream / parseResponse / listModels；重试循环、中止收束、
+// 溢出判定、探针语义留在 core（completion.ts）不动。
 // 注册表开放：加第四种协议（Gemini 等）= 实现一个 ProtocolAdapter + 登记一行，
 // core 零改动。
 import type { ChatMessage, ChatToolCall, ChatUsage, StreamChatEvent } from "./types.js";
@@ -74,6 +74,27 @@ export interface DrainContext {
   onEvent?: (event: StreamChatEvent) => void;
 }
 
+// ===== 模型列表拉取（models.list 协议知识归 adapter） =====
+
+// content 壳（ai/provider-models.ts）交给 adapter 的调用意图：baseUrl 为表单原始值，
+// 归一化（去尾斜杠 / 削版本段）随各 adapter 的端点规则在 adapter 内做；apiKey 已由
+// 壳完成回落解析（表单重输优先、按 providerId 代查已存 Key）。
+export interface ListModelsInput {
+  baseUrl: string;
+  apiKey?: string;
+  /** 传输注入点：缺省全局 fetch；content 壳注入 SW 代发（core/provider-http.ts），
+   * 单请求 15s 超时由代发通道承担，adapter 不自持定时器。 */
+  fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+}
+
+// 返回契约与设置弹窗「获取可用模型」消费面逐字段一致：HTTP 错误在 adapter 内
+// 格式化为 error 文案；网络 / 解析抛错上抛，由壳塑形（「无法解析模型列表」等）。
+export interface ListModelsResult {
+  ok: boolean;
+  models?: string[];
+  error?: string;
+}
+
 export interface ProtocolAdapter {
   readonly protocol: AiProtocol;
 
@@ -122,6 +143,13 @@ export interface ProtocolAdapter {
 
   /** 非流式：响应 JSON → 聚合结果（map-reduce 消费） */
   parseResponse(json: unknown): DrainResult;
+
+  /** 模型列表拉取（设置「获取可用模型」弹窗的数据源）：端点 / 鉴权 / 分页 / 条目过滤
+   *  随协议分叉（OpenAI 兼容 `${baseUrl}/v1/models` + Bearer；Gemini 原生
+   *  `/v1beta/models` + x-goog-api-key + pageToken 分页 + generateContent 过滤），
+   *  全部藏在 adapter 实现里。HTTP 错误在此格式化为 `HTTP <status>: <body截断>`；
+   *  网络 / 解析抛错上抛由 content 壳塑形。 */
+  listModels(input: ListModelsInput): Promise<ListModelsResult>;
 }
 
 // ---- 注册表 ----

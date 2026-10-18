@@ -182,8 +182,8 @@ AI 平台对外说话用的线格式族，开放注册表（spec multi-protocol-
 _Avoid_: API 格式、接口类型；与扩展内部消息协议（messaging-protocol 词根）混用
 
 **协议适配器**:
-把平台协议差异收敛在唯一 fetch 点一侧的翻译单元：编排层（阶梯/归并/工具循环）只面对统一的 `ChatMessage[]` 入参与 `StreamChatEvent` 出参，SSE 事件差异（Anthropic 的 message_start/content_block_delta、Gemini 的 parts/thought/functionCall）、tool use 双向翻译（编排层保持 OpenAI tools 风格，Gemini 侧转换为 functionDeclarations + parametersJsonSchema 与 1:1 配对）、探针（probe）、错误归一化（归一为现有错误形状并前缀协议名）都在适配器内。一个协议一个适配器。合法值清单拆在词表叶（纯叶零依赖）：词表消费者（normalize 校验、设置 UI）只 import 词表叶，SW 静态图与协议栈脱钩；分发表键以 `Record<AiProtocol, ...>` 强制覆盖词表叶，单源；唯一读路径 `resolveAdapter` 不变。
-代码名：`ProtocolAdapter` / `PROTOCOL_ADAPTERS` 注册表 / `AI_PROTOCOLS` 词表叶（`protocol-vocab.ts`）
+把平台协议差异收敛在唯一 fetch 点一侧的翻译单元：编排层（阶梯/归并/工具循环）只面对统一的 `ChatMessage[]` 入参与 `StreamChatEvent` 出参，SSE 事件差异（Anthropic 的 message_start/content_block_delta、Gemini 的 parts/thought/functionCall）、tool use 双向翻译（编排层保持 OpenAI tools 风格，Gemini 侧转换为 functionDeclarations + parametersJsonSchema 与 1:1 配对）、探针（probe）、错误归一化（归一为现有错误形状并前缀协议名）都在适配器内。模型列表拉取（`listModels`：OpenAI 兼容 `${baseUrl}/v1/models` + Bearer；Gemini 原生 `${baseUrl}/v1beta/models` + x-goog-api-key + pageToken 分页 + `generateContent` 条目过滤；anthropic 复用 OpenAI 兼容形状——Messages 通道无 models.list 端点）同样是 adapter 职责，鉴权/分页/过滤全藏在实现里，content 侧薄壳（`ai/provider-models.ts`）只做 Key 回落、错误塑形与传输换路（SW 代发注入 `fetchImpl`）。一个协议一个适配器。合法值清单拆在词表叶（纯叶零依赖）：词表消费者（normalize 校验、设置 UI）只 import 词表叶，SW 静态图与协议栈脱钩；分发表键以 `Record<AiProtocol, ...>` 强制覆盖词表叶，单源；唯一读路径 `resolveAdapter` 不变。
+代码名：`ProtocolAdapter` / `PROTOCOL_ADAPTERS` 注册表 / `AI_PROTOCOLS` 词表叶（`protocol-vocab.ts`）/ `listModels`（接口成员，`ListModelsInput` / `ListModelsResult` 契约）
 _Avoid_: 每条协议复制编排链、编排层感知协议
 
 **平台怪癖词表**:
@@ -197,7 +197,7 @@ _Avoid_: 在 adapter 注释里回抄怪癖语义（只指键名）、给 pi-ai �
 _Avoid_: 在 adapter 里回抄线格式取值、让血统表输出协议字段名、把线格式写成字符串表达式（表达式引擎）、在血统表里按协议分支、在 Messages 通道发 `thinking.budget_tokens`（本扩展一律不自造思考预算）
 
 **平台请求代发**:
-扩展上下文代 content script 发起平台 HTTP 请求的通道总称——content script 的跨域 fetch 服从**网页** CORS，而平台网关的预检白名单常拒扩展自带的鉴权头（实测 ModelScope 的 Anthropic 端点拒 `x-api-key` / `anthropic-version`）。两条通道按请求时长分工：**SW 代发**（探针 / 选区解释 / 联网搜索三链）单档 15s 覆盖整段请求（响应头 + 正文）且超时真中止，受 MV3 service worker 生命周期约束，只服务短请求；**offscreen 代发**（概览链，一请求一端口、无超时、一律分块回吐）服务分钟级流式长请求（ADR-0010）。联网搜索的链级预算 30s，由链持有。两端同文件组织 = 发送端在 content 用分块回吐合成标准 Response（响应头先落定，status/ok 立即可用；`.json()`/`.text()` 与流式读 body 同一形状），接收端在承载上下文执行 fetch 并按到达顺序回吐响应头 / 正文分片 / done。
+扩展上下文代 content script 发起平台 HTTP 请求的通道总称——content script 的跨域 fetch 服从**网页** CORS，而平台网关的预检白名单常拒扩展自带的鉴权头（实测 ModelScope 的 Anthropic 端点拒 `x-api-key` / `anthropic-version`）。两条通道按请求时长分工：**SW 代发**（探针 / 选区解释 / 联网搜索 / AI·ASR 模型列表各短请求链）单档 15s 覆盖整段请求（响应头 + 正文）且超时真中止，受 MV3 service worker 生命周期约束，只服务短请求；**offscreen 代发**（概览链，一请求一端口、无超时、一律分块回吐）服务分钟级流式长请求（ADR-0010）。联网搜索的链级预算 30s，由链持有。两端同文件组织 = 发送端在 content 用分块回吐合成标准 Response（响应头先落定，status/ok 立即可用；`.json()`/`.text()` 与流式读 body 同一形状），接收端在承载上下文执行 fetch 并按到达顺序回吐响应头 / 正文分片 / done。
 代码名：`providerFetchViaBackground` / `handleProviderHttpRequest`（SW 代发）；`providerFetchViaOffscreen` / `attachProviderHttpPort` / `PROVIDER_HTTP_OFFSCREEN_PORT_NAME`（offscreen 代发）；两条通道共用的公共件叶 `provider-http-shared.ts`（URL 提取 / Headers 归一 / 中止形状 / 接收端预检与 fetch init / 出向载荷单源，零运行时依赖）
 _Avoid_: 把「content 发起、offscreen 执行」与「offscreen 客户端直发平台」混为一谈（后者仍被否决）；让概览回落页面源直发
 

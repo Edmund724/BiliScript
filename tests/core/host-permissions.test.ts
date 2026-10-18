@@ -254,12 +254,11 @@ describe("hasHostPermissionFromOffscreen（offscreen 语境的权限代查）", 
 // offscreen 用 hasHostPermissionFromOffscreen。
 //
 // 故本守卫锁一条**零例外**的不变式：原样 import hasHostPermission 的文件只能是下表
-// 三个 SW 语境调用方。白名单不是免死金牌而是复核点——多出第四行，就意味着有人要在
+// 两个 SW 语境调用方。白名单不是免死金牌而是复核点——多出第三行，就意味着有人要在
 // 判不了权限的语境里做预检：先确认那个语境到底是谁，再决定是换代查入口还是删门，
 // 不要顺手把文件加进来。
 const HOST_PERMISSION_SW_IMPORTERS: Record<string, string> = {
   "core/provider-http.ts": "SW 代发接收端（handleProviderHttpRequest）",
-  "ai/provider-models.ts": "SW 消息处理器（handleAiProvidersModels）",
   "entry/background.ts": "SW 的 check-provider-origin 代查 / request-provider-origins 代申请"
 };
 
@@ -304,7 +303,7 @@ describe("语境守卫：hasHostPermission 只准在 SW 语境界面原样调用
     return found;
   }
 
-  it("扫描不空转：三个 SW 语境调用方确实原样 import 了它", () => {
+  it("扫描不空转：两个 SW 语境调用方确实原样 import 了它", () => {
     const found = importersOfRawHasHostPermission();
     for (const file of Object.keys(HOST_PERMISSION_SW_IMPORTERS)) {
       expect(found, `${file} 应原样 import hasHostPermission（否则本守卫在被改名后空转）`).toContain(file);

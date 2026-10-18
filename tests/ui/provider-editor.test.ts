@@ -23,7 +23,7 @@
 //   发删除消息，取消不删且编辑器不关；弹层打开期间编辑器的文档级监听让位；
 // - 抽屉收起联动：settingsPanel hidden → 强制关闭（丢改动不弹确认）。
 //
-// chrome.runtime.sendMessage 换装按 type 分发的消息总线；探针与 ASR 模型列表
+// chrome.runtime.sendMessage 换装按 type 分发的消息总线；探针、AI/ASR 模型列表
 // 模块整体 mock，隔离 fetch。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -42,6 +42,19 @@ function chromeStub(): { runtime: { sendMessage: SendMessageStub } } {
   return chrome as unknown as { runtime: { sendMessage: SendMessageStub } };
 }
 
+// AI 模型列表壳（ai/provider-models.js）换装点：弹窗已直调 content 壳，不再经
+// ai-providers-models 消息；壳的默认回包 { ok: true }，逐条用例经 installMessageBus
+// 的 "ai-providers-models" override 改写（override 键沿用旧消息名，表意「模型拉取」）。
+const aiModelsState = vi.hoisted(() => ({
+  responder: undefined as undefined | ((message: SentMessage) => unknown)
+}));
+
+vi.mock("../../extension/ai/provider-models.js", () => ({
+  fetchProviderModels: vi.fn(async (input: SentMessage) =>
+    aiModelsState.responder ? aiModelsState.responder(input) : { ok: true }
+  )
+}));
+
 vi.mock("../../extension/ai/provider-test.js", () => ({
   testAiProviderConnection: vi.fn(async () => ({ ok: true }))
 }));
@@ -55,15 +68,16 @@ vi.mock("../../extension/asr/provider-models.js", () => ({
 }));
 
 // 消息总线桩由 tests/helpers/settings-panel-bus.ts 单源装配（缺省表 + 本族专属回包 + overrides）。
-// ai-providers-models（未填 overrides 的「获取可用模型」链）原先吃私有桩的静默兜底
-// `{ ok: true }`，这里逐条显式登记同形回包。
+// "ai-providers-models" override 不再进消息总线——改挂到 AI 模型列表壳的换装点上
+//（弹窗直调 content 壳，壳的传输层整体 mock）。
 function installMessageBus(overrides: Record<string, MessageResponder> = {}) {
+  const { "ai-providers-models": modelsResponder, ...busOverrides } = overrides;
+  aiModelsState.responder = modelsResponder;
   const host = installSettingsPanelBus<SentMessage>({
-    "ai-providers-models": () => ({ ok: true }),
     "ai-providers-save": () => ({ ok: true, providers: [] }),
     "asr-providers-save": () => ({ ok: true, providers: [] }),
     "request-provider-origins": () => ({ ok: true }),
-    ...overrides
+    ...busOverrides
   });
   return host.sent;
 }
@@ -127,6 +141,7 @@ function messageTypes(sent: SentMessage[]) {
 
 beforeEach(() => {
   resetModuleState();
+  aiModelsState.responder = undefined;
   document.body.innerHTML = "";
 });
 
@@ -1265,7 +1280,8 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     expect(error.textContent).toBe("请先填写 API 地址和 Key");
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
     expect(sent.some((message) => message.type === "request-provider-origins")).toBe(false);
-    expect(sent.some((message) => message.type === "ai-providers-models")).toBe(false);
+    const { fetchProviderModels } = await import("../../extension/ai/provider-models.js");
+    expect(vi.mocked(fetchProviderModels)).not.toHaveBeenCalled();
   });
 
   it("权限代申请落在点击同步链上：点「获取可用模型」当拍即出站（零先行 await）", async () => {
@@ -1283,7 +1299,11 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
 
   it("拉取成功：权限先于模型请求；搜索过滤；全选；勾选追加为目录行（草稿，不落盘）", async () => {
     const { sent, host } = await mountPanel({
-      "ai-providers-models": () => ({ ok: true, models: ["gpt-4o-mini", "gpt-4o", "o1-mini"] })
+      // 权限先于模型拉取（点击手势同步链）：壳被调用时权限消息必须已出站
+      "ai-providers-models": () => {
+        expect(chromeStub().runtime.sendMessage.mock.calls.some(([message]) => message.type === "request-provider-origins")).toBe(true);
+        return { ok: true, models: ["gpt-4o-mini", "gpt-4o", "o1-mini"] };
+      }
     });
     const { dialog } = await openEditor(host, "#addAiProviderBtn");
 
@@ -1295,8 +1315,6 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(3);
     });
-    const types = messageTypes(sent);
-    expect(types.indexOf("request-provider-origins")).toBeLessThan(types.indexOf("ai-providers-models"));
     expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual(["https://token.sensenova.cn/v1"]);
 
     // 搜索过滤
@@ -1339,7 +1357,8 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
       expect(document.querySelectorAll(".provider-editor-fetch-item")).toHaveLength(2);
     });
     // 模型探测走 OpenAI 兼容端点；权限申请同时覆盖两个端点
-    expect(sent.find((message) => message.type === "ai-providers-models")!.baseUrl).toBe("https://api.deepseek.com/v1");
+    const { fetchProviderModels } = await import("../../extension/ai/provider-models.js");
+    expect(vi.mocked(fetchProviderModels).mock.calls[0][0].baseUrl).toBe("https://api.deepseek.com/v1");
     expect(sent.find((message) => message.type === "request-provider-origins")!.baseUrls).toEqual([
       "https://api.deepseek.com/anthropic",
       "https://api.deepseek.com/v1"
@@ -1411,7 +1430,8 @@ describe("provider-editor：「获取可用模型」弹窗（拍板 Q5/Q11）", 
     await vi.waitFor(() => {
       expect(document.querySelector<HTMLElement>(".provider-editor-fetch-error")!.textContent).toContain("未授权");
     });
-    expect(sent.some((message) => message.type === "ai-providers-models")).toBe(false);
+    const { fetchProviderModels } = await import("../../extension/ai/provider-models.js");
+    expect(vi.mocked(fetchProviderModels)).not.toHaveBeenCalled();
     // 取消关弹窗不关 Modal
     fireClick(document.querySelector(".provider-editor-fetch-cancel"));
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();

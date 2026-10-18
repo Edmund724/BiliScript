@@ -1063,3 +1063,78 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
 });
 
 
+describe("geminiAdapter.listModels（Gemini 原生 models.list）", () => {
+  function modelsJsonResponse(status: number, body: unknown) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      text: vi.fn(async () => (typeof body === "string" ? body : JSON.stringify(body))),
+      json: vi.fn(async () => body)
+    } as unknown as Response;
+  }
+
+  it("走 /v1beta/models + x-goog-api-key，剥 models/ 前缀并滤掉非 generateContent 条目", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
+      modelsJsonResponse(200, {
+        models: [
+          { name: "models/gemini-2.5-pro", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/gemini-embedding-001", supportedGenerationMethods: ["embedContent"] },
+          { name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/gemini-aqa" }
+        ]
+      })
+    );
+
+    const resp = await geminiAdapter.listModels({
+      baseUrl: "https://generativelanguage.googleapis.com",
+      apiKey: "gk-1",
+      fetchImpl: fetchMock
+    });
+
+    expect(resp).toEqual({ ok: true, models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-aqa"] });
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe("https://generativelanguage.googleapis.com/v1beta/models");
+    expect(init.headers["x-goog-api-key"]).toBe("gk-1");
+    expect(init.headers.Authorization).toBeUndefined();
+  });
+
+  it("baseUrl 带 /v1beta 尾段不重复拼接；nextPageToken 翻页多程合并", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        modelsJsonResponse(200, {
+          models: [{ name: "models/gemini-2.5-pro", supportedGenerationMethods: ["generateContent"] }],
+          nextPageToken: "tok-2"
+        })
+      )
+      .mockResolvedValueOnce(
+        modelsJsonResponse(200, {
+          models: [{ name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] }]
+        })
+      );
+
+    const resp = await geminiAdapter.listModels({
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/",
+      apiKey: "gk-1",
+      fetchImpl: fetchMock
+    });
+
+    expect(resp).toEqual({ ok: true, models: ["gemini-2.5-pro", "gemini-2.5-flash"] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://generativelanguage.googleapis.com/v1beta/models");
+    expect(fetchMock.mock.calls[1][0]).toBe("https://generativelanguage.googleapis.com/v1beta/models?pageToken=tok-2");
+  });
+
+  it("HTTP 错误回 `HTTP <status>: <body 截断>`，不再翻页", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => modelsJsonResponse(403, "API key not valid"));
+
+    const resp = await geminiAdapter.listModels({
+      baseUrl: "https://generativelanguage.googleapis.com",
+      apiKey: "gk-1",
+      fetchImpl: fetchMock
+    });
+
+    expect(resp).toEqual({ ok: false, error: "HTTP 403: API key not valid" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

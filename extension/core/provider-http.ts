@@ -2,9 +2,9 @@
 // 平台请求代发：content script 的跨域 fetch 服从**网页** CORS——平台网关不
 // 支持浏览器预检时（OPTIONS 返回 404 且无 Access-Control-Allow-*，如 sensenova），
 // 带 Authorization 的 POST 一律以「无法连接：Failed to fetch」失败，与配置无关。
-// 模型列表能跑通只是因为它在 SW 里发（SW fetch 只受 host 权限约束）；本模块让
-// 探针的传输层走同一条路，探针的请求构造（思考档位 / token 上限规则）仍单源在
-// ai/completion.ts，不因语境换路而分叉。
+// 本模块让 AI 探针（completion 链）与模型列表（各 adapter 的 listModels）的传输层
+// 走同一条路（SW 代发只受 host 权限约束），请求构造仍各在 content 侧单源，不因
+// 语境换路而分叉。
 //
 // 两端同文件（host-permissions.ts 的 requestProviderOrigins 与其跨语境代申请
 // 同款组织）：
@@ -88,9 +88,10 @@ export async function handleProviderHttpRequest({
 
 // ===== 发送端（content script 域）：fetch 兼容实现 =====
 
-// 供 ai/provider-test 与 ai/explain 作为 chatCompletion 的 fetchImpl 注入；只
-// 覆盖两者用到的面——非流式一次性请求 + 响应 status/text/json（探针判
-// response.ok 不读流；解释读 json）。流式请求（response.body.getReader）不适用。
+// 供 ai/provider-test / ai/explain（chatCompletion 的 fetchImpl）与
+// ai/provider-models（adapter listModels 的 fetchImpl）注入；只覆盖非流式一次性
+// 请求 + 响应 status/text/json（探针判 response.ok 不读流；解释与模型列表读 json）。
+// 流式请求（response.body.getReader）不适用。
 //
 // 取消语义：init.signal 中止时以 AbortError 名字拒绝，completion 据此转
 // makeAbortedError（解释卡片换选区/关闭时的中止路径）。已在飞的 SW 请求无法

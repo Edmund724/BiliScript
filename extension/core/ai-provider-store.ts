@@ -6,7 +6,8 @@
 // 本模块只负责 AI 平台列表 CRUD。连通性测试/探针已移至 ai/provider-test.js
 // （候选 04 拆链：探针依赖 ai/completion.js，留在本文件会把整条 completion 链
 // 拖进 SW 静态图；options 页直调 provider-test，本模块回归纯存储）；
-// 模型列表探测（handleAiProvidersModels，fetch 原语）也已移至 ai/provider-models.js
+// 模型列表拉取的协议知识（端点/鉴权/分页/过滤）归各协议 adapter 的 listModels
+//（ai/protocol-adapter.ts 契约），content 侧薄壳在 ai/provider-models.js
 //（arch-slim-2/09：探针是 ai 域知识，core/ 回归纯共享底座）。
 
 import { createProviderStore } from "./provider-store.js";

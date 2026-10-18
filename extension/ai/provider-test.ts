@@ -8,9 +8,10 @@
 //
 // 传输层：content script 的跨域 fetch 服从**网页** CORS，平台网关不支持浏览器
 // 预检时（OPTIONS 无 Access-Control-Allow-*）带 Authorization 的请求一律以
-//「无法连接：Failed to fetch」失败——而模型列表能跑通只是因为它由 SW 发出。
-// 故探针经 core/provider-http.js 的 providerFetchViaBackground 走 SW 代发（请求
-// 构造与错误文案仍在本模块与 completion 链单源，只有传输换路）。
+//「无法连接：Failed to fetch」失败——故探针经 core/provider-http.js 的
+// providerFetchViaBackground 走 SW 代发（请求构造与错误文案仍在本模块与
+// completion 链单源，只有传输换路；模型列表 asr/provider-models.ts /
+// ai/provider-models.ts 同走这条代发通道）。
 //
 // 职责边界：本模块只负责探针的输入预检、Key 代查与错误形状包装；Provider
 // 列表 CRUD/归一化仍归 core/ai-provider-store.js（SW 出于消息路由仍要加载它，

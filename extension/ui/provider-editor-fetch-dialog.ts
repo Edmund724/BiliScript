@@ -12,7 +12,7 @@
 // 拉取回执的过期判据收进结算原语（captureSession / runIfCurrent，弹窗存活判据）。
 
 import { escapeHtml } from "../shared/string-utils.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
+import { fetchProviderModels } from "../ai/provider-models.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { normalizeDraftModels, captureSession, runIfCurrent, state } from "./provider-editor-state.js";
 import { normalizeProtocolValue, presetBaseUrlForProtocol } from "./provider-editor-projection.js";
@@ -146,7 +146,7 @@ export async function loadFetchModels(baseUrl: string, apiKey: string, protocol:
   await runIfCurrent(
     async (): Promise<{ ok?: boolean; models?: string[]; error?: string }> => {
       try {
-        return await sendRuntimeMessage({ type: "ai-providers-models", baseUrl, apiKey, providerId: state.editingId, protocol });
+        return await fetchProviderModels({ baseUrl, apiKey, providerId: state.editingId, protocol });
       } catch (error) {
         return { ok: false, error: (error as Error | undefined)?.message || "拉取失败" };
       }

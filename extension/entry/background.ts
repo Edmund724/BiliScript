@@ -68,10 +68,8 @@ import { cooldownUntilByPresetId } from "../search/search-health.js";
 // ai/segment-cache-handler.ts；记账族的落盘后 inline 失效随工厂搬入）。
 import { createSearchCacheHandler } from "../search/search-cache-handler.js";
 import { createSearchHealthHandler } from "../search/search-health-handler.js";
-// 模型列表探测（fetch 原语）归 ai 域（arch-slim-2/09）；纯存储仍在 core/。
-import { handleAiProvidersModels as fetchAiProviderModels } from "../ai/provider-models.js";
-// 平台请求代发（AI 探针传输层）：content script 的跨域 fetch 服从网页 CORS，
-// 不支持浏览器预检的平台（OPTIONS 无 Access-Control-Allow-*）只能报
+// 平台请求代发（AI 探针 / 模型列表的传输层）：content script 的跨域 fetch 服从网页
+// CORS，不支持浏览器预检的平台（OPTIONS 无 Access-Control-Allow-*）只能报
 // 「Failed to fetch」——代发让探针与模型列表同源路径（core/provider-http.ts）。
 import { handleProviderHttpRequest } from "../core/provider-http.js";
 import {
@@ -366,25 +364,7 @@ function handleAiPresetsList(_message: Msg<"ai-presets-list">, _sender: MessageS
   sendResponse({ ok: true, presets: PRESETS.slice() });
 }
 
-function handleAiProvidersModels(message: Msg<"ai-providers-models">, _sender: MessageSender, sendResponse: Reply<"ai-providers-models">): void {
-  const baseUrl = String(message.baseUrl || "").trim();
-  if (!baseUrl) {
-    sendResponse({ ok: false, error: "请填写 baseUrl" });
-    return;
-  }
-  withOkResponse(
-    fetchAiProviderModels({
-      baseUrl,
-      apiKey: String(message.apiKey || "").trim(),
-      providerId: String(message.providerId || "").trim(),
-      protocol: String(message.protocol || "").trim()
-    }),
-    sendResponse,
-    (error) => (error as Error | undefined)?.message || String(error)
-  );
-}
-
-// 平台请求代发（AI 探针传输层）：URL 合法性与 host 权限判定收口在
+// 平台请求代发（AI 探针 / 模型列表传输层）：URL 合法性与 host 权限判定收口在
 // core/provider-http.ts；代发结果（含 HTTP 状态与响应体文本）原样回给
 // content 侧合成的 Response，探针的错误文案仍由 completion 链统一拼装。
 function handleProviderHttp(message: Msg<"provider-http">, _sender: MessageSender, sendResponse: Reply<"provider-http">): void {
@@ -587,7 +567,6 @@ const messageHandlerTable = {
   "get-ai-provider-key": aiProviderHandlers.get,
   "ai-providers-save": aiProviderHandlers.save,
   "ai-providers-delete": aiProviderHandlers.remove,
-  "ai-providers-models": handleAiProvidersModels,
   "provider-http": handleProviderHttp,
   "resolve-ai-provider": aiResolvedProviderHandler,
   "asr-presets-list": handleAsrPresetsList,

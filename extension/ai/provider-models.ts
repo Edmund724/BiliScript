@@ -1,113 +1,60 @@
 // extension/ai/provider-models.ts
-// AI 平台模型列表探测（arch-slim-2/09 自 core/ai-provider-store.ts 搬入 ai/：
-// fetch 探针是 ai 域知识，与「纯存储」头注的 ai-provider-store 分家；搬法对齐
-// 探针已住 ai/ 的先例 ai/provider-test.ts）。经 SW 消息（ai-providers-models）
-// 从 options 页模型下拉调用：纯 GET fetch，不依赖 completion 链。端点与鉴权随
-// 协议分叉：缺省走 OpenAI 兼容 `${baseUrl}/v1/models` + Bearer；protocol 为
-// gemini 时走原生 `${baseUrl}/v1beta/models` + x-goog-api-key（Google 端点不认
-// Bearer 形式的 API Key，会把它当 OAuth 2 token 解析并回 401）。
+// AI 平台模型列表拉取的 content 侧薄壳（设置面板「获取可用模型」弹窗的数据源）。
 //
-// background 的 ai-providers-models 路由（entry/background.ts）经本模块处理；
-// aiProviderStore 仍住 core/（SW 消息路由的纯存储层），本模块只引用其 loadKeys。
+// 协议知识（端点 / 鉴权 / 分页 / 条目过滤）归各协议 adapter 的 listModels
+//（ai/protocol-adapter.ts 契约）：openai / anthropic 走 OpenAI 兼容
+// `${baseUrl}/v1/models` + Bearer，gemini 走原生 `${baseUrl}/v1beta/models` +
+// x-goog-api-key（Google 端点不认 Bearer 形式的 API Key，会把它当 OAuth 2 token
+// 解析并回 401）。本壳只做对话框不该知道的三件编排：
+//   1. Key 回落：表单重输的 apiKey 优先，为空时按 providerId 代查已存 Key；
+//   2. 错误文案塑形：响应体解析失败给「无法解析模型列表」，代发通道抛出的
+//      Error（未授权提示 / 15s 超时 / URL 不合法）原样透传；
+//   3. 传输换路：fetchImpl 注入 SW 代发（core/provider-http.ts 的
+//      providerFetchViaBackground，与 AI 探针 ai/provider-test.ts、ASR 模型列表
+//      asr/provider-models.ts 同款拓扑）——content script 的跨域 fetch 服从网页
+//      CORS，带鉴权头的 GET 常被网关预检白名单拒，代发只受 host 权限约束；
+//      单请求 15s 超时由代发通道承担，分页按程计，本壳不自持定时器。
+//
+// host 权限判定单源在 SW 侧代发通道（handleProviderHttpRequest，未授权回
+// HOST_PERMISSION_HINT）；申请侧由弹窗在点击手势链上先行完成
+//（requestProviderOriginsViaBackground），壳与对话框都不做页面侧预检
+//（content 语境没有 chrome.permissions，预检是恒放行的假门）。
 
 import { aiProviderStore } from "../core/ai-provider-store.js";
-import { HOST_PERMISSION_HINT, hasHostPermission } from "../core/host-permissions.js";
-import { withTimeout } from "../shared/error-helpers.js";
+import { providerFetchViaBackground } from "../core/provider-http.js";
+import { resolveAdapter, type ListModelsResult } from "./protocol-adapter.js";
 
-export interface AiProvidersModelsMessage {
+export interface FetchProviderModelsInput {
   baseUrl?: string;
   apiKey?: string;
   providerId?: string;
-  // 平台协议（multi-protocol-ai）：gemini 走 /v1beta/models + x-goog-api-key，
-  // 缺省/其余值维持 OpenAI 兼容的 /v1/models + Bearer。
+  // 平台协议（multi-protocol-ai）：随 resolveAdapter 分派到对应 adapter 的
+  // listModels；缺省/未知值兜底 openai（与词表解析单点同口径）。
   protocol?: string;
 }
 
-export interface AiProvidersModelsResult {
-  ok: boolean;
-  models?: string[];
-  error?: string;
-}
+export type FetchProviderModelsResult = ListModelsResult;
 
-export async function handleAiProvidersModels({
-  baseUrl,
-  apiKey,
-  providerId,
-  protocol
-}: AiProvidersModelsMessage): Promise<AiProvidersModelsResult> {
-  const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
-  const isGemini = String(protocol || "").trim() === "gemini";
-  // gemini baseUrl 可能带 /v1beta 尾段（adapters/gemini.ts buildGeminiEndpoint 同款归一化）
-  const modelsBaseUrl = isGemini ? normalizedBaseUrl.replace(/\/v1beta$/i, "") : normalizedBaseUrl;
-  // S2 收紧 host_permissions：平台域名未授权时这条 GET 只会以 CORS 失败，回包是
-  // 「Failed to fetch」这种看不出原因的文案，因此先做权限预检，未授权直接回可操作
-  // 提示（与 AI/ASR 连通性探针共用 core/host-permissions.js 的判定）。
-  if (!(await hasHostPermission(normalizedBaseUrl))) {
-    return { ok: false, error: HOST_PERMISSION_HINT };
+export async function fetchProviderModels({ baseUrl, apiKey, providerId, protocol }: FetchProviderModelsInput): Promise<FetchProviderModelsResult> {
+  const normalizedBaseUrl = String(baseUrl || "").trim();
+  if (!normalizedBaseUrl) {
+    return { ok: false, error: "请填写 baseUrl" };
   }
-  const headers: Record<string, string> = { Accept: "application/json" };
-  // 超时原语单源（arch-slim-2/03）：原手写 AbortController + setTimeout 改走
-  // withTimeout 硬超时（timeoutError 拒绝，文案逐字不变）。差异仅在于到点后
-  // 底层 fetch 不再被 abort——竞速已出局、响应无人消费，用户可见行为不变。
-  const timeoutError = () => new Error("请求超时，请检查 baseUrl 或稍后重试");
+  // Key 回落：表单重输优先；为空且带 providerId（编辑已存平台）时代查已存 Key。
+  let resolvedApiKey = String(apiKey || "").trim();
+  if (!resolvedApiKey && providerId) {
+    const keys = await aiProviderStore.loadKeys();
+    resolvedApiKey = String(keys[String(providerId)] || "").trim();
+  }
   try {
-    if (!apiKey) {
-      const keys = providerId ? await aiProviderStore.loadKeys() : {};
-      apiKey = String(keys[String(providerId || "")] || "").trim();
-    }
-    if (apiKey) {
-      if (isGemini) {
-        headers["x-goog-api-key"] = apiKey;
-      } else {
-        headers.Authorization = `Bearer ${apiKey}`;
-      }
-    }
-
-    if (isGemini) {
-      // Gemini 原生 models.list：{ models: [{ name: "models/…", supportedGenerationMethods }] }
-      // + pageToken 分页；只留支持 generateContent 的条目（滤掉 embedding/aqa 等非对话模型）。
-      const models: string[] = [];
-      let pageToken = "";
-      for (let page = 0; page < 10; page++) {
-        const url = `${modelsBaseUrl}/v1beta/models${pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : ""}`;
-        const resp = await withTimeout(fetch(url, { headers, method: "GET" }), 15000, timeoutError());
-        if (!resp.ok) {
-          const text = await resp.text();
-          return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
-        }
-        const data = (await resp.json()) as {
-          models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
-          nextPageToken?: string;
-        };
-        for (const item of data?.models ?? []) {
-          if (!item?.name) continue;
-          if (Array.isArray(item.supportedGenerationMethods) && !item.supportedGenerationMethods.includes("generateContent")) continue;
-          models.push(String(item.name).replace(/^models\//, ""));
-        }
-        pageToken = String(data?.nextPageToken || "");
-        if (!pageToken) break;
-      }
-      return { ok: true, models };
-    }
-
-    const resp = await withTimeout(
-      fetch(`${normalizedBaseUrl}/v1/models`, { headers, method: "GET" }),
-      15000,
-      timeoutError()
-    );
-    if (!resp.ok) {
-      const text = await resp.text();
-      return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
-    }
-    const data = (await resp.json()) as { data?: Array<{ id?: string }> };
-    const models: string[] = [];
-    if (Array.isArray(data?.data)) {
-      for (const item of data.data) {
-        if (item?.id) models.push(String(item.id));
-      }
-    }
-    return { ok: true, models };
+    return await resolveAdapter(protocol).listModels({
+      baseUrl: normalizedBaseUrl,
+      apiKey: resolvedApiKey,
+      fetchImpl: providerFetchViaBackground
+    });
   } catch (error) {
+    // 代发通道把 SW 侧回包错误作为 Error 抛出，原样透传；响应体 JSON 解析失败
+    // 给专用文案（与 ASR 模型列表壳 asr/provider-models.ts 同形）。
     if (error instanceof SyntaxError) {
       return { ok: false, error: "无法解析模型列表" };
     }

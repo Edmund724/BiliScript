@@ -1,89 +1,110 @@
-// ai/provider-models.js（arch-slim-2/09 自 core/ai-provider-store.ts 搬入，
-// 测试随迁）的模型列表探测（handleAiProvidersModels，经
-// ai-providers-models 消息从 options 页模型下拉调用）在 S2 收紧
-// host_permissions 后的权限预检：平台域名未授权时那条 GET 只会以 CORS 失败，
-// 回包是「Failed to fetch」这类看不出原因的文案，必须换成可操作提示。
-// 判定与 AI/ASR 连通性探针共用 core/host-permissions.js 的一份实现。
+// ai/provider-models.js（AI 平台模型列表拉取的 content 侧薄壳）的行为契约：
+//   - Key 回落：表单 apiKey 优先，为空且带 providerId 时按 providerId 代查已存 Key；
+//   - adapter 分派（协议知识归 adapter 的 listModels）：openai/anthropic → OpenAI 兼容
+//     `${baseUrl}/v1/models` + Bearer；gemini → 原生 `/v1beta/models` + x-goog-api-key；
+//   - 错误文案分流：HTTP 错误回 `HTTP <status>: <body 截断>`；代发通道抛出的 Error
+//     （未授权提示 / 超时）原样透传；响应体 JSON 解析失败回「无法解析模型列表」。
+// 传输层 providerFetchViaBackground 与 aiProviderStore.loadKeys 整体 mock，
+// fetchImpl 以 canned 响应直注（壳的 fetchImpl 固定注入代发，这里代发即桩）。
 
 import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-let fetchMock: Mock;
+const mocks = vi.hoisted(() => ({
+  providerFetch: vi.fn(),
+  loadKeys: vi.fn()
+}));
+
+vi.mock("../../extension/core/provider-http.js", () => ({
+  providerFetchViaBackground: mocks.providerFetch
+}));
+
+vi.mock("../../extension/core/ai-provider-store.js", () => ({
+  aiProviderStore: {
+    loadKeys: mocks.loadKeys
+  }
+}));
+
+// 最小响应对象（adapter 只消费 ok / status / text / json）。
+function jsonResponse(status: number, body: unknown) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: vi.fn(async () => (typeof body === "string" ? body : JSON.stringify(body))),
+    json: vi.fn(async () => {
+      if (typeof body === "string") throw new SyntaxError("Unexpected token");
+      return body;
+    })
+  };
+}
 
 async function loadModule() {
   return import("../../extension/ai/provider-models.js");
 }
 
-// 最小响应对象（探测代码只消费 ok / status / text / json）。
-function jsonResponse(status: number, body: unknown) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    text: vi.fn(async () => JSON.stringify(body)),
-    json: vi.fn(async () => body)
-  };
-}
-
 beforeEach(() => {
   vi.resetModules();
   resetModuleState();
-  fetchMock = vi.fn();
-  vi.stubGlobal("fetch", fetchMock);
-  vi.stubGlobal("chrome", {
-    ...globalThis.chrome,
-    permissions: {
-      contains: vi.fn(async () => true)
-    }
-  });
+  vi.clearAllMocks();
 });
 
-describe("handleAiProvidersModels 的 host 权限预检", () => {
-  it("已授权 → 正常拉取 /v1/models 并回模型列表", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { data: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }] }));
-    const { handleAiProvidersModels } = await loadModule();
+describe("fetchProviderModels 的 Key 回落", () => {
+  it("表单 apiKey 优先：直通 Bearer，不代查已存 Key", async () => {
+    mocks.providerFetch.mockResolvedValue(jsonResponse(200, { data: [{ id: "gpt-4o" }] }));
+    const { fetchProviderModels } = await loadModule();
 
-    const resp = await handleAiProvidersModels({
+    const resp = await fetchProviderModels({
       baseUrl: "https://api.openai.com/v1",
-      apiKey: "sk-1"
+      apiKey: "sk-form",
+      providerId: "p1"
     });
 
-    expect(resp).toEqual({ ok: true, models: ["gpt-4o", "gpt-4o-mini"] });
-    expect(globalThis.chrome.permissions.contains).toHaveBeenCalledWith({
-      origins: ["https://api.openai.com/*"]
-    });
-    expect(fetchMock.mock.calls[0][0]).toBe("https://api.openai.com/v1/models");
+    expect(resp).toEqual({ ok: true, models: ["gpt-4o"] });
+    expect(mocks.loadKeys).not.toHaveBeenCalled();
+    const [url, init] = mocks.providerFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe("https://api.openai.com/v1/models");
+    expect(init.headers.Authorization).toBe("Bearer sk-form");
   });
 
-  it("未授权 → 返回可操作提示且不发请求", async () => {
-    vi.mocked(globalThis.chrome.permissions.contains).mockResolvedValue(false);
-    const { handleAiProvidersModels } = await loadModule();
+  it("空 apiKey 且带 providerId：按 providerId 代查已存 Key 后发请求", async () => {
+    mocks.loadKeys.mockResolvedValue({ p1: "sk-stored" });
+    mocks.providerFetch.mockResolvedValue(jsonResponse(200, { data: [{ id: "m1" }] }));
+    const { fetchProviderModels } = await loadModule();
 
-    const resp = await handleAiProvidersModels({
-      baseUrl: "https://api.openai.com/v1",
-      apiKey: "sk-1"
-    });
-
-    expect(resp).toEqual({ ok: false, error: "该平台域名未授权，请在保存时允许权限" });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("不持有 chrome.permissions 实现时按已授权处理（不阻塞既有拉取）", async () => {
-    vi.stubGlobal("chrome", {
-      ...globalThis.chrome,
-      permissions: undefined
-    });
-    fetchMock.mockResolvedValue(jsonResponse(200, { data: [{ id: "m1" }] }));
-    const { handleAiProvidersModels } = await loadModule();
-
-    const resp = await handleAiProvidersModels({ baseUrl: "https://api.openai.com/v1", apiKey: "sk-1" });
+    const resp = await fetchProviderModels({ baseUrl: "https://api.openai.com", providerId: "p1" });
 
     expect(resp).toEqual({ ok: true, models: ["m1"] });
+    expect(mocks.loadKeys).toHaveBeenCalledTimes(1);
+    const init = mocks.providerFetch.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(init.headers.Authorization).toBe("Bearer sk-stored");
+  });
+
+  it("空 apiKey 且无 providerId（新增平台）：裸 GET 不发 Authorization", async () => {
+    mocks.providerFetch.mockResolvedValue(jsonResponse(200, { data: [{ id: "m1" }] }));
+    const { fetchProviderModels } = await loadModule();
+
+    const resp = await fetchProviderModels({ baseUrl: "https://api.openai.com" });
+
+    expect(resp).toEqual({ ok: true, models: ["m1"] });
+    expect(mocks.loadKeys).not.toHaveBeenCalled();
+    const init = mocks.providerFetch.mock.calls[0][1] as { headers: Record<string, string> };
+    expect(init.headers.Authorization).toBeUndefined();
+  });
+
+  it("空 baseUrl：回可操作提示，不发请求也不代查 Key", async () => {
+    const { fetchProviderModels } = await loadModule();
+
+    const resp = await fetchProviderModels({ baseUrl: "   ", apiKey: "sk-1", providerId: "p1" });
+
+    expect(resp).toEqual({ ok: false, error: "请填写 baseUrl" });
+    expect(mocks.providerFetch).not.toHaveBeenCalled();
+    expect(mocks.loadKeys).not.toHaveBeenCalled();
   });
 });
 
-describe("handleAiProvidersModels 的 gemini 协议分支", () => {
-  it("走 /v1beta/models + x-goog-api-key，剥 models/ 前缀并滤掉非 generateContent 条目", async () => {
-    fetchMock.mockResolvedValue(
+describe("fetchProviderModels 的协议分派", () => {
+  it("protocol=gemini：走 /v1beta/models + x-goog-api-key，滤掉非 generateContent 条目", async () => {
+    mocks.providerFetch.mockResolvedValue(
       jsonResponse(200, {
         models: [
           { name: "models/gemini-2.5-pro", supportedGenerationMethods: ["generateContent"] },
@@ -92,44 +113,64 @@ describe("handleAiProvidersModels 的 gemini 协议分支", () => {
         ]
       })
     );
-    const { handleAiProvidersModels } = await loadModule();
+    const { fetchProviderModels } = await loadModule();
 
-    const resp = await handleAiProvidersModels({
+    const resp = await fetchProviderModels({
       baseUrl: "https://generativelanguage.googleapis.com",
       apiKey: "gk-1",
       protocol: "gemini"
     });
 
     expect(resp).toEqual({ ok: true, models: ["gemini-2.5-pro", "gemini-2.5-flash"] });
-    expect(fetchMock.mock.calls[0][0]).toBe("https://generativelanguage.googleapis.com/v1beta/models");
-    const headers = fetchMock.mock.calls[0][1].headers as Record<string, string>;
-    expect(headers["x-goog-api-key"]).toBe("gk-1");
-    expect(headers.Authorization).toBeUndefined();
+    const [url, init] = mocks.providerFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe("https://generativelanguage.googleapis.com/v1beta/models");
+    expect(init.headers["x-goog-api-key"]).toBe("gk-1");
+    expect(init.headers.Authorization).toBeUndefined();
   });
 
-  it("baseUrl 带 /v1beta 尾段时不重复拼接；nextPageToken 翻页后合并", async () => {
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(200, {
-          models: [{ name: "models/gemini-2.5-pro", supportedGenerationMethods: ["generateContent"] }],
-          nextPageToken: "tok-2"
-        })
-      )
-      .mockResolvedValueOnce(
-        jsonResponse(200, {
-          models: [{ name: "models/gemini-2.5-flash", supportedGenerationMethods: ["generateContent"] }]
-        })
-      );
-    const { handleAiProvidersModels } = await loadModule();
+  it("protocol=anthropic：复用 OpenAI 兼容 /v1/models + Bearer（Messages 无 models.list）", async () => {
+    mocks.providerFetch.mockResolvedValue(jsonResponse(200, { data: [{ id: "claude-compatible" }] }));
+    const { fetchProviderModels } = await loadModule();
 
-    const resp = await handleAiProvidersModels({
-      baseUrl: "https://generativelanguage.googleapis.com/v1beta/",
-      apiKey: "gk-1",
-      protocol: "gemini"
+    const resp = await fetchProviderModels({
+      baseUrl: "https://api.example.com/anthropic",
+      apiKey: "sk-ant",
+      protocol: "anthropic"
     });
 
-    expect(resp).toEqual({ ok: true, models: ["gemini-2.5-pro", "gemini-2.5-flash"] });
-    expect(fetchMock.mock.calls[0][0]).toBe("https://generativelanguage.googleapis.com/v1beta/models");
-    expect(fetchMock.mock.calls[1][0]).toBe("https://generativelanguage.googleapis.com/v1beta/models?pageToken=tok-2");
+    expect(resp).toEqual({ ok: true, models: ["claude-compatible"] });
+    const [url, init] = mocks.providerFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe("https://api.example.com/anthropic/v1/models");
+    expect(init.headers.Authorization).toBe("Bearer sk-ant");
+  });
+});
+
+describe("fetchProviderModels 的错误分流", () => {
+  it("HTTP 错误：回 `HTTP <status>: <body 截断>`", async () => {
+    mocks.providerFetch.mockResolvedValue(jsonResponse(401, "unauthorized"));
+    const { fetchProviderModels } = await loadModule();
+
+    const resp = await fetchProviderModels({ baseUrl: "https://api.openai.com/v1", apiKey: "sk-1" });
+
+    expect(resp.ok).toBe(false);
+    expect(resp.error).toBe("HTTP 401: unauthorized");
+  });
+
+  it("代发通道抛错（未授权提示 / 超时文案）：原样透传", async () => {
+    mocks.providerFetch.mockRejectedValue(new Error("该平台域名未授权，请在保存时允许权限"));
+    const { fetchProviderModels } = await loadModule();
+
+    const resp = await fetchProviderModels({ baseUrl: "https://api.openai.com/v1", apiKey: "sk-1" });
+
+    expect(resp).toEqual({ ok: false, error: "该平台域名未授权，请在保存时允许权限" });
+  });
+
+  it("响应体 JSON 解析失败：回「无法解析模型列表」", async () => {
+    mocks.providerFetch.mockResolvedValue(jsonResponse(200, "not-json"));
+    const { fetchProviderModels } = await loadModule();
+
+    const resp = await fetchProviderModels({ baseUrl: "https://api.openai.com/v1", apiKey: "sk-1" });
+
+    expect(resp).toEqual({ ok: false, error: "无法解析模型列表" });
   });
 });

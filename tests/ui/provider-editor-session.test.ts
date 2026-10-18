@@ -28,6 +28,11 @@ vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
 
+// 「获取可用模型」直调 content 壳（ai/provider-models.js），整体 mock 隔离传输层。
+vi.mock("../../extension/ai/provider-models.js", () => ({
+  fetchProviderModels: vi.fn(async () => ({ ok: true, models: [] }))
+}));
+
 const PRESETS: ProviderRowPreset[] = [
   { id: "custom", name: "自定义", baseUrl: "", requiresKey: true }
 ];
@@ -229,6 +234,8 @@ describe("过期回执纪律（owner 2：captureSession / runIfCurrent）", () =
     await flushMicrotasks();
 
     expect(sent.filter((message) => message.type === "ai-providers-models")).toEqual([]);
+    const { fetchProviderModels } = await import("../../extension/ai/provider-models.js");
+    expect(vi.mocked(fetchProviderModels)).not.toHaveBeenCalled();
     expect(document.querySelector(".provider-editor-fetch-dialog")).toBeNull();
   });
 });

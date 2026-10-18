@@ -35,8 +35,6 @@ const REPLY_MODE_SPEC: Record<BackgroundMessageType, MessageReplyMode> = {
   "ai-providers-list": "async",
   "ai-providers-save": "async",
   "ai-providers-delete": "async",
-  // 缺 baseUrl 时同步回包后仍持有通道（原实现 return true）
-  "ai-providers-models": "async",
   "provider-http": "async",
   "resolve-ai-provider": "async",
   "asr-providers-list": "async",

@@ -1,7 +1,7 @@
 // ai/adapters/gemini.ts — Gemini 原生 generateContent 协议适配器（ADR-0018）。
 // 手撸 fetch + SSE 逐块解析，零新增依赖，天然支持 AbortSignal。
 import { makeAbortedError } from "../../shared/error-helpers.js";
-import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
+import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { CompatQuirk } from "../compat-vocab.js";
 import { planThinkingWire } from "../plan-thinking.js";
@@ -638,6 +638,48 @@ export function parseGeminiResponse(json: unknown): DrainResult {
   };
 }
 
+// ===== 模型列表拉取（Gemini 原生 models.list） =====
+
+// GET `${baseUrl}/v1beta/models` + x-goog-api-key：Google 端点不认 Bearer 形式的
+// API Key（会当 OAuth 2 token 解析并回 401），鉴权头与 chat 通道同源（本文件
+// adapter 的 authHeaders）。baseUrl 归一复用 buildGeminiEndpoint 同款规则
+// （去尾斜杠 + 削 /v1beta 尾段；/v1 尾段按归位前行为一并削掉）。响应形状
+// `{ models: [{ name: "models/…", supportedGenerationMethods }], nextPageToken }`：
+// pageToken 分页循环（至多 10 程，与归位前一致，分页按程计不加总上限），只留
+// supportedGenerationMethods 含 generateContent 的条目（滤掉 embedding/aqa 等非
+// 对话模型），剥 models/ 前缀。HTTP 错误在此格式化；网络 / 解析抛错上抛给壳。
+export async function listGeminiModels({ baseUrl, apiKey, fetchImpl }: ListModelsInput): Promise<ListModelsResult> {
+  const modelsBaseUrl = String(baseUrl || "")
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/v1beta$/i, "")
+    .replace(/\/v1$/i, "");
+  const headers: Record<string, string> = { Accept: "application/json", ...geminiAdapter.authHeaders(apiKey) };
+  const doFetch = fetchImpl ?? fetch;
+  const models: string[] = [];
+  let pageToken = "";
+  for (let page = 0; page < 10; page++) {
+    const url = `${modelsBaseUrl}/v1beta/models${pageToken ? `?pageToken=${encodeURIComponent(pageToken)}` : ""}`;
+    const resp = await doFetch(url, { headers, method: "GET" });
+    if (!resp.ok) {
+      const text = await resp.text();
+      return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
+    }
+    const data = (await resp.json()) as {
+      models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
+      nextPageToken?: string;
+    };
+    for (const item of data?.models ?? []) {
+      if (!item?.name) continue;
+      if (Array.isArray(item.supportedGenerationMethods) && !item.supportedGenerationMethods.includes("generateContent")) continue;
+      models.push(String(item.name).replace(/^models\//, ""));
+    }
+    pageToken = String(data?.nextPageToken || "");
+    if (!pageToken) break;
+  }
+  return { ok: true, models };
+}
+
 export const geminiAdapter: ProtocolAdapter = {
   protocol: "gemini",
   capabilities: {
@@ -663,5 +705,6 @@ export const geminiAdapter: ProtocolAdapter = {
   },
   parseResponse(json: unknown): DrainResult {
     return parseGeminiResponse(json);
-  }
+  },
+  listModels: listGeminiModels
 };

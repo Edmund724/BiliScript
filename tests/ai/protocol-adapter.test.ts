@@ -70,3 +70,63 @@ describe("协议穿线（chatCompletion → resolveAdapter）", () => {
     expect(body.stream).toBe(false);
   });
 });
+
+describe("listModels（模型列表拉取归 adapter）", () => {
+  function modelsJsonResponse(status: number, body: unknown) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      text: vi.fn(async () => (typeof body === "string" ? body : JSON.stringify(body))),
+      json: vi.fn(async () => body)
+    } as unknown as Response;
+  }
+
+  it("openai：GET {baseUrl}/v1/models + Bearer；baseUrl trim / 去尾斜杠 / 削 /v1 尾", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => modelsJsonResponse(200, { data: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }, {}] }));
+
+    const resp = await PROTOCOL_ADAPTERS.openai.listModels({
+      baseUrl: "https://api.openai.com/v1/",
+      apiKey: "sk-1",
+      fetchImpl: fetchMock
+    });
+
+    expect(resp).toEqual({ ok: true, models: ["gpt-4o", "gpt-4o-mini"] });
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string>; method?: string }];
+    expect(url).toBe("https://api.openai.com/v1/models");
+    expect(init.headers.Authorization).toBe("Bearer sk-1");
+    expect(init.method).toBe("GET");
+  });
+
+  it("openai：缺 key 裸 GET 不发 Authorization；HTTP 错误回 `HTTP <status>: <body 截断>`", async () => {
+    const okFetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => modelsJsonResponse(200, { data: [{ id: "m1" }] }));
+    const noKeyResp = await PROTOCOL_ADAPTERS.openai.listModels({
+      baseUrl: "https://api.example.com",
+      fetchImpl: okFetch
+    });
+    expect(noKeyResp).toEqual({ ok: true, models: ["m1"] });
+    expect((okFetch.mock.calls[0][1] as unknown as { headers: Record<string, string> }).headers.Authorization).toBeUndefined();
+
+    const errFetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => modelsJsonResponse(401, "unauthorized"));
+    const errResp = await PROTOCOL_ADAPTERS.openai.listModels({
+      baseUrl: "https://api.example.com",
+      apiKey: "sk-1",
+      fetchImpl: errFetch
+    });
+    expect(errResp).toEqual({ ok: false, error: "HTTP 401: unauthorized" });
+  });
+
+  it("anthropic：复用 OpenAI 兼容形状（Messages 通道无 models.list 端点）", async () => {
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => modelsJsonResponse(200, { data: [{ id: "deepseek-chat" }] }));
+
+    const resp = await PROTOCOL_ADAPTERS.anthropic.listModels({
+      baseUrl: "https://api.deepseek.com/v1",
+      apiKey: "sk-ant",
+      fetchImpl: fetchMock
+    });
+
+    expect(resp).toEqual({ ok: true, models: ["deepseek-chat"] });
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe("https://api.deepseek.com/v1/models");
+    expect(init.headers.Authorization).toBe("Bearer sk-ant");
+  });
+});

@@ -12,7 +12,7 @@ import { planThinkingWire } from "../plan-thinking.js";
 // 未归一的档位外部值的声明面（词表叶；本文件只透传给装配边）。纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "../thinking-levels.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
-import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
+import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 
 // OpenAI 兼容协议 chat 路径。
 // 覆盖 OpenAI / DeepSeek / Qwen / Zhipu / Kimi / MiniMax / Mimo / Opencode Go / OpenRouter / Stepfun / Ollama（OpenAI 兼容模式）等。
@@ -219,6 +219,36 @@ async function drainSseStream({ response, signal, onEvent }: { response: Respons
   return { content, toolCalls, finishReason, ...(usage ? { usage } : {}) };
 }
 
+// ===== 模型列表拉取（OpenAI 兼容形状） =====
+
+// GET `${baseUrl}/v1/models` + Bearer（缺 key 裸 GET，怪癖 bearerOptionalWithoutKey
+// 同款语义）：OpenAI compatible 协议的 models.list 形状。anthropic adapter 的
+// listModels 复用本实现——Messages 通道无 models.list 端点，设置弹窗对 anthropic
+// 协议已把探测地址跟随到预设的 OpenAI 端点（provider-editor-fetch-dialog.ts），
+// 行为与归位前「非 gemini 一律 openai 形状」逐字节一致。baseUrl 归一（trim +
+// 去尾斜杠 + 削 /v1 尾）在此单源。HTTP 错误在此格式化；网络 / 解析抛错上抛给壳。
+export async function listOpenAiCompatibleModels({ baseUrl, apiKey, fetchImpl }: ListModelsInput): Promise<ListModelsResult> {
+  const normalizedBaseUrl = String(baseUrl || "").trim().replace(/\/+$/, "").replace(/\/v1$/i, "");
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  const doFetch = fetchImpl ?? fetch;
+  const resp = await doFetch(`${normalizedBaseUrl}/v1/models`, { headers, method: "GET" });
+  if (!resp.ok) {
+    const text = await resp.text();
+    return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
+  }
+  const data = (await resp.json()) as { data?: Array<{ id?: string }> };
+  const models: string[] = [];
+  if (Array.isArray(data?.data)) {
+    for (const item of data.data) {
+      if (item?.id) models.push(String(item.id));
+    }
+  }
+  return { ok: true, models };
+}
+
 export const openaiAdapter: ProtocolAdapter = {
   protocol: "openai",
   capabilities: {
@@ -308,5 +338,7 @@ export const openaiAdapter: ProtocolAdapter = {
       finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null,
       ...(usage ? { usage } : {})
     };
-  }
+  },
+
+  listModels: listOpenAiCompatibleModels
 };

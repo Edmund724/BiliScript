@@ -20,8 +20,8 @@
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
 import { planThinkingWire } from "../plan-thinking.js";
-import { parseToolArgs } from "./openai.js";
-import type { ChatRequest, DrainContext, DrainResult, ProtocolAdapter } from "../protocol-adapter.js";
+import { listOpenAiCompatibleModels, parseToolArgs } from "./openai.js";
+import type { ChatRequest, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 
 // 怪癖 maxTokensRequired（语义见 compat-vocab 词表单源）：max_tokens 必填且无
@@ -414,5 +414,13 @@ export const anthropicAdapter: ProtocolAdapter = {
       finishReason: typeof data.stop_reason === "string" && data.stop_reason ? mapStopReason(data.stop_reason) : null,
       ...(usage ? { usage } : {})
     };
+  },
+
+  // 模型列表拉取复用 OpenAI 兼容形状（listOpenAiCompatibleModels）：Messages 通道
+  // 无 models.list 端点（实测 anthropic baseUrl + /v1/models 404），设置弹窗对
+  // anthropic 协议已把探测地址跟随到预设的 OpenAI 端点——与归位前「非 gemini 一律
+  // openai 形状」行为逐字节一致。
+  listModels(input: ListModelsInput): Promise<ListModelsResult> {
+    return listOpenAiCompatibleModels(input);
   }
 };
