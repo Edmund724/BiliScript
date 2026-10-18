@@ -10,8 +10,8 @@
 // 链侧 classifySearchFailure 归额度类（与 Tavily/豆包同一张映射表），适配器不做映射。
 // 纯函数，零 Chrome API / 零 DOM。
 
+import { mapSearchResultRows } from "./rows.js";
 import {
-  truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
   type ParsedSearchResponse,
@@ -40,20 +40,8 @@ export function parseDeepseekSearchResponse(payload: unknown): ParsedSearchRespo
   };
   const results = Array.isArray(data.results) ? data.results : [];
   return {
-    results: (results as unknown[]).map((item) => {
-      const row = (item && typeof item === "object" ? item : {}) as {
-        title?: unknown;
-        url?: unknown;
-        summary?: unknown;
-        snippet?: unknown;
-      };
-      return {
-        title: String(row.title || ""),
-        url: String(row.url || ""),
-        // summary 优先（给模型阅读的长摘要）；老响应缺 summary 时回落 snippet
-        snippet: truncateSnippet(row.summary || row.snippet)
-      };
-    })
+    // summary 优先（给模型阅读的长摘要）；老响应缺 summary 时回落 snippet
+    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.summary || row.snippet }))
   };
 }
 

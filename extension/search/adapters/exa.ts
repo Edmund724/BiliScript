@@ -3,8 +3,8 @@
 // { query, numResults, contents: { summary: true } }——只有请求 summary 才有
 // 摘要可回。响应 results[].title/url/summary。纯函数，零 Chrome API / 零 DOM。
 
+import { mapSearchResultRows } from "./rows.js";
 import {
-  truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
   type ParsedSearchResponse,
@@ -37,18 +37,7 @@ export function parseExaSearchResponse(payload: unknown): ParsedSearchResponse {
   const results = Array.isArray(data.results) ? data.results : [];
   const credits = [data.credits, data.costDollars?.total].find((value) => Number.isFinite(Number(value)));
   return {
-    results: results.map((item) => {
-      const row = (item && typeof item === "object" ? item : {}) as {
-        title?: unknown;
-        url?: unknown;
-        summary?: unknown;
-      };
-      return {
-        title: String(row.title || ""),
-        url: String(row.url || ""),
-        snippet: truncateSnippet(row.summary)
-      };
-    }),
+    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.summary })),
     ...(credits !== undefined ? { credits: Number(credits) } : {})
   };
 }

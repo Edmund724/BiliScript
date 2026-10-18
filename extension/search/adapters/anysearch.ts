@@ -3,8 +3,8 @@
 // 请求体 { query, max_results }。响应 data.results[].title/url/snippet（同项另有
 // 更长的 content，不用）。纯函数，零 Chrome API / 零 DOM。
 
+import { mapSearchResultRows } from "./rows.js";
 import {
-  truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
   type ParsedSearchResponse,
@@ -31,18 +31,7 @@ export function parseAnySearchResponse(payload: unknown): ParsedSearchResponse {
   };
   const results = Array.isArray(data.data?.results) ? data.data?.results : [];
   return {
-    results: (results as unknown[]).map((item) => {
-      const row = (item && typeof item === "object" ? item : {}) as {
-        title?: unknown;
-        url?: unknown;
-        snippet?: unknown;
-      };
-      return {
-        title: String(row.title || ""),
-        url: String(row.url || ""),
-        snippet: truncateSnippet(row.snippet)
-      };
-    })
+    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.snippet }))
   };
 }
 

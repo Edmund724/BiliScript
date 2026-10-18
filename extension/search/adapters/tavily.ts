@@ -6,8 +6,8 @@
 // results[].title/url/content（content 即 snippet）。纯函数，零 Chrome API /
 // 零 DOM。
 
+import { mapSearchResultRows } from "./rows.js";
 import {
-  truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
   type ParsedSearchResponse,
@@ -38,18 +38,7 @@ export function parseTavilySearchResponse(payload: unknown): ParsedSearchRespons
   };
   const results = Array.isArray(data.results) ? data.results : [];
   return {
-    results: results.map((item) => {
-      const row = (item && typeof item === "object" ? item : {}) as {
-        title?: unknown;
-        url?: unknown;
-        content?: unknown;
-      };
-      return {
-        title: String(row.title || ""),
-        url: String(row.url || ""),
-        snippet: truncateSnippet(row.content)
-      };
-    }),
+    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.content })),
     ...(Number.isFinite(Number(data.usage?.credits)) ? { credits: Number(data.usage?.credits) } : {})
   };
 }

@@ -4,8 +4,8 @@
 // data.web[].title/url/description（v2 的 data 是对象；v1 的扁平数组不用）。
 // 纯函数，零 Chrome API / 零 DOM。
 
+import { mapSearchResultRows } from "./rows.js";
 import {
-  truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
   type ParsedSearchResponse,
@@ -32,18 +32,7 @@ export function parseFirecrawlSearchResponse(payload: unknown): ParsedSearchResp
   };
   const results = Array.isArray(data.data?.web) ? data.data?.web : [];
   return {
-    results: (results as unknown[]).map((item) => {
-      const row = (item && typeof item === "object" ? item : {}) as {
-        title?: unknown;
-        url?: unknown;
-        description?: unknown;
-      };
-      return {
-        title: String(row.title || ""),
-        url: String(row.url || ""),
-        snippet: truncateSnippet(row.description)
-      };
-    })
+    results: mapSearchResultRows(results, (row) => ({ title: row.title, url: row.url, snippet: row.description }))
   };
 }
 

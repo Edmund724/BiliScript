@@ -1,6 +1,7 @@
 // extension/search/adapters/deepseek.ts 测试：请求构造（端点 / 鉴权头 / 固定
-// need_content:false / count 透传）与响应映射（snippet 取 summary、解析期截断 500、
-// 空结果合法、缺 summary 回落 snippet）。HTTP 402/429 的非 2xx 分支由执行器
+// need_content:false / count 透传）与响应映射形状（snippet 取 summary、缺 summary
+// 回落 snippet、空结果合法）。行映射不变量（坏行不抛、截 500）单源在
+// adapter-rows.test.ts，此处不复测。HTTP 402/429 的非 2xx 分支由执行器
 //（search-executor）抛 `HTTP <status>`，分类走 classifySearchFailure（既有用例），
 // 此处不重复；不写真付费请求。
 import { describe, expect, it } from "vitest";
@@ -10,7 +11,6 @@ import {
   parseDeepseekSearchResponse
 } from "../../extension/search/adapters/deepseek.js";
 import { SEARCH_ADAPTERS } from "../../extension/search/search-adapters.js";
-import { SEARCH_SNIPPET_MAX_LENGTH } from "../../extension/search/adapters/types.js";
 
 const INPUT = { baseUrl: "https://api.deepseek.com", apiKey: "sk-deepseek", query: "B站 UP 主", count: 5 };
 
@@ -43,12 +43,6 @@ describe("parseDeepseekSearchResponse", () => {
       { title: "标题 A", url: "https://a.example.com", snippet: "给模型阅读的长摘要（600-800 字符）" },
       { title: "标题 B", url: "https://b.example.com", snippet: "" }
     ]);
-  });
-
-  it("snippet 解析期截断 500（SEARCH_SNIPPET_MAX_LENGTH）", () => {
-    const summary = "长".repeat(SEARCH_SNIPPET_MAX_LENGTH + 100);
-    const parsed = parseDeepseekSearchResponse({ results: [{ title: "t", url: "https://x", summary }] });
-    expect(parsed.results[0].snippet).toHaveLength(SEARCH_SNIPPET_MAX_LENGTH);
   });
 
   it("空结果（results 为空数组）= 合法无结果，非错误", () => {

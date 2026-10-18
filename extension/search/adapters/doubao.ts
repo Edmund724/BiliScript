@@ -7,8 +7,8 @@
 // providerCode 的错，让链侧分类（search-chain.ts 的 classifySearchFailure；
 // 适配器只原样抛出，不做映射）。纯函数，零 Chrome API / 零 DOM。
 
+import { mapSearchResultRows } from "./rows.js";
 import {
-  truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
   type ParsedSearchResponse,
@@ -61,20 +61,11 @@ export function parseDoubaoSearchResponse(payload: unknown): ParsedSearchRespons
   }
   const results = Array.isArray(data.Result?.WebResults) ? data.Result?.WebResults : [];
   return {
-    results: (results as unknown[]).map((item) => {
-      const row = (item && typeof item === "object" ? item : {}) as {
-        Title?: unknown;
-        Url?: unknown;
-        Summary?: unknown;
-        Content?: unknown;
-        Snippet?: unknown;
-      };
-      return {
-        title: String(row.Title || ""),
-        url: String(row.Url || ""),
-        snippet: truncateSnippet(row.Summary || row.Content || row.Snippet)
-      };
-    })
+    results: mapSearchResultRows(results, (row) => ({
+      title: row.Title,
+      url: row.Url,
+      snippet: row.Summary || row.Content || row.Snippet
+    }))
   };
 }
 

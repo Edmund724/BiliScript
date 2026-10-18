@@ -4,8 +4,8 @@
 // result.structuredContent.results[].title/url/excerpts[0]。纯函数，零 Chrome
 // API / 零 DOM。
 
+import { mapSearchResultRows } from "./rows.js";
 import {
-  truncateSnippet,
   type BuildSearchRequestInput,
   type BuiltSearchRequest,
   type ParsedSearchResponse,
@@ -40,18 +40,11 @@ export function parseParallelSearchResponse(payload: unknown): ParsedSearchRespo
   };
   const results = Array.isArray(data.result?.structuredContent?.results) ? data.result?.structuredContent?.results : [];
   return {
-    results: (results as unknown[]).map((item) => {
-      const row = (item && typeof item === "object" ? item : {}) as {
-        title?: unknown;
-        url?: unknown;
-        excerpts?: unknown;
-      };
-      return {
-        title: String(row.title || ""),
-        url: String(row.url || ""),
-        snippet: truncateSnippet(Array.isArray(row.excerpts) ? row.excerpts[0] : undefined)
-      };
-    })
+    results: mapSearchResultRows(results, (row) => ({
+      title: row.title,
+      url: row.url,
+      snippet: Array.isArray(row.excerpts) ? row.excerpts[0] : undefined
+    }))
   };
 }
 
