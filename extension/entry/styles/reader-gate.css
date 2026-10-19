@@ -464,7 +464,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 #biliscript-reading-view .biliscript-reading-tab {
   flex: 1 1 0;
-  padding: 8px 26px;
+  padding: 8px 34px;
 }
 
 /* 选中卡与间距随面板宽度降档（#biliscript-reading-view 是 inline-size 容器）：
