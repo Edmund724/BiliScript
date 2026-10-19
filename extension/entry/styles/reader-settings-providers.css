@@ -554,6 +554,8 @@
   border-radius: 16px;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--biliscript-reader-shadow);
 }
 
@@ -833,7 +835,8 @@
 /* ===== 减弱透明度 =====
  * 抽屉材质退回近实色（token 已在 gate 段覆盖为实色），毛玻璃一并关停 */
 @media (prefers-reduced-transparency: reduce) {
-  #biliscript-reading-view .biliscript-reading-settings-panel {
+  #biliscript-reading-view .biliscript-reading-settings-panel,
+  #biliscript-reading-view .provider-editor-fetch-dialog {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -847,3 +850,10 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-fetch-dialog {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+

@@ -32,6 +32,8 @@
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 12px;
   background: var(--biliscript-reader-card);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
   box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
   list-style: none;
   margin: 0;
@@ -400,3 +402,16 @@
 #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row:first-child {
   border-style: dashed;
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+

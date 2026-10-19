@@ -40,6 +40,8 @@
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 12px;
   background: var(--biliscript-reader-card);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
   box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
   list-style: none;
   margin: 0;
@@ -249,3 +251,12 @@
     animation: none;
   }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  #biliscript-reading-view .custom-select-dropdown {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+

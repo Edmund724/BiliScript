@@ -163,4 +163,21 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(gate).toContain("border: none");
     expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.7)");
   });
+
+  it("浮层与弹层：无边框半透明白玻璃卡 + 顶缘内高光 + 24px 毛玻璃模糊与滚动/透明度降级", () => {
+    const gate = readCss(GATE_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const sel of [
+      ".chat-model-panel",
+      ".chat-search-preview",
+      ".custom-select-dropdown",
+      ".provider-editor-host .ai-provider-model-dropdown",
+      ".provider-editor-fetch-dialog"
+    ]) {
+      expect(gate, `gate 表应包含 ${sel}`).toContain(sel);
+    }
+    expect(gate).toContain("-webkit-backdrop-filter: blur(24px) saturate(180%)");
+    expect(gate).toContain("backdrop-filter: blur(24px) saturate(180%)");
+    expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.7)");
+    expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.07)");
+  });
 });

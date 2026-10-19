@@ -1408,6 +1408,8 @@
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 16px;
   background: var(--biliscript-reader-card);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--biliscript-reader-shadow);
   overflow-y: auto;
 }
@@ -1977,6 +1979,8 @@
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 12px;
   background: var(--biliscript-reader-card);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--biliscript-reader-shadow);
   font-size: 13px;
   color: var(--biliscript-reader-muted);
@@ -1998,3 +2002,18 @@
   font-size: 12.5px;
   color: var(--biliscript-reader-faint);
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .biliscript-reading-chat .chat-model-panel,
+  .biliscript-reading-chat .chat-search-preview {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-chat .chat-model-panel,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-chat .chat-search-preview {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+

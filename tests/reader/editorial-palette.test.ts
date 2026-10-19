@@ -94,6 +94,15 @@ describe("editorial 数字刊物色板", () => {
     expect(gate).toContain("#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-ov-chapter");
     expect(gate).toContain("#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-ov-quote");
     expect(gate).toContain(".biliscript-reading-search");
+    for (const popover of [
+      ".chat-model-panel",
+      ".chat-search-preview",
+      ".custom-select-dropdown",
+      ".provider-editor-host .ai-provider-model-dropdown",
+      ".provider-editor-fetch-dialog"
+    ]) {
+      expect(gate).toContain(popover);
+    }
     expect(gate).toContain("border: 1px solid var(--biliscript-reader-border);");
   });
 
