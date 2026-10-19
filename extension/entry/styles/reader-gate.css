@@ -544,6 +544,30 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
+/* 对话与设置内嵌卡片白玻璃化（03 号票）：
+ * 助手回复气泡、选区解释卡、思考过程折叠块、联网搜索时间线卡及设置「获取可用模型」列表容器
+ * 纳入与输入卡、章节卡同系的无边框白玻璃卡片体系（去除 1px 实线外边框，代以分层微阴影与顶缘内高光）。
+ * 内部的分隔线（如思考块头部下边线、联网搜索步骤间虚线）保持清晰可读。 */
+#biliscript-reading-view .biliscript-reading-chat .chat-msg-assistant,
+#biliscript-reading-view .biliscript-reading-explain-card-dialog,
+#biliscript-reading-view .biliscript-reading-chat .chat-thinking,
+#biliscript-reading-view .biliscript-reading-chat .chat-search-card,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-list,
+#biliscript-reading-view .provider-editor-fetch-list {
+  background: var(--biliscript-reader-card);
+  border: none;
+  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-msg-assistant,
+#biliscript-reading-view[data-theme="dark"] .biliscript-reading-explain-card-dialog,
+#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-thinking,
+#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-search-card,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-list,
+#biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-list {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
 /* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-chapter,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-quote,
@@ -707,6 +731,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-quote,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-assistant,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-explain-card-dialog,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-thinking,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-search-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-chip,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .asr-provider-row,
@@ -727,11 +755,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
 #biliscript-reading-view[data-palette="editorial"] .provider-editor-host .ai-provider-model-dropdown,
 #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog,
+#biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-list,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-model-panel,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .chat-search-preview,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-host .ai-provider-model-dropdown,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-list {
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: none;
   -webkit-backdrop-filter: none;

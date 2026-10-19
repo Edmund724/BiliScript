@@ -523,10 +523,12 @@
 
 .biliscript-reading-chat .chat-msg-assistant {
   align-self: flex-start;
-  background: transparent;
+  background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
-  border: 0;
-  padding: 0;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 14px;
+  border-bottom-left-radius: 6px;
+  padding: 10px 14px;
   white-space: normal;
 }
 
@@ -534,12 +536,14 @@
   min-width: 0;
 }
 
-/* 思考块（2026-09 用户决议：去掉左竖条与卡片底，改 DeepSeek 式干净形态）：
- * 无背景无边框，标题行 = 线性思考图标 + 文案 + 折叠箭头，正文左缘与标题文案
- * 对齐（图标 14 + gap 6 = 20px）。行为不变：正文仍 200px 内滚，折叠态仍收成
- * 一行「思考过程」。 */
+/* 思考块：白玻璃折叠卡，标题行 = 线性思考图标 + 文案 + 折叠箭头。
+ * 展开态保留 200px 内滚，正文与标题行以 1px 细线分隔；折叠态收成一行「思考过程」。 */
 .biliscript-reading-chat .chat-thinking {
   margin-bottom: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 12px;
+  background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-muted);
   font-size: 14px;
   line-height: 1.6;
@@ -553,6 +557,12 @@
   font-weight: 500;
   margin-bottom: 4px;
   color: var(--biliscript-reader-muted);
+}
+
+.biliscript-reading-chat .chat-thinking:not(.chat-thinking-collapsed) .chat-thinking-label {
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--biliscript-reader-border);
 }
 
 .biliscript-reading-chat .chat-thinking-icon {
@@ -1772,7 +1782,7 @@
   max-width: 100%;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 12px;
-  background: var(--biliscript-reader-surface);
+  background: var(--biliscript-reader-card);
   padding: 8px 10px;
 }
 
