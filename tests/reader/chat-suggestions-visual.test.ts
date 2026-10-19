@@ -79,7 +79,7 @@ describe("建议问题与空态欢迎区观感", () => {
     const source = readFileSync(join(ROOT, "extension/reader/chat-suggestions-slot.ts"), "utf8");
     const svg = source.match(/const HERO_ICON_SVG =\s*'([^']+)'/)?.[1];
     expect(svg, "chat-suggestions-slot.ts 应有 HERO_ICON_SVG").toBeTruthy();
-    const d = svg!.match(/d="([^"]*)"/)?.[1];
+    const d = svg!.match(/<path d="([^"]*)"/)?.[1];
     expect(d, "HERO_ICON_SVG 应带路径").toBeTruthy();
 
     // 路径只用 M/L/l/z（星形折线）：累计当前点求外接盒。绝对/相对都覆盖，

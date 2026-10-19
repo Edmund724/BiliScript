@@ -215,14 +215,8 @@ body[data-biliscript-reader-mode="1"],
   /* Gemini 虹彩流光（蓝→紫→珊瑚粉→暖金）：AI 强相关触点的克制流光，只被
    * :not([data-palette="editorial"]) 门控的规则消费（hero 徽标 / 概览 AI 徽标 /
    * 输入卡聚焦环 / 思考滑块最高档 / 进度条与三点脉冲）；大面积阅读背景与普通
-   * 导航控件保持纯净蓝雾玻璃。 */
-  --biliscript-gemini-gradient: linear-gradient(
-    135deg,
-    #4285f4 0%,
-    #9b72cb 36%,
-    #d96570 72%,
-    #f49c46 100%
-  );
+   * 导航控件保持纯净蓝雾玻璃。hero 徽标的星形渐变不进 token 表——SVG paint
+   * server 吃不了 CSS 渐变值，明暗两档 def 随 HERO_ICON_SVG 自载。 */
   --biliscript-gemini-gradient-soft: linear-gradient(
     135deg,
     rgba(66, 133, 244, 0.14) 0%,
@@ -304,13 +298,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.18);
   /* Gemini 虹彩流光深色档：四色换暗面亮档（#669df6→#b388ff→#f28b82→#fdd663），
    * 消费方与浅色档同一组 :not([data-palette="editorial"]) 门控规则。 */
-  --biliscript-gemini-gradient: linear-gradient(
-    135deg,
-    #669df6 0%,
-    #b388ff 36%,
-    #f28b82 72%,
-    #fdd663 100%
-  );
   --biliscript-gemini-gradient-soft: linear-gradient(
     135deg,
     rgba(102, 157, 246, 0.18) 0%,
@@ -914,14 +901,28 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
   background: var(--biliscript-reader-surface-2);
 }
 
-/* Gemini 触点 · AI 对话空态 hero 徽标：虹彩渐变圆底 + 白图标，顶沿内高光 +
- * gemini-glow 外发光；editorial 走基表的 accent-soft 圆底 + accent 图标。 */
+/* Gemini 触点 · AI 对话空态 hero 徽标：去圆底去发光，星形本体灌虹彩渐变
+ * （Gemini logo 形态）。path 的 fill/stroke 由 CSS 覆盖 svg 表现属性，渐变 def
+ * （明暗两档各一）内联在 HERO_ICON_SVG（chat-suggestions-slot.ts）；星形放大到
+ * 40px 补无圆底的体量差。editorial 不匹配门控，走基表 accent-soft 圆底 +
+ * accent 描边星，defs 闲置无害。 */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon {
-  background: var(--biliscript-gemini-gradient);
-  color: #ffffff;
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.65),
-    var(--biliscript-gemini-glow);
+  background: none;
+  box-shadow: none;
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon svg {
+  width: 40px;
+  height: 40px;
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon path {
+  fill: url(#biliscript-hero-g-light);
+  stroke: none;
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon path {
+  fill: url(#biliscript-hero-g-dark);
 }
 
 /* Gemini 触点 · 概览「AI 生成 / AI 精选」徽标：虹彩 soft 渐变底 + accent 字 +

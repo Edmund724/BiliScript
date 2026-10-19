@@ -42,12 +42,15 @@ export interface ChatSuggestionsSlot {
   isPresent: () => boolean;
 }
 
-// 空态欢迎区图标（✦ sparkles，24 视框 / stroke 1.8 / currentColor）：纯装饰，
-// svg 自带 aria-hidden；图标资产本模块自带，不引外部资源。星形在视框内几何
-// 居中（外接盒 5.2–18.8 正负对称）——2026-11 用户反馈圆底里看着偏上，原路径
-// y 跨度 3.6–17.2，视觉中心比视框中心高 1.6px，圆是 flex 居中的、偏的是图形。
+// 空态欢迎区图标（✦ sparkles，24 视框）：纯装饰，svg 自带 aria-hidden；图标资产
+// 本模块自带，不引外部资源。星形在视框内几何居中（外接盒 5.2–18.8 正负对称），
+// tests/reader/chat-suggestions-visual.test.ts 有外接盒居中断言。
+// 两套形态共用一份 path：基表（editorial）是 stroke currentColor 描边星；flyme 档
+// 由 reader-gate.css 的 Gemini 门控规则以 CSS 覆盖 path 表现属性（fill: url(#…)，
+// 渐变 def 内联于此，明暗两档各一），描边/填充切换不动本资产。渐变蓝段拉宽
+// （0→30% 才到紫）：小尺寸星形上 0–36% 的蓝色区会被紫/珊瑚吃掉，看不出蓝。
 const HERO_ICON_SVG =
-  '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5.2l1.84 4.96 4.96 1.84-4.96 1.84L12 18.8l-1.84-4.96L5.2 12l4.96-1.84L12 5.2z"/></svg>';
+  '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><defs><linearGradient id="biliscript-hero-g-light" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4285f4"/><stop offset=".3" stop-color="#9b72cb"/><stop offset=".68" stop-color="#d96570"/><stop offset="1" stop-color="#f49c46"/></linearGradient><linearGradient id="biliscript-hero-g-dark" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#669df6"/><stop offset=".3" stop-color="#b388ff"/><stop offset=".68" stop-color="#f28b82"/><stop offset="1" stop-color="#fdd663"/></linearGradient></defs><path d="M12 5.2l1.84 4.96 4.96 1.84-4.96 1.84L12 18.8l-1.84-4.96L5.2 12l4.96-1.84L12 5.2z"/></svg>';
 
 export function createChatSuggestionsSlot(deps: CreateChatSuggestionsSlotDeps): ChatSuggestionsSlot {
   // 本代建议区的节点句柄：非 null 只表示「属主手里有一个节点」，是否在场由

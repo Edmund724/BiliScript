@@ -5,8 +5,9 @@
 // 1. token 契约（reader-gate.css 主题块）：--biliscript-reader-card 升级为 165deg
 //    曲面透镜渐变；新增 --biliscript-reader-card-highlight（左上高光 + 右下冷色
 //    反弹光的双对角线折射内高光 + 多层悬浮柔影）；--biliscript-reader-shadow
-//    升级为三层悬浮柔影（明暗两档同结构、各取各档）；Gemini 四色虹彩流光 token
-//    （gradient / gradient-soft / border-gradient / glow）明暗两档各一份。
+//    升级为三层悬浮柔影（明暗两档同结构、各取各档）；Gemini 虹彩流光 token
+//    （gradient-soft / border-gradient / glow）明暗两档各一份——hero 徽标的
+//    星形渐变不进 token 表，def 随 HERO_ICON_SVG（chat-suggestions-slot.ts）自载。
 // 2. 六处风格收敛：次级小按钮、悬浮跟随/解释胶囊与滚底圆钮、横幅/状态条、
 //    面板内对话框在 flyme 下无 1px 灰框，统一液态玻璃卡片体系；带框图标开关
 //    （联网搜索 pill）关态保留 1px 描边。
@@ -373,11 +374,8 @@ describe("液态玻璃 token 契约（flyme 两档）", () => {
     );
   });
 
-  it("浅色档：Gemini 虹彩流光四 token（蓝→紫→珊瑚粉→暖金）", () => {
+  it("浅色档：Gemini 虹彩流光 token（soft / border / glow，蓝→紫→珊瑚粉→暖金）", () => {
     const block = FLYME_LIGHT();
-    expect(block).toContain(
-      "--biliscript-gemini-gradient: linear-gradient(135deg, #4285f4 0%, #9b72cb 36%, #d96570 72%, #f49c46 100%)"
-    );
     expect(block).toContain(
       "--biliscript-gemini-gradient-soft: linear-gradient(135deg, rgba(66, 133, 244, 0.14) 0%, rgba(155, 114, 203, 0.14) 40%, rgba(217, 101, 112, 0.14) 75%, rgba(244, 156, 70, 0.14) 100%)"
     );
@@ -402,11 +400,8 @@ describe("液态玻璃 token 契约（flyme 两档）", () => {
     );
   });
 
-  it("深色档：Gemini 虹彩流光四 token 换暗面亮档", () => {
+  it("深色档：Gemini 虹彩流光 token 换暗面亮档", () => {
     const block = FLYME_DARK();
-    expect(block).toContain(
-      "--biliscript-gemini-gradient: linear-gradient(135deg, #669df6 0%, #b388ff 36%, #f28b82 72%, #fdd663 100%)"
-    );
     expect(block).toContain(
       "--biliscript-gemini-gradient-soft: linear-gradient(135deg, rgba(102, 157, 246, 0.18) 0%, rgba(179, 136, 255, 0.18) 40%, rgba(242, 139, 130, 0.18) 75%, rgba(253, 214, 99, 0.16) 100%)"
     );
@@ -507,15 +502,33 @@ describe("收敛 1/6 补：字幕工具栏选轨触发器按次级按钮收敛�
 });
 
 describe("Gemini 触点 1 · chat 空态 hero 徽标", () => {
-  it("flyme：虹彩渐变底 + 白图标 + 顶沿内高光与 gemini-glow 外发光", () => {
-    const body = ruleBody(
+  it("flyme：去圆底去发光，星形本体灌虹彩渐变（svg 放大 40px）", () => {
+    const icon = ruleBody(
       readCss(GATE_CSS),
       "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-hero-icon"
     );
-    expect(body).toContain("background: var(--biliscript-gemini-gradient)");
-    expect(body).toContain("color: #ffffff");
-    expect(body).toContain("inset 0 1px 1px rgba(255, 255, 255, 0.65)");
-    expect(body).toContain("var(--biliscript-gemini-glow)");
+    expect(icon).toContain("background: none");
+    expect(icon).toContain("box-shadow: none");
+
+    const svg = ruleBody(
+      readCss(GATE_CSS),
+      "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-hero-icon svg"
+    );
+    expect(svg).toContain("width: 40px");
+    expect(svg).toContain("height: 40px");
+
+    const light = ruleBody(
+      readCss(GATE_CSS),
+      "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-hero-icon path"
+    );
+    expect(light).toContain("fill: url(#biliscript-hero-g-light)");
+    expect(light).toContain("stroke: none");
+
+    const dark = ruleBody(
+      readCss(GATE_CSS),
+      "#biliscript-reading-view[data-theme=\"dark\"]:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-hero-icon path"
+    );
+    expect(dark).toContain("fill: url(#biliscript-hero-g-dark)");
   });
 
   it("editorial 走基表：accent-soft 圆底 + accent 图标原样保留", () => {
