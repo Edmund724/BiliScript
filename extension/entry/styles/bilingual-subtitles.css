@@ -299,8 +299,10 @@
   display: none;
 }
 
-/* 开关：34×20 胶囊 + 16px 圆钮（原型 [4] 段度量）。用真 <button role="switch">
- * 而不是原型那个 span[tabindex]，键盘可达性直接由原生按钮给。 */
+/* 开关：34×20 胶囊 + 16px 圆钮，用真 <button role="switch"> 给齐键盘可达性。
+ * 色彩与阴影对齐设置抽屉 toggle-switch 规范：关态轨道底色为 surface-3，
+ * 开态切 accent；滑块采用纯白底色配合双层微阴影（3px 模糊软环 + 1px 细环），
+ * 位移与变色走 --biliscript-reader-ease-spring 缓动。 */
 #biliscript-reading-view .biliscript-bilingual-switch {
   flex: 0 0 auto;
   margin-left: auto;
@@ -310,9 +312,14 @@
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: var(--biliscript-reader-border);
+  background: var(--biliscript-reader-surface-3);
   cursor: pointer;
-  transition: background 150ms ease-out;
+  transition: background-color 0.2s var(--biliscript-reader-ease-spring, ease);
+}
+
+#biliscript-reading-view .biliscript-bilingual-switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 
 #biliscript-reading-view .biliscript-bilingual-switch::after {
@@ -323,9 +330,9 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--biliscript-reader-card);
-  box-shadow: 0 1px 2px var(--biliscript-reader-track);
-  transition: left 150ms ease-out;
+  background: #ffffff;
+  box-shadow: 0 0 3px rgba(23, 24, 26, 0.16), 0 0 1px rgba(23, 24, 26, 0.22);
+  transition: left 0.2s var(--biliscript-reader-ease-spring, ease);
 }
 
 #biliscript-reading-view .biliscript-bilingual-switch[data-on="true"] {
@@ -340,6 +347,14 @@
 #biliscript-reading-view .biliscript-bilingual-switch:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* 减少动态：轨道颜色与滑块位移过渡关停。 */
+@media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view .biliscript-bilingual-switch,
+  #biliscript-reading-view .biliscript-bilingual-switch::after {
+    transition: none;
+  }
 }
 
 /* trigger 的双语徽标（双语态 = 主轨名 + 徽标，trigger 定宽 120px 不动）：

@@ -737,9 +737,12 @@ describe("形态与三处登记（源码/表面锁）", () => {
     expect(css).toContain("max-width: calc(var(--biliscript-script-width, 380px) - 78px)");
     expect(css).toMatch(/\.biliscript-bilingual-empty\s*\{[^}]*max-width:\s*140px/);
     expect(css).toContain("text-overflow: ellipsis");
-    // 新增样式不写字面色（原型里的 rgba 阴影换成令牌）
-    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
-    expect(css).not.toMatch(/\brgba?\(/);
+    // 新增样式不写字面色（原型里的 rgba 阴影换成令牌；开关滑块按 toggle-switch 规范走白底与双层微阴影）
+    const generalCss = css
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/[^{}]*?\.biliscript-bilingual-switch::after\s*\{[^}]*\}/g, "");
+    expect(generalCss).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(generalCss).not.toMatch(/\brgba?\(/);
     // 副行与徽标都用面板色板令牌
     expect(css).toMatch(/\.biliscript-reading-subtext\s*\{[^}]*--biliscript-reader-faint/);
     expect(css).toMatch(/\.biliscript-reading-subtext\[data-state="fail"\]\s*\{[^}]*--biliscript-reader-accent/);
