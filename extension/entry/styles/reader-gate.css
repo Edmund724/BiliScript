@@ -475,7 +475,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   }
 
   #biliscript-reading-view .biliscript-reading-tab {
-    padding: 7px 12px;
+    padding: 8px 30px;
   }
 }
 
@@ -486,7 +486,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   }
 
   #biliscript-reading-view .biliscript-reading-tab {
-    padding: 6px 5px;
+    padding: 8px 20px;
     font-size: 14px;
   }
 }
