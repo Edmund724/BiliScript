@@ -84,9 +84,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
  * data-theme / data-palette。
  * flyme 基础块 = 浅色档：蓝雾分层（Flyme 主蓝 #008CFF 只用于操作/选中）——半透明
  * 灰雾壳（backdrop-filter）+ 顶部两团蓝色光雾（壳 ::before 径向渐变 + 模糊）+
- * 白玻璃内容卡。
- * flyme 深色块 = 深色雾玻璃：壳 #101114 加 alpha + 顶部深蓝辉光光雾 / 卡片 #1B1C20
- * 加 alpha，主蓝 #3D9BFF，阴影置零。
+ * 165deg 曲面透镜液态玻璃内容卡；AI 触点带克制的 Gemini 虹彩流光（gemini-*
+ * 四 token，全部经 :not([data-palette="editorial"]) 门控消费）。
+ * flyme 深色块 = 深色雾玻璃：壳 #101114 加 alpha + 顶部深蓝辉光光雾 / 卡片白雾
+ * 透镜渐变，主蓝 #3D9BFF，暗面悬浮柔影。
  * editorial 两块 = 数字刊物：暖纸面/暖炭黑面，赤陶点缀，径向光雾关闭
  * （mist-blobs:none + mist-filter:none），壳呈现温润纸感；章节标题与金句
  * 正文衬线字型（--font-serif，reader.css 消费）。
@@ -95,8 +96,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
  * data-biliscript-reader-palette="editorial"（面板节点用 [data-palette="editorial"]；
  * 色板深色档再叠 theme="dark"，特异性 (0,3,1) 恒高于单轴块，不依赖书写顺序）。
  * 动效曲线只在基础块定义，其余块只覆写色板、其余 token 继承。
- * token 清单：card（白卡片）/faint（三级文字）/accent-ink（accent 实底上的文字）/
- * pill-bg（分段控件底）/highlight（提示横幅底）/fill-hover（图标键悬停/焦点反馈底）。
+ * token 清单：card（液态玻璃凸起卡面）/card-highlight（卡面双对角折射内高光 +
+ * 柔影）/faint（三级文字）/accent-ink（accent 实底上的文字）/
+ * pill-bg（分段控件底）/highlight（提示横幅底）/fill-hover（图标键悬停/焦点反馈底）/
+ * gemini-*（AI 触点虹彩流光，仅 flyme 门控消费）。
  * 时间戳 pill 母题消费 accent-soft 底 + accent 字；浅色档的 pill 字/底改用
  * time-color / time-bg 两 token（flyme 柔和中蓝、editorial 深赤陶——赤陶 accent
  * 在纸面上 4.5:1 上下，文字档再压深一档）。
@@ -113,10 +116,24 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-surface-3: #e9ebef;
   /* 悬停反馈底（图标键 :hover / :focus-visible）：亮面黑 6%、暗面白 10%。 */
   --biliscript-reader-fill-hover: rgba(0, 0, 0, 0.06);
-  /* 白玻璃凸起卡：92%→98% 白的竖向渐变，叠在灰蓝雾底上靠灰差浮出（tab
-   * 选中 pill、历史条目、章节/金句等 --biliscript-reader-card 的全部消费方
-   * 统一用这一款卡面）。 */
-  --biliscript-reader-card: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.98));
+  /* 液态玻璃凸起卡：165deg 曲面透镜微渐变（顶部近实到中部微透、底部带一丝
+   * 冷蓝反弹），叠在灰蓝雾底上靠灰差浮出（tab 选中 pill、历史条目、章节/金句
+   * 等 --biliscript-reader-card 的全部消费方统一用这一款卡面）。 */
+  --biliscript-reader-card: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.88) 0%,
+    rgba(255, 255, 255, 0.72) 55%,
+    rgba(246, 250, 255, 0.78) 100%
+  );
+  /* 卡面边缘折射：双对角线内高光（左上主高光 + 右下冷蓝反弹光）叠合双层柔和
+   * 漫射阴影——全部凸起卡消费方（章节/金句、输入卡、用户气泡、chips、内层
+   * 卡、平台行、次级小按钮）的统一阴影 token。 */
+  --biliscript-reader-card-highlight:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.95),
+    inset 1px 0 0 0 rgba(255, 255, 255, 0.65),
+    inset 0 -1px 0 0 rgba(16, 136, 247, 0.08),
+    0 6px 24px -4px rgba(15, 23, 42, 0.06),
+    0 2px 6px -1px rgba(15, 23, 42, 0.03);
   --biliscript-reader-border: #e3e5ea;
   /* 文字三级：主 #17181a（文档中性灰，在 #f2f3f5 上 16.0:1）/ 次 #666a71
    * （4.89:1，全层过 4.5 线——card 上 5.43:1、surface-2 上 4.81:1、推导的
@@ -158,7 +175,12 @@ body[data-biliscript-reader-mode="1"],
   /* 实底强调/警示按钮上的文字（发送键 / 确认键 / 保存键 / 删除键 hover）：
    * 恒白。与 accent-ink 不同（其深色档是深墨）。 */
   --biliscript-reader-on-fill: #ffffff;
-  --biliscript-reader-shadow: 0 8px 24px rgba(17, 18, 26, 0.1);
+  /* 悬浮柔影（视图壳浮层态 / 弹层对话框 / 滚底圆钮等消费）：远距主影 +
+   * 近距接触影 + 顶沿内高光。 */
+  --biliscript-reader-shadow:
+    0 20px 48px -8px rgba(15, 23, 42, 0.14),
+    0 4px 14px -2px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.85);
   --biliscript-reader-subtitle-font-size: 16px;
   --biliscript-reader-subtitle-line-height: 1.5;
   --biliscript-reader-letter-spacing: 0em;
@@ -190,6 +212,34 @@ body[data-biliscript-reader-mode="1"],
     radial-gradient(260px 190px at 85% -15%, rgba(187, 228, 253, 0.9), rgba(187, 228, 253, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.65);
   --biliscript-reader-mist-filter: blur(24px) saturate(1.2);
+  /* Gemini 虹彩流光（蓝→紫→珊瑚粉→暖金）：AI 强相关触点的克制流光，只被
+   * :not([data-palette="editorial"]) 门控的规则消费（hero 徽标 / 概览 AI 徽标 /
+   * 输入卡聚焦环 / 思考滑块最高档 / 进度条与三点脉冲）；大面积阅读背景与普通
+   * 导航控件保持纯净蓝雾玻璃。 */
+  --biliscript-gemini-gradient: linear-gradient(
+    135deg,
+    #4285f4 0%,
+    #9b72cb 36%,
+    #d96570 72%,
+    #f49c46 100%
+  );
+  --biliscript-gemini-gradient-soft: linear-gradient(
+    135deg,
+    rgba(66, 133, 244, 0.14) 0%,
+    rgba(155, 114, 203, 0.14) 40%,
+    rgba(217, 101, 112, 0.14) 75%,
+    rgba(244, 156, 70, 0.14) 100%
+  );
+  --biliscript-gemini-border-gradient: linear-gradient(
+    135deg,
+    rgba(66, 133, 244, 0.72) 0%,
+    rgba(155, 114, 203, 0.72) 38%,
+    rgba(217, 101, 112, 0.72) 74%,
+    rgba(244, 156, 70, 0.65) 100%
+  );
+  --biliscript-gemini-glow:
+    0 6px 22px -4px rgba(155, 114, 203, 0.24),
+    0 2px 8px -2px rgba(66, 133, 244, 0.18);
   color: var(--biliscript-reader-text);
 }
 
@@ -205,9 +255,21 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   --biliscript-reader-surface-2: #1b1c20;
   --biliscript-reader-surface-3: #222327;
   --biliscript-reader-fill-hover: rgba(255, 255, 255, 0.1);
-  /* 深色玻璃卡：自 #1B1C20 提亮两档起坡（评审实测单档提亮时章节井与卡面
-   * ΔRGB 只剩 4，分层消失）、加 alpha，叠在深色雾壳上透出辉光 */
-  --biliscript-reader-card: linear-gradient(180deg, rgba(41, 43, 49, 0.9), rgba(29, 30, 35, 0.95));
+  /* 深色液态玻璃卡：165deg 曲面透镜（白雾顶光衰减到底部冷蓝反弹），叠在深色
+   * 雾壳上透出辉光 */
+  --biliscript-reader-card: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(255, 255, 255, 0.055) 55%,
+    rgba(92, 179, 255, 0.06) 100%
+  );
+  /* 深色卡面边缘折射：左上内高光 + 右下冷蓝反弹光 + 双层暗面漫射阴影。 */
+  --biliscript-reader-card-highlight:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.16),
+    inset 1px 0 0 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 0 rgba(92, 179, 255, 0.10),
+    0 8px 26px -4px rgba(0, 0, 0, 0.36),
+    0 2px 8px -1px rgba(0, 0, 0, 0.24);
   --biliscript-reader-border: rgba(255, 255, 255, 0.12);
   --biliscript-reader-text: #ecedef;
   --biliscript-reader-muted: #9ca0a8;
@@ -225,12 +287,13 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   /* danger 深色档取亮红 #f2555a + 提亮 soft，保证暗面可读。 */
   --biliscript-reader-danger: #f2555a;
   --biliscript-reader-danger-soft: rgba(242, 85, 90, 0.2);
-  /* 零阴影（Flyme「深色零阴影」）：先确认消费方用法——--biliscript-reader-shadow
-   * 的 9 处消费（reader.css 面板族/设置抽屉/编辑 Modal/解释卡 4 处、
-   * reader-chat.css 气泡卡 2 处、reader-settings-providers.css 2 处、本文件
-   * 浮层降级段 1 处）全部是独立的 `box-shadow: var(--biliscript-reader-shadow);`
-   * 单值声明，没有跟其他阴影拼成多重列表，故 none 合法且不牵连任何别的阴影。 */
-  --biliscript-reader-shadow: none;
+  /* 深色悬浮柔影：液态玻璃的暗面漫射投影（远距主影 + 近距接触影 + 顶沿
+   * 内高光）。消费方全部是独立的 `box-shadow: var(--biliscript-reader-shadow);`
+   * 单值声明，没有跟其他阴影拼成多重列表。 */
+  --biliscript-reader-shadow:
+    0 22px 52px -8px rgba(0, 0, 0, 0.58),
+    0 6px 18px -2px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
   --biliscript-reader-overlay-bg: rgba(16, 17, 20, 0.8);
   /* 深色蓝雾三件：壳雾底 #101114 加 alpha，光雾换深蓝辉光（accent #3D9BFF
    * 同族），描边按深色玻璃纪律取白 18%。 */
@@ -239,6 +302,32 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
     radial-gradient(300px 210px at 30% -30%, rgba(61, 155, 255, 0.3), rgba(61, 155, 255, 0)),
     radial-gradient(260px 190px at 85% -12%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.18);
+  /* Gemini 虹彩流光深色档：四色换暗面亮档（#669df6→#b388ff→#f28b82→#fdd663），
+   * 消费方与浅色档同一组 :not([data-palette="editorial"]) 门控规则。 */
+  --biliscript-gemini-gradient: linear-gradient(
+    135deg,
+    #669df6 0%,
+    #b388ff 36%,
+    #f28b82 72%,
+    #fdd663 100%
+  );
+  --biliscript-gemini-gradient-soft: linear-gradient(
+    135deg,
+    rgba(102, 157, 246, 0.18) 0%,
+    rgba(179, 136, 255, 0.18) 40%,
+    rgba(242, 139, 130, 0.18) 75%,
+    rgba(253, 214, 99, 0.16) 100%
+  );
+  --biliscript-gemini-border-gradient: linear-gradient(
+    135deg,
+    rgba(102, 157, 246, 0.82) 0%,
+    rgba(179, 136, 255, 0.82) 38%,
+    rgba(242, 139, 130, 0.82) 74%,
+    rgba(253, 214, 99, 0.72) 100%
+  );
+  --biliscript-gemini-glow:
+    0 8px 26px -4px rgba(179, 136, 255, 0.28),
+    0 2px 10px -2px rgba(102, 157, 246, 0.24);
 }
 
 /* ===== editorial 数字刊物色板（与明暗正交）=====
@@ -375,7 +464,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 /* 分段控件：槽体透明、与雾底融为一体，只有选中项浮起白玻璃卡 + accent 字——
  * 凹槽底与 accent 实底不在本套语言里。圆角不在此覆写，沿用基表槽/项同档
  * 12px，与 tab 内容卡、字幕活动卡、章节/金句卡同一半径语言。
- * 深色档按「阴影置零」纪律把选中卡投影换成暗投影一档。 */
+ * 深色档选中卡投影走暗面一档。 */
 #biliscript-reading-view .biliscript-reading-tabs {
   background: transparent;
   box-shadow: none;
@@ -437,7 +526,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   background: var(--biliscript-reader-card);
   border: none;
   margin-bottom: 12px;
-  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: var(--biliscript-reader-card-highlight);
 }
 
 #biliscript-reading-view .biliscript-reading-ov-chapter:hover,
@@ -486,27 +575,34 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   justify-content: space-between;
 }
 
-/* AI 对话输入卡进凸起语言：与概览凸起卡同款白玻璃渐变 + 软投影 + 内高光，
- * 描边归零；聚焦态保留 accent 光环（叠在凸起投影之上，不丢凸起感）。
- * 深色档同概览卡纪律：极轻投影 + 内高光。 */
-#biliscript-reading-view .biliscript-reading-chat .chat-input-card {
+/* AI 对话输入卡进凸起语言：液态玻璃基态（1.5px 透明边 + card 透镜渐变 +
+ * blur(20px) saturate(185%) 磨砂 + card-highlight 折射高光）；聚焦态以
+ * padding-box/border-box 双层背景打出 Gemini 虹彩描边，叠顶沿内高光与
+ * gemini-glow 外发光（深色档内高光换暗面 0.16）。门控 flyme，editorial 的
+ * 底色与聚焦环由后面的数字刊物恢复块定稿。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
+  border: 1.5px solid transparent;
   background: var(--biliscript-reader-card);
-  border: none;
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  -webkit-backdrop-filter: blur(20px) saturate(185%);
+  backdrop-filter: blur(20px) saturate(185%);
+  box-shadow: var(--biliscript-reader-card-highlight);
+  transition: box-shadow 0.22s ease, background 0.22s ease;
 }
 
-#biliscript-reading-view .biliscript-reading-chat .chat-input-card:focus-within {
-  border: none;
-  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:focus-within {
+  border-color: transparent;
+  background:
+    var(--biliscript-reader-card) padding-box,
+    var(--biliscript-gemini-border-gradient) border-box;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.92),
+    var(--biliscript-gemini-glow);
 }
 
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-input-card {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-}
-
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-input-card:focus-within {
-  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:focus-within {
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.16),
+    var(--biliscript-gemini-glow);
 }
 
 /* 用户消息气泡同进凸起语言：基础表的 surface-2 底 + 描边与雾底灰差太小，
@@ -517,58 +613,68 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 #biliscript-reading-view .biliscript-reading-chat .chat-msg-user {
   background: var(--biliscript-reader-card);
   border: none;
-  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: var(--biliscript-reader-card-highlight);
 }
 
-/* 深色档：凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
+/* 深色档：凸起感靠分层灰渐变 + 顶部内高光，投影走暗面一档 */
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-msg-user {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: var(--biliscript-reader-card-highlight);
 }
 
 /* 空态建议 chips 同进凸起语言：基础表的 surface-3 平填与雾底灰差太小，贴在
  * 欢迎区里读作「凹井」而非可点入口；换白玻璃凸起配方（--card 渐变 + 软投影 +
- * 内高光）与概览章节/金句卡、输入卡、用户气泡对齐。hover 保留基础表的可点
- * 母题（accent-soft 底 + accent 字），不动阴影——悬停即换料，凸起感让位
- * 选中语义。 */
+ * 内高光）与概览章节/金句卡、输入卡、用户气泡对齐。 */
 #biliscript-reading-view .biliscript-reading-chat .chat-chip {
   background: var(--biliscript-reader-card);
-  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: var(--biliscript-reader-card-highlight);
 }
 
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-chip {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: var(--biliscript-reader-card-highlight);
+}
+
+/* flyme 悬停折射增强：抬升 1px + 重申双对角折射内高光；按压仍走 scale 缩放，
+ * 门控 :active 须写在 :hover 之后，否则同态下 hover 的 translateY 会压掉缩放。
+ * editorial 由基础表的 :hover/:active 与上方恢复块接管，不进此门控。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--biliscript-reader-card-highlight);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-chip:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
 /* 对话与设置内嵌卡片白玻璃化（03 号票）：
- * 助手回复气泡、选区解释卡、思考过程折叠块、联网搜索时间线卡及设置「获取可用模型」列表容器
- * 纳入与输入卡、章节卡同系的无边框白玻璃卡片体系（去除 1px 实线外边框，代以分层微阴影与顶缘内高光）。
+ * 助手回复气泡、思考过程折叠块、联网搜索时间线卡及设置「获取可用模型」列表容器
+ * 纳入与输入卡、章节卡同系的无边框液态玻璃卡片体系（去除 1px 实线外边框，卡面
+ * 阴影统一走 card-highlight token）。选区解释卡已升级为面板内弹层对话框（磨砂 +
+ * 悬浮柔影），规则在后面的液态玻璃收敛段。
  * 内部的分隔线（如思考块头部下边线、联网搜索步骤间虚线）保持清晰可读。 */
 #biliscript-reading-view .biliscript-reading-chat .chat-msg-assistant,
-#biliscript-reading-view .biliscript-reading-explain-card-dialog,
 #biliscript-reading-view .biliscript-reading-chat .chat-thinking,
 #biliscript-reading-view .biliscript-reading-chat .chat-search-card,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-list,
 #biliscript-reading-view .provider-editor-fetch-list {
   background: var(--biliscript-reader-card);
   border: none;
-  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: var(--biliscript-reader-card-highlight);
 }
 
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-msg-assistant,
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-explain-card-dialog,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-thinking,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-search-card,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-list,
 #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-list {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: var(--biliscript-reader-card-highlight);
 }
 
-/* 深色凸起感靠分层灰渐变 + 顶部内高光，投影极轻（深色「阴影置零」纪律） */
+/* 深色凸起感靠分层灰渐变 + 顶部内高光，投影走暗面一档 */
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-chapter,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-quote,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-chapter:hover,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-quote:hover {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: var(--biliscript-reader-card-highlight);
 }
 
 /* 内容区（tab-body）透明直露雾底：灰内容卡与雾壳是两层料，实机上有可见
@@ -602,7 +708,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row {
   border: none;
   border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: var(--biliscript-reader-card-highlight);
 }
 
 /* 智能虚拟行（搜索列表首行）的虚线识别保留——上面的描边归零不能吃掉它 */
@@ -682,10 +788,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
   border: none;
 }
 
-/* 深色档：凸起感靠分层灰渐变 + 内高光，投影极轻（「阴影置零」纪律） */
+/* 深色档平台行：凸起卡与浅色同走 card-highlight token（折射高光 + 柔影随档换值） */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .asr-provider-row,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .search-provider-row,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .search-provider-row {
+  box-shadow: var(--biliscript-reader-card-highlight);
+}
+
+/* 深色档输入控件族（凹陷井，非凸起卡）：保持极轻投影 + 内高光的井感配方 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-input,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-textarea,
@@ -713,6 +823,196 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog {
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* ===== flyme 液态玻璃收敛与 Gemini 流光 =====
+ * 残余 1px 实线描边组件统一纳入无边液态玻璃体系，AI 强相关触点注入克制的
+ * Gemini 虹彩流光。本段规则一律以 :not([data-palette="editorial"]) 门控——
+ * editorial 色板继续走基表实线细边与本表后面的数字刊物恢复块，零侵入。 */
+
+/* 次级小按钮（概览操作键 / 解释卡操作键）：去框 + 液态玻璃卡面 + 折射高光；
+ * 悬停走全仓可点母题（accent-soft 底 + accent 字）。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-mini-btn {
+  border-color: transparent;
+  background: var(--biliscript-reader-card);
+  box-shadow: var(--biliscript-reader-card-highlight);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-mini-btn:hover {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+}
+
+/* 字幕工具栏选轨触发器（主/副双轨 picker）按次级按钮收敛：凸起卡面 +
+ * 折射高光；设置表单里的 custom-select 仍走输入控件凹陷井语言。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-track-picker .custom-select-trigger,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-bilingual-secondary-picker .custom-select-trigger {
+  background: var(--biliscript-reader-card);
+  box-shadow: var(--biliscript-reader-card-highlight);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-track-picker .custom-select-trigger:hover,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-bilingual-secondary-picker .custom-select-trigger:hover {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+}
+
+/* 悬浮胶囊与滚底圆钮（跟随播放 / 选区解释 / 对话滚底）：去框 + 液态玻璃卡面 +
+ * blur(20px) saturate(180%) 磨砂透色，阴影升级为顶沿折射高光 + 漫射浮层阴影。
+ * follow-btn 基态 translateX(-50%) 与 :active 按压缩放链在基表，本段不碰
+ * transform。悬停母题（胶囊 accent-soft 底 + accent 字、滚底钮 surface-2 底 +
+ * text 字）定义在基表 :hover，但门控基态特异度更高会吞掉底与字色偏移，须以
+ * 同门控 :hover 重申；描边在悬停态同样保持透明（无框语言不含悬停 accent 环）。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom {
+  border-color: transparent;
+  background: var(--biliscript-reader-card);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 10px 28px -4px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-follow-btn:hover,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-btn:hover {
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom:hover {
+  background: var(--biliscript-reader-surface-2);
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 28px -4px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* 横幅与状态通知条（转写横幅 / 概览状态条 / 上下文与转写通知 / 消息错误条）：
+ * 去外圈 1px 灰框，顶沿内高光 + 极轻外影表达边界；语义底色（highlight /
+ * accent-soft / surface-2）保留在基表不动。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-asr-banner,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-ov-strip,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-context-notice,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-asr-notice,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-error {
+  border-color: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+
+/* 待解释意图卡同法去框，但保留左缘 3px accent 强调竖条（仅其余三边透明） */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat-intent {
+  border-color: transparent;
+  border-left-color: var(--biliscript-reader-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-asr-banner,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-ov-strip,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-context-notice,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-asr-notice,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-error,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat-intent {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* 面板内弹层对话框（选区解释卡 / 二次确认弹层）：去框 + 液态玻璃卡面 +
+ * blur(24px) saturate(180%) 磨砂 + 悬浮柔影 token（明暗两档随 token 换档）。
+ * 确认弹层基表底色是 surface，这里统一升到卡面——弹层即凸起卡。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-card-dialog,
+#biliscript-reading-view:not([data-palette="editorial"]) .confirm-dialog {
+  border-color: transparent;
+  background: var(--biliscript-reader-card);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: var(--biliscript-reader-shadow);
+}
+
+/* 确认弹层取消键：去框改 surface-2 凹陷底（确认键保持 accent 实底不动） */
+#biliscript-reading-view:not([data-palette="editorial"]) .confirm-dialog-cancel {
+  border-color: transparent;
+  background: var(--biliscript-reader-surface-2);
+}
+
+/* Gemini 触点 · AI 对话空态 hero 徽标：虹彩渐变圆底 + 白图标，顶沿内高光 +
+ * gemini-glow 外发光；editorial 走基表的 accent-soft 圆底 + accent 图标。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon {
+  background: var(--biliscript-gemini-gradient);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    var(--biliscript-gemini-glow);
+}
+
+/* Gemini 触点 · 概览「AI 生成 / AI 精选」徽标：虹彩 soft 渐变底 + accent 字 +
+ * 顶沿内高光（深色档换暗面 0.14）；editorial 走基表 accent-soft 底。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-ov-badge {
+  background: var(--biliscript-gemini-gradient-soft);
+  color: var(--biliscript-reader-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-ov-badge {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+/* Gemini 触点 · 思考强度滑块最高档渐变层：基表紫色渐变留给 editorial，flyme
+ * 换 Gemini 流光渐变（蓝→紫→珊瑚，深色档换暗面亮档）；档位显隐（is-max 的
+ * opacity 切换）留在基表不动。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-thinking-ultra-gradient {
+  background: linear-gradient(90deg, #4285f4 0%, #9b72cb 36%, #d96570 100%);
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-thinking-ultra-gradient {
+  background: linear-gradient(90deg, #669df6 0%, #b388ff 36%, #f28b82 100%);
+}
+
+/* Gemini 触点 · 生成进度条（概览/转写不确定进度）：虹彩 90deg 渐变 + 200% 幅宽，
+ * 在原呼吸动画上叠一道 2.6s 扫光位移；editorial 维持基表 accent 单色。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-ov-fill,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-asr-fill {
+  background: linear-gradient(90deg, #4285f4 0%, #9b72cb 35%, #d96570 70%, #f49c46 100%);
+  background-size: 200% 100%;
+  animation:
+    biliscript-asr-pulse 1.6s ease-in-out infinite alternate,
+    biliscript-gemini-shimmer 2.6s linear infinite;
+}
+
+@keyframes biliscript-gemini-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* Gemini 触点 · 流式三点脉冲光标：浅档蓝/紫/珊瑚，深档换暗面亮档；
+ * 波浪节奏（nth-child 的 animation-delay）留在基表不动。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(1) {
+  background: #4285f4;
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(2) {
+  background: #9b72cb;
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(3) {
+  background: #d96570;
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(1) {
+  background: #669df6;
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(2) {
+  background: #b388ff;
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(3) {
+  background: #f28b82;
 }
 
 /* ===== editorial 数字刊物卡片质感 =====
@@ -775,6 +1075,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 
+/* editorial 输入卡底色维持暖米书摘卡（--card 档），与列表卡同一纸色分层。 */
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card {
+  background: var(--biliscript-reader-card);
+}
+
 /* ===== 减弱透明度 =====
  * 半透明材质（设置抽屉、蓝雾壳、各浮层弹层）退回近实色：退回值即 surface 令牌
  *（var 引用，明暗两档各自解析到自己的 surface，无需分档规则），消费方
@@ -794,14 +1099,27 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-dropdown,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog,
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-explain-card-dialog,
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view .confirm-dialog,
   #biliscript-reading-view .chat-model-panel,
   #biliscript-reading-view .chat-search-preview,
   #biliscript-reading-view .custom-select-dropdown,
   #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
-  #biliscript-reading-view .provider-editor-fetch-dialog {
+  #biliscript-reading-view .provider-editor-fetch-dialog,
+  #biliscript-reading-view .biliscript-reading-explain-card-dialog,
+  #biliscript-reading-view .confirm-dialog {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background: var(--biliscript-reader-surface);
+  }
+
+  /* 悬浮胶囊、滚底圆钮与输入卡（液态玻璃收敛段新增）：减弱透明度下关停磨砂 */
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom,
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
 
@@ -811,13 +1129,37 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-fetch-dialog,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-explain-card-dialog,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"] .confirm-dialog,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-model-panel,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .chat-search-preview,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .custom-select-dropdown,
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown,
-#biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-fetch-dialog {
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-fetch-dialog,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .biliscript-reading-explain-card-dialog,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"] .confirm-dialog {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* 悬浮胶囊、滚底圆钮与输入卡滚动期同步关停磨砂（保持滚动帧率） */
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ===== 减弱动效 =====
+ * 门控流光规则（特异度高）须在本表同门控关停：基表 reader.css 的
+ * prefers-reduced-motion 规则特异性压不过 :not 门控规则，不停会在减动效下
+ * 仍跑 shimmer 扫光。 */
+@media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-ov-fill,
+  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-asr-fill {
+    animation: none;
+  }
 }
 
 /* 面板宽度：script-only-ui 排版定稿——贴栏宽度下限定死 380px（接线在

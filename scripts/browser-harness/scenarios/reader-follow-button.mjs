@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // 跟随播放悬浮按钮真机场景 —— `pnpm harness:scenario reader-follow-button`。
 //
-// 判据（为什么在真机上跑）：按钮形态是样式收敛的产物（与选区「解释」按钮
-// .biliscript-reading-explain-btn 同族：card 底 + 1px 描边 + 文字色 + hover
-// accent 三件套 + 同档阴影 + scale 按压）。computed style、真实几何、hover /
-// :active 伪类、明暗两档 token 全都够不着 jsdom；显隐契约（两条选择器）已由
+// 判据（为什么在真机上跑）：按钮形态是样式收敛的产物。flyme 色板下它与选区
+// 「解释」按钮、对话滚底圆钮同族收敛为液态玻璃胶囊：无框（border-color 透明）
+// + card 透镜渐变底 + blur(20px) saturate(180%) 磨砂 + 顶沿折射高光与漫射浮层
+// 阴影（明暗换档），hover 转 accent-soft 底 + accent 字（描边保持透明），按压
+// scale 不变；editorial 色板保持基表旧态（1px 细边 + card 实底 + 0 6px 22px
+// 浮影，零滤镜零玻璃）。computed style、真实几何、hover / :active 伪类、
+// 明暗 × 色板四象限 token 全都够不着 jsdom；显隐契约（两条选择器）已由
 // tests/reader/follow-button.test.ts 锁住，本场景只验「人眼看到的那个样子」。
 //
 // 数据口径（诚实标注）：字幕列表来自 tests/fixtures/bilibili/bilingual-walkthrough/
@@ -53,10 +56,12 @@ const fixtureOnly = process.argv.includes("--fixture-only");
 // ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
   { id: "F1", slug: "01-auto-hidden", title: "跟随中（auto）：按钮隐藏；文案无「↓」字素" },
-  { id: "F2", slug: "02-manual-light", title: "手动滚离（manual）浅色：显形 + 形态对齐解释按钮（card 底/描边/文字色/999px/14.5px·600/同档阴影）" },
-  { id: "F3", slug: "03-hover-light", title: "hover：border/background/color 三件套转 accent" },
+  { id: "F2", slug: "02-manual-light", title: "手动滚离（manual）flyme 浅色：液态玻璃胶囊（无框 + card 渐变 + 磨砂 + 折射高光浮层阴影）" },
+  { id: "F3", slug: "03-hover-light", title: "hover：background/color 转 accent-soft/accent，描边保持透明" },
   { id: "F4", slug: "04-press-and-resume", title: "按压：transform 追加 press-scale；点击后回 auto 并隐藏（不 seek）" },
-  { id: "F5", slug: "05-manual-dark", title: "深色档 manual：card/text token 换成深色值后仍同族" }
+  { id: "F5", slug: "05-manual-dark", title: "flyme 深色档 manual：card/text token 换深色值 + 暗面阴影档" },
+  { id: "F6", slug: "06-manual-editorial-light", title: "editorial 浅色 manual：基表 1px 细边 + 书摘卡实底，零滤镜零玻璃" },
+  { id: "F7", slug: "07-manual-editorial-dark", title: "editorial 深色 manual：暖炭黑书摘卡 + 细边，零滤镜零玻璃" }
 ];
 
 // ===== 可提交 fixture（只读）=====
@@ -99,8 +104,9 @@ function selfCheckFixture() {
 
 // ===== 页面内测量脚本 =====
 // 一次 evaluate 取全：显隐依据属性、几何、computed style，以及同一节点上现求的
-// token 探针（card/text/accent/accent-soft/border 的计算值）——按钮「底色与
-// 解释按钮一致」因此不是与硬编码色值比，而是与 token 现值比，明暗两档都成立。
+// token 探针（card 渐变/实色两路、text/accent/accent-soft/border 的计算值）——
+// 按钮「底色与卡片一致」因此不是与硬编码色值比，而是与 token 现值比，明暗两档
+// 与色板两档都成立（card 在 flyme 是渐变、在 editorial 是实色，故探两路）。
 const JS = {
   probe: `(() => {
     const btn = document.getElementById('biliscript-reading-follow-btn');
@@ -114,6 +120,7 @@ const JS = {
     const token = (name, prop) => { probe.style[prop] = 'var(' + name + ')'; return getComputedStyle(probe)[prop]; };
     const tokens = {
       cardBg: token('--biliscript-reader-card', 'backgroundImage'),
+      cardColor: token('--biliscript-reader-card', 'backgroundColor'),
       textColor: token('--biliscript-reader-text', 'color'),
       accentColor: token('--biliscript-reader-accent', 'color'),
       accentSoftColor: token('--biliscript-reader-accent-soft', 'backgroundColor'),
@@ -123,6 +130,7 @@ const JS = {
     return {
       followAttr: view.getAttribute('data-biliscript-reader-follow'),
       theme: view.getAttribute('data-theme'),
+      palette: view.getAttribute('data-palette'),
       text: btn.textContent,
       display: cs.display,
       rect: { w: +r.width.toFixed(2), h: +r.height.toFixed(2), cx: +(r.left + r.width / 2).toFixed(1), cy: +(r.top + r.height / 2).toFixed(1) },
@@ -138,6 +146,7 @@ const JS = {
         fontSize: cs.fontSize,
         fontWeight: cs.fontWeight,
         boxShadow: cs.boxShadow,
+        backdropFilter: cs.backdropFilter || cs.webkitBackdropFilter,
         transform: cs.transform
       },
       tokens
@@ -158,7 +167,27 @@ const JS = {
   followAttr: `document.getElementById('biliscript-reading-view').getAttribute('data-biliscript-reader-follow')`,
   followIsManual: `document.getElementById('biliscript-reading-view').getAttribute('data-biliscript-reader-follow') === 'manual'`,
   followIsAuto: `document.getElementById('biliscript-reading-view').getAttribute('data-biliscript-reader-follow') === 'auto'`,
-  isDark: `document.getElementById('biliscript-reading-view').getAttribute('data-theme') === 'dark'`
+  isDark: `document.getElementById('biliscript-reading-view').getAttribute('data-theme') === 'dark'`,
+  isLight: `document.getElementById('biliscript-reading-view').getAttribute('data-theme') !== 'dark'`,
+  isEditorial: `document.getElementById('biliscript-reading-view').getAttribute('data-palette') === 'editorial'`,
+  settingsPanelOpen: `(() => { const p = document.getElementById('biliscript-reading-settings-panel'); return !!p && !p.hidden; })()`,
+  // 色板切换是设置抽屉里的 <select> + 「保存设置」批量持久化（settings-panel 的
+  // collectFormPayload 直读 .value，不依赖 change 事件），native 下拉无法走
+  // 真指针；此处设值即交给真实保存链路（save-settings → 状态 → apply 呈现）。
+  setEditorialPalette: `(() => {
+    const sel = document.getElementById('readerPalette');
+    if (!sel) return { ok: false, reason: 'palette-select-missing' };
+    sel.value = 'editorial';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    return { ok: sel.value === 'editorial', value: sel.value };
+  })()`,
+  scrollSaveBtnIntoView: `(() => {
+    const btn = document.getElementById('biliscriptSettingsSaveBtn');
+    if (!btn) return { ok: false, reason: 'save-btn-missing' };
+    btn.scrollIntoView({ block: 'center' });
+    const r = btn.getBoundingClientRect();
+    return { ok: true, rect: { w: +r.width.toFixed(1), h: +r.height.toFixed(1), cx: +(r.left + r.width / 2).toFixed(1), cy: +(r.top + r.height / 2).toFixed(1) } };
+  })()`
 };
 
 // ===== SW fetch 补丁（只换两个网络应答；无闸门无延迟，本场景不测在飞态）=====
@@ -406,7 +435,7 @@ async function main() {
       record("F1", { title: SCENARIOS[0].title, ...f1, note: "初始态：data-follow=auto ⇒ display:none；文案已是纯文字（无 ↓ 字符）" });
     }
 
-    // ---------- F2 manual（浅色）：显形 + 形态对齐解释按钮 ----------
+    // ---------- F2 manual（flyme 浅色）：显形 + 液态玻璃胶囊契约 ----------
     {
       const f2 = {};
       check("F2.manual-reached", await ensureManual("F2"), null);
@@ -420,17 +449,22 @@ async function main() {
       checkEquals("F2.position-absolute", f2.probe?.style?.position, "absolute");
       checkEquals("F2.background-is-card-token", s.backgroundImage, t.cardBg);
       check("F2.card-token-is-gradient", /^linear-gradient/.test(t.cardBg || ""), { cardBg: t.cardBg });
-      check("F2.hairline-border", s.borderTopWidth === "1px" && s.borderTopStyle === "solid" && s.borderTopColor === t.borderColor, { border: s.borderTopWidth + " " + s.borderTopStyle + " " + s.borderTopColor, token: t.borderColor });
+      // 液态玻璃收敛：去 1px 灰框（border-color 透明；宽度/样式沿用基表 1px solid）
+      check("F2.frameless-border", s.borderTopWidth === "1px" && s.borderTopStyle === "solid" && s.borderTopColor === "rgba(0, 0, 0, 0)", { border: s.borderTopWidth + " " + s.borderTopStyle + " " + s.borderTopColor });
+      // computed backdrop-filter 把 saturate(180%) 归一成 saturate(1.8)
+      checkEquals("F2.backdrop-blur", s.backdropFilter, "blur(20px) saturate(1.8)");
       checkEquals("F2.color-is-text-token", s.color, t.textColor);
       checkEquals("F2.radius-999", s.borderRadius, "999px");
       checkEquals("F2.font", s.fontSize + "/" + s.fontWeight, "14.5px/600");
-      check("F2.shadow-same-tier-as-explain", /(^|\s)0px 6px 22px 0px/.test(s.boxShadow || "") && s.boxShadow.includes("0.14"), { boxShadow: s.boxShadow });
+      // 顶沿折射高光 + 漫射浮层阴影（浅档），与解释按钮/滚底钮同一份门控规则；
+      // computed box-shadow 序列化是「色值在前、偏移在后」。
+      check("F2.shadow-liquid-glass", /rgba\(255, 255, 255, 0\.92\) 0px 1px 0px 0px inset/.test(s.boxShadow || "") && s.boxShadow.includes("rgba(15, 23, 42, 0.16) 0px 10px 28px -4px") && s.boxShadow.includes("rgba(15, 23, 42, 0.06) 0px 2px 6px 0px"), { boxShadow: s.boxShadow });
       check("F2.no-accent-fill", !/rgb\(0, 140, 255\)|#008cff/i.test(s.backgroundImage || "") && s.backgroundImage === t.cardBg, { backgroundImage: s.backgroundImage });
-      await shot("02-manual-light", "manual 态（浅色）：跟随播放悬浮按钮——card 底 + 1px 描边 + 文字色，与解释按钮同族");
+      await shot("02-manual-light", "manual 态（flyme 浅色）：液态玻璃胶囊——无框 + card 渐变 + 磨砂 + 折射高光浮层阴影");
       record("F2", { title: SCENARIOS[1].title, ...f2, note: "滚轮触发 manual；computed style 与 token 探针对齐" });
     }
 
-    // ---------- F3 hover：三件套转 accent ----------
+    // ---------- F3 hover：accent-soft 底 + accent 字，描边保持透明 ----------
     {
       const f3 = {};
       check("F3.manual-reached", await ensureManual("F3"), null);
@@ -440,11 +474,13 @@ async function main() {
       f3.hover = await pageCdp.evaluate(JS.probe);
       const s = f3.hover?.style || {};
       const t = f3.hover?.tokens || {};
-      check("F3.hover-border-accent", s.borderTopColor === t.accentColor, { border: s.borderTopColor, accent: t.accentColor });
+      // 无框语言不收悬停 accent 环：描边在 hover 态同样保持透明
+      check("F3.hover-border-stays-transparent", s.borderTopColor === "rgba(0, 0, 0, 0)", { border: s.borderTopColor });
       checkEquals("F3.hover-background-accent-soft", s.backgroundColor, t.accentSoftColor);
       checkEquals("F3.hover-color-accent", s.color, t.accentColor);
       check("F3.hover-replaces-card-gradient", s.backgroundImage === "none", { backgroundImage: s.backgroundImage });
-      await shot("03-hover-light", "manual 态 hover：border/background/color 三件套转 accent");
+      checkEquals("F3.hover-backdrop-persists", s.backdropFilter, "blur(20px) saturate(1.8)");
+      await shot("03-hover-light", "manual 态 hover：accent-soft 底 + accent 字，描边保持透明、磨砂不撤");
       record("F3", { title: SCENARIOS[2].title, ...f3, note: "真指针 mouseMoved 触发 :hover" });
     }
 
@@ -488,7 +524,7 @@ async function main() {
       record("F4", { title: SCENARIOS[3].title, ...f4, note: "按下读 :active transform；抬起即点击 ⇒ 回 auto 隐藏（语义不变，仍不 seek）" });
     }
 
-    // ---------- F5 manual（深色）----------
+    // ---------- F5 manual（flyme 深色）----------
     {
       const f5 = {};
       const themeBtn = await mustClick(pageCdp, "F5.theme-toggle-hittable", "主题切换", `document.getElementById('biliscript-reading-theme-select')`);
@@ -506,9 +542,97 @@ async function main() {
       check("F5.visible", /^(inline-)?flex$/.test(f5.probe?.display || "") && (f5.probe?.rect?.w ?? 0) > 0, { display: f5.probe?.display, rect: f5.probe?.rect });
       checkEquals("F5.background-is-dark-card-token", s.backgroundImage, t.cardBg);
       checkEquals("F5.color-is-dark-text-token", s.color, t.textColor);
-      check("F5.hairline-border", s.borderTopWidth === "1px" && s.borderTopColor === t.borderColor, { border: s.borderTopColor, token: t.borderColor });
-      await shot("05-manual-dark", "manual 态（深色档）：card/text/border token 换深色值后与解释按钮仍同族");
+      check("F5.frameless-border", s.borderTopWidth === "1px" && s.borderTopColor === "rgba(0, 0, 0, 0)", { border: s.borderTopWidth + " " + s.borderTopColor });
+      checkEquals("F5.backdrop-blur", s.backdropFilter, "blur(20px) saturate(1.8)");
+      check("F5.shadow-liquid-glass-dark", /rgba\(255, 255, 255, 0\.18\) 0px 1px 0px 0px inset/.test(s.boxShadow || "") && s.boxShadow.includes("rgba(0, 0, 0, 0.5) 0px 10px 28px -4px") && s.boxShadow.includes("rgba(0, 0, 0, 0.3) 0px 2px 6px 0px"), { boxShadow: s.boxShadow });
+      await shot("05-manual-dark", "manual 态（flyme 深色档）：card/text token 换深色值 + 暗面折射高光浮层阴影");
       record("F5", { title: SCENARIOS[4].title, ...f5, note: "主题经 header 主题键真指针切换；深色 manual 态同族" });
+    }
+
+    // ---------- F6 manual（editorial 浅色）：玻璃规则脱钩，回基表细边实底 ----------
+    {
+      const f6 = {};
+      // 先切回浅色档（F5 留在深色）
+      await mustClick(pageCdp, "F6.theme-toggle-hittable", "主题切换", `document.getElementById('biliscript-reading-theme-select')`);
+      try {
+        await waitFor("F6：面板切回浅色档", () => pageCdp.evaluate(JS.isLight), { timeoutMs: 15000, intervalMs: 200 });
+      } catch (error) {
+        check("F6.light-applied", false, { error: error.message });
+      }
+      // 开设置抽屉 → 色板选 editorial → 保存（真实 save-settings 链路）
+      await mustClick(pageCdp, "F6.settings-open-hittable", "设置", `document.getElementById('biliscript-reading-settings-btn')`);
+      try {
+        await waitFor("F6：设置抽屉展开", () => pageCdp.evaluate(JS.settingsPanelOpen), { timeoutMs: 8000, intervalMs: 150 });
+      } catch (error) {
+        check("F6.settings-open", false, { error: error.message });
+      }
+      // 抽屉表单随展开异步装载（先读设置再渲染），等色板下拉真正挂载再设值
+      try {
+        await waitFor("F6：色板下拉挂载", () => pageCdp.evaluate(`!!document.getElementById('readerPalette')`), { timeoutMs: 10000, intervalMs: 200 });
+      } catch (error) {
+        check("F6.palette-select-mounted", false, { error: error.message });
+      }
+      f6.paletteSet = await pageCdp.evaluate(JS.setEditorialPalette);
+      check("F6.palette-select-set", f6.paletteSet?.ok === true, f6.paletteSet);
+      f6.saveBtnRect = await pageCdp.evaluate(JS.scrollSaveBtnIntoView);
+      await sleep(150);
+      // 保存键在表单底部，可能被抽屉滚动区遮挡：真指针优先，不可命中时退 el.click()
+      // （保存是流程管线而非视觉证据，路径写进 evidence 供审计）。
+      const saveClick = await clickElement(pageCdp, "保存设置", `document.getElementById('biliscriptSettingsSaveBtn')`);
+      if (saveClick.ok) {
+        f6.saveVia = "real-pointer";
+      } else {
+        f6.saveVia = "dom-click-fallback";
+        f6.saveClickFail = saveClick;
+        await pageCdp.evaluate(`document.getElementById('biliscriptSettingsSaveBtn').click()`);
+      }
+      try {
+        await waitFor("F6：视图切到 editorial", () => pageCdp.evaluate(JS.isEditorial), { timeoutMs: 15000, intervalMs: 200 });
+      } catch (error) {
+        check("F6.editorial-applied", false, { error: error.message });
+      }
+      // 关抽屉回字幕区
+      await mustClick(pageCdp, "F6.settings-close-hittable", "设置", `document.getElementById('biliscript-reading-settings-btn')`);
+      check("F6.manual-reached", await ensureManual("F6"), null);
+      f6.probe = await pageCdp.evaluate(JS.probe);
+      const s = f6.probe?.style || {};
+      const t = f6.probe?.tokens || {};
+      checkEquals("F6.palette-editorial", f6.probe?.palette, "editorial");
+      checkEquals("F6.theme-light", f6.probe?.theme, "light");
+      check("F6.visible", /^(inline-)?flex$/.test(f6.probe?.display || "") && (f6.probe?.rect?.w ?? 0) > 0, { display: f6.probe?.display, rect: f6.probe?.rect });
+      check("F6.hairline-border", s.borderTopWidth === "1px" && s.borderTopStyle === "solid" && s.borderTopColor === t.borderColor, { border: s.borderTopWidth + " " + s.borderTopStyle + " " + s.borderTopColor, token: t.borderColor });
+      checkEquals("F6.background-is-card-color", s.backgroundColor, t.cardColor);
+      checkEquals("F6.no-card-gradient", s.backgroundImage, "none");
+      checkEquals("F6.no-backdrop-filter", s.backdropFilter, "none");
+      // 基表浮影原样保留（editorial 不去框不去影）
+      check("F6.base-shadow-kept", (s.boxShadow || "").includes("rgba(0, 0, 0, 0.14) 0px 6px 22px 0px"), { boxShadow: s.boxShadow });
+      await shot("06-manual-editorial-light", "manual 态（editorial 浅色）：1px 暖沙细边 + 书摘卡实底，零滤镜零玻璃");
+      record("F6", { title: SCENARIOS[5].title, ...f6, note: "色板经设置抽屉真实保存链路切换；editorial 不受玻璃收敛影响" });
+    }
+
+    // ---------- F7 manual（editorial 深色）----------
+    {
+      const f7 = {};
+      await mustClick(pageCdp, "F7.theme-toggle-hittable", "主题切换", `document.getElementById('biliscript-reading-theme-select')`);
+      try {
+        await waitFor("F7：面板切到暗色档", () => pageCdp.evaluate(JS.isDark), { timeoutMs: 15000, intervalMs: 200 });
+      } catch (error) {
+        check("F7.dark-applied", false, { error: error.message });
+      }
+      check("F7.manual-reached", await ensureManual("F7"), null);
+      f7.probe = await pageCdp.evaluate(JS.probe);
+      const s = f7.probe?.style || {};
+      const t = f7.probe?.tokens || {};
+      checkEquals("F7.palette-editorial", f7.probe?.palette, "editorial");
+      checkEquals("F7.theme-dark", f7.probe?.theme, "dark");
+      check("F7.visible", /^(inline-)?flex$/.test(f7.probe?.display || "") && (f7.probe?.rect?.w ?? 0) > 0, { display: f7.probe?.display, rect: f7.probe?.rect });
+      check("F7.hairline-border", s.borderTopWidth === "1px" && s.borderTopStyle === "solid" && s.borderTopColor === t.borderColor, { border: s.borderTopWidth + " " + s.borderTopStyle + " " + s.borderTopColor, token: t.borderColor });
+      checkEquals("F7.background-is-card-color", s.backgroundColor, t.cardColor);
+      checkEquals("F7.no-card-gradient", s.backgroundImage, "none");
+      checkEquals("F7.no-backdrop-filter", s.backdropFilter, "none");
+      check("F7.base-shadow-kept", (s.boxShadow || "").includes("rgba(0, 0, 0, 0.14) 0px 6px 22px 0px"), { boxShadow: s.boxShadow });
+      await shot("07-manual-editorial-dark", "manual 态（editorial 深色）：暖炭黑书摘卡 + 细边，零滤镜零玻璃");
+      record("F7", { title: SCENARIOS[6].title, ...f7, note: "editorial 深色档同样走基表细边实底" });
     }
   } catch (error) {
     evidence.scenarios.__error = { message: error.message, stack: String(error.stack || "").slice(0, 1500) };

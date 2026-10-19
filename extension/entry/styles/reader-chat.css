@@ -228,7 +228,8 @@
   filter: brightness(1.08) saturate(1.08);
 }
 
-/* 最高档（档位数 ≥ 3 的最右端）紫色渐变层。 */
+/* 最高档（档位数 ≥ 3 的最右端）渐变层：基表紫色渐变服务 editorial 色板；
+ * flyme 色板由 reader-gate.css 的门控规则换成 Gemini 流光渐变。 */
 .biliscript-reading-chat .chat-thinking-ultra-gradient {
   position: absolute;
   inset: 0;

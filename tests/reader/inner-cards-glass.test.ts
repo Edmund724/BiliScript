@@ -48,19 +48,28 @@ describe("03: AI 对话与设置内嵌卡片 Flyme 玻璃材质补齐", () => {
     ".provider-editor-fetch-list"
   ];
 
-  it("Flyme 浅色与深色：5 处内嵌卡片/容器均去除 1px 实线边框，统一白玻璃凸起与微阴影高光", () => {
+  it("Flyme 浅色与深色：5 处内嵌卡片/容器均去除 1px 实线边框，统一液态玻璃卡面与折射高光", () => {
     const gate = stripComments(readCss(GATE_CSS));
 
     for (const sel of TARGET_SELECTORS) {
       expect(gate, `gate 表应包含 ${sel}`).toContain(sel);
     }
 
-    // 浅色卡片微阴影与顶缘内高光 + 背景使用 var(--biliscript-reader-card) + border: none
-    expect(gate).toContain("background: var(--biliscript-reader-card)");
-    expect(gate).toContain("box-shadow: 0 1px 3px rgba(23, 24, 26, 0.06), 0 3px 10px rgba(23, 24, 26, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.7)");
+    // 浅色组：无边框 + 液态玻璃卡面（--biliscript-reader-card）+ 折射高光 token
+    const lightGroup = ruleBody(
+      readCss(GATE_CSS),
+      "#biliscript-reading-view .biliscript-reading-chat .chat-msg-assistant"
+    );
+    expect(lightGroup).toContain("background: var(--biliscript-reader-card)");
+    expect(lightGroup).toContain("border: none");
+    expect(lightGroup).toContain("box-shadow: var(--biliscript-reader-card-highlight)");
 
-    // 深色卡片极轻阴影与暗调内高光
-    expect(gate).toContain("box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07)");
+    // 深色组同一 token（明暗两档的折射高光与柔影随 token 换档）
+    const darkGroup = ruleBody(
+      readCss(GATE_CSS),
+      "#biliscript-reading-view[data-theme=\"dark\"] .biliscript-reading-chat .chat-msg-assistant"
+    );
+    expect(darkGroup).toContain("box-shadow: var(--biliscript-reader-card-highlight)");
   });
 
   it("卡片内部的分隔线保持清晰可读，不被误删", () => {
