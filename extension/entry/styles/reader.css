@@ -284,36 +284,47 @@
   line-height: 1.4;
 }
 
-/* 标签行（头部归并）：分段控件 + 对话工具键（历史对话 / 新会话）同一行。
- * 行壳占网格第 3 行；分段控件在行内 flex:1 吃满剩余宽度。 */
+/* 标签行（对称居中布局）：分段控件严格居中文摘面板中轴线，
+ * 对话工具键（历史对话 / 新会话）脱流绝对定位在行右侧，不占据弹性流，
+ * 彻底消除非对话 tab 下的左偏现象，且切换 tab 零位移零跳动。 */
 .biliscript-reading-tabs-row {
+  position: relative;
   grid-row: 3;
   grid-column: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
   margin: 2px 14px 0;
 }
 
 .biliscript-reading-tabs-tools {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 0 0 auto;
+  z-index: 1;
 }
 
 /* 对话工具键只在 AI 对话 tab 激活时出现（键语义属对话域；:has 与
- * reader-chat.css 的对话面板覆写同代，Chrome 120 起可用）。 */
+ * reader-chat.css 的对话面板覆写同代，Chrome 120 起可用）。
+ * 非对话 tab 下完全隐藏且不阻挡指针事件。 */
 .biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active)) .biliscript-reading-tabs-tools {
   display: none;
+  pointer-events: none;
 }
 
 /* 分段控件母题：凹槽与卡片项同档 12px 圆角，与 tab 内容卡 / 字幕活动卡 /
- * 章节 / 金句卡同一半径语言（gate 段不再覆写为胶囊）。 */
+ * 章节 / 金句卡同一半径语言（gate 段不再覆写为胶囊）。
+ * 三标签胶囊组作为整体居中，各项等宽居中，概览标签对齐水平中轴线。 */
 .biliscript-reading-tabs {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 0;
   display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 4px;
   padding: 4px;
   background: var(--biliscript-reader-pill-bg);
@@ -321,15 +332,16 @@
 }
 
 .biliscript-reading-tab {
-  flex: 1;
+  flex: 1 1 0;
   border: none;
   background: none;
   cursor: pointer;
-  padding: 7px 0;
+  padding: 7px 16px;
   border-radius: 12px;
   font-size: 15px;
   font-weight: 600;
   font-family: inherit;
+  text-align: center;
   color: var(--biliscript-reader-muted);
   transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }

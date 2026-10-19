@@ -379,45 +379,39 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 #biliscript-reading-view .biliscript-reading-tabs {
   background: transparent;
   box-shadow: none;
-  /* 紧凑排布：tab 不三等分拉伸（flex:1 会让选中卡撑满整段），改为
-   * 内容宽居中聚合——选中卡只包住文字；横向 padding 40px
-   * 保证每个选项的可点击范围 */
+  /* 紧凑排布：三标签胶囊组水平中心与文摘面板中轴线严格对齐；
+   * 各项等宽聚合，概览标签居中对齐；横向内边距保证选项可点击范围 */
   justify-content: center;
-  gap: 24px;
-  padding: 4px 10px;
-}
-
-/* 对话工具键（历史/新对话）在非对话 tab 时占位隐藏：base 规则 display:none
- * 会改变 tabs 容器可用宽度、三个胶囊位置随 tab 切换跳动；visibility 保留
- * 几何空间（hidden 同时禁用点击），每次切换只有按钮显隐、胶囊不动。 */
-#biliscript-reading-view .biliscript-reading-script-panel:not(:has(#biliscript-reading-tab-chat.is-active)) .biliscript-reading-tabs-tools {
-  display: flex;
-  visibility: hidden;
+  gap: 18px;
+  padding: 4px 8px;
 }
 
 #biliscript-reading-view .biliscript-reading-tab {
-  padding: 8px 40px;
+  flex: 1 1 0;
+  padding: 8px 26px;
 }
 
-/* 选中卡尺寸随面板宽度降档（#biliscript-reading-view 是 inline-size 容器）：
- * 40px padding 三枚选项 + 间隙约需 410px，窄面板不降档会折行/溢出。 */
+/* 选中卡与间距随面板宽度降档（#biliscript-reading-view 是 inline-size 容器）：
+ * 窄面板下微调 padding 与 gap，避免居中三标签与右侧脱流工具键发生重叠。 */
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-tabs {
-    gap: 16px;
+    gap: 12px;
   }
 
   #biliscript-reading-view .biliscript-reading-tab {
-    padding: 8px 30px;
+    padding: 7px 16px;
   }
 }
 
 @container (max-width: 460px) {
   #biliscript-reading-view .biliscript-reading-tabs {
-    gap: 10px;
+    gap: 6px;
+    padding: 2px 4px;
   }
 
   #biliscript-reading-view .biliscript-reading-tab {
-    padding: 8px 22px;
+    padding: 6px 8px;
+    font-size: 14px;
   }
 }
 

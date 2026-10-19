@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const READER_CSS = "extension/entry/styles/reader.css";
+const GATE_CSS = "extension/entry/styles/reader-gate.css";
 const CHAT_CSS = "extension/entry/styles/reader-chat.css";
 const CHAT_TEMPLATE = "extension/reader/chat-template.ts";
 const UI_RENDERER = "extension/ui/ui-renderer.ts";
@@ -63,20 +64,67 @@ describe("对话工具键并入壳标签行", () => {
     expect(readSrc(CHAT_CSS)).not.toMatch(/\.chat-header/);
   });
 
-  it("reader.css：标签行壳占网格第 3 行，分段控件在行内吃满剩余宽度", () => {
+  it("reader.css：标签行居中对齐，工具键脱流绝对定位在右侧不挤压标签", () => {
     const css = readSrc(READER_CSS);
 
-    expect(ruleBody(css, "\\.biliscript-reading-tabs-row")).toMatch(/grid-row:\s*3;/);
-    expect(ruleBody(css, "\\.biliscript-reading-tabs")).toMatch(/flex:\s*1;/);
-    expect(ruleBody(css, "\\.biliscript-reading-tabs-tools")).toMatch(/flex:\s*0 0 auto;/);
+    const row = ruleBody(css, "\\.biliscript-reading-tabs-row");
+    expect(row).toMatch(/position:\s*relative;/);
+    expect(row).toMatch(/grid-row:\s*3;/);
+    expect(row).toMatch(/justify-content:\s*center;/);
+
+    const tools = ruleBody(css, "\\.biliscript-reading-tabs-tools");
+    expect(tools).toMatch(/position:\s*absolute;/);
+    expect(tools).toMatch(/right:\s*0;/);
+    expect(tools).toMatch(/top:\s*50%;/);
+    expect(tools).toMatch(/transform:\s*translateY\(-50%\);/);
+
+    const tabs = ruleBody(css, "\\.biliscript-reading-tabs");
+    expect(tabs).toMatch(/justify-content:\s*center;/);
+
+    const tab = ruleBody(css, "\\.biliscript-reading-tab");
+    expect(tab).toMatch(/flex:\s*1 1 0;/);
+    expect(tab).toMatch(/text-align:\s*center;/);
   });
 
-  it("工具键仅在 AI 对话 tab 激活时可见（:has 纯 CSS 反应，不引 JS 状态）", () => {
+  it("工具键仅在 AI 对话 tab 激活时可见，非对话 tab 下隐藏且不阻挡指针事件", () => {
     const css = readSrc(READER_CSS);
 
     expect(css).toMatch(
-      /\.biliscript-reading-script-panel:not\(:has\(#biliscript-reading-tab-chat\.is-active\)\) \.biliscript-reading-tabs-tools\s*\{[^}]*display:\s*none;/
+      /\.biliscript-reading-script-panel:not\(:has\(#biliscript-reading-tab-chat\.is-active\)\) \.biliscript-reading-tabs-tools\s*\{[^}]*display:\s*none;[^}]*pointer-events:\s*none;/
     );
+  });
+
+  it("reader-gate.css：清理占位隐藏覆写，确保工具键在非对话 tab 不占弹性流，容器查询防止小屏重叠", () => {
+    const gateCss = readSrc(GATE_CSS);
+
+    // 严禁旧版 visibility: hidden 占位规则回流
+    expect(gateCss).not.toMatch(/\.biliscript-reading-tabs-tools\s*\{[^}]*visibility:\s*hidden/);
+
+    // 容器查询确保窄屏下对 padding / gap 降档防重叠
+    expect(gateCss).toMatch(/@container\s*\(max-width:\s*560px\)/);
+    expect(gateCss).toMatch(/@container\s*\(max-width:\s*460px\)/);
+  });
+
+  it("三标签严格居中对称契约：中轴对齐、概览标签居中、切换 tab 零位移零抖动", () => {
+    const tpl = readSrc(UI_RENDERER);
+
+    // 1. 结构契约：三标签顺序为 字幕 -> 概览 -> AI 对话，概览为居中 index 1
+    const tabsMatch = tpl.match(/<div class="biliscript-reading-tabs"[^>]*>([\s\S]*?)<\/div>/);
+    expect(tabsMatch, "应包含 .biliscript-reading-tabs").not.toBe(null);
+    const tabMatches = [...tabsMatch![1].matchAll(/<button[^>]*>([^<]+)<\/button>/g)].map((m) => m[1].trim());
+    expect(tabMatches).toEqual(["字幕", "概览", "AI 对话"]);
+    expect(tabMatches[1]).toBe("概览");
+
+    // 2. reader.css 样式契约：工具键脱流（position: absolute），不在 flex 流内占据空间
+    // 使得 .biliscript-reading-tabs 的居中位置纯粹取决于 .biliscript-reading-tabs-row 的中轴线
+    const readerCss = readSrc(READER_CSS);
+    const tools = ruleBody(readerCss, "\\.biliscript-reading-tabs-tools");
+    expect(tools).toMatch(/position:\s*absolute;/);
+
+    // 3. gate 契约：等宽与居中
+    const gateCss = readSrc(GATE_CSS);
+    const gateTabs = ruleBody(gateCss, "#biliscript-reading-view \\.biliscript-reading-tabs");
+    expect(gateTabs).toMatch(/justify-content:\s*center;/);
   });
 
   it("配色只走 token：标签行相关规则不写死色值", () => {
