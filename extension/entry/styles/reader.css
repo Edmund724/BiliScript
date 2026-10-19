@@ -463,6 +463,10 @@
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;
+  /* 滚动区顶底渐隐遮罩（08 号票）：8px–10px 线性羽化过渡，
+   * 消除滚动时字幕行在上下边缘硬切截断观感；纯 mask 无色值，暗色主题自动跟随。 */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
 }
 
 /* 面板滚动容器共用同一套细滚动条（字幕列表 / 概览 / AI 对话消息区 / 解释卡
@@ -1297,9 +1301,14 @@
 .biliscript-reading-overview {
   flex: 1;
   min-height: 0;
+  padding: 6px 8px 12px 2px;
   overflow-x: hidden;
   overflow-y: auto;
   pointer-events: auto;
+  /* 滚动区顶底渐隐遮罩（08 号票）：8px–10px 线性羽化过渡，
+   * 消除滚动时章节卡与金句卡在上下边缘硬切截断观感；纯 mask 无色值，暗色主题自动跟随。 */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
 }
 
 .biliscript-reading-ov-section {

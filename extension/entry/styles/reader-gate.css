@@ -447,8 +447,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 }
 
 #biliscript-reading-view .biliscript-reading-overview {
-  /* 右 8px 给滚动条留空隙；左 2px 让卡片左侧投影不被 overflow-x 裁掉 */
-  padding: 0 8px 0 2px;
+  /* 右 8px 给滚动条留空隙；左 2px 让卡片左侧投影不被 overflow-x 裁掉；
+   * 顶 6px / 底 12px 留白确保最顶与最底静止时首尾卡片与标题落在渐隐遮罩安全区（08 号票） */
+  padding: 6px 8px 12px 2px;
 }
 
 /* 示意图对齐四条（实机截图逐项比对决议）：
