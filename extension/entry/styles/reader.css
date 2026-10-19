@@ -662,18 +662,20 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 活动行 = 整颗白卡：行容器切 inline-flex、宽度收为内容宽（max-width 100% 兜底长句折行），
- * 白卡同时包住时间戳与文字，右缘随文字结束；内边距沿用基础行（10px 12px），激活切换不改行高。
+/* 活动行 = 整颗白卡：行容器切 inline-grid、宽度随内容自适应包裹（max-width 100% 兜底长句折行），
+ * 锁死左侧时刻列槽位宽度（继承基础网格 var(--biliscript-reader-time-col)，窄档 64px 同样对齐）；
+ * 白卡同时包住时间戳与文字，右缘随文字结束，确保正文左边缘与未激活行严格垂直对齐；
+ * 内边距沿用基础行（10px 12px），激活切换不改行高。
  * 圆角 12px，与分段控件槽/项、tab 内容卡、章节/金句卡同一半径语言
  *（多行内容卡不能用 999px 胶囊：折行后半径钳到半高，首尾行左缘文字会被
  * 裁进弧线里）。
  * 白卡底色消费 --biliscript-reader-card 白卡令牌（editorial 色板、深色档自动跟随），
  * 软投影与 tab.is-active 同款做凸起感（深色档投影换黑）。
  * 卡内时间戳保持浅底小胶囊（time-bg + time-color，深色档回退 accent-soft/accent 母题），
- * padding 1px 7px 随内容收紧、圆角 999px 全胶囊形——不留定宽列，左右不空；
+ * padding 1px 7px 随内容收紧、圆角 999px 全胶囊形、列内左对齐；
  * 正文深色加粗 600、min-width:0 允许在长句时收进 max-width 内折行。 */
 #biliscript-reading-view .biliscript-reading-item.is-active {
-  display: inline-flex;
+  display: inline-grid;
   width: auto;
   max-width: 100%;
   border-radius: 12px;
