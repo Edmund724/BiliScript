@@ -93,6 +93,7 @@ describe("editorial 数字刊物色板", () => {
     const gate = readCss(GATE_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
     expect(gate).toContain("#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-ov-chapter");
     expect(gate).toContain("#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-ov-quote");
+    expect(gate).toContain(".biliscript-reading-search");
     expect(gate).toContain("border: 1px solid var(--biliscript-reader-border);");
   });
 

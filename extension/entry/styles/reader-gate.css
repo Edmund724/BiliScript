@@ -592,7 +592,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 }
 
 /* 输入控件族（设置表输入/下拉/多行、快捷提示词、编辑 Modal 与弹窗输入、
- * custom-select trigger）：底色已是 --card 白玻璃，只需描边归零 + 圆角抬
+ * custom-select trigger、字幕搜索框）：底色已是 --card 白玻璃，只需描边归零 + 圆角抬
  * 12px + 软投影。.biliscript-set-select 的 chevron 走 background-image，
  * 本组不碰 background 声明。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-input,
@@ -603,7 +603,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="password"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog input[type="text"],
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search {
   border: none;
   border-radius: 12px;
   box-shadow: 0 1px 2px rgba(23, 24, 26, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.7);
@@ -629,7 +630,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="text"]:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="password"]:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog select:focus,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger:focus {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search:focus-within {
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 2px rgba(23, 24, 26, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
@@ -665,8 +667,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog input[type="password"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog input[type="text"],
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-trigger {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-trigger,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search:focus-within {
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog,
@@ -697,7 +704,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog input[type="password"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-dialog select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .provider-editor-fetch-dialog input[type="text"],
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-trigger {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .custom-select-trigger,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search {
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: none;
 }
@@ -708,7 +717,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
   box-shadow: none;
 }
 
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card:focus-within {
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card:focus-within,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-search:focus-within {
   border: 1px solid var(--biliscript-reader-accent);
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
 }

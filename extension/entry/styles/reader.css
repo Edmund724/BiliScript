@@ -731,6 +731,8 @@
 }
 
 .biliscript-reading-search {
+  box-sizing: border-box;
+  height: 32px;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -738,13 +740,14 @@
   gap: 6px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: 12px;
-  padding: 5px 10px;
+  padding: 0 4px 0 10px;
   background: var(--biliscript-reader-card);
 }
 
 .biliscript-reading-search-input {
   flex: 1;
   min-width: 0;
+  height: 100%;
   border: none;
   outline: none;
   background: none;
@@ -767,28 +770,33 @@
 
 .biliscript-reading-search-nav {
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--biliscript-reader-border);
-  background: var(--biliscript-reader-card);
-  border-radius: 8px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
   padding: 0;
   font-size: 14px;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: background 150ms ease-out, color 150ms ease-out, transform 100ms ease-out;
 }
 
 .biliscript-reading-search-nav:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
-.biliscript-reading-search-nav:hover:not(:disabled) {
-  border-color: var(--biliscript-reader-accent);
-  color: var(--biliscript-reader-accent);
+.biliscript-reading-search-nav:hover:not(:disabled),
+.biliscript-reading-search-nav:focus-visible:not(:disabled) {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
+.biliscript-reading-search-nav:focus-visible {
+  outline: none;
 }
 
 .biliscript-reading-search-nav:disabled {

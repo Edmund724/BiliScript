@@ -143,4 +143,24 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(page).toMatch(/padding:\s*4px 0 12px\s*;/);
     expect(page).toContain("inset: -10px -28px -14px -14px");
   });
+
+  it("字幕工具条搜索框：盒高 32px 对齐选轨下拉，无描边白玻璃凸起 + 24px 无框幽灵跳转键", () => {
+    const readerCss = readCss(READER_CSS);
+    const searchBody = ruleBody(readerCss, ".biliscript-reading-search");
+    expect(searchBody).toContain("height: 32px");
+    expect(searchBody).toContain("box-sizing: border-box");
+    expect(searchBody).toContain("border-radius: 12px");
+
+    const navBody = ruleBody(readerCss, ".biliscript-reading-search-nav");
+    expect(navBody).toContain("width: 24px");
+    expect(navBody).toContain("height: 24px");
+    expect(navBody).toContain("background: transparent");
+    expect(navBody).toContain("border: none");
+    expect(readerCss).toContain("background: var(--biliscript-reader-fill-hover)");
+
+    const gate = readCss(GATE_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(gate).toContain(".biliscript-reading-search");
+    expect(gate).toContain("border: none");
+    expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.7)");
+  });
 });
