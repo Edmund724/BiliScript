@@ -322,7 +322,9 @@
 .biliscript-reading-tabs {
   flex: 0 0 auto;
   min-width: 0;
-  display: flex;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -342,6 +344,7 @@
   font-weight: 600;
   font-family: inherit;
   text-align: center;
+  white-space: nowrap;
   color: var(--biliscript-reader-muted);
   transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
 }

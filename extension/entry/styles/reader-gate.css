@@ -395,22 +395,22 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
  * 窄面板下微调 padding 与 gap，避免居中三标签与右侧脱流工具键发生重叠。 */
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-tabs {
-    gap: 12px;
+    gap: 8px;
   }
 
   #biliscript-reading-view .biliscript-reading-tab {
-    padding: 7px 16px;
+    padding: 7px 12px;
   }
 }
 
 @container (max-width: 460px) {
   #biliscript-reading-view .biliscript-reading-tabs {
-    gap: 6px;
-    padding: 2px 4px;
+    gap: 4px;
+    padding: 2px;
   }
 
   #biliscript-reading-view .biliscript-reading-tab {
-    padding: 6px 8px;
+    padding: 6px 5px;
     font-size: 14px;
   }
 }

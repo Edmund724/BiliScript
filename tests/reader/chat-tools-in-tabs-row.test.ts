@@ -79,11 +79,14 @@ describe("对话工具键并入壳标签行", () => {
     expect(tools).toMatch(/transform:\s*translateY\(-50%\);/);
 
     const tabs = ruleBody(css, "\\.biliscript-reading-tabs");
+    expect(tabs).toMatch(/display:\s*inline-grid;/);
+    expect(tabs).toMatch(/grid-auto-columns:\s*1fr;/);
     expect(tabs).toMatch(/justify-content:\s*center;/);
 
     const tab = ruleBody(css, "\\.biliscript-reading-tab");
     expect(tab).toMatch(/flex:\s*1 1 0;/);
     expect(tab).toMatch(/text-align:\s*center;/);
+    expect(tab).toMatch(/white-space:\s*nowrap;/);
   });
 
   it("工具键仅在 AI 对话 tab 激活时可见，非对话 tab 下隐藏且不阻挡指针事件", () => {

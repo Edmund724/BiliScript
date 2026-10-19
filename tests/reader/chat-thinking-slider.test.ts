@@ -76,8 +76,9 @@ describe("05: 思考强度滑轨样式与几何契约", () => {
     expect(tickBody).toMatch(/width:\s*24px/);
     expect(tickBody).toMatch(/margin-left:\s*-12px/);
 
-    // 6. .chat-thinking-thumb 尺寸缩减为 20×20px，top: 2px，margin-left: -10px，轻软阴影
+    // 6. .chat-thinking-thumb 尺寸缩减为 20×20px（border-box 含 1px 描边），top: 2px，margin-left: -10px，轻软阴影
     const thumbBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-thumb");
+    expect(thumbBody).toMatch(/box-sizing:\s*border-box/);
     expect(thumbBody).toMatch(/width:\s*20px/);
     expect(thumbBody).toMatch(/height:\s*20px/);
     expect(thumbBody).toMatch(/top:\s*2px/);

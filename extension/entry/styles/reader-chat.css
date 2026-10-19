@@ -313,6 +313,7 @@
 
 /* 白色圆形滑块（Default 态下 [hidden] 隐藏，只露刻度点）。 */
 .biliscript-reading-chat .chat-thinking-thumb {
+  box-sizing: border-box;
   position: absolute;
   z-index: 2;
   top: 2px;
