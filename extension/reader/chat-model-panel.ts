@@ -326,7 +326,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         const activeIndex = currentActiveIndex;
         const hasThumb = activeIndex >= 0;
         const pct = hasThumb ? (activeIndex / (n - 1)) * 100 : 0;
-        const fillWidth = hasThumb && activeIndex > 0 ? `calc(${pct}% + 14px)` : "0px";
+        const fillWidth = hasThumb && activeIndex > 0 ? `calc(${pct}% + 12px)` : "0px";
         const hasSparkle = hasThumb && activeIndex > 0;
         const atMax = n >= 3 && hasThumb && activeIndex >= n - 1;
         syncUltraBurst(atMax);
@@ -388,7 +388,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       const pct = (snapped / (n - 1)) * 100;
       thumb!.hidden = false;
       thumb!.style.left = `${pct}%`;
-      fill!.style.width = snapped <= 0 ? "0px" : `calc(${pct}% + 14px)`;
+      fill!.style.width = snapped <= 0 ? "0px" : `calc(${pct}% + 12px)`;
       const hasSparkle = snapped > 0;
       const atMax = n >= 3 && nearest >= n - 1 && snapped >= n - 1 - SNAP_THRESHOLD;
       track!.classList.toggle("is-sparkle", hasSparkle);
