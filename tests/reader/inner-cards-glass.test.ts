@@ -55,21 +55,14 @@ describe("03: AI 对话与设置内嵌卡片 Flyme 玻璃材质补齐", () => {
       expect(gate, `gate 表应包含 ${sel}`).toContain(sel);
     }
 
-    // 浅色组：无边框 + 液态玻璃卡面（--biliscript-reader-card）+ 折射高光 token
-    const lightGroup = ruleBody(
+    // 无边框 + 液态玻璃卡面（--biliscript-reader-card）+ 折射高光 token（明暗两档随主题块 token 自动换值）
+    const cardGroup = ruleBody(
       readCss(GATE_CSS),
       "#biliscript-reading-view .biliscript-reading-chat .chat-msg-assistant"
     );
-    expect(lightGroup).toContain("background: var(--biliscript-reader-card)");
-    expect(lightGroup).toContain("border: none");
-    expect(lightGroup).toContain("box-shadow: var(--biliscript-reader-card-highlight)");
-
-    // 深色组同一 token（明暗两档的折射高光与柔影随 token 换档）
-    const darkGroup = ruleBody(
-      readCss(GATE_CSS),
-      "#biliscript-reading-view[data-theme=\"dark\"] .biliscript-reading-chat .chat-msg-assistant"
-    );
-    expect(darkGroup).toContain("box-shadow: var(--biliscript-reader-card-highlight)");
+    expect(cardGroup).toContain("background: var(--biliscript-reader-card)");
+    expect(cardGroup).toContain("border: none");
+    expect(cardGroup).toContain("box-shadow: var(--biliscript-reader-card-highlight)");
   });
 
   it("卡片内部的分隔线保持清晰可读，不被误删", () => {

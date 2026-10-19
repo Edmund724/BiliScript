@@ -332,7 +332,7 @@ describe("收敛 4/6：面板内弹层对话框（解释卡 / 二次确认）", 
 });
 
 describe("卡面材质统一走 card-highlight token（flyme 凸起卡族）", () => {
-  it("浅色卡族：章节/金句、用户气泡、chips、平台行的阴影统一消费 card-highlight", () => {
+  it("卡族（章节/金句、用户气泡、chips、平台行）统一消费 card-highlight，深色靠主题块 token 自动换档", () => {
     const gate = readCss(GATE_CSS);
     for (const sel of [
       "#biliscript-reading-view .biliscript-reading-ov-chapter",
@@ -344,15 +344,10 @@ describe("卡面材质统一走 card-highlight token（flyme 凸起卡族）", (
         "box-shadow: var(--biliscript-reader-card-highlight)"
       );
     }
-  });
-
-  it("深色卡族：同一 token（折射高光与柔影随深色档 token 换值）", () => {
-    const gate = readCss(GATE_CSS);
+    // 深色章节/金句悬停覆写浅色 :hover 字面阴影，重申 card-highlight
     for (const sel of [
-      "#biliscript-reading-view[data-theme=\"dark\"] .biliscript-reading-ov-chapter",
-      "#biliscript-reading-view[data-theme=\"dark\"] .biliscript-reading-chat .chat-msg-user",
-      "#biliscript-reading-view[data-theme=\"dark\"] .biliscript-reading-chat .chat-chip",
-      "body[data-biliscript-reader-mode=\"1\"] #biliscript-reading-view[data-theme=\"dark\"] .biliscript-reading-settings-host .ai-provider-row"
+      "#biliscript-reading-view[data-theme=\"dark\"] .biliscript-reading-ov-chapter:hover",
+      "#biliscript-reading-view[data-theme=\"dark\"] .biliscript-reading-ov-quote:hover"
     ]) {
       expect(ruleBody(gate, sel), `${sel} 应消费 card-highlight`).toContain(
         "box-shadow: var(--biliscript-reader-card-highlight)"
@@ -478,10 +473,12 @@ describe("带框图标开关保框（联网搜索 pill，spec §3 例外项）",
 describe("收敛 1/6 补：字幕工具栏选轨触发器按次级按钮收敛（spec §3.1 的 .biliscript-reading-sub-picker-trigger）", () => {
   const PICKERS = [
     "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-track-picker .custom-select-trigger",
-    "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-bilingual-secondary-picker .custom-select-trigger"
+    "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-bilingual-secondary-picker .custom-select-trigger",
+    "body[data-biliscript-reader-mode=\"1\"] #biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-track-picker .custom-select-trigger",
+    "body[data-biliscript-reader-mode=\"1\"] #biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-bilingual-secondary-picker .custom-select-trigger"
   ];
 
-  it("flyme：凸起卡面 + card-highlight 折射高光（与 mini-btn 同配方）", () => {
+  it("flyme：凸起卡面 + card-highlight 折射高光（含 body 前缀压过暗面设置输入凹陷井规则）", () => {
     const gate = readCss(GATE_CSS);
     for (const sel of PICKERS) {
       const body = ruleBody(gate, sel);

@@ -249,8 +249,8 @@ body[data-biliscript-reader-mode="1"],
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 #biliscript-reading-view[data-theme="dark"] {
-  /* Flyme 深色三层：页面 #101114 / 卡片·列表组 #1B1C20 / 输入框底 #222327
-   * （design-tokens.md 背景层表）。层级靠分层灰，不靠投影。 */
+  /* Flyme 深色三层：页面 #101114 / 卡片·列表组 #1B1C20 / 输入框底 #222327。
+   * 层级靠分层灰与液态玻璃暗面漫射柔影 + 边缘折射内高光。 */
   --biliscript-reader-surface: #101114;
   --biliscript-reader-surface-2: #1b1c20;
   --biliscript-reader-surface-3: #222327;
@@ -616,20 +616,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   box-shadow: var(--biliscript-reader-card-highlight);
 }
 
-/* 深色档：凸起感靠分层灰渐变 + 顶部内高光，投影走暗面一档 */
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-msg-user {
-  box-shadow: var(--biliscript-reader-card-highlight);
-}
-
 /* 空态建议 chips 同进凸起语言：基础表的 surface-3 平填与雾底灰差太小，贴在
  * 欢迎区里读作「凹井」而非可点入口；换白玻璃凸起配方（--card 渐变 + 软投影 +
  * 内高光）与概览章节/金句卡、输入卡、用户气泡对齐。 */
 #biliscript-reading-view .biliscript-reading-chat .chat-chip {
   background: var(--biliscript-reader-card);
-  box-shadow: var(--biliscript-reader-card-highlight);
-}
-
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-chip {
   box-shadow: var(--biliscript-reader-card-highlight);
 }
 
@@ -648,8 +639,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 /* 对话与设置内嵌卡片白玻璃化（03 号票）：
  * 助手回复气泡、思考过程折叠块、联网搜索时间线卡及设置「获取可用模型」列表容器
  * 纳入与输入卡、章节卡同系的无边框液态玻璃卡片体系（去除 1px 实线外边框，卡面
- * 阴影统一走 card-highlight token）。选区解释卡已升级为面板内弹层对话框（磨砂 +
- * 悬浮柔影），规则在后面的液态玻璃收敛段。
+ * 阴影统一走 card-highlight token）。选区解释卡属于面板内弹层对话框（磨砂 +
+ * 悬浮柔影），归入下方的弹层对话框规则。
  * 内部的分隔线（如思考块头部下边线、联网搜索步骤间虚线）保持清晰可读。 */
 #biliscript-reading-view .biliscript-reading-chat .chat-msg-assistant,
 #biliscript-reading-view .biliscript-reading-chat .chat-thinking,
@@ -661,17 +652,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
   box-shadow: var(--biliscript-reader-card-highlight);
 }
 
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-msg-assistant,
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-thinking,
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat .chat-search-card,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-list,
-#biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-list {
-  box-shadow: var(--biliscript-reader-card-highlight);
-}
-
-/* 深色凸起感靠分层灰渐变 + 顶部内高光，投影走暗面一档 */
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-chapter,
-#biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-quote,
+/* 深色章节/金句悬停：覆写浅色 :hover 的字面阴影，维持暗面 card-highlight */
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-chapter:hover,
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-ov-quote:hover {
   box-shadow: var(--biliscript-reader-card-highlight);
@@ -788,13 +769,6 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
   border: none;
 }
 
-/* 深色档平台行：凸起卡与浅色同走 card-highlight token（折射高光 + 柔影随档换值） */
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .ai-provider-row,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .asr-provider-row,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .search-provider-row {
-  box-shadow: var(--biliscript-reader-card-highlight);
-}
-
 /* 深色档输入控件族（凹陷井，非凸起卡）：保持极轻投影 + 内高光的井感配方 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-input,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-settings-host .biliscript-set-select,
@@ -844,13 +818,18 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 }
 
 /* 字幕工具栏选轨触发器（主/副双轨 picker）按次级按钮收敛：凸起卡面 +
- * 折射高光；设置表单里的 custom-select 仍走输入控件凹陷井语言。 */
+ * 折射高光；带 body[data-biliscript-reader-mode="1"] 前缀以压过设置区输入
+ * 控件族的暗面凹陷井规则，设置表单里的 custom-select 仍走输入控件凹陷井语言。 */
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-track-picker .custom-select-trigger,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-bilingual-secondary-picker .custom-select-trigger,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-track-picker .custom-select-trigger,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-bilingual-secondary-picker .custom-select-trigger {
   background: var(--biliscript-reader-card);
   box-shadow: var(--biliscript-reader-card-highlight);
 }
 
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-track-picker .custom-select-trigger:hover,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-bilingual-secondary-picker .custom-select-trigger:hover,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-track-picker .custom-select-trigger:hover,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-bilingual-secondary-picker .custom-select-trigger:hover {
   background: var(--biliscript-reader-accent-soft);
@@ -890,11 +869,12 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 28px -4px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
-/* 横幅与状态通知条（转写横幅 / 概览状态条 / 上下文与转写通知 / 消息错误条）：
- * 去外圈 1px 灰框，顶沿内高光 + 极轻外影表达边界；语义底色（highlight /
- * accent-soft / surface-2）保留在基表不动。 */
+/* 横幅与状态通知条（转写横幅 / 概览状态条 / 待解释意图卡 / 上下文与转写通知 /
+ * 消息错误条）：去外圈 1px 灰框，顶沿内高光 + 极轻外影表达边界；语义底色
+ * （highlight / accent-soft / surface-2）保留在基表不动。 */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-asr-banner,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-ov-strip,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat-intent,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-context-notice,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-asr-notice,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-error {
@@ -902,11 +882,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 2px 8px rgba(15, 23, 42, 0.03);
 }
 
-/* 待解释意图卡同法去框，但保留左缘 3px accent 强调竖条（仅其余三边透明） */
+/* 待解释意图卡保留左缘 3px accent 强调竖条（仅其余三边透明） */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat-intent {
-  border-color: transparent;
   border-left-color: var(--biliscript-reader-accent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 2px 8px rgba(15, 23, 42, 0.03);
 }
 
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-asr-banner,
@@ -1113,11 +1091,15 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
     background: var(--biliscript-reader-surface);
   }
 
-  /* 悬浮胶囊、滚底圆钮与输入卡（液态玻璃收敛段新增）：减弱透明度下关停磨砂 */
+  /* 悬浮胶囊、滚底圆钮与输入卡：减弱透明度下同步关停磨砂 */
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
   body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom,
-  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card,
+  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
+  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
+  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom,
+  #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -1146,7 +1128,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom,
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom,
+#biliscript-reading-view[data-biliscript-script-scrolling="1"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }

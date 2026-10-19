@@ -15,11 +15,8 @@ node_modules/
 /extension/entry/content-main.mjs.map
 /extension/entry/chunks/
 
-# Local / agent / IDE（例外：flyme-design skill 入库）
-.agents/*
-!.agents/skills
-.agents/skills/*
-!.agents/skills/flyme-design
+# Local / agent / IDE
+.agents
 .env
 .scratch/
 skills-lock.json
