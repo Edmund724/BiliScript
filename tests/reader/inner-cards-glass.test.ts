@@ -1,11 +1,10 @@
 // tests/reader/inner-cards-glass.test.ts
-// 03 号票：AI 对话与设置内嵌卡片 Flyme 玻璃材质补齐样式契约。
-// 涉及 5 处内嵌卡片与容器：
-// 1. .chat-msg-assistant（助手回复气泡）
-// 2. .biliscript-reading-explain-card-dialog（选区解释卡）
-// 3. .chat-thinking（思考过程折叠块）
-// 4. .chat-search-card（联网搜索时间线卡）
-// 5. .provider-editor-fetch-list（设置「获取可用模型」弹窗内的模型勾选列表容器）
+// AI 对话与设置内嵌卡片 Flyme 玻璃材质样式契约。
+// 涉及 4 处内嵌卡片与容器：
+// 1. .biliscript-reading-explain-card-dialog（选区解释卡）
+// 2. .chat-thinking（思考过程折叠块）
+// 3. .chat-search-card（联网搜索时间线卡）
+// 4. .provider-editor-fetch-list（设置「获取可用模型」弹窗内的模型勾选列表容器）
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -39,16 +38,15 @@ function ruleBody(css: string, selector: string): string {
   return bodies.join("\n");
 }
 
-describe("03: AI 对话与设置内嵌卡片 Flyme 玻璃材质补齐", () => {
+describe("AI 对话与设置内嵌卡片 Flyme 玻璃材质", () => {
   const TARGET_SELECTORS = [
-    ".chat-msg-assistant",
     ".biliscript-reading-explain-card-dialog",
     ".chat-thinking",
     ".chat-search-card",
     ".provider-editor-fetch-list"
   ];
 
-  it("Flyme 浅色与深色：5 处内嵌卡片/容器均去除 1px 实线边框，统一液态玻璃卡面与折射高光", () => {
+  it("Flyme 浅色与深色：4 处内嵌卡片/容器均去除 1px 实线边框，统一液态玻璃卡面与折射高光", () => {
     const gate = stripComments(readCss(GATE_CSS));
 
     for (const sel of TARGET_SELECTORS) {
@@ -58,7 +56,7 @@ describe("03: AI 对话与设置内嵌卡片 Flyme 玻璃材质补齐", () => {
     // 无边框 + 液态玻璃卡面（--biliscript-reader-card）+ 折射高光 token（明暗两档随主题块 token 自动换值）
     const cardGroup = ruleBody(
       readCss(GATE_CSS),
-      "#biliscript-reading-view .biliscript-reading-chat .chat-msg-assistant"
+      "#biliscript-reading-view .biliscript-reading-chat .chat-thinking"
     );
     expect(cardGroup).toContain("background: var(--biliscript-reader-card)");
     expect(cardGroup).toContain("border: none");
@@ -75,16 +73,16 @@ describe("03: AI 对话与设置内嵌卡片 Flyme 玻璃材质补齐", () => {
     expect(chatCss).toContain("border-top: 1px dashed var(--biliscript-reader-border)");
   });
 
-  it("助手消息气泡具备和谐的内边距与气泡形状（10px 14px、底部左侧微尾巴）", () => {
+  it("助手消息为全宽纯文本流，无气泡圆角与内边距", () => {
     const chatCss = readCss(CHAT_CSS);
     const assistantBody = ruleBody(chatCss, ".biliscript-reading-chat .chat-msg-assistant");
 
-    expect(assistantBody).toContain("padding: 10px 14px");
-    expect(assistantBody).toContain("border-radius: 14px");
-    expect(assistantBody).toContain("border-bottom-left-radius: 6px");
+    expect(assistantBody).toContain("background: transparent");
+    expect(assistantBody).toContain("border-radius: 0");
+    expect(assistantBody).toContain("padding: 0");
   });
 
-  it("editorial 数字刊物色板下：5 处内嵌卡片与容器维持 1px 实线边框与零投影", () => {
+  it("editorial 数字刊物色板下：4 处内嵌卡片与容器维持 1px 实线边框与零投影", () => {
     const gate = stripComments(readCss(GATE_CSS));
 
     for (const sel of TARGET_SELECTORS) {
@@ -96,7 +94,7 @@ describe("03: AI 对话与设置内嵌卡片 Flyme 玻璃材质补齐", () => {
 
     const editorialBlock = ruleBody(
       readCss(GATE_CSS),
-      `#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-assistant`
+      `#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-thinking`
     );
     expect(editorialBlock).toContain("border: 1px solid var(--biliscript-reader-border)");
     expect(editorialBlock).toContain("box-shadow: none");

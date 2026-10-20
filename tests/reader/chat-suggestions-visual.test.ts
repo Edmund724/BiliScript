@@ -47,11 +47,11 @@ describe("建议问题与空态欢迎区观感", () => {
     expect(ruleBody("\\.biliscript-reading-chat \\.chat-hero-sugs")).toMatch(/align-items:\s*center;/);
   });
 
-  it("chip 是填充式大圆角块：无描边、surface-3 底、14px 圆角、12/16 内边距", () => {
+  it("chip 是填充式大圆角块：无描边、surface-3 底、18px 圆角、12/16 内边距", () => {
     const block = ruleBody("\\.biliscript-reading-chat \\.chat-chip");
 
     expect(block).not.toMatch(/border:\s*1px/);
-    expect(block).toMatch(/border-radius:\s*14px;/);
+    expect(block).toMatch(/border-radius:\s*18px;/);
     expect(block).toMatch(/background:\s*var\(--biliscript-reader-surface-3\);/);
     expect(block).toMatch(/padding:\s*12px 16px;/);
   });

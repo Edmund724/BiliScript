@@ -98,7 +98,7 @@
   right: 4px;
   width: 24px;
   height: 24px;
-  border-radius: 6px;
+  border-radius: 18px;
   color: var(--biliscript-reader-muted);
   display: inline-flex;
   align-items: center;
@@ -358,7 +358,7 @@
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 18px;
   background: transparent;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
@@ -406,7 +406,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 2px 8px;
+  margin-right: -14px;
+  padding: 12px 14px 8px 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -482,7 +483,7 @@
   text-align: left;
   padding: 12px 16px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 18px;
   background: var(--biliscript-reader-surface-3);
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -499,43 +500,46 @@
   color: var(--biliscript-reader-accent);
 }
 
-/* 气泡是「内容排版域」的形状与字号档：正文 16px（与字幕正文的
- * --biliscript-reader-subtitle-font-size 默认档同值），圆角 14px 与气泡尾巴 6px 是
- * 聊天语义的独立形状，不并进卡片的 10px 档。 */
+/* 消息基础样式：正文 16px、圆角 18px。 */
 .biliscript-reading-chat .chat-msg {
   max-width: 94%;
   white-space: pre-wrap;
   word-wrap: break-word;
   padding: 7px 11px;
-  border-radius: 14px;
+  border-radius: 18px;
   line-height: 1.45;
   font-size: 16px;
 }
 
-/* 用户气泡：surface-2 + 描边只是回退档，阅读视图里由 reader-gate.css 覆写为
- * 白玻璃凸起卡（--card 渐变 + 软投影 + 内高光、描边归零），与助手消息的
- * 透明底形成明确层级。 */
+/* 用户气泡：右对齐圆润矩形气泡（圆角 18px），在阅读视图中覆写为白玻璃凸起卡 */
 .biliscript-reading-chat .chat-msg-user {
   align-self: flex-end;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-text);
   border: 1px solid var(--biliscript-reader-border);
-  border-bottom-right-radius: 6px;
+  border-radius: 18px;
 }
 
+/* 助手消息：无气泡全宽纯文本流（透明底、无边框、无圆角、零内边距），内容左对齐占满列宽 */
 .biliscript-reading-chat .chat-msg-assistant {
-  align-self: flex-start;
-  background: var(--biliscript-reader-card);
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  background: transparent;
   color: var(--biliscript-reader-text);
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 14px;
-  border-bottom-left-radius: 6px;
-  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   white-space: normal;
+  box-shadow: none;
 }
 
 .biliscript-reading-chat .chat-msg-assistant-body {
   min-width: 0;
+  width: 100%;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
 }
 
 /* 思考块：白玻璃折叠卡，标题行 = 线性思考图标 + 文案 + 折叠箭头。
@@ -544,7 +548,7 @@
   margin-bottom: 10px;
   padding: 8px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 12px;
+  border-radius: 18px;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-muted);
   font-size: 14px;
@@ -691,7 +695,7 @@
   height: 32px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 18px;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-muted);
   cursor: pointer;
@@ -804,7 +808,7 @@
   padding: 10px 12px;
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
+  border-radius: 18px;
   overflow-x: auto;
 }
 
@@ -915,7 +919,7 @@
   color: var(--biliscript-reader-text);
   background: var(--biliscript-reader-highlight);
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 12px;
+  border-radius: 18px;
   padding: 8px 10px;
   font-size: 14px;
 }
@@ -962,7 +966,7 @@
   margin-bottom: 2px;
   padding: 7px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 12px;
+  border-radius: 18px;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
   font-size: 14px;
@@ -1005,7 +1009,7 @@
   margin: 0 0 6px;
   padding: 7px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 12px;
+  border-radius: 18px;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
   font-size: 14px;
@@ -1026,18 +1030,16 @@
   position: relative;
 }
 
-/* 滚底按钮（DeepSeek Harness 同款：离开底部出现，34px 圆钮浮在输入卡上方，点击
- * 回底）。底色/描边/阴影取来源悬停预览卡（.chat-search-preview）同一套浮层母题。
+/* 滚底按钮（离开底部出现，34px 圆钮浮在输入卡上方，点击回底）。
+ * 底色/描边/阴影取来源悬停预览卡（.chat-search-preview）同一套浮层母题。
  * 定位挂在 footer（position:relative）而非消息区——消息区是滚动容器，绝对定位的
- * 子节点随内容一起滚走，按钮会「滚出视野」。right 让开消息区的滚动条槽：消息区
- * 走 ::-webkit-scrollbar 定制，槽宽 8px（.scratch/scroll-bottom-preview/scrollbar-probe），
- * 加 2px 缝 = 10px，按钮右缘落回正文列右缘（消息区 padding-right 2px），既不压住
- * 滚动条拇指，也与正文对齐。z-index 取 5：压在消息区之上、模型面板（10）之下，
+ * 子节点随内容一起滚走，按钮会「滚出视野」。right: 0 贴齐正文列与输入卡右缘，
+ * 消息区滚动条则在右侧贴面板最右边缘。z-index 取 5：压在消息区之上、模型面板（10）之下，
  * 展开模型面板时按钮不会盖住面板角。 */
 .biliscript-reading-chat .chat-scroll-bottom {
   position: absolute;
   z-index: 5;
-  right: 10px;
+  right: 0;
   bottom: calc(100% + 6px);
   width: 34px;
   height: 34px;
@@ -1189,7 +1191,7 @@
   gap: 6px;
   padding: 10px 10px 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 16px;
+  border-radius: 18px;
   background: var(--biliscript-reader-surface);
 }
 
@@ -1223,7 +1225,7 @@
   height: 100%;
   object-fit: cover;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
+  border-radius: 18px;
   background: var(--biliscript-reader-surface-2);
 }
 
@@ -1426,7 +1428,7 @@
   max-height: min(430px, calc(100vh - 260px));
   padding: 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 16px;
+  border-radius: 18px;
   background: var(--biliscript-reader-card);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
@@ -1571,7 +1573,7 @@
   width: 100%;
   padding: 7px 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 18px;
   background: transparent;
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -1659,7 +1661,7 @@
   gap: 6px;
   align-items: center;
   padding-right: 12px;
-  border-radius: 8px;
+  border-radius: 18px;
   max-width: 100%;
 }
 
@@ -1730,7 +1732,7 @@
   width: 24px;
   height: 24px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 18px;
   background: transparent;
   color: var(--biliscript-reader-faint);
   font: inherit;
@@ -1791,7 +1793,7 @@
   align-self: stretch;
   max-width: 100%;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 12px;
+  border-radius: 18px;
   background: var(--biliscript-reader-card);
   padding: 8px 10px;
 }
@@ -1997,7 +1999,7 @@
   max-width: 320px;
   padding: 8px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 12px;
+  border-radius: 18px;
   background: var(--biliscript-reader-card);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);

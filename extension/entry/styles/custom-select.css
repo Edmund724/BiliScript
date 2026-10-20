@@ -38,7 +38,7 @@
   overflow-x: hidden;
   padding: 6px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 12px;
+  border-radius: 18px;
   background: var(--biliscript-reader-card);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
@@ -79,7 +79,7 @@
   width: 100%;
   min-height: 38px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 18px;
   background: transparent;
   padding: 4px 10px;
   text-align: start;
@@ -133,7 +133,7 @@
   gap: 5px;
   padding: 0 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 8px;
+  border-radius: 18px;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;
