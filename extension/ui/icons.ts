@@ -25,9 +25,9 @@ export function buildPlayerAiQuickActionIconSvg(variant: PlayerAiQuickActionIcon
             <stop offset="100%" stop-color="#fdd663"></stop>
           </linearGradient>
         </defs>
-        <ellipse cx="12" cy="12" rx="8.51" ry="4.6" transform="rotate(-45 12 12)" stroke="url(#biliscript-player-ai-orbit-a)" stroke-width="2.05" fill="none"></ellipse>
-        <ellipse cx="12" cy="12" rx="8.51" ry="4.6" transform="rotate(45 12 12)" stroke="url(#biliscript-player-ai-orbit-b)" stroke-width="2.05" fill="none" opacity="0.92"></ellipse>
-        <circle cx="12" cy="12" r="2.1" fill="#ffffff" stroke="none"></circle>
+        <ellipse cx="12" cy="12" rx="11.1" ry="6" transform="rotate(-45 12 12)" stroke="url(#biliscript-player-ai-orbit-a)" stroke-width="2.5" fill="none"></ellipse>
+        <ellipse cx="12" cy="12" rx="11.1" ry="6" transform="rotate(45 12 12)" stroke="url(#biliscript-player-ai-orbit-b)" stroke-width="2.5" fill="none" opacity="0.92"></ellipse>
+        <circle cx="12" cy="12" r="2.7" fill="#ffffff" stroke="none"></circle>
       </svg>
     `,
     badge: `
