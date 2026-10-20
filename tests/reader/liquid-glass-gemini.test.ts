@@ -721,34 +721,34 @@ describe("Gemini 触点 5 · 生成进度条流光与三点脉冲光标", () => 
 });
 
 describe("Gemini 触点 6 · 播放器快捷按钮（player-ai.css）", () => {
-  it("按钮升级为深色液态玻璃胶囊 + 虹彩细环（padding-box/border-box 双层背景）", () => {
-    const body = ruleBody(readCss(PLAYER_AI_CSS), "#biliscript-player-ai-quick-action");
-    expect(body).toContain("border: 1.5px solid transparent");
+  it("按钮采用透明白雾毛玻璃圆底 + 内高光细边，SVG 图标挂投影保证亮暗画面辨识度", () => {
+    const css = readCss(PLAYER_AI_CSS);
+    const body = ruleBody(css, "#biliscript-player-ai-quick-action");
+    expect(body).toContain("border: 1px solid rgba(255, 255, 255, 0.46)");
     expect(body).toContain("border-radius: 999px");
     expect(body).toContain(
-      "linear-gradient(165deg, rgba(24, 28, 38, 0.86), rgba(15, 18, 26, 0.92)) padding-box"
+      "background: linear-gradient(165deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08))"
     );
-    expect(body).toContain(
-      "linear-gradient(135deg, rgba(102, 157, 246, 0.85), rgba(179, 136, 255, 0.85), rgba(242, 139, 130, 0.85), rgba(253, 214, 99, 0.75)) border-box"
-    );
-    expect(body).toContain("backdrop-filter: blur(18px) saturate(190%)");
-    expect(body).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.22)");
-    expect(body).toContain("0 6px 20px -2px rgba(0, 0, 0, 0.36)");
-    expect(body).toContain("0 0 16px -2px rgba(155, 114, 203, 0.32)");
+    expect(body).toContain("backdrop-filter: blur(14px) saturate(175%)");
+    expect(body).toContain("inset 0 1px 1px rgba(255, 255, 255, 0.72)");
+    expect(body).toContain("0 4px 15px -2px rgba(15, 23, 42, 0.20)");
+
+    const svgBody = ruleBody(css, "#biliscript-player-ai-quick-action svg");
+    expect(svgBody).toContain("width: var(--biliscript-player-ai-action-icon-size, 22px)");
+    expect(svgBody).toContain("filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.35))");
   });
 
-  it("wrap 悬停：虹彩环换亮档四色 + 外发光加强", () => {
+  it("wrap 悬停：白雾玻璃底与边框提亮 + 淡紫流光外晕", () => {
     const body = ruleBody(
       readCss(PLAYER_AI_CSS),
       ".biliscript-player-ai-wrap:hover #biliscript-player-ai-quick-action"
     );
     expect(body).toContain(
-      "linear-gradient(165deg, rgba(32, 38, 52, 0.92), rgba(20, 24, 34, 0.96)) padding-box"
+      "background: linear-gradient(165deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.18))"
     );
-    expect(body).toContain("linear-gradient(135deg, #669df6, #b388ff, #f28b82, #fdd663) border-box");
-    expect(body).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.32)");
-    expect(body).toContain("0 8px 24px -2px rgba(0, 0, 0, 0.44)");
-    expect(body).toContain("0 0 20px 0 rgba(179, 136, 255, 0.45)");
+    expect(body).toContain("border-color: rgba(255, 255, 255, 0.78)");
+    expect(body).toContain("inset 0 1px 1px rgba(255, 255, 255, 0.9)");
+    expect(body).toContain("0 6px 20px -2px rgba(155, 114, 203, 0.36)");
   });
 
   it("胶囊壳剥离实心黑底旧视觉（底/框/影/overflow 移除），几何与滑入动效保留", () => {

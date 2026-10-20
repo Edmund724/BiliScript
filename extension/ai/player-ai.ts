@@ -75,7 +75,7 @@ let playerAiSubtitleControlCalibrated = false;
 // 三个值都是常量，不随全屏/宽屏等播放器状态变化（现状也是每次写同一组字面量）；
 // 写在 wrap/button 自身的 inline style 上，特异性高于祖先的继承值。
 const PLAYER_AI_HIT_SIZE_PX = 36;
-const PLAYER_AI_ICON_SIZE_PX = 24;
+const PLAYER_AI_ICON_SIZE_PX = 22;
 const PLAYER_AI_BASE_COLOR = "#f6f7f8";
 
 // 「已就位」：按钮与 wrap 仍在记录的原位，且宿主判定结果仍是记录的那个。
