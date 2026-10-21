@@ -19,11 +19,11 @@ import { ensureSummarizeChain } from "../subtitle/lazy.js";
 // 变化正要进入阅读模式时才需要）。
 import { ensureUiReady } from "../ui/lazy-ui.js";
 
-// player-ai 经加载器按需引入（候选4 分包）：开关关闭态不再常驻
-// （默认开启，2026-09 起）。
-// 「未加载」时按钮不可能存在，remove/sync 均可安全跳过（幂等不变量见
-// ai/lazy-player-ai.js 头注）。
-import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
+// player-ai 的「是否已加载」判定直接取加载器（候选4 分包：开关关闭态不常驻，
+// 默认开启，2026-09 起）。「未加载」时按钮不可能存在，sync 可安全跳过（幂等
+// 不变量见 ai/lazy-player-ai.js 头注）；同步实现只有一处——reader/init-essentials
+// 的 syncPlayerAiQuickAction，本文件只注入调用。
+import { isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 
 // reader 侧轻符号直接从 reader 状态微模块 import
 //（isReaderViewOpen=纯 state 读、enforceNormalPageStateIfNeeded=DOM 守卫、
@@ -44,6 +44,7 @@ import { isReaderViewOpen, enforceNormalPageStateIfNeeded } from "../reader/stat
 // reader-bus seam 请 fetcher 刷新（refreshClip 的注册端在总结链装载成功路径上；
 // 本文件不静态依赖 fetcher，也不碰 reader 重域）。
 import { requestSubtitleRefresh } from "../reader/reader-bus.js";
+import { syncPlayerAiQuickAction } from "../reader/init-essentials.js";
 import { kickSubtitleFetch } from "../subtitle/kick-subtitle-fetch.js";
 // 候选03 常驻瘦身：renderReadingStatus 已惰性化。错误路径的浮空播报走
 // announceReadingStatus（吞错口径见 lazy-reader-presentation 内注）。
@@ -250,10 +251,9 @@ export function bindUrlChangeHandler() {
       const chain = await ensureSummarizeChain();
       chain.resetClipState();
     },
-    syncPlayerAiQuickAction: async () => {
-      const playerAi = await loadPlayerAi();
-      playerAi.schedulePlayerAiQuickActionSync();
-    },
+    // 换片后让快捷按钮跟上（同一实现见 reader/init-essentials）：未加载即
+    // no-op，已加载则装载缓存 promise 后 schedule，不阻塞换片事务的其余步骤。
+    syncPlayerAiQuickAction,
     // URL 跳转进入阅读壳：与消息意图三档共享同一条进入链（挂表 → 翻门控属性 →
     // enterReaderMode），但无 player-ai 前奏（URL 跳转没有用户点击在先，不抑制、
     // 不摘快捷按钮）；进入前播报等落地（防反向覆盖 enterReaderMode 的「已就绪」
