@@ -75,7 +75,9 @@ let ids: typeof import("../../extension/reader/state.js").ids;
 let core: typeof import("../../extension/subtitle/core.js");
 let alignment: typeof import("../../extension/subtitle/alignment.js");
 let render: typeof import("../../extension/reader/batched-render.js");
-let search: typeof import("../../extension/reader/subtitle-search.js");
+let search: ReturnType<
+  typeof import("../../extension/reader/subtitle-search.js").createSubtitleSearch
+>;
 
 // ===== 夹具：03 号票探针的合并形状（缩比） =====
 // 2 主段共享 1 副段（相邻两行显示同一句译文）；第 3 段与副轨零重叠（折叠）。
@@ -170,7 +172,7 @@ function searchCount(): string {
 
 function runSearch(needle: string): void {
   searchInput().value = needle;
-  search.refreshReadingSubtitleSearch({ scroll: false });
+  search.refresh({ scroll: false });
 }
 
 // secondaryAlignmentFor 历次返回的索引实例集合：size = 1 ⇔ memo 命中、没有重建。
@@ -205,8 +207,19 @@ beforeEach(async () => {
   // 先 core/alignment，再 batched-render / subtitle-search：后两者取到本用例注册表里
   // 的同一个 mock 实例（计数才覆盖到它们内部的调用）。
   render = await import("../../extension/reader/batched-render.js");
-  search = await import("../../extension/reader/subtitle-search.js");
+  const searchMod = await import("../../extension/reader/subtitle-search.js");
   mountSearchShell();
+  // 生产实例由组装根（lifecycle）持有；本套件不挂 reader shell，直接以
+  // createSubtitleSearch 工厂 + 注入 deps 建测试实例（DOM 访问绑本夹具的常驻 id，
+  // 补渲染走 batched-render 同一条实现）。
+  search = searchMod.createSubtitleSearch({
+    getSearchInput: () =>
+      document.getElementById(ids.readingSearchInput) as HTMLInputElement | null,
+    getSubtitleList: () => document.getElementById(ids.readingSubtitleList),
+    flushReadingSubtitleToIndex: (itemIndex) =>
+      render.ensureReadingSubtitleRenderedUpTo(itemIndex),
+    noteManualReaderInteraction: () => {}
+  });
 });
 
 afterEach(() => {
@@ -383,7 +396,7 @@ describe("06 双语列表：双轨搜索", () => {
     expect(subtextBefore?.getAttribute("data-state")).toBe("ready");
     expect(subtextBefore?.textContent).toBe("hello target");
 
-    search.moveReadingSubtitleSearch(1);
+    search.move(1);
     expect(searchCount()).toBe("2 / 2");
     expect(currentMark()?.closest(SUBTEXT_SELECTOR)).toBe(subtextOf(1));
     expect(currentMark()?.textContent).toBe("target");
@@ -407,7 +420,7 @@ describe("06 双语列表：双轨搜索", () => {
     expect(currentMark()).toBe(rowMarks[0]);
     expect(currentMark()?.closest(SUBTEXT_SELECTOR)).toBeNull();
 
-    search.moveReadingSubtitleSearch(1);
+    search.move(1);
     expect(searchCount()).toBe("2 / 2");
     expect(currentMark()).toBe(rowMarks[1]);
     expect(currentMark()?.closest(SUBTEXT_SELECTOR)).not.toBeNull();
@@ -460,7 +473,7 @@ describe("06 双语列表：双轨搜索", () => {
     // 第二批上屏（原始无 mark 的条目）→ hook 补高亮
     listEl().insertAdjacentHTML("beforeend", render.buildReadingSubtitleItemHtml(items[1], false));
     expect(marks().length).toBe(1);
-    search.handleReadingSubtitleRangeAppended(1, 2);
+    search.handleRangeAppended(1, 2);
     expect(marks().length).toBe(2);
     expect(row(1).querySelector<HTMLElement>(MARK_SELECTOR)?.closest(SUBTEXT_SELECTOR)).not.toBeNull();
     expect(subtextOf(1)?.getAttribute("data-state")).toBe("ready");
@@ -474,7 +487,7 @@ describe("06 双语列表：双轨搜索", () => {
 
     runSearch("target");
     expect(marks().length).toBe(2);
-    search.clearReadingSubtitleSearch();
+    search.clear();
     expect(marks().length).toBe(0);
     expect(searchCount()).toBe("");
     expect(textSpan(0).textContent).toBe("target in maintarget in sub");
@@ -495,7 +508,7 @@ describe("06 双语列表：双轨搜索", () => {
     setBilingual(false);
     // 未重渲的老 DOM（副行仍在屏上）：匹配按单轨算，且不给残留副行落 mark
     const staleSubtext = subtextOf(0);
-    search.refreshReadingSubtitleSearch({ scroll: false });
+    search.refresh({ scroll: false });
     expect(searchCount()).toBe("1 / 1");
     expect(marks().length).toBe(1);
     expect(marks()[0].closest(SUBTEXT_SELECTOR)).toBeNull();
@@ -505,7 +518,7 @@ describe("06 双语列表：双轨搜索", () => {
     // 开关收尾的重渲（同一份 builder）后：列表退回单轨，命中与单轨态一致
     renderList(items);
     expect(subtextNodes().length).toBe(0);
-    search.refreshReadingSubtitleSearch({ scroll: false });
+    search.refresh({ scroll: false });
     expect(searchCount()).toBe("1 / 1");
     expect(marks().length).toBe(1);
     // 重渲后的行只有主行（textContent 不含任何副行文本）

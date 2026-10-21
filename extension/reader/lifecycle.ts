@@ -1,46 +1,32 @@
-// Reader shell: lifecycle + settings domain (extracted from reader-impl.js,
-// formerly the shell.js segment, issue 06+).
+// Reader shell：reader 动态域的组装根——生命周期（进入/退出）、reader-bus 端口
+// 单点注册、Presenter 通知接收表、字幕就绪副作用收口；并持有域内全部有状态实例
+// （句内搜索、概览协调器、字幕工具条、渲染驱动），对外具名入口都转发到这些实例。
+// 依赖 LAYOUT 层（video-bind.js + script-host.js）与 ./sync.js；两者不 import
+// 本模块，依赖图保持无环：
 //
-// Deep module owning the reader view lifecycle (enter/close), the settings
-// rendering/steppers and the page-state guards. It depends
-// on the base LAYOUT layer (video-bind.js + script-host.js)
-// and on ./sync.js; neither may import it, so the dependency graph stays acyclic:
-//
-//   reader-bus.ts    显式回调端口组（本模块在文件尾单点注册全部端口实现）
-//   LAYOUT          video-bind.js + script-host.js → ports
-//   SYNC            sync.js（本文件）                      → SYNC + LAYOUT + ports
-//   LIFECYCLE       lifecycle.js（本文件）            → SYNC + LAYOUT + ports
+//   reader-bus.ts   显式回调端口组 + 通知/命令槽
+//   LAYOUT          video-bind.js + script-host.js → reader-bus 端口组
+//   SYNC            sync.js                        → LAYOUT + reader-bus
+//   LIFECYCLE       lifecycle.ts（本文件）          → SYNC + LAYOUT + reader-bus
 //
 // B 形态（右栏 文摘面板）：进入链只开壳、渲染并 openScriptHost（播放器
 // 不动），close 拆 script-host 并清理会话态；reader-bus reset 通知只停同步。
 import { state, transitionReaderShell } from "../core/state.js";
 import { getReaderElement } from "../shared/dom-utils.js";
-// 候选02：updateReaderPreferences/renderReaderPanels 自 presentation.js 移回
-//（script-only-ui：排版档位机制退役，validators 只剩主题归一化）。
 import { normalizeReaderTheme } from "../core/validators.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
-import {
-  getReadingSubtitleItems,
-  getReadingSubtitlePlaceholderText
-} from "../subtitle/core.js";
-import { escapeHtml } from "../shared/string-utils.js";
-import { shouldShowHoursInNote } from "../notes/section-lines.js";
-import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter, registerReaderPorts } from "./reader-bus.js";
+import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter, registerReaderPorts, readerPorts } from "./reader-bus.js";
 import type { ReaderPresenterEvent } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
 // 副轨（双语第二路轨）的目标解析与装载事务：四个装载入口（本处自动装载、弹层开关
 // 打开 / 跨上下文收敛、副列改选、副列重试）的唯一落点，判定与在飞登记都在那里。
 import { ensureSecondarySubtitleLoaded } from "./secondary-subtitle.js";
 
-// 候选02 分层惰性：启动接线（installReaderDebugHelpers / bindSettingsWatcher）与
+// 分层惰性：启动接线（installReaderDebugHelpers / bindSettingsWatcher）与
 // 启动期呈现（hydrate/apply/renderReadingStatus）在常驻微模块
-// ./init-essentials.js、./presentation.js；阅读视图打开后的交互呈现
-//（updateReaderPreferences/renderReaderPanels）属本域重活，
-// 自 presentation.js 移回此处（原 lifecycle.js 分节回归；renderReadingInfoPanel
-// 已随「视频摘要/简介」区块删除）。本文件只保留 reader 域
-// 的重活：进入/退出生命周期、阅读视图渲染、偏好/面板呈现与 reader-bus 通知
-// 处理体（候选09 迁出：字幕分批渲染状态机 → ./batched-render.js，调试快照 →
-// ./debug-snapshot.js）。
+// ./init-essentials.js、./presentation.js；本文件只保留 reader 域的重活：
+// 进入/退出生命周期、偏好更新与 reader-bus 通知处理体；列表/meta 等渲染投影
+// 知识收在 ./view-render.ts，本文件在装配点把会话态投影注进渲染驱动。
 import {
   renderReadingStatus,
   hydrateReaderStateFromSettings,
@@ -65,31 +51,24 @@ import { activateScriptTab } from "./script-tab-activation.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
-// 候选09：字幕分批渲染状态机（rAF 任务/游标/spacer 收敛）迁往 ./batched-render.js；
-// flush 端口实现与首屏批/取消/任务启动入口经下方 import 取用。
+// 字幕分批渲染状态机（rAF 任务/游标/spacer 收敛）在 ./batched-render.ts；
+// flush 端口实现与批次回执 hook 经下方 import 取用；关闭时取消未完成的
+// 追加任务用 cancelReadingSubtitleAppend。
 import {
-  SUBTITLE_FIRST_BATCH,
-  buildReadingSubtitleItemHtml,
-  calibrateReadingSubtitleItemEstimate,
   cancelReadingSubtitleAppend,
   ensureReadingSubtitleRenderedUpTo,
-  setReadingSubtitleBatchHook,
-  startReadingSubtitleAppendTask
+  setReadingSubtitleBatchHook
 } from "./batched-render.js";
 // 换轨进场动画的标记消费（用户主动换轨才播一次，口径见该模块头注）。
-// PR3 字幕 tab：句内搜索（批次回执 hook + 重渲重放 + 关闭清理）、转写中间态
-// 横幅（相位订阅 + 渲染尾部收敛）、待解释意图契约（选区解释卡片「去对话追问」
-// 写入、对话 tab 消费；会话收尾清除）。
-import {
-  clearReadingSubtitleSearch,
-  handleReadingSubtitleRangeAppended,
-  refreshReadingSubtitleSearch
-} from "./subtitle-search.js";
+// 字幕 tab：句内搜索实例由本模块装配持有（批次回执 hook + 重渲重放 + 关闭
+// 清理）、转写中间态横幅（相位订阅 + 渲染尾部收敛）、待解释意图契约（选区
+// 解释卡片「去对话追问」写入、对话 tab 消费；会话收尾清除）。
+import { createSubtitleSearch } from "./subtitle-search.js";
 import { bindReadingTranscribeBanner, updateReadingTranscribeBanner } from "./transcribe-banner.js";
-// 票 subtitle-track-picker/08：字幕工具条选轨控件（ui/custom-select 形态）的
-// 渲染入口与 change 绑定。模板/交互归 subtitle-tab-ui 叶子持有，本域只做
-// 「渲染尾部投影一次」与「失败通知经 reader-bus」两件组装根的事（与 PR3 的
-// 搜索/横幅同款分工：重活各归其域，本文件负责时机与接线）。
+// 字幕工具条选轨控件（ui/custom-select 形态）的渲染入口与 change 绑定。模板/交互
+// 归 subtitle-tab-ui 叶子持有，本域只做「渲染尾部投影一次」与「失败通知经
+// reader-bus」两件组装根的事（与搜索/横幅同款分工：重活各归其域，本文件负责
+// 时机与接线）。
 import {
   createSubtitleToolbar,
   type SubtitleToolbar
@@ -97,13 +76,21 @@ import {
 import { clearPendingExplainIntent } from "./explain-intent.js";
 // 选区「解释」卡片（面板内弹层）：会话收尾时关卡片并中止在飞解释请求。
 import { closeReaderExplainCard } from "./explain-card.js";
-// PR4 概览 tab：协调器接口收口（arch-review-batch3/02）——打开即自动生成（enter/subtitle-ready）、
-// 投影格通过 renderReadingOverview 驱动、关闭清理经 resetReaderOverviewState 归位。
+// 概览 tab：协调器实例由本模块装配持有——打开即自动生成（enter/subtitle-ready）、
+// 投影格经 renderReadingOverview 包装驱动、关闭清理经 reset 归位。
 import {
-  triggerReaderOverviewGeneration,
-  resetReaderOverviewState,
-  renderReadingOverview
-} from "./overview.js";
+  createOverviewCoordinator,
+  type ReaderOverviewCoordinator,
+  type ReaderOverviewPhase,
+  type ReaderOverviewSnapshot
+} from "./overview-coordinator.js";
+import {
+  registerOverviewUiActions,
+  renderReadingOverview as renderReadingOverviewUi
+} from "./overview-ui.js";
+import { resolveActiveProvider } from "../ai/active-provider.js";
+import { confirmDialog } from "../ui/confirm-dialog.js";
+import { createViewRender, renderReaderPanels } from "./view-render.js";
 // 初始快捷问题的逐视频预热（字幕就绪即后台生成三个问题，对话 tab 直接取用）。
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
 
@@ -134,13 +121,15 @@ registerReaderPorts({
 // 与发布方共用同一个 ReaderPresenterEvent 形状。
 subscribeReaderPresenter(handleReaderPresenterNotification);
 
-// PR3 字幕 tab 的两处组装根单点接线（与上方端口注册同位）：
+// 字幕 tab 的组装根单点接线（与上方端口注册同位）：
 //   - 批次回执 hook：分批渲染每次 [from, to) 上屏后通知句内搜索补高亮
 //     （batched-render 不 import subtitle-search，经此槽反转依赖，避免成环）；
 //   - 转写相位订阅：asr-transcribing/done/failed 实时切换横幅（视图开着才碰 DOM）。
-setReadingSubtitleBatchHook(handleReadingSubtitleRangeAppended);
+setReadingSubtitleBatchHook((fromIndex, toIndex) =>
+  subtitleSearch.handleRangeAppended(fromIndex, toIndex)
+);
 bindReadingTranscribeBanner();
-// 选轨控件（08 号票 / batch2 票 04）：深 module 实例持有工具条 UI 相位与事件接线。
+// 选轨控件：深 module 实例持有工具条 UI 相位与事件接线。
 //   - 结果通知回调：切轨失败经 reader-bus 的 "status" 通道报错（构造注入，跨壳重建存活）；
 //   - 事件订阅（相位 / 双语偏好）由实例 bindEvents() 承载，绑一次语义由实例唯一性保证；
 //   - change 绑定不在这里：原生 select 由壳模板产出、随壳 forceRecreate 重建，
@@ -148,6 +137,89 @@ bindReadingTranscribeBanner();
 export const subtitleToolbar: SubtitleToolbar = createSubtitleToolbar({
   onNotice: (text) => notifyReaderPresenter({ kind: "status", text })
 });
+
+// 句内搜索生产实例（工厂与依赖注入见 ./subtitle-search.ts）：DOM 访问绑 reader
+// 的常驻 id，补渲染/手动交互绑端口与 SYNC。对外具名入口（refresh / move / clear）
+// 是它的薄转发，reader 域入口与 tab-ui 回调消费具名入口，不感知实例存在。
+const subtitleSearch = createSubtitleSearch({
+  getSearchInput: () => document.getElementById(ids.readingSearchInput) as HTMLInputElement | null,
+  getSubtitleList: () => document.getElementById(ids.readingSubtitleList),
+  flushReadingSubtitleToIndex: (itemIndex) => readerPorts.flushReadingSubtitleToIndex(itemIndex),
+  noteManualReaderInteraction: () => noteManualReaderInteraction()
+});
+
+// 重算并重放搜索（输入变化 / renderReadingView 重渲后由渲染尾部投影调用）。
+export function refreshReadingSubtitleSearch(
+  options: { preserveIndex?: boolean; scroll?: boolean } = {}
+): void {
+  subtitleSearch.refresh(options);
+}
+
+// 上/下一条循环导航（Enter=+1、Shift+Enter=-1、按钮同款），环绕像浏览器 Find。
+export function moveReadingSubtitleSearch(direction: 1 | -1): void {
+  subtitleSearch.move(direction);
+}
+
+// 清空搜索状态（清输入 + 还原文本 + 计数归零）。closeReadingView 的会话收尾
+// 与「换视频」场景调用；输入框 DOM 常驻（tab 显隐不销毁），必须显式清值。
+export function clearReadingSubtitleSearch(): void {
+  subtitleSearch.clear();
+}
+
+// 概览协调器生产实例：注入生产依赖（state 读取、provider 解析、analysis 动态
+// 装载、confirm 弹窗、UI 动作注册）。计时器经箭头转发：调用点才解析全局
+// setInterval/clearInterval，测试环境在模块装载后替换全局计时器（fake timers）
+// 也能生效。
+const overviewCoordinator: ReaderOverviewCoordinator = createOverviewCoordinator({
+  getClip: () => state.clip,
+  isReadingViewOpen: () => state.reader.readingViewOpen,
+  resolveProvider: () => resolveActiveProvider(),
+  loadAnalysis: () => import("../ai/analysis.js"),
+  confirm: (options) => confirmDialog(options),
+  registerUiActions: (actions) => registerOverviewUiActions(actions),
+  now: () => Date.now(),
+  setInterval: (...args) => setInterval(...args),
+  clearInterval: (...args) => clearInterval(...args)
+});
+export { overviewCoordinator };
+
+export const triggerReaderOverviewGeneration = (
+  options?: { forceRefresh?: boolean }
+): Promise<void> => overviewCoordinator.trigger(options);
+export const cancelReaderOverview = (): void => overviewCoordinator.cancel();
+export const resetReaderOverviewState = (): void => overviewCoordinator.reset();
+export const getReaderOverviewPhase = (): ReaderOverviewPhase => overviewCoordinator.getPhase();
+export const getReaderOverviewSnapshot = (): ReaderOverviewSnapshot =>
+  overviewCoordinator.getSnapshot();
+export const ensureReaderOverviewTab = (): void => overviewCoordinator.ensureTab();
+
+/**
+ * 渲染阅读视图概览 tab。若传入快照则按快照投影；未传参数时自动取协调器的当前快照。
+ */
+export function renderReadingOverview(snapshot?: ReaderOverviewSnapshot): void {
+  if (snapshot) {
+    renderReadingOverviewUi(snapshot);
+  } else {
+    renderReadingOverviewUi(overviewCoordinator.getSnapshot());
+  }
+}
+
+// 阅读视图渲染驱动：base 投影（meta 行 / 字幕列表 / 设置面板 / 排版应用）在
+// ./view-render.ts；会话态投影在装配点这里声明，追加在 base 之后——渲染尾部
+// 的收敛次序：句内搜索重放（列表刚被整体重建，高亮/计数按当前输入重算；
+// scroll:false 不打断阅读位置）→ 转写横幅 → 概览 → 字幕工具条。
+const viewRender = createViewRender({
+  sessionProjections: [
+    { id: "subtitle-search", project: () => subtitleSearch.refresh({ scroll: false }) },
+    { id: "transcribe-banner", project: updateReadingTranscribeBanner },
+    { id: "overview", project: () => renderReadingOverview() },
+    { id: "subtitle-toolbar", project: () => subtitleToolbar.render() }
+  ]
+});
+export const renderReadingView = viewRender.render;
+// 装配后的完整投影表（base + 会话态）：「渲染次序与投影身份」的声明面，
+// render-projections 测试按它锁次序。
+export const READER_VIEW_PROJECTIONS = viewRender.projections;
 
 // SYNC functions this module drives (from sync.js):
 import {
@@ -443,98 +515,7 @@ async function closeChatSessionQuietly(): Promise<void> {
   }
 }
 
-// meta 行投影（一次渲染的步骤之一）：只读 clip 的作者/分P 事实。
-function projectReadingMetaLine(): void {
-  const metaNode = getReaderElement(ids.readingMeta);
-  if (!metaNode) {
-    return;
-  }
-  const metaLine = buildReadingMetaLine();
-  metaNode.textContent = metaLine;
-  // 字段全空（无作者/单P）时整块隐藏：header 不留空行。
-  // 只隐藏 meta 本体——.biliscript-reading-header-copy 的「手动浏览中」::after
-  // 挂在其父节点上（reader-gate.css），隐藏父节点会连带吃掉该标注。
-  metaNode.hidden = !metaLine;
-}
-
-// 字幕列表投影（一次渲染的步骤之一）：整表重建 + 首屏分批；先取消上一轮未完成的
-// 追加任务，避免旧任务把过期条目追加进新列表。
-function projectReadingSubtitleList(): void {
-  cancelReadingSubtitleAppend();
-  // 章节渲染由概览 tab 接管（rail 章节列表 DOM 已随整页接管退役）。
-  const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
-  const subtitleItems = getReadingSubtitleItems();
-  const withHours = shouldShowHoursInNote(state, body);
-
-  const subtitleList = getReaderElement(ids.readingSubtitleList);
-  if (subtitleItems.length === 0) {
-    subtitleList.innerHTML = `<div class="biliscript-reading-empty">${escapeHtml(
-      getReadingSubtitlePlaceholderText()
-    )}</div>`;
-  } else {
-    // 候选10 批2：首屏只渲染前 SUBTITLE_FIRST_BATCH 条，其余走 rAF 分批追加
-    //（./batched-render.js 的 rAF 状态机）。首屏 HTML 形态与整段重建逐字一致。
-    const firstEnd = Math.min(subtitleItems.length, SUBTITLE_FIRST_BATCH);
-    let firstHtml = "";
-    for (let i = 0; i < firstEnd; i += 1) {
-      firstHtml += buildReadingSubtitleItemHtml(subtitleItems[i], withHours);
-    }
-    subtitleList.innerHTML = firstHtml;
-    // content-visibility 占位高度校准（batched-render.js：量视口内条目真实
-    // 均值写回估计变量）：消除估计偏差导致的滚动条拖动不跟手。
-    calibrateReadingSubtitleItemEstimate(subtitleList);
-    if (firstEnd < subtitleItems.length) {
-      startReadingSubtitleAppendTask({
-        listEl: subtitleList,
-        items: subtitleItems,
-        cursor: firstEnd,
-        withHours
-      });
-    }
-  }
-}
-
-// 阅读视图一次渲染的投影登记表：次序与身份在这里声明，renderReadingView 按表驱动。
-// 取数归属：除 subtitle-toolbar 已收成显式事实（subtitle-tab-ui.ts 的
-// selectSubtitleToolbarFacts）外，其余投影仍各自读 state 袋与各自模块内的相位，故本表
-// 是「渲染次序与投影身份的单源」，不是「渲染输入的单源」。
-export const READER_RENDER_PROJECTIONS = [
-  { id: "meta-line", project: projectReadingMetaLine },
-  { id: "subtitle-list", project: projectReadingSubtitleList },
-  { id: "reader-panels", project: renderReaderPanels },
-  { id: "presentation", project: applyReadingViewPresentation },
-  // 渲染尾部收敛字幕 tab 的会话态：句内搜索重放（列表刚被整体重建，高亮/计数按当前
-  // 输入重算；scroll:false 不打断阅读位置）在前，转写横幅（视图打开晚于转写发起时，
-  // 经进程内相位镜像恢复呈现）在后。
-  { id: "subtitle-search", project: () => refreshReadingSubtitleSearch({ scroll: false }) },
-  { id: "transcribe-banner", project: updateReadingTranscribeBanner },
-  // 概览 tab 内容按当前状态机收敛（渲染只反映、不触发生成；触发电由 enterReaderMode /
-  // subtitle-ready / 概览 tab 切换三路负责）。
-  { id: "overview", project: renderReadingOverview },
-  // 字幕工具条选轨控件（旧 renderReadingSubtitleSelect 的对应物）。水合不派发 change
-  // ——只把 clip.subtitles 与当前选中轨投影到控件（setCustomSelectValue），用户改选才
-  // 走 change 处理器；转写相位与失败通知由该叶子自己接（见其模块头注的接线点）。
-  { id: "subtitle-toolbar", project: () => subtitleToolbar.render() }
-] as const;
-
-export type ReaderRenderProjectionId = (typeof READER_RENDER_PROJECTIONS)[number]["id"];
-
-// 渲染一次阅读视图：按登记表顺序投影，随后把选中标记归零（列表整体重建后旧高亮
-// 已不存在）。
-export function renderReadingView() {
-  for (const { project } of READER_RENDER_PROJECTIONS) {
-    project();
-  }
-  state.reader.setActiveSubtitleIndex(-1);
-  state.reader.setActiveChapterIndex(-1);
-}
-
-// hydrateReaderStateFromSettings / applyReadingViewPresentation 已迁往
-// ./presentation.js（常驻微模块）；enterReaderMode/renderReadingView 等
-// 域内调用方经文件头 import 的 presentation 绑定取用。
-
-// ===== 设置面板/步进器/偏好更新（候选02：自 presentation.js 移回本域——
-// 仅在阅读视图交互时执行，常驻侧经 ensureReaderDomain 转发到这些导出） =====
+// ===== 偏好更新（仅在阅读视图交互时执行，常驻侧经 ensureReaderDomain 转发到这些导出） =====
 
 export function updateReaderPreferences(next: Partial<Record<string, unknown>>, { persist = true } = {}) {
   state.reader.setTheme(normalizeReaderTheme(next.readerTheme ?? state.reader.readingTheme));
@@ -554,46 +535,6 @@ export function updateReaderPreferences(next: Partial<Record<string, unknown>>, 
 
 function persistReaderSettings() {
   persistReaderSettingsThroughSeam();
-}
-
-export function renderReaderPanels() {
-  const settingsPanel = getReaderElement(ids.readingSettingsPanel);
-  const settingsBtn = getReaderElement(ids.readingSettingsBtn);
-  settingsPanel.hidden = !state.reader.readingSettingsExpanded;
-  settingsBtn.classList.toggle("is-active", state.reader.readingSettingsExpanded);
-  // script-only-ui：设置抽屉展开时装载原 options 页的全部设置项（宿主容器在
-  // ui-renderer 模板内；模板与数据装载在 settings-panel 内，展开即刷新）。
-  if (!settingsPanel.hidden) {
-    void (async () => {
-      // 装载失败静默（与原 onRejected 口径一致）；渲染异常照旧上浮未处理拒绝。
-      const mod = await import("../ui/settings-panel.js").catch(() => null);
-      mod?.renderReaderSettingsPanel();
-    })();
-  }
-}
-
-// renderReadingInfoPanel / buildReadingSummaryItems 已随「视频摘要」「视频简介」
-// 区块删除（script-only-ui：面板 header 下的 meta 行只留作者/分P，
-// 标题随 AI 对话 chip 展示，日期左侧视频区已有，均不占面板空间；网址零信息量，
-// 2026-09 用户决议删除）。
-// 2026-09 用户决议：作者加「UP主：」前缀（「标签：值」口径）。
-// 2026-10-04 用户决议：分P 不再跟在 UP主 后面——`UP主：…` 与 `P{n}：…` 各占一行
-//（本函数返回带 \n 的文本，视觉换行由 .biliscript-reading-meta 的
-// white-space:pre-line 落地），长分P标题不再从中间折断；「字幕：来源（语言）」
-// 整行删除（不再注明字幕来源），meta 行随之不再读字幕轨字段——来源/语言投影已从
-// subtitle/selection 下线。
-function buildReadingMetaLine() {
-  const head = [];
-  if (state.clip.author) {
-    head.push(`UP主：${state.clip.author}`);
-  }
-  if (Number(state.clip.pageCount) > 1) {
-    const page = `P${Number(state.clip.pageIndex) > 0 ? Number(state.clip.pageIndex) : 1}`;
-    const pageTitle = String(state.clip.pageTitle || "").trim();
-    // 无分P标题时只留 P{n}，不落一个悬空的全角冒号。
-    head.push(pageTitle ? `${page}：${pageTitle}` : page);
-  }
-  return head.join("\n");
 }
 
 function setReadingViewReady(ready: boolean) {

@@ -14,11 +14,21 @@ import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import type { TestState } from "./reader-test-env.js";
 
-vi.mock("../../extension/reader/overview.js", async (importActual) => {
-  const actual = await importActual<typeof import("../../extension/reader/overview.js")>();
+// 概览触发电打替身：lifecycle 内部经局部绑定调用具名入口，mock 模块导出的手法
+// 拦不到——在协调器工厂层包 trigger spy（lifecycle 装配实例时拿到替身）。
+const { overviewTriggerSpy } = vi.hoisted(() => ({
+  overviewTriggerSpy: vi.fn(() => Promise.resolve())
+}));
+vi.mock("../../extension/reader/overview-coordinator.js", async (importActual) => {
+  const actual = await importActual<
+    typeof import("../../extension/reader/overview-coordinator.js")
+  >();
   return {
     ...actual,
-    triggerReaderOverviewGeneration: vi.fn(() => Promise.resolve())
+    createOverviewCoordinator: ((deps: Parameters<typeof actual.createOverviewCoordinator>[0]) =>
+      Object.assign(actual.createOverviewCoordinator(deps), {
+        trigger: overviewTriggerSpy
+      })) as typeof actual.createOverviewCoordinator
   };
 });
 

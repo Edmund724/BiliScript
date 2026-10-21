@@ -149,12 +149,12 @@ function insertReadingSubtitleRange(
   listEl.insertAdjacentHTML("beforeend", html);
 }
 
-// ===== 批次回执 hook（PR3 句内搜索） =====
+// ===== 批次回执 hook（句内搜索） =====
 //
 // 搜索激活期间，后续批次上屏的条目也要带上命中高亮。渲染状态机不 import 搜索
 // 模块（会成环：搜索补渲染又要走本状态机的 flush 入口），改用单槽 hook：
 // lifecycle（reader 域组装根，与 registerReaderPorts 同款单点注册位）在模块求值
-// 时把 subtitle-search 的 handleReadingSubtitleRangeAppended 注册进来，每次
+// 时把搜索实例的 handleRangeAppended 包进来注册，每次
 // [from, to) 上屏后同步通知；注册方异常被吞掉，绝不影响渲染主流程。
 type ReadingSubtitleBatchHook = (fromIndex: number, toIndex: number) => void;
 

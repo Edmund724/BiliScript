@@ -17,25 +17,34 @@ import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
 import type { TestState } from "./reader-test-env.js";
 
-vi.mock("../../extension/reader/overview.js", async (importActual) => {
-  const actual = await importActual<typeof import("../../extension/reader/overview.js")>();
+// 概览触发电打替身：lifecycle 内部经局部绑定调用具名入口，mock 模块导出的手法
+// 拦不到——在协调器工厂层包 trigger spy（lifecycle 装配实例时拿到替身），
+// 断言面对 spy 计数（真实生成管线归 overview.test.ts）。
+const { overviewTriggerSpy } = vi.hoisted(() => ({
+  overviewTriggerSpy: vi.fn(() => Promise.resolve())
+}));
+vi.mock("../../extension/reader/overview-coordinator.js", async (importActual) => {
+  const actual = await importActual<
+    typeof import("../../extension/reader/overview-coordinator.js")
+  >();
   return {
     ...actual,
-    triggerReaderOverviewGeneration: vi.fn(() => Promise.resolve())
+    createOverviewCoordinator: ((deps: Parameters<typeof actual.createOverviewCoordinator>[0]) =>
+      Object.assign(actual.createOverviewCoordinator(deps), {
+        trigger: overviewTriggerSpy
+      })) as typeof actual.createOverviewCoordinator
   };
 });
 
 let state: TestState;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
-let overview: typeof import("../../extension/reader/overview.js");
 
 async function loadModules() {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state as TestState;
   shell = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
-  overview = await import("../../extension/reader/overview.js");
 }
 
 beforeEach(async () => {
@@ -78,14 +87,14 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
 
     // 打开即触发（点 Script 同时启动抓取与概览生成；此时 body 为空早退），
     // 概览触发电不依赖用户切 tab。
-    expect(overview.triggerReaderOverviewGeneration).toHaveBeenCalledTimes(1);
+    expect(overviewTriggerSpy).toHaveBeenCalledTimes(1);
 
     // 对账：抓取落定后列表按 state 重渲染（无字幕空态 → 有数据列表），
     // 概览生成再次触发。
     await vi.waitFor(() => {
       expect(document.querySelectorAll(".biliscript-reading-item").length).toBe(2);
     });
-    expect(overview.triggerReaderOverviewGeneration).toHaveBeenCalledTimes(2);
+    expect(overviewTriggerSpy).toHaveBeenCalledTimes(2);
 
     shell.closeReadingView();
   });
@@ -135,7 +144,7 @@ describe("后台抓取落定后的对账收尾（通知丢失兜底）", () => {
     await refreshSpy(); // 落定发生在视图关闭之后
 
     await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(overview.triggerReaderOverviewGeneration).toHaveBeenCalledTimes(1);
+    expect(overviewTriggerSpy).toHaveBeenCalledTimes(1);
 
     // 重开按当前 state 渲染 + 触发，数据不丢
     await shell.enterReaderMode();

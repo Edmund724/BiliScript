@@ -1,35 +1,33 @@
-// 字幕 tab 句内搜索（PR3）：大小写不敏感字面量匹配 + 命中高亮（mark）+
-// 上/下一条循环导航 + 匹配计数。
+// 字幕 tab 句内搜索：大小写不敏感字面量匹配 + 命中高亮（mark）+ 上/下一条循环
+// 导航 + 匹配计数。
 //
-// 双语（bilingual-subtitles/06 号票）：匹配**可见的两轨文本**——逐条目先主行、
-// 后副行（04 的配对结果），因此条目内 ordinal 与 DOM 顺序（主文 mark 在副行 span
-// 之前）一致；副轨 loading / fail 的占位文案不参与匹配。双语关时命中集合与
-// 单轨态逐字相同（副轨索引不建）。
+// 双语：匹配**可见的两轨文本**——逐条目先主行、后副行，因此条目内 ordinal 与
+// DOM 顺序（主文 mark 在副行 span 之前）一致；副轨 loading / fail 的占位文案
+// 不参与匹配。双语关时命中集合与单轨态逐字相同（副轨索引不建）。
 //
 // 与分批渲染（./batched-render.ts）的组合是本模块的核心约束：
 //   - 匹配在数据层（state.clip.subtitleBody，经 getReadingSubtitleItems 与
 //     渲染同源同口径）计算，天然覆盖尚未上屏的条目——计数与导航不依赖渲染进度；
 //   - 「下一条/上一条」目标未渲染时经 deps.flushReadingSubtitleToIndex
 //     同步补渲染（与跟随/跳转的补渲染同一条路径，不许跳不过去）；
-//   - 搜索激活期间后续批次上屏的条目也要带高亮：lifecycle（组装根）把本模块的
-//     handleReadingSubtitleRangeAppended 注册进 batched-render 的批次回执 hook，
-//     每次分批/补渲染上屏 [from, to) 即对新条目打高亮；
+//   - 搜索激活期间后续批次上屏的条目也要带高亮：组装根（lifecycle.ts）把实例的
+//     handleRangeAppended 注册进 batched-render 的批次回执 hook，每次分批/补渲染
+//     上屏 [from, to) 即对新条目打高亮；
 //   - 搜索清除/清空时把 mark 还原为纯文本（restore 后 normalize）。
 //
 // 形态：createSubtitleSearch(deps) 工厂——搜索态（query/matches/matchesByItem/
 // currentIndex）与全部 DOM 触达收进实例闭包，外部触达经 deps 注入（list/input
 // 元素访问、补渲染 flush 端口、手动交互通知）；数据层（state/clipState、
 // getReadingSubtitleItems、secondaryAlignmentFor）保持静态边，与 sync.ts 同款。
-// 模块底部以生产依赖组一个默认实例，四个具名导出（refresh / move / clear /
-// handleReadingSubtitleRangeAppended）是它的 facade：lifecycle（组装根：批次
-// 回执 hook 注册、渲染尾部重放、close 清理）与 subtitle-tab-ui（输入/键盘回调，
-// 经 reader 入口）消费原名入口，不感知实例存在。
+// 生产实例由组装根 lifecycle.ts 以生产依赖装配并持有：批次回执 hook 注册、渲染
+// 尾部重放、close 清理都在那里；subtitle-tab-ui 的输入/键盘回调经 reader 域
+// 入口的具名转发触达同一实例，调用方不感知实例存在。
 //
 // 状态维持：字幕 tab 隐藏（切到概览/AI 对话）时 DOM 保留（display:none 不销毁），
-// 切回后高亮与导航位置原样还在；renderReadingView（切轨/重渲）重建列表后由
-// lifecycle 在渲染尾部调 refreshReadingSubtitleSearch({ scroll: false }) 重放高亮。
+// 切回后高亮与导航位置原样还在；阅读视图重渲重建列表后由组装根在渲染尾部调
+// refresh({ scroll: false }) 重放高亮。
 //
-// 依赖方向（无环）：state 叶子 + deps 注入的端口回调（默认实例绑
+// 依赖方向（无环）：state 叶子 + deps 注入的端口回调（生产实例绑
 // readerPorts.flushReadingSubtitleToIndex 与 SYNC 的 noteManualReaderInteraction，
 // LIFECYCLE → SYNC 合法边）+ subtitle/core 与 subtitle/alignment（静态边）。
 // 本模块不 import lifecycle/batched-render——补渲染走显式 deps，批次回执走注册 hook。
@@ -39,8 +37,6 @@ import { getReadingSubtitleItems } from "../subtitle/core.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { SecondaryAlignment } from "../subtitle/alignment.js";
 import { ids } from "./state.js";
-import { readerPorts } from "./reader-bus.js";
-import { noteManualReaderInteraction } from "./sync.js";
 import {
   findSubtitleItem,
   getMainLineText,
@@ -66,7 +62,7 @@ interface SearchMatch {
 }
 
 // 注入的外部触达：DOM 元素访问（list/input）+ 补渲染端口 + 手动交互通知。
-// 默认实例把 readerPorts.flushReadingSubtitleToIndex 与 SYNC 的
+// 生产实例由组装根把 readerPorts.flushReadingSubtitleToIndex 与 SYNC 的
 // noteManualReaderInteraction 绑进来；测试可换注入直测三条行为
 // （补渲染闸 / 循环导航 / 批次回执高亮），不经完整 reader shell。
 export interface SubtitleSearchDeps {
@@ -372,37 +368,4 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
   }
 
   return { refresh, move, clear, handleRangeAppended };
-}
-
-// 生产实例：DOM 访问绑 reader 的常驻 id，补渲染/手动交互绑端口与 SYNC。
-const defaultSubtitleSearch: SubtitleSearch = createSubtitleSearch({
-  getSearchInput: () => document.getElementById(ids.readingSearchInput) as HTMLInputElement | null,
-  getSubtitleList: () => document.getElementById(ids.readingSubtitleList),
-  flushReadingSubtitleToIndex: (itemIndex) => readerPorts.flushReadingSubtitleToIndex(itemIndex),
-  noteManualReaderInteraction: () => noteManualReaderInteraction()
-});
-
-// ===== 具名导出（默认实例的 facade；lifecycle 组装根与 reader 入口消费原名） =====
-
-// 重算并重放搜索（输入变化 / renderReadingView 重渲后由 lifecycle 调用）
-export function refreshReadingSubtitleSearch(
-  options: { preserveIndex?: boolean; scroll?: boolean } = {}
-): void {
-  defaultSubtitleSearch.refresh(options);
-}
-
-// 上/下一条循环导航（Enter=+1、Shift+Enter=-1、按钮同款），环绕像浏览器 Find。
-export function moveReadingSubtitleSearch(direction: 1 | -1): void {
-  defaultSubtitleSearch.move(direction);
-}
-
-// 清空搜索状态（清输入 + 还原文本 + 计数归零）。closeReadingView 的会话收尾
-// 与「换视频」场景调用；输入框 DOM 常驻（tab 显隐不销毁），必须显式清值。
-export function clearReadingSubtitleSearch(): void {
-  defaultSubtitleSearch.clear();
-}
-
-// 批次回执：搜索激活期间，新上屏的 [fromIndex, toIndex) 条目自动带高亮。
-export function handleReadingSubtitleRangeAppended(fromIndex: number, toIndex: number): void {
-  defaultSubtitleSearch.handleRangeAppended(fromIndex, toIndex);
 }

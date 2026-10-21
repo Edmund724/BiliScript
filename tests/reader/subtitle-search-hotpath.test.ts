@@ -17,7 +17,9 @@ const KEYWORD = "目标词";
 
 let state: typeof import("../../extension/core/state.js").state;
 let ids: typeof import("../../extension/reader/state.js").ids;
-let search: typeof import("../../extension/reader/subtitle-search.js");
+let search: ReturnType<
+  typeof import("../../extension/reader/subtitle-search.js").createSubtitleSearch
+>;
 
 function buildFixture() {
   document.body.innerHTML = "";
@@ -57,7 +59,16 @@ beforeEach(async () => {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state;
   ids = (await import("../../extension/reader/state.js")).ids;
-  search = await import("../../extension/reader/subtitle-search.js");
+  // 生产实例由组装根（lifecycle）持有；本套件直驱工厂模块缝：手工注入
+  // 夹具 DOM 访问与空交互回调，不经完整 reader shell。
+  const searchMod = await import("../../extension/reader/subtitle-search.js");
+  search = searchMod.createSubtitleSearch({
+    getSearchInput: () =>
+      document.getElementById(ids.readingSearchInput) as HTMLInputElement | null,
+    getSubtitleList: () => document.getElementById(ids.readingSubtitleList),
+    flushReadingSubtitleToIndex: () => {},
+    noteManualReaderInteraction: () => {}
+  });
 });
 
 afterEach(() => {
@@ -72,12 +83,12 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
   it("修1：清除高亮只 normalize 列表一次，且文本逐字还原", { timeout: 30_000 }, () => {
     const { input } = buildFixture();
     input.value = KEYWORD;
-    search.refreshReadingSubtitleSearch({ scroll: false });
+    search.refresh({ scroll: false });
     expect(markCount()).toBe(TOTAL_ITEMS);
 
     const normalizeSpy = vi.spyOn(Node.prototype, "normalize");
     input.value = "";
-    search.refreshReadingSubtitleSearch({ scroll: false });
+    search.refresh({ scroll: false });
 
     expect(markCount()).toBe(0);
     expect(normalizeSpy).toHaveBeenCalledTimes(1);
@@ -89,7 +100,7 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
   it("修2：批次回执按区间二分取子集，DOM 访问以区间宽为量级", { timeout: 30_000 }, () => {
     const { input, list } = buildFixture();
     input.value = KEYWORD;
-    search.refreshReadingSubtitleSearch({ scroll: false });
+    search.refresh({ scroll: false });
     expect(markCount()).toBe(TOTAL_ITEMS);
 
     // 模拟批次回执场景：区间内条目按「新上屏」形态还原为无 mark 纯文本
@@ -104,7 +115,7 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     // 内条目定位一次；全表扫描形态的实现会是 TOTAL_ITEMS 次起步
     const querySpy = vi.spyOn(list, "querySelector");
     try {
-      search.handleReadingSubtitleRangeAppended(from, to);
+      search.handleRangeAppended(from, to);
     } finally {
       vi.restoreAllMocks();
     }

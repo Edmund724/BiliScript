@@ -1,21 +1,16 @@
-// Reader 排版/设置呈现层（候选02 分层惰性：自 lifecycle.js 与已退役的
-// page-frame.js / player-host.js 迁出的常驻微模块）。
+// Reader 排版/设置呈现层：启动路径必需的常驻微模块。
 //
 // 这里只收拢「启动路径必需」的轻呈现函数：阅读视图的排版应用
 //（applyReadingViewPresentation）、设置水合（hydrateReaderStateFromSettings）与
 // 状态栏文案（renderReadingStatus）。它们是启动路径
 //（content.js init 的 hydrate/apply）的直接依赖——留在 lifecycle.js 会把整个
 // reader 域拖回常驻。
-//（PR2：原内联宿主呈现 applyInlineHostPresentation 已随字幕列表搬进统一面板
-// 一并移除；script-only-ui：四个排版 stepper 模板/绑定已随排版档位机制退役。）
 //
-// 阅读视图打开后才用到的交互呈现（updateReaderPreferences / renderReaderPanels）
-// 已移回 lifecycle.js（reader 动态 chunk；renderReadingInfoPanel 已随「视频
-// 摘要/简介」区块删除）：
+// 阅读视图打开后才用到的交互呈现（updateReaderPreferences）与渲染投影
+//（renderReaderPanels，归 ./view-render.ts）在 reader 动态 chunk：
 // 本层与 ui-renderer 的相关回调一律经 ensureReaderDomain() 装载后调用，避免为
 // 一次面板交互在常驻侧保留体积。
-// 函数体迁自原文件对应分节（apply 尾部另汇 header 主题按钮刷新与 mermaid 图表
-// 重着色）。依赖全部为轻叶子（core/state、core/validators、shared/dom-utils、
+// 依赖全部为轻叶子（core/state、core/validators、shared/dom-utils、
 // shared/string-utils、./ids、ui/theme-button、ui/lazy-mermaid——后者只含懒加载器，
 // mermaid 本体在其动态 import 的独立 chunk 里）。
 import { state } from "../core/state.js";
@@ -105,7 +100,6 @@ export function applyReadingViewPresentation() {
   hydrateMermaid(readingView, { force: true });
 }
 
-// updateReaderPreferences / persistReaderSettings / renderReaderPanels 已移回
-// lifecycle.js（reader 动态 chunk）——它们只在阅读视图交互时执行，常驻侧经
-// ensureReaderDomain 转发（ui-renderer）。renderReadingInfoPanel 已随「视频
-// 摘要/简介」区块删除（script-only-ui）。
+// updateReaderPreferences / persistReaderSettings 在 lifecycle.js（reader 动态
+// chunk）——它们只在阅读视图交互时执行，常驻侧经 ensureReaderDomain 转发
+//（ui-renderer）；renderReaderPanels 是阅读视图的渲染投影之一，归 ./view-render.ts。
