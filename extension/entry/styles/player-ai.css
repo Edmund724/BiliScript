@@ -75,10 +75,37 @@
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+  /* 仿 DeepSeek 深度思考开关：开关切换是图标绕 Y 轴转一整圈（0.5s ease-in-out，
+   * 关闭时反向）。基态（未 hover）挂反向动画，首次挂载时 wrap 尚未激活
+   * （opacity 0），这一圈在不可见时已跑完，不产生载入自转。 */
+  animation: biliscript-player-ai-think-spin-off 0.5s cubic-bezier(0.42, 0, 0.58, 1);
+}
+
+@keyframes biliscript-player-ai-think-spin-on {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(360deg);
+  }
+}
+
+@keyframes biliscript-player-ai-think-spin-off {
+  from {
+    transform: rotateY(360deg);
+  }
+  to {
+    transform: rotateY(0deg);
+  }
 }
 
 #biliscript-player-ai-quick-action:hover {
   color: var(--biliscript-player-ai-action-hover-color, var(--biliscript-player-ai-action-color, currentColor));
+}
+
+/* hover 进入 = 开启（正转一整圈），hover 移出回落到基态的反向动画 = 关闭 */
+#biliscript-player-ai-quick-action:hover svg {
+  animation: biliscript-player-ai-think-spin-on 0.5s cubic-bezier(0.42, 0, 0.58, 1);
 }
 
 #biliscript-player-ai-quick-action:active {
@@ -103,5 +130,11 @@
 
   #biliscript-player-ai-quick-action:active {
     transform: none;
+  }
+
+  /* 减少动态：hover 自转关停 */
+  #biliscript-player-ai-quick-action svg,
+  #biliscript-player-ai-quick-action:hover svg {
+    animation: none;
   }
 }
