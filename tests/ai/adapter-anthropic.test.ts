@@ -1,14 +1,39 @@
 // ai/adapters/anthropic.js 单测（multi-protocol-ai 第二部分）：线格式映射逐条对照
 // research/anthropic-wire-mapping.md——请求构造（system 剥出 / max_tokens 兜底 /
-// 思考档位改写 / tool 双向翻译）、SSE 事件流（text/thinking/tool_use 聚合 / 流内
+// 思考线格式产出并入 / tool 双向翻译）、SSE 事件流（text/thinking/tool_use 聚合 / 流内
 // error / 未知事件宽容）、非流式解析、错误 detail 提取。能力声明对照 spec
 // 「被有意不支持的能力」。
 
 import { describe, expect, it, vi } from "vitest";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
+import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import { PROTOCOL_ADAPTERS, resolveAdapter } from "../../extension/ai/protocol-adapter.js";
+import type { ChatRequest } from "../../extension/ai/protocol-adapter.js";
 import { chatCompletion } from "../../extension/ai/completion.js";
 import type { StreamChatEvent } from "../../extension/ai/types.js";
+
+// 生产上 thinkingWire 由唯一 fetch 点（completion.ts）经思考装配边装配注入；本文件直接
+// 驱动 buildBody 的用例按同一口径先跑装配边（planThinkingWire），再驱动请求构造。
+type AnthropicBodyFacts = Omit<ChatRequest, "thinkingWire"> & {
+  baseUrl?: string;
+  presetId?: string;
+  thinkingLevel?: unknown;
+  probe?: boolean;
+};
+function anthropicBody({ baseUrl, presetId, thinkingLevel, probe, ...request }: AnthropicBodyFacts) {
+  return anthropicAdapter.buildBody({
+    ...request,
+    thinkingWire: planThinkingWire({
+      protocol: "anthropic",
+      model: request.model,
+      presetId,
+      baseUrl,
+      level: thinkingLevel,
+      stream: request.stream,
+      probe: probe ?? false
+    })
+  });
+}
 
 // SSE 流式响应：chunks 按 read() 顺序返回（编码为 UTF-8 字节）。
 function sseResponse(chunks: string[]): Response {
@@ -68,7 +93,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   const base = { model: "claude-x", stream: false, probe: false, baseUrl: "https://api.anthropic.com" };
 
   it("system 剥为顶层参数；多条按出现顺序 \\n\\n 拼接（限制点 2）", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       messages: [
         { role: "system", content: "s1" },
@@ -81,17 +106,17 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("max_tokens 必填兜底 32768（与 adapter 声明的 defaultMaxTokens 同源）；显式值透传", () => {
-    expect(anthropicAdapter.buildBody({ ...base, messages: [] }).max_tokens).toBe(32768);
+    expect(anthropicBody({ ...base, messages: [] }).max_tokens).toBe(32768);
     // core 以 defaultMaxTokens 为「本轮实际发出的上限」，退回保守值时据此判断——
     // 两处取值必须同源，否则退回逻辑算错。
     expect(anthropicAdapter.defaultMaxTokens).toBe(32768);
-    expect(anthropicAdapter.buildBody({ ...base, messages: [], maxTokens: 4096 }).max_tokens).toBe(4096);
+    expect(anthropicBody({ ...base, messages: [], maxTokens: 4096 }).max_tokens).toBe(4096);
     // 探针由 core 代劳传 1：直接透传不兜底。
-    expect(anthropicAdapter.buildBody({ ...base, messages: [], maxTokens: 1 }).max_tokens).toBe(1);
+    expect(anthropicBody({ ...base, messages: [], maxTokens: 1 }).max_tokens).toBe(1);
   });
 
   it("tools：input_schema 改名透传 + tool_choice 显式压平并行（限制点 9）", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       messages: [],
       tools: [{ type: "function", function: { name: "web_search", description: "d", parameters: { type: "object" } } }]
@@ -101,7 +126,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("原生服务端工具（名字带日期版本后缀）不翻译：server-tools 限制点", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       messages: [],
       tools: [
@@ -111,7 +136,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(body.tools).toEqual([{ name: "web_search", description: "客户端", input_schema: { type: "object" } }]);
     // 全部被过滤则不出现 tools/tool_choice（对齐无 tools 请求形状）。
-    const onlyNative = anthropicAdapter.buildBody({
+    const onlyNative = anthropicBody({
       ...base,
       messages: [],
       tools: [{ type: "function", function: { name: "web_search_20250305", description: "原生", parameters: { type: "object" } } }]
@@ -121,7 +146,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("assistant tool_calls → tool_use 块；arguments 非 JSON 兜底 { query: 原文 }（限制点 4）", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       messages: [
         { role: "assistant", content: "让我查一下", tool_calls: [
@@ -152,7 +177,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     // output_config.effort），并显式带开思考开关。
     // 旧期望值（thinking:{type:"enabled",budget_tokens:2048}，low 与 high 同值）是把缺陷
     // 固化的断言，不是契约——塌陷锚点已由 02 号票翻转，预算通路已整条删除。
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       presetId: "deepseek",
       thinkingLevel: "high",
@@ -167,7 +192,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
 
   it("deepseek 预设（默认 anthropic）+ deepseek-v4-pro：low 与 high 的请求体不同（02 号票的用户可感知判据）", () => {
     const build = (thinkingLevel: string) =>
-      anthropicAdapter.buildBody({
+      anthropicBody({
         ...base,
         presetId: "deepseek",
         thinkingLevel,
@@ -188,7 +213,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     // enable_thinking:false 被忽略、思考计入 max_tokens 会把正文挤成空串，
     // 只有 thinking:{type:"disabled"} 能真正关掉。
     // ModelScope + 带组织前缀的模型名（落 unknownClass qwen-hybrid-switch）。
-    const off = anthropicAdapter.buildBody({
+    const off = anthropicBody({
       ...base,
       presetId: "modelscope",
       thinkingLevel: "off",
@@ -197,7 +222,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     });
     expect(off.thinking).toEqual({ type: "disabled" });
     // 已是 Anthropic 形状的关思考词汇（thinking:{type:"disabled"}）同样落成 disabled。
-    const native = anthropicAdapter.buildBody({
+    const native = anthropicBody({
       ...base,
       presetId: "deepseek",
       thinkingLevel: "off",
@@ -207,7 +232,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(native.thinking).toEqual({ type: "disabled" });
     // 13 号票 canonical 优先：kimi-k3 的模型侧词表是 low-high-max（无 toggle）→ off 关不掉，
     // 级联落最低档 low；该端点档位字段仍是顶层 reasoning_effort。
-    const offCascade = anthropicAdapter.buildBody({
+    const offCascade = anthropicBody({
       ...base,
       presetId: "moonshot",
       thinkingLevel: "off",
@@ -217,7 +242,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(offCascade.thinking).toBeUndefined();
     expect(offCascade.reasoning_effort).toBe("low");
     // 档位仍按该端点登记的顶层 reasoning_effort 落线（仅流式无关）。
-    const tiered = anthropicAdapter.buildBody({
+    const tiered = anthropicBody({
       ...base,
       presetId: "moonshot",
       thinkingLevel: "high",
@@ -231,7 +256,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     // 12 号票的单点裁决（ADJUDICATED_MODEL_RULES）随 13 号票删除：canonical 优先后
     // kimi-k3 的模型侧词表是 low/high/max，平台声明补 max → A' = {low, high, max}，
     // off 不在 A' 里 → 级联落最低档 low（原裁决行的 off = thinking:disabled 已不存在）。
-    const off = anthropicAdapter.buildBody({
+    const off = anthropicBody({
       ...base,
       presetId: "opencodego",
       thinkingLevel: "off",
@@ -243,7 +268,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     // 档位走**本平台已登记的 Messages 出口**（opencodego = 裸 output_config.effort，见
     // ai/thinking-wire-map.ts 的平台表）；openai 通道的档位才是顶层 reasoning_effort
     // （tests/ai/thinking-chips.test.ts 的 canonical 优先用例）。
-    const tiered = anthropicAdapter.buildBody({
+    const tiered = anthropicBody({
       ...base,
       presetId: "opencodego",
       thinkingLevel: "max",
@@ -255,7 +280,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("probe 不发 thinking：探针只测连通，不发任何思考字段", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       probe: true,
       maxTokens: 1,
@@ -270,7 +295,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("maxTokens 大小与思考字段无关：预算通路已删，小上限不再吞掉档位字段", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       maxTokens: 500,
       presetId: "deepseek",
@@ -284,7 +309,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("查不到思考事实（unknown）不发 thinking 字段", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       thinkingLevel: "high",
       messages: []
@@ -295,7 +320,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   // stepfun / amd 的 Messages 通道只认 output_config.effort：stepfun 官方字段表未列
   // thinking；amd 对 thinking 形状明确 400。
   it("effort 词汇平台（stepfun）：发 output_config.effort，不发 thinking", () => {
-    const high = anthropicAdapter.buildBody({
+    const high = anthropicBody({
       ...base,
       baseUrl: "https://api.stepfun.com/step_plan",
       presetId: "stepfun",
@@ -306,7 +331,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(high.output_config).toEqual({ effort: "high" });
     expect(high.thinking).toBeUndefined();
 
-    const low = anthropicAdapter.buildBody({
+    const low = anthropicBody({
       ...base,
       baseUrl: "https://api.stepfun.com/step_plan",
       presetId: "stepfun",
@@ -319,7 +344,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("effort 词汇平台（amd）：向上游投影出的 reasoning_effort 原样作为 effort", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       baseUrl: "https://developer.amd.com.cn/radeon/api",
       presetId: "amd",
@@ -334,7 +359,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   it("effort 词汇平台：off（reasoning_effort none）与探针一律不发 output_config", () => {
     // 19 号票后 amd 三个 DeepSeek 行都收窄到 toggle+[low,high,max]（amd 未登记开关形状 →
     // off 关不掉、级联 low，会发 output_config），所以这条改用仍是 none 词表的 sensenova 行。
-    const off = anthropicAdapter.buildBody({
+    const off = anthropicBody({
       ...base,
       baseUrl: "https://token.sensenova.cn/v1",
       presetId: "sensenova",
@@ -345,7 +370,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
     expect(off.output_config).toBeUndefined();
     expect(off.thinking).toEqual({ type: "disabled" });
 
-    const probe = anthropicAdapter.buildBody({
+    const probe = anthropicBody({
       ...base,
       baseUrl: "https://api.stepfun.com/step_plan",
       presetId: "stepfun",
@@ -360,7 +385,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
   });
 
   it("custom 平台直填 stepfun 域（host 推断）同样走 effort 词汇", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       baseUrl: "https://api.stepfun.com/step_plan",
       presetId: "custom",
@@ -374,7 +399,7 @@ describe("buildBody（请求映射，research §2/§4）", () => {
 
   it("openrouter：档位走 output_config.effort，不发 thinking（其 thinking.enabled 必带预算）", () => {
     // 18 号票删平台声明后按上游词表：anthropic/claude-opus-4.5 的值集含 high → 直传 effort。
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       baseUrl: "https://openrouter.ai/api",
       presetId: "openrouter",
@@ -392,7 +417,7 @@ describe("images 线格式（image-input 路线 B：content 翻译）", () => {
   const IMAGE = { mime: "image/webp", data: "QUJD" };
 
   it("无图消息：请求体逐字节不变（images 是纯本地字段，不上线）", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       messages: [
         { role: "user", content: "hi" },
@@ -405,14 +430,14 @@ describe("images 线格式（image-input 路线 B：content 翻译）", () => {
   });
 
   it("images: []（空数组）与缺省同形：content 保持字符串", () => {
-    const body = anthropicAdapter.buildBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
+    const body = anthropicBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
     expect(JSON.stringify(body)).toBe(
       '{"model":"claude-x","messages":[{"role":"user","content":"hi"}],"stream":false,"max_tokens":32768}'
     );
   });
 
   it("带图消息：text 块 + image 块（base64 源，media_type 取消息 mime）", () => {
-    const body = anthropicAdapter.buildBody({
+    const body = anthropicBody({
       ...base,
       messages: [{ role: "user", content: "这张图里是什么", images: [IMAGE, { mime: "image/png", data: "REVG" }] }]
     });
@@ -429,7 +454,7 @@ describe("images 线格式（image-input 路线 B：content 翻译）", () => {
   });
 
   it("纯图消息（正文空）：只发 image 块，不发空 text 块（空 text 块会 400）", () => {
-    const body = anthropicAdapter.buildBody({ ...base, messages: [{ role: "user", content: "", images: [IMAGE] }] });
+    const body = anthropicBody({ ...base, messages: [{ role: "user", content: "", images: [IMAGE] }] });
     expect(body.messages).toEqual([
       { role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/webp", data: "QUJD" } }] }
     ]);

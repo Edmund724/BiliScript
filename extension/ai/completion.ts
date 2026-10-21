@@ -5,6 +5,8 @@
 // 随协议变化的事（endpoint / authHeaders / buildBody / extractErrorDetail /
 // drainStream / parseResponse）委托 ProtocolAdapter（protocol-adapter.ts 注册表，
 // resolveAdapter 单点解析，缺字段/未知值兜底 openai——存量记录零变化）；
+// 思考线格式（本协议的思考字段 + 输出上限参数名）由本点调一次思考装配边
+//（planThinkingWire）装配、随 ChatRequest 注入，adapter 只把产出并入请求体。
 // 编排层（client 流式 / map-reduce 非流式 / tool-loop）面对统一 ChatMessage[] 与
 // StreamChatEvent，零改动。OpenAI 兼容行为整体迁入 adapters/openai.ts。
 // 纯协议层约束：不 import port/DOM/offscreen 任何东西——流式增量经 onEvent
@@ -27,11 +29,12 @@ import {
   normalizeErrorText
 } from "./error-text-norms.js";
 import { resolveAdapter } from "./protocol-adapter.js";
+import { planThinkingWire } from "./plan-thinking.js";
 import { presetRequestHeaders } from "./preset-headers.js";
 import { noteUsageSample } from "./usage-stats.js";
 import type { ChatToolDefinition, DrainResult } from "./protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage, ProviderRequest, StreamChatEvent } from "./types.js";
-// 未归一的档位外部值的声明面（词表叶；本层只透传进 adapter 的请求构造，不判不归）。
+// 未归一的档位外部值的声明面（词表叶；本层只透传进思考装配边，不判不归）。
 // 纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
 
@@ -128,7 +131,7 @@ export interface ChatCompletionInput {
   messages: ChatMessage[];
   stream?: boolean;
   signal?: AbortSignal | null;
-  // 未归一的档位外部值（本层只透传进 adapter 的请求构造；归一施加点在解析入口，
+  // 未归一的档位外部值（本层只透传进思考装配边 planThinkingWire；归一施加点在解析入口，
   // 见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
   thinkingLevel?: ThinkingLevelInput;
   retries?: number;
@@ -153,8 +156,10 @@ export interface ChatCompletionInput {
  * 参数：
  * - provider: { baseUrl, apiKey, model, presetId?, protocol?, sessionId? }；baseUrl 去尾斜杠。
  *   protocol 经 resolveAdapter 解析为 ProtocolAdapter：端点 / 鉴权头 / 请求体
- *   （思考档位查表、token 上限参数名、tools 透传）随 adapter 组装；缺省/未知值
- *   兜底 openai（存量行为零变化）。sessionId 只经 preset-headers 变成平台会话头。
+ *   （协议特化结构、tools 透传）随 adapter 组装；缺省/未知值兜底 openai（存量行为
+ *   零变化）。思考线格式（思考字段 + 输出上限参数名）由本点调思考装配边
+ *   planThinkingWire 一次装配、随 ChatRequest 注入 adapter。sessionId 只经
+ *   preset-headers 变成平台会话头。
  * - messages: OpenAI 消息数组（编排层词表，adapter 内翻译；组装留在调用方）。
  * - stream: 流式增量经 onEvent 吐出，成功返回 { done: true }；
  *   非流式成功返回聚合 content（非字符串回落空串，adapter.parseResponse 兜底）。
@@ -179,7 +184,8 @@ export interface ChatCompletionInput {
  *   由 preset-headers 提供，两者都可被 extraHeaders 覆盖）——对齐旧「已存在时
  *   不重复注入」语义。
  * - thinkingLevel / maxTokens / signal / fetchImpl（默认 globalThis.fetch）；
- *   思考字段由 adapter 内经 thinking-profiles 按平台×模型查表。
+ *   思考线格式由本点的装配边调用按平台×模型查表产出（thinking-profiles +
+ *   线格式映射表），adapter 只并入，不再自持查表。
  *   maxTokens 缺省时取 adapter.defaultMaxTokens（输出上限必填的协议，
  *   ai/output-budget.ts 单源）；若平台按「超出上限」拒收（Anthropic 比较式 /
  *   「valid range」等），core 自动退回 CONSERVATIVE_MAX_TOKENS 重发一次，不消耗
@@ -231,6 +237,19 @@ export async function chatCompletion({
   // openai adapter，行为零变化。
   const adapter = resolveAdapter(provider.protocol);
 
+  // 思考线格式装配（思考装配边 planThinkingWire 的唯一调用点）：protocol 取
+  // resolveAdapter 的解析结论，与请求同一来源；档位外部值原样交给装配边
+  //（归一施加点在解析层），产出随 ChatRequest 注入，adapter 只并入请求体。
+  const thinkingWire = planThinkingWire({
+    protocol: adapter.protocol,
+    model,
+    presetId: provider.presetId,
+    baseUrl,
+    level: thinkingLevel,
+    stream,
+    probe
+  });
+
   const maxRetries = retries ?? defaultRetries(stream);
 
   // 鉴权头形状由 adapter.authHeaders 全权负责（各协议不同：Bearer / x-api-key
@@ -262,11 +281,8 @@ export async function chatCompletion({
       model,
       messages,
       stream,
-      probe,
-      baseUrl,
       apiKey: provider.apiKey,
-      presetId: provider.presetId,
-      thinkingLevel,
+      thinkingWire,
       maxTokens: effectiveMaxTokens,
       tools
     });

@@ -21,6 +21,7 @@
 import { describe, expect, it } from "vitest";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
+import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import {
   AI_THINKING_LEVELS,
   THINKING_DEFAULT_LEVEL,
@@ -39,13 +40,21 @@ const ROW_MODEL = "deepseek-v4-pro";
 const DIRTY = ["none", "Default", "", "ultra"] as const;
 
 // openai 缝的思考字段（去掉三个公共键后的余量）：与逐字节整 body 断言同源。
+// 思考线格式产出由装配边算好注入（生产唯一调用点是 completion.ts 的 fetch 点，
+// 本文件直接驱动请求构造的用例按同一口径先跑装配边）。
 function openaiThoughtFields(thinkingLevel?: string): Record<string, unknown> {
   const { model, messages, stream, ...rest } = buildChatRequestBody({
     model: ROW_MODEL,
     messages: [],
     stream: true,
-    baseUrl: DEEPSEEK_URL,
-    ...(thinkingLevel === undefined ? {} : { thinkingLevel })
+    thinkingWire: planThinkingWire({
+      protocol: "openai",
+      model: ROW_MODEL,
+      baseUrl: DEEPSEEK_URL,
+      level: thinkingLevel,
+      stream: true,
+      probe: false
+    })
   });
   expect({ model, messages, stream }).toEqual({ model: ROW_MODEL, messages: [], stream: true });
   return rest;
@@ -57,10 +66,15 @@ function messagesThoughtFields(thinkingLevel?: string): Record<string, unknown> 
     model: ROW_MODEL,
     messages: [],
     stream: false,
-    probe: false,
-    presetId: "deepseek",
-    baseUrl: DEEPSEEK_ANTHROPIC_URL,
-    ...(thinkingLevel === undefined ? {} : { thinkingLevel })
+    thinkingWire: planThinkingWire({
+      protocol: "anthropic",
+      model: ROW_MODEL,
+      presetId: "deepseek",
+      baseUrl: DEEPSEEK_ANTHROPIC_URL,
+      level: thinkingLevel,
+      stream: false,
+      probe: false
+    })
   });
   expect({ model, messages, stream, max_tokens }).toEqual({ model: ROW_MODEL, messages: [], stream: false, max_tokens: 32768 });
   return rest;
@@ -102,7 +116,14 @@ describe("缺省 / 脏值 = 不发言：F1（缺省/脏值不得落到某个具�
       model: "gpt-5.1",
       messages: [],
       stream: false,
-      baseUrl: "https://api.openai.com/v1",
+      thinkingWire: planThinkingWire({
+        protocol: "openai",
+        model: "gpt-5.1",
+        baseUrl: "https://api.openai.com/v1",
+        level: undefined,
+        stream: false,
+        probe: false
+      }),
       maxTokens: 1
     });
     expect(omitted).toEqual({ model: "gpt-5.1", messages: [], stream: false, max_completion_tokens: 1 });
@@ -131,7 +152,14 @@ describe("两条探针链对齐：F3", () => {
       model: "gpt-5.1",
       messages: [{ role: "user", content: "ping" }],
       stream: false,
-      baseUrl: "https://api.openai.com/v1",
+      thinkingWire: planThinkingWire({
+        protocol: "openai",
+        model: "gpt-5.1",
+        baseUrl: "https://api.openai.com/v1",
+        level: undefined,
+        stream: false,
+        probe: true
+      }),
       maxTokens: 1
     });
     expect(openaiProbe).toEqual({
@@ -145,8 +173,14 @@ describe("两条探针链对齐：F3", () => {
       model: "claude-x",
       messages: [{ role: "user", content: "ping" }],
       stream: false,
-      probe: true,
-      baseUrl: "https://api.anthropic.com",
+      thinkingWire: planThinkingWire({
+        protocol: "anthropic",
+        model: "claude-x",
+        baseUrl: "https://api.anthropic.com",
+        level: undefined,
+        stream: false,
+        probe: true
+      }),
       maxTokens: 1
     });
     expect(messagesProbe).toEqual({

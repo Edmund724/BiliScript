@@ -43,7 +43,7 @@ export function isThinkingLevelValue(value: unknown): value is ThinkingLevelValu
 // resolveThinkingAdjustment（它们的 ResolveThinkingInput.level 声明的就是本类型的值——那是
 // 「未归一的外部值」，见 thinking-profiles）与设置 / 面板侧的 normalizeThinkingLevel 消费者。
 // 所以**从端口载荷到请求构造的整条链（ladder / client / completion / map-reduce / tool-loop /
-// analysis-orchestrate / adapter 的 ChatRequest）传的都是本类型的值**：合法档位、缺省、以及
+// analysis-orchestrate → 思考装配边 plan-thinking.ts 的 ThinkingRequestFacts）传的都是本类型的值**：合法档位、缺省、以及
 // 端口里真实可到的任意脏值（非字符串、空串、上游的 `none`、编造词——
 // tests/ai/thinking-default-fallback.test.ts 钉着这条路径）。链上只透传：不判、不归、不拒
 //（归一化只在边界做一次）。

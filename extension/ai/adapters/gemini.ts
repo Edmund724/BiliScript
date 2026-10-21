@@ -4,7 +4,6 @@ import { makeAbortedError } from "../../shared/error-helpers.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { CompatQuirk } from "../compat-vocab.js";
-import { planThinkingWire } from "../plan-thinking.js";
 
 export const GEMINI_ERROR_FINISH_REASONS = new Set([
   "SAFETY",
@@ -414,19 +413,13 @@ export function convertGeminiMessages(
   return { systemInstruction, contents };
 }
 
-/** 请求体组装：camelCase 强要求（systemInstruction 顶层且只取首条、maxOutputTokens 落 generationConfig、工具配置） */
+/** 请求体组装：camelCase 强要求（systemInstruction 顶层且只取首条、maxOutputTokens 落 generationConfig、工具配置）。
+ *  思考线格式产出（thinkingConfig / 上限参数名）由 core 经思考装配边注入（request.thinkingWire），
+ *  本函数只并入 generationConfig。 */
 export function buildGeminiRequestBody(request: ChatRequest): Record<string, unknown> {
   const { systemInstruction, contents } = convertGeminiMessages(request.messages, request.model);
 
-  const wire = planThinkingWire({
-    protocol: "gemini",
-    model: request.model,
-    presetId: request.presetId,
-    baseUrl: request.baseUrl,
-    level: request.thinkingLevel,
-    stream: request.stream,
-    probe: request.probe === true
-  });
+  const wire = request.thinkingWire;
 
   const generationConfig: Record<string, unknown> = {};
   if (wire.fields.thinkingConfig) {

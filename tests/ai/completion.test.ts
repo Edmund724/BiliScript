@@ -13,12 +13,35 @@ import {
   makeOverflowError
 } from "../../extension/ai/completion.js";
 import { buildChatRequestBody, OPENAI_CHAT_PATH } from "../../extension/ai/adapters/openai.js";
+import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import { normalizeThinkingLevel } from "../../extension/ai/thinking-profiles.js";
 import { resetLearnedBudgetsForTests } from "../../extension/ai/learned-budget.js";
 import type { ChatToolDefinition } from "../../extension/ai/protocol-adapter.js";
 import type { StreamChatEvent } from "../../extension/ai/types.js";
 
 const PROVIDER = { baseUrl: "https://api.example.com/v1", model: "test-model", apiKey: "sk-test" };
+
+// buildChatRequestBody 的思考线格式产出在生产上由唯一 fetch 点（completion.ts）经思考
+// 装配边注入；直接驱动请求构造的用例按同一口径先跑装配边，再把产出交给请求构造。
+type OpenAiBodyFacts = Omit<Parameters<typeof buildChatRequestBody>[0], "thinkingWire"> & {
+  baseUrl?: string;
+  presetId?: string;
+  thinkingLevel?: unknown;
+};
+function buildOpenAiChatBody({ baseUrl, presetId, thinkingLevel, ...request }: OpenAiBodyFacts) {
+  return buildChatRequestBody({
+    ...request,
+    thinkingWire: planThinkingWire({
+      protocol: "openai",
+      model: request.model,
+      presetId,
+      baseUrl,
+      level: thinkingLevel,
+      stream: request.stream ?? false,
+      probe: false
+    })
+  });
+}
 
 type FetchImpl = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -286,11 +309,11 @@ describe("请求构造对照表（url / body / headers）", () => {
   });
 });
 
-// presetId 穿线（02 号票）：provider 记录的 presetId 经 chatCompletion 的
-// provider 对象抵达 buildChatRequestBody，识别主路径优先于 baseUrl host 推断；
+// presetId 穿线（02 号票）：provider 记录的 presetId 经 chatCompletion 抵达思考装配边
+//（planThinkingWire，唯一调用点即该 fetch 点），识别主路径优先于 baseUrl host 推断；
 // 旧记录（无 presetId 字段 / normalize 落 "custom"）回落 host/模型名，与 01
 // 落地行为一致（上面的请求构造对照表即 01 golden，继续锁定）。
-describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
+describe("presetId 穿线（chatCompletion → 思考装配边）", () => {
   it("provider.presetId 与 host 推断冲突时 presetId 赢：host 命中 Mimo 但记录是 ollama → effort 词汇", async () => {
     const fetchMock = mockFetch(async () => jsonResponse({ choices: [{ message: { content: "" } }] }));
 
@@ -349,7 +372,7 @@ describe("presetId 穿线（chatCompletion → buildChatRequestBody）", () => {
 });
 
 // token 参数名映射（04 号票）：chatCompletion 的非空 maxTokens 经
-// buildChatRequestBody 随 resolver tokenParam 换名——openai-reasoning 系写
+// buildChatRequestBody 随装配边出参 tokenParam 换名——openai-reasoning 系写
 // max_completion_tokens 且不得再出现 max_tokens；其余类维持 max_tokens 现状。
 // 概览/分析的估算预算（含空正文加倍重试）与探针（maxTokens 默认 1）走同一接缝。
 describe("token 参数名映射（maxTokens 随类换名，04 号票）", () => {
@@ -387,7 +410,7 @@ describe("token 参数名映射（maxTokens 随类换名，04 号票）", () => 
 describe("buildChatRequestBody / normalizeThinkingLevel（主人：adapters/openai、thinking-profiles）", () => {
   it("off：按平台表发显式关闭字段（OpenAI gpt-5.1 例外 effort none；DeepSeek v4 模式表 thinking disabled）", () => {
     const base = { messages: [], stream: true };
-    expect(buildChatRequestBody({
+    expect(buildOpenAiChatBody({
       ...base, model: "gpt-5.1", baseUrl: "https://api.openai.com/v1", thinkingLevel: "off"
     })).toEqual({
       model: "gpt-5.1",
@@ -395,7 +418,7 @@ describe("buildChatRequestBody / normalizeThinkingLevel（主人：adapters/open
       stream: true,
       reasoning_effort: "none"
     });
-    expect(buildChatRequestBody({
+    expect(buildOpenAiChatBody({
       ...base, model: "deepseek-v4-pro", baseUrl: "https://api.deepseek.com/v1", thinkingLevel: "off"
     })).toEqual({
       model: "deepseek-v4-pro",
@@ -407,22 +430,22 @@ describe("buildChatRequestBody / normalizeThinkingLevel（主人：adapters/open
 
   it("low / high：按平台表映射（OpenAI effort），不混入其他思考字段；maxTokens 透传（openai-reasoning 系随表换名）", () => {
     const base = { model: "gpt-5.1", messages: [], stream: false, baseUrl: "https://api.openai.com/v1" };
-    expect(buildChatRequestBody({ ...base, thinkingLevel: "low" })).toEqual({
+    expect(buildOpenAiChatBody({ ...base, thinkingLevel: "low" })).toEqual({
       model: "gpt-5.1",
       messages: [],
       stream: false,
       reasoning_effort: "low"
     });
-    expect(buildChatRequestBody({ ...base, thinkingLevel: "high" })).toMatchObject({
+    expect(buildOpenAiChatBody({ ...base, thinkingLevel: "high" })).toMatchObject({
       reasoning_effort: "high"
     });
-    expect(buildChatRequestBody({ ...base, maxTokens: 1 })).toMatchObject({ max_completion_tokens: 1 });
+    expect(buildOpenAiChatBody({ ...base, maxTokens: 1 })).toMatchObject({ max_completion_tokens: 1 });
   });
 
   it("未知平台 × 未知模型：省略/非法/三档均不发思考字段（UNKNOWN 哨兵）；stream 缺省 false", () => {
     const base = { model: "test-model", messages: [], baseUrl: "https://api.example.com/v1" };
     for (const thinkingLevel of [undefined, "off", "low", "high", "medium"]) {
-      expect(buildChatRequestBody({ ...base, thinkingLevel })).toEqual({
+      expect(buildOpenAiChatBody({ ...base, thinkingLevel })).toEqual({
         model: "test-model",
         messages: [],
         stream: false
@@ -446,7 +469,7 @@ describe("images 线格式（image-input 路线 B：openai chat 的 content 翻�
   const IMAGE = { mime: "image/webp", data: "QUJD" };
 
   it("无图消息：请求体逐字节不变（images 是纯本地字段，不上线）", () => {
-    const body = buildChatRequestBody({
+    const body = buildOpenAiChatBody({
       ...base,
       messages: [
         { role: "user", content: "hi" },
@@ -459,14 +482,14 @@ describe("images 线格式（image-input 路线 B：openai chat 的 content 翻�
   });
 
   it("images: []（空数组）与缺省同形：不产生 content parts，也不上线 images 字段", () => {
-    const body = buildChatRequestBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
+    const body = buildOpenAiChatBody({ ...base, messages: [{ role: "user", content: "hi", images: [] }] });
     expect(JSON.stringify(body)).toBe(
       '{"model":"test-model","messages":[{"role":"user","content":"hi"}],"stream":false}'
     );
   });
 
   it("带图消息：content 翻成 text + image_url 块数组（url 为 data:<mime>;base64,<b64>）", () => {
-    const body = buildChatRequestBody({
+    const body = buildOpenAiChatBody({
       ...base,
       messages: [
         { role: "user", content: "这张图里是什么", images: [IMAGE, { mime: "image/png", data: "REVG" }] },
@@ -488,7 +511,7 @@ describe("images 线格式（image-input 路线 B：openai chat 的 content 翻�
   });
 
   it("纯图消息（正文空）：只发 image_url 块，不发空 text 块", () => {
-    const body = buildChatRequestBody({ ...base, messages: [{ role: "user", content: "", images: [IMAGE] }] });
+    const body = buildOpenAiChatBody({ ...base, messages: [{ role: "user", content: "", images: [IMAGE] }] });
     expect(body.messages).toEqual([
       { role: "user", content: [{ type: "image_url", image_url: { url: "data:image/webp;base64,QUJD" } }] }
     ]);
@@ -1240,10 +1263,10 @@ describe("tools 注入与 tool_calls 解析（联网搜索管线，spec §2.1）
   };
 
   it("buildChatRequestBody：传 tools 即带 tools + tool_choice: auto；不传不带", () => {
-    const withTools = buildChatRequestBody({ model: "m", messages: [], tools: [WEB_SEARCH_TOOL] });
+    const withTools = buildOpenAiChatBody({ model: "m", messages: [], tools: [WEB_SEARCH_TOOL] });
     expect(withTools.tools).toEqual([WEB_SEARCH_TOOL]);
     expect(withTools.tool_choice).toBe("auto");
-    const without = buildChatRequestBody({ model: "m", messages: [] });
+    const without = buildOpenAiChatBody({ model: "m", messages: [] });
     expect(without.tools).toBeUndefined();
     expect(without.tool_choice).toBeUndefined();
   });

@@ -12,14 +12,14 @@
 //   消费方矛盾，spec「编排层零改动」优先。
 // 另修正 prototype 的线形状错误：message_delta 的 stop_reason 在 delta 内。
 // 聚合形状与 openai adapter 同型（DrainResult），编排层零改动。
-// 思考字段的写法（off 三词汇归一 / probe 早退 / 预算推算 / effort 词汇平台改写）
-// 不落在本文件：那是线格式映射表 ai/thinking-wire-map.ts 的一格，装配（取档位事实 → 算行
-// 入参 → 取表）的落点是思考装配边 ai/plan-thinking.ts——本文件只把装配边产出并入请求体，
-// 输出上限参数名（本通道必填的 max_tokens）也取自那条边的出参，不写字面量。
+// 思考字段的写法（off 三词汇归一 / probe 早退 / effort 词汇平台改写）不落在本文件：
+// 那是线格式映射表 ai/thinking-wire-map.ts 的一格，装配（取档位事实 → 算行入参 → 取表）
+// 的落点是思考装配边 ai/plan-thinking.ts（唯一调用点 = 唯一 fetch 点 completion.ts，
+// 产出经 ChatRequest 注入）——本文件只把装配边产出并入请求体，输出上限参数名（本通道
+// 必填的 max_tokens）也取自那条边的出参，不写字面量。
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { makeAbortedError } from "../../shared/error-helpers.js";
 import { DEFAULT_MAX_TOKENS } from "../output-budget.js";
-import { planThinkingWire } from "../plan-thinking.js";
 import { listOpenAiCompatibleModels, parseToolArgs } from "./openai.js";
 import type { ChatRequest, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
@@ -227,20 +227,10 @@ export const anthropicAdapter: ProtocolAdapter = {
     // 怪癖 maxTokensRequired：本通道上限字段必填，调用方未传兜底 DEFAULT_MAX_TOKENS；
     // 探针由 core 代劳传 1。
     const maxTokens = request.maxTokens ?? DEFAULT_MAX_TOKENS;
-    // 思考装配边：档位事实 + 本协议的平台事实（两条识别各按自己的键空间，口径差异见
-    // ai/platform-quirk-id.ts 头注）→ 本协议的思考字段 + 本协议的输出上限参数名。
-    // 档位偏好原样交给那条边（归一入口在解析层）：缺省 / 脏值 = default（不干预）→ 并入
-    // 空 patch，与 openai 链同表现（2026-10-05 裁定，见 docs/adr/0015 的修订块）；
-    // 显式 `off` 仍走 MESSAGES_OFF_EXIT 的逐格出口。
-    const wire = planThinkingWire({
-      protocol: "anthropic",
-      model: request.model,
-      presetId: request.presetId,
-      baseUrl: request.baseUrl,
-      level: request.thinkingLevel,
-      stream: request.stream,
-      probe: request.probe
-    });
+    // 思考线格式产出由 core（唯一 fetch 点）经装配边注入：档位偏好、平台识别与
+    // probe 早退都已在产出里兑现（缺省 / 脏值 = default 不干预 → 空 fields；显式
+    // `off` 走 MESSAGES_OFF_EXIT 的逐格出口），本函数只并入。
+    const wire = request.thinkingWire;
     const body: Record<string, unknown> = {
       model: request.model,
       messages: toAnthropicMessages(rest),

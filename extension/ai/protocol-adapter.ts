@@ -7,9 +7,9 @@
 // 注册表开放：加第四种协议（Gemini 等）= 实现一个 ProtocolAdapter + 登记一行，
 // core 零改动。
 import type { ChatMessage, ChatToolCall, ChatUsage, StreamChatEvent } from "./types.js";
-// 未归一的档位外部值的声明面（词表叶；adapter 只把它交给解析层，自己不看值）。
-// 纯类型引入：无运行时依赖边（叶本身零 import，SW 静态图安全）。
-import type { ThinkingLevelInput } from "./thinking-levels.js";
+// 思考线格式产出的声明面（线格式映射表的出参类型；表本身是零运行时 import 的纯叶，
+// 本引入是纯类型：无运行时依赖边，SW 静态图安全）。
+import type { ThinkingWireOutput } from "./thinking-wire-map.js";
 
 // 词表叶 re-export：类型消费者沿用本模块路径，不感知拆分。分发表键以
 // Record<AiProtocol, ...> 注解强制覆盖词表叶（单源，禁止第二份词表）。
@@ -39,19 +39,17 @@ export interface ProtocolCapabilities {
   unsupported: Record<string, string>;
 }
 
-// core 组装好的、与协议无关的调用意图。baseUrl 已归一（去尾斜杠）。
+// core 组装好的、与协议无关的调用意图。
 export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
   stream: boolean;
-  probe: boolean;
-  baseUrl: string;
   apiKey?: string;
-  /** 思考档位查表的平台识别输入（presetId 主路径，custom/旧记录靠 baseUrl host 兜底） */
-  presetId?: string;
-  // 未归一的档位外部值（本层只透传给 adapter 的请求构造；归一施加点是 thinking-profiles
-  // 的两个解析入口，见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
-  thinkingLevel?: ThinkingLevelInput;
+  // 思考线格式产出（思考装配边 ai/plan-thinking.ts 的出参）：由唯一 fetch 点
+  //（completion.ts，resolveAdapter 之后）一次装配、随本请求注入。adapter 只取
+  // fields 并入请求体、按 tokenParam 写输出上限字段——装配（档位事实查表 →
+  // 行入参 → 线格式映射表）不在 adapter 层。
+  thinkingWire: ThinkingWireOutput;
   maxTokens?: number | null;
   tools?: ChatToolDefinition[];
 }
@@ -130,8 +128,9 @@ export interface ProtocolAdapter {
   /** 鉴权头全集；core 与 extraHeaders 合并时同键不覆盖调用方注入 */
   authHeaders(apiKey: string | undefined): Record<string, string>;
 
-  /** 请求体组装：思考档位改写、token 上限参数名、协议特化结构
-   * （system 剥出 / tool 翻译 / store 等）都在此。probe 特化（maxTokens=1）由 core 代劳。 */
+  /** 请求体组装：并入 core 装配注入的思考线格式产出（thinkingWire 的 fields +
+   *  tokenParam 分流），以及协议特化结构（system 剥出 / tool 翻译 / store 等）。
+   *  probe 特化（maxTokens=1）由 core 代劳。 */
   buildBody(request: ChatRequest): Record<string, unknown>;
 
   /** HTTP 错误体 → detail 文案（core 统一加 `[协议名] ` 前缀与 200 字符截断） */

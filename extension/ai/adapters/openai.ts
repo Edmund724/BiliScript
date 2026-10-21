@@ -1,16 +1,15 @@
 // ai/adapters/openai.ts — OpenAI compatible 协议适配器（multi-protocol-ai）。
 // 现有 completion.ts 的 OpenAI 行为迁入本文件，列举项逐字节不变：
-// OPENAI_CHAT_PATH / buildChatRequestBody（调思考装配边取思考字段 + tokenParam 分流 +
-// tools 透传）/ drainSseStream（data:-only 行解析、[DONE] 跳过、tool-call-fragment 按
-// index 聚合）/ 非流式 choices 提取。唯一新增 extractErrorDetail（错误 envelope
-// 提取）——spec 错误归一化要求，core 统一加 `[协议名] ` 前缀与 200 字符截断。
+// OPENAI_CHAT_PATH / buildChatRequestBody（并入 core 注入的思考线格式产出 +
+// tokenParam 分流 + tools 透传）/ drainSseStream（data:-only 行解析、[DONE] 跳过、
+// tool-call-fragment 按 index 聚合）/ 非流式 choices 提取。唯一新增 extractErrorDetail
+//（错误 envelope 提取）——spec 错误归一化要求，core 统一加 `[协议名] ` 前缀与
+// 200 字符截断。
 // core（completion.ts）只留重试/中止/溢出/探针骨架。
 // 本文件里的平台怪癖一律只指 compat-vocab 词表的键，语义不回抄（无第二份描述）。
 import { parseOpenAiUsage, parseSsePayload } from "../sse-parser.js";
 import { makeAbortedError } from "../../shared/error-helpers.js";
-import { planThinkingWire } from "../plan-thinking.js";
-// 未归一的档位外部值的声明面（词表叶；本文件只透传给装配边）。纯类型引入：无运行时依赖边。
-import type { ThinkingLevelInput } from "../thinking-levels.js";
+import type { ThinkingWireOutput } from "../thinking-wire-map.js";
 import type { ChatMessage, ChatToolCall, ChatUsage } from "../types.js";
 import type { ChatRequest, ChatToolDefinition, DrainContext, DrainResult, ListModelsInput, ListModelsResult, ProtocolAdapter } from "../protocol-adapter.js";
 
@@ -22,18 +21,11 @@ interface BuildChatRequestBodyInput {
   model: string;
   messages: ChatRequest["messages"];
   stream?: boolean;
-  // 探针请求事实（本链按探针语义传 maxTokens=1）：它是随整条链走向思考装配边的请求事实，
-  // 但 openai 行不读它——本链「探针不发思考字段」靠请求侧归一（探针不传档位 → default
-  // 不干预 → 空 patch）；读它的是 Messages 行的探针早退（怪癖 probeOmitsThinking）。
-  probe?: boolean;
-  // 未归一的档位外部值（本函数只把它交给思考装配边：归一的施加点是解析层
-  // resolveThinkingProfile，见 ai/thinking-levels.ts 的 ThinkingLevelInput）。
-  thinkingLevel?: ThinkingLevelInput;
+  // 思考线格式产出（思考装配边 ai/plan-thinking.ts 的出参）：由唯一 fetch 点
+  //（completion.ts）装配、随 ChatRequest 注入。本函数只取 fields 并入请求体、
+  // 按 tokenParam 写输出上限字段。
+  thinkingWire: ThinkingWireOutput;
   maxTokens?: number | null;
-  // 思考参数查表的 provider 识别输入：presetId（preset 词表键）是主路径，
-  // baseUrl host 推断兜底（custom/旧记录）。
-  baseUrl?: string;
-  presetId?: string;
   // 联网搜索管线：传入即随请求体带 tools + tool_choice: "auto"。
   tools?: ChatToolDefinition[];
 }
@@ -80,46 +72,30 @@ function toWireMessages(messages: ChatMessage[]): WireMessage[] {
 /**
  * 构造 chat/completions 请求体（纯函数，便于单测；请求构造单点）。
  * stream 显式传递（流式 true / 非流式 false）；maxTokens 供探针传 1。
- * 思考字段与输出上限参数名由思考装配边（ai/plan-thinking.ts 的 planThinkingWire）给出：
- * 那条边取档位事实（档位规则查表：平台（presetId / baseUrl host）× 模型（有上游平台时
- * 先查上游编译产物的指派表，未命中才回落例外表 >> 模式表）→ 档位 patch）并按本协议算行
- * 入参、取线格式映射表（ai/thinking-wire-map.ts 的 openai 行）——本协议即原样并入，
- * 查不到事实（unknown / noFields 哨兵）或缺档一律不发字段——软失败优于硬 400。
- * 装配边出参的 tokenParam（04 token 参数映射，见怪癖 maxTokensField）是输出上限参数名的
+ * 思考字段与输出上限参数名来自入参 thinkingWire——思考装配边
+ *（ai/plan-thinking.ts 的 planThinkingWire）的出参，由唯一 fetch 点
+ *（completion.ts）装配注入；本函数只并入，查不到事实（unknown / noFields
+ * 哨兵）或缺档时产出本就是空 fields——软失败优于硬 400。
+ * 出参的 tokenParam（04 token 参数映射，见怪癖 maxTokensField）是输出上限参数名的
  * 唯一来源：openai-reasoning 系写 max_completion_tokens，其余类与 unknown 维持 max_tokens
- * 现状。装配边出参里 resolver 的 offUnavailable / thinkingClass（03 对话提示）本函数不消费；
- * 探针不发思考字段由请求侧归一承担（探针不传档位 → 不干预 → 空 patch），本函数与装配边都
- * 不做协议外的特判。
+ * 现状。探针不发思考字段由请求侧归一承担（探针不传档位 → 不干预 → 空 patch，
+ * 施加点在装配边链路），本函数不做协议外的特判。
  * messages 经 toWireMessages 翻译：带图消息的 content → text/image_url 块数组，
  * 无图消息原字段原值透传。
  */
-export function buildChatRequestBody({ model, messages, stream = false, thinkingLevel, maxTokens, baseUrl, presetId, tools, probe }: BuildChatRequestBodyInput): ChatRequestBody {
+export function buildChatRequestBody({ model, messages, stream = false, thinkingWire, maxTokens, tools }: BuildChatRequestBodyInput): ChatRequestBody {
   const body: ChatRequestBody = { model, messages: toWireMessages(messages), stream };
   if (tools && tools.length) {
     body.tools = tools;
     body.tool_choice = "auto";
   }
-  // 档位偏好与 probe 事实都原样交给装配边（归一入口在解析层：缺省 / 脏值 = default
-  // （不干预）→ 空 patch，探针因此不发关思考字段（2026-10-05 裁定，见 docs/adr/0015 的
-  // 修订块）；显式 `off` 仍走该平台的关思考写点）。装配边收下 probe，但本协议行不读它：
-  // 本链探针不发思考字段靠的仍是那条请求侧归一，probeOmitsThinking 是 Messages 侧事实
-  // （在装配边的 anthropic 装配行早退）。
-  const wire = planThinkingWire({
-    protocol: "openai",
-    model,
-    presetId,
-    baseUrl,
-    level: thinkingLevel,
-    stream,
-    probe: probe === true
-  });
-  Object.assign(body, wire.fields);
+  Object.assign(body, thinkingWire.fields);
   if (maxTokens != null) {
     // 怪癖 maxTokensField（语义见 compat-vocab）：token 上限参数名随装配边出参——openai-reasoning
     // 系不认 max_tokens（严格 400），写 max_completion_tokens；其余类与 unknown 维持 max_tokens
     // 现状。探针（maxTokens 默认 1）与概览/分析的估算预算（含空正文加倍重试）同走此接缝，
     // 自动生效、无需调用方特判。
-    body[wire.tokenParam] = maxTokens;
+    body[thinkingWire.tokenParam] = maxTokens;
   }
   return body;
 }
@@ -284,19 +260,15 @@ export const openaiAdapter: ProtocolAdapter = {
   },
 
   buildBody(request: ChatRequest): Record<string, unknown> {
-    // 迁入现有 buildChatRequestBody：思考装配边（presetId 主路径 + baseUrl host 兜底 →
-    // 线格式映射表 openai 行）出 tokenParam 分流（openai-reasoning 系写
-    // max_completion_tokens）+ tools 透传。行为与迁移前逐字节一致。
+    // 迁入现有 buildChatRequestBody：并入 core 注入的思考线格式产出（tokenParam 分流：
+    // openai-reasoning 系写 max_completion_tokens）+ tools 透传。行为与迁移前逐字节一致。
     return buildChatRequestBody({
       model: request.model,
       messages: request.messages,
       stream: request.stream,
-      thinkingLevel: request.thinkingLevel,
+      thinkingWire: request.thinkingWire,
       maxTokens: request.maxTokens,
-      baseUrl: request.baseUrl,
-      presetId: request.presetId,
-      tools: request.tools,
-      probe: request.probe
+      tools: request.tools
     });
   },
 

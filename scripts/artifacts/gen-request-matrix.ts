@@ -23,6 +23,7 @@
 import { writeFileSync } from "node:fs";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
+import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import {
   ASSIGNMENTS,
   MODEL_ID_ALIASES
@@ -130,9 +131,17 @@ for (const row of rows) {
           model: row.model,
           messages: MESSAGES,
           stream: false,
-          thinkingLevel: level,
-          baseUrl: row.baseUrl,
-          presetId: row.presetId,
+          // 思考线格式产出按生产同一口径先跑装配边（生产唯一调用点是 completion.ts
+          // 的 fetch 点），再注入请求构造。
+          thinkingWire: planThinkingWire({
+            protocol: "openai",
+            model: row.model,
+            presetId: row.presetId,
+            baseUrl: row.baseUrl,
+            level,
+            stream: false,
+            probe: false
+          }),
           maxTokens: 2048
         }) as Record<string, unknown>
       )
@@ -145,10 +154,15 @@ for (const row of rows) {
           model: row.model,
           messages: MESSAGES,
           stream: false,
-          probe: false,
-          baseUrl: row.baseUrl,
-          presetId: row.presetId,
-          thinkingLevel: level,
+          thinkingWire: planThinkingWire({
+            protocol: "anthropic",
+            model: row.model,
+            presetId: row.presetId,
+            baseUrl: row.baseUrl,
+            level,
+            stream: false,
+            probe: false
+          }),
           maxTokens: 2048
         })
       )

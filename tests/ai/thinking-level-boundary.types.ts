@@ -12,7 +12,8 @@
 // 运行期看不出链上某一层多调了一次归一化（归一幂等，落线字节相同），也看不出端口声明的
 // 宽容面被悄悄收窄（脏值在运行期仍被解析入口兜住）。归一化边界画法（本票裁定）：
 //   端口载荷 / 请求字段（未归一的外部值，宽容）
-//      → 链上只透传（ladder / client / completion / adapter 的 ChatRequest）
+//      → 链上只透传（ladder / client / completion → 思考装配边的 ThinkingRequestFacts；
+//        ChatRequest 承载的是装配产出 ThinkingWireOutput，不再是边界签名）
 //      → 归一化施加点：resolveThinkingProfile / resolveThinkingAdjustment
 //      → 归一之后才是 ThinkingLevelValue（面板 / 存储 / clamp 落线）。
 // 设置 / 面板侧的另两处施加点（providers.ts 的 setThinkingLevel / 面板的 pickLevel）
@@ -21,8 +22,7 @@
 
 import type { ChatMsg, StreamChatArgs } from "../../extension/ai/ladder.js";
 import type { ChatCompletionInput } from "../../extension/ai/completion.js";
-import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
-import type { ChatRequest } from "../../extension/ai/protocol-adapter.js";
+import type { ThinkingRequestFacts } from "../../extension/ai/plan-thinking.js";
 // 设置 / 面板侧的两处归一入口声明面（票 thinking-seam-tightening/03）。
 import type { ProviderPrefs } from "../../extension/chat/providers.js";
 import type { CreateReaderChatModelPanelDeps } from "../../extension/reader/chat-model-panel.js";
@@ -46,18 +46,19 @@ export function assertThinkingLevelBoundarySplit(): void {
   const atPort: ChatMsg["thinkingLevel"] = dirtyWireValue;
   const atLadder: StreamChatArgs["thinkingLevel"] = dirtyWireValue;
   const atCompletion: ChatCompletionInput["thinkingLevel"] = dirtyWireValue;
-  const atAdapter: ChatRequest["thinkingLevel"] = dirtyWireValue;
-  const atWireInput: Parameters<typeof buildChatRequestBody>[0]["thinkingLevel"] = dirtyWireValue;
+  // 请求链上最后一站未归一声明面：思考装配边的入参（唯一调用点是 completion.ts 的
+  // fetch 点；adapter 的 ChatRequest 承载的是装配产出，不在本链上）。
+  const atPlanning: ThinkingRequestFacts["level"] = dirtyWireValue;
   const boundary: ThinkingLevelInput = "ultra";
   const boundaryDirty: ThinkingLevelInput = dirtyWireValue;
-  void [atPort, atLadder, atCompletion, atAdapter, atWireInput, boundary, boundaryDirty];
+  void [atPort, atLadder, atCompletion, atPlanning, boundary, boundaryDirty];
 
   // ===== 边界值不透明：不许把它当字符串用 =====
   // 收成 string 会让链上的值重新长出字符串语义（本票收窄口径的反面）。
   // @ts-expect-error 未归一的边界值不是 string（unknown 无字符串方法）
   (null as unknown as NonNullable<ChatMsg["thinkingLevel"]>).trim();
   // @ts-expect-error 同上（请求构造缝）：边界类型不可直接赋给 string
-  const asString: string = null as unknown as NonNullable<ChatRequest["thinkingLevel"]>;
+  const asString: string = null as unknown as NonNullable<ChatCompletionInput["thinkingLevel"]>;
   void asString;
 
   // ===== 设置 / 面板侧：同一条归一化的另两处施加点，入参域同为「未归一的外部值」（票 03）=====

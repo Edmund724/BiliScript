@@ -12,8 +12,33 @@ import {
   parseGeminiUsage
 } from "../../extension/ai/adapters/gemini.js";
 import { PROTOCOL_ADAPTERS, resolveAdapter } from "../../extension/ai/protocol-adapter.js";
+import type { ChatRequest } from "../../extension/ai/protocol-adapter.js";
+import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import { isAbortedMarkerError } from "../../extension/shared/error-helpers.js";
 import type { StreamChatEvent } from "../../extension/ai/types.js";
+
+// 生产上 thinkingWire 由唯一 fetch 点（completion.ts）经思考装配边装配注入；本文件直接
+// 驱动 buildBody 的用例按同一口径先跑装配边（planThinkingWire），再驱动请求构造。
+type GeminiBodyFacts = Omit<ChatRequest, "thinkingWire"> & {
+  baseUrl?: string;
+  presetId?: string;
+  thinkingLevel?: unknown;
+  probe?: boolean;
+};
+function geminiBody({ baseUrl, presetId, thinkingLevel, probe, ...request }: GeminiBodyFacts) {
+  return geminiAdapter.buildBody({
+    ...request,
+    thinkingWire: planThinkingWire({
+      protocol: "gemini",
+      model: request.model,
+      presetId,
+      baseUrl,
+      level: thinkingLevel,
+      stream: request.stream,
+      probe: probe ?? false
+    })
+  });
+}
 
 function sseResponse(chunks: string[]): Response {
   const encoder = new TextEncoder();
@@ -113,7 +138,7 @@ describe("geminiAdapter: endpoint & authHeaders", () => {
 
 describe("geminiAdapter: buildBody", () => {
   it("camelCase 强要求：systemInstruction 顶层且只取首条 system 消息", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: true,
@@ -134,7 +159,7 @@ describe("geminiAdapter: buildBody", () => {
   });
 
   it("角色转换：assistant → model，连续同角色合并", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: true,
@@ -153,7 +178,7 @@ describe("geminiAdapter: buildBody", () => {
   });
 
   it("maxTokens 落 generationConfig.maxOutputTokens，且 off 档无 thinkingConfig", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: true,
@@ -419,7 +444,7 @@ describe("geminiAdapter: thinking 双轨全档位 × 全模型家族表驱动用
 
   for (const row of MATRIX) {
     it(`模型 ${row.model} × 档位 ${row.level ?? "undefined"} 映射正确`, () => {
-      const body = geminiAdapter.buildBody({
+      const body = geminiBody({
         model: row.model,
         baseUrl: "https://generativelanguage.googleapis.com",
         stream: true,
@@ -512,7 +537,7 @@ describe("geminiAdapter: thought 块与 thoughtSignature 保留与回放", () =>
   });
 
   it("buildBody: 带 thoughtSignature 的 part 原样保留不合并，空 text 仅在无 signature 时丢弃", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-3-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: true,
@@ -565,7 +590,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
   ];
 
   it("坑 1 & 7: 请求体一律 camelCase，包含 parametersJsonSchema，无 legacy parameters 与 snake_case 协议键", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: true,
@@ -612,7 +637,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
   });
 
   it("坑 2: assistant 映射为 model，顶层首条 system 走 systemInstruction，中段 system 包进 user turn", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: false,
@@ -646,7 +671,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
   });
 
   it("坑 3: user/model 严格交替，连续 user 合并且 functionResponse 排在最前面", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: false,
@@ -700,7 +725,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
 
   it("坑 4: 1:1 配对校验，缺失工具响应主动报错", () => {
     expect(() =>
-      geminiAdapter.buildBody({
+      geminiBody({
         model: "gemini-2.5-flash",
         baseUrl: "https://generativelanguage.googleapis.com",
         stream: false,
@@ -735,7 +760,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
 
   it("坑 4: 1:1 配对校验，重复工具响应主动报错", () => {
     expect(() =>
-      geminiAdapter.buildBody({
+      geminiBody({
         model: "gemini-2.5-flash",
         baseUrl: "https://generativelanguage.googleapis.com",
         stream: false,
@@ -770,7 +795,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
 
   it("坑 4: 1:1 配对校验，多余工具响应主动报错", () => {
     expect(() =>
-      geminiAdapter.buildBody({
+      geminiBody({
         model: "gemini-2.5-flash",
         baseUrl: "https://generativelanguage.googleapis.com",
         stream: false,
@@ -788,7 +813,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
   });
 
   it("坑 4: 多个工具结果打包进同一个 user Content", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: false,
@@ -838,7 +863,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
   it("坑 5: 主版本 ≥ 3 回放 id 且清洗为 [A-Za-z0-9_-] ≤ 64；主版本 < 3 不带 id；跨轮 id 冲突不炸", () => {
     const dirtyId = "call@illegal:id!very-long-id-that-exceeds-sixty-four-characters-and-has-symbols#123456789";
 
-    const bodyG3 = geminiAdapter.buildBody({
+    const bodyG3 = geminiBody({
       model: "gemini-3-pro",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: false,
@@ -872,7 +897,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
     expect(g3ModelPart.functionCall.id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
     expect(g3UserPart.functionResponse.id).toBe(g3ModelPart.functionCall.id);
 
-    const bodyG2 = geminiAdapter.buildBody({
+    const bodyG2 = geminiBody({
       model: "gemini-2.5-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: false,
@@ -903,7 +928,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
     expect(g2ModelPart.functionCall.id).toBeUndefined();
     expect(g2UserPart.functionResponse.id).toBeUndefined();
 
-    const bodyMultiRound = geminiAdapter.buildBody({
+    const bodyMultiRound = geminiBody({
       model: "gemini-3-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       stream: false,
@@ -930,7 +955,7 @@ describe("geminiAdapter: Ticket 05 工具调用与 kimi-code 坑清单 (1)-(8)",
   });
 
   it("坑 7: 思考开启态下 thoughtSignature 原样回放，与 functionCall 同轮不被丢失或拼接入文本", () => {
-    const body = geminiAdapter.buildBody({
+    const body = geminiBody({
       model: "gemini-3-flash",
       baseUrl: "https://generativelanguage.googleapis.com",
       thinkingLevel: "high",

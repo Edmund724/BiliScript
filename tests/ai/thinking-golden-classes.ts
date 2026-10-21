@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
+import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import { ASSIGNMENTS, MODEL_ID_ALIASES, VALUESETS } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
 import { AI_THINKING_LEVELS, UPSTREAM_PROVIDER_BY_PRESET, type ThinkingLevel } from "../../extension/ai/thinking-profiles.js";
 import { DEFAULT_MAX_TOKENS } from "../../extension/ai/output-budget.js";
@@ -139,37 +140,37 @@ export function channelHarness(channel: Channel): ChannelHarness {
   if (channel === "openai") {
     return {
       channel,
-      // probe 不是 openai 缝的入参：openai 行（写法层）不收 probe，probeOmitsThinking 是
-      // Messages 侧事实（见 ai/thinking-wire-map.ts 的入参分型）。本缝下「探针不发思考字段」
-      // 走的是另一条路：探针不传档位 → 请求侧归一为 default（不干预）→ 空 patch
-      // （2026-10-05 裁定，见 docs/adr/0015 的修订块）——两链同表现。
-      bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens }) =>
-        buildChatRequestBody({
+      // 思考线格式产出由装配边（planThinkingWire）按生产同一口径先算好再注入请求构造
+      //（生产唯一调用点是 completion.ts 的 fetch 点）。openai 行不读 probe：本缝
+      //「探针不发思考字段」靠请求侧归一（探针不传档位 → default 不干预 → 空 patch，
+      // 2026-10-05 裁定见 docs/adr/0015 修订块）；probeOmitsThinking 是 Messages 侧事实
+      //（装配边 anthropic 行的探针早退）。
+      bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens }) => {
+        const resolvedBaseUrl = baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : undefined);
+        return buildChatRequestBody({
           model,
           messages: MESSAGES,
           stream,
-          thinkingLevel: level,
-          baseUrl: baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : undefined),
-          presetId,
+          thinkingWire: planThinkingWire({ protocol: "openai", model, presetId, baseUrl: resolvedBaseUrl, level, stream, probe: false }),
           ...(maxTokens != null ? { maxTokens } : {})
-        }) as Record<string, unknown>,
+        }) as Record<string, unknown>;
+      },
       expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, ...fields })
     };
   }
   return {
     channel,
-    bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens, probe = false }) =>
-      anthropicAdapter.buildBody({
+    bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens, probe = false }) => {
+      const resolvedBaseUrl = baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : "");
+      return anthropicAdapter.buildBody({
         model,
         messages: MESSAGES,
         stream,
-        probe,
-        baseUrl: baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : ""),
-        presetId,
-        thinkingLevel: level,
+        thinkingWire: planThinkingWire({ protocol: "anthropic", model, presetId, baseUrl: resolvedBaseUrl, level, stream, probe }),
         // adapter 默认 max_tokens 走 DEFAULT_MAX_TOKENS（32768）——用例字面钉住该值。
         ...(maxTokens != null ? { maxTokens } : {})
-      }) as Record<string, unknown>,
+      }) as Record<string, unknown>;
+    },
     expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, max_tokens: DEFAULT_MAX_TOKENS, ...fields })
   };
 }
