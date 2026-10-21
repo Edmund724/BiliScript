@@ -12,7 +12,7 @@
 //   完成后的完整字幕；asr 提示行随相位显隐；
 // - 断流收口（工单 08）：closeChatSession 断 port + 退出流式 UI 态；关闭后发送
 //   不再放行（不做后台续跑）；重开从会话历史恢复（恢复路径重渲 + 触发源重挂）；
-// - 外点关闭单委托：popovers 的 handleDocumentClick 经 chat-tab-bridge 并入
+// - 外点关闭单委托：popovers 的 handleDocumentClick 经 reader-bus 转发槽并入
 //   ui-renderer 的单一文档级委托（点外关闭、点内不关），不双监听；
 // - player-ai 快捷动作 seam（PR4b 概览笔记按钮同款）：runQuickActionPrompt =
 //   定位对话 tab + startNewConversation + 填提示词 + 自动发送；不消费待解释
@@ -839,7 +839,7 @@ describe("联网搜索回放重建（spec §4：tool 消息 → 时间线卡 + �
   });
 });
 
-describe("外点关闭单委托（chat-tab-bridge 并入 ui-renderer 文档级委托）", () => {
+describe("外点关闭单委托（reader-bus 转发槽并入 ui-renderer 文档级委托）", () => {
   it("点外关闭 popover、点内不关；重复激活不双挂监听", async () => {
     seedReadyContext();
     const chat = await lazyChat.ensureReaderChatTab();

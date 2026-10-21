@@ -8,8 +8,8 @@
 //
 // 两处换壳（盘点报告 §1.1 popovers 判定行 + 风险 6 决议，历史定案）：
 //   1. 外点关闭的 id 选择器换 reader 的 readingChat* id（原 #sp* 硬编码）；
-//   2. handleDocumentClick 不再自挂 document 监听——经 reader/chat-tab-bridge.ts
-//      的注册槽并入 ui-renderer 的单一文档级委托（防双监听互踩）。本模块只暴露
+//   2. handleDocumentClick 不再自挂 document 监听——经 reader-bus 的转发槽
+//      并入 ui-renderer 的单一文档级委托（防双监听互踩）。本模块只暴露
 //      handleDocumentClick 供组合根注册（组合根负责注册/摘除时机）；Esc 关闭经
 //      handleEscapeKey 由组合根的 window keydown 监听调用（同一注册/摘除时机）。
 import { ids } from "./state.js";
@@ -85,7 +85,7 @@ export function createReaderChatPopovers(deps: CreateReaderChatPopoversDeps): Re
     setModelPanelHidden(true);
   }
 
-  // 外点关闭（由组合根经 chat-tab-bridge 注册进 ui-renderer 的单一文档级委托）：
+  // 外点关闭（由组合根经 reader-bus 的转发槽注册进 ui-renderer 的单一文档级委托）：
   // 判定分支与 sidepanel 孪生逐字一致，仅 id 选择器换 readingChat* 前缀。
   function handleDocumentClick(event: MouseEvent): void {
     if (historyPopover.hidden && modelPanel.hidden) {

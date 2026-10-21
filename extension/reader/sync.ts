@@ -5,10 +5,10 @@
 // deadlines, plus the reader 域唯一定位入口 seekReadingTarget（阅读视图内点击
 // 与侧栏时间戳 seek 的共享规范序）。
 //
-// Layer graph (acyclic; ports.js is the zero-dependency leaf):
+// Layer graph (acyclic; reader-bus 端口组是逆依赖的唯一通道):
 //
-//   ports.js  显式回调端口（本域逆依赖的唯一通道，lifecycle 单点注册）
-//   LAYOUT    video-bind.js + script-host.js → ports
+//   reader-bus.ts  显式回调端口（本域逆依赖的唯一通道，lifecycle 单点注册）
+//   LAYOUT    video-bind.js + script-host.js → reader-bus 端口组
 //                               module-level closure: scroll-pause variables,
 //                               timer variables
 //   SYNC      sync.js（本文件）                     → LAYOUT + ports
@@ -17,8 +17,8 @@
 //   LIFECYCLE lifecycle.js                          → SYNC + LAYOUT
 //
 // LAYOUT must not import this module — its layout/shell functions that need
-// sync-domain behavior call it through the explicit reader ports leaf
-// (./ports.js, registered once by lifecycle.js), keeping the dependency graph
+// sync-domain behavior call it through the explicit reader ports group
+// (reader-bus.ts, registered once by lifecycle.js), keeping the dependency graph
 // acyclic: SYNC → LAYOUT. 不允许任何 `?.[` 式静默端口调用回潮。
 //
 // B 形态收尾：player-host/hover-chrome 随整页接管退役。原 stop 路径
@@ -41,9 +41,9 @@ import {
 import { bindReadingViewVideo, unbindReadingViewVideoSync } from "./video-bind.js";
 // 候选02 分层惰性：状态栏文案属常驻微模块，直接 import（不再经 player-host 转发）。
 import { renderReadingStatus } from "./presentation.js";
-// 候选06 端口半边：SYNC → LIFECYCLE 的字幕同步补渲染经显式端口回调
+// 候选06 端口半边：SYNC → LIFECYCLE 的字幕同步补渲染经 reader-bus 显式端口
 //（实现由 lifecycle.js 启动时单点注册，缺失即抛错）。
-import { readerPorts } from "./ports.js";
+import { readerPorts } from "./reader-bus.js";
 // PR3 转写中间态：250ms tick 顺带收敛转写横幅（相位/进度行脏检查在
 // transcribe-banner 内部，稳态零 DOM 写）。transcribe-banner 是零依赖呈现叶子
 //（state + shared status-bus），不破坏 SYNC → LAYOUT + ports 的层图。

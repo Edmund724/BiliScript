@@ -2,7 +2,7 @@
 //
 // 本文件只拥有「video 播放事件 ↔ 阅读视图同步」的绑定生命周期：
 //   - bindReadingViewVideo：把 seeked/loadedmetadata 经 AbortController 绑到
-//     video 上，事件回调经 ports.js 显式端口驱动 SYNC（播放稳态由 sync 的
+//     video 上，事件回调经 reader-bus 的端口组驱动 SYNC（播放稳态由 sync 的
 //     250ms tick 单路驱动——timeupdate 直连已随 P3 播放 sync 单路化删除，
 //     双路合计 ~8-9Hz 收敛为 interval 4Hz，seek/换轨即时响应由事件路保留）；
 //   - unbindReadingViewVideoSync：abort 即移除整组监听。
@@ -16,11 +16,11 @@
 // 为准，单一事实来源（原实现里标志与控制器本就同生命周期，双轨是历史负担）。
 //
 // 依赖方向（保持层图不变）：本模块属 LAYOUT 层叶子，只依赖 state/video-probe/
-// ports，不 import SYNC/LIFECYCLE 域；sync.js 经静态边 import 本模块。
+// reader-bus 端口组，不 import SYNC/LIFECYCLE 域；sync.js 经静态边 import 本模块。
 import { state } from "../core/state.js";
 import { getRuntimeVideoElement } from "../bilibili/video-probe.js";
-// 端口半边：SYNC 域回调经 reader 域唯一显式端口（ports.js 叶子，缺失即抛错）。
-import { readerPorts } from "./ports.js";
+// 端口半边：SYNC 域回调经 reader-bus 的显式端口（缺失即抛错）。
+import { readerPorts } from "./reader-bus.js";
 
 // 解绑 video 同步监听：AbortController 挂在元素上（__biliscriptReadingSyncController），
 // abort 即移除整组 seeked/loadedmetadata 监听，无需再逐个
@@ -53,8 +53,8 @@ export function bindReadingViewVideo(video: HTMLVideoElement | null = getRuntime
       if (event?.type === "seeked") {
         state.reader.setNextScrollBehavior("auto");
       }
-      // Resolved at call time through the explicit reader ports leaf
-      // (./ports.js), so this never creates a static video-bind → sync.js edge.
+      // Resolved at call time through the explicit reader ports group
+      // (reader-bus.ts), so this never creates a static video-bind → sync.js edge.
       readerPorts.syncReadingViewPlayback();
     }
   };

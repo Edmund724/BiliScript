@@ -3,9 +3,9 @@ import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
 import { themeButtonView } from "./theme-button.js";
-// PR5 外点关闭单委托：对话 tab popovers 的文档级外点关闭经桥接叶子并入本模块
-// 的单一 document click 委托（原双监听互踩风险收口，见 chat-tab-bridge.ts）。
-import { dispatchChatTabOutsideClick } from "../reader/chat-tab-bridge.js";
+// PR5 外点关闭单委托：对话 tab popovers 的文档级外点关闭经 reader-bus 的转发槽并入本模块
+// 的单一 document click 委托（避免第二个 document 监听互踩）。
+import { dispatchChatTabOutsideClick } from "../reader/reader-bus.js";
 // 候选03 常驻瘦身：本模块（面板 + 阅读视图壳构建、事件绑定）已整体惰性化，
 // 经 ui/lazy-ui.js 动态装载。静态 import 只允许常驻叶子——reader 状态微模块
 //（./reader/state.js，含 ids/view-state/scroll-state）、轻状态栏写入器
@@ -292,7 +292,7 @@ export function bindUiEvents(): void {
   });
 
   // Click outside settings panel to close（单一文档级 click 委托：PR5 起同时
-  // 承接对话 tab popovers 的外点关闭——chat-tab-bridge 注册槽转发，不另挂第二
+  // 承接对话 tab popovers 的外点关闭——reader-bus 的转发槽注册，不另挂第二
   // 个 document 监听，避免双委托互踩。转发必须放在 settingsExpanded 早退之前）。
   if (!state.reader.readingDocumentClickBound) {
     document.addEventListener("click", (e) => {

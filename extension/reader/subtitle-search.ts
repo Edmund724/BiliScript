@@ -39,7 +39,7 @@ import { getReadingSubtitleItems } from "../subtitle/core.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { SecondaryAlignment } from "../subtitle/alignment.js";
 import { ids } from "./state.js";
-import { readerPorts } from "./ports.js";
+import { readerPorts } from "./reader-bus.js";
 import { noteManualReaderInteraction } from "./sync.js";
 import {
   findSubtitleItem,

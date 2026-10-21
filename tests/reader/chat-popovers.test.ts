@@ -2,7 +2,7 @@
 // createReaderChatPopovers（对话 tab 历史/模型面板两个弹层的开合互斥 +
 // 文档级外点关闭 + Esc 关闭）行为契约。PR5 自 tests/sidepanel/sidepanel-popovers.test.ts
 // 随重建迁移：判定断言保真；外点关闭的 id 选择器换 reader 的 readingChat* id，且
-// handleDocumentClick 不再自挂 document 监听——经 chat-tab-bridge 并入
+// handleDocumentClick 不再自挂 document 监听——经 reader-bus 的转发槽并入
 // ui-renderer 的单一文档级委托（见 chat-tab 组合根测试的外点单委托用例）。
 // 发送框重构起新增第二个弹层（模型 + 思考档位面板）：开合与互斥入口
 // toggleModelPanel/hideModelPanel，Esc 全关走 handleEscapeKey（组合根的 window

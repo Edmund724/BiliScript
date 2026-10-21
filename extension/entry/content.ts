@@ -39,11 +39,7 @@ import {
 } from "../reader/lazy-reader-presentation.js";
 import { ensureReaderDomain } from "../reader/lazy-reader.js";
 
-import {
-  subscribeReaderSettingsPersist,
-  subscribeReaderSettingsLoad,
-  subscribePlayerAiSync
-} from "../reader/reader-bus.js";
+import { registerContentCapabilities } from "../reader/reader-bus.js";
 
 import { bindRuntimeEvents, bindUrlChangeHandler, startSubtitlePrefetch } from "./message-handler.js";
 // S3 分层：阅读表随阅读模式挂载（进入/退出事务的挂摘在 reader/shell.ts 阅读壳
@@ -62,10 +58,6 @@ interface PlayerAiApi {
   resetPlayerAiQuickActionRetryCount(): void;
   schedulePlayerAiQuickActionSync(delayMs?: number): void;
 }
-
-// reader/reader-bus.js（presenter seam，arch-slim-2/03 改名）无导出类型；本文件精确描述 seam 回调签名。
-// delayMs 透传给 schedulePlayerAiQuickActionSync；options.resetRetry 重置重试计数。
-type PlayerAiSyncHandler = (delayMs?: number, options?: { resetRetry?: boolean }) => void;
 
 globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__ = BILISCRIPT_VERSION;
 
@@ -113,42 +105,37 @@ function init(): void {
 
   bindRuntimeEvents();
   bindSettingsWatcher();
-  // Reader settings persistence (sendRuntimeMessage, shared/messaging.js) and
-  // loading (getSettings, core/runtime.js) are outside the reader domain;
-  // reader-impl.js must not import them (import cycle), so content.js wires
-  // the presenter seam callbacks here.
-  subscribeReaderSettingsPersist(() => {
-    sendRuntimeMessage({ type: "save-settings", settings: state.settings }).catch((error) => {
-      logWarn("[BILISCRIPT] failed to persist reader settings", error);
-    });
-  });
-  subscribeReaderSettingsLoad(() => getSettings());
-  // Reader triggers player-ai quick-action sync through this seam instead of
-  // importing ai/player-ai.js (which would pull core/runtime.js into the
-  // reader dependency graph). The delayMs argument maps to
-  // schedulePlayerAiQuickActionSync(delayMs); an undefined value keeps the
-  // default 120ms delay. options.resetRetry mirrors the original
-  // __BILISCRIPT_FORCE_SYNC_PLAYER_AI__ behavior (only the debug helper resets the
-  // retry counter before syncing).
-  subscribePlayerAiSync(((delayMs, options) => {
-    // 未加载 = 快捷开关关闭态：按钮不存在，无需同步（start 自带初始 sync，
-    // 开启后 reader 的同步请求自然恢复语义）。
-    if (!isPlayerAiLoaded()) {
-      return;
-    }
-    (async () => {
-      try {
-        const playerAi = await loadPlayerAi();
-        const api = playerAi as unknown as PlayerAiApi;
-        if (options && options.resetRetry) {
-          api.resetPlayerAiQuickActionRetryCount();
-        }
-        api.schedulePlayerAiQuickActionSync(delayMs);
-      } catch (error) {
-        logWarn("[BILISCRIPT] player-ai sync via lazy loader failed", error);
+  // 常驻能力槽注册：settings 持久化出口（读全量 state.settings 后发
+  // save-settings）与 player-ai 快捷按钮同步的实现在常驻侧，reader 域只经
+  // reader-bus 调用。delayMs 透传给 schedulePlayerAiQuickActionSync（缺省
+  // 120ms）；options.resetRetry 先重置重试计数再同步。
+  registerContentCapabilities({
+    persistSettings: () => {
+      sendRuntimeMessage({ type: "save-settings", settings: state.settings }).catch((error) => {
+        logWarn("[BILISCRIPT] failed to persist reader settings", error);
+      });
+    },
+    loadSettings: () => getSettings(),
+    playerAiSync: (delayMs, options) => {
+      // 未加载 = 快捷开关关闭态：按钮不存在，无需同步（start 自带初始 sync，
+      // 开启后 reader 的同步请求自然恢复语义）。
+      if (!isPlayerAiLoaded()) {
+        return;
       }
-    })();
-  }) as PlayerAiSyncHandler);
+      (async () => {
+        try {
+          const playerAi = await loadPlayerAi();
+          const api = playerAi as unknown as PlayerAiApi;
+          if (options && options.resetRetry) {
+            api.resetPlayerAiQuickActionRetryCount();
+          }
+          api.schedulePlayerAiQuickActionSync(delayMs);
+        } catch (error) {
+          logWarn("[BILISCRIPT] player-ai sync via lazy loader failed", error);
+        }
+      })();
+    }
+  });
   bindNormalPageStateGuard();
   // 播放器 AI 按钮的 layout 监听与 observer 改由 startPlayerAiQuickAction
   // 显式启动（见 init 的 getSettings 水合与 bindPlayerAiSettingsWatcher），

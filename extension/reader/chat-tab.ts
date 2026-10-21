@@ -28,7 +28,7 @@
 //   - subtitleWaiter.kick 的触发源：content script 收不到自己的
 //     biliscript-subtitle-status 广播（PR3 已核实），改订阅 shared/subtitle-status-bus
 //     的进程内相位（asr-transcribing/done/failed），语义与侧栏广播监听一致。
-//   - 外点关闭：popovers 的 handleDocumentClick 经 chat-tab-bridge 注册槽并入
+//   - 外点关闭：popovers 的 handleDocumentClick 经 reader-bus 的转发槽并入
 //     ui-renderer 的单一文档级委托（风险 6，不双监听）。
 //
 // 生命周期（懒加载 + 会话收尾，工单 08 决议）：
@@ -113,7 +113,6 @@ import { createReaderChatSessionTriggers } from "./chat-session-triggers.js";
 import { createChatSuggestionsSlot } from "./chat-suggestions-slot.js";
 import { createReaderChatModelPanel } from "./chat-model-panel.js";
 import { createReaderChatPopovers } from "./chat-popovers.js";
-import { setChatTabOutsideClickHandler } from "./chat-tab-bridge.js";
 // 图片附件区内核（image-input 02 号票）：粘贴 → 压缩 → 缩略图 + 单个删除。
 import { createChatInputImages } from "../chat/chat-input-images.js";
 // 对话 Composer 深 module（arch-review-batch4/01 号票）：输入区监听、autosize 与发送态
@@ -129,7 +128,7 @@ import { createImageSupportGate } from "../chat/image-support.js";
 // 具名命令，由 ui-renderer 注册的 handler 执行——本文件不再静态 import
 // ui/ui-renderer。切对话 tab 的回头调不走壳命令，改经标签激活属主
 // ./script-tab-activation（见 runQuickActionPrompt）。
-import { requestSubtitleRefresh, requestUiCommand, subscribeReaderPresenter } from "./reader-bus.js";
+import { requestSubtitleRefresh, requestUiCommand, subscribeReaderPresenter, setChatTabOutsideClickHandler } from "./reader-bus.js";
 // 标签激活属主（工单：标签激活收口 reader 域）：快捷动作的「定位对话 tab + 激活」
 // 经它执行，不再各写一半（收口前 = set-tab:chat 壳命令 + 显式 ensureChatTabActivated 双写）。
 import { activateScriptTab } from "./script-tab-activation.js";
@@ -447,7 +446,7 @@ const lists = createReaderChatLists({
   hideHistoryPopover: () => popovers.hideHistoryPopover()
 });
 
-// 历史/模型面板两个弹层的开合与互斥；文档级外点关闭经 chat-tab-bridge 并入
+// 历史/模型面板两个弹层的开合与互斥；文档级外点关闭经 reader-bus 的转发槽并入
 // ui-renderer 的单一 document click 委托（会话触发源组装处随激活注册 / 随收尾
 // 摘除）；Esc 关闭走组合根的 window keydown 监听（同一时机挂载）。
 const popovers = createReaderChatPopovers({
@@ -631,7 +630,7 @@ const sessionTriggers = createReaderChatSessionTriggers({
     }
     lists.renderSuggestions();
   }),
-  // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（chat-tab-bridge），
+  // 外点关闭单委托：注册进 ui-renderer 的文档级 click 委托（reader-bus 转发槽），
   // 同一时刻至多一个注册者，摘除即置回 null。
   outsideClick: () => {
     setChatTabOutsideClickHandler(popovers.handleDocumentClick);

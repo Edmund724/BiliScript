@@ -1,25 +1,25 @@
-// 候选06 端口半边：reader 域唯一显式端口（ports.js）的注册与路由纪律测试。
+// reader seam 单 handler 槽与端口的声明纪律测试。
 //
 // 覆盖：
 // - 单点注册后全部端口方法可路由（参数原样转发）；
-// - 方法集覆盖旧 callSync 的全部真实调用名（无死槽位）；
+// - 端口方法集只含真实调用名（无死槽位）；
 // - 重复注册报错（防止实现被静默覆盖）；
 // - 注册表缺方法 / 含未知方法键即抛错；
-// - 未注册即调用端口方法抛错（替代旧槽的静默 undefined / true）。
+// - 未注册即调用端口方法抛错（缺失策略 throw）；
+// - 合法缺席的槽按声明策略 no-op（字幕刷新 / 壳命令 / 标签意图 / 外点关闭）；
+// - 常驻能力组同样精确覆盖。
 //
-// 端口注册表是模块级单态：每用例经 vi.resetModules（resetModuleState）后重新
-// 动态 import 拿到全新实例，用例之间互不污染。本文件刻意不 import reader 域
-// 其他模块（真实注册只发生在 lifecycle.js）。
+// 槽表挂在 globalThis：每用例经 resetModuleState 清槽并重新动态 import。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
-import type { ReaderPortImpls } from "../../extension/reader/ports.js";
+import type { ContentSeamCapabilities, ReaderPortImpls } from "../../extension/reader/reader-bus.js";
 
-let ports: typeof import("../../extension/reader/ports.js");
+let bus: typeof import("../../extension/reader/reader-bus.js");
 
 beforeEach(async () => {
   resetModuleState();
-  ports = await import("../../extension/reader/ports.js");
+  bus = await import("../../extension/reader/reader-bus.js");
 });
 
 afterEach(() => {
@@ -34,14 +34,22 @@ function validImpls() {
   };
 }
 
+function validCapabilities(): ContentSeamCapabilities {
+  return {
+    persistSettings: vi.fn(),
+    loadSettings: vi.fn(() => Promise.resolve(null)),
+    playerAiSync: vi.fn()
+  };
+}
+
 describe("reader 显式端口", () => {
   it("单点注册后，全部端口方法可路由且参数原样转发", () => {
     const impls = validImpls();
-    ports.registerReaderPorts(impls);
+    bus.registerReaderPorts(impls);
 
-    ports.readerPorts.noteManualReaderInteraction(5000);
-    ports.readerPorts.syncReadingViewPlayback(true);
-    ports.readerPorts.flushReadingSubtitleToIndex(7);
+    bus.readerPorts.noteManualReaderInteraction(5000);
+    bus.readerPorts.syncReadingViewPlayback(true);
+    bus.readerPorts.flushReadingSubtitleToIndex(7);
 
     expect(impls.noteManualReaderInteraction).toHaveBeenCalledTimes(1);
     expect(impls.noteManualReaderInteraction).toHaveBeenCalledWith(5000);
@@ -51,29 +59,30 @@ describe("reader 显式端口", () => {
     expect(impls.flushReadingSubtitleToIndex).toHaveBeenCalledWith(7);
   });
 
-  it("方法集覆盖旧 callSync 的全部真实调用名（无死槽位）", () => {
-    // 旧 sync-adapter 时代实际经 callSync 路由的名字只有这两个
-    //（video-bind: syncReadingViewPlayback + noteManualReaderInteraction），
-    // 它们必须都是端口方法；旧注册表里其余名字从无调用点，属死注册，不进端口。
-    expect(ports.READER_PORT_METHODS).toContain("syncReadingViewPlayback");
-    expect(ports.READER_PORT_METHODS).toContain("noteManualReaderInteraction");
-    expect(ports.readerPorts).toHaveProperty("syncReadingViewPlayback");
-    expect(ports.readerPorts).toHaveProperty("noteManualReaderInteraction");
+  it("方法集只含真实调用名（无死槽位）", () => {
+    // LAYOUT 经端口回调 SYNC 的两个方法，SYNC 经端口回调 LIFECYCLE 的补渲染。
+    expect(bus.READER_PORT_METHODS).toContain("syncReadingViewPlayback");
+    expect(bus.READER_PORT_METHODS).toContain("noteManualReaderInteraction");
+    expect(bus.READER_PORT_METHODS).toContain("flushReadingSubtitleToIndex");
+    expect(bus.readerPorts).toHaveProperty("syncReadingViewPlayback");
+    expect(bus.readerPorts).toHaveProperty("noteManualReaderInteraction");
   });
 
   it("重复注册报错（防止实现被静默覆盖）", () => {
-    ports.registerReaderPorts(validImpls());
-    expect(() => ports.registerReaderPorts(validImpls())).toThrow(/重复注册/);
+    bus.registerReaderPorts(validImpls());
+    expect(() => bus.registerReaderPorts(validImpls())).toThrow(/重复注册/);
   });
 
   it("注册表缺方法即抛错（禁止静默缺实现）", () => {
     const { flushReadingSubtitleToIndex: _omitted, ...partial } = validImpls();
-    expect(() => ports.registerReaderPorts(partial as unknown as ReaderPortImpls)).toThrow(/缺少方法.*flushReadingSubtitleToIndex/);
+    expect(() => bus.registerReaderPorts(partial as unknown as ReaderPortImpls)).toThrow(
+      /缺少方法.*flushReadingSubtitleToIndex/
+    );
   });
 
   it("注册表含未知方法键即抛错（防拼写漂移绕过显式方法集）", () => {
     expect(() =>
-      ports.registerReaderPorts({
+      bus.registerReaderPorts({
         ...validImpls(),
         someTypoMethod: vi.fn()
       } as unknown as ReaderPortImpls)
@@ -81,8 +90,66 @@ describe("reader 显式端口", () => {
   });
 
   it("未注册即调用端口方法抛错（不再静默 undefined/true）", () => {
-    expect(() => ports.readerPorts.syncReadingViewPlayback()).toThrow(/未注册/);
-    expect(() => ports.readerPorts.noteManualReaderInteraction()).toThrow(/未注册/);
-    expect(() => ports.readerPorts.flushReadingSubtitleToIndex(0)).toThrow(/未注册/);
+    expect(() => bus.readerPorts.syncReadingViewPlayback()).toThrow(/未注册/);
+    expect(() => bus.readerPorts.noteManualReaderInteraction()).toThrow(/未注册/);
+    expect(() => bus.readerPorts.flushReadingSubtitleToIndex(0)).toThrow(/未注册/);
+  });
+});
+
+describe("常驻能力槽", () => {
+  it("注册后三个能力槽可路由", async () => {
+    const caps = validCapabilities();
+    bus.registerContentCapabilities(caps);
+
+    bus.persistReaderSettingsThroughSeam();
+    await bus.loadReaderSettingsThroughSeam();
+    bus.requestPlayerAiSync(120, { resetRetry: true });
+
+    expect(caps.persistSettings).toHaveBeenCalledTimes(1);
+    expect(caps.loadSettings).toHaveBeenCalledTimes(1);
+    expect(caps.playerAiSync).toHaveBeenCalledWith(120, { resetRetry: true });
+  });
+
+  it("缺方法 / 含未知方法 / 重复注册即抛错", () => {
+    const { playerAiSync: _omitted, ...partial } = validCapabilities();
+    expect(() => bus.registerContentCapabilities(partial as unknown as ContentSeamCapabilities)).toThrow(
+      /缺少方法.*playerAiSync/
+    );
+
+    expect(() =>
+      bus.registerContentCapabilities({
+        ...validCapabilities(),
+        someTypoMethod: vi.fn()
+      } as unknown as ContentSeamCapabilities)
+    ).toThrow(/未知方法.*someTypoMethod/);
+
+    bus.registerContentCapabilities(validCapabilities());
+    expect(() => bus.registerContentCapabilities(validCapabilities())).toThrow(/重复注册/);
+  });
+});
+
+describe("缺失策略", () => {
+  it("声明表一处可见：端口抛错、字幕刷新静默、命令类首次告警", () => {
+    expect(bus.READER_SEAM_METHODS.flushReadingSubtitleToIndex.policy).toBe("throw");
+    expect(bus.READER_SEAM_METHODS.subtitleRefresh.policy).toBe("noop");
+    expect(bus.READER_SEAM_METHODS.uiCommand.policy).toBe("noop-warn");
+    expect(bus.READER_SEAM_METHODS.tabIntent.policy).toBe("noop-warn");
+    expect(bus.READER_SEAM_METHODS.chatTabOutsideClick.policy).toBe("noop-warn");
+  });
+
+  it("字幕刷新缺失不抛（链装载失败路径照旧发起刷新）", async () => {
+    await expect(bus.requestSubtitleRefresh()).resolves.toBeUndefined();
+  });
+
+  it("壳命令 / 标签意图 / 外点关闭缺失为 no-op，不打断交互", () => {
+    expect(() => bus.requestUiCommand("open-settings")).not.toThrow();
+    expect(() => bus.reportTabIntent("chat")).not.toThrow();
+    expect(() => bus.dispatchChatTabOutsideClick(new MouseEvent("click"))).not.toThrow();
+  });
+
+  it("能力槽缺失为 no-op，持久化/读取路径不抛", async () => {
+    expect(() => bus.persistReaderSettingsThroughSeam()).not.toThrow();
+    expect(() => bus.requestPlayerAiSync()).not.toThrow();
+    await expect(bus.loadReaderSettingsThroughSeam()).resolves.toBeNull();
   });
 });

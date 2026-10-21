@@ -6,7 +6,7 @@
 // on the base LAYOUT layer (video-bind.js + script-host.js)
 // and on ./sync.js; neither may import it, so the dependency graph stays acyclic:
 //
-//   ports.js        显式回调端口叶子（本模块在文件尾单点注册全部端口实现）
+//   reader-bus.ts    显式回调端口组（本模块在文件尾单点注册全部端口实现）
 //   LAYOUT          video-bind.js + script-host.js → ports
 //   SYNC            sync.js（本文件）                      → SYNC + LAYOUT + ports
 //   LIFECYCLE       lifecycle.js（本文件）            → SYNC + LAYOUT + ports
@@ -25,7 +25,7 @@ import {
 } from "../subtitle/core.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
-import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter } from "./reader-bus.js";
+import { requestSubtitleRefresh, persistReaderSettingsThroughSeam, subscribeReaderPresenter, notifyReaderPresenter, registerReaderPorts } from "./reader-bus.js";
 import type { ReaderPresenterEvent } from "./reader-bus.js";
 import { logWarn } from "../shared/logging.js";
 // 副轨（双语第二路轨）的目标解析与装载事务：四个装载入口（本处自动装载、弹层开关
@@ -65,8 +65,6 @@ import { activateScriptTab } from "./script-tab-activation.js";
 // PR5：对话 tab 的二级惰性装载/断流收口经 ./lazy-chat-tab 叶子触达
 //（本文件不静态依赖对话组合根；未装载 = 对话功能从未启用，清理 no-op）。
 import { ensureReaderChatTab, isReaderChatTabLoaded } from "./lazy-chat-tab.js";
-// 候选06 端口半边：reader 域唯一显式端口的单点注册入口（见文件尾注册区）。
-import { registerReaderPorts } from "./ports.js";
 // 候选09：字幕分批渲染状态机（rAF 任务/游标/spacer 收敛）迁往 ./batched-render.js；
 // flush 端口实现与首屏批/取消/任务启动入口经下方 import 取用。
 import {
@@ -109,18 +107,16 @@ import {
 // 初始快捷问题的逐视频预热（字幕就绪即后台生成三个问题，对话 tab 直接取用）。
 import { warmUpInitialQuickPrompts } from "./quick-prompts.js";
 
-// ===== 候选06 端口半边：reader 域唯一显式端口的单点注册 =====
+// ===== reader 域显式端口的单点注册 =====
 //
 // 本模块是 reader 域的组装根（合法依赖 SYNC + LAYOUT），在模块求值时把全部
-// 端口实现一次性注册进 ./ports.js：
+// 端口实现一次性注册进 reader-bus 的端口组：
 //   - syncReadingViewPlayback / noteManualReaderInteraction：SYNC 域实现
-//    （LAYOUT 两域经端口回调，替代已删除的 sync-adapter.js 注册槽）；
+//    （LAYOUT 经端口回调，不静态 import SYNC）；
 //   - flushReadingSubtitleToIndex → ensureReadingSubtitleRenderedUpTo：
 //     本域的分批补渲染实现（实现在 ./batched-render.js，由本模块单点注册；
-//     SYNC 经端口回调，替代已删除的 player-host setReadingSubtitleFlush
-//     基座槽——旧槽无实现时静默返回 true，现缺失即抛错）。SYNC → LIFECYCLE
-//     是依赖图禁止的边，经端口叶子反转。
-// 函数声明有提升，模块求值时表已完整；重复注册由端口侧报错拦截。
+//     SYNC 经端口回调）。SYNC → LIFECYCLE 是依赖图禁止的边，经端口反转。
+// 函数声明有提升，模块求值时表已完整；重复注册由注册入口报错拦截。
 registerReaderPorts({
   syncReadingViewPlayback: syncReadingViewPlayback as (...args: unknown[]) => unknown,
   noteManualReaderInteraction: noteManualReaderInteraction as (...args: unknown[]) => unknown,

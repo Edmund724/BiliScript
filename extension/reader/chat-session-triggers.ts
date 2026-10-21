@@ -33,7 +33,7 @@ export interface ReaderChatSessionTriggersDeps {
   storageWatcher: () => SessionTriggerTeardown;
   /** 快捷问题预热落定：建议区就地换成本视频的生成结果。 */
   quickPrompts: () => SessionTriggerTeardown;
-  /** 文档级外点关闭委托的注册槽（chat-tab-bridge，同一时刻至多一个注册者）。 */
+  /** 文档级外点关闭委托的注册槽（reader-bus，同一时刻至多一个注册者）。 */
   outsideClick: () => SessionTriggerTeardown;
   /** Esc 关闭弹层（window keydown）。 */
   escapeKey: () => SessionTriggerTeardown;
