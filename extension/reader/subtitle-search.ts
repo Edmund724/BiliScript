@@ -41,14 +41,17 @@ import type { SecondaryAlignment } from "../subtitle/alignment.js";
 import { ids } from "./state.js";
 import { readerPorts } from "./ports.js";
 import { noteManualReaderInteraction } from "./sync.js";
+import {
+  findSubtitleItem,
+  getMainLineText,
+  getSubtextNode,
+  isSubtextReady,
+  replaceMainLineContent
+} from "./subtitle-item-dom.js";
 
 // 高亮与当前命中的 class 契约（reader.css 消费；search-current 为任务约定名）
 const SEARCH_HIT_MARK_CLASS = "biliscript-reading-search-hit";
 const SEARCH_CURRENT_CLASS = "search-current";
-const SEARCH_TEXT_SELECTOR = ".biliscript-reading-text";
-// 双语副行（bilingual-subtitles/06 号票）：内嵌主文 span 的块级 span，匹配/高亮
-// 要单独走一遍——不能被主行的 textContent 一起吃进去。
-const SEARCH_SUBTEXT_SELECTOR = ".biliscript-reading-subtext";
 
 interface SearchRange {
   start: number;
@@ -133,26 +136,9 @@ function buildHighlightFragment(source: string, ranges: SearchRange[]): Document
   return fragment;
 }
 
-// 主行原文 = text span 里除副行 span 之外的全部子节点（mark 在内时拼回的仍是
-// 原文本）。**不能**直接用 textSpan.textContent：那会把副行一起吃进主行、重建时
-// 把两行压平成一行（clearSearchHighlights 再也还原不出两行结构）。
-function readMainLineText(textSpan: HTMLElement, subtextSpan: HTMLElement | null): string {
-  let raw = "";
-  for (const child of Array.from(textSpan.childNodes)) {
-    if (child === subtextSpan) {
-      continue;
-    }
-    raw += child.textContent || "";
-  }
-  return raw;
-}
-
-// 副行是否参与匹配/高亮：与 computeMatches 同一判据（双语关 / 副轨未就绪不参与），
-// 再加 DOM 一侧的门——只有 `data-state="ready"` 的副行才是真实译文，loading / fail
-// 的占位行即使正文里恰好含搜索词也**不落 mark**（占位文案不产生命中）。
-function isSecondaryLineSearchable(subtextSpan: HTMLElement): boolean {
-  return subtextSpan.dataset.state === "ready" && resolveSecondarySearchAlignment() !== null;
-}
+// 主行原文与副行节点的读取走 subtitle-item-dom：主行 = text span 里除副行 span
+// 之外的全部子节点（mark 在内时拼回的仍是原文本），不能直接用 textContent——
+// 那会把副行一起吃进主行、重建时把两行压平成一行。
 
 export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
   let query = "";
@@ -162,7 +148,7 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
   let currentIndex = -1;
 
   function getItemNode(itemIndex: number): HTMLElement | null {
-    return deps.getSubtitleList()?.querySelector<HTMLElement>(`[data-index="${itemIndex}"]`) || null;
+    return findSubtitleItem(deps.getSubtitleList(), itemIndex);
   }
 
   function computeMatches(needle: string): void {
@@ -190,21 +176,18 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
   }
 
   // 把一条已上屏条目的文本替换为 mark 高亮（主行 mark 在前、副行 span 在后——
-  // 与 computeMatches 的 ordinal 顺序一致）。幂等：从 textContent（mark 在内时
-  // 拼回的仍是原文本）重算命中后整体重建，不产生嵌套 mark；副行 span 的身份、
-  // class 与 data-state 原样保留（原地 replaceChildren + 重新挂回，不是新建节点）。
-  // 返回是否至少落下一个 mark。
+  // 与 computeMatches 的 ordinal 顺序一致）。幂等：主行/副行都经 subtitle-item-dom
+  // 读回原文（mark 在内时拼回的仍是原文本）后重算命中、整体重建，不产生嵌套 mark；
+  // 副行可搜索 = 副行结构就绪（data-state="ready"）且副轨配对索引可用——loading /
+  // fail 的占位行即使正文里恰好含搜索词也不落 mark。副行节点身份、class 与
+  // data-state 原样保留（只重写其子节点）。返回是否至少落下一个 mark。
   function highlightItemNode(node: HTMLElement, needle: string): boolean {
-    const textSpan = node.querySelector<HTMLElement>(SEARCH_TEXT_SELECTOR);
-    if (!textSpan) {
-      return false;
-    }
-    const subtextSpan = textSpan.querySelector<HTMLElement>(SEARCH_SUBTEXT_SELECTOR);
-    const raw = readMainLineText(textSpan, subtextSpan);
+    const subtextSpan = getSubtextNode(node);
+    const raw = getMainLineText(node);
     const ranges = findLiteralMatches(raw, needle);
     let subtextRaw = "";
     let subtextRanges: SearchRange[] = [];
-    if (subtextSpan && isSecondaryLineSearchable(subtextSpan)) {
+    if (subtextSpan && isSubtextReady(node) && resolveSecondarySearchAlignment() !== null) {
       subtextRaw = subtextSpan.textContent || "";
       subtextRanges = findLiteralMatches(subtextRaw, needle);
     }
@@ -214,13 +197,7 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
     if (subtextSpan && subtextRanges.length > 0) {
       subtextSpan.replaceChildren(buildHighlightFragment(subtextRaw, subtextRanges));
     }
-    const fragment = buildHighlightFragment(raw, ranges);
-    if (subtextSpan) {
-      // 同一节点重新挂回主文 span 尾部：身份不变，data-state / class 不被抹。
-      fragment.appendChild(subtextSpan);
-    }
-    textSpan.replaceChildren(fragment);
-    return true;
+    return replaceMainLineContent(node, buildHighlightFragment(raw, ranges));
   }
 
   // 还原高亮：mark 换回文本节点，循环结束后对列表整体 normalize 一次（递归合并

@@ -14,6 +14,7 @@
 import { byId } from "../shared/dom-utils.js";
 import { ids } from "./state.js";
 import { withReader } from "../ui/reader-gate.js";
+import { closestSubtitleItem, findSubtitleItem, getMainLineText } from "./subtitle-item-dom.js";
 
 // 选区「解释」浮层：单实例、绝对定位在 tab body（不进列表滚动容器，避免随
 // 滚动裁剪/漂移），在字幕句内选中词/句后定位到选区下方。
@@ -154,7 +155,7 @@ export function bindReadingExplainEvents(): void {
     const anchorNode = range.startContainer.nodeType === Node.TEXT_NODE
       ? range.startContainer.parentElement
       : (range.startContainer as HTMLElement | null);
-    const item = anchorNode?.closest?.<HTMLElement>(".biliscript-reading-item");
+    const item = closestSubtitleItem(anchorNode);
     if (!item || !subtitleList.contains(item)) {
       hideExplainPop();
       return;
@@ -170,16 +171,16 @@ export function bindReadingExplainEvents(): void {
   subtitleList.addEventListener("scroll", hideExplainPop, { passive: true });
   subtitleList.addEventListener("pointerdown", hideExplainPop);
   readingExplainBtn.addEventListener("click", () => {
-    // 从渲染条目取选中所在整句（textContent + data-seconds），不回读 state 结构——
+    // 从渲染条目取选中所在整句（主行文本 + data-seconds），不回读 state 结构——
     // 语义就是「用户看到的这句」，也避免常驻侧依赖字幕数据链。
     // 索引缺失（浮层已隐藏/重复 click）按无效处理：不回退到第 0 条。
     const snapshot = pendingExplainSelection;
     const itemIndex = Number(snapshot?.itemIndex);
     const itemNode =
       snapshot && snapshot.itemIndex !== "" && Number.isFinite(itemIndex) && itemIndex >= 0
-        ? subtitleList.querySelector<HTMLElement>(`[data-index="${itemIndex}"]`)
+        ? findSubtitleItem(subtitleList, itemIndex)
         : null;
-    const line = readMainLineText(itemNode?.querySelector(".biliscript-reading-text"));
+    const line = getMainLineText(itemNode).trim();
     if (!itemNode || !line || !snapshot) {
       hideExplainPop();
       return;
@@ -204,17 +205,4 @@ export function bindReadingExplainEvents(): void {
   readingExplainCard.addEventListener("click", (event) => {
     withReader("explain card click", (reader) => reader.onReaderExplainCardClick(event as MouseEvent));
   });
-}
-
-// 条目主行纯文本：双语态下 `.biliscript-reading-text` 里还嵌着副行 span
-//（`.biliscript-reading-subtext`，另一条轨的译文），而「整句」语义只指**主行**
-// ——解释卡的引用不能把译文一起带上。实现走 clone 后在副本上摘掉副行：活的节点
-// 里可能带搜索 `<mark>`，clone 的 textContent 与直接读逐字相同（不碰实时 DOM）。
-function readMainLineText(textNode: Element | null | undefined): string {
-  if (!textNode) {
-    return "";
-  }
-  const clone = textNode.cloneNode(true) as Element;
-  clone.querySelectorAll(".biliscript-reading-subtext").forEach((node) => node.remove());
-  return (clone.textContent || "").trim();
 }

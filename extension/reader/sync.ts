@@ -48,6 +48,7 @@ import { readerPorts } from "./ports.js";
 // transcribe-banner 内部，稳态零 DOM 写）。transcribe-banner 是零依赖呈现叶子
 //（state + shared status-bus），不破坏 SYNC → LAYOUT + ports 的层图。
 import { updateReadingTranscribeBanner } from "./transcribe-banner.js";
+import { closestSubtitleItem, SUBTITLE_ITEM_CLASS } from "./subtitle-item-dom.js";
 
 // ===== sync-domain private bookkeeping (module-level closure state) =====
 //
@@ -154,7 +155,7 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
   const subtitleList = getReaderElement(ids.readingSubtitleList);
   // rail 章节列表 DOM 已随整页接管退役，章节高亮写组整段删除；
   // activeChapterIndex 状态照常维护（概览 tab 的高亮消费）。
-  const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, "biliscript-reading-item");
+  const subtitleHit = resolveActiveItem(lastActiveItems.subtitle, subtitleIndex, subtitleList, SUBTITLE_ITEM_CLASS);
 
   if (!subtitleHit.unchanged) {
     if (subtitleHit.current && subtitleHit.current !== subtitleHit.next) {
@@ -312,7 +313,7 @@ export function jumpReadingTarget(seconds: number | string) {
 }
 
 export function onReadingSubtitleClick(event: MouseEvent) {
-  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(".biliscript-reading-item");
+  const target = closestSubtitleItem(event.target as Element | null);
   if (!target) {
     return;
   }

@@ -14,7 +14,8 @@
 // 章节列表量小（几十条），保持整段渲染不变。
 //
 // 依赖方向（无环叶子）：shared 字符串工具 + core/state 状态单例 + subtitle/alignment
-// 纯索引（06 号票加的双语副行投影：alignment 只读 state、不回头 import reader，无环）。
+// 纯索引（06 号票加的双语副行投影：alignment 只读 state、不回头 import reader，无环）
+// + subtitle-item-dom（条目 DOM 契约，零 import）。
 // 首屏批与任务启动入口（buildReadingSubtitleItemHtml /
 // startReadingSubtitleAppendTask / cancelReadingSubtitleAppend /
 // ensureReadingSubtitleRenderedUpTo / SUBTITLE_FIRST_BATCH）由 lifecycle.js
@@ -24,6 +25,11 @@ import { formatClock } from "../shared/clock-text.js";
 import { clipState, state } from "../core/state.js";
 import { secondaryAlignmentFor } from "../subtitle/alignment.js";
 import type { ReadingSubtitleItem } from "../subtitle/core.js";
+import {
+  SUBTITLE_ITEM_CLASS,
+  SUBTITLE_SUBTEXT_CLASS,
+  SUBTITLE_TEXT_CLASS
+} from "./subtitle-item-dom.js";
 
 const SUBTITLE_FIRST_BATCH = 120;
 const TRANSCRIPT_APPEND_BATCH = 200;
@@ -57,7 +63,6 @@ let subtitleAppendRafId = 0;
 //
 // 折叠（04 号票第 2 条）：双语关 / 副轨槽 idle / 该行与副轨零重叠 ⇒ 整个副行节点
 // **不发射**（行高收缩回单行），不发空 span。
-const SECONDARY_SUBTEXT_CLASS = "biliscript-reading-subtext";
 const SECONDARY_LOADING_TEXT = "译文加载中…";
 const SECONDARY_FAIL_TEXT = "译文加载失败";
 
@@ -102,7 +107,7 @@ function buildReadingSubtextHtml(item: ReadingSubtitleItem): string {
   if (!subtext) {
     return "";
   }
-  return `<span class="${SECONDARY_SUBTEXT_CLASS}" data-state="${subtext.state}">${escapeHtml(
+  return `<span class="${SUBTITLE_SUBTEXT_CLASS}" data-state="${subtext.state}">${escapeHtml(
     subtext.text
   )}</span>`;
 }
@@ -113,14 +118,14 @@ export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHour
   return `
     <button
       type="button"
-      class="biliscript-reading-item"
+      class="${SUBTITLE_ITEM_CLASS}"
       data-index="${item.index}"
       data-seconds="${item.from}"
     >
       <span class="biliscript-reading-time">${escapeHtml(
         formatClock(item.from, { hours: withHours })
       )}</span>
-      <span class="biliscript-reading-text">${escapeHtml(item.content)}${buildReadingSubtextHtml(item)}</span>
+      <span class="${SUBTITLE_TEXT_CLASS}">${escapeHtml(item.content)}${buildReadingSubtextHtml(item)}</span>
     </button>
   `;
 }
