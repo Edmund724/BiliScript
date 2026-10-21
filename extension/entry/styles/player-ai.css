@@ -75,37 +75,91 @@
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
-  /* 仿 DeepSeek 深度思考开关：开关切换是图标绕 Y 轴转一整圈（0.5s ease-in-out，
-   * 关闭时反向）。基态（未 hover）挂反向动画，首次挂载时 wrap 尚未激活
-   * （opacity 0），这一圈在不可见时已跑完，不产生载入自转。 */
-  animation: biliscript-player-ai-think-spin-off 0.5s cubic-bezier(0.42, 0, 0.58, 1);
 }
 
-@keyframes biliscript-player-ai-think-spin-on {
-  from {
-    transform: rotateY(0deg);
+/* 仿 DeepSeek 深度思考开关的切换动效（Lottie，26 帧@60fps）：开启时两条环
+ * 错峰收缩再回弹——ring1 在 38% 处短轴缩半、77% 处弹回，ring2 晚 0.1s 起步；
+ * 中心圆点同步缩到一半、保持一拍再恢复。关闭时整段倒放（脉冲对称，正倒放
+ * 视觉一致，故 on/off 两套 keyframes 内容相同，拆两个名字只是让 hover 状态
+ * 翻转时 animation-name 变化强制重播）。
+ * 收缩走几何属性 ry/r 而非 transform：orbit 图标的 ellipse 自带 rotate(±45)
+ * 变换属性，CSS transform 会将其整体覆盖，几何属性则不影响旋转。
+ * 基态（未 hover）的 off 动画在 wrap 未激活（opacity 0）时已跑完，不产生
+ * 载入自转。仅 orbit 变体有 ellipse/circle 结构，其余变体不参与。 */
+#biliscript-player-ai-quick-action svg[data-ai-icon="orbit"] ellipse {
+  animation: biliscript-player-ai-think-ring-off 0.45s cubic-bezier(0.42, 0, 0.58, 1);
+}
+
+#biliscript-player-ai-quick-action svg[data-ai-icon="orbit"] ellipse:nth-of-type(2) {
+  animation-delay: 0.1s;
+}
+
+#biliscript-player-ai-quick-action svg[data-ai-icon="orbit"] circle {
+  animation: biliscript-player-ai-think-dot-off 0.45s cubic-bezier(0.42, 0, 0.58, 1);
+}
+
+#biliscript-player-ai-quick-action:hover svg[data-ai-icon="orbit"] ellipse {
+  animation-name: biliscript-player-ai-think-ring-on;
+}
+
+#biliscript-player-ai-quick-action:hover svg[data-ai-icon="orbit"] circle {
+  animation-name: biliscript-player-ai-think-dot-on;
+}
+
+@keyframes biliscript-player-ai-think-ring-on {
+  0%,
+  100% {
+    ry: 6px;
   }
-  to {
-    transform: rotateY(360deg);
+  38% {
+    ry: 3px;
+  }
+  77% {
+    ry: 6px;
   }
 }
 
-@keyframes biliscript-player-ai-think-spin-off {
-  from {
-    transform: rotateY(360deg);
+@keyframes biliscript-player-ai-think-ring-off {
+  0%,
+  100% {
+    ry: 6px;
   }
-  to {
-    transform: rotateY(0deg);
+  38% {
+    ry: 3px;
+  }
+  77% {
+    ry: 6px;
+  }
+}
+
+@keyframes biliscript-player-ai-think-dot-on {
+  0% {
+    r: 2.7px;
+  }
+  46%,
+  54% {
+    r: 1.35px;
+  }
+  100% {
+    r: 2.7px;
+  }
+}
+
+@keyframes biliscript-player-ai-think-dot-off {
+  0% {
+    r: 2.7px;
+  }
+  46%,
+  54% {
+    r: 1.35px;
+  }
+  100% {
+    r: 2.7px;
   }
 }
 
 #biliscript-player-ai-quick-action:hover {
   color: var(--biliscript-player-ai-action-hover-color, var(--biliscript-player-ai-action-color, currentColor));
-}
-
-/* hover 进入 = 开启（正转一整圈），hover 移出回落到基态的反向动画 = 关闭 */
-#biliscript-player-ai-quick-action:hover svg {
-  animation: biliscript-player-ai-think-spin-on 0.5s cubic-bezier(0.42, 0, 0.58, 1);
 }
 
 #biliscript-player-ai-quick-action:active {
@@ -132,9 +186,11 @@
     transform: none;
   }
 
-  /* 减少动态：hover 自转关停 */
-  #biliscript-player-ai-quick-action svg,
-  #biliscript-player-ai-quick-action:hover svg {
+  /* 减少动态：hover 收缩脉冲关停 */
+  #biliscript-player-ai-quick-action svg[data-ai-icon="orbit"] ellipse,
+  #biliscript-player-ai-quick-action svg[data-ai-icon="orbit"] circle,
+  #biliscript-player-ai-quick-action:hover svg[data-ai-icon="orbit"] ellipse,
+  #biliscript-player-ai-quick-action:hover svg[data-ai-icon="orbit"] circle {
     animation: none;
   }
 }
