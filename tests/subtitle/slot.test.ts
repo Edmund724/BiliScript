@@ -9,7 +9,6 @@ import {
   installSecondary,
   markSecondaryLoading,
   markSecondaryError,
-  clearSecondary,
   clearAllForVideoSwitch,
   invalidateDerived
 } from "../../extension/subtitle/slot.js";
@@ -331,7 +330,7 @@ describe("extension/subtitle/slot", () => {
     });
   });
 
-  describe("副轨辅助动词：markSecondaryLoading / markSecondaryError / clearSecondary", () => {
+  describe("副轨辅助动词：markSecondaryLoading / markSecondaryError", () => {
     it("markSecondaryLoading 乐观写入副轨目标身份，清空副轨正文，置为 loading 态，且不影响主轨", () => {
       install(PRIMARY_IDENTITY, SAMPLE_BODY_A);
 
@@ -362,18 +361,6 @@ describe("extension/subtitle/slot", () => {
       });
       expect(clipState.selectedSubtitleId).toBe(PRIMARY_IDENTITY.id);
       expect(clipState.subtitleFetchState).toBe("ready");
-    });
-
-    it("clearSecondary 复位副轨为空槽，且不影响主轨", () => {
-      install(PRIMARY_IDENTITY, SAMPLE_BODY_A);
-      installSecondary(SECONDARY_IDENTITY, SAMPLE_BODY_B);
-
-      clearSecondary();
-
-      expect(clipState.secondarySubtitle).toEqual(emptySecondarySubtitle());
-      expect(clipState.selectedSubtitleId).toBe(PRIMARY_IDENTITY.id);
-      expect(clipState.subtitleFetchState).toBe("ready");
-      expect(clipState.subtitleBody).toEqual(SAMPLE_BODY_A);
     });
   });
 
@@ -408,7 +395,6 @@ describe("extension/subtitle/slot", () => {
       expect(slot.installSecondary).toBe(installSecondary);
       expect(slot.markSecondaryLoading).toBe(markSecondaryLoading);
       expect(slot.markSecondaryError).toBe(markSecondaryError);
-      expect(slot.clearSecondary).toBe(clearSecondary);
       expect(slot.clearAllForVideoSwitch).toBe(clearAllForVideoSwitch);
       expect(slot.invalidateDerived).toBe(invalidateDerived);
     });
