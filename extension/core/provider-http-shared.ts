@@ -21,6 +21,16 @@
 //   都会把某个语境的依赖拖进另外两侧。结构不变量见
 //   tests/core/provider-http-shared.test.ts 的「叶子纪律」用例。
 
+// 传输能力契约（纯类型）：两通道发送端都是 fetch 兼容签名，能力差异只有「能否
+// 分块回吐流式响应」——由发送端自报 supportsStreaming。调用方按静态需求选通道
+//（ADR-0010 的时长 / 形态分工），不做运行时选择或回落；未声明视为未知，不据此
+// 拒绝请求。host 权限预检不在本契约内：两通道的有效检查点各在承载侧（SW 真门 /
+// content 经 SW 代查）。
+export interface ProviderTransport {
+  (input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+  readonly supportsStreaming?: boolean;
+}
+
 // 出向载荷核心的四字段（信封键 type / action 由各侧自包，不进本叶）。
 export interface ProviderRequestPayload {
   url: string;

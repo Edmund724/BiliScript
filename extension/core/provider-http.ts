@@ -23,7 +23,8 @@ import {
   isRequestAborted,
   makeAbortError,
   normalizeResponseStatus,
-  resolveRequestTarget
+  resolveRequestTarget,
+  type ProviderTransport
 } from "./provider-http-shared.js";
 
 // 本地线格式类型不按协议层 ProviderHttpMessage 收编：那边多一个必填判别键
@@ -96,7 +97,7 @@ export async function handleProviderHttpRequest({
 // 取消语义：init.signal 中止时以 AbortError 名字拒绝，completion 据此转
 // makeAbortedError（解释卡片换选区/关闭时的中止路径）。已在飞的 SW 请求无法
 // 撤回（消息无取消通道），取消只作用于本端等待——请求会安静跑完并被丢弃。
-export async function providerFetchViaBackground(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+async function providerFetchViaBackgroundImpl(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const payload = buildProviderRequestPayload(input, init);
   // 已中止时不发消息（中止意味着调用方已不关心结果，白跑一趟 SW 无意义）
   if (isRequestAborted(init?.signal)) {
@@ -110,6 +111,12 @@ export async function providerFetchViaBackground(input: RequestInfo | URL, init?
   }
   return new Response(resp.body ?? "", { status: normalizeResponseStatus(resp.status) });
 }
+
+// 能力自报：一次性回文本（响应体收全才合成），流式调用方不得注入本通道。
+export const providerFetchViaBackground: ProviderTransport = Object.assign(
+  providerFetchViaBackgroundImpl,
+  { supportsStreaming: false as const }
+);
 
 // 中止即拒绝（name="AbortError"，与浏览器 fetch 的中止形状一致）：已中止的
 // signal 同步拒绝，进行中的挂监听、落定后摘除（不留悬挂监听）。

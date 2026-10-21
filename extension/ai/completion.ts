@@ -37,6 +37,8 @@ import type { ChatMessage, ChatToolCall, ChatUsage, ProviderRequest, StreamChatE
 // 未归一的档位外部值的声明面（词表叶；本层只透传进思考装配边，不判不归）。
 // 纯类型引入：无运行时依赖边。
 import type { ThinkingLevelInput } from "./thinking-levels.js";
+// 传输能力契约（纯类型引入：能力叶零运行时依赖，见 core/provider-http-shared.ts）。
+import type { ProviderTransport } from "../core/provider-http-shared.js";
 
 interface OverflowError extends Error {
   overflow: true;
@@ -148,7 +150,10 @@ export interface ChatCompletionInput {
   // 时），截断感知因此走这条回调，而不是改返回形状。
   onFinishReason?: (reason: string | null) => void;
   retryDelayMs?: number;
-  fetchImpl?: typeof fetch;
+  // 传输注入点：缺省全局 fetch。代发通道自报 supportsStreaming（见
+  // core/provider-http-shared.ts 的 ProviderTransport），stream 与本能力冲突时
+  // 在发请求前失败。
+  fetchImpl?: ProviderTransport;
 }
 
 /**
@@ -232,6 +237,13 @@ export async function chatCompletion({
   fetchImpl = globalThis.fetch
 }: ChatCompletionInput): Promise<string | { done: true } | ChatCompletionToolResult> {
   const { baseUrl, model } = validateProviderBasics(provider);
+
+  // 传输能力守卫：SW 代发自报 supportsStreaming=false（一次性回文本），流式
+  // 调用方拿到的是「收全才到达」的假流；未声明能力（缺省 fetch / 测试替身）
+  // 视为未知，不据此拒绝。
+  if (stream && fetchImpl.supportsStreaming === false) {
+    throw new Error("当前传输通道不支持流式响应");
+  }
 
   // 协议解析单点（multi-protocol-ai）：存量记录缺 protocol 字段 / 未知值 →
   // openai adapter，行为零变化。

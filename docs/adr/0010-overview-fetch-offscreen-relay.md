@@ -6,10 +6,10 @@
 
 **决策**：概览链的每一次平台请求经 **content 发起 → offscreen 文档执行**的代发通道（`core/provider-http-offscreen.ts`，端口 `provider-http-offscreen`，一请求一端口，两端同文件）；一律代发，不按协议分叉。
 
-**不变式（硬）**：概览的请求不得回落页面源直发——`analysis-orchestrate` 的 `requestValidatedPart` 把 `fetchImpl` 钉在 `providerFetchViaOffscreen`（单次路径、空正文重试、分段路径共用该函数，一处覆盖；回归由 `tests/ai/analysis.test.ts` 的逐调用断言看守）。两条代发通道按请求时长分工：
+**不变式（硬）**：概览的请求不得回落页面源直发——`analysis-orchestrate` 的 `requestValidatedPart` 把 `fetchImpl` 钉在 `providerFetchViaOffscreen`（单次路径、空正文重试、分段路径共用该函数，一处覆盖；回归由 `tests/ai/analysis.test.ts` 的逐调用断言看守）。两条代发通道按请求形态（时长 + 是否流式）分工，通道选择是各链的静态装配，不做运行时选择或回落：
 
-- **SW 代发**（`core/provider-http.ts`）：探针 / 选区解释 / 联网搜索三链；硬编码 15s 超时、受 MV3 service worker 生命周期约束，只服务短请求。
-- **offscreen 代发**（`core/provider-http-offscreen.ts`）：概览链；无超时、端口断连即 abort，服务分钟级长请求（2026-09-24 修订后为流式分块回吐，见文末）。
+- **SW 代发**（`core/provider-http.ts`）：探针 / 选区解释 / 联网搜索 / AI·ASR 模型列表；硬编码 15s 超时、受 MV3 service worker 生命周期约束，只服务非流式短请求（`supportsStreaming: false`）。
+- **offscreen 代发**（`core/provider-http-offscreen.ts`）：概览链与快速提问生成；无超时、端口断连即 abort，服务流式请求与分钟级长请求（`supportsStreaming: true`；2026-09-24 修订后为流式分块回吐，见文末）。
 
 ## 与既有决议的关系
 

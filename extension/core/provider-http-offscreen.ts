@@ -1,11 +1,12 @@
 // extension/core/provider-http-offscreen.ts
-// 概览链的平台请求代发：content script 发起 → offscreen 文档执行
-//（overview-offscreen-transport）。与 core/provider-http.ts（content → service
-// worker 代发）同形，差别在「谁来发这一跳 + 超时/取消策略 + 回吐形态」：
-// - SW 代发硬编码 15s 超时（provider-http.ts:72）且有 MV3 service worker 生命
-//   周期上限，服务的是探针/选区解释这类短请求；
-// - 概览是分钟级长请求，宿主取 offscreen（entry/offscreen.ts 头注：长 AI 请求
-//   的既定宿主）。扩展源 fetch 只受 host 权限约束，**不过网页 CORS 预检**——
+// 流式 / 分钟级长请求的平台请求代发：content script 发起 → offscreen 文档执行
+//（overview-offscreen-transport）。消费方是概览链与快速提问生成（流式短请求）。
+// 与 core/provider-http.ts（content → service worker 代发）同形，差别在「谁来发
+// 这一跳 + 超时/取消策略 + 回吐形态」：
+// - SW 代发硬编码 15s 超时（provider-http.ts:75）且有 MV3 service worker 生命
+//   周期上限，只服务非流式短请求；
+// - 本通道服务流式请求与分钟级长请求，宿主取 offscreen（entry/offscreen.ts 头注：
+//   长 AI 请求的既定宿主）。扩展源 fetch 只受 host 权限约束，**不过网页 CORS 预检**——
 //   content 直发会撞网关预检白名单（实测 ModelScope 的 Anthropic 端点拒
 //   anthropic-version / x-api-key）。
 // 概览的模型调用走 SSE 流式（实测网关对非流式长请求整体超时：12.4 万字素材
@@ -51,7 +52,8 @@ import {
   isRequestAborted,
   makeAbortError,
   normalizeResponseStatus,
-  resolveRequestTarget
+  resolveRequestTarget,
+  type ProviderTransport
 } from "./provider-http-shared.js";
 import type {
   OffscreenProviderHttpPortMessage,
@@ -129,7 +131,7 @@ function sleepBeforeDispatchRetry(signal?: AbortSignal | null): Promise<void> {
 // 取消语义：init.signal 中止时以 AbortError 名字拒绝（completion 据此转
 // makeAbortedError），并断开端口——offscreen 侧据断连 abort 在飞请求，请求不
 // 白跑（与 provider-http.ts「已在飞的 SW 请求无法撤回」不同：端口断连可传达到）。
-export async function providerFetchViaOffscreen(
+async function providerFetchViaOffscreenImpl(
   input: RequestInfo | URL,
   init?: RequestInit
 ): Promise<Response> {
@@ -169,6 +171,12 @@ export async function providerFetchViaOffscreen(
     }
   }
 }
+
+// 能力自报：分块回吐合成带 ReadableStream body 的 Response，流式调用方可拿增量。
+export const providerFetchViaOffscreen: ProviderTransport = Object.assign(
+  providerFetchViaOffscreenImpl,
+  { supportsStreaming: true as const }
+);
 
 // 打开一次代发请求：offscreen 侧的派发确认（见模块头注）→ 首条回吐（响应头 /
 // 失败）落定 promise，其后的分片写入 ReadableStream、done 关闭、中途失败 error 掉
