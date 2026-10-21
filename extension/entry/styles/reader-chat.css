@@ -428,7 +428,7 @@
   display: flex;
   flex-direction: column;
   margin: auto;
-  padding: 8px 0 8px;
+  padding: 8px 0 48px;
 }
 
 /* 欢迎区主角：✦ 图标（accent-soft 圆底 + accent 图标，与联网搜索开启态同一
@@ -444,20 +444,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
 }
 
 .biliscript-reading-chat .chat-hero-icon svg {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
 }
 
 .biliscript-reading-chat .chat-hero-title {
-  margin: 14px 0 0;
+  margin: 8px 0 0;
   font-size: 17px;
   font-weight: 600;
   color: var(--biliscript-reader-text);
@@ -466,10 +466,10 @@
 /* 建议组（chips）：作为整体随欢迎区水平居中，每条 chip 自身也居中（盒居中，
  * 盒内文字仍左对齐——换行长问题的可扫读优先）。 */
 .biliscript-reading-chat .chat-hero-sugs {
-  margin-top: 22px;
+  margin-top: 26px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 11px;
   align-items: center;
 }
 

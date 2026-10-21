@@ -502,7 +502,7 @@ describe("收敛 1/6 补：字幕工具栏选轨触发器按次级按钮收敛�
 });
 
 describe("Gemini 触点 1 · chat 空态 hero 徽标", () => {
-  it("flyme：去圆底去发光，星形本体灌虹彩渐变（svg 放大 40px）", () => {
+  it("flyme：去圆底去发光，星形本体灌虹彩渐变（svg 放大 64px）", () => {
     const icon = ruleBody(
       readCss(GATE_CSS),
       "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-hero-icon"
@@ -514,8 +514,8 @@ describe("Gemini 触点 1 · chat 空态 hero 徽标", () => {
       readCss(GATE_CSS),
       "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-hero-icon svg"
     );
-    expect(svg).toContain("width: 40px");
-    expect(svg).toContain("height: 40px");
+    expect(svg).toContain("width: 64px");
+    expect(svg).toContain("height: 64px");
 
     const light = ruleBody(
       readCss(GATE_CSS),

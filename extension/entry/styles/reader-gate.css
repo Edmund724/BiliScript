@@ -925,16 +925,20 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 /* Gemini 触点 · AI 对话空态 hero 徽标：去圆底去发光，星形本体灌虹彩渐变
  * （Gemini logo 形态）。path 的 fill/stroke 由 CSS 覆盖 svg 表现属性，渐变 def
  * （明暗两档各一）内联在 HERO_ICON_SVG（chat-suggestions-slot.ts）；星形放大到
- * 40px 补无圆底的体量差。editorial 不匹配门控，走基表 accent-soft 圆底 +
+ * 64px（路径占 24 视框的 56.7%，实际可见星形约 36px），并用负下边距抵消视框内
+ * 留白使图文间距紧凑。editorial 不匹配门控，走基表 accent-soft 圆底 +
  * accent 描边星，defs 闲置无害。 */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: -6px;
   background: none;
   box-shadow: none;
 }
 
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon svg {
-  width: 40px;
-  height: 40px;
+  width: 64px;
+  height: 64px;
 }
 
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-hero-icon path {
