@@ -281,7 +281,6 @@ export async function chatCompletion({
       model,
       messages,
       stream,
-      apiKey: provider.apiKey,
       thinkingWire,
       maxTokens: effectiveMaxTokens,
       tools

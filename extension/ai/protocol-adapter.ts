@@ -44,7 +44,6 @@ export interface ChatRequest {
   model: string;
   messages: ChatMessage[];
   stream: boolean;
-  apiKey?: string;
   // 思考线格式产出（思考装配边 ai/plan-thinking.ts 的出参）：由唯一 fetch 点
   //（completion.ts，resolveAdapter 之后）一次装配、随本请求注入。adapter 只取
   // fields 并入请求体、按 tokenParam 写输出上限字段——装配（档位事实查表 →
