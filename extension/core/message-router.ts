@@ -7,13 +7,11 @@
 // core/background-content-orchestration 的先例（策略下沉 core，entry 只组装真实
 // 平台 API）。
 //
-// 两条轴各自可省，同一份 interface 因此也容纳 content 侧既有的同形分发
-// `(message, sendResponse) => boolean`：
-//   - 来源守卫轴：省略 senders = 不判来源，派发面同时退回两参形态（第二形参即回包
-//     回调，不再有位处给 sender）；
+// 本模块是 SW 专用：唯一接线点是 entry/background.ts 的 onMessage 监听器一行委派，
+// 派发面恒为三参形态 `(message, sender, sendResponse)`。两条轴各自可省：
+//   - 来源守卫轴：省略 senders = 不判来源；
 //   - 回包口径轴：注册表里没有本条登记 = 无 reply 可派，handler 的返回值即通道口径
 //     （有登记则按 reply 档派生，branch 档读 handler 判定）。
-// 本次只接 SW 半边：entry/background.ts 的 onMessage 监听器一行委派。
 
 import {
   BACKGROUND_MESSAGE_REGISTRY,
@@ -27,26 +25,17 @@ import {
 } from "../shared/messaging-protocol.js";
 
 export type MessageSenderLike = MessageSender;
-/** SW 半边派发面：有 sender 位（来源守卫轴开时按三参派发，回包口径照注册表 reply 档）。 */
+/** SW 派发面：三参形态（来源守卫轴开时按 sender 先判，回包口径照注册表 reply 档）。 */
 export type MessageHandlerLike = (
   message: unknown,
   sender: MessageSenderLike,
   sendResponse: SendResponse
 ) => void;
-/** content 侧同形分发：无 sender 位，handler 返回值即通道口径（来源守卫轴关时按
- *  两参派发）。本次不接入，只为同一份 interface 留位。 */
-export type ContentMessageHandlerLike = (message: unknown, sendResponse: SendResponse) => void;
-
-/** 表值面：包含三参派发形（SW 侧）与两参派发形（content 侧留位）。
- *  已移除 `(...args: never[]) => unknown` 退路；逐键契约由组合根的表对注册表穷尽校验。 */
-export type RoutedHandler =
-  | MessageHandlerLike
-  | ContentMessageHandlerLike;
 
 export interface MessageRouterOptions {
   /** handler 表：SW 组合根注入由注册表派生的 BackgroundMessageHandlers（逐键形参/响应载荷/返回值精确收窄）；
-   *  测试或 content 侧可传入兼容的 Record<string, RoutedHandler>。 */
-  handlers: BackgroundMessageHandlers | Record<string, RoutedHandler>;
+   *  测试可传入兼容的 Record<string, MessageHandlerLike>。 */
+  handlers: BackgroundMessageHandlers | Record<string, MessageHandlerLike>;
   /** 来源判据：标签 → 判据（缺省 = 不判来源；注入的标签无判据即放行） */
   senders?: Record<SenderLabel, (sender: MessageSenderLike) => boolean>;
   /** 来源守卫拒绝时的回包文案（字面量单源由组合根注入，本模块不持文案） */
@@ -77,8 +66,8 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
   // 键表 Map 化一次：Object.prototype 上的同名键（constructor / toString 等）不得被
   // 当成 handler 或登记项（与登记表同口径的按键查找）。
   // 类型在组合根已穷尽校验，收拢点保留显式断言。
-  const handlerTable = new Map<string, RoutedHandler>(
-    Object.entries(handlers) as [string, RoutedHandler][]
+  const handlerTable = new Map<string, MessageHandlerLike>(
+    Object.entries(handlers) as [string, MessageHandlerLike][]
   );
   const registrationTable = new Map<string, RegistrationLike>(
     Object.entries(registry as Record<string, RegistrationLike>)
@@ -91,8 +80,7 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
     }
 
     // ② 消息类型：非字符串或不认识都不收、不回包。认可集合 = handler 表键集
-    //（SW 半边该键集与注册表键集逐键对齐；content 侧表外的类型不在注册表里，
-    // 因此按「无登记」继续派发，见 ③）
+    //（组合根注入的表与注册表键集逐键对齐）
     const rawType = (rawMessage as { type?: unknown }).type;
     if (typeof rawType !== "string") {
       return false;
@@ -121,17 +109,14 @@ export function createMessageRouter(options: MessageRouterOptions): MessageRoute
       return false;
     }
 
-    // ⑥ 派发：来源守卫轴开 = 三参形态；轴关 = content 侧两参形态（第二形参即回包回调）。
+    // ⑥ 派发（三参形态，sender 原样透传——监听器侧的 sender 可能缺位）。
     // handler 返回值必须收下：branch 档的通道口径由它说。
     const invoke = handler as (
       message: unknown,
-      senderOrResponse: unknown,
-      sendResponse?: SendResponse
+      sender: MessageSenderLike | undefined,
+      sendResponse: SendResponse
     ) => unknown;
-    const handlerResult =
-      senders === undefined
-        ? invoke(rawMessage, sendResponse)
-        : invoke(rawMessage, rawSender, sendResponse);
+    const handlerResult = invoke(rawMessage, rawSender, sendResponse);
 
     // ⑦ 回包口径：有登记按 reply 档派生（branch 档读 handler 判定）；无登记 =
     // handler 返回值即通道口径

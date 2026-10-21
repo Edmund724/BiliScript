@@ -247,35 +247,24 @@ describe("消息 router：回包口径（注册表 reply 派生）", () => {
   });
 });
 
-describe("消息 router：content 侧同形分发的形态（本次不接入，只保 interface 可用）", () => {
-  it("省略 senders 与 registry：派发面是 (message, sendResponse)，handler 返回值即通道口径", () => {
-    const answer = vi.fn((_message: unknown, _sendResponse: SendResponse) => {
-      _sendResponse({ ok: true });
-      return false;
-    });
-    const router = createMessageRouter({ handlers: { "reader-enter": answer } });
-    const sendResponse = vi.fn();
-
-    expect(router({ type: "reader-enter" }, undefined, sendResponse)).toBe(false);
-    expect(answer).toHaveBeenCalledTimes(1);
-    // 第二个形参是回包回调本身（不是 sender），第三位不传
-    expect(answer.mock.calls[0]).toHaveLength(2);
-    expect(answer.mock.calls[0][1]).toBe(sendResponse);
-    expect(sendResponse).toHaveBeenCalledWith({ ok: true });
-  });
-
-  it("省略 senders 与 registry：handler 返回 true 即持有通道", () => {
-    const router = createMessageRouter({ handlers: { "reader-close": vi.fn(() => true) } });
-
-    expect(router({ type: "reader-close" }, undefined, vi.fn())).toBe(true);
-  });
-
-  it("省略 registry 但类型在协议注册表外：无形状判据、无来源标签（照常派发）", () => {
+describe("消息 router：注册表外类型的回包口径", () => {
+  it("类型不在注册表：无形状判据、无来源标签，照常三参派发", () => {
     const handler = vi.fn();
     const router = createMessageRouter({ handlers: { "reader-restore": handler } });
 
     expect(router({ type: "reader-restore", readerUrl: "x" }, undefined, vi.fn())).toBe(false);
     expect(handler).toHaveBeenCalledTimes(1);
+    // 三参派发：第二位是 sender 位（可能缺位），第三位是回包回调
+    const sendResponse = vi.fn();
+    router({ type: "reader-restore", readerUrl: "x" }, tabSender(), sendResponse);
+    expect(handler.mock.calls[1]).toHaveLength(3);
+    expect(handler.mock.calls[1][2]).toBe(sendResponse);
+  });
+
+  it("无登记 = handler 返回值即通道口径（返回 true 即持有通道）", () => {
+    const router = createMessageRouter({ handlers: { "reader-close": vi.fn(() => true) } });
+
+    expect(router({ type: "reader-close" }, undefined, vi.fn())).toBe(true);
   });
 });
 
@@ -343,10 +332,10 @@ describe("消息 router：类型接缝（编译期锁定）", () => {
     };
     expect(typeof legalHandler).toBe("function");
 
-    // ② 负向：RoutedHandler 已删除 (...args: never[]) => unknown 退路
+    // ② 负向：handlers 选项没有 (...args: never[]) => unknown 退路
     const _badRouterOptions: MessageRouterOptions = {
       handlers: {
-        // @ts-expect-error 参数不相容的函数不能作为 RoutedHandler 传入 handlers 选项
+        // @ts-expect-error 参数不相容的函数不能作为 handler 传入 handlers 选项
         "get-settings": (_a: number, _b: string) => 42
       }
     };
