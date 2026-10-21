@@ -67,6 +67,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   // arch-slim-2/03：readVideoDescription 自 subtitle/ui.js 归位 core.js
   readVideoDescription: vi.fn(() => ""),
   refreshHotComments: vi.fn(async () => {}),
+  invalidateDerived: vi.fn(),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 

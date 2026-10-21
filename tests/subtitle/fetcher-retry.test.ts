@@ -44,6 +44,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   readUploadDate: vi.fn(() => "2026-01-01"),
   readVideoDescription: vi.fn(() => ""),
   refreshHotComments: vi.fn(async () => {}),
+  invalidateDerived: vi.fn(),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 // 取体链收口 subtitle/body.js 后本文件不再整体替换 subtitle/cache.js：真实模块的

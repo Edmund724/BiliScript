@@ -13,11 +13,13 @@
 // 与状态栏吃同一句（buildNoSubtitleStatusMessage = 基础句 + core/asr-failure-notice
 // 的病因/补救/详情行），不再有 asrResult 分叉。
 //
-// mock 结构：refreshHotComments / refreshDerivedContent mock（落账只拉热评、
-// 不建派生的调用/时序断言是本套件职责，懒生成本体归 core 测试）、reader-bus
-// mock（notifyReaderPresenter 可观察）。状态栏回调（setStatus）不静态可达，经
-// configureCommitUi 注入 vi.fn——与生产由 fetcher 注入同一条接线。
-// view-state / dom-utils / reader-ids / selection / state 保持真实：纯叶子。
+// mock 结构：只替换 refreshHotComments / refreshDerivedContent 两个可观察调用
+//（落账只拉热评、不建派生的调用/时序断言是本套件职责，懒生成本体归 core 测试），
+// 其余导出（含 invalidateDerived 的真实清空）走真实模块——无字幕出口的清空完整性
+// 必须打在真实现上才有意义；reader-bus mock（notifyReaderPresenter 可观察）。
+// 状态栏回调（setStatus）不静态可达，经 configureCommitUi 注入 vi.fn——与生产由
+// fetcher 注入同一条接线。view-state / dom-utils / reader-ids / selection / state
+// 保持真实：纯叶子。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
@@ -37,10 +39,14 @@ import { refreshHotComments, refreshDerivedContent } from "../../extension/subti
 import { notifyReaderPresenter } from "../../extension/reader/reader-bus.js";
 import { getSubtitleStatusPhase } from "../../extension/shared/subtitle-status-bus.js";
 
-vi.mock("../../extension/subtitle/core.js", () => ({
-  refreshHotComments: vi.fn(async () => {}),
-  refreshDerivedContent: vi.fn(async () => {})
-}));
+vi.mock("../../extension/subtitle/core.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/subtitle/core.js")>();
+  return {
+    ...actual,
+    refreshHotComments: vi.fn(async () => {}),
+    refreshDerivedContent: vi.fn(async () => {})
+  };
+});
 vi.mock("../../extension/reader/reader-bus.js", () => ({
   notifyReaderPresenter: vi.fn(),
   subscribeSubtitleRefresh: vi.fn(() => () => {}),

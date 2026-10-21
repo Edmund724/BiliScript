@@ -36,6 +36,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   readUploadDate: vi.fn(() => ""),
   readVideoDescription: vi.fn(() => ""),
   refreshHotComments: vi.fn(async () => {}),
+  invalidateDerived: vi.fn(),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 // 取体链已收口 subtitle/body.js：本锁不再整体替换 subtitle/cache.js——真实缓存

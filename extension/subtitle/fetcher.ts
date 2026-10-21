@@ -16,7 +16,7 @@ import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
 // isReaderViewOpen 位于 reader 状态微模块（候选04 结构归并）：纯 state 读取，
 // 不再经 reader/index.js facade 静态转发（否则整条 reader 域会被拖进本链闭包）。
 import { isReaderViewOpen } from "../reader/state.js";
-import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription } from "./core.js";
+import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription, invalidateDerived } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
 import { normalizeSubtitleTracks, pickPreferredSubtitle } from "./selection.js";
 import { buildSubtitleCandidates } from "./cache.js";
@@ -149,7 +149,7 @@ export function resetClipState({ keepFetchState = false }: { keepFetchState?: bo
   slot.clearAllForVideoSwitch({ keepFetchState });
   clipState.setChapters([]);
   clipState.setHotComments([]);
-  slot.invalidateDerived();
+  invalidateDerived();
   clipState.setCurrentClipSignature(computeCurrentClipSignature());
   notifyReaderPresenter({ kind: "reset" });
   state.reader.setActiveSubtitleIndex(-1);

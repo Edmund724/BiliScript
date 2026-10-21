@@ -51,6 +51,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   readUploadDate: vi.fn(() => "2026-01-01"),
   readVideoDescription: vi.fn(() => ""),
   refreshHotComments: vi.fn(async () => {}),
+  invalidateDerived: vi.fn(),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 

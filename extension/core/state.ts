@@ -57,8 +57,9 @@ export type SubtitleBodyItem = {
 //      的输入，副轨借道会把 AI 面一起污染；
 //   ② 副轨装载态**绝不复用** subtitleFetchState——那是整片单相位，会把整个字幕 tab
 //      洗成「正在加载字幕…」/「字幕加载失败」面（02 号票 Q6/Q9）；
-//   ③ 写入只经 subtitle/commit 的对称事务 acceptSecondarySubtitle 与 subtitle/fetcher
-//      的副轨装载器 / 清场，**成组替换**（ADR 0005 的意图级原语，不铺逐字段 setter）。
+//   ③ 写入只经 subtitle/slot 的成组动词（副轨接受事务、fetcher 的装载器与换片清场、
+//      弹层的同轨防呆清槽），**成组替换**（ADR 0005 的意图级原语，不铺逐字段 setter）；
+//      槽外直接调本组原语即绕过隔离不变量。
 export type SecondarySubtitleState = "idle" | "loading" | "ready" | "error";
 
 export interface SecondarySubtitle {

@@ -89,6 +89,9 @@ import type { SecondaryColumnView, SecondaryEnsureOutcome } from "./secondary-su
 // 双语偏好的落盘 seam（readerTheme 同款）：reader 域不得静态 import core/runtime.js，
 // 故经 reader-bus 的 persist 槽转发（content.ts 注册的 sendRuntimeMessage）。
 import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
+// 副轨槽的清空只经槽写门（subtitle/slot 的成组动词）：弹层的同轨防呆要清槽，
+// 但「清哪几个字段」不是弹层的知识。
+import { clearSecondary } from "../subtitle/slot.js";
 // 换轨进场动画的触发标记（零依赖叶子）：主列选轨/副列改选置位，列表属主
 //（lifecycle 的列表投影）在整表重建时消费一次；残标清偿也归本叶子的两个
 // change 处理器（主列 finally / 副列 settled 与同轨防呆的同步收尾）。
@@ -927,7 +930,7 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
   if (id && id === state.clip.selectedSubtitleId) {
     state.setSettings({ ...state.settings, secondarySubtitleLang: lang });
     persistReaderSettingsThroughSeam();
-    state.clip.clearSecondarySubtitle();
+    clearSecondary();
     rerender();
     // 同轨防呆清的是**副轨槽**，副行随之从列表消失 ⇒ 与开关同款：必须请列表属主重渲，
     // 否则列表还挂着已被清空的译文（弹层侧已经收起、两处两说）。
@@ -981,7 +984,7 @@ function clearSecondarySubtitleIfShadowedByMain(): void {
   if (!slot.id || slot.id !== state.clip.selectedSubtitleId) {
     return;
   }
-  state.clip.clearSecondarySubtitle();
+  clearSecondary();
 }
 
 export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolbar?: SubtitleToolbar }): void {

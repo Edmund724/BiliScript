@@ -15,9 +15,9 @@ import {
   getReadingSubtitlePlaceholderText,
   ensureDerivedContent,
   rebuildDerivedContent,
+  invalidateDerived,
   refreshHotComments
 } from "../../extension/subtitle/core.js";
-import { slot } from "../../extension/subtitle/slot.js";
 import { getAsrFailureNotice } from "../../extension/core/asr-failure-notice.js";
 import type { SubtitleBodyItem } from "../../extension/core/state.js";
 
@@ -350,14 +350,14 @@ describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
     expect(state.clip.txt).toBe("");
   });
 
-  it("派生三件套经 slot.invalidateDerived 清空且 body 存在时，缓存判为失效并重新生成", () => {
+  it("派生三件套经 invalidateDerived 清空且 body 存在时，缓存判为失效并重新生成", () => {
     state.clip.setSubtitleBody(BODY);
     ensureDerivedContent();
     expect(state.clip.markdown).not.toBe("");
     expect(state.clip.srt).not.toBe("");
     expect(state.clip.txt).not.toBe("");
 
-    slot.invalidateDerived();
+    invalidateDerived();
     expect(state.clip.markdown).toBe("");
     expect(state.clip.srt).toBe("");
     expect(state.clip.txt).toBe("");
@@ -371,7 +371,7 @@ describe("ensureDerivedContent：派生内容懒生成与缓存", () => {
     setMarkdownSpy.mockRestore();
   });
 
-  it("rebuildDerivedContent 空字幕体时调用 slot.invalidateDerived 清空三件套", () => {
+  it("rebuildDerivedContent 空字幕体时经 invalidateDerived 清空三件套", () => {
     state.clip.setMarkdown("md");
     state.clip.setSrt("srt");
     state.clip.setTxt("txt");

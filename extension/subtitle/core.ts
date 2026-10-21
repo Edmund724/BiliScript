@@ -12,7 +12,6 @@ import {
   buildSrt,
   buildTxt
 } from "../notes/render.js";
-import { slot } from "./slot.js";
 import type { State } from "../core/state.js";
 
 export interface ReadingSubtitleItem {
@@ -194,10 +193,19 @@ export function findActiveChapterIndex(currentTime: number): number {
   return -1;
 }
 
+// 派生三件套（markdown / SRT / TXT）失效：三份同时置空。生成方（rebuildDerivedContent /
+// ensureDerivedContent）在本文件，失效与生成的字段口径因此只有一个落点；无字幕出口
+// （commitNoSubtitle）与换片清场（resetClipState）调它清空，消费侧读空串即视为未生成。
+export function invalidateDerived(): void {
+  clipState.setMarkdown("");
+  clipState.setSrt("");
+  clipState.setTxt("");
+}
+
 export function rebuildDerivedContent(): void {
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
   if (!body.length) {
-    slot.invalidateDerived();
+    invalidateDerived();
     return;
   }
   // 双语态（07 号票）：三份导出都要出副行，而配对口径的唯一实现是 subtitle/alignment。

@@ -42,7 +42,7 @@ import { clipState } from "../core/state.js";
 import type { NoSubtitleReason, SubtitleBodyItem } from "../core/state.js";
 import { STATUS_LINE_BASE, getAsrFailureNotice } from "../core/asr-failure-notice.js";
 import { sortSubtitleBodyByFrom } from "./selection.js";
-import { refreshHotComments } from "./core.js";
+import { refreshHotComments, invalidateDerived } from "./core.js";
 import { slot } from "./slot.js";
 import { notifyReaderPresenter } from "../reader/reader-bus.js";
 import { publishSubtitleStatusPhase } from "../shared/subtitle-status-bus.js";
@@ -186,7 +186,7 @@ export async function commitNoSubtitle({ noSubtitleReason, runId }: CommitNoSubt
   }
   slot.clearToEmpty(noSubtitleReason);
   clipState.setHotComments([]);
-  slot.invalidateDerived();
+  invalidateDerived();
   // 通知与状态栏同一句（失败文案的唯一出口）：reader 侧 renderReadingStatus
   // 直接显示这句，状态栏不另拼——两处漂移的口子就此关闭。
   // 发射无条件（同 acceptSubtitle）：裁决权归 reader 侧门控。

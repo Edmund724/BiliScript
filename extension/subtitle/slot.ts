@@ -92,6 +92,15 @@ export function markSecondaryError(): void {
 }
 
 /**
+ * 副轨：清空副轨槽
+ * 将副轨复位为空槽（state: idle, id: "", url: "", body: []）。
+ * 遵循隔离不变量：绝不触碰主轨状态。
+ */
+export function clearSecondary(): void {
+  clipState.clearSecondarySubtitle();
+}
+
+/**
  * 统一：切视频全量清空字幕槽
  * 主副轨同清（清空 selected*、subtitleBody、secondarySubtitle、noSubtitleReason、noSubtitleDetail）。
  * 若 options.keepFetchState 为 true，保留现有 subtitleFetchState；否则重置为 idle。
@@ -101,22 +110,12 @@ export function clearAllForVideoSwitch(options?: ClearAllOptions): void {
   clipState.setSelectedSubtitleUrl("");
   clipState.setSelectedSubtitleLang("");
   clipState.setSubtitleBody([]);
-  clipState.clearSecondarySubtitle();
+  clearSecondary();
   if (!options?.keepFetchState) {
     clipState.setSubtitleFetchState("idle");
   }
   clipState.setNoSubtitleReason(null);
   clipState.setNoSubtitleDetail("");
-}
-
-/**
- * 统一：标记派生三件套（markdown, srt, txt）失效
- * 将 clipState 中的 markdown, srt, txt 重置为空串。
- */
-export function invalidateDerived(): void {
-  clipState.setMarkdown("");
-  clipState.setSrt("");
-  clipState.setTxt("");
 }
 
 export const slot = {
@@ -125,6 +124,6 @@ export const slot = {
   installSecondary,
   markSecondaryLoading,
   markSecondaryError,
-  clearAllForVideoSwitch,
-  invalidateDerived
+  clearSecondary,
+  clearAllForVideoSwitch
 };

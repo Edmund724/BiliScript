@@ -9,8 +9,8 @@ import {
   installSecondary,
   markSecondaryLoading,
   markSecondaryError,
-  clearAllForVideoSwitch,
-  invalidateDerived
+  clearSecondary,
+  clearAllForVideoSwitch
 } from "../../extension/subtitle/slot.js";
 
 const SAMPLE_BODY_A: SubtitleBodyItem[] = [
@@ -362,29 +362,17 @@ describe("extension/subtitle/slot", () => {
       expect(clipState.selectedSubtitleId).toBe(PRIMARY_IDENTITY.id);
       expect(clipState.subtitleFetchState).toBe("ready");
     });
-  });
 
-  describe("统一动词：invalidateDerived 重置派生三件套", () => {
-    it("invalidateDerived 将 markdown, srt, txt 置为空串，不碰槽字段与视频元数据", () => {
+    it("clearSecondary 复位副轨为空槽，且不影响主轨", () => {
       install(PRIMARY_IDENTITY, SAMPLE_BODY_A);
       installSecondary(SECONDARY_IDENTITY, SAMPLE_BODY_B);
-      clipState.setMarkdown("## Markdown Content");
-      clipState.setSrt("1\n00:00:00,000 --> 00:00:01,000\nContent");
-      clipState.setTxt("0:00 Content");
 
-      const before = captureClipSnapshot();
-      invalidateDerived();
-      const after = captureClipSnapshot();
-      const changedKeys = diffSnapshotKeys(before, after);
+      clearSecondary();
 
-      expect(changedKeys).toEqual(["markdown", "srt", "txt"]);
-      expect(clipState.markdown).toBe("");
-      expect(clipState.srt).toBe("");
-      expect(clipState.txt).toBe("");
-
-      // 主副轨槽不受任何影响
+      expect(clipState.secondarySubtitle).toEqual(emptySecondarySubtitle());
       expect(clipState.selectedSubtitleId).toBe(PRIMARY_IDENTITY.id);
-      expect(clipState.secondarySubtitle.id).toBe(SECONDARY_IDENTITY.id);
+      expect(clipState.subtitleFetchState).toBe("ready");
+      expect(clipState.subtitleBody).toEqual(SAMPLE_BODY_A);
     });
   });
 
@@ -395,8 +383,8 @@ describe("extension/subtitle/slot", () => {
       expect(slot.installSecondary).toBe(installSecondary);
       expect(slot.markSecondaryLoading).toBe(markSecondaryLoading);
       expect(slot.markSecondaryError).toBe(markSecondaryError);
+      expect(slot.clearSecondary).toBe(clearSecondary);
       expect(slot.clearAllForVideoSwitch).toBe(clearAllForVideoSwitch);
-      expect(slot.invalidateDerived).toBe(invalidateDerived);
     });
   });
 });

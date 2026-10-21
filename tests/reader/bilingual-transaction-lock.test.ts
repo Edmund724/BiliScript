@@ -78,6 +78,10 @@ describe("双语副轨结构锁（写手 / 通知 / 渲染）", () => {
     // slot.installSecondary 动词的唯一调用点锁定在 commit.ts 事务
     const installSecondaryCallers = filesCalling("slot\\.installSecondary");
     expect(installSecondaryCallers).toEqual(["extension/subtitle/commit.ts"]);
+
+    // 清槽同理只经槽写门（slot.clearSecondary）：调用方直调 clipState.clearSecondarySubtitle
+    // 会把「清哪几个字段」的隔离不变量漏回调用方（弹层与生命周期曾各有一处）。
+    expect(filesCalling("clipState\\.clearSecondarySubtitle")).toEqual(["extension/subtitle/slot.ts"]);
   });
 
   it("新通知 kind 单点发射 + 单点接收（第二处即双副作用/漏重渲）", () => {

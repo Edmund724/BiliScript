@@ -50,6 +50,7 @@ vi.mock("../../extension/subtitle/core.js", () => ({
   // arch-slim-2/03：readVideoDescription 自 subtitle/ui.js 归位 core.js
   readVideoDescription: vi.fn(() => ""),
   refreshHotComments: vi.fn(async () => {}),
+  invalidateDerived: vi.fn(),
   refreshDerivedContent: vi.fn(async () => {})
 }));
 // 取体链收口 subtitle/body.js 后，本文件不再整体替换 subtitle/cache.js：真实缓存
