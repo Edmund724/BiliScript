@@ -184,9 +184,7 @@ function init(): void {
       quickActionStartupDecided = true;
       const raw = (data as { enablePlayerAiQuickAction?: unknown })?.enablePlayerAiQuickAction;
       const enabled = raw === undefined ? DEFAULT_SETTINGS.enablePlayerAiQuickAction : Boolean(raw);
-      if (state.settings) {
-        state.settings.enablePlayerAiQuickAction = enabled;
-      }
+      state.patchSettings({ enablePlayerAiQuickAction: enabled });
       if (enabled) {
         startPlayerAiQuickActionLazy();
       }
@@ -249,9 +247,7 @@ function bindPlayerAiSettingsWatcher(): void {
     const enabled = Boolean(change.newValue);
     // syncPlayerAiQuickActionButton 读 state.settings，先同步该键再启停，
     // 不依赖 reader watcher（bindSettingsWatcher）的异步全量回读时序
-    if (state.settings) {
-      state.settings.enablePlayerAiQuickAction = enabled;
-    }
+    state.patchSettings({ enablePlayerAiQuickAction: enabled });
     if (enabled) {
       startPlayerAiQuickActionLazy();
     } else {

@@ -1,8 +1,9 @@
 # State Encapsulation Contract
 
 This document defines how the extension's shared state is read and written. The main bag lives in
-`extension/core/state.ts` and is exported as `state` plus one named object per namespace. The
-player-AI namespace lives in its own module, `extension/ai/player-ai-state.ts` (see below).
+`extension/core/state.ts` and is exported as `state` plus the named `clipState` / `uiState`
+handles. The player-AI namespace lives in its own module, `extension/ai/player-ai-state.ts`
+(see below).
 
 > Since the TypeScript migration, the setter rule below is enforced at compile time:
 > business fields are `readonly` on the public namespace types, so a direct write fails
@@ -11,18 +12,18 @@ player-AI namespace lives in its own module, `extension/ai/player-ai-state.ts` (
 
 ## Namespaces
 
-There are three namespaces in the core state bag, each exposed two ways (they are the **same**
-object):
+There are three namespaces in the core state bag, exposed as structured aliases on the
+`state` object:
 
-| Namespace     | Structured alias | Business object      |
-| ------------- | ---------------- | -------------------- |
-| `readerState` | `state.reader`   | reader state         |
-| `clipState`   | `state.clip`     | clip/subtitle state  |
-| `uiState`     | `state.ui`       | UI/chrome state      |
+| Structured alias | Business object     |
+| ---------------- | ------------------- |
+| `state.reader`   | reader state        |
+| `state.clip`     | clip/subtitle state |
+| `state.ui`       | UI/chrome state     |
 
-The module exports `state, clipState, uiState`; the short aliases (`state.reader`,
-`state.clip`, …) live on the `state` target itself. Both spellings of each namespace are the same
-object — prefer the `xxxState` spelling in new code.
+The module also exports the standalone `clipState` / `uiState` handles (the
+same objects as `state.clip` / `state.ui`) as the write-discipline entry points for modules
+that write clip/UI fields.
 
 The `playerAi` namespace has moved out of the core bag: it is fully owned by the `ai` domain
 (`ai/player-ai.ts` is the only business writer) and lives in `ai/player-ai-state.ts` as
@@ -53,6 +54,8 @@ Plus a single flat settings object:
 
 - `state.settings` — current settings (a copy of `DEFAULT_SETTINGS`).
 - `state.setSettings(next)` — replace `settings` with `next`.
+- `state.patchSettings(patch)` — shallow-merge `patch` into `settings` (same write discipline;
+  the intent-level entry for single-field updates, e.g. the live-toggle write in `entry/content.ts`).
 
 ## The rule
 

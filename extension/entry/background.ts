@@ -36,6 +36,8 @@ import {
 } from "./settings-migration.js";
 // 调试日志门三宿主接线（shared/logging 的 registerDebugGate 消费方）
 import { registerDebugLogGate } from "../shared/debug-log-gate.js";
+// storage.onChanged 区/键过滤 seam：调试门变更广播的区过滤由它收口
+import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { logWarn } from "../shared/logging.js";
 import {
   aiProviderStore
@@ -449,12 +451,13 @@ function handleOffscreenRequestCloseMsg(_message: Msg<"offscreen-request-close">
 }
 
 // 工单 03：offscreen 侧调试日志门的初始开关（offscreen 无 chrome.storage，
-// SW 是 storage 的独占读者；变更经下方 onChanged 监听广播）。
+// 由 SW 代读；enableDebugLogs 在 DEFAULT_SETTINGS 键面内，读走 settings 快照，
+// 不直读 storage。变更经下方 watchStorageKeys 订阅广播）。
 function handleGetDebugLogGate(_message: Msg<"get-debug-log-gate">, _sender: MessageSender, sendResponse: Reply<"get-debug-log-gate">): void {
   withOkResponse(
     (async () => {
-      const data = await chrome.storage.sync.get("enableDebugLogs");
-      return { ok: true, enabled: Boolean((data as { enableDebugLogs?: unknown })?.enableDebugLogs) };
+      const settings = await getSettingsSnapshot();
+      return { ok: true, enabled: settings.enableDebugLogs };
     })(),
     sendResponse
   );
@@ -591,19 +594,18 @@ chrome.runtime.onConnect?.addListener?.((port) => {
 registerDebugLogGate();
 
 // 调试日志门变更广播（工单 03）：offscreen 文档没有 chrome.storage，其调试
-// 门靠本广播保活（初始开关走 get-debug-log-gate 消息）。无接收方（offscreen
-// 未开、扩展页全关）时 sendMessage 会 reject——广播即止，不进 unhandled rejection。
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "sync" || !changes.enableDebugLogs) {
-    return;
-  }
+// 门靠本广播保活（初始开关走 get-debug-log-gate 消息）。区/键过滤复用
+// shared/watch-storage-keys（sync 区 enableDebugLogs 命中才分发），不再自挂
+// onChanged 手写过滤。无接收方（offscreen 未开、扩展页全关）时 sendMessage 会
+// reject——广播即止，不进 unhandled rejection。
+watchStorageKeys((changes) => {
   void Promise.resolve(
     chrome.runtime.sendMessage({
       type: "debug-log-gate-changed",
       enabled: Boolean(changes.enableDebugLogs.newValue)
     })
   ).catch(() => {});
-});
+}, { sync: ["enableDebugLogs"] });
 
 // ===== 消息入口（守卫在路由之后、处理器之前）=====
 //

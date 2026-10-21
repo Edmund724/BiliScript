@@ -370,24 +370,22 @@ const localUiState: UiStateWritable = {
 
 export interface State {
   settings: Settings;
-  readerState: ReaderState;
-  clipState: ClipState;
-  uiState: UiState;
   reader: ReaderState;
   clip: ClipState;
   ui: UiState;
+  // settings 写入面（ADR-0005）：setSettings 整体替换（getSettings 水合的唯一
+  // 写入点），patchSettings 按键合并——写方不再对 state.settings 就地写字段。
   setSettings(next: Settings): void;
+  patchSettings(patch: Partial<Settings>): void;
 }
 
 const localState: State = {
   settings: { ...DEFAULT_SETTINGS },
-  readerState: localReaderState,
-  clipState: localClipState,
-  uiState: localUiState,
   reader: localReaderState,
   clip: localClipState,
   ui: localUiState,
-  setSettings(next) { this.settings = next; }
+  setSettings(next) { this.settings = next; },
+  patchSettings(patch) { this.settings = { ...this.settings, ...patch }; }
 };
 
 // ===== 单例槽（content 双实例收口） =====
