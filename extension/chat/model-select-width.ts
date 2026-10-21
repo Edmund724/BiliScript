@@ -70,10 +70,25 @@ function measureChipContentWidth(els: ModelSelectWidthEls): number {
   // 字形，整串测会把空格宽也计进内容，多出的 ~5px 全部落在 chevron 右侧）。
   const measuredTextWidth =
     measureTextWidth(model, computedStyle) + (level ? measureTextWidth(level, computedStyle) : 0);
-  // 装饰余量 = 左右 padding 20 + 两个 flex gap 8 + chevron 14，另留 2px buffer；
+  // 装饰余量 = 左右 padding 20 + 两个 flex gap 8 + chevron 14，另留 buffer；
   // 旧实现叠加的 "000" 兜底宽是原生 select 时代的遗留，chip hug content 后
-  // 只会在 chevron 右侧留出多余空白，已移除。
-  return Math.ceil(measuredTextWidth + 44);
+  // 只会在 chevron 右侧留出多余空白，已移除。真实 canvas 度量留 6px buffer，
+  // 避免高 DPI 或字体微小字宽差异触发溢出省略号截断；降级每字符 8px 沿用 44 契约。
+  const extraBuffer = modelSelectMeasureCanvas?.getContext("2d") ? 48 : 44;
+  return Math.ceil(measuredTextWidth + extraBuffer);
+}
+
+// 挂起帧无需显式作废：els 指向的壳元素随阅读模式常驻，帧回调执行时目标仍有效；
+// 会话关闭只是断流，不拆 DOM。
+// 控件行 60% 长度预算上限：若存在所在行容器且宽度有效，上限取控件行的 60%
+//（保发送键与搜索开关空间，同时给模型名留足预算，避免过早显示省略号）。
+function getModelChipMaxWidth(els: ModelSelectWidthEls): number {
+  const inputBar = els.chip?.closest<HTMLElement>(".chat-input-bar");
+  const barWidth = inputBar ? inputBar.clientWidth : 0;
+  if (barWidth > 0) {
+    return Math.max(MODEL_CHIP_MIN_WIDTH, Math.floor(barWidth * 0.6));
+  }
+  return MODEL_CHIP_MAX_WIDTH;
 }
 
 // 挂起帧无需显式作废：els 指向的壳元素随阅读模式常驻，帧回调执行时目标仍有效；
@@ -83,7 +98,8 @@ export function updateModelSelectWidth(els: ModelSelectWidthEls): void {
     return;
   }
   const desiredWidth = measureChipContentWidth(els);
-  const nextWidth = Math.max(MODEL_CHIP_MIN_WIDTH, Math.min(desiredWidth, MODEL_CHIP_MAX_WIDTH));
+  const maxWidth = getModelChipMaxWidth(els);
+  const nextWidth = Math.max(MODEL_CHIP_MIN_WIDTH, Math.min(desiredWidth, maxWidth));
   els.chip.style.width = `${nextWidth}px`;
 }
 
@@ -111,7 +127,7 @@ export function measureTextWidth(text: string, style?: CSSStyleDeclaration | nul
   const fontStyle = style?.fontStyle || "normal";
   const fontVariant = style?.fontVariant || "normal";
   const fontWeight = style?.fontWeight || "400";
-  const fontSize = style?.fontSize || "11px";
+  const fontSize = style?.fontSize || "13px";
   const fontFamily = style?.fontFamily || "sans-serif";
   ctx.font = `${fontStyle} ${fontVariant} ${fontWeight} ${fontSize} ${fontFamily}`;
   return ctx.measureText(text).width;

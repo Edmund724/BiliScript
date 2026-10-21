@@ -98,12 +98,15 @@ describe("模型面板锚点（CSS 契约）", () => {
     expect(shared).toEqual([]);
   });
 
-  it("锚点容器 position:relative 并接管 margin-left:auto（chip 自身不再右推）", () => {
+  it("锚点容器 position:relative 并接管 margin-left:auto 与 max-width:60% 长度预算", () => {
     const anchorBody = ruleBody(MODEL_ANCHOR);
     expect(anchorBody).toContain("position: relative");
     expect(anchorBody).toContain("margin-left: auto");
+    expect(anchorBody).toContain("max-width: 60%");
 
-    expect(ruleBody(".biliscript-reading-chat .chat-model-chip")).not.toContain("margin-left");
+    const chipBody = ruleBody(".biliscript-reading-chat .chat-model-chip");
+    expect(chipBody).not.toContain("margin-left");
+    expect(chipBody).toContain("max-width: 100%");
   });
 
   it("窄面板里模型名换行且最多 2 行（超出才省略号）", () => {

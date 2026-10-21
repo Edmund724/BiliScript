@@ -90,6 +90,17 @@ describe("model-select-width", () => {
     expect(els.chip.style.width).toBe("420px");
   });
 
+  it("updateModelSelectWidth：输入行存在时上限为行宽 60%（给足模型名长度预算）", () => {
+    const bar = document.createElement("div");
+    bar.className = "chat-input-bar";
+    Object.defineProperty(bar, "clientWidth", { value: 500, configurable: true });
+    const { chip, chipModel, chipLevel } = makeChip("x".repeat(60), "Off");
+    bar.appendChild(chip);
+    updateModelSelectWidth({ chip, chipModel, chipLevel });
+    // 500 * 0.6 = 300px（而非全局兜底 420px）
+    expect(chip.style.width).toBe("300px");
+  });
+
   it("updateModelSelectWidth：chip 文案缺失时回落「未配置平台」参与测量", () => {
     const els = makeEls(undefined, ""); // 5×8 + 44 = 84 < 92
     updateModelSelectWidth(els);

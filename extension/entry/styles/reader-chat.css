@@ -1268,11 +1268,14 @@
 }
 
 /* 模型 chip 的锚点容器：右推（margin-left:auto）与模型面板的定位父级都收在这里
- * ——面板从 chip 正上方呼出（见 .chat-model-panel 的锚点规则）。 */
+ * ——面板从 chip 正上方呼出（见 .chat-model-panel 的锚点规则）。
+ * 模型名长度预算：最多占整行 60%，避免超长模型名挤压发送键与联网开关，
+ * 同时给模型名留足展示空间避免截断。 */
 .biliscript-reading-chat .chat-model-anchor {
   position: relative;
   display: flex;
   min-width: 0;
+  max-width: 60%;
   margin-left: auto;
 }
 
@@ -1296,6 +1299,7 @@
   cursor: pointer;
   overflow: hidden;
   white-space: nowrap;
+  max-width: 100%;
   transition: background 0.15s ease-out, transform 100ms ease-out;
 }
 
