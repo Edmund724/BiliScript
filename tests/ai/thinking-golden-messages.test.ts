@@ -37,7 +37,8 @@
 // deepseek（关思考）/ qwen3-max（开关型开档）/ qwen3.8-max（开关+档位）/
 // opencodego（裸档位）/ moonshot（顶层 reasoning_effort）/ budget-only（不发字段）/
 // opencodego/kimi-k3（13 号票 canonical 词表 + opencodego 出口，off 级联落 low）。
-// 加上 openai 通道的 5 条，两文件合计 12 条精确 body 钉（票面上限）。
+// openai 与 Gemini 通道各有独立文件（thinking-golden.test.ts /
+// thinking-golden-gemini.test.ts），三者共用同一套按类断言与防线。
 // probe（probeOmitsThinking）与 ModelScope streamOnly（Q14A）语义不是方言钉，原样保留。
 
 import { describe, expect, it } from "vitest";
@@ -129,7 +130,7 @@ const CASES: readonly ByClassCase[] = [
 registerByClassGolden(HARNESS, CASES);
 registerByClassDefenses(HARNESS, CASES);
 
-// ===== 每方言一条逐平台精确 body（真实平台回归钉；≤12 条）=====
+// ===== 每方言一条逐平台精确 body（真实平台回归钉）=====
 describe("golden：每方言一条精确 body（Messages 通道）", () => {
   it("(1) deepseek/deepseek-v4-pro：关思考出口 thinking:{type:disabled}", () => {
     expect(HARNESS.bodyAt({ presetId: "deepseek", model: "deepseek-v4-pro", level: "off" })).toEqual(

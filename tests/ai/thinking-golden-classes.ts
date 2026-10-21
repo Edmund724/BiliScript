@@ -1,8 +1,8 @@
 // tests/ai/thinking-golden-classes.ts
 // 07 号票（golden 按类重构）的**纯数据件**：产物枚举、出口形态命名、工件解析、覆盖矩阵口径、
-// 两条通道的调用缝。刻意不 import vitest/expect——同一份枚举与调用缝要同时服务两个通道的
-// golden 用例与生成器（scripts/artifacts/gen-golden-tables.ts）；生成器是 node
-// 脚本，不能把 vitest 塞进它的 bundle。断言注册在 thinking-golden-defenses.ts。
+// 三条通道的调用缝。刻意不 import vitest/expect——同一份枚举与调用缝要同时服务 golden
+// 用例与生成器（scripts/artifacts/gen-golden-tables.ts）；生成器是 node 脚本，不能把
+// vitest 塞进它的 bundle。断言注册在 thinking-golden-defenses.ts。
 //
 // 口径（与 scripts/artifacts/gen-request-matrix.ts 逐字同源）：
 // - 平台 = UPSTREAM_PROVIDER_BY_PRESET 的 12 家（preset → 上游 provider）；
@@ -11,9 +11,12 @@
 // - 类 = 值集 id（02 产物 VALUESETS 的键）；
 // - 「实现」= (类, 平台) 对，每对取排序首个模型做代表——用例只按类 × 出口形态写，
 //   每个实现的行为由归纳完整性防线扫（见 thinking-golden-defenses.ts 的 F2）。
+// - gemini 通道只承载 `protocol: "gemini"` 的预设（目前只有 gemini 一家）：其它平台
+//   不会用这条协议发请求，跨协议组合不是产品路径。
 
 import { readFileSync } from "node:fs";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
+import { geminiAdapter } from "../../extension/ai/adapters/gemini.js";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
 import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import { ASSIGNMENTS, MODEL_ID_ALIASES, VALUESETS } from "../../extension/ai/catalog/models-dev-thinking.generated.js";
@@ -23,15 +26,15 @@ import type { ChatMessage } from "../../extension/ai/types.js";
 import { PRESETS } from "../../extension/core/presets.js";
 
 const ARTIFACTS = ".scratch/tickets/upstream-model-facts/artifacts";
-/** gen-request-matrix.ts 的产物（pnpm artifacts:sync 跑出，399 行；只读）——来源防线（F3）的对账对象。 */
+/** gen-request-matrix.ts 的产物（pnpm artifacts:sync 跑出；只读）——来源防线（F3）的对账对象。 */
 export const REQUEST_MATRIX = `${ARTIFACTS}/06-request-matrix.tsv`;
 /** 本票（07）的验收工件：valuesetId × 通道 × 出口形态 → 用例归属。 */
 export const COVERAGE_MATRIX = `${ARTIFACTS}/07-golden-coverage.tsv`;
 
-/** 两条通道共用的请求消息常量（与既有 golden 逐字一致）。 */
+/** 三条通道共用的请求消息常量（与既有 golden 逐字一致）。 */
 const MESSAGES: ChatMessage[] = [{ role: "user", content: "hi" }];
 
-export type Channel = "openai" | "anthropic";
+export type Channel = "openai" | "anthropic" | "gemini";
 
 /**
  * 按类 golden 用例 = 类（值集 id）× 出口形态（该实现真实落线的线格式）→ 7 档请求字段。
@@ -106,6 +109,20 @@ export function productRealizations(): Realization[] {
   );
 }
 
+/** 通道能承载的实现：gemini 协议只由 `protocol: "gemini"` 的预设发出。 */
+export function productRealizationsFor(channel: Channel): Realization[] {
+  if (channel !== "gemini") return productRealizations();
+  return productRealizations().filter(
+    (realization) => PRESETS.find((preset) => preset.id === realization.presetId)?.protocol === "gemini"
+  );
+}
+
+/** 该通道的落地值集集合（F1 覆盖防线的右侧）：gemini 只看自家预设的实现。 */
+export function channelValuesetIds(channel: Channel): string[] {
+  if (channel !== "gemini") return allValuesetIds();
+  return [...new Set(productRealizationsFor(channel).map((realization) => realization.valuesetId))].sort();
+}
+
 /** 通道的 baseUrl 口径：anthropic 取 protocolBaseUrls.anthropic（缺省回落 baseUrl）。 */
 export function baseUrlFor(channel: Channel, presetId: string): string {
   const preset = PRESETS.find((p) => p.id === presetId);
@@ -128,12 +145,14 @@ export interface BodyRequest {
 /**
  * 通道缝：各通道自己的 adapter 调用形状。bodyAt 是**唯一**的运行期入口——golden 断言、
  * 防线、塌陷判据都从它取片段，口径不会分叉。expectedBody 是同一形状的期望包装（该通道的
- * 常量键 + 片段），供用例逐字节整 body 比对（不做包含式）。
+ * 常量键 + 片段），供用例逐字节整 body 比对（不做包含式）。fragmentOf 从整 body 里取出
+ * **思考字段片段**（gemini 的思考字段嵌在 generationConfig 里，不能按顶层键剥）。
  */
 export interface ChannelHarness {
   readonly channel: Channel;
   bodyAt: (request: BodyRequest) => Record<string, unknown>;
   expectedBody: (model: string, fields: Record<string, unknown>) => Record<string, unknown>;
+  fragmentOf: (body: Record<string, unknown>) => Record<string, unknown>;
 }
 
 export function channelHarness(channel: Channel): ChannelHarness {
@@ -155,7 +174,36 @@ export function channelHarness(channel: Channel): ChannelHarness {
           ...(maxTokens != null ? { maxTokens } : {})
         }) as Record<string, unknown>;
       },
-      expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, ...fields })
+      expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, ...fields }),
+      fragmentOf: thinkingFragment
+    };
+  }
+  if (channel === "gemini") {
+    return {
+      channel,
+      bodyAt: ({ presetId, baseUrl, model, level, stream = false, maxTokens }) => {
+        const resolvedBaseUrl = baseUrl ?? (presetId ? baseUrlFor(channel, presetId) : undefined);
+        return geminiAdapter.buildBody({
+          model,
+          messages: MESSAGES,
+          stream,
+          thinkingWire: planThinkingWire({ protocol: "gemini", model, presetId, baseUrl: resolvedBaseUrl, level, stream, probe: false }),
+          ...(maxTokens != null ? { maxTokens } : {})
+        }) as Record<string, unknown>;
+      },
+      // contents 由 MESSAGES 的 user 单条转换而来（与 adapter 的角色转换无关的常量键）；
+      // 思考字段落 generationConfig.thinkingConfig，无字段时整块 generationConfig 不发射。
+      expectedBody: (model, fields) => {
+        const thinkingConfig = fields.thinkingConfig;
+        return {
+          contents: [{ role: "user", parts: [{ text: "hi" }] }],
+          ...(thinkingConfig ? { generationConfig: { thinkingConfig } } : {})
+        };
+      },
+      fragmentOf: (body) => {
+        const generationConfig = body.generationConfig as Record<string, unknown> | undefined;
+        return generationConfig?.thinkingConfig ? { thinkingConfig: generationConfig.thinkingConfig } : {};
+      }
     };
   }
   return {
@@ -171,13 +219,15 @@ export function channelHarness(channel: Channel): ChannelHarness {
         ...(maxTokens != null ? { maxTokens } : {})
       }) as Record<string, unknown>;
     },
-    expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, max_tokens: DEFAULT_MAX_TOKENS, ...fields })
+    expectedBody: (model, fields) => ({ model, messages: MESSAGES, stream: false, max_tokens: DEFAULT_MAX_TOKENS, ...fields }),
+    fragmentOf: thinkingFragment
   };
 }
 
 /**
  * 出口形态命名（票面六种出口的机械写法）：由**实际发出去的字段组合**命名，不手抄。
  * 例：`thinking:enabled+output_config.effort:medium` / `enable_thinking:true` / `none`。
+ * gemini 的关思考靠 includeThoughts:false 表达，单独进名字，避免与开档同形。
  */
 export function exitFormOf(fields: Record<string, unknown>): string {
   const parts: string[] = [];
@@ -187,6 +237,11 @@ export function exitFormOf(fields: Record<string, unknown>): string {
   if (fields.reasoning_effort !== undefined) parts.push(`reasoning_effort:${String(fields.reasoning_effort)}`);
   const outputConfig = fields.output_config as { effort?: unknown } | undefined;
   if (outputConfig) parts.push(`output_config.effort:${String(outputConfig.effort)}`);
+  const thinkingConfig = fields.thinkingConfig as { thinkingLevel?: unknown; includeThoughts?: unknown } | undefined;
+  if (thinkingConfig) {
+    parts.push(`thinkingConfig.thinkingLevel:${String(thinkingConfig.thinkingLevel)}`);
+    if (thinkingConfig.includeThoughts === false) parts.push("includeThoughts:false");
+  }
   return parts.length > 0 ? parts.join("+") : "none";
 }
 
@@ -205,6 +260,15 @@ export function thinkingFragment(body: Record<string, unknown>): Record<string, 
 /** 矩阵工件的单元格（JSON 文本）→ 思考字段片段。 */
 export function thinkingFragmentOfCell(cell: string): Record<string, unknown> {
   return thinkingFragment(JSON.parse(cell) as Record<string, unknown>);
+}
+
+/** 按通道取思考片段（gemini 的字段嵌在 generationConfig 里）。 */
+export function thinkingFragmentFor(channel: Channel, body: Record<string, unknown>): Record<string, unknown> {
+  return channelHarness(channel).fragmentOf(body);
+}
+
+export function thinkingFragmentOfCellFor(channel: Channel, cell: string): Record<string, unknown> {
+  return thinkingFragmentFor(channel, JSON.parse(cell) as Record<string, unknown>);
 }
 
 export interface RequestMatrix {

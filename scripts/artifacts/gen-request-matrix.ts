@@ -22,6 +22,7 @@
 
 import { writeFileSync } from "node:fs";
 import { anthropicAdapter } from "../../extension/ai/adapters/anthropic.js";
+import { geminiAdapter } from "../../extension/ai/adapters/gemini.js";
 import { buildChatRequestBody } from "../../extension/ai/adapters/openai.js";
 import { planThinkingWire } from "../../extension/ai/plan-thinking.js";
 import {
@@ -118,7 +119,10 @@ const HEADER = [
   "anthropic:high",
   "res:off",
   "res:low",
-  "res:high"
+  "res:high",
+  "gemini:off",
+  "gemini:low",
+  "gemini:high"
 ];
 
 const lines: string[] = [HEADER.join("\t")];
@@ -170,6 +174,29 @@ for (const row of rows) {
   }
   for (const level of LEVELS) {
     cells.push(resCell(row.presetId, row.baseUrl, row.model, level));
+  }
+  // gemini 通道：跨平台组合不是产品路径（只有 gemini 预设说这条协议），但仍逐行产出，
+  // 供 golden 的 F3 来源防线按代表行对账；非 gemini 预设的行由解析层事实自然收敛。
+  for (const level of LEVELS) {
+    cells.push(
+      bodyCell(
+        geminiAdapter.buildBody({
+          model: row.model,
+          messages: MESSAGES,
+          stream: false,
+          thinkingWire: planThinkingWire({
+            protocol: "gemini",
+            model: row.model,
+            presetId: row.presetId,
+            baseUrl: row.baseUrl,
+            level,
+            stream: false,
+            probe: false
+          }),
+          maxTokens: 2048
+        })
+      )
+    );
   }
   lines.push(cells.join("\t"));
 }

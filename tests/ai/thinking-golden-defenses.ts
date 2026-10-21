@@ -1,12 +1,14 @@
 // tests/ai/thinking-golden-defenses.ts
 // 07 号票（golden 按类重构）的**断言注册件**：按类 golden 主体 + 六道防线。
-// 两条通道（openai chat / anthropic messages）共用这一份，避免防线代码各抄一遍；
-// 纯数据口径在 thinking-golden-classes.ts（那边不 import vitest，生成器也要用）。
+// 三条通道（openai chat / anthropic messages / gemini generateContent）共用这一份，
+// 避免防线代码各抄一遍；纯数据口径在 thinking-golden-classes.ts（那边不 import vitest，
+// 生成器也要用）。
 //
 // 防线清单（票面「先列失败方式」的对应）：
-//   F1 覆盖防线   产物新增 valuesetId 而没加用例 → 红（值集表集合 == 用例覆盖集合）；
+//   F1 覆盖防线   产物新增 valuesetId 而没加用例 → 红（值集表集合 == 用例覆盖集合；
+//                 gemini 通道只看自家预设落地的那部分值集）；
 //   F2 归纳完整性 某个 (类, 平台) 实现的行为没有同签名用例承载 → 红；
-//   F3 来源防线   用例数据与 06 请求体矩阵工件（399 行）不一致（runtime 漂移 / 手抄漂移）→ 红；
+//   F3 来源防线   用例数据与 06 请求体矩阵工件不一致（runtime 漂移 / 手抄漂移）→ 红；
 //   F4 验收工件   07-golden-coverage.tsv 的（valuesetId × 通道 × 档位出口形态 → 用例）不符 → 红；
 //   F5 表自洽     用例声明的类不是该 (平台, 模型) 实际命中的值集 / A' 与解析结果不符 → 红；
 //   F6 塌陷区分   effort 血统 low≠high；开关型与 budget-only 的 low==high 是上游事实 → 两侧都钉。
@@ -28,14 +30,14 @@ import {
   allValuesetIds,
   assignedValuesetIds,
   baseUrlFor,
+  channelValuesetIds,
   coverageRows,
   coveredValuesetIds,
   exitFormOf,
   fieldsSignature,
-  productRealizations,
+  productRealizationsFor,
   readRequestMatrix,
-  thinkingFragment,
-  thinkingFragmentOfCell,
+  thinkingFragmentOfCellFor,
   valuesetOf,
   type ByClassCase,
   type Channel,
@@ -43,7 +45,7 @@ import {
 } from "./thinking-golden-classes.js";
 
 function fieldsAt(harness: ChannelHarness, presetId: string, model: string, level: ThinkingLevel): Record<string, unknown> {
-  return thinkingFragment(harness.bodyAt({ presetId, model, level }));
+  return harness.fragmentOf(harness.bodyAt({ presetId, model, level }));
 }
 
 function availableOf(harness: ChannelHarness, presetId: string, model: string): readonly ThinkingLevel[] {
@@ -80,10 +82,12 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
 
   // F1 覆盖防线：产物新增类而没加用例即红。
   describe(`07 防线（${channel}）：覆盖`, () => {
-    it("golden 覆盖的 valuesetId 集合 == 02 产物全部值集（值集表无孤儿）", () => {
+    it("golden 覆盖的 valuesetId 集合 == 该通道落地值集（值集表无孤儿）", () => {
       const covered = coveredValuesetIds(cases);
-      expect(covered).toEqual(allValuesetIds());
-      expect(covered).toEqual(assignedValuesetIds());
+      expect(covered).toEqual(channelValuesetIds(channel));
+      // 全平台通道（openai / anthropic）还要与指派表全集对齐；gemini 只落自家预设。
+      if (channel !== "gemini") expect(covered).toEqual(assignedValuesetIds());
+      expect(allValuesetIds().length).toBeGreaterThan(0);
     });
   });
 
@@ -101,7 +105,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
     });
 
     it("用例代表模型都是产物实现（不是手挑的编外 id）", () => {
-      const keys = new Set(productRealizations().map((r) => `${r.valuesetId}\u0001${r.presetId}\u0001${r.model}`));
+      const keys = new Set(productRealizationsFor(channel).map((r) => `${r.valuesetId}\u0001${r.presetId}\u0001${r.model}`));
       for (const case_ of cases) {
         expect(keys.has(`${case_.valuesetId}\u0001${case_.presetId}\u0001${case_.model}`), `${case_.valuesetId} · ${case_.presetId}/${case_.model}`).toBe(true);
       }
@@ -120,13 +124,13 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
         if (!signatures.has(case_.valuesetId)) signatures.set(case_.valuesetId, new Set());
         signatures.get(case_.valuesetId)!.add(fieldsSignature(case_.fields));
       }
-      const realizations = productRealizations().filter((r) => {
+      const realizations = productRealizationsFor(channel).filter((r) => {
         if (channel === "anthropic") {
           return MESSAGES_TIER_EXIT[r.presetId as PlatformKey]?.kind !== "non-messages";
         }
         return true;
       });
-      expect(realizations.length).toBeGreaterThanOrEqual(80);
+      expect(realizations.length, `${channel} 通道实现数过少`).toBeGreaterThanOrEqual(channel === "gemini" ? 5 : 80);
       for (const realization of realizations) {
         const actual = AI_THINKING_LEVELS.map((level) => fieldsAt(harness, realization.presetId, realization.model, level));
         const label = `${realization.valuesetId} · ${realization.presetId}/${realization.model}`;
@@ -135,7 +139,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
     });
   });
 
-  // F3 来源防线：用例数据 == 06 请求体矩阵工件（399 行，gen-request-matrix.ts 产物，只读）。
+  // F3 来源防线：用例数据 == 06 请求体矩阵工件（gen-request-matrix.ts 产物，只读）。
   // 工件只含 off/low/high 三列——余下 4 档由用例字面 + 02 上游投影用例（thinking-upstream-facts）承接。
   describe.skipIf(!hasArtifact(REQUEST_MATRIX))(`07 防线（${channel}）：来源（06 请求体矩阵工件）`, () => {
     it("每条用例的代表行都在矩阵里，且 off/low/high 的思考字段逐字节相同", () => {
@@ -148,7 +152,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
         for (const level of ["off", "low", "high"] as const) {
           const column = matrix.header.indexOf(`${channel}:${level}`);
           expect(column, `矩阵缺列 ${channel}:${level}`).toBeGreaterThanOrEqual(0);
-          expect(thinkingFragmentOfCell(cells![column]), `${case_.valuesetId} · ${case_.presetId}/${case_.model} · ${level}`).toEqual(
+          expect(thinkingFragmentOfCellFor(channel, cells![column]), `${case_.valuesetId} · ${case_.presetId}/${case_.model} · ${level}`).toEqual(
             case_.fields[AI_THINKING_LEVELS.indexOf(level)]
           );
           compared += 1;
@@ -164,8 +168,8 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
       const lines = readFileSync(COVERAGE_MATRIX, "utf8").split("\n").filter((line) => line.length > 0);
       expect(lines[0].split("\t")).toEqual([...COVERAGE_HEADER]);
       const all = lines.slice(1);
-      // 通道列只有两条通道（防止工件多出第三条通道却无人对账——每个文件只看自己那半）。
-      expect([...new Set(all.map((line) => line.split("\t")[1]))].sort()).toEqual(["anthropic", "openai"]);
+      // 通道列只有三条通道（防止工件多出第四条通道却无人对账——每个文件只看自己那半）。
+      expect([...new Set(all.map((line) => line.split("\t")[1]))].sort()).toEqual(["anthropic", "gemini", "openai"]);
       expect(all.filter((line) => line.split("\t")[1] === channel)).toEqual(coverageRows(channel, cases));
     });
   });
@@ -175,7 +179,7 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
   describe(`07 防线（${channel}）：塌陷区分`, () => {
     it("effort 血统：low/high 都在 A' 时请求体必须不同（不允许塌陷）", () => {
       let checked = 0;
-      for (const realization of productRealizations()) {
+      for (const realization of productRealizationsFor(channel)) {
         if (channel === "anthropic" && MESSAGES_TIER_EXIT[realization.presetId as PlatformKey]?.kind === "non-messages") continue;
         if (!VALUESETS[realization.valuesetId]?.effort) continue;
         const available = availableOf(harness, realization.presetId, realization.model);
@@ -186,12 +190,14 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
         expect(JSON.stringify(low), `${label}：effort 血统塌陷（low 与 high 同落 ${exitFormOf(low)}）`).not.toBe(JSON.stringify(high));
         checked += 1;
       }
-      expect(checked).toBeGreaterThanOrEqual(10);
+      // gemini 通道的 effort 值集只有 3 类（low-high / low-medium-high / minimal-high）；
+      // 其余通道是全平台汇聚，门槛维持原来的体量。
+      expect(checked).toBeGreaterThanOrEqual(channel === "gemini" ? 2 : 10);
     });
 
     it("开关型 / budget-only 血统：low==high 是上游事实（无 effort 词表可发）", () => {
       let checked = 0;
-      for (const realization of productRealizations()) {
+      for (const realization of productRealizationsFor(channel)) {
         if (channel === "anthropic" && MESSAGES_TIER_EXIT[realization.presetId as PlatformKey]?.kind === "non-messages") continue;
         if (VALUESETS[realization.valuesetId]?.effort) continue;
         // 18 号票删平台声明后没有例外平台：toggle 值集只在已登记开关形状的平台上产生
@@ -204,7 +210,9 @@ export function registerByClassDefenses(harness: ChannelHarness, cases: readonly
         expect(JSON.stringify(low), `${label}：开关型/budget-only 的 low/high 应同为上游唯一形状`).toBe(JSON.stringify(high));
         checked += 1;
       }
-      expect(checked).toBeGreaterThanOrEqual(5);
+      // gemini 没有登记开关形状：toggle / budget-only 值集在 A' 里一个档都不可表达，
+      // 上面两条判据会跳过全部实现——本通道这一格是空集，不做体量断言。
+      if (channel !== "gemini") expect(checked).toBeGreaterThanOrEqual(5);
     });
   });
 }

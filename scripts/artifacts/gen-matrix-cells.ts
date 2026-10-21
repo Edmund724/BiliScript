@@ -47,12 +47,15 @@ for (const [key, afterCells] of after.rows) {
   const [platform, model] = key.split("\u0001");
   for (let index = 2; index < after.header.length; index += 1) {
     const column = after.header[index];
-    if (beforeCells[index] === afterCells[index]) continue;
+    const beforeIndex = before.header.indexOf(column);
+    // 新增列（如 gemini 通道）没有历史基线：不产生 before/after 差异行。
+    if (beforeIndex < 0) continue;
+    if (beforeCells[beforeIndex] === afterCells[index]) continue;
     // 轨迹：该列对应哪一档偏好（body/res 列名都带档位后缀）。
     const level = column.slice(column.lastIndexOf(":") + 1);
     const adjustment = resolveThinkingAdjustment({ presetId: platform, model, level, stream: false });
     const trace = `偏好 ${adjustment.requestedLevel} → 实发 ${adjustment.effectiveLevel ?? "(不发)"}｜A'={${adjustment.availableLevels.join(",") || "∅"}}｜原因=${adjustment.reason ?? "-"}`;
-    cells.push({ platform, model, column, before: beforeCells[index], after: afterCells[index], trace });
+    cells.push({ platform, model, column, before: beforeCells[beforeIndex], after: afterCells[index], trace });
   }
 }
 

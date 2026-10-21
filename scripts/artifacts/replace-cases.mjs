@@ -1,5 +1,5 @@
 // scripts/artifacts/replace-cases.mjs
-// 用 07-golden-cases.generated.ts 的最新字面表，替换两个 golden 测试文件里的 CASES 块。
+// 用 07-golden-cases.generated.ts 的最新字面表，替换三个 golden 测试文件里的 CASES 块。
 // 跑法：pnpm artifacts:sync（编排见 scripts/artifacts/sync.mjs）；单跑：node scripts/artifacts/replace-cases.mjs
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -15,7 +15,8 @@ function block(channel) {
 
 const targets = [
   ["tests/ai/thinking-golden.test.ts", "openai"],
-  ["tests/ai/thinking-golden-messages.test.ts", "anthropic"]
+  ["tests/ai/thinking-golden-messages.test.ts", "anthropic"],
+  ["tests/ai/thinking-golden-gemini.test.ts", "gemini"]
 ];
 
 for (const [path, channel] of targets) {

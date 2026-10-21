@@ -8,8 +8,7 @@
 //   A. .scratch/.../artifacts/07-golden-coverage.tsv —— valuesetId × 通道 × 档位（出口形态）
 //      → 用例归属；
 //   B. .scratch/.../artifacts/07-golden-cases.generated.ts —— 由 replace-cases.mjs 拼进
-//      两个 golden 文件的用例表（生成留痕，便于 diff 审读；两个 golden 文件里的字面表
-//      与它逐字一致）。
+//      三个 golden 文件的用例表（生成留痕，便于 diff 审读；golden 文件里的字面表与它逐字一致）。
 //
 // 对账（生成期硬失败）：每个用例代表行在矩阵工件里必须存在，且 off/low/high 的思考字段
 // 逐字节相同——生成器自己先过一遍来源防线，粘进测试的字面表不可能是手抄漂移。
@@ -29,14 +28,14 @@ import {
   channelHarness,
   coverageRows,
   fieldsSignature,
-  productRealizations,
+  productRealizationsFor,
   readRequestMatrix,
-  thinkingFragment,
-  thinkingFragmentOfCell,
+  thinkingFragmentOfCellFor,
   type ByClassCase,
   type Channel
 } from "../../tests/ai/thinking-golden-classes.js";
 
+const CHANNELS = ["openai", "anthropic", "gemini"] as const;
 const LEVELS = ["off", "low", "high"] as const;
 
 /** 产物实现 → 按 (类, 出口形态签名) 归纳的用例：类内按签名首次出现序，代表取首个实现。 */
@@ -44,9 +43,9 @@ function buildCases(channel: Channel, matrix: ReturnType<typeof readRequestMatri
   const harness = channelHarness(channel);
   const byClass = new Map<string, ByClassCase[]>();
   const signatures = new Map<string, Set<string>>();
-  for (const realization of productRealizations()) {
+  for (const realization of productRealizationsFor(channel)) {
     const fields = AI_THINKING_LEVELS.map((level) =>
-      thinkingFragment(harness.bodyAt({ presetId: realization.presetId, model: realization.model, level }))
+      harness.fragmentOf(harness.bodyAt({ presetId: realization.presetId, model: realization.model, level }))
     );
     const signature = fieldsSignature(fields);
     if (!signatures.has(realization.valuesetId)) signatures.set(realization.valuesetId, new Set());
@@ -73,7 +72,7 @@ function buildCases(channel: Channel, matrix: ReturnType<typeof readRequestMatri
     for (const level of LEVELS) {
       const column = matrix.header.indexOf(`${channel}:${level}`);
       if (column < 0) throw new Error(`矩阵缺列 ${channel}:${level}`);
-      const actual = JSON.stringify(thinkingFragmentOfCell(cells[column]));
+      const actual = JSON.stringify(thinkingFragmentOfCellFor(channel, cells[column]));
       const expected = JSON.stringify(fields[AI_THINKING_LEVELS.indexOf(level)]);
       if (actual !== expected) {
         throw new Error(
@@ -95,21 +94,20 @@ function literalCase(case_: ByClassCase): string {
 }
 
 const matrix = readRequestMatrix(REQUEST_MATRIX);
-const casesByChannel: Record<Channel, ByClassCase[]> = {
-  openai: buildCases("openai", matrix),
-  anthropic: buildCases("anthropic", matrix)
-};
+const casesByChannel = Object.fromEntries(
+  CHANNELS.map((channel) => [channel, buildCases(channel, matrix)])
+) as Record<Channel, ByClassCase[]>;
 
 // A. 覆盖工件
 const coverageLines: string[] = [COVERAGE_HEADER.join("\t")];
-for (const channel of ["openai", "anthropic"] as const) coverageLines.push(...coverageRows(channel, casesByChannel[channel]));
+for (const channel of CHANNELS) coverageLines.push(...coverageRows(channel, casesByChannel[channel]));
 writeFileSync(COVERAGE_MATRIX, `${coverageLines.join("\n")}\n`, "utf8");
 
 // B. 用例表留痕
 const out: string[] = [];
-out.push("// 由 scripts/artifacts/gen-golden-tables.ts 生成（勿手改；两组字面表与两个 golden 文件里的一致）。");
+out.push("// 由 scripts/artifacts/gen-golden-tables.ts 生成（勿手改；各组字面表与 golden 文件里的一致）。");
 out.push("// fields 序 = AI_THINKING_LEVELS（off/minimal/low/medium/high/xhigh/max），{} = 不发字段。");
-for (const channel of ["openai", "anthropic"] as const) {
+for (const channel of CHANNELS) {
   out.push("");
   out.push(`// ===== ${channel} 通道：${casesByChannel[channel].length} 个（类 × 出口形态）用例 =====`);
   out.push("const CASES: readonly ByClassCase[] = [");
@@ -119,7 +117,7 @@ for (const channel of ["openai", "anthropic"] as const) {
 writeFileSync(COVERAGE_MATRIX.replace("07-golden-coverage.tsv", "07-golden-cases.generated.ts"), `${out.join("\n")}\n`, "utf8");
 
 console.log(`矩阵工件行数: ${matrix.rows.size}`);
-for (const channel of ["openai", "anthropic"] as const) {
+for (const channel of CHANNELS) {
   const cases = casesByChannel[channel];
   console.log(`${channel}: 类数 ${new Set(cases.map((c) => c.valuesetId)).size}，用例数 ${cases.length}`);
 }

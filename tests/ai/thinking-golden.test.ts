@@ -31,7 +31,8 @@
 // 手工可读用例（票面非目标：不删，转成每方言一条）在本文件压到 5 条：
 // openai（effort 词汇本体）/ siliconflow（enable_thinking）/ doubao（thinking:{type}）/
 // ollama（无上游 preset 的 unknownClass 兜底）/ unknown 哨兵（三档不发）。
-// 加上 Messages 通道的 7 条，两文件合计 12 条精确 body 钉（票面上限）。
+// Messages 与 Gemini 通道各有独立文件（thinking-golden-messages.test.ts /
+// thinking-golden-gemini.test.ts），三者共用同一套按类断言与防线。
 // tokenParam（04 号票）与 ModelScope streamOnly（Q14A）语义不是方言钉，原样保留。
 
 import { describe, expect, it } from "vitest";
@@ -108,7 +109,7 @@ const CASES: readonly ByClassCase[] = [
 registerByClassGolden(HARNESS, CASES);
 registerByClassDefenses(HARNESS, CASES);
 
-// ===== 每方言一条逐平台精确 body（真实平台回归钉；≤12 条）=====
+// ===== 每方言一条逐平台精确 body（真实平台回归钉）=====
 describe("golden：每方言一条精确 body（openai 通道）", () => {
   it("(1) api.openai.com + gpt-5.1：top-level reasoning_effort（off 用 none 实现关思考）", () => {
     const baseUrl = "https://api.openai.com/v1";
