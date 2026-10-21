@@ -75,7 +75,7 @@ export function stopReadingViewSync() {
   unbindReadingViewVideoSync();
 }
 
-export function syncReadingViewPlayback(forceScroll = false) {
+export function syncReadingViewPlayback(forceScroll = false, overrideTime?: number) {
   if (!state.reader.readingViewOpen) {
     return;
   }
@@ -86,7 +86,7 @@ export function syncReadingViewPlayback(forceScroll = false) {
     return;
   }
 
-  const currentTime = Number(bound.currentTime || 0) || 0;
+  const currentTime = overrideTime !== undefined ? overrideTime : (Number(bound.currentTime || 0) || 0);
   // P3-1：字幕 tab 可见性判定（tick 的滚动/高亮段开关）——判定输入全部来自状态
   // 位（候选06：视图开关 / 当前标签 / 设置抽屉展开，谓词单点在 reader/state.js 的
   // isReadingSubtitleBodyVisible），与 CSS 三条隐藏通道（reader.css 的
@@ -281,7 +281,10 @@ function scrollReadingSubtitleItemIntoView(node: HTMLElement) {
 // 播放策略：阅读视图内点击传 resumePlayback:true（旧行为：暂停即播放）；侧栏
 // seek 传 resumePlayback:false（暂停中不自动播放，与旧侧栏行为等价——旧侧栏
 // 只在「seek 前正在播放」时补一次 play，本就在播的视频无需干预）。
-export function seekReadingTarget(seconds: number | string, { resumePlayback = false } = {}) {
+export function seekReadingTarget(
+  seconds: number | string,
+  { resumePlayback = false, scrollBehavior = "auto" as "auto" | "smooth" } = {}
+) {
   const video = bindReadingViewVideo();
   if (!video) {
     renderReadingStatus("当前页面没有找到可联动的视频播放器。");
@@ -293,19 +296,19 @@ export function seekReadingTarget(seconds: number | string, { resumePlayback = f
   const raw = Number(seconds);
   const nextTime = Math.max(0, Number.isFinite(raw) ? raw : 0);
   resetManualScrollPause();
-  state.reader.setNextScrollBehavior("auto");
+  state.reader.setNextScrollBehavior(scrollBehavior);
   updateReaderFollowState();
   video.currentTime = nextTime;
   if (resumePlayback && video.paused) {
     video.play().catch(() => {});
   }
-  syncReadingViewPlayback(true);
+  syncReadingViewPlayback(true, nextTime);
   return nextTime;
 }
 
-// 阅读视图内点击跳转：自动播放策略（resumePlayback:true）委托给 seek 深入口。
+// 阅读视图内点击跳转：自动播放策略（resumePlayback:true）委托给 seek 深入口，采用平滑过渡滚动。
 export function jumpReadingTarget(seconds: number | string) {
-  seekReadingTarget(seconds, { resumePlayback: true });
+  seekReadingTarget(seconds, { resumePlayback: true, scrollBehavior: "smooth" });
 }
 
 export function onReadingSubtitleClick(event: MouseEvent) {
