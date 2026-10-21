@@ -142,7 +142,7 @@ async function loadContentScript(settings: Partial<Settings>) {
   stubChrome(settings);
   await import("../../extension/entry/content.js");
   // 仅在开关开启时预热懒加载的 player-ai 模块（loadPlayerAi 返回缓存的同一
-  // promise）：「关闭 ⇒ 未加载」是生产不变量（subscribePlayerAiSync seam 与
+  // promise）：「关闭 ⇒ 未加载」是生产不变量（reader 侧快捷按钮同步与
   // stopLazy 据此跳过），无条件预热会让关闭用例的注册表带出能开火的 sync
   // 定时器。模块加载本身不挂 observer/监听，不影响「设置关闭」用例的断言。
   if (settings.enablePlayerAiQuickAction) {

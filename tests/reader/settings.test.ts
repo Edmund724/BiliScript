@@ -28,22 +28,16 @@ async function loadReaderModules() {
   lifecycle = await import("../../extension/reader/index.js");
   ids = (await import("../../extension/reader/state.js")).ids;
   chromeStub = globalThis.chrome as unknown as ChromeRuntimeStub;
-  // 模拟 content.js 的能力槽接线：reader 域经 reader-bus 持久化/读取设置，
-  // 底层仍是 chrome.runtime.sendMessage（tests/setup.ts 的 stub）。
+  // 模拟 content.js 的能力槽接线：reader 域经 reader-bus 持久化设置，底层仍是
+  // chrome.runtime.sendMessage（tests/setup.ts 的 stub）；设置回读走
+  // core/runtime 的 getSettings。
   presenter.registerContentCapabilities({
     persistSettings: () => {
       chromeStub.runtime.sendMessage(
         { type: "save-settings", settings: state.settings },
         () => {}
       );
-    },
-    loadSettings: () =>
-      new Promise<Record<string, unknown>>((resolve) => {
-        chromeStub.runtime.sendMessage({ type: "get-settings" }, (resp: { ok: boolean; settings?: Record<string, unknown> }) => {
-          resolve(resp?.ok ? { ...(resp.settings || {}) } : {});
-        });
-      }),
-    playerAiSync: () => {}
+    }
   });
 }
 

@@ -12,9 +12,9 @@
 //     装载成功路径上经 subscribeSubtitleRefresh 注册 refreshClip。链装载失败时
 //     调用照旧发生，因此本槽缺失按 no-op 处理（不抛、不告警）。
 //   content → reader（能力槽）：
-//     settings 持久化/读取与 player-ai 快捷按钮同步的实现在常驻包，reader 域经
-//     persistReaderSettingsThroughSeam / loadReaderSettingsThroughSeam /
-//     requestPlayerAiSync 调用；实现在 entry/content.ts 启动时一次性注册。
+//     settings 持久化的实现在常驻包（读全量 state.settings 后发 save-settings），
+//     reader 域经 persistReaderSettingsThroughSeam 调用；实现在 entry/content.ts
+//     启动时一次性注册。这是唯一跨常驻/懒加载两区的槽。
 //   reader → ui 壳（壳命令）、ui 壳 → reader（标签意图）：
 //     reader 侧对壳的回头调改发具名命令 requestUiCommand(name, payload?)；壳在
 //     装载时经 subscribeUiCommand 注册单 handler。反方向由壳的标签按钮经
@@ -37,9 +37,9 @@
 //
 // 槽表挂 globalThis 而非模块级变量：两轮构建（scripts/build-content.js）把常驻
 // 底座在懒加载区重复一份，本模块在 content-main 与 chunks/ 共享 chunk 里各是一个
-// 实例。能力槽由常驻包注册、懒加载区消费，模块级槽会让注册与调用静默错开（阅读
-// 面板里改主题不落盘、player-ai 同步请求无人接收）。隔离世界的 globalThis 在同一
-// 扩展的全部 content 模块间唯一，两侧经它对齐到同一份槽。
+// 实例。settings 持久化槽由常驻包注册、懒加载区消费，模块级槽会让注册与调用静默
+// 错开（阅读面板里改主题不落盘）。隔离世界的 globalThis 在同一扩展的全部 content
+// 模块间唯一，两侧经它对齐到同一份槽。
 //
 // 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——本模块含模块级可变状态（槽
 // 表），允许双实例；安全依据即上文的 globalThis 槽。
@@ -61,8 +61,6 @@ export type ReaderPresenterHandler = (event: ReaderPresenterEvent) => void;
 
 type SubtitleRefreshHandler = () => unknown;
 type SettingsPersistHandler = () => void;
-type SettingsLoadHandler = () => unknown;
-type PlayerAiSyncHandler = (delayMs?: number, options?: { resetRetry?: boolean }) => void;
 type UiCommandHandler = (name: string, payload?: unknown) => void;
 type TabIntentHandler = (tab: ReaderScriptTab) => void;
 type ChatTabOutsideClickHandler = (event: MouseEvent) => void;
@@ -71,8 +69,6 @@ type ChatTabOutsideClickHandler = (event: MouseEvent) => void;
 interface ReaderSeamHandlerMap {
   subtitleRefresh: SubtitleRefreshHandler;
   persistSettings: SettingsPersistHandler;
-  loadSettings: SettingsLoadHandler;
-  playerAiSync: PlayerAiSyncHandler;
   uiCommand: UiCommandHandler;
   tabIntent: TabIntentHandler;
   chatTabOutsideClick: ChatTabOutsideClickHandler;
@@ -93,8 +89,6 @@ interface ReaderSeamDeclaration {
 export const READER_SEAM_METHODS = Object.freeze({
   subtitleRefresh: { policy: "noop", owner: "subtitle/fetcher" },
   persistSettings: { policy: "noop-warn", owner: "entry/content" },
-  loadSettings: { policy: "noop-warn", owner: "entry/content" },
-  playerAiSync: { policy: "noop-warn", owner: "entry/content" },
   uiCommand: { policy: "noop-warn", owner: "ui/ui-renderer" },
   tabIntent: { policy: "noop-warn", owner: "reader/script-tab-activation" },
   chatTabOutsideClick: { policy: "noop-warn", owner: "reader/chat-tab" },
@@ -104,7 +98,7 @@ export const READER_SEAM_METHODS = Object.freeze({
 } as const satisfies Record<ReaderSeamMethod, ReaderSeamDeclaration>);
 
 // 常驻能力组的精确覆盖方法集（entry/content.ts 一次性注册）。
-const CONTENT_CAPABILITY_METHODS = ["persistSettings", "loadSettings", "playerAiSync"] as const;
+const CONTENT_CAPABILITY_METHODS = ["persistSettings"] as const;
 
 // reader 端口组的精确覆盖方法集（lifecycle 单点注册）。
 export const READER_PORT_METHODS = Object.freeze([
@@ -121,8 +115,6 @@ export type ReaderPortImpls = {
 
 export type ContentSeamCapabilities = {
   persistSettings: SettingsPersistHandler;
-  loadSettings: SettingsLoadHandler;
-  playerAiSync: PlayerAiSyncHandler;
 };
 
 interface ReaderBusSlots {
@@ -217,7 +209,7 @@ function assertNotRegistered(kind: string, methods: readonly ReaderSeamMethod[])
   }
 }
 
-// 常驻能力组的唯一注册入口：entry/content.ts 启动时一次性注册三个能力槽。
+// 常驻能力组的唯一注册入口：entry/content.ts 启动时一次性注册 settings 持久化槽。
 export function registerContentCapabilities(impls: ContentSeamCapabilities): void {
   if (!impls || typeof impls !== "object") {
     throw new Error("[BILISCRIPT] reader 能力槽注册缺少实现表。");
@@ -320,31 +312,6 @@ export function persistReaderSettingsThroughSeam() {
     handler();
   } catch (error) {
     logWarn("[BILISCRIPT] reader settings persist handler failed", { error });
-  }
-}
-
-export function loadReaderSettingsThroughSeam() {
-  const handler = resolveSeamHandler("loadSettings");
-  if (!handler) {
-    return Promise.resolve(null);
-  }
-  try {
-    return Promise.resolve(handler());
-  } catch (error) {
-    logWarn("[BILISCRIPT] reader settings load handler failed", { error });
-    return Promise.resolve(null);
-  }
-}
-
-export function requestPlayerAiSync(delayMs?: number, options?: { resetRetry?: boolean }) {
-  const handler = resolveSeamHandler("playerAiSync");
-  if (!handler) {
-    return;
-  }
-  try {
-    handler(delayMs, options);
-  } catch (error) {
-    logWarn("[BILISCRIPT] player-ai sync handler failed", { error });
   }
 }
 

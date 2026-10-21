@@ -36,9 +36,7 @@ function validImpls() {
 
 function validCapabilities(): ContentSeamCapabilities {
   return {
-    persistSettings: vi.fn(),
-    loadSettings: vi.fn(() => Promise.resolve(null)),
-    playerAiSync: vi.fn()
+    persistSettings: vi.fn()
   };
 }
 
@@ -97,23 +95,19 @@ describe("reader 显式端口", () => {
 });
 
 describe("常驻能力槽", () => {
-  it("注册后三个能力槽可路由", async () => {
+  it("注册后 persist 槽可路由", () => {
     const caps = validCapabilities();
     bus.registerContentCapabilities(caps);
 
     bus.persistReaderSettingsThroughSeam();
-    await bus.loadReaderSettingsThroughSeam();
-    bus.requestPlayerAiSync(120, { resetRetry: true });
 
     expect(caps.persistSettings).toHaveBeenCalledTimes(1);
-    expect(caps.loadSettings).toHaveBeenCalledTimes(1);
-    expect(caps.playerAiSync).toHaveBeenCalledWith(120, { resetRetry: true });
   });
 
   it("缺方法 / 含未知方法 / 重复注册即抛错", () => {
-    const { playerAiSync: _omitted, ...partial } = validCapabilities();
+    const { persistSettings: _omitted, ...partial } = validCapabilities();
     expect(() => bus.registerContentCapabilities(partial as unknown as ContentSeamCapabilities)).toThrow(
-      /缺少方法.*playerAiSync/
+      /缺少方法.*persistSettings/
     );
 
     expect(() =>
@@ -147,9 +141,7 @@ describe("缺失策略", () => {
     expect(() => bus.dispatchChatTabOutsideClick(new MouseEvent("click"))).not.toThrow();
   });
 
-  it("能力槽缺失为 no-op，持久化/读取路径不抛", async () => {
+  it("能力槽缺失为 no-op，持久化路径不抛", () => {
     expect(() => bus.persistReaderSettingsThroughSeam()).not.toThrow();
-    expect(() => bus.requestPlayerAiSync()).not.toThrow();
-    await expect(bus.loadReaderSettingsThroughSeam()).resolves.toBeNull();
   });
 });

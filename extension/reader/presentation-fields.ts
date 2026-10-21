@@ -183,7 +183,7 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     readValue: null
   },
   // —— 纯 storage 监听键：无属性落位，只为 bindSettingsWatcher 键清单服务 ——
-  // 播放器 AI 快捷动作的开关/提示词变化需要立即触发设置回读与 requestPlayerAiSync。
+  // 播放器 AI 快捷动作的开关/提示词变化需要立即触发设置回读与快捷按钮同步。
   {
     id: "enablePlayerAiQuickAction",
     kind: "settings",

@@ -9,16 +9,14 @@
 // 搬进 reader/lifecycle.ts）：content 两轮构建把常驻底座在懒加载区重复一份，
 // reader-bus 有两个实例，常驻侧订阅收不到懒加载区发布的通知。
 //
-// 依赖全部为常驻叶子（core/state、shared/logging、./reader-bus、
+// 依赖全部为常驻叶子（core/state、core/runtime、shared/logging、ai/lazy-player-ai、
 // ./presentation、./view-state、./lazy-reader、./presentation-fields 纯常量），
 // 不 import lifecycle/sync 等 reader 域重实现。
 import { state, uiState } from "../core/state.js";
+import { getSettings } from "../core/runtime.js";
 import { logWarn } from "../shared/logging.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
-import {
-  loadReaderSettingsThroughSeam,
-  requestPlayerAiSync
-} from "./reader-bus.js";
+import { loadPlayerAi, isPlayerAiLoaded } from "../ai/lazy-player-ai.js";
 // 候选03 常驻瘦身：hydrate / apply 已惰性化，只在阅读视图打开时才需要应用。
 import {
   applyReadingViewPresentation,
@@ -36,7 +34,28 @@ import { ensureReaderDomain } from "./lazy-reader.js";
 // 随滚动/字幕/章节开关删除；排版监听键为 readerTheme（明暗）与 readerPalette
 //（色板，01 号票新增），外加上述两枚 settings 键。）
 import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
-import type { Settings } from "../core/defaults.js";
+
+// 播放器 AI 快捷按钮同步：设置变更后让按钮位置/提示词跟上。未加载 = 快捷开关
+// 关闭态：按钮不存在，无需同步（start 自带初始 sync，开启后同步自然恢复语义）。
+export function syncPlayerAiQuickAction(
+  delayMs?: number,
+  options?: { resetRetry?: boolean }
+): void {
+  if (!isPlayerAiLoaded()) {
+    return;
+  }
+  void (async () => {
+    try {
+      const playerAi = await loadPlayerAi();
+      if (options?.resetRetry) {
+        playerAi.resetPlayerAiQuickActionRetryCount();
+      }
+      playerAi.schedulePlayerAiQuickActionSync(delayMs);
+    } catch (error) {
+      logWarn("[BILISCRIPT] player-ai sync via lazy loader failed", error);
+    }
+  })();
+}
 
 // 阅读模式调试辅助（__BILISCRIPT_READER_DEBUG_SNAPSHOT__ 等）。注册保持常驻轻量；
 // 快照真身（createReaderDebugSnapshot，读播放器链布局/样式）在 reader 域内，
@@ -58,7 +77,7 @@ export function installReaderDebugHelpers() {
     snapshotReader
   };
   globalThis.__BILISCRIPT_FORCE_SYNC_PLAYER_AI__ = () => {
-    requestPlayerAiSync(0, { resetRetry: true });
+    syncPlayerAiQuickAction(0, { resetRetry: true });
   };
 }
 
@@ -76,11 +95,11 @@ export function bindSettingsWatcher() {
   //（R3 收口，sync+local 两区同一键清单）。
   watchStorageKeys(async (changes) => {
     try {
-      const next = (await loadReaderSettingsThroughSeam()) as Settings;
+      const next = await getSettings();
       state.setSettings(next);
       // 候选03：阅读视图未打开时跳过呈现层应用；进入阅读模式时 enterReaderMode
       // 内部会 hydrate/apply，保证最终状态正确。视图开着则经惰性装载后应用
-      //（fire-and-forget：不阻塞下方 requestPlayerAiSync，与迁移前启动链后
+      //（fire-and-forget：不阻塞下方 syncPlayerAiQuickAction，与迁移前启动链后
       // 同步触发 sync 的时序一致）。
       if (isReaderViewOpen()) {
         void (async () => {
@@ -92,7 +111,7 @@ export function bindSettingsWatcher() {
           }
         })();
       }
-      requestPlayerAiSync();
+      syncPlayerAiQuickAction();
     } catch (error) {
       logWarn("[BILISCRIPT] failed to refresh settings after storage change", error);
     }

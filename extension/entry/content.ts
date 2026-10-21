@@ -50,15 +50,6 @@ import { registerDebugLogGate } from "../shared/debug-log-gate.js";
 // storage.onChanged 区/键过滤 seam（R3 收口：播放器 AI 开关门不再自挂监听）
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 
-// lazy-player-ai.ts 的接口未覆盖 content 侧实际调用的全部方法；用局部接口
-// 精确描述本文件消费的 API，避免把调用点退化成 any。
-interface PlayerAiApi {
-  startPlayerAiQuickAction(): void;
-  stopPlayerAiQuickAction(): void;
-  resetPlayerAiQuickActionRetryCount(): void;
-  schedulePlayerAiQuickActionSync(delayMs?: number): void;
-}
-
 globalThis.__BILISCRIPT_CONTENT_SCRIPT_LOADED__ = BILISCRIPT_VERSION;
 
 // 播放器 AI 开关监听只注册一次：init 在模块加载时同步执行，声明必须位于
@@ -106,34 +97,12 @@ function init(): void {
   bindRuntimeEvents();
   bindSettingsWatcher();
   // 常驻能力槽注册：settings 持久化出口（读全量 state.settings 后发
-  // save-settings）与 player-ai 快捷按钮同步的实现在常驻侧，reader 域只经
-  // reader-bus 调用。delayMs 透传给 schedulePlayerAiQuickActionSync（缺省
-  // 120ms）；options.resetRetry 先重置重试计数再同步。
+  // save-settings）的实现在常驻侧，reader 域只经 reader-bus 调用。
   registerContentCapabilities({
     persistSettings: () => {
       sendRuntimeMessage({ type: "save-settings", settings: state.settings }).catch((error) => {
         logWarn("[BILISCRIPT] failed to persist reader settings", error);
       });
-    },
-    loadSettings: () => getSettings(),
-    playerAiSync: (delayMs, options) => {
-      // 未加载 = 快捷开关关闭态：按钮不存在，无需同步（start 自带初始 sync，
-      // 开启后 reader 的同步请求自然恢复语义）。
-      if (!isPlayerAiLoaded()) {
-        return;
-      }
-      (async () => {
-        try {
-          const playerAi = await loadPlayerAi();
-          const api = playerAi as unknown as PlayerAiApi;
-          if (options && options.resetRetry) {
-            api.resetPlayerAiQuickActionRetryCount();
-          }
-          api.schedulePlayerAiQuickActionSync(delayMs);
-        } catch (error) {
-          logWarn("[BILISCRIPT] player-ai sync via lazy loader failed", error);
-        }
-      })();
     }
   });
   bindNormalPageStateGuard();
@@ -250,7 +219,7 @@ function bindPlayerAiSettingsWatcher(): void {
 async function startPlayerAiQuickActionLazy(): Promise<void> {
   try {
     const playerAi = await loadPlayerAi();
-    (playerAi as unknown as PlayerAiApi).startPlayerAiQuickAction();
+    playerAi.startPlayerAiQuickAction();
   } catch (error) {
     logWarn("[BILISCRIPT] player-ai module load failed (quick action not started)", error);
   }
@@ -262,7 +231,7 @@ async function stopPlayerAiQuickActionLazy(): Promise<void> {
   }
   try {
     const playerAi = await loadPlayerAi();
-    (playerAi as unknown as PlayerAiApi).stopPlayerAiQuickAction();
+    playerAi.stopPlayerAiQuickAction();
   } catch (error) {
     logWarn("[BILISCRIPT] player-ai stop after lazy load failed", error);
   }

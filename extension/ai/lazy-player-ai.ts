@@ -26,9 +26,14 @@
 //
 // 双实例纪律标记：BILISCRIPT_DUAL_INSTANCE_STATEFUL——模块级 loader 的 promise 缓存
 // 是闭包可变状态（依据见 shared/lazy-import.ts 头注）。
+// 消费方实际调用的 player-ai 面：start/stop 供 content 的启停适配，remove 供
+// reader 壳关闭阅读视图，schedule/resetRetry 供设置变更后的快捷按钮同步。
 interface PlayerAiDomain {
+  startPlayerAiQuickAction(): void;
+  stopPlayerAiQuickAction(): void;
   removePlayerAiQuickActionButton(): void;
-  schedulePlayerAiQuickActionSync(): void;
+  resetPlayerAiQuickActionRetryCount(): void;
+  schedulePlayerAiQuickActionSync(delayMs?: number): void;
 }
 
 import { createLazyLoader } from "../shared/lazy-import.js";
