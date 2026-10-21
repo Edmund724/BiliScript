@@ -61,14 +61,14 @@ describe("字幕活动行：整颗白卡、时间戳减噪", () => {
     expect(ruleBody(readCss(), "\\.biliscript-reading-text")).not.toMatch(/text-decoration/);
   });
 
-  it("活动行白卡在行容器：inline-grid 内容宽 + 18px 圆角 + card 白卡底 + tab 同款凸起投影", () => {
+  it("活动行白卡在行容器：inline-grid 内容宽 + 28px 圆角 + card 白卡底 + tab 同款凸起投影", () => {
     const css = readCss();
     const block = ruleBody(css, "#biliscript-reading-view \\.biliscript-reading-item\\.is-active");
 
     expect(declaration(block, "display")).toBe("inline-grid");
     expect(declaration(block, "width")).toBe("auto");
     expect(declaration(block, "max-width")).toBe("100%");
-    expect(declaration(block, "border-radius")).toBe("18px");
+    expect(declaration(block, "border-radius")).toBe("28px");
     expect(declaration(block, "background")).toBe("var(--biliscript-reader-card)");
     expect(declaration(block, "box-shadow")).toBe(
       "0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9)"

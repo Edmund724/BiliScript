@@ -67,11 +67,11 @@ function themeBlock(tailSelector: string): string {
 }
 
 describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
-  it("tab 内容区是 card 白卡：card 底 + 18px 圆角 + margin 环透出页面灰", () => {
+  it("tab 内容区是 card 白卡：card 底 + 28px 圆角 + margin 环透出页面灰", () => {
     const body = ruleBody(readCss(READER_CSS), ".biliscript-reading-tab-body");
 
     expect(body).toContain("background: var(--biliscript-reader-card)");
-    expect(body).toContain("border-radius: 18px");
+    expect(body).toContain("border-radius: 28px");
     expect(body).toMatch(/(?:^|;)\s*margin:\s*\d+px\s+\d+px\s+\d+px\s*;/);
   });
 
@@ -117,7 +117,7 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     const item = ruleBody(css, ".biliscript-reading-chat .chat-history-item");
 
     expect(item).not.toMatch(/border\s*:/);
-    expect(item).toContain("border-radius: 18px");
+    expect(item).toContain("border-radius: 28px");
     expect(item).not.toContain("background");
     expect(ruleBody(css, ".biliscript-reading-chat .chat-history-item:hover")).toContain(
       "background: var(--biliscript-reader-fill-hover)"
@@ -149,7 +149,7 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     const searchBody = ruleBody(readerCss, ".biliscript-reading-search");
     expect(searchBody).toContain("height: 32px");
     expect(searchBody).toContain("box-sizing: border-box");
-    expect(searchBody).toContain("border-radius: 18px");
+    expect(searchBody).toContain("border-radius: 28px");
 
     const navBody = ruleBody(readerCss, ".biliscript-reading-search-nav");
     expect(navBody).toContain("width: 24px");

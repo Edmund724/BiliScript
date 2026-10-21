@@ -16,9 +16,9 @@
   box-sizing: border-box;
   background: var(--biliscript-reader-surface, #fff);
   border: 1px solid var(--biliscript-reader-border, #e5e7eb);
-  /* 面板族圆角 18px、阴影吃 --biliscript-reader-shadow（reader-gate.css 四色板各一份）：
+  /* 面板族圆角 28px、阴影吃 --biliscript-reader-shadow（reader-gate.css 四色板各一份）：
    * 与设置抽屉/编辑 Modal/解释卡同档，深色下不再是浅色硬编码投影。 */
-  border-radius: 18px;
+  border-radius: 28px;
   box-shadow: var(--biliscript-reader-shadow);
   font-family: var(--biliscript-reader-font-sans);
   /* 容器查询宿主（size-aware-styling 指南）：面板内容排版按视图实际宽度分档
@@ -171,7 +171,7 @@
   height: 34px;
   border: 0;
   background: transparent;
-  border-radius: 18px;
+  border-radius: 28px;
   cursor: pointer;
   padding: 0;
   color: var(--biliscript-reader-text, #1f2937);
@@ -254,7 +254,7 @@
   /* content-box 下 width:100% + 1px 边框两侧各溢 1px，贴栏态固定定位的
    * 溢出会顶出页面级横向滚动条（Modal 出现前的既有 2px 残留，一并收口） */
   box-sizing: border-box;
-  border-radius: 18px;
+  border-radius: 28px;
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: var(--biliscript-reader-shadow);
@@ -330,7 +330,7 @@
   gap: 4px;
   padding: 4px;
   background: var(--biliscript-reader-pill-bg);
-  border-radius: 18px;
+  border-radius: 28px;
 }
 
 .biliscript-reading-tab {
@@ -339,7 +339,7 @@
   background: none;
   cursor: pointer;
   padding: 7px 16px;
-  border-radius: 18px;
+  border-radius: 28px;
   font-size: 15px;
   font-weight: 600;
   font-family: inherit;
@@ -370,11 +370,11 @@
   display: flex;
   flex-direction: column;
   /* 内容区套 card 白卡：四周 margin 环透出页面灰作页面层，
-   * 圆角 18px 与 tab 槽同档。 */
+   * 圆角 28px 与 tab 槽同档。 */
   margin: 10px 14px 14px;
   padding: 12px 14px;
   background: var(--biliscript-reader-card);
-  border-radius: 18px;
+  border-radius: 28px;
   /* Follow 悬浮按钮、选区「解释」浮层与解释卡片的定位上下文 */
   position: relative;
 }
@@ -416,7 +416,7 @@
   padding: 26px 20px;
   background: var(--biliscript-reader-card);
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 18px;
+  border-radius: 28px;
   text-align: center;
 }
 
@@ -528,7 +528,7 @@
   align-items: start;
   border: 0;
   background: transparent;
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 10px 12px;
   text-align: left;
   color: var(--biliscript-reader-text, #111827);
@@ -635,7 +635,7 @@
  * 用户决议整条删除）的专属规则已随控件一并摘去，不再留空壳。 */
 
 #biliscript-reading-view .biliscript-reading-panel {
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 14px 16px;
   pointer-events: auto;
   background: var(--biliscript-reader-surface);
@@ -683,7 +683,7 @@
   display: inline-grid;
   width: auto;
   max-width: 100%;
-  border-radius: 18px;
+  border-radius: 28px;
   background: var(--biliscript-reader-card);
   box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
@@ -758,7 +758,7 @@
   align-items: center;
   gap: 6px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 0 4px 0 10px;
   background: var(--biliscript-reader-card);
 }
@@ -796,7 +796,7 @@
   justify-content: center;
   border: none;
   background: transparent;
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 0;
   font-size: 14px;
   color: var(--biliscript-reader-muted);
@@ -867,7 +867,7 @@
   flex: 0 0 auto;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-highlight);
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 12px 14px;
   margin-bottom: 10px;
 }
@@ -1028,7 +1028,7 @@
 .biliscript-reading-explain-card-mask {
   position: absolute;
   inset: 0;
-  border-radius: 18px;
+  border-radius: 28px;
   background: var(--biliscript-reader-mask-bg);
 }
 
@@ -1042,7 +1042,7 @@
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 18px;
+  border-radius: 28px;
   background: var(--biliscript-reader-card);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
 }
@@ -1064,7 +1064,7 @@
 .biliscript-reading-explain-card-close {
   border: 0;
   padding: 2px 8px;
-  border-radius: 18px;
+  border-radius: 28px;
   background: transparent;
   color: var(--biliscript-reader-faint);
   font-size: 20px;
@@ -1238,7 +1238,7 @@
   border: 1px solid var(--biliscript-reader-border);
   border-left: 3px solid var(--biliscript-reader-accent);
   background: var(--biliscript-reader-card);
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 10px 12px;
   margin-bottom: 8px;
 }
@@ -1266,7 +1266,7 @@
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 18px;
+  border-radius: 28px;
   background: transparent;
   color: var(--biliscript-reader-faint);
   font: inherit;
@@ -1354,7 +1354,7 @@
   align-items: start;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 9px 10px;
   margin-bottom: 8px;
   text-align: left;
@@ -1431,7 +1431,7 @@
   display: block;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 10px 12px 8px;
   margin-bottom: 8px;
   text-align: left;
@@ -1524,7 +1524,7 @@
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 18px;
+  border-radius: 28px;
   background: transparent;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
@@ -1561,7 +1561,7 @@
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 18px;
+  border-radius: 28px;
   padding: 9px 12px;
   margin-bottom: 12px;
 }
@@ -1644,7 +1644,7 @@
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(320px, calc(100% - 48px));
-  border-radius: 18px;
+  border-radius: 28px;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);

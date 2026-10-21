@@ -39,7 +39,7 @@
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  border-radius: 18px;
+  border-radius: 28px;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);
@@ -51,7 +51,7 @@
 
 /* settings-host 的 box-sizing 通配保护不在本宿主作用域内——缺了它
  * content-box 下 width:100% 的输入控件加 padding+border 恰好横向溢出
- * 18px，dialog 出现多此一举的横向滚动条 */
+ * 28px，dialog 出现多此一举的横向滚动条 */
 #biliscript-reading-view .provider-editor-host,
 #biliscript-reading-view .provider-editor-host * {
   box-sizing: border-box;
@@ -126,7 +126,7 @@
   height: 32px;
   padding: 4px 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 18px;
+  border-radius: 28px;
   font: inherit;
   font-size: 15px;
   background: var(--biliscript-reader-card);
@@ -445,7 +445,7 @@
   flex: 0 0 auto;
   padding: 0;
   border: 0;
-  border-radius: 18px;
+  border-radius: 28px;
   background: transparent;
   color: var(--biliscript-reader-faint);
   cursor: pointer;
@@ -551,7 +551,7 @@
   flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
-  border-radius: 18px;
+  border-radius: 28px;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -578,7 +578,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 18px;
+  border-radius: 28px;
   background: transparent;
   color: var(--biliscript-reader-faint);
   font-size: 16px;
@@ -606,7 +606,7 @@
   height: 32px;
   padding: 4px 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 18px;
+  border-radius: 28px;
   font: inherit;
   font-size: 15px;
   background: var(--biliscript-reader-card);
@@ -633,7 +633,7 @@
   margin: 0;
   padding: 6px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 18px;
+  border-radius: 28px;
   background: var(--biliscript-reader-card);
   display: flex;
   flex-direction: column;
@@ -646,7 +646,7 @@
   gap: 8px;
   min-height: 30px;
   padding: 0 6px;
-  border-radius: 18px;
+  border-radius: 28px;
 }
 
 #biliscript-reading-view .provider-editor-fetch-item:hover {
