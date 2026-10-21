@@ -102,8 +102,8 @@ export function syncReadingViewPlayback(forceScroll = false, overrideTime?: numb
   if (isReadingSubtitleBodyVisible()) {
     const subtitleIndex = findActiveSubtitleIndex(currentTime);
     const chapterIndex = findActiveChapterIndex(currentTime);
-    // 三开关退役后自动滚动恒开：目标句变化即触发滚动（手动暂停只临时压制，
-    // 不改变“开着”语义）。forceScroll 由 seek/恢复跟随路径显式传入。
+    // 自动滚动开启：目标句变化即触发滚动（手动浏览中暂停跟随，点击「跟随播放」或点句跳转恢复）。
+    // forceScroll 由 seek/恢复跟随路径显式传入。
     const shouldScroll =
       forceScroll ||
       subtitleIndex !== state.reader.readingActiveSubtitleIndex ||
@@ -323,8 +323,8 @@ export function onReadingSubtitleClick(event: MouseEvent) {
   jumpReadingTarget(target.dataset.seconds ?? 0);
 }
 
-export function noteManualReaderInteraction(durationMs = 3000) {
-  setManualScrollPaused(Date.now() + durationMs);
+export function noteManualReaderInteraction(durationMs?: number) {
+  setManualScrollPaused(durationMs !== undefined ? Date.now() + durationMs : Number.POSITIVE_INFINITY);
   updateReaderFollowState();
 }
 

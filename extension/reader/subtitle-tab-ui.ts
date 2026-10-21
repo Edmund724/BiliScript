@@ -1078,9 +1078,8 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
   // ===== 字幕列表交互（手动滚动暂停 + 点句跳转；实现在 reader/sync.ts） =====
   const subtitleList = byId(ids.readingSubtitleList);
   // scroll/wheel 是高频路径，每事件一次 withReader 都要分配 promise：250ms
-  // 节流（与 sync tick 同档）首发立即透传、窗口内丢弃。节流间隔远小于手动
-  // 暂停窗口（noteManualReaderInteraction 默认 durationMs=3000），滚动期间
-  // 自动同步照样保持暂停。
+  // 节流（与 sync tick 同档）首发立即透传、窗口内丢弃。滚动期间记录手动交互，
+  // 保持手动浏览态。
   const MANUAL_SCROLL_THROTTLE_MS = 250;
   let lastManualScrollAt = 0;
   const handleReaderManualScroll = () => {
@@ -1099,7 +1098,7 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
   subtitleList.addEventListener("scroll", handleReaderManualScroll);
   subtitleList.addEventListener("wheel", handleReaderManualScroll, { passive: true });
   subtitleList.addEventListener("pointerdown", () => {
-    withReader(null, (reader) => reader.noteManualReaderInteraction(3500));
+    withReader(null, (reader) => reader.noteManualReaderInteraction());
   });
   subtitleList.addEventListener("click", (event) => {
     withReader(null, (reader) => reader.onReadingSubtitleClick(event));

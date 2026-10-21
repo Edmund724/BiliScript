@@ -337,4 +337,41 @@ describe("播放同步与高亮", () => {
 
     expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
   });
+
+  it("noteManualReaderInteraction 缺省无超时：手动滚动后保持 manual 态，视频播放时不被强制拉回", () => {
+    state.reader.readingViewOpen = true;
+    shell.renderReadingView();
+    playerHost.bindReadingViewVideo(video);
+
+    video.currentTime = 5;
+    sync.syncReadingViewPlayback(true);
+    expect(state.reader.readingActiveSubtitleIndex).toBe(0);
+
+    // 用户手动交互（未传超时）：进入 manual 态
+    sync.noteManualReaderInteraction();
+    sync.updateReaderFollowState();
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
+
+    // 时间推进很久，manual 态依然保持
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+    sync.updateReaderFollowState();
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
+
+    // 视频继续播放到下一句（12s 在第二句）
+    video.currentTime = 12;
+    const windowScrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+
+    sync.syncReadingViewPlayback();
+
+    // 活跃状态正常前进，但列表不被强制滚动（不产生程序化滚动）
+    expect(state.reader.readingActiveSubtitleIndex).toBe(1);
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("manual");
+    expect(windowScrollToSpy).not.toHaveBeenCalled();
+
+    // 点击跟随播放恢复自动跟随并立即补上滚动
+    sync.resumeReaderFollowPlayback();
+    expect(readingView.getAttribute("data-biliscript-reader-follow")).toBe("auto");
+    expect(windowScrollToSpy).toHaveBeenCalled();
+  });
 });

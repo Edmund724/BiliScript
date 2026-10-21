@@ -282,8 +282,8 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
     }
     node.classList.add(SEARCH_CURRENT_CLASS);
     if (scroll) {
-      // 搜索定位即「用户在看这里」：暂停自动跟随（与手动滚动同语义，默认 3s 后
-      // 自动恢复，Follow 悬浮按钮同步出现），再把命中条目滚到视口中部。
+      // 搜索定位即「用户在看这里」：暂停自动跟随（与手动滚动同语义，保持手动
+      // 浏览态，Follow 悬浮按钮同步出现），再把命中条目滚到视口中部。
       deps.noteManualReaderInteraction();
       node.scrollIntoView({ behavior: "smooth", block: "center" });
     }
