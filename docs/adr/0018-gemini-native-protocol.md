@@ -31,3 +31,12 @@
 - **协议面扩增**：线格式协议从 2 种扩展至 3 种（`openai`、`anthropic`、`gemini`）。新增协议的登记点清单（词表叶、适配器实现、适配器注册表、下拉选项、线格式映射表、装配边、SW 静态图禁区）需完整落位并建立文档清单。
 - **文档与纪律同步**：`GLOSSARY.md` 平台协议词条中的 `_Avoid_` 句予以改写，凭据指向本 ADR。
 - **目录对账范围扩大**：`models.dev` 目录对账迎来第 13 家（`google`），产物与计数断言需同步更新。
+
+## 补注：数值预算轨不作为产品能力保留（2026-10-21）
+
+背景第 1 条把「`thinkingLevel` + `thinkingBudget` 双轨映射」列为采用原生协议的理由之一；本补注把其中的**数值预算轨**从产品能力里移除，原生协议的决定本身不变（离散档位表达、`thoughtSignature` 回放与工具循环的校验语义仍是理由）。
+
+- **上游只给区间，不给逐档数值**：2.5 系在 models.dev 里是 `b:128-32768` / `toggle+b:0-24576` 这类区间，`128/2048/8192/32768` 的档位映射是本仓发明，不是平台事实。
+- **事实层对这些模型不产写点**：`ai/thinking-profiles.ts` 只在「有上游 effort 词表」或「平台已登记开关形状」时物化写点；Gemini 未登记开关形状，2.5 系因此 A′ = ∅、面板只显示 `Default`。写法层若按模型名另造预算，就会出现「面板说 Default、线上发预算」的两说，且 `off` 会发出区间之外的 0。
+- **落线口径**：`ai/thinking-wire-map.ts` 的 gemini 行只把事实层给的离散词汇落成 `generationConfig.thinkingConfig.thinkingLevel`；偏好 `off` 时发词汇落到的档 + `includeThoughts:false`。无可表达写点的模型（2.5 系、上游 toggle 值集、目录外）一个思考字段都不发，落线 = 平台默认，与 [ADR-0015](0015-thinking-default-tier.md) 的 `default`（不干预）同义。
+- **判据**：`tests/ai/adapter-gemini.test.ts` 与 `tests/ai/plan-thinking.test.ts` 逐族钉住「不发字段」；按类 golden 把 gemini 纳入同一张表。

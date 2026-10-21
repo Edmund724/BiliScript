@@ -376,24 +376,24 @@ describe("geminiAdapter: parseResponse 非流式解析", () => {
   });
 });
 
-describe("geminiAdapter: thinking 双轨全档位 × 全模型家族表驱动用例", () => {
+describe("geminiAdapter: thinking 档位 × 模型家族表驱动用例", () => {
   const MATRIX: Array<{
     model: string;
     level: string | undefined;
     expectedConfig?: Record<string, unknown>;
   }> = [
-    // --- gemini-3 系列 (离散 thinkingLevel) ---
-    { model: "gemini-3-flash", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
-    { model: "gemini-3-flash", level: "minimal", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: true } },
-    { model: "gemini-3-flash", level: "low", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
-    { model: "gemini-3-flash", level: "medium", expectedConfig: { thinkingLevel: "MEDIUM", includeThoughts: true } },
-    { model: "gemini-3-flash", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
-    { model: "gemini-3-flash", level: "xhigh", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
-    { model: "gemini-3-flash", level: "max", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
-    { model: "gemini-3-flash", level: "default", expectedConfig: undefined },
-    { model: "gemini-3-flash", level: undefined, expectedConfig: undefined },
+    // --- gemini-3 系（离散 thinkingLevel；02 值集 minimal-low-medium-high） ---
+    { model: "gemini-3-flash-preview", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
+    { model: "gemini-3-flash-preview", level: "minimal", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: true } },
+    { model: "gemini-3-flash-preview", level: "low", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
+    { model: "gemini-3-flash-preview", level: "medium", expectedConfig: { thinkingLevel: "MEDIUM", includeThoughts: true } },
+    { model: "gemini-3-flash-preview", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    { model: "gemini-3-flash-preview", level: "xhigh", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    { model: "gemini-3-flash-preview", level: "max", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
+    { model: "gemini-3-flash-preview", level: "default", expectedConfig: undefined },
+    { model: "gemini-3-flash-preview", level: undefined, expectedConfig: undefined },
 
-    // --- gemini-flash-latest / lite / 3.8-flash / gemma-4 系列 (离散 thinkingLevel) ---
+    // --- gemini-flash-latest / lite / 3.8-flash 系列（离散 thinkingLevel） ---
     { model: "gemini-flash-latest", level: "off", expectedConfig: { thinkingLevel: "LOW", includeThoughts: false } },
     { model: "gemini-flash-latest", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
     { model: "gemini-3.8-flash", level: "off", expectedConfig: { thinkingLevel: "LOW", includeThoughts: false } },
@@ -401,44 +401,19 @@ describe("geminiAdapter: thinking 双轨全档位 × 全模型家族表驱动用
     { model: "gemini-3.8-flash", level: "high", expectedConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
     { model: "gemini-flash-lite-latest", level: "off", expectedConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
     { model: "gemini-flash-lite-latest", level: "low", expectedConfig: { thinkingLevel: "LOW", includeThoughts: true } },
-    { model: "gemma-4-27b-it", level: "medium", expectedConfig: { thinkingLevel: "MEDIUM", includeThoughts: true } },
 
-    // --- gemini-2.5-pro (数值 thinkingBudget) ---
-    { model: "gemini-2.5-pro", level: "off", expectedConfig: { thinkingBudget: 0, includeThoughts: false } },
-    { model: "gemini-2.5-pro", level: "minimal", expectedConfig: { thinkingBudget: 128, includeThoughts: true } },
-    { model: "gemini-2.5-pro", level: "low", expectedConfig: { thinkingBudget: 2048, includeThoughts: true } },
-    { model: "gemini-2.5-pro", level: "medium", expectedConfig: { thinkingBudget: 8192, includeThoughts: true } },
-    { model: "gemini-2.5-pro", level: "high", expectedConfig: { thinkingBudget: 32768, includeThoughts: true } },
-    { model: "gemini-2.5-pro", level: "xhigh", expectedConfig: { thinkingBudget: 32768, includeThoughts: true } },
-    { model: "gemini-2.5-pro", level: "max", expectedConfig: { thinkingBudget: 32768, includeThoughts: true } },
-    { model: "gemini-2.5-pro", level: "default", expectedConfig: undefined },
-
-    // --- gemini-2.5-flash (数值 thinkingBudget) ---
-    { model: "gemini-2.5-flash", level: "off", expectedConfig: { thinkingBudget: 0, includeThoughts: false } },
-    { model: "gemini-2.5-flash", level: "minimal", expectedConfig: { thinkingBudget: 128, includeThoughts: true } },
-    { model: "gemini-2.5-flash", level: "low", expectedConfig: { thinkingBudget: 2048, includeThoughts: true } },
-    { model: "gemini-2.5-flash", level: "medium", expectedConfig: { thinkingBudget: 8192, includeThoughts: true } },
-    { model: "gemini-2.5-flash", level: "high", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
-    { model: "gemini-2.5-flash", level: "xhigh", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
-    { model: "gemini-2.5-flash", level: "max", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
-
-    // --- gemini-2.5-flash-lite (数值 thinkingBudget) ---
-    { model: "gemini-2.5-flash-lite", level: "off", expectedConfig: { thinkingBudget: 0, includeThoughts: false } },
-    { model: "gemini-2.5-flash-lite", level: "minimal", expectedConfig: { thinkingBudget: 512, includeThoughts: true } },
-    { model: "gemini-2.5-flash-lite", level: "low", expectedConfig: { thinkingBudget: 2048, includeThoughts: true } },
-    { model: "gemini-2.5-flash-lite", level: "medium", expectedConfig: { thinkingBudget: 8192, includeThoughts: true } },
-    { model: "gemini-2.5-flash-lite", level: "high", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
-    { model: "gemini-2.5-flash-lite", level: "xhigh", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
-    { model: "gemini-2.5-flash-lite", level: "max", expectedConfig: { thinkingBudget: 24576, includeThoughts: true } },
-
-    // --- 其它 / 未识别模型家族（动态 -1） ---
-    { model: "gemini-4-experimental", level: "off", expectedConfig: { thinkingBudget: 0, includeThoughts: false } },
-    { model: "gemini-4-experimental", level: "minimal", expectedConfig: { thinkingBudget: 128, includeThoughts: true } },
-    { model: "gemini-4-experimental", level: "low", expectedConfig: { thinkingBudget: 2048, includeThoughts: true } },
-    { model: "gemini-4-experimental", level: "medium", expectedConfig: { thinkingBudget: 8192, includeThoughts: true } },
-    { model: "gemini-4-experimental", level: "high", expectedConfig: { thinkingBudget: -1, includeThoughts: true } },
-    { model: "gemini-4-experimental", level: "xhigh", expectedConfig: { thinkingBudget: -1, includeThoughts: true } },
-    { model: "gemini-4-experimental", level: "max", expectedConfig: { thinkingBudget: -1, includeThoughts: true } },
+    // --- 无可表达写点的模型：fail-closed，一个字段都不发 ---
+    // 目录外 id（无任何档位事实）：不按偏好补发 thinkingLevel。
+    { model: "gemini-3-flash", level: "high", expectedConfig: undefined },
+    { model: "gemma-4-27b-it", level: "medium", expectedConfig: undefined },
+    // 上游 toggle 值集，但 gemini 未登记开关形状：没有写点。
+    { model: "gemma-4-31b-it", level: "high", expectedConfig: undefined },
+    // 2.5 系上游只给区间、没有逐档数值：不发明预算，落平台默认（不干预）。
+    { model: "gemini-2.5-pro", level: "off", expectedConfig: undefined },
+    { model: "gemini-2.5-pro", level: "high", expectedConfig: undefined },
+    { model: "gemini-2.5-flash", level: "medium", expectedConfig: undefined },
+    { model: "gemini-2.5-flash-lite", level: "minimal", expectedConfig: undefined },
+    { model: "gemini-4-experimental", level: "high", expectedConfig: undefined },
     { model: "gemini-4-experimental", level: "default", expectedConfig: undefined }
   ];
 

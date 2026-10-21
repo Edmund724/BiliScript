@@ -299,7 +299,7 @@ BiliScript 不收款，也不转售 API 服务。建议为账号设置消费上�
 
 模型与思考强度收纳在发送框底部的 chip 里。点 chip 弹出面板，底部内联思考强度选择区，真实可用档位直接以同屏「胶囊滑轨」呈现，支持在 `Off` / `Minimal` / `Low` / `Medium` / `High` / `Xhigh` / `Max`（或开 / 关两档）之间直观滑动切换，无需换页跳转；右上角提供 `↻` 重置键一键切回 `Default`（不干预，不发送思考字段，由平台默认行为决定）。chip 与滑轨显示本次请求真正会发的档位（偏好被裁到更低档时如实显示裁后的值，并在面板底行说明）。
 
-模型结构上关不掉思考时（如 MiniMax M2.x、Kimi k2.7），选 `Off` 会提示并自动落到可用的最低思考档；一个可用档位都没有的模型只剩 `Default` 一项，仍可主动选中。未收录的模型同样只给 `Default`，不发任何思考参数。原生 Gemini 协议完整支持离散档位（`thinkingLevel`）与数值预算（`thinkingBudget`）双轨映射，并保留与回放 `thoughtSignature`。
+模型结构上关不掉思考时（如 MiniMax M2.x、Kimi k2.7），选 `Off` 会提示并自动落到可用的最低思考档；一个可用档位都没有的模型只剩 `Default` 一项，仍可主动选中。未收录的模型同样只给 `Default`，不发任何思考参数。原生 Gemini 协议按上游逐模型词表落离散档位（`thinkingLevel`）；上游只给预算区间的模型（如 2.5 系）不发数值预算，落平台默认（不干预）。`thoughtSignature` 保留与回放。
 
 档位事实来自构建期抓取的 models.dev 上游模型词表，参数写法以各平台官方文档为准；表结构与机制参考开源项目 [hana-model-catalog](https://github.com/liliMozi/hana-model-catalog)，特此致谢。
 

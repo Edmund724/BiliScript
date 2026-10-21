@@ -522,8 +522,9 @@ export const PROVIDERS: Record<PlatformKey, ProviderRule> = {
   // 裁定发 output_config.effort（裸形态，ai/thinking-wire-map.ts 的 MESSAGES_TIER_VOCABULARY）。
   opencodego: {},
   // Gemini（Google 原生 generateContent / streamGenerateContent 协议）：
-  // 思考事实的主人是线格式映射表（ai/thinking-wire-map.ts 的 geminiWireMap），
-  // 采用 thinkingLevel 与 thinkingBudget 双轨机制（ADR-0018 / spec 决策 12）；
+  // 本仓只表达离散档（thinkingLevel，落线见 ai/thinking-wire-map.ts 的 geminiWireMap）；
+  // 上游对 2.5 系只给预算区间、不给逐档数值，数值预算不由本仓发明——没有可表达档位的
+  // 模型由事实层给 noFields/unknown，请求侧一个思考字段都不发（平台默认行为）。
   // 此处留空记录封闭 PlatformKey 类型。
   gemini: {}
 };
@@ -732,6 +733,13 @@ export interface ThinkingResolution {
   // 要交给写法层的中转词汇（封闭判别联合）：写法层按 kind 断「这套词汇在本协议线上
   // 长什么样」；哨兵（noFields / unknown）= 不发（软失败优于硬 400）。
   vocabulary: ThinkingVocabulary;
+  // **归一后的偏好档**：用户这次选了哪一档（`default` = 不干预；`off` = 显式关；
+  // 强度档 = 原样偏好，不经 clamp）。与 effectiveLevel 的分工：本字段是「要什么」，
+  // effectiveLevel 是「实际落线的是什么」——clamp 向下取、off 级联、无档可落都会让
+  // 两者不同，但偏好本身不因模型能力被改写。写法层读它表达「档位形状里没有 off 时
+  // 怎么表示关」（Gemini 的 includeThoughts），显示面读它与 effectiveLevel 的差异报
+  // 「已降档」。unknown 哨兵也带真实入参（无结论不等于用户没选）。
+  requestedLevel: ThinkingLevelValue;
   // **本次请求真正落线的档**——「本次实发档是哪一档」的唯一承载者（2026-10-07 架构评审
   // 候选 7）：applyClassRule 里那一次 clamp 的结果，显示面（resolveThinkingAdjustment）
   // 只投影本值、不再复算。取值口径：偏好 `default` → `default`（不发言）；off 写点本次
@@ -766,20 +774,26 @@ function copyVocabulary(vocabulary: ThinkingVocabulary): ThinkingVocabulary {
 // 解析结果构造：中转词汇出口的唯一组装点（tokenParam 由 withTokenParam 追加）。
 function resolutionOf(
   vocabulary: ThinkingVocabulary,
+  requestedLevel: ThinkingLevelValue,
   effectiveLevel: ThinkingLevelValue | null,
   rest: Pick<ThinkingResolution, "offUnavailable" | "offFallback" | "thinkingClass">
 ): ThinkingResolution {
-  return { vocabulary: copyVocabulary(vocabulary), effectiveLevel, ...rest };
+  return { vocabulary: copyVocabulary(vocabulary), requestedLevel, effectiveLevel, ...rest };
 }
 
 // 无事实的解析结果（UNKNOWN 哨兵：三档均不发、offUnavailable=false）。单例复用，
 // 调用方按值消费（不持有引用做变更）。effectiveLevel=null = 「没有解析结论」（不是
-// 「无档可落」——那是 default，见 ADR-0015 决定 5）。
-const UNKNOWN_RESOLUTION: ThinkingResolution = resolutionOf(UNKNOWN_VOCABULARY, null, {
+// 「无档可落」——那是 default，见 ADR-0015 决定 5）。单例里的 requestedLevel 只是
+// 占位：每次解析经 unknownResolutionOf 带上真实入参，不把「无结论」当成「用户没选」。
+const UNKNOWN_RESOLUTION: ThinkingResolution = resolutionOf(UNKNOWN_VOCABULARY, "default", null, {
   offUnavailable: false,
   offFallback: null,
   thinkingClass: "unknown"
 });
+
+function unknownResolutionOf(requestedLevel: ThinkingLevelValue): ThinkingResolution {
+  return { ...UNKNOWN_RESOLUTION, requestedLevel };
+}
 
 // 一次解析的中间结论：本模型该用哪张 class 规则，以及这张规则来自哪一层
 // （层决定 clamp 被调整时对用户说的原因，06 号票起同时是 chip 来源清单的审计列）。
@@ -819,11 +833,17 @@ function ruleFor({ presetId, baseUrl, model }: ResolveThinkingInput): ResolvedRu
   };
 }
 
-// 请求侧归一化的两个施加点之一（另一个是 resolveThinkingAdjustment）：档位偏好的外部值
-// 先归一到「合法档位」——缺省 / 脏值 = default（不干预，2026-10-05 裁定），合法值原样。
+// 请求侧档位归一的唯一执行处（两个解析入口共用）：外部值先归一到「合法档位」——
+// 缺省 / 脏值 = default（不干预，2026-10-05 裁定），合法值原样；无规则的模型同样带真实
+// 偏好档返回（UNKNOWN 哨兵只表达「没有结论」，不吞掉用户选了什么）。
+function resolutionFor(rule: ClassRule | undefined, input: ResolveThinkingInput): ThinkingResolution {
+  const requestedLevel = normalizeThinkingLevel(input.level);
+  return rule ? applyClassRule(rule, requestedLevel, input.stream) : unknownResolutionOf(requestedLevel);
+}
+
+// 请求落线入口：档位偏好 → 本次请求发什么词汇（装配边与提示面之外的唯一消费者）。
 export function resolveThinkingProfile(input: ResolveThinkingInput): ThinkingResolution {
-  const rule = ruleFor(input).rule;
-  return rule ? applyClassRule(rule, normalizeThinkingLevel(input.level), input.stream) : UNKNOWN_RESOLUTION;
+  return resolutionFor(ruleFor(input).rule, input);
 }
 
 // 提示面入口（05 号票）：一次给出「偏好档位 → 实发档位 + 原因」，供对话 UI 渲染
@@ -864,10 +884,9 @@ export interface ThinkingLevelAdjustment {
 
 export function resolveThinkingAdjustment(input: ResolveThinkingInput): ThinkingLevelAdjustment {
   const { rule, reason, source } = ruleFor(input);
-  // 请求侧的档位归一入口（与 resolveThinkingProfile 同一个函数）：缺省 / 脏值 = default
-  // ——不干预，故 requestedLevel 与 effectiveLevel 同为 default、reason 恒 null（用户没被降档）。
-  const requestedLevel = normalizeThinkingLevel(input.level);
-  const resolution = rule ? applyClassRule(rule, requestedLevel, input.stream) : UNKNOWN_RESOLUTION;
+  // 与请求落线同一次解析、同一个归一执行处：偏好档直接读解析结果，这里不再归一第二遍。
+  const resolution = resolutionFor(rule, input);
+  const requestedLevel = resolution.requestedLevel;
   const availableLevels = rule ? availableLevelsOf(rule) : [];
   // 实发档 = 解析结果里那一个值（**投影，不复算 clamp**）：候选 7 之前这里另算一遍
   // clampThinkingLevel，于是「qwen 开关型 streamOnly × 非流式 × 偏好 off」这一格显示 Off、
@@ -973,8 +992,9 @@ type ClassRuleDecision = "default" | "off-usable" | "never" | "off-cascade" | "t
 // ThinkingResolution.effectiveLevel 与落线选点（off 级联也读它，不再单独 find 一遍）。
 //
 // 候选 3（2026-10-12，构造收敛）：**决策与构造分家**。上半段只把「偏好 × 流态 × 规则」
-// 判成一个决策类别（下表），下半段是**全函数唯一的 return**：六字段（vocabulary /
-// effectiveLevel / tokenParam / offUnavailable / offFallback / thinkingClass）一次派生。
+// 判成一个决策类别（下表），下半段是**全函数唯一的 return**：七字段（vocabulary /
+// requestedLevel / effectiveLevel / tokenParam / offUnavailable / offFallback /
+// thinkingClass）一次派生。
 // 决策类别：
 //   default      偏好 `default` → 不干预，恒不发词汇；
 //   off-usable   偏好 off 且本次 off 写点可用 → 发该写点的词汇（无词汇则不发）；
@@ -1035,7 +1055,7 @@ export function applyClassRule(rule: ClassRule, level: ThinkingLevelValue, strea
   const hasPayload = carriesPayload(vocabulary);
   const offCascade = decision === "off-cascade";
   return withTokenParam(
-    resolutionOf(vocabulary, effective, {
+    resolutionOf(vocabulary, level, effective, {
       offUnavailable: offCascade,
       // 级联有载荷 → 落了最低思考档（长版提示）；无载荷 → 无 low 可落（短版提示）。
       offFallback: offCascade && hasPayload ? "low" : null,

@@ -16,7 +16,9 @@
 //   - anthropic 行传中转词汇、probe，以及两个**各按自己键空间**识别的平台事实
 //     （思考平台识别 `resolveThinkingProviderId`：PROVIDERS 键空间；怪癖词表识别
 //     `resolvePlatformQuirkId`：PLATFORM_QUIRKS 键空间，`PROVIDERS ⊋ PLATFORM_QUIRKS`，
-//     故两个识别器不合并、也不引入第三份识别规则）。
+//     故两个识别器不合并、也不引入第三份识别规则）；
+//   - gemini 行传中转词汇与解析结果里的偏好档（`requestedLevel`）：档位有没有、能不能
+//     表达是事实层的结论，本行不按模型名猜机制，也不再二次归一档位。
 //
 // **写法不下沉**：逐协议行的 switch（off 三词汇归一 / 探针早退 / 档位出口 / 开词出口）
 // 仍只在线格式映射表（ai/thinking-wire-map.ts）内——本文件不出现任何线格式字面量，
@@ -33,7 +35,7 @@ import { resolvePlatformQuirkId } from "./platform-quirk-id.js";
 import { resolveThinkingProfile, resolveThinkingProviderId, type ThinkingResolution } from "./thinking-profiles.js";
 import { THINKING_WIRE_MAPS, type ThinkingWireOutput } from "./thinking-wire-map.js";
 import type { AiProtocol } from "./protocol-vocab.js";
-import { normalizeThinkingLevel, type ThinkingLevelInput } from "./thinking-levels.js";
+import type { ThinkingLevelInput } from "./thinking-levels.js";
 
 /** 装配边的入参：协议无关的请求事实（协议是分发键，档位是未归一的外部值）。 */
 export interface ThinkingRequestFacts {
@@ -80,11 +82,10 @@ function planAnthropicRow({ facts, thinking }: ThinkingPlanInput): ThinkingWireO
   });
 }
 
-function planGeminiRow({ facts, thinking }: ThinkingPlanInput): ThinkingWireOutput {
+function planGeminiRow({ thinking }: ThinkingPlanInput): ThinkingWireOutput {
   return THINKING_WIRE_MAPS.gemini({
     vocabulary: thinking.vocabulary,
-    model: facts.model,
-    level: normalizeThinkingLevel(facts.level)
+    requestedLevel: thinking.requestedLevel
   });
 }
 

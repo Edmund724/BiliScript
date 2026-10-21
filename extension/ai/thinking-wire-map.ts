@@ -93,8 +93,11 @@ export interface AnthropicWireInput extends ThinkingWireInput {
 }
 
 export interface GeminiWireInput extends ThinkingWireInput {
-  model?: string;
-  level?: ThinkingLevelValue;
+  /**
+   * 归一后的偏好档（解析结果 `requestedLevel`）：Gemini 的档位形状里没有 off，关思考
+   * 只能表达成「最低档 + 不回传思考」，因此这一行需要知道用户要的是不是 off。
+   */
+  requestedLevel: ThinkingLevelValue;
 }
 
 /** 写法层的逐协议入参（协议 → 该行真读的字段）。新增协议 = 这里与分发表各登记一行（漏了即红）。 */
@@ -881,200 +884,44 @@ function anthropicWireMap(input: AnthropicWireInput): ThinkingWireOutput {
 }
 
 // ===== Google Gemini generateContent =====
-// 模型名分家规则借 pi-ai usesGoogleThinkingLevel 口径：
-// gemini-3* / gemini-flash-latest / gemini-flash-lite-latest / gemma-4* 走离散 thinkingLevel 轨；
-// 其余（如 2.5 系）走数值 thinkingBudget 轨。
-// 离散轨优先采纳事实层已解析的 reasoningEffort 档位（如 gemini-3.8-flash 经过 off-cascade 降档到 LOW）；
-// 目录外模型保留离散兜底。
-function usesGoogleThinkingLevel(model: string): boolean {
-  const name = model.toLowerCase().replace(/^(models\/|google\/)/, "");
-  return (
-    name.startsWith("gemini-3") ||
-    name === "gemini-flash-latest" ||
-    name === "gemini-flash-lite-latest" ||
-    name.startsWith("gemma-4")
-  );
+// 本行只读事实层给的两件东西：中转词汇（本档发什么）与归一后的偏好档（用户要什么）。
+// 机制与逐族预算不在写法层按模型名猜：2.5 系的上游事实只有区间、没有逐档数值，事实层
+// 因此不产任何写点（noFields / unknown），本行一个字段都不发——落线就是平台默认，与
+// ADR-0015 的 default（不干预）同义。目录外模型同理：无结论 = fail-closed，不按偏好
+// 补发 thinkingLevel。离散档的关思考表达：Gemini 的 thinkingConfig 没有 off 档，偏好
+// off 时发词汇落到的最低档 + includeThoughts:false。
+function googleThinkingLevelOf(level: string): "MINIMAL" | "LOW" | "MEDIUM" | "HIGH" | null {
+  switch (level) {
+    case "minimal":
+      return "MINIMAL";
+    case "low":
+      return "LOW";
+    case "medium":
+      return "MEDIUM";
+    case "high":
+    case "xhigh":
+    case "max":
+      return "HIGH";
+    // none 与阶梯外词：本模型值集里没有可表达的离散档，按 fail-closed 不发字段。
+    default:
+      return null;
+  }
 }
 
 function geminiWireMap(input: GeminiWireInput): ThinkingWireOutput {
-  const level = input.level;
-  if (!level || level === "default") {
+  const thinkingLevel =
+    input.vocabulary.kind === "reasoningEffort" ? googleThinkingLevelOf(input.vocabulary.level) : null;
+  if (!thinkingLevel) {
     return {
       fields: {},
       tokenParam: "maxOutputTokens"
     };
   }
-
-  const model = (input.model || "").trim().toLowerCase().replace(/^(models\/|google\/)/, "");
-
-  if (usesGoogleThinkingLevel(model)) {
-    // 离散 thinkingLevel 轨：gemini-3* / gemini-flash-latest / gemini-flash-lite-latest / gemma-4*
-    // 若事实层通过上游目录已解析出真实可用档位（例如 gemini-3.8-flash 经过 off-cascade 降档到 low），
-    // 优先使用该有效档位；伪关闭时带 includeThoughts: false。
-    if (input.vocabulary?.kind === "reasoningEffort") {
-      let thinkingLevel: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
-      switch (input.vocabulary.level) {
-        case "minimal":
-          thinkingLevel = "MINIMAL";
-          break;
-        case "low":
-          thinkingLevel = "LOW";
-          break;
-        case "medium":
-          thinkingLevel = "MEDIUM";
-          break;
-        case "high":
-        case "xhigh":
-        case "max":
-        default:
-          thinkingLevel = "HIGH";
-          break;
-      }
-      return {
-        fields: {
-          thinkingConfig: {
-            thinkingLevel,
-            includeThoughts: level !== "off"
-          }
-        },
-        tokenParam: "maxOutputTokens"
-      };
-    }
-
-    // 目录外兜底：Gemini 3 无真关闭，off 为伪关闭：MINIMAL + includeThoughts: false
-    // 开启档一律 includeThoughts: true；xhigh/max clamp 到 HIGH
-    if (level === "off") {
-      return {
-        fields: {
-          thinkingConfig: {
-            thinkingLevel: "MINIMAL",
-            includeThoughts: false
-          }
-        },
-        tokenParam: "maxOutputTokens"
-      };
-    }
-
-    let thinkingLevel: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
-    switch (level) {
-      case "minimal":
-        thinkingLevel = "MINIMAL";
-        break;
-      case "low":
-        thinkingLevel = "LOW";
-        break;
-      case "medium":
-        thinkingLevel = "MEDIUM";
-        break;
-      case "high":
-      case "xhigh":
-      case "max":
-        thinkingLevel = "HIGH";
-        break;
-    }
-
-    return {
-      fields: {
-        thinkingConfig: {
-          thinkingLevel,
-          includeThoughts: true
-        }
-      },
-      tokenParam: "maxOutputTokens"
-    };
-  }
-
-  // 数值 thinkingBudget 轨：2.5 系及其它未识别家族
-  // 开启档一律 includeThoughts: true；off 档均为 0 + includeThoughts: false
-  if (level === "off") {
-    return {
-      fields: {
-        thinkingConfig: {
-          thinkingBudget: 0,
-          includeThoughts: false
-        }
-      },
-      tokenParam: "maxOutputTokens"
-    };
-  }
-
-  let thinkingBudget: number;
-  if (model.startsWith("gemini-2.5-pro")) {
-    switch (level) {
-      case "minimal":
-        thinkingBudget = 128;
-        break;
-      case "low":
-        thinkingBudget = 2048;
-        break;
-      case "medium":
-        thinkingBudget = 8192;
-        break;
-      case "high":
-      case "xhigh":
-      case "max":
-        thinkingBudget = 32768;
-        break;
-    }
-  } else if (model.startsWith("gemini-2.5-flash-lite")) {
-    switch (level) {
-      case "minimal":
-        thinkingBudget = 512;
-        break;
-      case "low":
-        thinkingBudget = 2048;
-        break;
-      case "medium":
-        thinkingBudget = 8192;
-        break;
-      case "high":
-      case "xhigh":
-      case "max":
-        thinkingBudget = 24576;
-        break;
-    }
-  } else if (model.startsWith("gemini-2.5-flash")) {
-    switch (level) {
-      case "minimal":
-        thinkingBudget = 128;
-        break;
-      case "low":
-        thinkingBudget = 2048;
-        break;
-      case "medium":
-        thinkingBudget = 8192;
-        break;
-      case "high":
-      case "xhigh":
-      case "max":
-        thinkingBudget = 24576;
-        break;
-    }
-  } else {
-    // 其它/未识别家族（如 gemini-4 等）：按「其它」行动态 budget（-1），不按名字猜 level 机制
-    switch (level) {
-      case "minimal":
-        thinkingBudget = 128;
-        break;
-      case "low":
-        thinkingBudget = 2048;
-        break;
-      case "medium":
-        thinkingBudget = 8192;
-        break;
-      case "high":
-      case "xhigh":
-      case "max":
-        thinkingBudget = -1;
-        break;
-    }
-  }
-
   return {
     fields: {
       thinkingConfig: {
-        thinkingBudget,
-        includeThoughts: true
+        thinkingLevel,
+        includeThoughts: input.requestedLevel !== "off"
       }
     },
     tokenParam: "maxOutputTokens"

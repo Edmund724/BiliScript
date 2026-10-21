@@ -101,9 +101,17 @@ function handRuleOf(presetId: string, model: string): ClassRule | undefined {
   return className ? CLASSES[className] : undefined;
 }
 
+// 本文件对账的是「档位补丁形状」（词汇 + 实发档 + off 旗标），不含偏好回显：
+// requestedLevel 是装配边消费的「用户要什么」，单独在 tests/ai/plan-thinking.test.ts 钉住。
+function patchShape(resolution: object): string {
+  const { requestedLevel, ...patch } = resolution as Record<string, unknown>;
+  void requestedLevel;
+  return JSON.stringify(patch);
+}
+
 function outcomeOf(rule: ClassRule | undefined, level: ThinkingLevel): string {
   if (!rule) {
-    return JSON.stringify({
+    return patchShape({
       vocabulary: UNKNOWN_VOCABULARY,
       effectiveLevel: null,
       offUnavailable: false,
@@ -111,11 +119,11 @@ function outcomeOf(rule: ClassRule | undefined, level: ThinkingLevel): string {
       thinkingClass: "unknown"
     });
   }
-  return JSON.stringify(applyClassRule(rule, level, STREAM));
+  return patchShape(applyClassRule(rule, level, STREAM));
 }
 
 function resolveViaRuntime(presetId: string, model: string, level: ThinkingLevel): string {
-  return JSON.stringify(resolveThinkingProfile({ presetId, baseUrl: baseUrlOf(presetId), model, level, stream: STREAM }));
+  return patchShape(resolveThinkingProfile({ presetId, baseUrl: baseUrlOf(presetId), model, level, stream: STREAM }));
 }
 
 // 用户裁定 2 点名翻转的三处（上游 provider id / 上游模型 id，小写）。
@@ -311,7 +319,7 @@ describe("降级兜底（B1）：指派表不认识的 id 逐字节沿用旧手�
     it(`host 推断 ${providerId} + ${model}：三档 = 手写专条结论`, () => {
       for (const level of LEVELS) {
         const actual = resolveThinkingProfile({ baseUrl, model, level, stream: STREAM });
-        expect(JSON.stringify(actual), level).toBe(outcomeOf(handRuleOf(providerId, model), level));
+        expect(patchShape(actual), level).toBe(outcomeOf(handRuleOf(providerId, model), level));
       }
     });
   }
@@ -632,7 +640,7 @@ describe("完整性：对指派表命中的模型，结论只来自上游投影�
       for (const level of LEVELS) {
         const actual = resolveThinkingProfile({ presetId, baseUrl, model, level, stream: STREAM });
         const expected = outcomeOf(presetId ? handRuleOf(presetId, model) : undefined, level);
-        expect(JSON.stringify(actual), `${model} · ${level}`).toBe(expected);
+        expect(patchShape(actual), `${model} · ${level}`).toBe(expected);
       }
     }
   });
@@ -898,6 +906,7 @@ describe("18 号票：删 4 家平台 override（2026-10-05 用户裁定）", ()
     expect(levelsOf("sensenova", "deepseek-v4-pro")).toEqual(["low", "high", "max"]);
     expect(resolveThinkingProfile({ presetId: "sensenova", model: "deepseek-v4-pro", level: "off", stream: true })).toEqual({
       vocabulary: reasoningEffort("low"),
+      requestedLevel: "off",
       effectiveLevel: "low",
       offUnavailable: true,
       offFallback: "low",
@@ -1195,6 +1204,7 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
     expect(levelsOf("qwen", "glm-5.2")).toEqual(["off", "high", "max"]);
     expect(resolveThinkingProfile({ presetId: "zhipu", model: "glm-5.2", level: "off", stream: STREAM })).toEqual({
       vocabulary: thinkingType("disabled"),
+      requestedLevel: "off",
       effectiveLevel: "off",
       offUnavailable: false,
       offFallback: null,
@@ -1202,6 +1212,7 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
     });
     expect(resolveThinkingProfile({ presetId: "qwen", model: "glm-5.2", level: "off", stream: STREAM })).toEqual({
       vocabulary: enableThinking(false),
+      requestedLevel: "off",
       effectiveLevel: "off",
       offUnavailable: false,
       offFallback: null,
@@ -1230,6 +1241,7 @@ describe("D1=A2：本仓补声明（zhipuai/glm-5.2 补 off 能力）", () => {
       // 工件 02-before-after.tsv 里这三行两侧同值）。
       expect(resolveThinkingProfile({ presetId, model, level: "off", stream: STREAM }), `${presetId}/${model}`).toEqual({
         vocabulary: reasoningEffort("high"),
+        requestedLevel: "off",
         effectiveLevel: "high",
         offUnavailable: true,
         offFallback: "low",

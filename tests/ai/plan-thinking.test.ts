@@ -31,6 +31,10 @@ interface WireCase {
 // 平台识别与怪癖识别都查不到 → 装配边必须容忍「两个识别都为 undefined」。
 const CUSTOM = { presetId: "custom", baseUrl: "https://example.invalid/v1" } as const;
 
+// Gemini 预设：02 指派表命中 google。离散档的词汇来自上游值集；2.5 系只有区间、
+// 事实层不产写点——本行因此整条不发思考字段。
+const GEMINI = { presetId: "gemini" } as const;
+
 const CASES: readonly WireCase[] = [
   // ===== openai：词汇即本协议线格式，token 参数名随血统事实 =====
   {
@@ -136,32 +140,38 @@ const CASES: readonly WireCase[] = [
     tokenParam: "max_tokens"
   },
   {
-    name: "gemini · gemini-3 系列 high 档：thinkingLevel: HIGH, includeThoughts: true",
-    facts: { protocol: "gemini", model: "gemini-3-flash", ...CUSTOM, level: "high", stream: true, probe: false },
+    name: "gemini · gemini-3 系 high 档：thinkingLevel: HIGH, includeThoughts: true",
+    facts: { protocol: "gemini", model: "gemini-3-flash-preview", ...GEMINI, level: "high", stream: true, probe: false },
     fields: { thinkingConfig: { thinkingLevel: "HIGH", includeThoughts: true } },
     tokenParam: "maxOutputTokens"
   },
   {
-    name: "gemini · gemini-3 系列 off 档：伪关闭 MINIMAL + includeThoughts: false",
-    facts: { protocol: "gemini", model: "gemini-3-flash", ...CUSTOM, level: "off", stream: true, probe: false },
+    name: "gemini · gemini-3 系 off 档：伪关闭 MINIMAL + includeThoughts: false",
+    facts: { protocol: "gemini", model: "gemini-3-flash-preview", ...GEMINI, level: "off", stream: true, probe: false },
     fields: { thinkingConfig: { thinkingLevel: "MINIMAL", includeThoughts: false } },
     tokenParam: "maxOutputTokens"
   },
   {
-    name: "gemini · gemini-2.5-flash medium 档：thinkingBudget: 8192, includeThoughts: true",
-    facts: { protocol: "gemini", model: "gemini-2.5-flash", ...CUSTOM, level: "medium", stream: true, probe: false },
-    fields: { thinkingConfig: { thinkingBudget: 8192, includeThoughts: true } },
+    name: "gemini · 2.5 系（上游只有区间、没有逐档数值）：不发思考字段",
+    facts: { protocol: "gemini", model: "gemini-2.5-flash", ...GEMINI, level: "medium", stream: true, probe: false },
+    fields: {},
     tokenParam: "maxOutputTokens"
   },
   {
-    name: "gemini · gemini-2.5-flash off 档：0 + includeThoughts: false",
-    facts: { protocol: "gemini", model: "gemini-2.5-flash", ...CUSTOM, level: "off", stream: true, probe: false },
-    fields: { thinkingConfig: { thinkingBudget: 0, includeThoughts: false } },
+    name: "gemini · 2.5 系 off 档：关不掉，同样不发思考字段",
+    facts: { protocol: "gemini", model: "gemini-2.5-flash", ...GEMINI, level: "off", stream: true, probe: false },
+    fields: {},
+    tokenParam: "maxOutputTokens"
+  },
+  {
+    name: "gemini · 目录外模型：无档位事实，不按偏好补发 thinkingLevel",
+    facts: { protocol: "gemini", model: "gemini-3-flash", ...GEMINI, level: "high", stream: true, probe: false },
+    fields: {},
     tokenParam: "maxOutputTokens"
   },
   {
     name: "gemini · default 档（不干预）：一个字段都不发",
-    facts: { protocol: "gemini", model: "gemini-3-flash", ...CUSTOM, level: "default", stream: true, probe: false },
+    facts: { protocol: "gemini", model: "gemini-3-flash-preview", ...GEMINI, level: "default", stream: true, probe: false },
     fields: {},
     tokenParam: "maxOutputTokens"
   }
