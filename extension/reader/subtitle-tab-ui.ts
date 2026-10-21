@@ -92,7 +92,7 @@ import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reade
 // 换轨进场动画的触发标记（零依赖叶子）：主列选轨/副列改选置位，列表属主
 //（lifecycle 的列表投影）在整表重建时消费一次；残标清偿也归本叶子的两个
 // change 处理器（主列 finally / 副列 settled 与同轨防呆的同步收尾）。
-import { clearTrackSwitchAnimation, markTrackSwitchAnimation } from "./track-switch-animation.js";
+import { playTrackSwitchAnimation } from "./track-switch-animation.js";
 // 相位 → 横幅文案表的单源在 transcribe-banner.ts（驱动方与文案同居）；模板只
 // 借用转写相位的两条串做初始内容（唯一可见相位见该模块注释）。转写中判定同源
 //（core/reader-transcribing.js 的再导出），本模块的 transcribing 态用它。
@@ -446,12 +446,10 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
       return;
     }
     // 乐观显示目标轨（trigger 立即反映用户选择），随后置 busy + 禁用。
-    // 换轨进场标记先于装载置位：字幕就绪通知驱动的整表重建据此播一次进场
-    // 动画（失败/视图未开的残标由下方 finally 清偿）。
-    markTrackSwitchAnimation();
     switchInFlight = target;
     setCustomSelectValue(select, target);
     setCustomSelectState(select, { disabled: true, busy: true });
+    let switched = false;
     void (async () => {
       try {
         const chain = await ensureSummarizeChain();
@@ -461,18 +459,16 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
           state.clip.fetchRunId,
           String(option?.dataset.id || "")
         );
+        switched = true;
         // 成功路径不改控件：接受事务的 subtitle-ready 通知驱动 renderReadingView，
         // 那一轮渲染会在 switchInFlight 仍置位时保留乐观 trigger（正文与列表已换），
-        // 随后的 finally 收尾收敛控件。
+        // 随后的 finally 收尾收敛控件并补一次进场动画。
       } catch (error) {
         // 失败回退（Q14）：state 未变，控件必须反映 state。回退动作不在这里手写
         // ——统一交给 finally 的那次收敛（按 state 投影），一个收尾入口。
         onNotice?.(`字幕切换失败：${getErrorMessage(error)}`);
         logWarn("[BILISCRIPT] failed to switch subtitle track", error);
       } finally {
-        // 换轨进场标记清偿：成功且视图开着时已被 subtitle-ready 的整表重建
-        // 消费（幂等 no-op）；失败/视图未开时清掉残标，不留到下一次无关重建。
-        clearTrackSwitchAnimation();
         // 收尾收敛：一次只有这一个请求在飞，它必须自己结束忙碌态。成功路径的
         // subtitle-ready 渲染发生在 await 期间（那时开关仍置位、渲染有意跳过状态
         // 收敛），之后不会再有第二轮渲染——不在这里收敛，控件就永久停在
@@ -485,6 +481,11 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
         // 路径 state 未变 ⇒ 这次清理对失败的切轨不成立，不会误伤副列）。
         clearSecondarySubtitleIfShadowedByMain();
         render();
+        // 装载成功且视图开着：接受事务的 notify 之后到这里的 continuation 之间没有
+        // await，整表重建已在同一事件循环内完成，此处补一次进场不会先绘制再起播。
+        if (switched && state.reader.readingViewOpen) {
+          playTrackSwitchAnimation(byId(ids.readingSubtitleList));
+        }
       }
     })();
   }
@@ -917,10 +918,8 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
     rerender();
     return;
   }
-  // 副列改选同属「用户主动换轨」：副行到站的整表重建播一次进场动画。
-  // 三条出路各清偿残标——同轨防呆的同步 rerender 之后、异步装载的 settled、
-  // 以及「未发起装载」的早退。
-  markTrackSwitchAnimation();
+  // 副列改选同属「用户主动换轨」：装载落定后由本控件起播一次进场动画。
+  // 同轨防呆走同步重建、目标解析失败不发起装载——后者不播。
   // Q8 同轨防呆：副列选了主轨那一条 ⇒ 副列清空（列表退回单轨）。目标 lan 记成用户
   // 刚点的那条轨的 lan（= 主轨的 lan）——这是「副列指向主轨」的唯一可投影信号，
   // 第三套空态文案「主副字幕相同」由此推出（02 号票第 5/8 条：
@@ -933,8 +932,10 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
     // 同轨防呆清的是**副轨槽**，副行随之从列表消失 ⇒ 与开关同款：必须请列表属主重渲，
     // 否则列表还挂着已被清空的译文（弹层侧已经收起、两处两说）。
     notifyReaderPresenter({ kind: "rerender" });
-    // 同步通知当场消费（视图开着）或清偿（视图未开）换轨进场标记。
-    clearTrackSwitchAnimation();
+    // 同步通知当场完成列表重建（视图开着时）；重建后在同一事件循环内起播进场。
+    if (state.reader.readingViewOpen) {
+      playTrackSwitchAnimation(byId(ids.readingSubtitleList));
+    }
     return;
   }
   // 全局偏好：副轨目标 lan（Q4 记忆粒度）；立即落盘（与主题偏好同一条 persist seam）。
@@ -943,18 +944,19 @@ function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
   // 目标按**轨身份**解析（不是刚写的偏好再匹配一次）：用户点的是哪一条就装哪一条。
   const resolution = resolveSecondaryTarget({ id, url, lang });
   if (resolution.kind !== "target") {
-    clearTrackSwitchAnimation();
     rerender();
     return;
   }
   const outcome = ensureSecondarySubtitleLoaded({ target: resolution.target });
   projectSecondaryLoad(outcome);
-  // 换轨进场标记清偿：副轨到站的 secondary-subtitle-ready 重建发生在事务落定
-  // 之前（视图开着则标记已被消费，此处幂等 no-op）；失败/视图未开不留残标。
+  // 副轨到站的 secondary-subtitle-ready 重建发生在事务落定之前；settled 落定时若
+  // 装载成功且视图开着，补一次进场动画（失败/视图未开不播）。
   if (outcome.kind === "started") {
-    void outcome.settled.then(() => clearTrackSwitchAnimation());
-  } else {
-    clearTrackSwitchAnimation();
+    void outcome.settled.then((settlement) => {
+      if (!settlement.error && state.reader.readingViewOpen) {
+        playTrackSwitchAnimation(byId(ids.readingSubtitleList));
+      }
+    });
   }
 }
 

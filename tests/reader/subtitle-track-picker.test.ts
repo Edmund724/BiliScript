@@ -440,8 +440,8 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
 // reader-gate 在本文件被 mock，故「直调渲染」= whenReaderReady 被调用。
 // 换轨进场动画（2026-10 用户决议）：只有「用户主动换轨」后的整表重建播一次
 // 进场（容器挂 is-track-switching，CSS 侧复用 tab 体同款关键帧）；初始加载与
-// 常规重投影不播。标记的置位在 subtitle-tab-ui 的两个 change 处理器，消费在
-// lifecycle 的列表投影（reader/track-switch-animation.ts）。
+// 常规重投影不播。起播由 subtitle-tab-ui 的两个 change 处理器在装载落定后直接
+// 调用（reader/track-switch-animation.ts），lifecycle 的列表投影不参与判断。
 describe("换轨进场动画：主动换轨才播，播一次", () => {
   it("真实点击换轨 → 字幕就绪的整表重建给列表容器挂 is-track-switching；其后的常规重渲染不挂", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
@@ -460,8 +460,8 @@ describe("换轨进场动画：主动换轨才播，播一次", () => {
     expect(listText()).toContain("英语轨正文");
     expect(list.classList.contains("is-track-switching")).toBe(true);
 
-    // 标记已被消费（一次性）：动画结束摘类后（jsdom 不触发 animationend，
-    // 手动摘类模拟），常规重渲染不再挂类
+    // 一次性：动画结束摘类后（jsdom 不触发 animationend，手动摘类模拟），
+    // 常规重渲染不再挂类
     list.classList.remove("is-track-switching");
     shell.renderReadingView();
     expect(list.classList.contains("is-track-switching")).toBe(false);
@@ -469,7 +469,7 @@ describe("换轨进场动画：主动换轨才播，播一次", () => {
     shell.stopReadingViewSync();
   });
 
-  it("装载失败：标记被清偿，之后的整表重建不播（残标不得留到无关重建）", async () => {
+  it("装载失败：不起播，之后的整表重建也不挂类", async () => {
     loadTracks(SAMPLE_TRACKS, "ai-zh");
     state.reader.readingViewOpen = true;
     shell.renderReadingView();
@@ -478,10 +478,24 @@ describe("换轨进场动画：主动换轨才播，播一次", () => {
 
     selectViaList("English");
     await vi.waitFor(() => {
-      expect(triggerText()).toBe("中文"); // 失败回退落定 = finally 清偿已执行
+      expect(triggerText()).toBe("中文"); // 失败回退落定 = finally 收尾已执行
     });
 
     shell.renderReadingView();
+    expect(list.classList.contains("is-track-switching")).toBe(false);
+  });
+
+  it("装载成功但视图未开：不起播（列表没有经过重建）", async () => {
+    loadTracks(SAMPLE_TRACKS, "ai-zh");
+    state.reader.readingViewOpen = false;
+    shell.renderReadingView();
+    const list = document.getElementById(ids.readingSubtitleList) as HTMLElement;
+
+    selectViaList("English");
+    await vi.waitFor(() => {
+      expect(state.clip.subtitleBody).toEqual(EN_BODY);
+    });
+
     expect(list.classList.contains("is-track-switching")).toBe(false);
   });
 });
