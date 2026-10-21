@@ -103,7 +103,7 @@ export function buildUiHtml(): string {
                  （.biliscript-reading-icon-btn），不依赖按需装载的对话分区样式；
                  只在 AI 对话 tab 激活时可见（reader.css 的 :has 规则）。 -->
             <div class="biliscript-reading-tabs-row">
-              <div class="biliscript-reading-tabs" role="tablist" aria-label="Script 标签">
+              <div class="biliscript-reading-tabs" role="tablist" aria-label="Script 标签" data-active-tab="subtitle">
                 <button id="${ids.readingTabSubtitle}" type="button" class="biliscript-reading-tab is-active" role="tab" aria-selected="true">字幕</button>
                 <button id="${ids.readingTabOverview}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">概览</button>
                 <button id="${ids.readingTabChat}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">AI 对话</button>
@@ -188,6 +188,10 @@ export function setReaderScriptTab(tab: ReaderScriptTab): void {
     const body = document.getElementById(def.bodyId);
     if (!button || !body) {
       continue;
+    }
+    const container = button.parentElement;
+    if (container && container.classList.contains("biliscript-reading-tabs")) {
+      container.setAttribute("data-active-tab", tab);
     }
     const active = def.name === tab;
     button.classList.toggle("is-active", active);

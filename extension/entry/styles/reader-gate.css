@@ -453,6 +453,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
  * 12px，与 tab 内容卡、字幕活动卡、章节/金句卡同一半径语言。
  * 深色档选中卡投影走暗面一档。 */
 #biliscript-reading-view .biliscript-reading-tabs {
+  --biliscript-tab-gap: 18px;
+  --biliscript-tab-pad-x: 8px;
+  --biliscript-tab-pad-y: 4px;
   background: transparent;
   box-shadow: none;
   /* 紧凑排布：三标签胶囊组水平中心与文摘面板中轴线严格对齐；
@@ -471,6 +474,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
  * 窄面板下微调 padding 与 gap，避免居中三标签与右侧脱流工具键发生重叠。 */
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-tabs {
+    --biliscript-tab-gap: 8px;
     gap: 8px;
   }
 
@@ -481,6 +485,9 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 @container (max-width: 460px) {
   #biliscript-reading-view .biliscript-reading-tabs {
+    --biliscript-tab-gap: 4px;
+    --biliscript-tab-pad-x: 2px;
+    --biliscript-tab-pad-y: 2px;
     gap: 4px;
     padding: 2px;
   }
@@ -491,6 +498,16 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   }
 }
 
+/* 分段控件气泡指示器：白玻璃浮起卡与阴影由滑动气泡承载，实现从源位置到新位置的平滑过渡动画 */
+#biliscript-reading-view .biliscript-reading-tabs::before {
+  background: var(--biliscript-reader-card);
+  box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+#biliscript-reading-view[data-theme="dark"] .biliscript-reading-tabs::before {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
 #biliscript-reading-view .biliscript-reading-tab.is-active {
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-accent);
@@ -499,6 +516,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-tab.is-active {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+#biliscript-reading-view .biliscript-reading-tabs .biliscript-reading-tab.is-active {
+  background: transparent;
+  box-shadow: none;
 }
 
 /* 章节/金句：灰井（surface-2）换白玻璃凸起卡——无描边，靠竖向渐变填充 +
@@ -998,6 +1020,18 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
  * 数字刊物色板（data-palette="editorial"）回归方案 C 原型的羊皮纸书摘语言：
  * 暖米实底（--card）+ 1px 暖沙细描边（--border）+ 零玻璃内高光，靠纸色分层与细线
  * 定界，悬停切深半阶的暖沙底（--surface-3）。 */
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-tabs::before {
+  background: var(--biliscript-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
+  box-shadow: none;
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-tabs .biliscript-reading-tab.is-active {
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+}
+
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-tab.is-active,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-item.is-active,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter,

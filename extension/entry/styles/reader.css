@@ -320,6 +320,11 @@
  * 章节 / 金句卡同一半径语言（gate 段不再覆写为胶囊）。
  * 三标签胶囊组作为整体居中，各项等宽居中，概览标签对齐水平中轴线。 */
 .biliscript-reading-tabs {
+  --biliscript-tab-gap: 4px;
+  --biliscript-tab-pad-x: 4px;
+  --biliscript-tab-pad-y: 4px;
+  position: relative;
+  isolation: isolate;
   flex: 0 0 auto;
   min-width: 0;
   display: inline-grid;
@@ -327,13 +332,54 @@
   grid-auto-columns: 1fr;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 4px;
+  gap: var(--biliscript-tab-gap);
+  padding: var(--biliscript-tab-pad-y) var(--biliscript-tab-pad-x);
   background: var(--biliscript-reader-pill-bg);
   border-radius: 28px;
 }
 
+/* 滑动气泡指示器：从源位置到新位置平滑过渡（类似 Gemini 网页端分段胶囊动效） */
+.biliscript-reading-tabs::before {
+  content: "";
+  position: absolute;
+  top: var(--biliscript-tab-pad-y);
+  bottom: var(--biliscript-tab-pad-y);
+  left: var(--biliscript-tab-pad-x);
+  width: calc((100% - 2 * var(--biliscript-tab-pad-x) - 2 * var(--biliscript-tab-gap)) / 3);
+  border-radius: 28px;
+  background: var(--biliscript-reader-accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  z-index: 0;
+  transform: translateX(0);
+  transition: transform 260ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .biliscript-reading-tabs::before {
+    transition: none;
+  }
+}
+
+.biliscript-reading-tabs[data-active-tab="subtitle"]::before,
+.biliscript-reading-tabs:has(#biliscript-reading-tab-subtitle.is-active)::before {
+  transform: translateX(0);
+}
+
+.biliscript-reading-tabs[data-active-tab="overview"]::before,
+.biliscript-reading-tabs:has(#biliscript-reading-tab-overview.is-active)::before {
+  transform: translateX(calc(100% + var(--biliscript-tab-gap)));
+}
+
+.biliscript-reading-tabs[data-active-tab="chat"]::before,
+.biliscript-reading-tabs:has(#biliscript-reading-tab-chat.is-active)::before {
+  transform: translateX(calc(200% + 2 * var(--biliscript-tab-gap)));
+}
+
 .biliscript-reading-tab {
+  position: relative;
+  z-index: 1;
   flex: 1 1 0;
   border: none;
   background: none;
@@ -346,7 +392,7 @@
   text-align: center;
   white-space: nowrap;
   color: var(--biliscript-reader-muted);
-  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
+  transition: color 0.2s ease-out, transform 100ms ease-out;
 }
 
 .biliscript-reading-tab:active {
@@ -361,6 +407,11 @@
   background: var(--biliscript-reader-accent);
   color: var(--biliscript-reader-accent-ink);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.biliscript-reading-tabs .biliscript-reading-tab.is-active {
+  background: transparent;
+  box-shadow: none;
 }
 
 .biliscript-reading-tab-body {
