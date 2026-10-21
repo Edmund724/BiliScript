@@ -1144,18 +1144,19 @@
  * 消失）、b 翻到右鼓 4.226（穿过 0 时收成一条竖直直径）、c 从 10 缩到 4.226 接替左侧
  * 经线；读作经线向右扫过，赤道与轮廓圆不动（正视下赤道是水平直径，真旋转也不变）。
  * 收尾时 a 贴右缘、b 右鼓、c 左鼓，字形与基态逐像素相同，摘类看不出换手。
- * 三条线各有一段缓动（时长 / 延迟 / 曲线拟合自 DeepSeek 的实测帧），所以转起来有先后：
- * b 先动、c 最后起手，三条同时收住。取消 = 同一组关键帧倒放，形状逐帧镜像。 */
+ * 三条线各有一段缓动（曲线拟合自 DeepSeek 的实测帧），所以转起来有先后：
+ * b 先动、c 最后起手，三条同时收住；时长 / 延迟按原版 30 帧@60fps 配平到
+ * 全程 500ms。取消 = 同一组关键帧倒放，形状逐帧镜像。 */
 .biliscript-reading-chat .chat-web-search-pill:is(.is-spinning-on, .is-spinning-off) .chat-web-search-meridian-a {
-  animation: biliscript-web-search-meridian-a 325ms cubic-bezier(0.76, 0.69, 0.27, 1) 116ms;
+  animation: biliscript-web-search-meridian-a 370ms cubic-bezier(0.76, 0.69, 0.27, 1) 130ms;
 }
 
 .biliscript-reading-chat .chat-web-search-pill:is(.is-spinning-on, .is-spinning-off) .chat-web-search-meridian-b {
-  animation: biliscript-web-search-meridian-b 361ms cubic-bezier(0.75, 0.17, 0.35, 0.81) 80ms;
+  animation: biliscript-web-search-meridian-b 410ms cubic-bezier(0.75, 0.17, 0.35, 0.81) 90ms;
 }
 
 .biliscript-reading-chat .chat-web-search-pill:is(.is-spinning-on, .is-spinning-off) .chat-web-search-meridian-c {
-  animation: biliscript-web-search-meridian-c 301ms cubic-bezier(0.73, 0.06, 0.25, 0.53) 140ms;
+  animation: biliscript-web-search-meridian-c 340ms cubic-bezier(0.73, 0.06, 0.25, 0.53) 160ms;
 }
 
 .biliscript-reading-chat .chat-web-search-pill.is-spinning-off .chat-web-search-meridian {
