@@ -98,3 +98,19 @@ export type {
 } from "./overview-coordinator.js";
 // 概览 tab 点击委托（壳 tab 切换回调经 ui/reader-gate 调用面）
 export { onReadingOverviewClick } from "./overview-ui.js";
+
+
+// ===== 金句分享卡片模态弹窗与噪点生成 =====
+export {
+  openQuoteShareModal,
+  closeQuoteShareModal,
+  isQuoteShareModalOpen,
+  getActiveQuoteCardPreset,
+  setActiveQuoteCardPreset,
+  QUOTE_CARD_PRESETS
+} from "./quote-share-modal.js";
+export {
+  getQuoteShareNoiseDataUrl,
+  clearQuoteShareNoiseCache,
+  NOISE_BASE_SIZE
+} from "./quote-share-noise.js";

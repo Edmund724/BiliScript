@@ -15,12 +15,13 @@ import { formatClock } from "../shared/clock-text.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
 import { setMessage } from "../core/ui-status.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
-import { READING_COPY_ICON, READING_PLAY_ICON } from "../ui/reading-icons.js";
+import { READING_COPY_ICON, READING_PLAY_ICON, READING_SHARE_ICON } from "../ui/reading-icons.js";
 import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
 import { jumpReadingTarget } from "./sync.js";
 import { withReader } from "../ui/reader-gate.js";
+import { openQuoteShareModal } from "./quote-share-modal.js";
 import type { AnalysisChapter, AnalysisQuote } from "../ai/analysis.js";
 import type { ReaderOverviewSnapshot } from "./overview-coordinator.js";
 
@@ -296,8 +297,7 @@ function chapterCardHtml(item: AnalysisChapter, withHours: boolean, chapterSourc
 
 // 金句卡（暖底淡卡）：surface-2 底 + 圆角分组，无边框、无左侧 accent 边条；
 // 正文经 CSS 伪元素包「」直角引号（复制文本不含括号），底行左侧播放三角 +
-// 时间戳 pill（点击跳播）、右侧复制图标钮（与 AI 对话 tab 复制键同款图标）——
-// 「」+ 播放键是金句与章节卡的视觉区分特征。时间戳与原话原样呈现，不重排不改写。
+// 时间戳 pill（点击跳播）、右侧操作区（分享卡片 + 复制图标钮）。
 function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
   const from = Number(item?.from) || 0;
   const content = String(item?.content || "").trim();
@@ -312,14 +312,17 @@ function quoteCardHtml(item: AnalysisQuote, withHours: boolean): string {
           <span class="biliscript-reading-ov-quote-play" aria-hidden="true">${READING_PLAY_ICON}</span>
           <span class="biliscript-reading-time">${escapeHtml(formatClock(from, { hours: withHours }))}</span>
         </span>
-        <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句">${READING_COPY_ICON}</span>
+        <span class="biliscript-reading-ov-quote-actions">
+          <span class="biliscript-reading-ov-quote-share" role="button" data-overview-action="share-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="分享金句卡片" title="分享金句卡片">${READING_SHARE_ICON}</span>
+          <span class="biliscript-reading-ov-quote-copy" role="button" data-overview-action="copy-quote" data-quote="${escapeHtml(content)}" data-seconds="${from}" aria-label="复制该金句" title="复制该金句">${READING_COPY_ICON}</span>
+        </span>
       </span>
     </button>
   `;
 }
 
 // ============================================================
-// 交互（章节/金句点击跳播 + 复制金句 + 重试；ui-renderer 事件委托入口）
+// 交互（章节/金句点击跳播 + 复制金句 + 分享金句卡片 + 重试；ui-renderer 事件委托入口）
 // ============================================================
 
 export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiActions): void {
@@ -337,6 +340,16 @@ export function onReadingOverviewClick(event: MouseEvent, actions?: OverviewUiAc
     }
     if (action === "copy-quote") {
       void copyQuoteToClipboard(target);
+      return;
+    }
+    if (action === "share-quote") {
+      const quote = target.dataset.quote || "";
+      const seconds = Number(target.dataset.seconds) || 0;
+      openQuoteShareModal({
+        content: quote,
+        from: seconds,
+        videoTitle: state.clip.title || ""
+      });
       return;
     }
     return;
