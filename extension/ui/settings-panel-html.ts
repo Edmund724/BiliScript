@@ -132,6 +132,7 @@ export function buildSettingsHtml(): string {
           max="20"
           step="1"
           value="5"
+          style="--range-progress: 21.05%;"
         />
         <div class="biliscript-slider-labels">
           <span>1</span>
@@ -207,6 +208,7 @@ export function buildSettingsHtml(): string {
           max="130"
           step="5"
           value="100"
+          style="--range-progress: 50%;"
         />
         <div class="biliscript-slider-labels">
           <span>小</span>
@@ -230,6 +232,7 @@ export function buildSettingsHtml(): string {
           max="650"
           step="10"
           value="520"
+          style="--range-progress: 48%;"
         />
         <div class="biliscript-slider-labels">
           <span>窄</span>

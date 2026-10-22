@@ -2374,14 +2374,48 @@
 }
 
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  accent-color: var(--biliscript-reader-accent);
-  cursor: pointer;
   height: 4px;
-  border-radius: 2px;
-  background: var(--biliscript-reader-surface-3);
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--biliscript-reader-accent) 0%,
+    var(--biliscript-reader-accent) var(--range-progress, 0%),
+    var(--biliscript-reader-track, rgba(0, 0, 0, 0.1)) var(--range-progress, 0%),
+    var(--biliscript-reader-track, rgba(0, 0, 0, 0.1)) 100%
+  );
   outline: none;
+  cursor: pointer;
   margin: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--biliscript-reader-accent);
+  border: 2px solid var(--biliscript-reader-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--biliscript-reader-accent);
+  border: 2px solid var(--biliscript-reader-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
 }
 
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-labels {

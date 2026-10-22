@@ -145,7 +145,7 @@ export function buildUiHtml(): string {
                           <button id="${ids.readingChatLineHeightResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认行高 (160%)" aria-label="恢复默认行高">${READING_RESET_ICON}</button>
                         </div>
                       </div>
-                      <input id="${ids.readingChatLineHeight}" type="range" class="biliscript-range-input" min="120" max="200" step="5" value="160" />
+                      <input id="${ids.readingChatLineHeight}" type="range" class="biliscript-range-input" min="120" max="200" step="5" value="160" style="--range-progress: 50%;" />
                       <div class="biliscript-slider-labels">
                         <span>紧凑</span>
                         <span>宽松</span>
@@ -159,7 +159,7 @@ export function buildUiHtml(): string {
                           <button id="${ids.readingChatParagraphSpacingResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认段落间距 (12px)" aria-label="恢复默认段落间距">${READING_RESET_ICON}</button>
                         </div>
                       </div>
-                      <input id="${ids.readingChatParagraphSpacing}" type="range" class="biliscript-range-input" min="4" max="20" step="2" value="12" />
+                      <input id="${ids.readingChatParagraphSpacing}" type="range" class="biliscript-range-input" min="4" max="20" step="2" value="12" style="--range-progress: 50%;" />
                       <div class="biliscript-slider-labels">
                         <span>紧凑</span>
                         <span>宽松</span>

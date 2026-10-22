@@ -55,6 +55,7 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
+import { initRangeSlider, syncRangeProgress } from "./range-slider.js";
 import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
@@ -281,6 +282,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.readerFontSizeScale.value = String(normalizeReaderFontSizeScale(settings.readerFontSizeScale));
   elements.readerFontSizeScaleValue.textContent = `${elements.readerFontSizeScale.value}%`;
   elements.readerFontSizeScaleResetBtn.disabled = Number(elements.readerFontSizeScale.value) === DEFAULT_SETTINGS.readerFontSizeScale;
+  initRangeSlider(elements.readerFontSizeScale);
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
@@ -289,6 +291,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.customPanelWidth.value = String(normalizeCustomPanelWidth(settings.customPanelWidth));
   elements.customPanelWidthValue.textContent = `${elements.customPanelWidth.value}px`;
   elements.customPanelWidthResetBtn.disabled = Number(elements.customPanelWidth.value) === DEFAULT_SETTINGS.customPanelWidth;
+  initRangeSlider(elements.customPanelWidth);
   elements.autoOpenReader.checked = settings.autoOpenReader === true;
   elements.chatInputGlow.checked = normalizeChatInputGlow(settings.chatInputGlow);
   // 自绘开关（ADR-0019）：水合直接写 .checked（值源语义不变，零事件），视觉经
@@ -316,6 +319,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(settings.webSearchMaxToolCalls));
   elements.webSearchMaxToolCallsValue.textContent = elements.webSearchMaxToolCalls.value;
   elements.webSearchMaxToolCallsResetBtn.disabled = Number(elements.webSearchMaxToolCalls.value) === DEFAULT_SETTINGS.webSearchMaxToolCalls;
+  initRangeSlider(elements.webSearchMaxToolCalls);
   const searchProviders = await loadSearchProviders();
   // 列表顺序 = 链序（spec §12.2 / §12.5 第 15 行）：先取用户拖拽序（归一后），
   // 再按「order 下标 > 内置默认序」排序渲染。DeepSeek 行副行 = 凭据引用三态文案
@@ -1129,6 +1133,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.webSearchMaxToolCalls.value = String(defaultVal);
     elements.webSearchMaxToolCallsValue.textContent = String(defaultVal);
     elements.webSearchMaxToolCallsResetBtn.disabled = true;
+    syncRangeProgress(elements.webSearchMaxToolCalls);
     await saveSettingField(elements, { webSearchMaxToolCalls: defaultVal });
   });
   // 付费平台准入即时持久化（GLOSSARY「付费平台」）：开关即花钱授权，改动立即生效。
@@ -1144,6 +1149,7 @@ function bindSettingsEvents(host: HTMLElement): void {
       elements.webSearchMaxToolCalls.value = String(val);
       elements.webSearchMaxToolCallsValue.textContent = String(val);
       elements.webSearchMaxToolCallsResetBtn.disabled = val === DEFAULT_SETTINGS.webSearchMaxToolCalls;
+      syncRangeProgress(elements.webSearchMaxToolCalls);
     }
     if (changes.allowPaidSearchProviders) {
       elements.allowPaidSearchProviders.checked = changes.allowPaidSearchProviders.newValue === true;

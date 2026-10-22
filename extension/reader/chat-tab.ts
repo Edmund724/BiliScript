@@ -70,6 +70,7 @@ import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing } from "../core/validators.js";
+import { initRangeSlider, syncRangeProgress } from "../ui/range-slider.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
