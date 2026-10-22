@@ -484,13 +484,15 @@
   animation: biliscript-tab-body-in 0.3s var(--biliscript-reader-ease-spring, ease);
 }
 
-/* 概览 / AI 对话 tab 的诚实占位卡（PR4/PR5 落地前不假装可用） */
-.biliscript-reading-placeholder {
+/* 概览 / AI 对话 tab 的占位卡 */
+.biliscript-reading-placeholder,
+.biliscript-reading-ov-empty-card {
   margin: auto 0;
   padding: 26px 20px;
   background: var(--biliscript-reader-card);
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
+  border: none;
+  border-radius: 20px;
+  box-shadow: var(--biliscript-reader-card-highlight), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12));
   text-align: center;
 }
 
@@ -1121,10 +1123,10 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
+  border: none;
+  border-radius: 20px;
   background: var(--biliscript-reader-card);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12));
 }
 
 .biliscript-reading-explain-card-head {
