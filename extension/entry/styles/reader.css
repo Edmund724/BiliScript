@@ -1986,7 +1986,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
   justify-content: center;
 }
 
@@ -2025,6 +2025,43 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
 }
 
+/* 纹样选择器栏 */
+.biliscript-quote-share-patterns {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+  justify-content: center;
+}
+
+.biliscript-quote-pattern-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--biliscript-reader-muted, #aaa);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.biliscript-quote-pattern-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.biliscript-quote-pattern-btn.is-active {
+  border-color: var(--biliscript-reader-accent, #00a1d6);
+  background: rgba(0, 161, 214, 0.15);
+  color: #fff;
+  font-weight: 500;
+}
+
 /* 主卡片预览区 */
 .biliscript-quote-share-preview {
   width: 100%;
@@ -2061,6 +2098,38 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   inset: 0;
   background-size: 100% 100%;
   transition: background 0.3s ease;
+}
+
+/* 细线几何纹样层（线宽统一 0.8px，默认透明度约 0.3，径向遮罩中心留白） */
+.biliscript-quote-card-pattern {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0.3;
+  pointer-events: none;
+  overflow: hidden;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0, 0, 0, 0.4) 75%, #000000 100%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0, 0, 0, 0.4) 75%, #000000 100%);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  transition: opacity 0.3s ease;
+}
+
+.biliscript-quote-card-pattern svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.biliscript-quote-card-pattern line,
+.biliscript-quote-card-pattern path,
+.biliscript-quote-card-pattern circle,
+.biliscript-quote-card-pattern ellipse {
+  vector-effect: non-scaling-stroke;
+}
+
+.biliscript-quote-card[data-pattern="none"] .biliscript-quote-card-pattern {
+  display: none;
 }
 
 /* 物理像素级灰度噪点平铺层 */
@@ -2215,6 +2284,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   .biliscript-quote-card-noise {
     display: none !important;
   }
+  .biliscript-quote-card-pattern {
+    display: none !important;
+  }
   .biliscript-quote-card-blobs {
     display: none !important;
   }
@@ -2225,7 +2297,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 @media (prefers-reduced-motion: reduce) {
   .biliscript-quote-preset-btn,
-  .biliscript-quote-card-blobs {
+  .biliscript-quote-pattern-btn,
+  .biliscript-quote-card-blobs,
+  .biliscript-quote-card-pattern {
     transition: none !important;
   }
 }

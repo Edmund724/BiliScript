@@ -1,19 +1,30 @@
 // tests/reader/quote-share-card.test.ts
-// 金句分享卡片预览模态弹窗与物理灰度噪点生成器单元测试。
+// 金句分享卡片预览模态弹窗、物理灰度噪点与细线几何纹样生成器单元测试。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   getQuoteShareNoiseDataUrl,
   clearQuoteShareNoiseCache,
   NOISE_BASE_SIZE
 } from "../../extension/reader/quote-share-noise.js";
 import {
+  getQuoteSharePatternSvg,
+  clearQuoteSharePatternCache,
+  QUOTE_CARD_PATTERNS,
+  type QuotePatternId
+} from "../../extension/reader/quote-share-patterns.js";
+import {
   openQuoteShareModal,
   closeQuoteShareModal,
   isQuoteShareModalOpen,
   getActiveQuoteCardPreset,
   setActiveQuoteCardPreset,
-  QUOTE_CARD_PRESETS
+  QUOTE_CARD_PRESETS,
+  getActiveQuoteCardPattern,
+  setActiveQuoteCardPattern
 } from "../../extension/reader/quote-share-modal.js";
 import { renderReadingOverview, onReadingOverviewClick } from "../../extension/reader/overview-ui.js";
 import { closeReadingView } from "../../extension/reader/lifecycle.js";
@@ -140,6 +151,82 @@ describe("quote-share-noise", () => {
   });
 });
 
+describe("quote-share-patterns", () => {
+  beforeEach(() => {
+    clearQuoteSharePatternCache();
+  });
+
+  afterEach(() => {
+    clearQuoteSharePatternCache();
+  });
+
+  it("导出 6 种纹样模式选项（含无纹样与 5 款细线几何纹样）", () => {
+    expect(QUOTE_CARD_PATTERNS.length).toBe(6);
+    const ids = QUOTE_CARD_PATTERNS.map((p) => p.id);
+    expect(ids).toEqual(["none", "rays", "contours", "soundwaves", "dots", "lens"]);
+  });
+
+  it("无纹样 (none) 返回空字符串", () => {
+    expect(getQuoteSharePatternSvg("none")).toBe("");
+  });
+
+  it("射线 (rays)：生成以中心向外扩散的细线 SVG", () => {
+    const svg = getQuoteSharePatternSvg("rays");
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('viewBox="0 0 400 300"');
+    expect(svg).toContain('stroke-width="0.8"');
+    expect(svg).toContain('stroke="#ffffff"');
+    expect(svg).toContain("<line");
+    expect(svg).toContain('x1="200" y1="150"');
+  });
+
+  it("等高线 (contours)：生成多圈平滑闭合有机波动路径", () => {
+    const svg = getQuoteSharePatternSvg("contours");
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('viewBox="0 0 400 300"');
+    expect(svg).toContain('stroke-width="0.8"');
+    expect(svg).toContain("<path");
+    // 包含二次贝塞尔平滑点与闭合指令
+    expect(svg).toContain("Q");
+    expect(svg).toContain("Z");
+  });
+
+  it("声波线 (soundwaves)：生成多层水平平滑谐波曲线", () => {
+    const svg = getQuoteSharePatternSvg("soundwaves");
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('viewBox="0 0 400 300"');
+    expect(svg).toContain('stroke-width="0.8"');
+    expect(svg).toContain("<path");
+    expect(svg).toContain("Q");
+  });
+
+  it("点阵 (dots)：生成白色实心网格圆点矩阵", () => {
+    const svg = getQuoteSharePatternSvg("dots");
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('viewBox="0 0 400 300"');
+    expect(svg).toContain('fill="#ffffff"');
+    expect(svg).toContain('stroke="none"');
+    expect(svg).toContain("<circle");
+    expect(svg).toContain('r="0.8"');
+  });
+
+  it("透镜 (lens)：生成菲涅尔同心环与正交光学轴线", () => {
+    const svg = getQuoteSharePatternSvg("lens");
+    expect(svg).toContain("<svg");
+    expect(svg).toContain('viewBox="0 0 400 300"');
+    expect(svg).toContain('stroke-width="0.8"');
+    expect(svg).toContain("<line");
+    expect(svg).toContain("<circle");
+    expect(svg).toContain('cx="200" cy="150"');
+  });
+
+  it("命中内存缓存复用相同 SVG 字符串", () => {
+    const s1 = getQuoteSharePatternSvg("rays");
+    const s2 = getQuoteSharePatternSvg("rays");
+    expect(s1).toBe(s2);
+  });
+});
+
 describe("quote-share-modal", () => {
   beforeEach(() => {
     document.body.innerHTML = `<div id="${ids.readingView}"></div>`;
@@ -165,7 +252,7 @@ describe("quote-share-modal", () => {
     ]);
   });
 
-  it("打开分享弹窗：渲染骨架结构、正文、时间戳与噪点背景", () => {
+  it("打开分享弹窗：渲染骨架结构、正文、时间戳、噪点背景与默认射线纹样", () => {
     expect(isQuoteShareModalOpen()).toBe(false);
 
     openQuoteShareModal({
@@ -194,9 +281,95 @@ describe("quote-share-modal", () => {
 
     const card = host?.querySelector<HTMLElement>(".biliscript-quote-card");
     expect(card?.dataset.preset).toBe("purple-gold");
+    expect(card?.dataset.pattern).toBe("rays");
 
     const noiseEl = host?.querySelector<HTMLElement>(".biliscript-quote-card-noise");
     expect(noiseEl?.style.backgroundImage).toContain("data:");
+
+    const patternEl = host?.querySelector<HTMLElement>(".biliscript-quote-card-pattern");
+    expect(patternEl).not.toBeNull();
+    expect(patternEl?.innerHTML).toContain("<svg");
+    expect(patternEl?.innerHTML).toContain("<line");
+
+    const activePatternBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='rays']");
+    expect(activePatternBtn?.classList.contains("is-active")).toBe(true);
+    expect(activePatternBtn?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("支持在打开弹窗时通过 options.pattern 指定初始纹样", () => {
+    openQuoteShareModal({
+      content: "测试等高线纹样",
+      from: 10,
+      pattern: "contours"
+    });
+
+    expect(getActiveQuoteCardPattern()).toBe("contours");
+    const card = document.querySelector<HTMLElement>(".biliscript-quote-card");
+    expect(card?.dataset.pattern).toBe("contours");
+
+    const patternEl = document.querySelector<HTMLElement>(".biliscript-quote-card-pattern");
+    expect(patternEl?.innerHTML).toContain("<path");
+  });
+
+  it("点击纹样切换按钮在 5 种几何纹样及「无纹样」间无缝切换", () => {
+    openQuoteShareModal({
+      content: "测试金句纹样切换",
+      from: 0
+    });
+
+    const host = document.querySelector(".biliscript-quote-share-host");
+    const card = host?.querySelector<HTMLElement>(".biliscript-quote-card");
+    const patternEl = host?.querySelector<HTMLElement>(".biliscript-quote-card-pattern");
+
+    // 1. 切换至 contours
+    const contoursBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='contours']");
+    contoursBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(getActiveQuoteCardPattern()).toBe("contours");
+    expect(card?.dataset.pattern).toBe("contours");
+    expect(patternEl?.innerHTML).toContain("<path");
+    expect(contoursBtn?.classList.contains("is-active")).toBe(true);
+
+    // 2. 切换至 soundwaves
+    const soundwavesBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='soundwaves']");
+    soundwavesBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(getActiveQuoteCardPattern()).toBe("soundwaves");
+    expect(card?.dataset.pattern).toBe("soundwaves");
+    expect(patternEl?.innerHTML).toContain("<path");
+
+    // 3. 切换至 dots
+    const dotsBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='dots']");
+    dotsBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(getActiveQuoteCardPattern()).toBe("dots");
+    expect(card?.dataset.pattern).toBe("dots");
+    expect(patternEl?.innerHTML).toContain("<circle");
+
+    // 4. 切换至 lens
+    const lensBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='lens']");
+    lensBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(getActiveQuoteCardPattern()).toBe("lens");
+    expect(card?.dataset.pattern).toBe("lens");
+    expect(patternEl?.innerHTML).toContain("<circle");
+
+    // 5. 切换至 none（无纹样）
+    const noneBtn = host?.querySelector<HTMLButtonElement>("[data-pattern='none']");
+    noneBtn?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(getActiveQuoteCardPattern()).toBe("none");
+    expect(card?.dataset.pattern).toBe("none");
+    expect(patternEl?.innerHTML).toBe("");
+    expect(noneBtn?.classList.contains("is-active")).toBe(true);
+  });
+
+  it("支持编程式调用 setActiveQuoteCardPattern", () => {
+    openQuoteShareModal({ content: "金句", from: 0 });
+    setActiveQuoteCardPattern("lens");
+
+    expect(getActiveQuoteCardPattern()).toBe("lens");
+    const card = document.querySelector<HTMLElement>(".biliscript-quote-card");
+    expect(card?.dataset.pattern).toBe("lens");
+
+    // 忽略无效模式调用
+    setActiveQuoteCardPattern("invalid" as unknown as QuotePatternId);
+    expect(getActiveQuoteCardPattern()).toBe("lens");
   });
 
   it("点击主题预设按钮切换卡片配色", () => {
@@ -278,6 +451,37 @@ describe("quote-share-modal", () => {
     openQuoteShareModal({ content: "第二条金句", from: 20 });
     expect(document.querySelectorAll(".biliscript-quote-share-host").length).toBe(1);
     expect(document.querySelector(".biliscript-quote-card-text")?.textContent).toBe("第二条金句");
+  });
+});
+
+describe("quote-share-pattern-styles", () => {
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
+  const cssPath = path.resolve(currentDir, "../../extension/entry/styles/reader.css");
+  const cssContent = fs.readFileSync(cssPath, "utf-8");
+
+  it("定义 .biliscript-quote-card-pattern 基础样式与默认透明度 0.3", () => {
+    expect(cssContent).toContain(".biliscript-quote-card-pattern {");
+    expect(cssContent).toContain("opacity: 0.3;");
+  });
+
+  it("配置径向遮罩 mask-image 与 -webkit-mask-image（中心避让正文阅读区）", () => {
+    const expectedGradient = "radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0, 0, 0, 0.4) 75%, #000000 100%)";
+    expect(cssContent).toContain(`mask-image: ${expectedGradient}`);
+    expect(cssContent).toContain(`-webkit-mask-image: ${expectedGradient}`);
+  });
+
+  it("配置 vector-effect: non-scaling-stroke 确保细线在各屏幕尺寸下保持统一线宽", () => {
+    expect(cssContent).toContain("vector-effect: non-scaling-stroke;");
+  });
+
+  it("无障碍降级：prefers-reduced-transparency 下隐藏纹样层", () => {
+    expect(cssContent).toContain("@media (prefers-reduced-transparency: reduce)");
+    expect(cssContent).toContain(".biliscript-quote-card-pattern {\r\n    display: none !important;\r\n  }");
+  });
+
+  it("无障碍降级：prefers-reduced-motion 下禁用纹样与按钮过渡", () => {
+    expect(cssContent).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(cssContent).toContain(".biliscript-quote-pattern-btn");
   });
 });
 
