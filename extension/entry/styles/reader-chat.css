@@ -507,8 +507,8 @@
   word-wrap: break-word;
   padding: 7px 11px;
   border-radius: 28px;
-  line-height: 1.45;
-  font-size: 16px;
+  line-height: var(--biliscript-chat-line-height, 1.6);
+  font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
 }
 
 /* 用户气泡：右对齐圆润矩形气泡（圆角 28px），在阅读视图中覆写为白玻璃凸起卡 */
@@ -735,7 +735,7 @@
 }
 
 .biliscript-reading-chat .chat-msg-assistant p {
-  margin: 0 0 7px;
+  margin: 0 0 var(--biliscript-chat-paragraph-spacing, 12px);
 }
 
 .biliscript-reading-chat .chat-msg-assistant p:last-child {
@@ -754,14 +754,14 @@
 /* 标题档随正文 16px 上移，保持「正文之上」的层级：两级（h3 / h4=h5）不变，
  * 三个半像素值（16.5/15.5/15.5）并为整数。h6 是最深档（markdown #### 及以
  * 上夹到这里），下面没有更浅档可让，落到正文 16px 之下作子标签档。 */
-.biliscript-reading-chat .chat-msg-assistant h3 { font-size: 17px; }
-.biliscript-reading-chat .chat-msg-assistant h4 { font-size: 16px; }
-.biliscript-reading-chat .chat-msg-assistant h5 { font-size: 16px; }
-.biliscript-reading-chat .chat-msg-assistant h6 { font-size: 15px; }
+.biliscript-reading-chat .chat-msg-assistant h3 { font-size: calc(17px * var(--biliscript-reader-font-scale, 1)); }
+.biliscript-reading-chat .chat-msg-assistant h4 { font-size: calc(16px * var(--biliscript-reader-font-scale, 1)); }
+.biliscript-reading-chat .chat-msg-assistant h5 { font-size: calc(16px * var(--biliscript-reader-font-scale, 1)); }
+.biliscript-reading-chat .chat-msg-assistant h6 { font-size: calc(15px * var(--biliscript-reader-font-scale, 1)); }
 
 .biliscript-reading-chat .chat-msg-assistant ul,
 .biliscript-reading-chat .chat-msg-assistant ol {
-  margin: 4px 0 7px;
+  margin: 4px 0 var(--biliscript-chat-paragraph-spacing, 12px);
   padding-left: 20px;
 }
 
@@ -780,7 +780,7 @@
   /* 栈与 --biliscript-reader-font-mono（"SF Mono" 打头的更全套）不同——首字体与
    * 条目数不一致，换用令牌会改解析序，保持字面量。 */
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 14px;
+  font-size: calc(14px * var(--biliscript-reader-font-scale, 1));
 }
 
 /* 时间戳跳转按钮：时间戳 pill 母题贯穿 AI 引用（与章节/金句/意图卡同款） */
@@ -804,7 +804,7 @@
 }
 
 .biliscript-reading-chat .chat-msg-assistant pre {
-  margin: 6px 0;
+  margin: 6px 0 var(--biliscript-chat-paragraph-spacing, 12px);
   padding: 10px 12px;
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
@@ -816,7 +816,7 @@
   padding: 0;
   background: transparent;
   border: 0;
-  font-size: 14px;
+  font-size: calc(14px * var(--biliscript-reader-font-scale, 1));
   white-space: pre;
 }
 

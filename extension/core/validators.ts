@@ -144,6 +144,40 @@ export function normalizeBilingualSubtitles(value: unknown): boolean {
 // 副字幕语言标签：trim 后做 BCP-47 粗校验（2–3 位主语言 + 若干 2–8 位子标签）。
 // 空串（DEFAULT_SETTINGS 缺键 / 用户清空保存）与非法标签一样回落当前默认：清空即
 // 恢复默认；合法标签保留调用方原样的大小写与连字格式（不转小写）。
+// ===== 文摘面板排版 normalizers =====
+export function normalizeReaderFontSizeScale(value: unknown): number {
+  if (value === null || value === undefined || value === "") {
+    return DEFAULT_SETTINGS.readerFontSizeScale;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SETTINGS.readerFontSizeScale;
+  }
+  return Math.min(130, Math.max(70, Math.round(parsed)));
+}
+
+export function normalizeChatLineHeight(value: unknown): number {
+  if (value === null || value === undefined || value === "") {
+    return DEFAULT_SETTINGS.chatLineHeight;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SETTINGS.chatLineHeight;
+  }
+  return Math.min(200, Math.max(120, Math.round(parsed)));
+}
+
+export function normalizeChatParagraphSpacing(value: unknown): number {
+  if (value === null || value === undefined || value === "") {
+    return DEFAULT_SETTINGS.chatParagraphSpacing;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SETTINGS.chatParagraphSpacing;
+  }
+  return Math.min(20, Math.max(4, Math.round(parsed)));
+}
+
 // ===== 文摘面板布局与自动展开 normalizers =====
 export function normalizeCustomPanelWidthEnabled(value: unknown): boolean {
   return value === true;

@@ -92,6 +92,11 @@ _Avoid_: 用「主题」单字指明暗档位、把 `flyme` 当明暗档位（�
 代码名：`readerPalette` / `normalizeReaderPalette` / `readingPalette` / `setPalette`（呈现属性表 `palette` 字段：`data-biliscript-reader-palette` / `data-palette`）
 _Avoid_: 把色板当明暗的第三档、在明暗按钮链路上改色板
 
+**文摘排版**:
+文摘面板的阅读排版设置项（文摘面板字体大小、对话行高、对话段落间距），位于设置抽屉「外观与布局」分区。字体大小缩放全局作用于三大标签页内容文本（字幕、概览、AI 对话），对话行高与段落间距仅作用于「AI 对话」消息区。每项采用对称数值区间（默认值精确居中：100% / 160% / 12px），滑动即时通过 CSS 变量实时预览，各配独立的 ↻ 重置图标键。
+代码名：`readerFontSizeScale` / `chatLineHeight` / `chatParagraphSpacing` / `--biliscript-reader-font-scale` / `--biliscript-chat-line-height` / `--biliscript-chat-paragraph-spacing`
+_Avoid_: 把字体缩放扩展到外壳固定骨架、用总开关包裹排版滑块
+
 ### 面板控件
 
 **图标键**:
@@ -113,6 +118,11 @@ _Avoid_: 三处各存一份复制图标字面量、各配一套尺寸/描边
 图标键在指针悬停或键盘焦点下显示的底色反馈：令牌 `--biliscript-reader-fill-hover`（亮色面黑 6%、暗色面白 10% 一档半透明，明暗两档各一份）。可聚焦的图标键 `:hover` 与 `:focus-visible` 同底；不可聚焦的复制键（金句卡的 `span[role=button]`）只做 hover。
 代码名：`--biliscript-reader-fill-hover` / `:hover` / `:focus-visible`（reader-gate.css 主题色板段）
 _Avoid_: 用 surface-2 换底充当悬停反馈（层级差太弱）、只做 hover 不做键盘焦点
+
+**重置键**:
+把某项配置（思考强度 Default 档位、排版滑块）恢复至出厂默认值的无框纯图标键：静止态透明，处于默认档位或中点时呈置灰不可点击态；偏离默认值时激活，点击立即恢复默认值、触发即时预览并保存。图标统一使用纯矢量旋转箭头（rotate-ccw）。
+代码名：`.biliscript-slider-reset-btn` / `.chat-thinking-btn[data-level="default"]` / `READING_RESET_ICON`
+_Avoid_: 把重置做成带框文字键、偏离默认值时不更新禁用与激活态
 
 ### 总结流程
 

@@ -73,6 +73,10 @@ export interface Settings {
   // ===== 双语字幕 =====
   bilingualSubtitles: boolean;    // 主字幕之外再叠一路译文轨（面板字幕弹层的全局偏好），默认关
   secondarySubtitleLang: string;  // 副字幕语言标签（BCP-47，如 en-US），默认 en-US
+  // ===== 文摘排版 =====
+  readerFontSizeScale: number;    // 文摘面板字体大小（百分比，70–130），默认 100
+  chatLineHeight: number;         // 对话行高（百分比，120–200），默认 160
+  chatParagraphSpacing: number;   // 对话段落间距（像素，4–20），默认 12
   // ===== 文摘面板布局与自动展开 =====
   customPanelWidthEnabled: boolean; // 是否启用自定义文摘面板宽度，默认关
   customPanelWidth: number;         // 自定义文摘面板宽度（像素，300–600），默认 380
@@ -121,6 +125,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // ===== 双语字幕 =====
   bilingualSubtitles: false,     // 主字幕之外再叠一路译文轨（面板弹层开关的全局偏好），默认关
   secondarySubtitleLang: "en-US", // 副字幕语言标签（BCP-47，如 en-US / zh-CN）
+  // ===== 文摘排版 =====
+  readerFontSizeScale: 100,
+  chatLineHeight: 160,
+  chatParagraphSpacing: 12,
   // ===== 文摘面板布局与自动展开 =====
   customPanelWidthEnabled: false,
   customPanelWidth: 380,

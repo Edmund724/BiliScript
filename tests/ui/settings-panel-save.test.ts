@@ -195,7 +195,10 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
       includeDateInFilename: true,
       includeTimestampInBody: true,
       enableDebugLogs: true,
-      aiSystemPrompt: "自定义系统提示词"
+      aiSystemPrompt: "自定义系统提示词",
+      readerFontSizeScale: 100,
+      chatLineHeight: 160,
+      chatParagraphSpacing: 12
     });
     // 笔记导出的字段已退出收集口径（键不在载荷里）
     for (const key of [

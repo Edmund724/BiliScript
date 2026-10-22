@@ -242,6 +242,48 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     clearViewOnClose: false,
     writtenByApply: false,
     readValue: null
+  },
+  {
+    id: "readerFontSizeScale",
+    kind: "settings",
+    targets: { html: null, body: null, readingView: null },
+    datasetKeys: { html: null, body: null, readingView: null },
+    storageKey: "readerFontSizeScale",
+    legacyStorageKey: null,
+    watchedByGuard: false,
+    clearOnGuard: false,
+    clearOnClose: false,
+    clearViewOnClose: false,
+    writtenByApply: false,
+    readValue: null
+  },
+  {
+    id: "chatLineHeight",
+    kind: "settings",
+    targets: { html: null, body: null, readingView: null },
+    datasetKeys: { html: null, body: null, readingView: null },
+    storageKey: "chatLineHeight",
+    legacyStorageKey: null,
+    watchedByGuard: false,
+    clearOnGuard: false,
+    clearOnClose: false,
+    clearViewOnClose: false,
+    writtenByApply: false,
+    readValue: null
+  },
+  {
+    id: "chatParagraphSpacing",
+    kind: "settings",
+    targets: { html: null, body: null, readingView: null },
+    datasetKeys: { html: null, body: null, readingView: null },
+    storageKey: "chatParagraphSpacing",
+    legacyStorageKey: null,
+    watchedByGuard: false,
+    clearOnGuard: false,
+    clearOnClose: false,
+    clearViewOnClose: false,
+    writtenByApply: false,
+    readValue: null
   }
 ];
 

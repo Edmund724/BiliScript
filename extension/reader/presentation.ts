@@ -16,7 +16,13 @@
 import { state } from "../core/state.js";
 import { type Settings } from "../core/defaults.js";
 import { getReaderElement } from "../shared/dom-utils.js";
-import { normalizeReaderTheme, normalizeReaderPalette } from "../core/validators.js";
+import {
+  normalizeReaderTheme,
+  normalizeReaderPalette,
+  normalizeReaderFontSizeScale,
+  normalizeChatLineHeight,
+  normalizeChatParagraphSpacing
+} from "../core/validators.js";
 import { ids } from "./state.js";
 import { writeReadingStatusLine } from "../core/reading-status-line.js";
 import { refreshThemeButton } from "../ui/theme-button.js";
@@ -65,6 +71,20 @@ function systemPrefersDark(): boolean {
   );
 }
 
+export function applyReadingViewTypography(view?: HTMLElement | null): void {
+  const readingView = view ?? getReaderElement(ids.readingView);
+  if (!readingView) {
+    return;
+  }
+  const fontScale = normalizeReaderFontSizeScale(state.settings?.readerFontSizeScale);
+  const lineHeight = normalizeChatLineHeight(state.settings?.chatLineHeight);
+  const paraSpacing = normalizeChatParagraphSpacing(state.settings?.chatParagraphSpacing);
+
+  readingView.style.setProperty("--biliscript-reader-font-scale", String(fontScale / 100));
+  readingView.style.setProperty("--biliscript-chat-line-height", String(lineHeight / 100));
+  readingView.style.setProperty("--biliscript-chat-paragraph-spacing", `${paraSpacing}px`);
+}
+
 export function applyReadingViewPresentation() {
   const readingView = getReaderElement(ids.readingView);
   // 候选06：字段清单/作用目标/dataset 键/取值换算唯一来源 presentation-fields.js
@@ -89,6 +109,7 @@ export function applyReadingViewPresentation() {
       document.body.dataset[field.datasetKeys.body] = values[field.id];
     }
   }
+  applyReadingViewTypography(readingView);
   // 字幕/章节的 checkbox 同步与 .biliscript-reading-main 显隐已随三开关退役删除
   //（字幕常显，开关与 data 属性不再存在）。
   // header 主题按钮（太阳/月亮）随之刷新：所有改主题路径（点击循环、进入阅读

@@ -457,7 +457,7 @@ describe("主题：只剩明暗一轴", () => {
     // 外观分区在场：色板下拉两档（flyme 默认 / editorial），装载显示存储值
     const groups = [...document.querySelectorAll<HTMLElement>(".biliscript-set-group")];
     const appearance = groups.find(
-      (group) => group.querySelector(".biliscript-set-h")?.textContent === "外观"
+      (group) => group.querySelector(".biliscript-set-h")?.textContent?.startsWith("外观")
     );
     expect(appearance, "外观分区应存在").toBeTruthy();
     const paletteSelect = appearance!.querySelector<HTMLSelectElement>("#readerPalette")!;
@@ -516,5 +516,83 @@ describe("主题：只剩明暗一轴", () => {
 
     const paletteSelect = document.querySelector<HTMLSelectElement>("#readerPalette")!;
     expect(paletteSelect.value).toBe("flyme");
+  });
+  it("设置抽屉：文摘排版滑块与重置键渲染、滑动即时预览与重置恢复", async () => {
+    state.reader.setViewOpen(true);
+
+    const sentMessages: any[] = [];
+    chromeStub.runtime.sendMessage.mockImplementation((message, callback) => {
+      sentMessages.push(message);
+      if (message?.type === "get-settings") {
+        callback?.({
+          ok: true,
+          settings: {
+            readerFontSizeScale: 110,
+            chatLineHeight: 180,
+            chatParagraphSpacing: 16
+          }
+        });
+        return undefined;
+      }
+      if (
+        message?.type === "ai-providers-list" ||
+        message?.type === "asr-providers-list" ||
+        message?.type === "search-providers-list"
+      ) {
+        callback?.({ ok: true, providers: [] });
+        return undefined;
+      }
+      callback?.({ ok: true });
+      return undefined;
+    });
+
+    const panel = await import("../../extension/ui/settings-panel.js");
+    panel.renderReaderSettingsPanel();
+    await vi.waitFor(() => {
+      expect(sentMessages.map((m: any) => m.type)).toContain("search-providers-list");
+    });
+
+    const fontSlider = document.getElementById("readerFontSizeScale") as HTMLInputElement;
+    const fontBadge = document.getElementById("readerFontSizeScaleValue") as HTMLElement;
+    const fontReset = document.getElementById("readerFontSizeScaleResetBtn") as HTMLButtonElement;
+
+    const lineSlider = document.getElementById("chatLineHeight") as HTMLInputElement;
+    const lineBadge = document.getElementById("chatLineHeightValue") as HTMLElement;
+    const lineReset = document.getElementById("chatLineHeightResetBtn") as HTMLButtonElement;
+
+    const paraSlider = document.getElementById("chatParagraphSpacing") as HTMLInputElement;
+    const paraBadge = document.getElementById("chatParagraphSpacingValue") as HTMLElement;
+    const paraReset = document.getElementById("chatParagraphSpacingResetBtn") as HTMLButtonElement;
+
+    
+    expect(fontSlider).toBeTruthy();
+    expect(fontSlider.value).toBe("110");
+    expect(fontBadge.textContent).toBe("110%");
+    expect(fontReset.disabled).toBe(false);
+
+    expect(lineSlider.value).toBe("180");
+    expect(lineBadge.textContent).toBe("180%");
+    expect(lineReset.disabled).toBe(false);
+
+    expect(paraSlider.value).toBe("16");
+    expect(paraBadge.textContent).toBe("16px");
+    expect(paraReset.disabled).toBe(false);
+
+    // 滑动触发 input：即时更新 badge 与 CSS 变量
+    fontSlider.value = "120";
+    fontSlider.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(fontBadge.textContent).toBe("120%");
+    expect(document.getElementById("biliscript-reading-view")?.style.getPropertyValue("--biliscript-reader-font-scale")).toBe("1.2");
+
+    // 点击重置键：恢复到 100%，重置键置灰，CSS 变量同步恢复
+    fontReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(fontSlider.value).toBe("100");
+    expect(fontBadge.textContent).toBe("100%");
+    expect(fontReset.disabled).toBe(true);
+    expect(document.getElementById("biliscript-reading-view")?.style.getPropertyValue("--biliscript-reader-font-scale")).toBe("1");
+    expect(sentMessages).toContainEqual({
+      type: "save-settings",
+      settings: { readerFontSizeScale: 100 }
+    });
   });
 });

@@ -36,8 +36,12 @@ import {
   normalizeWebSearchMaxToolCalls,
   normalizeCustomPanelWidthEnabled,
   normalizeCustomPanelWidth,
-  normalizeAutoOpenReader
+  normalizeAutoOpenReader,
+  normalizeReaderFontSizeScale,
+  normalizeChatLineHeight,
+  normalizeChatParagraphSpacing
 } from "../core/validators.js";
+import { applyReadingViewTypography } from "../reader/presentation.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -102,6 +106,9 @@ interface SettingsFormPayload {
   readerPalette: string;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
+  readerFontSizeScale: number;
+  chatLineHeight: number;
+  chatParagraphSpacing: number;
   customPanelWidthEnabled: boolean;
   customPanelWidth: number;
   autoOpenReader: boolean;
@@ -143,6 +150,18 @@ function collectElements(host: HTMLElement) {
   return {
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
+    readerFontSizeScaleContainer: byIdIn<HTMLElement>(dom.readerFontSizeScaleContainer),
+    readerFontSizeScale: byIdIn<HTMLInputElement>(dom.readerFontSizeScale),
+    readerFontSizeScaleValue: byIdIn<HTMLElement>(dom.readerFontSizeScaleValue),
+    readerFontSizeScaleResetBtn: byIdIn<HTMLButtonElement>(dom.readerFontSizeScaleResetBtn),
+    chatLineHeightContainer: byIdIn<HTMLElement>(dom.chatLineHeightContainer),
+    chatLineHeight: byIdIn<HTMLInputElement>(dom.chatLineHeight),
+    chatLineHeightValue: byIdIn<HTMLElement>(dom.chatLineHeightValue),
+    chatLineHeightResetBtn: byIdIn<HTMLButtonElement>(dom.chatLineHeightResetBtn),
+    chatParagraphSpacingContainer: byIdIn<HTMLElement>(dom.chatParagraphSpacingContainer),
+    chatParagraphSpacing: byIdIn<HTMLInputElement>(dom.chatParagraphSpacing),
+    chatParagraphSpacingValue: byIdIn<HTMLElement>(dom.chatParagraphSpacingValue),
+    chatParagraphSpacingResetBtn: byIdIn<HTMLButtonElement>(dom.chatParagraphSpacingResetBtn),
     customPanelWidthEnabled: byIdIn<HTMLInputElement>(dom.customPanelWidthEnabled),
     customPanelWidthContainer: byIdIn<HTMLElement>(dom.customPanelWidthContainer),
     customPanelWidth: byIdIn<HTMLInputElement>(dom.customPanelWidth),
@@ -265,6 +284,18 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   // 缺失回落 flyme）再水合显示。
   setCustomSelectValue(elements.readerPalette, normalizeReaderPalette(settings.readerPalette));
   initCustomSelect(elements.readerPalette, "custom-select-wrapper");
+
+  elements.readerFontSizeScale.value = String(normalizeReaderFontSizeScale(settings.readerFontSizeScale));
+  elements.readerFontSizeScaleValue.textContent = `${elements.readerFontSizeScale.value}%`;
+  elements.readerFontSizeScaleResetBtn.disabled = Number(elements.readerFontSizeScale.value) === DEFAULT_SETTINGS.readerFontSizeScale;
+
+  elements.chatLineHeight.value = String(normalizeChatLineHeight(settings.chatLineHeight));
+  elements.chatLineHeightValue.textContent = `${elements.chatLineHeight.value}%`;
+  elements.chatLineHeightResetBtn.disabled = Number(elements.chatLineHeight.value) === DEFAULT_SETTINGS.chatLineHeight;
+
+  elements.chatParagraphSpacing.value = String(normalizeChatParagraphSpacing(settings.chatParagraphSpacing));
+  elements.chatParagraphSpacingValue.textContent = `${elements.chatParagraphSpacing.value}px`;
+  elements.chatParagraphSpacingResetBtn.disabled = Number(elements.chatParagraphSpacing.value) === DEFAULT_SETTINGS.chatParagraphSpacing;
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
@@ -595,6 +626,9 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
   return {
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     readerPalette: normalizeReaderPalette(elements.readerPalette.value),
+    readerFontSizeScale: normalizeReaderFontSizeScale(elements.readerFontSizeScale.value),
+    chatLineHeight: normalizeChatLineHeight(elements.chatLineHeight.value),
+    chatParagraphSpacing: normalizeChatParagraphSpacing(elements.chatParagraphSpacing.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
@@ -652,6 +686,9 @@ function buildDefaultPreferencePayload() {
     enableDebugLogs: DEFAULT_SETTINGS.enableDebugLogs,
     readerTheme: DEFAULT_SETTINGS.readerTheme,
     readerPalette: DEFAULT_SETTINGS.readerPalette,
+    readerFontSizeScale: DEFAULT_SETTINGS.readerFontSizeScale,
+    chatLineHeight: DEFAULT_SETTINGS.chatLineHeight,
+    chatParagraphSpacing: DEFAULT_SETTINGS.chatParagraphSpacing,
     aiSystemPrompt: DEFAULT_AI_SYSTEM_PROMPT,
     // 初始问题的默认态 = 留空（按视频内容自动生成），不写固定文案。
     aiInitialQuickPrompts: [],
@@ -725,6 +762,69 @@ function bindSettingsEvents(host: HTMLElement): void {
   // collectFormPayload 照原样工作。
   [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader]
     .forEach(initToggleSwitch);
+
+  elements.readerFontSizeScale.addEventListener("input", () => {
+    const val = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
+    elements.readerFontSizeScaleValue.textContent = `${val}%`;
+    elements.readerFontSizeScaleResetBtn.disabled = val === DEFAULT_SETTINGS.readerFontSizeScale;
+    state.patchSettings({ readerFontSizeScale: val });
+    applyReadingViewTypography();
+  });
+  elements.readerFontSizeScale.addEventListener("change", () => {
+    const val = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
+    void sendRuntimeMessage({ type: "save-settings", settings: { readerFontSizeScale: val } });
+  });
+  elements.readerFontSizeScaleResetBtn.addEventListener("click", () => {
+    const defaultVal = DEFAULT_SETTINGS.readerFontSizeScale;
+    elements.readerFontSizeScale.value = String(defaultVal);
+    elements.readerFontSizeScaleValue.textContent = `${defaultVal}%`;
+    elements.readerFontSizeScaleResetBtn.disabled = true;
+    state.patchSettings({ readerFontSizeScale: defaultVal });
+    applyReadingViewTypography();
+    void sendRuntimeMessage({ type: "save-settings", settings: { readerFontSizeScale: defaultVal } });
+  });
+
+  elements.chatLineHeight.addEventListener("input", () => {
+    const val = normalizeChatLineHeight(elements.chatLineHeight.value);
+    elements.chatLineHeightValue.textContent = `${val}%`;
+    elements.chatLineHeightResetBtn.disabled = val === DEFAULT_SETTINGS.chatLineHeight;
+    state.patchSettings({ chatLineHeight: val });
+    applyReadingViewTypography();
+  });
+  elements.chatLineHeight.addEventListener("change", () => {
+    const val = normalizeChatLineHeight(elements.chatLineHeight.value);
+    void sendRuntimeMessage({ type: "save-settings", settings: { chatLineHeight: val } });
+  });
+  elements.chatLineHeightResetBtn.addEventListener("click", () => {
+    const defaultVal = DEFAULT_SETTINGS.chatLineHeight;
+    elements.chatLineHeight.value = String(defaultVal);
+    elements.chatLineHeightValue.textContent = `${defaultVal}%`;
+    elements.chatLineHeightResetBtn.disabled = true;
+    state.patchSettings({ chatLineHeight: defaultVal });
+    applyReadingViewTypography();
+    void sendRuntimeMessage({ type: "save-settings", settings: { chatLineHeight: defaultVal } });
+  });
+
+  elements.chatParagraphSpacing.addEventListener("input", () => {
+    const val = normalizeChatParagraphSpacing(elements.chatParagraphSpacing.value);
+    elements.chatParagraphSpacingValue.textContent = `${val}px`;
+    elements.chatParagraphSpacingResetBtn.disabled = val === DEFAULT_SETTINGS.chatParagraphSpacing;
+    state.patchSettings({ chatParagraphSpacing: val });
+    applyReadingViewTypography();
+  });
+  elements.chatParagraphSpacing.addEventListener("change", () => {
+    const val = normalizeChatParagraphSpacing(elements.chatParagraphSpacing.value);
+    void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: val } });
+  });
+  elements.chatParagraphSpacingResetBtn.addEventListener("click", () => {
+    const defaultVal = DEFAULT_SETTINGS.chatParagraphSpacing;
+    elements.chatParagraphSpacing.value = String(defaultVal);
+    elements.chatParagraphSpacingValue.textContent = `${defaultVal}px`;
+    elements.chatParagraphSpacingResetBtn.disabled = true;
+    state.patchSettings({ chatParagraphSpacing: defaultVal });
+    applyReadingViewTypography();
+    void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: defaultVal } });
+  });
 
   elements.customPanelWidthEnabled.addEventListener("change", () => {
     const isEnabled = elements.customPanelWidthEnabled.checked;

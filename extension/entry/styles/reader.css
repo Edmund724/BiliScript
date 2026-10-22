@@ -1436,7 +1436,7 @@
 }
 
 .biliscript-reading-ov-chapter-title {
-  font-size: 16px;
+  font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
   font-weight: 600;
   line-height: 1.5;
   color: var(--biliscript-reader-text);
@@ -1446,7 +1446,7 @@
 /* 时间轴章节主副标题拆分的次级说明（仅 outline 来源且无 summary 时渲染，
  * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方粗体主标题。 */
 .biliscript-reading-ov-chapter-subtitle {
-  font-size: 13px;
+  font-size: calc(13px * var(--biliscript-reader-font-scale, 1));
   font-weight: 400;
   line-height: 1.5;
   color: var(--biliscript-reader-muted);
@@ -1454,7 +1454,7 @@
 }
 
 .biliscript-reading-ov-chapter-desc {
-  font-size: 16px;
+  font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
   line-height: 1.6;
   color: var(--biliscript-reader-muted);
   word-break: break-word;
@@ -1529,7 +1529,7 @@
   position: relative;
   z-index: 1;
   display: block;
-  font-size: 16px;
+  font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
   line-height: 1.7;
   color: var(--biliscript-reader-text);
   word-break: break-word;

@@ -502,3 +502,31 @@ describe("initializeSettingsStorage 安装/更新迁移", () => {
     expect(persisted.aiInitialQuickPrompts).toEqual([]);
   });
 });
+
+describe("normalizeSettings：文摘面板排版设置归一", () => {
+  it("readerFontSizeScale 限制在 70～130，缺失/非法回落 100", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(normalizeSettings({ readerFontSizeScale: 100 }).readerFontSizeScale).toBe(100);
+    expect(normalizeSettings({ readerFontSizeScale: 60 }).readerFontSizeScale).toBe(70);
+    expect(normalizeSettings({ readerFontSizeScale: 150 }).readerFontSizeScale).toBe(130);
+    expect(normalizeSettings({ readerFontSizeScale: "invalid" }).readerFontSizeScale).toBe(100);
+    expect(normalizeSettings({ readerFontSizeScale: null }).readerFontSizeScale).toBe(100);
+  });
+
+  it("chatLineHeight 限制在 120～200，缺失/非法回落 160", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(normalizeSettings({ chatLineHeight: 160 }).chatLineHeight).toBe(160);
+    expect(normalizeSettings({ chatLineHeight: 100 }).chatLineHeight).toBe(120);
+    expect(normalizeSettings({ chatLineHeight: 250 }).chatLineHeight).toBe(200);
+    expect(normalizeSettings({ chatLineHeight: "bad" }).chatLineHeight).toBe(160);
+    expect(normalizeSettings({ chatLineHeight: undefined }).chatLineHeight).toBe(160);
+  });
+
+  it("chatParagraphSpacing 限制在 4～20，缺失/非法回落 12", async () => {
+    const { normalizeSettings } = await loadStoreModule();
+    expect(normalizeSettings({ chatParagraphSpacing: 12 }).chatParagraphSpacing).toBe(12);
+    expect(normalizeSettings({ chatParagraphSpacing: 2 }).chatParagraphSpacing).toBe(4);
+    expect(normalizeSettings({ chatParagraphSpacing: 30 }).chatParagraphSpacing).toBe(20);
+    expect(normalizeSettings({ chatParagraphSpacing: "" }).chatParagraphSpacing).toBe(12);
+  });
+});

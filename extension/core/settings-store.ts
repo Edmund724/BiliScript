@@ -32,7 +32,10 @@ import {
   normalizeSecondarySubtitleLang,
   normalizeCustomPanelWidthEnabled,
   normalizeCustomPanelWidth,
-  normalizeAutoOpenReader
+  normalizeAutoOpenReader,
+  normalizeReaderFontSizeScale,
+  normalizeChatLineHeight,
+  normalizeChatParagraphSpacing
 } from "./validators.js";
 
 // ===== 设置归一化 + 存储 =====
@@ -81,6 +84,9 @@ const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   // 「恢复默认」与快照而存在。
   ["bilingualSubtitles", (m) => normalizeBilingualSubtitles(m.bilingualSubtitles)],
   ["secondarySubtitleLang", (m) => normalizeSecondarySubtitleLang(m.secondarySubtitleLang)],
+  ["readerFontSizeScale", (m) => normalizeReaderFontSizeScale(m.readerFontSizeScale)],
+  ["chatLineHeight", (m) => normalizeChatLineHeight(m.chatLineHeight)],
+  ["chatParagraphSpacing", (m) => normalizeChatParagraphSpacing(m.chatParagraphSpacing)],
   ["customPanelWidthEnabled", (m) => normalizeCustomPanelWidthEnabled(m.customPanelWidthEnabled)],
   ["customPanelWidth", (m) => normalizeCustomPanelWidth(m.customPanelWidth)],
   ["autoOpenReader", (m) => normalizeAutoOpenReader(m.autoOpenReader)]

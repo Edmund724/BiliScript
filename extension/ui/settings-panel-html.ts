@@ -1,3 +1,4 @@
+import { READING_RESET_ICON } from "./reading-icons.js";
 // ui/settings-panel-html.ts — 设置抽屉的 HTML 模板（script-only-ui，2026-09 拆分）。
 //
 // 自 settings-panel.ts 拆出（大文件拆分工单）：settings-panel.ts 只留流程编排
@@ -38,6 +39,18 @@ export const SETTINGS_PANEL_DOM_IDS = {
   playerAiQuickPrompt: "playerAiQuickPrompt",
   aiSystemPrompt: "aiSystemPrompt",
   readerPalette: "readerPalette",
+  readerFontSizeScaleContainer: "readerFontSizeScaleContainer",
+  readerFontSizeScale: "readerFontSizeScale",
+  readerFontSizeScaleValue: "readerFontSizeScaleValue",
+  readerFontSizeScaleResetBtn: "readerFontSizeScaleResetBtn",
+  chatLineHeightContainer: "chatLineHeightContainer",
+  chatLineHeight: "chatLineHeight",
+  chatLineHeightValue: "chatLineHeightValue",
+  chatLineHeightResetBtn: "chatLineHeightResetBtn",
+  chatParagraphSpacingContainer: "chatParagraphSpacingContainer",
+  chatParagraphSpacing: "chatParagraphSpacing",
+  chatParagraphSpacingValue: "chatParagraphSpacingValue",
+  chatParagraphSpacingResetBtn: "chatParagraphSpacingResetBtn",
   customPanelWidthEnabled: "customPanelWidthEnabled",
   customPanelWidthContainer: "customPanelWidthContainer",
   customPanelWidth: "customPanelWidth",
@@ -136,6 +149,75 @@ export function buildSettingsHtml(): string {
           <option value="flyme">蓝雾玻璃</option>
           <option value="editorial">数字刊物</option>
         </select>
+      </div>
+
+      <div id="${ids.readerFontSizeScaleContainer}" class="biliscript-set-row biliscript-slider-row">
+        <div class="biliscript-slider-header">
+          <label class="biliscript-set-label" for="${ids.readerFontSizeScale}">文摘面板字体大小</label>
+          <div class="biliscript-slider-header-actions">
+            <span id="${ids.readerFontSizeScaleValue}" class="biliscript-slider-badge">100%</span>
+            <button id="${ids.readerFontSizeScaleResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认字体大小 (100%)" aria-label="恢复默认字体大小">${READING_RESET_ICON}</button>
+          </div>
+        </div>
+        <input
+          id="${ids.readerFontSizeScale}"
+          type="range"
+          class="biliscript-range-input"
+          min="70"
+          max="130"
+          step="5"
+          value="100"
+        />
+        <div class="biliscript-slider-labels">
+          <span>小</span>
+          <span>大</span>
+        </div>
+      </div>
+
+      <div id="${ids.chatLineHeightContainer}" class="biliscript-set-row biliscript-slider-row">
+        <div class="biliscript-slider-header">
+          <label class="biliscript-set-label" for="${ids.chatLineHeight}">对话行高</label>
+          <div class="biliscript-slider-header-actions">
+            <span id="${ids.chatLineHeightValue}" class="biliscript-slider-badge">160%</span>
+            <button id="${ids.chatLineHeightResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认行高 (160%)" aria-label="恢复默认行高">${READING_RESET_ICON}</button>
+          </div>
+        </div>
+        <input
+          id="${ids.chatLineHeight}"
+          type="range"
+          class="biliscript-range-input"
+          min="120"
+          max="200"
+          step="5"
+          value="160"
+        />
+        <div class="biliscript-slider-labels">
+          <span>紧凑</span>
+          <span>宽松</span>
+        </div>
+      </div>
+
+      <div id="${ids.chatParagraphSpacingContainer}" class="biliscript-set-row biliscript-slider-row">
+        <div class="biliscript-slider-header">
+          <label class="biliscript-set-label" for="${ids.chatParagraphSpacing}">对话段落间距</label>
+          <div class="biliscript-slider-header-actions">
+            <span id="${ids.chatParagraphSpacingValue}" class="biliscript-slider-badge">12px</span>
+            <button id="${ids.chatParagraphSpacingResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认段落间距 (12px)" aria-label="恢复默认段落间距">${READING_RESET_ICON}</button>
+          </div>
+        </div>
+        <input
+          id="${ids.chatParagraphSpacing}"
+          type="range"
+          class="biliscript-range-input"
+          min="4"
+          max="20"
+          step="2"
+          value="12"
+        />
+        <div class="biliscript-slider-labels">
+          <span>紧凑</span>
+          <span>宽松</span>
+        </div>
       </div>
 
       <label class="biliscript-set-check biliscript-toggle-row">
