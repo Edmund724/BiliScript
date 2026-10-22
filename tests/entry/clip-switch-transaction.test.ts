@@ -273,6 +273,18 @@ describe("完成边", () => {
     expect(settled).toHaveBeenCalledTimes(1);
   });
 
+  it("shouldAutoOpen 为 true 且视图未开：触发 enterReaderShellOnUrlNavigation", async () => {
+    const { deps, calls } = createDeps();
+    deps.isReaderMode = () => false;
+    deps.shouldAutoOpen = () => true;
+    const transaction = createClipSwitchTransaction(deps);
+
+    transaction.handleUrlChange();
+    await vi.waitFor(() => {
+      expect(calls).toContain("enterReaderShellOnUrlNavigation");
+    });
+  });
+
   it("订阅者抛错被吞：不影响同轮其它订阅者，也不影响下一轮", async () => {
     const { deps, calls } = createDeps();
     const transaction = createClipSwitchTransaction(deps);

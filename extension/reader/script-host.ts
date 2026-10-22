@@ -27,6 +27,7 @@
 // 的按钮自愈相互独立，不复用 shared/self-heal.js 的 200ms 常量）。
 
 import { findReaderPlayerHost } from "../bilibili/video-probe.js";
+import { state } from "../core/state.js";
 // #biliscript-reading-view 的 id 单源（arch-slim-2/03）：reader/state.js 的 id 表就是
 // 为此存在，本模块四处手抄字面量收口到 ids.readingView。
 import { ids } from "./state.js";
@@ -47,7 +48,17 @@ const ANCHOR_MIN_WIDTH = 280;
 // 贴栏宽度下限（定死值 = 380px，script-only-ui 排版定稿）：贴栏面板正常吃掉
 // 锚点左缘到视口右缘的整条右侧，仅当可填宽度不足时左缘左移补足。
 const PANEL_MIN_WIDTH = 300;
-const PANEL_TARGET_WIDTH = 380;
+const DEFAULT_PANEL_TARGET_WIDTH = 380;
+
+function getTargetPanelWidth(): number {
+  if (state.settings?.customPanelWidthEnabled) {
+    const custom = Number(state.settings?.customPanelWidth);
+    if (Number.isFinite(custom) && custom >= 300 && custom <= 600) {
+      return Math.round(custom);
+    }
+  }
+  return DEFAULT_PANEL_TARGET_WIDTH;
+}
 
 // 贴播放器右缘时的间距。贴栏纵向钳进一屏的最低高度保底（视口过矮时
 // top 不再上移，宁可口子贴底）。
@@ -106,6 +117,11 @@ export function openScriptHost(): void {
 
 // 拆除全部监听/定时器/observer，清除四个 CSS 变量与浮层属性。未 open 时
 // 调用是安全的 no-op。
+// 供设置面板等外部在动态更新自定义宽度或切换布局时主动请求重算布局
+export function relayoutScriptHost(): void {
+  scheduleScriptLayout();
+}
+
 export function closeScriptHost(): void {
   if (reanchorTimer) {
     window.clearInterval(reanchorTimer);
@@ -339,7 +355,7 @@ function clampTopIntoViewport(rawTop: number): number {
 // 下限宽时左缘向左延伸补足（窄窗/窄栏兜底）。
 function clampAnchorRect(rect: DOMRect): { left: number; top: number; width: number; height: number } {
   const right = getViewportRightBound();
-  const left = Math.min(rect.left, right - PANEL_TARGET_WIDTH);
+  const left = Math.min(rect.left, right - getTargetPanelWidth());
   const top = clampTopIntoViewport(rect.top);
   return { left, top, width: right - left, height: window.innerHeight - top };
 }

@@ -54,6 +54,7 @@ import { logWarn } from "../shared/logging.js";
 
 import {
   isReaderMode,
+  isAutoOpenEligible,
   computeCurrentClipSignature
 } from "../bilibili/video-id-shared.js";
 import type {
@@ -244,6 +245,7 @@ export function bindUrlChangeHandler() {
     enforceNormalPageStateIfNeeded,
     isReaderViewOpen,
     isReaderMode,
+    shouldAutoOpen: (url: string) => Boolean(state.settings?.autoOpenReader && isAutoOpenEligible(url)),
     isPlayerAiLoaded,
     ensureUiReady,
     // resetClipState 属总结链层，经 ensure 装载后执行（装载/执行失败由事务记日志）。

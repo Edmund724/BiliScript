@@ -1,7 +1,7 @@
 import { state } from "../core/state.js";
 import { BILISCRIPT_VERSION, DEFAULT_SETTINGS } from "../core/defaults.js";
 
-import { isReaderMode, isSupportedVideoPage } from "../bilibili/video-id-shared.js";
+import { isReaderMode, isSupportedVideoPage, isAutoOpenEligible } from "../bilibili/video-id-shared.js";
 import { getSettings } from "../core/runtime.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { getErrorMessage } from "../shared/error-helpers.js";
@@ -164,7 +164,11 @@ function init(): void {
           stopPlayerAiQuickActionLazy();
         }
       }
-      if (shouldEnterReaderMode) {
+      const isAutoOpen = Boolean(settings.autoOpenReader && isAutoOpenEligible(location.href));
+      if (shouldEnterReaderMode || isAutoOpen) {
+        ensureReaderStyles();
+        document.documentElement.setAttribute("data-biliscript-reader-mode", "1");
+        document.body.setAttribute("data-biliscript-reader-mode", "1");
         // 候选03：阅读模式直达链接才惰性装载 UI 壳 + reader 呈现层，再进入重域。
         // ensureUiReady 与 hydrate/apply 并发装载，壳构建完成后应用排版属性，
         // 最后 enterReaderMode（其内部会再次 hydrate/apply，保证状态最终一致）。

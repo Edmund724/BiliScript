@@ -38,6 +38,11 @@ export const SETTINGS_PANEL_DOM_IDS = {
   playerAiQuickPrompt: "playerAiQuickPrompt",
   aiSystemPrompt: "aiSystemPrompt",
   readerPalette: "readerPalette",
+  customPanelWidthEnabled: "customPanelWidthEnabled",
+  customPanelWidthContainer: "customPanelWidthContainer",
+  customPanelWidth: "customPanelWidth",
+  customPanelWidthValue: "customPanelWidthValue",
+  autoOpenReader: "autoOpenReader",
   downloadFormat: "downloadFormat",
   includeDateInFilename: "includeDateInFilename",
   includeTimestampInBody: "includeTimestampInBody",
@@ -123,7 +128,7 @@ export function buildSettingsHtml(): string {
     </section>
 
     <section class="biliscript-set-group">
-      <div class="biliscript-set-h">外观</div>
+      <div class="biliscript-set-h">外观与布局</div>
       <p class="biliscript-set-hint">外观色板决定文摘面板的整体视觉风格；明暗模式由面板顶栏的太阳 / 月亮按钮切换，两者互不影响。</p>
       <div class="biliscript-set-row">
         <label class="biliscript-set-label" for="${ids.readerPalette}">外观色板</label>
@@ -132,6 +137,37 @@ export function buildSettingsHtml(): string {
           <option value="editorial">数字刊物</option>
         </select>
       </div>
+
+      <label class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">自定义文摘面板宽度</span>
+        <input id="${ids.customPanelWidthEnabled}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+      </label>
+      <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
+        <div class="biliscript-slider-header">
+          <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
+          <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">380px</span>
+        </div>
+        <input
+          id="${ids.customPanelWidth}"
+          type="range"
+          class="biliscript-range-input"
+          min="300"
+          max="600"
+          step="10"
+          value="380"
+        />
+        <div class="biliscript-slider-labels">
+          <span>窄</span>
+          <span>宽</span>
+        </div>
+      </div>
+      <label class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">进入视频页自动展开文摘面板</span>
+        <input id="${ids.autoOpenReader}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+      </label>
+      <p class="biliscript-set-hint" style="margin-top: -4px;">在普通视频播放页加载就绪后自动展开；稍后再看与收藏夹列表不自动展开。</p>
     </section>
 
     <section class="biliscript-set-group">

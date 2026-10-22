@@ -21,6 +21,8 @@ const TOGGLE_IDS = [
   "asrAutoFallback",
   "allowPaidSearchProviders",
   "enablePlayerAiQuickAction",
+  "customPanelWidthEnabled",
+  "autoOpenReader",
   "includeDateInFilename",
   "includeTimestampInBody",
   "enableDebugLogs"
@@ -83,7 +85,7 @@ beforeEach(() => {
 });
 
 describe("模板壳结构契约", () => {
-  it("6 个开关行都有 text/input/track/thumb，input 与 track 相邻兄弟", () => {
+  it("所有开关行都有 text/input/track/thumb，input 与 track 相邻兄弟", () => {
     const host = document.createElement("div");
     host.innerHTML = buildSettingsHtml();
     const rows = host.querySelectorAll<HTMLLabelElement>(".biliscript-toggle-row");

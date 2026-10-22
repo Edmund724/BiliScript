@@ -29,7 +29,10 @@ import {
   normalizeSearchOptInNoticeAcknowledged,
   normalizeAllowPaidSearchProviders,
   normalizeBilingualSubtitles,
-  normalizeSecondarySubtitleLang
+  normalizeSecondarySubtitleLang,
+  normalizeCustomPanelWidthEnabled,
+  normalizeCustomPanelWidth,
+  normalizeAutoOpenReader
 } from "./validators.js";
 
 // ===== 设置归一化 + 存储 =====
@@ -77,7 +80,10 @@ const SETTINGS_NORMALIZER_STEPS: NormalizerStep[] = [
   // en-US；设置页不渲染控件（开关在面板字幕弹层底部），键面只为持久化、
   // 「恢复默认」与快照而存在。
   ["bilingualSubtitles", (m) => normalizeBilingualSubtitles(m.bilingualSubtitles)],
-  ["secondarySubtitleLang", (m) => normalizeSecondarySubtitleLang(m.secondarySubtitleLang)]
+  ["secondarySubtitleLang", (m) => normalizeSecondarySubtitleLang(m.secondarySubtitleLang)],
+  ["customPanelWidthEnabled", (m) => normalizeCustomPanelWidthEnabled(m.customPanelWidthEnabled)],
+  ["customPanelWidth", (m) => normalizeCustomPanelWidth(m.customPanelWidth)],
+  ["autoOpenReader", (m) => normalizeAutoOpenReader(m.autoOpenReader)]
 ];
 
 // 设置归一化的唯一收口：对步骤表内的受管字段逐项归一化，返回新对象

@@ -42,6 +42,7 @@ export interface ClipSwitchTransactionDeps {
   enforceNormalPageStateIfNeeded(url: string): void;
   isReaderViewOpen(): boolean;
   isReaderMode(url: string): boolean;
+  shouldAutoOpen?(url: string): boolean;
   isPlayerAiLoaded(): boolean;
   ensureUiReady(): Promise<void>;
   resetClipState(): void | Promise<void>;
@@ -84,7 +85,7 @@ export function createClipSwitchTransaction(deps: ClipSwitchTransactionDeps): Cl
     deps.writeRunId(deps.readRunId() + 1);
     deps.enforceNormalPageStateIfNeeded(nextUrl);
 
-    const shouldEnter = deps.isReaderMode(nextUrl);
+    const shouldEnter = deps.isReaderMode(nextUrl) || Boolean(deps.shouldAutoOpen?.(nextUrl));
     const started: Array<Promise<void>> = [];
 
     // reset 步骤：UI 壳只在阅读视图已开或本次正要进入时才需要（reset 的重渲与

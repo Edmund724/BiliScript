@@ -33,6 +33,45 @@ export function isWatchlaterPage(url: string = location.href): boolean {
 // pathname or a watchlater list playback page. Single source shared by the
 // content.ts startup gate and the script-button self-check (previously two
 // hand-copied versions of the same rule).
+// 自动展开文摘面板判定：仅普通视频播放页自动展开；排除稍后再看与收藏夹/合集列表
+export function isAutoOpenEligible(url: string = location.href): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "www.bilibili.com") {
+      return false;
+    }
+    // 必须是普通视频播放页（/video/BV...）
+    if (!parsed.pathname.startsWith("/video/")) {
+      return false;
+    }
+    // 排除稍后再看列表页或带稍后再看标记
+    if (isWatchlaterPage(url)) {
+      return false;
+    }
+    const from = (parsed.searchParams.get("from") || "").toLowerCase();
+    const business = (parsed.searchParams.get("business") || "").toLowerCase();
+    if (from.includes("watchlater") || business.includes("watchlater")) {
+      return false;
+    }
+    // 排除收藏夹/合集列表来源（business 或 from 包含 favlist / collection 等）
+    if (
+      from.includes("fav") ||
+      from.includes("collection") ||
+      business.includes("fav") ||
+      business.includes("collection")
+    ) {
+      return false;
+    }
+    // 排除媒体列表播放页（/list/ml... /medialist/... 等）
+    if (parsed.pathname.startsWith("/list/") || parsed.pathname.startsWith("/medialist/")) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isSupportedVideoPage(url: string = location.href): boolean {
   if (isWatchlaterPage(url)) {
     return true;

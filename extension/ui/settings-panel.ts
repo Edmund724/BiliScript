@@ -33,8 +33,13 @@ import {
   normalizeDownloadFormat,
   normalizePlayerAiQuickPrompt,
   normalizeReaderPalette,
-  normalizeWebSearchMaxToolCalls
+  normalizeWebSearchMaxToolCalls,
+  normalizeCustomPanelWidthEnabled,
+  normalizeCustomPanelWidth,
+  normalizeAutoOpenReader
 } from "../core/validators.js";
+import { state } from "../core/state.js";
+import { relayoutScriptHost } from "../reader/script-host.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 // 02 复制粘贴收口：设置读取（消息 + 软超时 + 回落默认值）单源在 core/runtime，
 // 本模块不再手抄一份；代价是此处读取也带上了 5s 软超时与超时 warn——超时仍
@@ -97,6 +102,9 @@ interface SettingsFormPayload {
   readerPalette: string;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
+  customPanelWidthEnabled: boolean;
+  customPanelWidth: number;
+  autoOpenReader: boolean;
 }
 
 // ===== 分区渲染隔离（interactions-in-complex-layouts 指南，M15）=====
@@ -135,6 +143,11 @@ function collectElements(host: HTMLElement) {
   return {
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
+    customPanelWidthEnabled: byIdIn<HTMLInputElement>(dom.customPanelWidthEnabled),
+    customPanelWidthContainer: byIdIn<HTMLElement>(dom.customPanelWidthContainer),
+    customPanelWidth: byIdIn<HTMLInputElement>(dom.customPanelWidth),
+    customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
+    autoOpenReader: byIdIn<HTMLInputElement>(dom.autoOpenReader),
     includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>(dom.enablePlayerAiQuickAction),
     playerAiQuickPrompt: byIdIn<HTMLTextAreaElement>(dom.playerAiQuickPrompt),
@@ -257,9 +270,14 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
+  elements.customPanelWidthEnabled.checked = settings.customPanelWidthEnabled === true;
+  elements.customPanelWidth.value = String(normalizeCustomPanelWidth(settings.customPanelWidth));
+  elements.customPanelWidthValue.textContent = `${elements.customPanelWidth.value}px`;
+  elements.customPanelWidth.disabled = !elements.customPanelWidthEnabled.checked;
+  elements.autoOpenReader.checked = settings.autoOpenReader === true;
   // 自绘开关（ADR-0019）：水合直接写 .checked（值源语义不变，零事件），视觉经
   // syncToggleSwitch 吸附到现值——与 custom-select 的「显示 = 现值」同口径。
-  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders]
+  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader]
     .forEach(syncToggleSwitch);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
@@ -583,7 +601,10 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
     includeTimestampInBody: elements.includeTimestampInBody.checked,
     enableDebugLogs: elements.enableDebugLogs.checked,
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
-    aiInitialQuickPrompts: collectInitialQuickPrompts(elements)
+    aiInitialQuickPrompts: collectInitialQuickPrompts(elements),
+    customPanelWidthEnabled: elements.customPanelWidthEnabled.checked,
+    customPanelWidth: normalizeCustomPanelWidth(elements.customPanelWidth.value),
+    autoOpenReader: elements.autoOpenReader.checked
   };
 }
 
@@ -635,7 +656,10 @@ function buildDefaultPreferencePayload() {
     // 初始问题的默认态 = 留空（按视频内容自动生成），不写固定文案。
     aiInitialQuickPrompts: [],
     bilingualSubtitles: DEFAULT_SETTINGS.bilingualSubtitles,
-    secondarySubtitleLang: DEFAULT_SETTINGS.secondarySubtitleLang
+    secondarySubtitleLang: DEFAULT_SETTINGS.secondarySubtitleLang,
+    customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
+    customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
+    autoOpenReader: DEFAULT_SETTINGS.autoOpenReader
   };
 }
 
@@ -699,8 +723,28 @@ function bindSettingsEvents(host: HTMLElement): void {
   // 装饰、原生 input 视觉隐藏留作值源与键盘/读屏目标）。id / .checked / change
   // 语义全不变——即时保存监听（asrAutoFallback / allowPaidSearchProviders）与
   // collectFormPayload 照原样工作。
-  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders]
+  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader]
     .forEach(initToggleSwitch);
+
+  elements.customPanelWidthEnabled.addEventListener("change", () => {
+    const isEnabled = elements.customPanelWidthEnabled.checked;
+    elements.customPanelWidth.disabled = !isEnabled;
+    state.patchSettings({
+      customPanelWidthEnabled: isEnabled,
+      customPanelWidth: normalizeCustomPanelWidth(elements.customPanelWidth.value)
+    });
+    relayoutScriptHost();
+  });
+
+  elements.customPanelWidth.addEventListener("input", () => {
+    const width = normalizeCustomPanelWidth(elements.customPanelWidth.value);
+    elements.customPanelWidthValue.textContent = `${width}px`;
+    state.patchSettings({
+      customPanelWidthEnabled: elements.customPanelWidthEnabled.checked,
+      customPanelWidth: width
+    });
+    relayoutScriptHost();
+  });
 
   familyRows.asr.controller.setDeleteHandler(async (providerId) => {
     if (providerId && String(getActiveAsrProviderId(elements.asrProvidersList) || "") === providerId) {
