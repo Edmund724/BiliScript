@@ -333,7 +333,7 @@ export function buildSettingsHtml(): string {
 
     <div class="biliscript-set-actions">
       <p id="${ids.status}" class="biliscript-set-status"></p>
-      <button id="${ids.resetBtn}" type="button" class="add-property-btn">恢复默认偏好</button>
+      <button id="${ids.resetBtn}" type="button" class="biliscript-set-reset-btn">恢复默认偏好</button>
     </div>
   `;
 }

@@ -408,6 +408,33 @@
   flex: 0 0 auto;
 }
 
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn:active {
+  transform: scale(var(--biliscript-reader-press-scale, 1));
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn:hover {
+  color: var(--biliscript-reader-text);
+  background: var(--biliscript-reader-surface-2);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* 状态提示：操作行内的左侧占位（auto 右边距把按钮推到行尾），与按钮同排居中。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-status {
   margin: 0 auto 0 0;
