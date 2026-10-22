@@ -2044,3 +2044,26 @@
   backdrop-filter: none;
 }
 
+
+
+/* LaTeX 数学公式排版 */
+.biliscript-reading-chat .biliscript-md-math-block {
+  display: block;
+  margin: 0.6em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+
+.biliscript-reading-chat .biliscript-md-math-inline {
+  display: inline;
+}
+
+.biliscript-reading-chat math {
+  font-size: 1.05em;
+}
+
+.biliscript-reading-chat math[display="block"] {
+  margin: 0 auto;
+}

@@ -31,6 +31,7 @@ import {
 // mermaid 图表：renderMarkdown 只产出占位 DOM，SVG 由这里在节点插入之后异步水合
 //（懒 chunk，见 ui/lazy-mermaid 头注）。
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
+import { hydrateMath } from "../ui/lazy-math.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { READING_COPY_ICON } from "../ui/reading-icons.js";
 import { setMessage } from "../core/ui-status.js";
@@ -560,6 +561,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
         // stable 只在增长时重渲染一次，其内的 mermaid 占位在此水合（整体重建
         // 会换掉节点，但 SVG 有「主题 + 源码」缓存兜底，重入只是字符串替换）。
         hydrateMermaid(state.stableEl!);
+        hydrateMath(state.stableEl!);
       }
       if (performance.now() >= deadline) {
         await yieldToMain();
@@ -1011,6 +1013,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里
     // 的图表源码不会被它改写；水合换入的 SVG 里也不该再长出时间戳按钮。
     hydrateMermaid(content);
+    hydrateMath(content);
     // 联网搜索（spec §4）：[n] → 上标内联引用（流结束后统一转换；流式期间
     // 原文呈现）。编号与时间线卡 chip 行同序（跨搜索累计）。
     if (sources.length) {

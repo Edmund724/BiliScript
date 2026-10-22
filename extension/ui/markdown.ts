@@ -9,10 +9,14 @@
 //   - TIMESTAMP_PATTERN: the single copy of the timestamp regex
 //     (/\b\d{1,3}:\d{2}(?::\d{2})?\b/g); timestamp-nav.js imports it from here.
 //   - TIMESTAMP_INLINE_CODE_REST_PATTERN: used only by isTimestampOnlyInlineCode.
-import { escapeHtml } from "../shared/string-utils.js";
+import { decodeHtmlEntities, escapeHtml } from "../shared/string-utils.js";
 
 export const TIMESTAMP_PATTERN = /\b\d{1,3}:\d{2}(?::\d{2})?\b/g;
 const TIMESTAMP_INLINE_CODE_REST_PATTERN = /^[\s,，、;；:：\-–—~～至到]+$/;
+
+export const MATH_BLOCK_ATTR = "data-biliscript-math";
+export const MATH_BLOCK_SELECTOR = `[${MATH_BLOCK_ATTR}]`;
+const MATH_FENCE_LANGS = new Set(["math", "latex", "katex"]);
 
 // mermaid 围栏（```mermaid）的占位标记与选择器单源：renderMarkdown（产出占位）
 // 与 ui/lazy-mermaid、ui/mermaid-render（异步水合成图表）共用，避免 data 属性
@@ -208,12 +212,59 @@ export function renderMarkdownStripped(text: string): string {
         );
         continue;
       }
+      if (MATH_FENCE_LANGS.has(fence.lang)) {
+        const rawTex = decodeHtmlEntities(fence.code.trim());
+        out.push(
+          `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${escapeHtml(rawTex)}">` +
+            `$$${fence.code.trim()}$$</div>`
+        );
+        continue;
+      }
       out.push(`<pre><code>${fence.code}</code></pre>`);
       continue;
     }
 
     // ATX 标题 1–6 级：面板自身占用 h1/h2，正文标题整体下移两档；4 级及以上
     //（#### 起）已无更深档可让，一律夹到最深档 h6。
+    if (line.startsWith("$$")) {
+      if (line.endsWith("$$") && line.length >= 4) {
+        flushPara();
+        closeList();
+        const inner = line.slice(2, -2).trim();
+        const rawTex = decodeHtmlEntities(inner);
+        out.push(
+          `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${escapeHtml(rawTex)}">` +
+            `$$${inner}$$</div>`
+        );
+        continue;
+      }
+      let closing = -1;
+      for (let c = index + 1; c < lines.length; c += 1) {
+        if (lines[c].trim().endsWith("$$")) {
+          closing = c;
+          break;
+        }
+      }
+      if (closing > index) {
+        flushPara();
+        closeList();
+        const collected = [line.slice(2)];
+        for (let c = index + 1; c < closing; c += 1) {
+          collected.push(lines[c]);
+        }
+        const last = lines[closing].trim();
+        collected.push(last.slice(0, -2));
+        index = closing;
+        const inner = collected.join("\n").trim();
+        const rawTex = decodeHtmlEntities(inner);
+        out.push(
+          `<div class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${escapeHtml(rawTex)}">` +
+            `$$${inner}$$</div>`
+        );
+        continue;
+      }
+    }
+
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       flushPara();
@@ -611,8 +662,33 @@ export function createMarkdownTailCursor(): MarkdownTailCursor {
 }
 
 function renderInline(text: string): string {
-  return text
-    .replace(/`([^`]+)`/g, (_, c: string) => (isTimestampOnlyInlineCode(c) ? c : `<code>${c}</code>`))
+  const inlineCodes: string[] = [];
+  let working = text.replace(/`([^`]+)`/g, (_, c: string) => {
+    if (isTimestampOnlyInlineCode(c)) {
+      return c;
+    }
+    inlineCodes.push(`<code>${c}</code>`);
+    return `\u0002ILC_${inlineCodes.length - 1}\u0002`;
+  });
+
+  working = working.replace(/\\(\$)/g, "\u0003ESCDOLLAR\u0003");
+
+  working = working.replace(/\$\$([\s\S]+?)\$\$/g, (_, inner: string) => {
+    const trimmed = inner.trim();
+    const rawTex = decodeHtmlEntities(trimmed);
+    return `<span class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${escapeHtml(rawTex)}">$$${trimmed}$$</span>`;
+  });
+
+  working = working.replace(/(^|[^\w\$\\])\$([^\s\$](?:[^$\n]*?[^\s\$])?)\$(?!\w)/g, (full, pre: string, inner: string) => {
+    if (/^[\d,.]+(?:\s*[a-zA-Z]+)?$/.test(inner.trim())) {
+      return full;
+    }
+    const trimmed = inner.trim();
+    const rawTex = decodeHtmlEntities(trimmed);
+    return `${pre}<span class="biliscript-md-math biliscript-md-math-inline" ${MATH_BLOCK_ATTR}="inline" data-tex="${escapeHtml(rawTex)}">$${trimmed}$</span>`;
+  });
+
+  working = working
     .replace(/\*\*([^*\n]+)\*\*/g, (_, c: string) => `<strong>${c}</strong>`)
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, (_, pre: string, c: string) => `${pre}<em>${c}</em>`)
     .replace(/~~([^~\n]+)~~/g, "<del>$1</del>")
@@ -620,6 +696,9 @@ function renderInline(text: string): string {
       const safeUrl = /^(https?:|mailto:|#)/i.test(u) ? u : "#";
       return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
     });
+  working = working.replaceAll("\u0003ESCDOLLAR\u0003", "$");
+  working = working.replace(/\u0002ILC_(\d+)\u0002/g, (_, idx: string) => inlineCodes[Number(idx)]);
+  return working;
 }
 
 // stripThinkBlocksBody — 4 条剥除正则（不含首尾 trim），stripThinkBlocks 与

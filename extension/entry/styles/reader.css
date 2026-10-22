@@ -1765,3 +1765,26 @@
 #biliscript-reading-view .confirm-dialog-confirm-danger {
   background: var(--biliscript-reader-danger);
 }
+
+
+/* LaTeX 数学公式排版 */
+.biliscript-md-math-block {
+  display: block;
+  margin: 0.6em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+
+.biliscript-md-math-inline {
+  display: inline;
+}
+
+math {
+  font-size: 1.05em;
+}
+
+math[display="block"] {
+  margin: 0 auto;
+}

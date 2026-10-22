@@ -92,6 +92,7 @@ const lazyTargets = [
   // 图表类型，精简入口独立成懒 chunk；各类型继续按 import() 分包，只有真出现
   // 某类图表时才加载对应的二级 chunk。
   { name: "mermaid-render", source: "ui/mermaid-render.ts" },
+  { name: "math-render", source: "ui/math-render.ts" },
 ];
 // 轮 A 的 external 路径表：源文件绝对路径 → 轮 B 产物相对 content-main.mjs
 // 的路径（主包在 entry/、轮 B 产物在 entry/chunks/）。
