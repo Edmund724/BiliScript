@@ -2071,14 +2071,17 @@
   border-radius: 2px;
 }
 
-/* 块级展示公式（$$...$$）：无底色纯净展示，轻微垂直呼吸留白 */
+/* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
 .biliscript-reading-chat .biliscript-md-math-block {
-  display: block;
+  display: flex !important;
+  justify-content: center;
+  align-items: center;
   margin: 0.4em 0;
   padding: 2px 0;
   background: transparent;
   border: none;
   box-sizing: border-box;
+  text-align: center;
 }
 
 /* 行内嵌入公式（$...$）：行内自然流动，基线对齐 */
@@ -2103,11 +2106,12 @@
   margin: 0 0.28em;
 }
 
-/* 论文式公式对齐结构：等号右侧多行换行时严格对齐在等号右边 */
+/* 论文式公式对齐结构：居中展示，等号右侧多行换行时严格对齐在等号右边 */
 .biliscript-reading-chat .biliscript-math-aligned {
-  display: flex !important;
+  display: inline-flex !important;
   align-items: baseline;
-  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .biliscript-reading-chat .biliscript-math-lhs {
