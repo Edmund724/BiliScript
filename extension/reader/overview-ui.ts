@@ -16,6 +16,7 @@ import { getErrorMessage } from "../shared/error-helpers.js";
 import { setMessage } from "../core/ui-status.js";
 import { shouldShowHoursInNote } from "../notes/section-lines.js";
 import { READING_COPY_ICON, READING_PLAY_ICON } from "../ui/reading-icons.js";
+import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { ids } from "./state.js";
 import { isReaderTranscribing } from "./transcribe-banner.js";
 import { jumpReadingTarget } from "./sync.js";
@@ -369,6 +370,7 @@ async function copyQuoteToClipboard(quoteEl: HTMLElement): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
     setMessage("金句已复制到剪贴板。");
+    flashCopySuccess(quoteEl, { originalSvg: READING_COPY_ICON, originalLabel: "复制该金句" });
   } catch (error) {
     setMessage(`复制失败：${getErrorMessage(error)}`);
   }

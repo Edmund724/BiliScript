@@ -34,6 +34,7 @@ import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { hydrateMath } from "../ui/lazy-math.js";
 import { linkifyAssistantTimestamps, type TimestampNavDeps } from "../ui/timestamp-nav.js";
 import { READING_COPY_ICON } from "../ui/reading-icons.js";
+import { flashCopySuccess } from "../ui/copy-feedback.js";
 import { setMessage } from "../core/ui-status.js";
 import type { ChatToolStatusEvent } from "./protocol.js";
 import { SEARCH_PREVIEW_MAX_CHARS, type ChatSearchSource, type HistorySearchTurn } from "./search-sources.js";
@@ -1078,10 +1079,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       try {
         await navigator.clipboard.writeText(pasteReadyRaw);
         setMessage("回复已复制到剪贴板。");
-        copyBtn.disabled = true;
-        window.setTimeout(() => {
-          copyBtn.disabled = false;
-        }, 500);
+        flashCopySuccess(copyBtn, {
+          originalSvg: READING_COPY_ICON,
+          originalLabel: "复制回复"
+        });
       } catch {
         copyBtn.disabled = true;
         window.setTimeout(() => {

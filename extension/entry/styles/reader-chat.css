@@ -730,11 +730,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .biliscript-reading-chat .chat-msg-copy-btn:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+  transform: scale(0.91);
+  transition: transform 70ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .biliscript-reading-chat .chat-msg-copy-btn:hover {
@@ -761,6 +762,35 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+.biliscript-reading-chat .chat-msg-copy-btn.is-copied {
+  color: var(--biliscript-reader-accent, #2563eb);
+}
+
+.biliscript-reading-chat .chat-msg-copy-btn.is-copied svg {
+  animation: biliscript-copy-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes biliscript-copy-pop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .biliscript-reading-chat .chat-msg-copy-btn:active {
+    transform: none;
+  }
+  .biliscript-reading-chat .chat-msg-copy-btn.is-copied svg {
+    animation: none;
+  }
+}
+
 
 .biliscript-reading-chat .chat-msg-assistant p {
   margin: 0 0 var(--biliscript-chat-paragraph-spacing, 12px);

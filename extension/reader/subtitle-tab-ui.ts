@@ -77,6 +77,7 @@ import { state } from "../core/state.js";
 import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
 import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js";
+import { flashCopySuccess } from "../ui/copy-feedback.js";
 // 副轨（双语第二路轨）的目标解析 + 六态列模型 + 装载事务（唯一落点）：本叶子只做
 // DOM 投影与在飞禁用。
 import {
@@ -1059,7 +1060,13 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
   byId(ids.readingCopySubtitleBtn).addEventListener("click", async () => {
     try {
       const chain = await ensureSummarizeChain();
-      await chain.copySubtitleTranscript();
+      const ok = await chain.copySubtitleTranscript();
+      if (ok) {
+        flashCopySuccess(byId(ids.readingCopySubtitleBtn), {
+          originalSvg: READING_COPY_ICON,
+          originalLabel: "复制字幕"
+        });
+      }
     } catch (error) {
       logWarn("[BILISCRIPT] copy subtitle transcript failed", error);
     }

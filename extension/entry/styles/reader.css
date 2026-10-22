@@ -175,11 +175,12 @@
   cursor: pointer;
   padding: 0;
   color: var(--biliscript-reader-text, #1f2937);
-  transition: transform 100ms ease-out;
+  transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .biliscript-reading-icon-btn:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+  transform: scale(0.91);
+  transition: transform 70ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .biliscript-reading-icon-btn svg {
@@ -187,6 +188,28 @@
   height: 18px;
   flex: 0 0 auto;
 }
+
+.biliscript-reading-icon-btn.is-copied,
+.biliscript-reading-ov-quote-copy.is-copied {
+  color: var(--biliscript-reader-accent, #2563eb);
+}
+
+.biliscript-reading-icon-btn.is-copied svg,
+.biliscript-reading-ov-quote-copy.is-copied svg {
+  animation: biliscript-copy-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes biliscript-copy-pop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 
 .biliscript-reading-icon-btn:hover {
   background: var(--biliscript-reader-fill-hover, rgba(0, 0, 0, 0.06));
@@ -1589,7 +1612,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease-out, color 0.15s ease-out, transform 100ms ease-out;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .biliscript-reading-ov-quote-copy:hover {
@@ -1598,7 +1621,8 @@
 }
 
 .biliscript-reading-ov-quote-copy:active {
-  transform: scale(var(--biliscript-reader-press-scale, 1));
+  transform: scale(0.91);
+  transition: transform 70ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .biliscript-reading-ov-quote-copy svg {

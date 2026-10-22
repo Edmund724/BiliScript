@@ -1,4 +1,4 @@
-// ui/reading-icons.ts — 阅读视图跨域共用的内联 SVG 图标（复制 / 下载 / 播放）。
+// ui/reading-icons.ts — 阅读视图跨域共用的内联 SVG 图标（复制 / 对勾 / 下载 / 播放）。
 // 与 ui/reading-header-icons.ts（面板 header 专用表）分开：本表消费方横跨
 // reader / chat / subtitle 三个域的叶子，header 表只随 UI 壳常驻。
 // 均为纯字符串常量，不依赖 DOM/全局状态；stroke/fill 属性自绘（宿主 CSS
@@ -6,6 +6,10 @@
 
 export const READING_COPY_ICON = `
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1"></path></svg>
+`;
+
+export const READING_CHECK_ICON = `
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
 `;
 
 export const READING_DOWNLOAD_ICON = `

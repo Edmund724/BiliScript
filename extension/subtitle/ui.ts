@@ -28,21 +28,23 @@ import { createSecondaryLineResolver } from "./alignment.js";
 // 与 TXT 导出同一渲染管线（buildTxt，按 includeTimestampInBody 设置决定是否带
 // 时间戳）；与「完整笔记」（clip.markdown，经导出/复制笔记入口消费）语义区分。
 // 取数与反馈风格照抄下方 downloadSubtitle，逻辑零新增。
-export async function copySubtitleTranscript(): Promise<void> {
+export async function copySubtitleTranscript(): Promise<boolean> {
   state.setSettings(await getSettings());
   // 双语态下复制出的 TXT 也出副行（07 号票）：与 downloadSubtitle 同一条渲染管线，
   // 配对口径同源 alignment.js（双语关 / 副轨未就绪 ⇒ resolver 短路，文本与单轨逐字相同）。
   const text = buildTxt(state.clip.subtitleBody, state.settings, createSecondaryLineResolver());
   if (!text) {
     setMessage("没有可复制的字幕，请先刷新抓取。");
-    return;
+    return false;
   }
 
   try {
     await navigator.clipboard.writeText(text);
     setMessage("字幕已复制到剪贴板。");
+    return true;
   } catch (error) {
     setMessage(`复制失败：${getErrorMessage(error)}`);
+    return false;
   }
 }
 

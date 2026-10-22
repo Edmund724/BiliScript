@@ -52,7 +52,7 @@ export interface SummarizeChain {
   ): Promise<void>;
   resetClipState(options?: { keepFetchState?: boolean }): void;
   // PR3：阅读模式字幕 tab「复制」——复制字幕纯文本（transcript，buildTxt 管线）
-  copySubtitleTranscript(): Promise<void>;
+  copySubtitleTranscript(): Promise<boolean>;
   downloadSubtitle(): Promise<void>;
 }
 
