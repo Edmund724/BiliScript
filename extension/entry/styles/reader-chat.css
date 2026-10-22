@@ -772,10 +772,16 @@
   padding-left: 2em;
 }
 
+.biliscript-reading-chat .chat-msg-assistant li + li {
+  margin-top: 4px;
+}
+
+/* 行内代码：去边框、弱底色（--biliscript-reader-fill-hover）与贴合内边距，
+ * 融入正文流，避免悬浮药丸徽章感打断阅读。多行代码块通过 pre 覆写保持独立结构。 */
 .biliscript-reading-chat .chat-msg-assistant code {
-  padding: 1px 5px;
-  background: var(--biliscript-reader-surface-2);
-  border: 1px solid var(--biliscript-reader-border);
+  padding: 1px 4px;
+  background: var(--biliscript-reader-fill-hover);
+  border: 0;
   border-radius: 4px;
   /* 栈与 --biliscript-reader-font-mono（"SF Mono" 打头的更全套）不同——首字体与
    * 条目数不一致，换用令牌会改解析序，保持字面量。 */
