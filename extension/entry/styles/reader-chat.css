@@ -2236,3 +2236,157 @@
   row-gap: 6px;
   box-sizing: border-box;
 }
+
+
+/* ===== AI 对话标签页更多操作二级菜单 ===== */
+#biliscript-reading-view .biliscript-reading-chat-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 220px;
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 16px;
+  background: var(--biliscript-reader-card);
+  border: 1px solid var(--biliscript-reader-border);
+  box-shadow: var(--biliscript-reader-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 30;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-menu[hidden] {
+  display: none !important;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--biliscript-reader-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-item:hover {
+  background: var(--biliscript-reader-fill-hover);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--biliscript-reader-muted);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-item:hover svg {
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 4px 2px;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-set-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: var(--biliscript-reader-surface-3);
+  color: var(--biliscript-reader-accent);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-reset-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--biliscript-reader-muted);
+  opacity: 1;
+  transition: opacity 0.15s ease-out, background 0.15s ease-out, color 0.15s ease-out;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-reset-btn:hover:not(:disabled) {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-reset-btn:disabled {
+  opacity: 0.36;
+  cursor: not-allowed;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-reset-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-range-input {
+  width: 100%;
+  accent-color: var(--biliscript-reader-accent);
+  cursor: pointer;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--biliscript-reader-surface-3);
+  outline: none;
+  margin: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--biliscript-reader-faint);
+}

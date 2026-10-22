@@ -2,6 +2,7 @@ import { state, uiState } from "../core/state.js";
 import { byId } from "../shared/dom-utils.js";
 import { escapeHtml } from "../shared/string-utils.js";
 import { READING_HEADER_ICONS } from "./reading-header-icons.js";
+import { READING_RESET_ICON } from "./reading-icons.js";
 import { themeButtonView } from "./theme-button.js";
 // PR5 外点关闭单委托：对话 tab popovers 的文档级外点关闭经 reader-bus 的转发槽并入本模块
 // 的单一 document click 委托（避免第二个 document 监听互踩）。
@@ -109,20 +110,63 @@ export function buildUiHtml(): string {
                 <button id="${ids.readingTabChat}" type="button" class="biliscript-reading-tab" role="tab" aria-selected="false">AI 对话</button>
               </div>
               <div class="biliscript-reading-tabs-tools">
-                <button id="${ids.readingChatHistoryBtn}" type="button" class="biliscript-reading-icon-btn" title="历史对话" aria-label="历史对话">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                    <path d="M3 3v5h5"></path>
-                    <path d="M12 7v5l4 2"></path>
+                <button id="${ids.readingChatMoreBtn}" type="button" class="biliscript-reading-icon-btn" title="更多操作" aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">
+                  <svg viewBox="0 0 24 24" fill="currentColor" focusable="false" aria-hidden="true">
+                    <circle cx="12" cy="5" r="1.75"></circle>
+                    <circle cx="12" cy="12" r="1.75"></circle>
+                    <circle cx="12" cy="19" r="1.75"></circle>
                   </svg>
                 </button>
-                <button id="${ids.readingChatNewBtn}" type="button" class="biliscript-reading-icon-btn" title="开启新会话" aria-label="开启新会话">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                    <path d="M5.87 16.44A8.2 8.2 0 1 1 10.73 19.86L3.11 19.86 5.87 16.44Z"></path>
-                    <path d="M12.7 8.7v6.4"></path>
-                    <path d="M9.5 11.9h6.4"></path>
-                  </svg>
-                </button>
+                <div id="${ids.readingChatMoreMenu}" class="biliscript-reading-chat-more-menu" hidden>
+                  <div class="biliscript-reading-chat-more-actions">
+                    <button id="${ids.readingChatNewBtn}" type="button" class="biliscript-reading-chat-more-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                        <path d="M5.87 16.44A8.2 8.2 0 1 1 10.73 19.86L3.11 19.86 5.87 16.44Z"></path>
+                        <path d="M12.7 8.7v6.4"></path>
+                        <path d="M9.5 11.9h6.4"></path>
+                      </svg>
+                      <span>开启新会话</span>
+                    </button>
+                    <button id="${ids.readingChatHistoryBtn}" type="button" class="biliscript-reading-chat-more-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                        <path d="M3 3v5h5"></path>
+                        <path d="M12 7v5l4 2"></path>
+                      </svg>
+                      <span>历史对话</span>
+                    </button>
+                  </div>
+                  <div class="biliscript-reading-chat-more-typography">
+                    <div class="biliscript-slider-row">
+                      <div class="biliscript-slider-header">
+                        <label class="biliscript-set-label" for="${ids.readingChatLineHeight}">对话行高</label>
+                        <div class="biliscript-slider-header-actions">
+                          <span id="${ids.readingChatLineHeightValue}" class="biliscript-slider-badge">160%</span>
+                          <button id="${ids.readingChatLineHeightResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认行高 (160%)" aria-label="恢复默认行高">${READING_RESET_ICON}</button>
+                        </div>
+                      </div>
+                      <input id="${ids.readingChatLineHeight}" type="range" class="biliscript-range-input" min="120" max="200" step="5" value="160" />
+                      <div class="biliscript-slider-labels">
+                        <span>紧凑</span>
+                        <span>宽松</span>
+                      </div>
+                    </div>
+                    <div class="biliscript-slider-row">
+                      <div class="biliscript-slider-header">
+                        <label class="biliscript-set-label" for="${ids.readingChatParagraphSpacing}">对话段落间距</label>
+                        <div class="biliscript-slider-header-actions">
+                          <span id="${ids.readingChatParagraphSpacingValue}" class="biliscript-slider-badge">12px</span>
+                          <button id="${ids.readingChatParagraphSpacingResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认段落间距 (12px)" aria-label="恢复默认段落间距">${READING_RESET_ICON}</button>
+                        </div>
+                      </div>
+                      <input id="${ids.readingChatParagraphSpacing}" type="range" class="biliscript-range-input" min="4" max="20" step="2" value="12" />
+                      <div class="biliscript-slider-labels">
+                        <span>紧凑</span>
+                        <span>宽松</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 

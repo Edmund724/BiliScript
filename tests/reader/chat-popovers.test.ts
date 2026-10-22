@@ -40,21 +40,26 @@ function makeHarness() {
   historyBtn.id = ids.readingChatHistoryBtn;
   const modelChipBtn = document.createElement("button");
   modelChipBtn.id = ids.readingChatModelChip;
-  container.append(historyPopover, modelPanel, historyBtn, modelChipBtn);
+  const moreBtn = document.createElement("button");
+  moreBtn.id = ids.readingChatMoreBtn;
+  const moreMenu = document.createElement("div");
+  moreMenu.id = ids.readingChatMoreMenu;
+  container.append(historyPopover, modelPanel, historyBtn, modelChipBtn, moreBtn, moreMenu);
   const deps = {
     historyPopover,
     modelPanel,
     historyBtn,
     modelChipBtn,
+    moreBtn,
+    moreMenu,
     renderHistoryList: vi.fn(),
     renderModelPanel: vi.fn()
   };
   const popovers = createReaderChatPopovers(deps);
-  // 初始态：两个弹层可见（hidden=false），toggle 后才隐藏（与迁移前判定一致：
-  // willShow = popover.hidden）
   historyPopover.hidden = false;
   modelPanel.hidden = false;
-  return { deps, popovers, historyPopover, modelPanel, historyBtn, modelChipBtn };
+  moreMenu.hidden = false;
+  return { deps, popovers, historyPopover, modelPanel, historyBtn, modelChipBtn, moreBtn, moreMenu };
 }
 
 describe("toggleHistoryPopover", () => {
@@ -201,5 +206,33 @@ describe("handleEscapeKey（Esc 全关）", () => {
 
     expect(historyPopover.hidden).toBe(false);
     expect(modelPanel.hidden).toBe(false);
+  });
+});
+
+describe("toggleMoreMenu", () => {
+  it("开更多菜单：关闭历史与模型面板", () => {
+    const { popovers, historyPopover, modelPanel, moreMenu, moreBtn } = makeHarness();
+    historyPopover.hidden = false;
+    modelPanel.hidden = false;
+    moreMenu.hidden = true;
+
+    popovers.toggleMoreMenu();
+
+    expect(moreMenu.hidden).toBe(false);
+    expect(historyPopover.hidden).toBe(true);
+    expect(modelPanel.hidden).toBe(true);
+    expect(moreBtn.getAttribute("aria-expanded")).toBe("true");
+    expect(moreBtn.classList.contains("is-active")).toBe(true);
+  });
+
+  it("可见时再 toggle：关闭", () => {
+    const { popovers, moreMenu, moreBtn } = makeHarness();
+    moreMenu.hidden = false;
+
+    popovers.toggleMoreMenu();
+
+    expect(moreMenu.hidden).toBe(true);
+    expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(moreBtn.classList.contains("is-active")).toBe(false);
   });
 });

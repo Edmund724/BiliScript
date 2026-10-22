@@ -566,27 +566,14 @@ describe("主题：只剩明暗一轴", () => {
     const fontBadge = document.getElementById("readerFontSizeScaleValue") as HTMLElement;
     const fontReset = document.getElementById("readerFontSizeScaleResetBtn") as HTMLButtonElement;
 
-    const lineSlider = document.getElementById("chatLineHeight") as HTMLInputElement;
-    const lineBadge = document.getElementById("chatLineHeightValue") as HTMLElement;
-    const lineReset = document.getElementById("chatLineHeightResetBtn") as HTMLButtonElement;
+    // 对话行高与对话段落间距已移至 AI 对话二级菜单，设置抽屉中不再渲染
+    expect(document.getElementById("chatLineHeight")).toBe(null);
+    expect(document.getElementById("chatParagraphSpacing")).toBe(null);
 
-    const paraSlider = document.getElementById("chatParagraphSpacing") as HTMLInputElement;
-    const paraBadge = document.getElementById("chatParagraphSpacingValue") as HTMLElement;
-    const paraReset = document.getElementById("chatParagraphSpacingResetBtn") as HTMLButtonElement;
-
-    
     expect(fontSlider).toBeTruthy();
     expect(fontSlider.value).toBe("110");
     expect(fontBadge.textContent).toBe("110%");
     expect(fontReset.disabled).toBe(false);
-
-    expect(lineSlider.value).toBe("180");
-    expect(lineBadge.textContent).toBe("180%");
-    expect(lineReset.disabled).toBe(false);
-
-    expect(paraSlider.value).toBe("16");
-    expect(paraBadge.textContent).toBe("16px");
-    expect(paraReset.disabled).toBe(false);
 
     // 滑动触发 input：即时更新 badge 与 CSS 变量
     fontSlider.value = "120";

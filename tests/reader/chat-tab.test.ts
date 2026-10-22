@@ -213,9 +213,13 @@ describe("组合根装配与懒加载边界", () => {
     //   chat-tools-in-tabs-row.test.ts）
     const tools = document.querySelector(".biliscript-reading-tabs-tools");
     expect(Array.from(tools!.children).map((node) => (node as HTMLElement).id)).toEqual([
-      ids.readingChatHistoryBtn,
-      ids.readingChatNewBtn
+      ids.readingChatMoreBtn,
+      ids.readingChatMoreMenu
     ]);
+    expect(document.getElementById(ids.readingChatNewBtn)).not.toBe(null);
+    expect(document.getElementById(ids.readingChatHistoryBtn)).not.toBe(null);
+    expect(document.getElementById(ids.readingChatLineHeight)).not.toBe(null);
+    expect(document.getElementById(ids.readingChatParagraphSpacing)).not.toBe(null);
     // - 初始态：无会话历史 → 空消息区 + 建议区（无居中错误）
     const messages = document.getElementById(ids.readingChatMessages) as HTMLElement;
     expect(messages.querySelectorAll(".chat-center-error")).toHaveLength(0);

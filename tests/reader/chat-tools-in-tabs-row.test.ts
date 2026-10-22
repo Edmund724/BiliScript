@@ -31,25 +31,26 @@ function ruleBody(css: string, selector: string): string {
 }
 
 describe("对话工具键并入壳标签行", () => {
-  it("壳模板：标签行 = 分段控件 + 工具组（历史对话、新会话，顺序即契约）", () => {
+  it("壳模板：标签行 = 分段控件 + 更多操作按钮与二级菜单", () => {
     const tpl = readSrc(UI_RENDERER);
 
-    const row = tpl.match(/<div class="biliscript-reading-tabs-row">([\s\S]*?)<\/div>\s*<\/div>/);
+    const row = tpl.match(/<div class="biliscript-reading-tabs-row">([\s\S]*?)<\/div>\s*<!-- 字幕 tab body/);
     expect(row, "壳模板应有 .biliscript-reading-tabs-row").not.toBe(null);
     expect(row![1]).toMatch(/class="biliscript-reading-tabs"/);
 
     const tools = row![1].match(/<div class="biliscript-reading-tabs-tools">([\s\S]*)/);
     expect(tools, "标签行内应有 .biliscript-reading-tabs-tools").not.toBe(null);
-    const btnIds = [...tools![1].matchAll(/id="\$\{ids\.(readingChat\w+Btn)\}"/g)].map((m) => m[1]);
-    expect(btnIds).toEqual(["readingChatHistoryBtn", "readingChatNewBtn"]);
+    expect(tools![1]).toMatch(/id="\$\{ids\.readingChatMoreBtn\}"/);
+    expect(tools![1]).toMatch(/id="\$\{ids\.readingChatMoreMenu\}"/);
+    expect(tools![1]).toMatch(/id="\$\{ids\.readingChatNewBtn\}"/);
+    expect(tools![1]).toMatch(/id="\$\{ids\.readingChatHistoryBtn\}"/);
+    expect(tools![1]).toMatch(/id="\$\{ids\.readingChatLineHeight\}"/);
+    expect(tools![1]).toMatch(/id="\$\{ids\.readingChatParagraphSpacing\}"/);
 
-    // 外观复用面板 header 三键的无框幽灵键（壳常驻样式，不依赖按需装载的对话分区表）
-    const buttons = [...tools![1].matchAll(/<button[^>]*>/g)].map((m) => m[0]);
-    for (const btn of buttons) {
-      expect(btn).toMatch(/class="biliscript-reading-icon-btn"/);
-    }
-    expect(tools![1]).toMatch(/aria-label="历史对话"/);
-    expect(tools![1]).toMatch(/aria-label="开启新会话"/);
+    // 更多操作按钮复用面板 header 的无框幽灵键（壳常驻样式，不依赖按需装载的对话分区表）
+    expect(tools![1]).toMatch(/<button id="\$\{ids\.readingChatMoreBtn\}"[^>]*class="biliscript-reading-icon-btn"/);
+    expect(tools![1]).toMatch(/aria-label="更多操作"/);
+    expect(tools![1]).toMatch(/title="更多操作"/);
   });
 
   it("对话模板：工具条整行退役，chat-template 不再有 chat-header 与这两枚按钮", () => {

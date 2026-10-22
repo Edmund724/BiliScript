@@ -39,8 +39,6 @@ import {
   normalizeCustomPanelWidth,
   normalizeAutoOpenReader,
   normalizeReaderFontSizeScale,
-  normalizeChatLineHeight,
-  normalizeChatParagraphSpacing
 } from "../core/validators.js";
 import { applyReadingViewTypography, applyChatInputGlow, applyReadingViewPresentation } from "../reader/presentation.js";
 import { state } from "../core/state.js";
@@ -109,8 +107,6 @@ interface SettingsFormPayload {
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   readerFontSizeScale: number;
-  chatLineHeight: number;
-  chatParagraphSpacing: number;
   customPanelWidth: number;
   autoOpenReader: boolean;
 }
@@ -157,14 +153,6 @@ function collectElements(host: HTMLElement) {
     readerFontSizeScale: byIdIn<HTMLInputElement>(dom.readerFontSizeScale),
     readerFontSizeScaleValue: byIdIn<HTMLElement>(dom.readerFontSizeScaleValue),
     readerFontSizeScaleResetBtn: byIdIn<HTMLButtonElement>(dom.readerFontSizeScaleResetBtn),
-    chatLineHeightContainer: byIdIn<HTMLElement>(dom.chatLineHeightContainer),
-    chatLineHeight: byIdIn<HTMLInputElement>(dom.chatLineHeight),
-    chatLineHeightValue: byIdIn<HTMLElement>(dom.chatLineHeightValue),
-    chatLineHeightResetBtn: byIdIn<HTMLButtonElement>(dom.chatLineHeightResetBtn),
-    chatParagraphSpacingContainer: byIdIn<HTMLElement>(dom.chatParagraphSpacingContainer),
-    chatParagraphSpacing: byIdIn<HTMLInputElement>(dom.chatParagraphSpacing),
-    chatParagraphSpacingValue: byIdIn<HTMLElement>(dom.chatParagraphSpacingValue),
-    chatParagraphSpacingResetBtn: byIdIn<HTMLButtonElement>(dom.chatParagraphSpacingResetBtn),
     customPanelWidthContainer: byIdIn<HTMLElement>(dom.customPanelWidthContainer),
     customPanelWidth: byIdIn<HTMLInputElement>(dom.customPanelWidth),
     customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
@@ -293,14 +281,6 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.readerFontSizeScale.value = String(normalizeReaderFontSizeScale(settings.readerFontSizeScale));
   elements.readerFontSizeScaleValue.textContent = `${elements.readerFontSizeScale.value}%`;
   elements.readerFontSizeScaleResetBtn.disabled = Number(elements.readerFontSizeScale.value) === DEFAULT_SETTINGS.readerFontSizeScale;
-
-  elements.chatLineHeight.value = String(normalizeChatLineHeight(settings.chatLineHeight));
-  elements.chatLineHeightValue.textContent = `${elements.chatLineHeight.value}%`;
-  elements.chatLineHeightResetBtn.disabled = Number(elements.chatLineHeight.value) === DEFAULT_SETTINGS.chatLineHeight;
-
-  elements.chatParagraphSpacing.value = String(normalizeChatParagraphSpacing(settings.chatParagraphSpacing));
-  elements.chatParagraphSpacingValue.textContent = `${elements.chatParagraphSpacing.value}px`;
-  elements.chatParagraphSpacingResetBtn.disabled = Number(elements.chatParagraphSpacing.value) === DEFAULT_SETTINGS.chatParagraphSpacing;
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
@@ -634,8 +614,6 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
     downloadFormat: normalizeDownloadFormat(elements.downloadFormat.value),
     readerPalette: normalizeReaderPalette(elements.readerPalette.value),
     readerFontSizeScale: normalizeReaderFontSizeScale(elements.readerFontSizeScale.value),
-    chatLineHeight: normalizeChatLineHeight(elements.chatLineHeight.value),
-    chatParagraphSpacing: normalizeChatParagraphSpacing(elements.chatParagraphSpacing.value),
     includeDateInFilename: elements.includeDateInFilename.checked,
     enablePlayerAiQuickAction: elements.enablePlayerAiQuickAction.checked,
     playerAiQuickPrompt: normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value),
@@ -946,48 +924,6 @@ function bindSettingsEvents(host: HTMLElement): void {
     state.patchSettings({ readerFontSizeScale: defaultVal });
     applyReadingViewTypography();
     void saveSettingField(elements, { readerFontSizeScale: defaultVal });
-  });
-
-  elements.chatLineHeight.addEventListener("input", () => {
-    const val = normalizeChatLineHeight(elements.chatLineHeight.value);
-    elements.chatLineHeightValue.textContent = `${val}%`;
-    elements.chatLineHeightResetBtn.disabled = val === DEFAULT_SETTINGS.chatLineHeight;
-    state.patchSettings({ chatLineHeight: val });
-    applyReadingViewTypography();
-  });
-  elements.chatLineHeight.addEventListener("change", () => {
-    const val = normalizeChatLineHeight(elements.chatLineHeight.value);
-    void saveSettingField(elements, { chatLineHeight: val });
-  });
-  elements.chatLineHeightResetBtn.addEventListener("click", () => {
-    const defaultVal = DEFAULT_SETTINGS.chatLineHeight;
-    elements.chatLineHeight.value = String(defaultVal);
-    elements.chatLineHeightValue.textContent = `${defaultVal}%`;
-    elements.chatLineHeightResetBtn.disabled = true;
-    state.patchSettings({ chatLineHeight: defaultVal });
-    applyReadingViewTypography();
-    void saveSettingField(elements, { chatLineHeight: defaultVal });
-  });
-
-  elements.chatParagraphSpacing.addEventListener("input", () => {
-    const val = normalizeChatParagraphSpacing(elements.chatParagraphSpacing.value);
-    elements.chatParagraphSpacingValue.textContent = `${val}px`;
-    elements.chatParagraphSpacingResetBtn.disabled = val === DEFAULT_SETTINGS.chatParagraphSpacing;
-    state.patchSettings({ chatParagraphSpacing: val });
-    applyReadingViewTypography();
-  });
-  elements.chatParagraphSpacing.addEventListener("change", () => {
-    const val = normalizeChatParagraphSpacing(elements.chatParagraphSpacing.value);
-    void saveSettingField(elements, { chatParagraphSpacing: val });
-  });
-  elements.chatParagraphSpacingResetBtn.addEventListener("click", () => {
-    const defaultVal = DEFAULT_SETTINGS.chatParagraphSpacing;
-    elements.chatParagraphSpacing.value = String(defaultVal);
-    elements.chatParagraphSpacingValue.textContent = `${defaultVal}px`;
-    elements.chatParagraphSpacingResetBtn.disabled = true;
-    state.patchSettings({ chatParagraphSpacing: defaultVal });
-    applyReadingViewTypography();
-    void saveSettingField(elements, { chatParagraphSpacing: defaultVal });
   });
 
   elements.customPanelWidth.addEventListener("input", () => {
