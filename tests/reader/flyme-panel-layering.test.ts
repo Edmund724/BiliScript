@@ -106,10 +106,10 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     expect(active).toContain("color: var(--biliscript-reader-accent)");
   });
 
-  it("深色 tab 槽不动（#222327，深色分层用户确认协调）", () => {
+  it("深色 tab 槽留存（#26282d，深色分层与 surface-3 对齐）", () => {
     const dark = themeBlock("#biliscript-reading-view[data-theme=\"dark\"]");
 
-    expect(dark).toContain("--biliscript-reader-pill-bg: #222327");
+    expect(dark).toContain("--biliscript-reader-pill-bg: #26282d");
   });
 
   it("历史条目无界平列表：无底无边，状态走整行圆角 wash", () => {

@@ -246,11 +246,11 @@ body[data-biliscript-reader-mode="1"],
 html[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
 #biliscript-reading-view[data-theme="dark"] {
-  /* Flyme 深色三层：页面 #101114 / 卡片·列表组 #1B1C20 / 输入框底 #222327。
+  /* Flyme 深色三层：页面 #101114 / 卡片·列表组 #1B1C20 / 输入框底 #26282d。
    * 层级靠分层灰与液态玻璃暗面漫射柔影 + 边缘折射内高光。 */
   --biliscript-reader-surface: #101114;
   --biliscript-reader-surface-2: #1b1c20;
-  --biliscript-reader-surface-3: #222327;
+  --biliscript-reader-surface-3: #26282d;
   --biliscript-reader-fill-hover: rgba(255, 255, 255, 0.1);
   /* 深色液态玻璃卡：165deg 曲面透镜（白雾顶光衰减到底部冷蓝反弹），叠在深色
    * 雾壳上透出辉光 */
@@ -270,7 +270,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   --biliscript-reader-border: rgba(255, 255, 255, 0.12);
   --biliscript-reader-text: #ecedef;
   --biliscript-reader-muted: #9ca0a8;
-  --biliscript-reader-faint: #6a6e76;
+  --biliscript-reader-faint: #787c86;
   --biliscript-reader-accent: #3d9bff;
   --biliscript-reader-accent-soft: rgba(61, 155, 255, 0.16);
   /* accent-ink 按对比度定：#3d9bff 实底上白字只有 2.9:1（连 3:1 都不够，
@@ -278,7 +278,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
    * ——6.6:1，远超 4.5:1。 */
   --biliscript-reader-accent-ink: #101114;
   --biliscript-reader-quote-mark: rgba(236, 237, 239, 0.09);
-  --biliscript-reader-pill-bg: #222327;
+  --biliscript-reader-pill-bg: #26282d;
   --biliscript-reader-highlight: rgba(255, 159, 10, 0.14);
   --biliscript-reader-track: rgba(236, 237, 239, 0.18);
   /* danger 深色档取亮红 #f2555a + 提亮 soft，保证暗面可读。 */

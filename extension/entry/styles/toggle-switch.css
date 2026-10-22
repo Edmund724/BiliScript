@@ -63,7 +63,7 @@
   white-space: nowrap;
 }
 
-/* 轨道：40×24 圆角胶囊。关态取主题灰 token surface-3（亮 #e9ebef / 暗 #222327），
+/* 轨道：40×24 圆角胶囊。关态取主题灰 token surface-3（亮 #e9ebef / 暗 #26282d），
  * 开态由下方 :checked 兄弟选择器切 accent。颜色切换走 200ms 短过渡（滑块本身
  * 的位移是 JS 弹簧，不经 transition）。touch-action 只放行纵向滚动，横向拖
  * 拽完整留给组件的 pointermove 跟手。 */
