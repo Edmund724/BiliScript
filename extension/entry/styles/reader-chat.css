@@ -776,14 +776,14 @@
   margin-top: 4px;
 }
 
-/* 行内代码：零背景、零边框、字色区分（--biliscript-reader-accent），
- * 消除色块补丁感，使代码与文件名平滑融入正文阅读流。多行代码块通过 pre 保持独立。 */
+/* 行内代码：零背景、零边框、正文字色（--biliscript-reader-text），
+ * 消除色块补丁感与色彩眩光，仅靠等宽字型区分。多行代码块通过 pre 保持独立。 */
 .biliscript-reading-chat .chat-msg-assistant code {
-  padding: 0 2px;
+  padding: 0 1px;
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-text);
   /* 栈与 --biliscript-reader-font-mono（"SF Mono" 打头的更全套）不同——首字体与
    * 条目数不一致，换用令牌会改解析序，保持字面量。 */
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
