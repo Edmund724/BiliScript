@@ -724,7 +724,7 @@
   padding: 0;
   border: 0;
   border-radius: 28px;
-  background: var(--biliscript-reader-card);
+  background: transparent;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
   display: inline-flex;
