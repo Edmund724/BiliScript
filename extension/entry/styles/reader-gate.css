@@ -469,33 +469,36 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
  * 12px，与 tab 内容卡、字幕活动卡、章节/金句卡同一半径语言。
  * 深色档选中卡投影走暗面一档。 */
 #biliscript-reading-view .biliscript-reading-tabs {
-  --biliscript-tab-gap: 18px;
-  --biliscript-tab-pad-x: 8px;
+  --biliscript-tab-gap: 8px;
+  --biliscript-tab-pad-x: 4px;
   --biliscript-tab-pad-y: 4px;
+  width: calc(100% - 76px);
+  max-width: 480px;
+  box-sizing: border-box;
   background: transparent;
   box-shadow: none;
-  /* 紧凑排布：三标签胶囊组水平中心与文摘面板中轴线严格对齐；
-   * 各项等宽聚合，概览标签居中对齐；横向内边距保证选项可点击范围 */
   justify-content: center;
-  gap: 18px;
-  padding: 4px 8px;
+  gap: var(--biliscript-tab-gap);
+  padding: var(--biliscript-tab-pad-y) var(--biliscript-tab-pad-x);
 }
 
 #biliscript-reading-view .biliscript-reading-tab {
   flex: 1 1 0;
-  padding: 8px 50px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
 }
 
 /* 选中卡与间距随面板宽度降档（#biliscript-reading-view 是 inline-size 容器）：
- * 窄面板下微调 padding 与 gap，避免居中三标签与右侧脱流工具键发生重叠。 */
+ * 响应式下保持平分整栏与胶囊饱满，同时守住右侧工具键安全间距。 */
 @container (max-width: 560px) {
   #biliscript-reading-view .biliscript-reading-tabs {
-    --biliscript-tab-gap: 8px;
-    gap: 8px;
+    --biliscript-tab-gap: 6px;
+    gap: var(--biliscript-tab-gap);
   }
 
   #biliscript-reading-view .biliscript-reading-tab {
-    padding: 8px 30px;
+    padding: 8px 8px;
   }
 }
 
@@ -504,12 +507,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
     --biliscript-tab-gap: 4px;
     --biliscript-tab-pad-x: 2px;
     --biliscript-tab-pad-y: 2px;
-    gap: 4px;
+    width: calc(100% - 72px);
+    gap: var(--biliscript-tab-gap);
     padding: 2px;
   }
 
   #biliscript-reading-view .biliscript-reading-tab {
-    padding: 8px 20px;
+    padding: 8px 4px;
     font-size: 14px;
   }
 }
