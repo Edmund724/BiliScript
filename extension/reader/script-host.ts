@@ -104,6 +104,43 @@ let lastSnapshot: { floating: boolean; values: string[] } | null = null;
 
 // ===== 对外三个入口 =====
 
+let anchorWaitTimer = 0;
+
+// 检查是否有可用锚点或播放器
+export function hasScriptAnchor(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return Boolean(findScriptAnchor() || getPlayerRect());
+}
+
+// 等待右栏锚点或播放器挂载（首载宽限窗，避免首拍无锚点瞬态直接降级为浮层导致闪烁）：
+// 窄窗（<1000px）无需等待立即放行（天然浮层）；宽屏已命中锚点立即放行；
+// 首载未就绪时以 50ms 轮询等待至多 timeoutMs（默认 2000ms），命中或超时即放行。
+export function waitForScriptAnchor(timeoutMs = 2000): Promise<boolean> {
+  if (typeof window === "undefined" || window.innerWidth < FLOAT_VIEWPORT_MIN_WIDTH) {
+    return Promise.resolve(true);
+  }
+  if (hasScriptAnchor()) {
+    return Promise.resolve(true);
+  }
+  return new Promise<boolean>((resolve) => {
+    const start = Date.now();
+    if (anchorWaitTimer) {
+      window.clearInterval(anchorWaitTimer);
+    }
+    anchorWaitTimer = window.setInterval(() => {
+      if (hasScriptAnchor() || Date.now() - start >= timeoutMs) {
+        if (anchorWaitTimer) {
+          window.clearInterval(anchorWaitTimer);
+          anchorWaitTimer = 0;
+        }
+        resolve(hasScriptAnchor());
+      }
+    }, 50);
+  });
+}
+
 // 开始定位：立即算一次并写变量/浮层属性，然后挂上全部重算机制。重复调用
 // 不叠加监听（幂等）。
 export function openScriptHost(): void {
@@ -123,6 +160,10 @@ export function relayoutScriptHost(): void {
 }
 
 export function closeScriptHost(): void {
+  if (anchorWaitTimer) {
+    window.clearInterval(anchorWaitTimer);
+    anchorWaitTimer = 0;
+  }
   if (reanchorTimer) {
     window.clearInterval(reanchorTimer);
     reanchorTimer = 0;

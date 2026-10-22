@@ -19,6 +19,7 @@ let scriptHost: typeof import("../../extension/reader/script-host.js");
 vi.mock("../../extension/reader/script-host.js", async (importActual) => {
   const actual = await importActual() as typeof import("../../extension/reader/script-host.js");
   return {
+    ...actual,
     openScriptHost: vi.fn(actual.openScriptHost),
     closeScriptHost: vi.fn(actual.closeScriptHost)
   };

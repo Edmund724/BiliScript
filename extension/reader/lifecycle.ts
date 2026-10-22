@@ -38,7 +38,7 @@ import { READER_CLOSE_ATTRS, READER_READY_ATTR } from "./presentation-fields.js"
 import { ids } from "./state.js";
 // B 形态右栏 文摘面板定位器：进入时开始贴栏定位，关闭时拆除。LAYOUT 层
 // 只剩 video-bind + script-host。
-import { openScriptHost, closeScriptHost } from "./script-host.js";
+import { openScriptHost, closeScriptHost, waitForScriptAnchor } from "./script-host.js";
 import { resetManualScrollPause, setProgrammaticScrollUntil } from "./state.js";
 // tab 位置持久化叶子（2026-10 用户决议）：进入阅读模式时恢复上次所在标签，
 // 不再一律重置回「字幕」——取值在 reader/script-tab-persistence（chrome.storage
@@ -412,6 +412,9 @@ export async function enterReaderMode() {
   // 「AI 键进对话」仍以对话 tab 收尾。
   const restoredScriptTab = await loadReaderScriptTab();
   await activateScriptTab(restoredScriptTab, { persist: false });
+  // 首载等待锚点就绪：宽屏下若页面 DOM 仍在水合（如自动展开或 URL 直达），
+  // 暂缓打开视图壳并等锚点就绪，防止首拍降级为全屏居中浮层后闪漂贴栏。
+  await waitForScriptAnchor();
   openReaderViewShell(readingView);
   renderReadingView();
   // 打开即启动播放同步并立即定位：subtitle-ready 只在字幕新抓取落定时到达，
