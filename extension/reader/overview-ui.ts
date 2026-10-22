@@ -39,7 +39,7 @@ export function registerOverviewUiActions(actions: OverviewUiActions): void {
 export function buildOverviewTabBodyHtml(): string {
   return `
               <div id="${ids.readingOverviewBody}" class="biliscript-reading-overview">
-                <div class="biliscript-reading-placeholder">
+                <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
                   <div class="biliscript-reading-placeholder-title">概览还未生成</div>
                   <p class="biliscript-reading-placeholder-copy">切到概览标签页会自动开始生成章节与金句。</p>
                 </div>
@@ -106,7 +106,7 @@ function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
     case "idle":
     default:
       return `
-        <div class="biliscript-reading-placeholder">
+        <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
           <div class="biliscript-reading-placeholder-title">概览还未生成</div>
           <p class="biliscript-reading-placeholder-copy">切到概览标签页会自动开始生成章节与金句。</p>
         </div>
@@ -127,7 +127,7 @@ function buildOverviewBodyHtml(snapshot: ReaderOverviewSnapshot): string {
 function buildEmptyStateHtml(): string {
   if (isReaderTranscribing()) {
     return `
-      <div class="biliscript-reading-placeholder">
+      <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
         <div class="biliscript-reading-placeholder-title">概览等字幕就绪后自动生成</div>
         <p class="biliscript-reading-placeholder-copy">音频转写完成后会自动生成章节与金句，期间可先看视频。</p>
       </div>
@@ -135,7 +135,7 @@ function buildEmptyStateHtml(): string {
   }
   if (state.clip.subtitleFetchState === "loading") {
     return `
-      <div class="biliscript-reading-placeholder">
+      <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
         <div class="biliscript-reading-placeholder-title">字幕抓取中，就绪后自动生成概览</div>
         <p class="biliscript-reading-placeholder-copy">章节与金句会在字幕就绪后自动出现，无需切换标签页。</p>
       </div>
@@ -149,7 +149,7 @@ function buildEmptyStateHtml(): string {
     copy = notice.remedyText || copy;
   }
   return `
-    <div class="biliscript-reading-placeholder">
+    <div class="biliscript-reading-placeholder biliscript-reading-ov-empty-card">
       <div class="biliscript-reading-placeholder-title">${escapeHtml(title)}</div>
       <p class="biliscript-reading-placeholder-copy">${escapeHtml(copy)}</p>
     </div>
