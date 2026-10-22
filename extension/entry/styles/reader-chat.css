@@ -776,13 +776,14 @@
   margin-top: 4px;
 }
 
-/* 行内代码：去边框、弱底色（--biliscript-reader-fill-hover）与贴合内边距，
- * 融入正文流，避免悬浮药丸徽章感打断阅读。多行代码块通过 pre 覆写保持独立结构。 */
+/* 行内代码：零背景、零边框、字色区分（--biliscript-reader-accent），
+ * 消除色块补丁感，使代码与文件名平滑融入正文阅读流。多行代码块通过 pre 保持独立。 */
 .biliscript-reading-chat .chat-msg-assistant code {
-  padding: 1px 4px;
-  background: var(--biliscript-reader-fill-hover);
+  padding: 0 2px;
+  background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: 0;
+  color: var(--biliscript-reader-accent);
   /* 栈与 --biliscript-reader-font-mono（"SF Mono" 打头的更全套）不同——首字体与
    * 条目数不一致，换用令牌会改解析序，保持字面量。 */
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -822,6 +823,7 @@
   padding: 0;
   background: transparent;
   border: 0;
+  color: var(--biliscript-reader-text);
   font-size: calc(14px * var(--biliscript-reader-font-scale, 1));
   white-space: pre;
 }
