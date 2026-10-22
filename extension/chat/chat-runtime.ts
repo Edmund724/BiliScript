@@ -162,6 +162,7 @@ export interface CreateChatRuntimeDeps {
   // 面板内确认弹层（ui/confirm-dialog.js）；同步布尔返回值也合法（注入桩/
   // 旧组合根），回执统一走 Promise 归一。
   confirmCostGuard?: (message: string) => boolean | Promise<boolean>;
+  smoothStream?: boolean;
 }
 
 /**

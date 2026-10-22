@@ -226,7 +226,8 @@ export function createChatTabDomain(deps: CreateChatTabDomainDeps): {
     takeInputImages: deps.takeInputImages,
     getTimestampNavDeps: deps.getTimestampNavDeps,
     normalizeMarkdownForSectionPaste: deps.normalizeMarkdownForSectionPaste,
-    connectPort: deps.connectPort
+    connectPort: deps.connectPort,
+    smoothStream: true
   });
   // 历史回放事务（GLOSSARY.md 词条「历史回放」）：消费 runtime 的消息区句柄与两个
   // 滚动窄入口（渲染片句柄化后不再有独立渲染方法），组装必须在 runtime 之后
