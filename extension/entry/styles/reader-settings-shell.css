@@ -171,12 +171,12 @@
   box-sizing: border-box;
 }
 
-/* 设置抽屉顶部快速跳转导航条（单行横滑、吸顶、极简文字排版） */
+/* 设置抽屉顶部快速跳转导航条（吸顶常驻、不透明底色遮挡滚动穿透、下方为可见滚动区） */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
   position: sticky;
   top: -12px;
   margin: -12px -14px 0 -14px;
-  padding: 8px 14px 6px;
+  padding: 10px 14px 8px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -185,9 +185,10 @@
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   z-index: 10;
-  background: transparent;
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+  background: var(--biliscript-reader-surface);
+  border-top-left-radius: 27px;
+  border-top-right-radius: 27px;
+  border-bottom: 1px solid var(--biliscript-reader-border);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar {
