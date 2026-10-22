@@ -6,11 +6,13 @@
  *
  * 作用域：#biliscript-reading-view + 设置宿主前缀。开关结构（模板在
  * settings-panel-html.ts）：
- *   <label class="biliscript-set-check biliscript-toggle-row">
+ *   <div class="biliscript-set-check biliscript-toggle-row">
  *     <span class="biliscript-toggle-text">…</span>
- *     <input type="checkbox" class="biliscript-toggle-input" />
- *     <span class="biliscript-toggle-track"><span class="biliscript-toggle-thumb"></span></span>
- *   </label>
+ *     <label class="biliscript-toggle-switch">
+ *       <input type="checkbox" class="biliscript-toggle-input" />
+ *       <span class="biliscript-toggle-track"><span class="biliscript-toggle-thumb"></span></span>
+ *     </label>
+ *   </div>
  * 原生 input 视觉隐藏但留在 Tab 序与无障碍树（clip 隐藏，非 display:none），
  * 键盘 Space / 读屏语义零自建；轨道 + 滑块是纯装饰（track 带 aria-hidden）。
  *
@@ -31,21 +33,36 @@
  * token（reader-gate.css 两主题定义），明暗自动适配。 */
 
 /* 开关行：文字左列自然换行、开关固定右列（space-between 两端对齐）。
- * user-select 关掉：拖拽跟手时指针扫过文字列不触发拖选（pointerdown 不能
- * preventDefault——那会把原生 click 路径一并吞掉，点击就靠它激活 input）。 */
+ * 外层为纯展示容器，重设 cursor: default 覆盖 .biliscript-set-check 的 pointer，
+ * 仅右侧自绘开关外壳响应点击与拖拽。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-check.biliscript-toggle-row {
   position: relative;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  -webkit-user-select: none;
-  user-select: none;
+  cursor: default;
 }
 
-/* 文字列：吃掉左列全部剩余宽度，长文案在此自然换行。 */
+/* 文字列：吃掉左列全部剩余宽度，长文案在此自然换行，纯文本不响应点击。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-text {
   flex: 1 1 auto;
   min-width: 0;
+  cursor: default;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 开关外壳：仅包裹 input 与自绘轨道/滑块，作为点击与拖拽手势的目标区域。 */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* 原生 input：视觉隐藏（保留键盘 Tab / Space 与读屏可用性，不用 display:none）。

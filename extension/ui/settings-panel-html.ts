@@ -96,22 +96,26 @@ export function buildSettingsHtml(): string {
       <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">还没有配置语音转写平台。点击下方添加按钮从预设创建，无字幕视频将无法自动生成字幕。</p>
       <button id="${ids.addAsrProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
-      <label class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
+      <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
         <span class="biliscript-toggle-text">无字幕时自动生成字幕</span>
-        <input id="${ids.asrAutoFallback}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.asrAutoFallback}" type="checkbox" class="biliscript-toggle-input" aria-label="无字幕时自动生成字幕" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="search">
       <div class="biliscript-set-h">搜索平台</div>
       <p class="biliscript-set-hint">AI 对话与选区解释可联网搜索视频内容之外的信息（function calling，由模型决定何时搜）。联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止该家接收查询。</p>
       <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用平台已不可用，当前按默认链搜索</p>
-      <label class="biliscript-set-check biliscript-toggle-row">
+      <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">允许智能搜索使用付费平台（DeepSeek 按次计费，¥5/1000 次成功请求；关闭时智能链自动跳过它）</span>
-        <input id="${ids.allowPaidSearchProviders}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.allowPaidSearchProviders}" type="checkbox" class="biliscript-toggle-input" aria-label="允许智能搜索使用付费平台（DeepSeek 按次计费，¥5/1000 次成功请求；关闭时智能链自动跳过它）" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
       <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
       <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa / DeepSeek Search）——四条免 Key 预设装上即可用。</p>
       <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
@@ -124,11 +128,13 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 按钮</div>
-      <label class="biliscript-set-check biliscript-toggle-row">
+      <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空</span>
-        <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
       <textarea
         id="${ids.playerAiQuickPrompt}"
         class="biliscript-set-textarea"
@@ -162,11 +168,13 @@ export function buildSettingsHtml(): string {
         </select>
       </div>
 
-      <label class="biliscript-set-check biliscript-toggle-row">
+      <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">AI 对话输入框光晕</span>
-        <input id="${ids.chatInputGlow}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.chatInputGlow}" type="checkbox" class="biliscript-toggle-input" aria-label="AI 对话输入框光晕" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
       <p class="biliscript-set-hint" style="margin-top: -4px;">在输入框背后呈现 Gemini 虹彩渐变光晕；关闭后恢复简洁外观。</p>
 
       <div id="${ids.readerFontSizeScaleContainer}" class="biliscript-set-row biliscript-slider-row">
@@ -238,11 +246,13 @@ export function buildSettingsHtml(): string {
         </div>
       </div>
 
-      <label class="biliscript-set-check biliscript-toggle-row">
+      <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">自定义文摘面板宽度</span>
-        <input id="${ids.customPanelWidthEnabled}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.customPanelWidthEnabled}" type="checkbox" class="biliscript-toggle-input" aria-label="自定义文摘面板宽度" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
       <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
         <div class="biliscript-slider-header">
           <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
@@ -262,11 +272,13 @@ export function buildSettingsHtml(): string {
           <span>宽</span>
         </div>
       </div>
-      <label class="biliscript-set-check biliscript-toggle-row">
+      <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">进入视频页自动展开文摘面板</span>
-        <input id="${ids.autoOpenReader}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.autoOpenReader}" type="checkbox" class="biliscript-toggle-input" aria-label="进入视频页自动展开文摘面板" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
       <p class="biliscript-set-hint" style="margin-top: -4px;">在普通视频播放页加载就绪后自动展开；稍后再看与收藏夹列表不自动展开。</p>
     </section>
 
@@ -279,21 +291,27 @@ export function buildSettingsHtml(): string {
           <option value="txt">TXT</option>
         </select>
       </div>
-      <label class="biliscript-set-check biliscript-toggle-row">
+      <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">文件名前包含导出日期</span>
-        <input id="${ids.includeDateInFilename}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
-      <label class="biliscript-set-check biliscript-toggle-row">
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.includeDateInFilename}" type="checkbox" class="biliscript-toggle-input" aria-label="文件名前包含导出日期" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
+      <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">在字幕正文中保留时间戳</span>
-        <input id="${ids.includeTimestampInBody}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
-      <label class="biliscript-set-check biliscript-toggle-row">
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.includeTimestampInBody}" type="checkbox" class="biliscript-toggle-input" aria-label="在字幕正文中保留时间戳" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
+      <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">启用调试日志（仅在排查问题时开启）</span>
-        <input id="${ids.enableDebugLogs}" type="checkbox" class="biliscript-toggle-input" />
-        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-      </label>
+        <label class="biliscript-toggle-switch">
+          <input id="${ids.enableDebugLogs}" type="checkbox" class="biliscript-toggle-input" aria-label="启用调试日志（仅在排查问题时开启）" />
+          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+        </label>
+      </div>
     </section>
 
     <div class="biliscript-set-actions">

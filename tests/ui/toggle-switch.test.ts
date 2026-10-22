@@ -29,18 +29,21 @@ const TOGGLE_IDS = [
   "chatInputGlow"
 ] as const;
 
-function mountToggle(checked = false): { root: HTMLLabelElement; input: HTMLInputElement; track: HTMLElement; thumb: HTMLElement } {
+function mountToggle(checked = false): { root: HTMLElement; input: HTMLInputElement; track: HTMLElement; thumb: HTMLElement; text: HTMLElement } {
   document.body.innerHTML = `
-    <label class="biliscript-set-check biliscript-toggle-row">
+    <div class="biliscript-set-check biliscript-toggle-row">
       <span class="biliscript-toggle-text">测试开关</span>
-      <input id="testToggle" type="checkbox" class="biliscript-toggle-input"${checked ? " checked" : ""} />
-      <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-    </label>`;
-  const root = document.querySelector<HTMLLabelElement>(".biliscript-toggle-row")!;
+      <label class="biliscript-toggle-switch">
+        <input id="testToggle" type="checkbox" class="biliscript-toggle-input"${checked ? " checked" : ""} />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+      </label>
+    </div>`;
+  const root = document.querySelector<HTMLElement>(".biliscript-toggle-row")!;
   const input = root.querySelector<HTMLInputElement>("input")!;
   const track = root.querySelector<HTMLElement>(".biliscript-toggle-track")!;
   const thumb = root.querySelector<HTMLElement>(".biliscript-toggle-thumb")!;
-  return { root, input, track, thumb };
+  const text = root.querySelector<HTMLElement>(".biliscript-toggle-text")!;
+  return { root, input, track, thumb, text };
 }
 
 // jsdom 无 PointerEvent 构造器也能跑的合成指针事件（事件类型 + clientX/pointerId）
@@ -89,7 +92,7 @@ describe("模板壳结构契约", () => {
   it("所有开关行都有 text/input/track/thumb，input 与 track 相邻兄弟", () => {
     const host = document.createElement("div");
     host.innerHTML = buildSettingsHtml();
-    const rows = host.querySelectorAll<HTMLLabelElement>(".biliscript-toggle-row");
+    const rows = host.querySelectorAll<HTMLElement>(".biliscript-toggle-row");
 
     expect(rows).toHaveLength(TOGGLE_IDS.length);
     rows.forEach((row) => {
@@ -102,6 +105,7 @@ describe("模板壳结构契约", () => {
       expect(thumb, "轨道内必须有滑块").toBeTruthy();
       expect(thumb!.parentElement).toBe(track);
       expect(text?.textContent?.trim(), "文字列非空").toBeTruthy();
+      expect(row.querySelector(".biliscript-toggle-switch"), "开关本体外壳").toBeTruthy();
       // CSS :checked ~ .biliscript-toggle-track 与 JS nextElementSibling 双契约
       expect(input!.nextElementSibling).toBe(track);
       expect(input!.checked).toBe(false);
@@ -165,6 +169,22 @@ describe("initToggleSwitch：接线与值源语义", () => {
 });
 
 describe("点击与键盘路径：change 驱动弹簧", () => {
+  it("点击左侧描述文字不触发切换，仅点击开关本体切换", () => {
+    stubReducedMotion();
+    const { input, text, track } = mountToggle();
+    initToggleSwitch(input);
+    const onChange = vi.fn();
+    input.addEventListener("change", onChange);
+
+    fireClick(text);
+    expect(input.checked).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireClick(track);
+    expect(input.checked).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
   it("reduced-motion：change 事件把滑块瞬时吸到对应侧", () => {
     stubReducedMotion();
     const { input, thumb } = mountToggle();

@@ -59,11 +59,13 @@ export function syncToggleSwitch(input: HTMLInputElement): void {
 
 // 初始化一个开关（幂等，dataset.toggleSwitchInitialized 使重复调用直接返回）。
 // 模板（settings-panel-html.ts）已备好壳结构：
-//   <label class="biliscript-set-check biliscript-toggle-row">
+//   <div class="biliscript-set-check biliscript-toggle-row">
 //     <span class="biliscript-toggle-text">…</span>
-//     <input type="checkbox" class="biliscript-toggle-input" />
-//     <span class="biliscript-toggle-track"><span class="biliscript-toggle-thumb"></span></span>
-//   </label>
+//     <label class="biliscript-toggle-switch">
+//       <input type="checkbox" class="biliscript-toggle-input" />
+//       <span class="biliscript-toggle-track"><span class="biliscript-toggle-thumb"></span></span>
+//     </label>
+//   </div>
 // 本函数只接线手势与动画，不重建 DOM；input 与 track 必须是相邻兄弟
 //（CSS 的 :checked ~ .biliscript-toggle-track 配色选择器依赖这个次序）。
 export function initToggleSwitch(input: HTMLInputElement): void {
