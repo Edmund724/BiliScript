@@ -44,6 +44,7 @@ export interface Settings {
   readerThemeUserSet: boolean;
   // 外观色板（与明暗正交）：flyme 蓝雾玻璃 | editorial 数字刊物。
   readerPalette: string;
+  chatInputGlow: boolean;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   defaultModel: string;
@@ -101,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   readerTheme: "light",
   readerThemeUserSet: false,
   readerPalette: "flyme",
+  chatInputGlow: true,
   aiSystemPrompt: "",
   aiInitialQuickPrompts: [],
   defaultModel: "",

@@ -38,6 +38,11 @@ export function normalizeReaderPalette(value: unknown): string {
   return value === "editorial" ? value : "flyme";
 }
 
+// AI 对话输入框光晕：默认 true，仅显式 false 时关闭。
+export function normalizeChatInputGlow(value: unknown): boolean {
+  return value !== false;
+}
+
 // ===== Download / AI normalizers =====
 export function normalizeDownloadFormat(value: unknown): string {
   return value === "txt" ? "txt" : "srt";

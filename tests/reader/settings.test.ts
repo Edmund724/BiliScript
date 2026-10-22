@@ -151,6 +151,17 @@ describe("设置变更与 data-attribute", () => {
     expect(bodyEl.dataset.biliscriptReaderPalette).toBe("flyme");
   });
 
+  it("applyReadingViewPresentation：默认开启光晕不落 data-chat-input-glow=\"0\"，显式关停落 0", () => {
+    state.setSettings({ ...(state.settings || {}), chatInputGlow: true } as typeof state.settings);
+    presentation.applyReadingViewPresentation();
+    const readingView = document.getElementById(ids.readingView) as HTMLElement;
+    expect(readingView.dataset.chatInputGlow).toBeUndefined();
+
+    state.setSettings({ ...(state.settings || {}), chatInputGlow: false } as typeof state.settings);
+    presentation.applyReadingViewPresentation();
+    expect(readingView.dataset.chatInputGlow).toBe("0");
+  });
+
   it("applyReadingViewPresentation：header 主题按钮图标/文案随主题刷新", () => {
     const themeButton = document.createElement("button");
     themeButton.id = ids.readingThemeSelect;

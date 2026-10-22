@@ -284,6 +284,20 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     clearViewOnClose: false,
     writtenByApply: false,
     readValue: null
+  },
+  {
+    id: "chatInputGlow",
+    kind: "settings",
+    targets: { html: null, body: null, readingView: null },
+    datasetKeys: { html: null, body: null, readingView: null },
+    storageKey: "chatInputGlow",
+    legacyStorageKey: null,
+    watchedByGuard: false,
+    clearOnGuard: false,
+    clearOnClose: false,
+    clearViewOnClose: false,
+    writtenByApply: false,
+    readValue: null
   }
 ];
 

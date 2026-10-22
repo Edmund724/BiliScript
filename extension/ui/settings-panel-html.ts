@@ -40,6 +40,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   playerAiQuickPrompt: "playerAiQuickPrompt",
   aiSystemPrompt: "aiSystemPrompt",
   readerPalette: "readerPalette",
+  chatInputGlow: "chatInputGlow",
   readerFontSizeScaleContainer: "readerFontSizeScaleContainer",
   readerFontSizeScale: "readerFontSizeScale",
   readerFontSizeScaleValue: "readerFontSizeScaleValue",
@@ -160,6 +161,13 @@ export function buildSettingsHtml(): string {
           <option value="editorial">数字刊物</option>
         </select>
       </div>
+
+      <label class="biliscript-set-check biliscript-toggle-row">
+        <span class="biliscript-toggle-text">AI 对话输入框光晕</span>
+        <input id="${ids.chatInputGlow}" type="checkbox" class="biliscript-toggle-input" />
+        <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
+      </label>
+      <p class="biliscript-set-hint" style="margin-top: -4px;">在输入框背后呈现 Gemini 虹彩渐变光晕；关闭后恢复简洁外观。</p>
 
       <div id="${ids.readerFontSizeScaleContainer}" class="biliscript-set-row biliscript-slider-row">
         <div class="biliscript-slider-header">

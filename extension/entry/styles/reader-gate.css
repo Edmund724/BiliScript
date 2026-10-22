@@ -598,23 +598,36 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   -webkit-backdrop-filter: blur(20px) saturate(185%);
   backdrop-filter: blur(20px) saturate(185%);
   box-shadow: var(--biliscript-reader-card-highlight);
-  transition: box-shadow 0.22s ease, background 0.22s ease;
+  transition: box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease;
 }
 
-#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:focus-within {
-  border-color: transparent;
-  background:
-    var(--biliscript-reader-card) padding-box,
-    var(--biliscript-gemini-border-gradient) border-box;
+#biliscript-reading-view:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card {
+  box-shadow:
+    var(--biliscript-reader-card-highlight),
+    var(--biliscript-gemini-glow);
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card:focus-within {
+  border-color: rgba(66, 133, 244, 0.3);
   box-shadow:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.92),
-    var(--biliscript-gemini-glow);
+    var(--biliscript-gemini-glow),
+    0 8px 30px -2px rgba(155, 114, 203, 0.32);
 }
 
-#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:focus-within {
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card:focus-within {
+  border-color: rgba(102, 157, 246, 0.35);
   box-shadow:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.16),
-    var(--biliscript-gemini-glow);
+    var(--biliscript-gemini-glow),
+    0 10px 32px -2px rgba(179, 136, 255, 0.36);
+}
+
+#biliscript-reading-view[data-chat-input-glow="0"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:focus-within {
+  border-color: var(--biliscript-reader-border);
+  box-shadow:
+    var(--biliscript-reader-card-highlight),
+    0 0 0 2px var(--biliscript-reader-accent-soft);
 }
 
 /* 用户消息气泡同进凸起语言：基础表的 surface-2 底 + 描边与雾底灰差太小，

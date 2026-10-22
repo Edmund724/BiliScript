@@ -567,6 +567,8 @@ describe("Gemini 触点 2 · 概览 AI 徽标（ov-badge）", () => {
 describe("Gemini 触点 3 · chat 输入卡液态玻璃基态与流光聚焦环", () => {
   const CARD =
     "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-input-card";
+  const CARD_GLOW =
+    "#biliscript-reading-view:not([data-palette=\"editorial\"]):not([data-chat-input-glow=\"0\"]) .biliscript-reading-chat .chat-input-card";
 
   it("flyme 基态：1.5px 透明边 + card 透镜底 + blur(20px) saturate(185%) 磨砂 + card-highlight + 过渡", () => {
     const body = ruleBody(readCss(GATE_CSS), CARD);
@@ -577,22 +579,37 @@ describe("Gemini 触点 3 · chat 输入卡液态玻璃基态与流光聚焦环"
     expect(body).toContain("transition: box-shadow 0.22s ease, background 0.22s ease");
   });
 
-  it("flyme 聚焦：padding-box/border-box 双层背景打出虹彩描边 + 顶沿内高光 + gemini-glow", () => {
-    const body = ruleBody(readCss(GATE_CSS), `${CARD}:focus-within`);
-    expect(body).toContain("border-color: transparent");
-    expect(body).toContain("var(--biliscript-reader-card) padding-box");
-    expect(body).toContain("var(--biliscript-gemini-border-gradient) border-box");
-    expect(body).toContain("inset 0 1px 0 0 rgba(255, 255, 255, 0.92)");
+  it("flyme 常驻外发光：开启光晕时外圈背后常驻 gemini-glow，卡片内部保持纯净液态玻璃渐变", () => {
+    const body = ruleBody(readCss(GATE_CSS), CARD_GLOW);
+    expect(body).toContain("var(--biliscript-reader-card-highlight)");
     expect(body).toContain("var(--biliscript-gemini-glow)");
+    expect(body).not.toContain("var(--biliscript-gemini-border-gradient)");
   });
 
-  it("flyme 深色聚焦：内高光换暗面档 0.16", () => {
+  it("flyme 聚焦：顶沿内高光 + gemini-glow 外发光增强，卡片内部无彩色渗透", () => {
+    const body = ruleBody(readCss(GATE_CSS), `${CARD_GLOW}:focus-within`);
+    expect(body).toContain("inset 0 1px 0 0 rgba(255, 255, 255, 0.92)");
+    expect(body).toContain("var(--biliscript-gemini-glow)");
+    expect(body).not.toContain("border-box");
+  });
+
+  it("flyme 深色聚焦：内高光换暗面档 0.16 + gemini-glow 增强", () => {
     const body = ruleBody(
       readCss(GATE_CSS),
-      "#biliscript-reading-view[data-theme=\"dark\"]:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-input-card:focus-within"
+      "#biliscript-reading-view[data-theme=\"dark\"]:not([data-palette=\"editorial\"]):not([data-chat-input-glow=\"0\"]) .biliscript-reading-chat .chat-input-card:focus-within"
     );
     expect(body).toContain("inset 0 1px 0 0 rgba(255, 255, 255, 0.16)");
     expect(body).toContain("var(--biliscript-gemini-glow)");
+  });
+
+  it("关停光晕态：[data-chat-input-glow=\"0\"] 聚焦时去 gemini-glow，退回常规克制微描边", () => {
+    const body = ruleBody(
+      readCss(GATE_CSS),
+      "#biliscript-reading-view[data-chat-input-glow=\"0\"]:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-input-card:focus-within"
+    );
+    expect(body).not.toContain("var(--biliscript-gemini-glow)");
+    expect(body).toContain("var(--biliscript-reader-border)");
+    expect(body).toContain("0 0 0 2px var(--biliscript-reader-accent-soft)");
   });
 
   it("editorial：输入卡保持书摘卡底（--card），聚焦环维持 accent 实线 + soft 光环", () => {

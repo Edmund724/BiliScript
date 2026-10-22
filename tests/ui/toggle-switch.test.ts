@@ -25,7 +25,8 @@ const TOGGLE_IDS = [
   "autoOpenReader",
   "includeDateInFilename",
   "includeTimestampInBody",
-  "enableDebugLogs"
+  "enableDebugLogs",
+  "chatInputGlow"
 ] as const;
 
 function mountToggle(checked = false): { root: HTMLLabelElement; input: HTMLInputElement; track: HTMLElement; thumb: HTMLElement } {

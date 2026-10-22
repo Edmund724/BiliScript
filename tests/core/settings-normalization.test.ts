@@ -187,6 +187,17 @@ describe("normalizeReaderPalette", () => {
   });
 });
 
+describe("normalizeChatInputGlow", () => {
+  it("布尔值原样放行，默认/缺失值回落 true，仅显式 false 返回 false", async () => {
+    const { normalizeChatInputGlow } = await import("../../extension/core/validators.js");
+    expect(normalizeChatInputGlow(true)).toBe(true);
+    expect(normalizeChatInputGlow(false)).toBe(false);
+    expect(normalizeChatInputGlow(undefined)).toBe(true);
+    expect(normalizeChatInputGlow(null)).toBe(true);
+    expect(normalizeChatInputGlow("")).toBe(true);
+  });
+});
+
 describe("normalizeSettings：外观色板归一", () => {
   it("readerPalette=editorial 放行，非法/缺失值归一为 flyme", async () => {
     const { normalizeSettings } = await loadStoreModule();

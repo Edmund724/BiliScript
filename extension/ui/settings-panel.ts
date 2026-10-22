@@ -33,6 +33,7 @@ import {
   normalizeDownloadFormat,
   normalizePlayerAiQuickPrompt,
   normalizeReaderPalette,
+  normalizeChatInputGlow,
   normalizeWebSearchMaxToolCalls,
   normalizeCustomPanelWidthEnabled,
   normalizeCustomPanelWidth,
@@ -41,7 +42,7 @@ import {
   normalizeChatLineHeight,
   normalizeChatParagraphSpacing
 } from "../core/validators.js";
-import { applyReadingViewTypography } from "../reader/presentation.js";
+import { applyReadingViewTypography, applyChatInputGlow } from "../reader/presentation.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -104,6 +105,7 @@ interface SettingsFormPayload {
   includeTimestampInBody: boolean;
   enableDebugLogs: boolean;
   readerPalette: string;
+  chatInputGlow: boolean;
   aiSystemPrompt: string;
   aiInitialQuickPrompts: string[];
   readerFontSizeScale: number;
@@ -151,6 +153,7 @@ function collectElements(host: HTMLElement) {
     settingsNav: byIdIn<HTMLElement>(dom.settingsNav),
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
+    chatInputGlow: byIdIn<HTMLInputElement>(dom.chatInputGlow),
     readerFontSizeScaleContainer: byIdIn<HTMLElement>(dom.readerFontSizeScaleContainer),
     readerFontSizeScale: byIdIn<HTMLInputElement>(dom.readerFontSizeScale),
     readerFontSizeScaleValue: byIdIn<HTMLElement>(dom.readerFontSizeScaleValue),
@@ -307,9 +310,10 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.customPanelWidthValue.textContent = `${elements.customPanelWidth.value}px`;
   elements.customPanelWidth.disabled = !elements.customPanelWidthEnabled.checked;
   elements.autoOpenReader.checked = settings.autoOpenReader === true;
+  elements.chatInputGlow.checked = normalizeChatInputGlow(settings.chatInputGlow);
   // 自绘开关（ADR-0019）：水合直接写 .checked（值源语义不变，零事件），视觉经
   // syncToggleSwitch 吸附到现值——与 custom-select 的「显示 = 现值」同口径。
-  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader]
+  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader, elements.chatInputGlow]
     .forEach(syncToggleSwitch);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
@@ -639,7 +643,8 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
     aiInitialQuickPrompts: collectInitialQuickPrompts(elements),
     customPanelWidthEnabled: elements.customPanelWidthEnabled.checked,
     customPanelWidth: normalizeCustomPanelWidth(elements.customPanelWidth.value),
-    autoOpenReader: elements.autoOpenReader.checked
+    autoOpenReader: elements.autoOpenReader.checked,
+    chatInputGlow: elements.chatInputGlow.checked
   };
 }
 
@@ -697,7 +702,8 @@ function buildDefaultPreferencePayload() {
     secondarySubtitleLang: DEFAULT_SETTINGS.secondarySubtitleLang,
     customPanelWidthEnabled: DEFAULT_SETTINGS.customPanelWidthEnabled,
     customPanelWidth: DEFAULT_SETTINGS.customPanelWidth,
-    autoOpenReader: DEFAULT_SETTINGS.autoOpenReader
+    autoOpenReader: DEFAULT_SETTINGS.autoOpenReader,
+    chatInputGlow: DEFAULT_SETTINGS.chatInputGlow
   };
 }
 
@@ -846,7 +852,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   // 装饰、原生 input 视觉隐藏留作值源与键盘/读屏目标）。id / .checked / change
   // 语义全不变——即时保存监听（asrAutoFallback / allowPaidSearchProviders）与
   // collectFormPayload 照原样工作。
-  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader]
+  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader, elements.chatInputGlow]
     .forEach(initToggleSwitch);
 
   elements.readerFontSizeScale.addEventListener("input", () => {
@@ -930,6 +936,11 @@ function bindSettingsEvents(host: HTMLElement): void {
       customPanelWidth: width
     });
     relayoutScriptHost();
+  });
+
+  elements.chatInputGlow.addEventListener("change", () => {
+    state.patchSettings({ chatInputGlow: elements.chatInputGlow.checked });
+    applyChatInputGlow();
   });
 
   familyRows.asr.controller.setDeleteHandler(async (providerId) => {

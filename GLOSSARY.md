@@ -289,6 +289,11 @@ _Avoid_: 把原始上游数据接进请求链或运行时、用 UI 目录数据�
 代码名：`ai/preset-registration-view.ts`（`presetRegistrationView` / `registrationCoverageReport` / `REGISTRATION_FACES`）/ `ai/platform-identity-vocab.ts`（平台身份键空间词表叶，候选 6 起 messagesExits 面的键集判据由 `Record<PlatformKey, …>` 类型接管，本视图只投影）
 _Avoid_: 在视图里复制任何事实、把 unchecked 当已登记、把有意缺口记成欠账、拿它当运行时查表入口
 
+**输入框光晕**:
+AI 对话输入卡片（`.chat-input-card`）背后的 Gemini 虹彩流光。常态呈现为卡片外圈柔和的漫射光晕，聚焦输入时平滑增强高光与扩散度；流光仅存在于卡片外部漫射层，卡片本体保持纯净液态玻璃材质，内部无彩色渗出。由设置项（外观与布局 · AI 对话输入框光晕）全局门控；关闭时或处于数字刊物（editorial）色板时完全隐去光晕，退回克制微描边。
+代码名：`chatInputGlow` / `data-chat-input-glow` / `--biliscript-gemini-glow`
+_Avoid_: 聚焦彩条、输入框发光内衬、局部硬编码渐变
+
 ### AI 对话
 
 **图片输入**:

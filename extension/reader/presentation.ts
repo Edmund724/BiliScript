@@ -21,7 +21,8 @@ import {
   normalizeReaderPalette,
   normalizeReaderFontSizeScale,
   normalizeChatLineHeight,
-  normalizeChatParagraphSpacing
+  normalizeChatParagraphSpacing,
+  normalizeChatInputGlow
 } from "../core/validators.js";
 import { ids } from "./state.js";
 import { writeReadingStatusLine } from "../core/reading-status-line.js";
@@ -71,6 +72,19 @@ function systemPrefersDark(): boolean {
   );
 }
 
+export function applyChatInputGlow(view?: HTMLElement | null): void {
+  const readingView = view ?? getReaderElement(ids.readingView);
+  if (!readingView) {
+    return;
+  }
+  const enabled = normalizeChatInputGlow(state.settings?.chatInputGlow);
+  if (enabled) {
+    delete readingView.dataset.chatInputGlow;
+  } else {
+    readingView.dataset.chatInputGlow = "0";
+  }
+}
+
 export function applyReadingViewTypography(view?: HTMLElement | null): void {
   const readingView = view ?? getReaderElement(ids.readingView);
   if (!readingView) {
@@ -110,6 +124,7 @@ export function applyReadingViewPresentation() {
     }
   }
   applyReadingViewTypography(readingView);
+  applyChatInputGlow(readingView);
   // 字幕/章节的 checkbox 同步与 .biliscript-reading-main 显隐已随三开关退役删除
   //（字幕常显，开关与 data 属性不再存在）。
   // header 主题按钮（太阳/月亮）随之刷新：所有改主题路径（点击循环、进入阅读
