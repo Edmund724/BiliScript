@@ -271,18 +271,18 @@ export function buildSettingsHtml(): string {
         <div class="biliscript-slider-header">
           <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
           <div class="biliscript-slider-header-actions">
-            <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">380px</span>
-            <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (380px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
+            <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">520px</span>
+            <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (520px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
           </div>
         </div>
         <input
           id="${ids.customPanelWidth}"
           type="range"
           class="biliscript-range-input"
-          min="300"
-          max="600"
+          min="400"
+          max="650"
           step="10"
-          value="380"
+          value="520"
         />
         <div class="biliscript-slider-labels">
           <span>窄</span>

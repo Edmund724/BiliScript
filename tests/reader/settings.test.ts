@@ -610,8 +610,8 @@ describe("主题：只剩明暗一轴", () => {
     const widthBadge = document.getElementById("customPanelWidthValue") as HTMLElement;
     const widthReset = document.getElementById("customPanelWidthResetBtn") as HTMLButtonElement;
     expect(widthSlider).toBeTruthy();
-    expect(widthSlider.value).toBe("380");
-    expect(widthBadge.textContent).toBe("380px");
+    expect(widthSlider.value).toBe("520");
+    expect(widthBadge.textContent).toBe("520px");
     expect(widthReset.disabled).toBe(true);
 
     widthSlider.value = "450";
@@ -620,12 +620,12 @@ describe("主题：只剩明暗一轴", () => {
     expect(widthReset.disabled).toBe(false);
 
     widthReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(widthSlider.value).toBe("380");
-    expect(widthBadge.textContent).toBe("380px");
+    expect(widthSlider.value).toBe("520");
+    expect(widthBadge.textContent).toBe("520px");
     expect(widthReset.disabled).toBe(true);
     expect(sentMessages).toContainEqual({
       type: "save-settings",
-      settings: { customPanelWidth: 380 }
+      settings: { customPanelWidth: 520 }
     });
 
     // 单轮搜索次数上限滑块与重置键测试（默认 5，最小 1，最大 20）

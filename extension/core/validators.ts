@@ -196,7 +196,7 @@ export function normalizeCustomPanelWidth(value: unknown): number {
   if (!Number.isFinite(parsed)) {
     return DEFAULT_SETTINGS.customPanelWidth;
   }
-  return Math.min(600, Math.max(300, Math.round(parsed)));
+  return Math.min(650, Math.max(400, Math.round(parsed)));
 }
 
 export function normalizeAutoOpenReader(value: unknown): boolean {

@@ -734,7 +734,7 @@ describe("形态与三处登记（源码/表面锁）", () => {
 
   it("空态不参与列宽（硬约束 §5.3）+ 色值一律走 --biliscript-reader-* 令牌", () => {
     const css = read(CSS);
-    expect(css).toContain("max-width: calc(var(--biliscript-script-width, 380px) - 78px)");
+    expect(css).toContain("max-width: calc(var(--biliscript-script-width, 520px) - 78px)");
     expect(css).toMatch(/\.biliscript-bilingual-empty\s*\{[^}]*max-width:\s*140px/);
     expect(css).toContain("text-overflow: ellipsis");
     // 新增样式不写字面色（原型里的 rgba 阴影换成令牌；开关滑块按 toggle-switch 规范走白底与双层微阴影）

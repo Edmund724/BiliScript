@@ -56,7 +56,7 @@
   left: auto;
   right: 0;
   width: max-content;
-  max-width: calc(var(--biliscript-script-width, 380px) - 78px);
+  max-width: calc(var(--biliscript-script-width, 520px) - 78px);
   max-height: 320px;
   display: flex;
   flex-direction: column;
