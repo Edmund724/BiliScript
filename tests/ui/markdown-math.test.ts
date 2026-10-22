@@ -29,8 +29,8 @@ describe("Markdown LaTeX 公式渲染与占位", () => {
       "2. 主题与核心观点\n- 核心公式: $$\\text{Agent} = \\text{模型} + \\text{脚手架}$$"
     );
     expect(listMath).toContain('<ol start="2"><li>主题与核心观点</li></ol>');
-    expect(listMath).toContain("<ul><li>核心公式: <span class=\"biliscript-md-math biliscript-md-math-block\"");
-    expect(listMath).toContain(`${MATH_BLOCK_ATTR}="block"`);
+    expect(listMath).toContain("<ul><li>核心公式: <span class=\"biliscript-md-math biliscript-md-math-inline\"");
+    expect(listMath).toContain(`${MATH_BLOCK_ATTR}="inline"`);
     expect(listMath).toContain('data-tex="\\text{Agent} = \\text{模型} + \\text{脚手架}"');
   });
 
@@ -62,11 +62,11 @@ describe("math-render MathML 水合", () => {
   it("hydrateMathPlaceholders 将占位替换为真实 MathML 节点", () => {
     const container = document.createElement("div");
     container.innerHTML = renderMarkdown(
-      "- 核心公式: $$\\text{Agent} = \\text{Model} + \\text{Harness}$$\n- 行内: $a^2 + b^2 = c^2$"
+      "$$\\text{Block Math}$$\n- 核心公式: $$\\text{Agent} = \\text{Model} + \\text{Harness}$$\n- 行内: $a^2 + b^2 = c^2$"
     );
 
     const placeholders = container.querySelectorAll(MATH_BLOCK_SELECTOR);
-    expect(placeholders.length).toBe(2);
+    expect(placeholders.length).toBe(3);
 
     hydrateMathPlaceholders(container);
 
@@ -74,11 +74,13 @@ describe("math-render MathML 水合", () => {
     const hydrated = container.querySelectorAll(MATH_BLOCK_SELECTOR);
     expect(hydrated[0].getAttribute("data-biliscript-math-status")).toBe("done");
     expect(hydrated[1].getAttribute("data-biliscript-math-status")).toBe("done");
+    expect(hydrated[2].getAttribute("data-biliscript-math-status")).toBe("done");
 
     // 检查生成的 MathML 标签
     const mathTags = container.querySelectorAll("math");
-    expect(mathTags.length).toBe(2);
+    expect(mathTags.length).toBe(3);
     expect(mathTags[0].getAttribute("display")).toBe("block");
+    expect(mathTags[1].getAttribute("display")).toBeNull();
     expect(container.innerHTML).toContain("<annotation encoding=\"application/x-tex\">");
   });
 

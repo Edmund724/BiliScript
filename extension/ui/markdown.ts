@@ -676,7 +676,7 @@ function renderInline(text: string): string {
   working = working.replace(/\$\$([\s\S]+?)\$\$/g, (_, inner: string) => {
     const trimmed = inner.trim();
     const rawTex = decodeHtmlEntities(trimmed);
-    return `<span class="biliscript-md-math biliscript-md-math-block" ${MATH_BLOCK_ATTR}="block" data-tex="${escapeHtml(rawTex)}">$$${trimmed}$$</span>`;
+    return `<span class="biliscript-md-math biliscript-md-math-inline" ${MATH_BLOCK_ATTR}="inline" data-tex="${escapeHtml(rawTex)}">$$${trimmed}$$</span>`;
   });
 
   working = working.replace(/(^|[^\w\$\\])\$([^\s\$](?:[^$\n]*?[^\s\$])?)\$(?!\w)/g, (full, pre: string, inner: string) => {

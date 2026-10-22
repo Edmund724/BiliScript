@@ -1770,19 +1770,30 @@
 /* LaTeX 数学公式排版 */
 .biliscript-md-math-block {
   display: block;
-  margin: 0.6em 0;
+  margin: 0.4em 0;
   text-align: center;
-  overflow-x: auto;
-  overflow-y: hidden;
   max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.biliscript-md-math-block::-webkit-scrollbar {
+  height: 3px;
+}
+
+.biliscript-md-math-block::-webkit-scrollbar-thumb {
+  background: var(--biliscript-reader-border, rgba(0, 0, 0, 0.15));
+  border-radius: 2px;
 }
 
 .biliscript-md-math-inline {
   display: inline;
+  vertical-align: baseline;
 }
 
 math {
-  font-size: 1.05em;
+  font-size: 0.95em;
+  white-space: normal;
 }
 
 math[display="block"] {
