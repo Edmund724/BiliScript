@@ -6,11 +6,9 @@
 // data-biliscript-script-float="1" 属性，让 CSS 回落到 reader.css 既有的
 // 居中浮层基础样式。
 //
-// 贴栏形态的几何：面板吃掉「锚点左缘 → 视口右缘」整条右侧（B 站容器有最大
-// 宽度，宽屏下锚点右缘与窗口右缘之间是大片死区），纵向钳进一屏（top 跟锚点
+// 贴栏形态的几何：面板贴视口右界，纵向钳进一屏（top 跟锚点
 // 但不出视口，底缘贴视口底），内容超高由面板内部滚动消化。
-// 贴栏宽度下限（script-only-ui 排版定稿）：面板宽度档已定死 380px，可填宽度
-// 不足时左缘向左延伸补足。
+// 宽度由 getTargetPanelWidth() 决定（默认 380px，支持 300–600px 自定义）。
 //
 // player-host 整页接管退役后，本模块是 LAYOUT 层唯一的布局调度器
 //（rAF 合帧 + 脏检查，思路源自旧 player-host 调度器）——script-host
@@ -45,8 +43,7 @@ const ANCHOR_SELECTORS = [
 
 // 锚点有效硬下限：宽度过小视为隐藏副本/折叠态，跳过落到次优先候选。
 const ANCHOR_MIN_WIDTH = 280;
-// 贴栏宽度下限（定死值 = 380px，script-only-ui 排版定稿）：贴栏面板正常吃掉
-// 锚点左缘到视口右缘的整条右侧，仅当可填宽度不足时左缘左移补足。
+// 贴栏形态宽度保底下限（300px）与默认目标宽度（380px）。
 const PANEL_MIN_WIDTH = 300;
 const DEFAULT_PANEL_TARGET_WIDTH = 380;
 
@@ -73,7 +70,6 @@ const FLOAT_VIEWPORT_MIN_WIDTH = 1000;
 // 的语义本就独立，不必同档——兜底延迟上限放宽到 2s。
 const REANCHOR_INTERVAL_MS = 2000;
 
-// 贴栏宽度下限：定死 380px。
 
 const SCRIPT_VAR_PREFIX = "--biliscript-script-";
 const SCRIPT_VARS = ["left", "top", "width", "height"] as const;
@@ -340,7 +336,7 @@ function applyScriptRect(finding?: AnchorFinding): void {
     observeScriptAnchor(anchor);
   }
 
-  // 锚点命中且视口够宽：贴栏形态，宽度下限定死 380px。
+  // 锚点命中且视口够宽：贴栏形态，宽度由 getTargetPanelWidth() 决定。
   const anchorRect = found?.rect;
   if (anchorRect && window.innerWidth >= FLOAT_VIEWPORT_MIN_WIDTH) {
     const rect = clampAnchorRect(anchorRect);
@@ -390,13 +386,14 @@ function clampTopIntoViewport(rawTop: number): number {
   );
 }
 
-// 命中锚点后取面板 rect：占「锚点左缘 → 视口右界」整条右侧；可填宽度不足
-// 下限宽时左缘向左延伸补足（窄窗/窄栏兜底）。
+// 命中锚点后取面板 rect：宽度由 getTargetPanelWidth() 决定，贴视口右界；
+// left 为 right - width；纵向钳进一屏（top 跟锚点但不出视口，底缘贴视口底）。
 function clampAnchorRect(rect: DOMRect): { left: number; top: number; width: number; height: number } {
   const right = getViewportRightBound();
-  const left = Math.min(rect.left, right - getTargetPanelWidth());
+  const width = getTargetPanelWidth();
+  const left = right - width;
   const top = clampTopIntoViewport(rect.top);
-  return { left, top, width: right - left, height: window.innerHeight - top };
+  return { left, top, width, height: window.innerHeight - top };
 }
 
 // 降级 1 的播放器 rect：findReaderPlayerHost(video) 的宿主若不可用（video
