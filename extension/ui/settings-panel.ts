@@ -111,7 +111,6 @@ interface SettingsFormPayload {
   readerFontSizeScale: number;
   chatLineHeight: number;
   chatParagraphSpacing: number;
-  customPanelWidthEnabled: boolean;
   customPanelWidth: number;
   autoOpenReader: boolean;
 }
@@ -166,10 +165,10 @@ function collectElements(host: HTMLElement) {
     chatParagraphSpacing: byIdIn<HTMLInputElement>(dom.chatParagraphSpacing),
     chatParagraphSpacingValue: byIdIn<HTMLElement>(dom.chatParagraphSpacingValue),
     chatParagraphSpacingResetBtn: byIdIn<HTMLButtonElement>(dom.chatParagraphSpacingResetBtn),
-    customPanelWidthEnabled: byIdIn<HTMLInputElement>(dom.customPanelWidthEnabled),
     customPanelWidthContainer: byIdIn<HTMLElement>(dom.customPanelWidthContainer),
     customPanelWidth: byIdIn<HTMLInputElement>(dom.customPanelWidth),
     customPanelWidthValue: byIdIn<HTMLElement>(dom.customPanelWidthValue),
+    customPanelWidthResetBtn: byIdIn<HTMLButtonElement>(dom.customPanelWidthResetBtn),
     autoOpenReader: byIdIn<HTMLInputElement>(dom.autoOpenReader),
     includeDateInFilename: byIdIn<HTMLInputElement>(dom.includeDateInFilename),
     enablePlayerAiQuickAction: byIdIn<HTMLInputElement>(dom.enablePlayerAiQuickAction),
@@ -189,7 +188,10 @@ function collectElements(host: HTMLElement) {
     addSearchProviderBtn: byIdIn<HTMLButtonElement>(dom.addSearchProviderBtn),
     resetSearchProviderOrderBtn: byIdIn<HTMLButtonElement>(dom.resetSearchProviderOrderBtn),
     allowPaidSearchProviders: byIdIn<HTMLInputElement>(dom.allowPaidSearchProviders),
+    webSearchMaxToolCallsContainer: byIdIn<HTMLElement>(dom.webSearchMaxToolCallsContainer),
     webSearchMaxToolCalls: byIdIn<HTMLInputElement>(dom.webSearchMaxToolCalls),
+    webSearchMaxToolCallsValue: byIdIn<HTMLElement>(dom.webSearchMaxToolCallsValue),
+    webSearchMaxToolCallsResetBtn: byIdIn<HTMLButtonElement>(dom.webSearchMaxToolCallsResetBtn),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
     saveBtn: byIdIn<HTMLButtonElement>(dom.saveBtn),
@@ -305,15 +307,14 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
-  elements.customPanelWidthEnabled.checked = settings.customPanelWidthEnabled === true;
   elements.customPanelWidth.value = String(normalizeCustomPanelWidth(settings.customPanelWidth));
   elements.customPanelWidthValue.textContent = `${elements.customPanelWidth.value}px`;
-  elements.customPanelWidth.disabled = !elements.customPanelWidthEnabled.checked;
+  elements.customPanelWidthResetBtn.disabled = Number(elements.customPanelWidth.value) === DEFAULT_SETTINGS.customPanelWidth;
   elements.autoOpenReader.checked = settings.autoOpenReader === true;
   elements.chatInputGlow.checked = normalizeChatInputGlow(settings.chatInputGlow);
   // 自绘开关（ADR-0019）：水合直接写 .checked（值源语义不变，零事件），视觉经
   // syncToggleSwitch 吸附到现值——与 custom-select 的「显示 = 现值」同口径。
-  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader, elements.chatInputGlow]
+  [elements.includeDateInFilename, elements.enablePlayerAiQuickAction, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.autoOpenReader, elements.chatInputGlow]
     .forEach(syncToggleSwitch);
   elements.aiSystemPrompt.value = settings.aiSystemPrompt || "";
   renderInitialQuickPromptInputs(elements, settings.aiInitialQuickPrompts);
@@ -334,6 +335,8 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
   elements.allowPaidSearchProviders.checked = settings.allowPaidSearchProviders === true;
   elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(settings.webSearchMaxToolCalls));
+  elements.webSearchMaxToolCallsValue.textContent = elements.webSearchMaxToolCalls.value;
+  elements.webSearchMaxToolCallsResetBtn.disabled = Number(elements.webSearchMaxToolCalls.value) === DEFAULT_SETTINGS.webSearchMaxToolCalls;
   const searchProviders = await loadSearchProviders();
   // 列表顺序 = 链序（spec §12.2 / §12.5 第 15 行）：先取用户拖拽序（归一后），
   // 再按「order 下标 > 内置默认序」排序渲染。DeepSeek 行副行 = 凭据引用三态文案
@@ -641,7 +644,6 @@ function collectFormPayload(elements: SettingsElements): SettingsFormPayload {
     enableDebugLogs: elements.enableDebugLogs.checked,
     aiSystemPrompt: String(elements.aiSystemPrompt?.value || "").trim(),
     aiInitialQuickPrompts: collectInitialQuickPrompts(elements),
-    customPanelWidthEnabled: elements.customPanelWidthEnabled.checked,
     customPanelWidth: normalizeCustomPanelWidth(elements.customPanelWidth.value),
     autoOpenReader: elements.autoOpenReader.checked,
     chatInputGlow: elements.chatInputGlow.checked
@@ -852,7 +854,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   // 装饰、原生 input 视觉隐藏留作值源与键盘/读屏目标）。id / .checked / change
   // 语义全不变——即时保存监听（asrAutoFallback / allowPaidSearchProviders）与
   // collectFormPayload 照原样工作。
-  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.customPanelWidthEnabled, elements.autoOpenReader, elements.chatInputGlow]
+  [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.autoOpenReader, elements.chatInputGlow]
     .forEach(initToggleSwitch);
 
   elements.readerFontSizeScale.addEventListener("input", () => {
@@ -918,24 +920,25 @@ function bindSettingsEvents(host: HTMLElement): void {
     void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: defaultVal } });
   });
 
-  elements.customPanelWidthEnabled.addEventListener("change", () => {
-    const isEnabled = elements.customPanelWidthEnabled.checked;
-    elements.customPanelWidth.disabled = !isEnabled;
-    state.patchSettings({
-      customPanelWidthEnabled: isEnabled,
-      customPanelWidth: normalizeCustomPanelWidth(elements.customPanelWidth.value)
-    });
-    relayoutScriptHost();
-  });
-
   elements.customPanelWidth.addEventListener("input", () => {
     const width = normalizeCustomPanelWidth(elements.customPanelWidth.value);
     elements.customPanelWidthValue.textContent = `${width}px`;
-    state.patchSettings({
-      customPanelWidthEnabled: elements.customPanelWidthEnabled.checked,
-      customPanelWidth: width
-    });
+    elements.customPanelWidthResetBtn.disabled = width === DEFAULT_SETTINGS.customPanelWidth;
+    state.patchSettings({ customPanelWidth: width });
     relayoutScriptHost();
+  });
+  elements.customPanelWidth.addEventListener("change", () => {
+    const width = normalizeCustomPanelWidth(elements.customPanelWidth.value);
+    void sendRuntimeMessage({ type: "save-settings", settings: { customPanelWidth: width } });
+  });
+  elements.customPanelWidthResetBtn.addEventListener("click", () => {
+    const defaultVal = DEFAULT_SETTINGS.customPanelWidth;
+    elements.customPanelWidth.value = String(defaultVal);
+    elements.customPanelWidthValue.textContent = `${defaultVal}px`;
+    elements.customPanelWidthResetBtn.disabled = true;
+    state.patchSettings({ customPanelWidth: defaultVal });
+    relayoutScriptHost();
+    void sendRuntimeMessage({ type: "save-settings", settings: { customPanelWidth: defaultVal } });
   });
 
   elements.chatInputGlow.addEventListener("change", () => {
@@ -1030,10 +1033,28 @@ function bindSettingsEvents(host: HTMLElement): void {
     await sendRuntimeMessage({ type: "save-settings", settings: { asrAutoFallback: elements.asrAutoFallback.checked } });
   });
   // 搜索平台：单轮搜索上限即时持久化
+  elements.webSearchMaxToolCalls?.addEventListener("input", () => {
+    const val = normalizeWebSearchMaxToolCalls(elements.webSearchMaxToolCalls.value);
+    elements.webSearchMaxToolCallsValue.textContent = String(val);
+    elements.webSearchMaxToolCallsResetBtn.disabled = val === DEFAULT_SETTINGS.webSearchMaxToolCalls;
+  });
   elements.webSearchMaxToolCalls?.addEventListener("change", async () => {
+    const val = normalizeWebSearchMaxToolCalls(elements.webSearchMaxToolCalls.value);
+    elements.webSearchMaxToolCallsValue.textContent = String(val);
+    elements.webSearchMaxToolCallsResetBtn.disabled = val === DEFAULT_SETTINGS.webSearchMaxToolCalls;
     await sendRuntimeMessage({
       type: "save-settings",
-      settings: { webSearchMaxToolCalls: elements.webSearchMaxToolCalls.value }
+      settings: { webSearchMaxToolCalls: val }
+    });
+  });
+  elements.webSearchMaxToolCallsResetBtn?.addEventListener("click", async () => {
+    const defaultVal = DEFAULT_SETTINGS.webSearchMaxToolCalls;
+    elements.webSearchMaxToolCalls.value = String(defaultVal);
+    elements.webSearchMaxToolCallsValue.textContent = String(defaultVal);
+    elements.webSearchMaxToolCallsResetBtn.disabled = true;
+    await sendRuntimeMessage({
+      type: "save-settings",
+      settings: { webSearchMaxToolCalls: defaultVal }
     });
   });
   // 付费平台准入即时持久化（GLOSSARY「付费平台」）：开关即花钱授权，改动立即
@@ -1050,7 +1071,10 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.asrAutoFallback.checked = changes.asrAutoFallback.newValue !== false;
     syncToggleSwitch(elements.asrAutoFallback);
     if (changes.webSearchMaxToolCalls) {
-      elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(changes.webSearchMaxToolCalls.newValue));
+      const val = normalizeWebSearchMaxToolCalls(changes.webSearchMaxToolCalls.newValue);
+      elements.webSearchMaxToolCalls.value = String(val);
+      elements.webSearchMaxToolCallsValue.textContent = String(val);
+      elements.webSearchMaxToolCallsResetBtn.disabled = val === DEFAULT_SETTINGS.webSearchMaxToolCalls;
     }
     if (changes.allowPaidSearchProviders) {
       elements.allowPaidSearchProviders.checked = changes.allowPaidSearchProviders.newValue === true;

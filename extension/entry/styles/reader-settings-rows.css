@@ -410,7 +410,7 @@
   }
 }
 
-/* ===== 面板宽度滑块行 ===== */
+/* ===== 滑块行 ===== */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-row {
   margin-top: 4px;
   gap: 8px;
@@ -420,6 +420,43 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-reset-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--biliscript-reader-muted);
+  opacity: 1;
+  transition: opacity 0.15s ease-out, background 0.15s ease-out, color 0.15s ease-out;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-reset-btn:hover:not(:disabled) {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-reset-btn:disabled {
+  opacity: 0.36;
+  cursor: not-allowed;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-reset-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-badge {

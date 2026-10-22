@@ -605,5 +605,54 @@ describe("主题：只剩明暗一轴", () => {
       type: "save-settings",
       settings: { readerFontSizeScale: 100 }
     });
+
+    // 文摘面板宽度滑块与重置键测试
+    const widthSlider = document.getElementById("customPanelWidth") as HTMLInputElement;
+    const widthBadge = document.getElementById("customPanelWidthValue") as HTMLElement;
+    const widthReset = document.getElementById("customPanelWidthResetBtn") as HTMLButtonElement;
+    expect(widthSlider).toBeTruthy();
+    expect(widthSlider.value).toBe("380");
+    expect(widthBadge.textContent).toBe("380px");
+    expect(widthReset.disabled).toBe(true);
+
+    widthSlider.value = "450";
+    widthSlider.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(widthBadge.textContent).toBe("450px");
+    expect(widthReset.disabled).toBe(false);
+
+    widthReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(widthSlider.value).toBe("380");
+    expect(widthBadge.textContent).toBe("380px");
+    expect(widthReset.disabled).toBe(true);
+    expect(sentMessages).toContainEqual({
+      type: "save-settings",
+      settings: { customPanelWidth: 380 }
+    });
+
+    // 单轮搜索次数上限滑块与重置键测试（默认 5，最小 1，最大 20）
+    const searchSlider = document.getElementById("webSearchMaxToolCalls") as HTMLInputElement;
+    const searchBadge = document.getElementById("webSearchMaxToolCallsValue") as HTMLElement;
+    const searchReset = document.getElementById("webSearchMaxToolCallsResetBtn") as HTMLButtonElement;
+    expect(searchSlider).toBeTruthy();
+    expect(searchSlider.type).toBe("range");
+    expect(searchSlider.min).toBe("1");
+    expect(searchSlider.max).toBe("20");
+    expect(searchSlider.value).toBe("5");
+    expect(searchBadge.textContent).toBe("5");
+    expect(searchReset.disabled).toBe(true);
+
+    searchSlider.value = "12";
+    searchSlider.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(searchBadge.textContent).toBe("12");
+    expect(searchReset.disabled).toBe(false);
+
+    searchReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(searchSlider.value).toBe("5");
+    expect(searchBadge.textContent).toBe("5");
+    expect(searchReset.disabled).toBe(true);
+    expect(sentMessages).toContainEqual({
+      type: "save-settings",
+      settings: { webSearchMaxToolCalls: 5 }
+    });
   });
 });

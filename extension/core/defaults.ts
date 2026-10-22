@@ -59,7 +59,7 @@ export interface Settings {
   // spec 的 string | null 在 normalizeSettings 收口为 ""）。
   activeSearchProviderId: string; // 当前选用的搜索平台 id
   webSearchEnabled: boolean;      // 对话/选区解释链联网开关，全局记住上次状态，默认关
-  webSearchMaxToolCalls: number;  // 单轮搜索次数上限（区间 1–10）
+  webSearchMaxToolCalls: number;  // 单轮搜索次数上限（区间 1–20）
   // 付费平台准入（GLOSSARY「付费平台」，默认关——花钱必须是显式动作）：只控制
   // 智能链是否跳过 access === "paid" 的候选；单选付费平台不受此开关限制。
   allowPaidSearchProviders: boolean;

@@ -35,7 +35,10 @@ export const SETTINGS_PANEL_DOM_IDS = {
   addSearchProviderBtn: "addSearchProviderBtn",
   resetSearchProviderOrderBtn: "resetSearchProviderOrderBtn",
   allowPaidSearchProviders: "allowPaidSearchProviders",
+  webSearchMaxToolCallsContainer: "webSearchMaxToolCallsContainer",
   webSearchMaxToolCalls: "webSearchMaxToolCalls",
+  webSearchMaxToolCallsValue: "webSearchMaxToolCallsValue",
+  webSearchMaxToolCallsResetBtn: "webSearchMaxToolCallsResetBtn",
   enablePlayerAiQuickAction: "enablePlayerAiQuickAction",
   playerAiQuickPrompt: "playerAiQuickPrompt",
   aiSystemPrompt: "aiSystemPrompt",
@@ -53,10 +56,11 @@ export const SETTINGS_PANEL_DOM_IDS = {
   chatParagraphSpacing: "chatParagraphSpacing",
   chatParagraphSpacingValue: "chatParagraphSpacingValue",
   chatParagraphSpacingResetBtn: "chatParagraphSpacingResetBtn",
-  customPanelWidthEnabled: "customPanelWidthEnabled",
+
   customPanelWidthContainer: "customPanelWidthContainer",
   customPanelWidth: "customPanelWidth",
   customPanelWidthValue: "customPanelWidthValue",
+  customPanelWidthResetBtn: "customPanelWidthResetBtn",
   autoOpenReader: "autoOpenReader",
   downloadFormat: "downloadFormat",
   includeDateInFilename: "includeDateInFilename",
@@ -120,9 +124,27 @@ export function buildSettingsHtml(): string {
       <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa / DeepSeek Search）——四条免 Key 预设装上即可用。</p>
       <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
-      <div class="biliscript-set-row">
-        <label class="biliscript-set-label" for="${ids.webSearchMaxToolCalls}">单轮搜索次数上限</label>
-        <input id="${ids.webSearchMaxToolCalls}" class="biliscript-set-input" type="number" min="1" max="10" step="1" />
+      <div id="${ids.webSearchMaxToolCallsContainer}" class="biliscript-set-row biliscript-slider-row">
+        <div class="biliscript-slider-header">
+          <label class="biliscript-set-label" for="${ids.webSearchMaxToolCalls}">单轮搜索次数上限</label>
+          <div class="biliscript-slider-header-actions">
+            <span id="${ids.webSearchMaxToolCallsValue}" class="biliscript-slider-badge">5</span>
+            <button id="${ids.webSearchMaxToolCallsResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认搜索次数 (5)" aria-label="恢复默认搜索次数">${READING_RESET_ICON}</button>
+          </div>
+        </div>
+        <input
+          id="${ids.webSearchMaxToolCalls}"
+          type="range"
+          class="biliscript-range-input"
+          min="1"
+          max="20"
+          step="1"
+          value="5"
+        />
+        <div class="biliscript-slider-labels">
+          <span>1</span>
+          <span>20</span>
+        </div>
       </div>
     </section>
 
@@ -246,17 +268,13 @@ export function buildSettingsHtml(): string {
         </div>
       </div>
 
-      <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">自定义文摘面板宽度</span>
-        <label class="biliscript-toggle-switch">
-          <input id="${ids.customPanelWidthEnabled}" type="checkbox" class="biliscript-toggle-input" aria-label="自定义文摘面板宽度" />
-          <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
-        </label>
-      </div>
       <div id="${ids.customPanelWidthContainer}" class="biliscript-set-row biliscript-slider-row">
         <div class="biliscript-slider-header">
           <label class="biliscript-set-label" for="${ids.customPanelWidth}">文摘面板宽度</label>
-          <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">380px</span>
+          <div class="biliscript-slider-header-actions">
+            <span id="${ids.customPanelWidthValue}" class="biliscript-slider-badge">380px</span>
+            <button id="${ids.customPanelWidthResetBtn}" type="button" class="biliscript-slider-reset-btn" title="恢复默认面板宽度 (380px)" aria-label="恢复默认面板宽度">${READING_RESET_ICON}</button>
+          </div>
         </div>
         <input
           id="${ids.customPanelWidth}"

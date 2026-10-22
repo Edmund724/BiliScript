@@ -41,21 +41,19 @@ describe("自定义文摘面板宽度与自动展开配置", () => {
   });
 
   describe("script-host 布局宽度集成", () => {
-    it("未启用自定义时使用默认 380px，启用后使用自定义宽度", () => {
+    it("直接使用 customPanelWidth 自定义宽度", () => {
       document.body.innerHTML = `
         <div id="biliscript-reading-view"></div>
         <div class="right-container-inner" style="width: 320px;"></div>
       `;
 
       state.patchSettings({
-        customPanelWidthEnabled: false,
         customPanelWidth: 460
       });
 
       relayoutScriptHost();
 
       state.patchSettings({
-        customPanelWidthEnabled: true,
         customPanelWidth: 500
       });
 

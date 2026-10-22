@@ -21,7 +21,6 @@ const TOGGLE_IDS = [
   "asrAutoFallback",
   "allowPaidSearchProviders",
   "enablePlayerAiQuickAction",
-  "customPanelWidthEnabled",
   "autoOpenReader",
   "includeDateInFilename",
   "includeTimestampInBody",

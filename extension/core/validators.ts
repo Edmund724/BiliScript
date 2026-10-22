@@ -125,13 +125,13 @@ export function normalizeSearchOptInNoticeAcknowledged(value: unknown): boolean 
   return value === true;
 }
 
-// 单轮搜索次数上限：整数，区间 1–10，越界夹取，非法值回落默认 5（spec §3.2）
+// 单轮搜索次数上限：整数，区间 1–20，越界夹取，非法值回落默认 5（spec §3.2）
 export function normalizeWebSearchMaxToolCalls(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) {
     return DEFAULT_SETTINGS.webSearchMaxToolCalls;
   }
-  return Math.min(10, Math.max(1, Math.round(parsed)));
+  return Math.min(20, Math.max(1, Math.round(parsed)));
 }
 
 // 付费平台准入开关（GLOSSARY「付费平台」）：与 normalizeWebSearchEnabled 同型的

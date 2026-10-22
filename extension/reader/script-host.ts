@@ -51,11 +51,9 @@ const PANEL_MIN_WIDTH = 300;
 const DEFAULT_PANEL_TARGET_WIDTH = 380;
 
 function getTargetPanelWidth(): number {
-  if (state.settings?.customPanelWidthEnabled) {
-    const custom = Number(state.settings?.customPanelWidth);
-    if (Number.isFinite(custom) && custom >= 300 && custom <= 600) {
-      return Math.round(custom);
-    }
+  const custom = Number(state.settings?.customPanelWidth);
+  if (Number.isFinite(custom) && custom >= 300 && custom <= 600) {
+    return Math.round(custom);
   }
   return DEFAULT_PANEL_TARGET_WIDTH;
 }

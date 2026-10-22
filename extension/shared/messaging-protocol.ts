@@ -379,7 +379,7 @@ export type ResolveSearchProviderResponse = {
   // apiKey 允许空串（keyless 预设无 Key 也进链，spec §2）；顶层不再有 provider /
   // apiKey（那会形成两套形状）。
   chain?: SearchChainCandidate[];
-  // settings.webSearchMaxToolCalls（单轮搜索次数上限，区间 1–10）。
+  // settings.webSearchMaxToolCalls（单轮搜索次数上限，区间 1–20）。
   maxToolCalls?: number;
   // 空链归因：只取 `"cooldown"`（合格记录全部在冷却中而被过滤成空链，spec §12.7 第 6 条）。
   // 缺省 = 真的没有合格记录（未配置）。只在 chain 缺省时有意义。
