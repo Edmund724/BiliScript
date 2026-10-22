@@ -2054,7 +2054,7 @@
 
 
 
-/* LaTeX 数学公式排版：支持顶层 flex-wrap 自动折行，不可折行超长单项兜底细滚动条 */
+/* LaTeX 数学公式排版：对齐学术论文与 ChatGPT/Gemini 规范 */
 .biliscript-reading-chat .biliscript-md-math {
   max-width: 100%;
   overflow-x: auto;
@@ -2071,32 +2071,58 @@
   border-radius: 2px;
 }
 
+/* 块级展示公式（$$...$$）：卡片式微底色、圆角与呼吸留白 */
 .biliscript-reading-chat .biliscript-md-math-block {
   display: block;
-  margin: 0.4em 0;
-  text-align: center;
+  margin: 0.5em 0;
+  padding: 8px 14px;
+  background: var(--biliscript-reader-code-bg, rgba(0, 0, 0, 0.035));
+  border: 1px solid var(--biliscript-reader-border, rgba(0, 0, 0, 0.06));
+  border-radius: 8px;
+  box-sizing: border-box;
 }
 
+/* 行内嵌入公式（$...$）：行内自然流动，基线对齐 */
 .biliscript-reading-chat .biliscript-md-math-inline {
   display: inline-block;
   vertical-align: baseline;
 }
 
+/* MathML 排版规范：继承无衬线正文字体体系，中英文统一，杜绝宋体/Times 突兀混杂 */
+.biliscript-reading-chat math {
+  font-size: 0.95em;
+  font-family: inherit;
+  color: inherit;
+}
+
+.biliscript-reading-chat math mtext {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+/* 运算符间距：对齐 LaTeX / 数学排版规范（等号、加号等补齐合理间隙） */
+.biliscript-reading-chat math mo {
+  margin: 0 0.28em;
+}
+
+/* 论文式公式折行与悬挂缩进：顶层 flex 折行，第二行及后续行缩进 2em（等号右侧不顶格） */
 .biliscript-reading-chat math,
 .biliscript-reading-chat math > semantics,
 .biliscript-reading-chat math > semantics > mrow,
 .biliscript-reading-chat math > mrow {
   display: inline-flex !important;
   flex-wrap: wrap !important;
-  align-items: center;
+  align-items: baseline;
   max-width: 100%;
-  row-gap: 2px;
+  row-gap: 6px;
+  box-sizing: border-box;
 }
 
-.biliscript-reading-chat math {
-  font-size: 0.95em;
+.biliscript-reading-chat .biliscript-md-math-block math > semantics > mrow,
+.biliscript-reading-chat .biliscript-md-math-block math > mrow {
+  padding-left: 2em;
 }
 
-.biliscript-reading-chat math[display="block"] {
-  margin: 0 auto;
+.biliscript-reading-chat .biliscript-md-math-block math > semantics > mrow > *:first-child,
+.biliscript-reading-chat .biliscript-md-math-block math > mrow > *:first-child {
+  margin-left: -2em;
 }

@@ -29,8 +29,8 @@ describe("Markdown LaTeX 公式渲染与占位", () => {
       "2. 主题与核心观点\n- 核心公式: $$\\text{Agent} = \\text{模型} + \\text{脚手架}$$"
     );
     expect(listMath).toContain('<ol start="2"><li>主题与核心观点</li></ol>');
-    expect(listMath).toContain("<ul><li>核心公式: <span class=\"biliscript-md-math biliscript-md-math-inline\"");
-    expect(listMath).toContain(`${MATH_BLOCK_ATTR}="inline"`);
+    expect(listMath).toContain("<ul><li>核心公式: <span class=\"biliscript-md-math biliscript-md-math-block\"");
+    expect(listMath).toContain(`${MATH_BLOCK_ATTR}="block"`);
     expect(listMath).toContain('data-tex="\\text{Agent} = \\text{模型} + \\text{脚手架}"');
   });
 
@@ -80,7 +80,8 @@ describe("math-render MathML 水合", () => {
     const mathTags = container.querySelectorAll("math");
     expect(mathTags.length).toBe(3);
     expect(mathTags[0].getAttribute("display")).toBe("block");
-    expect(mathTags[1].getAttribute("display")).toBeNull();
+    expect(mathTags[1].getAttribute("display")).toBe("block");
+    expect(mathTags[2].getAttribute("display")).toBeNull();
     expect(container.innerHTML).toContain("<annotation encoding=\"application/x-tex\">");
   });
 
