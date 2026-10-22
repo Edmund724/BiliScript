@@ -1899,3 +1899,333 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   row-gap: 6px;
   box-sizing: border-box;
 }
+
+
+/* ============================================================
+ * 金句分享卡片预览模态弹窗与多层渐变噪点卡片
+ * ============================================================ */
+
+.biliscript-quote-share-host {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.biliscript-quote-share-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  cursor: pointer;
+}
+
+.biliscript-quote-share-dialog {
+  position: relative;
+  z-index: 1;
+  width: 90%;
+  max-width: 440px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--biliscript-reader-card, #1e1e24);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  padding: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.biliscript-quote-share-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.biliscript-quote-share-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--biliscript-reader-text, #fff);
+  margin: 0;
+}
+
+.biliscript-quote-share-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--biliscript-reader-muted, #888);
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.biliscript-quote-share-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.biliscript-quote-share-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 主题预设选择器栏 */
+.biliscript-quote-share-presets {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+  justify-content: center;
+}
+
+.biliscript-quote-preset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--biliscript-reader-muted, #aaa);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.biliscript-quote-preset-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.biliscript-quote-preset-btn.is-active {
+  border-color: var(--biliscript-reader-accent, #00a1d6);
+  background: rgba(0, 161, 214, 0.15);
+  color: #fff;
+  font-weight: 500;
+}
+
+.biliscript-quote-preset-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+}
+
+/* 主卡片预览区 */
+.biliscript-quote-share-preview {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+/* 金句卡片主体视觉骨架（20px 圆角，0.5px 精细描边） */
+.biliscript-quote-card {
+  position: relative;
+  width: 100%;
+  min-height: 280px;
+  border-radius: 20px;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 8px 32px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  container-type: inline-size;
+}
+
+/* 卡片背景与色团层 */
+.biliscript-quote-card-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.biliscript-quote-card-blobs {
+  position: absolute;
+  inset: 0;
+  background-size: 100% 100%;
+  transition: background 0.3s ease;
+}
+
+/* 物理像素级灰度噪点平铺层 */
+.biliscript-quote-card-noise {
+  position: absolute;
+  inset: 0;
+  background-repeat: repeat;
+  background-size: 128px 128px;
+  mix-blend-mode: overlay;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* 内容层 */
+.biliscript-quote-card-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 32px 24px 20px;
+  box-sizing: border-box;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.biliscript-quote-card-quote-mark {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 36px;
+  line-height: 1;
+  opacity: 0.6;
+  margin-bottom: 8px;
+  user-select: none;
+}
+
+.biliscript-quote-card-text {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: clamp(16px, 6.5cqi, 26px);
+  font-weight: 500;
+  line-height: 1.6;
+  text-align: center;
+  word-break: break-word;
+  letter-spacing: 0.02em;
+  margin: 0;
+  max-width: 100%;
+}
+
+.biliscript-quote-card-footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  margin-top: 24px;
+  font-size: 11px;
+  opacity: 0.75;
+  letter-spacing: 0.04em;
+}
+
+.biliscript-quote-card-timestamp {
+  font-variant-numeric: tabular-nums;
+}
+
+.biliscript-quote-card-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+/* 6 组色环相邻渐变配色 */
+
+/* 1. 紫粉到橙金 (purple-gold) */
+.biliscript-quote-card[data-preset="purple-gold"] .biliscript-quote-card-bg {
+  background: linear-gradient(165deg, #7c4d79 0%, #46223b 45%, #692a10 100%);
+}
+.biliscript-quote-card[data-preset="purple-gold"] .biliscript-quote-card-blobs {
+  background-image:
+    radial-gradient(circle at 18% 18%, rgba(220, 130, 200, 0.7) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(160, 90, 190, 0.6) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(225, 110, 45, 0.65) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(245, 170, 50, 0.7) 0%, transparent 50%);
+}
+
+/* 2. 灰蓝到深棕 (slate-brown) */
+.biliscript-quote-card[data-preset="slate-brown"] .biliscript-quote-card-bg {
+  background: linear-gradient(165deg, #4f5f6f 0%, #2e3843 45%, #422a20 100%);
+}
+.biliscript-quote-card[data-preset="slate-brown"] .biliscript-quote-card-blobs {
+  background-image:
+    radial-gradient(circle at 18% 18%, rgba(135, 160, 185, 0.65) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(100, 125, 150, 0.55) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(155, 100, 65, 0.6) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(195, 125, 80, 0.65) 0%, transparent 50%);
+}
+
+/* 3. 雾蓝到深海蓝 (mist-deep-sea) */
+.biliscript-quote-card[data-preset="mist-deep-sea"] .biliscript-quote-card-bg {
+  background: linear-gradient(165deg, #32587a 0%, #1a324d 45%, #0e2034 100%);
+}
+.biliscript-quote-card[data-preset="mist-deep-sea"] .biliscript-quote-card-blobs {
+  background-image:
+    radial-gradient(circle at 18% 18%, rgba(115, 180, 235, 0.7) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(75, 140, 195, 0.6) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(30, 85, 140, 0.65) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(18, 50, 90, 0.75) 0%, transparent 50%);
+}
+
+/* 4. 雾蓝到墨绿 (mist-forest-green) */
+.biliscript-quote-card[data-preset="mist-forest-green"] .biliscript-quote-card-bg {
+  background: linear-gradient(165deg, #315869 0%, #1c3d39 45%, #102a20 100%);
+}
+.biliscript-quote-card[data-preset="mist-forest-green"] .biliscript-quote-card-blobs {
+  background-image:
+    radial-gradient(circle at 18% 18%, rgba(110, 175, 195, 0.7) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(70, 150, 145, 0.6) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(45, 105, 70, 0.65) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(22, 70, 42, 0.75) 0%, transparent 50%);
+}
+
+/* 5. 薰衣草到深夜紫 (lavender-midnight) */
+.biliscript-quote-card[data-preset="lavender-midnight"] .biliscript-quote-card-bg {
+  background: linear-gradient(165deg, #574474 0%, #2e214d 45%, #150b2e 100%);
+}
+.biliscript-quote-card[data-preset="lavender-midnight"] .biliscript-quote-card-blobs {
+  background-image:
+    radial-gradient(circle at 18% 18%, rgba(170, 140, 220, 0.7) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(130, 100, 190, 0.6) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(75, 40, 130, 0.65) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(40, 18, 80, 0.8) 0%, transparent 50%);
+}
+
+/* 6. 天灰到锈红 (ash-rust) */
+.biliscript-quote-card[data-preset="ash-rust"] .biliscript-quote-card-bg {
+  background: linear-gradient(165deg, #596570 0%, #3a444d 45%, #46201e 100%);
+}
+.biliscript-quote-card[data-preset="ash-rust"] .biliscript-quote-card-blobs {
+  background-image:
+    radial-gradient(circle at 18% 18%, rgba(165, 180, 190, 0.65) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(125, 140, 150, 0.55) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(185, 75, 60, 0.65) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(140, 45, 35, 0.75) 0%, transparent 50%);
+}
+
+/* 无障碍降级 */
+@media (prefers-reduced-transparency: reduce) {
+  .biliscript-quote-share-mask {
+    background: #000000;
+  }
+  .biliscript-quote-card-noise {
+    display: none !important;
+  }
+  .biliscript-quote-card-blobs {
+    display: none !important;
+  }
+  .biliscript-quote-card-bg {
+    background: #23272e !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .biliscript-quote-preset-btn,
+  .biliscript-quote-card-blobs {
+    transition: none !important;
+  }
+}
