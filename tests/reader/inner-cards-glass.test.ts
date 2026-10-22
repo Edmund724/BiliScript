@@ -82,6 +82,12 @@ describe("AI 对话与设置内嵌卡片 Flyme 玻璃材质", () => {
     expect(assistantBody).toContain("padding: 0");
   });
 
+  it("思考时长数字节点声明 tabular-nums 防抖", () => {
+    const chatCss = readCss(CHAT_CSS);
+    const numBody = ruleBody(chatCss, ".biliscript-reading-chat .chat-thinking-duration-num");
+    expect(numBody).toContain("font-variant-numeric: tabular-nums");
+  });
+
   it("editorial 数字刊物色板下：4 处内嵌卡片与容器维持 1px 实线边框与零投影", () => {
     const gate = stripComments(readCss(GATE_CSS));
 

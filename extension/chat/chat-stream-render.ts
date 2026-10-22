@@ -257,6 +257,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     }
     const node = document.createElement("div");
     node.className = "chat-thinking";
+    thinkingStartTimes.set(node, Date.now());
     const label = document.createElement("span");
     label.className = "chat-thinking-label";
     // 图标与文案各占一个子节点：折叠态只改文案（见 collapseThinking），
@@ -286,13 +287,25 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
   }
 
   // 思考流结束（正文首帧渲染 / 终态重渲染）时把思考盒收成一行
-  //「思考过程 ▸」：正文成为视觉焦点；点击可展开回看（当轮有效——
+  //「已思考（用时 X 秒）▸」：正文成为视觉焦点；点击可展开回看（当轮有效——
   // 思考不落盘，会话回放无思考内容）。
+  const thinkingStartTimes = new WeakMap<Element, number>();
+
+  function formatThinkingDuration(elapsedMs: number): string {
+    const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
+    return `已思考（用时 <span class="chat-thinking-duration-num">${elapsedSec}</span> 秒）`;
+  }
+
   function collapseThinking(thinking: Element): void {
     thinking.classList.add("chat-thinking-collapsible", "chat-thinking-collapsed");
     const labelText = thinking.querySelector(".chat-thinking-label-text");
     if (labelText) {
-      labelText.textContent = "思考过程";
+      const startTime = thinkingStartTimes.get(thinking);
+      if (typeof startTime === "number" && !Number.isNaN(startTime)) {
+        labelText.innerHTML = formatThinkingDuration(Math.max(0, Date.now() - startTime));
+      } else {
+        labelText.textContent = "思考过程";
+      }
     }
   }
 

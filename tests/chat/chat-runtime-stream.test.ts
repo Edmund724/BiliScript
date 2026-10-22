@@ -390,14 +390,15 @@ describe("reasoning / thinking 展示", () => {
     feed(runtime, { type: "reasoning", data: "再想" });
     expect(node.querySelector(".chat-thinking-text")?.textContent).toBe("先想再想");
 
-    // 首个 token 的帧渲染把思考盒折叠成「思考过程」行保留在消息内（不移除）
+    // 首个 token 的帧渲染把思考盒折叠成「已思考（用时 X 秒）」行保留在消息内（不移除）
     feed(runtime, { type: "token", data: "正文" });
     runRafFrames(raf);
     const folded = node.querySelector<HTMLElement>(".chat-thinking")!;
     expect(folded).toBeTruthy();
     expect(folded.classList.contains("chat-thinking-collapsible")).toBe(true);
     expect(folded.classList.contains("chat-thinking-collapsed")).toBe(true);
-    expect(folded.querySelector(".chat-thinking-label")?.textContent).toBe("思考过程");
+    expect(folded.querySelector(".chat-thinking-label")?.textContent).toBe("已思考（用时 1 秒）");
+    expect(folded.querySelector(".chat-thinking-duration-num")?.textContent).toBe("1");
     expect(folded.querySelector(".chat-thinking-text")?.textContent).toBe("先想再想");
     expect(node.textContent).toContain("正文");
   });
@@ -429,6 +430,31 @@ describe("reasoning / thinking 展示", () => {
     const kept = node.querySelector(".chat-thinking");
     expect(kept?.classList.contains("chat-thinking-collapsed")).toBe(true);
     expect(kept?.querySelector(".chat-thinking-text")?.textContent).toBe("想了很多");
+  });
+
+  it("思考时长与数字锁契约：流式结束折叠时渲染计算秒数且包含 tabular-nums 数字节点", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const node = assistantNode(deps);
+    const raf = holdRaf();
+
+    const nowSpy = vi.spyOn(Date, "now");
+    try {
+      nowSpy.mockReturnValue(1_000_000);
+      feed(runtime, { type: "reasoning", data: "深入思考中" });
+
+      // 经过 3.2 秒后首个正文 token 到达
+      nowSpy.mockReturnValue(1_003_200);
+      feed(runtime, { type: "token", data: "结论" });
+      runRafFrames(raf);
+
+      const folded = node.querySelector<HTMLElement>(".chat-thinking")!;
+      expect(folded.querySelector(".chat-thinking-label")?.textContent).toBe("已思考（用时 3 秒）");
+      const numEl = folded.querySelector<HTMLElement>(".chat-thinking-duration-num")!;
+      expect(numEl).toBeTruthy();
+      expect(numEl.textContent).toBe("3");
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   // 体验契约：思考内容不截断（旧实现 4000 字符上限 + 截断提示已移除），
@@ -488,7 +514,8 @@ describe("reasoning / thinking 展示", () => {
     expect(node1Thinkings).toHaveLength(2);
     node1Thinkings.forEach((thinking) => {
       expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(true);
-      expect(thinking.querySelector(".chat-thinking-label")?.textContent).toBe("思考过程");
+      expect(thinking.querySelector(".chat-thinking-label")?.textContent).toBe("已思考（用时 1 秒）");
+      expect(thinking.querySelector(".chat-thinking-duration-num")?.textContent).toBe("1");
     });
 
     // 第二条消息：reasoning 必须新建节点，且附着在第二条的占位上——

@@ -573,6 +573,10 @@
   color: var(--biliscript-reader-muted);
 }
 
+.biliscript-reading-chat .chat-thinking-duration-num {
+  font-variant-numeric: tabular-nums;
+}
+
 .biliscript-reading-chat .chat-thinking:not(.chat-thinking-collapsed) .chat-thinking-label {
   padding-bottom: 6px;
   margin-bottom: 6px;

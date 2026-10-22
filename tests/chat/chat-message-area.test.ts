@@ -222,7 +222,8 @@ describe("回合节点句柄：流式操作面", () => {
     thinkings.forEach((thinking) => {
       expect(thinking.classList.contains("chat-thinking-collapsible")).toBe(true);
       expect(thinking.classList.contains("chat-thinking-collapsed")).toBe(true);
-      expect(thinking.querySelector(".chat-thinking-label-text")?.textContent).toBe("思考过程");
+      expect(thinking.querySelector(".chat-thinking-label-text")?.textContent).toBe("已思考（用时 1 秒）");
+      expect(thinking.querySelector(".chat-thinking-duration-num")?.textContent).toBe("1");
     });
 
     // 终态重渲染保留折叠行
