@@ -185,10 +185,9 @@
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   z-index: 10;
-  background: var(--biliscript-reader-overlay-bg, var(--biliscript-reader-surface));
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid var(--biliscript-reader-border);
+  background: transparent;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar {
