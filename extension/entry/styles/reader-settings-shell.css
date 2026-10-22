@@ -171,6 +171,87 @@
   box-sizing: border-box;
 }
 
+/* 设置抽屉顶部快速跳转导航条（单行横滑、吸顶、极简文字排版） */
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
+  position: sticky;
+  top: -12px;
+  margin: -12px -14px 0 -14px;
+  padding: 8px 14px 6px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  z-index: 10;
+  background: var(--biliscript-reader-overlay-bg, var(--biliscript-reader-surface));
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--biliscript-reader-border);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item {
+  position: relative;
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 4px 2px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--biliscript-reader-muted);
+  transition: color 0.15s ease-out, font-weight 0.15s ease-out;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item:hover {
+  color: var(--biliscript-reader-text);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item.is-active {
+  color: var(--biliscript-reader-text);
+  font-weight: 600;
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%) scaleX(0);
+  width: 16px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--biliscript-reader-accent);
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item.is-active::after {
+  transform: translateX(-50%) scaleX(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item::after {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
+    background: var(--biliscript-reader-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-group {
   display: grid;
   gap: 8px;

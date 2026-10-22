@@ -148,6 +148,7 @@ function collectElements(host: HTMLElement) {
   const byIdIn = <T extends HTMLElement>(id: SettingsPanelDomId): T =>
     host.querySelector(`#${id}`) as T;
   return {
+    settingsNav: byIdIn<HTMLElement>(dom.settingsNav),
     downloadFormat: byIdIn<HTMLSelectElement>(dom.downloadFormat),
     readerPalette: byIdIn<HTMLSelectElement>(dom.readerPalette),
     readerFontSizeScaleContainer: byIdIn<HTMLElement>(dom.readerFontSizeScaleContainer),
@@ -753,8 +754,93 @@ async function saveSettings(elements: SettingsElements): Promise<void> {
 
 // ===== 事件绑定（模板渲染后一次性接线） =====
 
+function bindSettingsNav(host: HTMLElement): void {
+  const nav = host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.settingsNav}`);
+  if (!nav) return;
+
+  const navItems = Array.from(nav.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
+  const groups = Array.from(host.querySelectorAll<HTMLElement>(".biliscript-set-group[data-settings-section]"));
+
+  function setActive(sectionKey: string): void {
+    let activeBtn: HTMLButtonElement | null = null;
+    navItems.forEach((btn) => {
+      const match = btn.dataset.section === sectionKey;
+      btn.classList.toggle("is-active", match);
+      if (match) activeBtn = btn;
+    });
+    if (activeBtn && typeof (activeBtn as HTMLElement).scrollIntoView === "function") {
+      (activeBtn as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    }
+  }
+
+  let userClickLock = false;
+  let clickLockTimer: ReturnType<typeof setTimeout> | null = null;
+
+  nav.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement | null)?.closest<HTMLButtonElement>(".biliscript-settings-nav-item");
+    if (!btn) return;
+    const sectionKey = btn.dataset.section;
+    if (!sectionKey) return;
+    const target = host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${sectionKey}"]`);
+    if (target) {
+      userClickLock = true;
+      setActive(sectionKey);
+      if (typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      if (clickLockTimer) clearTimeout(clickLockTimer);
+      clickLockTimer = setTimeout(() => {
+        userClickLock = false;
+      }, 600);
+    }
+  });
+
+  if (typeof IntersectionObserver === "undefined") {
+    return;
+  }
+
+  const scrollContainer = host.closest<HTMLElement>("#biliscript-reading-settings-panel") ?? host.parentElement;
+  if (!scrollContainer) return;
+
+  const intersectingKeys = new Map<HTMLElement, number>();
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        const target = entry.target as HTMLElement;
+        if (entry.isIntersecting) {
+          intersectingKeys.set(target, entry.boundingClientRect.top);
+        } else {
+          intersectingKeys.delete(target);
+        }
+      }
+      if (userClickLock || intersectingKeys.size === 0) return;
+
+      let topmostEl: HTMLElement | null = null;
+      let minTop = Infinity;
+      for (const el of intersectingKeys.keys()) {
+        const rectTop = el.getBoundingClientRect().top;
+        if (rectTop < minTop) {
+          minTop = rectTop;
+          topmostEl = el;
+        }
+      }
+      if (topmostEl?.dataset.settingsSection) {
+        setActive(topmostEl.dataset.settingsSection);
+      }
+    },
+    {
+      root: scrollContainer,
+      rootMargin: "-44px 0px -40% 0px",
+      threshold: 0
+    }
+  );
+
+  groups.forEach((group) => observer.observe(group));
+}
+
 function bindSettingsEvents(host: HTMLElement): void {
   const elements = collectElements(host);
+  bindSettingsNav(host);
 
   // 自绘开关接线（ADR-0019）：6 个持久布尔开关换 iOS 风格开关壳（轨道 + 滑块
   // 装饰、原生 input 视觉隐藏留作值源与键盘/读屏目标）。id / .checked / change

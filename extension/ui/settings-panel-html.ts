@@ -21,6 +21,7 @@ import { READING_RESET_ICON } from "./reading-icons.js";
 // collectElements 元素袋的字段名（saveBtn / resetBtn / status 的 id 带
 // biliscriptSettings 前缀，字段名不带）；value = 渲染进模板的 id。
 export const SETTINGS_PANEL_DOM_IDS = {
+  settingsNav: "biliscriptSettingsNav",
   aiProvidersList: "aiProvidersList",
   aiProvidersEmpty: "aiProvidersEmpty",
   addAiProviderBtn: "addAiProviderBtn",
@@ -71,7 +72,16 @@ export type SettingsPanelDomId = (typeof SETTINGS_PANEL_DOM_IDS)[keyof typeof SE
 export function buildSettingsHtml(): string {
   const ids = SETTINGS_PANEL_DOM_IDS;
   return `
-    <section class="biliscript-set-group">
+    <nav id="${ids.settingsNav}" class="biliscript-settings-nav" aria-label="设置快速导航">
+      <button type="button" class="biliscript-settings-nav-item is-active" data-section="llm">语言模型</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="asr">语音转写</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="search">搜索</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="prompt">提示词</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
+      <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
+    </nav>
+
+    <section class="biliscript-set-group" data-settings-section="llm">
       <div class="biliscript-set-h">AI 模型平台</div>
       <p class="biliscript-set-hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / Qwen / GLM / Kimi / MiniMax / Ollama 等）。在下方点击 + 添加平台，填写名称、API Base URL、API Key 与模型名称，点「测试」可验证连通性，点「保存」后才会写入设置。</p>
       <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
@@ -79,7 +89,7 @@ export function buildSettingsHtml(): string {
       <button id="${ids.addAiProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
     </section>
 
-    <section class="biliscript-set-group">
+    <section class="biliscript-set-group" data-settings-section="asr">
       <div class="biliscript-set-h">语音转写平台</div>
       <p class="biliscript-set-hint">无字幕轨视频可通过语音识别自动生成字幕。当前选用平台将用于转写。</p>
       <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
@@ -92,7 +102,7 @@ export function buildSettingsHtml(): string {
       </label>
     </section>
 
-    <section class="biliscript-set-group">
+    <section class="biliscript-set-group" data-settings-section="search">
       <div class="biliscript-set-h">搜索平台</div>
       <p class="biliscript-set-hint">AI 对话与选区解释可联网搜索视频内容之外的信息（function calling，由模型决定何时搜）。联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止该家接收查询。</p>
       <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用平台已不可用，当前按默认链搜索</p>
@@ -111,7 +121,7 @@ export function buildSettingsHtml(): string {
       </div>
     </section>
 
-    <section class="biliscript-set-group">
+    <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 按钮</div>
       <label class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空</span>
@@ -125,12 +135,12 @@ export function buildSettingsHtml(): string {
       ></textarea>
     </section>
 
-    <section class="biliscript-set-group">
+    <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 对话 - 系统提示词</div>
       <textarea id="${ids.aiSystemPrompt}" class="biliscript-set-textarea" placeholder="例如：回答尽量简洁；优先总结视频观点；必要时引用字幕原话。"></textarea>
     </section>
 
-    <section class="biliscript-set-group">
+    <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 对话 - 初始问题</div>
       <p class="biliscript-set-hint">新视频没有历史对话时显示，最多 3 条；留空则按视频内容自动生成。</p>
       <div class="biliscript-set-quick-prompts">
@@ -140,7 +150,7 @@ export function buildSettingsHtml(): string {
       </div>
     </section>
 
-    <section class="biliscript-set-group">
+    <section class="biliscript-set-group" data-settings-section="appearance">
       <div class="biliscript-set-h">外观与布局</div>
       <p class="biliscript-set-hint">外观色板决定文摘面板的整体视觉风格；明暗模式由面板顶栏的太阳 / 月亮按钮切换，两者互不影响。</p>
       <div class="biliscript-set-row">
@@ -252,7 +262,7 @@ export function buildSettingsHtml(): string {
       <p class="biliscript-set-hint" style="margin-top: -4px;">在普通视频播放页加载就绪后自动展开；稍后再看与收藏夹列表不自动展开。</p>
     </section>
 
-    <section class="biliscript-set-group">
+    <section class="biliscript-set-group" data-settings-section="export">
       <div class="biliscript-set-h">导出</div>
       <div class="biliscript-set-row">
         <label class="biliscript-set-label" for="${ids.downloadFormat}">下载格式</label>
