@@ -2095,26 +2095,72 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   z-index: 0;
 }
 
+@keyframes biliscript-quote-drift {
+  0% {
+    transform: scale(1) translate(0, 0);
+  }
+  33% {
+    transform: scale(1.04) translate(1.2%, -1.5%);
+  }
+  66% {
+    transform: scale(0.98) translate(-1.5%, 1.2%);
+  }
+  100% {
+    transform: scale(1) translate(0, 0);
+  }
+}
+
+.biliscript-quote-card-blobs-layer {
+  position: absolute;
+  inset: -20px;
+  will-change: transform;
+  transform: translate(calc(var(--quote-spring-x, 0) * 14px), calc(var(--quote-spring-y, 0) * 12px));
+}
+
 .biliscript-quote-card-blobs {
   position: absolute;
   inset: 0;
   background-size: 100% 100%;
   transition: background 0.3s ease;
+  animation: biliscript-quote-drift 24s ease-in-out infinite alternate;
 }
 
-/* 细线几何纹样层（线宽统一 0.8px，默认透明度约 0.3，径向遮罩中心留白） */
+/* 细线几何纹样层（线宽统一 0.8px，默认透明度约 0.3，径向遮罩中心留白，反向微视差） */
 .biliscript-quote-card-pattern {
   position: absolute;
-  inset: 0;
+  inset: -15px;
   z-index: 1;
   opacity: 0.3;
   pointer-events: none;
   overflow: hidden;
+  will-change: transform;
+  transform: translate(calc(var(--quote-spring-x, 0) * -10px), calc(var(--quote-spring-y, 0) * -8px));
   -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0, 0, 0, 0.4) 75%, #000000 100%);
   mask-image: radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0, 0, 0, 0.4) 75%, #000000 100%);
   -webkit-mask-size: 100% 100%;
   mask-size: 100% 100%;
   transition: opacity 0.3s ease;
+}
+
+/* 悬停光标微弱柔光跟随层 */
+.biliscript-quote-card-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(
+    circle 180px at var(--quote-glow-x, 50%) var(--quote-glow-y, 50%),
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.08) 40%,
+    transparent 75%
+  );
+  mix-blend-mode: soft-light;
+}
+
+.biliscript-quote-card.is-hovered .biliscript-quote-card-glow {
+  opacity: 1;
 }
 
 .biliscript-quote-card-pattern svg {
@@ -2204,6 +2250,75 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   max-width: 180px;
 }
 
+/* 导出与复制操作按钮区 */
+.biliscript-quote-share-actions {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.biliscript-quote-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--biliscript-reader-text, #ffffff);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.biliscript-quote-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.biliscript-quote-action-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.biliscript-quote-action-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.biliscript-quote-action-btn.is-primary {
+  background: var(--biliscript-reader-accent, #00a1d6);
+  border-color: var(--biliscript-reader-accent, #00a1d6);
+  color: #ffffff;
+}
+
+.biliscript-quote-action-btn.is-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.biliscript-quote-action-btn.is-success {
+  background: #22a06b !important;
+  border-color: #22a06b !important;
+  color: #ffffff !important;
+}
+
+.biliscript-quote-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.biliscript-quote-action-icon svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
 /* 6 组色环相邻渐变配色 */
 
 /* 1. 紫粉到橙金 (purple-gold) */
@@ -2289,7 +2404,11 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   .biliscript-quote-card-pattern {
     display: none !important;
   }
+  .biliscript-quote-card-blobs-layer,
   .biliscript-quote-card-blobs {
+    display: none !important;
+  }
+  .biliscript-quote-card-glow {
     display: none !important;
   }
   .biliscript-quote-card-bg {
@@ -2300,8 +2419,20 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 @media (prefers-reduced-motion: reduce) {
   .biliscript-quote-preset-btn,
   .biliscript-quote-pattern-btn,
+  .biliscript-quote-action-btn,
   .biliscript-quote-card-blobs,
-  .biliscript-quote-card-pattern {
+  .biliscript-quote-card-pattern,
+  .biliscript-quote-card-glow {
     transition: none !important;
+  }
+  .biliscript-quote-card-blobs {
+    animation: none !important;
+  }
+  .biliscript-quote-card-blobs-layer,
+  .biliscript-quote-card-pattern {
+    transform: none !important;
+  }
+  .biliscript-quote-card-glow {
+    display: none !important;
   }
 }

@@ -17,6 +17,21 @@ import {
   type QuotePatternId
 } from "../../extension/reader/quote-share-patterns.js";
 import {
+  solveSpring1D,
+  createSpring2D
+} from "../../extension/reader/quote-share-spring.js";
+import {
+  renderQuoteCardToCanvas,
+  renderQuoteCardBlob,
+  copyQuoteCardBlobToClipboard,
+  downloadQuoteCardBlob,
+  wrapCanvasText,
+  extractQuoteCardExportOptions,
+  dataUrlToBlob,
+  canvasToBlob,
+  EXPORT_PRESET_DEFS
+} from "../../extension/reader/quote-share-export.js";
+import {
   openQuoteShareModal,
   closeQuoteShareModal,
   isQuoteShareModalOpen,
@@ -24,7 +39,9 @@ import {
   setActiveQuoteCardPreset,
   QUOTE_CARD_PRESETS,
   getActiveQuoteCardPattern,
-  setActiveQuoteCardPattern
+  setActiveQuoteCardPattern,
+  prefersReducedMotion,
+  getSpringInstance
 } from "../../extension/reader/quote-share-modal.js";
 import { renderReadingOverview, onReadingOverviewClick } from "../../extension/reader/overview-ui.js";
 import { closeReadingView } from "../../extension/reader/lifecycle.js";
@@ -545,5 +562,407 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
 
     closeReadingView();
     expect(isQuoteShareModalOpen()).toBe(false);
+  });
+});
+
+describe("quote-share-spring 物理模拟器", () => {
+  it("solveSpring1D: dt 小于等于 0 时保持原位与原速度", () => {
+    const [pos, vel] = solveSpring1D(10, 5, 0, 0, 70, 0.86);
+    expect(pos).toBe(10);
+    expect(vel).toBe(5);
+  });
+
+  it("solveSpring1D: 欠阻尼刚度 70 阻尼比 0.86 下平滑回弹向目标收敛", () => {
+    let pos = 1.0;
+    let vel = 0;
+    const target = 0;
+    const dt = 1 / 60;
+    // 模拟 45 帧（约 0.75 秒）
+    for (let frame = 0; frame < 45; frame++) {
+      [pos, vel] = solveSpring1D(pos, vel, target, dt, 70, 0.86);
+    }
+    // 经过 0.75 秒后应高度收敛至目标原点（位移 < 0.01）
+    expect(Math.abs(pos)).toBeLessThan(0.01);
+    expect(Math.abs(vel)).toBeLessThan(0.02);
+  });
+
+  it("createSpring2D: 初始状态停稳在原点，setTarget 触发非停稳状态", () => {
+    const spring = createSpring2D({ stiffness: 70, dampingRatio: 0.86 });
+    expect(spring.isSettled()).toBe(true);
+    expect(spring.getState().current).toEqual({ x: 0, y: 0 });
+
+    spring.setTarget(0.8, -0.6);
+    expect(spring.isSettled()).toBe(false);
+    expect(spring.getState().target).toEqual({ x: 0.8, y: -0.6 });
+  });
+
+  it("createSpring2D: step 连续步进达到停稳阈值后吸附并标记 settled: true", () => {
+    const spring = createSpring2D({
+      stiffness: 70,
+      dampingRatio: 0.86,
+      precision: 0.005,
+      velocityPrecision: 0.01
+    });
+    spring.setTarget(1.0, 1.0);
+
+    // 步进 60 步（每步 16ms）
+    for (let i = 0; i < 60; i++) {
+      spring.step(0.016);
+    }
+
+    const state = spring.getState();
+    expect(state.settled).toBe(true);
+    expect(state.current.x).toBe(1.0);
+    expect(state.current.y).toBe(1.0);
+    expect(state.velocity.x).toBe(0);
+    expect(state.velocity.y).toBe(0);
+  });
+
+  it("createSpring2D: snapTo 立即设置坐标与清零速度", () => {
+    const spring = createSpring2D();
+    spring.setTarget(1, 1);
+    expect(spring.isSettled()).toBe(false);
+
+    spring.snapTo(0.2, 0.4);
+    expect(spring.isSettled()).toBe(true);
+    expect(spring.getState().current).toEqual({ x: 0.2, y: 0.4 });
+    expect(spring.getState().target).toEqual({ x: 0.2, y: 0.4 });
+    expect(spring.getState().velocity).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("quote-share-motion-and-parallax", () => {
+  let origMatchMedia: typeof window.matchMedia;
+
+  function setMatchMediaReduce(reduce: boolean) {
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("prefers-reduced-motion") ? reduce : false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    })) as unknown as typeof window.matchMedia;
+  }
+
+  beforeEach(() => {
+    origMatchMedia = window.matchMedia;
+    setMatchMediaReduce(false);
+    document.body.innerHTML = `<div id="${ids.readingView}"></div>`;
+    closeQuoteShareModal();
+  });
+
+  afterEach(() => {
+    closeQuoteShareModal();
+    window.matchMedia = origMatchMedia;
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  it("prefersReducedMotion: 尊重系统 mediaQuery 设置", () => {
+    setMatchMediaReduce(true);
+    expect(prefersReducedMotion()).toBe(true);
+
+    setMatchMediaReduce(false);
+    expect(prefersReducedMotion()).toBe(false);
+  });
+
+  it("弹窗内包含色团层 blobs-layer 与柔光光标跟随层 glow", () => {
+    openQuoteShareModal({ content: "动效测试金句", from: 0 });
+    const blobsLayer = document.querySelector(".biliscript-quote-card-blobs-layer");
+    expect(blobsLayer).not.toBeNull();
+    const glowEl = document.querySelector(".biliscript-quote-card-glow");
+    expect(glowEl).not.toBeNull();
+    expect(glowEl?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("鼠标在卡片上悬停移动时更新光标柔光位置并触发 spring 目标变化", () => {
+    setMatchMediaReduce(false);
+    openQuoteShareModal({ content: "微视差测试", from: 0 });
+
+    const card = document.querySelector<HTMLElement>(".biliscript-quote-card")!;
+    expect(card).not.toBeNull();
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      top: 100,
+      width: 400,
+      height: 300,
+      right: 500,
+      bottom: 400,
+      x: 100,
+      y: 100,
+      toJSON: () => ({})
+    });
+
+    card.dispatchEvent(new MouseEvent("mousemove", { clientX: 360, clientY: 270, bubbles: true }));
+
+    expect(card.classList.contains("is-hovered")).toBe(true);
+    expect(card.style.getPropertyValue("--quote-glow-x")).toBe("260.0px");
+    expect(card.style.getPropertyValue("--quote-glow-y")).toBe("170.0px");
+
+    const spring = getSpringInstance();
+    expect(spring).not.toBeNull();
+    expect(spring?.isSettled()).toBe(false);
+  });
+
+  it("鼠标移出卡片时清除 is-hovered 并让 spring 目标归零回弹", () => {
+    setMatchMediaReduce(false);
+    openQuoteShareModal({ content: "微视差回弹测试", from: 0 });
+
+    const card = document.querySelector<HTMLElement>(".biliscript-quote-card")!;
+    card.classList.add("is-hovered");
+
+    card.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+    expect(card.classList.contains("is-hovered")).toBe(false);
+
+    const spring = getSpringInstance();
+    expect(spring?.getState().target).toEqual({ x: 0, y: 0 });
+  });
+
+  it("prefers-reduced-motion: reduce 激活时鼠标悬停不开启视差与高光", () => {
+    setMatchMediaReduce(true);
+    openQuoteShareModal({ content: "减弱动效测试", from: 0 });
+
+    const card = document.querySelector<HTMLElement>(".biliscript-quote-card")!;
+    card.dispatchEvent(new MouseEvent("mousemove", { clientX: 200, clientY: 200, bubbles: true }));
+
+    expect(card.classList.contains("is-hovered")).toBe(false);
+    expect(card.style.getPropertyValue("--quote-glow-x")).toBe("");
+  });
+});
+
+describe("quote-share-export 导出与光栅化", () => {
+  it("wrapCanvasText: 较长单行文本按最大宽度合理折行", () => {
+    const fakeCtx = {
+      measureText: vi.fn((str: string) => ({ width: str.length * 10 }))
+    } as unknown as CanvasRenderingContext2D;
+
+    const lines = wrapCanvasText(fakeCtx, "一二三四五六七八九十", 45);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.join("")).toBe("一二三四五六七八九十");
+  });
+
+  it("wrapCanvasText: 保留换行符并分段折行", () => {
+    const fakeCtx = {
+      measureText: vi.fn((str: string) => ({ width: str.length * 10 }))
+    } as unknown as CanvasRenderingContext2D;
+
+    const lines = wrapCanvasText(fakeCtx, "第一段\n第二段", 200);
+    expect(lines).toEqual(["第一段", "第二段"]);
+  });
+
+  it("extractQuoteCardExportOptions: 从 DOM 卡片正确解析属性", () => {
+    const host = document.createElement("div");
+    host.innerHTML = `
+      <div class="biliscript-quote-card" data-preset="slate-brown" data-pattern="contours">
+        <div class="biliscript-quote-card-text">人生代代无穷已</div>
+        <span class="biliscript-quote-card-timestamp">2:10</span>
+        <span class="biliscript-quote-card-source">春江花月夜</span>
+      </div>
+    `;
+    const card = host.firstElementChild as HTMLElement;
+    const opts = extractQuoteCardExportOptions(card);
+
+    expect(opts.content).toBe("人生代代无穷已");
+    expect(opts.preset).toBe("slate-brown");
+    expect(opts.pattern).toBe("contours");
+    expect(opts.timestamp).toBe("2:10");
+    expect(opts.videoTitle).toBe("春江花月夜");
+  });
+
+  it("dataUrlToBlob: 正确将 Base64 DataURL 解析为 Blob", () => {
+    const rawPng = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const blob = dataUrlToBlob(rawPng);
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe("image/png");
+    expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it("canvasToBlob: 优先使用 canvas.toBlob", async () => {
+    const mockBlob = new Blob(["mock"], { type: "image/png" });
+    const canvas = document.createElement("canvas");
+    canvas.toBlob = vi.fn((cb: BlobCallback) => {
+      cb(mockBlob);
+    });
+
+    const result = await canvasToBlob(canvas);
+    expect(result).toBe(mockBlob);
+    expect(canvas.toBlob).toHaveBeenCalled();
+  });
+
+  it("canvasToBlob: toBlob 返回 null 时优雅降级走 toDataURL", async () => {
+    const canvas = document.createElement("canvas");
+    canvas.toBlob = vi.fn((cb: BlobCallback) => cb(null));
+    canvas.toDataURL = vi.fn(() => "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
+
+    const result = await canvasToBlob(canvas);
+    expect(result).toBeInstanceOf(Blob);
+    expect(result.type).toBe("image/png");
+  });
+
+  it("copyQuoteCardBlobToClipboard: 支持 navigator.clipboard.write 与 ClipboardItem", async () => {
+    const mockWrite = vi.fn().mockResolvedValue(undefined);
+    const origClipboard = navigator.clipboard;
+    const origClipboardItem = (globalThis as unknown as { ClipboardItem?: unknown }).ClipboardItem;
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: { write: mockWrite },
+      configurable: true
+    });
+    (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = vi.fn();
+
+    const blob = new Blob(["test"], { type: "image/png" });
+    const success = await copyQuoteCardBlobToClipboard(blob);
+    expect(success).toBe(true);
+    expect(mockWrite).toHaveBeenCalled();
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: origClipboard,
+      configurable: true
+    });
+    (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = origClipboardItem;
+  });
+
+  it("copyQuoteCardBlobToClipboard: 当 API 抛错时捕获并优雅返回 false", async () => {
+    const mockWrite = vi.fn().mockRejectedValue(new Error("NotAllowedError"));
+    Object.defineProperty(navigator, "clipboard", {
+      value: { write: mockWrite },
+      configurable: true
+    });
+    (globalThis as unknown as { ClipboardItem: unknown }).ClipboardItem = vi.fn();
+
+    const blob = new Blob(["test"], { type: "image/png" });
+    const success = await copyQuoteCardBlobToClipboard(blob);
+    expect(success).toBe(false);
+  });
+
+  it("downloadQuoteCardBlob: 创建 a[download] 触发点击下载并清理 URL", () => {
+    const origCreateObjectURL = URL.createObjectURL;
+    const origRevokeObjectURL = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn(() => "blob:http://localhost/mock-uuid");
+    URL.revokeObjectURL = vi.fn();
+
+    let clickCalled = false;
+    const origAppendChild = document.body.appendChild.bind(document.body);
+    vi.spyOn(document.body, "appendChild").mockImplementation((node: Node) => {
+      if (node instanceof HTMLAnchorElement) {
+        node.click = () => {
+          clickCalled = true;
+        };
+      }
+      return origAppendChild(node);
+    });
+
+    const blob = new Blob(["test"], { type: "image/png" });
+    downloadQuoteCardBlob(blob, "my-quote.png");
+
+    expect(clickCalled).toBe(true);
+    expect(URL.createObjectURL).toHaveBeenCalledWith(blob);
+
+    URL.createObjectURL = origCreateObjectURL;
+    URL.revokeObjectURL = origRevokeObjectURL;
+  });
+
+  it("renderQuoteCardToCanvas: 至少以 2x 缩放比例构建画布", async () => {
+    const canvas = await renderQuoteCardToCanvas({
+      content: "测试缩放",
+      preset: "purple-gold",
+      pattern: "rays",
+      width: 400,
+      height: 300,
+      scale: 2
+    });
+
+    expect(canvas.width).toBe(800);
+    expect(canvas.height).toBe(600);
+  });
+});
+
+describe("quote-share-actions-ui 控制栏交互", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `<div id="${ids.readingView}"></div>`;
+    closeQuoteShareModal();
+  });
+
+  afterEach(() => {
+    closeQuoteShareModal();
+    document.body.innerHTML = "";
+    vi.restoreAllMocks();
+  });
+
+  it("弹窗底部渲染「复制图片」与「保存 PNG」按钮", () => {
+    openQuoteShareModal({ content: "操作栏按钮测试", from: 10 });
+
+    const copyBtn = document.querySelector<HTMLButtonElement>("[data-action='copy-image']");
+    expect(copyBtn).not.toBeNull();
+    expect(copyBtn?.textContent).toContain("复制图片");
+
+    const downloadBtn = document.querySelector<HTMLButtonElement>("[data-action='download-image']");
+    expect(downloadBtn).not.toBeNull();
+    expect(downloadBtn?.textContent).toContain("保存 PNG");
+  });
+
+  it("点击「保存 PNG」触发导出下载并更新按钮为已保存", async () => {
+    openQuoteShareModal({ content: "下载按钮测试", from: 20 });
+
+    const downloadBtn = document.querySelector<HTMLButtonElement>("[data-action='download-image']")!;
+    expect(downloadBtn).not.toBeNull();
+
+    // 模拟 Canvas 导出
+    const fakeBlob = new Blob(["mock-image"], { type: "image/png" });
+    HTMLCanvasElement.prototype.toBlob = vi.fn((cb: BlobCallback) => cb(fakeBlob));
+    URL.createObjectURL = vi.fn(() => "blob:test");
+    URL.revokeObjectURL = vi.fn();
+
+    downloadBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    // 等待 microtask / promise
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(downloadBtn.classList.contains("is-success")).toBe(true);
+    expect(downloadBtn.textContent).toContain("已保存");
+  });
+});
+
+describe("quote-share-motion-styles 样式与降级", () => {
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
+  const cssPath = path.resolve(currentDir, "../../extension/entry/styles/reader.css");
+  const cssContent = fs.readFileSync(cssPath, "utf-8");
+
+  it("定义 @keyframes biliscript-quote-drift 慢速漂移动画（24s 周期）", () => {
+    expect(cssContent).toContain("@keyframes biliscript-quote-drift");
+    expect(cssContent).toContain("animation: biliscript-quote-drift 24s ease-in-out infinite alternate;");
+  });
+
+  it("定义 .biliscript-quote-card-blobs-layer 视差层与 --quote-spring 变量", () => {
+    expect(cssContent).toContain(".biliscript-quote-card-blobs-layer");
+    expect(cssContent).toContain("var(--quote-spring-x, 0)");
+  });
+
+  it("定义 .biliscript-quote-card-glow 柔光跟随层", () => {
+    expect(cssContent).toContain(".biliscript-quote-card-glow");
+    expect(cssContent).toContain("var(--quote-glow-x, 50%)");
+    expect(cssContent).toContain(".biliscript-quote-card.is-hovered .biliscript-quote-card-glow");
+  });
+
+  it("定义 .biliscript-quote-share-actions 与操作按钮样式", () => {
+    expect(cssContent).toContain(".biliscript-quote-share-actions");
+    expect(cssContent).toContain(".biliscript-quote-action-btn");
+    expect(cssContent).toContain(".biliscript-quote-action-btn.is-success");
+  });
+
+  it("prefers-reduced-motion: reduce 强制关闭所有漂移、视差与光标动画", () => {
+    expect(cssContent).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(cssContent).toContain("animation: none !important;");
+    expect(cssContent).toContain("transform: none !important;");
+    expect(cssContent).toContain(".biliscript-quote-card-glow");
+  });
+
+  it("prefers-reduced-transparency: reduce 隐藏噪点、纹样、色团层与高光", () => {
+    expect(cssContent).toContain("@media (prefers-reduced-transparency: reduce)");
+    expect(cssContent).toContain(".biliscript-quote-card-blobs-layer");
+    expect(cssContent).toContain(".biliscript-quote-card-glow");
   });
 });

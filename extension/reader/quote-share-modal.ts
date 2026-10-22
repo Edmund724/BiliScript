@@ -1,15 +1,26 @@
 // extension/reader/quote-share-modal.ts
-// 金句分享卡片预览模态弹窗与主题预设切换。
+// 金句分享卡片预览模态弹窗、视差弹簧微动效与图片光栅化导出。
 
 import { escapeHtml } from "../shared/string-utils.js";
 import { formatClock } from "../shared/clock-text.js";
-import { READING_CLOSE_ICON } from "../ui/reading-icons.js";
+import {
+  READING_CLOSE_ICON,
+  READING_COPY_ICON,
+  READING_CHECK_ICON,
+  READING_DOWNLOAD_ICON
+} from "../ui/reading-icons.js";
 import { getQuoteShareNoiseDataUrl } from "./quote-share-noise.js";
 import {
   QUOTE_CARD_PATTERNS,
   type QuotePatternId,
   getQuoteSharePatternSvg
 } from "./quote-share-patterns.js";
+import { createSpring2D, type Spring2DInstance } from "./quote-share-spring.js";
+import {
+  renderQuoteCardBlob,
+  copyQuoteCardBlobToClipboard,
+  downloadQuoteCardBlob
+} from "./quote-share-export.js";
 import { ids } from "./state.js";
 
 export { QUOTE_CARD_PATTERNS, type QuotePatternId };
@@ -45,6 +56,9 @@ interface QuoteShareModalState {
   activePreset: string;
   activePattern: QuotePatternId;
   host: HTMLElement | null;
+  spring: Spring2DInstance | null;
+  copying: boolean;
+  downloading: boolean;
 }
 
 const state: QuoteShareModalState = {
@@ -54,8 +68,21 @@ const state: QuoteShareModalState = {
   videoTitle: "",
   activePreset: "purple-gold",
   activePattern: "rays",
-  host: null
+  host: null,
+  spring: null,
+  copying: false,
+  downloading: false
 };
+
+/**
+ * 判断系统是否开启了减弱动态效果设置。
+ */
+export function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 export function isQuoteShareModalOpen(): boolean {
   return state.open;
@@ -63,6 +90,10 @@ export function isQuoteShareModalOpen(): boolean {
 
 export function getActiveQuoteCardPreset(): string {
   return state.activePreset;
+}
+
+export function getSpringInstance(): Spring2DInstance | null {
+  return state.spring;
 }
 
 export function setActiveQuoteCardPreset(presetId: string): void {
@@ -149,6 +180,7 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
   host.innerHTML = buildModalHtml();
 
   bindModalEvents(host);
+  setupMotionAndParallax(host);
 
   const container = document.getElementById(ids.readingView) || document.body;
   container.appendChild(host);
@@ -162,6 +194,14 @@ export function closeQuoteShareModal(): void {
     return;
   }
   state.open = false;
+  state.copying = false;
+  state.downloading = false;
+
+  if (state.spring) {
+    state.spring.stop();
+    state.spring = null;
+  }
+
   document.removeEventListener("keydown", onDocumentKeyDown, true);
   state.host?.remove();
   state.host = null;
@@ -175,8 +215,50 @@ function onDocumentKeyDown(event: KeyboardEvent): void {
   closeQuoteShareModal();
 }
 
+function setupMotionAndParallax(host: HTMLElement): void {
+  const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
+  if (!card) {
+    return;
+  }
+
+  // 弹簧阻尼平滑插值（stiffness: 70, damping ratio: 0.86）
+  const spring = createSpring2D({
+    stiffness: 70,
+    dampingRatio: 0.86,
+    onUpdate: ({ x, y }) => {
+      card.style.setProperty("--quote-spring-x", x.toFixed(4));
+      card.style.setProperty("--quote-spring-y", y.toFixed(4));
+    }
+  });
+  state.spring = spring;
+
+  card.addEventListener("mousemove", (event) => {
+    if (prefersReducedMotion()) {
+      return;
+    }
+    const rect = card.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const halfW = rect.width / 2 || 200;
+    const halfH = rect.height / 2 || 150;
+    const nx = Math.max(-1, Math.min(1, (x - halfW) / halfW));
+    const ny = Math.max(-1, Math.min(1, (y - halfH) / halfH));
+
+    card.style.setProperty("--quote-glow-x", `${x.toFixed(1)}px`);
+    card.style.setProperty("--quote-glow-y", `${y.toFixed(1)}px`);
+    card.classList.add("is-hovered");
+
+    spring.setTarget(nx, ny);
+  });
+
+  card.addEventListener("mouseleave", () => {
+    card.classList.remove("is-hovered");
+    spring.setTarget(0, 0);
+  });
+}
+
 function bindModalEvents(host: HTMLElement): void {
-  host.addEventListener("click", (event) => {
+  host.addEventListener("click", async (event) => {
     const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
       "[data-action], [data-preset], [data-pattern]"
     );
@@ -186,6 +268,20 @@ function bindModalEvents(host: HTMLElement): void {
     const action = target.dataset.action;
     if (action === "close") {
       closeQuoteShareModal();
+      return;
+    }
+    if (action === "copy-image") {
+      const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
+      if (card && target instanceof HTMLButtonElement) {
+        await handleCopyImageAction(target, card);
+      }
+      return;
+    }
+    if (action === "download-image") {
+      const card = host.querySelector<HTMLElement>(".biliscript-quote-card");
+      if (card && target instanceof HTMLButtonElement) {
+        await handleDownloadImageAction(target, card);
+      }
       return;
     }
     const preset = target.dataset.preset;
@@ -199,6 +295,119 @@ function bindModalEvents(host: HTMLElement): void {
       return;
     }
   });
+}
+
+async function handleCopyImageAction(btn: HTMLButtonElement, card: HTMLElement): Promise<void> {
+  if (state.copying) {
+    return;
+  }
+  state.copying = true;
+  const textEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-text");
+  const iconEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-icon");
+  const origText = textEl?.textContent || "复制图片";
+
+  if (textEl) {
+    textEl.textContent = "生成中...";
+  }
+  btn.disabled = true;
+
+  try {
+    const blob = await renderQuoteCardBlob(card);
+    const copied = await copyQuoteCardBlobToClipboard(blob);
+    if (copied) {
+      btn.classList.add("is-success");
+      if (textEl) {
+        textEl.textContent = "已复制 ✓";
+      }
+      if (iconEl) {
+        iconEl.innerHTML = READING_CHECK_ICON;
+      }
+      setTimeout(() => {
+        btn.classList.remove("is-success");
+        if (textEl) {
+          textEl.textContent = origText;
+        }
+        if (iconEl) {
+          iconEl.innerHTML = READING_COPY_ICON;
+        }
+        btn.disabled = false;
+        state.copying = false;
+      }, 2000);
+    } else {
+      if (textEl) {
+        textEl.textContent = "复制失败，请保存";
+      }
+      setTimeout(() => {
+        if (textEl) {
+          textEl.textContent = origText;
+        }
+        btn.disabled = false;
+        state.copying = false;
+      }, 2500);
+    }
+  } catch (err) {
+    if (textEl) {
+      textEl.textContent = "生成失败";
+    }
+    setTimeout(() => {
+      if (textEl) {
+        textEl.textContent = origText;
+      }
+      btn.disabled = false;
+      state.copying = false;
+    }, 2000);
+  }
+}
+
+async function handleDownloadImageAction(btn: HTMLButtonElement, card: HTMLElement): Promise<void> {
+  if (state.downloading) {
+    return;
+  }
+  state.downloading = true;
+  const textEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-text");
+  const iconEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-icon");
+  const origText = textEl?.textContent || "保存 PNG";
+
+  if (textEl) {
+    textEl.textContent = "导出中...";
+  }
+  btn.disabled = true;
+
+  try {
+    const blob = await renderQuoteCardBlob(card);
+    const filename = `biliscript-quote-${Date.now()}.png`;
+    downloadQuoteCardBlob(blob, filename);
+
+    btn.classList.add("is-success");
+    if (textEl) {
+      textEl.textContent = "已保存 ✓";
+    }
+    if (iconEl) {
+      iconEl.innerHTML = READING_CHECK_ICON;
+    }
+    setTimeout(() => {
+      btn.classList.remove("is-success");
+      if (textEl) {
+        textEl.textContent = origText;
+      }
+      if (iconEl) {
+        iconEl.innerHTML = READING_DOWNLOAD_ICON;
+      }
+      btn.disabled = false;
+      state.downloading = false;
+    }, 1500);
+  } catch (err) {
+    if (textEl) {
+      textEl.textContent = "导出失败";
+    }
+    setTimeout(() => {
+      if (textEl) {
+        textEl.textContent = origText;
+      }
+      btn.disabled = false;
+      state.downloading = false;
+    }, 2000);
+  }
 }
 
 function buildModalHtml(): string {
@@ -242,8 +451,11 @@ function buildModalHtml(): string {
       <div class="biliscript-quote-share-preview">
         <div class="biliscript-quote-card biliscript-quote-share-card" data-preset="${state.activePreset}" data-pattern="${state.activePattern}">
           <div class="biliscript-quote-card-bg">
-            <div class="biliscript-quote-card-blobs"></div>
+            <div class="biliscript-quote-card-blobs-layer">
+              <div class="biliscript-quote-card-blobs"></div>
+            </div>
             <div class="biliscript-quote-card-pattern" aria-hidden="true">${getQuoteSharePatternSvg(state.activePattern)}</div>
+            <div class="biliscript-quote-card-glow" aria-hidden="true"></div>
             <div class="biliscript-quote-card-noise" style="background-image: url('${noiseUrl}');"></div>
           </div>
           <div class="biliscript-quote-card-content">
@@ -256,6 +468,16 @@ function buildModalHtml(): string {
           </div>
         </div>
       </div>
+      <footer class="biliscript-quote-share-actions">
+        <button type="button" class="biliscript-quote-action-btn biliscript-quote-copy-btn" data-action="copy-image" title="复制卡片图片到剪贴板">
+          <span class="biliscript-quote-action-icon">${READING_COPY_ICON}</span>
+          <span class="biliscript-quote-action-text">复制图片</span>
+        </button>
+        <button type="button" class="biliscript-quote-action-btn biliscript-quote-download-btn is-primary" data-action="download-image" title="保存卡片为 PNG 图片">
+          <span class="biliscript-quote-action-icon">${READING_DOWNLOAD_ICON}</span>
+          <span class="biliscript-quote-action-text">保存 PNG</span>
+        </button>
+      </footer>
     </section>
   `;
 }
