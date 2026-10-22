@@ -1767,33 +1767,47 @@
 }
 
 
-/* LaTeX 数学公式排版 */
-.biliscript-md-math-block {
-  display: block;
-  margin: 0.4em 0;
-  text-align: center;
+/* LaTeX 数学公式排版：支持顶层 flex-wrap 自动折行，不可折行超长单项兜底细滚动条 */
+.biliscript-md-math {
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
 }
 
-.biliscript-md-math-block::-webkit-scrollbar {
+.biliscript-md-math::-webkit-scrollbar {
   height: 3px;
 }
 
-.biliscript-md-math-block::-webkit-scrollbar-thumb {
+.biliscript-md-math::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-border, rgba(0, 0, 0, 0.15));
   border-radius: 2px;
 }
 
+.biliscript-md-math-block {
+  display: block;
+  margin: 0.4em 0;
+  text-align: center;
+}
+
 .biliscript-md-math-inline {
-  display: inline;
+  display: inline-block;
   vertical-align: baseline;
+}
+
+math,
+math > semantics,
+math > semantics > mrow,
+math > mrow {
+  display: inline-flex !important;
+  flex-wrap: wrap !important;
+  align-items: center;
+  max-width: 100%;
+  row-gap: 2px;
 }
 
 math {
   font-size: 0.95em;
-  white-space: normal;
 }
 
 math[display="block"] {

@@ -2052,33 +2052,47 @@
 
 
 
-/* LaTeX 数学公式排版 */
-.biliscript-reading-chat .biliscript-md-math-block {
-  display: block;
-  margin: 0.4em 0;
-  text-align: center;
+/* LaTeX 数学公式排版：支持顶层 flex-wrap 自动折行，不可折行超长单项兜底细滚动条 */
+.biliscript-reading-chat .biliscript-md-math {
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
 }
 
-.biliscript-reading-chat .biliscript-md-math-block::-webkit-scrollbar {
+.biliscript-reading-chat .biliscript-md-math::-webkit-scrollbar {
   height: 3px;
 }
 
-.biliscript-reading-chat .biliscript-md-math-block::-webkit-scrollbar-thumb {
+.biliscript-reading-chat .biliscript-md-math::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-border, rgba(0, 0, 0, 0.15));
   border-radius: 2px;
 }
 
+.biliscript-reading-chat .biliscript-md-math-block {
+  display: block;
+  margin: 0.4em 0;
+  text-align: center;
+}
+
 .biliscript-reading-chat .biliscript-md-math-inline {
-  display: inline;
+  display: inline-block;
   vertical-align: baseline;
+}
+
+.biliscript-reading-chat math,
+.biliscript-reading-chat math > semantics,
+.biliscript-reading-chat math > semantics > mrow,
+.biliscript-reading-chat math > mrow {
+  display: inline-flex !important;
+  flex-wrap: wrap !important;
+  align-items: center;
+  max-width: 100%;
+  row-gap: 2px;
 }
 
 .biliscript-reading-chat math {
   font-size: 0.95em;
-  white-space: normal;
 }
 
 .biliscript-reading-chat math[display="block"] {
