@@ -83,6 +83,13 @@ describe("math-render MathML 水合", () => {
     expect(mathTags[1].getAttribute("display")).toBe("block");
     expect(mathTags[2].getAttribute("display")).toBeNull();
     expect(container.innerHTML).toContain("<annotation encoding=\"application/x-tex\">");
+
+    // 检查等号左右对齐结构
+    const aligned = container.querySelector(".biliscript-math-aligned");
+    expect(aligned).not.toBeNull();
+    expect(container.querySelector(".biliscript-math-lhs")?.textContent).toContain("Agent");
+    expect(container.querySelector(".biliscript-math-lhs")?.textContent).toContain("=");
+    expect(container.querySelector(".biliscript-math-rhs")?.textContent).toContain("Model");
   });
 
   it("公式语法错误时优雅降级并标记 error，不抛出异常", () => {

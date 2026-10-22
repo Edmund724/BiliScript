@@ -1784,14 +1784,13 @@
   border-radius: 2px;
 }
 
-/* 块级展示公式（$$...$$）：卡片式微底色、圆角与呼吸留白 */
+/* 块级展示公式（$$...$$）：无底色纯净展示，轻微垂直呼吸留白 */
 .biliscript-md-math-block {
   display: block;
-  margin: 0.5em 0;
-  padding: 8px 14px;
-  background: var(--biliscript-reader-code-bg, rgba(0, 0, 0, 0.035));
-  border: 1px solid var(--biliscript-reader-border, rgba(0, 0, 0, 0.06));
-  border-radius: 8px;
+  margin: 0.4em 0;
+  padding: 2px 0;
+  background: transparent;
+  border: none;
   box-sizing: border-box;
 }
 
@@ -1817,25 +1816,43 @@ math mo {
   margin: 0 0.28em;
 }
 
-/* 论文式公式折行与悬挂缩进：顶层 flex 折行，第二行及后续行缩进 2em（等号右侧不顶格） */
-math,
-math > semantics,
-math > semantics > mrow,
-math > mrow {
+/* 论文式公式对齐结构：等号右侧多行换行时严格对齐在等号右边 */
+.biliscript-math-aligned {
+  display: flex !important;
+  align-items: baseline;
+  width: 100%;
+}
+
+.biliscript-math-lhs {
+  display: inline-flex !important;
+  align-items: baseline;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.biliscript-math-rhs {
+  display: inline-flex !important;
+  flex-wrap: wrap !important;
+  align-items: baseline;
+  flex: 1;
+  min-width: 0;
+  row-gap: 6px;
+}
+
+.biliscript-math-term {
+  display: inline-flex !important;
+  align-items: baseline;
+}
+
+/* 兜底自然折行：无等号公式的顶层 flex wrap */
+math:not(:has(.biliscript-math-aligned)),
+math:not(:has(.biliscript-math-aligned)) > semantics,
+math:not(:has(.biliscript-math-aligned)) > semantics > mrow,
+math:not(:has(.biliscript-math-aligned)) > mrow {
   display: inline-flex !important;
   flex-wrap: wrap !important;
   align-items: baseline;
   max-width: 100%;
   row-gap: 6px;
   box-sizing: border-box;
-}
-
-.biliscript-md-math-block math > semantics > mrow,
-.biliscript-md-math-block math > mrow {
-  padding-left: 2em;
-}
-
-.biliscript-md-math-block math > semantics > mrow > *:first-child,
-.biliscript-md-math-block math > mrow > *:first-child {
-  margin-left: -2em;
 }
