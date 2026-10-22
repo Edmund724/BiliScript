@@ -166,70 +166,47 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
   });
 });
 
-describe("saveSettings 保存链（保存按钮手势）", () => {
-  it("全链成功：收集→单路落盘（平台消息不再出自本链），状态条成功、busy 复位", async () => {
+describe("设置项即时保存与生效", () => {
+  it("更改设置项：自动单路落盘，状态条提示已保存且无保存设置按钮", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    // 收集段：改表单若干值（布尔 / textarea trim 口径）
-    host.querySelector<HTMLInputElement>("#enableDebugLogs")!.checked = true;
-    host.querySelector<HTMLTextAreaElement>("#aiSystemPrompt")!.value = "  自定义系统提示词  ";
+    expect(host.querySelector("#biliscriptSettingsSaveBtn")).toBeNull();
 
-    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
+    // 改表单值：布尔值切换触发 change
+    const debugLogsInput = host.querySelector<HTMLInputElement>("#enableDebugLogs")!;
+    debugLogsInput.checked = true;
+    debugLogsInput.dispatchEvent(new Event("change", { bubbles: true }));
 
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === "save-settings")).toBe(true);
     });
 
-    // provider-master-detail/02：平台收集/权限代申请/平台落盘段已整体退役，
-    // 保存设置按钮只发 save-settings 一路
     const types = messageTypes(sent);
     expect(types).toContain("save-settings");
     expect(types).not.toContain("request-provider-origins");
     expect(types).not.toContain("ai-providers-save");
     expect(types).not.toContain("asr-providers-save");
 
-    const saveMessage = sent.find((message) => message.type === "save-settings")!;
+    const saveMessage = sent.find((message) => message.type === "save-settings" && message.settings?.enableDebugLogs !== undefined)!;
     expect(saveMessage.settings).toMatchObject({
-      downloadFormat: "srt",
-      includeDateInFilename: true,
-      includeTimestampInBody: true,
-      enableDebugLogs: true,
-      aiSystemPrompt: "自定义系统提示词",
-      readerFontSizeScale: 100,
-      chatLineHeight: 160,
-      chatParagraphSpacing: 12
+      enableDebugLogs: true
     });
-    // 笔记导出的字段已退出收集口径（键不在载荷里）
-    for (const key of [
-      "tags",
-      "includeHotCommentsInNote",
-      "includePlayerEmbedInNote",
-      "frontmatterFields",
-      "fixedFrontmatterProperties",
-      "notePlaceholderSections"
-    ]) {
-      expect(saveMessage.settings, `${key} 不应出现在负载里`).not.toHaveProperty(key);
-    }
-    // 初始问题留空 = 按视频自动生成：收集口径落空数组，不回落固定文案
-    expect(saveMessage.settings!.aiInitialQuickPrompts).toEqual([]);
 
-    // 状态条与 busy 复位
+    // 状态条提示已保存
     const status = lastStatus(host);
-    expect(status.textContent).toBe("保存成功");
+    expect(status.textContent).toBe("已保存");
     expect(status.dataset.error).toBe("false");
-    const saveBtn = host.querySelector<HTMLButtonElement>("#biliscriptSettingsSaveBtn")!;
-    expect(saveBtn.disabled).toBe(false);
-    expect(saveBtn.textContent).toBe("保存设置");
   });
 
-  // 对账（C5）：本面板手写的收集子集必须落在 settings 键面内——键面外的键经
-  // save-settings 会被白名单静默丢弃（改键名/加错键时本用例红，而不是静默不落盘）。
-  it("保存载荷键面 ⊆ DEFAULT_SETTINGS 键面", async () => {
+  it("各设置项改动落盘载荷键面 ⊆ DEFAULT_SETTINGS 键面", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
+    const formatSelect = host.querySelector<HTMLSelectElement>("#downloadFormat")!;
+    formatSelect.value = "txt";
+    formatSelect.dispatchEvent(new Event("change", { bubbles: true }));
+
     await vi.waitFor(() => {
       expect(sent.some((message) => message.type === "save-settings")).toBe(true);
     });
@@ -241,19 +218,19 @@ describe("saveSettings 保存链（保存按钮手势）", () => {
     expect(stray, `保存载荷含键面外键：${stray.join(", ")}`).toEqual([]);
   });
 
-  it("save-settings 失败：状态条报错，busy 复位", async () => {
+  it("save-settings 失败：状态条报错", async () => {
     const sent = installMessageBus({ "save-settings": () => ({ ok: false, error: "写入失败" }) });
     const host = await mountPanel();
 
-    fireClick(host.querySelector("#biliscriptSettingsSaveBtn")!);
+    const debugLogsInput = host.querySelector<HTMLInputElement>("#enableDebugLogs")!;
+    debugLogsInput.checked = true;
+    debugLogsInput.dispatchEvent(new Event("change", { bubbles: true }));
 
     await vi.waitFor(() => {
       expect(lastStatus(host).textContent).toBe("写入失败");
     });
 
     expect(lastStatus(host).dataset.error).toBe("true");
-    expect(host.querySelector<HTMLButtonElement>("#biliscriptSettingsSaveBtn")!.disabled).toBe(false);
-    expect(host.querySelector<HTMLButtonElement>("#biliscriptSettingsSaveBtn")!.textContent).toBe("保存设置");
   });
 });
 
@@ -401,7 +378,7 @@ describe("恢复默认偏好按钮", () => {
 });
 
 // ===== 保存行贴底（2026-10 用户决议）=====
-// 抽屉滚到最低时「保存设置」行必须是内容末行：状态提示原本是保存行之后的独立
+// 抽屉滚到最低时操作行必须是内容末行：状态提示原本是保存行之后的独立
 // 网格行（min-height 16px + 14px 网格间距），滚到底还会多滑出一段空白，按钮
 // 悬在末行之上。状态提示并入保存行后 DOM 末节点即该行，且提示与按钮同排
 //（DOM 顺序 = flex 行内顺序：提示在左、动作按钮在右）。
@@ -422,8 +399,6 @@ describe("设置抽屉保存行：末行贴底 + 状态提示同排", () => {
     const status = lastStatus(host);
     expect(status.closest(".biliscript-set-actions")).toBe(host.querySelector(".biliscript-set-actions"));
     expect(status.nextElementSibling?.id).toBe("biliscriptSettingsResetBtn");
-    expect(host.querySelector("#biliscriptSettingsResetBtn")!.nextElementSibling?.id).toBe(
-      "biliscriptSettingsSaveBtn"
-    );
+    expect(host.querySelector("#biliscriptSettingsSaveBtn")).toBeNull();
   });
 });

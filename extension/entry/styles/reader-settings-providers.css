@@ -810,7 +810,6 @@
     transition: opacity 0.2s ease, display 0.2s allow-discrete;
   }
 
-  #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-save-btn:active,
   #biliscript-reading-view .provider-editor-host .ai-provider-model-option:active,
   #biliscript-reading-view .provider-editor-host .ai-provider-model-toggle:active,
   #biliscript-reading-view .biliscript-reading-settings-host .provider-row-remove:active,

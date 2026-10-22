@@ -42,7 +42,7 @@ import {
   normalizeChatLineHeight,
   normalizeChatParagraphSpacing
 } from "../core/validators.js";
-import { applyReadingViewTypography, applyChatInputGlow } from "../reader/presentation.js";
+import { applyReadingViewTypography, applyChatInputGlow, applyReadingViewPresentation } from "../reader/presentation.js";
 import { state } from "../core/state.js";
 import { relayoutScriptHost } from "../reader/script-host.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
@@ -194,7 +194,6 @@ function collectElements(host: HTMLElement) {
     webSearchMaxToolCallsResetBtn: byIdIn<HTMLButtonElement>(dom.webSearchMaxToolCallsResetBtn),
     aiSystemPrompt: byIdIn<HTMLTextAreaElement>(dom.aiSystemPrompt),
     aiInitialQuickPrompts: host.querySelectorAll<HTMLInputElement>(".ai-initial-quick-prompt"),
-    saveBtn: byIdIn<HTMLButtonElement>(dom.saveBtn),
     resetBtn: byIdIn<HTMLButtonElement>(dom.resetBtn),
     status: byIdIn<HTMLElement>(dom.status)
   };
@@ -667,8 +666,8 @@ function collectInitialQuickPrompts(elements: SettingsElements): string[] {
 }
 
 function setBusy(elements: SettingsElements, isBusy: boolean): void {
-  elements.saveBtn.disabled = isBusy;
-  elements.saveBtn.textContent = isBusy ? "处理中..." : "保存设置";
+  elements.resetBtn.disabled = isBusy;
+  elements.resetBtn.textContent = isBusy ? "处理中..." : "恢复默认偏好";
 }
 
 // 偏好重置的默认值载荷：本面板管理的偏好键面（与 collectFormPayload 同一形状
@@ -736,28 +735,67 @@ async function resetPreferences(elements: SettingsElements): Promise<void> {
   }
 }
 
-// 保存设置（provider-master-detail/02 起：只承载其余设置项）。AI/ASR 平台的
-// 保存已整体移交 provider-editor Modal 的单平台事务（provider-transaction 的
-// upsertProvider，本模块只注入分派表/重渲/状态条），
-// 本函数不再收集/校验/落盘平台列表，也不再申请平台 host 权限（平台域名的
-// 授权在 Modal 保存与探针/模型列表预检的链路上收口）。笔记导出字段删除后
-// 本链只剩收集 → 单路落盘：面板已无条件必填项，故不再有校验/清错步骤。
-async function saveSettings(elements: SettingsElements): Promise<void> {
-  const payload = collectFormPayload(elements);
+let statusClearTimer: ReturnType<typeof setTimeout> | null = null;
 
-  setBusy(elements, true);
+async function saveSettingField(
+  elements: SettingsElements,
+  patch: Record<string, unknown>
+): Promise<boolean> {
   try {
-    const resp = await sendRuntimeMessage({ type: "save-settings", settings: payload });
+    const resp = await sendRuntimeMessage({ type: "save-settings", settings: patch });
     if (!resp?.ok) {
       setStatus(elements, resp?.error || "保存失败", true);
-      return;
+      return false;
     }
-    setStatus(elements, "保存成功");
+    setStatus(elements, "已保存");
+    if (statusClearTimer) {
+      clearTimeout(statusClearTimer);
+    }
+    statusClearTimer = setTimeout(() => {
+      if (elements.status.dataset.error !== "true" && elements.status.textContent === "已保存") {
+        setStatus(elements, "");
+      }
+    }, 1500);
+    return true;
   } catch (error) {
     setStatus(elements, (error as Error).message || "保存失败", true);
-  } finally {
-    setBusy(elements, false);
+    return false;
   }
+}
+
+function debounce<T extends (...args: unknown[]) => void>(
+  fn: T,
+  delayMs: number
+): T & { cancel: () => void; flush: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: unknown[] | null = null;
+  const debounced = ((...args: unknown[]) => {
+    lastArgs = args;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      lastArgs = null;
+      fn(...args);
+    }, delayMs);
+  }) as T & { cancel: () => void; flush: () => void };
+
+  debounced.cancel = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+      lastArgs = null;
+    }
+  };
+  debounced.flush = () => {
+    if (timer && lastArgs) {
+      clearTimeout(timer);
+      timer = null;
+      const args = lastArgs;
+      lastArgs = null;
+      fn(...args);
+    }
+  };
+  return debounced;
 }
 
 // ===== 事件绑定（模板渲染后一次性接线） =====
@@ -866,7 +904,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   });
   elements.readerFontSizeScale.addEventListener("change", () => {
     const val = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
-    void sendRuntimeMessage({ type: "save-settings", settings: { readerFontSizeScale: val } });
+    void saveSettingField(elements, { readerFontSizeScale: val });
   });
   elements.readerFontSizeScaleResetBtn.addEventListener("click", () => {
     const defaultVal = DEFAULT_SETTINGS.readerFontSizeScale;
@@ -875,7 +913,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.readerFontSizeScaleResetBtn.disabled = true;
     state.patchSettings({ readerFontSizeScale: defaultVal });
     applyReadingViewTypography();
-    void sendRuntimeMessage({ type: "save-settings", settings: { readerFontSizeScale: defaultVal } });
+    void saveSettingField(elements, { readerFontSizeScale: defaultVal });
   });
 
   elements.chatLineHeight.addEventListener("input", () => {
@@ -887,7 +925,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   });
   elements.chatLineHeight.addEventListener("change", () => {
     const val = normalizeChatLineHeight(elements.chatLineHeight.value);
-    void sendRuntimeMessage({ type: "save-settings", settings: { chatLineHeight: val } });
+    void saveSettingField(elements, { chatLineHeight: val });
   });
   elements.chatLineHeightResetBtn.addEventListener("click", () => {
     const defaultVal = DEFAULT_SETTINGS.chatLineHeight;
@@ -896,7 +934,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.chatLineHeightResetBtn.disabled = true;
     state.patchSettings({ chatLineHeight: defaultVal });
     applyReadingViewTypography();
-    void sendRuntimeMessage({ type: "save-settings", settings: { chatLineHeight: defaultVal } });
+    void saveSettingField(elements, { chatLineHeight: defaultVal });
   });
 
   elements.chatParagraphSpacing.addEventListener("input", () => {
@@ -908,7 +946,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   });
   elements.chatParagraphSpacing.addEventListener("change", () => {
     const val = normalizeChatParagraphSpacing(elements.chatParagraphSpacing.value);
-    void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: val } });
+    void saveSettingField(elements, { chatParagraphSpacing: val });
   });
   elements.chatParagraphSpacingResetBtn.addEventListener("click", () => {
     const defaultVal = DEFAULT_SETTINGS.chatParagraphSpacing;
@@ -917,7 +955,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.chatParagraphSpacingResetBtn.disabled = true;
     state.patchSettings({ chatParagraphSpacing: defaultVal });
     applyReadingViewTypography();
-    void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: defaultVal } });
+    void saveSettingField(elements, { chatParagraphSpacing: defaultVal });
   });
 
   elements.customPanelWidth.addEventListener("input", () => {
@@ -929,7 +967,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   });
   elements.customPanelWidth.addEventListener("change", () => {
     const width = normalizeCustomPanelWidth(elements.customPanelWidth.value);
-    void sendRuntimeMessage({ type: "save-settings", settings: { customPanelWidth: width } });
+    void saveSettingField(elements, { customPanelWidth: width });
   });
   elements.customPanelWidthResetBtn.addEventListener("click", () => {
     const defaultVal = DEFAULT_SETTINGS.customPanelWidth;
@@ -938,12 +976,14 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.customPanelWidthResetBtn.disabled = true;
     state.patchSettings({ customPanelWidth: defaultVal });
     relayoutScriptHost();
-    void sendRuntimeMessage({ type: "save-settings", settings: { customPanelWidth: defaultVal } });
+    void saveSettingField(elements, { customPanelWidth: defaultVal });
   });
 
   elements.chatInputGlow.addEventListener("change", () => {
-    state.patchSettings({ chatInputGlow: elements.chatInputGlow.checked });
+    const val = elements.chatInputGlow.checked;
+    state.patchSettings({ chatInputGlow: val });
     applyChatInputGlow();
+    void saveSettingField(elements, { chatInputGlow: val });
   });
 
   familyRows.asr.controller.setDeleteHandler(async (providerId) => {
@@ -998,8 +1038,80 @@ function bindSettingsEvents(host: HTMLElement): void {
   familyRows.ai.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
   familyRows.asr.controller.setBeforeDeleteHandler(revokeOriginOnDelete);
 
-  elements.saveBtn.addEventListener("click", () => saveSettings(elements));
   elements.resetBtn?.addEventListener("click", () => void resetPreferences(elements));
+
+  elements.downloadFormat.addEventListener("change", () => {
+    const val = normalizeDownloadFormat(elements.downloadFormat.value);
+    state.patchSettings({ downloadFormat: val });
+    void saveSettingField(elements, { downloadFormat: val });
+  });
+
+  elements.readerPalette.addEventListener("change", () => {
+    const val = normalizeReaderPalette(elements.readerPalette.value);
+    state.patchSettings({ readerPalette: val });
+    state.reader?.setPalette?.(val);
+    applyReadingViewPresentation();
+    void saveSettingField(elements, { readerPalette: val });
+  });
+
+  elements.includeDateInFilename.addEventListener("change", () => {
+    const val = elements.includeDateInFilename.checked;
+    state.patchSettings({ includeDateInFilename: val });
+    void saveSettingField(elements, { includeDateInFilename: val });
+  });
+
+  elements.enablePlayerAiQuickAction.addEventListener("change", () => {
+    const val = elements.enablePlayerAiQuickAction.checked;
+    state.patchSettings({ enablePlayerAiQuickAction: val });
+    void saveSettingField(elements, { enablePlayerAiQuickAction: val });
+  });
+
+  const savePlayerAiQuickPrompt = () => {
+    const val = normalizePlayerAiQuickPrompt(elements.playerAiQuickPrompt.value);
+    state.patchSettings({ playerAiQuickPrompt: val });
+    void saveSettingField(elements, { playerAiQuickPrompt: val });
+  };
+  const debouncedSavePlayerAiQuickPrompt = debounce(savePlayerAiQuickPrompt, 400);
+  elements.playerAiQuickPrompt.addEventListener("input", debouncedSavePlayerAiQuickPrompt);
+  elements.playerAiQuickPrompt.addEventListener("blur", () => debouncedSavePlayerAiQuickPrompt.flush());
+
+  elements.includeTimestampInBody.addEventListener("change", () => {
+    const val = elements.includeTimestampInBody.checked;
+    state.patchSettings({ includeTimestampInBody: val });
+    void saveSettingField(elements, { includeTimestampInBody: val });
+  });
+
+  elements.enableDebugLogs.addEventListener("change", () => {
+    const val = elements.enableDebugLogs.checked;
+    state.patchSettings({ enableDebugLogs: val });
+    void saveSettingField(elements, { enableDebugLogs: val });
+  });
+
+  elements.autoOpenReader.addEventListener("change", () => {
+    const val = elements.autoOpenReader.checked;
+    state.patchSettings({ autoOpenReader: val });
+    void saveSettingField(elements, { autoOpenReader: val });
+  });
+
+  const saveAiSystemPrompt = () => {
+    const val = String(elements.aiSystemPrompt.value || "").trim();
+    state.patchSettings({ aiSystemPrompt: val });
+    void saveSettingField(elements, { aiSystemPrompt: val });
+  };
+  const debouncedSaveAiSystemPrompt = debounce(saveAiSystemPrompt, 400);
+  elements.aiSystemPrompt.addEventListener("input", debouncedSaveAiSystemPrompt);
+  elements.aiSystemPrompt.addEventListener("blur", () => debouncedSaveAiSystemPrompt.flush());
+
+  const saveInitialQuickPrompts = () => {
+    const prompts = collectInitialQuickPrompts(elements);
+    state.patchSettings({ aiInitialQuickPrompts: prompts });
+    void saveSettingField(elements, { aiInitialQuickPrompts: prompts });
+  };
+  const debouncedSaveInitialQuickPrompts = debounce(saveInitialQuickPrompts, 400);
+  elements.aiInitialQuickPrompts.forEach((input) => {
+    input.addEventListener("input", debouncedSaveInitialQuickPrompts);
+    input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
+  });
   // 添加平台：直接进空白编辑 Modal（拍板 Q4，预设下拉是编辑页第一项）；
   // 平铺行「编辑」按钮：现查权威列表项后打开预填 Modal（拍板 Q3）
   elements.addAiProviderBtn.addEventListener("click", () => void openProviderEditorById("ai", ""));
@@ -1030,7 +1142,7 @@ function bindSettingsEvents(host: HTMLElement): void {
   });
   // ASR：总开关即时持久化
   elements.asrAutoFallback?.addEventListener("change", async () => {
-    await sendRuntimeMessage({ type: "save-settings", settings: { asrAutoFallback: elements.asrAutoFallback.checked } });
+    await saveSettingField(elements, { asrAutoFallback: elements.asrAutoFallback.checked });
   });
   // 搜索平台：单轮搜索上限即时持久化
   elements.webSearchMaxToolCalls?.addEventListener("input", () => {
@@ -1042,29 +1154,18 @@ function bindSettingsEvents(host: HTMLElement): void {
     const val = normalizeWebSearchMaxToolCalls(elements.webSearchMaxToolCalls.value);
     elements.webSearchMaxToolCallsValue.textContent = String(val);
     elements.webSearchMaxToolCallsResetBtn.disabled = val === DEFAULT_SETTINGS.webSearchMaxToolCalls;
-    await sendRuntimeMessage({
-      type: "save-settings",
-      settings: { webSearchMaxToolCalls: val }
-    });
+    await saveSettingField(elements, { webSearchMaxToolCalls: val });
   });
   elements.webSearchMaxToolCallsResetBtn?.addEventListener("click", async () => {
     const defaultVal = DEFAULT_SETTINGS.webSearchMaxToolCalls;
     elements.webSearchMaxToolCalls.value = String(defaultVal);
     elements.webSearchMaxToolCallsValue.textContent = String(defaultVal);
     elements.webSearchMaxToolCallsResetBtn.disabled = true;
-    await sendRuntimeMessage({
-      type: "save-settings",
-      settings: { webSearchMaxToolCalls: defaultVal }
-    });
+    await saveSettingField(elements, { webSearchMaxToolCalls: defaultVal });
   });
-  // 付费平台准入即时持久化（GLOSSARY「付费平台」）：开关即花钱授权，改动立即
-  // 生效，不与「保存设置」按钮同批（同 webSearchMaxToolCalls 的即时保存键口径，
-  // 不进表单收集也不进重置载荷）。
+  // 付费平台准入即时持久化（GLOSSARY「付费平台」）：开关即花钱授权，改动立即生效。
   elements.allowPaidSearchProviders?.addEventListener("change", async () => {
-    await sendRuntimeMessage({
-      type: "save-settings",
-      settings: { allowPaidSearchProviders: elements.allowPaidSearchProviders.checked }
-    });
+    await saveSettingField(elements, { allowPaidSearchProviders: elements.allowPaidSearchProviders.checked });
   });
   // onChanged 回读他端改动（区/键过滤走 shared/watch-storage-keys seam，R3 收口）。
   watchStorageKeys((changes) => {

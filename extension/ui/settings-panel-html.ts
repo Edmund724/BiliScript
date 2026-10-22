@@ -67,8 +67,7 @@ export const SETTINGS_PANEL_DOM_IDS = {
   includeTimestampInBody: "includeTimestampInBody",
   enableDebugLogs: "enableDebugLogs",
   status: "biliscriptSettingsStatus",
-  resetBtn: "biliscriptSettingsResetBtn",
-  saveBtn: "biliscriptSettingsSaveBtn"
+  resetBtn: "biliscriptSettingsResetBtn"
 } as const;
 
 /** 词表值域：settings-panel.ts 的 byIdIn 只接受本表声明的 id。 */
@@ -335,7 +334,6 @@ export function buildSettingsHtml(): string {
     <div class="biliscript-set-actions">
       <p id="${ids.status}" class="biliscript-set-status"></p>
       <button id="${ids.resetBtn}" type="button" class="add-property-btn">恢复默认偏好</button>
-      <button id="${ids.saveBtn}" type="button" class="biliscript-set-save-btn">保存设置</button>
     </div>
   `;
 }

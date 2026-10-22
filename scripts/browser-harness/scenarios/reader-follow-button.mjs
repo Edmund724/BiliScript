@@ -171,22 +171,13 @@ const JS = {
   isLight: `document.getElementById('biliscript-reading-view').getAttribute('data-theme') !== 'dark'`,
   isEditorial: `document.getElementById('biliscript-reading-view').getAttribute('data-palette') === 'editorial'`,
   settingsPanelOpen: `(() => { const p = document.getElementById('biliscript-reading-settings-panel'); return !!p && !p.hidden; })()`,
-  // 色板切换是设置抽屉里的 <select> + 「保存设置」批量持久化（settings-panel 的
-  // collectFormPayload 直读 .value，不依赖 change 事件），native 下拉无法走
-  // 真指针；此处设值即交给真实保存链路（save-settings → 状态 → apply 呈现）。
+  // 色板切换是设置抽屉里的 <select>（change 事件即时生效并持久化），此处设值即交给真实保存链路（save-settings → 状态 → apply 呈现）。
   setEditorialPalette: `(() => {
     const sel = document.getElementById('readerPalette');
     if (!sel) return { ok: false, reason: 'palette-select-missing' };
     sel.value = 'editorial';
     sel.dispatchEvent(new Event('change', { bubbles: true }));
     return { ok: sel.value === 'editorial', value: sel.value };
-  })()`,
-  scrollSaveBtnIntoView: `(() => {
-    const btn = document.getElementById('biliscriptSettingsSaveBtn');
-    if (!btn) return { ok: false, reason: 'save-btn-missing' };
-    btn.scrollIntoView({ block: 'center' });
-    const r = btn.getBoundingClientRect();
-    return { ok: true, rect: { w: +r.width.toFixed(1), h: +r.height.toFixed(1), cx: +(r.left + r.width / 2).toFixed(1), cy: +(r.top + r.height / 2).toFixed(1) } };
   })()`
 };
 
@@ -574,18 +565,7 @@ async function main() {
       }
       f6.paletteSet = await pageCdp.evaluate(JS.setEditorialPalette);
       check("F6.palette-select-set", f6.paletteSet?.ok === true, f6.paletteSet);
-      f6.saveBtnRect = await pageCdp.evaluate(JS.scrollSaveBtnIntoView);
-      await sleep(150);
-      // 保存键在表单底部，可能被抽屉滚动区遮挡：真指针优先，不可命中时退 el.click()
-      // （保存是流程管线而非视觉证据，路径写进 evidence 供审计）。
-      const saveClick = await clickElement(pageCdp, "保存设置", `document.getElementById('biliscriptSettingsSaveBtn')`);
-      if (saveClick.ok) {
-        f6.saveVia = "real-pointer";
-      } else {
-        f6.saveVia = "dom-click-fallback";
-        f6.saveClickFail = saveClick;
-        await pageCdp.evaluate(`document.getElementById('biliscriptSettingsSaveBtn').click()`);
-      }
+      f6.saveVia = "auto-save";
       try {
         await waitFor("F6：视图切到 editorial", () => pageCdp.evaluate(JS.isEditorial), { timeoutMs: 15000, intervalMs: 200 });
       } catch (error) {

@@ -479,11 +479,10 @@ describe("主题：只剩明暗一轴", () => {
     ]);
     expect(paletteSelect.value).toBe("editorial");
 
-    // 改选 flyme 后保存：载荷带归一后的 readerPalette
+    // 改选 flyme 后即时保存：载荷带归一后的 readerPalette（无保存按钮）
     paletteSelect.value = "flyme";
     paletteSelect.dispatchEvent(new Event("change", { bubbles: true }));
-    const saveBtn = document.getElementById("biliscriptSettingsSaveBtn") as HTMLButtonElement;
-    saveBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(document.getElementById("biliscriptSettingsSaveBtn")).toBeNull();
     await vi.waitFor(() => {
       expect(saveSettingsPayload).not.toBeNull();
     });
