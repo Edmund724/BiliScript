@@ -140,7 +140,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-providers-empty {
   margin: 0;
-  font-size: 14px;
+  font-size: calc(14px * var(--biliscript-reader-font-scale, 1));
   color: var(--biliscript-reader-faint);
 }
 
@@ -192,7 +192,7 @@
   border-radius: 999px;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--biliscript-reader-font-scale, 1));
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -200,7 +200,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .provider-row-name {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 15px;
+  font-size: calc(15px * var(--biliscript-reader-font-scale, 1));
   font-weight: 600;
   color: var(--biliscript-reader-text);
   white-space: nowrap;
@@ -211,7 +211,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .provider-row-model {
   margin: 0;
   padding-left: 16px;
-  font-size: 14px;
+  font-size: calc(14px * var(--biliscript-reader-font-scale, 1));
   line-height: 1.4;
   color: var(--biliscript-reader-faint);
   white-space: nowrap;
@@ -321,7 +321,7 @@
   align-items: center;
   gap: 7px;
   margin: 0;
-  font-size: 15px;
+  font-size: calc(15px * var(--biliscript-reader-font-scale, 1));
   font-weight: 400;
   color: var(--biliscript-reader-text);
   white-space: nowrap;
@@ -345,7 +345,7 @@
   border-radius: 999px;
   background: transparent;
   color: var(--biliscript-reader-muted);
-  font-size: 15px;
+  font-size: calc(15px * var(--biliscript-reader-font-scale, 1));
   font-weight: 400;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -462,7 +462,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-badge {
   display: inline-block;
   padding: 2px 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--biliscript-reader-font-scale, 1));
   font-weight: 600;
   border-radius: 999px;
   background: var(--biliscript-reader-surface-3);
@@ -487,7 +487,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: calc(12px * var(--biliscript-reader-font-scale, 1));
   color: var(--biliscript-reader-faint);
 }
 
@@ -495,4 +495,3 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-
