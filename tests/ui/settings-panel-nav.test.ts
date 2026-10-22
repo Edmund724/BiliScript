@@ -77,4 +77,23 @@ describe("设置抽屉顶部快速跳转导航条", () => {
     const llmBtn = nav.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="llm"]')!;
     expect(llmBtn.classList.contains("is-active")).toBe(false);
   });
+
+  it("导航条持有滑动指示器，点击项时动态更新指示器 transform 与 width", async () => {
+    const host = await mountPanel();
+    const nav = host.querySelector<HTMLElement>("#biliscriptSettingsNav")!;
+    const indicator = nav.querySelector<HTMLElement>(".biliscript-settings-nav-indicator");
+    expect(indicator).not.toBeNull();
+
+    // 初始位置已就绪
+    expect(indicator!.style.transform).toContain("translateX");
+    expect(indicator!.style.width).toMatch(/\d+px/);
+    const initialTransform = indicator!.style.transform;
+
+    // 点击搜索项，指示器平滑滑动到新位
+    const searchBtn = nav.querySelector<HTMLButtonElement>('.biliscript-settings-nav-item[data-section="search"]')!;
+    searchBtn.click();
+
+    expect(indicator!.style.transform).toContain("translateX");
+    expect(indicator!.style.width).toMatch(/\d+px/);
+  });
 });

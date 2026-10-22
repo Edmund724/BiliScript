@@ -83,6 +83,7 @@ export function buildSettingsHtml(): string {
       <button type="button" class="biliscript-settings-nav-item" data-section="prompt">提示词</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="appearance">外观</button>
       <button type="button" class="biliscript-settings-nav-item" data-section="export">导出</button>
+      <span class="biliscript-settings-nav-indicator" aria-hidden="true"></span>
     </nav>
 
     <section class="biliscript-set-group" data-settings-section="llm">

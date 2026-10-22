@@ -805,17 +805,49 @@ function bindSettingsNav(host: HTMLElement): void {
   if (!nav) return;
 
   const navItems = Array.from(nav.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
+  const indicator = nav.querySelector<HTMLElement>(".biliscript-settings-nav-indicator");
   const groups = Array.from(host.querySelectorAll<HTMLElement>(".biliscript-set-group[data-settings-section]"));
 
-  function setActive(sectionKey: string): void {
+  function updateIndicator(activeBtn: HTMLButtonElement, smooth = true): void {
+    if (!indicator) return;
+    const rawWidth = activeBtn.offsetWidth;
+    const btnWidth = rawWidth > 0 ? rawWidth : Math.max(24, (activeBtn.textContent?.trim().length ?? 2) * 14 + 8);
+    const btnLeft = activeBtn.offsetLeft;
+    const targetWidth = Math.max(18, btnWidth - 8);
+    const targetLeft = btnLeft + (btnWidth - targetWidth) / 2;
+    if (!smooth) {
+      indicator.style.transition = "none";
+    }
+    indicator.style.transform = `translateX(${targetLeft}px)`;
+    indicator.style.width = `${targetWidth}px`;
+    if (!smooth) {
+      void indicator.offsetWidth;
+      indicator.style.transition = "";
+    }
+  }
+
+  function setActive(sectionKey: string, smoothIndicator = true): void {
     let activeBtn: HTMLButtonElement | null = null;
     navItems.forEach((btn) => {
       const match = btn.dataset.section === sectionKey;
       btn.classList.toggle("is-active", match);
       if (match) activeBtn = btn;
     });
-    if (activeBtn && typeof (activeBtn as HTMLElement).scrollIntoView === "function") {
-      (activeBtn as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    if (activeBtn) {
+      updateIndicator(activeBtn, smoothIndicator);
+      if (typeof (activeBtn as HTMLElement).scrollIntoView === "function") {
+        (activeBtn as HTMLElement).scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+      }
+    }
+  }
+
+  const initialActive = nav.querySelector<HTMLButtonElement>(".biliscript-settings-nav-item.is-active") ?? navItems[0];
+  if (initialActive) {
+    updateIndicator(initialActive, false);
+    if (initialActive.offsetWidth === 0 && typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => {
+        updateIndicator(initialActive, false);
+      });
     }
   }
 
@@ -830,7 +862,7 @@ function bindSettingsNav(host: HTMLElement): void {
     const target = host.querySelector<HTMLElement>(`.biliscript-set-group[data-settings-section="${sectionKey}"]`);
     if (target) {
       userClickLock = true;
-      setActive(sectionKey);
+      setActive(sectionKey, true);
       if (typeof target.scrollIntoView === "function") {
         target.scrollIntoView({ behavior: "smooth", block: "start" });
       }
