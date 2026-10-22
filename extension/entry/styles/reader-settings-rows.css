@@ -69,7 +69,7 @@
   padding: 4px 10px;
   text-align: left;
   font: inherit;
-  font-size: 15px;
+  font-size: calc(15px * var(--biliscript-reader-font-scale, 1));
   color: var(--biliscript-reader-text);
   white-space: nowrap;
   overflow: hidden;
