@@ -31,6 +31,19 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view.open {
   display: block;
 }
 
+/* 贴栏形态下为 B 站顶栏下拉浮层让位：.bili-header__bar 建立 z-index: 1002 的
+ * 层叠上下文，收藏/历史/动态/消息/大会员/头像等 .v-popover 均挂在其内部。
+ * 当鼠标悬停或聚焦顶栏浮层触发容器及搜索框时，贴栏态面板压至 1001（低于顶栏
+ * 1002，高于左栏播放器 1、右栏推荐区 1~20 及用户名片 999）；常态与滚动贴顶
+ * （top: 0）期间维持最高层级，避免吸顶顶栏遮挡面板右上角动作键。 */
+body[data-biliscript-reader-mode="1"]:has(
+  .bili-header__bar .v-popover-wrap:hover,
+  .bili-header__bar .v-popover-wrap:focus-within,
+  .bili-header__bar .center-search__bar:focus-within
+) #biliscript-reading-view:not([data-biliscript-script-float="1"]) {
+  z-index: 1001;
+}
+
 /* 浮层形态：script-host 未写变量（窄窗/无锚点/float 档），面板回到居中浮层
  * 基础样式（reader.css 的 fixed 16px 边距 + 76vh）——这里只复位贴栏变量定位
  * 并恢复可点，宽度/高度/圆角/阴影全部沿用基础段。 */
