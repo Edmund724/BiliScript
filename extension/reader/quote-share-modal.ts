@@ -297,117 +297,120 @@ function bindModalEvents(host: HTMLElement): void {
   });
 }
 
-async function handleCopyImageAction(btn: HTMLButtonElement, card: HTMLElement): Promise<void> {
-  if (state.copying) {
-    return;
-  }
-  state.copying = true;
-  const textEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-text");
-  const iconEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-icon");
-  const origText = textEl?.textContent || "复制图片";
-
-  if (textEl) {
-    textEl.textContent = "生成中...";
-  }
-  btn.disabled = true;
-
-  try {
-    const blob = await renderQuoteCardBlob(card);
-    const copied = await copyQuoteCardBlobToClipboard(blob);
-    if (copied) {
-      btn.classList.add("is-success");
-      if (textEl) {
-        textEl.textContent = "已复制 ✓";
-      }
-      if (iconEl) {
-        iconEl.innerHTML = READING_CHECK_ICON;
-      }
-      setTimeout(() => {
-        btn.classList.remove("is-success");
-        if (textEl) {
-          textEl.textContent = origText;
-        }
-        if (iconEl) {
-          iconEl.innerHTML = READING_COPY_ICON;
-        }
-        btn.disabled = false;
-        state.copying = false;
-      }, 2000);
-    } else {
-      if (textEl) {
-        textEl.textContent = "复制失败，请保存";
-      }
-      setTimeout(() => {
-        if (textEl) {
-          textEl.textContent = origText;
-        }
-        btn.disabled = false;
-        state.copying = false;
-      }, 2500);
-    }
-  } catch (err) {
-    if (textEl) {
-      textEl.textContent = "生成失败";
-    }
-    setTimeout(() => {
-      if (textEl) {
-        textEl.textContent = origText;
-      }
-      btn.disabled = false;
-      state.copying = false;
-    }, 2000);
-  }
+interface AsyncButtonFeedbackOptions {
+  btn: HTMLButtonElement;
+  busyKey: "copying" | "downloading";
+  loadingText: string;
+  defaultIconHtml: string;
+  action: () => Promise<boolean | void>;
+  successText: string;
+  failureText?: string;
+  errorText: string;
+  successDuration?: number;
+  failureDuration?: number;
 }
 
-async function handleDownloadImageAction(btn: HTMLButtonElement, card: HTMLElement): Promise<void> {
-  if (state.downloading) {
+async function runAsyncButtonAction(options: AsyncButtonFeedbackOptions): Promise<void> {
+  const {
+    btn,
+    busyKey,
+    loadingText,
+    defaultIconHtml,
+    action,
+    successText,
+    failureText,
+    errorText,
+    successDuration = 1500,
+    failureDuration = 2000
+  } = options;
+
+  if (state[busyKey]) {
     return;
   }
-  state.downloading = true;
+  state[busyKey] = true;
+
   const textEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-text");
   const iconEl = btn.querySelector<HTMLElement>(".biliscript-quote-action-icon");
-  const origText = textEl?.textContent || "保存 PNG";
+  const origText = textEl?.textContent || "";
 
   if (textEl) {
-    textEl.textContent = "导出中...";
+    textEl.textContent = loadingText;
   }
   btn.disabled = true;
 
-  try {
-    const blob = await renderQuoteCardBlob(card);
-    const filename = `biliscript-quote-${Date.now()}.png`;
-    downloadQuoteCardBlob(blob, filename);
-
-    btn.classList.add("is-success");
-    if (textEl) {
-      textEl.textContent = "已保存 ✓";
-    }
-    if (iconEl) {
-      iconEl.innerHTML = READING_CHECK_ICON;
-    }
+  const resetState = (delay: number) => {
     setTimeout(() => {
       btn.classList.remove("is-success");
       if (textEl) {
         textEl.textContent = origText;
       }
       if (iconEl) {
-        iconEl.innerHTML = READING_DOWNLOAD_ICON;
+        iconEl.innerHTML = defaultIconHtml;
       }
       btn.disabled = false;
-      state.downloading = false;
-    }, 1500);
-  } catch (err) {
-    if (textEl) {
-      textEl.textContent = "导出失败";
-    }
-    setTimeout(() => {
+      state[busyKey] = false;
+    }, delay);
+  };
+
+  try {
+    const result = await action();
+    if (result !== false) {
+      btn.classList.add("is-success");
       if (textEl) {
-        textEl.textContent = origText;
+        textEl.textContent = successText;
       }
-      btn.disabled = false;
-      state.downloading = false;
-    }, 2000);
+      if (iconEl) {
+        iconEl.innerHTML = READING_CHECK_ICON;
+      }
+      resetState(successDuration);
+    } else {
+      if (textEl && failureText) {
+        textEl.textContent = failureText;
+      }
+      resetState(failureDuration);
+    }
+  } catch {
+    if (textEl) {
+      textEl.textContent = errorText;
+    }
+    resetState(failureDuration);
   }
+}
+
+async function handleCopyImageAction(btn: HTMLButtonElement, card: HTMLElement): Promise<void> {
+  await runAsyncButtonAction({
+    btn,
+    busyKey: "copying",
+    loadingText: "生成中...",
+    defaultIconHtml: READING_COPY_ICON,
+    action: async () => {
+      const blob = await renderQuoteCardBlob(card);
+      return await copyQuoteCardBlobToClipboard(blob);
+    },
+    successText: "已复制 ✓",
+    failureText: "复制失败，请保存",
+    errorText: "生成失败",
+    successDuration: 2000,
+    failureDuration: 2500
+  });
+}
+
+async function handleDownloadImageAction(btn: HTMLButtonElement, card: HTMLElement): Promise<void> {
+  await runAsyncButtonAction({
+    btn,
+    busyKey: "downloading",
+    loadingText: "导出中...",
+    defaultIconHtml: READING_DOWNLOAD_ICON,
+    action: async () => {
+      const blob = await renderQuoteCardBlob(card);
+      const filename = `biliscript-quote-${Date.now()}.png`;
+      downloadQuoteCardBlob(blob, filename);
+    },
+    successText: "已保存 ✓",
+    errorText: "导出失败",
+    successDuration: 1500,
+    failureDuration: 2000
+  });
 }
 
 function buildModalHtml(): string {

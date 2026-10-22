@@ -149,7 +149,6 @@ body[data-biliscript-reader-mode="1"],
     0 2px 6px -1px rgba(15, 23, 42, 0.03);
   /* 卡面精细微描边：浅色淡黑 12%，暗色柔白 12% */
   --biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
-  --biliscript-reader-card-fine-border: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
   --biliscript-reader-border: #e3e5ea;
   /* 文字三级：主 #17181a（文档中性灰，在 #f2f3f5 上 16.0:1）/ 次 #666a71
    * （4.89:1，全层过 4.5 线——card 上 5.43:1、surface-2 上 4.81:1、推导的
@@ -287,7 +286,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
     0 2px 8px -1px rgba(0, 0, 0, 0.24);
   /* 卡面精细微描边：暗色柔白 12% */
   --biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
-  --biliscript-reader-card-fine-border: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   --biliscript-reader-border: rgba(255, 255, 255, 0.12);
   --biliscript-reader-text: #ecedef;
   --biliscript-reader-muted: #9ca0a8;
@@ -367,7 +365,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"
   /* 暖米书摘卡：比页面纸底 #FAF7F2 深半阶的实色羊皮纸面 #F3EDE2。 */
   --biliscript-reader-card: #f3ede2;
   --biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(60, 45, 30, 0.15);
-  --biliscript-reader-card-fine-border: inset 0 0 0 0.5px rgba(60, 45, 30, 0.15);
   --biliscript-reader-border: #e4dccb;
   --biliscript-reader-text: #231f1c;
   --biliscript-reader-muted: #655b52;
@@ -425,7 +422,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-
   --biliscript-reader-track: rgba(236, 230, 223, 0.16);
   --biliscript-reader-shadow: none;
   --biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
-  --biliscript-reader-card-fine-border: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   --biliscript-reader-overlay-bg: rgba(23, 21, 19, 0.92);
   --biliscript-reader-font-serif: Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
   /* 深色纸感壳：无径向光雾、无背景模糊；外框描边取深暖褐 #2C2723。 */

@@ -33,103 +33,109 @@ interface PresetGradientDef {
   }>;
 }
 
+const BLOB_GEOMETRIES = [
+  { cxRatio: 0.18, cyRatio: 0.18, rRatio: 0.55 },
+  { cxRatio: 0.82, cyRatio: 0.2, rRatio: 0.5 },
+  { cxRatio: 0.2, cyRatio: 0.82, rRatio: 0.55 },
+  { cxRatio: 0.82, cyRatio: 0.8, rRatio: 0.5 }
+] as const;
+
+function createPresetDef(
+  baseStops: Array<{ offset: number; color: string }>,
+  blobColors: readonly [string, string, string, string],
+  angleDeg = 165
+): PresetGradientDef {
+  return {
+    base: {
+      angleDeg,
+      stops: baseStops
+    },
+    blobs: BLOB_GEOMETRIES.map((geom, index) => ({
+      ...geom,
+      color: blobColors[index]
+    }))
+  };
+}
+
 export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
-  "purple-gold": {
-    base: {
-      angleDeg: 165,
-      stops: [
-        { offset: 0, color: "#7c4d79" },
-        { offset: 0.45, color: "#46223b" },
-        { offset: 1, color: "#692a10" }
-      ]
-    },
-    blobs: [
-      { cxRatio: 0.18, cyRatio: 0.18, rRatio: 0.55, color: "rgba(220, 130, 200, 0.7)" },
-      { cxRatio: 0.82, cyRatio: 0.2, rRatio: 0.5, color: "rgba(160, 90, 190, 0.6)" },
-      { cxRatio: 0.2, cyRatio: 0.82, rRatio: 0.55, color: "rgba(225, 110, 45, 0.65)" },
-      { cxRatio: 0.82, cyRatio: 0.8, rRatio: 0.5, color: "rgba(245, 170, 50, 0.7)" }
+  "purple-gold": createPresetDef(
+    [
+      { offset: 0, color: "#7c4d79" },
+      { offset: 0.45, color: "#46223b" },
+      { offset: 1, color: "#692a10" }
+    ],
+    [
+      "rgba(220, 130, 200, 0.7)",
+      "rgba(160, 90, 190, 0.6)",
+      "rgba(225, 110, 45, 0.65)",
+      "rgba(245, 170, 50, 0.7)"
     ]
-  },
-  "slate-brown": {
-    base: {
-      angleDeg: 165,
-      stops: [
-        { offset: 0, color: "#4f5f6f" },
-        { offset: 0.45, color: "#2e3843" },
-        { offset: 1, color: "#422a20" }
-      ]
-    },
-    blobs: [
-      { cxRatio: 0.18, cyRatio: 0.18, rRatio: 0.55, color: "rgba(135, 160, 185, 0.65)" },
-      { cxRatio: 0.82, cyRatio: 0.2, rRatio: 0.5, color: "rgba(100, 125, 150, 0.55)" },
-      { cxRatio: 0.2, cyRatio: 0.82, rRatio: 0.55, color: "rgba(155, 100, 65, 0.6)" },
-      { cxRatio: 0.82, cyRatio: 0.8, rRatio: 0.5, color: "rgba(195, 125, 80, 0.65)" }
+  ),
+  "slate-brown": createPresetDef(
+    [
+      { offset: 0, color: "#4f5f6f" },
+      { offset: 0.45, color: "#2e3843" },
+      { offset: 1, color: "#422a20" }
+    ],
+    [
+      "rgba(135, 160, 185, 0.65)",
+      "rgba(100, 125, 150, 0.55)",
+      "rgba(155, 100, 65, 0.6)",
+      "rgba(195, 125, 80, 0.65)"
     ]
-  },
-  "mist-deep-sea": {
-    base: {
-      angleDeg: 165,
-      stops: [
-        { offset: 0, color: "#32587a" },
-        { offset: 0.45, color: "#1a324d" },
-        { offset: 1, color: "#0e2034" }
-      ]
-    },
-    blobs: [
-      { cxRatio: 0.18, cyRatio: 0.18, rRatio: 0.55, color: "rgba(115, 180, 235, 0.7)" },
-      { cxRatio: 0.82, cyRatio: 0.2, rRatio: 0.5, color: "rgba(75, 140, 195, 0.6)" },
-      { cxRatio: 0.2, cyRatio: 0.82, rRatio: 0.55, color: "rgba(30, 85, 140, 0.65)" },
-      { cxRatio: 0.82, cyRatio: 0.8, rRatio: 0.5, color: "rgba(18, 50, 90, 0.75)" }
+  ),
+  "mist-deep-sea": createPresetDef(
+    [
+      { offset: 0, color: "#32587a" },
+      { offset: 0.45, color: "#1a324d" },
+      { offset: 1, color: "#0e2034" }
+    ],
+    [
+      "rgba(115, 180, 235, 0.7)",
+      "rgba(75, 140, 195, 0.6)",
+      "rgba(30, 85, 140, 0.65)",
+      "rgba(18, 50, 90, 0.75)"
     ]
-  },
-  "mist-forest-green": {
-    base: {
-      angleDeg: 165,
-      stops: [
-        { offset: 0, color: "#315869" },
-        { offset: 0.45, color: "#1c3d39" },
-        { offset: 1, color: "#102a20" }
-      ]
-    },
-    blobs: [
-      { cxRatio: 0.18, cyRatio: 0.18, rRatio: 0.55, color: "rgba(110, 175, 195, 0.7)" },
-      { cxRatio: 0.82, cyRatio: 0.2, rRatio: 0.5, color: "rgba(70, 150, 145, 0.6)" },
-      { cxRatio: 0.2, cyRatio: 0.82, rRatio: 0.55, color: "rgba(45, 105, 70, 0.65)" },
-      { cxRatio: 0.82, cyRatio: 0.8, rRatio: 0.5, color: "rgba(22, 70, 42, 0.75)" }
+  ),
+  "mist-forest-green": createPresetDef(
+    [
+      { offset: 0, color: "#315869" },
+      { offset: 0.45, color: "#1c3d39" },
+      { offset: 1, color: "#102a20" }
+    ],
+    [
+      "rgba(110, 175, 195, 0.7)",
+      "rgba(70, 150, 145, 0.6)",
+      "rgba(45, 105, 70, 0.65)",
+      "rgba(22, 70, 42, 0.75)"
     ]
-  },
-  "lavender-midnight": {
-    base: {
-      angleDeg: 165,
-      stops: [
-        { offset: 0, color: "#574474" },
-        { offset: 0.45, color: "#2e214d" },
-        { offset: 1, color: "#150b2e" }
-      ]
-    },
-    blobs: [
-      { cxRatio: 0.18, cyRatio: 0.18, rRatio: 0.55, color: "rgba(170, 140, 220, 0.7)" },
-      { cxRatio: 0.82, cyRatio: 0.2, rRatio: 0.5, color: "rgba(130, 100, 190, 0.6)" },
-      { cxRatio: 0.2, cyRatio: 0.82, rRatio: 0.55, color: "rgba(75, 40, 130, 0.65)" },
-      { cxRatio: 0.82, cyRatio: 0.8, rRatio: 0.5, color: "rgba(40, 18, 80, 0.8)" }
+  ),
+  "lavender-midnight": createPresetDef(
+    [
+      { offset: 0, color: "#574474" },
+      { offset: 0.45, color: "#2e214d" },
+      { offset: 1, color: "#150b2e" }
+    ],
+    [
+      "rgba(170, 140, 220, 0.7)",
+      "rgba(130, 100, 190, 0.6)",
+      "rgba(75, 40, 130, 0.65)",
+      "rgba(40, 18, 80, 0.8)"
     ]
-  },
-  "ash-rust": {
-    base: {
-      angleDeg: 165,
-      stops: [
-        { offset: 0, color: "#596570" },
-        { offset: 0.45, color: "#3a444d" },
-        { offset: 1, color: "#46201e" }
-      ]
-    },
-    blobs: [
-      { cxRatio: 0.18, cyRatio: 0.18, rRatio: 0.55, color: "rgba(165, 180, 190, 0.65)" },
-      { cxRatio: 0.82, cyRatio: 0.2, rRatio: 0.5, color: "rgba(125, 140, 150, 0.55)" },
-      { cxRatio: 0.2, cyRatio: 0.82, rRatio: 0.55, color: "rgba(185, 75, 60, 0.65)" },
-      { cxRatio: 0.82, cyRatio: 0.8, rRatio: 0.5, color: "rgba(140, 45, 35, 0.75)" }
+  ),
+  "ash-rust": createPresetDef(
+    [
+      { offset: 0, color: "#596570" },
+      { offset: 0.45, color: "#3a444d" },
+      { offset: 1, color: "#46201e" }
+    ],
+    [
+      "rgba(165, 180, 190, 0.65)",
+      "rgba(125, 140, 150, 0.55)",
+      "rgba(185, 75, 60, 0.65)",
+      "rgba(140, 45, 35, 0.75)"
     ]
-  }
+  )
 };
 
 /**
@@ -353,7 +359,7 @@ export async function renderQuoteCardToCanvas(
   ctx.restore();
 
   // 6.2 金句正文（支持根据容器宽度自适应折行与居中排版）
-  const fontSize = Math.max(16, Math.min(22, Math.round(width * 0.052)));
+  const fontSize = Math.min(36, Math.max(22, Math.round(width * 0.08)));
   const lineHeight = fontSize * 1.6;
   const maxTextWidth = width - 48;
 

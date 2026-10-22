@@ -2074,12 +2074,13 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 /* 金句卡片主体视觉骨架（20px 圆角，0.5px 精细描边） */
-.biliscript-quote-card {
+.biliscript-quote-card,
+.biliscript-quote-share-card {
   position: relative;
   width: 100%;
   min-height: 280px;
   border-radius: 20px;
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 8px 32px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12)), 0 8px 32px rgba(0, 0, 0, 0.28);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2217,7 +2218,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-card-text {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(16px, 6.5cqi, 26px);
+  font-size: clamp(18px, 8cqi, 32px);
   font-weight: 500;
   line-height: 1.6;
   text-align: center;

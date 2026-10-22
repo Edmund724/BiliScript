@@ -100,17 +100,9 @@ export type {
 export { onReadingOverviewClick } from "./overview-ui.js";
 
 
-// ===== 金句分享卡片模态弹窗与噪点生成 =====
+// ===== 金句分享卡片模态弹窗 =====
 export {
   openQuoteShareModal,
   closeQuoteShareModal,
-  isQuoteShareModalOpen,
-  getActiveQuoteCardPreset,
-  setActiveQuoteCardPreset,
-  QUOTE_CARD_PRESETS
+  isQuoteShareModalOpen
 } from "./quote-share-modal.js";
-export {
-  getQuoteShareNoiseDataUrl,
-  clearQuoteShareNoiseCache,
-  NOISE_BASE_SIZE
-} from "./quote-share-noise.js";

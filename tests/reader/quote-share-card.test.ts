@@ -965,4 +965,42 @@ describe("quote-share-motion-styles 样式与降级", () => {
     expect(cssContent).toContain(".biliscript-quote-card-blobs-layer");
     expect(cssContent).toContain(".biliscript-quote-card-glow");
   });
+
+  it("卡片内侧微描边使用 var(--biliscript-reader-fine-border) 支持暗色模式联动", () => {
+    expect(cssContent).toContain("var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12))");
+  });
+
+  it("正文字号以 8% 容器宽度为基准配比 (clamp(18px, 8cqi, 32px))", () => {
+    expect(cssContent).toContain("font-size: clamp(18px, 8cqi, 32px);");
+  });
 });
+
+describe("quote-share-contracts 架构与 Token 契约", () => {
+  it("reader-gate.css 不包含孤儿变量 --biliscript-reader-card-fine-border", () => {
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const gatePath = path.resolve(currentDir, "../../extension/entry/styles/reader-gate.css");
+    const gateContent = fs.readFileSync(gatePath, "utf-8");
+    expect(gateContent).not.toContain("--biliscript-reader-card-fine-border");
+  });
+
+  it("reader/index.ts 仅导出公共模态入口，不泄露噪点与配色内部实现", async () => {
+    const readerIndex = await import("../../extension/reader/index.js") as Record<string, unknown>;
+    expect(typeof readerIndex.openQuoteShareModal).toBe("function");
+    expect(typeof readerIndex.closeQuoteShareModal).toBe("function");
+    expect(typeof readerIndex.isQuoteShareModalOpen).toBe("function");
+    expect(readerIndex.getQuoteShareNoiseDataUrl).toBeUndefined();
+    expect(readerIndex.QUOTE_CARD_PRESETS).toBeUndefined();
+  });
+
+  it("EXPORT_PRESET_DEFS 中 6 套预设均正确复用 4 色团几何坐标与独立颜色", () => {
+    for (const [, def] of Object.entries(EXPORT_PRESET_DEFS)) {
+      expect(def.blobs.length).toBe(4);
+      expect(def.blobs[0].cxRatio).toBe(0.18);
+      expect(def.blobs[0].cyRatio).toBe(0.18);
+      expect(def.blobs[0].color).toBeTruthy();
+      expect(def.blobs[1].cxRatio).toBe(0.82);
+      expect(def.blobs[2].cyRatio).toBe(0.82);
+    }
+  });
+});
+
