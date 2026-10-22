@@ -1787,7 +1787,7 @@
 /* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
 .biliscript-md-math-block {
   display: flex !important;
-  justify-content: center;
+  justify-content: center !important;
   align-items: center;
   margin: 0.4em 0;
   padding: 2px 0;
@@ -1795,6 +1795,20 @@
   border: none;
   box-sizing: border-box;
   text-align: center;
+  width: 100%;
+}
+
+.biliscript-md-math-block .katex {
+  display: inline-flex !important;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.biliscript-md-math-block math {
+  display: inline-flex !important;
+  justify-content: center;
+  max-width: 100%;
+  margin: 0 auto;
 }
 
 /* 行内嵌入公式（$...$）：行内自然流动，基线对齐 */
@@ -1824,6 +1838,7 @@ math mo {
   display: inline-flex !important;
   align-items: baseline;
   max-width: 100%;
+  margin: 0 auto;
   box-sizing: border-box;
 }
 

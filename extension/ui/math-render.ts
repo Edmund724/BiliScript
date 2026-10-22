@@ -88,5 +88,26 @@ function alignEquationAtEquals(container: Element): void {
     mrow.classList.add("biliscript-math-aligned");
     mrow.appendChild(lhs);
     mrow.appendChild(rhs);
+
+    // 精确收敛宽度以实现水平真正居中，避免 flex-wrap 将 RHS 撑满 100% 容器导致靠左
+    if (typeof window !== "undefined" && typeof (window as any).requestAnimationFrame === "function") {
+      (window as any).requestAnimationFrame(() => {
+        const lhsW = (lhs as HTMLElement).offsetWidth ?? 0;
+        let maxLineW = 0;
+        const rhsChildren = Array.from(rhs.children) as HTMLElement[];
+        for (const child of rhsChildren) {
+          const lineW = lhsW + (child.offsetWidth ?? 0);
+          if (lineW > maxLineW) {
+            maxLineW = lineW;
+          }
+        }
+        if (maxLineW > 0) {
+          const targetW = Math.ceil(maxLineW) + 6;
+          (mrow as HTMLElement).style.width = `${targetW}px`;
+          (mrow as HTMLElement).style.maxWidth = "100%";
+          (mrow as HTMLElement).style.margin = "0 auto";
+        }
+      });
+    }
   }
 }
