@@ -96,10 +96,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
  * / data-biliscript-reader-palette，面板节点 (#biliscript-reading-view) 写
  * data-theme / data-palette。
  * flyme 基础块 = 浅色档：蓝雾分层（Flyme 主蓝 #008CFF 只用于操作/选中）——半透明
- * 灰雾壳（backdrop-filter）+ 顶部两团蓝色光雾（壳 ::before 径向渐变 + 模糊）+
+ * 灰雾壳（backdrop-filter）+ 四角与边缘 4 团蓝色光雾（壳 ::before 径向渐变 + 模糊）+
  * 165deg 曲面透镜液态玻璃内容卡；AI 触点带克制的 Gemini 虹彩流光（gemini-*
  * 四 token，全部经 :not([data-palette="editorial"]) 门控消费）。
- * flyme 深色块 = 深色雾玻璃：壳 #101114 加 alpha + 顶部深蓝辉光光雾 / 卡片白雾
+ * flyme 深色块 = 深色雾玻璃：壳 #101114 加 alpha + 四角与边缘深蓝辉光光雾 / 卡片白雾
  * 透镜渐变，主蓝 #3D9BFF，暗面悬浮柔影。
  * editorial 两块 = 数字刊物：暖纸面/暖炭黑面，赤陶点缀，径向光雾关闭
  * （mist-blobs:none + mist-filter:none），壳呈现温润纸感；章节标题与金句
@@ -217,15 +217,17 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-overlay-bg: rgba(255, 255, 255, 0.8);
   /* 蓝雾壳三件（消费方在本表后面的「蓝雾壳」段）：mist-surface = 壳的
    * 半透明雾底（底部灰蓝一档——内容区透明直露雾底，白玻璃凸起卡靠这级
-   * 灰差浮出来）；mist-blobs = 顶部两团蓝色光雾（壳 ::before 的 background，
-   * 随 28px 模糊铺开，蓝取自参考稿 #BBE4FD 族）；mist-line = 壳的亮白描边；
-   * mist-filter = 壳的背景模糊（只在基础块出现，深色块沿用）。
-   * 光雾圆心抬到壳顶缘之上（负 %），峰值留在壳外，只有衰减裙边落进面板——
-   * 评审实测圆心贴顶缘时雾峰值压在 header 文字上（muted 字 3.48:1 不达线）。 */
+   * 灰差浮出来）；mist-blobs = 分布在四角与边缘的 4 个大径向色团（壳 ::before
+   * 的 background，随 28px 模糊铺开，蓝取自参考稿 #BBE4FD 族与柔蓝衍生）；
+   * mist-line = 壳的亮白描边；mist-filter = 壳的背景模糊（只在基础块出现，深色块沿用）。
+   * 四角色团圆心锚定在四角与边缘外侧/近缘处，峰值向外延展，只有衰减裙边落进面板，
+   * 呈现纵深感与呼吸感，且中央阅读区留白不干扰正文对比度。 */
   --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(235, 243, 250, 0.92), rgba(236, 239, 243, 0.9) 220px);
   --biliscript-reader-mist-blobs:
-    radial-gradient(300px 210px at 30% -40%, rgba(140, 200, 255, 0.6), rgba(140, 200, 255, 0)),
-    radial-gradient(260px 190px at 85% -15%, rgba(187, 228, 253, 0.9), rgba(187, 228, 253, 0));
+    radial-gradient(320px 220px at 15% -25%, rgba(140, 200, 255, 0.55), rgba(140, 200, 255, 0)),
+    radial-gradient(280px 200px at 88% -15%, rgba(187, 228, 253, 0.75), rgba(187, 228, 253, 0)),
+    radial-gradient(320px 240px at 5% 95%, rgba(165, 205, 255, 0.45), rgba(165, 205, 255, 0)),
+    radial-gradient(300px 240px at 95% 90%, rgba(180, 225, 250, 0.5), rgba(180, 225, 250, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.65);
   --biliscript-reader-mist-filter: blur(24px) saturate(1.2);
   /* Gemini 虹彩流光（蓝→紫→珊瑚粉→暖金）：AI 强相关触点的克制流光，只被
@@ -305,12 +307,15 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
     0 6px 18px -2px rgba(0, 0, 0, 0.36),
     inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
   --biliscript-reader-overlay-bg: rgba(16, 17, 20, 0.8);
-  /* 深色蓝雾三件：壳雾底 #101114 加 alpha，光雾换深蓝辉光（accent #3D9BFF
-   * 同族），描边按深色玻璃纪律取白 18%。 */
+  /* 深色蓝雾三件：壳雾底 #101114 加 alpha，光雾换四角深蓝与青蓝辉光（accent #3D9BFF
+   * 同族），描边按深色玻璃纪律取白 18%。
+   * 四角色团圆心锚定在四角与边缘，柔和衰减，呈现纵深感与呼吸感，不干扰暗面正文对比度。 */
   --biliscript-reader-mist-surface: linear-gradient(180deg, rgba(22, 28, 38, 0.88), rgba(16, 17, 20, 0.84) 180px);
   --biliscript-reader-mist-blobs:
-    radial-gradient(300px 210px at 30% -30%, rgba(61, 155, 255, 0.3), rgba(61, 155, 255, 0)),
-    radial-gradient(260px 190px at 85% -12%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0));
+    radial-gradient(320px 220px at 15% -25%, rgba(61, 155, 255, 0.28), rgba(61, 155, 255, 0)),
+    radial-gradient(280px 200px at 88% -15%, rgba(96, 165, 250, 0.22), rgba(96, 165, 250, 0)),
+    radial-gradient(320px 240px at 5% 95%, rgba(79, 140, 255, 0.18), rgba(79, 140, 255, 0)),
+    radial-gradient(300px 240px at 95% 90%, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0));
   --biliscript-reader-mist-line: rgba(255, 255, 255, 0.18);
   /* Gemini 虹彩流光深色档：四色换暗面亮档（#669df6→#b388ff→#f28b82→#fdd663），
    * 消费方与浅色档同一组 :not([data-palette="editorial"]) 门控规则。 */
@@ -424,7 +429,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-
  * 玻璃材质落在视图层（贴栏/浮层两态共一个壳）：半透明雾底 + 背景模糊 +
  * 亮描边；内壳 .biliscript-reading-script-panel 透明化——贴栏态它 100%
  * 铺满视图，双叠会把 0.86 的雾底压成近实色、描边出双圈。
- * 蓝雾是视图的 ::before：两团径向渐变随 28px 模糊铺开，z-index:-1 落进
+ * 蓝雾是视图的 ::before：四团径向渐变随 28px 模糊铺开，z-index:-1 落进
  * backdrop-filter 建出的层叠上下文——在视图底色之上、面板内容之下；
  * 内容区透明直露雾底，全场只有一层料，白玻璃凸起卡（--card）靠灰差
  * 浮在雾上。面板内无 position:fixed 后代，backdrop-filter 的
