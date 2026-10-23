@@ -388,7 +388,7 @@ async function handleCopyImageAction(btn: HTMLButtonElement, card: HTMLElement):
       return await copyQuoteCardBlobToClipboard(blob);
     },
     successText: "已复制 ✓",
-    failureText: "复制失败，请保存",
+    failureText: "复制失败，建议直接保存图片",
     errorText: "生成失败",
     successDuration: 2000,
     failureDuration: 2500

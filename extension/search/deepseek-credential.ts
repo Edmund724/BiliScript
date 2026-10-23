@@ -102,6 +102,6 @@ export function resolveDeepseekSearchKey(
 export const DEEPSEEK_ROW_STATUS_TEXT: Record<DeepseekCredentialStatus, string> = {
   ok: "已复用 AI 平台 Key",
   "no-key": "请先在 AI 平台添加官方 DeepSeek 记录",
-  unofficial: "AI 平台 Key 指向非官方端点",
+  unofficial: "AI 平台配置的并非 DeepSeek 官方接口地址",
   "no-record": "请先在 AI 平台添加官方 DeepSeek 记录"
 };

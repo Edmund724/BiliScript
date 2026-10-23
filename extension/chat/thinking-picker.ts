@@ -208,8 +208,8 @@ export function thinkingPickerLabel(input: ThinkingPickerInput): string {
 
 // ===== 提示文案（口径①②；候选 6 起从组合根移入本模块）=====
 // 文案逐字给定（工单 03，勿改写）：长版 = 级联落了最小思考档；短版 = 连最小档都没有。
-const THINKING_OFF_FALLBACK_LOW_HINT = "当前模型不支持在本次请求中关闭思考，已使用最小思考档位";
-const THINKING_OFF_UNAVAILABLE_HINT = "当前模型没办法关掉思考";
+const THINKING_OFF_FALLBACK_LOW_HINT = "当前模型不支持关闭思考，已使用最低档位";
+const THINKING_OFF_UNAVAILABLE_HINT = "当前模型不支持关闭思考";
 
 // 提示行文案（null = 不显示提示行）。两类提示互斥，**① 优先**：
 //   ① 工单 03「关不掉思考」：偏好 off 且解析判 off 不可用（级联落了最小档 / 无档可落），

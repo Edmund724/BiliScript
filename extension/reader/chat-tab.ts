@@ -151,7 +151,7 @@ import { seekReadingTarget } from "./sync.js";
 
 ensureReaderChatStyles();
 
-const NON_VIDEO_CONTEXT_MESSAGE = "当前页非 B 站视频页面，<br>无法获取当前页面信息作为对话上下文，<br>仅支持 AI 对话。";
+const NON_VIDEO_CONTEXT_MESSAGE = "当前不是视频播放页，<br>无法获取视频信息，<br>仅支持常规对话。";
 
 const els = {
   root: document.getElementById(ids.readingChatRoot) as HTMLElement,

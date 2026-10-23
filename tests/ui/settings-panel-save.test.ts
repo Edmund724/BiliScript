@@ -271,7 +271,7 @@ describe("设置抽屉模板：笔记导出区块已删除", () => {
       expect(host.querySelector(`#${id}`), `#${id} 应保留`).toBeTruthy();
     }
     expect(host.textContent).toContain("下载格式");
-    expect(host.textContent).toContain("文件名前包含导出日期");
+    expect(host.textContent).toContain("导出文件名包含日期");
     expect(host.textContent).toContain("在字幕正文中保留时间戳");
   });
 });

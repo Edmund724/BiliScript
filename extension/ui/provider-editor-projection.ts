@@ -198,7 +198,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
     html: (projection) =>
       fieldBlock(
         "API 地址",
-        `<input class="provider-editor-baseurl" type="text" required pattern="https?://.+" placeholder="baseUrl（如 https://api.openai.com/v1）" value="${inputValue(projection)}" />`
+        `<input class="provider-editor-baseurl" type="text" required pattern="https?://.+" placeholder="如 https://api.openai.com/v1" value="${inputValue(projection)}" />`
       ),
     apply: (dialog, projection) => {
       const input = dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl");

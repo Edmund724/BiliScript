@@ -492,7 +492,7 @@ describe("renderThinkingPicker（内联思考强度滑块与 Default ↻ 重置�
 // chat/thinking-picker 的纯函数口径，由 tests/chat/thinking-picker.test.ts 锁定；本组
 // 用例钉的是「整份视图 → 提示行 DOM」的接线（真实 DOM 直测）。
 describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文案与显隐接线）", () => {
-  const HINT_UNAVAILABLE = "当前模型没办法关掉思考";
+  const HINT_UNAVAILABLE = "当前模型不支持关闭思考";
 
   it("hint 有文案：显示并写进提示行；同一次调用里档位、思考强度行与 chip 一起落定", () => {
     const { thinkingHint, thinkingToggle, thinkingRowValue, chipLevel, modelPanel } = makeHarness();
@@ -503,13 +503,13 @@ describe("renderThinkingPicker 的底部提示行（工单 03 / 05 号票：文�
       view({
         label: "High",
         entries: thinkingPickerEntries({ availableLevels: ["high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "high" }),
-        hint: "当前模型不支持在本次请求中关闭思考，已使用最小思考档位"
+        hint: "当前模型不支持关闭思考，已使用最低档位"
       })
     );
 
     expect(thinkingHint).not.toBe(null);
     expect(thinkingHint?.hidden).toBe(false);
-    expect(thinkingHint?.textContent).toBe("当前模型不支持在本次请求中关闭思考，已使用最小思考档位");
+    expect(thinkingHint?.textContent).toBe("当前模型不支持关闭思考，已使用最低档位");
     expect(renderedLevels(thinkingToggle)).toEqual(["default", "high", "max"]);
     expect(thinkingRowValue.textContent).toBe("High");
     expect(chipLevel.textContent).toBe("High");

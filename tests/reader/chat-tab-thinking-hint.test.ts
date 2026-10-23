@@ -92,7 +92,7 @@ vi.mock("../../extension/bilibili/gateway-core.js", () => ({
 // 提示文案逐字给定（工单 03 / 05 号票，勿改写）——本文件只在走查快照里顺带断言它
 //（文案矩阵与显隐条件归纯函数侧 tests/chat/thinking-picker.test.ts，文案 → DOM 归面板侧
 // tests/reader/chat-model-panel.test.ts）。
-const HINT_LOW_FALLBACK = "当前模型不支持在本次请求中关闭思考，已使用最小思考档位";
+const HINT_LOW_FALLBACK = "当前模型不支持关闭思考，已使用最低档位";
 
 // 05 号票（决策 #8）：偏好档位被模型词表 clamp 掉时的说明文本（源档 → 实发档）。
 // 2026-10-05 复审裁定：句式与「关不掉思考」那句对齐，不附原因 → 断言也逐字。

@@ -126,6 +126,6 @@ describe("行状态三态文案", () => {
     expect(DEEPSEEK_ROW_STATUS_TEXT.ok).toBe("已复用 AI 平台 Key");
     expect(DEEPSEEK_ROW_STATUS_TEXT["no-record"]).toBe("请先在 AI 平台添加官方 DeepSeek 记录");
     expect(DEEPSEEK_ROW_STATUS_TEXT["no-key"]).toBe("请先在 AI 平台添加官方 DeepSeek 记录");
-    expect(DEEPSEEK_ROW_STATUS_TEXT.unofficial).toBe("AI 平台 Key 指向非官方端点");
+    expect(DEEPSEEK_ROW_STATUS_TEXT.unofficial).toBe("AI 平台配置的并非 DeepSeek 官方接口地址");
   });
 });

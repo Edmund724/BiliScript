@@ -67,7 +67,7 @@ const REJECT_MESSAGES: Record<ImageRejectReason, string> = {
 };
 
 // 流式中加图被拒（02 号票行为细节：发送中不允许再加图）。
-export const IMAGE_STREAMING_REJECT_MESSAGE = "回答生成中，暂时不能添加图片";
+export const IMAGE_STREAMING_REJECT_MESSAGE = "正在生成回答，暂不支持添加图片";
 
 const REMOVE_LABEL = "删除图片";
 const THUMB_ALT = "粘贴的图片";

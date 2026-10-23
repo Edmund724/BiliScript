@@ -45,8 +45,8 @@ export interface TranscribeBannerCopy {
 
 export const TRANSCRIBE_BANNER_COPY: Record<string, TranscribeBannerCopy> = {
   "asr-transcribing": {
-    title: "该视频无字幕，正在进行音频转写…",
-    copy: "转写完成后字幕与概览将自动出现，期间可先看视频"
+    title: "当前视频无字幕，正在进行语音转写…",
+    copy: "转写完成后将自动展示字幕与概览，期间可继续观看视频"
   }
 };
 

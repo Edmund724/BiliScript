@@ -285,7 +285,7 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     dispatchPaste(input, [imageItem()]);
 
     await waitFor(() => Boolean(messages.querySelector(".chat-context-notice")));
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("回答生成中");
+    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在生成回答");
     expect(strip.hidden).toBe(true);
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
   });
@@ -313,7 +313,7 @@ describe("粘贴图片（真实压缩管线 + 组合根接线）", () => {
     dispatchPaste(input, [imageItem()]);
 
     // 拒绝是同步的（流式闸在压缩之前）：提示立即换成拒绝文案，附件区保持空
-    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("回答生成中");
+    expect(messages.querySelector(".chat-context-notice")?.textContent).toContain("正在生成回答");
     expect(strip.hidden).toBe(true);
     expect(strip.querySelectorAll(".chat-image-item")).toHaveLength(0);
     await new Promise((resolve) => setTimeout(resolve, 20));

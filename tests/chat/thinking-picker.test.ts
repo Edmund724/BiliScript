@@ -375,12 +375,12 @@ describe("thinkingHint：提示文案口径①②（纯函数直测，不挂阅�
     // 口径①必须优先（否则会写成「不支持 off，已使用 low」）。
     const long = resolveThinkingAdjustment(realInput("zhipu", ZHIPU_URL, "glm-5.3", "off"));
     expect(long.reason).not.toBe(null);
-    expect(thinkingHint(long)).toBe("当前模型不支持在本次请求中关闭思考，已使用最小思考档位");
+    expect(thinkingHint(long)).toBe("当前模型不支持关闭思考，已使用最低档位");
     // moonshot/kimi-k2.7-code：手写兜底 kimi-always、无档位写点 → 无档可落。
     const short = resolveThinkingAdjustment(realInput("", "", "kimi-k2.7-code", "off"));
     expect(short.resolution.offUnavailable).toBe(true);
     expect(short.resolution.offFallback).toBe(null);
-    expect(thinkingHint(short)).toBe("当前模型没办法关掉思考");
+    expect(thinkingHint(short)).toBe("当前模型不支持关闭思考");
   });
 
   it("① off 正常可用 / never 静默：都无提示", () => {

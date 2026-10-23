@@ -138,7 +138,7 @@ function buildEmptyStateHtml(): string {
     `;
   }
   let title = "该视频没有可用字幕";
-  let copy = "概览（章节与金句）需要字幕才能生成。";
+  let copy = "视频概览需基于字幕生成。";
   if (state.clip.noSubtitleReason) {
     const notice = getAsrFailureNotice(state.clip.noSubtitleReason);
     title = notice.cause || title;
@@ -185,7 +185,7 @@ function buildPartialStrip(snapshot: ReaderOverviewSnapshot): string {
   const failedCount = snapshot.analysis?.failedRanges?.length || 0;
   return `
     <div class="biliscript-reading-ov-strip is-partial">
-      <span class="biliscript-reading-ov-strip-text">有 ${failedCount} 个分段生成失败，对应区间的章节与金句缺失。</span>
+      <span class="biliscript-reading-ov-strip-text">有 ${failedCount} 个分段生成失败，对应区间的章节与金句未生成。</span>
       <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry-failed">重试失败区间</button>
     </div>
   `;
@@ -245,7 +245,7 @@ function buildResultSectionsHtml(snapshot: ReaderOverviewSnapshot): string {
   const missingStrip = missingCount
     ? `
     <div class="biliscript-reading-ov-strip is-partial">
-      <span class="biliscript-reading-ov-strip-text">有 ${missingCount} 个章节没有概括。</span>
+      <span class="biliscript-reading-ov-strip-text">有 ${missingCount} 个章节缺少小结。</span>
       <button type="button" class="biliscript-reading-mini-btn" data-overview-action="retry">重新生成</button>
     </div>`
     : "";

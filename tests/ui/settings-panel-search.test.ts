@@ -189,7 +189,7 @@ describe("设置页搜索节：悬空链首提示行（spec §6.8）", () => {
     await vi.waitFor(() => {
       expect(hint.hidden).toBe(false);
     });
-    expect(hint.textContent).toBe("原选用平台已不可用，当前按默认链搜索");
+    expect(hint.textContent).toBe("原选用的平台已不可用，当前按默认顺序搜索");
 
     const radio = host.querySelector<HTMLInputElement>("#searchProvidersList .search-provider-active-radio")!;
     radio.checked = true;

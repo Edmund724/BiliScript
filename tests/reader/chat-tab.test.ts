@@ -1638,7 +1638,7 @@ describe("消息区滚底按钮：显隐跟随机动、点一下回底", () => {
     expect(footer.classList.contains("chat-footer")).toBe(true);
     expect(Array.from(footer.children).indexOf(btn)).toBe(0);
     expect(btn.hidden).toBe(true);
-    expect(btn.getAttribute("aria-label")).toBe("跳到底部");
+    expect(btn.getAttribute("aria-label")).toBe("回到底部");
     // chevron-down 图标（装饰，随 svg 的 aria-hidden）
     expect(btn.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     expect(btn.querySelector("svg path")?.getAttribute("d")).toBe("m6 9 6 6 6-6");

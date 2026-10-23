@@ -144,8 +144,8 @@ describe("转写中间态横幅", () => {
     expect(bannerTitleText()).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].title);
     expect(bannerCopyText()).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].copy);
     // 逐字与归一化前的硬编码串一致（本次无可见变化）
-    expect(bannerTitleText()).toBe("该视频无字幕，正在进行音频转写…");
-    expect(bannerCopyText()).toBe("转写完成后字幕与概览将自动出现，期间可先看视频");
+    expect(bannerTitleText()).toBe("当前视频无字幕，正在进行语音转写…");
+    expect(bannerCopyText()).toBe("转写完成后将自动展示字幕与概览，期间可继续观看视频");
   });
 
   it("横幅文案幂等：同相位重复收敛不改写节点（脏检查）", () => {
@@ -157,7 +157,7 @@ describe("转写中间态横幅", () => {
 
     // 内容相同即不赋值（textContent 赋值会换文本节点，脏检查保证零 DOM 写）
     expect(titleNode.textContent).toBe(bannerCopy.TRANSCRIBE_BANNER_COPY["asr-transcribing"].title);
-    expect(bannerTitleText()).toBe("该视频无字幕，正在进行音频转写…");
+    expect(bannerTitleText()).toBe("当前视频无字幕，正在进行语音转写…");
   });
 
   it("renderReadingView 恢复呈现：打开视图晚于转写发起（相位先于渲染发布）", () => {

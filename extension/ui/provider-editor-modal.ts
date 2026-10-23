@@ -272,7 +272,7 @@ export async function runTest(): Promise<void> {
   const baseUrl = draft.baseUrl.trim();
   const model = draft.model.trim();
   if (!baseUrl) {
-    showStatus("请填写 baseUrl", true);
+    showStatus("请填写 API 地址", true);
     return;
   }
   if (!model) {
@@ -364,7 +364,7 @@ export async function runSearchTest(): Promise<void> {
   const preset = family.resolvePreset(state.presets, draft.presetId) as SearchProviderPreset | null;
   const baseUrl = draft.baseUrl.trim();
   if (!baseUrl) {
-    showStatus("请填写 baseUrl", true);
+    showStatus("请填写 API 地址", true);
     return;
   }
   let apiKey = draft.apiKey.trim();

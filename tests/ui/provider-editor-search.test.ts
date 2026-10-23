@@ -289,14 +289,14 @@ describe("搜索 Modal：测试动作五态与前置校验（spec §6.6 / §10 �
     expect(sentTypes(sent)).not.toContain("save-settings");
   });
 
-  it("前置本地校验：baseUrl 空 →「请填写 baseUrl」；free-quota 未配 Key →「请先填写 API Key」，都不发起请求", async () => {
+  it("前置本地校验：baseUrl 空 →「请填写 API 地址」；free-quota 未配 Key →「请先填写 API Key」，都不发起请求", async () => {
     const { host } = await mountPanel();
     const dialog = await openSearchEditor(host);
 
     // 搜索预设自带 baseUrl（新增即预填），用户清空后才触发地址校验
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "");
     await clickTest(dialog);
-    expect(statusNode(dialog).textContent).toBe("请填写 baseUrl");
+    expect(statusNode(dialog).textContent).toBe("请填写 API 地址");
     expect(statusNode(dialog).dataset.error).toBe("true");
 
     await fillBaseUrl(dialog, "https://api.exa.ai");

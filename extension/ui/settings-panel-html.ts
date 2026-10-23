@@ -101,7 +101,7 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group" data-settings-section="search">
       <div class="biliscript-set-h">搜索平台</div>
-      <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用平台已不可用，当前按默认链搜索</p>
+      <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用的平台已不可用，当前按默认顺序搜索</p>
       <div class="biliscript-set-check biliscript-toggle-row">
         <span class="biliscript-toggle-text">允许智能搜索使用付费平台</span>
         <label class="biliscript-toggle-switch">
@@ -252,9 +252,9 @@ export function buildSettingsHtml(): string {
         </select>
       </div>
       <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">文件名前包含导出日期</span>
+        <span class="biliscript-toggle-text">导出文件名包含日期</span>
         <label class="biliscript-toggle-switch">
-          <input id="${ids.includeDateInFilename}" type="checkbox" class="biliscript-toggle-input" aria-label="文件名前包含导出日期" />
+          <input id="${ids.includeDateInFilename}" type="checkbox" class="biliscript-toggle-input" aria-label="导出文件名包含日期" />
           <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
         </label>
       </div>

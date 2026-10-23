@@ -50,7 +50,7 @@ export function buildChatTabBodyHtml(): string {
         </div>
 
         <!-- 转写状态行：默认基础句；等待发送期间文案由 chat-tab.ts 切换（唯一提示，不另起消息区通知） -->
-        <div id="${ids.readingChatAsrNotice}" class="chat-asr-notice" hidden>该视频无字幕，正在音频转写…</div>
+        <div id="${ids.readingChatAsrNotice}" class="chat-asr-notice" hidden>当前视频无字幕，正在进行语音转写…</div>
         <main class="chat-messages" id="${ids.readingChatMessages}">
           <div class="chat-suggestions" id="${ids.readingChatSuggestions}"></div>
         </main>
@@ -60,7 +60,7 @@ export function buildChatTabBodyHtml(): string {
                挂 footer 内而非消息区：消息区是滚动容器，绝对定位的子节点会跟着内容
                滚走；footer 是 relative 的定位父级，按钮才固定浮在输入卡上方。历史
                整页打开时 footer 整体 display:none，按钮随之退场，无需另判。 -->
-          <button id="${ids.readingChatScrollBottomBtn}" type="button" class="chat-scroll-bottom" title="跳到底部" aria-label="跳到底部" hidden>
+          <button id="${ids.readingChatScrollBottomBtn}" type="button" class="chat-scroll-bottom" title="回到底部" aria-label="回到底部" hidden>
             <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
               <path d="m6 9 6 6 6-6"></path>
             </svg>

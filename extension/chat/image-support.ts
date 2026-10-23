@@ -54,10 +54,10 @@ export interface ImageSupportGate {
 }
 
 // 门控提示（乐观放行：只提示、不阻断）
-export const IMAGE_UNSUPPORTED_NOTICE = "当前模型可能不支持图片，发送可能失败；如需图片理解请换用支持图片的模型";
+export const IMAGE_UNSUPPORTED_NOTICE = "当前模型可能不支持图片，发送可能失败；如需识图请换用多模态模型";
 
 // 400 兜底提示：平台文案不含图片线索时补上，给一条可操作出路
-export const IMAGE_UNSUPPORTED_ERROR_HINT = "（可能是模型不支持图片，请换用支持图片的模型，或移除图片后重试）";
+export const IMAGE_UNSUPPORTED_ERROR_HINT = "（可能是模型不支持图片，请换用多模态模型，或移除图片后重试）";
 
 // HTTP 400 的形状来自错误归一化（ai/completion.ts makeHttpError 的
 // `HTTP <status>: <detail>`，detail 经 adapter.extractErrorDetail 透传）；图片线索

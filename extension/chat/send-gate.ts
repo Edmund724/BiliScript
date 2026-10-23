@@ -52,8 +52,8 @@ export type GateOutcome =
   | { pass: false; kind: "fetch-error" };
 
 // 等待/状态行文案（自 chat-tab 原文件迁入，逐字保持）。
-export const ASR_TRANSCRIBING_NOTICE = "该视频无字幕，正在音频转写…";
-export const ASR_WAITING_NOTICE = "该视频无字幕，正在音频转写，完成后自动开始总结…";
+export const ASR_TRANSCRIBING_NOTICE = "当前视频无字幕，正在进行语音转写…";
+export const ASR_WAITING_NOTICE = "当前视频无字幕，正在进行语音转写，完成后自动开始总结…";
 export const SUBTITLE_FETCHING_NOTICE = "正在抓取字幕，完成后自动开始总结…";
 export const SUBTITLE_FETCH_FAILED_NOTICE = "字幕抓取失败，请稍后重试。";
 
