@@ -224,8 +224,8 @@ export function renderMarkdownStripped(text: string): string {
       continue;
     }
 
-    // ATX 标题 1–6 级：面板自身占用 h1/h2，正文标题整体下移两档；4 级及以上
-    //（#### 起）已无更深档可让，一律夹到最深档 h6。
+    // ATX 标题 1–6 级：正文标题整体下移一档（# -> h2、## -> h3 等，5 级及以上
+    // 夹到最深档 h6），避免深层小标题字号落差失真。
     if (line.startsWith("$$")) {
       if (line.endsWith("$$") && line.length >= 4) {
         flushPara();
@@ -269,7 +269,7 @@ export function renderMarkdownStripped(text: string): string {
     if (heading) {
       flushPara();
       closeList();
-      const level = Math.min(heading[1].length + 2, 6);
+      const level = Math.min(heading[1].length + 1, 6);
       out.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
       continue;
     }

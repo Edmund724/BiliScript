@@ -801,6 +801,7 @@
   margin-bottom: 0;
 }
 
+.biliscript-reading-chat .chat-msg-assistant h2,
 .biliscript-reading-chat .chat-msg-assistant h3,
 .biliscript-reading-chat .chat-msg-assistant h4,
 .biliscript-reading-chat .chat-msg-assistant h5,
@@ -810,13 +811,13 @@
   line-height: 1.4;
 }
 
-/* 标题档随正文 16px 上移，保持「正文之上」的层级：两级（h3 / h4=h5）不变，
- * 三个半像素值（16.5/15.5/15.5）并为整数。h6 是最深档（markdown #### 及以
- * 上夹到这里），下面没有更浅档可让，落到正文 16px 之下作子标签档。 */
+/* 标题档阶梯（基准正文 16px）：h2(20px) > h3(18px) > h4(17px) > h5/h6(16px 粗体)，
+ * 保证所有标题字号均不小于正文，且主要层级有明显梯度落差。 */
+.biliscript-reading-chat .chat-msg-assistant h2 { font-size: calc(20px * var(--biliscript-reader-font-scale, 1)); }
 .biliscript-reading-chat .chat-msg-assistant h3 { font-size: calc(18px * var(--biliscript-reader-font-scale, 1)); }
-.biliscript-reading-chat .chat-msg-assistant h4 { font-size: calc(16px * var(--biliscript-reader-font-scale, 1)); }
+.biliscript-reading-chat .chat-msg-assistant h4 { font-size: calc(17px * var(--biliscript-reader-font-scale, 1)); }
 .biliscript-reading-chat .chat-msg-assistant h5 { font-size: calc(16px * var(--biliscript-reader-font-scale, 1)); }
-.biliscript-reading-chat .chat-msg-assistant h6 { font-size: calc(14px * var(--biliscript-reader-font-scale, 1)); }
+.biliscript-reading-chat .chat-msg-assistant h6 { font-size: calc(16px * var(--biliscript-reader-font-scale, 1)); }
 
 .biliscript-reading-chat .chat-msg-assistant ul,
 .biliscript-reading-chat .chat-msg-assistant ol {
@@ -920,6 +921,7 @@
   contain-intrinsic-size: auto none auto 23px;
 }
 
+.biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h2,
 .biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h3,
 .biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h4,
 .biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) h5,

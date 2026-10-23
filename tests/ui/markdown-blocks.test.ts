@@ -120,3 +120,14 @@ describe("splitMarkdownTail 与新增块型兼容", () => {
     expect(renderMarkdown(stableText) + renderMarkdown(tailText)).toBe(renderMarkdown(text));
   });
 });
+
+describe("renderMarkdown ATX 标题", () => {
+  it("各级标题下移一档映射（# -> h2、## -> h3、### -> h4、#### -> h5、#####/###### -> h6）", () => {
+    expect(renderMarkdown("# 一级")).toBe("<h2>一级</h2>");
+    expect(renderMarkdown("## 二级")).toBe("<h3>二级</h3>");
+    expect(renderMarkdown("### 三级")).toBe("<h4>三级</h4>");
+    expect(renderMarkdown("#### 四级")).toBe("<h5>四级</h5>");
+    expect(renderMarkdown("##### 五级")).toBe("<h6>五级</h6>");
+    expect(renderMarkdown("###### 六级")).toBe("<h6>六级</h6>");
+  });
+});

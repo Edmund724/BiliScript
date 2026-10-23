@@ -124,6 +124,11 @@
   line-height: 1.25;
 }
 
+.markdown-body h2 {
+  font-weight: var(--base-text-weight-semibold, 600);
+  font-size: 1.5em;
+}
+
 .markdown-body h3 {
   font-weight: var(--base-text-weight-semibold, 600);
   font-size: 1.25em;
@@ -231,6 +236,7 @@
   margin-bottom: 0;
 }
 
+.markdown-body h2 code,
 .markdown-body h3 code,
 .markdown-body h4 code,
 .markdown-body h5 code,

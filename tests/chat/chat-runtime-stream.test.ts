@@ -267,7 +267,7 @@ describe("token 流式渲染（协议驱动）", () => {
     feed(runtime, { type: "token", data: "# 标题\n- 第一项\n" });
     expect(raf).toHaveBeenCalledTimes(1);
     raf.mock.calls[0][0]();
-    expect(node.querySelector("h3")).toBeTruthy();
+    expect(node.querySelector("h2")).toBeTruthy();
     expect(node.querySelector("li")).toBeTruthy();
     expect(node.querySelector(".chat-msg-cursor")).toBeTruthy();
 
@@ -344,7 +344,7 @@ describe("token 流式渲染（协议驱动）", () => {
     feed(runtime, { type: "token", data: tokens[0] });
     feed(runtime, { type: "token", data: tokens[1] });
     raf.mock.calls[0][0]();
-    expect(node.querySelector("h3")).toBeTruthy();
+    expect(node.querySelector("h2")).toBeTruthy();
 
     // 第二批 token → flush #2
     feed(runtime, { type: "token", data: tokens[2] });
@@ -724,7 +724,7 @@ describe("stream-reset 代际重放（读流中断重试：整体重放）", () 
     feed(runtime, { type: "token", data: "# 第一代开头\n\n第一代正文" });
     raf.mock.calls[0][0]();
     expect(node.querySelector(".chat-stream-stable")).toBeTruthy();
-    expect(node.querySelector("h3")?.textContent).toContain("第一代");
+    expect(node.querySelector("h2")?.textContent).toContain("第一代");
 
     // 读流中断重试：offscreen 发代际重置信号
     feed(runtime, { type: "stream-reset" });
