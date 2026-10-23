@@ -44,6 +44,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   border-radius: 28px;
+  corner-shape: squircle;
   border: 1px solid var(--biliscript-reader-border);
   /* 半透明材质：overlay token（gate 段两主题定义）+ blur/saturate 毛玻璃，
    * 与 reader header 同款（reduced-transparency 见文件尾降级块） */
