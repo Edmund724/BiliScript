@@ -851,12 +851,14 @@ function bindEvents(): void {
     if (els.lineHeightSlider && els.lineHeightValue && els.lineHeightResetBtn) {
       const val = normalizeChatLineHeight(state.settings?.chatLineHeight);
       els.lineHeightSlider.value = String(val);
+      syncRangeProgress(els.lineHeightSlider);
       els.lineHeightValue.textContent = `${val}%`;
       els.lineHeightResetBtn.disabled = val === DEFAULT_SETTINGS.chatLineHeight;
     }
     if (els.paraSpacingSlider && els.paraSpacingValue && els.paraSpacingResetBtn) {
       const val = normalizeChatParagraphSpacing(state.settings?.chatParagraphSpacing);
       els.paraSpacingSlider.value = String(val);
+      syncRangeProgress(els.paraSpacingSlider);
       els.paraSpacingValue.textContent = `${val}px`;
       els.paraSpacingResetBtn.disabled = val === DEFAULT_SETTINGS.chatParagraphSpacing;
     }
@@ -881,10 +883,12 @@ function bindEvents(): void {
 
     const updateLineHeightUi = (val: number) => {
       slider.value = String(val);
+      syncRangeProgress(slider);
       badge.textContent = `${val}%`;
       resetBtn.disabled = val === DEFAULT_SETTINGS.chatLineHeight;
     };
 
+    initRangeSlider(slider);
     updateLineHeightUi(normalizeChatLineHeight(state.settings?.chatLineHeight));
 
     slider.addEventListener("input", () => {
@@ -913,10 +917,12 @@ function bindEvents(): void {
 
     const updateParaSpacingUi = (val: number) => {
       slider.value = String(val);
+      syncRangeProgress(slider);
       badge.textContent = `${val}px`;
       resetBtn.disabled = val === DEFAULT_SETTINGS.chatParagraphSpacing;
     };
 
+    initRangeSlider(slider);
     updateParaSpacingUi(normalizeChatParagraphSpacing(state.settings?.chatParagraphSpacing));
 
     slider.addEventListener("input", () => {
