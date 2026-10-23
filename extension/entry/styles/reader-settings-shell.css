@@ -171,12 +171,12 @@
   box-sizing: border-box;
 }
 
-/* 设置抽屉顶部快速跳转导航条（吸顶常驻、上部完全不透明防文字穿透、下部向透明平滑渐隐） */
+/* 设置抽屉顶部快速跳转导航条（吸顶常驻、完全透明无独立底色、自然融入面板背景） */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav {
   position: sticky;
   top: -12px;
   margin: -12px -16px 0 -16px;
-  padding: 10px 16px 14px;
+  padding: 10px 16px 6px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -185,12 +185,7 @@
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
   z-index: 10;
-  background: linear-gradient(
-    to bottom,
-    var(--biliscript-reader-surface) 0%,
-    var(--biliscript-reader-surface) calc(100% - 14px),
-    transparent 100%
-  );
+  background: transparent;
   border-radius: 0;
   border-bottom: none;
 }
@@ -207,7 +202,7 @@
   border: none;
   background: none;
   padding: 4px 2px 6px;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: calc(13px * var(--biliscript-reader-font-scale, 1));
   font-weight: 500;
   font-family: inherit;
   white-space: nowrap;
@@ -227,7 +222,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-indicator {
   position: absolute;
-  bottom: 14px;
+  bottom: 0;
   left: 0;
   height: 2.5px;
   border-radius: 2px;
