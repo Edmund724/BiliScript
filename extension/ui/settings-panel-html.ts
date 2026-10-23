@@ -80,17 +80,15 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group" data-settings-section="llm">
       <div class="biliscript-set-h">AI 模型平台</div>
-      <p class="biliscript-set-hint">支持 OpenAI 兼容协议（OpenAI / DeepSeek / Qwen / GLM / Kimi / MiniMax / Ollama 等）。在下方点击 + 添加平台，填写名称、API Base URL、API Key 与模型名称，点「测试」可验证连通性，点「保存」后才会写入设置。</p>
       <div id="${ids.aiProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">还没有配置平台，点击下方按钮添加。</p>
+      <p id="${ids.aiProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       <button id="${ids.addAiProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="asr">
       <div class="biliscript-set-h">语音转写平台</div>
-      <p class="biliscript-set-hint">无字幕轨视频可通过语音识别自动生成字幕。当前选用平台将用于转写。</p>
       <div id="${ids.asrProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">还没有配置语音转写平台。点击下方添加按钮从预设创建，无字幕视频将无法自动生成字幕。</p>
+      <p id="${ids.asrProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       <button id="${ids.addAsrProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       <div class="biliscript-set-check biliscript-toggle-row asr-fallback-checkbox">
         <span class="biliscript-toggle-text">无字幕时自动生成字幕</span>
@@ -103,17 +101,16 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group" data-settings-section="search">
       <div class="biliscript-set-h">搜索平台</div>
-      <p class="biliscript-set-hint">AI 对话与选区解释可联网搜索视频内容之外的信息（function calling，由模型决定何时搜）。联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止该家接收查询。</p>
       <p id="${ids.searchProvidersDanglingHint}" class="biliscript-set-hint" hidden>原选用平台已不可用，当前按默认链搜索</p>
       <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">允许智能搜索使用付费平台（DeepSeek 按次计费，¥5/1000 次成功请求；关闭时智能链自动跳过它）</span>
+        <span class="biliscript-toggle-text">允许智能搜索使用付费平台</span>
         <label class="biliscript-toggle-switch">
-          <input id="${ids.allowPaidSearchProviders}" type="checkbox" class="biliscript-toggle-input" aria-label="允许智能搜索使用付费平台（DeepSeek 按次计费，¥5/1000 次成功请求；关闭时智能链自动跳过它）" />
+          <input id="${ids.allowPaidSearchProviders}" type="checkbox" class="biliscript-toggle-input" aria-label="允许智能搜索使用付费平台" />
           <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
         </label>
       </div>
       <div id="${ids.searchProvidersList}" class="ai-providers-list"></div>
-      <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa / DeepSeek Search）——四条免 Key 预设装上即可用。</p>
+      <p id="${ids.searchProvidersEmpty}" class="ai-providers-empty">暂无已配置平台</p>
       <button id="${ids.addSearchProviderBtn}" class="add-property-btn" type="button">+ 添加平台</button>
       <button id="${ids.resetSearchProviderOrderBtn}" class="add-property-btn" type="button">恢复默认顺序</button>
       <div id="${ids.webSearchMaxToolCallsContainer}" class="biliscript-set-row biliscript-slider-row">
@@ -144,9 +141,9 @@ export function buildSettingsHtml(): string {
     <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 按钮</div>
       <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空</span>
+        <span class="biliscript-toggle-text">在视频播放器显示 AI 按钮</span>
         <label class="biliscript-toggle-switch">
-          <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频播放器显示 AI 按钮，点击按照预设提示词调用 AI 对话，提示词可为空" />
+          <input id="${ids.enablePlayerAiQuickAction}" type="checkbox" class="biliscript-toggle-input" aria-label="在视频播放器显示 AI 按钮" />
           <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
         </label>
       </div>
@@ -164,7 +161,6 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group" data-settings-section="prompt">
       <div class="biliscript-set-h">AI 对话 - 初始问题</div>
-      <p class="biliscript-set-hint">新视频没有历史对话时显示，最多 3 条；留空则按视频内容自动生成。</p>
       <div class="biliscript-set-quick-prompts">
         <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 1" />
         <input class="ai-initial-quick-prompt" type="text" placeholder="快捷问题 2" />
@@ -174,7 +170,6 @@ export function buildSettingsHtml(): string {
 
     <section class="biliscript-set-group" data-settings-section="appearance">
       <div class="biliscript-set-h">外观与布局</div>
-      <p class="biliscript-set-hint">外观色板决定文摘面板的整体视觉风格；明暗模式由面板顶栏的太阳 / 月亮按钮切换，两者互不影响。</p>
       <div class="biliscript-set-row">
         <label class="biliscript-set-label" for="${ids.readerPalette}">外观色板</label>
         <select id="${ids.readerPalette}" class="biliscript-set-select">
@@ -190,7 +185,6 @@ export function buildSettingsHtml(): string {
           <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
         </label>
       </div>
-      <p class="biliscript-set-hint" style="margin-top: -4px;">在输入框背后呈现 Gemini 虹彩渐变光晕；关闭后恢复简洁外观。</p>
 
       <div id="${ids.readerFontSizeScaleContainer}" class="biliscript-set-row biliscript-slider-row">
         <div class="biliscript-slider-header">
@@ -246,7 +240,6 @@ export function buildSettingsHtml(): string {
           <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
         </label>
       </div>
-      <p class="biliscript-set-hint" style="margin-top: -4px;">在普通视频播放页加载就绪后自动展开；稍后再看与收藏夹列表不自动展开。</p>
     </section>
 
     <section class="biliscript-set-group" data-settings-section="export">
@@ -273,9 +266,9 @@ export function buildSettingsHtml(): string {
         </label>
       </div>
       <div class="biliscript-set-check biliscript-toggle-row">
-        <span class="biliscript-toggle-text">启用调试日志（仅在排查问题时开启）</span>
+        <span class="biliscript-toggle-text">启用调试日志</span>
         <label class="biliscript-toggle-switch">
-          <input id="${ids.enableDebugLogs}" type="checkbox" class="biliscript-toggle-input" aria-label="启用调试日志（仅在排查问题时开启）" />
+          <input id="${ids.enableDebugLogs}" type="checkbox" class="biliscript-toggle-input" aria-label="启用调试日志" />
           <span class="biliscript-toggle-track" aria-hidden="true"><span class="biliscript-toggle-thumb"></span></span>
         </label>
       </div>

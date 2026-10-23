@@ -158,10 +158,6 @@ describe("概览状态机与触发", () => {  it("无字幕：不触发生成，
     statusBus.publishSubtitleStatusPhase("asr-transcribing");
     reader.renderReadingOverview();
     expect(overviewText()).toContain("概览等字幕就绪后自动生成");
-    // 转写中字幕页同样是空的（空态），不能说「在字幕页看」——视频就在旁边，
-    // 口径与字幕 tab 横幅的「期间可先看视频」一致。
-    expect(overviewText()).toContain("期间可先看视频");
-    expect(overviewText()).not.toContain("「字幕」页看");
   });
 
   it("无字幕且字幕抓取中：loading 预期态文案，不误显「该视频没有可用字幕」", async () => {

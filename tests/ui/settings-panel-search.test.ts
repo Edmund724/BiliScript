@@ -15,7 +15,6 @@ import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus, type BusMessage, type BusResponder } from "../helpers/settings-panel-bus.js";
 import { buildSettingsHtml } from "../../extension/ui/settings-panel-html.js";
-import { SEARCH_OPT_IN_NOTICE_MESSAGE } from "../../extension/search/opt-in-notice.js";
 
 type SentMessage = BusMessage;
 type MessageResponder = BusResponder<SentMessage>;
@@ -150,25 +149,15 @@ beforeEach(() => {
 describe("设置页搜索节文案（spec §6.9）", () => {
   const html = buildSettingsHtml();
 
-  it("说明行 = function calling 说明 + opt-in 常驻版（两处撤回入口：关开关 + 删记录）", () => {
-    expect(html).toContain("function calling");
-    expect(html).toContain(
-      "联网搜索会把查询词发往内置的免 Key 服务（Tavily / Firecrawl / AnySearch / Parallel）以及你配置过 Key 的搜索平台；关闭搜索开关可随时撤回，删除对应平台记录可停止该家接收查询。"
-    );
-    // 次入口单独成句（用户裁定③）：删记录停止该家接收查询
-    expect(html).toContain("删除对应平台记录可停止该家接收查询");
+  it("不再包含冗余的 function calling 与隐私常驻说明行", () => {
+    expect(html).not.toContain("function calling");
+    expect(html).not.toContain("内置的免 Key 服务");
     expect(html).not.toContain("当前选用平台提供搜索结果");
   });
 
-  it("常驻行与一次性说明文案逐字一致（该行自己持文，不 import 单源）", () => {
-    expect(html).toContain(SEARCH_OPT_IN_NOTICE_MESSAGE);
-  });
-
-  it("空态 = 七预设 + 四条免 Key 装上即可用；添加按钮与次数上限文案不变", () => {
-    expect(html).toContain(
-      "还没有配置搜索平台。点击下方添加按钮从预设创建（Firecrawl / Tavily / 豆包 / AnySearch / Parallel / Exa / DeepSeek Search）——四条免 Key 预设装上即可用。"
-    );
-    expect(html).not.toContain("Tavily / Exa / Brave");
+  it("空态精简为暂无已配置平台；添加按钮与次数上限文案不变", () => {
+    expect(html).toContain("暂无已配置平台");
+    expect(html).not.toContain("点击下方添加按钮从预设创建");
     expect(html).toContain('id="addSearchProviderBtn"');
     expect(html).toContain("单轮搜索次数上限");
   });

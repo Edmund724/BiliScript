@@ -254,7 +254,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
         "模型",
         buildModelPickerField({
           inputClass: "provider-editor-model",
-          placeholder: "模型名（点右侧箭头拉取可选模型）",
+          placeholder: "模型名",
           value: projection.value ?? ""
         })
       ),
@@ -293,7 +293,7 @@ const FIELDS: Record<ProjectionFieldKey, FieldSpec> = {
   catalogEmpty: {
     project: (scope, draft) => (scope.family.modelSource === "catalog" ? { hidden: draft.models.length > 0 } : {}),
     html: (projection) =>
-      `<p class="provider-editor-catalog-empty" ${projection.hidden ? "hidden" : ""}>模型选择器中将不显示任何模型；目录外 ID 仍可直接发送。</p>`,
+      `<p class="provider-editor-catalog-empty" ${projection.hidden ? "hidden" : ""}>未添加模型</p>`,
     apply: (dialog, projection) => {
       const node = dialog.querySelector<HTMLElement>(".provider-editor-catalog-empty");
       if (node) node.hidden = projection.hidden === true;
