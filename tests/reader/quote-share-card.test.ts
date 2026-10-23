@@ -473,7 +473,7 @@ describe("quote-share-modal", () => {
 
 describe("quote-share-pattern-styles", () => {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const cssPath = path.resolve(currentDir, "../../extension/entry/styles/reader.css");
+  const cssPath = path.resolve(process.cwd(), "extension/entry/styles/reader.css");
   const cssContent = fs.readFileSync(cssPath, "utf-8");
 
   it("定义 .biliscript-quote-card-pattern 基础样式与默认透明度 0.3", () => {
@@ -562,6 +562,38 @@ describe("概览 Tab 金句卡片分享按钮集成", () => {
 
     closeReadingView();
     expect(isQuoteShareModalOpen()).toBe(false);
+  });
+
+  it("分享按钮样式规格与复制按钮对齐，弹窗宿主配置 pointer-events: auto 且阻断冒泡", () => {
+    const cssPath = path.resolve(process.cwd(), "extension/entry/styles/reader.css");
+    const css = fs.readFileSync(cssPath, "utf-8");
+
+    // 1. 分享按钮与复制按钮尺寸一致
+    expect(css).toContain(".biliscript-reading-ov-quote-share");
+    expect(css).toContain(".biliscript-reading-ov-quote-copy");
+    expect(css).toContain("width: 28px;");
+    expect(css).toContain("height: 28px;");
+
+    // 2. 弹窗宿主声明 pointer-events: auto 防穿透
+    expect(css).toContain("#biliscript-reading-view .biliscript-quote-share-host");
+    expect(css).toContain("pointer-events: auto;");
+
+    // 3. 弹窗内点击事件阻断向上冒泡
+    openQuoteShareModal({ content: "防穿透测试金句", from: 10 });
+    const host = document.querySelector<HTMLElement>(".biliscript-quote-share-host")!;
+    expect(host).not.toBeNull();
+
+    let viewClickTriggered = false;
+    const view = document.getElementById(ids.readingView)!;
+    view.addEventListener("click", () => {
+      viewClickTriggered = true;
+    });
+
+    const presetBtn = host.querySelector<HTMLElement>("[data-preset]")!;
+    expect(presetBtn).not.toBeNull();
+    presetBtn.click();
+
+    expect(viewClickTriggered).toBe(false);
   });
 });
 

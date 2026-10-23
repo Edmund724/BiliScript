@@ -1602,7 +1602,14 @@
 /* 金句卡右下角复制图标钮（span[role=button]）：嵌在跳播 <button> 卡内不能用
  * <button>，语义由 role + data-overview-action 委托分流补齐；图标与 AI 对话
  * tab 的复制键同款（reader-chat.css 的 chat-msg-copy-btn） */
-.biliscript-reading-ov-quote-copy {
+.biliscript-reading-ov-quote-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.biliscript-reading-ov-quote-copy,
+.biliscript-reading-ov-quote-share {
   width: 28px;
   height: 28px;
   border: 0;
@@ -1617,17 +1624,20 @@
   transition: background 0.15s ease-out, color 0.15s ease-out, transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.biliscript-reading-ov-quote-copy:hover {
+.biliscript-reading-ov-quote-copy:hover,
+.biliscript-reading-ov-quote-share:hover {
   background: var(--biliscript-reader-fill-hover);
   color: var(--biliscript-reader-accent);
 }
 
-.biliscript-reading-ov-quote-copy:active {
+.biliscript-reading-ov-quote-copy:active,
+.biliscript-reading-ov-quote-share:active {
   transform: scale(0.91);
   transition: transform 70ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.biliscript-reading-ov-quote-copy svg {
+.biliscript-reading-ov-quote-copy svg,
+.biliscript-reading-ov-quote-share svg {
   width: 14px;
   height: 14px;
   fill: none;
@@ -1907,6 +1917,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
  * 金句分享卡片预览模态弹窗与多层渐变噪点卡片
  * ============================================================ */
 
+#biliscript-reading-view .biliscript-quote-share-host,
 .biliscript-quote-share-host {
   position: absolute;
   inset: 0;
@@ -1915,6 +1926,15 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  /* 贴栏态下 #biliscript-reading-view 整体为 pointer-events: none，
+   * 挂在 view 直下的弹窗宿主必须显式声明 pointer-events: auto，
+   * 否则弹窗整体穿透，导致无法点击选择配色/纹样且穿透触发底层面板。 */
+  pointer-events: auto;
+}
+
+#biliscript-reading-view .biliscript-quote-share-host,
+#biliscript-reading-view .biliscript-quote-share-host * {
+  box-sizing: border-box;
 }
 
 .biliscript-quote-share-mask {
@@ -1933,8 +1953,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: var(--biliscript-reader-card, #1e1e24);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--biliscript-reader-surface, #1e1e24);
+  border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.1));
   border-radius: 16px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
   padding: 16px;
@@ -1998,8 +2018,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   gap: 5px;
   padding: 4px 8px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.12));
+  background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.04));
   color: var(--biliscript-reader-muted, #aaa);
   font-size: 12px;
   cursor: pointer;
@@ -2008,8 +2028,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-preset-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.08));
+  color: var(--biliscript-reader-text, #fff);
 }
 
 .biliscript-quote-preset-btn.is-active {
@@ -2043,8 +2063,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   justify-content: center;
   padding: 3px 10px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.12));
+  background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.04));
   color: var(--biliscript-reader-muted, #aaa);
   font-size: 12px;
   cursor: pointer;
@@ -2053,8 +2073,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-pattern-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.08));
+  color: var(--biliscript-reader-text, #fff);
 }
 
 .biliscript-quote-pattern-btn.is-active {
@@ -2268,8 +2288,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   gap: 6px;
   padding: 8px 18px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.16));
+  background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.08));
   color: var(--biliscript-reader-text, #ffffff);
   font-size: 14px;
   font-weight: 500;
@@ -2279,8 +2299,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-action-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.28);
+  background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.14));
+  border-color: var(--biliscript-reader-accent, rgba(255, 255, 255, 0.28));
 }
 
 .biliscript-quote-action-btn:active:not(:disabled) {

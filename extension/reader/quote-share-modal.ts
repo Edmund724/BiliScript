@@ -259,6 +259,7 @@ function setupMotionAndParallax(host: HTMLElement): void {
 
 function bindModalEvents(host: HTMLElement): void {
   host.addEventListener("click", async (event) => {
+    event.stopPropagation();
     const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(
       "[data-action], [data-preset], [data-pattern]"
     );
