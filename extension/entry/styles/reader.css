@@ -409,7 +409,7 @@
   cursor: pointer;
   padding: 7px 16px;
   border-radius: 24px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   font-family: inherit;
   text-align: center;
@@ -854,7 +854,7 @@
   background: none;
   padding: 0;
   font-family: inherit;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--biliscript-reader-text);
 }
 
@@ -912,7 +912,7 @@
   border-radius: 999px;
   padding: 6px 12px;
   font-family: inherit;
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -1036,7 +1036,7 @@
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font-family: inherit;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
@@ -1077,7 +1077,7 @@
   padding: 5px 14px;
   border-radius: 999px;
   font-family: inherit;
-  font-size: 14.5px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
@@ -1170,7 +1170,7 @@
   padding: 10px 14px;
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-muted);
-  font-size: 15px;
+  font-size: 14px;
   font-style: italic;
   line-height: 1.6;
   word-break: break-word;
@@ -1181,7 +1181,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 0 14px 12px;
-  font-size: 15.5px;
+  font-size: 14px;
   line-height: 1.75;
   color: var(--biliscript-reader-text);
   word-break: break-word;
@@ -1249,7 +1249,7 @@
   align-items: center;
   gap: 8px;
   padding: 2px 0 10px;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--biliscript-reader-muted);
 }
 
@@ -1309,7 +1309,7 @@
 
 .biliscript-md-mermaid-fallback {
   margin-top: 4px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--biliscript-reader-faint);
 }
 
@@ -1352,7 +1352,7 @@
   background: transparent;
   color: var(--biliscript-reader-faint);
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -1369,7 +1369,7 @@
 
 .biliscript-reading-chat-intent-quote {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--biliscript-reader-text);
   word-break: break-word;
@@ -1471,7 +1471,7 @@
 /* 时间轴章节主副标题拆分的次级说明（仅 outline 来源且无 summary 时渲染，
  * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方粗体主标题。 */
 .biliscript-reading-ov-chapter-subtitle {
-  font-size: calc(13px * var(--biliscript-reader-font-scale, 1));
+  font-size: calc(12px * var(--biliscript-reader-font-scale, 1));
   font-weight: 400;
   line-height: 1.5;
   color: var(--biliscript-reader-muted);
@@ -1740,7 +1740,7 @@
 #biliscript-reading-view .confirm-dialog-message {
   margin: 0;
   padding: 16px 16px 12px;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--biliscript-reader-text);
 }
@@ -1759,7 +1759,7 @@
   padding: 0 14px;
   border-radius: 999px;
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
@@ -1951,7 +1951,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-share-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--biliscript-reader-text, #fff);
   margin: 0;
@@ -2046,7 +2046,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.04);
   color: var(--biliscript-reader-muted, #aaa);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
@@ -2235,7 +2235,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   justify-content: space-between;
   padding: 0 4px;
   margin-top: 24px;
-  font-size: 11px;
+  font-size: 12px;
   opacity: 0.75;
   letter-spacing: 0.04em;
 }
@@ -2271,7 +2271,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   border: 1px solid rgba(255, 255, 255, 0.16);
   background: rgba(255, 255, 255, 0.08);
   color: var(--biliscript-reader-text, #ffffff);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;

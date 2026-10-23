@@ -216,7 +216,7 @@
   min-height: 38px;
   max-width: 140px;
   padding: 4px 10px;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 30px;
   color: var(--biliscript-reader-faint);
   white-space: nowrap;
@@ -247,7 +247,7 @@
   border-radius: 28px;
   background: transparent;
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 30px;
   text-align: start;
   color: var(--biliscript-reader-accent);
@@ -276,7 +276,7 @@
 #biliscript-reading-view .biliscript-bilingual-footer-label {
   flex: 0 0 auto;
   min-width: 0;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 22px;
   color: var(--biliscript-reader-text);
   white-space: nowrap;
@@ -287,7 +287,7 @@
 #biliscript-reading-view .biliscript-bilingual-footer-note {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 22px;
   color: var(--biliscript-reader-faint);
   white-space: nowrap;
@@ -368,7 +368,7 @@
   border-radius: 4px;
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
 }
 
@@ -381,8 +381,8 @@
 #biliscript-reading-view .biliscript-reading-text .biliscript-reading-subtext {
   display: block;
   margin-top: 1px;
-  font-size: 13px;
-  line-height: 19px;
+  font-size: 12px;
+  line-height: 18px;
   color: var(--biliscript-reader-faint);
 }
 

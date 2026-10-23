@@ -795,13 +795,13 @@ describe("形态与三处登记（源码/表面锁）", () => {
     expect(colRows("main").length).toBe(5);
   });
 
-  it("列表副行：块级子节点、13px/19px、muted 色；loading/fail 斜体、fail 不可点", () => {
+  it("列表副行：块级子节点、12px/18px、muted 色；loading/fail 斜体、fail 不可点", () => {
     const css = read(CSS);
     const subRule =
       css.match(/#biliscript-reading-view \.biliscript-reading-text \.biliscript-reading-subtext\s*\{[^}]*\}/)?.[0] || "";
     expect(subRule).toContain("display: block");
-    expect(subRule).toContain("font-size: 13px");
-    expect(subRule).toContain("line-height: 19px");
+    expect(subRule).toContain("font-size: 12px");
+    expect(subRule).toContain("line-height: 18px");
     expect(subRule).toContain("margin-top: 1px");
     expect(subRule).toContain("color: var(--biliscript-reader-faint)");
     expect(css).toContain('[data-state="loading"]');

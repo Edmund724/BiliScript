@@ -31,14 +31,14 @@ describe("建议问题与空态欢迎区观感", () => {
     expect(block).not.toMatch(/margin-top:\s*auto;/);
   });
 
-  it("欢迎区主角：accent-soft 圆底图标 + 17px/600 引导语", () => {
+  it("欢迎区主角：accent-soft 圆底图标 + 18px/600 引导语", () => {
     const icon = ruleBody("\\.biliscript-reading-chat \\.chat-hero-icon");
     expect(icon).toMatch(/border-radius:\s*50%;/);
     expect(icon).toMatch(/background:\s*var\(--biliscript-reader-accent-soft\);/);
     expect(icon).toMatch(/color:\s*var\(--biliscript-reader-accent\);/);
 
     const title = ruleBody("\\.biliscript-reading-chat \\.chat-hero-title");
-    expect(title).toMatch(/font-size:\s*17px;/);
+    expect(title).toMatch(/font-size:\s*18px;/);
     expect(title).toMatch(/font-weight:\s*600;/);
   });
 

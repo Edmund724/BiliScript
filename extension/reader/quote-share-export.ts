@@ -392,7 +392,7 @@ export async function renderQuoteCardToCanvas(
   const sourceText = options.videoTitle || "BiliScript";
 
   ctx.save();
-  ctx.font = '11px "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+  ctx.font = '12px "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
   ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
   ctx.textBaseline = "alphabetic";
 
