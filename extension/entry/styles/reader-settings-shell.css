@@ -342,7 +342,7 @@
   min-height: 66px;
   padding: 8px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
+  border-radius: 16px;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;

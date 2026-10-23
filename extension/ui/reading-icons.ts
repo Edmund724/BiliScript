@@ -17,7 +17,7 @@ export const READING_DOWNLOAD_ICON = `
 `;
 
 export const READING_PLAY_ICON = `
-  <svg viewBox="0 0 24 24" fill="currentColor" focusable="false" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"></path></svg>
+  <svg viewBox="0 0 24 24" fill="currentColor" focusable="false" aria-hidden="true"><path d="M8.8 5.5v13l11-6.5z"></path></svg>
 `;
 
 export const READING_RESET_ICON = `

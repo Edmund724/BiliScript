@@ -369,7 +369,7 @@
   bottom: var(--biliscript-tab-pad-y);
   left: var(--biliscript-tab-pad-x);
   width: calc((100% - 2 * var(--biliscript-tab-pad-x) - 2 * var(--biliscript-tab-gap)) / 3);
-  border-radius: 28px;
+  border-radius: 24px;
   background: var(--biliscript-reader-accent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   pointer-events: none;
@@ -408,7 +408,7 @@
   background: none;
   cursor: pointer;
   padding: 7px 16px;
-  border-radius: 28px;
+  border-radius: 24px;
   font-size: 15px;
   font-weight: 600;
   font-family: inherit;
