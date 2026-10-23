@@ -212,7 +212,10 @@ body[data-biliscript-reader-mode="1"],
    * bounce=文档「面板/应用切换/小窗」回弹近似，过冲 ≤2%（真机手势仍须弹簧，
    * CSS 只近似）；press=按压缩放档。 */
   --biliscript-reader-ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --biliscript-reader-ease-out: cubic-bezier(0, 0, 0.2, 1);
   --biliscript-reader-ease-bounce: cubic-bezier(0.3, 1.2, 0.4, 1);
+  --biliscript-reader-duration-fast: 150ms;
+  --biliscript-reader-duration-base: 250ms;
   --biliscript-reader-press-scale: 0.97;
   /* 半透明材质底（设置抽屉，backdrop-filter 消费方在
    * reader-settings-shell.css）：surface 加 alpha 的 rgba。 */

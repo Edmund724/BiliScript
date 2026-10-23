@@ -20,7 +20,7 @@
    * 表，播放器页无 data-biliscript-reader-mode 时走字面 fallback。按钮视觉
    * 画在内层按钮上，壳只管几何与滑入。 */
   transition: opacity 0.15s ease-out,
-    transform 0.3s var(--biliscript-reader-ease-bounce, cubic-bezier(0.34, 1.4, 0.64, 1));
+    transform var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-bounce, cubic-bezier(0.34, 1.4, 0.64, 1));
   width: var(--biliscript-player-ai-action-hit-size, 28px);
   z-index: 30;
 }

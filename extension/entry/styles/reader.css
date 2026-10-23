@@ -33,7 +33,7 @@
    * 在此无落点：面板高度两端都是外部几何（贴栏 var 随滚动逐帧改写、浮层
    * min() 定长），无「定长→内在尺寸」边界，block-size 过渡会造成贴栏态
    * 跟滚动追帧回弹，故开合动画止于 opacity + display。 */
-  transition: opacity 0.35s var(--biliscript-reader-ease-spring, ease), display 0.35s allow-discrete;
+  transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)), display var(--biliscript-reader-duration-base, 250ms) allow-discrete;
 }
 
 /* 淡入起点：openReaderViewShell 同 tick 写 .open + ready=1，从 display:none
@@ -462,7 +462,7 @@
 
 /* tab 切换内容进场（motion token：spring 0.3s）——显隐翻转的瞬间播放一次 */
 .biliscript-reading-tab-body.is-active {
-  animation: biliscript-tab-body-in 0.3s var(--biliscript-reader-ease-spring, ease);
+  animation: biliscript-tab-body-in var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));
 }
 
 @keyframes biliscript-tab-body-in {
@@ -481,7 +481,7 @@
  * reader/lifecycle 的列表投影按 reader/track-switch-animation.ts 的标记
  * 挂摘——初始加载、抓取对账等常规重投影不带此类，不播。 */
 .biliscript-reading-subtitle.is-track-switching {
-  animation: biliscript-tab-body-in 0.3s var(--biliscript-reader-ease-spring, ease);
+  animation: biliscript-tab-body-in var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));
 }
 
 /* 概览 / AI 对话 tab 的占位卡 */
@@ -2122,7 +2122,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   position: absolute;
   inset: 0;
   background-size: 100% 100%;
-  transition: background 0.3s ease;
+  transition: background var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, ease-out);
   animation: biliscript-quote-drift 24s ease-in-out infinite alternate;
 }
 
@@ -2140,7 +2140,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   mask-image: radial-gradient(circle at 50% 50%, transparent 0%, transparent 45%, rgba(0, 0, 0, 0.4) 75%, #000000 100%);
   -webkit-mask-size: 100% 100%;
   mask-size: 100% 100%;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, ease-out);
 }
 
 /* 悬停光标微弱柔光跟随层 */
@@ -2150,7 +2150,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   z-index: 1;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, ease-out);
   background: radial-gradient(
     circle 180px at var(--quote-glow-x, 50%) var(--quote-glow-y, 50%),
     rgba(255, 255, 255, 0.22) 0%,
