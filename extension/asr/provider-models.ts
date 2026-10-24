@@ -41,12 +41,13 @@ function formatHttpError(status: number, text: string): string {
   let extracted = "";
   try {
     const json = JSON.parse(text) as { message?: string; error?: { message?: string } | string };
+    const err = json?.error;
     if (typeof json?.message === "string" && json.message.trim()) {
       extracted = json.message.trim();
-    } else if (typeof json?.error?.message === "string" && json.error.message.trim()) {
-      extracted = json.error.message.trim();
-    } else if (typeof json?.error === "string" && json.error.trim()) {
-      extracted = json.error.trim();
+    } else if (typeof err === "object" && err !== null && typeof err.message === "string" && err.message.trim()) {
+      extracted = err.message.trim();
+    } else if (typeof err === "string" && err.trim()) {
+      extracted = err.trim();
     }
   } catch {
     // 文本非 JSON

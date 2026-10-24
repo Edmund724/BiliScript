@@ -502,6 +502,10 @@ function printOffscreenSplitReport(result) {
   return { entryRaw, entryMin, chunkRaw, chunkMin, chunkCount };
 }
 
+// dist 运行时体积守卫：全部运行时文件（不含 Source Map .map 文件）总量上限。
+// 基线：2,329,068 B；预算：2,450,000 B（留有明确余量）。
+const DIST_RUNTIME_MAX_BYTES = 2450000;
+
 function printDistSummary() {
   const files = [];
   (function walk(dir) {
@@ -512,8 +516,18 @@ function printDistSummary() {
     }
   })(distDir);
   const total = files.reduce((sum, f) => sum + fs.statSync(f).size, 0);
+  const runtimeFiles = files.filter((f) => !f.endsWith(".map"));
+  const runtimeTotal = runtimeFiles.reduce((sum, f) => sum + fs.statSync(f).size, 0);
   console.log(`== dist 总量 ==`);
-  console.log(`files: ${files.length}, bytes: ${total} B (${(total / 1024).toFixed(1)} KB)`);
+  console.log(`all files: ${files.length}, total bytes: ${total} B (${(total / 1024).toFixed(1)} KB)`);
+  console.log(`runtime files (no .map): ${runtimeFiles.length}, runtime bytes: ${runtimeTotal} B (${(runtimeTotal / 1024).toFixed(1)} KB)`);
+
+  if (runtimeTotal > DIST_RUNTIME_MAX_BYTES) {
+    console.error(
+      `build.js: dist 运行时体积超限！当前 ${runtimeTotal} B > 预算上限 ${DIST_RUNTIME_MAX_BYTES} B`
+    );
+    process.exit(1);
+  }
 }
 
 async function main() {
