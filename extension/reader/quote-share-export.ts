@@ -60,80 +60,80 @@ function createPresetDef(
 export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
   "purple-gold": createPresetDef(
     [
-      { offset: 0, color: "#7c4d79" },
-      { offset: 0.45, color: "#46223b" },
-      { offset: 1, color: "#692a10" }
+      { offset: 0, color: "#b4bed6" },
+      { offset: 0.45, color: "#9d8daa" },
+      { offset: 1, color: "#b85e46" }
     ],
     [
-      "rgba(220, 130, 200, 0.7)",
-      "rgba(160, 90, 190, 0.6)",
-      "rgba(225, 110, 45, 0.65)",
-      "rgba(245, 170, 50, 0.7)"
+      "rgba(167, 158, 211, 0.8)",
+      "rgba(214, 164, 193, 0.72)",
+      "rgba(238, 112, 77, 0.82)",
+      "rgba(250, 180, 71, 0.88)"
     ]
   ),
   "slate-brown": createPresetDef(
     [
-      { offset: 0, color: "#4f5f6f" },
-      { offset: 0.45, color: "#2e3843" },
-      { offset: 1, color: "#422a20" }
+      { offset: 0, color: "#aebdc5" },
+      { offset: 0.45, color: "#66727a" },
+      { offset: 1, color: "#32201b" }
     ],
     [
-      "rgba(135, 160, 185, 0.65)",
-      "rgba(100, 125, 150, 0.55)",
-      "rgba(155, 100, 65, 0.6)",
-      "rgba(195, 125, 80, 0.65)"
+      "rgba(156, 173, 187, 0.72)",
+      "rgba(197, 182, 165, 0.68)",
+      "rgba(82, 50, 38, 0.76)",
+      "rgba(212, 123, 67, 0.9)"
     ]
   ),
   "mist-deep-sea": createPresetDef(
     [
-      { offset: 0, color: "#32587a" },
-      { offset: 0.45, color: "#1a324d" },
-      { offset: 1, color: "#0e2034" }
+      { offset: 0, color: "#c6d6df" },
+      { offset: 0.45, color: "#4b8393" },
+      { offset: 1, color: "#0b3544" }
     ],
     [
-      "rgba(115, 180, 235, 0.7)",
-      "rgba(75, 140, 195, 0.6)",
-      "rgba(30, 85, 140, 0.65)",
-      "rgba(18, 50, 90, 0.75)"
+      "rgba(191, 212, 222, 0.75)",
+      "rgba(167, 196, 212, 0.72)",
+      "rgba(51, 123, 129, 0.72)",
+      "rgba(16, 63, 81, 0.86)"
     ]
   ),
   "mist-forest-green": createPresetDef(
     [
-      { offset: 0, color: "#315869" },
-      { offset: 0.45, color: "#1c3d39" },
-      { offset: 1, color: "#102a20" }
+      { offset: 0, color: "#bcccd4" },
+      { offset: 0.45, color: "#68816e" },
+      { offset: 1, color: "#183522" }
     ],
     [
-      "rgba(110, 175, 195, 0.7)",
-      "rgba(70, 150, 145, 0.6)",
-      "rgba(45, 105, 70, 0.65)",
-      "rgba(22, 70, 42, 0.75)"
+      "rgba(188, 204, 212, 0.75)",
+      "rgba(177, 194, 183, 0.65)",
+      "rgba(109, 129, 63, 0.8)",
+      "rgba(36, 75, 44, 0.85)"
     ]
   ),
   "lavender-midnight": createPresetDef(
     [
-      { offset: 0, color: "#574474" },
-      { offset: 0.45, color: "#2e214d" },
-      { offset: 1, color: "#150b2e" }
+      { offset: 0, color: "#b7c6da" },
+      { offset: 0.45, color: "#b088bd" },
+      { offset: 1, color: "#1b1035" }
     ],
     [
-      "rgba(170, 140, 220, 0.7)",
-      "rgba(130, 100, 190, 0.6)",
-      "rgba(75, 40, 130, 0.65)",
-      "rgba(40, 18, 80, 0.8)"
+      "rgba(170, 188, 224, 0.75)",
+      "rgba(212, 175, 208, 0.8)",
+      "rgba(130, 86, 165, 0.8)",
+      "rgba(57, 32, 82, 0.85)"
     ]
   ),
   "ash-rust": createPresetDef(
     [
-      { offset: 0, color: "#596570" },
-      { offset: 0.45, color: "#3a444d" },
-      { offset: 1, color: "#46201e" }
+      { offset: 0, color: "#c2cbd3" },
+      { offset: 0.45, color: "#dda185" },
+      { offset: 1, color: "#6e2b26" }
     ],
     [
-      "rgba(165, 180, 190, 0.65)",
-      "rgba(125, 140, 150, 0.55)",
-      "rgba(185, 75, 60, 0.65)",
-      "rgba(140, 45, 35, 0.75)"
+      "rgba(197, 209, 219, 0.75)",
+      "rgba(240, 195, 167, 0.82)",
+      "rgba(217, 111, 90, 0.82)",
+      "rgba(166, 69, 55, 0.85)"
     ]
   )
 };
@@ -338,7 +338,7 @@ export async function renderQuoteCardToCanvas(
       if (noisePattern) {
         ctx.save();
         ctx.globalCompositeOperation = "overlay";
-        ctx.globalAlpha = 0.4;
+        ctx.globalAlpha = 0.06;
         ctx.fillStyle = noisePattern;
         ctx.fillRect(0, 0, width, height);
         ctx.restore();

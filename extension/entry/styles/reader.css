@@ -2215,7 +2215,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   background-repeat: repeat;
   background-size: 128px 128px;
   mix-blend-mode: overlay;
-  opacity: 0.4;
+  opacity: 0.06;
   pointer-events: none;
 }
 
@@ -2350,74 +2350,74 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 /* 1. 紫粉到橙金 (purple-gold) */
 .biliscript-quote-card[data-preset="purple-gold"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #7c4d79 0%, #46223b 45%, #692a10 100%);
+  background: linear-gradient(165deg, #b4bed6 0%, #9d8daa 45%, #b85e46 100%);
 }
 .biliscript-quote-card[data-preset="purple-gold"] .biliscript-quote-card-blobs {
   background-image:
-    radial-gradient(circle at 18% 18%, rgba(220, 130, 200, 0.7) 0%, transparent 55%),
-    radial-gradient(circle at 82% 20%, rgba(160, 90, 190, 0.6) 0%, transparent 50%),
-    radial-gradient(circle at 20% 82%, rgba(225, 110, 45, 0.65) 0%, transparent 55%),
-    radial-gradient(circle at 82% 80%, rgba(245, 170, 50, 0.7) 0%, transparent 50%);
+    radial-gradient(circle at 18% 18%, rgba(167, 158, 211, 0.8) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(214, 164, 193, 0.72) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(238, 112, 77, 0.82) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(250, 180, 71, 0.88) 0%, transparent 50%);
 }
 
 /* 2. 灰蓝到深棕 (slate-brown) */
 .biliscript-quote-card[data-preset="slate-brown"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #4f5f6f 0%, #2e3843 45%, #422a20 100%);
+  background: linear-gradient(165deg, #aebdc5 0%, #66727a 45%, #32201b 100%);
 }
 .biliscript-quote-card[data-preset="slate-brown"] .biliscript-quote-card-blobs {
   background-image:
-    radial-gradient(circle at 18% 18%, rgba(135, 160, 185, 0.65) 0%, transparent 55%),
-    radial-gradient(circle at 82% 20%, rgba(100, 125, 150, 0.55) 0%, transparent 50%),
-    radial-gradient(circle at 20% 82%, rgba(155, 100, 65, 0.6) 0%, transparent 55%),
-    radial-gradient(circle at 82% 80%, rgba(195, 125, 80, 0.65) 0%, transparent 50%);
+    radial-gradient(circle at 18% 18%, rgba(156, 173, 187, 0.72) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(197, 182, 165, 0.68) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(82, 50, 38, 0.76) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(212, 123, 67, 0.9) 0%, transparent 50%);
 }
 
 /* 3. 雾蓝到深海蓝 (mist-deep-sea) */
 .biliscript-quote-card[data-preset="mist-deep-sea"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #32587a 0%, #1a324d 45%, #0e2034 100%);
+  background: linear-gradient(165deg, #c6d6df 0%, #4b8393 45%, #0b3544 100%);
 }
 .biliscript-quote-card[data-preset="mist-deep-sea"] .biliscript-quote-card-blobs {
   background-image:
-    radial-gradient(circle at 18% 18%, rgba(115, 180, 235, 0.7) 0%, transparent 55%),
-    radial-gradient(circle at 82% 20%, rgba(75, 140, 195, 0.6) 0%, transparent 50%),
-    radial-gradient(circle at 20% 82%, rgba(30, 85, 140, 0.65) 0%, transparent 55%),
-    radial-gradient(circle at 82% 80%, rgba(18, 50, 90, 0.75) 0%, transparent 50%);
+    radial-gradient(circle at 18% 18%, rgba(191, 212, 222, 0.75) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(167, 196, 212, 0.72) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(51, 123, 129, 0.72) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(16, 63, 81, 0.86) 0%, transparent 50%);
 }
 
 /* 4. 雾蓝到墨绿 (mist-forest-green) */
 .biliscript-quote-card[data-preset="mist-forest-green"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #315869 0%, #1c3d39 45%, #102a20 100%);
+  background: linear-gradient(165deg, #bcccd4 0%, #68816e 45%, #183522 100%);
 }
 .biliscript-quote-card[data-preset="mist-forest-green"] .biliscript-quote-card-blobs {
   background-image:
-    radial-gradient(circle at 18% 18%, rgba(110, 175, 195, 0.7) 0%, transparent 55%),
-    radial-gradient(circle at 82% 20%, rgba(70, 150, 145, 0.6) 0%, transparent 50%),
-    radial-gradient(circle at 20% 82%, rgba(45, 105, 70, 0.65) 0%, transparent 55%),
-    radial-gradient(circle at 82% 80%, rgba(22, 70, 42, 0.75) 0%, transparent 50%);
+    radial-gradient(circle at 18% 18%, rgba(188, 204, 212, 0.75) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(177, 194, 183, 0.65) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(109, 129, 63, 0.8) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(36, 75, 44, 0.85) 0%, transparent 50%);
 }
 
 /* 5. 薰衣草到深夜紫 (lavender-midnight) */
 .biliscript-quote-card[data-preset="lavender-midnight"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #574474 0%, #2e214d 45%, #150b2e 100%);
+  background: linear-gradient(165deg, #b7c6da 0%, #b088bd 45%, #1b1035 100%);
 }
 .biliscript-quote-card[data-preset="lavender-midnight"] .biliscript-quote-card-blobs {
   background-image:
-    radial-gradient(circle at 18% 18%, rgba(170, 140, 220, 0.7) 0%, transparent 55%),
-    radial-gradient(circle at 82% 20%, rgba(130, 100, 190, 0.6) 0%, transparent 50%),
-    radial-gradient(circle at 20% 82%, rgba(75, 40, 130, 0.65) 0%, transparent 55%),
-    radial-gradient(circle at 82% 80%, rgba(40, 18, 80, 0.8) 0%, transparent 50%);
+    radial-gradient(circle at 18% 18%, rgba(170, 188, 224, 0.75) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(212, 175, 208, 0.8) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(130, 86, 165, 0.8) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(57, 32, 82, 0.85) 0%, transparent 50%);
 }
 
 /* 6. 天灰到锈红 (ash-rust) */
 .biliscript-quote-card[data-preset="ash-rust"] .biliscript-quote-card-bg {
-  background: linear-gradient(165deg, #596570 0%, #3a444d 45%, #46201e 100%);
+  background: linear-gradient(165deg, #c2cbd3 0%, #dda185 45%, #6e2b26 100%);
 }
 .biliscript-quote-card[data-preset="ash-rust"] .biliscript-quote-card-blobs {
   background-image:
-    radial-gradient(circle at 18% 18%, rgba(165, 180, 190, 0.65) 0%, transparent 55%),
-    radial-gradient(circle at 82% 20%, rgba(125, 140, 150, 0.55) 0%, transparent 50%),
-    radial-gradient(circle at 20% 82%, rgba(185, 75, 60, 0.65) 0%, transparent 55%),
-    radial-gradient(circle at 82% 80%, rgba(140, 45, 35, 0.75) 0%, transparent 50%);
+    radial-gradient(circle at 18% 18%, rgba(197, 209, 219, 0.75) 0%, transparent 55%),
+    radial-gradient(circle at 82% 20%, rgba(240, 195, 167, 0.82) 0%, transparent 50%),
+    radial-gradient(circle at 20% 82%, rgba(217, 111, 90, 0.82) 0%, transparent 55%),
+    radial-gradient(circle at 82% 80%, rgba(166, 69, 55, 0.85) 0%, transparent 50%);
 }
 
 /* 无障碍降级 */
