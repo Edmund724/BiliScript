@@ -2,7 +2,6 @@
 // 金句分享卡片预览模态弹窗、视差弹簧微动效与图片光栅化导出。
 
 import { escapeHtml } from "../shared/string-utils.js";
-import { formatClock } from "../shared/clock-text.js";
 import {
   READING_CLOSE_ICON,
   READING_COPY_ICON,
@@ -51,7 +50,6 @@ export interface OpenQuoteShareModalOptions {
 interface QuoteShareModalState {
   open: boolean;
   content: string;
-  from: number;
   videoTitle: string;
   activePreset: string;
   activePattern: QuotePatternId;
@@ -64,7 +62,6 @@ interface QuoteShareModalState {
 const state: QuoteShareModalState = {
   open: false,
   content: "",
-  from: 0,
   videoTitle: "",
   activePreset: "purple-gold",
   activePattern: "rays",
@@ -164,7 +161,6 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
 
   state.open = true;
   state.content = content;
-  state.from = Number(options.from) || 0;
   state.videoTitle = String(options.videoTitle || "").trim();
   if (options.preset && QUOTE_CARD_PRESETS.some((p) => p.id === options.preset)) {
     state.activePreset = options.preset;
@@ -416,7 +412,6 @@ async function handleDownloadImageAction(btn: HTMLButtonElement, card: HTMLEleme
 
 function buildModalHtml(): string {
   const noiseUrl = getQuoteShareNoiseDataUrl();
-  const timeFormatted = formatClock(state.from);
 
   const presetsHtml = QUOTE_CARD_PRESETS.map((preset) => {
     const isActive = preset.id === state.activePreset;
@@ -466,7 +461,6 @@ function buildModalHtml(): string {
             <div class="biliscript-quote-card-quote-mark" aria-hidden="true">“</div>
             <p class="biliscript-quote-card-text">${escapeHtml(state.content)}</p>
             <footer class="biliscript-quote-card-footer">
-              <span class="biliscript-quote-card-timestamp">${escapeHtml(timeFormatted)}</span>
               <span class="biliscript-quote-card-source">${escapeHtml(state.videoTitle || "BiliScript")}</span>
             </footer>
           </div>

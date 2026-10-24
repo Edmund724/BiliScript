@@ -3,7 +3,7 @@
 //
 // 规范：
 // 1. 提供 5 款细线几何纹样（射线、同心等高线、声波线、点阵、透镜）及「无纹样」；
-// 2. 线宽统一约束为 0.8px，默认透明度约 0.3；
+// 2. 线宽统一约束为 0.8px，默认透明度 0.38；
 // 3. 配合 CSS mask-image 径向遮罩，中心阅读区留白，边缘呈现细腻纹样。
 
 export type QuotePatternId = "none" | "rays" | "contours" | "soundwaves" | "dots" | "lens";

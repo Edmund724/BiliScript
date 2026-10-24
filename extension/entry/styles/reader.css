@@ -2153,12 +2153,12 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   animation: biliscript-quote-drift 24s ease-in-out infinite alternate;
 }
 
-/* 细线几何纹样层（线宽统一 0.8px，默认透明度约 0.3，径向遮罩中心留白，反向微视差） */
+/* 细线几何纹样层（线宽统一 0.8px，默认透明度 0.38，径向遮罩中心留白，反向微视差） */
 .biliscript-quote-card-pattern {
   position: absolute;
   inset: -15px;
   z-index: 1;
-  opacity: 0.3;
+  opacity: 0.38;
   pointer-events: none;
   overflow: hidden;
   will-change: transform;
@@ -2245,9 +2245,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-card-text {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(18px, 8cqi, 32px);
+  font-size: clamp(16px, 6cqi, 24px);
   font-weight: 500;
-  line-height: 1.6;
+  line-height: 1.65;
   text-align: center;
   word-break: break-word;
   letter-spacing: 0.02em;
@@ -2259,16 +2259,12 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 0 4px;
   margin-top: 24px;
   font-size: 12px;
   opacity: 0.75;
   letter-spacing: 0.04em;
-}
-
-.biliscript-quote-card-timestamp {
-  font-variant-numeric: tabular-nums;
 }
 
 .biliscript-quote-card-source {

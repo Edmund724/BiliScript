@@ -269,7 +269,7 @@ describe("quote-share-modal", () => {
     ]);
   });
 
-  it("打开分享弹窗：渲染骨架结构、正文、时间戳、噪点背景与默认射线纹样", () => {
+  it("打开分享弹窗：渲染骨架结构、正文、来源、噪点背景与默认射线纹样", () => {
     expect(isQuoteShareModalOpen()).toBe(false);
 
     openQuoteShareModal({
@@ -290,8 +290,7 @@ describe("quote-share-modal", () => {
     const textEl = host?.querySelector(".biliscript-quote-card-text");
     expect(textEl?.textContent).toBe("代码如诗，简洁至上。");
 
-    const timeEl = host?.querySelector(".biliscript-quote-card-timestamp");
-    expect(timeEl?.textContent).toBe("1:15");
+    expect(host?.querySelector(".biliscript-quote-card-timestamp")).toBeNull();
 
     const sourceEl = host?.querySelector(".biliscript-quote-card-source");
     expect(sourceEl?.textContent).toBe("精通重构之道");
@@ -476,9 +475,9 @@ describe("quote-share-pattern-styles", () => {
   const cssPath = path.resolve(process.cwd(), "extension/entry/styles/reader.css");
   const cssContent = fs.readFileSync(cssPath, "utf-8");
 
-  it("定义 .biliscript-quote-card-pattern 基础样式与默认透明度 0.3", () => {
+  it("定义 .biliscript-quote-card-pattern 基础样式与默认透明度 0.38", () => {
     expect(cssContent).toContain(".biliscript-quote-card-pattern {");
-    expect(cssContent).toContain("opacity: 0.3;");
+    expect(cssContent).toContain("opacity: 0.38;");
   });
 
   it("配置径向遮罩 mask-image 与 -webkit-mask-image（中心避让正文阅读区）", () => {
@@ -790,7 +789,6 @@ describe("quote-share-export 导出与光栅化", () => {
     host.innerHTML = `
       <div class="biliscript-quote-card" data-preset="slate-brown" data-pattern="contours">
         <div class="biliscript-quote-card-text">人生代代无穷已</div>
-        <span class="biliscript-quote-card-timestamp">2:10</span>
         <span class="biliscript-quote-card-source">春江花月夜</span>
       </div>
     `;
@@ -800,7 +798,6 @@ describe("quote-share-export 导出与光栅化", () => {
     expect(opts.content).toBe("人生代代无穷已");
     expect(opts.preset).toBe("slate-brown");
     expect(opts.pattern).toBe("contours");
-    expect(opts.timestamp).toBe("2:10");
     expect(opts.videoTitle).toBe("春江花月夜");
   });
 
@@ -1002,8 +999,8 @@ describe("quote-share-motion-styles 样式与降级", () => {
     expect(cssContent).toContain("var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12))");
   });
 
-  it("正文字号以 8% 容器宽度为基准配比 (clamp(18px, 8cqi, 32px))", () => {
-    expect(cssContent).toContain("font-size: clamp(18px, 8cqi, 32px);");
+  it("正文字号以 6% 容器宽度为基准配比 (clamp(16px, 6cqi, 24px))", () => {
+    expect(cssContent).toContain("font-size: clamp(16px, 6cqi, 24px);");
   });
 });
 

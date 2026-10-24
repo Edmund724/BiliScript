@@ -1,7 +1,6 @@
 // extension/reader/quote-share-export.ts
 // 金句分享卡片客户端光栅化导出、剪贴板写入与文件下载。
 
-import { formatClock } from "../shared/clock-text.js";
 import { getQuoteShareNoiseDataUrl } from "./quote-share-noise.js";
 import {
   type QuotePatternId,
@@ -10,8 +9,6 @@ import {
 
 export interface QuoteCardExportOptions {
   content: string;
-  from?: number;
-  timestamp?: string;
   videoTitle?: string;
   preset?: string;
   pattern?: QuotePatternId;
@@ -195,7 +192,6 @@ export function wrapCanvasText(
  */
 export function extractQuoteCardExportOptions(cardEl: HTMLElement): QuoteCardExportOptions {
   const textEl = cardEl.querySelector(".biliscript-quote-card-text");
-  const timeEl = cardEl.querySelector(".biliscript-quote-card-timestamp");
   const sourceEl = cardEl.querySelector(".biliscript-quote-card-source");
 
   const rect = cardEl.getBoundingClientRect();
@@ -204,7 +200,6 @@ export function extractQuoteCardExportOptions(cardEl: HTMLElement): QuoteCardExp
 
   return {
     content: textEl?.textContent?.trim() || "",
-    timestamp: timeEl?.textContent?.trim() || "",
     videoTitle: sourceEl?.textContent?.trim() || "",
     preset: cardEl.dataset.preset || "purple-gold",
     pattern: (cardEl.dataset.pattern || "rays") as QuotePatternId,
@@ -319,9 +314,9 @@ export async function renderQuoteCardToCanvas(
           tempCtx.fillStyle = maskGrad;
           tempCtx.fillRect(0, 0, width, height);
 
-          // 绘制到主 Canvas（透明度 0.3）
+          // 绘制到主 Canvas（透明度 0.38）
           ctx.save();
-          ctx.globalAlpha = 0.3;
+          ctx.globalAlpha = 0.38;
           ctx.drawImage(tempCanvas, 0, 0, width, height);
           ctx.restore();
         }
@@ -359,8 +354,8 @@ export async function renderQuoteCardToCanvas(
   ctx.restore();
 
   // 6.2 金句正文（支持根据容器宽度自适应折行与居中排版）
-  const fontSize = Math.min(36, Math.max(22, Math.round(width * 0.08)));
-  const lineHeight = fontSize * 1.6;
+  const fontSize = Math.min(24, Math.max(16, Math.round(width * 0.06)));
+  const lineHeight = fontSize * 1.65;
   const maxTextWidth = width - 48;
 
   ctx.save();
@@ -384,22 +379,13 @@ export async function renderQuoteCardToCanvas(
   });
   ctx.restore();
 
-  // 6.3 底部栏（时间戳与视频来源）
-  const timeText =
-    typeof options.from === "number"
-      ? formatClock(options.from)
-      : options.timestamp || "";
+  // 6.3 底部视频来源
   const sourceText = options.videoTitle || "BiliScript";
 
   ctx.save();
   ctx.font = '12px "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
   ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
   ctx.textBaseline = "alphabetic";
-
-  if (timeText) {
-    ctx.textAlign = "left";
-    ctx.fillText(timeText, 24, height - 20);
-  }
 
   if (sourceText) {
     ctx.textAlign = "right";
