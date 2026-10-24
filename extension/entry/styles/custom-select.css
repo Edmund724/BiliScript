@@ -146,7 +146,7 @@
   width: 100%;
   min-height: 38px;
   border: 0;
-  border-radius: 22px;
+  border-radius: max(0px, calc(28px - 6px)); /* 同心圆角公式：外圆角 28px - 内边距 6px = 22px */
   background: transparent;
   padding: 4px 10px;
   text-align: start;

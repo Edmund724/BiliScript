@@ -1779,13 +1779,17 @@
 }
 
 #biliscript-reading-view .confirm-dialog-cancel {
-  border: 1px solid var(--biliscript-reader-border);
+  border: 0;
   background: transparent;
   color: var(--biliscript-reader-muted);
 }
 
 #biliscript-reading-view .confirm-dialog-cancel:hover {
   color: var(--biliscript-reader-text);
+  background: var(--biliscript-reader-fill-hover);
+}
+
+#biliscript-reading-view .confirm-dialog-cancel:active {
   background: var(--biliscript-reader-surface-2);
 }
 
@@ -2022,7 +2026,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   gap: 5px;
   padding: 4px 8px;
   border-radius: 12px;
-  border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.12));
+  border: 0;
   background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.04));
   color: var(--biliscript-reader-muted, #aaa);
   font-size: 12px;
@@ -2037,7 +2041,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-preset-btn.is-active {
-  border-color: var(--biliscript-reader-accent, #00a1d6);
+  box-shadow: inset 0 0 0 1px var(--biliscript-reader-accent, #00a1d6);
   background: rgba(0, 161, 214, 0.15);
   color: #fff;
   font-weight: 500;
@@ -2067,7 +2071,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   justify-content: center;
   padding: 3px 10px;
   border-radius: 12px;
-  border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.12));
+  border: 0;
   background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.04));
   color: var(--biliscript-reader-muted, #aaa);
   font-size: 12px;
@@ -2082,7 +2086,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-pattern-btn.is-active {
-  border-color: var(--biliscript-reader-accent, #00a1d6);
+  box-shadow: inset 0 0 0 1px var(--biliscript-reader-accent, #00a1d6);
   background: rgba(0, 161, 214, 0.15);
   color: #fff;
   font-weight: 500;
@@ -2292,7 +2296,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   gap: 6px;
   padding: 8px 18px;
   border-radius: 10px;
-  border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.16));
+  border: 0;
   background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.08));
   color: var(--biliscript-reader-text, #ffffff);
   font-size: 14px;
@@ -2304,7 +2308,6 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-action-btn:hover:not(:disabled) {
   background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.14));
-  border-color: var(--biliscript-reader-accent, rgba(255, 255, 255, 0.28));
 }
 
 .biliscript-quote-action-btn:active:not(:disabled) {
@@ -2318,7 +2321,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-action-btn.is-primary {
   background: var(--biliscript-reader-accent, #00a1d6);
-  border-color: var(--biliscript-reader-accent, #00a1d6);
+  border: 0;
   color: #ffffff;
 }
 
