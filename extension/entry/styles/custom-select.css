@@ -45,13 +45,32 @@
   box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
   list-style: none;
   margin: 0;
+  transform-origin: top left;
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
+              transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
+              display 160ms allow-discrete;
 }
 
-/* 收起态正确性规则（原 rows.css:340-343）：面板外部的 global document click 委托
+/* 收起态正确性规则与平滑淡出（原 rows.css:340-343）：面板外部的 global document click 委托
  * 会关闭下拉；弹出层需盖过相邻卡片，堆叠上下文内 z-index 已够，此处补一条收起
- * 保证——[hidden] 被弹层规则压过就列表常开。 */
+ * 保证——[hidden] 被弹层规则压过就列表常开。
+ * display 走 allow-discrete 并在 120ms 内渐隐 + 轻微缩回，退场更干脆。 */
 #biliscript-reading-view .custom-select-dropdown[hidden] {
   display: none;
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 120ms ease-out,
+              transform 120ms ease-out,
+              display 120ms allow-discrete;
+}
+
+@starting-style {
+  #biliscript-reading-view .custom-select-dropdown:not([hidden]) {
+    opacity: 0;
+    transform: scale(0.95);
+  }
 }
 
 /* 搜索条目（选项数达到阈值或显式启用搜索时插入）：吸顶常驻于下拉卡片顶部 */
@@ -289,6 +308,12 @@
 /* 减少动态（原 reader-settings-providers.css:812-813 表尾降级块里的两条）：按压缩
  * 放对减少动态用户关停，颜色/背景类短过渡保留。本块必须在上面 scale 规则之后。 */
 @media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view .custom-select-dropdown,
+  #biliscript-reading-view .custom-select-dropdown[hidden] {
+    transition: none;
+    transform: none;
+  }
+
   #biliscript-reading-view .custom-select-option:active,
   #biliscript-reading-view .custom-select-trigger:active {
     transform: none;

@@ -55,6 +55,7 @@
 #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover) {
   left: auto;
   right: 0;
+  transform-origin: top right;
   width: max-content;
   max-width: calc(var(--biliscript-script-width, 520px) - 78px);
   max-height: 320px;
@@ -72,6 +73,11 @@
  * 仍是 flex = 列表常开）。 */
 #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover)[hidden] {
   display: none;
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 120ms ease-out,
+              transform 120ms ease-out,
+              display 120ms allow-discrete;
 }
 
 /* 卡片根不产生盒子：主区与页脚直接成为浮层的 flex 项——页脚因此固定在主区之外
@@ -351,6 +357,12 @@
 
 /* 减少动态：轨道颜色与滑块位移过渡关停。 */
 @media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover),
+  #biliscript-reading-view .custom-select-dropdown:has(> .biliscript-bilingual-popover)[hidden] {
+    transition: none;
+    transform: none;
+  }
+
   #biliscript-reading-view .biliscript-bilingual-switch,
   #biliscript-reading-view .biliscript-bilingual-switch::after {
     transition: none;

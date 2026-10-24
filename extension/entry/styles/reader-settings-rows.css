@@ -37,6 +37,12 @@
   box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
   list-style: none;
   margin: 0;
+  transform-origin: top left;
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
+              transform 160ms var(--biliscript-reader-ease-spring, cubic-bezier(0.16, 1, 0.3, 1)),
+              display 160ms allow-discrete;
 }
 
 /* 分区抬升（与 settings-panel.js applySectionContainment 的 contain: layout style
@@ -412,6 +418,18 @@
  * 自定义下拉的收起规则随组件住 styles/custom-select.css。 */
 #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown[hidden] {
   display: none;
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 120ms ease-out,
+              transform 120ms ease-out,
+              display 120ms allow-discrete;
+}
+
+@starting-style {
+  #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown:not([hidden]) {
+    opacity: 0;
+    transform: scale(0.95);
+  }
 }
 
 /* 拖拽把手（spec §6.10 / §12.5 第 17 行）：仅搜索族记录行渲染，行内最右端。
@@ -575,4 +593,12 @@
 #biliscript-reading-view[data-biliscript-script-scrolling="1"] .provider-editor-host .ai-provider-model-dropdown {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown,
+  #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown[hidden] {
+    transition: none;
+    transform: none;
+  }
 }
