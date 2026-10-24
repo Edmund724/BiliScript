@@ -363,7 +363,7 @@ export async function renderQuoteCardToCanvas(
   const maxTextWidth = width - 72;
 
   ctx.save();
-  ctx.font = `400 ${fontSize}px "BiliScript Noto Serif SC", Georgia, "Songti SC", "SimSun", serif`;
+  ctx.font = `400 ${fontSize}px Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif`;
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
@@ -384,7 +384,7 @@ export async function renderQuoteCardToCanvas(
   const sourceText = options.videoTitle || "BiliScript";
 
   ctx.save();
-  ctx.font = '11px "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+  ctx.font = '11px "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
   ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
   ctx.textBaseline = "alphabetic";
 

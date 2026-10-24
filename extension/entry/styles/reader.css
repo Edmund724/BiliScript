@@ -5,14 +5,6 @@
  * 期布局已随其退役删除；视口定位（贴栏/浮层）在 reader-gate.css 门控段。 */
 
 @font-face {
-  font-family: "BiliScript Noto Sans SC";
-  src: url("../../fonts/biliscript-noto-sans-sc.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-}
-
-@font-face {
   font-family: "BiliScript Noto Serif SC";
   src: url("../../fonts/biliscript-noto-serif-sc.woff2") format("woff2");
   font-style: normal;
@@ -664,6 +656,7 @@
  * 字幕列表内的实例被下方减噪规则覆盖（清底 + 次级色，仅活动/悬停回主色）。 */
 .biliscript-reading-time {
   font-family: var(--biliscript-reader-font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.5;
@@ -1187,6 +1180,8 @@
 }
 
 .biliscript-reading-explain-card-quote {
+  font-family: var(--biliscript-reader-font-serif);
+  font-size-adjust: from-font;
   flex: 0 0 auto;
   margin: 0 0 10px;
   padding: 10px 14px;
@@ -1212,6 +1207,11 @@
 /* 答案区带 .markdown-body（github-markdown-css 基线，随对话分区表挂载、
  * 晚于本表加载）：.markdown-body p 与这里的特异性同级（0-1-1）但靠后胜出，
  * 挂上 .markdown-body 抬到 0-2-1 保住紧凑 8px 档。 */
+.biliscript-reading-explain-card-answer.markdown-body {
+  font-family: var(--biliscript-reader-font-serif);
+  font-size-adjust: from-font;
+}
+
 .biliscript-reading-explain-card-answer.markdown-body p {
   margin: 0 0 8px;
 }
@@ -1484,7 +1484,7 @@
 }
 
 .biliscript-reading-ov-chapter-title {
-  font-family: "BiliScript Noto Sans SC", var(--biliscript-reader-font-sans);
+  font-family: var(--biliscript-reader-font-sans);
   font-size: calc(15px * var(--biliscript-reader-font-scale, 1));
   font-size-adjust: from-font;
   font-weight: 500;
@@ -1496,7 +1496,7 @@
 /* 时间轴章节主副标题拆分的次级说明（仅 outline 来源且无 summary 时渲染，
  * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方主标题。 */
 .biliscript-reading-ov-chapter-subtitle {
-  font-family: "BiliScript Noto Sans SC", var(--biliscript-reader-font-sans);
+  font-family: var(--biliscript-reader-font-sans);
   font-size: calc(12px * var(--biliscript-reader-font-scale, 1));
   font-size-adjust: from-font;
   font-weight: 400;
@@ -1506,7 +1506,7 @@
 }
 
 .biliscript-reading-ov-chapter-desc {
-  font-family: "BiliScript Noto Sans SC", var(--biliscript-reader-font-sans);
+  font-family: var(--biliscript-reader-font-serif);
   font-size: calc(14px * var(--biliscript-reader-font-scale, 1));
   font-size-adjust: from-font;
   line-height: 1.7;
@@ -1579,7 +1579,7 @@
   position: relative;
   z-index: 1;
   display: block;
-  font-family: "BiliScript Noto Serif SC", Georgia, "Songti SC", "SimSun", serif;
+  font-family: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
   font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
   font-size-adjust: from-font;
   line-height: 1.7;
@@ -1891,7 +1891,7 @@ math {
 }
 
 math mtext {
-  font-family: var(--biliscript-reader-font-sans, "BiliScript Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-family: var(--biliscript-reader-font-sans, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif);
 }
 
 /* 运算符间距：对齐 LaTeX / 数学排版规范（等号、加号等补齐合理间隙） */
@@ -2282,7 +2282,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-card-text {
-  font-family: "BiliScript Noto Serif SC", Georgia, "Songti SC", "SimSun", serif;
+  font-family: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
   font-size: clamp(16px, 5.5cqi, 21px);
   font-size-adjust: from-font;
   font-weight: 400;

@@ -209,9 +209,10 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-reader-subtitle-line-height: 1.5;
   --biliscript-reader-letter-spacing: 0em;
   /* 面板字体栈：font-sans 与 ui/mermaid-render.ts 的 PANEL_FONT_FAMILY 字面量
-   * 互为镜像（mermaid 配置吃不了 CSS 变量）；内置思源黑体 BiliScript Noto Sans SC
-   * 优先，系统无衬线栈兜底；font-mono 取时间戳 pill 那套更全的栈。 */
-  --biliscript-reader-font-sans: "BiliScript Noto Sans SC", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+   * 互为镜像（mermaid 配置吃不了 CSS 变量）；西文与数字由系统现代 UI 字体优先接管，
+   * 中文落苹方与微软雅黑 UI；font-serif 供概览总结、金句、解释卡与 AI 回答消费。 */
+  --biliscript-reader-font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --biliscript-reader-font-serif: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
   --biliscript-reader-font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   /* 动效 token：spring=Flyme 非手势基准曲线（200–350ms 档，淡入/位移进场）；
    * bounce=文档「面板/应用切换/小窗」回弹近似，过冲 ≤2%（真机手势仍须弹簧，
@@ -396,7 +397,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"
   --biliscript-reader-time-bg: rgba(156, 69, 39, 0.1);
   /* 衬线字型栈（概览组标题与金句正文消费，reader.css 的 editorial 规则）：
    * 内置思源宋体 BiliScript Noto Serif SC + 西文 Georgia 系 + 中文宋体系回退。 */
-  --biliscript-reader-font-serif: "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
+  --biliscript-reader-font-serif: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
   /* 纸感壳三件：无径向光雾、无背景模糊；外框描边取中性暖沙纸边 #E6DFD3。 */
   --biliscript-reader-topbar-bg: rgba(250, 247, 242, 0.96);
   --biliscript-reader-mist-surface: #faf7f2;
@@ -434,7 +435,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-
   --biliscript-reader-shadow: none;
   --biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   --biliscript-reader-overlay-bg: rgba(23, 21, 19, 0.92);
-  --biliscript-reader-font-serif: "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
+  --biliscript-reader-font-serif: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
   /* 深色纸感壳：无径向光雾、无背景模糊；外框描边取深暖褐 #2C2723。 */
   --biliscript-reader-topbar-bg: rgba(23, 21, 19, 0.96);
   --biliscript-reader-mist-surface: #171513;

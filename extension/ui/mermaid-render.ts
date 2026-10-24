@@ -45,7 +45,7 @@ const MERMAID_UNSUPPORTED_MESSAGE = "不支持的图表类型，已显示源码"
 // mermaid 配置吃不了 CSS 变量，只能字面量同步，改动须两边一致。mermaid 默认
 // 栈是 "trebuchet ms, verdana, arial"，与面板字体不搭，显式对齐。
 const PANEL_FONT_FAMILY =
-  '"BiliScript Noto Sans SC", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif';
+  '"Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
 
 // 已渲染 SVG 的缓存，键为「主题 + 源码」。为什么必须有：流式的 stable 容器每
 // 增长一次就整体重建 innerHTML（已渲染的图随之销毁），终态整渲染与历史回放同理

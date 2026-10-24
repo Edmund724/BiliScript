@@ -507,8 +507,8 @@ function printOffscreenSplitReport(result) {
 }
 
 // dist 运行时体积守卫：全部运行时文件（不含 Source Map .map 文件）总量上限。
-// 预算：6,000,000 B，包含 GB2312 与常用标点组成的可变黑体和固定 400 宋体。
-const DIST_RUNTIME_MAX_BYTES = 6000000;
+// 预算：3,900,000 B（仅打包 400 字重思源宋体供 AI 总结/讲解/金句消费，UI 黑体走系统零体积栈）。
+const DIST_RUNTIME_MAX_BYTES = 3900000;
 
 function printDistSummary() {
   const files = [];

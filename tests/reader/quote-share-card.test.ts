@@ -1065,7 +1065,7 @@ describe("quote-share-motion-styles 样式与降级", () => {
   });
 
   it("正文使用本地宋体并以 5.5% 容器宽度配比", () => {
-    expect(cssContent).toContain('font-family: "BiliScript Noto Serif SC", Georgia, "Songti SC", "SimSun", serif;');
+    expect(cssContent).toContain('font-family: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;');
     expect(cssContent).toContain("font-size: clamp(16px, 5.5cqi, 21px);");
   });
 });
