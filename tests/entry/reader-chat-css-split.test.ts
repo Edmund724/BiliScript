@@ -129,3 +129,21 @@ describe("长回复屏外段落跳过渲染（M13）", () => {
     );
   });
 });
+
+describe("对话域分割线样式", () => {
+  it("reader-chat.css 对话域 hr 覆盖 height:1px / margin:16px 0", () => {
+    const css = read(CHAT_CSS);
+    const rule = (css.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+\{[^}]*\}/g) || []).find((r) => {
+      const [head] = r.split("{");
+      return head.trim() === ".biliscript-reading-chat .markdown-body hr";
+    });
+    expect(rule, `${CHAT_CSS} 缺对话域 hr 瘦身规则`).toBeTruthy();
+    expect(rule).toMatch(/height: 1px;/);
+    expect(rule).toMatch(/margin: 16px 0;/);
+  });
+
+  it("解释卡域（reader.css）无 markdown-body hr 高度覆盖", () => {
+    const css = read(READER_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).not.toMatch(/\.markdown-body hr\s*\{/);
+  });
+});

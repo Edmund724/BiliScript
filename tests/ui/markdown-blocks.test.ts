@@ -98,6 +98,32 @@ describe("renderMarkdown 分割线", () => {
   });
 });
 
+describe("renderMarkdown dropHeadingAdjacentHr（对话域选项，默认关闭）", () => {
+  const OPTS = { dropHeadingAdjacentHr: true };
+
+  it("默认关闭：标题前/后的 hr 照常产出，解析行为不变", () => {
+    expect(renderMarkdown("# 标题\n---\n\n正文")).toContain("<h2>标题</h2><hr>");
+    expect(renderMarkdown("正文\n\n---\n## 小节")).toContain("<hr><h3>小节</h3>");
+  });
+
+  it("开启时标题后的 hr 省略，中间隔任意空行同样省略", () => {
+    expect(renderMarkdown("# 标题\n---\n\n正文", OPTS)).toBe("<h2>标题</h2><p>正文</p>");
+    expect(renderMarkdown("### 小节\n\n\n---\n\n正文", OPTS)).not.toContain("<hr>");
+    expect(renderMarkdown("## 小节\n\n---", OPTS)).not.toContain("<hr>");
+  });
+
+  it("开启时标题前的 hr 省略", () => {
+    expect(renderMarkdown("正文\n\n---\n## 小节", OPTS)).toBe("<p>正文</p><h3>小节</h3>");
+    expect(renderMarkdown("---\n# 标题", OPTS)).toBe("<h2>标题</h2>");
+  });
+
+  it("开启时非标题相邻的独立 hr 保留", () => {
+    expect(renderMarkdown("上文\n\n---\n\n下文", OPTS)).toContain("<p>上文</p><hr><p>下文</p>");
+    expect(renderMarkdown("---\n\n正文", OPTS)).toContain("<hr>");
+    expect(renderMarkdown("上文\n\n***\n\n- 列表", OPTS)).toContain("<hr>");
+  });
+});
+
 describe("renderMarkdown 删除线", () => {
   it("~~文本~~ 产 <del>，行内与其他格式共存", () => {
     expect(renderMarkdown("~~旧结论~~ 与 **新结论**")).toBe(

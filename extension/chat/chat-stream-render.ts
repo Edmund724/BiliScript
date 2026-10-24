@@ -25,9 +25,12 @@ import {
   createThinkStripCursor,
   renderMarkdownStripped,
   stripThinkBlocks,
+  type MarkdownRenderOptions,
   type MarkdownTailCursor,
   type ThinkStripCursor
 } from "../ui/markdown.js";
+
+const CHAT_MARKDOWN_OPTIONS: MarkdownRenderOptions = { dropHeadingAdjacentHr: true };
 // mermaid 图表：renderMarkdown 只产出占位 DOM，SVG 由这里在节点插入之后异步水合
 //（懒 chunk，见 ui/lazy-mermaid 头注）。
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
@@ -598,7 +601,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
       state.stableCut = cut; 
       state.stableText = stableText;
-      state.stableEl!.innerHTML = renderMarkdownStripped(stableText);
+      state.stableEl!.innerHTML = renderMarkdownStripped(stableText, {
+        ...CHAT_MARKDOWN_OPTIONS,
+        hrAdjacentAfter: tailText
+      });
       // stable 只在增长时重渲染一次，其内的 mermaid 占位在此水合（整体重建
       // 会换掉节点，但 SVG 有「主题 + 源码」缓存兜底，重入只是字符串替换）。
       hydrateMermaid(state.stableEl!);
@@ -616,7 +622,10 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // tail 每帧整体重建，且未闭合的围栏本就整段留在 tail——不对它水合
     //（每帧重渲染一遍图表既慢又闪）；围栏闭合进入 stable 后自然渲染，流收口
     // 的整渲染再兜一次。
-    state.tailEl!.innerHTML = renderMarkdownStripped(tailText);
+    state.tailEl!.innerHTML = renderMarkdownStripped(tailText, {
+      ...CHAT_MARKDOWN_OPTIONS,
+      hrAdjacentBefore: stableText
+    });
     if (cursor) {
       state.tailEl!.appendChild(cursor);
     }
@@ -1054,7 +1063,7 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
     // markdown-body：启用 github-markdown-css 排版基线（样式随对话分区表挂载，
     // 变量由 github-markdown-theme.css 桥接到 --biliscript-reader-*）。
     content.className = "chat-msg-assistant-body markdown-body";
-    content.innerHTML = renderMarkdownStripped(cleanedRaw);
+    content.innerHTML = renderMarkdownStripped(cleanedRaw, CHAT_MARKDOWN_OPTIONS);
     linkifyAssistantTimestamps(content, deps.getTimestampNavDeps());
     // 时间戳链接在前、mermaid 水合在后：linkify 跳过 pre/code 内的文本，占位里
     // 的图表源码不会被它改写；水合换入的 SVG 里也不该再长出时间戳按钮。

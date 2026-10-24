@@ -111,14 +111,60 @@ export function isTimestampOnlyInlineCode(value: unknown): boolean {
   return !rest || TIMESTAMP_INLINE_CODE_REST_PATTERN.test(rest);
 }
 
-export function renderMarkdown(text: string): string {
-  return renderMarkdownStripped(stripThinkBlocks(text));
+function nearestNonBlankLine(lines: string[], from: number, step: -1 | 1): string | null {
+  for (let index = from; index >= 0 && index < lines.length; index += step) {
+    const trimmed = lines[index].trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+function firstNonBlankLine(text: string): string | null {
+  if (!text) {
+    return null;
+  }
+  return nearestNonBlankLine(text.split("\n"), 0, 1);
+}
+
+function lastNonBlankLine(text: string): string | null {
+  if (!text) {
+    return null;
+  }
+  const lines = text.split("\n");
+  return nearestNonBlankLine(lines, lines.length - 1, -1);
+}
+
+function isHeadingBlockLine(line: string): boolean {
+  return /^(?:#{1,6})\s+(.+)$/.test(line);
+}
+
+function isHeadingAdjacentHr(lines: string[], index: number, options: MarkdownRenderOptions): boolean {
+  const before =
+    nearestNonBlankLine(lines, index - 1, -1) ?? lastNonBlankLine(options.hrAdjacentBefore ?? "");
+  if (before && isHeadingBlockLine(before)) {
+    return true;
+  }
+  const after =
+    nearestNonBlankLine(lines, index + 1, 1) ?? firstNonBlankLine(options.hrAdjacentAfter ?? "");
+  return after !== null && isHeadingBlockLine(after);
+}
+
+export interface MarkdownRenderOptions {
+  dropHeadingAdjacentHr?: boolean;
+  hrAdjacentBefore?: string;
+  hrAdjacentAfter?: string;
+}
+
+export function renderMarkdown(text: string, options: MarkdownRenderOptions = {}): string {
+  return renderMarkdownStripped(stripThinkBlocks(text), options);
 }
 
 // renderMarkdownStripped — 与 renderMarkdown 相同，但输入须已由调用方剥除 think
 // 块（chat-runtime 的流式 flush 与终态渲染都先经 stripThinkBlocks，内部再剥一
 // 遍只是幂等冗余）。独立调用方（如 explain-card）用 renderMarkdown，勿直接用本函数。
-export function renderMarkdownStripped(text: string): string {
+export function renderMarkdownStripped(text: string, options: MarkdownRenderOptions = {}): string {
   const escaped = escapeHtml(text);
   // 仅行首（允许 ≤3 空格）围栏是块级标记；段中出现的 ``` 保留为普通文本。
   const extracted = extractCodeFences(escaped);
@@ -279,6 +325,9 @@ export function renderMarkdownStripped(text: string): string {
     if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(line)) {
       flushPara();
       closeList();
+      if (options.dropHeadingAdjacentHr && isHeadingAdjacentHr(lines, index, options)) {
+        continue;
+      }
       out.push("<hr>");
       continue;
     }

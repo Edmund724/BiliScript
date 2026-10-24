@@ -2,7 +2,43 @@
 // 纯函数边界行为（最后一个空行边界 + 围栏闭合约束 + 安全退化）。
 
 import { describe, expect, it } from "vitest";
-import { renderMarkdown, splitMarkdownTail } from "../../extension/ui/markdown.js";
+import { renderMarkdown, renderMarkdownStripped, splitMarkdownTail } from "../../extension/ui/markdown.js";
+
+describe("splitMarkdownTail × dropHeadingAdjacentHr 跨界等价", () => {
+  const OPTS = { dropHeadingAdjacentHr: true };
+  const renderStacked = (text: string) => {
+    const { stableText, tailText } = splitMarkdownTail(text);
+    return (
+      renderMarkdownStripped(stableText, { ...OPTS, hrAdjacentAfter: tailText }) +
+      renderMarkdownStripped(tailText, { ...OPTS, hrAdjacentBefore: stableText })
+    );
+  };
+
+  it("hr 在 stable 尾、标题在 tail 首：边界 hr 省略，堆叠与全量一致", () => {
+    const text = "正文段落\n\n---\n\n# 小节\n\n小节内容";
+    expect(renderStacked(text)).toBe(renderMarkdownStripped(text, OPTS));
+    expect(renderStacked(text)).not.toContain("<hr>");
+  });
+
+  it("标题在 stable 尾、hr 在 tail 首：边界 hr 省略，堆叠与全量一致", () => {
+    const text = "# 小节\n\n---\n\n正文段落";
+    expect(renderStacked(text)).toBe(renderMarkdownStripped(text, OPTS));
+    expect(renderStacked(text)).not.toContain("<hr>");
+  });
+
+  it("边界 hr 非标题相邻时保留，堆叠与全量一致", () => {
+    const text = "上文\n\n中段\n\n---\n\n下文\n\n再下文";
+    expect(renderStacked(text)).toBe(renderMarkdownStripped(text, OPTS));
+    expect(renderStacked(text)).toContain("<hr>");
+  });
+
+  it("全文无空行（全 tail）时无需上下文，决策与全量一致", () => {
+    const text = "# 小节\n---";
+    expect(splitMarkdownTail(text)).toEqual({ stableText: "", tailText: text });
+    expect(renderStacked(text)).toBe(renderMarkdownStripped(text, OPTS));
+    expect(renderStacked(text)).not.toContain("<hr>");
+  });
+});
 
 describe("splitMarkdownTail", () => {
   it("常规多段文本：在最后一个空行边界切分，stable + tail 堆叠渲染与全文渲染一致", () => {

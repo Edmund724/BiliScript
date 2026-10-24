@@ -487,6 +487,7 @@
   background: var(--biliscript-reader-surface-3);
   color: var(--biliscript-reader-text);
   font: inherit;
+  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
   cursor: pointer;
   transition: background 0.15s, color 0.15s, transform 100ms ease-out;
 }
@@ -954,6 +955,11 @@
 .biliscript-reading-chat .chat-msg-assistant:not(.chat-msg-streaming) hr {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 44px;
+}
+
+.biliscript-reading-chat .markdown-body hr {
+  height: 1px;
+  margin: 16px 0;
 }
 
 /* 流式尾部指示 = 三点脉冲光标。三个点直接显示在末尾跟随流式输出。
