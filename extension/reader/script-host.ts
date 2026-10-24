@@ -8,7 +8,7 @@
 //
 // 贴栏形态的几何：面板贴视口右界，纵向钳进一屏（top 跟锚点
 // 但不出视口，底缘贴视口底），内容超高由面板内部滚动消化。
-// 宽度由 getTargetPanelWidth() 决定（默认 520px，支持 400–650px 自定义）。
+// 宽度由 getTargetPanelWidth() 决定（默认 540px，支持 400–650px 自定义）。
 //
 // player-host 整页接管退役后，本模块是 LAYOUT 层唯一的布局调度器
 //（rAF 合帧 + 脏检查，思路源自旧 player-host 调度器）——script-host
@@ -45,7 +45,7 @@ const ANCHOR_SELECTORS = [
 const ANCHOR_MIN_WIDTH = 280;
 // 贴栏形态宽度保底下限（300px）与默认目标宽度（380px）。
 const PANEL_MIN_WIDTH = 300;
-const DEFAULT_PANEL_TARGET_WIDTH = 520;
+const DEFAULT_PANEL_TARGET_WIDTH = 540;
 
 function getTargetPanelWidth(): number {
   const custom = Number(state.settings?.customPanelWidth);
