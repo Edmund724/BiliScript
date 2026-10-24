@@ -88,9 +88,12 @@ void (async () => {
   }
 })();
 
+let currentChatGeneration = 0;
+let activeGeneration = 0;
 let activeAbortController: AbortController | null = null;
-let pendingCostGuard: { resolve: (value: boolean) => void } | null = null;
+let pendingCostGuard: { resolve: (value: boolean) => void; generation: number } | null = null;
 let idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let idleTimeoutGeneration = 0;
 var STREAM_IDLE_TIMEOUT_MS = 90000;
 
 // 候选5：聊天字幕体单槽缓存。SP 侧只在 lastAckedContextKey 变化时随消息携带
@@ -131,10 +134,14 @@ interface PostMessagePort {
   postMessage(message: unknown): void;
 }
 
-function armIdleTimeout(abortController: AbortController, port: PostMessagePort) {
-  clearIdleTimeout();
+function armIdleTimeout(generation: number, abortController: AbortController, port: PostMessagePort) {
+  if (generation !== activeGeneration || abortController.signal.aborted) {
+    return;
+  }
+  clearIdleTimeout(generation);
+  idleTimeoutGeneration = generation;
   idleTimeoutId = setTimeout(function () {
-    if (abortController && !abortController.signal.aborted) {
+    if (generation === activeGeneration && abortController && !abortController.signal.aborted) {
       abortController.abort();
       // 超时中断只 abort：原始段缓冲的落盘已收口到 map-reduce 写会话的收尾
       // close（本次 abort 令编排走 abort 收束，close 随该轮 finally 落盘）
@@ -146,11 +153,15 @@ function armIdleTimeout(abortController: AbortController, port: PostMessagePort)
   }, STREAM_IDLE_TIMEOUT_MS);
 }
 
-function clearIdleTimeout() {
+function clearIdleTimeout(generation?: number) {
+  if (generation !== undefined && generation !== idleTimeoutGeneration) {
+    return;
+  }
   if (idleTimeoutId) {
     clearTimeout(idleTimeoutId);
     idleTimeoutId = null;
   }
+  idleTimeoutGeneration = 0;
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -194,9 +205,13 @@ chrome.runtime.onConnect.addListener((port) => {
     }
     if (msg.action === "cost-guard-confirm") {
       if (pendingCostGuard) {
-        const resolve = pendingCostGuard.resolve;
+        const { resolve, generation } = pendingCostGuard;
         pendingCostGuard = null;
-        resolve(msg.ok !== false);
+        if (generation === activeGeneration) {
+          resolve(msg.ok !== false);
+        } else {
+          resolve(false);
+        }
       }
       return;
     }
@@ -217,12 +232,13 @@ chrome.runtime.onConnect.addListener((port) => {
     // 只经 port.postMessage 回吐，包装对它们透明。
     const ackedPort = withCachedContextKey<ChatPortMessage>(port, settled.contextKey!);
 
-    try {
-      abortActiveRequest();
-      // 新会话接力无需 flush：上一轮的写会话已在该轮 return 前 close 落盘
-      //（会话收尾即落盘），本轮开始时没有遗留缓冲——本轮的段缓存读无竞态。
-      activeAbortController = new AbortController();
+    abortActiveRequest();
+    const generation = ++currentChatGeneration;
+    const requestController = new AbortController();
+    activeAbortController = requestController;
+    activeGeneration = generation;
 
+    try {
       // 候选04/10-6：首次聊天并行拉取两件互不依赖的前置——provider 解析
       //（resolve-ai-provider 单趟往返）与 AI 半边动态装载（ladderLoader.load，
       // 拉 ../ai/ladder.js）。串行会多等一轮「往返 + module 解析」，改
@@ -232,15 +248,18 @@ chrome.runtime.onConnect.addListener((port) => {
       // 解析搜索配置（resolve-search-provider 单趟往返，spec §2.3/§2.4）。
       const webSearchRequested = (msg as ChatMsg).webSearchEnabled === true;
       const [resolved, runLadderChat, searchResolution] = await Promise.all([
-        resolveProviderWithKey(ackedPort, msg.providerId),
+        resolveProviderWithKey(ackedPort, msg.providerId, generation),
         ladderLoader.load(),
-        webSearchRequested ? resolveSearchRuntime() : Promise.resolve(undefined)
+        webSearchRequested ? resolveSearchRuntime(requestController.signal) : Promise.resolve(undefined)
       ]);
+      if (generation !== activeGeneration || requestController.signal.aborted) {
+        return;
+      }
       // runtime 缺省 = 本轮不联网（未配置 / 解析失败）；notice 文案随解析产物单源给出
       //（空链两类归因，spec §12.7 第 6 条翻案）。
       const searchRuntime: WebSearchRuntimeResolution["runtime"] = searchResolution?.runtime;
       if (resolved.error) {
-        clearActiveRequestState();
+        clearActiveRequestState(generation);
         return;
       }
       if (webSearchRequested && !searchRuntime) {
@@ -262,7 +281,11 @@ chrome.runtime.onConnect.addListener((port) => {
         throw new Error(HOST_PERMISSION_HINT);
       }
 
-      armIdleTimeout(activeAbortController, ackedPort);
+      if (generation !== activeGeneration || requestController.signal.aborted) {
+        return;
+      }
+
+      armIdleTimeout(generation, requestController, ackedPort);
 
       // 核数打点（调试日志门默认关，门关时连计数都跳过）：素材字符数与 budgeter
       // totalChars 同口径（trim 后非空 content），供长视频「单发/分段」路径核数
@@ -297,22 +320,29 @@ chrome.runtime.onConnect.addListener((port) => {
             ...(msg.conversationId ? { sessionId: String(msg.conversationId) } : {})
           },
           port: ackedPort,
-          signal: activeAbortController.signal,
+          signal: requestController.signal,
           // 联网运行时（spec §2.3）：toggle 开启且已配置时注入工具循环。
           ...(searchRuntime ? { webSearch: searchRuntime } : {})
         },
         {
-          askCostGuard,
-          onActivity: function () { armIdleTimeout(activeAbortController!, ackedPort); },
-          pauseIdleTimeout: clearIdleTimeout
+          askCostGuard: (costPort, message) => askCostGuard(costPort, message, generation),
+          onActivity: function () {
+            armIdleTimeout(generation, requestController, ackedPort);
+          },
+          pauseIdleTimeout: function () {
+            clearIdleTimeout(generation);
+          }
         }
       );
     } catch (e) {
+      if (generation !== activeGeneration || requestController.signal.aborted) {
+        return;
+      }
       // 异常路径同样由编排收尾的会话 close 落盘残留原始段（不随本次失败丢弃）
       ackedPort.postMessage({ type: "error", error: String((e as Error | undefined)?.message || e) });
     } finally {
-      clearIdleTimeout();
-      clearActiveRequestState();
+      clearIdleTimeout(generation);
+      clearActiveRequestState(generation);
     }
   });
 
@@ -371,10 +401,17 @@ async function dispatchAsrProbeTask(task: unknown, port: chrome.runtime.Port) {
 }
 
 function abortActiveRequest() {
+  if (pendingCostGuard) {
+    const resolve = pendingCostGuard.resolve;
+    pendingCostGuard = null;
+    resolve(false);
+  }
   if (activeAbortController && !activeAbortController.signal.aborted) {
     activeAbortController.abort();
   }
   activeAbortController = null;
+  activeGeneration = 0;
+  clearIdleTimeout();
 }
 
 // SW 代执行的自关闭请求。成功关闭时本文档随之销毁、回包可能永远不到
@@ -394,15 +431,19 @@ async function requestSelfClose(): Promise<void> {
   }
 }
 
-function clearActiveRequestState() {
+function clearActiveRequestState(generation?: number) {
+  if (generation !== undefined && generation !== activeGeneration) {
+    return;
+  }
   activeAbortController = null;
+  activeGeneration = 0;
 }
 
 // 向侧边栏弹成本护栏确认，等待其回复 { action: "cost-guard-confirm", ok: boolean }。
 // 断连时 resolve(false)（视为取消）。
-function askCostGuard(port: PostMessagePort, message: string) {
-  return new Promise((resolve) => {
-    pendingCostGuard = { resolve };
+function askCostGuard(port: PostMessagePort, message: string, generation: number) {
+  return new Promise<boolean>((resolve) => {
+    pendingCostGuard = { resolve, generation };
     port.postMessage({ type: "cost-guard", data: { message } });
   });
 }
@@ -428,8 +469,8 @@ function withCachedContextKey<T extends ChatPortMessage>(port: PostMessagePort, 
 // 复用本次聊天的 abort controller，停止可中断在途搜索。runtime 缺省（未配置 /
 // 全冷却 / 解析失败）时另带 notice 文案，调用方 notice 后走原无工具路径——搜索是
 // 增强，缺失不阻塞对话。
-async function resolveSearchRuntime(): Promise<WebSearchRuntimeResolution> {
-  return resolveWebSearchRuntime(activeAbortController?.signal ?? null);
+async function resolveSearchRuntime(signal?: AbortSignal | null): Promise<WebSearchRuntimeResolution> {
+  return resolveWebSearchRuntime(signal ?? activeAbortController?.signal ?? null);
 }
 
 // 取「选中的平台 + 其 API Key」：走 resolve-ai-provider 合成消息单趟往返
@@ -441,11 +482,14 @@ async function resolveSearchRuntime(): Promise<WebSearchRuntimeResolution> {
 //（MV3 无回调签名，见 tests/entry/offscreen-asr-skip.test.ts 的 stub 说明），
 // await 的 unknown 回包在传输边界收窄为协议响应类型——与 shared/messaging.ts
 // 内部的单点 cast 同性质。
-async function resolveProviderWithKey(port: PostMessagePort, providerId: string | undefined) {
+async function resolveProviderWithKey(port: PostMessagePort, providerId: string | undefined, generation?: number) {
   const resp = (await chrome.runtime.sendMessage({
     type: "resolve-ai-provider",
     providerId
   })) as ResolveAiProviderResponse | null;
+  if (generation !== undefined && generation !== activeGeneration) {
+    return { error: true };
+  }
   if (!resp?.ok || !resp.provider) {
     port.postMessage({ type: "error", error: resp?.error || "解析 AI 平台配置失败" });
     return { error: true };
