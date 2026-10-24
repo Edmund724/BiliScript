@@ -1937,6 +1937,14 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
    * 挂在 view 直下的弹窗宿主必须显式声明 pointer-events: auto，
    * 否则弹窗整体穿透，导致无法点击选择配色/纹样且穿透触发底层面板。 */
   pointer-events: auto;
+  transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));
+}
+
+@starting-style {
+  #biliscript-reading-view .biliscript-quote-share-host,
+  .biliscript-quote-share-host {
+    opacity: 0;
+  }
 }
 
 #biliscript-reading-view .biliscript-quote-share-host,
@@ -1947,7 +1955,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 .biliscript-quote-share-mask {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--biliscript-reader-mask-bg, rgba(20, 16, 12, 0.28));
   cursor: pointer;
 }
 
@@ -1962,8 +1970,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   align-items: center;
   background: var(--biliscript-reader-surface, #1e1e24);
   border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.1));
-  border-radius: 16px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  border-radius: 28px;
+  corner-shape: squircle;
+  box-shadow: var(--biliscript-reader-shadow);
   padding: 16px;
   box-sizing: border-box;
   overflow-y: auto;
@@ -1985,28 +1994,34 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-share-close {
-  width: 28px;
-  height: 28px;
-  border: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
   background: transparent;
-  color: var(--biliscript-reader-muted, #888);
-  border-radius: 50%;
+  color: var(--biliscript-reader-text, #1f2937);
+  border-radius: 28px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  transition: color 0.15s, background 0.15s;
+  transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.biliscript-quote-share-close:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+.biliscript-quote-share-close:active {
+  transform: scale(0.91);
+  transition: transform 70ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.biliscript-quote-share-close:hover,
+.biliscript-quote-share-close:focus-visible {
+  background: var(--biliscript-reader-fill-hover, rgba(0, 0, 0, 0.06));
 }
 
 .biliscript-quote-share-close svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
 }
 
 /* 主题预设选择器栏 */
@@ -2034,7 +2049,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   user-select: none;
 }
 
-.biliscript-quote-preset-btn:hover {
+.biliscript-quote-preset-btn:hover,
+.biliscript-quote-preset-btn:focus-visible {
   background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.08));
   color: var(--biliscript-reader-text, #fff);
 }
@@ -2079,7 +2095,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   user-select: none;
 }
 
-.biliscript-quote-pattern-btn:hover {
+.biliscript-quote-pattern-btn:hover,
+.biliscript-quote-pattern-btn:focus-visible {
   background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.08));
   color: var(--biliscript-reader-text, #fff);
 }
@@ -2289,45 +2306,51 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 18px;
-  border-radius: 10px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
   border: 0;
-  background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.08));
-  color: var(--biliscript-reader-text, #ffffff);
+  background: transparent;
+  color: var(--biliscript-reader-muted);
+  font: inherit;
   font-size: 14px;
-  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 100ms ease-out;
   user-select: none;
 }
 
-.biliscript-quote-action-btn:hover:not(:disabled) {
-  background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.14));
+.biliscript-quote-action-btn:not(.is-primary):hover:not(:disabled),
+.biliscript-quote-action-btn:not(.is-primary):focus-visible:not(:disabled) {
+  background: var(--biliscript-reader-fill-hover);
+  color: var(--biliscript-reader-text);
 }
 
-.biliscript-quote-action-btn:active:not(:disabled) {
-  transform: scale(0.98);
+.biliscript-quote-action-btn:not(.is-primary):active:not(:disabled) {
+  background: var(--biliscript-reader-surface-2);
 }
 
 .biliscript-quote-action-btn:disabled {
-  opacity: 0.65;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .biliscript-quote-action-btn.is-primary {
-  background: var(--biliscript-reader-accent, #00a1d6);
-  border: 0;
-  color: #ffffff;
+  background: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-on-fill);
+  font-weight: 600;
 }
 
-.biliscript-quote-action-btn.is-primary:hover:not(:disabled) {
-  filter: brightness(1.1);
+.biliscript-quote-action-btn.is-primary:hover:not(:disabled),
+.biliscript-quote-action-btn.is-primary:focus-visible:not(:disabled) {
+  filter: brightness(1.05);
 }
 
 .biliscript-quote-action-btn.is-success {
-  background: #22a06b !important;
-  border-color: #22a06b !important;
-  color: #ffffff !important;
+  color: var(--biliscript-reader-accent) !important;
+}
+
+.biliscript-quote-action-btn.is-primary.is-success {
+  color: var(--biliscript-reader-on-fill) !important;
 }
 
 .biliscript-quote-action-icon {
@@ -2440,6 +2463,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .biliscript-quote-share-host,
+  .biliscript-quote-share-close,
   .biliscript-quote-preset-btn,
   .biliscript-quote-pattern-btn,
   .biliscript-quote-action-btn,
@@ -2447,6 +2472,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   .biliscript-quote-card-pattern,
   .biliscript-quote-card-glow {
     transition: none !important;
+  }
+  .biliscript-quote-share-close:active {
+    transform: none !important;
   }
   .biliscript-quote-card-blobs {
     animation: none !important;
