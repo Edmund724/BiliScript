@@ -151,6 +151,7 @@ const JS = {
       text: token('--biliscript-reader-text', 'color'),
       muted: token('--biliscript-reader-muted', 'color'),
       accent: token('--biliscript-reader-accent', 'backgroundColor'),
+      accentSoft: token('--biliscript-reader-accent-soft', 'backgroundColor'),
       onFill: token('--biliscript-reader-on-fill', 'color'),
       fillHover: token('--biliscript-reader-fill-hover', 'backgroundColor'),
       surface2: token('--biliscript-reader-surface-2', 'backgroundColor'),
@@ -171,8 +172,8 @@ const JS = {
     const csCard = getComputedStyle(card);
     const csCardText = getComputedStyle(cardText);
     const csMask = getComputedStyle(mask);
-    const presetBtn = host.querySelector('.biliscript-quote-preset-btn');
-    const patternBtn = host.querySelector('.biliscript-quote-pattern-btn');
+    const presetBtn = host.querySelector('.biliscript-quote-preset-btn.is-active');
+    const patternBtn = host.querySelector('.biliscript-quote-pattern-btn.is-active');
     const cornerShape = csDialog.cornerShape || csDialog.getPropertyValue('corner-shape') || '';
     return {
       view: (() => { const v = document.getElementById('biliscript-reading-view'); return v ? { theme: v.getAttribute('data-theme'), palette: v.getAttribute('data-palette') } : null; })(),
@@ -203,8 +204,8 @@ const JS = {
         pattern: card.dataset.pattern,
         boxShadow: csCard.boxShadow
       },
-      preset: presetBtn ? { borderRadius: getComputedStyle(presetBtn).borderRadius, count: host.querySelectorAll('.biliscript-quote-preset-btn').length } : null,
-      pattern: patternBtn ? { borderRadius: getComputedStyle(patternBtn).borderRadius, count: host.querySelectorAll('.biliscript-quote-pattern-btn').length } : null,
+      preset: presetBtn ? (() => { const cs = getComputedStyle(presetBtn); return { borderRadius: cs.borderRadius, backgroundColor: cs.backgroundColor, color: cs.color, fontWeight: cs.fontWeight, borderTopWidth: cs.borderTopWidth, boxShadow: cs.boxShadow, count: host.querySelectorAll('.biliscript-quote-preset-btn').length }; })() : null,
+      pattern: patternBtn ? (() => { const cs = getComputedStyle(patternBtn); return { borderRadius: cs.borderRadius, backgroundColor: cs.backgroundColor, color: cs.color, fontWeight: cs.fontWeight, borderTopWidth: cs.borderTopWidth, boxShadow: cs.boxShadow, count: host.querySelectorAll('.biliscript-quote-pattern-btn').length }; })() : null,
       tokens
     };
   })()`,
@@ -727,6 +728,12 @@ async function main() {
       checkEquals("Q1.preset-count-6", q1.probe?.preset?.count, 6);
       checkEquals("Q1.pattern-radius-12", q1.probe?.pattern?.borderRadius, "12px");
       check("Q1.pattern-count-positive", (q1.probe?.pattern?.count ?? 0) > 0, { count: q1.probe?.pattern?.count });
+      for (const kind of ["preset", "pattern"]) {
+        const pill = q1.probe?.[kind];
+        check(`Q1.${kind}-active-colors-use-tokens`, pill?.backgroundColor === t.accentSoft && pill?.color === t.accent, { bg: pill?.backgroundColor, color: pill?.color, accentSoft: t.accentSoft, accent: t.accent });
+        checkEquals(`Q1.${kind}-active-font-weight-600`, pill?.fontWeight, "600");
+        check(`Q1.${kind}-active-has-no-border-or-shadow`, pill?.borderTopWidth === "0px" && pill?.boxShadow === "none", { borderTopWidth: pill?.borderTopWidth, boxShadow: pill?.boxShadow });
+      }
       // 卡片本体
       checkEquals("Q1.card-radius-20", q1.probe?.card?.borderRadius, "20px");
       checkEquals("Q1.card-font-6cqi", q1.probe?.card?.fontSize, q1.probe?.card?.fontSizeExpected);

@@ -1007,6 +1007,14 @@ describe("quote-share-panel-style-contracts 面板风格契约", () => {
   it("配色与纹样按钮保留外观并补齐键盘焦点", () => {
     expect(rule(".biliscript-quote-preset-btn")).toContain("border-radius: 12px;");
     expect(rule(".biliscript-quote-pattern-btn")).toContain("border-radius: 12px;");
+    for (const selector of [".biliscript-quote-preset-btn.is-active", ".biliscript-quote-pattern-btn.is-active"]) {
+      const active = rule(selector);
+      expect(active).toContain("background: var(--biliscript-reader-accent-soft);");
+      expect(active).toContain("color: var(--biliscript-reader-accent);");
+      expect(active).toContain("font-weight: 600;");
+      expect(active).not.toContain("box-shadow:");
+      expect(active).not.toContain("border:");
+    }
     expect(cssContent).toContain(".biliscript-quote-preset-btn:hover,\n.biliscript-quote-preset-btn:focus-visible");
     expect(cssContent).toContain(".biliscript-quote-pattern-btn:hover,\n.biliscript-quote-pattern-btn:focus-visible");
   });

@@ -2056,10 +2056,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-preset-btn.is-active {
-  box-shadow: inset 0 0 0 1px var(--biliscript-reader-accent, #00a1d6);
-  background: rgba(0, 161, 214, 0.15);
-  color: #fff;
-  font-weight: 500;
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+  font-weight: 600;
 }
 
 .biliscript-quote-preset-dot {
@@ -2102,10 +2101,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-pattern-btn.is-active {
-  box-shadow: inset 0 0 0 1px var(--biliscript-reader-accent, #00a1d6);
-  background: rgba(0, 161, 214, 0.15);
-  color: #fff;
-  font-weight: 500;
+  background: var(--biliscript-reader-accent-soft);
+  color: var(--biliscript-reader-accent);
+  font-weight: 600;
 }
 
 /* 主卡片预览区 */
