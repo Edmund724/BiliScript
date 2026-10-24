@@ -454,6 +454,82 @@ describe("wait ticker（假 now + 捕获 interval 回调）", () => {
       document.body.innerHTML = "";
     }
   });
+
+  it("进度通知（onProgress）只改状态条文案节点，已有结果 DOM 节点身份保持不变", async () => {
+    const h = makeHarness();
+    h.setReadingViewOpen(true);
+    document.body.innerHTML = `<div id="${ids.readingOverviewBody}"></div>`;
+    try {
+      h.runOverviewAnalysis.mockResolvedValue(SAMPLE_ANALYSIS);
+      await h.coordinator.trigger();
+      expect(h.coordinator.getPhase()).toBe("ready");
+
+      const initialChapter = document.querySelector(".biliscript-reading-ov-chapter");
+      const initialQuote = document.querySelector(".biliscript-reading-ov-quote");
+      expect(initialChapter).not.toBeNull();
+      expect(initialQuote).not.toBeNull();
+
+      let notify!: (notice: string) => void;
+      h.runOverviewAnalysis.mockImplementation((_args: RunArgs, handlers: RunHandlers) => {
+        notify = (notice) => handlers.onProgress?.(notice);
+        return new Promise<OverviewAnalysis>(() => {});
+      });
+
+      void h.coordinator.trigger({ forceRefresh: true });
+      await waitForRunStarted(h, 2);
+      expect(h.coordinator.getPhase()).toBe("generating");
+
+      const stripTextNode = document.querySelector<HTMLElement>(".biliscript-reading-ov-strip-text");
+      const cancelBtn = document.querySelector<HTMLElement>("button[data-overview-action='cancel']");
+      const chapterNode = document.querySelector(".biliscript-reading-ov-chapter");
+      const quoteNode = document.querySelector(".biliscript-reading-ov-quote");
+
+      expect(stripTextNode).not.toBeNull();
+      expect(cancelBtn).not.toBeNull();
+      expect(chapterNode).not.toBeNull();
+      expect(quoteNode).not.toBeNull();
+
+      notify("正在整理第 1/2 段（50%）");
+
+      expect(document.querySelector(".biliscript-reading-ov-strip-text")).toBe(stripTextNode);
+      expect(stripTextNode?.textContent).toBe("正在整理第 1/2 段（50%）");
+      expect(document.querySelector("button[data-overview-action='cancel']")).toBe(cancelBtn);
+      expect(document.querySelector(".biliscript-reading-ov-chapter")).toBe(chapterNode);
+      expect(document.querySelector(".biliscript-reading-ov-quote")).toBe(quoteNode);
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("状态条节点缺失时，onProgress 回退到整区渲染", async () => {
+    const h = makeHarness();
+    h.setReadingViewOpen(true);
+    document.body.innerHTML = `<div id="${ids.readingOverviewBody}"></div>`;
+    try {
+      let notify!: (notice: string) => void;
+      h.runOverviewAnalysis.mockImplementation((_args: RunArgs, handlers: RunHandlers) => {
+        notify = (notice) => handlers.onProgress?.(notice);
+        return new Promise<OverviewAnalysis>(() => {});
+      });
+
+      void h.coordinator.trigger();
+      await waitForRunStarted(h);
+
+      const oldStrip = document.querySelector(".biliscript-reading-ov-strip");
+      expect(oldStrip).not.toBeNull();
+      oldStrip?.remove();
+      expect(document.querySelector(".biliscript-reading-ov-strip")).toBeNull();
+
+      notify("正在整理第 2/2 段（100%）");
+
+      const newStripText = document.querySelector<HTMLElement>(".biliscript-reading-ov-strip-text");
+      expect(newStripText).not.toBeNull();
+      expect(newStripText?.textContent).toBe("正在整理第 2/2 段（100%）");
+      expect(document.querySelector("button[data-overview-action='cancel']")).not.toBeNull();
+    } finally {
+      document.body.innerHTML = "";
+    }
+  });
 });
 
 describe("reset 会话收尾", () => {

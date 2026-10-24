@@ -7,7 +7,7 @@
 //  2. 诚实空态：无字幕（subtitleBody 为空）不触发生成，展示诚实空态；
 //  3. 重复触发安全：ready/partial/error/cancelled 态不自动重跑，重试需显式 forceRefresh。
 //  4. 闸门：视图打开时（isReadingViewOpen）才驱动真实 DOM 渲染，关闭时静默；
-//  5. ticker 纪律：generating 期间每秒就地刷新状态条，不整块重渲以避免丢失选区与滚动位置。
+//  5. 生成进度纪律：generating 期间进度通知与每秒 wait ticker 均就地刷新状态条文案，不整块重渲以保留选区、焦点与滚动位置。
 
 import { buildSubtitleSignature } from "../subtitle/cache.js";
 import { resolveChapterSource, type ChapterSource, type ChapterSourceKind } from "../shared/chapter-outline.js";
@@ -262,15 +262,22 @@ export function createOverviewCoordinator(
     }
   }
 
+  function renderGeneratingProgressIfOpen(): void {
+    if (!deps.isReadingViewOpen() || overview.phase !== "generating") {
+      return;
+    }
+    const text = stripText();
+    if (!updateGeneratingStripText(text)) {
+      renderReadingOverviewNow();
+    }
+  }
+
   function tickWaitNote(): void {
     if (overview.phase !== "generating") {
       stopWaitTicker();
       return;
     }
-    const text = stripText();
-    if (!updateGeneratingStripText(text)) {
-      renderIfOpen();
-    }
+    renderGeneratingProgressIfOpen();
   }
 
   function startWaitTicker(): void {
@@ -374,9 +381,12 @@ export function createOverviewCoordinator(
         },
         {
           onProgress: (notice) => {
+            if (inflightAbort !== slot || overview.generatedFor !== clipKey || overview.phase !== "generating") {
+              return;
+            }
             overview.progressText = String(notice || "");
             slot.lastActivityAt = deps.now();
-            renderIfOpen();
+            renderGeneratingProgressIfOpen();
           },
           askCostGuard: (message) => deps.confirm({ message, confirmText: "继续" })
         }
