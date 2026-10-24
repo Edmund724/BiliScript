@@ -30,8 +30,8 @@
   --borderColor-muted: var(--biliscript-reader-border, #e7dfd4);
   --borderColor-accent-emphasis: var(--biliscript-reader-accent, #fb7299);
   --focus-outlineColor: var(--biliscript-reader-accent, #fb7299);
-  /* 排版域跟随阅读视图，不被 GitHub 字体栈/字号接管：中文回退栈与阅读视图
-   * 不同（Windows 上 Segoe UI/Noto Sans vs 站内的雅黑栈），字号行高沿用
+  /* 排版域跟随阅读视图，不被 GitHub 字体栈/字号接管：阅读视图自带内置思源黑体栈
+   *（--biliscript-reader-font-sans），字号行高沿用
    * 气泡档（.chat-msg 16px/1.45）与解释卡各自定义；github-markdown-css
    * 只贡献元素级排版（表格/代码/列表/引用块细节）。 */
   font-family: inherit;

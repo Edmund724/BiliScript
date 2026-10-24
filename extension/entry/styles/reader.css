@@ -90,6 +90,10 @@
   color: var(--biliscript-reader-accent);
 }
 
+#biliscript-reading-view :where(button, input, textarea, select) {
+  font-family: inherit;
+}
+
 .biliscript-reading-header {
   display: flex;
   align-items: flex-start;
@@ -1887,7 +1891,7 @@ math {
 }
 
 math mtext {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--biliscript-reader-font-sans, "BiliScript Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif);
 }
 
 /* 运算符间距：对齐 LaTeX / 数学排版规范（等号、加号等补齐合理间隙） */
