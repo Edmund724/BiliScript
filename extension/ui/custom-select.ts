@@ -382,6 +382,7 @@ export function initCustomSelect(
   searchInput.addEventListener("input", filterOptions);
   searchInput.addEventListener("keydown", (e) => {
     if (trigger.disabled) return;
+    if (e.isComposing) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       const firstVisible = optionNodes.find((o) => !o.hidden);

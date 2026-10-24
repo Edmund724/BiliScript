@@ -181,6 +181,7 @@ export function wireModelPicker(
               : `已加载 ${totalCount} 个模型`;
           });
           searchInput.addEventListener("keydown", (e) => {
+            if (e.isComposing) return;
             if (e.key === "Escape") {
               e.preventDefault();
               dropdown.hidden = true;

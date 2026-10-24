@@ -1032,6 +1032,9 @@ export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolba
     if (event.key !== "Enter" && event.key !== "Escape") {
       return;
     }
+    if (event.isComposing) {
+      return;
+    }
     event.preventDefault();
     flushSearchDebounce();
     withReader("subtitle search keydown", (reader) => {
