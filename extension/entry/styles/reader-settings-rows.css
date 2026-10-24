@@ -49,6 +49,53 @@
   z-index: 1;
 }
 
+/* 搜索条目（拉取模型数 >= 8 时插入）：吸顶常驻于下拉卡片顶部 */
+#biliscript-reading-view .provider-editor-host .ai-provider-model-search-item {
+  box-sizing: border-box;
+  width: 100%;
+  position: sticky;
+  top: -6px;
+  z-index: 2;
+  padding: 2px 2px 6px;
+  background: var(--biliscript-reader-card);
+  border-bottom: 1px solid var(--biliscript-reader-border);
+  list-style: none;
+}
+
+#biliscript-reading-view .provider-editor-host .ai-provider-model-search-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--biliscript-reader-border);
+  border-radius: 14px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--biliscript-reader-surface, var(--biliscript-reader-card));
+  color: var(--biliscript-reader-text);
+  outline: none;
+  min-width: 0;
+}
+
+#biliscript-reading-view .provider-editor-host .ai-provider-model-search-input:focus {
+  border-color: var(--biliscript-reader-accent, #00aeec);
+}
+
+#biliscript-reading-view .provider-editor-host .ai-provider-model-empty {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  line-height: 30px;
+  padding: 4px 10px;
+  text-align: center;
+  font: inherit;
+  font-size: 13px;
+  color: var(--biliscript-reader-muted, #999);
+  list-style: none;
+  cursor: default;
+  user-select: none;
+}
+
 /* 选项行：button 型（模型选项）与 li 型（模型加载/提示项）共用度量；自定义下拉的
  * li 选项同度量、随组件住 styles/custom-select.css。
  * 2026-10-06 补（与组件表 custom-select.css 那条同因同解）：本行的 width 百分比配左右

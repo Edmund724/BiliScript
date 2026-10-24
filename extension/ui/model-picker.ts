@@ -115,20 +115,91 @@ export function wireModelPicker(
       dropdown.innerHTML = "";
       if (resp?.ok && Array.isArray(resp.models) && resp.models.length > 0) {
         const currentModel = modelInput.value.trim();
+        const hasSearch = resp.models.length >= 8;
+        let searchInput: HTMLInputElement | null = null;
+        let emptyLi: HTMLElement | null = null;
+        const optionLis: HTMLLIElement[] = [];
+
+        if (hasSearch) {
+          const searchItem = document.createElement("li");
+          searchItem.className = "ai-provider-model-search-item";
+          searchInput = document.createElement("input");
+          searchInput.type = "text";
+          searchInput.className = "ai-provider-model-search-input";
+          searchInput.placeholder = "搜索模型...";
+          searchInput.setAttribute("aria-label", "搜索模型");
+          searchInput.autocomplete = "off";
+          searchInput.spellcheck = false;
+          searchItem.appendChild(searchInput);
+          dropdown.appendChild(searchItem);
+
+          emptyLi = document.createElement("li");
+          emptyLi.className = "ai-provider-model-message ai-provider-model-empty";
+          emptyLi.textContent = "无匹配选项";
+          emptyLi.hidden = true;
+          emptyLi.style.display = "none";
+          dropdown.appendChild(emptyLi);
+        }
+
         resp.models.forEach((modelId) => {
           const li = document.createElement("li");
           li.className = "ai-provider-model-option";
           li.dataset.model = modelId;
           li.textContent = modelId;
+          li.tabIndex = -1;
           if (modelId === currentModel) {
             li.dataset.selected = "true";
           }
           dropdown.appendChild(li);
+          optionLis.push(li);
         });
+
+        const totalCount = resp.models.length;
         const countLi = document.createElement("li");
         countLi.className = "ai-provider-model-count";
-        countLi.textContent = `已加载 ${resp.models.length} 个模型`;
+        countLi.textContent = `已加载 ${totalCount} 个模型`;
         dropdown.appendChild(countLi);
+
+        if (hasSearch && searchInput) {
+          searchInput.addEventListener("click", (e) => e.stopPropagation());
+          searchInput.addEventListener("input", (e) => {
+            e.stopPropagation();
+            const kw = searchInput!.value.trim().toLowerCase();
+            let matchCount = 0;
+            optionLis.forEach((li) => {
+              const match = !kw || (li.dataset.model || "").toLowerCase().includes(kw);
+              li.hidden = !match;
+              li.style.display = match ? "" : "none";
+              if (match) matchCount++;
+            });
+            if (emptyLi) {
+              emptyLi.hidden = matchCount > 0;
+              emptyLi.style.display = matchCount > 0 ? "none" : "";
+            }
+            countLi.textContent = kw
+              ? `匹配 ${matchCount} / ${totalCount} 个模型`
+              : `已加载 ${totalCount} 个模型`;
+          });
+          searchInput.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              dropdown.hidden = true;
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              const visible = optionLis.find((li) => !li.hidden);
+              if (visible && visible.dataset.model) {
+                modelInput.value = visible.dataset.model;
+                modelInput.dispatchEvent(new Event("input", { bubbles: true }));
+                dropdown.hidden = true;
+              }
+            } else if (e.key === "ArrowDown") {
+              e.preventDefault();
+              const visible = optionLis.find((li) => !li.hidden);
+              visible?.focus();
+            }
+          });
+          searchInput.focus();
+        }
       } else if (resp?.ok) {
         const li = document.createElement("li");
         li.className = "ai-provider-model-message";
@@ -157,6 +228,44 @@ export function wireModelPicker(
   row.querySelector(`.${inputClass}`)?.addEventListener("input", () => {
     const dropdown = row.querySelector(".ai-provider-model-dropdown") as HTMLElement | null;
     if (dropdown) dropdown.hidden = true;
+  });
+
+  row.querySelector(".ai-provider-model-dropdown")?.addEventListener("keydown", (e) => {
+    const evt = e as KeyboardEvent;
+    const dropdown = row.querySelector(".ai-provider-model-dropdown") as HTMLElement | null;
+    const searchInput = dropdown?.querySelector<HTMLInputElement>(".ai-provider-model-search-input");
+    if (document.activeElement === searchInput) return;
+    const visibleOptions = Array.from(
+      dropdown?.querySelectorAll<HTMLElement>(".ai-provider-model-option:not([hidden])") ?? []
+    );
+    if (visibleOptions.length === 0) return;
+    const active = document.activeElement as HTMLElement | null;
+    const current = active && visibleOptions.includes(active) ? visibleOptions.indexOf(active) : -1;
+    if (evt.key === "ArrowDown") {
+      evt.preventDefault();
+      visibleOptions[Math.min(visibleOptions.length - 1, current + 1)]?.focus();
+    } else if (evt.key === "ArrowUp") {
+      evt.preventDefault();
+      if (current <= 0) {
+        searchInput?.focus();
+      } else {
+        visibleOptions[current - 1]?.focus();
+      }
+    } else if (evt.key === "Enter") {
+      evt.preventDefault();
+      const option = current >= 0 ? visibleOptions[current] : visibleOptions[0];
+      if (option && option.dataset.model) {
+        const modelInput = row.querySelector(`.${inputClass}`) as HTMLInputElement | null;
+        if (modelInput) {
+          modelInput.value = option.dataset.model;
+          modelInput.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        if (dropdown) dropdown.hidden = true;
+      }
+    } else if (evt.key === "Escape") {
+      evt.preventDefault();
+      if (dropdown) dropdown.hidden = true;
+    }
   });
 
   row.querySelector(".ai-provider-model-dropdown")?.addEventListener("click", (e) => {

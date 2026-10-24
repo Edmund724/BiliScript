@@ -110,6 +110,7 @@ export function rebuildCustomSelectOptions(select: HTMLSelectElement): void {
   const hadListFocus = !!dropdown && !dropdown.hidden && document.activeElement instanceof HTMLElement && dropdown.contains(document.activeElement);
   const options = ops.rebuild();
   if (!hadListFocus || !dropdown) return;
+  if (dropdown.querySelector(".custom-select-search-input") === document.activeElement) return;
   // 按现值重认一项（值不在新集合里则回落首项，与 openList 同口径）：整批 <li> 已换新，
   // 旧焦点节点已脱离文档。认的是组件自己那批节点——浮层子树里可能有调用方声明进来的
   // 内容，也可能嵌着另一枚组件壳（双语卡片的副列），按类名在子树里捞会捞错人。
@@ -155,7 +156,12 @@ function buildOptionNode(option: HTMLOptionElement): HTMLLIElement {
 // 接线，调用方不必在渲染入口按节点去重补绑。省略 = 只建壳。
 export interface CustomSelectOptions {
   onChange?: (select: HTMLSelectElement) => void;
+  /** 是否启用搜索过滤。省略时自动按选项数 >= CUSTOM_SELECT_SEARCH_THRESHOLD 决定。 */
+  searchable?: boolean;
 }
+
+/** 自动开启搜索的选项数量阈值 */
+export const CUSTOM_SELECT_SEARCH_THRESHOLD = 8;
 
 export function initCustomSelect(
   select: HTMLSelectElement,
@@ -323,16 +329,101 @@ export function initCustomSelect(
   // 唯一的项集入口，也是槽位就位的唯一时机（声明换了落点，下一次重铺即按新声明铺）。
   // 换项实现**不是** dropdown.replaceChildren()：那些 <li> 是组件自己的，浮层里的别的
   // 节点归调用方——只摘自己产出的项，声明进来的槽位节点原样留在场上（连带它们的滚动位置）。
+  const shouldEnableSearch = (): boolean =>
+    options.searchable !== undefined
+      ? options.searchable
+      : select.options.length >= CUSTOM_SELECT_SEARCH_THRESHOLD;
+
+  const searchItem = document.createElement("li");
+  searchItem.className = "custom-select-search-item";
+  searchItem.setAttribute("role", "presentation");
+  const searchInput = document.createElement("input");
+  searchInput.type = "text";
+  searchInput.className = "custom-select-search-input";
+  searchInput.placeholder = "搜索...";
+  searchInput.setAttribute("aria-label", "搜索选项");
+  searchInput.autocomplete = "off";
+  searchInput.spellcheck = false;
+  searchItem.appendChild(searchInput);
+
+  const emptyItem = document.createElement("li");
+  emptyItem.className = "custom-select-empty";
+  emptyItem.setAttribute("role", "presentation");
+  emptyItem.textContent = "无匹配选项";
+  emptyItem.hidden = true;
+  emptyItem.style.display = "none";
+
+  const filterOptions = (): void => {
+    const kw = searchInput.value.trim().toLowerCase();
+    let visibleCount = 0;
+    optionNodes.forEach((node) => {
+      const text = (node.textContent || "").toLowerCase();
+      const match = !kw || text.includes(kw);
+      node.hidden = !match;
+      node.style.display = match ? "" : "none";
+      if (match) visibleCount++;
+    });
+    emptyItem.hidden = visibleCount > 0;
+    emptyItem.style.display = visibleCount > 0 ? "none" : "";
+  };
+
+  const resetSearch = (): void => {
+    if (!shouldEnableSearch()) return;
+    searchInput.value = "";
+    optionNodes.forEach((node) => {
+      node.hidden = false;
+      node.style.display = "";
+    });
+    emptyItem.hidden = true;
+    emptyItem.style.display = "none";
+  };
+
+  searchInput.addEventListener("click", (e) => e.stopPropagation());
+  searchInput.addEventListener("input", filterOptions);
+  searchInput.addEventListener("keydown", (e) => {
+    if (trigger.disabled) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const firstVisible = optionNodes.find((o) => !o.hidden);
+      firstVisible?.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const target =
+        optionNodes.find((o) => !o.hidden && o.dataset.selected === "true") ||
+        optionNodes.find((o) => !o.hidden);
+      if (target) chooseOption(target);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeList(true);
+    } else if (e.key === "Tab") {
+      closeList(true);
+    }
+  });
+
   const refreshOptionNodes = (): HTMLLIElement[] => {
     optionNodes.forEach((node) => node.remove());
     optionNodes = [];
     applySlots();
     const host = slots.optionsHost ?? dropdown;
+    if (shouldEnableSearch()) {
+      if (searchItem.parentElement !== host) {
+        host.prepend(searchItem);
+      }
+    } else {
+      searchItem.remove();
+    }
     optionNodes = Array.from(select.options).map((option) => {
       const li = buildOptionNode(option);
       host.appendChild(li);
       return li;
     });
+    if (shouldEnableSearch()) {
+      if (emptyItem.parentElement !== host) {
+        host.appendChild(emptyItem);
+      }
+    } else {
+      emptyItem.remove();
+    }
     syncDisplayFromValue();
     return optionNodes;
   };
@@ -376,12 +467,18 @@ export function initCustomSelect(
     closeAllCustomSelects(dropdown);
     dropdown.hidden = false;
     setExpanded(true);
-    (optionNodes.find((o) => o.dataset.selected === "true") || optionNodes[0])?.focus();
+    resetSearch();
+    if (shouldEnableSearch()) {
+      searchInput.focus();
+    } else {
+      (optionNodes.find((o) => o.dataset.selected === "true") || optionNodes[0])?.focus();
+    }
   };
 
   const closeList = (refocusTrigger: boolean): void => {
     dropdown.hidden = true;
     setExpanded(false);
+    resetSearch();
     if (!refocusTrigger) return;
     trigger.focus();
     // 归焦可能失败：trigger 被禁用时接不住焦点（原生行为），焦点会留在刚被隐藏的
@@ -420,25 +517,42 @@ export function initCustomSelect(
 
   dropdown.addEventListener("keydown", (e) => {
     if (trigger.disabled) return; // 禁用时列表不该在场上；万一在，漫游/选中也一律挡住
+    if (document.activeElement === searchInput) return;
+    const visibleOptions = optionNodes.filter((o) => !o.hidden);
+    if (visibleOptions.length === 0) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeList(true);
+      }
+      return;
+    }
     const active = document.activeElement;
-    const current = active instanceof HTMLLIElement && optionNodes.includes(active)
-      ? optionNodes.indexOf(active)
-      : optionNodes.findIndex((o) => o.dataset.selected === "true");
+    const current = active instanceof HTMLLIElement && visibleOptions.includes(active)
+      ? visibleOptions.indexOf(active)
+      : visibleOptions.findIndex((o) => o.dataset.selected === "true");
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      const next = e.key === "ArrowDown"
-        ? optionNodes[Math.min(optionNodes.length - 1, current + 1)]
-        : optionNodes[Math.max(0, current - 1)];
-      next?.focus();
+      if (e.key === "ArrowUp" && current <= 0) {
+        if (shouldEnableSearch()) {
+          searchInput.focus();
+        } else if (current === 0) {
+          visibleOptions[0]?.focus();
+        }
+      } else {
+        const next = e.key === "ArrowDown"
+          ? visibleOptions[Math.min(visibleOptions.length - 1, current === -1 ? 0 : current + 1)]
+          : visibleOptions[Math.max(0, current - 1)];
+        next?.focus();
+      }
     } else if (e.key === "Home") {
       e.preventDefault();
-      optionNodes[0]?.focus();
+      visibleOptions[0]?.focus();
     } else if (e.key === "End") {
       e.preventDefault();
-      optionNodes[optionNodes.length - 1]?.focus();
+      visibleOptions[visibleOptions.length - 1]?.focus();
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      const option = optionNodes[current];
+      const option = current >= 0 ? visibleOptions[current] : visibleOptions[0];
       if (option) chooseOption(option);
     } else if (e.key === "Escape") {
       e.preventDefault();
