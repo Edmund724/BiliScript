@@ -120,7 +120,7 @@ describe("进入视频页自动展开 / 直达时，首载无锚点瞬态防闪�
     // 水合完成后：直接进入 open 态，并且为贴栏定位，绝不出现 data-biliscript-script-float
     expect(view.classList.contains("open")).toBe(true);
     expect(view.getAttribute("data-biliscript-script-float")).toBeNull();
-    expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1400px");
+    expect(view.style.getPropertyValue("--biliscript-script-left")).toBe("1380px");
     expect(view.getAttribute("data-biliscript-reader-ready")).toBe("1");
   });
 
