@@ -94,6 +94,7 @@ let asrPresets: AsrProviderPreset[] = [];
 // 设置抽屉宿主引用（provider-master-detail/01）：单平台保存后的列表重渲需要
 // 按 id 重取 elements——renderReaderSettingsPanel 挂载时赋值。
 let settingsHostRef: HTMLElement | null = null;
+let navSyncRef: { updateActiveIndicator: (smooth?: boolean) => void } | null = null;
 
 // collectFormPayload 的产物形态（save-settings 报文的 settings 载荷）
 interface SettingsFormPayload {
@@ -338,6 +339,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   // 悬空链首提示（spec §6.8）：链首指向已不存在的记录时露条件提示行；用户改选
   // （或链首本就为空 / 指向在场记录）即隐藏。判据只读当前设置与列表，无新存储位。
   syncSearchDanglingHint(elements, String(settings.activeSearchProviderId || ""), searchProviders);
+  navSyncRef?.updateActiveIndicator(false);
 }
 
 // 面板当前生效的用户拖拽顺序（记录 id 数组；空 = 无自定义顺序，按内置默认序
@@ -782,9 +784,13 @@ function debounce<T extends (...args: unknown[]) => void>(
 
 // ===== 事件绑定（模板渲染后一次性接线） =====
 
-function bindSettingsNav(host: HTMLElement): void {
+function bindSettingsNav(host: HTMLElement): { updateActiveIndicator: (smooth?: boolean) => void } {
   const nav = host.querySelector<HTMLElement>(`#${SETTINGS_PANEL_DOM_IDS.settingsNav}`);
-  if (!nav) return;
+  if (!nav) {
+    const noop = { updateActiveIndicator: () => {} };
+    navSyncRef = noop;
+    return noop;
+  }
 
   const navItems = Array.from(nav.querySelectorAll<HTMLButtonElement>(".biliscript-settings-nav-item"));
   const indicator = nav.querySelector<HTMLElement>(".biliscript-settings-nav-indicator");
@@ -807,6 +813,32 @@ function bindSettingsNav(host: HTMLElement): void {
       indicator.style.transition = "";
     }
   }
+
+  function getActiveBtn(): HTMLButtonElement | null {
+    return navItems.find((btn) => btn.classList.contains("is-active")) ?? navItems[0] ?? null;
+  }
+
+  function updateActiveIndicator(smooth = true): void {
+    const activeBtn = getActiveBtn();
+    if (activeBtn) {
+      updateIndicator(activeBtn, smooth);
+    }
+  }
+
+  const navSync = { updateActiveIndicator };
+  navSyncRef = navSync;
+
+  if (typeof ResizeObserver !== "undefined") {
+    const resizeObserver = new ResizeObserver(() => {
+      updateActiveIndicator(false);
+    });
+    navItems.forEach((btn) => resizeObserver.observe(btn));
+    resizeObserver.observe(nav);
+  }
+
+  window.addEventListener("resize", () => {
+    updateActiveIndicator(false);
+  });
 
   function setActive(sectionKey: string, smoothIndicator = true): void {
     let activeBtn: HTMLButtonElement | null = null;
@@ -856,11 +888,11 @@ function bindSettingsNav(host: HTMLElement): void {
   });
 
   if (typeof IntersectionObserver === "undefined") {
-    return;
+    return navSync;
   }
 
   const scrollContainer = host.closest<HTMLElement>("#biliscript-reading-settings-panel") ?? host.parentElement;
-  if (!scrollContainer) return;
+  if (!scrollContainer) return navSync;
 
   const intersectingKeys = new Map<HTMLElement, number>();
   const observer = new IntersectionObserver(
@@ -896,11 +928,12 @@ function bindSettingsNav(host: HTMLElement): void {
   );
 
   groups.forEach((group) => observer.observe(group));
+  return navSync;
 }
 
 function bindSettingsEvents(host: HTMLElement): void {
   const elements = collectElements(host);
-  bindSettingsNav(host);
+  const navSync = bindSettingsNav(host);
 
   // 自绘开关接线（ADR-0019）：6 个持久布尔开关换 iOS 风格开关壳（轨道 + 滑块
   // 装饰、原生 input 视觉隐藏留作值源与键盘/读屏目标）。id / .checked / change
@@ -915,6 +948,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.readerFontSizeScaleResetBtn.disabled = val === DEFAULT_SETTINGS.readerFontSizeScale;
     state.patchSettings({ readerFontSizeScale: val });
     applyReadingViewTypography();
+    navSync.updateActiveIndicator(false);
   });
   elements.readerFontSizeScale.addEventListener("change", () => {
     const val = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
@@ -927,6 +961,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.readerFontSizeScaleResetBtn.disabled = true;
     state.patchSettings({ readerFontSizeScale: defaultVal });
     applyReadingViewTypography();
+    navSync.updateActiveIndicator(false);
     void saveSettingField(elements, { readerFontSizeScale: defaultVal });
   });
 
@@ -936,6 +971,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.customPanelWidthResetBtn.disabled = width === DEFAULT_SETTINGS.customPanelWidth;
     state.patchSettings({ customPanelWidth: width });
     relayoutScriptHost();
+    navSync.updateActiveIndicator(false);
   });
   elements.customPanelWidth.addEventListener("change", () => {
     const width = normalizeCustomPanelWidth(elements.customPanelWidth.value);
@@ -948,6 +984,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.customPanelWidthResetBtn.disabled = true;
     state.patchSettings({ customPanelWidth: defaultVal });
     relayoutScriptHost();
+    navSync.updateActiveIndicator(false);
     void saveSettingField(elements, { customPanelWidth: defaultVal });
   });
 

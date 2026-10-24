@@ -54,6 +54,7 @@ describe("建议问题与空态欢迎区观感", () => {
     expect(block).toMatch(/border-radius:\s*28px;/);
     expect(block).toMatch(/background:\s*var\(--biliscript-reader-surface-3\);/);
     expect(block).toMatch(/padding:\s*12px 16px;/);
+    expect(block).toMatch(/font-size:\s*var\(--biliscript-font-size-base/);
   });
 
   it("chip 贴内容宽（不撑满整行），悬停走 accent-soft + accent 字母题", () => {
