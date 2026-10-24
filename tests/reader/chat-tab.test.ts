@@ -1576,8 +1576,9 @@ describe("输入框自适应高度：逐键回写不得被自己放大", () => {
 describe("消息区滚底按钮：显隐跟随机动、点一下回底", () => {
   const SCROLL_HEIGHT = 1000;
   const CLIENT_HEIGHT = 300;
-  // 近底阈值 = chat-notices isMessagesNearBottom 的默认 56
-  const NEAR_BOTTOM_PX = 56;
+  // 近底跟随阈值 40px，回底浮钮显现阈值 120px（双阈值迟滞）
+  const FOLLOW_THRESHOLD_PX = 40;
+  const BUTTON_THRESHOLD_PX = 120;
 
   // 帧合批的手动推进：滚动判定与 token flush 都排 rAF，同帧多条只判定一次，
   // 用例要能逐帧推进才看得到中间态（动画途中）。
@@ -1644,21 +1645,26 @@ describe("消息区滚底按钮：显隐跟随机动、点一下回底", () => {
     expect(btn.querySelector("svg path")?.getAttribute("d")).toBe("m6 9 6 6 6-6");
   });
 
-  it("上翻出阈值即亮、回到底部即退场；阈值沿用近底判定（56px）那一个数", async () => {
+  it("双阈值迟滞：40px 内跟随且不显按钮，40px~120px 间不显按钮，>120px 按钮亮起，回底退场", async () => {
     const { messages, btn } = await mountScrolledChat();
     const raf = captureRaf();
     try {
-      // 距底 56px（= 阈值）：仍算近底，按钮不亮
-      userScrollTo(messages, SCROLL_HEIGHT - CLIENT_HEIGHT - NEAR_BOTTOM_PX);
+      // 距底 40px（跟随阈值边界）：按钮不亮
+      userScrollTo(messages, SCROLL_HEIGHT - CLIENT_HEIGHT - FOLLOW_THRESHOLD_PX);
       raf.flush();
       expect(btn.hidden).toBe(true);
 
-      // 距底 57px：出阈值，按钮亮起
-      userScrollTo(messages, SCROLL_HEIGHT - CLIENT_HEIGHT - NEAR_BOTTOM_PX - 1);
+      // 距底 80px（处于 40px~120px 迟滞带）：按钮仍不亮（防止边缘抖动）
+      userScrollTo(messages, SCROLL_HEIGHT - CLIENT_HEIGHT - 80);
+      raf.flush();
+      expect(btn.hidden).toBe(true);
+
+      // 距底 121px（超过 120px 浮钮阈值）：按钮亮起
+      userScrollTo(messages, SCROLL_HEIGHT - CLIENT_HEIGHT - BUTTON_THRESHOLD_PX - 1);
       raf.flush();
       expect(btn.hidden).toBe(false);
 
-      // 手动滚回底部：退场（与自动跟随同一个布尔，一起恢复）
+      // 手动滚回底部：退场（恢复跟随）
       userScrollTo(messages, SCROLL_HEIGHT);
       raf.flush();
       expect(btn.hidden).toBe(true);

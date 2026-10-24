@@ -44,6 +44,7 @@ export interface ReaderChatFeedback {
   removeCenteredState: () => void;
   removeSuggestions: () => void;
   isMessagesNearBottom: (threshold?: number) => boolean;
+  getMessagesBottomOffset: () => number;
 }
 
 export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrollToBottom, suggestions, onOpenSettings }: CreateReaderChatFeedbackDeps): ReaderChatFeedback {
@@ -120,9 +121,13 @@ export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrol
     suggestions.clear();
   }
 
-  function isMessagesNearBottom(threshold = 56): boolean {
+  function getMessagesBottomOffset(): number {
     const { scrollTop, scrollHeight, clientHeight } = messages;
-    return scrollHeight - (scrollTop + clientHeight) <= threshold;
+    return Math.max(0, scrollHeight - (scrollTop + clientHeight));
+  }
+
+  function isMessagesNearBottom(threshold = 40): boolean {
+    return getMessagesBottomOffset() <= threshold;
   }
 
   return {
@@ -131,6 +136,7 @@ export function createReaderChatFeedback({ messages, setTimer, clearTimer, scrol
     showConversationContextError,
     removeCenteredState,
     removeSuggestions,
-    isMessagesNearBottom
+    isMessagesNearBottom,
+    getMessagesBottomOffset
   };
 }

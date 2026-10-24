@@ -277,7 +277,8 @@ const {
   showConversationContextError,
   removeCenteredState,
   removeSuggestions,
-  isMessagesNearBottom
+  isMessagesNearBottom,
+  getMessagesBottomOffset
 } = feedback;
 
 // 图片附件区（image-input 02 号票）：粘贴 → 压缩（03 号票规格）→ 缩略图 + 单个
@@ -493,11 +494,12 @@ const modelPanel = createReaderChatModelPanel({
   pickLevel: (level) => pickThinkingLevel(level)
 });
 
-// 滚动跟随与回底闸状态机（chat-scroll-follow）：按帧合批 + 近底判据与按钮显隐同源
+// 滚动跟随与回底闸状态机（chat-scroll-follow）：按帧合批 + 双阈值迟滞 + 物理手势即时断跟
 // + smooth 动画回底途中闸与放闸矩阵。
 const scrollFollow = createScrollFollowController({
   messages: els.messages,
   scrollBottomBtn: els.scrollBottomBtn,
+  getBottomOffset: getMessagesBottomOffset,
   isNearBottom: isMessagesNearBottom,
   setAutoScroll: (autoScroll) => chatRuntime.setAutoScroll(autoScroll),
   scrollToBottom: (smooth) => chatRuntime.scrollToBottom(smooth)
