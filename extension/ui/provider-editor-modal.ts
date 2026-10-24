@@ -793,7 +793,21 @@ export function wireDialog(): void {
       apiKeyClass: "provider-editor-apikey",
       statusClass: "provider-editor-status",
       showStatus: (_node, text, isError) => showStatus(text, isError),
-      fetchModels: ({ baseUrl, apiKey, providerId }) => listAsrModels({ baseUrl, apiKey, providerId })
+      fetchModels: ({ baseUrl, apiKey, providerId }) =>
+        listAsrModels({ baseUrl, apiKey, providerId: providerId || state.editingId }),
+      isKeyRequired: () => {
+        const draft = state.draft;
+        const preset = PROVIDER_FAMILY_ROWS.asr.resolvePreset(state.presets, draft?.presetId || "");
+        if (preset?.requiresKey === false) return false;
+        try {
+          const url = new URL(draft?.baseUrl || "");
+          if (url.hostname === "localhost" || url.hostname === "127.0.0.1") return false;
+        } catch {
+          // 非合法绝对 URL，沿用预设规则
+        }
+        return PROVIDER_FAMILY_ROWS.asr.editor.isKeyRequired(preset);
+      },
+      hasSavedKey: () => Boolean(state.hasSavedKey)
     });
   }
 

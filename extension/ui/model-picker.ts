@@ -56,11 +56,13 @@ export interface WireModelPickerOptions {
   statusClass: string;
   showStatus: ProviderRowShowStatus;
   fetchModels: (ctx: ModelPickerFetchContext) => Promise<ModelPickerFetchResult | null>;
+  isKeyRequired?: () => boolean;
+  hasSavedKey?: () => boolean;
 }
 
 export function wireModelPicker(
   row: ProviderRowElement,
-  { inputClass, baseUrlClass, apiKeyClass, statusClass, showStatus, fetchModels }: WireModelPickerOptions
+  { inputClass, baseUrlClass, apiKeyClass, statusClass, showStatus, fetchModels, isKeyRequired, hasSavedKey }: WireModelPickerOptions
 ): void {
   row.querySelector(".ai-provider-model-toggle")?.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -89,6 +91,16 @@ export function wireModelPicker(
 
     dropdown.innerHTML = "";
     dropdown.hidden = false;
+
+    const keyRequired = isKeyRequired ? isKeyRequired() : false;
+    const savedKey = hasSavedKey ? hasSavedKey() : false;
+    if (keyRequired && !apiKey && !savedKey) {
+      const li = document.createElement("li");
+      li.className = "ai-provider-model-message ai-provider-model-error";
+      li.textContent = "请先填写 API Key";
+      dropdown.appendChild(li);
+      return;
+    }
     const loadingLi = document.createElement("li");
     loadingLi.className = "ai-provider-model-option ai-provider-model-loading";
     loadingLi.textContent = "正在拉取模型列表...";

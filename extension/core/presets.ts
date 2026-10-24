@@ -20,17 +20,18 @@ export interface AsrProviderPreset {
   supportsTimestamps: boolean;
   note?: string;
   language?: string;
+  requiresKey?: boolean;
 }
 
 export const ASR_PROVIDER_PRESETS: readonly AsrProviderPreset[] = [
   {
     id: "siliconflow-sensevoice",
-    name: "SiliconFlow 硅基流动（免费）",
+    name: "SiliconFlow 硅基流动",
     type: "openai-transcriptions",
     baseUrl: "https://api.siliconflow.cn/v1",
-    model: "XingChenAGI/XingChenASR-V3.2-Ultra",
+    model: "XingChenAGI/XingChenASR-V3.2",
     supportsTimestamps: true,
-    note: "推荐模型 XingChenAGI/XingChenASR-V3.2-Ultra，点模型名右侧箭头可拉取全部可选模型。英文视频请在插件页顶部切换为 English 后重新刷新。"
+    note: "推荐免费模型 XingChenAGI/XingChenASR-V3.2，需先填写硅基流动 API Key，点右侧箭头可拉取可选模型。英文视频请在插件页顶部切换为 English 后刷新。"
   },
   {
     id: "local-whisper",
@@ -39,6 +40,7 @@ export const ASR_PROVIDER_PRESETS: readonly AsrProviderPreset[] = [
     baseUrl: "http://localhost:8000/v1",
     model: "whisper-large-v3",
     supportsTimestamps: true, // verbose_json segments
+    requiresKey: false,
     note: "本地部署，音频不上传任何外部服务。model 可按本地部署情况修改。"
   },
   {

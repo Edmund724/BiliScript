@@ -176,4 +176,76 @@ describe("model-picker 搜索过滤功能", () => {
     expect(modelInput.value).toBe("claude-3-5-sonnet");
     expect(dropdown.hidden).toBe(true);
   });
+
+  describe("API Key 守卫拦截", () => {
+    it("平台要求 Key 且无输入且无已存 Key 时拦截，下拉提示「请先填写 API Key」并不发起拉取", async () => {
+      const row = createRow();
+      row.querySelector<HTMLInputElement>(".test-api-key")!.value = "";
+      const fetchModels = vi.fn();
+
+      wireModelPicker(row, {
+        inputClass: "test-model-input",
+        baseUrlClass: "test-base-url",
+        apiKeyClass: "test-api-key",
+        statusClass: "test-status",
+        showStatus: vi.fn(),
+        fetchModels,
+        isKeyRequired: () => true,
+        hasSavedKey: () => false
+      });
+
+      row.querySelector<HTMLButtonElement>(".ai-provider-model-toggle")!.click();
+
+      const dropdown = row.querySelector<HTMLElement>(".ai-provider-model-dropdown")!;
+      expect(dropdown.hidden).toBe(false);
+      expect(dropdown.querySelector(".ai-provider-model-message")?.textContent).toBe("请先填写 API Key");
+      expect(fetchModels).not.toHaveBeenCalled();
+    });
+
+    it("平台无需 Key（如本地服务）时，即使 Key 为空也正常拉取", async () => {
+      const row = createRow();
+      row.querySelector<HTMLInputElement>(".test-api-key")!.value = "";
+      const fetchModels = vi.fn().mockResolvedValue({ ok: true, models: ["local-model"] });
+
+      wireModelPicker(row, {
+        inputClass: "test-model-input",
+        baseUrlClass: "test-base-url",
+        apiKeyClass: "test-api-key",
+        statusClass: "test-status",
+        showStatus: vi.fn(),
+        fetchModels,
+        isKeyRequired: () => false,
+        hasSavedKey: () => false
+      });
+
+      row.querySelector<HTMLButtonElement>(".ai-provider-model-toggle")!.click();
+
+      await vi.waitFor(() => {
+        expect(fetchModels).toHaveBeenCalled();
+      });
+    });
+
+    it("已有已存 Key 时，输入框为空也正常放行拉取", async () => {
+      const row = createRow();
+      row.querySelector<HTMLInputElement>(".test-api-key")!.value = "";
+      const fetchModels = vi.fn().mockResolvedValue({ ok: true, models: ["saved-model"] });
+
+      wireModelPicker(row, {
+        inputClass: "test-model-input",
+        baseUrlClass: "test-base-url",
+        apiKeyClass: "test-api-key",
+        statusClass: "test-status",
+        showStatus: vi.fn(),
+        fetchModels,
+        isKeyRequired: () => true,
+        hasSavedKey: () => true
+      });
+
+      row.querySelector<HTMLButtonElement>(".ai-provider-model-toggle")!.click();
+
+      await vi.waitFor(() => {
+        expect(fetchModels).toHaveBeenCalled();
+      });
+    });
+  });
 });

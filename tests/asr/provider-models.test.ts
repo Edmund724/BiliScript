@@ -119,13 +119,31 @@ describe("listAsrModels", () => {
     expect(resp).toEqual({ ok: false, error: "该平台域名未授权，请在保存时允许权限" });
   });
 
-  it("HTTP 非 2xx → 回状态码与正文前 200 字", async () => {
-    installProxyBus(() => ({ ok: true, status: 401, body: "x".repeat(500) }));
+  it("HTTP 非 2xx 且非 JSON → 回状态码与正文前 200 字", async () => {
+    installProxyBus(() => ({ ok: true, status: 502, body: "x".repeat(500) }));
     const { listAsrModels } = await loadModule();
 
     const resp = await listAsrModels({ baseUrl: "https://api.example.com/v1", apiKey: "sk-1" });
 
-    expect(resp).toEqual({ ok: false, error: `HTTP 401: ${"x".repeat(200)}` });
+    expect(resp).toEqual({ ok: false, error: `HTTP 502: ${"x".repeat(200)}` });
+  });
+
+  it("HTTP 401 / 403 → 转译为 API Key 无效或未授权", async () => {
+    installProxyBus(() => ({ ok: true, status: 401, body: JSON.stringify({ code: 30014, message: "Token is invalid." }) }));
+    const { listAsrModels } = await loadModule();
+
+    const resp = await listAsrModels({ baseUrl: "https://api.example.com/v1", apiKey: "sk-1" });
+
+    expect(resp).toEqual({ ok: false, error: "HTTP 401: API Key 无效或未授权" });
+  });
+
+  it("HTTP 非 2xx JSON 错误带 message → 提取 message", async () => {
+    installProxyBus(() => ({ ok: true, status: 500, body: JSON.stringify({ message: "Internal error" }) }));
+    const { listAsrModels } = await loadModule();
+
+    const resp = await listAsrModels({ baseUrl: "https://api.example.com/v1", apiKey: "sk-1" });
+
+    expect(resp).toEqual({ ok: false, error: "HTTP 500: Internal error" });
   });
 
   it("响应体非 JSON → 无法解析模型列表", async () => {

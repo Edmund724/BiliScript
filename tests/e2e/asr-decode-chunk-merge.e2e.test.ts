@@ -654,7 +654,7 @@ describe("④ 适配器边界（真平台失败报文回放）", () => {
     const form = calls[0].init.body as FormData;
     expect(form).toBeInstanceOf(FormData);
     expect(form.get("model")).toBe(provider.model);
-    expect(form.get("model")).toBe("XingChenAGI/XingChenASR-V3.2-Ultra");
+    expect(form.get("model")).toBe("XingChenAGI/XingChenASR-V3.2");
     expect(form.get("response_format")).toBe("verbose_json");
     expect(form.get("language")).toBeNull();
     expect(form.get("file")).toBeInstanceOf(Blob);

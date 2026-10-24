@@ -208,7 +208,7 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
   });
 
   it("ASR 新增：type/presetId 落入报文，保存后重渲", async () => {
-    const savedList = [{ id: "asr_new1", presetId: "siliconflow-sensevoice", name: "SiliconFlow 硅基流动（免费）", type: "openai-transcriptions", baseUrl: "https://asr.example.com/v1", model: "whisper-1", supportsTimestamps: true, enabled: true, hasSavedKey: true }];
+    const savedList = [{ id: "asr_new1", presetId: "siliconflow-sensevoice", name: "SiliconFlow 硅基流动", type: "openai-transcriptions", baseUrl: "https://asr.example.com/v1", model: "whisper-1", supportsTimestamps: true, enabled: true, hasSavedKey: true }];
     const { sent, host } = await mountPanel({
       "asr-providers-save": () => ({ ok: true, providers: savedList })
     });
@@ -217,6 +217,7 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     expect(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!.placeholder).toBe("API Key");
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
 
     fireClick(dialog.querySelector(".provider-editor-save"));
@@ -229,7 +230,7 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
     expect(saveMessage.providers[0]).toMatchObject({
       presetId: "siliconflow-sensevoice",
       type: "openai-transcriptions",
-      name: "SiliconFlow 硅基流动（免费）",
+      name: "SiliconFlow 硅基流动",
       baseUrl: "https://asr.example.com/v1",
       model: "whisper-1"
     });
@@ -1121,6 +1122,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     expect(dialog.querySelector(".provider-editor-test")).not.toBeNull();
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
 
     fireClick(dialog.querySelector(".provider-editor-test"));
@@ -1147,6 +1149,7 @@ describe("provider-editor：行级测试连接（拍板 Q4/Q12，只验证连通
     const { dialog } = await openEditor(host, "#addAsrProviderBtn");
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
 
     fireClick(dialog.querySelector(".provider-editor-test"));
@@ -1201,6 +1204,7 @@ describe("provider-editor：与设置抽屉的层级联动", () => {
     const { dialog } = await openEditor(host, "#addAsrProviderBtn");
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     // 模型下拉已在 DOM（hidden），置开再点组件外空白验证收起
     const dropdown = dialog.querySelector<HTMLElement>(".ai-provider-model-dropdown")!;
     dropdown.hidden = false;
@@ -1473,6 +1477,7 @@ describe("provider-editor：ASR 模型下拉箭头先申请域名权限（model-
     const { dialog } = await openEditor(host, "#addAsrProviderBtn");
 
     setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-baseurl")!, "https://asr.example.com/v1");
+    setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-apikey")!, "sk-test");
     fireClick(dialog.querySelector(".ai-provider-model-toggle"));
 
     await vi.waitFor(() => {

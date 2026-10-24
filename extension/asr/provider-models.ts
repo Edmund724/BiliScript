@@ -34,6 +34,29 @@ export interface ListAsrModelsResult {
 // 语音模型过滤参数，其他 OpenAI 兼容端点会忽略未知查询参数、回全量列表。
 // Key 解析优先用户重输的 apiKey，否则按 providerId 读已存 Key（本地 Whisper
 // 常无 Key，都没有就裸 GET）。请求本体由 SW 代发（见文件头）。
+function formatHttpError(status: number, text: string): string {
+  if (status === 401 || status === 403) {
+    return `HTTP ${status}: API Key 无效或未授权`;
+  }
+  let extracted = "";
+  try {
+    const json = JSON.parse(text) as { message?: string; error?: { message?: string } | string };
+    if (typeof json?.message === "string" && json.message.trim()) {
+      extracted = json.message.trim();
+    } else if (typeof json?.error?.message === "string" && json.error.message.trim()) {
+      extracted = json.error.message.trim();
+    } else if (typeof json?.error === "string" && json.error.trim()) {
+      extracted = json.error.trim();
+    }
+  } catch {
+    // 文本非 JSON
+  }
+  if (extracted) {
+    return `HTTP ${status}: ${extracted.slice(0, 200)}`;
+  }
+  return `HTTP ${status}: ${text.slice(0, 200)}`;
+}
+
 export async function listAsrModels({ baseUrl, apiKey, providerId }: ListAsrModelsInput): Promise<ListAsrModelsResult> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   if (!normalizedBaseUrl) {
@@ -56,7 +79,7 @@ export async function listAsrModels({ baseUrl, apiKey, providerId }: ListAsrMode
     });
     if (!resp.ok) {
       const text = await resp.text();
-      return { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
+      return { ok: false, error: formatHttpError(resp.status, text) };
     }
     const data = (await resp.json()) as { data?: Array<{ id?: string }> };
     const models: string[] = [];
