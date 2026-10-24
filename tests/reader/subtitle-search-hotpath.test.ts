@@ -95,6 +95,26 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     expect((normalizeSpy.mock.instances[0] as Element).id).toBe(ids.readingSubtitleList);
     expect(itemText(0).textContent).toBe(`第0条含${KEYWORD}的句子`);
     expect(itemText(TOTAL_ITEMS - 1).textContent).toBe(`第${TOTAL_ITEMS - 1}条含${KEYWORD}的句子`);
+
+    // 再次在空态下 refresh：命中快速路径，不应产生额外的 normalize 与节点扫描
+    const querySpy = vi.spyOn(document.getElementById(ids.readingSubtitleList)!, "querySelectorAll");
+    search.refresh({ scroll: false });
+    expect(normalizeSpy).toHaveBeenCalledTimes(1);
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+
+  it("稳态空搜索快速路径：初始空态多次 refresh 不触发节点扫描与 normalize", { timeout: 30_000 }, () => {
+    const { input, list } = buildFixture();
+    input.value = "";
+    const normalizeSpy = vi.spyOn(Node.prototype, "normalize");
+    const querySpy = vi.spyOn(list, "querySelectorAll");
+
+    search.refresh({ scroll: false });
+    search.refresh({ scroll: false });
+
+    expect(normalizeSpy).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(markCount()).toBe(0);
   });
 
   it("修2：批次回执按区间二分取子集，DOM 访问以区间宽为量级", { timeout: 30_000 }, () => {

@@ -284,16 +284,26 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
   // 重算并重放搜索（输入变化 / renderReadingView 重渲后由 lifecycle 调用）。
   // preserveIndex：重放时尽量保住当前命中序号（重渲不打断阅读位置）；输入变化
   // 场景传 false 回到第一个命中。
+  // 空搜索快速路径：新查询词与内部查询状态均为空时跳过 DOM 高亮扫描与列表
+  // 规范化，仅收敛控制区状态。
   function refresh(
     { preserveIndex = false, scroll = true }: { preserveIndex?: boolean; scroll?: boolean } = {}
   ): void {
     const input = deps.getSearchInput();
+    const nextQuery = String(input?.value || "").trim();
+    if (!nextQuery && !query) {
+      matches = [];
+      matchesByItem = new Map();
+      currentIndex = -1;
+      updateSearchControls();
+      return;
+    }
     const previousIndex = currentIndex;
     clearSearchHighlights();
     matches = [];
     matchesByItem = new Map();
     currentIndex = -1;
-    query = String(input?.value || "").trim();
+    query = nextQuery;
     if (!query) {
       updateSearchControls();
       return;
@@ -324,7 +334,9 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
     if (input) {
       input.value = "";
     }
-    clearSearchHighlights();
+    if (query) {
+      clearSearchHighlights();
+    }
     matches = [];
     matchesByItem = new Map();
     currentIndex = -1;
