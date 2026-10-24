@@ -389,12 +389,12 @@ export async function renderQuoteCardToCanvas(
   ctx.textBaseline = "alphabetic";
 
   if (sourceText) {
-    ctx.textAlign = "left";
+    ctx.textAlign = "right";
     let truncatedSource = sourceText;
     while (truncatedSource.length > 3 && ctx.measureText(truncatedSource).width > width * 0.45) {
       truncatedSource = truncatedSource.slice(0, -2) + "…";
     }
-    ctx.fillText(truncatedSource, 36, height - 23);
+    ctx.fillText(truncatedSource, width - 36, height - 23);
   }
   ctx.restore();
 

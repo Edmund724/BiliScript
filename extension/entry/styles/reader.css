@@ -2298,14 +2298,16 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-card-footer {
   position: absolute;
-  left: 36px;
+  right: 36px;
   bottom: 23px;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   padding: 0;
   font-size: 11px;
   opacity: 0.75;
   letter-spacing: 0.04em;
+  text-align: right;
 }
 
 .biliscript-quote-card-source {
