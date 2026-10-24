@@ -48,7 +48,7 @@ import { readerPorts } from "./reader-bus.js";
 // transcribe-banner 内部，稳态零 DOM 写）。transcribe-banner 是零依赖呈现叶子
 //（state + shared status-bus），不破坏 SYNC → LAYOUT + ports 的层图。
 import { updateReadingTranscribeBanner } from "./transcribe-banner.js";
-import { closestSubtitleItem, SUBTITLE_ITEM_CLASS } from "./subtitle-item-dom.js";
+import { closestSubtitleItem, findSubtitleItem, SUBTITLE_ITEM_CLASS } from "./subtitle-item-dom.js";
 
 // ===== sync-domain private bookkeeping (module-level closure state) =====
 //
@@ -144,7 +144,7 @@ function resolveActiveItem(cached: ActiveItemCache, index: number, list: HTMLEle
   if (cached.node?.isConnected && cached.index === index) {
     return { next: cached.node, current: cached.node, unchanged: true };
   }
-  const next = list.querySelector<HTMLElement>(`[data-index="${index}"]`);
+  const next = findSubtitleItem(list, index);
   const current = cached.node?.isConnected
     ? cached.node
     : list.querySelector<HTMLElement>(`.${className}.is-active`);
@@ -188,7 +188,7 @@ function setActiveReadingItems(subtitleIndex: number, chapterIndex: number, shou
       // 显式端口回调（lifecycle 启动时注册，缺失即抛错）。false = 目标被
       // 单帧上限截断尚未上屏（后续 rAF 帧补齐），滚动推迟到后续拍重试。
       scrollDeferred = readerPorts.flushReadingSubtitleToIndex(subtitleIndex) === false;
-      scrollSubtitleNode = subtitleList.querySelector(`[data-index="${subtitleIndex}"]`);
+      scrollSubtitleNode = findSubtitleItem(subtitleList, subtitleIndex);
       if (scrollSubtitleNode) {
         // 补渲染后才拿到节点：同步补上 is-active 并刷新缓存，与「节点本就在屏」
         // 的路径保持等价（否则高亮要拖到下一拍才出现）。

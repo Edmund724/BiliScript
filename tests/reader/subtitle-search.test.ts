@@ -559,3 +559,83 @@ describe("字幕句内搜索空查询快速路径", () => {
     expect(querySpy).not.toHaveBeenCalled();
   });
 });
+
+
+describe("字幕句内搜索条目索引与命中范围复用", () => {
+  it("首批渲染同步维护条目索引，查找命中条目不走全兄弟属性扫描", () => {
+    shell.renderReadingView();
+    searchInput().value = "目标词";
+
+    const list = subtitleList();
+    const querySpy = vi.spyOn(list, "querySelector");
+    shell.refreshReadingSubtitleSearch({ scroll: false });
+
+    // 搜索高亮打到已上屏条目，条目获取走索引，不触发 querySelector
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(searchMarks().length).toBe(2);
+  });
+
+  it("同条目多个命中（含双语副行）时顺序与 DOM mark 保持一致，循环导航依次推进", () => {
+    state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true, secondarySubtitleLang: "en-US" });
+    state.clip.subtitleBody = [
+      { from: 0, to: 2, content: "目标词首部 与 目标词尾部" }
+    ];
+    clipState.applySecondarySubtitle({
+      id: "en",
+      url: "https://sub/ai-en.json",
+      body: [{ from: 0, to: 2, content: "target 目标词 one and 目标词 two" }]
+    });
+
+    shell.renderReadingView();
+    searchInput().value = "目标词";
+    shell.refreshReadingSubtitleSearch({ scroll: false });
+
+    // 一条内共 4 个命中：主行 2 个，副行 2 个
+    expect(searchCount()).toBe("1 / 4");
+    expect(searchMarks().length).toBe(4);
+
+    const marks = Array.from(searchMarks());
+    expect(currentMark()).toBe(marks[0]);
+
+    // 第 2 个命中：主行第 2 个 mark
+    shell.moveReadingSubtitleSearch(1);
+    expect(searchCount()).toBe("2 / 4");
+    expect(currentMark()).toBe(marks[1]);
+
+    // 第 3 个命中：副行第 1 个 mark
+    shell.moveReadingSubtitleSearch(1);
+    expect(searchCount()).toBe("3 / 4");
+    expect(currentMark()).toBe(marks[2]);
+
+    // 第 4 个命中：副行第 2 个 mark
+    shell.moveReadingSubtitleSearch(1);
+    expect(searchCount()).toBe("4 / 4");
+    expect(currentMark()).toBe(marks[3]);
+
+    // 循环回第 1 个命中
+    shell.moveReadingSubtitleSearch(1);
+    expect(searchCount()).toBe("1 / 4");
+    expect(currentMark()).toBe(marks[0]);
+  });
+
+  it("整表重建清除上一代索引与当前命中引用，不会返回失效节点", () => {
+    shell.renderReadingView();
+    searchInput().value = "目标词";
+    shell.refreshReadingSubtitleSearch({ scroll: false });
+
+    const oldFirstItem = subtitleList().querySelector('[data-index="1"]') as HTMLElement;
+    expect(oldFirstItem).not.toBeNull();
+
+    // 触发整表重建
+    shell.renderReadingView();
+
+    const newFirstItem = subtitleList().querySelector('[data-index="1"]') as HTMLElement;
+    expect(newFirstItem).not.toBeNull();
+    expect(newFirstItem).not.toBe(oldFirstItem);
+
+    // 再次刷新搜索并导航，当前命中应挂在新的 DOM 节点上
+    shell.refreshReadingSubtitleSearch({ scroll: false });
+    expect(currentMark()?.closest('[data-index="1"]')).toBe(newFirstItem);
+    expect(oldFirstItem.classList.contains("search-current")).toBe(false);
+  });
+});
