@@ -14,9 +14,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READER_MODE_URL, resetModuleState, setLocationUrl } from "../setup.js";
 import { mountPlayerChain, mountReaderSkeleton } from "../helpers/reader-skeleton.js";
+import { DEFAULT_SETTINGS } from "../../extension/core/defaults.js";
 import type { TestState } from "./reader-test-env.js";
 
 let state: TestState;
+let clipState: typeof import("../../extension/core/state.js").clipState;
 let shell: typeof import("../../extension/reader/index.js");
 let ids: typeof import("../../extension/reader/state.js").ids;
 let readerState: typeof import("../../extension/reader/state.js");
@@ -61,7 +63,9 @@ function flushAnimationFrames(maxRounds = 30) {
 
 async function loadReaderModules() {
   setLocationUrl(READER_MODE_URL);
-  state = (await import("../../extension/core/state.js")).state as TestState;
+  const coreState = await import("../../extension/core/state.js");
+  state = coreState.state as TestState;
+  clipState = coreState.clipState;
   shell = await import("../../extension/reader/index.js");
   readerState = await import("../../extension/reader/state.js");
   ids = readerState.ids;
@@ -152,6 +156,8 @@ afterEach(() => {
   window.requestAnimationFrame = originalRaf;
   window.cancelAnimationFrame = originalCancelRaf;
   document.body.innerHTML = "";
+  clipState?.clearSecondarySubtitle();
+  state?.setSettings({ ...DEFAULT_SETTINGS });
   vi.restoreAllMocks();
 });
 
@@ -453,5 +459,103 @@ describe("字幕句内搜索防抖接线", () => {
     flushDebounceWindow();
     await settle();
     expect(searchMarks().length).toBe(0);
+  });
+});
+
+describe("字幕句内搜索空查询快速路径", () => {
+  it("持续空态：稳态重渲与 refresh 不触发高亮扫描、列表 normalize 或当前命中扫描，且控制区保持收敛", () => {
+    shell.renderReadingView();
+    expect(searchInput().value).toBe("");
+    expect(searchCount()).toBe("");
+    expect((document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).disabled).toBe(true);
+
+    const list = subtitleList();
+    const normalizeSpy = vi.spyOn(list, "normalize");
+    const querySpy = vi.spyOn(list, "querySelectorAll");
+
+    // 连续两次空查询 refresh（模拟稳态重渲与重放）
+    shell.refreshReadingSubtitleSearch({ scroll: false });
+    shell.refreshReadingSubtitleSearch({ scroll: false });
+
+    expect(normalizeSpy).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(searchCount()).toBe("");
+    expect((document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("非空后清空：完整清理主行、副行、mark 和当前命中类名，后续稳态重渲进入快速路径", () => {
+    state.setSettings({ ...DEFAULT_SETTINGS, bilingualSubtitles: true, secondarySubtitleLang: "en-US" });
+    clipState.applySecondarySubtitle({
+      id: "en",
+      url: "https://sub/ai-en.json",
+      body: [{ from: 2, to: 4, content: "secondary 目标词 hit" }]
+    });
+    shell.renderReadingView();
+
+    searchInput().value = "目标词";
+    shell.refreshReadingSubtitleSearch();
+
+    expect(searchMarks().length).toBeGreaterThanOrEqual(2);
+    expect(subtitleList().querySelector(".search-current")).not.toBeNull();
+    expect(searchCount()).toContain("1 /");
+
+    // 清空查询词并 refresh：触发非空后清空
+    searchInput().value = "";
+    shell.refreshReadingSubtitleSearch();
+
+    expect(searchMarks().length).toBe(0);
+    expect(subtitleList().querySelector(".search-current")).toBeNull();
+    expect(searchCount()).toBe("");
+    expect((document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).disabled).toBe(true);
+
+    // 主行与副行正文逐字恢复，副行节点与状态保持
+    const item1 = subtitleList().querySelector('[data-index="1"]') as HTMLElement;
+    expect(item1.querySelector(".biliscript-reading-text")?.textContent).toContain("这里提到目标词甲");
+    const subtext = item1.querySelector(".biliscript-reading-subtext") as HTMLElement;
+    expect(subtext).not.toBeNull();
+    expect(subtext.getAttribute("data-state")).toBe("ready");
+    expect(subtext.textContent).toBe("secondary 目标词 hit");
+    expect(subtext.querySelectorAll("mark").length).toBe(0);
+
+    // 状态已收敛为空态：后续稳态重渲不应再触发节点扫描与 normalize
+    const list = subtitleList();
+    const normalizeSpy = vi.spyOn(list, "normalize");
+    const querySpy = vi.spyOn(list, "querySelectorAll");
+
+    shell.refreshReadingSubtitleSearch({ scroll: false });
+    expect(normalizeSpy).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+
+  it("无结果后清空：无匹配态清空后控制区正确恢复，后续稳态重渲进入快速路径", () => {
+    shell.renderReadingView();
+
+    searchInput().value = "绝对不存在的搜索词xyz";
+    shell.refreshReadingSubtitleSearch();
+
+    expect(searchMarks().length).toBe(0);
+    expect(searchCount()).toBe("无匹配");
+    expect((document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).disabled).toBe(true);
+
+    // 从无匹配清空
+    searchInput().value = "";
+    shell.refreshReadingSubtitleSearch();
+
+    expect(searchCount()).toBe("");
+    expect((document.getElementById(ids.readingSearchPrevBtn) as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById(ids.readingSearchNextBtn) as HTMLButtonElement).disabled).toBe(true);
+
+    // 状态已收敛为空态：后续稳态重渲进入快速路径
+    const list = subtitleList();
+    const normalizeSpy = vi.spyOn(list, "normalize");
+    const querySpy = vi.spyOn(list, "querySelectorAll");
+
+    shell.refreshReadingSubtitleSearch({ scroll: false });
+    expect(normalizeSpy).not.toHaveBeenCalled();
+    expect(querySpy).not.toHaveBeenCalled();
   });
 });
