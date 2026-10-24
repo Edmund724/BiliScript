@@ -5,17 +5,32 @@
 // 的 prompt 字段是空占位，空串/空数组/legacy 经 validators.ts 归一化回落到
 // 本模块的当前默认。纯数据无逻辑。
 
+// ===== 内部共享长句片段（各代提示词复用，消除产物重复字面量） =====
+const PROMPT_PLAYER_SUMMARY_PREFIX = "整理这期视频的内容，输出结构化总结：";
+
+const PROMPT_ROLE_ANALYSIS_ASSISTANT = "你是一名专业的视频内容分析助手。";
+const PROMPT_EXTRACT_HIGH_VALUE_INFO = "基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。";
+const PROMPT_ASR_TYPO_NOTICE = "字幕多为语音识别（ASR）产物，同音错别字多：引用或整理时按上下文修正明显错字，人名、品牌名与术语尤须注意。";
+const PROMPT_PRIORITY_OUTPUT = "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。";
+const PROMPT_STRUCTURED_BASE = "回答应结构化、信息密度高、便于收藏和复习";
+const PROMPT_STRUCTURED_WITH_EMOJI = `${PROMPT_STRUCTURED_BASE}，可适当使用 Emoji、列表和表格。`;
+const PROMPT_FILTER_ADS = "自动过滤广告、废话和重复表达。";
+const PROMPT_INSUFFICIENT_INFO = "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。";
+const PROMPT_TIMESTAMP_FORMAT = "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。";
+
 // ===== AI Prompts =====
 // 旧默认快捷提示词（长度规则引入前在用）：升新默认时冻结于此，供
 // normalizePlayerAiQuickPrompt 对存量用户做一次性迁移。
-export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。";
+export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT =
+  `${PROMPT_PLAYER_SUMMARY_PREFIX}主题、核心观点、关键细节、结论与可执行启发。`;
 
 // 第二代默认快捷提示词（一行式 + 长度规则，第五代结构化默认引入前在用）：
 // 升新默认时冻结于此，同机制迁移。
-export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2 = "整理这期视频的内容，输出结构化总结：主题、核心观点、关键细节、结论与可执行启发。总结的详略按视频长度掌握，长视频不要压缩成短摘要。";
+export const LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT_V2 =
+  `${LEGACY_DEFAULT_PLAYER_AI_QUICK_PROMPT}总结的详略按视频长度掌握，长视频不要压缩成短摘要。`;
 
 export const DEFAULT_PLAYER_AI_QUICK_PROMPT = [
-  "整理这期视频的内容，输出结构化总结：",
+  PROMPT_PLAYER_SUMMARY_PREFIX,
   "1. TL;DR：两三句话说清这期视频讲了什么、核心结论是什么",
   "2. 主题与核心观点",
   "3. 内容梳理：按视频脉络分节展开，关键节点附时间戳；重要数据、事实、金句和论证过程不要省略",
@@ -38,50 +53,50 @@ export const DEFAULT_INITIAL_QUICK_PROMPTS = [
 ];
 
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT = [
-  "你是一名专业的视频内容分析助手。基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
-  "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
-  "回答应结构化、信息密度高、便于收藏和复习；自动过滤广告、废话和重复表达。",
-  "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
-  "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
+  `${PROMPT_ROLE_ANALYSIS_ASSISTANT}${PROMPT_EXTRACT_HIGH_VALUE_INFO}`,
+  PROMPT_PRIORITY_OUTPUT,
+  `${PROMPT_STRUCTURED_BASE}；${PROMPT_FILTER_ADS}`,
+  PROMPT_INSUFFICIENT_INFO,
+  PROMPT_TIMESTAMP_FORMAT
 ].join("\n");
 
 // 第二代默认（2026-09-13 前在用，无 ASR 提示行）：升第三代时冻结于此，供
 // normalizeAiSystemPrompt 对存量用户做一次性迁移（与上面第一代的机制相同）。
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V2 = [
-  "你是一名专业的视频内容分析助手。",
-  "基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
-  "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
-  "回答应结构化、信息密度高、便于收藏和复习，可适当使用 Emoji、列表和表格。",
-  "自动过滤广告、废话和重复表达。",
-  "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
-  "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
+  PROMPT_ROLE_ANALYSIS_ASSISTANT,
+  PROMPT_EXTRACT_HIGH_VALUE_INFO,
+  PROMPT_PRIORITY_OUTPUT,
+  PROMPT_STRUCTURED_WITH_EMOJI,
+  PROMPT_FILTER_ADS,
+  PROMPT_INSUFFICIENT_INFO,
+  PROMPT_TIMESTAMP_FORMAT
 ].join("\n");
 
 // 第三代默认（长度规则引入前在用）：升第四代时冻结于此，供
 // normalizeAiSystemPrompt 对存量用户做一次性迁移（与第一/二代机制相同）。
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V3 = [
-  "你是一名专业的视频内容分析助手。",
-  "基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
-  "字幕多为语音识别（ASR）产物，同音错别字多：引用或整理时按上下文修正明显错字，人名、品牌名与术语尤须注意。",
-  "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
-  "回答应结构化、信息密度高、便于收藏和复习，可适当使用 Emoji、列表和表格。",
-  "自动过滤广告、废话和重复表达。",
-  "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
-  "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
+  PROMPT_ROLE_ANALYSIS_ASSISTANT,
+  PROMPT_EXTRACT_HIGH_VALUE_INFO,
+  PROMPT_ASR_TYPO_NOTICE,
+  PROMPT_PRIORITY_OUTPUT,
+  PROMPT_STRUCTURED_WITH_EMOJI,
+  PROMPT_FILTER_ADS,
+  PROMPT_INSUFFICIENT_INFO,
+  PROMPT_TIMESTAMP_FORMAT
 ].join("\n");
 
 // 第四代默认（分段式结构化默认引入前在用，一行式长度规则）：升第五代时冻结于
 // 此，供 normalizeAiSystemPrompt 对存量用户做一次性迁移（与前几代机制相同）。
 export const LEGACY_DEFAULT_AI_SYSTEM_PROMPT_V4 = [
-  "你是一名专业的视频内容分析助手。",
-  "基于字幕与评论提炼高价值信息，不要复述内容，不要输出思考过程或 think 标签。",
-  "字幕多为语音识别（ASR）产物，同音错别字多：引用或整理时按上下文修正明显错字，人名、品牌名与术语尤须注意。",
-  "优先输出：主题与核心观点、关键数据与事实、逻辑链路与重要结论、可执行建议。",
-  "回答应结构化、信息密度高、便于收藏和复习，可适当使用 Emoji、列表和表格。",
+  PROMPT_ROLE_ANALYSIS_ASSISTANT,
+  PROMPT_EXTRACT_HIGH_VALUE_INFO,
+  PROMPT_ASR_TYPO_NOTICE,
+  PROMPT_PRIORITY_OUTPUT,
+  PROMPT_STRUCTURED_WITH_EMOJI,
   "回答长度与视频时长和字幕量正相关：短视频精炼，长视频详尽，把重要事实、数据与论证细节收进来，大体量字幕的总结可以到数千字，不要把长视频压缩成短摘要。",
-  "自动过滤广告、废话和重复表达。",
-  "信息不足时明确说明，不得猜测或编造；涉及专业内容时，区分事实、数据、推测与作者观点。",
-  "输出时间戳时请使用普通正文格式，如 09:15、01:09:15，不要使用反引号、代码块或表格代码格式包裹时间戳。"
+  PROMPT_FILTER_ADS,
+  PROMPT_INSUFFICIENT_INFO,
+  PROMPT_TIMESTAMP_FORMAT
 ].join("\n");
 
 export const DEFAULT_AI_SYSTEM_PROMPT = [
