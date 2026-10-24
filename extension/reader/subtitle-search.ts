@@ -14,9 +14,11 @@
 //     handleRangeAppended 注册进 batched-render 的批次回执 hook，每次分批/补渲染
 //     上屏 [from, to) 即对新条目打高亮；
 //   - 搜索清除/清空时把 mark 还原为纯文本（restore 后 normalize）。
+//   - 主行与副行的命中范围在数据层只计算一次，高亮构建直接复用该结果；当前命中
+//     标记清理仅定向处理上一条目与上一 mark 节点，不扫描全表。
 //
 // 形态：createSubtitleSearch(deps) 工厂——搜索态（query/matches/matchesByItem/
-// currentIndex）与全部 DOM 触达收进实例闭包，外部触达经 deps 注入（list/input
+// itemRanges/currentIndex/currentActiveNode）与全部 DOM 触达收进实例闭包，外部触达经 deps 注入（list/input
 // 元素访问、补渲染 flush 端口、手动交互通知）；数据层（state/clipState、
 // getReadingSubtitleItems、secondaryAlignmentFor）保持静态边，与 sync.ts 同款。
 // 生产实例由组装根 lifecycle.ts 以生产依赖装配并持有：批次回执 hook 注册、渲染
@@ -39,7 +41,6 @@ import type { SecondaryAlignment } from "../subtitle/alignment.js";
 import { ids } from "./state.js";
 import {
   findSubtitleItem,
-  getMainLineText,
   getSubtextNode,
   isSubtextReady,
   replaceMainLineContent
@@ -59,6 +60,13 @@ interface SearchMatch {
   itemIndex: number;
   // 该条目内第几个命中（0 起）——当前命中落点 = 条目内第 ordinal 个 mark
   ordinal: number;
+}
+
+interface ItemHighlightRanges {
+  mainText: string;
+  mainRanges: SearchRange[];
+  secondaryText: string | null;
+  secondaryRanges: SearchRange[];
 }
 
 // 注入的外部触达：DOM 元素访问（list/input）+ 补渲染端口 + 手动交互通知。
@@ -132,24 +140,38 @@ function buildHighlightFragment(source: string, ranges: SearchRange[]): Document
   return fragment;
 }
 
-// 主行原文与副行节点的读取走 subtitle-item-dom：主行 = text span 里除副行 span
-// 之外的全部子节点（mark 在内时拼回的仍是原文本），不能直接用 textContent——
-// 那会把副行一起吃进主行、重建时把两行压平成一行。
-
 export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
   let query = "";
   let matches: SearchMatch[] = [];
   // itemIndex → 该条目的命中列表（批次回执与条目高亮按条目取用，免全量扫描）
   let matchesByItem = new Map<number, SearchMatch[]>();
+  // itemIndex → 主行与副行的预计算命中范围（计算一次后供高亮重建直接复用）
+  let itemRanges = new Map<number, ItemHighlightRanges>();
   let currentIndex = -1;
+
+  // 当前命中高亮节点引用：定向移除 class，避免扫描全表
+  let currentActiveItemNode: HTMLElement | null = null;
+  let currentActiveMarkNode: HTMLElement | null = null;
 
   function getItemNode(itemIndex: number): HTMLElement | null {
     return findSubtitleItem(deps.getSubtitleList(), itemIndex);
   }
 
+  function clearCurrentMatchHighlight(): void {
+    if (currentActiveItemNode) {
+      currentActiveItemNode.classList.remove(SEARCH_CURRENT_CLASS);
+      currentActiveItemNode = null;
+    }
+    if (currentActiveMarkNode) {
+      currentActiveMarkNode.classList.remove(SEARCH_CURRENT_CLASS);
+      currentActiveMarkNode = null;
+    }
+  }
+
   function computeMatches(needle: string): void {
     matches = [];
     matchesByItem = new Map();
+    itemRanges = new Map();
     const secondary = resolveSecondarySearchAlignment();
     for (const item of getReadingSubtitleItems(state.clip.subtitleBody)) {
       // 主行先、副行后：DOM 顺序（主文在副行 span 之前）= ordinal 顺序，
@@ -158,48 +180,46 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
       const secondaryText = secondary ? secondary.query(item) : null;
       const secondaryRanges = secondaryText ? findLiteralMatches(secondaryText, needle) : [];
       const total = mainRanges.length + secondaryRanges.length;
+      if (total === 0) {
+        continue;
+      }
+      itemRanges.set(item.index, {
+        mainText: item.content,
+        mainRanges,
+        secondaryText,
+        secondaryRanges
+      });
+      const itemList: SearchMatch[] = [];
       for (let ordinal = 0; ordinal < total; ordinal += 1) {
         const match: SearchMatch = { itemIndex: item.index, ordinal };
         matches.push(match);
-        const list = matchesByItem.get(item.index);
-        if (list) {
-          list.push(match);
-        } else {
-          matchesByItem.set(item.index, [match]);
-        }
+        itemList.push(match);
       }
+      matchesByItem.set(item.index, itemList);
     }
   }
 
   // 把一条已上屏条目的文本替换为 mark 高亮（主行 mark 在前、副行 span 在后——
-  // 与 computeMatches 的 ordinal 顺序一致）。幂等：主行/副行都经 subtitle-item-dom
-  // 读回原文（mark 在内时拼回的仍是原文本）后重算命中、整体重建，不产生嵌套 mark；
-  // 副行可搜索 = 副行结构就绪（data-state="ready"）且副轨配对索引可用——loading /
-  // fail 的占位行即使正文里恰好含搜索词也不落 mark。副行节点身份、class 与
-  // data-state 原样保留（只重写其子节点）。返回是否至少落下一个 mark。
-  function highlightItemNode(node: HTMLElement, needle: string): boolean {
-    const subtextSpan = getSubtextNode(node);
-    const raw = getMainLineText(node);
-    const ranges = findLiteralMatches(raw, needle);
-    let subtextRaw = "";
-    let subtextRanges: SearchRange[] = [];
-    if (subtextSpan && isSubtextReady(node) && resolveSecondarySearchAlignment() !== null) {
-      subtextRaw = subtextSpan.textContent || "";
-      subtextRanges = findLiteralMatches(subtextRaw, needle);
-    }
-    if (ranges.length === 0 && subtextRanges.length === 0) {
+  // 与 computeMatches 的 ordinal 顺序一致）。直接复用数据层计算好的主行与副行命中
+  // 范围，避免二次匹配正则。副行节点身份、class 与 data-state 原样保留。
+  function highlightItemNode(node: HTMLElement, itemIndex: number): boolean {
+    const ranges = itemRanges.get(itemIndex);
+    if (!ranges) {
       return false;
     }
-    if (subtextSpan && subtextRanges.length > 0) {
-      subtextSpan.replaceChildren(buildHighlightFragment(subtextRaw, subtextRanges));
+    const { mainText, mainRanges, secondaryText, secondaryRanges } = ranges;
+    const subtextSpan = getSubtextNode(node);
+    if (subtextSpan && isSubtextReady(node) && secondaryRanges.length > 0) {
+      const subtextRaw = secondaryText ?? subtextSpan.textContent ?? "";
+      subtextSpan.replaceChildren(buildHighlightFragment(subtextRaw, secondaryRanges));
     }
-    return replaceMainLineContent(node, buildHighlightFragment(raw, ranges));
+    return replaceMainLineContent(node, buildHighlightFragment(mainText, mainRanges));
   }
 
   // 还原高亮：mark 换回文本节点，循环结束后对列表整体 normalize 一次（递归合并
-  // 所有后代相邻文本节点，与逐 mark normalize 行为等价）。逐 mark normalize 是
-  // 全子树扫描，全量命中（1500+ mark）时退化为 O(n²)。
+  // 所有后代相邻文本节点，与逐 mark normalize 行为等价）。定向清理当前命中标记。
   function clearSearchHighlights(): void {
+    clearCurrentMatchHighlight();
     const list = deps.getSubtitleList();
     if (!list) {
       return;
@@ -208,9 +228,6 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
       mark.replaceWith(document.createTextNode(mark.textContent || ""));
     });
     list.normalize();
-    list.querySelectorAll(`.${SEARCH_CURRENT_CLASS}`).forEach((node) => {
-      node.classList.remove(SEARCH_CURRENT_CLASS);
-    });
   }
 
   // 对「已上屏且命中」的条目打高亮（全量；批次回执路径见 handleRangeAppended）
@@ -221,20 +238,19 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
     for (const itemIndex of matchesByItem.keys()) {
       const node = getItemNode(itemIndex);
       if (node) {
-        highlightItemNode(node, needle);
+        highlightItemNode(node, itemIndex);
       }
     }
   }
 
-  // 当前命中落点：补渲染/翻页后把 search-current 标到对应 mark 与条目上
+  // 当前命中落点：补渲染/翻页后把 search-current 标到对应 mark 与条目上。
+  // 定向移除旧标记，避免 querySelectorAll 扫描全表。
   function revealCurrentMatch({ scroll = true }: { scroll?: boolean } = {}): void {
+    clearCurrentMatchHighlight();
     const list = deps.getSubtitleList();
     if (!list) {
       return;
     }
-    list.querySelectorAll(`.${SEARCH_CURRENT_CLASS}`).forEach((node) => {
-      node.classList.remove(SEARCH_CURRENT_CLASS);
-    });
     const match = matches[currentIndex];
     if (!match) {
       return;
@@ -252,8 +268,10 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
     const mark = node.querySelectorAll(`mark.${SEARCH_HIT_MARK_CLASS}`)[match.ordinal] as HTMLElement | undefined;
     if (mark) {
       mark.classList.add(SEARCH_CURRENT_CLASS);
+      currentActiveMarkNode = mark;
     }
     node.classList.add(SEARCH_CURRENT_CLASS);
+    currentActiveItemNode = node;
     if (scroll) {
       // 搜索定位即「用户在看这里」：暂停自动跟随（与手动滚动同语义，保持手动
       // 浏览态，Follow 悬浮按钮同步出现），再把命中条目滚到视口中部。
@@ -284,16 +302,29 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
   // 重算并重放搜索（输入变化 / renderReadingView 重渲后由 lifecycle 调用）。
   // preserveIndex：重放时尽量保住当前命中序号（重渲不打断阅读位置）；输入变化
   // 场景传 false 回到第一个命中。
+  // 空搜索快速路径：新查询词与内部查询状态均为空时跳过 DOM 高亮扫描与列表
+  // 规范化，仅收敛控制区状态。
   function refresh(
     { preserveIndex = false, scroll = true }: { preserveIndex?: boolean; scroll?: boolean } = {}
   ): void {
     const input = deps.getSearchInput();
+    const nextQuery = String(input?.value || "").trim();
+    if (!nextQuery && !query) {
+      clearCurrentMatchHighlight();
+      matches = [];
+      matchesByItem = new Map();
+      itemRanges = new Map();
+      currentIndex = -1;
+      updateSearchControls();
+      return;
+    }
     const previousIndex = currentIndex;
     clearSearchHighlights();
     matches = [];
     matchesByItem = new Map();
+    itemRanges = new Map();
     currentIndex = -1;
-    query = String(input?.value || "").trim();
+    query = nextQuery;
     if (!query) {
       updateSearchControls();
       return;
@@ -324,9 +355,14 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
     if (input) {
       input.value = "";
     }
-    clearSearchHighlights();
+    if (query) {
+      clearSearchHighlights();
+    } else {
+      clearCurrentMatchHighlight();
+    }
     matches = [];
     matchesByItem = new Map();
+    itemRanges = new Map();
     currentIndex = -1;
     query = "";
     updateSearchControls();
@@ -362,7 +398,7 @@ export function createSubtitleSearch(deps: SubtitleSearchDeps): SubtitleSearch {
       lastItemIndex = itemIndex;
       const node = getItemNode(itemIndex);
       if (node) {
-        highlightItemNode(node, query);
+        highlightItemNode(node, itemIndex);
       }
     }
   }

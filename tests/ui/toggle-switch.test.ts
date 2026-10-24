@@ -266,6 +266,56 @@ describe("拖拽：位置过半 + 松手速度决定吸附侧", () => {
 
     expect(input.checked).toBe(false);
   });
+
+  it("拖拽周期缓存滑轨几何，move 阶段不重复触发强制布局，resize 时主动刷新", () => {
+    stubReducedMotion();
+    const { input, track, thumb } = mountToggle();
+    let rectCalls = 0;
+    thumb.getBoundingClientRect = () => {
+      rectCalls++;
+      return { width: 20.8 } as DOMRect;
+    };
+    Object.defineProperty(track, "clientWidth", { value: 40, configurable: true });
+
+    initToggleSwitch(input);
+    const initialCalls = rectCalls;
+
+    // 拖拽开始
+    track.dispatchEvent(pointerEvent("pointerdown", 0));
+    const downCalls = rectCalls;
+
+    // 连续 5 次 pointermove
+    for (let x = 4; x <= 8; x++) {
+      track.dispatchEvent(pointerEvent("pointermove", x));
+    }
+    // move 期间不重复查询几何（调用次数不增加）
+    expect(rectCalls - downCalls).toBe(0);
+
+    // 拖拽中发生真实几何变化（如窗口 resize）
+    const beforeResizeCalls = rectCalls;
+    window.dispatchEvent(new Event("resize"));
+    expect(rectCalls).toBeGreaterThan(beforeResizeCalls);
+
+    // 拖拽结束
+    track.dispatchEvent(pointerEvent("pointerup", 8));
+  });
+
+  it("拖拽取消（pointercancel）恢复未吸附状态且不翻转 checked", () => {
+    stubReducedMotion();
+    const { input, track, thumb } = mountToggle();
+    initToggleSwitch(input);
+    const onChange = vi.fn();
+    input.addEventListener("change", onChange);
+
+    track.dispatchEvent(pointerEvent("pointerdown", 0));
+    track.dispatchEvent(pointerEvent("pointermove", 15));
+    expect(thumb.style.transform).not.toBe("none");
+
+    track.dispatchEvent(pointerEvent("pointercancel", 15));
+    expect(input.checked).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(thumb.style.transform).toBe("none");
+  });
 });
 
 describe("设置面板集成：接线与水合", () => {

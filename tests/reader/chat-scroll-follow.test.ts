@@ -1,20 +1,24 @@
 // tests/reader/chat-scroll-follow.test.ts
 // createScrollFollowController（滚动跟随与回底闸状态机）行为契约测试：
 // 1. 按帧合批与防抖（rAF 调度）
-// 2. 状态判据单源（近底判定同时驱动 autoScroll 与按钮显隐）
-// 3. 回底途中闸（动画期间远离底部不误判脱离跟随，落底自动放闸）
-// 4. 用户主动干预放闸矩阵（wheel / touchstart / keydown 立即放闸）
-// 5. 清场放闸（reset 取消在途帧、放闸并隐藏按钮）
-// 6. bind 常驻绑定（scroll 与 click 监听挂载）
+// 2. 双阈值迟滞（<= 40px 跟随，> 120px 按钮显现，40px~120px 间微调带）
+// 3. 物理手势即时断跟（wheel 向上、touchmove 立即停止自动跟随）
+// 4. 回底途中闸（动画期间远离底部不误判脱离跟随，落底自动放闸）
+// 5. 用户主动干预放闸矩阵（wheel / touchstart / keydown 立即放闸）
+// 6. 清场放闸（reset 取消在途帧、放闸并隐藏按钮）
+// 7. bind 常驻绑定（scroll、wheel、touchmove 与 click 监听挂载）
 
 import { describe, expect, it } from "vitest";
 import {
   createScrollFollowController,
+  DEFAULT_FOLLOW_THRESHOLD_PX,
+  DEFAULT_BUTTON_THRESHOLD_PX,
   type ChatScrollFollowDeps
 } from "../../extension/reader/chat-scroll-follow.js";
 
-function makeHarness(initialNearBottom = true) {
+function makeHarness(initialNearBottom = true, initialOffset?: number) {
   let nearBottom = initialNearBottom;
+  let bottomOffset = initialOffset;
   let autoScrollState: boolean | null = null;
   let scrollToBottomCalledWith: boolean | null = null;
   const buttonListeners = new Map<string, Set<(e: Event) => void>>();
@@ -48,11 +52,13 @@ function makeHarness(initialNearBottom = true) {
     removeEventListener: (type: string, listener: (e: Event) => void) => {
       listeners.get(type)?.delete(listener);
     },
-    dispatchEvent: (type: string) => {
+    dispatchEvent: (eventOrType: Event | string) => {
+      const type = typeof eventOrType === "string" ? eventOrType : eventOrType.type;
       const set = listeners.get(type);
       if (set) {
+        const ev = typeof eventOrType === "string" ? new Event(type) : eventOrType;
         for (const fn of Array.from(set)) {
-          fn(new Event(type));
+          fn(ev);
         }
       }
     },
@@ -82,10 +88,16 @@ function makeHarness(initialNearBottom = true) {
     }
   };
 
-  const controller = createScrollFollowController({
+  const deps: ChatScrollFollowDeps = {
     messages,
     scrollBottomBtn,
-    isNearBottom: () => nearBottom,
+    isNearBottom: (threshold = DEFAULT_FOLLOW_THRESHOLD_PX) => {
+      if (typeof bottomOffset === "number") {
+        return bottomOffset <= threshold;
+      }
+      return nearBottom;
+    },
+    getBottomOffset: typeof bottomOffset === "number" ? () => bottomOffset! : undefined,
     setAutoScroll: (val) => {
       autoScrollState = val;
     },
@@ -94,12 +106,20 @@ function makeHarness(initialNearBottom = true) {
     },
     requestFrame,
     cancelFrame
-  });
+  };
+
+  const controller = createScrollFollowController(deps);
 
   return {
     controller,
     setNearBottom: (val: boolean) => {
       nearBottom = val;
+    },
+    setBottomOffset: (offset: number) => {
+      bottomOffset = offset;
+      if (!deps.getBottomOffset) {
+        deps.getBottomOffset = () => bottomOffset!;
+      }
     },
     getAutoScroll: () => autoScrollState,
     getScrollToBottomCalledWith: () => scrollToBottomCalledWith,
@@ -131,24 +151,72 @@ describe("chat-scroll-follow：按帧合批与自然滚动判定", () => {
     expect(h.hasScheduledFrames()).toBe(true);
   });
 
-  it("远离底部时：setAutoScroll(false) 且按钮显现", () => {
-    const h = makeHarness(false);
+  it("双阈值迟滞：<=40px 开启跟随且隐藏按钮；40px~120px 间关闭跟随但保持隐藏；>120px 浮现按钮", () => {
+    const h = makeHarness(true, 20);
+
+    // 距底 20px (<= 40px)：跟随后台开启，按钮隐藏
     h.controller.notifyScrolled();
     h.flushFrames();
-
-    expect(h.getAutoScroll()).toBe(false);
-    expect(h.button.hidden).toBe(false);
-  });
-
-  it("靠近底部时：setAutoScroll(true) 且按钮隐藏", () => {
-    const h = makeHarness(true);
-    h.button.hidden = false;
-
-    h.controller.notifyScrolled();
-    h.flushFrames();
-
     expect(h.getAutoScroll()).toBe(true);
     expect(h.button.hidden).toBe(true);
+
+    // 距底 80px (40px~120px 迟滞带)：停止跟随，按钮仍保持隐藏（防抖动）
+    h.setBottomOffset(80);
+    h.controller.notifyScrolled();
+    h.flushFrames();
+    expect(h.getAutoScroll()).toBe(false);
+    expect(h.button.hidden).toBe(true);
+
+    // 距底 150px (> 120px)：停止跟随，按钮浮现
+    h.setBottomOffset(150);
+    h.controller.notifyScrolled();
+    h.flushFrames();
+    expect(h.getAutoScroll()).toBe(false);
+    expect(h.button.hidden).toBe(false);
+
+    // 滚回 30px (<= 40px)：恢复跟随，按钮隐藏
+    h.setBottomOffset(30);
+    h.controller.notifyScrolled();
+    h.flushFrames();
+    expect(h.getAutoScroll()).toBe(true);
+    expect(h.button.hidden).toBe(true);
+  });
+});
+
+describe("chat-scroll-follow：物理手势即时断跟", () => {
+  it("wheel 向上（deltaY < 0）立即停止跟随并调度合批", () => {
+    const h = makeHarness(true, 10);
+    h.controller.bind();
+    h.flushFrames();
+    expect(h.getAutoScroll()).toBe(null);
+
+    // 模拟向上滚动 wheel 事件
+    const wheelUp = new Event("wheel") as WheelEvent;
+    Object.defineProperty(wheelUp, "deltaY", { value: -50 });
+    h.messages.dispatchEvent(wheelUp);
+
+    expect(h.getAutoScroll()).toBe(false);
+    expect(h.hasScheduledFrames()).toBe(true);
+  });
+
+  it("wheel 向下（deltaY > 0）不立即打断跟随", () => {
+    const h = makeHarness(true, 10);
+    h.controller.bind();
+
+    const wheelDown = new Event("wheel") as WheelEvent;
+    Object.defineProperty(wheelDown, "deltaY", { value: 50 });
+    h.messages.dispatchEvent(wheelDown);
+
+    expect(h.getAutoScroll()).toBe(null);
+  });
+
+  it("touchmove 立即停止跟随并调度合批", () => {
+    const h = makeHarness(true, 10);
+    h.controller.bind();
+
+    h.messages.dispatchEvent(new Event("touchmove"));
+    expect(h.getAutoScroll()).toBe(false);
+    expect(h.hasScheduledFrames()).toBe(true);
   });
 });
 
@@ -205,7 +273,7 @@ describe("chat-scroll-follow：回底途中闸与放闸矩阵", () => {
     expect(h.controller.isHolding()).toBe(true);
 
     // 用户滚轮干预
-    h.messages.dispatchEvent("wheel");
+    h.messages.dispatchEvent(new Event("wheel"));
     expect(h.controller.isHolding()).toBe(false);
     expect(h.messages.listenerCount("wheel")).toBe(0);
 
@@ -221,12 +289,12 @@ describe("chat-scroll-follow：回底途中闸与放闸矩阵", () => {
   it("用户主动干预放闸（touchstart 与 keydown）", () => {
     const h1 = makeHarness(false);
     h1.controller.scrollBottomClicked();
-    h1.messages.dispatchEvent("touchstart");
+    h1.messages.dispatchEvent(new Event("touchstart"));
     expect(h1.controller.isHolding()).toBe(false);
 
     const h2 = makeHarness(false);
     h2.controller.scrollBottomClicked();
-    h2.messages.dispatchEvent("keydown");
+    h2.messages.dispatchEvent(new Event("keydown"));
     expect(h2.controller.isHolding()).toBe(false);
   });
 });
@@ -253,7 +321,7 @@ describe("chat-scroll-follow：清场 reset 与 bind 挂载", () => {
     h.controller.bind();
 
     // scroll 触发调度
-    h.messages.dispatchEvent("scroll");
+    h.messages.dispatchEvent(new Event("scroll"));
     expect(h.hasScheduledFrames()).toBe(true);
     h.flushFrames();
     expect(h.getAutoScroll()).toBe(false);

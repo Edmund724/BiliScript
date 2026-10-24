@@ -1079,6 +1079,93 @@ describe("重试/取消/失败期间的上一轮产物保留", () => {
     await vi.waitFor(() => expect(chapterTitles()).toContain("新一轮章节"));
     expect(chapterTitles()).not.toContain("开场");
   });
+
+  it("生成中刷新只更新状态条，保留旧结果的滚动位置、文本选区与按钮焦点", async () => {
+    seedClip();
+    runOverviewMock.mockResolvedValue({ ...SAMPLE_ANALYSIS });
+    await reader.triggerReaderOverviewGeneration();
+    expect(chapterTitles()).toContain("开场");
+    expect(quoteCount()).toBe(1);
+
+    let notifyProgress!: (notice: string) => void;
+    const retry = deferredRun();
+    runOverviewMock.mockClear();
+    runOverviewMock.mockImplementation((_args, deps?: { onProgress?: (notice: string) => void }) => {
+      notifyProgress = (notice: string) => deps?.onProgress?.(notice);
+      return retry.promise;
+    });
+
+    void reader.triggerReaderOverviewGeneration({ forceRefresh: true });
+    await vi.waitFor(() => expect(runOverviewMock).toHaveBeenCalledTimes(1));
+
+    // 抓取已有节点与交互状态
+    const chapterEl = overviewBody().querySelector(".biliscript-reading-ov-chapter");
+    const quoteEl = overviewBody().querySelector(".biliscript-reading-ov-quote");
+    const cancelBtn = overviewBody().querySelector<HTMLButtonElement>("button[data-overview-action='cancel']");
+    const stripTextEl = overviewBody().querySelector<HTMLElement>(".biliscript-reading-ov-strip-text");
+
+    expect(chapterEl).not.toBeNull();
+    expect(quoteEl).not.toBeNull();
+    expect(cancelBtn).not.toBeNull();
+    expect(stripTextEl?.textContent).toBe("正在生成概览…");
+
+    // 1) 按钮获得焦点
+    cancelBtn!.focus();
+    expect(document.activeElement).toBe(cancelBtn);
+
+    // 2) 容器滚动位置
+    overviewBody().scrollTop = 150;
+    expect(overviewBody().scrollTop).toBe(150);
+
+    // 3) 金句文本选区
+    const quoteTextNode = quoteEl!.querySelector(".biliscript-reading-ov-quote-text")!.firstChild!;
+    const range = document.createRange();
+    range.setStart(quoteTextNode, 0);
+    range.setEnd(quoteTextNode, 4);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    expect(selection.toString()).toBe("测试不是");
+    expect(selection.anchorNode).toBe(quoteTextNode);
+
+    // 第一轮进度通知到达
+    notifyProgress("正在整理第 1/3 段（33%）");
+
+    // 断言：状态条文案更新
+    expect(stripTextEl?.textContent).toBe("正在整理第 1/3 段（33%）");
+    expect(overviewBody().querySelector(".biliscript-reading-ov-strip-text")).toBe(stripTextEl);
+
+    // 断言：已有节点身份保持不变（未被重新创建）
+    expect(overviewBody().querySelector(".biliscript-reading-ov-chapter")).toBe(chapterEl);
+    expect(overviewBody().querySelector(".biliscript-reading-ov-quote")).toBe(quoteEl);
+    expect(overviewBody().querySelector("button[data-overview-action='cancel']")).toBe(cancelBtn);
+
+    // 断言：按钮焦点未被重置
+    expect(document.activeElement).toBe(cancelBtn);
+
+    // 断言：文本选区未丢失，且锚点文本节点仍然在 DOM 树中
+    expect(selection.toString()).toBe("测试不是");
+    expect(selection.anchorNode).toBe(quoteTextNode);
+    expect(quoteTextNode.isConnected).toBe(true);
+
+    // 断言：滚动位置未被重置
+    expect(overviewBody().scrollTop).toBe(150);
+
+    // 第二轮进度通知到达（字数累计）
+    notifyProgress("正在生成概览…（已接收 1200 字）");
+    expect(stripTextEl?.textContent).toBe("正在生成概览…（已接收 1200 字）");
+    expect(document.activeElement).toBe(cancelBtn);
+    expect(selection.toString()).toBe("测试不是");
+    expect(overviewBody().scrollTop).toBe(150);
+
+    // 最终落定：新结果正常上屏
+    retry.resolve({
+      chapters: [{ from: 0, to: 120, title: "第二轮章节", summary: "" }],
+      quotes: [{ from: 20, content: "第二轮金句" }]
+    });
+    await vi.waitFor(() => expect(chapterTitles()).toContain("第二轮章节"));
+    expect(chapterTitles()).not.toContain("开场");
+  });
 });
 
 

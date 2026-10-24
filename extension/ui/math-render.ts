@@ -4,11 +4,70 @@
 import katex from "katex";
 import { MATH_BLOCK_ATTR, MATH_BLOCK_SELECTOR } from "./markdown.js";
 
-export interface MathRenderModule {
-  hydrateMathPlaceholders(root: ParentNode): void;
+export const MATH_CACHE_LIMIT = 200;
+
+export function buildMathCacheKey(tex: string, isBlock: boolean): string {
+  return `${isBlock ? "block" : "inline"}\u0000${tex}`;
 }
 
-export function hydrateMathPlaceholders(root: ParentNode): void {
+export class MathRenderLruCache {
+  private readonly capacity: number;
+  private readonly cache = new Map<string, string>();
+
+  constructor(capacity: number = MATH_CACHE_LIMIT) {
+    this.capacity = capacity > 0 ? capacity : MATH_CACHE_LIMIT;
+  }
+
+  get(key: string): string | undefined {
+    const value = this.cache.get(key);
+    if (value === undefined) {
+      return undefined;
+    }
+    this.cache.delete(key);
+    this.cache.set(key, value);
+    return value;
+  }
+
+  set(key: string, value: string): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.capacity) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) {
+        this.cache.delete(oldest);
+      }
+    }
+    this.cache.set(key, value);
+  }
+
+  has(key: string): boolean {
+    return this.cache.has(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+}
+
+const defaultMathCache = new MathRenderLruCache(MATH_CACHE_LIMIT);
+
+export function clearMathCache(): void {
+  defaultMathCache.clear();
+}
+
+export function getMathCacheSize(): number {
+  return defaultMathCache.size;
+}
+
+export interface MathRenderModule {
+  hydrateMathPlaceholders(root: ParentNode, cache?: MathRenderLruCache): void;
+}
+
+export function hydrateMathPlaceholders(root: ParentNode, cache: MathRenderLruCache = defaultMathCache): void {
   const elements = root.querySelectorAll(MATH_BLOCK_SELECTOR);
   for (const el of elements) {
     if (el.getAttribute("data-biliscript-math-status") === "done") {
@@ -21,11 +80,16 @@ export function hydrateMathPlaceholders(root: ParentNode): void {
       continue;
     }
     try {
-      const rendered = katex.renderToString(tex, {
-        displayMode: isBlock,
-        output: "mathml",
-        throwOnError: false
-      });
+      const cacheKey = buildMathCacheKey(tex, isBlock);
+      let rendered = cache.get(cacheKey);
+      if (rendered === undefined) {
+        rendered = katex.renderToString(tex, {
+          displayMode: isBlock,
+          output: "mathml",
+          throwOnError: false
+        });
+        cache.set(cacheKey, rendered);
+      }
       el.innerHTML = rendered;
       el.setAttribute("data-biliscript-math-status", "done");
       alignEquationAtEquals(el);

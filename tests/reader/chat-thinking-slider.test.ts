@@ -96,6 +96,16 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     createReaderChatModelPanel = (await import("../../extension/reader/chat-model-panel.js")).createReaderChatModelPanel;
     thinkingPickerEntries = (await import("../../extension/chat/thinking-picker.js")).thinkingPickerEntries;
     document.body.innerHTML = "";
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false
+    })) as unknown as typeof window.matchMedia;
   });
 
   const SEP = String.fromCharCode(1);
@@ -225,4 +235,162 @@ describe("05: 思考强度滑轨运行时几何与交互契约", () => {
     track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 100 }));
     expect(pickLevel).toHaveBeenCalledWith("low");
   });
+  it("CSS 契约：滑块不声明 transition: left 与常驻 will-change，避免主线程位移重排", () => {
+    const css = readCss(CHAT_CSS_PATH);
+    const thumbBody = getRuleBody(css, ".biliscript-reading-chat .chat-thinking-thumb");
+    expect(thumbBody).not.toMatch(/transition:\s*left/);
+    expect(thumbBody).not.toMatch(/will-change/);
+  });
+
+  it("拖拽周期缓存 range 矩形，pointermove 不重复查询布局，拖拽中 resize 自动刷新几何", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Off",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "off" })
+      })
+    );
+
+    const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track")!;
+    const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
+    let rectQueries = 0;
+    range.getBoundingClientRect = () => {
+      rectQueries++;
+      return { left: 0, width: 300 } as DOMRect;
+    };
+
+    // 1. pointerdown：建立缓存
+    track.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 0, button: 0 }));
+    const downQueries = rectQueries;
+    expect(downQueries).toBeGreaterThan(0);
+
+    // 2. 连续 5 次 pointermove：不增加 getBoundingClientRect 调用
+    for (let x = 10; x <= 50; x += 10) {
+      track.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: x }));
+    }
+    expect(rectQueries - downQueries).toBe(0);
+
+    // 3. 拖拽中触发 window resize：缓存主动刷新
+    const beforeResizeQueries = rectQueries;
+    window.dispatchEvent(new Event("resize"));
+    expect(rectQueries).toBeGreaterThan(beforeResizeQueries);
+
+    // 4. 释放结束拖拽
+    track.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 50 }));
+  });
+
+  it("滑块位移动画通过 transform 表达且最终归零，响应式布局决定百分比终点，无过期像素终点", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Off",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "off" })
+      })
+    );
+
+    const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
+    const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")!;
+    range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
+
+    // 从 Off (0%) 切到 Low (33.3333%)
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Low",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "low", effectiveLevel: "low" })
+      })
+    );
+
+    // 响应式终点依然由 left 百分比决定
+    expect(thumb.style.left).toMatch(/^33\.3333.*%$/);
+    // 位移动画由 transform 驱动
+    expect(thumb.style.transition).toContain("transform");
+    expect(thumb.style.transform).toBe("translateX(0)");
+
+    // 动画完成（transitionend）后清除 transform，不留过期像素终点
+    thumb.dispatchEvent(new Event("transitionend"));
+    expect(thumb.style.transform).toBe("");
+    expect(thumb.style.transition).toBe("");
+  });
+
+  it("减少动态（prefers-reduced-motion）下位移动画关停，直接吸附响应式百分比位置", () => {
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false
+    })) as unknown as typeof window.matchMedia;
+
+    const { thinkingToggle, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Off",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "off" })
+      })
+    );
+
+    const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
+    const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")!;
+    range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
+
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "High",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "high", effectiveLevel: "high" })
+      })
+    );
+
+    // 瞬间到位，无 transform 动画挂载
+    expect(thumb.style.left).toMatch(/^66\.6666.*%$/);
+    expect(thumb.style.transition).toBe("");
+    expect(thumb.style.transform).toBe("");
+  });
+  it("快速反向：动画途中连续反向切档，基于当前位移计算差值平滑续接", () => {
+    const { thinkingToggle, modelPanel } = makeHarness();
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Off",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "off", effectiveLevel: "off" })
+      })
+    );
+
+    const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range")!;
+    const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb")!;
+    range.getBoundingClientRect = () => ({ left: 0, width: 300 } as DOMRect);
+
+    // 1. 切向 Max (100% = 300px)
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Max",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "max", effectiveLevel: "max" })
+      })
+    );
+    expect(thumb.style.left).toBe("100%");
+
+    // 2. 假设动画进行到中间位置（模拟 visual matrix 或 inline translateX）
+    // 视觉位置在 150px (300px + (-150px) = 150px)
+    thumb.style.transform = "matrix(1, 0, 0, 1, -150, 0)";
+
+    // 3. 快速反向切向 Low (33.3333% = 100px)
+    modelPanel.renderThinkingPicker(
+      view({
+        label: "Low",
+        entries: thinkingPickerEntries({ availableLevels: ["off", "low", "high", "max"], switchOnly: false, requestedLevel: "low", effectiveLevel: "low" })
+      })
+    );
+
+    expect(thumb.style.left).toMatch(/^33\.3333.*%$/);
+    // deltaX = currentVisualX(150) - newTargetX(100) = +50px
+    // 起播阶段 transform 设为 translateX(50px) 然后过渡到 translateX(0)
+    expect(thumb.style.transition).toContain("transform");
+    expect(thumb.style.transform).toBe("translateX(0)");
+
+    // 动画结束清理
+    thumb.dispatchEvent(new Event("transitionend"));
+    expect(thumb.style.transform).toBe("");
+  });
+
 });

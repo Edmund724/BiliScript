@@ -15,7 +15,7 @@
 //
 // 依赖方向（无环叶子）：shared 字符串工具 + core/state 状态单例 + subtitle/alignment
 // 纯索引（06 号票加的双语副行投影：alignment 只读 state、不回头 import reader，无环）
-// + subtitle-item-dom（条目 DOM 契约，零 import）。
+// + subtitle-item-dom（条目 DOM 契约与条目索引维护，零 import）。
 // 首屏批与任务启动入口（buildReadingSubtitleItemHtml /
 // startReadingSubtitleAppendTask / cancelReadingSubtitleAppend /
 // ensureReadingSubtitleRenderedUpTo / SUBTITLE_FIRST_BATCH）由 lifecycle.js
@@ -28,7 +28,8 @@ import type { ReadingSubtitleItem } from "../subtitle/core.js";
 import {
   SUBTITLE_ITEM_CLASS,
   SUBTITLE_SUBTEXT_CLASS,
-  SUBTITLE_TEXT_CLASS
+  SUBTITLE_TEXT_CLASS,
+  registerSubtitleItem
 } from "./subtitle-item-dom.js";
 
 const SUBTITLE_FIRST_BATCH = 120;
@@ -131,7 +132,7 @@ export function buildReadingSubtitleItemHtml(item: ReadingSubtitleItem, withHour
 }
 
 // 把 items[from, to) 追加进列表（尾部追加）。script-only-ui 退役尾部 spacer 后
-// 条目顺序即 DOM 顺序，无需再维护锚节点。
+// 条目顺序即 DOM 顺序，无需再维护锚节点。追加上屏的同时同步维护容器条目索引。
 function insertReadingSubtitleRange(
   listEl: HTMLElement,
   items: ReadingSubtitleItem[],
@@ -142,11 +143,20 @@ function insertReadingSubtitleRange(
   if (to <= from) {
     return;
   }
+  const prevCount = listEl.children.length;
   let html = "";
   for (let i = from; i < to; i += 1) {
     html += buildReadingSubtitleItemHtml(items[i], withHours);
   }
   listEl.insertAdjacentHTML("beforeend", html);
+  const newCount = listEl.children.length;
+  for (let i = prevCount; i < newCount; i += 1) {
+    const child = listEl.children[i] as HTMLElement;
+    const indexStr = child?.dataset?.index;
+    if (indexStr !== undefined) {
+      registerSubtitleItem(listEl, Number(indexStr), child);
+    }
+  }
 }
 
 // ===== 批次回执 hook（句内搜索） =====

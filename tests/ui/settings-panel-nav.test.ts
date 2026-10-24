@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetModuleState } from "../setup.js";
 import { installSettingsPanelBus } from "../helpers/settings-panel-bus.js";
@@ -95,5 +97,11 @@ describe("设置抽屉顶部快速跳转导航条", () => {
 
     expect(indicator!.style.transform).toContain("translateX");
     expect(indicator!.style.width).toMatch(/\d+px/);
+  });
+  it("CSS 契约：导航指示器不声明无效或常驻 will-change（清理 width 无效合成层提示）", () => {
+    const css = readFileSync(join(process.cwd(), "extension/entry/styles/reader-settings-shell.css"), "utf8");
+    const ruleMatch = css.match(/\.biliscript-settings-nav-indicator\s*\{[^}]*\}/);
+    expect(ruleMatch).not.toBeNull();
+    expect(ruleMatch![0]).not.toMatch(/will-change/);
   });
 });

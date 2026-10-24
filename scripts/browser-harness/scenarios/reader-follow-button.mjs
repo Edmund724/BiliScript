@@ -446,7 +446,7 @@ async function main() {
       checkEquals("F2.backdrop-blur", s.backdropFilter, "blur(20px) saturate(1.8)");
       checkEquals("F2.color-is-text-token", s.color, t.textColor);
       checkEquals("F2.radius-999", s.borderRadius, "999px");
-      checkEquals("F2.font", s.fontSize + "/" + s.fontWeight, "14.5px/600");
+      checkEquals("F2.font", s.fontSize + "/" + s.fontWeight, "14px/600");
       // 顶沿折射高光 + 漫射浮层阴影（浅档），与解释按钮/滚底钮同一份门控规则；
       // computed box-shadow 序列化是「色值在前、偏移在后」。
       check("F2.shadow-liquid-glass", /rgba\(255, 255, 255, 0\.92\) 0px 1px 0px 0px inset/.test(s.boxShadow || "") && s.boxShadow.includes("rgba(15, 23, 42, 0.16) 0px 10px 28px -4px") && s.boxShadow.includes("rgba(15, 23, 42, 0.06) 0px 2px 6px 0px"), { boxShadow: s.boxShadow });

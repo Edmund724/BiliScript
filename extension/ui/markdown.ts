@@ -763,3 +763,162 @@ function stripThinkBlocksBody(text: string): string {
 export function stripThinkBlocks(text: unknown): string {
   return stripThinkBlocksBody(String(text || "")).trim();
 }
+
+export interface MarkdownCommitResult {
+  newNodes: HTMLElement[];
+}
+
+export interface MarkdownCommitCursor {
+  /**
+   * 将新稳定的 HTML 块增量提交到稳定容器（container/stableEl）。
+   * 维护块级上下文：
+   * - 已经存在的表格：若 delta 包含表格或表格行，则将新行的 <tr> 追加到已有 <tbody>，保持 <table> 身份；
+   * - 已经存在的列表：若 delta 包含同类型同 flavor 的列表，则将新 <li> 追加到已有列表，保持 <ul>/<ol> 身份并延续编号与任务形态；
+   * - 其余块级节点（段落、标题、引用、代码块）：直接追加到 container，已有节点身份全部保持不变。
+   *
+   * 返回本次新增或发生变化的节点数组，用于仅水合新增或变化的 Mermaid 与数学公式。
+   */
+  commit(deltaHtml: string, container: HTMLElement): MarkdownCommitResult;
+
+  /** 重置游标与块级上下文 */
+  reset(): void;
+}
+
+export function createMarkdownCommitCursor(): MarkdownCommitCursor {
+  let activeTable: HTMLTableElement | null = null;
+  let activeList: HTMLElement | null = null;
+  let activeListType = "";
+  let activeListTaskFlavor = false;
+
+  return {
+    commit(deltaHtml: string, container: HTMLElement): MarkdownCommitResult {
+      if (!deltaHtml.trim()) {
+        return { newNodes: [] };
+      }
+      const doc = container.ownerDocument || (typeof document !== "undefined" ? document : null);
+      if (!doc) {
+        return { newNodes: [] };
+      }
+      const temp = doc.createElement("div");
+      temp.innerHTML = deltaHtml;
+
+      const newNodes: HTMLElement[] = [];
+      const children = Array.from(temp.children) as HTMLElement[];
+
+      for (const child of children) {
+        const tag = child.tagName.toUpperCase();
+
+        if (tag === "TABLE") {
+          const existingTable =
+            activeTable && activeTable.parentElement === container
+              ? activeTable
+              : (container.lastElementChild?.tagName === "TABLE" ? (container.lastElementChild as HTMLTableElement) : null);
+
+          if (existingTable) {
+            const tbody = existingTable.querySelector("tbody") || existingTable;
+            const childTbody = child.querySelector("tbody") || child;
+            const rows = Array.from(childTbody.querySelectorAll("tr"));
+            for (const row of rows) {
+              tbody.appendChild(row);
+            }
+            activeTable = existingTable;
+            activeList = null;
+            activeListType = "";
+            newNodes.push(existingTable);
+            continue;
+          }
+
+          container.appendChild(child);
+          activeTable = child as HTMLTableElement;
+          activeList = null;
+          activeListType = "";
+          newNodes.push(child);
+          continue;
+        }
+
+        // 处理段落形态的续表行（当 deltaText 单独到达缺乏表头时 renderMarkdown 会转为 p）
+        if (child.tagName === "P" && (activeTable || container.lastElementChild?.tagName === "TABLE")) {
+          const tableEl = (activeTable && activeTable.parentElement === container ? activeTable : container.lastElementChild) as HTMLTableElement;
+          const tbody = tableEl.querySelector("tbody") || tableEl;
+          const text = child.textContent?.trim() || "";
+          const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+          const isAllRows = lines.length > 0 && lines.every((l) => /^\|.+\|$/.test(l));
+          if (isAllRows) {
+            const addedRows: HTMLElement[] = [];
+            for (const line of lines) {
+              const tr = doc.createElement("tr");
+              const cells = line
+                .replace(/^\|/, "")
+                .replace(/\|$/, "")
+                .split("|")
+                .map((c) => c.trim());
+              for (const cell of cells) {
+                const td = doc.createElement("td");
+                td.innerHTML = renderInline(cell);
+                tr.appendChild(td);
+              }
+              tbody.appendChild(tr);
+              addedRows.push(tr);
+            }
+            activeTable = tableEl;
+            activeList = null;
+            activeListType = "";
+            newNodes.push(...addedRows);
+            continue;
+          }
+        }
+
+        if (tag === "UL" || tag === "OL") {
+          const type = tag.toLowerCase();
+          const taskFlavor = child.classList.contains("contains-task-list");
+          const existingList =
+            activeList && activeList.parentElement === container && activeListType === type && activeListTaskFlavor === taskFlavor
+              ? activeList
+              : (container.lastElementChild &&
+                 container.lastElementChild.tagName.toUpperCase() === tag &&
+                 (type !== "ul" || container.lastElementChild.classList.contains("contains-task-list") === taskFlavor)
+                  ? (container.lastElementChild as HTMLElement)
+                  : null);
+
+          if (existingList) {
+            const items = Array.from(child.children);
+            for (const item of items) {
+              existingList.appendChild(item);
+            }
+            activeList = existingList;
+            activeListType = type;
+            activeListTaskFlavor = taskFlavor;
+            activeTable = null;
+            newNodes.push(existingList);
+            continue;
+          }
+
+          container.appendChild(child);
+          activeList = child;
+          activeListType = type;
+          activeListTaskFlavor = taskFlavor;
+          activeTable = null;
+          newNodes.push(child);
+          continue;
+        }
+
+        // 其余块级节点（P, H1-H6, BLOCKQUOTE, PRE, HR, DIV 等）
+        activeTable = null;
+        activeList = null;
+        activeListType = "";
+
+        container.appendChild(child);
+        newNodes.push(child);
+      }
+
+      return { newNodes };
+    },
+
+    reset(): void {
+      activeTable = null;
+      activeList = null;
+      activeListType = "";
+      activeListTaskFlavor = false;
+    }
+  };
+}

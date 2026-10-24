@@ -1,7 +1,7 @@
 // script-host 右栏定位器测试。
 //
 // 覆盖：锚点优先级命中与变量写入（贴栏宽度由 getTargetPanelWidth() 决定，
-// 默认 520px，贴视口右界；纵向钳进一屏）、隐藏副本跳过、播放器贴右缘降级、浮层降级
+// 默认 540px，贴视口右界；纵向钳进一屏）、隐藏副本跳过、播放器贴右缘降级、浮层降级
 // （属性而非变量）、窄窗浮层、2s 自查重锚、close 拆除与变量清除。
 //（script-only-ui：面板宽度档机制退役，贴栏宽度下限定死 380px。）
 //
@@ -179,12 +179,12 @@ describe("script-host 锚点命中", () => {
 
     const el = readingView();
     expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
-    // 贴栏宽度由 getTargetPanelWidth() 决定（默认 520px），贴视口右界：
-    // left = 1920 - 520 = 1400；纵向钳进一屏（top 80，height = 768 - 80）。
+    // 贴栏宽度由 getTargetPanelWidth() 决定（默认 540px），贴视口右界：
+    // left = 1920 - 540 = 1380；纵向钳进一屏（top 80，height = 768 - 80）。
     expect(vars(el)).toEqual({
-      left: "1400px",
+      left: "1380px",
       top: "80px",
-      width: "520px",
+      width: "540px",
       height: "688px"
     });
   });
@@ -196,8 +196,8 @@ describe("script-host 锚点命中", () => {
 
     scriptHost.openScriptHost();
 
-    // 高优先锚点命中且贴视口右界：宽默认 520px。
-    expect(vars(readingView()).width).toBe("520px");
+    // 高优先锚点命中且贴视口右界：宽默认 540px。
+    expect(vars(readingView()).width).toBe("540px");
   });
 
   it("可填宽度不足下限 380：左缘左移补足", async () => {
@@ -208,9 +208,9 @@ describe("script-host 锚点命中", () => {
 
     scriptHost.openScriptHost();
     expect(vars(readingView())).toEqual({
-      left: "1400px",
+      left: "1380px",
       top: "80px",
-      width: "520px",
+      width: "540px",
       height: "688px"
     });
   });
@@ -223,9 +223,9 @@ describe("script-host 锚点命中", () => {
 
     scriptHost.openScriptHost();
     expect(vars(readingView())).toEqual({
-      left: "1380px",
+      left: "1360px",
       top: "80px",
-      width: "520px",
+      width: "540px",
       height: "688px"
     });
   });
@@ -236,9 +236,9 @@ describe("script-host 锚点命中", () => {
 
     scriptHost.openScriptHost();
     expect(vars(readingView())).toEqual({
-      left: "1400px",
+      left: "1380px",
       top: "0px",
-      width: "520px",
+      width: "540px",
       height: "768px"
     });
     expect(anchor).toBeTruthy();
@@ -358,8 +358,8 @@ describe("script-host 降级链", () => {
 
     const el = readingView();
     expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
-    // 贴栏恢复：默认宽 520px。
-    expect(vars(el).width).toBe("520px");
+    // 贴栏恢复：默认宽 540px。
+    expect(vars(el).width).toBe("540px");
   });
 });
 
@@ -464,7 +464,7 @@ describe("script-host 重算时机", () => {
     await loadModules();
     const old = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     scriptHost.openScriptHost();
-    expect(vars(readingView()).width).toBe("520px");
+    expect(vars(readingView()).width).toBe("540px");
 
     // SPA 换页：旧节点 rect 塌掉（从文档里摘掉后 stub 仍在但新节点顶上）。
     old.getBoundingClientRect = () => makeRect(0, 0, 0, 0) as DOMRect;
@@ -488,7 +488,7 @@ describe("script-host 重算时机", () => {
     await loadModules();
     const anchor = mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     scriptHost.openScriptHost();
-    expect(vars(readingView()).width).toBe("520px");
+    expect(vars(readingView()).width).toBe("540px");
 
     // 只统计本次自查拍：open 首拍的搜索/量测已在断言前消费。
     const rectSpy = vi.spyOn(anchor, "getBoundingClientRect");
@@ -502,9 +502,9 @@ describe("script-host 重算时机", () => {
     expect(querySpy).toHaveBeenCalledTimes(1);
     expect(rectSpy).toHaveBeenCalledTimes(1);
     expect(vars(readingView())).toEqual({
-      left: "1400px",
+      left: "1380px",
       top: "80px",
-      width: "520px",
+      width: "540px",
       height: "688px"
     });
     vi.useRealTimers();
@@ -522,7 +522,7 @@ describe("script-host 重算时机", () => {
     scriptHost.openScriptHost();
     expect(setIntervalSpy).not.toHaveBeenCalled();
 
-    expect(vars(readingView()).width).toBe("520px");
+    expect(vars(readingView()).width).toBe("540px");
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -598,7 +598,7 @@ describe("script-host close", () => {
     await loadModules();
     mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     scriptHost.openScriptHost();
-    expect(vars(readingView()).width).toBe("520px");
+    expect(vars(readingView()).width).toBe("540px");
 
     scriptHost.closeScriptHost();
 
@@ -622,7 +622,7 @@ describe("script-host close", () => {
 
     mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     scriptHost.openScriptHost();
-    expect(vars(readingView()).width).toBe("520px");
+    expect(vars(readingView()).width).toBe("540px");
   });
 
   it("未 open 时 close 是安全 no-op", async () => {
@@ -643,7 +643,7 @@ describe("script-host close", () => {
     mountAnchor(".right-container-inner", makeRect(1520, 80, 360, 2000));
     runRafSynchronously();
     window.dispatchEvent(new Event("resize"));
-    expect(vars(view).width).toBe("520px");
+    expect(vars(view).width).toBe("540px");
   });
 
   it("窄窗浮层 → 贴栏切换：重算后清浮层属性并写变量", async () => {
@@ -664,9 +664,9 @@ describe("script-host close", () => {
     window.dispatchEvent(new Event("resize"));
     expect(el.getAttribute("data-biliscript-script-float")).toBe(null);
     expect(vars(el)).toEqual({
-      left: "1400px",
+      left: "1380px",
       top: "80px",
-      width: "520px",
+      width: "540px",
       height: "688px"
     });
   });

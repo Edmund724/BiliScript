@@ -156,4 +156,41 @@ describe("URL 变化强刷调度（并回组合根后的 120ms 防抖）", () =>
     expect(chatSessionState.liveContextData?.title).toBe("防抖后的新标题");
     chat.closeChatSession();
   });
+
+  it("关闭会话取消已排入的上下文同步防抖：关闭后不再发起网络强刷，重开仍按恢复流程装载上下文", async () => {
+    gatewayMock.getCurrentAid.mockReturnValue(7100);
+    seedReadyContext();
+    const chat = await lazyChat.ensureReaderChatTab();
+    await chat.ensureChatTabActivated();
+    await waitFor(() => gatewayMock.fetchHotComments.mock.calls.length >= 1);
+    const baseline = gatewayMock.fetchHotComments.mock.calls.length;
+
+    // 触发 URL 变化（排入 120ms 防抖同步）
+    state.clip.title = "关闭前排入的新标题";
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+
+    // 在防抖 120ms 触发前立刻关闭会话
+    chat.closeChatSession();
+
+    // 等待 250ms 越过原防抖窗口
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    // 关闭后不再触发网络强刷（fetchHotComments 计数不增加）
+    expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(baseline);
+    // live 上下文快照不被修改为新标题（防抖已取消，无隐藏上下文写入）
+    expect(chatSessionState.liveContextData?.title).toBe("测试视频");
+
+    // 重开会话：按现有恢复流程装载上下文，且重挂触发源
+    await chat.ensureChatTabActivated();
+    expect(chatSessionState.liveContextData?.title).toBe("测试视频");
+
+    // 重开后触发源已重新激活，新 URL 变化正常触发防抖同步
+    state.clip.title = "重开后的新标题";
+    window.dispatchEvent(new Event("biliscript:urlchange"));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(chatSessionState.liveContextData?.title).toBe("重开后的新标题");
+    expect(gatewayMock.fetchHotComments.mock.calls.length).toBe(baseline + 1);
+    chat.closeChatSession();
+  });
 });

@@ -80,7 +80,7 @@ export interface Settings {
   chatParagraphSpacing: number;   // 对话段落间距（像素，4–20），默认 12
   // ===== 文摘面板布局与自动展开 =====
   customPanelWidthEnabled: boolean; // 是否启用自定义文摘面板宽度，默认关
-  customPanelWidth: number;         // 自定义文摘面板宽度（像素，400–650），默认 520
+  customPanelWidth: number;         // 自定义文摘面板宽度（像素，400–650），默认 540
   autoOpenReader: boolean;          // 进入普通视频页是否自动展开文摘面板，默认关
 }
 
@@ -133,6 +133,6 @@ export const DEFAULT_SETTINGS: Settings = {
   chatParagraphSpacing: 12,
   // ===== 文摘面板布局与自动展开 =====
   customPanelWidthEnabled: false,
-  customPanelWidth: 520,
+  customPanelWidth: 540,
   autoOpenReader: false
 };

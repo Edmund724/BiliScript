@@ -751,6 +751,15 @@ function report(lazyMeta) {
   console.log(
     `Resident total (bootstrap + main): ${residentTotal} bytes`
   );
+
+  // Content 常驻体积守卫：bootstrap + 主包总量上限（基线 34,882 B，预算上限 36,864 B，留有明确余量）。
+  const MAX_RESIDENT_BYTES = 36864;
+  if (residentTotal > MAX_RESIDENT_BYTES) {
+    console.error(
+      `build-content.js: Content 常驻体积超限！当前 ${residentTotal} B > 预算上限 ${MAX_RESIDENT_BYTES} B`
+    );
+    process.exit(1);
+  }
 }
 
 main().catch((error) => {

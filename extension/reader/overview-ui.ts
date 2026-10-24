@@ -61,16 +61,17 @@ function getClipBody(): { from: number; to: number; content: string }[] {
 }
 
 /**
- * 就地更新生成中状态条文案（tick 专用，不整块重渲以避免丢失选区与滚动位置）。
+ * 就地更新生成中状态条文案（进度通知与 wait ticker 专用，不整块重渲以保留选区、焦点与滚动位置）。
  * 若状态条节点不存在则返回 false，通知调用方整块补渲。
  */
 export function updateGeneratingStripText(text: string): boolean {
   const node = document
     .getElementById(ids.readingOverviewBody)
-    ?.querySelector(".biliscript-reading-ov-strip-text");
+    ?.querySelector(".biliscript-reading-ov-strip.is-generating .biliscript-reading-ov-strip-text");
   if (node) {
-    if (text) {
-      node.textContent = text;
+    const nextText = text || "正在生成概览…";
+    if (node.textContent !== nextText) {
+      node.textContent = nextText;
     }
     return true;
   }

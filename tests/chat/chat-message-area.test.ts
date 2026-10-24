@@ -211,6 +211,7 @@ describe("回合节点句柄：流式操作面", () => {
     expect(deps.messages.querySelector(".chat-thinking-label")?.textContent).toBe("思考中…");
     turn.appendThinking("再想");
     expect(deps.messages.querySelectorAll(".chat-thinking")).toHaveLength(1);
+    runRafFrames(raf);
     expect(deps.messages.querySelector(".chat-thinking-text")?.textContent).toBe("先想再想");
 
     // token 到达即思考收尾；其后到达的 reasoning（收尾事件）新建第二个节点

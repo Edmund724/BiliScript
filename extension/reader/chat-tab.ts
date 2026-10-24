@@ -226,11 +226,17 @@ let urlChangeSyncTimer = 0;
 // false（换片是用户动作，清场是既有语义）。字幕落定的对账走弱档 + 保输入（见会话
 // 触发源组装处 clipSettle 的取舍说明）。
 function scheduleLiveContextSync({ forceRefresh = true, preserveInput = false }: { forceRefresh?: boolean; preserveInput?: boolean } = {}): void {
+  if (sessionClosed) {
+    return;
+  }
   if (urlChangeSyncTimer) {
     window.clearTimeout(urlChangeSyncTimer);
   }
   urlChangeSyncTimer = window.setTimeout(() => {
     urlChangeSyncTimer = 0;
+    if (sessionClosed) {
+      return;
+    }
     void syncLiveContextState(forceRefresh, preserveInput);
   }, 120);
 }
@@ -277,7 +283,8 @@ const {
   showConversationContextError,
   removeCenteredState,
   removeSuggestions,
-  isMessagesNearBottom
+  isMessagesNearBottom,
+  getMessagesBottomOffset
 } = feedback;
 
 // 图片附件区（image-input 02 号票）：粘贴 → 压缩（03 号票规格）→ 缩略图 + 单个
@@ -493,11 +500,12 @@ const modelPanel = createReaderChatModelPanel({
   pickLevel: (level) => pickThinkingLevel(level)
 });
 
-// 滚动跟随与回底闸状态机（chat-scroll-follow）：按帧合批 + 近底判据与按钮显隐同源
+// 滚动跟随与回底闸状态机（chat-scroll-follow）：按帧合批 + 双阈值迟滞 + 物理手势即时断跟
 // + smooth 动画回底途中闸与放闸矩阵。
 const scrollFollow = createScrollFollowController({
   messages: els.messages,
   scrollBottomBtn: els.scrollBottomBtn,
+  getBottomOffset: getMessagesBottomOffset,
   isNearBottom: isMessagesNearBottom,
   setAutoScroll: (autoScroll) => chatRuntime.setAutoScroll(autoScroll),
   scrollToBottom: (smooth) => chatRuntime.scrollToBottom(smooth)
@@ -734,6 +742,10 @@ export async function ensureChatTabActivated({ consumeIntent = true }: { consume
 }
 
 export function closeChatSession(): void {
+  if (urlChangeSyncTimer) {
+    window.clearTimeout(urlChangeSyncTimer);
+    urlChangeSyncTimer = 0;
+  }
   if (!initialized) {
     return;
   }
@@ -1059,8 +1071,11 @@ async function refreshProvidersAndPrefsAfterExternalChange(): Promise<void> {
 // preserveInput 透传进上下文装载（gate 链与字幕落定对账为「上下文跟随」，见
 // 各自调用点）。
 async function syncLiveContextState(forceRefresh = false, preserveInput = false): Promise<void> {
+  if (sessionClosed) {
+    return;
+  }
   const ok = await loadContextState({ forceRefresh, silent: true, preserveInput }).catch(() => false);
-  if (isPinnedContextStrict(chatSessionState.currentConversationMeta) || chatRuntime.isTurnActive()) {
+  if (sessionClosed || isPinnedContextStrict(chatSessionState.currentConversationMeta) || chatRuntime.isTurnActive()) {
     return;
   }
   if (!ok || !chatSessionState.contextData || !chatSessionState.providers.length || !chatSessionState.chatHistory.length) {

@@ -992,10 +992,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
   box-shadow: var(--biliscript-reader-shadow), var(--biliscript-reader-fine-border);
 }
 
-/* 确认弹层取消键：去框改 surface-2 凹陷底（确认键保持 accent 实底不动） */
+/* 确认弹层取消键：去框幽灵键，hover 取 fill-hover 浅底（确认键保持 accent 实底不动） */
 #biliscript-reading-view:not([data-palette="editorial"]) .confirm-dialog-cancel {
-  border-color: transparent;
-  background: var(--biliscript-reader-surface-2);
+  border: 0;
+  background: transparent;
+}
+
+#biliscript-reading-view:not([data-palette="editorial"]) .confirm-dialog-cancel:hover {
+  background: var(--biliscript-reader-fill-hover);
 }
 
 /* Gemini 触点 · AI 对话空态 hero 徽标：去圆底去发光，星形本体灌虹彩渐变

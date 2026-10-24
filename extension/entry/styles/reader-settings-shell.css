@@ -239,7 +239,6 @@
   z-index: 1;
   transform: translateX(0);
   transition: transform 260ms cubic-bezier(0.2, 0, 0, 1), width 260ms cubic-bezier(0.2, 0, 0, 1);
-  will-change: transform, width;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -415,7 +414,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn {
   height: 32px;
   padding: 0 14px;
-  border: 1px solid var(--biliscript-reader-border);
+  border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--biliscript-reader-muted);
@@ -427,11 +426,12 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
+  background: var(--biliscript-reader-surface-2);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn:hover {
   color: var(--biliscript-reader-text);
-  background: var(--biliscript-reader-surface-2);
+  background: var(--biliscript-reader-fill-hover);
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-reset-btn:disabled {

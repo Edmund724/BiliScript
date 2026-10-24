@@ -284,13 +284,13 @@ describe("收敛 4/6：面板内弹层对话框（解释卡 / 二次确认）", 
     }
   });
 
-  it("flyme：确认弹层取消键去框改 surface-2 底", () => {
+  it("flyme：确认弹层取消键去框幽灵键", () => {
     const body = ruleBody(
       readCss(GATE_CSS),
       "#biliscript-reading-view:not([data-palette=\"editorial\"]) .confirm-dialog-cancel"
     );
-    expect(body).toContain("border-color: transparent");
-    expect(body).toContain("background: var(--biliscript-reader-surface-2)");
+    expect(body).toContain("border: 0");
+    expect(body).toContain("background: transparent");
   });
 
   it("解释卡不再有无门控的玻璃/卡面规则（降级规则除外）", () => {

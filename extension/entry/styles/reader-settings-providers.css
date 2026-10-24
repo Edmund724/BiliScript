@@ -222,7 +222,7 @@
 #biliscript-reading-view .provider-editor-cancel {
   height: 32px;
   padding: 0 14px;
-  border: 1px solid var(--biliscript-reader-border);
+  border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--biliscript-reader-muted);
@@ -234,11 +234,12 @@
 
 #biliscript-reading-view .provider-editor-cancel:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
+  background: var(--biliscript-reader-surface-2);
 }
 
 #biliscript-reading-view .provider-editor-cancel:hover {
   color: var(--biliscript-reader-text);
-  background: var(--biliscript-reader-surface-2);
+  background: var(--biliscript-reader-fill-hover);
 }
 
 #biliscript-reading-view .provider-editor-save {
@@ -647,7 +648,7 @@
   gap: 8px;
   min-height: 30px;
   padding: 0 6px;
-  border-radius: 28px;
+  border-radius: max(0px, calc(28px - 6px)); /* 同心圆角公式：外列表 28px - 内边距 6px = 22px */
 }
 
 #biliscript-reading-view .provider-editor-fetch-item:hover {
@@ -730,7 +731,7 @@
 #biliscript-reading-view .provider-editor-fetch-cancel {
   height: 32px;
   padding: 0 14px;
-  border: 1px solid var(--biliscript-reader-border);
+  border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--biliscript-reader-muted);
@@ -742,11 +743,12 @@
 
 #biliscript-reading-view .provider-editor-fetch-cancel:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
+  background: var(--biliscript-reader-surface-2);
 }
 
 #biliscript-reading-view .provider-editor-fetch-cancel:hover {
   color: var(--biliscript-reader-text);
-  background: var(--biliscript-reader-surface-2);
+  background: var(--biliscript-reader-fill-hover);
 }
 
 #biliscript-reading-view .provider-editor-fetch-confirm {

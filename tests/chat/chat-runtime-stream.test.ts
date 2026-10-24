@@ -293,7 +293,7 @@ describe("token 流式渲染（协议驱动）", () => {
     expect(tailEl.lastElementChild!.querySelectorAll("i")).toHaveLength(3);
   });
 
-  it("稳定前缀 + 末块增量渲染：stable 只在增长时重渲染，done 后与全量渲染一致", async () => {
+  it("稳定前缀 + 末块增量渲染：stable 只在增长时增量提交并保持节点身份，done 后与全量渲染一致", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
@@ -307,19 +307,21 @@ describe("token 流式渲染（协议驱动）", () => {
     expect(tailEl.querySelector("p")!.textContent).toBe("第二段开头");
     expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
 
-    // 篡改 stable 内容，用于探测后续帧是否重渲染了 stable
-    stableEl.innerHTML = "SENTINEL";
+    // 记录第一段节点，用于验证后续帧增量提交时保持 DOM 身份（Ticket 07 增量提交）
+    const p1 = stableEl.firstElementChild!;
 
-    // 帧 2：tail 增长（无新空行边界）→ stable 不重渲染，tail 每帧更新
+    // 帧 2：tail 增长（无新空行边界）→ stable 不追加，tail 每帧更新
     feed(runtime, { type: "token", data: "，仍在增长" });
     raf.mock.calls[1][0]();
-    expect(stableEl.innerHTML).toBe("SENTINEL");
+    expect(stableEl.firstElementChild).toBe(p1);
+    expect(stableEl.children).toHaveLength(1);
     expect(tailEl.querySelector("p")!.textContent).toBe("第二段开头，仍在增长");
     expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
 
-    // 帧 3：新空行边界出现 → stable 增长并重渲染一次
+    // 帧 3：新空行边界出现 → stable 增量提交新块，原节点保持身份
     feed(runtime, { type: "token", data: "\n\n第三段" });
     raf.mock.calls[2][0]();
+    expect(stableEl.firstElementChild).toBe(p1);
     expect(stableEl.innerHTML).toBe(renderMarkdown("第一段\n\n第二段开头，仍在增长"));
     expect(tailEl.querySelector("p")!.textContent).toBe("第三段");
 
@@ -384,10 +386,12 @@ describe("reasoning / thinking 展示", () => {
     const thinking = node.querySelector<HTMLElement>(".chat-thinking")!;
     expect(thinking).toBeTruthy();
     expect(thinking.querySelector(".chat-thinking-label")?.textContent).toBe("思考中…");
+    runRafFrames(raf);
     expect(thinking.querySelector(".chat-thinking-text")?.textContent).toBe("先想");
 
     // 后续 reasoning 增量累加到同一节点
     feed(runtime, { type: "reasoning", data: "再想" });
+    runRafFrames(raf);
     expect(node.querySelector(".chat-thinking-text")?.textContent).toBe("先想再想");
 
     // 首个 token 的帧渲染把思考盒折叠成「已思考（用时 X 秒）」行保留在消息内（不移除）
@@ -476,6 +480,7 @@ describe("reasoning / thinking 展示", () => {
     for (const chunk of chunks) {
       feed(runtime, { type: "reasoning", data: chunk });
       total += chunk;
+      runRafFrames(raf);
       expect(node1.querySelector(".chat-thinking-text")?.textContent).toBe(total);
     }
 
@@ -490,6 +495,7 @@ describe("reasoning / thinking 展示", () => {
     await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
     feed(runtime, { type: "reasoning", data: "第二条思考" });
+    runRafFrames(raf);
     expect(node2.querySelector(".chat-thinking-text")?.textContent).toBe("第二条思考");
   });
 
@@ -525,6 +531,7 @@ describe("reasoning / thinking 展示", () => {
     await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
     feed(runtime, { type: "reasoning", data: "" });
+    runRafFrames(raf);
     const node2Thinking = node2.querySelector<HTMLElement>(".chat-thinking")!;
     expect(node2Thinking).toBeTruthy();
     expect(node2Thinking.querySelector(".chat-thinking-text")?.textContent).toBe("");
@@ -534,6 +541,7 @@ describe("reasoning / thinking 展示", () => {
 
     // 后续 reasoning 增量正常流进新节点
     feed(runtime, { type: "reasoning", data: "第二轮思考" });
+    runRafFrames(raf);
     expect(node2.querySelector(".chat-thinking-text")?.textContent).toBe("第二轮思考");
   });
 
@@ -556,6 +564,7 @@ describe("reasoning / thinking 展示", () => {
     await runtime.sendTurn(deps.input.value);
     const node2 = deps.messages.querySelectorAll(".chat-msg-assistant")[1];
     feed(runtime, { type: "reasoning", data: "第二轮思考" });
+    runRafFrames(raf);
     expect(node2.querySelector(".chat-thinking-text")?.textContent).toBe("第二轮思考");
   });
 });
@@ -751,9 +760,10 @@ describe("stream-reset 代际重放（读流中断重试：整体重放）", () 
   it("stream-reset 时已渲染的思考节点一并清掉，后续 reasoning 事件重建", async () => {
     const { deps, runtime } = await makeRuntime("问题");
     const node = assistantNode(deps);
-    holdRaf();
+    const raf = holdRaf();
 
     feed(runtime, { type: "reasoning", data: "第一代思考" });
+    runRafFrames(raf);
     expect(node.querySelector(".chat-thinking")?.textContent).toContain("第一代思考");
 
     feed(runtime, { type: "stream-reset" });
@@ -761,6 +771,7 @@ describe("stream-reset 代际重放（读流中断重试：整体重放）", () 
 
     // 第二代思考从头累积（不是接在第一代后面）
     feed(runtime, { type: "reasoning", data: "第二代思考" });
+    runRafFrames(raf);
     expect(node.querySelector(".chat-thinking-text")?.textContent).toBe("第二代思考");
   });
 });
@@ -1180,26 +1191,173 @@ describe("M14 增量：流式滚动瞬时化 / 思考文本滚动合帧 / flush 
     expect(deps.messages.scrollTop).toBe(deps.messages.scrollHeight);
   });
 
-  it("思考文本滚动合帧：textContent 逐 token 同步（全量不截断），scrollTop 按帧合批只滚一次", async () => {
+  it("思考文本按帧写入与滚动合批：reasoning 累加文本按帧统一写入 DOM（写入在布局读取前），同帧多条增量只写一次", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
 
     feed(runtime, { type: "reasoning", data: "第一段" });
     const textNode = node.querySelector<HTMLElement>(".chat-thinking-text")!;
-    expect(textNode?.textContent).toBe("第一段");
+    expect(textNode?.textContent).toBe("");
 
     // 同帧第二条增量：不再注册帧、不触发滚动读数
     const getScrollHeight = vi.fn(() => 1234);
     Object.defineProperty(textNode, "scrollHeight", { get: getScrollHeight, configurable: true });
     feed(runtime, { type: "reasoning", data: "第二段" });
-    expect(node.querySelector(".chat-thinking-text")?.textContent).toBe("第一段第二段");
+    expect(node.querySelector(".chat-thinking-text")?.textContent).toBe("");
     expect(getScrollHeight).not.toHaveBeenCalled();
 
-    // 帧回调：整个思考阶段累积的多条增量只做一次滚动
+    // 帧回调：整个思考阶段累积的多条增量统一写入 DOM（写入早于滚动读数）
     raf.mock.calls[0][0]();
+    expect(textNode.textContent).toBe("第一段第二段");
     expect(textNode.scrollTop).toBe(1234);
     expect(getScrollHeight).toHaveBeenCalledTimes(1);
+  });
+  it("08 思考流按帧写入：同帧多次 reasoning 累加只在帧回调中统一写入 DOM，且写入先于布局读取", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const node = assistantNode(deps);
+    const raf = holdRaf();
+
+    feed(runtime, { type: "reasoning", data: "chunk1" });
+    const textNode = node.querySelector<HTMLElement>(".chat-thinking-text")!;
+    expect(textNode).toBeTruthy();
+    // 帧尚未执行前，textContent 尚未写入 DOM
+    expect(textNode.textContent).toBe("");
+
+    let textAtLayoutRead = "";
+    const getScrollHeight = vi.fn(() => {
+      textAtLayoutRead = textNode.textContent;
+      return 888;
+    });
+    Object.defineProperty(textNode, "scrollHeight", { get: getScrollHeight, configurable: true });
+
+    feed(runtime, { type: "reasoning", data: "chunk2" });
+    feed(runtime, { type: "reasoning", data: "chunk3" });
+    // 依然未执行帧，未提前写入
+    expect(textNode.textContent).toBe("");
+    expect(getScrollHeight).not.toHaveBeenCalled();
+
+    // 驱动帧：写入发生在布局读取之前
+    raf.mock.calls[0][0]();
+    expect(textAtLayoutRead).toBe("chunk1chunk2chunk3");
+    expect(textNode.textContent).toBe("chunk1chunk2chunk3");
+    expect(textNode.scrollTop).toBe(888);
+    expect(getScrollHeight).toHaveBeenCalledTimes(1);
+  });
+
+  it("08 终态前最后一帧同步冲刷：未跑 rAF 时，done/stop/fail/首token折叠同步冲刷待写文本不丢最后一段", async () => {
+    // 1. 首 token 到达时触发折叠冲刷
+    const { deps: deps1, runtime: rt1 } = await makeRuntime("问题1");
+    const node1 = assistantNode(deps1);
+    const raf1 = holdRaf();
+    feed(rt1, { type: "reasoning", data: "思考未上屏" });
+    const textNode1 = node1.querySelector<HTMLElement>(".chat-thinking-text")!;
+    expect(textNode1.textContent).toBe("");
+    feed(rt1, { type: "token", data: "正文开始" });
+    // token flush 时折叠未折叠思考盒，同步冲刷待写文本
+    runRafFrames(raf1);
+    expect(textNode1.textContent).toBe("思考未上屏");
+
+    // 2. done 收尾前同步冲刷
+    const { deps: deps2, runtime: rt2 } = await makeRuntime("问题2");
+    const node2 = assistantNode(deps2);
+    holdRaf();
+    feed(rt2, { type: "reasoning", data: "终态前最后一段" });
+    const textNode2 = node2.querySelector<HTMLElement>(".chat-thinking-text")!;
+    expect(textNode2.textContent).toBe("");
+    feed(rt2, { type: "done" });
+    expect(textNode2.textContent).toBe("终态前最后一段");
+
+    // 3. stopped 收尾前同步冲刷
+    const { deps: deps3, runtime: rt3 } = await makeRuntime("问题3");
+    const node3 = assistantNode(deps3);
+    holdRaf();
+    feed(rt3, { type: "reasoning", data: "停止前一段" });
+    const textNode3 = node3.querySelector<HTMLElement>(".chat-thinking-text")!;
+    expect(textNode3.textContent).toBe("");
+    feed(rt3, { type: "stopped", reason: "用户停止" });
+    expect(textNode3.textContent).toBe("停止前一段");
+  });
+
+  it("08 正文后收尾 reasoning：新建第二思考节点，文本按帧写入并在 done 时折叠冲刷", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const node = assistantNode(deps);
+    const raf = holdRaf();
+
+    feed(runtime, { type: "reasoning", data: "前置思考" });
+    feed(runtime, { type: "token", data: "正文" });
+    runRafFrames(raf);
+
+    // 正文后的收尾 reasoning
+    feed(runtime, { type: "reasoning", data: "收尾思考" });
+    const thinkings = node.querySelectorAll<HTMLElement>(".chat-thinking");
+    expect(thinkings).toHaveLength(2);
+    const textNode2 = thinkings[0].querySelector<HTMLElement>(".chat-thinking-text")!;
+    expect(textNode2.textContent).toBe("");
+
+    feed(runtime, { type: "done" });
+    expect(textNode2.textContent).toBe("收尾思考");
+    expect(thinkings[0].classList.contains("chat-thinking-collapsed")).toBe(true);
+    expect(thinkings[1].classList.contains("chat-thinking-collapsed")).toBe(true);
+  });
+
+  it("08 重置：reasoning 帧挂起时收到 stream-reset，挂起帧不作用于已清理节点，下一代全新接收", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const node = assistantNode(deps);
+    const raf = holdRaf();
+
+    feed(runtime, { type: "reasoning", data: "第一代思考" });
+    expect(node.querySelector(".chat-thinking")).toBeTruthy();
+    expect(raf.mock.calls).toHaveLength(1);
+
+    // 尚未执行帧回调就重置
+    feed(runtime, { type: "stream-reset" });
+    expect(node.querySelector(".chat-thinking")).toBeNull();
+
+    // 旧帧如果被执行，不报错且不把内容写回 DOM
+    raf.mock.calls[0][0]();
+    expect(node.querySelector(".chat-thinking")).toBeNull();
+
+    // 新一代 reasoning 正常调度
+    feed(runtime, { type: "reasoning", data: "第二代思考" });
+    runRafFrames(raf);
+    expect(node.querySelector(".chat-thinking-text")?.textContent).toBe("第二代思考");
+  });
+
+  it("08 正文 flush 期间直接复用热节点引用，不调用 querySelector 扫描光标和思考节点", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const node = assistantNode(deps);
+    const raf = holdRaf();
+
+    feed(runtime, { type: "reasoning", data: "思考" });
+    feed(runtime, { type: "token", data: "正文1" });
+
+    const querySelectorSpy = vi.spyOn(node, "querySelector");
+    const querySelectorAllSpy = vi.spyOn(node, "querySelectorAll");
+
+    // 驱动首帧 token flush
+    runRafFrames(raf);
+
+    // 验证正文 flush 期间没有查询 .chat-msg-cursor 和未折叠思考节点
+    const scannedSelectors = [
+      ...querySelectorSpy.mock.calls.map((c) => c[0]),
+      ...querySelectorAllSpy.mock.calls.map((c) => c[0])
+    ];
+    expect(scannedSelectors).not.toContain(".chat-msg-cursor");
+    expect(scannedSelectors).not.toContain(".chat-thinking:not(.chat-thinking-collapsible)");
+
+    // 后续正文增量 flush
+    querySelectorSpy.mockClear();
+    querySelectorAllSpy.mockClear();
+    feed(runtime, { type: "token", data: "正文2" });
+    runRafFrames(raf);
+
+    const scannedSelectors2 = [
+      ...querySelectorSpy.mock.calls.map((c) => c[0]),
+      ...querySelectorAllSpy.mock.calls.map((c) => c[0])
+    ];
+    expect(scannedSelectors2).not.toContain(".chat-msg-cursor");
+    expect(scannedSelectors2).not.toContain(".chat-thinking:not(.chat-thinking-collapsible)");
   });
 
   // 回归（挂起帧全局单标志）：上一条消息的思考滚动帧挂起的 ≤16ms 窗口内，
