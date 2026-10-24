@@ -81,7 +81,8 @@ describe("09: 双语字幕选轨弹层开关与设置开关视觉对齐", () => 
     expect(thumbRule).toMatch(/left:\s*2px/);
 
     // 开启态 left 16px（34 - 16 - 16 = 2px 右侧呼吸边距）
-    expect(onThumbRule).toMatch(/left:\s*16px/);
+    expect(thumbRule).toMatch(/transform:\s*translateX\(0\)/);
+    expect(onThumbRule).toMatch(/transform:\s*translateX\(14px\)/);
   });
 
   it("轨道变色与滑块位移过渡曲线对齐 --biliscript-reader-ease-spring", () => {
@@ -96,7 +97,7 @@ describe("09: 双语字幕选轨弹层开关与设置开关视觉对齐", () => 
 
     // 滑块位移：left 0.2s var(--biliscript-reader-ease-spring, ease)
     expect(thumbRule).toMatch(
-      /transition:\s*left\s+0\.2s\s+var\(--biliscript-reader-ease-spring,\s*ease\)/
+      /transition:\s*transform\s+0\.2s\s+var\(--biliscript-reader-ease-spring,\s*ease\)/
     );
   });
 
