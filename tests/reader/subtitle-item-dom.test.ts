@@ -6,15 +6,19 @@
 // - 主行重写丢失副行节点身份或打乱「主文在前、副行在后」的顺序；
 // - 无副行时重写落点错误；
 // - 占位副行（data-state 非 ready）被当成可读副行；
-// - 条目查找（data-index / 祖先）落到错误节点。
+// - 条目查找（data-index / 祖先）落到错误节点；
+// - 条目索引（首批/后续批次维护、失效节点清理、缺失时回退）。
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  clearSubtitleItemIndex,
   closestSubtitleItem,
   findSubtitleItem,
   getMainLineText,
   getSubtextNode,
+  indexSubtitleItems,
   isSubtextReady,
+  registerSubtitleItem,
   replaceMainLineContent,
   SUBTITLE_ITEM_CLASS,
   SUBTITLE_SUBTEXT_CLASS,
@@ -137,7 +141,7 @@ describe("subtitle-item-dom 副行结构就绪", () => {
   });
 });
 
-describe("subtitle-item-dom 条目查找", () => {
+describe("subtitle-item-dom 条目查找与索引", () => {
   it("按 data-index 查条目，缺失返回 null", () => {
     const list = document.createElement("div");
     const first = buildItem(0, "第一句");
@@ -159,5 +163,72 @@ describe("subtitle-item-dom 条目查找", () => {
     expect(closestSubtitleItem(item)).toBe(item);
     expect(closestSubtitleItem(document.createElement("span"))).toBeNull();
     expect(closestSubtitleItem(null)).toBeNull();
+  });
+
+  it("索引存在时查找条目不触发 querySelector 全兄弟属性扫描", () => {
+    const list = document.createElement("div");
+    const first = buildItem(0, "第一句");
+    const second = buildItem(1, "第二句");
+    list.append(first, second);
+
+    indexSubtitleItems(list);
+
+    const querySpy = vi.spyOn(list, "querySelector");
+    expect(findSubtitleItem(list, 0)).toBe(first);
+    expect(findSubtitleItem(list, 1)).toBe(second);
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+
+  it("单条 registerSubtitleItem 可递增追加后续批次条目", () => {
+    const list = document.createElement("div");
+    const first = buildItem(0, "第一句");
+    list.append(first);
+    indexSubtitleItems(list);
+
+    const second = buildItem(1, "第二句");
+    list.append(second);
+    registerSubtitleItem(list, 1, second);
+
+    const querySpy = vi.spyOn(list, "querySelector");
+    expect(findSubtitleItem(list, 1)).toBe(second);
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+
+  it("索引缺失时正确回退到 querySelector 查找", () => {
+    const list = document.createElement("div");
+    const first = buildItem(0, "第一句");
+    list.append(first);
+
+    const querySpy = vi.spyOn(list, "querySelector");
+    expect(findSubtitleItem(list, 0)).toBe(first);
+    expect(querySpy).toHaveBeenCalledTimes(1);
+    expect(findSubtitleItem(list, 999)).toBeNull();
+  });
+
+  it("不会返回上一代的失效节点（脱离 DOM 或脱离容器后失效并回退）", () => {
+    const list = document.createElement("div");
+    const oldNode = buildItem(0, "上一代第一句");
+    list.append(oldNode);
+    indexSubtitleItems(list);
+
+    // 模拟上一代节点被脱离 DOM 且换上新节点
+    oldNode.remove();
+    const newNode = buildItem(0, "新一代第一句");
+    list.append(newNode);
+
+    // 旧节点已脱离 list，不应返回旧节点；回退查到新节点
+    expect(findSubtitleItem(list, 0)).toBe(newNode);
+  });
+
+  it("clearSubtitleItemIndex 清理索引后重置容器索引记录", () => {
+    const list = document.createElement("div");
+    const item = buildItem(0, "第一句");
+    list.append(item);
+    indexSubtitleItems(list);
+
+    clearSubtitleItemIndex(list);
+    const querySpy = vi.spyOn(list, "querySelector");
+    expect(findSubtitleItem(list, 0)).toBe(item);
+    expect(querySpy).toHaveBeenCalledTimes(1);
   });
 });

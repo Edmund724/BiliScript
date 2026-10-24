@@ -10,7 +10,7 @@
 // 身份的单源」，不是「渲染输入的单源」。
 //
 // 依赖：core/state、subtitle/core、./batched-render、./presentation、
-// notes/section-lines 与 shared 叶子；不 import lifecycle（会话态投影经注入反转）。
+// notes/section-lines、./subtitle-item-dom 与 shared 叶子；不 import lifecycle（会话态投影经注入反转）。
 import { state } from "../core/state.js";
 import { getReaderElement } from "../shared/dom-utils.js";
 import {
@@ -26,6 +26,10 @@ import {
   cancelReadingSubtitleAppend,
   startReadingSubtitleAppendTask
 } from "./batched-render.js";
+import {
+  clearSubtitleItemIndex,
+  indexSubtitleItems
+} from "./subtitle-item-dom.js";
 import { applyReadingViewPresentation } from "./presentation.js";
 import { ids } from "./state.js";
 
@@ -69,7 +73,7 @@ function buildReadingMetaLine() {
 // 追加任务，避免旧任务把过期条目追加进新列表。首屏只渲染前 SUBTITLE_FIRST_BATCH
 // 条，其余走 rAF 分批追加（./batched-render.ts 的 rAF 状态机），首屏 HTML 形态与
 // 整段重建逐字一致；content-visibility 占位高度校准消除估计偏差导致的滚动条
-// 拖动不跟手。
+// 拖动不跟手。首屏渲染同步维护条目索引，重建前清空上一代索引映射。
 function projectReadingSubtitleList(): void {
   cancelReadingSubtitleAppend();
   const body = Array.isArray(state.clip.subtitleBody) ? state.clip.subtitleBody : [];
@@ -77,6 +81,7 @@ function projectReadingSubtitleList(): void {
   const withHours = shouldShowHoursInNote(state, body);
 
   const subtitleList = getReaderElement(ids.readingSubtitleList);
+  clearSubtitleItemIndex(subtitleList);
   if (subtitleItems.length === 0) {
     subtitleList.innerHTML = `<div class="biliscript-reading-empty">${escapeHtml(
       getReadingSubtitlePlaceholderText()
@@ -88,6 +93,7 @@ function projectReadingSubtitleList(): void {
       firstHtml += buildReadingSubtitleItemHtml(subtitleItems[i], withHours);
     }
     subtitleList.innerHTML = firstHtml;
+    indexSubtitleItems(subtitleList, subtitleList.children);
     calibrateReadingSubtitleItemEstimate(subtitleList);
     if (firstEnd < subtitleItems.length) {
       startReadingSubtitleAppendTask({

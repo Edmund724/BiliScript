@@ -3,7 +3,9 @@
 // - 修1：clearSearchHighlights 的 normalize 出循环——清除时对列表整体 normalize
 //   一次，不再每个 mark 各扫一次全子树（全量命中下 O(n²)）；
 // - 修2：批次回执 handleReadingSubtitleRangeAppended 对有序 matches 数组二分
-//   取批次 index 区间子集，不遍历 matchesByItem 全表。
+//   取批次 index 区间子集，不遍历 matchesByItem 全表；
+// - 修3：当前命中清理只处理必要节点，不触发全列表 .search-current 扫描；
+// - 修4：已建立条目索引时，查找与批次回执直接命中索引，零 querySelector 调用。
 //
 // 测试直驱 reader/subtitle-search.js 模块缝（不经完整 reader shell）：手工搭
 // 列表 DOM + state.clip.subtitleBody，行为断言与计数断言共享同一夹具。
@@ -20,6 +22,7 @@ let ids: typeof import("../../extension/reader/state.js").ids;
 let search: ReturnType<
   typeof import("../../extension/reader/subtitle-search.js").createSubtitleSearch
 >;
+let indexSubtitleItems: typeof import("../../extension/reader/subtitle-item-dom.js").indexSubtitleItems;
 
 function buildFixture() {
   document.body.innerHTML = "";
@@ -59,6 +62,7 @@ beforeEach(async () => {
   setLocationUrl(READER_MODE_URL);
   state = (await import("../../extension/core/state.js")).state;
   ids = (await import("../../extension/reader/state.js")).ids;
+  indexSubtitleItems = (await import("../../extension/reader/subtitle-item-dom.js")).indexSubtitleItems;
   // 生产实例由组装根（lifecycle）持有；本套件直驱工厂模块缝：手工注入
   // 夹具 DOM 访问与空交互回调，不经完整 reader shell。
   const searchMod = await import("../../extension/reader/subtitle-search.js");
@@ -148,5 +152,43 @@ describe("字幕搜索热路径（1500 条全量命中夹具）", () => {
     expect(markCount()).toBe(TOTAL_ITEMS);
     // 区间取子集：恰为区间宽次定位，与全表规模无关
     expect(querySpy).toHaveBeenCalledTimes(to - from);
+  });
+
+  it("修3：当前命中清理只处理必要节点，不触发全列表 .search-current 扫描", { timeout: 30_000 }, () => {
+    const { input, list } = buildFixture();
+    input.value = KEYWORD;
+    search.refresh({ scroll: false });
+
+    // 移动当前命中时，不应调用 list.querySelectorAll(".search-current") 扫描全表
+    const querySpy = vi.spyOn(list, "querySelectorAll");
+    search.move(1);
+
+    const searchCurrentCalls = querySpy.mock.calls.filter(([selector]) =>
+      typeof selector === "string" && selector.includes("search-current")
+    );
+    expect(searchCurrentCalls.length).toBe(0);
+  });
+
+  it("修4：已建立条目索引时，查找与批次回执直接命中索引，零 querySelector 调用", { timeout: 30_000 }, () => {
+    const { input, list } = buildFixture();
+    // 建立索引
+    indexSubtitleItems(list);
+    input.value = KEYWORD;
+    search.refresh({ scroll: false });
+
+    const from = 600;
+    const to = 610;
+    for (let i = from; i < to; i += 1) {
+      itemText(i).replaceChildren(`第${i}条含${KEYWORD}的句子`);
+    }
+
+    const querySpy = vi.spyOn(list, "querySelector");
+    search.handleRangeAppended(from, to);
+
+    // 索引就绪时无需走 querySelector 降级回退
+    expect(querySpy).not.toHaveBeenCalled();
+    for (let i = from; i < to; i += 1) {
+      expect(itemText(i).querySelectorAll("mark").length).toBe(1);
+    }
   });
 });
