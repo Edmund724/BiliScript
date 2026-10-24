@@ -293,7 +293,7 @@ describe("token 流式渲染（协议驱动）", () => {
     expect(tailEl.lastElementChild!.querySelectorAll("i")).toHaveLength(3);
   });
 
-  it("稳定前缀 + 末块增量渲染：stable 只在增长时重渲染，done 后与全量渲染一致", async () => {
+  it("稳定前缀 + 末块增量渲染：stable 只在增长时增量提交并保持节点身份，done 后与全量渲染一致", async () => {
     const { deps, runtime } = await makeRuntime();
     const node = assistantNode(deps);
     const raf = holdRaf();
@@ -307,19 +307,21 @@ describe("token 流式渲染（协议驱动）", () => {
     expect(tailEl.querySelector("p")!.textContent).toBe("第二段开头");
     expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
 
-    // 篡改 stable 内容，用于探测后续帧是否重渲染了 stable
-    stableEl.innerHTML = "SENTINEL";
+    // 记录第一段节点，用于验证后续帧增量提交时保持 DOM 身份（Ticket 07 增量提交）
+    const p1 = stableEl.firstElementChild!;
 
-    // 帧 2：tail 增长（无新空行边界）→ stable 不重渲染，tail 每帧更新
+    // 帧 2：tail 增长（无新空行边界）→ stable 不追加，tail 每帧更新
     feed(runtime, { type: "token", data: "，仍在增长" });
     raf.mock.calls[1][0]();
-    expect(stableEl.innerHTML).toBe("SENTINEL");
+    expect(stableEl.firstElementChild).toBe(p1);
+    expect(stableEl.children).toHaveLength(1);
     expect(tailEl.querySelector("p")!.textContent).toBe("第二段开头，仍在增长");
     expect(tailEl.lastElementChild!.className).toBe("chat-msg-cursor");
 
-    // 帧 3：新空行边界出现 → stable 增长并重渲染一次
+    // 帧 3：新空行边界出现 → stable 增量提交新块，原节点保持身份
     feed(runtime, { type: "token", data: "\n\n第三段" });
     raf.mock.calls[2][0]();
+    expect(stableEl.firstElementChild).toBe(p1);
     expect(stableEl.innerHTML).toBe(renderMarkdown("第一段\n\n第二段开头，仍在增长"));
     expect(tailEl.querySelector("p")!.textContent).toBe("第三段");
 
