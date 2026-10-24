@@ -208,7 +208,7 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
   });
 
   it("ASR 新增：type/presetId 落入报文，保存后重渲", async () => {
-    const savedList = [{ id: "asr_new1", presetId: "custom", name: "自定义", type: "openai-transcriptions", baseUrl: "https://asr.example.com/v1", model: "whisper-1", supportsTimestamps: true, enabled: true, hasSavedKey: true }];
+    const savedList = [{ id: "asr_new1", presetId: "siliconflow-sensevoice", name: "SiliconFlow 硅基流动（免费）", type: "openai-transcriptions", baseUrl: "https://asr.example.com/v1", model: "whisper-1", supportsTimestamps: true, enabled: true, hasSavedKey: true }];
     const { sent, host } = await mountPanel({
       "asr-providers-save": () => ({ ok: true, providers: savedList })
     });
@@ -227,9 +227,9 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
 
     const saveMessage = sent.find((message) => message.type === "asr-providers-save")!;
     expect(saveMessage.providers[0]).toMatchObject({
-      presetId: "custom",
+      presetId: "siliconflow-sensevoice",
       type: "openai-transcriptions",
-      name: "自定义",
+      name: "SiliconFlow 硅基流动（免费）",
       baseUrl: "https://asr.example.com/v1",
       model: "whisper-1"
     });

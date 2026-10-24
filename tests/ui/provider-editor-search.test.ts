@@ -132,7 +132,7 @@ describe("搜索 Modal：Key 输入三态（spec §6.3 / §10 第 31 行）", ()
     const dialog = await openSearchEditor(host);
 
     const key = apiKeyInput(dialog);
-    expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("firecrawl");
+    expect(dialog.querySelector<HTMLSelectElement>(".provider-editor-preset")!.value).toBe("tavily");
     expect(key.placeholder).toBe("API Key（可选）");
     expect(key.required).toBe(false);
     // §6.6：复用 ASR 的测试行形状（按钮 + 状态行）

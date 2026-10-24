@@ -175,7 +175,7 @@ const ASR_FAMILY: FamilyRowDeclaration = {
   buildDeleteMessage: (providerId) => ({ type: "asr-providers-delete", providerId }),
   editor: {
     title: "语音转写平台",
-    defaultPresetId: () => "custom",
+    defaultPresetId: (presets) => presets.find((p) => p.id === "siliconflow-sensevoice")?.id || "siliconflow-sensevoice",
     apiKeyPlaceholder: (_preset, hasSavedKey) => (hasSavedKey ? "已保存" : "API Key"),
     isKeyRequired: presetKeyRequired,
     accessBadge: () => "",
@@ -246,8 +246,8 @@ const SEARCH_FAMILY: FamilyRowDeclaration = {
   buildDeleteMessage: (providerId) => ({ type: "search-providers-delete", providerId }),
   editor: {
     title: "搜索平台",
-    // 搜索平台无自定义预设（spec 非目标）：新增默认选第一个预设
-    defaultPresetId: (presets) => presets[0]?.id || "custom",
+    // 搜索平台无自定义预设（spec 非目标）：新增默认选 tavily
+    defaultPresetId: (presets) => presets.find((p) => p.id === "tavily")?.id || "tavily",
     // 三态与 AI 同款（:109-111）：keyless 预设的 Key 可选·可填（无 Key 走匿名
     // 额度、有 Key 走自己账号提额）
     apiKeyPlaceholder: (preset, hasSavedKey) =>

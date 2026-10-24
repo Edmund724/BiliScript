@@ -445,7 +445,7 @@ export function editorTitle(kind: ProviderEditorKind, editing: boolean): string 
 function buildInitialDraft(options: ProviderEditorOpenOptions): EditorDraft {
   const item = options.item || null;
   const family = PROVIDER_FAMILY_ROWS[options.kind];
-  // 新增默认「自定义」（与平铺行空白行的 presetId 默认一致，baseUrl 空）；
+  // 新增默认按族取 defaultPresetId（AI custom / ASR 硅基流动 / 搜索 tavily）；
   // 编辑按列表项 presetId（未知值由 resolvePreset 回落，AI 回落最后一个预设）
   const presetId = String(item?.presetId || family.editor.defaultPresetId(options.presets));
   const preset = family.resolvePreset(options.presets, presetId);

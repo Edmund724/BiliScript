@@ -128,7 +128,7 @@ describe("Modal 保存：三族序列化走族声明（替源码切片断言）"
         setFieldValue(dialog.querySelector<HTMLInputElement>(".provider-editor-model")!, "whisper-1");
       },
       expected: {
-        presetId: "custom",
+        presetId: "siliconflow-sensevoice",
         type: "openai-transcriptions",
         baseUrl: "https://asr.example.com/v1",
         model: "whisper-1"
@@ -141,9 +141,9 @@ describe("Modal 保存：三族序列化走族声明（替源码切片断言）"
       saveType: "search-providers-save",
       fill: () => {},
       expected: {
-        presetId: "firecrawl",
-        type: "firecrawl",
-        baseUrl: "https://api.firecrawl.dev"
+        presetId: "tavily",
+        type: "tavily",
+        baseUrl: "https://api.tavily.com"
       },
       absent: ["models", "protocol"]
     }
