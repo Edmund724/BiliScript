@@ -338,7 +338,8 @@
   border-radius: 50%;
   background: #ffffff;
   box-shadow: 0 0 3px rgba(23, 24, 26, 0.16), 0 0 1px rgba(23, 24, 26, 0.22);
-  transition: left 0.2s var(--biliscript-reader-ease-spring, ease);
+  transform: translateX(0);
+  transition: transform 0.2s var(--biliscript-reader-ease-spring, ease);
 }
 
 #biliscript-reading-view .biliscript-bilingual-switch[data-on="true"] {
@@ -346,7 +347,7 @@
 }
 
 #biliscript-reading-view .biliscript-bilingual-switch[data-on="true"]::after {
-  left: 16px;
+  transform: translateX(14px);
 }
 
 /* 单轨禁用态（Q7）：开关仍在场、只是不可用（说明在列表区）。 */

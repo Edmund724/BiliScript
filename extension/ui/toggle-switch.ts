@@ -158,6 +158,14 @@ export function initToggleSwitch(input: HTMLInputElement): void {
   let moved = false;
   let startClientX = 0;
   let startPos = 0;
+  // 拖拽周期几何缓存：避免 move 阶段重复强制布局；拖拽中发生真实 resize 时主动刷新。
+  let cachedTravel: number | null = null;
+  let dragObserver: ResizeObserver | null = null;
+  const onDragResize = (): void => {
+    if (dragging) {
+      cachedTravel = travel();
+    }
+  };
   // 跟手速度采样：最近两个 move 样本算 px/ms；不足两份按 0（位置判定兜底）。
   let samples: { x: number; t: number }[] = [];
 
@@ -178,6 +186,12 @@ export function initToggleSwitch(input: HTMLInputElement): void {
     startPos = pos;
     samples = [{ x: e.clientX, t: e.timeStamp }];
     settle();
+    cachedTravel = travel();
+    window.addEventListener("resize", onDragResize);
+    if (typeof ResizeObserver !== "undefined") {
+      dragObserver = new ResizeObserver(onDragResize);
+      dragObserver.observe(track);
+    }
     // capture 让 move/up 不论指针滑出轨道都回到 track 上；个别环境无该 API
     //（jsdom）时事件本就以 track 为目标派发，行为一致。
     try {
@@ -194,7 +208,8 @@ export function initToggleSwitch(input: HTMLInputElement): void {
     const dx = e.clientX - startClientX;
     if (!moved && Math.abs(dx) < DRAG_THRESHOLD_PX) return;
     moved = true;
-    pos = Math.min(Math.max(startPos + dx, 0), travel());
+    const currentTravel = cachedTravel ?? travel();
+    pos = Math.min(Math.max(startPos + dx, 0), currentTravel);
     apply();
     samples.push({ x: e.clientX, t: e.timeStamp });
     if (samples.length > 4) samples.shift();
@@ -203,10 +218,21 @@ export function initToggleSwitch(input: HTMLInputElement): void {
   const finishDrag = (e: Event): void => {
     if (!dragging) return;
     dragging = false;
+    window.removeEventListener("resize", onDragResize);
+    if (dragObserver) {
+      dragObserver.disconnect();
+      dragObserver = null;
+    }
+    const currentTravel = cachedTravel ?? travel();
+    cachedTravel = null;
     if (!moved) return; // 点击：原生 click 即将激活 input，组件不插手。
+    if (e.type === "pointercancel") {
+      springTo(input.checked ? currentTravel : 0);
+      return;
+    }
     samples.push({ x: (e as PointerEvent).clientX ?? samples[samples.length - 1]?.x ?? 0, t: e.timeStamp });
     const vPxMs = releaseVelocity(e);
-    const range = travel();
+    const range = currentTravel;
     // 位置 + 速度加权：速度按投影时长外推落点，落点过半吸向该侧。
     const projected = pos + vPxMs * VELOCITY_PROJECTION_MS;
     const target = projected >= range / 2 ? range : 0;

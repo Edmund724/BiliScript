@@ -33,6 +33,12 @@ import type { ThinkingLevelInput } from "../ai/thinking-levels.js";
 const SNAP_THRESHOLD = 0.1;
 // 最高档（档位数 ≥ 3 的最右端）触发时的脉冲增亮时长（ms）。
 const ULTRA_BURST_MS = 420;
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    : false;
+}
+
 
 export interface CreateReaderChatModelPanelDeps {
   modelSelect: HTMLSelectElement;
@@ -98,6 +104,9 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
   let renderedStructureKey = "";
   let currentTierEntries: ThinkingPickerEntry[] = [];
   let currentActiveIndex = -1;
+  let lastThumbPct: number | null = null;
+  let isDraggingThumb = false;
+  let thumbTransitionCleanup: (() => void) | null = null;
   // 最高档脉冲状态（420ms 增亮窗口）。
   let wasAtMax = false;
   let isBursting = false;
@@ -332,6 +341,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         syncUltraBurst(atMax);
 
         const track = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-track");
+        const range = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-range");
         const fill = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-fill");
         const thumb = thinkingToggle.querySelector<HTMLElement>(".chat-thinking-thumb");
         if (track && fill && thumb) {
@@ -342,10 +352,11 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
           track.setAttribute("aria-valuetext", view.label);
           fill.style.width = fillWidth;
           thumb.hidden = !hasThumb;
-          thumb.style.left = `${pct}%`;
+          updateThumbPosition(thumb, range, pct, hasThumb);
         }
       } else {
         syncUltraBurst(false);
+        lastThumbPct = null;
       }
     }
 
@@ -357,6 +368,99 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       thinkingHint.textContent = view.hint ?? "";
       thinkingHint.hidden = view.hint === null;
     }
+  }
+
+  function updateThumbPosition(
+    thumb: HTMLElement,
+    range: HTMLElement | null,
+    pct: number,
+    hasThumb: boolean
+  ): void {
+    if (!hasThumb) {
+      thumb.style.left = `${pct}%`;
+      thumb.style.transform = "";
+      thumb.style.transition = "";
+      lastThumbPct = null;
+      return;
+    }
+
+    if (lastThumbPct === null || isDraggingThumb || prefersReducedMotion()) {
+      thumb.style.left = `${pct}%`;
+      thumb.style.transform = "";
+      thumb.style.transition = "";
+      lastThumbPct = pct;
+      return;
+    }
+
+    if (lastThumbPct === pct) {
+      thumb.style.left = `${pct}%`;
+      return;
+    }
+
+    const rangeWidth = range ? range.getBoundingClientRect().width : 0;
+    if (rangeWidth <= 0) {
+      thumb.style.left = `${pct}%`;
+      thumb.style.transform = "";
+      thumb.style.transition = "";
+      lastThumbPct = pct;
+      return;
+    }
+
+    let currentTx = 0;
+    if (typeof window !== "undefined" && typeof window.getComputedStyle === "function") {
+      const computed = window.getComputedStyle(thumb).transform;
+      const tf = (computed && computed !== "none") ? computed : thumb.style.transform;
+      if (tf && tf !== "none") {
+        const matrixMatch = /matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*([^,\)]+)/.exec(tf);
+        if (matrixMatch) {
+          currentTx = parseFloat(matrixMatch[1]) || 0;
+        } else {
+          const txMatch = /translateX\(\s*([-\d.]+)px\)/.exec(tf);
+          if (txMatch) {
+            currentTx = parseFloat(txMatch[1]) || 0;
+          }
+        }
+      }
+    }
+
+    const prevTargetX = (lastThumbPct / 100) * rangeWidth;
+    const currentVisualX = prevTargetX + currentTx;
+    const newTargetX = (pct / 100) * rangeWidth;
+    const deltaX = currentVisualX - newTargetX;
+
+    thumb.style.left = `${pct}%`;
+
+    if (Math.abs(deltaX) < 0.5) {
+      thumb.style.transform = "";
+      thumb.style.transition = "";
+      lastThumbPct = pct;
+      return;
+    }
+
+    thumb.style.transition = "none";
+    thumb.style.transform = `translateX(${deltaX}px)`;
+    void thumb.offsetWidth;
+
+    thumb.style.transition = "transform 0.18s cubic-bezier(0.2, 0.9, 0.25, 1)";
+    thumb.style.transform = "translateX(0)";
+
+    if (thumbTransitionCleanup) {
+      thumbTransitionCleanup();
+      thumbTransitionCleanup = null;
+    }
+    const onTransitionEnd = (e?: Event): void => {
+      if (e && e.target !== thumb) return;
+      thumb.removeEventListener("transitionend", onTransitionEnd);
+      thumbTransitionCleanup = null;
+      thumb.style.transition = "";
+      thumb.style.transform = "";
+    };
+    thumbTransitionCleanup = () => {
+      thumb.removeEventListener("transitionend", onTransitionEnd);
+    };
+    thumb.addEventListener("transitionend", onTransitionEnd, { once: true });
+
+    lastThumbPct = pct;
   }
 
   function bindThinkingControls(): void {
@@ -380,6 +484,23 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       return;
     }
 
+    let dragging = false;
+    let previewNearest = 0;
+    let cachedRangeRect: DOMRect | null = null;
+    let dragObserver: ResizeObserver | null = null;
+
+    const refreshRangeRect = (): void => {
+      if (range) {
+        cachedRangeRect = range.getBoundingClientRect();
+      }
+    };
+
+    const onDragWindowResize = (): void => {
+      if (dragging) {
+        refreshRangeRect();
+      }
+    };
+
     function previewAt(pos: number): number {
       const n = currentTierEntries.length;
       const clamped = Math.max(0, Math.min(n - 1, pos));
@@ -387,7 +508,10 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       const snapped = Math.abs(clamped - nearest) <= SNAP_THRESHOLD ? nearest : clamped;
       const pct = (snapped / (n - 1)) * 100;
       thumb!.hidden = false;
+      thumb!.style.transition = "none";
+      thumb!.style.transform = "";
       thumb!.style.left = `${pct}%`;
+      lastThumbPct = pct;
       fill!.style.width = snapped <= 0 ? "0px" : `calc(${pct}% + 12px)`;
       const hasSparkle = snapped > 0;
       const atMax = n >= 3 && nearest >= n - 1 && snapped >= n - 1 - SNAP_THRESHOLD;
@@ -400,7 +524,7 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
     }
 
     function posFromClientX(clientX: number): number | null {
-      const rect = range!.getBoundingClientRect();
+      const rect = dragging ? (cachedRangeRect ?? range!.getBoundingClientRect()) : range!.getBoundingClientRect();
       if (!rect || rect.width <= 0) {
         return null;
       }
@@ -409,19 +533,28 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
       return ratio * (n - 1);
     }
 
-    let dragging = false;
-    let previewNearest = 0;
-
     track.addEventListener("pointerdown", (e: PointerEvent) => {
       if (e.button !== 0 && e.button !== undefined) {
         return;
       }
+      dragging = true;
+      isDraggingThumb = true;
+      track.classList.add("is-dragging");
+      refreshRangeRect();
+      window.addEventListener("resize", onDragWindowResize);
+      if (typeof ResizeObserver !== "undefined") {
+        dragObserver = new ResizeObserver(() => {
+          if (dragging) {
+            refreshRangeRect();
+          }
+        });
+        dragObserver.observe(range);
+      }
       const pos = posFromClientX(e.clientX);
       if (pos === null) {
+        finishDrag(false);
         return;
       }
-      dragging = true;
-      track.classList.add("is-dragging");
       if (typeof track.setPointerCapture === "function" && e.pointerId !== undefined) {
         try {
           track.setPointerCapture(e.pointerId);
@@ -448,6 +581,13 @@ export function createReaderChatModelPanel(deps: CreateReaderChatModelPanelDeps)
         return;
       }
       dragging = false;
+      isDraggingThumb = false;
+      window.removeEventListener("resize", onDragWindowResize);
+      if (dragObserver) {
+        dragObserver.disconnect();
+        dragObserver = null;
+      }
+      cachedRangeRect = null;
       track!.classList.remove("is-dragging");
       if (!commit) {
         return;
