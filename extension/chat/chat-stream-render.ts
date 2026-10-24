@@ -21,10 +21,12 @@
 // createChatRuntime 直接传入完整 deps）。
 
 import {
+  createMarkdownCommitCursor,
   createMarkdownTailCursor,
   createThinkStripCursor,
   renderMarkdownStripped,
   stripThinkBlocks,
+  type MarkdownCommitCursor,
   type MarkdownRenderOptions,
   type MarkdownTailCursor,
   type ThinkStripCursor
@@ -115,6 +117,7 @@ interface TokenStreamState {
   stableText: string;
   // 上次渲染时的切点行号（与 tailCursor.cut 比较；初值 -2 保证首帧必物化）
   stableCut: number;
+  committedCut: number;
   stableEl: HTMLDivElement | null;
   tailEl: HTMLDivElement | null;
   cursor: HTMLSpanElement | null;
@@ -122,6 +125,7 @@ interface TokenStreamState {
   allThinking: HTMLDivElement[];
   stripCursor: ThinkStripCursor;
   tailCursor: MarkdownTailCursor;
+  commitCursor: MarkdownCommitCursor;
 }
 
 // 思考文本的显示状态（全量文本缓冲 + 按节点隔离的滚动合帧 + 钉底标志）
@@ -491,13 +495,15 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       charQueue: "",
       stableText: "",
       stableCut: -2,
+      committedCut: 0,
       stableEl: null,
       tailEl: null,
       cursor: null,
       uncollapsedThinking: [],
       allThinking: [],
       stripCursor: createThinkStripCursor(),
-      tailCursor: createMarkdownTailCursor()
+      tailCursor: createMarkdownTailCursor(),
+      commitCursor: createMarkdownCommitCursor()
     };
   }
 
@@ -645,8 +651,8 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
       }
       state.uncollapsedThinking = [];
     }
-    // 稳定前缀只在增长时渲染一次；末块每帧重渲染。空 stable 且容器本就
-    // 空时跳过（与旧实现的 stableText 比较语义一致，避免无谓的空串重建）。
+    // 稳定前缀增量提交：由 commitCursor 维护块级上下文并增量追加到现有 DOM，
+    // 旧节点保持引用不变，表格按行追加，列表按项追加，Mermaid/Math 仅水合新节点。
     if (stableChanged && (stableText !== "" || state.stableEl!.innerHTML !== "")) {
       if (performance.now() >= deadline) {
         await yieldToMain();
@@ -655,16 +661,28 @@ export function createChatStreamRenderer(deps: ChatStreamRendererDeps): ChatStre
           return;
         }
       }
-      state.stableCut = cut; 
+      const toCut = cut < 0 ? 0 : cut;
+      const fromCut = state.committedCut < 0 ? 0 : state.committedCut;
+      if (toCut > fromCut) {
+        const deltaText = lines.slice(fromCut, toCut).join("\n");
+        const deltaHtml = renderMarkdownStripped(deltaText, {
+          ...CHAT_MARKDOWN_OPTIONS,
+          hrAdjacentBefore: state.stableText,
+          hrAdjacentAfter: tailText
+        });
+        const { newNodes } = state.commitCursor.commit(deltaHtml, state.stableEl!);
+        for (const newNode of newNodes) {
+          hydrateMermaid(newNode);
+          hydrateMath(newNode);
+        }
+        state.committedCut = toCut;
+      } else if (toCut === 0 && state.stableEl!.innerHTML !== "") {
+        state.stableEl!.innerHTML = "";
+        state.commitCursor.reset();
+        state.committedCut = 0;
+      }
+      state.stableCut = cut;
       state.stableText = stableText;
-      state.stableEl!.innerHTML = renderMarkdownStripped(stableText, {
-        ...CHAT_MARKDOWN_OPTIONS,
-        hrAdjacentAfter: tailText
-      });
-      // stable 只在增长时重渲染一次，其内的 mermaid 占位在此水合（整体重建
-      // 会换掉节点，但 SVG 有「主题 + 源码」缓存兜底，重入只是字符串替换）。
-      hydrateMermaid(state.stableEl!);
-      hydrateMath(state.stableEl!);
     }
     if (performance.now() >= deadline) {
       await yieldToMain();

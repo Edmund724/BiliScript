@@ -192,7 +192,33 @@ describe("不变量 2/4：逐帧堆叠渲染逐字节等价全文渲染，光标
     "围栏内含空行跨帧": ["前文\n\n```js\n\n", "代码行一\n\n", "代码行二\n```\n\n后文"],
     "尾随空行不抖动 stable": ["第一段\n\n第二段\n\n", "\n", "\n\n第三段"],
     "全文无空行退化全 tail": ["只有一", "个段落", "没有空行", "，继续挤"],
-    "mermaid 围栏": ["说明\n\n```mermaid\n", "graph TD;\nA-->B;\n```\n\n", "图后段"]
+    "mermaid 围栏": ["说明\n\n```mermaid\n", "graph TD;\nA-->B;\n```\n\n", "图后段"],
+    "跨行强调": [
+      "前文段落\n\n",
+      "这是一个**跨行",
+      "\n强调的加粗**文本\n\n",
+      "结尾段落"
+    ],
+    "长表格": [
+      "表格前言\n\n",
+      "| 列A | 列B |\n| --- | --- |\n",
+      "| 1 | 2 |\n",
+      "| 3 | 4 |\n\n",
+      "表后段落"
+    ],
+    "公式": [
+      "公式前段\n\n",
+      "$$\nE = mc^2\n$$\n\n",
+      "行内公式 $a^2 + b^2 = c^2$ 说明\n\n",
+      "结尾段落"
+    ],
+    "联网搜索回答": [
+      "根据搜索结果如下：\n\n",
+      "1. **核心要点**：第一条信息\n",
+      "2. **扩展信息**：第二条说明详情\n\n",
+      "> 引用来源：官方文档\n\n",
+      "总结陈词。"
+    ]
   };
 
   for (const [name, tokens] of Object.entries(CORPORA)) {
@@ -390,4 +416,117 @@ describe("07 票 token 合帧对拍：token-batch 分批喂入 ≡ 逐 token 喂
     );
   });
 });
+
+describe("工单 07：稳定提交游标增量维护，已提交节点保持身份与水合隔离", () => {
+  it("多段落流式追加：已提交的段落 DOM 节点在后续帧保持 === 引用，不被销毁替换", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const raf = holdRaf();
+    const node = assistantNode(deps);
+
+    // 帧 1：段落 1 提交进 stableEl
+    feed(runtime, { type: "token", data: "段落一\n\n段落二开头" });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+    const stableEl = node.querySelector(".chat-stream-stable")!;
+    const p1 = stableEl.querySelector("p");
+    expect(p1).not.toBeNull();
+    expect(p1!.textContent).toBe("段落一");
+
+    // 帧 2：段落 2 继续增长，stable 不变
+    feed(runtime, { type: "token", data: "继续增长" });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+    expect(stableEl.querySelector("p")).toBe(p1);
+
+    // 帧 3：段落 2 闭合提交进 stableEl，p1 仍保持同一引用身份
+    feed(runtime, { type: "token", data: "\n\n段落三" });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+    const paras = stableEl.querySelectorAll("p");
+    expect(paras.length).toBe(2);
+    expect(paras[0]).toBe(p1);
+    expect(paras[1].textContent).toContain("段落二开头继续增长");
+  });
+
+  it("表格与列表增量提交：已提交表格保持 <table> 身份追加行，列表保持 <ul> 身份追加项", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const raf = holdRaf();
+    const node = assistantNode(deps);
+
+    // 提交表格到 stableEl
+    feed(runtime, { type: "token", data: "| A | B |\n| --- | --- |\n| 1 | 2 |\n\n后文" });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+    const stableEl = node.querySelector(".chat-stream-stable")!;
+    const tableEl = stableEl.querySelector("table");
+    expect(tableEl).not.toBeNull();
+    const initialRows = tableEl!.querySelectorAll("tbody tr");
+    expect(initialRows.length).toBe(1);
+
+    // 后续列表提交进 stableEl，已提交 tableEl 节点保持身份不变
+    feed(runtime, { type: "token", data: "\n\n- 列表一\n- 列表二\n\n结尾" });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+    expect(stableEl.querySelector("table")).toBe(tableEl);
+    const ulEl = stableEl.querySelector("ul");
+    expect(ulEl).not.toBeNull();
+    expect(ulEl!.querySelectorAll("li").length).toBe(2);
+  });
+
+  it("Mermaid 与数学公式水合隔离：新块进入 stable 时，旧已水合节点不被销毁", async () => {
+    const { deps, runtime } = await makeRuntime();
+    const raf = holdRaf();
+    const node = assistantNode(deps);
+
+    // 帧 1：包含公式与图表的块进入 stable
+    feed(runtime, {
+      type: "token",
+      data: "$$\nE=mc^2\n$$\n\n```mermaid\ngraph TD;\nA-->B;\n```\n\n新段落开头"
+    });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+    const stableEl = node.querySelector(".chat-stream-stable")!;
+    const mathEl = stableEl.querySelector("[data-biliscript-math]");
+    const mermaidEl = stableEl.querySelector("[data-biliscript-mermaid]");
+    expect(mathEl).not.toBeNull();
+    expect(mermaidEl).not.toBeNull();
+
+    // 在已水合节点上打上标记模拟已有真实 SVG / 渲染子树
+    mermaidEl!.setAttribute("data-test-rendered", "true");
+    mathEl!.setAttribute("data-test-rendered", "true");
+
+    // 帧 2：新稳定段落到达，提交到 stableEl
+    feed(runtime, { type: "token", data: "\n\n后续段落落定\n\n更后文本" });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+
+    // 旧节点身份保持不变，已渲染属性未被销毁
+    expect(stableEl.querySelector("[data-biliscript-mermaid]")).toBe(mermaidEl);
+    expect(mermaidEl!.getAttribute("data-test-rendered")).toBe("true");
+    expect(stableEl.querySelector("[data-biliscript-math]")).toBe(mathEl);
+    expect(mathEl!.getAttribute("data-test-rendered")).toBe("true");
+  });
+
+  it("性能证据：稳定区解析量随新增内容增长，不随每次提交时的完整前缀重复增长", async () => {
+    const md = await import("../../extension/ui/markdown.js");
+    const renderSpy = vi.spyOn(md, "renderMarkdownStripped");
+    const { deps, runtime } = await makeRuntime();
+    const raf = holdRaf();
+
+    // 帧 1：段落 1 提交
+    feed(runtime, { type: "token", data: "段落一内容较为简短\n\n段落二开头" });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+
+    // 记录帧 1 提交时传入 stable 渲染的字符串长度
+    // renderSpy 的第一个调用是 stable 渲染
+    const firstCallText = renderSpy.mock.calls[0][0];
+    expect(firstCallText).toContain("段落一内容较为简短");
+
+    // 清空 mock 调用
+    renderSpy.mockClear();
+
+    // 帧 2：段落 2 提交
+    feed(runtime, { type: "token", data: "，继续补齐第二段\n\n段落三" });
+    raf.mock.calls[raf.mock.calls.length - 1][0](0);
+
+    // 关键断言：稳定区增量渲染时，传入的文本仅包含第二段增量，不重复包含第一段
+    const stableCallText = renderSpy.mock.calls[0][0];
+    expect(stableCallText).toContain("第二段");
+    expect(stableCallText).not.toContain("段落一内容较为简短");
+  });
+});
+
 
