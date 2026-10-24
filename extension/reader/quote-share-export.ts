@@ -344,24 +344,28 @@ export async function renderQuoteCardToCanvas(
   }
 
   // 6. 正文与文字排版层
+  if (typeof document !== "undefined" && document.fonts?.load) {
+    await document.fonts.load('400 16px "BiliScript Noto Serif SC"', options.content).catch(() => []);
+  }
+
   // 6.1 引号装饰“
   ctx.save();
-  ctx.font = '36px Georgia, "Times New Roman", serif';
+  ctx.font = '34px Georgia, "Times New Roman", serif';
   ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-  ctx.textAlign = "center";
+  ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText("“", width / 2, 48);
+  ctx.fillText("“", 36, 42);
   ctx.restore();
 
   // 6.2 金句正文（支持根据容器宽度自适应折行与居中排版）
-  const fontSize = Math.min(24, Math.max(16, Math.round(width * 0.06)));
-  const lineHeight = fontSize * 1.65;
-  const maxTextWidth = width - 48;
+  const fontSize = Math.min(21, Math.max(16, Math.round(width * 0.055)));
+  const lineHeight = fontSize * 1.85;
+  const maxTextWidth = width - 72;
 
   ctx.save();
-  ctx.font = `500 ${fontSize}px "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif`;
+  ctx.font = `400 ${fontSize}px "BiliScript Noto Serif SC", Georgia, "Songti SC", "SimSun", serif`;
   ctx.fillStyle = "#ffffff";
-  ctx.textAlign = "center";
+  ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
   ctx.shadowBlur = 3;
@@ -369,13 +373,10 @@ export async function renderQuoteCardToCanvas(
 
   const lines = wrapCanvasText(ctx, options.content, maxTextWidth);
   const totalTextHeight = lines.length * lineHeight;
-  const availableTop = 68;
-  const availableBottom = height - 44;
-  const availableH = availableBottom - availableTop;
-  const startY = availableTop + Math.max(0, (availableH - totalTextHeight) / 2) + lineHeight / 2;
+  const startY = (height - totalTextHeight) / 2 + lineHeight / 2;
 
   lines.forEach((line, index) => {
-    ctx.fillText(line, width / 2, startY + index * lineHeight);
+    ctx.fillText(line, 36, startY + index * lineHeight);
   });
   ctx.restore();
 
@@ -383,17 +384,17 @@ export async function renderQuoteCardToCanvas(
   const sourceText = options.videoTitle || "BiliScript";
 
   ctx.save();
-  ctx.font = '12px "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
+  ctx.font = '11px "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif';
   ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
   ctx.textBaseline = "alphabetic";
 
   if (sourceText) {
-    ctx.textAlign = "right";
+    ctx.textAlign = "left";
     let truncatedSource = sourceText;
     while (truncatedSource.length > 3 && ctx.measureText(truncatedSource).width > width * 0.45) {
       truncatedSource = truncatedSource.slice(0, -2) + "…";
     }
-    ctx.fillText(truncatedSource, width - 24, height - 20);
+    ctx.fillText(truncatedSource, 36, height - 23);
   }
   ctx.restore();
 

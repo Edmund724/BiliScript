@@ -5,7 +5,7 @@
 // 容器 28px 圆角/squircle/面板阴影/mask 纱、关闭键 34×34 幽灵键（hover 与
 // focus-visible 同吃 fill-hover）、操作钮 32px 高 999px 圆角（复制透明次要、
 // 保存 accent 实底 on-fill 字、主钮 hover brightness(1.05)）、preset/pattern
-// 12px 圆角、卡片 20px 圆角与 clamp(16px,6cqi,24px) 字号。四象限（flyme/
+// 12px 圆角、卡片 20px 圆角与 clamp(16px,5.5cqi,21px) 字号。四象限（flyme/
 // editorial × light/dark）下这些值全部来自 --biliscript-reader-* token，
 // computed style、真 hover/:active 伪类、focus-visible、busy 禁用态、真实
 // 下载与剪贴板写入全都够不着 jsdom。柔光/视差/导出的像素逻辑本场景不改不判，
@@ -59,7 +59,7 @@ const fixtureOnly = process.argv.includes("--fixture-only");
 
 // ===== 场景清单（代码即清单）。id 同时是 evidence.json 里的键。=====
 const SCENARIOS = [
-  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/squircle/面板阴影/mask、关闭键 34×34、操作钮 32/999、卡片 20px/6cqi 全契约" },
+  { id: "Q1", slug: "01-baseline-flyme-light", title: "flyme 浅色基线：容器 28px/squircle/面板阴影/mask、关闭键 34×34、操作钮 32/999、卡片 20px/5.5cqi 全契约" },
   { id: "Q2", slug: "02-pointer", title: "真指针：close hover=fill-hover 字色不变、active scale(.91)；操作钮 hover/active" },
   { id: "Q3", slug: "03-keyboard", title: "真 Tab 键：focus-visible 底=fill-hover 字=text" },
   { id: "Q4", slug: "04-copy", title: "复制：busy 禁用 .45、is-success 字色=accent 不铺底、剪贴板真回读到 image/png" },
@@ -198,7 +198,14 @@ const JS = {
       card: {
         borderRadius: csCard.borderRadius,
         fontSize: csCardText.fontSize,
-        fontSizeExpected: Math.min(24, Math.max(16, Math.round((card.getBoundingClientRect().width) * 0.06))) + 'px',
+        fontSizeExpected: Math.min(21, Math.max(16, Math.round((card.getBoundingClientRect().width) * 0.055))) + 'px',
+        fontFamily: csCardText.fontFamily,
+        fontLoaded: document.fonts.check('400 16px "BiliScript Noto Serif SC"'),
+        textAlign: csCardText.textAlign,
+        verticalCenterDelta: Math.abs(
+          (cardText.getBoundingClientRect().top - card.getBoundingClientRect().top) -
+          (card.getBoundingClientRect().bottom - cardText.getBoundingClientRect().bottom)
+        ),
         text: cardText.textContent,
         preset: card.dataset.preset,
         pattern: card.dataset.pattern,
@@ -736,7 +743,10 @@ async function main() {
       }
       // 卡片本体
       checkEquals("Q1.card-radius-20", q1.probe?.card?.borderRadius, "20px");
-      checkEquals("Q1.card-font-6cqi", q1.probe?.card?.fontSize, q1.probe?.card?.fontSizeExpected);
+      checkEquals("Q1.card-font-5.5cqi", q1.probe?.card?.fontSize, q1.probe?.card?.fontSizeExpected);
+      check("Q1.card-local-serif-loaded", q1.probe?.card?.fontLoaded && q1.probe?.card?.fontFamily?.includes("BiliScript Noto Serif SC"), { family: q1.probe?.card?.fontFamily, loaded: q1.probe?.card?.fontLoaded });
+      checkEquals("Q1.card-text-left", q1.probe?.card?.textAlign, "left");
+      check("Q1.card-text-vertically-centered", q1.probe?.card?.verticalCenterDelta <= 1, { delta: q1.probe?.card?.verticalCenterDelta });
       check("Q1.card-text-matches-fixture-quote", q1.probe?.card?.text === QUOTE?.content, { cardText: q1.probe?.card?.text, fixture: QUOTE?.content });
       await shot("01-baseline-flyme-light", "flyme 浅色基线：弹窗与面板同 token（28px/squircle/面板阴影/mask）");
       record("Q1", { title: SCENARIOS[0].title, ...q1, note: "基线全契约；金句文本与 fixture 独立比对一致" });
@@ -953,7 +963,7 @@ async function main() {
         if (!file) {
           for (const dir of dirs) {
             try {
-              const found = readdirSync(dir).find((f) => /^biliscript-quote-.*\.png$/i.test(f));
+              const found = readdirSync(dir).filter((f) => /^biliscript-quote-.*\.png$/i.test(f)).sort().at(-1);
               if (found) { file = path.join(dir, found); break; }
             } catch {}
           }
@@ -972,12 +982,16 @@ async function main() {
       if (file) {
         const buf = readFileSync(file);
         const pngMagic = buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+        const cardRect = (await pageCdp.evaluate(JS.probe))?.rects?.card;
+        const dimensions = { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+        q5.pngDimensions = dimensions;
         check("Q5.png-nonempty", buf.length > 200, { bytes: buf.length });
         check("Q5.png-magic", pngMagic, { head: buf.subarray(0, 8).toString("hex") });
+        check("Q5.png-matches-current-card-geometry", cardRect && dimensions.width === Math.round(cardRect.w * 2) && dimensions.height === Math.round(cardRect.h * 2), { dimensions, cardRect });
       }
       await sleep(1800);
       await shot("05-save-png", "保存 PNG 真实下载");
-      record("Q5", { title: SCENARIOS[4].title, ...q5, note: "Browser.setDownloadBehavior 指定落盘；PNG 魔数+体积断言" });
+      record("Q5", { title: SCENARIOS[4].title, ...q5, note: "Browser.setDownloadBehavior 指定落盘；校验最新 PNG 的魔数、体积与当前卡片尺寸" });
     }
 
     // ---------- Q6 三条关闭路径，每条后可重开 ----------

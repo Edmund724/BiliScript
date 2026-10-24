@@ -4,6 +4,22 @@
  * 文摘面板（三标签 300–460px 窄容器），rail/stage/player-slot 等整页接管
  * 期布局已随其退役删除；视口定位（贴栏/浮层）在 reader-gate.css 门控段。 */
 
+@font-face {
+  font-family: "BiliScript Noto Sans SC";
+  src: url("../../fonts/biliscript-noto-sans-sc.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "BiliScript Noto Serif SC";
+  src: url("../../fonts/biliscript-noto-serif-sc.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
 #biliscript-reading-view {
   position: fixed;
   left: 16px;
@@ -1464,17 +1480,21 @@
 }
 
 .biliscript-reading-ov-chapter-title {
-  font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
-  font-weight: 600;
+  font-family: "BiliScript Noto Sans SC", var(--biliscript-reader-font-sans);
+  font-size: calc(15px * var(--biliscript-reader-font-scale, 1));
+  font-size-adjust: from-font;
+  font-weight: 500;
   line-height: 1.5;
   color: var(--biliscript-reader-text);
   word-break: break-word;
 }
 
 /* 时间轴章节主副标题拆分的次级说明（仅 outline 来源且无 summary 时渲染，
- * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方粗体主标题。 */
+ * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方主标题。 */
 .biliscript-reading-ov-chapter-subtitle {
+  font-family: "BiliScript Noto Sans SC", var(--biliscript-reader-font-sans);
   font-size: calc(12px * var(--biliscript-reader-font-scale, 1));
+  font-size-adjust: from-font;
   font-weight: 400;
   line-height: 1.5;
   color: var(--biliscript-reader-muted);
@@ -1482,19 +1502,17 @@
 }
 
 .biliscript-reading-ov-chapter-desc {
-  font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
-  line-height: 1.6;
+  font-family: "BiliScript Noto Sans SC", var(--biliscript-reader-font-sans);
+  font-size: calc(14px * var(--biliscript-reader-font-scale, 1));
+  font-size-adjust: from-font;
+  line-height: 1.7;
   color: var(--biliscript-reader-muted);
   word-break: break-word;
 }
 
-/* editorial 数字刊物色板：概览组标题、章节标题与金句正文走衬线字型栈
- *（--font-serif token，gate 表 editorial 两块定义；flyme 色板无此 token、
- * 本规则不命中， sans 不变）。色板与明暗正交——选择器只带 data-palette，
- * 明暗档（data-theme）不影响字体落位。 */
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h,
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter-title,
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-quote-text {
+/* editorial 数字刊物色板的概览组标题保留衬线字型；章节与金句使用本地
+ * Noto 字体，在不同色板中保持一致的信息层级与阅读字形。 */
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h {
   font-family: var(--biliscript-reader-font-serif);
 }
 
@@ -1557,14 +1575,15 @@
   position: relative;
   z-index: 1;
   display: block;
+  font-family: "BiliScript Noto Serif SC", Georgia, "Songti SC", "SimSun", serif;
   font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
+  font-size-adjust: from-font;
   line-height: 1.7;
   color: var(--biliscript-reader-text);
   word-break: break-word;
 }
 
-/* 金句正文前后「」直角引号（与章节卡拉开区分的书摘特征）：伪元素注入，
- * 复制金句文本不含括号；字色字体随正文（editorial 色板下同吃衬线栈）。 */
+/* 金句正文前后「」直角引号：伪元素注入，复制文本不含括号，字形随正文。 */
 .biliscript-reading-ov-quote-text::before {
   content: "「";
 }
@@ -2120,7 +2139,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 .biliscript-quote-share-card {
   position: relative;
   width: 100%;
-  min-height: 280px;
+  min-height: 315px;
   border-radius: 20px;
   box-shadow: var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12)), 0 8px 32px rgba(0, 0, 0, 0.28);
   overflow: hidden;
@@ -2234,50 +2253,53 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   pointer-events: none;
 }
 
-/* 内容层 */
+/* 正文独立占满卡片并垂直居中；引号与来源绝对定位，不参与正文偏移。 */
 .biliscript-quote-card-content {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 2;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  flex: 1;
-  padding: 32px 24px 20px;
+  padding: 34px 36px;
   box-sizing: border-box;
   color: #ffffff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .biliscript-quote-card-quote-mark {
+  position: absolute;
+  top: 25px;
+  left: 36px;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 36px;
+  font-size: 34px;
   line-height: 1;
   opacity: 0.6;
-  margin-bottom: 8px;
   user-select: none;
 }
 
 .biliscript-quote-card-text {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(16px, 6cqi, 24px);
-  font-weight: 500;
-  line-height: 1.65;
-  text-align: center;
+  font-family: "BiliScript Noto Serif SC", Georgia, "Songti SC", "SimSun", serif;
+  font-size: clamp(16px, 5.5cqi, 21px);
+  font-size-adjust: from-font;
+  font-weight: 400;
+  line-height: 1.85;
+  text-align: left;
+  text-wrap: pretty;
+  text-box: trim-both cap alphabetic;
   word-break: break-word;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.025em;
   margin: 0;
   max-width: 100%;
 }
 
 .biliscript-quote-card-footer {
-  width: 100%;
+  position: absolute;
+  left: 36px;
+  bottom: 23px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 4px;
-  margin-top: 24px;
-  font-size: 12px;
+  padding: 0;
+  font-size: 11px;
   opacity: 0.75;
   letter-spacing: 0.04em;
 }

@@ -1064,8 +1064,9 @@ describe("quote-share-motion-styles 样式与降级", () => {
     expect(cssContent).toContain("var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12))");
   });
 
-  it("正文字号以 6% 容器宽度为基准配比 (clamp(16px, 6cqi, 24px))", () => {
-    expect(cssContent).toContain("font-size: clamp(16px, 6cqi, 24px);");
+  it("正文使用本地宋体并以 5.5% 容器宽度配比", () => {
+    expect(cssContent).toContain('font-family: "BiliScript Noto Serif SC", Georgia, "Songti SC", "SimSun", serif;');
+    expect(cssContent).toContain("font-size: clamp(16px, 5.5cqi, 21px);");
   });
 });
 
