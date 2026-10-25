@@ -8,36 +8,18 @@ import {
   READING_CHECK_ICON,
   READING_DOWNLOAD_ICON
 } from "../ui/reading-icons.js";
-import { getQuoteShareNoiseDataUrl } from "./quote-share-noise.js";
 import {
   QUOTE_CARD_PATTERNS,
+  QUOTE_CARD_PRESETS,
+  type QuoteCardExportOptions,
   type QuotePatternId,
-  getQuoteSharePatternSvg
-} from "./quote-share-patterns.js";
-import { createSpring2D, type Spring2DInstance } from "./quote-share-spring.js";
-import {
+  getQuoteShareNoiseDataUrl,
+  getQuoteSharePatternSvg,
   renderQuoteCardBlob,
   copyQuoteCardBlobToClipboard,
   downloadQuoteCardBlob
 } from "./quote-share-export.js";
 import { ids } from "./state.js";
-
-export { QUOTE_CARD_PATTERNS, type QuotePatternId };
-
-export interface QuoteCardPreset {
-  id: string;
-  name: string;
-  dotColor: string;
-}
-
-export const QUOTE_CARD_PRESETS: QuoteCardPreset[] = [
-  { id: "purple-gold", name: "紫粉·橙金", dotColor: "linear-gradient(135deg, #dc82c8, #f5aa32)" },
-  { id: "slate-brown", name: "灰蓝·深棕", dotColor: "linear-gradient(135deg, #87a0b9, #c37d50)" },
-  { id: "mist-deep-sea", name: "雾蓝·深海", dotColor: "linear-gradient(135deg, #73b4eb, #12325a)" },
-  { id: "mist-forest-green", name: "雾蓝·墨绿", dotColor: "linear-gradient(135deg, #6eb0c3, #16462a)" },
-  { id: "lavender-midnight", name: "薰衣草·深夜紫", dotColor: "linear-gradient(135deg, #aa8cdc, #150b2e)" },
-  { id: "ash-rust", name: "天灰·锈红", dotColor: "linear-gradient(135deg, #a5b4be, #8c2d23)" }
-];
 
 export interface OpenQuoteShareModalOptions {
   content: string;
@@ -45,6 +27,16 @@ export interface OpenQuoteShareModalOptions {
   videoTitle?: string;
   preset?: string;
   pattern?: QuotePatternId;
+}
+
+interface SpringPoint2D {
+  x: number;
+  y: number;
+}
+
+interface Spring2DInstance {
+  setTarget(x: number, y: number): void;
+  stop(): void;
 }
 
 interface QuoteShareModalState {
@@ -72,9 +64,154 @@ const state: QuoteShareModalState = {
 };
 
 /**
- * 判断系统是否开启了减弱动态效果设置。
+ * 计算欠阻尼/临界阻尼弹簧在 dt 秒步进后的解析解。
  */
-export function prefersReducedMotion(): boolean {
+function solveSpring1D(
+  current: number,
+  velocity: number,
+  target: number,
+  dt: number,
+  stiffness = 70,
+  dampingRatio = 0.86
+): [newPos: number, newVel: number] {
+  if (dt <= 0) {
+    return [current, velocity];
+  }
+
+  const p0 = current - target;
+  const v0 = velocity;
+  const w0 = Math.sqrt(Math.max(0.0001, stiffness));
+  const alpha = dampingRatio * w0;
+
+  if (dampingRatio < 1) {
+    const wd = w0 * Math.sqrt(1 - dampingRatio * dampingRatio);
+    const decay = Math.exp(-alpha * dt);
+    const cosVal = Math.cos(wd * dt);
+    const sinVal = Math.sin(wd * dt);
+
+    const b = (v0 + alpha * p0) / wd;
+    const pNew = decay * (p0 * cosVal + b * sinVal);
+    const vNew = -alpha * pNew + decay * (-p0 * wd * sinVal + (v0 + alpha * p0) * cosVal);
+
+    return [target + pNew, vNew];
+  }
+
+  if (dampingRatio === 1) {
+    const decay = Math.exp(-alpha * dt);
+    const c1 = p0;
+    const c2 = v0 + alpha * p0;
+    const pNew = decay * (c1 + c2 * dt);
+    const vNew = decay * (v0 - alpha * c2 * dt);
+    return [target + pNew, vNew];
+  }
+
+  const w1 = w0 * Math.sqrt(dampingRatio * dampingRatio - 1);
+  const r1 = -alpha + w1;
+  const r2 = -alpha - w1;
+  const c2 = (v0 - r1 * p0) / (r2 - r1);
+  const c1 = p0 - c2;
+  const pNew = c1 * Math.exp(r1 * dt) + c2 * Math.exp(r2 * dt);
+  const vNew = c1 * r1 * Math.exp(r1 * dt) + c2 * r2 * Math.exp(r2 * dt);
+  return [target + pNew, vNew];
+}
+
+function createSpring2D(options: {
+  stiffness?: number;
+  dampingRatio?: number;
+  precision?: number;
+  velocityPrecision?: number;
+  onUpdate?: (pos: SpringPoint2D) => void;
+}): Spring2DInstance {
+  const stiffness = options.stiffness ?? 70;
+  const dampingRatio = options.dampingRatio ?? 0.86;
+  const precision = options.precision ?? 0.002;
+  const velPrecision = options.velocityPrecision ?? 0.005;
+
+  let currentX = 0;
+  let currentY = 0;
+  let targetX = 0;
+  let targetY = 0;
+  let velX = 0;
+  let velY = 0;
+  let settled = true;
+  let rafId: number | null = null;
+  let lastTimestamp = 0;
+
+  function step(dt: number): void {
+    if (settled) {
+      return;
+    }
+
+    const safeDt = Math.max(0.001, Math.min(0.064, dt));
+    const [nextX, nextVx] = solveSpring1D(currentX, velX, targetX, safeDt, stiffness, dampingRatio);
+    const [nextY, nextVy] = solveSpring1D(currentY, velY, targetY, safeDt, stiffness, dampingRatio);
+
+    currentX = nextX;
+    velX = nextVx;
+    currentY = nextY;
+    velY = nextVy;
+
+    const diffX = Math.abs(currentX - targetX);
+    const diffY = Math.abs(currentY - targetY);
+    const speedX = Math.abs(velX);
+    const speedY = Math.abs(velY);
+
+    if (diffX < precision && diffY < precision && speedX < velPrecision && speedY < velPrecision) {
+      currentX = targetX;
+      currentY = targetY;
+      velX = 0;
+      velY = 0;
+      settled = true;
+    }
+  }
+
+  function tick(timestamp: number): void {
+    if (lastTimestamp === 0) {
+      lastTimestamp = timestamp;
+    }
+    const dt = (timestamp - lastTimestamp) / 1000;
+    lastTimestamp = timestamp;
+
+    step(dt);
+    options.onUpdate?.({ x: currentX, y: currentY });
+
+    if (settled) {
+      rafId = null;
+      lastTimestamp = 0;
+      return;
+    }
+
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function setTarget(x: number, y: number): void {
+    if (targetX === x && targetY === y) {
+      return;
+    }
+    targetX = x;
+    targetY = y;
+    settled = false;
+    if (rafId === null && typeof requestAnimationFrame === "function") {
+      lastTimestamp = 0;
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+
+  function stop(): void {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    lastTimestamp = 0;
+  }
+
+  return {
+    setTarget,
+    stop
+  };
+}
+
+function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return false;
   }
@@ -85,16 +222,8 @@ export function isQuoteShareModalOpen(): boolean {
   return state.open;
 }
 
-export function getActiveQuoteCardPreset(): string {
-  return state.activePreset;
-}
-
-export function getSpringInstance(): Spring2DInstance | null {
-  return state.spring;
-}
-
-export function setActiveQuoteCardPreset(presetId: string): void {
-  const matched = QUOTE_CARD_PRESETS.find((p) => p.id === presetId);
+function setActiveQuoteCardPreset(presetId: string): void {
+  const matched = QUOTE_CARD_PRESETS.some((p) => p.id === presetId);
   if (!matched || state.activePreset === presetId) {
     return;
   }
@@ -102,12 +231,8 @@ export function setActiveQuoteCardPreset(presetId: string): void {
   updatePresetSelectionInDom(presetId);
 }
 
-export function getActiveQuoteCardPattern(): QuotePatternId {
-  return state.activePattern;
-}
-
-export function setActiveQuoteCardPattern(patternId: QuotePatternId): void {
-  const matched = QUOTE_CARD_PATTERNS.find((p) => p.id === patternId);
+function setActiveQuoteCardPattern(patternId: QuotePatternId): void {
+  const matched = QUOTE_CARD_PATTERNS.some((p) => p.id === patternId);
   if (!matched || state.activePattern === patternId) {
     return;
   }
@@ -164,6 +289,8 @@ export function openQuoteShareModal(options: OpenQuoteShareModalOptions): void {
   state.videoTitle = String(options.videoTitle || "").trim();
   if (options.preset && QUOTE_CARD_PRESETS.some((p) => p.id === options.preset)) {
     state.activePreset = options.preset;
+  } else {
+    state.activePreset = "purple-gold";
   }
   if (options.pattern && QUOTE_CARD_PATTERNS.some((p) => p.id === options.pattern)) {
     state.activePattern = options.pattern;
@@ -217,7 +344,6 @@ function setupMotionAndParallax(host: HTMLElement): void {
     return;
   }
 
-  // 弹簧阻尼平滑插值（stiffness: 70, damping ratio: 0.86）
   const spring = createSpring2D({
     stiffness: 70,
     dampingRatio: 0.86,
@@ -292,6 +418,18 @@ function bindModalEvents(host: HTMLElement): void {
       return;
     }
   });
+}
+
+function buildExportOptions(card: HTMLElement): QuoteCardExportOptions {
+  const rect = card.getBoundingClientRect();
+  return {
+    content: state.content,
+    videoTitle: state.videoTitle || "BiliScript",
+    preset: state.activePreset,
+    pattern: state.activePattern,
+    width: Math.round(rect.width) || 400,
+    height: Math.round(rect.height) || 300
+  };
 }
 
 interface AsyncButtonFeedbackOptions {
@@ -381,7 +519,7 @@ async function handleCopyImageAction(btn: HTMLButtonElement, card: HTMLElement):
     loadingText: "生成中...",
     defaultIconHtml: READING_COPY_ICON,
     action: async () => {
-      const blob = await renderQuoteCardBlob(card);
+      const blob = await renderQuoteCardBlob(buildExportOptions(card));
       return await copyQuoteCardBlobToClipboard(blob);
     },
     successText: "已复制 ✓",
@@ -399,7 +537,7 @@ async function handleDownloadImageAction(btn: HTMLButtonElement, card: HTMLEleme
     loadingText: "导出中...",
     defaultIconHtml: READING_DOWNLOAD_ICON,
     action: async () => {
-      const blob = await renderQuoteCardBlob(card);
+      const blob = await renderQuoteCardBlob(buildExportOptions(card));
       const filename = `biliscript-quote-${Date.now()}.png`;
       downloadQuoteCardBlob(blob, filename);
     },

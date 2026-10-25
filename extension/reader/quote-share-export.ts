@@ -1,23 +1,34 @@
 // extension/reader/quote-share-export.ts
-// 金句分享卡片客户端光栅化导出、剪贴板写入与文件下载。
+// 金句分享卡片预设表、细线几何纹样、物理灰度噪点、客户端光栅化导出、剪贴板写入与文件下载。
 
-import { getQuoteShareNoiseDataUrl } from "./quote-share-noise.js";
-import {
-  type QuotePatternId,
-  getQuoteSharePatternSvg
-} from "./quote-share-patterns.js";
+export type QuotePatternId = "none" | "rays" | "contours" | "soundwaves" | "dots" | "lens";
 
-export interface QuoteCardExportOptions {
-  content: string;
-  videoTitle?: string;
-  preset?: string;
-  pattern?: QuotePatternId;
-  width?: number;
-  height?: number;
-  scale?: number;
+export interface QuoteCardPattern {
+  id: QuotePatternId;
+  name: string;
 }
 
-interface PresetGradientDef {
+export const QUOTE_CARD_PATTERNS: readonly QuoteCardPattern[] = [
+  { id: "none", name: "无纹样" },
+  { id: "rays", name: "射线" },
+  { id: "contours", name: "等高线" },
+  { id: "soundwaves", name: "声波" },
+  { id: "dots", name: "点阵" },
+  { id: "lens", name: "透镜" }
+];
+
+export type QuotePresetId =
+  | "purple-gold"
+  | "slate-brown"
+  | "mist-deep-sea"
+  | "mist-forest-green"
+  | "lavender-midnight"
+  | "ash-rust";
+
+export interface QuoteCardPreset {
+  id: QuotePresetId;
+  name: string;
+  dotColor: string;
   base: {
     angleDeg: number;
     stops: Array<{ offset: number; color: string }>;
@@ -30,6 +41,16 @@ interface PresetGradientDef {
   }>;
 }
 
+export interface QuoteCardExportOptions {
+  content: string;
+  videoTitle?: string;
+  preset?: string;
+  pattern?: QuotePatternId;
+  width?: number;
+  height?: number;
+  scale?: number;
+}
+
 const BLOB_GEOMETRIES = [
   { cxRatio: 0.18, cyRatio: 0.18, rRatio: 0.55 },
   { cxRatio: 0.82, cyRatio: 0.2, rRatio: 0.5 },
@@ -37,12 +58,18 @@ const BLOB_GEOMETRIES = [
   { cxRatio: 0.82, cyRatio: 0.8, rRatio: 0.5 }
 ] as const;
 
-function createPresetDef(
+function definePreset(
+  id: QuotePresetId,
+  name: string,
+  dotColor: string,
   baseStops: Array<{ offset: number; color: string }>,
   blobColors: readonly [string, string, string, string],
   angleDeg = 165
-): PresetGradientDef {
+): QuoteCardPreset {
   return {
+    id,
+    name,
+    dotColor,
     base: {
       angleDeg,
       stops: baseStops
@@ -54,8 +81,11 @@ function createPresetDef(
   };
 }
 
-export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
-  "purple-gold": createPresetDef(
+export const QUOTE_CARD_PRESETS: readonly QuoteCardPreset[] = [
+  definePreset(
+    "purple-gold",
+    "紫粉·橙金",
+    "linear-gradient(135deg, #dc82c8, #f5aa32)",
     [
       { offset: 0, color: "#b4bed6" },
       { offset: 0.45, color: "#9d8daa" },
@@ -68,7 +98,10 @@ export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
       "rgba(250, 180, 71, 0.88)"
     ]
   ),
-  "slate-brown": createPresetDef(
+  definePreset(
+    "slate-brown",
+    "灰蓝·深棕",
+    "linear-gradient(135deg, #87a0b9, #c37d50)",
     [
       { offset: 0, color: "#aebdc5" },
       { offset: 0.45, color: "#66727a" },
@@ -81,7 +114,10 @@ export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
       "rgba(212, 123, 67, 0.9)"
     ]
   ),
-  "mist-deep-sea": createPresetDef(
+  definePreset(
+    "mist-deep-sea",
+    "雾蓝·深海",
+    "linear-gradient(135deg, #73b4eb, #12325a)",
     [
       { offset: 0, color: "#c6d6df" },
       { offset: 0.45, color: "#4b8393" },
@@ -94,7 +130,10 @@ export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
       "rgba(16, 63, 81, 0.86)"
     ]
   ),
-  "mist-forest-green": createPresetDef(
+  definePreset(
+    "mist-forest-green",
+    "雾蓝·墨绿",
+    "linear-gradient(135deg, #6eb0c3, #16462a)",
     [
       { offset: 0, color: "#bcccd4" },
       { offset: 0.45, color: "#68816e" },
@@ -107,7 +146,10 @@ export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
       "rgba(36, 75, 44, 0.85)"
     ]
   ),
-  "lavender-midnight": createPresetDef(
+  definePreset(
+    "lavender-midnight",
+    "薰衣草·深夜紫",
+    "linear-gradient(135deg, #aa8cdc, #150b2e)",
     [
       { offset: 0, color: "#b7c6da" },
       { offset: 0.45, color: "#b088bd" },
@@ -120,7 +162,10 @@ export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
       "rgba(57, 32, 82, 0.85)"
     ]
   ),
-  "ash-rust": createPresetDef(
+  definePreset(
+    "ash-rust",
+    "天灰·锈红",
+    "linear-gradient(135deg, #a5b4be, #8c2d23)",
     [
       { offset: 0, color: "#c2cbd3" },
       { offset: 0.45, color: "#dda185" },
@@ -133,14 +178,231 @@ export const EXPORT_PRESET_DEFS: Record<string, PresetGradientDef> = {
       "rgba(166, 69, 55, 0.85)"
     ]
   )
-};
+];
+
+const PRESET_BY_ID = new Map<string, QuoteCardPreset>(
+  QUOTE_CARD_PRESETS.map((preset) => [preset.id, preset])
+);
+
+const NOISE_BASE_SIZE = 128;
+const noiseCache = new Map<number, string>();
+const patternCache = new Map<QuotePatternId, string>();
 
 /**
- * 将 Base64 或 SVG DataURL 加载为 HTMLImageElement。
+ * 获取当前 DPR 适配的 128×128 灰度噪点 base64 dataURL。
+ * 命中缓存时直接复用，避免每次打开弹窗重复重绘 Canvas。
  */
-export async function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement | null> {
+export function getQuoteShareNoiseDataUrl(customDpr?: number): string {
+  const dpr =
+    typeof customDpr === "number" && customDpr > 0
+      ? customDpr
+      : typeof window !== "undefined" && window.devicePixelRatio > 0
+      ? window.devicePixelRatio
+      : 1;
+
+  const cached = noiseCache.get(dpr);
+  if (cached) {
+    return cached;
+  }
+
+  const dataUrl = generateNoiseDataUrl(dpr);
+  noiseCache.set(dpr, dataUrl);
+  return dataUrl;
+}
+
+function generateNoiseDataUrl(dpr: number): string {
+  if (typeof document === "undefined") {
+    return createFallbackNoiseSvgDataUrl();
+  }
+
+  const width = Math.max(1, Math.round(NOISE_BASE_SIZE * dpr));
+  const height = Math.max(1, Math.round(NOISE_BASE_SIZE * dpr));
+
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return createFallbackNoiseSvgDataUrl();
+    }
+
+    const imgData = ctx.createImageData(width, height);
+    const data = imgData.data;
+    const len = data.length;
+    for (let i = 0; i < len; i += 4) {
+      const val = (Math.random() * 256) | 0;
+      data[i] = val;
+      data[i + 1] = val;
+      data[i + 2] = val;
+      data[i + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    return canvas.toDataURL("image/png");
+  } catch {
+    return createFallbackNoiseSvgDataUrl();
+  }
+}
+
+function createFallbackNoiseSvgDataUrl(): string {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${NOISE_BASE_SIZE}" height="${NOISE_BASE_SIZE}"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="matrix" values="0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0.33 0.33 0.33 0 0  0 0 0 1 0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+/**
+ * 获取指定纹样的内联 SVG 字符串（命中内存缓存时直接复用）。
+ */
+export function getQuoteSharePatternSvg(patternId: QuotePatternId): string {
+  if (patternId === "none") {
+    return "";
+  }
+  const cached = patternCache.get(patternId);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const svg = generatePatternSvg(patternId);
+  patternCache.set(patternId, svg);
+  return svg;
+}
+
+function generatePatternSvg(patternId: QuotePatternId): string {
+  switch (patternId) {
+    case "rays":
+      return generateRaysSvg();
+    case "contours":
+      return generateContoursSvg();
+    case "soundwaves":
+      return generateSoundwavesSvg();
+    case "dots":
+      return generateDotsSvg();
+    case "lens":
+      return generateLensSvg();
+    default:
+      return "";
+  }
+}
+
+function generateRaysSvg(): string {
+  const cx = 200;
+  const cy = 150;
+  const r = 320;
+  const count = 48;
+  const lines: string[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const angle = (i * 2 * Math.PI) / count;
+    const x2 = Number((cx + r * Math.cos(angle)).toFixed(1));
+    const y2 = Number((cy + r * Math.sin(angle)).toFixed(1));
+    lines.push(`<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" />`);
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" fill="none" stroke="#ffffff" stroke-width="0.8" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${lines.join("")}</svg>`;
+}
+
+function generateContoursSvg(): string {
+  const cx = 200;
+  const cy = 150;
+  const numContours = 10;
+  const pointsPerContour = 24;
+  const paths: string[] = [];
+
+  for (let k = 1; k <= numContours; k++) {
+    const baseR = 25 * k;
+    const pts: Array<{ x: number; y: number }> = [];
+
+    for (let j = 0; j < pointsPerContour; j++) {
+      const theta = (j * 2 * Math.PI) / pointsPerContour;
+      const r = baseR * (1 + 0.08 * Math.sin(3 * theta + k * 0.7) + 0.05 * Math.cos(2 * theta - k * 0.5));
+      const x = Number((cx + r * Math.cos(theta)).toFixed(1));
+      const y = Number((cy + r * Math.sin(theta)).toFixed(1));
+      pts.push({ x, y });
+    }
+
+    const n = pts.length;
+    const startX = Number(((pts[n - 1].x + pts[0].x) / 2).toFixed(1));
+    const startY = Number(((pts[n - 1].y + pts[0].y) / 2).toFixed(1));
+    let d = `M ${startX} ${startY}`;
+
+    for (let i = 0; i < n; i++) {
+      const curr = pts[i];
+      const next = pts[(i + 1) % n];
+      const midX = Number(((curr.x + next.x) / 2).toFixed(1));
+      const midY = Number(((curr.y + next.y) / 2).toFixed(1));
+      d += ` Q ${curr.x} ${curr.y} ${midX} ${midY}`;
+    }
+    d += " Z";
+    paths.push(`<path d="${d}" />`);
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" fill="none" stroke="#ffffff" stroke-width="0.8" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${paths.join("")}</svg>`;
+}
+
+function generateSoundwavesSvg(): string {
+  const numWaves = 14;
+  const samples = 24;
+  const paths: string[] = [];
+
+  for (let i = 0; i < numWaves; i++) {
+    const baseY = 20 + i * 19;
+    const pts: Array<{ x: number; y: number }> = [];
+
+    for (let j = 0; j <= samples; j++) {
+      const x = Number(((j / samples) * 400).toFixed(1));
+      const normX = j / samples;
+      const envelope = Math.sin(Math.PI * normX);
+      const wave = Math.sin(normX * Math.PI * 6 + i * 0.8) * 12 * envelope;
+      const y = Number((baseY + wave).toFixed(1));
+      pts.push({ x, y });
+    }
+
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let j = 1; j < pts.length; j++) {
+      const prev = pts[j - 1];
+      const curr = pts[j];
+      const midX = Number(((prev.x + curr.x) / 2).toFixed(1));
+      const midY = Number(((prev.y + curr.y) / 2).toFixed(1));
+      d += ` Q ${prev.x} ${prev.y} ${midX} ${midY}`;
+    }
+    paths.push(`<path d="${d}" />`);
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" fill="none" stroke="#ffffff" stroke-width="0.8" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${paths.join("")}</svg>`;
+}
+
+function generateDotsSvg(): string {
+  const circles: string[] = [];
+  const stepX = 16;
+  const stepY = 16;
+
+  for (let x = 12; x <= 388; x += stepX) {
+    for (let y = 12; y <= 288; y += stepY) {
+      circles.push(`<circle cx="${x}" cy="${y}" r="0.8" />`);
+    }
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" fill="#ffffff" stroke="none" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${circles.join("")}</svg>`;
+}
+
+function generateLensSvg(): string {
+  const cx = 200;
+  const cy = 150;
+  const elements: string[] = [];
+
+  elements.push(`<line x1="${cx}" y1="10" x2="${cx}" y2="290" />`);
+  elements.push(`<line x1="10" y1="${cy}" x2="390" y2="${cy}" />`);
+
+  const numRings = 24;
+  for (let n = 1; n <= numRings; n++) {
+    const r = Number((48 * Math.sqrt(n)).toFixed(1));
+    elements.push(`<circle cx="${cx}" cy="${cy}" r="${r}" />`);
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" fill="none" stroke="#ffffff" stroke-width="0.8" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${elements.join("")}</svg>`;
+}
+
+function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement | null> {
   if (typeof Image === "undefined") {
-    return null;
+    return Promise.resolve(null);
   }
   return new Promise((resolve) => {
     const img = new Image();
@@ -154,7 +416,7 @@ export async function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageEl
 /**
  * 文本折行算法，支持中英文混合排版。
  */
-export function wrapCanvasText(
+function wrapCanvasText(
   ctx: CanvasRenderingContext2D,
   text: string,
   maxWidth: number
@@ -188,30 +450,9 @@ export function wrapCanvasText(
 }
 
 /**
- * 从 DOM 卡片元素提取导出参数。
- */
-export function extractQuoteCardExportOptions(cardEl: HTMLElement): QuoteCardExportOptions {
-  const textEl = cardEl.querySelector(".biliscript-quote-card-text");
-  const sourceEl = cardEl.querySelector(".biliscript-quote-card-source");
-
-  const rect = cardEl.getBoundingClientRect();
-  const width = Math.round(rect.width) || 400;
-  const height = Math.round(rect.height) || 300;
-
-  return {
-    content: textEl?.textContent?.trim() || "",
-    videoTitle: sourceEl?.textContent?.trim() || "",
-    preset: cardEl.dataset.preset || "purple-gold",
-    pattern: (cardEl.dataset.pattern || "rays") as QuotePatternId,
-    width,
-    height
-  };
-}
-
-/**
  * 在 Canvas 2D 上绘制 iOS 连续圆角（Squircle / n=4 超椭圆，对应 CSS corner-shape: squircle）闭合矩形路径。
  */
-export function traceSquircleRectPath(
+function traceSquircleRectPath(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -251,7 +492,7 @@ export function traceSquircleRectPath(
 /**
  * 离屏渲染卡片至高分辨率 Canvas。
  */
-export async function renderQuoteCardToCanvas(
+async function renderQuoteCardToCanvas(
   options: QuoteCardExportOptions
 ): Promise<HTMLCanvasElement> {
   const scale =
@@ -278,8 +519,8 @@ export async function renderQuoteCardToCanvas(
   ctx.clip();
 
   // 2. 底层线性渐变（165deg）
-  const presetKey = options.preset && EXPORT_PRESET_DEFS[options.preset] ? options.preset : "purple-gold";
-  const presetDef = EXPORT_PRESET_DEFS[presetKey];
+  const presetDef =
+    (options.preset ? PRESET_BY_ID.get(options.preset) : undefined) ?? QUOTE_CARD_PRESETS[0];
 
   const angleRad = (presetDef.base.angleDeg * Math.PI) / 180;
   const len = Math.abs(width * Math.sin(angleRad)) + Math.abs(height * Math.cos(angleRad));
@@ -317,7 +558,6 @@ export async function renderQuoteCardToCanvas(
       const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`;
       const patternImg = await loadImageFromDataUrl(svgDataUrl);
       if (patternImg) {
-        // 创建离屏临时 Canvas 应用径向遮罩（中心避让留白）
         const tempCanvas = document.createElement("canvas");
         tempCanvas.width = Math.round(width * scale);
         tempCanvas.height = Math.round(height * scale);
@@ -327,7 +567,6 @@ export async function renderQuoteCardToCanvas(
           tempCtx.scale(scale, scale);
           tempCtx.drawImage(patternImg, 0, 0, width, height);
 
-          // 遮罩：中心 45% 挖空，75% 渐变，边缘保留
           tempCtx.globalCompositeOperation = "destination-out";
           const maskGrad = tempCtx.createRadialGradient(
             width / 2,
@@ -344,7 +583,6 @@ export async function renderQuoteCardToCanvas(
           tempCtx.fillStyle = maskGrad;
           tempCtx.fillRect(0, 0, width, height);
 
-          // 绘制到主 Canvas（透明度 0.38）
           ctx.save();
           ctx.globalAlpha = 0.38;
           ctx.drawImage(tempCanvas, 0, 0, width, height);
@@ -443,10 +681,7 @@ export async function renderQuoteCardToCanvas(
   return canvas;
 }
 
-/**
- * 将 DataURL 解析为 Blob。
- */
-export function dataUrlToBlob(dataUrl: string): Blob {
+function dataUrlToBlob(dataUrl: string): Blob {
   const comma = dataUrl.indexOf(",");
   const header = comma >= 0 ? dataUrl.substring(0, comma) : "";
   const match = header.match(/^data:([^;]+);base64/);
@@ -465,10 +700,7 @@ export function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([bytes], { type: mime });
 }
 
-/**
- * 将 Canvas 转为 Blob。
- */
-export async function canvasToBlob(
+async function canvasToBlob(
   canvas: HTMLCanvasElement,
   mimeType = "image/png"
 ): Promise<Blob> {
@@ -481,7 +713,7 @@ export async function canvasToBlob(
           try {
             const dataUrl = canvas.toDataURL(mimeType);
             resolve(dataUrlToBlob(dataUrl));
-          } catch (e) {
+          } catch {
             reject(new Error("Canvas toBlob failed and dataURL fallback failed"));
           }
         }
@@ -497,20 +729,9 @@ export async function canvasToBlob(
  * 渲染卡片为 PNG Blob。
  */
 export async function renderQuoteCardBlob(
-  optionsOrCard: QuoteCardExportOptions | HTMLElement,
-  overrideScale?: number
+  options: QuoteCardExportOptions
 ): Promise<Blob> {
-  let opts: QuoteCardExportOptions;
-  if (optionsOrCard instanceof HTMLElement) {
-    opts = extractQuoteCardExportOptions(optionsOrCard);
-  } else {
-    opts = optionsOrCard;
-  }
-  if (overrideScale !== undefined) {
-    opts = { ...opts, scale: overrideScale };
-  }
-
-  const canvas = await renderQuoteCardToCanvas(opts);
+  const canvas = await renderQuoteCardToCanvas(options);
   return await canvasToBlob(canvas, "image/png");
 }
 

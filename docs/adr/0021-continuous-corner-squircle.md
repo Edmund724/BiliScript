@@ -22,4 +22,4 @@
    - `tests/entry/design-tokens-audit.test.ts` 对 `extension/entry/styles/*.css` 执行全量规则块扫描，任何新增或修改的矩形圆角规则块若遗漏 `corner-shape: squircle`（或 `inherit`）将直接阻断单测。
 
 3. **金句分享卡 Canvas 2D 光栅化导出对齐**：
-   - `extension/reader/quote-share-export.ts` 的 `renderQuoteCardToCanvas` 通过 `traceSquircleRectPath` 按参数方程 $(cx + r \cdot \operatorname{sgn}(\cos t)\sqrt{|\cos t|},\ cy + r \cdot \operatorname{sgn}(\sin t)\sqrt{|\sin t|})$ 采样四角超椭圆路径，替代正圆弧 `ctx.roundRect(..., 20)`，同时用于卡片底图 `ctx.clip()` 与 `0.5px` 内侧微描边 `ctx.stroke()`，确保导出的 PNG 图片与 DOM 预览卡 `.biliscript-quote-card` 视觉一致。
+   - `extension/reader/quote-share-export.ts` 的 `renderQuoteCardBlob` 内部通过 `traceSquircleRectPath` 按参数方程 $(cx + r \cdot \operatorname{sgn}(\cos t)\sqrt{|\cos t|},\ cy + r \cdot \operatorname{sgn}(\sin t)\sqrt{|\sin t|})$ 采样四角超椭圆路径，替代正圆弧 `ctx.roundRect(..., 20)`，同时用于卡片底图 `ctx.clip()` 与 `0.5px` 内侧微描边 `ctx.stroke()`，确保导出的 PNG 图片与 DOM 预览卡 `.biliscript-quote-card` 视觉一致。
