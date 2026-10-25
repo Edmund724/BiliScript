@@ -629,7 +629,7 @@ async function renderQuoteCardToCanvas(
   ctx.save();
   const textCtx = ctx as CanvasRenderingContext2D & { fontVariantNumeric: string };
   textCtx.fontVariantNumeric = "lining-nums";
-  ctx.font = `400 ${fontSize}px Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif`;
+  ctx.font = `400 ${fontSize}px Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif`;
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";

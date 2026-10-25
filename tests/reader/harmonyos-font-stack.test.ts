@@ -77,14 +77,15 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
     for (const name of readdirSync(join(ROOT, STYLES_DIR)).filter((file) => /^reader.*\.css$/.test(file))) {
       const css = readSource(`${STYLES_DIR}/${name}`).replace(/\/\*[\s\S]*?\*\//g, "");
       for (const rule of css.matchAll(/([^{}]+)\{([^{}]*font-weight:\s*(?:500|600|700|bold)\s*[;}][^{}]*)\}/g)) {
-        if (rule[1].includes(".biliscript-reading-time")) continue;
+        if (rule[1].includes(".biliscript-reading-time") || rule[1].includes('[data-palette="editorial"]')) continue;
         const declarations = [...rule[2].matchAll(/font-family:\s*([^;]+);/g)];
         expect(declarations.at(-1)?.[1], `${name} 的 ${rule[1].trim()} 应消费中字重栈`).toBe("var(--biliscript-reader-font-sans-medium)");
       }
     }
   });
 
-  it("AI 对话回复、解释卡引文与回答、章节概括使用无衬线栈，系统衬线字体仅用于金句与 editorial 标题", () => {
+  it("基态回复与章节概括使用无衬线栈，现代多字重中文衬线优先于系统宋体并由金句与 editorial 标题/引文统一消费", () => {
+    const gate = readSource(`${STYLES_DIR}/reader-gate.css`).replace(/\/\*[\s\S]*?\*\//g, "");
     const reader = readSource(`${STYLES_DIR}/reader.css`).replace(/\/\*[\s\S]*?\*\//g, "");
     const chat = readSource(`${STYLES_DIR}/reader-chat.css`).replace(/\/\*[\s\S]*?\*\//g, "");
     const quoteExport = readSource("extension/reader/quote-share-export.ts");
@@ -92,7 +93,6 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
     expect(chat).toMatch(
       /\.biliscript-reading-chat \.chat-msg-assistant-body\s*\{[^}]*font-family:\s*var\(--biliscript-reader-font-sans\);/
     );
-    expect(chat).not.toContain("--biliscript-reader-font-serif");
 
     for (const selector of [
       "\\.biliscript-reading-explain-card-quote",
@@ -104,16 +104,39 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
       );
     }
 
-    const serifVarSelectors = [...reader.matchAll(/([^{}]+)\{[^{}]*var\(--biliscript-reader-font-serif\)[^{}]*\}/g)].map(
+    const systemSerif =
+      'Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif';
+    const gateSerifMatches = [...gate.matchAll(/--biliscript-reader-font-serif:\s*([^;]+);/g)].map((m) => m[1].trim());
+    expect(gateSerifMatches).toEqual([systemSerif, systemSerif, systemSerif]);
+    expect(systemSerif.indexOf('"Source Han Serif SC"')).toBeLessThan(systemSerif.indexOf('"Songti SC"'));
+    expect(systemSerif.indexOf('"Noto Serif SC"')).toBeLessThan(systemSerif.indexOf('"SimSun"'));
+
+    const readerSerifSelectors = [...reader.matchAll(/([^{}]+)\{[^{}]*var\(--biliscript-reader-font-serif\)[^{}]*\}/g)].map(
+      (match) => match[1].trim().replace(/\r\n/g, "\n")
+    );
+    expect(readerSerifSelectors).toEqual([
+      [
+        '#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h',
+        '#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter-title',
+        '#biliscript-reading-view[data-palette="editorial"] .markdown-body :is(h1, h2, h3)',
+        '#biliscript-reading-view[data-palette="editorial"] .markdown-body :is(h1, h2, h3) :is(strong, b)',
+        '#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-explain-card-quote',
+        '#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-intent-quote'
+      ].join(",\n"),
+      ".biliscript-reading-ov-quote-text",
+      ".biliscript-quote-card-text"
+    ]);
+
+    const chatSerifSelectors = [...chat.matchAll(/([^{}]+)\{[^{}]*var\(--biliscript-reader-font-serif\)[^{}]*\}/g)].map(
       (match) => match[1].trim()
     );
-    expect(serifVarSelectors).toEqual(['#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h']);
+    expect(chatSerifSelectors).toEqual([
+      '#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-hero-title'
+    ]);
 
-    const systemSerif = 'Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif';
     expect(reader).not.toContain("BiliScript Noto Serif SC");
     expect(reader).not.toContain("@font-face");
-    expect(reader.match(/font-family:\s*Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;/g)).toHaveLength(2);
-    expect(reader.match(/font-variant-numeric:\s*lining-nums;/g)).toHaveLength(2);
+    expect(reader.match(/font-variant-numeric:\s*lining-nums;/g)).toHaveLength(3);
     expect(quoteExport).not.toContain("document.fonts.load");
     expect(quoteExport).toContain('textCtx.fontVariantNumeric = "lining-nums";');
     expect(quoteExport).toContain(`ctx.font = \`400 \${fontSize}px ${systemSerif}\``);

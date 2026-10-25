@@ -460,6 +460,12 @@
   color: var(--biliscript-reader-text);
 }
 
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-hero-title {
+  font-family: var(--biliscript-reader-font-serif);
+  font-variant-numeric: lining-nums;
+  font-weight: 700;
+}
+
 /* 建议组（chips）：作为整体随欢迎区水平居中，每条 chip 自身也居中（盒居中，
  * 盒内文字仍左对齐——换行长问题的可扫读优先）。 */
 .biliscript-reading-chat .chat-hero-sugs {

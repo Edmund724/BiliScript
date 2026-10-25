@@ -269,7 +269,7 @@ body[data-biliscript-reader-mode="1"],
    * Markdown 标题/加粗消费；font-serif 供金句与 editorial 概览组标题消费。 */
   --biliscript-reader-font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --biliscript-reader-font-sans-medium: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "HarmonyOS_Medium", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-  --biliscript-reader-font-serif: Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  --biliscript-reader-font-serif: Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif;
   --biliscript-reader-font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   /* 动效 token：spring=Flyme 非手势基准曲线（200–350ms 档，淡入/位移进场）；
    * bounce=文档「面板/应用切换/小窗」回弹近似，过冲 ≤2%（真机手势仍须弹簧，
@@ -552,7 +552,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"
   --biliscript-reader-time-bg: rgba(var(--biliscript-primitive-color-terracotta-600-rgb), 0.1);
   /* 衬线字型栈（概览组标题与金句正文消费，reader.css 的 editorial 规则）：
    * 西文 Georgia 系 + 各平台中文宋体回退。 */
-  --biliscript-reader-font-serif: Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  --biliscript-reader-font-serif: Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif;
   /* 纸感壳三件：无径向光雾、无背景模糊；外框描边取中性暖沙纸边 #E6DFD3。 */
   --biliscript-reader-topbar-bg: rgba(var(--biliscript-primitive-color-paper-50-rgb), 0.96);
   --biliscript-reader-mist-surface: var(--biliscript-primitive-color-paper-50);
@@ -598,7 +598,7 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"][data-
   --biliscript-reader-shadow: none;
   --biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-white-rgb), 0.12);
   --biliscript-reader-overlay-bg: rgba(var(--biliscript-primitive-color-charcoal-950-rgb), 0.92);
-  --biliscript-reader-font-serif: Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  --biliscript-reader-font-serif: Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif CN", "LXGW Neo ZhiSong", "Songti SC", "STSong", "SimSun", serif;
   /* 深色纸感壳：无径向光雾、无背景模糊；外框描边取深暖褐 #2C2723。 */
   --biliscript-reader-topbar-bg: rgba(var(--biliscript-primitive-color-charcoal-950-rgb), 0.96);
   --biliscript-reader-mist-surface: var(--biliscript-primitive-color-charcoal-950);

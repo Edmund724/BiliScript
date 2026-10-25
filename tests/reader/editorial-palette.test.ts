@@ -9,8 +9,9 @@
 //    三层 + 暖赤陶 accent #e07a5f，令牌同样齐全。
 // 3. 纸感：两块的 mist-blobs 均为 none、mist-filter 均为 none（移除蓝雾
 //    径向光斑），壳直落纸面渐变。
-// 4. 字体：editorial 衬线只覆盖概览组标题；章节使用中字重无衬线栈，
-//    金句使用西文 Georgia 与系统中文宋体，色板切换不改变阅读字形；
+// 4. 字体：editorial 衬线覆盖概览分区标题、概览单章标题、AI 对话空态欢迎大标题、
+//    Markdown h1~h3、选区解释卡引文与对话待解释引文，按 700 / 600 / 400 三级拉开字重；
+//    金句正文在两套色板下均复用 --biliscript-reader-font-serif；
 //    时间戳浅色文字档 time-color 在 flyme 柔和中蓝 / editorial 深赤陶两档
 //    各有一份定义（消费规则只引用 token，字面色不进 reader.css）。
 //
@@ -106,19 +107,42 @@ describe("editorial 数字刊物色板", () => {
     expect(gate).toContain("border: 1px solid var(--biliscript-reader-border);");
   });
 
-  it("editorial 衬线只命中概览组标题，章节与金句保留各自字型栈", () => {
+  it("editorial 衬线覆盖标题与引文体系并按 700 / 600 / 400 三级拉开字重", () => {
     const css = readCss(READER_CSS).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\r\n/g, "\n");
+    const chatCss = readCss("extension/entry/styles/reader-chat.css").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\r\n/g, "\n");
     const serifRule = css.match(
       /#biliscript-reading-view\[data-palette="editorial"\][^{]*\{[^}]*font-family:\s*var\(--biliscript-reader-font-serif\)[^}]*\}/
     );
     expect(serifRule, "应存在 editorial 衬线规则").not.toBe(null);
-    expect(serifRule![0]).toContain(".biliscript-reading-ov-h");
-    expect(serifRule![0]).not.toContain(".biliscript-reading-ov-chapter-title");
-    expect(serifRule![0]).not.toContain(".biliscript-reading-ov-quote-text");
+    for (const sel of [
+      ".biliscript-reading-ov-h",
+      ".biliscript-reading-ov-chapter-title",
+      ".markdown-body :is(h1, h2, h3)",
+      ".markdown-body :is(h1, h2, h3) :is(strong, b)",
+      ".biliscript-reading-explain-card-quote",
+      ".biliscript-reading-chat-intent-quote"
+    ]) {
+      expect(serifRule![0]).toContain(sel);
+    }
+    expect(serifRule![0]).toContain("font-variant-numeric: lining-nums;");
     expect(serifRule![0]).not.toContain("data-theme");
+
+    expect(chatCss).toMatch(
+      /#biliscript-reading-view\[data-palette="editorial"\] \.biliscript-reading-chat \.chat-hero-title\s*\{\s*font-family:\s*var\(--biliscript-reader-font-serif\);\s*font-variant-numeric:\s*lining-nums;\s*font-weight:\s*700;\s*\}/
+    );
+    expect(css).toMatch(
+      /#biliscript-reading-view\[data-palette="editorial"\] \.biliscript-reading-ov-h,\n#biliscript-reading-view\[data-palette="editorial"\] \.markdown-body h1\s*\{\s*font-weight:\s*700;\s*\}/
+    );
+    expect(css).toMatch(
+      /#biliscript-reading-view\[data-palette="editorial"\] \.biliscript-reading-ov-chapter-title,\n#biliscript-reading-view\[data-palette="editorial"\] \.markdown-body :is\(h2, h3\)\s*\{\s*font-weight:\s*600;\s*\}/
+    );
+    expect(css).toMatch(
+      /#biliscript-reading-view\[data-palette="editorial"\] \.biliscript-reading-explain-card-quote,\n#biliscript-reading-view\[data-palette="editorial"\] \.biliscript-reading-chat-intent-quote\s*\{\s*font-weight:\s*400;\s*font-style:\s*normal;\s*\}/
+    );
+
     expect(css).toContain(".biliscript-reading-ov-chapter-title {\n  font-family: var(--biliscript-reader-font-sans-medium)");
     expect(css).toContain(".biliscript-reading-ov-chapter-desc {\n  font-family: var(--biliscript-reader-font-sans)");
-    expect(css).toContain('.biliscript-reading-ov-quote-text {\n  position: relative;\n  z-index: 1;\n  display: block;\n  font-family: Georgia, "Times New Roman", "Songti SC"');
+    expect(css).toContain(".biliscript-reading-ov-quote-text {\n  position: relative;\n  z-index: 1;\n  display: block;\n  font-family: var(--biliscript-reader-font-serif);");
   });
 
   it("时间戳浅色文字档：flyme 柔和中蓝 / editorial 深赤陶两档各一份，消费侧只引用 token", () => {

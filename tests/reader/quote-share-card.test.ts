@@ -694,9 +694,7 @@ describe("quote-share 样式与架构契约", () => {
     expect(cssContent).toContain("var(--quote-glow-x, 50%)");
     expect(cssContent).toContain("@media (prefers-reduced-motion: reduce)");
     expect(cssContent).toContain("@media (prefers-reduced-transparency: reduce)");
-    expect(cssContent).toContain(
-      'font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;'
-    );
+    expect(cssContent).toContain("font-family: var(--biliscript-reader-font-serif);");
     expect(cssContent).toContain("font-variant-numeric: lining-nums;");
     expect(cssContent).toContain("font-size: clamp(16px, 5.5cqi, 21px);");
   });

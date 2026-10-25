@@ -1539,10 +1539,32 @@
   word-break: break-word;
 }
 
-/* editorial 数字刊物色板的概览组标题保留衬线字型；章节标题使用中字重
- * 无衬线栈，金句使用西文 Georgia 与系统中文宋体，色板切换不改变这些信息层级。 */
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h {
+/* editorial 数字刊物色板衬线体系：概览分区标题、概览单章标题、Markdown h1~h3、
+ * 选区解释卡引文与对话待解释引文纳入衬线字型栈，按 700 / 600 / 400 三级拉开字重。 */
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter-title,
+#biliscript-reading-view[data-palette="editorial"] .markdown-body :is(h1, h2, h3),
+#biliscript-reading-view[data-palette="editorial"] .markdown-body :is(h1, h2, h3) :is(strong, b),
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-explain-card-quote,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-intent-quote {
   font-family: var(--biliscript-reader-font-serif);
+  font-variant-numeric: lining-nums;
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h,
+#biliscript-reading-view[data-palette="editorial"] .markdown-body h1 {
+  font-weight: 700;
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-chapter-title,
+#biliscript-reading-view[data-palette="editorial"] .markdown-body :is(h2, h3) {
+  font-weight: 600;
+}
+
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-explain-card-quote,
+#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat-intent-quote {
+  font-weight: 400;
+  font-style: normal;
 }
 
 /* 缺概括占位（manuscript 缺章打标，见 ai/chapter-plan.ts）：斜体 + faint 档，
@@ -1605,7 +1627,7 @@
   position: relative;
   z-index: 1;
   display: block;
-  font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  font-family: var(--biliscript-reader-font-serif);
   font-variant-numeric: lining-nums;
   font-size: var(--biliscript-font-size-md);
   font-size-adjust: from-font;
@@ -2321,7 +2343,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-card-text {
-  font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  font-family: var(--biliscript-reader-font-serif);
   font-variant-numeric: lining-nums;
   font-size: clamp(16px, 5.5cqi, 21px);
   font-size-adjust: from-font;
