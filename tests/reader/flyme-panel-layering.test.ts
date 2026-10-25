@@ -117,7 +117,7 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     const item = ruleBody(css, ".biliscript-reading-chat .chat-history-item");
 
     expect(item).not.toMatch(/border\s*:/);
-    expect(item).toContain("border-radius: 8px");
+    expect(item).toMatch(/border-radius:\s*(?:var\(--biliscript-radius-sm[^)]*\)|8px)/);
     expect(item).not.toContain("background");
     expect(ruleBody(css, ".biliscript-reading-chat .chat-history-item:hover")).toContain(
       "background: var(--biliscript-reader-fill-hover)"

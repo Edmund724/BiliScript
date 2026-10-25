@@ -55,7 +55,7 @@ describe("05: 思考强度滑轨样式与几何契约", () => {
     expect(railBody).toMatch(/right:\s*-12px/);
     expect(railBody).toMatch(/top:\s*0/);
     expect(railBody).toMatch(/height:\s*24px/);
-    expect(railBody).toMatch(/border-radius:\s*999px/);
+    expect(railBody).toMatch(/border-radius:\s*(?:var\(--biliscript-radius-pill[^)]*\)|999px)/);
     expect(railBody).toMatch(/background:\s*var\(--biliscript-reader-surface-2\)/);
     expect(railBody).toMatch(/box-shadow:\s*none/);
 
@@ -83,7 +83,7 @@ describe("05: 思考强度滑轨样式与几何契约", () => {
     expect(thumbBody).toMatch(/height:\s*20px/);
     expect(thumbBody).toMatch(/top:\s*2px/);
     expect(thumbBody).toMatch(/margin-left:\s*-10px/);
-    expect(thumbBody).toMatch(/box-shadow:\s*0 1px 3px rgba\(0,\s*0,\s*0,\s*0\.15\)/);
+    expect(thumbBody).toMatch(/box-shadow:\s*0 1px 3px rgba\((?:var\(--biliscript-primitive-color-black-rgb\)|0,\s*0,\s*0),\s*0\.15\)/);
   });
 });
 

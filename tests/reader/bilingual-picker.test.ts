@@ -800,7 +800,7 @@ describe("形态与三处登记（源码/表面锁）", () => {
     const subRule =
       css.match(/#biliscript-reading-view \.biliscript-reading-text \.biliscript-reading-subtext\s*\{[^}]*\}/)?.[0] || "";
     expect(subRule).toContain("display: block");
-    expect(subRule).toContain("font-size: 12px");
+    expect(subRule).toMatch(/font-size:\s*(?:var\(--biliscript-font-size-sm[^)]*\)|12px)/);
     expect(subRule).toContain("line-height: 18px");
     expect(subRule).toContain("margin-top: 1px");
     expect(subRule).toContain("color: var(--biliscript-reader-faint)");

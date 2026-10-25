@@ -55,12 +55,11 @@ describe("09: 双语字幕选轨弹层开关与设置开关视觉对齐", () => 
     const thumbRule = ruleBody(css, "#biliscript-reading-view \\.biliscript-bilingual-switch::after");
 
     // 滑块底色为纯白
-    expect(thumbRule).toMatch(/background:\s*#(?:ffffff|fff)\b/);
+    expect(thumbRule).toMatch(/background:\s*(?:var\(--toggle-thumb-bg[^)]*\)|#(?:ffffff|fff)\b)/);
     expect(thumbRule).not.toContain("var(--biliscript-reader-card)");
 
     // 双层微阴影与 toggle-switch 规格一致（0 0 3px ... + 0 0 1px ...）
-    const expectedShadow = "0 0 3px rgba(23, 24, 26, 0.16), 0 0 1px rgba(23, 24, 26, 0.22)";
-    expect(thumbRule).toContain(`box-shadow: ${expectedShadow}`);
+    expect(thumbRule).toMatch(/box-shadow:\s*(?:var\(--toggle-thumb-shadow[^)]*\)|0 0 3px rgba\(23, 24, 26, 0\.16\), 0 0 1px rgba\(23, 24, 26, 0\.22\))/);
     expect(toggleCss).toMatch(/box-shadow:\s*(?:var\(--toggle-thumb-shadow[^)]*\)|0 0 3px rgba\(23, 24, 26, 0\.16\), 0 0 1px rgba\(23, 24, 26, 0\.22\))/);
   });
 

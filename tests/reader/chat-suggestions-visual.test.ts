@@ -33,12 +33,12 @@ describe("建议问题与空态欢迎区观感", () => {
 
   it("欢迎区主角：accent-soft 圆底图标 + 18px/600 引导语", () => {
     const icon = ruleBody("\\.biliscript-reading-chat \\.chat-hero-icon");
-    expect(icon).toMatch(/border-radius:\s*50%;/);
+    expect(icon).toMatch(/border-radius:\s*(?:var\(--biliscript-radius-circle[^)]*\)|50%);/);
     expect(icon).toMatch(/background:\s*var\(--biliscript-reader-accent-soft\);/);
     expect(icon).toMatch(/color:\s*var\(--biliscript-reader-accent\);/);
 
     const title = ruleBody("\\.biliscript-reading-chat \\.chat-hero-title");
-    expect(title).toMatch(/font-size:\s*18px;/);
+    expect(title).toMatch(/font-size:\s*(?:var\(--biliscript-font-size-lg[^)]*\)|18px);/);
     expect(title).toMatch(/font-weight:\s*600;/);
   });
 
@@ -51,10 +51,10 @@ describe("建议问题与空态欢迎区观感", () => {
     const block = ruleBody("\\.biliscript-reading-chat \\.chat-chip");
 
     expect(block).not.toMatch(/border:\s*1px/);
-    expect(block).toMatch(/border-radius:\s*28px;/);
+    expect(block).toMatch(/border-radius:\s*(?:var\(--(?:chip-radius|biliscript-radius-panel).*|28px);/);
     expect(block).toMatch(/background:\s*var\(--biliscript-reader-surface-3\);/);
     expect(block).toMatch(/padding:\s*12px 16px;/);
-    expect(block).toMatch(/font-size:\s*var\(--biliscript-font-size-base/);
+    expect(block).toMatch(/font-size:\s*var\(--(?:chip-font-size|biliscript-font-size-base)/);
   });
 
   it("chip 贴内容宽（不撑满整行），悬停走 accent-soft + accent 字母题", () => {

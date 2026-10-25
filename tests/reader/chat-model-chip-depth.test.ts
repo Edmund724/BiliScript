@@ -82,7 +82,7 @@ describe("chip 几何与交互反馈（底栏对齐与胶囊交互态契约）",
 
   it("具备 999px 胶囊圆角与 background 0.15s ease-out 过渡", () => {
     const chipBlock = ruleBody(readChatCss(), CHIP);
-    expect(declarationBody(chipBlock, "border-radius")).toBe("999px");
+    expect(declarationBody(chipBlock, "border-radius")).toMatch(/^(?:var\(--(?:chip-radius|biliscript-radius-pill).*\)|999px)$/);
     expect(declarationBody(chipBlock, "transition")).toContain("background 0.15s ease-out");
   });
 
