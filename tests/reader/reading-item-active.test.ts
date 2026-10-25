@@ -193,8 +193,8 @@ describe("字幕活动行：整颗白卡、时间戳减噪", () => {
     // time-color token 按色板覆写（flyme 柔和中蓝 / editorial 深赤陶文字档），
     // token 定义留在 gate 主题块里；accent 亮蓝在浅色底上 3.4:1 不达 4.5 门。
     expect(declaration(block, "color")).toBe("var(--biliscript-reader-time-color)");
-    expect(gate).toContain("--biliscript-reader-time-color: #2e6fc2;");
-    expect(gate).toContain("--biliscript-reader-time-color: #9c4527;");
+    expect(gate).toContain("--biliscript-reader-time-color: var(--biliscript-primitive-color-blue-600);");
+    expect(gate).toContain("--biliscript-reader-time-color: var(--biliscript-primitive-color-terracotta-600);");
     // 活动行时间戳的底/字由 reader.css 的 is-active 规则直接消费 time 令牌，
     // gate 再挂 is-active 即双头维护。
     expect(gate).not.toContain(".biliscript-reading-item.is-active .biliscript-reading-time");

@@ -34,8 +34,8 @@ function ruleBody(css: string, selector: string): string {
 describe("选区解释卡与概览空态卡微描边与圆角规范", () => {
   it("浅色与深色主题定义 0.5px 精细描边 token（浅色淡黑 12%，深色柔白 12%）", () => {
     const gate = readCss(GATE_CSS);
-    expect(gate).toContain("--biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12)");
-    expect(gate).toContain("--biliscript-reader-fine-border: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12)");
+    expect(gate).toMatch(/--biliscript-reader-fine-border:\s*inset 0 0 0 0\.5px rgba\(\s*var\(--biliscript-primitive-color-black-rgb\),\s*0\.12\)/);
+    expect(gate).toMatch(/--biliscript-reader-fine-border:\s*inset 0 0 0 0\.5px rgba\(\s*var\(--biliscript-primitive-color-white-rgb\),\s*0\.12\)/);
   });
 
   it("选区解释卡具有 20px 圆角与内侧 0.5px 精细描边微层叠", () => {

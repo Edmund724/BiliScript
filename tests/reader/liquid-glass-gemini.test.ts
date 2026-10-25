@@ -360,65 +360,65 @@ describe("卡面材质统一走 card-highlight token（flyme 凸起卡族）", (
 describe("液态玻璃 token 契约（flyme 两档）", () => {
   it("浅色档：card 升级为 165deg 曲面透镜渐变（顶光折射到底部微透）", () => {
     expect(FLYME_LIGHT()).toContain(
-      "--biliscript-reader-card: linear-gradient(165deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.72) 55%, rgba(246, 250, 255, 0.78) 100%)"
+      "--biliscript-reader-card: linear-gradient(165deg, rgba(var(--biliscript-primitive-color-white-rgb), 0.88) 0%, rgba(var(--biliscript-primitive-color-white-rgb), 0.72) 55%, rgba(var(--biliscript-primitive-color-blue-card-tint-rgb), 0.78) 100%)"
     );
   });
 
   it("浅色档：新增 card-highlight 双对角线折射内高光 + 双层柔影", () => {
     const block = FLYME_LIGHT();
     expect(block).toContain(
-      "--biliscript-reader-card-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.95), inset 1px 0 0 0 rgba(255, 255, 255, 0.65), inset 0 -1px 0 0 rgba(16, 136, 247, 0.08), 0 6px 24px -4px rgba(15, 23, 42, 0.06), 0 2px 6px -1px rgba(15, 23, 42, 0.03)"
+      "--biliscript-reader-card-highlight: inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.95), inset 1px 0 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.65), inset 0 -1px 0 0 rgba(var(--biliscript-primitive-color-blue-reflection-light-rgb), 0.08), 0 6px 24px -4px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.06), 0 2px 6px -1px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.03)"
     );
     expect(block).toContain(
-      "--biliscript-reader-shadow: 0 20px 48px -8px rgba(15, 23, 42, 0.14), 0 4px 14px -2px rgba(15, 23, 42, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.85)"
+      "--biliscript-reader-shadow: 0 20px 48px -8px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.14), 0 4px 14px -2px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.06), inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.85)"
     );
   });
 
   it("浅色档：Gemini 虹彩流光 token（soft / border / glow，蓝→紫→珊瑚粉→暖金）", () => {
     const block = FLYME_LIGHT();
     expect(block).toContain(
-      "--biliscript-gemini-gradient-soft: linear-gradient(135deg, rgba(66, 133, 244, 0.14) 0%, rgba(155, 114, 203, 0.14) 40%, rgba(217, 101, 112, 0.14) 75%, rgba(244, 156, 70, 0.14) 100%)"
+      "--biliscript-gemini-gradient-soft: linear-gradient(135deg, rgba(var(--biliscript-primitive-color-gemini-blue-light-rgb), 0.14) 0%, rgba(var(--biliscript-primitive-color-gemini-purple-light-rgb), 0.14) 40%, rgba(var(--biliscript-primitive-color-gemini-coral-light-rgb), 0.14) 75%, rgba(var(--biliscript-primitive-color-gemini-amber-light-rgb), 0.14) 100%)"
     );
     expect(block).toContain(
-      "--biliscript-gemini-border-gradient: linear-gradient(135deg, rgba(66, 133, 244, 0.72) 0%, rgba(155, 114, 203, 0.72) 38%, rgba(217, 101, 112, 0.72) 74%, rgba(244, 156, 70, 0.65) 100%)"
+      "--biliscript-gemini-border-gradient: linear-gradient(135deg, rgba(var(--biliscript-primitive-color-gemini-blue-light-rgb), 0.72) 0%, rgba(var(--biliscript-primitive-color-gemini-purple-light-rgb), 0.72) 38%, rgba(var(--biliscript-primitive-color-gemini-coral-light-rgb), 0.72) 74%, rgba(var(--biliscript-primitive-color-gemini-amber-light-rgb), 0.65) 100%)"
     );
     expect(block).toContain(
-      "--biliscript-gemini-glow: 0 6px 22px -4px rgba(155, 114, 203, 0.24), 0 2px 8px -2px rgba(66, 133, 244, 0.18)"
+      "--biliscript-gemini-glow: 0 6px 22px -4px rgba(var(--biliscript-primitive-color-gemini-purple-light-rgb), 0.24), 0 2px 8px -2px rgba(var(--biliscript-primitive-color-gemini-blue-light-rgb), 0.18)"
     );
   });
 
   it("深色档：card 165deg 透镜渐变 + card-highlight 冷蓝反弹光 + 悬浮柔影", () => {
     const block = FLYME_DARK();
     expect(block).toContain(
-      "--biliscript-reader-card: linear-gradient(165deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.055) 55%, rgba(92, 179, 255, 0.06) 100%)"
+      "--biliscript-reader-card: linear-gradient(165deg, rgba(var(--biliscript-primitive-color-white-rgb), 0.10) 0%, rgba(var(--biliscript-primitive-color-white-rgb), 0.055) 55%, rgba(var(--biliscript-primitive-color-blue-reflection-dark-rgb), 0.06) 100%)"
     );
     expect(block).toContain(
-      "--biliscript-reader-card-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.16), inset 1px 0 0 0 rgba(255, 255, 255, 0.08), inset 0 -1px 0 0 rgba(92, 179, 255, 0.10), 0 8px 26px -4px rgba(0, 0, 0, 0.36), 0 2px 8px -1px rgba(0, 0, 0, 0.24)"
+      "--biliscript-reader-card-highlight: inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.16), inset 1px 0 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.08), inset 0 -1px 0 0 rgba(var(--biliscript-primitive-color-blue-reflection-dark-rgb), 0.10), 0 8px 26px -4px rgba(var(--biliscript-primitive-color-black-rgb), 0.36), 0 2px 8px -1px rgba(var(--biliscript-primitive-color-black-rgb), 0.24)"
     );
     expect(block).toContain(
-      "--biliscript-reader-shadow: 0 22px 52px -8px rgba(0, 0, 0, 0.58), 0 6px 18px -2px rgba(0, 0, 0, 0.36), inset 0 1px 0 0 rgba(255, 255, 255, 0.14)"
+      "--biliscript-reader-shadow: 0 22px 52px -8px rgba(var(--biliscript-primitive-color-black-rgb), 0.58), 0 6px 18px -2px rgba(var(--biliscript-primitive-color-black-rgb), 0.36), inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.14)"
     );
   });
 
   it("深色档：Gemini 虹彩流光 token 换暗面亮档", () => {
     const block = FLYME_DARK();
     expect(block).toContain(
-      "--biliscript-gemini-gradient-soft: linear-gradient(135deg, rgba(102, 157, 246, 0.18) 0%, rgba(179, 136, 255, 0.18) 40%, rgba(242, 139, 130, 0.18) 75%, rgba(253, 214, 99, 0.16) 100%)"
+      "--biliscript-gemini-gradient-soft: linear-gradient(135deg, rgba(var(--biliscript-primitive-color-gemini-blue-dark-rgb), 0.18) 0%, rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.18) 40%, rgba(var(--biliscript-primitive-color-gemini-coral-dark-rgb), 0.18) 75%, rgba(var(--biliscript-primitive-color-gemini-amber-dark-rgb), 0.16) 100%)"
     );
     expect(block).toContain(
-      "--biliscript-gemini-border-gradient: linear-gradient(135deg, rgba(102, 157, 246, 0.82) 0%, rgba(179, 136, 255, 0.82) 38%, rgba(242, 139, 130, 0.82) 74%, rgba(253, 214, 99, 0.72) 100%)"
+      "--biliscript-gemini-border-gradient: linear-gradient(135deg, rgba(var(--biliscript-primitive-color-gemini-blue-dark-rgb), 0.82) 0%, rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.82) 38%, rgba(var(--biliscript-primitive-color-gemini-coral-dark-rgb), 0.82) 74%, rgba(var(--biliscript-primitive-color-gemini-amber-dark-rgb), 0.72) 100%)"
     );
     expect(block).toContain(
-      "--biliscript-gemini-glow: 0 8px 26px -4px rgba(179, 136, 255, 0.28), 0 2px 10px -2px rgba(102, 157, 246, 0.24)"
+      "--biliscript-gemini-glow: 0 8px 26px -4px rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.28), 0 2px 10px -2px rgba(var(--biliscript-primitive-color-gemini-blue-dark-rgb), 0.24)"
     );
   });
 
   it("editorial 两档不定义 Gemini token 以外的覆写：card/shadow 原值不动", () => {
     const editorialLight = themeBlock("#biliscript-reading-view[data-palette=\"editorial\"]");
     const editorialDark = themeBlock("#biliscript-reading-view[data-theme=\"dark\"][data-palette=\"editorial\"]");
-    expect(editorialLight).toContain("--biliscript-reader-card: #f3ede2");
-    expect(editorialLight).toContain("--biliscript-reader-shadow: 0 10px 26px rgba(60, 45, 30, 0.08)");
-    expect(editorialDark).toContain("--biliscript-reader-card: #211e1b");
+    expect(editorialLight).toContain("--biliscript-reader-card: var(--biliscript-primitive-color-paper-100)");
+    expect(editorialLight).toContain("--biliscript-reader-shadow: 0 10px 26px rgba(var(--biliscript-primitive-color-paper-shadow-rgb), 0.08)");
+    expect(editorialDark).toContain("--biliscript-reader-card: var(--biliscript-primitive-color-charcoal-900)");
     expect(editorialDark).toContain("--biliscript-reader-shadow: none");
   });
 });

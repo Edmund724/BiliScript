@@ -61,22 +61,22 @@ const REQUIRED_TOKENS = [
 
 describe("editorial 数字刊物色板", () => {
   it("浅色块：暖纸底 + 暖米书摘卡 + 赤陶点缀，五族令牌齐全", () => {
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-surface: #faf7f2");
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-card: #f3ede2");
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-border: #e4dccb");
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-mist-line: #e6dfd3");
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-accent: #b85435");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-surface: var(--biliscript-primitive-color-paper-50)");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-card: var(--biliscript-primitive-color-paper-100)");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-border: var(--biliscript-primitive-color-paper-300)");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-mist-line: var(--biliscript-primitive-color-paper-250)");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-accent: var(--biliscript-primitive-color-terracotta-500)");
     for (const token of REQUIRED_TOKENS) {
       expect(EDITORIAL_LIGHT, `浅色块缺 ${token}`).toContain(token);
     }
   });
 
   it("深色块：暖炭黑 + 深暖褐卡 + 暖赤陶，五族令牌齐全", () => {
-    expect(EDITORIAL_DARK).toContain("--biliscript-reader-surface: #171513");
-    expect(EDITORIAL_DARK).toContain("--biliscript-reader-card: #211e1b");
-    expect(EDITORIAL_DARK).toContain("--biliscript-reader-border: #332d28");
-    expect(EDITORIAL_DARK).toContain("--biliscript-reader-mist-line: #2c2723");
-    expect(EDITORIAL_DARK).toContain("--biliscript-reader-accent: #e07a5f");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-surface: var(--biliscript-primitive-color-charcoal-950)");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-card: var(--biliscript-primitive-color-charcoal-900)");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-border: var(--biliscript-primitive-color-charcoal-700)");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-mist-line: var(--biliscript-primitive-color-charcoal-750)");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-accent: var(--biliscript-primitive-color-terracotta-400)");
     for (const token of REQUIRED_TOKENS) {
       expect(EDITORIAL_DARK, `深色块缺 ${token}`).toContain(token);
     }
@@ -122,10 +122,10 @@ describe("editorial 数字刊物色板", () => {
 
   it("时间戳浅色文字档：flyme 柔和中蓝 / editorial 深赤陶两档各一份，消费侧只引用 token", () => {
     const gate = readCss(GATE_CSS);
-    expect(gate).toContain("--biliscript-reader-time-color: #2e6fc2;");
-    expect(gate).toContain("--biliscript-reader-time-color: #9c4527;");
+    expect(gate).toContain("--biliscript-reader-time-color: var(--biliscript-primitive-color-blue-600);");
+    expect(gate).toContain("--biliscript-reader-time-color: var(--biliscript-primitive-color-terracotta-600);");
     // editorial 两块的 time token 定义齐全（深色档不定义——深色消费 accent 母题）
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-time-color: #9c4527;");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-time-color: var(--biliscript-primitive-color-terracotta-600);");
   });
 });
 
