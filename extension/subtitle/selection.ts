@@ -1,16 +1,16 @@
 // extension/subtitle/selection.ts
-// 「哪条轨被选中」的唯一落点（架构评审「轨道身份：selection.ts 按概念拆位」之后留下的
-// 那一个概念）：
+// 「哪条轨被选中与如何投影为目标」的唯一落点：
 //   - 排序优先级（中文 → 英文 → 其余保持接口原顺序）与 previousId / URL / lang 三级
 //     复用（normalizeSubtitleTracks / pickPreferredSubtitle）；
+//   - 轨道目标投影与按身份找回轨（SubtitleTrackTarget / SubtitleTrackRef /
+//     findTrackByRef / resolveTrackTarget，目标语言统一 `lanDoc || lan || "unknown"`）；
 //   - 副轨语言两级匹配 + 主轨排除（subtitlePrimaryLangTag / findTrackByPreferredLang /
 //     isMainSubtitleTrack / findSecondaryTrackByPreferredLang，口径见 GLOSSARY.md「字幕」
 //     词条与 ADR-0016）；
 //   - subtitleBody 按 from 升序的写入不变量排序（sortSubtitleBodyByFrom；读路径
 //     findActiveSubtitleIndex 的二分依赖它）。
-// 按概念搬走的邻居（逐字搬迁、零逻辑改动）：原生产物映射与 subtitleUrl 的两套归一 →
-// bilibili/native-payload.ts；时长校验 → subtitle/duration-validation.ts；
-// 显示文案 → subtitle/labels.ts。
+// 原生产物映射与 subtitleUrl 的两套归一在 bilibili/native-payload.ts；时长校验在
+// subtitle/duration-validation.ts；显示文案在 subtitle/labels.ts。
 
 import { normalizeSubtitleUrlForCache, type RawSubtitleTrack } from "../bilibili/native-payload.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
@@ -19,6 +19,55 @@ export interface PreferredSubtitleContext {
   previousId?: string;
   previousUrl?: string;
   previousLang?: string;
+}
+
+// 轨道目标投影：id/url 取自轨，lang 统一按 `lanDoc || lan || "unknown"` 归一
+//（主轨抓取、主列手动切轨、副轨自动装载与副列改选共用同一口径；selectedSubtitleLang
+// 参与上下文签名与段缓存键，轨 id 为空时 lang 还是 per-track 缓存 source key 的分量）。
+export interface SubtitleTrackTarget {
+  id: string;
+  url: string;
+  lang: string;
+}
+
+// 选项行或外部引用给出的轨身份（id 优先，回退 URL；lang 为兜底语言标签）。
+export interface SubtitleTrackRef {
+  id?: string;
+  url?: string;
+  subtitleUrl?: string;
+  lang?: string;
+  lan?: string;
+  lanDoc?: string;
+}
+
+// 按轨身份在轨列里找回轨（id 优先，回退 URL）。
+export function findTrackByRef<T extends { id?: string; subtitleUrl?: string }>(
+  tracks: readonly T[] | null | undefined,
+  ref: { id?: string; url?: string; subtitleUrl?: string } | null | undefined
+): T | null {
+  const id = String(ref?.id || "");
+  const url = String(ref?.url || ref?.subtitleUrl || "");
+  return (
+    (tracks || []).find(
+      (track) => (!!id && String(track.id || "") === id) || (!!url && String(track.subtitleUrl || "") === url)
+    ) ?? null
+  );
+}
+
+// 轨或轨引用 → 规范目标投影（`lanDoc || lan || lang || "unknown"`）。
+// 传入 tracks 时先按轨身份（id 优先，回退 URL）在轨列中找回完整轨再投影，
+// 使得仅持 DOM 选项 `{ id, url, lang: track.lan }` 的调用方也能拿到轨的 `lanDoc`；
+// 轨列中找不到时回退到入参自身的字段。
+export function resolveTrackTarget(
+  trackOrRef: SubtitleTrackRef | null | undefined,
+  tracks?: readonly { id?: string; subtitleUrl?: string; lan?: string; lanDoc?: string }[] | null
+): SubtitleTrackTarget {
+  const resolved = tracks ? (findTrackByRef(tracks, trackOrRef) ?? trackOrRef) : trackOrRef;
+  return {
+    id: String(resolved?.id || ""),
+    url: String(resolved?.subtitleUrl || (resolved as SubtitleTrackRef | undefined)?.url || ""),
+    lang: String(resolved?.lanDoc || resolved?.lan || (resolved as SubtitleTrackRef | undefined)?.lang || "unknown")
+  };
 }
 
 function subtitlePriority(item: SubtitleTrack | RawSubtitleTrack): number {

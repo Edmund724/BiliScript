@@ -581,9 +581,10 @@ describe("主题：只剩明暗一轴", () => {
     expect(fontBadge.textContent).toBe("120%");
     expect(document.getElementById("biliscript-reading-view")?.style.getPropertyValue("--biliscript-reader-font-scale")).toBe("1.2");
 
-    // 点击重置键：恢复到 100%，重置键置灰，CSS 变量同步恢复
+    // 点击重置键：恢复到 100%，重置键置灰，进度条与 CSS 变量同步恢复
     fontReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(fontSlider.value).toBe("100");
+    expect(fontSlider.style.getPropertyValue("--range-progress")).toBe("50%");
     expect(fontBadge.textContent).toBe("100%");
     expect(fontReset.disabled).toBe(true);
     expect(document.getElementById("biliscript-reading-view")?.style.getPropertyValue("--biliscript-reader-font-scale")).toBe("1");
@@ -603,11 +604,13 @@ describe("主题：只剩明暗一轴", () => {
 
     widthSlider.value = "450";
     widthSlider.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(widthSlider.style.getPropertyValue("--range-progress")).toBe("20%");
     expect(widthBadge.textContent).toBe("450px");
     expect(widthReset.disabled).toBe(false);
 
     widthReset.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(widthSlider.value).toBe("540");
+    expect(Number.parseFloat(widthSlider.style.getPropertyValue("--range-progress"))).toBeCloseTo(56);
     expect(widthBadge.textContent).toBe("540px");
     expect(widthReset.disabled).toBe(true);
     expect(sentMessages).toContainEqual({

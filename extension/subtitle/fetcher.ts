@@ -18,7 +18,7 @@ import { logInfo, logWarn, shouldDebugLog } from "../shared/logging.js";
 import { isReaderViewOpen } from "../reader/state.js";
 import { readVideoTitle, readVideoAuthor, readUploadDate, readVideoDescription, invalidateDerived } from "./core.js";
 import { normalizeChapters } from "./chapters.js";
-import { normalizeSubtitleTracks, pickPreferredSubtitle } from "./selection.js";
+import { normalizeSubtitleTracks, pickPreferredSubtitle, resolveTrackTarget } from "./selection.js";
 import { buildSubtitleCandidates } from "./cache.js";
 import { resolvePageContext } from "../reader/page-context.js";
 import { notifyReaderPresenter, subscribeSubtitleRefresh } from "../reader/reader-bus.js";
@@ -85,11 +85,12 @@ export async function tryLoadSubtitleCandidates(
         lanDoc: item.lanDoc,
         url: item.subtitleUrl
       });
+      const target = resolveTrackTarget(item);
       await loadSubtitle(
-        item.subtitleUrl,
-        item.lanDoc || item.lan || "unknown",
+        target.url,
+        target.lang,
         runId,
-        item.id,
+        target.id,
         forceRefresh
       );
       return item;

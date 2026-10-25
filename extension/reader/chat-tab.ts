@@ -70,7 +70,7 @@ import { formatClock } from "../shared/clock-text.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { DEFAULT_SETTINGS } from "../core/defaults.js";
 import { normalizeChatLineHeight, normalizeChatParagraphSpacing } from "../core/validators.js";
-import { initRangeSlider, syncRangeProgress } from "../ui/range-slider.js";
+import { bindResettableRangeSlider } from "../ui/range-slider.js";
 import { applyReadingViewTypography } from "./presentation.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { normalizeMarkdownForSectionPaste } from "../notes/paste.js";
@@ -859,21 +859,43 @@ function bindEvents(): void {
   composer.bind();
   // 滚动跟随与滚底按钮常驻监听（合帧防抖、近底判据、回底途中闸与放闸）收敛进 scrollFollow 深 module
   scrollFollow.bind();
+  const lineHeightSlider = bindResettableRangeSlider({
+    input: els.lineHeightSlider,
+    badge: els.lineHeightValue,
+    resetBtn: els.lineHeightResetBtn,
+    defaultValue: DEFAULT_SETTINGS.chatLineHeight,
+    normalize: normalizeChatLineHeight,
+    format: (val) => `${val}%`,
+    initialValue: state.settings?.chatLineHeight,
+    onPreview: (val) => {
+      state.patchSettings({ chatLineHeight: val });
+      applyReadingViewTypography();
+    },
+    onCommit: (val) => {
+      void sendRuntimeMessage({ type: "save-settings", settings: { chatLineHeight: val } }).catch(() => null);
+    }
+  });
+
+  const paraSpacingSlider = bindResettableRangeSlider({
+    input: els.paraSpacingSlider,
+    badge: els.paraSpacingValue,
+    resetBtn: els.paraSpacingResetBtn,
+    defaultValue: DEFAULT_SETTINGS.chatParagraphSpacing,
+    normalize: normalizeChatParagraphSpacing,
+    format: (val) => `${val}px`,
+    initialValue: state.settings?.chatParagraphSpacing,
+    onPreview: (val) => {
+      state.patchSettings({ chatParagraphSpacing: val });
+      applyReadingViewTypography();
+    },
+    onCommit: (val) => {
+      void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: val } }).catch(() => null);
+    }
+  });
+
   const syncTypographySlidersFromState = () => {
-    if (els.lineHeightSlider && els.lineHeightValue && els.lineHeightResetBtn) {
-      const val = normalizeChatLineHeight(state.settings?.chatLineHeight);
-      els.lineHeightSlider.value = String(val);
-      syncRangeProgress(els.lineHeightSlider);
-      els.lineHeightValue.textContent = `${val}%`;
-      els.lineHeightResetBtn.disabled = val === DEFAULT_SETTINGS.chatLineHeight;
-    }
-    if (els.paraSpacingSlider && els.paraSpacingValue && els.paraSpacingResetBtn) {
-      const val = normalizeChatParagraphSpacing(state.settings?.chatParagraphSpacing);
-      els.paraSpacingSlider.value = String(val);
-      syncRangeProgress(els.paraSpacingSlider);
-      els.paraSpacingValue.textContent = `${val}px`;
-      els.paraSpacingResetBtn.disabled = val === DEFAULT_SETTINGS.chatParagraphSpacing;
-    }
+    lineHeightSlider.setValue(state.settings?.chatLineHeight);
+    paraSpacingSlider.setValue(state.settings?.chatParagraphSpacing);
   };
 
   els.moreBtn?.addEventListener("click", (event) => {
@@ -887,74 +909,6 @@ function bindEvents(): void {
   els.historyBtn?.addEventListener("click", (event) => {
     popovers.toggleHistoryPopover(event);
   });
-
-  if (els.lineHeightSlider && els.lineHeightValue && els.lineHeightResetBtn) {
-    const slider = els.lineHeightSlider;
-    const badge = els.lineHeightValue;
-    const resetBtn = els.lineHeightResetBtn;
-
-    const updateLineHeightUi = (val: number) => {
-      slider.value = String(val);
-      syncRangeProgress(slider);
-      badge.textContent = `${val}%`;
-      resetBtn.disabled = val === DEFAULT_SETTINGS.chatLineHeight;
-    };
-
-    initRangeSlider(slider);
-    updateLineHeightUi(normalizeChatLineHeight(state.settings?.chatLineHeight));
-
-    slider.addEventListener("input", () => {
-      const val = normalizeChatLineHeight(slider.value);
-      updateLineHeightUi(val);
-      state.patchSettings({ chatLineHeight: val });
-      applyReadingViewTypography();
-    });
-    slider.addEventListener("change", () => {
-      const val = normalizeChatLineHeight(slider.value);
-      void sendRuntimeMessage({ type: "save-settings", settings: { chatLineHeight: val } }).catch(() => null);
-    });
-    resetBtn.addEventListener("click", () => {
-      const defaultVal = DEFAULT_SETTINGS.chatLineHeight;
-      updateLineHeightUi(defaultVal);
-      state.patchSettings({ chatLineHeight: defaultVal });
-      applyReadingViewTypography();
-      void sendRuntimeMessage({ type: "save-settings", settings: { chatLineHeight: defaultVal } }).catch(() => null);
-    });
-  }
-
-  if (els.paraSpacingSlider && els.paraSpacingValue && els.paraSpacingResetBtn) {
-    const slider = els.paraSpacingSlider;
-    const badge = els.paraSpacingValue;
-    const resetBtn = els.paraSpacingResetBtn;
-
-    const updateParaSpacingUi = (val: number) => {
-      slider.value = String(val);
-      syncRangeProgress(slider);
-      badge.textContent = `${val}px`;
-      resetBtn.disabled = val === DEFAULT_SETTINGS.chatParagraphSpacing;
-    };
-
-    initRangeSlider(slider);
-    updateParaSpacingUi(normalizeChatParagraphSpacing(state.settings?.chatParagraphSpacing));
-
-    slider.addEventListener("input", () => {
-      const val = normalizeChatParagraphSpacing(slider.value);
-      updateParaSpacingUi(val);
-      state.patchSettings({ chatParagraphSpacing: val });
-      applyReadingViewTypography();
-    });
-    slider.addEventListener("change", () => {
-      const val = normalizeChatParagraphSpacing(slider.value);
-      void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: val } }).catch(() => null);
-    });
-    resetBtn.addEventListener("click", () => {
-      const defaultVal = DEFAULT_SETTINGS.chatParagraphSpacing;
-      updateParaSpacingUi(defaultVal);
-      state.patchSettings({ chatParagraphSpacing: defaultVal });
-      applyReadingViewTypography();
-      void sendRuntimeMessage({ type: "save-settings", settings: { chatParagraphSpacing: defaultVal } }).catch(() => null);
-    });
-  }
   els.historyClearBtn?.addEventListener("click", () => {
     void conversationStore.clearAll();
   });

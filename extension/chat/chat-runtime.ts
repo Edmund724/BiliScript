@@ -64,9 +64,7 @@ import { generateConversationId } from "../ai/conversation.js";
 // 成本护栏缺省确认通道：面板内弹层（ui/confirm-dialog.js）——原生 confirm
 // 绘制在浏览器窗口正中央，面板停靠右侧时可能落在可视区外。
 import { confirmDialog } from "../ui/confirm-dialog.js";
-import { getSettings } from "../core/runtime.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
-import { SEARCH_OPT_IN_CONFIRM_TEXT, SEARCH_OPT_IN_NOTICE_MESSAGE } from "../search/opt-in-notice.js";
+import { ensureWebSearchOptIn } from "../search/opt-in-notice.js";
 import type { ConversationStore } from "./conversation-store.js";
 import {
   appendChatHistory,
@@ -469,30 +467,13 @@ export function createChatRuntime(deps: CreateChatRuntimeDeps) {
       deps.input.value = "";
       deps.ui.autosizeInput();
 
-      // 联网搜索 opt-in 一次性说明闸（spec §6.7，零协议改动）：开关已开且位未置位
+      // 联网搜索首次授权闸（spec §6.7，search/opt-in-notice.ts）：开关已开且位未置位
       // 时，发送前先经面板内弹层取得同意——未获同意不外发查询词。判据不依赖
       // 「用户点过 pill」，故存量 webSearchEnabled=true 的用户同样先看到说明。
-      // 同意 = 先写位（写失败沿用 sendRuntimeMessage(...).catch(() => null) 形态，
-      // 本轮照常继续）再按原路发；取消 = 该条 webSearchEnabled 传 false（该字段
-      // 本就按条生效），消息照常发出——不动 pill、不改任何持久设置（撤回由 pill
-      // 承担）。阅读视图未挂载时 confirmDialog 直接 false（fail-closed），按
-      // 「本轮不搜索」走。位读取放在开关判断之后：开关关时不付这次往返。
+      // 同意 = 写位后继续；取消或阅读视图未挂载 = 本条 webSearchEnabled 传 false，
+      // 消息照常发出——不动 pill、不改任何持久设置（撤回由 pill 承担）。
       // 弹层位于 append（见上）之后：此时用户消息已上屏，弹层只决定本条带不带搜索。
-      let webSearchEnabled = chatSessionState.webSearchEnabled;
-      if (webSearchEnabled && !(await getSettings()).searchOptInNoticeAcknowledged) {
-        const agreed = await confirmDialog({
-          message: SEARCH_OPT_IN_NOTICE_MESSAGE,
-          confirmText: SEARCH_OPT_IN_CONFIRM_TEXT
-        });
-        if (agreed) {
-          await sendRuntimeMessage({
-            type: "save-settings",
-            settings: { searchOptInNoticeAcknowledged: true }
-          }).catch(() => null);
-        } else {
-          webSearchEnabled = false;
-        }
-      }
+      const webSearchEnabled = await ensureWebSearchOptIn(chatSessionState.webSearchEnabled);
 
       // 图片输入（image-input 路线 B）：闸都过了（发送确已受理）才消费附件区——
       // 被 provider/上下文/无字幕拦下的发送不清空用户的图片。读取与清空同一次

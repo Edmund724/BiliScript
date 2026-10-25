@@ -423,3 +423,118 @@ describe("resolveSecondaryColumnView（六态：目标 × 偏好 × 槽相位 ×
     });
   });
 });
+
+describe("Q8 同轨防呆与双语偏好控制器（无 DOM select 孤测）", () => {
+  it("clearSecondarySubtitleIfShadowedByMain：主轨切到副轨同一条轨时清空副轨槽，偏好不变", () => {
+    setBilingual(true, "ai-en");
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
+    clipState.setSelectedSubtitleId(ZH_TRACK.id);
+    clipState.applySecondarySubtitle({
+      id: EN_TRACK.id,
+      url: EN_TRACK.subtitleUrl,
+      body: [{ from: 0, to: 5, content: "hello" }]
+    });
+
+    // 主副不同轨：不动副轨槽
+    expect(module.clearSecondarySubtitleIfShadowedByMain()).toBe(false);
+    expect(state.clip.secondarySubtitle.state).toBe("ready");
+
+    // 主轨切到副轨那一条：清空副轨槽，保留全局偏好供投影「主副字幕相同」
+    clipState.setSelectedSubtitleId(EN_TRACK.id);
+    expect(module.clearSecondarySubtitleIfShadowedByMain()).toBe(true);
+    expect(state.clip.secondarySubtitle).toEqual({
+      state: "idle",
+      id: "",
+      url: "",
+      body: []
+    });
+    expect(state.settings.secondarySubtitleLang).toBe("ai-en");
+  });
+
+  it("selectSecondarySubtitleTrack：选到主轨那一条 ⇒ 写偏好 + 清副轨槽 + 发 rerender，不发起装载", async () => {
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    const persist = vi.spyOn(readerBus, "persistReaderSettingsThroughSeam");
+    const notify = vi.spyOn(readerBus, "notifyReaderPresenter");
+
+    setBilingual(true, "en-US");
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
+    clipState.setSelectedSubtitleId(ZH_TRACK.id);
+    clipState.applySecondarySubtitle({
+      id: EN_TRACK.id,
+      url: EN_TRACK.subtitleUrl,
+      body: [{ from: 0, to: 5, content: "hello" }]
+    });
+
+    const outcome = module.selectSecondarySubtitleTrack({
+      id: ZH_TRACK.id,
+      url: ZH_TRACK.subtitleUrl,
+      lang: ZH_TRACK.lan
+    });
+
+    expect(outcome).toEqual({ kind: "main-track" });
+    expect(state.settings.secondarySubtitleLang).toBe(ZH_TRACK.lan);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(state.clip.secondarySubtitle.state).toBe("idle");
+    expect(state.clip.secondarySubtitle.body).toEqual([]);
+    expect(notify).toHaveBeenCalledWith({ kind: "rerender" });
+    expect(lazy.calls).toHaveLength(0);
+  });
+
+  it("selectSecondarySubtitleTrack：选非主轨 ⇒ 写偏好 + 按规范语言（lanDoc）启动装载", async () => {
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    const persist = vi.spyOn(readerBus, "persistReaderSettingsThroughSeam");
+
+    setBilingual(true, "zh-CN");
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
+    clipState.setSelectedSubtitleId(ZH_TRACK.id);
+
+    const outcome = module.selectSecondarySubtitleTrack({
+      id: EN_TRACK.id,
+      url: EN_TRACK.subtitleUrl,
+      lang: EN_TRACK.lan
+    });
+
+    expect(outcome.kind).toBe("started");
+    expect(state.settings.secondarySubtitleLang).toBe(EN_TRACK.lan);
+    expect(persist).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(lazy.calls).toHaveLength(1));
+    expect(lazy.calls[0]).toEqual([EN_TRACK.subtitleUrl, EN_TRACK.lanDoc, 3, EN_TRACK.id, false]);
+  });
+
+  it("toggleBilingualSubtitles / syncBilingualSettingsFromStorage / retrySecondarySubtitleLoad", async () => {
+    const readerBus = await import("../../extension/reader/reader-bus.js");
+    const persist = vi.spyOn(readerBus, "persistReaderSettingsThroughSeam");
+    const notify = vi.spyOn(readerBus, "notifyReaderPresenter");
+
+    setBilingual(false, "en-US");
+    clipState.setSubtitles([ZH_TRACK, EN_TRACK]);
+    clipState.setSelectedSubtitleId(ZH_TRACK.id);
+
+    // 打开双语：持久化 + 通知重渲 + 立即按偏好装载
+    const opened = module.toggleBilingualSubtitles(true);
+    expect(opened.kind).toBe("started");
+    expect(state.settings.bilingualSubtitles).toBe(true);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith({ kind: "rerender" });
+    await vi.waitFor(() => expect(lazy.calls).toHaveLength(1));
+
+    // 跨上下文同步新目标语言（槽 idle 时激活新目标）
+    lazy.calls = [];
+    clipState.clearSecondarySubtitle();
+    const synced = module.syncBilingualSettingsFromStorage({
+      secondarySubtitleLang: { oldValue: "en-US", newValue: "ai-en" }
+    });
+    expect(synced.changed).toBe(true);
+    expect(state.settings.secondarySubtitleLang).toBe("ai-en");
+    expect(synced.loadOutcome.kind).toBe("started");
+    await vi.waitFor(() => expect(lazy.calls).toHaveLength(1));
+
+    // 重试：槽 error 时以 forceRefresh=true 重抓
+    lazy.calls = [];
+    clipState.markSecondarySubtitleError();
+    const retried = module.retrySecondarySubtitleLoad();
+    expect(retried.kind).toBe("started");
+    await vi.waitFor(() => expect(lazy.calls).toHaveLength(1));
+    expect(lazy.calls[0]).toEqual([EN_TRACK.subtitleUrl, EN_TRACK.lanDoc, 3, EN_TRACK.id, true]);
+  });
+});

@@ -55,7 +55,7 @@ import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
 import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
-import { initRangeSlider, syncRangeProgress } from "./range-slider.js";
+import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
 import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
@@ -280,19 +280,13 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   setCustomSelectValue(elements.readerPalette, normalizeReaderPalette(settings.readerPalette));
   initCustomSelect(elements.readerPalette, "custom-select-wrapper");
 
-  elements.readerFontSizeScale.value = String(normalizeReaderFontSizeScale(settings.readerFontSizeScale));
-  elements.readerFontSizeScaleValue.textContent = `${elements.readerFontSizeScale.value}%`;
-  elements.readerFontSizeScaleResetBtn.disabled = Number(elements.readerFontSizeScale.value) === DEFAULT_SETTINGS.readerFontSizeScale;
-  initRangeSlider(elements.readerFontSizeScale);
+  setResettableRangeValue(elements.readerFontSizeScale, settings.readerFontSizeScale);
   elements.includeDateInFilename.checked = settings.includeDateInFilename !== false;
   elements.enablePlayerAiQuickAction.checked = Boolean(settings.enablePlayerAiQuickAction);
   elements.playerAiQuickPrompt.value = String(settings.playerAiQuickPrompt || "");
   elements.includeTimestampInBody.checked = Boolean(settings.includeTimestampInBody);
   elements.enableDebugLogs.checked = Boolean(settings.enableDebugLogs);
-  elements.customPanelWidth.value = String(normalizeCustomPanelWidth(settings.customPanelWidth));
-  elements.customPanelWidthValue.textContent = `${elements.customPanelWidth.value}px`;
-  elements.customPanelWidthResetBtn.disabled = Number(elements.customPanelWidth.value) === DEFAULT_SETTINGS.customPanelWidth;
-  initRangeSlider(elements.customPanelWidth);
+  setResettableRangeValue(elements.customPanelWidth, settings.customPanelWidth);
   elements.autoOpenReader.checked = settings.autoOpenReader === true;
   elements.chatInputGlow.checked = normalizeChatInputGlow(settings.chatInputGlow);
   // 自绘开关（ADR-0019）：水合直接写 .checked（值源语义不变，零事件），视觉经
@@ -317,10 +311,7 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
 
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
   elements.allowPaidSearchProviders.checked = settings.allowPaidSearchProviders === true;
-  elements.webSearchMaxToolCalls.value = String(normalizeWebSearchMaxToolCalls(settings.webSearchMaxToolCalls));
-  elements.webSearchMaxToolCallsValue.textContent = elements.webSearchMaxToolCalls.value;
-  elements.webSearchMaxToolCallsResetBtn.disabled = Number(elements.webSearchMaxToolCalls.value) === DEFAULT_SETTINGS.webSearchMaxToolCalls;
-  initRangeSlider(elements.webSearchMaxToolCalls);
+  setResettableRangeValue(elements.webSearchMaxToolCalls, settings.webSearchMaxToolCalls);
   const searchProviders = await loadSearchProviders();
   // 列表顺序 = 链序（spec §12.2 / §12.5 第 15 行）：先取用户拖拽序（归一后），
   // 再按「order 下标 > 内置默认序」排序渲染。DeepSeek 行副行 = 凭据引用三态文案
@@ -942,50 +933,38 @@ function bindSettingsEvents(host: HTMLElement): void {
   [elements.asrAutoFallback, elements.enablePlayerAiQuickAction, elements.includeDateInFilename, elements.includeTimestampInBody, elements.enableDebugLogs, elements.allowPaidSearchProviders, elements.autoOpenReader, elements.chatInputGlow]
     .forEach(initToggleSwitch);
 
-  elements.readerFontSizeScale.addEventListener("input", () => {
-    const val = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
-    elements.readerFontSizeScaleValue.textContent = `${val}%`;
-    elements.readerFontSizeScaleResetBtn.disabled = val === DEFAULT_SETTINGS.readerFontSizeScale;
-    state.patchSettings({ readerFontSizeScale: val });
-    applyReadingViewTypography();
-    navSync.updateActiveIndicator(false);
-  });
-  elements.readerFontSizeScale.addEventListener("change", () => {
-    const val = normalizeReaderFontSizeScale(elements.readerFontSizeScale.value);
-    void saveSettingField(elements, { readerFontSizeScale: val });
-  });
-  elements.readerFontSizeScaleResetBtn.addEventListener("click", () => {
-    const defaultVal = DEFAULT_SETTINGS.readerFontSizeScale;
-    elements.readerFontSizeScale.value = String(defaultVal);
-    elements.readerFontSizeScaleValue.textContent = `${defaultVal}%`;
-    elements.readerFontSizeScaleResetBtn.disabled = true;
-    state.patchSettings({ readerFontSizeScale: defaultVal });
-    applyReadingViewTypography();
-    navSync.updateActiveIndicator(false);
-    void saveSettingField(elements, { readerFontSizeScale: defaultVal });
+  bindResettableRangeSlider({
+    input: elements.readerFontSizeScale,
+    badge: elements.readerFontSizeScaleValue,
+    resetBtn: elements.readerFontSizeScaleResetBtn,
+    defaultValue: DEFAULT_SETTINGS.readerFontSizeScale,
+    normalize: normalizeReaderFontSizeScale,
+    format: (val) => `${val}%`,
+    onPreview: (val) => {
+      state.patchSettings({ readerFontSizeScale: val });
+      applyReadingViewTypography();
+      navSync.updateActiveIndicator(false);
+    },
+    onCommit: (val) => {
+      void saveSettingField(elements, { readerFontSizeScale: val });
+    }
   });
 
-  elements.customPanelWidth.addEventListener("input", () => {
-    const width = normalizeCustomPanelWidth(elements.customPanelWidth.value);
-    elements.customPanelWidthValue.textContent = `${width}px`;
-    elements.customPanelWidthResetBtn.disabled = width === DEFAULT_SETTINGS.customPanelWidth;
-    state.patchSettings({ customPanelWidth: width });
-    relayoutScriptHost();
-    navSync.updateActiveIndicator(false);
-  });
-  elements.customPanelWidth.addEventListener("change", () => {
-    const width = normalizeCustomPanelWidth(elements.customPanelWidth.value);
-    void saveSettingField(elements, { customPanelWidth: width });
-  });
-  elements.customPanelWidthResetBtn.addEventListener("click", () => {
-    const defaultVal = DEFAULT_SETTINGS.customPanelWidth;
-    elements.customPanelWidth.value = String(defaultVal);
-    elements.customPanelWidthValue.textContent = `${defaultVal}px`;
-    elements.customPanelWidthResetBtn.disabled = true;
-    state.patchSettings({ customPanelWidth: defaultVal });
-    relayoutScriptHost();
-    navSync.updateActiveIndicator(false);
-    void saveSettingField(elements, { customPanelWidth: defaultVal });
+  bindResettableRangeSlider({
+    input: elements.customPanelWidth,
+    badge: elements.customPanelWidthValue,
+    resetBtn: elements.customPanelWidthResetBtn,
+    defaultValue: DEFAULT_SETTINGS.customPanelWidth,
+    normalize: normalizeCustomPanelWidth,
+    format: (width) => `${width}px`,
+    onPreview: (width) => {
+      state.patchSettings({ customPanelWidth: width });
+      relayoutScriptHost();
+      navSync.updateActiveIndicator(false);
+    },
+    onCommit: (width) => {
+      void saveSettingField(elements, { customPanelWidth: width });
+    }
   });
 
   elements.chatInputGlow.addEventListener("change", () => {
@@ -1154,24 +1133,15 @@ function bindSettingsEvents(host: HTMLElement): void {
     await saveSettingField(elements, { asrAutoFallback: elements.asrAutoFallback.checked });
   });
   // 搜索平台：单轮搜索上限即时持久化
-  elements.webSearchMaxToolCalls?.addEventListener("input", () => {
-    const val = normalizeWebSearchMaxToolCalls(elements.webSearchMaxToolCalls.value);
-    elements.webSearchMaxToolCallsValue.textContent = String(val);
-    elements.webSearchMaxToolCallsResetBtn.disabled = val === DEFAULT_SETTINGS.webSearchMaxToolCalls;
-  });
-  elements.webSearchMaxToolCalls?.addEventListener("change", async () => {
-    const val = normalizeWebSearchMaxToolCalls(elements.webSearchMaxToolCalls.value);
-    elements.webSearchMaxToolCallsValue.textContent = String(val);
-    elements.webSearchMaxToolCallsResetBtn.disabled = val === DEFAULT_SETTINGS.webSearchMaxToolCalls;
-    await saveSettingField(elements, { webSearchMaxToolCalls: val });
-  });
-  elements.webSearchMaxToolCallsResetBtn?.addEventListener("click", async () => {
-    const defaultVal = DEFAULT_SETTINGS.webSearchMaxToolCalls;
-    elements.webSearchMaxToolCalls.value = String(defaultVal);
-    elements.webSearchMaxToolCallsValue.textContent = String(defaultVal);
-    elements.webSearchMaxToolCallsResetBtn.disabled = true;
-    syncRangeProgress(elements.webSearchMaxToolCalls);
-    await saveSettingField(elements, { webSearchMaxToolCalls: defaultVal });
+  bindResettableRangeSlider({
+    input: elements.webSearchMaxToolCalls,
+    badge: elements.webSearchMaxToolCallsValue,
+    resetBtn: elements.webSearchMaxToolCallsResetBtn,
+    defaultValue: DEFAULT_SETTINGS.webSearchMaxToolCalls,
+    normalize: normalizeWebSearchMaxToolCalls,
+    onCommit: async (val) => {
+      await saveSettingField(elements, { webSearchMaxToolCalls: val });
+    }
   });
   // 付费平台准入即时持久化（GLOSSARY「付费平台」）：开关即花钱授权，改动立即生效。
   elements.allowPaidSearchProviders?.addEventListener("change", async () => {
@@ -1182,11 +1152,7 @@ function bindSettingsEvents(host: HTMLElement): void {
     elements.asrAutoFallback.checked = changes.asrAutoFallback.newValue !== false;
     syncToggleSwitch(elements.asrAutoFallback);
     if (changes.webSearchMaxToolCalls) {
-      const val = normalizeWebSearchMaxToolCalls(changes.webSearchMaxToolCalls.newValue);
-      elements.webSearchMaxToolCalls.value = String(val);
-      elements.webSearchMaxToolCallsValue.textContent = String(val);
-      elements.webSearchMaxToolCallsResetBtn.disabled = val === DEFAULT_SETTINGS.webSearchMaxToolCalls;
-      syncRangeProgress(elements.webSearchMaxToolCalls);
+      setResettableRangeValue(elements.webSearchMaxToolCalls, changes.webSearchMaxToolCalls.newValue);
     }
     if (changes.allowPaidSearchProviders) {
       elements.allowPaidSearchProviders.checked = changes.allowPaidSearchProviders.newValue === true;

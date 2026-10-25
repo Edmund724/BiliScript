@@ -177,7 +177,7 @@ beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
   setLocationUrl(READER_MODE_URL);
-  lazy.bodies = { "ai-zh": ZH_BODY, "ai-en": EN_BODY };
+  lazy.bodies = { "ai-zh": ZH_BODY, "ai-en": EN_BODY, 中文: ZH_BODY, English: EN_BODY };
   lazy.defaultBody = ZH_BODY;
 
   state = (await import("../../extension/core/state.js")).state as TestState;
@@ -375,7 +375,7 @@ describe("08 选轨控件：装载（只经 chain.loadSubtitle，不直调渲染
       expect(state.clip.subtitleBody).toEqual(EN_BODY);
     });
     expect(state.clip.selectedSubtitleId).toBe("2121827445538866944");
-    expect(state.clip.selectedSubtitleLang).toBe("ai-en");
+    expect(state.clip.selectedSubtitleLang).toBe("English");
     expect(state.clip.selectedSubtitleUrl).toBe("https://sub/ai-en.json");
     // 收尾收敛：控件回到「显示 = 现值」且解除忙碌/禁用。漏掉这次收敛，一次成功的
     // 换轨会让控件永久停在「禁用 + 忙碌」（2026-10-06 红检：撤掉 finally 里的收敛
@@ -523,7 +523,7 @@ describe("切轨只装载，不直调渲染（2f974c5 防回焊锁的对应物�
     // 身份取 data-id（Q11 的 id_str）。少传/错位都会红。
     expect(loadSubtitle).toHaveBeenCalledWith(
       "https://sub/ai-en.json",
-      "ai-en",
+      "English",
       runIdAtDispatch,
       "2121827445538866944"
     );
@@ -793,7 +793,7 @@ describe("08 选轨控件：壳重建（forceRecreate）后的接线", () => {
     // 新壳的改选真的发起装载（change 接线在建壳时完成，不靠任何按节点去重的补绑）
     selectViaList("日本語");
     await vi.waitFor(() => expect(loadSubtitle).toHaveBeenCalledTimes(2));
-    expect(loadSubtitle).toHaveBeenLastCalledWith(JA.subtitleUrl, "ai-ja", state.clip.fetchRunId, JA.id);
+    expect(loadSubtitle).toHaveBeenLastCalledWith(JA.subtitleUrl, "日本語", state.clip.fetchRunId, JA.id);
   });
 });
 

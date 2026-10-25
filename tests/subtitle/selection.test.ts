@@ -16,9 +16,11 @@ import { mapSubtitleTracks } from "../../extension/bilibili/native-payload.js";
 import {
   findSecondaryTrackByPreferredLang,
   findTrackByPreferredLang,
+  findTrackByRef,
   isMainSubtitleTrack,
   normalizeSubtitleTracks,
   pickPreferredSubtitle,
+  resolveTrackTarget,
   sortSubtitleBodyByFrom
 } from "../../extension/subtitle/selection.js";
 
@@ -236,5 +238,48 @@ describe("副轨目标 = 语言命中 + 排除主轨（findSecondaryTrackByPrefe
     expect(isMainSubtitleTrack({ id: "" }, "4")).toBe(false);
     expect(isMainSubtitleTrack({ id: "" }, "")).toBe(false);
     expect(isMainSubtitleTrack(null, "4")).toBe(false);
+  });
+});
+
+describe("resolveTrackTarget / findTrackByRef（规范轨道目标投影）", () => {
+  const tracks = [
+    { id: "1", lan: "ai-zh", lanDoc: "中文（自动）", subtitleUrl: "https://sub/ai-zh.json" },
+    { id: "2", lan: "ai-en", lanDoc: "", subtitleUrl: "https://sub/ai-en.json" }
+  ];
+
+  it("直接投影轨道：语言统一 lanDoc || lan || unknown", () => {
+    expect(resolveTrackTarget(tracks[0])).toEqual({
+      id: "1",
+      url: "https://sub/ai-zh.json",
+      lang: "中文（自动）"
+    });
+    expect(resolveTrackTarget(tracks[1])).toEqual({
+      id: "2",
+      url: "https://sub/ai-en.json",
+      lang: "ai-en"
+    });
+    expect(resolveTrackTarget({ id: "", lan: "", lanDoc: "", subtitleUrl: "https://sub/x.json" })).toEqual({
+      id: "",
+      url: "https://sub/x.json",
+      lang: "unknown"
+    });
+  });
+
+  it("按选项行引用（id 优先，回退 URL）在轨列找回完整轨并投影 lanDoc，不漂移回机器码 lan", () => {
+    expect(findTrackByRef(tracks, { id: "1", url: "https://sub/other.json" })).toBe(tracks[0]);
+    expect(findTrackByRef(tracks, { id: "", url: "https://sub/ai-en.json" })).toBe(tracks[1]);
+
+    // 选项行只带 data-lang="ai-zh"：经 tracks 找回后必须投影为 lanDoc "中文（自动）"
+    expect(resolveTrackTarget({ id: "1", url: "https://sub/ai-zh.json", lang: "ai-zh" }, tracks)).toEqual({
+      id: "1",
+      url: "https://sub/ai-zh.json",
+      lang: "中文（自动）"
+    });
+    // 轨列中找不到时退回引用自身字段
+    expect(resolveTrackTarget({ id: "99", url: "https://sub/ja.json", lang: "ai-ja" }, tracks)).toEqual({
+      id: "99",
+      url: "https://sub/ja.json",
+      lang: "ai-ja"
+    });
   });
 });

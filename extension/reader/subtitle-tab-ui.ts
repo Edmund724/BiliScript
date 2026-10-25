@@ -68,8 +68,8 @@ import {
   resolveSubtitleTrackLabel,
   shouldMarkAiSubtitleTracks
 } from "../subtitle/labels.js";
+import { resolveTrackTarget } from "../subtitle/selection.js";
 import type { SubtitleTrack } from "../bilibili/gateway.js";
-import type { Settings } from "../core/defaults.js";
 import { isProgrammaticScrolling, ids } from "./state.js";
 // 阅读域设置键面（主表派生）：双语两键的收敛订阅从它取，不手抄键数组。
 import { READER_SETTINGS_WATCH_KEYS } from "./presentation-fields.js";
@@ -78,21 +78,19 @@ import { withReader } from "../ui/reader-gate.js";
 import { initCustomSelect, rebuildCustomSelectOptions, setCustomSelectSlots, setCustomSelectState, setCustomSelectValue } from "../ui/custom-select.js";
 import { READING_COPY_ICON, READING_DOWNLOAD_ICON } from "../ui/reading-icons.js";
 import { flashCopySuccess } from "../ui/copy-feedback.js";
-// 副轨（双语第二路轨）的目标解析 + 六态列模型 + 装载事务（唯一落点）：本叶子只做
+// 副轨（双语第二路轨）的目标解析、六态列模型、装载事务与同轨/偏好控制：本叶子只做
 // DOM 投影与在飞禁用。
 import {
-  ensureSecondarySubtitleLoaded,
+  clearSecondarySubtitleIfShadowedByMain,
   isSecondarySubtitleLoadInFlight,
   resolveSecondaryColumnView,
-  resolveSecondaryTarget
+  resolveSecondaryTarget,
+  retrySecondarySubtitleLoad,
+  selectSecondarySubtitleTrack,
+  syncBilingualSettingsFromStorage,
+  toggleBilingualSubtitles
 } from "./secondary-subtitle.js";
 import type { SecondaryColumnView, SecondaryEnsureOutcome } from "./secondary-subtitle.js";
-// 双语偏好的落盘 seam（readerTheme 同款）：reader 域不得静态 import core/runtime.js，
-// 故经 reader-bus 的 persist 槽转发（content.ts 注册的 sendRuntimeMessage）。
-import { notifyReaderPresenter, persistReaderSettingsThroughSeam } from "./reader-bus.js";
-// 副轨槽的清空只经槽写门（subtitle/slot 的成组动词）：弹层的同轨防呆要清槽，
-// 但「清哪几个字段」不是弹层的知识。
-import { clearSecondary } from "../subtitle/slot.js";
 // 换轨进场动画的触发标记（零依赖叶子）：主列选轨/副列改选置位，列表属主
 //（lifecycle 的列表投影）在整表重建时消费一次；残标清偿也归本叶子的两个
 // change 处理器（主列 finally / 副列 settled 与同轨防呆的同步收尾）。
@@ -432,7 +430,14 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
       return;
     }
     const option = select.options[select.selectedIndex];
-    const target = select.value;
+    const target = resolveTrackTarget(
+      {
+        id: option?.dataset.id,
+        url: select.value,
+        lang: option?.dataset.lang
+      },
+      state.clip.subtitles
+    );
     // 哨兵项与「不可装载的行」不发起切换。本仓唯一的空值轨是 ASR 伪轨（subtitleUrl
     // 为空，而链的 loadSubtitle 对空 URL 直接抛「字幕 URL 为空。」）；它的正文缓存键
     // 是 provider/model/language 复合键，只有 asr 域能重建，故本控件不做「切回 ASR
@@ -442,26 +447,26 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
     // 生产可达性：ASR 回退只从「无轨出口」进入（fetcher 的 finishNoSubtitle），而每轮
     // 抓取都会 setSubtitles(全量轨)，故伪轨只在自己是当前轨时出现在列表里——混源列表
     // 目前不可达（见票 08 的 resolution：真出现时另立票做「重建 ASR 轨」）。
-    if (!target) {
+    if (!target.url) {
       logWarn("[BILISCRIPT] subtitle track is not switchable (no url)", {
-        id: String(option?.dataset.id || "")
+        id: target.id
       });
       render();
       return;
     }
     // 乐观显示目标轨（trigger 立即反映用户选择），随后置 busy + 禁用。
-    switchInFlight = target;
-    setCustomSelectValue(select, target);
+    switchInFlight = target.url;
+    setCustomSelectValue(select, target.url);
     setCustomSelectState(select, { disabled: true, busy: true });
     let switched = false;
     void (async () => {
       try {
         const chain = await ensureSummarizeChain();
         await chain.loadSubtitle(
-          String(option?.value || ""),
-          String(option?.dataset.lang || "unknown"),
+          target.url,
+          target.lang,
           state.clip.fetchRunId,
-          String(option?.dataset.id || "")
+          target.id
         );
         switched = true;
         // 成功路径不改控件：接受事务的 subtitle-ready 通知驱动 renderReadingView，
@@ -512,24 +517,11 @@ export function createSubtitleToolbar(deps: SubtitleToolbarDeps = {}): SubtitleT
 
     watchStorageKeys(
       (changes) => {
-        const bilingual = changes["bilingualSubtitles"];
-        const lang = changes["secondarySubtitleLang"];
-        if (!bilingual && !lang) {
+        const synced = syncBilingualSettingsFromStorage(changes);
+        if (!synced.changed) {
           return;
         }
-        const updates: Partial<Settings> = {};
-        if (bilingual) {
-          // 关双语只停显示、不清副轨槽（02 号票第 7(d) 条）：这里只投影偏好值，
-          // 槽的清理归清场路径（resetClipState）与 Q8 的同轨防呆。
-          updates.bilingualSubtitles = bilingual.newValue === true;
-        }
-        if (lang && typeof lang.newValue === "string") {
-          updates.secondarySubtitleLang = lang.newValue;
-        }
-        state.setSettings({ ...state.settings, ...updates });
-        if (state.settings.bilingualSubtitles === true) {
-          activateSecondaryTarget();
-        }
+        projectSecondaryLoad(synced.loadOutcome);
         render();
       },
       { sync: READER_SETTINGS_WATCH_KEYS }
@@ -865,127 +857,53 @@ function projectSecondaryLoad(outcome: SecondaryEnsureOutcome): void {
   });
 }
 
-// 开关打开 / 跨上下文同步后按全局偏好把目标轨抓起来（Q1：打开那一刻立即抓、
-// forceRefresh = false 优先命中 per-track 缓存；不做面板可见判定、不做滚动懒加载）。
-// 三重守卫（开关关 / 槽非 idle / 无目标不猜）在事务里；本列自己的在飞早退留在这里。
-function activateSecondaryTarget(): void {
-  if (isSecondarySubtitleLoadInFlight()) {
-    return;
-  }
-  projectSecondaryLoad(ensureSecondarySubtitleLoaded());
-}
-
-// 页脚开关（唯一入口是这里 + 跨上下文订阅）：
-//   - 偏好立即落盘（readerTheme 同款 persist seam；进键面 ⇒ sync 跨设备）；
-//   - 打开即抓目标轨；关闭**只停显示、不清副轨槽**（02 号票第 7(d) 条：反复开关
-//     不该每次都闪一次加载中）；
-//   - 控件状态只由 settings 投影，本处理器不额外写 DOM（随后一次重渲收口）；
-//   - **两处都要重渲列表**（弹层自己的投影 + 列表）：开关本身改的是 settings，而副行
-//     出现在列表里 —— 只重投影弹层的话，关闭后 188 行副行会一直挂在列表上（真机走查
-//     实测的反向发现）。列表属主是 reader/lifecycle，本叶子不自绘（结构锁：
-//     `renderReadingView()` 的调用点全仓唯一在 lifecycle），只发 `rerender` 通知。
+// 页脚双语开关与副列改选/重试：状态迁移、同轨防呆、持久化与列表重渲通知均收在
+// reader/secondary-subtitle.ts，本叶子只承接 DOM 事件并投影本控件状态与进场动画。
 function handleBilingualSwitchClick(event: Event): void {
   const toggle = event.currentTarget as HTMLButtonElement | null;
   if (toggle?.disabled) {
     return;
   }
-  const next = state.settings.bilingualSubtitles !== true;
-  state.setSettings({ ...state.settings, bilingualSubtitles: next });
-  persistReaderSettingsThroughSeam();
-  if (next) {
-    activateSecondaryTarget();
+  const outcome = toggleBilingualSubtitles();
+  if (outcome.kind === "started") {
+    projectSecondaryLoad(outcome);
+    return;
   }
   const nodes = ensureBilingualCard();
   const rerender = nodes?.context?.rerender ?? renderReadingSubtitleTrackPicker;
   rerender();
-  notifyReaderPresenter({ kind: "rerender" });
 }
 
-// 副列语言改选（组件浮层里点一行 → 组件写值并派发 change）：
-//   - 本列在飞时的 change 一律忽略（组件浮层的点击处理器不查 disabled，禁用只是
-//     视觉/键盘守卫，这里必须自己早退）并收敛回 state 的现值；
-//   - 选中主轨那一条 ⇒ Q8 同轨防呆：清副轨槽（列表退回单轨），目标 lan 不动；
-//   - 否则写全局偏好（副轨目标 lan），再按**轨身份**解析目标交给装载事务
-//（槽非 idle 也照装：改选发生在槽 ready/error 时是常态），只禁本列。
 function handleSecondaryTrackPickerChange(select: HTMLSelectElement): void {
   const nodes = ensureBilingualCard();
   const rerender = nodes?.context?.rerender ?? renderReadingSubtitleTrackPicker;
-  if (isSecondarySubtitleLoadInFlight()) {
-    rerender();
-    return;
-  }
   const option = select.options[select.selectedIndex];
-  const url = select.value;
-  const id = String(option?.dataset.id || "");
-  const lang = String(option?.dataset.lang || "");
-  if (!url) {
+  const outcome = selectSecondarySubtitleTrack({
+    id: option?.dataset.id,
+    url: select.value,
+    lang: option?.dataset.lang
+  });
+  if (outcome.kind === "skipped") {
     rerender();
     return;
   }
-  // 副列改选同属「用户主动换轨」：装载落定后由本控件起播一次进场动画。
-  // 同轨防呆走同步重建、目标解析失败不发起装载——后者不播。
-  // Q8 同轨防呆：副列选了主轨那一条 ⇒ 副列清空（列表退回单轨）。目标 lan 记成用户
-  // 刚点的那条轨的 lan（= 主轨的 lan）——这是「副列指向主轨」的唯一可投影信号，
-  // 第三套空态文案「主副字幕相同」由此推出（02 号票第 5/8 条：
-  // 三套空态不占新位、由（目标 lan × 轨列表 × 主轨选择 × 副轨 body）投影推导）。
-  if (id && id === state.clip.selectedSubtitleId) {
-    state.setSettings({ ...state.settings, secondarySubtitleLang: lang });
-    persistReaderSettingsThroughSeam();
-    clearSecondary();
+  if (outcome.kind === "main-track") {
     rerender();
-    // 同轨防呆清的是**副轨槽**，副行随之从列表消失 ⇒ 与开关同款：必须请列表属主重渲，
-    // 否则列表还挂着已被清空的译文（弹层侧已经收起、两处两说）。
-    notifyReaderPresenter({ kind: "rerender" });
-    // 同步通知当场完成列表重建（视图开着时）；重建后在同一事件循环内起播进场。
     if (state.reader.readingViewOpen) {
       playTrackSwitchAnimation(byId(ids.readingSubtitleList));
     }
     return;
   }
-  // 全局偏好：副轨目标 lan（Q4 记忆粒度）；立即落盘（与主题偏好同一条 persist seam）。
-  state.setSettings({ ...state.settings, secondarySubtitleLang: lang });
-  persistReaderSettingsThroughSeam();
-  // 目标按**轨身份**解析（不是刚写的偏好再匹配一次）：用户点的是哪一条就装哪一条。
-  const resolution = resolveSecondaryTarget({ id, url, lang });
-  if (resolution.kind !== "target") {
-    rerender();
-    return;
-  }
-  const outcome = ensureSecondarySubtitleLoaded({ target: resolution.target });
   projectSecondaryLoad(outcome);
-  // 副轨到站的 secondary-subtitle-ready 重建发生在事务落定之前；settled 落定时若
-  // 装载成功且视图开着，补一次进场动画（失败/视图未开不播）。
-  if (outcome.kind === "started") {
-    void outcome.settled.then((settlement) => {
-      if (!settlement.error && state.reader.readingViewOpen) {
-        playTrackSwitchAnimation(byId(ids.readingSubtitleList));
-      }
-    });
-  }
+  void outcome.settled.then((settlement) => {
+    if (!settlement.error && state.reader.readingViewOpen) {
+      playTrackSwitchAnimation(byId(ids.readingSubtitleList));
+    }
+  });
 }
 
-// 副列占位行里的重试（02 号票 Q6：重抓**这一条**副轨，forceRefresh = true）。
-// 目标仍按全局偏好解析（与自动装载同一份实现）；槽在 error 态也要照装——事务的
-// 「槽非 idle 不动」守卫只服务自动路径，显式目标不走它。
 function handleSecondaryRetryClick(): void {
-  if (isSecondarySubtitleLoadInFlight()) {
-    return;
-  }
-  const resolution = resolveSecondaryTarget();
-  if (resolution.kind !== "target") {
-    return;
-  }
-  projectSecondaryLoad(ensureSecondarySubtitleLoaded({ target: resolution.target, forceRefresh: true }));
-}
-
-// 主轨切到了副列当前指向的同一条轨 ⇒ 清副轨槽（Q8 反方向；目标 lan 保持不动，
-// 投影据此出「主副字幕相同」）。**不碰** settings——偏好是全局记忆。
-function clearSecondarySubtitleIfShadowedByMain(): void {
-  const slot = state.clip.secondarySubtitle;
-  if (!slot.id || slot.id !== state.clip.selectedSubtitleId) {
-    return;
-  }
-  clearSecondary();
+  projectSecondaryLoad(retrySecondarySubtitleLoad());
 }
 
 export function bindSubtitleTabEvents(toolbarOrDeps?: SubtitleToolbar | { toolbar?: SubtitleToolbar }): void {

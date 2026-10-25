@@ -278,7 +278,7 @@ beforeEach(async () => {
   resetModuleState();
   document.body.innerHTML = "";
   setLocationUrl(READER_MODE_URL);
-  lazy.bodies = { "ai-zh": ZH_BODY, "ai-en": EN_BODY };
+  lazy.bodies = { "ai-zh": ZH_BODY, "ai-en": EN_BODY, 中文: ZH_BODY, English: EN_BODY };
   lazy.defaultBody = ZH_BODY;
   lazy.secondaryCalls = [];
   lazy.secondaryMode = "ok";

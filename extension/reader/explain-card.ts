@@ -25,10 +25,7 @@ import { renderMarkdown } from "../ui/markdown.js";
 import { hydrateMermaid } from "../ui/lazy-mermaid.js";
 import { hydrateMath } from "../ui/lazy-math.js";
 import { resolveActiveProvider } from "../ai/active-provider.js";
-import { getSettings } from "../core/runtime.js";
-import { sendRuntimeMessage } from "../shared/messaging.js";
-import { confirmDialog } from "../ui/confirm-dialog.js";
-import { SEARCH_OPT_IN_CONFIRM_TEXT, SEARCH_OPT_IN_NOTICE_MESSAGE } from "../search/opt-in-notice.js";
+import { ensureWebSearchOptIn } from "../search/opt-in-notice.js";
 import { resolveWebSearchRuntime } from "../search/search-runtime.js";
 import { setMessage } from "../core/ui-status.js";
 import { logWarn } from "../shared/logging.js";
@@ -177,36 +174,15 @@ function startExplainRequest(): void {
       // explainSelection 按需动态装载（ai/explain 不再常驻 reader chunk），
       // 装载失败与请求失败同走 error 态。
       const { explainSelection } = await import("../ai/explain.js");
-      // 联网搜索（spec §2.1：选区解释链同样可用）：toggle 开启才解析运行时；
-      // 未配置激活平台时解析器返回 undefined，如实走原无工具路径（搜索是增强，
-      // 缺失不阻塞解释）。中止复用本卡 abort controller，关闭/重试可断在途搜索。
-      // opt-in 一次性说明闸（spec §6.7）：开关已开且位未置位时，在解析搜索运行时
-      // **之前**先弹说明——未获同意不外发查询词。同意 = 先写位（写失败沿用
-      // sendRuntimeMessage(...).catch(() => null) 形态，本轮照常继续）再解析；
-      // 取消 = 跳过解析（不传 webSearch），解释照常发起；阅读视图未挂载时
-      // confirmDialog 直接 false（fail-closed），即该轮不搜索。
-      let webSearch;
-      const settings = await getSettings();
-      if (settings.webSearchEnabled) {
-        let acknowledged = settings.searchOptInNoticeAcknowledged;
-        if (!acknowledged) {
-          acknowledged = await confirmDialog({
-            message: SEARCH_OPT_IN_NOTICE_MESSAGE,
-            confirmText: SEARCH_OPT_IN_CONFIRM_TEXT
-          });
-          if (acknowledged) {
-            await sendRuntimeMessage({
-              type: "save-settings",
-              settings: { searchOptInNoticeAcknowledged: true }
-            }).catch(() => null);
-          }
-        }
-        if (acknowledged) {
-          // 运行时缺省 = 本轮不联网；本卡对「链为空」无用户文案通道（notice 只由
-          // 工具循环的搜索失败给出），故只取 runtime（spec §6.4 / §12.7 第 6 条）。
-          webSearch = (await resolveWebSearchRuntime(controller?.signal ?? null)).runtime;
-        }
-      }
+      // 联网搜索（spec §2.1：选区解释链同样可用）：经 search/opt-in-notice.ts 的
+      // ensureWebSearchOptIn 在解析搜索运行时之前完成开关判定与首次授权（spec §6.7）——
+      // 未获同意不外发查询词。未配置激活平台时解析器返回 undefined，如实走原无工具
+      // 路径（搜索是增强，缺失不阻塞解释）。中止复用本卡 abort controller，关闭/重试
+      // 可断在途搜索。运行时缺省 = 本轮不联网；本卡对「链为空」无用户文案通道
+      //（notice 只由工具循环的搜索失败给出），故只取 runtime（spec §6.4 / §12.7 第 6 条）。
+      const webSearch = (await ensureWebSearchOptIn())
+        ? (await resolveWebSearchRuntime(controller?.signal ?? null)).runtime
+        : undefined;
       const text = await explainSelection({
         provider,
         videoTitle: state.clip.title,
