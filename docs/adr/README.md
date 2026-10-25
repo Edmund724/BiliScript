@@ -26,6 +26,7 @@
 | [0018](0018-gemini-native-protocol.md) | 引入第三种线格式协议（Gemini 原生 generateContext） | 有效 | 推翻 GLOSSARY.md 既有 Avoid 裁决（见正文背景） |
 | [0019](0019-settings-toggle-custom-drawn-boundary.md) | 设置抽屉布尔开关自绘 toggle-switch，操作型复选框保持原生 | 有效 | 自绘控件边界（持久设置布尔开关可自绘）；推翻 reader-settings-shell.css「不引入自定义替代控件」旧约定 |
 | [0020](0020-dropdown-popover-spring-motion.md) | 下拉与弹层控件统一 @starting-style 离散过渡展开与淡出 | 有效 | 统一四类下拉/弹层控件开合手感；纯 CSS allow-discrete 单源驱动 |
+| [0021](0021-continuous-corner-squircle.md) | 全量矩形圆角容器与控件统一采用 corner-shape: squircle 连续圆角 | 有效 | 覆盖 ABCD 四类非胶囊/非正圆圆角规则与 Canvas 金句卡导出；保持既有 border-radius 半径令牌不变 |
 
 编号一经分配不复用：裁决被推翻或被取代时新开一篇（见体例规则 3），退役编号留空行占位，不重开。
 

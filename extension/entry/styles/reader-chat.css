@@ -236,6 +236,7 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
+  corner-shape: inherit;
   pointer-events: none;
   opacity: 0;
   background: linear-gradient(
@@ -263,6 +264,7 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
+  corner-shape: inherit;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -486,6 +488,7 @@
   padding: 12px 16px;
   border: 0;
   border-radius: var(--chip-radius, var(--biliscript-radius-panel));
+  corner-shape: squircle;
   background: var(--biliscript-reader-surface-3);
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -510,6 +513,7 @@
   word-wrap: break-word;
   padding: 7px 11px;
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   line-height: var(--biliscript-chat-line-height, 1.6);
   font-size: var(--biliscript-font-size-md);
 }
@@ -521,6 +525,7 @@
   color: var(--biliscript-reader-text);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
 }
 
 /* 助手消息：无气泡全宽纯文本流（透明底、无边框、无圆角、零内边距），内容左对齐占满列宽 */
@@ -558,6 +563,7 @@
   padding: 8px 10px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
@@ -899,6 +905,7 @@
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   overflow-x: auto;
 }
 
@@ -1017,6 +1024,7 @@
   background: var(--biliscript-reader-highlight);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   padding: 8px 10px;
   font-size: var(--biliscript-font-size-base);
 }
@@ -1064,6 +1072,7 @@
   padding: 7px 10px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
@@ -1107,6 +1116,7 @@
   padding: 7px 10px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
@@ -1290,6 +1300,7 @@
   padding: 10px 10px 8px;
   border: 1px solid var(--chat-input-border, var(--biliscript-reader-border));
   border-radius: var(--chat-input-radius, var(--biliscript-radius-panel));
+  corner-shape: squircle;
   background: var(--chat-input-bg, var(--biliscript-reader-surface));
 }
 
@@ -1324,6 +1335,7 @@
   object-fit: cover;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: max(0px, calc(var(--chat-input-radius, var(--biliscript-radius-panel)) - 10px));
+  corner-shape: squircle;
   background: var(--biliscript-reader-surface-2);
 }
 
@@ -1531,6 +1543,7 @@
   padding: 10px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   background: var(--biliscript-reader-card);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
@@ -1696,6 +1709,7 @@
   padding: 7px 8px;
   border: 0;
   border-radius: max(0px, calc(var(--biliscript-radius-panel) - 10px)); /* 同心圆角公式：外圆角 panel - 内边距 10px */
+  corner-shape: squircle;
   background: transparent;
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -1784,6 +1798,7 @@
   align-items: center;
   padding-right: 12px;
   border-radius: var(--biliscript-radius-sm);
+  corner-shape: squircle;
   max-width: 100%;
 }
 
@@ -1916,6 +1931,7 @@
   max-width: 100%;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   background: var(--biliscript-reader-card);
   padding: 8px 10px;
 }
@@ -2093,6 +2109,7 @@
   line-height: 1;
   padding: 2px 5px;
   border-radius: var(--biliscript-radius-xs);
+  corner-shape: squircle;
   color: var(--biliscript-reader-accent);
   border: 1px solid var(--biliscript-reader-accent);
 }
@@ -2126,6 +2143,7 @@
   padding: 8px 10px;
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   background: var(--biliscript-reader-card);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
@@ -2183,6 +2201,7 @@
 .biliscript-reading-chat .biliscript-md-math::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-border);
   border-radius: calc(var(--biliscript-radius-xs) / 2);
+  corner-shape: squircle;
 }
 
 /* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
@@ -2287,6 +2306,7 @@
   box-sizing: border-box;
   padding: 8px;
   border-radius: var(--biliscript-radius-lg);
+  corner-shape: squircle;
   background: var(--biliscript-reader-card);
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: var(--biliscript-reader-shadow);
@@ -2335,6 +2355,7 @@
   padding: 7px 10px;
   border: 0;
   border-radius: max(0px, calc(var(--biliscript-radius-lg) - 8px)); /* 同心圆角公式：外圆角 lg - 内边距 8px */
+  corner-shape: squircle;
   background: transparent;
   color: var(--biliscript-reader-text);
   font-size: var(--biliscript-font-size-sm);

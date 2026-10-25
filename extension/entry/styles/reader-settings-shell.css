@@ -296,6 +296,7 @@
   padding: 0 var(--biliscript-space-sm);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-panel);
+  corner-shape: squircle;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -325,6 +326,7 @@
   padding: 0 var(--biliscript-space-sm);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--select-trigger-radius, var(--biliscript-radius-panel));
+  corner-shape: squircle;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;
@@ -348,6 +350,7 @@
   padding: var(--biliscript-space-sm) var(--biliscript-space-10);
   border: 1px solid var(--biliscript-reader-border);
   border-radius: var(--biliscript-radius-lg);
+  corner-shape: squircle;
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font: inherit;

@@ -251,6 +251,7 @@
   padding: 4px 10px;
   border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-panel));
+  corner-shape: squircle;
   background: transparent;
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
@@ -379,6 +380,7 @@
   margin-right: auto;
   padding: 0 4px;
   border-radius: var(--biliscript-radius-xs);
+  corner-shape: squircle;
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
   font-size: var(--biliscript-font-size-sm);

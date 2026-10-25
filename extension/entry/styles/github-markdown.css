@@ -291,6 +291,7 @@
   white-space: break-spaces;
   background-color: var(--bgColor-neutral-muted);
   border-radius: 6px;
+  corner-shape: squircle;
 }
 
 .markdown-body code br {
@@ -322,6 +323,7 @@
   color: var(--fgColor-default);
   background-color: var(--bgColor-muted);
   border-radius: 6px;
+  corner-shape: squircle;
 }
 
 .markdown-body pre code {

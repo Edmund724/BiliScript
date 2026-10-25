@@ -48,6 +48,7 @@
   --biliscript-primitive-radius-full: 999px;
   --biliscript-primitive-radius-pill: 999px;
   --biliscript-primitive-radius-circle: 50%;
+  --biliscript-primitive-corner-shape-squircle: squircle;
 
   /* 基础间距（Spacing Scale: 核心阶梯 4px, 8px, 12px, 16px, 20px, 24px 及辅助档） */
   --biliscript-primitive-space-0: 0px;

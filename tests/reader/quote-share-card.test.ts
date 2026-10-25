@@ -22,6 +22,7 @@ import {
 } from "../../extension/reader/quote-share-spring.js";
 import {
   renderQuoteCardToCanvas,
+  traceSquircleRectPath,
   renderQuoteCardBlob,
   copyQuoteCardBlobToClipboard,
   downloadQuoteCardBlob,
@@ -907,6 +908,22 @@ describe("quote-share-export 导出与光栅化", () => {
     expect(canvas.width).toBe(800);
     expect(canvas.height).toBe(600);
   });
+
+  it("traceSquircleRectPath: 按 n=4 超椭圆参数采样四角连续圆角闭合路径", () => {
+    const points = [];
+    let closed = false;
+    const fakeCtx = {
+      moveTo: (x, y) => points.push({ type: "move", x, y }),
+      lineTo: (x, y) => points.push({ type: "line", x, y }),
+      closePath: () => { closed = true; }
+    };
+    traceSquircleRectPath(fakeCtx, 0, 0, 400, 300, 20, 8);
+    expect(closed).toBe(true);
+    expect(points[0]).toEqual({ type: "move", x: 20, y: 0 });
+    // 右上角 45° 对角点 (t = -pi/4): cx=380, cy=20, dx=20*(cos(pi/4))^0.5 ≈ 16.8179,比正圆弧 14.1421 更贴角外扩
+    const diagTopRight = points.find((p) => p.x > 396 && p.y < 4);
+    expect(diagTopRight).toBeDefined();
+  });
 });
 
 describe("quote-share-actions-ui 控制栏交互", () => {
@@ -1005,8 +1022,12 @@ describe("quote-share-panel-style-contracts 面板风格契约", () => {
   });
 
   it("配色与纹样按钮保留外观并补齐键盘焦点", () => {
+    expect(rule(".biliscript-quote-card,\n.biliscript-quote-share-card")).toContain("corner-shape: squircle;");
+    expect(rule(".biliscript-quote-share-close")).toContain("corner-shape: squircle;");
     expect(rule(".biliscript-quote-preset-btn")).toMatch(/border-radius:\s*(12px|var\(--biliscript-radius-md\));/);
+    expect(rule(".biliscript-quote-preset-btn")).toContain("corner-shape: squircle;");
     expect(rule(".biliscript-quote-pattern-btn")).toMatch(/border-radius:\s*(12px|var\(--biliscript-radius-md\));/);
+    expect(rule(".biliscript-quote-pattern-btn")).toContain("corner-shape: squircle;");
     for (const selector of [".biliscript-quote-preset-btn.is-active", ".biliscript-quote-pattern-btn.is-active"]) {
       const active = rule(selector);
       expect(active).toContain("background: var(--biliscript-reader-accent-soft);");

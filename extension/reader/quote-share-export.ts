@@ -209,6 +209,46 @@ export function extractQuoteCardExportOptions(cardEl: HTMLElement): QuoteCardExp
 }
 
 /**
+ * 在 Canvas 2D 上绘制 iOS 连续圆角（Squircle / n=4 超椭圆，对应 CSS corner-shape: squircle）闭合矩形路径。
+ */
+export function traceSquircleRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  stepsPerCorner = 24
+): void {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  const superellipseCoord = (t: number): { dx: number; dy: number } => {
+    const c = Math.cos(t);
+    const s = Math.sin(t);
+    return {
+      dx: Math.sign(c) * Math.sqrt(Math.abs(c)) * r,
+      dy: Math.sign(s) * Math.sqrt(Math.abs(s)) * r
+    };
+  };
+
+  const corners = [
+    { cx: x + width - r, cy: y + r, start: -Math.PI / 2, end: 0 },
+    { cx: x + width - r, cy: y + height - r, start: 0, end: Math.PI / 2 },
+    { cx: x + r, cy: y + height - r, start: Math.PI / 2, end: Math.PI },
+    { cx: x + r, cy: y + r, start: Math.PI, end: (3 * Math.PI) / 2 }
+  ];
+
+  ctx.moveTo(x + r, y);
+  for (const corner of corners) {
+    for (let i = 0; i <= stepsPerCorner; i++) {
+      const t = corner.start + ((corner.end - corner.start) * i) / stepsPerCorner;
+      const { dx, dy } = superellipseCoord(t);
+      ctx.lineTo(corner.cx + dx, corner.cy + dy);
+    }
+  }
+  ctx.closePath();
+}
+
+/**
  * 离屏渲染卡片至高分辨率 Canvas。
  */
 export async function renderQuoteCardToCanvas(
@@ -231,20 +271,10 @@ export async function renderQuoteCardToCanvas(
 
   ctx.scale(scale, scale);
 
-  // 1. 20px 圆角裁切路径
+  // 1. 20px 连续圆角（squircle）裁切路径
   ctx.save();
   ctx.beginPath();
-  if (typeof ctx.roundRect === "function") {
-    ctx.roundRect(0, 0, width, height, 20);
-  } else {
-    const r = 20;
-    ctx.moveTo(r, 0);
-    ctx.arcTo(width, 0, width, height, r);
-    ctx.arcTo(width, height, 0, height, r);
-    ctx.arcTo(0, height, 0, 0, r);
-    ctx.arcTo(0, 0, width, 0, r);
-    ctx.closePath();
-  }
+  traceSquircleRectPath(ctx, 0, 0, width, height, 20);
   ctx.clip();
 
   // 2. 底层线性渐变（165deg）
@@ -401,12 +431,10 @@ export async function renderQuoteCardToCanvas(
   // 恢复圆角裁切
   ctx.restore();
 
-  // 7. 内侧 0.5px 精细微描边
+  // 7. 内侧 0.5px 精细微描边（与 20px 连续圆角同心对齐）
   ctx.save();
   ctx.beginPath();
-  if (typeof ctx.roundRect === "function") {
-    ctx.roundRect(0.25, 0.25, width - 0.5, height - 0.5, 20);
-  }
+  traceSquircleRectPath(ctx, 0.25, 0.25, width - 0.5, height - 0.5, 20 - 0.25);
   ctx.strokeStyle = "rgba(0, 0, 0, 0.12)";
   ctx.lineWidth = 0.5;
   ctx.stroke();

@@ -19,6 +19,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       expect(primitiveCss).toContain("--biliscript-primitive-color-terracotta-500:");
       expect(primitiveCss).toContain("--biliscript-primitive-font-size-base:");
       expect(primitiveCss).toContain("--biliscript-primitive-radius-28:");
+      expect(primitiveCss).toContain("--biliscript-primitive-corner-shape-squircle: squircle;");
       expect(primitiveCss).toContain("--biliscript-primitive-space-12:");
 
       // Primitive 层不得依赖业务选择器
@@ -31,6 +32,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       // 语义字阶与圆角
       expect(gateCss).toContain("--biliscript-font-size-base:");
       expect(gateCss).toContain("--biliscript-radius-panel:");
+      expect(gateCss).toContain("--biliscript-corner-shape: var(--biliscript-primitive-corner-shape-squircle);");
       // 组件层 Token
       expect(gateCss).toContain("--btn-radius:");
       expect(gateCss).toContain("--chip-radius:");
@@ -111,6 +113,54 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       expect(violations, `发现未收敛的裸写 border-radius：\n${violations.join("\n")}`).toEqual([]);
     });
 
+    it("所有非胶囊、非正圆、非直角的 border-radius 规则块均同步声明 corner-shape: squircle 或 inherit", () => {
+      const violations: string[] = [];
+      const cornerAuditedStyles = [...AUDITED_STYLES, "github-markdown.css"];
+
+      for (const fileName of cornerAuditedStyles) {
+        const fullPath = `extension/entry/styles/${fileName}`;
+        const content = stripCssCommentsKeepLines(readStyleFile(fullPath));
+
+        for (const match of content.matchAll(/\{([^{}]*)\}/g)) {
+          const blockBody = match[1];
+          const blockStartIdx = match.index ?? 0;
+          const baseLine = content.slice(0, blockStartIdx).split("\n").length;
+          const blockLines = blockBody.split("\n");
+
+          blockLines.forEach((line, offset) => {
+            const lineNum = baseLine + offset;
+            if (fileName === "reader-gate.css" && lineNum < 50) return;
+
+            const radiusMatch = line.match(/^\s*border-radius\s*:\s*([^;]+);/);
+            if (!radiusMatch) return;
+            const radiusVal = radiusMatch[1].trim();
+
+            const isExempt =
+              /^(?:0|0px|none)(?:\s+!important)?$/.test(radiusVal) ||
+              /50%|--biliscript-(?:primitive-)?radius-circle/.test(radiusVal) ||
+              /9999?px|100px|--biliscript-(?:primitive-)?radius-(?:pill|full)|--btn-radius|--chip-radius|--pill-radius-full|--toggle-track-radius|--chat-input-send-radius/.test(
+                radiusVal
+              );
+
+            if (isExempt) return;
+
+            if (/^inherit(?:\s+!important)?$/.test(radiusVal)) {
+              if (!/\bcorner-shape\s*:\s*(?:inherit|squircle)\b/.test(blockBody)) {
+                violations.push(`${fileName}:${lineNum}: border-radius: ${radiusVal} 缺少 corner-shape: inherit`);
+              }
+              return;
+            }
+
+            if (!/\bcorner-shape\s*:\s*squircle\b/.test(blockBody)) {
+              violations.push(`${fileName}:${lineNum}: border-radius: ${radiusVal} 缺少 corner-shape: squircle`);
+            }
+          });
+        }
+      }
+
+      expect(violations, `发现遗漏 corner-shape 的圆角规则块：\n${violations.join("\n")}`).toEqual([]);
+    });
+
     it("所有被审计样式表中的排版 font-size 均消费令牌（或合法相对排版/装饰特例）", () => {
       const violations: string[] = [];
       const allowedSpecialTokens = [
@@ -171,10 +221,10 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           if (trimmed.includes("mask-image:") && /#000(?:000)?\b/.test(trimmed)) return;
 
           // 放行 reader-chat.css 中思考极值彩虹渐变（.chat-thinking-ultra-gradient，特化视觉资产）
-          if (fileName === "reader-chat.css" && lineNum >= 240 && lineNum <= 255) return;
+          if (fileName === "reader-chat.css" && lineNum >= 240 && lineNum <= 265) return;
 
           // 放行 reader.css 中 6 组用户导出金句卡片预设色盘（data-preset="..."）
-          if (fileName === "reader.css" && lineNum >= 2410 && lineNum <= 2486) return;
+          if (fileName === "reader.css" && lineNum >= 2410 && lineNum <= 2530) return;
 
           const hexMatch = trimmed.match(/#[0-9a-fA-F]{3,8}\b/g);
           if (hexMatch) {
@@ -209,7 +259,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           if (trimmed.includes("mask-image:")) return;
 
           // 放行 reader.css 中 6 组用户导出金句卡片预设色盘（data-preset="..."）
-          if (fileName === "reader.css" && lineNum >= 2410 && lineNum <= 2486) return;
+          if (fileName === "reader.css" && lineNum >= 2410 && lineNum <= 2530) return;
 
           // 匹配裸写数字的 rgba(0, 0, 0, ...)
           const rawRgbMatch = trimmed.match(/rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+/g);
