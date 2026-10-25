@@ -29,12 +29,12 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 6px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
-  background: var(--biliscript-reader-card);
+  border: 1px solid var(--select-dropdown-border, var(--biliscript-reader-border));
+  border-radius: var(--select-dropdown-radius, var(--biliscript-radius-panel));
+  background: var(--select-dropdown-bg, var(--biliscript-reader-card));
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
+  box-shadow: var(--select-dropdown-shadow, 0 10px 24px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.12));
   list-style: none;
   margin: 0;
   transform-origin: top left;
@@ -74,9 +74,9 @@
   height: 28px;
   padding: 2px 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 14px;
+  border-radius: var(--select-search-radius, var(--biliscript-radius-pill));
   font: inherit;
-  font-size: 13px;
+  font-size: var(--select-search-font-size, var(--biliscript-font-size-sm));
   background: var(--biliscript-reader-surface, var(--biliscript-reader-card));
   color: var(--biliscript-reader-text);
   outline: none;
@@ -84,7 +84,7 @@
 }
 
 #biliscript-reading-view .provider-editor-host .ai-provider-model-search-input:focus {
-  border-color: var(--biliscript-reader-accent, #00aeec);
+  border-color: var(--biliscript-reader-accent);
 }
 
 #biliscript-reading-view .provider-editor-host .ai-provider-model-empty {
@@ -95,8 +95,8 @@
   padding: 4px 10px;
   text-align: center;
   font: inherit;
-  font-size: 13px;
-  color: var(--biliscript-reader-muted, #999);
+  font-size: var(--select-search-font-size, var(--biliscript-font-size-sm));
+  color: var(--biliscript-reader-muted);
   list-style: none;
   cursor: default;
   user-select: none;
@@ -117,12 +117,12 @@
   width: 100%;
   min-height: 38px;
   border: 0;
-  border-radius: max(0px, calc(28px - 6px)); /* 同心圆角公式：外圆角 28px - 内边距 6px = 22px */
+  border-radius: var(--select-option-radius, var(--biliscript-radius-panel-inner));
   background: transparent;
   padding: 4px 10px;
   text-align: left;
   font: inherit;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--select-option-font-size, var(--biliscript-font-size-base));
   color: var(--biliscript-reader-text);
   white-space: nowrap;
   overflow: hidden;
@@ -175,7 +175,7 @@
 
 #biliscript-reading-view .provider-editor-host .ai-provider-model-count {
   padding: 8px 10px 2px;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-faint);
   border-top: 1px dashed var(--biliscript-reader-border);
   margin-top: 4px;
@@ -193,7 +193,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .ai-providers-empty {
   margin: 0;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-faint);
 }
 
@@ -206,7 +206,7 @@
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   background: var(--biliscript-reader-card);
 }
 
@@ -222,7 +222,7 @@
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle);
   background: var(--biliscript-reader-faint);
 }
 
@@ -242,10 +242,10 @@
   flex: 0 0 auto;
   padding: 1px 6px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 999px;
+  border-radius: var(--chip-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-muted);
-  font-size: var(--biliscript-font-size-sm, calc(12px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--chip-font-size, var(--biliscript-font-size-sm));
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -253,7 +253,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .provider-row-name {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--biliscript-font-size-base);
   font-weight: 600;
   color: var(--biliscript-reader-text);
   white-space: nowrap;
@@ -264,7 +264,7 @@
 #biliscript-reading-view .biliscript-reading-settings-host .provider-row-model {
   margin: 0;
   padding-left: 16px;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--biliscript-font-size-base);
   line-height: 1.4;
   color: var(--biliscript-reader-faint);
   white-space: nowrap;
@@ -296,7 +296,7 @@
   width: 24px;
   padding: 0;
   border: 0;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   background: transparent;
   color: var(--biliscript-reader-faint);
   cursor: pointer;
@@ -339,7 +339,7 @@
   flex: 0 0 auto;
   padding: 0;
   border: 0;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   background: transparent;
   color: var(--biliscript-reader-faint);
   cursor: pointer;
@@ -374,7 +374,7 @@
   align-items: center;
   gap: 7px;
   margin: 0;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--biliscript-font-size-base);
   font-weight: 400;
   color: var(--biliscript-reader-text);
   white-space: nowrap;
@@ -395,10 +395,10 @@
   height: 32px;
   padding: 0 12px;
   border: 1px dashed var(--biliscript-reader-border);
-  border-radius: 999px;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;
   color: var(--biliscript-reader-muted);
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   font-weight: 400;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -499,7 +499,7 @@
   padding: 0;
   width: 20px;
   height: 20px;
-  border-radius: 999px;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -527,9 +527,9 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-badge {
   display: inline-block;
   padding: 2px 8px;
-  font-size: var(--biliscript-font-size-sm, calc(12px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--chip-font-size, var(--biliscript-font-size-sm));
   font-weight: 600;
-  border-radius: 999px;
+  border-radius: var(--chip-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-surface-3);
   color: var(--biliscript-reader-accent);
 }
@@ -539,13 +539,13 @@
   appearance: none;
   width: 100%;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--biliscript-radius-pill);
   background: linear-gradient(
     to right,
     var(--biliscript-reader-accent) 0%,
     var(--biliscript-reader-accent) var(--range-progress, 0%),
-    var(--biliscript-reader-track, rgba(0, 0, 0, 0.1)) var(--range-progress, 0%),
-    var(--biliscript-reader-track, rgba(0, 0, 0, 0.1)) 100%
+    var(--biliscript-reader-track, rgba(var(--biliscript-primitive-color-black-rgb), 0.1)) var(--range-progress, 0%),
+    var(--biliscript-reader-track, rgba(var(--biliscript-primitive-color-black-rgb), 0.1)) 100%
   );
   outline: none;
   cursor: pointer;
@@ -561,10 +561,10 @@
   appearance: none;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle);
   background: var(--biliscript-reader-accent);
   border: 2px solid var(--biliscript-reader-surface);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
   cursor: pointer;
   transition: transform 0.12s ease;
 }
@@ -576,17 +576,17 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-range-input::-moz-range-thumb {
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle);
   background: var(--biliscript-reader-accent);
   border: 2px solid var(--biliscript-reader-surface);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.22);
   cursor: pointer;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-slider-labels {
   display: flex;
   justify-content: space-between;
-  font-size: var(--biliscript-font-size-sm, calc(12px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-faint);
 }
 
