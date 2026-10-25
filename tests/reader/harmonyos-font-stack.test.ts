@@ -84,7 +84,7 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
     }
   });
 
-  it("AI 对话回复、解释卡引文与回答、章节概括使用无衬线栈，思源宋体仅保留给金句与 editorial 标题", () => {
+  it("AI 对话回复、解释卡引文与回答、章节概括使用无衬线栈，系统衬线字体仅用于金句与 editorial 标题", () => {
     const reader = readSource(`${STYLES_DIR}/reader.css`).replace(/\/\*[\s\S]*?\*\//g, "");
     const chat = readSource(`${STYLES_DIR}/reader-chat.css`).replace(/\/\*[\s\S]*?\*\//g, "");
     const quoteExport = readSource("extension/reader/quote-share-export.ts");
@@ -93,7 +93,6 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
       /\.biliscript-reading-chat \.chat-msg-assistant-body\s*\{[^}]*font-family:\s*var\(--biliscript-reader-font-sans\);/
     );
     expect(chat).not.toContain("--biliscript-reader-font-serif");
-    expect(chat).not.toContain("BiliScript Noto Serif SC");
 
     for (const selector of [
       "\\.biliscript-reading-explain-card-quote",
@@ -110,18 +109,13 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
     );
     expect(serifVarSelectors).toEqual(['#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h']);
 
-    const notoSerifRules = [...reader.matchAll(/([^{}]+)\{[^{}]*"BiliScript Noto Serif SC"[^{}]*\}/g)].map((match) =>
-      match[1].trim()
-    );
-    expect(notoSerifRules).toEqual([
-      "@font-face",
-      ".biliscript-reading-ov-quote-text",
-      ".biliscript-quote-card-text"
-    ]);
-
-    expect(quoteExport).toContain('document.fonts.load(\'400 16px "BiliScript Noto Serif SC"\'');
-    expect(quoteExport).toContain(
-      'ctx.font = `400 ${fontSize}px "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif`'
-    );
+    const systemSerif = 'Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif';
+    expect(reader).not.toContain("BiliScript Noto Serif SC");
+    expect(reader).not.toContain("@font-face");
+    expect(reader.match(/font-family:\s*Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;/g)).toHaveLength(2);
+    expect(reader.match(/font-variant-numeric:\s*lining-nums;/g)).toHaveLength(2);
+    expect(quoteExport).not.toContain("document.fonts.load");
+    expect(quoteExport).toContain('textCtx.fontVariantNumeric = "lining-nums";');
+    expect(quoteExport).toContain(`ctx.font = \`400 \${fontSize}px ${systemSerif}\``);
   });
 });

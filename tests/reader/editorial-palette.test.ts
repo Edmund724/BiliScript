@@ -10,7 +10,7 @@
 // 3. 纸感：两块的 mist-blobs 均为 none、mist-filter 均为 none（移除蓝雾
 //    径向光斑），壳直落纸面渐变。
 // 4. 字体：editorial 衬线只覆盖概览组标题；章节使用中字重无衬线栈，
-//    金句使用本地 Noto Serif，色板切换不改变阅读字形；
+//    金句使用西文 Georgia 与系统中文宋体，色板切换不改变阅读字形；
 //    时间戳浅色文字档 time-color 在 flyme 柔和中蓝 / editorial 深赤陶两档
 //    各有一份定义（消费规则只引用 token，字面色不进 reader.css）。
 //
@@ -118,7 +118,7 @@ describe("editorial 数字刊物色板", () => {
     expect(serifRule![0]).not.toContain("data-theme");
     expect(css).toContain(".biliscript-reading-ov-chapter-title {\n  font-family: var(--biliscript-reader-font-sans-medium)");
     expect(css).toContain(".biliscript-reading-ov-chapter-desc {\n  font-family: var(--biliscript-reader-font-sans)");
-    expect(css).toContain('.biliscript-reading-ov-quote-text {\n  position: relative;\n  z-index: 1;\n  display: block;\n  font-family: "BiliScript Noto Serif SC", Georgia, "Times New Roman"');
+    expect(css).toContain('.biliscript-reading-ov-quote-text {\n  position: relative;\n  z-index: 1;\n  display: block;\n  font-family: Georgia, "Times New Roman", "Songti SC"');
   });
 
   it("时间戳浅色文字档：flyme 柔和中蓝 / editorial 深赤陶两档各一份，消费侧只引用 token", () => {

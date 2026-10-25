@@ -612,10 +612,6 @@ async function renderQuoteCardToCanvas(
   }
 
   // 6. 正文与文字排版层
-  if (typeof document !== "undefined" && document.fonts?.load) {
-    await document.fonts.load('400 16px "BiliScript Noto Serif SC"', options.content).catch(() => []);
-  }
-
   // 6.1 引号装饰“
   ctx.save();
   ctx.font = '34px Georgia, "Times New Roman", serif';
@@ -631,7 +627,9 @@ async function renderQuoteCardToCanvas(
   const maxTextWidth = width - 72;
 
   ctx.save();
-  ctx.font = `400 ${fontSize}px "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif`;
+  const textCtx = ctx as CanvasRenderingContext2D & { fontVariantNumeric: string };
+  textCtx.fontVariantNumeric = "lining-nums";
+  ctx.font = `400 ${fontSize}px Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif`;
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";

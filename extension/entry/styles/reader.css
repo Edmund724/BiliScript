@@ -4,14 +4,6 @@
  * 文摘面板（三标签 300–460px 窄容器），rail/stage/player-slot 等整页接管
  * 期布局已随其退役删除；视口定位（贴栏/浮层）在 reader-gate.css 门控段。 */
 
-@font-face {
-  font-family: "BiliScript Noto Serif SC";
-  src: url("../../fonts/biliscript-noto-serif-sc.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
 #biliscript-reading-view {
   position: fixed;
   left: 16px;
@@ -1548,7 +1540,7 @@
 }
 
 /* editorial 数字刊物色板的概览组标题保留衬线字型；章节标题使用中字重
- * 无衬线栈，金句使用本地 Noto Serif，色板切换不改变这些信息层级。 */
+ * 无衬线栈，金句使用西文 Georgia 与系统中文宋体，色板切换不改变这些信息层级。 */
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h {
   font-family: var(--biliscript-reader-font-serif);
 }
@@ -1613,7 +1605,8 @@
   position: relative;
   z-index: 1;
   display: block;
-  font-family: "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
+  font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  font-variant-numeric: lining-nums;
   font-size: var(--biliscript-font-size-md);
   font-size-adjust: from-font;
   line-height: 1.7;
@@ -2328,7 +2321,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-card-text {
-  font-family: "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
+  font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  font-variant-numeric: lining-nums;
   font-size: clamp(16px, 5.5cqi, 21px);
   font-size-adjust: from-font;
   font-weight: 400;

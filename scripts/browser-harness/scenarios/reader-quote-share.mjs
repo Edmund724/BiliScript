@@ -200,7 +200,7 @@ const JS = {
         fontSize: csCardText.fontSize,
         fontSizeExpected: Math.min(21, Math.max(16, Math.round((card.getBoundingClientRect().width) * 0.055))) + 'px',
         fontFamily: csCardText.fontFamily,
-        fontLoaded: document.fonts.check('400 16px "BiliScript Noto Serif SC"'),
+        fontVariantNumeric: csCardText.fontVariantNumeric,
         textAlign: csCardText.textAlign,
         verticalCenterDelta: Math.abs(
           (cardText.getBoundingClientRect().top - card.getBoundingClientRect().top) -
@@ -744,7 +744,7 @@ async function main() {
       // 卡片本体
       checkEquals("Q1.card-radius-20", q1.probe?.card?.borderRadius, "20px");
       checkEquals("Q1.card-font-5.5cqi", q1.probe?.card?.fontSize, q1.probe?.card?.fontSizeExpected);
-      check("Q1.card-local-serif-loaded", q1.probe?.card?.fontLoaded && q1.probe?.card?.fontFamily?.includes("BiliScript Noto Serif SC"), { family: q1.probe?.card?.fontFamily, loaded: q1.probe?.card?.fontLoaded });
+      check("Q1.card-system-serif-lining-nums", q1.probe?.card?.fontFamily?.startsWith("Georgia") && q1.probe?.card?.fontVariantNumeric === "lining-nums", { family: q1.probe?.card?.fontFamily, numeric: q1.probe?.card?.fontVariantNumeric });
       checkEquals("Q1.card-text-left", q1.probe?.card?.textAlign, "left");
       check("Q1.card-text-vertically-centered", q1.probe?.card?.verticalCenterDelta <= 1, { delta: q1.probe?.card?.verticalCenterDelta });
       check("Q1.card-text-matches-fixture-quote", q1.probe?.card?.text === QUOTE?.content, { cardText: q1.probe?.card?.text, fixture: QUOTE?.content });

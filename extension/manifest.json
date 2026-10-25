@@ -57,8 +57,7 @@
       "resources": [
         "entry/content-main.mjs",
         "entry/chunks/*",
-        "entry/styles/*",
-        "fonts/*"
+        "entry/styles/*"
       ],
       "matches": ["https://www.bilibili.com/*"]
     }
