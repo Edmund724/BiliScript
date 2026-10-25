@@ -18,18 +18,18 @@
  * 与 alert 块，这些规则对我们是惰性的；后续接代码高亮时再补映射。 */
 
 #biliscript-reading-view .markdown-body {
-  --fgColor-default: var(--biliscript-reader-text, #2b2620);
-  --fgColor-muted: var(--biliscript-reader-muted, #6f675c);
-  --fgColor-accent: var(--biliscript-reader-accent, #fb7299);
-  --fgColor-danger: var(--biliscript-reader-danger, #d93025);
-  --bgColor-default: var(--biliscript-reader-surface, #fdfbf7);
-  --bgColor-muted: var(--biliscript-reader-surface-2, #f0e9df);
-  --bgColor-neutral-muted: var(--biliscript-reader-surface-2, #f0e9df);
-  --bgColor-attention-muted: var(--biliscript-reader-highlight, #fdeeda);
-  --borderColor-default: var(--biliscript-reader-border, #e7dfd4);
-  --borderColor-muted: var(--biliscript-reader-border, #e7dfd4);
-  --borderColor-accent-emphasis: var(--biliscript-reader-accent, #fb7299);
-  --focus-outlineColor: var(--biliscript-reader-accent, #fb7299);
+  --fgColor-default: var(--biliscript-reader-text);
+  --fgColor-muted: var(--biliscript-reader-muted);
+  --fgColor-accent: var(--biliscript-reader-accent);
+  --fgColor-danger: var(--biliscript-reader-danger);
+  --bgColor-default: var(--biliscript-reader-surface);
+  --bgColor-muted: var(--biliscript-reader-surface-2);
+  --bgColor-neutral-muted: var(--biliscript-reader-surface-2);
+  --bgColor-attention-muted: var(--biliscript-reader-highlight);
+  --borderColor-default: var(--biliscript-reader-border);
+  --borderColor-muted: var(--biliscript-reader-border);
+  --borderColor-accent-emphasis: var(--biliscript-reader-accent);
+  --focus-outlineColor: var(--biliscript-reader-accent);
   /* 排版域跟随阅读视图，不被 GitHub 字体栈/字号接管：继承父容器字体栈
    *（AI 回答与解释卡继承 --biliscript-reader-font-serif），字号行高沿用
    * 气泡档（.chat-msg 16px/1.45）与解释卡各自定义；github-markdown-css

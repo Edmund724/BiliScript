@@ -971,7 +971,7 @@ describe("quote-share-panel-style-contracts 面板风格契约", () => {
     expect(rule(".biliscript-quote-share-dialog")).toMatch(/border-radius:\s*(28px|var\(--biliscript-radius-panel\));/);
     expect(rule(".biliscript-quote-share-dialog")).toContain("corner-shape: squircle;");
     expect(rule(".biliscript-quote-share-dialog")).toContain("box-shadow: var(--biliscript-reader-shadow);");
-    expect(rule(".biliscript-quote-share-mask")).toContain("background: var(--biliscript-reader-mask-bg, rgba(20, 16, 12, 0.28));");
+    expect(rule(".biliscript-quote-share-mask")).toMatch(/background:\s*var\(--biliscript-reader-mask-bg,\s*rgba\((?:20,\s*16,\s*12|var\(--biliscript-primitive-color-mask-rgb\)),\s*0\.28\)\);/);
     expect(rule(".biliscript-quote-share-host")).toContain("transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1));");
     expect(cssContent).toContain("@starting-style");
   });

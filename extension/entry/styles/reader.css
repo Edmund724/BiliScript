@@ -388,7 +388,7 @@
   width: calc((100% - 2 * var(--biliscript-tab-pad-x) - 2 * var(--biliscript-tab-gap)) / 3);
   border-radius: var(--biliscript-radius-2xl);
   background: var(--biliscript-reader-accent);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 8px rgba(var(--biliscript-primitive-color-black-rgb), 0.12);
   pointer-events: none;
   z-index: 0;
   transform: translateX(0);
@@ -445,7 +445,7 @@
 .biliscript-reading-tab.is-active {
   background: var(--biliscript-reader-accent);
   color: var(--biliscript-reader-accent-ink);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 8px rgba(var(--biliscript-primitive-color-black-rgb), 0.12);
 }
 
 .biliscript-reading-tabs .biliscript-reading-tab.is-active {
@@ -1071,7 +1071,8 @@
 }
 
 /* 基态 transform 被 translateX(-50%) 占用，按压缩放追加在同一 transform 之后 */
-.biliscript-reading-follow-btn:active {
+.biliscript-reading-follow-btn:active,
+#biliscript-reading-view .biliscript-reading-follow-btn:active {
   transform: translateX(-50%) scale(var(--biliscript-reader-press-scale, 1));
 }
 
@@ -1106,7 +1107,8 @@
   transition: transform 100ms ease-out;
 }
 
-.biliscript-reading-explain-btn:active {
+.biliscript-reading-explain-btn:active,
+#biliscript-reading-view .biliscript-reading-explain-btn:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
 }
 
@@ -1582,7 +1584,7 @@
   font-family: Georgia, "Times New Roman", serif;
   font-size: 32px;
   line-height: 1;
-  color: var(--biliscript-reader-quote-mark, rgba(23, 24, 26, 0.09));
+  color: var(--biliscript-reader-quote-mark, rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.09));
   pointer-events: none;
   user-select: none;
   z-index: 0;
@@ -1992,7 +1994,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 .biliscript-quote-share-mask {
   position: absolute;
   inset: 0;
-  background: var(--biliscript-reader-mask-bg, rgba(20, 16, 12, 0.28));
+  background: var(--biliscript-reader-mask-bg, rgba(var(--biliscript-primitive-color-mask-rgb), 0.28));
   cursor: pointer;
 }
 
@@ -2235,8 +2237,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, ease-out);
   background: radial-gradient(
     circle 180px at var(--quote-glow-x, 50%) var(--quote-glow-y, 50%),
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(255, 255, 255, 0.08) 40%,
+    rgba(var(--biliscript-primitive-color-white-rgb), 0.22) 0%,
+    rgba(var(--biliscript-primitive-color-white-rgb), 0.08) 40%,
     transparent 75%
   );
   mix-blend-mode: soft-light;
@@ -2283,8 +2285,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   align-items: center;
   padding: 34px 36px;
   box-sizing: border-box;
-  color: #ffffff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  color: var(--biliscript-primitive-color-white);
+  text-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.35);
 }
 
 .biliscript-quote-card-quote-mark {
@@ -2486,7 +2488,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 /* 无障碍降级 */
 @media (prefers-reduced-transparency: reduce) {
   .biliscript-quote-share-mask {
-    background: #000000;
+    background: var(--biliscript-primitive-color-black);
   }
   .biliscript-quote-card-noise {
     display: none !important;
@@ -2502,7 +2504,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
     display: none !important;
   }
   .biliscript-quote-card-bg {
-    background: #23272e !important;
+    background: var(--biliscript-primitive-color-dark-gray-800) !important;
   }
 }
 
