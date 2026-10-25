@@ -54,10 +54,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   right: 16px;
   bottom: 16px;
   height: min(76vh, 860px);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   corner-shape: squircle;
   box-shadow: var(--biliscript-reader-shadow);
-  background: var(--biliscript-reader-surface, #fff);
+  background: var(--biliscript-reader-surface, var(--biliscript-primitive-color-white));
   pointer-events: auto;
 }
 
@@ -84,7 +84,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
   content: "手动浏览中";
   display: inline-block;
   margin-left: 8px;
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   color: var(--biliscript-reader-faint);
@@ -133,6 +133,7 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-font-size-11: calc(var(--biliscript-primitive-font-size-11) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-12: calc(var(--biliscript-primitive-font-size-12) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-14: calc(var(--biliscript-primitive-font-size-14) * var(--biliscript-reader-font-scale, 1));
+  --biliscript-font-size-15: calc(var(--biliscript-primitive-font-size-15) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-16: calc(var(--biliscript-primitive-font-size-16) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-18: calc(var(--biliscript-primitive-font-size-18) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-20: calc(var(--biliscript-primitive-font-size-20) * var(--biliscript-reader-font-scale, 1));
@@ -679,7 +680,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
   #biliscript-reading-view .biliscript-reading-tab {
     padding: 8px 4px;
-    font-size: 14px;
+    font-size: var(--biliscript-font-size-base);
   }
 }
 
@@ -726,7 +727,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 #biliscript-reading-view .biliscript-reading-ov-chapter:hover,
 #biliscript-reading-view .biliscript-reading-ov-quote:hover {
   background: var(--biliscript-reader-card);
-  box-shadow: 0 2px 5px rgba(23, 24, 26, 0.09), 0 6px 16px rgba(23, 24, 26, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 5px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.09), 0 6px 16px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.09), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
 #biliscript-reading-view .biliscript-reading-overview {
@@ -746,14 +747,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 #biliscript-reading-view .biliscript-reading-ov-chapter,
 #biliscript-reading-view .biliscript-reading-ov-quote {
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
 }
 
 /* 概览 Tab 空态占位卡：20px 圆角与 0.5px 精细描边 */
 #biliscript-reading-view .biliscript-reading-placeholder,
 #biliscript-reading-view .biliscript-reading-ov-empty-card {
   border: none;
-  border-radius: 20px;
+  border-radius: var(--biliscript-radius-xl);
   box-shadow:
     var(--biliscript-reader-card-highlight),
     var(--biliscript-reader-fine-border);
@@ -800,19 +801,19 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 }
 
 #biliscript-reading-view:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card:focus-within {
-  border-color: rgba(66, 133, 244, 0.3);
+  border-color: rgba(var(--biliscript-primitive-color-gemini-blue-light-rgb), 0.3);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.92),
+    inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.92),
     var(--biliscript-gemini-glow),
-    0 8px 30px -2px rgba(155, 114, 203, 0.32);
+    0 8px 30px -2px rgba(var(--biliscript-primitive-color-gemini-purple-light-rgb), 0.32);
 }
 
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card:focus-within {
-  border-color: rgba(102, 157, 246, 0.35);
+  border-color: rgba(var(--biliscript-primitive-color-gemini-blue-dark-rgb), 0.35);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.16),
+    inset 0 1px 0 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.16),
     var(--biliscript-gemini-glow),
-    0 10px 32px -2px rgba(179, 136, 255, 0.36);
+    0 10px 32px -2px rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.36);
 }
 
 #biliscript-reading-view[data-chat-input-glow="0"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:focus-within {
@@ -904,7 +905,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row {
   border: none;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   box-shadow: var(--biliscript-reader-card-highlight);
 }
 
@@ -928,8 +929,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search {
   border: none;
-  border-radius: 28px;
-  box-shadow: 0 1px 2px rgba(23, 24, 26, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  border-radius: var(--biliscript-radius-panel);
+  box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
 /* 校验态反馈：描边归零后 border-color 无处落，改光环（accent=错误沿用既有
@@ -954,7 +955,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog select:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search:focus-within {
-  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 2px rgba(23, 24, 26, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
 /* 浮层与弹层（AI 模型面板、来源预览卡、自定义下拉、模型下拉）：描边归零 + 顶缘内高光 + 毛玻璃 */
@@ -967,19 +968,19 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
   background: var(--biliscript-reader-card);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: 0 10px 24px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: 0 10px 24px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.12), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
 /* 平台编辑 Modal 与「获取可用模型」弹窗：白玻璃凸起大卡 + 分隔线归零 + 毛玻璃 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-dialog {
   border: none;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   corner-shape: squircle;
   background: var(--biliscript-reader-card);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: 0 8px 30px rgba(23, 24, 26, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 30px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.16), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-head,
@@ -998,11 +999,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog input[type="text"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-trigger,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search:focus-within {
-  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .chat-model-panel,
@@ -1010,12 +1011,12 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-host .ai-provider-model-dropdown,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-chat-more-menu {
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: 0 10px 24px rgba(var(--biliscript-primitive-color-black-rgb), 0.4), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog {
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow: 0 8px 30px rgba(var(--biliscript-primitive-color-black-rgb), 0.5), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
 /* ===== flyme 液态玻璃收敛与 Gemini 流光 =====
@@ -1068,7 +1069,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
   background: var(--biliscript-reader-card);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 10px 28px -4px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.06);
+  box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.92), 0 10px 28px -4px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.16), 0 2px 6px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.06);
 }
 
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-follow-btn:hover,
@@ -1085,7 +1086,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-follow-btn,
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-explain-btn,
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-scroll-bottom {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 28px -4px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.18), 0 10px 28px -4px rgba(var(--biliscript-primitive-color-black-rgb), 0.5), 0 2px 6px rgba(var(--biliscript-primitive-color-black-rgb), 0.3);
 }
 
 /* 横幅与状态通知条（转写横幅 / 概览状态条 / 待解释意图卡 / 上下文与转写通知 /
@@ -1098,7 +1099,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-asr-notice,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-error {
   border-color: transparent;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 2px 8px rgba(15, 23, 42, 0.03);
+  box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.75), 0 2px 8px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.03);
 }
 
 /* 待解释意图卡保留左缘 3px accent 强调竖条（仅其余三边透明） */
@@ -1112,7 +1113,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-asr-notice,
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-error,
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat-intent {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.12), 0 2px 8px rgba(var(--biliscript-primitive-color-black-rgb), 0.2);
 }
 
 /* 面板内弹层对话框（选区解释卡 / 二次确认弹层）：去框 + 液态玻璃卡面 +
@@ -1129,7 +1130,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 
 /* 划词解释卡：20px 圆角与内侧 0.5px 精细描边微层叠 */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-card-dialog {
-  border-radius: 20px;
+  border-radius: var(--biliscript-radius-xl);
   box-shadow: var(--biliscript-reader-shadow), var(--biliscript-reader-fine-border);
 }
 
@@ -1176,29 +1177,29 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-ov-badge {
   background: var(--biliscript-gemini-gradient-soft);
   color: var(--biliscript-reader-accent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.75);
 }
 
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-ov-badge {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.14);
 }
 
 /* Gemini 触点 · 思考强度滑块最高档渐变层：基表紫色渐变留给 editorial，flyme
  * 换 Gemini 流光渐变（蓝→紫→珊瑚，深色档换暗面亮档）；档位显隐（is-max 的
  * opacity 切换）留在基表不动。 */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-thinking-ultra-gradient {
-  background: linear-gradient(90deg, #4285f4 0%, #9b72cb 36%, #d96570 100%);
+  background: linear-gradient(90deg, var(--biliscript-primitive-color-gemini-blue-light) 0%, var(--biliscript-primitive-color-gemini-purple-light) 36%, var(--biliscript-primitive-color-gemini-coral-light) 100%);
 }
 
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-thinking-ultra-gradient {
-  background: linear-gradient(90deg, #669df6 0%, #b388ff 36%, #f28b82 100%);
+  background: linear-gradient(90deg, var(--biliscript-primitive-color-gemini-blue-dark) 0%, var(--biliscript-primitive-color-gemini-purple-dark) 36%, var(--biliscript-primitive-color-gemini-coral-dark) 100%);
 }
 
 /* Gemini 触点 · 生成进度条（概览/转写不确定进度）：虹彩 90deg 渐变 + 200% 幅宽，
  * 在原呼吸动画上叠一道 2.6s 扫光位移；editorial 维持基表 accent 单色。 */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-ov-fill,
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-asr-fill {
-  background: linear-gradient(90deg, #4285f4 0%, #9b72cb 35%, #d96570 70%, #f49c46 100%);
+  background: linear-gradient(90deg, var(--biliscript-primitive-color-gemini-blue-light) 0%, var(--biliscript-primitive-color-gemini-purple-light) 35%, var(--biliscript-primitive-color-gemini-coral-light) 70%, var(--biliscript-primitive-color-gemini-amber-light) 100%);
   background-size: 200% 100%;
   animation:
     biliscript-asr-pulse 1.6s ease-in-out infinite alternate,
@@ -1217,27 +1218,27 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 /* Gemini 触点 · 流式三点脉冲光标：浅档蓝/紫/珊瑚，深档换暗面亮档；
  * 波浪节奏（nth-child 的 animation-delay）留在基表不动。 */
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(1) {
-  background: #4285f4;
+  background: var(--biliscript-primitive-color-gemini-blue-light);
 }
 
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(2) {
-  background: #9b72cb;
+  background: var(--biliscript-primitive-color-gemini-purple-light);
 }
 
 #biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(3) {
-  background: #d96570;
+  background: var(--biliscript-primitive-color-gemini-coral-light);
 }
 
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(1) {
-  background: #669df6;
+  background: var(--biliscript-primitive-color-gemini-blue-dark);
 }
 
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(2) {
-  background: #b388ff;
+  background: var(--biliscript-primitive-color-gemini-purple-dark);
 }
 
 #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(3) {
-  background: #f28b82;
+  background: var(--biliscript-primitive-color-gemini-coral-dark);
 }
 
 /* ===== editorial 数字刊物卡片质感 =====

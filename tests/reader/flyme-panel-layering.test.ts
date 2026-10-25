@@ -71,7 +71,7 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     const body = ruleBody(readCss(READER_CSS), ".biliscript-reading-tab-body");
 
     expect(body).toContain("background: var(--biliscript-reader-card)");
-    expect(body).toContain("border-radius: 28px");
+    expect(body).toMatch(/border-radius:\s*(?:28px|var\(--biliscript-radius-panel\))/);
     expect(body).toMatch(/(?:^|;)\s*margin:\s*\d+px\s+\d+px\s+\d+px\s*;/);
   });
 
@@ -149,7 +149,7 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     const searchBody = ruleBody(readerCss, ".biliscript-reading-search");
     expect(searchBody).toContain("height: 32px");
     expect(searchBody).toContain("box-sizing: border-box");
-    expect(searchBody).toContain("border-radius: 28px");
+    expect(searchBody).toMatch(/border-radius:\s*(?:28px|var\(--biliscript-radius-panel\))/);
 
     const navBody = ruleBody(readerCss, ".biliscript-reading-search-nav");
     expect(navBody).toContain("width: 24px");
@@ -161,7 +161,7 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     const gate = readCss(GATE_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
     expect(gate).toContain(".biliscript-reading-search");
     expect(gate).toContain("border: none");
-    expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.7)");
+    expect(gate).toMatch(/inset 0 1px 0 (?:rgba\(255, 255, 255, 0\.7\)|rgba\(var\(--biliscript-primitive-color-white-rgb\),\s*0\.7\))/);
   });
 
   it("浮层与弹层：无边框半透明白玻璃卡 + 顶缘内高光 + 24px 毛玻璃模糊与滚动/透明度降级", () => {
@@ -177,7 +177,7 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
     }
     expect(gate).toContain("-webkit-backdrop-filter: blur(24px) saturate(180%)");
     expect(gate).toContain("backdrop-filter: blur(24px) saturate(180%)");
-    expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.7)");
-    expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.07)");
+    expect(gate).toMatch(/inset 0 1px 0 (?:rgba\(255, 255, 255, 0\.7\)|rgba\(var\(--biliscript-primitive-color-white-rgb\),\s*0\.7\))/);
+    expect(gate).toMatch(/inset 0 1px 0 (?:rgba\(255, 255, 255, 0\.07\)|rgba\(var\(--biliscript-primitive-color-white-rgb\),\s*0\.07\))/);
   });
 });

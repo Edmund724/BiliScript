@@ -22,11 +22,11 @@
   display: none;
   padding: 20px 22px;
   box-sizing: border-box;
-  background: var(--biliscript-reader-surface, #fff);
-  border: 1px solid var(--biliscript-reader-border, #e5e7eb);
+  background: var(--biliscript-reader-surface, var(--biliscript-primitive-color-white));
+  border: 1px solid var(--biliscript-reader-border, var(--biliscript-primitive-color-gray-300));
   /* 面板族圆角 28px、阴影吃 --biliscript-reader-shadow（reader-gate.css 四色板各一份）：
    * 与设置抽屉/编辑 Modal/解释卡同档，深色下不再是浅色硬编码投影。 */
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   corner-shape: squircle;
   box-shadow: var(--biliscript-reader-shadow);
   font-family: var(--biliscript-reader-font-sans);
@@ -103,9 +103,9 @@
 
 .biliscript-reading-meta,
 .biliscript-reading-status {
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
   line-height: 1.5;
-  color: var(--biliscript-reader-muted, #6b7280);
+  color: var(--biliscript-reader-muted, var(--biliscript-primitive-color-gray-600));
 }
 
 /* meta 行多行结构（2026-10-04 用户决议）：`UP主：…` 与 `P{n}：…` 各占一行，
@@ -188,10 +188,10 @@
   height: 34px;
   border: 0;
   background: transparent;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   cursor: pointer;
   padding: 0;
-  color: var(--biliscript-reader-text, #1f2937);
+  color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));
   transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -208,7 +208,7 @@
 
 .biliscript-reading-icon-btn.is-copied,
 .biliscript-reading-ov-quote-copy.is-copied {
-  color: var(--biliscript-reader-accent, #2563eb);
+  color: var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-500));
 }
 
 .biliscript-reading-icon-btn.is-copied svg,
@@ -229,20 +229,20 @@
 
 
 .biliscript-reading-icon-btn:hover {
-  background: var(--biliscript-reader-fill-hover, rgba(0, 0, 0, 0.06));
+  background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-black-rgb), 0.06));
 }
 
 /* 键盘焦点与悬停同底：focus-visible 只落在键盘导航（鼠标点击不触发），
  * 与 hover 共用 fill-hover 令牌，不另立反馈档。 */
 .biliscript-reading-icon-btn:focus-visible {
-  background: var(--biliscript-reader-fill-hover, rgba(0, 0, 0, 0.06));
+  background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-black-rgb), 0.06));
 }
 
 /* 主题切换按钮点按反馈（ui-renderer 300ms 即摘）：accent-soft 软底 + accent 字，
  * 深浅两主题同源 token */
 .biliscript-reading-icon-btn.is-active {
-  background: var(--biliscript-reader-accent-soft, #eff6ff);
-  color: var(--biliscript-reader-accent, #2563eb);
+  background: var(--biliscript-reader-accent-soft, rgba(var(--biliscript-primitive-color-blue-500-rgb), 0.1));
+  color: var(--biliscript-reader-accent, var(--biliscript-primitive-color-blue-500));
 }
 
 /* .biliscript-reading-subtitle 的几何在下方基础段单份声明（width/box-sizing/flex/
@@ -294,7 +294,7 @@
   /* content-box 下 width:100% + 1px 边框两侧各溢 1px，贴栏态固定定位的
    * 溢出会顶出页面级横向滚动条（Modal 出现前的既有 2px 残留，一并收口） */
   box-sizing: border-box;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   background: var(--biliscript-reader-surface);
   border: 1px solid var(--biliscript-reader-border);
   box-shadow: var(--biliscript-reader-shadow);
@@ -375,7 +375,7 @@
   gap: var(--biliscript-tab-gap);
   padding: var(--biliscript-tab-pad-y) var(--biliscript-tab-pad-x);
   background: var(--biliscript-reader-pill-bg);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
 }
 
 /* 滑动气泡指示器：从源位置到新位置平滑过渡（类似 Gemini 网页端分段胶囊动效） */
@@ -386,7 +386,7 @@
   bottom: var(--biliscript-tab-pad-y);
   left: var(--biliscript-tab-pad-x);
   width: calc((100% - 2 * var(--biliscript-tab-pad-x) - 2 * var(--biliscript-tab-gap)) / 3);
-  border-radius: 24px;
+  border-radius: var(--biliscript-radius-2xl);
   background: var(--biliscript-reader-accent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   pointer-events: none;
@@ -424,8 +424,8 @@
   background: none;
   cursor: pointer;
   padding: 7px 16px;
-  border-radius: 24px;
-  font-size: 14px;
+  border-radius: var(--biliscript-radius-2xl);
+  font-size: var(--biliscript-font-size-base);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   text-align: center;
@@ -464,7 +464,7 @@
   margin: 10px 14px 14px;
   padding: 12px 14px;
   background: var(--biliscript-reader-card);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   /* Follow 悬浮按钮、选区「解释」浮层与解释卡片的定位上下文 */
   position: relative;
 }
@@ -507,13 +507,13 @@
   padding: 26px 20px;
   background: var(--biliscript-reader-card);
   border: none;
-  border-radius: 20px;
-  box-shadow: var(--biliscript-reader-card-highlight), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12));
+  border-radius: var(--biliscript-radius-xl);
+  box-shadow: var(--biliscript-reader-card-highlight), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12));
   text-align: center;
 }
 
 .biliscript-reading-placeholder-title {
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
@@ -521,7 +521,7 @@
 }
 
 .biliscript-reading-placeholder-copy {
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
   color: var(--biliscript-reader-muted);
   margin: 0;
@@ -531,7 +531,7 @@
  * 文字就是这张卡的正文，按概览 tab 正文档 16px 排；带标题的占位卡里那行仍是
  * 附注，维持 14px（同转写横幅 title 16 / copy 14 的约定）。 */
 .biliscript-reading-placeholder.is-generating .biliscript-reading-placeholder-copy {
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
 }
 
 .biliscript-reading-main {
@@ -589,7 +589,7 @@
 .biliscript-reading-explain-card-content::-webkit-scrollbar-thumb {
   background: var(--biliscript-reader-faint);
   border: 2px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--biliscript-radius-pill);
   background-clip: content-box;
 }
 
@@ -621,10 +621,10 @@
   align-items: start;
   border: 0;
   background: transparent;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 10px 12px;
   text-align: left;
-  color: var(--biliscript-reader-text, #111827);
+  color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));
   cursor: pointer;
   user-select: text;
   -webkit-user-select: text;
@@ -662,12 +662,12 @@
 .biliscript-reading-time {
   font-family: var(--biliscript-reader-font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   font-weight: 600;
   line-height: 1.5;
   color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
-  border-radius: 999px;
+  border-radius: var(--biliscript-radius-pill);
   padding: 1px 7px;
   white-space: nowrap;
   justify-self: start;
@@ -682,15 +682,15 @@
  * success 绿在本表随之失去唯一消费方，reader-gate.css 语义注释同步摘掉「朗读高亮」。 */
 
 .biliscript-reading-text {
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   line-height: 1.5;
   color: inherit;
 }
 
 .biliscript-reading-empty {
   padding: 12px 4px;
-  font-size: 14px;
-  color: var(--biliscript-reader-faint, #94a3b8);
+  font-size: var(--biliscript-font-size-base);
+  color: var(--biliscript-reader-faint, var(--biliscript-primitive-color-gray-500));
 }
 
 /* 视口媒体查询只留壳定位（浮层档的边距/贴顶）：排版窄档已上移到下方
@@ -726,7 +726,7 @@
 
 #biliscript-reading-view .biliscript-reading-meta,
 #biliscript-reading-view .biliscript-reading-status {
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
   color: var(--biliscript-reader-muted);
 }
 
@@ -734,7 +734,7 @@
  * 用户决议整条删除）的专属规则已随控件一并摘去，不再留空壳。 */
 
 #biliscript-reading-view .biliscript-reading-panel {
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 14px 16px;
   pointer-events: auto;
   background: var(--biliscript-reader-surface);
@@ -782,18 +782,18 @@
   display: inline-grid;
   width: auto;
   max-width: 100%;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   background: var(--biliscript-reader-card);
-  box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.12), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.9);
 }
 
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-item.is-active {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.35);
 }
 
 #biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-time {
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--biliscript-radius-pill);
   color: var(--biliscript-reader-time-color, var(--biliscript-reader-accent));
   background: var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft));
 }
@@ -859,7 +859,7 @@
   align-items: center;
   gap: 6px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 0 4px 0 10px;
   background: var(--biliscript-reader-card);
 }
@@ -873,7 +873,7 @@
   background: none;
   padding: 0;
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-text);
 }
 
@@ -883,7 +883,7 @@
 
 .biliscript-reading-search-count {
   flex: 0 0 auto;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-faint);
   white-space: nowrap;
 }
@@ -897,9 +897,9 @@
   justify-content: center;
   border: none;
   background: transparent;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 0;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-muted);
   cursor: pointer;
   transition: background 150ms ease-out, color 150ms ease-out, transform 100ms ease-out;
@@ -928,10 +928,10 @@
   flex: 0 0 auto;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-card);
-  border-radius: 999px;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   padding: 6px 12px;
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   color: var(--biliscript-reader-muted);
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -950,7 +950,7 @@
 .biliscript-reading-subtitle mark.biliscript-reading-search-hit {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
-  border-radius: 3px;
+  border-radius: var(--biliscript-radius-xs);
   padding: 0 1px;
 }
 
@@ -968,13 +968,13 @@
   flex: 0 0 auto;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-highlight);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 12px 14px;
   margin-bottom: 10px;
 }
 
 .biliscript-reading-asr-title {
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
@@ -982,7 +982,7 @@
 }
 
 .biliscript-reading-asr-copy {
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
   color: var(--biliscript-reader-muted);
   margin: 0 0 10px;
@@ -993,7 +993,7 @@
 .biliscript-reading-asr-track {
   height: 4px;
   background: var(--biliscript-reader-track);
-  border-radius: 999px;
+  border-radius: var(--biliscript-radius-pill);
   overflow: hidden;
 }
 
@@ -1001,7 +1001,7 @@
   height: 100%;
   width: 38%;
   background: var(--biliscript-reader-accent);
-  border-radius: 999px;
+  border-radius: var(--biliscript-radius-pill);
   animation: biliscript-asr-pulse 1.6s ease-in-out infinite alternate;
 }
 
@@ -1023,7 +1023,7 @@
 .biliscript-reading-asr-foot {
   display: flex;
   justify-content: space-between;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-faint);
   margin-top: 6px;
 }
@@ -1052,15 +1052,15 @@
   z-index: 6;
   border: 1px solid var(--biliscript-reader-border);
   padding: 5px 14px;
-  border-radius: 999px;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 6px 22px rgba(var(--biliscript-primitive-color-black-rgb), 0.14);
   transition: transform 100ms ease-out;
 }
 
@@ -1096,13 +1096,13 @@
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
   padding: 5px 14px;
-  border-radius: 999px;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 6px 22px rgba(var(--biliscript-primitive-color-black-rgb), 0.14);
   transition: transform 100ms ease-out;
 }
 
@@ -1132,7 +1132,7 @@
 .biliscript-reading-explain-card-mask {
   position: absolute;
   inset: 0;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   corner-shape: squircle;
   background: var(--biliscript-reader-mask-bg);
 }
@@ -1147,10 +1147,10 @@
   flex-direction: column;
   overflow: hidden;
   border: none;
-  border-radius: 20px;
+  border-radius: var(--biliscript-radius-xl);
   corner-shape: squircle;
   background: var(--biliscript-reader-card);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12));
+  box-shadow: 0 18px 44px rgba(var(--biliscript-primitive-color-black-rgb), 0.24), var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12));
 }
 
 .biliscript-reading-explain-card-head {
@@ -1162,7 +1162,7 @@
 }
 
 .biliscript-reading-explain-card-title {
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-accent);
@@ -1171,10 +1171,10 @@
 .biliscript-reading-explain-card-close {
   border: 0;
   padding: 2px 8px;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   background: transparent;
   color: var(--biliscript-reader-faint);
-  font-size: 20px;
+  font-size: var(--biliscript-font-size-xl);
   line-height: 1.2;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -1197,7 +1197,7 @@
   padding: 10px 14px;
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-muted);
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   font-style: italic;
   line-height: 1.6;
   word-break: break-word;
@@ -1208,7 +1208,7 @@
   min-height: 0;
   overflow-y: auto;
   padding: 0 14px 12px;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   line-height: 1.75;
   color: var(--biliscript-reader-text);
   word-break: break-word;
@@ -1282,7 +1282,7 @@
   align-items: center;
   gap: 8px;
   padding: 2px 0 10px;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   color: var(--biliscript-reader-muted);
 }
 
@@ -1298,7 +1298,7 @@
   height: 12px;
   border: 2px solid var(--biliscript-reader-accent);
   border-top-color: transparent;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle);
   animation: biliscript-explain-spin 0.8s linear infinite;
 }
 
@@ -1342,7 +1342,7 @@
 
 .biliscript-md-mermaid-fallback {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--biliscript-font-size-sm);
   color: var(--biliscript-reader-faint);
 }
 
@@ -1353,7 +1353,7 @@
   border: 1px solid var(--biliscript-reader-border);
   border-left: 3px solid var(--biliscript-reader-accent);
   background: var(--biliscript-reader-card);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 10px 12px;
   margin-bottom: 8px;
 }
@@ -1370,7 +1370,7 @@
 }
 
 .biliscript-reading-chat-intent-title {
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-faint);
@@ -1382,11 +1382,11 @@
   height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   background: transparent;
   color: var(--biliscript-reader-faint);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   line-height: 1;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -1403,7 +1403,7 @@
 
 .biliscript-reading-chat-intent-quote {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
   color: var(--biliscript-reader-text);
   word-break: break-word;
@@ -1436,7 +1436,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1446,18 +1446,18 @@
 
 /* 「AI 生成 / AI 精选」小标注：accent 软底 pill，仅在 AI 分章/金句标头出现 */
 .biliscript-reading-ov-badge {
-  font-size: 14px;
+  font-size: var(--chip-font-size, var(--biliscript-font-size-base));
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   letter-spacing: 0;
   color: var(--biliscript-reader-accent);
   background: var(--biliscript-reader-accent-soft);
-  border-radius: 999px;
+  border-radius: var(--chip-radius, var(--biliscript-radius-pill));
   padding: 1px 8px;
 }
 
 .biliscript-reading-ov-empty {
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
   color: var(--biliscript-reader-faint);
 }
@@ -1472,7 +1472,7 @@
   align-items: start;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 9px 10px;
   margin-bottom: 8px;
   text-align: left;
@@ -1498,7 +1498,7 @@
 
 .biliscript-reading-ov-chapter-title {
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: calc(15px * var(--biliscript-reader-font-scale, 1));
+  font-size: var(--biliscript-font-size-15);
   font-size-adjust: from-font;
   font-weight: 500;
   line-height: 1.5;
@@ -1510,7 +1510,7 @@
  * 见 reader/overview-ui.ts）：常规字重 + muted 档，从属于上方主标题。 */
 .biliscript-reading-ov-chapter-subtitle {
   font-family: var(--biliscript-reader-font-sans);
-  font-size: calc(12px * var(--biliscript-reader-font-scale, 1));
+  font-size: var(--biliscript-font-size-sm);
   font-size-adjust: from-font;
   font-weight: 400;
   line-height: 1.5;
@@ -1520,7 +1520,7 @@
 
 .biliscript-reading-ov-chapter-desc {
   font-family: var(--biliscript-reader-font-serif);
-  font-size: calc(14px * var(--biliscript-reader-font-scale, 1));
+  font-size: var(--biliscript-font-size-base);
   font-size-adjust: from-font;
   line-height: 1.7;
   color: var(--biliscript-reader-muted);
@@ -1551,7 +1551,7 @@
   display: block;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 10px 12px 8px;
   margin-bottom: 8px;
   text-align: left;
@@ -1593,7 +1593,7 @@
   z-index: 1;
   display: block;
   font-family: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
-  font-size: calc(16px * var(--biliscript-reader-font-scale, 1));
+  font-size: var(--biliscript-font-size-md);
   font-size-adjust: from-font;
   line-height: 1.7;
   color: var(--biliscript-reader-text);
@@ -1652,7 +1652,7 @@
   width: 28px;
   height: 28px;
   border: 0;
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   background: transparent;
   color: var(--biliscript-reader-muted);
   cursor: pointer;
@@ -1693,7 +1693,7 @@
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   padding: 9px 12px;
   margin-bottom: 12px;
 }
@@ -1714,15 +1714,15 @@
   /* 状态条那句话是当下最重要的信息（生成中/部分失败/失败），按概览 tab 的正文
    * 档 16px 排——转写横幅的同角色（.biliscript-reading-asr-title）同档；
    * 14px 是占位说明/badge/Copy 钮的注脚档。 */
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
   line-height: 1.6;
   color: var(--biliscript-reader-text);
 }
 
 .biliscript-reading-ov-track {
   height: 4px;
-  background: var(--biliscript-reader-track, rgba(0, 0, 0, 0.06));
-  border-radius: 999px;
+  background: var(--biliscript-reader-track, rgba(var(--biliscript-primitive-color-black-rgb), 0.06));
+  border-radius: var(--biliscript-radius-pill);
   overflow: hidden;
   margin-bottom: 14px;
 }
@@ -1731,7 +1731,7 @@
   height: 100%;
   width: 38%;
   background: var(--biliscript-reader-accent);
-  border-radius: 999px;
+  border-radius: var(--biliscript-radius-pill);
   animation: biliscript-asr-pulse 1.6s ease-in-out infinite alternate;
 }
 
@@ -1776,7 +1776,7 @@
   top: 50%;
   transform: translate(-50%, -50%);
   width: min(320px, calc(100% - 48px));
-  border-radius: 28px;
+  border-radius: var(--biliscript-radius-panel);
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-surface);
   box-shadow: var(--biliscript-reader-shadow);
@@ -1789,7 +1789,7 @@
 #biliscript-reading-view .confirm-dialog-message {
   margin: 0;
   padding: 16px 16px 12px;
-  font-size: 14px;
+  font-size: var(--biliscript-font-size-base);
   line-height: 1.5;
   color: var(--biliscript-reader-text);
 }
@@ -1806,9 +1806,9 @@
 #biliscript-reading-view .confirm-dialog-confirm {
   height: 32px;
   padding: 0 14px;
-  border-radius: 999px;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   font: inherit;
-  font-size: 14px;
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
@@ -1860,8 +1860,8 @@
 }
 
 .biliscript-md-math::-webkit-scrollbar-thumb {
-  background: var(--biliscript-reader-border, rgba(0, 0, 0, 0.15));
-  border-radius: 2px;
+  background: var(--biliscript-reader-border, rgba(var(--biliscript-primitive-color-black-rgb), 0.15));
+  border-radius: var(--biliscript-radius-xs);
 }
 
 /* 块级展示公式（$$...$$）：无底色水平居中展示，轻微垂直呼吸留白 */
@@ -2005,9 +2005,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background: var(--biliscript-reader-surface, #1e1e24);
-  border: 1px solid var(--biliscript-reader-border, rgba(255, 255, 255, 0.1));
-  border-radius: 28px;
+  background: var(--biliscript-reader-surface, var(--biliscript-primitive-color-dark-gray-900));
+  border: 1px solid var(--biliscript-reader-border, rgba(var(--biliscript-primitive-color-white-rgb), 0.1));
+  border-radius: var(--biliscript-radius-panel);
   corner-shape: squircle;
   box-shadow: var(--biliscript-reader-shadow);
   padding: 16px;
@@ -2024,10 +2024,10 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-share-title {
-  font-size: 16px;
+  font-size: var(--biliscript-font-size-md);
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
-  color: var(--biliscript-reader-text, #fff);
+  color: var(--biliscript-reader-text, var(--biliscript-primitive-color-white));
   margin: 0;
 }
 
@@ -2036,8 +2036,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   height: 34px;
   border: 0;
   background: transparent;
-  color: var(--biliscript-reader-text, #1f2937);
-  border-radius: 28px;
+  color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));
+  border-radius: var(--biliscript-radius-panel);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -2053,7 +2053,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-share-close:hover,
 .biliscript-quote-share-close:focus-visible {
-  background: var(--biliscript-reader-fill-hover, rgba(0, 0, 0, 0.06));
+  background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-black-rgb), 0.06));
 }
 
 .biliscript-quote-share-close svg {
@@ -2077,11 +2077,11 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   align-items: center;
   gap: 5px;
   padding: 4px 8px;
-  border-radius: 12px;
+  border-radius: var(--biliscript-radius-md);
   border: 0;
-  background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.04));
-  color: var(--biliscript-reader-muted, #aaa);
-  font-size: 12px;
+  background: var(--biliscript-reader-surface-2, rgba(var(--biliscript-primitive-color-white-rgb), 0.04));
+  color: var(--biliscript-reader-muted, var(--biliscript-primitive-color-dark-gray-400));
+  font-size: var(--biliscript-font-size-sm);
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
@@ -2089,8 +2089,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-preset-btn:hover,
 .biliscript-quote-preset-btn:focus-visible {
-  background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.08));
-  color: var(--biliscript-reader-text, #fff);
+  background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-white-rgb), 0.08));
+  color: var(--biliscript-reader-text, var(--biliscript-primitive-color-white));
 }
 
 #biliscript-reading-view .biliscript-quote-preset-btn.is-active {
@@ -2103,9 +2103,9 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 .biliscript-quote-preset-dot {
   width: 10px;
   height: 10px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle);
   flex-shrink: 0;
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 2px rgba(var(--biliscript-primitive-color-black-rgb), 0.3);
 }
 
 /* 纹样选择器栏 */
@@ -2123,11 +2123,11 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   align-items: center;
   justify-content: center;
   padding: 3px 10px;
-  border-radius: 12px;
+  border-radius: var(--biliscript-radius-md);
   border: 0;
-  background: var(--biliscript-reader-surface-2, rgba(255, 255, 255, 0.04));
-  color: var(--biliscript-reader-muted, #aaa);
-  font-size: 12px;
+  background: var(--biliscript-reader-surface-2, rgba(var(--biliscript-primitive-color-white-rgb), 0.04));
+  color: var(--biliscript-reader-muted, var(--biliscript-primitive-color-dark-gray-400));
+  font-size: var(--biliscript-font-size-sm);
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
@@ -2135,8 +2135,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-pattern-btn:hover,
 .biliscript-quote-pattern-btn:focus-visible {
-  background: var(--biliscript-reader-fill-hover, rgba(255, 255, 255, 0.08));
-  color: var(--biliscript-reader-text, #fff);
+  background: var(--biliscript-reader-fill-hover, rgba(var(--biliscript-primitive-color-white-rgb), 0.08));
+  color: var(--biliscript-reader-text, var(--biliscript-primitive-color-white));
 }
 
 #biliscript-reading-view .biliscript-quote-pattern-btn.is-active {
@@ -2161,8 +2161,8 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   position: relative;
   width: 100%;
   min-height: 315px;
-  border-radius: 20px;
-  box-shadow: var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12)), 0 8px 32px rgba(0, 0, 0, 0.28);
+  border-radius: var(--biliscript-radius-xl);
+  box-shadow: var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(var(--biliscript-primitive-color-black-rgb), 0.12)), 0 8px 32px rgba(var(--biliscript-primitive-color-black-rgb), 0.28);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2321,7 +2321,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   align-items: center;
   justify-content: flex-end;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--biliscript-font-size-xs);
   opacity: 0.75;
   letter-spacing: 0.04em;
   text-align: right;
@@ -2351,12 +2351,12 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   gap: 6px;
   height: 32px;
   padding: 0 14px;
-  border-radius: 999px;
+  border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   border: 0;
   background: transparent;
   color: var(--biliscript-reader-muted);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   cursor: pointer;
   transition: transform 100ms ease-out;
   user-select: none;

@@ -134,9 +134,9 @@ describe("收敛 2/6：悬浮胶囊与滚底圆钮（跟随播放 / 选区解释
       expect(body, sel).toContain("background: var(--biliscript-reader-card)");
       expect(body, sel).toContain("-webkit-backdrop-filter: blur(20px) saturate(180%)");
       expect(body, sel).toContain("backdrop-filter: blur(20px) saturate(180%)");
-      expect(body, sel).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.92)");
-      expect(body, sel).toContain("0 10px 28px -4px rgba(15, 23, 42, 0.16)");
-      expect(body, sel).toContain("0 2px 6px rgba(15, 23, 42, 0.06)");
+      expect(body, sel).toMatch(/inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.92\)/);
+      expect(body, sel).toMatch(/0 10px 28px -4px rgba\((15, 23, 42|var\(--biliscript-primitive-color-slate-900-rgb\)), 0\.16\)/);
+      expect(body, sel).toMatch(/0 2px 6px rgba\((15, 23, 42|var\(--biliscript-primitive-color-slate-900-rgb\)), 0\.06\)/);
     }
   });
 
@@ -144,9 +144,9 @@ describe("收敛 2/6：悬浮胶囊与滚底圆钮（跟随播放 / 选区解释
     const gate = readCss(GATE_CSS);
     for (const sel of PILL_DARK) {
       const body = ruleBody(gate, sel);
-      expect(body, sel).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.18)");
-      expect(body, sel).toContain("0 10px 28px -4px rgba(0, 0, 0, 0.5)");
-      expect(body, sel).toContain("0 2px 6px rgba(0, 0, 0, 0.3)");
+      expect(body, sel).toMatch(/inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.18\)/);
+      expect(body, sel).toMatch(/0 10px 28px -4px rgba\((0, 0, 0|var\(--biliscript-primitive-color-black-rgb\)), 0\.5\)/);
+      expect(body, sel).toMatch(/0 2px 6px rgba\((0, 0, 0|var\(--biliscript-primitive-color-black-rgb\)), 0\.3\)/);
     }
   });
 
@@ -224,8 +224,8 @@ describe("收敛 3/6：横幅与状态通知条", () => {
     for (const sel of BANNER_LIGHT) {
       const body = ruleBody(gate, sel);
       expect(body, sel).toContain("border-color: transparent");
-      expect(body, sel).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.75)");
-      expect(body, sel).toContain("0 2px 8px rgba(15, 23, 42, 0.03)");
+      expect(body, sel).toMatch(/inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.75\)/);
+      expect(body, sel).toMatch(/0 2px 8px rgba\((15, 23, 42|var\(--biliscript-primitive-color-slate-900-rgb\)), 0\.03\)/);
     }
   });
 
@@ -241,8 +241,8 @@ describe("收敛 3/6：横幅与状态通知条", () => {
     const gate = readCss(GATE_CSS);
     for (const sel of BANNER_LIGHT.map((s) => s.replace("#biliscript-reading-view:not", "#biliscript-reading-view[data-theme=\"dark\"]:not"))) {
       const body = ruleBody(gate, sel);
-      expect(body, sel).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.12)");
-      expect(body, sel).toContain("0 2px 8px rgba(0, 0, 0, 0.2)");
+      expect(body, sel).toMatch(/inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.12\)/);
+      expect(body, sel).toMatch(/0 2px 8px rgba\((0, 0, 0|var\(--biliscript-primitive-color-black-rgb\)), 0\.2\)/);
     }
   });
 
@@ -546,7 +546,7 @@ describe("Gemini 触点 2 · 概览 AI 徽标（ov-badge）", () => {
     );
     expect(body).toContain("background: var(--biliscript-gemini-gradient-soft)");
     expect(body).toContain("color: var(--biliscript-reader-accent)");
-    expect(body).toContain("box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75)");
+    expect(body).toMatch(/box-shadow:\s*inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.75\)/);
   });
 
   it("flyme 深色：内高光换暗面档 0.14", () => {
@@ -554,7 +554,7 @@ describe("Gemini 触点 2 · 概览 AI 徽标（ov-badge）", () => {
       readCss(GATE_CSS),
       "#biliscript-reading-view[data-theme=\"dark\"]:not([data-palette=\"editorial\"]) .biliscript-reading-ov-badge"
     );
-    expect(body).toContain("box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14)");
+    expect(body).toMatch(/box-shadow:\s*inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.14\)/);
   });
 
   it("editorial 走基表：accent-soft 底 + accent 字原样保留", () => {
@@ -588,7 +588,7 @@ describe("Gemini 触点 3 · chat 输入卡液态玻璃基态与流光聚焦环"
 
   it("flyme 聚焦：顶沿内高光 + gemini-glow 外发光增强，卡片内部无彩色渗透", () => {
     const body = ruleBody(readCss(GATE_CSS), `${CARD_GLOW}:focus-within`);
-    expect(body).toContain("inset 0 1px 0 0 rgba(255, 255, 255, 0.92)");
+    expect(body).toMatch(/inset 0 1px 0 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.92\)/);
     expect(body).toContain("var(--biliscript-gemini-glow)");
     expect(body).not.toContain("border-box");
   });
@@ -598,7 +598,7 @@ describe("Gemini 触点 3 · chat 输入卡液态玻璃基态与流光聚焦环"
       readCss(GATE_CSS),
       "#biliscript-reading-view[data-theme=\"dark\"]:not([data-palette=\"editorial\"]):not([data-chat-input-glow=\"0\"]) .biliscript-reading-chat .chat-input-card:focus-within"
     );
-    expect(body).toContain("inset 0 1px 0 0 rgba(255, 255, 255, 0.16)");
+    expect(body).toMatch(/inset 0 1px 0 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.16\)/);
     expect(body).toContain("var(--biliscript-gemini-glow)");
   });
 
@@ -644,7 +644,10 @@ describe("Gemini 触点 4 · 思考强度滑块最高档渐变（ultra-gradient�
       readCss(GATE_CSS),
       "#biliscript-reading-view:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-thinking-ultra-gradient"
     );
-    expect(body).toContain("linear-gradient(90deg, #4285f4 0%, #9b72cb 36%, #d96570 100%)");
+    expect([
+      "linear-gradient(90deg, #4285f4 0%, #9b72cb 36%, #d96570 100%)",
+      "linear-gradient(90deg, var(--biliscript-primitive-color-gemini-blue-light) 0%, var(--biliscript-primitive-color-gemini-purple-light) 36%, var(--biliscript-primitive-color-gemini-coral-light) 100%)"
+    ].some(g => body.includes(g))).toBe(true);
   });
 
   it("flyme 深色：换暗面亮档（#669df6 → #b388ff → #f28b82）", () => {
@@ -652,7 +655,10 @@ describe("Gemini 触点 4 · 思考强度滑块最高档渐变（ultra-gradient�
       readCss(GATE_CSS),
       "#biliscript-reading-view[data-theme=\"dark\"]:not([data-palette=\"editorial\"]) .biliscript-reading-chat .chat-thinking-ultra-gradient"
     );
-    expect(body).toContain("linear-gradient(90deg, #669df6 0%, #b388ff 36%, #f28b82 100%)");
+    expect([
+      "linear-gradient(90deg, #669df6 0%, #b388ff 36%, #f28b82 100%)",
+      "linear-gradient(90deg, var(--biliscript-primitive-color-gemini-blue-dark) 0%, var(--biliscript-primitive-color-gemini-purple-dark) 36%, var(--biliscript-primitive-color-gemini-coral-dark) 100%)"
+    ].some(g => body.includes(g))).toBe(true);
   });
 
   it("editorial 走基表：紫色渐变层原样保留（起点 #88a3fe 终点 #6752c9）", () => {
@@ -669,9 +675,10 @@ describe("Gemini 触点 5 · 生成进度条流光与三点脉冲光标", () => 
         readCss(GATE_CSS),
         `#biliscript-reading-view:not([data-palette="editorial"]) ${cls}`
       );
-      expect(body, `${cls} 渐变`).toContain(
-        "background: linear-gradient(90deg, #4285f4 0%, #9b72cb 35%, #d96570 70%, #f49c46 100%)"
-      );
+      expect([
+        "background: linear-gradient(90deg, #4285f4 0%, #9b72cb 35%, #d96570 70%, #f49c46 100%)",
+        "background: linear-gradient(90deg, var(--biliscript-primitive-color-gemini-blue-light) 0%, var(--biliscript-primitive-color-gemini-purple-light) 35%, var(--biliscript-primitive-color-gemini-coral-light) 70%, var(--biliscript-primitive-color-gemini-amber-light) 100%)"
+      ].some(g => body.includes(g)), `${cls} 渐变`).toBe(true);
       expect(body, `${cls} 幅宽`).toContain("background-size: 200% 100%");
       expect(body, `${cls} 双动画`).toContain(
         "biliscript-asr-pulse 1.6s ease-in-out infinite alternate"
@@ -701,29 +708,29 @@ describe("Gemini 触点 5 · 生成进度条流光与三点脉冲光标", () => 
   });
 
   it("flyme 三点脉冲：浅档蓝/紫/珊瑚，深档换暗面亮档", () => {
-    const light: [string, string][] = [
-      ["1", "#4285f4"],
-      ["2", "#9b72cb"],
-      ["3", "#d96570"]
+    const light: [string, string, string][] = [
+      ["1", "#4285f4", "var(--biliscript-primitive-color-gemini-blue-light)"],
+      ["2", "#9b72cb", "var(--biliscript-primitive-color-gemini-purple-light)"],
+      ["3", "#d96570", "var(--biliscript-primitive-color-gemini-coral-light)"]
     ];
-    for (const [nth, color] of light) {
+    for (const [nth, color, token] of light) {
       const body = ruleBody(
         readCss(GATE_CSS),
         `#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(${nth})`
       );
-      expect(body, `浅档第 ${nth} 点`).toContain(`background: ${color}`);
+      expect([`background: ${color}`, `background: ${token}`].some(p => body.includes(p)), `浅档第 ${nth} 点`).toBe(true);
     }
-    const dark: [string, string][] = [
-      ["1", "#669df6"],
-      ["2", "#b388ff"],
-      ["3", "#f28b82"]
+    const dark: [string, string, string][] = [
+      ["1", "#669df6", "var(--biliscript-primitive-color-gemini-blue-dark)"],
+      ["2", "#b388ff", "var(--biliscript-primitive-color-gemini-purple-dark)"],
+      ["3", "#f28b82", "var(--biliscript-primitive-color-gemini-coral-dark)"]
     ];
-    for (const [nth, color] of dark) {
+    for (const [nth, color, token] of dark) {
       const body = ruleBody(
         readCss(GATE_CSS),
         `#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-msg-cursor i:nth-child(${nth})`
       );
-      expect(body, `深档第 ${nth} 点`).toContain(`background: ${color}`);
+      expect([`background: ${color}`, `background: ${token}`].some(p => body.includes(p)), `深档第 ${nth} 点`).toBe(true);
     }
   });
 

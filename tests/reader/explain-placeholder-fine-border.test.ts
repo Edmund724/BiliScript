@@ -41,7 +41,7 @@ describe("选区解释卡与概览空态卡微描边与圆角规范", () => {
   it("选区解释卡具有 20px 圆角与内侧 0.5px 精细描边微层叠", () => {
     const reader = readCss(READER_CSS);
     const explainBase = ruleBody(reader, ".biliscript-reading-explain-card-dialog");
-    expect(explainBase).toContain("border-radius: 20px");
+    expect(explainBase).toMatch(/border-radius:\s*(?:20px|var\(--biliscript-radius-xl\))/);
     expect(explainBase).toContain("border: none");
 
     const gate = readCss(GATE_CSS);
@@ -49,7 +49,7 @@ describe("选区解释卡与概览空态卡微描边与圆角规范", () => {
       gate,
       '#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-explain-card-dialog'
     );
-    expect(explainGate).toContain("border-radius: 20px");
+    expect(explainGate).toMatch(/border-radius:\s*(?:20px|var\(--biliscript-radius-xl\))/);
     expect(explainGate).toContain("var(--biliscript-reader-fine-border)");
     expect(explainGate).toContain("box-shadow: var(--biliscript-reader-shadow)");
   });
@@ -57,19 +57,19 @@ describe("选区解释卡与概览空态卡微描边与圆角规范", () => {
   it("概览 Tab 占位卡与空态卡具有 20px 圆角与 0.5px 精细描边并与 card-highlight 兼容", () => {
     const reader = readCss(READER_CSS);
     const placeholderBase = ruleBody(reader, ".biliscript-reading-placeholder");
-    expect(placeholderBase).toContain("border-radius: 20px");
+    expect(placeholderBase).toMatch(/border-radius:\s*(?:20px|var\(--biliscript-radius-xl\))/);
     expect(placeholderBase).toContain("border: none");
     expect(placeholderBase).toContain("var(--biliscript-reader-card-highlight)");
 
     const gate = readCss(GATE_CSS);
     const placeholderGate = ruleBody(gate, "#biliscript-reading-view .biliscript-reading-placeholder");
-    expect(placeholderGate).toContain("border-radius: 20px");
+    expect(placeholderGate).toMatch(/border-radius:\s*(?:20px|var\(--biliscript-radius-xl\))/);
     expect(placeholderGate).toContain("border: none");
     expect(placeholderGate).toContain("var(--biliscript-reader-card-highlight)");
     expect(placeholderGate).toContain("var(--biliscript-reader-fine-border)");
 
     const emptyCardGate = ruleBody(gate, "#biliscript-reading-view .biliscript-reading-ov-empty-card");
-    expect(emptyCardGate).toContain("border-radius: 20px");
+    expect(emptyCardGate).toMatch(/border-radius:\s*(?:20px|var\(--biliscript-radius-xl\))/);
     expect(emptyCardGate).toContain("var(--biliscript-reader-card-highlight)");
     expect(emptyCardGate).toContain("var(--biliscript-reader-fine-border)");
   });

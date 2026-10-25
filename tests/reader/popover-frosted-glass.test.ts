@@ -48,8 +48,8 @@ describe("02: 浮层与弹层毛玻璃防透字及无边框收口", () => {
     expect(gate).toContain("body[data-biliscript-reader-mode=\"1\"] #biliscript-reading-view .provider-editor-host .ai-provider-model-dropdown");
     expect(gate).toContain("body[data-biliscript-reader-mode=\"1\"] #biliscript-reading-view .provider-editor-fetch-dialog");
 
-    expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.7)");
-    expect(gate).toContain("inset 0 1px 0 rgba(255, 255, 255, 0.07)");
+    expect(gate).toMatch(/inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.7\)/);
+    expect(gate).toMatch(/inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.07\)/);
   });
 
   it("减弱透明度（prefers-reduced-transparency: reduce）：浮层关停 backdrop-filter 并回退为实色背景", () => {

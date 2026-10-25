@@ -68,10 +68,10 @@ describe("字幕活动行：整颗白卡、时间戳减噪", () => {
     expect(declaration(block, "display")).toBe("inline-grid");
     expect(declaration(block, "width")).toBe("auto");
     expect(declaration(block, "max-width")).toBe("100%");
-    expect(declaration(block, "border-radius")).toBe("28px");
+    expect(["28px", "var(--biliscript-radius-panel)"]).toContain(declaration(block, "border-radius"));
     expect(declaration(block, "background")).toBe("var(--biliscript-reader-card)");
-    expect(declaration(block, "box-shadow")).toBe(
-      "0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9)"
+    expect(declaration(block, "box-shadow")).toMatch(
+      /^0 1px 4px rgba\((23, 24, 26|var\(--biliscript-primitive-color-gray-950-rgb\)), 0\.12\), inset 0 1px 0 rgba\((255, 255, 255|var\(--biliscript-primitive-color-white-rgb\)), 0\.9\)$/
     );
 
     // 深色档投影换黑（与 tab.is-active 同款处理）。
@@ -79,7 +79,9 @@ describe("字幕活动行：整颗白卡、时间戳减噪", () => {
       css,
       "#biliscript-reading-view\\[data-theme=\"dark\"\\] \\.biliscript-reading-item\\.is-active"
     );
-    expect(declaration(darkBlock, "box-shadow")).toBe("0 1px 4px rgba(0, 0, 0, 0.35)");
+    expect(declaration(darkBlock, "box-shadow")).toMatch(
+      /^0 1px 4px rgba\((0, 0, 0|var\(--biliscript-primitive-color-black-rgb\)), 0\.35\)$/
+    );
   });
 
   it("时刻文本列锁定网格槽位：继承 --biliscript-reader-time-col，胶囊徽标在列内左对齐", () => {
@@ -132,7 +134,7 @@ describe("字幕活动行：整颗白卡、时间戳减噪", () => {
       "var(--biliscript-reader-time-bg, var(--biliscript-reader-accent-soft))"
     );
     expect(declaration(block, "padding")).toBe("1px 7px");
-    expect(declaration(block, "border-radius")).toBe("999px");
+    expect(["999px", "var(--biliscript-radius-pill)"]).toContain(declaration(block, "border-radius"));
     // 不留定宽列：min-width/居中都已摘除，pill 左右不空。
     expect(declaration(block, "min-width")).toBeUndefined();
   });

@@ -473,7 +473,7 @@ describe("quote-share-modal", () => {
 describe("quote-share-pattern-styles", () => {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const cssPath = path.resolve(process.cwd(), "extension/entry/styles/reader.css");
-  const cssContent = fs.readFileSync(cssPath, "utf-8");
+  const cssContent = fs.readFileSync(cssPath, "utf-8").replace(/\r\n/g, "\n");
 
   it("定义 .biliscript-quote-card-pattern 基础样式与默认透明度 0.38", () => {
     expect(cssContent).toContain(".biliscript-quote-card-pattern {");
@@ -492,7 +492,7 @@ describe("quote-share-pattern-styles", () => {
 
   it("无障碍降级：prefers-reduced-transparency 下隐藏纹样层", () => {
     expect(cssContent).toContain("@media (prefers-reduced-transparency: reduce)");
-    expect(cssContent).toContain(".biliscript-quote-card-pattern {\r\n    display: none !important;\r\n  }");
+    expect(cssContent).toContain(".biliscript-quote-card-pattern {\n    display: none !important;\n  }");
   });
 
   it("无障碍降级：prefers-reduced-motion 下禁用纹样与按钮过渡", () => {
@@ -968,7 +968,7 @@ describe("quote-share-panel-style-contracts 面板风格契约", () => {
   }
 
   it("容器使用面板的圆角、遮罩、阴影和淡入令牌", () => {
-    expect(rule(".biliscript-quote-share-dialog")).toContain("border-radius: 28px;");
+    expect(rule(".biliscript-quote-share-dialog")).toMatch(/border-radius:\s*(28px|var\(--biliscript-radius-panel\));/);
     expect(rule(".biliscript-quote-share-dialog")).toContain("corner-shape: squircle;");
     expect(rule(".biliscript-quote-share-dialog")).toContain("box-shadow: var(--biliscript-reader-shadow);");
     expect(rule(".biliscript-quote-share-mask")).toContain("background: var(--biliscript-reader-mask-bg, rgba(20, 16, 12, 0.28));");
@@ -980,8 +980,8 @@ describe("quote-share-panel-style-contracts 面板风格契约", () => {
     const close = rule(".biliscript-quote-share-close");
     expect(close).toContain("width: 34px;");
     expect(close).toContain("height: 34px;");
-    expect(close).toContain("border-radius: 28px;");
-    expect(close).toContain("color: var(--biliscript-reader-text, #1f2937);");
+    expect(close).toMatch(/border-radius:\s*(28px|var\(--biliscript-radius-panel\));/);
+    expect(["color: var(--biliscript-reader-text, #1f2937);", "color: var(--biliscript-reader-text, var(--biliscript-primitive-color-gray-950));"].some(c => close.includes(c))).toBe(true);
     expect(rule(".biliscript-quote-share-close svg")).toContain("width: 18px;");
     expect(rule(".biliscript-quote-share-close:active")).toContain("transform: scale(0.91);");
     expect(cssContent).toContain(".biliscript-quote-share-close:hover,\n.biliscript-quote-share-close:focus-visible");
@@ -992,7 +992,7 @@ describe("quote-share-panel-style-contracts 面板风格契约", () => {
     const action = rule(".biliscript-quote-action-btn");
     expect(action).toContain("height: 32px;");
     expect(action).toContain("padding: 0 14px;");
-    expect(action).toContain("border-radius: 999px;");
+    expect(action).toMatch(/border-radius:\s*(999px|var\(--btn-radius,\s*var\(--biliscript-radius-pill\)\)|var\(--biliscript-radius-pill\));/);
     expect(action).toContain("background: transparent;");
     expect(action).toContain("color: var(--biliscript-reader-muted);");
     expect(rule(".biliscript-quote-action-btn.is-primary")).toContain("background: var(--biliscript-reader-accent);");
@@ -1005,8 +1005,8 @@ describe("quote-share-panel-style-contracts 面板风格契约", () => {
   });
 
   it("配色与纹样按钮保留外观并补齐键盘焦点", () => {
-    expect(rule(".biliscript-quote-preset-btn")).toContain("border-radius: 12px;");
-    expect(rule(".biliscript-quote-pattern-btn")).toContain("border-radius: 12px;");
+    expect(rule(".biliscript-quote-preset-btn")).toMatch(/border-radius:\s*(12px|var\(--biliscript-radius-md\));/);
+    expect(rule(".biliscript-quote-pattern-btn")).toMatch(/border-radius:\s*(12px|var\(--biliscript-radius-md\));/);
     for (const selector of [".biliscript-quote-preset-btn.is-active", ".biliscript-quote-pattern-btn.is-active"]) {
       const active = rule(selector);
       expect(active).toContain("background: var(--biliscript-reader-accent-soft);");
@@ -1061,7 +1061,7 @@ describe("quote-share-motion-styles 样式与降级", () => {
   });
 
   it("卡片内侧微描边使用 var(--biliscript-reader-fine-border) 支持暗色模式联动", () => {
-    expect(cssContent).toContain("var(--biliscript-reader-fine-border, inset 0 0 0 0.5px rgba(0, 0, 0, 0.12))");
+    expect(cssContent).toMatch(/var\(--biliscript-reader-fine-border,\s*inset 0 0 0 0\.5px rgba\((0, 0, 0|var\(--biliscript-primitive-color-black-rgb\)), 0\.12\)\)/);
   });
 
   it("正文使用本地宋体并以 5.5% 容器宽度配比", () => {
