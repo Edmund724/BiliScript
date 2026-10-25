@@ -121,7 +121,7 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
 
     expect(quoteExport).toContain('document.fonts.load(\'400 16px "BiliScript Noto Serif SC"\'');
     expect(quoteExport).toContain(
-      'ctx.font = `400 ${fontSize}px Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif`'
+      'ctx.font = `400 ${fontSize}px "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif`'
     );
   });
 });

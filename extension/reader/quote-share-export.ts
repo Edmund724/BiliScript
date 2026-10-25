@@ -363,7 +363,7 @@ export async function renderQuoteCardToCanvas(
   const maxTextWidth = width - 72;
 
   ctx.save();
-  ctx.font = `400 ${fontSize}px Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif`;
+  ctx.font = `400 ${fontSize}px "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif`;
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";

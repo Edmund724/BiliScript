@@ -1594,7 +1594,7 @@
   position: relative;
   z-index: 1;
   display: block;
-  font-family: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
+  font-family: "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
   font-size: var(--biliscript-font-size-md);
   font-size-adjust: from-font;
   line-height: 1.7;
@@ -2301,7 +2301,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 }
 
 .biliscript-quote-card-text {
-  font-family: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
+  font-family: "BiliScript Noto Serif SC", Georgia, "Times New Roman", "Songti SC", "SimSun", serif;
   font-size: clamp(16px, 5.5cqi, 21px);
   font-size-adjust: from-font;
   font-weight: 400;

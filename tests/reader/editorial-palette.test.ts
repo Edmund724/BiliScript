@@ -118,7 +118,7 @@ describe("editorial 数字刊物色板", () => {
     expect(serifRule![0]).not.toContain("data-theme");
     expect(css).toContain(".biliscript-reading-ov-chapter-title {\n  font-family: var(--biliscript-reader-font-sans-medium)");
     expect(css).toContain(".biliscript-reading-ov-chapter-desc {\n  font-family: var(--biliscript-reader-font-sans)");
-    expect(css).toContain('.biliscript-reading-ov-quote-text {\n  position: relative;\n  z-index: 1;\n  display: block;\n  font-family: Georgia, "Times New Roman", "BiliScript Noto Serif SC"');
+    expect(css).toContain('.biliscript-reading-ov-quote-text {\n  position: relative;\n  z-index: 1;\n  display: block;\n  font-family: "BiliScript Noto Serif SC", Georgia, "Times New Roman"');
   });
 
   it("时间戳浅色文字档：flyme 柔和中蓝 / editorial 深赤陶两档各一份，消费侧只引用 token", () => {
