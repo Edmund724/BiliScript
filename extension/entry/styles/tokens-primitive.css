@@ -1,0 +1,210 @@
+/**
+ * tokens-primitive.css
+ * 01 PRIMITIVE（原始值层）：客观基础调色板与基础度量阶梯。
+ * 纯数值单点声明，不赋予任何业务含义，不含主题切换逻辑。
+ * 作为全站 Semantic（语义层）与 Component（组件层）的底层基座。
+ */
+
+:root {
+  /* ==========================================================================
+     1. 度量阶梯（METRIC SCALES）
+     ========================================================================== */
+
+  /* 基础字阶（Font Size Scale: 6 档核心字阶） */
+  --biliscript-primitive-font-size-11: 11px;
+  --biliscript-primitive-font-size-12: 12px;
+  --biliscript-primitive-font-size-14: 14px;
+  --biliscript-primitive-font-size-16: 16px;
+  --biliscript-primitive-font-size-18: 18px;
+  --biliscript-primitive-font-size-20: 20px;
+
+  /* 字阶阶梯别名 */
+  --biliscript-primitive-font-size-xs: var(--biliscript-primitive-font-size-11);
+  --biliscript-primitive-font-size-sm: var(--biliscript-primitive-font-size-12);
+  --biliscript-primitive-font-size-base: var(--biliscript-primitive-font-size-14);
+  --biliscript-primitive-font-size-md: var(--biliscript-primitive-font-size-16);
+  --biliscript-primitive-font-size-lg: var(--biliscript-primitive-font-size-18);
+  --biliscript-primitive-font-size-xl: var(--biliscript-primitive-font-size-20);
+
+  /* 基础圆角（Radius Scale: 核心阶梯 4px, 8px, 14px, 20px, 28px, 999px, 50% 及辅助档） */
+  --biliscript-primitive-radius-4: 4px;
+  --biliscript-primitive-radius-6: 6px;
+  --biliscript-primitive-radius-8: 8px;
+  --biliscript-primitive-radius-10: 10px;
+  --biliscript-primitive-radius-12: 12px;
+  --biliscript-primitive-radius-14: 14px;
+  --biliscript-primitive-radius-16: 16px;
+  --biliscript-primitive-radius-20: 20px;
+  --biliscript-primitive-radius-24: 24px;
+  --biliscript-primitive-radius-28: 28px;
+  --biliscript-primitive-radius-full: 999px;
+  --biliscript-primitive-radius-pill: 999px;
+  --biliscript-primitive-radius-circle: 50%;
+
+  /* 基础间距（Spacing Scale: 核心阶梯 4px, 8px, 12px, 16px, 20px, 24px 及辅助档） */
+  --biliscript-primitive-space-0: 0px;
+  --biliscript-primitive-space-2: 2px;
+  --biliscript-primitive-space-4: 4px;
+  --biliscript-primitive-space-6: 6px;
+  --biliscript-primitive-space-8: 8px;
+  --biliscript-primitive-space-10: 10px;
+  --biliscript-primitive-space-12: 12px;
+  --biliscript-primitive-space-14: 14px;
+  --biliscript-primitive-space-16: 16px;
+  --biliscript-primitive-space-20: 20px;
+  --biliscript-primitive-space-24: 24px;
+  --biliscript-primitive-space-28: 28px;
+  --biliscript-primitive-space-32: 32px;
+
+  /* ==========================================================================
+     2. 调色板（COLOR PALETTES）
+     ========================================================================== */
+
+  /* --- 基础黑白与透明 --- */
+  --biliscript-primitive-color-white: #ffffff;
+  --biliscript-primitive-color-white-rgb: 255, 255, 255;
+  --biliscript-primitive-color-black: #000000;
+  --biliscript-primitive-color-black-rgb: 0, 0, 0;
+
+  /* --- Flyme 蓝族 --- */
+  --biliscript-primitive-color-blue-500: #008cff;
+  --biliscript-primitive-color-blue-500-rgb: 0, 140, 255;
+  --biliscript-primitive-color-blue-400: #3d9bff;
+  --biliscript-primitive-color-blue-400-rgb: 61, 155, 255;
+  --biliscript-primitive-color-blue-600: #2e6fc2;
+  --biliscript-primitive-color-blue-600-rgb: 46, 111, 194;
+  --biliscript-primitive-color-blue-reflection-light: #1088f7;
+  --biliscript-primitive-color-blue-reflection-light-rgb: 16, 136, 247;
+  --biliscript-primitive-color-blue-reflection-dark: #5cb3ff;
+  --biliscript-primitive-color-blue-reflection-dark-rgb: 92, 179, 255;
+  --biliscript-primitive-color-blue-card-tint: #f6faff;
+  --biliscript-primitive-color-blue-card-tint-rgb: 246, 250, 255;
+  --biliscript-primitive-color-blue-mist-top-light: #ebf3fa;
+  --biliscript-primitive-color-blue-mist-top-light-rgb: 235, 243, 250;
+  --biliscript-primitive-color-blue-mist-bot-light: #eceff3;
+  --biliscript-primitive-color-blue-mist-bot-light-rgb: 236, 239, 243;
+  --biliscript-primitive-color-blue-mist-top-dark: #161c26;
+  --biliscript-primitive-color-blue-mist-top-dark-rgb: 22, 28, 38;
+
+  /* Flyme 光雾气泡色 */
+  --biliscript-primitive-color-blue-blob-l1-rgb: 140, 200, 255;
+  --biliscript-primitive-color-blue-blob-l2-rgb: 187, 228, 253;
+  --biliscript-primitive-color-blue-blob-l3-rgb: 165, 205, 255;
+  --biliscript-primitive-color-blue-blob-l4-rgb: 180, 225, 250;
+  --biliscript-primitive-color-blue-blob-d1-rgb: 61, 155, 255;
+  --biliscript-primitive-color-blue-blob-d2-rgb: 96, 165, 250;
+  --biliscript-primitive-color-blue-blob-d3-rgb: 79, 140, 255;
+  --biliscript-primitive-color-blue-blob-d4-rgb: 56, 189, 248;
+
+  /* --- Flyme 灰阶中性色（浅色） --- */
+  --biliscript-primitive-color-gray-50: #f2f3f5;
+  --biliscript-primitive-color-gray-50-rgb: 242, 243, 245;
+  --biliscript-primitive-color-gray-100: #f0f1f3;
+  --biliscript-primitive-color-gray-100-rgb: 240, 241, 243;
+  --biliscript-primitive-color-gray-200: #e9ebef;
+  --biliscript-primitive-color-gray-200-rgb: 233, 235, 239;
+  --biliscript-primitive-color-gray-300: #e3e5ea;
+  --biliscript-primitive-color-gray-300-rgb: 227, 229, 234;
+  --biliscript-primitive-color-gray-500: #8a8e96;
+  --biliscript-primitive-color-gray-500-rgb: 138, 142, 150;
+  --biliscript-primitive-color-gray-600: #666a71;
+  --biliscript-primitive-color-gray-600-rgb: 102, 106, 113;
+  --biliscript-primitive-color-gray-950: #17181a;
+  --biliscript-primitive-color-gray-950-rgb: 23, 24, 26;
+
+  /* --- Flyme 暗色灰阶（深色） --- */
+  --biliscript-primitive-color-dark-gray-100: #ecedef;
+  --biliscript-primitive-color-dark-gray-100-rgb: 236, 237, 239;
+  --biliscript-primitive-color-dark-gray-400: #9ca0a8;
+  --biliscript-primitive-color-dark-gray-400-rgb: 156, 160, 168;
+  --biliscript-primitive-color-dark-gray-500: #787c86;
+  --biliscript-primitive-color-dark-gray-500-rgb: 120, 124, 134;
+  --biliscript-primitive-color-dark-gray-800: #26282d;
+  --biliscript-primitive-color-dark-gray-800-rgb: 38, 40, 45;
+  --biliscript-primitive-color-dark-gray-900: #1b1c20;
+  --biliscript-primitive-color-dark-gray-900-rgb: 27, 28, 32;
+  --biliscript-primitive-color-dark-gray-950: #101114;
+  --biliscript-primitive-color-dark-gray-950-rgb: 16, 17, 20;
+
+  /* 阴影与微光 Slate 基础通道 */
+  --biliscript-primitive-color-slate-900-rgb: 15, 23, 42;
+
+  /* --- Editorial 暖纸族（浅色） --- */
+  --biliscript-primitive-color-paper-50: #faf7f2;
+  --biliscript-primitive-color-paper-50-rgb: 250, 247, 242;
+  --biliscript-primitive-color-paper-100: #f3ede2;
+  --biliscript-primitive-color-paper-100-rgb: 243, 237, 226;
+  --biliscript-primitive-color-paper-200: #e8e0d2;
+  --biliscript-primitive-color-paper-200-rgb: 232, 224, 210;
+  --biliscript-primitive-color-paper-250: #e6dfd3;
+  --biliscript-primitive-color-paper-250-rgb: 230, 223, 211;
+  --biliscript-primitive-color-paper-300: #e4dccb;
+  --biliscript-primitive-color-paper-300-rgb: 228, 220, 203;
+  --biliscript-primitive-color-paper-500: #8c8277;
+  --biliscript-primitive-color-paper-500-rgb: 140, 130, 119;
+  --biliscript-primitive-color-paper-600: #655b52;
+  --biliscript-primitive-color-paper-600-rgb: 101, 91, 82;
+  --biliscript-primitive-color-paper-950: #231f1c;
+  --biliscript-primitive-color-paper-950-rgb: 35, 31, 28;
+  --biliscript-primitive-color-paper-hover-rgb: 60, 42, 24;
+  --biliscript-primitive-color-paper-shadow-rgb: 60, 45, 30;
+
+  /* --- Editorial 赤陶族 --- */
+  --biliscript-primitive-color-terracotta-500: #b85435;
+  --biliscript-primitive-color-terracotta-500-rgb: 184, 84, 53;
+  --biliscript-primitive-color-terracotta-600: #9c4527;
+  --biliscript-primitive-color-terracotta-600-rgb: 156, 69, 39;
+  --biliscript-primitive-color-terracotta-400: #e07a5f;
+  --biliscript-primitive-color-terracotta-400-rgb: 224, 122, 95;
+
+  /* --- Editorial 暖炭黑族（深色） --- */
+  --biliscript-primitive-color-charcoal-100: #ece6df;
+  --biliscript-primitive-color-charcoal-100-rgb: 236, 230, 223;
+  --biliscript-primitive-color-charcoal-400: #9e9489;
+  --biliscript-primitive-color-charcoal-400-rgb: 158, 148, 137;
+  --biliscript-primitive-color-charcoal-500: #8a8177;
+  --biliscript-primitive-color-charcoal-500-rgb: 138, 129, 119;
+  --biliscript-primitive-color-charcoal-700: #332d28;
+  --biliscript-primitive-color-charcoal-700-rgb: 51, 45, 40;
+  --biliscript-primitive-color-charcoal-750: #2c2723;
+  --biliscript-primitive-color-charcoal-750-rgb: 44, 39, 35;
+  --biliscript-primitive-color-charcoal-800: #2a2622;
+  --biliscript-primitive-color-charcoal-800-rgb: 42, 38, 34;
+  --biliscript-primitive-color-charcoal-900: #211e1b;
+  --biliscript-primitive-color-charcoal-900-rgb: 33, 30, 27;
+  --biliscript-primitive-color-charcoal-950: #171513;
+  --biliscript-primitive-color-charcoal-950-rgb: 23, 21, 19;
+  --biliscript-primitive-color-charcoal-hover-rgb: 255, 246, 236;
+
+  /* --- 功能状态色（绿/红/黄/遮罩） --- */
+  --biliscript-primitive-color-green-500: #3fb950;
+  --biliscript-primitive-color-green-500-rgb: 63, 185, 80;
+  --biliscript-primitive-color-red-500: #d93025;
+  --biliscript-primitive-color-red-500-rgb: 217, 48, 37;
+  --biliscript-primitive-color-red-400: #f2555a;
+  --biliscript-primitive-color-red-400-rgb: 242, 85, 90;
+  --biliscript-primitive-color-amber-500: #ff9f0a;
+  --biliscript-primitive-color-amber-500-rgb: 255, 159, 10;
+  --biliscript-primitive-color-amber-600: #d89e2e;
+  --biliscript-primitive-color-amber-600-rgb: 216, 158, 46;
+  --biliscript-primitive-color-mask-rgb: 20, 16, 12;
+
+  /* --- Gemini 虹彩流光族 --- */
+  --biliscript-primitive-color-gemini-blue-light: #4285f4;
+  --biliscript-primitive-color-gemini-blue-light-rgb: 66, 133, 244;
+  --biliscript-primitive-color-gemini-purple-light: #9b72cb;
+  --biliscript-primitive-color-gemini-purple-light-rgb: 155, 114, 203;
+  --biliscript-primitive-color-gemini-coral-light: #d96570;
+  --biliscript-primitive-color-gemini-coral-light-rgb: 217, 101, 112;
+  --biliscript-primitive-color-gemini-amber-light: #f49c46;
+  --biliscript-primitive-color-gemini-amber-light-rgb: 244, 156, 70;
+
+  --biliscript-primitive-color-gemini-blue-dark: #669df6;
+  --biliscript-primitive-color-gemini-blue-dark-rgb: 102, 157, 246;
+  --biliscript-primitive-color-gemini-purple-dark: #b388ff;
+  --biliscript-primitive-color-gemini-purple-dark-rgb: 179, 136, 255;
+  --biliscript-primitive-color-gemini-coral-dark: #f28b82;
+  --biliscript-primitive-color-gemini-coral-dark-rgb: 242, 139, 130;
+  --biliscript-primitive-color-gemini-amber-dark: #fdd663;
+  --biliscript-primitive-color-gemini-amber-dark-rgb: 253, 214, 99;
+}

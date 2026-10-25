@@ -17,7 +17,11 @@ import { resetModuleState } from "../setup.js";
 
 type StyleInjector = typeof import("../../extension/shared/style-injector.js");
 
-const READER_PATHS = ["entry/styles/reader.css", "entry/styles/reader-gate.css"];
+const READER_PATHS = [
+  "entry/styles/tokens-primitive.css",
+  "entry/styles/reader.css",
+  "entry/styles/reader-gate.css"
+];
 const PLAYER_AI_PATH = "entry/styles/player-ai.css";
 const READER_CHAT_PATHS = [
   "entry/styles/github-markdown.css",
@@ -54,7 +58,7 @@ describe("style-injector 挂载记录跨实例共享", () => {
   it("一侧挂载、另一侧认账（DOM 里只有一份同路径 <link>）", () => {
     resident.ensureReaderStyles();
     const afterFirstMount = injectedLinks().length;
-    expect(afterFirstMount).toBe(2); // reader.css + reader-gate.css
+    expect(afterFirstMount).toBe(3); // tokens-primitive.css + reader.css + reader-gate.css
     for (const path of READER_PATHS) {
       expect(hasStyleLink(path), `${path} 未挂上`).toBe(true); // 跨实例共享的记录在 DOM 上可见
     }

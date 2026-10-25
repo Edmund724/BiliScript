@@ -127,7 +127,11 @@ function mountShell({
 
 // 阅读表挂载态即 DOM：两枚 link（reader.css + reader-gate.css）各自查询，
 // 不合并成单个布尔——缺失时能报出是哪张表没挂上。
-const READER_STYLE_PATHS = ["entry/styles/reader.css", "entry/styles/reader-gate.css"];
+const READER_STYLE_PATHS = [
+  "entry/styles/tokens-primitive.css",
+  "entry/styles/reader.css",
+  "entry/styles/reader-gate.css"
+];
 
 function expectReaderStylesMounted(mounted: boolean): void {
   for (const path of READER_STYLE_PATHS) {

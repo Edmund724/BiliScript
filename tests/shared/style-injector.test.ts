@@ -13,7 +13,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetModuleState } from "../setup.js";
 
-const READER_PATHS = ["entry/styles/reader.css", "entry/styles/reader-gate.css"];
+const READER_PATHS = [
+  "entry/styles/tokens-primitive.css",
+  "entry/styles/reader.css",
+  "entry/styles/reader-gate.css"
+];
 const PLAYER_AI_PATH = "entry/styles/player-ai.css";
 
 function loadInjector() {
@@ -47,12 +51,12 @@ afterEach(() => {
 });
 
 describe("style-injector 挂载生命周期", () => {
-  it("ensureReaderStyles 挂两张阅读表 link，URL 经 chrome.runtime.getURL 解析", async () => {
+  it("ensureReaderStyles 挂阅读表 link（含 tokens-primitive.css 置顶），URL 经 chrome.runtime.getURL 解析", async () => {
     const injector = await loadInjector();
     injector.ensureReaderStyles();
 
     const links = mountedLinks();
-    expect(links).toHaveLength(2);
+    expect(links).toHaveLength(3);
     const hrefs = links.map((link) => link.href);
     for (const path of READER_PATHS) {
       expect(hrefs).toContain(`chrome-extension://test/${path}`);
@@ -67,11 +71,11 @@ describe("style-injector 挂载生命周期", () => {
 
     injector.ensureReaderStyles();
     injector.ensureReaderStyles();
-    expect(mountedLinks()).toHaveLength(2);
+    expect(mountedLinks()).toHaveLength(3);
 
     injector.ensurePlayerAiStyles();
     injector.ensurePlayerAiStyles();
-    expect(mountedLinks()).toHaveLength(3);
+    expect(mountedLinks()).toHaveLength(4);
     expect(hasStyleLink(PLAYER_AI_PATH)).toBe(true);
   });
 
@@ -80,7 +84,7 @@ describe("style-injector 挂载生命周期", () => {
 
     injector.ensureReaderStyles();
     injector.ensurePlayerAiStyles();
-    expect(mountedLinks()).toHaveLength(3);
+    expect(mountedLinks()).toHaveLength(4);
 
     injector.removeReaderStyles();
     expect(mountedLinks()).toHaveLength(1); // 只剩 player-ai 表
@@ -88,7 +92,7 @@ describe("style-injector 挂载生命周期", () => {
 
     injector.ensureReaderStyles();
     const links = mountedLinks();
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(4);
     // 重挂的 link 是新节点（旧引用已摘除；样式数据由浏览器缓存，二进宫无闪变）
     expectReaderLinks(true);
   });

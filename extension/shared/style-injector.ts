@@ -1,4 +1,4 @@
-// 样式注入器（S3 分层）：阅读表（styles/reader.css + styles/reader-gate.css）、
+// 样式注入器（S3 分层）：阅读表（styles/tokens-primitive.css + styles/reader.css + styles/reader-gate.css）、
 // 播放器 AI 表（styles/player-ai.css）、设置分区表组（styles/
 // reader-settings-{shell,rows,providers}.css，arch-slim-4/04，2026-09 拆分）、
 // 自定义下拉组件表（styles/custom-select.css，2026-10 从设置表抽出，随
@@ -52,7 +52,11 @@ function styleSlots(): StyleInjectorSlots {
 }
 
 function getReaderStylePaths(): string[] {
-  return ["entry/styles/reader.css", "entry/styles/reader-gate.css"];
+  return [
+    "entry/styles/tokens-primitive.css",
+    "entry/styles/reader.css",
+    "entry/styles/reader-gate.css"
+  ];
 }
 
 export function ensureReaderStyles(): void {
