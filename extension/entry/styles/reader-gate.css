@@ -104,7 +104,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
  * flyme 深色块 = 深色雾玻璃：壳 #101114 加 alpha + 四角与边缘深蓝辉光光雾 / 卡片白雾
  * 透镜渐变，主蓝 #3D9BFF，暗面悬浮柔影。
  * editorial 两块 = 数字刊物：暖纸面/暖炭黑面，赤陶点缀，径向光雾关闭
- * （mist-blobs:none + mist-filter:none），壳呈现温润纸感；章节标题与金句
+ * （mist-blobs:none + mist-filter:none），壳呈现温润纸感；概览组标题与金句
  * 正文衬线字型（--font-serif，reader.css 消费）。
  * 选择器层叠策略：深色块的选择器只带 data-biliscript-reader-theme="dark"
  * （面板节点用 [data-theme="dark"]），色板块的选择器只带
@@ -130,20 +130,16 @@ body[data-biliscript-reader-mode="1"],
 
   /* 标准字阶语义体系（联动 --biliscript-reader-font-scale 缩放） */
   --biliscript-reader-font-scale: 1;
-  --biliscript-font-size-11: calc(var(--biliscript-primitive-font-size-11) * var(--biliscript-reader-font-scale, 1));
-  --biliscript-font-size-12: calc(var(--biliscript-primitive-font-size-12) * var(--biliscript-reader-font-scale, 1));
-  --biliscript-font-size-14: calc(var(--biliscript-primitive-font-size-14) * var(--biliscript-reader-font-scale, 1));
-  --biliscript-font-size-15: calc(var(--biliscript-primitive-font-size-15) * var(--biliscript-reader-font-scale, 1));
-  --biliscript-font-size-16: calc(var(--biliscript-primitive-font-size-16) * var(--biliscript-reader-font-scale, 1));
-  --biliscript-font-size-18: calc(var(--biliscript-primitive-font-size-18) * var(--biliscript-reader-font-scale, 1));
-  --biliscript-font-size-20: calc(var(--biliscript-primitive-font-size-20) * var(--biliscript-reader-font-scale, 1));
-
+  --biliscript-font-size-2xs: calc(var(--biliscript-primitive-font-size-2xs) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-xs: calc(var(--biliscript-primitive-font-size-xs) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-sm: calc(var(--biliscript-primitive-font-size-sm) * var(--biliscript-reader-font-scale, 1));
+  --biliscript-font-size-sm-md: calc(var(--biliscript-primitive-font-size-sm-md) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-base: calc(var(--biliscript-primitive-font-size-base) * var(--biliscript-reader-font-scale, 1));
+  --biliscript-font-size-md-sm: calc(var(--biliscript-primitive-font-size-md-sm) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-md: calc(var(--biliscript-primitive-font-size-md) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-lg: calc(var(--biliscript-primitive-font-size-lg) * var(--biliscript-reader-font-scale, 1));
   --biliscript-font-size-xl: calc(var(--biliscript-primitive-font-size-xl) * var(--biliscript-reader-font-scale, 1));
+  --biliscript-font-size-2xl: calc(var(--biliscript-primitive-font-size-2xl) * var(--biliscript-reader-font-scale, 1));
 
   --biliscript-chat-line-height: 1.6;
   --biliscript-chat-paragraph-spacing: 12px;
@@ -166,6 +162,19 @@ body[data-biliscript-reader-mode="1"],
 
   /* 基础间距语义体系 */
   --biliscript-space-0: var(--biliscript-primitive-space-0);
+  --biliscript-space-2: var(--biliscript-primitive-space-2);
+  --biliscript-space-4: var(--biliscript-primitive-space-4);
+  --biliscript-space-6: var(--biliscript-primitive-space-6);
+  --biliscript-space-8: var(--biliscript-primitive-space-8);
+  --biliscript-space-10: var(--biliscript-primitive-space-10);
+  --biliscript-space-12: var(--biliscript-primitive-space-12);
+  --biliscript-space-14: var(--biliscript-primitive-space-14);
+  --biliscript-space-16: var(--biliscript-primitive-space-16);
+  --biliscript-space-20: var(--biliscript-primitive-space-20);
+  --biliscript-space-24: var(--biliscript-primitive-space-24);
+  --biliscript-space-28: var(--biliscript-primitive-space-28);
+  --biliscript-space-32: var(--biliscript-primitive-space-32);
+
   --biliscript-space-xs: var(--biliscript-primitive-space-4);
   --biliscript-space-sm: var(--biliscript-primitive-space-8);
   --biliscript-space-md: var(--biliscript-primitive-space-12);
@@ -256,7 +265,7 @@ body[data-biliscript-reader-mode="1"],
   /* 面板字体栈：font-sans 与 ui/mermaid-render.ts 的 PANEL_FONT_FAMILY 字面量
    * 互为镜像（mermaid 配置吃不了 CSS 变量）；西文与数字由系统现代 UI 字体优先接管，
    * 中文落苹方、视频页鸿蒙黑体与微软雅黑 UI；font-sans-medium 供中粗控件与
-   * Markdown 标题/加粗消费；font-serif 供概览总结、金句、解释卡与 AI 回答消费。 */
+   * Markdown 标题/加粗消费；font-serif 供金句与 editorial 概览组标题消费。 */
   --biliscript-reader-font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --biliscript-reader-font-sans-medium: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "HarmonyOS_Medium", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --biliscript-reader-font-serif: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
@@ -313,7 +322,7 @@ body[data-biliscript-reader-mode="1"],
     0 2px 8px -2px rgba(var(--biliscript-primitive-color-gemini-blue-light-rgb), 0.18);
 
   /* ==========================================================================
-     3. 高频 Component 组件层 Token（工单 03）
+     3. 高频 Component 组件层 Token（高频公共组件令牌层）
      ========================================================================== */
 
   /* 3.1 操作按钮与 Chips 类组件（Buttons & Chips） */

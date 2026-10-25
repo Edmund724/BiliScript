@@ -1,43 +1,18 @@
 // tests/entry/tokens-semantic.test.ts
-// Semantic Token 语义层契约测试（工单 02）：
+// Semantic Token 语义层契约测试：
 // 验证 reader-gate.css 中 4 象限主题（Flyme / Editorial × Light / Dark）的变量实现全部引用 Primitive，
 // 并提供圆角语义、字阶语义与向后兼容。
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { extractBlock, readStyleFile } from "./css-token-test-utils.js";
 
-const ROOT = process.cwd();
 const GATE_CSS = "extension/entry/styles/reader-gate.css";
 
-function readGateCss(): string {
-  return readFileSync(join(ROOT, GATE_CSS), "utf8");
-}
-
-function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
-function normalize(css: string): string {
-  return stripComments(css)
-    .replace(/\s+/g, " ")
-    .replace(/\(\s+/g, "(")
-    .replace(/\s+\)/g, ")");
-}
-
-// 提取指定结尾选择器的主题块 body
 function getThemeBlock(tailSelector: string, headStartsWith?: string): string {
-  const text = stripComments(readGateCss());
-  const rules = text.match(/[^{}]+\{[^}]*\}/g) || [];
-  const hit = rules.find((rule) => {
-    const head = rule.split("{")[0].trim();
-    return head.endsWith(tailSelector) && (!headStartsWith || head.startsWith(headStartsWith));
-  });
-  expect(hit, `应存在以 ${tailSelector} 结尾的主题块`).not.toBeUndefined();
-  return hit!.split("{")[1];
+  return extractBlock(readStyleFile(GATE_CSS), tailSelector, headStartsWith);
 }
 
-describe("02 Semantic Tokens: reader-gate.css 语义层契约", () => {
+describe("Semantic Tokens: reader-gate.css 语义层契约", () => {
   const FLYME_LIGHT = () => getThemeBlock("#biliscript-reading-view", "html[data-biliscript-reader-mode=\"1\"]");
   const FLYME_DARK = () => getThemeBlock("#biliscript-reading-view[data-theme=\"dark\"]");
   const EDITORIAL_LIGHT = () => getThemeBlock("#biliscript-reading-view[data-palette=\"editorial\"]");

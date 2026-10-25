@@ -340,7 +340,7 @@
   }
 }
 
-/* 思考档位「关不掉 / clamp」提示行（工单 03）：档位切换区内独占一行的小字，
+/* 思考档位「关不掉 / clamp」提示行：档位切换区内独占一行的小字，
  * 默认 hidden（由 reader/chat-model-panel.ts 按视图值写文案与显隐）。 */
 .biliscript-reading-chat .chat-thinking-hint {
   flex-basis: 100%;
@@ -538,7 +538,7 @@
 }
 
 .biliscript-reading-chat .chat-msg-assistant-body {
-  font-family: var(--biliscript-reader-font-serif);
+  font-family: var(--biliscript-reader-font-sans);
   font-size-adjust: from-font;
   min-width: 0;
   width: 100%;

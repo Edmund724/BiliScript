@@ -10,22 +10,29 @@
      1. 度量阶梯（METRIC SCALES）
      ========================================================================== */
 
-  /* 基础字阶（Font Size Scale: 6 档核心字阶） */
+  /* 基础字阶（Font Size Scale: 6 档核心字阶与辅助阶梯） */
+  --biliscript-primitive-font-size-10: 10px;
   --biliscript-primitive-font-size-11: 11px;
   --biliscript-primitive-font-size-12: 12px;
+  --biliscript-primitive-font-size-13: 13px;
   --biliscript-primitive-font-size-14: 14px;
   --biliscript-primitive-font-size-15: 15px;
   --biliscript-primitive-font-size-16: 16px;
   --biliscript-primitive-font-size-18: 18px;
   --biliscript-primitive-font-size-20: 20px;
+  --biliscript-primitive-font-size-22: 22px;
 
   /* 字阶阶梯别名 */
+  --biliscript-primitive-font-size-2xs: var(--biliscript-primitive-font-size-10);
   --biliscript-primitive-font-size-xs: var(--biliscript-primitive-font-size-11);
   --biliscript-primitive-font-size-sm: var(--biliscript-primitive-font-size-12);
+  --biliscript-primitive-font-size-sm-md: var(--biliscript-primitive-font-size-13);
   --biliscript-primitive-font-size-base: var(--biliscript-primitive-font-size-14);
+  --biliscript-primitive-font-size-md-sm: var(--biliscript-primitive-font-size-15);
   --biliscript-primitive-font-size-md: var(--biliscript-primitive-font-size-16);
   --biliscript-primitive-font-size-lg: var(--biliscript-primitive-font-size-18);
   --biliscript-primitive-font-size-xl: var(--biliscript-primitive-font-size-20);
+  --biliscript-primitive-font-size-2xl: var(--biliscript-primitive-font-size-22);
 
   /* 基础圆角（Radius Scale: 核心阶梯 4px, 8px, 14px, 20px, 28px, 999px, 50% 及辅助档） */
   --biliscript-primitive-radius-4: 4px;

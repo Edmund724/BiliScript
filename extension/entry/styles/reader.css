@@ -1192,7 +1192,7 @@
 }
 
 .biliscript-reading-explain-card-quote {
-  font-family: var(--biliscript-reader-font-serif);
+  font-family: var(--biliscript-reader-font-sans);
   font-size-adjust: from-font;
   flex: 0 0 auto;
   margin: 0 0 10px;
@@ -1220,7 +1220,7 @@
  * 晚于本表加载）：.markdown-body p 与这里的特异性同级（0-1-1）但靠后胜出，
  * 挂上 .markdown-body 抬到 0-2-1 保住紧凑 8px 档。 */
 .biliscript-reading-explain-card-answer.markdown-body {
-  font-family: var(--biliscript-reader-font-serif);
+  font-family: var(--biliscript-reader-font-sans);
   font-size-adjust: from-font;
 }
 
@@ -1500,7 +1500,7 @@
 
 .biliscript-reading-ov-chapter-title {
   font-family: var(--biliscript-reader-font-sans-medium);
-  font-size: var(--biliscript-font-size-15);
+  font-size: var(--biliscript-font-size-md-sm);
   font-size-adjust: from-font;
   font-weight: 500;
   line-height: 1.5;
@@ -1521,7 +1521,7 @@
 }
 
 .biliscript-reading-ov-chapter-desc {
-  font-family: var(--biliscript-reader-font-serif);
+  font-family: var(--biliscript-reader-font-sans);
   font-size: var(--biliscript-font-size-base);
   font-size-adjust: from-font;
   line-height: 1.7;

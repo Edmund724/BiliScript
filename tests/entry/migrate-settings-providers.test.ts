@@ -1,17 +1,15 @@
 // tests/entry/migrate-settings-providers.test.ts
-// 工单 06 契约测试：迁移设置抽屉与 Provider 配置列表（reader-settings-*.css）
+// 设置抽屉与 Provider 配置列表样式迁移契约测试（reader-settings-*.css）：
 // 验证：
 // 1. 设置外壳（reader-settings-shell.css）、配置行（reader-settings-rows.css）、
 //    Provider 列表/编辑面板（reader-settings-providers.css）中的硬编码 border-radius
 //    已全部替换为 --biliscript-radius-* 或组件级 token（--btn-radius, --pill-radius, --chip-radius, --select-*）。
 // 2. 全部硬编码 font-size（含 calc(Npx * scale)）已替换为 --biliscript-font-size-* 或组件 token。
 // 3. 消除裸写 HEX 颜色与裸写 RGBA 通道值，改为消费语义或 Primitive 变量。
+// 4. 外边距、内边距与间隙中的标准间距数值均替换为 --biliscript-space-* 变量。
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-
-const ROOT = process.cwd();
+import { readStyleFile, stripCssComments } from "./css-token-test-utils.js";
 
 const SETTINGS_FILES = [
   "extension/entry/styles/reader-settings-shell.css",
@@ -19,19 +17,11 @@ const SETTINGS_FILES = [
   "extension/entry/styles/reader-settings-providers.css"
 ] as const;
 
-function readFile(relPath: string): string {
-  return readFileSync(join(ROOT, relPath), "utf8");
-}
-
-function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
-describe("06: 迁移设置抽屉与 Provider 配置列表 Token 体系", () => {
+describe("设置抽屉与 Provider 配置列表 Token 迁移契约", () => {
   describe("1. 圆角 Token 迁移契约（border-radius）", () => {
     it("reader-settings-*.css 中无任何硬编码像素圆角（28px, 16px, 14px, 8px, 4px, 2px, 999px 等）与 50%", () => {
       for (const file of SETTINGS_FILES) {
-        const text = stripComments(readFile(file));
+        const text = stripCssComments(readStyleFile(file));
         const lines = text.split("\n");
 
         for (let i = 0; i < lines.length; i++) {
@@ -58,9 +48,9 @@ describe("06: 迁移设置抽屉与 Provider 配置列表 Token 体系", () => {
     });
 
     it("设置外壳、通用输入框与弹窗外壳消费 --biliscript-radius-panel 或相关组件变量", () => {
-      const shell = stripComments(readFile("extension/entry/styles/reader-settings-shell.css"));
-      const rows = stripComments(readFile("extension/entry/styles/reader-settings-rows.css"));
-      const providers = stripComments(readFile("extension/entry/styles/reader-settings-providers.css"));
+      const shell = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-shell.css"));
+      const rows = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-rows.css"));
+      const providers = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-providers.css"));
 
       // shell 抽屉外壳
       expect(shell).toMatch(/\.biliscript-reading-settings-panel\s*\{[^}]*border-radius:\s*var\(--biliscript-radius-panel\)/);
@@ -88,7 +78,7 @@ describe("06: 迁移设置抽屉与 Provider 配置列表 Token 体系", () => {
   describe("2. 字号 Token 迁移契约（font-size）", () => {
     it("reader-settings-*.css 中无任何裸写像素字号（如 12px, 13px, 14px, 16px 等）", () => {
       for (const file of SETTINGS_FILES) {
-        const text = stripComments(readFile(file));
+        const text = stripCssComments(readStyleFile(file));
         const lines = text.split("\n");
 
         for (let i = 0; i < lines.length; i++) {
@@ -115,9 +105,9 @@ describe("06: 迁移设置抽屉与 Provider 配置列表 Token 体系", () => {
     });
 
     it("标题消费 --biliscript-font-size-lg 或 md，正文与控件消费 base，次级与徽标消费 sm", () => {
-      const shell = stripComments(readFile("extension/entry/styles/reader-settings-shell.css"));
-      const rows = stripComments(readFile("extension/entry/styles/reader-settings-rows.css"));
-      const providers = stripComments(readFile("extension/entry/styles/reader-settings-providers.css"));
+      const shell = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-shell.css"));
+      const rows = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-rows.css"));
+      const providers = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-providers.css"));
 
       // shell 分区标题
       expect(shell).toMatch(/\.biliscript-set-h\s*\{[^}]*font-size:\s*var\(--biliscript-font-size-lg\)/);
@@ -144,7 +134,7 @@ describe("06: 迁移设置抽屉与 Provider 配置列表 Token 体系", () => {
   describe("3. 色彩与材质 Token 迁移契约（Hex & RGBA）", () => {
     it("reader-settings-*.css 中无裸 HEX 颜色（包括历史残留 #00aeec, #999 等）", () => {
       for (const file of SETTINGS_FILES) {
-        const text = stripComments(readFile(file));
+        const text = stripCssComments(readStyleFile(file));
         const hexMatches = text.match(/#[0-9a-fA-F]{3,8}(?![a-zA-Z0-9_-])/g) || [];
         expect(hexMatches, `${file} 中不应存在硬编码 HEX 颜色`).toEqual([]);
       }
@@ -152,11 +142,44 @@ describe("06: 迁移设置抽屉与 Provider 配置列表 Token 体系", () => {
 
     it("reader-settings-*.css 中无裸写数值 RGBA（除使用 var(--*-rgb) 构造外）", () => {
       for (const file of SETTINGS_FILES) {
-        const text = stripComments(readFile(file));
+        const text = stripCssComments(readStyleFile(file));
         // 匹配 rgba(数字, 数字, 数字
         const rawRgbaMatches = text.match(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+/g) || [];
         expect(rawRgbaMatches, `${file} 中不应存在裸数值 rgba`).toEqual([]);
       }
+    });
+  });
+
+  describe("4. 间距 Token 迁移契约（padding / margin / gap）", () => {
+    it("reader-settings-*.css 中的常用外边距、内边距与间隙中的标准阶梯数值均消费 --biliscript-space-*", () => {
+      const standardSpacingRegex = /\b(?:4|6|8|10|12|14|16|20|24|28|32)px\b/;
+      for (const file of SETTINGS_FILES) {
+        const text = stripCssComments(readStyleFile(file));
+        const lines = text.split("\n");
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (/^(?:padding|margin|gap|row-gap|column-gap|padding-[a-z]+|margin-[a-z]+)\s*:/.test(line)) {
+            // 放行与 custom-select 下拉选项行规格严格锁定的 4px 10px（tests/ui/custom-select-hidden.test.ts 契约）
+            if (line.includes("4px 10px")) continue;
+            const withoutVars = line.replace(/var\([^)]+\)/g, "").replace(/calc\([^)]+\)/g, "");
+            expect(
+              withoutVars,
+              `${file} 第 ${i + 1} 行存在未消费令牌的标准间距字面量: "${line}"`
+            ).not.toMatch(standardSpacingRegex);
+          }
+        }
+      }
+    });
+
+    it("设置外壳内边距、行间距与弹窗主要间距均消费 --biliscript-space-* 令牌", () => {
+      const shell = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-shell.css"));
+      const rows = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-rows.css"));
+      const providers = stripCssComments(readStyleFile("extension/entry/styles/reader-settings-providers.css"));
+
+      expect(shell).toMatch(/\.biliscript-reading-settings-panel\s*\{[^}]*padding:\s*var\(--biliscript-space-md\)\s*var\(--biliscript-space-14\)/);
+      expect(rows).toMatch(/\.ai-providers-list[^}]*\{[^}]*gap:\s*var\(--biliscript-space-sm\)/);
+      expect(providers).toMatch(/\.provider-editor-head\s*\{[^}]*padding:\s*var\(--biliscript-space-14\)\s*var\(--biliscript-space-lg\)\s*var\(--biliscript-space-10\)/);
     });
   });
 });

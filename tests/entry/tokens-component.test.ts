@@ -1,38 +1,20 @@
 // tests/entry/tokens-component.test.ts
-// Component Token 组件层契约测试（工单 03）：
+// Component Token 组件层契约测试：
 // 验证 5 类高频公共组件（Buttons & Chips、Segmented Controls / Pills & Tabs、
 // Chat Input card、Custom Select、Toggle Switch）的组件级 Token 提取与接入。
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { extractBlock, readStyleFile, stripCssComments } from "./css-token-test-utils.js";
 
-const ROOT = process.cwd();
 const GATE_CSS = "extension/entry/styles/reader-gate.css";
 const CUSTOM_SELECT_CSS = "extension/entry/styles/custom-select.css";
 const TOGGLE_SWITCH_CSS = "extension/entry/styles/toggle-switch.css";
 
-function readFile(relPath: string): string {
-  return readFileSync(join(ROOT, relPath), "utf8");
-}
-
-function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
-// 提取指定结尾选择器的主题块 body
 function getGateBlock(tailSelector: string, headStartsWith?: string): string {
-  const text = stripComments(readFile(GATE_CSS));
-  const rules = text.match(/[^{}]+\{[^}]*\}/g) || [];
-  const hit = rules.find((rule) => {
-    const head = rule.split("{")[0].trim();
-    return head.endsWith(tailSelector) && (!headStartsWith || head.startsWith(headStartsWith));
-  });
-  expect(hit, `reader-gate.css 应存在以 ${tailSelector} 结尾的规则块`).not.toBeUndefined();
-  return hit!.split("{")[1];
+  return extractBlock(readStyleFile(GATE_CSS), tailSelector, headStartsWith);
 }
 
-describe("03 Component Tokens: 组件层契约测试", () => {
+describe("Component Tokens: 组件层契约测试", () => {
   const BASE_GATE = () => getGateBlock("#biliscript-reading-view", "html[data-biliscript-reader-mode=\"1\"]");
   const DARK_GATE = () => getGateBlock("#biliscript-reading-view[data-theme=\"dark\"]");
 
@@ -128,7 +110,7 @@ describe("03 Component Tokens: 组件层契约测试", () => {
     });
 
     it("custom-select.css 全面消费组件 Token 与语义 Token，无裸 HEX 与硬编码 28px/14px", () => {
-      const css = stripComments(readFile(CUSTOM_SELECT_CSS));
+      const css = stripCssComments(readStyleFile(CUSTOM_SELECT_CSS));
 
       // 禁止裸 HEX 颜色（包括之前的 #00aeec 和 #999）
       const hexMatches = css.match(/#[0-9a-fA-F]{3,8}(?![a-zA-Z0-9_-])/g) || [];
@@ -164,7 +146,7 @@ describe("03 Component Tokens: 组件层契约测试", () => {
     });
 
     it("toggle-switch.css 消费组件 Token 与语义 Token", () => {
-      const css = stripComments(readFile(TOGGLE_SWITCH_CSS));
+      const css = stripCssComments(readStyleFile(TOGGLE_SWITCH_CSS));
 
       // 轨道圆角消费 token
       expect(css).toMatch(/border-radius:\s*var\(--toggle-track-radius/);

@@ -749,14 +749,14 @@ describe("Gemini 触点 6 · 播放器快捷按钮（player-ai.css）", () => {
     const css = readCss(PLAYER_AI_CSS);
     const body = ruleBody(css, "#biliscript-player-ai-quick-action");
     expect(body).toContain("border: none");
-    expect(body).toContain("border-radius: 999px");
+    expect(body).toMatch(/border-radius:\s*(?:var\(--biliscript-radius-pill,\s*999px\)|999px)/);
     expect(body).toContain("background: transparent");
     expect(body).not.toContain("backdrop-filter");
     expect(body).not.toContain("box-shadow");
 
     const svgBody = ruleBody(css, "#biliscript-player-ai-quick-action svg");
     expect(svgBody).toContain("width: var(--biliscript-player-ai-action-icon-size, 26px)");
-    expect(svgBody).toContain("filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.35))");
+    expect(svgBody).toMatch(/filter:\s*drop-shadow\(0 1px 2px rgba\((?:var\(--biliscript-primitive-color-slate-900-rgb,\s*15,\s*23,\s*42\)|15,\s*23,\s*42),\s*0\.35\)\)/);
   });
 
   it("胶囊壳剥离实心黑底旧视觉（底/框/影/overflow 移除），几何与滑入动效保留", () => {

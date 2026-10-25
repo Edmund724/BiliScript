@@ -1,29 +1,19 @@
 // tests/entry/migrate-reader-shell.test.ts
-// 阅读主面板与门控样式迁移契约测试（工单 04）：
+// 阅读主面板与门控样式迁移契约测试：
 // 验证 reader.css 与 reader-gate.css 规则块中消除了硬编码的圆角与字号，
 // 全部迁移至语义/组件/原始 Token，保证字阶缩放与圆角统一。
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { readStyleFile, stripCssComments } from "./css-token-test-utils.js";
 
-const ROOT = process.cwd();
 const READER_CSS = "extension/entry/styles/reader.css";
 const GATE_CSS = "extension/entry/styles/reader-gate.css";
 const PRIMITIVE_CSS = "extension/entry/styles/tokens-primitive.css";
 
-function readFile(relPath: string): string {
-  return readFileSync(join(ROOT, relPath), "utf8");
-}
-
-function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
-describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契约", () => {
+describe("阅读主面板与门控样式 Token 迁移契约", () => {
   describe("1. reader.css 与 reader-gate.css 移除硬编码 border-radius", () => {
     it("reader.css 中的所有 border-radius 均消费 --biliscript-radius-* 或组件 Token", () => {
-      const text = stripComments(readFile(READER_CSS));
+      const text = stripCssComments(readStyleFile(READER_CSS));
       const lines = text.split("\n");
       const violations: string[] = [];
 
@@ -44,7 +34,7 @@ describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契�
     });
 
     it("reader-gate.css 规则块中的所有 border-radius 均消费 Token 或 inherit", () => {
-      const text = stripComments(readFile(GATE_CSS));
+      const text = stripCssComments(readStyleFile(GATE_CSS));
       const lines = text.split("\n");
       const violations: string[] = [];
 
@@ -67,7 +57,7 @@ describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契�
 
   describe("2. reader.css 与 reader-gate.css 移除硬编码 font-size", () => {
     it("reader.css 中的排版字号均迁移为 --biliscript-font-size-* 或组件 Token（等比响应缩放）", () => {
-      const text = stripComments(readFile(READER_CSS));
+      const text = stripCssComments(readStyleFile(READER_CSS));
       const lines = text.split("\n");
       const violations: string[] = [];
 
@@ -98,7 +88,7 @@ describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契�
     });
 
     it("reader-gate.css 规则块中的字号均使用 Token 表达", () => {
-      const text = stripComments(readFile(GATE_CSS));
+      const text = stripCssComments(readStyleFile(GATE_CSS));
       const lines = text.split("\n");
       const violations: string[] = [];
 
@@ -122,7 +112,7 @@ describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契�
 
   describe("3. reader-gate.css 规则块与 reader.css 外壳清理残余裸 HEX 与裸 RGBA", () => {
     it("reader-gate.css 规则块（第 590 行起）中无裸 HEX 色值（全部使用 Token）", () => {
-      const text = stripComments(readFile(GATE_CSS));
+      const text = stripCssComments(readStyleFile(GATE_CSS));
       const lines = text.split("\n");
       const violations: string[] = [];
 
@@ -142,7 +132,7 @@ describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契�
     });
 
     it("reader-gate.css 规则块（第 590 行起）中的 rgba 均消费 primitive 的 -rgb 通道变量", () => {
-      const text = stripComments(readFile(GATE_CSS));
+      const text = stripCssComments(readStyleFile(GATE_CSS));
       const lines = text.split("\n");
       const violations: string[] = [];
 
@@ -162,7 +152,7 @@ describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契�
     });
 
     it("reader.css 基础壳与面板规则中的变量回退值不裸写硬编码颜色", () => {
-      const text = stripComments(readFile(READER_CSS));
+      const text = stripCssComments(readStyleFile(READER_CSS));
       const lines = text.split("\n");
       const violations: string[] = [];
 
@@ -180,8 +170,8 @@ describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契�
 
   describe("4. 字阶缩放与语义响应体系", () => {
     it("tokens-primitive.css 与 reader-gate.css 支持完整字阶与圆角语义阶梯", () => {
-      const primitive = readFile(PRIMITIVE_CSS);
-      const gate = readFile(GATE_CSS);
+      const primitive = readStyleFile(PRIMITIVE_CSS);
+      const gate = readStyleFile(GATE_CSS);
 
       // 面板外壳圆角与胶囊圆角
       expect(gate).toContain("--biliscript-radius-panel: var(--biliscript-primitive-radius-28)");
@@ -189,7 +179,7 @@ describe("04 Migrate Reader Shell: reader.css & reader-gate.css Token 迁移契�
 
       // 验证 15px 字阶在 primitive 与 gate 中的完备支持
       expect(primitive).toContain("--biliscript-primitive-font-size-15: 15px;");
-      expect(gate).toContain("--biliscript-font-size-15:");
+      expect(gate).toContain("--biliscript-font-size-md-sm:");
     });
   });
 });

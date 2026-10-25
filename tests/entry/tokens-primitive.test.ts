@@ -1,22 +1,16 @@
 // tests/entry/tokens-primitive.test.ts
-// Primitive Token 原始层契约测试（工单 01）：
+// Primitive Token 原始层契约测试：
 // 验证 tokens-primitive.css 的客观基础调色板与基础度量阶梯，以及 style-injector 的置顶注入。
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { readStyleFile } from "./css-token-test-utils.js";
 
-const ROOT = process.cwd();
 const TOKENS_PRIMITIVE_CSS = "extension/entry/styles/tokens-primitive.css";
 const INJECTOR_TS = "extension/shared/style-injector.ts";
 
-function readFile(relPath: string): string {
-  return readFileSync(join(ROOT, relPath), "utf8");
-}
-
-describe("01 Primitive Tokens: tokens-primitive.css 原始层契约", () => {
+describe("Primitive Tokens: tokens-primitive.css 原始层契约", () => {
   it("tokens-primitive.css 存在且在 :root 下声明完整的客观基础度量阶梯", () => {
-    const css = readFile(TOKENS_PRIMITIVE_CSS);
+    const css = readStyleFile(TOKENS_PRIMITIVE_CSS);
 
     // 6 档基础字阶（11px–20px）
     expect(css).toContain("--biliscript-primitive-font-size-11: 11px;");
@@ -57,7 +51,7 @@ describe("01 Primitive Tokens: tokens-primitive.css 原始层契约", () => {
   });
 
   it("tokens-primitive.css 覆盖 4 象限主题所需的客观基础色板与 RGB 通道", () => {
-    const css = readFile(TOKENS_PRIMITIVE_CSS);
+    const css = readStyleFile(TOKENS_PRIMITIVE_CSS);
 
     // Flyme 蓝族
     expect(css).toContain("--biliscript-primitive-color-blue-500: #008cff;");
@@ -116,7 +110,7 @@ describe("01 Primitive Tokens: tokens-primitive.css 原始层契约", () => {
   });
 
   it("shared/style-injector.ts 在 getReaderStylePaths 首位声明 tokens-primitive.css", () => {
-    const injectorCode = readFile(INJECTOR_TS);
+    const injectorCode = readStyleFile(INJECTOR_TS);
     expect(injectorCode).toMatch(/return\s*\[\s*["']entry\/styles\/tokens-primitive\.css["']/);
   });
 });

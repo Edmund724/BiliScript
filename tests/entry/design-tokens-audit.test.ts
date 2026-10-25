@@ -1,35 +1,17 @@
 // tests/entry/design-tokens-audit.test.ts
-// 工单 07 验收契约：全系统 Design Tokens 架构审计与视觉回归静态收网测试
+// 全系统 Design Tokens 架构审计与视觉回归静态收网契约测试：
 // 1. 验证三层 Token 架构（Primitive -> Semantic + Component -> 业务样式）与加载时序
 // 2. 审计全量样式表硬编码字号、圆角及裸色值基本清零
 // 3. 验证全局字号缩放（--biliscript-reader-font-scale）完整联动所有界面组件
 // 4. 验证 4 象限主题（Flyme / Editorial x Light / Dark）无任何悬空令牌引用
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { readStyleFile, stripCssComments, stripCssCommentsKeepLines } from "./css-token-test-utils.js";
 
-const ROOT = process.cwd();
-
-function readFile(relPath: string): string {
-  return readFileSync(join(ROOT, relPath), "utf8");
-}
-
-function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, "");
-}
-
-// 移除全部跨行与单行注释，同时用空格和换行填充被移除区域，保证原始行号 1:1 维持
-function stripCommentsKeepLines(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, (match) => {
-    return match.replace(/[^\r\n]/g, " ");
-  });
-}
-
-describe("07 Contract & Verification: Design Tokens 全局架构与静态审计", () => {
+describe("Design Tokens 全局架构与静态审计契约", () => {
   describe("1. 三层 Token 架构与加载时序完整性", () => {
     it("tokens-primitive.css 作为 Primitive 层仅声明基础调色板与度量阶梯，无上层业务选择器", () => {
-      const primitiveCss = stripComments(readFile("extension/entry/styles/tokens-primitive.css"));
+      const primitiveCss = stripCssComments(readStyleFile("extension/entry/styles/tokens-primitive.css"));
       // 必须声明在 :root
       expect(primitiveCss).toMatch(/:root\s*\{/);
       // 必须包含核心调色板与度量阶梯
@@ -45,7 +27,7 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
     });
 
     it("reader-gate.css 作为中枢层统一定义 4 象限 Semantic 语义与 Component 组件层 Token", () => {
-      const gateCss = stripComments(readFile("extension/entry/styles/reader-gate.css"));
+      const gateCss = stripCssComments(readStyleFile("extension/entry/styles/reader-gate.css"));
       // 语义字阶与圆角
       expect(gateCss).toContain("--biliscript-font-size-base:");
       expect(gateCss).toContain("--biliscript-radius-panel:");
@@ -59,7 +41,7 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
     });
 
     it("style-injector.ts 置顶优先注入 tokens-primitive.css 并保持级联顺序", () => {
-      const injectorCode = readFile("extension/shared/style-injector.ts");
+      const injectorCode = readStyleFile("extension/shared/style-injector.ts");
       const match = injectorCode.match(/function getReaderStylePaths\(\): string\[\]\s*\{([\s\S]*?)\}/);
       expect(match, "必须包含 getReaderStylePaths 函数").not.toBeNull();
       const body = match![1];
@@ -93,7 +75,8 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
       "reader-settings-providers.css",
       "custom-select.css",
       "toggle-switch.css",
-      "github-markdown-theme.css"
+      "github-markdown-theme.css",
+      "player-ai.css"
     ];
 
     it("所有被审计样式表中的 border-radius 均消费令牌或合法特殊值（inherit/0）", () => {
@@ -101,7 +84,7 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
 
       for (const fileName of AUDITED_STYLES) {
         const fullPath = `extension/entry/styles/${fileName}`;
-        const content = stripCommentsKeepLines(readFile(fullPath));
+        const content = stripCssCommentsKeepLines(readStyleFile(fullPath));
         const lines = content.split("\n");
 
         lines.forEach((line, idx) => {
@@ -141,7 +124,7 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
 
       for (const fileName of AUDITED_STYLES) {
         const fullPath = `extension/entry/styles/${fileName}`;
-        const content = stripCommentsKeepLines(readFile(fullPath));
+        const content = stripCssCommentsKeepLines(readStyleFile(fullPath));
         const lines = content.split("\n");
 
         lines.forEach((line, idx) => {
@@ -173,7 +156,7 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
 
       for (const fileName of AUDITED_STYLES) {
         const fullPath = `extension/entry/styles/${fileName}`;
-        const content = stripCommentsKeepLines(readFile(fullPath));
+        const content = stripCssCommentsKeepLines(readStyleFile(fullPath));
         const lines = content.split("\n");
 
         lines.forEach((line, idx) => {
@@ -208,7 +191,7 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
 
       for (const fileName of AUDITED_STYLES) {
         const fullPath = `extension/entry/styles/${fileName}`;
-        const content = stripCommentsKeepLines(readFile(fullPath));
+        const content = stripCssCommentsKeepLines(readStyleFile(fullPath));
         const lines = content.split("\n");
 
         lines.forEach((line, idx) => {
@@ -242,8 +225,8 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
 
   describe("3. 全局字号缩放联动契约（--biliscript-reader-font-scale）", () => {
     it("所有语义字阶令牌均挂接 --biliscript-reader-font-scale 进行等比缩放", () => {
-      const gateCss = stripComments(readFile("extension/entry/styles/reader-gate.css"));
-      const scaleTokens = ["11", "12", "14", "15", "16", "18", "20", "xs", "sm", "base", "md", "lg", "xl"];
+      const gateCss = stripCssComments(readStyleFile("extension/entry/styles/reader-gate.css"));
+      const scaleTokens = ["2xs", "xs", "sm", "sm-md", "base", "md-sm", "md", "lg", "xl", "2xl"];
 
       for (const token of scaleTokens) {
         const regex = new RegExp(`--biliscript-font-size-${token}:\\s*calc\\(var\\(--biliscript-primitive-font-size-[^)]+\\)\\s*\\*\\s*var\\(--biliscript-reader-font-scale,\\s*1\\)\\);`);
@@ -252,7 +235,7 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
     });
 
     it("所有组件级字号令牌均消费可缩放的语义字阶令牌", () => {
-      const gateCss = stripComments(readFile("extension/entry/styles/reader-gate.css"));
+      const gateCss = stripCssComments(readStyleFile("extension/entry/styles/reader-gate.css"));
       const componentFontTokens = [
         "--btn-font-size",
         "--chip-font-size",
@@ -272,8 +255,8 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
 
   describe("4. 四象限主题完整性与无悬空 Token 引用", () => {
     it("reader-gate.css 中引用的所有 Primitive Token 均在 tokens-primitive.css 中存在（零悬空引用）", () => {
-      const primitiveCss = stripComments(readFile("extension/entry/styles/tokens-primitive.css"));
-      const gateCss = stripComments(readFile("extension/entry/styles/reader-gate.css"));
+      const primitiveCss = stripCssComments(readStyleFile("extension/entry/styles/tokens-primitive.css"));
+      const gateCss = stripCssComments(readStyleFile("extension/entry/styles/reader-gate.css"));
 
       const primitiveTokens = new Set<string>();
       for (const m of primitiveCss.matchAll(/(--biliscript-primitive-[a-z0-9-]+)\s*:/g)) {
@@ -296,7 +279,7 @@ describe("07 Contract & Verification: Design Tokens 全局架构与静态审计"
     });
 
     it("4 象限主题（Flyme / Editorial x Light / Dark）完整覆盖核心色彩与材质语义 Token", () => {
-      const gateCss = stripComments(readFile("extension/entry/styles/reader-gate.css"));
+      const gateCss = stripCssComments(readStyleFile("extension/entry/styles/reader-gate.css"));
       const rules = gateCss.match(/[^{}]+\{[^}]*\}/g) || [];
 
       function getQuadrantBlock(targetSelector: string): string {
