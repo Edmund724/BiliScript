@@ -64,9 +64,13 @@ API Key 需要自己准备，但不用花钱：下文推荐的硅基流动和 Mo
 
 ![BiliScript 字幕标签页：逐句时间戳，点击跳转播放位置](docs/images/demo-subtitle.png)
 
-![BiliScript 概览标签页：AI 生成的章节分段](docs/images/demo-overview.png)
+![BiliScript 概览标签页：AI 生成的章节分段与重点引用](docs/images/demo-overview.png)
+
+![BiliScript 金句分享卡片弹窗：选择渐变与纹样，复制或导出高清分享图](docs/images/demo-quote-share.png)
 
 ![BiliScript AI 对话标签页：围绕视频内容多轮追问](docs/images/demo-ai-chat.png)
+
+![BiliScript 模型与思考强度选择弹层：模型列表与底部胶囊滑轨](docs/images/demo-model-thinking.png)
 
 ## 安装方式
 
