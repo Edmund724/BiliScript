@@ -83,4 +83,45 @@ describe("文摘面板鸿蒙无衬线字体栈", () => {
       }
     }
   });
+
+  it("AI 对话回复、解释卡引文与回答、章节概括使用无衬线栈，思源宋体仅保留给金句与 editorial 标题", () => {
+    const reader = readSource(`${STYLES_DIR}/reader.css`).replace(/\/\*[\s\S]*?\*\//g, "");
+    const chat = readSource(`${STYLES_DIR}/reader-chat.css`).replace(/\/\*[\s\S]*?\*\//g, "");
+    const quoteExport = readSource("extension/reader/quote-share-export.ts");
+
+    expect(chat).toMatch(
+      /\.biliscript-reading-chat \.chat-msg-assistant-body\s*\{[^}]*font-family:\s*var\(--biliscript-reader-font-sans\);/
+    );
+    expect(chat).not.toContain("--biliscript-reader-font-serif");
+    expect(chat).not.toContain("BiliScript Noto Serif SC");
+
+    for (const selector of [
+      "\\.biliscript-reading-explain-card-quote",
+      "\\.biliscript-reading-explain-card-answer\\.markdown-body",
+      "\\.biliscript-reading-ov-chapter-desc"
+    ]) {
+      expect(reader).toMatch(
+        new RegExp(`${selector}\\s*\\{[^}]*font-family:\\s*var\\(--biliscript-reader-font-sans\\);`)
+      );
+    }
+
+    const serifVarSelectors = [...reader.matchAll(/([^{}]+)\{[^{}]*var\(--biliscript-reader-font-serif\)[^{}]*\}/g)].map(
+      (match) => match[1].trim()
+    );
+    expect(serifVarSelectors).toEqual(['#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h']);
+
+    const notoSerifRules = [...reader.matchAll(/([^{}]+)\{[^{}]*"BiliScript Noto Serif SC"[^{}]*\}/g)].map((match) =>
+      match[1].trim()
+    );
+    expect(notoSerifRules).toEqual([
+      "@font-face",
+      ".biliscript-reading-ov-quote-text",
+      ".biliscript-quote-card-text"
+    ]);
+
+    expect(quoteExport).toContain('document.fonts.load(\'400 16px "BiliScript Noto Serif SC"\'');
+    expect(quoteExport).toContain(
+      'ctx.font = `400 ${fontSize}px Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif`'
+    );
+  });
 });

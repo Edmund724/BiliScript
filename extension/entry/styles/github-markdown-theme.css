@@ -31,7 +31,7 @@
   --borderColor-accent-emphasis: var(--biliscript-reader-accent);
   --focus-outlineColor: var(--biliscript-reader-accent);
   /* 排版域跟随阅读视图，不被 GitHub 字体栈/字号接管：继承父容器字体栈
-   *（AI 回答与解释卡继承 --biliscript-reader-font-serif），字号行高沿用
+   *（AI 回答与解释卡继承 --biliscript-reader-font-sans），字号行高沿用
    * 气泡档（.chat-msg 16px/1.45）与解释卡各自定义；github-markdown-css
    * 只贡献元素级排版（表格/代码/列表/引用块细节）。 */
   font-family: inherit;
