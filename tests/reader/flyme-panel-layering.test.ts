@@ -102,8 +102,8 @@ describe("Flyme 浅色面板分层（灰页底 + 白卡）", () => {
 
     expect(trough).toContain("background: transparent");
     expect(trough).toContain("box-shadow: none");
-    expect(active).toContain("background: var(--biliscript-reader-card)");
-    expect(active).toContain("color: var(--biliscript-reader-accent)");
+    expect(active).toMatch(/background:\s*(?:var\(--pill-indicator-bg[^)]*\)|var\(--biliscript-reader-card\))/);
+    expect(active).toMatch(/color:\s*(?:var\(--pill-active-text[^)]*\)|var\(--biliscript-reader-accent\))/);
   });
 
   it("深色 tab 槽留存（#26282d，深色分层与 surface-3 对齐）", () => {

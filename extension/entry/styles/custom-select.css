@@ -37,12 +37,12 @@
    * 内容；显式写 hidden 后，亚像素 / 页面缩放引起的 1px 残留也不再长出滚动条。 */
   overflow-x: hidden;
   padding: 6px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
-  background: var(--biliscript-reader-card);
+  border: 1px solid var(--select-dropdown-border, var(--biliscript-reader-border));
+  border-radius: var(--select-dropdown-radius, var(--biliscript-radius-panel));
+  background: var(--select-dropdown-bg, var(--biliscript-reader-card));
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: 0 10px 24px rgba(28, 25, 23, 0.12);
+  box-shadow: var(--select-dropdown-shadow, 0 10px 24px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.12));
   list-style: none;
   margin: 0;
   transform-origin: top left;
@@ -81,8 +81,8 @@
   top: -6px;
   z-index: 2;
   padding: 2px 2px 6px;
-  background: var(--biliscript-reader-card);
-  border-bottom: 1px solid var(--biliscript-reader-border);
+  background: var(--select-dropdown-bg, var(--biliscript-reader-card));
+  border-bottom: 1px solid var(--select-dropdown-border, var(--biliscript-reader-border));
   list-style: none;
 }
 
@@ -92,9 +92,9 @@
   height: 28px;
   padding: 2px 8px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: 14px;
+  border-radius: var(--select-search-radius, var(--biliscript-radius-pill));
   font: inherit;
-  font-size: 13px;
+  font-size: var(--select-search-font-size, var(--biliscript-font-size-sm));
   background: var(--biliscript-reader-surface, var(--biliscript-reader-card));
   color: var(--biliscript-reader-text);
   outline: none;
@@ -102,7 +102,7 @@
 }
 
 #biliscript-reading-view .custom-select-search-input:focus {
-  border-color: var(--biliscript-reader-accent, #00aeec);
+  border-color: var(--biliscript-reader-accent);
 }
 
 /* 无匹配项提示 */
@@ -114,8 +114,8 @@
   padding: 4px 10px;
   text-align: center;
   font: inherit;
-  font-size: 13px;
-  color: var(--biliscript-reader-muted, #999);
+  font-size: var(--select-search-font-size, var(--biliscript-font-size-sm));
+  color: var(--biliscript-reader-muted);
   list-style: none;
   cursor: default;
   user-select: none;
@@ -146,12 +146,12 @@
   width: 100%;
   min-height: 38px;
   border: 0;
-  border-radius: max(0px, calc(28px - 6px)); /* 同心圆角公式：外圆角 28px - 内边距 6px = 22px */
+  border-radius: var(--select-option-radius, var(--biliscript-radius-panel-inner));
   background: transparent;
   padding: 4px 10px;
   text-align: start;
   font: inherit;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--select-option-font-size, var(--biliscript-font-size-base));
   /* 行盒 = 内容盒 30px（2026-10-06 用户报告「字幕 tab 语言下拉的选项文字偏上」）：
    * 上面的 min-height 38 在 border-box 下只保证内容盒 30px，行盒本身仍取宿主继承的
    * unitless line-height（真机 1.5 × 15px = 22.5px）——块布局把余下的 7.5px 落在行盒
@@ -174,12 +174,12 @@
 }
 
 #biliscript-reading-view .custom-select-option:hover {
-  background: var(--biliscript-reader-surface-2);
+  background: var(--select-option-hover-bg, var(--biliscript-reader-surface-2));
 }
 
 #biliscript-reading-view .custom-select-option[data-selected="true"] {
-  background: var(--biliscript-reader-accent-soft);
-  color: var(--biliscript-reader-accent);
+  background: var(--select-option-selected-bg, var(--biliscript-reader-accent-soft));
+  color: var(--select-option-selected-text, var(--biliscript-reader-accent));
 }
 
 /* 自定义下拉通用样式（原 rows.css:345-388）：下载格式 / 主题族 / Modal 预设与协议 /
@@ -199,12 +199,12 @@
   justify-content: space-between;
   gap: 5px;
   padding: 0 8px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: 28px;
-  background: var(--biliscript-reader-card);
-  color: var(--biliscript-reader-text);
+  border: 1px solid var(--select-trigger-border, var(--biliscript-reader-border));
+  border-radius: var(--select-trigger-radius, var(--biliscript-radius-panel));
+  background: var(--select-trigger-bg, var(--biliscript-reader-card));
+  color: var(--select-trigger-text, var(--biliscript-reader-text));
   font: inherit;
-  font-size: var(--biliscript-font-size-base, calc(14px * var(--biliscript-reader-font-scale, 1)));
+  font-size: var(--select-trigger-font-size, var(--biliscript-font-size-base));
   cursor: pointer;
   transition: transform 100ms ease-out;
 }
@@ -217,8 +217,8 @@
  * outline 关掉默认环，accent 描边 + 2px soft 光环，与设置表控件焦点态同规格。 */
 #biliscript-reading-view .custom-select-trigger:focus {
   outline: none;
-  border-color: var(--biliscript-reader-accent);
-  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
+  border-color: var(--select-trigger-focus-border, var(--biliscript-reader-accent));
+  box-shadow: var(--select-trigger-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft));
 }
 
 /* 值区（10 号票）：组件表原先一条规则都没有它，UA 的 button 规则把
@@ -273,7 +273,7 @@
   flex: 0 0 auto;
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: var(--biliscript-radius-circle, 50%);
   background: currentColor;
   animation: biliscript-custom-select-busy 1.6s ease-in-out infinite alternate;
 }
@@ -296,7 +296,7 @@
 #biliscript-reading-view .custom-select-arrow {
   display: inline-flex;
   flex: 0 0 auto;
-  color: var(--biliscript-reader-faint);
+  color: var(--select-arrow-color, var(--biliscript-reader-faint));
 }
 
 #biliscript-reading-view .custom-select-arrow svg {

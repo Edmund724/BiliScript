@@ -307,6 +307,101 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-gemini-glow:
     0 6px 22px -4px rgba(var(--biliscript-primitive-color-gemini-purple-light-rgb), 0.24),
     0 2px 8px -2px rgba(var(--biliscript-primitive-color-gemini-blue-light-rgb), 0.18);
+
+  /* ==========================================================================
+     3. 高频 Component 组件层 Token（工单 03）
+     ========================================================================== */
+
+  /* 3.1 操作按钮与 Chips 类组件（Buttons & Chips） */
+  --btn-bg: transparent;
+  --btn-text: var(--biliscript-reader-text);
+  --btn-border: var(--biliscript-reader-border);
+  --btn-radius: var(--biliscript-radius-pill);
+  --btn-font-size: var(--biliscript-font-size-base);
+  --btn-hover-bg: var(--biliscript-reader-fill-hover);
+  --btn-active-scale: var(--biliscript-reader-press-scale, 0.97);
+
+  --btn-primary-bg: var(--biliscript-reader-accent);
+  --btn-primary-text: var(--biliscript-reader-on-fill);
+  --btn-primary-hover-bg: var(--biliscript-reader-accent);
+
+  --btn-secondary-bg: var(--biliscript-reader-surface-2);
+  --btn-secondary-text: var(--biliscript-reader-muted);
+
+  --btn-danger-bg: var(--biliscript-reader-danger);
+  --btn-danger-text: var(--biliscript-reader-on-fill);
+  --btn-danger-soft-bg: var(--biliscript-reader-danger-soft);
+
+  --chip-bg: transparent;
+  --chip-text: var(--biliscript-reader-text);
+  --chip-border: var(--biliscript-reader-border);
+  --chip-radius: var(--biliscript-radius-pill);
+  --chip-font-size: var(--biliscript-font-size-sm);
+  --chip-hover-bg: var(--biliscript-reader-fill-hover);
+  --chip-active-bg: var(--biliscript-reader-accent-soft);
+  --chip-active-text: var(--biliscript-reader-accent);
+
+  /* 3.2 分段控件与 Tab 切换项（Segmented Controls / Pills & Tabs） */
+  --pill-bg: var(--biliscript-reader-pill-bg);
+  --pill-text: var(--biliscript-reader-muted);
+  --pill-radius: var(--biliscript-radius-md);
+  --pill-radius-full: var(--biliscript-radius-pill);
+  --pill-indicator-bg: var(--biliscript-reader-card);
+  --pill-indicator-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.12), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.9);
+  --pill-active-text: var(--biliscript-reader-accent);
+  --pill-font-size: var(--biliscript-font-size-sm);
+  --pill-gap: var(--biliscript-space-sm);
+  --pill-pad-x: var(--biliscript-space-xs);
+  --pill-pad-y: var(--biliscript-space-xs);
+
+  /* 3.3 聊天输入卡片（Chat Input Card） */
+  --chat-input-bg: var(--biliscript-reader-surface);
+  --chat-input-border: var(--biliscript-reader-border);
+  --chat-input-radius: var(--biliscript-radius-panel);
+  --chat-input-pad: 10px 10px 8px;
+  --chat-input-font-size: var(--biliscript-font-size-base);
+  --chat-input-line-height: var(--biliscript-chat-line-height, 1.6);
+  --chat-input-focus-border: var(--biliscript-reader-accent);
+  --chat-input-focus-ring: 0 0 0 2px var(--biliscript-reader-accent-soft);
+  --chat-input-action-shadow: var(--biliscript-reader-card-highlight);
+  --chat-input-send-size: 32px;
+  --chat-input-send-radius: var(--biliscript-radius-pill);
+  --chat-input-send-bg: var(--btn-primary-bg, var(--biliscript-reader-accent));
+  --chat-input-send-color: var(--btn-primary-text, var(--biliscript-reader-on-fill));
+
+  /* 3.4 下拉弹层（Custom Select）组件 Token */
+  --select-trigger-bg: var(--biliscript-reader-card);
+  --select-trigger-text: var(--biliscript-reader-text);
+  --select-trigger-border: var(--biliscript-reader-border);
+  --select-trigger-radius: var(--biliscript-radius-panel);
+  --select-trigger-font-size: var(--biliscript-font-size-base);
+  --select-trigger-focus-border: var(--biliscript-reader-accent);
+  --select-trigger-focus-ring: 0 0 0 2px var(--biliscript-reader-accent-soft);
+  --select-dropdown-bg: var(--biliscript-reader-card);
+  --select-dropdown-border: var(--biliscript-reader-border);
+  --select-dropdown-radius: var(--biliscript-radius-panel);
+  --select-dropdown-shadow: 0 10px 24px rgba(var(--biliscript-primitive-color-slate-900-rgb), 0.12);
+  --select-option-radius: var(--biliscript-radius-panel-inner);
+  --select-option-hover-bg: var(--biliscript-reader-surface-2);
+  --select-option-selected-bg: var(--biliscript-reader-accent-soft);
+  --select-option-selected-text: var(--biliscript-reader-accent);
+  --select-option-font-size: var(--biliscript-font-size-base);
+  --select-search-radius: var(--biliscript-radius-pill);
+  --select-search-font-size: var(--biliscript-font-size-sm);
+  --select-arrow-color: var(--biliscript-reader-faint);
+
+  /* 3.5 开关（Toggle Switch）组件 Token */
+  --toggle-track-width: 40px;
+  --toggle-track-height: 24px;
+  --toggle-track-radius: var(--biliscript-radius-pill);
+  --toggle-track-bg-off: var(--biliscript-reader-surface-3);
+  --toggle-track-bg-on: var(--biliscript-reader-accent);
+  --toggle-focus-ring: 0 0 0 2px var(--biliscript-reader-accent-soft);
+  --toggle-thumb-size: 20.8px;
+  --toggle-thumb-radius: var(--biliscript-radius-circle);
+  --toggle-thumb-bg: var(--biliscript-primitive-color-white);
+  --toggle-thumb-shadow: 0 0 3px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.16), 0 0 1px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.22);
+
   color: var(--biliscript-reader-text);
 }
 /* 深色档：Flyme 深色雾玻璃板。选择器只带 data-biliscript-reader-theme="dark"
@@ -393,6 +488,10 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-theme="dark"],
   --biliscript-gemini-glow:
     0 8px 26px -4px rgba(var(--biliscript-primitive-color-gemini-purple-dark-rgb), 0.28),
     0 2px 10px -2px rgba(var(--biliscript-primitive-color-gemini-blue-dark-rgb), 0.24);
+
+  /* 暗色模式组件 Token 覆写 */
+  --pill-indicator-shadow: 0 1px 4px rgba(var(--biliscript-primitive-color-black-rgb), 0.35);
+  --toggle-thumb-shadow: 0 0 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.36), 0 0 1px rgba(var(--biliscript-primitive-color-black-rgb), 0.45);
 }
 /* ===== editorial 数字刊物色板（与明暗正交）=====
  * 浅色块：暖纸底 #FAF7F2 + 暖米书摘卡 #F3EDE2 + 赤陶点缀 #B85435。
@@ -583,22 +682,22 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 /* 分段控件气泡指示器：白玻璃浮起卡与阴影由滑动气泡承载，实现从源位置到新位置的平滑过渡动画 */
 #biliscript-reading-view .biliscript-reading-tabs::before {
-  background: var(--biliscript-reader-card);
-  box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  background: var(--pill-indicator-bg, var(--biliscript-reader-card));
+  box-shadow: var(--pill-indicator-shadow);
 }
 
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-tabs::before {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--pill-indicator-shadow);
 }
 
 #biliscript-reading-view .biliscript-reading-tab.is-active {
-  background: var(--biliscript-reader-card);
-  color: var(--biliscript-reader-accent);
-  box-shadow: 0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  background: var(--pill-indicator-bg, var(--biliscript-reader-card));
+  color: var(--pill-active-text, var(--biliscript-reader-accent));
+  box-shadow: var(--pill-indicator-shadow);
 }
 
 #biliscript-reading-view[data-theme="dark"] .biliscript-reading-tab.is-active {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--pill-indicator-shadow);
 }
 
 #biliscript-reading-view .biliscript-reading-tabs .biliscript-reading-tab.is-active {

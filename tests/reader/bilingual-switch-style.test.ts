@@ -61,7 +61,7 @@ describe("09: 双语字幕选轨弹层开关与设置开关视觉对齐", () => 
     // 双层微阴影与 toggle-switch 规格一致（0 0 3px ... + 0 0 1px ...）
     const expectedShadow = "0 0 3px rgba(23, 24, 26, 0.16), 0 0 1px rgba(23, 24, 26, 0.22)";
     expect(thumbRule).toContain(`box-shadow: ${expectedShadow}`);
-    expect(toggleCss).toContain(`box-shadow: ${expectedShadow}`);
+    expect(toggleCss).toMatch(/box-shadow:\s*(?:var\(--toggle-thumb-shadow[^)]*\)|0 0 3px rgba\(23, 24, 26, 0\.16\), 0 0 1px rgba\(23, 24, 26, 0\.22\))/);
   });
 
   it("滑块与轨道几何维持内嵌胶囊比例，四周均有 2px 呼吸边距", () => {

@@ -87,10 +87,10 @@
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-track {
   position: relative;
   flex: 0 0 auto;
-  width: 40px;
-  height: 24px;
-  border-radius: 999px;
-  background: var(--biliscript-reader-surface-3);
+  width: var(--toggle-track-width, 40px);
+  height: var(--toggle-track-height, 24px);
+  border-radius: var(--toggle-track-radius, var(--biliscript-radius-pill, 999px));
+  background: var(--toggle-track-bg-off, var(--biliscript-reader-surface-3));
   cursor: pointer;
   touch-action: pan-y;
   transition: background-color 0.2s var(--biliscript-reader-ease-spring, ease);
@@ -99,14 +99,14 @@
 /* 开态轨道：input 与 track 是相邻兄弟，:checked ~ 配色选择器（次序是契约，
  * 组件 JS 的 initToggleSwitch 也按 nextElementSibling 认 track）。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-input:checked ~ .biliscript-toggle-track {
-  background: var(--biliscript-reader-accent);
+  background: var(--toggle-track-bg-on, var(--biliscript-reader-accent));
 }
 
 /* 焦点态与设置表控件同规格：accent-soft 2px soft 光环落在轨道上（input 本身
  * 不可见，环画在它旁边没有意义）。:focus-visible 只认真键盘焦点，指针点击
  * 不触发。 */
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-toggle-input:focus-visible ~ .biliscript-toggle-track {
-  box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft);
+  box-shadow: var(--toggle-focus-ring, 0 0 0 2px var(--biliscript-reader-accent-soft));
 }
 
 /* 滑块：20.8px 白圆 + 轻阴影。阴影上下对称（两个 0 偏移投影：3px 模糊软环 +
@@ -119,11 +119,11 @@
   position: absolute;
   top: 1.6px;
   left: 1.6px;
-  width: 20.8px;
-  height: 20.8px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 3px rgba(23, 24, 26, 0.16), 0 0 1px rgba(23, 24, 26, 0.22);
+  width: var(--toggle-thumb-size, 20.8px);
+  height: var(--toggle-thumb-size, 20.8px);
+  border-radius: var(--toggle-thumb-radius, var(--biliscript-radius-circle, 50%));
+  background: var(--toggle-thumb-bg, var(--biliscript-primitive-color-white, #ffffff));
+  box-shadow: var(--toggle-thumb-shadow, 0 0 3px rgba(23, 24, 26, 0.16), 0 0 1px rgba(23, 24, 26, 0.22));
   pointer-events: none;
 }
 
