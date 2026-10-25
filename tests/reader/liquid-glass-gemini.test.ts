@@ -151,7 +151,7 @@ describe("收敛 2/6：悬浮胶囊与滚底圆钮（跟随播放 / 选区解释
   });
 
   it("follow-btn 基态 translateX(-50%) 与按压缩放链不变（玻璃化不碰 transform）", () => {
-    const base = ruleBody(readCss(READER_CSS), ".biliscript-reading-follow-btn");
+    const base = ruleBody(readCss(READER_CSS), "#biliscript-reading-view .biliscript-reading-follow-btn");
     expect(base).toContain("transform: translateX(-50%)");
     const active = ruleBody(readCss(READER_CSS), ".biliscript-reading-follow-btn:active");
     expect(active).toContain("translateX(-50%) scale(var(--biliscript-reader-press-scale, 1))");
@@ -179,10 +179,10 @@ describe("收敛 2/6：悬浮胶囊与滚底圆钮（跟随播放 / 选区解释
   });
 
   it("editorial：三件套走基表，保留 1px 实线描边且无 backdrop-filter", () => {
-    expect(ruleBody(readCss(READER_CSS), ".biliscript-reading-follow-btn")).toContain(
+    expect(ruleBody(readCss(READER_CSS), "#biliscript-reading-view .biliscript-reading-follow-btn")).toContain(
       "border: 1px solid var(--biliscript-reader-border)"
     );
-    expect(ruleBody(readCss(READER_CSS), ".biliscript-reading-explain-btn")).toContain(
+    expect(ruleBody(readCss(READER_CSS), "#biliscript-reading-view .biliscript-reading-explain-btn")).toContain(
       "border: 1px solid var(--biliscript-reader-border)"
     );
     const scrollBottom = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-scroll-bottom");

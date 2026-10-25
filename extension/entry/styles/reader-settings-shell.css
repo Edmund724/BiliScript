@@ -211,8 +211,8 @@
   background: none;
   padding: 4px 2px 6px;
   font-size: var(--pill-font-size, var(--biliscript-font-size-sm));
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
-  font-family: inherit;
   white-space: nowrap;
   cursor: pointer;
   color: var(--biliscript-reader-muted);
@@ -225,6 +225,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-settings-nav-item.is-active {
   color: var(--biliscript-reader-text);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
 }
 
@@ -262,6 +263,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-h {
   font-size: var(--biliscript-font-size-lg);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
   margin: 0;
@@ -281,6 +283,7 @@
 
 #biliscript-reading-view .biliscript-reading-settings-host .biliscript-set-label {
   font-size: var(--biliscript-font-size-base);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   color: var(--biliscript-reader-muted);
 }

@@ -85,6 +85,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-r
   display: inline-block;
   margin-left: 8px;
   font-size: 12px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   color: var(--biliscript-reader-faint);
 }
@@ -253,8 +254,10 @@ body[data-biliscript-reader-mode="1"],
 
   /* 面板字体栈：font-sans 与 ui/mermaid-render.ts 的 PANEL_FONT_FAMILY 字面量
    * 互为镜像（mermaid 配置吃不了 CSS 变量）；西文与数字由系统现代 UI 字体优先接管，
-   * 中文落苹方与微软雅黑 UI；font-serif 供概览总结、金句、解释卡与 AI 回答消费。 */
-  --biliscript-reader-font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+   * 中文落苹方、视频页鸿蒙黑体与微软雅黑 UI；font-sans-medium 供中粗控件与
+   * Markdown 标题/加粗消费；font-serif 供概览总结、金句、解释卡与 AI 回答消费。 */
+  --biliscript-reader-font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --biliscript-reader-font-sans-medium: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Helvetica Neue", Arial, "PingFang SC", "HarmonyOS_Medium", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --biliscript-reader-font-serif: Georgia, "Times New Roman", "BiliScript Noto Serif SC", "Songti SC", "SimSun", serif;
   --biliscript-reader-font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   /* 动效 token：spring=Flyme 非手势基准曲线（200–350ms 档，淡入/位移进场）；

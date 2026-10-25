@@ -70,6 +70,7 @@
 
 #biliscript-reading-view .provider-editor-title {
   font-size: var(--biliscript-font-size-md);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
 }
@@ -86,6 +87,7 @@
   color: var(--biliscript-reader-danger);
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -176,6 +178,7 @@
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -251,6 +254,7 @@
   color: var(--biliscript-reader-on-fill);
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -288,6 +292,7 @@
   color: var(--biliscript-reader-accent);
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -355,6 +360,7 @@
   align-items: center;
   justify-content: center;
   font-size: var(--biliscript-font-size-sm);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   line-height: 1;
 }
@@ -422,6 +428,7 @@
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -571,6 +578,7 @@
 
 #biliscript-reading-view .provider-editor-fetch-title {
   font-size: var(--biliscript-font-size-md);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
 }
@@ -711,6 +719,7 @@
   color: var(--biliscript-reader-accent);
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-sm));
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -760,6 +769,7 @@
   color: var(--biliscript-reader-on-fill);
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;
@@ -790,6 +800,7 @@
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;
   color: var(--biliscript-reader-muted);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   transition: transform 100ms ease-out;

@@ -72,6 +72,7 @@
 .biliscript-reading-chat .chat-thinking-row-value {
   margin-left: auto;
   color: var(--biliscript-reader-text);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
 }
 
@@ -144,7 +145,7 @@
   color: var(--biliscript-reader-faint);
 }
 
-.biliscript-reading-chat .chat-thinking-single-pill {
+#biliscript-reading-view .biliscript-reading-chat .chat-thinking-single-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -155,6 +156,7 @@
   background: var(--biliscript-reader-surface-2);
   color: var(--biliscript-reader-text);
   font-size: 12px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   transition: background 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out;
 }
@@ -458,6 +460,7 @@
 .biliscript-reading-chat .chat-hero-title {
   margin: 8px 0 0;
   font-size: 18px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   color: var(--biliscript-reader-text);
 }
@@ -570,6 +573,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   margin-bottom: 0;
   color: var(--biliscript-reader-muted);
@@ -809,6 +813,7 @@
 .biliscript-reading-chat .chat-msg-assistant h5,
 .biliscript-reading-chat .chat-msg-assistant h6 {
   margin: 11px 0 5px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   line-height: 1.4;
 }
@@ -868,13 +873,14 @@
 }
 
 /* 时间戳跳转按钮：时间戳 pill 母题贯穿 AI 引用（与章节/金句/意图卡同款） */
-.biliscript-reading-chat .chat-timestamp-link {
+#biliscript-reading-view .biliscript-reading-chat .chat-timestamp-link {
   display: inline;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--biliscript-reader-accent);
   font: inherit;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   text-decoration: underline;
@@ -1641,6 +1647,7 @@
 /* 页面标题走设置分区标题的字号档（16-700）：整页的标题不再是弹层里的小字标签 */
 .biliscript-reading-chat .chat-history-popover-title {
   font-size: 16px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
 }
@@ -1676,6 +1683,7 @@
   padding: 6px 8px 2px;
   color: var(--biliscript-reader-faint);
   font-size: 12px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
 }
 
@@ -1914,7 +1922,7 @@
 
 /* 头部即折叠开关：<button> 取按钮语义与 Enter/Space 激活，故归零浏览器默认
  * 外观（字体/边框/底色/内边距）；chevron 左置（::before）▸/▾，与思考块同族语言。 */
-.biliscript-reading-chat .chat-search-card-head {
+#biliscript-reading-view .biliscript-reading-chat .chat-search-card-head {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1924,6 +1932,7 @@
   background: none;
   font: inherit;
   font-size: 12px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   color: var(--biliscript-reader-muted);
   text-align: left;
@@ -2018,6 +2027,7 @@
 
 .biliscript-reading-chat .chat-search-step-query {
   color: var(--biliscript-reader-text);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2058,6 +2068,7 @@
 
 .biliscript-reading-chat .chat-search-source-idx {
   color: var(--biliscript-reader-accent);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   font-size: 12px;
 }
@@ -2095,6 +2106,7 @@
 /* 正文内联 [n] 引用：accent 上标，悬停出预览卡，点击新标签打开来源 URL。 */
 .biliscript-reading-chat .chat-cite {
   color: var(--biliscript-reader-accent);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   font-size: 12px;
   vertical-align: 2px;
@@ -2124,6 +2136,7 @@
 }
 
 .biliscript-reading-chat .chat-search-preview-title {
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   color: var(--biliscript-reader-text);
   margin-bottom: 3px;
@@ -2213,7 +2226,7 @@
 }
 
 .biliscript-reading-chat math mtext {
-  font-family: var(--biliscript-reader-font-sans, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif);
+  font-family: var(--biliscript-reader-font-sans, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif);
 }
 
 /* 运算符间距：对齐 LaTeX / 数学排版规范（等号、加号等补齐合理间隙） */
@@ -2325,6 +2338,7 @@
   background: transparent;
   color: var(--biliscript-reader-text);
   font-size: 12px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   cursor: pointer;
   text-align: left;
@@ -2367,6 +2381,7 @@
 
 #biliscript-reading-view .biliscript-reading-chat-more-typography .biliscript-set-label {
   font-size: 12px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 500;
   color: var(--biliscript-reader-text);
 }
@@ -2381,6 +2396,7 @@
   display: inline-block;
   padding: 1px 6px;
   font-size: 12px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   border-radius: 999px;
   background: var(--biliscript-reader-surface-3);

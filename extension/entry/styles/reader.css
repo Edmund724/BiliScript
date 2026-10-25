@@ -86,6 +86,10 @@
   font-family: inherit;
 }
 
+#biliscript-reading-view :where(strong, b, h1, h2, h3, h4, h5, h6) {
+  font-family: var(--biliscript-reader-font-sans-medium);
+}
+
 .biliscript-reading-header {
   display: flex;
   align-items: flex-start;
@@ -412,7 +416,7 @@
   transform: translateX(calc(200% + 2 * var(--biliscript-tab-gap)));
 }
 
-.biliscript-reading-tab {
+#biliscript-reading-view .biliscript-reading-tab {
   position: relative;
   z-index: 1;
   flex: 1 1 0;
@@ -422,8 +426,8 @@
   padding: 7px 16px;
   border-radius: 24px;
   font-size: 14px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
-  font-family: inherit;
   text-align: center;
   white-space: nowrap;
   color: var(--biliscript-reader-muted);
@@ -510,6 +514,7 @@
 
 .biliscript-reading-placeholder-title {
   font-size: 16px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
   margin-bottom: 6px;
@@ -795,6 +800,7 @@
 
 #biliscript-reading-view .biliscript-reading-item.is-active .biliscript-reading-text {
   color: var(--biliscript-reader-text);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   min-width: 0;
 }
@@ -969,6 +975,7 @@
 
 .biliscript-reading-asr-title {
   font-size: 16px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-text);
   margin-bottom: 4px;
@@ -1036,7 +1043,7 @@
  * 形态与选区「解释」按钮（.biliscript-reading-explain-btn）同族：两者都是浮在
  * tab body 上的临时 affordance，同为 card 底描边药丸、同档阴影、同一按压通道，
  * 改动时两边一起对齐。 */
-.biliscript-reading-follow-btn {
+#biliscript-reading-view .biliscript-reading-follow-btn {
   display: none;
   position: absolute;
   left: 50%;
@@ -1050,6 +1057,7 @@
   color: var(--biliscript-reader-text);
   font-family: inherit;
   font-size: 14px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
@@ -1083,7 +1091,7 @@
   z-index: 7;
 }
 
-.biliscript-reading-explain-btn {
+#biliscript-reading-view .biliscript-reading-explain-btn {
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-card);
   color: var(--biliscript-reader-text);
@@ -1091,6 +1099,7 @@
   border-radius: 999px;
   font-family: inherit;
   font-size: 14px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
@@ -1154,6 +1163,7 @@
 
 .biliscript-reading-explain-card-title {
   font-size: 16px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-accent);
 }
@@ -1361,6 +1371,7 @@
 
 .biliscript-reading-chat-intent-title {
   font-size: 14px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   color: var(--biliscript-reader-faint);
 }
@@ -1426,6 +1437,7 @@
   align-items: center;
   gap: 8px;
   font-size: 16px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--biliscript-reader-faint);
@@ -1435,6 +1447,7 @@
 /* 「AI 生成 / AI 精选」小标注：accent 软底 pill，仅在 AI 分章/金句标头出现 */
 .biliscript-reading-ov-badge {
   font-size: 14px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   letter-spacing: 0;
   color: var(--biliscript-reader-accent);
@@ -1484,7 +1497,7 @@
 }
 
 .biliscript-reading-ov-chapter-title {
-  font-family: var(--biliscript-reader-font-sans);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-size: calc(15px * var(--biliscript-reader-font-scale, 1));
   font-size-adjust: from-font;
   font-weight: 500;
@@ -1514,8 +1527,8 @@
   word-break: break-word;
 }
 
-/* editorial 数字刊物色板的概览组标题保留衬线字型；章节与金句使用本地
- * Noto 字体，在不同色板中保持一致的信息层级与阅读字形。 */
+/* editorial 数字刊物色板的概览组标题保留衬线字型；章节标题使用中字重
+ * 无衬线栈，金句使用本地 Noto Serif，色板切换不改变这些信息层级。 */
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-h {
   font-family: var(--biliscript-reader-font-serif);
 }
@@ -1819,6 +1832,7 @@
   border: 0;
   background: var(--biliscript-reader-accent);
   color: var(--biliscript-reader-on-fill);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
 }
 
@@ -1891,7 +1905,7 @@ math {
 }
 
 math mtext {
-  font-family: var(--biliscript-reader-font-sans, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif);
+  font-family: var(--biliscript-reader-font-sans, "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif);
 }
 
 /* 运算符间距：对齐 LaTeX / 数学排版规范（等号、加号等补齐合理间隙） */
@@ -2011,6 +2025,7 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
 
 .biliscript-quote-share-title {
   font-size: 16px;
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   color: var(--biliscript-reader-text, #fff);
   margin: 0;
@@ -2078,9 +2093,10 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   color: var(--biliscript-reader-text, #fff);
 }
 
-.biliscript-quote-preset-btn.is-active {
+#biliscript-reading-view .biliscript-quote-preset-btn.is-active {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
 }
 
@@ -2123,9 +2139,10 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   color: var(--biliscript-reader-text, #fff);
 }
 
-.biliscript-quote-pattern-btn.is-active {
+#biliscript-reading-view .biliscript-quote-pattern-btn.is-active {
   background: var(--biliscript-reader-accent-soft);
   color: var(--biliscript-reader-accent);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
 }
 
@@ -2360,9 +2377,10 @@ math:not(:has(.biliscript-math-aligned)) > mrow {
   cursor: not-allowed;
 }
 
-.biliscript-quote-action-btn.is-primary {
+#biliscript-reading-view .biliscript-quote-action-btn.is-primary {
   background: var(--biliscript-reader-accent);
   color: var(--biliscript-reader-on-fill);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
 }
 

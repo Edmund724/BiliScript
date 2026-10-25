@@ -254,6 +254,7 @@
   flex: 1 1 auto;
   min-width: 0;
   font-size: var(--biliscript-font-size-base);
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   color: var(--biliscript-reader-text);
   white-space: nowrap;
@@ -528,6 +529,7 @@
   display: inline-block;
   padding: 2px 8px;
   font-size: var(--chip-font-size, var(--biliscript-font-size-sm));
+  font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 600;
   border-radius: var(--chip-radius, var(--biliscript-radius-pill));
   background: var(--biliscript-reader-surface-3);

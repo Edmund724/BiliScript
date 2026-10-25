@@ -384,7 +384,7 @@ export async function renderQuoteCardToCanvas(
   const sourceText = options.videoTitle || "BiliScript";
 
   ctx.save();
-  ctx.font = '11px "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
+  ctx.font = '11px "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "HarmonyOS_Regular", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
   ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
   ctx.textBaseline = "alphabetic";
 

@@ -9,7 +9,7 @@
 //    三层 + 暖赤陶 accent #e07a5f，令牌同样齐全。
 // 3. 纸感：两块的 mist-blobs 均为 none、mist-filter 均为 none（移除蓝雾
 //    径向光斑），壳直落纸面渐变。
-// 4. 字体：editorial 衬线只覆盖概览组标题；章节使用本地 Noto Sans，
+// 4. 字体：editorial 衬线只覆盖概览组标题；章节使用中字重无衬线栈，
 //    金句使用本地 Noto Serif，色板切换不改变阅读字形；
 //    时间戳浅色文字档 time-color 在 flyme 柔和中蓝 / editorial 深赤陶两档
 //    各有一份定义（消费规则只引用 token，字面色不进 reader.css）。
@@ -106,7 +106,7 @@ describe("editorial 数字刊物色板", () => {
     expect(gate).toContain("border: 1px solid var(--biliscript-reader-border);");
   });
 
-  it("editorial 衬线只命中概览组标题，章节与金句使用本地 Noto 字体", () => {
+  it("editorial 衬线只命中概览组标题，章节与金句保留各自字型栈", () => {
     const css = readCss(READER_CSS).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\r\n/g, "\n");
     const serifRule = css.match(
       /#biliscript-reading-view\[data-palette="editorial"\][^{]*\{[^}]*font-family:\s*var\(--biliscript-reader-font-serif\)[^}]*\}/
@@ -116,7 +116,7 @@ describe("editorial 数字刊物色板", () => {
     expect(serifRule![0]).not.toContain(".biliscript-reading-ov-chapter-title");
     expect(serifRule![0]).not.toContain(".biliscript-reading-ov-quote-text");
     expect(serifRule![0]).not.toContain("data-theme");
-    expect(css).toContain(".biliscript-reading-ov-chapter-title {\n  font-family: var(--biliscript-reader-font-sans)");
+    expect(css).toContain(".biliscript-reading-ov-chapter-title {\n  font-family: var(--biliscript-reader-font-sans-medium)");
     expect(css).toContain('.biliscript-reading-ov-quote-text {\n  position: relative;\n  z-index: 1;\n  display: block;\n  font-family: Georgia, "Times New Roman", "BiliScript Noto Serif SC"');
   });
 
