@@ -49,11 +49,15 @@ const aiModelsState = vi.hoisted(() => ({
   responder: undefined as undefined | ((message: SentMessage) => unknown)
 }));
 
-vi.mock("../../extension/ai/provider-models.js", () => ({
-  fetchProviderModels: vi.fn(async (input: SentMessage) =>
-    aiModelsState.responder ? aiModelsState.responder(input) : { ok: true }
-  )
-}));
+vi.mock("../../extension/ai/provider-models.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/ai/provider-models.js")>();
+  return {
+    ...actual,
+    fetchProviderModels: vi.fn(async (input: SentMessage) =>
+      aiModelsState.responder ? aiModelsState.responder(input) : { ok: true }
+    )
+  };
+});
 
 vi.mock("../../extension/ai/provider-test.js", () => ({
   testAiProviderConnection: vi.fn(async () => ({ ok: true }))

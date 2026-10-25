@@ -16,6 +16,7 @@
 
 import { normalizeBaseUrl } from "../core/presets.js";
 import { providerFetchViaBackground } from "../core/provider-http.js";
+import { formatProbeHttpError } from "../core/provider-store.js";
 import { asrProviderStore } from "./asr-provider-store.js";
 
 export interface ListAsrModelsInput {
@@ -34,30 +35,6 @@ export interface ListAsrModelsResult {
 // 语音模型过滤参数，其他 OpenAI 兼容端点会忽略未知查询参数、回全量列表。
 // Key 解析优先用户重输的 apiKey，否则按 providerId 读已存 Key（本地 Whisper
 // 常无 Key，都没有就裸 GET）。请求本体由 SW 代发（见文件头）。
-function formatHttpError(status: number, text: string): string {
-  if (status === 401 || status === 403) {
-    return `HTTP ${status}: API Key 无效或未授权`;
-  }
-  let extracted = "";
-  try {
-    const json = JSON.parse(text) as { message?: string; error?: { message?: string } | string };
-    const err = json?.error;
-    if (typeof json?.message === "string" && json.message.trim()) {
-      extracted = json.message.trim();
-    } else if (typeof err === "object" && err !== null && typeof err.message === "string" && err.message.trim()) {
-      extracted = err.message.trim();
-    } else if (typeof err === "string" && err.trim()) {
-      extracted = err.trim();
-    }
-  } catch {
-    // 文本非 JSON
-  }
-  if (extracted) {
-    return `HTTP ${status}: ${extracted.slice(0, 200)}`;
-  }
-  return `HTTP ${status}: ${text.slice(0, 200)}`;
-}
-
 export async function listAsrModels({ baseUrl, apiKey, providerId }: ListAsrModelsInput): Promise<ListAsrModelsResult> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   if (!normalizedBaseUrl) {
@@ -65,10 +42,7 @@ export async function listAsrModels({ baseUrl, apiKey, providerId }: ListAsrMode
   }
 
   const headers: Record<string, string> = { Accept: "application/json" };
-  let resolvedApiKey = String(apiKey || "").trim();
-  if (!resolvedApiKey && providerId) {
-    resolvedApiKey = await asrProviderStore.getKey(String(providerId));
-  }
+  const resolvedApiKey = await asrProviderStore.resolveDraftApiKey(apiKey, providerId);
   if (resolvedApiKey) {
     headers.Authorization = `Bearer ${resolvedApiKey}`;
   }
@@ -79,8 +53,7 @@ export async function listAsrModels({ baseUrl, apiKey, providerId }: ListAsrMode
       method: "GET"
     });
     if (!resp.ok) {
-      const text = await resp.text();
-      return { ok: false, error: formatHttpError(resp.status, text) };
+      return { ok: false, error: await formatProbeHttpError(resp) };
     }
     const data = (await resp.json()) as { data?: Array<{ id?: string }> };
     const models: string[] = [];

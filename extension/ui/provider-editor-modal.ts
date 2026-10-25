@@ -33,7 +33,7 @@ import {
 } from "../search/deepseek-credential.js";
 import { sendRuntimeMessage } from "../shared/messaging.js";
 import { wireModelPicker } from "./model-picker.js";
-import { closeAllCustomSelects, initCustomSelect } from "./custom-select.js";
+import { initCustomSelect } from "./custom-select.js";
 import { confirmDialog, isConfirmDialogOpen } from "./confirm-dialog.js";
 import { ids } from "../reader/state.js";
 import { observeSettingsPanelHidden } from "./settings-panel-hidden.js";
@@ -551,8 +551,8 @@ export function ensureHost(): HTMLElement | null {
 
 // 面板外点击（capture 阶段拦截）：只关 Modal 不关抽屉——ui-renderer 的抽屉
 // 外点关闭是 document bubble 委托，capture 阶段 stopPropagation 后不再触发
-//（一次点击只关一层）。面板内点击（含遮罩）正常冒泡：settings-panel 的
-// 文档级委托照常收起 Modal 内的模型下拉。
+//（一次点击只关一层）。面板内点击（含遮罩）在此放行，Modal 内下拉由组件自身
+// 的 capture 监听收起。
 export function onDocumentClickCapture(event: MouseEvent): void {
   if (!state.open) return;
   // 确认弹层（删除二次确认）叠在本 Modal 之上时整体让位：同一批事件由
@@ -594,17 +594,11 @@ export function wireDialog(): void {
   // 无条件 stopPropagation：Modal 宿主挂 #biliscript-reading-view 直下，在设置抽屉
   // （settingsPanel）之外——点击外传会被 ui-renderer 的抽屉外点关闭委托（判定
   // 域 settingsPanel+齿轮，document bubble）当成外点把抽屉一起收掉，随即触发
-  // hidden 联动的强制关闭，保存/关闭动作被吞（一次点击只关一层）。下拉的外点
-  // 收起语义（常态由 settings-panel 的文档级委托负责）在此自持。
+  // hidden 联动的强制关闭，保存/关闭动作被吞（一次点击只关一层）。Modal 内下拉的
+  // 外点收起由下拉组件在 capture 阶段自持，不依赖此处的 bubble 传播。
   host.addEventListener("click", (event) => {
     event.stopPropagation();
     const target = event.target as HTMLElement;
-    // 点在下拉组件（模型 picker / ASR 自定义预设）之外才收起——组件的
-    // toggle/trigger/option 自带开关逻辑，点在组件内不干扰
-    if (!target.closest(".ai-provider-model-wrapper") && !target.closest(".custom-select-wrapper")) {
-      host.querySelectorAll<HTMLElement>(".ai-provider-model-dropdown").forEach((d) => (d.hidden = true));
-      closeAllCustomSelects();
-    }
     // 全部动作走这一条委托（按钮直连绑定曾在真实页面失效，close 是
     // 用户验证过的同源路径）；异常兜底在各 handler 内部落状态行
     const action = target.closest<HTMLElement>("[data-provider-editor-action]")?.dataset.providerEditorAction;

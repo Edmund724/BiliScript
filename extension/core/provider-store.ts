@@ -4,8 +4,7 @@
 // extension/asr/asr-provider-store.ts（语音转写平台）原本互为镜像：
 // 本工厂提取两者共享的列表 CRUD 结构，两个模块退化为只传 storage key
 // 与 normalizeProvider 的薄适配层。只与 chrome.storage 交互，不涉及消息路由。
-// 另承载两平台探针（ai-provider-store / asr-provider-store）共用的错误文案
-// 拼装 helper，保证 AI/ASR 连通性测试的文案逐字一致。
+// 另承载两平台探针与模型源共用的错误文案拼装 helper。
 //
 // 存储布局（不变式，两个平台一致）：provider 列表持久化在 chrome.storage.sync，
 // API Key 单独存放在 chrome.storage.local —— apiKey 永不进同步列表：写回 sync
@@ -27,6 +26,10 @@ export interface CreateProviderStoreDeps<T extends ProviderBase> {
 export interface ProviderStore<T extends ProviderBase> {
   loadKeys: () => Promise<ProviderKeys>;
   getKey: (providerId: string | null | undefined) => Promise<string>;
+  resolveDraftApiKey: (
+    apiKey: string | null | undefined,
+    providerId: string | null | undefined
+  ) => Promise<string>;
   loadProviders: () => Promise<Array<T & { hasSavedKey: boolean }>>;
   saveProviders: (items: unknown[]) => Promise<Array<T & { hasSavedKey: boolean }>>;
   deleteProvider: (providerId: string) => Promise<Array<T & { hasSavedKey: boolean }>>;
@@ -47,9 +50,24 @@ export function createProviderStore<T extends ProviderBase>({
 
   // 读取单个 provider 的已存 Key（按 id 查）。供探针在不要求用户重输 Key 时使用。
   async function getKey(providerId: string | null | undefined): Promise<string> {
-    if (!providerId) return "";
+    const id = String(providerId || "").trim();
+    if (!id) return "";
     const keys = await loadKeys();
-    return String(keys[providerId] || "").trim();
+    return String(keys[id] || "").trim();
+  }
+
+  // 解析编辑态草稿 Key：直传 apiKey 非空优先；空白时按 providerId 回落已存 Key（异常兜底空串）。
+  async function resolveDraftApiKey(
+    apiKey: string | null | undefined,
+    providerId: string | null | undefined
+  ): Promise<string> {
+    const direct = String(apiKey || "").trim();
+    if (direct) return direct;
+    try {
+      return await getKey(providerId);
+    } catch {
+      return "";
+    }
   }
 
   // 读取 provider 列表，Key 不明文回传，只带 hasSavedKey 占位。
@@ -107,10 +125,10 @@ export function createProviderStore<T extends ProviderBase>({
     return next.map((p) => ({ ...p, hasSavedKey: Boolean(keys[p.id]) }));
   }
 
-  return { loadKeys, getKey, loadProviders, saveProviders, deleteProvider };
+  return { loadKeys, getKey, resolveDraftApiKey, loadProviders, saveProviders, deleteProvider };
 }
 
-// ===== 探针错误文案拼装（AI / ASR 探针共享） =====
+// ===== 探针与模型源错误文案拼装（AI / ASR 共享） =====
 
 // 探针网络层失败的文案。error?.message || error 兜底照顾非 Error 抛出物
 //（字符串、对象）。文案逐字节冻结：tests 断言「无法连接」。
@@ -118,11 +136,36 @@ export function formatProbeConnectionError(error: unknown): string {
   return `无法连接：${(error as Error | undefined)?.message || error}`;
 }
 
-// 探针非 2xx 的文案：附响应体前 200 字符；响应体读取失败时无 detail。
+// HTTP 非 2xx 的文案：401/403 固定提示鉴权失败；其余优先提取 JSON error/message，
+// 否则附响应体前 200 字符；响应体为空或读取失败时只返回状态码。
 export async function formatProbeHttpError(response: { status: number; text: () => Promise<string> }): Promise<string> {
-  let detail = "";
-  try {
-    detail = (await response.text()).slice(0, 200);
-  } catch {}
-  return `HTTP ${response.status}${detail ? `: ${detail}` : ""}`;
+  const { status } = response;
+  if (status === 401 || status === 403) {
+    return `HTTP ${status}: API Key 无效或未授权`;
+  }
+  const raw = await response.text().catch(() => "");
+  const trimmed = raw.trim();
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed) as {
+        error?: { message?: unknown } | string;
+        message?: unknown;
+      };
+      const candidate =
+        typeof parsed?.error === "string"
+          ? parsed.error
+          : typeof parsed?.error?.message === "string"
+            ? parsed.error.message
+            : typeof parsed?.message === "string"
+              ? parsed.message
+              : "";
+      if (candidate.trim()) {
+        return `HTTP ${status}: ${candidate.trim().slice(0, 200)}`;
+      }
+    } catch {
+      // 非 JSON 走下方原文裁剪
+    }
+    return `HTTP ${status}: ${trimmed.slice(0, 200)}`;
+  }
+  return `HTTP ${status}`;
 }

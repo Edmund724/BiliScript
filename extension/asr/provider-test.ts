@@ -58,10 +58,10 @@ export async function testAsrConnection(provider: unknown): Promise<AsrProbeResu
   }
 
   // 解析 apiKey：优先 provider.apiKey，否则按 id 读已存 Key
-  let apiKey = String((provider as { apiKey?: string }).apiKey || "").trim();
-  if (!apiKey && normalized.id) {
-    apiKey = await asrProviderStore.getKey(normalized.id);
-  }
+  const apiKey = await asrProviderStore.resolveDraftApiKey(
+    (provider as { apiKey?: string })?.apiKey,
+    normalized.id
+  );
 
   // 语言档位来自全局设置 asrLanguage（popup 顶部切换），与实际转写取同一份
   // （offscreen 侧 provider.language 也由该设置注入）：探针验的就是真跑的

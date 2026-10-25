@@ -132,7 +132,6 @@ export async function testAiProviderConnection({ providerId, baseUrl, apiKey, mo
   // 点击手势链上先申请权限。content / offscreen 语境要查权限得走代查入口
   //（hasHostPermissionViaBackground / hasHostPermissionFromOffscreen），不许原样调用——
   // 这条不变式由 tests/core/host-permissions.test.ts 的语境守卫按源码锁死。
-  let resolvedApiKey = String(apiKey || "").trim();
   // presetId / protocol 穿线（02 号票 / multi-protocol-ai）：直传值优先，缺省按
   // providerId 从已存列表读记录字段随探针请求下发——host 反代无 host 规则时
   // presetId 是思考字段查表、平台头的唯一识别线索，protocol 决定端点/鉴权/请求体
@@ -152,14 +151,6 @@ export async function testAiProviderConnection({ providerId, baseUrl, apiKey, mo
       console.warn("读取已存平台 presetId/protocol 失败，按无 presetId 继续", error);
     }
   }
-  if (!resolvedApiKey && providerId) {
-    try {
-      const keys = await aiProviderStore.loadKeys();
-      resolvedApiKey = String(keys[providerId] || "").trim();
-    } catch (error) {
-      // Key 存储读取失败沿用原处理器的容错：按空 Key 继续探针（报错来自探针本身）
-      console.warn("读取已存 API Key 失败，按未填写 Key 继续", error);
-    }
-  }
+  const resolvedApiKey = await aiProviderStore.resolveDraftApiKey(apiKey, providerId);
   return testAiConnection({ baseUrl, apiKey: resolvedApiKey, model, presetId: resolvedPresetId, protocol: resolvedProtocol });
 }

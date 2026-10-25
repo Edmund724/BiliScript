@@ -31,7 +31,7 @@ import { getDialog, state, type EditorDraftView, type ProviderEditorKind } from 
 import type { ProviderRowPreset } from "./provider-row.js";
 
 // 协议端点查表的单源在 core/presets.ts（multi-protocol-ai 叶）；此处原样 re-export，
-// 调用方（Modal / 获取模型弹窗 / 目录片）路径不变。
+// 调用方（Modal / 目录片）路径不变。
 export { presetBaseUrlForProtocol };
 
 // ===== 协议/预设投影口径 =====

@@ -117,7 +117,7 @@ export function rebuildCustomSelectOptions(select: HTMLSelectElement): void {
   (options.find((option) => option.dataset.value === select.value) ?? options[0])?.focus();
 }
 
-// 关闭全部下拉并同步 aria-expanded（外点关闭委托与组件内切换共用，避免
+// 关闭全部下拉并同步 aria-expanded（外点关闭与组件内切换共用，避免
 // hidden 复位了 aria 没复位）
 export function closeAllCustomSelects(except?: HTMLElement): void {
   document.querySelectorAll<HTMLElement>(".custom-select-dropdown").forEach((dropdown) => {
@@ -125,6 +125,285 @@ export function closeAllCustomSelects(except?: HTMLElement): void {
     dropdown.hidden = true;
     dropdown.closest(".custom-select-wrapper")?.querySelector<HTMLButtonElement>(".custom-select-trigger")?.setAttribute("aria-expanded", "false");
   });
+  customSelectDismissal.sync();
+}
+
+export interface OutsideClickDismissalConfig {
+  wrapperSelector: string;
+  openDropdownSelector: string;
+  closeAll: () => void;
+}
+
+export interface OutsideClickDismissalController {
+  observeDropdown: (dropdown: HTMLElement) => void;
+  sync: () => void;
+}
+
+const nativeHiddenDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "hidden");
+
+// 下拉弹层自持的捕获期外点收起控制器：仅在至少一枚弹层展开期间挂载 document
+// capture click 监听，全部收起后立即卸载（常态全关时 document 零点击监听）；
+// capture 阶段先于 Modal 等宿主的 bubble stopPropagation 触发，宿主无需重复代理。
+export function createOutsideClickDismissal({
+  wrapperSelector,
+  openDropdownSelector,
+  closeAll
+}: OutsideClickDismissalConfig): OutsideClickDismissalController {
+  const observedDropdowns = new WeakSet<HTMLElement>();
+  const openDropdowns = new Set<HTMLElement>();
+  let listening = false;
+
+  const sync = (): void => {
+    for (const node of openDropdowns) {
+      if (node.hidden || !node.isConnected) {
+        openDropdowns.delete(node);
+      }
+    }
+    const hasOpen = openDropdowns.size > 0 || document.querySelector(openDropdownSelector) !== null;
+    if (hasOpen && !listening) {
+      document.addEventListener("click", onDocumentClickCapture, true);
+      listening = true;
+    } else if (!hasOpen && listening) {
+      document.removeEventListener("click", onDocumentClickCapture, true);
+      listening = false;
+    }
+  };
+
+  const onDocumentClickCapture = (event: MouseEvent): void => {
+    if (!(event.target instanceof Element) || !event.target.closest(wrapperSelector)) {
+      closeAll();
+    }
+    sync();
+  };
+
+  const observeDropdown = (dropdown: HTMLElement): void => {
+    if (observedDropdowns.has(dropdown)) {
+      if (!dropdown.hidden) openDropdowns.add(dropdown);
+      sync();
+      return;
+    }
+    observedDropdowns.add(dropdown);
+    if (nativeHiddenDescriptor?.get && nativeHiddenDescriptor?.set) {
+      Object.defineProperty(dropdown, "hidden", {
+        configurable: true,
+        enumerable: nativeHiddenDescriptor.enumerable ?? true,
+        get(this: HTMLElement) {
+          return nativeHiddenDescriptor.get!.call(this);
+        },
+        set(this: HTMLElement, value: boolean) {
+          nativeHiddenDescriptor.set!.call(this, value);
+          if (this.hidden) {
+            openDropdowns.delete(this);
+          } else {
+            openDropdowns.add(this);
+          }
+          sync();
+        }
+      });
+    }
+    if (!dropdown.hidden) {
+      openDropdowns.add(dropdown);
+    }
+    sync();
+  };
+
+  return { observeDropdown, sync };
+}
+
+const customSelectDismissal = createOutsideClickDismissal({
+  wrapperSelector: ".custom-select-wrapper",
+  openDropdownSelector: ".custom-select-dropdown:not([hidden])",
+  closeAll: () => closeAllCustomSelects()
+});
+
+export interface SearchableOptionListConfig {
+  dropdown: HTMLElement;
+  searchItemClass: string;
+  searchInputClass: string;
+  placeholder: string;
+  ariaLabel: string;
+  emptyItemClass: string;
+  getOptions: () => HTMLLIElement[];
+  isSearchEnabled: () => boolean;
+  onSelect: (option: HTMLLIElement) => void;
+  onClose: (refocusTrigger: boolean) => void;
+  onTab?: () => void;
+  isDisabled?: () => boolean;
+  preferSelectedOnSearchEnter?: boolean;
+  fallbackToSelectedOnRove?: boolean;
+  enableHomeEnd?: boolean;
+  enableSpaceSelect?: boolean;
+  onFilter?: (visibleCount: number, totalCount: number, keyword: string) => void;
+}
+
+export interface SearchableOptionListController {
+  readonly searchItem: HTMLLIElement;
+  readonly searchInput: HTMLInputElement;
+  readonly emptyItem: HTMLLIElement;
+  isSearchEnabled: () => boolean;
+  filter: () => void;
+  reset: () => void;
+  syncHost: (host: HTMLElement) => void;
+}
+
+// 可搜索选项列表与键盘漫游底座（custom-select 与 model-picker 共用）：
+// 负责搜索输入框与「无匹配选项」占位项的挂载、大小写不敏感子串过滤、IME 合成态守卫，
+// 以及搜索框与列表项之间的 ↑/↓/Home/End/Enter/Space/Escape/Tab 焦点漫游。
+export function createSearchableOptionList(config: SearchableOptionListConfig): SearchableOptionListController {
+  const searchItem = document.createElement("li");
+  searchItem.className = config.searchItemClass;
+  searchItem.setAttribute("role", "presentation");
+  const searchInput = document.createElement("input");
+  searchInput.type = "text";
+  searchInput.className = config.searchInputClass;
+  searchInput.placeholder = config.placeholder;
+  searchInput.setAttribute("aria-label", config.ariaLabel);
+  searchInput.autocomplete = "off";
+  searchInput.spellcheck = false;
+  searchItem.appendChild(searchInput);
+
+  const emptyItem = document.createElement("li");
+  emptyItem.className = config.emptyItemClass;
+  emptyItem.setAttribute("role", "presentation");
+  emptyItem.textContent = "无匹配选项";
+  emptyItem.hidden = true;
+  emptyItem.style.display = "none";
+
+  const filter = (): void => {
+    const kw = searchInput.value.trim().toLowerCase();
+    const options = config.getOptions();
+    let visibleCount = 0;
+    options.forEach((node) => {
+      const text = (node.textContent || "").toLowerCase();
+      const match = !kw || text.includes(kw);
+      node.hidden = !match;
+      node.style.display = match ? "" : "none";
+      if (match) visibleCount++;
+    });
+    emptyItem.hidden = visibleCount > 0;
+    emptyItem.style.display = visibleCount > 0 ? "none" : "";
+    config.onFilter?.(visibleCount, options.length, kw);
+  };
+
+  const reset = (): void => {
+    if (!config.isSearchEnabled()) return;
+    searchInput.value = "";
+    config.getOptions().forEach((node) => {
+      node.hidden = false;
+      node.style.display = "";
+    });
+    emptyItem.hidden = true;
+    emptyItem.style.display = "none";
+  };
+
+  const syncHost = (host: HTMLElement): void => {
+    const enabled = config.isSearchEnabled();
+    if (enabled) {
+      if (searchItem.parentElement !== host) {
+        host.prepend(searchItem);
+      }
+    } else {
+      searchItem.remove();
+    }
+    config.getOptions().forEach((node) => {
+      if (node.parentElement !== host) host.appendChild(node);
+    });
+    if (enabled) {
+      if (emptyItem.parentElement !== host) {
+        host.appendChild(emptyItem);
+      }
+    } else {
+      emptyItem.remove();
+    }
+  };
+
+  searchInput.addEventListener("click", (e) => e.stopPropagation());
+  searchInput.addEventListener("input", (e) => {
+    e.stopPropagation();
+    filter();
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (config.isDisabled?.()) return;
+    if (e.isComposing) return;
+    const options = config.getOptions();
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      options.find((o) => !o.hidden)?.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const target =
+        (config.preferSelectedOnSearchEnter
+          ? options.find((o) => !o.hidden && o.dataset.selected === "true")
+          : undefined) || options.find((o) => !o.hidden);
+      if (target) config.onSelect(target);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      config.onClose(true);
+    } else if (e.key === "Tab") {
+      config.onTab?.();
+    }
+  });
+
+  config.dropdown.addEventListener("keydown", (e) => {
+    if (config.isDisabled?.()) return;
+    if (document.activeElement === searchInput) return;
+    const visibleOptions = config.getOptions().filter((o) => !o.hidden);
+    if (visibleOptions.length === 0) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        config.onClose(true);
+      }
+      return;
+    }
+    const active = document.activeElement;
+    const current =
+      active instanceof HTMLLIElement && visibleOptions.includes(active)
+        ? visibleOptions.indexOf(active)
+        : config.fallbackToSelectedOnRove
+          ? visibleOptions.findIndex((o) => o.dataset.selected === "true")
+          : -1;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (e.key === "ArrowUp" && current <= 0) {
+        if (config.isSearchEnabled()) {
+          searchInput.focus();
+        } else if (current === 0) {
+          visibleOptions[0]?.focus();
+        }
+      } else {
+        const next =
+          e.key === "ArrowDown"
+            ? visibleOptions[Math.min(visibleOptions.length - 1, current === -1 ? 0 : current + 1)]
+            : visibleOptions[Math.max(0, current - 1)];
+        next?.focus();
+      }
+    } else if (e.key === "Home" && config.enableHomeEnd) {
+      e.preventDefault();
+      visibleOptions[0]?.focus();
+    } else if (e.key === "End" && config.enableHomeEnd) {
+      e.preventDefault();
+      visibleOptions[visibleOptions.length - 1]?.focus();
+    } else if (e.key === "Enter" || (e.key === " " && config.enableSpaceSelect)) {
+      e.preventDefault();
+      const option = current >= 0 ? visibleOptions[current] : visibleOptions[0];
+      if (option) config.onSelect(option);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      config.onClose(true);
+    } else if (e.key === "Tab") {
+      config.onTab?.();
+    }
+  });
+
+  return {
+    searchItem,
+    searchInput,
+    emptyItem,
+    isSearchEnabled: config.isSearchEnabled,
+    filter,
+    reset,
+    syncHost
+  };
 }
 
 // 字段名的来路：显式 label（labels / label[for]）优先，否则认同级前置 label
@@ -255,6 +534,7 @@ export function initCustomSelect(
   select.style.display = "none";
   wrapper.appendChild(trigger);
   wrapper.appendChild(dropdown);
+  customSelectDismissal.observeDropdown(dropdown);
 
   const setExpanded = (open: boolean): void => {
     trigger.setAttribute("aria-expanded", open ? "true" : "false");
@@ -294,10 +574,58 @@ export function initCustomSelect(
   // trigger 插位当前就位的那一枚（换声明时摘旧的，见 applySlots）
   let placedTriggerExtra: HTMLElement | null = null;
 
+  const shouldEnableSearch = (): boolean =>
+    options.searchable !== undefined
+      ? options.searchable
+      : select.options.length >= CUSTOM_SELECT_SEARCH_THRESHOLD;
+
+  const closeList = (refocusTrigger: boolean): void => {
+    dropdown.hidden = true;
+    setExpanded(false);
+    searchableList.reset();
+    if (!refocusTrigger) return;
+    trigger.focus();
+    // 归焦可能失败：trigger 被禁用时接不住焦点（原生行为），焦点会留在刚被隐藏的
+    // <li> 上——那是「焦点在看不见的元素里」的陷阱。此时显式 blur，焦点落回 body，
+    // 与「控件不可用」的语义一致（列表已收起、无可见焦点目标）。
+    if (document.activeElement instanceof HTMLElement && dropdown.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
+  };
+
+  const chooseOption = (option: HTMLElement): void => {
+    const value = option.dataset.value;
+    if (value === undefined) return;
+    setCustomSelectValue(select, value);
+    closeList(true);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+
+  const searchableList = createSearchableOptionList({
+    dropdown,
+    searchItemClass: "custom-select-search-item",
+    searchInputClass: "custom-select-search-input",
+    placeholder: "搜索...",
+    ariaLabel: "搜索选项",
+    emptyItemClass: "custom-select-empty",
+    getOptions: () => optionNodes,
+    isSearchEnabled: shouldEnableSearch,
+    onSelect: chooseOption,
+    onClose: closeList,
+    // 收拢列表并把焦点交还 trigger（不 preventDefault）：焦点还在已隐藏的 li 上时
+    // 会掉回 body，默认 Tab 就会从 body 重新起算（跳到文档第一个控件）而不是续行
+    onTab: () => closeList(true),
+    isDisabled: () => trigger.disabled,
+    preferSelectedOnSearchEnter: true,
+    fallbackToSelectedOnRove: true,
+    enableHomeEnd: true,
+    enableSpaceSelect: true
+  });
+
   // 把声明里的槽位就位（幂等，不摘任何调用方的节点）：
   //   1. extras 按声明顺序常驻弹层本体（不在场则装回——调用方因此不必自己搬卡片）；
   //   2. triggerExtra 放值区之后、箭头之前，并把它接上 trigger 的 aria-describedby；
-  //   3. 组件自己产出的选项行搬到 optionsHost（省略 = 弹层本体）。
+  //   3. 组件自己产出的选项行与搜索框/空态项搬到 optionsHost（省略 = 弹层本体）。
   // 全程只动组件自己的 <li> 与声明里的那一枚节点，不触碰调用方的子树：声明进来的节点
   // 在换项前后始终留在文档里，浮层内的滚动位置（滚动盒挂在这样的子树里）因此不会被
   // 销毁——这是组件自身的不变式，不再由消费方快照/恢复。
@@ -319,9 +647,7 @@ export function initCustomSelect(
       if (triggerExtra.id) trigger.setAttribute("aria-describedby", triggerExtra.id);
     }
     const host = slots.optionsHost ?? dropdown;
-    optionNodes.forEach((node) => {
-      if (node.parentElement !== host) host.appendChild(node);
-    });
+    searchableList.syncHost(host);
   };
 
   // 重读原生 select.options，重建 listbox 项，再按写入后的实际值重派生显示
@@ -329,107 +655,15 @@ export function initCustomSelect(
   // 唯一的项集入口，也是槽位就位的唯一时机（声明换了落点，下一次重铺即按新声明铺）。
   // 换项实现**不是** dropdown.replaceChildren()：那些 <li> 是组件自己的，浮层里的别的
   // 节点归调用方——只摘自己产出的项，声明进来的槽位节点原样留在场上（连带它们的滚动位置）。
-  const shouldEnableSearch = (): boolean =>
-    options.searchable !== undefined
-      ? options.searchable
-      : select.options.length >= CUSTOM_SELECT_SEARCH_THRESHOLD;
-
-  const searchItem = document.createElement("li");
-  searchItem.className = "custom-select-search-item";
-  searchItem.setAttribute("role", "presentation");
-  const searchInput = document.createElement("input");
-  searchInput.type = "text";
-  searchInput.className = "custom-select-search-input";
-  searchInput.placeholder = "搜索...";
-  searchInput.setAttribute("aria-label", "搜索选项");
-  searchInput.autocomplete = "off";
-  searchInput.spellcheck = false;
-  searchItem.appendChild(searchInput);
-
-  const emptyItem = document.createElement("li");
-  emptyItem.className = "custom-select-empty";
-  emptyItem.setAttribute("role", "presentation");
-  emptyItem.textContent = "无匹配选项";
-  emptyItem.hidden = true;
-  emptyItem.style.display = "none";
-
-  const filterOptions = (): void => {
-    const kw = searchInput.value.trim().toLowerCase();
-    let visibleCount = 0;
-    optionNodes.forEach((node) => {
-      const text = (node.textContent || "").toLowerCase();
-      const match = !kw || text.includes(kw);
-      node.hidden = !match;
-      node.style.display = match ? "" : "none";
-      if (match) visibleCount++;
-    });
-    emptyItem.hidden = visibleCount > 0;
-    emptyItem.style.display = visibleCount > 0 ? "none" : "";
-  };
-
-  const resetSearch = (): void => {
-    if (!shouldEnableSearch()) return;
-    searchInput.value = "";
-    optionNodes.forEach((node) => {
-      node.hidden = false;
-      node.style.display = "";
-    });
-    emptyItem.hidden = true;
-    emptyItem.style.display = "none";
-  };
-
-  searchInput.addEventListener("click", (e) => e.stopPropagation());
-  searchInput.addEventListener("input", filterOptions);
-  searchInput.addEventListener("keydown", (e) => {
-    if (trigger.disabled) return;
-    if (e.isComposing) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const firstVisible = optionNodes.find((o) => !o.hidden);
-      firstVisible?.focus();
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const target =
-        optionNodes.find((o) => !o.hidden && o.dataset.selected === "true") ||
-        optionNodes.find((o) => !o.hidden);
-      if (target) chooseOption(target);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      closeList(true);
-    } else if (e.key === "Tab") {
-      closeList(true);
-    }
-  });
-
   const refreshOptionNodes = (): HTMLLIElement[] => {
     optionNodes.forEach((node) => node.remove());
-    optionNodes = [];
+    optionNodes = Array.from(select.options).map((option) => buildOptionNode(option));
     applySlots();
-    const host = slots.optionsHost ?? dropdown;
-    if (shouldEnableSearch()) {
-      if (searchItem.parentElement !== host) {
-        host.prepend(searchItem);
-      }
-    } else {
-      searchItem.remove();
-    }
-    optionNodes = Array.from(select.options).map((option) => {
-      const li = buildOptionNode(option);
-      host.appendChild(li);
-      return li;
-    });
-    if (shouldEnableSearch()) {
-      if (emptyItem.parentElement !== host) {
-        host.appendChild(emptyItem);
-      }
-    } else {
-      emptyItem.remove();
-    }
     syncDisplayFromValue();
     return optionNodes;
   };
 
-  // 建壳即铺一次项集（替代旧的 init 内联 forEach）；此时列表收起，不动焦点。
+  // 建壳即铺一次项集；此时列表收起，不动焦点。
   refreshOptionNodes();
 
   // 禁用/忙碌状态写到壳（setCustomSelectState 的壳内实现）：省略的键保持现态，
@@ -462,40 +696,18 @@ export function initCustomSelect(
     }
   });
 
-  // 展开时收掉同族其它下拉（外点关闭委托只管 click，键盘路径在此自持）
+  // 展开时收掉同族其它下拉
   const openList = (): void => {
     if (trigger.disabled) return; // 禁用是真守卫：键盘/程序化 click 都不展开（指针事件挡不住这两条）
     closeAllCustomSelects(dropdown);
     dropdown.hidden = false;
     setExpanded(true);
-    resetSearch();
+    searchableList.reset();
     if (shouldEnableSearch()) {
-      searchInput.focus();
+      searchableList.searchInput.focus();
     } else {
       (optionNodes.find((o) => o.dataset.selected === "true") || optionNodes[0])?.focus();
     }
-  };
-
-  const closeList = (refocusTrigger: boolean): void => {
-    dropdown.hidden = true;
-    setExpanded(false);
-    resetSearch();
-    if (!refocusTrigger) return;
-    trigger.focus();
-    // 归焦可能失败：trigger 被禁用时接不住焦点（原生行为），焦点会留在刚被隐藏的
-    // <li> 上——那是「焦点在看不见的元素里」的陷阱。此时显式 blur，焦点落回 body，
-    // 与「控件不可用」的语义一致（列表已收起、无可见焦点目标）。
-    if (document.activeElement instanceof HTMLElement && dropdown.contains(document.activeElement)) {
-      document.activeElement.blur();
-    }
-  };
-
-  const chooseOption = (option: HTMLElement): void => {
-    const value = option.dataset.value;
-    if (value === undefined) return;
-    setCustomSelectValue(select, value);
-    closeList(true);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
   };
 
   trigger.addEventListener("click", (e) => {
@@ -513,55 +725,6 @@ export function initCustomSelect(
     if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       openList();
-    }
-  });
-
-  dropdown.addEventListener("keydown", (e) => {
-    if (trigger.disabled) return; // 禁用时列表不该在场上；万一在，漫游/选中也一律挡住
-    if (document.activeElement === searchInput) return;
-    const visibleOptions = optionNodes.filter((o) => !o.hidden);
-    if (visibleOptions.length === 0) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeList(true);
-      }
-      return;
-    }
-    const active = document.activeElement;
-    const current = active instanceof HTMLLIElement && visibleOptions.includes(active)
-      ? visibleOptions.indexOf(active)
-      : visibleOptions.findIndex((o) => o.dataset.selected === "true");
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (e.key === "ArrowUp" && current <= 0) {
-        if (shouldEnableSearch()) {
-          searchInput.focus();
-        } else if (current === 0) {
-          visibleOptions[0]?.focus();
-        }
-      } else {
-        const next = e.key === "ArrowDown"
-          ? visibleOptions[Math.min(visibleOptions.length - 1, current === -1 ? 0 : current + 1)]
-          : visibleOptions[Math.max(0, current - 1)];
-        next?.focus();
-      }
-    } else if (e.key === "Home") {
-      e.preventDefault();
-      visibleOptions[0]?.focus();
-    } else if (e.key === "End") {
-      e.preventDefault();
-      visibleOptions[visibleOptions.length - 1]?.focus();
-    } else if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      const option = current >= 0 ? visibleOptions[current] : visibleOptions[0];
-      if (option) chooseOption(option);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      closeList(true);
-    } else if (e.key === "Tab") {
-      // 收拢列表并把焦点交还 trigger（不 preventDefault）：焦点还在已隐藏的 li 上时
-      // 会掉回 body，默认 Tab 就会从 body 重新起算（跳到文档第一个控件）而不是续行
-      closeList(true);
     }
   });
 

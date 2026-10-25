@@ -161,7 +161,7 @@ describe("deleteProvider", () => {
   });
 });
 
-describe("Key 侧通道：loadKeys / getKey", () => {
+describe("Key 侧通道：loadKeys / getKey / resolveDraftApiKey", () => {
   it("getKey 返回 trim 后的 Key，空 id 返回空串", async () => {
     const store = makeStore();
     await store.saveProviders([provider("p1", { apiKey: "  spaced  " })]);
@@ -169,5 +169,27 @@ describe("Key 侧通道：loadKeys / getKey", () => {
     expect(await store.getKey("missing")).toBe("");
     expect(await store.getKey("")).toBe("");
     expect(await store.getKey(null)).toBe("");
+  });
+
+  it("resolveDraftApiKey：直传非空 apiKey 优先，不读取存储", async () => {
+    const store = makeStore();
+    await store.saveProviders([provider("p1", { apiKey: "stored-key" })]);
+    vi.mocked(chrome.storage.local.get).mockClear();
+
+    expect(await store.resolveDraftApiKey("  direct-key  ", "p1")).toBe("direct-key");
+    expect(chrome.storage.local.get).not.toHaveBeenCalled();
+  });
+
+  it("resolveDraftApiKey：直传为空白时按 providerId 回落已存 Key；无 id 或读取异常兜底空串", async () => {
+    const store = makeStore();
+    await store.saveProviders([provider("p1", { apiKey: "stored-key" })]);
+
+    expect(await store.resolveDraftApiKey("   ", "p1")).toBe("stored-key");
+    expect(await store.resolveDraftApiKey(null, "missing")).toBe("");
+    expect(await store.resolveDraftApiKey("", "")).toBe("");
+    expect(await store.resolveDraftApiKey(undefined, undefined)).toBe("");
+
+    vi.mocked(chrome.storage.local.get).mockRejectedValueOnce(new Error("storage failure"));
+    expect(await store.resolveDraftApiKey("", "p1")).toBe("");
   });
 });

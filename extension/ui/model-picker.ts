@@ -9,14 +9,25 @@
 //
 // DOM 契约沿用 AI 侧既有类名（ai-provider-model-wrapper / -toggle /
 // -dropdown / -option / -message / -error / -loading / -count），reader.css
-// 样式与 settings-panel 的全局收起逻辑（点外部关闭 .ai-provider-model-dropdown）
-// 因此对两侧同时生效——与 ASR 行复用 ai-provider-remove / ai-provider-status
+// 样式与组件自持的捕获期外点收起逻辑（点外部关闭 .ai-provider-model-dropdown）
+// 对两侧同时生效——与 ASR 行复用 ai-provider-remove / ai-provider-status
 // 的既有耦合同理。只有输入框类名按行型注入（ai-provider-model /
 // asr-provider-model），供收集/探针逻辑按行型取值。
 
 import { escapeHtml } from "../shared/string-utils.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
+import {
+  createOutsideClickDismissal,
+  createSearchableOptionList,
+  CUSTOM_SELECT_SEARCH_THRESHOLD
+} from "./custom-select.js";
 import type { ProviderRowElement, ProviderRowShowStatus } from "./provider-row.js";
+
+const modelDropdownDismissal = createOutsideClickDismissal({
+  wrapperSelector: ".ai-provider-model-wrapper",
+  openDropdownSelector: ".ai-provider-model-dropdown:not([hidden])",
+  closeAll: () => closeAllModelDropdowns()
+});
 
 export interface ModelPickerFieldOptions {
   inputClass: string;
@@ -64,6 +75,48 @@ export function wireModelPicker(
   row: ProviderRowElement,
   { inputClass, baseUrlClass, apiKeyClass, statusClass, showStatus, fetchModels, isKeyRequired, hasSavedKey }: WireModelPickerOptions
 ): void {
+  const initialDropdown = row.querySelector<HTMLElement>(".ai-provider-model-dropdown");
+  if (initialDropdown) {
+    modelDropdownDismissal.observeDropdown(initialDropdown);
+  }
+
+  let optionLis: HTMLLIElement[] = [];
+  let countLi: HTMLLIElement | null = null;
+
+  const chooseModelOption = (option: HTMLElement): void => {
+    const modelInput = row.querySelector<HTMLInputElement>(`.${inputClass}`);
+    if (modelInput && option.dataset.model) {
+      modelInput.value = option.dataset.model;
+      // 选值即输入：draft 模型（provider-editor 片 3）靠 input 事件回写真源
+      modelInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    const dropdown = row.querySelector<HTMLElement>(".ai-provider-model-dropdown");
+    if (dropdown) dropdown.hidden = true;
+  };
+
+  const searchableList = initialDropdown
+    ? createSearchableOptionList({
+        dropdown: initialDropdown,
+        searchItemClass: "ai-provider-model-search-item",
+        searchInputClass: "ai-provider-model-search-input",
+        placeholder: "搜索模型...",
+        ariaLabel: "搜索模型",
+        emptyItemClass: "ai-provider-model-message ai-provider-model-empty",
+        getOptions: () => optionLis,
+        isSearchEnabled: () => optionLis.length >= CUSTOM_SELECT_SEARCH_THRESHOLD,
+        onSelect: chooseModelOption,
+        onClose: () => {
+          initialDropdown.hidden = true;
+        },
+        onFilter: (visibleCount, totalCount, kw) => {
+          if (!countLi) return;
+          countLi.textContent = kw
+            ? `匹配 ${visibleCount} / ${totalCount} 个模型`
+            : `已加载 ${totalCount} 个模型`;
+        }
+      })
+    : null;
+
   row.querySelector(".ai-provider-model-toggle")?.addEventListener("click", async (e) => {
     e.stopPropagation();
     const statusNode = row.querySelector(`.${statusClass}`) as HTMLElement | null;
@@ -90,6 +143,8 @@ export function wireModelPicker(
     }
 
     dropdown.innerHTML = "";
+    optionLis = [];
+    countLi = null;
     dropdown.hidden = false;
 
     const keyRequired = isKeyRequired ? isKeyRequired() : false;
@@ -125,35 +180,11 @@ export function wireModelPicker(
       });
 
       dropdown.innerHTML = "";
+      optionLis = [];
+      countLi = null;
       if (resp?.ok && Array.isArray(resp.models) && resp.models.length > 0) {
         const currentModel = modelInput.value.trim();
-        const hasSearch = resp.models.length >= 8;
-        let searchInput: HTMLInputElement | null = null;
-        let emptyLi: HTMLElement | null = null;
-        const optionLis: HTMLLIElement[] = [];
-
-        if (hasSearch) {
-          const searchItem = document.createElement("li");
-          searchItem.className = "ai-provider-model-search-item";
-          searchInput = document.createElement("input");
-          searchInput.type = "text";
-          searchInput.className = "ai-provider-model-search-input";
-          searchInput.placeholder = "搜索模型...";
-          searchInput.setAttribute("aria-label", "搜索模型");
-          searchInput.autocomplete = "off";
-          searchInput.spellcheck = false;
-          searchItem.appendChild(searchInput);
-          dropdown.appendChild(searchItem);
-
-          emptyLi = document.createElement("li");
-          emptyLi.className = "ai-provider-model-message ai-provider-model-empty";
-          emptyLi.textContent = "无匹配选项";
-          emptyLi.hidden = true;
-          emptyLi.style.display = "none";
-          dropdown.appendChild(emptyLi);
-        }
-
-        resp.models.forEach((modelId) => {
+        optionLis = resp.models.map((modelId) => {
           const li = document.createElement("li");
           li.className = "ai-provider-model-option";
           li.dataset.model = modelId;
@@ -162,56 +193,20 @@ export function wireModelPicker(
           if (modelId === currentModel) {
             li.dataset.selected = "true";
           }
-          dropdown.appendChild(li);
-          optionLis.push(li);
+          return li;
         });
 
+        searchableList?.reset();
+        searchableList?.syncHost(dropdown);
+
         const totalCount = resp.models.length;
-        const countLi = document.createElement("li");
+        countLi = document.createElement("li");
         countLi.className = "ai-provider-model-count";
         countLi.textContent = `已加载 ${totalCount} 个模型`;
         dropdown.appendChild(countLi);
 
-        if (hasSearch && searchInput) {
-          searchInput.addEventListener("click", (e) => e.stopPropagation());
-          searchInput.addEventListener("input", (e) => {
-            e.stopPropagation();
-            const kw = searchInput!.value.trim().toLowerCase();
-            let matchCount = 0;
-            optionLis.forEach((li) => {
-              const match = !kw || (li.dataset.model || "").toLowerCase().includes(kw);
-              li.hidden = !match;
-              li.style.display = match ? "" : "none";
-              if (match) matchCount++;
-            });
-            if (emptyLi) {
-              emptyLi.hidden = matchCount > 0;
-              emptyLi.style.display = matchCount > 0 ? "none" : "";
-            }
-            countLi.textContent = kw
-              ? `匹配 ${matchCount} / ${totalCount} 个模型`
-              : `已加载 ${totalCount} 个模型`;
-          });
-          searchInput.addEventListener("keydown", (e) => {
-            if (e.isComposing) return;
-            if (e.key === "Escape") {
-              e.preventDefault();
-              dropdown.hidden = true;
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              const visible = optionLis.find((li) => !li.hidden);
-              if (visible && visible.dataset.model) {
-                modelInput.value = visible.dataset.model;
-                modelInput.dispatchEvent(new Event("input", { bubbles: true }));
-                dropdown.hidden = true;
-              }
-            } else if (e.key === "ArrowDown") {
-              e.preventDefault();
-              const visible = optionLis.find((li) => !li.hidden);
-              visible?.focus();
-            }
-          });
-          searchInput.focus();
+        if (searchableList?.isSearchEnabled()) {
+          searchableList.searchInput.focus();
         }
       } else if (resp?.ok) {
         const li = document.createElement("li");
@@ -226,6 +221,8 @@ export function wireModelPicker(
       }
     } catch (error) {
       dropdown.innerHTML = "";
+      optionLis = [];
+      countLi = null;
       const li = document.createElement("li");
       li.className = "ai-provider-model-message ai-provider-model-error";
       const message = (error as Error).message;
@@ -243,56 +240,11 @@ export function wireModelPicker(
     if (dropdown) dropdown.hidden = true;
   });
 
-  row.querySelector(".ai-provider-model-dropdown")?.addEventListener("keydown", (e) => {
-    const evt = e as KeyboardEvent;
-    const dropdown = row.querySelector(".ai-provider-model-dropdown") as HTMLElement | null;
-    const searchInput = dropdown?.querySelector<HTMLInputElement>(".ai-provider-model-search-input");
-    if (document.activeElement === searchInput) return;
-    const visibleOptions = Array.from(
-      dropdown?.querySelectorAll<HTMLElement>(".ai-provider-model-option:not([hidden])") ?? []
-    );
-    if (visibleOptions.length === 0) return;
-    const active = document.activeElement as HTMLElement | null;
-    const current = active && visibleOptions.includes(active) ? visibleOptions.indexOf(active) : -1;
-    if (evt.key === "ArrowDown") {
-      evt.preventDefault();
-      visibleOptions[Math.min(visibleOptions.length - 1, current + 1)]?.focus();
-    } else if (evt.key === "ArrowUp") {
-      evt.preventDefault();
-      if (current <= 0) {
-        searchInput?.focus();
-      } else {
-        visibleOptions[current - 1]?.focus();
-      }
-    } else if (evt.key === "Enter") {
-      evt.preventDefault();
-      const option = current >= 0 ? visibleOptions[current] : visibleOptions[0];
-      if (option && option.dataset.model) {
-        const modelInput = row.querySelector(`.${inputClass}`) as HTMLInputElement | null;
-        if (modelInput) {
-          modelInput.value = option.dataset.model;
-          modelInput.dispatchEvent(new Event("input", { bubbles: true }));
-        }
-        if (dropdown) dropdown.hidden = true;
-      }
-    } else if (evt.key === "Escape") {
-      evt.preventDefault();
-      if (dropdown) dropdown.hidden = true;
-    }
-  });
-
   row.querySelector(".ai-provider-model-dropdown")?.addEventListener("click", (e) => {
     const option = (e.target as HTMLElement).closest(".ai-provider-model-option") as HTMLElement | null;
     if (!option) return;
     e.stopPropagation();
-    const modelInput = row.querySelector(`.${inputClass}`);
-    if (modelInput && option.dataset.model) {
-      (modelInput as HTMLInputElement).value = option.dataset.model;
-      // 选值即输入：draft 模型（provider-editor 片 3）靠 input 事件回写真源
-      modelInput.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    const dropdown = row.querySelector(".ai-provider-model-dropdown") as HTMLElement | null;
-    if (dropdown) dropdown.hidden = true;
+    chooseModelOption(option);
   });
 }
 
@@ -300,4 +252,5 @@ export function closeAllModelDropdowns(): void {
   document.querySelectorAll<HTMLElement>(".ai-provider-model-dropdown").forEach((dropdown) => {
     dropdown.hidden = true;
   });
+  modelDropdownDismissal.sync();
 }

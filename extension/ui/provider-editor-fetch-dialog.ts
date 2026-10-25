@@ -12,10 +12,9 @@
 // 拉取回执的过期判据收进结算原语（captureSession / runIfCurrent，弹窗存活判据）。
 
 import { escapeHtml } from "../shared/string-utils.js";
-import { fetchProviderModels } from "../ai/provider-models.js";
+import { fetchProviderModels, resolveAiModelListTarget } from "../ai/provider-models.js";
 import { requestProviderOriginsViaBackground } from "../core/host-permissions.js";
 import { normalizeDraftModels, captureSession, runIfCurrent, state } from "./provider-editor-state.js";
-import { normalizeProtocolValue, presetBaseUrlForProtocol } from "./provider-editor-projection.js";
 import { PROVIDER_FAMILY_ROWS } from "./provider-family.js";
 import { addModelRow, refreshModelCatalogMeta, showCatalogError } from "./provider-editor-catalog.js";
 
@@ -183,28 +182,25 @@ export async function openFetchDialog(): Promise<void> {
     return;
   }
   showCatalogError("");
-  // 模型探测是 OpenAI 兼容的 GET ${baseUrl}/v1/models；anthropic 协议的 baseUrl
-  // 指向 Messages 端点（无 /v1/models，实测 404），故 baseUrl 仍是预设登记的
-  // anthropic 端点（用户未手改）时探测地址跟随到预设的 OpenAI 端点。
-  const presetAnthropicBaseUrl = presetBaseUrlForProtocol(preset, "anthropic");
-  const presetOpenaiBaseUrl = presetBaseUrlForProtocol(preset, "openai");
-  const probeBaseUrl =
-    normalizeProtocolValue(draft.protocol) === "anthropic" && preset && baseUrl === presetAnthropicBaseUrl && presetOpenaiBaseUrl
-      ? presetOpenaiBaseUrl
-      : baseUrl;
+  // 双协议预设的 Anthropic → OpenAI 模型端点回落与需授权源集合统一由 ai/provider-models.ts 解析。
+  const target = resolveAiModelListTarget({
+    baseUrl,
+    protocol: draft.protocol,
+    preset
+  });
   renderFetchSkeleton();
   // 会话结算（owner 2）：权限回执落定时 Modal 已关/已重开或弹窗已关即丢弃，
   // 不再触发注定过期的模型请求。
   const session = captureSession(() => getFetchDialog() !== null);
   await session.run(
-    () => requestProviderOriginsViaBackground([...new Set([baseUrl, probeBaseUrl])]),
+    () => requestProviderOriginsViaBackground(target.permissionBaseUrls),
     {
       ok: (permission) => {
         if (!permission.ok) {
           renderFetchError(permission.error || "未取得该平台域名权限，无法拉取模型列表");
           return;
         }
-        void loadFetchModels(probeBaseUrl, apiKey, draft.protocol);
+        void loadFetchModels(target.baseUrl, apiKey, draft.protocol);
       }
     }
   );

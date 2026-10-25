@@ -53,7 +53,7 @@ import { getSettings } from "../core/runtime.js";
 import { buildSettingsHtml, SETTINGS_PANEL_DOM_IDS, type SettingsPanelDomId } from "./settings-panel-html.js";
 import { watchStorageKeys } from "../shared/watch-storage-keys.js";
 import { confirmDialog } from "./confirm-dialog.js";
-import { closeAllCustomSelects, initCustomSelect, setCustomSelectValue } from "./custom-select.js";
+import { initCustomSelect, setCustomSelectValue } from "./custom-select.js";
 import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
 import { createProviderFamilyRows } from "./provider-family.js";
@@ -1105,29 +1105,6 @@ function bindSettingsEvents(host: HTMLElement): void {
   elements.addAiProviderBtn.addEventListener("click", () => void openProviderEditorById("ai", ""));
   elements.addAsrProviderBtn.addEventListener("click", () => void openProviderEditorById("asr", ""));
   elements.addSearchProviderBtn.addEventListener("click", () => void openProviderEditorById("search", ""));
-  // 行「编辑」回调已在 familyRows 工厂 deps 里注入（候选 3 片 1），此处不再注册
-  // 外点关闭委托。快速通道（M15 INP）：监听器挂在 document 上，宿主页每一次
-  // 点击都会进来，常态是两类弹层全关——此时旧实现无条件做两轮扫描（Modal
-  // 模型下拉 + 自定义下拉，均全文档）。先做一次合并存在性检查，全关即返回；
-  // 有开着的弹层才逐族收拢（写操作对已关弹层本就是 no-op，行为零变化）。两类
-  // 弹层都只在设置抽屉/编辑 Modal 打开期间存在。
-  document.addEventListener("click", (event) => {
-    if (
-      !document.querySelector(
-        '.ai-provider-model-dropdown:not([hidden]), .custom-select-dropdown:not([hidden])'
-      )
-    ) {
-      return;
-    }
-    if (!(event.target instanceof Element) || !event.target.closest(".ai-provider-model-wrapper")) {
-      document.querySelectorAll<HTMLElement>(".ai-provider-model-dropdown").forEach((dropdown) => {
-        dropdown.hidden = true;
-      });
-    }
-    if (!(event.target instanceof Element) || !event.target.closest(".custom-select-wrapper")) {
-      closeAllCustomSelects();
-    }
-  });
   // ASR：总开关即时持久化
   elements.asrAutoFallback?.addEventListener("change", async () => {
     await saveSettingField(elements, { asrAutoFallback: elements.asrAutoFallback.checked });

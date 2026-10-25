@@ -28,10 +28,14 @@ vi.mock("../../extension/asr/provider-models.js", () => ({
   listAsrModels: vi.fn(async () => ({ ok: false, error: "not used" }))
 }));
 
-// 「获取可用模型」直调 content 壳（ai/provider-models.js），整体 mock 隔离传输层。
-vi.mock("../../extension/ai/provider-models.js", () => ({
-  fetchProviderModels: vi.fn(async () => ({ ok: true, models: [] }))
-}));
+// 「获取可用模型」直调 content 壳（ai/provider-models.js），隔离传输层并保留纯函数 resolveAiModelListTarget。
+vi.mock("../../extension/ai/provider-models.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../extension/ai/provider-models.js")>();
+  return {
+    ...actual,
+    fetchProviderModels: vi.fn(async () => ({ ok: true, models: [] }))
+  };
+});
 
 const PRESETS: ProviderRowPreset[] = [
   { id: "custom", name: "自定义", baseUrl: "", requiresKey: true }

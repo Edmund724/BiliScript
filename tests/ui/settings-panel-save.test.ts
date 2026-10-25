@@ -80,36 +80,33 @@ beforeEach(() => {
   resetModuleState();
 });
 
-// ===== M15 INP（本 describe 置顶是有意为之）=====
-// 外点关闭委托的 document 级监听器不随 vi.resetModules 清理（setup.ts 只重置
-// 模块缓存）：每个 mountPanel 泄漏一个旧面板监听器到 document，先注册先执行。
-// 快速通道的 spy 断言依赖「本用例的面板监听器是 document 上唯一的/最先收到
-// 事件的收拢路径」——正向对照若在任何挂载过面板的用例之后运行，旧监听器会先
-// 把开着的三族弹层关掉（旧模块实例调用，不经本用例的 spy），本用例监听器守卫
-// 随后早退，spy 恒空。故本 describe 必须保持在文件首位、正向对照保持在
-// describe 首位；其余用例只断言 DOM 终态，对泄漏不敏感。
+// ===== M15 INP：设置分区渲染隔离与下拉自持捕获期外点收起 =====
 describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
-  // 正向对照（r1 评审 P2-1）：证明 spy 链路真实拦截 settings-panel 的静态导入
-  // 绑定——若下方「常态快速通道」的 not-called 断言因 spy 未拦截而恒真，这条会红。
-  it("快速通道正向对照：自定义下拉展开时外点 → closeAllCustomSelects 被调用且下拉收起", async () => {
+  it("自定义下拉展开时按需挂载 document capture click 监听，外点收起下拉并立即卸载监听", async () => {
     installMessageBus();
-    const host = await mountPanel();
-    const customSelect = await import("../../extension/ui/custom-select.js");
-    const spy = vi.spyOn(customSelect, "closeAllCustomSelects");
+    const addSpy = vi.spyOn(document, "addEventListener");
+    const removeSpy = vi.spyOn(document, "removeEventListener");
 
-    // 组件自开（trigger 监听器 stopPropagation，不经外点委托；openList 对
-    // closeAllCustomSelects 的内部调用走模块内局部绑定，不经命名空间，不计入 spy）
+    const host = await mountPanel();
+    expect(addSpy.mock.calls.filter(([type]) => type === "click")).toHaveLength(0);
+
     const wrapper = host.querySelector("#downloadFormat")!.closest<HTMLElement>(".custom-select-wrapper")!;
     const trigger = wrapper.querySelector(".custom-select-trigger")!;
     fireClick(trigger);
-    // 抽屉里不止一个自定义下拉了（外观分区的主题族也已接管）：dropdown 必须取本
-    // wrapper 内的那个，按 host 全局取第一个会取到外观分区的下拉。
+
     const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
     expect(dropdown.hidden).toBe(false);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    const clickAddCalls = addSpy.mock.calls.filter(([type, , options]) => type === "click" && options === true);
+    expect(clickAddCalls).toHaveLength(1);
 
     fireClick(document.body);
-    expect(spy).toHaveBeenCalled();
     expect(dropdown.hidden).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    const clickRemoveCalls = removeSpy.mock.calls.filter(
+      ([type, listener, options]) => type === "click" && listener === clickAddCalls[0][1] && options === true
+    );
+    expect(clickRemoveCalls).toHaveLength(1);
   });
 
   it("分区挂载即套 containment：contain: layout style（无 paint——弹层溢出分区边界不可裁）", async () => {
@@ -149,20 +146,29 @@ describe("设置分区渲染隔离与外点关闭委托（M15 INP）", () => {
     });
   });
 
-  it("常态快速通道：三类弹层全关时 document 点击零收起动作", async () => {
+  it("常态全关时 document 零 click 监听；宿主 bubble stopPropagation 下仍由 capture 监听收起下拉", async () => {
     installMessageBus();
+    const addSpy = vi.spyOn(document, "addEventListener");
     const host = await mountPanel();
-    const customSelect = await import("../../extension/ui/custom-select.js");
-    const spy = vi.spyOn(customSelect, "closeAllCustomSelects");
 
     expect(
       document.querySelector(
-        '.fixed-property-type-picker[data-open="true"], .ai-provider-model-dropdown:not([hidden]), .custom-select-dropdown:not([hidden])'
+        '.ai-provider-model-dropdown:not([hidden]), .custom-select-dropdown:not([hidden])'
       )
     ).toBeNull();
-    fireClick(document.body);
+    expect(addSpy.mock.calls.filter(([type]) => type === "click")).toHaveLength(0);
 
-    expect(spy).not.toHaveBeenCalled();
+    // 模拟 Modal 宿主在 bubble 阶段无条件 stopPropagation，下拉仍在 capture 阶段自持收起
+    host.addEventListener("click", (e) => e.stopPropagation());
+    const wrapper = host.querySelector("#downloadFormat")!.closest<HTMLElement>(".custom-select-wrapper")!;
+    const trigger = wrapper.querySelector(".custom-select-trigger")!;
+    const dropdown = wrapper.querySelector<HTMLElement>(".custom-select-dropdown")!;
+
+    fireClick(trigger);
+    expect(dropdown.hidden).toBe(false);
+
+    fireClick(host);
+    expect(dropdown.hidden).toBe(true);
   });
 });
 

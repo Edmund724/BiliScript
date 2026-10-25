@@ -1,4 +1,6 @@
 // ai/provider-models.js（AI 平台模型列表拉取的 content 侧薄壳）的行为契约：
+//   - 端点回落：resolveAiModelListTarget 在双协议预设处于 anthropic 协议且 baseUrl 未被
+//     手改时，将探测地址回落至同预设的 openai 端点，并把原地址与探测地址一并收入权限源集合；
 //   - Key 回落：表单 apiKey 优先，为空且带 providerId 时按 providerId 代查已存 Key；
 //   - adapter 分派（协议知识归 adapter 的 listModels）：openai/anthropic → OpenAI 兼容
 //     `${baseUrl}/v1/models` + Bearer；gemini → 原生 `/v1beta/models` + x-goog-api-key；
@@ -7,8 +9,12 @@
 // 传输层 providerFetchViaBackground 与 aiProviderStore.loadKeys 整体 mock，
 // fetchImpl 以 canned 响应直注（壳的 fetchImpl 固定注入代发，这里代发即桩）。
 
-import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PRESETS } from "../../extension/core/presets.js";
 import { resetModuleState } from "../setup.js";
+
+const zhipuPreset = PRESETS.find((p) => p.id === "zhipu")!;
+const deepseekPreset = PRESETS.find((p) => p.id === "deepseek")!;
 
 const mocks = vi.hoisted(() => ({
   providerFetch: vi.fn(),
@@ -21,7 +27,15 @@ vi.mock("../../extension/core/provider-http.js", () => ({
 
 vi.mock("../../extension/core/ai-provider-store.js", () => ({
   aiProviderStore: {
-    loadKeys: mocks.loadKeys
+    loadKeys: mocks.loadKeys,
+    resolveDraftApiKey: async (apiKey: string | null | undefined, providerId: string | null | undefined) => {
+      const direct = String(apiKey || "").trim();
+      if (direct) return direct;
+      const id = String(providerId || "").trim();
+      if (!id) return "";
+      const keys = await mocks.loadKeys();
+      return String(keys?.[id] || "").trim();
+    }
   }
 }));
 
@@ -46,6 +60,72 @@ beforeEach(() => {
   vi.resetModules();
   resetModuleState();
   vi.clearAllMocks();
+});
+
+describe("resolveAiModelListTarget 双协议端点回落与权限源集合", () => {
+  it("双协议预设 + anthropic + 未手改预设地址 → 探测回落同平台 openai 端点，权限集合覆盖双源", async () => {
+    const { resolveAiModelListTarget } = await loadModule();
+
+    const target = resolveAiModelListTarget({
+      baseUrl: "https://open.bigmodel.cn/api/anthropic",
+      protocol: "anthropic",
+      preset: zhipuPreset
+    });
+
+    expect(target).toEqual({
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      permissionBaseUrls: [
+        "https://open.bigmodel.cn/api/anthropic",
+        "https://open.bigmodel.cn/api/paas/v4"
+      ]
+    });
+  });
+
+  it("双协议预设 + anthropic + 用户手改自建反代地址 → 不回落预设 openai 端点，权限集合仅含手改地址", async () => {
+    const { resolveAiModelListTarget } = await loadModule();
+
+    const target = resolveAiModelListTarget({
+      baseUrl: "https://my-proxy.example.com/anthropic",
+      protocol: "anthropic",
+      preset: deepseekPreset
+    });
+
+    expect(target).toEqual({
+      baseUrl: "https://my-proxy.example.com/anthropic",
+      permissionBaseUrls: ["https://my-proxy.example.com/anthropic"]
+    });
+  });
+
+  it("双协议预设 + openai 协议 → 原样使用当前地址，权限集合去重为单源", async () => {
+    const { resolveAiModelListTarget } = await loadModule();
+
+    const target = resolveAiModelListTarget({
+      baseUrl: "https://api.deepseek.com/v1",
+      protocol: "openai",
+      preset: deepseekPreset
+    });
+
+    expect(target).toEqual({
+      baseUrl: "https://api.deepseek.com/v1",
+      permissionBaseUrls: ["https://api.deepseek.com/v1"]
+    });
+  });
+
+  it("fetchProviderModels 传入双协议 preset + anthropic 预设地址 → 直接请求回落后的 openai 端点", async () => {
+    mocks.providerFetch.mockResolvedValue(jsonResponse(200, { data: [{ id: "deepseek-chat" }] }));
+    const { fetchProviderModels } = await loadModule();
+
+    const resp = await fetchProviderModels({
+      baseUrl: "https://api.deepseek.com/anthropic",
+      apiKey: "sk-ds",
+      protocol: "anthropic",
+      preset: deepseekPreset
+    });
+
+    expect(resp).toEqual({ ok: true, models: ["deepseek-chat"] });
+    const [url] = mocks.providerFetch.mock.calls[0] as [string];
+    expect(url).toBe("https://api.deepseek.com/v1/models");
+  });
 });
 
 describe("fetchProviderModels 的 Key 回落", () => {
