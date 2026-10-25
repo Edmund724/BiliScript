@@ -661,10 +661,10 @@ describe("Gemini 触点 4 · 思考强度滑块最高档渐变（ultra-gradient�
     ].some(g => body.includes(g))).toBe(true);
   });
 
-  it("editorial 走基表：紫色渐变层原样保留（起点 #88a3fe 终点 #6752c9）", () => {
+  it("editorial 走基表：暖赤陶渐变层（terracotta-400 → 500 → 600）", () => {
     const base = ruleBody(readCss(CHAT_CSS), ".biliscript-reading-chat .chat-thinking-ultra-gradient");
-    expect(base).toContain("#88a3fe 0%");
-    expect(base).toContain("#6752c9 100%");
+    expect(base).toContain("var(--biliscript-primitive-color-terracotta-400) 0%");
+    expect(base).toContain("var(--biliscript-primitive-color-terracotta-600) 100%");
   });
 });
 

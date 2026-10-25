@@ -128,5 +128,41 @@ describe("editorial 数字刊物色板", () => {
     // editorial 两块的 time token 定义齐全（深色档不定义——深色消费 accent 母题）
     expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-time-color: var(--biliscript-primitive-color-terracotta-600);");
   });
+
+  it("成功色切换为鼠尾草绿（浅色 sage-600 / 深色 sage-400）", () => {
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-reader-success: var(--biliscript-primitive-color-sage-600)");
+    expect(EDITORIAL_DARK).toContain("--biliscript-reader-success: var(--biliscript-primitive-color-sage-400)");
+  });
+
+  it("圆角体系收紧：面板外壳 16px、内层书摘卡与输入卡 14px、单行输入与分段滑块 12px", () => {
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-radius-panel: var(--biliscript-primitive-radius-16)");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-radius-xl: var(--biliscript-primitive-radius-14)");
+    expect(EDITORIAL_LIGHT).toContain("--biliscript-radius-2xl: var(--biliscript-primitive-radius-12)");
+    expect(EDITORIAL_LIGHT).toContain("--chat-input-radius: var(--biliscript-primitive-radius-14)");
+    expect(EDITORIAL_LIGHT).toContain("--select-trigger-radius: var(--biliscript-primitive-radius-12)");
+    expect(EDITORIAL_LIGHT).toContain("--select-dropdown-radius: var(--biliscript-primitive-radius-14)");
+    expect(EDITORIAL_LIGHT).toContain("--select-option-radius: var(--biliscript-primitive-radius-8)");
+  });
+
+  it("思考强度滑轨：editorial 关停漂浮白星点粒子动画", () => {
+    const gate = readCss(GATE_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(gate).toContain("#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-chat .chat-thinking-track.is-sparkle .chat-thinking-energy");
+  });
+
+  it("元数据与导览标签使用等宽字体与等宽数字", () => {
+    const gate = readCss(GATE_CSS).replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const sel of [
+      "#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-search-count",
+      "#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-ov-badge",
+      "#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-chat .chat-thinking-row-value",
+      "#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-settings-host .biliscript-set-h",
+      "#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-settings-host .biliscript-slider-badge",
+      "#biliscript-reading-view[data-palette=\"editorial\"] .biliscript-reading-settings-host .provider-row-badge"
+    ]) {
+      expect(gate).toContain(sel);
+    }
+    expect(gate).toContain("font-family: var(--biliscript-reader-font-mono);");
+    expect(gate).toContain("font-variant-numeric: tabular-nums;");
+  });
 });
 

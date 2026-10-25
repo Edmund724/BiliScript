@@ -230,7 +230,7 @@
   filter: brightness(1.08) saturate(1.08);
 }
 
-/* 最高档（档位数 ≥ 3 的最右端）渐变层：基表紫色渐变服务 editorial 色板；
+/* 最高档（档位数 ≥ 3 的最右端）渐变层：基表暖赤陶渐变服务 editorial 色板；
  * flyme 色板由 reader-gate.css 的门控规则换成 Gemini 流光渐变。 */
 .biliscript-reading-chat .chat-thinking-ultra-gradient {
   position: absolute;
@@ -241,16 +241,9 @@
   opacity: 0;
   background: linear-gradient(
     90deg,
-    #88a3fe 0%,
-    #93a2ff 11%,
-    #a2a6ff 22%,
-    #aba8ff 33%,
-    #b2a3fe 44%,
-    #af99fe 55%,
-    #9766e4 66%,
-    #9766e4 72%,
-    #714dc7 86%,
-    #6752c9 100%
+    var(--biliscript-primitive-color-terracotta-400) 0%,
+    var(--biliscript-primitive-color-terracotta-500) 52%,
+    var(--biliscript-primitive-color-terracotta-600) 100%
   );
   transition: opacity 0.22s ease;
 }
