@@ -26,8 +26,7 @@ export { BILISCRIPT_VERSION } from "./version.js";
 // 侧边栏摘除退役——快捷动作改走消息直发（reader-enter 的 chat 负载），
 // 信箱键不再读写；存量键留存在用户 storage 中，无害。
 
-export interface Settings {
-  [key: string]: unknown;
+export interface KnownSettings {
   downloadFormat: string;
   includeDateInFilename: boolean;
   enablePlayerAiQuickAction: boolean;
@@ -83,6 +82,12 @@ export interface Settings {
   customPanelWidth: number;         // 自定义文摘面板宽度（像素，400–650），默认 540
   autoOpenReader: boolean;          // 进入普通视频页是否自动展开文摘面板，默认关
 }
+
+export interface Settings extends KnownSettings {
+  [key: string]: unknown;
+}
+
+export type KnownSettingKey = keyof KnownSettings;
 
 // ===== Merged default settings =====
 export const DEFAULT_SETTINGS: Settings = {

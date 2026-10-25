@@ -3,23 +3,20 @@
 // 五个消费方（presentation 写入 / lifecycle close 移除 / page-state 守卫清理与
 // 两份 attributeFilter / init-essentials storage 监听键）全部改为从表派生后，
 // 本文件守住表自身的契约：
-//   A. 表结构不变量（id 唯一 / 目标与 dataset 键派生一致 / 标志齐全）
+//   A. 表结构不变量（id 唯一 / 目标与 dataset 键派生一致 / 标志齐全 / 每项必有 DOM 落位）
 //   B. 派生清单与表标志一致；close 与守卫两份移除清单的「真实差异」显式断言
-//   C. storage 键 ↔ 字段一一对应，且全部落在 DEFAULT_SETTINGS 键面
+//   C. storage 键与同步设置键全部落在 DEFAULT_SETTINGS 键面且无重复
 //   D. 源码扫描：消费方与 CSS 中出现的每个 data-biliscript-* 属性要么在表里、
 //      要么在 LOCAL_FLAG_ATTRIBUTES（防止手抄清单复活）
 //   E. 行为：apply 真的写全 writtenByApply 字段；close 真的清全 clearOnClose
 //      字段；守卫真的收敛 body 全集
-//（三开关退役 2026-09：subtitle-visible / chapter-visibility 字段随滚动/字幕/
-// 章节开关删除，表内排版字段剩 theme（明暗）+ palette（色板）两项；相关走样
-// 修正锚点用例改为否定断言。）
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReaderPresentationField } from "../../extension/reader/presentation-fields.js";
 import {
   READER_PRESENTATION_FIELDS,
+  READER_SYNCED_SETTING_KEYS,
   READER_APPLY_FIELDS,
   READER_CLOSE_ATTRS,
   READER_GUARD_CLEAR_ATTRS,
@@ -35,7 +32,7 @@ import { mockPlayerRects, mountPlayerChain, mountReaderSkeleton } from "../helpe
 import type { TestState } from "./reader-test-env.js";
 
 const TARGETS = ["html", "body", "readingView"] as const;
-const VALID_KINDS = new Set(["presentation", "enter-flag", "view-flag", "settings"]);
+const VALID_KINDS = new Set(["presentation", "enter-flag", "view-flag"]);
 
 // 连字符属性名 → dataset 驼峰键（浏览器 dataset 语义：去 "data-"，余下按 "-"
 // 分段、首段原样、后继段首字母大写）。
@@ -131,14 +128,11 @@ describe("A. 表结构不变量", () => {
     }
   });
 
-  it("kind 取值合法；无任何落位目标的字段必须是 settings 键；writtenByApply ⇔ readValue", () => {
+  it("kind 取值合法；每个字段均具备真实 DOM 落位目标；writtenByApply ⇔ readValue", () => {
     for (const field of READER_PRESENTATION_FIELDS) {
       expect(VALID_KINDS.has(field.kind), `${field.id}.kind=${field.kind}`).toBe(true);
       const hasAnyTarget = Object.values(field.targets).some(Boolean);
-      if (!hasAnyTarget) {
-        expect(field.kind, `${field.id} 无落位目标，应为 settings 键`).toBe("settings");
-        expect(field.storageKey, `${field.id} settings 键必须有 storageKey`).toBeTruthy();
-      }
+      expect(hasAnyTarget, `${field.id} 必须声明至少一个 DOM 落位目标`).toBe(true);
       if (field.writtenByApply) {
         expect(typeof field.readValue, `${field.id} 声明 apply 写入则必须有 readValue`).toBe("function");
       } else {
@@ -225,9 +219,6 @@ describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
     expect(READER_CLOSE_ATTRS.readingView).toEqual(["data-biliscript-reader-follow"]);
     expect(READER_GUARD_CLEAR_ATTRS.readingView).toEqual([]);
     expect(READER_GUARD_FILTER.readingView).toEqual([]);
-    // 三开关退役后 close/守卫清理清单只剩 theme + palette + mode/reading-active
-    // 等页面级标志（subtitle-visible/chapter-visibility 随 2026-09 删除），
-    // html/body 两侧清单仍完全一致。
     expect(READER_CLOSE_ATTRS.html).toEqual(READER_GUARD_CLEAR_ATTRS.html);
     expect(READER_CLOSE_ATTRS.body).toEqual(READER_GUARD_CLEAR_ATTRS.body);
   });
@@ -237,7 +228,6 @@ describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
     expect(READER_SETTINGS_WATCH_KEYS).toContain("readerPalette");
     expect(READER_SETTINGS_WATCH_KEYS).toContain("enablePlayerAiQuickAction");
     expect(READER_SETTINGS_WATCH_KEYS).toContain("playerAiQuickPrompt");
-    // 双语副列两键：无属性落位、只服务跨上下文收敛，登记在表内 settings 档
     expect(READER_SETTINGS_WATCH_KEYS).toContain("bilingualSubtitles");
     expect(READER_SETTINGS_WATCH_KEYS).toContain("secondarySubtitleLang");
     expect(READER_SETTINGS_WATCH_KEYS).not.toContain("readerChapterVisible");
@@ -279,8 +269,8 @@ describe("B2. palette（色板）字段契约", () => {
   });
 });
 
-describe("C. storage 键 ↔ 字段一一对应", () => {
-  it("全部 storageKey/legacyStorageKey 落在 DEFAULT_SETTINGS 键面内", () => {
+describe("C. storage 键 ↔ 字段与同步键对应", () => {
+  it("全部 storageKey/legacyStorageKey 与 READER_SYNCED_SETTING_KEYS 落在 DEFAULT_SETTINGS 键面内", () => {
     const settingsKeys = new Set(Object.keys(DEFAULT_SETTINGS));
     for (const field of READER_PRESENTATION_FIELDS) {
       if (field.storageKey) {
@@ -290,27 +280,29 @@ describe("C. storage 键 ↔ 字段一一对应", () => {
         expect(settingsKeys.has(field.legacyStorageKey), `${field.id}.legacyStorageKey=${field.legacyStorageKey}`).toBe(true);
       }
     }
+    for (const key of READER_SYNCED_SETTING_KEYS) {
+      expect(settingsKeys.has(key), `READER_SYNCED_SETTING_KEYS: ${key}`).toBe(true);
+    }
   });
 
-  it("storageKey/legacyStorageKey 全局唯一（监听键集合因此无重复覆盖）", () => {
-    const keys = READER_PRESENTATION_FIELDS.flatMap((field) =>
-      [field.storageKey, field.legacyStorageKey].filter(Boolean)
+  it("呈现字段 storageKey 与 READER_SYNCED_SETTING_KEYS 全局唯一且共同构成 READER_SETTINGS_WATCH_KEYS", () => {
+    const fieldKeys = READER_PRESENTATION_FIELDS.flatMap((field) =>
+      [field.storageKey, field.legacyStorageKey].filter((k): k is NonNullable<typeof k> => Boolean(k))
     );
-    expect(new Set(keys).size).toBe(keys.length);
-    expect(READER_SETTINGS_WATCH_KEYS.sort()).toEqual([...new Set(keys)].sort());
+    const allKeys = [...fieldKeys, ...READER_SYNCED_SETTING_KEYS];
+    expect(new Set(allKeys).size).toBe(allKeys.length);
+    expect([...READER_SETTINGS_WATCH_KEYS].sort()).toEqual([...allKeys].sort());
   });
 
-  it("presentation 字段必有 storageKey；非 settings 字段必有落位目标", () => {
+  it("presentation 字段必有 storageKey；所有呈现字段必有 DOM 落位目标", () => {
     for (const field of READER_PRESENTATION_FIELDS) {
       if (field.kind === "presentation") {
         expect(field.storageKey, `${field.id} 排版字段应绑定 storage 键`).toBeTruthy();
       }
-      if (field.kind !== "settings") {
-        expect(
-          Object.values(field.targets).some(Boolean),
-          `${field.id} 非 settings 字段应有落位目标`
-        ).toBe(true);
-      }
+      expect(
+        Object.values(field.targets).some(Boolean),
+        `${field.id} 呈现字段应有落位目标`
+      ).toBe(true);
     }
   });
 });
@@ -354,10 +346,7 @@ describe("D. 源码扫描：data-biliscript-* 属性字面量必须登记在案"
   });
 });
 
-describe("D2. 表内 settings 键的收敛订阅从派生清单取，不再手抄键数组", () => {
-  // 双语副列两键的收敛订阅在 reader/subtitle-tab-ui.ts：键面取自
-  // READER_SETTINGS_WATCH_KEYS（主表派生），订阅里不带字面量键数组——新增阅读域
-  // 设置键漏登记会先让上方的派生化对账变红，而不会再退化成第二份手写清单。
+describe("D2. 同步设置键的收敛订阅从派生清单取，不再手抄键数组", () => {
   const SUBSCRIBER = "extension/reader/subtitle-tab-ui.ts";
 
   it("subtitle-tab-ui 的订阅键面引用派生清单，且无 sync/local 字面量数组", () => {

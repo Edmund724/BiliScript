@@ -1,24 +1,13 @@
-// ui/settings-panel.ts saveSettings 保存链直测
-//（arch-slim-2/05 测试网；provider-master-detail/02 起 saveSettings 只承载
-// 其余设置项——AI/ASR 平台的收集/校验/落盘/权限申请整体移交 provider-editor
-// Modal 的单平台链，见 provider-editor.test.js；笔记导出删除后本链只剩
-// 收集 → 单路落盘）。
+// ui/settings-panel.ts 保存链与跨端同步直测
 //
-// 走真实模块 + DOM 仿真（script-button.test.js 同款）：saveSettings 未导出，
-// 经唯一公开入口 renderReaderSettingsPanel 挂载面板后驱动——
-// - 保存链：收集(collectFormPayload) → 单路落盘(save-settings)；平台相关的
+// 走真实模块 + DOM 仿真（script-button.test.js 同款）：经公开入口
+// renderReaderSettingsPanel 挂载面板后驱动——
+// - 保存链：单字段即时落盘(save-settings)；平台相关的
 //   request-provider-origins / ai-providers-save / asr-providers-save 消息
 //   不再出自本链；
+// - 跨端同步：chrome.storage.onChanged 单键部分变更时只更新对应控件，不因其他监听键
+//   缺席而抛错；
 // - 模板口径：笔记导出的三个区块与三个导出选项行已删除，导出的保留项在场。
-//
-// chrome.runtime.sendMessage 换装成按 type 分发的消息总线（sent 记录全部出站
-// 报文），loadSettings 是 fire-and-forget，mountPanel 用 vi.waitFor 等装载链
-// 走完（最后一路 asr-providers-list）再操作表单。
-//
-// 触发点击统一走 fireClick（dispatchEvent）：tests/setup.ts 的 click 补丁会让
-// HTMLElement.click() 双发事件（jsdom 原生派发 + 补丁再手动派发一次），监听器
-// 双触发会把保存链并发跑两趟（第二趟收集到的可能已被第一趟重渲染清空）。产线
-// 监听器对 dispatchEvent 与真实点击同样响应。
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -225,7 +214,7 @@ describe("设置项即时保存与生效", () => {
   });
 
   it("save-settings 失败：状态条报错", async () => {
-    const sent = installMessageBus({ "save-settings": () => ({ ok: false, error: "写入失败" }) });
+    installMessageBus({ "save-settings": () => ({ ok: false, error: "写入失败" }) });
     const host = await mountPanel();
 
     const debugLogsInput = host.querySelector<HTMLInputElement>("#enableDebugLogs")!;
@@ -237,6 +226,38 @@ describe("设置项即时保存与生效", () => {
     });
 
     expect(lastStatus(host).dataset.error).toBe("true");
+  });
+
+  it("storage.onChanged 单键部分变更时只同步在场键，不因 asrAutoFallback 缺席而抛错", async () => {
+    const addListenerCalls: Array<(changes: Record<string, chrome.storage.StorageChange>, areaName: string) => void> = [];
+    vi.spyOn(chrome.storage.onChanged, "addListener").mockImplementation((fn) => {
+      addListenerCalls.push(fn);
+    });
+    installMessageBus();
+    const host = await mountPanel();
+
+    const asrToggle = host.querySelector<HTMLInputElement>("#asrAutoFallback")!;
+    const paidToggle = host.querySelector<HTMLInputElement>("#allowPaidSearchProviders")!;
+    const maxCallsSlider = host.querySelector<HTMLInputElement>("#webSearchMaxToolCalls")!;
+    expect(asrToggle.checked).toBe(true);
+    expect(paidToggle.checked).toBe(false);
+
+    // 仅变更 allowPaidSearchProviders 与 webSearchMaxToolCalls（changes 不含 asrAutoFallback）
+    expect(() => {
+      for (const listener of addListenerCalls) {
+        listener(
+          {
+            allowPaidSearchProviders: { oldValue: false, newValue: true },
+            webSearchMaxToolCalls: { oldValue: 2, newValue: 5 }
+          },
+          "sync"
+        );
+      }
+    }).not.toThrow();
+
+    expect(asrToggle.checked).toBe(true);
+    expect(paidToggle.checked).toBe(true);
+    expect(maxCallsSlider.value).toBe("5");
   });
 });
 
@@ -342,7 +363,7 @@ describe("恢复默认偏好按钮", () => {
   });
 
   // 对账（C5）：重置载荷同样必须落在 settings 键面内。readerTheme 是唯一不来自
-  // collectFormPayload 的重置键（它在键面内，合法）；键面外的键由白名单静默丢弃。
+  // 表单控件的重置键（它在键面内，合法）；键面外的键由白名单静默丢弃。
   it("重置载荷键面 ⊆ DEFAULT_SETTINGS 键面（readerTheme 在内）", async () => {
     const sent = installMessageBus();
     const host = await mountPanel();

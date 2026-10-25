@@ -1,30 +1,19 @@
 // Reader 呈现属性单一事实源（候选06 属性表半边）。
 //
 // 「阅读模式开着 + 排版设置」由一组 data-biliscript-reader-* / data-biliscript-reading-* 页面
-// 属性表达。历史上同一份字段清单在 5 处手抄且已漂移：
-//   1. 写入方 presentation.js（applyReadingViewPresentation）；
-//   2. closeReadingView 的移除清单（lifecycle.js）——漏了 subtitle-visible；
-//   3. 守卫清理 clearReaderModePageState（page-state.js）——body 侧只有 3 项；
-//   4. 守卫 observer 的两份 attributeFilter（page-state.js）——body 侧同样过窄；
-//   5. storage 变更监听键清单（init-essentials.js）——仍盯旧键
-//      readerChapterVisibility，实际读写键 readerChapterVisible 不在清单。
-// 本表是这些清单的唯一声明处，五个消费方一律从表派生；「真实差异」用字段标志
+// 属性表达。本表是这些清单的唯一声明处，五个消费方一律从表派生；「真实差异」用字段标志
 // （clearOnClose / clearOnGuard / watchedByGuard）显式化，不再靠各处手抄对齐。
 //
-// 三开关退役（滚动/字幕/章节不再可关，2026-09）：排版字段只剩明暗 theme 与
-// 色板 palette 两项，chapterVisibility / subtitleVisible 两字段连同其存储键
-// 随开关一并删除。
-//
-// 纯常量模块：零 import（连 core/state 都不碰），readValue 是注入 reader 状态
+// 纯常量模块：零运行时 import（仅 type-only import），readValue 是注入 reader 状态
 // 对象的纯函数。content / pages / reader 任意侧都可安全 import，无循环依赖。
 
+import type { KnownSettingKey } from "../core/defaults.js";
 import type { ReaderState } from "../core/state.js";
 
 export type ReaderPresentationFieldKind =
   | "presentation"
   | "enter-flag"
-  | "view-flag"
-  | "settings";
+  | "view-flag";
 
 export interface ReaderPresentationTargets {
   html: string | null;
@@ -37,8 +26,8 @@ export interface ReaderPresentationField {
   kind: ReaderPresentationFieldKind;
   targets: ReaderPresentationTargets;
   datasetKeys: ReaderPresentationTargets;
-  storageKey: string | null;
-  legacyStorageKey: string | null;
+  storageKey: KnownSettingKey | null;
+  legacyStorageKey: KnownSettingKey | null;
   watchedByGuard: boolean;
   clearOnGuard: boolean;
   clearOnClose: boolean;
@@ -55,10 +44,7 @@ export interface ReaderPresentationField {
 //                     "enter-flag"   进入标记（mode / reading-active，由组合根
 //                                    content.js、message-handler.js 与
 //                                    enterReaderMode 写入，apply 不负责）；
-//                     "view-flag"    视图内同步标志（follow，由 sync.js 写入）；
-//                     "settings"     无属性的纯 storage 监听键（player-ai 两键、
-//                                    双语副列两键，只为 bindSettingsWatcher 的键
-//                                    清单与各叶子的收敛订阅服务）。
+//                     "view-flag"    视图内同步标志（follow / ready）。
 //   targets         作用目标 → 该目标上的连字符属性名；不在该目标落位为 null。
 //                     html = documentElement，body = document.body，
 //                     readingView = #biliscript-reading-view（短名属性）。
@@ -85,7 +71,7 @@ export interface ReaderPresentationField {
 //                   writtenByApply 字段上存在，属「值怎么算」的呈现逻辑，
 //                   随字段声明进表以免写入方再抄一份取值清单。
 export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
-  // —— 排版设置标量（顺序即 apply 的写入顺序，迁移前逐字一致）——
+  // —— 排版设置标量（顺序即 apply 的写入顺序）——
   {
     id: "theme",
     kind: "presentation",
@@ -181,125 +167,20 @@ export const READER_PRESENTATION_FIELDS: ReaderPresentationField[] = [
     clearViewOnClose: false,
     writtenByApply: false,
     readValue: null
-  },
-  // —— 纯 storage 监听键：无属性落位，只为 bindSettingsWatcher 键清单服务 ——
-  // 播放器 AI 快捷动作的开关/提示词变化需要立即触发设置回读与快捷按钮同步。
-  {
-    id: "enablePlayerAiQuickAction",
-    kind: "settings",
-    targets: { html: null, body: null, readingView: null },
-    datasetKeys: { html: null, body: null, readingView: null },
-    storageKey: "enablePlayerAiQuickAction",
-    legacyStorageKey: null,
-    watchedByGuard: false,
-    clearOnGuard: false,
-    clearOnClose: false,
-    clearViewOnClose: false,
-    writtenByApply: false,
-    readValue: null
-  },
-  {
-    id: "playerAiQuickPrompt",
-    kind: "settings",
-    targets: { html: null, body: null, readingView: null },
-    datasetKeys: { html: null, body: null, readingView: null },
-    storageKey: "playerAiQuickPrompt",
-    legacyStorageKey: null,
-    watchedByGuard: false,
-    clearOnGuard: false,
-    clearOnClose: false,
-    clearViewOnClose: false,
-    writtenByApply: false,
-    readValue: null
-  },
-  // —— 双语副列的两枚偏好键：与 player-ai 两键同形（无属性落位、只服务跨上下文
-  // 收敛）。别的标签页 / 另一台设备改了开关或目标语言，本页由
-  // reader/subtitle-tab-ui.ts 的订阅收敛（它按 id 取这两键，其余键早退）。——
-  {
-    id: "bilingualSubtitles",
-    kind: "settings",
-    targets: { html: null, body: null, readingView: null },
-    datasetKeys: { html: null, body: null, readingView: null },
-    storageKey: "bilingualSubtitles",
-    legacyStorageKey: null,
-    watchedByGuard: false,
-    clearOnGuard: false,
-    clearOnClose: false,
-    clearViewOnClose: false,
-    writtenByApply: false,
-    readValue: null
-  },
-  {
-    id: "secondarySubtitleLang",
-    kind: "settings",
-    targets: { html: null, body: null, readingView: null },
-    datasetKeys: { html: null, body: null, readingView: null },
-    storageKey: "secondarySubtitleLang",
-    legacyStorageKey: null,
-    watchedByGuard: false,
-    clearOnGuard: false,
-    clearOnClose: false,
-    clearViewOnClose: false,
-    writtenByApply: false,
-    readValue: null
-  },
-  {
-    id: "readerFontSizeScale",
-    kind: "settings",
-    targets: { html: null, body: null, readingView: null },
-    datasetKeys: { html: null, body: null, readingView: null },
-    storageKey: "readerFontSizeScale",
-    legacyStorageKey: null,
-    watchedByGuard: false,
-    clearOnGuard: false,
-    clearOnClose: false,
-    clearViewOnClose: false,
-    writtenByApply: false,
-    readValue: null
-  },
-  {
-    id: "chatLineHeight",
-    kind: "settings",
-    targets: { html: null, body: null, readingView: null },
-    datasetKeys: { html: null, body: null, readingView: null },
-    storageKey: "chatLineHeight",
-    legacyStorageKey: null,
-    watchedByGuard: false,
-    clearOnGuard: false,
-    clearOnClose: false,
-    clearViewOnClose: false,
-    writtenByApply: false,
-    readValue: null
-  },
-  {
-    id: "chatParagraphSpacing",
-    kind: "settings",
-    targets: { html: null, body: null, readingView: null },
-    datasetKeys: { html: null, body: null, readingView: null },
-    storageKey: "chatParagraphSpacing",
-    legacyStorageKey: null,
-    watchedByGuard: false,
-    clearOnGuard: false,
-    clearOnClose: false,
-    clearViewOnClose: false,
-    writtenByApply: false,
-    readValue: null
-  },
-  {
-    id: "chatInputGlow",
-    kind: "settings",
-    targets: { html: null, body: null, readingView: null },
-    datasetKeys: { html: null, body: null, readingView: null },
-    storageKey: "chatInputGlow",
-    legacyStorageKey: null,
-    watchedByGuard: false,
-    clearOnGuard: false,
-    clearOnClose: false,
-    clearViewOnClose: false,
-    writtenByApply: false,
-    readValue: null
   }
 ];
+
+// 无 DOM 属性落位、但需经阅读域 storage 监听触发跨上下文同步的设置键。
+export const READER_SYNCED_SETTING_KEYS: readonly KnownSettingKey[] = Object.freeze([
+  "enablePlayerAiQuickAction",
+  "playerAiQuickPrompt",
+  "bilingualSubtitles",
+  "secondarySubtitleLang",
+  "readerFontSizeScale",
+  "chatLineHeight",
+  "chatParagraphSpacing",
+  "chatInputGlow"
+]);
 
 // 按标志 × 作用目标派生连字符属性名清单（模块顶层计算一次的常量）。
 // readingView 列额外要求 clearViewOnClose：clearOnGuard/clearOnClose 表达的是
@@ -337,8 +218,6 @@ export const READER_CLOSE_ATTRS = collectAttrsByTarget("clearOnClose");
 export const READER_GUARD_CLEAR_ATTRS = collectAttrsByTarget("clearOnGuard");
 
 // 守卫 observer 的 attributeFilter（page-state.js 从此派生）。
-// 旧手抄 body filter 只有 mode/line-height/reading-active 三项，与 html 全集
-// 不对称且无 CSS 依据（body 与 html 的选择器面一致），属走样；按正确超集对齐。
 export const READER_GUARD_FILTER = collectAttrsByTarget("watchedByGuard");
 
 // 视图就绪态属性名（由主表 ready 字段派生，shell.ts 完好性判据等消费）。
@@ -351,14 +230,14 @@ export const READER_APPLY_FIELDS = READER_PRESENTATION_FIELDS.filter(
   (field) => field.writtenByApply
 );
 
-// storage 变更监听键全集：所有 storageKey ∪ legacyStorageKey（去重，null 滤除
-// 并收窄为 string——R3 起 watch-storage-keys seam 的键清单参数要求 string）。
+// storage 变更监听键全集：呈现字段的 storageKey/legacyStorageKey ∪ READER_SYNCED_SETTING_KEYS。
 export const READER_SETTINGS_WATCH_KEYS: string[] = [
-  ...new Set(
-    READER_PRESENTATION_FIELDS.flatMap(
+  ...new Set([
+    ...READER_PRESENTATION_FIELDS.flatMap(
       (field): (string | null)[] => [field.storageKey, field.legacyStorageKey]
-    ).filter((key): key is string => Boolean(key))
-  )
+    ).filter((key): key is string => Boolean(key)),
+    ...READER_SYNCED_SETTING_KEYS
+  ])
 ];
 
 // 有意不入主表的同前缀局部标志：不参与呈现属性契约的临时/局部标记，由本清单

@@ -19,9 +19,28 @@ import {
   type Settings
 } from "./defaults.js";
 
-// ===== Shared string helper =====
+// ===== Shared scalar helpers =====
 export function toString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+export function booleanField(defaultValue = false): (value: unknown) => boolean {
+  return defaultValue
+    ? function (value: unknown): boolean { return value !== false; }
+    : function (value: unknown): boolean { return value === true; };
+}
+
+export function clampedIntField(min: number, max: number, fallback: number): (value: unknown) => number {
+  return function (value: unknown): number {
+    if (value === null || value === undefined || value === "") {
+      return fallback;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+    return Math.min(max, Math.max(min, Math.round(parsed)));
+  };
 }
 
 // ===== Reader normalizers =====
@@ -39,18 +58,14 @@ export function normalizeReaderPalette(value: unknown): string {
 }
 
 // AI 对话输入框光晕：默认 true，仅显式 false 时关闭。
-export function normalizeChatInputGlow(value: unknown): boolean {
-  return value !== false;
-}
+export const normalizeChatInputGlow = booleanField(true);
 
 // ===== Download / AI normalizers =====
 export function normalizeDownloadFormat(value: unknown): string {
   return value === "txt" ? "txt" : "srt";
 }
 
-export function normalizeEnablePlayerAiQuickAction(value: unknown): boolean {
-  return value === true;
-}
+export const normalizeEnablePlayerAiQuickAction = booleanField(false);
 
 export function normalizePlayerAiQuickPrompt(value: unknown): string {
   const normalized = toString(value).trim();
@@ -109,100 +124,64 @@ export function normalizeDefaultModel(value: unknown): string {
 export { normalizeThinkingLevel as normalizeAiThinkingLevel } from "../ai/thinking-levels.js";
 
 // ===== 联网搜索 normalizers =====
-export function normalizeWebSearchEnabled(value: unknown): boolean {
-  return value === true;
-}
+export const normalizeWebSearchEnabled = booleanField(false);
 
 // 两个非可调一次性状态位（spec §2 flag 的家 / §6.7 状态位）：与
 // normalizeWebSearchEnabled 同型的布尔归一，非 boolean 一律回落 false。
 // searchPresetsAutoActivated：安装/更新时免 Key 预设已自动补齐的旗标。
-export function normalizeSearchPresetsAutoActivated(value: unknown): boolean {
-  return value === true;
-}
+export const normalizeSearchPresetsAutoActivated = booleanField(false);
 
 // searchOptInNoticeAcknowledged：联网搜索 opt-in 说明已确认（仅「同意并继续」置位）。
-export function normalizeSearchOptInNoticeAcknowledged(value: unknown): boolean {
-  return value === true;
-}
+export const normalizeSearchOptInNoticeAcknowledged = booleanField(false);
 
 // 单轮搜索次数上限：整数，区间 1–20，越界夹取，非法值回落默认 5（spec §3.2）
-export function normalizeWebSearchMaxToolCalls(value: unknown): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_SETTINGS.webSearchMaxToolCalls;
-  }
-  return Math.min(20, Math.max(1, Math.round(parsed)));
-}
+export const normalizeWebSearchMaxToolCalls = clampedIntField(
+  1,
+  20,
+  DEFAULT_SETTINGS.webSearchMaxToolCalls
+);
 
 // 付费平台准入开关（GLOSSARY「付费平台」）：与 normalizeWebSearchEnabled 同型的
 // 布尔归一，非 boolean 一律回落 false（默认关——花钱必须是显式动作）。
-export function normalizeAllowPaidSearchProviders(value: unknown): boolean {
-  return value === true;
-}
+export const normalizeAllowPaidSearchProviders = booleanField(false);
 
 // ===== 双语字幕 normalizers =====
 // 双语字幕开关：与 normalizeWebSearchEnabled 同型的布尔归一，非 boolean 回落 false。
-export function normalizeBilingualSubtitles(value: unknown): boolean {
-  return value === true;
-}
+export const normalizeBilingualSubtitles = booleanField(false);
+
+// ===== 文摘面板排版 normalizers =====
+export const normalizeReaderFontSizeScale = clampedIntField(
+  70,
+  130,
+  DEFAULT_SETTINGS.readerFontSizeScale
+);
+
+export const normalizeChatLineHeight = clampedIntField(
+  120,
+  200,
+  DEFAULT_SETTINGS.chatLineHeight
+);
+
+export const normalizeChatParagraphSpacing = clampedIntField(
+  4,
+  20,
+  DEFAULT_SETTINGS.chatParagraphSpacing
+);
+
+// ===== 文摘面板布局与自动展开 normalizers =====
+export const normalizeCustomPanelWidthEnabled = booleanField(false);
+
+export const normalizeCustomPanelWidth = clampedIntField(
+  400,
+  650,
+  DEFAULT_SETTINGS.customPanelWidth
+);
+
+export const normalizeAutoOpenReader = booleanField(false);
 
 // 副字幕语言标签：trim 后做 BCP-47 粗校验（2–3 位主语言 + 若干 2–8 位子标签）。
 // 空串（DEFAULT_SETTINGS 缺键 / 用户清空保存）与非法标签一样回落当前默认：清空即
 // 恢复默认；合法标签保留调用方原样的大小写与连字格式（不转小写）。
-// ===== 文摘面板排版 normalizers =====
-export function normalizeReaderFontSizeScale(value: unknown): number {
-  if (value === null || value === undefined || value === "") {
-    return DEFAULT_SETTINGS.readerFontSizeScale;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_SETTINGS.readerFontSizeScale;
-  }
-  return Math.min(130, Math.max(70, Math.round(parsed)));
-}
-
-export function normalizeChatLineHeight(value: unknown): number {
-  if (value === null || value === undefined || value === "") {
-    return DEFAULT_SETTINGS.chatLineHeight;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_SETTINGS.chatLineHeight;
-  }
-  return Math.min(200, Math.max(120, Math.round(parsed)));
-}
-
-export function normalizeChatParagraphSpacing(value: unknown): number {
-  if (value === null || value === undefined || value === "") {
-    return DEFAULT_SETTINGS.chatParagraphSpacing;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_SETTINGS.chatParagraphSpacing;
-  }
-  return Math.min(20, Math.max(4, Math.round(parsed)));
-}
-
-// ===== 文摘面板布局与自动展开 normalizers =====
-export function normalizeCustomPanelWidthEnabled(value: unknown): boolean {
-  return value === true;
-}
-
-export function normalizeCustomPanelWidth(value: unknown): number {
-  if (value === null || value === undefined || value === "") {
-    return DEFAULT_SETTINGS.customPanelWidth;
-  }
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_SETTINGS.customPanelWidth;
-  }
-  return Math.min(650, Math.max(400, Math.round(parsed)));
-}
-
-export function normalizeAutoOpenReader(value: unknown): boolean {
-  return value === true;
-}
-
 export function normalizeSecondarySubtitleLang(value: unknown): string {
   const normalized = toString(value).trim();
   if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(normalized)) {
