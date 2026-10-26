@@ -817,6 +817,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
   transition: box-shadow 0.22s ease, background 0.22s ease, border-color 0.22s ease;
 }
 
+/* 模型面板展开时解除父级输入卡的 Backdrop Root：输入卡带 backdrop-filter 时会形成
+ * 剪裁于自身边框盒的 Backdrop Root，导致溢出到上方的后代 .chat-model-panel 无法对
+ * 背后的 .chat-messages 与输入框文字做 24px 高斯模糊。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-input-card:has(.chat-model-panel:not([hidden])) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 #biliscript-reading-view:not([data-palette="editorial"]):not([data-chat-input-glow="0"]) .biliscript-reading-chat .chat-input-card {
   box-shadow:
     var(--biliscript-reader-card-highlight),
