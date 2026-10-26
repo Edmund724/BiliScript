@@ -42,6 +42,10 @@
   background-color: transparent;
 }
 
+#biliscript-reading-view .markdown-body .biliscript-md-arrow {
+  font-family: "Segoe UI Symbol", "Noto Sans Symbols", "Apple Symbols", sans-serif;
+}
+
 /* 列表 marker 必须在 li 上夺回：宿主页面（bilibili.com）的站点 reset 直接给
  * li 设 list-style-type: none（2026-09 探针实测），marker 取 li 自身的
  * list-style-type——在 ul/ol 上设 disc 继承不进去，基线不含 li 级规则，

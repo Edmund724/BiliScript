@@ -136,6 +136,17 @@ describe("renderMarkdown 删除线", () => {
   });
 });
 
+describe("renderMarkdown 流程箭头", () => {
+  it("右箭头使用独立符号字体，代码与数学公式保持原文", () => {
+    expect(renderMarkdown("甲 → **乙**")).toBe(
+      '<p>甲 <span class="biliscript-md-arrow">→</span> <strong>乙</strong></p>'
+    );
+    expect(renderMarkdown("`甲 → 乙`")).toBe("<p><code>甲 → 乙</code></p>");
+    expect(renderMarkdown("$A → B$")).toContain('data-tex="A → B"');
+    expect(renderMarkdown("$A → B$")).not.toContain("biliscript-md-arrow");
+  });
+});
+
 describe("splitMarkdownTail 与新增块型兼容", () => {
   it("引用块/分割线/任务列表参与流式切分：空行边界切点不变，堆叠渲染与全文一致", () => {
     const text = "> 引用首段\n> 引用续行\n\n---\n\n- [x] 任务甲\n- [ ] 任务乙\n\n正文尾段";

@@ -710,6 +710,24 @@ export function createMarkdownTailCursor(): MarkdownTailCursor {
   };
 }
 
+function wrapFlowArrows(html: string): string {
+  let inMath = false;
+  return html
+    .split(/(<[^>]+>)/g)
+    .map((part) => {
+      if (part.startsWith("<")) {
+        if (/^<span class="biliscript-md-math\b/.test(part)) {
+          inMath = true;
+        } else if (inMath && part === "</span>") {
+          inMath = false;
+        }
+        return part;
+      }
+      return inMath ? part : part.replaceAll("→", '<span class="biliscript-md-arrow">→</span>');
+    })
+    .join("");
+}
+
 function renderInline(text: string): string {
   const inlineCodes: string[] = [];
   let working = text.replace(/`([^`]+)`/g, (_, c: string) => {
@@ -746,6 +764,7 @@ function renderInline(text: string): string {
       return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${t}</a>`;
     });
   working = working.replaceAll("\u0003ESCDOLLAR\u0003", "$");
+  working = wrapFlowArrows(working);
   working = working.replace(/\u0002ILC_(\d+)\u0002/g, (_, idx: string) => inlineCodes[Number(idx)]);
   return working;
 }
