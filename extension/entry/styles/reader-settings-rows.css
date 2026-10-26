@@ -399,24 +399,31 @@
 #biliscript-reading-view .biliscript-reading-settings-host .add-property-btn {
   justify-self: start;
   height: 32px;
-  padding: 0 var(--biliscript-space-md);
-  border: 1px dashed var(--biliscript-reader-border);
+  padding: 0 var(--biliscript-space-14);
+  border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;
   color: var(--biliscript-reader-muted);
+  font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   font-weight: 400;
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
 #biliscript-reading-view .biliscript-reading-settings-host .add-property-btn:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
+  background: var(--biliscript-reader-surface-2);
 }
 
-#biliscript-reading-view .biliscript-reading-settings-host .add-property-btn:hover {
-  color: var(--biliscript-reader-accent);
-  border-color: var(--biliscript-reader-accent);
+#biliscript-reading-view .biliscript-reading-settings-host .add-property-btn:hover:not(:disabled) {
+  color: var(--biliscript-reader-text);
+  background: var(--biliscript-reader-fill-hover);
+}
+
+#biliscript-reading-view .biliscript-reading-settings-host .add-property-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* 面板外部的 global document click 委托会关闭模型下拉；
