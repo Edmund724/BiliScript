@@ -46,9 +46,9 @@ export const Promo = () => {
     <AbsoluteFill style={{background: COLORS.background}}>
       <Backdrop />
       {SCENES.map((scene, index) => {
-        const duration = scene.duration + (index < SCENES.length - 1 ? 12 : 0);
+        const duration = scene.duration;
         return (
-          <Sequence key={scene.id} from={scene.from} durationInFrames={duration} premountFor={30}>
+          <Sequence key={scene.id} from={scene.from} durationInFrames={duration}>
             <SceneShell duration={duration} direction={index % 2 === 0 ? 1 : -1} final={index === SCENES.length - 1}>
               <Scene id={scene.id} duration={duration} />
             </SceneShell>

@@ -23,10 +23,10 @@ const BRAND_FONT_FAMILY = 'Bahnschrift, "Aptos Display", sans-serif';
 export type Crop = {x: number; y: number; width: number; height: number};
 
 export const PANEL_CROPS = {
-  subtitle: {x: 1326, y: 66, width: 580, height: 1014},
-  overview: {x: 1326, y: 66, width: 580, height: 1014},
-  chat: {x: 1326, y: 66, width: 580, height: 1014},
-  appearance: {x: 1326, y: 55, width: 580, height: 1025}
+  subtitle: {x: 1340, y: 66, width: 566, height: 1014},
+  overview: {x: 1340, y: 66, width: 566, height: 1014},
+  chat: {x: 1340, y: 66, width: 566, height: 1014},
+  appearance: {x: 1366, y: 55, width: 540, height: 1025}
 } satisfies Record<string, Crop>;
 
 export const Backdrop = () => (
@@ -43,7 +43,13 @@ export const Reveal = ({children, delay = 0, distance = 16, style = {}}: {
   const {fps} = useVideoConfig();
   const progress = spring({frame: Math.max(0, frame - delay), fps, config: {damping: 22, stiffness: 100, mass: 0.8}});
   return (
-    <div style={{...style, opacity: progress, translate: `0px ${(1 - progress) * distance}px`}}>
+    <div
+      style={{
+        ...style,
+        opacity: interpolate(progress, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}),
+        translate: `0px ${(1 - progress) * distance}px`
+      }}
+    >
       {children}
     </div>
   );
@@ -59,7 +65,8 @@ export const Brand = ({style = {}, size = 26, iconSize = 38}: {style?: CSSProper
 );
 
 export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
-export const MICRO_PERSPECTIVE = "perspective(2200px) rotateY(6deg)";
+export const microPerspective = (tilt = 6) => `perspective(2200px) rotateY(${tilt}deg)`;
+export const MICRO_PERSPECTIVE = microPerspective(6);
 
 export const SpringLayout = ({children, delay = 0, direction = 1, style = {}}: {
   children: ReactNode;
@@ -71,7 +78,7 @@ export const SpringLayout = ({children, delay = 0, direction = 1, style = {}}: {
   const {fps} = useVideoConfig();
   const progress = spring({frame: Math.max(0, frame - delay), fps, config: SPRING_LAYOUT});
   return (
-    <AbsoluteFill style={{opacity: interpolate(progress, [0, 0.3], [0.82, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}), translate: `${(1 - progress) * direction * 48}px 0px`, ...style}}>
+    <AbsoluteFill style={{opacity: interpolate(progress, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}), translate: `${(1 - progress) * direction * 42}px 0px`, ...style}}>
       {children}
     </AbsoluteFill>
   );
@@ -97,9 +104,11 @@ export const SceneShell = ({children, duration, direction, final = false}: {
   final?: boolean;
 }) => {
   const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const entrance = spring({frame, fps, config: SPRING_LAYOUT});
   const opacity = final
-    ? interpolate(frame, [0, 12], [0, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
-    : interpolate(frame, [0, 10, duration - 12, duration], [0, 1, 1, 0], {
+    ? interpolate(entrance, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
+    : interpolate(frame, [0, 6, duration - 6, duration], [0.88, 1, 1, 0.92], {
         extrapolateLeft: "clamp",
         extrapolateRight: "clamp"
       });
@@ -108,7 +117,7 @@ export const SceneShell = ({children, duration, direction, final = false}: {
       style={{
         opacity,
         fontFamily: FONT_FAMILY,
-        translate: final ? "0px 0px" : interpolate(frame, [0, 14, duration - 12, duration], [`${-direction * 18}px 0px`, "0px 0px", "0px 0px", `${direction * 18}px 0px`], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
+        translate: final ? "0px 0px" : `${(1 - entrance) * -direction * 36}px 0px`
       }}
     >
       {children}
@@ -152,7 +161,7 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
         border: "1px solid rgba(83, 110, 134, 0.18)",
         boxShadow: "0 28px 70px -30px rgba(43, 70, 93, 0.35), 0 4px 18px rgba(43, 70, 93, 0.06)",
         opacity: 1,
-        transform: `perspective(2200px) rotateY(${tilt}deg)`,
+        transform: microPerspective(tilt),
         scale: animate ? interpolate(entrance, [0, 1], [0.96, 1], {extrapolateLeft: "clamp"}) * interpolate(frame, [0, duration], [1, 1.028], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1,
         translate: animate ? `${(1 - entrance) * pan}px ${(1 - entrance) * 24}px` : "0px 0px",
         ...style

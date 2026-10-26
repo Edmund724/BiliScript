@@ -5,7 +5,7 @@ import {getCompositions, getVideoMetadata, renderMedia, renderStill} from "@remo
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {preparePromoAssets} from "./prepare.mjs";
-import {CAPTIONS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
+import {APPEARANCE_SHOTS, CAPTIONS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
 const RELEASE_DIR = path.join(REPO_ROOT, "release");
 const EVIDENCE_DIR = path.join(PROMO_DIR, "evidence");
@@ -31,6 +31,9 @@ function validateTimeline() {
   if (nextFrom !== PROMO_DURATION) throw new Error(`镜头总时长不符：${nextFrom}`);
   if (CHAT_SHOTS.reduce((total, shot) => total + shot.duration, 0) !== SCENES.find((scene) => scene.id === "chat")?.duration) {
     throw new Error("AI 分镜时长不符");
+  }
+  if (APPEARANCE_SHOTS.reduce((total, shot) => total + shot.duration, 0) !== SCENES.find((scene) => scene.id === "appearance")?.duration) {
+    throw new Error("外观分镜时长不符");
   }
   let previousEnd = 0;
   for (const caption of CAPTIONS) {
