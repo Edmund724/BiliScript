@@ -7,8 +7,11 @@ import {PROMO_DIR} from "./lib.mjs";
 export const PROMO_PUBLIC_DIR = path.join(PROMO_DIR, "public");
 
 const sources = {
-  "subtitle.mp4": path.join(PROMO_DIR, "clips", "02-subtitle.mp4"),
-  "overview.mp4": path.join(PROMO_DIR, "clips", "03-overview.mp4"),
+  "hero-hook.mp4": path.join(REPO_ROOT, "scripts", "promo", "public", "media", "hero-hook.mp4"),
+  "hero-panel.png": path.join(REPO_ROOT, "scripts", "promo", "public", "media", "hero-panel.png"),
+  "overview-04-chapters.mp4": path.join(REPO_ROOT, "scripts", "promo", "public", "media", "overview-04-chapters.mp4"),
+  "overview-04-quote.mp4": path.join(REPO_ROOT, "scripts", "promo", "public", "media", "overview-04-quote.mp4"),
+  "subtitle-seek-03.mp4": path.join(REPO_ROOT, "scripts", "promo", "public", "media", "subtitle-seek-03.mp4"),
   "chat.mp4": path.join(PROMO_DIR, "clips", "04-chat.mp4"),
   "appearance.mp4": path.join(PROMO_DIR, "clips", "05-appearance.mp4"),
   "overview-poster.jpg": path.join(PROMO_DIR, "frames", "03-overview", "000000.jpg"),

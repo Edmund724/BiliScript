@@ -89,7 +89,7 @@ async function validateFinalVideo(output) {
 }
 
 const {publicDir, manifest} = await preparePromoAssets();
-for (const [name, duration] of [["subtitle.mp4", 10], ["overview.mp4", 12], ["chat.mp4", 15], ["appearance.mp4", 8]]) {
+for (const [name, duration] of [["hero-hook.mp4", 4], ["subtitle-seek-03.mp4", 4], ["overview-04-chapters.mp4", 5.6], ["overview-04-quote.mp4", 4.733333], ["chat.mp4", 15], ["appearance.mp4", 8]]) {
   const metadata = await getVideoMetadata(path.join(publicDir, "media", name));
   if (metadata.width !== 1920 || metadata.height !== 1080 || metadata.fps !== PROMO_FPS || Math.abs(metadata.durationInSeconds - duration) > 0.05) {
     throw new Error(`素材规格不符 ${name}：${JSON.stringify(metadata)}`);

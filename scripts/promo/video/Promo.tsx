@@ -1,7 +1,11 @@
 import {Audio, AbsoluteFill, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {PROMO_DURATION, SCENES} from "../timeline.mjs";
 import {Backdrop, COLORS, SceneShell} from "./design";
-import {AppearanceScene, ChatScene, HeroScene, OutroScene, OverviewScene, SubtitleScene} from "./scenes";
+import {AppearanceScene, ChatScene} from "./scenes";
+import {HeroScene} from "./HeroScene";
+import {OutroScene} from "./OutroScene";
+import {OverviewScene} from "./OverviewScene";
+import {SubtitleScene} from "./SubtitleScene";
 
 const Scene = ({id, duration}: {id: string; duration: number}) => {
   switch (id) {
