@@ -58,6 +58,25 @@ export const Brand = ({style = {}, size = 26, iconSize = 38}: {style?: CSSProper
   </div>
 );
 
+export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
+export const MICRO_PERSPECTIVE = "perspective(2200px) rotateY(6deg)";
+
+export const SpringLayout = ({children, delay = 0, direction = 1, style = {}}: {
+  children: ReactNode;
+  delay?: number;
+  direction?: number;
+  style?: CSSProperties;
+}) => {
+  const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
+  const progress = spring({frame: Math.max(0, frame - delay), fps, config: SPRING_LAYOUT});
+  return (
+    <AbsoluteFill style={{opacity: interpolate(progress, [0, 0.3], [0.82, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}), translate: `${(1 - progress) * direction * 48}px 0px`, ...style}}>
+      {children}
+    </AbsoluteFill>
+  );
+};
+
 export const SceneTitle = ({title, style = {}, align = "left", size = 62}: {
   title: string;
   style?: CSSProperties;
@@ -97,7 +116,7 @@ export const SceneShell = ({children, duration, direction, final = false}: {
   );
 };
 
-export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playbackRate = 1, startFrom = 0, duration = 210, pan = 0, animate = true, style = {}}: {
+export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playbackRate = 1, startFrom = 0, duration = 210, pan = 0, animate = true, tilt = 6, style = {}}: {
   source?: string;
   crop?: Crop;
   width: number;
@@ -106,11 +125,12 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
   duration?: number;
   pan?: number;
   animate?: boolean;
+  tilt?: number;
   style?: CSSProperties;
 }) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const entrance = spring({frame, fps, config: {damping: 24, stiffness: 82, mass: 0.9}});
+  const entrance = spring({frame, fps, config: SPRING_LAYOUT});
   const cropScale = width / crop.width;
   const mediaStyle: CSSProperties = {
     position: "absolute",
@@ -131,8 +151,9 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
         background: "#F4F8FC",
         border: "1px solid rgba(83, 110, 134, 0.18)",
         boxShadow: "0 28px 70px -30px rgba(43, 70, 93, 0.35), 0 4px 18px rgba(43, 70, 93, 0.06)",
-        opacity: animate ? entrance : 1,
-        scale: animate ? entrance * interpolate(frame, [0, duration], [1, 1.028], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1,
+        opacity: 1,
+        transform: `perspective(2200px) rotateY(${tilt}deg)`,
+        scale: animate ? interpolate(entrance, [0, 1], [0.96, 1], {extrapolateLeft: "clamp"}) * interpolate(frame, [0, duration], [1, 1.028], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1,
         translate: animate ? `${(1 - entrance) * pan}px ${(1 - entrance) * 24}px` : "0px 0px",
         ...style
       }}

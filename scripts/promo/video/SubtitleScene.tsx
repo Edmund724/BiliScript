@@ -1,5 +1,5 @@
 import {Easing, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {SceneTitle} from "./design";
+import {MICRO_PERSPECTIVE, SceneTitle} from "./design";
 
 const SOURCE = "subtitle-seek-03.mp4";
 const PLAYBACK_RATE = 1.25;
@@ -13,6 +13,7 @@ const Camera = () => {
         position: "absolute",
         inset: 0,
         transformOrigin: "0 0",
+        transform: MICRO_PERSPECTIVE,
         scale: interpolate(frame, [0.3 * fps, 0.75 * fps, 1.5 * fps, 1.85 * fps, 2.2 * fps, 2.25 * fps], [1, 2, 2, 2, 1, 1], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp",

@@ -18,7 +18,7 @@ const Scene = ({id, duration}: {id: string; duration: number}) => {
     case "chat":
       return <ChatScene />;
     case "appearance":
-      return <AppearanceScene duration={duration} />;
+      return <AppearanceScene />;
     case "outro":
       return <OutroScene />;
     default:

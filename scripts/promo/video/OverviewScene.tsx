@@ -1,5 +1,5 @@
 import {Sequence, interpolate, useCurrentFrame, useVideoConfig} from "remotion";
-import {Crop, ProductFrame, SceneTitle} from "./design";
+import {Crop, ProductFrame, SceneTitle, SpringLayout} from "./design";
 
 const CHAPTER_CROP: Crop = {x: 1380, y: 230, width: 500, height: 650};
 const QUOTE_CROP: Crop = {x: 1415, y: 293, width: 440, height: 558};
@@ -17,8 +17,8 @@ const QuoteCamera = ({duration}: {duration: number}) => {
         top: 58,
         width: 760,
         height: 964,
-        transformOrigin: "50% 18%",
-        scale: interpolate(frame, [0, duration], [1, 1.075], {
+        transformOrigin: "50% 0%",
+        scale: interpolate(frame, [0, 18, duration], [1, 1.06, 1.1], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp"
         })
@@ -31,6 +31,7 @@ const QuoteCamera = ({duration}: {duration: number}) => {
         playbackRate={QUOTE_SOURCE_SECONDS / (Math.max(1, duration - 12) / fps)}
         duration={duration}
         animate={false}
+        tilt={-6}
         style={{left: 0, top: 0}}
       />
     </div>
@@ -44,20 +45,24 @@ export const OverviewScene = ({duration}: {duration: number}) => {
   return (
     <>
       <Sequence durationInFrames={chapterDuration}>
-        <SceneTitle title={"这条视频，\n讲了什么？"} style={{left: 130, top: 370, width: 720}} />
-        <ProductFrame
-          source="overview-04-chapters.mp4"
-          crop={CHAPTER_CROP}
-          width={760}
-          playbackRate={CHAPTER_SOURCE_SECONDS / (chapterDuration / fps)}
-          duration={chapterDuration}
-          pan={-24}
-          style={{left: 1040, top: 42}}
-        />
+        <SpringLayout direction={-1}>
+          <SceneTitle title={"这条视频，\n讲了什么？"} style={{left: 130, top: 370, width: 720}} />
+          <ProductFrame
+            source="overview-04-chapters.mp4"
+            crop={CHAPTER_CROP}
+            width={760}
+            playbackRate={CHAPTER_SOURCE_SECONDS / (chapterDuration / fps)}
+            duration={chapterDuration}
+            pan={-36}
+            style={{left: 1040, top: 42}}
+          />
+        </SpringLayout>
       </Sequence>
       <Sequence from={chapterDuration} durationInFrames={quoteDuration} premountFor={15}>
-        <SceneTitle title={"一句金句，\n生成分享卡片。"} size={56} style={{left: 130, top: 370, width: 760}} />
-        <QuoteCamera duration={quoteDuration} />
+        <SpringLayout direction={1}>
+          <SceneTitle title={"一句金句，\n生成分享卡片。"} size={56} style={{left: 130, top: 370, width: 760}} />
+          <QuoteCamera duration={quoteDuration} />
+        </SpringLayout>
       </Sequence>
     </>
   );
