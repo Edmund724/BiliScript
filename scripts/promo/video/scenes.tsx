@@ -1,3 +1,5 @@
+import {Sequence} from "remotion";
+import {CHAT_SHOTS} from "../timeline.mjs";
 import {Brand, COLORS, PANEL_CROPS, ProductFrame, Reveal, SceneTitle} from "./design";
 
 export const HeroScene = () => (
@@ -49,18 +51,28 @@ export const OverviewScene = ({duration}: {duration: number}) => (
   </>
 );
 
-export const ChatScene = ({duration}: {duration: number}) => (
+export const ChatScene = () => (
   <>
     <SceneTitle title={"看完还有问题？\n接着问。"} style={{left: 196, top: 370, width: 740}} />
-    <ProductFrame
-      source="chat.mp4"
-      crop={PANEL_CROPS.chat}
-      width={560}
-      playbackRate={1.58}
-      duration={duration}
-      pan={32}
-      style={{left: 1160, top: 52}}
-    />
+    {CHAT_SHOTS.map((shot, index) => (
+      <Sequence
+        key={shot.startFrom}
+        from={CHAT_SHOTS.slice(0, index).reduce((total, previous) => total + previous.duration, 0)}
+        durationInFrames={shot.duration}
+      >
+        <ProductFrame
+          source="chat.mp4"
+          crop={PANEL_CROPS.chat}
+          width={560}
+          startFrom={shot.startFrom}
+          playbackRate={shot.playbackRate}
+          duration={shot.duration}
+          pan={32}
+          animate={index === 0}
+          style={{left: 1160, top: 52}}
+        />
+      </Sequence>
+    ))}
   </>
 );
 
@@ -87,7 +99,7 @@ export const OutroScene = () => (
       <span>语音识别</span>
       <span>联网搜索</span>
     </div>
-    <Reveal delay={8} style={{position: "absolute", top: 286, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center"}}>
+    <Reveal delay={90} style={{position: "absolute", top: 286, left: 0, right: 0, display: "flex", flexDirection: "column", alignItems: "center"}}>
       <Brand size={98} iconSize={72} />
       <div style={{color: COLORS.foreground, fontSize: 34, marginTop: 34}}>在 B 站，读下一条视频。</div>
       <div style={{display: "flex", gap: 52, marginTop: 58, fontSize: 23}}>

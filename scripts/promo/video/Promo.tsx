@@ -1,5 +1,5 @@
 import {Audio, AbsoluteFill, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
-import {SCENES} from "../timeline.mjs";
+import {PROMO_DURATION, SCENES} from "../timeline.mjs";
 import {Backdrop, COLORS, SceneShell} from "./design";
 import {AppearanceScene, ChatScene, HeroScene, OutroScene, OverviewScene, SubtitleScene} from "./scenes";
 
@@ -12,7 +12,7 @@ const Scene = ({id, duration}: {id: string; duration: number}) => {
     case "overview":
       return <OverviewScene duration={duration} />;
     case "chat":
-      return <ChatScene duration={duration} />;
+      return <ChatScene />;
     case "appearance":
       return <AppearanceScene duration={duration} />;
     case "outro":
@@ -28,7 +28,7 @@ const Soundtrack = () => {
     <Audio
       src={staticFile("media/Wholesome.mp3")}
       volume={() =>
-        interpolate(frame, [0, 24, 1080, 1190, 1259], [0, 0.16, 0.16, 0.13, 0], {
+        interpolate(frame, [0, 24, PROMO_DURATION - 150, PROMO_DURATION - 60, PROMO_DURATION - 1], [0, 0.16, 0.16, 0.13, 0], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp"
         })

@@ -3,15 +3,21 @@ export {CAPTIONS} from "./captions.mjs";
 export const PROMO_WIDTH = 1920;
 export const PROMO_HEIGHT = 1080;
 export const PROMO_FPS = 30;
-export const PROMO_DURATION = 1260;
+export const PROMO_DURATION = 840;
 
 export const SCENES = [
-  { id: "hero", from: 0, duration: 135 },
-  { id: "subtitle", from: 135, duration: 195 },
-  { id: "overview", from: 330, duration: 210 },
-  { id: "chat", from: 540, duration: 270 },
-  { id: "appearance", from: 810, duration: 180 },
-  { id: "outro", from: 990, duration: 270 }
+  { id: "hero", from: 0, duration: 90 },
+  { id: "subtitle", from: 90, duration: 120 },
+  { id: "overview", from: 210, duration: 120 },
+  { id: "chat", from: 330, duration: 180 },
+  { id: "appearance", from: 510, duration: 90 },
+  { id: "outro", from: 600, duration: 240 }
 ];
 
-export const EVIDENCE_TIMES = [0.5, 2.5, 4.4, 4.6, 7.5, 10.8, 11.2, 14.5, 17.8, 18.2, 22.5, 26.8, 27.2, 30, 32.8, 33.2, 36, 39.5, 41.5];
+export const CHAT_SHOTS = [
+  { startFrom: 0, duration: 45, playbackRate: 1 },
+  { startFrom: 150, duration: 15, playbackRate: 1 },
+  { startFrom: 405, duration: 120, playbackRate: 0.375 }
+];
+
+export const EVIDENCE_TIMES = [0.5, 2.5, 3.2, 4.5, 6.8, 7.2, 9.5, 10.8, 11.2, 12, 12.5, 13, 14.5, 16.8, 17.2, 18.5, 19.8, 20.2, 22, 23.8, 24.2, 27.5];

@@ -5,7 +5,7 @@ import {getCompositions, getVideoMetadata, renderMedia, renderStill} from "@remo
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {preparePromoAssets} from "./prepare.mjs";
-import {CAPTIONS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS} from "./timeline.mjs";
+import {CAPTIONS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
 const RELEASE_DIR = path.join(REPO_ROOT, "release");
 const EVIDENCE_DIR = path.join(PROMO_DIR, "evidence");
@@ -22,20 +22,32 @@ function srtTime(seconds) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
 }
 
-function validateCaptions() {
+function validateTimeline() {
+  let nextFrom = 0;
+  for (const scene of SCENES) {
+    if (scene.from !== nextFrom) throw new Error(`镜头不连续：${scene.id}`);
+    nextFrom += scene.duration;
+  }
+  if (nextFrom !== PROMO_DURATION) throw new Error(`镜头总时长不符：${nextFrom}`);
+  if (CHAT_SHOTS.reduce((total, shot) => total + shot.duration, 0) !== SCENES.find((scene) => scene.id === "chat")?.duration) {
+    throw new Error("AI 分镜时长不符");
+  }
   let previousEnd = 0;
   for (const caption of CAPTIONS) {
     if (!caption.text.trim() || !Number.isSafeInteger(caption.startMs) || !Number.isSafeInteger(caption.endMs)) {
       throw new Error(`字幕内容或时间无效：${JSON.stringify(caption)}`);
     }
-    if (caption.startMs < previousEnd || caption.endMs <= caption.startMs || caption.endMs > PROMO_DURATION / PROMO_FPS * 1000) {
+    const scene = SCENES.find((candidate) => candidate.id === caption.sceneId);
+    const sceneStart = scene.from / PROMO_FPS * 1000;
+    const sceneEnd = (scene.from + scene.duration) / PROMO_FPS * 1000;
+    if (caption.startMs < previousEnd || caption.startMs < sceneStart || caption.endMs <= caption.startMs || caption.endMs > sceneEnd) {
       throw new Error(`字幕时间范围无效：${JSON.stringify(caption)}`);
     }
     previousEnd = caption.endMs;
   }
 }
 
-validateCaptions();
+validateTimeline();
 
 async function writeReleaseText() {
   const srt = CAPTIONS.map((caption, index) => `${index + 1}\n${srtTime(caption.startMs / 1000)} --> ${srtTime(caption.endMs / 1000)}\n${caption.text}\n`).join("\n");
