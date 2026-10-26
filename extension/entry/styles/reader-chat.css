@@ -552,18 +552,18 @@
   text-wrap: pretty;
 }
 
-/* 思考块：白玻璃折叠卡，标题行 = 线性思考图标 + 文案 + 折叠箭头。
- * 展开态保留 200px 内滚，正文与标题行以 1px 细线分隔；折叠态收成一行「思考过程」。 */
+/* 思考块：与助手正文共用板面，标题行 = 线性思考图标 + 文案 + 折叠箭头。
+ * 展开态保留 200px 内滚；折叠态收成一行「思考过程」。 */
 .biliscript-reading-chat .chat-thinking {
   display: grid;
   grid-template-rows: auto 1fr;
   transition: grid-template-rows 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   margin-bottom: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--biliscript-radius-panel);
-  corner-shape: squircle;
-  background: var(--biliscript-reader-card);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--biliscript-reader-muted);
   font-size: var(--biliscript-font-size-base);
   line-height: 1.6;
@@ -589,9 +589,7 @@
 }
 
 .biliscript-reading-chat .chat-thinking:not(.chat-thinking-collapsed) .chat-thinking-label {
-  padding-bottom: 6px;
   margin-bottom: 6px;
-  border-bottom: 1px solid var(--biliscript-reader-border);
 }
 
 .biliscript-reading-chat .chat-thinking-icon {
