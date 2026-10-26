@@ -1,6 +1,7 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { PROMO_DIR } from "./lib.mjs";
+import { assertPromoCaptureClean, preparePromoCapture } from "./capture.mjs";
 
 export async function recordScene(cdp, name, action) {
   const directory = path.join(PROMO_DIR, "frames", name);
@@ -9,8 +10,10 @@ export async function recordScene(cdp, name, action) {
   let active = true;
   const startedAt = Date.now();
   await cdp.send("Page.bringToFront");
+  await preparePromoCapture(cdp);
   const captureLoop = (async () => {
     while (active) {
+      await cdp.evaluate("window.__biliscriptPromoScrub?.(); true");
       const result = await cdp.send("Page.captureScreenshot", { format: "jpeg", quality: 92, fromSurface: true, captureBeyondViewport: false });
       const index = frames.length;
       const file = path.join(directory, `${String(index).padStart(6, "0")}.jpg`);
@@ -21,6 +24,7 @@ export async function recordScene(cdp, name, action) {
   })();
   try {
     await action();
+    await assertPromoCaptureClean(cdp);
   } finally {
     active = false;
     await captureLoop;

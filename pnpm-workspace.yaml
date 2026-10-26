@@ -9,3 +9,4 @@ overrides:
   # docs/agents/transitive-deps.md）。chevrotain 13 起不再依赖 lodash-es，
   # 届时删掉这条。
   lodash-es: 4.18.1
+  "@remotion/bundler>webpack": 5.112.2

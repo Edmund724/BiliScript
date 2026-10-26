@@ -21,7 +21,7 @@
     "catalog:sync:thinking": "node scripts/sync-models-dev-thinking.mjs",
     "catalog:check": "node scripts/check-models-dev-catalog.mjs",
     "artifacts:sync": "node scripts/artifacts/sync.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/promo/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -29,7 +29,10 @@
     "eval:sweep": "node_modules/.bin/esbuild eval/sweep.ts --bundle --platform=node --format=esm --outfile=eval/sweep.mjs && node eval/sweep.mjs",
     "smoke:mermaid": "node scripts/mermaid-smoke/serve.mjs",
     "harness:browser": "node scripts/browser-harness/smoke.mjs",
-    "harness:scenario": "node scripts/browser-harness/run-scenario.mjs"
+    "harness:scenario": "node scripts/browser-harness/run-scenario.mjs",
+    "promo:studio": "node scripts/promo/prepare.mjs && remotion studio scripts/promo/index.ts --config=scripts/promo/remotion.config.ts",
+    "promo:render": "node scripts/promo/render.mjs",
+    "promo:verify": "node scripts/promo/verify-video.mjs"
   },
   "repository": {
     "type": "git",
@@ -44,12 +47,21 @@
   },
   "homepage": "https://github.com/Edmund724/BiliScript#readme",
   "devDependencies": {
+    "@remotion/bundler": "4.0.538",
+    "@remotion/captions": "4.0.538",
+    "@remotion/cli": "4.0.538",
+    "@remotion/renderer": "4.0.538",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitest/coverage-v8": "^4.1.11",
     "d3-selection": "3.0.0",
     "d3-shape": "3.2.0",
     "esbuild": "^0.28.2",
     "github-markdown-css": "^5.9.0",
     "jsdom": "^30.0.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.538",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },

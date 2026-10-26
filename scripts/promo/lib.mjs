@@ -28,7 +28,7 @@ export async function click(cdp, expression) {
   const point = await cdp.evaluate(`(() => {
     const element = ${expression};
     if (!element) return null;
-    element.scrollIntoView({ block: 'center' });
+    element.scrollIntoView({ block: 'nearest' });
     const rect = element.getBoundingClientRect();
     const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
     if (!rect.width || !rect.height || !hit || !element.contains(hit)) return { error: '目标不可见或被遮挡' };
@@ -38,8 +38,4 @@ export async function click(cdp, expression) {
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y, button: "none" });
   await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: point.x, y: point.y, button: "left", buttons: 1, clickCount: 1 });
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: point.x, y: point.y, button: "left", buttons: 0, clickCount: 1 });
-}
-
-export function ffmpegPath() {
-  return process.env.FFMPEG_PATH || "ffmpeg";
 }
