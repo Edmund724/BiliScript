@@ -27,7 +27,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view {
   pointer-events: none;
 }
 
-body[data-biliscript-reader-mode="1"] #biliscript-reading-view.open {
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view.open,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view.closing {
   display: block;
 }
 
@@ -44,21 +45,49 @@ body[data-biliscript-reader-mode="1"]:has(
   z-index: 1001;
 }
 
-/* 浮层形态：script-host 未写变量（窄窗/无锚点/float 档），面板回到居中浮层
- * 基础样式（reader.css 的 fixed 16px 边距 + 76vh）——这里只复位贴栏变量定位
- * 并恢复可点，宽度/高度/圆角/阴影全部沿用基础段。 */
+/* 浮层形态：居中定位与缩放共用 translate 独立属性，scale 只负责原位回弹。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"] {
-  left: 16px;
-  top: 16px;
-  width: auto;
-  right: 16px;
-  bottom: 16px;
+  left: 50%;
+  top: 50%;
+  width: min(760px, calc(100vw - 32px));
+  right: auto;
+  bottom: auto;
   height: min(76vh, 860px);
+  transform-origin: center;
+  translate: -50% -50%;
+  scale: 0.92;
+  transition:
+    scale 240ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
+    opacity 240ms cubic-bezier(0.4, 0, 1, 1),
+    display 240ms allow-discrete;
   border-radius: var(--biliscript-radius-panel);
   corner-shape: squircle;
   box-shadow: var(--biliscript-reader-shadow);
   background: var(--biliscript-reader-surface, var(--biliscript-primitive-color-white));
   pointer-events: auto;
+}
+
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].open {
+  translate: -50% -50%;
+  scale: 1;
+  transition:
+    scale 420ms var(--biliscript-reader-ease-bounce, cubic-bezier(0.3, 1.2, 0.4, 1)),
+    opacity 160ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
+    display 240ms allow-discrete;
+}
+
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].closing {
+  translate: -50% -50%;
+  scale: 0.94;
+  pointer-events: none;
+}
+
+@starting-style {
+  body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-script-float="1"].open {
+    translate: -50% -50%;
+    scale: 0.92;
+    opacity: 0;
+  }
 }
 
 /* 显隐与就绪门控：ready=0 时整体不可见不可点，防止半就绪态

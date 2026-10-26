@@ -77,6 +77,7 @@ const {
 function makeReaderStub() {
   return {
     enterReaderMode: vi.fn(async () => {}),
+    beginClosingReadingView: vi.fn(() => false),
     closeReadingView: vi.fn(() => {
       state.reader.setViewOpen(false);
       state.reader.setViewReady(false);
@@ -403,6 +404,26 @@ describe("exitReaderShell：退出逆事务（吸收 reader-close 处理器与�
     // URL 收敛先于关闭（与原处理器「先收敛地址栏」的时序一致）
     const replaceOrder = replaceReaderModeUrl.mock.invocationCallOrder[0];
     expect(replaceOrder).toBeLessThan(reader.closeReadingView.mock.invocationCallOrder[0]);
+  });
+
+  it("收回过渡未结束时保留阅读表，transitionend 后再收尾摘表", async () => {
+    mountShell();
+    ensureReaderStyles();
+    const reader = makeReaderStub();
+    reader.beginClosingReadingView.mockReturnValue(true);
+    ensureReaderDomain.mockResolvedValue(reader);
+
+    const exitPromise = exitReaderShell();
+    await vi.waitFor(() => expect(reader.beginClosingReadingView).toHaveBeenCalledTimes(1));
+    expect(reader.closeReadingView).not.toHaveBeenCalled();
+    expectReaderStylesMounted(true);
+
+    const readingView = document.getElementById("biliscript-reading-view") as HTMLElement;
+    readingView.dispatchEvent(new TransitionEvent("transitionend", { propertyName: "translate" }));
+    await exitPromise;
+
+    expect(reader.closeReadingView).toHaveBeenCalledTimes(1);
+    expectReaderStylesMounted(false);
   });
 
   it("非阅读模式 URL（页内跳转后点关闭）→ 不改写地址栏，仍关闭并摘表", async () => {

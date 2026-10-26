@@ -115,4 +115,25 @@ describe("阅读壳序列唯一性（arch-slim/02 验收标准 1）", () => {
     expect(read(MESSAGE_HANDLER)).toMatch(/reader\/lazy-shell\.js/);
     expect(read(MESSAGE_HANDLER)).not.toMatch(/reader\/shell\.js/);
   });
+
+  it("退出先等待收回过渡，再执行收尾清理与摘表", () => {
+    const shell = read(SHELL);
+    const helper = shell.slice(shell.indexOf("async function closeReaderViewAfterTransition"));
+    expect(helper.indexOf("reader.beginClosingReadingView()")).toBeLessThan(helper.indexOf("await waitForReaderExitTransition"));
+    expect(helper.indexOf("await waitForReaderExitTransition")).toBeLessThan(helper.indexOf("reader.closeReadingView()"));
+    const exit = shell.slice(shell.indexOf("export function exitReaderShell"));
+    expect(exit.indexOf('transitionReaderShell("exiting")')).toBeLessThan(exit.indexOf("await closeReaderViewAfterTransition(reader)"));
+    expect(exit.indexOf("await closeReaderViewAfterTransition(reader)")).toBeLessThan(exit.indexOf("removeReaderStyles()"));
+    expect(shell).toContain('readingView.addEventListener("transitionend"');
+    expect(shell).toContain('window.matchMedia?.("(prefers-reduced-motion: reduce)")');
+    expect(shell).toContain("window.setTimeout(finish, 400)");
+  });
+
+  it("restore 重进透传恢复档，并在首帧后清除禁动效标记", () => {
+    const shell = read(SHELL);
+    const lifecycle = read("reader/lifecycle.ts");
+    expect(shell).toContain('reader.enterReaderMode(options.intent === "restore" ? "restore" : "open")');
+    expect(lifecycle).toContain('readingView.setAttribute("data-biliscript-reader-restore", "1")');
+    expect(lifecycle).toMatch(/requestAnimationFrame\(\(\) => \{\s*readingView\.removeAttribute\("data-biliscript-reader-restore"\);/);
+  });
 });

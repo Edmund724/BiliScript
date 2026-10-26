@@ -102,6 +102,7 @@ export function isReaderShellIntact(): boolean {
 // 的失败语义一致。
 interface ReaderEntrySequenceOptions {
   readerUrl: string;
+  intent?: ReaderShellIntent;
   beforeEntry?: () => Promise<void>;
 }
 
@@ -160,8 +161,43 @@ async function runReaderEntrySequence(options: ReaderEntrySequenceOptions): Prom
     // 候选02：enterReaderMode 属 reader 重域，经 ensureReaderDomain 装载后
     // 进入（点击路径的本地动态装载对用户无感）。
     const reader = await ensureReaderDomain();
-    await reader.enterReaderMode();
+    await reader.enterReaderMode(options.intent === "restore" ? "restore" : "open");
   }
+}
+
+interface ReaderExitDomain {
+  beginClosingReadingView: () => boolean;
+  closeReadingView: () => void;
+}
+
+function waitForReaderExitTransition(readingView: HTMLElement): Promise<void> {
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let timeout = 0;
+    const finish = () => {
+      window.clearTimeout(timeout);
+      readingView.removeEventListener("transitionend", onTransitionEnd);
+      resolve();
+    };
+    const onTransitionEnd = (event: TransitionEvent) => {
+      if (event.target === readingView && ["translate", "scale", "opacity"].includes(event.propertyName)) {
+        finish();
+      }
+    };
+    readingView.addEventListener("transitionend", onTransitionEnd);
+    timeout = window.setTimeout(finish, 400);
+  });
+}
+
+async function closeReaderViewAfterTransition(reader: ReaderExitDomain): Promise<void> {
+  const readingView = document.getElementById(ids.readingView);
+  const shouldWait = reader.beginClosingReadingView();
+  if (shouldWait && readingView) {
+    await waitForReaderExitTransition(readingView);
+  }
+  reader.closeReadingView();
 }
 
 // restore 档的失同步自愈（进入链前收敛）：状态开着而壳失整时先走退出事务把
@@ -174,7 +210,7 @@ async function restoreSelfHealBeforeEntry(): Promise<void> {
   }
   try {
     const reader = await ensureReaderDomain();
-    reader.closeReadingView();
+    await closeReaderViewAfterTransition(reader);
   } catch (error) {
     logWarn("[BILISCRIPT] reading view restore: close failed", error);
   }
@@ -225,6 +261,7 @@ export function enterReaderShell(options: EnterReaderShellOptions): Promise<void
   return runReaderShellEnterTransaction(async () => {
     await runReaderEntrySequence({
       readerUrl,
+      intent,
       beforeEntry: intent === "restore" ? restoreSelfHealBeforeEntry : undefined
     });
     if (intent === "chat") {
@@ -274,11 +311,9 @@ export function enterReaderShellOnUrlNavigation(
   }, onEnterFailed);
 }
 
-// 退出事务（逆事务）：URL 收敛 → closeReadingView → 摘阅读表。吸收收口前的
-// 两处手抄——reader-close 消息处理器与 文摘面板关闭按钮链（两者语义相同：
-// 先收敛地址栏再关视图；关闭按钮不回包、消息路径按结果回包，差异只在失败
-// 口径，由调用方在返回的 promise 上自行接）。与进入事务同队列串行：entering
-// 中收到 close 时排在进入事务之后顺延执行。
+// 退出事务：URL 收敛 → 启动收回 → 等过渡 → closeReadingView 收尾 → 摘阅读表。
+// 收回期间保留门控属性、几何变量和主题，动画结束后才拆定位宿主与呈现属性。
+// 与进入事务同队列串行：entering 中收到 close 时排在进入事务之后顺延执行。
 export function exitReaderShell(): Promise<void> {
   return runReaderEntryExclusive(async () => {
     // 视图未开（state closed，如一次失败的进入事务之后点关闭）不做状态迁移，
@@ -293,13 +328,9 @@ export function exitReaderShell(): Promise<void> {
     if (isReaderMode()) {
       replaceReaderModeUrl(stripReaderModeUrl(location.href));
     }
-    // closeReadingView 属 reader 重域，经 ensure 装载后执行（视图开着 ⇒ 域几乎
-    // 必然已装载，此处只是兜底直开路径）。
     const reader = await ensureReaderDomain();
-    reader.closeReadingView();
-    // S3：关闭后移除阅读表——门控样式随属性清除（closeReadingView 按
-    // presentation-fields 的 clearOnClose 清单翻回）已停止生效，摘表进一步释放
-    // 级联；下次进入重挂（link 数据在浏览器缓存，二进宫无闪变）。
+    await closeReaderViewAfterTransition(reader);
+    // 收回完成后再摘表；过渡期间样式与几何坐标保持在位。
     removeReaderStyles();
     // 退出完成通知（arch-slim-2/09 自愈收口）：script-button 的自查 interval 在
     // 阅读壳打开且完好期间降频暂停，靠本事件恢复常速并立即补回按钮。事件名
