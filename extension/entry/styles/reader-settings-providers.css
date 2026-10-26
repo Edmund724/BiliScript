@@ -520,28 +520,29 @@
   display: none;
 }
 
-/* 「+ 添加模型」：与设置区 add-property-btn 同款的虚线 pill */
+/* 「+ 添加模型」：与设置区 add-property-btn 同款的 pill */
 #biliscript-reading-view .provider-editor-model-add {
   align-self: flex-start;
   height: 32px;
-  padding: 0 var(--biliscript-space-md);
-  border: 1px dashed var(--biliscript-reader-border);
+  padding: 0 var(--biliscript-space-14);
+  border: 0;
   border-radius: var(--btn-radius, var(--biliscript-radius-pill));
   background: transparent;
   color: var(--biliscript-reader-muted);
   font: inherit;
   font-size: var(--btn-font-size, var(--biliscript-font-size-base));
   cursor: pointer;
-  transition: transform 100ms ease-out;
+  transition: transform 100ms ease-out, background 0.15s, color 0.15s;
 }
 
 #biliscript-reading-view .provider-editor-model-add:active {
   transform: scale(var(--biliscript-reader-press-scale, 1));
+  background: var(--biliscript-reader-surface-2);
 }
 
 #biliscript-reading-view .provider-editor-model-add:hover {
-  color: var(--biliscript-reader-accent);
-  border-color: var(--biliscript-reader-accent);
+  color: var(--biliscript-reader-text);
+  background: var(--biliscript-reader-fill-hover);
 }
 
 /* 「获取可用模型」弹窗：宿主内的第二层弹层（mask + 居中卡片），盖在编辑
