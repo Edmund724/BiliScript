@@ -81,6 +81,24 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
       "player-ai.css"
     ];
 
+    const createReaderQuoteCardPresetExemption = () => {
+      let inPresetRule = false;
+
+      return (line: string) => {
+        if (inPresetRule) {
+          if (line.includes("}")) inPresetRule = false;
+          return true;
+        }
+
+        if (/^\s*\.biliscript-quote-card\[data-preset="[^"]+"\][^{]*\{/.test(line)) {
+          inPresetRule = !line.includes("}");
+          return true;
+        }
+
+        return false;
+      };
+    };
+
     it("所有被审计样式表中的 border-radius 均消费令牌或合法特殊值（inherit/0）", () => {
       const violations: string[] = [];
 
@@ -208,6 +226,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
         const fullPath = `extension/entry/styles/${fileName}`;
         const content = stripCssCommentsKeepLines(readStyleFile(fullPath));
         const lines = content.split("\n");
+        const isReaderQuoteCardPresetLine = createReaderQuoteCardPresetExemption();
 
         lines.forEach((line, idx) => {
           const lineNum = idx + 1;
@@ -224,7 +243,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           if (fileName === "reader-chat.css" && lineNum >= 240 && lineNum <= 265) return;
 
           // 放行 reader.css 中 6 组用户导出金句卡片预设色盘（data-preset="..."）
-          if (fileName === "reader.css" && lineNum >= 2410 && lineNum <= 2530) return;
+          if (fileName === "reader.css" && isReaderQuoteCardPresetLine(line)) return;
 
           const hexMatch = trimmed.match(/#[0-9a-fA-F]{3,8}\b/g);
           if (hexMatch) {
@@ -243,6 +262,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
         const fullPath = `extension/entry/styles/${fileName}`;
         const content = stripCssCommentsKeepLines(readStyleFile(fullPath));
         const lines = content.split("\n");
+        const isReaderQuoteCardPresetLine = createReaderQuoteCardPresetExemption();
 
         lines.forEach((line, idx) => {
           const lineNum = idx + 1;
@@ -259,7 +279,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           if (trimmed.includes("mask-image:")) return;
 
           // 放行 reader.css 中 6 组用户导出金句卡片预设色盘（data-preset="..."）
-          if (fileName === "reader.css" && lineNum >= 2410 && lineNum <= 2530) return;
+          if (fileName === "reader.css" && isReaderQuoteCardPresetLine(line)) return;
 
           // 匹配裸写数字的 rgba(0, 0, 0, ...)
           const rawRgbMatch = trimmed.match(/rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+/g);
