@@ -915,12 +915,10 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 }
 
 /* 对话与设置内嵌卡片白玻璃化：
- * 思考过程折叠块、联网搜索时间线卡及设置「获取可用模型」列表容器
- * 纳入与输入卡、章节卡同系的无边框液态玻璃卡片体系（去除 1px 实线外边框，卡面
- * 阴影统一走 card-highlight token）。选区解释卡属于面板内弹层对话框（磨砂 +
- * 悬浮柔影），归入下方的弹层对话框规则。
- * 内部的分隔线（如思考块头部下边线、联网搜索步骤间虚线）保持清晰可读。 */
-#biliscript-reading-view .biliscript-reading-chat .chat-thinking,
+ * 联网搜索时间线卡及设置「获取可用模型」列表容器纳入与输入卡、章节卡同系的
+ * 无边框液态玻璃卡片体系（卡面阴影统一走 card-highlight token）。选区解释卡属于
+ * 面板内弹层对话框（磨砂 + 悬浮柔影），归入下方的弹层对话框规则。
+ * 联网搜索步骤间虚线保持清晰可读。 */
 #biliscript-reading-view .biliscript-reading-chat .chat-search-card,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-fetch-list,
 #biliscript-reading-view .provider-editor-fetch-list {
@@ -1330,7 +1328,6 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-input-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-explain-card-dialog,
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-thinking,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-search-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-chip,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .ai-provider-row,
@@ -1391,7 +1388,6 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="edi
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-placeholder,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-ov-empty-card,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-msg-user,
-#biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-thinking,
 #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-chat .chat-search-card,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .ai-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-palette="editorial"] .biliscript-reading-settings-host .asr-provider-row,
