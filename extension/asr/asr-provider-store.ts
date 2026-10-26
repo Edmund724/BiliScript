@@ -10,11 +10,12 @@
 // 与 AI 平台存储完全隔离：用不同的 storage key（asrProviders / asrProviderKeys），
 // 不和对话平台混用同一个列表。
 
-import { normalizeAsrProvider, type AsrProvider } from "./asr-provider-normalize.js";
+import { normalizeAsrProvider, resolveActiveAsrProviderId, type AsrProvider } from "./asr-provider-normalize.js";
 import { createProviderStore } from "../core/provider-store.js";
 
 // 域类型单源：定义在 asr-provider-normalize.js（跟归一化走），此处原样
 // 转出，消费方（offscreen、消息协议、设置快照）的 import 路径不变。
+export { resolveActiveAsrProviderId };
 export type { AsrProvider } from "./asr-provider-normalize.js";
 
 // ===== ASR 平台列表存储 =====

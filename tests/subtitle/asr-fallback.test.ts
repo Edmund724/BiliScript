@@ -154,8 +154,9 @@ describe("maybeRunAsrFallback skip 闸门", () => {
     expect(clipState.noSubtitleReason).toBe("asr-disabled");
   });
 
-  it("无激活平台（settings.activeAsrProviderId 为空）：返回 skip", async () => {
+  it("无可用平台（loadProviders 为空）：返回 skip", async () => {
     state.settings.activeAsrProviderId = "";
+    deps.loadProviders.mockResolvedValue([]);
 
     const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
 
@@ -166,14 +167,15 @@ describe("maybeRunAsrFallback skip 闸门", () => {
     expect(clipState.noSubtitleReason).toBe("no-asr-config");
   });
 
-  it("激活平台 id 不在 provider 列表（loadProviders）中：返回 skip", async () => {
-    deps.loadProviders.mockResolvedValue([{ id: "other", type: "openai-transcriptions", name: "其他" }]);
+  it("列表非空但 activeAsrProviderId 为空或悬空：自动回退到列表首项并执行转写", async () => {
+    state.settings.activeAsrProviderId = "ghost";
+    deps.loadProviders.mockResolvedValue([{ id: "other", type: "openai-transcriptions", name: "其他", model: "m1" }]);
+    deps.runAsrPipeline.mockResolvedValue(TRANSCRIBED_BODY);
 
     const result = await fallback.maybeRunAsrFallback({ runId: RUN_ID });
 
-    expect(result).toBe("skip");
-    expect(deps.runAsrPipeline).not.toHaveBeenCalled();
-    expect(clipState.noSubtitleReason).toBe("no-asr-config");
+    expect(result).toBe("done");
+    expect(deps.runAsrPipeline).toHaveBeenCalledTimes(1);
   });
 
   it("offscreen 配置级 asr-skip：静默返回 skip，补 asr-done 终态广播解除等待标志", async () => {
