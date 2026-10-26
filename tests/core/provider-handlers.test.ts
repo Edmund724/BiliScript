@@ -240,6 +240,26 @@ describe("get-asr-runtime-config（createAsrRuntimeConfigHandler）", () => {
     expect(deps.getAsrProviderKey).not.toHaveBeenCalled();
   });
 
+  it("列表非空但 activeAsrProviderId 为空或悬空时自动回退到首项并读取对应 Key", async () => {
+    const deps = makeRuntimeDeps({
+      getMergedSettings: vi.fn(async () => ({
+        activeAsrProviderId: "ghost",
+        asrLanguage: "auto",
+        asrAutoFallback: true
+      }))
+    });
+    const handler = createAsrRuntimeConfigHandler(deps);
+    const { sendResponse, response } = makeChannel();
+
+    handler({}, {}, sendResponse);
+    expect(await response).toMatchObject({
+      ok: true,
+      activeAsrProviderId: "p1",
+      activeKey: "sk-local"
+    });
+    expect(deps.getAsrProviderKey).toHaveBeenCalledWith("p1");
+  });
+
   it("settings 读取失败回包 { ok: false, error }", async () => {
     const deps = makeRuntimeDeps({
       getMergedSettings: vi.fn(async () => {

@@ -43,6 +43,7 @@ import { initToggleSwitch, syncToggleSwitch } from "./toggle-switch.js";
 import { bindResettableRangeSlider, setResettableRangeValue } from "./range-slider.js";
 import { createProviderFamilyRows } from "./provider-family.js";
 import type { ProviderRowItem, ProviderRowPreset } from "./provider-row.js";
+import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
 import { wireProviderRowDrag } from "./provider-row-drag.js";
 import { SEARCH_PROVIDER_PRESETS } from "../core/presets.js";
 import { isSmartSearchActive } from "../core/search-mode.js";
@@ -430,12 +431,18 @@ async function loadSettings(elements: SettingsElements): Promise<void> {
   const providers = await loadAiProviders();
   familyRows.ai.render(elements.aiProvidersList, elements.aiProvidersEmpty, providers, { presets: PRESETS });
 
-  // ASR 配置
+  // ASR 配置：列表非空时必有激活平台（为空或悬空自动回退首项并写回设置）
   const asrProviders = await loadAsrProviders();
+  const rawAsrActiveId = String(settings.activeAsrProviderId || "").trim();
+  const activeAsrId = resolveActiveAsrProviderId(asrProviders, rawAsrActiveId);
   familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, asrProviders, {
     presets: asrPresets,
-    activeId: settings.activeAsrProviderId || ""
+    activeId: activeAsrId
   });
+  if (activeAsrId !== rawAsrActiveId) {
+    state.patchSettings({ activeAsrProviderId: activeAsrId });
+    void sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: activeAsrId } });
+  }
 
   // 搜索平台配置（预设是纯数据常量，直接 import，不设 presets-list 消息）
   const searchProviders = await loadSearchProviders();
@@ -609,10 +616,7 @@ const PROVIDER_FAMILY_UI: Record<ProviderEditorKind, ProviderFamilyUi> = {
     remove: (providerId) => sendRuntimeMessage({ type: "asr-providers-delete", providerId }),
     generateId: () => familyRows.asr.controller.generateId(),
     presets: () => asrPresets,
-    rerender: (elements, providers) => familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
-      presets: asrPresets,
-      activeId: getActiveAsrProviderId(elements.asrProvidersList)
-    }),
+    rerender: (elements, providers) => rerenderAsrProviders(elements, providers),
     optionalHostPermission: true
   },
   search: {
@@ -636,6 +640,21 @@ function getActiveAsrProviderId(listNode: HTMLElement): string {
 }
 function getActiveSearchProviderId(listNode: HTMLElement): string {
   return familyRows.search.getActiveId?.(listNode) || "";
+}
+
+// ASR 列表重渲（Modal 保存 / 删除后）：保持「列表非空即有激活平台」不变量，
+// 原激活项仍在列表则保留，为空或已删则回退到首项并同步落盘。
+function rerenderAsrProviders(elements: SettingsElements, providers: ProviderRowItem[]): void {
+  const prevActiveId = getActiveAsrProviderId(elements.asrProvidersList);
+  const nextActiveId = resolveActiveAsrProviderId(providers, prevActiveId);
+  familyRows.asr.render(elements.asrProvidersList, elements.asrProvidersEmpty, providers, {
+    presets: asrPresets,
+    activeId: nextActiveId
+  });
+  if (nextActiveId !== prevActiveId) {
+    state.patchSettings({ activeAsrProviderId: nextActiveId });
+    void sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: nextActiveId } });
+  }
 }
 
 // ===== 单平台保存与删除 =====
@@ -1057,9 +1076,24 @@ function bindSettingsEvents(host: HTMLElement): void {
     input.addEventListener("blur", () => debouncedSaveInitialQuickPrompts.flush());
   });
 
-  familyRows.asr.controller.setDeleteHandler(async (providerId) => {
-    if (providerId && String(getActiveAsrProviderId(elements.asrProvidersList) || "") === providerId) {
-      await sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: "" } });
+  familyRows.asr.controller.setDeleteHandler(async () => {
+    const remainingRows = Array.from(
+      elements.asrProvidersList.querySelectorAll<HTMLElement>(".asr-provider-row")
+    );
+    const currentCheckedId = getActiveAsrProviderId(elements.asrProvidersList);
+    const nextActiveId = resolveActiveAsrProviderId(
+      remainingRows.map((row) => ({ id: row.dataset.providerId || "" })),
+      currentCheckedId
+    );
+    if (nextActiveId && nextActiveId !== currentCheckedId) {
+      const targetRadio = remainingRows
+        .find((row) => row.dataset.providerId === nextActiveId)
+        ?.querySelector<HTMLInputElement>(".asr-provider-active-radio");
+      if (targetRadio) targetRadio.checked = true;
+    }
+    if (nextActiveId !== currentCheckedId || remainingRows.length === 0) {
+      state.patchSettings({ activeAsrProviderId: nextActiveId });
+      await sendRuntimeMessage({ type: "save-settings", settings: { activeAsrProviderId: nextActiveId } });
     }
   });
   familyRows.search.controller.setDeleteHandler(async (providerId) => {

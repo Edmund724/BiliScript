@@ -238,9 +238,18 @@ describe("provider-editor：新增保存链（拍板 Q2/Q4）", () => {
       baseUrl: "https://asr.example.com/v1",
       model: "whisper-1"
     });
-    expect(saveMessage.providers[0].id).toMatch(/^asr_/);
+    const newId = saveMessage.providers[0].id;
+    expect(newId).toMatch(/^asr_/);
     expect(editorGone()).toBe(true);
     expect(host.querySelectorAll("#asrProvidersList .asr-provider-row")).toHaveLength(1);
+    // 首个 ASR 平台保存后自动选中并持久化 activeAsrProviderId
+    expect(
+      host.querySelector<HTMLInputElement>("#asrProvidersList .asr-provider-active-radio")?.checked
+    ).toBe(true);
+    expect(sent).toContainEqual({
+      type: "save-settings",
+      settings: { activeAsrProviderId: "asr_new1" }
+    });
   });
 
   it("AI 校验失败（缺 Key）：状态行报错不关 Modal，不落盘", async () => {
@@ -1631,5 +1640,69 @@ describe("provider-editor：draft 投影语义（候选 4 片 3）", () => {
     fireClick(dialog.querySelector(".provider-editor-cancel"));
     expect(document.querySelector(".confirm-dialog-host")).toBeNull();
     expect(editorGone()).toBe(true);
+  });
+});
+
+describe("ASR 平台选用状态自动维护", () => {
+  const asr1 = {
+    id: "asr_1",
+    presetId: "siliconflow-sensevoice",
+    type: "openai-transcriptions",
+    name: "硅基流动",
+    baseUrl: "https://api.siliconflow.cn/v1",
+    model: "FunAudioLLM/SenseVoiceSmall",
+    supportsTimestamps: false,
+    enabled: true,
+    hasSavedKey: true
+  };
+  const asr2 = {
+    id: "asr_2",
+    presetId: "groq",
+    type: "openai-transcriptions",
+    name: "Groq",
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "whisper-large-v3-turbo",
+    supportsTimestamps: true,
+    enabled: true,
+    hasSavedKey: true
+  };
+
+  it("面板装载时若列表非空但 activeAsrProviderId 为空，自动选中首项并写回设置", async () => {
+    const { sent, host } = await mountPanel({
+      "asr-providers-list": () => ({ ok: true, providers: [asr1, asr2] })
+    });
+
+    const radios = host.querySelectorAll<HTMLInputElement>("#asrProvidersList .asr-provider-active-radio");
+    expect(radios).toHaveLength(2);
+    expect(radios[0].checked).toBe(true);
+    expect(radios[1].checked).toBe(false);
+    expect(sent).toContainEqual({
+      type: "save-settings",
+      settings: { activeAsrProviderId: "asr_1" }
+    });
+  });
+
+  it("删除当前激活的 ASR 平台后若仍有剩余平台，自动回退选中首个剩余平台", async () => {
+    const { sent, host } = await mountPanel({
+      "get-settings": () => ({ ok: true, settings: { activeAsrProviderId: "asr_1" } }),
+      "asr-providers-list": () => ({ ok: true, providers: [asr1, asr2] }),
+      "asr-providers-delete": () => ({ ok: true, providers: [asr2] })
+    });
+
+    const firstRow = host.querySelector<HTMLElement>("#asrProvidersList .asr-provider-row")!;
+    fireClick(firstRow.querySelector(".provider-row-remove"));
+    const confirmBtn = document.querySelector<HTMLButtonElement>(".confirm-dialog-confirm")!;
+    fireClick(confirmBtn);
+
+    await vi.waitFor(() => {
+      expect(sent.some((m) => m.type === "asr-providers-delete")).toBe(true);
+    });
+
+    const remainingRadio = host.querySelector<HTMLInputElement>("#asrProvidersList .asr-provider-active-radio")!;
+    expect(remainingRadio.checked).toBe(true);
+    expect(sent).toContainEqual({
+      type: "save-settings",
+      settings: { activeAsrProviderId: "asr_2" }
+    });
   });
 });

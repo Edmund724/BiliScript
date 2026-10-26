@@ -27,6 +27,7 @@ import { logInfo, logWarn } from "../shared/logging.js";
 import { state, clipState } from "../core/state.js";
 import type { NoSubtitleReason } from "../core/state.js";
 import { getAsrFailureNotice, reasonFromFailureKind, buildAsrNoSubtitleMessage } from "../core/asr-failure-notice.js";
+import { resolveActiveAsrProviderId } from "./asr-provider-normalize.js";
 import { readAsrFailureSummary } from "./protocol.js";
 import type { AsrAttemptOutcome } from "./protocol.js";
 import {
@@ -228,29 +229,26 @@ export function createAsrFallback(deps: CreateAsrFallbackDeps): AsrFallback {
     try {
       ensureRunActive(runId, state.clip.fetchRunId);
 
-      // 设置判定：开关未启用或没有激活平台 → skip（与现状行为一致，仅文案变化）。
+      // 设置判定：开关未启用或无可用平台 → skip。
       // 快速出口先于消息请求：回退关闭时不产生 background 往返。
       // noSubtitleReason 随 skip 原因落 state，供 sidepanel 拦截总结时按原因提示。
       const settings = state.settings || (await getSettings());
       const enabled = settings.asrAutoFallback === true;
-      const activeId = String(settings.activeAsrProviderId || "").trim();
       if (!enabled) {
         setNoSubtitleReasonWithDetail("asr-disabled", "");
-        return "skip";
-      }
-      if (!activeId) {
-        setNoSubtitleReasonWithDetail("no-asr-config", "");
         return "skip";
       }
 
       // provider 元数据（name/model，无 Key——Key 单独存储、组装在 offscreen）
       // 从 provider-store 列表取（注入的 loadProviders），仅用于模型名与
-      // 缓存键；激活平台不在列表中 → skip。转写所需的完整 provider+Key+语言由
-      // offscreen 直调 background 的 get-asr-runtime-config 获取（配置级缺失/
-      // 关闭时 offscreen 回 asr-skip，由下方 catch 静默跳过），apiKey 不再进
-      // 页面 context。
+      // 缓存键；activeAsrProviderId 为空或悬空时自动回退到列表首项，列表为空 → skip。
+      // 转写所需的完整 provider+Key+语言由 offscreen 直调 background 的
+      // get-asr-runtime-config 获取（配置级缺失/关闭时 offscreen 回 asr-skip，
+      // 由下方 catch 静默跳过），apiKey 不再进页面 context。
       const providers = await loadProviders();
-      const activeProvider = (Array.isArray(providers) ? providers : []).find((p) => p.id === activeId);
+      const providerList = Array.isArray(providers) ? providers : [];
+      const activeId = resolveActiveAsrProviderId(providerList, settings.activeAsrProviderId);
+      const activeProvider = providerList.find((p) => p.id === activeId);
       if (!activeProvider) {
         setNoSubtitleReasonWithDetail("no-asr-config", "");
         return "skip";

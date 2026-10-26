@@ -23,6 +23,7 @@
 // 由 background 路由表的 satisfies 逐键对账——响应载荷与消息键配错在 tsc 门禁即红。
 
 import { errorText } from "./provider-http-shared.js";
+import { resolveActiveAsrProviderId } from "../asr/asr-provider-normalize.js";
 import type {
   AsrProviderListEntry,
   GetAsrRuntimeConfigResponse,
@@ -180,11 +181,9 @@ export function createAsrRuntimeConfigHandler({
     withOkResponse(
       (async () => {
         const settings = await getMergedSettings();
-        const activeId = String(settings.activeAsrProviderId || "").trim();
-        const [providers, activeKey] = await Promise.all([
-          loadProviders(),
-          activeId ? getAsrProviderKey(activeId) : Promise.resolve("")
-        ]);
+        const providers = await loadProviders();
+        const activeId = resolveActiveAsrProviderId(providers, settings.activeAsrProviderId);
+        const activeKey = activeId ? await getAsrProviderKey(activeId) : "";
         return {
           ok: true,
           providers,

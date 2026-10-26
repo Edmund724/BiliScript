@@ -47,7 +47,7 @@ import { concatBytes } from "../shared/bytes.js";
 import { getErrorMessage, isRetryableNetworkError, withTimeout } from "../shared/error-helpers.js";
 import { safePostMessage } from "../shared/messaging.js";
 import { logWarn } from "../shared/logging.js";
-import type { AsrProvider } from "../asr/asr-provider-store.js";
+import { resolveActiveAsrProviderId, type AsrProvider } from "../asr/asr-provider-store.js";
 import type { GetAsrRuntimeConfigResponse } from "../shared/messaging-protocol.js";
 
 // ASR 解码任务中止哨兵：decodeSegment/onChunk 检查 aborted 后抛出，
@@ -130,14 +130,16 @@ export function makeAsrSkipError(cause: unknown, reason = ""): Error & { code: s
   return error as Error & { code: string; reason?: string };
 }
 
-// 从运行时快照解析 provider（附 Key 与生效语言）。快照关闭 / 无激活平台 /
-// 激活平台不在列表中 → 抛 asr-skip（带结构化 reason，见 makeAsrSkipError）。
+// 从运行时快照解析 provider（附 Key 与生效语言）。快照关闭 / 列表为空 →
+// 抛 asr-skip（带结构化 reason，见 makeAsrSkipError）；activeAsrProviderId
+// 为空或悬空时经 resolveActiveAsrProviderId 自动回退到列表首项。
 export function resolveAsrProvider(config: AsrRuntimeConfig): AsrProvider {
   if (config.asrAutoFallback === false) {
     throw makeAsrSkipError("ASR 自动回退未开启", "asr-disabled");
   }
-  const activeId = String(config.activeAsrProviderId || "").trim();
-  const activeProvider = (config.providers || []).find((p) => p.id === activeId);
+  const providers = config.providers || [];
+  const activeId = resolveActiveAsrProviderId(providers, config.activeAsrProviderId);
+  const activeProvider = providers.find((p) => p.id === activeId);
   if (!activeProvider) {
     throw makeAsrSkipError("没有激活的语音识别平台", "no-asr-config");
   }

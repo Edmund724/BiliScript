@@ -50,3 +50,17 @@ export function normalizeAsrProvider(item: unknown): AsrProvider | null {
     enabled: raw.enabled !== false
   };
 }
+
+// 解析当前生效的 ASR 平台 id：只要列表非空，始终有一个激活平台。
+// activeId 命中列表记录时保留；为空或指向已不存在的记录时自动回退到列表首项。
+export function resolveActiveAsrProviderId(
+  providers: ReadonlyArray<{ id?: string | null }> | null | undefined,
+  activeId?: string | null
+): string {
+  const list = Array.isArray(providers) ? providers : [];
+  const trimmed = String(activeId || "").trim();
+  if (trimmed && list.some((p) => String(p?.id || "").trim() === trimmed)) {
+    return trimmed;
+  }
+  return String(list[0]?.id || "").trim();
+}

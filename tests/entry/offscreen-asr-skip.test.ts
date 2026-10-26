@@ -111,21 +111,25 @@ describe("resolveAsrProvider 结构化 skip 原因", () => {
     );
   });
 
-  it("无激活平台（activeAsrProviderId 为空 / 不在列表）：asr-skip 且 reason=no-asr-config", () => {
-    expect(() => resolveAsrProvider({ ...RUNTIME_CONFIG_OK, activeAsrProviderId: "" })).toThrowError(
+  it("平台列表为空：asr-skip 且 reason=no-asr-config", () => {
+    expect(() => resolveAsrProvider({ ...RUNTIME_CONFIG_OK, providers: [], activeAsrProviderId: "" })).toThrowError(
       expect.objectContaining({
         code: "asr-skip",
         reason: "no-asr-config",
         message: "没有激活的语音识别平台"
       })
     );
+  });
 
-    expect(() => resolveAsrProvider({ ...RUNTIME_CONFIG_OK, activeAsrProviderId: "ghost" })).toThrowError(
-      expect.objectContaining({
-        code: "asr-skip",
-        reason: "no-asr-config"
-      })
-    );
+  it("列表非空但 activeAsrProviderId 为空或悬空：自动回退到列表首项", () => {
+    expect(resolveAsrProvider({ ...RUNTIME_CONFIG_OK, activeAsrProviderId: "" })).toMatchObject({
+      id: "p1",
+      apiKey: "sk-test"
+    });
+    expect(resolveAsrProvider({ ...RUNTIME_CONFIG_OK, activeAsrProviderId: "ghost" })).toMatchObject({
+      id: "p1",
+      apiKey: "sk-test"
+    });
   });
 
   it("配置齐全：不抛错，provider 附 Key 与生效语言", () => {
