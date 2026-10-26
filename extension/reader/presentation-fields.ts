@@ -244,5 +244,6 @@ export const READER_SETTINGS_WATCH_KEYS: string[] = [
 // 统一登记防漂移。
 // 源码扫描测试据此放行；新增 data-biliscript-* 属性字面量必须要么进主表、要么进本清单。
 export const LOCAL_FLAG_ATTRIBUTES = new Set([
-  "data-biliscript-reader-hide-sending-bar"  // close 时瞬时隐藏 B 站发送条（写入/清除同在 lifecycle）
+  "data-biliscript-reader-hide-sending-bar",  // close 时瞬时隐藏 B 站发送条（写入/清除同在 lifecycle）
+  "data-biliscript-reader-restore"  // restore 进场首帧禁用过渡，下一帧由 lifecycle 清除
 ]);

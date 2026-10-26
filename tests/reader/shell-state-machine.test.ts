@@ -77,6 +77,7 @@ describe("entering 中收到 close：退出事务顺延", () => {
         stateModule.transitionReaderShell("open");
         order.push("enter-done");
       }),
+      beginClosingReadingView: vi.fn(() => false),
       closeReadingView: vi.fn(() => {
         stateModule.transitionReaderShell("closed");
         order.push("close");
@@ -115,6 +116,7 @@ describe("restore 与 URL 跳转连发：同队列串行", () => {
         stateModule.transitionReaderShell("open");
         order.push("restore-enter-done");
       }),
+      beginClosingReadingView: vi.fn(() => false),
       closeReadingView: vi.fn()
     });
 
@@ -186,6 +188,7 @@ describe("失败回退（不能卡在过渡态）", () => {
     stateModule.transitionReaderShell("entering");
     stateModule.transitionReaderShell("open");
     ensureReaderDomainMock.mockResolvedValue({
+      beginClosingReadingView: vi.fn(() => false),
       closeReadingView: vi.fn(() => {
         throw new Error("close boom");
       })

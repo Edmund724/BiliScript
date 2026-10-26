@@ -27,28 +27,52 @@
    * 撑出，视口媒体查询判不了面板真实宽度。inline-size 容纳安全：两档的宽度
    * 都不依赖内容横向尺寸（height: auto 的窄窗浮层只涉纵向，不受容纳约束）。 */
   container-type: inline-size;
-  /* 开合过渡：淡入随 ready 门控翻转（opacity 0→1）呈现；display 经
-   * allow-discrete 参与过渡，关闭淡出走完再隐——exitReaderShell 在关闭同
-   * tick 摘阅读表的路径上淡出来不及呈现，以瞬时关闭呈现（可接受降级）。
-   * 尺寸插值（animate-to-intrinsic-sizes 的 calc-size()/interpolate-size 场景）
-   * 在此无落点：面板高度两端都是外部几何（贴栏 var 随滚动逐帧改写、浮层
-   * min() 定长），无「定长→内在尺寸」边界，block-size 过渡会造成贴栏态
-   * 跟滚动追帧回弹，故开合动画止于 opacity + display。 */
-  transition: opacity var(--biliscript-reader-duration-base, 250ms) var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)), display var(--biliscript-reader-duration-base, 250ms) allow-discrete;
+  /* 贴栏态以右缘为锚：translate 只负责无过冲滑入，scale 独立承担左缘回弹。
+   * display 参与离散过渡，退出期间由 .closing 保持渲染。 */
+  transform-origin: right center;
+  translate: 100% 0;
+  scale: 0.92 0.98;
+  opacity: 0;
+  transition:
+    translate 240ms cubic-bezier(0.36, 0, 0.66, -0.56),
+    scale 240ms cubic-bezier(0.36, 0, 0.66, -0.56),
+    opacity 240ms cubic-bezier(0.4, 0, 1, 1),
+    display 240ms allow-discrete;
 }
 
-/* 淡入起点：openReaderViewShell 同 tick 写 .open + ready=1，从 display:none
- * 首次渲染的元素没有 before-change 样式，过渡不会自发启动——@starting-style
- * 提供首帧 opacity:0 才有淡入。不支持的引擎（Chrome <117）按瞬时显形呈现
- * （即改造前行为）。 */
 @starting-style {
   #biliscript-reading-view.open {
+    translate: 100% 0;
+    scale: 0.92 0.98;
     opacity: 0;
   }
 }
 
-#biliscript-reading-view.open {
+#biliscript-reading-view.open,
+#biliscript-reading-view.closing {
   display: block;
+}
+
+#biliscript-reading-view.open {
+  translate: 0 0;
+  scale: 1 1;
+  opacity: 1;
+  transition:
+    translate 220ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
+    scale 420ms var(--biliscript-reader-ease-bounce, cubic-bezier(0.3, 1.2, 0.4, 1)),
+    opacity 160ms var(--biliscript-reader-ease-out, cubic-bezier(0, 0, 0.2, 1)),
+    display 240ms allow-discrete;
+}
+
+#biliscript-reading-view.closing {
+  translate: 100% 0;
+  scale: 0.94 0.98;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#biliscript-reading-view[data-biliscript-reader-restore="1"] {
+  transition: none !important;
 }
 
 #biliscript-reading-view[data-biliscript-reader-ready="0"] {
@@ -135,9 +159,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* 面板开合淡入淡出对减少动态用户一并关停（指南的安全底线） */
+  /* 面板开合对减少动态用户关停，直接就位。 */
   #biliscript-reading-view {
-    transition: none;
+    transition: none !important;
   }
 
   /* 按压缩放与 tab 内容进场动画（transform 类）对减少动态用户关停；颜色/

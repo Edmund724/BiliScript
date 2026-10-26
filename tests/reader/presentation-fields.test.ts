@@ -182,7 +182,10 @@ describe("B. 派生清单与表标志一致（真实差异显式化）", () => {
   it("ready 派生常量与主表一致，且从 LOCAL_FLAG_ATTRIBUTES 例外清单移除", () => {
     expect(READER_READY_ATTR).toBe("data-biliscript-reader-ready");
     expect(LOCAL_FLAG_ATTRIBUTES.has("data-biliscript-reader-ready")).toBe(false);
-    expect(LOCAL_FLAG_ATTRIBUTES).toEqual(new Set(["data-biliscript-reader-hide-sending-bar"]));
+    expect(LOCAL_FLAG_ATTRIBUTES).toEqual(new Set([
+      "data-biliscript-reader-hide-sending-bar",
+      "data-biliscript-reader-restore"
+    ]));
     expect(collectAttrsByTarget().readingView).toContain("data-biliscript-reader-ready");
   });
   it("三份派生清单与按标志手工推导一致（含顺序）", () => {

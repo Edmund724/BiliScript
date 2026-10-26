@@ -398,7 +398,7 @@ export function handleReaderPresenterNotification(event: ReaderPresenterEvent) {
   receive(event);
 }
 
-export async function enterReaderMode() {
+export async function enterReaderMode(mode: "open" | "restore" = "open") {
   const readingView = getReaderElement(ids.readingView);
   // 视图打开走状态机迁移（entering→open；直开路径 closed→open）
   transitionReaderShell("open");
@@ -416,7 +416,7 @@ export async function enterReaderMode() {
   // 首载等待锚点就绪：宽屏下若页面 DOM 仍在水合（如自动展开或 URL 直达），
   // 暂缓打开视图壳并等锚点就绪，防止首拍降级为全屏居中浮层后闪漂贴栏。
   await waitForScriptAnchor();
-  openReaderViewShell(readingView);
+  openReaderViewShell(readingView, mode);
   renderReadingView();
   // 打开即启动播放同步并立即定位：subtitle-ready 只在字幕新抓取落定时到达，
   // 重开（字幕命中缓存）时不会再有该通知——缺了这两行，同步 tick 停在
@@ -440,10 +440,20 @@ export async function enterReaderMode() {
   warmUpReaderQuickPrompts();
 }
 
-function openReaderViewShell(readingView = getReaderElement(ids.readingView)) {
+function openReaderViewShell(
+  readingView = getReaderElement(ids.readingView),
+  mode: "open" | "restore" = "open"
+) {
   if (!readingView) {
     return;
   }
+  if (mode === "restore") {
+    readingView.setAttribute("data-biliscript-reader-restore", "1");
+    requestAnimationFrame(() => {
+      readingView.removeAttribute("data-biliscript-reader-restore");
+    });
+  }
+  readingView.classList.remove("closing");
   readingView.classList.add("open", "reader-page");
   readingView.setAttribute("aria-hidden", "false");
   setReadingViewReady(true);
@@ -455,9 +465,17 @@ function openReaderViewShell(readingView = getReaderElement(ids.readingView)) {
 //（waitForVideoMetadata 已出装配根到 bilibili/video-probe 叶子，由
 // subtitle/kick-subtitle-fetch 的起跑序列消费。）
 
+export function beginClosingReadingView(): boolean {
+  const readingView = getReaderElement(ids.readingView);
+  const wasOpen = readingView.classList.contains("open");
+  readingView.classList.remove("open");
+  readingView.classList.add("closing");
+  readingView.setAttribute("aria-hidden", "true");
+  return wasOpen;
+}
+
 export function closeReadingView() {
-  // 视图关闭走状态机迁移（exiting→closed 常规收尾；open→closed 兜底直关；
-  // entering→closed entering 中 restore 自愈先收敛；closed 幂等 no-op）
+  // 收尾清理在收回过渡结束后执行；直关与 restore 失整收敛也复用此入口。
   transitionReaderShell("closed");
   state.reader.setViewReady(false);
   state.reader.setSettingsExpanded(false);
@@ -467,9 +485,10 @@ export function closeReadingView() {
   resetManualScrollPause();
   setProgrammaticScrollUntil(0);
   const readingView = getReaderElement(ids.readingView);
-  readingView.classList.remove("open", "reader-page");
+  readingView.classList.remove("open", "closing", "reader-page");
   readingView.setAttribute("aria-hidden", "true");
   readingView.setAttribute(READER_READY_ATTR, "0");
+  readingView.removeAttribute("data-biliscript-reader-restore");
   // 移除清单从呈现属性表派生（presentation-fields.js 的 clearOnClose 标志），
   // 不再手抄。视图就绪态 ready 在主表中声明为 clearViewOnClose:false（close 时复位基线
   // 值 "0" 而非 removeAttribute）；移除清单含 theme/follow。
@@ -504,8 +523,6 @@ export function closeReadingView() {
   // 生成不取消——管线后台跑完落缓存，重开阅读模式读缓存命中）。
   resetReaderOverviewState();
   stopReadingViewSync();
-  // B 形态：拆除右栏定位监听并清 CSS 变量/浮层属性（紧随其后的一轮 render
-  // 不再把门控选择器唤醒，面板安全回落 display:none）。
   closeScriptHost();
 }
 
