@@ -1,4 +1,5 @@
-import {Audio, AbsoluteFill, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
+import {Audio, AbsoluteFill, Sequence, staticFile} from "remotion";
+import {AUDIO, musicVolumeAtFrame} from "../audio.mjs";
 import {PROMO_DURATION, SCENES} from "../timeline.mjs";
 import {Backdrop, COLORS, SceneShell} from "./design";
 import {AppearanceScene, ChatScene} from "./scenes";
@@ -26,20 +27,16 @@ const Scene = ({id, duration}: {id: string; duration: number}) => {
   }
 };
 
-const Soundtrack = () => {
-  const frame = useCurrentFrame();
-  return (
-    <Audio
-      src={staticFile("media/Wholesome.mp3")}
-      volume={() =>
-        interpolate(frame, [0, 24, PROMO_DURATION - 150, PROMO_DURATION - 60, PROMO_DURATION - 1], [0, 0.16, 0.16, 0.13, 0], {
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp"
-        })
-      }
-    />
-  );
-};
+const Soundtrack = () => (
+  <>
+    <Audio src={staticFile(AUDIO.music.src)} volume={musicVolumeAtFrame} />
+    {AUDIO.cues.map((cue) => (
+      <Sequence key={cue.id} from={cue.frame} durationInFrames={PROMO_DURATION - cue.frame}>
+        <Audio src={staticFile(cue.src)} volume={cue.gain} />
+      </Sequence>
+    ))}
+  </>
+);
 
 export const Promo = () => {
   return (

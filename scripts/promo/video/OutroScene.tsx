@@ -270,7 +270,7 @@ export const OutroScene = () => (
     <FinalBrand />
     <CallToAction />
     <div style={{position: "absolute", left: 0, right: 0, bottom: 48, textAlign: "center", color: COLORS.muted, fontSize: 14}}>
-      Music: “Wholesome” — Kevin MacLeod (incompetech.com), CC BY 4.0
+      Music: “BiliScript Pulse” — BiliScript, MIT License
     </div>
   </div>
 );

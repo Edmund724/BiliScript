@@ -14,7 +14,7 @@ await mkdir(output, {recursive: true});
 const server = http.createServer(async (request, response) => {
   if (request.url === "/") {
     response.writeHead(200, {"Content-Type": "text/html; charset=utf-8"});
-    response.end("<!doctype html><meta charset='utf-8'><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f6f8fc}video{display:block;width:100%;height:100%;object-fit:contain}</style><video muted playsinline src='/video.mp4'></video>");
+    response.end("<!doctype html><meta charset='utf-8'><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f6f8fc}video{display:block;width:100%;height:100%;object-fit:contain}</style><video playsinline src='/video.mp4'></video>");
     return;
   }
   if (request.url !== "/video.mp4") {
@@ -40,7 +40,7 @@ const server = http.createServer(async (request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("无法启动视频检查服务");
-const browser = await launchBrowser({headless: true, muted: true, sync: false, viewport: VIEWPORT, profilePrefix: "biliscript-video-check-"});
+const browser = await launchBrowser({headless: true, muted: false, autoplay: true, sync: false, viewport: VIEWPORT, profilePrefix: "biliscript-video-check-"});
 const page = await attachPage(browser, {viewport: VIEWPORT});
 try {
   await page.cdp.send("Page.navigate", {url: `http://127.0.0.1:${address.port}/`});
@@ -113,11 +113,12 @@ try {
       video.play().catch(reject);
     });
     const quality = video.getVideoPlaybackQuality();
-    return {ended: video.ended, currentTime: video.currentTime, decodedFrames: quality.totalVideoFrames, droppedFrames: quality.droppedVideoFrames, audioDecodedBytes: video.webkitAudioDecodedByteCount || 0};
+    return {ended: video.ended, currentTime: video.currentTime, decodedFrames: quality.totalVideoFrames, droppedFrames: quality.droppedVideoFrames, audioDecodedBytes: video.webkitAudioDecodedByteCount || 0, muted: video.muted};
   })()`, {timeoutMs: Math.ceil(metadata.duration * 1000) + 15000});
   if (!playback.ended || Math.abs(playback.currentTime - metadata.duration) > 0.1) {
     throw new Error(`视频未完整播放：${JSON.stringify(playback)}`);
   }
+  if (playback.audioDecodedBytes <= 0 || playback.muted) throw new Error("完整回放未有效解码非静音音频");
   const evidence = {video: path.relative(REPO_ROOT, input).replaceAll("\\", "/"), metadata, sampleTimes, sheets, playback};
   await writeFile(path.join(output, "inspection.json"), JSON.stringify(evidence, null, 2) + "\n", "utf8");
   console.log(JSON.stringify(evidence, null, 2));

@@ -30,9 +30,10 @@
     "smoke:mermaid": "node scripts/mermaid-smoke/serve.mjs",
     "harness:browser": "node scripts/browser-harness/smoke.mjs",
     "harness:scenario": "node scripts/browser-harness/run-scenario.mjs",
-    "promo:studio": "node scripts/promo/prepare.mjs && remotion studio scripts/promo/index.ts --config=scripts/promo/remotion.config.ts",
-    "promo:render": "node scripts/promo/render.mjs",
-    "promo:verify": "node scripts/promo/verify-video.mjs"
+    "promo:audio": "node scripts/promo/synthesize-audio.mjs",
+    "promo:studio": "node scripts/promo/synthesize-audio.mjs && node scripts/promo/prepare.mjs && remotion studio scripts/promo/index.ts --config=scripts/promo/remotion.config.ts",
+    "promo:render": "node scripts/promo/synthesize-audio.mjs && node scripts/promo/render.mjs",
+    "promo:verify": "node scripts/promo/verify-video.mjs && node scripts/promo/verify-audio.mjs"
   },
   "repository": {
     "type": "git",
