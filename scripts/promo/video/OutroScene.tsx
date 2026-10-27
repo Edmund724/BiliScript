@@ -1,9 +1,18 @@
 import {Easing, Img, interpolate, interpolateColors, staticFile, useCurrentFrame} from "remotion";
 import {OUTRO_TIMELINE} from "../outro-timeline.mjs";
-import {BRAND_FONT_FAMILY, COLORS, FONT_FAMILY} from "./design";
+import {BRAND_FONT_FAMILY, COLORS, FONT_FAMILY, entranceOpacity} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
+
+const FEATURE_CARD = {width: 400, height: 360, gap: 36, top: 360};
+const CANVAS_WIDTH = 1920;
+const FEATURE_ROW_WIDTH = OUTRO_TIMELINE.features.length * FEATURE_CARD.width + (OUTRO_TIMELINE.features.length - 1) * FEATURE_CARD.gap;
+const FEATURE_ROW_LEFT = (CANVAS_WIDTH - FEATURE_ROW_WIDTH) / 2;
+const FEATURE_ROW_CENTER_Y = FEATURE_CARD.top + FEATURE_CARD.height / 2;
+const BRAND_ICON = {size: 84, top: 308};
+const BRAND_MARK = {x: CANVAS_WIDTH / 2, y: BRAND_ICON.top + BRAND_ICON.size / 2};
+const FEATURE_CONVERGE_SCALE = BRAND_ICON.size / FEATURE_CARD.width;
 
 const EdgeIcon = () => (
   <svg width={32} height={32} viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -25,54 +34,81 @@ const GitHubIcon = () => (
   </svg>
 );
 
-const FeatureReveal = () => {
+const FeatureCards = () => {
   const frame = useCurrentFrame();
+  const boardStart = OUTRO_TIMELINE.featureBoardAt;
+  const boardOpacity = entranceOpacity(frame, boardStart);
+  const boardRise = interpolate(frame, [boardStart, boardStart + 8], [22, 0], {...CLAMP, easing: ENTRANCE_EASING});
+  const converge = interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 12], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
+  const convergeOpacity = interpolate(frame, [OUTRO_TIMELINE.convergeAt + 12, OUTRO_TIMELINE.convergeAt + 16], [1, 0], CLAMP);
+  const contentOpacity = interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 4], [1, 0], CLAMP);
+
   return (
     <>
-      {OUTRO_TIMELINE.features.map((feature) => {
-        const land = feature.at;
-        const start = land - OUTRO_TIMELINE.featureEntranceFrames;
+      {OUTRO_TIMELINE.features.map((feature, index) => {
+        const left = FEATURE_ROW_LEFT + index * (FEATURE_CARD.width + FEATURE_CARD.gap);
+        const dx = BRAND_MARK.x - (left + FEATURE_CARD.width / 2);
+        const dy = BRAND_MARK.y - FEATURE_ROW_CENTER_Y;
         return (
           <div
-            key={feature.label}
+            key={feature.id}
             style={{
               position: "absolute",
-              left: "50%",
-              top: 350,
-              width: 196,
-              height: 64,
-              marginLeft: -98,
-              marginTop: -32,
+              left,
+              top: FEATURE_CARD.top,
+              width: FEATURE_CARD.width,
+              height: FEATURE_CARD.height,
+              padding: "34px 36px 36px",
               display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 999,
-              border: "1px solid rgba(92, 119, 141, 0.18)",
+              flexDirection: "column",
+              borderRadius: 28,
+              border: "1px solid rgba(83, 110, 134, 0.16)",
               background: "rgba(255, 255, 255, 0.96)",
-              boxShadow: "0 14px 34px rgba(56, 82, 104, 0.12)",
-              color: COLORS.foreground,
-              fontSize: 28,
-              fontWeight: 600,
-              letterSpacing: 0.5,
-              opacity: interpolate(frame, [start, land, OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 10], [0, 1, 1, 0], CLAMP),
-              translate: interpolate(
-                frame,
-                [start, land, OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 16],
-                [
-                  "0px 0px",
-                  `${feature.x}px ${feature.y}px`,
-                  `${feature.x + feature.driftX}px ${feature.y + feature.driftY}px`,
-                  "0px 0px"
-                ],
-                {...CLAMP, easing: ENTRANCE_EASING}
-              ),
-              scale: interpolate(frame, [start, land, OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 16], [0.68, 1, 1, 0.3], {
-                ...CLAMP,
-                easing: ENTRANCE_EASING
-              })
+              boxShadow: `0 26px 64px -34px rgba(43, 70, 93, ${0.26 * (1 - converge)})`,
+              opacity: boardOpacity * convergeOpacity,
+              translate: `${dx * converge}px ${boardRise + dy * converge}px`,
+              scale: 1 + (FEATURE_CONVERGE_SCALE - 1) * converge
             }}
           >
-            {feature.label}
+            <div style={{flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", opacity: contentOpacity}}>
+              <div>
+                <div style={{width: 44, height: 3, borderRadius: 2, background: COLORS.pink, marginBottom: 24}} />
+                <div style={{height: 66, overflow: "hidden"}}>
+                  <div
+                    style={{
+                      color: COLORS.foreground,
+                      fontSize: 56,
+                      fontWeight: 600,
+                      lineHeight: 1.15,
+                      letterSpacing: -1.2,
+                      whiteSpace: "nowrap",
+                      translate: interpolate(frame, [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at], ["0px 72px", "0px 0px"], {
+                        ...CLAMP,
+                        easing: ENTRANCE_EASING
+                      })
+                    }}
+                  >
+                    {feature.label}
+                  </div>
+                </div>
+              </div>
+              <div style={{height: 34, overflow: "hidden"}}>
+                <div
+                  style={{
+                    color: COLORS.muted,
+                    fontSize: 23,
+                    lineHeight: 1.4,
+                    whiteSpace: "nowrap",
+                    translate: interpolate(frame, [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at], ["0px 34px", "0px 0px"], {
+                      ...CLAMP,
+                      easing: ENTRANCE_EASING
+                    })
+                  }}
+                >
+                  {feature.description}
+                </div>
+              </div>
+            </div>
           </div>
         );
       })}
@@ -83,6 +119,8 @@ const FeatureReveal = () => {
 const FinalBrand = () => {
   const frame = useCurrentFrame();
   const nameSettledAt = OUTRO_TIMELINE.brandNameAt + 16;
+  const iconAt = OUTRO_TIMELINE.convergeAt + 12;
+  const iconSoftAt = iconAt - 6;
 
   return (
     <>
@@ -91,17 +129,13 @@ const FinalBrand = () => {
         style={{
           position: "absolute",
           left: "50%",
-          top: 308,
-          width: 84,
-          height: 84,
-          marginLeft: -42,
+          top: BRAND_ICON.top,
+          width: BRAND_ICON.size,
+          height: BRAND_ICON.size,
+          marginLeft: -BRAND_ICON.size / 2,
           borderRadius: 20,
-          opacity: interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 4], [0, 1], CLAMP),
-          filter: `blur(${interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.brandResolveAt], [6, 0], CLAMP)}px)`,
-          scale: interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.brandResolveAt], [0.78, 1], {
-            ...CLAMP,
-            easing: ENTRANCE_EASING
-          }),
+          opacity: interpolate(frame, [iconAt, iconAt + 4], [0, 1], CLAMP),
+          filter: `blur(${interpolate(frame, [iconSoftAt, OUTRO_TIMELINE.brandResolveAt], [6, 0], CLAMP)}px)`,
           translate: interpolate(frame, [OUTRO_TIMELINE.brandNameAt, nameSettledAt], ["0px 0px", "-205px -8px"], {
             ...CLAMP,
             easing: ENTRANCE_EASING
@@ -275,14 +309,28 @@ const CallToAction = () => {
   );
 };
 
-export const OutroScene = () => (
-  <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
-    <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.07) 0%, rgba(232, 93, 135, 0) 72%)"}} />
-    <FeatureReveal />
-    <FinalBrand />
-    <CallToAction />
-    <div style={{position: "absolute", left: 0, right: 0, bottom: 48, textAlign: "center", color: COLORS.muted, fontSize: 14}}>
-      Music: “BiliScript Pulse” — BiliScript, MIT License
+export const OutroScene = () => {
+  const frame = useCurrentFrame();
+  return (
+    <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
+      <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.07) 0%, rgba(232, 93, 135, 0) 72%)"}} />
+      <FeatureCards />
+      <FinalBrand />
+      <CallToAction />
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 48,
+          textAlign: "center",
+          color: COLORS.muted,
+          fontSize: 14,
+          opacity: entranceOpacity(frame, OUTRO_TIMELINE.finalHoldAt)
+        }}
+      >
+        Music: “BiliScript Pulse” — BiliScript, MIT License
+      </div>
     </div>
-  </div>
-);
+  );
+};
