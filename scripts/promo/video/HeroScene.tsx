@@ -107,7 +107,7 @@ const HeroMessage = ({duration}: {duration: number}) => {
       <Reveal delay={Math.round(duration * 0.5)} distance={22} style={{position: "absolute", left: 104, top: 706}}>
         <Brand size={32} iconSize={42} />
       </Reveal>
-      <SceneTitle title="在 B 站，读视频" delay={Math.round(duration * 0.5)} style={{left: 104, top: 774}} />
+      <SceneTitle title="在 B 站，读视频" size={78} delay={Math.round(duration * 0.5)} style={{left: 104, top: 774}} />
     </>
   );
 };

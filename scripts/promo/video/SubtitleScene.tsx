@@ -81,7 +81,7 @@ const Title = () => {
         })
       }}
     >
-      <SceneTitle title="找到那句，回到那一秒。" size={44} style={{left: 58, top: 72, width: 720}} />
+      <SceneTitle title="找到那句，回到那一秒。" size={54} style={{left: 104, top: 72, width: 820}} />
     </div>
   );
 };

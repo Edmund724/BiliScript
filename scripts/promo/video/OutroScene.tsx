@@ -12,7 +12,7 @@ const FEATURES = [
 ];
 
 const EdgeIcon = () => (
-  <svg width={30} height={30} viewBox="0 0 32 32" fill="none" aria-hidden="true">
+  <svg width={32} height={32} viewBox="0 0 32 32" fill="none" aria-hidden="true">
     <defs>
       <linearGradient id="edge-wave" x1="5" y1="5" x2="27" y2="27" gradientUnits="userSpaceOnUse">
         <stop stopColor="#B9F4F1" />
@@ -26,7 +26,7 @@ const EdgeIcon = () => (
 );
 
 const GitHubIcon = () => (
-  <svg width={29} height={29} viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+  <svg width={32} height={32} viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
     <path d="M16 1.4C7.9 1.4 1.4 7.9 1.4 16c0 6.5 4.2 12 10 13.9.7.1 1-.3 1-.7v-2.7c-4.1.9-5-1.7-5-1.7-.7-1.7-1.6-2.2-1.6-2.2-1.3-.9.1-.9.1-.9 1.5.1 2.2 1.5 2.2 1.5 1.3 2.2 3.4 1.6 4.2 1.2.1-1 .5-1.6.9-2-3.3-.4-6.7-1.6-6.7-7.2 0-1.6.6-2.9 1.5-3.9-.2-.4-.7-1.9.1-3.9 0 0 1.2-.4 4 1.5 1.2-.3 2.4-.5 3.7-.5s2.5.2 3.7.5c2.8-1.9 4-1.5 4-1.5.8 2 .3 3.5.1 3.9.9 1 1.5 2.3 1.5 3.9 0 5.6-3.4 6.8-6.7 7.2.5.5 1 1.4 1 2.8v4.1c0 .4.3.8 1 .7 5.8-1.9 10-7.4 10-13.9C30.6 7.9 24.1 1.4 16 1.4Z" />
   </svg>
 );
@@ -73,7 +73,7 @@ const FeatureReveal = () => {
               background: "rgba(255, 255, 255, 0.96)",
               boxShadow: "0 14px 34px rgba(56, 82, 104, 0.12)",
               color: COLORS.foreground,
-              fontSize: 24,
+              fontSize: 28,
               fontWeight: 600,
               letterSpacing: 0.5,
               opacity: interpolate(frame, [start, start + 0.18 * fps, 1.58 * fps, 2.02 * fps], [0, 1, 1, 0], CLAMP),
@@ -121,7 +121,7 @@ const FinalBrand = () => {
           scale: interpolate(frame, [1.65 * fps, 2.2 * fps], [0.92, 1], {...CLAMP, easing: ENTRANCE_EASING})
         }}
       >
-        <Brand size={98} iconSize={80} />
+        <Brand size={104} iconSize={84} />
       </div>
       <div
         style={{
@@ -178,7 +178,7 @@ const CallToAction = () => {
             gap: 12,
             borderRadius: 999,
             color: "white",
-            fontSize: 23,
+            fontSize: 28,
             fontWeight: 600,
             backgroundColor: interpolateColors(
               frame,
@@ -216,7 +216,7 @@ const CallToAction = () => {
             background: "rgba(255, 255, 255, 0.97)",
             boxShadow: "0 12px 28px rgba(56, 82, 104, 0.12)",
             color: COLORS.foreground,
-            fontSize: 23,
+            fontSize: 28,
             fontWeight: 600
           }}
         >
@@ -228,7 +228,7 @@ const CallToAction = () => {
         style={{
           position: "absolute",
           left: 930,
-          top: 596,
+          top: 610,
           width: 48,
           height: 48,
           marginLeft: -24,
@@ -240,8 +240,8 @@ const CallToAction = () => {
         }}
       />
       <svg
-        width={30}
-        height={38}
+        width={36}
+        height={46}
         viewBox="0 0 30 38"
         style={{
           position: "absolute",
@@ -253,7 +253,7 @@ const CallToAction = () => {
           translate: interpolate(
             frame,
             [2.72 * fps, 3.16 * fps, 3.5 * fps, 3.6 * fps, 3.85 * fps],
-            ["1240px 790px", "930px 596px", "930px 596px", "930px 600px", "930px 596px"],
+            ["1240px 790px", "930px 610px", "930px 610px", "930px 614px", "930px 610px"],
             {...CLAMP, easing: Easing.bezier(0.4, 0, 0.2, 1)}
           )
         }}
@@ -266,6 +266,7 @@ const CallToAction = () => {
 
 export const OutroScene = () => (
   <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
+    <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.07) 0%, rgba(232, 93, 135, 0) 72%)"}} />
     <FeatureReveal />
     <FinalBrand />
     <CallToAction />

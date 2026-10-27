@@ -12,7 +12,7 @@ const shotOffset = (shots: ReadonlyArray<{duration: number}>, index: number) =>
   shots.slice(0, index).reduce((total, previous) => total + previous.duration, 0);
 
 export const ChatScene = () => (
-  <SpringLayout direction={1}>
+  <SpringLayout axis="y" distance={24}>
     <SceneTitle title={"看完还有问题？\n接着问。"} style={{left: 176, top: 370, width: 740}} />
     {CHAT_SHOTS.map((shot, index) => {
       const framing = CHAT_FRAMING[index] ?? CHAT_FRAMING[0];
