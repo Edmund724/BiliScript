@@ -10,9 +10,19 @@ const CANVAS_WIDTH = 1920;
 const FEATURE_ROW_WIDTH = OUTRO_TIMELINE.features.length * FEATURE_CARD.width + (OUTRO_TIMELINE.features.length - 1) * FEATURE_CARD.gap;
 const FEATURE_ROW_LEFT = (CANVAS_WIDTH - FEATURE_ROW_WIDTH) / 2;
 const FEATURE_ROW_CENTER_Y = FEATURE_CARD.top + FEATURE_CARD.height / 2;
-const BRAND_ICON = {size: 84, top: 308};
+
+// 品牌锁定区：图标 110px + 间距 60px + 品牌名步进 540px，整组 710px 由 flex 居中落在画面中线。
+// advance 是“BiliScript”在 148px Bahnschrift、字距 −6.66px 下的实测步进宽度，用来说明成组宽度，
+// 同时只用于算图标从画面中线滑进锁定位的起点位移；最终水平位置由 flex 居中决定，不依赖该测量。
+const BRAND_ICON = {size: 110, top: 350};
+const BRAND_NAME = {size: 148, advance: 540, gap: 60, opticalLift: -11};
+const BRAND_GROUP_WIDTH = BRAND_ICON.size + BRAND_NAME.gap + BRAND_NAME.advance;
+const BRAND_ICON_OUTSET = (BRAND_GROUP_WIDTH - BRAND_ICON.size) / 2;
 const BRAND_MARK = {x: CANVAS_WIDTH / 2, y: BRAND_ICON.top + BRAND_ICON.size / 2};
 const FEATURE_CONVERGE_SCALE = BRAND_ICON.size / FEATURE_CARD.width;
+const TAGLINE_TOP = 520;
+const CTA_TOP = 616;
+const INSTALL_POINTER = {x: 930, y: CTA_TOP + 60};
 
 const EdgeIcon = () => (
   <svg width={32} height={32} viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -118,61 +128,64 @@ const FeatureCards = () => {
 
 const FinalBrand = () => {
   const frame = useCurrentFrame();
-  const nameSettledAt = OUTRO_TIMELINE.brandNameAt + 16;
+  const nameSettledAt = OUTRO_TIMELINE.brandNameAt + 14;
   const iconAt = OUTRO_TIMELINE.convergeAt + 12;
   const iconSoftAt = iconAt - 6;
+  const lockup = interpolate(frame, [OUTRO_TIMELINE.brandNameAt, nameSettledAt], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
+  // 图标滑出画心中线后，右侧要让出的距离等于锁定位的间距；名字等图标完全让位才开始显影，
+  // 避免 148px 品牌名和图标在过渡中叠在一起。
+  const nameRevealLockup = 1 - BRAND_NAME.gap / BRAND_ICON_OUTSET;
+  const nameOpacity = interpolate(lockup, [nameRevealLockup, 1], [0, 1], CLAMP);
 
   return (
     <>
-      <Img
-        src={staticFile("media/logo.svg")}
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: BRAND_ICON.top,
-          width: BRAND_ICON.size,
-          height: BRAND_ICON.size,
-          marginLeft: -BRAND_ICON.size / 2,
-          borderRadius: 20,
-          opacity: interpolate(frame, [iconAt, iconAt + 4], [0, 1], CLAMP),
-          filter: `blur(${interpolate(frame, [iconSoftAt, OUTRO_TIMELINE.brandResolveAt], [6, 0], CLAMP)}px)`,
-          translate: interpolate(frame, [OUTRO_TIMELINE.brandNameAt, nameSettledAt], ["0px 0px", "-205px -8px"], {
-            ...CLAMP,
-            easing: ENTRANCE_EASING
-          }),
-          boxShadow: "0 20px 60px rgba(64, 92, 116, 0.18)"
-        }}
-      />
       <div
         style={{
           position: "absolute",
-          left: "50%",
-          top: 300,
-          height: 84,
-          marginLeft: -144,
+          left: 0,
+          right: 0,
+          top: BRAND_ICON.top,
+          height: BRAND_ICON.size,
           display: "flex",
           alignItems: "center",
-          color: COLORS.foreground,
-          fontFamily: BRAND_FONT_FAMILY,
-          fontSize: 104,
-          fontWeight: 500,
-          lineHeight: 1,
-          letterSpacing: -4.68,
-          opacity: interpolate(frame, [OUTRO_TIMELINE.brandNameAt, OUTRO_TIMELINE.brandNameAt + 10], [0, 1], CLAMP),
-          translate: interpolate(frame, [OUTRO_TIMELINE.brandNameAt, nameSettledAt], ["18px 0px", "0px 0px"], {
-            ...CLAMP,
-            easing: ENTRANCE_EASING
-          })
+          justifyContent: "center",
+          gap: BRAND_NAME.gap
         }}
       >
-        BiliScript
+        <Img
+          src={staticFile("media/logo.svg")}
+          style={{
+            width: BRAND_ICON.size,
+            height: BRAND_ICON.size,
+            borderRadius: BRAND_ICON.size * 0.24,
+            opacity: interpolate(frame, [iconAt, iconAt + 4], [0, 1], CLAMP),
+            filter: `blur(${interpolate(frame, [iconSoftAt, OUTRO_TIMELINE.brandResolveAt], [6, 0], CLAMP)}px)`,
+            translate: `${(1 - lockup) * BRAND_ICON_OUTSET}px 0px`,
+            boxShadow: "0 20px 60px rgba(64, 92, 116, 0.18)"
+          }}
+        />
+        <div
+          style={{
+            color: COLORS.foreground,
+            fontFamily: BRAND_FONT_FAMILY,
+            fontSize: BRAND_NAME.size,
+            fontWeight: 500,
+            lineHeight: 1,
+            letterSpacing: BRAND_NAME.size * -0.045,
+            whiteSpace: "nowrap",
+            opacity: nameOpacity,
+            translate: `${(1 - nameOpacity) * 18}px ${BRAND_NAME.opticalLift}px`
+          }}
+        >
+          BiliScript
+        </div>
       </div>
       <div
         style={{
           position: "absolute",
           left: 0,
           right: 0,
-          top: 440,
+          top: TAGLINE_TOP,
           textAlign: "center",
           color: COLORS.foreground,
           fontSize: 34,
@@ -193,7 +206,12 @@ const FinalBrand = () => {
 const CallToAction = () => {
   const frame = useCurrentFrame();
   const clickAt = OUTRO_TIMELINE.installClickAt;
-  const buttonFrames = [150, 156, 165, clickAt, 176, 180];
+  // 指针 30.20s 到达主按钮下沿才开始抬升，30.60s 按下，30.73s 回弹，30.87s 落定并与指针淡出同时收住。
+  const buttonFrames = [156, 162, 165, clickAt, clickAt + 4, clickAt + 8];
+  const pointerOpacity =
+    interpolate(frame, [OUTRO_TIMELINE.pointerAppearAt, OUTRO_TIMELINE.pointerAppearAt + 4], [0, 1], CLAMP) *
+    interpolate(frame, [OUTRO_TIMELINE.pointerExitAt, OUTRO_TIMELINE.pointerGoneAt], [1, 0], CLAMP);
+  const pointerRest = `${INSTALL_POINTER.x}px ${INSTALL_POINTER.y}px`;
 
   return (
     <>
@@ -202,7 +220,7 @@ const CallToAction = () => {
           position: "absolute",
           left: 0,
           right: 0,
-          top: 550,
+          top: CTA_TOP,
           display: "flex",
           justifyContent: "center",
           gap: 24,
@@ -272,8 +290,8 @@ const CallToAction = () => {
       <div
         style={{
           position: "absolute",
-          left: 930,
-          top: 610,
+          left: INSTALL_POINTER.x,
+          top: INSTALL_POINTER.y,
           width: 48,
           height: 48,
           marginLeft: -24,
@@ -294,11 +312,11 @@ const CallToAction = () => {
           top: 0,
           overflow: "visible",
           filter: "drop-shadow(0 3px 4px rgba(31, 47, 61, 0.25))",
-          opacity: interpolate(frame, [140, 144], [0, 1], CLAMP),
+          opacity: pointerOpacity,
           translate: interpolate(
             frame,
-            [142, 155, 165, clickAt, 176],
-            ["1240px 790px", "930px 610px", "930px 610px", "930px 614px", "930px 610px"],
+            [OUTRO_TIMELINE.pointerAppearAt, 156, 166, clickAt, OUTRO_TIMELINE.pointerGoneAt],
+            ["1240px 790px", pointerRest, pointerRest, `${INSTALL_POINTER.x}px ${INSTALL_POINTER.y + 4}px`, pointerRest],
             {...CLAMP, easing: Easing.bezier(0.4, 0, 0.2, 1)}
           )
         }}
@@ -309,14 +327,25 @@ const CallToAction = () => {
   );
 };
 
+// 品牌、口号与安装入口整组从 29.30s 起以 1.0→1.015 极缓推近，最终定格保持可测的连续变化。
+const BrandStage = () => {
+  const frame = useCurrentFrame();
+  const push = interpolate(frame, [OUTRO_TIMELINE.brandPushAt, OUTRO_TIMELINE.duration - 1], [1, OUTRO_TIMELINE.brandPushScale], CLAMP);
+  return (
+    <div style={{position: "absolute", inset: 0, scale: push, transformOrigin: "50% 50%"}}>
+      <FinalBrand />
+      <CallToAction />
+    </div>
+  );
+};
+
 export const OutroScene = () => {
   const frame = useCurrentFrame();
   return (
     <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
       <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.07) 0%, rgba(232, 93, 135, 0) 72%)"}} />
       <FeatureCards />
-      <FinalBrand />
-      <CallToAction />
+      <BrandStage />
       <div
         style={{
           position: "absolute",

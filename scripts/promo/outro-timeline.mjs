@@ -12,9 +12,14 @@ export const OUTRO_TIMELINE = {
   ],
   convergeAt: 110,
   brandResolveAt: 126,
-  brandNameAt: 130,
-  taglineAt: 142,
-  ctaAt: 148,
+  brandNameAt: 128,
+  brandPushAt: 129,
+  brandPushScale: 1.015,
+  taglineAt: 138,
+  ctaAt: 141,
   installClickAt: 168,
-  finalHoldAt: 188
+  pointerAppearAt: 147,
+  pointerExitAt: 172,
+  pointerGoneAt: 176,
+  finalHoldAt: 189
 };
