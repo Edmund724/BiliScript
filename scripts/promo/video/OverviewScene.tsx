@@ -1,24 +1,44 @@
-import {Sequence, interpolate, useCurrentFrame, useVideoConfig} from "remotion";
+import {Easing, Sequence, interpolate, useCurrentFrame, useVideoConfig} from "remotion";
 import {Crop, ProductFrame, SceneTitle, SpringLayout} from "./design";
 
 const CHAPTER_CROP: Crop = {x: 1380, y: 230, width: 500, height: 650};
-const QUOTE_CROP: Crop = {x: 1415, y: 293, width: 440, height: 558};
+const QUOTE_CROP: Crop = {x: 1418, y: 572, width: 462, height: 145};
+const SHARE_CROP: Crop = {x: 1407, y: 294, width: 458, height: 558};
 const CHAPTER_SOURCE_SECONDS = 5.6;
 const QUOTE_SOURCE_SECONDS = 4.733333;
+const QUOTE_LIFT_FRAMES = 16;
 
 const QuoteCamera = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
+  const easing = Easing.bezier(0.16, 1, 0.3, 1);
+  const liftProgress = interpolate(frame, [0, QUOTE_LIFT_FRAMES], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing
+  });
+  const expandProgress = interpolate(frame, [0, 12, QUOTE_LIFT_FRAMES], [0, 0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing
+  });
+  const mix = (from: number, to: number) => from + (to - from) * expandProgress;
+  const mixLift = (from: number, to: number) => from + (to - from) * liftProgress;
+  const crop: Crop = {
+    x: mix(QUOTE_CROP.x, SHARE_CROP.x),
+    y: mix(QUOTE_CROP.y, SHARE_CROP.y),
+    width: mix(QUOTE_CROP.width, SHARE_CROP.width),
+    height: mix(QUOTE_CROP.height, SHARE_CROP.height)
+  };
   return (
     <div
       style={{
         position: "absolute",
         left: 1040,
-        top: 58,
+        top: mixLift(370, 58),
         width: 760,
-        height: 964,
-        transformOrigin: "50% 0%",
-        scale: interpolate(frame, [0, 18, duration], [1, 1.06, 1.1], {
+        transformOrigin: "50% 50%",
+        scale: interpolate(frame, [0, QUOTE_LIFT_FRAMES, duration], [0.96, 1, 1.015], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp"
         })
@@ -26,13 +46,17 @@ const QuoteCamera = ({duration}: {duration: number}) => {
     >
       <ProductFrame
         source="overview-04-quote.mp4"
-        crop={QUOTE_CROP}
+        crop={crop}
         width={760}
         playbackRate={QUOTE_SOURCE_SECONDS / (Math.max(1, duration - 12) / fps)}
         duration={duration}
         animate={false}
         tilt={-6}
-        style={{left: 0, top: 0}}
+        style={{
+          left: 0,
+          top: 0,
+          boxShadow: `0 ${mixLift(14, 28)}px ${mixLift(36, 70)}px -30px rgba(43, 70, 93, ${mixLift(0.16, 0.28)})`
+        }}
       />
     </div>
   );

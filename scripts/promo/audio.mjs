@@ -17,7 +17,7 @@ export const AUDIO = {
     {id: "type-jue", frame: 106, src: "media/sfx/key.wav", gain: 0.5, duckDb: 2.5},
     {id: "overview-cut", frame: 210, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
     {id: "chapters-quote-cut", frame: 262, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
-    {id: "quote-card", frame: 273, src: "media/sfx/pop.wav", gain: 0.45, duckDb: 3},
+    {id: "quote-card", frame: 278, src: "media/sfx/pop.wav", gain: 0.45, duckDb: 3},
     {id: "quote-slate", frame: 283, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
     {id: "quote-mist", frame: 295, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
     {id: "chat-cut", frame: 330, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
