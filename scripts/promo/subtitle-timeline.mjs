@@ -3,24 +3,24 @@ import {Easing, interpolate} from "remotion";
 export const SUBTITLE_DURATION = 120;
 export const SUBTITLE_PLAYBACK_RATE = 1.25;
 export const SUBTITLE_MATCH_FRAME = 61;
-export const SUBTITLE_SECOND_SHOT_SOURCE_FRAME = 76;
+export const SUBTITLE_SECOND_SHOT_SOURCE_FRAME = 135;
 
 export const SUBTITLE_ANCHORS = {
   before: {
-    timestamp: "0:01",
-    seconds: 1.62,
-    center: {x: 1426.3984375, y: 315.5},
+    timestamp: "4:07",
+    seconds: 247.14,
+    center: {x: 1426.3984375, y: 606.5},
     height: 21
   },
   after: {
-    timestamp: "0:01",
-    seconds: 1.62,
-    center: {x: 1433.3984375, y: 302.5},
+    timestamp: "4:07",
+    seconds: 247.14,
+    center: {x: 1433.3984375, y: 611.5},
     height: 23
   }
 };
 
-const BEFORE_MATCH = {scale: 2, x: -1410, y: -400, tilt: 0};
+const BEFORE_MATCH = {scale: 2, x: -1410, y: -773, tilt: 0};
 const MATCH_SCREEN = {
   x: SUBTITLE_ANCHORS.before.center.x * BEFORE_MATCH.scale + BEFORE_MATCH.x,
   y: SUBTITLE_ANCHORS.before.center.y * BEFORE_MATCH.scale + BEFORE_MATCH.y

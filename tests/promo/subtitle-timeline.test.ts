@@ -20,9 +20,12 @@ describe("字幕时间戳匹配剪辑", () => {
     expect(SUBTITLE_DURATION).toBe(scene?.duration);
     expect(SUBTITLE_PLAYBACK_RATE).toBe(1.25);
     expect(SUBTITLE_MATCH_FRAME).toBe(61);
-    expect(SUBTITLE_SECOND_SHOT_SOURCE_FRAME).toBe(76);
-    expect(SUBTITLE_ANCHORS.before.timestamp).toBe("0:01");
-    expect(SUBTITLE_ANCHORS.before.seconds).toBe(1.62);
+    expect(SUBTITLE_SECOND_SHOT_SOURCE_FRAME).toBe(135);
+    expect(SUBTITLE_ANCHORS.before.timestamp).toBe("4:07");
+    expect(SUBTITLE_ANCHORS.before.seconds).toBe(247.14);
+    expect(SUBTITLE_ANCHORS.after.timestamp).toBe(SUBTITLE_ANCHORS.before.timestamp);
+    expect(SUBTITLE_ANCHORS.after.seconds).toBe(SUBTITLE_ANCHORS.before.seconds);
+    expect(SUBTITLE_ANCHORS.before.seconds).toBeGreaterThan(60);
 
     const beforeCamera = subtitleCameraAtFrame(SUBTITLE_MATCH_FRAME - 1);
     const afterCamera = subtitleCameraAtFrame(SUBTITLE_MATCH_FRAME);
