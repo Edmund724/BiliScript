@@ -42,12 +42,12 @@ describe("宣传片配乐", () => {
       ["provider-wall", 634, "media/sfx/chord.wav"],
       ["provider-collapse", 654, "media/sfx/click.wav"],
       ["outro-cut", 660, "media/sfx/whoosh.wav"],
-      ["feature-bilingual", 668, "media/sfx/pop.wav"],
-      ["feature-export", 676, "media/sfx/pop.wav"],
-      ["feature-asr", 683, "media/sfx/pop.wav"],
-      ["feature-search", 691, "media/sfx/pop.wav"],
-      ["brand-resolve", 710, "media/sfx/resolve.wav"],
-      ["install-click", 768, "media/sfx/click.wav"]
+      ["feature-bilingual", 675, "media/sfx/pop.wav"],
+      ["feature-export", 690, "media/sfx/pop.wav"],
+      ["feature-asr", 705, "media/sfx/pop.wav"],
+      ["feature-search", 720, "media/sfx/pop.wav"],
+      ["brand-resolve", 770, "media/sfx/resolve.wav"],
+      ["install-click", 828, "media/sfx/click.wav"]
     ]);
     expect(new Set(AUDIO.cues.map((cue) => cue.id)).size).toBe(AUDIO.cues.length);
     expect(AUDIO.cues.every((cue) => cue.frame >= 0 && cue.frame < PROMO_DURATION)).toBe(true);

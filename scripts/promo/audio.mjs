@@ -1,3 +1,4 @@
+import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {SUBTITLE_MATCH_FRAME} from "./subtitle-timeline.mjs";
 import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, SCENES} from "./timeline.mjs";
 
@@ -36,12 +37,15 @@ export const AUDIO = {
     {id: "provider-wall", frame: 634, src: "media/sfx/chord.wav", gain: 0.4, duckDb: 4},
     {id: "provider-collapse", frame: 654, src: "media/sfx/click.wav", gain: 0.36, duckDb: 3},
     {id: "outro-cut", frame: 660, src: "media/sfx/whoosh.wav", gain: 0.22, duckDb: 3},
-    {id: "feature-bilingual", frame: 668, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
-    {id: "feature-export", frame: 676, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
-    {id: "feature-asr", frame: 683, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
-    {id: "feature-search", frame: 691, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
-    {id: "brand-resolve", frame: 710, src: "media/sfx/resolve.wav", gain: 0.45, duckDb: 5},
-    {id: "install-click", frame: 768, src: "media/sfx/click.wav", gain: 0.45, duckDb: 3}
+    ...OUTRO_TIMELINE.features.map((feature) => ({
+      id: feature.id,
+      frame: OUTRO_TIMELINE.from + feature.at,
+      src: "media/sfx/pop.wav",
+      gain: 0.4,
+      duckDb: 3
+    })),
+    {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.convergeAt, src: "media/sfx/resolve.wav", gain: 0.45, duckDb: 5},
+    {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/click.wav", gain: 0.45, duckDb: 3}
   ]
 };
 

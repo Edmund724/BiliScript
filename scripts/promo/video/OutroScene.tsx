@@ -1,15 +1,9 @@
-import {Easing, Img, interpolate, interpolateColors, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {Easing, Img, Sequence, interpolate, interpolateColors, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {OUTRO_TIMELINE} from "../outro-timeline.mjs";
 import {Brand, COLORS, FONT_FAMILY} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
-
-const FEATURES = [
-  {label: "双语字幕", x: -330, y: -170, driftX: -18, driftY: -10},
-  {label: "字幕导出", x: 330, y: -170, driftX: 18, driftY: -10},
-  {label: "语音识别", x: -330, y: 170, driftX: -18, driftY: 10},
-  {label: "联网搜索", x: 330, y: 170, driftX: 18, driftY: 10}
-];
 
 const EdgeIcon = () => (
   <svg width={32} height={32} viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -34,6 +28,7 @@ const GitHubIcon = () => (
 const FeatureReveal = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
+  const brandFrame = frame - OUTRO_TIMELINE.brandDelayFrames;
 
   return (
     <>
@@ -47,13 +42,14 @@ const FeatureReveal = () => {
           height: 88,
           marginLeft: -44,
           borderRadius: 22,
-          opacity: interpolate(frame, [1.67 * fps, 1.85 * fps, 2.2 * fps, 2.4 * fps], [0, 1, 1, 0], CLAMP),
-          scale: interpolate(frame, [1.67 * fps, 2.2 * fps], [0.72, 1], {...CLAMP, easing: ENTRANCE_EASING}),
+          opacity: interpolate(brandFrame, [1.67 * fps, 1.85 * fps, 2.2 * fps, 2.4 * fps], [0, 1, 1, 0], CLAMP),
+          scale: interpolate(brandFrame, [1.67 * fps, 2.2 * fps], [0.72, 1], {...CLAMP, easing: ENTRANCE_EASING}),
           boxShadow: "0 20px 60px rgba(64, 92, 116, 0.18)"
         }}
       />
-      {FEATURES.map((feature, index) => {
-        const start = (0.27 + index * 0.25) * fps;
+      {OUTRO_TIMELINE.features.map((feature) => {
+        const land = feature.at;
+        const start = land - OUTRO_TIMELINE.featureEntranceFrames;
         return (
           <div
             key={feature.label}
@@ -76,19 +72,19 @@ const FeatureReveal = () => {
               fontSize: 28,
               fontWeight: 600,
               letterSpacing: 0.5,
-              opacity: interpolate(frame, [start, start + 0.18 * fps, 1.67 * fps, 2.02 * fps], [0, 1, 1, 0], CLAMP),
+              opacity: interpolate(frame, [start, land, OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 10], [0, 1, 1, 0], CLAMP),
               translate: interpolate(
                 frame,
-                [start, start + 0.42 * fps, 1.67 * fps, 2.2 * fps],
+                [start, land, OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 16],
                 [
-                  `${feature.x * 1.22}px ${feature.y * 1.22}px`,
+                  "0px 0px",
                   `${feature.x}px ${feature.y}px`,
                   `${feature.x + feature.driftX}px ${feature.y + feature.driftY}px`,
                   "0px 0px"
                 ],
                 {...CLAMP, easing: ENTRANCE_EASING}
               ),
-              scale: interpolate(frame, [start, start + 0.36 * fps, 1.67 * fps, 2.2 * fps], [0.68, 1, 1, 0.3], {
+              scale: interpolate(frame, [start, land, OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 16], [0.68, 1, 1, 0.3], {
                 ...CLAMP,
                 easing: ENTRANCE_EASING
               })
@@ -268,8 +264,10 @@ export const OutroScene = () => (
   <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
     <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.07) 0%, rgba(232, 93, 135, 0) 72%)"}} />
     <FeatureReveal />
-    <FinalBrand />
-    <CallToAction />
+    <Sequence from={OUTRO_TIMELINE.brandDelayFrames}>
+      <FinalBrand />
+      <CallToAction />
+    </Sequence>
     <div style={{position: "absolute", left: 0, right: 0, bottom: 48, textAlign: "center", color: COLORS.muted, fontSize: 14}}>
       Music: “BiliScript Pulse” — BiliScript, MIT License
     </div>
