@@ -52,7 +52,6 @@ export const Promo = () => {
             <SceneShell
               duration={duration}
               final={index === SCENES.length - 1}
-              fadeIn={!PANEL_FOCUS_HANDOFFS.some((handoff) => handoff.to === scene.id)}
               fadeOut={!PANEL_FOCUS_HANDOFFS.some((handoff) => handoff.from === scene.id)}
             >
               <Scene id={scene.id} duration={duration} />

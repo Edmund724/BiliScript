@@ -56,7 +56,7 @@ export const Reveal = ({children, delay = 0, distance = 16, style = {}}: {
     <div
       style={{
         ...style,
-        opacity: interpolate(progress, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}),
+        opacity: entranceOpacity(frame, delay),
         translate: `0px ${(1 - progress) * distance}px`
       }}
     >
@@ -78,12 +78,26 @@ export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
 export const microPerspective = (tilt = 6) => `perspective(2200px) rotateY(${tilt}deg)`;
 export const MICRO_PERSPECTIVE = microPerspective(6);
 
-export const SpringLayout = ({children, delay = 0, direction = 1, axis = "x", distance = 32, style = {}}: {
+const ENTRANCE_FRAMES = 8;
+const ENTRANCE_OPACITY = 0.35;
+const ENTRANCE_EASING = Easing.out(Easing.cubic);
+
+export const entranceOpacity = (frame: number, start = 0, from = ENTRANCE_OPACITY) =>
+  frame < start
+    ? 0
+    : interpolate(frame, [start, start + ENTRANCE_FRAMES], [from, 1], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+        easing: ENTRANCE_EASING
+      });
+
+export const SpringLayout = ({children, delay = 0, direction = 1, axis = "x", distance = 32, fade = true, style = {}}: {
   children: ReactNode;
   delay?: number;
   direction?: number;
   axis?: "x" | "y";
   distance?: number;
+  fade?: boolean;
   style?: CSSProperties;
 }) => {
   const frame = useCurrentFrame();
@@ -93,7 +107,7 @@ export const SpringLayout = ({children, delay = 0, direction = 1, axis = "x", di
   return (
     <AbsoluteFill
       style={{
-        opacity: interpolate(progress, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}),
+        opacity: fade ? entranceOpacity(frame, delay) : 1,
         translate: axis === "x" ? `${offset}px 0px` : `0px ${offset}px`,
         ...style
       }}
@@ -119,7 +133,7 @@ export const SceneTitle = ({title, style = {}, align = "left", size = 76, delay 
           <div key={`${index}-${line}`} style={{overflow: "hidden"}}>
             <div
               style={{
-                opacity: interpolate(frame, [start, start + 8], [0, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}),
+                opacity: entranceOpacity(frame, start, 0),
                 translate: interpolate(frame, [start, start + 16], ["0px 1.15em", "0px 0em"], {
                   extrapolateLeft: "clamp",
                   extrapolateRight: "clamp",
@@ -137,20 +151,16 @@ export const SceneTitle = ({title, style = {}, align = "left", size = 76, delay 
   );
 };
 
-export const SceneShell = ({children, duration, final = false, fadeIn = true, fadeOut = true}: {
+export const SceneShell = ({children, duration, final = false, fadeOut = true}: {
   children: ReactNode;
   duration: number;
   final?: boolean;
-  fadeIn?: boolean;
   fadeOut?: boolean;
 }) => {
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const entrance = spring({frame, fps, config: SPRING_LAYOUT});
   const opacity = final
-    ? interpolate(entrance, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
-    : (fadeIn ? interpolate(frame, [0, 6], [0.88, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1) *
-      (fadeOut ? interpolate(frame, [duration - 6, duration], [1, 0.92], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1);
+    ? entranceOpacity(frame)
+    : fadeOut ? interpolate(frame, [duration - 6, duration], [1, 0.92], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1;
   return (
     <AbsoluteFill style={{opacity, fontFamily: FONT_FAMILY}}>
       {children}

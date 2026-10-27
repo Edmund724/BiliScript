@@ -1,10 +1,11 @@
 import {Easing, Img, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {PROVIDER_LOGOS} from "../provider-logos.mjs";
 import {PROVIDER_TIMELINE} from "../timeline.mjs";
-import {COLORS, FONT_FAMILY, ProductFrame} from "./design";
+import {COLORS, FONT_FAMILY, ProductFrame, entranceOpacity} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE = Easing.bezier(0.16, 1, 0.3, 1);
+const TITLE_DELAY = 3;
 const {dialogShot, countAt, countDuration, shotsExitAt, shotsExitDuration, wallAt, cardStagger, collapseAt, collapseDuration, wallExitAt, wallExitDuration} = PROVIDER_TIMELINE;
 
 const Claim = ({compact = false}: {compact?: boolean}) => (
@@ -94,10 +95,10 @@ export const ProviderScene = () => {
   const frame = useCurrentFrame();
   return (
     <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
-      <div style={{position: "absolute", left: 120, top: 250, width: 780, color: COLORS.foreground, fontSize: 64, fontWeight: 550, lineHeight: 1.25, letterSpacing: -2, opacity: interpolate(frame, [0, countAt - 4, countAt], [1, 1, 0], CLAMP)}}>
+      <div style={{position: "absolute", left: 120, top: 250, width: 780, color: COLORS.foreground, fontSize: 64, fontWeight: 550, lineHeight: 1.25, letterSpacing: -2, opacity: entranceOpacity(frame, TITLE_DELAY) * interpolate(frame, [0, countAt - 4, countAt], [1, 1, 0], CLAMP)}}>
         选择平台，<br />从预设开始。
       </div>
-      <div style={{opacity: interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [1, 0], CLAMP), scale: interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [1, 0.92], {...CLAMP, easing: ENTRANCE})}}>
+      <div style={{opacity: entranceOpacity(frame) * interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [1, 0], CLAMP), scale: interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [1, 0.92], {...CLAMP, easing: ENTRANCE})}}>
         <Sequence from={dialogShot.from} durationInFrames={shotsExitAt + shotsExitDuration}>
           <ProductFrame source="ai-providers.mp4" crop={{x: 1390, y: 290, width: 490, height: 445}} width={770} startFrom={dialogShot.source} playbackRate={dialogShot.playbackRate} duration={dialogShot.duration} animate={false} tilt={0} style={{left: 1060, top: 124}} />
         </Sequence>

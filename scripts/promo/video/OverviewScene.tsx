@@ -86,7 +86,7 @@ export const OverviewScene = ({duration}: {duration: number}) => {
         </SpringLayout>
       </Sequence>
       <Sequence from={chapterDuration} durationInFrames={quoteDuration}>
-        <SpringLayout direction={1}>
+        <SpringLayout direction={1} fade={false}>
           <SceneTitle title={"一句金句，\n生成分享卡片。"} size={68} style={{left: 130, top: 350, width: 840}} />
           <QuoteCamera duration={quoteDuration} />
         </SpringLayout>
