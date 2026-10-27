@@ -13,6 +13,7 @@ export const AUDIO = {
   },
   cues: [
     {id: "subtitle-cut", frame: 90, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
+    {id: "subtitle-keyword-resolve", frame: 100, src: "media/sfx/click.wav", gain: 0.35, duckDb: 2.5},
     {id: "type-huan", frame: 102, src: "media/sfx/key.wav", gain: 0.5, duckDb: 2.5},
     {id: "type-jue", frame: 106, src: "media/sfx/key.wav", gain: 0.5, duckDb: 2.5},
     {id: "overview-cut", frame: 210, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},

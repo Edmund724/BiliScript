@@ -22,6 +22,7 @@ describe("宣传片配乐", () => {
   it("把克制的 UI 音效放在真实操作的同一帧", () => {
     expect(AUDIO.cues.map((cue) => [cue.id, cue.frame, cue.src])).toEqual([
       ["subtitle-cut", 90, "media/sfx/whoosh.wav"],
+      ["subtitle-keyword-resolve", 100, "media/sfx/click.wav"],
       ["type-huan", 102, "media/sfx/key.wav"],
       ["type-jue", 106, "media/sfx/key.wav"],
       ["overview-cut", 210, "media/sfx/whoosh.wav"],
