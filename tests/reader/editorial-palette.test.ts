@@ -158,14 +158,18 @@ describe("editorial 数字刊物色板", () => {
     expect(EDITORIAL_DARK).toContain("--biliscript-reader-success: var(--biliscript-primitive-color-sage-400)");
   });
 
-  it("圆角体系收紧：面板外壳 16px、内层书摘卡与输入卡 14px、单行输入与分段滑块 12px", () => {
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-radius-panel: var(--biliscript-primitive-radius-16)");
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-radius-xl: var(--biliscript-primitive-radius-14)");
-    expect(EDITORIAL_LIGHT).toContain("--biliscript-radius-2xl: var(--biliscript-primitive-radius-12)");
-    expect(EDITORIAL_LIGHT).toContain("--chat-input-radius: var(--biliscript-primitive-radius-14)");
-    expect(EDITORIAL_LIGHT).toContain("--select-trigger-radius: var(--biliscript-primitive-radius-12)");
-    expect(EDITORIAL_LIGHT).toContain("--select-dropdown-radius: var(--biliscript-primitive-radius-14)");
-    expect(EDITORIAL_LIGHT).toContain("--select-option-radius: var(--biliscript-primitive-radius-8)");
+  it("圆角沿用全局大圆角体系，不再单独收紧", () => {
+    for (const token of [
+      "--biliscript-radius-xl",
+      "--biliscript-radius-2xl",
+      "--biliscript-radius-panel",
+      "--chat-input-radius",
+      "--select-trigger-radius",
+      "--select-dropdown-radius",
+      "--select-option-radius"
+    ]) {
+      expect(EDITORIAL_LIGHT).not.toContain(`${token}:`);
+    }
   });
 
   it("思考强度滑轨：editorial 关停漂浮白星点粒子动画", () => {

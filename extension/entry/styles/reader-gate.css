@@ -587,14 +587,6 @@ body[data-biliscript-reader-mode="1"][data-biliscript-reader-palette="editorial"
   --biliscript-reader-mist-surface: var(--biliscript-primitive-color-paper-50);
   --biliscript-reader-mist-blobs: none;
   --biliscript-reader-mist-line: var(--biliscript-primitive-color-paper-250);
-  /* 数字刊物圆角体系：收紧 Flyme 28px 大圆角为克制的纸质卡片与输入框圆角 */
-  --biliscript-radius-xl: var(--biliscript-primitive-radius-14);
-  --biliscript-radius-2xl: var(--biliscript-primitive-radius-12);
-  --biliscript-radius-panel: var(--biliscript-primitive-radius-16);
-  --chat-input-radius: var(--biliscript-primitive-radius-14);
-  --select-trigger-radius: var(--biliscript-primitive-radius-12);
-  --select-dropdown-radius: var(--biliscript-primitive-radius-14);
-  --select-option-radius: var(--biliscript-primitive-radius-8);
   --biliscript-reader-mist-filter: none;
 }
 /* editorial 深色块：暖炭黑 #171513 + 深暖褐卡 #211E1B + 暖赤陶 #E07A5F。
