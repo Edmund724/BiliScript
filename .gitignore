@@ -19,6 +19,7 @@ node_modules/
 .agents
 .env
 .scratch/
+/scripts/promo/.browser-profile/
 skills-lock.json
 
 # Generated reports / scratch outputs that may land in the root
