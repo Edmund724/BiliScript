@@ -19,7 +19,7 @@ export const COLORS = {
 };
 
 export const FONT_FAMILY = '"Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif';
-const BRAND_FONT_FAMILY = 'Bahnschrift, "Aptos Display", sans-serif';
+export const BRAND_FONT_FAMILY = 'Bahnschrift, "Aptos Display", sans-serif';
 
 export type Crop = {x: number; y: number; width: number; height: number};
 

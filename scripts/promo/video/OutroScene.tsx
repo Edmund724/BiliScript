@@ -1,6 +1,6 @@
-import {Easing, Img, Sequence, interpolate, interpolateColors, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {Easing, Img, interpolate, interpolateColors, staticFile, useCurrentFrame} from "remotion";
 import {OUTRO_TIMELINE} from "../outro-timeline.mjs";
-import {Brand, COLORS, FONT_FAMILY} from "./design";
+import {BRAND_FONT_FAMILY, COLORS, FONT_FAMILY} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE_EASING = Easing.bezier(0.16, 1, 0.3, 1);
@@ -27,26 +27,8 @@ const GitHubIcon = () => (
 
 const FeatureReveal = () => {
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const brandFrame = frame - OUTRO_TIMELINE.brandDelayFrames;
-
   return (
     <>
-      <Img
-        src={staticFile("media/logo.svg")}
-        style={{
-          position: "absolute",
-          left: "50%",
-          top: 306,
-          width: 88,
-          height: 88,
-          marginLeft: -44,
-          borderRadius: 22,
-          opacity: interpolate(brandFrame, [1.67 * fps, 1.85 * fps, 2.2 * fps, 2.4 * fps], [0, 1, 1, 0], CLAMP),
-          scale: interpolate(brandFrame, [1.67 * fps, 2.2 * fps], [0.72, 1], {...CLAMP, easing: ENTRANCE_EASING}),
-          boxShadow: "0 20px 60px rgba(64, 92, 116, 0.18)"
-        }}
-      />
       {OUTRO_TIMELINE.features.map((feature) => {
         const land = feature.at;
         const start = land - OUTRO_TIMELINE.featureEntranceFrames;
@@ -100,24 +82,56 @@ const FeatureReveal = () => {
 
 const FinalBrand = () => {
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
+  const nameSettledAt = OUTRO_TIMELINE.brandNameAt + 16;
 
   return (
     <>
+      <Img
+        src={staticFile("media/logo.svg")}
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: 308,
+          width: 84,
+          height: 84,
+          marginLeft: -42,
+          borderRadius: 20,
+          opacity: interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.convergeAt + 4], [0, 1], CLAMP),
+          filter: `blur(${interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.brandResolveAt], [6, 0], CLAMP)}px)`,
+          scale: interpolate(frame, [OUTRO_TIMELINE.convergeAt, OUTRO_TIMELINE.brandResolveAt], [0.78, 1], {
+            ...CLAMP,
+            easing: ENTRANCE_EASING
+          }),
+          translate: interpolate(frame, [OUTRO_TIMELINE.brandNameAt, nameSettledAt], ["0px 0px", "-205px -8px"], {
+            ...CLAMP,
+            easing: ENTRANCE_EASING
+          }),
+          boxShadow: "0 20px 60px rgba(64, 92, 116, 0.18)"
+        }}
+      />
       <div
         style={{
           position: "absolute",
           left: "50%",
           top: 300,
-          translate: interpolate(frame, [2.2 * fps, 2.75 * fps], ["-50% 18px", "-50% 0px"], {
+          height: 84,
+          marginLeft: -144,
+          display: "flex",
+          alignItems: "center",
+          color: COLORS.foreground,
+          fontFamily: BRAND_FONT_FAMILY,
+          fontSize: 104,
+          fontWeight: 500,
+          lineHeight: 1,
+          letterSpacing: -4.68,
+          opacity: interpolate(frame, [OUTRO_TIMELINE.brandNameAt, OUTRO_TIMELINE.brandNameAt + 10], [0, 1], CLAMP),
+          translate: interpolate(frame, [OUTRO_TIMELINE.brandNameAt, nameSettledAt], ["18px 0px", "0px 0px"], {
             ...CLAMP,
             easing: ENTRANCE_EASING
-          }),
-          opacity: interpolate(frame, [2.2 * fps, 2.65 * fps], [0, 1], CLAMP),
-          scale: interpolate(frame, [2.2 * fps, 2.75 * fps], [0.92, 1], {...CLAMP, easing: ENTRANCE_EASING})
+          })
         }}
       >
-        <Brand size={104} iconSize={84} />
+        BiliScript
       </div>
       <div
         style={{
@@ -129,8 +143,8 @@ const FinalBrand = () => {
           color: COLORS.foreground,
           fontSize: 34,
           lineHeight: 1.4,
-          opacity: interpolate(frame, [2.6 * fps, 3 * fps], [0, 1], CLAMP),
-          translate: interpolate(frame, [2.6 * fps, 3.05 * fps], ["0px 16px", "0px 0px"], {
+          opacity: interpolate(frame, [OUTRO_TIMELINE.taglineAt, OUTRO_TIMELINE.taglineAt + 12], [0, 1], CLAMP),
+          translate: interpolate(frame, [OUTRO_TIMELINE.taglineAt, OUTRO_TIMELINE.taglineAt + 12], ["0px 16px", "0px 0px"], {
             ...CLAMP,
             easing: ENTRANCE_EASING
           })
@@ -144,7 +158,8 @@ const FinalBrand = () => {
 
 const CallToAction = () => {
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
+  const clickAt = OUTRO_TIMELINE.installClickAt;
+  const buttonFrames = [150, 156, 165, clickAt, 176, 180];
 
   return (
     <>
@@ -157,8 +172,8 @@ const CallToAction = () => {
           display: "flex",
           justifyContent: "center",
           gap: 24,
-          opacity: interpolate(frame, [2.85 * fps, 3.25 * fps], [0, 1], CLAMP),
-          translate: interpolate(frame, [2.85 * fps, 3.3 * fps], ["0px 20px", "0px 0px"], {
+          opacity: interpolate(frame, [OUTRO_TIMELINE.ctaAt, OUTRO_TIMELINE.ctaAt + 12], [0, 1], CLAMP),
+          translate: interpolate(frame, [OUTRO_TIMELINE.ctaAt, OUTRO_TIMELINE.ctaAt + 12], ["0px 20px", "0px 0px"], {
             ...CLAMP,
             easing: ENTRANCE_EASING
           })
@@ -178,19 +193,19 @@ const CallToAction = () => {
             fontWeight: 600,
             backgroundColor: interpolateColors(
               frame,
-              [3 * fps, 3.2 * fps, 3.5 * fps, 3.6 * fps, 3.85 * fps, 4 * fps],
+              buttonFrames,
               [COLORS.pink, "#D94D79", "#D94D79", "#C9436D", "#D94D79", COLORS.pink]
             ),
             boxShadow: "0 14px 30px rgba(196, 66, 106, 0.24)",
             scale: interpolate(
               frame,
-              [3 * fps, 3.2 * fps, 3.5 * fps, 3.6 * fps, 3.85 * fps, 4 * fps],
+              buttonFrames,
               [1, 1.045, 1.045, 0.965, 1.045, 1],
               {...CLAMP, easing: ENTRANCE_EASING}
             ),
             translate: interpolate(
               frame,
-              [3 * fps, 3.2 * fps, 3.5 * fps, 3.6 * fps, 3.85 * fps, 4 * fps],
+              buttonFrames,
               ["0px 0px", "0px -4px", "0px -4px", "0px 1px", "0px -4px", "0px 0px"],
               {...CLAMP, easing: ENTRANCE_EASING}
             )
@@ -231,8 +246,8 @@ const CallToAction = () => {
           marginTop: -24,
           borderRadius: "50%",
           border: `3px solid ${COLORS.pink}`,
-          opacity: interpolate(frame, [3.48 * fps, 3.54 * fps, 3.78 * fps], [0, 0.65, 0], CLAMP),
-          scale: interpolate(frame, [3.48 * fps, 3.78 * fps], [0.35, 1.5], CLAMP)
+          opacity: interpolate(frame, [clickAt - 4, clickAt - 2, clickAt + 6], [0, 0.65, 0], CLAMP),
+          scale: interpolate(frame, [clickAt - 4, clickAt + 6], [0.35, 1.5], CLAMP)
         }}
       />
       <svg
@@ -245,10 +260,10 @@ const CallToAction = () => {
           top: 0,
           overflow: "visible",
           filter: "drop-shadow(0 3px 4px rgba(31, 47, 61, 0.25))",
-          opacity: interpolate(frame, [2.68 * fps, 2.8 * fps, 4 * fps, 4.25 * fps], [0, 1, 1, 0], CLAMP),
+          opacity: interpolate(frame, [140, 144], [0, 1], CLAMP),
           translate: interpolate(
             frame,
-            [2.72 * fps, 3.16 * fps, 3.5 * fps, 3.6 * fps, 3.85 * fps],
+            [142, 155, 165, clickAt, 176],
             ["1240px 790px", "930px 610px", "930px 610px", "930px 614px", "930px 610px"],
             {...CLAMP, easing: Easing.bezier(0.4, 0, 0.2, 1)}
           )
@@ -264,10 +279,8 @@ export const OutroScene = () => (
   <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
     <div style={{position: "absolute", inset: 0, background: "radial-gradient(ellipse 42% 40% at 50% 40%, rgba(232, 93, 135, 0.07) 0%, rgba(232, 93, 135, 0) 72%)"}} />
     <FeatureReveal />
-    <Sequence from={OUTRO_TIMELINE.brandDelayFrames}>
-      <FinalBrand />
-      <CallToAction />
-    </Sequence>
+    <FinalBrand />
+    <CallToAction />
     <div style={{position: "absolute", left: 0, right: 0, bottom: 48, textAlign: "center", color: COLORS.muted, fontSize: 14}}>
       Music: “BiliScript Pulse” — BiliScript, MIT License
     </div>

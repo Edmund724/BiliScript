@@ -10,6 +10,10 @@ export const OUTRO_TIMELINE = {
     {id: "feature-search", label: "联网搜索", at: 60, x: 330, y: 170, driftX: 18, driftY: 10}
   ],
   convergeAt: 110,
-  brandDelayFrames: 60,
-  installClickAt: 168
+  brandResolveAt: 126,
+  brandNameAt: 130,
+  taglineAt: 142,
+  ctaAt: 148,
+  installClickAt: 168,
+  finalHoldAt: 188
 };

@@ -13,7 +13,8 @@ export const AUDIO = {
     durationInFrames: PROMO_DURATION,
     gain: 0.8,
     fadeInFrames: 24,
-    fadeOutFrames: 60
+    fadeOutFrames: 60,
+    fadeOutEndFrame: 900
   },
   cues: [
     {id: "subtitle-cut", frame: 90, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
@@ -44,15 +45,15 @@ export const AUDIO = {
       gain: 0.4,
       duckDb: 3
     })),
-    {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.convergeAt, src: "media/sfx/resolve.wav", gain: 0.45, duckDb: 5},
+    {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, src: "media/sfx/resolve.wav", gain: 0.45, duckDb: 5},
     {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/click.wav", gain: 0.45, duckDb: 3}
   ]
 };
 
 export function musicVolumeAtFrame(frame) {
-  const {durationInFrames, fadeInFrames, fadeOutFrames, gain} = AUDIO.music;
+  const {fadeInFrames, fadeOutFrames, fadeOutEndFrame, gain} = AUDIO.music;
   const fadeIn = Math.min(1, Math.max(0, frame / fadeInFrames));
-  const fadeOut = Math.min(1, Math.max(0, (durationInFrames - frame) / fadeOutFrames));
+  const fadeOut = Math.min(1, Math.max(0, (fadeOutEndFrame - frame) / fadeOutFrames));
   let duck = 1;
   for (const cue of AUDIO.cues) {
     const local = frame - cue.frame;

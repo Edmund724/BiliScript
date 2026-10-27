@@ -29,7 +29,10 @@ async function still(frame, output) {
 const stills = [
   ...OUTRO_TIMELINE.features.map((feature) => [feature.id, feature.at]),
   ["common-hold", 84],
-  ["converged", OUTRO_TIMELINE.convergeAt + 16]
+  ["converged", OUTRO_TIMELINE.convergeAt + 16],
+  ["brand-resolved", OUTRO_TIMELINE.brandResolveAt],
+  ["brand-complete", OUTRO_TIMELINE.taglineAt + 12],
+  ["final-cta", OUTRO_TIMELINE.duration - 1]
 ];
 for (const [name, localFrame] of stills) {
   const frame = OUTRO_TIMELINE.from + localFrame;
@@ -60,3 +63,6 @@ async function strip(name, first, last, tile) {
 await strip("provider-handoff", 648, 675, "5x2");
 await strip("feature-reveal", 667, 720, "6x3");
 await strip("feature-converge", 762, 786, "3x3");
+await strip("brand-resolve", 770, 806, "5x3");
+await strip("brand-cta", 800, 848, "6x3");
+await strip("final-hold", OUTRO_TIMELINE.from + OUTRO_TIMELINE.finalHoldAt, OUTRO_TIMELINE.from + OUTRO_TIMELINE.duration - 1, "7x6");

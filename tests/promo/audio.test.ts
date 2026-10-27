@@ -11,7 +11,8 @@ describe("宣传片配乐", () => {
       license: "Original work; MIT License",
       gain: 0.8,
       fadeInFrames: 24,
-      fadeOutFrames: 60
+      fadeOutFrames: 60,
+      fadeOutEndFrame: 900
     });
     expect(AUDIO.music.durationInFrames).toBe(PROMO_DURATION);
     for (const scene of SCENES.slice(1)) {
@@ -46,7 +47,7 @@ describe("宣传片配乐", () => {
       ["feature-export", 690, "media/sfx/pop.wav"],
       ["feature-asr", 705, "media/sfx/pop.wav"],
       ["feature-search", 720, "media/sfx/pop.wav"],
-      ["brand-resolve", 770, "media/sfx/resolve.wav"],
+      ["brand-resolve", 786, "media/sfx/resolve.wav"],
       ["install-click", 828, "media/sfx/click.wav"]
     ]);
     expect(new Set(AUDIO.cues.map((cue) => cue.id)).size).toBe(AUDIO.cues.length);
@@ -62,7 +63,9 @@ describe("宣传片配乐", () => {
     expect(musicVolumeAtFrame(102)).toBeCloseTo(base * 10 ** (-2.5 / 20));
     expect(musicVolumeAtFrame(104)).toBeCloseTo(base * 10 ** (-2.5 / 20));
     expect(musicVolumeAtFrame(116)).toBeGreaterThan(musicVolumeAtFrame(114));
-    expect(musicVolumeAtFrame(800)).toBe(base);
-    expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBeCloseTo(base / 60);
+    expect(musicVolumeAtFrame(810)).toBe(base);
+    expect(musicVolumeAtFrame(899)).toBeCloseTo(base / 60);
+    expect(musicVolumeAtFrame(900)).toBe(0);
+    expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBe(0);
   });
 });
