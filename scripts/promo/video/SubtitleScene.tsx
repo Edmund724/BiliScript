@@ -1,8 +1,8 @@
-import {Easing, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {SUBTITLE_DURATION, SUBTITLE_MATCH_FRAME, SUBTITLE_PLAYBACK_RATE, SUBTITLE_SECOND_SHOT_SOURCE_FRAME, subtitleCameraAtFrame} from "../subtitle-timeline.mjs";
 import {COLORS, SceneTitle, microPerspective} from "./design";
 
 const SOURCE = "subtitle-seek-03.mp4";
-const PLAYBACK_RATE = 1.25;
 
 const Keyword = () => {
   const frame = useCurrentFrame();
@@ -71,7 +71,6 @@ const Keyword = () => {
 
 const PlayerFeedback = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
   return (
     <div
       style={{
@@ -82,7 +81,7 @@ const PlayerFeedback = ({duration}: {duration: number}) => {
         height: 764,
         borderRadius: 4,
         boxShadow: "inset 0 0 0 2px rgba(232, 93, 135, 0.72)",
-        opacity: interpolate(frame, [2.2 * fps, 2.4 * fps, duration - 12, duration], [0, 1, 1, 0], {
+        opacity: interpolate(frame, [75, 84, duration - 12, duration], [0, 1, 1, 0], {
           extrapolateLeft: "clamp",
           extrapolateRight: "clamp"
         })
@@ -93,42 +92,30 @@ const PlayerFeedback = ({duration}: {duration: number}) => {
 
 const Camera = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const tilt = interpolate(frame, [0.3 * fps, 0.75 * fps, 1.85 * fps, 2.2 * fps], [0, -6, -6, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.bezier(0.16, 1, 0.3, 1)
-  });
+  const camera = subtitleCameraAtFrame(frame);
+  const videoProps = {
+    muted: true,
+    src: staticFile(`media/${SOURCE}`),
+    playbackRate: SUBTITLE_PLAYBACK_RATE,
+    style: {width: 1920, height: 1080, maxWidth: "none"} as const
+  };
   return (
     <div
       style={{
         position: "absolute",
         inset: 0,
         transformOrigin: "0 0",
-        transform: microPerspective(tilt),
-        scale: interpolate(frame, [0.3 * fps, 0.75 * fps, 1.5 * fps, 1.85 * fps, 2.2 * fps, 2.25 * fps], [1, 2, 2, 2, 1, 1], {
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp",
-          easing: Easing.bezier(0.16, 1, 0.3, 1)
-        }),
-        translate: interpolate(
-          frame,
-          [0.3 * fps, 0.75 * fps, 1.5 * fps, 1.85 * fps, 2.2 * fps, 2.25 * fps],
-          ["0px 0px", "-1540px -232px", "-1540px -232px", "-1410px -400px", "0px 0px", "0px 0px"],
-          {
-            extrapolateLeft: "clamp",
-            extrapolateRight: "clamp",
-            easing: Easing.bezier(0.16, 1, 0.3, 1)
-          }
-        )
+        transform: microPerspective(camera.tilt),
+        scale: camera.scale,
+        translate: `${camera.x}px ${camera.y}px`
       }}
     >
-      <OffthreadVideo
-        muted
-        src={staticFile(`media/${SOURCE}`)}
-        playbackRate={PLAYBACK_RATE}
-        style={{width: 1920, height: 1080, maxWidth: "none"}}
-      />
+      <Sequence durationInFrames={SUBTITLE_MATCH_FRAME}>
+        <OffthreadVideo {...videoProps} />
+      </Sequence>
+      <Sequence from={SUBTITLE_MATCH_FRAME} durationInFrames={SUBTITLE_DURATION - SUBTITLE_MATCH_FRAME}>
+        <OffthreadVideo {...videoProps} startFrom={SUBTITLE_SECOND_SHOT_SOURCE_FRAME} />
+      </Sequence>
       <Keyword />
       <PlayerFeedback duration={duration} />
     </div>

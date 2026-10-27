@@ -1,4 +1,7 @@
-import {PROMO_DURATION} from "./timeline.mjs";
+import {SUBTITLE_MATCH_FRAME} from "./subtitle-timeline.mjs";
+import {PROMO_DURATION, SCENES} from "./timeline.mjs";
+
+const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle").from;
 
 export const AUDIO = {
   music: {
@@ -16,6 +19,7 @@ export const AUDIO = {
     {id: "subtitle-keyword-resolve", frame: 100, src: "media/sfx/click.wav", gain: 0.35, duckDb: 2.5},
     {id: "type-huan", frame: 102, src: "media/sfx/key.wav", gain: 0.5, duckDb: 2.5},
     {id: "type-jue", frame: 106, src: "media/sfx/key.wav", gain: 0.5, duckDb: 2.5},
+    {id: "subtitle-seek", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, src: "media/sfx/click.wav", gain: 0.45, duckDb: 3},
     {id: "overview-cut", frame: 210, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
     {id: "chapters-quote-cut", frame: 262, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
     {id: "quote-card", frame: 278, src: "media/sfx/pop.wav", gain: 0.45, duckDb: 3},

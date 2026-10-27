@@ -25,6 +25,7 @@ describe("宣传片配乐", () => {
       ["subtitle-keyword-resolve", 100, "media/sfx/click.wav"],
       ["type-huan", 102, "media/sfx/key.wav"],
       ["type-jue", 106, "media/sfx/key.wav"],
+      ["subtitle-seek", 151, "media/sfx/click.wav"],
       ["overview-cut", 210, "media/sfx/whoosh.wav"],
       ["chapters-quote-cut", 262, "media/sfx/whoosh.wav"],
       ["quote-card", 278, "media/sfx/pop.wav"],
