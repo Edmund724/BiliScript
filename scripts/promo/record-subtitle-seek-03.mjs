@@ -81,6 +81,7 @@ try {
     await mark("search-start");
     await setSearch(cdp, "幻觉");
     await waitFor("录制中的 1/5 匹配", async () => (await searchState(cdp)).count === "1/5", {timeoutMs: 10000});
+    await cdp.evaluate(`scrollTo({top: 0, behavior: 'instant'}); true`);
     await mark("search-ready");
     await sleep(700);
     const state = await searchState(cdp);
@@ -95,6 +96,7 @@ try {
       const current = await searchState(cdp);
       return Math.abs(current.videoTime - state.targetSeconds) < 2.5;
     }, {timeoutMs: 10000});
+    await cdp.evaluate(`scrollTo({top: 0, behavior: 'instant'}); true`);
     await mark("seeked");
     await sleep(1000);
     await cdp.evaluate(`document.querySelectorAll('video,audio').forEach((media) => { try { media.pause(); } catch {} }); true`);
