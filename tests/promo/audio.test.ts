@@ -66,6 +66,6 @@ describe("宣传片配乐", () => {
     expect(musicVolumeAtFrame(810)).toBe(base);
     expect(musicVolumeAtFrame(899)).toBeCloseTo(base / 60);
     expect(musicVolumeAtFrame(900)).toBe(0);
-    expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBe(0);
+    expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBeCloseTo(base / 60);
   });
 });

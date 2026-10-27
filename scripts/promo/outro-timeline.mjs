@@ -1,7 +1,7 @@
 export const OUTRO_TIMELINE = {
   fps: 30,
   from: 660,
-  duration: 300,
+  duration: 240,
   featureEntranceFrames: 8,
   features: [
     {id: "feature-bilingual", label: "双语字幕", at: 15, x: -330, y: -170, driftX: -18, driftY: -10},

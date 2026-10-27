@@ -1,14 +1,16 @@
 import http from "node:http";
 import path from "node:path";
 import {createReadStream} from "node:fs";
-import {mkdir, stat, writeFile} from "node:fs/promises";
+import {mkdir, rm, stat, writeFile} from "node:fs/promises";
 import {attachPage, launchBrowser, REPO_ROOT, teardown, waitFor} from "../browser-harness/harness.mjs";
 import {PROMO_DIR, VIEWPORT} from "./lib.mjs";
+import {PROMO_DURATION, PROMO_FPS, PROMO_HEIGHT, PROMO_WIDTH} from "./timeline.mjs";
 
 const input = path.resolve(process.argv[2] || path.join(REPO_ROOT, "release", "BiliScript-promo-1080p.mp4"));
 const inputInfo = await stat(input);
 if (!inputInfo.isFile()) throw new Error(`视频不是文件：${input}`);
 const output = path.join(PROMO_DIR, "evidence", process.argv[2] ? "draft-playback" : "final-playback");
+await rm(output, {recursive: true, force: true});
 await mkdir(output, {recursive: true});
 
 const server = http.createServer(async (request, response) => {
@@ -52,6 +54,9 @@ try {
   })()`);
   if (!Number.isFinite(metadata.duration) || metadata.duration <= 0 || !metadata.width || !metadata.height) {
     throw new Error(`视频元数据无效：${JSON.stringify(metadata)}`);
+  }
+  if (metadata.width !== PROMO_WIDTH || metadata.height !== PROMO_HEIGHT || Math.abs(metadata.duration - PROMO_DURATION / PROMO_FPS) > 0.05) {
+    throw new Error(`回放文件与当前时间轴不符：${JSON.stringify({metadata, expected: {width: PROMO_WIDTH, height: PROMO_HEIGHT, duration: PROMO_DURATION / PROMO_FPS}})}`);
   }
   const sampleTimes = Array.from({length: Math.ceil(metadata.duration * 2)}, (_, index) => Math.min(index / 2, metadata.duration - 1 / 60));
   const sheets = [];

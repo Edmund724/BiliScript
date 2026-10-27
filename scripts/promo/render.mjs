@@ -1,5 +1,5 @@
 import path from "node:path";
-import {mkdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, readFile, readdir, unlink, writeFile} from "node:fs/promises";
 import {bundle} from "@remotion/bundler";
 import {getCompositions, getVideoMetadata, renderMedia, renderStill} from "@remotion/renderer";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
@@ -160,6 +160,8 @@ if (!draft) {
 }
 
 const prefix = draft ? "draft" : "final";
+const staleFrames = (await readdir(EVIDENCE_DIR)).filter((name) => new RegExp(`^${prefix}-\\d{4}\\.jpg$`).test(name));
+await Promise.all(staleFrames.map((name) => unlink(path.join(EVIDENCE_DIR, name))));
 const evidenceFrames = [];
 for (const seconds of EVIDENCE_TIMES) {
   const frame = Math.round(seconds * PROMO_FPS);
