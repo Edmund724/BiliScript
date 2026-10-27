@@ -1,5 +1,5 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {Brand, COLORS, FONT_FAMILY, Reveal} from "./design";
+import {Brand, COLORS, FONT_FAMILY, Reveal, SceneTitle} from "./design";
 
 const BUTTON = {x: 1132, y: 1026};
 const PANEL = {x: 1326, width: 594};
@@ -106,10 +106,8 @@ const HeroMessage = ({duration}: {duration: number}) => {
       />
       <Reveal delay={Math.round(duration * 0.5)} distance={22} style={{position: "absolute", left: 104, top: 706}}>
         <Brand size={32} iconSize={42} />
-        <div style={{marginTop: 26, color: COLORS.foreground, fontSize: 66, lineHeight: 1.25, fontWeight: 600, letterSpacing: -2}}>
-          在 B 站，读视频
-        </div>
       </Reveal>
+      <SceneTitle title="在 B 站，读视频" delay={Math.round(duration * 0.5)} style={{left: 104, top: 774}} />
     </>
   );
 };

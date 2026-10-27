@@ -53,7 +53,6 @@ export const OverviewScene = ({duration}: {duration: number}) => {
             width={760}
             playbackRate={CHAPTER_SOURCE_SECONDS / (chapterDuration / fps)}
             duration={chapterDuration}
-            pan={-36}
             style={{left: 1040, top: 42}}
           />
         </SpringLayout>

@@ -46,7 +46,7 @@ export const Promo = () => {
         const duration = scene.duration;
         return (
           <Sequence key={scene.id} from={scene.from} durationInFrames={duration}>
-            <SceneShell duration={duration} direction={index % 2 === 0 ? 1 : -1} final={index === SCENES.length - 1}>
+            <SceneShell duration={duration} final={index === SCENES.length - 1}>
               <Scene id={scene.id} duration={duration} />
             </SceneShell>
           </Sequence>

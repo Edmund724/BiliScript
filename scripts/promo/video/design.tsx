@@ -1,6 +1,7 @@
 import type {CSSProperties, ReactNode} from "react";
 import {
   AbsoluteFill,
+  Easing,
   Img,
   OffthreadVideo,
   interpolate,
@@ -11,7 +12,7 @@ import {
 } from "remotion";
 
 export const COLORS = {
-  background: "#F6F8FC",
+  background: "#FBFAFC",
   foreground: "#243447",
   muted: "#697D90",
   pink: "#E85D87"
@@ -30,7 +31,16 @@ export const PANEL_CROPS = {
 } satisfies Record<string, Crop>;
 
 export const Backdrop = () => (
-  <AbsoluteFill style={{background: "linear-gradient(145deg, #FCFDFE 0%, #F6F8FC 56%, #EDF3F8 100%)", fontFamily: FONT_FAMILY}} />
+  <AbsoluteFill
+    style={{
+      background: [
+        "radial-gradient(ellipse 70% 75% at 8% 10%, rgba(232, 93, 135, 0.08) 0%, rgba(232, 93, 135, 0) 72%)",
+        "radial-gradient(ellipse 75% 85% at 92% 88%, rgba(119, 157, 190, 0.10) 0%, rgba(119, 157, 190, 0) 74%)",
+        "linear-gradient(145deg, #FBFAFC 0%, #F8F8FB 56%, #F5F7FB 100%)"
+      ].join(", "),
+      fontFamily: FONT_FAMILY
+    }}
+  />
 );
 
 export const Reveal = ({children, delay = 0, distance = 16, style = {}}: {
@@ -68,39 +78,68 @@ export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
 export const microPerspective = (tilt = 6) => `perspective(2200px) rotateY(${tilt}deg)`;
 export const MICRO_PERSPECTIVE = microPerspective(6);
 
-export const SpringLayout = ({children, delay = 0, direction = 1, style = {}}: {
+export const SpringLayout = ({children, delay = 0, direction = 1, axis = "x", distance = 32, style = {}}: {
   children: ReactNode;
   delay?: number;
   direction?: number;
+  axis?: "x" | "y";
+  distance?: number;
   style?: CSSProperties;
 }) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const progress = spring({frame: Math.max(0, frame - delay), fps, config: SPRING_LAYOUT});
+  const offset = (1 - progress) * direction * distance;
   return (
-    <AbsoluteFill style={{opacity: interpolate(progress, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}), translate: `${(1 - progress) * direction * 42}px 0px`, ...style}}>
+    <AbsoluteFill
+      style={{
+        opacity: interpolate(progress, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}),
+        translate: axis === "x" ? `${offset}px 0px` : `0px ${offset}px`,
+        ...style
+      }}
+    >
       {children}
     </AbsoluteFill>
   );
 };
 
-export const SceneTitle = ({title, style = {}, align = "left", size = 62}: {
+export const SceneTitle = ({title, style = {}, align = "left", size = 76, delay = 0}: {
   title: string;
   style?: CSSProperties;
   align?: "left" | "center";
   size?: number;
-}) => (
-  <Reveal style={{position: "absolute", textAlign: align, ...style}}>
-    <div style={{color: COLORS.foreground, fontSize: size, lineHeight: 1.34, fontWeight: 550, letterSpacing: -1.8, whiteSpace: "pre-line"}}>
-      {title}
+  delay?: number;
+}) => {
+  const frame = useCurrentFrame();
+  return (
+    <div style={{position: "absolute", textAlign: align, color: COLORS.foreground, fontSize: size, lineHeight: 1.22, fontWeight: 550, letterSpacing: -2, ...style}}>
+      {title.split("\n").map((line, index) => {
+        const start = delay + index * 3;
+        return (
+          <div key={`${index}-${line}`} style={{overflow: "hidden"}}>
+            <div
+              style={{
+                opacity: interpolate(frame, [start, start + 8], [0, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}),
+                translate: interpolate(frame, [start, start + 16], ["0px 1.15em", "0px 0em"], {
+                  extrapolateLeft: "clamp",
+                  extrapolateRight: "clamp",
+                  easing: Easing.bezier(0.16, 1, 0.3, 1)
+                }),
+                whiteSpace: "nowrap"
+              }}
+            >
+              {line}
+            </div>
+          </div>
+        );
+      })}
     </div>
-  </Reveal>
-);
+  );
+};
 
-export const SceneShell = ({children, duration, direction, final = false}: {
+export const SceneShell = ({children, duration, final = false}: {
   children: ReactNode;
   duration: number;
-  direction: number;
   final?: boolean;
 }) => {
   const frame = useCurrentFrame();
@@ -113,26 +152,19 @@ export const SceneShell = ({children, duration, direction, final = false}: {
         extrapolateRight: "clamp"
       });
   return (
-    <AbsoluteFill
-      style={{
-        opacity,
-        fontFamily: FONT_FAMILY,
-        translate: final ? "0px 0px" : `${(1 - entrance) * -direction * 36}px 0px`
-      }}
-    >
+    <AbsoluteFill style={{opacity, fontFamily: FONT_FAMILY}}>
       {children}
     </AbsoluteFill>
   );
 };
 
-export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playbackRate = 1, startFrom = 0, duration = 210, pan = 0, animate = true, tilt = 6, style = {}}: {
+export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playbackRate = 1, startFrom = 0, duration = 210, animate = true, tilt = 6, style = {}}: {
   source?: string;
   crop?: Crop;
   width: number;
   playbackRate?: number;
   startFrom?: number;
   duration?: number;
-  pan?: number;
   animate?: boolean;
   tilt?: number;
   style?: CSSProperties;
@@ -157,13 +189,12 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
         height: crop.height * cropScale,
         borderRadius: 28 * cropScale,
         overflow: "hidden",
-        background: "#F4F8FC",
-        border: "1px solid rgba(83, 110, 134, 0.18)",
-        boxShadow: "0 28px 70px -30px rgba(43, 70, 93, 0.35), 0 4px 18px rgba(43, 70, 93, 0.06)",
+        background: "#FFFFFF",
+        border: "1px solid rgba(83, 110, 134, 0.16)",
+        boxShadow: "0 28px 70px -30px rgba(43, 70, 93, 0.28), 0 4px 18px rgba(43, 70, 93, 0.05)",
         opacity: 1,
         transform: microPerspective(tilt),
         scale: animate ? interpolate(entrance, [0, 1], [0.96, 1], {extrapolateLeft: "clamp"}) * interpolate(frame, [0, duration], [1, 1.028], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1,
-        translate: animate ? `${(1 - entrance) * pan}px ${(1 - entrance) * 24}px` : "0px 0px",
         ...style
       }}
     >

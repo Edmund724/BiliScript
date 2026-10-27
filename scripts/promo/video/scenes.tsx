@@ -25,7 +25,6 @@ export const ChatScene = () => (
             startFrom={shot.startFrom}
             playbackRate={shot.playbackRate}
             duration={shot.duration}
-            pan={32}
             tilt={framing.tilt}
             style={{left: 1060, top: framing.top}}
           />
@@ -46,7 +45,6 @@ export const AppearanceScene = () => (
           startFrom={shot.startFrom}
           playbackRate={shot.playbackRate}
           duration={shot.duration}
-          pan={-32}
           tilt={6}
           style={{left: 220, top: shot.top}}
         />

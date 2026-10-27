@@ -16,7 +16,7 @@ import {OverviewScene} from "../../scripts/promo/video/OverviewScene";
 const OverviewPreview = () => (
   <AbsoluteFill>
     <Backdrop />
-    <SceneShell duration={132} direction={1}>
+    <SceneShell duration={132}>
       <OverviewScene duration={132} />
     </SceneShell>
   </AbsoluteFill>

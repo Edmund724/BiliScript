@@ -17,7 +17,7 @@ import {AppearanceScene} from "../../scripts/promo/video/scenes";
 const AppearancePreview = () => (
   <AbsoluteFill>
     <Backdrop />
-    <SceneShell duration={90} direction={1}>
+    <SceneShell duration={90}>
       <AppearanceScene />
     </SceneShell>
   </AbsoluteFill>

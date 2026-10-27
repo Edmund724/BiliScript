@@ -1,5 +1,5 @@
 import {Easing, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {SceneTitle, microPerspective} from "./design";
+import {COLORS, SceneTitle, microPerspective} from "./design";
 
 const SOURCE = "subtitle-seek-03.mp4";
 const PLAYBACK_RATE = 1.25;
@@ -87,7 +87,7 @@ const Title = () => {
 };
 
 export const SubtitleScene = ({duration}: {duration: number}) => (
-  <div style={{position: "absolute", inset: 0, overflow: "hidden", background: "#F6F8FC"}}>
+  <div style={{position: "absolute", inset: 0, overflow: "hidden", background: COLORS.background}}>
     <Camera duration={duration} />
     <Title />
   </div>
