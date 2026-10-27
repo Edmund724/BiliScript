@@ -4,6 +4,7 @@ import {copyFile, mkdir, stat, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO} from "./audio.mjs";
+import {PROVIDER_LOGOS} from "./provider-logos.mjs";
 
 export const PROMO_PUBLIC_DIR = path.join(PROMO_DIR, "public");
 
@@ -15,6 +16,8 @@ const sources = {
   "subtitle-seek-03.mp4": path.join(REPO_ROOT, "scripts", "promo", "public", "media", "subtitle-seek-03.mp4"),
   "chat.mp4": path.join(PROMO_DIR, "clips", "04-chat.mp4"),
   "appearance.mp4": path.join(PROMO_DIR, "clips", "05-appearance.mp4"),
+  "ai-providers.mp4": path.join(PROMO_DIR, "clips", "06-ai-providers.mp4"),
+  ...Object.fromEntries(PROVIDER_LOGOS.map((logo) => [`providers/${logo.file}`, path.join(REPO_ROOT, "scripts", "promo", "assets", "providers", logo.file)])),
   "overview-poster.jpg": path.join(PROMO_DIR, "frames", "03-overview", "000000.jpg"),
   "promo-score.wav": path.join(PROMO_DIR, "assets", "audio", "promo-score.wav"),
   ...Object.fromEntries([...new Set(AUDIO.cues.map((cue) => cue.src.replace("media/", "")))].map((name) => [name, path.join(PROMO_DIR, "assets", "audio", name)])),
@@ -35,8 +38,17 @@ export async function preparePromoAssets() {
     await copyFile(source, destination);
     files.push({name, source: path.relative(REPO_ROOT, source).replaceAll("\\", "/"), bytes: info.size});
   }
+  if (PROVIDER_LOGOS.length !== 14 || new Set(PROVIDER_LOGOS.map((logo) => logo.id)).size !== 14) {
+    throw new Error("平台 Logo 必须恰好覆盖 14 个 AI 平台预设");
+  }
   const manifest = {mediaRoot: "media", excluded: ["01-intro"], files};
   await writeFile(path.join(PROMO_PUBLIC_DIR, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  const logoEvidenceDir = path.join(PROMO_DIR, "evidence");
+  await mkdir(logoEvidenceDir, {recursive: true});
+  await writeFile(path.join(logoEvidenceDir, "provider-logos.json"), JSON.stringify(PROVIDER_LOGOS.map((logo) => ({
+    ...logo,
+    localFile: `scripts/promo/assets/providers/${logo.file}`
+  })), null, 2) + "\n", "utf8");
   return {publicDir: PROMO_PUBLIC_DIR, manifest};
 }
 

@@ -6,6 +6,7 @@ import {AppearanceScene, ChatScene} from "./scenes";
 import {HeroScene} from "./HeroScene";
 import {OutroScene} from "./OutroScene";
 import {OverviewScene} from "./OverviewScene";
+import {ProviderScene} from "./ProviderScene";
 import {SubtitleScene} from "./SubtitleScene";
 
 const Scene = ({id, duration}: {id: string; duration: number}) => {
@@ -20,6 +21,8 @@ const Scene = ({id, duration}: {id: string; duration: number}) => {
       return <ChatScene />;
     case "appearance":
       return <AppearanceScene />;
+    case "providers":
+      return <ProviderScene />;
     case "outro":
       return <OutroScene />;
     default:

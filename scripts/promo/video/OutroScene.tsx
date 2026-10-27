@@ -47,13 +47,13 @@ const FeatureReveal = () => {
           height: 88,
           marginLeft: -44,
           borderRadius: 22,
-          opacity: interpolate(frame, [0, 0.18 * fps, 1.7 * fps, 2.05 * fps], [0, 1, 1, 0], CLAMP),
-          scale: interpolate(frame, [0, 0.5 * fps], [0.72, 1], {...CLAMP, easing: ENTRANCE_EASING}),
+          opacity: interpolate(frame, [1.67 * fps, 1.85 * fps, 2.2 * fps, 2.4 * fps], [0, 1, 1, 0], CLAMP),
+          scale: interpolate(frame, [1.67 * fps, 2.2 * fps], [0.72, 1], {...CLAMP, easing: ENTRANCE_EASING}),
           boxShadow: "0 20px 60px rgba(64, 92, 116, 0.18)"
         }}
       />
       {FEATURES.map((feature, index) => {
-        const start = index * 0.07 * fps;
+        const start = (0.27 + index * 0.25) * fps;
         return (
           <div
             key={feature.label}
@@ -76,10 +76,10 @@ const FeatureReveal = () => {
               fontSize: 28,
               fontWeight: 600,
               letterSpacing: 0.5,
-              opacity: interpolate(frame, [start, start + 0.18 * fps, 1.58 * fps, 2.02 * fps], [0, 1, 1, 0], CLAMP),
+              opacity: interpolate(frame, [start, start + 0.18 * fps, 1.67 * fps, 2.02 * fps], [0, 1, 1, 0], CLAMP),
               translate: interpolate(
                 frame,
-                [start, start + 0.42 * fps, 1.25 * fps, 2.02 * fps],
+                [start, start + 0.42 * fps, 1.67 * fps, 2.2 * fps],
                 [
                   `${feature.x * 1.22}px ${feature.y * 1.22}px`,
                   `${feature.x}px ${feature.y}px`,
@@ -88,7 +88,7 @@ const FeatureReveal = () => {
                 ],
                 {...CLAMP, easing: ENTRANCE_EASING}
               ),
-              scale: interpolate(frame, [start, start + 0.36 * fps, 1.58 * fps, 2.02 * fps], [0.68, 1, 1, 0.3], {
+              scale: interpolate(frame, [start, start + 0.36 * fps, 1.67 * fps, 2.2 * fps], [0.68, 1, 1, 0.3], {
                 ...CLAMP,
                 easing: ENTRANCE_EASING
               })
@@ -113,12 +113,12 @@ const FinalBrand = () => {
           position: "absolute",
           left: "50%",
           top: 300,
-          translate: interpolate(frame, [1.65 * fps, 2.2 * fps], ["-50% 18px", "-50% 0px"], {
+          translate: interpolate(frame, [2.2 * fps, 2.75 * fps], ["-50% 18px", "-50% 0px"], {
             ...CLAMP,
             easing: ENTRANCE_EASING
           }),
-          opacity: interpolate(frame, [1.65 * fps, 2.1 * fps], [0, 1], CLAMP),
-          scale: interpolate(frame, [1.65 * fps, 2.2 * fps], [0.92, 1], {...CLAMP, easing: ENTRANCE_EASING})
+          opacity: interpolate(frame, [2.2 * fps, 2.65 * fps], [0, 1], CLAMP),
+          scale: interpolate(frame, [2.2 * fps, 2.75 * fps], [0.92, 1], {...CLAMP, easing: ENTRANCE_EASING})
         }}
       >
         <Brand size={104} iconSize={84} />
@@ -133,8 +133,8 @@ const FinalBrand = () => {
           color: COLORS.foreground,
           fontSize: 34,
           lineHeight: 1.4,
-          opacity: interpolate(frame, [2.05 * fps, 2.45 * fps], [0, 1], CLAMP),
-          translate: interpolate(frame, [2.05 * fps, 2.5 * fps], ["0px 16px", "0px 0px"], {
+          opacity: interpolate(frame, [2.6 * fps, 3 * fps], [0, 1], CLAMP),
+          translate: interpolate(frame, [2.6 * fps, 3.05 * fps], ["0px 16px", "0px 0px"], {
             ...CLAMP,
             easing: ENTRANCE_EASING
           })
@@ -161,8 +161,8 @@ const CallToAction = () => {
           display: "flex",
           justifyContent: "center",
           gap: 24,
-          opacity: interpolate(frame, [2.3 * fps, 2.7 * fps], [0, 1], CLAMP),
-          translate: interpolate(frame, [2.3 * fps, 2.75 * fps], ["0px 20px", "0px 0px"], {
+          opacity: interpolate(frame, [2.85 * fps, 3.25 * fps], [0, 1], CLAMP),
+          translate: interpolate(frame, [2.85 * fps, 3.3 * fps], ["0px 20px", "0px 0px"], {
             ...CLAMP,
             easing: ENTRANCE_EASING
           })

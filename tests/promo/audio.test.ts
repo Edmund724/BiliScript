@@ -34,10 +34,17 @@ describe("宣传片配乐", () => {
       ["appearance-cut", 510, "media/sfx/whoosh.wav"],
       ["dark-mode", 531, "media/sfx/toggle.wav"],
       ["editorial-palette", 567, "media/sfx/pop.wav"],
-      ["outro-cut", 600, "media/sfx/whoosh.wav"],
-      ["feature-reveal", 608, "media/sfx/pop.wav"],
-      ["brand-resolve", 650, "media/sfx/resolve.wav"],
-      ["install-click", 708, "media/sfx/click.wav"]
+      ["provider-expand", 618, "media/sfx/click.wav"],
+      ["provider-count", 627, "media/sfx/pop.wav"],
+      ["provider-wall", 634, "media/sfx/chord.wav"],
+      ["provider-collapse", 654, "media/sfx/click.wav"],
+      ["outro-cut", 660, "media/sfx/whoosh.wav"],
+      ["feature-bilingual", 668, "media/sfx/pop.wav"],
+      ["feature-export", 676, "media/sfx/pop.wav"],
+      ["feature-asr", 683, "media/sfx/pop.wav"],
+      ["feature-search", 691, "media/sfx/pop.wav"],
+      ["brand-resolve", 710, "media/sfx/resolve.wav"],
+      ["install-click", 768, "media/sfx/click.wav"]
     ]);
     expect(new Set(AUDIO.cues.map((cue) => cue.id)).size).toBe(AUDIO.cues.length);
     expect(AUDIO.cues.every((cue) => cue.frame >= 0 && cue.frame < PROMO_DURATION)).toBe(true);
@@ -52,7 +59,7 @@ describe("宣传片配乐", () => {
     expect(musicVolumeAtFrame(102)).toBeCloseTo(base * 10 ** (-2.5 / 20));
     expect(musicVolumeAtFrame(104)).toBeCloseTo(base * 10 ** (-2.5 / 20));
     expect(musicVolumeAtFrame(116)).toBeGreaterThan(musicVolumeAtFrame(114));
-    expect(musicVolumeAtFrame(780)).toBe(base);
+    expect(musicVolumeAtFrame(800)).toBe(base);
     expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBeCloseTo(base / 60);
   });
 });

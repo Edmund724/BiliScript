@@ -110,7 +110,7 @@ function makeScore() {
     [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62], [57, 61, 64, 69],
     [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62], [57, 61, 64, 69],
     [55, 59, 62, 67], [50, 54, 57, 62], [52, 55, 59, 64], [57, 61, 64, 69],
-    [55, 59, 62, 67], [50, 54, 57, 62]
+    [55, 59, 62, 67], [50, 54, 57, 62], [55, 59, 62, 67]
   ];
   for (let bar = 0; bar < chords.length; bar += 1) {
     const at = bar * 4 * beat;
@@ -125,8 +125,8 @@ function makeScore() {
       add(track, tone(note, 0.3, {gain}), at + step * beat / 2, step % 2 ? 0.3 : -0.3);
     }
   }
-  const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50];
-  for (let index = 0; index < 56; index += 1) {
+  const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50, 43];
+  for (let index = 0; index < 60; index += 1) {
     const at = index * beat;
     const bar = Math.floor(index / 4);
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
@@ -214,11 +214,12 @@ const effects = {
   pop: [sweep(620, 270, 0.18, 0.72)],
   toggle: [sweep(1450, 820, 0.12, 0.68), sweep(880, 540, 0.1, 0.4)],
   click: [sweep(1050, 460, 0.12, 0.68)],
+  chord: [tone(74, 0.85, {type: "bell", gain: 0.42}), tone(78, 0.85, {type: "bell", gain: 0.36}), tone(81, 0.85, {type: "bell", gain: 0.32})],
   resolve: [tone(74, 0.85, {type: "bell", gain: 0.65}), tone(81, 0.85, {type: "bell", gain: 0.5})]
 };
 const sfxEvidence = [];
 for (const [name, layers] of Object.entries(effects)) {
-  const track = buffer(name === "resolve" ? 0.9 : 0.2);
+  const track = buffer(name === "resolve" || name === "chord" ? 0.9 : 0.2);
   layers.forEach((layer, index) => add(track, layer, name === "toggle" ? index * 0.055 : 0, index ? 0.15 : -0.1));
   const level = normalize(track);
   const file = path.join(OUTPUT_DIR, "sfx", `${name}.wav`);

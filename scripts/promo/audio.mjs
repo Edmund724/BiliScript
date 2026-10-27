@@ -25,10 +25,17 @@ export const AUDIO = {
     {id: "appearance-cut", frame: 510, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
     {id: "dark-mode", frame: 531, src: "media/sfx/toggle.wav", gain: 0.5, duckDb: 3},
     {id: "editorial-palette", frame: 567, src: "media/sfx/pop.wav", gain: 0.45, duckDb: 3},
-    {id: "outro-cut", frame: 600, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
-    {id: "feature-reveal", frame: 608, src: "media/sfx/pop.wav", gain: 0.45, duckDb: 3},
-    {id: "brand-resolve", frame: 650, src: "media/sfx/resolve.wav", gain: 0.45, duckDb: 5},
-    {id: "install-click", frame: 708, src: "media/sfx/click.wav", gain: 0.45, duckDb: 3}
+    {id: "provider-expand", frame: 618, src: "media/sfx/click.wav", gain: 0.42, duckDb: 3},
+    {id: "provider-count", frame: 627, src: "media/sfx/pop.wav", gain: 0.38, duckDb: 3},
+    {id: "provider-wall", frame: 634, src: "media/sfx/chord.wav", gain: 0.4, duckDb: 4},
+    {id: "provider-collapse", frame: 654, src: "media/sfx/click.wav", gain: 0.36, duckDb: 3},
+    {id: "outro-cut", frame: 660, src: "media/sfx/whoosh.wav", gain: 0.22, duckDb: 3},
+    {id: "feature-bilingual", frame: 668, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
+    {id: "feature-export", frame: 676, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
+    {id: "feature-asr", frame: 683, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
+    {id: "feature-search", frame: 691, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
+    {id: "brand-resolve", frame: 710, src: "media/sfx/resolve.wav", gain: 0.45, duckDb: 5},
+    {id: "install-click", frame: 768, src: "media/sfx/click.wav", gain: 0.45, duckDb: 3}
   ]
 };
 

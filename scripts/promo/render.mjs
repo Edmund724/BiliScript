@@ -5,6 +5,7 @@ import {getCompositions, getVideoMetadata, renderMedia, renderStill} from "@remo
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {preparePromoAssets} from "./prepare.mjs";
+import {PROVIDER_LOGOS} from "./provider-logos.mjs";
 import {APPEARANCE_SHOTS, CAPTIONS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
 const RELEASE_DIR = path.join(REPO_ROOT, "release");
@@ -54,7 +55,8 @@ validateTimeline();
 
 async function writeReleaseText() {
   const srt = CAPTIONS.map((caption, index) => `${index + 1}\n${srtTime(caption.startMs / 1000)} --> ${srtTime(caption.endMs / 1000)}\n${caption.text}\n`).join("\n");
-  const credits = `演示视频：复旦赵斌《AI并非越强越好，适配才是关键》\nhttps://www.bilibili.com/video/BV1mAam6tEL8/\n\n音乐：“BiliScript Pulse” — BiliScript\n原创合成：scripts/promo/synthesize-audio.mjs\nLicense: MIT License\nhttps://github.com/Edmund724/BiliScript/blob/main/LICENSE\n\n音效：key / pop / toggle / click / resolve / whoosh — BiliScript\n均为原创合成；来源与许可同上。\n\nBiliScript\nhttps://github.com/Edmund724/BiliScript\n`;
+  const logoCredits = PROVIDER_LOGOS.map((logo) => `${logo.name} (${logo.id})\n官方素材：${logo.officialFileUrl}\n来源页：${logo.sourcePage}\n依据：${logo.usageBasis}${logo.usageBasisUrl ? `\n条款/品牌页：${logo.usageBasisUrl}` : ""}\n获取：${logo.acquiredAt}；${logo.modifications}`).join("\n\n");
+  const credits = `演示视频：复旦赵斌《AI并非越强越好，适配才是关键》\nhttps://www.bilibili.com/video/BV1mAam6tEL8/\n\n音乐：“BiliScript Pulse” — BiliScript\n原创合成：scripts/promo/synthesize-audio.mjs\nLicense: MIT License\nhttps://github.com/Edmund724/BiliScript/blob/main/LICENSE\n\n音效：key / pop / toggle / click / chord / resolve / whoosh — BiliScript\n均为原创合成；来源与许可同上。\n\n平台 Logo：权利归各平台权利人；仅标识对应预设，不暗示合作或背书。\n${logoCredits}\n\nBiliScript\nhttps://github.com/Edmund724/BiliScript\n`;
   await mkdir(RELEASE_DIR, {recursive: true});
   await writeFile(path.join(RELEASE_DIR, "BiliScript-promo-zh-CN.srt"), srt, "utf8");
   await writeFile(path.join(RELEASE_DIR, "BiliScript-promo-credits.txt"), credits, "utf8");
@@ -92,7 +94,7 @@ async function validateFinalVideo(output) {
 }
 
 const {publicDir, manifest} = await preparePromoAssets();
-for (const [name, duration] of [["hero-hook.mp4", 4], ["subtitle-seek-03.mp4", 4], ["overview-04-chapters.mp4", 5.6], ["overview-04-quote.mp4", 4.733333], ["chat.mp4", 15], ["appearance.mp4", 6]]) {
+for (const [name, duration] of [["hero-hook.mp4", 4], ["subtitle-seek-03.mp4", 4], ["overview-04-chapters.mp4", 5.6], ["overview-04-quote.mp4", 4.733333], ["chat.mp4", 15], ["appearance.mp4", 6], ["ai-providers.mp4", 5.9]]) {
   const metadata = await getVideoMetadata(path.join(publicDir, "media", name));
   if (metadata.width !== 1920 || metadata.height !== 1080 || metadata.fps !== PROMO_FPS || Math.abs(metadata.durationInSeconds - duration) > 0.05) {
     throw new Error(`素材规格不符 ${name}：${JSON.stringify(metadata)}`);
