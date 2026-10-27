@@ -195,13 +195,14 @@ export async function launchBrowser({
   sync = false,
   viewport = DEFAULT_VIEWPORT,
   extraArgs = [],
-  profilePrefix = "biliscript-harness-"
+  profilePrefix = "biliscript-harness-",
+  profileDir: requestedProfileDir
 } = {}) {
   if (!existsSync(path.join(distDir, "manifest.json"))) {
     throw new Error(`dist 里没有 manifest.json：${distDir}（先跑 pnpm build）`);
   }
   const port = await freePort();
-  const profileDir = await mkdtemp(path.join(os.tmpdir(), profilePrefix));
+  const profileDir = requestedProfileDir || await mkdtemp(path.join(os.tmpdir(), profilePrefix));
   const args = [
     ...(headless ? ["--headless=new"] : []),
     // 无头实例没有窗口也没有标签静音入口：出声之后只能杀进程。扩展自己的
@@ -235,7 +236,7 @@ export async function launchBrowser({
     `启动 ${headless ? "headless " : ""}Edge（${muted ? "静音" : "未静音"}${autoplay ? " / 允许自动播放" : ""} / 同步${sync ? "开" : "关"}）：port=${port} profile=${profileDir}`
   );
   const child = spawn(exe, args, { detached: false, stdio: ["ignore", "pipe", "pipe"] });
-  const browser = { child, pid: child.pid, exe, port, profileDir, version: null, args, muted, autoplay, sync };
+  const browser = { child, pid: child.pid, exe, port, profileDir, ownsProfile: !requestedProfileDir, version: null, args, muted, autoplay, sync };
   child.stderr.on("data", (d) => {
     const s = String(d).trim();
     if (s && !/DevTools listening|GCM|Registration response|voice_transcription/i.test(s)) log(`[edge] ${s.slice(0, 200)}`);
@@ -499,7 +500,7 @@ export async function teardown({ browser, cdps = [] } = {}) {
       setTimeout(resolve, 8000);
     });
   }
-  if (browser?.profileDir) {
+  if (browser?.profileDir && browser.ownsProfile !== false) {
     await sleep(400);
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {

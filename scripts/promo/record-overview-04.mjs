@@ -1,9 +1,12 @@
 import path from "node:path";
+import {execFile} from "node:child_process";
 import {mkdir} from "node:fs/promises";
-import {RenderInternals} from "@remotion/renderer";
+import {promisify} from "node:util";
 import {CDP, REPO_ROOT, sleep, waitFor} from "../browser-harness/harness.mjs";
 import {PROMO_DIR, click, connectPage, readSession} from "./lib.mjs";
 import {recordScene} from "./recorder.mjs";
+
+const execFileAsync = promisify(execFile);
 
 const REAL_OVERVIEW = {
   phase: "ready",
@@ -90,29 +93,25 @@ async function restoreRealOverview(cdp, target) {
   await waitFor("真实章节与金句", () => cdp.evaluate(`document.querySelectorAll('#biliscript-reading-overview-body .biliscript-reading-ov-chapter').length === 4 && document.querySelectorAll('#biliscript-reading-overview-body [data-overview-action="share-quote"]').length === 3`), {timeoutMs: 15000});
 }
 
-async function encode(name, output) {
+async function encode(name, output, frameCount) {
   const destination = path.join(REPO_ROOT, "scripts", "promo", "public", "media", output);
   await mkdir(path.dirname(destination), {recursive: true});
-  await RenderInternals.callFf({
-    bin: "ffmpeg",
-    args: [
-      "-y",
-      "-f", "concat",
-      "-safe", "0",
-      "-i", path.join(PROMO_DIR, "frames", name, "frames.ffconcat"),
-      "-r", "30",
-      "-c:v", "libx264",
-      "-preset", "medium",
-      "-crf", "18",
-      "-pix_fmt", "yuv420p",
-      "-movflags", "+faststart",
-      "-an",
-      destination
-    ],
-    indent: false,
-    logLevel: "error",
-    options: {}
-  });
+  await execFileAsync("ffmpeg", [
+    "-y",
+    "-f", "concat",
+    "-safe", "0",
+    "-i", path.join(PROMO_DIR, "frames", name, "frames.ffconcat"),
+    "-vf", "tpad=stop_mode=clone:stop_duration=1",
+    "-frames:v", String(frameCount),
+    "-r", "30",
+    "-c:v", "libx264",
+    "-preset", "slow",
+    "-crf", "12",
+    "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    "-an",
+    destination
+  ]);
   console.log(`独立素材已输出：${destination}`);
 }
 
@@ -125,7 +124,7 @@ try {
   await restoreRealOverview(cdp, target);
   await recordScene(cdp, "04-overview-chapters", async () => {
     await cdp.evaluate(`document.getElementById('biliscript-reading-overview-body').scrollTop = 0; true`);
-    await sleep(3600);
+    await sleep(5100);
   });
   await cdp.evaluate(`document.querySelector('#biliscript-reading-overview-body .biliscript-reading-ov-quote').scrollIntoView({block: 'center', behavior: 'instant'}); true`);
   await sleep(500);
@@ -143,5 +142,5 @@ try {
 } finally {
   cdp.close();
 }
-await encode("04-overview-chapters", "overview-04-chapters.mp4");
-await encode("04-overview-quote", "overview-04-quote.mp4");
+await encode("04-overview-chapters", "overview-04-chapters.mp4", 168);
+await encode("04-overview-quote", "overview-04-quote.mp4", 142);

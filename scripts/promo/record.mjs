@@ -81,6 +81,12 @@ async function recordChat(cdp) {
     await click(cdp, `document.getElementById('biliscript-reading-chat-web-search-pill')`);
     await sleep(500);
   }
+  if (await cdp.evaluate(`document.getElementById('biliscript-reading-view')?.getAttribute('data-theme') === 'dark'`)) {
+    await click(cdp, `document.getElementById('biliscript-reading-theme-select')`);
+    await sleep(700);
+  }
+  await cdp.evaluate(`scrollTo({top: 0, behavior: 'instant'}); true`);
+  await sleep(300);
   await recordScene(cdp, "04-chat", async () => {
     await sleep(800);
     await typeText(cdp, "#biliscript-reading-chat-input", "为什么作者认为选 AI 要看适配，而不是只看强弱？请用三个要点回答。");
@@ -100,7 +106,7 @@ async function recordChat(cdp) {
       await sleep(1500);
       await pauseVideo(cdp);
     }
-  });
+  }, {captureMode: "snapshot", clipToPanel: true});
 }
 
 async function recordAppearance(cdp) {

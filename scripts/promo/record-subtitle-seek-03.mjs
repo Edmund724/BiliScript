@@ -114,11 +114,11 @@ try {
   }
 
   const clipsDir = path.join(PROMO_DIR, "clips");
-  const mediaDir = path.join(PROMO_DIR, "public", "media");
+  const mediaDir = path.join(REPO_ROOT, "scripts", "promo", "public", "media");
   await mkdir(clipsDir, {recursive: true});
   await mkdir(mediaDir, {recursive: true});
   const clip = path.join(clipsDir, `${SCENE_NAME}.mp4`);
-  await execFileAsync(await ffmpegPath(), ["-y", "-safe", "0", "-i", recording.manifest, "-r", "30", "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", clip]);
+  await execFileAsync(await ffmpegPath(), ["-y", "-safe", "0", "-i", recording.manifest, "-frames:v", "120", "-r", "30", "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", clip]);
   const output = path.join(mediaDir, OUTPUT_NAME);
   await copyFile(clip, output);
   const evidence = path.join(PROMO_DIR, "evidence", "subtitle-seek-03.json");

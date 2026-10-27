@@ -94,14 +94,22 @@ async function validateFinalVideo(output) {
 }
 
 const {publicDir, manifest} = await preparePromoAssets();
-for (const [name, duration] of [["hero-hook.mp4", 4], ["subtitle-seek-03.mp4", 4], ["overview-04-chapters.mp4", 5.6], ["overview-04-quote.mp4", 4.733333], ["chat.mp4", 15], ["appearance.mp4", 6], ["ai-providers.mp4", 5.9]]) {
+for (const [name, duration, width, height] of [
+  ["hero-hook.mp4", 4, 1920, 1080],
+  ["subtitle-seek-03.mp4", 4, 3840, 2160],
+  ["overview-04-chapters.mp4", 5.6, 3840, 2160],
+  ["overview-04-quote.mp4", 4.733333, 3840, 2160],
+  ["chat.mp4", 15, 3840, 2160],
+  ["appearance.mp4", 6, 3840, 2160],
+  ["ai-providers.mp4", 5.9, 3840, 2160]
+]) {
   const metadata = await getVideoMetadata(path.join(publicDir, "media", name));
-  if (metadata.width !== 1920 || metadata.height !== 1080 || metadata.fps !== PROMO_FPS || Math.abs(metadata.durationInSeconds - duration) > 0.05) {
+  if (metadata.width !== width || metadata.height !== height || metadata.fps !== PROMO_FPS || Math.abs(metadata.durationInSeconds - duration) > 0.05) {
     throw new Error(`素材规格不符 ${name}：${JSON.stringify(metadata)}`);
   }
 }
 await mkdir(EVIDENCE_DIR, {recursive: true});
-console.log("素材校验通过；01-intro 不在素材清单中");
+console.log("素材校验通过；面板素材为 3840×2160，01-intro 不在素材清单中");
 
 const RENDER_PORT = 3100;
 const serveUrl = await bundle({
@@ -129,7 +137,7 @@ if (!stillsOnly) {
     codec: "h264",
     audioCodec: "aac",
     audioBitrate: "192k",
-    crf: draft ? 21 : 17,
+    crf: draft ? 21 : 15,
     pixelFormat: "yuv420p",
     jpegQuality: 95,
     x264Preset: draft ? "veryfast" : "medium",
@@ -160,21 +168,20 @@ if (!draft) {
 }
 
 const prefix = draft ? "draft" : "final";
-const staleFrames = (await readdir(EVIDENCE_DIR)).filter((name) => new RegExp(`^${prefix}-\\d{4}\\.jpg$`).test(name));
+const staleFrames = (await readdir(EVIDENCE_DIR)).filter((name) => new RegExp(`^${prefix}-\\d{4}\\.(?:jpg|png)$`).test(name));
 await Promise.all(staleFrames.map((name) => unlink(path.join(EVIDENCE_DIR, name))));
 const evidenceFrames = [];
 for (const seconds of EVIDENCE_TIMES) {
   const frame = Math.round(seconds * PROMO_FPS);
-  const file = `${prefix}-${String(frame).padStart(4, "0")}.jpg`;
+  const file = `${prefix}-${String(frame).padStart(4, "0")}.png`;
   await renderStill({
     composition: promo,
     serveUrl,
     inputProps: {},
     port: RENDER_PORT,
     frame,
-    scale: 0.5,
-    imageFormat: "jpeg",
-    jpegQuality: 92,
+    scale: 1,
+    imageFormat: "png",
     output: path.join(EVIDENCE_DIR, file),
     overwrite: true
   });

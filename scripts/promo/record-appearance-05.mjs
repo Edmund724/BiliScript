@@ -1,6 +1,6 @@
 import path from "node:path";
 import {execFile} from "node:child_process";
-import {mkdir, readdir, writeFile} from "node:fs/promises";
+import {mkdir, writeFile} from "node:fs/promises";
 import {promisify} from "node:util";
 import {CDP, REPO_ROOT, sleep, waitFor} from "../browser-harness/harness.mjs";
 import {PROMO_DIR, click, connectPage, readSession} from "./lib.mjs";
@@ -59,6 +59,7 @@ async function appearanceState(cdp) {
 }
 
 async function ensureReader(cdp, target) {
+  await cdp.evaluate(`scrollTo({top: 0, behavior: 'instant'}); true`);
   if (!(await cdp.evaluate(`document.getElementById('biliscript-reading-view')?.getAttribute('aria-hidden') === 'false'`))) {
     await click(cdp, `document.getElementById('biliscript-script-button')`);
   }
@@ -110,24 +111,21 @@ async function setPalette(cdp, value) {
   await sleep(300);
 }
 
-async function ffmpegPath() {
-  const pnpmDir = path.join(REPO_ROOT, "node_modules", ".pnpm");
-  const packageDir = (await readdir(pnpmDir)).find((name) => name.startsWith("@remotion+compositor-win32-x64-msvc@"));
-  if (!packageDir) throw new Error("找不到 Remotion 自带的 Windows ffmpeg");
-  return path.join(pnpmDir, packageDir, "node_modules", "@remotion", "compositor-win32-x64-msvc", "ffmpeg.exe");
-}
-
 const session = await readSession();
 const {cdp, target} = await connectPage(session);
 try {
   await cdp.send("Emulation.setFocusEmulationEnabled", {enabled: true});
   await cdp.send("Page.bringToFront");
+  await cdp.send("Page.reload", {ignoreCache: false});
+  await sleep(1000);
+  await waitFor("文摘入口或已恢复面板", () => cdp.evaluate(`!!document.getElementById('biliscript-script-button') || document.getElementById('biliscript-reading-view')?.getAttribute('aria-hidden') === 'false'`), {timeoutMs: 45000});
   await ensureReader(cdp, target);
   const initial = await appearanceState(cdp);
   if (initial.mode === "dark") await click(cdp, `document.getElementById('biliscript-reading-theme-select')`);
   if (!(await appearanceState(cdp)).settingsOpen) {
     await click(cdp, `document.getElementById('biliscript-reading-settings-btn')`);
   }
+  await waitFor("外观设置导航", () => cdp.evaluate(`!!document.querySelector('[data-section="appearance"]')`), {timeoutMs: 10000});
   await click(cdp, `document.querySelector('[data-section="appearance"]')`);
   await sleep(500);
   await setPalette(cdp, "flyme");
@@ -153,14 +151,18 @@ try {
     await click(cdp, `document.getElementById('biliscript-reading-settings-btn')`);
     await sleep(1600);
     await mark("editorial-panel");
-  });
+  }, {captureMode: "snapshot", clipToPanel: true});
 
   const clipsDir = path.join(PROMO_DIR, "clips");
   await mkdir(clipsDir, {recursive: true});
   const output = path.join(clipsDir, "05-appearance.mp4");
-  await execFileAsync(await ffmpegPath(), [
-    "-y", "-f", "concat", "-safe", "0", "-i", recording.manifest,
-    "-frames:v", "180", "-r", "30", "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+  const filters = [
+    ...(recording.capture ? [`pad=${recording.source.width}:${recording.source.height}:${recording.capture.x}:${recording.capture.y}:black`] : []),
+    "tpad=stop_mode=clone:stop_duration=1"
+  ];
+  await execFileAsync("ffmpeg", [
+    "-y", "-f", "concat", "-safe", "0", "-i", recording.manifest, "-vf", filters.join(","),
+    "-frames:v", "180", "-r", "30", "-c:v", "libx264", "-preset", "slow", "-crf", "12",
     "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", output
   ]);
   const evidence = path.join(PROMO_DIR, "evidence", "appearance-05.json");

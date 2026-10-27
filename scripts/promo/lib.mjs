@@ -5,7 +5,7 @@ import { CDP, REPO_ROOT } from "../browser-harness/harness.mjs";
 export const PROMO_DIR = path.join(REPO_ROOT, ".scratch", "promo");
 export const SESSION_FILE = path.join(PROMO_DIR, "session.json");
 export const SAMPLE_URL = "https://www.bilibili.com/video/BV1mAam6tEL8/";
-export const VIEWPORT = { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false };
+export const VIEWPORT = { width: 1920, height: 1080, deviceScaleFactor: 2, mobile: false };
 
 export async function readSession() {
   return JSON.parse(await readFile(SESSION_FILE, "utf8"));

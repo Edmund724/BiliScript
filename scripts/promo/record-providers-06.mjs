@@ -1,6 +1,6 @@
 import path from "node:path";
 import {execFile} from "node:child_process";
-import {mkdir, readdir, writeFile} from "node:fs/promises";
+import {mkdir, writeFile} from "node:fs/promises";
 import {promisify} from "node:util";
 import {attachPage, createWorkerSession, launchBrowser, REPO_ROOT, sleep, teardown, waitFor} from "../browser-harness/harness.mjs";
 import {PROMO_DIR, SAMPLE_URL, VIEWPORT, click} from "./lib.mjs";
@@ -8,14 +8,7 @@ import {recordScene} from "./recorder.mjs";
 
 const execFileAsync = promisify(execFile);
 
-async function ffmpegPath() {
-  const packageDir = (await readdir(path.join(REPO_ROOT, "node_modules", ".pnpm")))
-    .find((name) => name.startsWith("@remotion+compositor-win32-x64-msvc@"));
-  if (!packageDir) throw new Error("找不到 Remotion 自带的 Windows ffmpeg");
-  return path.join(REPO_ROOT, "node_modules", ".pnpm", packageDir, "node_modules", "@remotion", "compositor-win32-x64-msvc", "ffmpeg.exe");
-}
-
-const browser = await launchBrowser({headless: false, muted: true, sync: false, viewport: VIEWPORT, profilePrefix: "biliscript-promo-"});
+const browser = await launchBrowser({headless: false, muted: true, sync: false, viewport: VIEWPORT, extraArgs: ["--force-device-scale-factor=2"], profilePrefix: "biliscript-promo-"});
 const page = await attachPage(browser, {viewport: VIEWPORT});
 const worker = createWorkerSession({pageCdp: page.cdp, browser});
 try {
@@ -44,14 +37,18 @@ try {
     await waitFor("平台预设展开", () => page.cdp.evaluate(`document.querySelectorAll('.provider-editor-preset-wrapper .custom-select-option').length === 15 && !document.querySelector('.provider-editor-preset-wrapper .custom-select-dropdown')?.hidden`), {timeoutMs: 10000});
     await mark("presets-expanded");
     await sleep(2800);
-  });
+  }, {captureMode: "snapshot", clipToPanel: true});
 
   const clipsDir = path.join(PROMO_DIR, "clips");
   await mkdir(clipsDir, {recursive: true});
   const output = path.join(clipsDir, "06-ai-providers.mp4");
-  await execFileAsync(await ffmpegPath(), [
-    "-y", "-f", "concat", "-safe", "0", "-i", recording.manifest,
-    "-frames:v", "180", "-r", "30", "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+  const filters = [
+    ...(recording.capture ? [`pad=${recording.source.width}:${recording.source.height}:${recording.capture.x}:${recording.capture.y}:black`] : []),
+    "tpad=stop_mode=clone:stop_duration=1"
+  ];
+  await execFileAsync("ffmpeg", [
+    "-y", "-f", "concat", "-safe", "0", "-i", recording.manifest, "-vf", filters.join(","),
+    "-frames:v", "177", "-r", "30", "-c:v", "libx264", "-preset", "slow", "-crf", "12",
     "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", output
   ]);
   const evidence = path.join(PROMO_DIR, "evidence", "providers-06.json");

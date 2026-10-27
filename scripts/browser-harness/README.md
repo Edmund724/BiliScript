@@ -20,7 +20,7 @@ BILISCRIPT_EDGE=<路径> pnpm harness:browser
 
 | 导出 | 作用 |
 |---|---|
-| `launchBrowser(opts)` | 唯一端口 + 唯一临时 profile + `--load-extension`；**默认静音**（`muted`）、**默认不允许自动播放**（`autoplay`）、**默认关同步**（`sync`）；等 `/json/version` 就绪，返回 `{ child, pid, exe, port, profileDir, version, args, muted, autoplay, sync }` |
+| `launchBrowser(opts)` | 唯一端口 + 默认唯一临时 profile + `--load-extension`；传 `profileDir` 可复用指定目录且 teardown 不删除它；**默认静音**（`muted`）、**默认不允许自动播放**（`autoplay`）、**默认关同步**（`sync`）；等 `/json/version` 就绪，返回 `{ child, pid, exe, port, profileDir, ownsProfile, version, args, muted, autoplay, sync }` |
 | `attachPage(browser)` | 连页面 target，开 Page/Runtime/Network/Log + 视口倍率 |
 | `watchPage(pageCdp)` | 收集页面 console 与网络失败（带上限截断） |
 | `createWorkerSession({ pageCdp, browser })` | 连扩展 SW 并等到执行上下文绑定；`evaluate()` 带重连重试（SW 被回收是常态） |

@@ -1,6 +1,6 @@
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {copyFile, mkdir, stat, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, readFile, stat, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO} from "./audio.mjs";
@@ -18,13 +18,35 @@ const sources = {
   "appearance.mp4": path.join(PROMO_DIR, "clips", "05-appearance.mp4"),
   "ai-providers.mp4": path.join(PROMO_DIR, "clips", "06-ai-providers.mp4"),
   ...Object.fromEntries(PROVIDER_LOGOS.map((logo) => [`providers/${logo.file}`, path.join(REPO_ROOT, "scripts", "promo", "assets", "providers", logo.file)])),
-  "overview-poster.jpg": path.join(PROMO_DIR, "frames", "03-overview", "000000.jpg"),
+  "overview-poster.jpg": path.join(PROMO_DIR, "frames", "04-overview-chapters", "000000.jpg"),
   "promo-score.wav": path.join(PROMO_DIR, "assets", "audio", "promo-score.wav"),
   ...Object.fromEntries([...new Set(AUDIO.cues.map((cue) => cue.src.replace("media/", "")))].map((name) => [name, path.join(PROMO_DIR, "assets", "audio", name)])),
   "logo.svg": path.join(REPO_ROOT, "docs", "images", "biliscript-logo.svg")
 };
 
+const panelRecordings = {
+  overview: "04-overview-chapters",
+  chat: "04-chat",
+  appearance: "05-appearance-motion"
+};
+
+async function writeRecordedPanelCrops() {
+  const crops = {};
+  for (const [name, recording] of Object.entries(panelRecordings)) {
+    const metadata = JSON.parse(await readFile(path.join(PROMO_DIR, "frames", recording, "frames.json"), "utf8"));
+    const panel = metadata.panel;
+    if (!panel || ![panel.x, panel.y, panel.width, panel.height].every(Number.isFinite) || panel.width <= 0 || panel.height <= 0) {
+      throw new Error(`录制 ${recording} 缺少有效的面板边界`);
+    }
+    crops[name] = panel;
+  }
+  const destination = path.join(REPO_ROOT, "scripts", "promo", "generated", "panel-crops.json");
+  await mkdir(path.dirname(destination), {recursive: true});
+  await writeFile(destination, JSON.stringify(crops, null, 2) + "\n", "utf8");
+}
+
 export async function preparePromoAssets() {
+  await writeRecordedPanelCrops();
   const mediaDir = path.join(PROMO_PUBLIC_DIR, "media");
   await mkdir(mediaDir, {recursive: true});
   const files = [];

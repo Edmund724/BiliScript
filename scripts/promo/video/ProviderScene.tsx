@@ -103,7 +103,7 @@ export const ProviderScene = () => {
           <ProductFrame source="ai-providers.mp4" crop={{x: 1390, y: 290, width: 490, height: 128}} width={770} startFrom={36} playbackRate={2} duration={6} animate={false} tilt={0} style={{left: 1060, top: 330}} />
         </Sequence>
         <Sequence from={18} durationInFrames={16}>
-          <ProductFrame source="ai-providers.mp4" crop={{x: 1390, y: 290, width: 490, height: 445}} width={770} startFrom={64} playbackRate={3} duration={16} animate={false} tilt={0} style={{left: 1060, top: 124}} />
+          <ProductFrame source="ai-providers.mp4" crop={{x: 1390, y: 290, width: 490, height: 445}} width={770} startFrom={84} playbackRate={3} duration={16} animate={false} tilt={0} style={{left: 1060, top: 124}} />
         </Sequence>
       </div>
       <Sequence from={27} durationInFrames={7}>

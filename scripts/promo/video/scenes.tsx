@@ -5,10 +5,17 @@ import {Crop, PANEL_CROPS, ProductFrame, SceneTitle, SpringLayout} from "./desig
 const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat")!;
 const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance")!;
 
+const chatCloseCrop = (topOffset: number, height: number): Crop => ({
+  x: PANEL_CROPS.chat.x,
+  y: PANEL_CROPS.chat.y + topOffset,
+  width: PANEL_CROPS.chat.width,
+  height
+});
+
 const CHAT_FRAMING: Array<{crop: Crop; width: number; top: number; tilt: number}> = [
   {crop: PANEL_CROPS.chat, width: 580, top: 20, tilt: -6},
-  {crop: {x: 1342, y: 145, width: 554, height: 420}, width: 720, top: 230, tilt: -6},
-  {crop: {x: 1342, y: 120, width: 554, height: 590}, width: 720, top: 120, tilt: -6}
+  {crop: chatCloseCrop(79, 420), width: 720, top: 230, tilt: -6},
+  {crop: chatCloseCrop(54, 590), width: 720, top: 120, tilt: -6}
 ];
 
 const shotOffset = (shots: ReadonlyArray<{duration: number}>, index: number) =>
@@ -48,7 +55,12 @@ export const AppearanceScene = () => (
       <Sequence key={shot.title} from={shotOffset(APPEARANCE_SHOTS, index)} durationInFrames={shot.duration}>
         <ProductFrame
           source="appearance.mp4"
-          crop={shot.crop}
+          crop={index === 0 ? PANEL_CROPS.appearance : {
+            x: PANEL_CROPS.appearance.x + 2,
+            y: PANEL_CROPS.appearance.y + 445,
+            width: PANEL_CROPS.appearance.width - 6,
+            height: 320
+          }}
           width={shot.width}
           startFrom={shot.startFrom}
           playbackRate={shot.playbackRate}

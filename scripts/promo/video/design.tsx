@@ -10,6 +10,7 @@ import {
   useCurrentFrame,
   useVideoConfig
 } from "remotion";
+import panelCrops from "../generated/panel-crops.json";
 
 export const COLORS = {
   background: "#FBFAFC",
@@ -24,10 +25,9 @@ export const BRAND_FONT_FAMILY = 'Bahnschrift, "Aptos Display", sans-serif';
 export type Crop = {x: number; y: number; width: number; height: number};
 
 export const PANEL_CROPS = {
-  subtitle: {x: 1340, y: 66, width: 566, height: 1014},
-  overview: {x: 1340, y: 66, width: 566, height: 1014},
-  chat: {x: 1340, y: 66, width: 566, height: 1014},
-  appearance: {x: 1366, y: 55, width: 540, height: 1025}
+  overview: panelCrops.overview,
+  chat: panelCrops.chat,
+  appearance: panelCrops.appearance
 } satisfies Record<string, Crop>;
 
 export const Backdrop = () => (

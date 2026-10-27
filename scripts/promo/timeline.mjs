@@ -29,8 +29,8 @@ export const CHAT_SHOTS = [
 ];
 
 export const APPEARANCE_SHOTS = [
-  { title: "深色模式，\n完整切换。", startFrom: 0, duration: 42, playbackRate: 1.35, crop: { x: 1366, y: 55, width: 540, height: 1025 }, width: 560, top: 28 },
-  { title: "阅读色板，\n随你偏好。", startFrom: 80, duration: 48, playbackRate: 1.25, crop: { x: 1368, y: 500, width: 534, height: 320 }, width: 780, top: 295 }
+  { title: "深色模式，\n完整切换。", startFrom: 0, duration: 42, playbackRate: 1.35, width: 560, top: 28 },
+  { title: "阅读色板，\n随你偏好。", startFrom: 80, duration: 48, playbackRate: 1.25, width: 780, top: 295 }
 ];
 
-export const EVIDENCE_TIMES = [0, 0.5, 2.5, 3.2, 4.5, 5, 5.4, 6.8, 7.2, 8.2, 9.5, 10.2, 10.8, 11.2, 12, 12.5, 13, 14.5, 16.8, 17.2, 18.5, 19.8, 20.2, 20.7, 21, 21.4, 21.8, 22, 22.5, 23, 23.5, 24, 24.8, 25.7, 26.2, 28.3, 29.5, (PROMO_DURATION - 1) / PROMO_FPS];
+export const EVIDENCE_TIMES = [0, 0.5, 2.5, 3.2, 4.5, 5, 5.4, 6.8, 7.2, 8.2, 9.5, 10.2, 10.8, 11.2, 12, 12.5, 13, 14.5, 16.8, 17.2, 18.5, 19.8, 20.2, 20.7, 20.85, 21, 21.4, 21.8, 22, 22.5, 23, 23.5, 24, 24.8, 25.7, 26.2, 28.3, 29.5, (PROMO_DURATION - 1) / PROMO_FPS];

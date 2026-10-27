@@ -4,7 +4,7 @@ import { PROMO_DIR, SAMPLE_URL, SESSION_FILE, VIEWPORT, readSession, connectPage
 
 async function start() {
   await mkdir(PROMO_DIR, { recursive: true });
-  const browser = await launchBrowser({ headless: false, muted: true, sync: false, viewport: VIEWPORT, profilePrefix: "biliscript-promo-" });
+  const browser = await launchBrowser({ headless: false, muted: true, sync: false, viewport: VIEWPORT, extraArgs: ["--force-device-scale-factor=2"], profilePrefix: "biliscript-promo-" });
   const page = await attachPage(browser, { viewport: VIEWPORT });
   const worker = createWorkerSession({ pageCdp: page.cdp, browser });
   await worker.ensureAlive();

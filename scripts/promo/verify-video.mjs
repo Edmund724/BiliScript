@@ -42,8 +42,8 @@ const server = http.createServer(async (request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("无法启动视频检查服务");
-const browser = await launchBrowser({headless: true, muted: false, autoplay: true, sync: false, viewport: VIEWPORT, profilePrefix: "biliscript-video-check-"});
-const page = await attachPage(browser, {viewport: VIEWPORT});
+const browser = await launchBrowser({headless: true, muted: false, autoplay: true, sync: false, viewport: {...VIEWPORT, deviceScaleFactor: 1}, profilePrefix: "biliscript-video-check-"});
+const page = await attachPage(browser, {viewport: {...VIEWPORT, deviceScaleFactor: 1}});
 try {
   await page.cdp.send("Page.navigate", {url: `http://127.0.0.1:${address.port}/`});
   await waitFor("视频解码就绪", () => page.cdp.evaluate("document.querySelector('video')?.readyState >= 2"), {timeoutMs: 30000});
