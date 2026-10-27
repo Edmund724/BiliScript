@@ -1,6 +1,9 @@
 import {Sequence} from "remotion";
-import {APPEARANCE_SHOTS, CHAT_SHOTS} from "../timeline.mjs";
+import {APPEARANCE_SHOTS, CHAT_SHOTS, PANEL_FOCUS_HANDOFFS} from "../timeline.mjs";
 import {Crop, PANEL_CROPS, ProductFrame, SceneTitle, SpringLayout} from "./design";
+
+const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat")!;
+const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance")!;
 
 const CHAT_FRAMING: Array<{crop: Crop; width: number; top: number; tilt: number}> = [
   {crop: PANEL_CROPS.chat, width: 580, top: 20, tilt: -6},
@@ -26,6 +29,11 @@ export const ChatScene = () => (
             playbackRate={shot.playbackRate}
             duration={shot.duration}
             tilt={framing.tilt}
+            focus={index === 0
+              ? {direction: "in", frames: CHAT_HANDOFF.enterFrames, maxBlur: CHAT_HANDOFF.maxBlur}
+              : index === CHAT_SHOTS.length - 1
+                ? {direction: "out", frames: APPEARANCE_HANDOFF.exitFrames, maxBlur: APPEARANCE_HANDOFF.maxBlur}
+                : undefined}
             style={{left: 1060, top: framing.top}}
           />
         </Sequence>
@@ -46,6 +54,7 @@ export const AppearanceScene = () => (
           playbackRate={shot.playbackRate}
           duration={shot.duration}
           tilt={6}
+          focus={index === 0 ? {direction: "in", frames: APPEARANCE_HANDOFF.enterFrames, maxBlur: APPEARANCE_HANDOFF.maxBlur} : undefined}
           style={{left: 220, top: shot.top}}
         />
         <SceneTitle title={shot.title} style={{left: 1120, top: 370, width: 650}} />

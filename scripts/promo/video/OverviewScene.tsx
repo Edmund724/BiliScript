@@ -1,5 +1,8 @@
 import {Easing, Sequence, interpolate, useCurrentFrame, useVideoConfig} from "remotion";
+import {PANEL_FOCUS_HANDOFFS} from "../timeline.mjs";
 import {Crop, ProductFrame, SceneTitle, SpringLayout} from "./design";
+
+const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat")!;
 
 const CHAPTER_CROP: Crop = {x: 1380, y: 230, width: 500, height: 650};
 const QUOTE_CROP: Crop = {x: 1418, y: 572, width: 462, height: 145};
@@ -52,6 +55,7 @@ const QuoteCamera = ({duration}: {duration: number}) => {
         duration={duration}
         animate={false}
         tilt={-6}
+        focus={{direction: "out", frames: CHAT_HANDOFF.exitFrames, maxBlur: CHAT_HANDOFF.maxBlur}}
         style={{
           left: 0,
           top: 0,

@@ -1,5 +1,5 @@
 import {SUBTITLE_MATCH_FRAME} from "./subtitle-timeline.mjs";
-import {PROMO_DURATION, SCENES} from "./timeline.mjs";
+import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, SCENES} from "./timeline.mjs";
 
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle").from;
 
@@ -25,8 +25,10 @@ export const AUDIO = {
     {id: "quote-card", frame: 278, src: "media/sfx/pop.wav", gain: 0.45, duckDb: 3},
     {id: "quote-slate", frame: 283, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
     {id: "quote-mist", frame: 295, src: "media/sfx/pop.wav", gain: 0.4, duckDb: 3},
-    {id: "chat-cut", frame: 330, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
-    {id: "appearance-cut", frame: 510, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
+    ...PANEL_FOCUS_HANDOFFS.flatMap((handoff) => [
+      {id: `${handoff.from}-defocus`, frame: handoff.at - handoff.exitFrames, src: "media/sfx/click.wav", gain: 0.18, duckDb: 2},
+      {id: `${handoff.to}-focus`, frame: handoff.at + handoff.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.28, duckDb: 3}
+    ]),
     {id: "dark-mode", frame: 531, src: "media/sfx/toggle.wav", gain: 0.5, duckDb: 3},
     {id: "editorial-palette", frame: 567, src: "media/sfx/pop.wav", gain: 0.45, duckDb: 3},
     {id: "provider-expand", frame: 618, src: "media/sfx/click.wav", gain: 0.42, duckDb: 3},

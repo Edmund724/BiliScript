@@ -15,6 +15,11 @@ export const SCENES = [
   { id: "outro", from: 660, duration: 240 }
 ];
 
+export const PANEL_FOCUS_HANDOFFS = [
+  {from: "overview", to: "chat", at: 330, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "chat", to: "appearance", at: 510, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+];
+
 export const CHAT_SHOTS = [
   { startFrom: 0, duration: 45, playbackRate: 1 },
   { startFrom: 150, duration: 15, playbackRate: 1 },

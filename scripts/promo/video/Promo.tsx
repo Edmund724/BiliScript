@@ -1,6 +1,6 @@
 import {Audio, AbsoluteFill, Sequence, staticFile} from "remotion";
 import {AUDIO, musicVolumeAtFrame} from "../audio.mjs";
-import {PROMO_DURATION, SCENES} from "../timeline.mjs";
+import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, SCENES} from "../timeline.mjs";
 import {Backdrop, COLORS, SceneShell} from "./design";
 import {AppearanceScene, ChatScene} from "./scenes";
 import {HeroScene} from "./HeroScene";
@@ -49,7 +49,12 @@ export const Promo = () => {
         const duration = scene.duration;
         return (
           <Sequence key={scene.id} from={scene.from} durationInFrames={duration}>
-            <SceneShell duration={duration} final={index === SCENES.length - 1}>
+            <SceneShell
+              duration={duration}
+              final={index === SCENES.length - 1}
+              fadeIn={!PANEL_FOCUS_HANDOFFS.some((handoff) => handoff.to === scene.id)}
+              fadeOut={!PANEL_FOCUS_HANDOFFS.some((handoff) => handoff.from === scene.id)}
+            >
               <Scene id={scene.id} duration={duration} />
             </SceneShell>
           </Sequence>

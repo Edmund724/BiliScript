@@ -137,20 +137,20 @@ export const SceneTitle = ({title, style = {}, align = "left", size = 76, delay 
   );
 };
 
-export const SceneShell = ({children, duration, final = false}: {
+export const SceneShell = ({children, duration, final = false, fadeIn = true, fadeOut = true}: {
   children: ReactNode;
   duration: number;
   final?: boolean;
+  fadeIn?: boolean;
+  fadeOut?: boolean;
 }) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const entrance = spring({frame, fps, config: SPRING_LAYOUT});
   const opacity = final
     ? interpolate(entrance, [0, 0.3], [0.85, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
-    : interpolate(frame, [0, 6, duration - 6, duration], [0.88, 1, 1, 0.92], {
-        extrapolateLeft: "clamp",
-        extrapolateRight: "clamp"
-      });
+    : (fadeIn ? interpolate(frame, [0, 6], [0.88, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1) *
+      (fadeOut ? interpolate(frame, [duration - 6, duration], [1, 0.92], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1);
   return (
     <AbsoluteFill style={{opacity, fontFamily: FONT_FAMILY}}>
       {children}
@@ -158,7 +158,7 @@ export const SceneShell = ({children, duration, final = false}: {
   );
 };
 
-export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playbackRate = 1, startFrom = 0, duration = 210, animate = true, tilt = 6, style = {}}: {
+export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playbackRate = 1, startFrom = 0, duration = 210, animate = true, tilt = 6, focus, style = {}}: {
   source?: string;
   crop?: Crop;
   width: number;
@@ -167,6 +167,7 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
   duration?: number;
   animate?: boolean;
   tilt?: number;
+  focus?: {direction: "in" | "out"; frames: number; maxBlur: number};
   style?: CSSProperties;
 }) => {
   const frame = useCurrentFrame();
@@ -195,6 +196,14 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
         opacity: 1,
         transform: microPerspective(tilt),
         scale: animate ? interpolate(entrance, [0, 1], [0.96, 1], {extrapolateLeft: "clamp"}) * interpolate(frame, [0, duration], [1, 1.028], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1,
+        filter: focus
+          ? `blur(${interpolate(
+              frame,
+              focus.direction === "in" ? [0, focus.frames] : [duration - focus.frames, duration],
+              focus.direction === "in" ? [focus.maxBlur, 0] : [0, focus.maxBlur],
+              {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
+            )}px)`
+          : undefined,
         ...style
       }}
     >
