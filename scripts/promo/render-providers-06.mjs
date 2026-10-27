@@ -15,18 +15,19 @@ await writeFile(entryPoint, `import React from "react";
 import {AbsoluteFill, Composition, registerRoot} from "remotion";
 import {Backdrop, SceneShell} from "../../scripts/promo/video/design";
 import {ProviderScene} from "../../scripts/promo/video/ProviderScene";
+import {PROVIDER_TIMELINE} from "../../scripts/promo/timeline.mjs";
 
 const ProviderPreview = () => (
   <AbsoluteFill>
     <Backdrop />
-    <SceneShell duration={60}>
+    <SceneShell duration={PROVIDER_TIMELINE.duration}>
       <ProviderScene />
     </SceneShell>
   </AbsoluteFill>
 );
 
 export const RemotionRoot = () => (
-  <Composition id="Providers06" component={ProviderPreview} durationInFrames={60} fps={30} width={1920} height={1080} />
+  <Composition id="Providers06" component={ProviderPreview} durationInFrames={PROVIDER_TIMELINE.duration} fps={30} width={1920} height={1080} />
 );
 
 registerRoot(RemotionRoot);
@@ -42,13 +43,13 @@ const compositions = await getCompositions(serveUrl, {inputProps: {}, port: 3106
 const composition = compositions.find((item) => item.id === "Providers06");
 if (!composition) throw new Error("未找到 Providers06 独立合成");
 
-for (const [name, frame] of [["settings", 6], ["editor", 15], ["expanded", 24], ["count", 30], ["peak", 42], ["collapse", 55]]) {
+for (const [name, frame] of [["dialog", 8], ["expand", 22], ["count", 30], ["fade", 33], ["wall", 44], ["hold", 100], ["collapse", 138]]) {
   const output = path.join(evidenceDir, `${name}-frame-${String(frame).padStart(4, "0")}.png`);
   await renderStill({composition, serveUrl, inputProps: {}, port: 3106, frame, imageFormat: "png", output, overwrite: true});
   console.log(`全尺寸静帧已输出：${output}`);
 }
 
-for (const [index, frame] of [45, 48, 51, 54, 57, 59].entries()) {
+for (const [index, frame] of [128, 131, 134, 137, 140, 143].entries()) {
   await renderStill({
     composition,
     serveUrl,

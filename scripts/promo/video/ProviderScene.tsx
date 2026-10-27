@@ -1,9 +1,11 @@
 import {Easing, Img, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {PROVIDER_LOGOS} from "../provider-logos.mjs";
+import {PROVIDER_TIMELINE} from "../timeline.mjs";
 import {COLORS, FONT_FAMILY, ProductFrame} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE = Easing.bezier(0.16, 1, 0.3, 1);
+const {dialogShot, countAt, countDuration, shotsExitAt, shotsExitDuration, wallAt, cardStagger, collapseAt, collapseDuration, wallExitAt, wallExitDuration} = PROVIDER_TIMELINE;
 
 const Claim = ({compact = false}: {compact?: boolean}) => (
   <div style={{display: "flex", alignItems: "center", justifyContent: compact ? "center" : "flex-start", gap: compact ? 22 : 26}}>
@@ -38,7 +40,7 @@ const CountReveal = () => {
 
 const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; index: number}) => {
   const frame = useCurrentFrame();
-  const start = 34 + index * 0.45;
+  const start = wallAt + index * cardStagger;
   return (
     <div
       style={{
@@ -73,9 +75,9 @@ const LogoWall = () => {
       style={{
         position: "absolute",
         inset: 0,
-        opacity: interpolate(frame, [34, 36, 56, 60], [0, 1, 1, 0], CLAMP),
-        scale: interpolate(frame, [50, 60], [1, 0.16], {...CLAMP, easing: ENTRANCE, output: "perceptual-scale"}),
-        translate: interpolate(frame, [50, 60], ["0px 0px", "0px 120px"], {...CLAMP, easing: ENTRANCE})
+        opacity: interpolate(frame, [wallAt, wallAt + 2, wallExitAt, wallExitAt + wallExitDuration], [0, 1, 1, 0], CLAMP),
+        scale: interpolate(frame, [collapseAt, collapseAt + collapseDuration], [1, 0.16], {...CLAMP, easing: ENTRANCE, output: "perceptual-scale"}),
+        translate: interpolate(frame, [collapseAt, collapseAt + collapseDuration], ["0px 0px", "0px 120px"], {...CLAMP, easing: ENTRANCE})
       }}
     >
       <div style={{position: "absolute", left: 0, right: 0, top: 92}}>
@@ -92,21 +94,15 @@ export const ProviderScene = () => {
   const frame = useCurrentFrame();
   return (
     <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
-      <div style={{position: "absolute", left: 120, top: 250, width: 780, color: COLORS.foreground, fontSize: 64, fontWeight: 550, lineHeight: 1.25, letterSpacing: -2, opacity: interpolate(frame, [0, 24, 27], [1, 1, 0], CLAMP)}}>
+      <div style={{position: "absolute", left: 120, top: 250, width: 780, color: COLORS.foreground, fontSize: 64, fontWeight: 550, lineHeight: 1.25, letterSpacing: -2, opacity: interpolate(frame, [0, countAt - 4, countAt], [1, 1, 0], CLAMP)}}>
         选择平台，<br />从预设开始。
       </div>
-      <div style={{opacity: interpolate(frame, [24, 34], [1, 0], CLAMP), scale: interpolate(frame, [24, 34], [1, 0.92], {...CLAMP, easing: ENTRANCE})}}>
-        <Sequence durationInFrames={12}>
-          <ProductFrame source="ai-providers.mp4" crop={{x: 1380, y: 174, width: 500, height: 104}} width={770} playbackRate={3} duration={12} animate={false} tilt={0} style={{left: 1060, top: 354}} />
-        </Sequence>
-        <Sequence from={12} durationInFrames={6}>
-          <ProductFrame source="ai-providers.mp4" crop={{x: 1390, y: 290, width: 490, height: 128}} width={770} startFrom={36} playbackRate={2} duration={6} animate={false} tilt={0} style={{left: 1060, top: 330}} />
-        </Sequence>
-        <Sequence from={18} durationInFrames={16}>
-          <ProductFrame source="ai-providers.mp4" crop={{x: 1390, y: 290, width: 490, height: 445}} width={770} startFrom={84} playbackRate={3} duration={16} animate={false} tilt={0} style={{left: 1060, top: 124}} />
+      <div style={{opacity: interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [1, 0], CLAMP), scale: interpolate(frame, [shotsExitAt, shotsExitAt + shotsExitDuration], [1, 0.92], {...CLAMP, easing: ENTRANCE})}}>
+        <Sequence from={dialogShot.from} durationInFrames={shotsExitAt + shotsExitDuration}>
+          <ProductFrame source="ai-providers.mp4" crop={{x: 1390, y: 290, width: 490, height: 445}} width={770} startFrom={dialogShot.source} playbackRate={dialogShot.playbackRate} duration={dialogShot.duration} animate={false} tilt={0} style={{left: 1060, top: 124}} />
         </Sequence>
       </div>
-      <Sequence from={27} durationInFrames={7}>
+      <Sequence from={countAt} durationInFrames={countDuration}>
         <CountReveal />
       </Sequence>
       <LogoWall />

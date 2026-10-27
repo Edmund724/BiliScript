@@ -82,7 +82,7 @@ if (!Number.isFinite(Number(measured.input_i)) || Number(measured.input_tp) > -1
 if (samplePeak >= 0.99) throw new Error(`成片存在削波风险：${report.samplePeakDbfs} dBFS`);
 if (!(report.fadeIn.first100MsRmsDb < report.fadeIn.next400MsRmsDb)) throw new Error("片头未检测到自然淡入");
 if (!(report.fadeOut.last100MsRmsDb < report.fadeOut.previous400MsRmsDb)) throw new Error("片尾未检测到自然淡出");
-if (report.fadeOut.tailRmsDb > -60) throw new Error(`配乐未在 30 秒完成淡出：${report.fadeOut.tailRmsDb} dBFS`);
+if (report.fadeOut.tailRmsDb > -60) throw new Error(`配乐未在 ${PROMO_DURATION / PROMO_FPS} 秒完成淡出：${report.fadeOut.tailRmsDb} dBFS`);
 await writeFile(path.join(output, "audio-measurements.json"), JSON.stringify(report, null, 2) + "\n", "utf8");
 console.log(JSON.stringify(report, null, 2));
 console.log(`音频测量工件：${output}`);

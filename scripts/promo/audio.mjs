@@ -1,8 +1,9 @@
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {SUBTITLE_MATCH_FRAME} from "./subtitle-timeline.mjs";
-import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, SCENES} from "./timeline.mjs";
+import {PANEL_FOCUS_HANDOFFS, PROMO_DURATION, PROVIDER_TIMELINE, SCENES} from "./timeline.mjs";
 
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle").from;
+const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
 
 export const AUDIO = {
   music: {
@@ -14,7 +15,7 @@ export const AUDIO = {
     gain: 0.8,
     fadeInFrames: 24,
     fadeOutFrames: 60,
-    fadeOutEndFrame: 900
+    fadeOutEndFrame: PROMO_DURATION
   },
   cues: [
     {id: "subtitle-cut", frame: 90, src: "media/sfx/whoosh.wav", gain: 0.35, duckDb: 4},
@@ -33,11 +34,11 @@ export const AUDIO = {
     ]),
     {id: "dark-mode", frame: 531, src: "media/sfx/toggle.wav", gain: 0.5, duckDb: 3},
     {id: "editorial-palette", frame: 567, src: "media/sfx/pop.wav", gain: 0.45, duckDb: 3},
-    {id: "provider-expand", frame: 618, src: "media/sfx/click.wav", gain: 0.42, duckDb: 3},
-    {id: "provider-count", frame: 627, src: "media/sfx/pop.wav", gain: 0.38, duckDb: 3},
-    {id: "provider-wall", frame: 634, src: "media/sfx/chord.wav", gain: 0.4, duckDb: 4},
-    {id: "provider-collapse", frame: 654, src: "media/sfx/click.wav", gain: 0.36, duckDb: 3},
-    {id: "outro-cut", frame: 660, src: "media/sfx/whoosh.wav", gain: 0.22, duckDb: 3},
+    {id: "provider-expand", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.expandAt, src: "media/sfx/click.wav", gain: 0.42, duckDb: 3},
+    {id: "provider-count", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.countAt, src: "media/sfx/pop.wav", gain: 0.38, duckDb: 3},
+    {id: "provider-wall", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.wallAt, src: "media/sfx/chord.wav", gain: 0.4, duckDb: 4},
+    {id: "provider-collapse", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.collapseAt, src: "media/sfx/click.wav", gain: 0.36, duckDb: 3},
+    {id: "outro-cut", frame: OUTRO_TIMELINE.from, src: "media/sfx/whoosh.wav", gain: 0.22, duckDb: 3},
     ...OUTRO_TIMELINE.features.map((feature) => ({
       id: feature.id,
       frame: OUTRO_TIMELINE.from + feature.at,

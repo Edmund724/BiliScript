@@ -3,6 +3,7 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO} from "./audio.mjs";
+import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
 const SAMPLE_RATE = 48000;
@@ -112,11 +113,12 @@ function makeScore() {
     [55, 59, 62, 67], [50, 54, 57, 62], [52, 55, 59, 64], [57, 61, 64, 69],
     [55, 59, 62, 67], [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62]
   ];
-  for (let bar = 0; bar < chords.length; bar += 1) {
+  const barCount = Math.ceil(DURATION / (4 * beat));
+  for (let bar = 0; bar < barCount; bar += 1) {
     const at = bar * 4 * beat;
-    const chord = chords[bar];
+    const chord = chords[bar % chords.length];
     for (let note = 0; note < chord.length; note += 1) {
-      add(track, tone(chord[note], bar === chords.length - 1 ? 3.6 : 2.15, {type: "pad", gain: 0.036}), at, (note - 1.5) * 0.25);
+      add(track, tone(chord[note], bar === barCount - 1 ? 3.6 : 2.15, {type: "pad", gain: 0.036}), at, (note - 1.5) * 0.25);
     }
     const arp = [0, 2, 1, 3, 2, 1, 3, 1];
     for (let step = 0; step < 8; step += 1) {
@@ -126,23 +128,25 @@ function makeScore() {
     }
   }
   const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50, 43, 47];
-  for (let index = 0; index < 64; index += 1) {
+  const beatCount = Math.ceil(DURATION / beat);
+  for (let index = 0; index < beatCount; index += 1) {
     const at = index * beat;
-    const bar = Math.floor(index / 4);
+    const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
     add(track, kick(), at);
     if (index % 2 === 1) add(track, snare(), at);
     add(track, hat(index % 4 === 3), at + beat / 2, index % 2 ? 0.25 : -0.25);
-    if (index >= 2 && index < 56) add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: accent ? 0.22 : 0.17}), at);
+    if (index >= 2 && index < beatCount - 4) add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: accent ? 0.22 : 0.17}), at);
   }
   const melody = [
     [2, 74], [3, 78], [6, 76], [10, 74], [14, 81], [15, 78], [18, 76],
     [22, 74], [26, 78], [30, 81], [34, 78], [38, 76], [42, 74], [46, 78], [50, 76]
   ];
   for (const [index, note] of melody) add(track, tone(note, 0.7, {type: "bell", gain: 0.1}), index * beat, 0.18);
-  add(track, tone(74, 1.8, {type: "bell", gain: 0.14}), 28);
-  add(track, tone(78, 1.8, {type: "bell", gain: 0.1}), 28, -0.2);
-  add(track, tone(81, 1.8, {type: "bell", gain: 0.1}), 28, 0.2);
+  const resolveAt = Math.floor((OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS / beat) * beat;
+  add(track, tone(74, 1.8, {type: "bell", gain: 0.14}), resolveAt);
+  add(track, tone(78, 1.8, {type: "bell", gain: 0.1}), resolveAt, -0.2);
+  add(track, tone(81, 1.8, {type: "bell", gain: 0.1}), resolveAt, 0.2);
   return track;
 }
 

@@ -10,7 +10,7 @@ export const CAPTIONS = [
   {sceneId: "overview", text: "AI 概览：章节、金句与分享卡片。", startMs: 7200, endMs: 10800, timestampMs: null, confidence: null},
   {sceneId: "chat", text: "围绕视频追问，点击回答中的时间戳回到原片。", startMs: 11300, endMs: 16800, timestampMs: null, confidence: null},
   {sceneId: "appearance", text: "浅色、深色与多种阅读色板。", startMs: 17300, endMs: 19800, timestampMs: null, confidence: null},
-  {sceneId: "providers", text: "14 个 AI 平台预设，另支持自定义端点。", startMs: 20100, endMs: 21900, timestampMs: null, confidence: null},
+  {sceneId: "providers", text: "14 个 AI 平台预设，另支持自定义端点。", startMs: 20400, endMs: 24400, timestampMs: null, confidence: null},
   {sceneId: "outro", text: "双语字幕｜字幕导出｜语音识别｜联网搜索", startMs: outroMilliseconds(OUTRO_TIMELINE.features[0].at - 6), endMs: outroMilliseconds(OUTRO_TIMELINE.convergeAt + 25), timestampMs: null, confidence: null},
   {sceneId: "outro", text: "Edge 应用商店｜GitHub 开源", startMs: outroMilliseconds(OUTRO_TIMELINE.brandResolveAt + 24), endMs: outroMilliseconds(OUTRO_TIMELINE.duration - 15), timestampMs: null, confidence: null}
 ];

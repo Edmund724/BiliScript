@@ -6,7 +6,7 @@ import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {AUDIO} from "./audio.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
-import {EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS} from "./timeline.mjs";
+import {EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, PROVIDER_TIMELINE, SCENES} from "./timeline.mjs";
 
 const execFileAsync = promisify(execFile);
 const input = path.resolve(process.argv[2] || path.join(REPO_ROOT, "release", "BiliScript-promo-1080p.mp4"));
@@ -31,6 +31,8 @@ for (let start = 0, page = 1; start < duration; start += 8, page += 1) {
   contactSheets.push({file, from: start, to: Math.min(start + 7.5, duration - 1 / PROMO_FPS)});
 }
 
+const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
+const providerSeconds = (frame) => (PROVIDERS_FROM + frame) / PROMO_FPS;
 const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
 const transitions = [
   {id: "keyword-slice", at: 3.1},
@@ -40,10 +42,10 @@ const transitions = [
   {id: "quote-card", at: 9.27},
   {id: "overview-chat-defocus", at: 11},
   {id: "chat-appearance-defocus", at: 17},
-  {id: "providers", at: 20},
-  {id: "provider-expand", at: 20.7},
-  {id: "provider-wall", at: 21.13},
-  {id: "provider-collapse", at: 21.8},
+  {id: "providers", at: providerSeconds(0)},
+  {id: "provider-expand", at: providerSeconds(PROVIDER_TIMELINE.expandAt)},
+  {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt)},
+  {id: "provider-collapse", at: providerSeconds(PROVIDER_TIMELINE.collapseAt)},
   ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
   {id: "feature-converge", at: outroSeconds(OUTRO_TIMELINE.convergeAt)},
   {id: "brand-resolve", at: outroSeconds(OUTRO_TIMELINE.brandResolveAt)},
@@ -73,10 +75,10 @@ const mobileShots = [
   {id: "search", at: 4.5},
   {id: "chapters", at: 8.2},
   {id: "quote", at: 9.5},
-  {id: "provider-count", at: 21},
-  {id: "provider-wall", at: 21.4},
-  {id: "features", at: 24.8},
-  {id: "cta", at: 29.5}
+  {id: "provider-count", at: providerSeconds(PROVIDER_TIMELINE.countAt)},
+  {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt + 16)},
+  {id: "features", at: outroSeconds(OUTRO_TIMELINE.features.at(-1).at) + 0.5},
+  {id: "cta", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt) + 0.2}
 ];
 for (const shot of mobileShots) {
   const file = `${shot.id}.png`;

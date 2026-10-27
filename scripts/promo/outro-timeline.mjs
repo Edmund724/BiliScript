@@ -1,6 +1,6 @@
 export const OUTRO_TIMELINE = {
   fps: 30,
-  from: 660,
+  from: 750,
   duration: 240,
   featureEntranceFrames: 8,
   features: [
