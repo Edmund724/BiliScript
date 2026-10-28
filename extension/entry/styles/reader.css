@@ -1539,6 +1539,7 @@
   font-weight: 500;
   line-height: 1.5;
   color: var(--biliscript-reader-text);
+  text-wrap: balance;
   word-break: break-word;
 }
 
