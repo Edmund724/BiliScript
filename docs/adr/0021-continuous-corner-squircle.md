@@ -7,7 +7,7 @@
 ## 考虑过的方案
 
 - **A1：仅对顶层大圆角面板与弹窗（`>= 16px`）开启 `corner-shape: squircle`**：虽能改善外框，但下拉菜单与内嵌选中项（如 `14px` 外框套 `8px` 选项、章节卡套缩略图）会出现外框超椭圆、内层正圆弧的曲率打架，破坏同心嵌套（Concentricity）和谐感。
-- **A2：接入 `corner-shape: squircle` 的同时整体上调各档 `border-radius` 数值（`+2px`～`+4px`）**：由于超椭圆在 $45^\circ$ 对角线处比同半径正圆弧略微外扩收紧，若盲目放大 `border-radius` 会挤占小控件内边距并改变既有同心圆角差值公式（如 `calc(var(--biliscript-radius-panel) - 6px)`）。
+- **A2：接入 `corner-shape: squircle` 的同时整体上调各档 `border-radius` 数值（`+2px`～`+4px`）**：由于超椭圆在 $45^\circ$ 对角线处比同半径正圆弧略微外扩收紧，若盲目放大 `border-radius` 会挤占小控件内边距并改变既有同心圆角差值公式（如 `calc(var(--biliscript-radius-panel) - 7px)`）。
 - **A3：SVG `clipPath` 或 Houdini Paint Worklet 模拟连续圆角**：引入额外 DOM 节点或脚本运行时开销，且 `clip-path` 会直接裁掉容器外投影（`box-shadow`）。
 - **A4：原生 CSS `corner-shape: squircle` 全量覆盖 ABCD 四类矩形圆角 + 保持既有半径令牌不变 + Canvas 导出路径对齐（本裁决方案）**：本扩展仅面向 Chrome（见 ADR-0002），Chromium 原生 `corner-shape: squircle` 同时作用于背景、`border`、多层内高光与外阴影（`box-shadow`）、`backdrop-filter` 与 `overflow: hidden` 裁切路径，零 DOM/JS 运行时开销。
 

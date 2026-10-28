@@ -51,6 +51,8 @@
   background: var(--biliscript-reader-overlay-bg, var(--biliscript-reader-surface));
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
+  /* flush 子卡片同心圆角：平台行外缘到抽屉外缘 15px（14px 内边距 + 1px 边框） */
+  --card-child-radius: calc(var(--biliscript-radius-panel) - 15px);
   padding: var(--biliscript-space-md) var(--biliscript-space-14);
   /* 开合过渡（2026-09 用户决议：进出场同速同曲线）：淡入淡出统一 spring
    * 0.2s，display 经 allow-discrete 参与同一时长——hidden 翻转是纯属性切换

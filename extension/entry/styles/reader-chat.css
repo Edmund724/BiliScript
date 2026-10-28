@@ -1296,7 +1296,10 @@
   gap: 6px;
   padding: 10px 10px 8px;
   border: 1px solid var(--chat-input-border, var(--biliscript-reader-border));
-  border-radius: var(--chat-input-radius, var(--biliscript-radius-panel));
+  /* 输入卡外缘贴白卡内边距，是白卡 flush 子卡片：圆角取 --card-child-radius
+   *（定义在 .biliscript-reading-tab-body），与横幅/意图卡同档；--chat-input-radius
+   * 仍约束卡内元素（见 --chat-input-inner-radius）。 */
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
   background: var(--chat-input-bg, var(--biliscript-reader-surface));
 }
@@ -1331,7 +1334,7 @@
   height: 100%;
   object-fit: cover;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: max(0px, calc(var(--chat-input-radius, var(--biliscript-radius-panel)) - 10px));
+  border-radius: var(--chat-input-inner-radius, max(0px, calc(var(--chat-input-radius, var(--biliscript-radius-panel)) - 11px)));
   corner-shape: squircle;
   background: var(--biliscript-reader-surface-2);
 }
@@ -1527,6 +1530,8 @@
  *（夹在 [240, 320]），不再占满列宽。内联宽按 border-box 计算，面板外宽才与 chip
  * 外宽逐像素一致（chip 是 button，UA 样式本就是 border-box）。 */
 .biliscript-reading-chat .chat-model-panel {
+  /* 同心圆角：选项行外缘到面板外缘 11px（10px 内边距 + 1px 边框） */
+  --chat-model-option-radius: max(0px, calc(var(--biliscript-radius-panel) - 11px));
   position: absolute;
   z-index: 10;
   left: auto;
@@ -1705,7 +1710,7 @@
   width: 100%;
   padding: 7px 8px;
   border: 0;
-  border-radius: max(0px, calc(var(--biliscript-radius-panel) - 10px)); /* 同心圆角公式：外圆角 panel - 内边距 10px */
+  border-radius: var(--chat-model-option-radius);
   corner-shape: squircle;
   background: transparent;
   color: var(--biliscript-reader-text);
@@ -2296,6 +2301,8 @@
 
 /* ===== AI 对话标签页更多操作二级菜单 ===== */
 #biliscript-reading-view .biliscript-reading-chat-more-menu {
+  /* 同心圆角：菜单项外缘到菜单外缘 9px（8px 内边距 + 1px 边框） */
+  --chat-more-item-radius: max(0px, calc(var(--biliscript-radius-lg) - 9px));
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
@@ -2351,7 +2358,7 @@
   box-sizing: border-box;
   padding: 7px 10px;
   border: 0;
-  border-radius: max(0px, calc(var(--biliscript-radius-lg) - 8px)); /* 同心圆角公式：外圆角 lg - 内边距 8px */
+  border-radius: var(--chat-more-item-radius);
   corner-shape: squircle;
   background: transparent;
   color: var(--biliscript-reader-text);
