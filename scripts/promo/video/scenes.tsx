@@ -16,7 +16,7 @@ const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat
 const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance")!;
 
 const CHAT_BODY_CROP: Crop = {x: 1365, y: 64, width: 540, height: 590};
-const CHAT_INPUT_CROP: Crop = {x: 1365, y: 984, width: 540, height: 96};
+const CHAT_INPUT_CROP: Crop = {x: 1387, y: 960, width: 495, height: 99};
 const PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
 
 const CHAT_CLICK_TARGET = {x: 1588, y: 392};
