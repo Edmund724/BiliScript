@@ -5,7 +5,7 @@ import {
   SUBTITLE_PLAYBACK_RATE,
   SUBTITLE_SECOND_SHOT_SOURCE_FRAME
 } from "../subtitle-timeline.mjs";
-import {BRAND_FONT_FAMILY, COLORS, ELEVATION, EditorialHeaderBand, FONT_FAMILY, VoiceWaveBar} from "./design";
+import {BRAND_FONT_FAMILY, COLORS, EditorialHeaderBand, FONT_FAMILY, MIST_GLASS, VoiceWaveBar} from "./design";
 
 const SOURCE = "subtitle-seek-03.mp4";
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
@@ -108,8 +108,11 @@ const SubtitleHeroSpotlight = () => {
         top: 224,
         width: 1300,
         borderRadius: 30,
-        background: "rgba(255, 253, 249, 0.97)",
-        boxShadow: `${ELEVATION.heroFloat}, 0 0 0 1px rgba(255, 255, 255, 0.94) inset`,
+        overflow: "hidden",
+        background: MIST_GLASS.surface,
+        backdropFilter: "blur(24px) saturate(1.2)",
+        WebkitBackdropFilter: "blur(24px) saturate(1.2)",
+        boxShadow: MIST_GLASS.shellShadow,
         padding: "28px 36px 32px",
         fontFamily: FONT_FAMILY,
         opacity,
@@ -117,29 +120,40 @@ const SubtitleHeroSpotlight = () => {
         transformOrigin: "50% 50%"
       }}
     >
+      {/* Flyme Blue-Mist Ambient Blobs */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: MIST_GLASS.blobs,
+          filter: "blur(28px)",
+          pointerEvents: "none"
+        }}
+      />
+
       {/* Top Bar: Tabs + Search Input */}
-      <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, marginBottom: 22}}>
+      <div style={{position: "relative", zIndex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, marginBottom: 22}}>
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 8,
-            padding: 6,
-            borderRadius: 16,
-            background: "rgba(17, 24, 39, 0.05)"
+            gap: 6,
+            padding: 4,
+            borderRadius: 14,
+            background: "transparent"
           }}
         >
           {["字幕", "概览", "AI 对话"].map((tab, index) => (
             <div
               key={tab}
               style={{
-                padding: "8px 20px",
-                borderRadius: 12,
-                background: index === 0 ? "#FFFFFF" : "transparent",
-                boxShadow: index === 0 ? "0 4px 12px rgba(17, 24, 39, 0.08)" : "none",
-                color: index === 0 ? COLORS.foreground : COLORS.muted,
+                padding: "9px 22px",
+                borderRadius: 10,
+                background: index === 0 ? MIST_GLASS.cardElevated : "transparent",
+                boxShadow: index === 0 ? MIST_GLASS.tabActiveShadow : "none",
+                color: index === 0 ? MIST_GLASS.accent : MIST_GLASS.muted,
                 fontSize: 20,
-                fontWeight: index === 0 ? 740 : 560
+                fontWeight: index === 0 ? 700 : 560
               }}
             >
               {tab}
@@ -155,50 +169,84 @@ const SubtitleHeroSpotlight = () => {
             justifyContent: "space-between",
             height: 74,
             padding: "0 26px",
-            borderRadius: 20,
-            background: "#FFFFFF",
-            boxShadow: "0 12px 32px -14px rgba(17, 24, 39, 0.12), 0 0 0 2px rgba(232, 93, 135, 0.34)"
+            borderRadius: 18,
+            background: MIST_GLASS.cardElevated,
+            boxShadow: `${MIST_GLASS.cardShadow}, 0 0 0 2px rgba(0, 140, 255, 0.20)`
           }}
         >
           <div style={{display: "flex", alignItems: "center", gap: 14}}>
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-              <circle cx="11" cy="11" r="7" stroke={COLORS.pink} strokeWidth="2.4" />
-              <path d="M16.5 16.5L21 21" stroke={COLORS.pink} strokeWidth="2.4" strokeLinecap="round" />
+              <circle cx="11" cy="11" r="7" stroke={MIST_GLASS.accent} strokeWidth="2.4" />
+              <path d="M16.5 16.5L21 21" stroke={MIST_GLASS.accent} strokeWidth="2.4" strokeLinecap="round" />
             </svg>
             <span
               style={{
-                color: typedQuery ? COLORS.foreground : COLORS.subtle,
+                color: typedQuery ? MIST_GLASS.text : MIST_GLASS.faint,
                 fontSize: 34,
-                fontWeight: 760,
+                fontWeight: 740,
                 letterSpacing: -0.6
               }}
             >
-              {typedQuery || "搜索字幕关键词..."}
+              {typedQuery || "搜索字幕…"}
             </span>
             <span
               style={{
                 width: 3,
                 height: 34,
                 borderRadius: 2,
-                background: COLORS.pink,
+                background: MIST_GLASS.accent,
                 opacity: frame % 16 < 10 ? 0.9 : 0.2
               }}
             />
           </div>
           {frame >= 16 && (
-            <div
-              style={{
-                padding: "7px 16px",
-                borderRadius: 999,
-                background: "rgba(232, 93, 135, 0.12)",
-                color: COLORS.pink,
-                fontFamily: BRAND_FONT_FAMILY,
-                fontSize: 20,
-                fontWeight: 720,
-                fontVariantNumeric: "tabular-nums"
-              }}
-            >
-              命中 4 处 · 回车跳播
+            <div style={{display: "flex", alignItems: "center", gap: 10}}>
+              <span
+                style={{
+                  padding: "6px 16px",
+                  borderRadius: 999,
+                  background: MIST_GLASS.accentSoft,
+                  color: MIST_GLASS.accent,
+                  fontFamily: BRAND_FONT_FAMILY,
+                  fontSize: 20,
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums"
+                }}
+              >
+                4 / 5 · 回车跳播
+              </span>
+              <span
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 9,
+                  background: "rgba(15, 23, 42, 0.04)",
+                  color: MIST_GLASS.muted,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 18,
+                  fontWeight: 700
+                }}
+              >
+                ↑
+              </span>
+              <span
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 9,
+                  background: "rgba(15, 23, 42, 0.04)",
+                  color: MIST_GLASS.muted,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 18,
+                  fontWeight: 700
+                }}
+              >
+                ↓
+              </span>
             </div>
           )}
         </div>
@@ -207,6 +255,8 @@ const SubtitleHeroSpotlight = () => {
       {/* Filtered Subtitle Context & 48px Hero Row */}
       <div
         style={{
+          position: "relative",
+          zIndex: 1,
           display: "flex",
           flexDirection: "column",
           gap: 14,
@@ -221,17 +271,18 @@ const SubtitleHeroSpotlight = () => {
             alignItems: "center",
             gap: 22,
             padding: "14px 28px",
-            borderRadius: 18,
-            background: "rgba(17, 24, 39, 0.025)",
-            opacity: 0.62
+            borderRadius: 16,
+            background: "rgba(255, 255, 255, 0.46)",
+            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.72)",
+            opacity: 0.76
           }}
         >
           <span
             style={{
               padding: "5px 14px",
               borderRadius: 999,
-              background: "rgba(17, 24, 39, 0.06)",
-              color: COLORS.muted,
+              background: MIST_GLASS.timeBg,
+              color: MIST_GLASS.timeColor,
               fontFamily: BRAND_FONT_FAMILY,
               fontSize: 22,
               fontWeight: 680,
@@ -240,8 +291,20 @@ const SubtitleHeroSpotlight = () => {
           >
             02:32
           </span>
-          <span style={{color: COLORS.muted, fontSize: 25, fontWeight: 560}}>
-            机器<span style={{color: COLORS.pink, fontWeight: 720}}>幻觉</span>是怎么产生的
+          <span style={{color: MIST_GLASS.muted, fontSize: 25, fontWeight: 560}}>
+            机器
+            <span
+              style={{
+                padding: "1px 6px",
+                borderRadius: 5,
+                background: MIST_GLASS.accentSoft,
+                color: MIST_GLASS.accent,
+                fontWeight: 700
+              }}
+            >
+              幻觉
+            </span>
+            是怎么产生的
           </span>
         </div>
 
@@ -254,13 +317,13 @@ const SubtitleHeroSpotlight = () => {
             justifyContent: "space-between",
             gap: 24,
             padding: "26px 30px",
-            borderRadius: 24,
+            borderRadius: 22,
             background: isClicked
-              ? "linear-gradient(135deg, rgba(232, 93, 135, 0.16) 0%, rgba(255, 245, 248, 0.98) 100%)"
-              : "linear-gradient(135deg, rgba(232, 93, 135, 0.09) 0%, rgba(255, 252, 253, 0.98) 100%)",
+              ? "linear-gradient(165deg, rgba(242, 249, 255, 0.98) 0%, rgba(255, 255, 255, 0.94) 55%, rgba(235, 246, 255, 0.96) 100%)"
+              : MIST_GLASS.cardElevated,
             boxShadow: isClicked
-              ? "0 24px 52px -16px rgba(232, 93, 135, 0.35), 0 0 0 2.5px rgba(232, 93, 135, 0.68)"
-              : `0 20px 44px -18px rgba(232, 93, 135, ${0.14 + rowHover * 0.14}), 0 0 0 2px rgba(232, 93, 135, ${0.28 + rowHover * 0.24})`,
+              ? "inset 0 1px 0 0 rgba(255, 255, 255, 0.98), 0 22px 48px -14px rgba(0, 140, 255, 0.26), 0 0 0 2px rgba(0, 140, 255, 0.52)"
+              : `inset 0 1px 0 0 rgba(255, 255, 255, 0.96), inset 0 -1px 0 0 rgba(16, 136, 247, 0.12), 0 16px 38px -14px rgba(15, 23, 42, ${0.10 + rowHover * 0.06}), 0 0 0 1.5px rgba(0, 140, 255, ${0.18 + rowHover * 0.22})`,
             scale: rowPress
           }}
         >
@@ -271,7 +334,7 @@ const SubtitleHeroSpotlight = () => {
                   position: "absolute",
                   inset: -10,
                   borderRadius: 999,
-                  background: "rgba(232, 93, 135, 0.28)",
+                  background: "rgba(0, 140, 255, 0.24)",
                   opacity: rippleOpacity,
                   scale: rippleScale,
                   pointerEvents: "none"
@@ -281,9 +344,9 @@ const SubtitleHeroSpotlight = () => {
                 style={{
                   padding: "10px 22px",
                   borderRadius: 999,
-                  background: isClicked || rowHover > 0.5 ? COLORS.pink : "rgba(232, 93, 135, 0.16)",
-                  color: isClicked || rowHover > 0.5 ? "#FFFFFF" : COLORS.pink,
-                  boxShadow: isClicked || rowHover > 0.5 ? "0 10px 24px -6px rgba(232, 93, 135, 0.55)" : "none",
+                  background: isClicked || rowHover > 0.5 ? MIST_GLASS.accent : MIST_GLASS.timeBg,
+                  color: isClicked || rowHover > 0.5 ? "#FFFFFF" : MIST_GLASS.timeColor,
+                  boxShadow: isClicked || rowHover > 0.5 ? "0 10px 24px -6px rgba(0, 140, 255, 0.45)" : "none",
                   fontFamily: BRAND_FONT_FAMILY,
                   fontSize: 32,
                   fontWeight: 780,
@@ -318,7 +381,7 @@ const SubtitleHeroSpotlight = () => {
                   <path
                     d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
                     fill="white"
-                    stroke={COLORS.foreground}
+                    stroke={MIST_GLASS.text}
                     strokeWidth="2"
                     strokeLinejoin="round"
                   />
@@ -328,9 +391,9 @@ const SubtitleHeroSpotlight = () => {
 
             <div
               style={{
-                color: COLORS.foreground,
+                color: MIST_GLASS.text,
                 fontSize: 48,
-                fontWeight: 780,
+                fontWeight: 760,
                 lineHeight: 1.22,
                 letterSpacing: -1.2,
                 whiteSpace: "nowrap"
@@ -342,10 +405,10 @@ const SubtitleHeroSpotlight = () => {
                   display: "inline-block",
                   marginLeft: 6,
                   padding: "2px 14px 4px",
-                  borderRadius: 14,
-                  background: "rgba(232, 93, 135, 0.18)",
-                  color: COLORS.pink,
-                  boxShadow: "0 0 0 1.5px rgba(232, 93, 135, 0.34)"
+                  borderRadius: 12,
+                  background: MIST_GLASS.accent,
+                  color: "#FFFFFF",
+                  boxShadow: "0 4px 12px rgba(0, 140, 255, 0.28)"
                 }}
               >
                 幻觉
@@ -357,8 +420,8 @@ const SubtitleHeroSpotlight = () => {
             style={{
               padding: "10px 20px",
               borderRadius: 999,
-              background: isClicked ? COLORS.pink : "rgba(17, 24, 39, 0.06)",
-              color: isClicked ? "#FFFFFF" : COLORS.muted,
+              background: isClicked ? MIST_GLASS.accent : MIST_GLASS.timeBg,
+              color: isClicked ? "#FFFFFF" : MIST_GLASS.timeColor,
               fontSize: 21,
               fontWeight: 700,
               whiteSpace: "nowrap"
@@ -375,17 +438,18 @@ const SubtitleHeroSpotlight = () => {
             alignItems: "center",
             gap: 22,
             padding: "14px 28px",
-            borderRadius: 18,
-            background: "rgba(17, 24, 39, 0.025)",
-            opacity: 0.62
+            borderRadius: 16,
+            background: "rgba(255, 255, 255, 0.46)",
+            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.72)",
+            opacity: 0.76
           }}
         >
           <span
             style={{
               padding: "5px 14px",
               borderRadius: 999,
-              background: "rgba(17, 24, 39, 0.06)",
-              color: COLORS.muted,
+              background: MIST_GLASS.timeBg,
+              color: MIST_GLASS.timeColor,
               fontFamily: BRAND_FONT_FAMILY,
               fontSize: 22,
               fontWeight: 680,
@@ -394,8 +458,19 @@ const SubtitleHeroSpotlight = () => {
           >
             04:28
           </span>
-          <span style={{color: COLORS.muted, fontSize: 25, fontWeight: 560}}>
-            大模型训练本质上是概率补全，因此难以根除<span style={{color: COLORS.pink, fontWeight: 720}}>幻觉</span>
+          <span style={{color: MIST_GLASS.muted, fontSize: 25, fontWeight: 560}}>
+            大模型训练本质上是概率补全，因此难以根除
+            <span
+              style={{
+                padding: "1px 6px",
+                borderRadius: 5,
+                background: MIST_GLASS.accentSoft,
+                color: MIST_GLASS.accent,
+                fontWeight: 700
+              }}
+            >
+              幻觉
+            </span>
           </span>
         </div>
       </div>

@@ -6,6 +6,7 @@ import {
   COLORS,
   Crop,
   ELEVATION,
+  MIST_GLASS,
   ProductFrame,
   Reveal,
   SceneTitle,
@@ -38,50 +39,103 @@ const SpatialChapterStack = () => (
   >
     <div
       style={{
+        position: "relative",
         padding: "22px 32px",
         borderRadius: 28,
-        background: "rgba(255, 255, 255, 0.72)",
-        backdropFilter: "blur(24px)",
-        boxShadow: ELEVATION.recessed,
+        background: MIST_GLASS.surface,
+        backdropFilter: "blur(24px) saturate(1.2)",
+        WebkitBackdropFilter: "blur(24px) saturate(1.2)",
+        boxShadow: MIST_GLASS.shellShadow,
         display: "flex",
         flexDirection: "column",
         gap: 12
       }}
     >
-      <div style={{display: "flex", alignItems: "center", gap: 16, padding: "6px 8px", color: COLORS.subtle, fontSize: 22, fontWeight: 500}}>
-        <span style={{fontFamily: BRAND_FONT_FAMILY, fontSize: 19}}>00:00</span>
+      {/* Flyme Blue-Mist Ambient Blobs */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: 28,
+          overflow: "hidden",
+          pointerEvents: "none"
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: MIST_GLASS.blobs,
+            filter: "blur(28px)"
+          }}
+        />
+      </div>
+
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          padding: "10px 16px",
+          borderRadius: 16,
+          background: MIST_GLASS.card,
+          boxShadow: MIST_GLASS.cardShadow,
+          color: MIST_GLASS.muted,
+          fontSize: 21,
+          fontWeight: 540,
+          opacity: 0.78
+        }}
+      >
+        <span
+          style={{
+            fontFamily: BRAND_FONT_FAMILY,
+            fontSize: 18,
+            fontWeight: 620,
+            color: MIST_GLASS.timeColor,
+            background: MIST_GLASS.timeBg,
+            padding: "3px 12px",
+            borderRadius: 999
+          }}
+        >
+          00:00
+        </span>
         <span>什么是机器幻觉（Hallucination）</span>
       </div>
 
       <div
         style={{
-          margin: "6px -14px",
-          padding: "28px 34px",
-          borderRadius: 28,
-          background: "rgba(255, 255, 255, 0.96)",
-          boxShadow: ELEVATION.heroFloat
+          position: "relative",
+          zIndex: 2,
+          margin: "4px -14px",
+          padding: "26px 34px",
+          borderRadius: 24,
+          background: MIST_GLASS.cardElevated,
+          boxShadow: MIST_GLASS.cardFloatShadow
         }}
       >
         <div style={{display: "flex", alignItems: "center", gap: 14, marginBottom: 14}}>
           <span
             style={{
-              background: COLORS.pink,
-              color: "#FFFFFF",
+              background: MIST_GLASS.timeBg,
+              color: MIST_GLASS.timeColor,
+              boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 1px rgba(46, 111, 194, 0.16)",
               fontFamily: BRAND_FONT_FAMILY,
               fontSize: 20,
-              fontWeight: 600,
+              fontWeight: 700,
               padding: "4px 15px",
               borderRadius: 999
             }}
           >
             02:32
           </span>
-          <span style={{fontSize: 28, fontWeight: 650, color: COLORS.foreground, letterSpacing: -0.6}}>
+          <span style={{fontSize: 28, fontWeight: 680, color: MIST_GLASS.text, letterSpacing: -0.6}}>
             AI 并非越强越好，适配才是关键
           </span>
         </div>
-        <div style={{fontSize: 26, fontWeight: 600, lineHeight: 1.42, letterSpacing: -0.5, color: COLORS.inkSoft, marginBottom: 16}}>
-          “人与 AI 的关系是<span style={{color: COLORS.pink}}>「协作」</span>，而非<span style={{color: COLORS.pink}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
+        <div style={{fontSize: 25, fontWeight: 580, lineHeight: 1.46, letterSpacing: -0.4, color: MIST_GLASS.text, marginBottom: 16}}>
+          “人与 AI 的关系是<span style={{color: MIST_GLASS.timeColor, fontWeight: 700}}>「协作」</span>，而非<span style={{color: MIST_GLASS.timeColor, fontWeight: 700}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
         </div>
         <div
           style={{
@@ -89,17 +143,18 @@ const SpatialChapterStack = () => (
             alignItems: "center",
             justifyContent: "space-between",
             paddingTop: 14,
-            borderTop: "1px solid rgba(17, 24, 39, 0.06)",
-            color: COLORS.muted,
+            borderTop: "1px solid rgba(15, 23, 42, 0.06)",
+            color: MIST_GLASS.muted,
             fontSize: 19
           }}
         >
           <span>复旦大学 · 赵斌教授公开课</span>
           <span
             style={{
-              color: COLORS.blue,
-              fontWeight: 600,
-              background: "rgba(38, 121, 184, 0.08)",
+              color: MIST_GLASS.timeColor,
+              fontFamily: BRAND_FONT_FAMILY,
+              fontWeight: 650,
+              background: MIST_GLASS.timeBg,
               padding: "5px 15px",
               borderRadius: 999
             }}
@@ -109,8 +164,36 @@ const SpatialChapterStack = () => (
         </div>
       </div>
 
-      <div style={{display: "flex", alignItems: "center", gap: 16, padding: "6px 8px", color: COLORS.subtle, fontSize: 22, fontWeight: 500}}>
-        <span style={{fontFamily: BRAND_FONT_FAMILY, fontSize: 19}}>04:27</span>
+      <div
+        style={{
+          position: "relative",
+          zIndex: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          padding: "10px 16px",
+          borderRadius: 16,
+          background: MIST_GLASS.card,
+          boxShadow: MIST_GLASS.cardShadow,
+          color: MIST_GLASS.muted,
+          fontSize: 21,
+          fontWeight: 540,
+          opacity: 0.78
+        }}
+      >
+        <span
+          style={{
+            fontFamily: BRAND_FONT_FAMILY,
+            fontSize: 18,
+            fontWeight: 620,
+            color: MIST_GLASS.timeColor,
+            background: MIST_GLASS.timeBg,
+            padding: "3px 12px",
+            borderRadius: 999
+          }}
+        >
+          04:27
+        </span>
         <span>人机协作象棋实验与实证</span>
       </div>
     </div>

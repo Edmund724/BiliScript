@@ -44,6 +44,35 @@ export const ELEVATION = {
     "0 28px 72px -26px rgba(17, 24, 39, 0.16), 0 8px 20px -10px rgba(17, 24, 39, 0.05), 0 0 0 1px rgba(17, 24, 39, 0.04)"
 };
 
+export const MIST_GLASS = {
+  surface: "linear-gradient(180deg, rgba(235, 243, 250, 0.94), rgba(236, 239, 243, 0.92) 220px)",
+  blobs: [
+    "radial-gradient(420px 300px at 15% -15%, rgba(140, 200, 255, 0.55), rgba(140, 200, 255, 0))",
+    "radial-gradient(380px 280px at 88% -10%, rgba(187, 228, 253, 0.75), rgba(187, 228, 253, 0))",
+    "radial-gradient(420px 320px at 5% 95%, rgba(165, 205, 255, 0.45), rgba(165, 205, 255, 0))",
+    "radial-gradient(400px 320px at 95% 90%, rgba(180, 225, 250, 0.50), rgba(180, 225, 250, 0))"
+  ].join(", "),
+  shellShadow:
+    "-28px 44px 104px -24px rgba(15, 23, 42, 0.20), 0 10px 28px -8px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.72), inset 0 1px 0 0 rgba(255, 255, 255, 0.88)",
+  card:
+    "linear-gradient(165deg, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.72) 55%, rgba(246, 250, 255, 0.78) 100%)",
+  cardElevated:
+    "linear-gradient(165deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.86) 55%, rgba(246, 250, 255, 0.92) 100%)",
+  cardShadow:
+    "inset 0 1px 0 0 rgba(255, 255, 255, 0.95), inset 1px 0 0 0 rgba(255, 255, 255, 0.65), inset 0 -1px 0 0 rgba(16, 136, 247, 0.08), 0 6px 24px -4px rgba(15, 23, 42, 0.06), 0 2px 6px -1px rgba(15, 23, 42, 0.03)",
+  cardFloatShadow:
+    "inset 0 1px 0 0 rgba(255, 255, 255, 0.98), inset 1px 0 0 0 rgba(255, 255, 255, 0.75), inset 0 -1px 0 0 rgba(16, 136, 247, 0.12), -18px 28px 68px -18px rgba(15, 23, 42, 0.16), 0 8px 24px -6px rgba(16, 136, 247, 0.10), 0 0 0 1px rgba(255, 255, 255, 0.82)",
+  tabActiveShadow:
+    "0 1px 4px rgba(23, 24, 26, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9)",
+  text: "#17181a",
+  muted: "#666a71",
+  faint: "#8a8e96",
+  accent: "#008cff",
+  accentSoft: "rgba(0, 140, 255, 0.10)",
+  timeColor: "#2e6fc2",
+  timeBg: "rgba(46, 111, 194, 0.10)"
+};
+
 export const Backdrop = () => (
   <AbsoluteFill
     style={{
