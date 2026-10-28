@@ -6,7 +6,7 @@ import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {AUDIO} from "./audio.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
-import {EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, PROVIDER_TIMELINE, SCENES} from "./timeline.mjs";
+import {EVIDENCE_TIMES, EVIDENCE_TRANSITIONS, PROMO_DURATION, PROMO_FPS, PROVIDER_TIMELINE, SCENES} from "./timeline.mjs";
 
 const execFileAsync = promisify(execFile);
 const input = path.resolve(process.argv[2] || path.join(REPO_ROOT, "release", "BiliScript-promo-1080p.mp4"));
@@ -34,32 +34,7 @@ for (let start = 0, page = 1; start < duration; start += 8, page += 1) {
 const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
 const providerSeconds = (frame) => (PROVIDERS_FROM + frame) / PROMO_FPS;
 const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
-const transitions = [
-  {id: "pain-point-hook", at: 0.55},
-  {id: "hero-pullback-open", at: 1.9},
-  {id: "keyword-slice", at: 3.1},
-  {id: "timestamp-match", at: 5.1},
-  {id: "chapters", at: 7},
-  {id: "quote-lift", at: 8.9},
-  {id: "quote-card", at: 9.27},
-  {id: "overview-chat-defocus", at: 11},
-  {id: "chat-timestamp-click", at: 13.8},
-  {id: "chat-player-verify", at: 15.1},
-  {id: "chat-appearance-defocus", at: 17},
-  {id: "appearance-dark-wipe", at: 17.7},
-  {id: "appearance-palette-wipe", at: 18.9},
-  {id: "providers", at: providerSeconds(0)},
-  {id: "provider-expand", at: providerSeconds(PROVIDER_TIMELINE.expandAt)},
-  {id: "provider-count-glide", at: providerSeconds(PROVIDER_TIMELINE.countAt + PROVIDER_TIMELINE.countHoldFrames)},
-  {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt)},
-  {id: "provider-collapse", at: providerSeconds(PROVIDER_TIMELINE.collapseAt)},
-  ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
-  {id: "feature-converge", at: outroSeconds(OUTRO_TIMELINE.convergeAt)},
-  {id: "brand-resolve", at: outroSeconds(OUTRO_TIMELINE.brandResolveAt)},
-  {id: "brand-cta", at: outroSeconds(OUTRO_TIMELINE.ctaAt + 12)},
-  {id: "install-click", at: outroSeconds(OUTRO_TIMELINE.installClickAt)},
-  {id: "final-hold", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt), holdToEnd: true}
-];
+const transitions = EVIDENCE_TRANSITIONS.map((transition) => ({...transition}));
 for (const transition of transitions) {
   const start = Math.max(0, transition.at - 0.45);
   const seconds = transition.holdToEnd ? duration - start : 1;

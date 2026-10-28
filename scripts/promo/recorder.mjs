@@ -1,16 +1,87 @@
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { PROMO_DIR, VIEWPORT } from "./lib.mjs";
-import { assertPromoCaptureClean, preparePromoCapture } from "./capture.mjs";
+import {execFile} from "node:child_process";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {promisify} from "node:util";
+import {attachPage, createWorkerSession, launchBrowser, REPO_ROOT, teardown} from "../browser-harness/harness.mjs";
+import {PROMO_DIR, SAMPLE_URL, VIEWPORT, connectPage, readSession} from "./lib.mjs";
+import {assertPromoCaptureClean, preparePromoCapture} from "./capture.mjs";
+import {recordedMediaPath} from "./media.mjs";
 
+const execFileAsync = promisify(execFile);
 const CAPTURE_SCALE = 2;
+
+async function runFfmpeg(args) {
+  await execFileAsync("ffmpeg", args, {cwd: REPO_ROOT, maxBuffer: 10 * 1024 * 1024});
+}
+
+export async function withSessionPage(action) {
+  const session = await readSession();
+  const {cdp, target} = await connectPage(session);
+  try {
+    await cdp.send("Emulation.setFocusEmulationEnabled", {enabled: true});
+    await cdp.send("Page.bringToFront");
+    return await action({cdp, target});
+  } finally {
+    await cdp.evaluate(`document.querySelectorAll('video,audio').forEach((media) => { try { media.pause(); } catch {} }); true`).catch(() => {});
+    cdp.close();
+  }
+}
+
+export async function withIsolatedPage(action) {
+  const browser = await launchBrowser({headless: false, muted: true, sync: false, viewport: VIEWPORT, extraArgs: ["--force-device-scale-factor=2"], profilePrefix: "biliscript-promo-"});
+  const page = await attachPage(browser, {viewport: VIEWPORT});
+  const worker = createWorkerSession({pageCdp: page.cdp, browser});
+  try {
+    await worker.ensureAlive();
+    return await action({cdp: page.cdp, target: {url: SAMPLE_URL}});
+  } finally {
+    await teardown({browser, cdps: [page.cdp, worker.handle?.cdp].filter(Boolean)});
+  }
+}
+
+export async function encodeRecording(recording, outputName, {frameCount, filters = [], preset = "slow", crf = 12}) {
+  const output = recordedMediaPath(outputName);
+  await mkdir(path.dirname(output), {recursive: true});
+  const videoFilters = [
+    ...(recording.capture ? [`pad=${recording.source.width}:${recording.source.height}:${recording.capture.x}:${recording.capture.y}:black`] : []),
+    ...filters,
+    `tpad=stop_mode=clone:stop_duration=${(frameCount / 30).toFixed(3)}`
+  ];
+  await runFfmpeg([
+    "-y", "-f", "concat", "-safe", "0", "-i", recording.manifest,
+    "-vf", videoFilters.join(","),
+    "-frames:v", String(frameCount), "-r", "30", "-c:v", "libx264",
+    "-preset", preset, "-crf", String(crf), "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart", "-an", output
+  ]);
+  return output;
+}
+
+export async function exportRecordingFrame(recording, outputName, {at = 0} = {}) {
+  const metadata = JSON.parse(await readFile(recording.metadata, "utf8"));
+  const frame = metadata.frames.reduce((nearest, candidate) => Math.abs(candidate.at / 1000 - at) < Math.abs(nearest.at / 1000 - at) ? candidate : nearest);
+  const output = recordedMediaPath(outputName);
+  await mkdir(path.dirname(output), {recursive: true});
+  await runFfmpeg(["-y", "-i", frame.file, "-frames:v", "1", "-update", "1", output]);
+  return output;
+}
+
+export async function writeRecordingEvidence(scene, {sourceUrl, outputs, recordings = [], events = []}) {
+  const relative = (file) => path.relative(REPO_ROOT, file).replaceAll("\\", "/");
+  const evidence = path.join(PROMO_DIR, "evidence", `${scene}.json`);
+  await mkdir(path.dirname(evidence), {recursive: true});
+  await writeFile(evidence, JSON.stringify({sourceUrl, outputs: outputs.map(relative), recordings: recordings.map(relative), events}, null, 2) + "\n", "utf8");
+  return evidence;
+}
 
 export async function recordScene(cdp, name, action, {
   panelSelector = "#biliscript-reading-view",
   quality = 100,
   everyNthFrame = 1,
   captureMode = "screencast",
-  clipToPanel = false
+  clipToPanel = false,
+  captureScale = CAPTURE_SCALE,
+  prepareCapture = preparePromoCapture
 } = {}) {
   const directory = path.join(PROMO_DIR, "frames", name);
   await rm(directory, {recursive: true, force: true});
@@ -20,8 +91,8 @@ export async function recordScene(cdp, name, action, {
   let active = true;
   let startedAt = 0;
   await cdp.send("Page.bringToFront");
-  await cdp.send("Emulation.setDeviceMetricsOverride", {...VIEWPORT, deviceScaleFactor: CAPTURE_SCALE});
-  await preparePromoCapture(cdp);
+  await cdp.send("Emulation.setDeviceMetricsOverride", {...VIEWPORT, deviceScaleFactor: captureScale});
+  await prepareCapture(cdp);
   const measurePanel = () => cdp.evaluate(`(() => {
     const element = document.querySelector(${JSON.stringify(panelSelector)});
     if (!element) return null;
@@ -68,7 +139,7 @@ export async function recordScene(cdp, name, action, {
   let duration;
   try {
     if (captureMode === "screencast") {
-      await cdp.send("Page.startScreencast", {format: "jpeg", quality, maxWidth: VIEWPORT.width * CAPTURE_SCALE, maxHeight: VIEWPORT.height * CAPTURE_SCALE, everyNthFrame});
+      await cdp.send("Page.startScreencast", {format: "jpeg", quality, maxWidth: VIEWPORT.width * captureScale, maxHeight: VIEWPORT.height * captureScale, everyNthFrame});
     } else if (captureMode !== "snapshot") {
       throw new Error(`未知录制模式：${captureMode}`);
     }
@@ -97,12 +168,12 @@ export async function recordScene(cdp, name, action, {
   const manifest = path.join(directory, "frames.ffconcat");
   await writeFile(manifest, concat, "utf8");
   const metadata = path.join(directory, "frames.json");
-  const source = {width: VIEWPORT.width * CAPTURE_SCALE, height: VIEWPORT.height * CAPTURE_SCALE, scale: CAPTURE_SCALE};
+  const source = {width: VIEWPORT.width * captureScale, height: VIEWPORT.height * captureScale, scale: captureScale};
   const capture = clipPanel ? {
-    x: Math.round(clipPanel.x * CAPTURE_SCALE),
-    y: Math.round(clipPanel.y * CAPTURE_SCALE),
-    width: Math.round(clipPanel.width * CAPTURE_SCALE),
-    height: Math.round(clipPanel.height * CAPTURE_SCALE)
+    x: Math.round(clipPanel.x * captureScale),
+    y: Math.round(clipPanel.y * captureScale),
+    width: Math.round(clipPanel.width * captureScale),
+    height: Math.round(clipPanel.height * captureScale)
   } : null;
   await writeFile(metadata, JSON.stringify({name, duration, source, panel, capture, frames}, null, 2), "utf8");
   console.log(`分镜 ${name}：${frames.length} 帧，${duration.toFixed(1)} 秒，${source.width}×${source.height}`);

@@ -196,7 +196,8 @@ export async function launchBrowser({
   viewport = DEFAULT_VIEWPORT,
   extraArgs = [],
   profilePrefix = "biliscript-harness-",
-  profileDir: requestedProfileDir
+  profileDir: requestedProfileDir,
+  detached = false
 } = {}) {
   if (!existsSync(path.join(distDir, "manifest.json"))) {
     throw new Error(`dist 里没有 manifest.json：${distDir}（先跑 pnpm build）`);
@@ -235,7 +236,7 @@ export async function launchBrowser({
   log(
     `启动 ${headless ? "headless " : ""}Edge（${muted ? "静音" : "未静音"}${autoplay ? " / 允许自动播放" : ""} / 同步${sync ? "开" : "关"}）：port=${port} profile=${profileDir}`
   );
-  const child = spawn(exe, args, { detached: false, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(exe, args, { detached, stdio: ["ignore", "pipe", "pipe"] });
   const browser = { child, pid: child.pid, exe, port, profileDir, ownsProfile: !requestedProfileDir, version: null, args, muted, autoplay, sync };
   child.stderr.on("data", (d) => {
     const s = String(d).trim();

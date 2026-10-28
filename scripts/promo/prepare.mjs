@@ -1,73 +1,25 @@
 import path from "node:path";
 import {fileURLToPath} from "node:url";
-import {copyFile, mkdir, readFile, stat, writeFile} from "node:fs/promises";
+import {copyFile, mkdir, stat, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO} from "./audio.mjs";
+import {readPanelCrops} from "./panel-crops.mjs";
 import {PROVIDER_LOGOS} from "./provider-logos.mjs";
+import {RECORDED_MEDIA_FILES, recordedMediaPath} from "./media.mjs";
 
 export const PROMO_PUBLIC_DIR = path.join(PROMO_DIR, "public");
 
-const PROMO_MEDIA_DIR = path.join(REPO_ROOT, "scripts", "promo", "public", "media");
-
 const sources = {
-  "hero-hook.mp4": path.join(PROMO_MEDIA_DIR, "hero-hook.mp4"),
-  "hero-panel.png": path.join(PROMO_MEDIA_DIR, "hero-panel.png"),
-  "overview-04-chapters.mp4": path.join(PROMO_MEDIA_DIR, "overview-04-chapters.mp4"),
-  "overview-04-quote.mp4": path.join(PROMO_MEDIA_DIR, "overview-04-quote.mp4"),
-  "overview-poster.jpg": path.join(PROMO_MEDIA_DIR, "overview-poster.jpg"),
-  "subtitle-seek-03.mp4": path.join(PROMO_MEDIA_DIR, "subtitle-seek-03.mp4"),
-  "chat.mp4": path.join(PROMO_MEDIA_DIR, "chat.mp4"),
-  "appearance.mp4": path.join(PROMO_MEDIA_DIR, "appearance.mp4"),
-  "ai-providers.mp4": path.join(PROMO_MEDIA_DIR, "ai-providers.mp4"),
+  ...Object.fromEntries(RECORDED_MEDIA_FILES.map((name) => [name, recordedMediaPath(name)])),
   ...Object.fromEntries(PROVIDER_LOGOS.map((logo) => [`providers/${logo.file}`, path.join(REPO_ROOT, "scripts", "promo", "assets", "providers", logo.file)])),
   "promo-score.wav": path.join(PROMO_DIR, "assets", "audio", "promo-score.wav"),
   ...Object.fromEntries([...new Set([...AUDIO.cues, ...(AUDIO.voices ?? [])].map((cue) => cue.src.replace("media/", "")))].map((name) => [name, path.join(PROMO_DIR, "assets", "audio", name)])),
   "logo.svg": path.join(REPO_ROOT, "docs", "images", "biliscript-logo.svg")
 };
 
-const panelRecordings = {
-  overview: "04-overview-chapters",
-  chat: "04-chat",
-  appearance: "05-appearance-motion"
-};
-
-async function writeRecordedPanelCrops() {
-  const destination = path.join(REPO_ROOT, "scripts", "promo", "generated", "panel-crops.json");
-  const recordings = await Promise.all(Object.entries(panelRecordings).map(async ([name, recording]) => {
-    const text = await readFile(path.join(PROMO_DIR, "frames", recording, "frames.json"), "utf8").catch((error) => {
-      if (error?.code === "ENOENT") return null;
-      throw error;
-    });
-    return {name, recording, text};
-  }));
-  const missing = recordings.filter(({text}) => text === null);
-  if (missing.length === recordings.length) {
-    const fallback = await stat(destination).catch(() => null);
-    if (!fallback?.isFile()) {
-      throw new Error("宣传片裁剪框缺失：请恢复已提交的 generated/panel-crops.json，或完整录制 overview、chat、appearance");
-    }
-    return;
-  }
-  if (missing.length > 0) {
-    const names = missing.map(({recording}) => `${recording}/frames.json`).join("、");
-    throw new Error(`宣传片录制帧不完整：缺少 ${names}；请补齐三份录制帧，或移除全部录制帧以沿用已提交裁剪框`);
-  }
-  const crops = {};
-  for (const {name, recording, text} of recordings) {
-    const metadata = JSON.parse(text);
-    const panel = metadata.panel;
-    if (!panel || ![panel.x, panel.y, panel.width, panel.height].every(Number.isFinite) || panel.width <= 0 || panel.height <= 0) {
-      throw new Error(`录制 ${recording} 缺少有效的面板边界`);
-    }
-    crops[name] = panel;
-  }
-  await mkdir(path.dirname(destination), {recursive: true});
-  await writeFile(destination, JSON.stringify(crops, null, 2) + "\n", "utf8");
-}
-
 export async function preparePromoAssets() {
-  await writeRecordedPanelCrops();
+  await readPanelCrops();
   const mediaDir = path.join(PROMO_PUBLIC_DIR, "media");
   await mkdir(mediaDir, {recursive: true});
   const files = [];

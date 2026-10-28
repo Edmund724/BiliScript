@@ -1,7 +1,5 @@
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 
-export {CAPTIONS} from "./captions.mjs";
-
 export const PROMO_WIDTH = 1920;
 export const PROMO_HEIGHT = 1080;
 export const PROMO_FPS = OUTRO_TIMELINE.fps;
@@ -64,4 +62,35 @@ export const EVIDENCE_TIMES = [
   20.2, 20.8, 21.1, 21.4, 22.5, 23.5, 24.5,
   25.2, 25.8, 26.6, 27.6, 28.7, 29.2, 29.7, 30, 30.7, 31.5,
   (PROMO_DURATION - 1) / PROMO_FPS
+];
+
+const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
+const providerSeconds = (frame) => (PROVIDERS_FROM + frame) / PROMO_FPS;
+const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
+
+export const EVIDENCE_TRANSITIONS = [
+  {id: "pain-point-hook", at: 0.55},
+  {id: "hero-pullback-open", at: 1.9},
+  {id: "keyword-slice", at: 3.1},
+  {id: "timestamp-match", at: 5.1},
+  {id: "chapters", at: 7},
+  {id: "quote-lift", at: 8.9},
+  {id: "quote-card", at: 9.27},
+  {id: "overview-chat-defocus", at: 11},
+  {id: "chat-timestamp-click", at: 13.8},
+  {id: "chat-player-verify", at: 15.1},
+  {id: "chat-appearance-defocus", at: 17},
+  {id: "appearance-dark-wipe", at: 17.7},
+  {id: "appearance-palette-wipe", at: 18.9},
+  {id: "providers", at: providerSeconds(0)},
+  {id: "provider-expand", at: providerSeconds(PROVIDER_TIMELINE.expandAt)},
+  {id: "provider-count-glide", at: providerSeconds(PROVIDER_TIMELINE.countAt + PROVIDER_TIMELINE.countHoldFrames)},
+  {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt)},
+  {id: "provider-collapse", at: providerSeconds(PROVIDER_TIMELINE.collapseAt)},
+  ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
+  {id: "feature-converge", at: outroSeconds(OUTRO_TIMELINE.convergeAt)},
+  {id: "brand-resolve", at: outroSeconds(OUTRO_TIMELINE.brandResolveAt)},
+  {id: "brand-cta", at: outroSeconds(OUTRO_TIMELINE.ctaAt + 12)},
+  {id: "install-click", at: outroSeconds(OUTRO_TIMELINE.installClickAt)},
+  {id: "final-hold", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt), holdToEnd: true}
 ];

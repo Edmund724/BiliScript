@@ -7,7 +7,7 @@ const PROMO_PROFILE_DIR = path.join(REPO_ROOT, "scripts", "promo", ".browser-pro
 
 async function start() {
   await mkdir(PROMO_DIR, { recursive: true });
-  const browser = await launchBrowser({ headless: false, muted: true, sync: false, viewport: VIEWPORT, extraArgs: ["--force-device-scale-factor=2"], profileDir: PROMO_PROFILE_DIR });
+  const browser = await launchBrowser({ headless: false, muted: true, sync: false, viewport: VIEWPORT, extraArgs: ["--force-device-scale-factor=2"], profileDir: PROMO_PROFILE_DIR, detached: true });
   const page = await attachPage(browser, { viewport: VIEWPORT });
   const worker = createWorkerSession({ pageCdp: page.cdp, browser });
   await worker.ensureAlive();

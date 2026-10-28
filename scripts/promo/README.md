@@ -44,28 +44,30 @@ node scripts/promo/session.mjs start
 
 在打开的窗口登录 B 站，在文摘面板设置中配置并测试 AI 平台。可用 `node scripts/promo/session.mjs status` 检查页面状态，结束后运行 `node scripts/promo/session.mjs stop`。
 
-| 镜头 | 录制命令 | 当前生成物与入库素材的关系 |
+统一入口是 `node scripts/promo/record.mjs <镜头 id>`。录制直接更新 `public/media/` 中实际参与渲染的素材，不再手工从 scratch 拷贝；原始帧保留在 `.scratch/promo/frames/`，输出与操作证据写入 `.scratch/promo/evidence/<镜头 id>.json`。
+
+| 镜头 | 录制命令 | 直接更新的入库素材 |
 | --- | --- | --- |
-| hero | `node scripts/promo/record-hero.mjs` | 写入 `.scratch/promo/public/media/`；用生成物替换 `hero-hook.mp4`、`hero-panel.png` |
-| subtitle | `node scripts/promo/record-subtitle-seek-03.mjs` | 更新 `subtitle-seek-03.mp4`，同时保留录制证据 |
-| overview | `node scripts/promo/record-overview-04.mjs` | 更新两条 overview MP4；首帧在 `.scratch/promo/frames/04-overview-chapters/000000.jpg`，用于替换 `overview-poster.jpg` |
-| chat | `node scripts/promo/record.mjs chat` | 只生成 `04-chat` 录制帧；当前没有重新生成 `chat.mp4` 的完整入口 |
-| appearance | `node scripts/promo/record-appearance-05.mjs` | 生成 `.scratch/promo/clips/05-appearance.mp4`；用于替换 `appearance.mp4` |
-| providers | `node scripts/promo/record-providers-06.mjs` | 生成 `.scratch/promo/clips/06-ai-providers.mp4`；用于替换 `ai-providers.mp4` |
+| hero | `node scripts/promo/record.mjs hero` | `hero-hook.mp4`、`hero-panel.png` |
+| subtitle | `node scripts/promo/record.mjs subtitle` | `subtitle-seek-03.mp4` |
+| overview | `node scripts/promo/record.mjs overview` | 两条 overview MP4 与 `overview-poster.jpg` |
+| chat | `node scripts/promo/record.mjs chat` | `chat.mp4` |
+| appearance | `node scripts/promo/record.mjs appearance` | `appearance.mp4` |
+| providers | `node scripts/promo/record.mjs providers` | `ai-providers.mp4` |
 
-重录后确认 `public/media/` 中实际参与渲染的素材已更新，再运行 `pnpm promo:render`。chat 的完整视频重录是已知缺口，不要把只更新录制帧当成已替换视频。
+重录后运行 `pnpm promo:render`。`media.mjs` 是录制素材文件名的唯一清单，录制 module 与 `prepare` 都从这里读取输出契约。
 
-裁剪框由 overview、chat、appearance 三份 `frames.json` 决定：三份齐全时重新计算；三份都不存在时沿用已提交的 `generated/panel-crops.json`；只存在一部分时 prepare 会报错，避免混合新旧几何。需要回退时移出整个 `.scratch/promo/frames/`，不要只保留其中一部分。
+overview、chat、appearance 重录会分别更新 `generated/panel-crops.json` 中的对应项，与入库素材一起提交。`prepare` 只读取并校验该文件，不读取 `.scratch/promo/frames/`；原始帧仅作为本地录制证据保留。
 
 ## 工件地图
 
 | 类别 | 位置 | 内容 |
 | --- | --- | --- |
 | 镜头实现 | `scripts/promo/video/`、`index.ts` | Remotion 合成与视觉实现 |
-| 时间事实 | `timeline.mjs`、`outro-timeline.mjs`、`subtitle-timeline.mjs` | 帧区间、镜头内部节拍与跳播数学 |
+| 时间事实 | `timeline.mjs`、`outro-timeline.mjs`、`subtitle-timeline.mjs` | 帧区间、镜头内部节拍、跳播数学与证据采样点 |
 | 声音与字幕事实 | `audio.mjs`、`captions.mjs`、`synthesize-audio.mjs` | cue、字幕与音频合成 |
 | 已跟踪媒体 | `public/media/`、`assets/providers/`、`assets/voice/` | 录屏、海报、平台 Logo 与原片人声 |
-| 已提交回退 | `generated/panel-crops.json` | 无录制帧时使用的面板裁剪框 |
+| 裁剪框事实 | `generated/panel-crops.json` | 由录制入口按镜头更新，`prepare` 与渲染只读 |
 | 本地生成物 | `.scratch/promo/` | 合成音频、运行时 public、录制帧、草稿与验收证据 |
 | 交付物 | `release/` | 正式 MP4、母版、封面、SRT 与 credits |
 

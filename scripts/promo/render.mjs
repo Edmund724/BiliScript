@@ -8,7 +8,8 @@ import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {preparePromoAssets} from "./prepare.mjs";
 import {PROVIDER_LOGOS} from "./provider-logos.mjs";
-import {APPEARANCE_SHOTS, CAPTIONS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
+import {CAPTIONS} from "./captions.mjs";
+import {APPEARANCE_SHOTS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
 const execFileAsync = promisify(execFile);
 const RELEASE_DIR = path.join(REPO_ROOT, "release");
