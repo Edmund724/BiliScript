@@ -33,7 +33,8 @@
     "promo:audio": "node scripts/promo/synthesize-audio.mjs",
     "promo:studio": "node scripts/promo/synthesize-audio.mjs && node scripts/promo/prepare.mjs && remotion studio scripts/promo/index.ts --config=scripts/promo/remotion.config.ts",
     "promo:render": "node scripts/promo/synthesize-audio.mjs && node scripts/promo/render.mjs",
-    "promo:verify": "node scripts/promo/verify-video.mjs && node scripts/promo/verify-audio.mjs && node scripts/promo/capture-evidence.mjs"
+    "promo:verify": "node scripts/promo/verify-video.mjs && node scripts/promo/verify-audio.mjs && node scripts/promo/capture-evidence.mjs",
+    "skills": "pnpm dlx skills"
   },
   "repository": {
     "type": "git",
