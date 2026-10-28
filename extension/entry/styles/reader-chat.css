@@ -1296,10 +1296,7 @@
   gap: 6px;
   padding: 10px 10px 8px;
   border: 1px solid var(--chat-input-border, var(--biliscript-reader-border));
-  /* 输入卡外缘贴白卡内边距，是白卡 flush 子卡片：圆角取 --card-child-radius
-   *（定义在 .biliscript-reading-tab-body），与横幅/意图卡同档；--chat-input-radius
-   * 仍约束卡内元素（见 --chat-input-inner-radius）。 */
-  border-radius: var(--card-child-radius);
+  border-radius: var(--chat-input-radius, var(--biliscript-radius-panel));
   corner-shape: squircle;
   background: var(--chat-input-bg, var(--biliscript-reader-surface));
 }

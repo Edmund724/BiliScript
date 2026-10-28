@@ -115,7 +115,7 @@ describe("Design Tokens 全局架构与静态审计契约", () => {
           if (/^\s*border-radius\s*:/.test(line)) {
             const trimmed = line.trim();
             const isValid =
-              /var\(--(?:biliscript-(?:primitive-)?radius|card-child-radius|chat-input|chat-model-option-radius|chat-more-item-radius|btn-radius|chip-radius|pill-radius|select-|toggle-)/.test(
+              /var\(--(?:biliscript-(?:primitive-)?radius|chat-input|chat-model-option-radius|chat-more-item-radius|btn-radius|chip-radius|pill-radius|select-|toggle-)/.test(
                 trimmed
               ) ||
               /calc\([^)]*var\(--/.test(trimmed) ||
