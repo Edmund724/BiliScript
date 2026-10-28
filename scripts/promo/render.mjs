@@ -13,10 +13,12 @@ import {APPEARANCE_SHOTS, CAPTIONS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, 
 const execFileAsync = promisify(execFile);
 const RELEASE_DIR = path.join(REPO_ROOT, "release");
 const EVIDENCE_DIR = path.join(PROMO_DIR, "evidence");
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
+const sceneArg = rawArgs.find((arg) => arg.startsWith("--scene="))?.slice("--scene=".length);
 const stillsOnly = args.has("--stills-only");
 const postOnly = args.has("--post-only");
-const draft = args.has("--draft") || stillsOnly;
+const draft = args.has("--draft") || stillsOnly || Boolean(sceneArg);
 
 function srtTime(seconds) {
   const milliseconds = Math.round(seconds * 1000);
@@ -215,6 +217,53 @@ const serveUrl = await bundle({
   onProgress: progressLogger("打包", true)
 });
 const compositions = await getCompositions(serveUrl, {inputProps: {}, port: RENDER_PORT});
+if (sceneArg) {
+  const targetScene = SCENES.find((scene) => scene.id === sceneArg);
+  const sceneComposition = compositions.find((composition) => composition.id === `Scene-${sceneArg}`);
+  if (!targetScene || !sceneComposition) {
+    throw new Error(`未知分镜 ${sceneArg}，可选：${SCENES.map((scene) => scene.id).join(", ")}`);
+  }
+  const sceneEvidenceDir = path.join(EVIDENCE_DIR, targetScene.id);
+  await mkdir(sceneEvidenceDir, {recursive: true});
+  if (!stillsOnly && !postOnly) {
+    const sceneOutput = path.join(sceneEvidenceDir, `${targetScene.id}-draft.mp4`);
+    await renderMedia({
+      composition: sceneComposition,
+      serveUrl,
+      inputProps: sceneComposition.defaultProps,
+      port: RENDER_PORT,
+      codec: "h264",
+      crf: 20,
+      pixelFormat: "yuv420p",
+      x264Preset: "veryfast",
+      scale: 0.5,
+      concurrency: 4,
+      overwrite: true,
+      outputLocation: sceneOutput,
+      onProgress: progressLogger(`分镜 ${targetScene.id}`)
+    });
+    console.log(`分镜试片已输出：${sceneOutput}`);
+  }
+  const sceneFrames = EVIDENCE_TIMES
+    .map((seconds) => Math.round(seconds * PROMO_FPS))
+    .filter((frame) => frame >= targetScene.from && frame < targetScene.from + targetScene.duration);
+  for (const globalFrame of sceneFrames) {
+    const localFrame = globalFrame - targetScene.from;
+    const outputStill = path.join(sceneEvidenceDir, `frame-${String(localFrame).padStart(4, "0")}.png`);
+    await renderStill({
+      composition: sceneComposition,
+      serveUrl,
+      inputProps: sceneComposition.defaultProps,
+      port: RENDER_PORT,
+      frame: localFrame,
+      imageFormat: "png",
+      output: outputStill,
+      overwrite: true
+    });
+  }
+  console.log(`分镜关键帧已输出：${sceneEvidenceDir}`);
+  process.exit(0);
+}
 const promo = compositions.find((composition) => composition.id === "BiliScript");
 const cover = compositions.find((composition) => composition.id === "Cover");
 if (!promo || !cover) throw new Error("未找到 BiliScript / Cover 合成");

@@ -41,6 +41,25 @@ const Soundtrack = () => (
   </>
 );
 
+export type PromoSceneProps = {
+  id: string;
+  duration: number;
+  final?: boolean;
+};
+
+export const PromoScene = ({id, duration, final = false}: PromoSceneProps) => (
+  <AbsoluteFill style={{background: COLORS.background}}>
+    <Backdrop />
+    <SceneShell
+      duration={duration}
+      final={final}
+      fadeOut={!PANEL_FOCUS_HANDOFFS.some((handoff) => handoff.from === id)}
+    >
+      <Scene id={id} duration={duration} />
+    </SceneShell>
+  </AbsoluteFill>
+);
+
 export const Promo = () => {
   return (
     <AbsoluteFill style={{background: COLORS.background}}>
