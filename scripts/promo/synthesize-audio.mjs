@@ -134,6 +134,14 @@ function sectionDynamicsAt(seconds) {
   return 0.74;
 }
 
+function inVoiceWindow(seconds) {
+  return AUDIO.voices.some((voice) => {
+    const start = (voice.frame - 2) / PROMO_FPS;
+    const end = (voice.frame + (voice.durationFrames ?? 40) + 4) / PROMO_FPS;
+    return seconds >= start && seconds <= end;
+  });
+}
+
 function makeScore() {
   const track = buffer(DURATION);
   const beat = 60 / AUDIO.music.bpm;
@@ -158,9 +166,10 @@ function makeScore() {
     for (let step = 0; step < 8; step += 1) {
       const stepAt = at + step * beat / 2;
       if (stepAt >= 29.45 && stepAt < 30.08) continue;
-      // 9.5–10.7s 金句切换色板期间留出清透空间给递进快门水滴音
-      if (stepAt >= 9.55 && stepAt <= 10.65 && step % 2 === 1) continue;
-      const stepDyn = sectionDynamicsAt(stepAt);
+      const inVoice = inVoiceWindow(stepAt);
+      // 9.5–10.7s 金句切换色板与原片人声期间留出清透空间
+      if ((stepAt >= 9.55 && stepAt <= 10.65 || inVoice) && step % 2 === 1) continue;
+      const stepDyn = sectionDynamicsAt(stepAt) * (inVoice ? 0.55 : 1);
       const note = chord[arp[step]] + (stepAt >= 20.5 && stepAt < 25.5 ? 24 : 12);
       const gain = (bar >= 4 && bar <= 5 ? 0.056 : bar >= 6 && bar <= 8 ? 0.072 : 0.094) * stepDyn;
       add(track, tone(note, stepAt >= 20.5 && stepAt < 25.5 ? 0.19 : 0.28, {type: stepAt >= 7.5 && stepAt < 11.5 ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
@@ -183,22 +192,23 @@ function makeScore() {
     const dyn = sectionDynamicsAt(at);
     const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
-    // 前 3.5 秒痛点三连问与主 Slogan 停留段保留轻柔心跳低音，2.5s 推镜聚拢后逐步进入完整鼓组；9.5–10.7s 金句色板切换减轻高频打击乐
+    // 前 3.5 秒痛点三连问与主 Slogan 停留段保留轻柔心跳低音，2.5s 推镜聚拢后逐步进入完整鼓组；9.5–10.7s 金句色板切换与原片人声段减轻高频打击乐
     const inQuotePaletteWindow = at >= 9.5 && at <= 10.7;
+    const inVoice = inVoiceWindow(at);
     const inProviderWave = at >= 20.5 && at < 25.5;
-    add(track, kick(at < 1.8 ? dyn * 0.55 : inProviderWave ? dyn * 1.08 : dyn), at);
-    if (index % 2 === 1 && at >= 3.5 && !inQuotePaletteWindow) {
+    add(track, kick(at < 1.8 ? dyn * 0.55 : inVoice ? dyn * 0.72 : inProviderWave ? dyn * 1.08 : dyn), at);
+    if (index % 2 === 1 && at >= 3.5 && !inQuotePaletteWindow && !inVoice) {
       add(track, snare(inProviderWave ? dyn * 1.05 : dyn), at);
     }
     if (at >= 2.5 && !inQuotePaletteWindow) {
-      add(track, hat(index % 4 === 3, dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
+      add(track, hat(index % 4 === 3 && !inVoice, inVoice ? dyn * 0.45 : dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
       if (inProviderWave) {
         add(track, hat(false, dyn * 0.65), at + beat / 4, -0.2);
         add(track, hat(false, dyn * 0.65), at + (beat * 3) / 4, 0.2);
       }
     }
     if (index >= 2 && index < beatCount - 4) {
-      add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: (accent ? 0.24 : 0.18) * dyn}), at);
+      add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: (accent ? 0.24 : 0.18) * dyn * (inVoice ? 0.75 : 1)}), at);
     }
   }
 
@@ -736,6 +746,9 @@ const voiceExcerpts = [
 for (const item of voiceExcerpts) {
   const rawWav = await readFile(item.sourceFile);
   const decoded = decodePcm16Wav(rawWav);
+  normalize(decoded.track, 1.0);
+  const voiceDrive = 1.85;
+  const normVoiceDrive = Math.tanh(voiceDrive);
   const fadeInSamples = Math.round(0.02 * SAMPLE_RATE);
   const fadeOutSamples = Math.round((item.fadeOutSeconds ?? 0.05) * SAMPLE_RATE);
   for (let ch = 0; ch < 2; ch += 1) {
@@ -743,10 +756,11 @@ for (const item of voiceExcerpts) {
       const fadeIn = Math.min(1, i / fadeInSamples);
       const fadeOutT = Math.min(1, (decoded.frames - 1 - i) / fadeOutSamples);
       const fadeOut = 0.5 * (1 - Math.cos(Math.PI * fadeOutT));
-      decoded.track[ch][i] *= fadeIn * fadeOut;
+      const compressed = Math.tanh(decoded.track[ch][i] * voiceDrive) / normVoiceDrive;
+      decoded.track[ch][i] = compressed * fadeIn * fadeOut;
     }
   }
-  const voiceLevel = normalize(decoded.track, 0.58);
+  const voiceLevel = normalize(decoded.track, 0.88);
   const outPath = path.join(OUTPUT_DIR, "sfx", `${item.name}.wav`);
   await writeFile(outPath, wav(decoded.track));
   sfxBySrc.set(`media/sfx/${item.name}.wav`, decoded.track);
@@ -784,37 +798,19 @@ for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
     }
   }
 }
-function voiceDuckAtFrame(frame) {
-  let duck = 1;
-  for (const voice of AUDIO.voices) {
-    const local = frame - voice.frame;
-    const holdEnd = (voice.durationFrames ?? 40) - 4;
-    const releaseFrames = 10;
-    const preFrames = 3;
-    if (local < -preFrames || local > holdEnd + releaseFrames) continue;
-    const envelope =
-      local < 0
-        ? (local + preFrames) / preFrames
-        : local <= holdEnd
-          ? 1
-          : (holdEnd + releaseFrames - local) / releaseFrames;
-    duck = Math.min(duck, 1 - envelope * (1 - 10 ** (-voice.duckDb / 20)));
-  }
-  return duck;
-}
 
 const samplesPerFrame = SAMPLE_RATE / PROMO_FPS;
-const ceiling = 0.77;
+const ceiling = 0.75;
 const fullMix = buffer(DURATION);
 for (let i = 0; i < score[0].length; i += 1) {
   const frame = Math.min(PROMO_DURATION - 1, Math.floor(i / samplesPerFrame));
-  const vol = musicVolumeAtFrame(frame) * voiceDuckAtFrame(frame);
+  const vol = musicVolumeAtFrame(frame);
   for (let ch = 0; ch < 2; ch += 1) {
     if (vol <= 0.0001) {
       fullMix[ch][i] = Math.tanh((sfxStem[ch][i] * 1.12) / ceiling) * ceiling;
       continue;
     }
-    const scaledScore = score[ch][i] * 1.56;
+    const scaledScore = score[ch][i] * 1.42;
     const rawCombined = scaledScore * vol + sfxStem[ch][i] * 1.12;
     const limitedCombined = Math.tanh(rawCombined / ceiling) * ceiling;
     score[ch][i] = Math.max(-0.98, Math.min(0.98, (limitedCombined - sfxStem[ch][i]) / vol));

@@ -84,17 +84,36 @@ export const AUDIO = {
     {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/snap.wav", gain: 0.54, duckDb: 4.2}
   ],
   voices: [
-    {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.50, duckDb: 6.5, durationFrames: 48},
-    {id: "voice-0232", frame: OVERVIEW_FROM + 5, src: "media/sfx/voice-0232.wav", gain: 0.50, duckDb: 6.5, durationFrames: 45},
-    {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.50, duckDb: 6.5, durationFrames: 40}
+    {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.86, duckDb: 11.5, durationFrames: 48},
+    {id: "voice-0232", frame: OVERVIEW_FROM + 5, src: "media/sfx/voice-0232.wav", gain: 0.86, duckDb: 11.5, durationFrames: 45},
+    {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.86, duckDb: 11.5, durationFrames: 40}
   ]
 };
+
+export function voiceDuckAtFrame(frame) {
+  let duck = 1;
+  for (const voice of AUDIO.voices) {
+    const local = frame - voice.frame;
+    const holdEnd = (voice.durationFrames ?? 40) - 4;
+    const releaseFrames = 10;
+    const preFrames = 3;
+    if (local < -preFrames || local > holdEnd + releaseFrames) continue;
+    const envelope =
+      local < 0
+        ? (local + preFrames) / preFrames
+        : local <= holdEnd
+          ? 1
+          : (holdEnd + releaseFrames - local) / releaseFrames;
+    duck = Math.min(duck, 1 - envelope * (1 - 10 ** (-voice.duckDb / 20)));
+  }
+  return duck;
+}
 
 export function musicVolumeAtFrame(frame) {
   const {fadeInFrames, fadeOutFrames, fadeOutEndFrame, gain} = AUDIO.music;
   const fadeIn = Math.min(1, Math.max(0, frame / fadeInFrames));
   const fadeOut = Math.min(1, Math.max(0, (fadeOutEndFrame - frame) / fadeOutFrames));
-  let duck = 1;
+  let duck = voiceDuckAtFrame(frame);
   for (const cue of AUDIO.cues) {
     const local = frame - cue.frame;
     if (local < -2 || local > 16) continue;
