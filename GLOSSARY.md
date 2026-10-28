@@ -11,6 +11,11 @@ B 站上的一条视频，由 `bvid` 与分P `cid` 唯一标识。
 代码名：`state.clip` / `bvid` / `bilibili/video-id-shared.js`
 _Avoid_: 稿件、作品
 
+**宣传片**:
+介绍 BiliScript 功能与使用方式的自制产品影片，不是用户正在阅读的 B 站视频。
+代码名：`scripts/promo/`
+_Avoid_: 在歧义语境中简称“视频”
+
 **分P**:
 一个视频下的多段内容单元，以 `cid` 标识。
 代码名：`pageIndex` / `pageTitle` / `pickPageFromPages`（reader/page-context.js）——自有抽象沿用 B 站 API 的 page 词根，Avoid 只约束中文行文与新增抽象。

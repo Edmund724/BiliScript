@@ -10,6 +10,10 @@ DSH 运行时自带的 pnpm 11.7.0 在本仓库必失败：`devEngines` 要求 �
 
 jsdom 够不着的（真实 DOM 几何 / B 站真实接口 / MV3 SW 生命周期 / offscreen / CSP）走真机：自检跑 `pnpm harness:browser`，写场景见 `scripts/browser-harness/README.md`。其余验证留在 `tests/`。
 
+## 宣传片
+
+制作或修改宣传片先读 `scripts/promo/README.md`：冷启动、六种制作任务、重录前置条件与工件地图都在那里。
+
 ## Agent skills
 
 ### Issue tracker
