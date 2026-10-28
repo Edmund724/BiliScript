@@ -819,6 +819,7 @@
   font-family: var(--biliscript-reader-font-sans-medium);
   font-weight: 700;
   line-height: 1.4;
+  text-wrap: balance;
 }
 
 /* 标题档阶梯（基准正文 16px）：h2(20px) > h3(18px) > h4(17px) > h5/h6(16px 粗体)，
