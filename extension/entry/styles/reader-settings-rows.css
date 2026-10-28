@@ -208,7 +208,7 @@
   width: 100%;
   padding: var(--biliscript-space-sm) var(--biliscript-space-10);
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--card-child-radius);
+  border-radius: var(--biliscript-radius-panel);
   corner-shape: squircle;
   background: var(--biliscript-reader-card);
 }

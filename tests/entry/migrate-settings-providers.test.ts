@@ -59,9 +59,8 @@ describe("设置抽屉与 Provider 配置列表 Token 迁移契约", () => {
 
       // rows 模型下拉
       expect(rows).toMatch(/\.ai-provider-model-dropdown\s*\{[^}]*border-radius:\s*var\(--select-dropdown-radius/);
-      // rows 提供商行：白卡式 flush 子卡片，圆角取 --card-child-radius（同心圆角
-      // scoped 变量，定义在 reader-settings-shell.css 的抽屉壳上）
-      expect(rows).toMatch(/\.ai-provider-row[^}]*\{[^}]*border-radius:\s*var\(--card-child-radius\)/);
+      // rows 提供商行
+      expect(rows).toMatch(/\.ai-provider-row[^}]*\{[^}]*border-radius:\s*var\(--biliscript-radius-panel\)/);
       // rows 状态点圆形
       expect(rows).toMatch(/\.provider-row-dot\s*\{[^}]*border-radius:\s*var\(--biliscript-radius-circle\)/);
       // rows 徽章胶囊
