@@ -35,15 +35,21 @@ const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
 const providerSeconds = (frame) => (PROVIDERS_FROM + frame) / PROMO_FPS;
 const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
 const transitions = [
+  {id: "poster-hook", at: 0.45},
   {id: "keyword-slice", at: 3.1},
   {id: "timestamp-match", at: 5.1},
   {id: "chapters", at: 7},
   {id: "quote-lift", at: 8.9},
   {id: "quote-card", at: 9.27},
   {id: "overview-chat-defocus", at: 11},
+  {id: "chat-timestamp-click", at: 13.8},
+  {id: "chat-player-verify", at: 15.1},
   {id: "chat-appearance-defocus", at: 17},
+  {id: "appearance-dark-wipe", at: 17.7},
+  {id: "appearance-palette-wipe", at: 18.9},
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-expand", at: providerSeconds(PROVIDER_TIMELINE.expandAt)},
+  {id: "provider-count-glide", at: providerSeconds(PROVIDER_TIMELINE.countAt + PROVIDER_TIMELINE.countHoldFrames)},
   {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt)},
   {id: "provider-collapse", at: providerSeconds(PROVIDER_TIMELINE.collapseAt)},
   ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
@@ -72,11 +78,14 @@ for (const seconds of EVIDENCE_TIMES) {
 }
 
 const mobileShots = [
+  {id: "poster", at: 0},
   {id: "search", at: 4.5},
   {id: "chapters", at: 8.2},
   {id: "quote", at: 9.5},
-  {id: "provider-count", at: providerSeconds(PROVIDER_TIMELINE.countAt)},
-  {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt + 16)},
+  {id: "chat-verify", at: 15.1},
+  {id: "appearance", at: 18.0},
+  {id: "provider-count", at: providerSeconds(PROVIDER_TIMELINE.countAt + 6)},
+  {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt + 56)},
   {id: "features", at: outroSeconds(OUTRO_TIMELINE.features.at(-1).at) + 0.5},
   {id: "cta", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt) + 0.2}
 ];

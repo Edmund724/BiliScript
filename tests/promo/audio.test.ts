@@ -1,8 +1,9 @@
 import {describe, expect, it} from "vitest";
 import {AUDIO, musicVolumeAtFrame} from "../../scripts/promo/audio.mjs";
 import {OUTRO_TIMELINE} from "../../scripts/promo/outro-timeline.mjs";
-import {PROMO_DURATION, PROMO_FPS, PROVIDER_TIMELINE, SCENES} from "../../scripts/promo/timeline.mjs";
+import {CHAT_TIMESTAMP_CLICK_FRAME, PROMO_DURATION, PROMO_FPS, PROVIDER_TIMELINE, SCENES} from "../../scripts/promo/timeline.mjs";
 
+const CHAT_FROM = SCENES.find((scene) => scene.id === "chat")!.from;
 const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers")!.from;
 
 describe("宣传片配乐", () => {
@@ -38,6 +39,7 @@ describe("宣传片配乐", () => {
       ["quote-mist", 295, "media/sfx/pop.wav"],
       ["overview-defocus", 324, "media/sfx/click.wav"],
       ["chat-focus", 337, "media/sfx/whoosh.wav"],
+      ["chat-timestamp-click", CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, "media/sfx/click.wav"],
       ["chat-defocus", 504, "media/sfx/click.wav"],
       ["appearance-focus", 517, "media/sfx/whoosh.wav"],
       ["dark-mode", 531, "media/sfx/toggle.wav"],
@@ -61,12 +63,12 @@ describe("宣传片配乐", () => {
     const installClickFrame = OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt;
     expect(musicVolumeAtFrame(0)).toBe(0);
     expect(musicVolumeAtFrame(24)).toBe(base);
-    expect(musicVolumeAtFrame(90)).toBeCloseTo(base * 10 ** (-4 / 20));
-    expect(musicVolumeAtFrame(102)).toBeCloseTo(base * 10 ** (-2.5 / 20));
-    expect(musicVolumeAtFrame(104)).toBeCloseTo(base * 10 ** (-2.5 / 20));
+    expect(musicVolumeAtFrame(90)).toBeCloseTo(base * 10 ** (-5 / 20));
+    expect(musicVolumeAtFrame(102)).toBeCloseTo(base * 10 ** (-3.5 / 20));
+    expect(musicVolumeAtFrame(104)).toBeCloseTo(base * 10 ** (-3.5 / 20));
     expect(musicVolumeAtFrame(116)).toBeGreaterThan(musicVolumeAtFrame(114));
     expect(musicVolumeAtFrame(860)).toBe(base);
-    expect(musicVolumeAtFrame(installClickFrame)).toBeCloseTo(base * 10 ** (-3 / 20));
+    expect(musicVolumeAtFrame(installClickFrame)).toBeCloseTo(base * 10 ** (-4 / 20));
     expect(musicVolumeAtFrame(PROMO_DURATION - AUDIO.music.fadeOutFrames / 2)).toBeCloseTo(base / 2);
     expect(musicVolumeAtFrame(PROMO_DURATION - 1)).toBeCloseTo(base / AUDIO.music.fadeOutFrames);
     expect(musicVolumeAtFrame(PROMO_DURATION)).toBe(0);

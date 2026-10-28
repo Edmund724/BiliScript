@@ -16,7 +16,8 @@ export const COLORS = {
   background: "#FBFAFC",
   foreground: "#243447",
   muted: "#697D90",
-  pink: "#E85D87"
+  pink: "#E85D87",
+  blue: "#2679B8"
 };
 
 export const FONT_FAMILY = '"Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif';
@@ -168,7 +169,92 @@ export const SceneShell = ({children, duration, final = false, fadeOut = true}: 
   );
 };
 
-export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playbackRate = 1, startFrom = 0, duration = 210, animate = true, tilt = 6, focus, style = {}}: {
+export const EditorialHeaderBand = ({
+  title,
+  titleSize = 78,
+  delay = 0,
+  kicker,
+  showBrand = false,
+  opacity = 1
+}: {
+  title: string;
+  titleSize?: number;
+  delay?: number;
+  kicker?: string;
+  showBrand?: boolean;
+  opacity?: number;
+}) => (
+  <div
+    style={{
+      position: "absolute",
+      left: 0,
+      top: 0,
+      width: 1180,
+      height: 156,
+      background: "rgba(251, 250, 252, 0.98)",
+      borderRight: "1px solid rgba(83, 110, 134, 0.16)",
+      borderBottom: "1px solid rgba(83, 110, 134, 0.16)",
+      borderBottomRightRadius: 28,
+      boxShadow: "0 16px 40px -24px rgba(36, 52, 71, 0.14)",
+      display: "flex",
+      alignItems: "center",
+      paddingLeft: 104,
+      paddingRight: 48,
+      gap: 28,
+      opacity,
+      transform: "translateZ(80px)",
+      zIndex: 10
+    }}
+  >
+    {showBrand ? (
+      <div style={{display: "flex", alignItems: "center", gap: 24, flexShrink: 0}}>
+        <Brand size={30} iconSize={40} />
+        <div style={{width: 1, height: 42, background: "rgba(83, 110, 134, 0.22)"}} />
+      </div>
+    ) : kicker ? (
+      <div
+        style={{
+          padding: "8px 18px",
+          borderRadius: 999,
+          background: "rgba(232, 93, 135, 0.10)",
+          border: "1px solid rgba(232, 93, 135, 0.26)",
+          color: COLORS.pink,
+          fontSize: 22,
+          fontWeight: 600,
+          letterSpacing: -0.4,
+          whiteSpace: "nowrap",
+          flexShrink: 0
+        }}
+      >
+        {kicker}
+      </div>
+    ) : null}
+    <SceneTitle
+      title={title}
+      size={titleSize}
+      delay={delay}
+      style={{
+        position: "relative",
+        left: 0,
+        top: 0
+      }}
+    />
+  </div>
+);
+
+export const ProductFrame = ({
+  source,
+  crop = PANEL_CROPS.overview,
+  width,
+  playbackRate = 1,
+  startFrom = 0,
+  duration = 210,
+  animate = true,
+  tilt = 6,
+  variant = "rounded",
+  focus,
+  style = {}
+}: {
   source?: string;
   crop?: Crop;
   width: number;
@@ -177,6 +263,7 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
   duration?: number;
   animate?: boolean;
   tilt?: number;
+  variant?: "rounded" | "bleed";
   focus?: {direction: "in" | "out"; frames: number; maxBlur: number};
   style?: CSSProperties;
 }) => {
@@ -184,6 +271,7 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
   const {fps} = useVideoConfig();
   const entrance = spring({frame, fps, config: SPRING_LAYOUT});
   const cropScale = width / crop.width;
+  const isBleed = variant === "bleed";
   const mediaStyle: CSSProperties = {
     position: "absolute",
     left: -crop.x * cropScale,
@@ -198,14 +286,19 @@ export const ProductFrame = ({source, crop = PANEL_CROPS.overview, width, playba
         position: "absolute",
         width,
         height: crop.height * cropScale,
-        borderRadius: 28 * cropScale,
+        borderRadius: isBleed ? 0 : 28,
         overflow: "hidden",
         background: "#FFFFFF",
-        border: "1px solid rgba(83, 110, 134, 0.16)",
-        boxShadow: "0 28px 70px -30px rgba(43, 70, 93, 0.28), 0 4px 18px rgba(43, 70, 93, 0.05)",
+        border: isBleed ? "none" : "1px solid rgba(83, 110, 134, 0.16)",
+        boxShadow: isBleed
+          ? "0 32px 80px -28px rgba(15, 23, 42, 0.36)"
+          : "0 28px 70px -30px rgba(43, 70, 93, 0.28), 0 4px 18px rgba(43, 70, 93, 0.05)",
         opacity: 1,
-        transform: microPerspective(tilt),
-        scale: animate ? interpolate(entrance, [0, 1], [0.96, 1], {extrapolateLeft: "clamp"}) * interpolate(frame, [0, duration], [1, 1.028], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) : 1,
+        transform: tilt === 0 ? undefined : microPerspective(tilt),
+        scale: animate
+          ? interpolate(entrance, [0, 1], [0.96, 1], {extrapolateLeft: "clamp"}) *
+            interpolate(frame, [0, duration], [1, 1.024], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
+          : 1,
         filter: focus
           ? `blur(${interpolate(
               frame,

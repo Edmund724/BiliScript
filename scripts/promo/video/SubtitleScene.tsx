@@ -1,6 +1,13 @@
 import {Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {SUBTITLE_DURATION, SUBTITLE_MATCH_FRAME, SUBTITLE_PLAYBACK_RATE, SUBTITLE_SECOND_SHOT_SOURCE_FRAME, subtitleCameraAtFrame} from "../subtitle-timeline.mjs";
-import {COLORS, SceneTitle, microPerspective} from "./design";
+import {
+  SUBTITLE_ANCHORS,
+  SUBTITLE_DURATION,
+  SUBTITLE_MATCH_FRAME,
+  SUBTITLE_PLAYBACK_RATE,
+  SUBTITLE_SECOND_SHOT_SOURCE_FRAME,
+  subtitleCameraAtFrame
+} from "../subtitle-timeline.mjs";
+import {COLORS, EditorialHeaderBand, microPerspective} from "./design";
 
 const SOURCE = "subtitle-seek-03.mp4";
 
@@ -69,8 +76,45 @@ const Keyword = () => {
   );
 };
 
+const TimestampMatchCallout = () => {
+  const frame = useCurrentFrame();
+  if (frame < 40 || frame > 72) return null;
+  const anchor = frame < SUBTITLE_MATCH_FRAME ? SUBTITLE_ANCHORS.before.center : SUBTITLE_ANCHORS.after.center;
+  const ringOpacity = interpolate(frame, [42, 48, 61, 68], [0, 0.9, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp"
+  });
+  const rippleScale = interpolate(frame, [59, 67], [0.75, 1.55], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp"
+  });
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: anchor.x - 44,
+        top: anchor.y - 16,
+        width: 240,
+        height: 34,
+        borderRadius: 10,
+        border: `2px solid ${COLORS.pink}`,
+        background: "rgba(232, 93, 135, 0.10)",
+        boxShadow: "0 10px 24px -10px rgba(232, 93, 135, 0.45)",
+        opacity: ringOpacity,
+        scale: frame >= 59 ? rippleScale : 1,
+        transformOrigin: "18% 50%",
+        pointerEvents: "none"
+      }}
+    />
+  );
+};
+
 const PlayerFeedback = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
+  const opacity = interpolate(frame, [72, 82, duration - 10, duration], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp"
+  });
   return (
     <div
       style={{
@@ -79,14 +123,34 @@ const PlayerFeedback = ({duration}: {duration: number}) => {
         top: 171,
         width: 1272,
         height: 764,
-        borderRadius: 4,
-        boxShadow: "inset 0 0 0 2px rgba(232, 93, 135, 0.72)",
-        opacity: interpolate(frame, [75, 84, duration - 12, duration], [0, 1, 1, 0], {
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp"
-        })
+        borderRadius: 8,
+        boxShadow: "inset 0 0 0 3px rgba(232, 93, 135, 0.82), 0 24px 60px -28px rgba(232, 93, 135, 0.28)",
+        opacity,
+        pointerEvents: "none"
       }}
-    />
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: 24,
+          top: 22,
+          padding: "8px 18px",
+          borderRadius: 999,
+          background: "rgba(36, 52, 71, 0.88)",
+          border: "1px solid rgba(232, 93, 135, 0.55)",
+          color: "#FFFFFF",
+          fontSize: 18,
+          fontWeight: 600,
+          letterSpacing: -0.2,
+          display: "flex",
+          alignItems: "center",
+          gap: 10
+        }}
+      >
+        <span style={{width: 9, height: 9, borderRadius: "50%", background: COLORS.pink, display: "inline-block"}} />
+        <span>已跳播至 04:07 · 「也很难避免幻觉」</span>
+      </div>
+    </div>
   );
 };
 
@@ -117,6 +181,7 @@ const Camera = ({duration}: {duration: number}) => {
         <OffthreadVideo {...videoProps} startFrom={SUBTITLE_SECOND_SHOT_SOURCE_FRAME} />
       </Sequence>
       <Keyword />
+      <TimestampMatchCallout />
       <PlayerFeedback duration={duration} />
     </div>
   );
@@ -125,18 +190,12 @@ const Camera = ({duration}: {duration: number}) => {
 const Title = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  return (
-    <div
-      style={{
-        opacity: interpolate(frame, [0, 0.2 * fps, 0.65 * fps, 0.9 * fps], [0, 1, 1, 0], {
-          extrapolateLeft: "clamp",
-          extrapolateRight: "clamp"
-        })
-      }}
-    >
-      <SceneTitle title="找到那句，回到那一秒。" size={54} style={{left: 104, top: 72, width: 820}} />
-    </div>
-  );
+  const opacity = interpolate(frame, [0, 4, Math.round(1.35 * fps), Math.round(1.65 * fps)], [0.38, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp"
+  });
+  if (opacity <= 0.01) return null;
+  return <EditorialHeaderBand title="找到那句，回到那一秒。" titleSize={54} kicker="字幕检索" delay={0} opacity={opacity} />;
 };
 
 export const SubtitleScene = ({duration}: {duration: number}) => (

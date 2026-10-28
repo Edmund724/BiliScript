@@ -11,9 +11,6 @@ const FEATURE_ROW_WIDTH = OUTRO_TIMELINE.features.length * FEATURE_CARD.width + 
 const FEATURE_ROW_LEFT = (CANVAS_WIDTH - FEATURE_ROW_WIDTH) / 2;
 const FEATURE_ROW_CENTER_Y = FEATURE_CARD.top + FEATURE_CARD.height / 2;
 
-// 品牌锁定区：图标 110px + 间距 60px + 品牌名步进 540px，整组 710px 由 flex 居中落在画面中线。
-// advance 是“BiliScript”在 148px Bahnschrift、字距 −6.66px 下的实测步进宽度，用来说明成组宽度，
-// 同时只用于算图标从画面中线滑进锁定位的起点位移；最终水平位置由 flex 居中决定，不依赖该测量。
 const BRAND_ICON = {size: 110, top: 350};
 const BRAND_NAME = {size: 148, advance: 540, gap: 60, opticalLift: -11};
 const BRAND_GROUP_WIDTH = BRAND_ICON.size + BRAND_NAME.gap + BRAND_NAME.advance;
@@ -44,6 +41,132 @@ const GitHubIcon = () => (
   </svg>
 );
 
+const FeatureMicroPreview = ({id, activeProgress}: {id: string; activeProgress: number}) => {
+  if (id === "feature-bilingual") {
+    return (
+      <div
+        style={{
+          padding: "12px 16px",
+          borderRadius: 16,
+          background: "rgba(244, 241, 246, 0.85)",
+          border: "1px solid rgba(83, 110, 134, 0.14)",
+          opacity: activeProgress,
+          translate: `0px ${(1 - activeProgress) * 14}px`
+        }}
+      >
+        <div style={{display: "flex", alignItems: "center", gap: 10, color: COLORS.foreground, fontSize: 18, fontWeight: 600}}>
+          <span style={{color: COLORS.pink, fontFamily: 'Bahnschrift, "Aptos Display", sans-serif'}}>04:07</span>
+          <span>即使给出证据也难避幻觉</span>
+        </div>
+        <div style={{marginTop: 4, color: COLORS.muted, fontSize: 15, fontWeight: 500}}>
+          Even with evidence, hallucinations persist
+        </div>
+      </div>
+    );
+  }
+  if (id === "feature-export") {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          opacity: activeProgress,
+          translate: `0px ${(1 - activeProgress) * 14}px`
+        }}
+      >
+        {["SRT", "TXT", "MD", "复制全文"].map((tag, idx) => (
+          <div
+            key={tag}
+            style={{
+              padding: "10px 14px",
+              borderRadius: 12,
+              background: idx === 2 ? "rgba(232, 93, 135, 0.14)" : "rgba(244, 241, 246, 0.9)",
+              border: `1px solid ${idx === 2 ? "rgba(232, 93, 135, 0.36)" : "rgba(83, 110, 134, 0.16)"}`,
+              color: idx === 2 ? COLORS.pink : COLORS.foreground,
+              fontSize: 17,
+              fontWeight: 600
+            }}
+          >
+            {tag}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (id === "feature-asr") {
+    const bars = [0.42, 0.85, 0.62, 0.96, 0.54, 0.78, 0.9, 0.48, 0.74, 0.38];
+    return (
+      <div
+        style={{
+          padding: "12px 16px",
+          borderRadius: 16,
+          background: "rgba(244, 241, 246, 0.85)",
+          border: "1px solid rgba(83, 110, 134, 0.14)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          opacity: activeProgress,
+          translate: `0px ${(1 - activeProgress) * 14}px`
+        }}
+      >
+        <div style={{display: "flex", alignItems: "center", gap: 6, height: 34}}>
+          {bars.map((h, i) => (
+            <div
+              key={i}
+              style={{
+                width: 6,
+                height: Math.round(32 * h * activeProgress),
+                borderRadius: 999,
+                background: i % 2 === 0 ? COLORS.pink : COLORS.blue
+              }}
+            />
+          ))}
+        </div>
+        <div style={{color: COLORS.foreground, fontSize: 16, fontWeight: 600}}>音轨直转时间轴</div>
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        opacity: activeProgress,
+        translate: `0px ${(1 - activeProgress) * 14}px`
+      }}
+    >
+      <div
+        style={{
+          padding: "10px 14px",
+          borderRadius: 12,
+          background: "rgba(38, 121, 184, 0.12)",
+          border: "1px solid rgba(38, 121, 184, 0.28)",
+          color: COLORS.blue,
+          fontSize: 16,
+          fontWeight: 600
+        }}
+      >
+        🌐 实时检索
+      </div>
+      <div
+        style={{
+          padding: "10px 14px",
+          borderRadius: 12,
+          background: "rgba(244, 241, 246, 0.9)",
+          border: "1px solid rgba(83, 110, 134, 0.16)",
+          color: COLORS.foreground,
+          fontSize: 16,
+          fontWeight: 600
+        }}
+      >
+        外部事实核验 [1][2]
+      </div>
+    </div>
+  );
+};
+
 const FeatureCards = () => {
   const frame = useCurrentFrame();
   const boardStart = OUTRO_TIMELINE.featureBoardAt;
@@ -59,6 +182,13 @@ const FeatureCards = () => {
         const left = FEATURE_ROW_LEFT + index * (FEATURE_CARD.width + FEATURE_CARD.gap);
         const dx = BRAND_MARK.x - (left + FEATURE_CARD.width / 2);
         const dy = BRAND_MARK.y - FEATURE_ROW_CENTER_Y;
+        const activeProgress = interpolate(
+          frame,
+          [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at],
+          [0, 1],
+          {...CLAMP, easing: ENTRANCE_EASING}
+        );
+        const hitPulse = interpolate(frame, [feature.at - 2, feature.at + 2, feature.at + 12], [0, 1, 0], CLAMP);
         return (
           <div
             key={feature.id}
@@ -68,26 +198,26 @@ const FeatureCards = () => {
               top: FEATURE_CARD.top,
               width: FEATURE_CARD.width,
               height: FEATURE_CARD.height,
-              padding: "34px 36px 36px",
+              padding: "32px 34px 30px",
               display: "flex",
               flexDirection: "column",
               borderRadius: 28,
-              border: "1px solid rgba(83, 110, 134, 0.16)",
+              border: `1.5px solid ${hitPulse > 0.1 ? `rgba(232, 93, 135, ${0.22 + hitPulse * 0.45})` : "rgba(83, 110, 134, 0.16)"}`,
               background: "rgba(255, 255, 255, 0.96)",
               boxShadow: `0 26px 64px -34px rgba(43, 70, 93, ${0.26 * (1 - converge)})`,
               opacity: boardOpacity * convergeOpacity,
               translate: `${dx * converge}px ${boardRise + dy * converge}px`,
-              scale: 1 + (FEATURE_CONVERGE_SCALE - 1) * converge
+              scale: (1 + hitPulse * 0.02) * (1 + (FEATURE_CONVERGE_SCALE - 1) * converge)
             }}
           >
             <div style={{flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", opacity: contentOpacity}}>
               <div>
-                <div style={{width: 44, height: 3, borderRadius: 2, background: COLORS.pink, marginBottom: 24}} />
+                <div style={{width: 44, height: 4, borderRadius: 2, background: COLORS.pink, marginBottom: 20}} />
                 <div style={{height: 66, overflow: "hidden"}}>
                   <div
                     style={{
                       color: COLORS.foreground,
-                      fontSize: 56,
+                      fontSize: 54,
                       fontWeight: 600,
                       lineHeight: 1.15,
                       letterSpacing: -1.2,
@@ -102,11 +232,15 @@ const FeatureCards = () => {
                   </div>
                 </div>
               </div>
+
+              <FeatureMicroPreview id={feature.id} activeProgress={activeProgress} />
+
               <div style={{height: 34, overflow: "hidden"}}>
                 <div
                   style={{
                     color: COLORS.muted,
                     fontSize: 23,
+                    fontWeight: 500,
                     lineHeight: 1.4,
                     whiteSpace: "nowrap",
                     translate: interpolate(frame, [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at], ["0px 34px", "0px 0px"], {
@@ -132,8 +266,6 @@ const FinalBrand = () => {
   const iconAt = OUTRO_TIMELINE.convergeAt + 12;
   const iconSoftAt = iconAt - 6;
   const lockup = interpolate(frame, [OUTRO_TIMELINE.brandNameAt, nameSettledAt], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-  // 图标滑出画心中线后，右侧要让出的距离等于锁定位的间距；名字等图标完全让位才开始显影，
-  // 避免 148px 品牌名和图标在过渡中叠在一起。
   const nameRevealLockup = 1 - BRAND_NAME.gap / BRAND_ICON_OUTSET;
   const nameOpacity = interpolate(lockup, [nameRevealLockup, 1], [0, 1], CLAMP);
 
@@ -206,7 +338,6 @@ const FinalBrand = () => {
 const CallToAction = () => {
   const frame = useCurrentFrame();
   const clickAt = OUTRO_TIMELINE.installClickAt;
-  // 指针 30.20s 到达主按钮下沿才开始抬升，30.60s 按下，30.73s 回弹，30.87s 落定并与指针淡出同时收住。
   const buttonFrames = [156, 162, 165, clickAt, clickAt + 4, clickAt + 8];
   const pointerOpacity =
     interpolate(frame, [OUTRO_TIMELINE.pointerAppearAt, OUTRO_TIMELINE.pointerAppearAt + 4], [0, 1], CLAMP) *
@@ -327,7 +458,6 @@ const CallToAction = () => {
   );
 };
 
-// 品牌、口号与安装入口整组从 29.30s 起以 1.0→1.015 极缓推近，最终定格保持可测的连续变化。
 const BrandStage = () => {
   const frame = useCurrentFrame();
   const push = interpolate(frame, [OUTRO_TIMELINE.brandPushAt, OUTRO_TIMELINE.duration - 1], [1, OUTRO_TIMELINE.brandPushScale], CLAMP);

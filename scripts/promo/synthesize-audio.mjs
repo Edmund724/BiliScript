@@ -2,7 +2,7 @@ import path from "node:path";
 import {mkdir, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
-import {AUDIO} from "./audio.mjs";
+import {AUDIO, musicVolumeAtFrame} from "./audio.mjs";
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
@@ -69,19 +69,36 @@ function tone(note, seconds, {type = "pluck", gain = 0.2} = {}) {
   return output;
 }
 
-function kick() {
+function kick(gainScale = 1) {
   const output = new Float32Array(Math.round(0.24 * SAMPLE_RATE));
   let phase = 0;
   for (let index = 0; index < output.length; index += 1) {
     const time = index / SAMPLE_RATE;
-    const frequency = 42 + 105 * Math.exp(-time * 32);
+    const frequency = 44 + 108 * Math.exp(-time * 32);
     phase += TAU * frequency / SAMPLE_RATE;
-    output[index] = Math.sin(phase) * Math.exp(-time * 18) * Math.min(1, time / 0.002) * 0.65;
+    output[index] = Math.sin(phase) * Math.exp(-time * 17) * Math.min(1, time / 0.002) * 0.68 * gainScale;
   }
   return output;
 }
 
-function hat(open = false) {
+function subHit(gain = 0.58) {
+  const seconds = 0.28;
+  const output = new Float32Array(Math.round(seconds * SAMPLE_RATE));
+  let phase = 0;
+  for (let index = 0; index < output.length; index += 1) {
+    const time = index / SAMPLE_RATE;
+    const frequency = 62 + 28 * Math.exp(-time * 18);
+    phase += TAU * frequency / SAMPLE_RATE;
+    const click = Math.sin(TAU * 180 * time) * Math.exp(-time * 65) * 0.28;
+    const body = (Math.sin(phase) + 0.24 * Math.sin(phase * 2)) * Math.exp(-time * 11);
+    const attack = Math.min(1, time / 0.0025);
+    const release = Math.min(1, (seconds - time) / 0.03);
+    output[index] = (body + click) * attack * release * gain;
+  }
+  return output;
+}
+
+function hat(open = false, gainScale = 1) {
   const seconds = open ? 0.16 : 0.055;
   const output = new Float32Array(Math.round(seconds * SAMPLE_RATE));
   let previous = 0;
@@ -90,18 +107,31 @@ function hat(open = false) {
     const white = noise();
     const high = white - previous * 0.92;
     previous = white;
-    output[index] = high * Math.exp(-time * (open ? 24 : 75)) * Math.min(1, time / 0.001) * 0.12;
+    output[index] = high * Math.exp(-time * (open ? 24 : 75)) * Math.min(1, time / 0.001) * 0.13 * gainScale;
   }
   return output;
 }
 
-function snare() {
+function snare(gainScale = 1) {
   const output = new Float32Array(Math.round(0.18 * SAMPLE_RATE));
   for (let index = 0; index < output.length; index += 1) {
     const time = index / SAMPLE_RATE;
-    output[index] = (noise() * 0.26 + Math.sin(TAU * 185 * time) * 0.13) * Math.exp(-time * 25) * Math.min(1, time / 0.002);
+    output[index] = (noise() * 0.27 + Math.sin(TAU * 185 * time) * 0.14) * Math.exp(-time * 24) * Math.min(1, time / 0.002) * gainScale;
   }
   return output;
+}
+
+function sectionDynamicsAt(seconds) {
+  if (seconds < 3.0) return 0.56;
+  if (seconds < 7.0) return 0.66;
+  if (seconds < 11.0) return 0.74;
+  if (seconds < 17.0) return 0.86;
+  if (seconds < 20.0) return 1.18;
+  if (seconds < 25.0) return 1.24;
+  if (seconds < 28.58) return 1.20;
+  if (seconds < 29.0) return 0.05;
+  if (seconds < 31.2) return 1.10;
+  return 0.72;
 }
 
 function makeScore() {
@@ -111,42 +141,96 @@ function makeScore() {
     [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62], [57, 61, 64, 69],
     [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62], [57, 61, 64, 69],
     [55, 59, 62, 67], [50, 54, 57, 62], [52, 55, 59, 64], [57, 61, 64, 69],
-    [55, 59, 62, 67], [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62]
+    [55, 59, 62, 67], [50, 54, 57, 62], [55, 59, 62, 67], [50, 54, 57, 62],
+    [50, 54, 57, 62]
   ];
   const barCount = Math.ceil(DURATION / (4 * beat));
   for (let bar = 0; bar < barCount; bar += 1) {
     const at = bar * 4 * beat;
+    if (at >= 28.0 && at < 29.0) continue;
+    const dyn = sectionDynamicsAt(at + 0.1);
     const chord = chords[bar % chords.length];
+    const padDuration = at < 28.0 && at + 2.15 > 28.6 ? Math.max(0.4, 28.6 - at) : (bar === barCount - 1 ? 3.2 : 2.15);
     for (let note = 0; note < chord.length; note += 1) {
-      add(track, tone(chord[note], bar === barCount - 1 ? 3.6 : 2.15, {type: "pad", gain: 0.036}), at, (note - 1.5) * 0.25);
+      add(track, tone(chord[note], padDuration, {type: "pad", gain: 0.038 * dyn}), at, (note - 1.5) * 0.25);
     }
     const arp = [0, 2, 1, 3, 2, 1, 3, 1];
     for (let step = 0; step < 8; step += 1) {
+      const stepAt = at + step * beat / 2;
+      if (stepAt >= 28.55 && stepAt < 29.18) continue;
+      const stepDyn = sectionDynamicsAt(stepAt);
       const note = chord[arp[step]] + 12;
-      const gain = bar >= 6 && bar <= 8 ? 0.065 : 0.09;
-      add(track, tone(note, 0.3, {gain}), at + step * beat / 2, step % 2 ? 0.3 : -0.3);
+      const gain = (bar >= 6 && bar <= 8 ? 0.068 : 0.092) * stepDyn;
+      add(track, tone(note, 0.28, {gain}), stepAt, step % 2 ? 0.3 : -0.3);
     }
   }
-  const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50, 43, 47];
+  const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50, 43, 47, 50];
   const beatCount = Math.ceil(DURATION / beat);
   for (let index = 0; index < beatCount; index += 1) {
     const at = index * beat;
+    if (at >= 28.55 && at < 29.0) continue;
+    const dyn = sectionDynamicsAt(at);
     const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
-    add(track, kick(), at);
-    if (index % 2 === 1) add(track, snare(), at);
-    add(track, hat(index % 4 === 3), at + beat / 2, index % 2 ? 0.25 : -0.25);
-    if (index >= 2 && index < beatCount - 4) add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: accent ? 0.22 : 0.17}), at);
+    add(track, kick(dyn), at);
+    if (index % 2 === 1 && at >= 3.0) add(track, snare(dyn), at);
+    if (at >= 1.5) add(track, hat(index % 4 === 3, dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
+    if (index >= 2 && index < beatCount - 4) {
+      add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: (accent ? 0.24 : 0.18) * dyn}), at);
+    }
   }
+
+  // 7 个核心切点的 60–90Hz 短 sub-hit 瞬态强调
+  const cutHits = [3.0, 7.0, 11.0, 17.0, 20.0, 25.0, 29.0];
+  for (const cutAt of cutHits) {
+    add(track, subHit(cutAt >= 17.0 ? 0.62 : 0.52), cutAt);
+  }
+
+  // 25.5 / 26.0 / 26.5 / 27.0 四拍能力落点递进强调（峰值严格非递减）
+  const featureBuild = [
+    {at: 25.5, notes: [62, 69], gain: 0.14, sub: 0.36},
+    {at: 26.0, notes: [64, 71], gain: 0.17, sub: 0.42},
+    {at: 26.5, notes: [66, 74], gain: 0.20, sub: 0.48},
+    {at: 27.0, notes: [69, 76, 81], gain: 0.23, sub: 0.55}
+  ];
+  for (const step of featureBuild) {
+    add(track, subHit(step.sub), step.at);
+    step.notes.forEach((note, idx) => {
+      add(track, tone(note, 0.42, {type: "bell", gain: step.gain}), step.at, (idx - 0.5) * 0.22);
+    });
+  }
+
   const melody = [
     [2, 74], [3, 78], [6, 76], [10, 74], [14, 81], [15, 78], [18, 76],
     [22, 74], [26, 78], [30, 81], [34, 78], [38, 76], [42, 74], [46, 78], [50, 76]
   ];
-  for (const [index, note] of melody) add(track, tone(note, 0.7, {type: "bell", gain: 0.1}), index * beat, 0.18);
-  const resolveAt = Math.floor((OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS / beat) * beat;
-  add(track, tone(74, 1.8, {type: "bell", gain: 0.14}), resolveAt);
-  add(track, tone(78, 1.8, {type: "bell", gain: 0.1}), resolveAt, -0.2);
-  add(track, tone(81, 1.8, {type: "bell", gain: 0.1}), resolveAt, 0.2);
+  for (const [index, note] of melody) {
+    const at = index * beat;
+    add(track, tone(note, 0.7, {type: "bell", gain: 0.1 * sectionDynamicsAt(at)}), at, 0.18);
+  }
+
+  // 28.67s 收束留白（28.60–29.00s 静音呼吸），29.20s 品牌清晰时刻 Resolve
+  const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
+  add(track, subHit(0.56), resolveAt);
+  add(track, tone(74, 1.8, {type: "bell", gain: 0.18}), resolveAt);
+  add(track, tone(78, 1.8, {type: "bell", gain: 0.14}), resolveAt, -0.2);
+  add(track, tone(81, 1.8, {type: "bell", gain: 0.14}), resolveAt, 0.2);
+
+  // Soft-clipping & dynamic shaping to hit -14 LUFS (±0.5) and LRA 4–6 in final mix
+  normalize(track, 1.0);
+  const drive = 2.55;
+  const normDrive = Math.tanh(drive);
+  for (let ch = 0; ch < 2; ch += 1) {
+    for (let i = 0; i < track[ch].length; i += 1) {
+      const time = i / SAMPLE_RATE;
+      const boost = time >= 17.0 && time < 28.58 ? 1.12 : 0.96;
+      if (time >= 28.62 && time < 28.98) {
+        const edge = Math.min(1, Math.max(0, (28.67 - time) / 0.05));
+        track[ch][i] *= edge;
+      }
+      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= 17.0 && time < 28.58 ? 1.04 : 0.94);
+    }
+  }
   return track;
 }
 
@@ -157,8 +241,8 @@ function sweep(start, end, seconds, gain) {
     const time = index / SAMPLE_RATE;
     const frequency = start + (end - start) * time / seconds;
     phase += TAU * frequency / SAMPLE_RATE;
-    const envelope = Math.min(1, time / 0.003) * Math.exp(-time * 24) * Math.min(1, (seconds - time) / 0.025);
-    output[index] = (Math.sin(phase) + 0.2 * Math.sin(phase * 2.01)) * envelope * gain;
+    const envelope = Math.min(1, time / 0.002) * Math.exp(-time * 16) * Math.min(1, (seconds - time) / 0.02);
+    output[index] = Math.tanh((Math.sin(phase) + 0.32 * Math.sin(phase * 2.01) + 0.14 * Math.sin(phase * 0.5)) * 1.35) * envelope * gain;
   }
   return output;
 }
@@ -170,14 +254,15 @@ function makeWhoosh() {
     const time = index / SAMPLE_RATE;
     low = low * 0.86 + noise() * 0.14;
     const band = noise() * 0.25 + low * 1.7;
-    const envelope = Math.sin(Math.PI * Math.min(1, time / 0.5)) ** 1.7;
-    track[0][index] = band * envelope * 0.35;
-    track[1][index] = band * envelope * 0.28;
+    const sub = Math.sin(TAU * (68 + 20 * Math.exp(-time * 10)) * time) * Math.exp(-time * 12) * 0.45;
+    const envelope = Math.sin(Math.PI * Math.min(1, time / 0.5)) ** 1.5;
+    track[0][index] = (band * envelope * 0.38) + sub;
+    track[1][index] = (band * envelope * 0.32) + sub;
   }
   return track;
 }
 
-function normalize(track, peak = 0.78) {
+function normalize(track, peak = 0.86) {
   let maximum = 0;
   for (const channel of track) for (const sample of channel) maximum = Math.max(maximum, Math.abs(sample));
   const scale = maximum > 0 ? peak / maximum : 1;
@@ -209,9 +294,6 @@ function wav(track) {
 }
 
 await mkdir(path.join(OUTPUT_DIR, "sfx"), {recursive: true});
-const score = makeScore();
-const scoreLevel = normalize(score, 0.82);
-await writeFile(path.join(OUTPUT_DIR, "promo-score.wav"), wav(score));
 
 const effects = {
   key: [sweep(2100, 1150, 0.09, 0.65)],
@@ -222,19 +304,56 @@ const effects = {
   resolve: [tone(74, 0.85, {type: "bell", gain: 0.65}), tone(81, 0.85, {type: "bell", gain: 0.5})]
 };
 const sfxEvidence = [];
+const sfxBySrc = new Map();
 for (const [name, layers] of Object.entries(effects)) {
   const track = buffer(name === "resolve" || name === "chord" ? 0.9 : 0.2);
   layers.forEach((layer, index) => add(track, layer, name === "toggle" ? index * 0.055 : 0, index ? 0.15 : -0.1));
-  const level = normalize(track);
+  const level = normalize(track, 0.74);
   const file = path.join(OUTPUT_DIR, "sfx", `${name}.wav`);
   await writeFile(file, wav(track));
+  sfxBySrc.set(`media/sfx/${name}.wav`, track);
   sfxEvidence.push({name, source: "code-original", license: "MIT License", file: path.relative(REPO_ROOT, file), durationInSeconds: track[0].length / SAMPLE_RATE, peak: level.peak});
 }
 const whoosh = makeWhoosh();
-const whooshLevel = normalize(whoosh, 0.68);
+const whooshLevel = normalize(whoosh, 0.64);
 const whooshFile = path.join(OUTPUT_DIR, "sfx", "whoosh.wav");
 await writeFile(whooshFile, wav(whoosh));
+sfxBySrc.set("media/sfx/whoosh.wav", whoosh);
 sfxEvidence.push({name: "whoosh", source: "code-original", license: "MIT License", file: path.relative(REPO_ROOT, whooshFile), durationInSeconds: 0.5, peak: whooshLevel.peak});
+
+const score = makeScore();
+const scoreLevel = normalize(score, 0.96);
+const sfxStem = buffer(DURATION);
+for (const cue of AUDIO.cues) {
+  const sfxTrack = sfxBySrc.get(cue.src);
+  if (!sfxTrack) continue;
+  const startSample = Math.round((cue.frame / PROMO_FPS) * SAMPLE_RATE);
+  for (let ch = 0; ch < 2; ch += 1) {
+    for (let j = 0; j < sfxTrack[ch].length && startSample + j < sfxStem[ch].length; j += 1) {
+      sfxStem[ch][startSample + j] += sfxTrack[ch][j] * cue.gain;
+    }
+  }
+}
+const samplesPerFrame = SAMPLE_RATE / PROMO_FPS;
+const ceiling = 0.78;
+const fullMix = buffer(DURATION);
+for (let i = 0; i < score[0].length; i += 1) {
+  const frame = Math.min(PROMO_DURATION - 1, Math.floor(i / samplesPerFrame));
+  const vol = musicVolumeAtFrame(frame);
+  for (let ch = 0; ch < 2; ch += 1) {
+    if (vol <= 0.0001) {
+      fullMix[ch][i] = Math.tanh(sfxStem[ch][i] / ceiling) * ceiling;
+      continue;
+    }
+    const scaledScore = score[ch][i] * 1.31;
+    const rawCombined = scaledScore * vol + sfxStem[ch][i];
+    const limitedCombined = Math.tanh(rawCombined / ceiling) * ceiling;
+    score[ch][i] = Math.max(-0.98, Math.min(0.98, (limitedCombined - sfxStem[ch][i]) / vol));
+    fullMix[ch][i] = score[ch][i] * vol + sfxStem[ch][i];
+  }
+}
+await writeFile(path.join(OUTPUT_DIR, "promo-score.wav"), wav(score));
+await writeFile(path.join(OUTPUT_DIR, "remotion-mix.wav"), wav(fullMix));
 
 const evidence = {
   music: {

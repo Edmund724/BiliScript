@@ -78,7 +78,12 @@ const report = {
   }))
 };
 if (Math.abs(duration - PROMO_DURATION / PROMO_FPS) > 0.05) throw new Error(`音轨时长不符：${duration}`);
-if (!Number.isFinite(Number(measured.input_i)) || Number(measured.input_tp) > -1) throw new Error(`成片 true peak 过高：${measured.input_tp}`);
+const inputI = Number(measured.input_i);
+const inputLra = Number(measured.input_lra);
+const inputTp = Number(measured.input_tp);
+if (!Number.isFinite(inputI) || inputTp > -1) throw new Error(`成片 true peak 过高：${measured.input_tp}`);
+if (inputI < -14.5 || inputI > -13.5) throw new Error(`成片综合响度超出 -14±0.5 LUFS：${measured.input_i}`);
+if (inputLra < 4.0 || inputLra > 6.0) throw new Error(`成片 LRA 超出 4–6 范围：${measured.input_lra}`);
 if (samplePeak >= 0.99) throw new Error(`成片存在削波风险：${report.samplePeakDbfs} dBFS`);
 if (!(report.fadeIn.first100MsRmsDb < report.fadeIn.next400MsRmsDb)) throw new Error("片头未检测到自然淡入");
 if (!(report.fadeOut.last100MsRmsDb < report.fadeOut.previous400MsRmsDb)) throw new Error("片尾未检测到自然淡出");

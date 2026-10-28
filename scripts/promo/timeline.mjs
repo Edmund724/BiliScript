@@ -9,15 +9,17 @@ export const PROMO_DURATION = OUTRO_TIMELINE.from + OUTRO_TIMELINE.duration;
 
 export const PROVIDER_TIMELINE = {
   duration: 150,
-  dialogShot: {from: 0, duration: 30, source: 60, playbackRate: 2.5},
+  dialogShot: {from: 0, duration: 48, source: 60, playbackRate: 1.8},
   expandAt: 19,
-  countAt: 26,
-  countDuration: 10,
-  shotsExitAt: 30,
-  shotsExitDuration: 6,
-  wallAt: 36,
-  cardStagger: 0.45,
-  collapseAt: 134,
+  countAt: 22,
+  countHoldFrames: 22,
+  countMoveFrames: 14,
+  countDuration: 22,
+  shotsExitAt: 42,
+  shotsExitDuration: 10,
+  wallAt: 52,
+  cardStagger: 4.5,
+  collapseAt: 136,
   wallExitAt: 138,
   wallExitDuration: 10,
   collapseDuration: 12
@@ -38,15 +40,28 @@ export const PANEL_FOCUS_HANDOFFS = [
   {from: "chat", to: "appearance", at: 510, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
+export const CHAT_TIMESTAMP_CLICK_FRAME = 84;
+export const CHAT_PLAYER_VERIFY_FROM = 114;
+export const CHAT_PLAYER_VERIFY_TO = 144;
+
 export const CHAT_SHOTS = [
-  { startFrom: 0, duration: 45, playbackRate: 1 },
-  { startFrom: 150, duration: 15, playbackRate: 1 },
-  { startFrom: 405, duration: 120, playbackRate: 0.375 }
+  { startFrom: 0, duration: 54, playbackRate: 1.5 },
+  { startFrom: 300, duration: 60, playbackRate: 1.5 },
+  { startFrom: 390, duration: 66, playbackRate: 0.75 }
 ];
 
 export const APPEARANCE_SHOTS = [
-  { title: "深色模式，\n完整切换。", startFrom: 0, duration: 42, playbackRate: 1.35, width: 560, top: 28 },
-  { title: "阅读色板，\n随你偏好。", startFrom: 80, duration: 48, playbackRate: 1.25, width: 780, top: 295 }
+  { title: "深色模式，\n完整切换。", startFrom: 0, duration: 45, playbackRate: 1.35, width: 860, top: 172 },
+  { title: "阅读色板，\n随你偏好。", startFrom: 80, duration: 45, playbackRate: 1.25, width: 788, top: 172 }
 ];
 
-export const EVIDENCE_TIMES = [0, 0.5, 1, 1.5, 2.5, 3.2, 4.5, 5, 5.4, 6.8, 7.2, 8.2, 9.5, 10.2, 10.8, 11.2, 12, 12.5, 13, 14.5, 16.8, 17.2, 18.5, 19.8, 20.2, 20.8, 21.4, 22.5, 23.5, 24.5, 25.2, 25.8, 26.6, 27.6, 28.7, 29.2, 29.7, 30, 30.7, 31.5, (PROMO_DURATION - 1) / PROMO_FPS];
+export const EVIDENCE_TIMES = [
+  0, 0.1, 0.17, 0.5, 1, 1.5, 2.5,
+  3.2, 4.5, 5, 5.4, 6.8,
+  7.2, 8.2, 9.5, 10.2, 10.8,
+  11.2, 12, 12.5, 13.8, 14.5, 15.3, 16.2, 16.8,
+  17.2, 17.8, 18.5, 19.1, 19.8,
+  20.2, 20.8, 21.1, 21.4, 22.5, 23.5, 24.5,
+  25.2, 25.8, 26.6, 27.6, 28.7, 29.2, 29.7, 30, 30.7, 31.5,
+  (PROMO_DURATION - 1) / PROMO_FPS
+];

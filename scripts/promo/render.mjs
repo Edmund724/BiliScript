@@ -1,5 +1,7 @@
 import path from "node:path";
+import {execFile} from "node:child_process";
 import {mkdir, readFile, readdir, unlink, writeFile} from "node:fs/promises";
+import {promisify} from "node:util";
 import {bundle} from "@remotion/bundler";
 import {getCompositions, getVideoMetadata, renderMedia, renderStill} from "@remotion/renderer";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
@@ -8,10 +10,12 @@ import {preparePromoAssets} from "./prepare.mjs";
 import {PROVIDER_LOGOS} from "./provider-logos.mjs";
 import {APPEARANCE_SHOTS, CAPTIONS, CHAT_SHOTS, EVIDENCE_TIMES, PROMO_DURATION, PROMO_FPS, SCENES} from "./timeline.mjs";
 
+const execFileAsync = promisify(execFile);
 const RELEASE_DIR = path.join(REPO_ROOT, "release");
 const EVIDENCE_DIR = path.join(PROMO_DIR, "evidence");
 const args = new Set(process.argv.slice(2));
 const stillsOnly = args.has("--stills-only");
+const postOnly = args.has("--post-only");
 const draft = args.has("--draft") || stillsOnly;
 
 function srtTime(seconds) {
@@ -74,6 +78,41 @@ function progressLogger(label, alreadyPercent = false) {
 }
 
 async function validateFinalVideo(output) {
+  const mixWavPath = path.join(PROMO_DIR, "assets", "audio", "remotion-mix.wav");
+  const remuxedOutput = path.join(EVIDENCE_DIR, "remuxed-1080p.mp4");
+  await execFileAsync(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-i",
+      output,
+      "-i",
+      mixWavPath,
+      "-map",
+      "0:v:0",
+      "-map",
+      "1:a:0",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-movflags",
+      "+faststart",
+      "-metadata",
+      "title=BiliScript｜B 站视频文摘",
+      remuxedOutput
+    ],
+    {maxBuffer: 4 * 1024 * 1024}
+  );
+  const remuxedBytes = await readFile(remuxedOutput);
+  await writeFile(output, remuxedBytes);
+  await unlink(remuxedOutput).catch(() => {});
+
   const metadata = await getVideoMetadata(output);
   if (metadata.width !== 1920 || metadata.height !== 1080 || metadata.fps !== PROMO_FPS) {
     throw new Error(`成片规格不符：${JSON.stringify(metadata)}`);
@@ -90,7 +129,63 @@ async function validateFinalVideo(output) {
   if (moov < 0 || mdat < 0 || moov > mdat) {
     throw new Error("成片未启用 fast-start");
   }
-  await writeFile(path.join(EVIDENCE_DIR, "final-metadata.json"), JSON.stringify({...metadata, fastStart: true}, null, 2) + "\n", "utf8");
+  const masterOutput = path.join(RELEASE_DIR, "BiliScript-promo-master.mp4");
+  await execFileAsync(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-y",
+      "-i",
+      output,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "medium",
+      "-b:v",
+      "14M",
+      "-minrate",
+      "14M",
+      "-maxrate",
+      "14M",
+      "-bufsize",
+      "14M",
+      "-x264-params",
+      "nal-hrd=cbr:filler=1:force-cfr=1",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "320k",
+      "-movflags",
+      "+faststart",
+      masterOutput
+    ],
+    {maxBuffer: 4 * 1024 * 1024}
+  );
+  const masterBytes = await readFile(masterOutput);
+  const masterBitrateMbps = Number(((masterBytes.length * 8) / metadata.durationInSeconds / 1_000_000).toFixed(2));
+  if (masterBitrateMbps < 10) {
+    throw new Error(`高码率上传母版码率不足 10 Mbps：${masterBitrateMbps} Mbps`);
+  }
+  const webBitrateMbps = Number(((bytes.length * 8) / metadata.durationInSeconds / 1_000_000).toFixed(2));
+  await writeFile(
+    path.join(EVIDENCE_DIR, "final-metadata.json"),
+    JSON.stringify(
+      {
+        ...metadata,
+        fastStart: true,
+        webBitrateMbps,
+        masterPath: "release/BiliScript-promo-master.mp4",
+        masterBitrateMbps
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
 }
 
 const {publicDir, manifest} = await preparePromoAssets();
@@ -127,7 +222,7 @@ if (!promo || !cover) throw new Error("未找到 BiliScript / Cover 合成");
 const output = draft
   ? path.join(EVIDENCE_DIR, "BiliScript-promo-draft.mp4")
   : path.join(RELEASE_DIR, "BiliScript-promo-1080p.mp4");
-if (!stillsOnly) {
+if (!stillsOnly && !postOnly) {
   await mkdir(path.dirname(output), {recursive: true});
   await renderMedia({
     composition: promo,
