@@ -18,7 +18,7 @@ export const PROVIDER_TIMELINE = {
   shotsExitAt: 42,
   shotsExitDuration: 10,
   wallAt: 52,
-  cardStagger: 4.5,
+  cardStagger: 3.75,
   collapseAt: 136,
   wallExitAt: 138,
   wallExitDuration: 10,

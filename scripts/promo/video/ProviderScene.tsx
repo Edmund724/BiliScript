@@ -85,16 +85,30 @@ const ContinuousClaim = () => {
 
 const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; index: number}) => {
   const frame = useCurrentFrame();
-  const start = wallAt + index * cardStagger;
   const col = index % 7;
   const row = Math.floor(index / 7);
+  const start = wallAt + index * cardStagger;
   const cardCenterX = 104 + col * (224 + 24) + 112;
   const cardCenterY = 276 + row * (226 + 32) + 113;
   const collapseProgress = interpolate(frame, [collapseAt, collapseAt + collapseDuration], [0, 1], {...CLAMP, easing: ENTRANCE});
-  const enterRise = interpolate(frame, [start, start + 8], [28, 0], {...CLAMP, easing: ENTRANCE});
-  const enterScale = interpolate(frame, [start, start + 8], [0.92, 1], {...CLAMP, easing: ENTRANCE});
+
+  // 琴键/多米诺弹起波浪（Domino / Piano Key Wave）
+  const local = frame - start;
+  const enterOpacity = interpolate(local, [0, 3], [0, 1], CLAMP);
+  const keyLiftY = interpolate(local, [0, 3, 7, 13], [36, -16, 3, 0], {...CLAMP, easing: ENTRANCE});
+  const keyScale = interpolate(local, [0, 3, 7, 13], [0.84, 1.07, 0.99, 1], {...CLAMP, easing: ENTRANCE});
+  const keyRotateX = interpolate(local, [0, 3, 8, 14], [-22, 7, -1.5, 0], {...CLAMP, easing: ENTRANCE});
+  const keyRotateZ = interpolate(local, [0, 3, 8, 14], [row === 0 ? -4 : 4, row === 0 ? 1.5 : -1.5, 0, 0], {...CLAMP, easing: ENTRANCE});
+  const rippleHighlight = interpolate(local, [0, 2.5, 10], [0, 1, 0], CLAMP);
+
+  // 后续卡弹起时传导的微弱琴键共振波纹
+  const wavePhase = (frame - wallAt) * 0.36 - (col * 0.55 + row * 0.85);
+  const waveActive = frame >= start + 13 && frame < collapseAt ? Math.sin(wavePhase) * Math.exp(-Math.max(0, frame - (start + 13)) * 0.045) : 0;
+  const secondaryWaveY = waveActive * -4.5;
+
   const convergeX = (960 - cardCenterX) * collapseProgress;
   const convergeY = (540 - cardCenterY) * collapseProgress;
+  const finalScale = keyScale * (1 - 0.78 * collapseProgress);
 
   return (
     <div
@@ -107,12 +121,18 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
         justifyContent: "center",
         gap: 22,
         borderRadius: 30,
-        background: "rgba(255, 255, 255, 0.94)",
+        background:
+          rippleHighlight > 0.02
+            ? `linear-gradient(165deg, rgba(255, 255, 255, 0.99) 0%, rgba(250, 244, 248, 0.96) 100%)`
+            : "rgba(255, 255, 255, 0.94)",
         backdropFilter: "blur(20px)",
-        boxShadow: ELEVATION.cardSoft,
-        opacity: interpolate(frame, [start, start + 5], [0, 1], CLAMP),
-        translate: `${convergeX}px ${enterRise + convergeY}px`,
-        scale: enterScale * (1 - 0.78 * collapseProgress)
+        boxShadow:
+          rippleHighlight > 0.02
+            ? `0 32px 68px -20px rgba(232, 93, 135, ${(0.28 * rippleHighlight).toFixed(2)}), 0 0 0 2px rgba(232, 93, 135, ${(0.42 * rippleHighlight).toFixed(2)}), ${ELEVATION.cardSoft}`
+            : ELEVATION.cardSoft,
+        opacity: enterOpacity,
+        transformOrigin: "50% 85%",
+        transform: `perspective(1200px) translate3d(${convergeX.toFixed(2)}px, ${(keyLiftY + secondaryWaveY + convergeY).toFixed(2)}px, 0px) rotateX(${(keyRotateX * (1 - collapseProgress)).toFixed(2)}deg) rotateZ(${(keyRotateZ * (1 - collapseProgress)).toFixed(2)}deg) scale(${finalScale.toFixed(3)})`
       }}
     >
       <div
@@ -120,10 +140,11 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
           width: 96,
           height: 82,
           borderRadius: 22,
-          background: "rgba(244, 245, 248, 0.85)",
+          background: rippleHighlight > 0.05 ? "rgba(232, 93, 135, 0.10)" : "rgba(244, 245, 248, 0.85)",
           display: "flex",
           alignItems: "center",
-          justifyContent: "center"
+          justifyContent: "center",
+          scale: 1 + rippleHighlight * 0.06
         }}
       >
         <Img src={staticFile(`media/providers/${logo.file}`)} style={{width: 68, height: 68, objectFit: "contain"}} />

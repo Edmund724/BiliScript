@@ -62,7 +62,7 @@ validateTimeline();
 async function writeReleaseText() {
   const srt = CAPTIONS.map((caption, index) => `${index + 1}\n${srtTime(caption.startMs / 1000)} --> ${srtTime(caption.endMs / 1000)}\n${caption.text}\n`).join("\n");
   const logoCredits = PROVIDER_LOGOS.map((logo) => `${logo.name} (${logo.id})\n官方素材：${logo.officialFileUrl}\n来源页：${logo.sourcePage}\n依据：${logo.usageBasis}${logo.usageBasisUrl ? `\n条款/品牌页：${logo.usageBasisUrl}` : ""}\n获取：${logo.acquiredAt}；${logo.modifications}`).join("\n\n");
-  const credits = `演示视频与原片讲课同期声片段（04:07 / 04:44）：复旦赵斌《AI并非越强越好，适配才是关键》\nhttps://www.bilibili.com/video/BV1mAam6tEL8/\n\n音乐：“BiliScript Pulse” — BiliScript\n原创合成：scripts/promo/synthesize-audio.mjs\nLicense: MIT License\nhttps://github.com/Edmund724/BiliScript/blob/main/LICENSE\n\n音效：key / pop / toggle / click / chord / resolve / whoosh — BiliScript\n均为原创合成；来源与许可同上。\n\n平台 Logo：权利归各平台权利人；仅标识对应预设，不暗示合作或背书。\n${logoCredits}\n\nBiliScript\nhttps://github.com/Edmund724/BiliScript\n`;
+  const credits = `演示视频与原片讲课同期声片段（04:07 / 04:44）：复旦赵斌《AI并非越强越好，适配才是关键》\nhttps://www.bilibili.com/video/BV1mAam6tEL8/\n\n音乐：“BiliScript Pulse” — BiliScript\n原创合成：scripts/promo/synthesize-audio.mjs\nLicense: MIT License\nhttps://github.com/Edmund724/BiliScript/blob/main/LICENSE\n\n音效：key / mech-key-1..2 / mech-enter / snap / shutter-1..3 / bubble-01..14 / pop / toggle / click / chord / resolve / whoosh — BiliScript\n均为原创合成；来源与许可同上。\n\n平台 Logo：权利归各平台权利人；仅标识对应预设，不暗示合作或背书。\n${logoCredits}\n\nBiliScript\nhttps://github.com/Edmund724/BiliScript\n`;
   await mkdir(RELEASE_DIR, {recursive: true});
   await writeFile(path.join(RELEASE_DIR, "BiliScript-promo-zh-CN.srt"), srt, "utf8");
   await writeFile(path.join(RELEASE_DIR, "BiliScript-promo-credits.txt"), credits, "utf8");

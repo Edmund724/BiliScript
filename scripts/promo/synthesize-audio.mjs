@@ -158,10 +158,21 @@ function makeScore() {
     for (let step = 0; step < 8; step += 1) {
       const stepAt = at + step * beat / 2;
       if (stepAt >= 28.55 && stepAt < 29.18) continue;
+      // 9.0–10.2s 金句切换色板期间留出清透空间给递进快门水滴音
+      if (stepAt >= 9.05 && stepAt <= 10.15 && step % 2 === 1) continue;
       const stepDyn = sectionDynamicsAt(stepAt);
-      const note = chord[arp[step]] + 12;
-      const gain = (bar >= 6 && bar <= 8 ? 0.068 : 0.092) * stepDyn;
-      add(track, tone(note, 0.28, {gain}), stepAt, step % 2 ? 0.3 : -0.3);
+      const note = chord[arp[step]] + (stepAt >= 20.0 && stepAt < 25.0 ? 24 : 12);
+      const gain = (bar >= 4 && bar <= 5 ? 0.056 : bar >= 6 && bar <= 8 ? 0.072 : 0.094) * stepDyn;
+      add(track, tone(note, stepAt >= 20.0 && stepAt < 25.0 ? 0.19 : 0.28, {type: stepAt >= 7.0 && stepAt < 11.0 ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
+    }
+    // 21.73–23.6s 平台矩阵波浪段落：叠加 16 分音符律动木琴底脉冲，托起 14 个连续冒泡音
+    if (at >= 20.0 && at < 24.0) {
+      for (let sixteenth = 0; sixteenth < 16; sixteenth += 1) {
+        const pulseAt = at + sixteenth * (beat / 4);
+        if (pulseAt < 21.7 || pulseAt > 23.65) continue;
+        const pulseNote = chord[sixteenth % chord.length] + 12;
+        add(track, tone(pulseNote, 0.09, {type: "pluck", gain: 0.045}), pulseAt, ((sixteenth % 7) - 3) * 0.14);
+      }
     }
   }
   const bassRoots = [47, 43, 50, 45, 47, 43, 50, 45, 43, 50, 40, 45, 43, 50, 43, 47, 50];
@@ -172,9 +183,20 @@ function makeScore() {
     const dyn = sectionDynamicsAt(at);
     const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
-    add(track, kick(dyn), at);
-    if (index % 2 === 1 && at >= 3.0) add(track, snare(dyn), at);
-    if (at >= 1.5) add(track, hat(index % 4 === 3, dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
+    // 前 3 秒痛点三连问仅保留轻柔心跳低音，1.8s 拉远后进入完整鼓组；9–10.2s 金句色板切换减轻高频打击乐
+    const inQuotePaletteWindow = at >= 9.0 && at <= 10.2;
+    const inProviderWave = at >= 20.0 && at < 25.0;
+    add(track, kick(at < 1.8 ? dyn * 0.55 : inProviderWave ? dyn * 1.08 : dyn), at);
+    if (index % 2 === 1 && at >= 3.0 && !inQuotePaletteWindow) {
+      add(track, snare(inProviderWave ? dyn * 1.05 : dyn), at);
+    }
+    if (at >= 2.0 && !inQuotePaletteWindow) {
+      add(track, hat(index % 4 === 3, dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
+      if (inProviderWave) {
+        add(track, hat(false, dyn * 0.65), at + beat / 4, -0.2);
+        add(track, hat(false, dyn * 0.65), at + (beat * 3) / 4, 0.2);
+      }
+    }
     if (index >= 2 && index < beatCount - 4) {
       add(track, tone(bassRoots[bar], 0.34, {type: "bass", gain: (accent ? 0.24 : 0.18) * dyn}), at);
     }
@@ -258,6 +280,178 @@ function makeWhoosh() {
     const envelope = Math.sin(Math.PI * Math.min(1, time / 0.5)) ** 1.5;
     track[0][index] = (band * envelope * 0.38) + sub;
     track[1][index] = (band * envelope * 0.32) + sub;
+  }
+  return track;
+}
+
+// 0:03 定制清脆机械键盘敲击音效（段落轴簧片 Click + PBT 键帽触底 Thock，回车键叠加平衡杆共鸣）
+function makeMechKey({pitchScale = 1, isEnter = false} = {}) {
+  const seconds = isEnter ? 0.14 : 0.105;
+  const track = buffer(seconds);
+  let prevNoise = 0;
+  for (let i = 0; i < track[0].length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    const w = noise();
+    const hp = w - prevNoise * 0.88;
+    prevNoise = w;
+    // 1. 段落轴金属簧片瞬态清脆 Click (~3.6kHz + ~2.2kHz)
+    const leafClick =
+      (Math.sin(TAU * 3650 * pitchScale * t) * 0.58 +
+        Math.sin(TAU * 2240 * pitchScale * t) * 0.42 +
+        hp * 0.55) *
+      Math.exp(-t * 155) *
+      Math.min(1, t / 0.0005);
+    // 2. 约 4.5ms 后键帽触底壳体共鸣 Thock (~1.25kHz -> 420Hz + 低频桌面扎实震感)
+    const bottomDelay = isEnter ? 0.0048 : 0.0036;
+    const tb = Math.max(0, t - bottomDelay);
+    const housingFreq = (isEnter ? 1080 : 1320) * pitchScale * Math.exp(-tb * 35) + (isEnter ? 195 : 250);
+    const thock =
+      tb > 0
+        ? (Math.sin(TAU * housingFreq * tb) * 0.68 +
+            Math.sin(TAU * (isEnter ? 168 : 215) * tb) * 0.52 +
+            hp * 0.25 * Math.exp(-tb * 95)) *
+          Math.exp(-tb * (isEnter ? 44 : 58)) *
+          Math.min(1, tb / 0.0008)
+        : 0;
+    // 3. 回车键独有的金属平衡杆清脆咬合泛音
+    const stabRing =
+      isEnter && tb > 0
+        ? (Math.sin(TAU * 2880 * tb) * 0.34 + Math.sin(TAU * 1560 * tb) * 0.28) *
+          Math.exp(-tb * 48)
+        : 0;
+    const sample = Math.tanh((leafClick + thock + stabRing) * 1.45);
+    const pan = isEnter ? 0.06 : pitchScale > 1 ? 0.04 : -0.05;
+    const lGain = Math.cos((pan + 1) * Math.PI / 4);
+    const rGain = Math.sin((pan + 1) * Math.PI / 4);
+    track[0][i] = sample * lGain;
+    track[1][i] = sample * rGain;
+  }
+  return track;
+}
+
+// 0:05 磁吸吸附音效（Snap）：微吸附预收束 + 钕磁铁清脆咬合瞬态 + 瞬移锁定泛音
+function makeMagneticSnap() {
+  const seconds = 0.22;
+  const track = buffer(seconds);
+  let sweepPhase = 0;
+  let lockPhase = 0;
+  let prev = 0;
+  for (let i = 0; i < track[0].length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    const w = noise();
+    const hp = w - prev * 0.9;
+    prev = w;
+    // 前 18ms 极速磁力牵引上扬（480Hz -> 2100Hz）
+    const preEnv = t < 0.018 ? Math.sin((t / 0.018) * (Math.PI / 2)) * 0.45 : Math.exp(-(t - 0.018) * 180) * 0.45;
+    const preFreq = 480 + 1620 * Math.min(1, t / 0.018) ** 2;
+    sweepPhase += (TAU * preFreq) / SAMPLE_RATE;
+    const suction = Math.sin(sweepPhase) * preEnv;
+
+    // 18ms 处磁极瞬时吸合（清脆金属玻璃质感咬合 + 紧实 82Hz 瞬移低频锚点）
+    const tl = Math.max(0, t - 0.016);
+    const lockFreq = 2650 * Math.exp(-tl * 85) + 1110;
+    lockPhase += (TAU * lockFreq) / SAMPLE_RATE;
+    const snapClick =
+      tl > 0
+        ? (Math.sin(lockPhase) * 0.72 +
+            Math.sin(TAU * 3920 * tl) * 0.44 * Math.exp(-tl * 160) +
+            hp * 0.48 * Math.exp(-tl * 210)) *
+          Math.exp(-tl * 68) *
+          Math.min(1, tl / 0.0004)
+        : 0;
+    const subLock =
+      tl > 0
+        ? Math.sin(TAU * (84 + 90 * Math.exp(-tl * 55)) * tl) *
+          Math.exp(-tl * 32) *
+          Math.min(1, tl / 0.001) *
+          0.62
+        : 0;
+    // 晶莹的 D 大调高八度锁定余韵 (A5 + D6)
+    const chime =
+      tl > 0
+        ? (Math.sin(TAU * midi(81) * tl) * 0.22 + Math.sin(TAU * midi(86) * tl) * 0.18) *
+          Math.exp(-tl * 18) *
+          Math.min(1, tl / 0.002)
+        : 0;
+    const mono = Math.tanh((suction + snapClick + subLock) * 1.4);
+    track[0][i] = mono * 0.96 + chime * 1.08;
+    track[1][i] = mono * 1.02 + chime * 0.92;
+  }
+  return track;
+}
+
+// 0:09 切换金句卡片配色：成音阶递进的清脆水滴声 + 胶片快门声（咔嚓）
+function makeShutterDrop(noteMidi, stepIndex = 0) {
+  const seconds = 0.28;
+  const track = buffer(seconds);
+  const baseFreq = midi(noteMidi);
+  const fifthFreq = midi(noteMidi + 7);
+  let dropPhase = 0;
+  let prev = 0;
+  for (let i = 0; i < track[0].length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    const w = noise();
+    const hp = w - prev * 0.89;
+    prev = w;
+    // 1. 胶片相机双帘机械快门“咔-嚓”（0ms 前帘释放 + 15ms 后帘咬合）
+    const blade1 =
+      (hp * 0.65 + Math.sin(TAU * 2950 * t) * 0.42 + Math.sin(TAU * 920 * t) * 0.35) *
+      Math.exp(-t * 175) *
+      Math.min(1, t / 0.0004);
+    const t2 = Math.max(0, t - 0.015);
+    const blade2 =
+      t2 > 0
+        ? (hp * 0.52 + Math.sin(TAU * 3480 * t2) * 0.48 + Math.sin(TAU * 1380 * t2) * 0.32) *
+          Math.exp(-t2 * 150) *
+          Math.min(1, t2 / 0.0004)
+        : 0;
+    // 2. 成音阶递进的清脆水滴声（流体空化特征：基频从 0.58x 指数上扬至 1.32x，叠清透泛音）
+    const td = Math.max(0, t - 0.006);
+    const dropInstFreq = baseFreq * (0.58 + 0.74 * (1 - Math.exp(-td * 58)));
+    dropPhase += (TAU * dropInstFreq) / SAMPLE_RATE;
+    const waterDrop =
+      td > 0
+        ? (Math.sin(dropPhase) * 0.76 +
+            Math.sin(TAU * baseFreq * 2.0 * td) * 0.28 * Math.exp(-td * 28) +
+            Math.sin(TAU * fifthFreq * td) * (0.18 + stepIndex * 0.06) * Math.exp(-td * 18)) *
+          Math.exp(-td * 16.5) *
+          Math.min(1, td / 0.0015)
+        : 0;
+    const pan = (stepIndex - 1) * 0.16;
+    const leftGain = Math.cos((pan + 1) * Math.PI / 4);
+    const rightGain = Math.sin((pan + 1) * Math.PI / 4);
+    const sample = Math.tanh((blade1 * 0.68 + blade2 * 0.72 + waterDrop * 0.92) * 1.32);
+    track[0][i] = sample * leftGain;
+    track[1][i] = sample * rightGain;
+  }
+  return track;
+}
+
+// 0:21 14 个 AI 平台图标矩阵波浪：密集、舒适的成音阶立体声冒泡音效（Pop / Bubble）
+function makeBubblePop(noteMidi, index = 0) {
+  const seconds = 0.19;
+  const track = buffer(seconds);
+  const f0 = midi(noteMidi);
+  const col = index % 7;
+  const pan = ((col - 3) / 3) * 0.52;
+  const leftGain = Math.cos((pan + 1) * Math.PI / 4);
+  const rightGain = Math.sin((pan + 1) * Math.PI / 4);
+  let phase = 0;
+  let harmonicPhase = 0;
+  for (let i = 0; i < track[0].length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    // 经典圆润气泡物理包络：圆滑正弦起音 + 0.54f0 -> 1.42f0 快速上扬频率扫掠 + 温润木琴余韵
+    const instFreq = f0 * (0.54 + 0.88 * Math.min(1, (t / 0.044) ** 1.35));
+    phase += (TAU * instFreq) / SAMPLE_RATE;
+    harmonicPhase += (TAU * f0 * 2.0) / SAMPLE_RATE;
+    const attack = Math.min(1, t / 0.0022);
+    const popBody = Math.sin(phase) * Math.exp(-t * 24);
+    const warmWood = Math.sin(TAU * f0 * t) * 0.42 * Math.exp(-t * 15);
+    const glassyShimmer = Math.sin(harmonicPhase) * 0.22 * Math.exp(-t * 36);
+    const lipTick = Math.sin(TAU * (f0 * 3.1) * t) * Math.exp(-t * 140) * 0.18;
+    const sample = Math.tanh((popBody + warmWood + glassyShimmer + lipTick) * attack * 1.25);
+    track[0][i] = sample * leftGain;
+    track[1][i] = sample * rightGain;
   }
   return track;
 }
@@ -354,6 +548,36 @@ const whooshFile = path.join(OUTPUT_DIR, "sfx", "whoosh.wav");
 await writeFile(whooshFile, wav(whoosh));
 sfxBySrc.set("media/sfx/whoosh.wav", whoosh);
 sfxEvidence.push({name: "whoosh", source: "code-original", license: "MIT License", file: path.relative(REPO_ROOT, whooshFile), durationInSeconds: 0.5, peak: whooshLevel.peak});
+
+const customSfxEntries = [
+  {name: "mech-key-1", track: makeMechKey({pitchScale: 0.98, isEnter: false}), peak: 0.78},
+  {name: "mech-key-2", track: makeMechKey({pitchScale: 1.04, isEnter: false}), peak: 0.8},
+  {name: "mech-enter", track: makeMechKey({pitchScale: 0.92, isEnter: true}), peak: 0.84},
+  {name: "snap", track: makeMagneticSnap(), peak: 0.86},
+  {name: "shutter-1", track: makeShutterDrop(74, 0), peak: 0.8},
+  {name: "shutter-2", track: makeShutterDrop(78, 1), peak: 0.82},
+  {name: "shutter-3", track: makeShutterDrop(81, 2), peak: 0.84},
+  ...[62, 64, 66, 69, 71, 74, 76, 78, 81, 83, 86, 88, 90, 93].map((noteMidi, idx) => ({
+    name: `bubble-${String(idx + 1).padStart(2, "0")}`,
+    track: makeBubblePop(noteMidi, idx),
+    peak: Number((0.68 + idx * 0.01).toFixed(3))
+  }))
+];
+
+for (const item of customSfxEntries) {
+  const level = normalize(item.track, item.peak);
+  const file = path.join(OUTPUT_DIR, "sfx", `${item.name}.wav`);
+  await writeFile(file, wav(item.track));
+  sfxBySrc.set(`media/sfx/${item.name}.wav`, item.track);
+  sfxEvidence.push({
+    name: item.name,
+    source: "code-original",
+    license: "MIT License",
+    file: path.relative(REPO_ROOT, file),
+    durationInSeconds: Number((item.track[0].length / SAMPLE_RATE).toFixed(3)),
+    peak: level.peak
+  });
+}
 
 const voiceExcerpts = [
   {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉"},

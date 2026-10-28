@@ -25,9 +25,15 @@ const LectureVideoBackdrop = ({duration}: {duration: number}) => {
   });
   const seekScale = interpolate(
     frame,
-    [SUBTITLE_MATCH_FRAME, SUBTITLE_MATCH_FRAME + 10, duration],
-    [PLAYER_STAGE_TRANSFORM.scale * 1.03, PLAYER_STAGE_TRANSFORM.scale, PLAYER_STAGE_TRANSFORM.scale],
+    [SUBTITLE_MATCH_FRAME, SUBTITLE_MATCH_FRAME + 2, SUBTITLE_MATCH_FRAME + 10, duration],
+    [PLAYER_STAGE_TRANSFORM.scale * 1.055, PLAYER_STAGE_TRANSFORM.scale * 0.994, PLAYER_STAGE_TRANSFORM.scale, PLAYER_STAGE_TRANSFORM.scale],
     {...CLAMP, easing: SMOOTH}
+  );
+  const snapFlashOpacity = interpolate(
+    frame,
+    [SUBTITLE_MATCH_FRAME - 1, SUBTITLE_MATCH_FRAME, SUBTITLE_MATCH_FRAME + 5],
+    [0, 0.42, 0],
+    CLAMP
   );
   const videoProps = {
     muted: true,
@@ -65,6 +71,17 @@ const LectureVideoBackdrop = ({duration}: {duration: number}) => {
           pointerEvents: "none"
         }}
       />
+      {snapFlashOpacity > 0.01 && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "radial-gradient(circle at 46% 48%, rgba(255, 255, 255, 0.92) 0%, rgba(0, 140, 255, 0.28) 45%, rgba(255, 255, 255, 0) 80%)",
+            opacity: snapFlashOpacity,
+            pointerEvents: "none"
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -82,6 +99,8 @@ const SubtitleHeroSpotlight = () => {
   const cardY = interpolate(frame, [4, 14], [28, 0], {...CLAMP, easing: SMOOTH});
 
   const typedQuery = frame < 12 ? "" : frame < 16 ? "幻" : "幻觉";
+  const enterKeyPressed = frame >= 20 && frame <= 26;
+  const enterKeyScale = interpolate(frame, [20, 22, 26], [1, 0.93, 1], {...CLAMP, easing: SMOOTH});
   const resultsProgress = interpolate(frame, [16, 25], [0, 1], {...CLAMP, easing: SMOOTH});
   const rowHover = interpolate(frame, [42, 52], [0, 1], {...CLAMP, easing: SMOOTH});
   const isClicked = frame >= SUBTITLE_MATCH_FRAME - 2;
@@ -205,15 +224,17 @@ const SubtitleHeroSpotlight = () => {
                 style={{
                   padding: "6px 16px",
                   borderRadius: 999,
-                  background: MIST_GLASS.accentSoft,
-                  color: MIST_GLASS.accent,
+                  background: enterKeyPressed ? MIST_GLASS.accent : MIST_GLASS.accentSoft,
+                  color: enterKeyPressed ? "#FFFFFF" : MIST_GLASS.accent,
+                  boxShadow: enterKeyPressed ? "0 6px 18px -4px rgba(0, 140, 255, 0.48)" : "none",
                   fontFamily: BRAND_FONT_FAMILY,
                   fontSize: 20,
                   fontWeight: 700,
-                  fontVariantNumeric: "tabular-nums"
+                  fontVariantNumeric: "tabular-nums",
+                  scale: enterKeyScale
                 }}
               >
-                4 / 5 · 回车跳播
+                4 / 5 · ↵ 回车跳播
               </span>
               <span
                 style={{

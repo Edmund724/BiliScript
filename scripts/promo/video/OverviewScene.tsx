@@ -306,6 +306,16 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
     "linear-gradient(135deg, #6E8EA6 0%, #365B77 54%, #1B3952 100%)"
   ];
 
+  const shutterEvents = [14, 21, 33];
+  let shutterPulse = 0;
+  for (const eventFrame of shutterEvents) {
+    const dt = frame - eventFrame;
+    if (dt >= 0 && dt <= 6) {
+      shutterPulse = Math.max(shutterPulse, interpolate(dt, [0, 1, 6], [0.85, 1, 0], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}));
+    }
+  }
+  const cardShutterScale = 1 + shutterPulse * 0.022;
+
   return (
     <div
       style={{
@@ -383,9 +393,22 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
           padding: "30px 38px 28px",
           background: cardGradients[activeIndex],
           overflow: "hidden",
-          boxShadow: "0 20px 44px -18px rgba(15, 23, 42, 0.32)"
+          boxShadow: "0 20px 44px -18px rgba(15, 23, 42, 0.32)",
+          scale: cardShutterScale,
+          transformOrigin: "50% 50%"
         }}
       >
+        {shutterPulse > 0.02 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(125deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.16) 48%, rgba(255, 255, 255, 0) 100%)",
+              opacity: shutterPulse * 0.65,
+              pointerEvents: "none"
+            }}
+          />
+        )}
         <div
           style={{
             position: "absolute",
