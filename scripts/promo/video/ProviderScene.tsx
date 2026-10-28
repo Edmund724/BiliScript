@@ -83,6 +83,78 @@ const ContinuousClaim = () => {
   );
 };
 
+const REPRESENTATIVE_HIGHLIGHTS: Record<
+  string,
+  {accent: string; softBg: string; border: string; badge?: string; activateOffset: number}
+> = {
+  deepseek: {
+    accent: "#E85D87",
+    softBg: "rgba(232, 93, 135, 0.12)",
+    border: "rgba(232, 93, 135, 0.45)",
+    badge: "主流直连",
+    activateOffset: 24
+  },
+  qwen: {
+    accent: "#E85D87",
+    softBg: "rgba(232, 93, 135, 0.10)",
+    border: "rgba(232, 93, 135, 0.32)",
+    activateOffset: 26
+  },
+  modelscope: {
+    accent: "#0D9488",
+    softBg: "rgba(13, 148, 136, 0.13)",
+    border: "rgba(13, 148, 136, 0.48)",
+    badge: "每日免费额度",
+    activateOffset: 40
+  },
+  amd: {
+    accent: "#0D9488",
+    softBg: "rgba(13, 148, 136, 0.10)",
+    border: "rgba(13, 148, 136, 0.30)",
+    activateOffset: 43
+  },
+  sensenova: {
+    accent: "#0D9488",
+    softBg: "rgba(13, 148, 136, 0.10)",
+    border: "rgba(13, 148, 136, 0.30)",
+    activateOffset: 46
+  },
+  ollama: {
+    accent: "#2679B8",
+    softBg: "rgba(38, 121, 184, 0.13)",
+    border: "rgba(38, 121, 184, 0.48)",
+    badge: "本地免 Key",
+    activateOffset: 49
+  }
+};
+
+const BENEFIT_ANCHORS = [
+  {
+    tag: "零门槛体验",
+    text: "ModelScope 等平台享每日免费额度",
+    accent: "#0D9488",
+    bg: "rgba(13, 148, 136, 0.11)",
+    border: "rgba(13, 148, 136, 0.30)",
+    enterOffset: 30
+  },
+  {
+    tag: "免填 Key",
+    text: "支持本地 Ollama",
+    accent: "#2679B8",
+    bg: "rgba(38, 121, 184, 0.11)",
+    border: "rgba(38, 121, 184, 0.30)",
+    enterOffset: 36
+  },
+  {
+    tag: "省心配置",
+    text: "主流大模型一键直连",
+    accent: "#E85D87",
+    bg: "rgba(232, 93, 135, 0.12)",
+    border: "rgba(232, 93, 135, 0.32)",
+    enterOffset: 42
+  }
+] as const;
+
 const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; index: number}) => {
   const frame = useCurrentFrame();
   const col = index % 7;
@@ -101,6 +173,16 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
   const keyRotateZ = interpolate(local, [0, 3, 8, 14], [row === 0 ? -4 : 4, row === 0 ? 1.5 : -1.5, 0, 0], {...CLAMP, easing: ENTRANCE});
   const rippleHighlight = interpolate(local, [0, 2.5, 10], [0, 1, 0], CLAMP);
 
+  // 矩阵成型后的典型代表高亮锚定
+  const rep = REPRESENTATIVE_HIGHLIGHTS[logo.id];
+  const repStart = rep ? wallAt + rep.activateOffset : 999;
+  const repHighlight = rep
+    ? interpolate(frame, [repStart, repStart + 9], [0, 1], {...CLAMP, easing: ENTRANCE}) *
+      interpolate(frame, [collapseAt - 4, collapseAt + 2], [1, 0], CLAMP)
+    : 0;
+  const repLiftY = repHighlight * -7;
+  const repScale = 1 + repHighlight * (rep?.badge ? 0.036 : 0.018);
+
   // 后续卡弹起时传导的微弱琴键共振波纹
   const wavePhase = (frame - wallAt) * 0.36 - (col * 0.55 + row * 0.85);
   const waveActive = frame >= start + 13 && frame < collapseAt ? Math.sin(wavePhase) * Math.exp(-Math.max(0, frame - (start + 13)) * 0.045) : 0;
@@ -108,11 +190,12 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
 
   const convergeX = (960 - cardCenterX) * collapseProgress;
   const convergeY = (540 - cardCenterY) * collapseProgress;
-  const finalScale = keyScale * (1 - 0.78 * collapseProgress);
+  const finalScale = keyScale * repScale * (1 - 0.78 * collapseProgress);
 
   return (
     <div
       style={{
+        position: "relative",
         width: 224,
         height: 226,
         display: "flex",
@@ -124,27 +207,57 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
         background:
           rippleHighlight > 0.02
             ? `linear-gradient(165deg, rgba(255, 255, 255, 0.99) 0%, rgba(250, 244, 248, 0.96) 100%)`
-            : "rgba(255, 255, 255, 0.94)",
+            : repHighlight > 0.02
+              ? "rgba(255, 255, 255, 0.99)"
+              : "rgba(255, 255, 255, 0.92)",
         backdropFilter: "blur(20px)",
         boxShadow:
           rippleHighlight > 0.02
             ? `0 32px 68px -20px rgba(232, 93, 135, ${(0.28 * rippleHighlight).toFixed(2)}), 0 0 0 2px rgba(232, 93, 135, ${(0.42 * rippleHighlight).toFixed(2)}), ${ELEVATION.cardSoft}`
-            : ELEVATION.cardSoft,
+            : repHighlight > 0.02 && rep
+              ? `0 28px 60px -18px ${rep.softBg}, 0 0 0 ${rep.badge ? 2.2 : 1.5}px ${rep.border}, ${ELEVATION.cardSoft}`
+              : ELEVATION.cardSoft,
         opacity: enterOpacity,
         transformOrigin: "50% 85%",
-        transform: `perspective(1200px) translate3d(${convergeX.toFixed(2)}px, ${(keyLiftY + secondaryWaveY + convergeY).toFixed(2)}px, 0px) rotateX(${(keyRotateX * (1 - collapseProgress)).toFixed(2)}deg) rotateZ(${(keyRotateZ * (1 - collapseProgress)).toFixed(2)}deg) scale(${finalScale.toFixed(3)})`
+        transform: `perspective(1200px) translate3d(${convergeX.toFixed(2)}px, ${(keyLiftY + repLiftY + secondaryWaveY + convergeY).toFixed(2)}px, 0px) rotateX(${(keyRotateX * (1 - collapseProgress)).toFixed(2)}deg) rotateZ(${(keyRotateZ * (1 - collapseProgress)).toFixed(2)}deg) scale(${finalScale.toFixed(3)})`
       }}
     >
+      {rep?.badge && repHighlight > 0.02 ? (
+        <div
+          style={{
+            position: "absolute",
+            top: 12,
+            right: 12,
+            padding: "4px 11px",
+            borderRadius: 999,
+            background: rep.softBg,
+            boxShadow: `0 0 0 1px ${rep.border}`,
+            color: rep.accent,
+            fontSize: 14,
+            fontWeight: 700,
+            letterSpacing: -0.2,
+            opacity: repHighlight,
+            scale: 0.88 + repHighlight * 0.12
+          }}
+        >
+          {rep.badge}
+        </div>
+      ) : null}
       <div
         style={{
           width: 96,
           height: 82,
           borderRadius: 22,
-          background: rippleHighlight > 0.05 ? "rgba(232, 93, 135, 0.10)" : "rgba(244, 245, 248, 0.85)",
+          background:
+            rippleHighlight > 0.05
+              ? "rgba(232, 93, 135, 0.10)"
+              : repHighlight > 0.05 && rep
+                ? rep.softBg
+                : "rgba(244, 245, 248, 0.85)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          scale: 1 + rippleHighlight * 0.06
+          scale: 1 + rippleHighlight * 0.06 + repHighlight * 0.04
         }}
       >
         <Img src={staticFile(`media/providers/${logo.file}`)} style={{width: 68, height: 68, objectFit: "contain"}} />
@@ -153,7 +266,7 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
         style={{
           color: COLORS.foreground,
           fontSize: logo.id === "amd" ? 21 : 24,
-          fontWeight: 600,
+          fontWeight: repHighlight > 0.2 ? 700 : 600,
           lineHeight: 1.2,
           whiteSpace: "nowrap",
           textAlign: "center",
@@ -169,9 +282,7 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
 const LogoWall = () => {
   const frame = useCurrentFrame();
   const wallOpacity = interpolate(frame, [wallAt, wallAt + 3, wallExitAt, wallExitAt + wallExitDuration], [0, 1, 1, 0], CLAMP);
-  const footerOpacity =
-    interpolate(frame, [wallAt + 20, wallAt + 30], [0, 1], CLAMP) *
-    interpolate(frame, [collapseAt - 2, collapseAt + 4], [1, 0], CLAMP);
+  const footerExitOpacity = interpolate(frame, [collapseAt - 2, collapseAt + 4], [1, 0], CLAMP);
 
   return (
     <div
@@ -186,7 +297,7 @@ const LogoWall = () => {
           position: "absolute",
           left: 104,
           right: 104,
-          top: 276,
+          top: 266,
           height: 484,
           display: "grid",
           gridTemplateColumns: "repeat(7, 224px)",
@@ -201,35 +312,62 @@ const LogoWall = () => {
       <div
         style={{
           position: "absolute",
-          left: 104,
-          right: 104,
-          top: 808,
+          left: 84,
+          right: 84,
+          top: 796,
           display: "flex",
           justifyContent: "center",
-          gap: 18,
-          opacity: footerOpacity
+          gap: 20,
+          opacity: footerExitOpacity
         }}
       >
-        {["14 个 AI 平台预设", "另支持自定义端点", "支持本地 Ollama · OpenAI 兼容格式"].map((text, idx) => (
-          <div
-            key={text}
-            style={{
-              padding: "12px 26px",
-              borderRadius: 999,
-              background: idx === 0 ? "rgba(232, 93, 135, 0.12)" : "rgba(255, 255, 255, 0.88)",
-              backdropFilter: "blur(16px)",
-              boxShadow:
-                idx === 0
-                  ? "0 14px 32px -14px rgba(232, 93, 135, 0.28), 0 0 0 1px rgba(232, 93, 135, 0.26)"
-                  : "0 12px 28px -14px rgba(17, 24, 39, 0.12), 0 0 0 1px rgba(17, 24, 39, 0.04)",
-              color: idx === 0 ? COLORS.pink : COLORS.foreground,
-              fontSize: 22,
-              fontWeight: 600
-            }}
-          >
-            {text}
-          </div>
-        ))}
+        {BENEFIT_ANCHORS.map((item) => {
+          const itemStart = wallAt + item.enterOffset;
+          const itemEnter = interpolate(frame, [itemStart, itemStart + 10], [0, 1], {...CLAMP, easing: ENTRANCE});
+          return (
+            <div
+              key={item.text}
+              style={{
+                padding: "13px 26px 13px 18px",
+                borderRadius: 999,
+                background: "rgba(255, 255, 255, 0.95)",
+                backdropFilter: "blur(20px)",
+                boxShadow: `0 18px 38px -16px rgba(17, 24, 39, 0.14), 0 0 0 1.5px ${item.border}`,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                opacity: itemEnter,
+                translate: `0px ${((1 - itemEnter) * 18).toFixed(1)}px`,
+                scale: 0.94 + itemEnter * 0.06
+              }}
+            >
+              <span
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  background: item.bg,
+                  color: item.accent,
+                  fontSize: 18,
+                  fontWeight: 700,
+                  letterSpacing: -0.2
+                }}
+              >
+                {item.tag}
+              </span>
+              <span
+                style={{
+                  color: COLORS.foreground,
+                  fontSize: 23,
+                  fontWeight: 650,
+                  letterSpacing: -0.4,
+                  whiteSpace: "nowrap"
+                }}
+              >
+                {item.text}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

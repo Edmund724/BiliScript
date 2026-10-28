@@ -1,5 +1,5 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {BRAND_FONT_FAMILY, Brand, BrandWhisper, COLORS, ELEVATION, FONT_FAMILY, PaperGrainOverlay} from "./design";
+import {Brand, COLORS, ELEVATION, FONT_FAMILY, PaperGrainOverlay} from "./design";
 
 const BUTTON = {x: 1132, y: 1026};
 const PANEL = {x: 1356, y: 52, width: 554, height: 1014};
@@ -15,152 +15,29 @@ const HERO_SOURCE_CLICK_FRAME = 36;
 const QUESTIONS = [
   {
     enterAt: 0,
-    prefix: "1 小时公开课，在收藏夹",
-    highlight: "吃灰多久了？",
+    prefix: "1 小时公开课，在",
+    highlight: "收藏夹吃灰",
+    suffix: "多久了？",
     left: 210,
-    top: 204
+    top: 196
   },
   {
     enterAt: 13,
     prefix: "记得 UP 主说过那句话，",
-    highlight: "死活拖不到那一秒？",
+    highlight: "死活拖不到",
+    suffix: "那一秒？",
     left: 280,
-    top: 430
+    top: 432
   },
   {
     enterAt: 26,
-    prefix: "看视频卡在半路，",
-    highlight: "想追问细节没人答？",
+    prefix: "看视频卡在半路，想",
+    highlight: "追问没人答",
+    suffix: "？",
     left: 350,
-    top: 656
+    top: 668
   }
 ] as const;
-
-const DANMAKU_ITEMS = [
-  {text: "48 分钟太长了，课代表呢？求个省流总结！", top: 68, startX: 1460, speed: 12.5, highlight: true},
-  {text: "前面老师提过「幻觉」，到底在第几分钟？", top: 126, startX: 1680, speed: 14.2, highlight: false},
-  {text: "右键快进按烂了，死活拖不到刚刚那句话…", top: 76, startX: 720, speed: 11.4, highlight: false},
-  {text: "人机象棋实验那段没听懂，有人解释下吗", top: 134, startX: 980, speed: 13.0, highlight: false}
-] as const;
-
-const SCRUB_STAMPS = ["02:14", "14:38", "27:09", "08:52", "35:41", "04:07"] as const;
-
-const BiliPainPointBackdrop = () => {
-  const frame = useCurrentFrame();
-  if (frame >= PULLBACK_END) return null;
-
-  const fadeOut = interpolate(frame, [PULLBACK_START - 2, PULLBACK_END - 1], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic)
-  });
-  const scrubProgress = interpolate(
-    frame,
-    [0, 8, 15, 22, 29, PULLBACK_START],
-    [0.08, 0.34, 0.62, 0.21, 0.78, 0.14],
-    {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
-  );
-  const stampIndex = Math.min(SCRUB_STAMPS.length - 1, Math.floor((frame / PULLBACK_START) * SCRUB_STAMPS.length));
-
-  return (
-    <div style={{position: "absolute", inset: 0, opacity: fadeOut, pointerEvents: "none", zIndex: 4}}>
-      {DANMAKU_ITEMS.map((item) => {
-        const x = item.startX - frame * item.speed;
-        return (
-          <div
-            key={item.text}
-            style={{
-              position: "absolute",
-              left: x,
-              top: item.top,
-              padding: item.highlight ? "7px 20px" : "4px 12px",
-              borderRadius: 999,
-              background: item.highlight ? "rgba(15, 23, 42, 0.66)" : "rgba(15, 23, 42, 0.38)",
-              border: item.highlight ? "1.5px solid rgba(251, 114, 153, 0.78)" : "1px solid rgba(255, 255, 255, 0.22)",
-              backdropFilter: "blur(8px)",
-              color: "#FFFFFF",
-              fontSize: item.highlight ? 26 : 23,
-              fontWeight: item.highlight ? 700 : 600,
-              letterSpacing: -0.3,
-              whiteSpace: "nowrap",
-              textShadow: "0 2px 6px rgba(0, 0, 0, 0.55)",
-              boxShadow: item.highlight ? "0 10px 28px -8px rgba(251, 114, 153, 0.45)" : "none"
-            }}
-          >
-            {item.highlight ? <span style={{color: "#FB7299", marginRight: 8}}>● 弹幕热议</span> : null}
-            {item.text}
-          </div>
-        );
-      })}
-
-      {/* Frantic Bilibili Progress Scrub Bar at Bottom */}
-      <div
-        style={{
-          position: "absolute",
-          left: 160,
-          right: 160,
-          bottom: 44,
-          padding: "14px 24px 16px",
-          borderRadius: 20,
-          background: "rgba(15, 23, 42, 0.72)",
-          backdropFilter: "blur(16px)",
-          boxShadow: "0 18px 42px -16px rgba(15, 23, 42, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.14)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 10
-        }}
-      >
-        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", color: "#F8FAFC", fontSize: 19, fontWeight: 600}}>
-          <div style={{display: "flex", alignItems: "center", gap: 12}}>
-            <span
-              style={{
-                padding: "3px 12px",
-                borderRadius: 999,
-                background: "rgba(251, 114, 153, 0.24)",
-                color: "#FF85AD",
-                fontSize: 17,
-                fontWeight: 700
-              }}
-            >
-              ▸▸ 正在狂按右键找重点…
-            </span>
-            <span style={{color: "rgba(248, 250, 252, 0.78)", fontSize: 18}}>进度条太长，刚听到的金句又找不到了</span>
-          </div>
-          <span style={{fontFamily: BRAND_FONT_FAMILY, fontSize: 21, fontWeight: 700, fontVariantNumeric: "tabular-nums"}}>
-            <span style={{color: "#FB7299"}}>{SCRUB_STAMPS[stampIndex]}</span>
-            <span style={{color: "rgba(248, 250, 252, 0.55)"}}> / 48:16</span>
-          </span>
-        </div>
-        <div style={{position: "relative", height: 8, borderRadius: 999, background: "rgba(255, 255, 255, 0.22)"}}>
-          <div
-            style={{
-              width: `${Math.round(scrubProgress * 100)}%`,
-              height: "100%",
-              borderRadius: 999,
-              background: "linear-gradient(90deg, #FB7299 0%, #FF9DBB 100%)",
-              boxShadow: "0 0 16px rgba(251, 114, 153, 0.8)"
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
-              left: `${Math.round(scrubProgress * 100)}%`,
-              top: "50%",
-              width: 18,
-              height: 18,
-              marginLeft: -9,
-              marginTop: -9,
-              borderRadius: "50%",
-              background: "#FFFFFF",
-              border: "3px solid #FB7299",
-              boxShadow: "0 0 14px rgba(251, 114, 153, 0.9)"
-            }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
 
 const PainPointQuestionStack = () => {
   const frame = useCurrentFrame();
@@ -178,14 +55,9 @@ const PainPointQuestionStack = () => {
     extrapolateRight: "clamp"
   });
   const collapseBlur = interpolate(collapse, [0, 1], [0, 12]);
-  const whisperOpacity = interpolate(frame, [PULLBACK_START - 2, PULLBACK_START + 4], [1, 0], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp"
-  });
 
   return (
     <>
-      <BrandWhisper opacity={whisperOpacity} />
       {QUESTIONS.map((question, index) => {
         if (frame < question.enterAt) return null;
         const enterProgress = spring({
@@ -193,6 +65,16 @@ const PainPointQuestionStack = () => {
           fps,
           config: {damping: 16, stiffness: 155, mass: 0.78}
         });
+        const markerSweep = interpolate(
+          frame,
+          [question.enterAt + 1, question.enterAt + 9],
+          [0, 1],
+          {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+            easing: Easing.bezier(0.16, 1, 0.3, 1)
+          }
+        );
         const enterOpacity =
           index === 0
             ? interpolate(frame, [0, 5], [0.92, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
@@ -230,17 +112,19 @@ const PainPointQuestionStack = () => {
               position: "absolute",
               left: question.left,
               top: question.top,
-              padding: "32px 52px",
+              padding: "30px 50px",
               borderRadius: 32,
-              background: isFrontCard ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.88)",
+              background: isFrontCard ? "rgba(255, 255, 255, 0.96)" : "rgba(255, 255, 255, 0.89)",
               backdropFilter: "blur(24px)",
               boxShadow: isFrontCard ? ELEVATION.heroFloat : ELEVATION.cardSoft,
-              color: COLORS.foreground,
-              fontSize: 58,
-              fontWeight: 600,
+              color: COLORS.inkSoft,
+              fontSize: 54,
+              fontWeight: 550,
               lineHeight: 1.24,
-              letterSpacing: -1.9,
+              letterSpacing: -1.7,
               whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "baseline",
               opacity: enterOpacity * recedeOpacity * collapseOpacity,
               translate: `0px ${enterLift + recedeY - collapse * 24}px`,
               scale: enterScale * recedeScale * collapseScale,
@@ -250,7 +134,36 @@ const PainPointQuestionStack = () => {
             }}
           >
             <span>{question.prefix}</span>
-            <span style={{color: COLORS.pink}}>{question.highlight}</span>
+            <span
+              style={{
+                position: "relative",
+                display: "inline-block",
+                margin: "0 6px",
+                padding: "0 14px 2px",
+                fontSize: 64,
+                fontWeight: 800,
+                letterSpacing: -2.1,
+                color: "#C81E5B"
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  bottom: 2,
+                  height: "62%",
+                  borderRadius: 12,
+                  background: "linear-gradient(96deg, rgba(255, 212, 59, 0.72) 0%, rgba(251, 114, 153, 0.42) 100%)",
+                  boxShadow: "0 6px 18px -6px rgba(232, 93, 135, 0.35)",
+                  transformOrigin: "0% 50%",
+                  transform: `scaleX(${markerSweep.toFixed(3)}) skewX(-6deg)`,
+                  zIndex: -1
+                }}
+              />
+              {question.highlight}
+            </span>
+            <span>{question.suffix}</span>
           </div>
         );
       })}
@@ -550,7 +463,6 @@ export const HeroScene = () => {
         <ReaderPanel />
         <Cursor />
       </div>
-      <BiliPainPointBackdrop />
       <HeroMessage />
       <PainPointQuestionStack />
     </AbsoluteFill>
