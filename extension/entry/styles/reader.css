@@ -482,6 +482,9 @@
   flex-direction: column;
   /* 内容区套 card 白卡：四周 margin 环透出页面灰作页面层，
    * 圆角 28px 与 tab 槽同档。 */
+  /* flush 子卡片同心圆角：子卡外缘到白卡外缘 14px（白卡横向内边距，卡自身无边框；
+   * 纵向 12px 取横向大者）。嵌套滚动列表（字幕/概览）在自己的容器上覆写此变量。 */
+  --card-child-radius: calc(var(--biliscript-radius-panel) - 14px);
   margin: 10px 14px 14px;
   padding: 12px 14px;
   background: var(--biliscript-reader-card);
@@ -567,6 +570,9 @@
 }
 
 .biliscript-reading-subtitle {
+  /* flush 子卡片（字幕行）同心圆角：行外缘到白卡外缘 22px（白卡 14 + 本列表 8），
+   * 覆写 tab-body 的 --card-child-radius。 */
+  --card-child-radius: calc(var(--biliscript-radius-panel) - 22px);
   width: 100%;
   /* 必须 border-box：默认 content-box 下 width:100% 再叠左右 padding 会比
    * .biliscript-reading-main（overflow:hidden）宽 16px，右缘连同滚动条一起被裁掉，
@@ -644,7 +650,7 @@
   align-items: start;
   border: 0;
   background: transparent;
-  border-radius: var(--biliscript-radius-panel);
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
   padding: 10px 12px;
   text-align: left;
@@ -997,7 +1003,7 @@
   flex: 0 0 auto;
   border: 1px solid var(--biliscript-reader-border);
   background: var(--biliscript-reader-highlight);
-  border-radius: var(--biliscript-radius-panel);
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
   padding: 12px 14px;
   margin-bottom: 10px;
@@ -1386,7 +1392,7 @@
   border: 1px solid var(--biliscript-reader-border);
   border-left: 3px solid var(--biliscript-reader-accent);
   background: var(--biliscript-reader-card);
-  border-radius: var(--biliscript-radius-panel);
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
   padding: 10px 12px;
   margin-bottom: 8px;
@@ -1451,6 +1457,9 @@
  * 时间戳 pill 复用 .biliscript-reading-time 母题。
  *（script-only-ui：概览顶部「总结」区块已删除，直接以章节开头。） */
 .biliscript-reading-overview {
+  /* flush 子卡片（章节/金句/状态条）同心圆角：卡外缘到白卡外缘右侧 22px
+   *（白卡 14 + 本容器右 8；左侧 2px 取右侧大者），覆写 tab-body 的 --card-child-radius。 */
+  --card-child-radius: calc(var(--biliscript-radius-panel) - 22px);
   flex: 1;
   min-height: 0;
   padding: 6px 8px 12px 2px;
@@ -1507,7 +1516,7 @@
   align-items: start;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: var(--biliscript-radius-panel);
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
   padding: 9px 10px;
   margin-bottom: 8px;
@@ -1609,7 +1618,7 @@
   display: block;
   border: 0;
   background: var(--biliscript-reader-surface-2);
-  border-radius: var(--biliscript-radius-panel);
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
   padding: 10px 12px 8px;
   margin-bottom: 8px;
@@ -1754,7 +1763,7 @@
   justify-content: space-between;
   gap: 10px;
   border: 1px solid var(--biliscript-reader-border);
-  border-radius: var(--biliscript-radius-panel);
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
   padding: 9px 12px;
   margin-bottom: 12px;

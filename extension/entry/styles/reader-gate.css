@@ -184,7 +184,8 @@ body[data-biliscript-reader-mode="1"],
   --biliscript-radius-xl: var(--biliscript-primitive-radius-20);
   --biliscript-radius-2xl: var(--biliscript-primitive-radius-24);
   --biliscript-radius-panel: var(--biliscript-primitive-radius-28);
-  --biliscript-radius-panel-inner: calc(var(--biliscript-radius-panel) - 6px);
+  /* 同心圆角：弹层选项外缘到弹层外缘 7px（6px 内边距 + 1px 边框） */
+  --biliscript-radius-panel-inner: calc(var(--biliscript-radius-panel) - 7px);
   --biliscript-radius-full: var(--biliscript-primitive-radius-full);
   --biliscript-radius-pill: var(--biliscript-primitive-radius-pill);
   --biliscript-radius-circle: var(--biliscript-primitive-radius-circle);
@@ -401,6 +402,8 @@ body[data-biliscript-reader-mode="1"],
   --chat-input-bg: var(--biliscript-reader-surface);
   --chat-input-border: var(--biliscript-reader-border);
   --chat-input-radius: var(--biliscript-radius-panel);
+  /* 同心圆角：卡内元素外缘到卡外缘 11px（10px 内边距 + 1px 边框） */
+  --chat-input-inner-radius: max(0px, calc(var(--chat-input-radius) - 11px));
   --chat-input-pad: 10px 10px 8px;
   --chat-input-font-size: var(--biliscript-font-size-base);
   --chat-input-line-height: var(--biliscript-chat-line-height, 1.6);
@@ -780,7 +783,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 /* 示意图对齐四条（实机截图逐项比对决议）：
  * - 组标题（章节/金句）由 faint 灰升为主文字色——示意图是近黑粗体，灰档分量太轻；
- * - 凸起卡圆角 10px→16px——示意图卡角更圆；
+ * - 凸起卡圆角与外层白卡同心（scoped 变量 --card-child-radius，定义在
+ *   reader.css 的 .biliscript-reading-tab-body / .biliscript-reading-overview）；
  * - 时间戳 pill 浅色档用柔和中蓝 #2e6fc2——pill 是标注
  *   不是操作，不占操作/选中档的 accent；深色档沿用 accent 亮蓝。 */
 #biliscript-reading-view .biliscript-reading-ov-h {
@@ -789,7 +793,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-biliscript-s
 
 #biliscript-reading-view .biliscript-reading-ov-chapter,
 #biliscript-reading-view .biliscript-reading-ov-quote {
-  border-radius: var(--biliscript-radius-panel);
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
 }
 
@@ -955,7 +959,7 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .asr-provider-row,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-settings-host .search-provider-row {
   border: none;
-  border-radius: var(--biliscript-radius-panel);
+  border-radius: var(--card-child-radius);
   corner-shape: squircle;
   box-shadow: var(--biliscript-reader-card-highlight);
 }
