@@ -988,6 +988,13 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-readi
   box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
 
+/* 下拉与模型搜索框保留原胶囊圆角，只把描边换成同款轻影。 */
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .custom-select-search-input,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input {
+  border: none;
+  box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
+}
+
 /* 校验态反馈：描边归零后 border-color 无处落，改光环（accent=错误沿用既有
  * 语义、success=通过）；声明在焦点规则之前，聚焦时光环让位焦点态。 */
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="text"]:user-invalid,
@@ -1009,6 +1016,8 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog input[type="password"]:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .provider-editor-dialog select:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .custom-select-trigger:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .custom-select-search-input:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view .biliscript-reading-search:focus-within {
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
 }
@@ -1053,10 +1062,14 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-dialog select,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .provider-editor-fetch-dialog input[type="text"],
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .custom-select-trigger,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .custom-select-search-input,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search {
   box-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
 
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .custom-select-search-input:focus,
+body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .provider-editor-host .ai-provider-model-search-input:focus,
 body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"] .biliscript-reading-search:focus-within {
   box-shadow: 0 0 0 2px var(--biliscript-reader-accent-soft), 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
 }
@@ -1078,6 +1091,18 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view[data-theme="dark"
  * 残余 1px 实线描边组件统一纳入无边液态玻璃体系，AI 强相关触点注入克制的
  * Gemini 虹彩流光。本段规则一律以 :not([data-palette="editorial"]) 门控——
  * editorial 色板继续走基表实线细边与本表后面的数字刊物恢复块，零侵入。 */
+
+/* 对话小控件（单档思考胶囊 / 图片附件删除键）：去框 + 轻接触影，保留原底色与状态色。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-thinking-single-pill,
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-reading-chat .chat-image-remove {
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(var(--biliscript-primitive-color-gray-950-rgb), 0.05), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.7);
+}
+
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-thinking-single-pill,
+#biliscript-reading-view[data-theme="dark"]:not([data-palette="editorial"]) .biliscript-reading-chat .chat-image-remove {
+  box-shadow: 0 1px 3px rgba(var(--biliscript-primitive-color-black-rgb), 0.3), inset 0 1px 0 rgba(var(--biliscript-primitive-color-white-rgb), 0.07);
+}
 
 /* 次级小按钮（概览操作键 / 解释卡操作键）：去框 + 液态玻璃卡面 + 折射高光；
  * 悬停走全仓可点母题（accent-soft 底 + accent 字）。 */
@@ -1181,6 +1206,11 @@ body[data-biliscript-reader-mode="1"] #biliscript-reading-view:not([data-palette
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   backdrop-filter: blur(24px) saturate(180%);
   box-shadow: var(--biliscript-reader-shadow);
+}
+
+/* 金句分享弹窗沿用基表实色与悬浮柔影，仅去外圈灰框。 */
+#biliscript-reading-view:not([data-palette="editorial"]) .biliscript-quote-share-dialog {
+  border-color: transparent;
 }
 
 /* 划词解释卡：20px 圆角与内侧 0.5px 精细描边微层叠 */
