@@ -5,7 +5,8 @@ const outroMilliseconds = (frame) => Math.round((OUTRO_TIMELINE.from + frame) / 
 // @ts-check
 /** @type {(import("@remotion/captions").Caption & {sceneId: string})[]} */
 export const CAPTIONS = [
-  {sceneId: "hero", text: "BiliScript｜B 站视频文摘\n在 B 站，读视频。", startMs: 500, endMs: 2800, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "1 小时公开课，在收藏夹吃灰多久了？\n记得 UP 主说过那句话，死活拖不到那一秒？\n看视频卡在半路，想追问细节没人答？", startMs: 0, endMs: 1800, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "BiliScript｜别光看，试试在 B 站「读」视频。", startMs: 1800, endMs: 2900, timestampMs: null, confidence: null},
   {sceneId: "subtitle", text: "搜索字幕，点击时间戳跳播。", startMs: 3200, endMs: 6800, timestampMs: null, confidence: null},
   {sceneId: "overview", text: "AI 概览：章节、金句与分享卡片。", startMs: 7200, endMs: 10800, timestampMs: null, confidence: null},
   {sceneId: "chat", text: "围绕视频追问，点击回答中的时间戳回到原片。", startMs: 11300, endMs: 16800, timestampMs: null, confidence: null},

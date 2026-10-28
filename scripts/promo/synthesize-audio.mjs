@@ -180,8 +180,8 @@ function makeScore() {
     }
   }
 
-  // 7 个核心切点的 60–90Hz 短 sub-hit 瞬态强调
-  const cutHits = [3.0, 7.0, 11.0, 17.0, 20.0, 25.0, 29.0];
+  // 8 个核心切点的 60–90Hz 短 sub-hit 瞬态强调
+  const cutHits = [1.8, 3.0, 7.0, 11.0, 17.0, 20.0, 25.0, 29.0];
   for (const cutAt of cutHits) {
     add(track, subHit(cutAt >= 17.0 ? 0.62 : 0.52), cutAt);
   }
@@ -356,7 +356,6 @@ sfxBySrc.set("media/sfx/whoosh.wav", whoosh);
 sfxEvidence.push({name: "whoosh", source: "code-original", license: "MIT License", file: path.relative(REPO_ROOT, whooshFile), durationInSeconds: 0.5, peak: whooshLevel.peak});
 
 const voiceExcerpts = [
-  {name: "voice-0232", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0232.wav"), excerpt: "02:32 机器幻觉是怎么产生的"},
   {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉"},
   {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究"}
 ];

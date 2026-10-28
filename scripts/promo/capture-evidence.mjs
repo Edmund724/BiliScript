@@ -35,7 +35,8 @@ const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
 const providerSeconds = (frame) => (PROVIDERS_FROM + frame) / PROMO_FPS;
 const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
 const transitions = [
-  {id: "poster-hook", at: 0.45},
+  {id: "pain-point-hook", at: 0.55},
+  {id: "hero-pullback-open", at: 1.9},
   {id: "keyword-slice", at: 3.1},
   {id: "timestamp-match", at: 5.1},
   {id: "chapters", at: 7},

@@ -248,8 +248,9 @@ export const SpringLayout = ({children, delay = 0, direction = 1, axis = "x", di
   );
 };
 
-export const SceneTitle = ({title, subtitle, style = {}, align = "left", size = 68, delay = 0}: {
+export const SceneTitle = ({title, titleNode, subtitle, style = {}, align = "left", size = 68, delay = 0}: {
   title: string;
+  titleNode?: ReactNode;
   subtitle?: string;
   style?: CSSProperties;
   align?: "left" | "center";
@@ -287,7 +288,7 @@ export const SceneTitle = ({title, subtitle, style = {}, align = "left", size = 
                 whiteSpace: "nowrap"
               }}
             >
-              {line}
+              {index === 0 && titleNode ? titleNode : line}
             </div>
           </div>
         );
@@ -335,12 +336,14 @@ export const SceneShell = ({children, duration, final = false, fadeOut = true}: 
 
 export const EditorialHeaderBand = ({
   title,
+  titleNode,
   titleSize = 64,
   delay = 0,
   showBrand = false,
   opacity = 1
 }: {
   title: string;
+  titleNode?: ReactNode;
   titleSize?: number;
   delay?: number;
   kicker?: string;
@@ -368,6 +371,7 @@ export const EditorialHeaderBand = ({
     {showBrand ? <Brand size={30} iconSize={40} /> : null}
     <SceneTitle
       title={title}
+      titleNode={titleNode}
       size={titleSize}
       delay={delay}
       style={{

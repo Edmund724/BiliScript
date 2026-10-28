@@ -28,6 +28,11 @@ export const AUDIO = {
     fadeOutEndFrame: PROMO_DURATION
   },
   cues: [
+    {id: "hook-q1", frame: 4, src: "media/sfx/pop.wav", gain: 0.44, duckDb: 3.5},
+    {id: "hook-q2", frame: 16, src: "media/sfx/pop.wav", gain: 0.46, duckDb: 3.5},
+    {id: "hook-q3", frame: 32, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 4},
+    {id: "hero-pullback", frame: 54, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 4.5},
+    {id: "hero-open", frame: 56, src: "media/sfx/click.wav", gain: 0.48, duckDb: 4},
     {id: "subtitle-cut", frame: 90, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
     {id: "subtitle-keyword-resolve", frame: 100, src: "media/sfx/click.wav", gain: 0.42, duckDb: 3.5},
     {id: "type-huan", frame: 102, src: "media/sfx/key.wav", gain: 0.52, duckDb: 3.5},
@@ -61,7 +66,6 @@ export const AUDIO = {
     {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/click.wav", gain: 0.5, duckDb: 4}
   ],
   voices: [
-    {id: "voice-0232", frame: 5, src: "media/sfx/voice-0232.wav", gain: 0.48, duckDb: 6, durationFrames: 42},
     {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.48, duckDb: 6.5, durationFrames: 48},
     {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.48, duckDb: 6.5, durationFrames: 40}
   ]

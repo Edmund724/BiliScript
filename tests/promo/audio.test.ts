@@ -27,6 +27,11 @@ describe("宣传片配乐", () => {
 
   it("把克制的 UI 音效放在真实操作的同一帧", () => {
     expect(AUDIO.cues.map((cue) => [cue.id, cue.frame, cue.src])).toEqual([
+      ["hook-q1", 4, "media/sfx/pop.wav"],
+      ["hook-q2", 16, "media/sfx/pop.wav"],
+      ["hook-q3", 32, "media/sfx/pop.wav"],
+      ["hero-pullback", 54, "media/sfx/whoosh.wav"],
+      ["hero-open", 56, "media/sfx/click.wav"],
       ["subtitle-cut", 90, "media/sfx/whoosh.wav"],
       ["subtitle-keyword-resolve", 100, "media/sfx/click.wav"],
       ["type-huan", 102, "media/sfx/key.wav"],
@@ -62,7 +67,8 @@ describe("宣传片配乐", () => {
     const base = AUDIO.music.gain;
     const installClickFrame = OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt;
     expect(musicVolumeAtFrame(0)).toBe(0);
-    expect(musicVolumeAtFrame(24)).toBe(base);
+    expect(musicVolumeAtFrame(24)).toBeCloseTo(base * 10 ** (-3.5 / 20));
+    expect(musicVolumeAtFrame(76)).toBe(base);
     expect(musicVolumeAtFrame(90)).toBeCloseTo(base * 10 ** (-5 / 20));
     expect(musicVolumeAtFrame(102)).toBeCloseTo(base * 10 ** (-3.5 / 20));
     expect(musicVolumeAtFrame(104)).toBeCloseTo(base * 10 ** (-3.5 / 20));
