@@ -203,7 +203,7 @@ function makeScore() {
   }
 
   // 8 个核心切点的 60–90Hz 短 sub-hit 瞬态强调
-  const cutHits = [1.8, 3.0, 7.0, 11.0, 17.0, 20.0, 25.0, 29.0];
+  const cutHits = [40 / PROMO_FPS, 3.0, 7.0, 11.0, 17.0, 20.0, 25.0, 29.0];
   for (const cutAt of cutHits) {
     add(track, subHit(cutAt >= 17.0 ? 0.62 : 0.52), cutAt);
   }
@@ -580,18 +580,20 @@ for (const item of customSfxEntries) {
 }
 
 const voiceExcerpts = [
-  {name: "voice-0232", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0232.wav"), excerpt: "02:32 如果他不答一定是零分"},
-  {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉"},
-  {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究"}
+  {name: "voice-0232", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0232.wav"), excerpt: "02:32 但是它如果不答一定是零分", fadeOutSeconds: 0.15},
+  {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉", fadeOutSeconds: 0.06},
+  {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究", fadeOutSeconds: 0.06}
 ];
 for (const item of voiceExcerpts) {
   const rawWav = await readFile(item.sourceFile);
   const decoded = decodePcm16Wav(rawWav);
-  const fadeSamples = Math.round(0.02 * SAMPLE_RATE);
+  const fadeInSamples = Math.round(0.02 * SAMPLE_RATE);
+  const fadeOutSamples = Math.round((item.fadeOutSeconds ?? 0.05) * SAMPLE_RATE);
   for (let ch = 0; ch < 2; ch += 1) {
     for (let i = 0; i < decoded.frames; i += 1) {
-      const fadeIn = Math.min(1, i / fadeSamples);
-      const fadeOut = Math.min(1, (decoded.frames - 1 - i) / fadeSamples);
+      const fadeIn = Math.min(1, i / fadeInSamples);
+      const fadeOutT = Math.min(1, (decoded.frames - 1 - i) / fadeOutSamples);
+      const fadeOut = 0.5 * (1 - Math.cos(Math.PI * fadeOutT));
       decoded.track[ch][i] *= fadeIn * fadeOut;
     }
   }
@@ -620,6 +622,16 @@ for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
   for (let ch = 0; ch < 2; ch += 1) {
     for (let j = 0; j < sfxTrack[ch].length && startSample + j < sfxStem[ch].length; j += 1) {
       sfxStem[ch][startSample + j] += sfxTrack[ch][j] * cue.gain;
+    }
+  }
+  if (cue.id === "chapters-quote-cut") {
+    const pageFlipShutter = sfxBySrc.get("media/sfx/shutter-1.wav");
+    if (pageFlipShutter) {
+      for (let ch = 0; ch < 2; ch += 1) {
+        for (let j = 0; j < pageFlipShutter[ch].length && startSample + j < sfxStem[ch].length; j += 1) {
+          sfxStem[ch][startSample + j] += pageFlipShutter[ch][j] * 0.52;
+        }
+      }
     }
   }
 }

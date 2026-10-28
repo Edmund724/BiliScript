@@ -40,9 +40,9 @@ export const AUDIO = {
   cues: [
     {id: "hook-q1", frame: 4, src: "media/sfx/pop.wav", gain: 0.46, duckDb: 3.5},
     {id: "hook-q2", frame: 16, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 3.5},
-    {id: "hook-q3", frame: 32, src: "media/sfx/pop.wav", gain: 0.50, duckDb: 4},
-    {id: "hero-pullback", frame: 54, src: "media/sfx/whoosh.wav", gain: 0.44, duckDb: 4.5},
-    {id: "hero-open", frame: 56, src: "media/sfx/click.wav", gain: 0.50, duckDb: 4},
+    {id: "hook-q3", frame: 28, src: "media/sfx/pop.wav", gain: 0.50, duckDb: 4},
+    {id: "hero-pullback", frame: 40, src: "media/sfx/whoosh.wav", gain: 0.44, duckDb: 4.5},
+    {id: "hero-open", frame: 42, src: "media/sfx/click.wav", gain: 0.50, duckDb: 4},
     {id: "subtitle-cut", frame: 90, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
     {id: "subtitle-keyword-resolve", frame: 98, src: "media/sfx/click.wav", gain: 0.44, duckDb: 3.2},
     {id: "type-huan", frame: 102, src: "media/sfx/mech-key-1.wav", gain: 0.58, duckDb: 3.8},
@@ -79,7 +79,7 @@ export const AUDIO = {
   ],
   voices: [
     {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.50, duckDb: 6.5, durationFrames: 48},
-    {id: "voice-0232", frame: OVERVIEW_FROM + 5, src: "media/sfx/voice-0232.wav", gain: 0.50, duckDb: 6.5, durationFrames: 44},
+    {id: "voice-0232", frame: OVERVIEW_FROM + 5, src: "media/sfx/voice-0232.wav", gain: 0.50, duckDb: 6.5, durationFrames: 45},
     {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.50, duckDb: 6.5, durationFrames: 40}
   ]
 };

@@ -272,12 +272,12 @@ const PaletteSwatches = () => {
         <OffthreadVideo
           muted
           src={staticFile("media/subtitle-seek-03.mp4")}
-          startFrom={135}
-          playbackRate={1}
+          startFrom={84}
+          playbackRate={0.2}
           style={{
             position: "absolute",
             left: -PLAYER_CROP.x * playerScale,
-            top: -PLAYER_CROP.y * playerScale - 24,
+            top: -PLAYER_CROP.y * playerScale - 44,
             width: 1920 * playerScale,
             height: 1080 * playerScale,
             maxWidth: "none"

@@ -5,8 +5,8 @@ const outroMilliseconds = (frame) => Math.round((OUTRO_TIMELINE.from + frame) / 
 // @ts-check
 /** @type {(import("@remotion/captions").Caption & {sceneId: string})[]} */
 export const CAPTIONS = [
-  {sceneId: "hero", text: "1 小时公开课，在收藏夹吃灰多久了？\n记得 UP 主说过那句话，死活拖不到那一秒？\n看视频卡在半路，想追问细节没人答？", startMs: 0, endMs: 1800, timestampMs: null, confidence: null},
-  {sceneId: "hero", text: "BiliScript｜不用等课代表，在 B 站直接「读」视频。", startMs: 1800, endMs: 2900, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "1 小时公开课，在收藏夹吃灰多久了？\n记得 UP 主说过那句话，死活拖不到那一秒？\n看视频卡在半路，想追问细节没人答？", startMs: 0, endMs: 1400, timestampMs: null, confidence: null},
+  {sceneId: "hero", text: "BiliScript｜不用等课代表，在 B 站直接「读」视频。", startMs: 1400, endMs: 2950, timestampMs: null, confidence: null},
   {sceneId: "subtitle", text: "搜「幻觉」秒跳 04:07——赵老师原声回应：“也很难避免幻觉。”", startMs: 3200, endMs: 6800, timestampMs: null, confidence: null},
   {sceneId: "overview", text: "3 秒提炼章节与金句——“如果他不答，一定是零分。”", startMs: 7200, endMs: 10800, timestampMs: null, confidence: null},
   {sceneId: "chat", text: "追问为何适配才是关键，点时间戳听原片实证：“这里有一个研究……”", startMs: 11300, endMs: 16800, timestampMs: null, confidence: null},

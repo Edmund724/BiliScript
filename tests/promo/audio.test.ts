@@ -40,9 +40,9 @@ describe("宣传片配乐与三幕原声问答", () => {
     expect(AUDIO.cues.map((cue) => [cue.id, cue.frame, cue.src])).toEqual([
       ["hook-q1", 4, "media/sfx/pop.wav"],
       ["hook-q2", 16, "media/sfx/pop.wav"],
-      ["hook-q3", 32, "media/sfx/pop.wav"],
-      ["hero-pullback", 54, "media/sfx/whoosh.wav"],
-      ["hero-open", 56, "media/sfx/click.wav"],
+      ["hook-q3", 28, "media/sfx/pop.wav"],
+      ["hero-pullback", 40, "media/sfx/whoosh.wav"],
+      ["hero-open", 42, "media/sfx/click.wav"],
       ["subtitle-cut", 90, "media/sfx/whoosh.wav"],
       ["subtitle-keyword-resolve", 98, "media/sfx/click.wav"],
       ["type-huan", 102, "media/sfx/mech-key-1.wav"],

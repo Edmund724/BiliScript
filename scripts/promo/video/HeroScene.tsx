@@ -1,13 +1,15 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, ELEVATION, EditorialHeaderBand, FONT_FAMILY, PaperGrainOverlay} from "./design";
+import {BRAND_FONT_FAMILY, Brand, BrandWhisper, COLORS, ELEVATION, FONT_FAMILY, PaperGrainOverlay} from "./design";
 
 const BUTTON = {x: 1132, y: 1026};
-const PANEL = {x: 1326, width: 594};
-const PULLBACK_START = 48;
-const PULLBACK_END = 56;
-const CLICK_AT = 56;
-const PANEL_OPEN_FRAMES = 12;
-const HEADER_REVEAL_AT = 58;
+const PANEL = {x: 1356, y: 52, width: 554, height: 1014};
+const PULLBACK_START = 36;
+const PULLBACK_END = 43;
+const CLICK_AT = 42;
+const PANEL_OPEN_FRAMES = 14;
+const HEADER_REVEAL_AT = 40;
+const ZOOM_FOCUS_START = 54;
+const ZOOM_FOCUS_END = 72;
 const HERO_SOURCE_CLICK_FRAME = 36;
 
 const QUESTIONS = [
@@ -19,14 +21,14 @@ const QUESTIONS = [
     top: 204
   },
   {
-    enterAt: 16,
+    enterAt: 13,
     prefix: "记得 UP 主说过那句话，",
     highlight: "死活拖不到那一秒？",
     left: 280,
     top: 430
   },
   {
-    enterAt: 32,
+    enterAt: 26,
     prefix: "看视频卡在半路，",
     highlight: "想追问细节没人答？",
     left: 350,
@@ -54,7 +56,7 @@ const BiliPainPointBackdrop = () => {
   });
   const scrubProgress = interpolate(
     frame,
-    [0, 10, 18, 28, 38, PULLBACK_START],
+    [0, 8, 15, 22, 29, PULLBACK_START],
     [0.08, 0.34, 0.62, 0.21, 0.78, 0.14],
     {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
   );
@@ -325,9 +327,9 @@ const ReaderPanel = () => {
       style={{
         position: "absolute",
         left: PANEL.x,
-        top: 0,
+        top: PANEL.y,
         width: PANEL.width,
-        height: 1080,
+        height: PANEL.height,
         transformOrigin: "100% 50%",
         transform: `perspective(1600px) translateX(${offsetX.toFixed(1)}px) rotateY(${bookRotateY.toFixed(2)}deg)`,
         opacity: panelOpacity,
@@ -341,7 +343,7 @@ const ReaderPanel = () => {
           left: -42,
           top: 0,
           width: 42,
-          height: 1080,
+          height: PANEL.height,
           background: "linear-gradient(90deg, rgba(17, 24, 39, 0) 0%, rgba(17, 24, 39, 0.28) 100%)",
           opacity: spineShadowOpacity,
           pointerEvents: "none"
@@ -351,19 +353,24 @@ const ReaderPanel = () => {
         style={{
           position: "absolute",
           inset: 0,
+          borderRadius: 24,
           background: "#FBF9F4",
-          boxShadow: "-36px 0 96px -20px rgba(17, 24, 39, 0.28), -2px 0 0 rgba(255, 248, 232, 0.9)"
+          boxShadow: "-36px 24px 96px -20px rgba(17, 24, 39, 0.28), 0 0 0 1px rgba(232, 93, 135, 0.18)"
         }}
       />
       <div
         style={{
           position: "absolute",
           inset: 0,
+          borderRadius: 24,
           overflow: "hidden"
         }}
       >
-        <Img src={staticFile("media/hero-panel.png")} style={{position: "absolute", left: -PANEL.x, top: 0, width: 1920, height: 1080, maxWidth: "none"}} />
-        <PaperGrainOverlay opacity={0.14} warm borderRadius={0} />
+        <Img
+          src={staticFile("media/overview-poster.jpg")}
+          style={{position: "absolute", left: -PANEL.x, top: -PANEL.y, width: 1920, height: 1080, maxWidth: "none"}}
+        />
+        <PaperGrainOverlay opacity={0.14} warm borderRadius={24} />
         {paperSheenOpacity > 0.01 ? (
           <div
             style={{
@@ -382,26 +389,74 @@ const ReaderPanel = () => {
 
 const HeroMessage = () => {
   const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
   if (frame < HEADER_REVEAL_AT) return null;
-  const bandOpacity = interpolate(frame, [HEADER_REVEAL_AT, HEADER_REVEAL_AT + 8], [0.38, 1], {
+
+  const enterSpring = spring({
+    frame: Math.max(0, frame - HEADER_REVEAL_AT),
+    fps,
+    config: {damping: 18, stiffness: 150, mass: 0.8}
+  });
+  const bandOpacity = interpolate(frame, [HEADER_REVEAL_AT, HEADER_REVEAL_AT + 6], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.out(Easing.cubic)
   });
+  const dockProgress = interpolate(frame, [ZOOM_FOCUS_START, ZOOM_FOCUS_END], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
+
+  const left = interpolate(dockProgress, [0, 1], [230, 64]);
+  const top = interpolate(dockProgress, [0, 1], [440, 56]);
+  const baseScale = interpolate(dockProgress, [0, 1], [1.12, 0.86]);
+  const enterScale = interpolate(enterSpring, [0, 1], [0.92, 1]);
+  const enterLift = interpolate(enterSpring, [0, 1], [28, 0]);
 
   return (
-    <EditorialHeaderBand
-      title="不用等课代表，在 B 站直接「读」视频。"
-      titleNode={
-        <>
-          不用等课代表，在 B 站直接<span style={{color: COLORS.pink}}>「读」</span>视频。
-        </>
-      }
-      titleSize={44}
-      delay={HEADER_REVEAL_AT}
-      showBrand
-      opacity={bandOpacity}
-    />
+    <div
+      style={{
+        position: "absolute",
+        left,
+        top,
+        padding: "26px 46px",
+        borderRadius: 999,
+        background: "rgba(251, 251, 253, 0.95)",
+        backdropFilter: "blur(28px)",
+        boxShadow: ELEVATION.heroFloat,
+        display: "flex",
+        alignItems: "center",
+        gap: 24,
+        zIndex: 24,
+        opacity: bandOpacity,
+        translate: `0px ${enterLift.toFixed(1)}px`,
+        scale: enterScale * baseScale,
+        transformOrigin: "0% 50%"
+      }}
+    >
+      <Brand size={32} iconSize={44} />
+      <div
+        style={{
+          width: 2,
+          height: 36,
+          borderRadius: 999,
+          background: "rgba(17, 24, 39, 0.12)"
+        }}
+      />
+      <div
+        style={{
+          color: COLORS.foreground,
+          fontSize: 50,
+          fontWeight: 650,
+          lineHeight: 1.16,
+          letterSpacing: -1.8,
+          whiteSpace: "nowrap"
+        }}
+      >
+        不用等课代表，在 B 站直接<span style={{color: COLORS.pink}}>「读」</span>视频。
+      </div>
+    </div>
   );
 };
 
@@ -437,13 +492,20 @@ export const HeroScene = () => {
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
   });
+  const zoomFocusProgress = interpolate(frame, [ZOOM_FOCUS_START, ZOOM_FOCUS_END], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
   const hookDriftScale = interpolate(frame, [0, PULLBACK_START], [1.34, 1.30], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
   const videoScale = interpolate(pullbackProgress, [0, 1], [hookDriftScale, 1]);
-  const videoBlur = interpolate(pullbackProgress, [0, 1], [4.5, 0]);
-  const veilOpacity = interpolate(pullbackProgress, [0, 1], [1, 0]);
+  const pullbackBlur = interpolate(pullbackProgress, [0, 1], [4.5, 1.2]);
+  const videoBlur = interpolate(zoomFocusProgress, [0, 1], [pullbackBlur, 4.5]);
+  const veilOpacity = interpolate(pullbackProgress, [0, 1], [1, 0.32]);
+  const stageZoomScale = interpolate(zoomFocusProgress, [0, 1], [1, 1.26]);
 
   return (
     <AbsoluteFill style={{background: COLORS.background, fontFamily: FONT_FAMILY, overflow: "hidden"}}>
@@ -451,36 +513,45 @@ export const HeroScene = () => {
         style={{
           position: "absolute",
           inset: 0,
-          transformOrigin: "54% 46%",
-          scale: videoScale,
-          filter: videoBlur > 0.1 ? `blur(${videoBlur.toFixed(2)}px)` : undefined
+          transformOrigin: "96% 6%",
+          scale: stageZoomScale
         }}
       >
-        <OffthreadVideo
-          muted
-          src={staticFile("media/hero-hook.mp4")}
-          playbackRate={HERO_SOURCE_CLICK_FRAME / CLICK_AT}
-          style={{position: "absolute", inset: 0, width: 1920, height: 1080}}
-        />
-      </div>
-      {veilOpacity > 0.01 ? (
-        <AbsoluteFill
+        <div
           style={{
-            background: [
-              "radial-gradient(ellipse 55% 60% at 24% 42%, rgba(232, 93, 135, 0.08) 0%, rgba(232, 93, 135, 0) 70%)",
-              "radial-gradient(ellipse 60% 65% at 78% 52%, rgba(38, 121, 184, 0.08) 0%, rgba(38, 121, 184, 0) 72%)",
-              "linear-gradient(160deg, rgba(251, 251, 253, 0.34) 0%, rgba(244, 245, 248, 0.28) 100%)"
-            ].join(", "),
-            opacity: veilOpacity,
-            pointerEvents: "none"
+            position: "absolute",
+            inset: 0,
+            transformOrigin: "54% 46%",
+            scale: videoScale,
+            filter: videoBlur > 0.1 ? `blur(${videoBlur.toFixed(2)}px)` : undefined
           }}
-        />
-      ) : null}
+        >
+          <OffthreadVideo
+            muted
+            src={staticFile("media/hero-hook.mp4")}
+            playbackRate={HERO_SOURCE_CLICK_FRAME / CLICK_AT}
+            style={{position: "absolute", inset: 0, width: 1920, height: 1080}}
+          />
+        </div>
+        {veilOpacity > 0.01 ? (
+          <AbsoluteFill
+            style={{
+              background: [
+                "radial-gradient(ellipse 55% 60% at 24% 42%, rgba(232, 93, 135, 0.08) 0%, rgba(232, 93, 135, 0) 70%)",
+                "radial-gradient(ellipse 60% 65% at 78% 52%, rgba(38, 121, 184, 0.08) 0%, rgba(38, 121, 184, 0) 72%)",
+                "linear-gradient(160deg, rgba(251, 251, 253, 0.34) 0%, rgba(244, 245, 248, 0.28) 100%)"
+              ].join(", "),
+              opacity: veilOpacity,
+              pointerEvents: "none"
+            }}
+          />
+        ) : null}
+        <ToolbarEntryCallout />
+        <ReaderPanel />
+        <Cursor />
+      </div>
       <BiliPainPointBackdrop />
-      <ToolbarEntryCallout />
-      <ReaderPanel />
       <HeroMessage />
-      <Cursor />
       <PainPointQuestionStack />
     </AbsoluteFill>
   );

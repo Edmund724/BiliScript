@@ -458,20 +458,22 @@ const ChatReturnVerification = () => {
           background: "#0F172A"
         }}
       >
-        <OffthreadVideo
-          muted
-          src={staticFile("media/subtitle-seek-03.mp4")}
-          startFrom={135}
-          playbackRate={1}
-          style={{
-            position: "absolute",
-            left: -PLAYER_CROP.x * playerScale,
-            top: -PLAYER_CROP.y * playerScale,
-            width: 1920 * playerScale,
-            height: 1080 * playerScale,
-            maxWidth: "none"
-          }}
-        />
+        <Sequence from={CHAT_PLAYER_VERIFY_FROM - 4} layout="none">
+          <OffthreadVideo
+            muted
+            src={staticFile("media/subtitle-seek-03.mp4")}
+            startFrom={215}
+            playbackRate={0.2}
+            style={{
+              position: "absolute",
+              left: -PLAYER_CROP.x * playerScale,
+              top: -PLAYER_CROP.y * playerScale,
+              width: 1920 * playerScale,
+              height: 1080 * playerScale,
+              maxWidth: "none"
+            }}
+          />
+        </Sequence>
         <VoiceWaveBar timestamp="04:44 · 赵老师原声举证" quote="“这里有一个研究 · 人机协作象棋实验”" active={true} />
       </div>
     </div>
