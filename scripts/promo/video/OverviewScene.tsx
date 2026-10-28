@@ -7,7 +7,9 @@ import {
   Crop,
   ELEVATION,
   MIST_GLASS,
+  PaperGrainOverlay,
   ProductFrame,
+  ReadingLampBeam,
   Reveal,
   SceneTitle,
   SpringLayout,
@@ -25,180 +27,195 @@ const CHAPTER_SOURCE_SECONDS = 5.6;
 const QUOTE_SOURCE_SECONDS = 4.733333;
 const QUOTE_LIFT_FRAMES = 16;
 
-const SpatialChapterStack = () => (
-  <Reveal
-    delay={2}
-    distance={18}
-    style={{
-      position: "absolute",
-      left: 96,
-      top: 436,
-      width: 810,
-      transform: "perspective(1600px) rotateX(4deg) rotateY(-8deg)"
-    }}
-  >
-    <div
+const SpatialChapterStack = () => {
+  const frame = useCurrentFrame();
+  const voiceActive = frame >= 5 && frame <= 49;
+
+  return (
+    <Reveal
+      delay={2}
+      distance={18}
       style={{
-        position: "relative",
-        padding: "22px 32px",
-        borderRadius: 28,
-        background: MIST_GLASS.surface,
-        backdropFilter: "blur(24px) saturate(1.2)",
-        WebkitBackdropFilter: "blur(24px) saturate(1.2)",
-        boxShadow: MIST_GLASS.shellShadow,
-        display: "flex",
-        flexDirection: "column",
-        gap: 12
+        position: "absolute",
+        left: 96,
+        top: 422,
+        width: 810,
+        transform: "perspective(1600px) rotateX(4deg) rotateY(-8deg)"
       }}
     >
-      {/* Flyme Blue-Mist Ambient Blobs */}
       <div
         style={{
-          position: "absolute",
-          inset: 0,
+          position: "relative",
+          padding: "22px 32px",
           borderRadius: 28,
-          overflow: "hidden",
-          pointerEvents: "none"
+          background: MIST_GLASS.surface,
+          backdropFilter: "blur(24px) saturate(1.2)",
+          WebkitBackdropFilter: "blur(24px) saturate(1.2)",
+          boxShadow: MIST_GLASS.shellShadow,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12
         }}
       >
+        {/* Flyme Blue-Mist Ambient Blobs */}
         <div
           style={{
             position: "absolute",
             inset: 0,
-            background: MIST_GLASS.blobs,
-            filter: "blur(28px)"
-          }}
-        />
-      </div>
-
-      <div
-        style={{
-          position: "relative",
-          zIndex: 1,
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          padding: "10px 16px",
-          borderRadius: 16,
-          background: MIST_GLASS.card,
-          boxShadow: MIST_GLASS.cardShadow,
-          color: MIST_GLASS.muted,
-          fontSize: 21,
-          fontWeight: 540,
-          opacity: 0.78
-        }}
-      >
-        <span
-          style={{
-            fontFamily: BRAND_FONT_FAMILY,
-            fontSize: 18,
-            fontWeight: 620,
-            color: MIST_GLASS.timeColor,
-            background: MIST_GLASS.timeBg,
-            padding: "3px 12px",
-            borderRadius: 999
+            borderRadius: 28,
+            overflow: "hidden",
+            pointerEvents: "none"
           }}
         >
-          00:00
-        </span>
-        <span>什么是机器幻觉（Hallucination）</span>
-      </div>
-
-      <div
-        style={{
-          position: "relative",
-          zIndex: 2,
-          margin: "4px -14px",
-          padding: "26px 34px",
-          borderRadius: 24,
-          background: MIST_GLASS.cardElevated,
-          boxShadow: MIST_GLASS.cardFloatShadow
-        }}
-      >
-        <div style={{display: "flex", alignItems: "center", gap: 14, marginBottom: 14}}>
-          <span
+          <div
             style={{
-              background: MIST_GLASS.timeBg,
-              color: MIST_GLASS.timeColor,
-              boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 1px rgba(46, 111, 194, 0.16)",
-              fontFamily: BRAND_FONT_FAMILY,
-              fontSize: 20,
-              fontWeight: 700,
-              padding: "4px 15px",
-              borderRadius: 999
+              position: "absolute",
+              inset: 0,
+              background: MIST_GLASS.blobs,
+              filter: "blur(28px)"
             }}
-          >
-            02:32
-          </span>
-          <span style={{fontSize: 28, fontWeight: 680, color: MIST_GLASS.text, letterSpacing: -0.6}}>
-            AI 并非越强越好，适配才是关键
-          </span>
+          />
         </div>
-        <div style={{fontSize: 25, fontWeight: 580, lineHeight: 1.46, letterSpacing: -0.4, color: MIST_GLASS.text, marginBottom: 16}}>
-          “人与 AI 的关系是<span style={{color: MIST_GLASS.timeColor, fontWeight: 700}}>「协作」</span>，而非<span style={{color: MIST_GLASS.timeColor, fontWeight: 700}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
-        </div>
+
         <div
           style={{
+            position: "relative",
+            zIndex: 1,
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            paddingTop: 14,
-            borderTop: "1px solid rgba(15, 23, 42, 0.06)",
+            gap: 16,
+            padding: "10px 16px",
+            borderRadius: 16,
+            background: MIST_GLASS.card,
+            boxShadow: MIST_GLASS.cardShadow,
             color: MIST_GLASS.muted,
-            fontSize: 19
+            fontSize: 21,
+            fontWeight: 540,
+            opacity: 0.78
           }}
         >
-          <span>复旦大学 · 赵斌教授公开课</span>
           <span
             style={{
-              color: MIST_GLASS.timeColor,
               fontFamily: BRAND_FONT_FAMILY,
-              fontWeight: 650,
+              fontSize: 18,
+              fontWeight: 620,
+              color: MIST_GLASS.timeColor,
               background: MIST_GLASS.timeBg,
-              padding: "5px 15px",
+              padding: "3px 12px",
               borderRadius: 999
             }}
           >
-            04:07 – 05:15 ↗
+            00:00
           </span>
+          <span>什么是机器幻觉（Hallucination）</span>
+        </div>
+
+        <div
+          style={{
+            position: "relative",
+            zIndex: 2,
+            margin: "4px -14px",
+            padding: "24px 34px",
+            borderRadius: 24,
+            background: MIST_GLASS.cardElevated,
+            boxShadow: MIST_GLASS.cardFloatShadow,
+            overflow: "hidden"
+          }}
+        >
+          <PaperGrainOverlay opacity={0.34} />
+          <div style={{position: "relative", display: "flex", alignItems: "center", gap: 14, marginBottom: 12}}>
+            <span
+              style={{
+                background: MIST_GLASS.timeBg,
+                color: MIST_GLASS.timeColor,
+                boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 0 0 1px rgba(46, 111, 194, 0.16)",
+                fontFamily: BRAND_FONT_FAMILY,
+                fontSize: 20,
+                fontWeight: 700,
+                padding: "4px 15px",
+                borderRadius: 999
+              }}
+            >
+              02:32
+            </span>
+            <span style={{fontSize: 28, fontWeight: 680, color: MIST_GLASS.text, letterSpacing: -0.6}}>
+              AI 并非越强越好，适配才是关键
+            </span>
+          </div>
+          <div style={{position: "relative", fontSize: 24, fontWeight: 580, lineHeight: 1.46, letterSpacing: -0.4, color: MIST_GLASS.text, marginBottom: 14}}>
+            “训练大模型就像考试——他只要去答就不是零分，<span style={{color: COLORS.pink, fontWeight: 720}}>如果不答一定是零分</span>；人与 AI 的关系是<span style={{color: MIST_GLASS.timeColor, fontWeight: 700}}>「协作」</span>而非替代。”
+          </div>
+          <div
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingTop: 12,
+              borderTop: "1px solid rgba(15, 23, 42, 0.06)",
+              color: MIST_GLASS.muted,
+              fontSize: 19
+            }}
+          >
+            <span>复旦大学 · 赵斌教授公开课</span>
+            <span
+              style={{
+                color: MIST_GLASS.timeColor,
+                fontFamily: BRAND_FONT_FAMILY,
+                fontWeight: 650,
+                background: MIST_GLASS.timeBg,
+                padding: "5px 15px",
+                borderRadius: 999
+              }}
+            >
+              02:32 – 05:15 ↗
+            </span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            position: "relative",
+            zIndex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            padding: "10px 16px",
+            borderRadius: 16,
+            background: MIST_GLASS.card,
+            boxShadow: MIST_GLASS.cardShadow,
+            color: MIST_GLASS.muted,
+            fontSize: 21,
+            fontWeight: 540,
+            opacity: 0.78
+          }}
+        >
+          <span
+            style={{
+              fontFamily: BRAND_FONT_FAMILY,
+              fontSize: 18,
+              fontWeight: 620,
+              color: MIST_GLASS.timeColor,
+              background: MIST_GLASS.timeBg,
+              padding: "3px 12px",
+              borderRadius: 999
+            }}
+          >
+            04:27
+          </span>
+          <span>人机协作象棋实验与实证</span>
         </div>
       </div>
 
-      <div
-        style={{
-          position: "relative",
-          zIndex: 1,
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          padding: "10px 16px",
-          borderRadius: 16,
-          background: MIST_GLASS.card,
-          boxShadow: MIST_GLASS.cardShadow,
-          color: MIST_GLASS.muted,
-          fontSize: 21,
-          fontWeight: 540,
-          opacity: 0.78
-        }}
-      >
-        <span
-          style={{
-            fontFamily: BRAND_FONT_FAMILY,
-            fontSize: 18,
-            fontWeight: 620,
-            color: MIST_GLASS.timeColor,
-            background: MIST_GLASS.timeBg,
-            padding: "3px 12px",
-            borderRadius: 999
-          }}
-        >
-          04:27
-        </span>
-        <span>人机协作象棋实验与实证</span>
-      </div>
-    </div>
-  </Reveal>
-);
+      <VoiceWaveBar
+        timestamp="02:32 · 赵老师原声点题"
+        quote="“如果他不答，一定是零分！”"
+        active={voiceActive}
+        style={{position: "relative", left: 0, bottom: "auto", marginTop: 14, width: "fit-content"}}
+      />
+    </Reveal>
+  );
+};
 
 const PaletteSwatches = () => {
   const frame = useCurrentFrame();
@@ -266,7 +283,7 @@ const PaletteSwatches = () => {
             maxWidth: "none"
           }}
         />
-        <VoiceWaveBar timestamp="04:07" quote="“也可能会产生，也很难避免幻觉”" active={false} />
+        <VoiceWaveBar timestamp="02:32 · 原声金句" quote="“如果他不答，一定是零分”" active={false} />
       </div>
     </Reveal>
   );
@@ -315,6 +332,7 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
     }
   }
   const cardShutterScale = 1 + shutterPulse * 0.022;
+  const pageFlipDeg = shutterPulse * 5.2;
 
   return (
     <div
@@ -395,9 +413,12 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
           overflow: "hidden",
           boxShadow: "0 20px 44px -18px rgba(15, 23, 42, 0.32)",
           scale: cardShutterScale,
-          transformOrigin: "50% 50%"
+          transformOrigin: "12% 50%",
+          transform: `perspective(1400px) rotateY(${-pageFlipDeg.toFixed(2)}deg) rotateX(${(shutterPulse * 2.0).toFixed(2)}deg)`
         }}
       >
+        <PaperGrainOverlay opacity={0.48} />
+        <ReadingLampBeam intensity={0.76 + shutterPulse * 0.24} warm={activeIndex !== 2} />
         {shutterPulse > 0.02 && (
           <div
             style={{
@@ -552,9 +573,10 @@ export const OverviewScene = ({duration}: {duration: number}) => {
       <Sequence durationInFrames={chapterDuration}>
         <SpringLayout direction={-1}>
           <SceneTitle
-            title={"这条视频，\n讲了什么？"}
-            subtitle="48 分钟课程自动凝练为章节脉络，点按时间直达原片。"
-            style={{left: 96, top: 152, width: 720}}
+            title={"48 分钟公开课，\nAI 为什么爱犯幻觉？"}
+            subtitle="章节脉络 3 秒提炼核心论点，赵老师原声一句话点透本质。"
+            size={64}
+            style={{left: 96, top: 152, width: 780}}
           />
           <SpatialChapterStack />
           <ProductFrame
@@ -571,8 +593,8 @@ export const OverviewScene = ({duration}: {duration: number}) => {
       <Sequence from={chapterDuration} durationInFrames={quoteDuration}>
         <SpringLayout direction={1} fade={false}>
           <SceneTitle
-            title={"一句金句，\n生成分享卡片。"}
-            subtitle="焦点随视线在空间中自然浮起，多款阅读色板一键分享。"
+            title={"一句话点透本质，\n直接存成金句卡。"}
+            subtitle="纸感肌理与多款阅读色板，像摘录一本杂志一样收藏好观点。"
             size={68}
             style={{left: 96, top: 152, width: 760}}
           />

@@ -505,8 +505,8 @@ const SubtitleVoiceOverlay = ({duration}: {duration: number}) => {
   if (opacity <= 0.01) return null;
   return (
     <VoiceWaveBar
-      timestamp="04:07"
-      quote="“也很难避免幻觉”"
+      timestamp="04:07 · 赵老师原声回应"
+      quote="“……也很难避免幻觉。”"
       active={frame >= 62 && frame <= 112}
       style={{left: 88, top: 56, opacity}}
     />
@@ -517,7 +517,19 @@ const Title = () => {
   const frame = useCurrentFrame();
   const opacity = interpolate(frame, [0, 4, 52, 60], [0.38, 1, 1, 0], CLAMP);
   if (opacity <= 0.01) return null;
-  return <EditorialHeaderBand title="找到那句，回到那一秒。" titleSize={52} delay={0} opacity={opacity} />;
+  return (
+    <EditorialHeaderBand
+      title="记得老师提过「幻觉」，在哪一秒？"
+      titleNode={
+        <>
+          记得老师提过<span style={{color: COLORS.pink}}>「幻觉」</span>，在哪一秒？
+        </>
+      }
+      titleSize={50}
+      delay={0}
+      opacity={opacity}
+    />
+  );
 };
 
 export const SubtitleScene = ({duration}: {duration: number}) => (

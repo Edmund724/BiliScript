@@ -11,6 +11,7 @@ import {
 } from "./timeline.mjs";
 
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle").from;
+const OVERVIEW_FROM = SCENES.find((scene) => scene.id === "overview").from;
 const CHAT_FROM = SCENES.find((scene) => scene.id === "chat").from;
 const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
 const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat");
@@ -78,6 +79,7 @@ export const AUDIO = {
   ],
   voices: [
     {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.50, duckDb: 6.5, durationFrames: 48},
+    {id: "voice-0232", frame: OVERVIEW_FROM + 5, src: "media/sfx/voice-0232.wav", gain: 0.50, duckDb: 6.5, durationFrames: 44},
     {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.50, duckDb: 6.5, durationFrames: 40}
   ]
 };

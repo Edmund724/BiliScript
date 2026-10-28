@@ -1,5 +1,5 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {BrandWhisper, COLORS, ELEVATION, EditorialHeaderBand, FONT_FAMILY} from "./design";
+import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, ELEVATION, EditorialHeaderBand, FONT_FAMILY, PaperGrainOverlay} from "./design";
 
 const BUTTON = {x: 1132, y: 1026};
 const PANEL = {x: 1326, width: 594};
@@ -33,6 +33,132 @@ const QUESTIONS = [
     top: 656
   }
 ] as const;
+
+const DANMAKU_ITEMS = [
+  {text: "48 分钟太长了，课代表呢？求个省流总结！", top: 68, startX: 1460, speed: 12.5, highlight: true},
+  {text: "前面老师提过「幻觉」，到底在第几分钟？", top: 126, startX: 1680, speed: 14.2, highlight: false},
+  {text: "右键快进按烂了，死活拖不到刚刚那句话…", top: 76, startX: 720, speed: 11.4, highlight: false},
+  {text: "人机象棋实验那段没听懂，有人解释下吗", top: 134, startX: 980, speed: 13.0, highlight: false}
+] as const;
+
+const SCRUB_STAMPS = ["02:14", "14:38", "27:09", "08:52", "35:41", "04:07"] as const;
+
+const BiliPainPointBackdrop = () => {
+  const frame = useCurrentFrame();
+  if (frame >= PULLBACK_END) return null;
+
+  const fadeOut = interpolate(frame, [PULLBACK_START - 2, PULLBACK_END - 1], [1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic)
+  });
+  const scrubProgress = interpolate(
+    frame,
+    [0, 10, 18, 28, 38, PULLBACK_START],
+    [0.08, 0.34, 0.62, 0.21, 0.78, 0.14],
+    {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
+  );
+  const stampIndex = Math.min(SCRUB_STAMPS.length - 1, Math.floor((frame / PULLBACK_START) * SCRUB_STAMPS.length));
+
+  return (
+    <div style={{position: "absolute", inset: 0, opacity: fadeOut, pointerEvents: "none", zIndex: 4}}>
+      {DANMAKU_ITEMS.map((item) => {
+        const x = item.startX - frame * item.speed;
+        return (
+          <div
+            key={item.text}
+            style={{
+              position: "absolute",
+              left: x,
+              top: item.top,
+              padding: item.highlight ? "7px 20px" : "4px 12px",
+              borderRadius: 999,
+              background: item.highlight ? "rgba(15, 23, 42, 0.66)" : "rgba(15, 23, 42, 0.38)",
+              border: item.highlight ? "1.5px solid rgba(251, 114, 153, 0.78)" : "1px solid rgba(255, 255, 255, 0.22)",
+              backdropFilter: "blur(8px)",
+              color: "#FFFFFF",
+              fontSize: item.highlight ? 26 : 23,
+              fontWeight: item.highlight ? 700 : 600,
+              letterSpacing: -0.3,
+              whiteSpace: "nowrap",
+              textShadow: "0 2px 6px rgba(0, 0, 0, 0.55)",
+              boxShadow: item.highlight ? "0 10px 28px -8px rgba(251, 114, 153, 0.45)" : "none"
+            }}
+          >
+            {item.highlight ? <span style={{color: "#FB7299", marginRight: 8}}>● 弹幕热议</span> : null}
+            {item.text}
+          </div>
+        );
+      })}
+
+      {/* Frantic Bilibili Progress Scrub Bar at Bottom */}
+      <div
+        style={{
+          position: "absolute",
+          left: 160,
+          right: 160,
+          bottom: 44,
+          padding: "14px 24px 16px",
+          borderRadius: 20,
+          background: "rgba(15, 23, 42, 0.72)",
+          backdropFilter: "blur(16px)",
+          boxShadow: "0 18px 42px -16px rgba(15, 23, 42, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.14)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10
+        }}
+      >
+        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", color: "#F8FAFC", fontSize: 19, fontWeight: 600}}>
+          <div style={{display: "flex", alignItems: "center", gap: 12}}>
+            <span
+              style={{
+                padding: "3px 12px",
+                borderRadius: 999,
+                background: "rgba(251, 114, 153, 0.24)",
+                color: "#FF85AD",
+                fontSize: 17,
+                fontWeight: 700
+              }}
+            >
+              ▸▸ 正在狂按右键找重点…
+            </span>
+            <span style={{color: "rgba(248, 250, 252, 0.78)", fontSize: 18}}>进度条太长，刚听到的金句又找不到了</span>
+          </div>
+          <span style={{fontFamily: BRAND_FONT_FAMILY, fontSize: 21, fontWeight: 700, fontVariantNumeric: "tabular-nums"}}>
+            <span style={{color: "#FB7299"}}>{SCRUB_STAMPS[stampIndex]}</span>
+            <span style={{color: "rgba(248, 250, 252, 0.55)"}}> / 48:16</span>
+          </span>
+        </div>
+        <div style={{position: "relative", height: 8, borderRadius: 999, background: "rgba(255, 255, 255, 0.22)"}}>
+          <div
+            style={{
+              width: `${Math.round(scrubProgress * 100)}%`,
+              height: "100%",
+              borderRadius: 999,
+              background: "linear-gradient(90deg, #FB7299 0%, #FF9DBB 100%)",
+              boxShadow: "0 0 16px rgba(251, 114, 153, 0.8)"
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              left: `${Math.round(scrubProgress * 100)}%`,
+              top: "50%",
+              width: 18,
+              height: 18,
+              marginLeft: -9,
+              marginTop: -9,
+              borderRadius: "50%",
+              background: "#FFFFFF",
+              border: "3px solid #FB7299",
+              boxShadow: "0 0 14px rgba(251, 114, 153, 0.9)"
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const PainPointQuestionStack = () => {
   const frame = useCurrentFrame();
@@ -179,47 +305,78 @@ const Cursor = () => {
 const ReaderPanel = () => {
   const frame = useCurrentFrame();
   if (frame < CLICK_AT) return null;
-  const clipRight = interpolate(frame, [CLICK_AT, CLICK_AT + PANEL_OPEN_FRAMES], [100, 0], {
+  const unfoldProgress = interpolate(frame, [CLICK_AT, CLICK_AT + PANEL_OPEN_FRAMES + 2], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
   });
-  const offsetX = interpolate(frame, [CLICK_AT, CLICK_AT + PANEL_OPEN_FRAMES], [36, 0], {
+  const offsetX = interpolate(unfoldProgress, [0, 1], [136, 0]);
+  const bookRotateY = interpolate(unfoldProgress, [0, 1], [-54, 0]);
+  const spineShadowOpacity = interpolate(frame, [CLICK_AT, CLICK_AT + 4, CLICK_AT + PANEL_OPEN_FRAMES + 4], [0, 0.95, 0.42], {
     extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.bezier(0.16, 1, 0.3, 1)
+    extrapolateRight: "clamp"
   });
-  const bgOpacity = interpolate(frame, [CLICK_AT, CLICK_AT + 2], [0, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
+  const paperSheenX = interpolate(unfoldProgress, [0, 1], [105, -25]);
+  const paperSheenOpacity = interpolate(unfoldProgress, [0, 0.35, 1], [0, 0.82, 0]);
+  const panelOpacity = interpolate(frame, [CLICK_AT, CLICK_AT + 2], [0.72, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
 
   return (
-    <>
+    <div
+      style={{
+        position: "absolute",
+        left: PANEL.x,
+        top: 0,
+        width: PANEL.width,
+        height: 1080,
+        transformOrigin: "100% 50%",
+        transform: `perspective(1600px) translateX(${offsetX.toFixed(1)}px) rotateY(${bookRotateY.toFixed(2)}deg)`,
+        opacity: panelOpacity,
+        zIndex: 6
+      }}
+    >
+      {/* Book Spine Crease Shadow on Left Seam */}
       <div
         style={{
           position: "absolute",
-          left: PANEL.x,
+          left: -42,
           top: 0,
-          width: PANEL.width,
+          width: 42,
           height: 1080,
-          background: "#FBFBFD",
-          boxShadow: "-36px 0 96px -20px rgba(17, 24, 39, 0.24)",
-          opacity: bgOpacity
+          background: "linear-gradient(90deg, rgba(17, 24, 39, 0) 0%, rgba(17, 24, 39, 0.28) 100%)",
+          opacity: spineShadowOpacity,
+          pointerEvents: "none"
         }}
       />
       <div
         style={{
           position: "absolute",
-          left: PANEL.x,
-          top: 0,
-          width: PANEL.width,
-          height: 1080,
-          overflow: "hidden",
-          clipPath: `inset(0 0 0 ${clipRight}%)`,
-          translate: `${offsetX}px 0px`
+          inset: 0,
+          background: "#FBF9F4",
+          boxShadow: "-36px 0 96px -20px rgba(17, 24, 39, 0.28), -2px 0 0 rgba(255, 248, 232, 0.9)"
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          overflow: "hidden"
         }}
       >
         <Img src={staticFile("media/hero-panel.png")} style={{position: "absolute", left: -PANEL.x, top: 0, width: 1920, height: 1080, maxWidth: "none"}} />
+        <PaperGrainOverlay opacity={0.14} warm borderRadius={0} />
+        {paperSheenOpacity > 0.01 ? (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: `linear-gradient(102deg, rgba(255, 250, 238, 0) ${paperSheenX - 24}%, rgba(255, 246, 224, 0.68) ${paperSheenX}%, rgba(255, 250, 238, 0) ${paperSheenX + 24}%)`,
+              opacity: paperSheenOpacity,
+              pointerEvents: "none"
+            }}
+          />
+        ) : null}
       </div>
-    </>
+    </div>
   );
 };
 
@@ -234,13 +391,13 @@ const HeroMessage = () => {
 
   return (
     <EditorialHeaderBand
-      title="别光看，试试在 B 站「读」视频。"
+      title="不用等课代表，在 B 站直接「读」视频。"
       titleNode={
         <>
-          别光看，试试在 B 站<span style={{color: COLORS.pink}}>「读」</span>视频。
+          不用等课代表，在 B 站直接<span style={{color: COLORS.pink}}>「读」</span>视频。
         </>
       }
-      titleSize={46}
+      titleSize={44}
       delay={HEADER_REVEAL_AT}
       showBrand
       opacity={bandOpacity}
@@ -280,12 +437,12 @@ export const HeroScene = () => {
     extrapolateRight: "clamp",
     easing: Easing.bezier(0.16, 1, 0.3, 1)
   });
-  const hookDriftScale = interpolate(frame, [0, PULLBACK_START], [1.38, 1.34], {
+  const hookDriftScale = interpolate(frame, [0, PULLBACK_START], [1.34, 1.30], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
   const videoScale = interpolate(pullbackProgress, [0, 1], [hookDriftScale, 1]);
-  const videoBlur = interpolate(pullbackProgress, [0, 1], [12, 0]);
+  const videoBlur = interpolate(pullbackProgress, [0, 1], [4.5, 0]);
   const veilOpacity = interpolate(pullbackProgress, [0, 1], [1, 0]);
 
   return (
@@ -312,13 +469,14 @@ export const HeroScene = () => {
             background: [
               "radial-gradient(ellipse 55% 60% at 24% 42%, rgba(232, 93, 135, 0.08) 0%, rgba(232, 93, 135, 0) 70%)",
               "radial-gradient(ellipse 60% 65% at 78% 52%, rgba(38, 121, 184, 0.08) 0%, rgba(38, 121, 184, 0) 72%)",
-              "linear-gradient(160deg, rgba(251, 251, 253, 0.58) 0%, rgba(244, 245, 248, 0.52) 100%)"
+              "linear-gradient(160deg, rgba(251, 251, 253, 0.34) 0%, rgba(244, 245, 248, 0.28) 100%)"
             ].join(", "),
             opacity: veilOpacity,
             pointerEvents: "none"
           }}
         />
       ) : null}
+      <BiliPainPointBackdrop />
       <ToolbarEntryCallout />
       <ReaderPanel />
       <HeroMessage />

@@ -331,6 +331,103 @@ const FinalBrand = () => {
   );
 };
 
+const TRIPLE_SPARK_RAYS = [
+  {angle: -142, dist: 84, color: "#FB7299", kind: "star"},
+  {angle: -108, dist: 96, color: "#F59E0B", kind: "coin"},
+  {angle: -72, dist: 92, color: "#FB7299", kind: "thumb"},
+  {angle: -36, dist: 86, color: "#F59E0B", kind: "star"},
+  {angle: 18, dist: 76, color: "#FB7299", kind: "coin"},
+  {angle: 56, dist: 82, color: "#00AEEC", kind: "star"},
+  {angle: 132, dist: 74, color: "#FB7299", kind: "coin"},
+  {angle: 168, dist: 80, color: "#F59E0B", kind: "star"}
+] as const;
+
+const TripleLikeBurst = ({clickAt}: {clickAt: number}) => {
+  const frame = useCurrentFrame();
+  if (frame < clickAt - 2 || frame > clickAt + 20) return null;
+  const burstProgress = interpolate(frame, [clickAt - 1, clickAt + 16], [0, 1], {
+    ...CLAMP,
+    easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
+  const burstOpacity = interpolate(frame, [clickAt - 1, clickAt + 2, clickAt + 12, clickAt + 18], [0, 1, 0.86, 0], CLAMP);
+  const ringScale = interpolate(frame, [clickAt - 1, clickAt + 14], [0.32, 2.15], {
+    ...CLAMP,
+    easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: INSTALL_POINTER.x,
+        top: INSTALL_POINTER.y,
+        width: 0,
+        height: 0,
+        pointerEvents: "none",
+        zIndex: 12
+      }}
+    >
+      {/* Dual Bilibili Pink + Gold Pulse Rings */}
+      <div
+        style={{
+          position: "absolute",
+          left: -34,
+          top: -34,
+          width: 68,
+          height: 68,
+          borderRadius: "50%",
+          border: "2.5px solid rgba(251, 114, 153, 0.78)",
+          boxShadow: "0 0 28px rgba(251, 114, 153, 0.55), inset 0 0 16px rgba(245, 158, 11, 0.35)",
+          opacity: burstOpacity,
+          scale: ringScale
+        }}
+      />
+      {/* Radiating Geometric Triple-Like Sparks */}
+      {TRIPLE_SPARK_RAYS.map((ray, index) => {
+        const rad = (ray.angle * Math.PI) / 180;
+        const r = ray.dist * burstProgress;
+        const x = Math.cos(rad) * r;
+        const y = Math.sin(rad) * r;
+        const itemScale = interpolate(frame, [clickAt - 1, clickAt + 4, clickAt + 16], [0.35, 1.15, 0.55], CLAMP);
+        return (
+          <svg
+            key={index}
+            width={22}
+            height={22}
+            viewBox="0 0 24 24"
+            style={{
+              position: "absolute",
+              left: -11,
+              top: -11,
+              translate: `${x.toFixed(1)}px ${y.toFixed(1)}px`,
+              scale: itemScale,
+              opacity: burstOpacity,
+              filter: `drop-shadow(0 0 8px ${ray.color})`
+            }}
+          >
+            {ray.kind === "star" ? (
+              <path
+                d="M12 2.2 L14.7 8.4 L21.4 9.1 L16.3 13.5 L17.8 20.1 L12 16.6 L6.2 20.1 L7.7 13.5 L2.6 9.1 L9.3 8.4 Z"
+                fill={ray.color}
+              />
+            ) : ray.kind === "coin" ? (
+              <>
+                <circle cx="12" cy="12" r="8.5" fill={ray.color} />
+                <circle cx="12" cy="12" r="4.2" fill="rgba(255, 255, 255, 0.78)" />
+              </>
+            ) : (
+              <path
+                d="M12 3.5 L14.8 9.2 L20.5 12 L14.8 14.8 L12 20.5 L9.2 14.8 L3.5 12 L9.2 9.2 Z"
+                fill={ray.color}
+              />
+            )}
+          </svg>
+        );
+      })}
+    </div>
+  );
+};
+
 const CallToAction = () => {
   const frame = useCurrentFrame();
   const clickAt = OUTRO_TIMELINE.installClickAt;
@@ -430,6 +527,7 @@ const CallToAction = () => {
           scale: interpolate(frame, [clickAt - 4, clickAt + 6], [0.35, 1.5], CLAMP)
         }}
       />
+      <TripleLikeBurst clickAt={clickAt} />
       <svg
         width={36}
         height={46}

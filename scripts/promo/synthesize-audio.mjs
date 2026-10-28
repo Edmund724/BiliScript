@@ -122,16 +122,16 @@ function snare(gainScale = 1) {
 }
 
 function sectionDynamicsAt(seconds) {
-  if (seconds < 3.0) return 0.56;
-  if (seconds < 7.0) return 0.66;
-  if (seconds < 11.0) return 0.74;
-  if (seconds < 17.0) return 0.86;
-  if (seconds < 20.0) return 1.18;
-  if (seconds < 25.0) return 1.24;
-  if (seconds < 28.58) return 1.20;
+  if (seconds < 3.0) return 0.66;
+  if (seconds < 7.0) return 0.76;
+  if (seconds < 11.0) return 0.86;
+  if (seconds < 17.0) return 0.90;
+  if (seconds < 20.0) return 1.12;
+  if (seconds < 25.0) return 1.16;
+  if (seconds < 28.58) return 1.14;
   if (seconds < 29.0) return 0.05;
-  if (seconds < 31.2) return 1.10;
-  return 0.72;
+  if (seconds < 31.2) return 1.06;
+  return 0.74;
 }
 
 function makeScore() {
@@ -580,6 +580,7 @@ for (const item of customSfxEntries) {
 }
 
 const voiceExcerpts = [
+  {name: "voice-0232", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0232.wav"), excerpt: "02:32 如果他不答一定是零分"},
   {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉"},
   {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究"}
 ];

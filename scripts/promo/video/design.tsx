@@ -147,6 +147,64 @@ export const BrandWhisper = ({style = {}, opacity = 1}: {style?: CSSProperties; 
   </div>
 );
 
+export const PaperGrainOverlay = ({
+  opacity = 0.08,
+  warm = true,
+  borderRadius = 24
+}: {
+  opacity?: number;
+  warm?: boolean;
+  borderRadius?: number;
+}) => (
+  <div
+    style={{
+      position: "absolute",
+      inset: 0,
+      borderRadius,
+      overflow: "hidden",
+      pointerEvents: "none",
+      backgroundImage: [
+        `repeating-linear-gradient(32deg, ${warm ? "rgba(180, 142, 104, 0.09)" : "rgba(255, 255, 255, 0.07)"} 0px 1px, transparent 1px 4px)`,
+        `repeating-linear-gradient(-58deg, ${warm ? "rgba(120, 92, 68, 0.07)" : "rgba(15, 23, 42, 0.05)"} 0px 1px, transparent 1px 5px)`,
+        warm
+          ? "radial-gradient(ellipse 90% 80% at 18% 12%, rgba(255, 248, 232, 0.36) 0%, rgba(244, 230, 206, 0.08) 58%, rgba(196, 164, 128, 0.14) 100%)"
+          : "radial-gradient(ellipse 90% 80% at 18% 12%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 70%)"
+      ].join(", "),
+      boxShadow: warm
+        ? "inset 0 1px 0 rgba(255, 252, 244, 0.62), inset -3px 0 14px rgba(138, 102, 68, 0.12), inset 0 -1px 0 rgba(138, 102, 68, 0.10)"
+        : "inset 0 1px 0 rgba(255, 255, 255, 0.38)",
+      opacity
+    }}
+  />
+);
+
+export const ReadingLampBeam = ({
+  opacity = 1,
+  borderRadius = 24
+}: {
+  opacity?: number;
+  borderRadius?: number;
+}) => {
+  if (opacity <= 0.01) return null;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        borderRadius,
+        overflow: "hidden",
+        pointerEvents: "none",
+        opacity,
+        background: [
+          "radial-gradient(ellipse 82% 66% at 88% 6%, rgba(255, 214, 148, 0.34) 0%, rgba(238, 168, 88, 0.15) 44%, rgba(238, 168, 88, 0) 78%)",
+          "linear-gradient(126deg, rgba(255, 230, 182, 0) 14%, rgba(255, 220, 158, 0.16) 46%, rgba(255, 230, 182, 0) 76%)"
+        ].join(", "),
+        boxShadow: "inset -1px 1px 0 rgba(255, 224, 168, 0.34)"
+      }}
+    />
+  );
+};
+
 export const VoiceWaveBar = ({
   timestamp,
   quote,

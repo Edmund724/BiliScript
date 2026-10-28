@@ -14,7 +14,9 @@ import {
   ELEVATION,
   FONT_FAMILY,
   PANEL_CROPS,
+  PaperGrainOverlay,
   ProductFrame,
+  ReadingLampBeam,
   SceneTitle,
   VoiceWaveBar,
   microPerspective
@@ -45,8 +47,8 @@ const ChatLeftContext = () => {
   return (
     <div style={{position: "absolute", inset: 0, opacity: leftOpacity, pointerEvents: "none"}}>
       <SceneTitle
-        title={"看完还有问题？\n接着问。"}
-        subtitle="围绕视频上下文深入追问，点击回答内时间戳回到原片那一秒。"
+        title={"既然难免幻觉，\n怎么选 AI 才对？"}
+        subtitle="带着问题追问视频上下文，点按时间戳让原片老师亲自举证。"
         style={{left: 96, top: 152, width: 760}}
       />
       <div
@@ -470,7 +472,7 @@ const ChatReturnVerification = () => {
             maxWidth: "none"
           }}
         />
-        <VoiceWaveBar timestamp="04:44" quote="“这里有一个研究 · 人机协作实验”" active={true} />
+        <VoiceWaveBar timestamp="04:44 · 赵老师原声举证" quote="“这里有一个研究 · 人机协作象棋实验”" active={true} />
       </div>
     </div>
   );
@@ -503,28 +505,63 @@ export const AppearanceScene = () => {
   const isEditorial = frame >= 57;
   const activeStep = isEditorial ? 2 : isDark ? 1 : 0;
 
+  let pageFlipPulse = 0;
+  for (const switchFrame of [21, 57]) {
+    const dt = frame - switchFrame;
+    if (dt >= -1 && dt <= 9) {
+      pageFlipPulse = Math.max(
+        pageFlipPulse,
+        interpolate(dt, [-1, 2, 9], [0, 1, 0], {...CLAMP, easing: SMOOTH})
+      );
+    }
+  }
+
   const badges = [
-    {label: "晨读纸白", dot: "#E85D87", glow: "rgba(232, 93, 135, 0.22)"},
-    {label: "深色夜读", dot: "#38BDF8", glow: "rgba(56, 189, 248, 0.24)"},
-    {label: "数字刊物", dot: "#E08B5B", glow: "rgba(224, 139, 91, 0.24)"}
+    {label: "浅色 · 蓝雾玻璃", dot: "#008CFF", glow: "rgba(0, 140, 255, 0.22)"},
+    {label: "深色 · 夜读", dot: "#38BDF8", glow: "rgba(56, 189, 248, 0.24)"},
+    {label: "数字刊物 · 暖纸衬线", dot: "#E08B5B", glow: "rgba(224, 139, 91, 0.24)"}
   ];
 
   const cardBg = isEditorial
-    ? "linear-gradient(145deg, rgba(42, 31, 26, 0.96) 0%, rgba(28, 20, 17, 0.98) 100%)"
+    ? "linear-gradient(145deg, rgba(44, 32, 26, 0.96) 0%, rgba(28, 20, 16, 0.98) 100%)"
     : isDark
       ? "linear-gradient(145deg, rgba(24, 34, 50, 0.95) 0%, rgba(13, 19, 30, 0.98) 100%)"
       : "rgba(255, 255, 255, 0.96)";
 
   const cardText = isDark ? "#F8FAFC" : COLORS.foreground;
   const cardSub = isDark ? "#94A3B8" : COLORS.muted;
-  const cardAccent = isEditorial ? "#E08B5B" : isDark ? "#38BDF8" : COLORS.pink;
-  const cardShadow = isDark
-    ? "-28px 44px 110px -22px rgba(15, 23, 42, 0.42), 0 0 48px -12px rgba(56, 189, 248, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.14)"
-    : ELEVATION.heroFloat;
+  const cardAccent = isEditorial ? "#E08B5B" : isDark ? "#38BDF8" : "#008CFF";
+  const cardShadow = isEditorial
+    ? "-28px 44px 110px -22px rgba(24, 16, 12, 0.46), 0 0 58px -10px rgba(224, 139, 91, 0.26), 0 0 0 1px rgba(255, 232, 208, 0.16)"
+    : isDark
+      ? "-28px 44px 110px -22px rgba(15, 23, 42, 0.42), 0 0 48px -12px rgba(56, 189, 248, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.14)"
+      : ELEVATION.heroFloat;
+
+  const rotateY = -8 - pageFlipPulse * 8.5;
+  const rotateX = 5 + pageFlipPulse * 2.4;
 
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY, overflow: "hidden"}}>
       <BrandWhisper />
+
+      {/* Warm Reading Lamp Ambient Pool when Dark Mode or Editorial Palette is active */}
+      {(isDark || isEditorial) && (
+        <div
+          style={{
+            position: "absolute",
+            left: 36,
+            top: 340,
+            width: 920,
+            height: 520,
+            borderRadius: "50%",
+            background: isEditorial
+              ? "radial-gradient(circle at 38% 36%, rgba(245, 178, 112, 0.24) 0%, rgba(224, 139, 91, 0.10) 44%, rgba(224, 139, 91, 0) 74%)"
+              : "radial-gradient(circle at 38% 36%, rgba(255, 206, 142, 0.16) 0%, rgba(56, 189, 248, 0.08) 44%, rgba(56, 189, 248, 0) 74%)",
+            filter: "blur(18px)",
+            pointerEvents: "none"
+          }}
+        />
+      )}
 
       <div
         style={{
@@ -567,13 +604,13 @@ export const AppearanceScene = () => {
       </div>
 
       <SceneTitle
-        title={frame < APPEARANCE_SHOTS[0].duration ? "晨读亮场为主，\n亦备深色夜读。" : "多款阅读色板，\n随你偏好。"}
+        title={frame < APPEARANCE_SHOTS[0].duration ? "明暗模式切换，\n夜读台灯护眼。" : "外观色板定制，\n如读纸质刊物。"}
         subtitle={
           isEditorial
-            ? "当前演示：数字刊物暖棕色板 · 适配长文沉浸精读"
+            ? "当前演示：数字刊物色板 · 暖棕纸张肌理与人文衬线排版"
             : isDark
-              ? "当前演示：深色夜读模式 · 夜间低眩光视觉保护"
-              : "默认晨读亮场 · 通透纸感与空间景深"
+              ? "当前演示：深色夜读模式 · 暖调阅读台灯与低眩光护眼"
+              : "默认浅色 · 蓝雾玻璃色板，通透毛玻璃与空间景深"
         }
         style={{left: 96, top: 152, width: 760}}
       />
@@ -590,10 +627,26 @@ export const AppearanceScene = () => {
           background: cardBg,
           backdropFilter: "blur(28px)",
           boxShadow: cardShadow,
-          transform: "perspective(1600px) rotateX(5deg) rotateY(-8deg)"
+          overflow: "hidden",
+          transformOrigin: "10% 50%",
+          transform: `perspective(1600px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg)`
         }}
       >
-        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
+        <PaperGrainOverlay opacity={isEditorial ? 0.56 : 0.34} />
+        <ReadingLampBeam intensity={isEditorial ? 0.96 : isDark ? 0.82 : 0.30} warm={true} />
+        {pageFlipPulse > 0.02 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background:
+                "linear-gradient(108deg, rgba(255, 244, 218, 0.34) 0%, rgba(255, 244, 218, 0.10) 42%, rgba(255, 244, 218, 0) 78%)",
+              opacity: pageFlipPulse,
+              pointerEvents: "none"
+            }}
+          />
+        )}
+        <div style={{position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
           <div style={{display: "flex", alignItems: "center", gap: 14}}>
             <span
               style={{
@@ -608,7 +661,15 @@ export const AppearanceScene = () => {
             >
               02:32
             </span>
-            <span style={{fontSize: 28, fontWeight: 600, color: cardText, letterSpacing: -0.6}}>
+            <span
+              style={{
+                fontSize: 28,
+                fontWeight: 600,
+                color: cardText,
+                letterSpacing: -0.6,
+                fontFamily: isEditorial ? '"Noto Serif SC", "Source Han Serif SC", Georgia, serif' : FONT_FAMILY
+              }}
+            >
               AI 并非越强越好，适配才是关键
             </span>
           </div>
@@ -622,14 +683,26 @@ export const AppearanceScene = () => {
               fontWeight: 600
             }}
           >
-            {isEditorial ? "数字刊物" : isDark ? "深色夜读" : "晨读纸白"}
+            {isEditorial ? "数字刊物" : isDark ? "深色夜读" : "蓝雾玻璃"}
           </span>
-        </div>
-        <div style={{fontSize: 29, fontWeight: 600, lineHeight: 1.42, letterSpacing: -0.6, color: cardText, marginBottom: 22}}>
-          “人与 AI 的关系是<span style={{color: cardAccent}}>「协作」</span>，而非<span style={{color: cardAccent}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
         </div>
         <div
           style={{
+            position: "relative",
+            fontSize: 28,
+            fontWeight: isEditorial ? 560 : 600,
+            lineHeight: 1.48,
+            letterSpacing: isEditorial ? 0.1 : -0.6,
+            color: cardText,
+            fontFamily: isEditorial ? '"Noto Serif SC", "Source Han Serif SC", Georgia, serif' : FONT_FAMILY,
+            marginBottom: 22
+          }}
+        >
+          “人与 AI 的关系是<span style={{color: cardAccent, fontWeight: 700}}>「协作」</span>，而非<span style={{color: cardAccent, fontWeight: 700}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
+        </div>
+        <div
+          style={{
+            position: "relative",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -639,7 +712,7 @@ export const AppearanceScene = () => {
             fontSize: 19
           }}
         >
-          <span>白天通透晨读 · 夜间深邃护眼</span>
+          <span>{isEditorial ? "暖调台灯光束 · 纸质杂志衬线排版" : "明暗模式 × 外观色板 · 像读杂志一样看 B 站"}</span>
           <span style={{color: cardAccent, fontFamily: BRAND_FONT_FAMILY, fontWeight: 600}}>04:07 – 05:15 ↗</span>
         </div>
       </div>
