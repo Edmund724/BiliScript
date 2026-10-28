@@ -482,9 +482,6 @@
   flex-direction: column;
   /* 内容区套 card 白卡：四周 margin 环透出页面灰作页面层，
    * 圆角 28px 与 tab 槽同档。 */
-  /* flush 子卡片同心圆角：子卡外缘到白卡外缘 14px（白卡横向内边距，卡自身无边框；
-   * 纵向 12px 取横向大者）。嵌套滚动列表（字幕/概览）在自己的容器上覆写此变量。 */
-  --card-child-radius: calc(var(--biliscript-radius-panel) - 14px);
   margin: 10px 14px 14px;
   padding: 12px 14px;
   background: var(--biliscript-reader-card);
@@ -570,9 +567,6 @@
 }
 
 .biliscript-reading-subtitle {
-  /* flush 子卡片（字幕行）同心圆角：行外缘到白卡外缘 22px（白卡 14 + 本列表 8），
-   * 覆写 tab-body 的 --card-child-radius。 */
-  --card-child-radius: calc(var(--biliscript-radius-panel) - 22px);
   width: 100%;
   /* 必须 border-box：默认 content-box 下 width:100% 再叠左右 padding 会比
    * .biliscript-reading-main（overflow:hidden）宽 16px，右缘连同滚动条一起被裁掉，
@@ -650,7 +644,7 @@
   align-items: start;
   border: 0;
   background: transparent;
-  border-radius: var(--card-child-radius);
+  border-radius: var(--biliscript-radius-panel);
   corner-shape: squircle;
   padding: 10px 12px;
   text-align: left;

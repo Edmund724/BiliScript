@@ -20,10 +20,10 @@ describe("阅读主面板与门控样式 Token 迁移契约", () => {
       lines.forEach((line, index) => {
         if (/border-radius\s*:/.test(line)) {
           const trimmed = line.trim();
-          // 允许消费 var(--biliscript-radius-*) / var(--card-child-radius，白卡与设置抽屉
-          // 上的同心圆角 scoped 变量，定义自 --biliscript-radius-panel) 或组件 Token
+          // 允许消费 var(--biliscript-radius-*) / var(--chat-input-*，输入卡同心圆角
+          // scoped 变量族，定义自 --biliscript-radius-panel) 或组件 Token
           const isValid =
-            /var\(--(?:biliscript-radius|card-child-radius|btn-radius|chip-radius|pill-radius)/.test(trimmed) ||
+            /var\(--(?:biliscript-radius|chat-input|btn-radius|chip-radius|pill-radius)/.test(trimmed) ||
             /inherit/.test(trimmed);
           if (!isValid) {
             violations.push(`Line ${index + 1}: ${trimmed}`);
@@ -43,10 +43,10 @@ describe("阅读主面板与门控样式 Token 迁移契约", () => {
         // 门控规则块从第 50 行后开始出现具体组件样式
         if (/border-radius\s*:/.test(line)) {
           const trimmed = line.trim();
-          // 允许消费 var(--biliscript-radius-*) / var(--card-child-radius，白卡与设置抽屉
-          // 上的同心圆角 scoped 变量，定义自 --biliscript-radius-panel) 或组件 Token
+          // 允许消费 var(--biliscript-radius-*) / var(--chat-input-*，输入卡同心圆角
+          // scoped 变量族，定义自 --biliscript-radius-panel) 或组件 Token
           const isValid =
-            /var\(--(?:biliscript-radius|card-child-radius|btn-radius|chip-radius|pill-radius)/.test(trimmed) ||
+            /var\(--(?:biliscript-radius|chat-input|btn-radius|chip-radius|pill-radius)/.test(trimmed) ||
             /inherit/.test(trimmed);
           if (!isValid) {
             violations.push(`Line ${index + 1}: ${trimmed}`);

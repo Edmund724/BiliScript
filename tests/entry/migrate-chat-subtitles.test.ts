@@ -51,12 +51,11 @@ describe("对话面板与双语字幕样式 Token 迁移契约", () => {
 
       for (const { selector, value } of decls) {
         if (value === "0" || value === "inherit") continue;
-        // 允许使用 var(--biliscript-radius-*)、var(--card-child-radius，白卡同心圆角
-        // scoped 变量）、var(--chat-input-*)、var(--chat-model-option-radius /
-        // --chat-more-item-radius，弹层选项同心圆角 scoped 变量）、var(--btn-*)、
-        // var(--pill-*)、var(--chip-*) 或基于其的 calc 同心圆角
+        // 允许使用 var(--biliscript-radius-*)、var(--chat-input-*)、
+        // var(--chat-model-option-radius / --chat-more-item-radius，弹层选项同心圆角
+        // scoped 变量）、var(--btn-*)、var(--pill-*)、var(--chip-*) 或基于其的 calc 同心圆角
         const isTokenized =
-          /var\(--(?:biliscript-(?:primitive-)?radius|card-child-radius|chat-input|chat-model-option-radius|chat-more-item-radius|btn-radius|chip-radius|pill-radius)/.test(
+          /var\(--(?:biliscript-(?:primitive-)?radius|chat-input|chat-model-option-radius|chat-more-item-radius|btn-radius|chip-radius|pill-radius)/.test(
             value
           ) ||
           /calc\([^)]*var\(--biliscript-(?:primitive-)?radius/.test(value) ||
@@ -93,9 +92,8 @@ describe("对话面板与双语字幕样式 Token 迁移契约", () => {
     it("输入卡片、发送按钮接入专属组件级 Token", () => {
       const css = stripCssComments(readStyleFile(CHAT_CSS));
 
-      // 输入卡片：白卡 flush 子卡片，圆角取 --card-child-radius（同心圆角 scoped 变量，
-      // 定义在 reader.css 的 .biliscript-reading-tab-body）
-      expect(css).toMatch(/\.chat-input-card\s*\{[^}]*border-radius:\s*var\(--card-child-radius/);
+      // 输入卡片
+      expect(css).toMatch(/\.chat-input-card\s*\{[^}]*border-radius:\s*var\(--chat-input-radius/);
       expect(css).toMatch(/\.chat-input-card\s*\{[^}]*background:\s*var\(--chat-input-bg/);
       expect(css).toMatch(/\.chat-input-card:focus-within\s*\{[^}]*border-color:\s*var\(--chat-input-focus-border/);
       expect(css).toMatch(/\.chat-input-card:focus-within\s*\{[^}]*box-shadow:\s*var\(--chat-input-focus-ring/);
