@@ -20,7 +20,7 @@ const sources = {
   ...Object.fromEntries(PROVIDER_LOGOS.map((logo) => [`providers/${logo.file}`, path.join(REPO_ROOT, "scripts", "promo", "assets", "providers", logo.file)])),
   "overview-poster.jpg": path.join(PROMO_DIR, "frames", "04-overview-chapters", "000000.jpg"),
   "promo-score.wav": path.join(PROMO_DIR, "assets", "audio", "promo-score.wav"),
-  ...Object.fromEntries([...new Set(AUDIO.cues.map((cue) => cue.src.replace("media/", "")))].map((name) => [name, path.join(PROMO_DIR, "assets", "audio", name)])),
+  ...Object.fromEntries([...new Set([...AUDIO.cues, ...(AUDIO.voices ?? [])].map((cue) => cue.src.replace("media/", "")))].map((name) => [name, path.join(PROMO_DIR, "assets", "audio", name)])),
   "logo.svg": path.join(REPO_ROOT, "docs", "images", "biliscript-logo.svg")
 };
 

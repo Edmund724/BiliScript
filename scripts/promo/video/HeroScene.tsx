@@ -1,5 +1,5 @@
 import {AbsoluteFill, Easing, Img, OffthreadVideo, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
-import {COLORS, EditorialHeaderBand, FONT_FAMILY} from "./design";
+import {COLORS, EditorialHeaderBand, FONT_FAMILY, VoiceWaveBar} from "./design";
 
 const BUTTON = {x: 1132, y: 1026};
 const PANEL = {x: 1326, width: 594};
@@ -161,6 +161,23 @@ const ToolbarEntryCallout = ({duration}: {duration: number}) => {
   );
 };
 
+const HeroVoiceHookOverlay = () => {
+  const frame = useCurrentFrame();
+  if (frame < POSTER_FRAMES || frame > 41) return null;
+  const opacity = interpolate(frame, [POSTER_FRAMES, POSTER_FRAMES + 5, 35, 41], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp"
+  });
+  return (
+    <VoiceWaveBar
+      timestamp="02:32"
+      quote="“机器幻觉是怎么产生的”"
+      active={frame >= POSTER_FRAMES && frame <= 38}
+      style={{left: 88, top: 204, opacity}}
+    />
+  );
+};
+
 export const HeroScene = ({duration = 90}: {duration?: number}) => {
   const {fps} = useVideoConfig();
   return (
@@ -172,6 +189,7 @@ export const HeroScene = ({duration = 90}: {duration?: number}) => {
         style={{position: "absolute", inset: 0, width: 1920, height: 1080}}
       />
       <ToolbarEntryCallout duration={duration} />
+      <HeroVoiceHookOverlay />
       <ReaderPanel duration={duration} />
       <HeroMessage duration={duration} />
       <Cursor duration={duration} />

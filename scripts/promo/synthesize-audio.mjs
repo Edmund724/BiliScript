@@ -356,6 +356,7 @@ sfxBySrc.set("media/sfx/whoosh.wav", whoosh);
 sfxEvidence.push({name: "whoosh", source: "code-original", license: "MIT License", file: path.relative(REPO_ROOT, whooshFile), durationInSeconds: 0.5, peak: whooshLevel.peak});
 
 const voiceExcerpts = [
+  {name: "voice-0232", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0232.wav"), excerpt: "02:32 机器幻觉是怎么产生的"},
   {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉"},
   {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究"}
 ];
@@ -398,12 +399,31 @@ for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
     }
   }
 }
+function voiceDuckAtFrame(frame) {
+  let duck = 1;
+  for (const voice of AUDIO.voices) {
+    const local = frame - voice.frame;
+    const holdEnd = (voice.durationFrames ?? 40) - 4;
+    const releaseFrames = 10;
+    const preFrames = 3;
+    if (local < -preFrames || local > holdEnd + releaseFrames) continue;
+    const envelope =
+      local < 0
+        ? (local + preFrames) / preFrames
+        : local <= holdEnd
+          ? 1
+          : (holdEnd + releaseFrames - local) / releaseFrames;
+    duck = Math.min(duck, 1 - envelope * (1 - 10 ** (-voice.duckDb / 20)));
+  }
+  return duck;
+}
+
 const samplesPerFrame = SAMPLE_RATE / PROMO_FPS;
 const ceiling = 0.72;
 const fullMix = buffer(DURATION);
 for (let i = 0; i < score[0].length; i += 1) {
   const frame = Math.min(PROMO_DURATION - 1, Math.floor(i / samplesPerFrame));
-  const vol = musicVolumeAtFrame(frame);
+  const vol = musicVolumeAtFrame(frame) * voiceDuckAtFrame(frame);
   for (let ch = 0; ch < 2; ch += 1) {
     if (vol <= 0.0001) {
       fullMix[ch][i] = Math.tanh(sfxStem[ch][i] / ceiling) * ceiling;

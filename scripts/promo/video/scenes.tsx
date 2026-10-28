@@ -3,7 +3,6 @@ import {
   APPEARANCE_SHOTS,
   CHAT_PLAYER_VERIFY_FROM,
   CHAT_PLAYER_VERIFY_TO,
-  CHAT_SHOTS,
   CHAT_TIMESTAMP_CLICK_FRAME,
   PANEL_FOCUS_HANDOFFS
 } from "../timeline.mjs";
@@ -17,7 +16,8 @@ import {
   PANEL_CROPS,
   ProductFrame,
   SceneTitle,
-  VoiceWaveBar
+  VoiceWaveBar,
+  microPerspective
 } from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
@@ -26,86 +26,10 @@ const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
 const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat")!;
 const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance")!;
 
-const CHAT_BODY_CROP: Crop = {x: 1365, y: 64, width: 540, height: 590};
-const CHAT_INPUT_CROP: Crop = {x: 1387, y: 960, width: 495, height: 99};
 const PLAYER_CROP: Crop = {x: 54, y: 171, width: 1272, height: 764};
-
-const CHAT_CLICK_TARGET = {x: 1588, y: 392};
 
 const shotOffset = (shots: ReadonlyArray<{duration: number}>, index: number) =>
   shots.slice(0, index).reduce((total, previous) => total + previous.duration, 0);
-
-const ChatTimestampPointer = () => {
-  const frame = useCurrentFrame();
-  const moveStart = CHAT_TIMESTAMP_CLICK_FRAME - 20;
-  const clickAt = CHAT_TIMESTAMP_CLICK_FRAME;
-  const moveEnd = CHAT_PLAYER_VERIFY_FROM - 2;
-  if (frame < moveStart || frame > moveEnd) return null;
-
-  const pointerOpacity =
-    interpolate(frame, [moveStart, moveStart + 5], [0, 1], CLAMP) *
-    interpolate(frame, [moveEnd - 6, moveEnd], [1, 0], CLAMP);
-
-  const rippleOpacity = interpolate(frame, [clickAt - 1, clickAt + 1, clickAt + 14], [0, 0.85, 0], CLAMP);
-  const rippleScale = interpolate(frame, [clickAt - 1, clickAt + 14], [0.4, 1.85], {...CLAMP, easing: SMOOTH});
-  const highlightOpacity = interpolate(frame, [moveStart + 8, clickAt, moveEnd - 4, moveEnd], [0, 1, 1, 0], CLAMP);
-
-  return (
-    <>
-      <div
-        style={{
-          position: "absolute",
-          left: CHAT_CLICK_TARGET.x - 86,
-          top: CHAT_CLICK_TARGET.y - 18,
-          width: 172,
-          height: 36,
-          borderRadius: 999,
-          background: frame >= clickAt ? "rgba(232, 93, 135, 0.20)" : "rgba(232, 93, 135, 0.10)",
-          boxShadow: "0 12px 32px -8px rgba(232, 93, 135, 0.45), 0 0 0 1px rgba(232, 93, 135, 0.34)",
-          opacity: highlightOpacity,
-          pointerEvents: "none"
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: CHAT_CLICK_TARGET.x - 28,
-          top: CHAT_CLICK_TARGET.y - 28,
-          width: 56,
-          height: 56,
-          borderRadius: "50%",
-          background: "rgba(232, 93, 135, 0.24)",
-          boxShadow: "0 0 32px rgba(232, 93, 135, 0.55)",
-          opacity: rippleOpacity,
-          scale: rippleScale,
-          pointerEvents: "none"
-        }}
-      />
-      <svg
-        viewBox="0 0 30 38"
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          width: 34,
-          height: 43,
-          filter: "drop-shadow(0 4px 8px rgba(17, 24, 39, 0.35))",
-          opacity: pointerOpacity,
-          translate: interpolate(
-            frame,
-            [moveStart, clickAt - 2],
-            ["1440px 760px", `${CHAT_CLICK_TARGET.x}px ${CHAT_CLICK_TARGET.y}px`],
-            {...CLAMP, easing: SMOOTH}
-          ),
-          scale: interpolate(frame, [clickAt - 2, clickAt, clickAt + 4], [1, 0.82, 1], CLAMP),
-          pointerEvents: "none"
-        }}
-      >
-        <path d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z" fill="white" stroke={COLORS.foreground} strokeWidth="2" strokeLinejoin="round" />
-      </svg>
-    </>
-  );
-};
 
 const ChatLeftContext = () => {
   const frame = useCurrentFrame();
@@ -129,7 +53,7 @@ const ChatLeftContext = () => {
         style={{
           position: "absolute",
           left: 96,
-          top: 436,
+          top: 438,
           width: 760,
           padding: "28px 34px",
           borderRadius: 28,
@@ -138,40 +62,358 @@ const ChatLeftContext = () => {
           transform: "perspective(1600px) rotateX(4deg) rotateY(-8deg)",
           display: "flex",
           flexDirection: "column",
-          gap: 14
+          gap: 16
         }}
       >
         <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
-          <span style={{color: COLORS.muted, fontSize: 20, fontWeight: 500}}>点击回答内时间戳 · 原片同步合焦发声</span>
           <span
             style={{
-              padding: "5px 16px",
+              padding: "5px 14px",
               borderRadius: 999,
-              fontFamily: BRAND_FONT_FAMILY,
-              background: frame >= CHAT_TIMESTAMP_CLICK_FRAME ? COLORS.pink : "rgba(38, 121, 184, 0.10)",
-              color: frame >= CHAT_TIMESTAMP_CLICK_FRAME ? "#FFFFFF" : COLORS.blue,
-              fontSize: 20,
-              fontWeight: 600
+              background: "rgba(232, 93, 135, 0.12)",
+              color: COLORS.pink,
+              fontSize: 18,
+              fontWeight: 720
             }}
           >
-            04:44 – 05:15 ↗
+            追问原片上下文
           </span>
+          <span style={{color: COLORS.muted, fontSize: 18, fontWeight: 560}}>自动挂载完整字幕与章节索引</span>
         </div>
-        <div style={{color: COLORS.foreground, fontSize: 27, fontWeight: 600, lineHeight: 1.38, letterSpacing: -0.5}}>
-          1. 人与 AI 的关系是<span style={{color: COLORS.pink}}>「协作」</span>，而非<span style={{color: COLORS.pink}}>「替代」</span>
+        <div style={{color: COLORS.foreground, fontSize: 30, fontWeight: 740, lineHeight: 1.36, letterSpacing: -0.6}}>
+          “为什么作者说 <span style={{color: COLORS.pink}}>AI 并非越强越好</span>，适配才是关键？”
         </div>
       </div>
-      <ProductFrame
-        source="chat.mp4"
-        crop={CHAT_INPUT_CROP}
-        width={760}
-        startFrom={0}
-        playbackRate={1}
-        duration={180}
-        animate={false}
-        tilt={-6}
-        style={{left: 96, top: 656}}
-      />
+
+      <div
+        style={{
+          position: "absolute",
+          left: 96,
+          top: 660,
+          width: 760,
+          padding: "22px 28px",
+          borderRadius: 24,
+          background: "rgba(251, 246, 236, 0.96)",
+          boxShadow: "0 24px 56px -20px rgba(17, 24, 39, 0.16), 0 0 0 1.5px rgba(180, 142, 108, 0.32)",
+          transform: "perspective(1600px) rotateX(3deg) rotateY(-6deg)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 18
+        }}
+      >
+        <div style={{color: "#8C7B6B", fontSize: 20, fontWeight: 540}}>回车发送，Shift+Enter 换行</div>
+        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+          <div
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: "50%",
+              background: "rgba(140, 123, 107, 0.12)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#6E5D4F",
+              fontSize: 18
+            }}
+          >
+            🌐
+          </div>
+          <div style={{display: "flex", alignItems: "center", gap: 14}}>
+            <span style={{color: "#5C4D40", fontFamily: BRAND_FONT_FAMILY, fontSize: 19, fontWeight: 620}}>
+              ModelScope · DeepSeek-V3 ▾
+            </span>
+            <div
+              style={{
+                width: 38,
+                height: 38,
+                borderRadius: "50%",
+                background: "#B5472A",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <div style={{width: 12, height: 12, borderRadius: 2, background: "#FFFFFF"}} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ChatHeroPanel = ({panelLeft, panelScale}: {panelLeft: number; panelScale: number}) => {
+  const frame = useCurrentFrame();
+  const totalDuration = 180;
+
+  const enterBlur = interpolate(frame, [0, CHAT_HANDOFF.enterFrames], [CHAT_HANDOFF.maxBlur, 0], {
+    ...CLAMP,
+    easing: SMOOTH
+  });
+  const exitBlur = interpolate(
+    frame,
+    [totalDuration - APPEARANCE_HANDOFF.exitFrames, totalDuration],
+    [0, APPEARANCE_HANDOFF.maxBlur],
+    {...CLAMP, easing: SMOOTH}
+  );
+  const blur = Math.max(enterBlur, exitBlur);
+  const focusScale =
+    interpolate(frame, [0, CHAT_HANDOFF.enterFrames], [0.97, 1], {...CLAMP, easing: SMOOTH}) *
+    interpolate(frame, [totalDuration - APPEARANCE_HANDOFF.exitFrames, totalDuration], [1, 0.97], {
+      ...CLAMP,
+      easing: SMOOTH
+    });
+
+  const moveStart = CHAT_TIMESTAMP_CLICK_FRAME - 20;
+  const clickAt = CHAT_TIMESTAMP_CLICK_FRAME;
+  const moveEnd = CHAT_PLAYER_VERIFY_FROM - 2;
+  const showPointer = frame >= moveStart && frame <= moveEnd;
+  const pointerOpacity =
+    interpolate(frame, [moveStart, moveStart + 5], [0, 1], CLAMP) *
+    interpolate(frame, [moveEnd - 6, moveEnd], [1, 0], CLAMP);
+  const highlightOpacity = interpolate(frame, [moveStart + 6, clickAt, moveEnd + 40, moveEnd + 50], [0, 1, 1, 0.85], CLAMP);
+  const rippleOpacity = interpolate(frame, [clickAt - 1, clickAt + 1, clickAt + 14], [0, 0.88, 0], CLAMP);
+  const rippleScale = interpolate(frame, [clickAt - 1, clickAt + 14], [0.45, 1.85], {...CLAMP, easing: SMOOTH});
+  const isClicked = frame >= clickAt;
+
+  const cursorOffsetX = interpolate(frame, [moveStart, clickAt - 2], [-120, 68], {...CLAMP, easing: SMOOTH});
+  const cursorOffsetY = interpolate(frame, [moveStart, clickAt - 2], [210, 18], {...CLAMP, easing: SMOOTH});
+
+  const answerReveal = interpolate(frame, [6, 22], [0.92, 1], {...CLAMP, easing: SMOOTH});
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: panelLeft,
+        top: 52,
+        width: 880,
+        transformOrigin: "0 0",
+        scale: panelScale * focusScale,
+        filter: blur > 0.05 ? `blur(${blur.toFixed(2)}px)` : undefined
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          width: 880,
+          borderRadius: 28,
+          background: "#FBF6EC",
+          boxShadow: ELEVATION.heroFloat,
+          padding: "28px 36px 36px",
+          transform: microPerspective(-6),
+          transformOrigin: "50% 50%",
+          color: "#221C16"
+        }}
+      >
+        {/* Top Header */}
+        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
+          <span style={{color: "#6B5E51", fontSize: 22, fontWeight: 620}}>UP主: 复旦赵斌</span>
+          <div style={{display: "flex", alignItems: "center", gap: 22, color: "#574B40", fontSize: 22}}>
+            <span>☀</span>
+            <span>⚙</span>
+            <span>✕</span>
+          </div>
+        </div>
+
+        {/* Reader Tabs */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr auto",
+            alignItems: "center",
+            gap: 10,
+            paddingBottom: 18,
+            borderBottom: "1px solid rgba(140, 123, 107, 0.18)",
+            marginBottom: 20
+          }}
+        >
+          {["字幕", "概览", "AI 对话"].map((tab, idx) => (
+            <div
+              key={tab}
+              style={{
+                padding: "11px 0",
+                textAlign: "center",
+                borderRadius: 12,
+                background: idx === 2 ? "#F2E9D8" : "transparent",
+                boxShadow: idx === 2 ? "0 2px 8px rgba(34, 28, 22, 0.06), 0 0 0 1px rgba(181, 71, 42, 0.18)" : "none",
+                color: idx === 2 ? "#B5472A" : "#574B40",
+                fontSize: 21,
+                fontWeight: idx === 2 ? 740 : 620
+              }}
+            >
+              {tab}
+            </div>
+          ))}
+          <div style={{padding: "0 10px", color: "#6B5E51", fontSize: 22, fontWeight: 700}}>⋮</div>
+        </div>
+
+        {/* Jump Toast Banner */}
+        <div
+          style={{
+            padding: "13px 22px",
+            borderRadius: 14,
+            background: "#F3EBDC",
+            boxShadow: "0 0 0 1px rgba(140, 123, 107, 0.24) inset",
+            textAlign: "center",
+            color: "#5C4E41",
+            fontSize: 20,
+            fontWeight: 620,
+            marginBottom: 24,
+            opacity: interpolate(frame, [clickAt - 6, clickAt + 2], [0.78, 1], CLAMP)
+          }}
+        >
+          {isClicked ? "正在跳转到 04:44..." : "已关联 247 条时间轴字幕 · 点击时间戳即可跳播"}
+        </div>
+
+        {/* AI Structured Response Hero Content */}
+        <div style={{opacity: answerReveal}}>
+          <div
+            style={{
+              fontFamily: '"Noto Serif SC", "Source Han Serif SC", Georgia, serif',
+              fontSize: 34,
+              fontWeight: 760,
+              color: "#1E1914",
+              letterSpacing: -0.6,
+              marginBottom: 18
+            }}
+          >
+            作者主张「适配优先」的三个理由
+          </div>
+
+          {/* Citation Row 1 with Inline Timestamp Pill + Native Capsule & Cursor */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 10,
+              fontSize: 27,
+              fontWeight: 780,
+              color: "#1E1914",
+              lineHeight: 1.4,
+              marginBottom: 18
+            }}
+          >
+            <span>1. 人与 AI 的关系是「协作」，而非「替代」</span>
+            <span
+              style={{
+                position: "relative",
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "3px 14px",
+                borderRadius: 999,
+                background: isClicked ? "rgba(232, 93, 135, 0.20)" : "rgba(181, 71, 42, 0.10)",
+                boxShadow:
+                  highlightOpacity > 0.05
+                    ? `0 10px 28px -6px rgba(232, 93, 135, ${(0.48 * highlightOpacity).toFixed(2)}), 0 0 0 2px rgba(232, 93, 135, ${(0.58 * highlightOpacity).toFixed(2)})`
+                    : "0 0 0 1px rgba(181, 71, 42, 0.26)",
+                fontFamily: BRAND_FONT_FAMILY,
+                fontSize: 24,
+                fontWeight: 740,
+                color: isClicked ? COLORS.pink : "#B5472A",
+                fontVariantNumeric: "tabular-nums"
+              }}
+            >
+              (04:44–05:15)
+              {/* Concentric Click Ripple centered directly on the timestamp badge */}
+              <span
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  top: "50%",
+                  width: 56,
+                  height: 56,
+                  marginLeft: -28,
+                  marginTop: -28,
+                  borderRadius: "50%",
+                  background: "rgba(232, 93, 135, 0.26)",
+                  boxShadow: "0 0 32px rgba(232, 93, 135, 0.55)",
+                  opacity: rippleOpacity,
+                  scale: rippleScale,
+                  pointerEvents: "none"
+                }}
+              />
+              {/* Vector Cursor anchored directly to the timestamp badge */}
+              {showPointer && (
+                <svg
+                  viewBox="0 0 30 38"
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    width: 34,
+                    height: 43,
+                    filter: "drop-shadow(0 4px 8px rgba(17, 24, 39, 0.35))",
+                    opacity: pointerOpacity,
+                    translate: `${cursorOffsetX}px ${cursorOffsetY}px`,
+                    scale: interpolate(frame, [clickAt - 2, clickAt, clickAt + 4], [1, 0.82, 1], CLAMP),
+                    pointerEvents: "none",
+                    zIndex: 10
+                  }}
+                >
+                  <path
+                    d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
+                    fill="white"
+                    stroke={COLORS.foreground}
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              )}
+            </span>
+          </div>
+
+          <p
+            style={{
+              margin: "0 0 26px 0",
+              fontSize: 23,
+              fontWeight: 510,
+              lineHeight: 1.62,
+              color: "#332B24"
+            }}
+          >
+            UP 主先驳斥一个常见预设：人们总以为强大的 AI 能替代自己、弥补智力不足。但他认为，「用 AI 换掉人脑」不是这个时代能做的事；现实形态是人与 AI 协作。关键推论是：如果只是替代，那当然越强越好；但既然是协作，最强就未必带来最大优势。这是整段论证的前提。
+          </p>
+
+          <div
+            style={{
+              fontSize: 26,
+              fontWeight: 780,
+              color: "#1E1914",
+              lineHeight: 1.42,
+              marginBottom: 14
+            }}
+          >
+            2. 象棋实验：会配合的组合胜过拥有最强成员的组合{" "}
+            <span
+              style={{
+                padding: "2px 10px",
+                borderRadius: 999,
+                background: "rgba(181, 71, 42, 0.08)",
+                color: "#B5472A",
+                fontFamily: BRAND_FONT_FAMILY,
+                fontSize: 23,
+                fontWeight: 700
+              }}
+            >
+              (05:17–06:33)
+            </span>
+          </div>
+
+          <p
+            style={{
+              margin: 0,
+              fontSize: 23,
+              fontWeight: 510,
+              lineHeight: 1.62,
+              color: "#332B24"
+            }}
+          >
+            他引用一个象棋实验：每队两人，一强一弱，每轮下完后抽签决定下一轮由谁走，因此队员必须为同伴留棋，并照顾较弱的队友。结果，整体上「更会协作、会照顾较弱成员并充分理解对方」的组合表现优异。
+          </p>
+        </div>
+      </div>
     </div>
   );
 };
@@ -249,39 +491,7 @@ export const ChatScene = () => {
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
       <BrandWhisper />
       <ChatLeftContext />
-      {CHAT_SHOTS.map((shot, index) => (
-        <Sequence key={shot.startFrom} from={shotOffset(CHAT_SHOTS, index)} durationInFrames={shot.duration}>
-          <div
-            style={{
-              position: "absolute",
-              left: panelLeft,
-              top: 52,
-              transformOrigin: "0 0",
-              scale: panelScale
-            }}
-          >
-            <ProductFrame
-              source="chat.mp4"
-              crop={CHAT_BODY_CROP}
-              width={880}
-              startFrom={shot.startFrom}
-              playbackRate={shot.playbackRate}
-              duration={shot.duration}
-              animate={index === 0}
-              tilt={-6}
-              focus={
-                index === 0
-                  ? {direction: "in", frames: CHAT_HANDOFF.enterFrames, maxBlur: CHAT_HANDOFF.maxBlur}
-                  : index === CHAT_SHOTS.length - 1
-                    ? {direction: "out", frames: APPEARANCE_HANDOFF.exitFrames, maxBlur: APPEARANCE_HANDOFF.maxBlur}
-                    : undefined
-              }
-              style={{left: 0, top: 0}}
-            />
-          </div>
-        </Sequence>
-      ))}
-      <ChatTimestampPointer />
+      <ChatHeroPanel panelLeft={panelLeft} panelScale={panelScale} />
       <ChatReturnVerification />
     </AbsoluteFill>
   );
