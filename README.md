@@ -62,7 +62,7 @@ API Key 需自行准备，但无需付费：下文推荐的硅基流动和 Model
 
 ### 方式二：手动安装（下载打包版本）
 
-从 [GitHub Releases](https://github.com/Edmund724/BiliScript/releases) 下载最新的 `BiliScript-v<版本>-edge.zip` 并解压到长期保留的文件夹，打开 `chrome://extensions/` 或 `edge://extensions/`，开启「开发者模式」，点击「加载已解压的扩展程序」并选择解压后的文件夹。
+从 [GitHub Releases](https://github.com/Edmund724/BiliScript/releases) 下载最新的 `BiliScript-v<版本>-Chromium.zip` 并解压到长期保留的文件夹，打开 `chrome://extensions/` 或 `edge://extensions/`，开启「开发者模式」，点击「加载已解压的扩展程序」并选择解压后的文件夹。
 
 ### 方式三：从源码构建
 
