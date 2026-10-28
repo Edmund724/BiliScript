@@ -284,6 +284,152 @@ function makeWhoosh() {
   return track;
 }
 
+// 0:00 痛点气泡弹出音（Pop-Pop）：双段式弹性气泡连弹（预膨胀 Pop + 清脆高八度释压 Pop）
+function makePopPop() {
+  const seconds = 0.2;
+  const track = buffer(seconds);
+  let phase1 = 0;
+  let phase2 = 0;
+  for (let i = 0; i < track[0].length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    // 第一声 Pop（0ms–52ms）：圆润低频气泡鼓起 (360Hz -> 760Hz)
+    const f1 = 360 + 420 * Math.min(1, (t / 0.036) ** 1.4);
+    phase1 += (TAU * f1) / SAMPLE_RATE;
+    const env1 = Math.min(1, t / 0.0018) * Math.exp(-t * 42);
+    const pop1 = (Math.sin(phase1) * 0.78 + Math.sin(phase1 * 1.95) * 0.24) * env1;
+
+    // 第二声 Pop（38ms 起）：清脆高五度气泡弹开 (540Hz -> 1280Hz)
+    const t2 = Math.max(0, t - 0.038);
+    const f2 = 540 + 740 * Math.min(1, (t2 / 0.042) ** 1.35);
+    phase2 += (TAU * f2) / SAMPLE_RATE;
+    const env2 = t2 > 0 ? Math.min(1, t2 / 0.0015) * Math.exp(-t2 * 30) : 0;
+    const pop2 =
+      t2 > 0
+        ? (Math.sin(phase2) * 0.88 +
+            Math.sin(phase2 * 2.02) * 0.28 * Math.exp(-t2 * 45) +
+            Math.sin(TAU * 2350 * t2) * 0.18 * Math.exp(-t2 * 130)) *
+          env2
+        : 0;
+
+    const sample = Math.tanh((pop1 + pop2) * 1.35);
+    track[0][i] = sample * 0.96 + pop2 * 0.08;
+    track[1][i] = sample * 0.94 + pop1 * 0.08;
+  }
+  return track;
+}
+
+// 0:02 切场响指声（Finger Snap）：指腹摩擦预振 + 掌心空腔清脆脆响 + 瞬态切场聚焦余韵
+function makeFingerSnap() {
+  const seconds = 0.22;
+  const track = buffer(seconds);
+  let cavityPhase = 0;
+  let prev = 0;
+  for (let i = 0; i < track[0].length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    const w = noise();
+    const hp = w - prev * 0.88;
+    prev = w;
+    // 1. 0–9ms 指腹高速滑脱摩擦预振
+    const slideEnv = t < 0.009 ? Math.sin((t / 0.009) * Math.PI) * 0.32 : 0;
+    const slide = hp * slideEnv;
+
+    // 2. 9ms 处指尖击打掌根空腔（1.9kHz + 3.1kHz 双峰掌腔共鸣 + 瞬态脆裂）
+    const ts = Math.max(0, t - 0.0085);
+    const cavityFreq = 2180 * Math.exp(-ts * 42) + 860;
+    cavityPhase += (TAU * cavityFreq) / SAMPLE_RATE;
+    const snapCrack =
+      ts > 0
+        ? (Math.sin(cavityPhase) * 0.78 +
+            Math.sin(TAU * 3280 * ts) * 0.52 * Math.exp(-ts * 145) +
+            Math.sin(TAU * 1420 * ts) * 0.44 * Math.exp(-ts * 75) +
+            hp * 0.68 * Math.exp(-ts * 190)) *
+          Math.exp(-ts * 54) *
+          Math.min(1, ts / 0.00035)
+        : 0;
+    const bodyPop =
+      ts > 0
+        ? Math.sin(TAU * (165 + 140 * Math.exp(-ts * 70)) * ts) *
+          Math.exp(-ts * 38) *
+          Math.min(1, ts / 0.0008) *
+          0.52
+        : 0;
+    const sample = Math.tanh((slide + snapCrack + bodyPop) * 1.48);
+    track[0][i] = sample * 0.98;
+    track[1][i] = sample * 1.02;
+  }
+  return track;
+}
+
+// 0:08 原声淡出过渡音（Voice Fade Transition）：温润空气感收束 + 泛音微光桥接
+function makeVoiceFadeTransition() {
+  const seconds = 0.36;
+  const track = buffer(seconds);
+  let low = 0;
+  for (let i = 0; i < track[0].length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    low = low * 0.91 + noise() * 0.09;
+    const env = Math.sin(Math.PI * Math.min(1, t / seconds)) ** 1.4;
+    const shimmer =
+      (Math.sin(TAU * midi(69) * t) * 0.28 +
+        Math.sin(TAU * midi(74) * t) * 0.34 +
+        Math.sin(TAU * midi(81) * t) * 0.22 * Math.exp(-t * 5.5)) *
+      env;
+    const softAir = low * 0.46 * env * Math.exp(-t * 3.2);
+    const sweepDown = Math.sin(TAU * (520 - 240 * (t / seconds)) * t) * 0.22 * env;
+    track[0][i] = Math.tanh((shimmer * 1.06 + softAir + sweepDown) * 1.2);
+    track[1][i] = Math.tanh((shimmer * 0.94 + softAir * 0.92 + sweepDown) * 1.2);
+  }
+  return track;
+}
+
+// 0:10 金句保存快门声（Polaroid Shutter + Pop-up）：拍立得双叶机械快门 + 闪光灯电容微鸣 + 实体相纸弹起共鸣
+function makePolaroidShutter() {
+  const seconds = 0.32;
+  const track = buffer(seconds);
+  let ejectPhase = 0;
+  let prev = 0;
+  for (let i = 0; i < track[0].length; i += 1) {
+    const t = i / SAMPLE_RATE;
+    const w = noise();
+    const hp = w - prev * 0.88;
+    prev = w;
+    // 1. 0ms 快门前帘清脆释放 + 18ms 快门后帘机械咬合
+    const shutter1 =
+      (hp * 0.72 + Math.sin(TAU * 3120 * t) * 0.48 + Math.sin(TAU * 1140 * t) * 0.38) *
+      Math.exp(-t * 170) *
+      Math.min(1, t / 0.00035);
+    const t2 = Math.max(0, t - 0.018);
+    const shutter2 =
+      t2 > 0
+        ? (hp * 0.64 + Math.sin(TAU * 3680 * t2) * 0.52 + Math.sin(TAU * 1580 * t2) * 0.36) *
+          Math.exp(-t2 * 145) *
+          Math.min(1, t2 / 0.00035)
+        : 0;
+    // 2. 32ms 拍立得相纸 3D 视差弹起（温润纸卡立体弹出低频 + D 大调晶莹定格泛音）
+    const te = Math.max(0, t - 0.032);
+    const ejectFreq = 160 + 280 * Math.min(1, (te / 0.055) ** 1.25);
+    ejectPhase += (TAU * ejectFreq) / SAMPLE_RATE;
+    const cardPop =
+      te > 0
+        ? (Math.sin(ejectPhase) * 0.62 + hp * 0.22 * Math.exp(-te * 55)) *
+          Math.exp(-te * 24) *
+          Math.min(1, te / 0.0015)
+        : 0;
+    const crystalLock =
+      te > 0
+        ? (Math.sin(TAU * midi(74) * te) * 0.28 +
+            Math.sin(TAU * midi(81) * te) * 0.24 +
+            Math.sin(TAU * midi(86) * te) * 0.20) *
+          Math.exp(-te * 14) *
+          Math.min(1, te / 0.002)
+        : 0;
+    const mono = Math.tanh((shutter1 * 0.82 + shutter2 * 0.88 + cardPop * 0.9) * 1.38);
+    track[0][i] = mono * 0.98 + crystalLock * 1.06;
+    track[1][i] = mono * 1.02 + crystalLock * 0.94;
+  }
+  return track;
+}
+
 // 0:03 定制清脆机械键盘敲击音效（段落轴簧片 Click + PBT 键帽触底 Thock，回车键叠加平衡杆共鸣）
 function makeMechKey({pitchScale = 1, isEnter = false} = {}) {
   const seconds = isEnter ? 0.14 : 0.105;
@@ -525,7 +671,6 @@ await mkdir(path.join(OUTPUT_DIR, "sfx"), {recursive: true});
 
 const effects = {
   key: [sweep(2100, 1150, 0.09, 0.65)],
-  pop: [sweep(620, 270, 0.18, 0.72)],
   toggle: [sweep(1450, 820, 0.12, 0.68), sweep(880, 540, 0.1, 0.4)],
   click: [sweep(1050, 460, 0.12, 0.68)],
   chord: [tone(74, 0.85, {type: "bell", gain: 0.42}), tone(78, 0.85, {type: "bell", gain: 0.36}), tone(81, 0.85, {type: "bell", gain: 0.32})],
@@ -550,6 +695,10 @@ sfxBySrc.set("media/sfx/whoosh.wav", whoosh);
 sfxEvidence.push({name: "whoosh", source: "code-original", license: "MIT License", file: path.relative(REPO_ROOT, whooshFile), durationInSeconds: 0.5, peak: whooshLevel.peak});
 
 const customSfxEntries = [
+  {name: "pop", track: makePopPop(), peak: 0.78},
+  {name: "finger-snap", track: makeFingerSnap(), peak: 0.84},
+  {name: "voice-fade", track: makeVoiceFadeTransition(), peak: 0.68},
+  {name: "polaroid-shutter", track: makePolaroidShutter(), peak: 0.86},
   {name: "mech-key-1", track: makeMechKey({pitchScale: 0.98, isEnter: false}), peak: 0.78},
   {name: "mech-key-2", track: makeMechKey({pitchScale: 1.04, isEnter: false}), peak: 0.8},
   {name: "mech-enter", track: makeMechKey({pitchScale: 0.92, isEnter: true}), peak: 0.84},

@@ -42,6 +42,75 @@ const GitHubIcon = () => (
   </svg>
 );
 
+const AsrSoundwaveBadge = ({activeProgress}: {activeProgress: number}) => {
+  const frame = useCurrentFrame();
+  const pulsePhase = Math.max(0, frame - 34);
+  const ring1Progress = (pulsePhase % 24) / 24;
+  const ring2Progress = ((pulsePhase + 12) % 24) / 24;
+  const iconHeights = [0.46, 0.88, 1.0, 0.76, 0.52];
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: 54,
+        height: 54,
+        borderRadius: 18,
+        background: "linear-gradient(135deg, #FB7299 0%, #E85D87 55%, #00AEEC 100%)",
+        boxShadow: "0 12px 26px -8px rgba(232, 93, 135, 0.58), inset 0 1px 1px rgba(255, 255, 255, 0.42)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 3.5,
+        opacity: activeProgress,
+        scale: interpolate(activeProgress, [0, 1], [0.65, 1], CLAMP) * (1 + 0.04 * Math.sin(pulsePhase * 0.45)),
+        flexShrink: 0
+      }}
+    >
+      {/* 动态扩散声波涟漪圈 1 */}
+      <div
+        style={{
+          position: "absolute",
+          inset: -2,
+          borderRadius: 20,
+          border: "2px solid rgba(251, 114, 153, 0.62)",
+          scale: 1 + ring1Progress * 0.46,
+          opacity: (1 - ring1Progress) * 0.78 * activeProgress,
+          pointerEvents: "none"
+        }}
+      />
+      {/* 动态扩散声波涟漪圈 2 */}
+      <div
+        style={{
+          position: "absolute",
+          inset: -2,
+          borderRadius: 20,
+          border: "1.5px solid rgba(0, 174, 236, 0.52)",
+          scale: 1 + ring2Progress * 0.54,
+          opacity: (1 - ring2Progress) * 0.64 * activeProgress,
+          pointerEvents: "none"
+        }}
+      />
+      {iconHeights.map((baseH, idx) => {
+        const bounce = 0.42 + 0.58 * Math.abs(Math.sin(pulsePhase * 0.52 + idx * 0.95));
+        const barH = Math.max(8, Math.round(28 * baseH * bounce));
+        return (
+          <div
+            key={idx}
+            style={{
+              width: 4,
+              height: barH,
+              borderRadius: 999,
+              background: "#FFFFFF",
+              boxShadow: "0 0 8px rgba(255, 255, 255, 0.65)"
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
 const FeatureMicroPreview = ({id, activeProgress}: {id: string; activeProgress: number}) => {
   const frame = useCurrentFrame();
   if (id === "feature-bilingual") {
@@ -321,23 +390,26 @@ const FeatureCards = () => {
                     </div>
                   ) : null}
                 </div>
-                <div style={{height: 66, overflow: "hidden"}}>
-                  <div
-                    style={{
-                      color: COLORS.foreground,
-                      fontSize: 52,
-                      fontWeight: 600,
-                      lineHeight: 1.15,
-                      letterSpacing: -1.4,
-                      whiteSpace: "nowrap",
-                      translate: interpolate(frame, [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at], ["0px 72px", "0px 0px"], {
-                        ...CLAMP,
-                        easing: ENTRANCE_EASING
-                      })
-                    }}
-                  >
-                    {feature.label}
+                <div style={{height: 68, overflow: "visible", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14}}>
+                  <div style={{height: 66, overflow: "hidden", display: "flex", alignItems: "center"}}>
+                    <div
+                      style={{
+                        color: COLORS.foreground,
+                        fontSize: 52,
+                        fontWeight: 600,
+                        lineHeight: 1.15,
+                        letterSpacing: -1.4,
+                        whiteSpace: "nowrap",
+                        translate: interpolate(frame, [feature.at - OUTRO_TIMELINE.featureContentFrames, feature.at], ["0px 72px", "0px 0px"], {
+                          ...CLAMP,
+                          easing: ENTRANCE_EASING
+                        })
+                      }}
+                    >
+                      {feature.label}
+                    </div>
                   </div>
+                  {isAsr ? <AsrSoundwaveBadge activeProgress={activeProgress} /> : null}
                 </div>
               </div>
 

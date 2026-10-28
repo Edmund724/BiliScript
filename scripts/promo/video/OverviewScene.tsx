@@ -1,4 +1,4 @@
-import {Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {Easing, OffthreadVideo, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
 import {PANEL_FOCUS_HANDOFFS} from "../timeline.mjs";
 import {
   BRAND_FONT_FAMILY,
@@ -291,6 +291,7 @@ const PaletteSwatches = () => {
 
 const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
+  const {fps} = useVideoConfig();
   const activeIndex = frame >= 33 ? 2 : frame >= 21 ? 1 : 0;
   const modalOpacity = interpolate(frame, [10, 15], [0, 1], {
     extrapolateLeft: "clamp",
@@ -334,6 +335,75 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
   const cardShutterScale = 1 + shutterPulse * 0.022;
   const pageFlipDeg = shutterPulse * 5.2;
 
+  // 00:10 (local frame 42 = global frame 304 = 10.13s): Click "保存 PNG" -> Polaroid shutter flash + 3D parallax pop-up
+  const saveClickAt = 42;
+  const isSaved = frame >= saveClickAt;
+  const savePopSpring = spring({
+    frame: Math.max(0, frame - saveClickAt),
+    fps,
+    config: {damping: 12, stiffness: 165, mass: 0.72}
+  });
+  const savePopProgress = isSaved ? savePopSpring : 0;
+  const saveShutterFlash = interpolate(
+    frame,
+    [saveClickAt - 1, saveClickAt, saveClickAt + 1, saveClickAt + 2, saveClickAt + 6],
+    [0, 0.95, 0.58, 0.16, 0],
+    {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
+  );
+  const polaroidSheenX = interpolate(
+    frame,
+    [saveClickAt, saveClickAt + 12],
+    [-20, 118],
+    {extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.bezier(0.16, 1, 0.3, 1)}
+  );
+  const polaroidSheenOpacity = interpolate(
+    frame,
+    [saveClickAt, saveClickAt + 2, saveClickAt + 12],
+    [0, 0.92, 0],
+    {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
+  );
+
+  // Pointer moving to click "↓ 保存 PNG"
+  const showSaveCursor = frame >= 34 && frame <= 56;
+  const saveCursorOpacity =
+    interpolate(frame, [34, 38], [0, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}) *
+    interpolate(frame, [51, 56], [1, 0], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
+  const saveCursorX = interpolate(frame, [34, saveClickAt - 1], [140, 26], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
+  const saveCursorY = interpolate(frame, [34, saveClickAt - 1], [-85, 18], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
+  const saveButtonScale = interpolate(
+    frame,
+    [saveClickAt - 2, saveClickAt, saveClickAt + 4],
+    [1, 0.9, 1.04],
+    {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
+  );
+  const saveRippleOpacity = interpolate(
+    frame,
+    [saveClickAt - 1, saveClickAt + 1, saveClickAt + 12],
+    [0, 0.88, 0],
+    {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
+  );
+  const saveRippleScale = interpolate(
+    frame,
+    [saveClickAt - 1, saveClickAt + 12],
+    [0.5, 1.85],
+    {extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.bezier(0.16, 1, 0.3, 1)}
+  );
+
+  const popScale = cardShutterScale * (1 + savePopProgress * 0.082);
+  const popTranslateX = -savePopProgress * 18;
+  const popTranslateY = -savePopProgress * 26;
+  const popRotateY = -pageFlipDeg - savePopProgress * 9.5;
+  const popRotateX = shutterPulse * 2.0 + savePopProgress * 6.8;
+  const popRotateZ = -savePopProgress * 1.8;
+
   return (
     <div
       style={{
@@ -343,7 +413,7 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
         width: 760,
         borderRadius: 28,
         padding: "28px 34px 26px",
-        background: "#FFFFFF",
+        background: isSaved ? "rgba(255, 255, 255, 0.92)" : "#FFFFFF",
         boxShadow: "-28px 48px 110px -26px rgba(17, 24, 39, 0.24), 0 0 0 1px rgba(17, 24, 39, 0.06)",
         transformOrigin: "50% 50%",
         transform: microPerspective(-8),
@@ -352,12 +422,29 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
         boxSizing: "border-box"
       }}
     >
-      <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 20,
+          opacity: 1 - savePopProgress * 0.28
+        }}
+      >
         <span style={{fontSize: 24, fontWeight: 700, color: COLORS.foreground, letterSpacing: -0.4}}>分享金句卡片</span>
         <span style={{fontSize: 24, color: COLORS.muted, lineHeight: 1}}>×</span>
       </div>
 
-      <div style={{display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 10, marginBottom: 14}}>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          gap: 10,
+          marginBottom: 14,
+          opacity: 1 - savePopProgress * 0.32
+        }}
+      >
         {modalPalettes.map((item, idx) => {
           const active = idx === activeIndex;
           return (
@@ -383,7 +470,15 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
         })}
       </div>
 
-      <div style={{display: "flex", justifyContent: "center", gap: 12, marginBottom: 20}}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          gap: 12,
+          marginBottom: 20,
+          opacity: 1 - savePopProgress * 0.32
+        }}
+      >
         {["无纹样", "射线", "等高线", "声波", "点阵", "透镜"].map((tab, idx) => {
           const active = idx === 1;
           return (
@@ -404,77 +499,149 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
         })}
       </div>
 
-      <div
-        style={{
-          position: "relative",
-          borderRadius: 22,
-          padding: "30px 38px 28px",
-          background: cardGradients[activeIndex],
-          overflow: "hidden",
-          boxShadow: "0 20px 44px -18px rgba(15, 23, 42, 0.32)",
-          scale: cardShutterScale,
-          transformOrigin: "12% 50%",
-          transform: `perspective(1400px) rotateY(${-pageFlipDeg.toFixed(2)}deg) rotateX(${(shutterPulse * 2.0).toFixed(2)}deg)`
-        }}
-      >
-        <PaperGrainOverlay opacity={0.48} />
-        <ReadingLampBeam intensity={0.76 + shutterPulse * 0.24} warm={activeIndex !== 2} />
-        {shutterPulse > 0.02 && (
+      {/* Polaroid Recess Shadow Slot left behind when the quote card pops up in 3D */}
+      <div style={{position: "relative"}}>
+        {savePopProgress > 0.02 && (
           <div
             style={{
               position: "absolute",
-              inset: 0,
-              background: "linear-gradient(125deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.16) 48%, rgba(255, 255, 255, 0) 100%)",
-              opacity: shutterPulse * 0.65,
+              inset: 8,
+              borderRadius: 22,
+              background: "rgba(15, 23, 42, 0.08)",
+              boxShadow: "inset 0 8px 24px rgba(15, 23, 42, 0.16)",
+              opacity: savePopProgress,
               pointerEvents: "none"
             }}
           />
         )}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            backgroundImage:
-              "repeating-conic-gradient(from -15deg at 105% -10%, rgba(255, 255, 255, 0.07) 0deg 2deg, transparent 2deg 7deg)",
-            pointerEvents: "none"
-          }}
-        />
+
+        {/* Right Quote Card with Shutter Flash + Polaroid 3D Parallax Pop-up */}
         <div
           style={{
             position: "relative",
-            color: "rgba(255, 255, 255, 0.65)",
-            fontFamily: "Georgia, serif",
-            fontSize: 44,
-            lineHeight: 0.9,
-            marginBottom: 12
+            borderRadius: 22,
+            padding: "30px 38px 28px",
+            background: cardGradients[activeIndex],
+            overflow: "hidden",
+            boxShadow: isSaved
+              ? `-38px 56px 118px -18px rgba(15, 23, 42, ${(0.32 + savePopProgress * 0.26).toFixed(2)}), 0 22px 48px -12px rgba(27, 57, 82, ${(0.22 + savePopProgress * 0.24).toFixed(2)}), 0 0 0 ${Math.round(savePopProgress * 8)}px rgba(255, 253, 248, 0.98), 0 0 42px rgba(56, 189, 248, ${(savePopProgress * 0.32).toFixed(2)})`
+              : "0 20px 44px -18px rgba(15, 23, 42, 0.32)",
+            scale: popScale,
+            translate: `${popTranslateX.toFixed(1)}px ${popTranslateY.toFixed(1)}px`,
+            transformOrigin: "50% 50%",
+            transform: `perspective(1200px) rotateY(${popRotateY.toFixed(2)}deg) rotateX(${popRotateX.toFixed(2)}deg) rotateZ(${popRotateZ.toFixed(2)}deg)`,
+            zIndex: 12
           }}
         >
-          “
-        </div>
-        <div
-          style={{
-            position: "relative",
-            color: "#FFFFFF",
-            fontFamily: '"Noto Serif SC", "Songti SC", "SimSun", serif',
-            fontSize: 27,
-            fontWeight: 500,
-            lineHeight: 1.62,
-            letterSpacing: 0.2,
-            marginBottom: 28
-          }}
-        >
-          他只要去答这个题目，得的就不是零分，但是他如果不答一定是零分。我们训练大模型的时候就是这样训练的，那么在这种情况下，他一定会去蒙。
-        </div>
-        <div
-          style={{
-            position: "relative",
-            textAlign: "right",
-            color: "rgba(255, 255, 255, 0.84)",
-            fontSize: 16,
-            fontWeight: 500
-          }}
-        >
-          AI并非越强越好，适配才是关键
+          <PaperGrainOverlay opacity={0.48} />
+          <ReadingLampBeam intensity={0.76 + shutterPulse * 0.24 + savePopProgress * 0.18} warm={activeIndex !== 2} />
+          {shutterPulse > 0.02 && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "linear-gradient(125deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.16) 48%, rgba(255, 255, 255, 0) 100%)",
+                opacity: shutterPulse * 0.65,
+                pointerEvents: "none"
+              }}
+            />
+          )}
+          {/* Polaroid Glossy Specular Parallax Sweep on Save */}
+          {polaroidSheenOpacity > 0.01 && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: `linear-gradient(112deg, rgba(255, 255, 255, 0) ${polaroidSheenX - 26}%, rgba(255, 255, 255, 0.72) ${polaroidSheenX}%, rgba(186, 230, 253, 0.32) ${polaroidSheenX + 10}%, rgba(255, 255, 255, 0) ${polaroidSheenX + 28}%)`,
+                opacity: polaroidSheenOpacity,
+                pointerEvents: "none"
+              }}
+            />
+          )}
+          {/* Camera Shutter Flash Overlay at 00:10 */}
+          {saveShutterFlash > 0.01 && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background:
+                  "radial-gradient(circle at 52% 45%, rgba(255, 255, 255, 0.98) 0%, rgba(240, 249, 255, 0.84) 48%, rgba(255, 255, 255, 0.55) 100%)",
+                opacity: saveShutterFlash,
+                pointerEvents: "none",
+                zIndex: 20
+              }}
+            />
+          )}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage:
+                "repeating-conic-gradient(from -15deg at 105% -10%, rgba(255, 255, 255, 0.07) 0deg 2deg, transparent 2deg 7deg)",
+              pointerEvents: "none"
+            }}
+          />
+          <div
+            style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 12
+            }}
+          >
+            <span
+              style={{
+                color: "rgba(255, 255, 255, 0.65)",
+                fontFamily: "Georgia, serif",
+                fontSize: 44,
+                lineHeight: 0.9
+              }}
+            >
+              “
+            </span>
+            {savePopProgress > 0.1 && (
+              <span
+                style={{
+                  padding: "4px 12px",
+                  borderRadius: 999,
+                  background: "rgba(255, 255, 255, 0.94)",
+                  color: "#0F172A",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  boxShadow: "0 8px 20px rgba(15, 23, 42, 0.25)",
+                  opacity: savePopProgress
+                }}
+              >
+                📸 已生成高清金句卡 · PNG
+              </span>
+            )}
+          </div>
+          <div
+            style={{
+              position: "relative",
+              color: "#FFFFFF",
+              fontFamily: '"Noto Serif SC", "Songti SC", "SimSun", serif',
+              fontSize: 27,
+              fontWeight: 500,
+              lineHeight: 1.62,
+              letterSpacing: 0.2,
+              marginBottom: 28
+            }}
+          >
+            他只要去答这个题目，得的就不是零分，但是他如果不答一定是零分。我们训练大模型的时候就是这样训练的，那么在这种情况下，他一定会去蒙。
+          </div>
+          <div
+            style={{
+              position: "relative",
+              textAlign: "right",
+              color: "rgba(255, 255, 255, 0.84)",
+              fontSize: 16,
+              fontWeight: 500
+            }}
+          >
+            AI并非越强越好，适配才是关键
+          </div>
         </div>
       </div>
 
@@ -482,16 +649,65 @@ const QuoteShareModalOverlay = ({duration}: {duration: number}) => {
         <div style={{color: COLORS.inkSoft, fontSize: 18, fontWeight: 500}}>⧉ 复制图片</div>
         <div
           style={{
+            position: "relative",
             padding: "10px 26px",
             borderRadius: 999,
-            background: "#2B7FFF",
+            background: isSaved ? "#10B981" : "#2B7FFF",
             color: "#FFFFFF",
             fontSize: 18,
             fontWeight: 600,
-            boxShadow: "0 10px 22px -8px rgba(43, 127, 255, 0.55)"
+            boxShadow: isSaved
+              ? "0 12px 26px -6px rgba(16, 185, 129, 0.58), 0 0 0 2px rgba(255, 255, 255, 0.85)"
+              : "0 10px 22px -8px rgba(43, 127, 255, 0.55)",
+            scale: saveButtonScale
           }}
         >
-          ↓ 保存 PNG
+          {isSaved ? "✓ 已保存 PNG" : "↓ 保存 PNG"}
+          {saveRippleOpacity > 0.01 && (
+            <span
+              style={{
+                position: "absolute",
+                inset: -6,
+                borderRadius: 999,
+                border: "2px solid rgba(56, 189, 248, 0.85)",
+                boxShadow: "0 0 24px rgba(56, 189, 248, 0.65)",
+                opacity: saveRippleOpacity,
+                scale: saveRippleScale,
+                pointerEvents: "none"
+              }}
+            />
+          )}
+          {showSaveCursor && (
+            <svg
+              viewBox="0 0 30 38"
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                width: 32,
+                height: 40,
+                filter: "drop-shadow(0 6px 12px rgba(15, 23, 42, 0.35))",
+                opacity: saveCursorOpacity,
+                translate: `${saveCursorX.toFixed(1)}px ${saveCursorY.toFixed(1)}px`,
+                scale: interpolate(
+                  frame,
+                  [saveClickAt - 2, saveClickAt, saveClickAt + 3],
+                  [1, 0.82, 1],
+                  {extrapolateLeft: "clamp", extrapolateRight: "clamp"}
+                ),
+                pointerEvents: "none",
+                zIndex: 25
+              }}
+            >
+              <path
+                d="M3 2 L3 29 L10 23 L16 35 L22 32 L16 21 L26 20 Z"
+                fill="white"
+                stroke={COLORS.foreground}
+                strokeWidth="2"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
         </div>
       </div>
     </div>

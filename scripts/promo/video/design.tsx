@@ -138,7 +138,7 @@ export const BrandWhisper = ({style = {}, opacity = 1}: {style?: CSSProperties; 
         fontFamily: BRAND_FONT_FAMILY,
         fontSize: 26,
         fontWeight: 600,
-        color: COLORS.inkSoft,
+        color: style.color ?? COLORS.inkSoft,
         letterSpacing: -0.6
       }}
     >
