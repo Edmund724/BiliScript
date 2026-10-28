@@ -138,10 +138,11 @@ const PainPointQuestionStack = () => {
               style={{
                 position: "relative",
                 display: "inline-block",
-                margin: "0 6px",
-                padding: "0 14px 2px",
+                margin: "0 8px",
+                padding: "4px 16px",
                 fontSize: 64,
                 fontWeight: 800,
+                lineHeight: 1.08,
                 letterSpacing: -2.1,
                 color: "#C81E5B"
               }}
@@ -149,11 +150,8 @@ const PainPointQuestionStack = () => {
               <span
                 style={{
                   position: "absolute",
-                  left: 0,
-                  right: 0,
-                  bottom: 2,
-                  height: "62%",
-                  borderRadius: 12,
+                  inset: "2px 0",
+                  borderRadius: 14,
                   background: "linear-gradient(96deg, rgba(255, 212, 59, 0.72) 0%, rgba(251, 114, 153, 0.42) 100%)",
                   boxShadow: "0 6px 18px -6px rgba(232, 93, 135, 0.35)",
                   transformOrigin: "0% 50%",
