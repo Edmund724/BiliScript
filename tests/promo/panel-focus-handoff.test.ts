@@ -5,8 +5,8 @@ import {PANEL_FOCUS_HANDOFFS, SCENES} from "../../scripts/promo/timeline.mjs";
 describe("面板失焦接续", () => {
   it("在金句到对话、对话到外观之间保留六帧退场、干净切点和七帧合焦", () => {
     expect(PANEL_FOCUS_HANDOFFS).toEqual([
-      {from: "overview", to: "chat", at: 330, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-      {from: "chat", to: "appearance", at: 510, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+      {from: "overview", to: "chat", at: 345, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+      {from: "chat", to: "appearance", at: 525, exitFrames: 6, enterFrames: 7, maxBlur: 12}
     ]);
     for (const handoff of PANEL_FOCUS_HANDOFFS) {
       const outgoing = SCENES.find((scene) => scene.id === handoff.from)!;
@@ -22,7 +22,7 @@ describe("面板失焦接续", () => {
       expect(cues).toContainEqual([`${handoff.from}-defocus`, handoff.at - handoff.exitFrames, "media/sfx/click.wav"]);
       expect(cues).toContainEqual([`${handoff.to}-focus`, handoff.at + handoff.enterFrames, "media/sfx/whoosh.wav"]);
     }
-    expect(cues).not.toContainEqual(["chat-cut", 330, "media/sfx/whoosh.wav"]);
-    expect(cues).not.toContainEqual(["appearance-cut", 510, "media/sfx/whoosh.wav"]);
+    expect(cues).not.toContainEqual(["chat-cut", 345, "media/sfx/whoosh.wav"]);
+    expect(cues).not.toContainEqual(["appearance-cut", 525, "media/sfx/whoosh.wav"]);
   });
 });

@@ -29,7 +29,7 @@ describe("宣传片配乐与三幕原声问答", () => {
       fadeOutFrames: 60,
       fadeOutEndFrame: PROMO_DURATION
     });
-    expect(PROMO_DURATION).toBe(33 * PROMO_FPS);
+    expect(PROMO_DURATION).toBe(34 * PROMO_FPS);
     expect(AUDIO.music.durationInFrames).toBe(PROMO_DURATION);
     for (const scene of SCENES.slice(1)) {
       expect((scene.from * AUDIO.music.bpm) / 60 % PROMO_FPS, scene.id).toBe(0);
@@ -43,27 +43,27 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["hook-q3", 28, "media/sfx/pop.wav"],
       ["hero-pullback", 40, "media/sfx/whoosh.wav"],
       ["hero-open", 42, "media/sfx/click.wav"],
-      ["hero-snap", 57, "media/sfx/finger-snap.wav"],
-      ["subtitle-cut", 90, "media/sfx/whoosh.wav"],
-      ["subtitle-keyword-resolve", 98, "media/sfx/click.wav"],
-      ["type-huan", 102, "media/sfx/mech-key-1.wav"],
-      ["type-jue", 106, "media/sfx/mech-key-2.wav"],
-      ["type-enter", 110, "media/sfx/mech-enter.wav"],
+      ["hero-snap", 75, "media/sfx/finger-snap.wav"],
+      ["subtitle-cut", 105, "media/sfx/whoosh.wav"],
+      ["subtitle-keyword-resolve", 113, "media/sfx/click.wav"],
+      ["type-huan", 117, "media/sfx/mech-key-1.wav"],
+      ["type-jue", 121, "media/sfx/mech-key-2.wav"],
+      ["type-enter", 125, "media/sfx/mech-enter.wav"],
       ["subtitle-seek-snap", SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, "media/sfx/snap.wav"],
-      ["overview-cut", 210, "media/sfx/whoosh.wav"],
-      ["voice-0232-fade", 255, "media/sfx/voice-fade.wav"],
-      ["chapters-quote-cut", 262, "media/sfx/whoosh.wav"],
-      ["quote-card", 276, "media/sfx/shutter-1.wav"],
-      ["quote-slate", 283, "media/sfx/shutter-2.wav"],
-      ["quote-mist", 295, "media/sfx/shutter-3.wav"],
-      ["quote-save", 304, "media/sfx/polaroid-shutter.wav"],
-      ["overview-defocus", 324, "media/sfx/click.wav"],
-      ["chat-focus", 337, "media/sfx/whoosh.wav"],
+      ["overview-cut", 225, "media/sfx/whoosh.wav"],
+      ["voice-0232-fade", 270, "media/sfx/voice-fade.wav"],
+      ["chapters-quote-cut", 277, "media/sfx/whoosh.wav"],
+      ["quote-card", 291, "media/sfx/shutter-1.wav"],
+      ["quote-slate", 298, "media/sfx/shutter-2.wav"],
+      ["quote-mist", 310, "media/sfx/shutter-3.wav"],
+      ["quote-save", 319, "media/sfx/polaroid-shutter.wav"],
+      ["overview-defocus", 339, "media/sfx/click.wav"],
+      ["chat-focus", 352, "media/sfx/whoosh.wav"],
       ["chat-timestamp-click", CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, "media/sfx/snap.wav"],
-      ["chat-defocus", 504, "media/sfx/click.wav"],
-      ["appearance-focus", 517, "media/sfx/whoosh.wav"],
-      ["dark-mode", 531, "media/sfx/toggle.wav"],
-      ["editorial-palette", 567, "media/sfx/shutter-2.wav"],
+      ["chat-defocus", 519, "media/sfx/click.wav"],
+      ["appearance-focus", 532, "media/sfx/whoosh.wav"],
+      ["dark-mode", 546, "media/sfx/toggle.wav"],
+      ["editorial-palette", 582, "media/sfx/shutter-2.wav"],
       ["provider-expand", PROVIDERS_FROM + PROVIDER_TIMELINE.expandAt, "media/sfx/click.wav"],
       ["provider-count", PROVIDERS_FROM + PROVIDER_TIMELINE.countAt, "media/sfx/pop.wav"],
       ["provider-wall", PROVIDERS_FROM + PROVIDER_TIMELINE.wallAt, "media/sfx/chord.wav"],
@@ -75,6 +75,8 @@ describe("宣传片配乐与三幕原声问答", () => {
       ["provider-collapse", PROVIDERS_FROM + PROVIDER_TIMELINE.collapseAt, "media/sfx/snap.wav"],
       ["outro-cut", OUTRO_TIMELINE.from, "media/sfx/whoosh.wav"],
       ...OUTRO_TIMELINE.features.map((feature) => [feature.id, OUTRO_TIMELINE.from + feature.at, "media/sfx/pop.wav"]),
+      ["flashback-slice", OUTRO_TIMELINE.from + OUTRO_TIMELINE.flashbackSplitAt, "media/sfx/shutter-2.wav"],
+      ["flashback-done", OUTRO_TIMELINE.from + OUTRO_TIMELINE.flashbackDoneAt, "media/sfx/snap.wav"],
       ["brand-resolve", OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, "media/sfx/resolve.wav"],
       ["install-click", OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, "media/sfx/snap.wav"]
     ]);
@@ -93,11 +95,11 @@ describe("宣传片配乐与三幕原声问答", () => {
     const installClickFrame = OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt;
     expect(musicVolumeAtFrame(0)).toBe(0);
     expect(musicVolumeAtFrame(24)).toBeCloseTo(base * 10 ** (-3.5 / 20));
-    expect(musicVolumeAtFrame(76)).toBe(base);
-    expect(musicVolumeAtFrame(90)).toBeCloseTo(base * 10 ** (-5 / 20));
-    expect(musicVolumeAtFrame(102)).toBeCloseTo(base * 10 ** (-3.8 / 20));
-    expect(musicVolumeAtFrame(104)).toBeCloseTo(base * 10 ** (-3.8 / 20));
-    expect(musicVolumeAtFrame(122)).toBeGreaterThan(musicVolumeAtFrame(118));
+    expect(musicVolumeAtFrame(94)).toBe(base);
+    expect(musicVolumeAtFrame(105)).toBeCloseTo(base * 10 ** (-5 / 20));
+    expect(musicVolumeAtFrame(117)).toBeCloseTo(base * 10 ** (-3.8 / 20));
+    expect(musicVolumeAtFrame(119)).toBeCloseTo(base * 10 ** (-3.8 / 20));
+    expect(musicVolumeAtFrame(137)).toBeGreaterThan(musicVolumeAtFrame(133));
     expect(musicVolumeAtFrame(860)).toBe(base);
     expect(musicVolumeAtFrame(installClickFrame)).toBeCloseTo(base * 10 ** (-4.2 / 20));
     expect(musicVolumeAtFrame(PROMO_DURATION - AUDIO.music.fadeOutFrames / 2)).toBeCloseTo(base / 2);

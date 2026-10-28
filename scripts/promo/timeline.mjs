@@ -24,18 +24,18 @@ export const PROVIDER_TIMELINE = {
 };
 
 export const SCENES = [
-  { id: "hero", from: 0, duration: 90 },
-  { id: "subtitle", from: 90, duration: 120 },
-  { id: "overview", from: 210, duration: 120 },
-  { id: "chat", from: 330, duration: 180 },
-  { id: "appearance", from: 510, duration: 90 },
-  { id: "providers", from: 600, duration: PROVIDER_TIMELINE.duration },
+  { id: "hero", from: 0, duration: 105 },
+  { id: "subtitle", from: 105, duration: 120 },
+  { id: "overview", from: 225, duration: 120 },
+  { id: "chat", from: 345, duration: 180 },
+  { id: "appearance", from: 525, duration: 90 },
+  { id: "providers", from: 615, duration: PROVIDER_TIMELINE.duration },
   { id: "outro", from: OUTRO_TIMELINE.from, duration: OUTRO_TIMELINE.duration }
 ];
 
 export const PANEL_FOCUS_HANDOFFS = [
-  {from: "overview", to: "chat", at: 330, exitFrames: 6, enterFrames: 7, maxBlur: 12},
-  {from: "chat", to: "appearance", at: 510, exitFrames: 6, enterFrames: 7, maxBlur: 12}
+  {from: "overview", to: "chat", at: 345, exitFrames: 6, enterFrames: 7, maxBlur: 12},
+  {from: "chat", to: "appearance", at: 525, exitFrames: 6, enterFrames: 7, maxBlur: 12}
 ];
 
 export const CHAT_TIMESTAMP_CLICK_FRAME = 84;
@@ -54,13 +54,13 @@ export const APPEARANCE_SHOTS = [
 ];
 
 export const EVIDENCE_TIMES = [
-  0, 0.2, 0.6, 1.2, 1.6, 1.9, 2.5,
-  3.2, 4.5, 5, 5.4, 6.8,
-  7.2, 8.2, 9.5, 10.2, 10.8,
-  11.2, 12, 12.5, 13.8, 14.5, 15.3, 16.2, 16.8,
-  17.2, 17.8, 18.5, 19.1, 19.8,
-  20.2, 20.8, 21.1, 21.4, 22.5, 23.5, 24.5,
-  25.2, 25.8, 26.6, 27.6, 28.7, 29.2, 29.7, 30, 30.7, 31.5,
+  0, 0.2, 0.6, 1.2, 1.6, 2.0, 2.5, 3.1,
+  3.7, 5.0, 5.5, 5.9, 7.3,
+  7.7, 8.7, 10.0, 10.7, 11.3,
+  11.7, 12.5, 13.0, 14.3, 15.0, 15.8, 16.7, 17.3,
+  17.7, 18.3, 19.0, 19.6, 20.3,
+  20.7, 21.3, 21.6, 21.9, 23.0, 24.0, 25.0,
+  25.7, 26.3, 27.1, 28.1, 28.8, 29.1, 29.5, 29.9, 30.5, 31.3, 32.1,
   (PROMO_DURATION - 1) / PROMO_FPS
 ];
 
@@ -70,18 +70,19 @@ const outroSeconds = (frame) => (OUTRO_TIMELINE.from + frame) / PROMO_FPS;
 
 export const EVIDENCE_TRANSITIONS = [
   {id: "pain-point-hook", at: 0.55},
-  {id: "hero-pullback-open", at: 1.9},
-  {id: "keyword-slice", at: 3.1},
-  {id: "timestamp-match", at: 5.1},
-  {id: "chapters", at: 7},
-  {id: "quote-lift", at: 8.9},
-  {id: "quote-card", at: 9.27},
-  {id: "overview-chat-defocus", at: 11},
-  {id: "chat-timestamp-click", at: 13.8},
-  {id: "chat-player-verify", at: 15.1},
-  {id: "chat-appearance-defocus", at: 17},
-  {id: "appearance-dark-wipe", at: 17.7},
-  {id: "appearance-palette-wipe", at: 18.9},
+  {id: "hero-pullback-open", at: 2.0},
+  {id: "hero-slogan-zoom", at: 2.6},
+  {id: "keyword-slice", at: 3.6},
+  {id: "timestamp-match", at: 5.6},
+  {id: "chapters", at: 7.5},
+  {id: "quote-lift", at: 9.4},
+  {id: "quote-card", at: 9.77},
+  {id: "overview-chat-defocus", at: 11.5},
+  {id: "chat-timestamp-click", at: 14.3},
+  {id: "chat-player-verify", at: 15.6},
+  {id: "chat-appearance-defocus", at: 17.5},
+  {id: "appearance-dark-wipe", at: 18.2},
+  {id: "appearance-palette-wipe", at: 19.4},
   {id: "providers", at: providerSeconds(0)},
   {id: "provider-expand", at: providerSeconds(PROVIDER_TIMELINE.expandAt)},
   {id: "provider-count-glide", at: providerSeconds(PROVIDER_TIMELINE.countAt + PROVIDER_TIMELINE.countHoldFrames)},
@@ -89,6 +90,7 @@ export const EVIDENCE_TRANSITIONS = [
   {id: "provider-collapse", at: providerSeconds(PROVIDER_TIMELINE.collapseAt)},
   ...OUTRO_TIMELINE.features.map((feature) => ({id: feature.id, at: outroSeconds(feature.at)})),
   {id: "feature-converge", at: outroSeconds(OUTRO_TIMELINE.convergeAt)},
+  {id: "flashback-loop", at: outroSeconds(OUTRO_TIMELINE.flashbackDoneAt)},
   {id: "brand-resolve", at: outroSeconds(OUTRO_TIMELINE.brandResolveAt)},
   {id: "brand-cta", at: outroSeconds(OUTRO_TIMELINE.ctaAt + 12)},
   {id: "install-click", at: outroSeconds(OUTRO_TIMELINE.installClickAt)},

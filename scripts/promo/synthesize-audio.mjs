@@ -122,15 +122,15 @@ function snare(gainScale = 1) {
 }
 
 function sectionDynamicsAt(seconds) {
-  if (seconds < 3.0) return 0.66;
-  if (seconds < 7.0) return 0.76;
-  if (seconds < 11.0) return 0.86;
-  if (seconds < 17.0) return 0.90;
-  if (seconds < 20.0) return 1.12;
-  if (seconds < 25.0) return 1.16;
-  if (seconds < 28.58) return 1.14;
-  if (seconds < 29.0) return 0.05;
-  if (seconds < 31.2) return 1.06;
+  if (seconds < 3.5) return 0.66;
+  if (seconds < 7.5) return 0.76;
+  if (seconds < 11.5) return 0.86;
+  if (seconds < 17.5) return 0.90;
+  if (seconds < 20.5) return 1.12;
+  if (seconds < 25.5) return 1.16;
+  if (seconds < 29.48) return 1.14;
+  if (seconds < 29.9) return 0.05;
+  if (seconds < 32.1) return 1.06;
   return 0.74;
 }
 
@@ -147,29 +147,29 @@ function makeScore() {
   const barCount = Math.ceil(DURATION / (4 * beat));
   for (let bar = 0; bar < barCount; bar += 1) {
     const at = bar * 4 * beat;
-    if (at >= 28.0 && at < 29.0) continue;
+    if (at >= 29.0 && at < 29.9) continue;
     const dyn = sectionDynamicsAt(at + 0.1);
     const chord = chords[bar % chords.length];
-    const padDuration = at < 28.0 && at + 2.15 > 28.6 ? Math.max(0.4, 28.6 - at) : (bar === barCount - 1 ? 3.2 : 2.15);
+    const padDuration = at < 29.0 && at + 2.15 > 29.5 ? Math.max(0.4, 29.5 - at) : (bar === barCount - 1 ? 3.2 : 2.15);
     for (let note = 0; note < chord.length; note += 1) {
       add(track, tone(chord[note], padDuration, {type: "pad", gain: 0.038 * dyn}), at, (note - 1.5) * 0.25);
     }
     const arp = [0, 2, 1, 3, 2, 1, 3, 1];
     for (let step = 0; step < 8; step += 1) {
       const stepAt = at + step * beat / 2;
-      if (stepAt >= 28.55 && stepAt < 29.18) continue;
-      // 9.0–10.2s 金句切换色板期间留出清透空间给递进快门水滴音
-      if (stepAt >= 9.05 && stepAt <= 10.15 && step % 2 === 1) continue;
+      if (stepAt >= 29.45 && stepAt < 30.08) continue;
+      // 9.5–10.7s 金句切换色板期间留出清透空间给递进快门水滴音
+      if (stepAt >= 9.55 && stepAt <= 10.65 && step % 2 === 1) continue;
       const stepDyn = sectionDynamicsAt(stepAt);
-      const note = chord[arp[step]] + (stepAt >= 20.0 && stepAt < 25.0 ? 24 : 12);
+      const note = chord[arp[step]] + (stepAt >= 20.5 && stepAt < 25.5 ? 24 : 12);
       const gain = (bar >= 4 && bar <= 5 ? 0.056 : bar >= 6 && bar <= 8 ? 0.072 : 0.094) * stepDyn;
-      add(track, tone(note, stepAt >= 20.0 && stepAt < 25.0 ? 0.19 : 0.28, {type: stepAt >= 7.0 && stepAt < 11.0 ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
+      add(track, tone(note, stepAt >= 20.5 && stepAt < 25.5 ? 0.19 : 0.28, {type: stepAt >= 7.5 && stepAt < 11.5 ? "bell" : "pluck", gain}), stepAt, step % 2 ? 0.32 : -0.32);
     }
-    // 21.73–23.6s 平台矩阵波浪段落：叠加 16 分音符律动木琴底脉冲，托起 14 个连续冒泡音
-    if (at >= 20.0 && at < 24.0) {
+    // 22.23–24.1s 平台矩阵波浪段落：叠加 16 分音符律动木琴底脉冲，托起 14 个连续冒泡音
+    if (at >= 20.0 && at < 26.0) {
       for (let sixteenth = 0; sixteenth < 16; sixteenth += 1) {
         const pulseAt = at + sixteenth * (beat / 4);
-        if (pulseAt < 21.7 || pulseAt > 23.65) continue;
+        if (pulseAt < 22.2 || pulseAt > 24.15) continue;
         const pulseNote = chord[sixteenth % chord.length] + 12;
         add(track, tone(pulseNote, 0.09, {type: "pluck", gain: 0.045}), pulseAt, ((sixteenth % 7) - 3) * 0.14);
       }
@@ -179,18 +179,18 @@ function makeScore() {
   const beatCount = Math.ceil(DURATION / beat);
   for (let index = 0; index < beatCount; index += 1) {
     const at = index * beat;
-    if (at >= 28.55 && at < 29.0) continue;
+    if (at >= 29.45 && at < 29.9) continue;
     const dyn = sectionDynamicsAt(at);
     const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
-    // 前 3 秒痛点三连问仅保留轻柔心跳低音，1.8s 拉远后进入完整鼓组；9–10.2s 金句色板切换减轻高频打击乐
-    const inQuotePaletteWindow = at >= 9.0 && at <= 10.2;
-    const inProviderWave = at >= 20.0 && at < 25.0;
+    // 前 3.5 秒痛点三连问与主 Slogan 停留段保留轻柔心跳低音，2.5s 推镜聚拢后逐步进入完整鼓组；9.5–10.7s 金句色板切换减轻高频打击乐
+    const inQuotePaletteWindow = at >= 9.5 && at <= 10.7;
+    const inProviderWave = at >= 20.5 && at < 25.5;
     add(track, kick(at < 1.8 ? dyn * 0.55 : inProviderWave ? dyn * 1.08 : dyn), at);
-    if (index % 2 === 1 && at >= 3.0 && !inQuotePaletteWindow) {
+    if (index % 2 === 1 && at >= 3.5 && !inQuotePaletteWindow) {
       add(track, snare(inProviderWave ? dyn * 1.05 : dyn), at);
     }
-    if (at >= 2.0 && !inQuotePaletteWindow) {
+    if (at >= 2.5 && !inQuotePaletteWindow) {
       add(track, hat(index % 4 === 3, dyn), at + beat / 2, index % 2 ? 0.25 : -0.25);
       if (inProviderWave) {
         add(track, hat(false, dyn * 0.65), at + beat / 4, -0.2);
@@ -202,18 +202,18 @@ function makeScore() {
     }
   }
 
-  // 8 个核心切点的 60–90Hz 短 sub-hit 瞬态强调
-  const cutHits = [40 / PROMO_FPS, 3.0, 7.0, 11.0, 17.0, 20.0, 25.0, 29.0];
+  // 核心切点的 60–90Hz 短 sub-hit 瞬态强调
+  const cutHits = [40 / PROMO_FPS, 75 / PROMO_FPS, 3.5, 7.5, 11.5, 17.5, 20.5, 25.5, 29.9];
   for (const cutAt of cutHits) {
-    add(track, subHit(cutAt >= 17.0 ? 0.62 : 0.52), cutAt);
+    add(track, subHit(cutAt >= 17.5 ? 0.62 : 0.52), cutAt);
   }
 
-  // 25.5 / 26.0 / 26.5 / 27.0 四拍能力落点递进强调（峰值严格非递减）
+  // 26.0 / 26.5 / 27.0 / 27.5 四拍能力落点递进强调（峰值严格非递减）
   const featureBuild = [
-    {at: 25.5, notes: [62, 69], gain: 0.14, sub: 0.36},
-    {at: 26.0, notes: [64, 71], gain: 0.17, sub: 0.42},
-    {at: 26.5, notes: [66, 74], gain: 0.20, sub: 0.48},
-    {at: 27.0, notes: [69, 76, 81], gain: 0.23, sub: 0.55}
+    {at: 26.0, notes: [62, 69], gain: 0.14, sub: 0.36},
+    {at: 26.5, notes: [64, 71], gain: 0.17, sub: 0.42},
+    {at: 27.0, notes: [66, 74], gain: 0.20, sub: 0.48},
+    {at: 27.5, notes: [69, 76, 81], gain: 0.23, sub: 0.55}
   ];
   for (const step of featureBuild) {
     add(track, subHit(step.sub), step.at);
@@ -223,15 +223,15 @@ function makeScore() {
   }
 
   const melody = [
-    [2, 74], [3, 78], [6, 76], [10, 74], [14, 81], [15, 78], [18, 76],
-    [22, 74], [26, 78], [30, 81], [34, 78], [38, 76], [42, 74], [46, 78], [50, 76]
+    [2, 74], [3, 78], [7, 76], [11, 74], [15, 81], [16, 78], [19, 76],
+    [23, 74], [27, 78], [31, 81], [35, 78], [39, 76], [43, 74], [47, 78], [51, 76]
   ];
   for (const [index, note] of melody) {
     const at = index * beat;
     add(track, tone(note, 0.7, {type: "bell", gain: 0.1 * sectionDynamicsAt(at)}), at, 0.18);
   }
 
-  // 28.67s 收束留白（28.60–29.00s 静音呼吸），29.20s 品牌清晰时刻 Resolve
+  // 29.00–29.80s 闪回闭环（29.52–29.88s 收束留白呼吸），29.90s 品牌清晰时刻 Resolve
   const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
   add(track, subHit(0.56), resolveAt);
   add(track, tone(74, 1.8, {type: "bell", gain: 0.18}), resolveAt);
@@ -245,12 +245,12 @@ function makeScore() {
   for (let ch = 0; ch < 2; ch += 1) {
     for (let i = 0; i < track[ch].length; i += 1) {
       const time = i / SAMPLE_RATE;
-      const boost = time >= 17.0 && time < 28.58 ? 1.12 : 0.96;
-      if (time >= 28.62 && time < 28.98) {
-        const edge = Math.min(1, Math.max(0, (28.67 - time) / 0.05));
+      const boost = time >= 17.5 && time < 29.48 ? 1.12 : 0.96;
+      if (time >= 29.52 && time < 29.88) {
+        const edge = Math.min(1, Math.max(0, (29.57 - time) / 0.05));
         track[ch][i] *= edge;
       }
-      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= 17.0 && time < 28.58 ? 1.04 : 0.94);
+      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= 17.5 && time < 29.48 ? 1.04 : 0.94);
     }
   }
   return track;
@@ -804,18 +804,18 @@ function voiceDuckAtFrame(frame) {
 }
 
 const samplesPerFrame = SAMPLE_RATE / PROMO_FPS;
-const ceiling = 0.72;
+const ceiling = 0.77;
 const fullMix = buffer(DURATION);
 for (let i = 0; i < score[0].length; i += 1) {
   const frame = Math.min(PROMO_DURATION - 1, Math.floor(i / samplesPerFrame));
   const vol = musicVolumeAtFrame(frame) * voiceDuckAtFrame(frame);
   for (let ch = 0; ch < 2; ch += 1) {
     if (vol <= 0.0001) {
-      fullMix[ch][i] = Math.tanh(sfxStem[ch][i] / ceiling) * ceiling;
+      fullMix[ch][i] = Math.tanh((sfxStem[ch][i] * 1.12) / ceiling) * ceiling;
       continue;
     }
-    const scaledScore = score[ch][i] * 1.32;
-    const rawCombined = scaledScore * vol + sfxStem[ch][i];
+    const scaledScore = score[ch][i] * 1.56;
+    const rawCombined = scaledScore * vol + sfxStem[ch][i] * 1.12;
     const limitedCombined = Math.tanh(rawCombined / ceiling) * ceiling;
     score[ch][i] = Math.max(-0.98, Math.min(0.98, (limitedCombined - sfxStem[ch][i]) / vol));
     fullMix[ch][i] = limitedCombined;

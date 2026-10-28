@@ -8,8 +8,8 @@ const PULLBACK_END = 43;
 const CLICK_AT = 42;
 const PANEL_OPEN_FRAMES = 14;
 const HEADER_REVEAL_AT = 40;
-const ZOOM_FOCUS_START = 54;
-const ZOOM_FOCUS_END = 72;
+const ZOOM_FOCUS_START = 72;
+const ZOOM_FOCUS_END = 98;
 const HERO_SOURCE_CLICK_FRAME = 36;
 
 const QUESTIONS = [
@@ -232,6 +232,11 @@ const ReaderPanel = () => {
   const paperSheenX = interpolate(unfoldProgress, [0, 1], [105, -25]);
   const paperSheenOpacity = interpolate(unfoldProgress, [0, 0.35, 1], [0, 0.82, 0]);
   const panelOpacity = interpolate(frame, [CLICK_AT, CLICK_AT + 2], [0.72, 1], {extrapolateLeft: "clamp", extrapolateRight: "clamp"});
+  const zoomHighlight = interpolate(frame, [ZOOM_FOCUS_START, ZOOM_FOCUS_END], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.bezier(0.16, 1, 0.3, 1)
+  });
 
   return (
     <div
@@ -266,7 +271,7 @@ const ReaderPanel = () => {
           inset: 0,
           borderRadius: 24,
           background: "#FBF9F4",
-          boxShadow: "-36px 24px 96px -20px rgba(17, 24, 39, 0.28), 0 0 0 1px rgba(232, 93, 135, 0.18)"
+          boxShadow: `-36px 24px 96px -20px rgba(17, 24, 39, ${(0.28 + zoomHighlight * 0.14).toFixed(2)}), 0 0 ${Math.round(zoomHighlight * 44)}px rgba(232, 93, 135, ${(zoomHighlight * 0.28).toFixed(2)}), 0 0 0 ${(1 + zoomHighlight * 1.2).toFixed(1)}px rgba(232, 93, 135, ${(0.18 + zoomHighlight * 0.36).toFixed(2)})`
         }}
       />
       <div
@@ -414,9 +419,9 @@ export const HeroScene = () => {
   });
   const videoScale = interpolate(pullbackProgress, [0, 1], [hookDriftScale, 1]);
   const pullbackBlur = interpolate(pullbackProgress, [0, 1], [4.5, 1.2]);
-  const videoBlur = interpolate(zoomFocusProgress, [0, 1], [pullbackBlur, 4.5]);
+  const videoBlur = interpolate(zoomFocusProgress, [0, 1], [pullbackBlur, 5.2]);
   const veilOpacity = interpolate(pullbackProgress, [0, 1], [1, 0.32]);
-  const stageZoomScale = interpolate(zoomFocusProgress, [0, 1], [1, 1.26]);
+  const stageZoomScale = interpolate(zoomFocusProgress, [0, 1], [1, 1.34]);
 
   return (
     <AbsoluteFill style={{background: COLORS.background, fontFamily: FONT_FAMILY, overflow: "hidden"}}>
@@ -424,7 +429,7 @@ export const HeroScene = () => {
         style={{
           position: "absolute",
           inset: 0,
-          transformOrigin: "96% 6%",
+          transformOrigin: "96% 16%",
           scale: stageZoomScale
         }}
       >

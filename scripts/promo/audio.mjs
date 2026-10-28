@@ -13,6 +13,7 @@ import {
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle").from;
 const OVERVIEW_FROM = SCENES.find((scene) => scene.id === "overview").from;
 const CHAT_FROM = SCENES.find((scene) => scene.id === "chat").from;
+const APPEARANCE_FROM = SCENES.find((scene) => scene.id === "appearance").from;
 const PROVIDERS_FROM = SCENES.find((scene) => scene.id === "providers").from;
 const CHAT_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "chat");
 const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to === "appearance");
@@ -43,27 +44,27 @@ export const AUDIO = {
     {id: "hook-q3", frame: 28, src: "media/sfx/pop.wav", gain: 0.50, duckDb: 4},
     {id: "hero-pullback", frame: 40, src: "media/sfx/whoosh.wav", gain: 0.44, duckDb: 4.5},
     {id: "hero-open", frame: 42, src: "media/sfx/click.wav", gain: 0.50, duckDb: 4},
-    {id: "hero-snap", frame: 57, src: "media/sfx/finger-snap.wav", gain: 0.56, duckDb: 4.2},
-    {id: "subtitle-cut", frame: 90, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
-    {id: "subtitle-keyword-resolve", frame: 98, src: "media/sfx/click.wav", gain: 0.44, duckDb: 3.2},
-    {id: "type-huan", frame: 102, src: "media/sfx/mech-key-1.wav", gain: 0.58, duckDb: 3.8},
-    {id: "type-jue", frame: 106, src: "media/sfx/mech-key-2.wav", gain: 0.60, duckDb: 3.8},
-    {id: "type-enter", frame: 110, src: "media/sfx/mech-enter.wav", gain: 0.64, duckDb: 4.2},
+    {id: "hero-snap", frame: 75, src: "media/sfx/finger-snap.wav", gain: 0.56, duckDb: 4.2},
+    {id: "subtitle-cut", frame: SUBTITLE_FROM, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
+    {id: "subtitle-keyword-resolve", frame: SUBTITLE_FROM + 8, src: "media/sfx/click.wav", gain: 0.44, duckDb: 3.2},
+    {id: "type-huan", frame: SUBTITLE_FROM + 12, src: "media/sfx/mech-key-1.wav", gain: 0.58, duckDb: 3.8},
+    {id: "type-jue", frame: SUBTITLE_FROM + 16, src: "media/sfx/mech-key-2.wav", gain: 0.60, duckDb: 3.8},
+    {id: "type-enter", frame: SUBTITLE_FROM + 20, src: "media/sfx/mech-enter.wav", gain: 0.64, duckDb: 4.2},
     {id: "subtitle-seek-snap", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME, src: "media/sfx/snap.wav", gain: 0.66, duckDb: 5.2},
-    {id: "overview-cut", frame: 210, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
-    {id: "voice-0232-fade", frame: 255, src: "media/sfx/voice-fade.wav", gain: 0.46, duckDb: 3.8},
-    {id: "chapters-quote-cut", frame: 262, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 4.5},
-    {id: "quote-card", frame: 276, src: "media/sfx/shutter-1.wav", gain: 0.58, duckDb: 4.5},
-    {id: "quote-slate", frame: 283, src: "media/sfx/shutter-2.wav", gain: 0.60, duckDb: 4.5},
-    {id: "quote-mist", frame: 295, src: "media/sfx/shutter-3.wav", gain: 0.64, duckDb: 4.8},
-    {id: "quote-save", frame: 304, src: "media/sfx/polaroid-shutter.wav", gain: 0.64, duckDb: 5.0},
+    {id: "overview-cut", frame: OVERVIEW_FROM, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 5},
+    {id: "voice-0232-fade", frame: OVERVIEW_FROM + 45, src: "media/sfx/voice-fade.wav", gain: 0.46, duckDb: 3.8},
+    {id: "chapters-quote-cut", frame: OVERVIEW_FROM + 52, src: "media/sfx/whoosh.wav", gain: 0.42, duckDb: 4.5},
+    {id: "quote-card", frame: OVERVIEW_FROM + 66, src: "media/sfx/shutter-1.wav", gain: 0.58, duckDb: 4.5},
+    {id: "quote-slate", frame: OVERVIEW_FROM + 73, src: "media/sfx/shutter-2.wav", gain: 0.60, duckDb: 4.5},
+    {id: "quote-mist", frame: OVERVIEW_FROM + 85, src: "media/sfx/shutter-3.wav", gain: 0.64, duckDb: 4.8},
+    {id: "quote-save", frame: OVERVIEW_FROM + 94, src: "media/sfx/polaroid-shutter.wav", gain: 0.64, duckDb: 5.0},
     {id: `${CHAT_HANDOFF.from}-defocus`, frame: CHAT_HANDOFF.at - CHAT_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
     {id: `${CHAT_HANDOFF.to}-focus`, frame: CHAT_HANDOFF.at + CHAT_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "chat-timestamp-click", frame: CHAT_FROM + CHAT_TIMESTAMP_CLICK_FRAME, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 4.8},
     {id: `${APPEARANCE_HANDOFF.from}-defocus`, frame: APPEARANCE_HANDOFF.at - APPEARANCE_HANDOFF.exitFrames, src: "media/sfx/click.wav", gain: 0.30, duckDb: 2.5},
     {id: `${APPEARANCE_HANDOFF.to}-focus`, frame: APPEARANCE_HANDOFF.at + APPEARANCE_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
-    {id: "dark-mode", frame: 531, src: "media/sfx/toggle.wav", gain: 0.56, duckDb: 4.5},
-    {id: "editorial-palette", frame: 567, src: "media/sfx/shutter-2.wav", gain: 0.54, duckDb: 4.2},
+    {id: "dark-mode", frame: APPEARANCE_FROM + 21, src: "media/sfx/toggle.wav", gain: 0.56, duckDb: 4.5},
+    {id: "editorial-palette", frame: APPEARANCE_FROM + 57, src: "media/sfx/shutter-2.wav", gain: 0.54, duckDb: 4.2},
     {id: "provider-expand", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.expandAt, src: "media/sfx/click.wav", gain: 0.48, duckDb: 4},
     {id: "provider-count", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.countAt, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 4},
     {id: "provider-wall", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.wallAt, src: "media/sfx/chord.wav", gain: 0.42, duckDb: 4.2},
@@ -77,6 +78,8 @@ export const AUDIO = {
       gain: Number((0.40 + index * 0.04).toFixed(2)),
       duckDb: 3.5 + index * 0.4
     })),
+    {id: "flashback-slice", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.flashbackSplitAt, src: "media/sfx/shutter-2.wav", gain: 0.52, duckDb: 4.5},
+    {id: "flashback-done", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.flashbackDoneAt, src: "media/sfx/snap.wav", gain: 0.58, duckDb: 5.0},
     {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, src: "media/sfx/resolve.wav", gain: 0.56, duckDb: 6},
     {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/snap.wav", gain: 0.54, duckDb: 4.2}
   ],
