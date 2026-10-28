@@ -585,9 +585,14 @@ async function probeThemedModal(label) {
   const p = await pageCdp.evaluate(JS.probe);
   const s = p?.dialog || {};
   const t = p?.tokens || {};
+  const borderless = p?.view?.palette !== "editorial";
   check(`${label}.dialog-radius-28`, s.borderRadius === "28px", { borderRadius: s.borderRadius });
   check(`${label}.dialog-bg-is-surface-token`, p && s.backgroundColor === t.surface, { bg: s.backgroundColor, token: t.surface });
-  check(`${label}.dialog-border-is-token`, p && s.borderTopColor === t.border, { border: s.borderTopColor, token: t.border });
+  check(
+    `${label}.dialog-border-${borderless ? "transparent" : "is-token"}`,
+    p && s.borderTopColor === (borderless ? "rgba(0, 0, 0, 0)" : t.border),
+    { border: s.borderTopColor, token: borderless ? null : t.border }
+  );
   check(`${label}.dialog-shadow-is-token`, p && s.boxShadow === t.shadow, { shadow: s.boxShadow, token: t.shadow });
   check(`${label}.mask-is-token`, p && p.mask?.backgroundColor === t.maskBg, { mask: p?.mask?.backgroundColor, token: t.maskBg });
   check(`${label}.close-color-is-text-token`, p && p.close?.color === t.text, { color: p?.close?.color, token: t.text });
@@ -712,7 +717,7 @@ async function main() {
         log("corner-shape 计算值探不到，Q1.corner-shape 记为边界不判");
       }
       check("Q1.dialog-bg-is-surface-token", s.backgroundColor === t.surface, { bg: s.backgroundColor, token: t.surface });
-      check("Q1.dialog-border-is-token", s.borderTopColor === t.border, { border: s.borderTopColor, token: t.border });
+      check("Q1.dialog-border-transparent", s.borderTopColor === "rgba(0, 0, 0, 0)", { border: s.borderTopColor });
       check("Q1.dialog-shadow-is-token", s.boxShadow === t.shadow, { shadow: s.boxShadow, token: t.shadow });
       check("Q1.mask-is-token", q1.probe?.mask?.backgroundColor === t.maskBg, { mask: q1.probe?.mask?.backgroundColor, token: t.maskBg });
       check("Q1.host-transition-uses-panel-tokens", s.transition === t.hostTransition, { transition: s.transition, token: t.hostTransition });
