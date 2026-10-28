@@ -128,9 +128,9 @@ function sectionDynamicsAt(seconds) {
   if (seconds < 17.5) return 0.90;
   if (seconds < 20.5) return 1.12;
   if (seconds < 25.5) return 1.16;
-  if (seconds < 29.48) return 1.14;
-  if (seconds < 29.9) return 0.05;
-  if (seconds < 32.1) return 1.06;
+  if (seconds < 30.48) return 1.14;
+  if (seconds < 30.9) return 0.05;
+  if (seconds < 33.1) return 1.06;
   return 0.74;
 }
 
@@ -155,17 +155,17 @@ function makeScore() {
   const barCount = Math.ceil(DURATION / (4 * beat));
   for (let bar = 0; bar < barCount; bar += 1) {
     const at = bar * 4 * beat;
-    if (at >= 29.0 && at < 29.9) continue;
+    if (at >= 30.0 && at < 30.9) continue;
     const dyn = sectionDynamicsAt(at + 0.1);
     const chord = chords[bar % chords.length];
-    const padDuration = at < 29.0 && at + 2.15 > 29.5 ? Math.max(0.4, 29.5 - at) : (bar === barCount - 1 ? 3.2 : 2.15);
+    const padDuration = at < 30.0 && at + 2.15 > 30.5 ? Math.max(0.4, 30.5 - at) : (bar === barCount - 1 ? 3.2 : 2.15);
     for (let note = 0; note < chord.length; note += 1) {
       add(track, tone(chord[note], padDuration, {type: "pad", gain: 0.038 * dyn}), at, (note - 1.5) * 0.25);
     }
     const arp = [0, 2, 1, 3, 2, 1, 3, 1];
     for (let step = 0; step < 8; step += 1) {
       const stepAt = at + step * beat / 2;
-      if (stepAt >= 29.45 && stepAt < 30.08) continue;
+      if (stepAt >= 30.45 && stepAt < 31.08) continue;
       const inVoice = inVoiceWindow(stepAt);
       // 9.5–10.7s 金句切换色板与原片人声期间留出清透空间
       if ((stepAt >= 9.55 && stepAt <= 10.65 || inVoice) && step % 2 === 1) continue;
@@ -188,7 +188,7 @@ function makeScore() {
   const beatCount = Math.ceil(DURATION / beat);
   for (let index = 0; index < beatCount; index += 1) {
     const at = index * beat;
-    if (at >= 29.45 && at < 29.9) continue;
+    if (at >= 30.45 && at < 30.9) continue;
     const dyn = sectionDynamicsAt(at);
     const bar = Math.floor(index / 4) % bassRoots.length;
     const accent = SCENES.some((scene) => Math.abs(scene.from / PROMO_FPS - at) < 0.001);
@@ -213,7 +213,7 @@ function makeScore() {
   }
 
   // 核心切点的 60–90Hz 短 sub-hit 瞬态强调
-  const cutHits = [40 / PROMO_FPS, 75 / PROMO_FPS, 3.5, 7.5, 11.5, 17.5, 20.5, 25.5, 29.9];
+  const cutHits = [40 / PROMO_FPS, 75 / PROMO_FPS, 3.5, 7.5, 11.5, 17.5, 20.5, 25.5, 28.9, 30.9];
   for (const cutAt of cutHits) {
     add(track, subHit(cutAt >= 17.5 ? 0.62 : 0.52), cutAt);
   }
@@ -241,7 +241,7 @@ function makeScore() {
     add(track, tone(note, 0.7, {type: "bell", gain: 0.1 * sectionDynamicsAt(at)}), at, 0.18);
   }
 
-  // 29.00–29.80s 闪回闭环（29.52–29.88s 收束留白呼吸），29.90s 品牌清晰时刻 Resolve
+  // 28.50–30.70s 闪回闭环（30.52–30.88s 收束留白呼吸），30.90s 品牌清晰时刻 Resolve
   const resolveAt = (OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt) / PROMO_FPS;
   add(track, subHit(0.56), resolveAt);
   add(track, tone(74, 1.8, {type: "bell", gain: 0.18}), resolveAt);
@@ -255,12 +255,12 @@ function makeScore() {
   for (let ch = 0; ch < 2; ch += 1) {
     for (let i = 0; i < track[ch].length; i += 1) {
       const time = i / SAMPLE_RATE;
-      const boost = time >= 17.5 && time < 29.48 ? 1.12 : 0.96;
-      if (time >= 29.52 && time < 29.88) {
-        const edge = Math.min(1, Math.max(0, (29.57 - time) / 0.05));
+      const boost = time >= 17.5 && time < 30.48 ? 1.12 : 0.96;
+      if (time >= 30.52 && time < 30.88) {
+        const edge = Math.min(1, Math.max(0, (30.57 - time) / 0.05));
         track[ch][i] *= edge;
       }
-      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= 17.5 && time < 29.48 ? 1.04 : 0.94);
+      track[ch][i] = (Math.tanh(track[ch][i] * drive * boost) / normDrive) * (time >= 17.5 && time < 30.48 ? 1.04 : 0.94);
     }
   }
   return track;

@@ -452,21 +452,18 @@ const FLASHBACK_SLICES = [
     time: "00:00",
     tag: "章节导览",
     title: "机器幻觉定义与评测边界",
-    quote: "自动切分 48 分钟公开课脉络",
     accent: COLORS.pink
   },
   {
     time: "02:32",
     tag: "金句卡片",
     title: "“如果他不答，一定是零分。”",
-    quote: "3 秒提炼核心论点与金句",
     accent: COLORS.blue
   },
   {
     time: "04:07",
     tag: "原片实证",
     title: "“也很难避免幻觉” · 象棋实验",
-    quote: "搜词秒跳原声 + 时间戳溯源",
     accent: "#10B981"
   }
 ] as const;
@@ -480,20 +477,20 @@ const FlashbackClosureCard = () => {
 
   if (frame < startAt - 1 || frame > endAt + 3) return null;
 
-  const enterProgress = interpolate(frame, [startAt - 1, startAt + 3], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-  const splitProgress = interpolate(frame, [splitAt - 1, splitAt + 4], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-  const doneProgress = interpolate(frame, [doneAt - 1, doneAt + 3], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
-  const exitProgress = interpolate(frame, [endAt - 3, endAt + 2], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
+  const enterProgress = interpolate(frame, [startAt - 1, startAt + 4], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
+  const splitProgress = interpolate(frame, [splitAt - 1, splitAt + 5], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
+  const doneProgress = interpolate(frame, [doneAt - 1, doneAt + 4], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
+  const exitProgress = interpolate(frame, [endAt - 5, endAt + 2], [0, 1], {...CLAMP, easing: ENTRANCE_EASING});
 
   const stageOpacity = enterProgress * (1 - exitProgress);
   const stageScale =
-    interpolate(enterProgress, [0, 1], [0.88, 1]) *
+    interpolate(enterProgress, [0, 1], [0.9, 1]) *
     interpolate(exitProgress, [0, 1], [1, 0.24]);
   const stageTranslateY =
     interpolate(enterProgress, [0, 1], [24, 0]) +
     interpolate(exitProgress, [0, 1], [0, -48]);
 
-  const progressFill = interpolate(frame, [startAt, splitAt - 1, splitAt + 3], [0.085, 0.085, 1], {
+  const progressFill = interpolate(frame, [startAt, splitAt - 1, doneAt + 1], [0.085, 0.085, 1], {
     ...CLAMP,
     easing: ENTRANCE_EASING
   });
@@ -503,24 +500,31 @@ const FlashbackClosureCard = () => {
 
   const stampScale = interpolate(
     frame,
-    [doneAt - 1, doneAt + 2, doneAt + 5],
-    [0.52, 1.08, 1],
+    [doneAt - 1, doneAt + 3, doneAt + 8],
+    [1.45, 0.96, 1],
     {...CLAMP, easing: ENTRANCE_EASING}
   );
+  const stampRingScale = interpolate(frame, [doneAt, doneAt + 14], [0.85, 1.45], CLAMP);
+  const stampRingOpacity = interpolate(frame, [doneAt, doneAt + 3, doneAt + 14], [0, 0.75, 0], CLAMP);
 
   return (
     <div
       style={{
         position: "absolute",
-        left: (CANVAS_WIDTH - 1220) / 2,
-        top: 238,
-        width: 1220,
-        padding: "32px 38px 36px",
-        borderRadius: 36,
-        background: "rgba(255, 255, 255, 0.96)",
+        left: (CANVAS_WIDTH - 1280) / 2,
+        top: 216,
+        width: 1280,
+        padding: "38px 44px 42px",
+        borderRadius: 40,
+        background:
+          doneProgress > 0.4
+            ? "linear-gradient(180deg, rgba(255, 255, 255, 0.99) 0%, rgba(240, 253, 244, 0.98) 100%)"
+            : "rgba(255, 255, 255, 0.97)",
         backdropFilter: "blur(28px)",
         boxShadow:
-          "0 36px 90px -24px rgba(17, 24, 39, 0.24), 0 0 0 1.5px rgba(232, 93, 135, 0.24)",
+          doneProgress > 0.4
+            ? "0 40px 96px -24px rgba(16, 185, 129, 0.28), 0 0 0 2.5px rgba(16, 185, 129, 0.45)"
+            : "0 36px 90px -24px rgba(17, 24, 39, 0.24), 0 0 0 2px rgba(232, 93, 135, 0.28)",
         opacity: stageOpacity,
         translate: `0px ${stageTranslateY.toFixed(1)}px`,
         scale: stageScale,
@@ -534,70 +538,83 @@ const FlashbackClosureCard = () => {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 22
+          marginBottom: 26
         }}
       >
-        <div style={{display: "flex", alignItems: "center", gap: 14}}>
+        <div style={{display: "flex", alignItems: "center", gap: 18}}>
           <div
             style={{
-              padding: "7px 16px",
+              padding: "10px 22px",
               borderRadius: 999,
               background:
-                doneProgress > 0.5
-                  ? "rgba(16, 185, 129, 0.14)"
-                  : "rgba(232, 93, 135, 0.14)",
-              color: doneProgress > 0.5 ? "#059669" : "#C81E5B",
-              fontSize: 18,
-              fontWeight: 700,
+                doneProgress > 0.4
+                  ? "rgba(16, 185, 129, 0.16)"
+                  : "rgba(232, 93, 135, 0.16)",
+              color: doneProgress > 0.4 ? "#047857" : "#C81E5B",
+              fontSize: 22,
+              fontWeight: 800,
               letterSpacing: -0.3
             }}
           >
-            {splitProgress < 0.45 ? "⏸ 收藏夹吃灰 · 停在半路" : "⚡ 3 秒切分全片知识卡片"}
+            {splitProgress < 0.45 ? "⏸ 收藏夹吃灰 · 停在半路" : "⚡ 全片切分知识卡片"}
           </div>
           <div
             style={{
               fontFamily: BRAND_FONT_FAMILY,
-              fontSize: 24,
-              fontWeight: 700,
+              fontSize: 36,
+              fontWeight: 800,
               color: doneProgress > 0.4 ? "#059669" : COLORS.foreground,
-              letterSpacing: -0.6
+              letterSpacing: -1
             }}
           >
             {timecodeText}
           </div>
         </div>
 
-        {/* 已读完 ✅ Stamp Badge */}
-        <div
-          style={{
-            padding: "10px 24px",
-            borderRadius: 999,
-            background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
-            boxShadow: "0 14px 32px -8px rgba(16, 185, 129, 0.55), 0 0 0 2px rgba(255, 255, 255, 0.9)",
-            color: "#FFFFFF",
-            fontSize: 24,
-            fontWeight: 800,
-            letterSpacing: -0.4,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            opacity: doneProgress,
-            scale: stampScale
-          }}
-        >
-          <span>已读完 ✅</span>
+        {/* Prominent 已读完 ✅ Stamp Badge with Impact Pulse */}
+        <div style={{position: "relative", display: "flex", alignItems: "center", justifyContent: "center"}}>
+          <div
+            style={{
+              position: "absolute",
+              inset: -6,
+              borderRadius: 999,
+              border: "3px solid #10B981",
+              opacity: stampRingOpacity,
+              scale: stampRingScale,
+              pointerEvents: "none"
+            }}
+          />
+          <div
+            style={{
+              padding: "14px 34px",
+              borderRadius: 999,
+              background: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
+              boxShadow: "0 18px 42px -8px rgba(16, 185, 129, 0.65), 0 0 0 3px rgba(255, 255, 255, 0.95)",
+              color: "#FFFFFF",
+              fontSize: 32,
+              fontWeight: 800,
+              letterSpacing: -0.5,
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              opacity: doneProgress,
+              scale: stampScale
+            }}
+          >
+            <span>已读完 ✅</span>
+          </div>
         </div>
       </div>
 
-      {/* Dusty 04:07 / 48:16 Progress Bar with Scissor Cut Marks */}
+      {/* Dusty 04:07 / 48:16 -> 48:16 / 48:16 Full Progress Bar */}
       <div
         style={{
           position: "relative",
-          height: 22,
+          height: 30,
           borderRadius: 999,
-          background: "rgba(17, 24, 39, 0.08)",
-          overflow: " visible",
-          marginBottom: 26
+          background: "rgba(17, 24, 39, 0.09)",
+          overflow: "visible",
+          marginBottom: 30
         }}
       >
         <div
@@ -610,25 +627,28 @@ const FlashbackClosureCard = () => {
             borderRadius: 999,
             background:
               doneProgress > 0.3
-                ? "linear-gradient(90deg, #FB7299 0%, #00AEEC 52%, #10B981 100%)"
+                ? "linear-gradient(90deg, #10B981 0%, #059669 100%)"
                 : "linear-gradient(90deg, #FB7299 0%, #E85D87 100%)",
-            boxShadow: "0 0 20px rgba(232, 93, 135, 0.42)"
+            boxShadow:
+              doneProgress > 0.3
+                ? "0 0 28px rgba(16, 185, 129, 0.52)"
+                : "0 0 20px rgba(232, 93, 135, 0.42)"
           }}
         />
         {/* Slice Dividers on Progress Bar */}
-        {[0.33, 0.66].map((pos) => (
+        {[0.333, 0.666].map((pos) => (
           <div
             key={pos}
             style={{
               position: "absolute",
               left: `${pos * 100}%`,
-              top: -4,
-              bottom: -4,
-              width: 4,
+              top: -5,
+              bottom: -5,
+              width: 5,
               borderRadius: 99,
               background: "#FFFFFF",
               opacity: splitProgress,
-              boxShadow: "0 0 8px rgba(17, 24, 39, 0.18)"
+              boxShadow: "0 0 10px rgba(17, 24, 39, 0.22)"
             }}
           />
         ))}
@@ -636,25 +656,25 @@ const FlashbackClosureCard = () => {
         <div
           style={{
             position: "absolute",
-            left: `calc(${(progressFill * 100).toFixed(1)}% - 12px)`,
-            top: -3,
-            width: 28,
-            height: 28,
+            left: `calc(${(progressFill * 100).toFixed(1)}% - 17px)`,
+            top: -4,
+            width: 38,
+            height: 38,
             borderRadius: "50%",
             background: "#FFFFFF",
-            border: `4px solid ${doneProgress > 0.3 ? "#10B981" : COLORS.pink}`,
-            boxShadow: "0 4px 14px rgba(17, 24, 39, 0.25)"
+            border: `5px solid ${doneProgress > 0.3 ? "#059669" : COLORS.pink}`,
+            boxShadow: "0 6px 18px rgba(17, 24, 39, 0.28)"
           }}
         />
       </div>
 
-      {/* Sliced Knowledge Cards Row */}
+      {/* 3 Sliced Knowledge Cards Row */}
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(3, 1fr)",
-          gap: interpolate(splitProgress, [0, 1], [4, 20]),
-          opacity: interpolate(frame, [startAt, splitAt + 2], [0.42, 1], CLAMP)
+          gap: interpolate(splitProgress, [0, 1], [6, 22]),
+          opacity: interpolate(frame, [startAt, splitAt + 2], [0.45, 1], CLAMP)
         }}
       >
         {FLASHBACK_SLICES.map((slice, idx) => {
@@ -664,57 +684,72 @@ const FlashbackClosureCard = () => {
             <div
               key={slice.time}
               style={{
-                padding: "20px 22px",
-                borderRadius: 24,
+                padding: "24px 26px",
+                borderRadius: 26,
                 background:
                   doneProgress > 0.4
-                    ? "linear-gradient(180deg, rgba(240, 253, 244, 0.92) 0%, rgba(255, 255, 255, 0.98) 100%)"
-                    : "rgba(244, 245, 248, 0.92)",
+                    ? "#FFFFFF"
+                    : "rgba(244, 245, 248, 0.94)",
                 border:
                   doneProgress > 0.4
-                    ? "1.5px solid rgba(16, 185, 129, 0.38)"
-                    : "1px solid rgba(17, 24, 39, 0.08)",
+                    ? "2px solid rgba(16, 185, 129, 0.48)"
+                    : "1.5px solid rgba(17, 24, 39, 0.08)",
                 boxShadow:
                   splitProgress > 0.5
-                    ? "0 18px 38px -16px rgba(17, 24, 39, 0.14)"
+                    ? "0 20px 42px -16px rgba(17, 24, 39, 0.14)"
                     : "none",
                 translate: `${(idx - 1) * (1 - splitProgress) * -28}px ${cardLift.toFixed(1)}px`,
                 scale: cardScale,
                 display: "flex",
                 flexDirection: "column",
-                gap: 8
+                gap: 12
               }}
             >
               <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
+                <div style={{display: "flex", alignItems: "center", gap: 10}}>
+                  <span
+                    style={{
+                      fontFamily: BRAND_FONT_FAMILY,
+                      fontSize: 22,
+                      fontWeight: 800,
+                      color: doneProgress > 0.4 ? "#059669" : slice.accent
+                    }}
+                  >
+                    {slice.time}
+                  </span>
+                  <span
+                    style={{
+                      padding: "4px 12px",
+                      borderRadius: 999,
+                      background:
+                        doneProgress > 0.4
+                          ? "rgba(16, 185, 129, 0.14)"
+                          : "rgba(255, 255, 255, 0.92)",
+                      color: doneProgress > 0.4 ? "#047857" : COLORS.foreground,
+                      fontSize: 15,
+                      fontWeight: 700
+                    }}
+                  >
+                    {slice.tag}
+                  </span>
+                </div>
                 <span
                   style={{
-                    fontFamily: BRAND_FONT_FAMILY,
                     fontSize: 18,
-                    fontWeight: 700,
-                    color: slice.accent
+                    fontWeight: 800,
+                    color: "#059669",
+                    opacity: doneProgress
                   }}
                 >
-                  {slice.time}
-                </span>
-                <span
-                  style={{
-                    padding: "3px 10px",
-                    borderRadius: 999,
-                    background: "rgba(255, 255, 255, 0.9)",
-                    color: COLORS.foreground,
-                    fontSize: 13,
-                    fontWeight: 700
-                  }}
-                >
-                  {slice.tag}
+                  ✓ 已读
                 </span>
               </div>
               <div
                 style={{
                   color: COLORS.foreground,
-                  fontSize: 21,
+                  fontSize: 24,
                   fontWeight: 700,
-                  lineHeight: 1.25,
+                  lineHeight: 1.3,
                   letterSpacing: -0.5,
                   whiteSpace: "nowrap",
                   overflow: "hidden",
@@ -722,16 +757,6 @@ const FlashbackClosureCard = () => {
                 }}
               >
                 {slice.title}
-              </div>
-              <div
-                style={{
-                  color: COLORS.muted,
-                  fontSize: 15,
-                  fontWeight: 500,
-                  whiteSpace: "nowrap"
-                }}
-              >
-                {slice.quote}
               </div>
             </div>
           );

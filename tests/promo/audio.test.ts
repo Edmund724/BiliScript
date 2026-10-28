@@ -29,7 +29,7 @@ describe("宣传片配乐与三幕原声问答", () => {
       fadeOutFrames: 60,
       fadeOutEndFrame: PROMO_DURATION
     });
-    expect(PROMO_DURATION).toBe(34 * PROMO_FPS);
+    expect(PROMO_DURATION).toBe(35 * PROMO_FPS);
     expect(AUDIO.music.durationInFrames).toBe(PROMO_DURATION);
     for (const scene of SCENES.slice(1)) {
       expect((scene.from * AUDIO.music.bpm) / 60 % PROMO_FPS, scene.id).toBe(0);
