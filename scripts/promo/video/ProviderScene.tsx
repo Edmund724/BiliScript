@@ -1,7 +1,7 @@
 import {Easing, Img, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {PROVIDER_LOGOS} from "../provider-logos.mjs";
 import {PROVIDER_TIMELINE} from "../timeline.mjs";
-import {COLORS, FONT_FAMILY, ProductFrame, entranceOpacity} from "./design";
+import {BRAND_FONT_FAMILY, BrandWhisper, COLORS, ELEVATION, FONT_FAMILY, ProductFrame, entranceOpacity} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const ENTRANCE = Easing.bezier(0.16, 1, 0.3, 1);
@@ -32,9 +32,9 @@ const ContinuousClaim = () => {
   const moveProgress = interpolate(frame, [moveStart, moveEnd], [0, 1], {...CLAMP, easing: MOVE_EASING});
   const collapseProgress = interpolate(frame, [collapseAt, collapseAt + collapseDuration], [0, 1], {...CLAMP, easing: ENTRANCE});
 
-  const x = interpolate(moveProgress, [0, 1], [104, 576], CLAMP);
-  const y = interpolate(moveProgress, [0, 1], [352, 62], CLAMP) + enterRise + collapseProgress * 96;
-  const scale = interpolate(moveProgress, [0, 1], [1, 0.64], CLAMP) * interpolate(collapseProgress, [0, 1], [1, 0.35], CLAMP);
+  const x = interpolate(moveProgress, [0, 1], [96, 576], CLAMP);
+  const y = interpolate(moveProgress, [0, 1], [396, 54], CLAMP) + enterRise + collapseProgress * 96;
+  const scale = interpolate(moveProgress, [0, 1], [1, 0.68], CLAMP) * interpolate(collapseProgress, [0, 1], [1, 0.35], CLAMP);
 
   return (
     <div
@@ -52,29 +52,29 @@ const ContinuousClaim = () => {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 28,
-          padding: "18px 34px 18px 28px",
+          gap: 22,
+          padding: "18px 32px 18px 28px",
           borderRadius: 32,
-          background: "rgba(255, 255, 255, 0.92)",
-          border: "1px solid rgba(83, 110, 134, 0.14)",
-          boxShadow: "0 22px 48px -28px rgba(31, 47, 61, 0.22)"
+          background: "rgba(255, 255, 255, 0.96)",
+          backdropFilter: "blur(24px)",
+          boxShadow: ELEVATION.heroFloat
         }}
       >
         <div
           style={{
             color: COLORS.pink,
-            fontFamily: 'Bahnschrift, "Aptos Display", sans-serif',
-            fontSize: 168,
+            fontFamily: BRAND_FONT_FAMILY,
+            fontSize: 144,
             fontWeight: 600,
             lineHeight: 0.92,
-            letterSpacing: -6
+            letterSpacing: -5
           }}
         >
           {PROVIDER_LOGOS.length}
         </div>
-        <div style={{color: COLORS.foreground, fontSize: 48, fontWeight: 600, lineHeight: 1.24, letterSpacing: -1}}>
+        <div style={{color: COLORS.foreground, fontSize: 42, fontWeight: 600, lineHeight: 1.24, letterSpacing: -1}}>
           个 AI 平台预设
-          <div style={{color: COLORS.muted, fontSize: 30, fontWeight: 500, marginTop: 8, letterSpacing: 0}}>
+          <div style={{color: COLORS.muted, fontSize: 24, fontWeight: 500, marginTop: 8, letterSpacing: 0}}>
             另支持自定义端点 · OpenAI 兼容接口
           </div>
         </div>
@@ -106,10 +106,10 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
         alignItems: "center",
         justifyContent: "center",
         gap: 22,
-        borderRadius: 28,
-        border: "1px solid rgba(83, 110, 134, 0.16)",
-        background: "rgba(255, 255, 255, 0.96)",
-        boxShadow: "0 20px 44px -24px rgba(43, 70, 93, 0.24)",
+        borderRadius: 30,
+        background: "rgba(255, 255, 255, 0.94)",
+        backdropFilter: "blur(20px)",
+        boxShadow: ELEVATION.cardSoft,
         opacity: interpolate(frame, [start, start + 5], [0, 1], CLAMP),
         translate: `${convergeX}px ${enterRise + convergeY}px`,
         scale: enterScale * (1 - 0.78 * collapseProgress)
@@ -120,7 +120,7 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
           width: 96,
           height: 82,
           borderRadius: 22,
-          background: "rgba(244, 241, 246, 0.72)",
+          background: "rgba(244, 245, 248, 0.85)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center"
@@ -131,11 +131,12 @@ const ProviderCard = ({logo, index}: {logo: (typeof PROVIDER_LOGOS)[number]; ind
       <div
         style={{
           color: COLORS.foreground,
-          fontSize: logo.id === "amd" ? 22 : 24,
+          fontSize: logo.id === "amd" ? 21 : 24,
           fontWeight: 600,
           lineHeight: 1.2,
           whiteSpace: "nowrap",
-          textAlign: "center"
+          textAlign: "center",
+          letterSpacing: -0.3
         }}
       >
         {logo.name}
@@ -181,21 +182,25 @@ const LogoWall = () => {
           position: "absolute",
           left: 104,
           right: 104,
-          top: 806,
+          top: 808,
           display: "flex",
           justifyContent: "center",
           gap: 18,
           opacity: footerOpacity
         }}
       >
-        {["内置 14 家主流平台预设", "支持 OpenAI / Anthropic 兼容格式", "支持本地 Ollama · 自定义 Base URL"].map((text, idx) => (
+        {["14 个 AI 平台预设", "另支持自定义端点", "支持本地 Ollama · OpenAI 兼容格式"].map((text, idx) => (
           <div
             key={text}
             style={{
-              padding: "12px 24px",
+              padding: "12px 26px",
               borderRadius: 999,
-              background: idx === 0 ? "rgba(232, 93, 135, 0.12)" : "rgba(255, 255, 255, 0.9)",
-              border: `1px solid ${idx === 0 ? "rgba(232, 93, 135, 0.34)" : "rgba(83, 110, 134, 0.16)"}`,
+              background: idx === 0 ? "rgba(232, 93, 135, 0.12)" : "rgba(255, 255, 255, 0.88)",
+              backdropFilter: "blur(16px)",
+              boxShadow:
+                idx === 0
+                  ? "0 14px 32px -14px rgba(232, 93, 135, 0.28), 0 0 0 1px rgba(232, 93, 135, 0.26)"
+                  : "0 12px 28px -14px rgba(17, 24, 39, 0.12), 0 0 0 1px rgba(17, 24, 39, 0.04)",
               color: idx === 0 ? COLORS.pink : COLORS.foreground,
               fontSize: 22,
               fontWeight: 600
@@ -226,22 +231,23 @@ export const ProviderScene = () => {
 
   return (
     <div style={{position: "absolute", inset: 0, fontFamily: FONT_FAMILY}}>
+      <BrandWhisper opacity={introTitleOpacity} />
       <div
         style={{
           position: "absolute",
-          left: 104,
-          top: 164,
-          width: 580,
+          left: 96,
+          top: 156,
+          width: 600,
           opacity: introTitleOpacity
         }}
       >
         <div
           style={{
             color: COLORS.foreground,
-            fontSize: 64,
+            fontSize: 68,
             fontWeight: 600,
-            lineHeight: 1.2,
-            letterSpacing: -2
+            lineHeight: 1.16,
+            letterSpacing: -2.4
           }}
         >
           选择平台，
@@ -250,11 +256,11 @@ export const ProviderScene = () => {
         </div>
         <div
           style={{
-            marginTop: 22,
+            marginTop: 20,
             color: COLORS.muted,
-            fontSize: 26,
-            fontWeight: 500,
-            lineHeight: 1.45
+            fontSize: 25,
+            fontWeight: 400,
+            lineHeight: 1.5
           }}
         >
           一键填入官方端点与推荐模型，无需手写接口地址。
@@ -274,14 +280,13 @@ export const ProviderScene = () => {
           <ProductFrame
             source="ai-providers.mp4"
             crop={{x: 1396, y: 298, width: 478, height: 432}}
-            width={1080}
-            variant="bleed"
-            startFrom={dialogShot.source}
+            width={976}
+            startFrom={dialogShot.source + 6}
             playbackRate={dialogShot.playbackRate}
             duration={dialogShot.duration}
             animate={false}
-            tilt={0}
-            style={{left: 740, top: 84, borderRadius: 28, border: "1px solid rgba(83, 110, 134, 0.16)"}}
+            tilt={-7}
+            style={{left: 848, top: 88}}
           />
         </Sequence>
       </div>

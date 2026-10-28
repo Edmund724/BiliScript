@@ -7,7 +7,18 @@ import {
   CHAT_TIMESTAMP_CLICK_FRAME,
   PANEL_FOCUS_HANDOFFS
 } from "../timeline.mjs";
-import {COLORS, Crop, FONT_FAMILY, PANEL_CROPS, ProductFrame, SceneTitle} from "./design";
+import {
+  BRAND_FONT_FAMILY,
+  BrandWhisper,
+  COLORS,
+  Crop,
+  ELEVATION,
+  FONT_FAMILY,
+  PANEL_CROPS,
+  ProductFrame,
+  SceneTitle,
+  VoiceWaveBar
+} from "./design";
 
 const CLAMP = {extrapolateLeft: "clamp", extrapolateRight: "clamp"} as const;
 const SMOOTH = Easing.bezier(0.16, 1, 0.3, 1);
@@ -48,10 +59,9 @@ const ChatTimestampPointer = () => {
           top: CHAT_CLICK_TARGET.y - 18,
           width: 172,
           height: 36,
-          borderRadius: 12,
-          border: `2px solid ${COLORS.pink}`,
-          background: frame >= clickAt ? "rgba(232, 93, 135, 0.16)" : "rgba(232, 93, 135, 0.08)",
-          boxShadow: "0 10px 28px -12px rgba(232, 93, 135, 0.45)",
+          borderRadius: 999,
+          background: frame >= clickAt ? "rgba(232, 93, 135, 0.20)" : "rgba(232, 93, 135, 0.10)",
+          boxShadow: "0 12px 32px -8px rgba(232, 93, 135, 0.45), 0 0 0 1px rgba(232, 93, 135, 0.34)",
           opacity: highlightOpacity,
           pointerEvents: "none"
         }}
@@ -64,7 +74,8 @@ const ChatTimestampPointer = () => {
           width: 56,
           height: 56,
           borderRadius: "50%",
-          border: `3px solid ${COLORS.pink}`,
+          background: "rgba(232, 93, 135, 0.24)",
+          boxShadow: "0 0 32px rgba(232, 93, 135, 0.55)",
           opacity: rippleOpacity,
           scale: rippleScale,
           pointerEvents: "none"
@@ -78,7 +89,7 @@ const ChatTimestampPointer = () => {
           top: 0,
           width: 34,
           height: 43,
-          filter: "drop-shadow(0 4px 8px rgba(36, 52, 71, 0.35))",
+          filter: "drop-shadow(0 4px 8px rgba(17, 24, 39, 0.35))",
           opacity: pointerOpacity,
           translate: interpolate(
             frame,
@@ -109,52 +120,57 @@ const ChatLeftContext = () => {
 
   return (
     <div style={{position: "absolute", inset: 0, opacity: leftOpacity, pointerEvents: "none"}}>
-      <SceneTitle title={"看完还有问题？\n接着问。"} style={{left: 116, top: 184, width: 740}} />
+      <SceneTitle
+        title={"看完还有问题？\n接着问。"}
+        subtitle="围绕视频上下文深入追问，点击回答内时间戳回到原片那一秒。"
+        style={{left: 96, top: 152, width: 760}}
+      />
       <div
         style={{
           position: "absolute",
-          left: 116,
-          top: 428,
-          width: 740,
-          padding: "24px 28px",
-          borderRadius: 24,
-          background: "rgba(255, 255, 255, 0.94)",
-          border: "1px solid rgba(83, 110, 134, 0.16)",
-          boxShadow: "0 20px 48px -28px rgba(43, 70, 93, 0.22)",
+          left: 96,
+          top: 436,
+          width: 760,
+          padding: "28px 34px",
+          borderRadius: 28,
+          background: "rgba(255, 255, 255, 0.96)",
+          boxShadow: ELEVATION.heroFloat,
+          transform: "perspective(1600px) rotateX(4deg) rotateY(-8deg)",
           display: "flex",
           flexDirection: "column",
           gap: 14
         }}
       >
         <div style={{display: "flex", alignItems: "center", justifyContent: "space-between"}}>
-          <span style={{color: COLORS.muted, fontSize: 20, fontWeight: 600}}>点击回答内时间戳 · 直接回到原片对应时刻</span>
+          <span style={{color: COLORS.muted, fontSize: 20, fontWeight: 500}}>点击回答内时间戳 · 原片同步合焦发声</span>
           <span
             style={{
-              padding: "4px 14px",
+              padding: "5px 16px",
               borderRadius: 999,
-              background: frame >= CHAT_TIMESTAMP_CLICK_FRAME ? COLORS.pink : "rgba(232, 93, 135, 0.12)",
-              color: frame >= CHAT_TIMESTAMP_CLICK_FRAME ? "#FFFFFF" : COLORS.pink,
+              fontFamily: BRAND_FONT_FAMILY,
+              background: frame >= CHAT_TIMESTAMP_CLICK_FRAME ? COLORS.pink : "rgba(38, 121, 184, 0.10)",
+              color: frame >= CHAT_TIMESTAMP_CLICK_FRAME ? "#FFFFFF" : COLORS.blue,
               fontSize: 20,
               fontWeight: 600
             }}
           >
-            04:44–05:15
+            04:44 – 05:15 ↗
           </span>
         </div>
-        <div style={{color: COLORS.foreground, fontSize: 26, fontWeight: 600, lineHeight: 1.38}}>
-          1. 人与 AI 的关系是「协作」，而非「替代」
+        <div style={{color: COLORS.foreground, fontSize: 27, fontWeight: 600, lineHeight: 1.38, letterSpacing: -0.5}}>
+          1. 人与 AI 的关系是<span style={{color: COLORS.pink}}>「协作」</span>，而非<span style={{color: COLORS.pink}}>「替代」</span>
         </div>
       </div>
       <ProductFrame
         source="chat.mp4"
         crop={CHAT_INPUT_CROP}
-        width={740}
+        width={760}
         startFrom={0}
         playbackRate={1}
         duration={180}
         animate={false}
-        tilt={0}
-        style={{left: 116, top: 648}}
+        tilt={-6}
+        style={{left: 96, top: 656}}
       />
     </div>
   );
@@ -177,12 +193,13 @@ const ChatReturnVerification = () => {
       style={{
         position: "absolute",
         left: 96,
-        top: 112,
+        top: 124,
         width: 1080,
         height: playerHeight,
         opacity: progress,
         scale: interpolate(progress, [0, 1], [0.95, 1]),
         translate: `${(1 - progress) * -28}px 0px`,
+        transform: "perspective(1600px) rotateX(3deg) rotateY(5deg)",
         zIndex: 8
       }}
     >
@@ -193,8 +210,7 @@ const ChatReturnVerification = () => {
           height: "100%",
           borderRadius: 28,
           overflow: "hidden",
-          border: `3px solid ${COLORS.pink}`,
-          boxShadow: "0 32px 80px -28px rgba(36, 52, 71, 0.38)",
+          boxShadow: ELEVATION.videoPlane,
           background: "#0F172A"
         }}
       >
@@ -212,45 +228,7 @@ const ChatReturnVerification = () => {
             maxWidth: "none"
           }}
         />
-        <div
-          style={{
-            position: "absolute",
-            left: 24,
-            top: 22,
-            padding: "10px 20px",
-            borderRadius: 999,
-            background: "rgba(15, 23, 42, 0.88)",
-            border: `1.5px solid ${COLORS.pink}`,
-            color: "#FFFFFF",
-            fontSize: 22,
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            gap: 12
-          }}
-        >
-          <span style={{width: 10, height: 10, borderRadius: "50%", background: COLORS.pink, display: "inline-block"}} />
-          <span>已跳回原片 04:44 · 正在播放对应段落</span>
-        </div>
-        <div
-          style={{
-            position: "absolute",
-            left: 48,
-            right: 48,
-            bottom: 28,
-            padding: "12px 24px",
-            borderRadius: 16,
-            background: "rgba(15, 23, 42, 0.86)",
-            border: "1px solid rgba(255, 255, 255, 0.18)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            color: "#FFFFFF"
-          }}
-        >
-          <span style={{fontSize: 24, fontWeight: 600}}>字幕核对：「人与 AI 协作配合，而非单纯替代」</span>
-          <span style={{color: COLORS.pink, fontSize: 22, fontWeight: 700}}>04:44 / 08:12</span>
-        </div>
+        <VoiceWaveBar timestamp="04:44" quote="“这里有一个研究 · 人机协作实验”" active={true} />
       </div>
     </div>
   );
@@ -269,6 +247,7 @@ export const ChatScene = () => {
 
   return (
     <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
+      <BrandWhisper />
       <ChatLeftContext />
       {CHAT_SHOTS.map((shot, index) => (
         <Sequence key={shot.startFrom} from={shotOffset(CHAT_SHOTS, index)} durationInFrames={shot.duration}>
@@ -289,7 +268,7 @@ export const ChatScene = () => {
               playbackRate={shot.playbackRate}
               duration={shot.duration}
               animate={index === 0}
-              tilt={0}
+              tilt={-6}
               focus={
                 index === 0
                   ? {direction: "in", frames: CHAT_HANDOFF.enterFrames, maxBlur: CHAT_HANDOFF.maxBlur}
@@ -310,113 +289,152 @@ export const ChatScene = () => {
 
 export const AppearanceScene = () => {
   const frame = useCurrentFrame();
-  const darkWipe = interpolate(frame, [19, 23], [0, 100], {...CLAMP, easing: SMOOTH});
-  const editorialWipe = interpolate(frame, [55, 59], [0, 100], {...CLAMP, easing: SMOOTH});
   const isDark = frame >= 21;
   const isEditorial = frame >= 57;
-
-  const titleColor = isDark ? "#F8FAFC" : COLORS.foreground;
-  const mutedColor = isDark ? "rgba(248, 250, 252, 0.72)" : COLORS.muted;
   const activeStep = isEditorial ? 2 : isDark ? 1 : 0;
+
   const badges = [
-    {label: "浅色纸白", dot: "#E85D87"},
-    {label: "深色模式", dot: "#38BDF8"},
-    {label: "数字刊物", dot: "#E08B5B"}
+    {label: "晨读纸白", dot: "#E85D87", glow: "rgba(232, 93, 135, 0.22)"},
+    {label: "深色夜读", dot: "#38BDF8", glow: "rgba(56, 189, 248, 0.24)"},
+    {label: "数字刊物", dot: "#E08B5B", glow: "rgba(224, 139, 91, 0.24)"}
   ];
 
-  return (
-    <AbsoluteFill style={{fontFamily: FONT_FAMILY, overflow: "hidden", background: COLORS.background}}>
-      {/* Full-Canvas Dark Mode Wipe at 17.70s (frame 21) */}
-      <AbsoluteFill
-        style={{
-          background: "linear-gradient(140deg, #10151C 0%, #161D26 55%, #1D2633 100%)",
-          clipPath: `polygon(0% 0%, ${darkWipe * 1.35}% 0%, ${Math.max(0, darkWipe * 1.35 - 35)}% 100%, 0% 100%)`
-        }}
-      />
-      {/* Full-Canvas Editorial Warm Palette Wipe at 18.90s (frame 57) */}
-      <AbsoluteFill
-        style={{
-          background: "linear-gradient(140deg, #1A1412 0%, #241B17 55%, #2D211B 100%)",
-          clipPath: `polygon(0% 0%, ${editorialWipe * 1.35}% 0%, ${Math.max(0, editorialWipe * 1.35 - 35)}% 100%, 0% 100%)`
-        }}
-      />
+  const cardBg = isEditorial
+    ? "linear-gradient(145deg, rgba(42, 31, 26, 0.96) 0%, rgba(28, 20, 17, 0.98) 100%)"
+    : isDark
+      ? "linear-gradient(145deg, rgba(24, 34, 50, 0.95) 0%, rgba(13, 19, 30, 0.98) 100%)"
+      : "rgba(255, 255, 255, 0.96)";
 
-      {/* Top Dedicated Header Bar — strictly above all interactive UI controls */}
+  const cardText = isDark ? "#F8FAFC" : COLORS.foreground;
+  const cardSub = isDark ? "#94A3B8" : COLORS.muted;
+  const cardAccent = isEditorial ? "#E08B5B" : isDark ? "#38BDF8" : COLORS.pink;
+  const cardShadow = isDark
+    ? "-28px 44px 110px -22px rgba(15, 23, 42, 0.42), 0 0 48px -12px rgba(56, 189, 248, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.14)"
+    : ELEVATION.heroFloat;
+
+  return (
+    <AbsoluteFill style={{fontFamily: FONT_FAMILY, overflow: "hidden"}}>
+      <BrandWhisper />
+
       <div
         style={{
           position: "absolute",
-          left: 104,
-          right: 104,
-          top: 38,
-          height: 104,
+          right: 96,
+          top: 52,
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
-          zIndex: 10
+          gap: 14,
+          zIndex: 20
         }}
       >
-        <div style={{display: "flex", alignItems: "baseline", gap: 22}}>
-          <div style={{color: titleColor, fontSize: 56, fontWeight: 600, letterSpacing: -1.8, lineHeight: 1.15}}>
-            {frame < APPEARANCE_SHOTS[0].duration ? "深色模式，完整切换。" : "阅读色板，随你偏好。"}
+        {badges.map((badge, index) => {
+          const active = index === activeStep;
+          return (
+            <div
+              key={badge.label}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 22px",
+                borderRadius: 999,
+                background: active ? "rgba(255, 255, 255, 0.98)" : "rgba(255, 255, 255, 0.68)",
+                backdropFilter: "blur(20px)",
+                boxShadow: active
+                  ? `0 16px 38px -14px rgba(17, 24, 39, 0.18), 0 0 24px ${badge.glow}, 0 0 0 1.5px ${badge.dot}`
+                  : "0 10px 24px -14px rgba(17, 24, 39, 0.10), 0 0 0 1px rgba(17, 24, 39, 0.04)",
+                color: COLORS.foreground,
+                fontSize: 21,
+                fontWeight: active ? 600 : 500,
+                scale: active ? 1.04 : 1
+              }}
+            >
+              <span style={{width: 12, height: 12, borderRadius: "50%", background: badge.dot, display: "inline-block"}} />
+              <span>{badge.label}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      <SceneTitle
+        title={frame < APPEARANCE_SHOTS[0].duration ? "晨读亮场为主，\n亦备深色夜读。" : "多款阅读色板，\n随你偏好。"}
+        subtitle={
+          isEditorial
+            ? "当前演示：数字刊物暖棕色板 · 适配长文沉浸精读"
+            : isDark
+              ? "当前演示：深色夜读模式 · 夜间低眩光视觉保护"
+              : "默认晨读亮场 · 通透纸感与空间景深"
+        }
+        style={{left: 96, top: 152, width: 760}}
+      />
+
+      {/* Left Spatial Floating Preview Surface showcasing Dark Mode & Editorial Palettes inside the Morning Light Stage */}
+      <div
+        style={{
+          position: "absolute",
+          left: 96,
+          top: 444,
+          width: 790,
+          padding: "36px 42px",
+          borderRadius: 32,
+          background: cardBg,
+          backdropFilter: "blur(28px)",
+          boxShadow: cardShadow,
+          transform: "perspective(1600px) rotateX(5deg) rotateY(-8deg)"
+        }}
+      >
+        <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20}}>
+          <div style={{display: "flex", alignItems: "center", gap: 14}}>
+            <span
+              style={{
+                background: cardAccent,
+                color: "#FFFFFF",
+                fontFamily: BRAND_FONT_FAMILY,
+                fontSize: 20,
+                fontWeight: 600,
+                padding: "4px 15px",
+                borderRadius: 999
+              }}
+            >
+              02:32
+            </span>
+            <span style={{fontSize: 28, fontWeight: 600, color: cardText, letterSpacing: -0.6}}>
+              AI 并非越强越好，适配才是关键
+            </span>
           </div>
-          <div style={{color: mutedColor, fontSize: 24, fontWeight: 500}}>
-            {isEditorial ? "当前色板：数字刊物" : isDark ? "当前外观：深色夜读" : "当前外观：浅色飞魅"}
-          </div>
+          <span
+            style={{
+              padding: "5px 14px",
+              borderRadius: 999,
+              background: isDark ? "rgba(255, 255, 255, 0.10)" : "rgba(17, 24, 39, 0.06)",
+              color: cardSub,
+              fontSize: 18,
+              fontWeight: 600
+            }}
+          >
+            {isEditorial ? "数字刊物" : isDark ? "深色夜读" : "晨读纸白"}
+          </span>
         </div>
-        <div style={{display: "flex", alignItems: "center", gap: 14}}>
-          {badges.map((badge, index) => {
-            const active = index === activeStep;
-            return (
-              <div
-                key={badge.label}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "10px 20px",
-                  borderRadius: 999,
-                  background: active
-                    ? isDark
-                      ? "rgba(255, 255, 255, 0.16)"
-                      : "rgba(36, 52, 71, 0.08)"
-                    : isDark
-                      ? "rgba(255, 255, 255, 0.06)"
-                      : "rgba(255, 255, 255, 0.72)",
-                  border: active ? `2px solid ${badge.dot}` : "1px solid rgba(148, 163, 184, 0.25)",
-                  color: titleColor,
-                  fontSize: 22,
-                  fontWeight: active ? 600 : 500
-                }}
-              >
-                <span style={{width: 12, height: 12, borderRadius: "50%", background: badge.dot, display: "inline-block"}} />
-                <span>{badge.label}</span>
-              </div>
-            );
-          })}
+        <div style={{fontSize: 29, fontWeight: 600, lineHeight: 1.42, letterSpacing: -0.6, color: cardText, marginBottom: 22}}>
+          “人与 AI 的关系是<span style={{color: cardAccent}}>「协作」</span>，而非<span style={{color: cardAccent}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
+        </div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            paddingTop: 16,
+            borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(17, 24, 39, 0.06)",
+            color: cardSub,
+            fontSize: 19
+          }}
+        >
+          <span>白天通透晨读 · 夜间深邃护眼</span>
+          <span style={{color: cardAccent, fontFamily: BRAND_FONT_FAMILY, fontWeight: 600}}>04:07 – 05:15 ↗</span>
         </div>
       </div>
 
-      {/* Full-Bleed Center Stage (>72% screen area, bottom-bleed showcase) */}
-      <ProductFrame
-        source="appearance.mp4"
-        crop={{x: PANEL_CROPS.appearance.x, y: PANEL_CROPS.appearance.y, width: PANEL_CROPS.appearance.width, height: 580}}
-        width={860}
-        startFrom={0}
-        playbackRate={2}
-        duration={90}
-        animate={false}
-        tilt={0}
-        variant="bleed"
-        focus={{direction: "in", frames: APPEARANCE_HANDOFF.enterFrames, maxBlur: APPEARANCE_HANDOFF.maxBlur}}
-        style={{
-          left: 104,
-          top: 164,
-          borderTopLeftRadius: 28,
-          borderTopRightRadius: 28,
-          border: isDark ? "1px solid rgba(255, 255, 255, 0.16)" : "1px solid rgba(83, 110, 134, 0.18)"
-        }}
-      />
-
+      {/* Right Foreground 3D Plane: Real Appearance Extension Panel */}
       {APPEARANCE_SHOTS.map((shot, index) => (
         <Sequence key={shot.title} from={shotOffset(APPEARANCE_SHOTS, index)} durationInFrames={shot.duration}>
           <ProductFrame
@@ -431,15 +449,11 @@ export const AppearanceScene = () => {
             playbackRate={shot.playbackRate}
             duration={shot.duration}
             animate={false}
-            tilt={0}
-            variant="bleed"
+            tilt={-8}
             focus={index === 0 ? {direction: "in", frames: APPEARANCE_HANDOFF.enterFrames, maxBlur: APPEARANCE_HANDOFF.maxBlur} : undefined}
             style={{
-              left: 996,
-              top: 164,
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.16)" : "1px solid rgba(83, 110, 134, 0.18)"
+              left: 984,
+              top: 132
             }}
           />
         </Sequence>

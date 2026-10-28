@@ -14,14 +14,15 @@ const Cursor = ({duration}: {duration: number}) => {
       <div
         style={{
           position: "absolute",
-          left: BUTTON.x - 25,
-          top: BUTTON.y - 25,
-          width: 50,
-          height: 50,
-          border: `3px solid ${COLORS.pink}`,
+          left: BUTTON.x - 28,
+          top: BUTTON.y - 28,
+          width: 56,
+          height: 56,
+          background: "rgba(232, 93, 135, 0.24)",
+          boxShadow: "0 0 36px rgba(232, 93, 135, 0.55)",
           borderRadius: "50%",
-          opacity: interpolate(frame, [clickAt, clickAt + duration * 0.12], [0.7, 0], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}),
-          scale: interpolate(frame, [clickAt, clickAt + duration * 0.12], [0.45, 1.6], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
+          opacity: interpolate(frame, [clickAt, clickAt + duration * 0.12], [0.85, 0], {extrapolateLeft: "clamp", extrapolateRight: "clamp"}),
+          scale: interpolate(frame, [clickAt, clickAt + duration * 0.12], [0.45, 1.65], {extrapolateLeft: "clamp", extrapolateRight: "clamp"})
         }}
       />
       <svg
@@ -32,7 +33,7 @@ const Cursor = ({duration}: {duration: number}) => {
           top: 0,
           width: 30,
           height: 38,
-          filter: "drop-shadow(0 3px 5px rgba(36, 52, 71, 0.35))",
+          filter: "drop-shadow(0 4px 8px rgba(17, 24, 39, 0.35))",
           opacity: interpolate(frame, [POSTER_FRAMES, POSTER_FRAMES + 4, clickAt + duration * 0.05, clickAt + duration * 0.13], [0, 1, 1, 0], {
             extrapolateLeft: "clamp",
             extrapolateRight: "clamp"
@@ -82,7 +83,8 @@ const ReaderPanel = ({duration}: {duration: number}) => {
           top: 0,
           width: PANEL.width,
           height: 1080,
-          background: "#F4F8FC",
+          background: "#FBFBFD",
+          boxShadow: "-36px 0 96px -20px rgba(17, 24, 39, 0.24)",
           opacity: bgOpacity
         }}
       />
@@ -123,7 +125,7 @@ const HeroMessage = ({duration}: {duration: number}) => {
   return (
     <EditorialHeaderBand
       title="在 B 站，读视频"
-      titleSize={78}
+      titleSize={64}
       delay={isPoster ? -20 : revealAt}
       showBrand
       opacity={bandOpacity}
@@ -149,9 +151,9 @@ const ToolbarEntryCallout = ({duration}: {duration: number}) => {
         top: BUTTON.y - 22,
         width: 88,
         height: 44,
-        borderRadius: 12,
-        border: `2px solid ${COLORS.pink}`,
-        boxShadow: "0 0 0 4px rgba(232, 93, 135, 0.14)",
+        borderRadius: 999,
+        background: "rgba(232, 93, 135, 0.14)",
+        boxShadow: "0 0 28px 4px rgba(232, 93, 135, 0.32), 0 0 0 1px rgba(232, 93, 135, 0.38)",
         pointerEvents: "none",
         opacity
       }}

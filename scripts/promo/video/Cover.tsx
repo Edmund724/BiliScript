@@ -1,13 +1,100 @@
 import {AbsoluteFill} from "remotion";
-import {Backdrop, Brand, COLORS, FONT_FAMILY, PANEL_CROPS, ProductFrame} from "./design";
+import {Backdrop, Brand, BRAND_FONT_FAMILY, COLORS, ELEVATION, FONT_FAMILY, PANEL_CROPS, ProductFrame} from "./design";
 
 export const Cover = () => (
-  <AbsoluteFill style={{fontFamily: FONT_FAMILY}}>
+  <AbsoluteFill style={{fontFamily: FONT_FAMILY, perspective: 1600}}>
     <Backdrop />
-    <Brand size={112} iconSize={76} style={{position: "absolute", left: 160, top: 302}} />
-    <div style={{position: "absolute", left: 166, top: 484, width: 720, color: COLORS.foreground, fontSize: 42, lineHeight: 1.34, letterSpacing: -1.2}}>
+    <Brand size={88} iconSize={68} style={{position: "absolute", left: 108, top: 136}} />
+    <div
+      style={{
+        position: "absolute",
+        left: 112,
+        top: 274,
+        width: 680,
+        color: COLORS.foreground,
+        fontSize: 64,
+        fontWeight: 600,
+        lineHeight: 1.16,
+        letterSpacing: -2.2
+      }}
+    >
       在 B 站，读视频。
     </div>
-    <ProductFrame crop={PANEL_CROPS.overview} width={560} animate={false} style={{left: 1180, top: 48}} />
+    <div
+      style={{
+        position: "absolute",
+        left: 114,
+        top: 374,
+        width: 620,
+        color: COLORS.muted,
+        fontSize: 25,
+        lineHeight: 1.5,
+        letterSpacing: -0.3
+      }}
+    >
+      字幕检索 · 章节金句 · 视频追问 · 14 个 AI 平台预设
+    </div>
+
+    <div
+      style={{
+        position: "absolute",
+        left: 112,
+        top: 492,
+        width: 790,
+        padding: "36px 42px",
+        borderRadius: 32,
+        background: "rgba(255, 255, 255, 0.96)",
+        boxShadow: ELEVATION.heroFloat,
+        transform: "perspective(1600px) rotateX(4deg) rotateY(-8deg)"
+      }}
+    >
+      <div style={{display: "flex", alignItems: "center", gap: 16, marginBottom: 20}}>
+        <span
+          style={{
+            background: COLORS.pink,
+            color: "#FFFFFF",
+            fontFamily: BRAND_FONT_FAMILY,
+            fontSize: 20,
+            fontWeight: 600,
+            padding: "5px 16px",
+            borderRadius: 999
+          }}
+        >
+          02:32
+        </span>
+        <span style={{fontSize: 30, fontWeight: 600, color: COLORS.foreground, letterSpacing: -0.7}}>
+          AI 并非越强越好，适配才是关键
+        </span>
+      </div>
+      <div style={{fontSize: 31, fontWeight: 600, lineHeight: 1.42, letterSpacing: -0.7, color: COLORS.inkSoft, marginBottom: 24}}>
+        “人与 AI 的关系是<span style={{color: COLORS.pink}}>「协作」</span>，而非<span style={{color: COLORS.pink}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingTop: 18,
+          borderTop: "1px solid rgba(17, 24, 39, 0.06)",
+          color: COLORS.muted,
+          fontSize: 20
+        }}
+      >
+        <span>复旦大学 · 赵斌教授公开课</span>
+        <span
+          style={{
+            color: COLORS.blue,
+            fontWeight: 600,
+            background: "rgba(38, 121, 184, 0.08)",
+            padding: "6px 16px",
+            borderRadius: 999
+          }}
+        >
+          04:07 – 05:15 ↗
+        </span>
+      </div>
+    </div>
+
+    <ProductFrame crop={PANEL_CROPS.overview} width={580} animate={false} tilt={-8} style={{left: 1156, top: 48}} />
   </AbsoluteFill>
 );

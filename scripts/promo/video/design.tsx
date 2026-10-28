@@ -13,9 +13,11 @@ import {
 import panelCrops from "../generated/panel-crops.json";
 
 export const COLORS = {
-  background: "#FBFAFC",
-  foreground: "#243447",
-  muted: "#697D90",
+  background: "#FBFBFD",
+  foreground: "#111827",
+  inkSoft: "#1D2939",
+  muted: "#667085",
+  subtle: "#98A2B3",
   pink: "#E85D87",
   blue: "#2679B8"
 };
@@ -31,13 +33,24 @@ export const PANEL_CROPS = {
   appearance: panelCrops.appearance
 } satisfies Record<string, Crop>;
 
+export const ELEVATION = {
+  heroFloat:
+    "-28px 44px 110px -24px rgba(17, 24, 39, 0.20), 0 12px 32px -12px rgba(232, 93, 135, 0.12), 0 0 0 1px rgba(232, 93, 135, 0.16)",
+  recessed:
+    "0 40px 90px -32px rgba(17, 24, 39, 0.12), 0 0 0 1px rgba(17, 24, 39, 0.04)",
+  videoPlane:
+    "0 48px 100px -28px rgba(17, 24, 39, 0.24), 0 0 0 1px rgba(17, 24, 39, 0.06), 0 0 64px rgba(232, 93, 135, 0.18)",
+  cardSoft:
+    "0 28px 72px -26px rgba(17, 24, 39, 0.16), 0 8px 20px -10px rgba(17, 24, 39, 0.05), 0 0 0 1px rgba(17, 24, 39, 0.04)"
+};
+
 export const Backdrop = () => (
   <AbsoluteFill
     style={{
       background: [
-        "radial-gradient(ellipse 70% 75% at 8% 10%, rgba(232, 93, 135, 0.08) 0%, rgba(232, 93, 135, 0) 72%)",
-        "radial-gradient(ellipse 75% 85% at 92% 88%, rgba(119, 157, 190, 0.10) 0%, rgba(119, 157, 190, 0) 74%)",
-        "linear-gradient(145deg, #FBFAFC 0%, #F8F8FB 56%, #F5F7FB 100%)"
+        "radial-gradient(ellipse 55% 60% at 22% 45%, rgba(232, 93, 135, 0.06) 0%, rgba(232, 93, 135, 0) 70%)",
+        "radial-gradient(ellipse 60% 65% at 78% 50%, rgba(38, 121, 184, 0.07) 0%, rgba(38, 121, 184, 0) 72%)",
+        "linear-gradient(160deg, #FBFBFD 0%, #F4F5F8 100%)"
       ].join(", "),
       fontFamily: FONT_FAMILY
     }}
@@ -66,17 +79,105 @@ export const Reveal = ({children, delay = 0, distance = 16, style = {}}: {
   );
 };
 
-export const Brand = ({style = {}, size = 26, iconSize = 38}: {style?: CSSProperties; size?: number; iconSize?: number}) => (
+export const Brand = ({style = {}, size = 26, iconSize = 36}: {style?: CSSProperties; size?: number; iconSize?: number}) => (
   <div style={{display: "flex", alignItems: "center", gap: Math.max(14, size * 0.18), ...style}}>
-    <Img src={staticFile("media/logo.svg")} style={{width: iconSize, height: iconSize, borderRadius: iconSize * 0.24}} />
-    <div style={{color: COLORS.foreground, fontFamily: BRAND_FONT_FAMILY, fontSize: size, fontWeight: 500, letterSpacing: -size * 0.045}}>
+    <Img src={staticFile("media/logo.svg")} style={{width: iconSize, height: iconSize, borderRadius: iconSize * 0.25}} />
+    <div style={{color: COLORS.inkSoft, fontFamily: BRAND_FONT_FAMILY, fontSize: size, fontWeight: 600, letterSpacing: -size * 0.025}}>
       BiliScript
     </div>
   </div>
 );
 
+export const BrandWhisper = ({style = {}, opacity = 1}: {style?: CSSProperties; opacity?: number}) => (
+  <div
+    style={{
+      position: "absolute",
+      left: 96,
+      top: 58,
+      display: "flex",
+      alignItems: "center",
+      gap: 14,
+      opacity,
+      zIndex: 30,
+      pointerEvents: "none",
+      ...style
+    }}
+  >
+    <Img src={staticFile("media/logo.svg")} style={{width: 36, height: 36, borderRadius: 9}} />
+    <span
+      style={{
+        fontFamily: BRAND_FONT_FAMILY,
+        fontSize: 26,
+        fontWeight: 600,
+        color: COLORS.inkSoft,
+        letterSpacing: -0.6
+      }}
+    >
+      BiliScript
+    </span>
+  </div>
+);
+
+export const VoiceWaveBar = ({
+  timestamp,
+  quote,
+  active = true,
+  style = {}
+}: {
+  timestamp: string;
+  quote: string;
+  active?: boolean;
+  style?: CSSProperties;
+}) => {
+  const frame = useCurrentFrame();
+  const baseHeights = [9, 17, 12, 19, 14, 10];
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 22,
+        top: 22,
+        padding: "10px 22px",
+        borderRadius: 999,
+        background: "rgba(15, 23, 42, 0.74)",
+        backdropFilter: "blur(16px)",
+        boxShadow: "0 12px 32px -12px rgba(15, 23, 42, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.12)",
+        color: "#FFFFFF",
+        fontSize: 19,
+        fontWeight: 500,
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        pointerEvents: "none",
+        ...style
+      }}
+    >
+      <div style={{display: "flex", alignItems: "center", gap: 3.5, height: 20}}>
+        {baseHeights.map((base, idx) => {
+          const wave = active ? 0.55 + 0.45 * Math.abs(Math.sin(frame * 0.45 + idx * 1.15)) : 0.4;
+          return (
+            <span
+              key={idx}
+              style={{
+                display: "inline-block",
+                width: 3.5,
+                height: Math.max(5, Math.round(base * wave)),
+                borderRadius: 99,
+                background: COLORS.pink
+              }}
+            />
+          );
+        })}
+      </div>
+      <span style={{letterSpacing: -0.2}}>
+        <strong style={{fontFamily: BRAND_FONT_FAMILY, fontWeight: 600, marginRight: 6}}>{timestamp}</strong>· {quote}
+      </span>
+    </div>
+  );
+};
+
 export const SPRING_LAYOUT = {damping: 15, stiffness: 115, mass: 0.85};
-export const microPerspective = (tilt = 6) => `perspective(2200px) rotateY(${tilt}deg)`;
+export const microPerspective = (tilt = 6) => `perspective(1600px) rotateX(${tilt < 0 ? 4 : 3}deg) rotateY(${tilt}deg)`;
 export const MICRO_PERSPECTIVE = microPerspective(6);
 
 const ENTRANCE_FRAMES = 8;
@@ -118,20 +219,34 @@ export const SpringLayout = ({children, delay = 0, direction = 1, axis = "x", di
   );
 };
 
-export const SceneTitle = ({title, style = {}, align = "left", size = 76, delay = 0}: {
+export const SceneTitle = ({title, subtitle, style = {}, align = "left", size = 68, delay = 0}: {
   title: string;
+  subtitle?: string;
   style?: CSSProperties;
   align?: "left" | "center";
   size?: number;
   delay?: number;
 }) => {
   const frame = useCurrentFrame();
+  const lines = title.split("\n");
+  const subStart = delay + lines.length * 3 + 2;
   return (
-    <div style={{position: "absolute", textAlign: align, color: COLORS.foreground, fontSize: size, lineHeight: 1.22, fontWeight: 550, letterSpacing: -2, ...style}}>
-      {title.split("\n").map((line, index) => {
+    <div
+      style={{
+        position: "absolute",
+        textAlign: align,
+        color: COLORS.foreground,
+        fontSize: size,
+        lineHeight: 1.16,
+        fontWeight: 600,
+        letterSpacing: -2.4,
+        ...style
+      }}
+    >
+      {lines.map((line, index) => {
         const start = delay + index * 3;
         return (
-          <div key={`${index}-${line}`} style={{overflow: "hidden"}}>
+          <div key={`${index}-${line}`} style={{overflow: "hidden", paddingBottom: 4}}>
             <div
               style={{
                 opacity: entranceOpacity(frame, start, 0),
@@ -148,6 +263,26 @@ export const SceneTitle = ({title, style = {}, align = "left", size = 76, delay 
           </div>
         );
       })}
+      {subtitle ? (
+        <div
+          style={{
+            marginTop: 18,
+            fontSize: 25,
+            fontWeight: 400,
+            lineHeight: 1.5,
+            letterSpacing: -0.3,
+            color: COLORS.muted,
+            opacity: entranceOpacity(frame, subStart, 0),
+            translate: interpolate(frame, [subStart, subStart + 14], ["0px 12px", "0px 0px"], {
+              extrapolateLeft: "clamp",
+              extrapolateRight: "clamp",
+              easing: Easing.bezier(0.16, 1, 0.3, 1)
+            })
+          }}
+        >
+          {subtitle}
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -171,9 +306,8 @@ export const SceneShell = ({children, duration, final = false, fadeOut = true}: 
 
 export const EditorialHeaderBand = ({
   title,
-  titleSize = 78,
+  titleSize = 64,
   delay = 0,
-  kicker,
   showBrand = false,
   opacity = 1
 }: {
@@ -187,48 +321,22 @@ export const EditorialHeaderBand = ({
   <div
     style={{
       position: "absolute",
-      left: 0,
-      top: 0,
-      width: 1180,
-      height: 156,
-      background: "rgba(251, 250, 252, 0.98)",
-      borderRight: "1px solid rgba(83, 110, 134, 0.16)",
-      borderBottom: "1px solid rgba(83, 110, 134, 0.16)",
-      borderBottomRightRadius: 28,
-      boxShadow: "0 16px 40px -24px rgba(36, 52, 71, 0.14)",
+      left: 72,
+      top: 40,
+      padding: "22px 42px",
+      borderRadius: 999,
+      background: "rgba(251, 251, 253, 0.86)",
+      backdropFilter: "blur(24px)",
+      boxShadow: "0 28px 68px -24px rgba(17, 24, 39, 0.14), 0 0 0 1px rgba(17, 24, 39, 0.04)",
       display: "flex",
       alignItems: "center",
-      paddingLeft: 104,
-      paddingRight: 48,
       gap: 28,
       opacity,
       transform: "translateZ(80px)",
       zIndex: 10
     }}
   >
-    {showBrand ? (
-      <div style={{display: "flex", alignItems: "center", gap: 24, flexShrink: 0}}>
-        <Brand size={30} iconSize={40} />
-        <div style={{width: 1, height: 42, background: "rgba(83, 110, 134, 0.22)"}} />
-      </div>
-    ) : kicker ? (
-      <div
-        style={{
-          padding: "8px 18px",
-          borderRadius: 999,
-          background: "rgba(232, 93, 135, 0.10)",
-          border: "1px solid rgba(232, 93, 135, 0.26)",
-          color: COLORS.pink,
-          fontSize: 22,
-          fontWeight: 600,
-          letterSpacing: -0.4,
-          whiteSpace: "nowrap",
-          flexShrink: 0
-        }}
-      >
-        {kicker}
-      </div>
-    ) : null}
+    {showBrand ? <Brand size={30} iconSize={40} /> : null}
     <SceneTitle
       title={title}
       size={titleSize}
@@ -286,13 +394,12 @@ export const ProductFrame = ({
         position: "absolute",
         width,
         height: crop.height * cropScale,
-        borderRadius: isBleed ? 0 : 28,
+        borderRadius: isBleed ? 28 : 32,
         overflow: "hidden",
         background: "#FFFFFF",
-        border: isBleed ? "none" : "1px solid rgba(83, 110, 134, 0.16)",
         boxShadow: isBleed
-          ? "0 32px 80px -28px rgba(15, 23, 42, 0.36)"
-          : "0 28px 70px -30px rgba(43, 70, 93, 0.28), 0 4px 18px rgba(43, 70, 93, 0.05)",
+          ? "0 44px 100px -28px rgba(17, 24, 39, 0.24), 0 0 0 1px rgba(17, 24, 39, 0.05)"
+          : "-28px 44px 104px -26px rgba(17, 24, 39, 0.20), 0 12px 32px -12px rgba(17, 24, 39, 0.06), 0 0 0 1px rgba(17, 24, 39, 0.05)",
         opacity: 1,
         transform: tilt === 0 ? undefined : microPerspective(tilt),
         scale: animate

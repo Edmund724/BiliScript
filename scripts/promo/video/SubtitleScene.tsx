@@ -1,4 +1,4 @@
-import {Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame, useVideoConfig} from "remotion";
+import {Easing, OffthreadVideo, Sequence, interpolate, staticFile, useCurrentFrame} from "remotion";
 import {
   SUBTITLE_ANCHORS,
   SUBTITLE_DURATION,
@@ -7,7 +7,7 @@ import {
   SUBTITLE_SECOND_SHOT_SOURCE_FRAME,
   subtitleCameraAtFrame
 } from "../subtitle-timeline.mjs";
-import {COLORS, EditorialHeaderBand, microPerspective} from "./design";
+import {COLORS, EditorialHeaderBand, VoiceWaveBar, microPerspective} from "./design";
 
 const SOURCE = "subtitle-seek-03.mp4";
 
@@ -78,13 +78,13 @@ const Keyword = () => {
 
 const TimestampMatchCallout = () => {
   const frame = useCurrentFrame();
-  if (frame < 40 || frame > 72) return null;
+  if (frame < 55 || frame > 68) return null;
   const anchor = frame < SUBTITLE_MATCH_FRAME ? SUBTITLE_ANCHORS.before.center : SUBTITLE_ANCHORS.after.center;
-  const ringOpacity = interpolate(frame, [42, 48, 61, 68], [0, 0.9, 1, 0], {
+  const ringOpacity = interpolate(frame, [55, 58, 63, 68], [0, 0.92, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
-  const rippleScale = interpolate(frame, [59, 67], [0.75, 1.55], {
+  const rippleScale = interpolate(frame, [59, 67], [0.85, 1.45], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
@@ -92,17 +92,16 @@ const TimestampMatchCallout = () => {
     <div
       style={{
         position: "absolute",
-        left: anchor.x - 44,
-        top: anchor.y - 16,
-        width: 240,
-        height: 34,
-        borderRadius: 10,
-        border: `2px solid ${COLORS.pink}`,
-        background: "rgba(232, 93, 135, 0.10)",
-        boxShadow: "0 10px 24px -10px rgba(232, 93, 135, 0.45)",
+        left: anchor.x - 32,
+        top: anchor.y - 15,
+        width: 64,
+        height: 30,
+        borderRadius: 999,
+        background: "rgba(232, 93, 135, 0.16)",
+        boxShadow: "0 12px 28px -6px rgba(232, 93, 135, 0.45), 0 0 0 1.5px rgba(232, 93, 135, 0.38)",
         opacity: ringOpacity,
         scale: frame >= 59 ? rippleScale : 1,
-        transformOrigin: "18% 50%",
+        transformOrigin: "50% 50%",
         pointerEvents: "none"
       }}
     />
@@ -111,10 +110,11 @@ const TimestampMatchCallout = () => {
 
 const PlayerFeedback = ({duration}: {duration: number}) => {
   const frame = useCurrentFrame();
-  const opacity = interpolate(frame, [72, 82, duration - 10, duration], [0, 1, 1, 0], {
+  const opacity = interpolate(frame, [64, 74, duration - 10, duration], [0, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
+  if (opacity <= 0.01) return null;
   return (
     <div
       style={{
@@ -123,34 +123,29 @@ const PlayerFeedback = ({duration}: {duration: number}) => {
         top: 171,
         width: 1272,
         height: 764,
-        borderRadius: 8,
-        boxShadow: "inset 0 0 0 3px rgba(232, 93, 135, 0.82), 0 24px 60px -28px rgba(232, 93, 135, 0.28)",
+        borderRadius: 20,
+        boxShadow: "0 48px 100px -28px rgba(17, 24, 39, 0.24), 0 0 64px rgba(232, 93, 135, 0.22), 0 0 0 1px rgba(232, 93, 135, 0.22)",
         opacity,
         pointerEvents: "none"
       }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          left: 24,
-          top: 22,
-          padding: "8px 18px",
-          borderRadius: 999,
-          background: "rgba(36, 52, 71, 0.88)",
-          border: "1px solid rgba(232, 93, 135, 0.55)",
-          color: "#FFFFFF",
-          fontSize: 18,
-          fontWeight: 600,
-          letterSpacing: -0.2,
-          display: "flex",
-          alignItems: "center",
-          gap: 10
-        }}
-      >
-        <span style={{width: 9, height: 9, borderRadius: "50%", background: COLORS.pink, display: "inline-block"}} />
-        <span>已跳播至 04:07 · 「也很难避免幻觉」</span>
-      </div>
-    </div>
+    />
+  );
+};
+
+const SubtitleVoiceOverlay = ({duration}: {duration: number}) => {
+  const frame = useCurrentFrame();
+  const opacity = interpolate(frame, [64, 74, duration - 10, duration], [0, 1, 1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp"
+  });
+  if (opacity <= 0.01) return null;
+  return (
+    <VoiceWaveBar
+      timestamp="04:07"
+      quote="“也很难避免幻觉”"
+      active={frame >= 63 && frame <= 112}
+      style={{left: 88, top: 56, opacity}}
+    />
   );
 };
 
@@ -169,7 +164,7 @@ const Camera = ({duration}: {duration: number}) => {
         position: "absolute",
         inset: 0,
         transformOrigin: "0 0",
-        transform: microPerspective(camera.tilt),
+        transform: camera.tilt === 0 ? undefined : microPerspective(camera.tilt),
         scale: camera.scale,
         translate: `${camera.x}px ${camera.y}px`
       }}
@@ -189,18 +184,18 @@ const Camera = ({duration}: {duration: number}) => {
 
 const Title = () => {
   const frame = useCurrentFrame();
-  const {fps} = useVideoConfig();
-  const opacity = interpolate(frame, [0, 4, Math.round(1.35 * fps), Math.round(1.65 * fps)], [0.38, 1, 1, 0], {
+  const opacity = interpolate(frame, [0, 4, 28, 36], [0.38, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp"
   });
   if (opacity <= 0.01) return null;
-  return <EditorialHeaderBand title="找到那句，回到那一秒。" titleSize={54} kicker="字幕检索" delay={0} opacity={opacity} />;
+  return <EditorialHeaderBand title="找到那句，回到那一秒。" titleSize={52} delay={0} opacity={opacity} />;
 };
 
 export const SubtitleScene = ({duration}: {duration: number}) => (
   <div style={{position: "absolute", inset: 0, overflow: "hidden", background: COLORS.background}}>
     <Camera duration={duration} />
+    <SubtitleVoiceOverlay duration={duration} />
     <Title />
   </div>
 );

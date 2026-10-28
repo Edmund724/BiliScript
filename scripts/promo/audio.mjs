@@ -1,6 +1,13 @@
 import {OUTRO_TIMELINE} from "./outro-timeline.mjs";
 import {SUBTITLE_MATCH_FRAME} from "./subtitle-timeline.mjs";
-import {CHAT_TIMESTAMP_CLICK_FRAME, PANEL_FOCUS_HANDOFFS, PROMO_DURATION, PROVIDER_TIMELINE, SCENES} from "./timeline.mjs";
+import {
+  CHAT_PLAYER_VERIFY_FROM,
+  CHAT_TIMESTAMP_CLICK_FRAME,
+  PANEL_FOCUS_HANDOFFS,
+  PROMO_DURATION,
+  PROVIDER_TIMELINE,
+  SCENES
+} from "./timeline.mjs";
 
 const SUBTITLE_FROM = SCENES.find((scene) => scene.id === "subtitle").from;
 const CHAT_FROM = SCENES.find((scene) => scene.id === "chat").from;
@@ -52,6 +59,10 @@ export const AUDIO = {
     })),
     {id: "brand-resolve", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.brandResolveAt, src: "media/sfx/resolve.wav", gain: 0.52, duckDb: 6},
     {id: "install-click", frame: OUTRO_TIMELINE.from + OUTRO_TIMELINE.installClickAt, src: "media/sfx/click.wav", gain: 0.5, duckDb: 4}
+  ],
+  voices: [
+    {id: "voice-0407", frame: SUBTITLE_FROM + SUBTITLE_MATCH_FRAME + 2, src: "media/sfx/voice-0407.wav", gain: 0.48, duckDb: 6.5, durationFrames: 48},
+    {id: "voice-0444", frame: CHAT_FROM + CHAT_PLAYER_VERIFY_FROM, src: "media/sfx/voice-0444.wav", gain: 0.48, duckDb: 6.5, durationFrames: 40}
   ]
 };
 
@@ -60,10 +71,18 @@ export function musicVolumeAtFrame(frame) {
   const fadeIn = Math.min(1, Math.max(0, frame / fadeInFrames));
   const fadeOut = Math.min(1, Math.max(0, (fadeOutEndFrame - frame) / fadeOutFrames));
   let duck = 1;
-  for (const cue of AUDIO.cues) {
+  for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
     const local = frame - cue.frame;
-    if (local < -2 || local > 16) continue;
-    const envelope = local < 0 ? (local + 2) / 2 : local <= 8 ? 1 : (16 - local) / 8;
+    const holdEnd = cue.durationFrames && cue.durationFrames > 16 ? cue.durationFrames - 4 : 8;
+    const releaseFrames = cue.durationFrames && cue.durationFrames > 16 ? 10 : 8;
+    const preFrames = cue.durationFrames && cue.durationFrames > 16 ? 3 : 2;
+    if (local < -preFrames || local > holdEnd + releaseFrames) continue;
+    const envelope =
+      local < 0
+        ? (local + preFrames) / preFrames
+        : local <= holdEnd
+          ? 1
+          : (holdEnd + releaseFrames - local) / releaseFrames;
     duck = Math.min(duck, 1 - envelope * (1 - 10 ** (-cue.duckDb / 20)));
   }
   return gain * fadeIn * fadeOut * duck;

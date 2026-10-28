@@ -33,7 +33,7 @@ const Scene = ({id, duration}: {id: string; duration: number}) => {
 const Soundtrack = () => (
   <>
     <Audio src={staticFile(AUDIO.music.src)} volume={musicVolumeAtFrame} />
-    {AUDIO.cues.map((cue) => (
+    {[...AUDIO.cues, ...AUDIO.voices].map((cue) => (
       <Sequence key={cue.id} from={cue.frame} durationInFrames={PROMO_DURATION - cue.frame}>
         <Audio src={staticFile(cue.src)} volume={cue.gain} />
       </Sequence>

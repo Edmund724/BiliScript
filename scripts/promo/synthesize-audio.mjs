@@ -1,5 +1,5 @@
 import path from "node:path";
-import {mkdir, writeFile} from "node:fs/promises";
+import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {REPO_ROOT} from "../browser-harness/harness.mjs";
 import {PROMO_DIR} from "./lib.mjs";
 import {AUDIO, musicVolumeAtFrame} from "./audio.mjs";
@@ -293,6 +293,40 @@ function wav(track) {
   return output;
 }
 
+function decodePcm16Wav(buf) {
+  if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
+    throw new Error("无效 WAV 文件");
+  }
+  let formatOffset = -1;
+  let dataOffset = -1;
+  let dataSize = 0;
+  for (let offset = 12; offset + 8 <= buf.length;) {
+    const size = buf.readUInt32LE(offset + 4);
+    const id = buf.toString("ascii", offset, offset + 4);
+    if (id === "fmt ") formatOffset = offset + 8;
+    if (id === "data") {
+      dataOffset = offset + 8;
+      dataSize = size;
+      break;
+    }
+    offset += 8 + size + (size % 2);
+  }
+  if (formatOffset < 0 || dataOffset < 0) throw new Error("WAV 缺少 fmt/data 块");
+  const channels = buf.readUInt16LE(formatOffset + 2);
+  const frames = Math.floor(Math.min(dataSize, buf.length - dataOffset) / (channels * 2));
+  const left = new Float32Array(frames);
+  const right = new Float32Array(frames);
+  for (let i = 0; i < frames; i += 1) {
+    const l = buf.readInt16LE(dataOffset + i * channels * 2) / 32768;
+    const r = channels > 1 ? buf.readInt16LE(dataOffset + (i * channels + 1) * 2) / 32768 : l;
+    left[i] = l;
+    right[i] = r;
+  }
+  let peak = 0;
+  for (let i = 0; i < frames; i += 1) peak = Math.max(peak, Math.abs(left[i]), Math.abs(right[i]));
+  return {track: [left, right], frames, peak};
+}
+
 await mkdir(path.join(OUTPUT_DIR, "sfx"), {recursive: true});
 
 const effects = {
@@ -321,10 +355,40 @@ await writeFile(whooshFile, wav(whoosh));
 sfxBySrc.set("media/sfx/whoosh.wav", whoosh);
 sfxEvidence.push({name: "whoosh", source: "code-original", license: "MIT License", file: path.relative(REPO_ROOT, whooshFile), durationInSeconds: 0.5, peak: whooshLevel.peak});
 
+const voiceExcerpts = [
+  {name: "voice-0407", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0407.wav"), excerpt: "04:07 也很难避免幻觉"},
+  {name: "voice-0444", sourceFile: path.join(REPO_ROOT, "scripts", "promo", "assets", "voice", "voice-0444.wav"), excerpt: "04:44 这里有一个研究"}
+];
+for (const item of voiceExcerpts) {
+  const rawWav = await readFile(item.sourceFile);
+  const decoded = decodePcm16Wav(rawWav);
+  const fadeSamples = Math.round(0.02 * SAMPLE_RATE);
+  for (let ch = 0; ch < 2; ch += 1) {
+    for (let i = 0; i < decoded.frames; i += 1) {
+      const fadeIn = Math.min(1, i / fadeSamples);
+      const fadeOut = Math.min(1, (decoded.frames - 1 - i) / fadeSamples);
+      decoded.track[ch][i] *= fadeIn * fadeOut;
+    }
+  }
+  const voiceLevel = normalize(decoded.track, 0.58);
+  const outPath = path.join(OUTPUT_DIR, "sfx", `${item.name}.wav`);
+  await writeFile(outPath, wav(decoded.track));
+  sfxBySrc.set(`media/sfx/${item.name}.wav`, decoded.track);
+  sfxEvidence.push({
+    name: item.name,
+    source: "bilibili-BV1mAam6tEL8-excerpt",
+    excerpt: item.excerpt,
+    license: "Fair-use demonstration excerpt from BV1mAam6tEL8",
+    file: path.relative(REPO_ROOT, outPath),
+    durationInSeconds: Number((decoded.frames / SAMPLE_RATE).toFixed(3)),
+    peak: Number(voiceLevel.peak.toFixed(3))
+  });
+}
+
 const score = makeScore();
 const scoreLevel = normalize(score, 0.96);
 const sfxStem = buffer(DURATION);
-for (const cue of AUDIO.cues) {
+for (const cue of [...AUDIO.cues, ...AUDIO.voices]) {
   const sfxTrack = sfxBySrc.get(cue.src);
   if (!sfxTrack) continue;
   const startSample = Math.round((cue.frame / PROMO_FPS) * SAMPLE_RATE);
@@ -335,7 +399,7 @@ for (const cue of AUDIO.cues) {
   }
 }
 const samplesPerFrame = SAMPLE_RATE / PROMO_FPS;
-const ceiling = 0.78;
+const ceiling = 0.72;
 const fullMix = buffer(DURATION);
 for (let i = 0; i < score[0].length; i += 1) {
   const frame = Math.min(PROMO_DURATION - 1, Math.floor(i / samplesPerFrame));
@@ -345,11 +409,11 @@ for (let i = 0; i < score[0].length; i += 1) {
       fullMix[ch][i] = Math.tanh(sfxStem[ch][i] / ceiling) * ceiling;
       continue;
     }
-    const scaledScore = score[ch][i] * 1.31;
+    const scaledScore = score[ch][i] * 1.32;
     const rawCombined = scaledScore * vol + sfxStem[ch][i];
     const limitedCombined = Math.tanh(rawCombined / ceiling) * ceiling;
     score[ch][i] = Math.max(-0.98, Math.min(0.98, (limitedCombined - sfxStem[ch][i]) / vol));
-    fullMix[ch][i] = score[ch][i] * vol + sfxStem[ch][i];
+    fullMix[ch][i] = limitedCombined;
   }
 }
 await writeFile(path.join(OUTPUT_DIR, "promo-score.wav"), wav(score));
