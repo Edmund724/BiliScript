@@ -20,7 +20,7 @@ const APPEARANCE_HANDOFF = PANEL_FOCUS_HANDOFFS.find((handoff) => handoff.to ===
 
 const PROVIDER_BUBBLE_CUES = PROVIDER_LOGOS.map((logo, index) => ({
   id: `provider-bubble-${logo.id}`,
-  frame: Math.round(PROVIDERS_FROM + PROVIDER_TIMELINE.wallAt + index * PROVIDER_TIMELINE.cardStagger),
+  frame: Math.round(PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt + index * PROVIDER_TIMELINE.logoStagger),
   src: `media/sfx/bubble-${String(index + 1).padStart(2, "0")}.wav`,
   gain: Number((0.44 + (index / 13) * 0.1).toFixed(2)),
   duckDb: 2.2
@@ -65,11 +65,10 @@ export const AUDIO = {
     {id: `${APPEARANCE_HANDOFF.to}-focus`, frame: APPEARANCE_HANDOFF.at + APPEARANCE_HANDOFF.enterFrames, src: "media/sfx/whoosh.wav", gain: 0.40, duckDb: 4},
     {id: "dark-mode", frame: APPEARANCE_FROM + 21, src: "media/sfx/toggle.wav", gain: 0.56, duckDb: 4.5},
     {id: "editorial-palette", frame: APPEARANCE_FROM + 57, src: "media/sfx/shutter-2.wav", gain: 0.54, duckDb: 4.2},
-    {id: "provider-expand", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.expandAt, src: "media/sfx/click.wav", gain: 0.48, duckDb: 4},
-    {id: "provider-count", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.countAt, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 4},
-    {id: "provider-wall", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.wallAt, src: "media/sfx/chord.wav", gain: 0.42, duckDb: 4.2},
+    {id: "provider-plate", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.plateAt, src: "media/sfx/pop.wav", gain: 0.48, duckDb: 4},
+    {id: "provider-orbit", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.orbitAt, src: "media/sfx/chord.wav", gain: 0.42, duckDb: 4.2},
     ...PROVIDER_BUBBLE_CUES,
-    {id: "provider-collapse", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.collapseAt, src: "media/sfx/snap.wav", gain: 0.52, duckDb: 4},
+    {id: "provider-exit", frame: PROVIDERS_FROM + PROVIDER_TIMELINE.exitAt, src: "media/sfx/snap.wav", gain: 0.52, duckDb: 4},
     {id: "outro-cut", frame: OUTRO_TIMELINE.from, src: "media/sfx/whoosh.wav", gain: 0.38, duckDb: 4},
     ...OUTRO_TIMELINE.features.map((feature, index) => ({
       id: feature.id,

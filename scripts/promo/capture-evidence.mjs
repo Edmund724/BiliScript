@@ -61,8 +61,8 @@ const mobileShots = [
   {id: "quote", at: 9.5},
   {id: "chat-verify", at: 15.1},
   {id: "appearance", at: 18.0},
-  {id: "provider-count", at: providerSeconds(PROVIDER_TIMELINE.countAt + 6)},
-  {id: "provider-wall", at: providerSeconds(PROVIDER_TIMELINE.wallAt + 56)},
+  {id: "provider-plate", at: providerSeconds(PROVIDER_TIMELINE.plateAt + 6)},
+  {id: "provider-orbit", at: providerSeconds(PROVIDER_TIMELINE.orbitAt + 56)},
   {id: "features", at: outroSeconds(OUTRO_TIMELINE.features.at(-1).at) + 0.5},
   {id: "cta", at: outroSeconds(OUTRO_TIMELINE.finalHoldAt) + 0.2}
 ];
