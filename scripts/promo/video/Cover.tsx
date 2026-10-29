@@ -10,7 +10,7 @@ export const Cover = () => (
         position: "absolute",
         left: 112,
         top: 274,
-        width: 680,
+        width: 860,
         color: COLORS.foreground,
         fontSize: 64,
         fontWeight: 600,
@@ -18,7 +18,7 @@ export const Cover = () => (
         letterSpacing: -2.2
       }}
     >
-      在 B 站，读视频。
+      在 B 站，读下一条视频。
     </div>
     <div
       style={{
@@ -60,14 +60,14 @@ export const Cover = () => (
             borderRadius: 999
           }}
         >
-          02:32
+          06:36
         </span>
         <span style={{fontSize: 30, fontWeight: 600, color: COLORS.foreground, letterSpacing: -0.7}}>
           AI 并非越强越好，适配才是关键
         </span>
       </div>
-      <div style={{fontSize: 31, fontWeight: 600, lineHeight: 1.42, letterSpacing: -0.7, color: COLORS.inkSoft, marginBottom: 24}}>
-        “人与 AI 的关系是<span style={{color: COLORS.pink}}>「协作」</span>，而非<span style={{color: COLORS.pink}}>「替代」</span>。哪怕投喂 100% 准确的数据，依然难以彻底消除幻觉。”
+      <div style={{fontSize: 29, fontWeight: 600, lineHeight: 1.46, letterSpacing: -0.6, color: COLORS.inkSoft, marginBottom: 24}}>
+        “只有<span style={{color: COLORS.pink}}>相互之间接得上</span>、能够在很大程度上对齐的才是最好的，不一定是最强的。”
       </div>
       <div
         style={{
@@ -80,7 +80,7 @@ export const Cover = () => (
           fontSize: 20
         }}
       >
-        <span>复旦大学 · 赵斌教授公开课</span>
+        <span>复旦赵斌 ·《AI 并非越强越好，适配才是关键》</span>
         <span
           style={{
             color: COLORS.blue,
@@ -90,7 +90,7 @@ export const Cover = () => (
             borderRadius: 999
           }}
         >
-          04:07 – 05:15 ↗
+          48:16 公开课 ↗
         </span>
       </div>
     </div>
