@@ -34,7 +34,7 @@ export const PANEL_FOCUS_HANDOFFS = [
 
 export const CHAT_TIMESTAMP_CLICK_FRAME = 84;
 export const CHAT_PLAYER_VERIFY_FROM = 114;
-export const CHAT_PLAYER_VERIFY_TO = 144;
+export const CHAT_PLAYER_VERIFY_TO = 154;
 
 export const CHAT_SHOTS = [
   { startFrom: 0, duration: 54, playbackRate: 1.5 },
